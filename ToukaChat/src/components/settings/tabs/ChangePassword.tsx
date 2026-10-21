@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { authService } from "@/lib/api/authService";
 import { useAuth } from "@/contexts/AuthContext";
-import { logSSOTError } from "@/lib/error_handler";
+import { getResponseErrorCode, logSSOTError } from "@/lib/error_handler";
 import { useDirtyGuard } from "@/components/settings/SettingsDirtyContext";
 
 /** 回傳違規規則的 i18n 後綴（errors.*），合格回 null。後端僅強制 min_length=8，其餘為前端強度 UX。 */
@@ -51,7 +51,8 @@ export function ChangePassword() {
         try {
             const res = await authService.changePassword(current, next);
             if (!res.ok) {
-                setError(res.status === 401
+                // 目前密碼打錯是 403 AUTH_REAUTH_FAILED（401 會被 fetchTouka 續期重送、再驗一次）
+                setError(await getResponseErrorCode(res) === "AUTH_REAUTH_FAILED"
                     ? t("settings.change_password.errors.current_incorrect")
                     : t("settings.change_password.errors.generic"));
                 return;

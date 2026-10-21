@@ -369,7 +369,7 @@ async def clear_my_data(
     """
     verify_origin(http_request)
     if not auth_service.verify_password(req.current_password, current_user.hashed_password):
-        raise ToukaException(ErrorCode.AUTH_INVALID_CREDENTIALS)
+        raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
 
     # 1) Owned-project settings: delete rows + un-link sessions; keep physical folders.
     cleared_projects = await session_service.clear_projects_owned_by(current_user.id)
@@ -428,7 +428,7 @@ async def export_my_data(
     """
     verify_origin(http_request)
     if not auth_service.verify_password(req.current_password, current_user.hashed_password):
-        raise ToukaException(ErrorCode.AUTH_INVALID_CREDENTIALS)
+        raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
     enc_path = await create_encrypted_export(current_user, req.passphrase)
     logger.warning("AUDIT: user %s exported personal data (GDPR, encrypted)", current_user.id)
     epoch = int(get_current_epoch())

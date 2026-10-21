@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import { SoulStudio } from '../SoulStudio';
 import React from 'react';
 import { ERRORS } from '@/lib/error_codes';
+import i18n from '@/lib/i18n';
 import { toast } from 'sonner';
 
 // C4（soul-crud repair）：SoulStudio 詳情頁編輯模式＋刪除鈕＋admin 密碼確認 modal。
@@ -122,6 +123,25 @@ describe('SoulStudio — edit/delete with admin step-up', () => {
     fireEvent.click(screen.getByRole('button', { name: /確認刪除|confirm delete/i }));
 
     await waitFor(() => expect(error).toHaveBeenCalledWith(expect.stringMatching(/還有記憶.*重置/)));
+    expect(screen.getByRole('heading', { name: /MySoul/i })).toBeInTheDocument();
+  });
+
+  it('隔離家目錄清不掉時刪除被擋：照錯誤碼顯示原因（i18n），靈魂留在畫面上', async () => {
+    const error = vi.spyOn(toast, 'error');
+    mockFetchTouka.mockImplementation((proxy: string, path: string, opts?: RequestInit) =>
+      opts?.method === 'DELETE'
+        ? Promise.resolve(Response.json(
+          { detail: { code: 'SOUL_SANDBOX_HOME_NOT_CLEARED', id: ERRORS.SOUL_SANDBOX_HOME_NOT_CLEARED.id } },
+          { status: 503 },
+        ))
+        : baseImpl(proxy, path, opts));
+    await renderDetail();
+    fireEvent.click(screen.getByTitle('刪除靈魂'));
+    fireEvent.change(await screen.findByPlaceholderText(/管理員密碼|admin password/i), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: /確認刪除|confirm delete/i }));
+
+    await waitFor(() => expect(error).toHaveBeenCalledWith(i18n.t('error.soul.sandbox_home_not_cleared')));
+    expect(i18n.t('error.soul.sandbox_home_not_cleared')).toMatch(/執行器.*沒有刪除/);
     expect(screen.getByRole('heading', { name: /MySoul/i })).toBeInTheDocument();
   });
 

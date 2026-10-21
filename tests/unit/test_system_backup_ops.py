@@ -65,14 +65,14 @@ _SYMLINK_OK = _symlink_supported()
 
 # ── restore password gate ───────────────────────────────────────────────────
 
-def test_restore_wrong_password_401():
+def test_restore_wrong_password_403():
     user = AuthService().create_user("restore_wrong@touka.io", "correct_pw_123", role="admin")
     app.dependency_overrides[get_current_user] = lambda: user
     c = TestClient(app, raise_server_exceptions=False)
     resp = c.post("/system/restore/run", json={"filename": "x.zip", "current_password": "WRONG"})
     _clear()
-    assert resp.status_code == 401, resp.text
-    assert resp.json()["detail"]["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert resp.status_code == 403, resp.text  # 不是 401：前端遇 401 會續期重送、再驗一次密碼
+    assert resp.json()["detail"]["code"] == "AUTH_REAUTH_FAILED"
 
 
 def test_restore_non_admin_403():

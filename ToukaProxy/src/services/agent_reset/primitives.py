@@ -315,4 +315,5 @@ RETAINED_STORES: tuple[tuple[str, str], ...] = (
     ("decisions.csv", "權限決策審計帳本（跨 agent 共用）；刻意保留"),
     ("outputs/uploads", "聊天上傳檔（使用者資產、非 agent 產出）；reset 保留（ADR-0175）"),
     (FACTS_BACKUP_DIR_NAME, "記憶庫升級備份（所有靈魂共用一個檔）；重置不清除"),
+    ("sandbox_home", "隔離環境裡的家目錄與暫存（終端指令的 ~）；刪除靈魂時才清"),
 )

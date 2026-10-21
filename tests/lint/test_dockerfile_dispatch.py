@@ -8,11 +8,17 @@ root-context 的 ToukaProxy/Dockerfile 以 COPY . .（禁令 47）烤入整個 r
 """
 
 import re
+import shutil
 from pathlib import Path
+
+import pytest
+from src.services import execution_broker
 
 ROOT = Path(__file__).resolve().parents[2]
 PROXY_DOCKERFILE = ROOT / "ToukaProxy" / "Dockerfile"
 ROOT_DOCKERIGNORE = ROOT / ".dockerignore"
+FIRST_RUN_ADMIN_FILE = "ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt"  # 一次性密碼檔
+GIT = shutil.which("git")
 
 
 def _dockerignore_lines() -> list[str]:
@@ -90,11 +96,25 @@ class TestImageSecretBlacklist:
             "README_HANDOVER.md",
             "SNS.md",
             "溝通協調.md",
-            "ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt",
+            FIRST_RUN_ADMIN_FILE,
         ):
             assert required in lines, (
                 f"根 .dockerignore 必須排除私人/內部檔 `{required}`（映像即將公開散布）"
             )
+
+    def test_initial_admin_password_file_is_gitignored(self):
+        """一次性密碼檔也不得進版控：首裝寫在 config，`git add .` 會把初始密碼收進 commit."""
+        if not GIT:
+            pytest.skip("Git unavailable")
+        result = execution_broker.run_sync(
+            [GIT, "-C", str(ROOT), "check-ignore", "--no-index", "-q", FIRST_RUN_ADMIN_FILE],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            f".gitignore 必須忽略 `{FIRST_RUN_ADMIN_FILE}`（exit {result.returncode}）"
+        )
 
     def test_dockerignore_is_not_gitignored(self):
         """根 .dockerignore 必須入版控——被 gitignore 的話 fresh clone build 會把密鑰打包進映像。"""

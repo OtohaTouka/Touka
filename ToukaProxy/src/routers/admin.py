@@ -206,7 +206,7 @@ async def reset_agent(
     if not auth_service.verify_password(payload.current_password, current_user.hashed_password):
         if scrub:
             _scrub_rejected(actor, target, "bad_password")
-        raise ToukaException(ErrorCode.AUTH_INVALID_CREDENTIALS)
+        raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
     logger.warning(
         "⚠️ AUDIT: agent-reset requested actor=%r target=%r scrub=%s（備份優先）",
         actor.agent_id,

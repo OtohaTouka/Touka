@@ -109,8 +109,8 @@ def test_clear_my_data_wrong_password():
     c = TestClient(app, raise_server_exceptions=False)
     resp = c.post("/auth/clear-my-data", json={"current_password": "WRONG"})
     _clear()
-    assert resp.status_code == 401, f"got {resp.status_code}"
-    assert resp.json()["detail"]["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert resp.status_code == 403, f"got {resp.status_code}"  # 401 會被前端續期重送
+    assert resp.json()["detail"]["code"] == "AUTH_REAUTH_FAILED"
 
 
 def test_clear_my_data_happy_path(monkeypatch, tmp_path):

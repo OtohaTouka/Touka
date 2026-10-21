@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from src.core.exceptions import ToukaException
+from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.routers import system as sysrouter
@@ -262,8 +262,9 @@ async def test_import_apply_requires_password(cfg, monkeypatch):
     auth = Mock()
     auth.verify_password.return_value = False
     req = SettingsImportRequest(snapshot=snap, dry_run=False, current_password="wrong")
-    with pytest.raises(ToukaException):
+    with pytest.raises(ToukaException) as exc:
         await sysrouter.import_settings(req, None, _admin(), auth)
+    assert (exc.value.code, exc.value.status_code) == (ErrorCode.AUTH_REAUTH_FAILED, 403)
 
 
 async def test_import_dry_run_skips_password_and_backup(cfg, monkeypatch):

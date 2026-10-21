@@ -2,6 +2,11 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 刪除靈魂清隔離家目錄、密碼重輸錯誤碼（2026-10-21）
+
+- `DELETE /v1/souls/{soul_id}`：記憶與活動檢查之後、刪任何東西之前，清這個 ID 在隔離暫存區的 HOME／TMP（proxy 的 `ST/proxy/agents/<id>`；預期是執行器時另經既有 START 清 `<state_root>/agents/<id>/{home,tmp}`，ADR-0272 限制 26 補記）。清不掉回 503 `SOUL_SANDBOX_HOME_NOT_CLEARED`（1418），什麼都不刪，不帶原因與路徑。
+- 已登入者重輸密碼打錯一律 403 `AUTH_REAUTH_FAILED`（1111），比照靈魂步升：重置（含清除連備份）、還原、設定匯入、`/auth/clear-my-data`、`/auth/export-my-data`、`/auth/change-password`。原本的 401 會讓 `fetchTouka` 續期重送，同一次點擊驗兩次密碼；`AUTH_INVALID_CREDENTIALS`（401）只留給登入。
+
 ## 對話歸屬、UI 換綁與 SNS（ADR-0276）
 
 - 心跳、排程執行、SNS、工具及一般 append/upsert/conditional 保存都不能跨靈魂換綁；角色特權不能代替精確歸屬。儲存層在 session 鎖＋IMMEDIATE 交易內讀最新列、驗 scope／revision 後寫入，缺席與失敗分開。
@@ -248,7 +253,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 
 - `POST /v1/admin/agents/{target}/reset`（根路徑對等）：
   - 請求 `AgentResetRequest`：`confirm`、`confirm_agent_id`、`current_password`，新增 `scrub_backups: StrictBool = false`、`scrub_acknowledged: StrictBool = false`；`extra="forbid"`（多送或打錯欄位 422）。**預設不勾選時，重置仍保留備份裡的記憶**。
-  - 檢查順序：Origin → 字面確認 → 勾選時 `require_admin_human`（代打 403，不驗密碼）與第二段確認（422 `MEMORY_SCRUB_NOT_ACKNOWLEDGED`，1410）→ 還原進行中（409 `SYSTEM_RESTORE_IN_PROGRESS`，1414，勾不勾都擋）→ 密碼（401）→ 重置。重置或清除進行中 409 `AGENT_RESET_IN_PROGRESS`（1415，取代原本寫死中文的 422）。勾選時協調器再確認一次人類 admin；預檢在工作執行緒讀事實庫：記憶系統不能用 503 `MEMORY_SCRUB_UNAVAILABLE`（1412），撞名 409 `MEMORY_SCRUB_COLLECTION_SHARED`（1411，`detail.collides_with`）；這些都在備份與重置之前，什麼都不刪。
+  - 檢查順序：Origin → 字面確認 → 勾選時 `require_admin_human`（代打 403，不驗密碼）與第二段確認（422 `MEMORY_SCRUB_NOT_ACKNOWLEDGED`，1410）→ 還原進行中（409 `SYSTEM_RESTORE_IN_PROGRESS`，1414，勾不勾都擋）→ 密碼（403 `AUTH_REAUTH_FAILED`）→ 重置。重置或清除進行中 409 `AGENT_RESET_IN_PROGRESS`（1415，取代原本寫死中文的 422）。勾選時協調器再確認一次人類 admin；預檢在工作執行緒讀事實庫：記憶系統不能用 503 `MEMORY_SCRUB_UNAVAILABLE`（1412），撞名 409 `MEMORY_SCRUB_COLLECTION_SHARED`（1411，`detail.collides_with`）；這些都在備份與重置之前，什麼都不刪。
   - 回應 `AgentResetResponse`：`agent_id`、`backup`（`BackupResult`：`status`、`message`、`filename`）、`clean`、`stores`、`retained`、`scrub`（`MemoryScrubReport | null`）。清除有跑時 `retained` 不再列升級備份。
   - `MemoryScrubReport`：`requested`、`ran`、`complete`、`reason`、`categories`（`leftovers`、`live`、`upgrade_backups`、`snapshots`，各 `done`／`failed`／`not_started`）、`items`（`kind`、`name`（只有檔名）、`status`、`reason`、`facts_removed`、`collection_removed`、`members_dropped`、`count`）、`own_snapshot`、`memory_remaining`（`null` 表示重查失敗）、`leftovers_removed`。`complete` 與 `reason` 的規則見 ADR-0270 決策 8（重置清掉的記憶大於 0 時，重置前做的那份快照要真的清掉東西，否則 `own_snapshot_unverified`）。29 個原因代碼。
   - 清除開始後任何意外都回 200 加 `complete=false` 的報告；每一種結局都寫一行稽核（`AUDIT: memory-scrub rejected …` 或 `AUDIT: memory-scrub result …`，不帶內容與路徑、檔名 repr）。

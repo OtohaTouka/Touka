@@ -32,7 +32,7 @@ ADR-0104 的 reset 原語以 `agent_id` 參數化（可複用），但其 guard 
 ### D4 — 自助端點與防護
 `POST /v1/auth/clear-my-data`（`Depends(get_current_user)` 自助、身分取自 JWT → 無 IDOR）。防護：
 - `verify_origin`（CSRF，對齊 terminal/restore）
-- **密碼重輸**（`AuthService.verify_password`；stolen access token 單獨擋不住——DA25 pattern）→ 錯誤回 `AUTH_INVALID_CREDENTIALS`
+- **密碼重輸**（`AuthService.verify_password`；stolen access token 單獨擋不住——DA25 pattern）→ 錯誤回 `AUTH_INVALID_CREDENTIALS`（補記 2026-10-21：改為 403 `AUTH_REAUTH_FAILED`，401 會被前端續期重送；見 PROXY_INTERFACE「密碼重輸錯誤碼」）
 - 前端兩步確認（危險區紅框 + 密碼對話框）
 - **不做全系統備份**（刪除範圍輕：profile/頭像/專案設定列，實體與對話皆保留，全備份不成比例）
 - 成功**不強制登出**；回傳透明報告 `{cleared, retained}`；稽核 `logger.warning` 一行（保留）。
