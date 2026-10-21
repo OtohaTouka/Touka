@@ -1,0 +1,10 @@
+# iso-c2：在 Owner 的 Docker 跑 `pytest -m isolation_linux` 的測試執行映像（測試資產，不出貨）。
+# 基底是用 ToukaProxy/Dockerfile 建出的 touka-iso-test-proxy:c2（已有完整的執行期依賴）；
+# 這裡只補 pytest 與它的依賴，版本必須和 uv.lock 相同（tests/unit/test_isolation_docker_assets.py 核對）。
+# build context 只用 tests/docker（不需要 repo 根的檔案）；執行時 --network none、程式碼唯讀掛載。
+FROM touka-iso-test-proxy:c2
+USER root
+RUN uv pip install --python /app/.venv/bin/python --no-deps \
+    pytest==9.1.1 pytest-asyncio==1.4.0 pytest-randomly==4.1.0 \
+    iniconfig==2.3.0 pluggy==1.6.0 pygments==2.20.0 packaging==26.2 typing-extensions==4.15.0
+USER appuser

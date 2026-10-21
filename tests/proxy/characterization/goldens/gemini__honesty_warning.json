@@ -1,0 +1,9 @@
+[
+ "data: {\"id\": \"chatcmpl-req-gg-honesty_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"根據過去的記憶系統內容，你上次說喜歡紅茶。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-honesty_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⚠️ **[誠實度警報]** 妳提到了過去或檔案內容，但並未實際查閱工具。請先以 `memory_tools`（action=query）查記憶、或以 `read`/`grep` 等檔案工具核對檔案後再正式回答，不要憑空編造。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-honesty_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000014, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"我查證後再回答：您喜歡紅茶。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 14, \"cost\": 1.3e-05, \"usage_pct\": 0.0}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-honesty_warning\", \"total_ms\": 14000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 0.0}}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-honesty_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000014, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"stop\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-honesty_warning\", \"total_ms\": 14000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 0.0}}\n\n",
+ "data: [DONE]\n\n"
+]

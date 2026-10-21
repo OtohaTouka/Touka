@@ -1,0 +1,121 @@
+{
+  "version": "1.0.0",
+  "policies": {
+    "critical_blacklist": [
+      "rm\\s+-rf\\s+/",
+      "^format ",
+      "^mkfs",
+      "^dd\\s+",
+      "^shutdown",
+      "^reboot",
+      "^halt",
+      "^docker-compose\\s+(up|restart|stop|down)\\s*$",
+      "^docker-compose\\s+(up|restart|stop|down)\\s+(?!.*(touka-proxy|touka-ui))",
+      "drop\\s+table",
+      "truncate\\s+table",
+      "sudo\\s+",
+      "^kill\\s+-9"
+    ]
+  },
+  "tool_risk": {
+    "default": "dangerous",
+    "tools": {
+      "research": "read_only",
+      "read": "read_only",
+      "list": "read_only",
+      "find": "read_only",
+      "grep": "read_only",
+      "get_command_result": "read_only",
+      "ask_user": "read_only",
+      "search_skill_market": "read_only",
+      "write": "safe",
+      "edit": "safe",
+      "insert": "safe",
+      "undo": "safe",
+      "stop_command": "safe",
+      "ide_open_diff": "safe",
+      "delete": "dangerous",
+      "bash": "dangerous",
+      "execute_command": "dangerous",
+      "send_message": "dangerous",
+      "dispatch_subagent": "dangerous",
+      "dispatch_subagent_group": "dangerous",
+      "edit_soul": "dangerous",
+      "update_my_soul": "dangerous",
+      "sns_control": "dangerous",
+      "connect_mcp_server": "dangerous",
+      "activate_skill": "dangerous",
+      "request_skill_install": "dangerous",
+      "create_skill": "dangerous",
+      "create_mcp": "dangerous",
+      "scaffold_mcp": "dangerous",
+      "propose_new_capability": "dangerous",
+      "write_mcp_implementation": "dangerous",
+      "verify_mcp_locally": "dangerous",
+      "request_mcp_creation": "dangerous",
+      "evolution_define": "dangerous",
+      "evolution_implement_and_verify": "dangerous",
+      "memory_tools": {
+        "action_param": "action",
+        "actions": {
+          "query": "read_only",
+          "random": "read_only",
+          "diagnostics": "read_only",
+          "conversations": "read_only",
+          "save": "safe",
+          "reindex": "safe",
+          "forget": "dangerous",
+          "manage_dups": "dangerous"
+        }
+      },
+      "vault_tools": {
+        "action_param": "action",
+        "actions": {
+          "read": "read_only",
+          "list": "read_only",
+          "find": "read_only",
+          "grep": "read_only",
+          "write": "safe",
+          "append": "safe",
+          "str_replace": "safe",
+          "delete": "dangerous"
+        }
+      },
+      "project_tools": {
+        "action_param": "action",
+        "actions": {
+          "read": "read_only",
+          "list": "read_only",
+          "find": "read_only",
+          "grep": "read_only",
+          "write": "safe",
+          "append": "safe",
+          "str_replace": "safe",
+          "delete": "dangerous"
+        }
+      },
+      "mission_tools": {
+        "action_param": "action",
+        "actions": {
+          "get_board": "read_only",
+          "get": "read_only",
+          "await_dispatch_result": "read_only",
+          "initialize": "safe",
+          "init": "safe",
+          "update_status": "safe",
+          "update": "safe",
+          "finalize": "safe",
+          "request_review": "safe"
+        }
+      },
+      "agent_control": {
+        "action_param": "action",
+        "actions": {
+          "list_brains": "read_only",
+          "get_status": "read_only",
+          "switch_brain": "dangerous"
+        }
+      }
+    }
+  }
+}

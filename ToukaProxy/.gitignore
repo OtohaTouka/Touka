@@ -1,0 +1,53 @@
+# API Keys and sensitive environment variables
+.env*
+!.env.example
+
+# Docker
+# （ADR-0082：.dockerignore 改於 repo 根、且必須入版控——安全黑名單）
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python build/cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data and Persistence (The "Soul" and "Context")
+# These contain your private conversations and history.
+# Ignore everything in these folders except .gitkeep
+data/*
+!data/.gitkeep
+backups/*
+!backups/.gitkeep
+*.db
+*.log
+full_payload.log
+anthropic_request.log
+anthropic_response.log
+anthropic_debug.log
+gemini_cache_map.json
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local Configurations (SSOT Purity)
+config/*.json
+!config/*.example
+!config/models_blacklist.json
+!config/auth_policies.json
+!config/skills.json
+!config/permissions.json
+
+# 執行期寫進 config/、不是 JSON 的檔：首裝管理員密碼（src/config.py）、代理人建立的 MCP 伺服器
+config/INITIAL_ADMIN_PASSWORD.txt
+config/mcp_servers/

@@ -1,0 +1,128 @@
+# iso-c2 C2-2：執行器的真 compose 形狀端到端（測試資產，不出貨；tests/ 不在映像裡）。
+#
+# 用法（專案名稱一律 touka-iso-*；跑完 down 不帶 -v）：
+#   docker compose -p touka-iso-u2e -f tests/docker/isolation.compose.yml up \
+#     --abort-on-container-exit --exit-code-from iso-client
+#   docker compose -p touka-iso-u2e -f tests/docker/isolation.compose.yml run --rm iso-landlock
+#   docker compose -p touka-iso-u2e -f tests/docker/isolation.compose.yml down
+# 變數：
+#   TOUKA_ISO_IMAGE  用 ToukaProxy/Dockerfile 建的映像（預設 touka-iso-test-proxy:c2；CI 是
+#                    ghcr.io/ci/touka-proxy:ci）
+#   TOUKA_ISO_DATA   假資料根（必填；先建好 personal_drive、mcp_servers、skills 三個空資料夾，
+#                    uid 1001 要寫得進去。CI 是 $RUNNER_TEMP/compose/data）
+#   TOUKA_ISO_REPO   repo 根（預設本檔往上兩層），唯讀掛進檢查用的容器，只用它的 tests/；
+#                    受測的 src 一律是映像裡的那份
+# iso-exec 和正式的 touka-executor 相同（tests/unit/test_executor_e2e_assets.py 逐鍵比對），只有
+# 映像、資料來源、volume 與網路名稱、restart 不同。兩個網路都是 internal（不連網）。
+
+services:
+  iso-exec:
+    image: ${TOUKA_ISO_IMAGE:-touka-iso-test-proxy:c2}
+    pull_policy: never
+    command: ["python", "-m", "src.services.isolation.executor_server",
+              "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
+              "--state-dir", "/app/executor_state",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+    user: "1001:1001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${TOUKA_EXECUTOR_MEM_LIMIT:-2g}
+    pids_limit: ${TOUKA_EXECUTOR_PIDS_LIMIT:-512}
+    cpus: ${TOUKA_EXECUTOR_CPUS:-2}
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/personal_drive:/app/data/personal_drive
+      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/mcp_servers:/app/data/mcp_servers
+      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/skills:/app/ToukaProxy/config/skills:ro
+      - ipc:/app/ipc/executor
+      - exec-state:/app/executor_state
+    networks:
+      - exec
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", 'test -S /app/ipc/executor/ctl.sock && test -n "$$(find /app/ipc/executor/alive -mmin -1)"']
+      interval: 5s
+      start_period: 70s
+
+  # proxy 的形狀：uid 1001、和執行器共用 ipc 與資料，用映像裡真的 monitor、broker、relay
+  iso-client:
+    image: ${TOUKA_ISO_IMAGE:-touka-iso-test-proxy:c2}
+    pull_policy: never
+    command: ["python", "-B", "/iso/tests/docker/sandboxed.py", "tests.docker.executor_check",
+              "--data", "/app/data", "--ipc", "/app/ipc/executor", "--kernel", "/opt/touka-sandbox",
+              "--config", "/app/ToukaProxy/config", "--internal", "iso-internal", "--port", "18080"]
+    user: "1001:1001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - PYTHONPATH=/iso:/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
+    volumes:
+      - ${TOUKA_ISO_REPO:-../..}:/iso:ro
+      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}:/app/data
+      - ipc:/app/ipc/executor
+    networks:
+      - touka
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    depends_on:
+      iso-exec:
+        condition: service_healthy
+      iso-internal:
+        condition: service_started
+    restart: "no"
+
+  # Touka 內部服務的替身：只接 touka 網路（執行器用名稱或 IP 都不該連得到）
+  iso-internal:
+    image: ${TOUKA_ISO_IMAGE:-touka-iso-test-proxy:c2}
+    pull_policy: never
+    command: ["python", "-m", "http.server", "18080", "--bind", "0.0.0.0", "--directory", "/tmp"]
+    user: "1001:1001"
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      - touka
+    restart: "no"
+
+  # proxy 本機的 Landlock（沒有執行器、沒有網路、關 Fast Open）：monitor 要判 landlock
+  iso-landlock:
+    profiles: ["landlock"]
+    image: ${TOUKA_ISO_IMAGE:-touka-iso-test-proxy:c2}
+    pull_policy: never
+    command: ["python", "-B", "/iso/tests/docker/sandboxed.py", "tests.docker.landlock_proxy_check",
+              "--kernel", "/opt/touka-sandbox"]
+    user: "1001:1001"
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777,exec"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - PYTHONPATH=/iso:/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
+    volumes:
+      - ${TOUKA_ISO_REPO:-../..}:/iso:ro
+    network_mode: none
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: "no"
+
+networks:
+  exec:
+    internal: true
+  touka:
+    internal: true
+
+volumes:
+  ipc:
+  exec-state:

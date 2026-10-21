@@ -1,0 +1,288 @@
+"""記憶評估多輪 driver。
+
+每輪照前端的樣子送：UI 形狀的請求（帶 session、目前分支的歷史＋這一輪），身分是合成
+人類擁有者（Monitor 依前景規則代打成合成靈魂），session 的模式是 Auto（審查員模型沒設，
+dangerous 直接拒、不觸發審查呼叫）。送出點 ``send_turn`` 可注入：pytest 用假串流，人工
+probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assistant 寫回沙盒對話樹，
+下一輪的歷史與 ``<continuity>`` 都從那裡來。任何一輪送出失敗（含 429／5xx、預算用完）
+整批停下，不重試。
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from memory_server.tools import get_manager
+from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
+from src.models.context import PipelineContext
+from src.services.proxy_service import process_proxy_request
+from src.utils.async_db import session_service
+from src.utils.history_manager import TreeMessageManager
+from src.utils.time_utils import get_current_epoch
+from src.utils.tool_events import TOOL_RESULT, TOOL_START
+
+from tests.memory_eval import seeding
+from tests.memory_eval.judges import ToolCallRecord, TurnObservation, judge
+from tests.memory_eval.live_bounds import redact_excerpt
+from tests.memory_eval.scenarios import SOUL_ID
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
+
+    from src.models.identity import AgentIdentity
+
+    from tests.memory_eval.judges import Verdict
+    from tests.memory_eval.scenarios import Scenario
+
+    SendTurn = Callable[[Any, PipelineContext], Awaitable[list[str]]]
+    SaveFact = Callable[[AgentIdentity, str], Awaitable[Any]]
+
+EVAL_AUTH_LEVEL = "Auto"
+# handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）。
+PROVIDER_ERROR_MARKERS = (
+    "API Error (", "API 發生錯誤", "連線錯誤", "Access Denied", "Dispatcher Error", "Missing `",
+)
+NO_REPLY = "no assistant text and no tool call"
+BUDGET_REACHED = "budget soft cap reached"
+
+
+def _tool_status(wire_status: str, error_class: str | None) -> str:
+    if wire_status == "success":
+        return "ok"
+    return "denied" if error_class == "permission_denied" else "error"
+
+
+def _payloads(chunks: Iterable[str]) -> Iterator[dict[str, Any]]:
+    for chunk in chunks:
+        for raw_line in str(chunk).splitlines():
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[len("data:"):].strip()
+            if not body or body == "[DONE]":
+                continue
+            try:
+                data = json.loads(body)
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                yield data
+
+
+def parse_sse(chunks: Iterable[str]) -> TurnObservation:
+    """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。"""
+    texts: list[str] = []
+    pending: dict[str, tuple[str, dict[str, Any]]] = {}
+    calls: list[ToolCallRecord] = []
+    cost = 0.0
+    stream_error = ""
+    for data in _payloads(chunks):
+        kind = data.get("type")
+        if kind is None and data.get("error"):  # dispatcher 串流中途出錯的事件
+            stream_error = str(data["error"])
+        elif kind == "touka_progress" and data.get("kind") == "token_usage":
+            cost += float(data.get("cost") or 0.0)
+        elif kind == TOOL_START:
+            pending[str(data.get("id", ""))] = (str(data.get("tool", "")), data.get("args") or {})
+        elif kind == TOOL_RESULT:
+            name, args = pending.pop(str(data.get("id", "")), (str(data.get("tool", "")), {}))
+            status = _tool_status(str(data.get("status", "")), data.get("error_class"))
+            calls.append(ToolCallRecord(name=name, args=args, status=status))
+        elif kind == "content_block_delta":
+            texts.append((data.get("delta") or {}).get("text") or "")
+        elif isinstance(data.get("choices"), list) and data["choices"]:
+            texts.append(((data["choices"][0] or {}).get("delta") or {}).get("content") or "")
+    text = "".join(texts).strip()
+    error = stream_error or next((m for m in PROVIDER_ERROR_MARKERS if m in text), "")
+    if not error and not text and not calls:
+        error = NO_REPLY
+    return TurnObservation(text=text, tool_calls=tuple(calls),
+                           error=error and f"{error} {text}"[:300], cost_usd=cost)
+
+
+async def pipeline_send_turn(request: Any, ctx: PipelineContext) -> list[str]:
+    """真 pipeline：和前端聊天同一條路（Monitor→Context→…→Tool→dispatcher）。"""
+    response = await process_proxy_request(request, ctx, is_anthropic=False)
+    body_iterator = getattr(response, "body_iterator", None)
+    if body_iterator is None:
+        body = getattr(response, "body", b"")
+        return [body.decode("utf-8") if isinstance(body, bytes) else str(body)]
+    return [c.decode("utf-8") if isinstance(c, bytes) else str(c) async for c in body_iterator]
+
+
+async def memory_save_fact(identity: AgentIdentity, content: str) -> str:
+    """植入事實走產品的存記憶路徑（消毒、查重、向量索引都照常）。"""
+    return await get_manager().save_memory(identity, content)
+
+
+@dataclass(frozen=True, slots=True)
+class TurnResult:
+    user: str
+    observation: TurnObservation
+    verdicts: tuple[Verdict, ...]
+
+    @property
+    def passed(self) -> bool:
+        return not self.observation.error and all(v.passed for v in self.verdicts)
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioResult:
+    scenario_id: str
+    turns: tuple[TurnResult, ...]
+    planned_turns: int
+
+    @property
+    def error(self) -> str:
+        return next((t.observation.error for t in self.turns if t.observation.error), "")
+
+    @property
+    def passed(self) -> bool:
+        return len(self.turns) == self.planned_turns and all(t.passed for t in self.turns)
+
+    def to_dict(self) -> dict[str, Any]:
+        """報告：模型回的文字、錯誤與判定細節都先去敏再截 200 字（使用者句是合成資料）。"""
+        return {
+            "scenario": self.scenario_id,
+            "passed": self.passed,
+            "error": redact_excerpt(self.error),
+            "turns": [
+                {
+                    "user": t.user,
+                    "text": redact_excerpt(t.observation.text),
+                    "tools": [(c.name, c.args.get("action"), c.status)
+                              for c in t.observation.tool_calls],
+                    "verdicts": [(v.rule, v.passed, redact_excerpt(v.detail))
+                                 for v in t.verdicts],
+                }
+                for t in self.turns
+            ],
+        }
+
+
+@dataclass(slots=True)
+class BatchReport:
+    results: list[ScenarioResult] = field(default_factory=list)
+    not_run: list[str] = field(default_factory=list)
+    stopped_reason: str = ""
+    spent_usd: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": sum(r.passed for r in self.results),
+            "failed": sum(not r.passed for r in self.results),
+            "spent_usd": round(self.spent_usd, 6),
+            "stopped_reason": self.stopped_reason,
+            "not_run": list(self.not_run),
+            "results": [r.to_dict() for r in self.results],
+        }
+
+
+class MemoryEvalDriver:
+    """把情境一輪一輪送出、判定、寫回沙盒對話樹。"""
+
+    def __init__(
+        self,
+        *,
+        base_ctx: dict[str, Any],
+        send_turn: SendTurn,
+        save_fact: SaveFact,
+        max_tokens: int,
+        now_ms: Callable[[], int] | None = None,
+        auth_level: str = EVAL_AUTH_LEVEL,
+        budget_usd: float | None = None,
+    ) -> None:
+        self._base_ctx = base_ctx
+        self._send_turn = send_turn
+        self._save_fact = save_fact
+        self._max_tokens = max_tokens
+        self._now_ms = now_ms or (lambda: int(get_current_epoch() * 1000))
+        self._auth_level = auth_level
+        self._budget_usd = budget_usd
+        self.spent_usd = 0.0
+
+    def _over_budget(self) -> bool:
+        """USD 軟上限（依串流回報的估計成本累計）；請求數硬上限在送出層另擋。"""
+        return self._budget_usd is not None and self.spent_usd >= self._budget_usd
+
+    async def _save_tree(self, session_id: str, tree: dict[str, Any], **extra: Any) -> None:
+        await session_service.upsert_session(
+            session_id, "memory eval", tree, identity=seeding.soul_identity(),
+            auth_level=self._auth_level, **extra,
+        )
+
+    async def seed(self, scenario: Scenario, session_id: str) -> dict[str, Any]:
+        """植入情境資料（目前 session、家對話、前情摘要、事實），回目前 session 的樹。"""
+        plan = seeding.plan_seed(scenario, self._now_ms())
+        await self._save_tree(session_id, plan.session_tree,
+                              context_summary=plan.summary or None)
+        if plan.home_tree["currentId"]:
+            await self._save_tree(f"{session_id}-home", plan.home_tree,
+                                  is_home=True, home_for_agent=SOUL_ID)
+        for fact in plan.facts:
+            await self._save_fact(seeding.soul_identity(), fact)
+        return plan.session_tree
+
+    def _context(self) -> PipelineContext:
+        ctx = PipelineContext(**self._base_ctx)
+        ctx.identity = seeding.driver_identity()
+        ctx.incognito = False
+        return ctx
+
+    async def _send(self, request: Any) -> TurnObservation:
+        try:
+            return parse_sse(await self._send_turn(request, self._context()))
+        except Exception as exc:  # 預算用完、閘門拒絕等：記成這一輪失敗，整批停下
+            return TurnObservation(text="", error=f"{type(exc).__name__}: {exc}"[:300])
+
+    async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
+        session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
+        tree = await self.seed(scenario, session_id)
+        results: list[TurnResult] = []
+        for turn in scenario.turns:
+            if self._over_budget():
+                results.append(TurnResult(turn.user, TurnObservation("", error=BUDGET_REACHED), ()))
+                break
+            if turn.new_session:
+                session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
+                tree = seeding.new_tree()
+                await self._save_tree(session_id, tree)
+            history = [
+                OpenAIMessage(role=node["role"], content=node["content"])
+                for node in TreeMessageManager.get_linear_path(tree)
+            ]
+            request = OpenAIChatRequest(
+                model=SOUL_ID,
+                messages=[*history, OpenAIMessage(role="user", content=turn.user)],
+                session_id=session_id,
+                stream=True,
+                max_tokens=self._max_tokens,
+            )
+            observation = await self._send(request)
+            self.spent_usd += observation.cost_usd
+            verdicts = tuple(judge(check, observation) for check in turn.checks)
+            results.append(TurnResult(turn.user, observation, verdicts))
+            if observation.error:
+                break
+            now = self._now_ms()
+            seeding.append_node(tree, "user", turn.user, now)
+            seeding.append_node(tree, "assistant", observation.text, now)
+            await self._save_tree(session_id, tree)
+        return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns))
+
+    async def run_batch(self, scenarios: Iterable[Scenario]) -> BatchReport:
+        report = BatchReport()
+        for scenario in scenarios:
+            if not report.stopped_reason and self._over_budget():
+                report.stopped_reason = BUDGET_REACHED
+            if report.stopped_reason:
+                report.not_run.append(scenario.id)
+                continue
+            result = await self.run_scenario(scenario)
+            report.results.append(result)
+            report.stopped_reason = result.error
+        report.spent_usd = self.spent_usd
+        return report

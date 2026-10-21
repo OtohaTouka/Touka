@@ -1,0 +1,31 @@
+# ── 選用覆蓋檔：自架 SearXNG 隱私搜尋後端（ADR-0091 / Web Search Phase C）──────────────
+# 目的：讓 research 工具的 auto 備援鏈多一層「免金鑰、查詢不外洩」的搜尋來源。
+# 啟用步驟：
+#   1. 在 .env 設 SEARXNG_SECRET（隨機字串）與 SEARXNG_BASE_URL=http://touka-searxng:8080
+#      SEARXNG_SECRET 產生：python -c "import secrets; print(secrets.token_hex(32))"
+#   2. docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d
+# 預設不對外發布埠（僅 touka-net 內部，proxy 以容器名 http://touka-searxng:8080 存取）；
+# 若需主機瀏覽器除錯可自行加 ports: ["8080:8080"]。
+services:
+  touka-searxng:
+    image: searxng/searxng:latest
+    container_name: touka-searxng
+    environment:
+      - TZ=Asia/Taipei
+      # 必要密鑰；未設定即讓 compose 報錯（避免以預設密鑰啟動）。
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?請在 .env 設定 SEARXNG_SECRET}
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    networks:
+      - touka-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  touka-net:
+    driver: bridge

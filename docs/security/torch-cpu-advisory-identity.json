@@ -1,0 +1,58 @@
+{
+  "artifacts": [
+    {
+      "metadata_sha256": "88fb3dd280256bfb251623e7871406c7a6ca7013a4893d7c5360aa612bd3d172",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0-cp312-cp312-macosx_14_0_arm64.whl#sha256=2fe228aba290d14b9f31b049be550dbd469c3fd3013d7a19705b30454da97027\" data-dist-info-metadata=\"sha256=88fb3dd280256bfb251623e7871406c7a6ca7013a4893d7c5360aa612bd3d172\" data-core-metadata=\"sha256=88fb3dd280256bfb251623e7871406c7a6ca7013a4893d7c5360aa612bd3d172\" data-upload-time=\"2026-07-08T12:26:18Z\">torch-2.13.0-cp312-cp312-macosx_14_0_arm64.whl</a><br/>",
+      "sha256": "2fe228aba290d14b9f31b049be550dbd469c3fd3013d7a19705b30454da97027",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0-cp312-cp312-macosx_14_0_arm64.whl",
+      "version": "2.13.0"
+    },
+    {
+      "metadata_sha256": "b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-linux_s390x.whl#sha256=ffadde149901c8afa138daa38d898264003cfcf1a3336ca5cd964b5af227d867\" data-dist-info-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-core-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-upload-time=\"2026-07-08T19:28:41Z\">torch-2.13.0+cpu-cp312-cp312-linux_s390x.whl</a><br/>",
+      "sha256": "ffadde149901c8afa138daa38d898264003cfcf1a3336ca5cd964b5af227d867",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-linux_s390x.whl",
+      "version": "2.13.0+cpu"
+    },
+    {
+      "metadata_sha256": "b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl#sha256=6f307c2c32d764ffc6ff6893b801fad6d4752f3e67966cb8abf1843427c02604\" data-dist-info-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-core-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-upload-time=\"2026-07-08T19:28:51Z\">torch-2.13.0+cpu-cp312-cp312-manylinux_2_28_aarch64.whl</a><br/>",
+      "sha256": "6f307c2c32d764ffc6ff6893b801fad6d4752f3e67966cb8abf1843427c02604",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "version": "2.13.0+cpu"
+    },
+    {
+      "metadata_sha256": "b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl#sha256=4ca4a9394b0c771238a4f73590fdbbc4debad85ed0fa63d026ae1b085da7d6e2\" data-dist-info-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-core-metadata=\"sha256=b3c7f4b3f77d06f86a42aab7d0facef7b661ca3c22967bfcc396917d935dd335\" data-upload-time=\"2026-07-08T19:29:03Z\">torch-2.13.0+cpu-cp312-cp312-manylinux_2_28_x86_64.whl</a><br/>",
+      "sha256": "4ca4a9394b0c771238a4f73590fdbbc4debad85ed0fa63d026ae1b085da7d6e2",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "2.13.0+cpu"
+    },
+    {
+      "metadata_sha256": "de64cd0358a709f32a7977e4798f88fa1ac240f25194079004a68190d18c5766",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-win_amd64.whl#sha256=a8b450c1e58e5800e5b4691dac412f8d2d65a1dc3298166f91596603a3531e6f\" data-dist-info-metadata=\"sha256=de64cd0358a709f32a7977e4798f88fa1ac240f25194079004a68190d18c5766\" data-core-metadata=\"sha256=de64cd0358a709f32a7977e4798f88fa1ac240f25194079004a68190d18c5766\" data-upload-time=\"2026-07-08T19:29:15Z\">torch-2.13.0+cpu-cp312-cp312-win_amd64.whl</a><br/>",
+      "sha256": "a8b450c1e58e5800e5b4691dac412f8d2d65a1dc3298166f91596603a3531e6f",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-win_amd64.whl",
+      "version": "2.13.0+cpu"
+    },
+    {
+      "metadata_sha256": "71e869b3a6989a8c5eccbd601bd8bdf307c5219dae5a12d6192f978d3b55a4f0",
+      "official_index_entry": "<a href=\"https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-win_arm64.whl#sha256=fa0762705b933624d59f6823db9ce7ec2e35b3e1e9c319c9db51fbeecfc3e319\" data-dist-info-metadata=\"sha256=71e869b3a6989a8c5eccbd601bd8bdf307c5219dae5a12d6192f978d3b55a4f0\" data-core-metadata=\"sha256=71e869b3a6989a8c5eccbd601bd8bdf307c5219dae5a12d6192f978d3b55a4f0\" data-upload-time=\"2026-07-08T19:29:21Z\">torch-2.13.0+cpu-cp312-cp312-win_arm64.whl</a><br/>",
+      "sha256": "fa0762705b933624d59f6823db9ce7ec2e35b3e1e9c319c9db51fbeecfc3e319",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp312-cp312-win_arm64.whl",
+      "version": "2.13.0+cpu"
+    }
+  ],
+  "commit_url": "https://github.com/pytorch/pytorch/commit/cf30153c4c131c8164ee7798e5022d810682e2cb",
+  "coverage": "UPSTREAM_ADVISORY_IDENTITY",
+  "limits": "A reviewed mapping for known upstream advisories; not CPU/PyPI wheel byte equivalence, binary security qualification, or a self-authorizing approval receipt.",
+  "official_index_sha256": "064e930fdece5a702f9e6d51255f5854ed94ad84cf3058b9a40373b10d3cde74",
+  "official_index_url": "https://download.pytorch.org/whl/cpu/torch/",
+  "official_installation_reference": "https://pytorch.org/get-started/previous-versions/",
+  "package": "torch",
+  "public_version": "2.13.0",
+  "registry": "https://download.pytorch.org/whl/cpu",
+  "release_url": "https://github.com/pytorch/pytorch/releases/tag/v2.13.0",
+  "schema_version": 1,
+  "upstream_commit": "cf30153c4c131c8164ee7798e5022d810682e2cb"
+}

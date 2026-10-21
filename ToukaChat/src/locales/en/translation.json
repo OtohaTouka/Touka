@@ -1,0 +1,2278 @@
+{
+  "contextSnapshot": {
+    "description": "Preview DebugAgent's fully-assembled system prompt. The backend runs the real pipeline (stopping before the model, read-only) and parses each block by the tag SSOT — showing injection layer, source, real vs mock, token cost and cache tier. Read-only; no model call, no API cost.",
+    "refresh": "Load / Refresh",
+    "loading": "Assembling…",
+    "error": "Error",
+    "with_payload": "Also fetch the last actually-sent payload (static preview vs real)",
+    "tokens": "{{total}} / {{window}} tokens ({{pct}}% of window)",
+    "reordered_yes": "⚠ A stable block was trapped after a volatile one → reordered before send (ADR-0130).",
+    "reordered_no": "✓ Stable blocks already form the cross-turn cache prefix.",
+    "tier_stable_hint": "(cross-turn)",
+    "tier_volatile_hint": "(in-loop)",
+    "col_block": "Block",
+    "col_kind": "Kind",
+    "col_tokens": "Tokens",
+    "col_cache": "Cache",
+    "not_present": "Not in this request — format example only.",
+    "not_present_badge": "absent",
+    "copy": "Copy assembled system",
+    "export": "Export .md",
+    "last_payload_title": "Last actually-sent payload"
+  },
+  "scorecard": {
+    "description": "Run a battery of scenarios against a model; measures structural correctness and cost (incurs real API cost).",
+    "model_label": "Model",
+    "model_placeholder": "Enter or pick a model ID",
+    "budget_label": "Budget cap (USD)",
+    "run": "Run scorecard",
+    "running": "Running…",
+    "confirm_cost": "This runs a real model and incurs API cost (budget cap ~${{budget}}). Start?",
+    "progress": "Progress {{done}}/{{total}} · spent ${{spent}}",
+    "summary": "Passed {{passed}}/{{total}} · {{tokens}} tokens · ${{spent}}",
+    "col_scenario": "Scenario",
+    "col_result": "Result",
+    "col_tokens": "Tokens",
+    "col_cost": "Cost (USD)",
+    "status_pass": "Pass",
+    "status_fail": "Fail",
+    "status_skipped": "Skipped",
+    "download": "Download JSON",
+    "error": "Scorecard run failed",
+    "empty_models": "No models available — type a model ID directly",
+    "estimated_note": "~ = estimated (provider did not report usage; based on text length).",
+    "clean_slate_label": "Clean slate",
+    "clean_slate_hint": "No memory read, zero residue; observe raw-state behavior, or compare against normal mode to gauge accumulation effects (memory scenarios are skipped here).",
+    "trace_title": "Tool trace",
+    "trace_none": "(no tool called in this scenario)",
+    "react_turns": "Autonomous turns: {{n}}",
+    "finish_label": "Finish: {{reason}}",
+    "early_stopped": "Early-stopped (cap reached)",
+    "artifact_valid": "Artifact valid✓",
+    "artifact_invalid": "Artifact invalid✗",
+    "reset_title": "Reset DebugAgent",
+    "reset_hint": "Wipe all of DebugAgent's accumulated data (chats, feedback, memory, outputs, missions…) while keeping its identity and registration. ⚠️ Irreversible; a full-system backup runs automatically first, and system backups and upgrade backups still hold the old data. Only DebugAgent is touched — real agents are unaffected.",
+    "reset_button": "Reset DebugAgent data",
+    "reset_running": "Resetting…",
+    "reset_confirm": "⚠️ About to permanently wipe ALL of DebugAgent's accumulated data (irreversible). A full-system backup runs first, then the purge; system backups and upgrade backups still hold the old data. Real agents are unaffected. Proceed?",
+    "reset_success": "DebugAgent reset complete (a full-system backup was taken first).",
+    "reset_dirty": "DebugAgent reset, but some data was not fully cleared — see server logs.",
+    "reset_error": "Reset failed: {{error}}"
+  },
+  "setup": {
+    "wizard": {
+      "title": "First-Run Setup",
+      "step_progress": "Step {{current}} of {{total}}: {{title}}",
+      "optional": "(Optional)",
+      "close_aria": "Close setup wizard",
+      "back": "Back",
+      "steps": {
+        "system_health": "System & Language",
+        "admin_password": "Admin Password",
+        "api_keys": "API Keys",
+        "secrets": "Security Secrets",
+        "data_path": "Data Directory",
+        "create_user": "Create Users",
+        "complete": "Complete"
+      }
+    },
+    "common": {
+      "next": "Next",
+      "saving": "Saving…"
+    },
+    "step1": {
+      "system_status": "System Status",
+      "api_keys_label": "API Keys",
+      "none_configured": "None configured",
+      "dispatch_token_label": "Dispatch Token",
+      "dispatch_default": "Using default (insecure)",
+      "dispatch_custom": "Custom token set",
+      "auth_secret_label": "Auth Secret",
+      "auth_persisted": "Persisted",
+      "auth_not_persisted": "Not persisted (resets on restart)",
+      "embedding_model": "Embedding Model",
+      "embedding_hint": "Choose the model that best fits your primary language. CJK model (~420MB) will be downloaded on first use.",
+      "model_english": "English (all-MiniLM-L6-v2)",
+      "model_multilingual": "Multilingual / CJK (paraphrase-multilingual-MiniLM-L12-v2)",
+      "download_continue": "Download & Continue",
+      "downloading": "Downloading model… {{pct}}%",
+      "switch_warning": "Existing memories were detected (embedded with \"{{current}}\"). After switching to \"{{target}}\", they will be unsearchable until you re-embed them manually — your facts are not lost, and nothing is re-embedded automatically. Switch anyway?",
+      "confirm_switch": "Switch anyway",
+      "cancel_switch": "Cancel (keep current model)",
+      "errors": {
+        "save_failed": "Failed to save embedding model",
+        "generic": "An error occurred"
+      }
+    },
+    "step2": {
+      "description": "Your admin account was created with a temporary password. Set a strong new password now.",
+      "new_password": "New Password",
+      "confirm_password": "Confirm Password",
+      "submit": "Set Password & Continue",
+      "requirements": "Password requirements",
+      "rules": {
+        "length": "At least 8 characters",
+        "upper": "Contains an uppercase letter",
+        "lower": "Contains a lowercase letter",
+        "digit": "Contains a digit",
+        "special": "Contains a special character"
+      },
+      "errors": {
+        "too_short": "Password must be at least 8 characters",
+        "no_upper": "Password must contain at least one uppercase letter",
+        "no_lower": "Password must contain at least one lowercase letter",
+        "no_digit": "Password must contain at least one digit",
+        "no_special": "Password must contain at least one special character",
+        "mismatch": "Passwords do not match",
+        "profile_fetch_failed": "Failed to fetch admin profile",
+        "update_failed": "Update failed",
+        "generic": "An error occurred"
+      }
+    },
+    "step3": {
+      "description": "Enter at least one provider API key to start using Touka. Keys are stored in the backend .env; restart ToukaProxy after saving for them to take effect. You can also set these later in Settings → API Keys.",
+      "save_continue": "Save & Continue",
+      "continue": "Continue",
+      "skip": "Skip for Now",
+      "errors": {
+        "save_failed": "Failed to save API keys",
+        "generic": "An error occurred"
+      }
+    },
+    "step4": {
+      "auto_managed": "These two secrets (cross-service Dispatch Token and JWT signing key) are now auto-generated and persisted to .env by the system — no manual setup needed, even if you skip this wizard.",
+      "dispatch_token": "Dispatch Token",
+      "auth_secret": "Auth Secret (JWT signing)",
+      "status_ok": "Auto-generated & persisted ✓",
+      "status_pending": "Generated on first boot / login",
+      "rotate_toggle": "Advanced: rotate secrets",
+      "rotate_desc": "Only needed if a secret leaks. Rotating the Auth Secret invalidates all existing logins (re-login required).",
+      "rotate_button": "Generate new secrets & apply",
+      "rotate_success": "Rotated and written to .env.",
+      "next": "Next",
+      "errors": {
+        "save_failed": "Rotation failed",
+        "generic": "An error occurred"
+      }
+    },
+    "step5": {
+      "description": "Set where Touka stores agent data, memory, and artifacts. Leave blank to keep the current path.",
+      "default_warning": "⚠️ Currently using the developer default path — consider setting a custom path.",
+      "path_label": "Data Directory Path (SANCTUARY_DATA_PATH)",
+      "path_placeholder": "e.g. C:/ToukaSanctuary/data",
+      "workspace_label": "Workspace Root (WORKSPACE_ROOT)",
+      "workspace_placeholder": "e.g. D:/MyProjects",
+      "workspace_hint": "The agent's file tools read and write your project files here (maps to /app/workspace inside the container).",
+      "restart_note": "These are host (local machine) directory paths. After they are written to .env, run `docker compose up` for the mounts to take effect; Touka then has full read/write (CRUD) access to them.",
+      "save_continue": "Save & Continue",
+      "skip": "Skip",
+      "errors": {
+        "save_failed": "Save failed",
+        "generic": "An error occurred"
+      }
+    },
+    "step6": {
+      "description": "Create user accounts for team members. This step is optional — you can add users later in the admin panel.",
+      "email": "Email",
+      "password": "Password",
+      "create": "Create User",
+      "creating": "Creating…",
+      "created_users": "Created users:",
+      "done": "Done — Finish Setup",
+      "skip": "Skip — Finish Setup",
+      "errors": {
+        "create_failed": "Create failed",
+        "generic": "An error occurred"
+      }
+    },
+    "step7": {
+      "complete_title": "Setup Complete!",
+      "complete_subtitle": "Your Touka system is ready to use.",
+      "partial_title": "Setup Partially Complete",
+      "remaining": "Remaining items:",
+      "complete_later": "You can complete these items later from the admin settings panel.",
+      "summary": "Configuration Summary",
+      "embedding_model": "Embedding Model: {{model}}",
+      "api_keys": "API Keys: {{keys}}",
+      "none": "None",
+      "start": "Start Using Touka",
+      "issues": {
+        "dispatch_default": "Dispatch Token is still default",
+        "auth_not_persisted": "Auth Secret not persisted",
+        "no_api_keys": "No API keys configured",
+        "admin_temp_password": "Admin password not changed"
+      }
+    },
+    "banner": {
+      "setup_incomplete": "🔧 Initial setup is not complete — some security settings need your attention.",
+      "setup_now": "Setup Now",
+      "later": "Later",
+      "dismiss_aria": "Dismiss setup banner",
+      "temp_password": "⚠️ Admin password is still the temporary default — change it immediately to secure your system.",
+      "change_password": "Change Password"
+    }
+  },
+  "connections": {
+    "providers": {
+      "doc_link_label": "View setup docs ↗",
+      "direct_notice": "Direct: the browser calls the model itself, with no tools, no permission mode and no usage tracking.",
+      "proxy": {
+        "label": "Touka Proxy (root mode)",
+        "hint": "The Touka backend itself. Enter the root base URL (e.g. http://localhost:8000) to unlock advanced stats and Soul sync; protocol is usually OpenAI."
+      },
+      "openai": {
+        "label": "OpenAI / Compatible",
+        "hint": "OpenAI official or compatible endpoint. Set base URL to https://api.openai.com/v1 and use an sk- API key."
+      },
+      "ollama": {
+        "label": "Ollama (Local)",
+        "hint": "Local Ollama. Set base URL to http://localhost:11434, no API key needed; start the Ollama service and pull a model first."
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "OpenRouter aggregates many models. Set base URL to https://openrouter.ai/api/v1 and use 'vendor/model' ids (e.g. anthropic/claude-3.5-sonnet)."
+      },
+      "litellm": {
+        "label": "LiteLLM Proxy",
+        "hint": "Self-hosted LiteLLM proxy. Set base URL to your proxy address (e.g. http://localhost:4000) and use the API key configured in LiteLLM."
+      }
+    },
+    "edit": {
+      "edit_aria": "Edit connection {{name}}",
+      "editing_badge": "Editing: {{name}}",
+      "save": "Save changes",
+      "cancel": "Cancel",
+      "change_key_label": "Change API key",
+      "key_kept_hint": "Keeping current key (check above to replace)"
+    }
+  },
+  "common": {
+    "send": "Send"
+  },
+  "backup_notice": {
+    "still_there": "\"{{id}}\"'s data still remains in system snapshots (one is saved right before a reset), and its memory may also remain in the memory store's upgrade backups.",
+    "still_there_delete": "\"{{id}}\"'s data may still remain in earlier system snapshots, and its memory may also remain in the memory store's upgrade backups.",
+    "still_there_scrubbed": "Memory was cleared from backups, but \"{{id}}\"'s conversations and other data still remain in system snapshots.",
+    "summary": "Where the backups are and how to remove them for good",
+    "where_snapshots": "System snapshots: the backups folder inside the Touka folder that holds .env, named Touka_Backup_….zip or Touka_AutoBackup_….zip.",
+    "where_upgrade": "Upgrade backups: vault/core_memory_backups inside the data folder.",
+    "purge_title": "To remove them for good:",
+    "purge_scrub": "Recommended: when resetting, tick \"Also clear this soul's memory from backups\"; it clears only this soul's memory.",
+    "purge_scrub_delete": "Recommended: before deleting, reset it under \"Agent Data Reset\" and tick \"Also clear this soul's memory from backups\"; it clears only this soul's memory.",
+    "purge_snapshot": "Delete whole snapshots under Settings → System Backup; this also deletes every other soul's data in them.",
+    "purge_upgrade": "Upgrade backups are files shared by all souls and can only be deleted by hand.",
+    "no_auto_snapshot": "No snapshot is saved automatically before deleting, so there is no new snapshot to roll back to.",
+    "restore_effect": "Restoring an old snapshot brings all of \"{{id}}\"'s old data back, and rolls every soul's memory back to that point in time.",
+    "not_context_snapshot": "The \"system snapshots\" here are not the \"context snapshots\" that a reset deletes."
+  },
+  "settings": {
+    "settings": "Settings",
+    "tabs_aria": "Settings tabs",
+    "groups": {
+      "personal": "Personal",
+      "models": "Models & Providers",
+      "capabilities": "Agent Capabilities",
+      "conversation": "Conversation",
+      "system": "Administration"
+    },
+    "search": {
+      "placeholder": "Search settings…",
+      "no_results": "No matching settings",
+      "in_tab": "in {{tab}}",
+      "results_aria": "Search results",
+      "entries": {
+        "profile": "Profile",
+        "password": "Change Password",
+        "clear_data": "Clear My Data",
+        "export_data": "Export My Data (GDPR)",
+        "theme_mode": "Theme Mode (Light/Dark)",
+        "accent": "Accent Color",
+        "font_size": "Font Size",
+        "model_toggle": "Model On/Off & Visibility",
+        "model_health": "Model Health Test",
+        "provider_keys": "Provider API Keys",
+        "connections": "Connections",
+        "tools": "Tools",
+        "mcp": "MCP Servers",
+        "skills": "Skills",
+        "group_whitelist": "Group Chat Whitelist/Aliases",
+        "sliding_window": "Sliding Window (Context)",
+        "sns_bots": "SNS Bots (Discord/Telegram)",
+        "rbac": "Permission Matrix (RBAC)",
+        "identity_map": "Identity Mapping",
+        "autonomy": "Autonomy Budget",
+        "users": "User Management",
+        "agent_reset": "Agent Data Reset",
+        "backup": "System Backup/Restore",
+        "backup_schedule": "Auto Backup Schedule",
+        "config_snapshot": "Config Import/Export (Snapshot)"
+      }
+    },
+    "unsaved": {
+      "title": "You have unsaved changes",
+      "body": "You have unsaved changes on this tab. Switching tabs will discard them and cannot be undone. Continue?",
+      "keep_editing": "Keep editing",
+      "discard": "Discard changes"
+    },
+    "language": "Language Settings",
+    "tabs": {
+      "general": {
+        "label": "General",
+        "title": "General"
+      },
+      "theme": {
+        "label": "Theme",
+        "title": "Theme & Visuals"
+      },
+      "connections": {
+        "label": "Endpoints",
+        "title": "Endpoints"
+      },
+      "provider_keys": {
+        "label": "API Keys",
+        "title": "Provider API Keys"
+      },
+      "models": {
+        "label": "Models",
+        "title": "Models"
+      },
+      "users": {
+        "label": "User Management",
+        "title": "Users & Permissions"
+      },
+      "group": {
+        "label": "Group Chat Permissions",
+        "title": "Group Chat Permissions"
+      },
+      "tools": {
+        "label": "Tool Calls",
+        "title": "Tool Calls"
+      },
+      "mcp": {
+        "label": "MCP List",
+        "title": "MCP Servers"
+      },
+      "skills": {
+        "label": "Skill List",
+        "title": "Skills"
+      },
+      "sns_bots": {
+        "label": "SNS Bots",
+        "title": "SNS Bots"
+      },
+      "vscode": {
+        "label": "VS Code",
+        "title": "VS Code Integration"
+      },
+      "security": {
+        "label": "Security",
+        "title": "Security & Privacy"
+      },
+      "sliding_window": {
+        "label": "Sliding Window",
+        "title": "Sliding Window History"
+      },
+      "env": {
+        "label": "System Backup",
+        "title": "System Snapshots & Restore"
+      }
+    },
+    "view": {
+      "install_success": "Installed successfully! Settings saved and the server has been notified to restart."
+    },
+    "general_tab": {
+      "profile_heading": "Profile",
+      "display_name_label": "Display Name",
+      "display_name_placeholder": "What should we call you...",
+      "avatar_url_label": "Avatar URL",
+      "avatar_upload_button": "Upload Image",
+      "avatar_remove_button": "Remove Avatar",
+      "avatar_upload_aria": "Upload avatar image",
+      "avatar_invalid_format": "Unsupported image format (use JPEG, PNG, or WebP)",
+      "avatar_too_large": "Image is too large (max 2MB)",
+      "bio_label": "Bio",
+      "bio_placeholder": "A little about you...",
+      "save_profile_button": "Save Profile",
+      "mcp_delegation_title": "Background MCP OAuth delegation",
+      "mcp_delegation_description": "Delegate an existing login grant only to your currently owned agent {{agentId}}. The backend derives the source grant; the browser cannot choose it.",
+      "mcp_delegation_denied": "The delegation could not be read or changed. Confirm that you still actively own this agent.",
+      "mcp_delegation_scopes_hint": "Space-separated, for example calendar.read calendar.events.read",
+      "mcp_delegation_hours": "Validity in hours (max 720)",
+      "mcp_delegation_create": "Create delegation",
+      "mcp_delegation_confirm_delete": "Deletion blocks new requests immediately and waits for in-flight requests to drain.",
+      "mcp_delegation_delete": "Delete delegation",
+      "clear_data_title": "Clear my personal data",
+      "clear_data_hint": "Clears your display name, bio, avatar, and the settings of projects you created. Your conversations, AI agents, account, and the physical files inside project folders are all kept. This cannot be undone.",
+      "clear_data_button": "Clear personal data",
+      "clear_data_confirm_title": "Clear your personal data?",
+      "clear_data_confirm_body": "This clears your display name, bio, avatar, and the settings of projects you own (physical project files, conversations, agents, and your account are kept). This cannot be undone. Enter your password to confirm.",
+      "clear_data_password_label": "Current password",
+      "clear_data_cancel": "Cancel",
+      "clear_data_confirm_action": "Confirm clear",
+      "export_data_title": "Export My Data (GDPR)",
+      "export_data_hint": "Download an encrypted copy of your personal data: profile, conversations, your agents' memory and files, and projects you own. The archive is encrypted (AES-256) with a passphrase you set and opens in 7-Zip / WinRAR. Account password and system secrets are not included.",
+      "export_data_button": "Export My Data",
+      "export_data_confirm_title": "Export My Data",
+      "export_data_confirm_body": "We'll package your personal data and encrypt it with your passphrase before downloading. Enter your current password to confirm your identity, and set a passphrase used to open the archive (keep it safe — it cannot be recovered).",
+      "export_data_password_label": "Current password",
+      "export_data_passphrase_label": "Encryption passphrase",
+      "export_data_passphrase_hint": "At least 12 characters. This is the password to open the downloaded file — store it separately.",
+      "export_data_cancel": "Cancel",
+      "export_data_confirm_action": "Encrypt & download",
+      "backup_migration_heading": "Backup & Migration",
+      "deselect_all": "Deselect All",
+      "select_all_sessions": "Select All",
+      "untitled_session": "Untitled Conversation",
+      "no_sessions": "No conversations yet",
+      "import_button": "Import Conversations (.json)",
+      "export_selected_button": "Export Selected ({{count}})",
+      "about_heading": "About",
+      "about_description": "Touka AI system frontend console. See the project CHANGELOG for release notes.",
+      "toast_select_at_least_one": "Please select at least one conversation.",
+      "toast_backup_success": "Backed up {{count}} conversations",
+      "toast_import_success": "Conversations imported successfully!",
+      "toast_backup_success_one": "Backed up {{count}} conversation",
+      "toast_backup_success_other": "Backed up {{count}} conversations",
+      "import_confirm": "About to import {{total}} conversations. Continue?",
+      "import_confirm_overwrite": "About to import {{total}} conversations; {{overwrite}} will overwrite existing conversations with the same ID and cannot be undone. Continue?",
+      "toast_import_partial": "Import results: {{saved}} saved, {{failed}} failed, {{unknown}} unconfirmed. Unsaved drafts are retained."
+    },
+    "sns_bots_tab": {
+      "loading": "Loading bot settings…",
+      "reload_required": "Reload bot settings before editing or saving.",
+      "reload": "Reload settings",
+      "token_draft_cleared": "Saving did not complete. Entered tokens were cleared; enter them again if you need to update them.",
+      "storage_cleanup_failed": "The browser could not remove SNS tokens saved by an older version. Clear this site's stored data in your browser settings, then reload.",
+      "discord_bots_title": "Discord Bots",
+      "telegram_bots_title": "Telegram Bots",
+      "add_bot_button": "Add Bot",
+      "remove_bot_aria": "Remove {{platform}} bot #{{num}}",
+      "confirm_remove_bot": "Remove this bot?",
+      "bot_token_label": "Bot Token",
+      "bot_token_ph": "Enter Bot Token",
+      "bind_agent_id_label": "Bind Agent ID",
+      "select_agent_ph": "Select Agent",
+      "agent_id_ph": "Enter Agent ID",
+      "enable_bot": "Enable this bot",
+      "multi_agent_conversation": "Multi-agent conversation",
+      "session_mode_label": "Session Mode:",
+      "session_mode_independent": "Independent Session",
+      "session_mode_home": "Home Conversation Mode",
+      "empty_state": "No bots configured yet.",
+      "heading": "SNS Bot Management",
+      "description": "Set up and manage bot accounts integrated with external Discord or Telegram.",
+      "save_button": "Save Settings"
+    },
+    "provider_keys_tab": {
+      "title": "Provider API Keys",
+      "description": "Set the system-level API keys for each model provider (stored in the backend .env). For security, this only shows whether a key is set — it never reveals or pre-fills the existing key; enter a new value only to replace it.",
+      "status_set": "Set",
+      "status_unset": "Not set",
+      "new_value_placeholder": "Enter a new key to replace (leave blank to keep current)",
+      "save": "Save keys",
+      "saved": "Saved",
+      "restart_notice": "Keys take effect immediately (no restart); after saving, Touka probes the provider key and reports whether it works.",
+      "probe_valid": "✓ Key valid — available models refreshed",
+      "probe_invalid": "✗ Key invalid ({{code}})",
+      "probe_cleared": "Cleared",
+      "clear": "Clear",
+      "clear_confirm": "Remove the {{provider}} key?",
+      "get_key_link": "Get a key ↗"
+    },
+    "change_password": {
+      "heading": "Change Password",
+      "current_password": "Current Password",
+      "new_password": "New Password",
+      "confirm_password": "Confirm New Password",
+      "requirements": "Password must include:",
+      "rules": {
+        "length": "At least 8 characters",
+        "upper": "An uppercase letter",
+        "lower": "A lowercase letter",
+        "digit": "A number",
+        "special": "A special character"
+      },
+      "submit": "Change Password",
+      "success": "Password changed. Please sign in again.",
+      "errors": {
+        "mismatch": "The new passwords do not match.",
+        "too_short": "Password must be at least 8 characters.",
+        "no_upper": "Password must include an uppercase letter.",
+        "no_lower": "Password must include a lowercase letter.",
+        "no_digit": "Password must include a number.",
+        "no_special": "Password must include a special character.",
+        "current_incorrect": "Your current password is incorrect.",
+        "generic": "Could not change password. Please try again."
+      }
+    },
+    "sliding_window_tab": {
+      "errors": {
+        "floor_summary_too_high": "Floor + summary percentage must be less than the trigger percentage (otherwise trimming will immediately re-trigger).",
+        "save_failed": "Save failed. Please confirm you have admin permissions."
+      },
+      "title": "Sliding Window History",
+      "description": "When the home conversation's context window usage reaches the trigger percentage, the oldest messages are automatically archived losslessly into the Legacy history store and trimmed down to the floor percentage,\n                        with an option to compress the trimmed content into a retained summary. Triggers only after a Heartbeat completes, or at the end of each conversation round (serialized via a lock, never interrupting an in-task context). Incognito and sub-conversations are unaffected.",
+      "enable_label": "Enable Sliding Window",
+      "enable_hint": "Once on, the home conversation is automatically kept within the configured length range.",
+      "trigger_pct_label": "Trigger Percentage",
+      "trigger_pct_hint": "Trimming triggers when context window usage reaches this percentage.",
+      "floor_pct_label": "Floor Percentage",
+      "floor_pct_hint": "Losslessly trims the oldest messages until context usage drops to this floor.",
+      "summary_pct_label": "Summary Percentage",
+      "summary_pct_hint": "Compresses trimmed messages into a retained summary, as a share of the window cap (0 = no summary, lossless trim only).",
+      "save_button": "Save Settings",
+      "save_success": "Sliding window settings saved",
+      "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
+      "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
+    },
+    "models_tab": {
+      "search_placeholder": "Search models...",
+      "scanning": "Scanning...",
+      "force_rescan": "Force Rescan",
+      "filter_all": "All Models",
+      "filter_visible": "Visible",
+      "filter_hidden": "Hidden",
+      "change_notice": "\"On/Off\" and \"Visible/Hidden\" changes <1>take effect immediately</1>: disabled or hidden models won't appear in a conversation's model menu, but existing conversation content is unaffected.",
+      "status_online": "Online",
+      "status_offline": "Offline",
+      "enable_title": "Selectable in conversations",
+      "enable": "On",
+      "disable_title": "Hidden in conversations",
+      "disable": "Off",
+      "visibility_visible_title": "Currently Visible",
+      "visibility_hidden_title": "Currently Hidden",
+      "visible": "Visible",
+      "hidden": "Hidden",
+      "delete_confirm": "Delete model \"{{id}}\"?",
+      "delete_success": "Model {{id}} deleted successfully.",
+      "delete_confirm_label": "Confirm Delete",
+      "delete_title": "Delete from history roster",
+      "test_button": "Test",
+      "test_button_title": "Test this model (sends a real test request, may incur a small API charge)",
+      "health_status": {
+        "healthy": "Healthy",
+        "degraded": "Degraded",
+        "unavailable": "Unavailable"
+      },
+      "health_latency": "{{ms}} ms",
+      "health_reason": {
+        "timeout": "Request timed out",
+        "connection_error": "Could not connect",
+        "request_failed": "Request failed",
+        "auth_missing": "API key not configured",
+        "api_error": "Provider returned {{status}}",
+        "not_supported": "Test not supported for this provider",
+        "not_found": "Model not found"
+      },
+      "empty_no_match": "No models match your search or filter. Try \"All Models\".",
+      "empty_no_models": "No models discovered yet. Add a provider key or connection, then press Force Rescan.",
+      "badge_available": "Available"
+    },
+    "agent_reset": {
+      "title": "Agent Data Reset",
+      "intro": "Reset one agent's accumulated runtime data (conversations, memory, stats, missions, outputs) back to a clean state. The agent's identity (soul / system prompt) and system audit trail are fully preserved, so it stays usable afterward. This is a destructive operation; a system backup is created first as a restore point.",
+      "empty": "No agents available to reset.",
+      "reset_button": "Reset Data",
+      "confirm_title": "Reset data for agent \"{{id}}\"",
+      "confirm_body": "This is irreversible. Review the scope below, type the agent ID, and re-enter your password to proceed.",
+      "wipe_label": "Will wipe",
+      "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots",
+      "keep_label": "Will keep",
+      "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, memory-store upgrade backups (all souls)",
+      "type_to_confirm": "Type the agent ID \"{{id}}\" to confirm:",
+      "password_placeholder": "Your account password",
+      "cancel": "Cancel",
+      "confirm_reset": "Confirm Reset",
+      "reset_success": "Reset data for \"{{id}}\"",
+      "reset_partial": "\"{{id}}\" reset finished, but some items could not be verified clean — see results",
+      "backup_failed": "The system snapshot could not be made, so this reset did not run and nothing was deleted. You did nothing wrong; try again later, or ask an admin to check the snapshot error in the server log.",
+      "result_clean": "✅ Live data fully reset (system backups and upgrade backups are not part of the reset)",
+      "result_partial": "⚠️ Some items still have residue or could not be verified — see details below",
+      "store_line": "purged {{purged}}, remaining {{remaining}}",
+      "preserved_line": "Intentionally preserved (not wiped): {{items}}",
+      "done": "Done",
+      "result_unknown": "Result unknown: the server may still be working, and the reset and clearing may already be done. Refresh later to check.",
+      "scrub": {
+        "option_label": "Also clear this soul's memory from backups (off by default)",
+        "will_clear_title": "Clears (when everything succeeds):",
+        "will_clear": "This soul's memory (facts and semantic index) in the memory-store upgrade backups and in every system snapshot on the Settings backup list, including the one made just before this reset. When everything succeeds, no snapshot on the restore list can bring this soul's memory back.",
+        "wont_clear_title": "Does not clear:",
+        "wont_clear": "Conversations in snapshots (anything said in a conversation stays in its history), the activity timeline, stats, missions, outputs; the legacy facts.jsonl; memory written under the old ID prefix (ToukaSoul…); backups that are not on the backup list (for example ones saved elsewhere from the command line); backups already downloaded; other souls' data; long-term memory (old conversations trimmed into the archive) is not cleared either.",
+        "guarantee": "What is guaranteed: the memory can no longer be read from the memory store or backup files. This is not a forensic disk wipe. It needs a human admin signed in as themselves (not acting as another agent) who re-enters their password.",
+        "duration": "With many snapshots this can take a few minutes.",
+        "acknowledge": "I understand, clear the memory from backups",
+        "acknowledged": "Confirmed: memory will also be cleared from backups",
+        "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots; plus this soul's memory in upgrade backups and system snapshots",
+        "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, conversations and other data in snapshots, other souls' memory, long-term memory (old conversations trimmed into the archive)",
+        "not_run": "The server did not clear the backups: the memory in them is unchanged.",
+        "toast_incomplete": "\"{{id}}\" was reset, but its memory was not cleared from every backup — see results",
+        "result_clean_live": "✅ Live data fully reset",
+        "summary_complete": "This soul's memory has been cleared from every snapshot on the backup list and every upgrade backup. It cannot be recovered.",
+        "summary_unfinished": "Clearing did not finish: {{reason}}. Backups may still contain this soul's memory; you can reset again with clearing turned on.",
+        "reason_see_details": "some items were not cleared; see the details below",
+        "files_left": "These {{failed}} files were left unchanged and still contain this soul's memory; the other {{done}} were cleared and cannot be recovered.",
+        "summary_not_ran": "Clearing did not run ({{reason}}); the backups are unchanged.",
+        "live_verify_failed": "The live memory store failed verification after compaction. Stop saving memory for now and contact the team.",
+        "live_not_compacted": "The live memory store was not compacted ({{reason}}).",
+        "remaining_unknown": "Could not confirm whether anything remains in the live store.",
+        "remaining_positive": "This soul wrote new memory after the reset, for example because its heartbeat is still running. Turn the heartbeat off, then try again.",
+        "category_failed": "{{category}}: not finished ({{reason}})",
+        "category_not_started": "{{category}}: did not run",
+        "item_line": "{{name}}: {{status}}",
+        "item_line_reason": "{{name}}: {{status}} ({{reason}})",
+        "info_title": "Other information",
+        "info_line": "{{name}}: {{reason}} ({{count}})",
+        "collection_shared": "This soul shares its semantic index with {{id}}. A normal reset works, but backups cannot be cleared.",
+        "categories": {
+          "leftovers": "Leftovers from an interrupted run",
+          "live": "Live memory store",
+          "upgrade_backups": "Upgrade backups",
+          "snapshots": "System snapshots"
+        },
+        "statuses": {
+          "scrubbed": "cleared",
+          "not_needed": "nothing to clear",
+          "removed": "removed",
+          "failed": "not cleared",
+          "info": "info"
+        },
+        "reasons": {
+          "busy": "the file is busy",
+          "in_use": "the file is in use by another program",
+          "read_only": "the file is read-only",
+          "no_space": "not enough disk space",
+          "unreadable": "the file could not be read",
+          "too_large": "the file is too large to process",
+          "has_journal": "the memory store has an unfinished write journal",
+          "unknown_member": "the backup contains something unrecognized",
+          "unknown_file": "an unrecognized file was found",
+          "unknown_schema": "the memory store format is not recognized",
+          "unknown_qdrant_meta": "the semantic index list is not recognized",
+          "collection_shared": "the semantic index is shared with another ID",
+          "ambiguous_member": "the backup has entries that differ only by letter case",
+          "changed_during_scrub": "the file changed while it was being cleared",
+          "verify_failed": "verification failed after clearing; the original was kept",
+          "live_verify_failed": "the live memory store failed verification after compaction",
+          "rewritten_after_reset": "this soul wrote new memory after the reset",
+          "list_failed": "the file list could not be read",
+          "lock_timeout": "timed out waiting for another operation",
+          "recheck_failed": "could not recheck the live store",
+          "own_snapshot_missing": "the snapshot made before this reset was not found",
+          "reset_not_clean": "the reset was not fully clean, so nothing was cleared",
+          "internal_error": "an internal error occurred",
+          "empty_file": "empty file, skipped",
+          "out_of_scope": "outside the clearing scope (legacy format or prefix)",
+          "write_failed": "could not write the temporary file; the original was kept",
+          "own_snapshot_unverified": "the snapshot made before this reset did not lose any memory, so it could not be confirmed as cleared",
+          "backup_failed": "the snapshot before the reset could not be made, so nothing was cleared",
+          "cancelled": "the request was cancelled before clearing started"
+        }
+      }
+    },
+    "users_tab": {
+      "form_email_label": "Email Address",
+      "form_password_label": "Password",
+      "form_display_name_label": "Display Name",
+      "form_role_label": "Role",
+      "form_role_option_normal": "Normal User",
+      "form_role_option_admin": "Administrator",
+      "form_status_label": "Status",
+      "form_status_option_active": "Active",
+      "form_status_option_suspended": "Suspended",
+      "role_badge_admin": "Admin",
+      "role_legend_title": "Role guide",
+      "role_legend_admin": "Admin: can manage users, groups, and system settings.",
+      "role_legend_normal": "Normal user: can use chat and personal settings; no admin access.",
+      "created_at_label": "Created",
+      "last_active_label": "Last active",
+      "last_active_never": "Never",
+      "form_error_email_required": "Please enter an email address",
+      "form_error_email_invalid": "Invalid email format",
+      "form_error_password_required": "Please set a login password",
+      "form_error_password_too_short": "Password must be at least 8 characters",
+      "status_badge_suspended": "Suspended",
+      "form_assigned_agents_label": "Assigned Agents",
+      "empty_state_no_agents": "No agents",
+      "form_bio_label": "Bio / Description",
+      "search_placeholder": "Search users (email, name)...",
+      "add_user": "New User",
+      "no_users_found": "No matching users found",
+      "unnamed_user": "Unnamed user",
+      "edit_user_tooltip": "Edit details",
+      "delete_confirm_message": "Delete this user? This action cannot be undone.",
+      "delete_confirm_title": "Confirm Delete",
+      "delete_user_tooltip": "Delete user",
+      "form_edit_title": "Edit User Details",
+      "form_create_title": "Create New User",
+      "password_keep_hint": "(leave blank to keep unchanged)",
+      "password_placeholder": "Set login password",
+      "display_name_placeholder": "e.g. Admin, User A...",
+      "agents_selected_count": "{{count}} selected",
+      "no_agents_available": "No agents available",
+      "bio_placeholder": "User description...",
+      "cancel": "Cancel",
+      "save_changes": "Save Changes"
+    },
+    "group_settings_tab": {
+      "add_model_aria": "Select a soul to add to group chat",
+      "alias_input_aria": "Alias for {{id}}",
+      "whitelist_updated": "Group chat whitelist and aliases updated (SSOT aligned successfully)",
+      "loading": "Loading group settings…",
+      "alias_placeholder": "Set an alias (e.g. Assistant)",
+      "points_to_entity": "Points to entity",
+      "remove_alias_aria": "Remove group alias {{alias}}",
+      "add_model_option": "Add a soul...",
+      "title": "Group Chat Aliases & Access Control",
+      "subtitle": "Map group chat mentions (@alias) to souls; group chat members are souls only",
+      "save_button": "Save Changes",
+      "section_soul_title": "Soul Agents (L1)",
+      "section_soul_desc": "Maps mention aliases to Soul entity IDs"
+    },
+    "skill_form": {
+      "id_placeholder": "skill_id",
+      "remove_tool_aria": "Remove {{tool}}",
+      "name_label": "Skill Name",
+      "name_placeholder": "e.g. Python Expert",
+      "id_label": "ID",
+      "description_label": "Short Description",
+      "description_placeholder": "Describe what this Skill does in one sentence",
+      "system_prompt_label": "Expert Instructions (System Prompt)",
+      "system_prompt_placeholder": "Define the agent's behavior and expertise when using this Skill...",
+      "required_tools_label": "Required Tool Permissions",
+      "add_tool_placeholder": "Add Tool",
+      "no_tools_available": "No tools available",
+      "save_button": "Save Skill",
+      "cancel_button": "Cancel"
+    },
+    "skills_tab": {
+      "skill_hub_tab": "Skill Hub",
+      "delete_confirm_message": "Delete this Skill?",
+      "delete_confirm_action": "Confirm Delete",
+      "upgrade_confirm_message": "Upgrade \"{{name}}\" to the latest pinned version from the catalog? This will overwrite the current install (including executable scripts that run on the server).",
+      "upgrade_confirm_action": "Confirm Upgrade",
+      "install_confirm_message": "\"{{name}}\" includes executable scripts that run on the server when the agent uses it. Install anyway?",
+      "install_confirm_action": "I understand the risk, install",
+      "heading": "Skill Modules & Expert Systems",
+      "description": "Skills are packaged bundles of expert knowledge and tools. When a Skill is enabled, the agent gains specific behavioral guidance and the tools it needs.",
+      "my_skills_tab": "My Skills ({{count}})"
+    },
+    "skill_catalog_item": {
+      "update_available_badge": "Update Available",
+      "preview_aria": "Preview skill {{name}}",
+      "install_button": "Install Capability Skill (with scripts)",
+      "up_to_date_button": "Installed (Latest)",
+      "upgrade_button": "Upgrade to New Version ({{commit}})"
+    },
+    "skill_item": {
+      "system_protected_badge": "System Protected",
+      "preview_aria": "Preview skill {{name}}",
+      "export_skill_tooltip": "Export .skill",
+      "edit_skill_aria": "Edit Skill {{name}}",
+      "delete_skill_aria": "Delete Skill {{name}}"
+    },
+    "skill_catalog_view": {
+      "category_all": "All",
+      "category_dev": "Dev",
+      "category_office": "Office",
+      "category_writing": "Writing",
+      "category_creative": "Creative",
+      "category_life": "Life",
+      "search_placeholder": "Search skills (name, description)...",
+      "no_results": "No skills match your search",
+      "security_warning": "Capability skills include executable scripts that run on the server when the agent uses them. Only sources that Touka has manually reviewed and commit-pinned are listed here; install only Skills you trust.",
+      "empty_state": "No capability skills available yet (the curated catalog is being built)."
+    },
+    "my_skills_view": {
+      "install_from_url": "Install from URL",
+      "add_custom_skill": "Add Custom Skill",
+      "search_placeholder": "Search my skills..."
+    },
+    "rbac_matrix": {
+      "title": "RBAC Matrix",
+      "description": "Define each role's default safety behavior and the subset of tools it can call.",
+      "save_button": "Save Permissions",
+      "custom_role_desc": "Custom system role",
+      "open_ended_label": "Open-ended access",
+      "open_ended_hint": "Allow every current and future item. Turn this off to use the explicit list below.",
+      "section": {
+        "builtin_tools": "Builtin Tools",
+        "mcp_servers": "MCP Servers",
+        "skills": "Skills",
+        "denied_mcp_tools": "Denied MCP tools"
+      },
+      "denied_mcp_tools_hint": "List MCP tools to block for this role as server/tool or server/*. Denials win over the server grants above and apply to Owner as well.",
+      "denied_mcp_tools_placeholder": "stripe/create_refund"
+    },
+    "autonomy_budget": {
+      "loading": "Loading autonomy config...",
+      "title": "Autonomy Budget",
+      "description": "Control the tool-loop fuse, self-repair frequency and cost cap.",
+      "save_button": "Save Budget",
+      "max_tool_rounds_label": "Tool-loop fuse (0 = unlimited)",
+      "max_tool_rounds_desc": "Max tool rounds per run. Interactive chats default to unlimited (a human can interrupt anytime); unattended heartbeat runs are always bounded - schedule value first, then this fuse, falling back to 50 when set to 0.",
+      "unlimited": "Unlimited",
+      "max_repair_attempts_label": "Max Auto-Repair Attempts",
+      "cost_cap_label": "Cost Cap",
+      "cost_cap_desc": "When enabled, autonomous actions stop once the agent's accumulated cost reaches the limit.",
+      "cost_cap_enable_label": "Enable cost cap",
+      "cost_cap_limit_label": "Max total cost (USD)"
+    },
+    "auto_reviewer": {
+      "title": "Auto reviewer",
+      "description": "In Auto mode, before the agent runs a command or a high-risk tool, this model checks whether it matches what you asked for.",
+      "model_label": "Reviewer model",
+      "unset_option": "Not set",
+      "suggestion": "Suggested: Claude Haiku 5.5. Nothing is selected for you.",
+      "data_notice": "Auto sends your last 3 messages and the pending action to the provider of the selected model for review.",
+      "cost_notice": "Review costs are charged to the soul being reviewed and shown separately as the reviewer in usage stats.",
+      "unset_notice": "With no model set, every action that needs review goes to you; if you are not present, it is refused.",
+      "missing_key": "The current model {{model}} is not among the models with a configured key; reviews will fail and go to you.",
+      "no_models": "No models with a configured key yet. Set one up under Provider Keys first.",
+      "load_failed": "Could not load the reviewer model list.",
+      "timeout_label": "Reviewer wait (seconds)",
+      "timeout_help": "If the reviewer has not answered within this many seconds, the action goes to you; if you are not present, it is refused. Waiting never approves anything. Range 1–120.",
+      "timeout_invalid": "Enter 1–120 seconds.",
+      "save_button": "Save reviewer settings"
+    },
+    "identity_mapping": {
+      "capability_aria": "Toggle {{capability}} capability for {{id}}",
+      "table_header_agent_id_name": "Agent ID / Name",
+      "table_header_rbac_role": "RBAC Role",
+      "table_header_capabilities": "Capabilities",
+      "select_role_placeholder": "Select Role",
+      "heading": "Identity & Capability Management",
+      "description": "Map specific agent definitions to RBAC roles and enable their special capabilities. Souls without an override inherit their role from type rules automatically (soul = Owner); no manual setup is needed unless you want to deliberately adjust it. Only souls, DebugAgent and DispatchAgent are listed; any other ID has no agent permissions.",
+      "save_button": "Save Identity Mapping",
+      "remove_override_aria": "Remove identity override for {{id}}",
+      "override_active": "Overridden",
+      "inherited_from_type": "Inherited from type rule"
+    },
+    "connections_tab": {
+      "heading": "Connection Management",
+      "refreshing": "Refreshing...",
+      "refresh_system_info": "Refresh System Info",
+      "empty_state": "No connections created yet.",
+      "saved": "Connections saved",
+      "delete_confirm": "Delete connection \"{{name}}\"? Its saved API key will be removed.",
+      "delete_confirm_label": "Delete"
+    },
+    "tools_tab": {
+      "no_description": "No description yet",
+      "search_placeholder": "Search tools (name, category)...",
+      "no_results": "No tools match your search",
+      "empty_title": "No system tools available yet",
+      "empty_hint": "Check that ToukaProxy has loaded its tools and plugins correctly"
+    },
+    "theme_settings_tab": {
+      "theme_mode_heading": "Appearance",
+      "mode_system": "System",
+      "mode_light": "Light",
+      "mode_dark": "Dark",
+      "theme_heading": "Theme Selection",
+      "theme_description": "Choose the color scheme that suits you. The system automatically switches the global CSS variables while keeping agent accent colors consistent.",
+      "font_size_heading": "Text Size ({{size}}px)",
+      "live_preview_heading": "Live Preview",
+      "font_size_small": "Small",
+      "font_size_large": "Large",
+      "time_format_heading": "Time Format",
+      "time_format_12h": "12-hour",
+      "time_format_24h": "24-hour",
+      "time_format_example": "Example",
+      "density_heading": "Interface Density",
+      "density_comfortable": "Comfortable",
+      "density_compact": "Compact",
+      "bubble_style_heading": "Chat Bubble Style",
+      "bubble_rounded": "Rounded",
+      "bubble_square": "Square",
+      "bubble_preview_user": "This is a preview of your message.",
+      "bubble_preview_assistant": "And the agent's reply — density and bubble style apply instantly.",
+      "reduce_motion_heading": "Reduce Motion",
+      "reduce_motion_description": "Reduce animations and transitions. \"Auto\" follows your OS preference; you can force it on or off.",
+      "reduce_motion_system": "Auto",
+      "reduce_motion_on": "On",
+      "reduce_motion_off": "Off"
+    },
+    "theme_showcase": {
+      "agent_sample_reply": "This is a sample reply from {{name}}. We use Design Tokens to keep every agent highly recognizable under any theme.",
+      "settings_aria": "Settings (style preview)",
+      "font_preview_heading": "Font Size Preview",
+      "font_preview_sample": "Drag the size slider — this sample text resizes live, just like your chat messages will.",
+      "section_agents": "Agent Identity Styles",
+      "section_components": "Component Showcase",
+      "card_buttons": "Buttons",
+      "btn_primary": "Primary",
+      "btn_secondary": "Secondary",
+      "btn_outline": "Outline",
+      "btn_ghost": "Ghost",
+      "btn_delete": "Delete",
+      "btn_busy": "Busy",
+      "card_inputs": "Inputs & Toggles",
+      "search_placeholder": "Search tokens...",
+      "enabled_features": "Enabled Features",
+      "card_metrics": "System Metrics",
+      "metric_active": "Active",
+      "metric_desc": "Pulse logic is operating at 100% capacity",
+      "metric_footer": "REFRESH_RATE: 500MS | CLUSTER_STABLE"
+    },
+    "connection_item": {
+      "remove_connection_aria": "Remove connection {{name}}",
+      "connection_error": "Connection error",
+      "test_aria": "Test connection {{name}}",
+      "test_ok": "Connection test succeeded (endpoint reachable)",
+      "test_failed": "Connection test failed",
+      "active_badge": "Active",
+      "active_badge_title": "This connection currently handles requests"
+    },
+    "add_connection_form": {
+      "title": "Add Connection Source",
+      "name_label": "Name",
+      "name_placeholder": "e.g. Touka Proxy",
+      "provider_label": "Provider",
+      "provider_placeholder": "Select a provider",
+      "endpoint_url_label": "Endpoint URL",
+      "endpoint_url_placeholder": "https://...",
+      "protocol_label": "Protocol Mode",
+      "protocol_placeholder": "Select a mode",
+      "api_key_label": "API Key (optional)",
+      "timeout_label": "Request Timeout (sec)",
+      "timeout_placeholder": "Empty = no limit",
+      "timeout_hint": "Aborts a request if it exceeds this many seconds (does not affect chat streaming).",
+      "add_button": "Add Connection",
+      "system_key_guidance": "Have an API key for an official provider (OpenAI / Anthropic / Gemini / Grok / DeepSeek)? Enter it under Settings → Provider Keys instead, so Touka manages it centrally (masked, no restart, auto-probe & model discovery). This page is for self-hosted / proxy / aggregator endpoints (e.g. Ollama, LiteLLM, OpenRouter)."
+    },
+    "mcp_server_form": {
+      "errors": {
+        "invalid_env_json": "Invalid env format. Make sure it is a valid JSON object (e.g. {\"KEY\": \"VAL\"}).",
+        "invalid_headers_json": "Invalid headers format. Make sure it is a valid JSON object (e.g. {\"Authorization\": \"Bearer ${MY_TOKEN}\"})."
+      },
+      "editing_title": "Editing: {{name}}",
+      "add_title": "Add MCP Server Manually",
+      "security_warning": "A manually-added MCP server runs the command (command + args) you specify on the server, launched when an agent connects. Only add commands whose source and behavior you trust.",
+      "security_warning_remote": "A remote server runs nothing locally, but the credentials you configure are sent to that endpoint when an agent connects. Only add endpoints whose operator you trust; keep credentials in env and reference them from headers as ${VAR_NAME}.",
+      "confirm_manual_add": "This MCP server will execute the command you specified on the server. Add it only if you trust the command's source and behavior?",
+      "transport_stdio": "Local (stdio)",
+      "transport_remote": "Remote (HTTP)",
+      "server_name_label": "Server Name",
+      "server_name_ph": "e.g. memory",
+      "command_label": "Command",
+      "command_ph": "e.g. npx, python",
+      "url_label": "Endpoint URL",
+      "url_ph": "e.g. https://mcp.example.com/mcp",
+      "args_label": "Args (comma-separated)",
+      "args_ph": "e.g. -y, @modelcontextprotocol/server-fetch",
+      "headers_label": "Headers (JSON, optional)",
+      "headers_ph": "e.g. {\"Authorization\": \"Bearer ${MY_TOKEN}\"}",
+      "env_label": "Env (JSON, optional)",
+      "env_ph": "e.g. {\"API_KEY\": \"xxx\"}",
+      "finish_edit_button": "Finish Editing",
+      "add_button": "Add Manually",
+      "cancel_button": "Cancel"
+    },
+    "mcp_isolation": {
+      "badges": {
+        "waiting": "Waiting for isolation",
+        "suspended": "Suspended: isolation self-test failed (not an MCP failure)",
+        "unisolated": "Unisolated"
+      },
+      "reasons": {
+        "probe_pending": "Checking the isolation environment. Startup will be reassessed automatically when the check finishes.",
+        "selftest_error": "The isolation self-test encountered an error, so isolation cannot currently be verified.",
+        "isolation_check_failed": "The isolation check failed, so this server will not start for now.",
+        "sandbox_state_unconfigured": "Isolation storage is missing or not writable. Check the isolation container mounts and permissions.",
+        "kernel_unreadable": "The isolation code cannot be read. Check the isolation image and file permissions; rebuild the image if needed.",
+        "unknown": "Isolation availability cannot currently be verified. Check the isolation environment and Touka logs."
+      },
+      "retry_selftest": "Touka repeats the self-test about every 10 minutes and starts the server automatically once it passes.",
+      "check_environment": "Check and fix the isolation environment, then refresh the status. Restart Touka if needed.",
+      "waiting_self": "This server starts automatically when isolation is restored, or press “Start…” to confirm how it runs this time.",
+      "manual_start": {
+        "button": "Start…",
+        "title": "Manually start “{{name}}”",
+        "once": "This consent applies only to this startup. Changes to the settings or execution destination require a new confirmation.",
+        "destinations": {
+          "executor": "This server will run in the executor container, separate from Touka. The protections available for this startup are listed below.",
+          "landlock": "This server will run with Landlock inside the Touka container, with fewer protections than full isolation. The protections available for this startup are listed below.",
+          "direct": "This is code the agent wrote. This startup is unisolated and uses Touka’s own permissions: it can read all keys, modify settings and source code, read and write every agent’s data, and connect to internal services. Changes persist.",
+          "unknown": "The execution destination cannot be verified. Close this dialog and refresh the status."
+        },
+        "features": "Protections for this startup: {{features}}",
+        "no_features": "No isolation protections",
+        "tcp_missing": "Network ports are not blocked this time.",
+        "separator": ", ",
+        "feature_names": {
+          "fs": "File access restrictions",
+          "tcp": "TCP port restrictions",
+          "signal": "Process signal restrictions",
+          "abstract_unix": "Abstract Unix socket restrictions",
+          "ioctl": "Device control restrictions",
+          "unknown": "Unrecognized protection"
+        },
+        "confirm": "Approve this startup",
+        "cancel": "Cancel"
+      },
+      "title": "Isolation",
+      "origin_label": "Source: ",
+      "origin": {
+        "hub": "Installed from MCP Hub",
+        "skill": "Installed from the skill catalog",
+        "manual": "Set up by me",
+        "creation": "Built by the Touka creation engine",
+        "scaffold": "Generated from a Touka template",
+        "evolution": "Deployed by an agent through evolution",
+        "agent": "Built by an agent",
+        "none": "Unmarked"
+      },
+      "class_label": "Treated as: ",
+      "class": {
+        "self": "a program written by an agent",
+        "third_party": "a third-party program",
+        "scaffold": "a program from a Touka template"
+      },
+      "record_stale": "This server's program changed, so its old source record no longer applies; Touka decides from the entry itself.",
+      "record_unreadable": "The isolation settings file can't be read: every MCP server is treated as written by an agent, and nothing can be changed for now.",
+      "mark_agent_button": "Mark as agent-built",
+      "mark_agent_confirm": "Mark \"{{name}}\" as agent-built? From then on it only starts in an isolated environment and can't have extra allowed folders. This can't be undone.",
+      "paths_title": "Extra allowed folders",
+      "paths_hint": "A third-party MCP server only gets the paths its entry refers to; you can allow more folders here by full path. Touka's settings, data and code are never allowed.",
+      "path_aria": "Folder {{n}}",
+      "path_ph": "Full path, such as /home/me/repo",
+      "access_ro": "Read-only",
+      "access_rw": "Read-write",
+      "remove_path_aria": "Remove folder {{n}}",
+      "add_path": "Add folder",
+      "save_paths": "Save folders",
+      "saved": "Saved; it takes effect the next time this server restarts.",
+      "errors": {
+        "invalid_paths": "Folders must be full paths (such as /home/me/repo), at most 16 per server.",
+        "mcp_entry_changed": "This server's settings just changed; check them again and retry.",
+        "mcp_server_not_found": "This MCP server no longer exists; it may have been deleted.",
+        "mcp_origin_change_refused": "The source can only change from third-party or unmarked to agent-built; this server can't be changed.",
+        "mcp_sandbox_paths_refused": "Programs written by an agent can't get extra allowed folders; only third-party MCP servers can.",
+        "mcp_not_waiting_isolation": "This server isn't waiting for isolation, so it doesn't need a manual start.",
+        "mcp_isolation_ack_mismatch": "How it would start has changed; confirm again before starting it.",
+        "mcp_hub_install_over_self_built": "An agent-built server already has this name, so a Hub install can't replace it; delete it or pick another name first.",
+        "mcp_sandbox_path_refused": "Folder {{n}}: {{reason}}",
+        "path_reasons": {
+          "protected_location": "this folder is in one of Touka's protected locations (Touka's settings, data or code), so it can't be allowed.",
+          "scan_limit": "this folder is too large (or checking took over 2 seconds) to confirm it holds none of Touka's files, so it can't be allowed.",
+          "other": "Touka can't allow this folder."
+        }
+      }
+    },
+    "mcp_hub_view": {
+      "heading": "Recommended Official and Curated Tools",
+      "sync_aria": "Sync curated tools list",
+      "category_all": "All",
+      "search_placeholder": "Search MCP tools (name, description)...",
+      "empty_category": "No tools in this category yet",
+      "empty_search": "No MCP tools match your search",
+      "switch_to_all": "Switch to All",
+      "hub_unreachable": "Can't reach the MCP Hub. Please check your ToukaProxy connection."
+    },
+    "mcp_hub_item": {
+      "badge_update_available": "Update available",
+      "badge_installed": "Installed",
+      "view_source_title": "View source and website",
+      "action_install": "One-Click Install",
+      "action_update": "Update Config",
+      "action_installed": "Installed"
+    },
+    "my_servers_view": {
+      "confirm_remove_message": "Remove MCP server \"{{key}}\"?",
+      "confirm_remove_action": "Confirm Remove",
+      "confirm_restart_message": "Restart MCP server \"{{key}}\"? This will interrupt any in-flight tool calls on that server.",
+      "confirm_restart_action": "Confirm Restart",
+      "my_mcp_config_heading": "My MCP Config",
+      "refresh_status": "Refresh status",
+      "empty_state": "No MCP imported or installed yet"
+    },
+    "mcp_server_item": {
+      "tools_badge": "{{count}} Tools",
+      "disable_button": "Disable",
+      "enable_button": "Enable",
+      "edit_aria": "Edit MCP server {{serverKey}}",
+      "delete_aria": "Delete MCP server {{serverKey}}",
+      "restart_aria": "Restart MCP server {{serverKey}}",
+      "error_label": "Error",
+      "status_connected": "Connected",
+      "status_error": "Error",
+      "status_circuit_open": "Circuit open",
+      "status_not_started": "Not started",
+      "status_disabled": "Disabled",
+      "tool_policy_aria": "Manage which tools {{serverKey}} exposes",
+      "stale_badge": "Refresh pending",
+      "cache_status": "MCP cache {{entries}} entries · {{hits}} hits"
+    },
+    "mcp_oauth": {
+      "status_disabled": "OAuth disabled",
+      "status_auth_required": "Authorization required",
+      "status_discovering": "Checking authorization",
+      "status_selection_required": "Choose authorization service",
+      "status_awaiting_user": "Waiting for user consent",
+      "status_exchanging": "Completing authorization",
+      "status_connected": "Authorized",
+      "status_refreshing": "Refreshing authorization",
+      "status_revoking": "Revoking authorization",
+      "status_frozen": "Authorization frozen",
+      "status_expired": "Authorization expired",
+      "status_error": "Authorization error",
+      "connect": "Connect account",
+      "disconnect": "Disconnect account",
+      "select_authorization_server": "Choose authorization service:",
+      "use_authorization_server": "Authorize with {{issuer}}",
+      "error_popup_blocked": "The browser blocked the authorization popup.",
+      "error_popup_timeout": "The authorization popup timed out.",
+      "error_request_failed": "OAuth request failed. Please try again."
+    },
+    "mcp_tab": {
+      "available_servers": "Available Servers",
+      "hub_explore": "Explore Hub",
+      "workload_oauth": "Workload OAuth"
+    },
+    "mcp_workload": {
+      "admin_title": "Workload OAuth credentials",
+      "admin_description": "Secrets are sent once and are never displayed, refilled, or stored in browser storage.",
+      "credential_status": "Status: {{status}} · generation: {{generation}}",
+      "refresh_metadata": "Revalidate metadata",
+      "confirm_revoke": "Revocation blocks new workload requests immediately and waits for in-flight requests to drain.",
+      "revoke": "Revoke",
+      "save_credential": "Save credential",
+      "request_failed": "The workload OAuth request failed; authorization remains fail-closed.",
+      "recovery_required": "{{count}} authority change requires recovery; workload authorization is blocked.",
+      "retry_recovery": "Retry recovery",
+      "key_rotation": "Workload key rotation",
+      "confirm_rotation": "All workload sends pause during rotation. Start now?",
+      "start_rotation": "Start rotation",
+      "no_profiles": "No workload OAuth profile is configured."
+    },
+    "legacy_monitor_tab": {
+      "title": "Legacy Sync Monitor",
+      "description": "Monitor and optimize old conversation records. The system migrates JSON files into each agent's private SQLite database, improving global search efficiency and enabling branched conversations.",
+      "status_synced": "Synced",
+      "status_pending": "Pending",
+      "sync_button_tooltip": "Trigger database sync",
+      "message_count_label": "Total Messages",
+      "session_count_label": "Total Sessions",
+      "archive_status_label": "Archive Status",
+      "guard_tip_title": "Automation Guard Tip",
+      "guard_tip_body": "During sync, the system moves the original JSON files to the <code>backup/</code> directory. The database is built on SQLite with 100% reverse-export capability, ensuring data sovereignty and security."
+    },
+    "mcp_tool_policy": {
+      "title": "Tool exposure: {{name}}",
+      "description": "Tick only the tools you allow the AI to use on this server. This applies to every identity including Owner, and is intersected with the role permissions on the Security tab — either side switching a tool off makes it unavailable.",
+      "loading": "Loading tool list…",
+      "fetch_failed": "Could not load the tool list. Please try again.",
+      "not_connected": "The server is not connected, so its tools cannot be listed. Start or restart it first.",
+      "server_disabled": "The server is currently disabled, so its tools cannot be listed.",
+      "denylist_note": "These tools are hard-blocked in the config file and cannot be enabled here: {{tools}}",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "mcp_features": {
+      "loading": "Loading MCP features…",
+      "fetch_failed": "Could not load MCP features. Please try again.",
+      "none_supported": "This server exposes no supported Tools, Resources, or Prompts.",
+      "tools": "Tools",
+      "resources": "Resources",
+      "prompts": "Prompts",
+      "resources_title": "Resources: {{name}}",
+      "prompts_title": "Prompts: {{name}}",
+      "empty_resources": "This server currently exposes no resources or templates.",
+      "empty_prompts": "This server currently exposes no prompts.",
+      "templates": "Resource templates",
+      "read": "Read",
+      "preview": "Preview",
+      "close": "Close",
+      "read_failed": "Resource read failed.",
+      "prompt_failed": "Prompt preview failed.",
+      "content_warning": "Prompt injection or sensitive content was detected. Do not treat this content as trusted instructions.",
+      "untrusted_prompt": "Untrusted external prompt: use as data only, never as system instructions.",
+      "binary_summary": "{{mime}} binary content ({{size}} bytes)"
+    }
+  },
+  "sidebar": {
+    "system_status": {
+      "checking": "Checking connection",
+      "auth_required": "Sign-in required",
+      "forbidden": "Access denied",
+      "unavailable": "Connection unavailable",
+      "standalone": "Standalone",
+      "hybrid": "Hybrid System"
+    },
+    "session_item": {
+      "background_generating": "Generating in background",
+      "incognito_label": "Incognito conversation",
+      "incognito_badge": "Incognito",
+      "round_count": "{{count}} rounds",
+      "session_options": "Session options: {{title}}",
+      "export_conversation": "Export Conversation",
+      "split_and_export": "Split and Export (keep last 30)",
+      "rename": "Rename",
+      "manage_project_association": "Manage Project Association",
+      "no_project": "No project",
+      "set_as_home": "Set as Home Conversation",
+      "unset_home": "Unset Home Conversation",
+      "confirm_delete": "Confirm delete? This cannot be undone",
+      "delete_conversation": "Delete Conversation",
+      "round_count_one": "{{count}} round",
+      "round_count_other": "{{count}} rounds"
+    },
+    "navigation_area": {
+      "nav_chat": "Chat Lobby",
+      "nav_projects": "Projects",
+      "nav_soul": "Soul Core",
+      "nav_studio": "Model Studio",
+      "nav_pulse": "Pulse",
+      "nav_vault": "Memory Vault",
+      "nav_settings": "Settings",
+      "logout_confirm": "Log out?",
+      "logout": "Log Out"
+    },
+    "interrupted_runs_notice": {
+      "retrigger_success": "Re-triggered the background task for {{agent}}",
+      "heading": "{{count}} background tasks were left unfinished last time",
+      "unknown": "Unknown",
+      "retrigger": "Re-trigger",
+      "aborted_hint": "Aborted on restart, not resumed automatically.",
+      "heading_one": "{{count}} background task was left unfinished last time",
+      "heading_other": "{{count}} background tasks were left unfinished last time"
+    },
+    "feedback_log": {
+      "empty_state": "No feedback yet",
+      "thumbs_up": "Thumbs up",
+      "thumbs_down": "Thumbs down"
+    },
+    "background_activity": {
+      "running_in_background": "Running in background",
+      "pulse_label": "Pulse"
+    },
+    "degraded_banner": {
+      "default_detail": "memory system not loaded",
+      "message": "System running in degraded mode — {{detail}}; long-term memory and some tools are temporarily offline."
+    },
+    "memory_notice": {
+      "unmigrated_legacy_facts": "Old memory files for {{count}} soul(s) have not been moved into the memory store yet (the files are left untouched).",
+      "memory_upgrade_no_space": "The memory store upgrade needs more disk space and is paused on the old version: memories can be searched but not added. Free up disk space, then restart Touka. The memory store was not changed; no restore is needed.",
+      "memory_upgrade_locked": "Another program is using the memory store, so it was not upgraded: memories can be searched but not added. Close other programs that have the memory store open, then restart Touka. The memory store was not changed; no restore is needed.",
+      "memory_store_unreadable": "The memory store cannot be read: memories can't be searched or saved right now. Contact the team first. If the team asks you to restore it yourself: press “Create Backup Now” to save the current state, then pick the latest snapshot from when things were working (conversations and settings also go back to that point).",
+      "memory_upgrade_failed": "The memory store upgrade did not finish and is paused on the old version: memories can be searched but not added. Restarting Touka will try again; if it keeps failing, switch back to the previous Touka version and tell the team. The memory store was not changed; no restore is needed.",
+      "memory_new_store_beside_backups": "The memory store is new, but there are upgrade backups next to it. If you just restored something or changed the data path, your memories may not be here; don't save new memories yet, and contact the team.",
+      "warning_marker": "Memory system warning — details in the right sidebar"
+    },
+    "system_notice": {
+      "autonomy_config_unreadable": "The autonomy settings (autonomy.json) can't be read, so autonomous runs are paused: tools and heartbeats have stopped (this is also why chat says the total budget is reached). Don't save anything on the Security settings page meanwhile: it would overwrite your original settings with temporary strictest values. Fix the file's permissions, then restart Touka; with Docker run:\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
+      "auth_policies_unreadable": "The security rules (auth_policies.json) couldn't be read at startup: every tool and command is refused, and agents can only chat. Fix or restore the file, then restart Touka; to fix the permissions with Docker run:\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
+      "warning_marker": "A feature is stopped by a settings problem — details in the right sidebar"
+    },
+    "isolation_banner": {
+      "mcp": "MCP: {{unisolated}} unisolated, {{waiting}} waiting for isolation, {{suspended}} suspended after an isolation self-test failure.",
+      "below": "Isolation is weaker than expected: agents' commands need your approval even in Auto/YOLO, and are refused when nobody is present.",
+      "control_channel": "If this keeps showing: an agent in the executor may keep changing the permissions of the executor's control channel, which makes the executor unusable for every agent; the executor fixes them every 5 seconds, and until then every command needs your approval.",
+      "tcp_missing": "Isolation isn't blocking the network: the host's Linux kernel isn't new enough (6.7 or newer is needed), so commands can reach Touka's internal services and local upstream ports.",
+      "relock": "An agent keeps locking its own workspace permissions, and this minute's automatic repairs are used up: commands may fail now and then until the next minute, when it recovers on its own."
+    },
+    "system_monitoring_view": {
+      "feedback_log_title": "Feedback Log"
+    }
+  },
+  "chat": {
+    "message_item": {
+      "copy_code": "Copy Code",
+      "cancel": "Cancel",
+      "save_and_resend": "Save & Resend",
+      "save_edit": "Save Edit",
+      "copy": "Copy",
+      "edit": "Edit",
+      "regenerate": "Regenerate",
+      "thumbs_up": "Like",
+      "helpful": "Helpful",
+      "thumbs_down": "Dislike",
+      "needs_improvement": "Needs improvement / Report issue",
+      "delete_message_and_subsequent": "Delete this message and everything after",
+      "previous_branch": "Previous branch",
+      "next_branch": "Next branch",
+      "apply_to_project": "Apply to Project"
+    },
+    "thinking": {
+      "title": "Thought process",
+      "in_progress": "Thinking…"
+    },
+    "context_meter": {
+      "categories": {
+        "persona": "Persona",
+        "capabilities": "Skills",
+        "tools": "Tools",
+        "mission_awareness": "Mission",
+        "project_context": "Project",
+        "ide_context": "Editor",
+        "conversation_summary": "Summary",
+        "conversation": "Conversation",
+        "system_other": "Other"
+      },
+      "aria_label_breakdown": "Context usage is about {{pct}}%; click to see the breakdown by section",
+      "dialog_title_usage": "Context Usage for This Conversation",
+      "usage_summary": "Currently using about <pctval>{{pct}}%</pctval> of the context window",
+      "usage_tokens": "({{total}} / {{window}} tokens)",
+      "usage_summary_tail": ". As it nears the limit, the oldest messages are automatically moved to long-term memory and trimmed.",
+      "no_breakdown": "This model does not provide a per-category breakdown; only total usage is shown.",
+      "got_it": "Got It",
+      "aria_label_loaded": "Context usage is about {{pct}}%; click to see which messages were loaded this time",
+      "dialog_title_loaded": "What This Conversation Loaded",
+      "loaded_summary": "Currently loading about the most recent <roundsval>{{rounds}}</roundsval> conversation rounds (limit {{limit}}, about {{pct}}%). This is the recent context the AI can \"see\" for this reply.",
+      "loaded_detail": "As it nears the limit, the oldest messages are automatically moved to long-term memory and trimmed from the live context to maintain response quality. To adjust how many rounds are kept, go to Settings → Sliding Window."
+    },
+    "interjection": {
+      "list_label": "Queued messages",
+      "queued": "Goes to the AI at the next tool step",
+      "after_turn": "Will be sent after this reply",
+      "urgent": "Priority",
+      "edit": "Edit",
+      "retract": "Retract",
+      "queue_button": "Queue",
+      "generating_hint": "AI is working: Enter queues a message, Ctrl+Enter immediately interrupts the reply being written, Esc stops",
+      "marker_label": "Messages added during this reply",
+      "delivered_at_step": "Your message reached the AI at step {{step}}",
+      "round_interrupted_at_step": "Step {{step}}: you interrupted this round"
+    },
+    "chat_area": {
+      "model_switched_style_may_change": "Switched to {{model}} — the response style may change",
+      "conversation_linked_project": "This conversation is linked to project: <1>{{name}}</1>",
+      "model_offline_history_only": "The current model <1>{{model}}</1> is offline; history is view-only.",
+      "scroll_to_bottom": "Scroll to bottom",
+      "remove_attachment": "Remove attachment",
+      "placeholder_model_offline": "Model is offline...",
+      "placeholder_enter_command": "Enter a command...",
+      "placeholder_enter_command_or_chat": "Enter a command or message here...",
+      "upload_image": "Upload image",
+      "upload_file": "Upload file (image or text)",
+      "upload_too_large": "File is too large to upload.",
+      "upload_unsupported": "This file type isn't supported.",
+      "upload_failed": "File upload failed, please try again.",
+      "pasted_text_filename": "pasted.txt",
+      "pasted_as_file": "Long text was attached as a file.",
+      "screenshot": "Screenshot",
+      "screenshot_unsupported": "Screen capture is not supported in this browser (requires a secure https connection)",
+      "screenshot_failed": "Screenshot failed, please try again",
+      "deep_research_tooltip": "Deep research: run a multi-step search on this question and produce a report with citations",
+      "research": "Research",
+      "mcp_dispatcher_tooltip": "MCP dynamic loading: enable progressive disclosure so the model can mount and use MCP server tools",
+      "mcp_dispatcher": "MCP",
+      "select_model": "Select Model",
+      "generating_reply": "Generating reply",
+      "reply_completed": "Reply complete",
+      "stop": "Stop",
+      "model_offline_button": "Model Offline",
+      "send": "Send",
+      "ai_disclaimer": "AI can make mistakes; please verify important information yourself."
+    },
+    "tool_step_tracker": {
+      "status": {
+        "calling": "Calling",
+        "called": "Called",
+        "awaiting_approval": "Awaiting approval"
+      },
+      "label_tool_separator": ": ",
+      "memory_used_title": "Memory used: {{access}}",
+      "memory_badge": "Memory: {{access}}",
+      "suggestion_label": "Suggestion: "
+    },
+    "tool_approval_card": {
+      "title": "Approval required: {{tool}}",
+      "approve": "Approve",
+      "reject": "Reject",
+      "countdown": "Auto-rejects in {{seconds}}s",
+      "review_reason": "Why the reviewer sent this to you: {{reason}}",
+      "human_only": "Only you can approve",
+      "human_only_desc": "Neither the reviewer nor YOLO can approve this kind of action for you.",
+      "risk": {
+        "read_only": "Read-only",
+        "safe": "Low risk",
+        "dangerous": "High risk"
+      },
+      "decision": {
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "timeout": "Timed out — auto-rejected",
+        "isolation_unacknowledged": "Not approved: the approval didn't confirm the isolation shown on the card",
+        "isolation_incomplete": "Can't be approved: it would run unisolated and the card can't show everything it would run"
+      },
+      "isolation": {
+        "degraded_title": "Reduced isolation",
+        "degraded_head": "{{clause}}this runs inside Touka's main container with file isolation: it can't see Touka's keys, settings, source code or other agents' data",
+        "degraded_tcp_blocked": "; it can't reach Touka's internal services",
+        "degraded_tcp_open": "; but it can't be kept from reaching Touka's internal services and local upstream ports",
+        "degraded_signal_open": "; it could make Touka restart",
+        "degraded_tail": "; it shares one container and kernel with Touka.",
+        "direct_title": "Not isolated",
+        "direct_desc": "This runs with Touka's own permissions: it can read every key (including the login key), change Touka's settings and source code, read and write every agent's data and reach Touka's internal services, and its changes stay in place afterwards.",
+        "unknown_title": "Isolation status unreadable",
+        "unknown_desc": "The isolation info from Touka is incomplete, so it's unclear how this would run and it can't be approved. Reject it, or reload the page and try again.",
+        "incomplete": "This card doesn't show everything that would run (the content was too long and got cut off, or the code to run isn't on the card), so it can't be approved here while unisolated. Reject it, then ask the agent to shorten the content or use a way that shows the code on the card.",
+        "reason_line": "Reason: {{text}}",
+        "reasons": {
+          "native_platform": "Touka isn't running in Docker on Linux (for example, it runs directly on Windows), and this setup has no isolation.",
+          "probe_pending": "Touka just started and is still checking whether isolation works, which usually takes a few seconds; you can reject now and try again shortly.",
+          "executor_unreachable": "An isolation executor is configured but can't be reached right now (its container may not be running).",
+          "executor_runner_unavailable": "The isolation executor isn't hooked up yet, so this can't be handed to it.",
+          "isolation_unavailable": "Isolation isn't available right now, so this can't run isolated.",
+          "landlock_abi_too_old": "The host's Linux kernel is too old (6.2 or newer is needed) and has no file isolation.",
+          "landlock_abi_insufficient": "The host's Linux kernel isn't new enough (6.7 or newer is needed) to block connections to Touka's internal services, so isolation isn't complete.",
+          "selftest_failed": "The isolation self-check failed, so Touka can't confirm isolation really works.",
+          "fs_9p": "Touka's data sits on a disk isolation can't cover (for example a Windows disk mounted through Docker Desktop or WSL), and the isolation test there failed; Touka rechecks regularly.",
+          "net_tcp_fastopen": "TCP Fast Open is on, and isolation can't block connections opened with it. Add this to {{service}} in your compose file (or override):\nsysctls:\n  net.ipv4.tcp_fastopen: 0\nthen run (with the -f files you normally use):\ndocker compose up -d\nIf you run Touka directly on a Linux host without Docker, set net.ipv4.tcp_fastopen=0 on the host instead (see README_QUICKSTART).",
+          "net_mptcp": "The kernel has MPTCP turned on, and isolation can't block MPTCP connections. Add this to {{service}} in your compose override:\nsysctls:\n  net.mptcp.enabled: 0\nthen run (with the -f files you normally use):\ndocker compose up -d\nIf you run Touka directly on a Linux host without Docker, set net.mptcp.enabled=0 on the host instead (see README_QUICKSTART).",
+          "kernel_outdated": "The isolation code doesn't match the image (sandbox_kernel changed without a rebuild). Run:\ndocker compose up -d --build",
+          "kernel_not_installed": "The image is an old version without the isolation environment. Run:\ndocker compose up -d --build",
+          "kernel_changed": "The isolation code changed after it was checked, so isolation can't be confirmed this time; Touka will recheck.",
+          "sandbox_state_unconfigured": "Touka's compose setup hasn't been updated yet (touka-sandbox-state is missing). Update compose following the upgrade steps, then run:\ndocker compose up -d --build",
+          "spec_too_large": "Too many folders would be opened to this command, so the isolation settings exceed the limit and it can't run isolated.",
+          "scan_limit": "This project is too large (or scanning took over 2 seconds) to confirm it holds none of Touka's files, so it can't run isolated.",
+          "protected_location": "This project sits in one of Touka's protected locations (such as ToukaChat, scripts or .git), so it can't run isolated.",
+          "runner_not_wired": "This tool isn't hooked up to isolation yet, so it can only run without isolation.",
+          "landlock_unavailable": "This host's Linux kernel doesn't have Landlock (its file isolation feature) turned on, so nothing can be isolated.",
+          "isolation_check_failed": "Something went wrong while checking isolation, so to be safe this run is treated as not isolated.",
+          "executor_auth_failed": "Touka reaches the executor but its access token doesn't match or can't be read (the executor just restarted with a new token, or a command changed the permissions of the executor's control channel; the executor fixes them every 5 seconds). This usually recovers within seconds; if it keeps happening, run:\ndocker compose restart touka-executor",
+          "executor_version_mismatch": "The executor and Touka are different versions (usually only one of them was rebuilt). Run:\ndocker compose up -d --build",
+          "executor_roots_mismatch": "The folders mounted in the executor differ from what Touka expects (the compose setup doesn't match). Update compose following the upgrade steps, then run:\ndocker compose up -d --build",
+          "executor_selftest_failed": "The executor's self-check failed, so Touka can't confirm its isolation really works. Run:\ndocker compose up -d --build\nIf that doesn't help, check the touka-executor log.",
+          "executor_restarted": "The executor restarted before this command started, so it wasn't handed over; Touka will recheck, which usually takes a few seconds.",
+          "executor_rejected": "The executor refused this command (it and Touka disagree about this run's settings); Touka will recheck. If it keeps happening, run:\ndocker compose up -d --build",
+          "agent_dir_not_in_executor": "This agent's folder isn't in the executor (for example custom models such as DebugAgent), so its commands can only run inside Touka's main container and each one needs your approval.",
+          "project_not_in_executor": "This conversation is bound to a project, and the project folder isn't mounted in the executor, so every command needs your approval; with nobody present it is refused.",
+          "block_ports_incomplete": "Touka can't read the custom connection settings (connections.json), or the file is broken, so it isn't sure which upstream ports to block. Once the file's content or permissions are fixed it recovers within about half a minute; if permissions need touka-init, follow the recovery steps in the upgrade guide (they already include a restart).",
+          "block_ports_overflow": "More than 1024 ports would need blocking (too many upstream addresses in custom connections and MCP), so only Touka's own ports are blocked. Reduce the upstream addresses in custom connections or MCP, then restart Touka.",
+          "interpreter_untrusted": "The Python that Touka uses to start isolation isn't trusted: in a container, it (or a folder on its path) isn't owned by root or can be changed by someone else; running directly on a host, the Python behind the venv can't be found. So this can't run isolated. With Docker, rebuild the image:\ndocker compose up -d --build\nRunning directly on a Linux host, check where Python is installed (the Python the venv points to still exists and its path resolves)."
+        },
+        "reason_details": {
+          "sandbox_state_unconfigured": {
+            "not_writable": "The isolation scratch area (touka-sandbox-state) has the wrong permissions, usually because an old image started first. To fix it:\n1. docker compose down (without -v)\n2. docker volume rm touka_touka-sandbox-state\n3. docker compose up -d --build\n(This only deletes caches and temporary files, not your data.)"
+          }
+        },
+        "executor_head": "{{clause}}this runs inside the executor: it can't see Touka's keys, settings, source code or other agents' data",
+        "ports_tail": "; Touka's own ports stay blocked, but upstream ports of custom connections and MCP may not be",
+        "ports_tail_also": "; the upstream ports of custom connections and MCP aren't all on the block list either",
+        "executor_tail": "; it runs in a separate container but shares the kernel with Touka.",
+        "clauses": {
+          "generic": "Full isolation isn't available this time, so ",
+          "scope": "This project (or folder) isn't in the executor, so ",
+          "executor_down": "The executor isn't available right now, so ",
+          "net": "This host's network settings let some connections through, so ",
+          "ports_incomplete": "Touka can't read the custom connection settings (connections.json), so ",
+          "ports_overflow": "There are too many ports to block, so "
+        },
+        "net_services": {
+          "proxy": "touka-proxy",
+          "executor": "touka-proxy and touka-executor"
+        }
+      }
+    },
+    "mcp_interaction": {
+      "title": "MCP needs your input",
+      "accept": "Submit and continue",
+      "decline": "Decline",
+      "cancel": "Cancel",
+      "countdown": "Times out in {{seconds}}s",
+      "select_placeholder": "Select an option",
+      "decision": {
+        "accepted": "Submitted",
+        "declined": "Declined",
+        "cancelled": "Cancelled",
+        "timeout": "Interaction timed out"
+      }
+    },
+    "feedback_reason_dialog": {
+      "title": "What needs improvement in this reply?",
+      "description": "Optional. You can also report harmful or inappropriate content here — your feedback is only visible to the owner and does not automatically change the AI.",
+      "textarea_aria_label": "Feedback reason",
+      "textarea_placeholder": "e.g. inaccurate answer, inappropriate tone, harmful content…",
+      "cancel": "Cancel",
+      "submit": "Submit Feedback"
+    },
+    "auth_switcher": {
+      "levels": {
+        "manual_desc": "Every non-read action needs your approval",
+        "auto_desc": "Auto-run read-only and low-risk actions; commands and risky ones go to the reviewer first, then to you if it cannot decide",
+        "yolo_desc": "Fully automatic execution (except blacklist and hard floor)"
+      },
+      "confirm": {
+        "yolo_message": "YOLO runs commands automatically (except the blacklist and hard floor) and may cause irreversible changes. Enable it?",
+        "yolo_title": "Enable YOLO"
+      },
+      "downgraded": "Only an admin or this soul's owner can turn on {{requested}}; this chat was set back to {{actual}}.",
+      "incognito_manual": "Incognito chats can't be audited, so they always run in Manual"
+    },
+    "chat_welcome": {
+      "start_conversation_title": "Start a conversation with Touka",
+      "capabilities_description": "I can help you organize and analyze information, write and review code, create diagrams, and remember your key points across conversations.",
+      "prompts": {
+        "organize_requirements_todo": "Help me turn these requirements into a to-do list",
+        "explain_concept_flowchart": "Explain a concept with a flowchart",
+        "plan_learning_path": "I want to learn a new topic — help me plan a learning path first"
+      }
+    },
+    "skill_selector": {
+      "title": "Skill Selection",
+      "count_label": "{{n}} Skills",
+      "label": "Skills"
+    },
+    "provider": {
+      "model_switched_to_default": "New conversation switched to the default model {{model}}"
+    },
+    "persistence": {
+      "pending": "Saving conversation…",
+      "unknown": "The save could not be confirmed. Your draft is retained; check its status before retrying.",
+      "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
+      "recheck": "Check save status",
+      "retry": "Retry save only"
+    }
+  },
+  "dashboard": {
+    "heartbeat_scheduler": {
+      "default_init_prompt": "How have you been lately? Please check your memory and progress.",
+      "confirm_delete_message": "Delete this scheduled task?",
+      "confirm_delete_title": "Confirm Delete",
+      "title": "Heartbeat Schedule (Pulse-Driven Pacemaker)",
+      "cancel_edit": "Cancel Edit",
+      "cancel": "Cancel",
+      "add_task": "Add Task",
+      "editing_schedule": "Editing scheduled task",
+      "creating_schedule": "Creating new scheduled task",
+      "mode_interval": "Interval",
+      "mode_daily": "Daily",
+      "mode_once": "Once",
+      "label_target_agent": "Target Agent",
+      "label_interval_minutes": "Interval (minutes)",
+      "label_add_time": "Add Time",
+      "label_configured_times": "Configured Times",
+      "label_execution_time": "Execution Time",
+      "label_session_mode": "Target (Session Mode)",
+      "session_mode_home": "🏠 Home Conversation (recommended)",
+      "session_mode_independent": "📡 Custom Session",
+      "label_model_override": "Model Override",
+      "model_override_default": "🧠 Respect agent's own decision (SSOT)",
+      "label_security_level": "Security Level",
+      "security_safe": "Auto (no commands while nobody is present)",
+      "security_full": "YOLO (⚠️ risky)",
+      "label_pulse_count": "Pulse Count",
+      "label_react_slots": "Tool rounds per pulse",
+      "placeholder_follow_global_budget": "Follow global fuse",
+      "budget_hint": "💡 If left unset, the tool-loop fuse from Security Settings applies; when the global fuse is 0 (unlimited), unattended heartbeats fall back to 50.",
+      "label_select_session": "Select Target Session (Session List)",
+      "select_session_placeholder": "Select a conversation...",
+      "default_pulse_channel": "Default independent channel (Pulse)",
+      "label_init_prompt": "Initial Prompt",
+      "submit_edit": "Confirm Schedule Changes",
+      "submit_create": "Create Schedule",
+      "interval_every": "Every {{minutes}} min",
+      "synced": "(synced)",
+      "run_limit": "| limit {{count}}/{{max}} runs",
+      "daily_times_label": "Daily times:",
+      "once_trigger_label": "One-time trigger:",
+      "last_run_label": "Last run:",
+      "empty_state": "No pulse schedules yet",
+      "footer_notice": "Note: the scheduling system now runs independently via ToukaHeartbeat. Schedule changes are stored in the pacemaker in real time to ensure system stability."
+    },
+    "env_settings": {
+      "backup_success": "Backup completed successfully!",
+      "restoring_title": "System Restoring",
+      "restoring_applying_backup": "Applying backup:",
+      "restoring_wait_notice": "Please wait. The service will restart automatically when finished, and the page will refresh.",
+      "restore_failed": "Restore did not finish and the service did not restart. Some files may already have been overwritten; check the server log and try again.",
+      "header_title": "System Snapshots",
+      "header_subtitle": "Create instant restore points to protect your Soul data and memory",
+      "creating_snapshot": "Creating snapshot...",
+      "create_backup_now": "Create Backup Now",
+      "refresh_backups_aria": "Refresh backup list",
+      "backup_history_title": "Backup History",
+      "loading_list": "Loading list...",
+      "no_backups": "No backups yet",
+      "restore_this_version": "Restore This Version",
+      "warning_title": "Warning: Restoration Safety Notice",
+      "warning_body": "Restoring will **overwrite all current system data** (including .env, model connections, and all agent Souls and conversation memory). During the restore, the ToukaProxy service restarts automatically. If your environment is not set up for automatic Docker restart, be sure to start the service manually.",
+      "confirm_restore_title": "Confirm restore?",
+      "confirm_restore_msg": "You are about to restore the system to <b>{{filename}}</b>. This will discard all current changes and briefly interrupt the service.",
+      "confirm_restore_password_label": "Enter your password to confirm this destructive action",
+      "confirm_restore_password_placeholder": "Your account password",
+      "cancel": "Cancel",
+      "confirm_restore_action": "Restore Now",
+      "delete_backup_aria": "Delete backup {{filename}}",
+      "delete_confirm_title": "Delete backup",
+      "delete_confirm_message": "Delete backup \"{{filename}}\"? This cannot be undone.",
+      "delete_confirm_action": "Delete",
+      "delete_success": "Backup deleted",
+      "delete_failed": "Failed to delete backup",
+      "stats_backups": "{{count}} backups",
+      "stats_total": "{{size}} MB total",
+      "stats_free": "{{free}} MB free",
+      "download_backup_aria": "Download backup {{filename}}",
+      "download_title": "Download encrypted backup",
+      "download_body": "The backup contains .env and all API keys. Set a passphrase to encrypt it before download (at least 12 characters); you can then open it with 7-Zip / WinRAR using this passphrase. Keep it safe — if lost, the backup cannot be opened.",
+      "download_passphrase_label": "Encryption passphrase",
+      "download_passphrase_placeholder": "At least 12 characters",
+      "download_action": "Encrypt & download",
+      "download_success": "Encrypted backup download started",
+      "download_failed": "Encrypted download failed",
+      "schedule_title": "Automatic Backup Schedule",
+      "schedule_enable": "Enable automatic backups",
+      "schedule_frequency": "Frequency",
+      "schedule_daily": "Daily",
+      "schedule_weekly": "Weekly",
+      "schedule_weekday": "Day of week",
+      "schedule_time": "Time",
+      "schedule_retention": "Keep (auto-backups only)",
+      "schedule_save": "Save schedule",
+      "schedule_saved": "Schedule saved",
+      "schedule_hint": "Auto-backups are named Touka_AutoBackup_… , separate from manual backups; retention applies only to auto-backups — manual backups are never auto-deleted.",
+      "schedule_wd_0": "Mon",
+      "schedule_wd_1": "Tue",
+      "schedule_wd_2": "Wed",
+      "schedule_wd_3": "Thu",
+      "schedule_wd_4": "Fri",
+      "schedule_wd_5": "Sat",
+      "schedule_wd_6": "Sun"
+    },
+    "settings_snapshot": {
+      "title": "Config Snapshot (Import / Export)",
+      "intro": "Export the system's tunable settings to a file, or import them to another instance / restore a known-good baseline. Config knobs only — no API keys, user data, or agent souls (distinct from System Backup / data export).",
+      "export_heading": "Export current settings",
+      "export_button": "Export",
+      "export_success": "Config snapshot download started",
+      "encrypt_label": "Encrypt with a passphrase (AES-256 zip)",
+      "passphrase_placeholder": "Encryption passphrase (min 12 chars)",
+      "import_heading": "Import from snapshot",
+      "choose_file": "Choose a snapshot file (.json)",
+      "invalid_file": "File is not a valid config snapshot",
+      "reset": "Reselect",
+      "mode_merge": "Merge",
+      "mode_replace": "Replace",
+      "replace_warning": "Replace mode overwrites each section wholesale — settings not in the snapshot will be removed. Use with care.",
+      "previewing": "Validating & previewing…",
+      "apply_button": "Apply Settings",
+      "confirm_title": "Confirm applying config snapshot",
+      "confirm_body": "This is a destructive operation. A system backup will be created first as a restore point. Re-enter your password to confirm.",
+      "password_placeholder": "Your account password",
+      "confirm_apply": "Confirm Apply",
+      "cancel": "Cancel",
+      "import_success": "Config snapshot applied",
+      "backup_made": "✅ Pre-import backup created (restore from the backups list if needed)",
+      "applied_count": "Sections covered: {{count}}",
+      "requires_restart": "⚠️ These sections need a restart to fully take effect: {{sections}}",
+      "skipped_secrets": "These secrets were not imported and need manual entry: {{items}}"
+    },
+    "vault_dashboard": {
+      "health": {
+        "probing": "Probing...",
+        "facts_ok": "Facts: ✅",
+        "vector_ok": "Vector DB: ✅",
+        "legacy_ok": "Legacy: ✅",
+        "personal_ok": "Personal: ✅",
+        "offline": "Storage offline"
+      },
+      "title": "Memory Vault",
+      "subtitle": "Manage persistent knowledge and long-term memory nodes across conversations",
+      "search_placeholder": "Search memory content...",
+      "cards": {
+        "storage_engine_status": "Storage Engine Status",
+        "memory_node_count": "Memory Node Count",
+        "security_annotation": "Security Annotation"
+      },
+      "go_to_archive_management": "Go to Archive Management",
+      "tabs": {
+        "explore": "Explore Memory",
+        "manage": "Archive Management"
+      },
+      "memory_count": "{{count}} memories",
+      "no_content": "No content",
+      "empty_state": "No matching persistent data in the memory vault yet",
+      "list_failed": "Could not load the memory list ({{error}}). If the sidebar shows a memory notice, follow it; otherwise reload the page, and if it still fails, contact the team.",
+      "memory_count_one": "{{count}} memory",
+      "memory_count_other": "{{count}} memories"
+    },
+    "heartbeat_whitelist": {
+      "title": "Heartbeat Whitelist",
+      "select_label": "Select a soul or system agent to grant permission",
+      "select_placeholder": "Select a target...",
+      "grant_button": "Grant Permission",
+      "current_list_heading": "Current Whitelist",
+      "revoke_title": "Revoke Permission",
+      "empty_list": "No authorized targets yet",
+      "security_notice": "Security note: whitelisted agents are allowed to run autonomous actions (ReAct) in the background. Only souls, DebugAgent and DispatchAgent can receive this permission."
+    },
+    "pulse_dashboard": {
+      "title": "Pulse Control Center",
+      "subtitle": "Manage automated pulse schedules and the agent whitelist"
+    }
+  },
+  "layout": {
+    "soul_studio": {
+      "not_configured": "Not configured",
+      "no_core_soul_detected_short": "No system core Soul detected...",
+      "add_core": "Add Core",
+      "empty_state_description": "No system core Soul detected. Make sure an official Soul config exists under the `data/soul` directory, or check your access permissions.",
+      "resync": "Resync",
+      "soul_subtitle": "Persona spec and sync status for the system core Soul",
+      "section_touka_soul": "Touka Soul",
+      "persona_loading_placeholder": "Loading core Soul persona...",
+      "section_configuration": "Configuration",
+      "chosen_model": "Your chosen model",
+      "model_in_use": "Model in use",
+      "model_in_use_differs": "The agent switched models on its own; this differs from your choice",
+      "sync_explanation_title": "Sync notes",
+      "sync_explanation_body": "The core Soul's data is synced with the ToukaProxy instance. Changes must be made through the instance files or a terminal with write permission.",
+      "create_modal_title": "Soul Factory",
+      "create_modal_description": "Create a new system core with a real persona and self-governing abilities",
+      "close": "Close",
+      "section_identity": "Identity",
+      "unique_core_id_label": "Unique core ID (no duplicates)",
+      "unique_core_id_placeholder": "e.g. Touka_Assistant",
+      "display_name_label": "Display Name",
+      "display_name_placeholder": "My Soul companion",
+      "section_inference_agent": "Inference Agent",
+      "select_base_engine_label": "Select Base Engine",
+      "no_models_available": "No models available! Configure a connector in Model Studio first.",
+      "section_system_persona": "System Persona",
+      "persona_editor_title": "Persona instructions",
+      "section_abilities_tools": "Abilities & Tools",
+      "cancel": "Cancel",
+      "initialize_soul": "Initialize Soul",
+      "edit_soul": "Edit Soul",
+      "delete_soul": "Delete Soul",
+      "save_changes": "Save Changes",
+      "cancel_edit": "Cancel",
+      "edit_mode_badge": "Edit Mode",
+      "stepup_password_placeholder": "Admin password",
+      "delete_confirm_title": "Delete soul \"{{id}}\"",
+      "delete_confirm_body": "This clears the soul's persona, config, brain binding and registration (conversations and memory are handled by reset; if it still has memory, reset it under \"Agent Data Reset\" first). The same ID can be recreated afterwards. Enter the admin password to confirm.",
+      "confirm_delete": "Confirm delete",
+      "save_confirm_title": "Save soul changes",
+      "save_confirm_body": "Editing soul data requires admin password re-confirmation.",
+      "confirm_save": "Confirm save",
+      "delete_success": "Deleted soul \"{{id}}\"",
+      "delete_failed": "Delete failed",
+      "save_success": "Soul changes saved",
+      "save_confirmed": "Password verified. Changes saved.",
+      "saved_refresh_failed": "Changes saved, but refreshing did not complete.",
+      "save_unknown": "The save outcome is unknown. Reload and check the server content before submitting again. Your draft is retained.",
+      "processing": "Processing, please wait…",
+      "invalid_fields": "Field validation failed. Check your changes.",
+      "read_again": "Reload",
+      "read_matches": "Server content matches your draft.",
+      "read_differs": "Fields different from your draft: {{fields}}.",
+      "read_not_auth": "This comparison does not confirm password verification. Your draft is retained; review it before deciding to save again.",
+      "compare_fields": {
+        "persona": "Soul core",
+        "baseModel": "Base model",
+        "temperature": "Temperature",
+        "topP": "Top P",
+        "topK": "Top K",
+        "enabledTools": "Tool permissions",
+        "safetySettings": "Safety settings"
+      },
+      "read_failed": "Reloading did not complete. Try again later."
+    },
+    "model_studio": {
+      "loading": "Loading Model Studio...",
+      "create_new_model": "Create New Model",
+      "new_custom_model_name": "New custom model",
+      "toast": {
+        "save_success": "Config saved to server (SSOT)"
+      },
+      "field": {
+        "model_name": "Model Name",
+        "description": "Description",
+        "base_brain": "Base Brain"
+      },
+      "system_prompt_title": "Touka Soul",
+      "section": {
+        "capabilities": "Capabilities",
+        "safety_content": "Safety & Content"
+      },
+      "shields_enabled": "Shields Enabled",
+      "shields_gemini_note": "Mainly applies to Google Gemini",
+      "safety": {
+        "harassment": {
+          "label": "Harassment",
+          "desc": "Prevent offensive, threatening, or hateful content"
+        },
+        "hate_speech": {
+          "label": "Hate Speech",
+          "desc": "Block content that demeans or discriminates against groups"
+        },
+        "sexually_explicit": {
+          "label": "Sexually Explicit",
+          "desc": "Filter adult content or explicit sexual descriptions"
+        },
+        "dangerous_content": {
+          "label": "Dangerous Content",
+          "desc": "Block content that incites violence or teaches dangerous activities"
+        },
+        "threshold": {
+          "none": "Don't block",
+          "relaxed": "Relaxed",
+          "standard": "Standard",
+          "strict": "Strict"
+        }
+      }
+    },
+    "main_header": {
+      "toggle_sidebar": "Toggle Sidebar",
+      "views": {
+        "chat": "Chat Lobby",
+        "soul": "Soul Core",
+        "studio": "Model Studio",
+        "pulse": "System Pulse",
+        "vault": "Memory Vault",
+        "projects": "Projects",
+        "settings": "Settings"
+      },
+      "settings_button_title": "Settings",
+      "right_sidebar_title": "View analytics and assets"
+    },
+    "left_sidebar": {
+      "nav_aria_label": "Conversation navigation",
+      "new_chat_button_tooltip": "New conversation (shortcut: ⌘/Ctrl+Shift+O)",
+      "new_chat_button": "New Chat",
+      "incognito_chat_button_tooltip": "Start a conversation that leaves no trace: not saved, and the AI doesn't read or write memory",
+      "incognito_chat_button": "Incognito Chat",
+      "session_history_heading": "Conversation History"
+    },
+    "right_sidebar": {
+      "aria_system_panel": "System panel",
+      "aria_close_panel": "Close right panel"
+    },
+    "plan_tracker": {
+      "task_plan_title": "📋 Task plan: {{title}}",
+      "completed_count": "{{completed}}/{{total}} done"
+    }
+  },
+  "modals": {
+    "evolution_modal": {
+      "title_create": "Create New Capability (Phase 3)",
+      "title_evolve": "Start Skill Evolution (Phase 2)",
+      "desc_writing_tool": "Writing tool autonomously:",
+      "desc_acquiring_capability": "Acquiring capability:",
+      "close": "Close",
+      "intro_create": "The agent identified a capability gap and autonomously wrote the matching tool source code. Once approved, the system will automatically install dependencies and mount this tool.",
+      "intro_evolve": "The agent found that its current tools can't solve the problem and discovered this Skill in the marketplace. Once approved, the system will hot-swap this tool in, taking effect without a restart.",
+      "source_code_heading": "Autonomously written tool source code",
+      "step1_config_credentials": "Step 1: Configure API Credentials",
+      "step1_config_credentials_isolated": "Step 1: Configure API Credentials (isolated)",
+      "input_placeholder": "Enter {{req}}...",
+      "step2_audit_deps": "Step 2: Review Dependencies & Command",
+      "step2_audit_command": "Step 2: Review Command",
+      "launch_command_label": "Launch command to run",
+      "dismiss": "Maybe Later",
+      "confirm_install": "Approve & Install",
+      "install_success": "Installed successfully! The capability is now active."
+    },
+    "mcp_install_modal": {
+      "title": "Install MCP Server",
+      "close": "Close",
+      "mcp_hub_source": "(Source: MCP Hub)",
+      "security_warning": "Installing sets up an <1>external command process that runs on the server</1> (command + args), which starts when an agent connects and uses it. Only install sources you trust.",
+      "security_warning_remote": "This is a remote server: nothing runs locally, but when an agent connects it <1>sends the credentials you enter to the external endpoint below</1>. Make sure you trust whoever operates it.",
+      "configure_api_credentials": "Configure API Credentials (isolated)",
+      "env_input_placeholder": "Enter {{req}}...",
+      "command_review": "Command Review",
+      "endpoint_review": "Endpoint Review",
+      "button_later": "Maybe Later",
+      "button_install": "I Understand the Risk, Install"
+    },
+    "import_agent_modal": {
+      "title": "Unrecognized conversations",
+      "description": "The agent for the conversations below couldn't be identified from the imported JSON. Please select or manually enter the model ID to apply:",
+      "select_from_available_label": "Select from available models",
+      "custom_agent_id_label": "Or enter an Agent ID directly (takes priority)",
+      "custom_agent_id_placeholder": "e.g. ToukaGroup, gemini-2.5-flash",
+      "cancel_button": "Cancel Import",
+      "confirm_button": "Confirm Import"
+    },
+    "ask_user_modal": {
+      "title": "Touka needs your decision",
+      "description": "The AI asks for your input when it's unsure; once you answer, it continues with your choice.",
+      "other_aria_label": "Other ({{question}})",
+      "other_placeholder": "Other (write your own)...",
+      "cancel": "Cancel",
+      "submit": "Submit Answer"
+    },
+    "skill_install_modal": {
+      "title": "Install Skill from URL",
+      "trusted_source_hint": "Paste the URL of a .skill file from a trusted source (only github.com / raw.githubusercontent.com / smithery.ai are allowed).",
+      "url_label": ".skill file URL",
+      "cancel": "Cancel",
+      "installing": "Installing...",
+      "install": "Install"
+    },
+    "skill_preview_modal": {
+      "title": "Skill Details",
+      "installed_subtitle": "Installed skill",
+      "catalog_subtitle": "Catalog skill",
+      "category_label": "Category",
+      "author_label": "Author",
+      "source_label": "Source",
+      "license_label": "License",
+      "required_tools_label": "Required Tools",
+      "mcp_servers_label": "MCP Servers",
+      "instructions_label": "Instructions (System Prompt)",
+      "loading_instructions": "Loading instructions…",
+      "no_instructions": "This skill has no instruction content.",
+      "catalog_body_hint": "Install to view the full instructions.",
+      "files_label": "Bundled Files",
+      "none": "None",
+      "close": "Close"
+    }
+  },
+  "projects": {
+    "projects_view": {
+      "delete_confirm_message": "Delete this project link? This will not delete the local files on disk.",
+      "delete_confirm_button": "Confirm Delete",
+      "no_model_alert": "Please enable at least one agent (model) in Settings first.",
+      "save_failed": "Failed to save the project. Check your permissions and the root path, then try again.",
+      "delete_failed": "Failed to delete the project. Please try again.",
+      "page_title": "Projects",
+      "page_subtitle": "Link a local folder to give agents spatial awareness and CRUD access",
+      "add_project_button": "New Project",
+      "create_form_title": "Create New Project Link",
+      "field_name_label": "Project Name",
+      "field_name_placeholder": "e.g. ToukaChat refactor",
+      "field_root_path_label": "Local Root Path (absolute)",
+      "field_root_path_placeholder": "e.g. D:/Touka/ToukaChat",
+      "field_description_label": "Project Description (optional)",
+      "field_description_placeholder": "Describe the goal of this project...",
+      "cancel_button": "Cancel",
+      "save_button": "Save Project",
+      "loading": "Loading projects...",
+      "empty_title": "No projects yet",
+      "empty_description": "Create your first project link so Touka's agents can understand your working directory structure and help with development directly.",
+      "empty_start_button": "Get Started",
+      "delete_project_aria": "Delete project {{name}}",
+      "updated_at": "Updated: {{date}}",
+      "open_session_button": "Open Project Conversation",
+      "about_title": "About Project Awareness",
+      "about_description": "Once a project is linked, Touka automatically tags the current working directory for agents behind the scenes. This means agents can read or modify code in that directory directly via the Terminal tool, without you manually copying paths. Make sure the absolute path you provide is correct."
+    },
+    "project_sidebar_view": {
+      "no_project_linked": "This conversation is not yet linked to any project",
+      "go_to_project_management": "Go to Projects to open or create a project conversation",
+      "loading": "Loading...",
+      "refresh_project_data": "Refresh project data",
+      "file_tree_heading": "Project File Tree (4-level preview)",
+      "empty_or_loading_directory": "Empty directory or loading",
+      "participating_agents": "Participating Agents",
+      "no_info": "No info",
+      "related_sessions": "Related Conversations",
+      "generating_in_background": "Generating in background",
+      "untitled_session": "Untitled conversation",
+      "no_other_sessions": "No other conversations",
+      "only_session_in_project": "This is the only conversation in this project",
+      "recent_file_changes": "Recent File Changes"
+    },
+    "workspace_settings": {
+      "host_path_updated": "Host path setting updated",
+      "section_title": "Workspace Root",
+      "host_absolute_path_label": "Host absolute path (e.g. D:/Projects)",
+      "host_path_placeholder": "Enter host path...",
+      "save_host_path_aria": "Save host path",
+      "docker_mount_note": "Note: this path maps to the <1>/app/workspace</1> mount point inside Docker. If you change the host storage directory, make sure <3>docker-compose.yml</3> is updated to match."
+    }
+  },
+  "hooks": {
+    "use_session_groups": {
+      "unassigned_agent": "Unassigned agent",
+      "project_group": "Project: {{name}}",
+      "unknown_project": "Unknown project",
+      "other_conversations": "Other conversations",
+      "group_chat": "Group chat"
+    },
+    "use_session_actions": {
+      "home_session_cannot_delete": "The home conversation cannot be deleted.",
+      "session_too_small_to_split": "This conversation has fewer than 30 messages — no need to split.",
+      "split_success": "Split successful! Exported {{legacyUserCount}} conversation rounds.",
+      "incognito_split_export_only": "Incognito conversations keep their full history. Use Export to download a copy.",
+      "split_exported_save_unconfirmed": "Export completed, but shortening the conversation is unconfirmed. Your draft is retained; check its save status."
+    },
+    "use_chat_stream": {
+      "select_agent_first": "Please select an agent (model) before starting a conversation.",
+      "new_conversation_title": "New conversation",
+      "background_limit_reached": "Background generation limit reached (up to 5 conversations at once). Stop one first or try again later."
+    },
+    "use_agent_brain_notice": {
+      "message": "This agent has no primary model yet. Please choose one.",
+      "action": "Set up"
+    },
+    "use_user_settings": {
+      "user_created_success": "User created successfully!",
+      "user_updated_success": "Profile updated!",
+      "clear_data_success": "Personal data cleared ({{count}} project settings removed)",
+      "export_data_success": "Data encrypted; download started",
+      "user_deleted_success": "User deleted"
+    },
+    "use_security_settings": {
+      "permissions_saved_success": "Permission settings saved successfully!",
+      "identity_saved_success": "Identity mapping settings saved!",
+      "autonomy_updated_success": "Autonomy budget updated!"
+    },
+    "use_heartbeat_schedules": {
+      "schedule_updated": "Schedule updated",
+      "schedule_created": "Schedule created",
+      "schedule_deleted": "Schedule deleted"
+    },
+    "use_confirm_toast": {
+      "confirm_label": "Confirm",
+      "cancel_label": "Cancel"
+    },
+    "use_sns_bot_settings": {
+      "errors": {
+        "bot_params_required": "❌ Error: please make sure every bot has both an Agent ID and a Bot Token filled in. If you don't need a bot, click the X in the top-right corner to remove its settings."
+      },
+      "bots_saved": "SNS bot settings saved and reloaded!"
+    },
+    "use_skill_settings": {
+      "install_success": "Installation successful! You can now use this Skill in your agent settings."
+    },
+    "use_mcp_settings": {
+      "restart_success": "Restarted MCP server \"{{key}}\"",
+      "restart_failed": "Failed to restart \"{{key}}\"",
+      "restart_busy": "\"{{key}}\" is reconnecting. Please try again shortly.",
+      "restart_waiting": "\"{{key}}\" is still waiting for isolation. Check the server’s isolation status and recovery instructions.",
+      "isolation_cleared": "The program of these servers changed, so their extra allowed folders were cleared; set them again if needed: {{names}}"
+    },
+    "use_session_events": {
+      "imported_conversation_title": "Imported conversation"
+    },
+    "use_legacy_sync": {
+      "sync_success": "{{agentId}} synced successfully!"
+    },
+    "use_progress": {
+      "react_slots": "Autonomous round {{current}}/{{total}}",
+      "repair": "Self-repair {{attempt}}/{{max}}",
+      "group": "Group chat {{index}}/{{total}}",
+      "creation_label": "Creating:",
+      "tool_fallback": "Tool",
+      "tool_retry": "Retry {{attempt}}/{{max}}",
+      "token_usage": "{{total}} tok this round · ${{cost}}"
+    }
+  },
+  "app": {
+    "connections_page": {
+      "title": "Connection Management",
+      "add_ai_node": "Add AI Node",
+      "node_name_label": "Node Name",
+      "node_name_placeholder": "e.g. Touka Main Proxy",
+      "provider_label": "Provider",
+      "provider_option_proxy": "🛡️ Touka Proxy (root mode)",
+      "api_endpoint_url_label": "API Endpoint URL",
+      "api_url_placeholder_proxy": "e.g. http://localhost:8000",
+      "api_url_placeholder_openai": "e.g. https://api.openai.com/v1",
+      "proxy_url_hint": "* Use the root URL and ToukaUI will automatically unlock advanced stats and Soul sync.",
+      "api_key_label": "API Key (optional)",
+      "deploy_connection_button": "Deploy Connection",
+      "existing_nodes_heading": "Existing Connection Nodes ({{count}})",
+      "empty_state_title": "No connections configured yet",
+      "empty_state_hint": "Add your first AI source from the area above."
+    },
+    "design_system_page": {
+      "subtitle": "Component showcase built on Shadcn UI and Tailwind CSS (modularized)",
+      "back": "Back",
+      "toggle_theme_aria": "Toggle light/dark theme"
+    },
+    "home_page": {
+      "nav_menu_title": "Navigation Menu",
+      "tool_panel_title": "Tool Panel"
+    }
+  },
+  "ui": {
+    "mention_input": {
+      "context": {
+        "codebase_desc": "Project-wide RAG retrieval",
+        "terminal_desc": "Recent terminal output",
+        "git_desc": "Current Git change status"
+      }
+    },
+    "tag_input": {
+      "remove_tag_aria": "Remove tag {{tag}}"
+    }
+  },
+  "artifacts": {
+    "mission_board": {
+      "loading": "Loading mission board...",
+      "retry": "Retry",
+      "empty_title": "No tasks in progress",
+      "empty_description": "When an agent starts running a complex plan, its progress will appear here",
+      "dispatched_external_ai_tooltip": "This task has been dispatched to an external AI (awaiting callback)",
+      "external_ai": "External AI"
+    },
+    "artifact_view": {
+      "empty_no_artifact": "No artifact to select yet",
+      "empty_hint": "AI-generated code or diagrams will appear here",
+      "render_fatal_error": "The renderer hit a fatal error. Try switching artifacts or checking the syntax.",
+      "mermaid_awaiting_valid_syntax": "Waiting for valid syntax..."
+    },
+    "react": {
+      "transpile_failed": "Compile failed: {{error}}",
+      "no_component": "No component to render: export default a component, or name your component App.",
+      "no_import_prefix": "This preview is an offline sandbox; importing external modules is not supported: ",
+      "runtime_unavailable": "React runtime failed to load; cannot render."
+    }
+  },
+  "theme": {
+    "names": {
+      "touka": "Touka Classic",
+      "rose": "Dreamlit Sakura Night",
+      "amber": "Amber Palace",
+      "emerald": "Jade Matrix",
+      "violet": "Deep Space Nebula",
+      "slate": "Minimal Steel"
+    }
+  },
+  "error": {
+    "system": {
+      "internal": "Internal system error",
+      "backup_failed": "System backup failed",
+      "backup_not_found": "Backup file not found",
+      "sync_failed": "Data synchronization failed",
+      "import_failed": "Failed to import settings or data",
+      "export_failed": "Failed to export settings or data",
+      "unknown": "An unknown error occurred",
+      "restore_in_progress": "A system restore is running; try again when it finishes"
+    },
+    "auth": {
+      "invalid_token": "Invalid or expired authentication token",
+      "invalid_credentials": "Invalid credentials or password",
+      "refresh_token_reuse": "Refresh token reuse detected — session revoked",
+      "auto_review_denied": "The Auto reviewer refused this action",
+      "auto_review_headless_terminal": "Terminal commands do not run in Auto mode while no one is present",
+      "auto_review_unavailable": "This action needs a human decision and no one is present",
+      "permission_denied": "Permission denied for this resource",
+      "unauthorized_access": "Unauthorized access to another agent's resources",
+      "admin_required": "Administrative privileges required",
+      "owner_required": "Owner privileges required",
+      "agent_id_mismatch": "Header Agent-ID does not match the token payload",
+      "profile_fetch_failed": "Failed to fetch the user profile",
+      "rate_limited": "Too many authentication attempts. Please try again later.",
+      "logout_failed": "Logout failed",
+      "reauth_failed": "Password re-authentication failed for this action",
+      "session_expired": "Your session has expired or the password was changed. Please log in again."
+    },
+    "mcp_oauth": {
+      "disabled": "Interactive MCP OAuth is disabled",
+      "interactive_required": "Interactive human authorization is required",
+      "callback_method": "OAuth callback method does not match the authorization binding",
+      "callback_content_type": "OAuth callback content type is not supported",
+      "callback_too_large": "OAuth callback exceeds the configured bounds",
+      "callback_invalid": "OAuth callback is invalid",
+      "state_invalid": "OAuth authorization state is invalid or expired",
+      "issuer_mismatch": "OAuth authorization server binding does not match",
+      "stale_authorization": "OAuth authorization became stale before commit",
+      "upstream": "OAuth authorization server request failed",
+      "restore_conflict": "Restore conflicts with existing MCP OAuth credentials",
+      "key_rotation_unavailable": "Managed MCP OAuth key rotation is unavailable",
+      "key_rotation_conflict": "MCP OAuth key rotation cannot safely advance",
+      "callback_ambiguous": "OAuth callback contains an ambiguous outcome",
+      "callback_route": "OAuth callback route does not match the authorization binding",
+      "clock_rollback": "MCP OAuth is frozen by the durable clock rollback fence"
+    },
+    "mcp": {
+      "stdio_principal_unsupported": "stdio servers do not support per-user authentication. Remove auth_mode or use a remote MCP server."
+    },
+    "soul": {
+      "already_exists": "Soul already exists",
+      "vault_error": "Failed to access the soul vault",
+      "write_failed": "Failed to persist soul files",
+      "memory_not_reset": "This soul still has memory. Reset it under Settings › \"Agent Data Reset\" first, then delete it. Nothing was deleted.",
+      "memory_check_failed": "Could not confirm this soul's memory is empty (the memory system is unavailable), so it was not deleted. Try again later."
+    },
+    "config": {
+      "load_failed": "Failed to load configuration",
+      "save_failed": "Failed to save configuration"
+    },
+    "resource": {
+      "not_found": "The requested resource was not found"
+    },
+    "model": {
+      "not_found": "The specified model was not found",
+      "id_required": "Model ID is required",
+      "already_exists": "Model ID already exists",
+      "delete_failed": "Failed to delete the model",
+      "metadata_error": "Error processing model metadata",
+      "conflict": "Model ID already exists",
+      "agent_brain_not_set": "This agent has no primary model yet. Choose one in Soul Core.",
+      "name_ambiguous": "Several models differ from this name only in letter case, so it is unclear which one to use"
+    },
+    "session": {
+      "not_found": "Session not found",
+      "stream_not_found": "No resumable stream for this session (it may have expired)",
+      "id_mismatch": "Session ID mismatch",
+      "save_failed": "Failed to save the session",
+      "scope_mismatch": "This conversation cannot be used for the requested target",
+      "interjection_queue_full": "Too many messages added to this reply",
+      "interjection_too_long": "The message is too long",
+      "interjection_not_found": "Message not found for this reply",
+      "interjection_not_retractable": "The message was already handed to the AI and cannot be retracted"
+    },
+    "routing": {
+      "agent_required": "Cannot identify the target agent and anonymous calls are not allowed. Please specify the target agent."
+    },
+    "terminal": {
+      "approval_not_found": "Pending terminal approval not found"
+    },
+    "file": {
+      "access_denied": "File access denied",
+      "not_found": "File not found"
+    },
+    "persistence": {
+      "error": "An error occurred during data persistence"
+    },
+    "schedule": {
+      "not_found": "Schedule not found",
+      "load_failed": "Failed to load schedules"
+    },
+    "heartbeat": {
+      "invalid_token": "Invalid Heartbeat service key",
+      "orphan_agent": "The agent is orphaned, or the owner's Refresh Token has expired",
+      "unauthorized_agent": "The agent is not authorized for Heartbeat wake-up"
+    },
+    "identity": {
+      "not_found": "Target identity not found"
+    },
+    "vault": {
+      "access_denied": "Sandbox violation: access to the vault was denied"
+    },
+    "validation": {
+      "failed": "Input validation failed"
+    },
+    "db": {
+      "save_failed": "Save failed",
+      "delete_failed": "Delete failed"
+    },
+    "network": {
+      "connection_error": "Connection error",
+      "timeout": "Network connection error. Please check your connection."
+    },
+    "user": {
+      "list_fetch_failed": "Failed to load the user list"
+    },
+    "request": {
+      "too_large": "Request body exceeds the maximum allowed size"
+    },
+    "avatar": {
+      "invalid_format": "Unsupported image format (use JPEG, PNG, or WebP)",
+      "too_large": "Avatar image exceeds the maximum allowed size",
+      "write_failed": "Failed to save avatar image"
+    },
+    "memory_scrub": {
+      "not_acknowledged": "Clearing memory from backups needs the second confirmation",
+      "collection_shared": "This soul shares its semantic index with another ID; a normal reset works, but backups cannot be cleared",
+      "unavailable": "The memory system cannot clear backups right now; nothing was deleted",
+      "in_progress": "Memory is being cleared from backups; try again when it finishes"
+    },
+    "agent_reset": {
+      "in_progress": "Another reset is running; try again when it finishes"
+    },
+    "agent_id": {
+      "collection_collision": "This ID would share a semantic index with an existing ID; choose another ID",
+      "check_failed": "Could not confirm this ID will not share memory with an existing one; nothing was created",
+      "collection_collision_with": "This ID would share a semantic index with \"{{id}}\"; choose another ID"
+    }
+  }
+}

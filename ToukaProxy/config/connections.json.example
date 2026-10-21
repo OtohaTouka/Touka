@@ -1,0 +1,13 @@
+{
+    "connections": [
+        {
+            "id": "local-default",
+            "name": "Local Proxy",
+            "url": "http://localhost:8000",
+            "apiKey": "",
+            "provider": "proxy",
+            "protocol": "openai",
+            "enabled": true
+        }
+    ]
+}

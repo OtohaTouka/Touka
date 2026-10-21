@@ -1,0 +1,82 @@
+# ADR-0082：proxy 單一映像（root build context）的黑名單（禁令 47：COPY . . ＋黑名單，不挑檔）。
+# 映像需要：ToukaProxy/、ToukaMemory/、ToukaDispatch/（含 config/dispatch_hooks.json）與根層中性檔。
+# 本檔用於 Proxy 的 root context；Heartbeat 的 recipe-specific ignore 取代本檔。
+# 例外（!）規則不可含萬用字元：BuildKit 會因此走進每個被排除的資料夾（含 .toukadev），遇到打不開的連結就整個建置失敗。
+
+# Chat 有自己的映像與 build context，不進 Proxy 映像。
+ToukaChat/
+
+# --- VCS / IDE / 快取 ---
+.git
+.gitignore
+.vscode
+.VSCodeCounter
+.antigravitycli
+.claude
+.codex/
+.agents/
+**/.toukadev
+.cache/
+.github/
+.import_linter_cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/.venv
+**/node_modules
+*.log
+
+# --- 其他子專案／非映像內容（heartbeat、chat 有自己的映像；文件與測試不進生產映像）---
+ToukaHeartbeat/
+# ADR-0117：workspace 驗證需要「全部」成員的 pyproject.toml（uv sync --locked 讀 members 清單）
+!ToukaHeartbeat/pyproject.toml
+ToukaIDE/
+infra/
+docs/
+tests/
+scripts/
+nginx/
+site/
+violations/
+scratch/
+backups/
+openapi.json
+
+# --- 根目錄的開發用設定檔（iso-c2：映像的 /app 不留設定檔，隔離後的代理人往上找不到）---
+# pyproject.toml／uv.lock 是 uv sync 的輸入，改在 Dockerfile 的 uv sync 之後刪除。
+pytest.ini
+ruff.toml
+.python-version
+.importlinter
+mkdocs.yml
+rebuildable-outputs.txt
+
+# --- 資料與密鑰（⚠️ 絕不可烤進映像——runtime 由 .env 與 volume 注入）---
+data/
+ToukaProxy/data/
+.env
+.env.*
+!.env.example
+ToukaProxy/.env
+ToukaProxy/.env.local
+ToukaMemory/.env
+ToukaDispatch/.env
+# 首裝精靈一次性密碼檔（防禦性：跑過精靈的開發機上 build 時可能在場）
+ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt
+
+# --- 私人/內部文件（gitignored，但 .gitignore 擋不了 COPY . .——映像將公開散布）---
+AGENTS.md
+HANDOVER.md
+README_HANDOVER.md
+SNS.md
+溝通協調.md
+
+# --- 活體設定檔（*.json 不會比對到 *.json.example，範本照常出貨供自癒引導；skills/ 子目錄不受影響）---
+ToukaProxy/config/*.json
+
+# --- Docker 打包工件本身 ---
+Dockerfile
+**/Dockerfile*
+docker-compose*.yml
+**/docker-compose*.yml
+.dockerignore

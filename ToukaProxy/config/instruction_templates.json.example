@@ -1,0 +1,6 @@
+{
+    "base_constraints": "## 核心執行約束 (Core Constraints)\n- 嚴禁模擬工具輸出：絕對禁止自行標註【工具已成功執行】或構造虛假的 JSON-RPC 回覆。\n- 必須真正在 <tool_code> 塊中呼叫 API。",
+    "tool_capabilities": {
+        "example_tool": "### [Tool] example_tool\n- **用途**: 描述工具用途。\n- **參數**: 描述參數規範。"
+    }
+}

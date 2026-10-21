@@ -1,0 +1,92 @@
+# Touka Ecosystem Master Ruff Configuration (Grand Unification)
+# 這是全系統的最高法律，涵蓋 Proxy, Memory, Heartbeat 與所有工具集。
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+# 啟用規則清單 (包含 SSOT 強制規則)
+select = [
+    "E", "F", "B", "S", "TID", "T20", "D",
+    "I",    # isort
+    "ANN",  # annotations
+    "UP",   # pyupgrade
+    "PTH",  # use-pathlib
+    "ARG",  # unused-arguments
+    "RET",  # return
+    "SLF",  # self
+    "SIM",  # simplify
+    "C4",   # comprehensions
+    "TRY",  # tryceratops
+    "FA",   # flake8-future-annotations
+    "TCH",  # flake8-type-checking
+]
+
+ignore = [
+    "S101", # Allow assert (used in tests)
+    "ANN401", # Any is allowed if explicit
+    "D107", # Missing docstring in __init__
+    "D105", # Missing docstring in magic method
+    "D104", # Missing docstring in public package
+    "D400", # First line should end with a period
+    "D415", # First line should end with a period, question mark, or exclamation point
+]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.flake8-tidy-imports.banned-api]
+# --- 時間 SSOT ---
+"datetime.datetime.now" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"datetime.datetime.utcnow" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"datetime.datetime.today" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"datetime.now" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"datetime.utcnow" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"time.time" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch()' instead." }
+"time.time_ns" = { msg = "🚫 [TIME_SSOT] Use 'src.utils.time_utils.get_current_epoch_ms()' instead." }
+
+# --- 路徑 & 配置 SSOT (Master Mandates) ---
+"os.getcwd" = { msg = "🚫 [PATH_SSOT] 嚴禁依賴當前工作目錄。請使用 'get_app_data_dir()' 或 'Path(__file__)' 動態解析。" }
+"os.path.abspath" = { msg = "🚫 [PATH_SSOT] 嚴禁生成絕對路徑字串。請使用 pathlib 的 '.resolve()' 並確保路徑相對于 AppDataDir。" }
+"os.path.realpath" = { msg = "🚫 [PATH_SSOT] 嚴禁生成絕對路徑。請使用 pathlib 的 '.resolve()'。" }
+"os.environ" = { msg = "🚫 [CONFIG_SSOT] 嚴禁直接存取環境變數。請透過專屬的 'src.config' 模組進行單一事實來源存取。" }
+"os.getenv" = { msg = "🚫 [CONFIG_SSOT] 嚴禁直接獲取環境變數。請透過專屬的 'src.config' 模組獲取配置。" }
+"os.system" = { msg = "🚫 [BOOTSTRAP_SSOT] 嚴禁直接執行系統命令。請使用 'src.services.execution_broker'（ADR-0239）或在白名單腳本中執行。" }
+"subprocess.run" = { msg = "🚫 [BOOTSTRAP_SSOT] 嚴禁直接執行子程序。請使用 'src.services.execution_broker.run_sync'（ADR-0239）。" }
+"subprocess.Popen" = { msg = "🚫 [BOOTSTRAP_SSOT] 嚴禁直接管理子程序。請使用 'src.services.execution_broker'（ADR-0239）。" }
+"os.chdir" = { msg = "🚫 [PATH_SSOT] 嚴禁動態更改工作目錄，這會破壞路徑定址的主權隔離。" }
+"sys.path.append" = { msg = "🚫 [BOOTSTRAP_SSOT] 嚴禁動態修改 Python 匯入路徑。請在入口點或配置中靜態處理。" }
+"sys.path.insert" = { msg = "🚫 [BOOTSTRAP_SSOT] 嚴禁動態修改 Python 匯入路徑。" }
+"src.config.get_app_data_dir" = { msg = "🚫 [PATH_SSOT] 嚴禁直接呼叫物理路徑函數。請透過 'resource_manager' 獲取資源定址。" }
+
+# --- 身分主權 SSOT (Identity Mandates) ---
+# 守則：所有 Service 層方法傳遞身分時，嚴禁使用 'agent_id: str'，必須使用 'identity: AgentIdentity'。
+# 守則：所有 Middleware 與 Router 傳遞請求上下文時，嚴禁使用 'ctx: dict'，必須使用 'ctx: PipelineContext'。
+
+[lint.flake8-type-checking]
+strict = true
+
+[lint.per-file-ignores]
+# 排除 SSOT 執行底層與白名單配置中心 (Bootstrappers)
+"**/__init__.py" = ["TID251", "TID252"]  # __init__ 慣用相對匯入（含 ..parent）
+"**/config.py" = ["TID251"]
+"**/config_utils.py" = ["TID251"]
+"**/awaken.py" = ["TID251"] # Heartbeat 核心啟動腳本允許初始化環境
+"**/time_utils.py" = ["TID251"]
+"**/bootstrap.py" = ["TID251"] # 引導自癒中心豁免
+"ToukaProxy/src/tools/terminal.py" = ["TID251"] # 終端工具需 get_app_data_dir 解析 agent 個人 vault 後備路徑
+"ToukaProxy/src/tools/builtin/system.py" = ["TID251"] # 系統工具豁免
+"ToukaProxy/src/tools/builtin/schemas.py" = ["E501", "D100"] # 工具 schema 資料檔：長 CJK 描述
+"ToukaProxy/src/services/evolution_security.py" = ["TID251"]
+"ToukaProxy/src/services/execution_broker.py" = ["TID251"] # ADR-0239 單一啟動入口：subprocess.run／create_subprocess_exec 的純轉傳
+"ToukaProxy/src/services/setup_service.py" = ["TID251"]  # SetupService 需讀取 live env 回報真實設定狀態
+"ToukaProxy/src/protocols/mcp/client.py" = ["TID251"] # MCP 客戶端需為子程序複製全量環境變數
+"tests/**" = ["TID251", "S101", "S106", "ANN", "SLF001", "D", "ARG", "PTH"]
+"ToukaDispatch/server.py" = ["TID251", "S104"]  # 入口點豁免：直接讀取 DISPATCH_TOKEN 等環境變數
+"**/scripts/**" = ["TID251", "ANN"]
+"main.py" = ["ANN201", "TID251"] # 進入點允許啟動引導
+"ToukaProxy/src/services/resource_manager.py" = ["TID251"]
+"ToukaProxy/src/services/process_registry.py" = ["TID251"] # 進程樹終止基建：taskkill 子程序（其為進程管理層本身，無法繞 src.tools.terminal）
+"ToukaProxy/src/utils/mcp_sentinels.py" = ["TID251"] # MCP env 哨兵純路徑 SSOT：get_app_data_dir 為 app-data 根存取、純路徑運算無 I/O
+"ToukaProxy/diag_models.py" = ["TID251"]
+"ToukaProxy/plugin_manager.py" = ["TID251"]

@@ -1,0 +1,20 @@
+# ToukaHeartbeat 專用 context 過濾（BuildKit per-Dockerfile ignore；ADR-0117 root context）。
+# 本檔存在時，heartbeat 這個 build「完全取代」根 .dockerignore。
+# 白名單制：heartbeat 映像只需 workspace 依賴描述檔 ＋ 本子專案源碼。
+*
+!pyproject.toml
+!uv.lock
+!ToukaProxy/pyproject.toml
+!ToukaMemory/pyproject.toml
+!ToukaDispatch/pyproject.toml
+!ToukaHeartbeat/
+# 目錄內再排除（沿用原 ToukaHeartbeat/.dockerignore 黑名單＋打包工件＋密鑰防禦）
+ToukaHeartbeat/__pycache__
+ToukaHeartbeat/*.log
+ToukaHeartbeat/.venv
+ToukaHeartbeat/.ruff_cache
+ToukaHeartbeat/Dockerfile
+ToukaHeartbeat/Dockerfile.dockerignore
+ToukaHeartbeat/docker-compose.yml
+ToukaHeartbeat/.env
+ToukaHeartbeat/.env.*

@@ -1,0 +1,76 @@
+[project]
+name = "touka"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = []
+
+# 開發/測試工具（ADR-0117 起納入單一鎖檔；`uv sync` 預設安裝 dev group、不進 Docker 生產映像）。
+# 取代舊「測試工具刻意不入鎖檔、另行安裝」政策——單人＋AI 協作下鎖進 lock 更可重現。
+[dependency-groups]
+dev = [
+    # P3 local TLS conformance：測試自行簽發隔離 CA，禁止依賴 live provider。
+    "cryptography~=50.0.0",
+    "pytest~=9.1.1",
+    "pytest-asyncio~=1.4.0",
+    "pytest-randomly~=4.1.0",
+    "pip-audit~=2.10",
+    # ruff：程式碼 lint（ruff.toml SSOT）。先前為 .venv 內臨時安裝、未入鎖檔，會被
+    # `uv sync` exact 同步剝除；納入 dev group 以持久化並使 fresh checkout 佈建即可用。
+    "ruff~=0.15.20",
+    # 文件站台建置工具（scripts/update_docs.py → mkdocs build）。納入 dev group 使
+    # `uv sync --all-packages` 佈建後 mkdocs 與程式碼依賴同處 .venv（3.12），mkdocstrings
+    # 得以匯入 ToukaProxy/ToukaMemory 生成 API 參考頁；--no-dev 故不進 Docker 生產映像。
+    "mkdocs~=1.6",
+    "mkdocs-material~=9.7.7",
+    "mkdocstrings[python]~=1.0",
+    "pymdown-extensions~=11.0.1",
+    "pip~=26.2.0",
+]
+
+[tool.uv]
+# 根專案為虛擬協調者（不打包）。佈建一律：uv sync --all-packages
+# ⚠️ 裸 `uv sync`（無 --all-packages）會剝除全部成員依賴（exact sync 至空 root）——
+#    可於數秒內以 --all-packages 復原，但切勿在誤剝後直接跑測試。（ADR-0117）
+package = false
+constraint-dependencies = ["anyio==4.14.2", "urllib3==2.8.0", "multidict==6.9.1"]
+# 供應鏈冷卻期：只採用上架滿 7 天的 Python 套件（只管 uv；前端 npm 不在內）。
+# uv.lock 只記期間（exclude-newer-span）；日期往前走不會讓 --locked 失效，重新解析時才套用新截止點。
+# 要提早放行單一套件只能用 exclude-newer-package，每個例外都要 Owner 逐一同意。
+exclude-newer = "7 days"
+
+[tool.uv.workspace]
+members = [
+    "ToukaProxy",
+    "ToukaMemory",
+    "ToukaHeartbeat",
+    "ToukaDispatch",
+]
+
+# torch 一律走 PyTorch CPU index（explicit=true：僅供 tool.uv.sources 顯式綁定者使用，
+# 不影響其他套件解析）。ADR-0117 Phase 0 實測：torch 2.12.1+cpu、鎖檔零 nvidia-*/CUDA。
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.pyrefly]
+python-interpreter-path = ".venv/Scripts/python.exe"
+search-path = [
+    "./ToukaProxy",
+    "./ToukaMemory",
+    "./ToukaHeartbeat",
+    "./ToukaDispatch"
+]
+
+[tool.pyright]
+extraPaths = [
+    "./ToukaProxy",
+    "./ToukaMemory",
+    "./ToukaHeartbeat",
+    "./ToukaDispatch"
+]

@@ -1,0 +1,10 @@
+{
+    "version": "1.0.0",
+    "author": "system",
+    "description": "模型費率覆蓋表（USD / 1M tokens）。code 內建表（pricing._BUILTIN_PRICING）為主來源；本檔 pricing 為覆蓋／補充（API 文件更新或自訂費率，鍵為小寫模型 ID 子字串，最長匹配優先）。每筆含 input、output，選填 cache_read、cache_write（未填沿用 input 價）。_default 為未知模型的保守 fallback。安全：_default 不可設為 0，否則成本恆 0 會使預算上限失效；本地免費供應商（自架 ollama/litellm）才於內建表/pricing 顯式標 0。",
+    "_default": {
+        "input": 3.0,
+        "output": 15.0
+    },
+    "pricing": {}
+}

@@ -1,0 +1,6 @@
+{
+    "api_base_url": "http://localhost:8000",
+    "heartbeat_token": "",
+    "trigger_port": 8082,
+    "schedules": []
+}

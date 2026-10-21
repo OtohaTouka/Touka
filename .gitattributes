@@ -1,0 +1,20 @@
+/LICENSE text eol=lf
+/ToukaProxy/setup.sh text eol=lf
+
+# Container build inputs keep LF on every checkout.
+/ToukaProxy/Dockerfile text eol=lf
+/ToukaHeartbeat/Dockerfile text eol=lf
+/ToukaHeartbeat/permission_init.py -text
+/ToukaChat/Dockerfile.prod text eol=lf
+/ToukaChat/scripts/ensure-critical-native.mjs text eol=lf
+/docker-compose.ghcr.yml text eol=lf
+/tests/docker/Dockerfile.isolation-test text eol=lf
+
+/ToukaChat/container-security/braces-backport/backport.mjs text eol=lf
+/ToukaChat/container-security/braces-backport/manifest.json text eol=lf
+/ToukaChat/container-security/braces-backport/braces-3.0.3-depth-limit.patch text eol=lf
+/tests/fixtures/braces-backport/api-compatibility.cjs text eol=lf
+/tests/fixtures/braces-backport/braces-3.0.3.tgz binary
+/tests/fixtures/braces-backport/fill-range-7.1.1.tgz binary
+/tests/fixtures/braces-backport/to-regex-range-5.0.1.tgz binary
+/tests/fixtures/braces-backport/is-number-7.0.0.tgz binary

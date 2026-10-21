@@ -1,0 +1,114 @@
+site_name: Touka System Manual
+repo_url: https://github.com/OtohaTouka/Touka
+repo_name: OtohaTouka/Touka
+use_directory_urls: false
+
+theme:
+  name: material
+  language: zh-Hant
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: 切换至深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: 切换至淺色模式
+  font:
+    text: Inter
+    code: Roboto Mono
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - ToukaProxy/src
+            - ToukaMemory/src
+            - ToukaHeartbeat
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:pymdownx.emoji.twemoji
+      emoji_generator: !!python/name:pymdownx.emoji.to_svg
+
+nav:
+  - 首頁: index.md
+  - 🏗️ 架構設計 (Architecture):
+      - "架構決策紀錄 (ADR) 索引": architecture/adr/README.md
+      - "ADR-0207 MCP Workload OAuth": architecture/adr/0207-mcp-workload-oauth-single-proxy.md
+      - "ADR-0208 Model Route Credential Atomicity": architecture/adr/0208-model-route-provenance-and-credential-atomicity.md
+      - "MCP 2026 P8-B Workload OAuth 計畫": architecture/proposals/mcp-2026-p8b-workload-oauth-plan.md
+      - SSOT 主地圖: architecture/SSOT_MASTER_MAP.md
+      - Proxy 介面規範: architecture/PROXY_INTERFACE.md
+      - Memory 介面規範: architecture/MEMORY_INTERFACE.md
+      - Heartbeat 介面規範: architecture/HEARTBEAT_INTERFACE.md
+      - Chat 介面規範: architecture/CHAT_INTERFACE.md
+      - IDE 介面規範: architecture/IDE_INTERFACE.md
+      - NOQA 豁免登記簿: architecture/NOQA_REGISTRY.md
+  - 🧠 Proxy (執行大腦):
+      - 安裝指南: proxy/installation_guide.md
+      - 使用手冊: proxy/user_manual.md
+      - API 節點說明: proxy/API_endpoints.md
+      - MCP Workload OAuth Runbook: proxy/mcp-workload-oauth-runbook.md
+  - 💾 Memory (記憶中樞):
+      - Agent 指令集: memory/agent_instructions.md
+      - 資料格式範例: memory/memory_payload_example.md
+  - 💬 Chat (終端介面):
+      - 使用手冊: chat/user_manual.md
+  - 🛠️ IDE (開發輔助):
+      - 開發規格書: ide/spec_IDE.md
+  - 🚀 部署與維護:
+      - 部署指南: guides/deployment_guide.md
+  - 📚 API 參考 (Core Services):
+      - 資源管理 (ResourceManager): proxy/api_reference/resource_manager.md
+      - 靈魂服務 (SoulService): proxy/api_reference/soul_service.md
+      - 身分驗證 (IdentityService): proxy/api_reference/identity_service.md
+      - 權限管理 (PermissionService): proxy/api_reference/permission_service.md
+      - 代理註冊 (AgentService): proxy/api_reference/agent_service.md
+      - 自定義模型 (CustomModelService): proxy/api_reference/custom_model_service.md
+      - 審計日誌 (AuditService): proxy/api_reference/audit_service.md
+      - 工具執行器 (ToolExecutor): proxy/api_reference/tool_executor.md
+      - 分發中樞 (Dispatcher): proxy/api_reference/dispatcher.md
+      - 心跳調度 (HeartbeatEngine): proxy/api_reference/heartbeat_engine.md
+      - 創建引擎 (Creation Engine): proxy/api_reference/creation_engine.md
+  - 📚 API 參考 (Memory Services):
+      - 記憶管理器 (MemoryManager): proxy/api_reference/memory_manager.md
+      - 事實存儲 (FactualStore): proxy/api_reference/factual_store.md
+      - 語義向量 (VectorStore): proxy/api_reference/vector_store.md
+      - 任務看板 (MissionManager): proxy/api_reference/mission_manager.md
+      - 舊歸檔庫 (LegacyStore): proxy/api_reference/legacy_store.md
+      - 歸檔同步 (LegacySync): proxy/api_reference/legacy_sync.md
+      - 核心檔案 primitive (CoreFileOps): proxy/api_reference/core_file_ops.md

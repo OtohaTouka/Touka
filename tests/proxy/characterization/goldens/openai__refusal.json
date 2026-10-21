@@ -1,0 +1,7 @@
+[
+ "data: {\"id\": \"chatcmpl-req-go-refusal\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⚠️ 回應被廠商的安全過濾擋下。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 5, \"cost\": 0.00015, \"usage_pct\": 0.1}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-refusal\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: {\"choices\": [{\"finish_reason\": \"content_filter\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 0}, \"id\": \"chatcmpl-req-go-refusal\", \"telemetry\": {\"request_id\": \"req-go-refusal\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}, \"object\": \"chat.completion.chunk\"}\n\n",
+ "data: [DONE]\n\n"
+]

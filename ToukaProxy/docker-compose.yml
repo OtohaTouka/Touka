@@ -1,0 +1,89 @@
+# ToukaProxy 單獨開發用 compose（整合部署請用 repo 根的 docker-compose.yml）。
+# ADR-0082 後映像為單一映像（Proxy+Memory+Dispatch）、build context＝repo 根。
+services:
+  touka-proxy:
+    image: touka-proxy:latest
+    build:
+      context: ..                      # ADR-0082：root context
+      dockerfile: ToukaProxy/Dockerfile
+    container_name: touka-proxy
+    # ADR-0207：reload child 仍只有一個 server process；嚴禁加入 --workers 或第二 replica。
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-access-log"]
+    init: true
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/ToukaProxy/src
+      - ./config:/app/ToukaProxy/config
+      - ${MEMORY_APP_DATA_DIR:-./data}:/app/data
+      - ../ToukaMemory:/app/ToukaMemory
+      - ../ToukaDispatch:/app/ToukaDispatch
+      - ..:/app/workspace
+      # iso-c2：隔離環境的暫存區（named volume；映像已預建成 appuser、0700）
+      - touka-sandbox-state:/app/sandbox_state
+      # iso-c2：執行器的控制通道（和 touka-executor 共用）
+      - touka-exec-ipc:/app/ipc/executor
+    environment:
+      - PYTHONPATH=.:/app/ToukaMemory:/app/ToukaMemory/src
+      - MEMORY_APP_DATA_DIR=/app/data
+      # 工作區固定掛上一層（repo 根）到 /app/workspace，所以這裡直接用容器內的掛載點
+      - HOST_WORKSPACE_ROOT=/app/workspace
+      - TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND=${TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND:-unknown}
+      - TOUKA_SANDBOX_STATE_DIR=/app/sandbox_state
+      - TOUKA_EXECUTOR_DIR=/app/ipc/executor
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # iso-c2：關掉 TCP Fast Open（核心有 MPTCP 時另加 net.mptcp.enabled: 0，見根目錄 compose）
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: unless-stopped
+
+  # iso-c2：執行器（設定說明見根目錄 compose）。用上面建的 touka-proxy:latest，不 build、不拉；
+  # proxy 留在 default 網路，執行器只接 touka-exec-net。
+  touka-executor:
+    image: touka-proxy:latest
+    pull_policy: never
+    container_name: touka-executor
+    command: ["python", "-m", "src.services.isolation.executor_server",
+              "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
+              "--state-dir", "/app/executor_state",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+    user: "1001:1001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${TOUKA_EXECUTOR_MEM_LIMIT:-2g}
+    pids_limit: ${TOUKA_EXECUTOR_PIDS_LIMIT:-512}
+    cpus: ${TOUKA_EXECUTOR_CPUS:-2}
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ${MEMORY_APP_DATA_DIR:-./data}/personal_drive:/app/data/personal_drive
+      - ${MEMORY_APP_DATA_DIR:-./data}/mcp_servers:/app/data/mcp_servers
+      - ./config/skills:/app/ToukaProxy/config/skills:ro
+      - touka-exec-ipc:/app/ipc/executor
+      - touka-executor-state:/app/executor_state
+    networks:
+      - touka-exec-net
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", 'test -S /app/ipc/executor/ctl.sock && test -n "$$(find /app/ipc/executor/alive -mmin -1)"']
+      interval: 5s
+      start_period: 70s
+
+networks:
+  touka-exec-net:
+    driver: bridge
+
+volumes:
+  touka-sandbox-state:
+  touka-exec-ipc:
+  touka-executor-state:

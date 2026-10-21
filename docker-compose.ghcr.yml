@@ -1,0 +1,267 @@
+# ── Touka：pull-not-build 本機部署（ghcr.io 預建映像）───────────────────────────
+#
+# 不需 clone repo；先確認掛載位置符合本機檔案系統政策，並在 .env 明示
+# TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND=local，再執行：
+#   依同 source 的 README_QUICKSTART.md 分階段啟動，勿一次建立所有服務。
+#
+# 需求：Docker Compose v2.26+（env_file 的 required: false 語法；touka-executor 的 volume subpath）。
+# 釘版：TOUKA_VERSION 使用 GHCR 上的版號或 sha-<commit>（預設 latest；見 .github/workflows/ghcr-publish.yml）。
+#
+# 與開發版 compose 的刻意差異（pull 使用者沒有 repo 檔案）：
+#   - 無任何源碼 dev 掛載（src／ToukaMemory／ToukaDispatch 皆以映像內容執行）。
+#   - proxy config 改 named volume：首跑 Docker 自動從映像播種（*.json.example 範本
+#     ＋ skills/），活體 JSON 由 core/bootstrap 自癒產生；跨重建持久。
+#     ⚠️ `docker compose down -v` 會連 proxy-config／hf-cache 一起刪（設定與模型快取歸零）。
+#   - heartbeat 設定改掛『目錄』./heartbeat-config（ADR-0150：避開單檔 bind-mount 缺席時被
+#     Docker 自動建成目錄→型別衝突啟動崩潰）；config.json 由 heartbeat 的 StorageService 於
+#     目錄內自癒生成；部署者先建立目錄，init 只調整必要 ownership／mode，不複製或遷移內容。
+#   - chat 的 openapi.json 掛載移除（生產映像為靜態 build，sync-api 僅 dev 使用）。
+#   - env_file 的 required: false 只代表 Compose 不強求該檔存在；不代表零設定可啟動。
+#     TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND 預設 unknown，OAuth 安全閘會拒絕啟動；不得以測試用
+#     fresh volume 的 local 判定代替使用者實際掛載事實。bootstrap 會自癒設定、
+#     自動生成 HEARTBEAT_TOKEN 等並寫回 ./.env（ADR-0151：TOUKA_ENV_FILE=/app/host_root/.env，
+#     `./:/app/host_root` 恆掛本資料夾＝env_file 載入的同一份 .env，與 WORKSPACE_ROOT 解耦）。
+#     金鑰可之後在首裝精靈／設定頁填入。
+#
+# ⚠️ 部署邊界（本地優先設計，公開發佈必讀）：
+#   本 profile 的 8000／8082／8083／3001 四個 host bindings 全部固定 loopback。
+#   DISPATCH_BIND_HOST=0.0.0.0 是容器內服務監聽，不代表 host 公開埠。
+#   自行改為區網／公網發布、變更權限或掛載後，不再符合本 profile 的受測條件；
+#   既有 LDH／認證／檔案系統 guard 仍適用，不得由本機資格推導遠端部署安全。
+
+services:
+  # ── 四個既有掛載的 metadata-only 權限初始化（沿用 heartbeat 映像）────────────
+  touka-init:
+    image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-heartbeat:${TOUKA_VERSION:-latest}
+    container_name: touka-init
+    user: "root"
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    volumes:
+      - type: bind
+        source: ${SANCTUARY_DATA_PATH:-./data}
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: volume
+        source: hf-cache
+        target: /app/hf_cache
+        volume:
+          nocopy: true
+      - type: volume
+        source: proxy-config
+        target: /app/proxy_config
+        volume:
+          nocopy: true
+      - type: bind
+        source: ${HEARTBEAT_CONFIG_DIR:-./heartbeat-config}
+        target: /app/heartbeat_config
+        bind:
+          create_host_path: false
+    # ADR-0221：原 helper 僅在 quiescent、可驗證 metadata 的四個既有 roots 上執行。
+    # 缺少 bind 目錄、symlink／hardlink、未知 filesystem 或不符權限即失敗，不自建／seed。
+    command: ["python", "-I", "-B", "permission_init.py", "--profile", "local-permissions-v1", "--expected-uid", "1001", "--expected-gid", "1001"]
+
+  # ── 核心 Proxy（單一映像：整合式 ToukaMemory ＋ 內建 ToukaDispatch，ADR-0082）──
+  touka-proxy:
+    image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-proxy:${TOUKA_VERSION:-latest}
+    container_name: touka-proxy
+    user: "1001:1001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # ADR-0207：image entrypoint 維持單一 Proxy process；P8-B 不支援多 worker/replica。
+    ports:
+      - "127.0.0.1:${PROXY_PORT:-8000}:8000"
+      # 全內網部署可移除本行並把 DISPATCH_BIND_HOST 改回 127.0.0.1（攻擊面再縮）。
+      - "127.0.0.1:${DISPATCH_PORT:-8083}:8083"
+    depends_on:
+      touka-init:
+        condition: service_completed_successfully
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - TZ=${TZ:-Asia/Taipei}
+      - HEARTBEAT_EXTERNAL_URL=${HEARTBEAT_INTERNAL_URL:-http://touka-heartbeat:8082/trigger}
+      - PYTHONPATH=.:/app/ToukaMemory:/app/ToukaMemory/src
+      - MEMORY_APP_DATA_DIR=/app/data
+      - HOST_WORKSPACE_ROOT=${WORKSPACE_ROOT:-/app/workspace}
+      # ADR-0151：金鑰持久化到「compose 目錄」的 .env（下方 ./:/app/host_root——恆為 compose
+      # 目錄、含 env_file 載入的 .env），與 WORKSPACE_ROOT 解耦（舊制綁 workspace，指向資料夾
+      # 以外即寫進沒人讀的幽靈 .env、token 每次重啟重生成）。重建不失、下次啟動 env_file 注入。
+      - TOUKA_ENV_FILE=/app/host_root/.env
+      # named volume 是否符合 local policy 仍需部署者明示；預設 unknown 使 P8-B fail-start。
+      - TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND=${TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND:-unknown}
+      - DISPATCH_AUTOSPAWN=true
+      - DISPATCH_TOKEN=${DISPATCH_TOKEN:-}
+      - DISPATCH_BIND_HOST=0.0.0.0
+      - HF_HOME=/app/hf_cache
+      # iso-c2：隔離環境的暫存區（named volume，見下方 volumes）；沒設時代理人指令一律要人核准。
+      - TOUKA_SANDBOX_STATE_DIR=/app/sandbox_state
+      # iso-c2：執行器的控制通道（和 touka-executor 共用的 volume）；proxy 不等執行器，靠背景重探。
+      - TOUKA_EXECUTOR_DIR=/app/ipc/executor
+    volumes:
+      # 聖域資料（Agent 記憶、靈魂、對話）——使用者資料夾即備份單位
+      - type: bind
+        source: ${SANCTUARY_DATA_PATH:-./data}
+        target: /app/data
+        bind:
+          create_host_path: false
+      # 工作區根（agent 操作區；可指向任意目錄）
+      - ${WORKSPACE_ROOT:-.}:/app/workspace
+      # ADR-0151：compose 目錄（恆含 env_file 載入的 .env）穩定掛載＝密鑰持久化目標，與
+      # WORKSPACE_ROOT 解耦。set_key 以 temp+rename 覆寫，故 .env 必須寫在『目錄掛載』內。
+      - ./:/app/host_root
+      # 活體設定（named volume：首跑自映像播種範本＋skills，bootstrap 自癒活體 JSON）
+      - proxy-config:/app/ToukaProxy/config
+      # HF 嵌入模型快取（named volume；跨重建持久化）
+      - hf-cache:/app/hf_cache
+      # iso-c2：隔離環境的暫存區。空 volume 第一次掛載時照映像複製擁有者（appuser、0700）；
+      # permission_init 的四個角色固定（ADR-0221），不處理這個 volume。
+      - touka-sandbox-state:/app/sandbox_state
+      - touka-exec-ipc:/app/ipc/executor
+    networks:
+      - touka-net
+    # iso-c2：關掉 TCP Fast Open（核心有 MPTCP 時另加 net.mptcp.enabled: 0，見根目錄 compose）
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── 心跳排程器 ────────────────────────────────────────────────────────────
+  touka-heartbeat:
+    image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-heartbeat:${TOUKA_VERSION:-latest}
+    container_name: touka-heartbeat
+    user: "1001:1001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:${HEARTBEAT_PORT:-8082}:8082"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - TZ=${TZ:-Asia/Taipei}
+      - API_BASE_URL=http://touka-proxy:8000
+      # ADR-0150：設定檔位於掛載的設定『目錄』內（見下方 volumes 的 /app/config 目錄掛載）。
+      - HEARTBEAT_CONFIG_FILE=/app/config/config.json
+      # HEARTBEAT_TOKEN 刻意不在此覆寫：由 env_file 於「容器建立期」讀取。本服務
+      # depends_on 不能使同次已解析的 env_file 重新載入。先讓 Proxy 持久化 token，
+      # 再以新 invocation、--no-deps 建立 Heartbeat/Chat；勿用 environment 覆寫空字串。
+    volumes:
+      # ADR-0150／0221：部署者先建立目錄；與 init 共用 source 且禁止 Docker 自動建目錄。
+      # config.json 仍由產品 StorageService 自癒生成；UI 排程 CRUD 寫回此檔。
+      - type: bind
+        source: ${HEARTBEAT_CONFIG_DIR:-./heartbeat-config}
+        target: /app/config
+        bind:
+          create_host_path: false
+    networks:
+      - touka-net
+    depends_on:
+      touka-proxy:
+        condition: service_healthy
+      touka-init:
+        condition: service_completed_successfully
+    restart: always
+
+  # ── 前端聊天介面 ──────────────────────────────────────────────────────────
+  # 發行建置內嵌 localhost 預設（Proxy 8000、Heartbeat 8082）。
+  # 設定頁可修改連線，但這不授予跨主機或公網 profile 資格。
+  touka-chat:
+    image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-chat:${TOUKA_VERSION:-latest}
+    container_name: touka-chat
+    user: "1001:1001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:${CHAT_PORT:-3001}:3001"
+    environment:
+      - TZ=${TZ:-Asia/Taipei}
+    networks:
+      - touka-net
+    depends_on:
+      - touka-proxy
+    restart: unless-stopped
+
+  # ── 執行器（iso-c2）：代理人指令在這裡以 Landlock 隔離執行 ─────────────────────
+  # 和 proxy 同一個映像；看不到 .env、設定、原始碼與 Touka 內部網路（說明見開發版 compose）。
+  # 最後一段才建立：proxy 先把 proxy-config 播種好（skills 取自它的子路徑）。安裝目錄的
+  # data/personal_drive、data/mcp_servers 要先存在（create_host_path: false）。
+  # 核心有 MPTCP 時，覆寫檔要在這個服務也加 net.mptcp.enabled: 0（同 proxy）。
+  touka-executor:
+    image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-proxy:${TOUKA_VERSION:-latest}
+    container_name: touka-executor
+    command: ["python", "-m", "src.services.isolation.executor_server",
+              "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
+              "--state-dir", "/app/executor_state",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+    user: "1001:1001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${TOUKA_EXECUTOR_MEM_LIMIT:-2g}
+    pids_limit: ${TOUKA_EXECUTOR_PIDS_LIMIT:-512}
+    cpus: ${TOUKA_EXECUTOR_CPUS:-2}
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - type: bind
+        source: ${SANCTUARY_DATA_PATH:-./data}/personal_drive
+        target: /app/data/personal_drive
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SANCTUARY_DATA_PATH:-./data}/mcp_servers
+        target: /app/data/mcp_servers
+        bind:
+          create_host_path: false
+      - type: volume
+        source: proxy-config
+        target: /app/ToukaProxy/config/skills
+        read_only: true
+        volume:
+          nocopy: true
+          subpath: skills
+      - touka-exec-ipc:/app/ipc/executor
+      - touka-executor-state:/app/executor_state
+    networks:
+      - touka-exec-net
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    depends_on:
+      touka-proxy:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", 'test -S /app/ipc/executor/ctl.sock && test -n "$$(find /app/ipc/executor/alive -mmin -1)"']
+      interval: 5s
+      start_period: 70s
+
+networks:
+  touka-net:
+    driver: bridge
+  # iso-c2：執行器自己的網路（一般 bridge，能上網），和 touka-net 分開
+  touka-exec-net:
+    driver: bridge
+
+volumes:
+  # 嵌入模型 HF 快取與活體設定：`docker compose down -v` 會一併刪除（歸零重來）。
+  hf-cache:
+  proxy-config:
+  # iso-c2：隔離環境的暫存區（快取與暫存，不是資料；沒有大小上限，`down -v` 會刪掉）。
+  touka-sandbox-state:
+  # iso-c2：執行器的控制通道與執行器自己的暫存區（同上）。空 volume 第一次掛載時照映像複製
+  # 擁有者（appuser、0700）；permission_init 的四個角色固定（ADR-0221），不處理它們。
+  touka-exec-ipc:
+  touka-executor-state:

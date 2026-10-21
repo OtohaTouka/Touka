@@ -1,0 +1,50 @@
+{
+  "session_id": "ui",
+  "title": "UI",
+  "agent_id": "test-model",
+  "owner_user_id": "synthetic-owner",
+  "epoch": 1000,
+  "aliases": {"stream_id": "stream-alias", "revision": "text-revision-alias"},
+  "attachment": {"type": "text", "url": "", "name": "synthetic.txt", "text": "owned", "size": 5},
+  "base_tree": {
+    "messages": {"branch": {"id": "branch", "role": "assistant", "content": "other", "parentId": null, "childrenIds": []}},
+    "currentId": null,
+    "extension": {"present": null}
+  },
+  "user_tree": {
+    "messages": {
+      "branch": {"id": "branch", "role": "assistant", "content": "other", "parentId": null, "childrenIds": []},
+      "user": {"id": "user", "parentId": null, "childrenIds": [], "role": "user", "content": "hi", "attachment": {"type": "text", "url": "", "name": "synthetic.txt", "text": "owned", "size": 5}, "timestamp": 1000}
+    },
+    "currentId": "user",
+    "extension": {"present": null}
+  },
+  "generator_frames": [
+    "data: {\"choices\": [{\"delta\": {\"reasoning_content\": \"思考\"}}]}\n\n",
+    "data: {\"type\": \"tool_start\", \"id\": \"tool\", \"tool\": \"synthetic\", \"args\": {}}\n\n",
+    "data: {\"type\": \"tool_result\", \"id\": \"tool\", \"tool\": \"synthetic\", \"status\": \"success\", \"result\": {\"present\": null}}\n\n",
+    "data: {\"choices\": [{\"delta\": {\"content\": \"繁體回答\"}}]}\n\n",
+    "data: [DONE]\n\n"
+  ],
+  "started": {"session_id": "ui", "stream_id": "stream-alias", "user_parent_id": "user", "assistant_node_id": "assistant", "type": "touka_stream_started"},
+  "terminal": {
+    "session_id": "ui", "stream_id": "stream-alias", "user_parent_id": "user", "assistant_node_id": "assistant", "type": "touka_stream_terminal", "generation": "completed",
+    "persistence": {"status": "saved", "representation": "text", "revision": "text-revision-alias"}
+  },
+  "incognito_terminal": {
+    "session_id": "ui", "stream_id": "stream-alias", "user_parent_id": "user", "assistant_node_id": "assistant", "type": "touka_stream_terminal", "generation": "completed",
+    "persistence": {"status": "skipped", "reason": "incognito"}
+  },
+  "full_payload": {
+    "id": "ui", "title": "UI", "updatedAt": 1000, "agent_id": "test-model",
+    "messages": {
+      "messages": {
+        "branch": {"id": "branch", "role": "assistant", "content": "other", "parentId": null, "childrenIds": []},
+        "user": {"id": "user", "parentId": null, "childrenIds": ["assistant"], "role": "user", "content": "hi", "attachment": {"type": "text", "url": "", "name": "synthetic.txt", "text": "owned", "size": 5}, "timestamp": 1000},
+        "assistant": {"id": "assistant", "parentId": "user", "childrenIds": [], "role": "assistant", "content": "繁體回答", "thinking": "思考", "steps": [{"id": "tool", "tool": "synthetic", "args": {}, "status": "success", "result": {"present": null}}], "timestamp": 1000}
+      },
+      "currentId": "assistant",
+      "extension": {"present": null}
+    }
+  }
+}

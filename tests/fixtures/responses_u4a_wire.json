@@ -1,0 +1,75 @@
+{
+  "_note": "3b-U4a Responses request bodies as sent on the wire (httpx2.MockTransport). U4b compares its send_round against these. Edit only together with an approved behavior change.",
+  "url": "https://api.openai.test/v1/responses",
+  "first_round": {
+    "model": "gpt-6-astra",
+    "instructions": "妳是助理。\n用繁體中文。",
+    "input": [{"role": "user", "content": "讀 a.md"}],
+    "tools": [
+      {
+        "type": "function",
+        "name": "vault_tools",
+        "description": "檔案",
+        "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+        "strict": false
+      }
+    ],
+    "max_output_tokens": 512,
+    "store": false,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "touka-c85c580f2e2a07c66af8437884c12902",
+    "stream": true
+  },
+  "second_round": {
+    "model": "gpt-6-astra",
+    "instructions": "妳是助理。\n用繁體中文。",
+    "input": [
+      {"role": "user", "content": "讀 a.md"},
+      {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAAABfakeEncryptedReasoningBlob=="},
+      {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "vault_tools", "arguments": "{\"action\":\"list\"}", "status": "completed"},
+      {"type": "function_call_output", "call_id": "call_1", "output": "a.md"}
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "name": "vault_tools",
+        "description": "檔案",
+        "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+        "strict": false
+      }
+    ],
+    "max_output_tokens": 512,
+    "store": false,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "touka-c85c580f2e2a07c66af8437884c12902",
+    "stream": true
+  },
+  "denied_round": {
+    "model": "gpt-6-astra",
+    "instructions": "妳是助理。\n用繁體中文。",
+    "input": [
+      {"role": "user", "content": "讀 a.md"},
+      {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAAABfakeEncryptedReasoningBlob=="},
+      {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "vault_tools", "arguments": "{\"action\":\"list\"}", "status": "completed"},
+      {"type": "function_call_output", "call_id": "call_1", "output": "a.md"},
+      {"type": "function_call", "id": "fc_2", "call_id": "call_2", "name": "vault_tools", "arguments": "{}", "status": "completed"},
+      {"type": "function_call_output", "call_id": "call_2", "output": "（未執行：工具輪額度已用盡）"},
+      {"role": "user", "content": "（系統）本次行動的工具輪額度已用盡，最後一輪的工具調用未執行。請根據目前已取得的結果直接總結收尾，不要再嘗試調用工具。"}
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "name": "vault_tools",
+        "description": "檔案",
+        "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+        "strict": false
+      }
+    ],
+    "tool_choice": "none",
+    "max_output_tokens": 512,
+    "store": false,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "touka-c85c580f2e2a07c66af8437884c12902",
+    "stream": true
+  }
+}

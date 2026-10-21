@@ -1,0 +1,52 @@
+# ADR-0117：uv workspace 成員（單一 uv.lock 的抽象相依來源／禁令 53）。
+# 改依賴：改本檔 dependencies → 根目錄 `uv lock` → `uv sync --all-packages` → commit uv.lock。
+[project]
+name = "toukaproxy"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi~=0.133.0",
+    "uvicorn~=0.41.0",
+    "psutil~=7.2.2",
+    "httpx~=0.28.1",
+    # MCP SDK v2 transport 使用獨立的 httpx2；Proxy 自建受控 AsyncClient，故須直接宣告。
+    "httpx2~=2.12.0",
+    "pydantic~=2.12.5",
+    # config.py 直接 import；SDK v1 曾傳遞帶入，v2 不再提供，必須由 Proxy 自行宣告。
+    "pydantic-settings~=2.14.0",
+    "discord.py==2.3.2",
+    "python-telegram-bot==21.1.1",
+    "anthropic~=1.11.0",
+    # 3b-U4a（ADR-0248 D4）：OpenAI Responses 走官方 SDK；建構一律顯式傳入金鑰、base URL、http client。
+    "openai~=3.24.0",
+    "mcp==2.2.0",
+    # P6：Proxy 直接建立 payload-free MCP spans；不得依賴 MCP SDK 傳遞帶入。
+    "opentelemetry-api~=1.44.0",
+    # P5：MCP tool schema quarantine 直接使用 Draft 2020-12 validator，
+    # 不依賴 MCP SDK 的傳遞依賴偶然存在。
+    "jsonschema~=4.26.0",
+    "python-dotenv~=1.2.1",
+    "tavily-python~=0.3.0",
+    "qdrant-client~=1.18.0",
+    "sentence-transformers~=6.0.0",
+    "aiosqlite~=0.22.1",
+    "passlib[bcrypt]~=1.7.4",
+    "PyJWT~=2.15.1",
+    "pydantic[email]~=2.12.5",
+    "bcrypt~=3.2.2",
+    "PyYAML~=6.0.2",
+    # ADR-0082：dispatch 跑在 proxy 環境（單一映像）——filelock 升格直接依賴防 re-lock 漂移。
+    "filelock~=3.29.0",
+    # ADR-0108：備份下載即時加密（WinZip-AES-256）。
+    "pyzipper~=0.4.0",
+    # torch：經 root [tool.uv.sources] 綁 pytorch-cpu index 納入鎖檔
+    #（ADR-0117 Phase 0 實測 2.12.1+cpu、零 nvidia-*；取代 ADR-0071「鎖檔外單獨裝」特例）。
+    "torch==2.13.0",
+    # Development & CI tooling（不影響生產行為；守衛經 venv 匯入使用）
+    "vulture~=2.16",
+    "import-linter~=2.11",
+]
+
+[tool.uv]
+# 非可安裝套件（源碼以 src.* 匯入、無打包結構）——僅作為依賴宣告的虛擬成員。
+package = false

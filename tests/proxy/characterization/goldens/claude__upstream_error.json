@@ -1,0 +1,4 @@
+[
+ "data: {\"id\": \"chatcmpl-req-gc-upstream_error\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"claude-3-5-sonnet\", \"choices\": [{\"delta\": {\"content\": \"❌ **API 發生錯誤**\\n\\n`Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 210000 tokens > 200000 maximum'}}`\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: [DONE]\n\n"
+]

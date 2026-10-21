@@ -1,0 +1,9 @@
+[
+ "data: {\"id\": \"chatcmpl-req-go-multi_tool_round\", \"object\": \"chat.completion.chunk\", \"created\": 1700000017, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"[vault_tools done]\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-go-multi_tool_round\", \"object\": \"chat.completion.chunk\", \"created\": 1700000017, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"[memory_tools done]\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-go-multi_tool_round\", \"object\": \"chat.completion.chunk\", \"created\": 1700000024, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"兩件事都查好了。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 22, \"cost\": 0.00087, \"usage_pct\": 0.1}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-multi_tool_round\", \"total_ms\": 24000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 49.0}}\n\n",
+ "data: {\"choices\": [{\"delta\": {\"content\": \"\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2}, \"id\": \"chatcmpl-req-go-multi_tool_round\", \"telemetry\": {\"request_id\": \"req-go-multi_tool_round\", \"total_ms\": 24000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 49.0}, \"object\": \"chat.completion.chunk\"}\n\n",
+ "data: [DONE]\n\n"
+]

@@ -1,0 +1,6 @@
+{
+  "mcp-docgen": {
+    "command": "uvx",
+    "args": ["mcp-docgen"]
+  }
+}

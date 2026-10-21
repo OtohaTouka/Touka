@@ -1,0 +1,20 @@
+# ADR-0117：uv workspace 成員（單一 uv.lock 的抽象相依來源／禁令 53）。
+# 改依賴：改本檔 dependencies → 根目錄 `uv lock` → `uv sync --all-packages` → commit uv.lock。
+# 注意：本成員刻意輕量（無 torch/transformers）——Docker 以
+# `uv sync --package toukaheartbeat` 維持精簡映像。
+[project]
+name = "toukaheartbeat"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "httpx~=0.28.1",
+    "fastapi~=0.133.0",
+    "uvicorn~=0.41.0",
+    "python-dotenv~=1.2.1",
+    "apscheduler~=3.10.0",
+    "pydantic~=2.12.5",
+    "pydantic-settings~=2.14.0",
+]
+
+[tool.uv]
+package = false

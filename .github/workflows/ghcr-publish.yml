@@ -1,0 +1,65 @@
+name: Publish images to GHCR
+
+# 最小發布流程：手動觸發，建置三個產品映像並推送到 GHCR。
+# 一律發布 sha-<commit>；填 version 時另發布 <version> 與 latest。
+# 不用 tag 觸發：ToukaIDE 的 Marketplace 發行使用 v* tag。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "映像版號（例如 1.0.0）；留空只發布 sha-<commit>"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: touka-proxy
+            context: .
+            file: ToukaProxy/Dockerfile
+          - image: touka-heartbeat
+            context: .
+            file: ToukaHeartbeat/Dockerfile
+          - image: touka-chat
+            context: ToukaChat
+            file: ToukaChat/Dockerfile.prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
+      - uses: docker/build-push-action@v6
+        env:
+          # 不上傳 build record artifact：映像本身已推到 GHCR，紀錄只會佔 Actions 儲存配額。
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TOUKA_SOURCE_REVISION=${{ github.sha }}

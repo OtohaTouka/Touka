@@ -1,0 +1,16 @@
+{
+    "blacklist": [
+        "deprecated",
+        "retired",
+        "vision-only",
+        "grok-5",
+        "claude-opus-3",
+        "claude-sonnet-3.7",
+        "claude-haiku-3.5",
+        "experimental",
+        "learnlm",
+        "bison",
+        "gecko",
+        "erotic-i1"
+    ]
+}

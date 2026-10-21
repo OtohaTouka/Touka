@@ -1,0 +1,7 @@
+{
+    "version": "1.0.0",
+    "author": "system",
+    "description": "模型 context window（token）覆蓋表。code 內建表（context_window_registry._BUILTIN_WINDOWS）為主來源；本檔 windows 為覆蓋／補充（fetcher 抓取或人工新增，鍵為小寫模型 ID 子字串），_default 為未知模型的保守 fallback。",
+    "_default": 128000,
+    "windows": {}
+}

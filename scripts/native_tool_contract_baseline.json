@@ -1,0 +1,3515 @@
+{
+  "version": 1,
+  "baseline": "1093e8d8e9a355c32b363c9dfa9b335dca474cb2",
+  "notes": [
+    "Exact finite consumer-shape classifications; not public JSON schemas.",
+    "Existing untyped consumers require classification review on shape changes; new public fields require typed migration.",
+    "Research existing Tavily kwargs remain unchanged; newly added fields are not exempt."
+  ],
+  "registry_bindings": {
+    "ToukaProxy/src/tools/builtin/__init__.py": {
+      "handlers": {
+        "read": "Name(id='verb_read', ctx=Load())",
+        "list": "Name(id='verb_list', ctx=Load())",
+        "find": "Name(id='verb_find', ctx=Load())",
+        "grep": "Name(id='verb_grep', ctx=Load())",
+        "write": "Name(id='verb_write', ctx=Load())",
+        "edit": "Name(id='verb_edit', ctx=Load())",
+        "insert": "Name(id='verb_insert', ctx=Load())",
+        "undo": "Name(id='verb_undo', ctx=Load())",
+        "delete": "Name(id='verb_delete', ctx=Load())",
+        "edit_soul": "Name(id='edit_soul', ctx=Load())",
+        "send_message": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.builtin.sns')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='send_message')], ctx=Load()))]), attr='send_message', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "update_my_soul": "Name(id='update_my_soul', ctx=Load())",
+        "agent_control": "Name(id='agent_control', ctx=Load())",
+        "research": "Name(id='research', ctx=Load())",
+        "ask_user": "Name(id='ask_user', ctx=Load())",
+        "vault_tools": "Name(id='vault_tools', ctx=Load())",
+        "project_tools": "Name(id='project_tools', ctx=Load())",
+        "memory_tools": "Name(id='memory_tools', ctx=Load())",
+        "mission_tools": "Name(id='mission_tools', ctx=Load())",
+        "execute_command": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.terminal')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='execute_command')], ctx=Load()))]), attr='execute_command', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "get_command_result": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.terminal')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='get_command_result')], ctx=Load()))]), attr='get_command_result', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "stop_command": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.terminal')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='stop_command')], ctx=Load()))]), attr='stop_command', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "dispatch_subagent": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.subagent_tools')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='dispatch_subagent')], ctx=Load()))]), attr='dispatch_subagent', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "dispatch_subagent_group": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.subagent_tools')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='dispatch_subagent_group')], ctx=Load()))]), attr='dispatch_subagent_group', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "bash": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.terminal')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='bash')], ctx=Load()))]), attr='bash', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "ide_open_diff": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.editor')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='ide_open_diff')], ctx=Load()))]), attr='ide_open_diff', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "sns_control": "Lambda(args=arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], kwarg=arg(arg='kwargs'), defaults=[]), body=Call(func=Attribute(value=Call(func=Name(id='__import__', ctx=Load()), args=[Constant(value='src.tools.builtin.sns')], keywords=[keyword(arg='fromlist', value=List(elts=[Constant(value='sns_control')], ctx=Load()))]), attr='sns_control', ctx=Load()), args=[], keywords=[keyword(value=Name(id='kwargs', ctx=Load()))]))",
+        "connect_mcp_server": "Name(id='connect_mcp_server', ctx=Load())",
+        "activate_skill": "Name(id='activate_skill', ctx=Load())",
+        "search_skill_market": "Name(id='search_skill_market', ctx=Load())",
+        "request_skill_install": "Name(id='request_skill_install', ctx=Load())",
+        "evolution_define": "Name(id='evolution_define', ctx=Load())",
+        "evolution_implement_and_verify": "Name(id='evolution_implement_and_verify', ctx=Load())",
+        "propose_new_capability": "Name(id='propose_new_capability', ctx=Load())",
+        "write_mcp_implementation": "Name(id='write_mcp_implementation', ctx=Load())",
+        "verify_mcp_locally": "Name(id='verify_mcp_locally', ctx=Load())",
+        "request_mcp_creation": "Name(id='request_mcp_creation', ctx=Load())",
+        "create_skill": "Name(id='create_skill', ctx=Load())",
+        "create_mcp": "Name(id='create_mcp', ctx=Load())",
+        "scaffold_mcp": "Name(id='scaffold_mcp', ctx=Load())"
+      },
+      "imports": [
+        "ImportFrom(module='types', names=[alias(name='MappingProxyType')], level=0)",
+        "ImportFrom(module='execution_policy', names=[alias(name='ExecutionBinding'), alias(name='ToolExecutionClass')], level=2)",
+        "ImportFrom(module='file_verbs', names=[alias(name='verb_delete'), alias(name='verb_edit'), alias(name='verb_find'), alias(name='verb_grep'), alias(name='verb_insert'), alias(name='verb_list'), alias(name='verb_read'), alias(name='verb_undo'), alias(name='verb_write')], level=2)",
+        "ImportFrom(module='mission_tools', names=[alias(name='mission_tools')], level=2)",
+        "ImportFrom(module='project_tools', names=[alias(name='project_tools')], level=2)",
+        "ImportFrom(module='vault_tools', names=[alias(name='vault_tools')], level=2)",
+        "ImportFrom(module='creation', names=[alias(name='create_mcp', asname='create_mcp')], level=1)",
+        "ImportFrom(module='creation', names=[alias(name='create_skill', asname='create_skill')], level=1)",
+        "ImportFrom(module='creation', names=[alias(name='scaffold_mcp', asname='scaffold_mcp')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='evolution_define', asname='evolution_define')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='evolution_implement_and_verify', asname='evolution_implement_and_verify')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='propose_new_capability', asname='propose_new_capability')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='request_mcp_creation', asname='request_mcp_creation')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='verify_mcp_locally', asname='verify_mcp_locally')], level=1)",
+        "ImportFrom(module='evolution', names=[alias(name='write_mcp_implementation', asname='write_mcp_implementation')], level=1)",
+        "ImportFrom(module='interaction', names=[alias(name='ask_user', asname='ask_user')], level=1)",
+        "ImportFrom(module='memory', names=[alias(name='memory_tools', asname='memory_tools')], level=1)",
+        "ImportFrom(module='research', names=[alias(name='research', asname='research')], level=1)",
+        "ImportFrom(module='schemas', names=[alias(name='UPDATE_MY_SOUL_SCHEMA', asname='UPDATE_MY_SOUL_SCHEMA')], level=1)",
+        "ImportFrom(module='schemas', names=[alias(name='builtin_tools_schema', asname='builtin_tools_schema')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='activate_skill', asname='activate_skill')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='agent_control', asname='agent_control')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='connect_mcp_server', asname='connect_mcp_server')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='edit_soul', asname='edit_soul')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='request_skill_install', asname='request_skill_install')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='search_skill_market', asname='search_skill_market')], level=1)",
+        "ImportFrom(module='system', names=[alias(name='update_my_soul', asname='update_my_soul')], level=1)"
+      ]
+    },
+    "ToukaMemory/src/memory_server/tools/__init__.py": {
+      "handlers": {
+        "vault_tools": "Name(id='vault_tools', ctx=Load())",
+        "memory_tools": "Name(id='memory_tools', ctx=Load())",
+        "mission_tools": "Name(id='mission_tools', ctx=Load())"
+      },
+      "imports": [
+        "ImportFrom(module='__future__', names=[alias(name='annotations')], level=0)",
+        "Import(names=[alias(name='json')])",
+        "Import(names=[alias(name='logging')])",
+        "ImportFrom(module='typing', names=[alias(name='TYPE_CHECKING'), alias(name='Any')], level=0)",
+        "ImportFrom(module='memory_server.services.personal_catalog', names=[alias(name='run_vault_action')], level=0)",
+        "ImportFrom(module='memory_server.tools.core_file_ops', names=[alias(name='core_delete'), alias(name='core_find'), alias(name='core_grep'), alias(name='core_list'), alias(name='core_read'), alias(name='core_str_replace'), alias(name='core_write')], level=0)",
+        "ImportFrom(module='memory_server.tools.diag', names=[alias(name='manage_duplicate_memories'), alias(name='memory_diagnostics'), alias(name='reindex_memories')], level=0)",
+        "ImportFrom(module='memory_server.tools.legacy_vault', names=[alias(name='search_conversations')], level=0)",
+        "ImportFrom(module='memory_server.tools.mission_tools', names=[alias(name='mission_tools')], level=0)",
+        "ImportFrom(module='memory_server.tools.recall', names=[alias(name='random_recall')], level=0)",
+        "ImportFrom(module='memory_server.tools.schemas', names=[alias(name='MEMORY_TOOLS_SCHEMA_LIST')], level=0)"
+      ]
+    }
+  },
+  "tools": {
+    "activate_skill": "existing_public",
+    "agent_control": "existing_public",
+    "ask_user": "existing_public",
+    "bash": "legacy",
+    "connect_mcp_server": "existing_public",
+    "create_mcp": "existing_public",
+    "create_skill": "typed",
+    "delete": "existing_public",
+    "dispatch_subagent": "existing_public",
+    "dispatch_subagent_group": "typed",
+    "edit": "existing_public",
+    "edit_soul": "typed",
+    "evolution_define": "existing_public",
+    "evolution_implement_and_verify": "typed",
+    "execute_command": "existing_public",
+    "find": "existing_public",
+    "get_command_result": "existing_public",
+    "grep": "existing_public",
+    "ide_open_diff": "typed",
+    "insert": "existing_public",
+    "list": "existing_public",
+    "memory_tools": "typed",
+    "mission_tools": "typed",
+    "project_tools": "legacy",
+    "propose_new_capability": "legacy",
+    "read": "existing_public",
+    "request_mcp_creation": "legacy",
+    "request_skill_install": "existing_public",
+    "research": "existing_public",
+    "scaffold_mcp": "existing_public",
+    "search_skill_market": "existing_public",
+    "send_message": "existing_public",
+    "sns_control": "legacy",
+    "stop_command": "existing_public",
+    "undo": "existing_public",
+    "update_my_soul": "legacy",
+    "vault_tools": "legacy",
+    "verify_mcp_locally": "legacy",
+    "write": "existing_public",
+    "write_mcp_implementation": "legacy"
+  },
+  "legacy_tools": [
+    "bash",
+    "project_tools",
+    "propose_new_capability",
+    "request_mcp_creation",
+    "sns_control",
+    "update_my_soul",
+    "vault_tools",
+    "verify_mcp_locally",
+    "write_mcp_implementation"
+  ],
+  "typed_consumers": [
+    {
+      "source": "ToukaProxy/src/tools/builtin/memory.py",
+      "function": "memory_tools",
+      "models": [
+        "MemorySaveInput",
+        "MemoryQueryInput",
+        "MemoryForgetInput",
+        "MemoryDuplicatesInput",
+        "MemoryRandomInput",
+        "MemoryDiagnosticsInput",
+        "MemoryReindexInput",
+        "MemoryConversationsInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/__init__.py",
+      "function": "memory_tools",
+      "models": [
+        "MemorySaveInput",
+        "MemoryQueryInput",
+        "MemoryForgetInput",
+        "MemoryDuplicatesInput",
+        "MemoryRandomInput",
+        "MemoryDiagnosticsInput",
+        "MemoryReindexInput",
+        "MemoryConversationsInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/__init__.py",
+      "function": "save_memory",
+      "models": [
+        "MemorySaveInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/__init__.py",
+      "function": "query_memory",
+      "models": [
+        "MemoryQueryInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/__init__.py",
+      "function": "forget_memory",
+      "models": [
+        "MemoryForgetInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/services/manager.py",
+      "function": "MemoryManager.save_memory",
+      "models": [
+        "MemorySaveInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy",
+        "source_context"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/services/manager.py",
+      "function": "MemoryManager.query_memory",
+      "models": [
+        "MemoryQueryInput"
+      ],
+      "aliases": {
+        "importance_min": "importance"
+      },
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy",
+        "source_resolver"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/services/manager.py",
+      "function": "MemoryManager.resolve_duplicate",
+      "models": [
+        "MemoryForgetInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/diag.py",
+      "function": "manage_duplicate_memories",
+      "models": [
+        "MemoryDuplicatesInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy",
+        "source_context"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/mission_tools.py",
+      "function": "mission_tools",
+      "models": [
+        "MissionInitializeInput",
+        "MissionUpdateInput",
+        "MissionBoardInput",
+        "MissionAwaitInput",
+        "MissionFinalizeInput",
+        "MissionReviewInput"
+      ],
+      "aliases": {
+        "artifact_ref": "artifact_refs"
+      },
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/services/mission_manager.py",
+      "function": "MissionManager.initialize_mission",
+      "models": [
+        "MissionInitializeInput",
+        "MissionTaskInput"
+      ],
+      "aliases": {
+        "initial_tasks": "tasks",
+        "id": "task_id",
+        "dependencies": "dependency_task_ids",
+        "artifact_ref": "artifact_refs"
+      },
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "t"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/creation.py",
+      "function": "create_skill",
+      "models": [
+        "CreateSkillInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/evolution.py",
+      "function": "evolution_implement_and_verify",
+      "models": [
+        "EvolutionVerifyInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/evolution.py",
+      "function": "verify_mcp_locally",
+      "models": [
+        "EvolutionVerifyInput"
+      ],
+      "aliases": {
+        "tool_name": "test_tool_name",
+        "arguments": "test_arguments"
+      },
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/editor.py",
+      "function": "ide_open_diff",
+      "models": [
+        "IdeDiffInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/system.py",
+      "function": "edit_soul",
+      "models": [
+        "SoulWriteInput",
+        "SoulReplaceInput",
+        "SoulInsertInput",
+        "SoulUndoInput",
+        "SoulDeleteInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/system.py",
+      "function": "update_my_soul",
+      "models": [
+        "SoulWriteInput",
+        "SoulReplaceInput",
+        "SoulInsertInput",
+        "SoulUndoInput",
+        "SoulDeleteInput"
+      ],
+      "aliases": {
+        "file_type": "type"
+      },
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true,
+      "internal": {
+        "view_range": "Only legacy update_my_soul read; edit_soul does not advertise read."
+      }
+    },
+    {
+      "source": "ToukaProxy/src/tools/subagent_tools.py",
+      "function": "dispatch_subagent_group",
+      "models": [
+        "SubagentGroupInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaMemory/src/memory_server/tools/legacy_vault.py",
+      "function": "search_conversations",
+      "models": [
+        "MemoryConversationsInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    }
+  ],
+  "consumers": {
+    "ToukaMemory/src/memory_server/services/manager.py": {
+      "MemoryManager.reset_singletons": {
+        "parameters": [
+          "cls"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_legacy_dir": {
+        "parameters": [
+          "self",
+          "identity",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_personal_drive_dir": {
+        "parameters": [
+          "self",
+          "identity",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_soul_dir": {
+        "parameters": [
+          "self",
+          "identity",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_legacy_sync_service": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager._load_registry": {
+        "parameters": [
+          "self",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_factual_store": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.get_vector_store": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.purge_agent": {
+        "parameters": [
+          "self",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.count_agent_memory": {
+        "parameters": [
+          "self",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.normalize_agent_id": {
+        "parameters": [
+          "self",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.save_memory": {
+        "parameters": [
+          "self",
+          "identity",
+          "content",
+          "tags",
+          "importance",
+          "emotions",
+          "source_context"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "fact_res",
+            "message"
+          ],
+          [
+            "fact_res",
+            "status"
+          ]
+        ],
+        "dynamic": []
+      },
+      "MemoryManager.normalize_time_range": {
+        "parameters": [
+          "self",
+          "date_start",
+          "date_end",
+          "is_recent"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MemoryManager.query_memory": {
+        "parameters": [
+          "self",
+          "identity",
+          "query",
+          "limit",
+          "tags",
+          "importance",
+          "importance_min",
+          "emotions",
+          "date_start",
+          "date_end",
+          "is_recent",
+          "include_sources",
+          "source_resolver"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "res",
+            "emotions"
+          ],
+          [
+            "res",
+            "fact_id"
+          ],
+          [
+            "res",
+            "id"
+          ],
+          [
+            "res",
+            "importance"
+          ],
+          [
+            "res",
+            "tags"
+          ],
+          [
+            "v",
+            "fact_id"
+          ],
+          [
+            "x",
+            "importance"
+          ]
+        ],
+        "dynamic": []
+      },
+      "MemoryManager.find_duplicates": {
+        "parameters": [
+          "self",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "fact",
+            "emotions"
+          ],
+          [
+            "fact",
+            "importance"
+          ],
+          [
+            "similar",
+            "_score"
+          ],
+          [
+            "similar",
+            "content"
+          ],
+          [
+            "similar",
+            "emotions"
+          ],
+          [
+            "similar",
+            "fact_id"
+          ],
+          [
+            "similar",
+            "importance"
+          ]
+        ],
+        "dynamic": []
+      },
+      "MemoryManager.resolve_duplicate": {
+        "parameters": [
+          "self",
+          "identity",
+          "fact_id_to_archive"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/services/mission_manager.py": {
+      "MissionManager._get_lock": {
+        "parameters": [
+          "self",
+          "agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager._resolve_target_agent_id": {
+        "parameters": [
+          "self",
+          "identity",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager._get_mission_path": {
+        "parameters": [
+          "self",
+          "identity",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager._get_current_mission_unlocked": {
+        "parameters": [
+          "self",
+          "identity",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager._save_mission_unlocked": {
+        "parameters": [
+          "self",
+          "identity",
+          "state",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.initialize_mission": {
+        "parameters": [
+          "self",
+          "identity",
+          "goal",
+          "initial_tasks",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "t",
+            "artifact_ref"
+          ],
+          [
+            "t",
+            "artifact_refs"
+          ],
+          [
+            "t",
+            "boundary_rules"
+          ],
+          [
+            "t",
+            "dependencies"
+          ],
+          [
+            "t",
+            "description"
+          ],
+          [
+            "t",
+            "id"
+          ],
+          [
+            "t",
+            "review_required"
+          ],
+          [
+            "t",
+            "review_risk"
+          ],
+          [
+            "t",
+            "test_log"
+          ],
+          [
+            "t",
+            "verification_cmd"
+          ]
+        ],
+        "dynamic": []
+      },
+      "MissionManager.get_current_mission": {
+        "parameters": [
+          "self",
+          "identity",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.save_mission": {
+        "parameters": [
+          "self",
+          "identity",
+          "state",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.finalize_mission": {
+        "parameters": [
+          "self",
+          "identity",
+          "verdict",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.record_review": {
+        "parameters": [
+          "self",
+          "identity",
+          "task_id",
+          "review_status",
+          "reviewer_id",
+          "critic_verdict",
+          "evidence_digest",
+          "attempts_increment",
+          "review_locked",
+          "stash_fixes",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionManager.update_task": {
+        "parameters": [
+          "self",
+          "identity",
+          "task_id",
+          "status",
+          "artifact_ref",
+          "artifact_refs",
+          "test_log",
+          "blocker_detail",
+          "target_agent_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "MissionPersistenceError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/services/personal_catalog.py": {
+      "CatalogPathDeniedError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "CatalogEntry._relative_inside": {
+        "parameters": [
+          "cls",
+          "value"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_root_key": {
+        "parameters": [
+          "root"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_lock_for": {
+        "parameters": [
+          "key"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_markdown_title": {
+        "parameters": [
+          "data"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_describe": {
+        "parameters": [
+          "proxy",
+          "root",
+          "rel",
+          "size",
+          "mtime_ns"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_load_trusted": {
+        "parameters": [
+          "proxy",
+          "catalog_path",
+          "key"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_rebuild": {
+        "parameters": [
+          "proxy",
+          "root"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "refresh": {
+        "parameters": [
+          "root",
+          "proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_refresh_logged": {
+        "parameters": [
+          "root",
+          "proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_resolve_inside": {
+        "parameters": [
+          "path",
+          "root"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "run_vault_action": {
+        "parameters": [
+          "handler",
+          "action",
+          "root",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "path"
+          ],
+          [
+            "kwargs",
+            "resource_proxy"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/__init__.py": {
+      "get_manager": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "save_memory": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "manager"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "query_memory": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "manager"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "forget_memory": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "manager"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "export_facts": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "manager"
+          ]
+        ],
+        "dynamic": []
+      },
+      "vault_tools": {
+        "parameters": [
+          "vault",
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "exclude"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "manager"
+          ],
+          [
+            "kwargs",
+            "path"
+          ],
+          [
+            "kwargs",
+            "resource_proxy"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "memory_tools": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "action"
+          ],
+          [
+            "kwargs",
+            "manager"
+          ],
+          [
+            "kwargs",
+            "operation"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/core_file_ops.py": {
+      "_enforce_root_bound": {
+        "parameters": [
+          "target_path_str",
+          "root_bound_str"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "core_read": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "offset",
+          "limit",
+          "resource_proxy"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_write": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "content",
+          "mode",
+          "resource_proxy"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_str_replace": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "old_str",
+          "new_str",
+          "resource_proxy"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_delete": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "resource_proxy"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_list": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "max_depth",
+          "resource_proxy",
+          "exclude"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_find": {
+        "parameters": [
+          "pattern",
+          "root_bound",
+          "resource_proxy",
+          "exclude"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "core_grep": {
+        "parameters": [
+          "query",
+          "root_bound",
+          "resource_proxy",
+          "exclude"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/diag.py": {
+      "normalize_agent_id": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "memory_diagnostics": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "reindex_memories": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "manage_duplicate_memories": {
+        "parameters": [
+          "identity",
+          "manager",
+          "action",
+          "target_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "pair",
+            "emotions1"
+          ],
+          [
+            "pair",
+            "emotions2"
+          ],
+          [
+            "pair",
+            "importance1"
+          ],
+          [
+            "pair",
+            "importance2"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/legacy_vault.py": {
+      "search_conversations": {
+        "parameters": [
+          "identity",
+          "manager",
+          "query",
+          "date_start",
+          "date_end",
+          "role",
+          "page_size",
+          "offset",
+          "source"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='parameters', ctx=Load())"
+        ]
+      },
+      "_format_row": {
+        "parameters": [
+          "number",
+          "row"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/mission_tools.py": {
+      "mission_tools": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "artifact_ref"
+          ],
+          [
+            "kwargs",
+            "goal"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "status"
+          ],
+          [
+            "kwargs",
+            "task_id"
+          ],
+          [
+            "kwargs",
+            "tasks"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/personal_drive.py": {
+      "access_personal_drive": {
+        "parameters": [
+          "identity",
+          "manager",
+          "filename",
+          "action",
+          "write_content",
+          "read_image"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/recall.py": {
+      "random_recall": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaMemory/src/memory_server/tools/schemas.py": {},
+    "ToukaProxy/src/tools/builtin/__init__.py": {},
+    "ToukaProxy/src/tools/builtin/creation.py": {
+      "_gate": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_summarize": {
+        "parameters": [
+          "res"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "create_skill": {
+        "parameters": [],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "agent_id"
+          ],
+          [
+            "kwargs",
+            "author"
+          ],
+          [
+            "kwargs",
+            "category"
+          ],
+          [
+            "kwargs",
+            "description"
+          ],
+          [
+            "kwargs",
+            "id"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "mcp_servers"
+          ],
+          [
+            "kwargs",
+            "name"
+          ],
+          [
+            "kwargs",
+            "required_tools"
+          ],
+          [
+            "kwargs",
+            "system_prompt"
+          ]
+        ],
+        "dynamic": []
+      },
+      "create_mcp": {
+        "parameters": [],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_call_id"
+          ],
+          [
+            "kwargs",
+            "args"
+          ],
+          [
+            "kwargs",
+            "command"
+          ],
+          [
+            "kwargs",
+            "description"
+          ],
+          [
+            "kwargs",
+            "env"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "name"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "scaffold_mcp": {
+        "parameters": [],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_call_id"
+          ],
+          [
+            "kwargs",
+            "description"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "name"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ],
+          [
+            "kwargs",
+            "tools"
+          ],
+          [
+            "p",
+            "name"
+          ],
+          [
+            "p",
+            "type"
+          ],
+          [
+            "t",
+            "description"
+          ],
+          [
+            "t",
+            "name"
+          ],
+          [
+            "t",
+            "params"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/builtin/evolution.py": {
+      "_evolution_refused": {
+        "parameters": [
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_skill_operation": {
+        "parameters": [
+          "function"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "_evolution_lock"
+          ]
+        ],
+        "dynamic": [
+          "Dict(keys=[None, Constant(value='_evolution_lock')], values=[Name(id='kwargs', ctx=Load()), Name(id='lease', ctx=Load())])"
+        ]
+      },
+      "_windows_client": {
+        "parameters": [
+          "config",
+          "timeout",
+          "tail"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_venv_python": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_isolation_grant": {
+        "parameters": [
+          "tool",
+          "args",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "_call_id"
+          ],
+          [
+            "kwargs",
+            "_evolution_grant"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_isolation_unavailable": {
+        "parameters": [
+          "skill_id",
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_clamp_quota": {
+        "parameters": [
+          "requested",
+          "ceiling"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_build_jail_code": {
+        "parameters": [
+          "skill_id",
+          "tool_name",
+          "arguments",
+          "target_dir",
+          "max_mb"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "propose_new_capability": {
+        "parameters": [
+          "skill_id",
+          "name",
+          "description",
+          "schema"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "write_mcp_implementation": {
+        "parameters": [
+          "skill_id",
+          "code",
+          "dependencies"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verify_mcp_locally": {
+        "parameters": [
+          "skill_id",
+          "tool_name",
+          "arguments"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "_verify_mcp": {
+        "parameters": [
+          "skill_id",
+          "tool_name",
+          "arguments"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "max_storage_mb"
+          ],
+          [
+            "kwargs",
+            "timeout_override"
+          ],
+          [
+            "limits",
+            "execution_timeout_sec"
+          ],
+          [
+            "limits",
+            "max_memory_mb"
+          ],
+          [
+            "limits",
+            "max_storage_mb"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_deployment_files": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_approval_digest": {
+        "parameters": [
+          "contents"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_deployment_config": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "document",
+            "mcpServers"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_save_deployment": {
+        "parameters": [
+          "skill_id",
+          "digest",
+          "entry"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "data",
+            "mcpServers"
+          ]
+        ],
+        "dynamic": []
+      },
+      "request_mcp_creation": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "_emit_event"
+          ],
+          [
+            "kwargs",
+            "_interactive"
+          ],
+          [
+            "kwargs",
+            "agent_id"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "spec",
+            "description"
+          ],
+          [
+            "spec",
+            "name"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='entry', ctx=Load())"
+        ]
+      },
+      "_clean_kwargs": {
+        "parameters": [
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "evolution_define": {
+        "parameters": [
+          "skill_id",
+          "name",
+          "description",
+          "schema"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Call(func=Name(id='_clean_kwargs', ctx=Load()), args=[Name(id='kwargs', ctx=Load())], keywords=[])"
+        ]
+      },
+      "evolution_implement_and_verify": {
+        "parameters": [
+          "skill_id",
+          "code",
+          "test_tool_name",
+          "test_arguments",
+          "dependencies",
+          "submit_for_deploy"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='clean', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaProxy/src/tools/builtin/interaction.py": {
+      "ask_user": {
+        "parameters": [
+          "questions",
+          "_emit_event",
+          "_call_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_timeout"
+          ],
+          [
+            "q",
+            "question"
+          ],
+          [
+            "result",
+            "answers"
+          ],
+          [
+            "result",
+            "status"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/builtin/memory.py": {
+      "memory_tools": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "clean_kwargs",
+            "include_sources"
+          ],
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "request_id"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='clean_kwargs', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaProxy/src/tools/builtin/research.py": {
+      "_format_results": {
+        "parameters": [
+          "label",
+          "normalized"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "normalized",
+            "answer"
+          ],
+          [
+            "normalized",
+            "items"
+          ],
+          [
+            "r",
+            "content"
+          ],
+          [
+            "r",
+            "title"
+          ],
+          [
+            "r",
+            "url"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_flatten_ddg_topics": {
+        "parameters": [
+          "topics",
+          "items"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "t",
+            "FirstURL"
+          ],
+          [
+            "t",
+            "Text"
+          ],
+          [
+            "t",
+            "Topics"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_search_tavily": {
+        "parameters": [
+          "query",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "include_answer"
+          ],
+          [
+            "kwargs",
+            "max_results"
+          ],
+          [
+            "kwargs",
+            "search_depth"
+          ],
+          [
+            "r",
+            "content"
+          ],
+          [
+            "r",
+            "snippet"
+          ],
+          [
+            "r",
+            "title"
+          ],
+          [
+            "r",
+            "url"
+          ],
+          [
+            "raw_res",
+            "answer"
+          ],
+          [
+            "raw_res",
+            "results"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_search_searxng": {
+        "parameters": [
+          "query",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "data",
+            "answers"
+          ],
+          [
+            "data",
+            "results"
+          ],
+          [
+            "first",
+            "answer"
+          ],
+          [
+            "r",
+            "content"
+          ],
+          [
+            "r",
+            "title"
+          ],
+          [
+            "r",
+            "url"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_search_ddg": {
+        "parameters": [
+          "query",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "client",
+            "https://api.duckduckgo.com"
+          ],
+          [
+            "data",
+            "AbstractText"
+          ],
+          [
+            "data",
+            "AbstractURL"
+          ],
+          [
+            "data",
+            "Answer"
+          ],
+          [
+            "data",
+            "Heading"
+          ],
+          [
+            "data",
+            "RelatedTopics"
+          ],
+          [
+            "data",
+            "Results"
+          ],
+          [
+            "r",
+            "FirstURL"
+          ],
+          [
+            "r",
+            "Text"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_search_google": {
+        "parameters": [
+          "query",
+          "model",
+          "emit"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "data",
+            "candidates"
+          ],
+          [
+            "p",
+            "text"
+          ]
+        ],
+        "dynamic": []
+      },
+      "research": {
+        "parameters": [
+          "query",
+          "source"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_emit_event"
+          ],
+          [
+            "kwargs",
+            "model"
+          ],
+          [
+            "normalized",
+            "answer"
+          ],
+          [
+            "normalized",
+            "items"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/builtin/schemas.py": {},
+    "ToukaProxy/src/tools/builtin/sns.py": {
+      "send_message": {
+        "parameters": [
+          "platform",
+          "channel_id",
+          "content"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "sns_control": {
+        "parameters": [
+          "action",
+          "platform",
+          "channel_id",
+          "content"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaProxy/src/tools/builtin/system.py": {
+      "agent_control": {
+        "parameters": [
+          "action",
+          "identity",
+          "target_model",
+          "_reason"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "request_id"
+          ],
+          [
+            "m",
+            "owned_by"
+          ]
+        ],
+        "dynamic": []
+      },
+      "update_my_soul": {
+        "parameters": [
+          "identity",
+          "type",
+          "action",
+          "content",
+          "filename",
+          "old_str",
+          "new_str",
+          "insert_line",
+          "view_range"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "edit_soul": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "connect_mcp_server": {
+        "parameters": [
+          "server_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "data",
+            "mcpServers"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ],
+          [
+            "session",
+            "active_mcp_servers"
+          ]
+        ],
+        "dynamic": []
+      },
+      "activate_skill": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ],
+          [
+            "session",
+            "active_skills"
+          ]
+        ],
+        "dynamic": []
+      },
+      "search_skill_market": {
+        "parameters": [
+          "query"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [
+          [
+            "data",
+            "skills"
+          ],
+          [
+            "s",
+            "category"
+          ],
+          [
+            "s",
+            "description"
+          ],
+          [
+            "s",
+            "name"
+          ],
+          [
+            "s",
+            "permissions"
+          ]
+        ],
+        "dynamic": []
+      },
+      "request_skill_install": {
+        "parameters": [
+          "skill_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "current_config",
+            "mcpServers"
+          ],
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "_emit_event"
+          ],
+          [
+            "kwargs",
+            "_interactive"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "market_data",
+            "skills"
+          ],
+          [
+            "payload",
+            "env_vars"
+          ],
+          [
+            "skill",
+            "env_requirements"
+          ],
+          [
+            "skill",
+            "permissions"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='entry', ctx=Load())"
+        ]
+      },
+      "_executor_may_write_session": {
+        "parameters": [
+          "session",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "agent_id"
+          ],
+          [
+            "session",
+            "agent_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_activation_error": {
+        "parameters": [
+          "exc"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_save_activation": {
+        "parameters": [
+          "session_id",
+          "revision",
+          "identity",
+          "changes"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/editor.py": {
+      "_get_safe_path": {
+        "parameters": [
+          "path",
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_get_ide_config": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "ide_open_diff": {
+        "parameters": [
+          "path",
+          "new_content",
+          "identity",
+          "session_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "text_editor": {
+        "parameters": [
+          "command",
+          "path",
+          "identity",
+          "file_text",
+          "old_str",
+          "new_str",
+          "view_range",
+          "insert_line"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/execution_context.py": {
+      "build_execution_context_kwargs": {
+        "parameters": [
+          "request_id",
+          "identity",
+          "session_id",
+          "project_id",
+          "model",
+          "is_toukasoul",
+          "auth_level",
+          "hitl_preapproved",
+          "interactive",
+          "emit_event",
+          "call_id",
+          "context",
+          "approved_by"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/file_verbs.py": {
+      "reset_undo_for_test": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_clean": {
+        "parameters": [
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_dispatch": {
+        "parameters": [
+          "scope",
+          "action",
+          "params",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())",
+          "Name(id='params', ctx=Load())"
+        ]
+      },
+      "_scope_error": {
+        "parameters": [
+          "scope",
+          "verb",
+          "write",
+          "context"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_undo_key": {
+        "parameters": [
+          "scope",
+          "path",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "kwargs",
+            "agent_id"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "project_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_read_raw": {
+        "parameters": [
+          "scope",
+          "path",
+          "kwargs"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_applied_hunk": {
+        "parameters": [
+          "content",
+          "line_1based",
+          "radius"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_read": {
+        "parameters": [
+          "scope",
+          "path",
+          "view_range"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_list": {
+        "parameters": [
+          "scope",
+          "path",
+          "depth"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_find": {
+        "parameters": [
+          "scope",
+          "pattern"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_grep": {
+        "parameters": [
+          "scope",
+          "query"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_write": {
+        "parameters": [
+          "scope",
+          "path",
+          "content",
+          "mode"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_edit": {
+        "parameters": [
+          "scope",
+          "path",
+          "old_str",
+          "new_str"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_insert": {
+        "parameters": [
+          "scope",
+          "path",
+          "line",
+          "text"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_undo": {
+        "parameters": [
+          "scope",
+          "path"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "verb_delete": {
+        "parameters": [
+          "scope",
+          "path"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "_scope_description": {
+        "parameters": [
+          "scopes",
+          "write"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_verb_schema": {
+        "parameters": [
+          "name",
+          "description",
+          "extra_props",
+          "required",
+          "write"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_hide_scopes": {
+        "parameters": [
+          "schema",
+          "hidden"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/grok_imagine_server.py": {
+      "grok_imagine": {
+        "parameters": [
+          "prompt",
+          "identity",
+          "aspect_ratio"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "data",
+            "data"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/mission_tools.py": {
+      "_agent_artifact_root": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_normalize_task_keys": {
+        "parameters": [
+          "task"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "task",
+            "dependency_task_ids"
+          ],
+          [
+            "task",
+            "task_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "mission_tools": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "ctx",
+            "anthropic_client"
+          ],
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "artifact_ref"
+          ],
+          [
+            "kwargs",
+            "artifact_refs"
+          ],
+          [
+            "kwargs",
+            "blocker_detail"
+          ],
+          [
+            "kwargs",
+            "callback_token"
+          ],
+          [
+            "kwargs",
+            "critic_model"
+          ],
+          [
+            "kwargs",
+            "goal"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "model"
+          ],
+          [
+            "kwargs",
+            "notify_on_complete"
+          ],
+          [
+            "kwargs",
+            "producer_claims"
+          ],
+          [
+            "kwargs",
+            "status"
+          ],
+          [
+            "kwargs",
+            "target_agent_id"
+          ],
+          [
+            "kwargs",
+            "task_id"
+          ],
+          [
+            "kwargs",
+            "tasks"
+          ],
+          [
+            "kwargs",
+            "test_log"
+          ],
+          [
+            "kwargs",
+            "timeout"
+          ],
+          [
+            "kwargs",
+            "verdict"
+          ],
+          [
+            "result",
+            "artifact_refs"
+          ],
+          [
+            "result",
+            "claims"
+          ],
+          [
+            "result",
+            "confidence"
+          ],
+          [
+            "result",
+            "report_status"
+          ],
+          [
+            "result",
+            "result_summary"
+          ],
+          [
+            "result",
+            "status"
+          ],
+          [
+            "result",
+            "structured"
+          ],
+          [
+            "result",
+            "task_id"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/plugin_loader.py": {
+      "get_type_name": {
+        "parameters": [
+          "annotation"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "parse_docstring": {
+        "parameters": [
+          "docstring"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "generate_schema_from_method": {
+        "parameters": [
+          "m_name",
+          "method"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "load_plugins": {
+        "parameters": [
+          "plugin_dir"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/project_tools.py": {
+      "project_tools": {
+        "parameters": [
+          "action",
+          "path"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "content"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "kwargs",
+            "max_depth"
+          ],
+          [
+            "kwargs",
+            "new_str"
+          ],
+          [
+            "kwargs",
+            "old_str"
+          ],
+          [
+            "kwargs",
+            "pattern"
+          ],
+          [
+            "kwargs",
+            "project_id"
+          ],
+          [
+            "kwargs",
+            "query"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaProxy/src/tools/subagent_tools.py": {
+      "_subagent_user_prompt": {
+        "parameters": [
+          "goal"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_derive_context": {
+        "parameters": [
+          "base_ctx"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": [
+          "Call(func=Name(id='dict', ctx=Load()), args=[BoolOp(op=Or(), values=[Name(id='base_ctx', ctx=Load()), Dict(keys=[], values=[])])], keywords=[])"
+        ]
+      },
+      "_mark_subagent_run": {
+        "parameters": [
+          "ctx",
+          "base_ctx",
+          "goal"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "user_intent"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_assemble_subagent_request": {
+        "parameters": [
+          "goal",
+          "sub_identity",
+          "base_ctx",
+          "model"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "auth_level"
+          ],
+          [
+            "base_ctx",
+            "headers"
+          ],
+          [
+            "t",
+            "function"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_drain_text": {
+        "parameters": [
+          "stream"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "data",
+            "choices"
+          ],
+          [
+            "data",
+            "delta"
+          ],
+          [
+            "data",
+            "type"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_run_subagent": {
+        "parameters": [
+          "goal",
+          "parent_identity",
+          "parent_request_id",
+          "base_ctx",
+          "model"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "enable_autonomy"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_result_from_text": {
+        "parameters": [
+          "text",
+          "label"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_result_from_error": {
+        "parameters": [
+          "exc",
+          "label"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_run_and_deliver": {
+        "parameters": [
+          "token",
+          "goal",
+          "parent_identity",
+          "parent_request_id",
+          "base_ctx",
+          "model",
+          "task_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_persist_durable": {
+        "parameters": [
+          "parent_identity",
+          "token",
+          "payload"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "run_subagent_group": {
+        "parameters": [
+          "subtasks",
+          "parent_identity",
+          "parent_request_id",
+          "base_ctx",
+          "model",
+          "concurrency"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "spec",
+            "goal"
+          ],
+          [
+            "spec",
+            "sub_model"
+          ],
+          [
+            "spec",
+            "task_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "dispatch_subagent": {
+        "parameters": [
+          "goal",
+          "sub_model",
+          "task_id",
+          "identity",
+          "request_id",
+          "model",
+          "_ctx"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [],
+        "dynamic": []
+      },
+      "dispatch_subagent_group": {
+        "parameters": [
+          "subtasks",
+          "identity",
+          "request_id",
+          "model",
+          "_ctx"
+        ],
+        "kwargs": "_kwargs",
+        "reads": [
+          [
+            "r",
+            "status"
+          ]
+        ],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/terminal.py": {
+      "_has_chaining_metacharacters": {
+        "parameters": [
+          "command"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_classify_command_strategy": {
+        "parameters": [
+          "command",
+          "identity",
+          "auth_level",
+          "isolation"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_get_agent_drive_path": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "win_to_wsl_path": {
+        "parameters": [
+          "win_path"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_is_touka_ui_available": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_tail": {
+        "parameters": [
+          "text",
+          "limit"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "reset_async_state_for_test": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "_task"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_remember_result": {
+        "parameters": [
+          "exec_id",
+          "record"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_pending_payload": {
+        "parameters": [
+          "exec_id",
+          "command",
+          "note"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_running_handle_payload": {
+        "parameters": [
+          "exec_id",
+          "command"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_isolation_unavailable": {
+        "parameters": [
+          "command",
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_running_signals": {
+        "parameters": [
+          "record"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "last_output_at"
+          ],
+          [
+            "record",
+            "output"
+          ],
+          [
+            "record",
+            "started_at"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_running_status_payload": {
+        "parameters": [
+          "execution_id",
+          "record"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "command"
+          ],
+          [
+            "record",
+            "last_output_at"
+          ],
+          [
+            "record",
+            "output"
+          ],
+          [
+            "record",
+            "started_at"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_execute_core": {
+        "parameters": [
+          "command",
+          "env",
+          "drive_path",
+          "session_id",
+          "emit",
+          "call_id",
+          "timeout",
+          "record",
+          "scope"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_push_result_safely": {
+        "parameters": [
+          "exec_id",
+          "identity",
+          "command",
+          "exit_code",
+          "output",
+          "duration_ms"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_approve_then_execute": {
+        "parameters": [
+          "exec_id",
+          "command",
+          "env",
+          "identity",
+          "drive_path",
+          "session_id",
+          "scope"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_run_background": {
+        "parameters": [
+          "exec_id",
+          "command",
+          "env",
+          "identity",
+          "drive_path",
+          "session_id",
+          "dangerous",
+          "scope"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "status"
+          ]
+        ],
+        "dynamic": []
+      },
+      "execute_command": {
+        "parameters": [
+          "command",
+          "identity",
+          "env",
+          "background"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_approved_by"
+          ],
+          [
+            "kwargs",
+            "_call_id"
+          ],
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "_emit_event"
+          ],
+          [
+            "kwargs",
+            "_hitl_preapproved"
+          ],
+          [
+            "kwargs",
+            "auth_level"
+          ],
+          [
+            "kwargs",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "get_command_result": {
+        "parameters": [
+          "execution_id",
+          "wait_seconds"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "record",
+            "agent_id"
+          ],
+          [
+            "record",
+            "result"
+          ]
+        ],
+        "dynamic": []
+      },
+      "stop_command": {
+        "parameters": [
+          "execution_id"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "identity"
+          ],
+          [
+            "record",
+            "_proc"
+          ],
+          [
+            "record",
+            "_task"
+          ],
+          [
+            "record",
+            "agent_id"
+          ],
+          [
+            "record",
+            "command"
+          ],
+          [
+            "record",
+            "output"
+          ],
+          [
+            "record",
+            "status"
+          ]
+        ],
+        "dynamic": []
+      },
+      "bash": {
+        "parameters": [
+          "command",
+          "identity",
+          "env"
+        ],
+        "kwargs": "kwargs",
+        "reads": [],
+        "dynamic": [
+          "Name(id='kwargs', ctx=Load())"
+        ]
+      },
+      "_wrap_output": {
+        "parameters": [
+          "command",
+          "output",
+          "exit_code",
+          "duration_ms",
+          "dangerous",
+          "_approved"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/vault_tools.py": {
+      "incognito_scope_error": {
+        "parameters": [
+          "scope"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "vault_tools": {
+        "parameters": [
+          "vault",
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "identity"
+          ]
+        ],
+        "dynamic": [
+          "Name(id='payload', ctx=Load())"
+        ]
+      }
+    },
+    "ToukaProxy/src/tools/execution_policy.py": {
+      "classify_registered_tool": {
+        "parameters": [
+          "name",
+          "handler",
+          "bindings"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    }
+  },
+  "execution_bindings": {
+    "execute_command": {
+      "canonical_name": "execute_command",
+      "registry_name": "execute_command",
+      "kind": "TERMINAL"
+    },
+    "bash": {
+      "canonical_name": "execute_command",
+      "registry_name": "bash",
+      "kind": "TERMINAL"
+    },
+    "request_skill_install": {
+      "canonical_name": "request_skill_install",
+      "registry_name": "request_skill_install",
+      "kind": "SELF_APPROVING"
+    },
+    "request_mcp_creation": {
+      "canonical_name": "request_mcp_creation",
+      "registry_name": "request_mcp_creation",
+      "kind": "SELF_APPROVING"
+    }
+  }
+}

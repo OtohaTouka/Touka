@@ -1,0 +1,8 @@
+[
+ "data: {\"id\": \"chatcmpl-req-go-reasoning_split\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"reasoning_content\": \"使用者上次提過偏好，讓我想想……\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-go-reasoning_split\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"答案是紅茶。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 7, \"cost\": 0.00027, \"usage_pct\": 0.1}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-reasoning_split\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: {\"choices\": [{\"delta\": {\"content\": \"\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2}, \"id\": \"chatcmpl-req-go-reasoning_split\", \"telemetry\": {\"request_id\": \"req-go-reasoning_split\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}, \"object\": \"chat.completion.chunk\"}\n\n",
+ "data: [DONE]\n\n"
+]

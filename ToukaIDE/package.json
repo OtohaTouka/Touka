@@ -1,0 +1,176 @@
+{
+  "name": "toukaide",
+  "displayName": "Touka IDE",
+  "description": "Touka AI Assistant for VS Code",
+  "version": "0.3.0",
+  "publisher": "touka-ai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OtohaTouka/Touka.git",
+    "directory": "ToukaIDE"
+  },
+  "bugs": {
+    "url": "https://github.com/OtohaTouka/Touka/issues"
+  },
+  "engines": {
+    "node": ">=20",
+    "vscode": "^1.90.0"
+  },
+  "packageManager": "npm@11.19.1",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.21.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "11.19.1",
+      "onFail": "error"
+    }
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "files": [
+    "dist/extension.js",
+    "dist/webview/index.html",
+    "dist/webview/main.js",
+    "dist/webview/style.css",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "toukaide.start",
+        "title": "Start Touka"
+      },
+      {
+        "command": "toukaide.toggleYolo",
+        "title": "Touka: Toggle YOLO Mode"
+      },
+      {
+        "command": "toukaide.inlineChat",
+        "title": "Touka: 行內編輯 (Inline Chat)"
+      },
+      {
+        "command": "toukaide.action.explain",
+        "title": "Touka: 解釋這段代碼"
+      },
+      {
+        "command": "toukaide.action.refactor",
+        "title": "Touka: 重構這段代碼"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "toukaide.inlineChat",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "touka-sidebar",
+          "title": "Touka",
+          "icon": "$(sparkle)"
+        }
+      ]
+    },
+    "views": {
+      "touka-sidebar": [
+        {
+          "type": "webview",
+          "id": "touka.chatView",
+          "name": "Touka Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Touka IDE Settings",
+      "properties": {
+        "touka.apiProtocol": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic"
+          ],
+          "default": "openai",
+          "description": "API 通訊協議。'openai'模式使用 /v1/chat/completions 標準流，'anthropic'模式使用 /v1/messages 標準流。"
+        },
+        "touka.proxyUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Touka Proxy 的連線網址 (例如: http://localhost:8000)。"
+        },
+        "touka.apiKey": {
+          "type": "string",
+          "default": "local-dev",
+          "description": "用於連線至 Touka Proxy 的 API Key (Bearer Token)。"
+        },
+        "touka.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "預設使用的 Agent 模型 ID（留空則自動採用第一個可用 Agent）。"
+        },
+        "touka.enableInlineCompletion": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否啟用行內自動補全 (Ghost Text)。"
+        },
+        "touka.inlineCompletionModel": {
+          "type": "string",
+          "default": "",
+          "description": "行內補全使用的模型 ID。建議使用速度較快的模型。留空表示不啟用。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "test": "npm run braces:verify && vitest run",
+    "typecheck": "npm run braces:verify && tsc --noEmit",
+    "compile": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node",
+    "watch": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --watch",
+    "package": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --minify",
+    "braces:apply": "node ../ToukaChat/container-security/braces-backport/backport.mjs apply --project-root .",
+    "braces:verify": "node ../ToukaChat/container-security/braces-backport/backport.mjs verify --project-root . --scope full",
+    "install:controlled": "npm ci --ignore-scripts && npm run braces:apply && npm run braces:verify"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "20.19.30",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "^0.28.1",
+    "ts-loader": "^9.4.3",
+    "typescript": "^5.1.3",
+    "vitest": "^4.1.6",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
+    "express": "^5.2.1",
+    "zod": "4.2.0"
+  },
+  "overrides": {
+    "fast-uri": "3.1.7",
+    "nanoid": "3.3.18",
+    "browserslist": "4.28.7",
+    "hono": "4.12.34",
+    "qs": "6.16.0",
+    "caniuse-lite": "1.0.30001806",
+    "node-releases": "2.0.51",
+    "electron-to-chromium": "1.5.393",
+    "baseline-browser-mapping": "2.10.44"
+  }
+}

@@ -1,0 +1,33 @@
+[importlinter]
+root_packages =
+    memory_server
+    src
+
+# ADR-0116: ToukaMemory is now integration-only (standalone MCP mode retired). This boundary
+# guard is KEPT, but its rationale shifts from "MCP standalone independence" to "dependency
+# inversion / subsystem decoupling": memory_server still obtains I/O only through the injected
+# IResourceProxy (implemented by ResourceManager), never coupling to ToukaProxy internals.
+# (ASCII-only: import-linter reads this file with the Windows locale codepage.)
+[importlinter:contract:toukamemory-independence]
+name = ToukaMemory must not import ToukaProxy internals directly (Guardrail 14, ADR-0032/ADR-0116)
+type = forbidden
+source_modules =
+    memory_server
+forbidden_modules =
+    src.services
+    src.utils
+    src.models
+    src.routers
+    src.adapters
+    src.middleware
+    src.protocols
+    src.core
+    src.tools
+ignore_imports =
+    # config_utils.py: get_resource_proxy() injection point -- integration-mode import of
+    # ResourceManager (fail-loud since ADR-0116, no longer a try-fallback); get_current_epoch()
+    # pulls the central time utility (SSOT).
+    memory_server.config_utils -> src.services.resource_manager
+    memory_server.config_utils -> src.utils.time_utils
+    # vector.py: obtains the central time utility via get_current_epoch().
+    memory_server.vector -> src.utils.time_utils

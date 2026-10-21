@@ -1,0 +1,534 @@
+"""人工記憶評估 probe 的硬界（全部離線：不傳核准旗標給任何子程序、不外連、不下載）。"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import importlib
+import json
+import logging
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from memory_server import vector as memory_vector
+from memory_server.factual import FactualStore
+from src.handlers import react_core
+from src.handlers.adapters.claude_adapter import ClaudeAdapter
+from src.handlers.adapters.gemini_adapter import GeminiAdapter
+from src.handlers.adapters.openai_adapter import OpenAIAdapter
+from src.handlers.adapters.responses_adapter import ResponsesAdapter
+from src.models.identity import AgentIdentity
+from src.services import dialogue_summarizer, proxy_service, telemetry
+from src.services.audit_service import PolicyAuditService
+from src.services.permission_service import permission_service
+from src.services.providers import pricing
+from src.services.review import review_loop
+from src.utils.brain_persistence import get_active_brain
+
+from tests.memory_eval import live_bounds, seeding
+from tests.memory_eval.scenarios import SMOKE, select_scenarios
+from tests.smoke.lib.sandbox_env import SmokeSandboxError
+
+ROOT = Path(__file__).resolve().parents[2]
+PROBE_PATH = ROOT / "tests" / "smoke" / "manual" / "memory_eval_probe.py"
+probe = importlib.import_module("tests.smoke.manual.memory_eval_probe")
+policy = importlib.import_module("tests.live_api_policy")
+_CLI_ARGS = ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--suite", "smoke",
+             "--max-provider-requests", "3", "--max-tokens", "64", "--budget", "0.1"]
+
+
+@pytest.fixture
+def restore_product(monkeypatch: pytest.MonkeyPatch) -> None:
+    """先快照，teardown 還原產品類別與模組屬性（probe 的安裝是整個程序的）。"""
+    for adapter in probe._ADAPTERS:
+        monkeypatch.setattr(adapter, "send_round", adapter.send_round)
+        monkeypatch.setattr(adapter, "extract_usage", adapter.extract_usage)
+    monkeypatch.setattr(react_core, "MAX_SEND_ATTEMPTS", react_core.MAX_SEND_ATTEMPTS)
+    monkeypatch.setattr(proxy_service, "get_last_working_brain",
+                        proxy_service.get_last_working_brain)
+    monkeypatch.setattr(dialogue_summarizer, "complete_once", dialogue_summarizer.complete_once)
+    monkeypatch.setattr(review_loop, "complete_once", review_loop.complete_once)
+    monkeypatch.setattr(memory_vector, "SentenceTransformer", memory_vector.SentenceTransformer)
+    monkeypatch.setattr(probe, "_PROVIDER_REQUEST_BUDGET", None)
+    monkeypatch.setattr(probe, "_OUTPUT_CAP", None)
+    monkeypatch.setattr(probe, "_LEDGER", None)
+    monkeypatch.setattr(probe, "_AUXILIARY_CALLS", [])
+
+
+def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> None:
+    probe._install_bounds(max_requests, wire_cap, model="deepseek-v4-flash", budget=budget)
+
+
+def _scope(max_tokens: int = 64) -> Any:
+    return probe._memory_eval_scope(
+        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+        scenario_ids=["poison_home"], max_requests=3, max_tokens=max_tokens, budget=0.1,
+    )
+
+
+def _fake_original(sent: list[Any]) -> Any:
+    async def _send_round(_adapter: Any, state: Any) -> Any:
+        sent.append(state)
+        yield "ok"
+
+    return _send_round
+
+
+async def _drain(adapter_cls: type, state: Any) -> list[Any]:
+    return [item async for item in adapter_cls.send_round(object(), state)]
+
+
+def test_import_leaves_product_defaults_untouched() -> None:
+    assert react_core.MAX_SEND_ATTEMPTS == 3
+    assert all(a.send_round is probe._ORIGINAL_SEND_ROUNDS[a] for a in probe._ADAPTERS)
+    assert set(probe._ADAPTERS) == {ClaudeAdapter, OpenAIAdapter, ResponsesAdapter, GeminiAdapter}
+
+
+def test_install_bounds_turns_off_retries_fallback_and_auxiliary_calls(
+    restore_product: None,
+) -> None:
+    _install(2)
+
+    assert react_core.MAX_SEND_ATTEMPTS == 1
+    assert all(a.send_round is not probe._ORIGINAL_SEND_ROUNDS[a] for a in probe._ADAPTERS)
+    assert proxy_service.get_last_working_brain(object()) is None
+    assert dialogue_summarizer.complete_once is probe._refuse_auxiliary_call
+    assert review_loop.complete_once is probe._refuse_auxiliary_call
+
+
+@pytest.mark.parametrize(
+    ("adapter_cls", "state"),
+    [
+        (ClaudeAdapter, SimpleNamespace(kwargs={"max_tokens": 64})),
+        (OpenAIAdapter, SimpleNamespace(payload={"max_tokens": 64})),
+        (ResponsesAdapter, SimpleNamespace(kwargs={"max_output_tokens": 64})),
+        (GeminiAdapter, SimpleNamespace(payload={"generationConfig": {"maxOutputTokens": 64}})),
+    ],
+)
+async def test_every_adapter_consumes_the_budget_before_sending(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, adapter_cls: type, state: Any
+) -> None:
+    sent: list[Any] = []
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, adapter_cls, _fake_original(sent))
+    _install(1)
+
+    assert await _drain(adapter_cls, state) == ["ok"]
+    with pytest.raises(policy.LiveApiRequestLimitExceeded):
+        await _drain(adapter_cls, state)
+    assert len(sent) == 1
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        SimpleNamespace(kwargs={"max_tokens": 65}),
+        SimpleNamespace(kwargs={"max_tokens": 8192}),
+        SimpleNamespace(kwargs={}),
+        SimpleNamespace(payload={"generationConfig": {}}),
+        SimpleNamespace(payload={"max_tokens": "64"}),
+    ],
+)
+async def test_output_cap_is_checked_before_budget_and_send(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, state: Any
+) -> None:
+    sent: list[Any] = []
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, ClaudeAdapter, _fake_original(sent))
+    _install(5)
+
+    with pytest.raises(probe._OutputCapViolation):
+        await _drain(ClaudeAdapter, state)
+    assert sent == []
+    assert probe._PROVIDER_REQUEST_BUDGET.used_requests == 0
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "requested", "wire"),
+    [
+        ("anthropic", "claude-haiku-5-5", 512, 8192),  # 會思考的 5.5：Touka 拉到 8,192
+        ("anthropic", "claude-opus-5-5", 64, 8192),
+        ("anthropic", "claude-haiku-4-5", 512, 512),
+        ("deepseek", "deepseek-v4-flash", 512, 512),  # 其他廠商照請求值
+        ("gemini", "gemini-2.5-flash", 256, 256),
+    ],
+)
+def test_wire_cap_is_what_touka_will_send(provider: str, model: str, requested: int,
+                                          wire: int) -> None:
+    assert probe._wire_max_tokens(provider, model, requested) == wire
+
+
+async def test_ceiling_holds_even_above_an_approved_wire_cap(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[Any] = []
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, ClaudeAdapter, _fake_original(sent))
+    _install(5, wire_cap=16_384)
+
+    assert await _drain(ClaudeAdapter, SimpleNamespace(kwargs={"max_tokens": 8192})) == ["ok"]
+    with pytest.raises(probe._OutputCapViolation):
+        await _drain(ClaudeAdapter, SimpleNamespace(kwargs={"max_tokens": 8193}))
+    assert len(sent) == 1
+    assert probe._PROVIDER_REQUEST_BUDGET.used_requests == 1
+
+
+async def test_run_stops_before_anything_when_touka_would_send_above_the_ceiling(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed: list[Any] = []
+    monkeypatch.setattr(probe, "_install_bounds", lambda *a, **_k: installed.append(a))
+    monkeypatch.setattr(probe, "_wire_max_tokens", lambda *_a: probe.OUTPUT_TOKEN_CEILING + 1)
+
+    with pytest.raises(probe._OutputCeilingExceeded):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, approval=None, sandbox_root=tmp_path,
+        )
+    assert installed == []
+
+
+async def test_worst_case_over_budget_is_refused_before_budget_and_send(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[Any] = []
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, ClaudeAdapter, _fake_original(sent))
+    _install(5, wire_cap=8192, budget=0.001)  # deepseek 8,192 輸出用滿就超過 0.001
+
+    with pytest.raises(live_bounds.WorstCaseOverBudget):
+        await _drain(ClaudeAdapter, SimpleNamespace(kwargs={"max_tokens": 8192}))
+    assert sent == []
+    assert probe._PROVIDER_REQUEST_BUDGET.used_requests == 0
+    assert probe._LEDGER.refused
+
+
+async def test_worst_case_counts_the_full_output_cap_and_the_tool_schema(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, ClaudeAdapter, _fake_original([]))
+    _install(5, wire_cap=8192)
+    tools = [{"name": "memory_tools", "description": "查詢或儲存記憶" * 300}]
+    state = SimpleNamespace(kwargs={"max_tokens": 8192, "tools": tools,
+                                    "messages": [{"role": "user", "content": "嗨"}]})
+
+    await _drain(ClaudeAdapter, state)
+
+    (record,) = probe._LEDGER.records
+    rate = pricing.get_pricing("deepseek-v4-flash")
+    assert record.max_output_tokens == 8192
+    assert record.input_tokens_estimate >= len(json.dumps(tools, ensure_ascii=False))
+    assert record.worst_case_usd == pytest.approx(live_bounds.worst_case_usd(
+        input_tokens=record.input_tokens_estimate, max_output_tokens=8192,
+        input_price=live_bounds.worst_case_input_price(rate), output_price=rate.output,
+    ))
+
+
+@pytest.mark.parametrize("adapter_cls", [ClaudeAdapter, OpenAIAdapter, ResponsesAdapter,
+                                         GeminiAdapter])
+async def test_reported_usage_settles_the_request_at_its_actual_cost(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, adapter_cls: type
+) -> None:
+    usage = {"prompt_tokens": 900, "cache_read_input_tokens": 100,
+             "cache_creation_input_tokens": 50, "completion_tokens": 700}
+    monkeypatch.setitem(probe._ORIGINAL_SEND_ROUNDS, adapter_cls, _fake_original([]))
+    monkeypatch.setitem(probe._ORIGINAL_EXTRACT_USAGES, adapter_cls,
+                        lambda _adapter, _state, _raw: (usage, 1050, 700))
+    _install(5)
+    state = SimpleNamespace(kwargs={"max_tokens": 64}, payload={"max_tokens": 64})
+    await _drain(adapter_cls, state)
+
+    assert adapter_cls.extract_usage(object(), state, object()) == (usage, 1050, 700)
+
+    (record,) = probe._LEDGER.records
+    actual = telemetry.usage_cost_usd(usage, model="deepseek-v4-flash")
+    assert record.usage == usage
+    assert record.cost_usd == pytest.approx(actual)
+    assert probe._LEDGER.spent_usd == pytest.approx(actual)
+
+
+async def test_auxiliary_model_calls_are_refused_without_sending(restore_product: None) -> None:
+    _install(1)
+    soul = AgentIdentity.for_role(agent_id="EvalSoulMio", role="Owner")
+
+    first = await dialogue_summarizer.complete_once(soul, "summary", "m", "s", "u", 64, 5.0)
+    second = await review_loop.complete_once(
+        identity=soul, purpose="auto_review", model="m", system="s", user="u",
+        max_tokens=64, timeout_s=5.0,
+    )
+
+    assert not first.ok and not second.ok
+    assert first.error.error_class == "permission_denied"
+    assert probe._AUXILIARY_CALLS == ["summary", "auto_review"]
+    assert probe._PROVIDER_REQUEST_BUDGET.used_requests == 0
+
+
+async def test_run_requires_the_issued_scope_before_installing_anything(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed: list[Any] = []
+    monkeypatch.setattr(probe, "_install_bounds", lambda *a, **_k: installed.append(a))
+    run = {
+        "provider": "deepseek", "model": "deepseek-v4-flash", "suite": SMOKE,
+        "scenarios": select_scenarios(SMOKE, ["poison_home"]), "max_requests": 3,
+        "max_tokens": 64, "budget": 0.1, "sandbox_root": tmp_path,
+    }
+
+    with pytest.raises(policy.LiveApiApprovalRequired):
+        await probe.run_memory_eval_probe(**run, approval=None)
+    other = policy.issue_live_api_approval(approved=True, scope=_scope(max_tokens=63))
+    with pytest.raises(policy.LiveApiApprovalScopeMismatch):
+        await probe.run_memory_eval_probe(**run, approval=other)
+    exact = policy.issue_live_api_approval(approved=True, scope=_scope())
+    with pytest.raises(ValueError, match="route mismatch"):
+        await probe.run_memory_eval_probe(**{**run, "provider": "grok"}, approval=exact)
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        await probe.run_memory_eval_probe(**{**run, "sandbox_root": Path()}, approval=exact)
+    assert installed == []
+
+
+def test_scope_lists_every_bound() -> None:
+    rendered = policy.format_live_api_scope(_scope())
+
+    for item in ("operation=manual_memory_eval_probe", "provider=deepseek",
+                 "model=deepseek-v4-flash", "scenarios=poison_home", "provider_requests<=3",
+                 "max_tokens_requested=64", "wire_max_tokens_per_request=64",
+                 "wire_max_tokens_ceiling=8192", "other providers send the requested value",
+                 "pre_send_worst_case", "budget_usd=0.1000", "provider_retry=0",
+                 "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
+                 "write_scope=temporary sandbox only"):
+        assert item in rendered
+
+
+def test_haiku_5_5_scope_shows_the_wire_cap_touka_will_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+    rendered = policy.format_live_api_scope(probe._memory_eval_scope(
+        provider="anthropic", model="claude-haiku-5-5", suite=SMOKE,
+        scenario_ids=["poison_home"], max_requests=40, max_tokens=512, budget=1.2,
+    ))
+
+    assert "max_tokens_requested=512" in rendered
+    assert "wire_max_tokens_per_request=8192" in rendered
+    assert "wire_max_tokens_ceiling=8192" in rendered
+    # r55 價目表分檔後仍顯示貴檔（>100K）：核准範圍和改價前一字不差
+    assert "worst_case_usd_per_mtok=input=0.625;output=2.5" in rendered
+
+
+def test_haiku_5_5_pre_send_worst_case_still_uses_the_dear_tier(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """r55：Haiku 5.5 分兩檔後，送前最壞估價仍照貴檔 0.625（寫入快取）／2.50（寧高勿低）。"""
+    monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+    probe._install_bounds(5, 8192, model="claude-haiku-5-5", budget=1.0)
+
+    assert probe._LEDGER.input_price == 0.625
+    assert probe._LEDGER.output_price == 2.5
+
+
+@pytest.mark.parametrize(
+    ("parse", "bad", "good"),
+    [
+        (probe._bounded_int("max-tokens", probe.MAX_LIVE_TOKENS), ["0", "1025"], "1024"),
+        (probe._bounded_int("max-provider-requests", probe.MAX_PROVIDER_REQUESTS),
+         ["0", "41"], "40"),
+        (probe._bounded_budget, ["0", "-1", "2.01"], "2"),
+    ],
+)
+def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
+    for value in bad:
+        with pytest.raises(argparse.ArgumentTypeError):
+            parse(value)
+    assert parse(good)
+
+
+@pytest.mark.parametrize(
+    ("model", "provider"),
+    [
+        ("deepseek-v4-flash", "deepseek"),
+        ("gemini-2.5-flash", "gemini"),
+        ("grok-4.20-0309-non-reasoning", "grok"),
+        ("claude-haiku-4-5", "anthropic"),
+        ("claude-haiku-5-5", "anthropic"),
+    ],
+)
+def test_m1_models_route_to_the_disclosed_provider(model: str, provider: str) -> None:
+    """M1 揭露草稿寫的四個型號，路由結果要和揭露的 provider 一致（不一致 CLI 會拒絕）。"""
+    assert probe._provider_for_model(model) == provider
+
+
+def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    with pytest.raises(policy.LiveApiApprovalRequired):
+        probe.main(_CLI_ARGS)
+    with pytest.raises(SystemExit):
+        probe.main([*_CLI_ARGS, "--scenarios", "no_such_scenario"])
+
+
+def test_seed_sandbox_makes_the_synthetic_soul_an_owner(
+    restore_product: None, global_test_sandbox: str
+) -> None:
+    try:
+        probe._seed_sandbox(Path(global_test_sandbox), "deepseek-v4-flash")
+        assert get_active_brain(seeding.soul_identity()) == "deepseek-v4-flash"
+        assert memory_vector.SentenceTransformer is seeding.DeterministicEncoder
+    finally:
+        permission_service.identity_path.unlink(missing_ok=True)
+        permission_service.reload_all()
+
+
+def test_seed_sandbox_refuses_targets_outside_the_sandbox(
+    restore_product: None, tmp_path: Path
+) -> None:
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        probe._seed_sandbox(tmp_path / "not-the-sandbox", "deepseek-v4-flash")
+
+
+def test_cli_gate_precedes_every_provider_capable_import() -> None:
+    """人工閘之前只能執行標準函式庫與政策模組的 import（dotenv、產品程式、評估框架都在閘之後）。"""
+    tree = ast.parse(PROBE_PATH.read_text(encoding="utf-8"))
+    gate = min(
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "preflight_live_api_cli"
+    )
+    executed_before_gate = {
+        node.module if isinstance(node, ast.ImportFrom) else node.names[0].name
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and node.lineno < gate
+    }
+    assert executed_before_gate <= {
+        "__future__", "argparse", "asyncio", "io", "json", "sys", "pathlib", "typing",
+        "tests.live_api_policy",
+    }
+    gate_block = next(
+        node for node in tree.body
+        if isinstance(node, ast.If) and node.lineno <= gate <= node.end_lineno
+    )
+    assert ast.unparse(gate_block.test) == "__name__ == '__main__'"
+
+
+# --- 結束清理（Windows：先放開握住沙盒的 handle 才刪得掉） --------------------------
+
+
+@pytest.fixture
+def os_temp_sandbox() -> Any:
+    root = Path(tempfile.mkdtemp(prefix="touka_e1b_probe_release_"))
+    yield root
+    shutil.rmtree(root, ignore_errors=True)
+
+
+def test_release_closes_logs_and_stores_before_deleting_the_sandbox(
+    monkeypatch: pytest.MonkeyPatch, os_temp_sandbox: Path
+) -> None:
+    root = os_temp_sandbox
+    (root / "logs").mkdir()
+    handler = logging.FileHandler(root / "logs" / "proxy_payload.log", encoding="utf-8")
+    holder = logging.getLogger("tests.memory_eval.release")
+    holder.addHandler(handler)
+    holder.warning("synthetic line")  # Windows：沒關的 handler 會讓 rmtree 丟 WinError 32
+    seen: list[tuple[str, bool]] = []
+    real_close_logs = probe.close_sandbox_log_handlers
+
+    def _close_logs(directory: str) -> int:
+        seen.append(("logs", root.exists()))
+        return real_close_logs(directory)
+
+    monkeypatch.setattr(probe, "close_sandbox_log_handlers", _close_logs)
+    monkeypatch.setattr(probe, "_drain_policy_audit_writes",
+                        lambda: seen.append(("audit", root.exists())))
+    monkeypatch.setattr(FactualStore, "close_all_connections",
+                        lambda: seen.append(("sqlite", root.exists())))
+    monkeypatch.setattr(memory_vector.VectorStore, "close_all_clients",
+                        lambda: seen.append(("qdrant", root.exists())))
+    try:
+        assert probe._release_sandbox(root) is None
+        assert handler not in holder.handlers
+    finally:
+        holder.removeHandler(handler)
+        handler.close()
+
+    assert seen == [("audit", True), ("logs", True), ("sqlite", True), ("qdrant", True)]
+    assert not root.exists()
+
+
+def test_policy_audit_drain_waits_for_queued_writes() -> None:
+    done: list[str] = []
+    PolicyAuditService._executor.submit(lambda: (time.sleep(0.05), done.append("write")))
+
+    probe._drain_policy_audit_writes()
+
+    assert done == ["write"]
+
+
+def test_release_refuses_anything_outside_the_os_temp_dir() -> None:
+    with pytest.raises(SmokeSandboxError):
+        probe._release_sandbox(ROOT / "no-such-probe-sandbox")
+
+
+class _Stdout:
+    def __init__(self, events: list[tuple[str, Any]]) -> None:
+        self._events = events
+
+    def write(self, text: str) -> int:
+        self._events.append(("stdout", text))
+        return len(text)
+
+
+def _fake_report(stopped: str = "") -> dict[str, Any]:
+    return {"stopped_reason": stopped, "requests": [{"output_tokens_incl_thinking": 900}]}
+
+
+def test_report_with_usage_is_printed_before_the_sandbox_is_released(
+    monkeypatch: pytest.MonkeyPatch, os_temp_sandbox: Path
+) -> None:
+    events: list[tuple[str, Any]] = []
+    monkeypatch.setattr(sys, "stdout", _Stdout(events))
+    monkeypatch.setattr(probe, "_release_sandbox", lambda root: events.append(("release", root)))
+
+    def _run() -> dict[str, Any]:
+        events.append(("run", None))
+        return _fake_report()
+
+    assert probe._report_then_release(_run, str(os_temp_sandbox)) == 0
+    assert [kind for kind, _ in events] == ["run", "stdout", "release"]
+    assert "output_tokens_incl_thinking" in events[1][1]
+    assert events[2][1] == os_temp_sandbox
+
+
+def test_cleanup_failure_is_reported_and_exits_non_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], os_temp_sandbox: Path
+) -> None:
+    monkeypatch.setattr(probe, "_release_sandbox", lambda root: root)
+
+    assert probe._report_then_release(_fake_report, str(os_temp_sandbox)) == 1
+    assert f"sandbox_cleanup_failed={os_temp_sandbox}" in capsys.readouterr().err
+
+
+def test_sandbox_is_released_even_when_the_run_fails(
+    monkeypatch: pytest.MonkeyPatch, os_temp_sandbox: Path
+) -> None:
+    released: list[Path] = []
+    monkeypatch.setattr(probe, "_release_sandbox", released.append)
+
+    class _RunFailed(RuntimeError):
+        pass
+
+    def _boom() -> dict[str, Any]:
+        raise _RunFailed
+
+    with pytest.raises(_RunFailed):
+        probe._report_then_release(_boom, str(os_temp_sandbox))
+    assert released == [os_temp_sandbox]
+
+
+def test_without_an_owned_sandbox_nothing_is_released(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(probe, "_release_sandbox", lambda _root: pytest.fail("released"))
+
+    assert probe._report_then_release(lambda: _fake_report("stopped"), "") == 1
+    assert '"stopped_reason": "stopped"' in capsys.readouterr().out

@@ -1,0 +1,26 @@
+{
+  "global_config": {
+    "max_pulses_per_session": 5
+  },
+  "react_loop": {
+    "max_tool_rounds": 0
+  },
+  "self_repair": {
+    "enabled": true,
+    "max_attempts": 3,
+    "repair_prompt": "\n\n⚠️ 指令執行失敗 (Exit Code: {exit_code})。請分析上方的報錯訊息，找出問題所在，目前已嘗試修復 {attempts}/{max_attempts} 次。若達到上限將停止自動嘗試。"
+  },
+  "quota": {
+    "daily_max": 50
+  },
+  "cap": {
+    "enabled": false,
+    "max_total_cost_usd": null
+  },
+  "auto_review": {
+    "model": "",
+    "max_tokens": 512,
+    "timeout_s": 60,
+    "headless_terminal": false
+  }
+}

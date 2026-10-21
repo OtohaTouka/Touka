@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "keep_rounds": 100,
+  "upper_limit_rounds": 150,
+  "trigger_pct": 90,
+  "target_floor_pct": 50,
+  "summary_budget_pct": 0,
+  "summary_model": "claude-haiku-4-5",
+  "min_keep_pairs": 2,
+  "version": "1.1.0",
+  "author": "system",
+  "description": "滑動視窗對話紀錄設定。ADR-0092：剪裁基準為 context window token 百分比（trigger_pct 觸發、剪到 target_floor_pct 地板、summary_budget_pct 摘要上限）。僅對家對話生效，PostHeartbeat 觸發。keep_rounds/upper_limit_rounds 為 deprecated 相容欄位。"
+}

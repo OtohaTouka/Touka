@@ -1,0 +1,8 @@
+[
+ "data: {\"id\": \"chatcmpl-req-gg-memory_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"好的，我幫你記下來了！\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-memory_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⚠️ **[記憶幻覺警告]** 您承諾記錄但未呼叫 `memory_tools` 進行儲存。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 7, \"cost\": 6e-06, \"usage_pct\": 0.0}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-memory_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"stop\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: [DONE]\n\n"
+]

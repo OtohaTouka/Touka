@@ -1,0 +1,21 @@
+# 雲端 VPS 部署覆寫設定
+# 使用方式：docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#
+# 差異：
+#   - 移除直接 port 暴露（由 nginx 反向代理接管）
+#   - 啟用 CLOUD_MODE
+#   - 使用環境變數替換本機路徑
+#
+# 前置：請先設定 .env 的雲端相關變數（CLOUD_MODE、ALLOWED_ORIGINS、NEXT_PUBLIC_*）
+
+services:
+  touka-proxy:
+    ports: []  # 移除直接暴露，改由 nginx 代理
+    environment:
+      - CLOUD_MODE=true
+
+  touka-heartbeat:
+    ports: []  # 心跳器不對外暴露
+
+  touka-chat:
+    ports: []  # 移除直接暴露，改由 nginx 代理

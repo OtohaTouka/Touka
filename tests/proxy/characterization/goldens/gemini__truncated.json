@@ -1,0 +1,7 @@
+[
+ "data: {\"id\": \"chatcmpl-req-gg-truncated\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"紅茶的沖泡步驟：第一步，把水煮到\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 105, \"cost\": 0.000251, \"usage_pct\": 0.0}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-truncated\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-truncated\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"length\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 100, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-truncated\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: [DONE]\n\n"
+]

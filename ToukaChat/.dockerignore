@@ -1,0 +1,22 @@
+# VCS and host-only build artifacts
+.git
+.next
+node_modules
+out
+coverage
+playwright-report
+test-results
+*.log
+*.tsbuildinfo
+
+# Runtime-owned data and local secrets
+data
+.env
+.env.*
+!.env.example
+
+# Host control files do not belong in the public product context
+HANDOVER.md
+.codex/
+.agents/
+.github/

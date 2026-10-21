@@ -1,0 +1,131 @@
+# Touka VPS 反向代理設定範本
+# ============================================================
+# 使用方式：
+#   1. 複製為 /etc/nginx/sites-available/touka
+#   2. 將所有 yourdomain.com 替換為你的實際域名
+#   3. 執行 certbot --nginx -d yourdomain.com 取得 SSL 憑證
+#   4. ln -s /etc/nginx/sites-available/touka /etc/nginx/sites-enabled/
+#   5. nginx -t && systemctl reload nginx
+# ============================================================
+
+# ── 前端聊天介面 ──────────────────────────────────────────────
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+
+    # Let's Encrypt 驗證用（certbot 會自動加入）
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # 強制 HTTP → HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name yourdomain.com www.yourdomain.com;
+
+    # SSL 憑證（由 certbot 自動填入）
+    ssl_certificate     /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # ── 前端 Next.js ──────────────────────────────────────────
+    location / {
+        proxy_pass         http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # Next.js HMR（開發用，生產可移除）
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+    }
+}
+
+# ── Proxy API（也可合併至上方 server 用路徑區分）─────────────
+server {
+    listen 443 ssl;
+    server_name api.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # OAuth callback 的 form body 含一次性 state/code。精確 location 禁 access log，
+    # 並在 nginx 層先套用與應用契約一致的 16 KiB 上限。
+    location = /mcp/oauth/callback {
+        access_log off;
+        client_max_body_size 16k;
+        proxy_pass           http://127.0.0.1:8000;
+        proxy_http_version   1.1;
+        proxy_set_header     Host $host;
+        proxy_set_header     X-Real-IP $remote_addr;
+        proxy_set_header     X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header     X-Forwarded-Proto $scheme;
+    }
+
+    location = /v1/mcp/oauth/callback {
+        access_log off;
+        client_max_body_size 16k;
+        proxy_pass           http://127.0.0.1:8000;
+        proxy_http_version   1.1;
+        proxy_set_header     Host $host;
+        proxy_set_header     X-Real-IP $remote_addr;
+        proxy_set_header     X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header     X-Forwarded-Proto $scheme;
+    }
+
+    # ── REST API ──────────────────────────────────────────────
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        # 傳遞真實 IP（配合 CLOUD_MODE 的 X-Real-IP 讀取）
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # 允許大請求（對應 MAX_REQUEST_BODY_BYTES）
+        client_max_body_size 12M;
+    }
+
+    # ── 代理人資料重置（/v1 與根路徑都算）──────────────────────
+    # 勾選「一併清除備份裡的記憶」時，伺服器要逐份處理每一份快照，可能跑好幾分鐘；
+    # 只有這個端點把讀取逾時拉長到 30 分鐘，其他 REST（含其他 admin）仍是預設 60 秒。
+    # regex location 不能在 proxy_pass 帶路徑：照原樣把請求路徑交給 upstream。
+    location ~ ^/(v1/)?admin/agents/[^/]+/reset$ {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        # 傳遞真實 IP（配合 CLOUD_MODE 的 X-Real-IP 讀取）
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # 允許大請求（對應 MAX_REQUEST_BODY_BYTES）
+        client_max_body_size 12M;
+        proxy_read_timeout 1800s;
+    }
+
+    # ── SSE / WebSocket（終端機串流）──────────────────────────
+    location ~ ^/(terminal|ws)/ {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        # SSE 長連線：不快取，不超時
+        proxy_buffering    off;
+        proxy_read_timeout 3600s;
+    }
+}

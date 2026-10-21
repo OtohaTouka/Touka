@@ -1,0 +1,17 @@
+# iso-c2：核心有 MPTCP（/proc/sys/net/mptcp/enabled 存在）時才疊在 isolation.compose.yml 上：
+#   docker compose -p touka-iso-* -f tests/docker/isolation.compose.yml -f tests/docker/isolation.mptcp.override.yml ...
+# 和 README_QUICKSTART 的覆寫同形：每個關 Fast Open 的服務另關 MPTCP（兩行都寫）。沒有 MPTCP 的
+# 核心加了，容器會起不來，所以不併進主檔。CI 的容器 job 依核心自動決定要不要帶。
+services:
+  iso-exec:
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+      net.mptcp.enabled: 0
+  iso-client:
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+      net.mptcp.enabled: 0
+  iso-landlock:
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+      net.mptcp.enabled: 0

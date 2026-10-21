@@ -1,0 +1,8 @@
+{
+  "on_mission_created": {
+    "claude-code": {
+      "command": ["claude", "-p", ""],
+      "pass_env": ["DISPATCH_TOKEN", "DISPATCH_BOARD", "DISPATCH_URL"]
+    }
+  }
+}

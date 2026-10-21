@@ -1,0 +1,8 @@
+services:
+  heartbeat:
+    build:
+      context: ..                          # repo 根：uv workspace 依賴描述檔（ADR-0117）
+      dockerfile: ToukaHeartbeat/Dockerfile
+    container_name: touka-heartbeat
+    network_mode: host # 方便訪問 localhost:8000
+    restart: always # 作為伺服器常駐執行

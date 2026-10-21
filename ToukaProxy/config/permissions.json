@@ -1,0 +1,47 @@
+{
+  "system_config": {
+    "default_role": "Base",
+    "allow_unregistered_agents": true
+  },
+  "roles": {
+    "Owner": {
+      "desc": "系統主人：擁有最高權限與所有 MCP 工具。",
+      "allowed_tools": ["*"],
+      "denied_tools": [],
+      "allowed_mcp_servers": ["*"],
+      "allowed_skills": ["*"]
+    },
+    "Subagent": {
+      "desc": "子代理專用（in-process 派發）：可執行研發、讀寫專案檔案；不可改靈魂、不可再派子代理。",
+      "inherits": ["Base"],
+      "allowed_tools": [
+        "research",
+        "read",
+        "list",
+        "find",
+        "grep",
+        "write",
+        "edit",
+        "insert",
+        "undo",
+        "delete",
+        "project_tools",
+        "vault_tools",
+        "ide_open_diff"
+      ],
+      "denied_tools": ["update_my_soul", "edit_soul"],
+      "allowed_mcp_servers": []
+    },
+    "Base": {
+      "desc": "基礎級 (原生/外部模型)：僅限純對話，不配發任何執行工具。",
+      "allowed_tools": [],
+      "denied_tools": ["*"],
+      "allowed_mcp_servers": []
+    },
+    "Debugger": {
+      "desc": "除錯／計分卡專用：繼承 Owner 全工具面，僅 DebugAgent 映射至此（debug／計分卡端點皆 owner/admin gated）。",
+      "inherits": ["Owner"]
+    }
+  },
+  "agent_mappings": {}
+}

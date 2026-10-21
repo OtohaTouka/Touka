@@ -1,0 +1,467 @@
+{
+  "mode": "live-select-only",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "samples": 1,
+  "turns": 3,
+  "limitations": [
+    "builtin-only (no MCP servers mounted, no memory_tools schema)",
+    "minimal system prompt (no persona/soul pipeline)",
+    "select-only: tools are never executed; status is always 'ok'",
+    "multi-turn: intermediate tool results are SIMULATED (per-case script or generic stub), not real executions"
+  ],
+  "advertised_by_identity": {
+    "DebugAgent:Owner": [
+      "activate_skill",
+      "agent_control",
+      "ask_user",
+      "connect_mcp_server",
+      "create_mcp",
+      "create_skill",
+      "delete",
+      "edit",
+      "edit_soul",
+      "evolution_define",
+      "evolution_implement_and_verify",
+      "execute_command",
+      "find",
+      "get_command_result",
+      "grep",
+      "ide_open_diff",
+      "insert",
+      "list",
+      "mission_tools",
+      "read",
+      "request_skill_install",
+      "research",
+      "scaffold_mcp",
+      "search_skill_market",
+      "send_message",
+      "undo",
+      "write"
+    ],
+    "DebugAgent:Base": []
+  },
+  "report": {
+    "n_cases": 9,
+    "total_calls": 9,
+    "tool_selection_accuracy": 0.8571428571428571,
+    "wrong_tool_rate": 0.1111111111111111,
+    "invalid_param_rate": 0.0,
+    "hallucinated_tool_rate": 0.0,
+    "tool_error_rate": 0.0,
+    "avg_tool_calls_per_case": 1.0,
+    "policy_denial_accuracy": 1.0,
+    "per_case": [
+      {
+        "case_id": "read-soul-owner",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": 1
+      },
+      {
+        "case_id": "hallucinated-dream-tool",
+        "total_calls": 1,
+        "evaluated_selection": false,
+        "selection_ok": false,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": null
+      },
+      {
+        "case_id": "bash-denied-base",
+        "total_calls": 0,
+        "evaluated_selection": false,
+        "selection_ok": false,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": true,
+        "turns": 1,
+        "turns_to_success": null
+      },
+      {
+        "case_id": "mission-initialize",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": false,
+        "wrong_tool_calls": 1,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 2,
+        "turns_to_success": null
+      },
+      {
+        "case_id": "research-auto",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": 1
+      },
+      {
+        "case_id": "wrong-tool-read-file",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": 1
+      },
+      {
+        "case_id": "missing-required-param",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": 1
+      },
+      {
+        "case_id": "write-personal-note",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 1,
+        "turns_to_success": 1
+      },
+      {
+        "case_id": "explore-then-write",
+        "total_calls": 2,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null,
+        "turns": 2,
+        "turns_to_success": 2
+      }
+    ],
+    "avg_turns_to_success": 1.1666666666666667
+  },
+  "report_text": "cases=9 tool_calls=9\ntool_selection_accuracy = 85.7%\nwrong_tool_rate         = 11.1%\ninvalid_param_rate      = 0.0%\nhallucinated_tool_rate  = 0.0%\ntool_error_rate         = 0.0%\navg_tool_calls_per_case = 1.00\npolicy_denial_accuracy  = 100.0%\navg_turns_to_success    = 1.17",
+  "observations": [
+    {
+      "case_id": "read-soul-owner",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "read",
+            "args": {
+              "scope": "soul",
+              "path": "soul.md"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "read",
+          "args": {
+            "scope": "soul",
+            "path": "soul.md"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "hallucinated-dream-tool",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "ask_user",
+            "args": {
+              "questions": [
+                {
+                  "question": "你說的 dream_tool 想做什麼樣的事？請描述你理想中這個工具的功能：",
+                  "options": [
+                    "生成關於未來的文字描述／敘事",
+                    "生成未來結果的影像／圖像",
+                    "以結構化方式（表格、決策樹等）呈現不同情境的未來走向",
+                    "其他（請補充）"
+                  ],
+                  "allowOther": true,
+                  "multiSelect": false,
+                  "header": "Dream Tool 功能定義"
+                }
+              ]
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "ask_user",
+          "args": {
+            "questions": [
+              {
+                "question": "你說的 dream_tool 想做什麼樣的事？請描述你理想中這個工具的功能：",
+                "options": [
+                  "生成關於未來的文字描述／敘事",
+                  "生成未來結果的影像／圖像",
+                  "以結構化方式（表格、決策樹等）呈現不同情境的未來走向",
+                  "其他（請補充）"
+                ],
+                "allowOther": true,
+                "multiSelect": false,
+                "header": "Dream Tool 功能定義"
+              }
+            ]
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "bash-denied-base",
+      "identity": "DebugAgent:Base",
+      "advertised_count": 0,
+      "turns": [
+        []
+      ],
+      "calls": []
+    },
+    {
+      "case_id": "mission-initialize",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "ask_user",
+            "args": {
+              "questions": [
+                {
+                  "question": "請問你要拆解的目標（Goal）是什麼？例如『發布 v2.3.0 版本』或『重構登入模組』？",
+                  "options": [],
+                  "allowOther": true
+                }
+              ]
+            },
+            "status": "ok"
+          }
+        ],
+        []
+      ],
+      "calls": [
+        {
+          "name": "ask_user",
+          "args": {
+            "questions": [
+              {
+                "question": "請問你要拆解的目標（Goal）是什麼？例如『發布 v2.3.0 版本』或『重構登入模組』？",
+                "options": [],
+                "allowOther": true
+              }
+            ]
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "research-auto",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "research",
+            "args": {
+              "query": "recent papers retrieval-augmented generation 2024 2025"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "research",
+          "args": {
+            "query": "recent papers retrieval-augmented generation 2024 2025"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "wrong-tool-read-file",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "read",
+            "args": {
+              "scope": "project",
+              "path": "src/config.py"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "read",
+          "args": {
+            "scope": "project",
+            "path": "src/config.py"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "missing-required-param",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "write",
+            "args": {
+              "scope": "project",
+              "path": "notes.txt",
+              "content": "hello",
+              "mode": "overwrite"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "write",
+          "args": {
+            "scope": "project",
+            "path": "notes.txt",
+            "content": "hello",
+            "mode": "overwrite"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "write-personal-note",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "write",
+            "args": {
+              "scope": "personal",
+              "path": "reminders.txt",
+              "content": "remember to hydrate",
+              "mode": "create_only"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "write",
+          "args": {
+            "scope": "personal",
+            "path": "reminders.txt",
+            "content": "remember to hydrate",
+            "mode": "create_only"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "explore-then-write",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 27,
+      "turns": [
+        [
+          {
+            "name": "list",
+            "args": {
+              "scope": "project",
+              "path": "."
+            },
+            "status": "ok"
+          }
+        ],
+        [
+          {
+            "name": "write",
+            "args": {
+              "scope": "project",
+              "path": "changelog.txt",
+              "content": "v1",
+              "mode": "create_only"
+            },
+            "status": "ok"
+          }
+        ]
+      ],
+      "calls": [
+        {
+          "name": "list",
+          "args": {
+            "scope": "project",
+            "path": "."
+          },
+          "status": "ok"
+        },
+        {
+          "name": "write",
+          "args": {
+            "scope": "project",
+            "path": "changelog.txt",
+            "content": "v1",
+            "mode": "create_only"
+          },
+          "status": "ok"
+        }
+      ]
+    }
+  ]
+}

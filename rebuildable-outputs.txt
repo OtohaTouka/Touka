@@ -1,0 +1,7 @@
+ToukaChat/.next/
+ToukaChat/out/
+ToukaChat/next-env.d.ts
+ToukaChat/src/generated/
+ToukaChat/tsconfig.tsbuildinfo
+ToukaChat/tsconfig.guard.tsbuildinfo
+ToukaIDE/dist/

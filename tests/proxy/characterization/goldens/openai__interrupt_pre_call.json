@@ -1,0 +1,4 @@
+[
+ "data: {\"id\": \"chatcmpl-req-go-interrupt_pre_call\", \"object\": \"chat.completion.chunk\", \"created\": 1700000000, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⏹️ 已由使用者中斷。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: [DONE]\n\n"
+]

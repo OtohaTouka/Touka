@@ -1,0 +1,260 @@
+{
+    "hub": [
+        {
+            "id": "curated-mcp-docgen",
+            "name": "mcp-docgen",
+            "category": "File",
+            "description": "Touka 自家開源 MCP（mcp-docgen）：用 Markdown／表格資料建立、讀取、編輯、互轉 Word／Excel／PowerPoint／PDF／HTML 文件（含 PDF 合併/分割/抽頁）。",
+            "command": "uvx",
+            "args": [
+                "mcp-docgen==0.8.0"
+            ],
+            "env_requirements": [],
+            "env": {
+                "MCP_DOCGEN_INPUT_DIR": "@TOUKA_APPDATA@",
+                "MCP_DOCGEN_OUTPUT_DIR": "@TOUKA_OUTPUT@"
+            },
+            "vault_jail_arg": "base_dir",
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999999,
+            "icon": "FileText"
+        },
+        {
+            "id": "curated-notion",
+            "name": "Notion",
+            "category": "File",
+            "description": "Notion 官方（Notion Labs）發行的 MCP 伺服器：以 integration token 存取 Notion 頁面、資料庫與留言，支援搜尋、頁面／區塊讀寫與 Markdown 取用（24 個工具）。",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@notionhq/notion-mcp-server@2.5.0"
+            ],
+            "env_requirements": [
+                "NOTION_TOKEN"
+            ],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999998,
+            "icon": "FileText",
+            "npm_package": "@notionhq/notion-mcp-server",
+            "source_url": "https://github.com/makenotion/notion-mcp-server"
+        },
+        {
+            "id": "curated-atlassian",
+            "name": "Atlassian",
+            "category": "Dev",
+            "description": "社群維護（非 Atlassian 官方發行）的 Jira／Confluence MCP 伺服器：以 API Token 查詢議題、轉換狀態與讀寫頁面。出廠限 default 工具組＋唯讀模式（16 工具），可於設定頁調整；Confluence 需另補 CONFLUENCE_* 變數。",
+            "command": "uvx",
+            "args": [
+                "mcp-atlassian==0.23.0"
+            ],
+            "env_requirements": [
+                "JIRA_URL",
+                "JIRA_USERNAME",
+                "JIRA_API_TOKEN"
+            ],
+            "env": {
+                "TOOLSETS": "default",
+                "READ_ONLY_MODE": "true"
+            },
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999998,
+            "icon": "Ticket",
+            "source_url": "https://github.com/sooperset/mcp-atlassian"
+        },
+        {
+            "id": "curated-figma",
+            "name": "Figma",
+            "category": "Utils",
+            "description": "社群維護（Framelink／GLips 發行，非 Figma 官方）的 Figma MCP 伺服器：讀取設計稿的版面與樣式資料並下載圖片素材，用於設計轉程式碼（2 個工具）。",
+            "command": "npx",
+            "args": [
+                "-y",
+                "figma-developer-mcp@0.13.2",
+                "--stdio"
+            ],
+            "env_requirements": [
+                "FIGMA_API_KEY"
+            ],
+            "env": {
+                "IMAGE_DIR": "@TOUKA_OUTPUT@",
+                "FRAMELINK_TELEMETRY": "off"
+            },
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999998,
+            "icon": "Palette",
+            "npm_package": "figma-developer-mcp",
+            "source_url": "https://github.com/GLips/Figma-Context-MCP"
+        },
+        {
+            "id": "curated-context7",
+            "name": "Context7",
+            "category": "Dev",
+            "description": "Upstash 官方發行的 Context7 MCP 伺服器：即時抓取各函式庫／框架最新版的官方文件與程式碼範例，免金鑰即可使用（2 個工具）。",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp@3.2.5"
+            ],
+            "env_requirements": [],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999998,
+            "icon": "BookOpen",
+            "npm_package": "@upstash/context7-mcp",
+            "source_url": "https://github.com/upstash/context7"
+        },
+        {
+            "id": "curated-sentry",
+            "name": "Sentry",
+            "category": "Dev",
+            "description": "Sentry 官方（Functional Software）發行的 MCP 伺服器：查詢組織與專案、搜尋 issue 與事件、更新 issue 狀態，並可調用 Seer 做 AI 根因分析（9 個工具）。授權為 FSL-1.1，非 OSI 開源。",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@sentry/mcp-server@0.37.0"
+            ],
+            "env_requirements": [
+                "SENTRY_ACCESS_TOKEN"
+            ],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999998,
+            "icon": "Bug",
+            "npm_package": "@sentry/mcp-server",
+            "source_url": "https://github.com/getsentry/sentry-mcp"
+        },
+        {
+            "id": "curated-github",
+            "name": "GitHub",
+            "category": "Dev",
+            "description": "GitHub 官方發行的遠端 MCP 伺服器：讀取儲存庫、議題、PR、Actions 與程式碼搜尋。出廠採唯讀端點（/readonly），需自備 Personal Access Token；建議用 fine-grained token 並只授權必要的儲存庫。",
+            "url": "https://api.githubcopilot.com/mcp/readonly",
+            "headers": {
+                "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
+            },
+            "env_requirements": [
+                "GITHUB_PERSONAL_ACCESS_TOKEN"
+            ],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999997,
+            "icon": "Github",
+            "source_url": "https://github.com/github/github-mcp-server"
+        },
+        {
+            "id": "curated-zapier",
+            "name": "Zapier",
+            "category": "Utils",
+            "description": "Zapier 官方發行的遠端 MCP 伺服器：以 9,000+ 應用程式為工具面，透過 meta-tool 動態探索並執行動作。需自備 Zapier 帳號並於 mcp.zapier.com 建立伺服器（客戶端選 Other）後產生連線權杖；每次成功工具呼叫會消耗 Zapier task 額度。",
+            "url": "https://mcp.zapier.com/api/v1/connect",
+            "headers": {
+                "Authorization": "Bearer ${ZAPIER_MCP_TOKEN}"
+            },
+            "env_requirements": [
+                "ZAPIER_MCP_TOKEN"
+            ],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999997,
+            "icon": "Globe",
+            "source_url": "https://docs.zapier.com/mcp/authentication"
+        },
+        {
+            "id": "curated-stripe",
+            "name": "Stripe",
+            "category": "Utils",
+            "description": "Stripe 官方發行的遠端 MCP 伺服器：查詢與操作金流資料（客戶、付款、發票、訂閱、退款）並可搜尋 Stripe 文件。⚠️ 本服務含通用寫入工具，金鑰權限是唯一的安全邊界、Touka 無法代為限制——請務必使用受限金鑰（rk_）且只勾選唯讀權限，建議先用測試模式金鑰（rk_test_）試用。",
+            "url": "https://mcp.stripe.com",
+            "headers": {
+                "Authorization": "Bearer ${STRIPE_RESTRICTED_KEY}"
+            },
+            "env_requirements": [
+                "STRIPE_RESTRICTED_KEY"
+            ],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999997,
+            "icon": "CreditCard",
+            "source_url": "https://docs.stripe.com/mcp"
+        },
+        {
+            "id": "curated-ms-learn",
+            "name": "MS Learn",
+            "category": "Dev",
+            "description": "Microsoft 官方發行的遠端 MCP 伺服器：搜尋與擷取 Microsoft Learn 的官方技術文件與程式碼範例（3 個工具）。免金鑰，直接連線即可使用。",
+            "url": "https://learn.microsoft.com/api/mcp",
+            "headers": {},
+            "env_requirements": [],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999997,
+            "icon": "BookOpen",
+            "source_url": "https://learn.microsoft.com/training/support/mcp"
+        },
+        {
+            "id": "curated-deepwiki",
+            "name": "DeepWiki",
+            "category": "Dev",
+            "description": "Cognition（Devin 團隊）官方發行的遠端 MCP 伺服器：查詢公開 GitHub 專案的自動生成文件，可讀結構、讀內容、直接提問（3 個工具）。免金鑰。",
+            "url": "https://mcp.deepwiki.com/mcp",
+            "headers": {},
+            "env_requirements": [],
+            "source": "curated",
+            "is_official": false,
+            "popularity": 999997,
+            "icon": "BookOpen",
+            "source_url": "https://docs.devin.ai/work-with-devin/deepwiki-mcp"
+        },
+        {
+            "id": "official-fetch",
+            "name": "Fetch",
+            "category": "Browser",
+            "description": "Anthropic 官方維護的 fetch 伺服器。",
+            "command": "uvx",
+            "args": [
+                "mcp-server-fetch==2026.7.10"
+            ],
+            "env_requirements": [],
+            "source": "official",
+            "is_official": true,
+            "popularity": 999999,
+            "icon": "ShieldCheck"
+        },
+        {
+            "id": "official-filesystem",
+            "name": "Filesystem",
+            "category": "File",
+            "description": "Anthropic 官方維護的 filesystem 伺服器。",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem@2026.7.10",
+                "@TOUKA_APPDATA@"
+            ],
+            "env_requirements": [],
+            "source": "official",
+            "is_official": true,
+            "popularity": 999999,
+            "icon": "ShieldCheck"
+        },
+        {
+            "id": "official-git",
+            "name": "Git",
+            "category": "Dev",
+            "description": "Anthropic 官方維護的 git 伺服器。",
+            "command": "uvx",
+            "args": [
+                "mcp-server-git==2026.7.10"
+            ],
+            "env_requirements": [],
+            "source": "official",
+            "is_official": true,
+            "popularity": 999999,
+            "icon": "ShieldCheck"
+        }
+    ]
+}

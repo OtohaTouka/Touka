@@ -1,0 +1,8 @@
+[
+ "data: {\"id\": \"chatcmpl-req-go-interrupt_during_run\", \"object\": \"chat.completion.chunk\", \"created\": 1700000012, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"[vault_tools done]\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-go-interrupt_during_run\", \"object\": \"chat.completion.chunk\", \"created\": 1700000019, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⏹️ 已由使用者中斷。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 30, \"cost\": 0.0012, \"usage_pct\": 0.1}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-interrupt_during_run\", \"total_ms\": 19000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 0.0}}\n\n",
+ "data: {\"choices\": [{\"delta\": {\"content\": \"\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 10, \"completion_tokens\": 5}, \"id\": \"chatcmpl-req-go-interrupt_during_run\", \"telemetry\": {\"request_id\": \"req-go-interrupt_during_run\", \"total_ms\": 19000, \"local_ms\": 0, \"pure_gen_ms\": 14000, \"e_index\": 0.0}, \"object\": \"chat.completion.chunk\"}\n\n",
+ "data: [DONE]\n\n"
+]

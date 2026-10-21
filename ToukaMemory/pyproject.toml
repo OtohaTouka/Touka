@@ -1,0 +1,20 @@
+# ADR-0117：uv workspace 成員（單一 uv.lock 的抽象相依來源／禁令 53）。
+# 改依賴：改本檔 dependencies → 根目錄 `uv lock` → `uv sync --all-packages` → commit uv.lock。
+[project]
+name = "toukamemory"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    # 整合模式雖不 import MCP，仍直接使用 uvicorn，故保留直接依賴。
+    "uvicorn~=0.41.0",
+    "qdrant-client~=1.18.0",
+    "sentence-transformers~=6.0.0",
+    "python-dotenv~=1.2.2",
+    "pydantic~=2.12.5",
+    "filelock~=3.29.0",
+    # torch：經 root [tool.uv.sources] 綁 pytorch-cpu index 納入鎖檔（ADR-0117）。
+    "torch==2.13.0",
+]
+
+[tool.uv]
+package = false

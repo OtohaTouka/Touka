@@ -1,0 +1,11 @@
+# iso-c2：CI 用的 README_QUICKSTART「touka-mptcp.override.yml」（核心有 MPTCP 時才疊在
+# docker-compose.ghcr.yml 上）：proxy 與執行器都另關 MPTCP（兩行都寫）。
+services:
+  touka-proxy:
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+      net.mptcp.enabled: 0
+  touka-executor:
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+      net.mptcp.enabled: 0

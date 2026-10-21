@@ -1,0 +1,253 @@
+services:
+  # ── 掛載目錄權限初始化容器 (Volume Permission Init Container) ──────────────────
+  touka-init:
+    image: alpine:latest
+    container_name: touka-init
+    user: "root"
+    volumes:
+      - ./ToukaProxy/config:/app/config
+      - ${SANCTUARY_DATA_PATH:-./data}:/app/data
+      - ./ToukaHeartbeat:/app/heartbeat
+      # HF 快取 volume：新建的 named volume 預設 root 擁有，此處先 chown 給 appuser(1001)，
+      # 否則精靈下載模型時 appuser 無法寫入而失敗（bug① 持久化）。
+      - hf-cache:/app/hf_cache
+      # iso-c2：隔離環境的暫存區（HOME／TMP／快取）。舊映像先掛過時根目錄會是 root 擁有，
+      # 下方只對 volume 根目錄 chown／chmod（不遞迴，裡面是代理人的快取）。
+      - touka-sandbox-state:/app/sandbox_state
+    # ADR-0150：heartbeat 設定改掛『目錄』/app/heartbeat/config（避開單檔 bind-mount 缺席時被
+    # Docker 自動建成目錄→掛到容器內是檔案的 /app/config.json→型別衝突啟動崩潰；且該崩潰發生在
+    # 容器啟動前，up-only 的本 init 擋不住 restart/daemon 重啟路徑）。init 僅備妥目錄＋權限＋遷移
+    # 舊單檔；config.json 由 heartbeat 的 StorageService 於目錄內自癒生成（不再從 .example 播種）。
+    # 注意：sh -c 內嚴禁 # 註解——YAML 折疊標量會把註解折進指令列導致語法錯誤（unexpected fi）。
+    # iso-c2：執行器只掛 data 底下這兩個資料夾，先建好，Docker 才不會替 bind 建出 root 擁有的。
+    command: >
+      sh -c "
+      mkdir -p /app/data/personal_drive /app/data/mcp_servers;
+      chown -R 1001:1001 /app/config /app/data /app/hf_cache || true;
+      chmod -R 775 /app/config /app/data /app/hf_cache || true;
+      chown 1001:1001 /app/sandbox_state || true;
+      chmod 700 /app/sandbox_state || true;
+      mkdir -p /app/heartbeat/config;
+      if [ -f /app/heartbeat/config.json ] && [ ! -e /app/heartbeat/config/config.json ]; then
+        cp /app/heartbeat/config.json /app/heartbeat/config/config.json || true;
+      fi;
+      if [ ! -e /app/heartbeat/config/config.json ]; then
+        cp /app/heartbeat/config.json.example /app/heartbeat/config/config.json || true;
+      fi;
+      chown -R 1001:1001 /app/heartbeat/config || true;
+      chmod -R 775 /app/heartbeat/config || true;
+      "
+
+  # ── 核心 Proxy（單一映像：整合式 ToukaMemory ＋ 內建 ToukaDispatch，ADR-0082）──
+  touka-proxy:
+    # iso-c2：映像取固定名稱，touka-executor 用同一個映像（它不 build、也不拉）。
+    image: touka-proxy:local
+    build:
+      context: .                       # root context：映像同時烤入 Proxy/Memory/Dispatch
+      dockerfile: ToukaProxy/Dockerfile
+    container_name: touka-proxy
+    # ADR-0207：P8-B permit/task oracle 只支援單一 server process；嚴禁加入 --workers。
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "127.0.0.1:${PROXY_PORT:-8000}:8000"
+      # ADR-0082：dispatch 8083 隨 proxy 容器發布（主機原生外部 AI 連入用）。
+      # 全內網部署可移除本行並把 DISPATCH_BIND_HOST 改回 127.0.0.1（攻擊面再縮）。
+      - "127.0.0.1:${DISPATCH_PORT:-8083}:8083"
+    depends_on:
+      touka-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Taipei
+      # 指向同網路的 Heartbeat 容器
+      - HEARTBEAT_EXTERNAL_URL=${HEARTBEAT_INTERNAL_URL:-http://touka-heartbeat:8082/trigger}
+      # 整合模式：新佈局 WORKDIR=/app/ToukaProxy、Memory 於 /app/ToukaMemory
+      - PYTHONPATH=.:/app/ToukaMemory:/app/ToukaMemory/src
+      - MEMORY_APP_DATA_DIR=/app/data
+      - HOST_WORKSPACE_ROOT=${WORKSPACE_ROOT:-/app/workspace}
+      # ADR-0151：.env 讀寫指向「compose 目錄」的容器內掛載點（下方 volumes 的
+      # ./:/app/host_root——恆為 compose 目錄、含 env_file 實際載入的 .env），與 WORKSPACE_ROOT
+      # 解耦。舊制綁 ${WORKSPACE_ROOT}:/app/workspace：使用者把 WORKSPACE_ROOT 指向 repo 以外
+      # （如磁碟根 D:/）即寫進沒人讀的幽靈 .env、自動生成 token 每次重啟重生成（首裝精靈同）。
+      - TOUKA_ENV_FILE=/app/host_root/.env
+      # P8-B 預設 fail-closed；只有人工確認 config bind mount 為本機 filesystem 才在 .env 設 local。
+      - TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND=${TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND:-unknown}
+      # ADR-0082：dispatch 由 proxy 於 lifespan spawn/監督（localhost 子程序）
+      - DISPATCH_AUTOSPAWN=true
+      - DISPATCH_TOKEN=${DISPATCH_TOKEN:-}
+      # 容器要對外發布 8083 → 顯式升開綁定（程式碼預設 127.0.0.1，secure by default）
+      - DISPATCH_BIND_HOST=0.0.0.0
+      # HF 快取根：嵌入模型的下載（精靈）與載入（向量庫 SentenceTransformer）皆寫入
+      # $HF_HOME/hub（→ /app/hf_cache/hub）。掛 named volume hf-cache 以跨重建持久化（bug①）。
+      - HF_HOME=/app/hf_cache
+      # iso-c2：隔離環境的暫存區（named volume，見下方 volumes）；沒設時代理人指令一律要人核准。
+      - TOUKA_SANDBOX_STATE_DIR=/app/sandbox_state
+      # iso-c2：執行器的控制通道（和 touka-executor 共用的 volume）；proxy 不等執行器，靠背景重探。
+      - TOUKA_EXECUTOR_DIR=/app/ipc/executor
+    volumes:
+      - ./ToukaProxy/src:/app/ToukaProxy/src
+      - ./ToukaProxy/config:/app/ToukaProxy/config
+      # 聖域資料（Agent 記憶、靈魂、對話）
+      - ${SANCTUARY_DATA_PATH:-./data}:/app/data
+      # ToukaMemory 源碼（dev 即時掛載；映像內已烤入同路徑）
+      - ${MEMORY_SYSTEM_SRC_DIR:-./ToukaMemory}:/app/ToukaMemory
+      # ToukaDispatch 源碼（dev 即時掛載；映像內已烤入同路徑，由 DispatchSupervisor spawn）
+      - ./ToukaDispatch:/app/ToukaDispatch
+      # 工作區根目錄
+      - ${WORKSPACE_ROOT:-.}:/app/workspace
+      # ADR-0151：compose 目錄（恆含 env_file 載入的 .env）穩定掛載＝密鑰持久化目標，與
+      # WORKSPACE_ROOT 解耦。set_key 以 temp+rename 覆寫 .env，故必須寫在『目錄掛載』內的檔案
+      # （非單檔掛載點）。來源 `.` 恆為 compose 目錄；預設佈局下與 workspace 重疊、無新增暴露。
+      - ./:/app/host_root
+      # HF 嵌入模型快取（named volume；跨 `docker compose up --build` 持久化，bug①）
+      - hf-cache:/app/hf_cache
+      # iso-c2：隔離環境的暫存區（代理人的 HOME／TMP／快取；不在 data 裡、不進備份）
+      - touka-sandbox-state:/app/sandbox_state
+      - touka-exec-ipc:/app/ipc/executor
+    networks:
+      - touka-net
+    # iso-c2：Landlock 擋不到 TCP Fast Open 送出的連線。核心有 MPTCP 時，在覆寫設定另加
+    # net.mptcp.enabled: 0（沒有 MPTCP 的核心加了，容器會起不來）
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── 心跳排程器 ────────────────────────────────────────────────────────────
+  touka-heartbeat:
+    build:
+      context: .                          # root context：uv workspace 依賴描述檔（ADR-0117）
+      dockerfile: ToukaHeartbeat/Dockerfile
+    container_name: touka-heartbeat
+    ports:
+      - "127.0.0.1:${HEARTBEAT_PORT:-8082}:8082"
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Taipei
+      # 指向同網路的 Proxy 容器
+      - API_BASE_URL=http://touka-proxy:8000
+      # ADR-0150：設定檔位於掛載的設定『目錄』內（見下方 volumes 的 /app/config 目錄掛載）。
+      - HEARTBEAT_CONFIG_FILE=/app/config/config.json
+      # HEARTBEAT_TOKEN 刻意不在此覆寫：由上方 env_file: .env 在各次 Compose 解析時讀取。
+      # 首裝先啟動 Proxy 並確認共享值成功持久化，再以另一次 Compose 呼叫建立 Heartbeat。
+      # depends_on 只控制啟動順序，不會重讀同次已解析的 env_file；輪換後須重啟／重建兩端。
+      # environment 的 ${VAR} 也在解析期取值，空值覆寫會壓過 env_file，故不得在此重複設定。
+    volumes:
+      - ./ToukaHeartbeat/awaken.py:/app/awaken.py
+      # ADR-0150：掛『目錄』而非單檔——來源缺席時 Docker 自動建成目錄＝正確型別、掛載恆成功；
+      # config.json 由 heartbeat 的 StorageService 於目錄內自癒生成（up/restart/daemon 重啟皆穩）。
+      - ${HEARTBEAT_CONFIG_DIR:-./ToukaHeartbeat/config}:/app/config
+    networks:
+      - touka-net
+    depends_on:
+      touka-proxy:
+        condition: service_healthy
+      touka-init:
+        condition: service_completed_successfully
+    restart: always
+
+  # ── 前端聊天介面 ──────────────────────────────────────────────────────────
+  #（原 touka-dispatch 服務已併入 touka-proxy 容器——ADR-0082：DispatchSupervisor
+  #  於 lifespan spawn localhost 子程序，8083 改隨 proxy 發布）
+  touka-chat:
+    build:
+      context: ./ToukaChat
+      dockerfile: Dockerfile.prod   # 生產多階段建置（npm run build + serve）
+      args:
+        # 靜態匯出：NEXT_PUBLIC_* 必須於 build 時內嵌（runtime environment 無效）
+        - NEXT_PUBLIC_PROXY_URL=${NEXT_PUBLIC_PROXY_URL:-http://localhost:8000}
+        - NEXT_PUBLIC_HEARTBEAT_URL=${NEXT_PUBLIC_HEARTBEAT_URL:-http://localhost:8082}
+    container_name: touka-chat
+    ports:
+      - "127.0.0.1:${CHAT_PORT:-3001}:3001"
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Taipei
+      # 瀏覽器連接的 Proxy URL（本機預設為 localhost，雲端設為域名）
+      - NEXT_PUBLIC_PROXY_URL=${NEXT_PUBLIC_PROXY_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_HEARTBEAT_URL=${NEXT_PUBLIC_HEARTBEAT_URL:-http://localhost:8082}
+    volumes:
+      # sync-api 在啟動時讀取 ../openapi.json（容器內解析為 /openapi.json）
+      # 掛載根目錄的 openapi.json 到容器，確保 npm run dev 能成功執行 sync-api
+      - ./openapi.json:/openapi.json:ro
+    networks:
+      - touka-net
+    depends_on:
+      - touka-proxy
+    restart: unless-stopped
+
+  # ── 執行器（iso-c2）：代理人指令在這裡以 Landlock 隔離執行 ─────────────────────
+  # 和 proxy 同一個映像；proxy 經 ipc volume 的 unix socket 把指令轉過來。這個容器看不到
+  # .env、設定、原始碼與 Touka 內部網路：不帶 env_file、只掛兩個資料夾、skills（唯讀）、ipc、
+  # 自己的暫存區，只接 touka-exec-net（能上網）。設定或 kernel 有錯時伺服器保持存活、不服務
+  # （healthcheck 失敗，不會重啟循環）。核心有 MPTCP 時，覆寫檔要在這個服務也加
+  # net.mptcp.enabled: 0（同 proxy；沒有 MPTCP 的核心加了，容器會起不來）。
+  touka-executor:
+    image: touka-proxy:local
+    pull_policy: never
+    container_name: touka-executor
+    command: ["python", "-m", "src.services.isolation.executor_server",
+              "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
+              "--state-dir", "/app/executor_state",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
+    user: "1001:1001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # 全部代理人共用的上限；在 .env 調整，重新 up 才生效
+    mem_limit: ${TOUKA_EXECUTOR_MEM_LIMIT:-2g}
+    pids_limit: ${TOUKA_EXECUTOR_PIDS_LIMIT:-512}
+    cpus: ${TOUKA_EXECUTOR_CPUS:-2}
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ${SANCTUARY_DATA_PATH:-./data}/personal_drive:/app/data/personal_drive
+      - ${SANCTUARY_DATA_PATH:-./data}/mcp_servers:/app/data/mcp_servers
+      - ./ToukaProxy/config/skills:/app/ToukaProxy/config/skills:ro
+      - touka-exec-ipc:/app/ipc/executor
+      - touka-executor-state:/app/executor_state
+    networks:
+      - touka-exec-net
+    sysctls:
+      net.ipv4.tcp_fastopen: 0
+    depends_on:
+      touka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # 只看 socket 會被 volume 裡殘留的舊 socket 騙過：還要 alive 在一分鐘內更新過（每 5 秒一次）
+    healthcheck:
+      test: ["CMD-SHELL", 'test -S /app/ipc/executor/ctl.sock && test -n "$$(find /app/ipc/executor/alive -mmin -1)"']
+      interval: 5s
+      # listen 前要做兩次自測（各最多 30 秒）：剛啟動時不先顯示 unhealthy
+      start_period: 70s
+
+networks:
+  touka-net:
+    driver: bridge
+  # iso-c2：執行器自己的網路（一般 bridge，能上網），和 touka-net 分開
+  touka-exec-net:
+    driver: bridge
+
+volumes:
+  # 嵌入模型 HF 快取：named local volume，跨 `docker compose up --build` 持久化已下載的模型
+  # （避免每次重建都重下 ~90–420MB）。由 touka-init chown 給 appuser(1001) 才可寫入。
+  # 注意：`docker compose down -v` 會連同刪除此 volume（清空快取）。
+  hf-cache:
+  # iso-c2：隔離環境的暫存區；沒有大小上限，`down -v` 會刪掉（只是快取與暫存，不是資料）。
+  touka-sandbox-state:
+  # iso-c2：執行器的控制通道（socket、權杖、alive）與執行器自己的暫存區（同上，`down -v` 會刪）。
+  # 空 volume 第一次掛載時照映像複製擁有者（appuser、0700）。
+  touka-exec-ipc:
+  touka-executor-state:

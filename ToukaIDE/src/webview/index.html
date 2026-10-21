@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src ${cspSource}; connect-src 'none';">
+    <title>Touka IDE</title>
+    <link rel="stylesheet" href="${styleUri}">
+</head>
+<body>
+    <div class="header">
+        <div id="protocol-status">-</div>
+        <select id="agent-select">
+            <option value="">-- 載入中 --</option>
+        </select>
+        <select id="session-select">
+            <option value="">-- 建立新對話 --</option>
+        </select>
+    </div>
+    <div class="chat-container" id="chat-container">
+        <!-- 對話訊息將會在此動態生成 -->
+        <div class="message assistant initial-status">
+            正在與 Proxy 連線...
+        </div>
+    </div>
+    <div class="input-container">
+        <div id="mention-menu" class="mention-menu"></div>
+        <textarea id="message-input" rows="1" placeholder="問點什麼吧... (Shift+Enter 換行)"></textarea>
+        <button id="send-button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+    </div>
+    <script src="${scriptUri}"></script>
+</body>
+</html>

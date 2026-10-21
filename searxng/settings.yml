@@ -1,0 +1,16 @@
+# Touka 自架 SearXNG 最小設定（ADR-0091 / Web Search Phase C）。
+# 完整選項見 https://docs.searxng.org/admin/settings/index.html
+# 重點：啟用 JSON 輸出格式——research 工具以 GET /search?format=json 檢索結果。
+use_default_settings: true
+
+server:
+  # secret_key 由容器環境變數 SEARXNG_SECRET 注入：官方 image 的 entrypoint 會把此處的
+  # 佔位字串 'ultrasecretkey' 替換為 $SEARXNG_SECRET。請務必在 .env 設定 SEARXNG_SECRET。
+  secret_key: "ultrasecretkey"
+  limiter: false        # 單機內部、無公開流量 → 關閉限流器（免額外 redis/valkey）
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json              # ← research 工具所需（缺此則 /search?format=json 回 403）

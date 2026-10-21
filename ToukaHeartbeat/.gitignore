@@ -1,0 +1,17 @@
+# Python / Docker
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets & Configs
+.env*
+!.env.example
+config.json
+# ADR-0150：開發版 compose 改掛『目錄』./ToukaHeartbeat/config（活體排程設定，勿入版控）
+config/

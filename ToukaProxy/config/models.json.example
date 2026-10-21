@@ -1,0 +1,11 @@
+{
+    "models": [
+        {
+            "id": "ToukaGroup",
+            "name": "🌍 靈魂群聊 (ToukaGroup)",
+            "owned_by": "proxy",
+            "enabled": true,
+            "visibility": "visible"
+        }
+    ]
+}

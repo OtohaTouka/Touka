@@ -1,0 +1,15 @@
+{
+    "tag_rules": {
+        "is_toukasoul": {
+            "role": "Owner",
+            "capabilities": ["heartbeat_awakening", "can_supervise_dispatch"]
+        }
+    },
+    "agent_overrides": {
+        "DebugAgent": {
+            "role": "Debugger",
+            "capabilities": ["heartbeat_awakening", "can_supervise_dispatch"]
+        }
+    },
+    "default_role": "Base"
+}

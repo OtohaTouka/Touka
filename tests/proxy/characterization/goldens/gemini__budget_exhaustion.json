@@ -1,0 +1,10 @@
+[
+ "data: {\"type\": \"touka_progress\", \"kind\": \"react_slots\", \"current\": 1, \"total\": 1}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-budget_exhaustion\", \"object\": \"chat.completion.chunk\", \"created\": 1700000012, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"[vault_tools done]\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-budget_exhaustion\", \"object\": \"chat.completion.chunk\", \"created\": 1700000019, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⚠️ 工具輪額度已盡（1 輪），進行最後總結。\\n\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-budget_exhaustion\", \"object\": \"chat.completion.chunk\", \"created\": 1700000026, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"總結：已完成一輪查詢。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
+ "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 37, \"cost\": 3.8e-05, \"usage_pct\": 0.0}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-budget_exhaustion\", \"total_ms\": 26000, \"local_ms\": 0, \"pure_gen_ms\": 21000, \"e_index\": 0.0}}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-budget_exhaustion\", \"object\": \"chat.completion.chunk\", \"created\": 1700000026, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"stop\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-budget_exhaustion\", \"total_ms\": 26000, \"local_ms\": 0, \"pure_gen_ms\": 21000, \"e_index\": 0.0}}\n\n",
+ "data: [DONE]\n\n"
+]

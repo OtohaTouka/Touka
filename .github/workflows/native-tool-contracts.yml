@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.12.1"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --all-packages --python 3.12
+      # 四個產品子專案不能有 pyflakes 錯誤（未定義名稱、沒用到的匯入）；完整 ruff 只在本機跑。
+      - run: uv run --no-sync ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
+      - run: uv run --no-sync python -B scripts/lint_ssot.py
+      - run: uv run --no-sync python -B scripts/guard_native_tool_contracts.py
+      - run: uv run --no-sync python -B scripts/guard_permissions_registry.py
+      # test_mcp_modern_companion 需要 Node 24.21.0 與 ToukaIDE 的 esbuild。
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
+      - run: npm run install:controlled
+        working-directory: ToukaIDE
+      - run: uv run --no-sync python -m pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ToukaChat
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
+      - run: npm ci --ignore-scripts
+      - run: node container-security/braces-backport/backport.mjs apply --project-root .
+      - run: node container-security/braces-backport/backport.mjs verify --project-root . --scope full
+      - run: npm run gen:artifact-runtime --ignore-scripts
+      - run: npm run test
+      - run: npm run guard:typecheck
+      - run: npm run guard:api
+
+  toukaide:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
+      - run: npm run install:controlled
+        working-directory: ToukaIDE
+      - run: npm test
+        working-directory: ToukaIDE
+      - run: npm run typecheck
+        working-directory: ToukaIDE
+      - run: npm run compile
+        working-directory: ToukaIDE

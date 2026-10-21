@@ -1,0 +1,259 @@
+{
+  "mode": "live-select-only",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "samples": 1,
+  "limitations": [
+    "builtin-only (no MCP servers mounted, no memory_tools schema)",
+    "minimal system prompt (no persona/soul pipeline)",
+    "select-only: tools are never executed; status is always 'ok'"
+  ],
+  "advertised_by_identity": {
+    "DebugAgent:Owner": [
+      "activate_skill",
+      "agent_control",
+      "ask_user",
+      "bash",
+      "connect_mcp_server",
+      "create_mcp",
+      "create_skill",
+      "ide_open_diff",
+      "mission_tools",
+      "project_tools",
+      "propose_new_capability",
+      "request_mcp_creation",
+      "request_skill_install",
+      "research",
+      "scaffold_mcp",
+      "search_skill_market",
+      "sns_control",
+      "update_my_soul",
+      "vault_tools",
+      "verify_mcp_locally",
+      "write_mcp_implementation"
+    ],
+    "DebugAgent:Base": []
+  },
+  "report": {
+    "n_cases": 8,
+    "total_calls": 7,
+    "tool_selection_accuracy": 0.8333333333333334,
+    "wrong_tool_rate": 0.14285714285714285,
+    "invalid_param_rate": 0.0,
+    "hallucinated_tool_rate": 0.0,
+    "tool_error_rate": 0.0,
+    "avg_tool_calls_per_case": 0.875,
+    "policy_denial_accuracy": 1.0,
+    "per_case": [
+      {
+        "case_id": "read-soul-owner",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "hallucinated-dream-tool",
+        "total_calls": 1,
+        "evaluated_selection": false,
+        "selection_ok": false,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "bash-denied-base",
+        "total_calls": 0,
+        "evaluated_selection": false,
+        "selection_ok": false,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": true
+      },
+      {
+        "case_id": "mission-initialize",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": false,
+        "wrong_tool_calls": 1,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "research-auto",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "wrong-tool-read-file",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "missing-required-param",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      },
+      {
+        "case_id": "write-personal-note",
+        "total_calls": 1,
+        "evaluated_selection": true,
+        "selection_ok": true,
+        "wrong_tool_calls": 0,
+        "hallucinated_calls": 0,
+        "invalid_param_calls": 0,
+        "error_calls": 0,
+        "denial_ok": null
+      }
+    ]
+  },
+  "report_text": "cases=8 tool_calls=7\ntool_selection_accuracy = 83.3%\nwrong_tool_rate         = 14.3%\ninvalid_param_rate      = 0.0%\nhallucinated_tool_rate  = 0.0%\ntool_error_rate         = 0.0%\navg_tool_calls_per_case = 0.88\npolicy_denial_accuracy  = 100.0%",
+  "observations": [
+    {
+      "case_id": "read-soul-owner",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "update_my_soul",
+          "args": {
+            "action": "list"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "hallucinated-dream-tool",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "search_skill_market",
+          "args": {
+            "query": "dream tool visualise future outcomes"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "bash-denied-base",
+      "identity": "DebugAgent:Base",
+      "advertised_count": 0,
+      "calls": []
+    },
+    {
+      "case_id": "mission-initialize",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "ask_user",
+          "args": {
+            "questions": [
+              {
+                "question": "你希望我針對哪個專案或目標，拆解成 review → test → deploy 這三個子任務？請提供具體的目標描述。",
+                "options": [],
+                "allowOther": true,
+                "header": "目標描述"
+              }
+            ]
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "research-auto",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "research",
+          "args": {
+            "query": "recent papers on retrieval-augmented generation 2024 2025",
+            "source": "auto"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "wrong-tool-read-file",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "project_tools",
+          "args": {
+            "action": "read",
+            "path": "src/config.py"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "missing-required-param",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "project_tools",
+          "args": {
+            "action": "write",
+            "path": "notes.txt",
+            "content": "hello"
+          },
+          "status": "ok"
+        }
+      ]
+    },
+    {
+      "case_id": "write-personal-note",
+      "identity": "DebugAgent:Owner",
+      "advertised_count": 21,
+      "calls": [
+        {
+          "name": "vault_tools",
+          "args": {
+            "vault": "personal",
+            "action": "write",
+            "path": "reminders.txt",
+            "content": "remember to hydrate"
+          },
+          "status": "ok"
+        }
+      ]
+    }
+  ]
+}

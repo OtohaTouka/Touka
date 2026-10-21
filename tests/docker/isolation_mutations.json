@@ -1,0 +1,502 @@
+[
+  {
+    "id": "nofollow_removed",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "fd = os.open(parts[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)",
+    "new": "fd = os.open(parts[-1], os.O_PATH | os.O_CLOEXEC, dir_fd=current)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_upper_public_config_symlink_and_hardlink_are_skipped",
+      "tests/integration/test_isolation_linux.py::test_required_symlink_is_refused_not_followed"
+    ]
+  },
+  {
+    "id": "rw_area_without_execute",
+    "file": "ToukaProxy/src/sandbox_kernel/landlock.py",
+    "old": "\"rwx\": EXECUTE | READ_FILE | READ_DIR | _RW | REFER | TRUNCATE,",
+    "new": "\"rwx\": READ_FILE | READ_DIR | _RW | REFER | TRUNCATE,",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_scripts_run_from_rw_area_and_read_only_skill_area"
+    ]
+  },
+  {
+    "id": "skills_area_without_execute",
+    "file": "ToukaProxy/src/sandbox_kernel/landlock.py",
+    "old": "\"rox\": EXECUTE | READ_FILE | READ_DIR,",
+    "new": "\"rox\": READ_FILE | READ_DIR,",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_scripts_run_from_rw_area_and_read_only_skill_area"
+    ]
+  },
+  {
+    "id": "pin_disabled",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "            if launch_spec.pin:",
+    "new": "            if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_pin_mode_keeps_rule_fds_and_reopen_is_still_checked"
+    ]
+  },
+  {
+    "id": "inherited_fds_not_closed",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    _close_inherited_fds(pins)",
+    "new": "    pins.sort()",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_inherited_fds_other_than_pins_are_closed"
+    ]
+  },
+  {
+    "id": "shared_net_ruleset_ignored",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "        _restrict_and_close(api, net_fd, \"net\")",
+    "new": "        api.close(net_fd)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_blocked_ports_are_refused_and_others_connect"
+    ]
+  },
+  {
+    "id": "scopes_removed",
+    "file": "ToukaProxy/src/sandbox_kernel/landlock.py",
+    "old": "    return SCOPE_ABSTRACT_UNIX_SOCKET | SCOPE_SIGNAL if effective_abi(abi) >= _ABI_SCOPES else 0",
+    "new": "    return 0",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_signals_and_abstract_sockets_stay_inside_the_domain"
+    ]
+  },
+  {
+    "id": "pdeathsig_removed",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "        api.prctl(landlock.PR_SET_PDEATHSIG, landlock.SIGKILL)",
+    "new": "        api.prctl(landlock.PR_SET_NO_NEW_PRIVS, 1)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_command_dies_with_its_parent"
+    ]
+  },
+  {
+    "id": "hardlinked_config_granted",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "single = stat.S_ISREG(mode) and info.st_nlink == 1 and rule.access == \"ro\"",
+    "new": "single = stat.S_ISREG(mode) and rule.access == \"ro\"",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_upper_public_config_symlink_and_hardlink_are_skipped"
+    ]
+  },
+  {
+    "id": "optional_symlink_fatal",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "        if rule.optional or (rule.skip_symlink and stat.S_ISLNK(info.st_mode)):",
+    "new": "        if rule.skip_symlink and stat.S_ISLNK(info.st_mode):",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_passes_in_pin_mode"
+    ]
+  },
+  {
+    "id": "self_test_tcp_check_weakened",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "(\"tcp_blocked\", lambda: _connect(socket.AF_INET, blocked), eacces),",
+    "new": "(\"tcp_blocked\", lambda: _connect(socket.AF_INET, blocked), None),",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_passes_in_pin_mode"
+    ]
+  },
+  {
+    "id": "net_layer_before_path_layer",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    _restrict_and_close(api, fs_fd, \"fs\")",
+    "new": "    net_fd = None if net_fd is None else _restrict_and_close(api, net_fd, \"net\")\n    _restrict_and_close(api, fs_fd, \"fs\")",
+    "tests": [
+      "tests/unit/test_landlock_kernel_pure.py::test_path_layer_first_then_shared_net_ruleset_last"
+    ]
+  },
+  {
+    "id": "derived_path_link_check_removed",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if os.path.normcase(Path(path).absolute()) != os.path.normcase(target):",
+    "new": "    if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_project_root_swapped_for_a_symlink_is_refused_and_does_not_reach_bob"
+    ]
+  },
+  {
+    "id": "grantable_root_not_per_identity",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    return (_resolve(layout.data_root) / \"personal_drive\" / owner,)",
+    "new": "    return (_resolve(layout.data_root) / \"personal_drive\",)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_project_root_swapped_for_a_symlink_is_refused_and_does_not_reach_bob"
+    ]
+  },
+  {
+    "id": "pytest_root_injected_without_upper_config",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    upper = any(pytest_root.is_relative_to(rule.path.parent) for rule in public)",
+    "new": "    upper = True",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_subproject_in_the_drive_keeps_its_own_testpaths"
+    ]
+  },
+  {
+    "id": "selftest_fixture_fixed_name",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    fixture = root / f\"selftest-{os.urandom(4).hex()}\"",
+    "new": "    fixture = root / \"selftest\"",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_passes_with_a_leftover_fixture"
+    ]
+  },
+  {
+    "id": "stale_selftest_cleanup_follows_links",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "        if stale.is_symlink() or stale.is_junction() or not stale.resolve().is_relative_to(root):",
+    "new": "        if (stale := stale.resolve()) is None:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_stale_selftest_cleanup_does_not_follow_symlinks"
+    ]
+  },
+  {
+    "id": "parent_pid_not_checked",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    if launch_spec.parent_pid and os.getppid() != launch_spec.parent_pid:",
+    "new": "    if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_command_does_not_run_when_the_parent_exits_before_pdeathsig"
+    ]
+  },
+  {
+    "id": "runner_omits_parent_pid",
+    "file": "ToukaProxy/src/services/isolation/runners.py",
+    "old": "\"parent_pid\": os.getpid()}",
+    "new": "\"parent_pid\": 4194304}",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_landlock_runner_end_to_end"
+    ]
+  },
+  {
+    "id": "bind_tcp_not_handled",
+    "file": "ToukaProxy/src/sandbox_kernel/landlock.py",
+    "old": "NET_TCP = BIND_TCP | CONNECT_TCP",
+    "new": "NET_TCP = CONNECT_TCP",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_bind_is_refused_on_blocked_ports_and_allowed_elsewhere",
+      "tests/integration/test_isolation_linux.py::test_self_test_passes_in_pin_mode"
+    ]
+  },
+  {
+    "id": "port_zero_not_allowed",
+    "file": "ToukaProxy/src/sandbox_kernel/landlock.py",
+    "old": "        for port in range(65536):",
+    "new": "        for port in range(1, 65536):",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_bind_is_refused_on_blocked_ports_and_allowed_elsewhere"
+    ]
+  },
+  {
+    "id": "self_test_bind_check_weakened",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "(\"tcp_bind_blocked\", lambda: _bind(blocked), eacces),",
+    "new": "(\"tcp_bind_blocked\", lambda: _bind(blocked), None),",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_passes_in_pin_mode"
+    ]
+  },
+  {
+    "id": "pin_fd_not_moved_high",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "_PIN_FD_FLOOR = 100",
+    "new": "_PIN_FD_FLOOR = 3",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_pins_survive_a_shell_that_reuses_low_fds"
+    ]
+  },
+  {
+    "id": "pin_return_value_ignored",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "                pins.append(opener.keep(fd))",
+    "new": "                opener.keep(fd)\n                pins.append(fd)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_pin_mode_keeps_rule_fds_and_reopen_is_still_checked",
+      "tests/unit/test_landlock_kernel_pure.py::test_pins_are_the_fds_that_keep_returns"
+    ]
+  },
+  {
+    "id": "net_fastopen_check_removed",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    if _sysctl_bits(fastopen) & 1:",
+    "new": "    if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_reports_unsafe_net_sysctls_and_still_passes",
+      "tests/unit/test_landlock_kernel_pure.py::test_net_sysctls_landlock_cannot_cover_fail_closed",
+      "tests/unit/test_landlock_kernel_pure.py::test_self_test_reports_unsafe_net_sysctls_and_still_runs_every_check"
+    ]
+  },
+  {
+    "id": "net_mptcp_check_removed",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "    return spec.NET_MPTCP if mptcp is not None and _sysctl_bits(mptcp) else None",
+    "new": "    return None",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_reports_unsafe_net_sysctls_and_still_passes",
+      "tests/unit/test_landlock_kernel_pure.py::test_net_sysctls_landlock_cannot_cover_fail_closed",
+      "tests/unit/test_landlock_kernel_pure.py::test_self_test_reports_unsafe_net_sysctls_and_still_runs_every_check"
+    ]
+  },
+  {
+    "id": "net_check_not_called",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "        report[\"net\"] = net_sysctl_issue(*map(_read_sysctl, NET_SYSCTL_PATHS))",
+    "new": "        report[\"net\"] = None",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_reports_unsafe_net_sysctls_and_still_passes",
+      "tests/unit/test_landlock_kernel_pure.py::test_self_test_reports_unsafe_net_sysctls_and_still_runs_every_check"
+    ]
+  },
+  {
+    "id": "net_issue_fails_self_test",
+    "file": "ToukaProxy/src/sandbox_kernel/launcher.py",
+    "old": "        report[\"net\"] = net_sysctl_issue(*map(_read_sysctl, NET_SYSCTL_PATHS))",
+    "new": "        report[\"error\"] = net_sysctl_issue(*map(_read_sysctl, NET_SYSCTL_PATHS))\n        if report[\"error\"]:\n            return _emit(report, 1)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_self_test_reports_unsafe_net_sysctls_and_still_passes",
+      "tests/unit/test_landlock_kernel_pure.py::test_self_test_reports_unsafe_net_sysctls_and_still_runs_every_check"
+    ]
+  },
+  {
+    "id": "net_issue_keeps_tcp_feature",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "        return landlock_features(self.abi) - ({TCP_FEATURE} if self.net else set())",
+    "new": "        return landlock_features(self.abi)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_unsafe_net_sysctl_is_its_own_reason_not_fs_9p",
+      "tests/integration/test_isolation_linux.py::test_consented_fallback_keeps_file_isolation_when_net_sysctls_are_unsafe",
+      "tests/unit/test_isolation_status.py::test_unsafe_net_sysctl_keeps_file_isolation_without_tcp",
+      "tests/unit/test_isolation_status.py::test_unsafe_net_sysctl_fallback_is_landlock_without_tcp"
+    ]
+  },
+  {
+    "id": "net_issue_not_level_none",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "        if local.net:  # 擋不住全部連線：不算 landlock 層，核准後只是檔案隔離",
+    "new": "        if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_unsafe_net_sysctl_is_its_own_reason_not_fs_9p",
+      "tests/unit/test_isolation_status.py::test_unsafe_net_sysctl_keeps_file_isolation_without_tcp"
+    ]
+  },
+  {
+    "id": "net_issue_reason_fs_9p",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "            return \"none\", local.net, None",
+    "new": "            return \"none\", \"fs_9p\", None",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_unsafe_net_sysctl_is_its_own_reason_not_fs_9p",
+      "tests/unit/test_isolation_status.py::test_unsafe_net_sysctl_keeps_file_isolation_without_tcp"
+    ]
+  },
+  {
+    "id": "kernel_issue_fallback_not_direct",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "        if usable and not self._state_issue and not self._kernel_issue and profile_complete:",
+    "new": "        if usable and not self._state_issue and profile_complete:",
+    "tests": [
+      "tests/unit/test_isolation_status.py::test_kernel_issue_makes_the_fallback_direct",
+      "tests/unit/test_isolation_status.py::test_kernel_outdated_card_says_unisolated_and_names_the_rebuild"
+    ]
+  },
+  {
+    "id": "server_subreaper_off",
+    "file": "ToukaProxy/src/services/isolation/executor_server.py",
+    "old": "self.kernel.landlock.LinuxLandlock().prctl(PR_SET_CHILD_SUBREAPER, 1)",
+    "new": "self.kernel.landlock.LinuxLandlock().prctl(PR_SET_CHILD_SUBREAPER, 0)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_setsid_daemon_is_killed_after_the_connection_ends"
+    ],
+    "note": "Red only when pytest is not PID 1. isolation_mutations.py runs pytest as its child, so this entry turns red with or without --init; a plain docker run of pytest needs --init, otherwise pytest is PID 1, adopts the orphans itself and a missing subreaper goes unnoticed (the native CI runner is fine)."
+  },
+  {
+    "id": "t_readline_64k",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "            limit=MCP_STDIO_LINE_LIMIT,",
+    "new": "",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_mcp_stdio_accepts_a_200_kib_line"
+    ]
+  },
+  {
+    "id": "t_no_stderr",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "            tg.start_soon(pipes.stderr_loop)",
+    "new": "            pass",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_mcp_stdio_drains_stderr_past_the_reader_buffer_before_discovery"
+    ]
+  },
+  {
+    "id": "t_cancel_no_kill",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "        if self._proc.returncode is None:",
+    "new": "        if self._proc.returncode is None and sig != SIGKILL:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_mcp_stdio_close_reaps_stubborn_descendants"
+    ],
+    "note": "Disables every SIGKILL, including graceful close. The handshake-cancel and owner-deadline cases provide cancellation-path evidence. Turns red through the [landlock] cases; the executor route relies on the executor's own process-group cleanup."
+  },
+  {
+    "id": "t_kill_leader",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "    os.killpg(pgid, sig)",
+    "new": "    os.kill(pgid, sig)",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_mcp_stdio_close_reaps_stubborn_descendants"
+    ],
+    "note": "Turns red through the [landlock] cases; the executor route relies on the executor's own process-group cleanup."
+  },
+  {
+    "id": "t_eof_silent",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "        if ended is not None and not self.closing and self._on_eof == \"raise\":",
+    "new": "        if False:",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_mcp_stdio_eof_notifies_owner_once"
+    ]
+  },
+  {
+    "id": "g_verify_marker_substring",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    passed = outcome.passed",
+    "new": "    passed = '\"status\": \"success\"' in verify",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_marker_in_failed_outcome_cannot_request_deployment"
+    ]
+  },
+  {
+    "id": "g_deployed_name_only",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    if deployed.covers(skill_id) or same_path:",
+    "new": "    if skill_id in evolution_config().get(\"mcpServers\", {}):",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_deployed_entries_refuse_before_any_write"
+    ]
+  },
+  {
+    "id": "g_profile_no_freeze",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    await asyncio.to_thread(refuse_deployed, skill_id)",
+    "new": "    pass",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_profile_refuses_deployed_even_without_tool_gate"
+    ]
+  },
+  {
+    "id": "g_no_jailed_writer",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "        return JailedWriter(fp)",
+    "new": "        return fp",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_jail_runs_main_and_preserves_nonrecursive_listdir"
+    ]
+  },
+  {
+    "id": "g_no_approval_digest",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    return tuple(hashlib.sha256(content).digest() for content in contents)",
+    "new": "    return (b'fixed',)",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_changed_approval_content_is_not_deployed"
+    ]
+  },
+  {
+    "id": "g_no_shared_skill_lock",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "            async with skill_lock(skill_id, kwargs.get(\"_evolution_lock\")) as lease:",
+    "new": "            async with skill_lock(skill_id + str(id(kwargs))) as lease:",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_busy_skill_refuses_immediately"
+    ]
+  },
+  {
+    "id": "g_no_verification_rlimits",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "                rlimits=EvolutionPathGuard.rlimit_values(memory_mb, max_mb, timeout_sec),",
+    "new": "                rlimits={},",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_posix_protocol_keeps_limits_and_close_eof"
+    ]
+  },
+  {
+    "id": "g_unreadable_config_is_empty",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "        if document is None and not config_utils.config_file_exists(MCP_CONFIG_FILENAME):",
+    "new": "        if document is None:",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_deployed_entries_refuse_before_any_write"
+    ]
+  },
+  {
+    "id": "g_linux_no_jailed_writer",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "        return JailedWriter(fp)",
+    "new": "        return fp",
+    "tests": [
+      "tests/integration/test_isolation_linux.py::test_evolution_protocol_over_real_isolation"
+    ],
+    "note": "兩個檔案各小於 FSIZE、合計超出 JailedWriter 配額；Landlock 與 executor 都必須失敗。"
+  },
+  {
+    "id": "g_exception_counts_as_pass",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    except Exception as exc:\n        passed = False",
+    "new": "    except Exception as exc:\n        passed = True",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_protocol_failures_never_deploy"
+    ]
+  },
+  {
+    "id": "m_agent_env_keeps_grants",
+    "file": "ToukaProxy/src/services/mcp_isolation_store.py",
+    "old": "or (not human and env_changed(existing[name], entry))",
+    "new": "or False",
+    "tests": ["tests/unit/test_mcp_origin_sandbox_paths_security.py::test_agent_env_change_revokes_origin_and_folders"]
+  },
+  {
+    "id": "m_import_env_keeps_grants",
+    "file": "ToukaProxy/src/services/settings_snapshot_service.py",
+    "old": "if env_changed(existing[name], incoming[name])]",
+    "new": "if False]",
+    "tests": ["tests/unit/test_mcp_origin_sandbox_paths_security.py::test_import_env_change_revokes_origin_and_folders"]
+  },
+  {
+    "id": "e_stdin_blocks_control",
+    "file": "ToukaProxy/src/services/isolation/executor_session.py",
+    "old": "            pending.put_nowait(None if eof else frame.payload)",
+    "new": "            stdin.write(frame.payload)\n            await stdin.drain()",
+    "tests": ["tests/unit/test_executor_server.py::test_blocked_stdin_never_blocks_session_shutdown"]
+  },
+  {
+    "id": "m_reload_connects_after_obsolete_judgment",
+    "file": "ToukaProxy/src/protocols/manager.py",
+    "old": "                    decision = await self._judge(name, config)\n                    if epoch != self._reload_epoch:\n                        return",
+    "new": "                    decision = await self._judge(name, config)",
+    "tests": ["tests/unit/test_mcp_isolation_reconnect.py::test_old_reload_cannot_replace_a_completed_new_connection"]
+  },
+  {
+    "id": "m_manual_consent_retries",
+    "file": "ToukaProxy/src/protocols/manager.py",
+    "old": "            decision[\"retry\"] = False",
+    "new": "            decision[\"retry\"] = True",
+    "tests": ["tests/unit/test_mcp_manual_start_wiring.py::test_manual_consent_allows_only_one_handshake_attempt"]
+  },
+  {
+    "id": "t_stderr_controls_verbatim",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "        text = escape_log_controls(self._sanitize(raw.decode(\"utf-8\", \"replace\")))",
+    "new": "        text = self._sanitize(raw.decode(\"utf-8\", \"replace\"))",
+    "tests": ["tests/unit/test_mcp_isolated_transport_security.py::test_stderr_escapes_terminal_and_direction_controls"]
+  },
+  {
+    "id": "m_env_source_directory_third_party",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "        code = _code_env(name) and not (",
+    "new": "        code = False and not (",
+    "tests": ["tests/unit/test_mcp_origin_classification_security.py::test_package_env_directory_is_code"]
+  }
+]

@@ -1,0 +1,87 @@
+# ADR-0053: 首次執行設定精靈 (First-Run Setup Wizard)
+
+**狀態**：✅ 已接受（**延伸／修訂：[ADR-0118](0118-setup-wizard-reliability-and-embedding-lifecycle.md)**——金鑰持久化/即時生效/失敗必顯示/宿主資料+工作區目錄設定/嵌入模型下載+切換防呆）  
+**日期**：2026-05-28  
+**影響範圍**：ToukaProxy、ToukaMemory、ToukaChat
+
+> 🔧 **臨時密碼揭露機制已被安全修復 DA21（2026-06-06，見 `SECURITY.md`／`CHANGELOG.md`）改寫**：原決策「以 `secrets.token_hex(16)` 產生 32 字元臨時密碼、`logger.warning` 印至 console」→現行以 `secrets.token_urlsafe(16)` 產生、**寫入一次性檔案** `get_initial_admin_password_file()`（`resource_manager.write_file_text`），`logger.warning` 只印**檔案路徑**——刻意避免輪替 log 永久保留有效 admin 憑證。設定精靈其餘決策（is_temp_password/SetupService/嵌入模型 SSOT/DISPATCH_TOKEN sentinel）仍有效。
+
+---
+
+## 背景
+
+Touka 系統準備開源，但新使用者面臨多個設定障礙：
+
+1. **Admin 密碼不透明**：bootstrap 時建立的預設密碼為硬編碼字串，使用者不知道需要更改。
+2. **DISPATCH_TOKEN 已公開**：預設值 `touka_dispatch_secret_2026` 在原始碼中公開，對生產環境是安全風險。
+3. **TOUKA_AUTH_SECRET 未持久化**：若 `.env` 未設定此值，每次重啟後所有 JWT 全部失效，導致使用者 Session 中斷。
+4. **Embedding 模型硬編碼**：預設的 `all-MiniLM-L6-v2` 對 CJK 語言效果不佳，但無文件引導。
+5. **資料路徑硬編碼**：`SANCTUARY_DATA_PATH` 預設指向開發者目錄，不適合一般使用者。
+
+---
+
+## 決策
+
+### 後端（ToukaProxy）
+
+1. **`UserRecord.is_temp_password`**：在 Pydantic 模型新增 `is_temp_password: bool = False` 欄位。向後相容：舊有 users.json 讀取時自動補預設值 `False`。
+
+2. **Bootstrap 臨時密碼**：全新環境啟動時（無 admin 使用者），自動以 `secrets.token_hex(16)` 產生 32 字元臨時密碼，並以 `logger.warning` 印至 console，同時建立 `is_temp_password=True` 的 admin UserRecord。寫入透過 `_atomic_users_write()` 確保原子性（禁令 21）。
+
+3. **密碼更改清除旗標**：`AuthService.update_password()` 成功後，將 `is_temp_password` 設為 `False`。
+
+4. **`SetupService`（SRP / DIP）**：新建 `ToukaProxy/src/services/setup_service.py`，封裝所有設定狀態偵測與寫入邏輯。
+
+5. **Setup API 端點**（`ToukaProxy/src/routers/setup.py`）：
+   - `GET /v1/admin/setup/status`：回傳系統設定完整性（需 `require_admin` Depends，Guard #22）。
+   - `POST /v1/admin/setup/apply`：寫入 `.env` 設定（需 `require_admin` Depends）。
+   - 使用 `python-dotenv` 的 `set_key()` 寫入，確保原子性。
+
+### ToukaMemory
+
+6. **`EMBEDDING_MODEL` SSOT**：在 `config_utils.py` 新增 `get_embedding_model_name()` 函式讀取 `EMBEDDING_MODEL` 環境變數，預設 `all-MiniLM-L6-v2`。`VectorStore.__init__` 與 `MemoryManager.get_vector_store()` 均透過此函式取值，成為唯一事實來源（SSOT）。
+
+### 前端（ToukaChat）
+
+7. **`useSetupStatus` Hook**：僅在 `user.role === 'admin'` 時呼叫 `/v1/admin/setup/status`，靜默處理錯誤。
+
+8. **持續警告 Banner**（`TempPasswordBanner`）：當 `is_admin_temp_password: true` 時顯示紅色全寬 Banner，持續提示 admin 更改臨時密碼，直到密碼被更換。
+
+9. **Setup Prompt Banner**（`SetupPromptBanner`）：當設定尚未完整時（預設 Token、未持久化 Secret 等）顯示 amber Banner，可點擊「立即設定」或「稍後設定」。
+
+10. **Wizard 容器（OCP 設計）**：`SetupWizard.tsx` 使用 `setupWizardConfig.ts` 的步驟設定陣列驅動，新增步驟只需修改設定陣列（Open-Closed Principle）。
+
+11. **7 個 Wizard Step 元件**（`ToukaChat/src/components/setup/steps/`）：
+    - Step 1：系統健康 + Embedding 模型語言感知選擇
+    - Step 2：Admin 密碼更改
+    - Step 3：API Keys 狀態確認
+    - Step 4：DISPATCH_TOKEN + AUTH_SECRET 自動產生
+    - Step 5：資料路徑設定（可選）
+    - Step 6：建立使用者帳號（可選）
+    - Step 7：設定摘要與完成
+
+---
+
+## 後果
+
+### 優點
+
+- **安全性提升**：新使用者在第一次啟動時即被引導更換所有高風險預設值，顯著降低以預設設定上線的風險。
+- **使用者體驗改善**：結構化的 7 步 Wizard 取代了需要手動編輯 `.env` 的繁瑣流程。
+- **語言感知**：Wizard 推薦 CJK 使用者切換至 `paraphrase-multilingual-MiniLM-L12-v2`，避免 Embedding 品質下降。
+- **持續提醒機制**：臨時密碼 Banner 不可關閉（直到真正更改），避免使用者忽略安全警告。
+
+### 權衡
+
+- **`os.environ` 直讀（TID251 豁免）**：`SetupService` 的狀態偵測需要讀取目前生效的環境變數（非 Pydantic Settings 快取值），因此各行加 `# noqa: TID251` 並登記至 NOQA_REGISTRY。
+- **`B008` 豁免**：Setup 路由使用標準 FastAPI `Depends()` 依賴注入模式，登記至 NOQA_REGISTRY。
+- **`TRY003` 豁免**：`SetupService.apply()` 的輸入驗證錯誤訊息需要說明具體欄位，採用局部變數 + `# noqa: TRY003` 模式。
+
+---
+
+## 相關 ADR
+
+- [ADR-0018](0018-multi-user-auth-and-security-hardening.md)：多使用者認證加固（is_temp_password 的延伸）
+- [ADR-0023](0023-dynamic-ssot-suppression-with-noqa.md)：Dynamic SSOT Suppression（noqa 豁免登記規範）
+- [ADR-0034](0034-endpoint-auth-dependency-guard.md)：端點認證守衛（Guard #22 相容性）
+- [ADR-0015](0015-environment-variable-sovereignty.md)：環境變數主權（EMBEDDING_MODEL SSOT 延伸）

@@ -1,0 +1,82 @@
+# API Keys and sensitive environment variables
+.env*
+!.env.example
+
+# Docker
+# （ADR-0082：.dockerignore 必須入版控——它是阻止 .env/活體 config 烤進映像的安全黑名單，
+#   被 gitignore 的話 fresh clone build 會把密鑰打包進 image）
+# ghcr pull 部署（docker-compose.ghcr.yml）宿主的活體排程設定——勿入版控
+# ADR-0150：改掛『目錄』heartbeat-config/（舊單檔 heartbeat-config.json 一併保留忽略以相容）
+heartbeat-config.json
+heartbeat-config/
+# 核心有 MPTCP 時 Owner 自己建的覆寫檔（README_QUICKSTART 第 1 節）——本機設定，勿入版控
+/docker-compose.override.yml
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python build/cache
+*.egg-info/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache
+
+# 根目錄本機快取與驗證原件，不入版控
+/.cache/
+
+# Guard #16 沙盒快取的退回位置：平常放在 git common dir（ADR-0240），解析不到 git 時才寫這裡；
+# 純衍生、可重建，勿入版控
+scripts/.cache/
+
+# Node.js dependencies & build caches (由 npm install 重建，絕不入版控)
+node_modules/
+.vite/
+
+# Data and Persistence (The "Soul" and "Context")
+# These contain your private conversations and history.
+data/
+backups/
+*.db
+*.log
+
+
+# VS Code settings
+.vscode/
+
+# Gemini settings
+.gemini/
+
+# antigravity settings
+.antigravitycli
+
+# Claude settings
+.claude/
+
+# Codex settings
+.codex/
+
+# ToukaDev 本機進度紀錄（lessons、worktrees、tmp；三支全 repo 掃描守衛依名稱略過，故不得入版控）
+.toukadev/
+
+# OS files
+.DS_Store
+Thumbs.db
+.VSCodeCounter/
+.import_linter_cache
+
+HANDOVER_HEARTBEAT.md
+SNS.md
+repomix-output.xml
+
+溝通協調.md
+touka-docs-repomix.xml
+.repomixignore
+touka-code-repomix.xml
+
+# mkdocs build output（scripts/update_docs.py 產生，不進版控）
+/site/

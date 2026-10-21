@@ -1,0 +1,186 @@
+name: Isolation
+
+# iso-c2（ADR-0272）：在 GitHub 的原生 Linux runner 上真的跑 Landlock 隔離測試。
+# contracts job 也會跑同一個模組，但沒關 Fast Open、沒設 TOUKA_REQUIRE_LANDLOCK，靠 landlock
+# 層的案例全部照實 skip；這個 job 才真的斷言層級是 landlock。
+# - 原生執行（不加 container:）：pytest 不是 pid 1，孤兒只能經 subreaper 回到執行器，
+#   「沒設 subreaper」的突變才抓得到（docker run 裡 pytest 是 pid 1，孤兒本來就歸它）。
+# - 不加 if、continue-on-error：跳過不算通過。
+on:
+  pull_request:
+    types: [opened, reopened, labeled, synchronize]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  landlock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.12.1"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --all-packages --python 3.12
+      # 只印、不判定：核心、LSM、兩個網路設定、Landlock ABI 與 kernel 雜湊；寫成 facts.json 給
+      # checker（pass A 依網路設定決定不安全分支的案例要不要求 passed，兩個 pass 都依 ABI 決定
+      # 允許哪些 skip）。
+      - name: Host facts
+        run: |
+          uv run --no-sync python -I -S ToukaProxy/src/sandbox_kernel/launcher.py --probe > "$RUNNER_TEMP/probe.json"
+          uv run --no-sync python -I scripts/ci/isolation_junit_check.py facts --probe "$RUNNER_TEMP/probe.json" --out "$RUNNER_TEMP/facts.json"
+      # pass A：runner 的預設值（Fast Open 開著）、不設 REQUIRE。必須 0 failed；skip 都要帶允許的標籤。
+      - name: Pass A (no sysctl, no REQUIRE)
+        run: uv run --no-sync python -m pytest tests/integration/test_isolation_linux.py -p no:randomly -rfEs --junitxml="$RUNNER_TEMP/junit-a.xml"
+      - run: uv run --no-sync python -I scripts/ci/isolation_junit_check.py check --pass a --junit "$RUNNER_TEMP/junit-a.xml" --facts "$RUNNER_TEMP/facts.json"
+      - name: Turn Fast Open and MPTCP off
+        run: |
+          sudo sysctl -w net.ipv4.tcp_fastopen=0
+          if [ -e /proc/sys/net/mptcp/enabled ]; then sudo sysctl -w net.mptcp.enabled=0; fi
+      # pass B：Landlock 或安全的網路設定不可用就失敗而不是 skip；層級測試必須 passed。
+      - name: Pass B (REQUIRE)
+        env:
+          TOUKA_REQUIRE_LANDLOCK: "1"
+        run: uv run --no-sync python -m pytest tests/integration/test_isolation_linux.py -p no:randomly -rfEs --junitxml="$RUNNER_TEMP/junit-b.xml"
+      - run: uv run --no-sync python -I scripts/ci/isolation_junit_check.py check --pass b --junit "$RUNNER_TEMP/junit-b.xml" --facts "$RUNNER_TEMP/facts.json"
+
+  # 容器 job 要不要自己跑：PR 改到隔離相關的路徑（清單由 tests/lint/test_isolation_ci_workflow.py
+  # 釘住）。只用 git、不用第三方 action；不用 on.pull_request.paths，因為那會連 landlock job 一起篩。
+  # checkout 預設是 PR 的 merge commit，抓 2 層才有它的第一個 parent（base 的最新 commit），兩者的
+  # 差異就是這個 PR 帶進來的改動；--no-renames 讓搬走的檔兩邊路徑都列出，-z 讓檔名原樣比對。
+  # push 與手動觸發不比對（輸出 false）；git 失敗時這個 job 失敗（看得到），不會默默不跑。
+  container-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      isolation: ${{ steps.paths.outputs.isolation }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Did the PR change an isolation path
+        id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          changed=false
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only --no-renames -z HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                ToukaProxy/src/sandbox_kernel/*) changed=true ;;
+                ToukaProxy/src/services/isolation/*) changed=true ;;
+                ToukaProxy/src/protocols/mcp/isolated_stdio.py) changed=true ;;
+                ToukaProxy/src/protocols/manager.py) changed=true ;;
+                ToukaProxy/src/protocols/mcp/client.py) changed=true ;;
+                ToukaProxy/src/protocols/mcp/environment.py) changed=true ;;
+                ToukaProxy/src/utils/mcp_origin.py) changed=true ;;
+                ToukaProxy/src/tools/builtin/evolution.py) changed=true ;;
+                ToukaProxy/src/services/creation/smoke.py) changed=true ;;
+                ToukaProxy/src/services/settings_snapshot_service.py) changed=true ;;
+                ToukaProxy/src/routers/mcp.py) changed=true ;;
+                ToukaProxy/src/services/execution_broker.py) changed=true ;;
+                ToukaProxy/src/utils/isolation_policy.py) changed=true ;;
+                ToukaProxy/src/utils/touka_dirs.py) changed=true ;;
+                ToukaProxy/src/utils/permission_repair.py) changed=true ;;
+                ToukaProxy/src/models/mcp_isolation.py) changed=true ;;
+                ToukaProxy/src/services/mcp_isolation_store.py) changed=true ;;
+                ToukaProxy/Dockerfile) changed=true ;;
+                .dockerignore) changed=true ;;
+                uv.lock) changed=true ;;
+                docker-compose.yml) changed=true ;;
+                docker-compose.ghcr.yml) changed=true ;;
+                ToukaProxy/docker-compose.yml) changed=true ;;
+                tests/docker/*) changed=true ;;
+                tests/network_guard.py) changed=true ;;
+                tests/smoke/lib/sandbox_env.py) changed=true ;;
+                .github/workflows/isolation.yml) changed=true ;;
+                scripts/ci/isolation_junit_check.py) changed=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed"
+          fi
+          echo "isolation=$changed" >> "$GITHUB_OUTPUT"
+
+  # 容器 job（設計 §4.3）：建映像、真的 Compose 解析三份設定、GHCR 形狀的執行器起到 healthy。
+  # 建映像要幾分鐘，只在 PR 改到隔離相關路徑時自己跑（見 container-scope）；PR 帶 isolation 標籤或
+  # 手動觸發（workflow 要先在 main 上）時強制跑。條件寫在 job 的 if：不跑時這個 check 是 skipped，
+  # 不會一直等。帶著標籤或改到隔離路徑的 PR，任何 PR 事件都跑（加標籤、push、reopen、加別的標籤），
+  # 所以別的事件取消了跑到一半的 run，新的 run 也會跑，不會變成 skipped。
+  # 合併條件（PM）：審過的 head 上這個 job 要成功過；跳過不算數。
+  container:
+    needs: container-scope
+    if: >-
+      needs.container-scope.outputs.isolation == 'true'
+      || github.event_name == 'workflow_dispatch'
+      || contains(github.event.pull_request.labels.*.name, 'isolation')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TOUKA_IMAGE_OWNER: ci
+      TOUKA_VERSION: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # 1. 映像直接用 GHCR compose 會解析出的名稱（owner／version 都是 ci），不推送
+      - name: Build the proxy image
+        run: docker build -f ToukaProxy/Dockerfile -t ghcr.io/ci/touka-proxy:ci .
+      # 2. 三份有執行器的 compose 複製到暫存區、旁邊放空的 .env，用 runner 上真的 Compose 解析
+      - name: Parse the compose files with an empty .env
+        run: |
+          mkdir -p "$RUNNER_TEMP/compose/ToukaProxy"
+          cp docker-compose.yml docker-compose.ghcr.yml "$RUNNER_TEMP/compose/"
+          cp ToukaProxy/docker-compose.yml "$RUNNER_TEMP/compose/ToukaProxy/"
+          : > "$RUNNER_TEMP/compose/.env"
+          : > "$RUNNER_TEMP/compose/ToukaProxy/.env"
+          docker compose version
+          docker compose -f "$RUNNER_TEMP/compose/docker-compose.yml" config -q
+          docker compose -f "$RUNNER_TEMP/compose/docker-compose.ghcr.yml" config -q
+          docker compose -f "$RUNNER_TEMP/compose/ToukaProxy/docker-compose.yml" config -q
+      # 3. 假資料：GHCR 的兩個 bind 是 create_host_path: false，要先存在；端到端另要 skills。擁有者同執行器（1001）
+      - name: Create the data folders
+        run: sudo install -d -o 1001 -g 1001 "$RUNNER_TEMP/compose/data/mcp_servers" "$RUNNER_TEMP/compose/data/personal_drive" "$RUNNER_TEMP/compose/data/skills"
+      # 核心有 MPTCP 時，之後的 compose 指令都疊上覆寫檔（同 README_QUICKSTART）；沒有時加了容器會起不來
+      - name: Pick the MPTCP overrides
+        run: |
+          if [ -e /proc/sys/net/mptcp/enabled ]; then
+            echo "ISO_MPTCP=-f $GITHUB_WORKSPACE/tests/docker/isolation.mptcp.override.yml" >> "$GITHUB_ENV"
+            echo "GHCR_MPTCP=-f $GITHUB_WORKSPACE/tests/docker/ghcr.mptcp.override.yml" >> "$GITHUB_ENV"
+          else
+            echo "no MPTCP on this kernel"
+          fi
+      # 4、5. 執行器的真 compose 形狀端到端（每行一個 JSON；iso-client 的 exit code 就是結果）與
+      #    proxy 本機的 Landlock（--network none）。$ISO_MPTCP 刻意不加引號：空的時候不產生參數。
+      - name: End-to-end against the executor
+        env:
+          TOUKA_ISO_IMAGE: ghcr.io/ci/touka-proxy:ci
+          TOUKA_ISO_DATA: ${{ runner.temp }}/compose/data
+        run: |
+          docker compose -p touka-iso-ci -f tests/docker/isolation.compose.yml $ISO_MPTCP up --abort-on-container-exit --exit-code-from iso-client
+          docker compose -p touka-iso-ci -f tests/docker/isolation.compose.yml $ISO_MPTCP run --rm iso-landlock
+          docker compose -p touka-iso-ci -f tests/docker/isolation.compose.yml $ISO_MPTCP down
+      # 6. GHCR 形狀：skills 是 nocopy 的 subpath，先用映像播種 proxy-config；只起執行器
+      #    （--no-deps），等到 healthy（start_period 70s 涵蓋兩次自測），失敗時印出它的 log。
+      #    有 MPTCP 時帶正式的覆寫（$GHCR_MPTCP），不然 READY 會報網路設定不安全（不影響 healthy）。
+      - name: GHCR shape - the executor becomes healthy
+        working-directory: ${{ runner.temp }}/compose
+        run: |
+          docker run --rm -v touka-iso-ghcr_proxy-config:/app/ToukaProxy/config ghcr.io/ci/touka-proxy:ci true
+          if ! docker compose -p touka-iso-ghcr -f docker-compose.ghcr.yml $GHCR_MPTCP up --no-deps -d --wait --wait-timeout 180 touka-executor; then
+            docker compose -p touka-iso-ghcr -f docker-compose.ghcr.yml $GHCR_MPTCP logs touka-executor
+            exit 1
+          fi
+          docker compose -p touka-iso-ghcr -f docker-compose.ghcr.yml $GHCR_MPTCP stop touka-executor

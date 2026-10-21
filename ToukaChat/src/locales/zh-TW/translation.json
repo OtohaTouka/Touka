@@ -1,0 +1,2270 @@
+{
+  "contextSnapshot": {
+    "description": "預先檢視 DebugAgent「組裝完成的系統提示」。後端跑真實 pipeline（停在模型前、純讀），依 tag SSOT 有序解析各區塊——顯示注入層、來源、真實或 mock、token 成本與快取分層。純唯讀、不打模型、不花費 API。",
+    "refresh": "載入 / 重新整理",
+    "loading": "組裝中…",
+    "error": "錯誤",
+    "with_payload": "一併取最近一筆實際送出的 payload（static 預覽 vs 實際）",
+    "tokens": "{{total}} / {{window}} token（佔 window {{pct}}%）",
+    "reordered_yes": "⚠ 有穩定塊原本被困在波動後 → 送出前已重排（ADR-0130）。",
+    "reordered_no": "✓ 穩定塊已連成跨回合快取前綴。",
+    "tier_stable_hint": "（跨回合）",
+    "tier_volatile_hint": "（迴圈內）",
+    "col_block": "區塊",
+    "col_kind": "類型",
+    "col_tokens": "Token",
+    "col_cache": "快取",
+    "not_present": "本次請求未出現——僅格式示例。",
+    "not_present_badge": "未出現",
+    "copy": "複製組裝後的 system",
+    "export": "匯出 .md",
+    "last_payload_title": "最近一筆實際送出的 payload"
+  },
+  "scorecard": {
+    "description": "指定模型跑一組情境，量測結構正確性與成本（會花費真實 API 費用）。",
+    "model_label": "模型",
+    "model_placeholder": "輸入或選擇模型 ID",
+    "budget_label": "預算上限 (USD)",
+    "run": "啟動評分",
+    "running": "評分中…",
+    "confirm_cost": "這會以真實模型執行並花費 API 費用（預算上限約 ${{budget}}）。確定啟動？",
+    "progress": "進度 {{done}}/{{total}} · 已花費 ${{spent}}",
+    "summary": "結構通過 {{passed}}/{{total}} · {{tokens}} tokens · ${{spent}}",
+    "col_scenario": "情境",
+    "col_result": "結構",
+    "col_tokens": "Tokens",
+    "col_cost": "成本(USD)",
+    "status_pass": "通過",
+    "status_fail": "失敗",
+    "status_skipped": "略過",
+    "download": "下載 JSON",
+    "error": "計分卡執行失敗",
+    "empty_models": "尚無可用模型——可直接輸入模型 ID",
+    "estimated_note": "～ 為估算值（供應商未回報用量，依文字長度估算）。",
+    "clean_slate_label": "乾淨模式（白紙）",
+    "clean_slate_hint": "不讀記憶、零殘留；用來看模型原始狀態，或與正常模式對照累積資料的影響（記憶情境此模式會略過）。",
+    "trace_title": "工具軌跡",
+    "trace_none": "（此情境未調用工具）",
+    "react_turns": "自主回合：{{n}}",
+    "finish_label": "結束：{{reason}}",
+    "early_stopped": "提早停（達上限）",
+    "artifact_valid": "成品有效✓",
+    "artifact_invalid": "成品無效✗",
+    "reset_title": "重置 DebugAgent",
+    "reset_hint": "清空 DebugAgent 累積的全部資料（對話、回饋、記憶、產出、任務…），但保留其身分與註冊。⚠️ 不可復原；執行前會自動全系統備份，系統備份與升級備份仍保有舊資料。只會清 DebugAgent，真實 agent 完全不受影響。",
+    "reset_button": "重置 DebugAgent 資料",
+    "reset_running": "重置中…",
+    "reset_confirm": "⚠️ 即將永久清空 DebugAgent 的全部累積資料（不可復原）。系統會先自動全系統備份，再進行清除；系統備份與升級備份仍保有舊資料。真實 agent 不受影響。確定執行？",
+    "reset_success": "DebugAgent 已重置（已先全系統備份）。",
+    "reset_dirty": "DebugAgent 已重置，但有部分資料未完全清除——詳見伺服器記錄。",
+    "reset_error": "重置失敗：{{error}}"
+  },
+  "setup": {
+    "wizard": {
+      "title": "初次設定",
+      "step_progress": "步驟 {{current}} / {{total}}：{{title}}",
+      "optional": "（選填）",
+      "close_aria": "關閉設定精靈",
+      "back": "上一步",
+      "steps": {
+        "system_health": "系統與語言",
+        "admin_password": "管理員密碼",
+        "api_keys": "API 金鑰",
+        "secrets": "安全密鑰",
+        "data_path": "資料目錄",
+        "create_user": "建立使用者",
+        "complete": "完成"
+      }
+    },
+    "common": {
+      "next": "下一步",
+      "saving": "儲存中…"
+    },
+    "step1": {
+      "system_status": "系統狀態",
+      "api_keys_label": "API 金鑰",
+      "none_configured": "未設定",
+      "dispatch_token_label": "Dispatch Token",
+      "dispatch_default": "使用預設值（不安全）",
+      "dispatch_custom": "已設自訂 token",
+      "auth_secret_label": "Auth Secret",
+      "auth_persisted": "已持久化",
+      "auth_not_persisted": "未持久化（重啟會重置）",
+      "embedding_model": "嵌入模型",
+      "embedding_hint": "選擇最符合你主要語言的模型。CJK 模型（約 420MB）會在首次使用時下載。",
+      "model_english": "英文 (all-MiniLM-L6-v2)",
+      "model_multilingual": "多語言／中日韓 (paraphrase-multilingual-MiniLM-L12-v2)",
+      "download_continue": "下載並繼續",
+      "downloading": "下載模型中… {{pct}}%",
+      "switch_warning": "偵測到既有記憶（以「{{current}}」嵌入）。切換到「{{target}}」後，既有記憶在你手動重新嵌入前將無法檢索——事實資料不會遺失、系統也不會自動重新嵌入。確定要切換嗎？",
+      "confirm_switch": "仍要切換",
+      "cancel_switch": "取消（維持現用模型）",
+      "errors": {
+        "save_failed": "嵌入模型儲存失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step2": {
+      "description": "你的管理員帳號是以臨時密碼建立的，請立即設定一組強密碼。",
+      "new_password": "新密碼",
+      "confirm_password": "確認密碼",
+      "submit": "設定密碼並繼續",
+      "requirements": "密碼需求",
+      "rules": {
+        "length": "至少 8 個字元",
+        "upper": "包含大寫字母",
+        "lower": "包含小寫字母",
+        "digit": "包含數字",
+        "special": "包含特殊字元"
+      },
+      "errors": {
+        "too_short": "密碼至少需 8 個字元",
+        "no_upper": "密碼至少需一個大寫字母",
+        "no_lower": "密碼至少需一個小寫字母",
+        "no_digit": "密碼至少需一個數字",
+        "no_special": "密碼至少需一個特殊字元",
+        "mismatch": "兩次密碼不一致",
+        "profile_fetch_failed": "無法取得管理員資料",
+        "update_failed": "更新失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step3": {
+      "description": "至少填入一個供應商 API 金鑰即可開始使用 Touka。金鑰存於後端 .env；儲存後需重啟 ToukaProxy 才會生效。你也可以稍後在「設定 → API 金鑰」設定。",
+      "save_continue": "儲存並繼續",
+      "continue": "繼續",
+      "skip": "暫時略過",
+      "errors": {
+        "save_failed": "金鑰儲存失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step4": {
+      "auto_managed": "這兩個密鑰（跨服務派工 Token、JWT 簽章金鑰）現在由系統自動生成並持久化到 .env，無需手動設定——即使你不跑精靈也一樣。",
+      "dispatch_token": "Dispatch Token（派工）",
+      "auth_secret": "Auth Secret（JWT 簽章）",
+      "status_ok": "已自動生成並持久化 ✓",
+      "status_pending": "首次啟動／登入後自動生成",
+      "rotate_toggle": "進階：輪替密鑰",
+      "rotate_desc": "僅在密鑰外洩時需要。輪替 Auth Secret 會使所有現有登入失效（需重新登入）。",
+      "rotate_button": "產生新密鑰並套用",
+      "rotate_success": "已輪替並寫入 .env。",
+      "next": "下一步",
+      "errors": {
+        "save_failed": "輪替失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step5": {
+      "description": "設定 Touka 儲存代理人資料、記憶與產物的位置。留空則沿用目前路徑。",
+      "default_warning": "⚠️ 目前使用開發者預設路徑 — 建議設定自訂路徑。",
+      "path_label": "資料目錄路徑 (SANCTUARY_DATA_PATH)",
+      "path_placeholder": "例如 C:/ToukaSanctuary/data",
+      "workspace_label": "工作區根目錄 (WORKSPACE_ROOT)",
+      "workspace_placeholder": "例如 D:/MyProjects",
+      "workspace_hint": "AI 代理人的檔案工具會在此目錄內讀寫你的專案檔案（對應容器內 /app/workspace）。",
+      "restart_note": "以上為宿主（本機）目錄路徑，寫入 .env 後需執行 `docker compose up` 才會掛載生效；屆時 Touka 會取得該目錄的完整讀寫（CRUD）權限。",
+      "save_continue": "儲存並繼續",
+      "skip": "略過",
+      "errors": {
+        "save_failed": "儲存失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step6": {
+      "description": "為團隊成員建立使用者帳號。此步驟為選填 — 你也可以稍後在管理面板新增。",
+      "email": "電子郵件",
+      "password": "密碼",
+      "create": "建立使用者",
+      "creating": "建立中…",
+      "created_users": "已建立的使用者：",
+      "done": "完成 — 結束設定",
+      "skip": "略過 — 結束設定",
+      "errors": {
+        "create_failed": "建立失敗",
+        "generic": "發生錯誤"
+      }
+    },
+    "step7": {
+      "complete_title": "設定完成！",
+      "complete_subtitle": "你的 Touka 系統已就緒。",
+      "partial_title": "設定尚未完成",
+      "remaining": "待辦項目：",
+      "complete_later": "你可以稍後在管理設定面板完成這些項目。",
+      "summary": "設定摘要",
+      "embedding_model": "嵌入模型：{{model}}",
+      "api_keys": "API 金鑰：{{keys}}",
+      "none": "無",
+      "start": "開始使用 Touka",
+      "issues": {
+        "dispatch_default": "Dispatch Token 仍為預設值",
+        "auth_not_persisted": "Auth Secret 未持久化",
+        "no_api_keys": "尚未設定任何 API 金鑰",
+        "admin_temp_password": "管理員密碼尚未變更"
+      }
+    },
+    "banner": {
+      "setup_incomplete": "🔧 初次設定尚未完成 — 有些安全設定需要你處理。",
+      "setup_now": "立即設定",
+      "later": "稍後",
+      "dismiss_aria": "關閉設定提示橫幅",
+      "temp_password": "⚠️ 管理員密碼仍是臨時預設值 — 請立即變更以確保系統安全。",
+      "change_password": "變更密碼"
+    }
+  },
+  "connections": {
+    "providers": {
+      "doc_link_label": "查看設定文件 ↗",
+      "direct_notice": "直連：從瀏覽器直接打模型，沒有工具、不受權限模式管、不記帳。",
+      "proxy": {
+        "label": "Touka Proxy（根目錄模式）",
+        "hint": "Touka 後端本身。base URL 填根目錄（如 http://localhost:8000），可解鎖專業統計與靈魂同步；協定一般選 OpenAI。"
+      },
+      "openai": {
+        "label": "OpenAI／相容端點",
+        "hint": "OpenAI 官方或相容端點。base URL 填 https://api.openai.com/v1，API Key 用 sk- 開頭的金鑰。"
+      },
+      "ollama": {
+        "label": "Ollama（本地）",
+        "hint": "本地 Ollama。base URL 填 http://localhost:11434，免 API Key；請先啟動 Ollama 服務並下載模型。"
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "OpenRouter 聚合多家模型。base URL 填 https://openrouter.ai/api/v1，model 用「廠商/模型」格式（如 anthropic/claude-3.5-sonnet）。"
+      },
+      "litellm": {
+        "label": "LiteLLM Proxy",
+        "hint": "自架 LiteLLM Proxy。base URL 填你的代理位址（如 http://localhost:4000），API Key 用 LiteLLM 設定的金鑰。"
+      }
+    },
+    "edit": {
+      "edit_aria": "編輯連線 {{name}}",
+      "editing_badge": "編輯中：{{name}}",
+      "save": "儲存變更",
+      "cancel": "取消",
+      "change_key_label": "更換 API Key",
+      "key_kept_hint": "保留現有金鑰（勾選上方以更換）"
+    }
+  },
+  "common": {
+    "send": "發送"
+  },
+  "backup_notice": {
+    "still_there": "「{{id}}」的資料還留在系統快照裡（重置前會先存一份），記憶也可能留在記憶庫的升級備份裡。",
+    "still_there_delete": "「{{id}}」的資料可能還留在之前的系統快照裡，記憶也可能留在記憶庫的升級備份裡。",
+    "still_there_scrubbed": "記憶已從備份清掉，但「{{id}}」的對話與其他資料還留在系統快照裡。",
+    "summary": "備份在哪裡、怎麼徹底刪",
+    "where_snapshots": "系統快照：放 .env 的那個 Touka 資料夾裡的 backups，檔名是 Touka_Backup_….zip 或 Touka_AutoBackup_….zip。",
+    "where_upgrade": "升級備份：資料資料夾裡的 vault/core_memory_backups。",
+    "purge_title": "要徹底刪的話：",
+    "purge_scrub": "建議：重置時勾選「一併清除備份裡這個靈魂的記憶」，只清這個靈魂的記憶。",
+    "purge_scrub_delete": "建議：刪除前先到「代理人資料重置」重置，並勾選「一併清除備份裡這個靈魂的記憶」，只清這個靈魂的記憶。",
+    "purge_snapshot": "到「設定 → 系統備份」刪整份快照：會連其他靈魂的資料一起刪。",
+    "purge_upgrade": "升級備份是所有靈魂共用的檔，只能手動刪。",
+    "no_auto_snapshot": "刪除前不會自動存快照：刪掉後沒有新快照可以退回。",
+    "restore_effect": "還原舊快照會把「{{id}}」的舊資料整個帶回來，同時所有靈魂的記憶都退回那個時間點。",
+    "not_context_snapshot": "這裡的「系統快照」和重置時會刪掉的「情境快照」是兩回事。"
+  },
+  "settings": {
+    "settings": "設定",
+    "tabs_aria": "設定分頁",
+    "groups": {
+      "personal": "個人",
+      "models": "模型與供應商",
+      "capabilities": "代理人能力",
+      "conversation": "對話",
+      "system": "系統管理"
+    },
+    "search": {
+      "placeholder": "搜尋設定…",
+      "no_results": "找不到符合的設定",
+      "in_tab": "在「{{tab}}」",
+      "results_aria": "搜尋結果",
+      "entries": {
+        "profile": "個人資料",
+        "password": "變更密碼",
+        "clear_data": "清空我的資料",
+        "export_data": "匯出我的資料（GDPR）",
+        "theme_mode": "主題模式（亮／暗）",
+        "accent": "強調色",
+        "font_size": "字級",
+        "model_toggle": "模型啟用／可見",
+        "model_health": "模型健康測試",
+        "provider_keys": "供應商 API 金鑰",
+        "connections": "連線設定",
+        "tools": "工具",
+        "mcp": "MCP 伺服器",
+        "skills": "技能",
+        "group_whitelist": "群聊白名單／別名",
+        "sliding_window": "滑動視窗（上下文）",
+        "sns_bots": "SNS 機器人（Discord／Telegram）",
+        "rbac": "權限矩陣（RBAC）",
+        "identity_map": "身分映射",
+        "autonomy": "自主預算",
+        "users": "使用者管理",
+        "agent_reset": "代理人資料重置",
+        "backup": "系統備份／還原",
+        "backup_schedule": "自動備份排程",
+        "config_snapshot": "設定匯入匯出（快照）"
+      }
+    },
+    "unsaved": {
+      "title": "尚有未儲存的變更",
+      "body": "你在此分頁有未儲存的變更。切換分頁將捨棄這些變更，無法復原。要繼續嗎？",
+      "keep_editing": "繼續編輯",
+      "discard": "捨棄變更"
+    },
+    "language": "語言設定",
+    "tabs": {
+      "general": {
+        "label": "一般設定",
+        "title": "一般設定"
+      },
+      "theme": {
+        "label": "主題設定",
+        "title": "主題與視覺效果"
+      },
+      "connections": {
+        "label": "連接端點",
+        "title": "連接端點"
+      },
+      "provider_keys": {
+        "label": "API 金鑰",
+        "title": "Provider API 金鑰"
+      },
+      "models": {
+        "label": "模型選項",
+        "title": "模型選項"
+      },
+      "users": {
+        "label": "使用者管理",
+        "title": "使用者與權限管理"
+      },
+      "group": {
+        "label": "群聊權限",
+        "title": "群聊權限管理"
+      },
+      "tools": {
+        "label": "工具調用",
+        "title": "工具調用"
+      },
+      "mcp": {
+        "label": "MCP 列表",
+        "title": "MCP 伺服器"
+      },
+      "skills": {
+        "label": "Skill 列表",
+        "title": "技能列表"
+      },
+      "sns_bots": {
+        "label": "SNS 機器人",
+        "title": "SNS 機器人"
+      },
+      "vscode": {
+        "label": "VS Code 設定",
+        "title": "VS Code 整合"
+      },
+      "security": {
+        "label": "安全設定",
+        "title": "安全與隱私"
+      },
+      "sliding_window": {
+        "label": "滑動視窗",
+        "title": "滑動視窗對話紀錄"
+      },
+      "env": {
+        "label": "系統備份",
+        "title": "系統快照與還原"
+      }
+    },
+    "view": {
+      "install_success": "安裝成功！設定已儲存並通知伺服器重新啟動。"
+    },
+    "provider_keys_tab": {
+      "title": "Provider API 金鑰",
+      "description": "設定各模型供應商的系統級 API 金鑰（存於後端 .env）。為安全起見，這裡只顯示「已設定／未設定」，不會回填或顯示既有金鑰；要更換才輸入新值。",
+      "status_set": "已設定",
+      "status_unset": "未設定",
+      "new_value_placeholder": "輸入新金鑰以更換（留空則不變更）",
+      "save": "儲存金鑰",
+      "saved": "已儲存",
+      "restart_notice": "金鑰即時生效、無需重啟；存檔後會自動探測該供應商金鑰是否有效並回報。",
+      "probe_valid": "✓ 金鑰有效，已更新可用模型",
+      "probe_invalid": "✗ 金鑰無效（{{code}}）",
+      "probe_cleared": "已清除",
+      "clear": "清除",
+      "clear_confirm": "要移除 {{provider}} 的金鑰嗎？",
+      "get_key_link": "取得金鑰 ↗"
+    },
+    "change_password": {
+      "heading": "變更密碼",
+      "current_password": "目前密碼",
+      "new_password": "新密碼",
+      "confirm_password": "確認新密碼",
+      "requirements": "密碼必須包含：",
+      "rules": {
+        "length": "至少 8 個字元",
+        "upper": "一個大寫字母",
+        "lower": "一個小寫字母",
+        "digit": "一個數字",
+        "special": "一個特殊符號"
+      },
+      "submit": "變更密碼",
+      "success": "密碼已變更，請重新登入。",
+      "errors": {
+        "mismatch": "兩次輸入的新密碼不一致。",
+        "too_short": "密碼至少需 8 個字元。",
+        "no_upper": "密碼需包含一個大寫字母。",
+        "no_lower": "密碼需包含一個小寫字母。",
+        "no_digit": "密碼需包含一個數字。",
+        "no_special": "密碼需包含一個特殊符號。",
+        "current_incorrect": "目前密碼不正確。",
+        "generic": "無法變更密碼，請再試一次。"
+      }
+    },
+    "sliding_window_tab": {
+      "errors": {
+        "floor_summary_too_high": "地板 + 摘要百分比必須小於觸發百分比（否則剪完會立即重觸發）。",
+        "save_failed": "儲存失敗，請確認您有管理員權限。"
+      },
+      "title": "滑動視窗對話紀錄",
+      "description": "當家對話的 context window 占用達到觸發百分比後，自動將最舊的對話無損存入 Legacy 歷史庫、剪到地板百分比，\n                        並可選擇把剪掉的內容壓成摘要保留。僅在心跳完成後、或每則對話回合結束後觸發（經鎖序列化、不打斷任務中的 context）。無痕與子對話不受影響。",
+      "enable_label": "啟用滑動視窗",
+      "enable_hint": "開啟後，家對話將自動維護在設定的長度範圍內。",
+      "trigger_pct_label": "觸發百分比",
+      "trigger_pct_hint": "context window 占用達此百分比時觸發剪裁。",
+      "floor_pct_label": "地板百分比",
+      "floor_pct_hint": "無損剪掉最舊對話，直到 context 占用降到此地板。",
+      "summary_pct_label": "摘要百分比",
+      "summary_pct_hint": "把剪掉的對話壓成摘要保留，佔窗上限（0 = 不摘要，純無損剪裁）。",
+      "save_button": "儲存設定",
+      "save_success": "滑動視窗設定已儲存",
+      "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
+      "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+    },
+    "general_tab": {
+      "profile_heading": "個人檔案",
+      "display_name_label": "顯示名稱",
+      "display_name_placeholder": "您的稱呼...",
+      "avatar_url_label": "頭像網址 (URL)",
+      "avatar_upload_button": "上傳圖片",
+      "avatar_remove_button": "移除頭像",
+      "avatar_upload_aria": "上傳頭像圖片",
+      "avatar_invalid_format": "不支援的圖片格式（請用 JPEG、PNG 或 WebP）",
+      "avatar_too_large": "圖片太大（上限 2MB）",
+      "bio_label": "自我介紹 / Bio",
+      "bio_placeholder": "關於您的一些介紹...",
+      "save_profile_button": "儲存個人資料",
+      "mcp_delegation_title": "背景 MCP OAuth 委派",
+      "mcp_delegation_description": "只為你目前擁有的 Agent {{agentId}} 委派既有登入授權；來源 grant 由後端推導，不接受瀏覽器指定。",
+      "mcp_delegation_denied": "無法讀取或修改委派。請確認你仍是此 Agent 的有效擁有者。",
+      "mcp_delegation_scopes_hint": "以空白分隔，例如 calendar.read calendar.events.read",
+      "mcp_delegation_hours": "有效時數（最多 720）",
+      "mcp_delegation_create": "建立委派",
+      "mcp_delegation_confirm_delete": "刪除後會立即封鎖新請求並等待既有請求排空。",
+      "mcp_delegation_delete": "刪除委派",
+      "clear_data_title": "清空我的個人資料",
+      "clear_data_hint": "清除你的顯示名稱、自我介紹、頭像,以及你建立之專案的設定。對話紀錄、AI 代理人、帳號與專案資料夾內的實體檔案都會保留。此操作不可復原。",
+      "clear_data_button": "清空個人資料",
+      "clear_data_confirm_title": "確定要清空個人資料嗎?",
+      "clear_data_confirm_body": "此操作將清除你的顯示名稱、自我介紹、頭像與你擁有專案的設定(不刪除專案資料夾實體檔案、不動對話與代理人、保留帳號)。不可復原。請輸入密碼以確認。",
+      "clear_data_password_label": "目前密碼",
+      "clear_data_cancel": "取消",
+      "clear_data_confirm_action": "確認清空",
+      "export_data_title": "匯出我的資料（GDPR）",
+      "export_data_hint": "下載一份你個人資料的加密副本：個人檔案、對話紀錄、你名下 AI 代理人的記憶與檔案、你擁有的專案。檔案以你設定的密語加密（AES-256），可用 7-Zip／WinRAR 開啟。不含帳號密碼與系統機密。",
+      "export_data_button": "匯出我的資料",
+      "export_data_confirm_title": "匯出我的資料",
+      "export_data_confirm_body": "我們會打包你的個人資料並以你的密語加密後下載。請輸入目前密碼以確認身分，並設定一組用於開啟此壓縮檔的密語（請妥善保管，遺失將無法解開）。",
+      "export_data_password_label": "目前密碼",
+      "export_data_passphrase_label": "加密密語",
+      "export_data_passphrase_hint": "至少 12 個字元。這是開啟下載檔的密碼，請另行保管。",
+      "export_data_cancel": "取消",
+      "export_data_confirm_action": "加密並下載",
+      "backup_migration_heading": "資料備份與遷移",
+      "deselect_all": "取消全選",
+      "select_all_sessions": "全選對話",
+      "untitled_session": "未命名對話",
+      "no_sessions": "尚無對話紀錄",
+      "import_button": "匯入對話 (.json)",
+      "export_selected_button": "匯出選取項 ({{count}})",
+      "about_heading": "關於",
+      "about_description": "Touka AI 系統前端控制台。更新紀錄請見專案 CHANGELOG。",
+      "toast_select_at_least_one": "請至少選取一個對話。",
+      "toast_backup_success": "成功備份 {{count}} 筆對話",
+      "toast_import_success": "對話紀錄匯入成功！",
+      "import_confirm": "即將匯入 {{total}} 則對話。要繼續嗎？",
+      "import_confirm_overwrite": "即將匯入 {{total}} 則對話，其中 {{overwrite}} 則會覆蓋現有的同 ID 對話且無法復原。要繼續嗎？",
+      "toast_import_partial": "匯入結果：已保存 {{saved}} 筆、失敗 {{failed}} 筆、尚未確認 {{unknown}} 筆。未保存草稿仍保留。"
+    },
+    "sns_bots_tab": {
+      "loading": "正在載入機器人設定…",
+      "reload_required": "請重新載入機器人設定，再進行編輯或儲存。",
+      "reload": "重新載入設定",
+      "token_draft_cleared": "儲存未完成，輸入的 Token 已清除；如需更新 Token，請重新輸入。",
+      "storage_cleanup_failed": "無法清除瀏覽器內舊版儲存的 SNS Token。請在瀏覽器設定清除此網站的儲存資料，再重新載入。",
+      "discord_bots_title": "Discord 機器人",
+      "telegram_bots_title": "Telegram 機器人",
+      "add_bot_button": "新增機器人",
+      "remove_bot_aria": "移除第 {{num}} 個 {{platform}} Bot",
+      "confirm_remove_bot": "確定要移除這個機器人嗎？",
+      "bot_token_label": "Bot Token",
+      "bot_token_ph": "請輸入 Bot Token",
+      "bind_agent_id_label": "綁定 Agent ID",
+      "select_agent_ph": "選擇 Agent",
+      "agent_id_ph": "請輸入 Agent ID",
+      "enable_bot": "啟用此機器人",
+      "multi_agent_conversation": "多代理人共同對話",
+      "session_mode_label": "會話模式:",
+      "session_mode_independent": "獨立會話",
+      "session_mode_home": "家對話模式",
+      "empty_state": "尚未新增任何機器人設定。",
+      "heading": "SNS 機器人管理",
+      "description": "設定並管理整合於外部 Discord 或 Telegram 的機器人帳號。",
+      "save_button": "儲存設定"
+    },
+    "models_tab": {
+      "search_placeholder": "搜尋模型...",
+      "scanning": "正在掃描...",
+      "force_rescan": "強制重新掃描",
+      "filter_all": "全部模型",
+      "filter_visible": "顯示中 (Visible)",
+      "filter_hidden": "隱藏中 (Invisible)",
+      "change_notice": "「開啟／關閉」與「可見／隱藏」變更皆<1>即時生效</1>：關閉或隱藏的模型不會出現在對話的模型選單，但不影響既有對話內容。",
+      "status_online": "在線 (Online)",
+      "status_offline": "離線 (Offline)",
+      "enable_title": "對話中可選",
+      "enable": "開啟",
+      "disable_title": "對話中隱藏",
+      "disable": "關閉",
+      "visibility_visible_title": "目前為可見 (Visible)",
+      "visibility_hidden_title": "目前為不可見 (Invisible)",
+      "visible": "可見",
+      "hidden": "隱藏",
+      "delete_confirm": "確定要刪除模型「{{id}}」嗎？",
+      "delete_success": "模型 {{id}} 已成功刪除。",
+      "delete_confirm_label": "確認刪除",
+      "delete_title": "從歷史名冊刪除",
+      "test_button": "測試",
+      "test_button_title": "測試此模型（會送出一次真實測試請求，可能產生少量 API 費用）",
+      "health_status": {
+        "healthy": "正常",
+        "degraded": "降級",
+        "unavailable": "無法使用"
+      },
+      "health_latency": "{{ms}} ms",
+      "health_reason": {
+        "timeout": "請求逾時",
+        "connection_error": "無法連線",
+        "request_failed": "請求失敗",
+        "auth_missing": "未設定 API 金鑰",
+        "api_error": "供應商回傳 {{status}}",
+        "not_supported": "此供應商不支援測試",
+        "not_found": "找不到模型"
+      },
+      "empty_no_match": "沒有符合搜尋或篩選條件的模型。可改選「全部模型」。",
+      "empty_no_models": "尚未發現任何模型。請先新增供應商金鑰或連線，再按「強制重新掃描」。",
+      "badge_available": "可啟用"
+    },
+    "agent_reset": {
+      "title": "代理人資料重置",
+      "intro": "把單一代理人累積的執行期資料（對話、記憶、統計、任務、產出）重置回乾淨狀態；代理人的「身分」（靈魂／系統提示）與系統稽核完整保留，重置後仍可繼續使用。此為破壞性操作，套用前會自動建立一份系統備份作為還原點。",
+      "empty": "目前沒有可重置的代理人。",
+      "reset_button": "重置資料",
+      "confirm_title": "重置代理人「{{id}}」的資料",
+      "confirm_body": "此操作不可逆。請確認下列範圍，輸入代理人 ID 並重新輸入你的密碼以繼續。",
+      "wipe_label": "將清除",
+      "wipe_list": "對話、記憶、統計、任務、產出、情境快照",
+      "keep_label": "將保留",
+      "keep_list": "身分（靈魂／系統提示）、歸檔、稽核帳本、上傳檔案、記憶庫升級備份（含所有靈魂）",
+      "type_to_confirm": "請輸入代理人 ID「{{id}}」以確認：",
+      "password_placeholder": "你的帳號密碼",
+      "cancel": "取消",
+      "confirm_reset": "確認重置",
+      "reset_success": "已重置「{{id}}」的資料",
+      "reset_partial": "「{{id}}」重置完成，但部分項目無法確認清除，請查看結果",
+      "backup_failed": "系統快照沒有做成，所以這次重置沒有執行，什麼都沒刪。你的操作沒有錯；請稍後再試，或請管理員查看伺服器日誌裡的快照錯誤。",
+      "result_clean": "✅ 線上資料已完整重置（系統備份與升級備份不在重置範圍）",
+      "result_partial": "⚠️ 部分項目仍有殘留或無法確認，請查看下列明細",
+      "store_line": "已清 {{purged}}、殘留 {{remaining}}",
+      "preserved_line": "刻意保留（未清除）：{{items}}",
+      "done": "完成",
+      "result_unknown": "結果不明：伺服器可能仍在執行，重置與清除可能已經完成，請稍後重新整理查看",
+      "scrub": {
+        "option_label": "一併清除備份裡這個靈魂的記憶（預設不勾）",
+        "will_clear_title": "會清掉（全部成功時）：",
+        "will_clear": "這個靈魂在記憶庫升級備份，以及設定頁備份清單裡每一份系統快照中的記憶（事實與語意索引），包含這次重置前剛做的那份。全部成功時，還原清單裡任何一份快照都拿不回這個靈魂的記憶。",
+        "wont_clear_title": "不會清：",
+        "wont_clear": "快照裡的對話（對話裡提過的事也會留在對話紀錄裡）、活動時間軸、統計、任務、產出；舊版 facts.jsonl；舊前綴 ID（ToukaSoul…）寫進的記憶；不在備份清單裡的備份（例如用命令列另存到別處的）；已下載的備份；其他靈魂的資料；長期記憶（被修剪移入歸檔的舊對話）也不清。",
+        "guarantee": "能保證的是記憶庫檔與備份檔裡讀不到，不是硬碟層的鑑識抹除。需要非代打的人類管理員登入並重輸密碼。",
+        "duration": "快照多時可能要幾分鐘。",
+        "acknowledge": "我了解，清除備份裡的記憶",
+        "acknowledged": "已確認：會一併清除備份裡的記憶",
+        "wipe_list": "對話、記憶、統計、任務、產出、情境快照；以及升級備份與系統快照裡這個靈魂的記憶",
+        "keep_list": "身分（靈魂／系統提示）、歸檔、稽核帳本、上傳檔案、快照裡的對話與其他資料、其他靈魂的記憶、長期記憶（被修剪移入歸檔的舊對話）",
+        "not_run": "伺服器沒有執行清除：備份裡的記憶維持原樣。",
+        "toast_incomplete": "「{{id}}」已重置，但備份裡的記憶沒有全部清除，請查看結果",
+        "result_clean_live": "✅ 線上資料已完整重置",
+        "summary_complete": "備份清單裡的每一份快照與升級備份都已清除這個靈魂的記憶，無法復原。",
+        "summary_unfinished": "清除沒有完成：{{reason}}。備份裡可能還有這個靈魂的記憶；可以再做一次重置並勾選清除。",
+        "reason_see_details": "有些項目沒有清除，見下方明細",
+        "files_left": "這 {{failed}} 個檔維持原樣，仍含這個靈魂的記憶；其他 {{done}} 個已清除，無法復原。",
+        "summary_not_ran": "清除沒有執行（{{reason}}），備份維持原樣。",
+        "live_verify_failed": "線上記憶庫整理後驗證沒通過，請先別再存記憶，並找團隊。",
+        "live_not_compacted": "線上記憶庫沒有整理（{{reason}}）。",
+        "remaining_unknown": "無法確認線上是否還有殘留。",
+        "remaining_positive": "重置後這個靈魂又寫入了新記憶，例如心跳仍在跑；先停用心跳，再做一次。",
+        "category_failed": "{{category}}：沒有完成（{{reason}}）",
+        "category_not_started": "{{category}}：沒有執行",
+        "item_line": "{{name}}：{{status}}",
+        "item_line_reason": "{{name}}：{{status}}（{{reason}}）",
+        "info_title": "其他資訊",
+        "info_line": "{{name}}：{{reason}}（{{count}}）",
+        "collection_shared": "這個靈魂和 {{id}} 共用語意索引，可以做一般重置，但無法清除備份。",
+        "categories": {
+          "leftovers": "上次中斷留下的暫存",
+          "live": "線上記憶庫",
+          "upgrade_backups": "升級備份",
+          "snapshots": "系統快照"
+        },
+        "statuses": {
+          "scrubbed": "已清除",
+          "not_needed": "本來就沒有",
+          "removed": "已移除",
+          "failed": "沒有清除",
+          "info": "資訊"
+        },
+        "reasons": {
+          "busy": "檔案正在被使用",
+          "in_use": "檔案被其他程式占用",
+          "read_only": "檔案是唯讀",
+          "no_space": "磁碟空間不夠",
+          "unreadable": "檔案讀不出來",
+          "too_large": "檔案太大，沒有處理",
+          "has_journal": "記憶庫有未完成的寫入紀錄",
+          "unknown_member": "備份裡有不認得的內容",
+          "unknown_file": "有不認得的檔案",
+          "unknown_schema": "記憶庫格式不認得",
+          "unknown_qdrant_meta": "語意索引清單格式不認得",
+          "collection_shared": "和其他 ID 共用語意索引",
+          "ambiguous_member": "備份裡有大小寫不同的同名內容",
+          "changed_during_scrub": "清除時檔案被改動",
+          "verify_failed": "清除後驗證沒通過，原檔沒動",
+          "live_verify_failed": "線上記憶庫整理後驗證沒通過",
+          "rewritten_after_reset": "重置後又寫入了這個靈魂的記憶",
+          "list_failed": "列不出檔案清單",
+          "lock_timeout": "等不到其他作業結束",
+          "recheck_failed": "無法重查線上殘留",
+          "own_snapshot_missing": "找不到這次重置前做的快照",
+          "reset_not_clean": "重置沒有完全成功，所以沒有清除",
+          "internal_error": "發生內部錯誤",
+          "empty_file": "空檔，略過",
+          "out_of_scope": "不在清除範圍（舊版或舊前綴）",
+          "write_failed": "寫不進暫存檔，原檔沒動",
+          "own_snapshot_unverified": "這次重置前做的快照沒有清掉任何記憶，無法確認已清乾淨",
+          "backup_failed": "重置前的快照沒有做成，所以沒有清除",
+          "cancelled": "請求在清除開始前就中止了"
+        }
+      }
+    },
+    "users_tab": {
+      "form_email_label": "電子郵件",
+      "form_password_label": "密碼",
+      "form_display_name_label": "顯示名稱",
+      "form_role_label": "角色",
+      "form_role_option_normal": "一般使用者",
+      "form_role_option_admin": "管理員",
+      "form_status_label": "狀態",
+      "form_status_option_active": "啟用中",
+      "form_status_option_suspended": "已停權",
+      "role_badge_admin": "管理員",
+      "role_legend_title": "角色說明",
+      "role_legend_admin": "管理員：可管理使用者、群組與系統設定。",
+      "role_legend_normal": "一般使用者：可使用對話與個人設定，無管理權限。",
+      "created_at_label": "建立於",
+      "last_active_label": "最後活躍",
+      "last_active_never": "從未",
+      "form_error_email_required": "請輸入電子郵件",
+      "form_error_email_invalid": "電子郵件格式不正確",
+      "form_error_password_required": "請設定登入密碼",
+      "form_error_password_too_short": "密碼至少需 8 個字元",
+      "status_badge_suspended": "已停權",
+      "form_assigned_agents_label": "指派代理人",
+      "empty_state_no_agents": "無代理人",
+      "form_bio_label": "簡介",
+      "search_placeholder": "搜尋使用者 (Email, 名稱)...",
+      "add_user": "新增使用者",
+      "no_users_found": "找不到符合的使用者",
+      "unnamed_user": "未命名使用者",
+      "edit_user_tooltip": "編輯資料",
+      "delete_confirm_message": "確定要刪除此使用者嗎？此操作無法還原。",
+      "delete_confirm_title": "確認刪除",
+      "delete_user_tooltip": "刪除使用者",
+      "form_edit_title": "編輯使用者資料",
+      "form_create_title": "建立新使用者",
+      "password_keep_hint": "(留空表示不修改)",
+      "password_placeholder": "設定登入密碼",
+      "display_name_placeholder": "例如: 管理員, 使用者A...",
+      "agents_selected_count": "{{count}} 選取",
+      "no_agents_available": "無可選代理人",
+      "bio_placeholder": "使用者描述...",
+      "cancel": "取消",
+      "save_changes": "儲存變更"
+    },
+    "group_settings_tab": {
+      "add_model_aria": "選擇要加入群聊的靈魂",
+      "alias_input_aria": "{{id}} 的別名",
+      "whitelist_updated": "群聊白名單與別名已更新 (SSOT 對齊成功)",
+      "loading": "載入群聊設定中…",
+      "alias_placeholder": "設定別名 (如: 小助理)",
+      "points_to_entity": "指向實體",
+      "remove_alias_aria": "移除群組別名 {{alias}}",
+      "add_model_option": "新增靈魂...",
+      "title": "群聊別名與權限管理",
+      "subtitle": "設定群聊中點名 (@別名) 對應的靈魂；群聊成員只限靈魂",
+      "save_button": "儲存變更",
+      "section_soul_title": "靈魂代理人 (L1)",
+      "section_soul_desc": "點名別名與靈魂實體 ID 映射"
+    },
+    "skill_form": {
+      "id_placeholder": "技能 ID",
+      "remove_tool_aria": "移除 {{tool}}",
+      "name_label": "技能名稱",
+      "name_placeholder": "例如：Python 專家",
+      "id_label": "識別 ID",
+      "description_label": "簡短描述",
+      "description_placeholder": "一句話說明此技能的作用",
+      "system_prompt_label": "專家指令 (System Prompt)",
+      "system_prompt_placeholder": "定義 Agent 在使用此技能時的行為規範與專業知識...",
+      "required_tools_label": "必備工具權限",
+      "add_tool_placeholder": "新增工具",
+      "no_tools_available": "無可用工具",
+      "save_button": "儲存技能",
+      "cancel_button": "取消"
+    },
+    "rbac_matrix": {
+      "title": "角色權限矩陣 (RBAC Matrix)",
+      "description": "定義各個角色的預設安全行為與可調用的工具子集。",
+      "save_button": "儲存權限配置",
+      "custom_role_desc": "自定義系統角色",
+      "open_ended_label": "開放式授權",
+      "open_ended_hint": "允許目前與未來新增的所有項目；關閉後可改用下方明確清單。",
+      "section": {
+        "builtin_tools": "原生工具 (Builtin)",
+        "mcp_servers": "MCP 伺服器",
+        "skills": "技能授權 (Skills)",
+        "denied_mcp_tools": "MCP 工具拒絕清單"
+      },
+      "denied_mcp_tools_hint": "以 server/tool 或 server/* 逐條指定要對此角色封鎖的 MCP 工具；拒絕優先於上方的伺服器授權，且對 Owner 同樣生效。",
+      "denied_mcp_tools_placeholder": "stripe/create_refund"
+    },
+    "mcp_server_form": {
+      "errors": {
+        "invalid_env_json": "環境變數格式錯誤，請確保為正確的 JSON 物件 (例如: {\"KEY\": \"VAL\"})",
+        "invalid_headers_json": "標頭格式錯誤，請確保為正確的 JSON 物件 (例如: {\"Authorization\": \"Bearer ${MY_TOKEN}\"})"
+      },
+      "editing_title": "正在編輯: {{name}}",
+      "add_title": "手動加入 MCP 伺服器",
+      "security_warning": "手動新增的 MCP 伺服器會在伺服器上執行你指定的指令（command + args），agent 連線使用時即啟動。請僅加入你信任來源與行為的指令。",
+      "security_warning_remote": "遠端伺服器不會在本機執行程序，但 agent 連線時會把你設定的憑證送到該端點。請僅加入你信任其營運者的端點；憑證請寫在環境變數、標頭以 ${變數名} 引用。",
+      "confirm_manual_add": "此 MCP 伺服器會在伺服器上執行你指定的指令。確認你信任此指令的來源與行為後再新增？",
+      "transport_stdio": "本機 (stdio)",
+      "transport_remote": "遠端 (HTTP)",
+      "server_name_label": "伺服器名稱",
+      "server_name_ph": "例如: memory",
+      "command_label": "啟動指令 (Command)",
+      "command_ph": "例如: npx, python",
+      "url_label": "端點網址 (URL)",
+      "url_ph": "例如: https://mcp.example.com/mcp",
+      "args_label": "參數 (Args, 以逗號分隔)",
+      "args_ph": "例如: -y, @modelcontextprotocol/server-fetch",
+      "headers_label": "標頭 (Headers JSON, 選填)",
+      "headers_ph": "例如: {\"Authorization\": \"Bearer ${MY_TOKEN}\"}",
+      "env_label": "環境變數 (Env JSON, 選填)",
+      "env_ph": "例如: {\"API_KEY\": \"xxx\"}",
+      "finish_edit_button": "完成編輯",
+      "add_button": "手動加入",
+      "cancel_button": "取消"
+    },
+    "mcp_isolation": {
+      "badges": {
+        "waiting": "等待隔離",
+        "suspended": "已暫停：隔離自測失敗（不是 MCP 壞了）",
+        "unisolated": "未隔離"
+      },
+      "reasons": {
+        "probe_pending": "正在檢查隔離環境，完成後會自動重新判定是否啟動。",
+        "selftest_error": "隔離自測執行時發生錯誤，目前無法確認隔離有效。",
+        "isolation_check_failed": "隔離檢查失敗，這台伺服器目前不會啟動。",
+        "sandbox_state_unconfigured": "隔離暫存區未設定或無法寫入，請檢查隔離容器的掛載與權限。",
+        "kernel_unreadable": "讀不到隔離程式，請檢查隔離映像與檔案權限，必要時重建映像。",
+        "unknown": "目前無法確認隔離可用，請檢查隔離環境與 Touka 日誌。"
+      },
+      "retry_selftest": "Touka 約每 10 分鐘重新自測，通過後自動啟動。",
+      "check_environment": "請檢查並修正隔離環境，再重新整理狀態；需要時重新啟動 Touka。",
+      "waiting_self": "隔離恢復後會自動啟動；也可以按「啟動…」確認這次的執行方式。",
+      "manual_start": {
+        "button": "啟動…",
+        "title": "手動啟動「{{name}}」",
+        "once": "這次同意只用於本次啟動；設定或啟動方式改變時，需要重新確認。",
+        "destinations": {
+          "executor": "這次在執行器容器裡執行，與 Touka 分開；以下列出本次具備的隔離保護。",
+          "landlock": "這次在 Touka 容器內以 Landlock 執行；保護比完整隔離少，以下列出本次具備的隔離保護。",
+          "direct": "這是代理人寫的程式。這次未隔離，使用 Touka 自己的權限：能讀取全部金鑰、修改設定與原始碼、讀寫所有代理人的資料，並連線到內部服務。改動會保留。",
+          "unknown": "無法確認執行去處，請關閉並重新整理狀態。"
+        },
+        "features": "本次保護：{{features}}",
+        "no_features": "沒有隔離保護",
+        "tcp_missing": "這次網路埠沒有擋住。",
+        "separator": "、",
+        "feature_names": {
+          "fs": "檔案存取限制",
+          "tcp": "TCP 埠限制",
+          "signal": "行程信號限制",
+          "abstract_unix": "抽象 Unix socket 限制",
+          "ioctl": "裝置控制限制",
+          "unknown": "無法辨識的保護能力"
+        },
+        "confirm": "同意這次啟動",
+        "cancel": "取消"
+      },
+      "title": "隔離設定",
+      "origin_label": "來源：",
+      "origin": {
+        "hub": "從 MCP Hub 安裝",
+        "skill": "技能市集安裝",
+        "manual": "我自己設定",
+        "creation": "Touka 創建引擎建立",
+        "scaffold": "Touka 範本產生",
+        "evolution": "代理人演化部署",
+        "agent": "代理人建立",
+        "none": "未標示"
+      },
+      "class_label": "判定：",
+      "class": {
+        "self": "代理人寫的程式",
+        "third_party": "第三方程式",
+        "scaffold": "Touka 範本產生的程式"
+      },
+      "record_stale": "這台的程式改過，原本的來源紀錄不再適用，改用系統判定。",
+      "record_unreadable": "隔離設定檔讀不到：所有 MCP 都當代理人寫的程式，暫時不能修改。",
+      "mark_agent_button": "標成代理人建立",
+      "mark_agent_confirm": "把「{{name}}」標成代理人建立？之後它只會在隔離環境裡啟動，也不能有額外允許的資料夾；這個改變不能改回。",
+      "paths_title": "額外允許的資料夾",
+      "paths_hint": "第三方 MCP 預設只拿得到設定裡引用的路徑，這裡可以再給完整路徑的資料夾；Touka 的設定、資料與程式一律不給。",
+      "path_aria": "第 {{n}} 筆資料夾",
+      "path_ph": "完整路徑，例如 /home/me/repo",
+      "access_ro": "唯讀",
+      "access_rw": "讀寫",
+      "remove_path_aria": "移除第 {{n}} 筆資料夾",
+      "add_path": "新增資料夾",
+      "save_paths": "儲存資料夾",
+      "saved": "已儲存；下次重新啟動這台伺服器時生效。",
+      "errors": {
+        "invalid_paths": "資料夾要寫完整路徑（例如 /home/me/repo），每台最多 16 筆。",
+        "mcp_entry_changed": "這台伺服器的設定剛被改過，請重新確認後再試一次。",
+        "mcp_server_not_found": "找不到這台 MCP 伺服器，可能已被刪除。",
+        "mcp_origin_change_refused": "來源只能從「第三方」或「未標示」改成「代理人建立」，這台不能改。",
+        "mcp_sandbox_paths_refused": "代理人寫的程式不能加額外允許的資料夾，只有第三方 MCP 可以。",
+        "mcp_not_waiting_isolation": "這台伺服器現在沒有在等隔離環境，不需要手動啟動。",
+        "mcp_isolation_ack_mismatch": "啟動方式已經改變，請重新確認後再啟動。",
+        "mcp_hub_install_over_self_built": "已經有同名、由代理人建立的伺服器，不能用 Hub 安裝蓋掉；請先刪除或換個名字。",
+        "mcp_sandbox_path_refused": "第 {{n}} 筆：{{reason}}",
+        "path_reasons": {
+          "protected_location": "這個資料夾在 Touka 的受保護位置（Touka 的設定、資料或程式），不能給。",
+          "scan_limit": "這個資料夾太大（或檢查超過 2 秒），無法確認裡面沒有 Touka 的檔案，不能給。",
+          "other": "Touka 不能給這個資料夾。"
+        }
+      }
+    },
+    "add_connection_form": {
+      "title": "新增連線來源",
+      "name_label": "名稱",
+      "name_placeholder": "例如: Touka Proxy",
+      "provider_label": "提供者",
+      "provider_placeholder": "選擇提供者",
+      "endpoint_url_label": "端點 URL",
+      "endpoint_url_placeholder": "https://...",
+      "protocol_label": "協議模式",
+      "protocol_placeholder": "選擇模式",
+      "api_key_label": "API Key (選填)",
+      "timeout_label": "請求逾時（秒）",
+      "timeout_placeholder": "留空＝不限",
+      "timeout_hint": "超過秒數未回應即中止該請求（不影響聊天串流）。",
+      "add_button": "新增連線",
+      "system_key_guidance": "有 OpenAI／Anthropic／Gemini／Grok／DeepSeek 等官方供應商的 API 金鑰？建議直接到【設定 → 供應商金鑰】輸入，由 Touka 統一管理（遮罩、免重啟、自動探測與發現模型）。此頁適合自架／代理／聚合端點（如 Ollama、LiteLLM、OpenRouter）。"
+    },
+    "legacy_monitor_tab": {
+      "title": "歷史記憶歸檔監控 (Legacy Sync)",
+      "description": "監控並優化舊對話紀錄。系統會將 JSON 檔案遷移至各 Agent 的私有 SQLite 資料庫，提升全域搜尋效率並支援分支對話。",
+      "status_synced": "已同步",
+      "status_pending": "待處理",
+      "sync_button_tooltip": "觸發資料庫同步",
+      "message_count_label": "訊息總數",
+      "session_count_label": "會話總數",
+      "archive_status_label": "歸檔狀態",
+      "guard_tip_title": "自動化守衛提示",
+      "guard_tip_body": "同步過程中，系統會將原始 JSON 檔案移至 <code>backup/</code> 目錄。資料庫採用 SQLite 實作，具備 100% 反向匯出能力，確保資料主權與安全性。"
+    },
+    "skills_tab": {
+      "skill_hub_tab": "技能中心",
+      "delete_confirm_message": "確定要刪除此技能嗎？",
+      "delete_confirm_action": "確認刪除",
+      "upgrade_confirm_message": "升級「{{name}}」到目錄最新釘版？將覆蓋現有安裝（含可執行腳本，於伺服器執行）。",
+      "upgrade_confirm_action": "確認升級",
+      "install_confirm_message": "「{{name}}」含可執行腳本，安裝後 agent 使用時會在伺服器執行。確定安裝？",
+      "install_confirm_action": "我了解風險，安裝",
+      "heading": "技能模組與專家系統",
+      "description": "技能是封裝好的專家知識與工具組合。開啟技能後，Agent 將獲得特定的行為指導與必要的工具支援。",
+      "my_skills_tab": "我的技能 ({{count}})"
+    },
+    "mcp_hub_view": {
+      "heading": "推薦的官方與精選工具",
+      "sync_aria": "同步精選工具清單",
+      "category_all": "全部 (All)",
+      "search_placeholder": "搜尋 MCP 工具 (名稱、描述)...",
+      "empty_category": "此分類下目前沒有工具",
+      "empty_search": "找不到符合搜尋的 MCP 工具",
+      "switch_to_all": "切換至全部 (All)",
+      "hub_unreachable": "無法連線到 MCP Hub，請確認 ToukaProxy 連線。"
+    },
+    "autonomy_budget": {
+      "loading": "正在載入自主行為配置...",
+      "title": "自主行為預算",
+      "description": "控制工具迴圈保險絲、自我修復頻率與成本上限。",
+      "save_button": "儲存預算配置",
+      "max_tool_rounds_label": "工具迴圈保險絲（0＝不限）",
+      "max_tool_rounds_desc": "單次行動的工具輪上限。互動對話預設不限（人類可隨時中斷）；無人心跳一律有限——排程值優先，未設時用此保險絲，設 0 時心跳退保底 50。",
+      "unlimited": "不限",
+      "max_repair_attempts_label": "自動修復嘗試上限",
+      "cost_cap_label": "成本上限",
+      "cost_cap_desc": "啟用後，當代理人累計成本達到上限時，停止自主行動。",
+      "cost_cap_enable_label": "啟用成本上限",
+      "cost_cap_limit_label": "成本上限（USD）"
+    },
+    "auto_reviewer": {
+      "title": "Auto 審查員",
+      "description": "Auto 模式下，代理人要跑指令或用高風險工具前，先交給這個模型判斷是否符合你的要求。",
+      "model_label": "審查員模型",
+      "unset_option": "未設定",
+      "suggestion": "建議：Claude Haiku 5.5。不會自動幫你選。",
+      "data_notice": "Auto 會把你最近 3 則訊息和要做的動作送到所選模型的廠商審查。",
+      "cost_notice": "審查費用算在被審的靈魂身上，用量統計裡另外標成審查員。",
+      "unset_notice": "沒設模型時，Auto 遇到要審的動作一律轉給你；你不在場就拒絕。",
+      "missing_key": "目前設定的 {{model}} 不在已設定金鑰的模型裡，審查會失敗並轉給你。",
+      "no_models": "還沒有已設定金鑰的模型，請先到「供應商金鑰」設定。",
+      "load_failed": "無法載入審查員模型清單。",
+      "timeout_label": "審查員等待秒數",
+      "timeout_help": "超過這個秒數還沒回答，就轉給你；你不在場就拒絕。等太久不會自動放行。範圍 1～120。",
+      "timeout_invalid": "請輸入 1～120 秒。",
+      "save_button": "儲存審查員設定"
+    },
+    "my_servers_view": {
+      "confirm_remove_message": "確定要移除 MCP 伺服器「{{key}}」嗎？",
+      "confirm_remove_action": "確認移除",
+      "confirm_restart_message": "確定要重啟 MCP 伺服器「{{key}}」嗎？這會中斷該伺服器進行中的工具呼叫。",
+      "confirm_restart_action": "確認重啟",
+      "my_mcp_config_heading": "我的 MCP 配置",
+      "refresh_status": "刷新運行狀態",
+      "empty_state": "尚未匯入或安裝任何 MCP"
+    },
+    "skill_catalog_item": {
+      "update_available_badge": "可更新",
+      "preview_aria": "預覽技能 {{name}}",
+      "install_button": "安裝真技能（含腳本）",
+      "up_to_date_button": "已安裝（最新）",
+      "upgrade_button": "升級至新版（{{commit}}）"
+    },
+    "identity_mapping": {
+      "capability_aria": "切換 {{id}} 的 {{capability}} 能力",
+      "table_header_agent_id_name": "代理人 ID／名稱",
+      "table_header_rbac_role": "RBAC 角色",
+      "table_header_capabilities": "能力",
+      "select_role_placeholder": "選擇角色",
+      "heading": "身分與能力管理 (Identity)",
+      "description": "將特定的 Agent 定義映射到 RBAC 角色，並啟用其特殊能力。無覆寫的靈魂會依類型規則自動繼承角色（靈魂＝Owner）；除非要刻意調整，否則毋須手動設定。這裡只列靈魂、DebugAgent、DispatchAgent；其他 ID 一律沒有代理權限。",
+      "save_button": "儲存身分映射",
+      "remove_override_aria": "移除 {{id}} 的身分覆寫",
+      "override_active": "已覆寫",
+      "inherited_from_type": "繼承自類型規則"
+    },
+    "mcp_hub_item": {
+      "badge_update_available": "可更新",
+      "badge_installed": "已安裝",
+      "view_source_title": "查看原始碼與網站",
+      "action_install": "一鍵安裝",
+      "action_update": "更新設定",
+      "action_installed": "已經安裝"
+    },
+    "theme_settings_tab": {
+      "theme_mode_heading": "外觀模式",
+      "mode_system": "跟隨系統",
+      "mode_light": "淺色",
+      "mode_dark": "深色",
+      "theme_heading": "介面主題選擇",
+      "theme_description": "選擇適合您的配色方案。系統會自動切換全局 CSS 變數，並保持 Agent 識別色的一致性。",
+      "font_size_heading": "文字顯示大小 ({{size}}px)",
+      "live_preview_heading": "即時預覽",
+      "font_size_small": "小",
+      "font_size_large": "大",
+      "time_format_heading": "時間格式",
+      "time_format_12h": "12 小時制",
+      "time_format_24h": "24 小時制",
+      "time_format_example": "範例",
+      "density_heading": "介面密度",
+      "density_comfortable": "舒適",
+      "density_compact": "緊湊",
+      "bubble_style_heading": "對話泡泡樣式",
+      "bubble_rounded": "圓角",
+      "bubble_square": "方角",
+      "bubble_preview_user": "這是你的訊息預覽。",
+      "bubble_preview_assistant": "這是代理人的回覆，會即時套用密度與泡泡樣式。",
+      "reduce_motion_heading": "減少動態效果",
+      "reduce_motion_description": "降低動畫與轉場。「自動」依作業系統偏好；可手動強制開啟或關閉。",
+      "reduce_motion_system": "自動",
+      "reduce_motion_on": "開啟",
+      "reduce_motion_off": "關閉"
+    },
+    "skill_item": {
+      "system_protected_badge": "系統保護",
+      "preview_aria": "預覽技能 {{name}}",
+      "export_skill_tooltip": "導出 .skill",
+      "edit_skill_aria": "編輯技能 {{name}}",
+      "delete_skill_aria": "刪除技能 {{name}}"
+    },
+    "skill_catalog_view": {
+      "category_all": "全部",
+      "category_dev": "開發",
+      "category_office": "辦公",
+      "category_writing": "寫作",
+      "category_creative": "創意",
+      "category_life": "生活",
+      "search_placeholder": "搜尋技能 (名稱、描述)...",
+      "no_results": "找不到符合搜尋的技能",
+      "security_warning": "真技能（capability skill）含可執行腳本，安裝後 agent 使用時會在伺服器執行。 此處只列出 Touka 已人工審核、釘版（commit-pinned）的來源；請僅安裝你信任的技能。",
+      "empty_state": "目前沒有可用的真技能（策展清單建置中）。"
+    },
+    "mcp_server_item": {
+      "tools_badge": "{{count}} 個工具",
+      "disable_button": "停用",
+      "enable_button": "啟用",
+      "edit_aria": "編輯 MCP 伺服器 {{serverKey}}",
+      "delete_aria": "刪除 MCP 伺服器 {{serverKey}}",
+      "restart_aria": "重啟 MCP 伺服器 {{serverKey}}",
+      "error_label": "錯誤",
+      "status_connected": "已連線",
+      "status_error": "錯誤",
+      "status_circuit_open": "熔斷中",
+      "status_not_started": "未啟動",
+      "status_disabled": "已停用",
+      "tool_policy_aria": "管理 {{serverKey}} 的工具開放範圍",
+      "stale_badge": "資料待更新",
+      "cache_status": "MCP 快取 {{entries}} 筆 · 命中 {{hits}} 次"
+    },
+    "mcp_oauth": {
+      "status_disabled": "OAuth 已停用",
+      "status_auth_required": "需要授權",
+      "status_discovering": "正在檢查授權",
+      "status_selection_required": "請選擇授權服務",
+      "status_awaiting_user": "等待使用者同意",
+      "status_exchanging": "正在完成授權",
+      "status_connected": "已授權",
+      "status_refreshing": "正在更新授權",
+      "status_revoking": "正在撤銷授權",
+      "status_frozen": "授權已凍結",
+      "status_expired": "授權已過期",
+      "status_error": "授權錯誤",
+      "connect": "連接帳號",
+      "disconnect": "斷開帳號",
+      "select_authorization_server": "選擇授權服務：",
+      "use_authorization_server": "使用 {{issuer}} 授權",
+      "error_popup_blocked": "瀏覽器阻擋了授權彈出視窗。",
+      "error_popup_timeout": "授權彈出視窗已逾時。",
+      "error_request_failed": "OAuth 請求失敗，請稍後重試。"
+    },
+    "tools_tab": {
+      "no_description": "尚無詳細描述",
+      "search_placeholder": "搜尋工具 (名稱、分類)...",
+      "no_results": "找不到符合搜尋的工具",
+      "empty_title": "尚無可用的系統工具",
+      "empty_hint": "請確認 ToukaProxy 是否已正確載入工具與插件"
+    },
+    "connections_tab": {
+      "heading": "連線管理",
+      "refreshing": "更新中...",
+      "refresh_system_info": "刷新系統資訊",
+      "empty_state": "尚未建立任何連線來源。",
+      "saved": "連線已儲存",
+      "delete_confirm": "刪除連線「{{name}}」？已儲存的 API 金鑰會一併移除。",
+      "delete_confirm_label": "刪除"
+    },
+    "theme_showcase": {
+      "agent_sample_reply": "這是 {{name}} 的範例對話回覆。我們使用 Design Tokens 確保每個 Agent 在任何主題下都具有高度辨識度。",
+      "settings_aria": "設定（樣式示意）",
+      "font_preview_heading": "字級預覽",
+      "font_preview_sample": "拉動字級滑桿——這段範例文字會即時變大變小，就跟你的聊天訊息一樣。",
+      "section_agents": "代理人識別樣式",
+      "section_components": "元件展示",
+      "card_buttons": "按鈕",
+      "btn_primary": "主要",
+      "btn_secondary": "次要",
+      "btn_outline": "外框",
+      "btn_ghost": "幽靈",
+      "btn_delete": "刪除",
+      "btn_busy": "處理中",
+      "card_inputs": "輸入與開關",
+      "search_placeholder": "搜尋 token...",
+      "enabled_features": "已啟用功能",
+      "card_metrics": "系統指標",
+      "metric_active": "運作中",
+      "metric_desc": "脈衝邏輯正以 100% 效能運作",
+      "metric_footer": "REFRESH_RATE: 500MS | CLUSTER_STABLE"
+    },
+    "my_skills_view": {
+      "install_from_url": "從 URL 安裝",
+      "add_custom_skill": "新增自定義技能",
+      "search_placeholder": "搜尋我的技能..."
+    },
+    "mcp_tab": {
+      "available_servers": "可用的伺服器",
+      "hub_explore": "探索中心 (Hub)",
+      "workload_oauth": "工作負載 OAuth"
+    },
+    "mcp_workload": {
+      "admin_title": "工作負載 OAuth 憑證",
+      "admin_description": "密鑰只會隨單次請求送出，不會顯示、回填或保存在瀏覽器儲存空間。",
+      "credential_status": "狀態：{{status}} · 世代：{{generation}}",
+      "refresh_metadata": "重新驗證 metadata",
+      "confirm_revoke": "撤銷後會立即封鎖新的工作負載請求並等待既有請求排空。",
+      "revoke": "撤銷",
+      "save_credential": "儲存憑證",
+      "request_failed": "工作負載 OAuth 請求失敗；系統維持 fail-closed。",
+      "recovery_required": "有 {{count}} 筆權限異動需要復原，工作負載授權目前封鎖。",
+      "retry_recovery": "重試復原",
+      "key_rotation": "工作負載金鑰輪替",
+      "confirm_rotation": "輪替期間會暫停所有工作負載送出，確認開始？",
+      "start_rotation": "開始輪替",
+      "no_profiles": "尚未設定工作負載 OAuth profile。"
+    },
+    "connection_item": {
+      "remove_connection_aria": "移除連線 {{name}}",
+      "connection_error": "連線錯誤",
+      "test_aria": "測試連線 {{name}}",
+      "test_ok": "連線測試成功（端點可連線）",
+      "test_failed": "連線測試失敗",
+      "active_badge": "使用中",
+      "active_badge_title": "目前由此連線處理請求"
+    },
+    "mcp_tool_policy": {
+      "title": "工具開放範圍：{{name}}",
+      "description": "只勾選這台伺服器你允許 AI 使用的工具。此設定對所有身分生效（含 Owner），與安全分頁的角色權限取交集——任一邊關閉即不可用。",
+      "loading": "正在讀取工具清單…",
+      "fetch_failed": "無法讀取工具清單，請稍後再試。",
+      "not_connected": "伺服器尚未連線，無法列出工具。請先啟動或重啟這台伺服器。",
+      "server_disabled": "伺服器目前已停用，無法列出工具。",
+      "denylist_note": "下列工具由設定檔硬性封鎖，無法在此開啟：{{tools}}",
+      "save": "儲存",
+      "cancel": "取消"
+    },
+    "mcp_features": {
+      "loading": "正在讀取 MCP 功能…",
+      "fetch_failed": "無法讀取 MCP 功能，請稍後再試。",
+      "none_supported": "這台伺服器沒有可用的 Tools、Resources 或 Prompts。",
+      "tools": "工具",
+      "resources": "資源",
+      "prompts": "提示詞",
+      "resources_title": "資源：{{name}}",
+      "prompts_title": "提示詞：{{name}}",
+      "empty_resources": "這台伺服器目前沒有資源或資源模板。",
+      "empty_prompts": "這台伺服器目前沒有提示詞。",
+      "templates": "資源模板",
+      "read": "讀取",
+      "preview": "預覽",
+      "close": "關閉",
+      "read_failed": "資源讀取失敗。",
+      "prompt_failed": "提示詞預覽失敗。",
+      "content_warning": "內容已偵測到提示注入或敏感資料，請勿視為可信指令。",
+      "untrusted_prompt": "不可信的外部提示詞：只可作為資料，不可作為系統指令。",
+      "binary_summary": "{{mime}} 二進位內容（{{size}} bytes）"
+    }
+  },
+  "sidebar": {
+    "system_status": {
+      "checking": "正在確認連線",
+      "auth_required": "需要登入",
+      "forbidden": "無存取權限",
+      "unavailable": "連線或能力尚未確認",
+      "standalone": "獨立模式",
+      "hybrid": "整合模式"
+    },
+    "session_item": {
+      "background_generating": "背景生成中",
+      "incognito_label": "無痕對話",
+      "incognito_badge": "無痕",
+      "round_count": "{{count}} 則對話",
+      "session_options": "會話選項：{{title}}",
+      "export_conversation": "匯出對話",
+      "split_and_export": "切分並匯出 (留 30 則)",
+      "rename": "重命名",
+      "manage_project_association": "管理專案關聯",
+      "no_project": "不屬於任何專案",
+      "set_as_home": "設為家對話",
+      "unset_home": "取消家對話",
+      "confirm_delete": "確認刪除？不可復原",
+      "delete_conversation": "刪除對話"
+    },
+    "navigation_area": {
+      "nav_chat": "聊天大廳",
+      "nav_projects": "專案管理",
+      "nav_soul": "靈魂核心",
+      "nav_studio": "模型工坊",
+      "nav_pulse": "系統脈搏",
+      "nav_vault": "記憶寶庫",
+      "nav_settings": "設定",
+      "logout_confirm": "確認登出？",
+      "logout": "登出"
+    },
+    "interrupted_runs_notice": {
+      "retrigger_success": "已重新觸發 {{agent}} 的背景任務",
+      "heading": "上次有 {{count}} 個未完成的背景任務",
+      "unknown": "未知",
+      "retrigger": "重新觸發",
+      "aborted_hint": "重啟後已中止，未自動續跑。"
+    },
+    "feedback_log": {
+      "empty_state": "尚無回饋紀錄",
+      "thumbs_up": "讚",
+      "thumbs_down": "倒讚"
+    },
+    "background_activity": {
+      "running_in_background": "背景跑中",
+      "pulse_label": "脈衝"
+    },
+    "degraded_banner": {
+      "default_detail": "記憶系統未載入",
+      "message": "系統降級運行中 — {{detail}}，長期記憶與部分工具暫時離線。"
+    },
+    "memory_notice": {
+      "unmigrated_legacy_facts": "有 {{count}} 個靈魂的舊記憶檔還沒搬進記憶庫（檔案原地保留，沒有動過）。",
+      "memory_upgrade_no_space": "記憶庫升級需要更多磁碟空間，目前停在舊版：記憶可以查，暫時不能新增。請清出磁碟空間後重新啟動 Touka。記憶庫沒有被改動，不需要還原。",
+      "memory_upgrade_locked": "記憶庫正被其他程式使用，這次沒有升級：記憶可以查，暫時不能新增。請關掉其他開著記憶庫的程式後重新啟動 Touka。記憶庫沒有被改動，不需要還原。",
+      "memory_store_unreadable": "讀不到記憶庫：暫時查不到、也存不了記憶。請先找團隊。若團隊請你自己還原：先按「立即建立備份」存下現在的狀態，再選最近一份正常時的快照（對話和設定也會一起回到那時）。",
+      "memory_upgrade_failed": "記憶庫升級沒有完成，目前停在舊版：記憶可以查，暫時不能新增。重新啟動 Touka 會再試一次；一直失敗請換回上一版 Touka 並告訴團隊。記憶庫沒有被改動，不需要還原。",
+      "memory_new_store_beside_backups": "記憶庫是新的，但旁邊有升級前的備份。如果你剛還原過或改過資料路徑，記憶可能不在這裡；請先不要存新記憶，找團隊。",
+      "warning_marker": "記憶系統有警告，詳情在右側欄"
+    },
+    "system_notice": {
+      "autonomy_config_unreadable": "自主設定（autonomy.json）讀不到，已暫停自主執行：工具與心跳都停了（聊天時出現「已達總量上限」也是這個原因）。這時不要在安全設定頁按存檔：會用暫代的最嚴值蓋掉原本的設定。修好檔案權限後重新啟動 Touka；用 Docker 時執行：\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
+      "auth_policies_unreadable": "安全規則（auth_policies.json）在啟動時讀不到：所有工具和指令都拒絕，代理人只能聊天。修好或還原這個檔後重新啟動 Touka；用 Docker 修權限時執行：\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
+      "warning_marker": "有功能因設定問題停用，詳情在右側欄"
+    },
+    "isolation_banner": {
+      "mcp": "MCP：{{unisolated}} 台未隔離、{{waiting}} 台等待隔離、{{suspended}} 台因隔離自測失敗暫停。",
+      "below": "隔離比預期弱：代理人的指令在 Auto／YOLO 也都要你核准，無人在場時一律拒絕。",
+      "control_channel": "如果一直出現：可能是執行器裡有代理人反覆改執行器控制通道的權限，讓執行器對所有代理人都不能用；執行器每 5 秒會自己修回，在那之前每條指令都要你核准。",
+      "tcp_missing": "隔離沒有擋住網路：主機的 Linux 核心不夠新（需要 6.7 以上），指令擋不住連往 Touka 內部服務與本機上游埠的連線。",
+      "relock": "有代理人反覆鎖住自己的工作區權限，這一分鐘的自動修復額度用完了：指令可能間歇失敗，下一分鐘會自動恢復。"
+    },
+    "system_monitoring_view": {
+      "feedback_log_title": "回饋紀錄"
+    }
+  },
+  "chat": {
+    "message_item": {
+      "copy_code": "複製代碼",
+      "cancel": "取消",
+      "save_and_resend": "儲存並重送",
+      "save_edit": "儲存修改",
+      "copy": "複製",
+      "edit": "編輯",
+      "regenerate": "重新產生",
+      "thumbs_up": "讚",
+      "helpful": "有幫助",
+      "thumbs_down": "倒讚",
+      "needs_improvement": "需改進／回報問題",
+      "delete_message_and_subsequent": "刪除此訊息及其後續",
+      "previous_branch": "上一個分支",
+      "next_branch": "下一個分支",
+      "apply_to_project": "套用到專案"
+    },
+    "thinking": {
+      "title": "思考過程",
+      "in_progress": "思考中…"
+    },
+    "context_meter": {
+      "categories": {
+        "persona": "人格",
+        "capabilities": "技能",
+        "tools": "工具",
+        "mission_awareness": "任務",
+        "project_context": "專案",
+        "ide_context": "編輯器",
+        "conversation_summary": "摘要",
+        "conversation": "對話",
+        "system_other": "其他"
+      },
+      "aria_label_breakdown": "上下文用量約 {{pct}}%，點擊查看各區塊占用",
+      "dialog_title_usage": "本次對話的 Context 占用",
+      "usage_summary": "目前約佔 context window <pctval>{{pct}}%</pctval>",
+      "usage_tokens": "（{{total}} / {{window}} tokens）",
+      "usage_summary_tail": "。接近上限時最舊的對話會自動移入長期記憶並修剪。",
+      "no_breakdown": "此模型暫不提供分類別分解，僅顯示總占用。",
+      "got_it": "知道了",
+      "aria_label_loaded": "上下文用量約 {{pct}}%，點擊查看本次載入了哪些對話",
+      "dialog_title_loaded": "本次對話載入了什麼",
+      "loaded_summary": "目前約載入最近 <roundsval>{{rounds}}</roundsval> 則對話來回（上限 {{limit}}，約 {{pct}}%）。這是 AI 這次回覆「看得到」的近期脈絡。",
+      "loaded_detail": "接近上限時，最舊的訊息會自動移入長期記憶並從即時脈絡修剪，以維持回應品質。想調整保留則數，可至「設定 → 滑動視窗」。"
+    },
+    "interjection": {
+      "list_label": "排隊中的補充",
+      "queued": "下一個工具步驟交給 AI",
+      "after_turn": "回合結束後送出",
+      "urgent": "優先",
+      "edit": "修改",
+      "retract": "收回",
+      "queue_button": "排隊",
+      "generating_hint": "AI 工作中：Enter 排隊補充，Ctrl+Enter 立即中斷正在寫的回答，Esc 停止",
+      "marker_label": "本回合中的補充",
+      "delivered_at_step": "你的補充在第 {{step}} 步送達",
+      "round_interrupted_at_step": "第 {{step}} 步：這一輪被你打斷"
+    },
+    "chat_area": {
+      "model_switched_style_may_change": "已切換至 {{model}} — 回應風格可能改變",
+      "conversation_linked_project": "目前對話已關聯專案：<1>{{name}}</1>",
+      "model_offline_history_only": "目前模型 <1>{{model}}</1> 處於離線狀態，僅供查看歷史紀錄。",
+      "scroll_to_bottom": "跳至底部",
+      "remove_attachment": "移除附件",
+      "placeholder_model_offline": "模型目前離線...",
+      "placeholder_enter_command": "輸入指令...",
+      "placeholder_enter_command_or_chat": "在此輸入指令或對話...",
+      "upload_image": "上傳圖片",
+      "upload_file": "上傳檔案（圖片或文字檔）",
+      "upload_too_large": "檔案過大，無法上傳。",
+      "upload_unsupported": "目前不支援此檔案類型。",
+      "upload_failed": "檔案上傳失敗，請再試一次。",
+      "pasted_text_filename": "貼上內容.txt",
+      "pasted_as_file": "已將大量文字收成附件。",
+      "screenshot": "螢幕截圖",
+      "screenshot_unsupported": "此瀏覽器不支援螢幕截圖（需要安全連線 https）",
+      "screenshot_failed": "螢幕截圖失敗，請再試一次",
+      "deep_research_tooltip": "深入研究：對這一則問題做多步搜尋並產出帶引用的報告",
+      "research": "研究",
+      "mcp_dispatcher_tooltip": "MCP 動態掛載：啟用漸進揭露，讓模型可掛載並使用 MCP 伺服器工具",
+      "mcp_dispatcher": "MCP",
+      "select_model": "選擇模型",
+      "generating_reply": "正在產生回覆",
+      "reply_completed": "回覆已完成",
+      "stop": "停止",
+      "model_offline_button": "模型離線",
+      "send": "傳送",
+      "ai_disclaimer": "AI 可能會出錯，重要資訊請自行查證。"
+    },
+    "tool_step_tracker": {
+      "status": {
+        "calling": "正在調用",
+        "called": "已調用",
+        "awaiting_approval": "等待審批"
+      },
+      "label_tool_separator": "：",
+      "memory_used_title": "使用了記憶：{{access}}",
+      "memory_badge": "記憶：{{access}}",
+      "suggestion_label": "建議："
+    },
+    "tool_approval_card": {
+      "title": "此調用需要你的批准：{{tool}}",
+      "approve": "批准",
+      "reject": "拒絕",
+      "countdown": "{{seconds}} 秒後自動拒絕",
+      "review_reason": "審查員轉給你的理由：{{reason}}",
+      "human_only": "只有你能核准",
+      "human_only_desc": "這類動作審查員和 YOLO 都不能代為放行。",
+      "risk": {
+        "read_only": "唯讀",
+        "safe": "低風險",
+        "dangerous": "高風險"
+      },
+      "decision": {
+        "approved": "已批准",
+        "rejected": "已拒絕",
+        "timeout": "逾時，已自動拒絕",
+        "isolation_unacknowledged": "沒有核准：核准時沒有確認卡上的隔離標示",
+        "isolation_incomplete": "不能核准：會未隔離執行，而卡上看不到完整的執行內容"
+      },
+      "isolation": {
+        "degraded_title": "隔離降級",
+        "degraded_head": "{{clause}}會在 Touka 主容器內以檔案隔離執行：看不到 Touka 的金鑰、設定、原始碼與其他代理人的資料",
+        "degraded_tcp_blocked": "；連不到 Touka 內部服務",
+        "degraded_tcp_open": "；但擋不住它連到 Touka 內部服務與本機上游埠",
+        "degraded_signal_open": "；可能讓 Touka 重啟",
+        "degraded_tail": "；和 Touka 共用同一個容器與核心。",
+        "direct_title": "未隔離",
+        "direct_desc": "這次會用 Touka 自己的權限執行：讀得到全部金鑰（含登入金鑰）、能改 Touka 的設定與原始碼、能讀寫所有代理人的資料、連得到 Touka 內部服務，而且改動在之後仍然有效。",
+        "unknown_title": "看不懂這次的隔離狀態",
+        "unknown_desc": "Touka 傳來的隔離資訊不完整，看不出這次會怎麼執行，所以不能核准。請拒絕，或重新整理頁面後再試。",
+        "incomplete": "這張卡沒有完整顯示要執行的內容（內容太長被截斷，或卡上看不到要執行的程式），未隔離時不能在這裡核准。請拒絕，再請代理人縮短內容，或改用會把程式顯示在卡上的做法。",
+        "reason_line": "原因：{{text}}",
+        "reasons": {
+          "native_platform": "Touka 不是在 Linux 的 Docker 裡執行（例如直接在 Windows 上跑），這個環境沒有隔離功能。",
+          "probe_pending": "Touka 剛啟動，還在檢查隔離環境能不能用，通常幾秒內就好；可以先拒絕，稍後再試。",
+          "executor_unreachable": "設定了隔離執行器，但現在連不到它（執行器的容器可能沒有啟動）。",
+          "executor_runner_unavailable": "隔離執行器還沒接上，這次不能交給它執行。",
+          "isolation_unavailable": "隔離環境現在不能用，這次沒辦法隔離執行。",
+          "landlock_abi_too_old": "主機的 Linux 核心太舊（需要 6.2 以上），沒有檔案隔離功能。",
+          "landlock_abi_insufficient": "主機的 Linux 核心不夠新（需要 6.7 以上），擋不住連往 Touka 內部服務的連線，所以不算完整隔離。",
+          "selftest_failed": "隔離環境的自我檢查沒有通過，Touka 無法確認隔離真的有效。",
+          "fs_9p": "Touka 的資料放在隔離功能管不到的磁碟上（例如 Docker Desktop 或 WSL 掛進來的 Windows 磁碟），在那裡測試隔離沒有成功；Touka 會定期重新檢查。",
+          "net_tcp_fastopen": "主機開著 TCP Fast Open，隔離擋不住用它送出的連線。請在 compose（或覆寫設定）的 {{service}} 加上：\nsysctls:\n  net.ipv4.tcp_fastopen: 0\n再執行（帶上你平常用的 -f 檔）：\ndocker compose up -d\n沒用 Docker、直接在 Linux 主機上跑時，改成在主機設定 net.ipv4.tcp_fastopen=0（做法見 README_QUICKSTART）。",
+          "net_mptcp": "主機的核心開著 MPTCP，隔離擋不住 MPTCP 連線。請在 compose 覆寫設定的 {{service}} 加上：\nsysctls:\n  net.mptcp.enabled: 0\n再執行（帶上你平常用的 -f 檔）：\ndocker compose up -d\n沒用 Docker、直接在 Linux 主機上跑時，改成在主機設定 net.mptcp.enabled=0（做法見 README_QUICKSTART）。",
+          "kernel_outdated": "隔離環境的程式和映像不一致（改過 sandbox_kernel 但沒有重建映像）。請執行：\ndocker compose up -d --build",
+          "kernel_not_installed": "映像是舊版，還沒有隔離環境。請執行：\ndocker compose up -d --build",
+          "kernel_changed": "隔離環境的程式在檢查之後被改過，這次無法確認隔離有效；Touka 會重新檢查。",
+          "sandbox_state_unconfigured": "Touka 的 compose 設定還沒更新（缺少 touka-sandbox-state）。請照升級步驟更新 compose，再執行：\ndocker compose up -d --build",
+          "spec_too_large": "這次要開放給指令的資料夾太多，隔離設定超過上限，沒辦法放進隔離環境。",
+          "scan_limit": "這個專案太大（或掃描超過 2 秒），無法確認裡面沒有 Touka 的檔案，所以不能放進隔離環境。",
+          "protected_location": "這個專案位在 Touka 的受保護位置（例如 ToukaChat、scripts、.git），不能放進隔離環境。",
+          "runner_not_wired": "這個工具還沒接上隔離環境，所以只能用未隔離的方式執行。",
+          "landlock_unavailable": "這台主機的 Linux 核心沒有開啟 Landlock（檔案隔離功能），所以無法隔離。",
+          "isolation_check_failed": "檢查隔離狀態時發生錯誤，為了安全，這次當成未隔離處理。",
+          "executor_auth_failed": "Touka 連得到執行器，但通行權杖對不上或讀不到（執行器剛重啟換了權杖，或有指令改了執行器控制通道的權限；執行器每 5 秒會自己修回）。通常幾秒內會自動恢復；一直出現時請執行：\ndocker compose restart touka-executor",
+          "executor_version_mismatch": "執行器和 Touka 的版本不一致（通常是只重建了其中一個）。請執行：\ndocker compose up -d --build",
+          "executor_roots_mismatch": "執行器掛載的資料夾和 Touka 預期的不同（compose 設定不一致）。請照升級步驟更新 compose，再執行：\ndocker compose up -d --build",
+          "executor_selftest_failed": "執行器的自我檢查沒有通過，Touka 無法確認它的隔離真的有效。請執行：\ndocker compose up -d --build\n還是不行時，看 touka-executor 的 log。",
+          "executor_restarted": "執行器在這條指令開始前重新啟動過，這次沒有交給它；Touka 會重新檢查，通常幾秒內恢復。",
+          "executor_rejected": "執行器拒絕了這條指令（它和 Touka 對這次的設定看法不同）；Touka 會重新檢查。一直出現時請執行：\ndocker compose up -d --build",
+          "agent_dir_not_in_executor": "這個代理人的資料夾不在執行器裡（例如 DebugAgent 等自訂模型），它的指令只能在 Touka 主容器內執行，每條都要你核准。",
+          "project_not_in_executor": "這個對話綁了專案，專案資料夾沒有掛進執行器，所以每條指令都要你核准；無人在場時一律拒絕。",
+          "block_ports_incomplete": "Touka 讀不到自訂連線的設定（connections.json）或內容壞掉，不確定要封鎖哪些上游埠。修好檔案的內容或權限之後，約半分鐘內會自動恢復；權限要用 touka-init 修時，照升級說明的恢復步驟做完即可（那一步已含重新啟動）。",
+          "block_ports_overflow": "要封鎖的埠超過 1024 個（自訂連線與 MCP 的上游位址太多），所以只擋 Touka 自己的埠。請減少自訂連線或 MCP 的上游位址，再重新啟動 Touka。",
+          "interpreter_untrusted": "Touka 用來啟動隔離的 Python 不可信：在容器裡，是它（或路徑上某一層資料夾）不是 root 擁有、或別人可以改；直接在主機上跑時，是找不到 venv 背後的那個 Python。所以這次不能隔離執行。用 Docker 時請重建映像：\ndocker compose up -d --build\n直接在 Linux 主機上跑時，請檢查 Python 的安裝位置（venv 指向的 Python 還在、路徑解析得到）。"
+        },
+        "reason_details": {
+          "sandbox_state_unconfigured": {
+            "not_writable": "隔離環境的暫存區（touka-sandbox-state）權限不對，通常是先用舊映像啟動過。補救：\n1. docker compose down（不要加 -v）\n2. docker volume rm touka_touka-sandbox-state\n3. docker compose up -d --build\n（刪掉的只有快取與暫存，沒有你的資料。）"
+          }
+        },
+        "executor_head": "{{clause}}會在執行器裡執行：看不到 Touka 的金鑰、設定、原始碼與其他代理人的資料",
+        "ports_tail": "；Touka 自己的埠照樣擋，但自訂連線與 MCP 的上游埠可能沒擋",
+        "ports_tail_also": "；自訂連線與 MCP 的上游埠也沒有全部列進封鎖名單",
+        "executor_tail": "；和 Touka 在不同容器、共用同一個核心。",
+        "clauses": {
+          "generic": "這次無法使用完整隔離，",
+          "scope": "這個專案（或資料夾）不在執行器裡，這次",
+          "executor_down": "執行器目前不能用，這次",
+          "net": "這台主機的網路設定讓有些連線擋不住，這次",
+          "ports_incomplete": "Touka 讀不到自訂連線的設定（connections.json），這次",
+          "ports_overflow": "要封鎖的埠太多，這次"
+        },
+        "net_services": {
+          "proxy": "touka-proxy",
+          "executor": "touka-proxy 與 touka-executor"
+        }
+      }
+    },
+    "mcp_interaction": {
+      "title": "MCP 需要你的輸入",
+      "accept": "送出並繼續",
+      "decline": "拒絕",
+      "cancel": "取消",
+      "countdown": "{{seconds}} 秒後逾時",
+      "select_placeholder": "請選擇",
+      "decision": {
+        "accepted": "已送出",
+        "declined": "已拒絕",
+        "cancelled": "已取消",
+        "timeout": "互動已逾時"
+      }
+    },
+    "feedback_reason_dialog": {
+      "title": "這則回覆哪裡需要改進？",
+      "description": "選填。也可在此回報有害或不當內容——你的回饋只供擁有者檢視，不會自動改變 AI。",
+      "textarea_aria_label": "回饋原因",
+      "textarea_placeholder": "例如：答案不準確、語氣不恰當、包含有害內容…",
+      "cancel": "取消",
+      "submit": "送出回饋"
+    },
+    "auth_switcher": {
+      "levels": {
+        "manual_desc": "唯讀以外，每項操作需你批准",
+        "auto_desc": "唯讀與低風險操作自動執行，指令與高風險操作先交給審查員，判斷不了才問你",
+        "yolo_desc": "全自動執行 (黑名單與底線除外)"
+      },
+      "confirm": {
+        "yolo_message": "YOLO 將自動執行指令（黑名單與底線除外），可能造成不可逆的變更。確定啟用？",
+        "yolo_title": "啟用 YOLO"
+      },
+      "downgraded": "只有管理員或這個靈魂的擁有者能開 {{requested}}，這個對話已改回 {{actual}}。",
+      "incognito_manual": "無痕對話無法追溯，只能用 Manual"
+    },
+    "chat_welcome": {
+      "start_conversation_title": "開始與 Touka 對話",
+      "capabilities_description": "我可以協助你整理與分析資訊、撰寫與檢查程式碼、繪製圖表，並跨對話記住你的重點。",
+      "prompts": {
+        "organize_requirements_todo": "幫我把這段需求整理成待辦清單",
+        "explain_concept_flowchart": "用流程圖解釋一個概念",
+        "plan_learning_path": "我想學一個新主題，先幫我規劃學習路徑"
+      }
+    },
+    "skill_selector": {
+      "title": "技能選擇",
+      "count_label": "{{n}} 技能",
+      "label": "技能"
+    },
+    "provider": {
+      "model_switched_to_default": "新對話已切換至預設模型 {{model}}"
+    },
+    "persistence": {
+      "pending": "正在保存對話…",
+      "unknown": "尚無法確認對話是否已保存。草稿仍保留，請先重新核對。",
+      "failed": "對話尚未保存，或內容已發生衝突。草稿仍保留。",
+      "recheck": "重新核對保存結果",
+      "retry": "僅重試保存"
+    }
+  },
+  "dashboard": {
+    "heartbeat_scheduler": {
+      "default_init_prompt": "妳最近過得好嗎？請檢查一下記憶與進度。",
+      "confirm_delete_message": "確定要刪除此排程任務嗎？",
+      "confirm_delete_title": "確認刪除",
+      "title": "心跳排程管理 (Pulse-Driven Pacemaker)",
+      "cancel_edit": "取消編輯",
+      "cancel": "取消",
+      "add_task": "新增任務",
+      "editing_schedule": "正在編輯排程任務",
+      "creating_schedule": "建立全新排程任務",
+      "mode_interval": "時間間隔",
+      "mode_daily": "每日固定",
+      "mode_once": "單次觸發",
+      "label_target_agent": "目標 Agent",
+      "label_interval_minutes": "間隔 (分鐘)",
+      "label_add_time": "新增時間點",
+      "label_configured_times": "已設定的時間清單",
+      "label_execution_time": "執行時間",
+      "label_session_mode": "發送目標 (Session Mode)",
+      "session_mode_home": "🏠 家對話 (推薦)",
+      "session_mode_independent": "📡 指定對話 (Custom Session)",
+      "label_model_override": "大腦選擇 (Model Override)",
+      "model_override_default": "🧠 尊重 Agent 自主決定 (SSOT)",
+      "label_security_level": "安全等級",
+      "security_safe": "Auto（無人在場時不跑指令）",
+      "security_full": "YOLO（⚠️ 有風險）",
+      "label_pulse_count": "脈衝次數 (Pulse Count)",
+      "label_react_slots": "工具輪上限（每次脈衝）",
+      "placeholder_follow_global_budget": "跟隨全域保險絲",
+      "budget_hint": "💡 未指定時採「安全設定」的工具迴圈保險絲；全域為 0（不限）時，無人心跳自動退保底 50",
+      "label_select_session": "選擇目標對話 (Session List)",
+      "select_session_placeholder": "請選擇一個對話...",
+      "default_pulse_channel": "預設獨立通道 (Pulse)",
+      "label_init_prompt": "初始提示詞",
+      "submit_edit": "確認修改排程",
+      "submit_create": "確認建立排程",
+      "interval_every": "每 {{minutes}} 分鐘",
+      "synced": "(同步)",
+      "run_limit": "| 限制 {{count}}/{{max}} 次",
+      "daily_times_label": "每日固定時段:",
+      "once_trigger_label": "單次觸發:",
+      "last_run_label": "上次執行:",
+      "empty_state": "尚未建立任何脈衝排程任務",
+      "footer_notice": "提示：排程系統現在由 ToukaHeartbeat 獨立運作。修改後的排程將即時存儲於節律器中，確保系統穩定性。"
+    },
+    "env_settings": {
+      "backup_success": "備份成功完成！",
+      "restoring_title": "系統還原中 (System Restoring)",
+      "restoring_applying_backup": "正在套用備份：",
+      "restoring_wait_notice": "請稍候，服務將在完成後自動重啟。頁面將自動重新整理。",
+      "restore_failed": "還原沒有完成，服務沒有重啟。部分檔案可能已被覆寫，請查看伺服器日誌後再試一次。",
+      "header_title": "系統快照與備份 (System Snapshots)",
+      "header_subtitle": "建立即時還原點以保護您的靈魂資料與記憶",
+      "creating_snapshot": "正在製作快照...",
+      "create_backup_now": "立即建立備份",
+      "refresh_backups_aria": "重新整理備份清單",
+      "backup_history_title": "歷史快照清單 (Backup History)",
+      "loading_list": "載入清單中...",
+      "no_backups": "目前尚無任何備份存檔",
+      "restore_this_version": "還原此版本",
+      "warning_title": "警告：還原作業風險 (Restoration Safety Notice)",
+      "warning_body": "執行還原操作會**覆蓋目前系統的所有資料**（包含 .env、模型連線、所有 Agent 靈魂與對話記憶）。 還原過程中，ToukaProxy 服務會自動重新啟動。如果您的環境未設定 Docker 自動重啟，請務必手動啟動服務。",
+      "confirm_restore_title": "確定要還原嗎？",
+      "confirm_restore_msg": "您正準備將系統狀態還原至 <b>{{filename}}</b>。這將導致目前的所有變更遺失且服務暫時中斷。",
+      "confirm_restore_password_label": "輸入你的密碼以確認此破壞性操作",
+      "confirm_restore_password_placeholder": "目前帳號密碼",
+      "cancel": "取消 (Cancel)",
+      "confirm_restore_action": "確認還原 (Restore Now)",
+      "delete_backup_aria": "刪除備份 {{filename}}",
+      "delete_confirm_title": "刪除備份",
+      "delete_confirm_message": "確定刪除備份「{{filename}}」？此操作無法復原。",
+      "delete_confirm_action": "刪除",
+      "delete_success": "備份已刪除",
+      "delete_failed": "刪除備份失敗",
+      "stats_backups": "{{count}} 個備份",
+      "stats_total": "共 {{size}} MB",
+      "stats_free": "可用空間 {{free}} MB",
+      "download_backup_aria": "下載備份 {{filename}}",
+      "download_title": "加密下載備份",
+      "download_body": "備份含 .env 與所有 API 金鑰。下載前請設定密碼短語加密（至少 12 字）；之後用 7-Zip / WinRAR 輸入此密碼即可開啟。請妥善保存此密碼——遺失將無法解開。",
+      "download_passphrase_label": "加密密碼短語",
+      "download_passphrase_placeholder": "至少 12 個字元",
+      "download_action": "加密並下載",
+      "download_success": "加密備份已開始下載",
+      "download_failed": "加密下載失敗",
+      "schedule_title": "自動備份排程",
+      "schedule_enable": "啟用自動備份",
+      "schedule_frequency": "頻率",
+      "schedule_daily": "每日",
+      "schedule_weekly": "每週",
+      "schedule_weekday": "星期",
+      "schedule_time": "時間",
+      "schedule_retention": "保留份數（僅計自動備份）",
+      "schedule_save": "儲存排程",
+      "schedule_saved": "排程設定已儲存",
+      "schedule_hint": "自動備份檔名為 Touka_AutoBackup_…，與手動備份分開；保留份數只影響自動備份，手動備份不會被自動刪除。",
+      "schedule_wd_0": "週一",
+      "schedule_wd_1": "週二",
+      "schedule_wd_2": "週三",
+      "schedule_wd_3": "週四",
+      "schedule_wd_4": "週五",
+      "schedule_wd_5": "週六",
+      "schedule_wd_6": "週日"
+    },
+    "settings_snapshot": {
+      "title": "設定快照（匯入／匯出）",
+      "intro": "把系統的可調設定匯出成檔，或匯入到另一台機器／還原已知良好基線。僅含設定旋鈕——不含 API 金鑰、使用者資料或代理人靈魂（與系統備份／個資匯出區隔）。",
+      "export_heading": "匯出目前設定",
+      "export_button": "匯出",
+      "export_success": "設定快照已開始下載",
+      "encrypt_label": "以密語加密（產生 AES-256 zip）",
+      "passphrase_placeholder": "加密密語（至少 12 字）",
+      "import_heading": "從快照匯入",
+      "choose_file": "選擇快照檔（.json）",
+      "invalid_file": "檔案不是有效的設定快照",
+      "reset": "重選",
+      "mode_merge": "合併",
+      "mode_replace": "覆蓋",
+      "replace_warning": "覆蓋模式會以快照內容整區取代——來源沒有的設定將被清除。請謹慎使用。",
+      "previewing": "驗證並預覽中…",
+      "apply_button": "套用設定",
+      "confirm_title": "確認套用設定快照",
+      "confirm_body": "此為破壞性操作。套用前會自動建立一份系統備份作為還原點。請重新輸入你的密碼以確認。",
+      "password_placeholder": "你的帳號密碼",
+      "confirm_apply": "確認套用",
+      "cancel": "取消",
+      "import_success": "設定快照已套用",
+      "backup_made": "✅ 已自動建立匯入前備份（如需還原可至備份清單）",
+      "applied_count": "涵蓋設定區：{{count}} 個",
+      "requires_restart": "⚠️ 下列設定區需重啟才完全生效：{{sections}}",
+      "skipped_secrets": "下列機密未匯入、需手動補填：{{items}}"
+    },
+    "vault_dashboard": {
+      "health": {
+        "probing": "探測中...",
+        "facts_ok": "事實庫: ✅",
+        "vector_ok": "向量庫: ✅",
+        "legacy_ok": "舊對話: ✅",
+        "personal_ok": "個人夾: ✅",
+        "offline": "儲存離線"
+      },
+      "title": "記憶寶庫",
+      "subtitle": "管理跨對話之持久化知識與長期記憶節點",
+      "search_placeholder": "檢索記憶內容...",
+      "cards": {
+        "storage_engine_status": "儲存引擎狀態",
+        "memory_node_count": "記憶節點數",
+        "security_annotation": "安全性標註"
+      },
+      "go_to_archive_management": "前往歸檔管理",
+      "tabs": {
+        "explore": "記憶探索",
+        "manage": "歸檔管理"
+      },
+      "memory_count": "{{count}} 則回憶",
+      "no_content": "無內容",
+      "empty_state": "目前記憶寶庫中尚無符合條件的持久化資料",
+      "list_failed": "讀不到記憶清單（{{error}}）。側欄有記憶提示就照提示做；沒有的話請重新整理頁面，仍然失敗請找團隊。"
+    },
+    "heartbeat_whitelist": {
+      "title": "心跳執行授權 (Heartbeat Whitelist)",
+      "select_label": "選擇靈魂或系統代理人授予權限",
+      "select_placeholder": "請選擇對象...",
+      "grant_button": "授予權限",
+      "current_list_heading": "目前的授權名單",
+      "revoke_title": "撤銷權限",
+      "empty_list": "尚無授權對象",
+      "security_notice": "安全提示：名列白名單的 Agent 獲准在背景執行自主行動 (ReAct)。只有靈魂、DebugAgent、DispatchAgent 能取得此權限。"
+    },
+    "pulse_dashboard": {
+      "title": "脈搏控制中心",
+      "subtitle": "管理自動化脈搏排程與代理人白名單"
+    }
+  },
+  "layout": {
+    "soul_studio": {
+      "not_configured": "未配置",
+      "no_core_soul_detected_short": "未偵測到系統核心靈魂...",
+      "add_core": "新增核心",
+      "empty_state_description": "未偵測到系統核心靈魂。請確認 `data/soul` 目錄下已有正式靈魂設定，或檢查您的身分權限。",
+      "resync": "重新同步",
+      "soul_subtitle": "系統核心靈魂之實體人格規範與同步狀態",
+      "section_touka_soul": "燈火靈魂 (Touka Soul)",
+      "persona_loading_placeholder": "核心靈魂 Persona 載入中...",
+      "section_configuration": "運行配置 (Configuration)",
+      "chosen_model": "你指定的模型",
+      "model_in_use": "目前在用的模型",
+      "model_in_use_differs": "模型自己換過，和你指定的不同",
+      "sync_explanation_title": "同步說明",
+      "sync_explanation_body": "核心靈魂的資料與 ToukaProxy 實體同步。修改需透過實體檔案或具備寫入權限之終端進行。",
+      "create_modal_title": "燈火核心工作室 (Soul Factory)",
+      "create_modal_description": "建立具備實體人格與自律能力的全新系統核心",
+      "close": "關閉",
+      "section_identity": "身份識別 (Identity)",
+      "unique_core_id_label": "核心唯一 ID (不可重名)",
+      "unique_core_id_placeholder": "例如: Touka_Assistant",
+      "display_name_label": "顯示名稱 (Display Name)",
+      "display_name_placeholder": "我的靈魂夥伴",
+      "section_inference_agent": "意識載體 (Inference Agent)",
+      "select_base_engine_label": "選擇基礎大腦 (Base Engine)",
+      "no_models_available": "無可用模型！請先在「模型工坊」配置連接器。",
+      "section_system_persona": "核心人格指令 (System Persona)",
+      "persona_editor_title": "Persona 指令集",
+      "section_abilities_tools": "能力授權 (Abilities & Tools)",
+      "cancel": "取消 (Cancel)",
+      "initialize_soul": "啟動靈魂核心 (Initialize Soul)",
+      "edit_soul": "編輯靈魂",
+      "delete_soul": "刪除靈魂",
+      "save_changes": "儲存變更",
+      "cancel_edit": "取消",
+      "edit_mode_badge": "編輯模式",
+      "stepup_password_placeholder": "管理員密碼",
+      "delete_confirm_title": "刪除靈魂「{{id}}」",
+      "delete_confirm_body": "此操作將清除該靈魂的人格、設定、大腦綁定與註冊（對話與記憶另由重置管理；還有記憶時要先到「代理人資料重置」重置）。清除後同名 ID 可重新建立。需輸入管理員密碼確認。",
+      "confirm_delete": "確認刪除",
+      "save_confirm_title": "儲存靈魂變更",
+      "save_confirm_body": "編輯靈魂資料需管理員密碼二次確認。",
+      "confirm_save": "確認儲存",
+      "delete_success": "已刪除靈魂「{{id}}」",
+      "delete_failed": "刪除失敗",
+      "save_success": "已儲存靈魂變更",
+      "save_confirmed": "密碼驗證通過，修改已儲存",
+      "saved_refresh_failed": "修改已儲存，但重新整理未完成",
+      "save_unknown": "尚無法確認是否已儲存。請先重新讀取並核對伺服器內容，避免重複送出；草稿仍保留。",
+      "processing": "正在處理，請稍候…",
+      "invalid_fields": "欄位驗證未通過，請檢查修改內容。",
+      "read_again": "重新讀取",
+      "read_matches": "伺服器內容與草稿一致。",
+      "read_differs": "與草稿不同的欄位：{{fields}}。",
+      "read_not_auth": "此次核對不代表密碼已通過驗證；草稿仍保留，請核對後再決定是否儲存。",
+      "compare_fields": {
+        "persona": "靈魂核心",
+        "baseModel": "基礎模型",
+        "temperature": "Temperature",
+        "topP": "Top P",
+        "topK": "Top K",
+        "enabledTools": "工具權限",
+        "safetySettings": "安全設定"
+      },
+      "read_failed": "重新讀取未完成，請稍後再試。"
+    },
+    "model_studio": {
+      "loading": "正在載入模型工坊...",
+      "create_new_model": "建立新模型",
+      "new_custom_model_name": "新建自定義模型",
+      "toast": {
+        "save_success": "設定已儲存至伺服器 (SSOT)"
+      },
+      "field": {
+        "model_name": "模型名稱 (Model Name)",
+        "description": "模型描述 (Description)",
+        "base_brain": "基礎引擎 (Base Brain)"
+      },
+      "system_prompt_title": "燈火靈魂 (Touka Soul)",
+      "section": {
+        "capabilities": "工具權限 (Capabilities)",
+        "safety_content": "安全與內容過濾 (Safety & Content)"
+      },
+      "shields_enabled": "盾模式 (Shields Enabled)",
+      "shields_gemini_note": "主要適用於 Google Gemini",
+      "safety": {
+        "harassment": {
+          "label": "騷擾訊息 (Harassment)",
+          "desc": "預防冒犯性、恐嚇或仇恨性的內容"
+        },
+        "hate_speech": {
+          "label": "仇恨言論 (Hate Speech)",
+          "desc": "攔截針對群體的貶低或歧視言論"
+        },
+        "sexually_explicit": {
+          "label": "色情內容 (Sexually Explicit)",
+          "desc": "過濾成人內容或露骨的性描述"
+        },
+        "dangerous_content": {
+          "label": "危險行為 (Dangerous Content)",
+          "desc": "封鎖煽動暴力或教授危險活動的指示"
+        },
+        "threshold": {
+          "none": "不封鎖",
+          "relaxed": "寬鬆",
+          "standard": "標準",
+          "strict": "嚴格"
+        }
+      }
+    },
+    "main_header": {
+      "toggle_sidebar": "切換側邊欄",
+      "views": {
+        "chat": "聊天大廳",
+        "soul": "靈魂核心",
+        "studio": "模型工坊",
+        "pulse": "系統脈搏",
+        "vault": "記憶寶庫",
+        "projects": "專案管理",
+        "settings": "設定"
+      },
+      "settings_button_title": "系統設定",
+      "right_sidebar_title": "查看分析與資產"
+    },
+    "left_sidebar": {
+      "nav_aria_label": "會話導覽",
+      "new_chat_button_tooltip": "開新對話（捷徑：⌘/Ctrl+Shift+O）",
+      "new_chat_button": "新增對話",
+      "incognito_chat_button_tooltip": "開一個不留痕跡的對話：不存檔、AI 不讀寫記憶",
+      "incognito_chat_button": "無痕對話",
+      "session_history_heading": "對話歷史"
+    },
+    "right_sidebar": {
+      "aria_system_panel": "系統面板",
+      "aria_close_panel": "關閉右側面板"
+    },
+    "plan_tracker": {
+      "task_plan_title": "📋 任務計畫: {{title}}",
+      "completed_count": "{{completed}}/{{total}} 已完成"
+    }
+  },
+  "modals": {
+    "evolution_modal": {
+      "title_create": "建立全新能力 (Phase 3)",
+      "title_evolve": "啟動技能進化 (Phase 2)",
+      "desc_writing_tool": "正在自主編寫工具：",
+      "desc_acquiring_capability": "正在獲取能力：",
+      "close": "關閉",
+      "intro_create": "Agent 識別出功能缺口，並已自主編寫了對應的工具源碼。核准後，系統將自動安裝依賴並掛載此工具。",
+      "intro_evolve": "Agent 發現目前的工具無法解決問題，並在市場中發現了此技能。核准後，系統將熱掛載 (Hot-swap) 此工具，無需重啟即可生效。",
+      "source_code_heading": "自主編寫的工具源碼",
+      "step1_config_credentials": "Step 1: 配置 API 憑證",
+      "step1_config_credentials_isolated": "Step 1: 配置 API 憑證 (安全隔離)",
+      "input_placeholder": "輸入 {{req}}...",
+      "step2_audit_deps": "Step 2: 依賴與指令審核",
+      "step2_audit_command": "Step 2: 實體指令審核",
+      "launch_command_label": "執行的啟動指令",
+      "dismiss": "下次再說",
+      "confirm_install": "確認授權並安裝",
+      "install_success": "安裝成功！能力已掛載並立即生效。"
+    },
+    "mcp_install_modal": {
+      "title": "安裝 MCP 伺服器",
+      "close": "關閉",
+      "mcp_hub_source": "（來源：MCP Hub）",
+      "security_warning": "安裝後將設定一個<1>會在伺服器上執行的外部指令程序</1>（command + args），agent 連線使用時即會啟動。請僅安裝你信任的來源。",
+      "security_warning_remote": "此為遠端伺服器：不會在本機執行任何程序，但 agent 連線時會<1>把你填入的憑證送到下列外部端點</1>。請確認你信任該端點的營運者。",
+      "configure_api_credentials": "配置 API 憑證 (安全隔離)",
+      "env_input_placeholder": "輸入 {{req}}...",
+      "command_review": "指令審核",
+      "endpoint_review": "端點審核",
+      "button_later": "下次再說",
+      "button_install": "我了解風險，安裝"
+    },
+    "import_agent_modal": {
+      "title": "無法自動辨識的對話",
+      "description": "以下對話的代理人（Agent）資訊無法從匯入的 JSON 中辨識，請選擇或手填要套用的模型 ID：",
+      "select_from_available_label": "從可用模型選擇",
+      "custom_agent_id_label": "或直接輸入 Agent ID（優先採用）",
+      "custom_agent_id_placeholder": "例如：ToukaGroup、gemini-2.5-flash",
+      "cancel_button": "取消匯入",
+      "confirm_button": "確認匯入"
+    },
+    "ask_user_modal": {
+      "title": "Touka 想請你決定",
+      "description": "AI 在不確定時詢問你的意見；作答後它會以你的選擇繼續。",
+      "other_aria_label": "其他（{{question}}）",
+      "other_placeholder": "其他（自由填寫）…",
+      "cancel": "取消",
+      "submit": "送出回答"
+    },
+    "skill_install_modal": {
+      "title": "從 URL 安裝技能",
+      "trusted_source_hint": "貼上受信任來源的 .skill 檔案 URL（僅允許 github.com / raw.githubusercontent.com / smithery.ai）。",
+      "url_label": ".skill 檔案 URL",
+      "cancel": "取消",
+      "installing": "安裝中...",
+      "install": "安裝"
+    },
+    "skill_preview_modal": {
+      "title": "技能詳情",
+      "installed_subtitle": "已安裝技能",
+      "catalog_subtitle": "技能目錄項目",
+      "category_label": "分類",
+      "author_label": "作者",
+      "source_label": "來源",
+      "license_label": "授權",
+      "required_tools_label": "需要的工具",
+      "mcp_servers_label": "MCP 伺服器",
+      "instructions_label": "指令內容（System Prompt）",
+      "loading_instructions": "載入指令中…",
+      "no_instructions": "此技能無指令內容。",
+      "catalog_body_hint": "安裝後即可檢視完整指令內容。",
+      "files_label": "包含檔案",
+      "none": "無",
+      "close": "關閉"
+    }
+  },
+  "projects": {
+    "projects_view": {
+      "delete_confirm_message": "確定要刪除此專案連結嗎？這不會刪除本機實體檔案。",
+      "delete_confirm_button": "確認刪除",
+      "no_model_alert": "請先在設定中開啟至少一個代理人（模型）。",
+      "save_failed": "儲存專案失敗，請確認權限與根目錄路徑後再試。",
+      "delete_failed": "刪除專案失敗，請稍後再試。",
+      "page_title": "專案管理",
+      "page_subtitle": "連結本機資料夾，賦予代理人空間意識與 CRUD 權限",
+      "add_project_button": "新增專案",
+      "create_form_title": "建立新專案連結",
+      "field_name_label": "專案名稱",
+      "field_name_placeholder": "例如：ToukaChat 重構",
+      "field_root_path_label": "本機根目錄路徑 (絕對路徑)",
+      "field_root_path_placeholder": "例如：D:/Touka/ToukaChat",
+      "field_description_label": "專案描述 (選填)",
+      "field_description_placeholder": "描述此專案的目標...",
+      "cancel_button": "取消",
+      "save_button": "儲存專案",
+      "loading": "讀取專案中...",
+      "empty_title": "尚無任何專案",
+      "empty_description": "建立你的第一個專案連結，讓 Touka 的代理人們能夠理解你的工作目錄結構並直接協助開發。",
+      "empty_start_button": "立即開始",
+      "delete_project_aria": "刪除專案 {{name}}",
+      "updated_at": "更新於: {{date}}",
+      "open_session_button": "開啟專案對話",
+      "about_title": "關於專案意識",
+      "about_description": "連結專案後，Touka 會在背後自動為代理人標註當前的工作目錄。這意味著代理人可以透過 Terminal 工具直接讀取或修改該目錄下的程式碼，無需你手動複製路徑。請確保提供的絕對路徑正確無誤。"
+    },
+    "project_sidebar_view": {
+      "no_project_linked": "目前的對話尚未關聯任何專案",
+      "go_to_project_management": "請前往「專案管理」開啟或新增專案對話",
+      "loading": "讀取中...",
+      "refresh_project_data": "重新整理專案資料",
+      "file_tree_heading": "專案檔案樹 (預覽 4 層)",
+      "empty_or_loading_directory": "空目錄或讀取中",
+      "participating_agents": "參與代理人",
+      "no_info": "無資訊",
+      "related_sessions": "相關對話",
+      "generating_in_background": "背景生成中",
+      "untitled_session": "未命名對話",
+      "no_other_sessions": "無其他對話",
+      "only_session_in_project": "這是此專案目前唯一的對話",
+      "recent_file_changes": "最近檔案異動"
+    },
+    "workspace_settings": {
+      "host_path_updated": "主機路徑設定已更新",
+      "section_title": "工作區設定 (Workspace Root)",
+      "host_absolute_path_label": "主機絕對路徑 (例如 D:/Projects)",
+      "host_path_placeholder": "請輸入主機路徑...",
+      "save_host_path_aria": "儲存主機路徑",
+      "docker_mount_note": "注意：此路徑對應 Docker 內的 <1>/app/workspace</1> 掛載點。若您更改了主機存放目錄，請確保 <3>docker-compose.yml</3> 亦同步更新。"
+    }
+  },
+  "artifacts": {
+    "mission_board": {
+      "loading": "正在讀取任務看板...",
+      "retry": "重試",
+      "empty_title": "尚無進行中的任務",
+      "empty_description": "當 Agent 開始執行複雜計畫時，相關進度會顯示在此處",
+      "dispatched_external_ai_tooltip": "此任務已分派給外部 AI（等待回呼）",
+      "external_ai": "外部 AI"
+    },
+    "artifact_view": {
+      "empty_no_artifact": "尚無可選的 Artifact",
+      "empty_hint": "AI 生成的程式碼或圖表會顯示在此處",
+      "render_fatal_error": "渲染器發生嚴重錯誤，請嘗試切換 Artifact 或檢查語法。",
+      "mermaid_awaiting_valid_syntax": "等待合法語法輸入..."
+    },
+    "react": {
+      "transpile_failed": "編譯失敗：{{error}}",
+      "no_component": "找不到要渲染的元件：請用 export default 匯出一個元件，或將元件命名為 App。",
+      "no_import_prefix": "此預覽為離線沙箱，不支援匯入外部模組：",
+      "runtime_unavailable": "React runtime 未載入，無法渲染。"
+    }
+  },
+  "ui": {
+    "mention_input": {
+      "context": {
+        "codebase_desc": "全專案 RAG 檢索",
+        "terminal_desc": "最近的終端機輸出",
+        "git_desc": "目前的 Git 變更狀態"
+      }
+    },
+    "tag_input": {
+      "remove_tag_aria": "移除標籤 {{tag}}"
+    }
+  },
+  "app": {
+    "connections_page": {
+      "title": "連線管理系統",
+      "add_ai_node": "新增 AI 節點",
+      "node_name_label": "節點名稱",
+      "node_name_placeholder": "例: Touka Main Proxy",
+      "provider_label": "供應商 (Provider)",
+      "provider_option_proxy": "🛡️ Touka Proxy (根目錄模式)",
+      "api_endpoint_url_label": "API 端點 URL",
+      "api_url_placeholder_proxy": "例: http://localhost:8000",
+      "api_url_placeholder_openai": "例: https://api.openai.com/v1",
+      "proxy_url_hint": "* 使用根目錄 URL，ToukaUI 將自動解鎖專業統計與靈魂同步功能。",
+      "api_key_label": "API Key (選填)",
+      "deploy_connection_button": "部署此連線",
+      "existing_nodes_heading": "現有的連線節點 ({{count}})",
+      "empty_state_title": "尚未配置任何連線",
+      "empty_state_hint": "請從上方區域新增您的第一個 AI 來源。"
+    },
+    "design_system_page": {
+      "subtitle": "基於 Shadcn UI 與 Tailwind CSS 的元件展示頁面 (已模組化)",
+      "back": "返回",
+      "toggle_theme_aria": "切換深淺主題"
+    },
+    "home_page": {
+      "nav_menu_title": "導覽選單",
+      "tool_panel_title": "工具面板"
+    }
+  },
+  "hooks": {
+    "use_session_groups": {
+      "unassigned_agent": "未指定代理人",
+      "project_group": "專案: {{name}}",
+      "unknown_project": "未知專案",
+      "other_conversations": "其他對話",
+      "group_chat": "群聊"
+    },
+    "use_session_actions": {
+      "home_session_cannot_delete": "「家對話」不能被刪除。",
+      "session_too_small_to_split": "對話小於 30 則，不需要切分。",
+      "split_success": "成功切分！已匯出 {{legacyUserCount}} 則對話圈數",
+      "incognito_split_export_only": "無痕對話保留完整內容；請使用匯出功能下載副本。",
+      "split_exported_save_unconfirmed": "已匯出，但對話縮減尚未確認。原草稿仍保留，請核對保存結果。"
+    },
+    "use_chat_stream": {
+      "select_agent_first": "請先選擇一個代理人（模型）後再開始對話。",
+      "new_conversation_title": "新對話",
+      "background_limit_reached": "背景生成已達上限（同時最多 5 個對話），請先停止其中一個或稍候再試。"
+    },
+    "use_agent_brain_notice": {
+      "message": "這個代理人還沒設定主要模型，請選一個。",
+      "action": "去設定"
+    },
+    "use_user_settings": {
+      "user_created_success": "使用者已成功建立！",
+      "user_updated_success": "資料已更新！",
+      "clear_data_success": "個人資料已清空（清除了 {{count}} 個專案設定）",
+      "export_data_success": "資料已加密並開始下載",
+      "user_deleted_success": "使用者已刪除"
+    },
+    "use_security_settings": {
+      "permissions_saved_success": "權限設定已成功儲存！",
+      "identity_saved_success": "身分映射設定已儲存！",
+      "autonomy_updated_success": "自主預算已更新！"
+    },
+    "use_heartbeat_schedules": {
+      "schedule_updated": "排程已更新",
+      "schedule_created": "排程已建立",
+      "schedule_deleted": "排程已刪除"
+    },
+    "use_confirm_toast": {
+      "confirm_label": "確認",
+      "cancel_label": "取消"
+    },
+    "use_sns_bot_settings": {
+      "errors": {
+        "bot_params_required": "❌ 錯誤：請確認所有機器人都已填寫「Agent ID」與「Bot Token」。若不需使用，請點擊右上角「X」移除設定。"
+      },
+      "bots_saved": "SNS 機器人設定已儲存並重新載入！"
+    },
+    "use_skill_settings": {
+      "install_success": "安裝成功！您現在可以在 Agent 設定中使用此技能。"
+    },
+    "use_mcp_settings": {
+      "restart_success": "已重啟 MCP 伺服器「{{key}}」",
+      "restart_failed": "重啟「{{key}}」失敗",
+      "restart_busy": "「{{key}}」正在重新連線，請稍後再試。",
+      "restart_waiting": "「{{key}}」仍在等待隔離環境，請查看伺服器的隔離狀態與恢復方式。",
+      "isolation_cleared": "這些伺服器的程式改了，原本給的額外允許的資料夾已清掉，需要的話請重新設定：{{names}}"
+    },
+    "use_session_events": {
+      "imported_conversation_title": "匯入的對話"
+    },
+    "use_legacy_sync": {
+      "sync_success": "{{agentId}} 同步成功！"
+    },
+    "use_progress": {
+      "react_slots": "自主回合 {{current}}/{{total}}",
+      "repair": "自我修復 {{attempt}}/{{max}}",
+      "group": "群聊 {{index}}/{{total}}",
+      "creation_label": "創建：",
+      "tool_fallback": "工具",
+      "tool_retry": "重試 {{attempt}}/{{max}}",
+      "token_usage": "本回合 {{total}} tok · ${{cost}}"
+    }
+  },
+  "theme": {
+    "names": {
+      "touka": "Touka 經典",
+      "rose": "幻夢夜櫻",
+      "amber": "琥珀宮殿",
+      "emerald": "翠玉矩陣",
+      "violet": "深空星雲",
+      "slate": "極簡鋼鐵"
+    }
+  },
+  "error": {
+    "system": {
+      "internal": "系統內部錯誤",
+      "backup_failed": "系統備份失敗",
+      "backup_not_found": "找不到備份檔案",
+      "sync_failed": "資料同步失敗",
+      "import_failed": "匯入設定或資料失敗",
+      "export_failed": "匯出設定或資料失敗",
+      "unknown": "發生未知錯誤",
+      "restore_in_progress": "系統正在還原，請等還原結束再試"
+    },
+    "auth": {
+      "invalid_token": "驗證權杖無效或已過期",
+      "invalid_credentials": "帳號或密碼錯誤",
+      "refresh_token_reuse": "偵測到 Refresh Token 重複使用——已撤銷此工作階段",
+      "auto_review_denied": "Auto 審查員拒絕了這個動作",
+      "auto_review_headless_terminal": "無人在場時，Auto 模式不跑終端指令",
+      "auto_review_unavailable": "這個動作需要人決定，但目前沒有人在場",
+      "permission_denied": "沒有存取此資源的權限",
+      "unauthorized_access": "未經授權存取其他代理人的資源",
+      "admin_required": "需要管理員權限",
+      "owner_required": "需要擁有者權限",
+      "agent_id_mismatch": "標頭 Agent-ID 與權杖內容不符",
+      "profile_fetch_failed": "載入使用者個人檔案失敗",
+      "rate_limited": "驗證嘗試次數過多，請稍後再試。",
+      "logout_failed": "登出失敗",
+      "reauth_failed": "密碼二次驗證失敗，此操作需要重新輸入密碼",
+      "session_expired": "登入已逾期或密碼已變更，請重新登入"
+    },
+    "mcp_oauth": {
+      "disabled": "MCP 互動式 OAuth 已停用",
+      "interactive_required": "此操作需要由人類互動授權",
+      "callback_method": "OAuth callback method 與授權綁定不符",
+      "callback_content_type": "不支援此 OAuth callback 內容類型",
+      "callback_too_large": "OAuth callback 超過設定上限",
+      "callback_invalid": "OAuth callback 無效",
+      "state_invalid": "OAuth 授權 state 無效或已逾期",
+      "issuer_mismatch": "OAuth 授權伺服器綁定不符",
+      "stale_authorization": "OAuth 授權在提交前已失效",
+      "upstream": "OAuth 授權伺服器請求失敗",
+      "restore_conflict": "還原內容與現有 MCP OAuth 憑證衝突",
+      "key_rotation_unavailable": "目前無法執行受管 MCP OAuth 金鑰輪替",
+      "key_rotation_conflict": "MCP OAuth 金鑰輪替無法安全推進",
+      "callback_ambiguous": "OAuth callback 含有互相衝突的結果",
+      "callback_route": "OAuth callback 路徑與授權綁定不符",
+      "clock_rollback": "MCP OAuth 已因耐久時鐘回退防線而凍結"
+    },
+    "mcp": {
+      "stdio_principal_unsupported": "stdio 伺服器不支援個別使用者認證；請移除 auth_mode 或改用遠端 MCP。"
+    },
+    "soul": {
+      "already_exists": "靈魂已存在",
+      "vault_error": "無法存取靈魂寶庫",
+      "write_failed": "靈魂檔案寫入失敗",
+      "memory_not_reset": "這個靈魂還有記憶，請先到設定的「代理人資料重置」重置它，再刪除。這次什麼都沒刪。",
+      "memory_check_failed": "無法確認這個靈魂的記憶已清空（記憶系統暫時不可用），所以沒有刪除。請稍後再試。"
+    },
+    "config": {
+      "load_failed": "載入設定失敗",
+      "save_failed": "儲存設定失敗"
+    },
+    "resource": {
+      "not_found": "找不到請求的資源"
+    },
+    "model": {
+      "not_found": "找不到指定的模型",
+      "id_required": "需要提供模型 ID",
+      "already_exists": "模型 ID 已存在",
+      "delete_failed": "刪除模型失敗",
+      "metadata_error": "處理模型中繼資料時發生錯誤",
+      "conflict": "模型 ID 已存在",
+      "agent_brain_not_set": "這個代理人還沒設定主要模型，請到「靈魂核心」選一個。",
+      "name_ambiguous": "有幾個模型的名字只差大小寫，無法判斷要用哪一個"
+    },
+    "session": {
+      "not_found": "找不到工作階段",
+      "stream_not_found": "此工作階段沒有可續傳的串流（可能已過期）",
+      "id_mismatch": "工作階段 ID 不符",
+      "save_failed": "儲存工作階段失敗",
+      "scope_mismatch": "此對話無法用於指定的對象",
+      "interjection_queue_full": "這一則回覆的補充太多了",
+      "interjection_too_long": "補充的文字太長",
+      "interjection_not_found": "找不到這則補充",
+      "interjection_not_retractable": "這則補充已交給 AI，無法收回"
+    },
+    "routing": {
+      "agent_required": "無法識別目標代理人，且不允許匿名呼叫。請指定目標代理人。"
+    },
+    "terminal": {
+      "approval_not_found": "找不到待核准的終端機操作"
+    },
+    "file": {
+      "access_denied": "檔案存取遭拒",
+      "not_found": "找不到檔案"
+    },
+    "persistence": {
+      "error": "資料持久化過程發生錯誤"
+    },
+    "schedule": {
+      "not_found": "找不到排程",
+      "load_failed": "載入排程失敗"
+    },
+    "heartbeat": {
+      "invalid_token": "無效的心跳服務金鑰",
+      "orphan_agent": "代理人處於孤兒狀態或擁有者的 Refresh Token 已過期",
+      "unauthorized_agent": "代理人未獲得心跳喚醒授權"
+    },
+    "identity": {
+      "not_found": "找不到目標身分"
+    },
+    "vault": {
+      "access_denied": "沙箱違規：寶庫存取遭拒"
+    },
+    "validation": {
+      "failed": "輸入驗證失敗"
+    },
+    "db": {
+      "save_failed": "儲存失敗",
+      "delete_failed": "刪除失敗"
+    },
+    "network": {
+      "connection_error": "連線錯誤",
+      "timeout": "網路連線異常，請檢查連線狀態"
+    },
+    "user": {
+      "list_fetch_failed": "無法載入使用者清單"
+    },
+    "request": {
+      "too_large": "請求內容超過允許的大小上限"
+    },
+    "avatar": {
+      "invalid_format": "不支援的圖片格式（請用 JPEG、PNG 或 WebP）",
+      "too_large": "頭像圖片超過允許的大小上限",
+      "write_failed": "頭像圖片儲存失敗"
+    },
+    "memory_scrub": {
+      "not_acknowledged": "清除備份裡的記憶需要第二段確認",
+      "collection_shared": "這個靈魂和其他 ID 共用語意索引，可以做一般重置，但無法清除備份",
+      "unavailable": "記憶系統目前無法清除備份；什麼都沒刪",
+      "in_progress": "正在清除備份裡的記憶，請等清除結束再試"
+    },
+    "agent_reset": {
+      "in_progress": "另一個重置正在進行，請等它結束再試"
+    },
+    "agent_id": {
+      "collection_collision": "這個 ID 會和既有的 ID 共用語意索引，請換一個 ID",
+      "check_failed": "無法確認這個 ID 不會和既有的記憶共用，什麼都沒建立",
+      "collection_collision_with": "這個 ID 會和「{{id}}」共用語意索引，請換一個 ID"
+    }
+  }
+}
