@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
+import i18n from '@/lib/i18n';
+import { ERRORS } from '@/lib/error_codes';
 
 const mockChangePassword = vi.fn();
 vi.mock('@/lib/api/authService', () => ({
@@ -54,12 +56,28 @@ describe('ChangePassword（自助修改密碼）', () => {
         expect(toast.success).toHaveBeenCalled();
     });
 
-    it('目前密碼錯誤（401）→ 顯示「目前密碼不正確」、不登出', async () => {
-        mockChangePassword.mockResolvedValue({ ok: false, status: 401 });
+    it('目前密碼錯誤（403 AUTH_REAUTH_FAILED）→ 顯示「目前密碼不正確」、不登出', async () => {
+        const { id } = ERRORS.AUTH_REAUTH_FAILED;
+        mockChangePassword.mockResolvedValue(
+            Response.json({ detail: { code: 'AUTH_REAUTH_FAILED', id } }, { status: 403 }),
+        );
         render(<ChangePassword />);
         fill('wrong', 'NewPass1!', 'NewPass1!');
         submit();
         expect(await screen.findByText('目前密碼不正確。')).toBeDefined();
         expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it('其他 403（例如權限）不說成密碼錯誤', async () => {
+        const { id } = ERRORS.AUTH_PERMISSION_DENIED;
+        mockChangePassword.mockResolvedValue(
+            Response.json({ detail: { code: 'AUTH_PERMISSION_DENIED', id } }, { status: 403 }),
+        );
+        render(<ChangePassword />);
+        fill('oldpass', 'NewPass1!', 'NewPass1!');
+        submit();
+        await waitFor(() => expect(mockChangePassword).toHaveBeenCalled());
+        expect(await screen.findByText(i18n.t('settings.change_password.errors.generic'))).toBeDefined();
+        expect(screen.queryByText('目前密碼不正確。')).toBeNull();
     });
 });

@@ -268,7 +268,7 @@ async def run_restore(
     if current_user.role != "admin":
         raise ToukaException(ErrorCode.AUTH_ADMIN_REQUIRED)
     if not auth_service.verify_password(request.current_password, current_user.hashed_password):
-        raise ToukaException(ErrorCode.AUTH_INVALID_CREDENTIALS)
+        raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
     if memory_scrub_in_progress():  # 清除進行中還原，會把清掉的記憶寫回並中途殺掉清除
         raise ToukaException(ErrorCode.MEMORY_SCRUB_IN_PROGRESS)
     if reset_in_progress():  # 重置進行中還原，會被重置中途改掉一半（反過來也一樣擋）
@@ -460,7 +460,7 @@ async def import_settings(
 
     # 套用：密碼重輸（DA25）→ 序列化（防併發競態）→ 還原點備份 → 套用。
     if not auth_service.verify_password(request.current_password, current_user.hashed_password):
-        raise ToukaException(ErrorCode.AUTH_INVALID_CREDENTIALS)
+        raise ToukaException(ErrorCode.AUTH_REAUTH_FAILED)
     async with _settings_import_lock:
         pre_import_backup = await run_backup_job(create_backup)  # 與排程備份共用執行鎖
         # 先記錄還原點——即使後續套用中途失敗，admin 仍可由 log 找到備份手動還原。

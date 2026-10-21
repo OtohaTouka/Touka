@@ -399,8 +399,8 @@ def test_export_my_data_wrong_password():
     resp = c.post("/auth/export-my-data",
                   json={"current_password": "WRONG", "passphrase": _PHRASE})
     _clear()
-    assert resp.status_code == 401, f"got {resp.status_code}"
-    assert resp.json()["detail"]["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert resp.status_code == 403, f"got {resp.status_code}"  # 401 會被前端續期重送
+    assert resp.json()["detail"]["code"] == "AUTH_REAUTH_FAILED"
 
 
 def test_export_my_data_short_passphrase_422():

@@ -6,6 +6,7 @@
 - 政策層級 none 且人核准過：在「種類不低於卡片（executor > landlock > direct）、features 包含
   卡片的」runner 裡取當下最強的；都不符合就拒絕；
 - 政策層級 none 沒有同意：一律拒絕。
+``acquire_maintenance`` 只給 Touka 固定的維護指令（``home_wipe``）：不看 grant，只用執行器、不降級。
 profile 在選好位置之後才建（``ProfileSource``）：執行器位置的 HOME／TMP 在 READY 的 state_root。
 """
 
@@ -587,6 +588,19 @@ class RunnerBroker:
         if floor == KIND_RANK["direct"]:
             return Acquired(DirectRunner(), profile)
         raise IsolationUnavailableError(ISOLATION_UNAVAILABLE)
+
+    async def acquire_maintenance(self, source: ProfileSource) -> Acquired:
+        """系統維護（刪除靈魂前清它在執行器裡的 home／tmp，``home_wipe``）：不看 grant、不降級.
+
+        固定指令、不是代理人的程式，所以不需要同意；只用可用的執行器（可能只差網路設定），
+        不能用就拒絕、不退回 Landlock 或直接執行。
+        """
+        eligible = source.executor_issue is None
+        plan = self._monitor.fallback_for(profile_complete=True, executor_eligible=eligible)
+        ready = self._monitor.snapshot().executor
+        if plan.kind != "executor" or ready is None:
+            raise IsolationUnavailableError(source.executor_issue or ISOLATION_UNAVAILABLE)
+        return await self._executor(ready, plan.features, source)
 
     async def acquire_local(self, grant: ExecutionGrant, source: ProfileSource) -> Acquired:
         """``scaffold_mcp`` 的試跑：只用本機 Landlock（政策是本機層級），不退回執行器.

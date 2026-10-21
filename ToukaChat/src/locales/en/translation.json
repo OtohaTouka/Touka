@@ -578,7 +578,7 @@
       "wipe_label": "Will wipe",
       "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots",
       "keep_label": "Will keep",
-      "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, memory-store upgrade backups (all souls)",
+      "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, memory-store upgrade backups (all souls), the home folder of terminal commands (cleared only when the soul is deleted)",
       "type_to_confirm": "Type the agent ID \"{{id}}\" to confirm:",
       "password_placeholder": "Your account password",
       "cancel": "Cancel",
@@ -603,7 +603,7 @@
         "acknowledge": "I understand, clear the memory from backups",
         "acknowledged": "Confirmed: memory will also be cleared from backups",
         "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots; plus this soul's memory in upgrade backups and system snapshots",
-        "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, conversations and other data in snapshots, other souls' memory, long-term memory (old conversations trimmed into the archive)",
+        "keep_list": "Identity (soul / system prompt), archive, audit ledgers, uploaded files, conversations and other data in snapshots, other souls' memory, long-term memory (old conversations trimmed into the archive), the home folder of terminal commands (cleared only when the soul is deleted)",
         "not_run": "The server did not clear the backups: the memory in them is unchanged.",
         "toast_incomplete": "\"{{id}}\" was reset, but its memory was not cleared from every backup — see results",
         "result_clean_live": "✅ Live data fully reset",
@@ -2180,7 +2180,8 @@
       "vault_error": "Failed to access the soul vault",
       "write_failed": "Failed to persist soul files",
       "memory_not_reset": "This soul still has memory. Reset it under Settings › \"Agent Data Reset\" first, then delete it. Nothing was deleted.",
-      "memory_check_failed": "Could not confirm this soul's memory is empty (the memory system is unavailable), so it was not deleted. Try again later."
+      "memory_check_failed": "Could not confirm this soul's memory is empty (the memory system is unavailable), so it was not deleted. Try again later.",
+      "sandbox_home_not_cleared": "Could not clear this soul's home folders in the sandbox (the executor is not serving, or the cleanup failed), so it was not deleted. Try again once the executor is back."
     },
     "config": {
       "load_failed": "Failed to load configuration",

@@ -150,6 +150,23 @@ describe('fetchTouka 帶卡 401 一次性續期重送（修復 2）', () => {
     expect(onExpired).not.toHaveBeenCalled();
   });
 
+  it('密碼重輸打錯（403 AUTH_REAUTH_FAILED）不續期、不重送：同一次點擊只驗一次密碼', async () => {
+    setAccessToken(makeJwt(nowSec() + 3600));
+    fetchMock.mockResolvedValue(
+      Response.json({ detail: { code: 'AUTH_REAUTH_FAILED' } }, { status: 403 }),
+    );
+
+    const resp = await fetchTouka('http://x', '/v1/admin/agents/Jin/reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true, confirm_agent_id: 'Jin', current_password: 'WRONG' }),
+    });
+
+    expect(resp.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onExpired).not.toHaveBeenCalled();
+    expect(getAccessToken()).not.toBeNull();
+  });
+
   it('未帶模組卡（未登入）的 401 不觸發續期', async () => {
     fetchMock.mockResolvedValue(status(401));
 

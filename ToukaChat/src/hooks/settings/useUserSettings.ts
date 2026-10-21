@@ -187,7 +187,7 @@ export function useUserSettings() {
                 return true;
             }
             const errData = await res.json().catch(() => ({}));
-            toast.error(errData.detail?.message || await getErrorMessage(errData, "SYSTEM_ERROR"));
+            toast.error(await getErrorMessage(errData, "SYSTEM_ERROR"));  // 已知錯誤碼照 i18n 顯示
             return false;
         } catch (err) {
             logSSOTError(err, "useUserSettings:clearMyData");
@@ -223,7 +223,7 @@ export function useUserSettings() {
                 return true;
             }
             const errData = await res.json().catch(() => ({}));
-            toast.error(errData.detail?.message || await getErrorMessage(errData, "SYSTEM_ERROR"));
+            toast.error(await getErrorMessage(errData, "SYSTEM_ERROR"));  // 已知錯誤碼照 i18n 顯示
             return false;
         } catch (err) {
             logSSOTError(err, "useUserSettings:exportMyData");

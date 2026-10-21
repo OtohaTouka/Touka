@@ -61,6 +61,7 @@ vi.mock('@/hooks/useConfirmToast', () => ({
 
 import { EnvSettings } from '../EnvSettings';
 import { fetchTouka } from '@/lib/connections';
+import { ERRORS } from '@/lib/error_codes';
 import { toast } from 'sonner';
 
 const t = (k: string, opts?: Record<string, unknown>) => i18n.t(k, opts);
@@ -89,6 +90,29 @@ describe('EnvSettings P1-D 回饋', () => {
     const confirmBtn = await screen.findByText(t('dashboard.env_settings.confirm_restore_action'));
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
+  });
+
+  it('還原時密碼打錯（403 AUTH_REAUTH_FAILED）：顯示密碼二次驗證失敗，只送一次', async () => {
+    const mocked = vi.mocked(fetchTouka);
+    const base = mocked.getMockImplementation()!;
+    mocked.mockImplementation((url, path, opts) => path === '/v1/system/restore/run'
+      ? Promise.resolve(Response.json(
+        { detail: { code: 'AUTH_REAUTH_FAILED', id: ERRORS.AUTH_REAUTH_FAILED.id } }, { status: 403 },
+      ))
+      : base(url, path, opts));
+    try {
+      render(<EnvSettings />);
+      fireEvent.click(await screen.findByText(t('dashboard.env_settings.restore_this_version')));
+      fireEvent.change(
+        screen.getByPlaceholderText(t('dashboard.env_settings.confirm_restore_password_placeholder')),
+        { target: { value: 'WRONG' } },
+      );
+      fireEvent.click(await screen.findByText(t('dashboard.env_settings.confirm_restore_action')));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(t('error.auth.reauth_failed')));
+      expect(mocked.mock.calls.filter(([, p]) => p === '/v1/system/restore/run')).toHaveLength(1);
+    } finally {
+      mocked.mockImplementation(base);
+    }
   });
 
   it('I3: 還原確認框以 <Trans> 帶入檔名（不再硬寫拼接）', async () => {

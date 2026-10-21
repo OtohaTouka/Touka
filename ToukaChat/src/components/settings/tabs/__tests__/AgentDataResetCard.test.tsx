@@ -57,8 +57,8 @@ describe('AgentDataResetCard（ADR-0113）', () => {
     });
 
     it('其他重置錯誤仍顯示錯誤碼對應的訊息', async () => {
-        const { id } = ERRORS.AUTH_INVALID_CREDENTIALS;
-        resetFailure = Response.json({ detail: { code: 'AUTH_INVALID_CREDENTIALS', id } }, { status: 401 });
+        const { id } = ERRORS.AUTH_REAUTH_FAILED;
+        resetFailure = Response.json({ detail: { code: 'AUTH_REAUTH_FAILED', id } }, { status: 403 });
         await submitReset();
         await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
         expect(toast.error).not.toHaveBeenCalledWith(i18n.t('settings.agent_reset.backup_failed'));

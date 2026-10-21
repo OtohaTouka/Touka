@@ -46,7 +46,7 @@ from src.sandbox_kernel import launcher, owner_repair, relay
 from src.sandbox_kernel.spec import NET_SYSCTL_CODES, SelfTestResult
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.execution_broker import run_sync, spawn_exec
-from src.services.isolation import agent_command, evolution_command
+from src.services.isolation import agent_command, evolution_command, home_wipe
 from src.services.isolation import executor_server as exs
 from src.services.isolation import executor_session as exe
 from src.services.isolation.agent_command import CommandScope
@@ -2624,7 +2624,7 @@ async def _executor_wiring(monkeypatch, executor, tmp_path: Path) -> SimpleNames
 
     monkeypatch.setattr(monitor, "executor_scope_issue", _scope)
     broker = RunnerBroker(monitor=monitor, layout_provider=lambda: layout)
-    for module in (agent_command, evolution_command):
+    for module in (agent_command, evolution_command, home_wipe):
         monkeypatch.setattr(module, "isolation_monitor", monitor)
         monkeypatch.setattr(module, "runner_broker", broker)
         monkeypatch.setattr(module, "current_layout", lambda: layout)
@@ -2673,6 +2673,28 @@ async def test_executor_timeout_kills_the_remote_command(tmp_path, monkeypatch, 
     assert exit_code == -1 and "timed out after 3 seconds" in output
     child = int((wiring.drive / "child.pid").read_text(encoding="utf-8"))
     assert await _gone(child, 10)
+
+
+async def test_soul_delete_wipe_empties_its_executor_home(tmp_path, monkeypatch, executor):
+    """刪除靈魂前的清除（home_wipe）經真的執行器清空自己的 home／tmp：權限被拿掉的資料夾也清，
+    連結本身刪掉、不跟過去，別的代理人與外面的檔案不動."""
+    wiring = await _executor_wiring(monkeypatch, executor, tmp_path)
+    seed = (
+        'echo t > "$HOME/.token"; mkdir -p "$HOME/locked/x"; echo y > "$HOME/locked/x/f"; '
+        f'chmod 000 "$HOME/locked"; ln -s {wiring.dirs.outside} "$HOME/out"; echo z > "$TMPDIR/t"'
+    )
+    exit_code, output, _ms = await terminal._execute_core(
+        seed, "wsl", wiring.drive, None, timeout=60, scope=CommandScope(ALICE, wiring.grant)
+    )
+    assert exit_code == 0, output
+    home = wiring.dirs.state / "agents" / "Alice" / "home"
+    assert (home / ".token").exists()
+
+    await home_wipe.wipe_agent_homes(ALICE)
+
+    assert list(home.iterdir()) == [] and list((home.parent / "tmp").iterdir()) == []
+    assert (wiring.dirs.outside / "keep.txt").read_text(encoding="utf-8") == "keep\n"
+    assert (wiring.dirs.pd / "Bob" / "secret.txt").read_text(encoding="utf-8") == "bob\n"
 
 
 async def test_verification_command_runs_inside_the_executor(tmp_path, monkeypatch, executor):

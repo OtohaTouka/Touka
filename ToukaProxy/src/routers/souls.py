@@ -25,6 +25,7 @@ from src.services.agent_reset.delete_guard import (
 from src.services.auth_service import AuthService
 from src.services.dispatchers.route_family import is_selectable_brain
 from src.services.identity_router import get_verified_identity
+from src.services.isolation.home_wipe import HomeWipeError, wipe_agent_homes
 from src.services.models import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
@@ -378,6 +379,13 @@ async def delete_soul(
     # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
     assert_memory_cleared(AgentIdentity(agent_id=soul_id))
     await assert_timeline_cleared(AgentIdentity(agent_id=soul_id))  # 活動紀錄也屬記憶
+    # 隔離暫存區的 HOME／TMP 也要清（同名新靈魂不沿用舊檔案）；清不掉就 503、什麼都不刪。
+    # Owner 身分：soul/ 已不在的孤兒也要解析到 personal_drive（不是 custom 的 drive）。
+    try:
+        await wipe_agent_homes(AgentIdentity(agent_id=soul_id, agent_role="Owner"))
+    except HomeWipeError as exc:
+        logger.warning("Soul %s not deleted: sandbox home not cleared (%s)", soul_id, exc.reason)
+        raise ToukaException(ErrorCode.SOUL_SANDBOX_HOME_NOT_CLEARED) from exc
 
     storage = soul_io.purge_soul_storage(soul_id)
     # SSOT 註冊面（皆冪等；缺項即 no-op）——各自吞錯，任一面失敗不阻其餘。

@@ -119,6 +119,7 @@ landlock 層最低 ABI 4（要擋 TCP），executor 層最低 ABI 3（ABI 3 時�
 - EXIT 之前連線斷掉就是 STOP（relay 被殺或收到 SIGTERM 都不另送）：殺掉整個行程群組並有界回收；STOP 與 `max_seconds` 到期也殺，但照樣回 EXIT。
 - 共用網路規則集：以 spec 的 `block_ports` 為鍵，最多快取 2 份（B 只增不減，不設上限會一直累積）；借出時在快取鎖裡先 `dup`、spawn 完關掉，淘汰不會關到正在用的 fd。
 - subreaper：只對特定 pid 呼叫 `waitpid`（不搶 asyncio 的子行程）；每條連線結束與每 30 秒掃 `/proc`，`pidfd_open` 釘住後看 `environ` 的 `TOUKA_EXEC_ID` 與 stat 的 sid，屬於仍在執行的指令就保留，其他殺掉並回收（最多 8 輪，和 spawn 同一把鎖）。
+- 刪除靈魂時清家目錄（2026-10-21 補記，見已知限制 26）：`RunnerBroker.acquire_maintenance` 只給 `home_wipe` 的固定清除指令用（argv、env 由 Touka 固定，不是代理人撰寫或指定的程式），所以不需要同意；只用可用的執行器（只差網路設定也行，固定指令不連網），不退回 Landlock 或直接執行，不能用就擋下刪除。呼叫者由 `test_soul_delete_sandbox_home_security.py` 的 AST 測試限定。
 
 ### 協定與控制通道認證
 
@@ -304,7 +305,7 @@ scaffold 在隔離試跑時將 APPDATA 參數對映到 personal_drive 根，與�
 23. 執行器部署下綁專案的卡片：原因一律是 `project_not_in_executor`（`level_for` 在範圍不合時不掃專案）；卡片的降級去處另外依專案能不能授權算（`card_isolation` 的 `authorize_derived_path`），專案往下有 `soul` 等資料根名稱、在 Touka 目錄的受保護位置、或大專案掃描逾時（`scan_limit`）時去處是「未隔離」，但原因那行不會寫是哪一種。只影響說明文字，核准與執行都照卡片的去處。
 24. 【從程式讀出，沒實測】執行器重啟那一刻，讀寫掛載根（`personal_drive`／`mcp_servers`）剛好讀不到（例如代理人改成 000）：`config_problem` 列不出內容就當成 Touka 資料夾，判 `touka_root`；啟動時不先修讀寫掛載根（見「執行器修自己的私有資料夾」最後一點），而且啟動失敗後不會自己重試，要再重啟一次執行器。proxy 的定期自癒約 60 秒內會把那個根的擁有者位元補回，所以等一分鐘再 `restart touka-executor` 就好；執行中被改成 000 時伺服器照常服務，START 前的路徑鏈修復、伺服器約每 60 秒的掛載根修復與 proxy 都會補回。
 25. 網路分開（決定 3 的結果，第 4 輪審查者② M2）：執行器只接 `touka-exec-net`、proxy 只接 `touka-net`，兩個網路不相通。合併前終端指令和 MCP 伺服器都在 proxy 容器、共用同一個 `localhost`；現在代理人在執行器裡起的服務（例如開發伺服器），proxy 端的工具與 MCP（例如 Hub 的 Fetch、瀏覽器類 MCP）連 `localhost:埠` 會被拒，反過來也一樣，模型可能以為服務沒起來而重試。另外，指令一結束，它留下的行程（含 `nohup`、`&`）就被 subreaper 收掉（U2j 端到端「孤兒被收」），所以這類服務只活在啟動它的指令裡（終端背景模式最多 600 秒）；合併前在 proxy 容器裡會一直跑到重啟【推測：從程式讀出】。現在可行的只有在執行器裡的指令之間測（同一條指令起服務再 curl，或背景模式起服務、另一條指令 curl）【推測：從程式讀出，沒實測】；讓 proxy 端看到代理人的服務目前不支援，C2-3 之後再評估。不接通兩個網路：接通後執行器連得到 Touka 內部服務。
-26. 【推測：從程式讀出】執行器裡的家目錄依 agent ID 放在 `touka-executor-state`（proxy 本機那一層在 `touka-sandbox-state`），不在 data、不進備份、`up --build` 也不清：刪除靈魂、重置或清除記憶的流程都不碰這兩個 volume，同 ID 的新靈魂會沿用舊的家目錄（例如命令列工具存在 `~` 的權杖）。要清就照 README_QUICKSTART 第 2 節清快取；自動清理留後續。
+26. 【推測：從程式讀出】執行器裡的家目錄依 agent ID 放在 `touka-executor-state`（proxy 本機那一層在 `touka-sandbox-state`），不在 data、不進備份、`up --build` 也不清：刪除靈魂、重置或清除記憶的流程都不碰這兩個 volume，同 ID 的新靈魂會沿用舊的家目錄（例如命令列工具存在 `~` 的權杖）。要清就照 README_QUICKSTART 第 2 節清快取；自動清理留後續。**補記（2026-10-21）**：刪除靈魂時已會清（`services/isolation/home_wipe.py`，決定見「執行器」一節最後一點）：記憶檢查後、刪任何東西前，proxy 那一層直接刪（唯讀的也刪、連結不跟）；執行器那一層走既有 START 跑固定清除指令；預期是執行器卻不在 READY 或沒清乾淨就 503 `SOUL_SANDBOX_HOME_NOT_CLEARED`、什麼都不刪（fail-closed）。選刪除時、不選建立前：權杖不比靈魂活得久；刪除只有一個入口，已有 admin 密碼步升；建立前清的話 ID 沒人重用時檔案一直留著，建立也要依賴執行器。仍留著的：重置與清除記憶不清（重置報告的保留清單照實列出）；補記之前刪掉的 ID 要手動整個刪（先確認沒有現存的靈魂或自訂模型用同一個 ID）：`docker run --rm -v touka_touka-executor-state:/s alpine:3.20 rm -rf /s/agents/<id>`，proxy 那一層換成 `touka_touka-sandbox-state` 與 `/s/proxy/agents/<id>`（volume 名稱先用 `docker volume ls` 確認，見 README_QUICKSTART）；刪除當下還在跑的指令可能寫回，proxy 那一層補權限時也有檢查與動作之間的時間差；從沒在執行器跑過指令的靈魂會在執行器留下空的 `agents/<id>`；名稱不是安全路徑段的 ID 本來就沒有家目錄，直接略過；自訂模型（只用 proxy 那一層）刪除與改名時不清，而且和同 ID 的靈魂共用同一個家目錄（原本就有）。
 
 ## 給 Owner：升級與回復（白話；HANDOVER 依這一節寫摘要）
 
