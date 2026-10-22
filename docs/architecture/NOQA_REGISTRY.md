@@ -272,7 +272,7 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 | 路徑／接點 | 規則 | 原因與限制 |
 | --- | --- | --- |
 | `scripts/guard_eslint_ratchet.py` readonly verify | `S603` ×1 | resolved Node、固定helper／argv、shell=False；verify失敗不進lint。 |
-| `scripts/lint_ratchet.py::collect_ruff` | `S603` ×1 | ADR-0278：以 `sys.executable -m ruff` 跑固定 argv（四個產品資料夾、`--no-cache`、JSON 輸出），`shell=False`、有逾時；ruff 異常結束就失敗，不當成 0 個違規。 |
+| `scripts/lint_ratchet.py::_run_tool_module` | `S603` ×1 | ADR-0278：ruff 與 pyrefly 共用的子程序入口，以 `sys.executable -m <工具>` 跑固定 argv（ruff：四個產品資料夾、`--no-cache`、JSON 輸出；pyrefly：`--config pyproject.toml`、目前的直譯器、JSON 輸出），`shell=False`、有逾時；工具異常結束就失敗，不當成 0 個違規。 |
 | `tests/lint/test_tests_readme_listing.py::git_ls_files` | `S603` ×1 | ADR-0278：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z -- <pathspec>`（`tests` 或全 repo），`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
 | `scripts/list_theme_violations.py`、`scripts/summarize_theme_violations.py` readonly verify | `S603` ×2 | 同一固定helper，每支各一筆；不執行呼叫者任意程式。 |
 | 上述兩支theme工具的既有固定shell命令 | `S602` ×2 | 保留既有命令／診斷語義，新增verify先行；不接收自由shell輸入。 |
