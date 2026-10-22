@@ -51,7 +51,7 @@
 8. **KF 修正與規則表接線**
    - KF-7a（U3）：外部客戶端帶 role=tool 歷史時，Gemini 的 `functionResponse.name` 填對應 functionCall 的工具名，不再填 call id。
    - KF-8（U2，adapter 出口）：相容 Chat 不送 Touka 內部欄位（`incognito`、`deep_research`、`mcp_dispatcher`、`session_id`、`project_id`、`auth_level`、`ide_context`）、MCP 工具的 `server`／`tool`／`category`，工具全被過濾時不送 `tools`；`thinking`、`stop`、`max_tokens` 照送。
-   - KF-9（U5b）：Anthropic 形狀入口（IDE 的 `/v1/messages`）接非 Claude 模型時，`convert_to_openai` 把 `tool_use`／`tool_result` 轉成 `tool_calls`／role=tool 訊息（call id＝tool_use id；`is_error` 的結果在內容前加「Tool error: 」），list system 合成字串（不送 `cache_control`）；Gemini 與 Responses 再由既有轉換器轉成 functionCall／functionResponse、function_call／function_call_output。
+   - KF-9（U5b，決定 A12）：Anthropic 形狀入口（IDE 的 `/v1/messages`）接非 Claude 模型時，`convert_to_openai` 把 `tool_use`／`tool_result` 轉成 `tool_calls`／role=tool 訊息（call id＝tool_use id；`is_error` 的結果在內容前加「Tool error: 」），list system 合成字串（不送 `cache_control`）；Gemini 與 Responses 再由既有轉換器轉成 functionCall／functionResponse、function_call／function_call_output。
    - Gemini `generationConfig` 只送請求的 `maxOutputTokens`／`stopSequences`，從不送取樣參數；`complete_once` 不再自己補 Gemini 上限。
    - 規則表新讀者：相容 Chat（`stream`、`required_params_with_tools`＝gpt-6-sol／luna 帶工具送 `reasoning_effort='none'`、`forbidden_params`、`default_max_output`、`forced_tool_choice`）、Gemini（`stream`）、Responses（`stream`、`forced_tool_choice`）、`route_family`（`uses_responses_api`）。
 9. **Responses 細節與 SDK 守衛（D4、D5，附註 8、19、24、37）**
