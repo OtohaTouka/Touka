@@ -1,8 +1,8 @@
 # P1 實作計畫：統一工具事件封套（Tool-Event Envelope SSOT）
 
-> 狀態：**✅ 已實作並驗證通過（2026-07-04）、收斂為 [ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)（2026-07-05）。** 擁有者裁示：P1-D 納入、`duration_ms` 不附 `log`、guard 不管泛型 `error`。四子項 A→B→C→D 全數 TDD 完成，未 commit（交由人類）。本文件是
+> 狀態：**✅ 已實作並驗證通過（2026-07-04）、收斂為 [ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)（2026-07-05）。** 維護者決定：P1-D 納入、`duration_ms` 不附 `log`、guard 不管泛型 `error`。四子項 A→B→C→D 全數 TDD 完成。本文件是
 > [`tool-observability-and-reliability.md`](tool-observability-and-reliability.md) §6 **Phase 1** 的細部 TDD 拆解。
-> 約束：**由人類 commit**；只用 **DebugAgent** 驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；
+> 約束：**由維護者 commit**；只用 **DebugAgent** 驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；
 > 每步過 ruff＋lint_ssot＋guard_all＋pytest＋vitest。
 > 前置：**P0「量尺」已於 2026-07-04 完成**（pass^k／abstention／token 成本就位），P1 的改動都可用這把尺確認「沒有退化」。
 
@@ -176,8 +176,8 @@ def tool_error_event(*, call_id, message) -> dict:
 
 ## 9. 文件與 ADR
 - 已正式收斂為 **[ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)**（延續 0119~0121 工具系列；P1 動 runtime 事件流，比純測試層的 P0 適合立 ADR）。
-- 同步：`tool-observability-and-reliability.md` §6 Phase 1 標 ✅＋量測；`tests/tool_eval/README.md`（若 eval 有新對照）；`HANDOVER.md`；`memory/touka-tool-observability.md`。
+- 同步：`tool-observability-and-reliability.md` §6 Phase 1 標 ✅＋量測；`tests/tool_eval/README.md`（若 eval 有新對照）；`HANDOVER.md`。
 
 ## 10. 待明示
-- 本計畫**待擁有者審核**。核可後我會依 P1-A→B→C（→D 選配）逐步 TDD 實作，每步過全套關卡，**不 commit**（交由人類）。
+- 本計畫**待維護者審核**。核可後依 P1-A→B→C（→D 選配）逐步 TDD 實作，每步過全套關卡，commit 由維護者執行。
 - 可討論的取捨點：①P1-D 是否納入本輪；②`duration_ms` 是否也附到成功事件之外的 `log`（預設否）；③guard 是否連 `"error"` 泛型別一起管（預設否，理由見 P1-C）。

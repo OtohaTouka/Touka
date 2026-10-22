@@ -1,11 +1,11 @@
 # 設計文件：對抗式互審子系統——證據接地紅隊互審（Evidence-Grounded Adversarial Review）
 
-> 狀態：**設計定案（2026-07-07）；尚未實作；6 個未決設計點已由擁有者拍板（§5）。**
-> 本文件是母提案 [in-process-subagent-orchestration.md](in-process-subagent-orchestration.md) **Phase 3（需求 2「對抗式互審」）的實作藍本**——母提案中唯一「全新建」的塊。實作待擁有者明示啟動；依母提案路線圖應落在 Phase 1（`dispatch_subagent` MVP）／Phase 2（結構化回報＋finalize）之後，惟 §7.1 的 eval 前置工程為 design-independent，可提前或平行進行。
+> 狀態：**設計定案（2026-07-07）；尚未實作；6 個未決設計點已由維護者決定（§5）。**
+> 本文件是母提案 [in-process-subagent-orchestration.md](in-process-subagent-orchestration.md) **Phase 3（需求 2「對抗式互審」）的實作藍本**——母提案中唯一「全新建」的塊。實作待維護者明確啟動；依母提案路線圖應落在 Phase 1（`dispatch_subagent` MVP）／Phase 2（結構化回報＋finalize）之後，惟 §7.1 的 eval 前置工程為 design-independent，可提前或平行進行。
 >
-> 約束：**由人類 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all＋pytest＋vitest；互審有效性另以離線 eval 驗收（§7），**未達預註冊門檻前，需求 2 不算完成**。
+> 約束：**由維護者 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all＋pytest＋vitest；互審有效性另以離線 eval 驗收（§7），**未達預註冊門檻前，需求 2 不算完成**。
 >
-> 依據：2026-07-06 專門設計 workflow——5 個對立設計哲學各出完整結構化方案 × 每案被 4 個對抗攻擊鏡頭實打 → 3 位取向各異的評審六維排名 → 收斂 synthesis（共 29 agent）。支撐結論的關鍵核碼發現已於會話中**獨立複核**（本文標 ✔ 者）。
+> 依據：2026-07-06 的專門設計流程——5 個對立設計哲學各出完整結構化方案 × 每案被 4 個對抗攻擊鏡頭實打 → 3 位取向各異的評審六維排名 → 收斂 synthesis。支撐結論的關鍵核碼發現已**獨立複核**（本文標 ✔ 者）。
 
 ---
 
@@ -150,9 +150,9 @@ CAP 與深度的天花板為程式內 SSOT 常數；config（如 `review.max_att
 
 ---
 
-## 5. 已拍板的 6 個設計決策（2026-07-07，擁有者核可）
+## 5. 已決定的 6 個設計決策（2026-07-07，維護者核可）
 
-| # | 決策 | 拍板 | 核心理由 |
+| # | 決策 | 決定 | 核心理由 |
 |---|---|---|---|
 | 1 | CAP／深度 | **CAP=3；兩層**（主可派子、子不可派孫；critic 另從工具集面根絕）；SSOT 天花板＋config 只能收緊 | 首產＋2 修正涵蓋多數「可修」錯誤；多輪對弱模型邊際遞減（A4 否決理由）；`review_attempts_total` 落盤＝eval 後有真實收斂分布可重調（改 config 零架構成本） |
 | 2 | 高風險判定 | **自動＋顯式聯集**；旗標單調只升不降；init 後 immutable | 代價不對稱：過標＝多一次異模型呼叫；漏標＝gate 在最需要處是安慰劑。沿用 `verification_cmd_locked`／`_clamp_quota` 慣例 |
@@ -214,7 +214,7 @@ CAP 與深度的天花板為程式內 SSOT 常數；config（如 `review.max_att
 3. Arm-D ≈ Arm-A 而 Arm-C > Arm-A——實證「同腦同錯」：隔離是有效性來源，非審查動作本身。
 4. **成本硬門檻並列**：每 task 子 loop 總開啟數、總 token（歸戶父 identity）、`review_attempts_total` 設回歸上限——若降幻覺是靠往返暴增買來，判不合格。
 
-未達門檻的退場：退回單 critic，或明標「此模型不適用互審」。基線存 `tests/tool_eval/baselines` 防漂移。人類 commit cases、只用 DebugAgent 跑、不動 `data/`。
+未達門檻的退場：退回單 critic，或明標「此模型不適用互審」。基線存 `tests/tool_eval/baselines` 防漂移。由維護者 commit cases、只用 DebugAgent 跑、不動 `data/`。
 
 ---
 
@@ -237,7 +237,7 @@ CAP 與深度的天花板為程式內 SSOT 常數；config（如 `review.max_att
 
 1. **證據覆蓋率天花板**：強保證只在 task 具可執行證據時成立；純創作／設計文件／開放推理類軟任務退回 `BLOCKED_FOR_HUMAN` 或弱保證——而弱模型恰在軟任務最會幻覺。**非均勻保證**，必須靠五臂 eval 誠實量出覆蓋比例，不可高估整體效果。
 2. **`verification_cmd` 語意不完整殘留**：即使 immutable＋拒 no-op，「多傳被忽略的 kwarg」這類在很多框架 exit 0 不報錯的錯誤仍可能假通過（真實觀測錨在「沒 crash」而非「行為正確」）；critic 獨立出題雙源能緩解、不能根治。
-3. **單模型部署下的弱保證**：若擁有者路徑選 `APPROVED_LOW_CONFIDENCE` 放行（決策 3），同腦共謀通過的產出仍可能放行——只是被顯式標記、不被背書。
+3. **單模型部署下的弱保證**：若走 `APPROVED_LOW_CONFIDENCE` 放行路徑（決策 3），同腦共謀通過的產出仍可能放行——只是被顯式標記、不被背書。
 4. **critic 自身仍會幻覺**：`GroundedReviewer` 是一次 LLM 呼叫，可能回假 required_fixes 或對罕見但正確的 artifact false-positive REJECT，把好產物卡向 human——增加人的負擔；fail-closed 只防「解析失敗」，不防「解析成功但語意錯」。
 5. **前置 eval 工程量被低估的風險**：接 LIVE seam＋新指標＋非 LLM oracle＋保留 persona/soul 是需求 2 **自己必須新建的最大工程**，絕非白嫖既有基建；這塊沒做，整個可證偽性懸空、邊界 1 永遠無法觸發。
 6. **`ReviewBudgetLedger` 並發正確性**：mission-scoped 單例被 producer loop 與 critic loop（不同 agent_id）並發 read-modify-write 時，需以單一 mission 級 lock 守護，避免重演 per-agent 鎖的 lost-update。
@@ -263,4 +263,4 @@ CAP 與深度的天花板為程式內 SSOT 常數；config（如 `review.max_att
 
 ### 來源與方法
 
-2026-07-06 設計 workflow：5 設計 agent（對立哲學）→ 20 攻擊 agent（4 鏡頭×5 案）→ 3 評審 agent → 1 收斂 agent，共 29 agent。設計與攻擊皆以真實碼為地基（多處實地核碼）；本文件標 ✔ 者為會話中對關鍵行號的獨立複核。收斂全文（含各案完整設計、逐案攻擊結果、三評審完整排名）為 session 產物；本文件即其耐久記錄。
+2026-07-06 的設計流程：5 份對立哲學的設計 → 每份以 4 個攻擊鏡頭攻擊（共 20 次）→ 3 位評審排名 → 收斂成最終設計。設計與攻擊皆以真實程式碼為地基（多處實地核碼）；本文件標 ✔ 者為對關鍵行號的獨立複核。收斂全文（含各案完整設計、逐案攻擊結果、三評審完整排名）未入版控；本文件即其耐久記錄。

@@ -1,12 +1,12 @@
 # Soul Studio 儲存回饋與返回原頁面實作計畫
 
-日期：2026-09-14。狀態：**SUPERVISOR_ACCEPTANCE：計畫檢視通過；僅計畫，未實作／測試／提交／發布**。此結論不是 DEV-B 或 release acceptance。本輪只新增本檔；P11 舊授權不適用本輪實作。
+日期：2026-09-14。狀態：**計畫通過審查**；當時僅有計畫，未實作、測試、提交或發布，這個結論也不是最終審查或 release acceptance。核准後的實作狀態見文末。P11 的舊授權不適用本計畫的實作。
 
 ## 需求、基準與證據
 
-使用者要求：「輸入密碼後顯示正確或錯誤，正確且修改完成會跳回原頁面」。本計畫假設「原頁面」是**同一靈魂進入編輯前的唯讀詳細頁**，保留選取、頁籤與捲動；不跳聊天、不呼叫 history.back。
+需求：輸入密碼後要顯示驗證正確或錯誤；驗證正確且修改完成時，跳回原頁面。本計畫假設「原頁面」是**同一靈魂進入編輯前的唯讀詳細頁**，保留選取、頁籤與捲動；不跳聊天、不呼叫 history.back。
 
-基準為已發布 S55 `927ce096f9fe297d6aca329b6cc8359993da1278`；調查來源是本機暫存資料夾裡的一份 checkout（未入版控）。以下行號均屬此來源：
+基準為已發布 S55 `927ce096f9fe297d6aca329b6cc8359993da1278`；以下行號均屬此基準：
 
 - `SoulStudio.tsx:228–283,634–682`：單一 POST 同送變更與密碼；成功已有關框／退出編輯，失敗僅 toast、保留視窗。
 - `app/layout.tsx:48` 已掛 Toaster；未證實被遮蔽。`connections.ts:252–286` 的前置 refresh 不在原 timer 內，未設連線 timeout 時為 0。
@@ -51,7 +51,7 @@
 | `ToukaChat/src/locales/zh-TW/translation.json`、`ToukaChat/src/locales/en/translation.json` | 同步語意 key |
 | `docs/architecture/CHAT_INTERFACE.md`、`tests/README.md`、`HANDOVER.md` | 實作契約、實際測試、當前交付狀態 |
 
-不改共用 `connections.ts`／auth refresh、後端端點、schema、鎖檔、Dockerfile 或頁面導航。若局部設計無法滿足測試，帶具體缺口回 Root 調整範圍，不擴大重構。
+不改共用 `connections.ts`／auth refresh、後端端點、schema、鎖檔、Dockerfile 或頁面導航。若局部設計無法滿足測試，帶具體缺口回到計畫審查調整範圍，不擴大重構。
 
 ## TDD、SSOT 與安全
 
@@ -63,18 +63,18 @@
 
 ## 實作、驗證與發布界線
 
-未來取得本輪實作授權後，由已發布 S55 建立乾淨 `codex/` 分支；目前 D checkout 仍為舊 `d299af5…`，不帶入其 dirty／index，也不改 frozen S55。驗證需在新候選綁定來源：Node/npm 依鎖定版本跑 `npm run test`、ESLint／typecheck／i18n 守衛與 build；3.12 venv PATH first 跑 `python -B -m pytest tests/`、`python scripts/guard_all.py` 及既有 sandbox smoke。網路 audit／發版等另按當次範圍處理，不用舊 P11 綠燈替代新結果。
+取得實作授權後，由已發布 S55 建立乾淨的新分支；不帶入既有工作樹未提交的變更與 index，也不改凍結的 S55。驗證需在新候選綁定來源：Node/npm 依鎖定版本跑 `npm run test`、ESLint／typecheck／i18n 守衛與 build；3.12 venv PATH first 跑 `python -B -m pytest tests/`、`python scripts/guard_all.py` 及既有 sandbox smoke。網路 audit／發版等另按當次範圍處理，不用舊 P11 綠燈替代新結果。
 
-風險為 STANDARD 的 UX／非同步變更，認證與未知寫入結果須專項核對。候選回復採撤回本次精確 source patch；不回復使用者已成功保存的靈魂內容。部署回復另走當次已驗證且獲授權的映像流程，不自行以舊 compose 管理現場。本次 Root 僅檢視計畫；實作、DEV-B、Git、qualification、發布與 live 操作均未執行且不由此計畫自動授權。
+風險為 STANDARD 的 UX／非同步變更，認證與未知寫入結果須專項核對。候選回復採撤回本次精確 source patch；不回復使用者已成功保存的靈魂內容。部署回復另走當次已驗證且獲授權的映像流程，不自行以舊 compose 管理現場。計畫階段只做審查；實作、最終審查、Git、qualification、發布與 live 操作均未執行，也不由此計畫自動授權。
 
 ---
 
 ## 核准後實作狀態（2026-09-14）
 
-使用者後續明確核准「可以開始實作」。上述計畫階段文字保留為原件；本節記錄新的執行狀態，不改写原核准內容。S55 的獨立候選放在本機暫存資料夾（未入版控），分支 `codex/soul-studio-save-feedback-20260914`；原始測試與環境證據位於同 task 的 `evidence`。
+維護者後續核准開始實作。上述計畫階段文字保留不改；本節記錄之後的執行狀態。實作在以 S55 為基準的獨立分支進行（工作目錄與原始測試證據未入版控）。
 
-實作完成待 Root DEV-B：原 12 檔加本計畫，以及 Root 核准的 `ToukaChat/src/components/layout/__tests__/SoulStudio.test.tsx` 既有 mock 契約調整，合計 14 檔。沒有後端、認證／發版 authority、schema、lock 或共用 fetch 變更。跨 Proxy 的來源訂閱沿既有事件，普通／背景 GET 一律 generation 隔離；未知結果核對呈現草稿與服務端值的一致／差異欄位，固定成功區位於 scroll area 外。
+實作完成、待最終審查：原 12 檔加本計畫，以及經核准的 `ToukaChat/src/components/layout/__tests__/SoulStudio.test.tsx` 既有 mock 契約調整，合計 14 檔。沒有後端、認證／發版 authority、schema、lock 或共用 fetch 變更。跨 Proxy 的來源訂閱沿既有事件，普通／背景 GET 一律 generation 隔離；未知結果核對呈現草稿與服務端值的一致／差異欄位，固定成功區位於 scroll area 外。
 
-新增 39 案例，focused55P、最終實體依賴下全 Chat1226P／234檔、完整 tests tsc／build9pages／ESLint0error；唯一 numeric generation cleanup warning 已由 Root 接受。Python full9313P10skip、smoke24/24；42non-audit guards 原 rc0，22/23另作fresh原audit，不能合稱單次44aggregatePASS。原生成450CR漂移已精確restore，全部失敗保留。Python full 後僅 TS test fixture defaults 與文件變更，適用性依 exact closure 明示 REUSED_NOT_FRESH。完整檔案／raw／限制見 evidence 最終交付摘要。
+新增 39 案例，focused55P、最終實體依賴下全 Chat1226P／234檔、完整 tests tsc／build9pages／ESLint0error；唯一一個 numeric generation cleanup warning 經審查接受。Python full9313P10skip、smoke24/24；42non-audit guards 原 rc0，22/23另作fresh原audit，不能合稱單次44aggregatePASS。原生成450CR漂移已精確restore，全部失敗保留。Python full 後僅 TS test fixture defaults 與文件變更，適用性依 exact closure 明示 REUSED_NOT_FRESH。
 
-目前未 stage／commit／push／PR／qualification／發布／部署，沒有本修正的現場保存測試。D 既有 dirty/index 與已發布 S55 不變；本檔只追加此狀態。後續操作仍受本輪授權邊界約束。
+記錄當時尚未 commit、push、發 PR、qualification、發布或部署，也沒有本修正的現場保存測試；已發布的 S55 不變。後續操作仍受授權邊界約束。

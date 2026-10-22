@@ -2,7 +2,7 @@
 
 ## 狀態
 
-🏁 **已收官(2026-07-14)**=[ADR-0156](../adr/0156-react-core-extraction.md)。E0–E4 全數落地(人類逐階段 commit):E0 特徵化 golden 30 檔對舊碼錄製、E1 react_core＋OpenAIAdapter、E2 GeminiAdapter、E3 ClaudeAdapter、E4 守衛錨＋矩陣收斂＋文件收官。**全程 golden 零位元組變動**;終態 pytest 3521/guard_all 41/41。計畫偏差(刻意,記於 ADR):三舊 handler 收 6 行薄殼而非整檔刪除(入口名凍結=factory 零改動);Protocol 較 §終態架構表實戰進化(send_round async generator/async append_tool_results/extract_usage(state)/telemetry_model/emits_context_breakdown/reasoning_parts,詳 ADR)。前置步驟 0(漂移修復批)=[ADR-0155](../adr/0155-handler-drift-fix-batch.md)。
+🏁 **已收官(2026-07-14)**=[ADR-0156](../adr/0156-react-core-extraction.md)。E0–E4 全數落地(維護者逐階段 commit):E0 特徵化 golden 30 檔對舊碼錄製、E1 react_core＋OpenAIAdapter、E2 GeminiAdapter、E3 ClaudeAdapter、E4 守衛錨＋矩陣收斂＋文件收官。**全程 golden 零位元組變動**;終態 pytest 3521/guard_all 41/41。計畫偏差(刻意,記於 ADR):三舊 handler 收 6 行薄殼而非整檔刪除(入口名凍結=factory 零改動);Protocol 較 §終態架構表實戰進化(send_round async generator/async append_tool_results/extract_usage(state)/telemetry_model/emits_context_breakdown/reasoning_parts,詳 ADR)。前置步驟 0(漂移修復批)=[ADR-0155](../adr/0155-handler-drift-fix-batch.md)。
 
 ## 日期
 
@@ -15,7 +15,7 @@
 ## 目標與非目標
 
 - **目標**:行為保持(behavior-preserving)的結構重構——特徵化測試凍結現行為,重構前後 SSE 輸出逐位元一致(時間戳/隨機 id 正規化除外)。
-- **非目標(明列,嚴禁順手做)**:①Gemini reasoning(thought parts)補齊——已知遺留(ADR-0152 同類),屬新行為,收官後另案(新架構下=改一個 `parse_round`,成本大降);②keepalive/Honesty Guard 推廣到三家(拍板 K1/K2 預設「保持現狀」);③任何 wire/schema 變更(openapi 零變動);④外部統一庫引入(已於評估中否決)。
+- **非目標(明列,嚴禁順手做)**:①Gemini reasoning(thought parts)補齊——已知遺留(ADR-0152 同類),屬新行為,收官後另案(新架構下=改一個 `parse_round`,成本大降);②keepalive/Honesty Guard 推廣到三家(決策 K1/K2 預設「保持現狀」);③任何 wire/schema 變更(openapi 零變動);④外部統一庫引入(已於評估中否決)。
 
 ## 終態架構
 
@@ -35,7 +35,7 @@
 
 ### Provider Protocol(`typing.Protocol`,符 AGENTS DIP 鐵則)
 
-每供應商一個 adapter(`src/handlers/adapters/{openai,claude,gemini}_adapter.py`,拍板 K4),約 10 個方法:
+每供應商一個 adapter(`src/handlers/adapters/{openai,claude,gemini}_adapter.py`,決策 K4),約 10 個方法:
 
 | 方法 | 職責 | 供應商差異落點 |
 |---|---|---|
@@ -79,7 +79,7 @@ E4  刪三個舊 handler＋守衛錨(靜態測試:ADR-0146/中斷字串等迴圈
 
 合計 **6–8 sessions**(漂移修復已前置完成,較審計原估 7–9 略減)。**任一階段可停**:停在 E1 後=openai 家族已單源,claude/gemini 維持舊 handler 照常運作(factory 分流=天然共存)。
 
-## 拍板點(owner 決策)
+## 決策點(維護者決定)
 
 | # | 問題 | 建議 |
 |---|---|---|
@@ -106,7 +106,7 @@ E4  刪三個舊 handler＋守衛錨(靜態測試:ADR-0146/中斷字串等迴圈
 
 ## 文件義務(E4)
 
-ADR 取下一號＋README 索引;`PROXY_INTERFACE.md` handler 架構節(若有描述舊三 handler 的段落隨改);HANDOVER 現況;tests/README 隨 owner 對帳慣例;NOQA registry(若有新增,禁令 12);AGENTS §8 大一統工具鏈不受影響(工具面零變動)。
+ADR 取下一號＋README 索引;`PROXY_INTERFACE.md` handler 架構節(若有描述舊三 handler 的段落隨改);HANDOVER 現況;tests/README 依既有對帳慣例;NOQA registry(若有新增,禁令 12);AGENTS §8 大一統工具鏈不受影響(工具面零變動)。
 
 ## 與外部庫的關係(已於評估否決引入,存檔語意)
 

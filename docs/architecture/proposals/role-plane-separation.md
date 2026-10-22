@@ -1,7 +1,7 @@
 # 提案：人類／Agent 權限面分離（Role Plane Separation，選項 C 完整欄位拆分）
 
 > **狀態：✅ 已核准並實作完成／收官（決策 2026-07-09、P0–P7 全數落地 2026-07-10）。**
-> 擁有者拍板採**選項 C**（一次修乾淨、型別層終態保證），絞殺者 P0–P7 逐階段落地、人類逐批
+> 維護者決定採**選項 C**（一次修乾淨、型別層終態保證），絞殺者 P0–P7 逐階段落地、維護者逐批
 > commit。各階段成果見 [ADR-0141](../adr/0141-role-plane-separation.md)，終態 SSOT 見
 > [ROLE_MODEL.md](../ROLE_MODEL.md)。以下為原始實作藍本（歷史保存）。
 
@@ -120,7 +120,7 @@ role in ["Owner","Debugger"]`。目標模型就是把這個樣板變成型別結
 | churn／風險 | 最小 | 中 | 最大（但見 §6 絞殺者機制） |
 | 動 wire/持久化 | 否 | 否 | **實查為輕**（token 不帶 role；見 §7.5） |
 
-擁有者拍板理由：「一次修乾淨」——B 的謂詞終態仍允許有人寫裸字串比對（只能靠
+維護者選 C 的理由是要一次修乾淨——B 的謂詞終態仍允許有人寫裸字串比對（只能靠
 守衛抓），C 的終態讓這類 bug 無法被寫出來。C 多付的成本集中在模型、組裝點、
 拆舊三個階段；35 處閘的遷移工作量 B/C 相同。
 
@@ -146,7 +146,7 @@ role in ["Owner","Debugger"]`。目標模型就是把這個樣板變成型別結
 ```python
 # models/identity.py（終態示意）
 HUMAN_ROLES = frozenset({"admin", "normal"})
-AGENT_ROLES = frozenset({"Owner", "Base", "Guest", "Debugger", "System"})  # System 見拍板點3
+AGENT_ROLES = frozenset({"Owner", "Base", "Guest", "Debugger", "System"})  # System 見決策點 3
 
 class AgentIdentity(BaseModel):
     agent_id: str
@@ -210,7 +210,7 @@ if not (identity.human_role == "admin"
 - **前端**：僅 `IdentityMapUpdateRequest` 驗證集變窄（只收 AGENT_ROLES）→
   `update_openapi.py`＋`npm run sync-api`（Guard #17）。
 
-## 8. 拍板點（審核時請逐項核准）
+## 8. 決策點（審核時請逐項核准）
 
 1. **代打建模**：採 §7.2 雙欄位配對（推薦）；或改用 capability 標籤
    （`"human_admin" ∈ capabilities`）。推薦前者——閘讀欄位即可，不引入第二套
@@ -245,11 +245,11 @@ if not (identity.human_role == "admin"
   必須以矩陣 diff 形式呈現（紅燈先行）；不可達狀態（如非人類 admin）的結構性
   收斂在矩陣中明確標註為 intentional。
 
-## 10. 分階段計畫（每階段：TDD 紅→綠＋ruff/lint_ssot/guard_all/pytest/vitest 全綠＋ADR＋人類 commit）
+## 10. 分階段計畫（每階段：TDD 紅→綠＋ruff/lint_ssot/guard_all/pytest/vitest 全綠＋ADR＋由維護者 commit）
 
 | 階段 | 內容 | 風險 | 驗收要點 |
 |---|---|---|---|
-| **P0** | 特徵化矩陣測試（權限＋路徑＋代打）＋拍板點定案＋棘輪守衛基線盤點 | 低（純加測試） | 矩陣覆蓋 §3.1 全清單；不改任何生產碼 |
+| **P0** | 特徵化矩陣測試（權限＋路徑＋代打）＋決策點定案＋棘輪守衛基線盤點 | 低（純加測試） | 矩陣覆蓋 §3.1 全清單；不改任何生產碼 |
 | **P1** | 模型雙欄位＋不變式 validator＋`.role` 相容計算屬性＋建構子相容＋兩集合常數＋Guard #41 棘輪版 | 低 | **零呼叫點變動**；全套綠；矩陣不變 |
 | **P2** | 遷移 routers 批次 1（debug/observability/souls/ui_sessions） | 中 | 矩陣不變；棘輪清單縮 |
 | **P3** | 遷移 routers 批次 2（其餘 11 個 `_*_ROLES` router＋tools/builtin/creation） | 中 | 同上 |
@@ -279,7 +279,7 @@ if not (identity.human_role == "admin"
    緩解：組裝點在 P1 完全不動（相容驗證器罩住）；P5 單獨隔離＋smoke 全跑；
    P5 前任何階段出事都與認證無關。
 2. **代打配對設計錯誤 → admin 代打失權或權限外洩**。
-   緩解：P0 拍板（§8-1/2）＋雙向測試先行；P5 才落地。
+   緩解：P0 決策（§8-1/2）＋雙向測試先行；P5 才落地。
 3. **行為偷渡——修 bug 混進機械遷移**。
    緩解：矩陣鐵律（遷移批矩陣零變動；修正條目=顯式 diff＋獨立 commit）；
    棘輪守衛防新碼走回頭路。
