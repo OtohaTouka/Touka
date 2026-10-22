@@ -77,7 +77,7 @@ OSS 免費），志工網頁翻譯 → 自動開 PR → 守衛 #33 在 CI 把關
 1. [x] **Phase 0**：react-i18next 地基——deps、`locales/{zh-TW,en}`、init（client-only、
    `nonExplicitSupportedLngs` 雷已證實並避開）、退役自製 i18nContext、切換鈕接
    `changeLanguage`。新 `i18n.test.ts`。
-2. [x] **Phase 1**：Workflow 一檔一 agent 並行抽字串 + 主程集中合併 catalog；全 app UI
+2. [x] **Phase 1**：逐檔並行抽字串、集中合併 catalog；全 app UI
    中文進 catalog（含 `<Trans>`/內插/`config.ts` 分頁 key/`theme.names.*`）；測試固定
    zh-TW；HAX/a11y 源碼掃描守衛隨批再錨定至 i18n key。
 3. [x] **Phase 2**：並行翻譯 → en；自動 parity 驗證（var/tag 零落差）；英文

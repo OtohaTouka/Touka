@@ -63,7 +63,7 @@
 
 ## 會改變的行為
 
-- 摘要員、評分、IDE 補全用 Haiku／Sonnet 5.5 時：送 `disabled`／`between_tools`＋effort low，輸出上限回到請求值（摘要員寫超過預算會截斷→退回無損剪裁；以前 8,192 讓它寫超過）；Opus 5.5 只送 effort low、仍 8,192。摘要員預設模型是 Haiku 4.5 且預設不啟用，預設設定下沒有影響。審查員、互審送出內容不變。
+- 摘要員、評分、IDE 補全用 Haiku／Sonnet 5.5 時：送 `disabled`／`between_tools`＋effort low，輸出上限回到請求值（摘要員寫超過預算會截斷→退回無損剪裁；以前 8,192 讓它寫超過）；Opus 5.5 只送 effort low、仍 8,192。摘要員預設模型是 Haiku 4.5 且預設不啟用，所以摘要員在預設設定下不受影響。審查員、互審送出內容不變。
 - 所有用 OpenAI 格式送 Claude 的請求，`stop` 開始生效；IDE 補全的 "```" 照舊保留（模型以程式碼圍欄開頭時補全會變空，和 OpenAI 相容路徑一致）。
 - 原生入口：客戶端的 effort 開始照送（5.5）；`disabled` 依型號改寫或不送；5.x 的小輸出上限補到 8,192（ToukaChat／IDE 選 anthropic 協定的 4,096、計分卡 512／1,024）；`enabled`＋budget 補到 budget＋1,024。
 - 花費上限有開時，`complete_once` 送前就可能回 `over_budget`（例：上限 $1、已花 $0.95，Opus 5.5 審查員最壞約 $0.17 → 不送、轉人）。
