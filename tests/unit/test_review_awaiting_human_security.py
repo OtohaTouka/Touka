@@ -1,4 +1,4 @@
-"""B1：互審驗證指令要人核准、但無人在場（U2b-2；決策 P6 甲；SECURITY.md B1）.
+"""B1：互審驗證指令要人核准、但無人在場（U2b-2；ADR-0246 決策 P6；SECURITY.md B1）.
 
 修補前：無人在場（背景心跳、子代理、未帶 ``_interactive``）時，CONFIRM 級 ``verification_cmd``
 被拒後這一輪照樣送 critic（花錢）、扣 ``review_attempts_total``，扣到上限就 ``review_locked``——

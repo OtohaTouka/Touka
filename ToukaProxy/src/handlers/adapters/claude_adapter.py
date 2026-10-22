@@ -184,7 +184,7 @@ class ClaudeAdapter:
         api_params.pop("safety_mode", None)
         api_params.pop("safety_settings", None)
 
-        # model-p0（Owner 決定 A）：temperature／top_p／top_k 一律不送（廠商預設；
+        # model-p0（ADR-0241 決定 A）：temperature／top_p／top_k 一律不送（廠商預設；
         # 4.7 以後送了即 400）。請求欄位保留，舊設定照常載入、值被忽略。
         kwargs = {
             "model": api_params["model"],

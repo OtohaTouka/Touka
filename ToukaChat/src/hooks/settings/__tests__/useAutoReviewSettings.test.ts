@@ -11,7 +11,7 @@ import { REVIEWER_TIMEOUT_MAX_S, useAutoReviewSettings } from '../useAutoReviewS
 const mockFetch = fetchTouka as ReturnType<typeof vi.fn>;
 const withReview = { auto_review: { model: '', max_tokens: 512, timeout_s: 20, headless_terminal: false } } as unknown as AutonomyConfig;
 
-describe('useAutoReviewSettings（ADR-0246 決定 5）', () => {
+describe('useAutoReviewSettings（ADR-0246）', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects a malformed list instead of showing unknown entries', async () => {

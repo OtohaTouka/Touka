@@ -399,7 +399,7 @@ def test_connections_after_save_runs_only_after_a_real_write(cfg, monkeypatch):
 
 
 def test_import_closes_custom_routes_until_models_refresh(cfg, monkeypatch):
-    """U2e4（CTO）：匯入含 connections 區的快照（不是 dry_run）後，自訂模型的路由先關閉，
+    """U2e4：匯入含 connections 區的快照（不是 dry_run）後，自訂模型的路由先關閉，
     要重新掃描（``/models/refresh``）或重啟才恢復；和連線頁存檔同一套。
     """
     monkeypatch.setattr(provider_registry, "get_key", lambda _spec: "")  # 官方供應商不探測

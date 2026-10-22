@@ -5,7 +5,7 @@
 - F1 資料、F2 金鑰、F3 權限設定、F4 原始碼、F7 系統破壞：三種模式都只有人能核准
   （``HUMAN_ONLY_CATEGORIES``）；黑名單的 DENY 照舊優先。
 - F5 能力擴張與身分、F6 對外發言：Auto 下只有人能核准（``AUTO_HUMAN_ONLY_CATEGORIES``，
-  決定 6）；Manual 照常 CONFIRM，YOLO 放行。
+  ADR-0246 決定 6）；Manual 照常 CONFIRM，YOLO 放行。
 
 工具（F5、F6）依原生工具名＋動詞判斷，是確定性的。shell 文字只能盡力而為：路徑／檔名
 token 加危險動詞（受保護根目錄動態解析）；變數、萬用字元、編碼、``cd`` 後的相對路徑、

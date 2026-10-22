@@ -94,7 +94,7 @@ _FAILURES: dict[str, tuple[str, str]] = {
 _LOG_DETAIL_LIMIT = 200  # 上游錯誤寫進 log 的長度上限（禁令 18：命名常數）
 PURPOSE_INLINE_COMPLETION = "inline_completion"  # IDE 行內補全（經 routers/proxy.py 的用途標頭）
 # 用途 → 思考強度（r55；只對 Claude 5.5 生效，由 ClaudeAdapter 照規則表套用）。審查員
-# （auto_reviewer）與互審（critic）刻意不列＝照模型預設：Owner 決定 2 甲；互審是品質關卡。
+# （auto_reviewer）與互審（critic）刻意不列＝照模型預設（ADR-0271）；互審是品質關卡。
 _THINKING_PROFILES: dict[str, ThinkingProfile] = {
     "judge": "minimal",
     "summarizer": "minimal",

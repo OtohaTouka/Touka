@@ -681,7 +681,7 @@ class PermissionService:
         else:
             decision = self.policies.evaluate(context)
 
-        # 記錄審計日誌 (非同步)
+        # 記錄審計日誌（非同步）
         audit_service.log_decision(context, decision)
 
         return decision
@@ -707,7 +707,7 @@ class PermissionService:
         Returns:
             str: 決策效果 (如 'CONFIRM', 'REJECT', 'NEED_APPROVAL').
         """
-        # 構建策略上下文 (PolicyContext)
+        # 構建策略上下文（PolicyContext）
         context = PolicyContext(
             actor=identity,
             resource=args.get("command", tool_name),

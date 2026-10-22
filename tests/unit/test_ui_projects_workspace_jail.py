@@ -6,7 +6,7 @@ raw — so an authenticated NON-admin could register a project whose root_path i
 ANY absolute host path (e.g. C:\\Users) and enumerate that directory tree
 (filenames + sizes) via GET /ui/projects/{id}/files.
 
-Fix (owner decision: confine non-admins only):
+Fix (confine non-admins only):
   * SSOT primitive  resource_manager.is_within_workspace(path) — resolves the
     path (incl. symlinks) and checks it stays under the configured workspace_root.
   * Policy          _project_root_allowed(caller, root_path) — admin/Debugger

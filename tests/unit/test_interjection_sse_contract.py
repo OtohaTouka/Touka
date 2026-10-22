@@ -1,4 +1,4 @@
-"""插話 SSE 契約（ADR-0249 第 4a 段，技術主管追加 6）：後端常數、事件形狀與前端常數同步。
+"""插話 SSE 契約（ADR-0249 第 4a 段）：後端常數、事件形狀與前端常數同步。
 
 `interjection_delivered`（interjection_id、step、urgent）與 `interjection_undelivered`
 （interjection_ids）的名稱與欄位只定義一次：後端在 services/interjection_queue.py，前端在

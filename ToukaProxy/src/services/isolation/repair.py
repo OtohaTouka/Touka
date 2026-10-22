@@ -69,7 +69,7 @@ def reserved_roots(layout: SandboxLayout) -> frozenset[Path]:
     """只修那一層、有保留額度、定期檢查的根：W1、W7（``state_root``）、``ST/proxy`` 與 W8。"""
     data = layout.data_root
     roots = {data / "personal_drive", data / "mcp_servers", data / "mcp_servers" / "managed"}
-    roots.add(data / "custom")  # W8（PM 10/15）：W4 的上層，被鎖時定期檢查也修回來
+    roots.add(data / "custom")  # W8：W4 的上層，被鎖時定期檢查也修回來
     if layout.state_root is not None:
         roots |= {layout.state_root, layout.state_root / "proxy"}
     return frozenset(roots)

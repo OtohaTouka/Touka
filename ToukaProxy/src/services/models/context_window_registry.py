@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_FILE_NAME = "model_context_windows.json"
 
-# 使用者拍板：未知模型保守預設 128K（可由 JSON 的 _default 覆蓋）。
+# 未知模型保守預設 128K（可由 JSON 的 _default 覆蓋）。
 _DEFAULT_WINDOW = 128_000
 
 # 內建硬編規格表（code SSOT，離線可用）。鍵為小寫子字串匹配片段，

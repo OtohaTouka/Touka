@@ -51,7 +51,7 @@ ENTRY_CHANGED = "mcp_entry_changed"
 
 LoadState = Literal["ok", "missing", "unreadable"]
 
-# 鎖的前提（CTO 的四個條件）：
+# 鎖的前提（四個條件）：
 # ① 寫這個檔的只有單一 proxy 行程（ADR-0207：不准 --workers、不准第二個 replica）；與同意帳本、
 #   每個 skill 的鎖相同。檔名只出現在本模組與 bootstrap
 #   （tests/lint/test_mcp_isolation_store_lock.py），啟動指令由

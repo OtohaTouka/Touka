@@ -61,7 +61,7 @@ class PolicyAuditService:
 
     def __init__(self) -> None:
         """初始化審計服務，配置 CSV 欄位與路徑指標."""
-        # 初始化路徑 (SSOT)
+        # 初始化路徑（SSOT）
         self.base_dir = Path(resource_manager.get_base_path())
         self.stats_dir = self.base_dir / "stats"
         self.audit_file = self.stats_dir / "decisions.csv"

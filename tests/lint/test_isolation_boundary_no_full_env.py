@@ -4,7 +4,7 @@
 PYTHONPATH，只給 Touka 自己的子程序。``sandbox_kernel/`` 與 ``services/isolation/``
 （runner、啟動器、之後的執行器、relay）組出的環境會交給代理人指令，所以靜態 AST 掃描禁止：
 匯入 ``src.utils.child_env``（含相對匯入）、引用 ``child_python_env``、``get_full_env`` 或
-``get_clean_env``（黑名單過濾；PM 10/15 決定隔離邊界內一律只用允許清單），以及用字串動態取用
+``get_clean_env``（黑名單過濾；隔離邊界內一律只用允許清單），以及用字串動態取用
 它們（``getattr``、``importlib``）。
 """
 

@@ -128,7 +128,7 @@ def _is_touka_ui_available() -> bool:
 
 
 # ── 非同步審批狀態（行程內；重啟即清） ────────────────────────────────────────
-# {execution_id: {status, agent_id, command, result, _task}}
+# 以 execution_id 為鍵；每筆記下 status、agent_id、command、result 與 _task
 # status: approval_pending → running → done | rejected | error
 _ASYNC_RESULTS: dict[str, dict[str, Any]] = {}
 _MAX_ASYNC_RESULTS = 100

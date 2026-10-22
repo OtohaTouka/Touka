@@ -118,7 +118,7 @@ class OpenAIAdapter:
         for _m in payload.get("messages", []):
             if isinstance(_m, dict) and "content" in _m and _m.get("role") != "tool":
                 _m["content"] = normalize_message_content(_m["content"])
-        # model-p0（Owner 決定 A）：取樣參數一律不送（Ollama/Grok/DeepSeek/LiteLLM/
+        # model-p0（ADR-0241 決定 A）：取樣參數一律不送（Ollama/Grok/DeepSeek/LiteLLM/
         # OpenRouter/自訂連線皆走此處；用廠商預設）。
         for name in SAMPLING_PARAM_NAMES:
             payload.pop(name, None)
