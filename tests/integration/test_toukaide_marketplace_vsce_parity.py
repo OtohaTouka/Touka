@@ -105,7 +105,7 @@ def test_real_pinned_vsce_raw_inventory_matches_deterministic_vsix_members(
         members = tuple(info.filename for info in archive.infolist())
 
     expected = builder.vsix.EXPECTED_MEMBERS
-    assert len(members) == len(expected) == 9
+    assert len(members) == len(expected) == 10
     assert set(members) == set(expected)
     assert "extension/readme.md" in members
     assert "extension/LICENSE.txt" in members
