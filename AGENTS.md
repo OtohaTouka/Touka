@@ -1,4 +1,4 @@
-> 本檔是給 AI 程式代理人（例如 Codex、Claude Code）與維護者的專案規則；個人的溝通偏好不放在這裡。
+> 本檔是給 AI 程式代理人（例如 Codex、Claude Code）與貢獻者的專案規則；個人的溝通偏好不放在這裡。
 
 ## DATA_PROTECTION（資料保護）
 嚴禁開發者或代理人以任何形式自動化修改、覆寫或「管理」位於 data/下的資料，僅限使用者手動維護和擁有者更改。
@@ -90,7 +90,7 @@
 > - `uv run <cmd>`（ADR-0117 後可用：workspace 單一 uv.lock 已含全部依賴；uv run 為 inexact 同步、不剝除既有套件）
 > - **★ 佈建/更新依賴一律 `uv sync --all-packages`**：root 為虛擬協調者（無依賴），**裸 `uv sync` 會剝除全部成員依賴**（exact 同步至空 root；數秒可用 --all-packages 復原，但誤剝後測試全紅）。（ADR-0117）
 >
-> 注意：`guard_all.py` 以 `shell=True` 跑子命令，若沒先把 `.venv\Scripts` 置於 `PATH` 最前面（啟用 venv 即自動滿足），內部的 `python` 仍會落到全域 3.14。
+> 注意：`guard_all.py` 以 `shell=True` 跑子命令，若沒先把 `.venv\Scripts` 置於 `PATH` 最前面（啟用 venv 即自動滿足），內部的 `python` 仍可能落到系統的其他版本（例如全域 3.14）。
 
 > 🪟 **Windows 本機跑後端測試的前置條件（pytest、guard_all）**：GitHub CI 已在 workflow 裡備好，這段只管本機。
 > - **Node／npm 版本**：PATH 上的 `node`、`npm` 要等於 `ToukaChat/package.json` 的 `engines` 與 `ToukaIDE/package.json` 的 `devEngines`（目前 Node 24.21.0、npm 11.19.1）。系統是別的版本時不改系統 Node，只替這次指令切換，例如 `fnm exec --using 24.21.0 -- python -m pytest tests/`。版本不對時 `test_mcp_modern_companion` 會 ERROR，guard_all 的前置檢查直接擋下。
