@@ -3,7 +3,7 @@
 > ADR-0276 修訂對話條件提交：儲存交易內增加精確歸屬檢查，UI 串流准入可由授權人類換綁並傳遞提交後 revision；assistant 最後保存無換綁權。內部 marker 納入 revision，部署後須重讀 snapshot；原保存結果型別沿用。
 
 - 日期：2026-09-21
-- 狀態：Owner DEV-A approved／SUPERVISOR_DELEGATED；來源實作與完整Python R4完成，最終DEV-B以本輪`ROOT_DEV_B_ACCEPTANCE_R1.json`為準。
+- 狀態：維護者核准計畫（委託審查）；來源實作與完整Python R4完成，最終審查以本輪審查原件為準（未入版控）。
 - 範圍：Memory 任務保存、Proxy 明示 UI session 契約、Chat writer／串流／恢復。未發布、未部署。
 - 計畫：[可靠性 R2](../proposals/reliability-persistence-plan.md)。既有 T1 Heartbeat 保持 ADR-0230，不重做。
 
@@ -62,11 +62,11 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
 shared `tests/fixtures/reliability_session_stream.json` 穿過真 Python producer／buffer、真 TS decoder／
 registry／writer與 owned SQLite，保留 extension、null、owner／agent及完整富樹；只 alias 不穩定的
 stream_id／revision，破壞 terminal／富欄位的反例必失敗。故障、並行、scope、無痕與人工恢復另有 focused 測試。
-完整Python R4為10048P／9個既有條件skip／5warnings，凍結來源／runtime零漂移。Chat1409P／243檔、typecheck／ESLint／smoke24/24按最終適用性重用，43非audit與兩audit原查詢回讀分列，詳細材料見`COMPLETED_RECEIPT_R1.json`；DEV-B由Root另存原件裁決，不宣稱嚴格獨立資格。
+完整Python R4為10048P／9個既有條件skip／5warnings，凍結來源／runtime零漂移。Chat1409P／243檔、typecheck／ESLint／smoke24/24按最終適用性重用，43非audit與兩audit原查詢回讀分列，詳細材料記錄在未入版控的收據檔；最終審查另存原件裁決，不宣稱嚴格獨立。
 歷史R3失敗、incognito背景trim fixture修訂、Windows cleanup兩次FAIL及其後NOT_REPRODUCED全部保留。ReadFile109的EOF契約缺漏已決定性RED→GREEN後修正、整檔與完整R4通過；歷史兩FAIL原因仍UNKNOWN，原Thread938唯一來源仍NOT_PROVEN。
-原`BLOCKED_RECEIPT_R2`只識別修訂前101檔中斷材料，不包含新的EOF修復，不可用作目前來源驗收或回復入口。
+原中斷收據（未入版控）只識別修訂前101檔中斷材料，不包含新的EOF修復，不可用作目前來源驗收或回復入口。
 
-9/16 Temp 原件已遺失；歷史 RED／批准副本不得重建冒充。9/21 resume baseline 保存當前 60 檔，
-新原件位於 `.cache/reliability-resume-20260921-r1`，搬移清單見 RELOCATION_R1；對話 DEV-A 仍有效。
+9/16 的暫存原件已遺失；歷史 RED／批准副本不得重建冒充。9/21 resume baseline 保存當前 60 檔
+（原件未入版控）；先前核准的計畫仍有效。
 AnyIO 官方 patch 4.14.2 為本輪 audit 發現的有限依賴修正；原 FAIL 保留，不做漏洞重現。
-來源驗證不是 live／發布／Owner GUI 見證。回復只審閱精確來源 patch後普通 revert；不回復或管理真資料。
+來源驗證不是 live／發布／維護者 GUI 見證。回復只審閱精確來源 patch後普通 revert；不回復或管理真資料。

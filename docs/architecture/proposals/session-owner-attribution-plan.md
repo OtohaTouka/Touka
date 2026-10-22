@@ -1,6 +1,6 @@
 # Session 明確人類歸屬（owner_user_id）實作計畫
 
-> **狀態：✅ 已實作（2026-07-05）——收斂為 [ADR-0132](../adr/0132-session-owner-attribution.md)。** 擁有者裁決：Q1 聯集／Q2 手動 backfill／Q3 不收緊（皆照 §8 推薦）。本文保留為計畫原文供查核。
+> **狀態：✅ 已實作（2026-07-05）——收斂為 [ADR-0132](../adr/0132-session-owner-attribution.md)。** 維護者決定：Q1 聯集／Q2 手動 backfill／Q3 不收緊（皆照 §8 推薦）。本文保留為計畫原文供查核。
 > 比照 [ADR-0107](../adr/0107-user-self-service-data-clearing.md) 對 projects 的做法（`owner_user_id` 欄位＋明確擁有權優先＋legacy 反推 fallback），為 [ADR-0131](../adr/0131-auth-renewal-and-ldh-containment.md) 明列的「授權地基長期正解」。
 
 ---
@@ -111,7 +111,7 @@ new_agent_id ∉ 名冊（裸模型 id）→ 視為「模型標籤」放行
 - `openapi.json`：預期零 diff（D6）；若 Phase 4 驗出 diff 則照規重生＋`api.ts` 同步。
 - SECURITY.md：**不進** Known Resolved（此為架構加固非弱點修復）；於新 ADR 記錄授權模型變更。
 
-## 8. 待擁有者裁決（審核時請一併回覆）
+## 8. 待維護者決定（審核時請一併回覆）
 
 - **Q1 owner 通道語意**：聯集（推薦，零回歸）vs 排他 owner 優先（ADR-0107 同構、隔離更嚴，但需重驗 heartbeat/共享 agent 場景與既有 DA3 測試面）？
 - **Q2 legacy NULL 的處置**：僅靠 Phase 5 手動 backfill（推薦，運維動作可控）vs runtime「首個 human 更新者自動認領」（NULL→值單向 claim；現行 NULL session 僅 admin/Debugger 可寫，claim 實質只會發生在 admin 身上，收益低且把公共 session 綁死，**不推薦**）？

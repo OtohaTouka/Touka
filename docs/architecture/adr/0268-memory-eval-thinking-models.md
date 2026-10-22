@@ -2,7 +2,7 @@
 
 - 狀態：✅ 已實作（評估工具與測試；5.5 真模型實測另經人類同意，排在 M1-d 重跑與本段合併之後，尚未執行）
 - 日期：2026-10-15
-- 決策者：Owner（10/15 核准 e1b 一頁計畫）
+- 決策者：維護者（2026-10-15 核准 e1b 計畫）
 - 影響範圍：`tests/smoke/manual/memory_eval_probe.py`、`tests/memory_eval/`（新 `live_bounds.py`；`judges.py`、
   `runner.py`、`scenarios.py`）、`docs/proxy/live-check-backlog.md`；產品程式 0 行
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：「5.5 思考關不掉」只對 Opus 5.5 成立（Sonnet 5.5 可送 `between_tools`、Haiku 5.5 可送 `disabled`，都要 effort ≤ high）；評估工具的送前估價改取分檔型號的貴檔（`_dearest_rate`，Haiku 5.5 仍 0.625／2.5），結清依實際提示長度選檔；工具改過，之後再跑要照新版重新取得同意

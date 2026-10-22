@@ -1,7 +1,7 @@
 # ADR-0232：模式確認與登入結果
 
 - 日期：2026-09-21
-- 狀態：Owner 授權修復，Root DEV-A = SUPERVISOR_ACCEPTANCE；完整來源驗證與 DEV-B 見本批最終收據。
+- 狀態：維護者授權修復，計畫經審查接受；完整來源驗證與最終審查見本批最終收據（未入版控）。
 - 範圍：Chat 的模式／登入生命週期，Proxy 初始管理員密碼交付失敗；未發布、未部署。
 
 ## 問題
@@ -20,8 +20,8 @@
 
 ## 驗證與限制
 
-G1–G9 見 `.cache/login-mode-repair-20260921-r1/DEV_A_PLAN_R1.md` 核准原件與 `FINAL_RECEIPT_R1.json` 最終結果。有效 RED 包含 default URL、Memory body／auth 分類、晚到 response/body、登入競態與初始交付失敗。頁面收到真 AuthRequestError 的接合測試與服務 wire 分類分開記錄，不冒稱人工 GUI。
+G1–G9 的核准計畫與最終結果記錄在未入版控的原件。有效 RED 包含 default URL、Memory body／auth 分類、晚到 response/body、登入競態與初始交付失敗。頁面收到真 AuthRequestError 的接合測試與服務 wire 分類分開記錄，不冒稱人工 GUI。
 
-Owner 確認舊普通帳戶仍可用原密碼登入，管理員識別是 admin@touka.io；真實管理員登入原因仍 UNKNOWN。本批不增加 raw bcrypt fallback、username alias、帳戶重設或秘密 log。獨立唯讀診斷工具只在合成資料驗證；真讀取另依 Owner 精確例外，與來源修復驗收分開。GUI 延期。
+維護者確認舊普通帳戶仍可用原密碼登入，管理員識別是 admin@touka.io；真實管理員登入原因仍 UNKNOWN。本批不增加 raw bcrypt fallback、username alias、帳戶重設或秘密 log。獨立唯讀診斷工具只在合成資料驗證；真讀取另依維護者的精確例外，與來源修復驗收分開。GUI 延期。
 
 回復只對本批來源 diff 作人工審閱後普通 revert，不回復或修改真實 users／密碼／data；前批 f613ee73 已提交，本批無 Git 提交或部署授權。

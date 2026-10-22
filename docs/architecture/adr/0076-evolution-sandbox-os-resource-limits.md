@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受（[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：隔離時 rlimit 由啟動器依 spec 套用，直接執行時仍由 preexec 套用；JailedWriter 照舊）
 **日期 (Date):** 2026-06-06
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 

@@ -23,7 +23,7 @@
     * 掃描只讀 metadata，開啟一般檔案後只做 `fstat` 身分／權限驗證，**不讀任何內容**。
     * symlink、Windows junction／任意 reparse point、hard link、identity race、解析或存取錯誤皆為決定性 violation；不得遍歷 redirect，因此不會進入 root `data/` 或 `ToukaProxy/data/`。
     * 診斷只輸出必要的 repo-relative path 與穩定 code，不輸出檔案內容或不必要的絕對路徑。
-    * Guard 只偵測與阻擋，不自動改 ACL、不刪除或搬移殘留；復原是 owner 核准的獨立人工維運程序。
+    * Guard 只偵測與阻擋，不自動改 ACL、不刪除或搬移殘留；復原是維護者核准的獨立人工維運程序。
 
 ## 後果 (Consequences)
 *   **優點**：解決了登出失效的安全漏洞；消除了「本地測試通過、部署失敗」的風險。

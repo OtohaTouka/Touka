@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證於 2026-07-04 完成、全綠——guard_all 38/38、後端 pytest 2672 passed/5 skipped、前端 vitest 934 passed；本 ADR 於 2026-07-05 補立；擁有者尚未 commit）**。本 ADR 是「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案的 **Phase 1**，延續工具介面重設計系列（[ADR-0119](0119-unified-tool-interface-redesign.md)/[ADR-0120](0120-async-command-approval.md)/[ADR-0121](0121-evolution-pipeline-merge.md)）。同提案的 P0「量尺」屬純測試層（未立 ADR，照多回合 eval 先例）；P1 因輕度重構 **runtime 事件流**，故正式立此 ADR。細部 TDD 拆解見 [`p1-telemetry-envelope-plan.md`](../proposals/p1-telemetry-envelope-plan.md)。
+✅ **已接受（實作與驗證於 2026-07-04 完成、全綠——guard_all 38/38、後端 pytest 2672 passed/5 skipped、前端 vitest 934 passed；本 ADR 於 2026-07-05 補立）**。本 ADR 是「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案的 **Phase 1**，延續工具介面重設計系列（[ADR-0119](0119-unified-tool-interface-redesign.md)/[ADR-0120](0120-async-command-approval.md)/[ADR-0121](0121-evolution-pipeline-merge.md)）。同提案的 P0「量尺」屬純測試層（未立 ADR，照多回合 eval 先例）；P1 因輕度重構 **runtime 事件流**，故正式立此 ADR。細部 TDD 拆解見 [`p1-telemetry-envelope-plan.md`](../proposals/p1-telemetry-envelope-plan.md)。
 
 ## 日期
 
@@ -14,7 +14,7 @@
 
 提案北極星＝提高模型調用工具的正確與成功率。介面層已由 ADR-0119~0121 收斂；P1 處理「調用的可觀測性骨幹」——先建**單一遙測封套**，讓後續 P2（模型面）/P3（人面）都消費同一份事實、不必返工。命名對齊 **OpenTelemetry GenAI semantic conventions**（`gen_ai.*` / `execute_tool` span），未來要接外部觀測工具免改生產端。
 
-事前以 2 個 Explore agent 完整測繪：後端事件流（上述缺口）＋前端**凍結契約**（[`connections.ts`](../../../ToukaChat/src/lib/connections.ts) 的 `customEventTypes` ＋ [`stream_tree.ts`](../../../ToukaChat/src/lib/stream_tree.ts) `applyEventToTree` 硬比對 `id`/`tool`/`args`/`status`/`result`/`chunk`）。據此界定：**輕度重構、wire 欄位凍結、只借 OTel 命名不引 SDK**。
+事前完整測繪：後端事件流（上述缺口）＋前端**凍結契約**（[`connections.ts`](../../../ToukaChat/src/lib/connections.ts) 的 `customEventTypes` ＋ [`stream_tree.ts`](../../../ToukaChat/src/lib/stream_tree.ts) `applyEventToTree` 硬比對 `id`/`tool`/`args`/`status`/`result`/`chunk`）。據此界定：**輕度重構、wire 欄位凍結、只借 OTel 命名不引 SDK**。
 
 ## 決策
 

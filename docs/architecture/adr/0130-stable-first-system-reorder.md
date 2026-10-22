@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2715 passed/4 skipped；擁有者尚未 commit）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 補上 [ADR-0129](0129-stable-prefix-split-caching.md)「範圍/邊界」明列的後續：把排在波動區塊之後的**穩定工具區塊**也納入跨回合快取前綴。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0129](0129-stable-prefix-split-caching.md)），為提案 P4「快取前綴」的收尾。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2715 passed/4 skipped）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 補上 [ADR-0129](0129-stable-prefix-split-caching.md)「範圍/邊界」明列的後續：把排在波動區塊之後的**穩定工具區塊**也納入跨回合快取前綴。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0129](0129-stable-prefix-split-caching.md)），為提案 P4「快取前綴」的收尾。
 
 ## 日期
 
@@ -35,7 +35,7 @@
 - **遙測相容**：重排只搬整塊；`context_breakdown` 逐 tag 解析（與位置無關）→ 各命名區塊分類與 token 計數不變，僅空白殘留（`system_other`）差 ~0 token。
 - **假設**：波動區塊為頂層 XML 邊界、不巢狀（與 `context_breakdown` 解析假設、`wrap_block` 不巢狀不變式一致）。
 - **驗收**：ruff（改動檔）＋lint_ssot 全清、**guard_all 38/38**（含 #21 模組邊界）、**pytest 2715 passed/4 skipped**（+7；重排六測＋breakdown 相容一測）。
-- **剩餘**：提案 P4 只餘**逐腦 emphasis 調校**與 **OTel exporter**（皆選配、擁有者未選；後者有本地優先/隱私張力）。快取前綴四層（工具＋persona＋穩定工具區塊＋波動後綴）至此收尾。
+- **剩餘**：提案 P4 只餘**逐腦 emphasis 調校**與 **OTel exporter**（皆選配、維護者未選；後者有本地優先/隱私張力）。快取前綴四層（工具＋persona＋穩定工具區塊＋波動後綴）至此收尾。
 
 ## 相關
 

@@ -14,7 +14,7 @@
 > 與 ToukaChat host 支援 `2026-07-28`。選定本機範圍已退役 legacy HTTP+SSE，相容期為歷史；
 > 保留 modern request-scoped SSE，OAuth、Tasks、MCP Apps 等各按其獨立能力閘宣告。
 >
-> **本文件性質**：這是實作計畫，不是已落地 ADR，也不預占 ADR 編號。每個實作批次通過 owner 核准後，才依連續編號規則建立 ADR、更新索引及對應 SSOT 文件。
+> **本文件性質**：這是實作計畫，不是已落地 ADR，也不預占 ADR 編號。每個實作批次通過維護者核准後，才依連續編號規則建立 ADR、更新索引及對應 SSOT 文件。
 >
 > **與既有提案的關係**：本計畫保留 [`mcp-connector-parity-and-auth-alignment.md`](mcp-connector-parity-and-auth-alignment.md) 已落地批次 1～3 與 ADR-0191／0192／0194 的歷史事實；但以 2026-07-28 正式規格與 Python SDK v2.0.0 重新定義尚未實作的 OAuth 批次 4、協定生命週期、server 遷移與 extension 路線。若兩份提案對未來工作有衝突，以本文件為準。
 
@@ -54,7 +54,7 @@ Resources、Prompts、Tools、Authorization 與各 Extensions 都不是 base pro
 5. **不得永久快取副作用工具呼叫**：`tools/call` 的完成結果不具備可重播或可共用語意。`ttlMs`／`cacheScope` 只適用規格列出的 list/read 結果，不能拿來合理化現有 `tools/call` 結果快取。
 6. **失敗必須可見**：transport error、JSON-RPC error、`isError=true`、`input_required`、task failure 與降級必須保留結構化差異，不得壓成「看似成功的文字」。
 7. **Creation Engine 保持唯一入口與不覆寫原則**：既有使用者生成 server 只做檢查與遷移報告；不得自動改寫、覆蓋或移動。
-8. **不自動修改 `data/`**：本案不包含任何既有 `data/` 遷移。未來 token/task/runtime state 的實體位置必須先由 owner 核准 SSOT，並透過 `ResourceManager` 或正式儲存抽象處理。
+8. **不自動修改 `data/`**：本案不包含任何既有 `data/` 遷移。未來 token/task/runtime state 的實體位置必須先由維護者核准 SSOT，並透過 `ResourceManager` 或正式儲存抽象處理。
 9. **HTTP redirect 預設關閉**：即使 SDK 範例預設 `follow_redirects=True`，Touka 仍依禁令 22 使用 `False`。若特定服務必要，必須驗證 `Location` 後套用具名 allowlist。
 10. **MCP 新 header 不得成為洩密旁路**：`Mcp-Method`、`Mcp-Name`、`MCP-Protocol-Version` 交由 SDK 產生；`x-mcp-header` 實際映射成 `Mcp-Param-*`，不會直接覆蓋 Authorization，但可能把敏感 tool argument 暴露給 proxy/access log。必須限制 annotation、數量、名稱、單值與總 bytes，疑似 secret/PII 預設停用並可由 owner 逐工具核准。
 11. **OAuth outbound policy 獨立於一般 remote URL 閘**：PRM、AS metadata、OIDC discovery、JWKS、CIMD/DCR、authorization/token/revocation endpoint 每一跳都要重新驗證；不得沿用只檢查 scheme/hostname、允許 DNS 殘餘風險的一般 helper。
@@ -92,7 +92,7 @@ Resources、Prompts、Tools、Authorization 與各 Extensions 都不是 base pro
 | `grok_imagine_server.py`、整合測試 stub 使用 `FastMCP` | 升 v2 import 即中斷 | 同步改用 `MCPServer`，並驗證 structured output 與錯誤語意 |
 | `services/creation/scaffold.py` 生成 v1 `FastMCP` | 新建立的 server 會一出生就過時 | scaffold 改生 v2；產物 manifest 記錄生成器與 MCP SDK major |
 | `services/creation/smoke.py` 以 stdio＋`ClientSession.initialize()` | 只能驗證舊協定，且 smoke 與正式 client 重複生命週期邏輯 | 改用共用 client adapter；至少驗證 modern auto 與 legacy compatibility |
-| 既有 `config/mcp_servers/*` 產物可能含 v1 import | Python 單一環境升 v2 後會立即失效，Creation 主權又禁止自動覆寫 | P0 升版前唯讀掃描並設 cutover gate；owner 手動修正/停用，或核准隔離 v1 runner |
+| 既有 `config/mcp_servers/*` 產物可能含 v1 import | Python 單一環境升 v2 後會立即失效，Creation 主權又禁止自動覆寫 | P0 升版前唯讀掃描並設 cutover gate；維護者手動修正/停用，或核准隔離 v1 runner |
 
 ### 3.4 ToukaIDE Node MCP server
 
@@ -209,7 +209,7 @@ McpOperationOutcome
 
 > **實作狀態（2026-07-30，ADR-0197）**：P0 已收官。characterization matrix、
 > v1 raw-wire、唯讀 inventory、generated-artifact／跨 principal／P2 fail-closed
-> gate、lock/config fixture 與 sandbox rollback runner 均已落地；owner 明示接受
+> gate、lock/config fixture 與 sandbox rollback runner 均已落地；維護者明確接受
 > 本機 content-addressed digest，live smoke 已通過 Proxy／Heartbeat／Chat 探針並
 > 完整清理隔離資源。P0 inventory 腳本與 rollback runner 已依 ADR-0238 刪除，本段僅為歷史。
 
@@ -221,10 +221,10 @@ McpOperationOutcome
    - Python `mcp.*` imports、`FastMCP`、camelCase attribute、`initialize()`、legacy HTTP+SSE、`httpx` 例外與 monkeypatch target；
    - ToukaIDE Node SDK、SSE transports、package lock、IDE tests/build；
    - Docker/CI/release workflow、外部 Dispatch guide/skill、架構圖、README/API docs。
-4. 唯讀掃描所有 registry command 與 `config/mcp_servers/*` 既有生成產物。含 v1-only import 者列出 owner action：手動修正、停用，或核准隔離 v1 runner；任何未處置 blocker 都禁止 P2。
+4. 唯讀掃描所有 registry command 與 `config/mcp_servers/*` 既有生成產物。含 v1-only import 者列出維護者待處置項：手動修正、停用，或核准隔離 v1 runner；任何未處置 blocker 都禁止 P2。
 5. 建立前一版 immutable image＋lock＋config fixture，實跑 downgrade/rollback smoke。
 6. 新增跨 principal 安全紅燈：private catalog、handle、tool result 不可共享。
-7. owner 決定 §9；未決項用 fail-closed 預設。
+7. 維護者決定 §9；未決項用 fail-closed 預設。
 
 **驗收**
 
@@ -365,7 +365,7 @@ McpOperationOutcome
 3. `/mcp` 使用 Streamable HTTP；`/sse`＋messages 以獨立 compat namespace/endpoint 保留，不共用未分面 transport session state。
 4. 保持 loopback default、compose 顯式升開、supervisor/watchdog 與 callback安全。
 5. `DISPATCH_URL` 契約、外部 guide、外部 dispatch skill、架構圖與 README 同批改成 modern endpoint；compat 指引保留期限。
-6. 先加 telemetry 再倒數 sunset：anonymous connection、成功 handshake caller type、last-used、protocol/transport；觀察持久性與期限由 owner 決定。
+6. 先加 telemetry 再倒數 sunset：anonymous connection、成功 handshake caller type、last-used、protocol/transport；觀察持久性與期限由維護者決定。
 
 **驗收**
 
@@ -520,7 +520,7 @@ McpOperationOutcome
 
 **選配 P7-B：durable MRTR**
 
-只有 owner 明示要求「跨頁面/worker/restart續接」且 Tasks 不適用時另立 ADR。store 必須綁 original canonical request/args digest、human＋AgentIdentity、session、installation generation、method、protocol era、原 Gate2/auth level、round、expected keys/schema hash、expiry；前端只拿 local handle；CAS `pending→consuming` 在 upstream I/O 前完成，continue 不接受替換 args，每輪重驗授權。此選案不是 base migration 預設。
+只有維護者明確要求「跨頁面/worker/restart續接」且 Tasks 不適用時另立 ADR。store 必須綁 original canonical request/args digest、human＋AgentIdentity、session、installation generation、method、protocol era、原 Gate2/auth level、round、expected keys/schema hash、expiry；前端只拿 local handle；CAS `pending→consuming` 在 upstream I/O 前完成，continue 不接受替換 args，每輪重驗授權。此選案不是 base migration 預設。
 
 **驗收**
 
@@ -537,7 +537,7 @@ McpOperationOutcome
 - `ApprovalService` 已泛化為 schema/payload interaction broker；ToukaChat 只接
   local `mcpint_*` ID 與扁平 primitive form，accept/decline/cancel 分流。
 - 三種 operation、timeout/round/bytes/cancel/revocation/headless/unsupported
-  均有回歸鎖。P7-B 未經 owner 明示核准，未建立 durable store 或 continuation API。
+  均有回歸鎖。P7-B 未經維護者明確核准，未建立 durable store 或 continuation API。
 
 ### P8｜OAuth 核心授權與 authorization extensions
 
@@ -562,7 +562,7 @@ McpOperationOutcome
 lifespan／OAuth route smoke 亦已通過；smoke 揭露的 dev Compose `--no-access-log` 覆寫漂移已
 TDD 修復。
 
-第 1 輪審查另確認並修正：所有 OAuth 外連前 dynamic authority fence、none/static 零
+審查另確認並修正：所有 OAuth 外連前 dynamic authority fence、none/static 零
 key/DB I/O、每 request 私網 CIDR、query callback 所有失敗路徑 history scrub、active
 worker lease、encrypted-row corruption fail-loud，以及 return-boundary 撤權的 exact-grant
 freeze。
@@ -582,7 +582,7 @@ freeze。
 pre-egress audit outbox、boot-local exact permit、revocation/rotation/recovery、direct/owner authority、
 ProtocolManager immutable ticket＋handle partition、P8-A source-disconnect fence、admin/owner API、
 OpenAPI/generated types、ToukaChat control UI 與 backup/restore 邊界。enterprise 仍未實作且
-fail-closed。第 2 輪後再以 TDD 補 durable admission、單一 mutation coordinator、final OAuth POST
+fail-closed。之後再以 TDD 補 durable admission、單一 mutation coordinator、final OAuth POST
 binding、bounded replay、typed transition reconcile 與 owner-safe API。此段只記錄當時 checkpoint，不代表現況。
 
 **目前落地狀態（2026-08-11）**：後續修復、驗證與文件已收斂，P8-B implementation 已提交為
@@ -600,7 +600,7 @@ commit 自動啟用。
 
 **目前 gate（2026-08-10 重新查證）**：本地鎖定的 `mcp==2.0.0` 沒有可用 Tasks public symbols；
 官方 Python SDK 的 `ext-tasks` 仍標為 experimental／under development。因此 P9 維持 **HOLD**，
-只在官方 Python SDK 提供穩定 SEP-2663 支援，或 owner 明示核准並承擔 low-level adapter 時重開；
+只在官方 Python SDK 提供穩定 SEP-2663 支援，或維護者明確核准並承擔 low-level adapter 時重開；
 此 gate 不阻擋 base conformance。
 
 **工作**
@@ -646,7 +646,7 @@ commit 自動啟用。
 ### P11｜Rollout、sunset 與終局稽核
 
 **現況（2026-10-08）**：legacy sunset 已依 ADR-0221 完成——Dispatch `/sse`、IDE `/mcp/sse`／
-`/mcp/messages` 退役回 404，modern request-scoped SSE 保留；Owner 已確認所有 client 只在同一本機、
+`/mcp/messages` 退役回 404，modern request-scoped SSE 保留；維護者已確認所有 client 只在同一台機器上、
 沒有舊版使用需求。原 P11 為發版建立的 rollout evidence producer／ledger／oracle（ADR-0211～0213）、
 trusted verifier 與 qualification receipt（ADR-0215）、release authority（ADR-0216／0217）、本機發版
 profile 與冷切換／升級程序（ADR-0220／0221 發行部分、ADR-0225～0227）已依 ADR-0238 整體刪除，
@@ -705,7 +705,7 @@ profile 與冷切換／升級程序（ADR-0220／0221 發行部分、ADR-0225～
 1. 優先接官方 MCP conformance suite；本地 fixture 只補 Touka 的身分、Gate、cache 與 UI 邊界。
 2. CI 不依賴真 OAuth；使用本地 mock issuer/resource server。
 3. Python 與 Node 自有 server 都要有實際協定 smoke（sandbox 整合測試）；TCP readiness 不算協定驗收。
-4. 每個支援層至少有一個 owner 手動 live smoke，但未實測的 provider 不宣稱可用。
+4. 每個支援層至少有一次維護者手動 live smoke，但未實測的 provider 不宣稱可用。
 5. smoke 永遠使用 sandbox env，不讀寫實體 `data/`。
 
 ## 7. 設定與 API 遷移
@@ -732,13 +732,13 @@ profile 與冷切換／升級程序（ADR-0220／0221 發行部分、ADR-0225～
 - Tasks list/local-status/respond/cancel（P9）；
 - App instance bootstrap/revoke（P10）。
 
-P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker，不建立可列舉的 MRTR continuation API。只有 owner 核准 P7-B durable MRTR 時，才新增 local pending/respond/cancel endpoint；前端永遠不得取得上游 `requestState`。
+P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker，不建立可列舉的 MRTR continuation API。只有維護者核准 P7-B durable MRTR 時，才新增 local pending/respond/cancel endpoint；前端永遠不得取得上游 `requestState`。
 
 所有 endpoint 都要有明確 auth dependency、response model、ErrorCode SSOT 與 `/v1` parity；frontend 只能透過 `fetchTouka` 與 generated contract。
 
 ### 7.3 Runtime state 主權
 
-預設 P7 不持久化 MRTR continuation。OAuth credential、MCP task、app consent/instance，以及 owner 選配的 durable MRTR 都需要各自的儲存合約，不可塞進 `server_config.json` 或共用一張無 discriminator 的表。每個 store 必須定義：
+預設 P7 不持久化 MRTR continuation。OAuth credential、MCP task、app consent/instance，以及選配的 durable MRTR 都需要各自的儲存合約，不可塞進 `server_config.json` 或共用一張無 discriminator 的表。每個 store 必須定義：
 
 - owner/principal key；
 - installation ID/generation 與精確 resource/issuer/origin binding；
@@ -749,7 +749,7 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 - backup/restore；
 - 刪除與「disconnect」語意。
 
-實體位置與加密方案是 owner 決策點；在核准前不得實作成 `data/` 下的方便 JSON。
+實體位置與加密方案是維護者的決策點；在核准前不得實作成 `data/` 下的方便 JSON。
 
 ## 8. 風險、制衡與回滾
 
@@ -757,7 +757,7 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 |---|---|---|
 | Python v2 原子切換仍一次破壞大量 import/test doubles | P0 全 repo/generated artifact inventory、P1 canonical boundary、精確 pin、同批修完 v1-only import | 部署 previous immutable image＋舊 lock/config；不以 `legacy` mode 假裝 package rollback |
 | uv 單一 workspace 出現不可執行的中間 commit | P2 dependency/import/scaffold/server constructor 同一原子批次，容器 import gate | 整批回退至上一 image，不混裝 v1/v2 |
-| 既有 Creation Engine 產物在共享 Python 環境失效 | P0 唯讀掃描與 cutover blocker；owner 手動修正/停用或核准隔離 runner | 不執行 P2；絕不自動覆寫產物 |
+| 既有 Creation Engine 產物在共享 Python 環境失效 | P0 唯讀掃描與 cutover blocker；維護者手動修正/停用或核准隔離 runner | 不執行 P2；絕不自動覆寫產物 |
 | ToukaIDE 被 Python 遷移範圍漏掉 | P0 Node inventory、P4-B 獨立 SDK/transport/test/build gate | 保留已驗證 IDE 舊 image/endpoint，禁止宣稱自有 server 全遷移 |
 | legacy fallback 掩蓋 modern 壞掉 | health 顯示 negotiated version、modern-only CI case | per-server pin modern 找出問題 |
 | SDK/Touka 雙 cache 導致 stale 或跨人 | 初期 `cache=None`、單一 cache owner | 全關 cache/listener |
@@ -820,16 +820,16 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 - [x] P5 Tools／Resources／Prompts、pagination、Schema 2020-12（ADR-0203）
 - [x] P6 cache scope/TTL、subscriptions、headers、icons、OTel（ADR-0204）
 - [x] P7 SDK-managed ephemeral MRTR＋HITL（實際採同 coroutine 低階 driver；ADR-0205）
-- [ ] P7-B durable MRTR（僅 owner 明示核准）
+- [ ] P7-B durable MRTR（僅在維護者明確核准時）
 - [x] P8-A 互動式 OAuth（ADR-0206；已 commit）
 - [x] P8-B workload client credentials／owner heartbeat delegation（ADR-0207／0208；implementation commit `8e9c59a5`）；enterprise／SSO 與其他未支援模式延後另案
-- [ ] P9 Tasks（HOLD；等待官方穩定 SDK 支援或 owner 明示核准 low-level adapter）
-- [ ] P10 MCP Apps（owner gate）
+- [ ] P9 Tasks（HOLD；等待官方穩定 SDK 支援或維護者明確核准 low-level adapter）
+- [ ] P10 MCP Apps（待維護者決定）
 - [x] P11 legacy sunset（ADR-0221 modern-only）；原 rollout evidence／qualification／release authority／冷切換機制已依 ADR-0238 刪除
 - [x] 已完成 phase 依變更面同步文件／合約
 - [x] ToukaIDE `0.3.0`來源整合、原始一次建置VSIX與Windows Stable隔離CLI安裝／版本回讀（PR56；source `ff711dc622ee76274289af993d5530a85af780a0`）
-- [x] ToukaIDE `0.3.0`發布前Owner Windows GUI／network見證、既有Marketplace登入／單次upload、公開VSIX原bytes回讀及新profile Marketplace安裝／版本回讀
-- [x] ToukaIDE `0.3.0`發布後新profile實際Windows GUI／network四項由Owner回報通過（Windows Stable 1.137.0／x64）
+- [x] ToukaIDE `0.3.0`發布前在 Windows 上的 GUI／network 人工見證、既有Marketplace登入／單次upload、公開VSIX原bytes回讀及新profile Marketplace安裝／版本回讀
+- [x] ToukaIDE `0.3.0`發布後新profile實際Windows GUI／network四項經人工回報通過（Windows Stable 1.137.0／x64）
 
 ## 12. 官方依據（2026-07-30 查證）
 
@@ -850,7 +850,7 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 
 ## 13. 對抗式複審紀錄
 
-> 2026-07-30 初稿完成後，由三個獨立 subagent 只讀檢查；主線再逐項對照官方規格、SDK 文件與 Touka 現況。複審沒有修改程式碼或 `data/`。
+> 2026-07-30 初稿完成後，由三位獨立審查者唯讀檢查，再逐項對照官方規格、SDK 文件與 Touka 現況。複審沒有修改程式碼或 `data/`。
 
 | reviewer | 對抗面 | 發現 |
 |---|---|---|
@@ -864,7 +864,7 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 2. P1 只建立 SDK-neutral canonical model；v1 無法證明的 scalar/array/null structured output 與 `resultType` wire conformance 移到 P3。
 3. Python SDK v2 改為單一原子 cutover：依賴、所有 v1-only import、Creation scaffold/smoke、Grok、Dispatch constructor 與 container import gate 同批完成。
 4. 把 ToukaIDE 納入正式範圍，獨立安排 Node SDK v2、Streamable HTTP、Bearer/HITL 與 legacy endpoint 雙掛。
-5. 把 existing Creation Engine 產物列為 P0 cutover blocker；只能報告並由 owner 手動處置，或另核准隔離 v1 runner。
+5. 把 existing Creation Engine 產物列為 P0 cutover blocker；只能報告並由維護者手動處置，或另核准隔離 v1 runner。
 6. 把 installation metadata 與 authenticated runtime handle 拆成 `InstallationState`／`HandlePool`；認證連線改 request-time lazy connect。
 7. 明確區分 deprecated legacy HTTP+SSE transport 與 modern Streamable HTTP 合法的 request-scoped SSE response。
 8. MRTR 預設採 SDK-managed ephemeral callback，callback 綁 exact request context 並在 SDK retry 前重新授權；不持久化或對前端暴露 `requestState`。
@@ -877,7 +877,7 @@ P7 預設的 SDK-managed ephemeral MRTR 重用 Touka interaction/approval broker
 
 ### 13.2 部分接受
 
-- reviewer 建議以低階 `allow_input_required=True` 完全手動驅動 MRTR。計畫保留 SDK 高階 callback 作預設，因 v2 SDK 會自動 consume/retry；但加入硬閘：若無法證明 callback 後、retry 前完成 Touka 重新授權，就改用**同 coroutine、非持久化**的低階 driver。跨 restart durable driver 另列 P7-B，必須 owner 明示核准。
+- reviewer 建議以低階 `allow_input_required=True` 完全手動驅動 MRTR。計畫保留 SDK 高階 callback 作預設，因 v2 SDK 會自動 consume/retry；但加入硬閘：若無法證明 callback 後、retry 前完成 Touka 重新授權，就改用**同 coroutine、非持久化**的低階 driver。跨 restart durable driver 另列 P7-B，必須經維護者明確核准。
 
 ### 13.3 未接受
 

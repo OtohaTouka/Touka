@@ -1,9 +1,9 @@
 # 提案：原生工具介面重設計（讓 AI agent 少調用失敗／幻覺）
 
-> 狀態：**Tier 1–3 全部落地（2026-07-04）、已收斂為 [ADR-0119](../adr/0119-unified-tool-interface-redesign.md)。** 方向 2026-07-03 與使用者定案；三輪 eval 量測見 §11（Tier 3 後：grok 100%／deepseek 83.3%·選錯 5%）。本文件保留為設計依據與逐層落地紀錄。
+> 狀態：**Tier 1–3 全部落地（2026-07-04）、已收斂為 [ADR-0119](../adr/0119-unified-tool-interface-redesign.md)。** 方向 2026-07-03 由維護者定案；三輪 eval 量測見 §11（Tier 3 後：grok 100%／deepseek 83.3%·選錯 5%）。本文件保留為設計依據與逐層落地紀錄。
 > 已決策：①檔案家族統一為 **9 顆裸動詞工具＋scope 必填 enum**（§6）；②soul **讀統一、寫獨立**（保留專屬 `edit_soul`）；③eval 以**手動腳本、先「只選不執行」**接 DebugAgent 實測（§8）。
 > 收斂：本提案已於 2026-07-04 收斂為 [ADR-0119](../adr/0119-unified-tool-interface-redesign.md)（原生工具介面重設計）。
-> 約束：**由人類 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 的資料；**嚴禁自動修改 `data/`**。
+> 約束：**由維護者 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 的資料；**嚴禁自動修改 `data/`**。
 > 佐證：本提案基於一次對 `ToukaProxy/src/tools/**` 與 middleware/handler 的實地稽核（file:line 見下），以及 Anthropic《Writing tools for agents》、OpenAI function-calling、MCP tools spec 的公認準則。
 
 ---
@@ -93,7 +93,7 @@
 
 > ⚠️ 這一層會動工具名，屬破壞性，**建議 eval（見 §8）先錄基準、綠燈後再做**，並以「舊工具當 shim 轉呼新工具」雙軌過渡。
 
-**核心設計（採使用者提案）：檔案家族統一成裸動詞工具，`scope` 是每次調用的必填 enum 參數。**
+**核心設計（採維護者提案）：檔案家族統一成裸動詞工具，`scope` 是每次調用的必填 enum 參數。**
 
 > 原則一句話：**參數形狀由「動詞」決定，權限由「scope」決定。**
 > god-tool 的病根是「參數隨 action 變」（模型猜不到哪個 action 配哪些參數）；一動詞一工具後，每顆工具的 schema 固定，`scope` 永遠不改變參數形狀——它是「好的 enum」。
@@ -185,7 +185,7 @@
 - **Tier 1 / Tier 2 可直接做**（加法、改錯誤呈現），風險低。
 - **Tier 3 雙軌**：新工具與舊工具並存一段時間；舊工具實作改為 **shim → 轉呼新工具**（零重複邏輯）；模型因描述更清會自然偏好新工具；待 eval 綠燈且無 skill 依賴舊名，再軟下架。
 - **每一步都跑** `ruff` + `lint_ssot` + `guard_all`（37）+ `pytest`（2485）+ `vitest`。
-- **人類 commit**；**DebugAgent-only**；**不碰 `data/`**。
+- **由維護者 commit**；**DebugAgent-only**；**不碰 `data/`**。
 
 ---
 
@@ -268,19 +268,19 @@
   環境性失敗）、guard_all 37/37。
 - ✅ **eval select-only LIVE runner 已就緒**（`tests/tool_eval/live_select_only.py` ＋
   `scripts/record_tool_eval_baseline.py`；dry-run 驗證通過：DebugAgent:Owner 廣告
-  20 工具、Base 0 工具）。⚠️ **基準尚未錄**：`.env` 目前只有佔位金鑰（`sk-new`），
+  20 工具、Base 0 工具）。⚠️ **基準尚未錄**：當時環境只有佔位金鑰，
   待放入真實金鑰後跑 `python scripts/record_tool_eval_baseline.py --model <id>`。
   Tier 1 不動 schema，此刻錄的基準對 Tier 2/3 仍有效。
 - 📌 附帶發現（未修，另行處理）：pipeline 中 ContextLayer 先於 ToolLayer 執行，
   故 ToolLayer 設定的 `mission_awareness` 疑似從未被 ContextLayer 渲染（潛在既有
   bug，與本提案無關）。
 
-**已決策（2026-07-03 與使用者確認）**：
-1. ✅ **Tier 3 採「統一動詞＋scope」**（使用者提案，取代本提案初稿的 `read_codebase`/`read_vault` 命名法）——9 動詞完整版（含 `insert`/`undo`；`append` 併入 `write(mode)`）。
+**已決策（2026-07-03 經維護者確認）**：
+1. ✅ **Tier 3 採「統一動詞＋scope」**（維護者提案，取代本提案初稿的 `read_codebase`/`read_vault` 命名法）——9 動詞完整版（含 `insert`/`undo`；`append` 併入 `write(mode)`）。
 2. ✅ **soul/config 讀統一、寫獨立**：讀取類動詞開放 `scope=soul`；寫入保留專屬 `edit_soul`（儀式感＋審計＋HITL）。
 3. ✅ **eval 接 DebugAgent 實測**：手動腳本、第一版「只選不執行」（見 §8）。
 
-**殘餘開放項（採預設，除非使用者反對）**：
+**殘餘開放項（採預設，除非維護者反對）**：
 1. Tier 1 的 Gate 1 策略：預設採 **(b)**——對「存在但被拒」的工具，在 context 給模型一句可讀說明（見 §4 Tier 1 第 2 點）。
 2. Tier 3 過渡方式：預設採**舊工具 shim 雙軌**（舊名轉呼新工具，eval 綠燈後軟下架），非一次切換。
 

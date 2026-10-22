@@ -1,6 +1,6 @@
 # 模型溝通層實測待辦（live check backlog）
 
-模型層 1a～3b 與 4a 全部只用 mock 與本機 loopback 驗證（[ADR-0248](../architecture/adr/0248-model-layer-stage-3b.md)、[ADR-0249](../architecture/adr/0249-model-layer-stage-4a-4b.md)）。這份清單列出下一段要對真廠商驗的事。**本檔不是授權**：每一批都會向廠商送請求、可能計費，照禁令 61（ADR-0214）在執行前把下表的揭露欄位填成精確值，取得 Owner 對那一批（或明列的有限批次）的同意後才跑；不得放進 pytest、Vitest、smoke runner、CI 或守衛，也不得未經同意改用備援或重試。不確定會不會計費時，一律當成會計費。
+模型層 1a～3b 與 4a 全部只用 mock 與本機 loopback 驗證（[ADR-0248](../architecture/adr/0248-model-layer-stage-3b.md)、[ADR-0249](../architecture/adr/0249-model-layer-stage-4a-4b.md)）。這份清單列出下一段要對真廠商驗的事。**本檔不是授權**：每一批都會向廠商送請求、可能計費，照禁令 61（ADR-0214）在執行前把下表的揭露欄位填成精確值，取得維護者對那一批（或明列的有限批次）的同意後才跑；不得放進 pytest、Vitest、smoke runner、CI 或守衛，也不得未經同意改用備援或重試。不確定會不會計費時，一律當成會計費。
 
 ## 共同規則
 
@@ -15,14 +15,14 @@
 |---|---|---|---|---|---|---|---|---|
 | **L1** Gemini 自寫串流 | thoughtSignature 跨工具輪原樣回送；SSE 是否用 CRLF、usageMetadata 是否每個 chunk 都帶（重建 fixture 是推測，ADR-0248）；最後一個 chunk 的 finishReason 與用量；長思考時第一個事件前的等待時間，以及首事件之後、長思考期間的最長位元組間隔（閒置 60 秒是推測值） | 新寫工具輪 probe（待寫）；單次文字可用 `live_chat_probe.py --provider gemini` | Gemini | 待定（例：`gemini-2.5-flash`） | 文字 1＋工具輪 2 請求；重試 0 | 每請求輸出 ≤128（工具輪 ≤256）；總請求 ≤3 | 合成 prompt＋1 個假工具 schema；不含真實對話 | 程序專屬 sandbox |
 | **L2** DeepSeek／Grok 相容串流 | 是否收 `stream_options.include_usage`、用量在哪個 chunk；`reasoning_content` delta；工具 index；第一個事件前的等待時間；首事件之後（例如只送 role chunk 之後）長思考期間的最長位元組間隔；KF-8 修正後仍收得下 | `live_chat_probe.py`（文字）＋新寫工具輪 probe（待寫） | DeepSeek、Grok（各一批） | 待定 | 每家文字 1＋工具輪 2；重試 0 | 每請求輸出 ≤128；每家 ≤3 請求 | 同 L1 | 同 L1 |
-| **L3** Claude 串流 | 長思考時閒置 60 秒（推測值）不誤觸；ping 實際間隔；取消後連線關閉、取消的輸出計不計費；`max_tokens` > 21,333 串流不被壓；default_on 思考型號的 8,192 下限（ADR-0247） | 新寫長思考與取消 probe（待寫） | Anthropic | 待定（需 default_on 思考型號一個） | 長思考 1、取消 1、大上限 1；重試 0 | 大上限那筆輸出上限待 Owner 定（最貴的一筆，另列金額） | 合成長推理題；不含真實對話 | 同 L1 |
+| **L3** Claude 串流 | 長思考時閒置 60 秒（推測值）不誤觸；ping 實際間隔；取消後連線關閉、取消的輸出計不計費；`max_tokens` > 21,333 串流不被壓；default_on 思考型號的 8,192 下限（ADR-0247） | 新寫長思考與取消 probe（待寫） | Anthropic | 待定（需 default_on 思考型號一個） | 長思考 1、取消 1、大上限 1；重試 0 | 大上限那筆輸出上限待維護者定（最貴的一筆，另列金額） | 合成長推理題；不含真實對話 | 同 L1 |
 | **L4** 重試 | 只在自然遇到 429／529 時觀察 `retry-after`／`retry-after-ms` 與退避，不做壓力觸發 | 不另跑；只看 L1～L3、L5 執行中的日誌 | — | — | 0 | 0 | — | — |
 | **L5** OpenAI Responses | 真 API 事件形狀與 `: ping`；回送鍵集合（含 `status` 等只出現在輸出的欄位）會不會被拒；加密 reasoning 第 2 輪回送；completed 沒帶 output 的情況；第一個事件前的等待時間，以及 `response.created` 之後、長思考期間的最長位元組間隔（R-3b ② M2：生命週期事件之後是否沉默） | `live_chat_probe.py --provider openai`（文字）＋新寫工具輪 probe（待寫） | OpenAI | 待定（規則表標 `uses_responses_api` 的型號） | 文字 1＋工具輪 2；重試 0 | 每請求輸出 ≤128 | 同 L1 | 同 L1 |
 | **L6** Claude 插話格式 | 規則表 `mid_conversation_system=True` 的型號（Opus 5、Opus／Sonnet／Haiku 5.5、Opus 4.8、Fable、Mythos 5／5.1；Mythos Preview 為 False）在工具結果之後收 system 訊息會不會被拒、模型有沒有照做；Haiku 5.5 的官方資料兩處說法不一（managed-agents 文件列為支援、prompt-caching 頁沒列），規則表暫列 True，要實測；其他型號在 tool_result 後加 text block 的反應；urgent 那一輪 `tool_choice=none` 時是否先用文字回應 | 新寫插話 probe（待寫） | Anthropic | 待定（兩種規則各一個型號） | 每型號工具輪 2 請求；重試 0 | 每請求輸出 ≤256 | 合成 prompt＋1 個假工具 schema＋合成插話句；不含真實對話 | 同 L1 |
-| **L7** 相容、Gemini、Responses 插話格式 | tool 訊息後的 user 訊息（DeepSeek、Grok）、functionResponse 同一個 content 的 text part（Gemini）、function_call_output 後的 user input item（Responses）會不會被拒、模型有沒有看見 | 同 L6 | DeepSeek、Grok、Gemini（Responses 沒有額度，只列待辦） | 待定 | 每家工具輪 2 請求；重試 0 | 每請求輸出 ≤256；每家 ≤2 請求 | 同 L6 | 同 L1 |
-| **L8** 打斷後的訊息形狀與計費 | 串流中途取消後，接在原本提問（或上一批工具結果）之後的插話訊息會不會被拒：Claude 併進同一則 user 訊息、OpenAI 相容另起 user、Gemini 加 text part；取消那一輪的用量回報與計費（併入 L3 的取消觀察）；沒有 tools 的請求不送 `tool_choice` 是否被接受；工具邊界插話後又被打斷時，Claude 併成一則中途 system 是否被接受 | 新寫打斷 probe（待寫） | Anthropic、DeepSeek、Grok、Gemini（各一批；Responses 沒有額度） | 待定 | 每家串流中途取消 1＋續送 1；重試 0 | 每請求輸出 ≤256 | 同 L6 | 同 L1 |
+| **L7** 相容、Gemini、Responses 插話格式 | tool 訊息後的 user 訊息（DeepSeek、Grok）、functionResponse 同一個 content 的 text part（Gemini）、function_call_output 後的 user input item（Responses）會不會被拒、模型有沒有看見 | 同 L6 | DeepSeek、Grok、Gemini（Responses 未安排，只列待辦） | 待定 | 每家工具輪 2 請求；重試 0 | 每請求輸出 ≤256；每家 ≤2 請求 | 同 L6 | 同 L1 |
+| **L8** 打斷後的訊息形狀與計費 | 串流中途取消後，接在原本提問（或上一批工具結果）之後的插話訊息會不會被拒：Claude 併進同一則 user 訊息、OpenAI 相容另起 user、Gemini 加 text part；取消那一輪的用量回報與計費（併入 L3 的取消觀察）；沒有 tools 的請求不送 `tool_choice` 是否被接受；工具邊界插話後又被打斷時，Claude 併成一則中途 system 是否被接受 | 新寫打斷 probe（待寫） | Anthropic、DeepSeek、Grok、Gemini（各一批；Responses 未安排） | 待定 | 每家串流中途取消 1＋續送 1；重試 0 | 每請求輸出 ≤256 | 同 L6 | 同 L1 |
 
-**L5 目前沒有額度**（沒有 OpenAI API 額度），只列待辦；GPT 登入不在下一段。
+**L5 目前未安排**，只列待辦；GPT 登入不在下一段。
 
 ## 記憶長期穩定性（M1／M2）
 

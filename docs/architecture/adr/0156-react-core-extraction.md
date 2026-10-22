@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（提案 [react-core-extraction](../proposals/react-core-extraction.md) owner 核准；拍板 K1=keepalive 維持 claude-only、K2=Honesty Guard 維持 gemini-only、K3=Gemini reasoning 另案、K4=新 `adapters/` 套件、K5=假時鐘＋固定 request_id；人類逐階段 commit）
+✅ 已接受（提案 [react-core-extraction](../proposals/react-core-extraction.md) 維護者核准；決定 K1=keepalive 維持 claude-only、K2=Honesty Guard 維持 gemini-only、K3=Gemini reasoning 另案、K4=新 `adapters/` 套件、K5=假時鐘＋固定 request_id）
 
 - 2026-10-12：`extract_usage` 對原生 Anthropic 出口回空用量（不記帳）的凍結舊制，已由 [ADR-0244](0244-model-layer-stage-1b.md) 修訂為照常記帳、只是不送 Touka 的 `token_usage` 事件（原生出口 wire 不變）。
 - 2026-10-13：`send_round` 不再 yield「gemini 503 重試的 `touka_status`」——重試與重試狀態文字改由 react_core 產生，adapter 每次只送一次（由 [ADR-0248](0248-model-layer-stage-3b.md) 修正；Claude keepalive 早已由 ADR-0157 K1 移進核心）。
@@ -45,12 +45,12 @@
 - **行為**：30 golden 零位元組變動＝下游 SSE 契約（ADR-0081 重播/Guard #38/ThinkingFold）零影響；openapi/api.ts 零變動。
 - **文件化的刻意微差**（各 adapter docstring 存檔）：①gemini 舊碼以「收到 log 事件」置 `has_tool_call` 才寫回工具輪歷史——生產 ToolExecutor 每工具必發 log＝該邊生產不可達，核心改「執行即寫回」；②claude 舊碼把 thinking 包 `<thinking>` 累積進 write-only 變數（無讀取點）＝不再複製；③claude 舊碼按 content block 順序交錯發射 thinking/text，核心改 reasoning 全先於 text——Anthropic 現行 wire 形狀 thinking 恆在前＝生產順序不變。
 - **測試面**：patch 靶點隨 adapter 邊界遷移（httpx/cache/asyncio 代理→adapter 模組、時鐘/ToolExecutor→react_core，計 17 檔）；三個靜態矩陣（hallucination/memory_signal/drift_c5/code_review）收斂為 react_core 單條目。
-- **已知遺留（皆 owner 另案，非本案範圍）**：Gemini reasoning thought-parts（K3；新架構下＝改一個 `parse_round`）；keepalive/Honesty Guard 推廣三家（K1/K2 後續小案）；gemini 誠實矯正輪注入上游的文案仍教 `query_memory`/`access_personal_drive` 舊名（模型面 prompt 文字，行為凍結原樣移植；ADR-0155 D3 修的是下游警告文案）。
+- **已知遺留（皆另案處理，非本案範圍）**：Gemini reasoning thought-parts（K3；新架構下＝改一個 `parse_round`）；keepalive/Honesty Guard 推廣三家（K1/K2 後續小案）；gemini 誠實矯正輪注入上游的文案仍教 `query_memory`/`access_personal_drive` 舊名（模型面 prompt 文字，行為凍結原樣移植；ADR-0155 D3 修的是下游警告文案）。
 - **驗收終態**：pytest 全套 **3521 passed**／goldens **30/30 零 diff**／guard_all **41/41**／lint_ssot clean／ruff 基線持平（改動檔零新增）／NOQA 淨增 2（E0 golden 錄製/讀取站，registry 199 已入帳）。
 
 ## 相關
 
-- 提案：[react-core-extraction](../proposals/react-core-extraction.md)（K1–K5 拍板、階段規劃、風險清單）
+- 提案：[react-core-extraction](../proposals/react-core-extraction.md)（K1–K5 決策、階段規劃、風險清單）
 - [ADR-0155](0155-handler-drift-fix-batch.md)（前置步驟 0＝漂移修復批；本案的乾淨基線）
 - [ADR-0146](0146-tool-round-budget.md)／[ADR-0152](0152-reasoning-channel-and-fold.md)（收進核心的保險絲與 reasoning 分頻語意）
 - [ADR-0127](0127-prompt-cache-prefix-optimization.md)～[ADR-0130](0130-stable-first-system-reorder.md)（claude 四斷點快取＝ClaudeAdapter wire 職責）

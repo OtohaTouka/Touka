@@ -1,8 +1,8 @@
 # ADR-0262：系統快照一致且不互蓋、快照路徑單一來源；刪除靈魂前要先清記憶
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（`scripts/manage_backup.py`、`services/system_backup.py`、`services/backup_scheduler_service.py`、`services/dispatch_supervisor.py`、`routers/system.py`、`routers/souls.py`、新 `services/agent_reset/delete_guard.py`、新 `utils/child_env.py`、`config/errors.json.example`）＋ ToukaMemory（`factual.py`、`vector.py`）＋ ToukaChat（`AgentDataResetCard.tsx`、`lib/error_handler.ts`、i18n、`lib/error_codes.ts` 產生檔）
 - 相關：ADR-0030（sqlite3 匯入白名單）、ADR-0052（多 `.env` 根目錄偵測）、ADR-0082（dispatch 子程序）、ADR-0104（重置前先備份）、ADR-0109（自動備份排程：檔名改到秒，前綴與保留策略不變）、ADR-0113（每靈魂重置）、ADR-0142（刪除靈魂步升）、ADR-0151（容器裡 `.env` 在 `/app/host_root`）、ADR-0254（還原狀態端點）、ADR-0256（事實庫是正本、升級備份），決策都不變
 

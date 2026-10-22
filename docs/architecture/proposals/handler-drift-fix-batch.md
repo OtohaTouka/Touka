@@ -2,7 +2,7 @@
 
 ## 狀態
 
-🏁 **已收官（2026-07-13）**——owner 核准（拍板 P1=B/P2=含檔案讀取面/P3=納入/P4=照案）＋工具名對齊校驗後，C1–C6 全數落地：[ADR-0155](../adr/0155-handler-drift-fix-batch.md)。終態驗收 pytest **3469**／guard_all **41/41**／lint_ssot clean／ruff 基線持平／NOQA 零新增。
+🏁 **已收官（2026-07-13）**——維護者核准（決策 P1=B/P2=含檔案讀取面/P3=納入/P4=照案）＋工具名對齊校驗後，C1–C6 全數落地：[ADR-0155](../adr/0155-handler-drift-fix-batch.md)。終態驗收 pytest **3469**／guard_all **41/41**／lint_ssot clean／ruff 基線持平／NOQA 零新增。
 
 ## 日期
 
@@ -43,7 +43,7 @@
 - **紅測**:①`actually_used_tools={"memory_tools.save"}`＋回應承諾記錄 → `check_memory_hallucination` 應回 False(現況 True=誤報=紅);②`{"memory_tools.query"}` 或 `{"read"}`(裸動詞)＋提及過去記憶 → `check_fact_without_tools` 應回 False(現況 True=紅);③警告文案不含 `query_memory`/`access_personal_drive` 字樣。
 - **修法**(訊號生產單點＝SSOT;**工具名已對照 ADR-0119 重設計後現況校驗**,見文末「工具名對齊校驗」):
   - `tool_executor` 加入名字時,**若工具參數帶 `action`,同時加入限定名 `f"{name}.{action}"`**(如 `memory_tools.save`、`vault_tools.read`)——單一生產點(:266-267),三 handler 零改動即獲得訊號;**九裸動詞無 action 參數,依工具名本身計**(注意:裸動詞內部委派 `vault_tools` 是 Python 函式呼叫、不經 tool_executor,**不會**產生 `vault_tools.*` 訊號,故查證集必須顯式列裸動詞)。
-  - `guard_service` 判定改讀:記憶承諾閘=`memory_tools.save`;查證閘=`memory_tools.query` ＋ **裸動詞 read-family `read`/`list`/`find`/`grep`**(重設計後的主廣告面,scope 含 personal/legacy/soul)＋ shim 相容 `vault_tools.read/list/find/grep`(——**拍板點 P2**)。
+  - `guard_service` 判定改讀:記憶承諾閘=`memory_tools.save`;查證閘=`memory_tools.query` ＋ **裸動詞 read-family `read`/`list`/`find`/`grep`**(重設計後的主廣告面,scope 含 personal/legacy/soul)＋ shim 相容 `vault_tools.read/list/find/grep`(——**決策點 P2**)。
   - `:92` 文案改引用實存工具名(`memory_tools`(action=query) 與 `read`/`grep` 等檔案動詞)。
 
 ### D4【中】e_index 記憶訊號在 openai/gemini 恆為 0
@@ -57,7 +57,7 @@
 
 - **症狀**:同一遙測欄位,openai/gemini(`if not final_response: t2=now` 每輪重置,openai:197-198)量到**近 0**;claude(t2 於迴圈前,claude:185)量到**整圈含工具執行**——兩種都不是「純生成」。e_index 消費 gen_time → 跨供應商不可比。
 - **紅測**:以 `time_utils` 假時鐘(可 mock,時間 SSOT 的紅利)驅動兩輪工具循環:上游耗時 Y1+Y2、工具耗時 X → 斷言 `pure_gen_ms ≈ Y1+Y2`(不含 X)。
-- **修法**(**拍板點 P1**,推薦 B):
+- **修法**(**決策點 P1**,推薦 B):
   - **選項 A**:統一 claude 語意(整圈含工具)——最小改,但欄位名說謊。
   - **選項 B(推薦)**:`pure_gen_ms` = **各輪上游呼叫耗時累加**(每輪 `t_send→t_recv` 差值累計,不含工具執行)——字面誠實、三家可比、實作為每 handler 兩行累加。
   - **選項 C**:首輪回應延遲(TTFR)——語意改變最大,不推薦。
@@ -72,15 +72,15 @@
 
 ### D7【低・選配】Gemini 工具呼叫遙測失去關聯 id
 
-`gemini:328` 傳 `call_id=None`(Gemini API 無 id)→ ToolCallEvent(ADR-0122)只有 Gemini 路徑無法逐呼叫關聯。修法:以輪次+序號合成穩定 id(`g{round}-{i}`)。紅測:斷言 Gemini 路徑 ToolCallEvent 帶非空自合成 id。——**拍板點 P3a:是否納入本批。**
+`gemini:328` 傳 `call_id=None`(Gemini API 無 id)→ ToolCallEvent(ADR-0122)只有 Gemini 路徑無法逐呼叫關聯。修法:以輪次+序號合成穩定 id(`g{round}-{i}`)。紅測:斷言 Gemini 路徑 ToolCallEvent 帶非空自合成 id。——**決策點 P3a:是否納入本批。**
 
 ### D8【低・選配】`is_toukasoul` context 預設三家不一致(latent)
 
-openai:73/gemini:61 預設 `True`(fail-open)、claude:85 預設 `False`(fail-closed)。dispatcher 現況恆有設值=零實際影響,純防禦統一為 `False`(fail-closed)。紅測:不帶旗標的 ctx → 三 handler `allow_react` 判定一致。——**拍板點 P3b:是否納入本批。**
+openai:73/gemini:61 預設 `True`(fail-open)、claude:85 預設 `False`(fail-closed)。dispatcher 現況恆有設值=零實際影響,純防禦統一為 `False`(fail-closed)。紅測:不帶旗標的 ctx → 三 handler `allow_react` 判定一致。——**決策點 P3b:是否納入本批。**
 
 ---
 
-## 拍板點(owner 決策)
+## 決策點(維護者決定)
 
 | # | 問題 | 建議 |
 |---|---|---|
@@ -97,8 +97,8 @@ C1  防幻覺 SSOT 統一(D2＋D6):collect_known_tool_names 下沉 guard_service
 C2  記憶/誠實訊號結構化(D3＋D4):tool_executor 限定名單點生產、guard_service
     閘改讀、警告文案修正、e_index 訊號三家統一(claude 旗標收集退役)
 C3  Gemini re-cache 保存 system/tools(D1)
-C4  計時語意統一(D5,按 P1 拍板)
-C5  選配小項(D7＋D8,按 P3 拍板)
+C4  計時語意統一(D5,按 P1 決定)
+C5  選配小項(D7＋D8,按 P3 決定)
 C6  文件收官:ADR(取下一號、README 索引)、HANDOVER 現況、tests/README 計數、
     NOQA registry(若有新增,禁令 12)
 ```

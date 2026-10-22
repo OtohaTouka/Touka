@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 39/39、後端 pytest 2734 passed/4 skipped、前端 vitest 971；擁有者尚未 commit）**。補強既有的 `context-snapshot` 診斷功能：去硬編碼、如實反映現況組裝、接上 DebugAgent 前端、六塊接真實/mock、加四項可觀測性加值。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 39/39、後端 pytest 2734 passed/4 skipped、前端 vitest 971）**。補強既有的 `context-snapshot` 診斷功能：去硬編碼、如實反映現況組裝、接上 DebugAgent 前端、六塊接真實/mock、加四項可觀測性加值。
 
 ## 日期
 
@@ -10,11 +10,11 @@
 
 ## 背景
 
-`context-snapshot` 端點（[ADR-0104](0104-debugagent-destructive-reset.md) 時期的診斷工具）原以**硬編碼 8 塊**列出組裝順序，且：①已 **stale**——早於 `conversation_summary`（[ADR-0092](0092-context-window-token-sliding-window.md) Phase D）、`tool_availability`（Tier 1）、`validation_protocol`（工具可觀測性 P2a），三塊未列，並把 `mission_awareness` 誤標為 ContextLayer 注入（實為 ToolLayer）；②8 塊中只有 soul＋skill 有真內容，其餘一律 `present=false`；③只有 API、前端無介面。擁有者要求補強四點：**(1) 符合現狀且避免硬編碼**（日後系統改動也如實呈現）、**(2) 接上 DebugAgent 前端**、**(3) 六個 runtime 塊接虛擬或真實資料**、**(4) 其他改進**。
+`context-snapshot` 端點（[ADR-0104](0104-debugagent-destructive-reset.md) 時期的診斷工具）原以**硬編碼 8 塊**列出組裝順序，且：①已 **stale**——早於 `conversation_summary`（[ADR-0092](0092-context-window-token-sliding-window.md) Phase D）、`tool_availability`（Tier 1）、`validation_protocol`（工具可觀測性 P2a），三塊未列，並把 `mission_awareness` 誤標為 ContextLayer 注入（實為 ToolLayer）；②8 塊中只有 soul＋skill 有真內容，其餘一律 `present=false`；③只有 API、前端無介面。維護者要求補強四點：**(1) 符合現狀且避免硬編碼**（日後系統改動也如實呈現）、**(2) 接上 DebugAgent 前端**、**(3) 六個 runtime 塊接虛擬或真實資料**、**(4) 其他改進**。
 
 ## 決策
 
-1. **真實組裝 harness（Option B，擁有者裁示）**：[`context_snapshot_service.get_context_snapshot(identity, base_ctx)`](../../../ToukaProxy/src/services/context_snapshot_service.py) 改為 async——以合成 DebugAgent 請求跑**真實 `ProxyPipeline`**（`protocol_manager` 沿用 `app.state.context`、MCP `get_all_tools` 唯讀、**永不呼叫模型**、無 session_id 故不碰 session 狀態），讀出組裝後的 `request.system`／`tools`／`messages`。順序與內容全由真實組裝產生＝**零硬編碼**、自動反映未來中介層變更（復用 Scorecard `make_real_runner` 同款組裝基礎設施）。
+1. **真實組裝 harness（Option B，維護者決定）**：[`context_snapshot_service.get_context_snapshot(identity, base_ctx)`](../../../ToukaProxy/src/services/context_snapshot_service.py) 改為 async——以合成 DebugAgent 請求跑**真實 `ProxyPipeline`**（`protocol_manager` 沿用 `app.state.context`、MCP `get_all_tools` 唯讀、**永不呼叫模型**、無 session_id 故不碰 session 狀態），讀出組裝後的 `request.system`／`tools`／`messages`。順序與內容全由真實組裝產生＝**零硬編碼**、自動反映未來中介層變更（復用 Scorecard `make_real_runner` 同款組裝基礎設施）。
 2. **tag SSOT 有序解析**：[`parse_system_blocks`](../../../ToukaProxy/src/services/context_snapshot_service.py) 迭代 `prompt_blocks.ALL_BLOCK_TAGS`、依**實際出現位置**排序——不依賴硬編碼區塊清單。唯一 per-block 知識是 `BLOCK_META`（tag → 注入層／來源／kind／mock 示例）。
 3. **六個 runtime 塊接真實優先（#3）**：Mission（`MissionManager`）、Tool Schemas（`request.tools`）、Home Messages（`request.messages`）**皆真實**；Project 選定專案時真實、否則 mock；IDE 與 Technical Specs 本質 per-request → mock 格式示例。未出現的已知 tag 一律以 `present=false`＋mock 示例佔位（誠實、且涵蓋＝`ALL_BLOCK_TAGS`）。
 4. **四項加值（#4）**：①每塊 token＋總量＋%window（reuse `estimate_tokens`／`get_context_window`）；②**快取分層標註**——套**真實 P4 函式**（[`reorder_system_stable_first`](../../../ToukaProxy/src/adapters/tool_schema.py)＋`to_cached_system`）判定 `stable`（跨回合）/`volatile`（迴圈內）＋`cache_reordered` 旗標＝把 [ADR-0130](0130-stable-first-system-reorder.md) 成效可視化＋當快取健康檢查；③**統一 last-payload**——讀 `proxy_payload.log` 最近一筆 DebugAgent payload，static 預覽 vs 實際送出對照；④複製完整 `system_text`。

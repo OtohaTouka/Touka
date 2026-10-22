@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：openai httpx 錯誤處理實作移出 handler 至 adapters；行為不變）
 **日期 (Date):** 2026-06-09
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 > 🔧 **心跳重新觸發的「強制 SafeAuto」已被 [ADR-0246](0246-model-layer-stage-2b-2c.md)（Manual／Auto／YOLO 三模式）修訂**：改為照心跳 `safe` 對應的 Auto（無人在場不跑終端、不叫審查員），永不升級 YOLO；擁有者守衛、`can_awaken`、pulse 夾 1..5 與每日配額不變。
 

@@ -1,8 +1,8 @@
 # ADR-0240：Guard #16 沙盒快取移出 worktree（git common dir 共用＋成員鎖）
 
-- 狀態：✅ 已接受（Owner 2026-10-10 核准計畫，快取位置選 git common dir）
+- 狀態：✅ 已接受（維護者 2026-10-10 核准計畫，快取位置選 git common dir）
 - 日期：2026-10-10
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`scripts/guard_dependencies.py`（Guard #16）、`.gitignore` 註解、`tests/unit/test_guard_dependencies_*.py`
 - 相關：ADR-0016（依賴沙盒驗證）、ADR-0019（Guard #16 residue 前置）、ADR-0117（uv workspace 單一鎖檔）、ADR-0222（工具暫存放 repo 外的先例）
 
@@ -10,7 +10,7 @@
 
 Guard #16 為每個 workspace 成員建立一個沙盒 venv，快取鍵是 `uv.lock`＋成員 `pyproject.toml`。快取原本寫死在 `scripts/.cache/guards/`，也就是每個 checkout 自己的資料夾內，主資料夾實測約 1.76 GB（Proxy 與 Memory 各有一份完整 torch）。
 
-- 在 `.toukadev/worktrees/` 的工作資料夾跑過 Guard #16 後，資料夾內留下被 git 忽略的大型 `scripts/.cache/`，清理前檢查因此停下。
+- 在另開的 git worktree 工作資料夾跑過 Guard #16 後，資料夾內留下被 git 忽略的大型 `scripts/.cache/`，清理前檢查因此停下。
 - 每個新工作資料夾都要重建一次約 1.8 GB，即使鎖檔完全相同。
 - 成員都是虛擬套件（`package = false`），venv 內沒有專案原始碼；匯入測試用目前 checkout 的 `PYTHONPATH` 與 cwd。所以 venv 內容只取決於鎖檔、成員 pyproject 與直譯器，可以跨 worktree 共用。
 

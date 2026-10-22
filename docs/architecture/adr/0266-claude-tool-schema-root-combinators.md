@@ -1,8 +1,8 @@
 # ADR-0266：Claude 出場剝除工具定義根層組合子
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准一頁計畫）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准計畫）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（`adapters/tool_schema.py` 的 `openai_to_anthropic_tools`；`tools/project_tools.py` 只改註解）；tests（`tests/unit/test_tool_schema_hygiene.py` 改寫 1 個、新增 `tests/unit/test_provider_tool_schema_egress.py`）
 - 相關：本 ADR 修訂 ADR-0119 Tier 2 的「Anthropic 原樣保留」一句（送給 Claude 改為只剝根層組合子；條件必填 oneOf 的正本與 Gemini 剝除不變）；ADR-0100（工具 schema canonical、只在出場轉換）、ADR-0228（原生工具公開輸入合約），決策都不變
 

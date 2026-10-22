@@ -1,8 +1,8 @@
 # 提案：靈魂 CRUD 修復＋admin 步升驗證的靈魂資料管理
 
-> **狀態：✅ 已核准並實作完成／收官（2026-07-10 決策、同日 C1–C5 全數落地，人類逐批
+> **狀態：✅ 已核准並實作完成／收官（2026-07-10 決策、同日 C1–C5 全數落地，維護者逐批
 > commit）。** 成果見 [ADR-0142](../adr/0142-soul-crud-repair-and-admin-stepup.md)。
-> 前置診斷（同日、五路並行＋逐條對抗驗證，12 CONFIRMED）鎖定根因；本計畫全部設計
+> 前置診斷（同日，逐條經對抗驗證，確認 12 項）鎖定根因；本計畫全部設計
 > 前提均對實碼盤點驗證。以下為原始執行藍本（歷史保存）。
 
 ## 1. 一句話總結
@@ -44,7 +44,7 @@
 6. **無 DELETE 端點**；前端只呼叫 GET/POST `/v1/souls`（SoulStudio 詳情頁唯讀）→
    收緊 update_soul 的人類契約**不會破壞任何現有 UI 消費者**。
 
-## 4. 設計拍板點（D1–D6，各附建議）
+## 4. 設計決策點（D1–D6，各附建議）
 
 - **D1 寫入機制**＝souls 路由（create/update）改走 `soul_io.write_soul_file`（＋新增小
   helper `write_soul_json` 做 `json.dumps` DRY），寫入失敗（回 False）→ fail-loud 新
@@ -72,7 +72,7 @@
   目錄再 re-raise（不再留孤兒）。**不做**「create 時自動回收既有空孤兒」（保持 create
   嚴格；孤兒交給 DELETE 清）。**建議採此案**。
 
-## 5. 分批執行（每批：紅→綠→ruff＋lint_ssot＋guard_all 41＋pytest〔前端另 eslint/tsc/vitest〕→人類 commit）
+## 5. 分批執行（每批：紅→綠→ruff＋lint_ssot＋guard_all 41＋pytest〔前端另 eslint/tsc/vitest〕→由維護者 commit）
 
 ### C1 — 修復後端（F1 紅＋F2 綠，一個 commit 邊界）
 - **F1 RED**（新檔 `tests/unit/test_soul_crud_real_writes.py`，真實落盤進測試沙箱）：

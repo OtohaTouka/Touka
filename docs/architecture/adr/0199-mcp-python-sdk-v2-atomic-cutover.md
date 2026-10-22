@@ -112,7 +112,7 @@ ToukaIDE Node SDK v1 與 Dispatch legacy SSE 仍是全域 blocker，但屬 P4-A�
 
 ## dep1 補記（2026-10-16）：mcp 2.2.0 與轉址一律擋下
 
-Owner 核准 dep1。決策 1 的 `mcp==2.0.0`、決策 3「`follow_redirects=False` 就能禁止轉址」以本節為準。
+維護者核准 dep1。決策 1 的 `mcp==2.0.0`、決策 3「`follow_redirects=False` 就能禁止轉址」以本節為準。
 
 ### 版本
 

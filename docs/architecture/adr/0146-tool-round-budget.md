@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（07-11 認證事故餘波清單 #4-Q1；owner 逐點拍板）（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：§4 保險絲/優雅著陸原「三 handler 同構」三份實作收斂為單一 react_core；行為決策不變、僅實作拓撲）
+✅ 已接受（07-11 認證事故餘波清單 #4-Q1；維護者逐點決定）（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：§4 保險絲/優雅著陸原「三 handler 同構」三份實作收斂為單一 react_core；行為決策不變、僅實作拓撲）
 
 > **2026-08-14 修訂（[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)）**：
 > tool coverage 將舊 `status` 呼叫改為正式 `get_status`，並釘住剩餘工具輪只能由
@@ -14,7 +14,7 @@
 
 ## 背景
 
-owner 觀察：「每次對話都觸發自主活動、且 Sumi（grok-4.5）永遠燒滿 5 回合才停」。
+維護者觀察到：每次對話都觸發自主活動，而且 Sumi（grok-4.5）永遠燒滿 5 回合才停。
 源碼追蹤確認系統存在**四層迴圈、名詞三重錯位**：
 
 1. ① 心跳外層脈衝（`for i in range(pulse_count)`）——「脈衝次數」旋鈕，正常。
@@ -32,7 +32,7 @@ owner 觀察：「每次對話都觸發自主活動、且 Sumi（grok-4.5）永�
 隱藏 bug 兩枚：`consume_quota` 在每次靈魂互動對話扣每日配額（50/day 被普通聊天
 吃掉）、`check_quota` 全系統零呼叫點（配額從未執法）。
 
-## 決策（owner 拍板）
+## 決策（維護者決定）
 
 1. **③ 直接移除**：純文字＝回合結束（與主流 harness／模型 agentic 訓練慣例一致）；
    停止詞、nudge 提示詞、「自主行動模式」注入全部退役。多步能力零損失——
@@ -41,7 +41,7 @@ owner 觀察：「每次對話都觸發自主活動、且 Sumi（grok-4.5）永�
    （一輪＝一次含工具調用的模型回合，不論並行幾顆工具）。修前 ② 無上限；
    本案給它第一道保險絲，同時把成本閘搬到工具分支每輪檢查（堵盲區）。
 3. **分頻鐵則**（業界對照：Claude Agent SDK `max_turns` 預設不限、LangGraph
-   recursion_limit=25 常被調高、長時程任務數百步是常態；owner 實證本 repo 修復
+   recursion_limit=25 常被調高、長時程任務數百步是常態；維護者的實際經驗是本 repo 修復
    批次單次百餘步）：
    - **互動（有人在場）預設不限**（`react_loop.max_tool_rounds: 0`）——煞車＝
      人類中斷（每輪檢查）＋HITL 審批卡＋成本閘＋context 極限。

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2694 passed/4 skipped；擁有者尚未 commit）**。本 ADR 完成「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 2b**，與 [ADR-0123](0123-verification-convention.md)／[ADR-0124](0124-structured-success-and-applied-state-echo.md)（P2a）合為 **Phase 2「模型面收口（北極星本體）」全貌**。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0124](0124-structured-success-and-applied-state-echo.md)），沿用 [ADR-0120](0120-async-command-approval.md) 的非同步結果機制。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2694 passed/4 skipped）**。本 ADR 完成「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 2b**，與 [ADR-0123](0123-verification-convention.md)／[ADR-0124](0124-structured-success-and-applied-state-echo.md)（P2a）合為 **Phase 2「模型面收口（北極星本體）」全貌**。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0124](0124-structured-success-and-applied-state-echo.md)），沿用 [ADR-0120](0120-async-command-approval.md) 的非同步結果機制。
 
 ## 日期
 

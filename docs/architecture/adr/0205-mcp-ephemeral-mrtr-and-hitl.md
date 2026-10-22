@@ -54,5 +54,5 @@ MCP `2026-07-28` 的 `tools/call`、`resources/read` 與 `prompts/get` 都可能
 - retry 前撤權保留精確 authorization error，且不計入上游 server 斷路器。
 - 這是 P7 預設 ephemeral 模式。沒有建立 pending continuation list/respond API，
   process restart 後不可恢復；跨 restart 長工作應使用 Tasks。
-- P7-B durable MRTR 未獲 owner 明示核准，刻意不實作。
+- P7-B durable MRTR 未獲維護者核准，刻意不實作。
 - 未修改、掛載或遷移主機 `data/`。

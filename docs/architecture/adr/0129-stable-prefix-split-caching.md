@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2708 passed/4 skipped；擁有者尚未 commit）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變。註：Guard #21 層界引用為自始不準的作者疏漏、非事後漂移，不在本註記範圍）。本 ADR 是 [ADR-0128](0128-system-prompt-prefix-caching.md)（system 前綴快取）的**細分深化**——把穩定前綴（persona 等）與波動後綴（mission/summary）分開快取，讓穩定前綴**跨回合**命中。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0128](0128-system-prompt-prefix-caching.md)）。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2708 passed/4 skipped）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變。註：Guard #21 層界引用為自始不準的作者疏漏、非事後漂移，不在本註記範圍）。本 ADR 是 [ADR-0128](0128-system-prompt-prefix-caching.md)（system 前綴快取）的**細分深化**——把穩定前綴（persona 等）與波動後綴（mission/summary）分開快取，讓穩定前綴**跨回合**命中。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0128](0128-system-prompt-prefix-caching.md)）。
 
 ## 日期
 
@@ -27,7 +27,7 @@
 - **驗收**：ruff（改動檔）＋lint_ssot 全清、**guard_all 38/38**（含 #21 模組邊界）、**pytest 2708 passed/4 skipped**（+5；切分四測＋breakdown 相容）。
 - **邊界/踩雷**：`context_breakdown._system_to_text` 攤平多 block 時以 `\n` 連接，切成兩塊後可能多出一個**可忽略的 `system_other`**（~0 token）——但 **API 端 Anthropic 直接串接 block（無分隔符）＝送出文字完全正確**，僅遙測估算差一個換行；故 breakdown 主要分類（persona／mission_awareness）不變、總量近似（測試斷言據此放寬）。
 - **範圍/邊界（刻意）**：只切一刀（穩定前綴 vs 最早波動之後的全部）；波動後綴內若混有穩定區塊（如 tool_availability 排在 conversation_summary 之後）仍歸波動側（不跨回合快取）——要進一步需讓所有穩定區塊在前。**已由 [ADR-0130](0130-stable-first-system-reorder.md) 補上**：以送出前正規化（`reorder_system_stable_first`）把波動區塊搬到尾端，**不動 pipeline 層順序**，使穩定工具區塊也進跨回合前綴。
-- **剩餘**：提案 P4 只餘**逐腦 emphasis 調校**與 **OTel exporter**（皆選配、擁有者未選；後者有本地優先/隱私張力）。
+- **剩餘**：提案 P4 只餘**逐腦 emphasis 調校**與 **OTel exporter**（皆選配、維護者未選；後者有本地優先/隱私張力）。
 
 ## 相關
 

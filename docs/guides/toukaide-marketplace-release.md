@@ -2,7 +2,7 @@
 
 現行 Marketplace 公開版本 **0.3.0**／tag **v0.3.0**／ID **touka-ai.toukaide**／MIT，一份universal VSIX。
 依ADR-0218／0219，使用既有Marketplace產品，不涉及Open VSX或runtime映像更新。
-每次發行須有Owner當次授權，不構成永久Git／發行權限；既有版本與tag不覆寫。
+每次發行須有維護者當次授權，不構成永久Git／發行權限；既有版本與tag不覆寫。
 
 ## 1. 來源與提交前驗證
 
@@ -62,11 +62,11 @@ exact10members各自size/SHA256及archive_sha256。不得拿別的來源、重�
 `<img src=x onerror="alert(1)">**bold**`，以 Shift+Enter 換行後按送出，檢查實際對話泡泡逐字顯示，
 沒有圖片／彈窗／Markdown解析且換行保留；僅看輸入框不算通過。proxy 未設定錯誤為此隔離測試的預期結果；
 Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取得，記NOT_ATTESTED，不推定PASS。
-原工具無native UI能力時由Owner執行精確受限啟動與見證；代理不自製UI控制繞過。所有必要smoke證據取得前不得上傳。
+原工具無native UI能力時由維護者執行精確受限啟動與見證；代理不自製UI控制繞過。所有必要smoke證據取得前不得上傳。
 
 ## 4. Marketplace上傳與回讀
 
-只用既有touka-ai publisher帳號及方案；登入由Owner自行完成，不抽取PAT／session token。
+只用既有touka-ai publisher帳號及方案；登入由維護者自行完成，不抽取PAT／session token。
 核對產品ID/version與public README，指定manifest原SHA256對應的exactVSIX上傳一次，upload時不bundle或repack。
 結果不明／timeout／版本衝突先停止變更並回讀遠端狀態，不盲重送或換registry。
 
@@ -83,19 +83,19 @@ Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取�
 
 - Archive：`toukaide-0.3.0.vsix`，1829063 bytes，SHA-256 `1e2e6cc444d7f4102d49cd70cc006a39ca56b477ff047985dcd18ff94ae40266`。
 - Manifest：`toukaide-0.3.0.manifest.json`，1663 bytes，SHA-256 `0e63c00f623b0fab47e79e39b3c5d426c16628bd0d4dfc2e510158195c29bee8`。
-- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由 Owner 人工回報通過；
+- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由維護者人工回報通過；
   Marketplace 下載的 VSIX 解碼後與原 members 全等，package.json 只多官方 `__metadata`。
 
 **`v*` tag 注意**：`v0.3.0` 只建立於本機、未推送遠端。runtime 映像的 `.github/workflows/ghcr-publish.yml`
 只接受手動觸發，推送 IDE 的 `v*` tag 不會發布 runtime 映像。
 
 Source可普通revert；未發布候選保留原VSIX/manifest；已發布版不可覆寫，必要修復需新的版本決定。
-不清理Owner資料或舊發布。
+不清理維護者資料或舊發布。
 
 ## 歷史 0.2.0（不作新版PASS）
 
 - 核准commit與本機lightweight tag：`94aa17976b7262bdda54df98dc1254dae072590c`／`v0.2.0`；
   Local exact VSIX SHA-256 `688d69d0b6bb71bcbd3f7d689d838cd34c4999265c606adb507d735d4a678a62`。
-- Owner回報隔離VS Code smoke與Marketplace安裝回讀均符合，並在Marketplace網頁手動upload。
-  Repo內沒有遠端bytes與local VSIX全等的證據，只能視為Owner人工見證，不能稱exact-byte readback。
+- 維護者回報隔離VS Code smoke與Marketplace安裝回讀均符合，並在Marketplace網頁手動upload。
+  Repo內沒有遠端bytes與local VSIX全等的證據，只能視為維護者人工見證，不能稱exact-byte readback。
 - 舊`f9e78c3934d5`候選持續固定`DO NOT PUBLISH`。

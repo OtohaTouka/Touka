@@ -30,7 +30,7 @@
 | 連線放進 pool 的唯一入口（先換再關） | `ProtocolManager._install_handle`（`HandlePool.swap`） | `connect_server` |
 | 失聯通知與重連入口（hook 同步；只為隔離 shared stdio 排重連，direct／遠端不重連） | `ProtocolManager._on_connection_lost` → `_connection_lost_hook(key, error, owner)` | owner task；隔離重連排程 |
 
-## C 線第二批第二段：執行器容器（2026-10-16，ADR-0272）
+## 隔離第二批（iso-c2）第二段：執行器容器（2026-10-16，ADR-0272）
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
@@ -52,7 +52,7 @@
 | 執行器容器、ipc 與 state volume | 三份 compose 的 `touka-executor`、volume `touka-exec-ipc`、`touka-executor-state`、網路 `touka-exec-net`；Dockerfile 預建 `/app/ipc/executor`、`/app/executor_state` | `test_executor_compose_security.py` 釘住 |
 | Linux 隔離 CI 的判定 | `.github/workflows/isolation.yml`＋`scripts/ci/isolation_junit_check.py` | GitHub Actions |
 
-## C 線第二批第一段：代理人指令的隔離（2026-10-15，ADR-0272）
+## 隔離第二批（iso-c2）第一段：代理人指令的隔離（2026-10-15，ADR-0272）
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
@@ -107,7 +107,7 @@
 | 新錯誤碼 | `errors.json.example` 1410～1417（`MEMORY_SCRUB_*`、`SYSTEM_RESTORE_IN_PROGRESS`、`AGENT_RESET_IN_PROGRESS`、`AGENT_ID_*`）→ `sync_errors.py` | 重置、還原、建立端點；ToukaChat |
 | 只有重置端點加長的反向代理逾時 | `nginx/nginx.conf.example` 重置端點的 location（30 分鐘） | 部署 |
 
-## C 線安全修補 h2：這一輪列給模型的工具（2026-10-15，ADR-0269）
+## 安全修補 h2：這一輪列給模型的工具（2026-10-15，ADR-0269）
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
@@ -192,7 +192,7 @@
 |---|---|---|
 | 個人空間目錄（`personal_catalog`，`.touka/catalog.json`）＝衍生快取，正本是檔案系統：記哪些 metadata、只信任自己寫出的內容、隱藏與拒寫的名稱、略過的目錄與檔名、筆數與讀取上限、根目錄 `list` 的提示行 | `ToukaMemory/src/memory_server/services/personal_catalog.py`（常數 `CATALOG_DIR_NAME`、`CATALOG_FILE_NAME`、`CATALOG_HIDDEN_NAMES`、`CATALOG_SKIP_DIR_NAMES`、`CATALOG_SKIP_ROOT_DIRS`、`CATALOG_SKIP_FILE_GLOBS`、`CATALOG_MAX_ENTRIES`、`CATALOG_READ_MAX_BYTES`、`CATALOG_TITLE_MAX_CHARS`、`CATALOG_HINT`；模型 `PersonalCatalog`、`CatalogEntry`；例外 `CatalogPathDeniedError`）；掃描經資源代理 `IResourceProxy.stat_files`、`read_file_binary` | Memory `vault_tools` 的 personal 分支 → `run_vault_action`；Proxy vault 橋接層（`tools/vault_tools.py`，`CatalogPathDeniedError` → `permission_denied`） |
 
-## C 線第一批：小件修補與執行路徑缺口（2026-10-15，ADR-0254）
+## 隔離第一批（iso-c1）：小件修補與執行路徑缺口（2026-10-15，ADR-0254）
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
@@ -463,8 +463,8 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **MCP Workload Credential／Runtime** | `${TOUKA_CONFIG_DIR}/mcp_oauth_workload.sqlite3`（含 WAL/SHM） | `SQLite + AES-256-GCM envelope` | **P8-B secret/runtime SSOT（ADR-0207）**：client ID/secret、metadata snapshot、delegation mirror、authority epoch、exact active mutation operation ID/kind、revocation/rotation/recovery FSM 與 durable audit outbox。revocation row 保存 source-slot digest＋mutation operation ID；`runtime_authority_ready()` 同時納入 transition/revocation/rotation/recovery-required/durable owner blocker。audit sink 暫時失敗時 pending row 不 ack，maintenance 以固定間隔重試且 cancellation 可終止。舊 row 無可證 owner 時只遷移為 `recovery_required`。只在 single Proxy process＋local filesystem lock 下啟用；一般備份固定排除 DB/WAL/SHM。 |
 | **MCP Workload Key Ring** | `.env: TOUKA_MCP_OAUTH_WORKLOAD_KEY*` | `Sensitive Environment` | **P8-B key SSOT（ADR-0207）**：獨立 current/retiring/source/phase/epoch，不得重用 P8-A key；managed rotation 先 drain boot-local egress permit再 retire，external mode不由 API 產生 key。備份/API 永不輸出。 |
 | **MCP Workload Topology／Permit** | `${TOUKA_CONFIG_DIR}/mcp_oauth_p8b_runtime.lock`＋Proxy process memory | `OS exclusive lock + boot-local immutable permit` | **單一 process 正確性 SSOT（ADR-0207）**：filesystem kind 必須明示 local；第二 process/remote/unknown 拒絕啟動。bootstrap 的單一 `WorkloadAuthorityMutationCoordinator` 由 control/rotation 共用，擁有 mutation lock 與 exact global-fence token；fence complete 同時核對 durable operation owner，restart 只能從 store 的 exact owner 重建。permit admission 同時重驗 durable readiness。OAuth credential attempt 綁 final frozen `POST` request 的 secret-free digest，delegated refresh 的 permit/send 必須消費同一 prepared request；tool-ticket replay index固定容量並按 expiry prune。TTL 只限制 begin-send，完成需 task exit/cancel ack。 |
-| **本機 runtime／GHCR 發行** | `docs/architecture/adr/0220-local-only-github-ghcr-release-profile.md`＋`docs/architecture/adr/0238-retire-release-qualification-machinery.md`＋`.github/workflows/ghcr-publish.yml` | Owner-selected policy＋最小 publish workflow | **本機邊界與最小發行 SSOT（ADR-0220／0238）**：Touka 產品的**本機 runtime／data**不上雲；GitHub 只承載原始碼與 CI，GHCR 只承載 `touka-proxy`／`touka-heartbeat`／`touka-chat` 三映像。只接受手動觸發：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號＋`latest`（不用 tag 觸發，避免與 ToukaIDE Marketplace 的 `v*` tag 衝突）；不再有 qualification、seal、receipt 或 readback 程序。 |
-| **Modern-only MCP Policy** | `docs/architecture/adr/0221-modern-only-local-cold-cutover.md` | Owner-selected retirement policy | **本機 legacy 退場 SSOT（ADR-0221 modern-only 部分；其發行／冷切換程序已由 ADR-0238 取代）**：所有 client 只在同一本機、沒有舊版使用需求；保留 modern request-scoped SSE，舊 HTTP+SSE 入口回 404。不安排 legacy 調查／遷移。 |
+| **本機 runtime／GHCR 發行** | `docs/architecture/adr/0220-local-only-github-ghcr-release-profile.md`＋`docs/architecture/adr/0238-retire-release-qualification-machinery.md`＋`.github/workflows/ghcr-publish.yml` | maintainer-selected policy＋最小 publish workflow | **本機邊界與最小發行 SSOT（ADR-0220／0238）**：Touka 產品的**本機 runtime／data**不上雲；GitHub 只承載原始碼與 CI，GHCR 只承載 `touka-proxy`／`touka-heartbeat`／`touka-chat` 三映像。只接受手動觸發：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號＋`latest`（不用 tag 觸發，避免與 ToukaIDE Marketplace 的 `v*` tag 衝突）；不再有 qualification、seal、receipt 或 readback 程序。 |
+| **Modern-only MCP Policy** | `docs/architecture/adr/0221-modern-only-local-cold-cutover.md` | maintainer-selected retirement policy | **本機 legacy 退場 SSOT（ADR-0221 modern-only 部分；其發行／冷切換程序已由 ADR-0238 取代）**：所有 client 只在同一本機、沒有舊版使用需求；保留 modern request-scoped SSE，舊 HTTP+SSE 入口回 404。不安排 legacy 調查／遷移。 |
 | **ToukaIDE Deterministic VSIX** | `ToukaIDE/package.json`＋`ToukaIDE/scripts/deterministic_vsix.py` | package projection＋offline normalizer／verifier | **Universal VSIX byte identity SSOT**：extension identity與版本由 `deterministic_vsix.py` 固定（現行`touka-ai.toukaide@0.3.0`）、MIT；repo-root hash-bound`LICENSE`只注入repo外staging，不新增tracked`ToukaIDE/LICENSE`。Verifier要求 `EXPECTED_MEMBERS` 全等、無native payload／unsafe path／duplicate，normalizer固定order／timestamp／mode／stored ZIP並create-only。這只證明offline deterministic boundary，不代表`vsce package`、Marketplace publish或readback已完成。 |
 | **ToukaIDE Marketplace Candidate** | `ToukaIDE/package.json`＋`package-lock.json`＋`scripts/build_marketplace_candidate.py`＋`scripts/deterministic_vsix.py` | `touka.ide.marketplace-candidate.v1` canonical manifest＋一份universal VSIX | **現行IDE發行SSOT（ADR-0218）**：`@vscode/vsce@3.9.2` direct exact pin；以 exact Node 直接執行 package-local npm 與 repo-local vsce。Builder要求clean release inputs與版本tag→HEAD，bundle後重驗source，repo外create-only輸出並綁commit／tag／publisher／MIT／archive與exact members。Marketplace登入／upload／readback仍是獨立人工gate；Open VSX不在範圍。步驟見`docs/guides/toukaide-marketplace-release.md`。 |
 | **Dependency Audit Coverage／CPU Source Identity** | `scripts/dependency_audit_coverage.py`＋`docs/security/torch-cpu-advisory-identity.json` | frozen lock projection＋exact query pairing＋官方來源紀錄 | **ADR-0223 coverage/error-path 實作切片已接受**：覆蓋跨平台 marker，CPU advisory 身分綁官方來源與 hash；first-party editable 由 workspace 身分獨立分類。缺列、錯配、未證明來源／skip 均 INCOMPLETE；JSON 不是版本 lock 或弱點豁免清單。 |

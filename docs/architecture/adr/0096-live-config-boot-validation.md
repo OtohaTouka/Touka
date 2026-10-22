@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-16
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -19,7 +19,7 @@ gitignore 的，CI 全新 checkout 上根本不存在，無法靜態守衛。
    warning → 回 `None` → 業務層退回預設）。於是一個手滑改壞的 live 設定，不會讓系統報錯，而是
    **悄悄以預設值啟動**——對安全相關設定（auth_policies/permissions/identity_map）尤其危險。
 
-擁有者要求「把 live 檔也加上守衛」。由於 live 檔在 CI 不存在，**靜態守衛做不到**；正確解法是
+維護者要求 live 檔也要加上守衛。由於 live 檔在 CI 不存在，**靜態守衛做不到**；正確解法是
 **在每次啟動時，對真實存在的 live 檔做自我健檢**。
 
 ## 決策方案 (Decision)

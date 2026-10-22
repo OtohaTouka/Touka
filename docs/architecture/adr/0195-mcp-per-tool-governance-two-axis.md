@@ -8,7 +8,7 @@
   補註：模型迴圈裡「這一輪列給模型的清單」也是執行條件，軸 B 仍獨立核對）
 - **日期**：2026-07-26
 - **相關**：[ADR-0188](0188-mcp-enabled-gate-registry-choke.md)（per-server enabled 咽喉）、[ADR-0143](0143-hitl-unification.md)（MCP 工具預設 dangerous 進 HITL）、[ADR-0141](0141-role-plane-separation.md)（角色平面）、[ADR-0191](0191-mcp-hub-tier-a-shelf-and-version-pinning.md)／[ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)（出廠貨架 14 條，含 Stripe）
-- **提案**：[MCP Connector 大廠對齊](../proposals/mcp-connector-parity-and-auth-alignment.md) §6／§8-6（owner 於 2026-07-26 拍板「軸向兩個都做」）
+- **提案**：[MCP Connector 大廠對齊](../proposals/mcp-connector-parity-and-auth-alignment.md) §6／§8-6（維護者 2026-07-26 決定兩個軸向都做）
 
 ## 脈絡
 

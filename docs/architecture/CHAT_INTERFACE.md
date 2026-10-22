@@ -63,7 +63,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 - ToukaIDE 行內補全：`touka.inlineCompletionModel` 預設留空，留空表示不啟用、不發任何請求；有設才用設定的模型送出。
 - 開發：`npm run test` 會先 `braces:verify`、再產生 artifact runtime（`gen:artifact-runtime`）才跑 Vitest；`guard:prune`（knip）帶 `--no-gitignore`，產生檔與建置產物由 `knip.config.ts` 的 `project` 排除。
 
-## C 線第一批：還原結果、模型下拉、設定搜尋（ADR-0254）
+## 隔離第一批（iso-c1）：還原結果、模型下拉、設定搜尋（ADR-0254）
 
 - 還原（`EnvSettings` 的系統快照分頁）：送出還原、後端回 accepted 後顯示「系統還原中」對話框；計時器與查詢在領域 hook `useRestoreWatch`（經 `fetchTouka` 打 `GET /v1/system/restore/status`，型別 `RestoreStatus` 從生成的合約取別名）。15 秒後第一次查：
   - `failed`：關掉還原中對話框、回到備份清單，跳常駐錯誤 toast（要手動關，翻譯 `dashboard.env_settings.restore_failed`：還原沒有完成、服務沒有重啟、部分檔案可能已被覆寫，請查看伺服器日誌後再試一次），不重整。用專用翻譯、不用 `errorMsg(SYSTEM_BACKUP_FAILED)`（「系統備份失敗」用在還原會誤導）。
@@ -80,14 +80,14 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 - 安全設定「Auto 審查員」卡片多一欄「審查員等待秒數」（數字輸入 1～120、步進 1），寫進 `auto_review.timeout_s`，其他欄位原樣；仍經 `POST /v1/autonomy` 存檔，權限不變（`auto_review` 有變更走人類 admin）。空白、0 以下或超過 120 時顯示提示、存檔鈕停用（對齊後端 `gt=0, le=120`）。上限常數 `REVIEWER_TIMEOUT_MAX_S` 在 `useAutoReviewSettings`，元件經 hook 回傳的 `timeoutMaxS` 取用。新翻譯 key `settings.auto_reviewer.timeout_label`／`timeout_help`／`timeout_invalid`。新安裝預設 60；live 設定若已存 20 會照顯示 20，要自己改成 60。
 - ToukaIDE 行內補全送 `X-Touka-Purpose: inline-completion`（Proxy 只拿來讓 Claude 5.5 少想），10 秒逾時與 VS Code 取消合成同一個 signal，取消時回 null，逾時與取消不印錯誤。IDE 中止後 Proxy 端的非串流請求不會跟著停（已知限制）。
 
-## C 線第二批第一段：審批卡的隔離標示（ADR-0272）
+## 隔離第二批（iso-c2）第一段：審批卡的隔離標示（ADR-0272）
 
-- `stream_tree` 解析 `tool_approval_request` 的選用欄位 `isolation`（格式見 `PROXY_INTERFACE.md`「C 線第二批第一段」一節），解算事件與 `tool_start` 之後仍留在步驟上（`tree_history` 同步）。沒帶或是 null 時卡片和以前一樣；看不懂的層級當 `none`；`fallback` 只在 `none` 時保留，只認 `executor`（第二段起）、`landlock`、`direct`。
+- `stream_tree` 解析 `tool_approval_request` 的選用欄位 `isolation`（格式見 `PROXY_INTERFACE.md`「隔離第二批（iso-c2）第一段」一節），解算事件與 `tool_start` 之後仍留在步驟上（`tree_history` 同步）。沒帶或是 null 時卡片和以前一樣；看不懂的層級當 `none`；`fallback` 只在 `none` 時保留，只認 `executor`（第二段起）、`landlock`、`direct`。
 - `ToolApprovalCard`：層級 `landlock`／`executor` 不顯示標示。`none` 加 `fallback: landlock` 顯示「隔離降級」（中性開頭；有 `tcp` 接「連不到 Touka 內部服務」，沒有接「但擋不住它連到 Touka 內部服務」，沒有 `signal` 再加「可能讓 Touka 重啟」；沒有 `tcp` 可能是核心太舊〔ABI 3〕或網路設定不安全〔`net_tcp_fastopen`、`net_mptcp`〕，所以這句不寫原因，原因那行另外說明）；`fallback: direct` 顯示「未隔離」並寫清楚影響範圍（目前沒有未接 runner 的工具；創建卡依實際層級，`scaffold_mcp` 看本機層級）；`none` 卻沒有合法 `fallback` 時顯示「看不懂這次的隔離狀態」、批准按鈕停用（拒絕仍可按）。
 - 原因說明先找細節專屬的（例如 `sandbox_state_unconfigured` 的 `not_writable` 給三個補救步驟），再找原因的，都沒有才顯示「原因：{code}」；每個原因碼兩語各有一行說明（`chat.tool_approval_card.isolation.*`；`net_tcp_fastopen`、`net_mptcp` 附 compose 的 `sysctls` 寫法與 `docker compose up -d`〔提醒帶平常用的 `-f` 檔〕，再加一句不用 Docker、直接在 Linux 主機上跑時改設主機的 sysctl），重建指令與補救步驟各自一行、保留換行。
 - 核准 `none` 卡時 `resolve()` 經 `fetchTouka` 送 `{"payload": {"isolation_ack": <卡上的 fallback>}}`；其他卡與所有拒絕照舊只送 `POST`。舊版頁面沒送 ack 時後端回 422、不算核准。
 
-## C 線第二批第二段：執行器的卡片文案、隔離橫幅與通用提示（ADR-0272）
+## 隔離第二批（iso-c2）第二段：執行器的卡片文案、隔離橫幅與通用提示（ADR-0272）
 
 - 卡片：隔離標示拆成 `IsolationNotice`，用哪幾句由純函式 `lib/isolation_wording.ts` 決定（卡片與橫幅共用）。主句看 `fallback`：`executor`「會在執行器裡執行」、`landlock`「會在 Touka 主容器內以檔案隔離執行」、`direct`「未隔離」；開頭的原因子句（`isolationClause`）依序是不在執行器範圍、執行器不能用（預期執行器時其他非埠原因也算）、網路設定（去處是執行器時）、讀不到連線設定、要封鎖的埠太多；結尾（`isolationTcpTails`）有 `tcp` 寫擋得住，沒有時分別寫擋不住內部服務與本機上游埠、自訂連線與 MCP 的上游埠可能沒擋，執行器另接「和 Touka 在不同容器、共用同一個核心」；原因那幾行（`isolationReasonCodes`）在去處是 `direct` 時把本機原因放最前，再補網路設定與封鎖埠、去重，每行都附補救方式；網路設定的覆寫要加在 `touka-proxy`，預期執行器時加在 `touka-proxy` 與 `touka-executor`。新原因碼兩語都有說明（`chat.tool_approval_card.isolation.*`，`interpreter_untrusted` 照實際檢查寫）。`stream_tree`／`tree_history` 解析並保留 `expected`、`net`、`blockPortsIssue`、`localIssue`；型別不對的事實丟掉，看不懂的 `expected` 不保留。
 - 隔離橫幅：`useIsolationStatus`（登入後經 `fetchTouka` 打 `GET /v1/isolation`，憑證換了或每 30 秒重問，沒有結果回 null）＋`IsolationBanner`（右側欄、`role="alert"`、和降級橫幅同樣式）：層級低於預期時寫「隔離比預期弱」與原因（含補救；預期執行器而原因是連不上或權杖不對時，補一句控制通道的權限可能被改），層級照預期但沒有 `tcp` 時寫埠沒擋（核心不夠新），`repairs.permission_relock` 時寫自癒額度用完；`denied_burst` 不顯示；原因文字共用 `useIsolationReasonText`。原生 Windows 不會出現（預期就是 `none`）。

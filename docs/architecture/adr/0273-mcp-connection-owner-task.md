@@ -2,9 +2,9 @@
 
 > C2-3 現況補註：專屬 owner 結構保留；隔離 shared stdio 的 EOF 會通知失聯並退避重試三次，direct／遠端不自動重連。generation、連線鎖及關機閘已接上；restart 時間多了取鎖與關舊連線，原約 22 秒不再適用。 詳見 ADR-0275。
 
-- 狀態：✅ 已接受（life1；Owner 2026-10-16 核准一頁計畫，含一輪對抗式審查；修正輪的裁定由技術主管提出、CTO 同意）
+- 狀態：✅ 已接受（life1；維護者 2026-10-16 核准計畫，含一次對抗式審查；修正的裁定經審查同意）
 - 日期：2026-10-16
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（新 `protocols/mcp/owner.py`；`protocols/manager.py` 的 `__init__`、`connect_server`、新 `_install_handle`、新 `_on_connection_lost`、新 `_connection_lost_hook`、`cleanup`、`_close_handles`、`_stop_subscriptions_for_installation`、`_start_subscription`、`_protocol_version`、`_feature_support`；`protocols/mcp/handles.py` 的 `swap()` 與 `LegacyMcpHandle.close()`）；tests（新 `tests/unit/test_mcp_connection_isolation_security.py`、`tests/unit/test_mcp_connection_owner.py`、`tests/helpers/mcp_asgi_peers.py`、`tests/fixtures/mcp_v2/lifecycle_stdio_server.py`；`tests/unit/test_mcp_midflight_transport_failure.py` 三個 xfail 轉綠）；SECURITY.md 一列
 - 相關：本 ADR 修訂 ADR-0199 dep1 補記的「已知未解決」（改為已解決），ADR-0203 dep1 補記的同一點也改為已解決；補註 ADR-0191（restart 的 15 秒逾時從此安全，最壞約 22 秒）。ADR-0194（握手失敗的取消轉成連線錯誤）、ADR-0198（principal handle 隔離）、ADR-0206／0207（OAuth 與 workload OAuth）決策都不變；`client._connect_once`、SDK、`main.py` 都沒改
 
@@ -58,9 +58,9 @@
 - `HandlePool.swap()`／`LegacyHandlePool.swap()`：換上新的、回傳被換掉的。
 - `LegacyMcpHandle.close()`：stack 是 owner 時呼叫 `owner.aclose()`（期限由 owner 掌握），其他 stack 照舊 `wait_for`。
 
-## 給 C 線（U3e）
+## 給隔離第二批第三段（C2-3，U3e）
 
-- **入口**：建立 `connect_server`；安裝 `_install_handle`（先換再關）；關閉 `_close_handles` → `owner.aclose()`（正常在 SDK 自己的收尾時間內完成；期限 7 秒到時取消 owner 的 scope，C 線 Transport 的取消路徑在這時 killpg；SDK stdio 的 shielded 收尾照常跑完）；取得 `_ensure_handle`（語意不變）；斷線通知 `_on_connection_lost` → `_connection_lost_hook(key, error, owner)`。
+- **入口**：建立 `connect_server`；安裝 `_install_handle`（先換再關）；關閉 `_close_handles` → `owner.aclose()`（正常在 SDK 自己的收尾時間內完成；期限 7 秒到時取消 owner 的 scope，C2-3 的 Transport 取消路徑在這時 killpg；SDK stdio 的 shielded 收尾照常跑完）；取得 `_ensure_handle`（語意不變）；斷線通知 `_on_connection_lost` → `_connection_lost_hook(key, error, owner)`。
 - **hook 只能排程、不能 await**：它在失聯那條的 owner task 內同步呼叫，會繼承建立者的 contextvars（測試確認：建立者設的 ContextVar 在 hook 裡讀得到）。排重連要用全新的 context。不要在 `_on_connection_lost` 或 hook 裡 await 重連或拿每台的鎖：會等到正在結束的 owner 自己。
 - **重連前用 `is` 比對**：重連 task 開始時，再確認 pool 裡那條的 owner 是不是還是這個 `owner`，不是就放棄。
 - **不觸發的情況**：被換掉的舊 owner 失聯；硬關；cleanup；和要求關閉同時發生；stdio 伺服器自己結束（見已知限制 1）。HTTP 要到下一次送出才發現。
@@ -72,7 +72,7 @@
 
 1. **stdio 伺服器自己結束時不會即時通知**：伺服器崩潰、被 OOM 或被 kill 時，owner 不知道，`on_lost` 與 hook 都不呼叫、訂閱不停；要等下一次呼叫失敗才記錯誤，MCP 頁也要到那時才顯示錯誤。查證結論：SDK 2.2.0 沒有公開、可 await 的「連線已關閉」訊號（dispatcher 讀到 EOF 只把私有旗標設成 True 後正常返回；`Client`、`ClientSession` 沒有關閉 callback，參數又在 `_connect_once` 裡給定）。選項摘要：輪詢私有旗標或撈私有 task（不採用，依賴私有結構）；owner 定期 ping（背景流量、誤判；workload OAuth 伺服器上反而會把好連線判成失聯）；在 `_connect_once` 包一層讀端（life1 不改，適合 U3e 換隔離傳輸時做）；工具呼叫拿到 `CONNECTION_CLOSED` 時補走失聯流程（不是即時）；向 SDK 上游提議。測試 `test_stdio_server_exit_is_not_reported_until_the_next_call` 釘住目前行為。
 2. **workload 一次性票**：owner 自己的 context 與訂閱 supervisor 的 context 已清掉票；**transport 子 task（`post_writer`、`JSONRPCDispatcher.run` 等）仍帶握手時的 bootstrap 票**——它們在握手期間由 owner 的 context 複製出來，life1 不改 `_connect_once`／SDK。這是既有問題，列候選，**啟用 heartbeat workload OAuth 之前必須先修**（目前 `HEARTBEAT_WORKLOAD_OAUTH_ENABLED = False`）。
-3. **孤兒行程**：期限到的硬關仍讓 SDK 跑完收尾並殺掉行程樹（Windows 約 2.5 秒、POSIX 最壞約 6.5 秒；只在 Windows 實測：stdin 關了也不結束的伺服器、期限縮成 0.5 秒，owner 結束、子行程被收掉）。Proxy 被強殺時，Docker 內的 PID namespace 會一起收掉；原生 Linux 會留孤兒（life1 之前就有，交 C 線 Transport 的 killpg）。SDK 自己的收尾卡在 shield 裡超過期限＋寬限時，cleanup 記 WARNING 後不再等，行程留到 SDK 收完或 Proxy 結束。
+3. **孤兒行程**：期限到的硬關仍讓 SDK 跑完收尾並殺掉行程樹（Windows 約 2.5 秒、POSIX 最壞約 6.5 秒；只在 Windows 實測：stdin 關了也不結束的伺服器、期限縮成 0.5 秒，owner 結束、子行程被收掉）。Proxy 被強殺時，Docker 內的 PID namespace 會一起收掉；原生 Linux 會留孤兒（life1 之前就有，交 C2-3 Transport 的 killpg）。SDK 自己的收尾卡在 shield 裡超過期限＋寬限時，cleanup 記 WARNING 後不再等，行程留到 SDK 收完或 Proxy 結束。
 4. **關機**：MCP cleanup 最壞約 7＋1 秒，不論幾台；cleanup 開始後才建立的新連線不在這個總期限內。整個 lifespan 收尾不保證在 10 秒內（`cancel_all_background_tasks` 本身就可能用到 10 秒）；超過時 Docker 會 SIGKILL（compose 沒有 `stop_grace_period`，預設 10 秒；要不要設列候選）。
 5. **restart 最壞約 22 秒**（15＋7）：`restart_server` 的 15 秒 `wait_for` 逾時後，呼叫端還要等 owner 收尾才回失敗。呼叫端或中間代理的逾時小於約 22 秒時，restart 可能顯示失敗，但背景仍會完成。只讀 tracked 檔核對過路上的逾時：restart 端點本身沒有逾時（回應前另跑 `get_active_server_info`，每台已連線的伺服器依序最多 3 秒）；middleware、uvicorn 沒有每請求逾時；`nginx/nginx.conf.example` 一般 REST 是預設 60 秒；ToukaChat 沒有代理逾時。
 6. **舊 generation 晚完成會蓋掉新設定**（MEDIUM-N1，life1 之前就有，沒變更糟）：由 U3e 的每台一把鎖或 generation 比對處理。
@@ -85,7 +85,7 @@
 本機 Windows、3.12 venv、mcp 2.2.0、anyio 4.14.2、fnm Node 24.21.0；全部走 conftest 沙盒與 mock、真 stdio 只用 `sys.executable`，不讀 `data/`、不連外、不打付費 API，也沒有啟動 Touka。
 
 - TDD：第一輪先紅後綠（xfail(strict) 證實從另一個 task restart／重載、遠端途中斷線、302 都會取消建立者；dep1 的三個 xfail（連線錯誤、讀取逾時、307）轉綠）；修正輪先實作、後補測試，紅燈靠暫時還原產品檔與突變證明；KeyboardInterrupt 小修先紅後綠。
-- 新測試：安全檔 5 個（restart、重載、遠端斷線、302、I1：遠端斷線後 C 線的隔離背景重測仍在跑；檢查建立者沒被取消、另一條照常、斷掉那台快速失敗且不自己重連、失聯通知恰好一次、沒有未讀取的 task 例外）；owner 檔 38 個（見 tests/README）。
+- 新測試：安全檔 5 個（restart、重載、遠端斷線、302、I1：遠端斷線後 C2-3 的隔離背景重測仍在跑；檢查建立者沒被取消、另一條照常、斷掉那台快速失敗且不自己重連、失聯通知恰好一次、沒有未讀取的 task 例外）；owner 檔 38 個（見 tests/README）。
 - 突變：owner 改回在呼叫端進入、不關舊的、`on_lost` 跳過或兩次、不取根因、吞 ExceptionGroup、在 anyio 取消範圍內通知、硬關也通知、不清強參考、cleanup 不中止握手、不清票、失聯時重連、改用 `spawn_logged`、握手被取消不中止、先關再換、`_protocol_version` 不接 RuntimeError、不核對 owner、硬關改回原生 `task.cancel()`、呼叫端被取消就硬關、cleanup 逐台關、不收期間裝進來的、不記 WARNING、裝的期間斷線仍清錯誤、`pop(key)`、收尾等待不吞取消、`_install_handle` 吞取消、中止的握手照樣重試、非取消 BaseException 也重拋、KeyboardInterrupt／SystemExit 被吞、WARNING 記全文、hook 沒收到 owner、supervisor 不清票、`_install_handle` 不停舊訂閱、失聯不停訂閱、不看外部原生取消，全部有測試變紅。
 - I1 在 life1 之前的產品程式上是紅的（背景重測被 lifespan 收尾連帶取消），之後是綠的。
 - 全部 MCP 單元測試連跑 5 次穩定；全量結果見 HANDOVER §2。

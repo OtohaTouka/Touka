@@ -1,8 +1,8 @@
 # ADR-0250：Touka 待排小任務（主要模型兩欄、模型名大小寫、規則漏洞與介面清理）
 
-- 狀態：✅ 已接受（Owner 2026-10-14 03:14 核准計畫 v2，含第 1 項「主要模型兩欄」與第 17 項「knip 不靠 .gitignore」；U0～U6 全部完成，驗證見文末）
+- 狀態：✅ 已接受（維護者 2026-10-14 核准計畫 v2，含第 1 項「主要模型兩欄」與第 17 項「knip 不靠 .gitignore」；U0～U6 全部完成，驗證見文末）
 - 日期：2026-10-14
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`routers/souls.py`、`utils/brain_persistence.py`、`services/dispatchers/route_family.py`、`services/models/{manager,routes}.py`、`middleware/layers/soul.py`、`services/dispatchers/group.py`、`routers/heartbeat.py`、`tools/subagent_tools.py`、`routers/custom_models.py`、Gemini／OpenAI 相容 adapter 與 `adapters/gemini_to_openai.py`、`adapters/schemas.py`、`services/process_registry.py`、`tools/terminal.py`、`services/review/evidence.py`、`tools/builtin/research.py`、`services/scheduler_service.py`、ToukaDispatch `server.py`、`scripts/update_openapi.py`／`update_docs.py`／新 `openapi_merge.py`、`config/errors.json.example`；ToukaChat（SoulStudio、ModelStudio、ModelsTab、`app/create`、ChatProvider、ModelProvider、新 `lib/default_model.ts`、兩語 locales、`package.json`、`knip.config.ts`）；ToukaIDE 行內補全與 `package.json`
 - 修訂 [ADR-0241](0241-model-layer-stage-0.md) 決策 6：靈魂頁存檔設主要模型的條件改為下面 A1 的寫入規則
 - 修訂 [ADR-0111](0111-native-model-default-sampling-params.md) 決策 D4：ModelsTab 的取樣參數編輯面板拿掉（A2）；`ModelInfo` 的參數欄位、能力旗標與 `models.json` 存放值保留
@@ -47,7 +47,7 @@
 - A4：`GET /v1/souls` 沒設主要模型或讀取出錯時 `active_brain` 回 `null`（出錯仍記 exception），不再回「未配置」「錯誤」字串；畫面自己翻譯。`souls` 路由沒有 response_model，OpenAPI 不變。
 - L1：`get_active_brain` 遇到含 `toukasoul` 的舊值回 `None` 並記 warning，聊天回 409 `AGENT_BRAIN_NOT_SET`，不再偷換成寫死的 `claude-4.6-sonnet`（和 ADR-0241 決策 6「不偷換」一致）。
 
-### A5 模型名查表不分大小寫（甲＋三條保護）
+### A5 模型名查表不分大小寫（唯一符合才採用＋三條保護）
 
 1. 唯一查表入口 `ModelManager.resolve_custom_route`：同一份快照的啟用與已知自訂連線中，先找完全相同的；不分大小寫只有一個符合就用它（`CustomRouteResolution.original_name` 帶原名）；兩個以上回 409 `MODEL_NAME_AMBIGUOUS`，不挑；停用照舊。`request_model_name` 把靈魂存的寫法轉成請求用的名字：自訂連線回原名，其他回小寫。靈魂層、群聊、子代理、心跳都經這個入口。
    - 欄位名：計畫寫的是 `model_id`，實作改成 `original_name`。原因是 Guard #1 IDENTITY_SSOT 不允許新的 `model_id` 字串欄位；沒有加 noqa、沒有改守衛。
@@ -90,14 +90,14 @@
 - 靈魂頁的主要模型和模型清單綁在一起：清單沒載入或缺金鑰沒發現到的模型，存檔會被判找不到。
 - 大寫自訂連線模型在 A1 之後、A5 之前可以存成主要模型但聊天仍失敗（只存在於整合分支，不單獨合併；A5 已合入，最後的樹沒有這個中間狀態）。
 
-## 實作偏離（技術主管審核時接受）
+## 實作偏離（審查時接受）
 
 - A5：`CustomRouteResolution` 的新欄位叫 `original_name`，不是計畫的 `model_id`（Guard #1 IDENTITY_SSOT，見 A5 第 1 點）。
 - A5 保護 2：和靈魂撞名的比對先去掉 `@`、`toukasoul` 前綴再比（比計畫嚴）。
 - A1：`is_selectable_brain` 除了 `is_agent` 與 human，也排除 `owned_by` 是 `touka` 的舊靈魂路由 ID（比計畫嚴）。
 - A2：挑預設模型時多排除已隱藏的模型（比計畫嚴）；防回歸測試除了 `claude-`、`gemini-`，也擋 `gpt-`、`deepseek-`、`grok-` 開頭的字面值（比計畫嚴）。
 - B4：`NOQA_REGISTRY.md` 統計表的其他列原本寫 39，不是掃描得到的數字；改成用 Guard #19 同一掃描法實際清點的 327（說明欄寫明方法與各代號數量）。這一列不受 Guard #19 檢查。
-- 計畫漏列、由技術主管在單位驗收時准改的既有測試，都只改 setup 或拿掉已刪的東西，斷言沒有放寬：`test_braces_entrypoints.py`（命令列清單多 `--no-gitignore`，K1）、`test_dispatch_callback_trigger.py`（假 client 收建構參數並多斷言 `follow_redirects=False`，B3）、`ToukaChat/tests/guard/a11y_basics.test.ts`（拿掉已刪的 create 頁兩項，A2）、`test_heartbeat_task.py`、`test_auth_heartbeat.py`、`test_background_pulse.py`、`test_heartbeat_awaken_hardening_security.py`（setup 讓靈魂有主要模型，A3）。
+- 計畫漏列、在單位驗收時經審查准改的既有測試，都只改 setup 或拿掉已刪的東西，斷言沒有放寬：`test_braces_entrypoints.py`（命令列清單多 `--no-gitignore`，K1）、`test_dispatch_callback_trigger.py`（假 client 收建構參數並多斷言 `follow_redirects=False`，B3）、`ToukaChat/tests/guard/a11y_basics.test.ts`（拿掉已刪的 create 頁兩項，A2）、`test_heartbeat_task.py`、`test_auth_heartbeat.py`、`test_background_pulse.py`、`test_heartbeat_awaken_hardening_security.py`（setup 讓靈魂有主要模型，A3）。
 
 ## 已知限制
 

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2703 passed/4 skipped；擁有者尚未 commit）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 是 [ADR-0127](0127-prompt-cache-prefix-optimization.md)（P4 快取前綴）的**延續**——把 Anthropic prompt caching 從工具 schema 推廣到 **system prompt**。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0127](0127-prompt-cache-prefix-optimization.md)）。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2703 passed/4 skipped）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 是 [ADR-0127](0127-prompt-cache-prefix-optimization.md)（P4 快取前綴）的**延續**——把 Anthropic prompt caching 從工具 schema 推廣到 **system prompt**。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0127](0127-prompt-cache-prefix-optimization.md)）。
 
 ## 日期
 

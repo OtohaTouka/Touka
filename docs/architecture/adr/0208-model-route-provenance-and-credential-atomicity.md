@@ -56,9 +56,9 @@ provider bearer 被送回 ToukaProxy Gate 1，並被正確判成無效 JWT（`AU
 - 自動驗證：完整 pytest 4560 passed／5 skipped、ToukaChat 1150 passed／228 files、
   Ruff 與 44/44 guards 全綠；pip-audit 與 production npm audit 均為 0 vulnerabilities。
 - OpenAPI／generated TypeScript types 已同步，MkDocs 一般建置成功；strict 模式仍被既有 115 個
-  歷史 warning 阻擋。HUMAN_ONLY 對話場景與 DEV-B 對抗式複審仍是提交前人工閘。
+  歷史 warning 阻擋。只能人工執行的對話場景與最終對抗式複審仍是提交前人工閘。
 - 2026-08-08 Phase 4：真 `/v1/chat/completions`／`/v1/messages` 各自驗證省略／`null` 接受，
   空字串、一般字串、數字、物件與 alias 皆 422；修復前兩個 `baseUrl` 案會誤收 200，修復後
   endpoint＋route isolation 聚焦 28 passed。Phase 4 最終全量為後端 **4622 passed／5 skipped**、
   ToukaChat **1150 passed／228 files**、候選 Ruff／MkDocs／diff check 全綠；pip-audit 通過，
-  guards **43/44**，唯一紅燈為 production npm audit 5 vulnerabilities，故 DEV-B 尚未開始。
+  guards **43/44**，唯一紅燈為 production npm audit 5 vulnerabilities，故最終審查尚未開始。

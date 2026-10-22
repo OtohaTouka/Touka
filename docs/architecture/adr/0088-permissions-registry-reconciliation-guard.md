@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-13
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -21,7 +21,7 @@
 - `allowed_tools` 移除 `memory_manager`、`read_file`、`list_directory`、`get_workspace_structure`，留下對應真實 `tool_registry` 的 `research`、`project_tools`、`vault_tools`、`ide_open_diff`。
 - `allowed_mcp_servers` 移除 vestigial `web_search`、`filesystem` → `[]`。
 - **行為中性**：移除的皆為對不上任何真實工具/伺服器的死字串，`is_tool_allowed`／`is_mcp_server_allowed` 本就永不匹配，故清理不改變實際授權。
-- **非變更**：未把 `memory_manager` 改名為 `memory_tools`（那會「新授予」Guest 記憶寫入工具，屬刻意權限擴張，留待擁有者明確決定）。
+- **非變更**：未把 `memory_manager` 改名為 `memory_tools`（那會「新授予」Guest 記憶寫入工具，屬刻意權限擴張，留待維護者明確決定）。
 
 ### 2. 漂移守衛（Guard #32）
 新增 `scripts/guard_permissions_registry.py`（純 AST、零 import 副作用、秒級）：
@@ -35,7 +35,7 @@
 
 - 守衛總數 31 → 32；日後任何「工具改名/移除而未同步 permissions.json」會被當場擋下。
 - 行為不變（純死字串清理）；無端點/schema 變動（不需 openapi/api.ts 重生）。
-- 殘留/未做（記錄）：MCP 名稱未受守衛保護（動態）；若擁有者要 Guest 真正擁有記憶或某 MCP，需刻意新增真實名稱；Guest 目前 `allowed_mcp_servers` 為空。
+- 殘留/未做（記錄）：MCP 名稱未受守衛保護（動態）；若維護者要 Guest 真正擁有記憶或某 MCP，需刻意新增真實名稱；Guest 目前 `allowed_mcp_servers` 為空。
 
 ## Action Items
 1. [x] reconciliation：清理 `permissions.json` ＋ `.example` Guest 死工具名與死 MCP（行為中性）。

@@ -72,7 +72,7 @@ descriptor 資訊遺失、分頁只取第一頁、URI 被誤當本機路徑、pr
 
 ## dep1 補記（2026-10-16）：呼叫 MCP 工具當下核對伺服器工具清單
 
-Owner 核准 dep1，作為 GHSA-rwrf-2pqf-9j8j 的縱深防禦；SDK 本身的修正是升級 mcp 2.2.0（見 [ADR-0199](0199-mcp-python-sdk-v2-atomic-cutover.md) 的 dep1 補記）。
+維護者核准 dep1，作為 GHSA-rwrf-2pqf-9j8j 的縱深防禦；SDK 本身的修正是升級 mcp 2.2.0（見 [ADR-0199](0199-mcp-python-sdk-v2-atomic-cutover.md) 的 dep1 補記）。
 
 ### 背景
 
