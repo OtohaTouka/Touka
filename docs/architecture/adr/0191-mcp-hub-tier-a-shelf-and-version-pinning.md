@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ 已接受（[MCP connector 大廠對齊提案](../proposals/mcp-connector-parity-and-auth-alignment.md) 批次 1；owner 拍板 §6 五決策點）（2026-10-16 補註：[ADR-0273](0273-mcp-connection-owner-task.md) 起連線由 owner task 持有，restart 的 15 秒逾時從此安全，最壞約 22 秒）
+✅ 已接受（[MCP connector 大廠對齊提案](../proposals/mcp-connector-parity-and-auth-alignment.md) 批次 1；維護者決定 §6 五個決策點）（2026-10-16 補註：[ADR-0273](0273-mcp-connection-owner-task.md) 起連線由 owner task 持有，restart 的 15 秒逾時從此安全，最壞約 22 秒）
 
 ## 日期
 
@@ -12,9 +12,9 @@
 
 ## 背景
 
-owner 指示調查 Claude Code 桌面版／OpenAI Codex／Google Antigravity 三家的 connector 支援，據以評估「授權對齊」與「貨架補齊」兩件事。調查（2026-07-25，官方文件與 changelog 實查）顯示三家已收斂到同一形態：streamable HTTP 為傳輸主線、OAuth 走 2.1 式（PKCE＋DCR）、目錄一鍵安裝＋表單收 secret、per-tool 治理。
+維護者要求調查 Claude Code 桌面版／OpenAI Codex／Google Antigravity 三家的 connector 支援，據以評估「授權對齊」與「貨架補齊」兩件事。調查（2026-07-25，官方文件與 changelog 實查）顯示三家已收斂到同一形態：streamable HTTP 為傳輸主線、OAuth 走 2.1 式（PKCE＋DCR）、目錄一鍵安裝＋表單收 secret、per-tool 治理。
 
-據此立提案，把工作切成四階授權（L1 remote＋靜態 header → L2 OAuth → L3 token 儲存 → L4 平台級 hosted＝結構性不可對齊）與三檔貨架（Tier A 現成 stdio＋API key／Tier B 需 remote／Tier C 需 OAuth）。owner 拍板批次 1→3、批次 4 擱置。**本 ADR 為批次 1（Tier A 策展），零新基建。**
+據此立提案，把工作切成四階授權（L1 remote＋靜態 header → L2 OAuth → L3 token 儲存 → L4 平台級 hosted＝結構性不可對齊）與三檔貨架（Tier A 現成 stdio＋API key／Tier B 需 remote／Tier C 需 OAuth）。維護者決定做批次 1→3、批次 4 擱置。**本 ADR 為批次 1（Tier A 策展），零新基建。**
 
 owner 五決策點裁示：①核准 1→2→3、4 擱置；②新條目必釘版、既有種子同批補釘；③Slack 社群版先不收（列觀察名單）；④瀏覽器自動化（Playwright 類）另案；⑤Tier A 首發不含 Perplexity。
 
@@ -103,7 +103,7 @@ Atlassian 首次以**受污染的 uv cache** 執行時觸發了 60s 逾時——
 - fresh install 開箱 8 條貨架（自家文件引擎＋官方三條＋Tier A 四條），全數 spawn 實證可連。
 - 供應鏈姿態升級：hub 三來源全釘版，安裝的版本＝人工已審的版本。
 - 「一個壞金鑰讓 Proxy 開不了機」的 LIVE 缺陷關閉。
-- **既有部署注意**：`.example` 為 fresh install 種子，bootstrap 只在 live 檔缺席時植入。已在跑的部署其 `config/mcp_hub.json` 不會自動獲得新條目與釘版，需按 Hub 的手動 sync 鈕或由 owner 自行更新。
+- **既有部署注意**：`.example` 為 fresh install 種子，bootstrap 只在 live 檔缺席時植入。已在跑的部署其 `config/mcp_hub.json` 不會自動獲得新條目與釘版，需按 Hub 的手動 sync 鈕或由部署者自行更新。
 
 ## 誠實邊界
 

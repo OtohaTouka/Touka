@@ -41,7 +41,7 @@ MCP transport session state。應用 session 仍可共用同一個 manager，但
 固定綁定建立它的 transport；拿 modern session token 呼叫 legacy，或反向使用，
 一律拒絕。
 
-legacy sunset 日期不在本 ADR 擅自決定。先觀察使用量，再由 owner 明示期限；在此
+legacy sunset 日期不在本 ADR 擅自決定。先觀察使用量，再由維護者明示期限；在此
 之前 `/sse` 是 deprecated compatibility endpoint，不是新整合的預設入口。
 
 ### 2. 應用授權逐 tool request 執法

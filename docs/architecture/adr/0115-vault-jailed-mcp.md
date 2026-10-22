@@ -1,6 +1,6 @@
 # ADR-0115：Vault-jailed MCP — 依身分把「檔案型 MCP 伺服器」鎖進各 agent 自己的 vault
 
-- **狀態**：✅ 已接受（2026-06-25；Touka 派發注入＋docgen v0.6 經 TDD 完成並全綠驗證，經 31-agent 對抗式安全複審）
+- **狀態**：✅ 已接受（2026-06-25；Touka 派發注入＋docgen v0.6 經 TDD 完成並全綠驗證，經對抗式安全複審）
 - **日期**：2026-06-25
 - **影響範圍**：ToukaProxy（`services/mcp_vault_jail.py` SSOT／`services/tool_executor.py` 派發注入／`protocols/registry.py` `vault_jail_arg` 欄／`utils/mcp_sentinels.py` env backstop＋`protocols/mcp/client.py` 連線期解析／`services/mcp_hub_service.py` install 傳遞／`services/settings_snapshot_service.py` 快照重蓋／`routers/mcp.py` API round-trip／config）＋ ToukaChat（`buildFileRefHint` 指向 vault-scoped read 工具）＋ **外部 mcp-docgen v0.6**（全 17 工具 `base_dir`，同管 input+output）
 - **關鍵字**：vault-jailed MCP, per-agent isolation, dispatcher injection, base_dir, MCP path jail, identity-derived root, fail-closed, env backstop, sentinel, config drift fail-safe, cooperative vs enforced isolation, 聊天上傳多格式讀取

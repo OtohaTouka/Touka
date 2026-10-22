@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（提案 [handler-drift-fix-batch](../proposals/handler-drift-fix-batch.md) owner 核准；拍板 P1=B、P2=含檔案讀取面、P3=納入 D7/D8、P4=照 C1–C6；工具名已對照 ADR-0119 重設計現況校驗後執行）
+✅ 已接受（提案 [handler-drift-fix-batch](../proposals/handler-drift-fix-batch.md) 維護者核准；決定 P1=B、P2=含檔案讀取面、P3=納入 D7/D8、P4=照 C1–C6；工具名已對照 ADR-0119 重設計現況校驗後執行）
 
 ## 日期
 

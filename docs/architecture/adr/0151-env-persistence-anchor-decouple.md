@@ -13,7 +13,7 @@
 
 ## 背景
 
-Owner 回報「首裝精靈沒把 HEARTBEAT_TOKEN／DISPATCH_TOKEN／TOUKA_AUTH_SECRET 寫進 .env」。
+維護者回報「首裝精靈沒把 HEARTBEAT_TOKEN／DISPATCH_TOKEN／TOUKA_AUTH_SECRET 寫進 .env」。
 源碼＋本機 Docker 實測定位根因——**不是持久化邏輯，是路徑耦合**：
 
 - **讀**：compose `env_file: .env` 載入「compose 目錄」的 `<repo>/.env` → proxy 讀得正確。
@@ -29,7 +29,7 @@ Owner 回報「首裝精靈沒把 HEARTBEAT_TOKEN／DISPATCH_TOKEN／TOUKA_AUTH_
 ## 決策
 
 **把「.env 持久化目標」與 `WORKSPACE_ROOT` 解耦，改錨定 compose 目錄（`env_file` 實際載入
-那份 .env 的所在）。** owner 選項＝「解耦（推薦），支援任意 WORKSPACE_ROOT，另加 fail-loud
+那份 .env 的所在）。** 維護者的選擇＝「解耦（推薦），支援任意 WORKSPACE_ROOT，另加 fail-loud
 守衛」。
 
 1. **穩定掛載 compose 目錄**：proxy 新增 `- ./:/app/host_root`。`./` 恆為 compose 目錄（compose
@@ -79,7 +79,7 @@ Owner 回報「首裝精靈沒把 HEARTBEAT_TOKEN／DISPATCH_TOKEN／TOUKA_AUTH_
 - **端到端驗證**：`docker compose config` 實測 `/app/host_root` 來源解析為 `<repo>`（compose
   目錄）、`TOUKA_ENV_FILE=/app/host_root/.env`＝真實 `<repo>/.env`（非上層的幽靈 `.env`）。
 
-## 對抗式審查（22 agent；18 raised → 5 confirmed 全 medium，其餘駁回）
+## 對抗式審查（18 項提出 → 5 項確認、全為 medium，其餘駁回）
 
 - **已修**：守衛誤報（`environment:` 注入金鑰的健康部署被判幽靈）→ token 值相符豁免；
   非 UTF-8 .env 讀取炸例外 → `_read_env_keys`／`dotenv_values` 容忍；ghcr 標頭＋root README
@@ -97,7 +97,7 @@ Owner 回報「首裝精靈沒把 HEARTBEAT_TOKEN／DISPATCH_TOKEN／TOUKA_AUTH_
 - 守衛為 **log-only**（不中止啟動）；且採「全數不符才報」＋值相符豁免的保守判準——若使用者把
   「部分」金鑰放 compose `environment:`、「部分」在 .env，可能不觸發（避免誤報的取捨）。解耦
   本身才是治本，守衛是安全網。
-- **現況收拾（owner 自理）**：owner 選擇由我只改 compose/程式、.env 自行處理。步驟：
+- **既有部署的收拾（部署者自行處理）**：本案只改 compose／程式，既有的 .env 由部署者自行處理。步驟：
   1. `docker compose up -d`——proxy 配置變更（新掛載＋env）會自動重建，三 token 自動生成並寫入
      **真** `<repo>/.env`（一次性：TOUKA_AUTH_SECRET 由臨時轉持久＝該次既有登入態失效、需重登）。
   2. `docker compose up -d touka-heartbeat --force-recreate`——heartbeat 的 env_file 值是「容器

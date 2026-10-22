@@ -1,8 +1,8 @@
 # ADR-0248：模型溝通層第 3b 段（上游串流、OpenAI Responses、OpenAI／Gemini 接法）
 
-- 狀態：✅ 已接受（Owner 2026-10-12 00:43 核准 3b 一頁計畫；技術主管 DEV-A 第 3 版裁定 1～7；10/12 19:04「二 甲」核准期望翻轉）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准 3b 計畫；計畫第 3 版經審查裁定 1～7；維護者 2026-10-12 另核准期望翻轉）
 - 日期：2026-10-12（3b-U6 定稿 2026-10-13）
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`handlers/react_core.py`（重試、finish_reason、拒答提示、沒跑完那一輪的記帳）、`handlers/adapters/`（`claude_adapter`、`openai_adapter`、`gemini_adapter`、新 `responses_adapter`、新 `stream_timeout`、新 `sse_stream`、新 `retry`、`usage`、`base`）、`handlers/openai_handler.py`、`adapters/openai_to_gemini.py`、`services/dispatchers/{route_family,factory,utils}.py`、`services/completion.py`、`services/models/model_rules.py`、`config.py`（`OPENAI_RESPONSES_BASE_URL`、`OPENAI_SDK_ENV_OVERRIDES`）、`core/logging_config.py`、`main.py`、`tests/smoke/manual/live_chat_probe.py`、`ToukaProxy/pyproject.toml`／`uv.lock`（openai `~=3.24.0`）、對應測試與文件；golden 只刻意改 6 份
 - 修訂 [ADR-0247](0247-model-layer-stage-3a.md) 決策 4：非串流上限不在 3b-U1 後移除，改成主迴圈不串流送出時才壓（附註 4）
 - 修訂 [ADR-0242](0242-model-layer-stage-1a.md) 的 KF 表：KF-7a、KF-8、KF-9 與兩條既知（finish_reason 一律 stop、Gemini 不送輸出上限）改為已修
@@ -10,14 +10,14 @@
 
 ## 背景
 
-3a 之後主迴圈三家都還是非串流：長回覆要等整輪，Claude 被壓在 21,333 個輸出 token，逾時只有一個總時間，取消時已收到的用量也拿不到。OpenAI 新模型只走 Responses API。1a 釘住的 KF-7a、KF-8、KF-9 交給本段。3b-U0 在 repo 外（`.toukadev/tmp/model-p3b/exp3b/`，只 import 第三方 SDK）跑 Q0～Q8 與 C1，依 §6-1 準則選每一家的接法。
+3a 之後主迴圈三家都還是非串流：長回覆要等整輪，Claude 被壓在 21,333 個輸出 token，逾時只有一個總時間，取消時已收到的用量也拿不到。OpenAI 新模型只走 Responses API。1a 釘住的 KF-7a、KF-8、KF-9 交給本段。3b-U0 在 repo 外的實驗目錄（未入版控，只 import 第三方 SDK）跑 Q0～Q8 與 C1，依 §6-1 準則選每一家的接法。
 
 ## 決策
 
 1. **接法（裁定 1～4）**
    - Claude：anthropic 1.11 `messages.stream()`（C1：最終 Message 和 `create()` 完全相等）。
    - 相容廠商 Chat：自寫 SSE。Q3 不過：b2 `stream()` 累加器遇到工具 index 缺號會 IndexError；e3 沒金鑰的連線，空字串被拒、傳 None 改讀環境變數 `OPENAI_API_KEY`、給假值則多送 Authorization。
-   - Gemini：自寫（甲′），依據只有 Q5。**Q5 部分不過（h）**：`exp3b/scripts/q5_genai_stream.py:229-243` 在 part、candidate、頂層各塞一個 SDK 不認得的欄位，google-genai 2.28.0 串流解析後，part 層與頂層那兩個被靜默丟掉、沒有任何例外（`exp3b/out/q5_genai_stream.txt` 的 `[NOTE] Q5 h`；candidate 層沒印出，不推論）。adapter 把 part 原樣回送給下一輪，走 SDK 就還原不成 REST 形狀，Google 日後新增的必回送欄位會在升版前被吃掉。Q2、Q6 照注入 client 就滿足，不拿來當理由。
+   - Gemini：自寫，依據只有 Q5。**Q5 部分不過（h）**：實驗腳本 `q5_genai_stream.py`（未入版控）在 part、candidate、頂層各塞一個 SDK 不認得的欄位，google-genai 2.28.0 串流解析後，part 層與頂層那兩個被靜默丟掉、沒有任何例外（實驗輸出的 `[NOTE] Q5 h`；candidate 層沒印出，不推論）。adapter 把 part 原樣回送給下一輪，走 SDK 就還原不成 REST 形狀，Google 日後新增的必回送欄位會在升版前被吃掉。Q2、Q6 照注入 client 就滿足，不拿來當理由。
    - OpenAI Responses：openai SDK（Q1、Q4、Q6～Q8 過），**只給「非自訂連線、provider＝官方 OpenAI、規則表 `uses_responses_api`」的路由**：`resolve_model_route` 回 `responses` 種類，factory（`handle_responses_request`）與 `complete_once` 共用，不只看模型名。自訂連線一律留在 Chat 自寫路徑。相容廠商要走 Responses，得先解決 Q3-e3。
    - `complete_once` 遇到 Responses 路由改走非串流 `responses.create`：不重試、不套閒置逾時，停止原因、用量（扣 `cached_tokens`）、`store=false` 沿用 adapter；契約另在 `test_complete_once_nonstream_contract.py`。
 2. **用量（裁定 5、6）**
@@ -51,7 +51,7 @@
 8. **KF 修正與規則表接線**
    - KF-7a（U3）：外部客戶端帶 role=tool 歷史時，Gemini 的 `functionResponse.name` 填對應 functionCall 的工具名，不再填 call id。
    - KF-8（U2，adapter 出口）：相容 Chat 不送 Touka 內部欄位（`incognito`、`deep_research`、`mcp_dispatcher`、`session_id`、`project_id`、`auth_level`、`ide_context`）、MCP 工具的 `server`／`tool`／`category`，工具全被過濾時不送 `tools`；`thinking`、`stop`、`max_tokens` 照送。
-   - KF-9（U5b，決定 A12 甲）：Anthropic 形狀入口（IDE 的 `/v1/messages`）接非 Claude 模型時，`convert_to_openai` 把 `tool_use`／`tool_result` 轉成 `tool_calls`／role=tool 訊息（call id＝tool_use id；`is_error` 的結果在內容前加「Tool error: 」），list system 合成字串（不送 `cache_control`）；Gemini 與 Responses 再由既有轉換器轉成 functionCall／functionResponse、function_call／function_call_output。
+   - KF-9（U5b）：Anthropic 形狀入口（IDE 的 `/v1/messages`）接非 Claude 模型時，`convert_to_openai` 把 `tool_use`／`tool_result` 轉成 `tool_calls`／role=tool 訊息（call id＝tool_use id；`is_error` 的結果在內容前加「Tool error: 」），list system 合成字串（不送 `cache_control`）；Gemini 與 Responses 再由既有轉換器轉成 functionCall／functionResponse、function_call／function_call_output。
    - Gemini `generationConfig` 只送請求的 `maxOutputTokens`／`stopSequences`，從不送取樣參數；`complete_once` 不再自己補 Gemini 上限。
    - 規則表新讀者：相容 Chat（`stream`、`required_params_with_tools`＝gpt-6-sol／luna 帶工具送 `reasoning_effort='none'`、`forbidden_params`、`default_max_output`、`forced_tool_choice`）、Gemini（`stream`）、Responses（`stream`、`forced_tool_choice`）、`route_family`（`uses_responses_api`）。
 9. **Responses 細節與 SDK 守衛（D4、D5，附註 8、19、24、37）**
@@ -61,7 +61,7 @@
    - 請求：system 合成 `instructions`；工具攤平、沒寫 strict 就送 false；`max_tokens`→`max_output_tokens`；不送取樣參數與 stop。下一輪把 output items（含加密 reasoning、function_call）照原順序原樣回送，工具結果用 call_id 對應。`prompt_cache_key`＝`touka-`＋sha256(agent＼0session) 的前 32 碼，不送靈魂名或 session id 原文；這只是去識別、不是不可逆（沒有 session 時等於 sha256(靈魂名)，用名字字典就能還原），R-3b ① 判定不改 HMAC：OpenAI 本來就收到含人格的 instructions。
    - GPT 登入只留接縫（附註 24，本段不做登入）：context 可給 `token_provider`（每次請求取新權杖）、`extra_headers` 與另一個 `base_url`。
    - 傳輸層契約：真 SDK 加 httpx2.MockTransport，送出內容和 `tests/fixtures/responses_u4a_wire.json` 逐字比對。
-10. **Claude 非串流上限**（附註 4，人類 10/12 19:04 核准）：21,333／8,192 兩個常數與 `nonstreaming_max_tokens` 欄位保留，只在主迴圈不串流送出時於送出當下壓（`claude_nonstream_cap`）；主迴圈串流與 `complete_once`（帶 timeout）不壓，轉換器也不再壓。
+10. **Claude 非串流上限**（附註 4，維護者 2026-10-12 核准）：21,333／8,192 兩個常數與 `nonstreaming_max_tokens` 欄位保留，只在主迴圈不串流送出時於送出當下壓（`claude_nonstream_cap`）；主迴圈串流與 `complete_once`（帶 timeout）不壓，轉換器也不再壓。
 
 ## 代價、已知限制與待 R-3b 判斷
 

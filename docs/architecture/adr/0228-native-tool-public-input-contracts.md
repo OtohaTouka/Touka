@@ -1,7 +1,7 @@
 # ADR-0228：原生工具公開輸入合約與執行 grant
 
 - 日期：2026-09-15
-- 狀態：DEV-A Owner approved；R2／R3 SUPERVISOR_ACCEPTANCE；P1–P6來源計畫完成；**DEV-B_ACCEPTED／SUPERVISOR_ACCEPTANCE**，見Root DEV-B 驗收原件
+- 狀態：維護者核准計畫；R2／R3 經審查接受；P1–P6來源計畫完成；**最終審查已接受**（審查原件未入版控）
 - 影響：ToukaMemory／ToukaProxy native tools、Guard #45、PR source checks
 - 前置：[ADR-0119](0119-unified-tool-interface-redesign.md)、[完整計畫](../proposals/native-tool-contract-completeness-plan.md)
 
@@ -53,7 +53,7 @@ full-source變異fixture覆蓋newtool／kwargs／action／nested／dynamic／bin
 
 PR source workflow 最小 contents:read、immutable actions pin、固定uv0.12.1＋Python3.12、locked workspace CPUindex；
 沒有 secrets、pull_request_target、token寫權或新套件。CI來源驗證不等於 hosted 執行；required checks是否啟用 NOT_VERIFIED。
-依賴audit仍由既有全guard流程；此次可引用本輪相同inputs的root原件 REUSED_NOT_FRESH，不宣稱新來源已遠端發行。
+依賴audit仍由既有全guard流程；此次可引用本輪相同inputs的既有稽核結果（REUSED_NOT_FRESH），不宣稱新來源已遠端發行。
 
 ## 風險、相容與回復
 

@@ -23,14 +23,14 @@
   - **ADR-0082**（2026-06-12）：ToukaDispatch 併入 ToukaProxy 容器（單一映像 + proxy-spawn 監督）。
   - **ADR-0116**（2026-06-25）：ToukaMemory 收斂為整合模式單一部署、退役獨立 MCP／獨立容器。
   - ⇒ 部署面從「4 個獨立 Python 服務」縮成 **2 個映像**：整合 Proxy 映像（Proxy＋Memory＋Dispatch）＋ Heartbeat 映像。**ADR-0071 否決 workspace 的 blast-radius 理由已大幅弱化**（要改的 Dockerfile 從 4 降到 2；ToukaMemory 不再是獨立部署單位）。
-- **觸發動機（擁有者）**：曾發生「各子專案／測試／Docker 裝到不同版本的套件，除錯困難」的漂移事故；並希望改用 uv 原生工作流（`uv run`／`uv sync`，體感更快、免手動 activate）。
+- **觸發動機（維護者）**：曾發生「各子專案／測試／Docker 裝到不同版本的套件，除錯困難」的漂移事故；並希望改用 uv 原生工作流（`uv run`／`uv sync`，體感更快、免手動 activate）。
 
 ## 問題（為何獨立鎖檔還不夠）
 
 1. **獨立解析不保證跨子專案一致**：每份 `.in` 各自 compile，共用傳遞依賴（starlette／anyio／httpx／pydantic…）可能收斂到不同版本。目前實測一致，但那是**人工紀律／巧合**維持，非鎖版方法的構造保證。AGENTS.md 自舉的「starlette 0.52 vs 1.1」即此模型下的翻車紀錄。
 2. **守衛盲區**：Guard #30 只驗「每份 `.in↔.txt` 新鮮度 + Python 版本一致 + `>=` 政策」，**不驗跨子專案版本一致** → 漂移可無聲進 CI。
 3. **test ≠ deploy 風險**：dev/test venv 是四鎖聯集、部署各裝各的鎖檔；一旦分歧就是「測試綠、Docker 壞」。
-4. **uv 原生工作流不可用**：`uv.lock` 空殼 → 裸 `uv run <cmd>` 會先 `uv sync` 把 venv 對齊到空鎖檔、**清空全部套件**（`uv sync --dry-run` 實測「Would uninstall 128 packages」）。擁有者想要的 uv 便利拿不到。
+4. **uv 原生工作流不可用**：`uv.lock` 空殼 → 裸 `uv run <cmd>` 會先 `uv sync` 把 venv 對齊到空鎖檔、**清空全部套件**（`uv sync --dry-run` 實測「Would uninstall 128 packages」）。維護者想要的 uv 便利拿不到。
 
 ## 決策（提案）
 
@@ -72,7 +72,7 @@
 - 統一 vs 現行聯集：**套件集合完全相同**（0 增 0 減）、**97 個版本相同、11 個升版、0 退版**。
 - 那 11 個升版經證實為**時間漂移**（現行鎖檔切版後 PyPI 出的新補丁，如 anyio 4.14.0→4.14.1、click 8.4.1→8.4.2、huggingface-hub 1.20.1→1.21.0…）：**單獨**重編 ToukaProxy 也挑到相同新版 → **「統一」本身造成的版本差為 0**。
 
-**(b) workspace 機制驗證（scratchpad 最小 workspace + `uv lock`，2026-07-02 實測）**：root `[tool.uv.workspace]`（4 member、`package = false` 虛擬成員）＋ `[[tool.uv.index]] pytorch-cpu` ＋ `[tool.uv.sources] torch = { index = "pytorch-cpu" }` → `uv lock` **成功、112 套件、1.3 秒**。torch 解析為 **`2.12.1+cpu`**（來源 `download.pytorch.org/whl/cpu`），**鎖檔內零 `nvidia-*`／CUDA 套件**（112 = 統一 compile 的 125 減掉 13 個 CUDA family）。
+**(b) workspace 機制驗證（暫存目錄的最小 workspace + `uv lock`，2026-07-02 實測）**：root `[tool.uv.workspace]`（4 member、`package = false` 虛擬成員）＋ `[[tool.uv.index]] pytorch-cpu` ＋ `[tool.uv.sources] torch = { index = "pytorch-cpu" }` → `uv lock` **成功、112 套件、1.3 秒**。torch 解析為 **`2.12.1+cpu`**（來源 `download.pytorch.org/whl/cpu`），**鎖檔內零 `nvidia-*`／CUDA 套件**（112 = 統一 compile 的 125 減掉 13 個 CUDA family）。
 - ⇒ **torch 可直接納入單一 `uv.lock`（採 Option Y）**：由 `[tool.uv.sources]` 綁 CPU index，無需 CUDA、無需鎖檔外單獨裝。**這反而移除了 ADR-0071「torch 永遠是鎖檔外特例」的侷限**——遷移後 torch 也成為可重現鎖定的一員。
 - ⚠️ 未做的 Phase 1 驗證：`uv sync` 實際裝進 throwaway venv（會下載 CPU torch/transformers）＋ pytest 全綠，留待 Phase 1。
 
@@ -80,13 +80,13 @@
 
 ### Phase 1 結果（2026-07-02 實測，零觸碰生產）
 
-在 scratchpad 的最小 workspace（同 (b) 結構）做**實際安裝＋跑現有測試**的等價驗證：
+在暫存目錄的最小 workspace（同 (b) 結構）做**實際安裝＋跑現有測試**的等價驗證：
 
 - `uv sync --all-packages` → 真的安裝 **108 套件**進 throwaway venv：torch **`2.12.1+cpu`**、**零 CUDA**；fastapi／qdrant-client／sentence-transformers／transformers／mcp／discord／telegram 等重量 import **全通過**。
 - 以**該 workspace venv 的 python** 跑 **live repo 的完整 `pytest tests/`**（確定性順序）：**2453 passed / 3 skipped / 0 failed**——與現行 `.venv` 基準**位元等價**。
 - 版本 diff（workspace-locked vs 現行 4 鎖檔）＝ Phase 0(a) 那 11 個時間漂移升版、**0 退版、同套件集**。
 
-⇒ **功能等價證實**：workspace 單一 `uv.lock`（含 torch CPU 納入 lock）裝出的環境，通過全部現有後端測試。全程 live `.venv`／`pyproject.toml`／`requirements.*` 未動、無新增 repo 檔（workspace 全在 scratchpad）。**剩餘**：Phase 2（佈建腳本切換）、Phase 3（Docker 實機 build，尤其 Heartbeat `--package` 精簡）、Phase 4（Guard #30／禁令 53 改寫）——皆機械性、可自動驗證。
+⇒ **功能等價證實**：workspace 單一 `uv.lock`（含 torch CPU 納入 lock）裝出的環境，通過全部現有後端測試。全程 live `.venv`／`pyproject.toml`／`requirements.*` 未動、無新增 repo 檔（workspace 全在暫存目錄）。**剩餘**：Phase 2（佈建腳本切換）、Phase 3（Docker 實機 build，尤其 Heartbeat `--package` 精簡）、Phase 4（Guard #30／禁令 53 改寫）——皆機械性、可自動驗證。
 
 ### Phase 2 結果（2026-07-02 落地，repo 實際切換）
 
@@ -138,7 +138,7 @@
 
 ## 設計決策 / 取捨
 
-- **為何現在重議 workspace（vs ADR-0071 否決）**：① 整合模式（ADR-0082/0116）把部署面 4→2，blast radius 大幅縮小；② 擁有者的漂移痛點需要**構造保證**而非人工紀律；③ 順帶滿足 uv 原生工作流需求。
+- **為何現在重議 workspace（vs ADR-0071 否決）**：① 整合模式（ADR-0082/0116）把部署面 4→2，blast radius 大幅縮小；② 維護者的漂移痛點需要**構造保證**而非人工紀律；③ 順帶滿足 uv 原生工作流需求。
 - **為何 workspace 優於替代方案**：
   - vs **option ①（共用 constraints ＋ 跨專案一致性守衛）**：constraints 只保證「列進去的」套件、需靠守衛補漏（雙保險）；workspace 對**整張圖**構造保證，且免維護 constraints 檔。
   - vs **option ③（單一 union 鎖檔）**：union 會讓分離的 Heartbeat 映像扛全套（torch/transformers）；workspace 可 per-member 精簡安裝。

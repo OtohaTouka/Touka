@@ -12,7 +12,7 @@ Context（`Language='tc'|'en'`、`t()` 僅做路徑查找、無內插/單複數�
 中文檔、約 1,000+ 條使用者可見字串）。後端 `config/errors.json`（ADR-0014）每筆錯誤
 已預埋 `i18n` key，但前端從未接上。
 
-目標：以**成熟函式庫**做真正可用、且**可由社群貢獻語言**的 i18n。擁有者拍板：用現成
+目標：以**成熟函式庫**做真正可用、且**可由社群貢獻語言**的 i18n。維護者決定：用現成
 函式庫（不自建輪子）、**只做 client 端切換**（Touka 是自架應用軟體，SEO/分享連結價值
 低，不做 SSR、不在 URL 帶語言）、要能開放社群翻譯。
 
@@ -80,7 +80,7 @@ OSS 免費），志工網頁翻譯 → 自動開 PR → 守衛 #33 在 CI 把關
 2. [x] **Phase 1**：Workflow 一檔一 agent 並行抽字串 + 主程集中合併 catalog；全 app UI
    中文進 catalog（含 `<Trans>`/內插/`config.ts` 分頁 key/`theme.names.*`）；測試固定
    zh-TW；HAX/a11y 源碼掃描守衛隨批再錨定至 i18n key。
-3. [x] **Phase 2**：12-agent 並行翻譯 → en；自動 parity 驗證（var/tag 零落差）；英文
+3. [x] **Phase 2**：並行翻譯 → en；自動 parity 驗證（var/tag 零落差）；英文
    單複數；`fallbackLng` 改 `'en'`；holistic QA。
 4. [x] **Phase 3**：語言註冊 barrel、**守衛 #33**（ja stub 實測 stale→FAIL/partial→WARN）、
    `errors.json` 橋接（`errorMsg` + 呼叫點轉換）、`CONTRIBUTING-translations.md`。

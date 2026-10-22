@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07；擁有者尚未 commit）**。[對抗式互審設計文件](../proposals/adversarial-review-subsystem-design.md) **§7.1 前置工程（A/B/C）**——design-independent、「需求 2 最大的隱藏工程」：沒有這條量測軌，「互審會降幻覺」永遠無法被證偽＝邊界 1 無法觸發＝需求 2 不可宣稱完成。
+✅ **已接受（實作與驗證 2026-07-07）**。[對抗式互審設計文件](../proposals/adversarial-review-subsystem-design.md) **§7.1 前置工程（A/B/C）**——design-independent、「需求 2 最大的隱藏工程」：沒有這條量測軌，「互審會降幻覺」永遠無法被證偽＝邊界 1 無法觸發＝需求 2 不可宣稱完成。
 
 > **2026-08-14 修訂（[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)）**：
 > LIVE episode 永久排除 pytest／smoke／CI／guard。CLI 固定單一 case＋DebugAgent，app-data／
@@ -16,7 +16,7 @@
 
 ## 背景
 
-互審設計 workflow 的核碼支點 3（✔已複核）：`harness._run_case_live` 是 `NotImplementedError` stub、唯一 LIVE 路徑 `live_select_only` 只選不執行（無 artifact、無 persona/soul）；且既有指標 `hallucinated_tool_rate`（工具名捏造）／`selection_ok`（選對工具）與互審要降的 **artifact 內容／宣稱型幻覺不同軸**——門檻若劃在無關曲線上恆無訊號（設計文件 §6.2-7 否決其作為主指標）。五臂 A/B（§7.2）需要：真跑 producer 產 artifact、episode 級 gate 指標、與**不靠 LLM** 的失敗裁決。
+互審設計的核碼支點 3（✔已複核）：`harness._run_case_live` 是 `NotImplementedError` stub、唯一 LIVE 路徑 `live_select_only` 只選不執行（無 artifact、無 persona/soul）；且既有指標 `hallucinated_tool_rate`（工具名捏造）／`selection_ok`（選對工具）與互審要降的 **artifact 內容／宣稱型幻覺不同軸**——門檻若劃在無關曲線上恆無訊號（設計文件 §6.2-7 否決其作為主指標）。五臂 A/B（§7.2）需要：真跑 producer 產 artifact、episode 級 gate 指標、與**不靠 LLM** 的失敗裁決。
 
 ## 決策
 

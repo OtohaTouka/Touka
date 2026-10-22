@@ -80,7 +80,7 @@ ToukaProxy process；尚無企業 IdP，因此 enterprise authorization 必須�
   fencing token、task exit oracle 與一致的 audit backpressure，未實作前不得移除 topology gate。
 - Phase 3 的 durable owner 補強不放寬此邊界；仍只有單一 Proxy process 可建立 boot-local permit。
 
-## 2026-08-10 DEV-B 第 1 輪修訂
+## 2026-08-10 審查後修訂
 
 - delegated refresh 的 permit 與 HTTP send 必須共用同一個 frozen prepared request。`client_secret_basic`
   的 `client_id`／secret 只存在 Basic Authorization header，不得列入 form fields；
@@ -104,7 +104,7 @@ ToukaProxy process；尚無企業 IdP，因此 enterprise authorization 必須�
 - 第四版最終證據：workload 聚焦 **142 passed**、最終邊界精確套件 **159 passed**、完整後端
   **4552 passed／5 skipped**、ToukaChat **1150 passed／228 files**、guards **44/44**；兩個 CVE audit
   均為 0 vulnerabilities，Ruff F/I、MkDocs、Compose config 與 OpenAPI/generated types 全綠。
-- Phase 只有 DEV-B 與 owner commit gate 通過後才可標示完成；本 ADR 的 accepted 表示決策已核准，
+- Phase 只有最終審查與維護者的 commit 核准都通過後才可標示完成；本 ADR 的 accepted 表示決策已核准，
   不代表目前候選已獲最終複審或已發布。
 - 2026-08-08 Phase 3 聚焦證據：26 個 workload test files 共 **181 passed**；包含 exact durable
   owner/CAS、public rotation serialization、crash/cancel blocker、source timeout→restart→finalize、
@@ -112,10 +112,10 @@ ToukaProxy process；尚無企業 IdP，因此 enterprise authorization 必須�
   profile/delegation 同 generation exactly-one-winner contention。Ruff E/F/I
   與 `git diff --check` 全綠，完整後端 **4604 passed**；44 guards 合併證據為 **43/44**，唯一阻擋
   是 2026-08-08 production npm audit 新回報 5 項弱點（3 high、2 moderate）。Phase 4、弱點處置與
-  DEV-B 複審仍待後續 phase。
+  最終審查仍待後續 phase。
 - 2026-08-08 Phase 4：兩個獨立 Python subprocess 同時競爭同一 temporary lock，exactly one
   `ACQUIRED`、另一個 `BUSY`；取消 owner wait 並完成 `aclose()` 後，新 subprocess 可立即取得鎖。
-  這是既有 OS lock 行為的補證，沒有為了製造 RED 更動產品 lock。新增 DEV-B builder/verifier 以
+  這是既有 OS lock 行為的補證，沒有為了製造 RED 更動產品 lock。新增審查用的 builder/verifier 以
   content diff＋展開 untracked 建 manifest，將 normalized Git object 等於 base 的 status-only path
   另列 diagnostic；exact binary patch 可跨 Windows EOL 重建，另保留 human-readable review patch。
   tracked／review／untracked patch sections、manifest、live tree 與隔離重建的 size/SHA-256 必須全等；
@@ -123,4 +123,4 @@ ToukaProxy process；尚無企業 IdP，因此 enterprise authorization 必須�
   最終 Phase 4 聚焦 **39 passed**、完整後端 **4622 passed／5 skipped**、ToukaChat
   **1150 passed／228 files**、候選 Ruff（94 個 Python path）、MkDocs 與 diff check 全綠；
   pip-audit 通過，44 guards 為 **43/44**。唯一紅燈是 production npm audit 的 5 項
-  弱點（3 high、2 moderate），因此尚未建立／封存最終 immutable DEV-B package，也未進複審。
+  弱點（3 high、2 moderate），因此尚未建立／封存最終 immutable 審查 package，也未進複審。

@@ -16,7 +16,7 @@
 
 ## 背景
 
-擁有者實機 `docker compose up` 驗收時回報「引導精靈輸入金鑰後完全不能對話、金鑰沒寫進 .env」。對整個精靈相關功能做 33-agent 對抗式 code review，確認 **23 個真實問題**，收斂為三大根因（A/B/C）＋兩組其他問題（D 狀態偵測分裂、E 其他確認問題）：
+維護者在測試環境 `docker compose up` 驗收時回報「引導精靈輸入金鑰後完全不能對話、金鑰沒寫進 .env」。對整個精靈相關功能做對抗式 code review，確認 **23 個真實問題**，收斂為三大根因（A/B/C）＋兩組其他問題（D 狀態偵測分裂、E 其他確認問題）：
 
 - **A 寫錯檔／不持久**：`routers/config.py` 以裸相對 `".env"` 寫入 → docker 下落在容器暫存層 `/app/ToukaProxy/.env`（非 compose `env_file` 讀的宿主 .env、重建即蒸發）。
 - **B 陳舊金鑰快照**：`main.py` 於 import 時以當時 `os.environ` 建好 Anthropic client、`factory.py` 以 `from src.config import GEMINI_API_KEY` 綁死 import 值 → 精靈補的金鑰在「免重啟」情況下到不了聊天路徑。
@@ -69,7 +69,7 @@ Step5 改雙欄位，`SANCTUARY_DATA_PATH`（資料）與 `WORKSPACE_ROOT`（工
 ### 已驗證免修 / 保留
 - **D#13/20**（狀態三方分裂）已由 A 修掉（三源同步＋TOUKA_ENV_FILE 持久化）。
 - **E#16/19**（Tavily 排除即時生效）非 bug——Tavily 為搜尋金鑰。
-- **E#14**（改密碼登出自己，low、可重登恢復）擁有者決定保留。
+- **E#14**（改密碼登出自己，low、可重登恢復）維護者決定保留。
 
 ## 影響範圍（採納後改動的檔）
 
@@ -86,7 +86,7 @@ Step5 改雙欄位，`SANCTUARY_DATA_PATH`（資料）與 `WORKSPACE_ROOT`（工
 - **`with_options` 而非重建 client**：套用即時 Anthropic 金鑰又共用連線池，避免每請求重建 httpx pool。
 - **狀態 provider 清單改 registry 衍生**：ADR-0099 registry 正為消除此類硬編碼漂移；值仍讀 os.environ 以反映真實生效並相容既有測試/重啟語義。
 - **CORS 用 regex 而非放寬 `*`**：`allow_credentials=True` 下不能用 `*`；regex 精確涵蓋本機/私網/webview，公開網域仍白名單。
-- **已知侷限**：standalone `ToukaProxy/docker-compose.yml`（無 init 容器）刻意不加 hf-cache/host-dir（無 chown 機制反而會壞，dev-only 不持久＝可接受漂移）；E#14 未修（擁有者決定）。
+- **已知侷限**：standalone `ToukaProxy/docker-compose.yml`（無 init 容器）刻意不加 hf-cache/host-dir（無 chown 機制反而會壞，dev-only 不持久＝可接受漂移）；E#14 未修（維護者決定）。
 
 ## 後果
 

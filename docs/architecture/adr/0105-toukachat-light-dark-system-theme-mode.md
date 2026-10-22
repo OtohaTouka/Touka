@@ -84,7 +84,7 @@ ACCENTS  = { touka: {primaryDark, primaryLight, primaryButtonDark, primaryButton
 6. [x] **Batch 3** `ThemeSettingsTab`：亮/暗/跟隨系統 分段控件（accent picker 之上，`aria-pressed`，呼叫 next-themes `setTheme`）；測試新增、既有斷言不破。
 7. [x] **Batch 3** i18n：`theme_mode_heading`/`mode_system`/`mode_light`/`mode_dark` 進 zh-TW（source）＋ en；守衛 #33 綠（1018 key）。
 8. [x] **Batch 4** 硬寫色點審計＝零修改（app 全語意 token 驅動）；真實瀏覽器驗證亮/暗機制（`html.light`/`color-scheme`/`.light` 變數逐項實測正確、無 console error/水合警告）。
-9. [x] **Batch 4** 全綠關卡：guard_all **37/37**、vitest **684**、smoke **24/24**、ESLint 0 error、ruff N/A（零 .py）。＊人工 commit 待擁有者指示；**六主題 × 雙模式實機美學驗收仍待擁有者**（需後端的運行實例）。
+9. [x] **Batch 4** 全綠關卡：guard_all **37/37**、vitest **684**、smoke **24/24**、ESLint 0 error、ruff N/A（零 .py）。＊人工 commit 待維護者指示；**六主題 × 雙模式實機美學驗收仍待維護者**（需後端的運行實例）。
 
 ## 建基於 / 關聯
 

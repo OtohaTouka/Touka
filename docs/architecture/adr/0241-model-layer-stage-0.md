@@ -1,8 +1,8 @@
 # ADR-0241：模型溝通層第 0 段（測試網路封鎖、取樣參數不送、同家備援與小修）
 
-- 狀態：✅ 已接受（Owner 2026-10-11 核准計畫與決定 A–G）
+- 狀態：✅ 已接受（維護者 2026-10-11 核准計畫與決定 A–G）
 - 日期：2026-10-11
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：三個 provider adapter、`SoulLayer`、`proxy_service` 備援、研究工具 Google 搜尋、創建評分、備份／還原／子程序清理、`tests/` 護欄、`pyproject.toml`／`uv.lock`、ToukaChat 錯誤處理與送出內容
 - 修訂：[ADR-0111](0111-native-model-default-sampling-params.md)（送出端退役）、[ADR-0155](0155-handler-drift-fix-batch.md)、[ADR-0157](0157-react-core-followups.md)、[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)
 - 決策 4 已由 [ADR-0243](0243-model-pre-run.md) 取代（2026-10-12：Gemini 顯式快取全停，一般與無痕對話都不建）
@@ -22,8 +22,8 @@
 5. **備援只限同一家**：`services/dispatchers/route_family.py` 依 factory 同順序判定家族（factory 的 claude／gemini 兩個判斷式改呼叫同模組只看名稱的 `native_family`）；主要模型失敗時，只有上次能用的模型與它同家族且可判定才改用，否則丟回原錯誤。
 6. **沒設主要模型**：`SoulLayer` 不再偷換 `gemini-2.5-flash`，串流前丟 `AGENT_BRAIN_NOT_SET`（id 1215、HTTP 409）。前端 `ToukaApiError` 保留錯誤碼，`useAgentBrainNotice` 跳通知，按鈕切到靈魂設定頁；靈魂設定存檔時，只有代理人還沒有主要模型、且 `route_family` 判得出家族時才把存的 `base_model` 設成主要模型（已有者不變；「未配置」等顯示字串不會被存入），讓通知救得回。
 7. **其他寫死預設**：研究工具 Google 搜尋只用代理人自己的 Gemini 模型送一次（不再試舊模型清單、不重試）；`TOUKA_EVAL_JUDGE_ENABLED` 為真但沒設 `TOUKA_EVAL_JUDGE_MODEL` 時不啟用評分，並記錯誤。
-8. **穩定性小修**：還原拿掉 30 分鐘硬逾時（逐檔就地覆寫，中途殺掉會半新半舊）；`system_backup.run_backup_job` 讓備份鎖持有到執行緒裡的備份真的結束（四個呼叫點共用）；Windows taskkill 一律移到執行緒，取消時以 `reap_cancelled_process` 有界等待回收；演化 venv 用 `sys.executable`。B8（刪 `_has_chaining_metacharacters` 包裝）由 Owner 決定這次不做，列為後續小任務；穩定性小修共四個。
-9. **uv 7 天冷卻期**：root `[tool.uv]` `exclude-newer = "7 days"`；`uv.lock` 只記期間，`--locked` 不隨日期失效；重鎖時 159 個套件都沒變。只管 Python，npm 不在內。要提早放行某套件只能用 `exclude-newer-package`，每個例外都要 Owner 逐一同意（`test_uv_dependency_cooldown.py` 鎖住 7 天且不得有例外）。
+8. **穩定性小修**：還原拿掉 30 分鐘硬逾時（逐檔就地覆寫，中途殺掉會半新半舊）；`system_backup.run_backup_job` 讓備份鎖持有到執行緒裡的備份真的結束（四個呼叫點共用）；Windows taskkill 一律移到執行緒，取消時以 `reap_cancelled_process` 有界等待回收；演化 venv 用 `sys.executable`。B8（刪 `_has_chaining_metacharacters` 包裝）由維護者決定這次不做，列為後續小任務；穩定性小修共四個。
+9. **uv 7 天冷卻期**：root `[tool.uv]` `exclude-newer = "7 days"`；`uv.lock` 只記期間，`--locked` 不隨日期失效；重鎖時 159 個套件都沒變。只管 Python，npm 不在內。要提早放行某套件只能用 `exclude-newer-package`，每個例外都要維護者逐一同意（`test_uv_dependency_cooldown.py` 鎖住 7 天且不得有例外）。
 10. **實測程式**（只改 probe，不改產品）：`live_chat_probe.py` 支援 Gemini 單次請求（probe 行程內 `_MAX_RETRIES=1`、加 `generationConfig.maxOutputTokens`），新增 `--env-file`，路徑納入核准範圍。
 
 ## 代價
@@ -48,7 +48,7 @@
 
 ## 驗證
 
-Claude 實測（10/11 經 Owner 同意，在 317bc304 以 `live_chat_probe.py` 各送 1 次，max_tokens 128、不重試）：claude-opus-5-5、claude-haiku-5-5、claude-haiku-4-5（解析為 claude-haiku-4-5-20251001）都沒有 400，回覆都是 LIVE_PROBE_OK，合計約 0.0013 美元；Opus 5.5 修正前每次都會因溫度被拒，這次直接證明修好。另經 Owner 逐批同意，gemini-2.5-flash、grok-4.20-0309-non-reasoning、deepseek-flash 各 1 次，都沒有 400／404、回覆都是 LIVE_PROBE_OK，合計約 0.0002 美元；擔心的內部欄位外送沒有造成 Grok、DeepSeek 拒收。OpenAI 沒有 API 額度，只靠契約測試。自動測試結果見 HANDOVER。對抗式複審 3 位審過，修正後由原 reviewer 審過差異。
+Claude 實測（10/11 經維護者同意，在 317bc304 以 `live_chat_probe.py` 各送 1 次，max_tokens 128、不重試）：claude-opus-5-5、claude-haiku-5-5、claude-haiku-4-5（解析為 claude-haiku-4-5-20251001）都沒有 400，回覆都是 LIVE_PROBE_OK；Opus 5.5 修正前每次都會因溫度被拒，這次直接證明修好。另經維護者逐批同意，gemini-2.5-flash、grok-4.20-0309-non-reasoning、deepseek-flash 各 1 次，都沒有 400／404、回覆都是 LIVE_PROBE_OK；擔心的內部欄位外送沒有造成 Grok、DeepSeek 拒收。OpenAI 未做 live 驗證，只靠契約測試。自動測試結果見 HANDOVER。經 3 位審查者對抗式複審，修正後由原審查者再審差異。
 
 ## 回復
 

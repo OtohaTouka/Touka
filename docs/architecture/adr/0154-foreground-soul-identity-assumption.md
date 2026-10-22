@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（owner 拍板 Option A：前景對話以靈魂身分執行；源於 Sumi 對話「看不到工具」＋幽靈 `custom/{human_uuid}/drive` 診斷）
+✅ 已接受（維護者決定採 Option A：前景對話以靈魂身分執行；源於 Sumi 對話「看不到工具」＋幽靈 `custom/{human_uuid}/drive` 診斷）
 
 > 修訂註記：ADR-0245 修補（2026-10-12）把「非擁有者、非 admin 的人類指定靈魂」從「不代打（維持現況）」改為 MonitorLayer 直接 403 `AUTH_PERMISSION_DENIED`；擁有者與 admin 的前景代打不變。
 
@@ -81,7 +81,7 @@ UPDATE（`get_session_by_id` 守衛），故 session 的人類歸屬由**前端�
   該路徑未有的能力。
 - **相容**：非擁有者非 admin 的人類、Guest、心跳、custom 模型一律**不代打**（維持現況）。既有測試零回歸
   （pytest 3440、guard_all 41/41）。
-- **待驗（owner 手動）**：行為效益（Sumi 前景看得到工具、記憶與心跳連續）需 owner 於實機對話確認
+- **待驗（人工）**：行為效益（Sumi 前景看得到工具、記憶與心跳連續）需在實際環境對話確認
   （需真模型呼叫、API 費）；本 ADR 僅以單元＋全套＋守衛＋對抗審查在程式層驗證。
 
 ## 相關
@@ -91,4 +91,4 @@ UPDATE（`get_session_by_id` 守衛），故 session 的人類歸屬由**前端�
 - [ADR-0147](0147-soul-role-type-binding.md)（靈魂→角色類型綁定；`resolve_role_and_caps` SSOT＝本案換身分
   的角色來源；其警告的 user.id↔agent_id 撞名為同片土壤）
 - 診斷：Sumi 對話側邊欄消失案的 IDENTITY-LEAK 支線（payload `agent_id=2a72059c`＋幽靈 `custom/2a72059c/drive`
-  ＝本案症狀的實機證據）；[[touka-multi-account-same-human]] ④
+  ＝本案症狀的實機證據）

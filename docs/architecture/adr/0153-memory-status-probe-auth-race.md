@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（owner 回報 console `GET /v1/memory 401`；診斷為既有啟動競態，非 T 系列引入）
+✅ 已接受（維護者回報 console `GET /v1/memory 401`；診斷為既有啟動競態，非 T 系列引入）
 
 ## 日期
 
@@ -10,7 +10,7 @@
 
 ## 背景
 
-Owner 回報 console 反覆 `GET http://localhost:8000/v1/memory 401`。日誌鐵證使用者**完全登入
+維護者回報 console 反覆 `GET http://localhost:8000/v1/memory 401`。日誌鐵證使用者**完全登入
 正常**（`/v1/auth/me`、`/v1/memory/health`、`/v1/memory/list` 同一 token 皆 200），偏偏裸
 `/v1/memory` 401。三個端點在 `observability.py` 的認證依賴**完全相同**（`get_verified_identity`）
 ——同後端邏輯卻一 401 兩 200，唯一可能是那個 `/v1/memory` 請求**送出時未帶 token**。
@@ -65,10 +65,10 @@ provider 巢狀**：
 - **根因**：`SessionListProvider` 掛載時 `refreshSessions()` 只探一次；`GET /v1/ui/sessions`
   若 `res.ok=false`／throw，`refreshSessions` **靜默回 `[]` 不動 `sessions`**（SessionListProvider.tsx:46-49），
   且**無 `touka_auth_changed` 重探監聽** → 空清單在該頁生命週期內不自癒，直到手動重整。
-- **實機觸發**：admin（`75ec02b2`）於管理頁編輯使用者 → 觸發自身 token 撤銷
-  （`system_status.log` 07-13 06:59:46／07:01:03「Tokens revoked」＋隨後 `LDH refused: cardless`
+- **觸發情境**（維護者的測試環境）：admin（`75ec02b2`）於管理頁編輯使用者 → 觸發自身 token 撤銷
+  （`system_status.log` 兩次「Tokens revoked」＋隨後 `LDH refused: cardless`
   ＋兩檔合計 7× `401`）→ 之後的 `/v1/ui/sessions` 吃 401 → 空側欄。**資料完好**
-  （`ui_sessions.db` 該 row `agent_id='Sumi'`、`is_home=1`、6969B 訊息樹完整），純顯示層。
+  （`ui_sessions.db` 該 row `agent_id='Sumi'`、`is_home=1`、訊息樹完整），純顯示層。
 - **後端已排除為肇因**（對抗式覆核）：`/v1/ui/sessions` 查詢無過濾，`_can_access_session`
   對 admin/Debugger **無條件先放行**（ui_sessions.py:85，早於 `owner_user_id` 檢查）→ 兩個
   admin 帳號皆可見該 row → **非 owner_user_id 過濾、非帳號切換**所致。

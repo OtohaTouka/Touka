@@ -1,6 +1,6 @@
 # ADR-0116：ToukaMemory 收斂為「整合模式單一部署」— 退役獨立 MCP 模式、保留依賴反轉接縫
 
-- **狀態**：✅ 已接受（2026-06-25；擁有者核准 Option B，已實作並全綠驗證：guard 37/37、後端 pytest 2431 passed/2 skipped、smoke 24/24，整合路徑零回歸）
+- **狀態**：✅ 已接受（2026-06-25；維護者核准 Option B，已實作並全綠驗證：guard 37/37、後端 pytest 2431 passed/2 skipped、smoke 24/24，整合路徑零回歸）
 - **日期**：2026-06-25
 - **影響範圍（若採納）**：ToukaMemory（`server.py`／`run_server.py`／`config_utils._FallbackResourceProxy` 退役、`get_resource_proxy()` 簡化、獨立安裝足跡）＋ 守衛/文件（Guard #21 `.importlinter`、ADR-0032、`AGENTS.md` 禁令 14、`docs/guides/deployment_guide.md`、`ToukaMemory/README.md`、`tests/unit/test_memory_resource_proxy.py`）
 - **關鍵字**：ToukaMemory, MCP standalone mode, integration-only, dependency inversion, IResourceProxy, ResourceManager, Guard #21, ADR-0032, 禁令 14, deployment simplification, maintenance burden, scope reduction

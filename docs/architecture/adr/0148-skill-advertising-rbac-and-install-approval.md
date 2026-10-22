@@ -75,7 +75,7 @@ Sumi/grok-4.5 診斷的「看得到用不了」第三例，以及 skill 安裝�
   install headless 從「broker fail-closed」改為「工具本體 fail-closed」（同結果、
   不同訊息，且不再有雙卡）。
 
-## 對抗式審查（10 agent；1 medium + 3 low + 1 PASS，2 誤報駁回）
+## 對抗式審查（1 medium + 3 low + 1 PASS，2 誤報駁回）
 
 - **已修（low）**：裸注入的 skill_registry 未歸 `<capabilities>` → context_breakdown 記
   system_other。改以 `dispatcher_body` 併入 `apply_skills_to_request` 的同一

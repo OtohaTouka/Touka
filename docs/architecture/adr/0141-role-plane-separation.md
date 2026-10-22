@@ -31,7 +31,7 @@ normal）與 agent 角色（Owner／Base／Guest／Debugger），`is_human`（:2
 分階段（P0–P7），終態由型別層保證「人類角色不可能出現在 agent 欄位」。棄選項 A
 （只修文件，程式仍混）與 B（謂詞層，可被繞過只能靠守衛盯）。
 
-**擁有者拍板的六個點（2026-07-09 核准）：**
+**維護者決定的六個點（2026-07-09 核准）：**
 
 1. **代打建模＝雙欄位配對**：代打身分帶 `agent_role=目標軀體角色` ＋
    `human_role=駕駛員人類角色`，取代 `identity_router.py:105` 把 "admin" 字串貼到
@@ -164,7 +164,7 @@ setup_service/user_service）。
   皆判定「原始 token 駕駛員是否 admin」（is_human 身分，`role` 即 `human_role`），
   `identity.role == "admin"` → `identity.human_role == "admin"`、`!= "admin"` 同理
   （`role == "admin"` iff `human_role == "admin"`，因 admin 恆 value-route 至 human_role）。
-- **admin 代打走私殲滅（§8-1，擁有者選 Option A：僅管理權）**：`:105` 原本把 `"admin"`
+- **admin 代打走私殲滅（§8-1，維護者選 Option A：僅管理權）**：`:105` 原本把 `"admin"`
   字串貼到 `is_human=False` 身分上（`role="admin"`）＝跨面走私。改為**雙分支顯式建構**：
   admin 駕駛員 → `AgentIdentity(human_role="admin", agent_role=None, is_human=False)`
   （保管理權、閘讀 human_role；**不繼承目標軀體角色**）；非 admin 擁有者 → 沿用
@@ -183,7 +183,7 @@ setup_service/user_service）。
   `role=`（validator 路由，非 `.role` 讀取比較故不觸發守衛）；`.role` 顯示/消費殘讀
   （`resource_manager:233`／`tool_executor:219`／`proxy.py:22 ctx["role"]`）亦隨 P7 `.role`
   相容屬性拆除清理。P5 刻意**不動組裝建構的欄位改填**——避免 `get_role_key` 回 human 角色
-  的邊角在認證層放大風險（擁有者選行為保持）。
+  的邊角在認證層放大風險（維護者選行為保持）。
 - **驗收**：閘＋路徑矩陣**零 cell 變動**；後端 pytest 3182→**3184**（+2 代打雙向）；
   ruff 零新增；guard_all 41/41；openapi 無變；Guard #41 `_BASELINE` **1→0**。
 

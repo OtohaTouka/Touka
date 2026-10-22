@@ -10,7 +10,7 @@
 
 ## 背景
 
-母提案唯一「全新建」塊。設計 workflow（29 agent）核碼結論：ModelJudge 是協作打分非對抗、同腦坍縮是本 repo 預設實況（`brain_persistence.py:84`）、`save_mission` 是繞 gate 後門、既有指標與 artifact 內容幻覺不同軸。故互審**必須**把可信度來源移出模型（證據接地）、把 gate 做成落盤不變式、隔離用結構化 gate 而非模型自律。6 個未決設計點已由擁有者拍板（設計文件 §5）。
+母提案唯一「全新建」塊。設計階段的核碼結論：ModelJudge 是協作打分非對抗、同腦坍縮是本 repo 預設實況（`brain_persistence.py:84`）、`save_mission` 是繞 gate 後門、既有指標與 artifact 內容幻覺不同軸。故互審**必須**把可信度來源移出模型（證據接地）、把 gate 做成落盤不變式、隔離用結構化 gate 而非模型自律。6 個未決設計點已由維護者決定（設計文件 §5）。
 
 ## 決策
 

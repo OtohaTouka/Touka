@@ -32,7 +32,7 @@ Sumi（grok-4.5）診斷揭露 HITL 整條斷裂——使用者選 Manual，工�
 引擎本身（`safety.py` 四級矩陣＋黑名單先行＋ADR-0089 唯讀豁免）語意正確——本案修
 其輸入（分類、持久化）與輸出（CONFIRM 處置、審批通道），不重寫引擎。
 
-## 決策（五拍板點；owner 核准，第 3 點為 owner 修改版）
+## 決策（五個決定點；維護者核准，第 3 點為維護者修改版）
 
 1. **工具風險分類 SSOT**：`auth_policies.json` 新 `tool_risk`——三類
    （read_only／safe／dangerous）＋聚合多動詞工具按 `action_param` 逐動詞細分；

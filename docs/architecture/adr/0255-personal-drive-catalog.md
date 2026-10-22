@@ -1,8 +1,8 @@
 # ADR-0255：記憶系統第一批段 5：個人空間目錄（`.touka/catalog.json`，只當快取）
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 5；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：`.touka/` 在權限自癒白名單內，只補擁有者位元）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 5；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：`.touka/` 在權限自癒白名單內，只補擁有者位元）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（新 `services/personal_catalog.py`、`protocols.py` 的 `IResourceProxy`、`tools/__init__.py` 的 `vault_tools`、`tools/core_file_ops.py` 的 `core_list`／`core_find`／`core_grep`）；ToukaProxy（`services/resource_manager.py`、vault 橋接層 `tools/vault_tools.py`、重置原語 `services/agent_reset/primitives.py`）；Guard #45 基準（`scripts/native_tool_contract_baseline.json`）
 - 延伸：ADR-0119（9 個檔案裸動詞＋scope）。相關：ADR-0078（原子寫入、失效可觀察）、ADR-0116（Memory 只經資源代理做 I/O）、ADR-0214（測試沙盒）、ADR-0228（Guard #45）。這些 ADR 的決策都不變。
 
@@ -121,4 +121,4 @@ GDPR 匯出與系統備份不改程式；重置多一個清除項目。
 ## 回復
 
 - 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）；程式部分可以單獨 revert：`personal_catalog.py`、Memory `vault_tools` 的 personal 分支、Proxy 橋接層的對應、資源代理的新方法與 `exclude`、Guard #45 基準檔一起撤。
-- 撤回後，各個人空間已建出的 `.touka/` 會留著，變成一般檔案（看得到、檔案動詞改得到），不影響其他功能。要清由 Owner 手動刪；開發代理不碰 `data/`。
+- 撤回後，各個人空間已建出的 `.touka/` 會留著，變成一般檔案（看得到、檔案動詞改得到），不影響其他功能。要清由使用者手動刪；開發代理不碰 `data/`。

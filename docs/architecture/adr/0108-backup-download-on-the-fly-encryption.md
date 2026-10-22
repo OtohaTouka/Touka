@@ -22,7 +22,7 @@
 **為何不「加密儲存」**：會破壞內部 `create_backup()`（重置備份優先流程無密碼）＋既有明文備份，blast radius 大。下載時加密只動下載路徑、對既有流程零干擾、且對既有備份也適用。
 
 ### D2 — 加密庫：pyzipper（標準 WinZip-AES-256）
-- 擁有者選 **pyzipper**（而非已是相依的 `cryptography` + 自訂格式），換取「7-Zip/WinRAR 直接可開」的 UX。新增相依經 ADR-0071 鎖檔流程（`requirements.in` → `lock_requirements.py` 釘版＋雜湊；pyzipper 0.4.0 + pycryptodomex）。
+- 維護者選 **pyzipper**（而非已是相依的 `cryptography` + 自訂格式），換取「7-Zip/WinRAR 直接可開」的 UX。新增相依經 ADR-0071 鎖檔流程（`requirements.in` → `lock_requirements.py` 釘版＋雜湊；pyzipper 0.4.0 + pycryptodomex）。
 - `services/backup_crypto.encrypt_backup_zip(plain_zip, passphrase)`：逐條目讀取明文 zip、以 `AESZipFile(WZ_AES, nbits=256)` **flat re-zip**（非巢狀 → 開啟即見 `.env`/`data/`/`config/`）寫入暫存檔；逐條目處理 → 記憶體上限為最大單一條目，大型備份不整包進 RAM。
 
 ### D3 — 端點與前端

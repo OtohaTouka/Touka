@@ -63,7 +63,7 @@ Registry 的 `remotes[].headers[]` 與 `environmentVariables` 結構對稱（`na
 
 ### 5. Sentry 上架（批次 1 的 hold 解除）
 
-owner 裁示收錄非 OSI 授權條目。配方沿用批次 1 現勘結果：`npx -y @sentry/mcp-server@0.37.0`＋`SENTRY_ACCESS_TOKEN`（E2E 實證 9 工具）。例外的代價是**揭露義務**：description 明載「授權為 FSL-1.1，非 OSI 開源」，並由測試釘死該揭露不被日後文案整理抹掉。出廠貨架自此 9 條。
+維護者決定收錄非 OSI 授權條目。配方沿用批次 1 現勘結果：`npx -y @sentry/mcp-server@0.37.0`＋`SENTRY_ACCESS_TOKEN`（E2E 實證 9 工具）。例外的代價是**揭露義務**：description 明載「授權為 FSL-1.1，非 OSI 開源」，並由測試釘死該揭露不被日後文案整理抹掉。出廠貨架自此 9 條。
 
 ## 測試
 
@@ -95,7 +95,7 @@ owner 裁示收錄非 OSI 授權條目。配方沿用批次 1 現勘結果：`np
 
 ## 誠實邊界
 
-- **E2E 只驗了免認證端點**：真實連線已實證（見上表），但帶**真憑證**的 remote（GitHub PAT 等）未實跑——無可用 token，且不應為測試索取。header 模板路徑已以自訂 header 驗過解析與送出，憑證正確性的端到端驗證留待批次 3 上架 GitHub remote 時由 owner 實機確認。
+- **E2E 只驗了免認證端點**：真實連線已實證（見上表），但帶**真憑證**的 remote（GitHub PAT 等）未實跑——無可用 token，且不應為測試索取。header 模板路徑已以自訂 header 驗過解析與送出，憑證正確性的端到端驗證留待批次 3 上架 GitHub remote 時由維護者實機確認。
 - **無 OAuth**：僅支援靜態 header（PAT／API key）。OAuth 2.1（PKCE＋DCR）為批次 4，owner 已裁示擱置；`mcp` SDK 已內建 `client/auth/oauth2.py`，屆時仍是零新依賴。查證附帶取得 GitHub 的權威形狀供批次 4 參考：authorization server 為 `github.com/login/oauth`，且其 protected-resource metadata **只在路徑後綴式位址**（`/.well-known/oauth-protected-resource/mcp`）有效、根路徑回 404——實作須走 RFC 9728 的後綴發現或直接採用 401 標頭的 `resource_metadata`。
 - **registry 的 `headers` 欄位不可當免認證判準**：實測發現 HuggingFace 宣告了 `Authorization` 卻能匿名連上（工具減量），反向也存在宣告空 header 實際走 OAuth 者。故 hub 上的 remote 條目「要不要填憑證」只能靠 description 提示與使用者實試，貨架不宣稱其認證需求為權威。
 - **SDK 關閉期噪音**：部分伺服器在收線時會讓 SDK 印出 `Session termination failed: 404`（非致命，連線與工具呼叫皆已成功）。若日後把關閉期日誌當錯誤處理會產生假陽性。

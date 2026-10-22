@@ -18,7 +18,7 @@
 
 ## 背景
 
-提案盤點（2026-07-06 8-agent 調查）確認：ReAct 迴圈、Mission Board、`get_stream_generator`、`DispatchCallbackStore` 等地基成熟，但**全樹無任何工具能在 loop 內開子 loop**（需求 1 最大缺口）。既有外派路徑（ToukaDispatch，[ADR-0051](0051-dispatch-callback-channel.md)／[ADR-0082](0082-dispatch-in-proxy-consolidation.md)）把任務派給**外部 AI**；Phase 1 要的是同語義但**整個在 Touka 內部完成**的新分支——外派路徑原地不動（提案 §6 邊界 3）。
+提案盤點（2026-07-06 調查）確認：ReAct 迴圈、Mission Board、`get_stream_generator`、`DispatchCallbackStore` 等地基成熟，但**全樹無任何工具能在 loop 內開子 loop**（需求 1 最大缺口）。既有外派路徑（ToukaDispatch，[ADR-0051](0051-dispatch-callback-channel.md)／[ADR-0082](0082-dispatch-in-proxy-consolidation.md)）把任務派給**外部 AI**；Phase 1 要的是同語義但**整個在 Touka 內部完成**的新分支——外派路徑原地不動（提案 §6 邊界 3）。
 
 ## 決策
 

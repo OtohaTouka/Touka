@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ 已接受（MCP connectors 能力調查 F1+F2；owner 核准計畫後實作——裁決 A＝未知目錄 fallback 有聲、B＝args 哨兵鏡射 env 雙解析語意、C＝E2E 由 agent 代跑）
+✅ 已接受（MCP connectors 能力調查 F1+F2；維護者核准計畫後實作——裁決 A＝未知目錄 fallback 有聲、B＝args 哨兵鏡射 env 雙解析語意、C＝E2E 由 agent 代跑）
 
 ## 日期
 

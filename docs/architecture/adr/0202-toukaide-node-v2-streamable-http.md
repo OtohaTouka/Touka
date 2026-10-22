@@ -36,7 +36,7 @@ ToukaIDE 的 VS Code engine 同步提高至 `^1.90.0`。
 - server 只綁 `127.0.0.1`，並以 SDK 的 localhost Host／Origin validator 再擋一層。
 
 legacy endpoint 是不設期限的受控相容窗；新整合只讀 discovery 的 `/mcp`。sunset
-日期仍待 owner 根據實際使用狀況明示，不由本 ADR 擅自設定。
+日期仍待維護者根據實際使用狀況明示，不由本 ADR 擅自設定。
 
 ### 2. Bearer 是逐 HTTP request 的必要條件
 

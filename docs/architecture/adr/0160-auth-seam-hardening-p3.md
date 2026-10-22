@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（四功能區唯讀調查 §auth 的 P3 項，owner 2026-07-15 拍板：登出撤銷=完整方案、範圍=全納入三個 low 項）
+✅ 已接受（四功能區唯讀調查 §auth 的 P3 項，維護者 2026-07-15 決定：登出撤銷=完整方案、範圍=全納入三個 low 項）
 
 ## 日期
 
@@ -20,7 +20,7 @@
 - **admin 改 email 無唯一性**（medium）：`admin_update_user` 鎖內查重（改成自己現有 email＝no-op 放行）——舊制撞號後 `get_user_by_email` first-match 恆命中前者、另一帳號永久遮蔽。
 - **create_user 兩段寫**（low）：`UserService.create_user` 收為單一 `_atomic_users_write` 閉包（建立＋掛擴充欄位），杜絕兩寫之間並發變更被覆蓋。
 
-### §2 登出撤銷完整（high #2，owner 選完整方案）
+### §2 登出撤銷完整（high #2，維護者選完整方案）
 
 - **`tokens_revoked_at` 水位**：`User` 加欄位；`revoke_user_tokens` 設戳；`access_token_is_stale` 判準改 `iat < max(password_changed_at, tokens_revoked_at)`（與 ADR-0144 改密碼即撤共用 SSOT）——登出即撤既有 access token，不再殘活至 1h 自然過期。
 - **logout 憑 refresh cookie 撤銷**：logout 端點改為從 HttpOnly refresh cookie 解出 user_id 撤銷（不再依賴 `get_current_user` 需有效 Bearer）——使用者閒置逾 1h（access 過期）點登出即得 401、後端撤銷從未執行、30 天 refresh cookie 完好、下次開頁 session 復活（「登出了其實沒登出」）。端點入 auth allowlist（憑自己的 HttpOnly cookie 撤銷自己、非破壞性）。

@@ -1,8 +1,8 @@
 # ADR-0265：記憶系統第二批段 C：查重門檻與查詢下限依嵌入模型家族查表（e5-base 校準）
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 8 段的 PR；下載嵌入模型經 Owner 同意，只用合成句子）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 8 段的 PR；下載嵌入模型經維護者同意，只用合成句子）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（`vector.py`、`services/lifecycle.py`、`services/manager.py`）；tests（新人工 probe、合成資料、smoke manifest）
 - 相關：ADR-0070（e5 前綴的由來）、ADR-0263（門檻常數搬到 `lifecycle.py`）、ADR-0256（語意結果回查事實庫）、ADR-0253（重複掃描）、ADR-0214（人工 probe 的分類），決策都不變；ADR-0070、ADR-0263 已加反向註記
 
@@ -107,7 +107,7 @@
 ## 和計畫不同的地方
 
 - 計畫寫「以 `get_embedding_model_name()` 選」：查重照做；查詢下限在 `VectorStore` 裡用 `self.model_name`（和前綴同一個來源，正式環境兩者相同）。
-- 技術主管 DEV-B 追加：表的鍵由完整模型名稱改成 `embedding_family`（見取捨第一點）。
+- 最終審查追加：表的鍵由完整模型名稱改成 `embedding_family`（見取捨第一點）。
 - `tests/smoke/manual/README.md` 不在共用文件清單，但為了不和同時新增的人工 probe 段落衝突，留到文件階段才寫。
 
 ## 影響

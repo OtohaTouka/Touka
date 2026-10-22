@@ -52,7 +52,7 @@ claude.ai 的互動能力來自**跨來源隔離**（artifact 跑在獨立 cooki
 ## 驗證
 
 - TDD：transpile（6）、sandbox/SSOT＋逸出（7）、extractor 偵測（8）、ReactRenderer 整合（2）、安全不變式靜態掃描（3）。
-- 對抗式複審（24 agent、6 視角＋懷疑者驗證）**證實四不變式全數成立**（無父層 RCE、無沙箱逃逸/token 竊取、無外部 import、`</script>` 已逸出），並據複審加固：①CSP 移除 `https:`（img/font/media）杜絕遠端 GET beacon 外洩——互動 React 會放大此風險（可擷取預覽內鍵入內容）；②串流期轉譯**防抖 300ms**（消除每 chunk 主執行緒 O(n²) 凍結）＋③轉譯前 **256KB 上限**（病態 artifact DoS）；④i18n 訊息亦過 `escapeForScript`（縱深）；⑤顯式 `<touka_artifact type>` 白名單驗證＋大小寫正規化＋react-wrap-HTML 降級；⑥extractor 改用 `match.index`。
+- 對抗式複審（6 個視角＋懷疑者驗證）**證實四不變式全數成立**（無父層 RCE、無沙箱逃逸/token 竊取、無外部 import、`</script>` 已逸出），並據複審加固：①CSP 移除 `https:`（img/font/media）杜絕遠端 GET beacon 外洩——互動 React 會放大此風險（可擷取預覽內鍵入內容）；②串流期轉譯**防抖 300ms**（消除每 chunk 主執行緒 O(n²) 凍結）＋③轉譯前 **256KB 上限**（病態 artifact DoS）；④i18n 訊息亦過 `escapeForScript`（縱深）；⑤顯式 `<touka_artifact type>` 白名單驗證＋大小寫正規化＋react-wrap-HTML 降級；⑥extractor 改用 `match.index`。
 - `guard_all` 全綠（含 #20 knip、#23 npm audit、#27 TS、#33 i18n、#35 ESLint ratchet）、vitest 全綠、smoke 不受影響（純前端）。
 - preview 實機開 React artifact 證明可互動。
-- 全程於 3.12 venv 跑後端守衛（[[feedback-python-venv]]）。建基於既有 artifact 資安加固 P2/P12/DA10。
+- 全程於 3.12 venv 跑後端守衛。建基於既有 artifact 資安加固 P2/P12/DA10。

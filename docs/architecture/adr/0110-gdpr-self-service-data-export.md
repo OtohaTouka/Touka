@@ -1,6 +1,6 @@
 # ADR-0110：使用者自助 GDPR 完整資料匯出 — 加密 ZIP、僅本人、跨子系統唯讀事實匯出
 
-- **狀態**：✅ 已接受（2026-06-24；Phase 1 後端 + Phase 2 前端經 TDD 完成並全綠驗證：guard 37/37、後端 pytest 2317（含 export_facts 動作/脫敏/加密 roundtrip/symlink 逃逸略過/端點密碼閘）、vitest 771（GeneralTab 匯出 UI + hook）、smoke 24/24、openapi+api.ts 重生；對抗式安全複審 17 agent×5 維度修 4）
+- **狀態**：✅ 已接受（2026-06-24；Phase 1 後端 + Phase 2 前端經 TDD 完成並全綠驗證：guard 37/37、後端 pytest 2317（含 export_facts 動作/脫敏/加密 roundtrip/symlink 逃逸略過/端點密碼閘）、vitest 771（GeneralTab 匯出 UI + hook）、smoke 24/24、openapi+api.ts 重生；對抗式安全複審（5 個維度，修 4 項））
 - **日期**：2026-06-24
 - **影響範圍**：ToukaMemory（`tools/__init__.py` 新增唯讀 `export_facts` 動作）＋ ToukaProxy（`services/gdpr_export_service.py`、`routers/auth.py` `/auth/export-my-data`）＋ ToukaChat（Phase 2：GeneralTab 匯出 UI／i18n）
 - **關鍵字**：GDPR, data portability, self-service export, encrypted zip, AES-256, pyzipper, JWT self-only, password re-entry, CSRF, read-only, 跨子系統記憶匯出, 設定頁路線圖 軌2, 建基於 ADR-0107（自助清空）/ADR-0108（加密）

@@ -14,7 +14,7 @@ Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完�
 
 ## 背景
 
-擁有者回報 AI agent 常「調用工具失敗或幻覺」。實地稽核 `ToukaProxy/src/tools/**` 與 middleware/handler，對照 Anthropic《Writing tools for agents》、OpenAI function-calling 與 MCP tools 準則，定位三類病灶：**A 失敗不可見**（Gate 1 靜默過濾、幻覺偵測器漏 MCP）、**B 錯誤無結構混語言**（模型無法自我修正）、**C schema 衛生**（action-enum god-tools、`vault_tools` 無 schema 永不被廣告、隱藏必填參、動詞不一致）。select-only eval 基準（DebugAgent、真實模型）證實：兩腦（deepseek-v4-flash／grok-4.3）選對率皆僅 80%。
+維護者回報 AI agent 常「調用工具失敗或幻覺」。實地稽核 `ToukaProxy/src/tools/**` 與 middleware/handler，對照 Anthropic《Writing tools for agents》、OpenAI function-calling 與 MCP tools 準則，定位三類病灶：**A 失敗不可見**（Gate 1 靜默過濾、幻覺偵測器漏 MCP）、**B 錯誤無結構混語言**（模型無法自我修正）、**C schema 衛生**（action-enum god-tools、`vault_tools` 無 schema 永不被廣告、隱藏必填參、動詞不一致）。select-only eval 基準（DebugAgent、真實模型）證實：兩腦（deepseek-v4-flash／grok-4.3）選對率皆僅 80%。
 
 設計錨定 pi coding agent 的啟示：**裸動詞（read/write/edit…）在模型的 RL 訓練分布內**，自製 action-enum 方言不在——弱模型受害最深。
 

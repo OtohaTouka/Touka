@@ -2,7 +2,7 @@
 
 > **現況**：本文提到的 v1 特性矩陣、cutover inventory、v1 rollback smoke 腳本與兩份 rollback manifest 共 5 個檔，已在 ADR-0238 的退役 commit（`4a0bf452`）刪除；`config/mcp_servers/*/*.py` 是執行時產生的路徑樣式，從來不在版控。
 
-- **狀態**：Accepted；本機 previous-image live smoke 已通過，registry durability 由 owner 延後
+- **狀態**：Accepted；本機 previous-image live smoke 已通過，registry durability 由維護者延後
 - **日期**：2026-07-30
 - **相關**：[ADR-0191](0191-mcp-hub-tier-a-shelf-and-version-pinning.md)、
   [ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)、

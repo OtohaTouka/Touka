@@ -1,8 +1,8 @@
 # ADR-0260：家對話外送只送角色與內容，送出邊界逐則白名單
 
-- 狀態：✅ 已接受（記憶系統第二批 h1，安全修補；Owner 2026-10-15 核准第二批計畫，CTO 同日裁定外送識別資料屬安全修補、單獨小 PR 先修）
+- 狀態：✅ 已接受（記憶系統第二批 h1，安全修補；維護者 2026-10-15 核准第二批計畫，同日決定外送識別資料屬安全修補、單獨小 PR 先修）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（`services/soul_service.py`、`handlers/adapters/base.py`、`handlers/adapters/openai_adapter.py`、`handlers/adapters/claude_adapter.py`）；SECURITY.md 一列
 - 相關：ADR-0242（KF-8 原始紀錄）、ADR-0248（KF-8 修正）、ADR-0257（歷史資料界線）、ADR-0249（插話標註）、ADR-0152（思考分頻）。這些 ADR 的決策都不變。
 

@@ -57,7 +57,7 @@ label、串流對螢幕閱讀器無聲、會話切換鍵盤不可達、自製彈
 - `npm run build`／docker 重建後生效於部署實例；既有 docker 快照為 A4 狀態。
 - 殘留（記錄不修）：NVDA 人工清單待擁有者執行；`lang="zh-TW"` 混語字串（3.1.2）待 i18n
   全面化；ESLint 既有基線（71 errors，較開工時 79 淨減 8）另案。
-- `.claude/launch.json` 新增 preview 啟動設定（dev／static 兩組，autoPort）。
+- 新增本機 preview 啟動設定（dev／static 兩組，autoPort；設定檔未入版控）。
 
 ## Action Items
 1. [x] A1–A4 四批修復＋守衛（vitest 458、guard_all 31/31）。

@@ -1,15 +1,15 @@
 # ADR-0256：記憶系統第一批段 2～4：記憶庫結構升級與備份、事實庫是正本、記憶來源
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 2～4 的 PR。段 2 經計畫與成果兩輪對抗式審查，Owner 同意合併；段 3、段 4 照一般驗收）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 2～4 的 PR。段 2 的計畫與成果各經一次對抗式審查，維護者同意合併；段 3、段 4 照一般驗收）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（`factual.py`、新 `services/index_state.py`、新 `models/source_ref.py`、`protocols.py`、`services/manager.py`、`services/legacy_store.py`、`services/reembed.py`、`scripts/reembed_memory.py`、`vector.py`、`tools/diag.py`、`tools/contracts.py`、`tools/__init__.py`）；ToukaProxy（`main.py` lifespan、`routers/observability.py`、`routers/proxy.py`、`routers/heartbeat.py`、`models/context.py`、記憶閘道 `tools/builtin/memory.py`、新 `services/memory_source_resolver.py`、`services/embedding_service.py`、`services/agent_reset/primitives.py`、`config/auth_policies.json.example` 與被追蹤的 `config/auth_policies.json`）；ToukaChat（`MemoryNoticeBar`、`VaultDashboard`、兩語翻譯）；Guard #45 基準（`scripts/native_tool_contract_baseline.json`）；NOQA_REGISTRY `S603`
 - 相關：ADR-0070（事實庫＋向量庫）、ADR-0078（失效可觀察性）、ADR-0086（無痕零殘留）、ADR-0116（整合模式單一部署）、ADR-0118（嵌入模型下載、切換與離線重建）、ADR-0214（測試沙盒）、ADR-0228（原生公開合約、可信參數、Guard #45）、ADR-0246（Manual／Auto／YOLO）、ADR-0253（記憶提示管道）。這些 ADR 的決策都不變；ADR-0253 列的已知限制「`query_facts` 把讀取失敗吞成空清單」由本 ADR 修正。
 - 後續：決策段「逐個靈魂清除或重置記憶時，升級備份與系統快照不會一起清」與附錄「還原後會回來什麼」——重置時可勾選一併清除這個靈魂在升級備份與系統快照裡的記憶，見 [ADR-0270](0270-memory-scrub-with-backups.md)（2026-10-15）；預設不勾時這裡的說法不變，勾選並完成後還原任何一份清單上的快照都拿不回那個靈魂的記憶。
 
 ## 背景
 
-- **記憶庫沒有版本**：`core_memory.db` 是所有靈魂共用的一個 SQLite 檔。`FactualStore._init_db` 每次建構都跑 `CREATE TABLE IF NOT EXISTS`，再加兩句吞掉所有錯誤的 `ALTER`；沒有版本、沒有備份，失敗也看不到。`query_facts` 把讀取錯誤吞成空清單，壞掉時看起來像「沒有記憶」。段 3、段 4 要加新欄位，Owner 下次更新重啟時 Proxy 會在真實記憶庫上升級一次，團隊沒辦法先拿真資料試。
+- **記憶庫沒有版本**：`core_memory.db` 是所有靈魂共用的一個 SQLite 檔。`FactualStore._init_db` 每次建構都跑 `CREATE TABLE IF NOT EXISTS`，再加兩句吞掉所有錯誤的 `ALTER`；沒有版本、沒有備份，失敗也看不到。`query_facts` 把讀取錯誤吞成空清單，壞掉時看起來像「沒有記憶」。段 3、段 4 要加新欄位，下次更新重啟時 Proxy 會在真實記憶庫上升級一次，開發時沒辦法先拿真資料試。
 - **向量失敗會刪事實**：存記憶的順序是「向量查重 → 寫事實庫 → 寫向量」。向量寫入回 False 時，`save_memory` 呼叫 `delete_fact_permanently` 把剛存的事實刪掉；建 collection 失敗時例外直接外拋、事實卻留著，而且沒有任何標記；取不到向量庫（例如 Qdrant 本機鎖被別的行程佔住）時整個存記憶失敗。`forget` 在事實庫封存後才改向量 payload，向量庫失敗時，語意查詢會把已封存的記憶再拿出來（語意結果直接用向量 payload，不回查事實庫），查重也會被已封存的相似事實擋住。沒有方法知道哪些事實沒有向量，也沒有補的入口。
 - **不知道記憶從哪來**：執行器早就把可信的 `request_id`、`session_id`、`_call_id`、`_ctx` 注入每次工具呼叫（ADR-0228），但記憶閘道在轉給記憶系統前全部剝掉；facts 沒有來源欄位，查記憶也帶不出「這段記憶從哪來」。UI 的 user 節點 id（`ui_persistence.user_parent_id`）和心跳的觸發節點沒有進 pipeline context。
 
@@ -50,7 +50,7 @@
   - 失敗狀態時複查檔頭：用 `mode=rw` 開（檔案不在就不建），最多等 `FACTS_STATUS_RECHECK_TIMEOUT_S`。
   - 四個失敗各一個 `warning` 級代碼：`memory_upgrade_no_space`、`memory_upgrade_locked`、`memory_store_unreadable`、`memory_upgrade_failed`。建全新空庫、旁邊卻有升級備份時另出 `memory_new_store_beside_backups`（只在建出空庫的那次執行期間）。啟動時建不出事實庫就出 `memory_store_unreadable`，之後建成就消失。原因細節只進日誌、不進 payload。
 - 前端 `MemoryNoticeBar` 的代碼對應表加 5 行、兩語翻譯各 5 句。任何一句都不引導人還原升級備份；空間不足、被佔用、升級沒完成三句寫明「記憶庫沒有被改動，不需要還原」；「讀不到」先請人找團隊，團隊同意才自己還原，還原前先按「立即建立備份」。
-- **不打開全域 `system_degraded`**：它會讓各家 adapter 在 prompt 裡說記憶系統不可用，但這時查記憶大多能用。改用同樣醒目的警告提示（同一個 destructive 樣式＋`role="alert"`，左側身分列也亮警告標記）。這是 Owner 核准的偏差，見「和計畫不同的地方」。
+- **不打開全域 `system_degraded`**：它會讓各家 adapter 在 prompt 裡說記憶系統不可用，但這時查記憶大多能用。改用同樣醒目的警告提示（同一個 destructive 樣式＋`role="alert"`，左側身分列也亮警告標記）。這是維護者核准的偏差，見「和計畫不同的地方」。
 
 #### 2-5. 寫入閘與讀取
 
@@ -103,7 +103,7 @@
 - 逐筆隔離：一筆寫不進去只把那一筆標 `failed`，其他照做；回報檢查、已在索引、重算、失敗與做完後仍待補（未核對＋失敗）的筆數。
 - 讀待補清單與寫狀態都先過 `_require_schema(write=True)`（`set_embedding_state` 自己呼叫，符合 `test_t40`）；v0 或失敗狀態時回結構化錯誤、不動記憶庫。
 - 仍是手動、不自動觸發（維持「補索引手動、全量重建離線」，ADR-0118）；在 Proxy 同行程跑，沒有 Qdrant 本機鎖問題。
-- **風險分類**：`auth_policies.json.example` 與被追蹤的 `ToukaProxy/config/auth_policies.json` 的 `memory_tools.reindex` 都是 `safe`。後者經 Owner 2026-10-15 核准，只加這一行。沒列在設定檔裡時走 `ToolRiskConfig.class_for` 的 fail-safe（動詞未知一律 dangerous：Manual 要人核准、Auto 交審查員），測試釘住這個 fail-safe 不被放寬。
+- **風險分類**：`auth_policies.json.example` 與被追蹤的 `ToukaProxy/config/auth_policies.json` 的 `memory_tools.reindex` 都是 `safe`。後者經維護者 2026-10-15 核准，只加這一行。沒列在設定檔裡時走 `ToolRiskConfig.class_for` 的 fail-safe（動詞未知一律 dangerous：Manual 要人核准、Auto 交審查員），測試釘住這個 fail-safe 不被放寬。
 
 #### 3-5. 診斷只列各狀態筆數
 
@@ -170,7 +170,7 @@
 
 ## 和計畫不同的地方
 
-Owner 核准的偏差：
+維護者核准的偏差：
 
 - **備份資料夾**是 vault 裡的 `core_memory_backups\`，不是計畫寫的 `vault\backups\`：避免和系統快照的 `backups` 資料夾搞混。
 - **備份份數**：新備份不覆蓋舊的，但最多留 3 份（`FACTS_BACKUP_KEEP`），更舊的自動刪掉。
@@ -188,7 +188,7 @@ Owner 核准的偏差：
 - **第一次啟動**：更新後 Proxy 第一次啟動會在真實記憶庫上升級一次（先備份、單一交易），之後重啟不再升級。全新庫或已是 v1 時只有幾毫秒。
 - `GET /v1/memory` 的 `memory_notices` 多 5 個 `warning` 代碼；`GET /v1/memory/list` 讀取失敗由 200＋空清單改成 500 `SYSTEM_ERROR`。兩個端點沒有 `response_model`，openapi 不變。
 - 記憶工具公開合約：新 action `reindex`、`query` 新欄位 `include_sources`；可信參數 `source_context`、`source_resolver` 不廣告。存記憶在向量寫不進去時改回「已存，語意索引稍後補上 (ID: …)」，不再回滾。
-- 權限：`.example` 與被追蹤的 `ToukaProxy/config/auth_policies.json` 各加一行 `reindex: safe`（後者經 Owner 核准）。
+- 權限：`.example` 與被追蹤的 `ToukaProxy/config/auth_policies.json` 各加一行 `reindex: safe`（後者經維護者核准）。
 - 重置畫面：保留清單多「記憶庫升級備份（含所有靈魂）」，完成訊息與 DebugAgent 重置說明寫明系統備份與升級備份仍保有舊資料（`RETAINED_STORES` 加 `FACTS_BACKUP_DIR_NAME`）。
 - NOQA_REGISTRY：`S603` 30 → 31（`tests/unit/test_facts_schema_migration.py` 的當機子程序）。
 - AGENTS.md、SECURITY.md 不改。
@@ -204,7 +204,7 @@ Owner 核准的偏差：
 - 前端不輪詢：側欄在頁面載入、連線或登入變化時重抓 `/v1/memory`，記憶寶庫列表讀取失敗也會叫它重抓；除此之外，後端狀態改變要重新整理頁面才看得到。
 - `memory_new_store_beside_backups` 只在建出空庫的那次執行期間出現；重啟後庫已是 v1，不再判斷。
 - 升級備份是整個資料庫檔的複本，可能含刪除後還留在空閒頁的殘片（主庫本來也有，同等保護）。備份含所有靈魂的事實，和記憶庫同位置、同保護；GDPR 匯出逐 agent，不會帶到；vault URI 只解析 personal／legacy／soul，碰不到備份資料夾。
-- 逐個靈魂清除或重置記憶時，升級備份與系統快照不會一起清（重置畫面已誠實列出）；系統快照也會把升級備份包進去。要不要做成清除時一併處理，等 Owner 決定。
+- 逐個靈魂清除或重置記憶時，升級備份與系統快照不會一起清（重置畫面已誠實列出）；系統快照也會把升級備份包進去。要不要做成清除時一併處理，等維護者決定。
 - GDPR 匯出遇到單一列的 tags／emotions 格式壞掉時，那個欄位匯出成空值（其他欄位照常），日誌只記 fact id。
 - Docker Desktop（Windows 主機）bind mount 上：容器內 `shutil.disk_usage` 回的是哪個磁碟、改名或刪除開著的檔、同行程兩條連線對同一檔的鎖，都沒有實測【推測】。Linux 主機還原後檔案擁有者（uid 1001）不對時會落在「讀不到」。
 - 驗證過的降版範圍：`8b2e242e` 起（測試用該版的 SQL 字面量證明舊程式能讀寫升級後的庫）。更舊的版本 facts 表本身沒問題，但 2026-05-05 以前的版本會自動匯入還沒搬的 `facts.jsonl`；其他資料是否相容沒有查證。
@@ -268,14 +268,14 @@ Owner 核准的偏差：
 - 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）。
 - 段 3、段 4 都建在段 2 的 v1 欄位與共用事實庫上：撤段 2 的程式要連段 3、4 一起撤。被追蹤的 `auth_policies.json` 那一行可以單獨撤（撤了 `reindex` 回到 fail-safe 的 dangerous）。
 - 撤回程式不會把記憶庫降回 v0：v1 欄位與 `user_version` 留著。舊程式讀寫升級後的庫沒有問題（測試用 `8b2e242e` 的 SQL 字面量證明），它新增的列拿到欄位預設值。
-- 升級後要人做的回復（換回舊版、還原升級備份）見附錄。Owner 2026-10-15 說明目前沒有代理人與資料，所以這次更新不需要先做附錄的「更新前先做兩件事」；之後有資料時，每次更新前照附錄做。
-- 開發代理不碰 `data/`：`core_memory_backups` 裡的升級備份由 Owner 手動清。
+- 升級後要人做的回復（換回舊版、還原升級備份）見附錄。有資料時，每次更新前先照附錄做「更新前先做兩件事」。
+- 開發代理不碰 `data/`：`core_memory_backups` 裡的升級備份由使用者手動清。
 
-## 附錄：回復步驟全文（給 Owner）
+## 附錄：回復步驟全文（給部署者）
 
-> 本次（2026-10-15）：Owner 說明目前沒有代理人與資料，所以這次更新不需要做下面的「更新前先做兩件事」。之後有資料時，每次更新照做。
+> 有資料時，每次更新都要先做下面的「更新前先做兩件事」。
 
-> 寫給不寫程式的人。指令都在「Touka 資料夾」（有 `docker-compose.yml` 或 `docker-compose.ghcr.yml` 的那個資料夾）裡，用 PowerShell 執行。不知道自己是哪一種部署方式就問團隊。
+> 寫給不寫程式的人。指令都在「Touka 資料夾」（有 `docker-compose.yml` 或 `docker-compose.ghcr.yml` 的那個資料夾）裡，用 PowerShell 執行。不確定是哪一種部署方式時，看資料夾裡用的是哪一個 compose 檔。
 
 **更新前先做兩件事（每次更新都做）**
 
@@ -290,17 +290,17 @@ Owner 核准的偏差：
 
 - 「需要更多磁碟空間」：清出磁碟空間，重新啟動 Touka。記憶庫沒有被改動。
 - 「正被其他程式使用」：關掉其他開著記憶庫的程式（例如資料庫檢視軟體、重建索引的工具），重新啟動 Touka。記憶庫沒有被改動。
-- 「讀不到記憶庫」：暫時查不到也存不了記憶。請先找團隊。若團隊請你自己還原：先按「立即建立備份」存下現在的狀態，再選最近一份正常時的快照（對話和設定也會一起回到那時）。
-- 「升級沒有完成」：重新啟動 Touka 會再試一次。一直失敗就照「情況二」換回舊版，並告訴團隊。記憶庫沒有被改動。
-- 「需要更多磁碟空間」或「正被其他程式使用」照做之後還是一直出現：照「情況二」換回舊版，並告訴團隊。
-- 「記憶庫是新的，但旁邊有升級前的備份」：先不要存新記憶，找團隊（你可能剛還原過或改過資料路徑）。
+- 「讀不到記憶庫」：暫時查不到也存不了記憶。請先找維護者。若維護者請你自己還原：先按「立即建立備份」存下現在的狀態，再選最近一份正常時的快照（對話和設定也會一起回到那時）。
+- 「升級沒有完成」：重新啟動 Touka 會再試一次。一直失敗就照「情況二」換回舊版，並告訴維護者。記憶庫沒有被改動。
+- 「需要更多磁碟空間」或「正被其他程式使用」照做之後還是一直出現：照「情況二」換回舊版，並告訴維護者。
+- 「記憶庫是新的，但旁邊有升級前的備份」：先不要存新記憶，找維護者（你可能剛還原過或改過資料路徑）。
 
 重新啟動 Touka：
 
 - GHCR：`docker compose -f docker-compose.ghcr.yml restart touka-proxy`
 - 原始碼建置：`docker compose restart touka-proxy`
 
-不管哪一種，都把下面指令的輸出交給團隊：
+不管哪一種，都把下面指令的輸出交給維護者：
 
 - GHCR：`docker compose -f docker-compose.ghcr.yml logs touka-proxy | Select-String Factual`
 - 原始碼建置：`docker compose logs touka-proxy | Select-String Factual`
@@ -314,36 +314,36 @@ Owner 核准的偏差：
   2. 執行 `docker compose -f docker-compose.ghcr.yml up -d touka-proxy`。
   3. 執行 `docker compose -f docker-compose.ghcr.yml ps -a`，等 touka-proxy 顯示 healthy，再執行 `docker compose -f docker-compose.ghcr.yml up -d --no-deps touka-heartbeat touka-chat`。
 - 原始碼建置：
-  1. 執行 `git checkout 抄下來的那串字`。它會印出一大段「detached HEAD」的英文說明，那是正常的；如果出現 `error:` 開頭的訊息就停下來找團隊。
+  1. 執行 `git checkout 抄下來的那串字`。它會印出一大段「detached HEAD」的英文說明，那是正常的；如果出現 `error:` 開頭的訊息就停下來找維護者。
   2. 執行 `docker compose up -d --build touka-proxy`。
   3. 等它 healthy 後執行 `docker compose up -d --build --no-deps touka-heartbeat touka-chat`。
 - 可以放心換回的版本：
-  - 團隊用測試驗證過 `8b2e242e` 之後的版本，都能直接讀寫升級後的記憶庫。
-  - 更舊的版本：記憶庫本身沒問題；但 2026-05-05 以前的版本會自動匯入還沒搬的舊記憶檔，其他資料是否相容沒有查證。請團隊判斷。
-- 換回舊版後一切正常：就停在這裡，告訴團隊。什麼時候再更新由團隊決定。
+  - 維護者用測試驗證過 `8b2e242e` 之後的版本，都能直接讀寫升級後的記憶庫。
+  - 更舊的版本：記憶庫本身沒問題；但 2026-05-05 以前的版本會自動匯入還沒搬的舊記憶檔，其他資料是否相容沒有查證。請維護者判斷。
+- 換回舊版後一切正常：就停在這裡，告訴維護者。什麼時候再更新由維護者決定。
 - 換回舊版後還是不對（記憶寶庫是空的、記憶內容不對、打不開）：才做情況三。
 
-**情況三：還原升級備份（只在團隊確認後才做；而且只有在舊版下記憶仍然不對時）**
+**情況三：還原升級備份（只在維護者確認後才做；而且只有在舊版下記憶仍然不對時）**
 
-先確認：備份之後你沒有做過「代理人資料重置」、DebugAgent 重置或刪除靈魂。做過的話先找團隊，因為還原會把那些已清掉的記憶帶回來。
+先確認：備份之後你沒有做過「代理人資料重置」、DebugAgent 重置或刪除靈魂。做過的話先找維護者，因為還原會把那些已清掉的記憶帶回來。
 
 1. 停止 Touka：
    - GHCR：`docker compose -f docker-compose.ghcr.yml stop`
    - 原始碼建置：`docker compose stop`
 2. 找到記憶庫資料夾：Touka 資料夾裡的 `data`，再進 `vault`。如果 `.env` 裡的 `SANCTUARY_DATA_PATH` 改過，就是那個資料夾裡的 `vault`。
 3. Windows 檔案總管先打開副檔名顯示（Windows 10：上方「檢視」分頁，勾選「副檔名」；Windows 11：「檢視」→「顯示」→「副檔名」），不然看不出 `.db` 和 `-journal`。
-4. 打開 `vault` 裡的 `core_memory_backups`，確認裡面有 `core_memory.v0-to-v1.一串數字.db` 這樣的檔。**沒有就停下來找團隊，不要動記憶庫。**
+4. 打開 `vault` 裡的 `core_memory_backups`，確認裡面有 `core_memory.v0-to-v1.一串數字.db` 這樣的檔。**沒有就停下來找維護者，不要動記憶庫。**
 5. 在 `vault` 裡建一個新資料夾，叫 `before-restore`（已經有就叫 `before-restore-2`）。
 6. 把 `vault` 裡的 `core_memory.db` 搬進 `before-restore`。旁邊如果有 `core_memory.db-journal`、`core_memory.db-wal`、`core_memory.db-shm`，也一起搬進去。**名字都不要改**：SQLite 只認原來的名字配對。不要動 `_qdrant_db` 和 `core_memory_backups`。
 7. 回到 `core_memory_backups`，選修改時間最新的那個 `core_memory.v0-to-v1.數字.db`，**複製**（不是移動）到 `vault`，再把複製出來的檔改名成 `core_memory.db`。
 8. 用**舊版**啟動（照情況二的指令）。不要用新版啟動，新版會再升級一次。
-9. 打開 Touka 的記憶寶庫，確認看得到記憶。看不到的話：停止 Touka（照第 1 步），不要存任何新記憶，找團隊。
-10. 什麼時候再更新到新版，交給團隊決定。
+9. 打開 Touka 的記憶寶庫，確認看得到記憶。看不到的話：停止 Touka（照第 1 步），不要存任何新記憶，找維護者。
+10. 什麼時候再更新到新版，交給維護者決定。
 
-- **還原後會失去什麼**：備份時間之後新存的記憶（所有靈魂都會，因為是同一個檔）。這些記憶還在 `before-restore` 裡的 `core_memory.db`；之後要搬回來時，由團隊提供步驟或工具，由你執行。
+- **還原後會失去什麼**：備份時間之後新存的記憶（所有靈魂都會，因為是同一個檔）。這些記憶還在 `before-restore` 裡的 `core_memory.db`；之後要搬回來時，由維護者提供步驟或工具，由你執行。
 - **還原後會回來什麼**：備份之後被封存、被「代理人資料重置」清掉、或刪除靈魂前清掉的記憶，都會回來。
-- 語意搜尋可能找到已經不在記憶庫裡的記憶；要不要在停機時重建索引，請團隊判斷。
-- Linux 主機：還原的檔要讓容器（使用者 1001）能寫。用 `up -d` 啟動時會先跑 `touka-init` 調整權限；原始碼建置版會調整整個 `data`，GHCR 版是否涵蓋 vault 裡的檔要團隊確認。
+- 語意搜尋可能找到已經不在記憶庫裡的記憶；要不要在停機時重建索引，請維護者判斷。
+- Linux 主機：還原的檔要讓容器（使用者 1001）能寫。用 `up -d` 啟動時會先跑 `touka-init` 調整權限；原始碼建置版會調整整個 `data`，GHCR 版是否涵蓋 vault 裡的檔要維護者確認。
 - Touka 執行中不要用別的程式打開記憶庫檔案。
 
 **確認升級成功**
@@ -354,4 +354,4 @@ Owner 核准的偏差：
 
 **升級沒問題後，怎麼刪掉升級備份**
 
-新版用了一陣子都正常（記憶都在、能存能查），而且團隊同意之後：刪掉 `vault` 裡 `core_memory_backups` 資料夾裡的檔，或整個資料夾刪掉。不用停 Touka。注意：之後建的系統快照 zip 也包著升級備份，要清乾淨就連舊快照一起刪。系統快照放在工作區根目錄底下的 `backups` 資料夾，實際位置受 `.env` 的 `WORKSPACE_ROOT` 影響；找不到就問團隊。
+新版用了一陣子都正常（記憶都在、能存能查），而且維護者同意之後：刪掉 `vault` 裡 `core_memory_backups` 資料夾裡的檔，或整個資料夾刪掉。不用停 Touka。注意：之後建的系統快照 zip 也包著升級備份，要清乾淨就連舊快照一起刪。系統快照放在工作區根目錄底下的 `backups` 資料夾，實際位置受 `.env` 的 `WORKSPACE_ROOT` 影響；找不到就問維護者。

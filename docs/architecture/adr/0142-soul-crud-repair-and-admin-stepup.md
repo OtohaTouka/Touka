@@ -33,7 +33,7 @@ C2 前端修復（模型選單刷新＋錯誤對映）→ C3 功能後端（步�
   精確鍵／可辨識供應商模型名／models+registry 註冊），缺任一即靜默失敗。
 - **遮蔽原因**：souls 測試把 `write_*` monkeypatch 成 no-op＝真實落盤零涵蓋。
 
-## 決策（六拍板點，擁有者核准「全照建議」）
+## 決策（六個決定點，維護者全部照建議核准）
 
 - **D1 寫入機制＝soul_io 受認可通道**：souls 路由寫入改走 `soul_io.write_soul_file`／
   新增 `write_soul_json`（raw 原子寫＋自動 `.bak`＋`_safe_target` 監獄）。
@@ -142,7 +142,7 @@ openapi＋api.ts 與 wire 同步（C3 重生）。
 ## 相關
 
 - [提案：soul-crud-repair-and-admin-stepup](../proposals/soul-crud-repair-and-admin-stepup.md)
-  （拍板點 D1–D6、批次 C1–C5、風險）；診斷（2026-07-10 五路工作流，12 CONFIRMED）
+  （拍板點 D1–D6、批次 C1–C5、風險）；診斷（2026-07-10，12 項確認）
 - [ADR-0113]（per-agent 破壞性重置——D4 刪除範圍與其分工）；[ADR-0141]（角色權限面
   分離——`agent_role="Owner"` 建構慣例）；SECURITY.md DA17/DA18（is_owner 閘與
   soul_io `_safe_target` 監獄的由來）

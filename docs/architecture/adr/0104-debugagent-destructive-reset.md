@@ -23,7 +23,7 @@
 - **只清資料、不動身分**：`ALL_STORES` 不含 identity_map／users／registry，重置後 DebugAgent 仍可用。
 - **SQL 全 scoped**：所有刪除為參數化 `WHERE agent_id = ?`（永不 `DROP TABLE`／無 WHERE）；向量為 per-agent collection（`memory_<id>`）整個 drop＝單 agent 範圍；檔案刪除經 `resource_manager`（受 `is_protected_path` 保護）。
 
-### 對抗式複審（41 agent fan-out × 7 攻擊視角 ＋ 懷疑者驗證 panel）後的加固
+### 對抗式複審（7 個攻擊視角＋懷疑者驗證）後的加固
 
 複審**證實安全核心無破口**：無任何路徑能誤刪真實 agent、安全閘對所有對抗輸入（casing/空白/unicode/`ToukaSoul` 前綴/`../` 穿越）皆 fail-closed、刪除全 scoped。以下為複審揭出、本 ADR 採納修復的真實缺陷：
 
@@ -54,6 +54,6 @@
 
 ## 驗證
 
-- 對抗式複審：41 agent、7 視角、懷疑者 panel（refute＋confirm-by-trace）；確認缺陷全數修復或文件化。
-- 全程於 **3.12 venv**（[[feedback-python-venv]] 直譯器主權）：guard_all 37/37、pytest 全綠（含 reset guard/primitives/orchestrator/endpoint/backup ＋ 核心模組回歸）、vitest、smoke 24/24。
+- 對抗式複審：7 個攻擊視角＋懷疑者驗證（refute＋confirm-by-trace）；確認缺陷全數修復或文件化。
+- 全程於 **3.12 venv**（直譯器主權）：guard_all 37/37、pytest 全綠（含 reset guard/primitives/orchestrator/endpoint/backup ＋ 核心模組回歸）、vitest、smoke 24/24。
 - 建基於 ADR-0101（計分卡生產保真、Debugger 角色）。

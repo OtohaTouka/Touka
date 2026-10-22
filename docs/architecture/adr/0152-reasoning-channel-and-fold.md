@@ -90,5 +90,5 @@ wire 契約：OpenAI 相容 chunk 形狀不變、僅 delta 多一個可選欄位
 
 - [ADR-0143](0143-hitl-unification.md)（同提案 H 系列；T 系列至此**提案全數收官**）
 - [ADR-0081](0081-resumable-stream-cursor-buffer.md)（可恢復緩衝——chunk 層級緩衝讓 reasoning 重播零改動）
-- 診斷：[[touka-sumi-hitl-thinking-diagnosis]]（07-11 三根因之②）；提案
+- 診斷：07-11 三根因之②（診斷筆記未入版控）；提案
   `docs/architecture/proposals/hitl-unification-and-reasoning-fold.md`

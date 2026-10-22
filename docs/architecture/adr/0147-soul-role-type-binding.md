@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（07-11 認證事故餘波清單 #4-B；owner 三拍板）
+✅ 已接受（07-11 認證事故餘波清單 #4-B；維護者決定三點）
 
 > 🔧 **類型規則與覆寫範圍（[ADR-0245](0245-model-layer-stage-2a.md)，2026-10-12）**：`is_custom→Guest` 規則已移除（Guest 退役），自訂模型落到 Base；`agent_overrides`、`tag_rules` 與 `default_role` 只對靈魂、DebugAgent、DispatchAgent 生效，其他 ID 一律 Base、沒有能力。`is_toukasoul→Owner`、`identity_map.json.example` 自癒與 LDH 不帶類型旗標的做法不變。
 
@@ -12,7 +12,7 @@
 
 ## 背景
 
-owner 回報「重建 Sumi 後掉了 Owner 角色（變 Base）」。清空重啟後源碼追蹤揭露：
+維護者回報「重建 Sumi 後掉了 Owner 角色（變 Base）」。清空重啟後源碼追蹤揭露：
 
 1. **靈魂→角色的 SSOT ＝ `config/identity_map.json`** 的 `tag_rules`／`agent_overrides`
    （`permission_service.get_role_key` 解析：`agent_overrides[id]` 優先＞`tag_rules`
@@ -31,7 +31,7 @@ owner 回報「重建 Sumi 後掉了 Owner 角色（變 Base）」。清空重�
    建立的 `a706a710` 二義性 id），帶該 id 的 token 永遠解析成人類、拿不到靈魂的
    agent 角色（清空後已無此撞名，但結構性風險仍在）。
 
-## 決策（owner 三拍板）
+## 決策（維護者決定三點）
 
 1. **類型硬綁定（tag_rules，Decision 2）**：`is_toukasoul→Owner`、`is_custom→Guest`、
    native/API→`default_role(Base)`。靈魂由 admin-only、步升閘的 `create_soul` 建立，
@@ -81,7 +81,7 @@ owner 回報「重建 Sumi 後掉了 Owner 角色（變 Base）」。清空重�
   影響低，接受不加快取以免引入 staleness）。「靈魂＝Owner」是強預設（全工具/MCP/
   技能）——刻意，靈魂受 admin-only＋步升閘的 create_soul 保護；例外走 `agent_overrides`
   降級。
-- **對抗式審查（11 agent、驗證 2 confirmed）**：①LDH 具名靈魂 Owner 卡（已修，見上
+- **對抗式審查（驗證後 2 項確認）**：①LDH 具名靈魂 Owner 卡（已修，見上
   LDH 不帶旗標）；②per-request I/O（已評估接受＋文件化）。誠實邊界：`IdentityRule`/
   `AgentOverride.role` 在 config 載入層未經 `ASSIGNABLE_AGENT_ROLES` 驗證（僅
   API 邊界 `IdentityMapUpdateRequest` 驗）——手改 live identity_map 塞跨面角色會載入

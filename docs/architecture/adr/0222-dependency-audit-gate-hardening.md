@@ -2,13 +2,13 @@
 
 > **2026-10-21 空輸出重跑一次**：Guard #22 的 pip-audit 若 stdout 只有空白（不看 exit code），同一指令重跑一次，第二次的證據放在 `audit-<scope>-query-retry`，第一次的保留。兩次都空、或啟動失敗、逾時（這兩種不重跑）都是 `AuditNotRunError`：印「掃描沒跑成」，仍非零、不轉 clean，和有漏洞、證據無效分開。有內容的輸出不重跑。所以每個 Python scope 最多兩個 audit 程序；Guard #23 仍不重跑。下面「原六scope/no-install/零retry」與 Network gate 段「零retry、最多六個top-level audit processes」裡的零 retry 不再描述現行 Guard #22（後者是當時那次核准的範圍）；其餘照舊。
 
-> **整合 audit retention（2026-09-08）**：`guard_all.py --audit-evidence-root <新絕對repo外根>` 在default44下由aggregator create-only建立根，再把python/node leaves傳給兩個既有guard。parent必須存在，root不得已存在；non-audit模式不建根且22/23維持NOT RUN。兩來源切片已由主代理接受，聚合器23cases、四模組119passed；這些mocked測試不代表liveaudit。原六scope/no-install/零retry/原始evidence契約不變。
+> **整合 audit retention（2026-09-08）**：`guard_all.py --audit-evidence-root <新絕對repo外根>` 在default44下由aggregator create-only建立根，再把python/node leaves傳給兩個既有guard。parent必須存在，root不得已存在；non-audit模式不建根且22/23維持NOT RUN。兩來源切片已經審查接受，聚合器23cases、四模組119passed；這些mocked測試不代表liveaudit。原六scope/no-install/零retry/原始evidence契約不變。
 
-> **2026-09-08 現行接續**：coverage 設計依 [ADR-0223](0223-dependency-audit-coverage-and-source-identity.md)，要求完整 query pairing、跨平台 markers、CPU 官方來源與 first-party 身分；舊批次只取 host marker 的查核方式不再是現行完整覆蓋契約，coverage/error-path 實作切片已接受；default44已完成六個fresh scopes：Python runtime110/110、build-test152/152均0 skip／finding，Node四scope各severity皆0；101-path原生整合DEV-B已接受，P11發版仍待完成。本對話起首「請以 SUPERVISOR_DELEGATED（主代理代審）模式」的使用者九點直接委託取代 P11 逐次 HUMAN_ONLY／fresh 人工 network 程序，接續計畫只提供回查指標，不自行授權。以下狀態及 FAIL／NOT RUN 屬原批次快照，來源、資料保護與 fail-closed 實質要求保留。
+> **2026-09-08 現行接續**：coverage 設計依 [ADR-0223](0223-dependency-audit-coverage-and-source-identity.md)，要求完整 query pairing、跨平台 markers、CPU 官方來源與 first-party 身分；舊批次只取 host marker 的查核方式不再是現行完整覆蓋契約，coverage/error-path 實作切片已接受；default44已完成六個fresh scopes：Python runtime110/110、build-test152/152均0 skip／finding，Node四scope各severity皆0；101-path原生整合已通過最終審查，P11發版仍待完成。維護者 2026-09-08 的一次性授權取代 P11 逐次人工核准的 network 程序，接續計畫只提供回查指標，不自行授權。以下狀態及 FAIL／NOT RUN 屬原批次快照，來源、資料保護與 fail-closed 實質要求保留。
 
-- 狀態：🚧 63-path R1原生候選已通過HUMAN_ONLY DEV-B；首批Python runtime audit有findings及coverage gaps，依停止條件結束；離線報告修復驗證完成，修改後候選待新DEV-B，P11未完成
+- 狀態：🚧 63-path R1原生候選已通過維護者人工最終審查；首批Python runtime audit有findings及coverage gaps，依停止條件結束；離線報告修復驗證完成，修改後候選待新的最終審查，P11未完成
 - 日期：2026-09-04
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：Guard #22、Guard #23、uv workspace、ToukaChat、ToukaIDE、
   dependency-audit network gate
 - 相關決策：[ADR-0117](0117-uv-workspace-single-lock-migration.md)、
@@ -98,12 +98,12 @@ network guard；offline 42/42只證明其他守衛，不得擴張為44/44或depe
 以下是2026-09-06的歷史狀態：其15-path
 foundation其後納入21-path，於2026-09-06經lint／測試型別修正再納入P11-NEXT 45-path cumulative candidate。
 Next `16.3.4`／Sharp `0.35.4` remediation已有官方公告查核、精確重鎖與結構化回歸；歷史sealed
-cache／node_modules曾通過preflight，root TypeScript與Next build曾PASS，但DBG-A R2仍未完成驗收。
-2026-09-06 Owner已改採專案既有測試與守衛優先，方法見
+cache／node_modules曾通過preflight，root TypeScript與Next build曾PASS，但除錯升級修復計畫 R2 仍未完成驗收。
+2026-09-06 維護者已改採專案既有測試與守衛優先，方法見
 [測試指南](../../guides/testing_guide.md)，順序見
-原生驗證計畫。
+原生驗證計畫（未入版控）。
 舊的工作區零寫入、整份外部projection與專用launcher不再是前提；本ADR第1／2節的audit暫存
-輸入與credential隔離是稽核本身的邊界，仍須保留。原生驗證已接續，本輪結果以該計畫為準，DEV-B未完成。
+輸入與credential隔離是稽核本身的邊界，仍須保留。原生驗證已接續，本輪結果以該計畫為準，最終審查未完成。
 `pip-audit`、`npm audit`及Guard #22／#23仍為 **NOT RUN**；
 SNS token localStorage HIGH為另案Known Open，不因lint或結構化版本檢查通過而消失。
 
@@ -115,13 +115,13 @@ raw stdout／stderr bytes、scope 輸入、受控設定與 argv／exit／timeout
 先保存再做嚴格 UTF-8／JSON 解析；預設不指定時仍使用會清理的既有暫存模式。
 Node 固定 `--fetch-retries=0`；Python 明設每 scope cache、15秒 socket timeout與禁止
 child bytecode 寫入。這些均不授權連網，精確執行與限制見
-本批接續計畫。
+本批接續計畫（未入版控）。
 
 六個 audit processes 不等於六個 HTTP requests，另有版本檢查與離線 export；
 npm finding可能觸發額外同 registry metadata GET，PyPI client仍有上游redirect行為。
 不得把最低child environment、固定起始URL或零retry說成OS egress／redirect目的地證明。
 
-Offline candidate通過DEV-B後，另提`AUDIT-NETWORK-P11-A` fresh approval，至少綁定：
+Offline candidate通過最終審查後，另提`AUDIT-NETWORK-P11-A`當次核准，至少綁定：
 
 - final script與三份lockfile hash、HEAD與空index；
 - Python 3.12、uv、pip-audit、Node與npm的exact runtime identity；
@@ -131,12 +131,12 @@ Offline candidate通過DEV-B後，另提`AUDIT-NETWORK-P11-A` fresh approval，�
 - 會傳輸package name、version、dependency relationship、IP與client metadata；不傳source、
   credential、environment value或`data/`。
 
-任一finding只產生evidence與新的exact remediation DEV-A，不授權安裝、升級、override、
+任一finding只產生evidence與新的exact remediation計畫（須經審查），不授權安裝、升級、override、
 re-lock或`audit fix`。任一seal drift、transport／parser error或目的地歧義立即停止。
 
 ### 2026-09-07：首批已執行，保留原始 FAIL
 
-Owner 明確核准 `P11-AUDIT-DEV-B（HUMAN_ONLY）` 與 `AUDIT-NETWORK-P11-A`，
+維護者核准 P11 audit 的人工最終審查與 `AUDIT-NETWORK-P11-A`，
 綁定63-path R1 request SHA-256
 `24167f7a58924b480fc4f5074e5e9acb5a80adfa576c93eb1fd806d60faabc48`。
 只執行版本檢查、離線runtime export及一次runtime audit，共3個child。pip-audit完成並回傳exit 1：
@@ -146,11 +146,11 @@ package／version／ID組合。pip-audit 2.10.1 JSON沒有severity，依既有�
 Guard #22因合法skip row沒有`vulns`而回傳`pip-audit dependency has no vulns list`；
 這是guard解析相容性問題，與原始finding、查核覆蓋不足分開記錄，不是transport／timeout failure。
 Python build-test與Node四個scope均 **NOT RUN**，沒有retry、install、relock或dependency mutation。
-原63檔候選及12份audit inputs／runtime綁定無漂移；原始FAIL與147份證據保留於OS Temp的
-`touka-p11-audit-network-a-20260906`，以`AUDIT_EVIDENCE_MANIFEST.json`及
+原63檔候選及12份audit inputs／runtime綁定無漂移；原始FAIL與147份證據保存在本機暫存目錄（未入版控），
+以`AUDIT_EVIDENCE_MANIFEST.json`及
 `FINAL_AUDIT_RECEIPT.json`封存，不由後續parser修復改寫成PASS。
 
-本輪 `P11-AUDIT-REPORT-FIX-A（HUMAN_ONLY）` 僅核准7個既有檔案的離線報告修復、
+本輪 `P11-AUDIT-REPORT-FIX-A`（人工核准）僅核准7個既有檔案的離線報告修復、
 測試與文件。沿用專案Python 3.12 venv、subprocess mocks與sandbox，不另建環境。
 實際套件弱點及兩筆coverage gaps列於根目錄`SECURITY.md`的Known Open；
 套件更新、coverage來源及新audit批次仍須具體方案，完整44與P11維持INCOMPLETE。
@@ -168,17 +168,17 @@ Python build-test與Node四個scope均 **NOT RUN**，沒有retry、install、rel
 - 原生pytest exit 0及raw receipts已保存；外層cp950列印UTF-8日誌失敗另記為顯示錯誤，
   不當作測試失敗或重跑理由。既有Qdrant sandbox lock殘留交由OS Temp回收，未強制清理。
 - 改動只涉及核准的7個既有檔案；舊63-path其他56檔、lock／runtime及所有原audit證據保持不變。
-  最新證據位於OS Temp的`touka-p11-audit-report-fix-a-20260907`。
-  修改後候選待新DEV-B，stage／commit／新network audit／套件更新及發布均未執行。
+  最新證據保存在本機暫存目錄（未入版控）。
+  修改後候選待新的最終審查，stage／commit／新network audit／套件更新及發布均未執行。
 
-### 2026-09-06 cumulative candidate歷史快照（進入debug-escalation前）
+### 2026-09-06 cumulative candidate歷史快照（進入除錯升級前）
 
-以下保留當時PASS／FAIL／NOT RUN，不代表DBG-A各輪或新原生方式的結果；最新狀態見上述接續計畫。
+以下保留當時PASS／FAIL／NOT RUN，不代表除錯升級各輪或新原生方式的結果；最新狀態見上述接續計畫。
 
-- 本輪追加13份既有測試＋8份文件，保留32-path候選並形成45-path HUMAN_ONLY候選；只補fixture／mock型別，原62個案例及全部行為斷言保留，未改產品來源、generated API、檢查設定或依賴。原47則TypeScript診斷作RED；首輪62 passed後另見SkillsTab工具description缺欄（9則），授權內補齊後 **62 passed／13 files、lint 0 errors／1既有warning、root TypeScript零診斷、Next.js 16.3.4 production build PASS**。
+- 本輪追加13份既有測試＋8份文件，保留32-path候選並形成45-path人工審查候選；只補fixture／mock型別，原62個案例及全部行為斷言保留，未改產品來源、generated API、檢查設定或依賴。原47則TypeScript診斷作RED；首輪62 passed後另見SkillsTab工具description缺欄（9則），授權內補齊後 **62 passed／13 files、lint 0 errors／1既有warning、root TypeScript零診斷、Next.js 16.3.4 production build PASS**。
 - 上一輪artifact generator、完整lint（0 errors／78 warnings）與產品型別檢查已PASS；完整Vitest 1159／230 files發生於上一輪最後test-only標註前，本輪依核准未重跑全量或cache-seed。
-- 非audit守衛 **#1–#16 PASS**；#16空sandbox設定以既有tracked examples hydration解除。#17三次均在收集前被repo外Popen包裝阻塞（class繼承／generic下標／Windows ver遭allowlist拒絕），未發生產品測試斷言失敗；依同方向三次停止線進入debug-escalation，不做第四次。#17未通過、其餘25道非audit守衛與完整Python suite **NOT RUN**；#22／#23與audit NOT RUN、44-guard INCOMPLETE、DEV-B未執行，P11總體仍未完成。
-- 全部舊／新FAIL保留於repo外前輪及`touka-p11-next-test-types-remediation-a`；exact R:已撤銷。HEAD仍為`03697f1b9c9c5a9e5bed8c91e329a0e181f7449f`、index空；未install、更新依賴、連網、audit或Git寫入，`.gitignore`排除且未存取`data/`。SNS raw-token localStorage Known Open HIGH另案待修，沒有外洩證據，不能宣稱security clean。
+- 非audit守衛 **#1–#16 PASS**；#16空sandbox設定以既有tracked examples hydration解除。#17三次均在收集前被repo外Popen包裝阻塞（class繼承／generic下標／Windows ver遭allowlist拒絕），未發生產品測試斷言失敗；依同方向三次停止線進入除錯升級，不做第四次。#17未通過、其餘25道非audit守衛與完整Python suite **NOT RUN**；#22／#23與audit NOT RUN、44-guard INCOMPLETE、最終審查未執行，P11總體仍未完成。
+- 全部舊／新FAIL保留於repo外（未入版控）；exact R:已撤銷。HEAD仍為`03697f1b9c9c5a9e5bed8c91e329a0e181f7449f`、index空；未install、更新依賴、連網、audit或Git寫入，`.gitignore`排除且未存取`data/`。SNS raw-token localStorage Known Open HIGH另案待修，沒有外洩證據，不能宣稱security clean。
 
 ### 2026-09-04 foundation與21-path歷史快照
 
@@ -221,8 +221,8 @@ Python build-test與Node四個scope均 **NOT RUN**，沒有retry、install、rel
 不能再以空輸出或漏掃取得clean。代價是full/build graph可能讓先前被忽略的dev advisory
 成為blocking evidence；這是GitHub Actions／GHCR build trust boundary的刻意選擇。
 
-在DEV-B與提交前，既有45-path候選基線及後續授權差異保持unstaged。回復須針對已封存的本輪差異，
+在最終審查與提交前，既有45-path候選基線及後續授權差異保持unstaged。回復須針對已封存的本輪差異，
 保留其他既有修改與全部FAIL證據，不自動捨棄累積候選；不得以放寬severity、恢復stderr fallback、
-自動安裝或移除IDE/dev scope作修復。Next.js、lint與追加13份測試型別均已取得DEV-A，cache-seed也曾
+自動安裝或移除IDE/dev scope作修復。Next.js、lint與追加13份測試型別均已取得計畫審查核准，cache-seed也曾
 另取核准；它們不授權audit、產品範圍擴修或發布。Network findings、SNS token、modern-only、
-Docker／GitHub Actions／GHCR仍各自需要fresh DEV-A。
+Docker／GitHub Actions／GHCR仍各自需要新的計畫審查。
