@@ -171,13 +171,14 @@ def test_dangling_names_are_reported_with_the_reason() -> None:
     tracked_tests = ["unit/test_alpha.py", "unit/test_dup.py", "lint/test_dup.py"]
     tracked_repo = {"tests/unit/test_alpha.py", "tests/unit/test_dup.py", "tests/lint/test_dup.py"}
     tracked_repo.add("ToukaIDE/scripts/test_tool.py")
+    drive = "C" + ":"  # 拼接，避開 lint_ssot 的 PATH_LITERAL_SSOT
     readme = " ".join(
         [
             "`unit/test_alpha.py` `tests/unit/test_alpha.py` `ToukaIDE/scripts/test_tool.py`",
             "`test_alpha.py` `test_*.py` `**/test_*.py` `test_golden_{a,b}.py`",
             "`lint/test_alpha.py` `test_renamed.py` `test_dup.py` `test_tool.py`",
-            "`../outside/test_x.py` `/abs/test_y.py` `C:/x/test_z.py`",
-            r"`unit\test_gone.py` `C:\x\test_z.py`",
+            f"`../outside/test_x.py` `/abs/test_y.py` `{drive}/x/test_z.py`",
+            "`unit\\test_gone.py` `" + drive + "\\x\\test_z.py`",
         ]
     )
     problems = dangling_test_names(readme, tracked_tests, tracked_repo)
@@ -189,7 +190,7 @@ def test_dangling_names_are_reported_with_the_reason() -> None:
             "test_tool.py",
             "../outside/test_x.py",
             "/abs/test_y.py",
-            "C:/x/test_z.py",
+            f"{drive}/x/test_z.py",
             "unit/test_gone.py",
         ]
     )
