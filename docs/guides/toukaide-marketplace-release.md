@@ -83,7 +83,7 @@ Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取�
 
 - Archive：`toukaide-0.3.0.vsix`，1829063 bytes，SHA-256 `1e2e6cc444d7f4102d49cd70cc006a39ca56b477ff047985dcd18ff94ae40266`。
 - Manifest：`toukaide-0.3.0.manifest.json`，1663 bytes，SHA-256 `0e63c00f623b0fab47e79e39b3c5d426c16628bd0d4dfc2e510158195c29bee8`。
-- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由 維護者 人工回報通過；
+- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由維護者人工回報通過；
   Marketplace 下載的 VSIX 解碼後與原 members 全等，package.json 只多官方 `__metadata`。
 
 **`v*` tag 注意**：`v0.3.0` 只建立於本機、未推送遠端。runtime 映像的 `.github/workflows/ghcr-publish.yml`

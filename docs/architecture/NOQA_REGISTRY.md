@@ -18,7 +18,7 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
-| `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
+| `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
 | `B008` | 228 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
 | `LOCAL_IMPORT_BAN` | 25 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）。其餘位置見下方明細。 |
 | `S603` | 32 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集）。 |

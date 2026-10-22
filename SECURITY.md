@@ -347,7 +347,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | **P25** | `ToukaProxy/src/services/user_service.py` | 刪除使用者不廢止 session | 🟢 Low | `delete_user()` 在刪除前設 `refresh_token_exp=0`、`refresh_token_jti=None`，立即讓 Cookie 失效 |
 | **P26** | `ToukaProxy/src/routers/heartbeat.py:372` | Heartbeat owner 過期邊界競態 | 🟢 Low | `now_sec > exp` → `now_sec >= (exp + 30)`（30 秒容許時鐘偏差的 grace period） |
 | **P27** | `ToukaProxy/src/routers/admin.py` | Admin 建立使用者無審計 | 🟢 Low | `create_user()` 與 `update_user()` 成功後以 `logger.warning("AUDIT: ...")` 記錄操作者、目標帳號與角色 |
-| **P28** | `ToukaProxy/src/utils/async_db.py` | Session 無 TTL | 🟢 Low | ⚠️ **已撤回（ADR-0259，2026-10-15）**：原修補（本批 2026-05-21，`c8fdd646`）加了 `last_activity_at` 欄位與遷移、`cleanup_expired_sessions()`（lifespan 啟動呼叫）與 `SESSION_TTL_DAYS=90`，但截止值用秒算、`last_activity_at` 存毫秒，上線後從沒刪過任何列；修好單位等於每次啟動把 90 天沒寫入的非家對話整列刪掉、不轉存（非家對話不會被滑動視窗剪進舊對話庫，原文永久消失）。Owner 決定正式拿掉：刪 `cleanup_expired_sessions()`、啟動呼叫與 `SESSION_TTL_DAYS`，對話不再自動刪除；`last_activity_at` 欄位、遷移與寫入保留（對話存檔合約仍在用）。刪除改由人類手動刪除或靈魂重置。 |
+| **P28** | `ToukaProxy/src/utils/async_db.py` | Session 無 TTL | 🟢 Low | ⚠️ **已撤回（ADR-0259，2026-10-15）**：原修補（本批 2026-05-21，`c8fdd646`）加了 `last_activity_at` 欄位與遷移、`cleanup_expired_sessions()`（lifespan 啟動呼叫）與 `SESSION_TTL_DAYS=90`，但截止值用秒算、`last_activity_at` 存毫秒，上線後從沒刪過任何列；修好單位等於每次啟動把 90 天沒寫入的非家對話整列刪掉、不轉存（非家對話不會被滑動視窗剪進舊對話庫，原文永久消失）。維護者決定正式拿掉：刪 `cleanup_expired_sessions()`、啟動呼叫與 `SESSION_TTL_DAYS`，對話不再自動刪除；`last_activity_at` 欄位、遷移與寫入保留（對話存檔合約仍在用）。刪除改由人類手動刪除或靈魂重置。 |
 | **P29** | `ToukaProxy/src/routers/heartbeat.py:387` | DEBUG prefix 日誌洩漏驗證狀態 | 🟢 Low | `logger.info(f"DEBUG: Agent ... passed all checks.")` → `logger.debug("Heartbeat checks passed for %s", ...)` |
 | **P30** | `ToukaProxy/src/services/auth_service.py` | Refresh Token Rotation 多 Tab 並發競態（Race Condition） | 🟠 High | `User` model 新增 `previous_refresh_jti` 與 `refresh_jti_rotated_at` 欄位；`_mutate_refresh` 三路徑判斷：(1) 正常輪換 (2) `previous_jti` 在 `AUTH_REFRESH_GRACE_PERIOD_SEC`（30 秒）內的並發請求 (3) 其他 JTI 不符觸發撤銷；`config.py` 新增常數 `AUTH_REFRESH_GRACE_PERIOD_SEC=30`（可環境變數覆蓋） |
 | **P31** | `ToukaMemory/src/memory_server/services/mission_manager.py` | 自主任務狀態轉換缺乏有限狀態機約束 | 🟡 Medium | 實作自主任務狀態 FSM 轉換矩陣，防止跳過 `DOING` 步驟直接進入 `DONE` 的邏輯越軌行為，保證狀態流轉一致性 |
@@ -596,7 +596,7 @@ Enterprise/SSO、`private_key_jwt`、DPoP、JWT bearer、foreground 與 dispatch
 
 ### 子程序執行加固（2026-10-09，ADR-0239 後續；ADR-0137 補記）
 
-ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回歸測試集中在 `tests/unit/test_subprocess_hardening_security.py`；子程序一律經 `services/execution_broker.py`。SP3（`/mcp/scan`）由 Owner 決定直接移除，回歸測試在 `tests/unit/test_mcp_scan_removed_security.py`。
+ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回歸測試集中在 `tests/unit/test_subprocess_hardening_security.py`；子程序一律經 `services/execution_broker.py`。SP3（`/mcp/scan`）由維護者決定直接移除，回歸測試在 `tests/unit/test_mcp_scan_removed_security.py`。
 
 | 編號 | 位置 | 類型 | 嚴重度 | 修復摘要 |
 |----|------|------|--------|---------|
@@ -643,7 +643,7 @@ ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回�
 
 > 已知限制：
 > - shell 文字地板只能盡力而為：先寫檔再執行（先寫腳本、再 `python x.py`）、shell 變數（`$X`、`$env:`）與萬用字元（`.e*v`）、編碼、字串拼接、`cd` 後的相對路徑都能繞過；檔案工具的路徑不經地板（靠 `is_protected_path` 與 vault 監獄）。規則檔被清空或刪掉時仍退回預設。根治要等隔離執行環境（第 5 段）。
-> - FL13／FL14 之後仍偏嚴的誤判（只是多問人）：用絕對路徑寫進 repo 底下（mountinfo 證明不重疊的 Docker 工作區掛載點除外，例如 `python /app/ToukaProxy/scripts/x.py`）、寫進 `/app/hf_cache` 這類程式裡沒有 SSOT 的快取掛載點（仍算 F4）、Docker 讀不到 mountinfo 時掛載點整片保護、`/Projects` 和 `/projects` 被當成同一個、Docker Desktop 上工作區和 repo 在不同磁碟機時寫入專案要人核准、btrfs 子卷、ZFS dataset 上的工作區或錨點會判成證明不了、整片保護（推論：它們在 mountinfo 是 major 0 的匿名裝置號，屬偏嚴、不是漏洞）、不在 Docker 時把工作區設在 Touka 資料夾裡面（整片保護，甲的直接結果）、程式不在段首（`sudo /venv/python`）、`find . -type f -delete` 沒有檔名篩選、`Copy-Item -Force` 或 `grep -a` 加受保護目錄。仍抓不到：WSL 的 `/mnt/x` 路徑、8.3 短檔名、自訂 `HEARTBEAT_CONFIG_DIR`、不在表上的帶值前綴選項、直接執行受保護目錄裡的腳本；不在 Docker 時，第一次非同步讀取 DB 之前工作區用的是 `HOST_WORKSPACE_ROOT`；「不同裝置不重疊」只限兩顆實體區塊裝置；mountinfo 只讀一次、重新掛載要重啟；先 `cd` 再用相對路徑清空工作區；單獨 `/` 的覆寫（例如 `cp -r x/. /`）；直譯器刪除呼叫只靠字詞比對，混淆寫法抓不到；掛載點裡原本就有、指向 Touka 的連結看不到；工作區本身是 Docker 資料區的 FUSE／NFS 視圖這種極端設定抓不到；例外只看 mountinfo root 字樣，使用者自己的 bind 來源剛好叫 `…/volumes/<x>/_data` 時也會被當成 volume，前提一樣極端（U2c-R1c）。
+> - FL13／FL14 之後仍偏嚴的誤判（只是多問人）：用絕對路徑寫進 repo 底下（mountinfo 證明不重疊的 Docker 工作區掛載點除外，例如 `python /app/ToukaProxy/scripts/x.py`）、寫進 `/app/hf_cache` 這類程式裡沒有 SSOT 的快取掛載點（仍算 F4）、Docker 讀不到 mountinfo 時掛載點整片保護、`/Projects` 和 `/projects` 被當成同一個、Docker Desktop 上工作區和 repo 在不同磁碟機時寫入專案要人核准、btrfs 子卷、ZFS dataset 上的工作區或錨點會判成證明不了、整片保護（推論：它們在 mountinfo 是 major 0 的匿名裝置號，屬偏嚴、不是漏洞）、不在 Docker 時把工作區設在 Touka 資料夾裡面（整片保護，寫入類指令那條規則的直接結果）、程式不在段首（`sudo /venv/python`）、`find . -type f -delete` 沒有檔名篩選、`Copy-Item -Force` 或 `grep -a` 加受保護目錄。仍抓不到：WSL 的 `/mnt/x` 路徑、8.3 短檔名、自訂 `HEARTBEAT_CONFIG_DIR`、不在表上的帶值前綴選項、直接執行受保護目錄裡的腳本；不在 Docker 時，第一次非同步讀取 DB 之前工作區用的是 `HOST_WORKSPACE_ROOT`；「不同裝置不重疊」只限兩顆實體區塊裝置；mountinfo 只讀一次、重新掛載要重啟；先 `cd` 再用相對路徑清空工作區；單獨 `/` 的覆寫（例如 `cp -r x/. /`）；直譯器刪除呼叫只靠字詞比對，混淆寫法抓不到；掛載點裡原本就有、指向 Touka 的連結看不到；工作區本身是 Docker 資料區的 FUSE／NFS 視圖這種極端設定抓不到；例外只看 mountinfo root 字樣，使用者自己的 bind 來源剛好叫 `…/volumes/<x>/_data` 時也會被當成 volume，前提一樣極端（U2c-R1c）。
 > - `/v1/debug/execute` 在 YOLO 下也拒絕地板指令（比原本嚴）。
 > - 審查員的準確率、拒答率、解析失敗率與延遲都沒有實測（禁令 61），只用假的 Completer 驗證。
 > - workload OAuth 刻意維持關閉（`HEARTBEAT_WORKLOAD_OAUTH_ENABLED = False`），要不要打開待人類決定。
@@ -652,7 +652,7 @@ ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回�
 > - `auto_review.headless_terminal` 預設關；打開後所有靈魂無人在場的終端指令都送審、審查員放行就執行，超出事先核准的變寬，要不要打開由人類決定（只有人類 admin 能改，FL9）。
 > - 心跳在 YOLO 下會在無人在場時用 MCP 工具（MCP 工具不經底線分類）；Auto 心跳的未列名 MCP 直接拒絕。
 > - Auto 下 F5 的自帶審批工具會出兩張卡（只是多問一次，不放寬）。
-> - ④甲的資料外送：有人在場的 Auto 對話會把最近 3 則人類訊息（各截到 1,000 字）、動作的完整參數與執行環境送到所選模型的廠商；本機只記用量。
+> - ④審查員送出的資料：有人在場的 Auto 對話會把最近 3 則人類訊息（各截到 1,000 字）、動作的完整參數與執行環境送到所選模型的廠商；本機只記用量。
 > - 上方舊表 C5、DA24、R2 記的是當時的等級名稱：C5 的串接升級（ALLOW→CONFIRM）現在只在 YOLO 碰得到，Auto 的終端一律送審查員、動態 shell 寫法只有人能核准；DA24 看不懂的值現在退回 Manual；R2 的「強制 SafeAuto」現在是 Auto。
 >
 > 詳見 ADR-0246。
@@ -668,7 +668,7 @@ ADR-0239 唯讀盤點找到的子程序缺口。每項先有失敗測試，回�
 - **非擁有者不能指定別人的靈魂**（後續修補）：見產品修復表「非擁有者指定別人的靈魂（HIGH）」「自訂模型路徑穿越（HIGH）」「session 歸屬（MEDIUM）」三列；群聊每位成員同樣檢查（`test_soul_target_ownership_security.py`、`test_soul_target_bypass_security.py`）。
 - **心跳白名單降級錯誤**：把靈魂加進白名單時不再寫成 `Base` 覆寫（`HeartbeatWhitelist.test.tsx`）。
 
-> 已知殘留：live 權限設定檔已改成新版面（人類 10/12 同意）；其他 tracked live 設定不改檔，舊值只在讀取時略過並記 AUDIT 警告——`identity_map.json` 裡非靈魂的舊覆寫畫面上看不到、存檔時保留。要清掉須 Owner 手動改檔。
+> 已知殘留：live 權限設定檔已改成新版面；其他 tracked live 設定不改檔，舊值只在讀取時略過並記 AUDIT 警告——`identity_map.json` 裡非靈魂的舊覆寫畫面上看不到、存檔時保留。要清掉須部署者手動改檔。
 
 ### 插話入口（2026-10-13，ADR-0249 第 4a、4b 段）
 

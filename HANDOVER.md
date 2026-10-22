@@ -43,7 +43,7 @@
   - SP2 terminal 拒絕 ALLOW／CONFIRM 以外的決策、取消即殺子程序；SP4 還原、SP5 reset 備份鎖、SP6 演化沙箱。子程序一律經 `execution_broker`。
 - **移除 `/mcp/scan`（2026-10-09）**：維護者決定 SP3 不修而是刪除。npm `mcp-scan` 不掃傳入的設定、卻帶完整 Proxy 環境執行未釘版套件；端點、Hub 與演化安裝視窗的掃描按鈕、翻譯 key 與 OpenAPI 路徑一併刪除，SP3 移出 Known Open Vulnerabilities。
 - **維護流程的本機紀錄資料夾 `.toukadev/`（2026-10-10）**：開發流程本身（不是產品功能）的變更。
-  - AGENTS.md「文件協議」加上一行：流程或規則出問題時，維護者記到主要專案資料夾的本機 `.toukadev/lessons/`（不進版控）。
+  - AGENTS.md「文件協議」加上一行：流程或規則出問題時，記到主要專案資料夾的本機 `.toukadev/lessons/`（不進版控）。
   - `lint_ssot.py`、`guard_noqa_registry.py`、`guard_adr_integrity.py` 這三支從 repo 根目錄遞迴走訪的守衛，依資料夾名稱略過 `.toukadev`（只比對名稱，不是路徑逐段比對，所以在 `.toukadev/worktrees/` 裡的工作資料夾跑守衛仍會正常掃描）。
   - `.dockerignore` 排除 `.toukadev`（proxy 映像用 root context＋`COPY . .`）；`.gitignore` 加 `.toukadev/`，並由測試確認版控中沒有任何 `.toukadev` 路徑。
   - 三支守衛各自維護一份幾乎相同的略過清單（`IGNORED_DIRS`），是既有狀況；本次只各加一項，沒有合併成共用清單。之後改略過清單要三處一起改，`tests/unit/test_guard_source_data_boundary.py` 會對三支跑同一組案例。
@@ -67,7 +67,7 @@
   - 全停 Gemini 顯式快取：刪 `gemini_cache_service`，一般與無痕對話每一輪都照常送 system 與工具，KF-1／KF-2／KF-2d 消失；`extract_usage` 仍讀 Google 隱式快取的用量計數（Touka 沒有建立任何快取）。
   - KF-6：Claude 健康檢查帶 `anthropic-version`，OpenAI 健康檢查改送 `max_completion_tokens`。根 `.env.example` 補六把廠商金鑰（值留空），由 `test_root_env_example_provider_keys.py` 防漂移。設定頁「API 金鑰」分頁因此會列出這六把金鑰（`GET /config/env` 的欄位只從 `.env.example` 產生），不再一律顯示未設定。
   - ToukaChat `next`／`eslint-config-next` 16.3.6→16.3.8，修 6 個 advisory（含 1 個 high），Guard #23 轉綠；鎖檔只變 12 個 Next 套件，皆上架滿 7 天。
-  - 兩個 Dockerfile 的 uv 換成 0.12.1（與 CI 同版）；在 Python 基底映像裡實際跑 `uv sync --locked` 要等下一次完整 `docker build` 才算確認。本機 Docker 留有 uv 0.10.5 與 0.12.1 兩個映像（各約 76～77 MB），不自動刪，由維護者決定。
+  - 兩個 Dockerfile 的 uv 換成 0.12.1（與 CI 同版）；在 Python 基底映像裡實際跑 `uv sync --locked` 要等下一次完整 `docker build` 才算確認。
   - 新禁令 63：臨時查驗不得在沙盒外載入專案程式（載入時的初始化也算寫入），需要時寫成沙盒內的測試。
   - 已知限制：Guard #20 的 knip 在 `.toukadev/worktrees/` 底下的工作資料夾會假紅（gitignore 濾掉入口檔），守衛未改，見 ADR-0243。
 - **模型溝通層第 1b 段（2026-10-12，ADR-0244）**：
@@ -81,8 +81,8 @@
   - 非擁有者指定別人的靈魂：2a 本身只擋了「未登入」，已由後續修補（U2-SOUL，見下一項）修好。
   - Guest 退役：子代理改用 `Subagent`（工具逐項照抄）；只有靈魂、DebugAgent、DispatchAgent 有代理角色與能力，其他 ID 一律 Base；X-Agent-ID 只能切進靈魂；`POST /identity` 拒絕其他 ID（422）；心跳白名單不再把靈魂降級成 Base。
   - 群聊與 SNS `@別名` 只限靈魂（registry 成員還要經靈魂檢查），群聊設定只剩靈魂區；舊群聊歷史裡解析不到的點名略過，只驗最新一則。舊 `ToukaSoul` 前綴 ID 一律 Base、沒有能力（R-2a 修正）。
-  - live 權限設定檔已改成新版面（人類 10/12 同意），舊 Guest 不再當子代理用。其他 live 設定程式不改檔，舊值讀取時略過並記 AUDIT 警告：`identity_map.json` 非靈魂的舊覆寫畫面上看不到、存檔時保留；`group_whitelist.json` 的 `Native`／`Custom` 區會在群聊設定頁存檔時消失。
-  - AGENTS.md 只改決定單 ② 第 1、3、5 點（身分與自動領卡、禁令 16、群聊）。
+  - live 權限設定檔已改成新版面，舊 Guest 不再當子代理用。其他 live 設定程式不改檔，舊值讀取時略過並記 AUDIT 警告：`identity_map.json` 非靈魂的舊覆寫畫面上看不到、存檔時保留；`group_whitelist.json` 的 `Native`／`Custom` 區會在群聊設定頁存檔時消失。
+  - AGENTS.md 只改身分與自動領卡、禁令 16、群聊三處。
 - **ADR-0245 後續修補：靈魂目標與 session 歸屬（2026-10-12～13，U2-SOUL、U2-SESSION）**：
   - 指定靈魂要有權：admin 可以、其他人類要擁有、代理只能是靈魂本身或 DebugAgent，否則在套人設之前 403；群聊每位成員同樣檢查；子代理不繼承父靈魂與 session 標頭；自訂模型擋靈魂撞名與路徑穿越（SECURITY 三列）。
   - session 歸屬：前情摘要與寫回只給綁在這個靈魂、呼叫者能存取的 session；授權閘道對代理只認綁在自己的 session；`connect_mcp_server`／`activate_skill` 不再改綁定；set_home 檢查只加不減，拒絕非正式靈魂 ID。
@@ -105,8 +105,8 @@
   - 心跳：safe→Auto（不在場不跑指令）、full→YOLO、看不懂→Manual；KF-4 修好，心跳第一次能用工具（ADR-0242 KF 表改已修）。workload OAuth 刻意維持關閉。
   - IDE 只剩 Manual／YOLO，黑名單直接拒絕；人類在 Touka 卡片核准過的動作不再問第二次（HMAC 標記），但要等 Proxy 轉送 IDE 工具才會在正式環境用到；核准的指令只跑一次，代價是 VS Code 終端不再顯示。
   - 前端：三模式選單（存檔後立即顯示實際模式）、安全設定的審查員模型選單、審批卡的審查理由與「只有你能核准」、心跳標籤、直連標示。
-  - 無痕對話一律 Manual（人類 10/12 12:44 決定：無痕無法追溯）：U2c-9 讓 ToolLayer 在所有模式來源之後最後套 `enforce_incognito_manual`，修掉「無痕請求帶著已存成 Auto／YOLO 的 session id 會照存的模式跑」；原因提示在前端。
-  - AGENTS.md 只改決定單 ② 第 2、4、8 點（三模式＋底線＋審查員、新模式名稱、禁令 64）。ADR-0246 取代 ADR-0021 的四階矩陣與 MonitorLayer 降級閘，修訂 ADR-0143、0018、0089、0078（反向註記已加）。
+  - 無痕對話一律 Manual（2026-10-12 決定：無痕無法追溯）：U2c-9 讓 ToolLayer 在所有模式來源之後最後套 `enforce_incognito_manual`，修掉「無痕請求帶著已存成 Auto／YOLO 的 session id 會照存的模式跑」；原因提示在前端。
+  - AGENTS.md 只改這幾處（三模式＋底線＋審查員、新模式名稱、禁令 64）。ADR-0246 取代 ADR-0021 的四階矩陣與 MonitorLayer 降級閘，修訂 ADR-0143、0018、0089、0078（反向註記已加）。
   - workload OAuth：維護者 2026-10-13 決定維持關閉。`POST /v1/autonomy` 的權限含 Debugger 已在 R-2c 修好（`auto_review` 只有人類 admin 能改，預算欄位仍是 Owner／Debugger／admin；ADR-0246 已知限制裡已劃掉）。心跳在 YOLO 下會在無人在場時用 MCP 工具是 ADR-0246 的已知限制，沒修，列在 §3 待排小項。其他剩餘風險（文字地板可被先寫檔再執行、shell 變數與萬用字元繞過；審查員準確率沒實測）見 ADR-0246；根治要等模型層第 5 段的隔離執行環境。
 - **模型溝通層第 3b 段：上游串流、OpenAI Responses、重試（2026-10-13，ADR-0248）**：
   - 主迴圈改串流：Claude 用 SDK 的 `messages.stream()`；Gemini 自寫 SSE（Q5 部分不過：google-genai 會靜默丟掉不認得的欄位）；規則表的已知相容廠商（OpenAI、DeepSeek、Grok）自寫 SSE 並送 `include_usage`。自訂連線、Ollama、LiteLLM 維持非串流；`complete_once` 照舊非串流、只送 1 次。下游 SSE 形狀不變。
@@ -139,7 +139,7 @@
   - AGENTS.md「直譯器主權」之後新增「Windows 本機跑後端測試的前置條件」：Node／npm 版本以兩個 `package.json` 為準（目前 24.21.0／11.19.1，只替這次指令切換）、先在 `ToukaIDE` 跑 `npm run install:controlled`（要跑 guard_all 時 `ToukaChat` 也跑一次，再跑 `npm run gen:artifact-runtime`）、9 個安裝腳本測試用 Git for Windows 的 bash；條件都對時已知只有 E1 的 6 個 failed 與 7 個環境跳過，比這多就查原因。`CONTRIBUTING.md` 的佈建對齊 CI（`ToukaChat`、`ToukaIDE` 都用 `install:controlled`；只跑 `npm ci` 時 braces 沒回補，`gen:artifact-runtime` 會失敗）。
   - `pytest.ini` 加 `addopts = -rfEs`：結尾列出失敗、錯誤與每個跳過的原因。安裝腳本測試從 PATH 上 `git` 的位置推算 bash，`mingw64` 位置多往上一層，從 Git Bash 跑也不再跳過。
   - 測試沙盒收尾：`tests/conftest.py` 的 `SANDBOX_RELEASE_STEPS` 依序等稽核寫入、關 Qdrant（只在向量模組已載入時）、關 SQLite、關 log handler，再由 `tests/sandbox_cleanup.py` 刪除；`mkdtemp` 後立刻登記 atexit，session fixture 與 `pytest_sessionfinish` 也呼叫同一個函式；刪不掉時結尾印「測試沙盒沒刪乾淨：<路徑>」。強制結束的 pytest 仍會留下沙盒。
-  - 根目錄 `rebuildable-outputs.txt` 宣告 7 種可以直接刪的建置產物（`ToukaChat` 的 `.next/`、`out/`、`next-env.d.ts`、`src/generated/`、兩個 `tsbuildinfo`，`ToukaIDE/dist/`），由 `test_rebuildable_outputs_declaration.py` 檢查格式與忽略狀態。**要等 dev 合進 main、主資料夾 `git fetch origin` 之後，開發流程的清理檢查才採用**；撤回只要刪檔並合進 main。
+  - 根目錄 `rebuildable-outputs.txt` 宣告 7 種可以直接刪的建置產物（`ToukaChat` 的 `.next/`、`out/`、`next-env.d.ts`、`src/generated/`、兩個 `tsbuildinfo`，`ToukaIDE/dist/`），由 `test_rebuildable_outputs_declaration.py` 檢查格式與忽略狀態。**要等 dev 合進 main、本機執行 `git fetch origin` 之後，清理工作資料夾前的檢查才採用**；撤回只要刪檔並合進 main。
   - 三把自動持久化金鑰（心跳、登入、派工）不再接受歷來公開過的 9 個值（`config.PUBLIC_SECRET_VALUES`，三個解析點與設定精靈共用）：`.env` 已存非公開值就沿用、不寫檔；否則產生新值寫回；寫不回時 fail-closed。讀真 `.env` 的測試已刪（跳過 8 → 7），範本檢查改成所有版控中的 `.env*.example`。SECURITY.md 三列。
   - **升級時要做的事**：更新後執行一次 `docker compose up -d`（只按重新啟動不夠；設定若剛好是公開值，在那之前心跳喚醒和排程管理頁會失敗）；登入金鑰若被換掉，所有人要重新登入一次。值本來就不是公開值時沒有副作用。
   - 已知限制見 ADR-0251，範圍外的事列在 §3 待排小項。
@@ -161,7 +161,7 @@
   - 演化從這批起真的會執行：以前 venv 的 Python 路徑錯，裝套件、跑代理人寫的程式、部署那幾步一律失敗，從沒真的跑過；H3 修好路徑後才第一次會真的跑。Manual／Auto 由缺口 1 擋住（先問你）；YOLO 照 YOLO 的定義，連沒人在場也會裝套件、跑代理人的程式。
   - 還原失敗時畫面會顯示錯誤、不再自動重整：新的 admin 唯讀端點 `GET /v1/system/restore/status`，前端重整前先查；還在跑就每 5 秒再查一次。
   - CI：`contracts` job 加鎖定版 ruff `--select F`（四個產品子專案），新增 `toukaide` job（install、test、typecheck、compile）；`CONTRIBUTING.md` 每項標「CI 會跑」或「只在本機」，完整 ruff 與 ESLint 照舊要求。ADR-0238 寫「CI 有跑 Ruff」其實沒有，已在 ADR-0254 更正。新 CI 步驟要等 PR 實跑才算確認。
-  - **升級時要做的事**：合併後到 MCP 設定頁看一次每個伺服器的連線狀態。某個 MCP 若靠 Touka 自己的環境變數（例如 `PYTHONPATH`、`HF_HOME`、`HTTP_PROXY`／`HTTPS_PROXY`、Windows 的 `HOME`、公司內部憑證變數 `SSL_CERT_FILE`／`REQUESTS_CA_BUNDLE`／`NODE_EXTRA_CA_CERTS`，或沒寫進它設定的廠商金鑰）會連不上，在那個伺服器的 `env` 補上需要的值即可；這項建議只適用於直接啟動。隔離啟動會移除保留名稱與命中子字串規則的名稱，上述 `PYTHONPATH`、`HF_HOME`、`HOME`、`NODE_EXTRA_CA_CERTS` 都不會傳給目標，詳見 README_QUICKSTART 的 MCP 隔離告知。團隊不讀你的 MCP 設定檔。
+  - **升級時要做的事**：合併後到 MCP 設定頁看一次每個伺服器的連線狀態。某個 MCP 若靠 Touka 自己的環境變數（例如 `PYTHONPATH`、`HF_HOME`、`HTTP_PROXY`／`HTTPS_PROXY`、Windows 的 `HOME`、公司內部憑證變數 `SSL_CERT_FILE`／`REQUESTS_CA_BUNDLE`／`NODE_EXTRA_CA_CERTS`，或沒寫進它設定的廠商金鑰）會連不上，在那個伺服器的 `env` 補上需要的值即可；這項建議只適用於直接啟動。隔離啟動會移除保留名稱與命中子字串規則的名稱，上述 `PYTHONPATH`、`HF_HOME`、`HOME`、`NODE_EXTRA_CA_CERTS` 都不會傳給目標，詳見 README_QUICKSTART 的 MCP 隔離告知。這次更新不讀使用者的 MCP 設定檔。
   - MCP 環境白名單只擋繼承；C2-3 已另加 stdio 檔案隔離。穩定不可用時的第三方與人同意的 direct 仍有 Touka 的檔案權限，原生 Windows 也在此列；完整限制見 SECURITY.md。ADR-0254 的其他限制列在 §3。
 - **記憶系統第一批：段 5 個人空間目錄（2026-10-15，ADR-0255）**：這一段讓系統替每個個人空間記住「檔案放在哪」。
   - 使用者看得到的變化：每個個人空間多一個隱藏的 `.touka` 資料夾，裡面的 `catalog.json` 是系統自動維護的檔案目錄（路徑、類型、大小、修改時間、小檔的 hash、Markdown 標題，沒有摘要）。靈魂在個人空間根目錄 `list` 時，結果最後多一行「目錄可用：N 個檔，read .touka/catalog.json」。
@@ -258,7 +258,7 @@
   - 審查員等待預設 20→60 秒，設定頁多一欄可看可改。逾時仍是轉人或拒絕、不是放行；但用 5.5 當審查員時，原本逾時轉給你的動作改由審查員判斷，自動放行會比現在多（回到原設計）；審查員卡住時約 65 秒才跳審批卡。
   - **你要做的一步**：設定頁「審查員等待秒數」若顯示 20，改成 60 存檔（已存的設定檔不會自動改）。
   - **會改變的行為**：用 OpenAI 格式送 Claude 的請求，停止字串開始生效（IDE 補全以 ``` 開頭時會變空）；原生 Claude 格式送來的思考強度開始照送、「關掉思考」依型號改寫或不送、5.x 的小輸出上限補到 8,192（ToukaChat／IDE 選 anthropic 協定的 4,096、評分頁 512／1,024）；摘要員用 Haiku／Sonnet 5.5 時寫超過預算會截斷、退回無損剪裁。
-  - 延遲實測工具 `tests/smoke/manual/thinking_latency_probe.py` 只寫、沒跑，要跑時另附命令與金額問你；記憶評估工具改過（最壞估價取貴檔），之後再跑要重新同意。openapi／`api.ts` 重產；沒有新錯誤碼；Guard #45 基準、NOQA、AGENTS.md、SECURITY.md 都不變。
+  - 延遲實測工具 `tests/smoke/manual/thinking_latency_probe.py` 只寫、沒跑，要跑時另附命令與金額問維護者；記憶評估工具改過（最壞估價取貴檔），之後再跑要重新同意。openapi／`api.ts` 重產；沒有新錯誤碼；Guard #45 基準、NOQA、AGENTS.md、SECURITY.md 都不變。
 - **隔離第二批（iso-c2）第一、二段：代理人指令的隔離與執行器容器（2026-10-16，ADR-0272）**：依核准的隔離設計（五項決定與細部設計第 2～8 項），10/16 決定把 C2-1＋C2-2 合成這一個 PR，**C2-3（MCP 伺服器的隔離）另開 PR、另一份 ADR、另審一輪**。
   - 代理人撰寫或指定的程式（終端、互審驗證指令、演化的建 venv、pip 與本機驗證）改在常駐容器 `touka-executor` 裡經 Landlock 啟動器執行：看不到金鑰、設定、原始碼與別的代理人資料，連不到也搶不到 Touka 內部埠、Docker 控制埠與從設定推得的本機上游埠。層級只由 `services/isolation` 判定；`none` 時 Auto／YOLO 只有人能核准、無人在場拒絕，審批卡照實標示「在執行器裡／隔離降級／未隔離」並綁定核准。YOLO 無人在場時 dangerous 的 MCP 工具只有人能核准（決定 4）。
   - **MCP 現況由 C2-3 接續**：自建依層級隔離啟動，第三方／scaffold 看本機 Landlock；創建卡依實際層級，部署能力禁止再演化。來源分檔、手動同意與不可用時的處理見本檔最前面的 C2-3 項目。
@@ -275,15 +275,15 @@
   - `memory_tools(action="conversations")`：依台北日期、關鍵字、`role`、`page_size`（1～20）、`offset` 查對話，包歷史資料界線；ADR-0277 已接上 ui，預設查兩庫，明示 legacy 保留單查舊對話。`access_legacy_vault` 改寫成 `search_conversations` 並接上。
   - `auth_policies.json.example` 與被追蹤的 `auth_policies.json` 各加 `"conversations": "read_only"` 一行；Guard #45 基準更新；openapi 不變。
   - 安全修補（加嚴）：無痕對話的檔案動詞不列 `scope=legacy`，硬叫在動詞入口與 `vault_tools` 橋（含舊 shim）回 `permission_denied`，讀寫都擋（SECURITY.md 一列）。
-- **執行中的產品版本**：最後一次部署紀錄是 `5c48a5bd51e61081bdeb58493fea1343bc4a10cd`（GHCR tag `modern-5c48a5bd51e6-q34854176569-a1`），本次未實際查驗。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
+- **產品版本**：開源後 GHCR 的 `0.1.0`、`latest` 由公開 main 的 `62197042` 建置（見 README_QUICKSTART）；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
 
 ## 2. 最近一次驗證
 
-每個 PR 的完整驗證結果寫在該 PR 的說明裡；這裡只留最近一次的摘要，下一個合併的 PR 用自己的結果取代這一段。開源（2026-10-22）之前的驗證紀錄留在私人歷史 repo。
+每個 PR 的完整驗證結果寫在該 PR 的說明裡；這裡只留最近一次合併進 `dev` 的摘要，由合併的人更新，並行的 PR 以後合的為準。開源（2026-10-22）之前的驗證紀錄留在私人歷史 repo。
 
-- **2026-10-22，授權聲明與映像發布（PR #4）**：本機 Windows、Python 3.12 venv、Node 24.21.0。
-  - 全量 pytest：14715 passed、8 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）；8 個跳過與 AGENTS.md 列的基準相同。
-  - guard_all：除 #22（certifi）、#23（ToukaIDE 的 markdown-it）外全部通過；這兩項是修正版還沒滿 7 天冷卻期，與改動無關。
+- **2026-10-22，授權聲明與映像發布（PR #4，合併後的 dev `15e91887`）**：本機 Windows、Python 3.12 venv、Node 24.21.0。
+  - 全量 pytest：14742 passed、8 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）；8 個跳過與 AGENTS.md 列的基準相同。
+  - guard_all：除 #22（certifi）、#23（ToukaIDE 的 markdown-it）外全部通過；兩項都在等修正版發布滿 7 天（Python 由工具強制，npm 依維護者慣例），與改動無關。
   - chat 映像以獨立的 compose 專案實際建置並檢查內容後刪除。
 
 ## 3. 尚未完成的產品工作
