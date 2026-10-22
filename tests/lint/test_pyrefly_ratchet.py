@@ -30,6 +30,7 @@ REVIEWED_CONFIG = {
     ],
     "search-path": ["ToukaProxy", "ToukaMemory/src"],
     "python-platform": "linux",
+    "use-ignore-files": False,
 }
 # 這個註解會壓掉整個檔案的錯誤（10/23 實測；`# type: ignore`、`# pyre-ignore-all-errors` 不會）。
 WHOLE_FILE_IGNORE = re.compile(r"pyrefly:\s*ignore-errors")
@@ -93,10 +94,21 @@ def test_collect_runs_pyrefly_with_this_interpreter_and_the_repo_config(
     payload = json.dumps({"errors": [{"name": name} for name in names]})
     calls = _fake_pyrefly(monkeypatch, returncode=1, stdout=payload, stderr=" INFO 3 errors")
     assert collect_pyrefly() == Counter({"bad-argument-type": 2, "missing-attribute": 1})
-    argv = calls[0]
-    assert argv[:4] == [sys.executable, "-m", "pyrefly", "check"]
-    assert argv[argv.index("--config") + 1] == "pyproject.toml"
-    assert argv[argv.index("--python-interpreter-path") + 1] == sys.executable
+    # 整組釘住：多一個 --ignore 或 --project-excludes 都會讓數字悄悄變好看。
+    assert calls == [
+        [
+            sys.executable,
+            "-m",
+            "pyrefly",
+            "check",
+            "--config",
+            "pyproject.toml",
+            "--python-interpreter-path",
+            sys.executable,
+            "--output-format",
+            "json",
+        ]
+    ]
 
 
 NO_ERRORS = json.dumps({"errors": []})

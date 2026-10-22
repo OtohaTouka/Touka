@@ -77,6 +77,9 @@ search-path = [
 ]
 python-platform = "linux"
 python-version = "3.12"
+# 不讀 .gitignore、.ignore、.git/info/exclude：寫一行就能讓範圍內的檔案悄悄不檢查，
+# 而且 .git/info/exclude 不進版控，本機和 CI 的範圍可能不同。
+use-ignore-files = false
 
 [tool.pyright]
 extraPaths = [

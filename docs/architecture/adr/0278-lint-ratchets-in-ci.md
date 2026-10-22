@@ -94,13 +94,14 @@
   - `python-platform = "linux"`、`python-version = "3.12"`，Windows 本機和 CI 才會算出同一組錯誤。10/23 實測同一範圍用 win32 平台是 65 個，用 linux 是 34 個。
   - 不在設定裡寫直譯器路徑。收集指令用 `--python-interpreter-path` 傳入目前的直譯器（`sys.executable`）。
   - `search-path` 是 `ToukaProxy` 與 `ToukaMemory/src`。原本的 `./ToukaMemory` 對不到 `memory_server`，還可能和 ToukaProxy 的 `src` 撞名；目前範圍內兩種寫法算出的錯誤相同，沒有匯入錯誤。
+  - `use-ignore-files = false`：pyrefly 預設會跳過 `.gitignore`、`.ignore`、`.git/info/exclude` 列的檔案，寫一行就能讓範圍內的檔案不被檢查，而且 `.git/info/exclude` 不進版控，本機和 CI 可能不同。
 - **收集**：`scripts/lint_ratchet.py pyrefly` 跑 `python -m pyrefly check --config pyproject.toml --output-format json`，依錯誤種類（例如 `bad-argument-type`）計數。ruff 與 pyrefly 共用同一個子程序入口與比對、重拍函式。
 - **跑完的判定**：pyrefly 有型別錯誤和設定壞掉時，結束碼都是 1。所以只有結束碼是 0 或 1、輸出是完整的 JSON、而且錯誤輸出每一行都是 INFO 時才算跑完，其他一律當失敗，不當成 0 個錯誤。設定欄位打錯、`search-path` 不存在時，pyrefly 都只印 WARN 就照跑，範圍會悄悄改變。用「只准 INFO」而不是「擋 WARN」，升級後日誌格式變了也會失敗。
   - 本機設了 `PYTHONPATH`（即使是空值）時 pyrefly 會印 WARN，收集一定失敗；跑之前先取消 `PYTHONPATH`。CI 沒有設。
 - **基準**：`tests/lint/pyrefly_baseline.json`，10/23 是 34 個：`bad-argument-type` 19、`missing-attribute` 14、`bad-assignment` 1。規則同 §1，完全相等，變少要在同一個 PR 重拍。
 - **升級**：升級 pyrefly，或升級會影響型別推論的第三方套件時，數字可能跟著變。在同一個 PR 重拍基準，並在 PR 說明變化。
 - `tests/lint/test_pyrefly_ratchet.py` 另外釘住：
-  - **整份設定**：範圍、`search-path`、平台、版本（和 `.python-version` 一致）逐項相等，不准多出排除、錯誤開關或直譯器路徑。縮小範圍、排除檔案、關掉錯誤種類都會讓數字悄悄變好看，pyrefly 本身不會警告，所以要調整就得改測試，改動會出現在審查的差異裡。
+  - **整份設定**：範圍、`search-path`、平台、版本（和 `.python-version` 一致）、不讀 ignore 檔逐項相等，不准多出排除、錯誤開關或直譯器路徑；收集指令的參數也整組釘住，不准多加 `--ignore` 之類的參數。縮小範圍、排除檔案、關掉錯誤種類都會讓數字悄悄變好看，pyrefly 本身不會警告，所以要調整就得改測試，改動會出現在審查的差異裡。
   - `project-includes` 的每個樣式都還對得到檔案；範圍內的檔案不准用 `# pyrefly: ignore-errors` 整檔壓制。
   - 用真的 pyrefly 檢查暫存資料夾裡的小專案，核對輸出格式，並確認欄位打錯、`search-path` 不存在、設定讀不懂都會讓收集失敗。升級 pyrefly 後格式變了，這裡會先失敗。
 
