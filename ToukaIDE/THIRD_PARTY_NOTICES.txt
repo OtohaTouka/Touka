@@ -1,9 +1,13 @@
 ToukaIDE third-party notices
 
 dist/extension.js bundles the npm packages listed below. The list comes from
-the esbuild metafile of `npm run package`; regenerate it when the bundled
-dependencies change. Each entry gives the package name, version, declared
-license and the license or notice files shipped with that package.
+the esbuild metafile of `npm run package` (add `--metafile=<file>` to that
+esbuild command and take every node_modules package in its inputs); update it
+when the bundled dependencies change. tests/lint/test_release_licensing.py
+fails when a runtime package in package-lock.json is missing here or an entry
+names a version the lock no longer has. Each entry gives the package name,
+version, declared license and the license or notice files shipped with that
+package.
 
 ========================================================================
 @hono/node-server 1.19.17

@@ -53,4 +53,4 @@ ADR-0268 起輸出上限改成比對 Touka 實際要送的值（Anthropic 照規
 | P1 基線對照 | 同一天各跑一次 `cc68e3a9` 與整合分支的 Claude、Gemini 帶工具迴圈（ADR-0242 決策 2 改成新舊版本同日對照） | 揭露欄位同上；兩個版本各算一批 |
 | P2 健康檢查 | KF-6 修正後三家健康檢查各一次 | 每家 1 請求 |
 | P3 結構化輸出 | `complete_once` 與 Auto 審查員候選模型的結構化輸出 | 單次、不帶工具，`complete_once` 本身不重試 |
-| P4 Docker | 三個映像完整 `docker build`（含 openai 依賴與 uv 0.12.1 的 `uv sync --locked`） | 不打模型 API，但會連 registry 與套件來源 |
+| P4 Docker | 三個映像完整 `docker build`（含 openai 依賴與 uv 0.12.1 的 `uv sync --locked`；chat 要加 `--build-context touka-root=.`，或用根目錄 compose 建置） | 不打模型 API，但會連 registry 與套件來源 |
