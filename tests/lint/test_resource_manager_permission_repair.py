@@ -12,9 +12,9 @@
    ``PermissionError(...)`` 恰好一個位置參數；``OSError``／``IOError``／``EnvironmentError`` 不得帶
    2 個以上參數（帶 errno 的會建出 PermissionError，保護拒絕的 errno 就不再是 None）。
 
-記憶系統第 7 段（ADR-0270）的 6 個新方法（``rewrite_archive``、``copy_file_metadata``、
-``fsync_file``、``fsync_dir``、``read_file_prefix``、``make_writable``）由後合併的隔離工作
-（ADR-0272）在 merge dev 時加上 ``swap_semantics`` 並列進 ``EXPECTED_EXEMPT``；
+記憶系統第 7 段（ADR-0270）的 6 個方法（``rewrite_archive``、``copy_file_metadata``、
+``fsync_file``、``fsync_dir``、``read_file_prefix``、``make_writable``）歸為
+``swap_semantics``，列在 ``EXPECTED_EXEMPT``；
 之後新增會碰檔案的方法，漏歸類這裡會紅。
 """
 

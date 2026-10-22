@@ -64,7 +64,7 @@ class AutoReviewConfig(BaseModel):
         return value.strip()
 
 class ReviewerModelOption(BaseModel):
-    """審查員選單的一個選項（ADR-0246 決定 5）。"""
+    """審查員選單的一個選項（ADR-0246）。"""
     id: str
     name: str
     provider: str

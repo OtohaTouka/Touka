@@ -444,7 +444,7 @@ async def test_incognito_intent_is_sent_but_never_written(audits, monkeypatch, c
     reviewer = _reviewer(completer)
     with caplog.at_level("DEBUG"):
         await _review(reviewer, _request(intent=intent))
-    assert private_text in completer.calls[0]["user"]  # ④甲：無痕也送審
+    assert private_text in completer.calls[0]["user"]  # ADR-0246 ④：無痕也送審
     assert all(private_text not in r.getMessage() for r in caplog.records)
     assert all(private_text not in repr(c) + repr(d) for c, d in audits)
     assert private_text not in repr(reviewer.breaker._counts)

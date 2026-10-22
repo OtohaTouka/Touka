@@ -77,7 +77,7 @@ _PAIRS = (
     ("FullYOLO", "YOLO"),
 )
 
-# ReadOnly→Manual：核准後可寫（ADR-0246 決定 3）。(舊等級, 新模式, 動作, 有人在場)
+# ReadOnly→Manual：核准後可寫（ADR-0246 ③）。(舊等級, 新模式, 動作, 有人在場)
 _APPROVED_WIDENING = frozenset(
     {("ReadOnly", "Manual", name, True) for name in (
         "write", "delete", "mcp", "skill_install", "send_message", "memory_save",

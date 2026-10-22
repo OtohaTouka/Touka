@@ -2,7 +2,7 @@
 """一次性運維腳本：把 owner_user_id 為 NULL 的 user_sessions 歸屬給指定使用者。
 
 Session owner attribution（計畫 docs/architecture/proposals/session-owner-attribution-plan.md
-Phase 5、擁有者 Q2 裁決＝手動 backfill 而非 runtime 自動認領）：owner_user_id 僅在
+Phase 5：手動 backfill 而非 runtime 自動認領）：owner_user_id 僅在
 session 建立（INSERT）時記錄，既有 legacy rows 為 NULL——單人部署可用本腳本把全部
 NULL rows 一次性歸屬給主帳號，使 normal 角色也能看見/管理歷史對話。
 

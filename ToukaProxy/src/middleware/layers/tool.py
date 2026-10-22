@@ -95,7 +95,7 @@ class ToolLayer(ProxyLayer):
             # 心跳保留設定時決定的模式（ADR-0246 心跳）：家對話共用人類的 session，人類選的
             # 模式不套到無人的排程 run；看不懂一律 Manual。
             auth_level = normalize_auth_mode(ctx.get("auth_level"))
-        # 無痕對話一律 Manual（人類 10/12）：蓋過上面任何來源（存檔、心跳、子代理繼承）
+        # 無痕對話一律 Manual（ADR-0246）：蓋過上面任何來源（存檔、心跳、子代理繼承）
         incognito = bool(ctx.get("incognito")) or request_is_incognito(request)
         auth_level = enforce_incognito_manual(auth_level, incognito=incognito)
 

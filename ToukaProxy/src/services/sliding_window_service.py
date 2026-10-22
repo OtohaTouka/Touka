@@ -351,7 +351,7 @@ class SlidingWindowService:
         model = self._resolve_model(linear)
         window = get_context_window(model)
 
-        # 換模型冷卻：剛換模型本輪不剪，下輪 model 相符才剪（使用者拍板）。
+        # 換模型冷卻：剛換模型本輪不剪，下輪 model 相符才剪。
         if self._check_model_cooldown(session_id, model):
             logger.info(
                 "SlidingWindow: model switched to '%s' for session %s; cooldown this round.",

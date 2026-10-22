@@ -12,7 +12,7 @@ const isOption = (value: unknown): value is ReviewerModelOption => {
 };
 
 /**
- * Auto 審查員（ADR-0246 決定 5）：選項只來自後端「已設定金鑰的模型」清單；選到的模型寫進
+ * Auto 審查員（ADR-0246）：選項只來自後端「已設定金鑰的模型」清單；選到的模型寫進
  * 安全設定頁共用的 autonomy 設定，經 /v1/autonomy 一起儲存。不自動帶建議值。
  */
 export function useAutoReviewSettings(

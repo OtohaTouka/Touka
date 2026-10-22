@@ -66,7 +66,7 @@ def _reviewer_options() -> list[ReviewerModelOption]:
 async def list_reviewer_models(
     _identity: AgentIdentity = Depends(_require_autonomy_role),  # noqa: B008
 ) -> ReviewerModelsResponse:
-    """Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246 決定 5）。"""
+    """Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246）。"""
     return ReviewerModelsResponse(models=_reviewer_options())
 
 

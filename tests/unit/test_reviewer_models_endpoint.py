@@ -1,4 +1,4 @@
-"""GET /v1/autonomy/reviewer-models（ADR-0246 U2c-6、決定 5）。
+"""GET /v1/autonomy/reviewer-models（ADR-0246 U2c-6）。
 
 審查員選單只能列「供應商金鑰已設定」的一般模型：沒金鑰的供應商、靈魂、自訂模型、
 不用金鑰的端點型供應商、停用的模型都不列。金鑰只用假值，不連任何供應商。

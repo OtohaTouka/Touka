@@ -419,7 +419,10 @@ def test_whitelisted_targets_walk_from_the_topmost_whitelisted_root(
     ],
 )
 def test_paths_outside_the_whitelist_are_refused_without_touching_the_kernel(tmp_path, relative):
-    """Touka 自己的狀態、記憶系統的快照與升級備份、工作區與專案：一律 refused_outside。"""
+    """Touka 自己的狀態、系統快照與記憶庫升級備份（ADR-0270）、工作區與專案.
+
+    一律 refused_outside。
+    """
     kernel = FakeKernel()
     service, _ = _service(tmp_path, kernel=kernel)
     assert _repair(service, tmp_path.resolve() / relative) is False
@@ -730,10 +733,10 @@ def test_exempt_resource_manager_methods_never_reach_the_hook(
     assert caught.value is error and hook.calls == []
 
 
-# --- 20（附錄）：記憶系統的路徑在白名單外 → 同一個例外物件、只執行一次 ---
+# --- 20（附錄）：系統快照與記憶庫升級備份的路徑在白名單外 → 同一個例外物件、只執行一次 ---
 
 
-def test_refused_a_line_paths_raise_the_same_object_and_run_once(tmp_path, monkeypatch, on_linux):
+def test_refused_backup_paths_raise_the_same_object_and_run_once(tmp_path, monkeypatch, on_linux):
     service, layout = _service(tmp_path)
     set_permission_repair(service)
     snapshot_zip = layout.env_file.parent / "backups" / "x.zip"

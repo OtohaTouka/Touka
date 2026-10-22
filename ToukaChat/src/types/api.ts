@@ -3796,7 +3796,7 @@ export interface paths {
         };
         /**
          * List Reviewer Models
-         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246 決定 5）。
+         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246）。
          */
         get: operations["list_reviewer_models_v1_autonomy_reviewer_models_get"];
         put?: never;
@@ -3852,7 +3852,7 @@ export interface paths {
         };
         /**
          * List Reviewer Models
-         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246 決定 5）。
+         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246）。
          */
         get: operations["list_reviewer_models_autonomy_reviewer_models_get"];
         put?: never;
@@ -9489,7 +9489,7 @@ export interface components {
         };
         /**
          * ReviewerModelOption
-         * @description 審查員選單的一個選項（ADR-0246 決定 5）。
+         * @description 審查員選單的一個選項（ADR-0246）。
          */
         ReviewerModelOption: {
             /** Id */

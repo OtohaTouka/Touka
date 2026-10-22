@@ -56,7 +56,7 @@ def _effect(
         ("Auto", "Auto"),
         ("YOLO", "YOLO"),
         ("ReadOnly", "Manual"),
-        ("SafeAuto", "Manual"),  # 不會悄悄開始送審、也不自己多做事（ADR-0246 決定 3）
+        ("SafeAuto", "Manual"),  # 不會悄悄開始送審、也不自己多做事（ADR-0246 ③）
         ("FullYOLO", "YOLO"),
         ("", "Manual"),
         ("yolo", "Manual"),
