@@ -2106,7 +2106,7 @@ dev = [
     { name = "pytest", specifier = "~=9.1.1" },
     { name = "pytest-asyncio", specifier = "~=1.4.0" },
     { name = "pytest-randomly", specifier = "~=4.1.0" },
-    { name = "ruff", specifier = "~=0.15.20" },
+    { name = "ruff", specifier = "==0.15.20" },
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ select = [
     "TRY",  # tryceratops
     "FA",   # flake8-future-annotations
     "TCH",  # flake8-type-checking
+    "ERA",  # 被註解掉的程式（ADR-0278，產品程式先凍結在基準）
 ]
 
 ignore = [
