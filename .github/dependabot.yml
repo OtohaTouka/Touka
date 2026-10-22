@@ -1,0 +1,14 @@
+# Dependabot：只管 GitHub Actions 的版本。
+# Python（uv.lock）與 npm 的依賴照專案的冷卻期政策手動升級，這裡不開。
+# 釘 commit SHA 的 action 也會收到更新 PR，SHA 與版號註解一起改。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # 新版發布滿 7 天才開 PR，和依賴的冷卻期政策一致（只影響版本更新，不影響安全更新）。
+    cooldown:
+      default-days: 7
+    # PR 開到 dev，和一般貢獻流程一樣；main 只由維護者從 dev 合入。
+    target-branch: "dev"

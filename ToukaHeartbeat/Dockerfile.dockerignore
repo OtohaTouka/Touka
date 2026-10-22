@@ -8,6 +8,9 @@
 !ToukaMemory/pyproject.toml
 !ToukaDispatch/pyproject.toml
 !ToukaHeartbeat/
+# 授權檔隨映像散布（MIT 要求附上版權與授權聲明）
+!LICENSE
+!NOTICE
 # 目錄內再排除（沿用原 ToukaHeartbeat/.dockerignore 黑名單＋打包工件＋密鑰防禦）
 ToukaHeartbeat/__pycache__
 ToukaHeartbeat/*.log

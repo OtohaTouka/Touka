@@ -46,6 +46,7 @@ PACKAGE_FILES = (
     "dist/webview/style.css",
     "README.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.txt",
 )
 EXPECTED_MEMBERS = (
     "[Content_Types].xml",
@@ -53,6 +54,7 @@ EXPECTED_MEMBERS = (
     "extension/package.json",
     "extension/readme.md",
     EXPECTED_LICENSE_MEMBER,
+    "extension/THIRD_PARTY_NOTICES.txt",
     "extension/dist/extension.js",
     "extension/dist/webview/index.html",
     "extension/dist/webview/main.js",

@@ -160,6 +160,8 @@ services:
     build:
       context: ./ToukaChat
       dockerfile: Dockerfile.prod   # 生產多階段建置（npm run build + serve）
+      additional_contexts:
+        touka-root: .               # 只取 repo 根的 LICENSE／NOTICE 放進映像
       args:
         # 靜態匯出：NEXT_PUBLIC_* 必須於 build 時內嵌（runtime environment 無效）
         - NEXT_PUBLIC_PROXY_URL=${NEXT_PUBLIC_PROXY_URL:-http://localhost:8000}
