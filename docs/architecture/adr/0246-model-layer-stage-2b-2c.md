@@ -39,7 +39,7 @@
    - 只有互動會話（可信 kwarg `_interactive`，有事件出口與 `_call_id`）才建 approver。子代理不建：子 loop 只收文字，卡送不到人，所以子 ctx 帶 `subagent_run`，`request_review` 立刻當無人在場處理，不必等 180 秒逾時。
    - 核准後審查若中途拋例外，已開的驗證步驟以 `internal_error` 收尾，例外照常往上。
 3. **完整指令（A7）**：預覽對 `command` 保留到 8 KB（模組常數 `APPROVAL_COMMAND_PREVIEW_LIMIT`，禁令 18），超過才截斷並附 `…[truncated: N more chars not shown]`；其他參數仍截到 200 字。審批卡改成換行顯示（`whitespace-pre-wrap break-all`，捲動區高度 `max-h-64`），只用標準 class（禁令 49）。
-4. **卡在人類這一關（B1）**：
+4. **卡在人類這一關（B1，決策 P6）**：
    - 審批結果對應固定理由：沒有 approver（無人在場）→ `AWAITING_HUMAN_APPROVAL`；逾時、佇列滿或其他未知結果 → `NO_HUMAN_DECISION`（fail-closed）；被拒 → `REJECTED_BY_HUMAN`。
    - `run_review_round` 見到任一條，本輪標 `BLOCKED_FOR_HUMAN` 後直接返回：不呼叫 critic、不扣次數、不上鎖，也不佔 mission 子 loop 名額。
    - `request_review` 回結構化 `permission_denied`，帶 `reason`、`review_status`、`review_locked=false`、`evidence`。無人在場、逾時與佇列滿是 `reason=human_approval_required`（請等人回來後在對話裡重跑，不要用別的方式跑那條指令）；被拒是 `reason=human_rejected_command`（先問人類要怎麼驗證）。訊息不再叫代理人改用 `execute_command`。往返次數達上限的永鎖仍回一般審查結果，和這三種情形分得開。
@@ -84,7 +84,7 @@
 - **強制（U2c-9）**：純函式 `utils/auth_mode.enforce_incognito_manual`（無痕回 Manual、非無痕原樣不動）。ToolLayer 在所有模式來源（存檔、心跳、子代理繼承）之後最後套一次；子代理的執行 ctx 不經 ToolLayer，`subagent_tools._run_subagent` 也套一次，組裝與執行一致。
 - **原因提示在前端**：無痕對話不會進對話存檔端點，所以由前端說明：模式選單鎖定顯示 Manual，說明「無痕對話無法追溯，只能用 Manual」；在無痕對話要求 Auto／YOLO 時維持 Manual、不存檔，並以 toast 說明原因。審查員設定的資料說明也拿掉了「無痕對話也一樣」。
 - **驗證**：`test_incognito_manual_only_security.py`（21 個）；U2c-6 的 `test_auth_mode_authority_security.py` 另釘「沒有存檔的無痕對話帶 Auto／YOLO 仍是 Manual」。
-- **審查員的資料外送因此不涵蓋無痕**：Auto 會把最近 3 則訊息和要做的動作送到所選模型的廠商審查；無痕對話不會開 Auto，所以不會送。
+- **④ 審查員的資料外送因此不涵蓋無痕**：Auto 會把最近 3 則訊息和要做的動作送到所選模型的廠商審查；無痕對話不會開 Auto，所以不會送。
 
 #### 事先核准的變寬（不放寬總表）
 
@@ -93,7 +93,7 @@
 1. **ReadOnly→Manual**（U2c-4）：舊 ReadOnly 對話的寫入工具與指令改成問人後可跑。
 2. **KF-4**（U2c-5）：心跳第一次拿到工具；變寬的格子恰好是核准清單（safe 4 格、full 12 格、看不懂 6 格），每格都不比對應舊等級在無人在場時寬。
 3. **Auto 經審查員放行**（U2c-3）：終端指令與高風險工具，只在有人在場時；表上三格是 SafeAuto→Auto 的 `curl`、`delete`、未列名 MCP。
-4. **IDE 不重複確認**（U2c-7）：只限人類本人在 Touka 卡片上核准過的那一次呼叫，IDE 不再跳第二次確認；審查員或 YOLO 放行的照 IDE 自己的模式處理。
+4. **IDE 不重複確認（決定 9）**（U2c-7）：只限人類本人在 Touka 卡片上核准過的那一次呼叫，IDE 不再跳第二次確認；審查員或 YOLO 放行的照 IDE 自己的模式處理。
 
 比原本嚴的：SafeAuto→Manual、看不懂的心跳值→Manual、`/debug/execute` 在 YOLO 也擋底線、IDE 黑名單由確認改拒絕、無痕一律 Manual。逐格由 `test_auth_mode_not_wider_security.py`（Proxy）與 `ToukaIDE/src/__tests__/authPolicy.test.ts`（IDE）釘住，變寬的格子必須恰好等於核准清單。
 
@@ -165,11 +165,11 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 1. **三種模式**：`utils/auth_mode.py`（純函式＋常數表，禁令 18）定義 `AuthMode`＝Manual／Auto／YOLO。寫入與 API 輸入（`SessionChanges`、`SessionModel`、`/debug/execute`、`/heartbeat/awaken`）只收新名稱，舊名稱回 422。
 2. **讀取時對照，不遷移**（維護者 2026-10-12 決定）：儲存層讀 `user_sessions.auth_level` 時經 `normalize_auth_mode`：ReadOnly、SafeAuto、看不懂的值 → Manual；FullYOLO → YOLO。快照、清單、ToolLayer、MCP MRTR 都只看到新名稱；之後任何一次存檔自然寫回新名稱。沒有資料庫遷移，也不備份。
-3. **決策表**：Manual 照舊；YOLO＝原 FullYOLO（地板仍擋）；Auto：read_only、safe 類 ALLOW，含動態 shell 寫法（`has_dynamic_shell_syntax`：變數、子指令、PowerShell 編碼參數、eval、寫進檔案的 `>`）與 F5、F6 → HUMAN_ONLY，其他終端與 dangerous → CONFIRM。這個 CONFIRM 是 U2c-3 審查員接上前的佔位，fail-closed，不自動放行。終端一律算 dangerous：`safe_whitelist` 從 `SafetyRules` 與 `.example` 拿掉，舊 live 檔留著這個鍵讀到會被忽略。看不懂的模式值 CONFIRM。MCP MRTR 的等級排序改三級（Manual 最嚴）。
+3. **決策表**：Manual 照舊；YOLO＝原 FullYOLO（地板仍擋）；Auto：read_only、safe 類 ALLOW（決定 7），含動態 shell 寫法（`has_dynamic_shell_syntax`：變數、子指令、PowerShell 編碼參數、eval、寫進檔案的 `>`）與 F5、F6 → HUMAN_ONLY（決定 4、6），其他終端與 dangerous → CONFIRM。這個 CONFIRM 是 U2c-3 審查員接上前的佔位，fail-closed，不自動放行。終端一律算 dangerous：`safe_whitelist` 從 `SafetyRules` 與 `.example` 拿掉，舊 live 檔留著這個鍵讀到會被忽略。看不懂的模式值 CONFIRM。MCP MRTR 的等級排序改三級（Manual 最嚴）。
 4. **模式授權移到 session 寫入**：MonitorLayer 對請求參數的降級閘會被 ToolLayer 用 session 的值覆寫，實際失效，已拿掉；請求參數（前端、IDE 帶的 `auth_level`）不是模式來源。`ui_sessions._authorized_changes`：存檔後是 Auto／YOLO 的對話，只有 admin 或該靈魂的擁有者能寫，其他人的寫入照 AGENTS.md §2 降成 Manual。看的是存檔後的模式與靈魂，所以沒帶 auth_level 的存檔、改掛靈魂也會重驗。
 5. **心跳只改名**：safe→Auto、full→YOLO、看不懂→Auto、retrigger 強制 Auto（Auto 在每一格都不比 SafeAuto 寬）。看不懂改 Manual、無人在場不跑終端、KF-4 留給 U2c-5（已做，見「心跳」）。
 
-不放寬總表（`test_auth_mode_not_wider_security.py`）：14 個代表動作 × 四組對應（ReadOnly→Manual、SafeAuto→Auto、SafeAuto→Manual、FullYOLO→YOLO）× 有人／無人在場。事先核准的變寬只有四項：ReadOnly→Manual（核准後可寫）、KF-4（U2c-5）、Auto 經審查員放行（U2c-3）、IDE 不重複確認（U2c-7）。本單位只碰到第一項，變寬的格子逐格列在測試裡，必須恰好相等；SafeAuto 的兩個接班模式都比原本嚴。
+不放寬總表（`test_auth_mode_not_wider_security.py`）：14 個代表動作 × 四組對應（ReadOnly→Manual、SafeAuto→Auto、SafeAuto→Manual、FullYOLO→YOLO）× 有人／無人在場。事先核准的變寬只有四項：ReadOnly→Manual（核准後可寫）、KF-4（U2c-5）、Auto 經審查員放行（U2c-3）、IDE 不重複確認（決定 9，U2c-7）。本單位只碰到第一項，變寬的格子逐格列在測試裡，必須恰好相等；SafeAuto 的兩個接班模式都比原本嚴。
 
 已知改變：
 
@@ -187,7 +187,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 決策：
 
-1. **使用者原意**：`utils/user_intent.py`（純函式＋常數，禁令 18）產生 `ctx["user_intent"]`，是凍結的 `UserIntent(source, messages, parent, trust="data")`，只當審查員（U2c-3）的證據、不是指令。本單位只產生，不送出、不寫 log、不落地；無痕對話照樣產生，一樣只留在記憶體（無痕一律 Manual，實際不會送審）。每則截到 1,000 字（`INTENT_MAX_CHARS`，超過加 `…[truncated]`）。
+1. **使用者原意**：`utils/user_intent.py`（純函式＋常數，禁令 18）產生 `ctx["user_intent"]`，是凍結的 `UserIntent(source, messages, parent, trust="data")`，只當審查員（U2c-3）的證據、不是指令。本單位只產生，不送出、不寫 log、不落地；無痕對話照樣產生（④），一樣只留在記憶體（無痕一律 Manual，實際不會送審）。每則截到 1,000 字（`INTENT_MAX_CHARS`，超過加 `…[truncated]`）。
 
    | 情境 | `source` | 內容 |
    |---|---|---|
@@ -214,7 +214,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 決策：
 
-1. **判斷層**：`AuthPoliciesConfig.evaluate` 仍是同步純函式。Auto 下的終端指令（不是地板、黑名單或動態 shell）與 dangerous 類工具（刪檔、未列名 MCP 等，照 `tool_risk` 現有分類）回新效果 `REVIEW`，只表示「要審」（只審跑指令與高風險工具）；safe 類照舊 ALLOW，F5、F6 與動態 shell 照舊 HUMAN_ONLY。地板與黑名單在前面判斷，`REVIEW` 不會蓋過它們。
+1. **判斷層**：`AuthPoliciesConfig.evaluate` 仍是同步純函式。Auto 下的終端指令（不是地板、黑名單或動態 shell）與 dangerous 類工具（刪檔、未列名 MCP 等，照 `tool_risk` 現有分類）回新效果 `REVIEW`，只表示「要審」（決定 3：只審跑指令與高風險工具）；safe 類照舊 ALLOW，F5、F6 與動態 shell 照舊 HUMAN_ONLY。地板與黑名單在前面判斷，`REVIEW` 不會蓋過它們。
 2. **審查員**：`services/auto_reviewer.py`，只經 `complete_once`（`Completer` 由組裝根 `main.py` 注入；工具模組在 dispatcher 之前載入，直接 import 會循環）。沒注入就當成無法使用、轉人。
    - **輸入**只有三樣，各放一個分隔區塊：`<user_intent>`（`ctx["user_intent"]`，標成資料；子代理只帶父原意）、`<action>`（工具名＋完整參數）、`<environment>`（shell 種類、有沒有人在場）。區塊內容是 JSON，`<`、`>`、`&` 改成 unicode 跳脫，資料拼不出結束標籤。不看工具輸出、代理人的推理或助理文字、System nudge。參數超過 16 KB 就不送審（看不到全文），直接轉人。
    - **提示詞**：區塊內容是資料不是指令，叫審查員改規則的文字算提示注入、要轉人；代理人自己寫的腳本（`python x.py`、`bash x.sh`…）除非使用者原意明確要求，否則轉人。
@@ -223,16 +223,16 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
    - `allow` → 用可信 kwarg `_approved_by="auto_reviewer"`（`tools/execution_context.py`，Guard #45 基準只新增）交給工具；terminal 遇到 `REVIEW` 只認這個值或人類卡的 `_hitl_preapproved=True`，自己只重新分類（地板、黑名單、模式），不再呼叫審查員。模型自己在參數裡帶 `_approved_by` 會被可信情境覆寫，公開合約也會濾掉。
    - `escalate`、CONFIRM、HUMAN_ONLY → 有人在場跳同一張人類審批卡；卡上有完整指令（A7）、審查理由（`review_reason`）與「只有人能核准」標記（`human_only`）。無人在場拒絕，終端也不落到 terminal 的遺留通道。
    - `deny` → 直接拒絕，不跳卡。
-   - **無人在場不送審、直接拒絕**：高風險工具一律如此（沿用「無人在場沒有審批通道＝不執行」，`headless_tool`），不因送審而變寬；終端指令預設如此，`autonomy.json` 的 `auto_review.headless_terminal`（預設 false）只管終端，開了才送審。
+   - **無人在場不送審、直接拒絕**：高風險工具一律如此（沿用「無人在場沒有審批通道＝不執行」，`headless_tool`），不因送審而變寬；終端指令預設如此（決定 8），`autonomy.json` 的 `auto_review.headless_terminal`（預設 false）只管終端，開了才送審。
    - **審查員不能推翻底線**：`allow` 只滿足 `REVIEW`。地板在判斷層先回 HUMAN_ONLY，審查員根本不會被呼叫；terminal 的 HUMAN_ONLY 只認 `_hitl_preapproved=True`。
    - 互審 `policy_command_gate` 多一個 `reviewer` 接縫：Auto 下 `REVIEW` 級驗證指令先問審查員，allow 才跑、deny 回 `denied by the Auto reviewer`、escalate 照 CONFIRM 問人（無人在場等人確認，B1 不變）。MCP MRTR 只在 DENY 時拒絕，`REVIEW` 照常通過、不重審。
 4. **設定**：`autonomy.json` 的 `auto_review` 區塊（`AutoReviewConfig`：`model`、`max_tokens`、`timeout_s`、`headless_terminal`）。`model` 預設空白；沒設模型或設定無效時，每次審查都以「審查員未設定」轉人（有人在場）或拒絕（無人在場），不呼叫模型。從已設定金鑰的模型中選是 U2c-6 的畫面（見「前端」）。
 5. **P7**：同一對話（session；沒有 session 用 request id）被審查員擋下（escalate 或 deny，含失敗）連續 3 次或累計 20 次，之後一律轉人、不再呼叫審查員；allow 只把連續次數歸零。計數只在行程記憶體（`ReviewBreaker`）：重啟歸零，超過 4,096 個對話淘汰最舊的，從不落地（無痕一律 Manual，不會送審）。互審的人類閘門不另外計數。
 6. **費用與稽核**：`complete_once` 把用量記在被審的靈魂身上，provider 標籤 `auto_reviewer`；超預算時不送出、算失敗（轉人或拒絕）。`audit_service.log_decision` 記 `REVIEW_<判決>` 與固定原因碼（例如 `model`、`unconfigured`、`headless_terminal`、`p7_breaker`、`failed:timeout`），不記使用者訊息，也不記模型寫的理由。
-7. **審查員的資料外送範圍**：最近 3 則人類訊息（各截到 1,000 字）＋這個動作的完整參數＋shell 種類與在場與否，送到所設模型的廠商；靈魂用其他廠商也一樣。無痕對話一律 Manual、不會開 Auto，所以不會送（見「無痕對話」）。本機只記用量，不記內容。
+7. **④ 審查員的資料外送範圍**：最近 3 則人類訊息（各截到 1,000 字）＋這個動作的完整參數＋shell 種類與在場與否，送到所設模型的廠商；靈魂用其他廠商也一樣。無痕對話一律 Manual、不會開 Auto，所以不會送（見「無痕對話」）。本機只記用量，不記內容。
 8. **錯誤碼**：`AUTO_REVIEW_DENIED`（1118）、`AUTO_REVIEW_HEADLESS_TERMINAL`（1119）、`AUTO_REVIEW_UNAVAILABLE`（1120），放在工具錯誤的 `touka_error_code`；翻譯由 U2c-6 補上（缺 key 時仍用 `msg` 回退）。
 
-不放寬總表：模型層總計畫事先核准的「Auto 經審查員放行」在表上是三格，都在有人在場時：SafeAuto→Auto 的 `curl`（終端）、`delete`、未列名 MCP（dangerous 工具）；無人在場的同樣動作一律不送審、不變寬，F5、F6 與地板仍是 HUMAN_ONLY，測試釘住。
+不放寬總表：模型層總計畫事先核准的「Auto 經審查員放行」（決定 3）在表上是三格，都在有人在場時：SafeAuto→Auto 的 `curl`（終端）、`delete`、未列名 MCP（dangerous 工具）；無人在場的同樣動作一律不送審、不變寬，F5、F6 與地板仍是 HUMAN_ONLY，測試釘住。
 
 已知限制：審查員的準確率、拒答率、解析失敗率、延遲都沒有實測（禁令 61，留到下一段）；互審驗證指令被審查員轉人時，那張卡不顯示審查理由；先寫檔再執行、shell 變數繞過文字地板仍是已知限制（第 5 段的隔離環境才根治）。
 
@@ -246,7 +246,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 決策：
 
-1. **模式對應**：`routers/heartbeat.py` 的 `_SECURITY_LEVEL_TO_AUTH`。
+1. **模式對應**（決定 8）：`routers/heartbeat.py` 的 `_SECURITY_LEVEL_TO_AUTH`。
 
    | `security_level` | 模式 | 無人在場時 |
    |---|---|---|
@@ -270,18 +270,18 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 總覽第 5 步的 IDE 入口：ToukaIDE 有自己的 MCP 伺服器與確認視窗，不經 Proxy 的判斷層；這裡只決定 IDE 自己的模式，以及 Proxy 怎麼把「人類已在 Touka 卡片核准」傳過去。
 
-決策（P9）：
+決策（P9、決定 9）：
 
 1. **兩種模式**：IDE 沒有能叫審查員的連線，`ToukaIDE/src/mcp/authPolicy.ts` 只剩 Manual／YOLO。IDE 自己那份 SafeAuto 前綴清單（含 `npm install`、`cat `，前綴比對、不看串接）刪掉，ReadOnly 選項也拿掉。IDE 的模式只在記憶體、重啟回 Manual，沒有舊值要對照；`toukaide.toggleYolo` 改切到 YOLO。IDE 聊天送給 Proxy 的 `auth_level` 變成 `Manual`／`YOLO`，Proxy 本來就不拿它當模式來源（U2c-4）。
 2. **黑名單直接拒絕**：命中 IDE 黑名單（git 的 main／master、checkout、push、reset，docker stop／restart／rm，rm -rf、format、drop table）在兩種模式都拒絕，不再變成確認視窗，人類核准標記也解不開。原本只給黑名單用的「⚠️ 危險」確認視窗一起拿掉。
-3. **人類核准過的動作不再問第二次**（IDE 不重複確認，事先核准的變寬）：
+3. **人類核准過的動作不再問第二次**（決定 9：IDE 不重複確認，事先核准的變寬）：
    - **來源**：ToolExecutor 只在人類於 Touka 審批卡核准（可信 `_hitl_preapproved=True`）時把 `McpRequestContext.human_approved` 設成 True；審查員放行（`_approved_by="auto_reviewer"`）、YOLO 放行、模型在參數裡自帶的同名欄位都是 False。`ProtocolManager` 的 ToukaUI 分支把它交給 `call_ide_tool`。
    - **格式**：`call_ide_tool(human_approved=True)` 在 tools/call 的 `_meta` 放 `"touka.dev/human-approval": {"v": 1, "nonce", "exp", "mac"}`（`utils/ide_human_approval.py`，純函式＋常數，禁令 18）。`nonce` 是 16 bytes 隨機 hex；`exp` 是現在＋60 秒（epoch ms）；`mac` 是 HMAC-SHA256，金鑰是這次 IDE session 的 discovery bearer（ADR-0202），內容是 `touka-ide-human-approval/v1`、nonce、exp、工具名、完整參數 canonical JSON（鍵排序、緊湊、不轉 ASCII）的 SHA-256，用換行串起來。
    - **驗證**（`ToukaIDE/src/mcp/humanApproval.ts`）：只讀 `_meta`，而工具只有經 loopback＋bearer 的 `/mcp` 才叫得到。格式不對、過期、`exp` 超過現在＋120 秒、nonce 用過、MAC 對不上（換工具、換參數、換 session 金鑰）都當成沒有標記；通過就記下 nonce 到過期為止，只能用一次。通過時跳過 Manual 的確認視窗（終端、git commit）與寫檔的 diff 審核；YOLO 本來就不問。
    - **範圍**：只限人類卡片核准過的那一次呼叫；其他情況照 IDE 自己的模式（Manual 跳視窗）。
 4. **核准的指令只跑一次**：`TerminalHandlers.ts` 原本先 `terminal.sendText`（在 VS Code 終端跑一次）再 `spawn`（擷取輸出又跑一次），git commit、npm install 這類會做兩次。現在只留 `spawn`；輸出照舊寫進 `@terminal` 用的 `terminalOutputStore`。
 
-不放寬總表（IDE 的格子，`ToukaIDE/src/__tests__/authPolicy.test.ts`；`test_auth_mode_not_wider_security.py` 只管 Proxy 的決策）：舊四級對應兩種模式 × 有無合法標記 × 5 個代表動作。變寬的格子恰好是 ③（ReadOnly→Manual：npm test、curl、寫檔、git commit 改成問人後可跑）與「IDE 不重複確認」（有合法標記時 Manual 不再問：同樣 4 個動作，以及 SafeAuto→Manual 的 curl、git commit）。黑名單在 YOLO 由「問人」改成「拒絕」，舊 SafeAuto 自動跑的 npm test 與直接寫檔在 Manual 改成要問。
+不放寬總表（IDE 的格子，`ToukaIDE/src/__tests__/authPolicy.test.ts`；`test_auth_mode_not_wider_security.py` 只管 Proxy 的決策）：舊四級對應兩種模式 × 有無合法標記 × 5 個代表動作。變寬的格子恰好是 ③（ReadOnly→Manual：npm test、curl、寫檔、git commit 改成問人後可跑）與決定 9「IDE 不重複確認」（有合法標記時 Manual 不再問：同樣 4 個動作，以及 SafeAuto→Manual 的 curl、git commit）。黑名單在 YOLO 由「問人」改成「拒絕」，舊 SafeAuto 自動跑的 npm test 與直接寫檔在 Manual 改成要問。
 
 已知限制與發現：
 
@@ -299,12 +299,12 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 1. **模式選單**（`AuthSwitcher`、`ChatProvider`）：只剩 Manual／Auto／YOLO，選 YOLO 仍二次確認。存檔後重新讀對話清單，顯示後端實際存下的模式；被降成 Manual 時提示「只有管理員或這個靈魂的擁有者能開」（呼應「改名、舊值讀取對照與模式授權」第 4 點）。較舊的回應晚到時忽略。無痕對話鎖定顯示 Manual 並說明；U2c-9 改寫說明，並在要求 Auto／YOLO 時不存檔、toast 說明原因（見「無痕對話」）。
 2. **審批卡**（`ToolApprovalCard`、`stream_tree`、`tree_history`）：`tool_approval_request` 帶 `review_reason` 時顯示「審查員轉給你的理由」，帶 `human_only` 時顯示「只有你能核准」與說明；解算事件後欄位保留，型別不對不顯示。
-3. **審查員設定**（`SecurityTab` 的 `AutoReviewerSettings`、`useAutoReviewSettings`）：選項只來自新端點 `GET /v1/autonomy/reviewer-models`（只列供應商金鑰已設定、啟用中的一般模型；靈魂、自訂模型、不用金鑰的端點型供應商不列；Owner／Debugger／admin），預設未設定，建議 Haiku 5.5 只是提示文字、不自動選；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明照資料外送說明的通用寫法（不寫廠商名），並註明費用算在被審的靈魂、沒設模型時一律轉人；已存的模型沒有金鑰時警告。
+3. **審查員設定**（`SecurityTab` 的 `AutoReviewerSettings`、`useAutoReviewSettings`）：選項只來自新端點 `GET /v1/autonomy/reviewer-models`（只列供應商金鑰已設定、啟用中的一般模型；靈魂、自訂模型、不用金鑰的端點型供應商不列；Owner／Debugger／admin），預設未設定，建議 Haiku 5.5 只是提示文字、不自動選；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明照 ④（審查員的資料外送）的通用寫法（不寫廠商名），並註明費用算在被審的靈魂、沒設模型時一律轉人；已存的模型沒有金鑰時警告。
 4. **心跳排程**（`HeartbeatScheduler`、`heartbeat_mode`）：safe／full 的標籤兩語改成 Auto／YOLO，看不懂的值顯示 Manual（與「心跳」的對應表一致）。
 5. **直連標示**（P10，`DirectConnectionNotice`）：新增連線表單標明直連不經 Proxy，沒有工具、不受權限模式管、不記帳；聊天一律經 Proxy。
 6. **錯誤碼翻譯**：1118～1120 兩語。
 
-審查員設定的說明原本寫「無痕對話也一樣」；2026-10-12 決定無痕一律 Manual 之後，U2c-9 已拿掉這半句。
+審查員設定的說明原本照 ④ 原文寫「無痕對話也一樣」；2026-10-12 決定無痕一律 Manual 之後，U2c-9 已拿掉這半句。
 
 驗證：Vitest `AutoReviewerSettings.test.tsx`（9；U2c-9 再加 1）、`useAutoReviewSettings.test.ts`（3）、`ChatProvider.authLevel.test.tsx`、`AuthSwitcher.test.tsx`（含無痕鎖定）、`ToolApprovalCard.test.tsx`、`stream_tree.approval.test.ts`、`heartbeat_mode.test.ts`、`HeartbeatScheduler.test.tsx`、`AddConnectionForm.test.tsx`、`SecurityTab.test.tsx`、`error_handler.test.ts`；pytest `test_reviewer_models_endpoint.py`（3）。Vitest 全量 1,537。
 
@@ -314,7 +314,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 對抗式複審 R-2c（三位審查員 r1、r2、r3）提出的問題，這一節記 U2c-R1b 修的部分。
 
-1. **審查員設定只有人類 admin 能改**（r3 #1）：`POST /v1/autonomy` 原本整份用 `require_privileged`，非 admin 擁有者帶 X-Agent-ID 切成自己的靈魂、靈魂本身、Debugger 都能改 `auto_review`。`model` 決定審查員的資料送到哪家廠商；`headless_terminal` 打開等於讓所有靈魂無人在場的終端指令都送審（心跳、子代理、派工、SNS 都算），超出事先核准的「只在有人在場時」。現在 `auto_review` 有變更時另外過 `require_admin_human`（admin 代打也不算；router 只用 gateway 的別名，ADR-0239），其他預算欄位照舊 Owner／Debugger／admin（前端整份送回原值不算變更）。新設定的 `model` 必須空白或在 reviewer-models 清單內，否則 422 `VALIDATION_ERROR`（`field="auto_review.model"`）；舊模型後來沒金鑰時，不擋沒改模型的存檔（審查時照樣轉人）。不放寬總表補上開關打開才多出的格子（SafeAuto→Auto 與心跳 safe 的 `curl`，無人在場），標成「需人類決定才可打開」；預設維持 false。
+1. **審查員設定只有人類 admin 能改**（r3 #1）：`POST /v1/autonomy` 原本整份用 `require_privileged`，非 admin 擁有者帶 X-Agent-ID 切成自己的靈魂、靈魂本身、Debugger 都能改 `auto_review`。`model` 決定 ④ 審查員的資料送到哪家廠商；`headless_terminal` 打開等於讓所有靈魂無人在場的終端指令都送審（心跳、子代理、派工、SNS 都算），超出事先核准的「只在有人在場時」。現在 `auto_review` 有變更時另外過 `require_admin_human`（admin 代打也不算；router 只用 gateway 的別名，ADR-0239），其他預算欄位照舊 Owner／Debugger／admin（前端整份送回原值不算變更）。新設定的 `model` 必須空白或在 reviewer-models 清單內，否則 422 `VALIDATION_ERROR`（`field="auto_review.model"`）；舊模型後來沒金鑰時，不擋沒改模型的存檔（審查時照樣轉人）。不放寬總表補上開關打開才多出的格子（SafeAuto→Auto 與心跳 safe 的 `curl`，無人在場），標成「需人類決定才可打開」；預設維持 false。
 2. **重跑只給 admin 或人類擁有者、只在自己的對話**（r3 #2）：`/retrigger` 一律以 Auto 執行，但 `is_owner` 對 Debugger 一律放行，也沒檢查對話屬於誰。現在多三道：過 session 寫入同一個模式授權（`authorize_auth_mode`：只有 admin 或人類擁有者，Debugger 旁路與代理身分都不算）；對話的 `agent_id` 必須等於要重跑的靈魂；呼叫者要通過 `_can_access_session`（和第一道用同一個 `is_owner`，屬多餘保險）。`resource_manager.is_owner` 的全域行為不變。
 3. **SNS 外人訊息與附件不是人類原意**（r1 #3）：SNS 存進對話與送進 pipeline 的訊息都加固定開頭 `【SNS 外部訊息】`，原意擷取時排除。前端內嵌的文字附件與已上傳檔案提示選擇直接排除（從第一個附件標記起整段不算）：附件不是人類原話，另開欄位等於多一個注入面；少了這份證據，審查員只會更常轉人。附件可能偽造結束標記，所以不找結尾。
 4. **子代理不送代理人轉述**（r3 #4）：子代理原意改成 `source="subagent"`、沒有訊息、`parent` 帶父代理的人類原意；派工目標只留在 `ctx["subagent_goal"]`，不再進審查員的輸入（`_mark_subagent_run` 簽名不變，Guard #45 基準不動）。
@@ -383,7 +383,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 - **心跳在 YOLO 下會用 MCP 工具**：KF-4 之後心跳看得到 MCP 工具；MCP 工具不經底線分類，YOLO 心跳在無人在場時會照跑（Auto 心跳的未列名 MCP 屬 dangerous，直接拒絕；workload OAuth 仍關閉）。
 - **Auto 下 F5 的自帶審批工具會出兩張卡**：`request_skill_install`、`evolution_implement_and_verify`、`request_mcp_creation` 先過 broker 的「只有你能核准」卡，再過工具自己的卡；只是多問一次、不放寬【推論：讀程式，沒有專門測試】。〔ADR-0254 起 `evolution_implement_and_verify` 改為一般分類，Auto 下仍是兩張卡：executor 的「只有你能核准」卡＋部署卡。〕
 - P7 計數只在行程記憶體，重啟歸零；~~互審驗證指令被審查員轉人時，那張卡不顯示審查理由~~（ADR-0254 已修）。
-- 審查員的資料外送：有人在場的 Auto 對話會把最近 3 則人類訊息（各截到 1,000 字）、動作的完整參數與執行環境送到所選模型的廠商；本機只記用量，不記內容。
+- ④ 審查員的資料外送：有人在場的 Auto 對話會把最近 3 則人類訊息（各截到 1,000 字）、動作的完整參數與執行環境送到所選模型的廠商；本機只記用量，不記內容。
 
 ## 驗證
 
