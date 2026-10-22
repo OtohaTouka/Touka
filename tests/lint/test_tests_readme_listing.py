@@ -28,24 +28,42 @@ BACKTICKED_PY = re.compile(r"`([^`\s]+\.py)`")
 WILDCARD = re.compile(r"[*?{]")
 NOT_A_COUNT = r"(?![1-5]\d\d\D|(?:19|20)\d\d\D)"  # HTTP 狀態碼、年份
 UNIT = r"(?:cases?|collected|測|案)"
+# 從左到右切出成對的粗體，只在同一對粗體裡面找數量
+BOLD = re.compile(r"\*\*((?:(?!\*\*)[^|])*)\*\*")
+BOLD_COUNT_PATTERNS = (
+    # 41 cases、M4：35 collected、12 測、新增 17 cases（有單位，不必避開 HTTP 碼）
+    re.compile(rf"(?<![\d.])\d+(?:[＋+]\d+)*\s*{UNIT}(?![A-Za-z])"),
+    # ADR-0245（8）、B2（8 測）：粗體結尾的括號數量
+    re.compile(rf"（{NOT_A_COUNT}\d+(?:[＋+]\d+)*(?:\s*(?:測|cases?))?）$"),
+    # Guard #16 成員鎖（21，ADR-0240）
+    re.compile(rf"（{NOT_A_COUNT}\d+[，；＝]"),
+)
 COUNT_PATTERNS = (
     # 數字欄
     re.compile(r"^\|[^|]+\| 案例數 \|"),
-    # **41 cases**、**M4：35 collected**、**12 測**、**新增 17 cases**
-    re.compile(rf"\*\*[^*|]*?(?<![\d.]){NOT_A_COUNT}\d+(?:[＋+]\d+)*\s*{UNIT}\b"),
-    # **ADR-0245（8）**、**B2（8 測）**
-    re.compile(rf"（{NOT_A_COUNT}\d+(?:[＋+]\d+)*(?:\s*(?:測|cases?))?）\*\*"),
-    # **Guard #16 成員鎖（21，ADR-0240）**
-    re.compile(rf"\*\*[^*|]*（{NOT_A_COUNT}\d+[，；＝][^*|]*\*\*"),
     # 說明欄開頭的標籤（3）：
     re.compile(rf"^\| [^|]+ \| [^|（]{{0,60}}?（{NOT_A_COUNT}\d[\d＋+]*）(?:[：；]|——)"),
-    # 11 個 TDD、43 個測試（「加 8 個測試」這類增量不算）
-    re.compile(r"(?<![\d加增])(?<![加增] )\d+\s*個\s*(?:TDD|測試|案例)"),
+    # 11 個 TDD、43 個測試（「加 8 個測試」這類增量、「測試檔／測試用」不算）
+    re.compile(
+        r"(?<![\d加增補多少+＋])(?<![加增補多少] )(?<!加了)(?<!加了 )"
+        r"\d+\s*個\s*(?:TDD|測試(?!檔|用|資料|目錄)|案例)"
+    ),
     # （29 測）
     re.compile(r"（\d+\s*測）"),
     # 合計 177 cases、共 **168 案**
     re.compile(r"(?:合計|共)\s*\**\d+\s*(?:cases?|案)"),
 )
+
+
+def has_current_count(line: str) -> bool:
+    """這一行有沒有寫「現在有幾個案例」的固定格式。"""
+    if any(pattern.search(line) for pattern in COUNT_PATTERNS):
+        return True
+    return any(
+        pattern.search(match.group(1))
+        for match in BOLD.finditer(line)
+        for pattern in BOLD_COUNT_PATTERNS
+    )
 
 
 def git_ls_files(*pathspec: str) -> list[str]:
@@ -86,8 +104,10 @@ def listed_files(readme: str, tracked: list[str]) -> set[str]:
 def dangling_test_names(readme: str, tracked_tests: list[str], tracked_repo: set[str]) -> list[str]:
     """反引號裡對不到版控檔案的 test_*.py，每筆附原因。萬用字元的寫法不算。"""
     names = Counter(PurePosixPath(path).name for path in tracked_tests)
+    elsewhere = {PurePosixPath(path).name for path in tracked_repo if not path.startswith("tests/")}
     problems = set()
-    for token in BACKTICKED_PY.findall(readme):
+    for raw in BACKTICKED_PY.findall(readme):
+        token = raw.replace("\\", "/")
         path = PurePosixPath(token)
         if not path.name.startswith("test_") or WILDCARD.search(token):
             continue
@@ -96,6 +116,8 @@ def dangling_test_names(readme: str, tracked_tests: list[str], tracked_repo: set
         elif "/" in token:
             if token not in tracked_repo and f"tests/{token}" not in tracked_repo:
                 problems.add(f"{token}：路徑對不到版控中的檔案")
+        elif names[token] == 0 and token in elsewhere:
+            problems.add(f"{token}：不在 tests/ 裡，請寫從 repo 根開始的路徑")
         elif names[token] == 0:
             problems.add(f"{token}：對不到任何檔案，改名或刪掉的舊名請拿掉反引號")
         elif names[token] > 1:
@@ -122,9 +144,7 @@ def test_backticked_test_names_point_at_real_files() -> None:
 def test_readme_writes_no_current_case_counts() -> None:
     lines = README.read_text(encoding="utf-8").splitlines()
     hits = [
-        f"{number}: {line[:80]}"
-        for number, line in enumerate(lines, 1)
-        if any(pattern.search(line) for pattern in COUNT_PATTERNS)
+        f"{number}: {line[:80]}" for number, line in enumerate(lines, 1) if has_current_count(line)
     ]
     assert not hits, "tests/README.md 不寫現在有幾個案例，CI 的結果才是正本：\n" + "\n".join(hits)
 
@@ -155,8 +175,9 @@ def test_dangling_names_are_reported_with_the_reason() -> None:
         [
             "`unit/test_alpha.py` `tests/unit/test_alpha.py` `ToukaIDE/scripts/test_tool.py`",
             "`test_alpha.py` `test_*.py` `**/test_*.py` `test_golden_{a,b}.py`",
-            "`lint/test_alpha.py` `test_renamed.py` `test_dup.py`",
+            "`lint/test_alpha.py` `test_renamed.py` `test_dup.py` `test_tool.py`",
             "`../outside/test_x.py` `/abs/test_y.py` `C:/x/test_z.py`",
+            r"`unit\test_gone.py` `C:\x\test_z.py`",
         ]
     )
     problems = dangling_test_names(readme, tracked_tests, tracked_repo)
@@ -165,18 +186,24 @@ def test_dangling_names_are_reported_with_the_reason() -> None:
             "lint/test_alpha.py",
             "test_renamed.py",
             "test_dup.py",
+            "test_tool.py",
             "../outside/test_x.py",
             "/abs/test_y.py",
             "C:/x/test_z.py",
+            "unit/test_gone.py",
         ]
     )
-    assert any("同名檔" in problem for problem in problems if problem.startswith("test_dup.py"))
+    reasons = {problem.split("：")[0]: problem for problem in problems}
+    assert "同名檔" in reasons["test_dup.py"]
+    assert "不在 tests/ 裡" in reasons["test_tool.py"]
 
 
 def test_count_patterns_catch_current_counts_only() -> None:
     current_counts = [
         "| 檔案 | 案例數 | 說明 |",
         "| `test_x.py` | **41 cases**：說明 |",
+        "| `test_x.py` | **119 cases**（ADR-0251）：說明 |",
+        "| `test_x.py` | **296 cases**：說明 |",
         "| `test_x.py` | **3 cases（Linux）**：說明 |",
         "| `test_x.py` | **新增 17 cases**：說明 |",
         "| `test_x.py` | **15 collected**：說明 |",
@@ -195,7 +222,7 @@ def test_count_patterns_catch_current_counts_only() -> None:
         "全部離線。合計 177 cases。",
     ]
     for line in current_counts:
-        assert any(pattern.search(line) for pattern in COUNT_PATTERNS), line
+        assert has_current_count(line), line
     not_counts = [
         "| `test_x.py` | 含 `..` 的 ID（422），不改寫 |",
         "| `test_x.py` | 沒登入（401）：說明 |",
@@ -212,9 +239,17 @@ def test_count_patterns_catch_current_counts_only() -> None:
         "| `test_x.py` | 2026-08-14 實跑結果：**24/24 Green** |",
         "| `test_x.py` | 先 **1 failed／1 passed**，再 **2 passed** |",
         "| `test_x.py` | 9 個 bash 測試用 Git for Windows |",
+        "| `tool_eval` | **同上**：最多 12 cases、48 requests |",
+        "| `test_x.py` | **A**：步驟（2，見下）與 **B** |",
+        "| `test_x.py` | 共用串流假傳輸（17 個測試檔共用） |",
+        "| `test_x.py` | 2026-10-21 補 3 個測試：說明 |",
+        "| `test_x.py` | 這一批加了 3 個測試 |",
+        "| `test_x.py` | （C2-2 +3 個測試：說明） |",
+        "| `test_x.py` | 刪掉排程閘道少 1 個測試 |",
+        "| `test_x.py` | 3 個測試用帳號、2 個測試資料夾 |",
         "| `test_x.py` | 產品數量（4 個） |",
         "| `tool_eval` | 12 cases；samples／turns 硬上限 4，最多 48 requests |",
         "| `test_x.py` | 版本（v2）、（3a／3b）、（P8-B）、（3.12） |",
     ]
     for line in not_counts:
-        assert not any(pattern.search(line) for pattern in COUNT_PATTERNS), line
+        assert not has_current_count(line), line
