@@ -60,7 +60,7 @@ class ToolLayer(ProxyLayer):
         agent_id = ctx.get("agent_id", "Unknown")
         is_custom = ctx.get("is_custom", False)
 
-        # 降級相容 (針對舊路徑)
+        # 降級相容（針對舊路徑）
         if not isinstance(identity, AgentIdentity):
             agent_info = agent_service.identify_agent(agent_id) or {"role": "Base"}
             identity = AgentIdentity.for_role(

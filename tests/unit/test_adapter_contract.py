@@ -570,7 +570,7 @@ async def test_claude_openai_ingress_tools_reach_wire_in_anthropic_shape():
 @pytest.mark.parametrize("temperature", [0.3, 1.7])
 @pytest.mark.asyncio
 async def test_claude_sampling_params_never_sent(temperature):
-    """E61 改（model-p0，Owner 決定 A）：temperature／top_p／top_k 一律不送——
+    """E61 改（model-p0，ADR-0241 決定 A）：temperature／top_p／top_k 一律不送——
     請求帶值（含 >1.0）也不進 kwargs；取代舊的夾值與條件轉發。"""
     req = _claude_request()
     req.temperature = temperature

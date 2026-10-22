@@ -123,7 +123,7 @@ async def vault_tools(vault: str, action: str, **kwargs: Any) -> Any:
     if not identity:
         return "Error: identity is required for vault operations."
 
-    # 解析物理根目錄 (SSOT)
+    # 解析物理根目錄（SSOT）
     if vault == "personal":
         root_bound = manager.get_personal_drive_dir(identity, resource_proxy=resource_proxy)
     elif vault == "legacy":

@@ -165,7 +165,10 @@ def test_only_eacces_with_a_filename_reaches_the_hook(on_linux, error):
 
 
 def test_policy_refusals_never_reach_the_hook_and_keep_errno_none(on_linux, tmp_path):
-    """Soul Protection Error 與 A 線 ``CatalogPathDeniedError``：掛鉤沒被呼叫、權限不變、不重試。"""
+    """Soul Protection Error 與個人空間目錄的 ``CatalogPathDeniedError``.
+
+    掛鉤沒被呼叫、權限不變、不重試。
+    """
     target = tmp_path / "soul_file.txt"
     target.write_text("x", encoding="utf-8")
     target.chmod(stat.S_IREAD)
@@ -249,16 +252,16 @@ def test_exempt_marks_the_function_without_wrapping_it():
     def move_file() -> None:
         raise _eacces()
 
-    marked = permission_repair_exempt(category="a_line_swap_semantics", reason="swap")(move_file)
+    marked = permission_repair_exempt(category="swap_semantics", reason="swap")(move_file)
     assert marked is move_file
-    assert marked.__permission_repair__ == ("exempt", "a_line_swap_semantics")
+    assert marked.__permission_repair__ == ("exempt", "swap_semantics")
 
 
 def test_exempt_function_never_reaches_the_hook(on_linux):
     hook = FakeHook()
     set_permission_repair(hook)
 
-    @permission_repair_exempt(category="a_line_swap_semantics", reason="swap")
+    @permission_repair_exempt(category="swap_semantics", reason="swap")
     def remove_file() -> None:
         raise _eacces()
 
@@ -366,7 +369,7 @@ def _repair(service, path: Path, method: str = "read_file_text") -> bool:
         ("data/mcp_servers", "data/mcp_servers", True),
         ("data/mcp_servers/managed", "data/mcp_servers", True),
         ("data/mcp_servers/managed/web-search/server.py", "data/mcp_servers", False),
-        ("data/custom", "data/custom", True),  # W8：PM 10/15 決定加入定期檢查的根
+        ("data/custom", "data/custom", True),  # W8：加入定期檢查的根
         ("data/custom/gpt-x/drive", "data/custom", False),
         ("data/custom/gpt-x/drive/a/b.txt", "data/custom", False),
         ("state", "state", True),
@@ -416,7 +419,7 @@ def test_whitelisted_targets_walk_from_the_topmost_whitelisted_root(
     ],
 )
 def test_paths_outside_the_whitelist_are_refused_without_touching_the_kernel(tmp_path, relative):
-    """Touka 自己的狀態、A 線的快照與升級備份、工作區與專案：一律 refused_outside。"""
+    """Touka 自己的狀態、記憶系統的快照與升級備份、工作區與專案：一律 refused_outside。"""
     kernel = FakeKernel()
     service, _ = _service(tmp_path, kernel=kernel)
     assert _repair(service, tmp_path.resolve() / relative) is False
@@ -707,7 +710,7 @@ class Raiser:
         return self.original(*args, **kwargs)
 
 
-# --- 10：豁免方法（A 線 swap 依賴錯誤原樣往上丟）根本不呼叫掛鉤 ---
+# --- 10：豁免方法（swap 依賴錯誤原樣往上丟）根本不呼叫掛鉤 ---
 
 
 @pytest.mark.parametrize("method", ["move_file", "remove_file"])
@@ -727,7 +730,7 @@ def test_exempt_resource_manager_methods_never_reach_the_hook(
     assert caught.value is error and hook.calls == []
 
 
-# --- 20（附錄）：A 線路徑在白名單外 → 同一個例外物件、只執行一次 ---
+# --- 20（附錄）：記憶系統的路徑在白名單外 → 同一個例外物件、只執行一次 ---
 
 
 def test_refused_a_line_paths_raise_the_same_object_and_run_once(tmp_path, monkeypatch, on_linux):

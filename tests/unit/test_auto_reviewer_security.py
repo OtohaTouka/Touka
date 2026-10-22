@@ -476,7 +476,7 @@ def _effect(level: str, resource: str, action: str = "terminal_execute") -> str:
         ("Auto", "cat .env", "terminal_execute", "HUMAN_ONLY"),  # F2 先判斷
         ("Auto", "docker compose down", "terminal_execute", "HUMAN_ONLY"),  # F7
         ("Auto", "sudo ls", "terminal_execute", "DENY"),  # 黑名單
-        ("Auto", "delete", "tool_call", "REVIEW"),  # dangerous 工具交給審查員（決定 3）
+        ("Auto", "delete", "tool_call", "REVIEW"),  # dangerous 工具交給審查員（ADR-0246 決定 3）
         ("Auto", "some_unlisted_mcp_tool", "tool_call", "REVIEW"),
         ("Auto", "write", "tool_call", "ALLOW"),  # safe 類照舊
         ("Auto", "send_message", "tool_call", "HUMAN_ONLY"),  # F6

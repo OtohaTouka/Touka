@@ -1,6 +1,6 @@
 """r55：complete_once 依用途決定 Claude 5.5 的思考強度（T3）；審查員照舊、等 60 秒。
 
-用途表（Owner 決定 2 甲）：評分（judge）、摘要員（summarizer）、IDE 補全（inline_completion）
+用途表（ADR-0271）：評分（judge）、摘要員（summarizer）、IDE 補全（inline_completion）
 少想；審查員（auto_reviewer）與互審（critic）刻意不列＝照模型預設，送出內容一個 byte 都不變。
 用途表經 ``_adapter_context`` 交給 ClaudeAdapter（completion.py 不讀規則表）；``_shape_claude``
 把 schema 併進 adapter 已放的 ``output_config``，不覆寫 effort。
@@ -97,7 +97,7 @@ async def _send(sent: list[dict], purpose: str, model: str, max_tokens: int = 51
     ("judge", "minimal"),
     ("summarizer", "minimal"),
     (PURPOSE_INLINE_COMPLETION, "minimal"),
-    ("auto_reviewer", None),  # Owner 決定 2 甲：審查員照模型預設
+    ("auto_reviewer", None),  # ADR-0271：審查員照模型預設
     ("critic", None),  # 互審是品質關卡：不降
     ("reviewer", None),
     ("unknown", None),
@@ -255,7 +255,7 @@ def test_wire_payload_is_what_the_adapter_will_send():
     assert completion._wire_payload(state) == {"kwargs": {"model": "m"}, "payload": None}
 
 
-# ── 審查員等待時間（Owner 決定 2 甲：只加長到 60 秒） ───────────────────────────
+# ── 審查員等待時間（ADR-0271：只加長到 60 秒） ───────────────────────────
 
 
 def test_reviewer_timeout_defaults_to_60_seconds():

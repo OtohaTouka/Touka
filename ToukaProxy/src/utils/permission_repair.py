@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ExemptCategory = Literal["a_line_swap_semantics", "path_only", "delegates"]
+ExemptCategory = Literal["swap_semantics", "path_only", "delegates"]
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 _active: ContextVar[bool] = ContextVar("permission_repair_active", default=False)

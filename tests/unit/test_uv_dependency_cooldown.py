@@ -1,6 +1,6 @@
 """Python 套件 7 天冷卻期（model-p0 U5）。
 
-Owner 決定「新套件要等七天」：root ``pyproject.toml`` 的 ``[tool.uv].exclude-newer``
+專案規則「新套件要等七天」：root ``pyproject.toml`` 的 ``[tool.uv].exclude-newer``
 固定為 ``"7 days"``，重生的 ``uv.lock`` 只記錄期間（``exclude-newer-span = "P7D"``）。
 改這個值、或用 ``exclude-newer-package`` 為任何套件開例外，都要 Owner 逐一同意。
 只涵蓋 uv 管理的 Python 套件；前端 npm 不在內。

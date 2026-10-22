@@ -10,7 +10,7 @@
 - ``bound`` 不符：自建類照舊，第三方類與 scaffold 當沒有紀錄，``sandbox_paths`` 一律不用。
 
 另釘：``bound`` 不含 env、寫入走 ``write_json``（原子置換）、同一行程內的鎖不掉更新、
-持鎖期間不能跑協程也不能重入（CTO 的 ``threading.Lock`` 條件）。
+持鎖期間不能跑協程也不能重入（``threading.Lock`` 的條件）。
 """
 
 from __future__ import annotations
@@ -369,7 +369,7 @@ def test_delete_removes_only_the_named_records(tmp_path: Path) -> None:
 def test_writes_go_through_the_atomic_write_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """CTO 條件 ③：寫檔走 ``write_json``（mkstemp → fsync → replace，ADR-0078）。"""
+    """條件 ③：寫檔走 ``write_json``（mkstemp → fsync → replace，ADR-0078）。"""
     calls: list[Path] = []
     real = resource_manager.write_json
 

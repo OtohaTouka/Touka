@@ -50,8 +50,8 @@ class AutoReviewConfig(BaseModel):
     """Auto 審查員（ADR-0246 U2c-3）。
 
     model 預設空白＝未設定：每次要審的動作都以「審查員未設定」轉人（有人在場）或拒絕（無人
-    在場）。headless_terminal 預設 False：無人在場的終端指令直接拒絕、不送審（決定 8 丙）。
-    timeout_s 預設 60（r55，Owner 決定 2 甲）：逾時＝轉人／拒絕，不是放行條件。
+    在場）。headless_terminal 預設 False：無人在場的終端指令直接拒絕、不送審（ADR-0246 決定 8）。
+    timeout_s 預設 60（r55，ADR-0271）：逾時＝轉人／拒絕，不是放行條件。
     """
     model: str = Field(default="", max_length=200)
     max_tokens: int = Field(default=512, ge=64, le=4096)
@@ -64,7 +64,7 @@ class AutoReviewConfig(BaseModel):
         return value.strip()
 
 class ReviewerModelOption(BaseModel):
-    """審查員選單的一個選項（ADR-0246，決定 5）。"""
+    """審查員選單的一個選項（ADR-0246 決定 5）。"""
     id: str
     name: str
     provider: str

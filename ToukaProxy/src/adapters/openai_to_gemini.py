@@ -181,7 +181,8 @@ def convert_openai_to_gemini(request: Any) -> dict:
         gemini_req["safetySettings"] = [
             {"category": cat, "threshold": "BLOCK_NONE"} for cat in categories
         ]
-    # model-p0（Owner 決定 A）：取樣參數一律不送。3b-U3：generationConfig 只放輸出上限與停止字串。
+    # model-p0（ADR-0241 決定 A）：取樣參數一律不送。
+    # 3b-U3：generationConfig 只放輸出上限與停止字串。
     max_tokens, stop = getattr(request, "max_tokens", None), getattr(request, "stop", None)
     generation = {"maxOutputTokens": max_tokens if type(max_tokens) is int else None,
                   "stopSequences": [stop] if isinstance(stop, str) else

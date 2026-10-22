@@ -102,7 +102,7 @@ def test_self_origins_are_self(layout, origin):
 
 @pytest.mark.parametrize("origin", ["Hub", "", "unknown", " manual", 1, None, ["hub"]])
 def test_unknown_origin_in_a_record_is_self_not_unlabeled(layout, origin):
-    """CTO 條件：看不懂的 origin 不能當成較寬的類別（未標示會走第三方）。"""
+    """看不懂的 origin 不能當成較寬的類別（未標示會走第三方）。"""
     result = _classify(layout, PACKAGE, OriginRecord("present", origin))
     assert (result.kind, result.origin, result.reason) == ("self", None, "origin_unknown")
 

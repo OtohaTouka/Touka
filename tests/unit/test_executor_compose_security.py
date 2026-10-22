@@ -253,7 +253,10 @@ def test_executor_mounts_only_two_data_folders_skills_ipc_and_state(rel):
 
 @pytest.mark.parametrize("rel", COMPOSES)
 def test_data_roots_are_the_proxys_own_data_folders_and_writable(rel):
-    """和 proxy 同一個實體資料夾（A 線 ``.touka`` 的前提）、同一個路徑（READY roots 才對得上）."""
+    """和 proxy 同一個實體資料夾、同一個路徑.
+
+    前者是個人空間目錄 ``.touka`` 的前提（ADR-0255），後者讓 READY roots 對得上。
+    """
     executor, data = _service(rel, EXECUTOR), _proxy_data(rel)
     proxy_data = _mount_at(_service(rel, PROXY), str(data))
     for name in ("personal_drive", "mcp_servers"):

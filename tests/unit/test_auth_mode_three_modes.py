@@ -56,7 +56,7 @@ def _effect(
         ("Auto", "Auto"),
         ("YOLO", "YOLO"),
         ("ReadOnly", "Manual"),
-        ("SafeAuto", "Manual"),  # 不會悄悄開始送審、也不自己多做事（決定 ③ 甲）
+        ("SafeAuto", "Manual"),  # 不會悄悄開始送審、也不自己多做事（ADR-0246 決定 3）
         ("FullYOLO", "YOLO"),
         ("", "Manual"),
         ("yolo", "Manual"),
@@ -88,7 +88,7 @@ def test_authorize_auth_mode(requested: str, is_admin: bool, owns_agent: bool, e
     assert authorize_auth_mode(requested, is_admin=is_admin, owns_agent=owns_agent) == expected
 
 
-# ── 動態 shell 寫法（決定 4 丙：只有人能核准的那一半）─────────────────────────
+# ── 動態 shell 寫法（ADR-0246 決定 4：只有人能核准的那一半）─────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -142,18 +142,18 @@ def test_plain_commands_are_not_dynamic(command: str):
     ("resource", "action", "tool_action", "expected"),
     [
         ("read", "tool_call", None, "ALLOW"),
-        ("write", "tool_call", None, "ALLOW"),  # safe 類直接放行（決定 7 甲）
+        ("write", "tool_call", None, "ALLOW"),  # safe 類直接放行（ADR-0246 決定 7）
         ("memory_tools", "tool_call", "save", "ALLOW"),
         ("mission_tools", "tool_call", "request_review", "ALLOW"),
-        ("delete", "tool_call", None, "REVIEW"),  # dangerous 工具交給審查員（決定 3）
+        ("delete", "tool_call", None, "REVIEW"),  # dangerous 工具交給審查員（ADR-0246 決定 3）
         ("some_unlisted_mcp_tool", "tool_call", None, "REVIEW"),
-        ("request_skill_install", "tool_call", None, "HUMAN_ONLY"),  # F5（決定 6）
+        ("request_skill_install", "tool_call", None, "HUMAN_ONLY"),  # F5（ADR-0246 決定 6）
         ("agent_control", "tool_call", "switch_brain", "HUMAN_ONLY"),  # F5
         ("send_message", "tool_call", None, "HUMAN_ONLY"),  # F6
         ("request_skill_install", "schema_injection", None, "HUMAN_ONLY"),  # 仍廣告
         ("ls -la", "terminal_execute", None, "REVIEW"),  # 交給審查員，不再有白名單
         ("pytest tests/", "terminal_execute", None, "REVIEW"),
-        ("echo $HOME", "terminal_execute", None, "HUMAN_ONLY"),  # 決定 4 丙
+        ("echo $HOME", "terminal_execute", None, "HUMAN_ONLY"),  # ADR-0246 決定 4
         ("ls > out.txt", "terminal_execute", None, "HUMAN_ONLY"),
         ("sudo echo $HOME", "terminal_execute", None, "DENY"),  # 黑名單仍優先
     ],

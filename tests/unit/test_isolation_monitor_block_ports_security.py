@@ -231,7 +231,7 @@ def _monitor(layout: SandboxLayout, **kwargs) -> IsolationMonitor:
 
 
 async def test_upstream_started_after_touka_is_blocked_from_the_first_b_to_the_last(tmp_path):
-    """CTO 指定：Touka 先開機、上游還沒起來（探測失敗、路由快照沒有它）；之後上游才開機、探測成功。
+    """Touka 先開機、上游還沒起來（探測失敗、路由快照沒有它）；之後上游才開機、探測成功。
 
     那個埠從第一次組 B（第一次 refresh 讀完設定）開始，到最後每一次組 B 都在 B 裡。
     """
@@ -277,7 +277,7 @@ def _gateway(**extra: object) -> dict[str, object]:
 
 
 def test_saved_connection_is_blocked_before_any_refresh_or_discovery(tmp_path, monkeypatch):
-    """CTO 指定（U2e2）：從連線設定存一條新連線，不等 monitor refresh、也不等探測（存檔只撤下
+    """（U2e2）從連線設定存一條新連線，不等 monitor refresh、也不等探測（存檔只撤下
     舊路由，探測失敗也一樣），那個埠已經在 B 裡：main 把模型路由的 URL 來源接到 monitor。
     """
     monkeypatch.setattr(connections_router, "CONFIG_PATH", str(tmp_path / "connections.json"))

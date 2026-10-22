@@ -108,7 +108,7 @@ class MCPHubService:
         self._isolation = McpIsolationStore(Path(self.config_path).parent)
 
     # ------------------------------------------------------------------
-    # 外部數據抓取 (可獨立測試 / mock)
+    # 外部數據抓取（可獨立測試 / mock）
     # ------------------------------------------------------------------
 
     async def fetch_official_servers(self) -> list[dict]:

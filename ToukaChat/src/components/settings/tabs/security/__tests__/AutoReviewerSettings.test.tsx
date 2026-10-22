@@ -1,8 +1,8 @@
 /**
- * Auto 審查員模型選單（ADR-0246 U2c-6；決定 5、④甲）。
+ * Auto 審查員模型選單（ADR-0246 U2c-6、決定 5）。
  *
  * 選項只來自後端「已設定金鑰的模型」清單、預設未設定；建議值只是提示文字；說明文字照
- * 技術主管核定的通用寫法（不得寫成只送某一家廠商）。用真的 zh-TW 翻譯斷言文字。
+ * 通用寫法（不得寫成只送某一家廠商）。用真的 zh-TW 翻譯斷言文字。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';

@@ -684,6 +684,6 @@ class SkillService:
 
 
 skill_service = SkillService()
-# 啟動時即同步系統調度員 (MCP + Skill)
+# 啟動時即同步系統調度員（MCP + Skill）
 skill_service.sync_system_dispatcher()
 skill_service.sync_skill_dispatcher()

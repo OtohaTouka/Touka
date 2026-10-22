@@ -97,7 +97,7 @@ async def get_debug_tools(
     content = {"tools": unique_tools}
     response = JSONResponse(content=content)
 
-    # 支援自動領卡 (Handshake)
+    # 支援自動領卡（Handshake）
     new_token = getattr(request.state, "new_auth_token", None)
     if new_token:
         response.headers["X-New-Auth-Token"] = new_token

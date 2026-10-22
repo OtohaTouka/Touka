@@ -12,7 +12,7 @@ from src.config import GROK_API_KEY, TOOL_BASE_URL
 from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 
-# 載入環境變數 (支援整合與獨立模式)
+# 載入環境變數（支援整合與獨立模式）
 load_dotenv()
 
 # 設定日誌：重要！必須輸出至 stderr，否則會干擾 MCP STDOUT 通訊

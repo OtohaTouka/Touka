@@ -25,7 +25,7 @@ router = APIRouter(prefix="/autonomy", tags=["autonomy"])
 # Require Owner/Debugger/admin to manage autonomy configuration.
 _require_autonomy_role = require_privileged
 # 審查員設定（auto_review）只給人類 admin（R-2c ③ #1）：model 決定 Auto 的資料送到哪家廠商，
-# headless_terminal 會讓所有靈魂無人在場的終端指令改成送審（決定 8 丙，要人類決定才開）。
+# headless_terminal 會讓所有靈魂無人在場的終端指令改成送審（ADR-0246 決定 8，要人類決定才開）。
 _require_reviewer_admin = require_admin_human
 
 
@@ -66,7 +66,7 @@ def _reviewer_options() -> list[ReviewerModelOption]:
 async def list_reviewer_models(
     _identity: AgentIdentity = Depends(_require_autonomy_role),  # noqa: B008
 ) -> ReviewerModelsResponse:
-    """Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（決定 5）。"""
+    """Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246 決定 5）。"""
     return ReviewerModelsResponse(models=_reviewer_options())
 
 

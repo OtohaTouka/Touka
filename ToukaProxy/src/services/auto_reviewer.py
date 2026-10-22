@@ -13,7 +13,7 @@
   其他形狀、逾時、拒答、截斷、超預算、連不上、解析失敗都算不放行（escalate）。
 - 沒設模型＝審查員未設定，一律 escalate（executor：有人在場跳卡、無人在場拒絕）。
 - 無人在場時不送審、直接 escalate：高風險工具一律如此（沿用無人在場沒有審批通道＝不執行）；終端
-  指令預設如此（決定 8 丙），``auto_review.headless_terminal`` 開了才送審。
+  指令預設如此（ADR-0246 決定 8），``auto_review.headless_terminal`` 開了才送審。
 - P7：同一對話被擋（escalate 或 deny）連續 3 次或累計 20 次，之後一律 escalate、不再送審。計數
   只在行程記憶體（``ReviewBreaker``）：重啟歸零、超過上限淘汰最舊的對話、從不落地（無痕亦然）。
 - 費用由 ``complete_once`` 記在被審的靈魂身上，provider 標籤 ``auto_reviewer``；只記用量、不記內容。
