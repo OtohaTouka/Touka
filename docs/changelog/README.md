@@ -1,6 +1,6 @@
 # CHANGELOG 歷史索引
 
-目前摘要見 [CHANGELOG](../CHANGELOG.md)，現況見 [HANDOVER](../../HANDOVER.md)。以下只保存當時紀錄，不代表目前程序。
+目前摘要見 [CHANGELOG](../CHANGELOG.md)，現況見 [HANDOVER](../../HANDOVER.md)。以下只保存當時紀錄，不代表目前程序；PR 編號、commit 與 run 編號指的是開源前的私人歷史。
 
 | 月份／階段 | 範圍 |
 | --- | --- |

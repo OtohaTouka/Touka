@@ -3,7 +3,7 @@
 > **狀態：✅ 已核准並執行完成（2026-07-10，P7-1~P7-6 逐批 commit）。** 詳見
 > [ADR-0141](../adr/0141-role-plane-separation.md) P7 成果節與 [ROLE_MODEL.md](../ROLE_MODEL.md)。
 > 本計畫是 role-plane-separation 提案最後一階段 P7 的**分批執行藍圖**，依 2026-07-10
-> 探索工作流（498 站點盤點）產出。擁有者已選 **Option A（完整拆除 `.role` 讀取屬性
+> 探索盤點（498 個站點）產出。維護者已選 **Option A（完整拆除 `.role` 讀取屬性
 > ＋ `role=` 建構子相容）**。
 
 ## 0. 前提與最重要的安全事實

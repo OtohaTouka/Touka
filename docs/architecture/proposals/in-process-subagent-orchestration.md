@@ -1,12 +1,12 @@
 # 提案：Touka 內部多代理工作流協調（In-Process Sub-Agent Orchestration，「Ultracode 強化版」）
 
-> 狀態：**🏁 四階段全數落地／收官（2026-07-07；擁有者尚未 commit）。** Phase 1 [ADR-0134](../adr/0134-in-process-subagent-dispatch.md)／Phase 2 [ADR-0135](../adr/0135-structured-report-finalize-and-board-bound-stop.md)／Phase 3 前置 [ADR-0136](../adr/0136-review-eval-rails.md)＋本體 [ADR-0137](../adr/0137-adversarial-review-subsystem.md)／Phase 4 [ADR-0138](../adr/0138-parallel-fanout-and-resumable-delivery.md)。guard 39/39、後端 pytest 2869、前端 vitest 971。這是「ReAct loop ＋ ToukaDispatch 的加強版，但任務**不外派、整個在 Touka 內部（in-process）完成**」——對標 Claude Code 的 workflow／ultracode，並強化為「主 agent 動態協調子代理＋對抗式互審＋持久可續」。
+> 狀態：**🏁 四階段全數落地／收官（2026-07-07）。** Phase 1 [ADR-0134](../adr/0134-in-process-subagent-dispatch.md)／Phase 2 [ADR-0135](../adr/0135-structured-report-finalize-and-board-bound-stop.md)／Phase 3 前置 [ADR-0136](../adr/0136-review-eval-rails.md)＋本體 [ADR-0137](../adr/0137-adversarial-review-subsystem.md)／Phase 4 [ADR-0138](../adr/0138-parallel-fanout-and-resumable-delivery.md)。guard 39/39、後端 pytest 2869、前端 vitest 971。這是「ReAct loop ＋ ToukaDispatch 的加強版，但任務**不外派、整個在 Touka 內部（in-process）完成**」——對標 Claude Code 的 workflow／ultracode，並強化為「主 agent 動態協調子代理＋對抗式互審＋持久可續」。
 >
-> **收官後仍待擁有者手動／明示（非核心可行性，見各 ADR 誠實邊界）：** ①**互審有效性五臂 A/B 實測**（設計文件 §7.2/7.3，注錯案例集人類 commit；**未達預註冊門檻前不宣稱降幻覺**）；②異模型 critic 的 OpenAI 相容傳輸（現 v1 走 anthropic_client）；③**自動背景續跑驅動**（ADR-0078 #8，明確劃出 Phase 4 範圍外＝另一提案）；④live E2E／episode 實跑（`scripts/run_tool_eval_episode.py`）。
+> **收官後仍待維護者手動處理或明確啟動（非核心可行性，見各 ADR 誠實邊界）：** ①**互審有效性五臂 A/B 實測**（設計文件 §7.2/7.3，注錯案例集由維護者 commit；**未達預註冊門檻前不宣稱降幻覺**）；②異模型 critic 的 OpenAI 相容傳輸（現 v1 走 anthropic_client）；③**自動背景續跑驅動**（ADR-0078 #8，明確劃出 Phase 4 範圍外＝另一提案）；④live E2E／episode 實跑（`scripts/run_tool_eval_episode.py`）。
 >
-> 約束：**由人類 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all(39)＋pytest＋vitest。
+> 約束：**由維護者 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all(39)＋pytest＋vitest。
 >
-> 依據：**8-agent 並行程式碼調查（2026-07-06）**涵蓋七子系統（ReAct 迴圈／ToukaDispatch／多代理原語／Mission Board／複審機制／持久化與可續跑／自主預算）＋收斂 synthesis。本提案的「現況盤點」為該調查的實地程式碼結論。
+> 依據：**2026-07-06 的平行程式碼調查**涵蓋七子系統（ReAct 迴圈／ToukaDispatch／多代理原語／Mission Board／複審機制／持久化與可續跑／自主預算）＋收斂 synthesis。本提案的「現況盤點」為該調查的實地程式碼結論。
 
 ---
 
@@ -21,7 +21,7 @@
 
 ---
 
-## 2. 目標功能規格（使用者原始需求）
+## 2. 目標功能規格（原始需求）
 
 | # | 需求 |
 |---|---|
@@ -137,7 +137,7 @@
 
 ## 9. 階段規劃（增量四階段，先窄後寬，每階段可獨立驗收）
 
-- **Phase 1（MVP 邊界）＝單一 in-process subagent 直派，無互審** ✅ **已完成（2026-07-07，[ADR-0134](../adr/0134-in-process-subagent-dispatch.md)；guard 39/39、pytest 2745、vitest 971；live E2E 待擁有者手動 smoke）**
+- **Phase 1（MVP 邊界）＝單一 in-process subagent 直派，無互審** ✅ **已完成（2026-07-07，[ADR-0134](../adr/0134-in-process-subagent-dispatch.md)；guard 39/39、pytest 2745、vitest 971；live E2E 待維護者手動 smoke）**
   只做 `dispatch_subagent` 工具＋in-process `deliver_result` 直呼。主 agent 能在 loop 內派**一個**子代理跑單一 task、拿回（純文字或最小結構化）結果、自行 `update_status`。重用 `get_stream_generator`＋`group.py` 串流收斂＋mission board＋callback store。先不碰多派/互審/權限重設（主 agent 用自己身分擁看板、子代理暫走非落盤 brain）。**這步就驗證「in-process 取代外派」的核心假設**，風險最低、最快端到端跑通。
 
 - **Phase 2＝結構化回報 ＋ finalize 閉環 ＋ 停止條件改綁看板完成度** ✅ **已完成（2026-07-07，[ADR-0135](../adr/0135-structured-report-finalize-and-board-bound-stop.md)；pytest 2775、guard 39/39）**
@@ -172,8 +172,8 @@
 ## 11. 決策與待明示項
 
 - **可行性已定調**＝`mostly-existing-plus-glue`，不需大重構；**建議照 §9 四階段增量落地**，Phase 1 MVP 先驗證核心假設。
-- **已明示（2026-07-07）**：「對抗式互審子系統」（§7.1 最難塊）的專門設計 workflow **已完成並定案**——見 [adversarial-review-subsystem-design.md](adversarial-review-subsystem-design.md)（A5 證據接地為骨幹、6 個未決設計點已由擁有者拍板、即 Phase 3 實作藍本）；擁有者並已核可**啟動 Phase 1 MVP**（2026-07-07 開工）。
-- **未決設計點**（進實作前需拍板）：(1) 看板歸屬模型＝「主擁看板、子回報 task」vs「父子 mission」；(2) 臨時 subagent 身分＝共用主 identity vs 非落盤臨時 identity；(3) 互審隔離＝不同 persona 同模型 vs 不同模型；(4) 續接策略＝輪詢 get_board vs 落盤等待狀態。
+- **已決定（2026-07-07）**：「對抗式互審子系統」（§7.1 最難塊）的專門設計 **已完成並定案**——見 [adversarial-review-subsystem-design.md](adversarial-review-subsystem-design.md)（A5 證據接地為骨幹、6 個未決設計點已由維護者決定、即 Phase 3 實作藍本）；維護者並已核可**啟動 Phase 1 MVP**（2026-07-07 開工）。
+- **未決設計點**（進實作前需決定）：(1) 看板歸屬模型＝「主擁看板、子回報 task」vs「父子 mission」；(2) 臨時 subagent 身分＝共用主 identity vs 非落盤臨時 identity；(3) 互審隔離＝不同 persona 同模型 vs 不同模型；(4) 續接策略＝輪詢 get_board vs 落盤等待狀態。
 - **每階段驗收沿用既有全套**：ruff＋lint_ssot＋guard_all＋pytest＋vitest；互審另加 pass^k/幻覺率離線 eval。
 
 ---
@@ -186,4 +186,4 @@
 - 持久化/韌性：`async_db`（SQLite）、`resource_manager`（原子寫入）、`stream_buffer_service`（[ADR-0081](../adr/0081-resumable-stream-cursor-buffer.md)）、`autonomy`（崩潰復原）；[ADR-0078](../adr/0078-resilience-and-failure-observability.md)（韌性；#8 自動續跑仍 TODO）
 - 自主/預算：`rhythm_service`、`autonomy_service`；[ADR-0001](../adr/0001-pulse-driven-architecture.md)（脈衝驅動）、[ADR-0012](../adr/0012-autonomy-governance-and-static-mandates.md)（自主預算大一統）
 - 複審種子：`services/creation/model_judge.py`（`ModelJudge`／Judge Protocol）、`services/creation/evaluation.py`；`prompt_blocks.build_validation_protocol`（[ADR-0123](../adr/0123-verification-convention.md)，self-critique 藍本）；`tests/tool_eval/metrics.py`（pass^k／幻覺率驗收）
-- 調查來源：本提案「現況盤點」出自 2026-07-06 的 8-agent 並行程式碼調查＋收斂 synthesis。
+- 調查來源：本提案「現況盤點」出自 2026-07-06 的平行程式碼調查＋收斂 synthesis。

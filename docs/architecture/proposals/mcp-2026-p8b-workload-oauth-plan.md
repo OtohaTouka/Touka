@@ -11,7 +11,7 @@
 >
 > **架構決策**：[ADR-0207](../adr/0207-mcp-workload-oauth-single-proxy.md)
 
-## 1. owner 已確認決策
+## 1. 維護者已確認的決策
 
 1. P8-B 只開直接 client credentials 與 owner 明示的 heartbeat delegation。
 2. 目前沒有企業 IdP；enterprise／SSO 等整個 MCP 更新完成後另案，不得以 Touka admin JWT 冒充 assertion。
@@ -65,7 +65,7 @@ mock 掉核心 authority fence 取得綠燈。
 1. 聚焦 pytest、Ruff、frontend Vitest/ESLint/typecheck。
 2. `scripts/guard_all.py`、完整 `pytest tests/`、完整 ToukaChat `npm run test`。
 3. OpenAPI/generated types、ADR/SSOT/interface/security/tests README、Compose config 同步。
-4. 未經 owner 確認前不勾 P8-B、不發布、不啟用；AI 不 stage、不 commit。
+4. 未經維護者確認前不勾 P8-B、不發布、不啟用；實作者不 stage、不 commit。
 
 ## 6. 回滾
 
@@ -80,7 +80,7 @@ mock 掉核心 authority fence 取得綠燈。
 - 多 worker／多主機 durable distributed permit 與 fencing。
 - foreground/dispatch workload delegation，以及任何 durable MRTR/task continuation。
 
-## 8. 第 2 輪第四版修復（2026-08-03）
+## 8. 審查後的第四版修復（2026-08-03）
 
 1. RED 證明 durable blocker 未進 permit admission、global fence 缺 exact completion token、profile delete
    epoch advance 後可能 reopen、same-generation metadata refresh 衝突。

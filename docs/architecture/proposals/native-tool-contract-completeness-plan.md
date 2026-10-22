@@ -1,38 +1,36 @@
 # 原生工具公開介面完整性修復與防回歸計畫
 
-> 狀態：**P1–P6_SOURCE_COMPLETE / DEV-B_ACCEPTED**；2026-09-15。
-> Owner 已批准 DEV-A 並委託主代理代審後續審核點；SUPERVISOR_DELEGATED／SUPERVISOR_ACCEPTANCE，非嚴格獨立資格。
-> 基線：`dev`，`1093e8d8e9a355c32b363c9dfa9b335dca474cb2`。核准版 322 行原 bytes 留在 task Temp 的 `OWNER_APPROVED_PLAN.md`。
-> P1–P4 來源與 sandbox focused 已完成；P5 初回歸與五組 fixture 修訂後799PASS、standalone24/24，最終full R3為9604P／11skip／5warnings，44候選／2422inputs無漂移；兩個HB條件skip另以synthetic原模組11P補驗，fresh非audit43/43與smoke24/24，最終DEV-B已由主代理SUPERVISOR_ACCEPTANCE；P1–P6來源計畫完成，見Root DEV-B 驗收原件。CI 僅來源接線，hosted NOT_RUN、required checks NOT_VERIFIED。
-> `research` 三欄位與 handler/schema 修改排除；Git、發布、部署、live 均不執行。原始 RED／測試 harness 錯誤與後補 GREEN 分開保存。
+> 狀態：**P1–P6 來源修復完成，已通過最終審查**；2026-09-15。現行做法見 [ADR-0228](../adr/0228-native-tool-public-input-contracts.md)。
+> 基線：`dev`，`1093e8d8e9a355c32b363c9dfa9b335dca474cb2`。
+> 驗證結果：P5 初次回歸並修訂五組 fixture 後 focused 799 通過、standalone smoke 24/24；最終完整 pytest 9604 通過／11 跳過／5 警告，44 個候選檔、2422 個輸入無漂移；兩個 Heartbeat 條件跳過另以合成測試補驗（11 通過）；非 audit guards 43/43、smoke 24/24。CI 只完成來源接線：當時未在 hosted runner 執行，也未核對 required checks。
+> 範圍排除 `research` 三欄位與其 handler/schema；本計畫不含 Git 操作、發布、部署與 live 驗證。
 
-### DEV-A R2 必要修訂（SUPERVISOR_ACCEPTANCE）
+### 計畫審查追加的修訂一：原生工具執行的角色授權
 
-Root 唯讀查證三 provider adapter → `handlers/react_core.py` → `ToolExecutor.execute_to_queue` 路徑；
-原生工具僅受 PaC 風險分級、缺少 RoleGrants 執行閘，schema 廣告不構成授權。
-已依實際 builtin／Memory 分支補 native name grant（builtin 優先），在 PaC／HITL 前拒絕，
-沿既有 `resolve_grants(identity.agent_role).tools.allows(name)`；不改角色/private config、MCP/plugin 路徑。
-新增精確檔案 `SECURITY.md`、`tests/unit/test_native_tool_execution_grants.py`；既有 executor、ADR、交班與測試文件同步。
-Guest／Base／無角色＋PaC ALLOW 的有效 RED 先保留；Owner wildcard／deny／legacy alias／重複名／MCP 舊閘與四級負例驗收。
-`research` 的既有角色 grant 執法亦受此通用修訂保護，三欄位與 handler/schema 不改、不外連。
-Root 已讀 12F 有效 RED 與 caller graph 並代審接受；原件 `ROOT_DEV_A_R2_ACCEPTANCE.json`。
-R2當時的歷史進度是進入實作與GREEN；目前完整來源驗收已DEV-B_ACCEPTED，原12F與各次GREEN仍各自保存。
+唯讀查證三個 provider adapter → `handlers/react_core.py` → `ToolExecutor.execute_to_queue` 的路徑後發現：
+原生工具只受 PaC 風險分級約束，缺少 RoleGrants 執行閘；schema 有廣告不代表有授權。
+修法：依實際 builtin／Memory 分支補上 native name grant（builtin 優先），在 PaC／HITL 之前拒絕，
+沿用既有 `resolve_grants(identity.agent_role).tools.allows(name)`；不改角色／私有設定與 MCP／plugin 路徑。
+新增或修改的精確檔案：`SECURITY.md`、`tests/unit/test_native_tool_execution_grants.py`；既有 executor、ADR、交接與測試文件同步。
+先保留 Guest／Base／無角色＋PaC ALLOW 的有效 RED；驗收 Owner wildcard／deny／legacy alias／重複名／MCP 舊閘與四級負例。
+`research` 既有的角色 grant 執法同樣受這項通用修訂保護；其三欄位與 handler/schema 不改、不外連。
+審查時確認了 12 個有效 RED 失敗案例與呼叫關係圖。
 
-### DEV-A R3 顯式環境來源（SUPERVISOR_ACCEPTANCE）
+### 計畫審查追加的修訂二：Memory 的環境檔來源
 
-full R2原Q48 fresh-child audit在Memory package bootstrap拒絕host.env探測，尚未到新contracts；確認為既有env來源不一致。
-新增精確 `ToukaMemory/src/memory_server/config_utils.py` 與 `tests/unit/test_memory_env_selection.py`；沿Proxy既有非空TOUKA_ENV_FILE優先，明示後不fallback，缺省保留原搜尋。
-先4F/3P後focused105P；原Q48 factory/audit兩例未改。不搬package/Task、不global disable、不檢查真.env；舊父程序I/O狀態NOT_PROVEN。
-Root原件 `ROOT_DEV_A_R3_ACCEPTANCE.json`；新增兩檔後實際候選44。新測前凍結與full驗收獨立於原R2失敗。
+完整 pytest 第二輪中，原 Q48 fresh-child audit 在 Memory package bootstrap 時因探測主機 `.env` 被拒，還沒跑到新 contracts；確認是既有的環境檔來源不一致。
+新增修改 `ToukaMemory/src/memory_server/config_utils.py` 與 `tests/unit/test_memory_env_selection.py`：比照 Proxy 既有做法，非空的 `TOUKA_ENV_FILE` 優先，明示後不 fallback，未設定時保留原搜尋。
+測試先 4 失敗／3 通過，修後 focused 105 通過；原 Q48 的 factory／audit 兩例未改。不搬動 package／Task、不全域停用、不檢查真 `.env`；舊父程序的 I/O 狀態未證明。
+新增這兩檔後，實際候選為 44 個。
 
-### P5 已代審的精確驗證修訂
+### 整體驗收（P5）的精確驗證修訂
 
 新增候選 `docs/architecture/NOQA_REGISTRY.md`：factual target_id／安全級測試 oracle 各一個精確 noqa，不做全域豁免。
 五個既有測試修訂：`tests/integration/test_tool_loop_budget.py`、`tests/unit/test_identity_sovereignty.py` 只給假工具精確 grant；
 `tests/unit/test_evolution_deploy_approval.py` 只補 typed evolution 必填合法 args；
 `tests/unit/test_guard_all_frontend_runtime.py` 同步45總／43非audit且保留未完整狀態斷言；
 `tests/unit/test_deployment_permissions.py` 以本機Git blob對齊真正consumer的raw bytes，保留固定digest並拒絕CRLF差異。
-不修改產品使錯誤fixture通過、不讀真.env、不改EOL／Git設定；原full FAIL保存。新的task-owned pytest Temp避開既有目錄權限，不改ACL。
+不為讓錯誤 fixture 通過而改產品、不讀真 `.env`、不改 EOL／Git 設定。pytest 暫存目錄改用新目錄避開既有目錄權限，不改 ACL。
 
 ### 已核對的實作細節修正
 
@@ -47,7 +45,7 @@ Root原件 `ROOT_DEV_A_R3_ACCEPTANCE.json`；新增兩檔後實際候選44。新
 新增工具、action、選填或巢狀欄位時，漏宣告、漏傳遞與轉換遺失應由本機檢查與 PR 檢查攔截。
 不把系統注入的身分／session、內部服務選項或退役別名當成應公開的工具能力。
 
-前兩輪唯讀調查以本基線的 registry、schema、ToolLayer、executor 與領域實作交叉比對：
+唯讀調查以本基線的 registry、schema、ToolLayer、executor 與領域實作交叉比對：
 
 - builtin registry 40 名、Memory registry 5 名，重複 3 名，合計 42 個可執行名稱。
 - builtin schema 30 名、Memory schema 3 名，mission 重複，合計 32 個可能揭露的原生工具名稱。
@@ -83,7 +81,7 @@ ADR 的 Tier 2 明確決定 identity／project_id 僅描述透明化、不進模
 ## 2. 修復明細與可核對的 RED
 
 以下 source 連結固定至基線 commit；以函式／欄位名稱定位，不依賴未來分支狀態。文件互連使用相對連結。
-下列「預期RED」保留DEV-A核准時的歷史TDD設計；目前已執行並完成來源驗收，實際RED／GREEN以原件為準。匯入錯誤、環境失敗或測試程式錯誤不得冒充有效RED。
+下列「預期 RED」是計畫核准時的 TDD 設計，保留作歷史紀錄；實際 RED／GREEN 已在實作中執行並完成來源驗收。匯入錯誤、環境失敗或測試程式錯誤不得冒充有效RED。
 
 ### 2.1 八組主要缺漏
 
@@ -211,7 +209,7 @@ AST 只覆蓋限定可分析模式；任意動態 Python 與描述的自然語�
 
 ## 5. Gherkin 與 TDD 對照
 
-以下為已明確需求的可執行場景，不另外要求 Owner 重複決定原已選範圍。
+以下為已明確需求的可執行場景。
 
 | 場景 | Given／When／Then | 預定測試／有效 RED |
 |---|---|---|
@@ -242,15 +240,15 @@ identity／policy／manager／provider client 必須使用既有 fixtures；Memo
 
 | 階段 | 工作與順序 | 階段出口 |
 |---|---|---|
-| P0：DEV-A | 審閱本計畫、範圍、風險與當次實作授權；重新核對 base／其他候選變更，不沿用 P11／IDE 核准 | 明確 DEV-A 結論；未通過只修計畫 |
+| P0：計畫審查 | 審閱本計畫、範圍、風險與實作授權；重新核對 base／其他候選變更，不沿用 P11／IDE 的審查結果 | 審查結論明確；未通過只修計畫 |
 | P1：基線與 RED | 建立精確 source／test inventory；補 M1–M8、C1–C6 的有效 RED；先帶 Memory schemas 修正漏測 fixture | 原始 RED 與環境異常分開；未修產品前看到正確失敗 |
 | P2：領域修復 | Memory contracts／ID／duplicate gateway → mission typed nested fields → Proxy 其他欄位與條件；每組 RED→GREEN→小重構 | 所有範圍內公開入口與資料效果測試 GREEN |
 | P3：合約與最終揭露 | 接受公開驗證、trusted context 分離、provider 投影；保留既有 aliases／權限／過濾 | 三 provider 真 schema 與 runtime 邊界測試 GREEN |
 | P4：防回歸 | 先寫 guard negative fixtures，再實作單項 guard；跨 registry smoke、guard_all、pytest 與最小 PR workflow | 所有故意缺漏確實 FAIL、合法新增 PASS；危險工具仍 WIRED_ONLY |
-| P5：整體驗收／文件 | focused、全 pytest、standalone smoke、lint／完整 guards 含 audit；同步文件、建立最終 exact candidate | DEV-B 材料完整，無未處理 ERROR／未知重大風險 |
-| P6：DEV-B／交付 | 依當次模式審核原件、計畫偏差與候選；Git／發布依另有有效授權辦理 | source acceptance 與 commit／release／live 狀態分開回報 |
+| P5：整體驗收／文件 | focused、全 pytest、standalone smoke、lint／完整 guards 含 audit；同步文件、建立最終 exact candidate | 最終審查材料完整，無未處理 ERROR／未知重大風險 |
+| P6：最終審查／交付 | 審查驗證紀錄、計畫偏差與候選變更；Git／發布另需有效授權 | 來源驗收與 commit／release／live 狀態分開回報 |
 
-### 6.1 本機驗證方式（原計畫命令；本輪進度以上方與交班為準）
+### 6.1 本機驗證方式（原計畫命令）
 
 使用既有 `.venv` Python 3.12，先 Activate 或把 `.venv/Scripts` 置於 PATH 首位。
 pytest 原生執行 `python -B -m pytest`；禁止 stdin／runpy 或全域 subprocess.Popen 包裝。
@@ -262,12 +260,12 @@ pytest 原生執行 `python -B -m pytest`；禁止 stdin／runpy 或全域 subpr
 4. 對候選 Python 執行既有 Ruff check／format check，確認 typing 匯入與 undefined name；執行 SSOT lint。
 5. `python -B scripts/guard_all.py` 完整範圍含新 guard／audit；若依現有入口分批跑 `--non-audit` 與 audit，逐批記錄而不稱單次全綠。
 6. audit evidence 使用 repo 外新目錄；完整 Python runtime／build-test、Torch CPU／editable 與 Node 各 scope 覆蓋保留。
-7. MkDocs build 至 task Temp、ADR／文件連結／tests README 計數與 exact diff 檢查。
+7. MkDocs build 至暫存目錄、ADR／文件連結／tests README 計數與 exact diff 檢查。
 
 未改 Chat／IDE 程式時，不額外重跑其整套 package 流程；完整 guards 中適用檢查照實保留。
 P11／IDE 的歷史 PASS 不能轉套本候選；重用需逐項證明輸入、內容與環境適用且標記 `REUSED_NOT_FRESH`。
 audit metadata 需 fresh 的範圍依當次完整驗收處理，離線／網路阻礙不能改稱零漏洞或全部完成。
-本節命令保留核准時的執行設計；逐組RED／GREEN、P5完整來源驗證及P6 DEV-B均已完成。每批以task Temp原件為準；P1驗證selector誤記依correction標UNKNOWN，不從測試結果反推原命令。
+本節命令保留核准時的執行設計；逐組 RED／GREEN、P5 完整來源驗證與 P6 最終審查均已完成。P1 有一處驗證 selector 記錄錯誤，標為 UNKNOWN，不從測試結果反推原命令。
 
 ### 6.2 最小 PR 檢查
 
@@ -284,18 +282,18 @@ PR 檢查範圍需涵蓋 contract／工具／executor／schema converter／guard
 
 ### 6.3 網路與停止條件
 
-核准時文件工作未下載／外傳；實作驗證沿授權由 Root 完成本輪兩 Python 與四 Node scopes audit。最終按13個inputs及audit腳本閉包明標 REUSED_NOT_FRESH；Node有10個scope findings／4個moderate套件，沒有HIGH/CRITICAL，不宣稱零漏洞。
+計畫階段未下載或外傳任何內容；實作驗證時完成兩個 Python 與四個 Node scope 的依賴稽核。最終依 13 個 inputs 與 audit 腳本閉包標記 REUSED_NOT_FRESH；Node 有 10 個 scope findings／4 個 moderate 套件，沒有 HIGH/CRITICAL，不宣稱零漏洞。
 後續必要官方依賴／advisory／Actions 作業在有效授權內，先記錄目的地、傳輸內容、命令、timeout 與重試上限；只送套件 metadata／核准來源。
-相同錯誤三次，或同方向兩輪無進展即停止同方向、保存原件並分析；不以換批次／代理清零。
+相同錯誤三次，或同方向兩輪無進展即停止同方向、保存紀錄並分析；不以換批次重新計數。
 無法安全隔離、發現未授權資料路徑、context 權限漂移、provider 欄位遺失或測試不可判定，均阻擋該階段出口。
-外部阻礙先完成獨立工作，剩餘標 `BLOCKED` 與實際缺口；不把平台限制包裝成 Owner 尚未同意原已授權事項。
+外部阻礙先完成獨立工作，剩餘標 `BLOCKED` 與實際缺口；不把平台限制包裝成維護者尚未同意已授權的事項。
 
 ## 7. 預定檔案範圍與文件同步
 
 以下是實作允許評估的路徑集合，**不是目前已修改或已驗收的 exact candidate**。
 每列先列目錄前綴，其後相對檔名皆接在該前綴下；不代表允許任意目錄檔案。列為既有的 tests 已核對實際存在。
 P1 在建立 RED 前列明每檔必要性與新增／修改；新增落點需先對照現有可重用 helper，避免重複模組。
-P5 結束後重建 tracked／staged／unstaged／untracked／deleted／renamed 精確清單，含內容與 patch SHA-256，再交 DEV-B。
+P5 結束後重建 tracked／staged／unstaged／untracked／deleted／renamed 精確清單，含內容與 patch SHA-256，再交最終審查。
 只收本計畫實際需要的檔案，其他人的修改保留；scope／bytes 改變即重建證據，不以資料夾 glob 當核准 manifest。
 
 | 類別 | 預定路徑／責任 |
@@ -327,18 +325,18 @@ AGENTS DATA_PROTECTION、權限規則與禁令原意不變；只校正 Tier 3 �
 - 不為符合名詞而新增基底類別、插件系統、通用 DSL 或第三份 registry；依真實重用需要抽取。
 
 風險定為 **HIGH**：變更公開工具參數、Memory 封存識別碼、可信 context 分離及 CI 執行入口。
-原始調查僅界定介面完整性；DEV-A R2 後另已確認並修補 native 執行分支缺少角色 grant 的授權缺口。來源風險須以 R2 負例及全回歸驗收；發布風險尚未驗收，不可用 schema 全綠取代身分、資料與執行層證據。
+原始調查僅界定介面完整性；計畫審查的修訂一另已確認並修補 native 執行分支缺少角色 grant 的授權缺口。來源風險須以修訂一的負例及全回歸驗收；發布風險尚未驗收，不可用 schema 全綠取代身分、資料與執行層證據。
 安全清單已規劃處理：身分注入維持 Gate／trusted identity；記憶篩選沿參數化 SQL與既有 limit；
 factual ID 僅在同 identity 授權結果中揭露；validation error 不回顯原內容／秘密；CI 無 secrets 且只跑 sandbox。
 密碼演算法、前端 token 儲存、新 HTTP 認證端點與 DB schema 皆不適用本案，不為此新增機制。
 
 相容性預設保留工具名稱與原 action，新增參數可選（forget／save 本來就需要的條件除外）。
 新 operation 不改內部直接 diag(action=...) 呼叫；internal export 與 alias 經明確路徑保留。
-不把描述修正變成偷偷改行號、配額預設、通知目標或寫入政策；若要改產品語意，回到 DEV-A 修正範圍。
+不把描述修正變成偷偷改行號、配額預設、通知目標或寫入政策；若要改產品語意，回到計畫審查修正範圍。
 
 ## 9. 回復與完成定義
 
-核准計畫原bytes已保存；實作前HANDOVER整檔原bytes未封存（NOT_RETAINED），不重建冒稱原件；實作來源回復只針對最終精確候選差異，不覆蓋他人修改或管理 runtime 資料。Git／live回復不在本輪執行範圍。
+實作來源的回復只針對最終精確候選差異，不覆蓋他人修改或管理 runtime 資料。Git／live 回復不在本計畫執行範圍。
 未來 source 修復以核准 exact manifest 做普通 revert／反向補丁；不 force push、不重寫歷史、不刪除發布產物。
 source rollback 不會撤銷已由產品完成的記憶封存或創建；本案測試只在 sandbox，因此不需要管理真資料。
 live 映像／發布／切換未納入目前任務，若後續另有授權，仍需 fresh qualification、image digest、rollback seal 與受管升級驗收。
@@ -346,12 +344,12 @@ live 映像／發布／切換未納入目前任務，若後續另有授權，仍
 
 實作完成必須同時具備：
 
-- M1–M8、C1–C6 均有有效 RED→GREEN；research 三欄、handler 與 schema 保持未變；DEV-A R2 的通用 native 執行 grant 閘亦適用其既有角色權限，這項授權行為為明示修訂。
+- M1–M8、C1–C6 均有有效 RED→GREEN；research 三欄、handler 與 schema 保持未變；修訂一的通用 native 執行 grant 閘亦適用其既有角色權限，這項授權行為為明示修訂。
 - query→forget／duplicate、mission review／evidence、quota／author 等有正式入口傳遞與必要 sandbox 效果證據。
 - builtin＋Memory 最終工具清單正確，三 provider 公開欄位不遺失，可信身份與全部原權限邊界保持。
 - 新工具／action／optional／nested 漏宣告的反例確實失敗；guard 已接入本機與 PR workflow，不把 branch protection 未核對寫成已強制。
 - 必要完整 pytest、standalone smoke、lint、guard／audit 與文件檢查通過；原 FAIL、skip、warning、NOT_RUN、重用限制清楚保留。
-- 精確 source candidate 與文件同步完成，DEV-B 依當次模式接受；Git／release／image digest／live 若未授權或未執行分別標示。
+- 精確 source candidate 與文件同步完成，並通過最終審查；Git／release／image digest／live 若未授權或未執行分別標示。
 
 靜態守衛與 deterministic tests 能防已定義的合約漂移，不能保證所有模型都理解自然語言描述，也不能證明任意動態程式沒有未知缺漏。
-核准後本輪完成定義為上述來源候選修復與必要完整驗收完成，最終由Root SUPERVISOR_ACCEPTANCE代審。不得將來源完成冒稱Git提交、CI遠端執行、release或live已完成。
+完成定義為上述來源候選修復與必要完整驗收完成，並通過最終審查。不得將來源完成冒稱Git提交、CI遠端執行、release或live已完成。

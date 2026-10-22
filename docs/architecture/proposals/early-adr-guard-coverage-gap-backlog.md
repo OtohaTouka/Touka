@@ -1,12 +1,12 @@
 # 早期 ADR 守衛涵蓋缺口待辦（Early-ADR Guard Coverage Gap Backlog，0001–0064）
 
-- **狀態**：🏁🏁 **0001–0139 全掃完（除退役 0072）＝掃描階段收官（2026-07-23）**。**全線總帳＝76 條 HIGH/MED 確認（6 HIGH／70 MED）＋~105 LOW 面值＋7 推翻**（E01-E34〔0001-0064〕+E35-E77〔0065-0139，除 E50=E45 重複〕）。詳見文末「🏁🏁 全線收官」。**🏁 批 LIVE（E35/E65/E76 三條 LIVE 生產缺口）全數修復＝ADR-0175（2026-07-23，owner 拍板①）。**🏁 批②＝ADR-0176（07-23）E39/E66 行為級測試釘死＝掃描 6 HIGH 全數收官。**🏁 批③＝ADR-0177（07-23）claude_adapter `_claude_request` fixture 盲點群 4 測全關（E54/E61/E72/E73 四 MED＋觸及 0128/0129 LOW 同點）。**🏁 批④＝ADR-0178（07-23）E77 路徑穿越回歸測試釘死（near-HIGH 安全收口）。餘批（⑤家族③⑦系統批）待 owner 另拍板。****三高槓桿治本全數收官（owner 拍板順序 ②→④→①，皆 2026-07-17）：🏁 批②（E02＋E17）＝ADR-0169、🏁 批④（E05/E06/E07）＝ADR-0170、🏁 批①（E09）＝ADR-0171（Guard #44）**。**🏁🏁 批 A 4 條 HIGH 全數收官：E02＝ADR-0169、E01/E03/E04＝ADR-0172（三支行為級測試，2026-07-19）。** **🏁🏁🏁 修碼線全線收官（2026-07-24）＝14 批（ADR-0169～0172／0175～0184）76 條 HIGH/MED 全數處置：4 生產修（E35/E65/E76/E75）＋2 守衛強化（Guard #44／FileLockAsyncRule check_Call）＋其餘行為級回歸測試釘死；E23 🏁 ADR-0185（CI 所有權探針）、~105 LOW 留檔備查＝**76+1 全數處置**。**
+- **狀態**：🏁🏁 **0001–0139 全掃完（除退役 0072）＝掃描階段收官（2026-07-23）**。**全線總帳＝76 條 HIGH/MED 確認（6 HIGH／70 MED）＋~105 LOW 面值＋7 推翻**（E01-E34〔0001-0064〕+E35-E77〔0065-0139，除 E50=E45 重複〕）。詳見文末「🏁🏁 全線收官」。**🏁 批 LIVE（E35/E65/E76 三條 LIVE 生產缺口）全數修復＝ADR-0175（2026-07-23，維護者決定的優先序①）。**🏁 批②＝ADR-0176（07-23）E39/E66 行為級測試釘死＝掃描 6 HIGH 全數收官。**🏁 批③＝ADR-0177（07-23）claude_adapter `_claude_request` fixture 盲點群 4 測全關（E54/E61/E72/E73 四 MED＋觸及 0128/0129 LOW 同點）。**🏁 批④＝ADR-0178（07-23）E77 路徑穿越回歸測試釘死（near-HIGH 安全收口）。餘批（⑤家族③⑦系統批）待維護者另行決定。****三高槓桿治本全數收官（維護者決定的順序 ②→④→①，皆 2026-07-17）：🏁 批②（E02＋E17）＝ADR-0169、🏁 批④（E05/E06/E07）＝ADR-0170、🏁 批①（E09）＝ADR-0171（Guard #44）**。**🏁🏁 批 A 4 條 HIGH 全數收官：E02＝ADR-0169、E01/E03/E04＝ADR-0172（三支行為級測試，2026-07-19）。** **🏁🏁🏁 修碼線全線收官（2026-07-24）＝14 批（ADR-0169～0172／0175～0184）76 條 HIGH/MED 全數處置：4 生產修（E35/E65/E76/E75）＋2 守衛強化（Guard #44／FileLockAsyncRule check_Call）＋其餘行為級回歸測試釘死；E23 🏁 ADR-0185（CI 所有權探針）、~105 LOW 留檔備查＝**76+1 全數處置**。**
 - **建立**：2026-07-17
-- **範圍**：「守衛涵蓋審查」回顧線對**早期 ADR** 的延伸（前作 `guard-coverage-gap-backlog.md` 僅掃 0140–0161）。本輪掃 ADR 0001–0064，逐篇抽載重不變式、查現有守衛/測試覆蓋，凡「零執法」者經**對抗式覆核**（獨立代理盡力推翻＋變異測試：mutate 被保護的那一行，看測試是否仍全綠）。
+- **範圍**：「守衛涵蓋審查」回顧線對**早期 ADR** 的延伸（前作 `guard-coverage-gap-backlog.md` 僅掃 0140–0161）。本輪掃 ADR 0001–0064，逐篇抽載重不變式、查現有守衛/測試覆蓋，凡「零執法」者經**對抗式覆核**（獨立覆核盡力推翻＋變異測試：mutate 被保護的那一行，看測試是否仍全綠）。
 - **結果（0001–0064）**：**34 條 HIGH/MED 確認缺口**（4 HIGH／30 MED）＋ ~57 條 LOW（11 已覆核＋~46 面值）＋ **4 條推翻假陽性**（附錄 A）。方法同前：基準 `guard_all.py` 43/43 全綠。
-- **原始資料**：session scratchpad `early_c1_FINAL.md`、`early_c2.md`…`early_c6.md`（每條含覆核裁決與 file:line 證據）。
+- **原始資料**：每條的覆核裁決與 file:line 證據原件未入版控。
 
-> 🏁 **掃描全集完成**：ADR 0001–0139（除退役 0072）全數掃過。續掃用的可重用 workflow＝`early-guard-coverage-scan`（analyze=sonnet→verify=opus，縮塊 7 篇/run、high/med 都覆核）；scratchpad early_c1_FINAL/early_c2..c17.md 為逐塊逐條原始資料。**下一步＝owner 拍板修碼分批（見文末優先序）。**
+> 🏁 **掃描全集完成**：ADR 0001–0139（除退役 0072）全數掃過。續掃方法：每塊 7 篇、high/med 都覆核；逐塊逐條原始資料未入版控。**下一步＝由維護者決定修碼分批（見文末優先序）。**
 
 ---
 
@@ -91,7 +91,7 @@
 ### E04 · 身分固定（operation-tool 消費點）無測（ADR-0047，🔴 HIGH，家族③）
 - **不變式**：operation tools 交給 MissionManager 做授權 AND 板路徑構造的身分物件，**永遠是固定非特權 DispatchAgent、絕不由 caller 提供的輸入衍生**（Vuln 1 身分偽冒／Vuln 2 路徑遍歷的核心）。
 - **失效模式**：若 operation tool 改由 caller 提供的欄位取身分 → 身分偽冒（越過 DispatchAgent 邊界）。
-- **現況執法**：❌ 部分假綠。握手/session token/過期/handshake-required 都有真執法（見 `early_c4.md` 0047 summary），**唯獨「operation tools 實際消費的身分」這條核心無行為測試**斷言它必為固定 DispatchAgent 而非 caller 衍生。
+- **現況執法**：❌ 部分假綠。握手/session token/過期/handshake-required 都有真執法，**唯獨「operation tools 實際消費的身分」這條核心無行為測試**斷言它必為固定 DispatchAgent 而非 caller 衍生。
 - **建議方向**：新增測試——以夾帶偽 identity 欄位的請求呼叫 operation tool，斷言授權與板路徑仍用固定 DispatchAgent（偽欄位被忽略）。與 E03 綁做（同 ToukaDispatch 身分家族）。
 
 ---
@@ -186,14 +186,14 @@
 
 ## 批 D — 家族③（源碼序/生產路徑無測）其餘 MED
 
-> 這些共通特徵：被保護的那一行變異後測試仍全綠；治本＝各補一條驅動真路徑的行為/端到端測試。逐條詳見 scratchpad；此處列不變式與建議。
+> 這些共通特徵：被保護的那一行變異後測試仍全綠；治本＝各補一條驅動真路徑的行為/端到端測試。此處列不變式與建議。
 
 - **E18 · ADR-0001 heartbeat awaken_url**：`ToukaHeartbeat/config.py:50-52` 硬編 route 字串與 Proxy 註冊路由無單一真源連結；proxy 端測試 mock 掉 `trigger_heartbeat`。→ 加跨服務契約測試（或 openapi route SSOT 對釘 client 字串）。
 - **E19 · ADR-0021 terminal auth_level**：`terminal.py:489 kwargs.get("auth_level","Manual")` 無測驅動非 Manual 過真 executor→terminal 路徑。→ 加測試餵 SafeAuto/FullYOLO 斷言 terminal 決策反映之。**🏁 ADR-0180（批⑤-B）**：spy `_classify_command_strategy` 捕 auth_level、execute_command 餵 FullYOLO/SafeAuto/預設→序列斷言；變異硬編 Manual → 紅。
 - **E20 · ADR-0022 DI 注入 resource_proxy**：`vault_tools.py:61` 唯一注入點，dispatcher 無 fallback；唯一 bridge 測 mock 掉 impl 只斷言 agent_id。→ 加測試斷言 dispatch payload 含 `resource_proxy`。
 - **E21 · ADR-0033 editor 路由遍歷**：`editor.py:46-51` `is_relative_to` 無測；還原為 `str.startswith` 重引兄弟目錄繞過全綠。→ 加 `/editor/files` 帶 `../` payload→拒絕測試。**🏁 ADR-0179（批⑤-A）**：TestClient 驅動端點斷言 `../` 夾制回 cwd（父目錄哨兵不可見）；變異 `if False` → 父目錄外洩 → 紅。
 - **E22 · ADR-0033 fetcher SSRF**：3 守衛皆可繞（inspect.getsource 字串鎖／AST 只查存在非 value=False／scoped 只 gemini）；grok fetcher 回 `follow_redirects=True`（帶空白）三者全繞。→ 加驅動真 client 構造斷言 value=False 的行為測試。**🏁 ADR-0179（批⑤-A）**：capture-kwargs parametrized 全 6 fetcher 斷言 `follow_redirects is False`＋MockTransport 302→metadata 不跟隨（威脅級）；變異 openai→True → 2 測紅。
-- **E23 · ADR-0038 touka-init chown/chmod**——🏁 已釘死（ADR-0185，owner 拍板 (a) CI 所有權斷言）：boot 閘實為雙漏網（GH runner uid 恰 1001＝bind mount 意外可寫／named volume 開機不寫）。已補 gate `exec -T -u 1001` 寫入探針（proxy 三掛載+heartbeat 設定目錄）＋dev/ghcr chown 涵蓋面與 workflow 接線三支靜態 pin（chown 段綁定防 chmod 行遮蔽）。其中 gate 寫入探針與 workflow 接線隨 release workflow 依 ADR-0238 刪除；chown 涵蓋面仍由 compose／Dockerfile 靜態測試鎖住。
+- **E23 · ADR-0038 touka-init chown/chmod**——🏁 已釘死（ADR-0185，維護者選定 (a) CI 所有權斷言）：boot 閘實為雙漏網（GH runner uid 恰 1001＝bind mount 意外可寫／named volume 開機不寫）。已補 gate `exec -T -u 1001` 寫入探針（proxy 三掛載+heartbeat 設定目錄）＋dev/ghcr chown 涵蓋面與 workflow 接線三支靜態 pin（chown 段綁定防 chmod 行遮蔽）。其中 gate 寫入探針與 workflow 接線隨 release workflow 依 ADR-0238 刪除；chown 涵蓋面仍由 compose／Dockerfile 靜態測試鎖住。
 - **E24 · ADR-0039 proxy Guest fallback**：`proxy.py:68-70/106-108` else 分支無測；唯一 Guest 測試只釘 pure helper `_build_guest_context`；改成讀 header 即提權全綠。→ 加端點測試：無認證+帶 X-Agent-ID→斷言解析為 Guest 且忽略 header。**🏁 ADR-0180（批⑤-B）**：TestClient spy process_proxy_request 斷言 ctx Guest/identity None/caps=[]；變異 guest 讀 X-Agent-ID → 紅。
 - **E25 · ADR-0042 from_flat_list**：`ui_sessions.py:200` 呼叫，但所有 collected 測試 payload 皆空 list（不進迴圈）；刪 childrenIds append 全綠。→ 加非空 legacy flat-list→斷言 parentId 鏈/childrenIds/currentId。
 - **E26 · ADR-0045 /ui/mission model_dump()**——🏁 已釘死（ADR-0181）：`ui_sessions.py:801` 無測（測試都停 404/403 不 seed 真 mission）；`return mission` 全 11 綠→有 active mission 時 500。已補 stub 回真 MissionState→GET 斷言 200 且回 dict（變異 `return mission` 撞 `dict[str, Any]` 回應驗證→500→紅）。
@@ -215,13 +215,13 @@
 
 ## LOW 面值（~57，低優先，多需主動改壞/dev-only）
 
-> 這些多屬「需主動改壞才觸發」「dev/顯示層」「防禦縱深冗餘」「有下游 backstop」。列入待辦但優先序最低；完整證據見 scratchpad。**其中一組可隨家族治本一併補**：
+> 這些多屬「需主動改壞才觸發」「dev/顯示層」「防禦縱深冗餘」「有下游 backstop」。列入待辦但優先序最低；完整證據原件未入版控。**其中一組可隨家族治本一併補**：
 
 - **compare_digest 計時安全三連（0046/0047/0050）**：`ToukaDispatch/server.py:67` `_verify_dispatch_token` 用 compare_digest 但無測，改 `==` 過 100% 套件；兩姊妹站（auth_service/heartbeat）各有源碼字串守衛、dispatch server 獨缺→**一支源碼字串測試補齊三處**。
 - **0049×5（filelock 家族）**——🏁 全數收口（ADR-0182）：release 無測／`_file_locks` 快取物件同一性無測／`_reset` 只驗 `_asyncio_locks` 漏 `_file_locks`／30s finite timeout 無測（四條補測＋各自變異紅）；**`FileLockAsyncRule` 盲點（漏 `import filelock; filelock.FileLock()`）＝守衛補 `check_Call` 攔截**（TDD 向先紅後綠、真樹預檢零既有違規）。
 - **0053×3**：change_own_password 清 is_temp_password 無測（自助改密後橫幅永掛）／embedding switch 不觸發 re-embed 負向不變式無測／**bootstrap admin 密碼須隨機非硬編無測**（改固定字串仍過所有測試；開源=源碼可見預設 admin 密碼提權，緩解 is_temp_password 橫幅）。
 - **dev-tooling 群（0054/0055/0056/0057/0058）**：tsconfig.guard include 涵蓋／npm test 不縮範圍／`as any` 禁令零守衛且 eslint 主動矛盾（家族①）／mock 漂移偵測只 filter 9 硬編檔名／pool:'forks'+maxWorkers 只驗子串／model_copy 源碼字串鎖／PipelineContext 型別註解無 type checker。多有 Docker build/手動 npm test backstop。
-- **其餘（0004 pathfuncs／0007 autotrigger／0008 CORS expose_headers／0016×3 依賴守衛自測／0017 sys.path.insert〔家族①〕／0020×2 soul prune+config 合併／0023 noqa 精確／0042 currentId 缺失 raise+cyclic 回退／0026 localStorage alias/bracket／0027 TypeError 成員／0030 sqlite3 basename 白名單／0031×2 console runner glob+註冊／0033 sanitize/SQL IN／0035 is_home_mode 衍生／0062 View confirmToast gate／0064 clear_mission_tokens 輪替）**：逐條見 scratchpad。
+- **其餘（0004 pathfuncs／0007 autotrigger／0008 CORS expose_headers／0016×3 依賴守衛自測／0017 sys.path.insert〔家族①〕／0020×2 soul prune+config 合併／0023 noqa 精確／0042 currentId 缺失 raise+cyclic 回退／0026 localStorage alias/bracket／0027 TypeError 成員／0030 sqlite3 basename 白名單／0031×2 console runner glob+註冊／0033 sanitize/SQL IN／0035 is_home_mode 衍生／0062 View confirmToast gate／0064 clear_mission_tokens 輪替）**。
 
 ---
 
@@ -244,7 +244,7 @@
 
 ## 塊7 追加（ADR 0065–0071，2026-07-22）
 
-> 續掃第一塊（workflow `early-guard-coverage-scan`，analyze=sonnet ×7 → verify=opus ×3）。本塊為新期基礎建設 ADR（dispatch/skill/creation/guard 本體），整飭度高、低產但乾淨：**37 條不變式中 34 REAL、3 條 MED 確認缺口、~6 LOW**。原始資料 scratchpad `early_c7.md`。
+> 續掃第一塊。本塊為新期基礎建設 ADR（dispatch/skill/creation/guard 本體），整飭度高、低產但乾淨：**37 條不變式中 34 REAL、3 條 MED 確認缺口、~6 LOW**。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -287,7 +287,7 @@
 
 ## 塊8 追加（ADR 0073–0079，2026-07-22；0072 已退役跳過）
 
-> 續掃第二塊。**1 HIGH + 3 MED 確認（E38–E41）＋~5 LOW＋4 降級為 LOW**；⭐E39 是首見自批 A 以來的 HIGH（auth-level 提權家族③，0021 翻版）。REAL 涵蓋強（0074 catalog 安裝安全 8 條 / 0077 退役 / 0078 韌性群）。原始資料 scratchpad `early_c8.md`。
+> 續掃第二塊。**1 HIGH + 3 MED 確認（E38–E41）＋~5 LOW＋4 降級為 LOW**；⭐E39 是首見自批 A 以來的 HIGH（auth-level 提權家族③，0021 翻版）。REAL 涵蓋強（0074 catalog 安裝安全 8 條 / 0077 退役 / 0078 韌性群）。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -329,7 +329,7 @@
 
 ## 塊9 追加（ADR 0080–0086，2026-07-22）
 
-> 續掃第三塊。**5 MED 確認（E42–E46，無 HIGH）＋~5 LOW＋2 降級為 LOW**；0086 無痕（zero-residue）2 條隱私缺口為本塊重點，但其四道核心後端閘皆 REAL（核心零殘留成立、缺口是邊角）。ADR-0082（dispatch 併入 proxy）全乾淨。原始資料 scratchpad `early_c9.md`。
+> 續掃第三塊。**5 MED 確認（E42–E46，無 HIGH）＋~5 LOW＋2 降級為 LOW**；0086 無痕（zero-residue）2 條隱私缺口為本塊重點，但其四道核心後端閘皆 REAL（核心零殘留成立、缺口是邊角）。ADR-0082（dispatch 併入 proxy）全乾淨。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -370,7 +370,7 @@
 
 ## 塊10 追加（ADR 0087–0093，2026-07-22）
 
-> 續掃第四塊。**4 新 MED 確認（E47/E48/E49/E51）＋1 重複（E50=E45）＋1 OVERTURNED（第 5 個推翻）＋~4 LOW**；0088/0089/0090 全乾淨（**0089 唯讀工具 auto-allow 守衛扎實**）。原始資料 scratchpad `early_c10.md`。
+> 續掃第四塊。**4 新 MED 確認（E47/E48/E49/E51）＋1 重複（E50=E45）＋1 OVERTURNED（第 5 個推翻）＋~4 LOW**；0088/0089/0090 全乾淨（**0089 唯讀工具 auto-allow 守衛扎實**）。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -411,7 +411,7 @@
 
 ## 塊11 追加（ADR 0094–0100，2026-07-23）
 
-> 續掃第五塊（多為守衛/config 本體）。**3 MED 確認（E52/E53/E54，皆家族③「wiring 無測」）＋~3 LOW＋2 降級為 LOW**；0095/0097 守衛乾淨、**0094 成本煞車核心 REAL**。原始資料 scratchpad `early_c11.md`。
+> 續掃第五塊（多為守衛/config 本體）。**3 MED 確認（E52/E53/E54，皆家族③「wiring 無測」）＋~3 LOW＋2 降級為 LOW**；0095/0097 守衛乾淨、**0094 成本煞車核心 REAL**。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -443,7 +443,7 @@
 
 ## 塊12 追加（ADR 0101–0107，2026-07-23）
 
-> 續掃第六塊。**2 MED 確認（E55/E56）＋~7 LOW＋多條降級**；0101/0105 乾淨。**⭐三支安全相關 ADR 核心皆 REAL 無 confirmed MED**（0104 破壞性重置／0106 頭像安全部分／0107 密碼閘）。原始資料 scratchpad `early_c12.md`。
+> 續掃第六塊。**2 MED 確認（E55/E56）＋~7 LOW＋多條降級**；0101/0105 乾淨。**⭐三支安全相關 ADR 核心皆 REAL 無 confirmed MED**（0104 破壞性重置／0106 頭像安全部分／0107 密碼閘）。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -474,11 +474,11 @@
 
 ## 塊13 追加（ADR 0108–0114，2026-07-23）
 
-> 續掃第七塊（**最高產：9 MED 確認 E57–E65**）＋~6 LOW；0114 乾淨。**⚠️ E65 是第 2 個 LIVE 生產缺口**（繼 E35）：per-agent reset 靜默刪除使用者上傳檔。安全關鍵 ADR 核心仍多 REAL（0110 GDPR/0113 reset 結構/0114 sandbox）。原始資料 scratchpad `early_c13.md`。
+> 續掃第七塊（**最高產：9 MED 確認 E57–E65**）＋~6 LOW；0114 乾淨。**⚠️ E65 是第 2 個 LIVE 生產缺口**（繼 E35）：per-agent reset 靜默刪除使用者上傳檔。安全關鍵 ADR 核心仍多 REAL（0110 GDPR/0113 reset 結構/0114 sandbox）。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| E65 | 0113 | 🟡 MED〔HIGH 降〕**LIVE** | — | **per-agent reset rmtree 整個 outputs/ 但聊天上傳刻意巢狀 outputs/uploads/→每次 reset 靜默刪 owner 說要保留的上傳檔**；ADR 前提事實錯誤、cited 測試反而斷言 outputs 全刪 | 🏁 ADR-0175 |
+| E65 | 0113 | 🟡 MED〔HIGH 降〕**LIVE** | — | **per-agent reset rmtree 整個 outputs/ 但聊天上傳刻意巢狀 outputs/uploads/→每次 reset 靜默刪除依決策應保留的上傳檔**；ADR 前提事實錯誤、cited 測試反而斷言 outputs 全刪 | 🏁 ADR-0175 |
 | E57 | 0108 | 🟡 MED | ④ | AES-256 強度未斷言——測試只驗「能加密開啟」；`nbits=256→128` 全綠（跨服務契約 i18n/SECURITY/0110/0112 複用） | ⬜ |
 | E58 | 0108 | 🟡 MED | ⑧③ | download 端點路徑穿越/.zip 防護未觸發——姊妹 delete 有 non-zip 測試 download 無；移防線全綠 | 🏁 ADR-0179 |
 | E59 | 0109 | 🟡 MED | ⑦ | backup_execution_lock 併發互斥無測——測試零引用鎖名/無 asyncio.gather；移 `async with` 全綠（排程+手動備份重疊損壞） | 🏁 ADR-0182 |
@@ -489,8 +489,8 @@
 | E64 | 0112 | 🟡 MED | ③ | settings-import 成功路徑無測——只測 wrong 密碼/dry_run（反而斷言 create_backup 未呼叫）；去備份/去鎖全綠（喪失還原點+TOCTOU） | 🏁 ADR-0181 |
 
 ### E65 · per-agent reset 刪使用者上傳檔（ADR-0113，🟡 MED〔verify HIGH→MED〕，⚠️ LIVE）——🏁 已修（ADR-0175）
-- **owner 決策（D1）保留使用者上傳聊天檔**，ADR 前提「既有原語只清 outputs/missions 子目錄天然不碰上傳檔」。**但 get_uploads_path（resource_manager.py:116-129）刻意把上傳巢狀在 `<vault>/outputs/uploads`**（docstring 明載），purge_outputs（primitives.py:89-95）rmtree 整個 outputs/ 樹∈ALL_STORES→**每次 per-agent reset（及共用原語的 DebugAgent path）靜默刪上傳檔＝ADR 前提事實錯誤**。假綠＝test_custom_agent_identity_survives_reset 從不建 outputs/uploads/*、line 191 反斷言 outputs 全刪。降級因 agent-scoped+orchestrator backup-first backstop。**治本＝purge_outputs 排除 outputs/uploads/ 子樹。**
-- 其餘 E57-E64 詳見 scratchpad `early_c13.md`（每條含 file:line/變異/釘死）。**共通：E61/E62/E63/E64 皆「函式被測、接線/成功路徑無測」家族③；E59 家族⑦併發鎖只物件耦合；E57 家族④只驗能加密不驗強度；E58/E60 安全圍堵防線觸發分支從不走到。**
+- **維護者決策（D1）保留使用者上傳的聊天檔**，ADR 前提「既有原語只清 outputs/missions 子目錄天然不碰上傳檔」。**但 get_uploads_path（resource_manager.py:116-129）刻意把上傳巢狀在 `<vault>/outputs/uploads`**（docstring 明載），purge_outputs（primitives.py:89-95）rmtree 整個 outputs/ 樹∈ALL_STORES→**每次 per-agent reset（及共用原語的 DebugAgent path）靜默刪上傳檔＝ADR 前提事實錯誤**。假綠＝test_custom_agent_identity_survives_reset 從不建 outputs/uploads/*、line 191 反斷言 outputs 全刪。降級因 agent-scoped+orchestrator backup-first backstop。**治本＝purge_outputs 排除 outputs/uploads/ 子樹。**
+- 其餘 E57-E64 逐條的 file:line／變異／釘死細節原件未入版控。**共通：E61/E62/E63/E64 皆「函式被測、接線/成功路徑無測」家族③；E59 家族⑦併發鎖只物件耦合；E57 家族④只驗能加密不驗強度；E58/E60 安全圍堵防線觸發分支從不走到。**
 
 ### 塊13 LOW 面值（~6）
 - L-0108 Semaphore(2) 節流（⑦）/加密暫存成功路徑清理／L-0109 GET /backup/schedule non-admin（⑧）／L-0110 總量 1GiB 上限（多檔累計）/併發匯出 Semaphore（⑦）／L-0111 pipeline 精準度層序（各層獨立測未貫穿真 pipeline）／L-0113 assert_agent_resettable ownership leg（唯一 admin-only 呼叫端 require_admin 使 is_owner bypass 恆 True＝零實效，ADR 自陳保留供未來）。
@@ -505,7 +505,7 @@
 
 ## 塊14 追加（ADR 0115–0121，2026-07-23）
 
-> 續掃第八塊。**1 HIGH（E66）＋4 新 MED（E67-E70）＋1 重複（E36 自 0118 再現）＋1 OVERTURNED（第 6 個）＋3 降級**；0116 乾淨。安全關鍵 ADR 核心仍多 REAL（0119 檔案動詞/0120 跨身分隔離）。原始資料 scratchpad `early_c14.md`。
+> 續掃第八塊。**1 HIGH（E66）＋4 新 MED（E67-E70）＋1 重複（E36 自 0118 再現）＋1 OVERTURNED（第 6 個）＋3 降級**；0116 乾淨。安全關鍵 ADR 核心仍多 REAL（0119 檔案動詞/0120 跨身分隔離）。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -517,7 +517,7 @@
 
 ### E66 · vault-jailed MCP 咽喉注入無測（ADR-0115，🔴 HIGH，③，CONFIRMED）——🏁 已釘死（ADR-0176）
 - ADR-0115 #1 鐵則+D1：檔案 MCP 存取永不跨 agent、vault 根由驗證身分決定模型不可指定。tool_executor.py:540-542 apply()＝唯一咽喉注入（覆寫 args[vault_jail_arg] per-agent，fail-closed）。**test_mcp_vault_jail.py 全 8 測手造假 _Reg/AgentIdentity 直呼 J.apply()、從不經 executor；真跑 execute_to_queue 皆 protocol_manager=None（MCP 分支不進）**。變異刪 3 行→全綠、**fails OPEN cross-agent vault 讀（sandbox/IDOR 隔離破壞）**；D3 env backstop 只限 app_data 根非 per-agent 不能替代。**⚠️ 生產現況正確（注入在位）＝覆蓋缺口非 live；HIGH 因安全鐵則+變異 fails open**。釘死＝mock protocol_manager resolve_tool 回 server_id，餵模型 base_dir='/etc' 斷言 call_tool_on_server 收到 agent vault 根非 /etc。
-- E67/E68/E69/E70 詳見 scratchpad `early_c14.md`（各含 file:line/變異/釘死）。**共通：E66/E67/E70 皆「函式/本體被測、接線無測」家族③（被 mock 遮蔽）；E69 身分主權 merge 序 defense-in-depth（下游 vault_tools 從 identity.agent_id 重錨＝偽 identity AttributeError＝MED 非 HIGH）；E68 供應鏈換 index 來源不改 spec 字串。**
+- E67/E68/E69/E70 逐條的 file:line／變異／釘死細節原件未入版控。**共通：E66/E67/E70 皆「函式/本體被測、接線無測」家族③（被 mock 遮蔽）；E69 身分主權 merge 序 defense-in-depth（下游 vault_tools 從 identity.agent_id 重錨＝偽 identity AttributeError＝MED 非 HIGH）；E68 供應鏈換 index 來源不改 spec 字串。**
 
 ### 重複＋推翻
 - **E36 自 0118 再現**：apply_switch「絕不 re-embed／動 FactualStore」無負向斷言＝與 ADR-0070 同產碼（embedding_service.py:162-174），verify 明標「非新缺口」（第 3 次跨 ADR 表面化）。
@@ -534,7 +534,7 @@
 
 ## 塊15 追加（ADR 0122–0128，工具遙測/觀測性系列，2026-07-23）
 
-> 續掃第九塊。**2 MED（E71/E72）＋1 OVERTURNED（第 7 個）＋2 降級**；0122/0126 乾淨。**🔑 E72 是 claude_adapter `_claude_request` fixture tools=None 盲點第 3 現（E54 工具/E61 取樣/E72 快取斷點同源）。⭐G-3 危險 background 徽章經掃描確認 REAL。** 原始資料 scratchpad `early_c15.md`。
+> 續掃第九塊。**2 MED（E71/E72）＋1 OVERTURNED（第 7 個）＋2 降級**；0122/0126 乾淨。**🔑 E72 是 claude_adapter `_claude_request` fixture tools=None 盲點第 3 現（E54 工具/E61 取樣/E72 快取斷點同源）。⭐G-3 危險 background 徽章經掃描確認 REAL。**
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -566,7 +566,7 @@
 
 ## 塊16 追加（ADR 0129–0135，2026-07-23）
 
-> 續掃第十塊。**2 MED（E73/E74）＋3 降級**；**⭐0131 認證續期/LDH DebugAgent 挾持收斂、0132 session owner_user_id 授權地基＝兩支安全地基 ADR 全乾淨、0135 亦乾淨**。原始資料 scratchpad `early_c16.md`。
+> 續掃第十塊。**2 MED（E73/E74）＋3 降級**；**⭐0131 認證續期/LDH DebugAgent 挾持收斂、0132 session owner_user_id 授權地基＝兩支安全地基 ADR 全乾淨、0135 亦乾淨**。
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -594,7 +594,7 @@
 
 ## 塊17 末塊追加（ADR 0136–0139，2026-07-23，收官塊）
 
-> **3 MED（E75/E76/E77）＋2 降級**。**⚠️ E76 是第 3 個 LIVE 生產缺口；E77 是 near-HIGH 安全覆蓋缺口。ADR-0137 對抗式互審子系統多數載重不變式 REAL（雙層 gate/自簽防線/TOCTOU/fail-closed/隔離皆扎實）。** 原始資料 scratchpad `early_c17.md`。
+> **3 MED（E75/E76/E77）＋2 降級**。**⚠️ E76 是第 3 個 LIVE 生產缺口；E77 是 near-HIGH 安全覆蓋缺口。ADR-0137 對抗式互審子系統多數載重不變式 REAL（雙層 gate/自簽防線/TOCTOU/fail-closed/隔離皆扎實）。**
 
 | ID | ADR | 嚴重 | 家族 | 一句話 | 狀態 |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -625,10 +625,10 @@
 - **🏁 3 條 LIVE 生產缺口（皆 MED、生產真的壞）全數修復＝ADR-0175（2026-07-23，批 LIVE）**：**E35**（delete_skill is_system 讀頂層鍵→改 read_touka_field，巢狀＋round-trip 雙釘死）、**E65**（reset rmtree outputs/ 吞上傳→purge/remaining 一致排除 uploads＋RETAINED 列示）、**E76**（互審成本閘 config 未傳→mission_tools 補 config=autonomy_service.config＋端到端 BLOCKED 測試）。皆紅→綠變異驗證。
 - **🔑 單一 fixture 修可關 4 MED+2 LOW**：E54/E61/E72/E73＝claude_adapter.py:106-120 全 tools/system wiring 因 `_claude_request()` 不設 tools 也不設 system 而死碼。**🏁 批③＝ADR-0177（07-23）帶 tools/取樣/assembled-system 變體 4 測全關（OpenAI ingress 測 E54/E61；native ingress 測 E72/E73——轉換器預埋斷點會遮蔽 E72 變異故必須 native）；5 變異全紅、0128/0129 LOW 同點一併觸及。**
 - **near-HIGH 安全覆蓋缺口**：E77（dispatch token 路徑穿越 sanitize 無測，生產正確但迴歸即 arbitrary-file-read）——**🏁 批④＝ADR-0178（07-23）7 測釘死（結構監獄邊界×5＋read 外洩誘餌＋persist 覆寫對稱）；M-A 移 sanitize 7 測全紅、M-B 窄化 backslash token 紅**。
-- **7 推翻**：0010/0011/0023/0024＋0091（gemini key SSOT）＋0119（CRITICAL_TOOLS）＋0124（legacy 後備）＝adversarial opus verify 主動找到 analyze 漏看的真執法測試（sonnet analyze grep 太窄的假陽性由 opus verify 攔下）。
+- **7 推翻**：0010/0011/0023/0024＋0091（gemini key SSOT）＋0119（CRITICAL_TOOLS）＋0124（legacy 後備）＝對抗式覆核（verify）主動找到初步分析（analyze）漏看的真執法測試（analyze grep 太窄造成的假陽性在 verify 攔下）。
 - **最系統性假綠型態＝家族③「wiring/接線無測」**：SSOT 函式/守衛邏輯/純函式孤立驗證扎實，但生產呼叫端/接線/成功路徑/失敗分支無回歸（E47/E52/E54/E55/E61-E64/E71-E73/E75/E76…）＝本 repo 最普遍。次為⑦併發只物件耦合無真並行（E28/E43/E49/E59/E74）、⑧不對稱姊妹（E33/E34/E56/E58）、④只驗存在不驗值/等級/強度（E05-E07/E51/E57）、②smoke 不收集（E02/0103）、⑥被測函式生產無呼叫端（E41/E75）。
 - **⭐ 好消息：安全關鍵 ADR 核心普遍 REAL**：0104 破壞性重置/0106 頭像/0107 密碼閘/0110 GDPR/0113 reset 結構/0114 sandbox/0131 LDH DebugAgent 挾持/0132 owner_user_id 授權地基/0137 互審自簽+雙層 gate 皆多 REAL＝缺口集中邊角/接線而非安全核心。
-- **owner 拍板修碼優先序建議**：①**3 LIVE 缺口修碼 🏁 ADR-0175（07-23）**（E35 read_touka_field／E65 purge_outputs 排除 uploads／E76 mission_tools 補 config=）②**2 未修 HIGH 補行為測試 🏁 ADR-0176（07-23）**（E39 heartbeat retrigger auth_level／E66 vault-jail 咽喉注入）③**單一 fixture 修關 claude_adapter 群 🏁 ADR-0177（07-23）**（E54/E61/E72/E73）④**near-HIGH E77 補路徑穿越回歸測試 🏁 ADR-0178（07-23）**⑤家族③/⑦系統性補接線測試（分 ⑤-A～⑤-F 六子批，比照三高槓桿）：**⑤-A 安全邊界 🏁 ADR-0179（07-23）**（E21/E22/E45/E46/E58）＋**⑤-B 身分主權/RBAC 🏁 ADR-0180（07-23）**（E24 guest fallback／E27 dispatch 非特權／E69 executor call_kwargs／E19 terminal auth_level／E31/E32 dispatcher 可見性）＋**⑤-C 啟動/設定收斂 🏁 ADR-0181（07-23）**（E52 bootstrap fail-fast／E55 skill↔MCP 啟動接線／E63 匯入熱載入／E64 成功路徑備份+鎖／E26 mission 200 序列化；lifespan TestClient 骨架落地）＋**⑤-D 真併發/真行程 🏁 ADR-0182（07-24）**（E28 跨行程 file lock／0049×5 filelock 家族含 FileLockAsyncRule check_Call 守衛強化／E49 per-session 鎖 gather 序列化／E59 備份執行鎖／E70 逾時殺樹／E71 真子進程增量+逾時／E74 子 loop 硬上限；gather+in-flight 探針與真 shell 子進程夾具兩骨架落地）＋**⑤-E 派工/串流雜項 🏁 ADR-0183（07-24）**（E20 橋接 DI／E25 扁平遷移／E29 終態回呼 trigger／E43 孤兒收割／E44 ask_user 閘 A/B／E47 deep_research 貫穿／E62 群聊取樣一致／**E75 生產修＝hard_checks_pass 接 has_passing_assertions＝backlog 生產缺口全數歸零**）＋**⑤-F 前端 vitest 🏁 ADR-0184（07-24）**（E30 x-touka-skills header 建構／E42 artifact 協調呼叫時機）。**🏁🏁 修碼線全線收官（07-24）＝76 條 HIGH/MED 全數處置：14 批（ADR-0169～0172／0175～0184）、4 生產修（E35/E65/E76/E75）、2 守衛強化（Guard #44 誕生／FileLockAsyncRule check_Call）**；E23 🏁 ADR-0185（CI fresh-volume 所有權寫入探針＋chown 涵蓋面靜態釘死）＝**76+1 全數處置**；~105 LOW 面值留檔備查。
-- **產物**：本 backlog（E01-E77 living doc）＋scratchpad early_c1_FINAL/early_c2..c17.md（逐條 file:line/變異/釘死）＋memory `touka-guard-adr-review`。**均未 commit（owner 慣例自行）。**
-- **方法**：`Workflow scriptPath=wf_early_scan_chunk.js args={adrs:[...7 篇...],pending:[]}`；縮塊 7 篇/run（~900K tok）、high/med 都覆核、LOW 面值；每塊跑完落 scratchpad + 更新本表。
+- **修碼優先序建議（經維護者決定）**：①**3 LIVE 缺口修碼 🏁 ADR-0175（07-23）**（E35 read_touka_field／E65 purge_outputs 排除 uploads／E76 mission_tools 補 config=）②**2 未修 HIGH 補行為測試 🏁 ADR-0176（07-23）**（E39 heartbeat retrigger auth_level／E66 vault-jail 咽喉注入）③**單一 fixture 修關 claude_adapter 群 🏁 ADR-0177（07-23）**（E54/E61/E72/E73）④**near-HIGH E77 補路徑穿越回歸測試 🏁 ADR-0178（07-23）**⑤家族③/⑦系統性補接線測試（分 ⑤-A～⑤-F 六子批，比照三高槓桿）：**⑤-A 安全邊界 🏁 ADR-0179（07-23）**（E21/E22/E45/E46/E58）＋**⑤-B 身分主權/RBAC 🏁 ADR-0180（07-23）**（E24 guest fallback／E27 dispatch 非特權／E69 executor call_kwargs／E19 terminal auth_level／E31/E32 dispatcher 可見性）＋**⑤-C 啟動/設定收斂 🏁 ADR-0181（07-23）**（E52 bootstrap fail-fast／E55 skill↔MCP 啟動接線／E63 匯入熱載入／E64 成功路徑備份+鎖／E26 mission 200 序列化；lifespan TestClient 骨架落地）＋**⑤-D 真併發/真行程 🏁 ADR-0182（07-24）**（E28 跨行程 file lock／0049×5 filelock 家族含 FileLockAsyncRule check_Call 守衛強化／E49 per-session 鎖 gather 序列化／E59 備份執行鎖／E70 逾時殺樹／E71 真子進程增量+逾時／E74 子 loop 硬上限；gather+in-flight 探針與真 shell 子進程夾具兩骨架落地）＋**⑤-E 派工/串流雜項 🏁 ADR-0183（07-24）**（E20 橋接 DI／E25 扁平遷移／E29 終態回呼 trigger／E43 孤兒收割／E44 ask_user 閘 A/B／E47 deep_research 貫穿／E62 群聊取樣一致／**E75 生產修＝hard_checks_pass 接 has_passing_assertions＝backlog 生產缺口全數歸零**）＋**⑤-F 前端 vitest 🏁 ADR-0184（07-24）**（E30 x-touka-skills header 建構／E42 artifact 協調呼叫時機）。**🏁🏁 修碼線全線收官（07-24）＝76 條 HIGH/MED 全數處置：14 批（ADR-0169～0172／0175～0184）、4 生產修（E35/E65/E76/E75）、2 守衛強化（Guard #44 誕生／FileLockAsyncRule check_Call）**；E23 🏁 ADR-0185（CI fresh-volume 所有權寫入探針＋chown 涵蓋面靜態釘死）＝**76+1 全數處置**；~105 LOW 面值留檔備查。
+- **產物**：本 backlog（E01-E77 living doc）；逐條 file:line／變異／釘死的原始資料未入版控。
+- **方法**：每塊 7 篇、high/med 都覆核、LOW 取面值；每塊跑完更新本表。
 - **收官後**：合併全 0001–0139 缺口，比照前作分批（可一起建的守衛綁批、優先序=爆炸半徑），各守衛建成另立 ADR 回填狀態。**家族①（ruff 納閘）、家族②（smoke 升格）、家族④（Guard #22/#24 等級辨識）為三個「一次治多條」的高槓桿治本點。**

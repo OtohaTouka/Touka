@@ -1,7 +1,7 @@
 # HITL 全面修復 ＋ 思考摺疊（HITL Unification & Reasoning Fold）
 
 > **狀態**：**提案全數收官 🏁**——H 系列（H1–H4）2026-07-11（[ADR-0143](../adr/0143-hitl-unification.md)）；T 系列（T1–T3 思考分頻＋摺疊）2026-07-12（[ADR-0152](../adr/0152-reasoning-channel-and-fold.md)；T1-capture 實測定格式＝grok-4.5 走獨立 reasoning_content 欄位、Live E2E SPLIT OK）。
-> **來源**：Sumi（grok-4.5）三症狀診斷（2026-07-11，僅回報後由 owner 核准開修）。
+> **來源**：靈魂 Sumi（grok-4.5）上出現的三個症狀與診斷（2026-07-11；診斷回報後經維護者核准才開始修復）。
 > **範圍**：H 系列＝HITL 四級權限對終端/原生/skill/MCP 全家族真實生效；T 系列＝思考內容分頻並在前端摺疊顯示。
 > **驗收終態（H4）**：後端 pytest 3332＋／前端 vitest 996／guard_all 41/41；Manual 全鏈路可用（審批卡在對話裡）、agent 不可自批、headless 設定時定權。批次細節見 ADR-0143 各節。
 
@@ -17,10 +17,10 @@
 
 引擎本身（`safety.py` 四級決策矩陣＋黑名單先行＋ADR-0089 唯讀豁免）**語意正確、予以保留**；本案修的是其輸入（分類、持久化）與輸出（CONFIRM 的處置、審批通道）。
 
-## 2. 目標（owner 原話）
+## 2. 目標
 
-1. HITL 完全修好——終端指令、Touka 原生工具、skill、MCP 都照四種 HITL 權限設定表現。
-2. 思考內容仍看得到，但摺疊在思考區塊裡，人類要看再自己點開。
+1. HITL 全面生效：終端指令、Touka 原生工具、skill、MCP 都依四級 HITL 權限設定運作。
+2. 思考內容保留可見，但預設摺疊在思考區塊，使用者需要時再展開。
 
 ## 3. 決策表（SSOT）
 
@@ -51,7 +51,7 @@
 
 1. **風險分類初表**：照上表三類（實作附完整逐工具清單）。（依建議）
 2. **SafeAuto 自動放行集**：保守版——scope 內檔案寫入＋memory save 自動；send_message/dispatch/edit_soul 一律審批。（依建議）
-3. **無人 UI 的 session（heartbeat/派工）**：（owner 修改版）**在設定時就事先決定 auth_level，整個 session 照該權限跑**。CONFIRM 於無人情境的解算仍為 fail-closed 拒絕——事先選 FullYOLO＝全自動、Manual＝實質唯讀，決定權在設定當下的人。
+3. **無人 UI 的 session（heartbeat/派工）**：（維護者修改後的版本）**在設定時就事先決定 auth_level，整個 session 照該權限跑**。CONFIRM 於無人情境的解算仍為 fail-closed 拒絕——事先選 FullYOLO＝全自動、Manual＝實質唯讀，決定權在設定當下的人。
 4. **fail-closed 在 H1 就翻**：H2/H3 落地前 Manual 會嚴格（非唯讀全拒）；持久化同批修好，過渡期可切 SafeAuto。（依建議）
 5. **`default_auth_level` 拆除**：後端模型/config/.example＋ToukaChat RbacMatrix 無作用旋鈕/types/i18n/測試一併拆（比接線乾淨，少一句謊）。（依建議）
 
@@ -65,14 +65,14 @@
 - **T2 — 前端摺疊 UI**：累積 `reasoning_content` → `msg.thinking`（隨 session 持久化）；MessageItem 摺疊區塊（預設收合、點開展開、串流中「思考中…」）；i18n；vitest。
 - **T3 — 思考收尾文件**：ADR（取下一號）＋HANDOVER。
 
-每批綠燈（pytest＋vitest＋guard_all）後由人類 commit。
+每批綠燈（pytest＋vitest＋guard_all）後由維護者 commit。
 
 ## 6. 範圍外
 
 - 「不要用工具」自然語言硬開關（per-conversation 工具總閘）。
 - `enabled_tools` 空清單 falsy 陷阱（`tool.py:199`）——行為翻轉需遷移決策，另案。
 - 每靈魂 `reasoning_effort`、Gemini `includeThoughts`。
-- 模型類型→角色硬綁定（owner 擱置中）。
+- 模型類型→角色硬綁定（維護者暫緩）。
 
 ## 7. 驗收
 

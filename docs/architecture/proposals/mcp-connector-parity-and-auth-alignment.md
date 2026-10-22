@@ -1,7 +1,7 @@
 # MCP Connector 大廠對齊：貨架擴充＋授權分階（Connector Parity & Auth Ladder）
 
-> **狀態**：**批次 1 🏁（[ADR-0191](../adr/0191-mcp-hub-tier-a-shelf-and-version-pinning.md)）／批次 2 🏁（[ADR-0192](../adr/0192-mcp-remote-streamable-http-transport.md)）／批次 3 🏁（[ADR-0194](../adr/0194-mcp-remote-shelf-and-manual-remote-entry.md)）全數落地**（2026-07-25～26）；**批次 4 經 2026-07-26 專案覆核後維持擱置，但擱置理由已整批換掉——詳 §8**。owner 已拍板 §6 五決策點（①核准 1→2→3、4 擱置；②新條目必釘版＋既有種子同批補釘；③Slack 社群版先不收；④瀏覽器自動化另案；⑤Tier A 首發不含 Perplexity）。
-> **來源**：owner 指示的三家大廠桌面版 connector 調查（Claude Code desktop／OpenAI Codex／Google Antigravity；2026-07-25 三路平行實查官方文件與 changelog）＋ MCP Hub F1–F6 修復線（[ADR-0186](../adr/0186-mcp-hub-official-launch-spec.md)～[ADR-0190](../adr/0190-mcp-hub-badge-server-key.md)）收官後的自然續章。
+> **狀態**：**批次 1 🏁（[ADR-0191](../adr/0191-mcp-hub-tier-a-shelf-and-version-pinning.md)）／批次 2 🏁（[ADR-0192](../adr/0192-mcp-remote-streamable-http-transport.md)）／批次 3 🏁（[ADR-0194](../adr/0194-mcp-remote-shelf-and-manual-remote-entry.md)）全數落地**（2026-07-25～26）；**批次 4 經 2026-07-26 專案覆核後維持擱置，但擱置理由已整批換掉——詳 §8**。維護者已決定 §6 五個決策點（①核准 1→2→3、4 擱置；②新條目必釘版＋既有種子同批補釘；③Slack 社群版先不收；④瀏覽器自動化另案；⑤Tier A 首發不含 Perplexity）。
+> **來源**：依維護者要求所做的三家大廠桌面版 connector 調查（Claude Code desktop／OpenAI Codex／Google Antigravity；2026-07-25 查證官方文件與 changelog）＋ MCP Hub F1–F6 修復線（[ADR-0186](../adr/0186-mcp-hub-official-launch-spec.md)～[ADR-0190](../adr/0190-mcp-hub-badge-server-key.md)）收官後的自然續章。
 > **範圍**：①把大廠共同的 MCP 能力放進 Touka 貨架（有公開現成套件優先，無合適者才考慮自製）；②授權方式對齊大廠（remote transport／靜態 header／OAuth 分階；不為對齊而對齊）。
 > **建議序**：批次 1（Shelf-A 策展）→ 批次 2（L1 remote＋header）→ 批次 3（Shelf-B 上架）→ **停下來看需求** →（僅在 §8-5 啟動條件成立時）批次 4（L2＋L3）。
 >
@@ -32,10 +32,10 @@
 | registry 映射**刻意**濾掉 remote-only 條目（誠實回 `None`） | `src/utils/mcp_registry_entry.py`（ADR-0187） | L1 落地後為現成擴充點，整排貨自動解鎖 |
 | 治理面已齊：enabled 咽喉（ADR-0188）、vault jail、shell 注入防護、MCP 工具預設 `dangerous` 進 HITL（[ADR-0143](../adr/0143-hitl-unification.md)）、徽章鍵（ADR-0190） | 各 ADR | 新 connector 天生受管，零新治理基建 |
 
-## 2. 目標（owner 原話）
+## 2. 目標
 
-1. Touka 的授權方式對齊大廠（但擔心工程量會很大）。
-2. 把大廠同時有的 MCP 功能放進 Touka 支援；有公開可用的選項就選現成的，沒有合適的再考慮自己製作。
+1. Touka 的授權方式對齊大廠，同時控制工程量。
+2. 把大廠共同提供的 MCP 功能放進 Touka；有公開可用的現成套件就用現成的，沒有合適的再考慮自製。
 
 ## 3. 授權對齊拆解（L1–L4 四階，工程量遞增）
 
@@ -79,7 +79,7 @@
 | Stripe | `@stripe/mcp`（npx） | secret key（env） | 三家 |
 | Context7（框架文件） | `@upstash/context7-mcp`（npx） | 免授權（選配 key） | Codex＋Claude plugins |
 | Sentry | 官方 npm stdio 版（現勘定名） | auth token（env） | Claude＋Codex |
-| Perplexity 類搜尋 | 官方/社群 npx（現勘定名） | API key（env） | Antigravity（視 owner 需求收錄） |
+| Perplexity 類搜尋 | 官方/社群 npx（現勘定名） | API key（env） | Antigravity（視需求收錄） |
 
 誠實排除（不入批次 1）：
 - **GitHub 官方本地版**＝Docker/Go 二進位，proxy 容器內 docker-in-docker 不可行 → 正解在 Tier B（官方 remote）。
@@ -107,14 +107,14 @@
 
 ## 5. 批次計畫
 
-- **批次 1｜Shelf-A 策展 🏁 已落地（ADR-0191）**：Tier A 六條現勘＋對抗式覆核 → **四條上架**（Notion／Atlassian／Figma／Context7，全數 E2E CONNECTED），**兩條 hold**（Stripe＝實為 stdio↔HTTP 橋接器、本質屬 remote 應歸批次 2/3；Sentry＝FSL-1.1 非 OSI 開源＝待 owner 內規拍板）。釘版政策三來源全覆蓋（官方配方／種子／registry 動態條目）＋釘版棘輪測試。**額外修掉兩個現勘揭露的既有缺陷**：MCP 初次連線無逾時（LIVE：一個格式合法的錯金鑰即可讓 ToukaProxy 永久開不了機）與前端 IconMap 無聲失效（既有四條種子圖示全數失效無人察覺）。
-- **批次 2｜L1 remote＋靜態 header 🏁 已落地（ADR-0192）**：`ProtocolServerConfig`／`MCPServerItem` 雙形狀互斥＋`streamablehttp_client` 分支＋URL 安全閘（明文 http 僅限 loopback）＋**憑證留 env、header 只寫 `${VAR}`**（零成本沿用既有遮罩保護）＋registry remote 解鎖（local-first 優先序）＋前端 remote 風險文案分寫。E2E 真連線：MS Learn（stateful）／DeepWiki（stateless）各 3 工具＋真 `call_tool`。**順帶修掉 ADR-0190 的殘留**：前端安裝寫 `hub.id`、徽章查 `server_key`＝徽章永不亮且更新時既有密鑰遺失（抽 `hubEntryConfigKey`／`buildInstalledEntry` 純函式為 SSOT）。Sentry 依 owner 拍板上架＝出廠貨架 9 條。
-- **批次 3｜Shelf-B 上架 🏁 已落地（ADR-0194）**：**GitHub（`/readonly` 端點）／Zapier／Stripe／MS Learn／DeepWiki 五條上架**（貨架 14 條）；**Figma 兩形態皆 hold**（遠端 OAuth-only＝L4 結構性；本機 Dev Mode 形狀完美但容器網路打不到＝待 owner 決策）。前端補齊 remote 形狀（列表顯示端點／手動新增與編輯支援 url+headers＝per-user URL 型服務的唯一出口）＋技能接線健檢納入 remote。**另修一個 LIVE 缺陷**：遠端握手失敗的 `CancelledError` 繼承 `BaseException`、穿透三層 `except Exception`，單一台憑證錯誤的遠端伺服器即可中斷整個開機迴圈。
-- **批次 4｜L2＋L3 OAuth（維持擱置，需 owner 明示啟動）**：§3-L2/L3 全項＋Tier C 可行子集上架。**2026-07-26 專案覆核後，擱置理由整批換掉、啟動前置條件改寫**——原條件「出現具體想接的 OAuth-only 服務」**已作廢**（該條件其實現在就滿足，但滿足它不代表該動工）。新條件見 §8-5；真實工程量由原估「中，1–2 批」上修為「共用語意 2–3 批／per-user 語意 4–6 批」，見 §8-3。
+- **批次 1｜Shelf-A 策展 🏁 已落地（ADR-0191）**：Tier A 六條現勘＋對抗式覆核 → **四條上架**（Notion／Atlassian／Figma／Context7，全數 E2E CONNECTED），**兩條 hold**（Stripe＝實為 stdio↔HTTP 橋接器、本質屬 remote 應歸批次 2/3；Sentry＝FSL-1.1 非 OSI 開源＝待維護者決定收錄準則）。釘版政策三來源全覆蓋（官方配方／種子／registry 動態條目）＋釘版棘輪測試。**額外修掉兩個現勘揭露的既有缺陷**：MCP 初次連線無逾時（LIVE：一個格式合法的錯金鑰即可讓 ToukaProxy 永久開不了機）與前端 IconMap 無聲失效（既有四條種子圖示全數失效無人察覺）。
+- **批次 2｜L1 remote＋靜態 header 🏁 已落地（ADR-0192）**：`ProtocolServerConfig`／`MCPServerItem` 雙形狀互斥＋`streamablehttp_client` 分支＋URL 安全閘（明文 http 僅限 loopback）＋**憑證留 env、header 只寫 `${VAR}`**（零成本沿用既有遮罩保護）＋registry remote 解鎖（local-first 優先序）＋前端 remote 風險文案分寫。E2E 真連線：MS Learn（stateful）／DeepWiki（stateless）各 3 工具＋真 `call_tool`。**順帶修掉 ADR-0190 的殘留**：前端安裝寫 `hub.id`、徽章查 `server_key`＝徽章永不亮且更新時既有密鑰遺失（抽 `hubEntryConfigKey`／`buildInstalledEntry` 純函式為 SSOT）。Sentry 經維護者決定上架＝出廠貨架 9 條。
+- **批次 3｜Shelf-B 上架 🏁 已落地（ADR-0194）**：**GitHub（`/readonly` 端點）／Zapier／Stripe／MS Learn／DeepWiki 五條上架**（貨架 14 條）；**Figma 兩形態皆 hold**（遠端 OAuth-only＝L4 結構性；本機 Dev Mode 形狀完美但容器網路打不到＝待維護者決定）。前端補齊 remote 形狀（列表顯示端點／手動新增與編輯支援 url+headers＝per-user URL 型服務的唯一出口）＋技能接線健檢納入 remote。**另修一個 LIVE 缺陷**：遠端握手失敗的 `CancelledError` 繼承 `BaseException`、穿透三層 `except Exception`，單一台憑證錯誤的遠端伺服器即可中斷整個開機迴圈。
+- **批次 4｜L2＋L3 OAuth（維持擱置，需維護者明確啟動）**：§3-L2/L3 全項＋Tier C 可行子集上架。**2026-07-26 專案覆核後，擱置理由整批換掉、啟動前置條件改寫**——原條件「出現具體想接的 OAuth-only 服務」**已作廢**（該條件其實現在就滿足，但滿足它不代表該動工）。新條件見 §8-5；真實工程量由原估「中，1–2 批」上修為「共用語意 2–3 批／per-user 語意 4–6 批」，見 §8-3。
 
-每批綠燈（pytest＋vitest＋guard_all）後由人類 commit；每批各取一個 ADR 號。全案（批次 1–3）估計與 F1–F6 一線（5 ADR）同量級或更小。
+每批綠燈（pytest＋vitest＋guard_all）後由維護者 commit；每批各取一個 ADR 號。全案（批次 1–3）估計與 F1–F6 一線（5 ADR）同量級或更小。
 
-## 6. 決策點（owner 已於 2026-07-25 全數拍板）
+## 6. 決策點（維護者已於 2026-07-25 全數決定）
 
 1. **批次順序**：✅ 核准 1→2→3、批次 4 擱置。
 2. **條目釘版**：✅ 新條目必釘、既有種子同批補釘。落地時再延伸涵蓋 registry 動態條目（見 ADR-0191）。
@@ -122,11 +122,11 @@
 4. **瀏覽器自動化（Playwright 類）**：✅ 另案。
 5. **Tier A 首發清單**：✅ 不含 Perplexity。實際上架四條（Stripe／Sentry 因落地現勘結果轉 hold，理由見 ADR-0191）。
 
-### 待 owner 後續明示
+### 待維護者後續決定
 
-- ~~**Sentry 收錄與否**~~ ✅ 2026-07-25 裁示收錄（ADR-0192；具名例外，非準則放寬——後續非 OSI 條目仍逐案拍板）。
+- ~~**Sentry 收錄與否**~~ ✅ 2026-07-25 決定收錄（ADR-0192；具名例外，非準則放寬——後續非 OSI 條目仍逐案決定）。
 - ~~**Stripe 重評**~~ ✅ 批次 3 已上架（最保守配方）。**但這是唯一無法出廠鎖唯讀的條目**，安全邊界 100% 落在使用者的受限金鑰權限——若認為金流風險不該由文案承擔，撤下即可（使用者仍可手動新增）。
-- ~~**MS Learn／DeepWiki**~~ ✅ 2026-07-26 owner 點名上架。
+- ~~**MS Learn／DeepWiki**~~ ✅ 2026-07-26 維護者決定上架。
 - **Figma 本機 Dev Mode 版＝唯一待決策項**：端點 `http://127.0.0.1:3845/mcp`、免認證、streamable HTTP，Touka 的 URL 閘對 loopback 明文 http 本就豁免——但 `touka-proxy` 在 bridge 網路容器內，`127.0.0.1` 指向容器自己；`host.docker.internal` 又被同一安全閘擋下。二選一：(a) 原生部署即可用、零改動；(b) 為此放寬 URL 閘＋compose 補 `extra_hosts`——該端點**不帶任何憑證**，明文外傳無金鑰可洩，風險論證與一般 remote 條目本質不同，值得單獨評估。
 - **per-tool 治理**（Codex `enabled_tools`／Antigravity `disabledTools` 對等物）：Stripe 上架後這個缺口從「日後候選」升級為**有具體受害者**——含通用寫入原語的服務無法在 Touka 側收斂工具面。
 
@@ -143,7 +143,7 @@
 
 ## 8. 批次 4 專案覆核（2026-07-26）——維持擱置，理由整批換掉
 
-> 觸發：owner 於批次 3 收官後要求評估「是否執行批次四、做與不做的優缺點」。方法＝四路平行調查（工程量實勘／逐服務價值查證／阻礙面現實查核／機會成本）＋三路對抗式覆核（專門推翻前三路的承重結論），關鍵斷言由主線親自覆核。**本次全程唯讀，未取得或使用任何憑證，未跑任何真連線。**
+> 觸發：批次 3 收官後，維護者要求評估是否執行批次 4，以及做與不做的優缺點。方法＝從工程量實勘、逐服務價值查證、阻礙面現實查核、機會成本四個面向調查，再對承重結論做對抗式覆核，關鍵斷言另以直接讀原始碼覆核。**本次全程唯讀，未取得或使用任何憑證，未跑任何真連線。**
 
 ### 8-1. 裁決
 
@@ -167,11 +167,11 @@
 
 **淨解鎖 1 條。** 另一項趨勢事實：大廠正在**離開自助註冊**——往客戶端白名單（Figma、Vercel）、預註冊 confidential client（Slack、Asana）或 CIMD（Canva）走。自架小平台正是這個趨勢的受害者。
 
-（勘誤：覆核過程中一度出現「釘版 SDK 無 CIMD」的說法，主線親自 grep 推翻——`mcp 1.26` **有** CIMD，見 `mcp/client/auth/oauth2.py` 的 `client_metadata_url` 參數與 `mcp/client/auth/utils.py` 的 `is_valid_client_metadata_url`／`should_use_client_metadata_url`。但 CIMD 要求 client_id 等於一個公開可達的 HTTPS metadata 文件 URL，對躲在家用 NAT 後的自架單機是額外的結構性課題。）
+（勘誤：覆核過程中一度出現「釘版 SDK 無 CIMD」的說法，經直接 grep 原始碼推翻——`mcp 1.26` **有** CIMD，見 `mcp/client/auth/oauth2.py` 的 `client_metadata_url` 參數與 `mcp/client/auth/utils.py` 的 `is_valid_client_metadata_url`／`should_use_client_metadata_url`。但 CIMD 要求 client_id 等於一個公開可達的 HTTPS metadata 文件 URL，對躲在家用 NAT 後的自架單機是額外的結構性課題。）
 
 ### 8-3. 工程量上修：三個由 SDK 形狀製造的坑
 
-原估「中，1–2 個批次」**低估**。修正後：**共用語意 2–3 批；per-(server,user) 語意 4–6 批**。三個承重坑（皆經主線親自覆核）：
+原估「中，1–2 個批次」**低估**。修正後：**共用語意 2–3 批；per-(server,user) 語意 4–6 批**。三個承重坑（皆經直接讀原始碼覆核）：
 
 1. **開機必然死鎖（不是機率問題）**。`await protocol_manager.initialize_all()` 在 lifespan 內（`main.py`），而 uvicorn 是 `await self.lifespan.startup()` **跑完才建 listener**（`uvicorn/server.py`）。SDK 的授權流在第一個 POST 收到 401 時就地展開，而那個 POST 正是 `session.initialize()`——**回跳端點物理上不存在**，100% 走到逾時，再乘上 `connect_server` 的 `@with_retry(max_retries=2)`。這是 [ADR-0191](../adr/0191-mcp-hub-tier-a-shelf-and-version-pinning.md)、[ADR-0194](../adr/0194-mcp-remote-shelf-and-manual-remote-entry.md) 修過兩次的同一家族第三次。另：Touka 的 `MCP_INIT_TIMEOUT_SECONDS=60` 會把人類授權視窗壓到 60 秒，而放寬它就是重演 ADR-0191 的「一台掛住＝全域開機拒絕服務」。
 2. **跨重啟 refresh 是死的**。`OAuthToken` 只有相對的 `expires_in`；絕對時間 `token_expiry_time` 僅在「剛換到 token」時算出，而 `_initialize()` 從 storage 還原時**只還原 `current_tokens` 與 `client_info`、不還原 `token_expiry_time`**；`is_token_valid()` 的判斷是 `not self.token_expiry_time or ...` → 還原後恆為 True → **refresh 分支永不進入** → 直接送出已死的 Bearer → 401 → 走完整互動式重新授權。且該整段路徑在上游標 `# pragma: no cover`。⇒「SDK 自動 refresh 免費」只在**單一 provider 實例的生命週期內**成立；跨重啟要讓 refresh 生效，必須自建到期簿記並戳 `provider.context.update_token_expiry(...)`＝依賴上游無測試覆蓋的私有狀態。
@@ -193,7 +193,7 @@
 
 滿足**任一**即重啟批次 4：
 
-- **(A)** owner 明確要接某服務，且該服務同時滿足：無第一方長效 token、**且**以 `npx -y mcp-remote <url>` 作為 stdio 條目**實測失敗**（不是「沒試過」）。先試橋接，失敗才動工。
+- **(A)** 維護者明確要接某服務，且該服務同時滿足：無第一方長效 token、**且**以 `npx -y mcp-remote <url>` 作為 stdio 條目**實測失敗**（不是「沒試過」）。先試橋接，失敗才動工。
 - **(B)** 出現「兩個以上人類各自綁自己帳號」的實際需求——這同時觸發 per-(server,user) session 改鍵，**應獨立成批**而非塞進 L2/L3。
 - **(C)** 某已上架條目因憑證短效變成殭屍伺服器（連得上、每次呼叫 401），且無 stdio 委派版可用。可觀測：`get_active_server_info` 的 `last_error` 出現持續 401。
 - **(D)** 上游 SDK 修好 `_initialize()` 不還原 `token_expiry_time` 這個缺陷（一行 grep 可驗），使跨重啟 refresh 真正免費。
@@ -202,7 +202,7 @@
 
 ### 8-6. 比批次 4 更該先做的：per-tool 治理
 
-§6 已把它從「日後候選」升級為「有具體受害者」。本次覆核把缺口坐實（主線親自 grep）：
+§6 已把它從「日後候選」升級為「有具體受害者」。本次覆核把缺口坐實（直接 grep 原始碼確認）：
 
 - `permission_service.get_allowed_tools` 對 Owner **直接短路回 `["*"]`**；
 - `is_mcp_server_allowed` 只有 **per-server** 粒度，無工具面；
@@ -212,7 +212,7 @@
 
 三個理由讓它勝過批次 4：①有已出貨的受害者；②形狀已存在（`mcp_vault_jail.apply` 就是「per-server 設定欄位 → 執行層依身分執法」的完整先例，廣告面單一咽喉在 `middleware/layers/tool.py`）；③**全程可進 CI**——這正是批次 4 依 §7 永遠做不到的事。
 
-動工前須 owner 拍一個板（設計爭點，非工程量）：**軸向**。大廠是 per-installation（`enabled_tools`／`disabledTools` 寫在伺服器條目），Touka 既有 RBAC 是 per-role。
+動工前須由維護者決定一個設計爭點（不是工程量問題）：**軸向**。大廠是 per-installation（`enabled_tools`／`disabledTools` 寫在伺服器條目），Touka 既有 RBAC 是 per-role。
 
 **次選（更小一口）**：`initialize_all` 並行化——仍是序列 await，而貨架已 9→14 且新增全為遠端條目。**明確不建議現在碰**：Guard #23（brace-expansion）13 條全在 dev 鏈，上游各維護線至今無 backport。
 
