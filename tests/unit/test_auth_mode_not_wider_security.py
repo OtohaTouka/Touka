@@ -6,11 +6,11 @@ Manual，所以 SafeAuto→Manual 也要不寬。舊等級的效果是字面值�
 的決策表＋地板，用範本規則求得），新模式的效果由現行引擎求出。
 
 事先核准的變寬只有四項（master §7-4）：ReadOnly→Manual（核准後可寫）、KF-4、Auto 經審查員
-放行、IDE 決定 9 甲。本總表會碰到第一項與第三項（U2c-3，決定 3：終端指令與 dangerous 工具
-交給審查員，有人在場時審查員可能放行；無人在場一律不送審、直接拒絕），逐格列在
-``_APPROVED_WIDENING``；KF-4 逐格列在下方 ``_KF4_WIDENING``（U2c-5）；IDE 的格子在
-``ToukaIDE/src/__tests__/authPolicy.test.ts``（U2c-7），本檔只管 Proxy 的決策。多出任何一格都算
-變寬，測試轉紅。
+放行、IDE（ADR-0246 決定 9）。本總表會碰到第一項與第三項（U2c-3，ADR-0246 決定 3：
+終端指令與 dangerous 工具交給審查員，有人在場時審查員可能放行；無人在場一律不送審、
+直接拒絕），逐格列在 ``_APPROVED_WIDENING``；KF-4 逐格列在下方 ``_KF4_WIDENING``（U2c-5）；
+IDE 的格子在 ``ToukaIDE/src/__tests__/authPolicy.test.ts``（U2c-7），本檔只管 Proxy 的決策。
+多出任何一格都算變寬，測試轉紅。
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ _PAIRS = (
     ("FullYOLO", "YOLO"),
 )
 
-# ReadOnly→Manual：核准後可寫（決定 ③）。(舊等級, 新模式, 動作, 有人在場)
+# ReadOnly→Manual：核准後可寫（ADR-0246 ③）。(舊等級, 新模式, 動作, 有人在場)
 _APPROVED_WIDENING = frozenset(
     {("ReadOnly", "Manual", name, True) for name in (
         "write", "delete", "mcp", "skill_install", "send_message", "memory_save",
@@ -86,8 +86,8 @@ _APPROVED_WIDENING = frozenset(
     | {("ReadOnly", "Manual", name, False) for name in (
         "ls", "curl", "echo_var", "ls_redirect", "advertise_delete",
     )}
-    # Auto 經審查員放行（U2c-3；決定 3、master §7-4）：終端指令與 dangerous 工具，舊 SafeAuto
-    # 要人核准，現在有人在場時審查員可能直接放行；無人在場不送審，不變寬
+    # Auto 經審查員放行（U2c-3；ADR-0246 決定 3、master §7-4）：終端指令與 dangerous 工具，
+    # 舊 SafeAuto 要人核准，現在有人在場時審查員可能直接放行；無人在場不送審，不變寬
     | {("SafeAuto", "Auto", name, True) for name in ("curl", "delete", "mcp")}
 )  # fmt: skip
 

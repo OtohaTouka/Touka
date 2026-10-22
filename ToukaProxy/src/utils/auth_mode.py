@@ -33,7 +33,7 @@ def normalize_auth_mode(value: object) -> AuthMode:
 
 
 def enforce_incognito_manual(mode: str | None, *, incognito: bool) -> str | None:
-    """無痕對話無法追溯，一律 ``Manual``（人類 10/12）；非無痕原樣不動。"""
+    """無痕對話無法追溯，一律 ``Manual``（ADR-0246）；非無痕原樣不動。"""
     return "Manual" if incognito else mode
 
 

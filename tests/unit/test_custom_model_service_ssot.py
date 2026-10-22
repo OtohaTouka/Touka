@@ -63,7 +63,7 @@ def test_custom_model_service_ssot_compliance():
     """Meta-test: 確保 custom_model_service.py 中不再包含禁用的 IO 呼叫。"""
     
     file_path = Path("ToukaProxy/src/services/custom_model_service.py")
-    tree = ast.parse(file_path.read_text(encoding="utf-8"))  # noqa: IO_PRISON_VIOLATION
+    tree = ast.parse(file_path.read_text(encoding="utf-8"))
     visitor = SSOTGuard(file_path)
     visitor.visit(tree)
     

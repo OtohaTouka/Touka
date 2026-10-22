@@ -18,7 +18,7 @@ interface Props {
   saveAutonomy: (a: AutonomyConfig) => Promise<boolean>;
 }
 
-/** Auto 審查員模型選單（ADR-0246，決定 5、④甲）：只列已設定金鑰的模型，預設空白。 */
+/** Auto 審查員模型選單（ADR-0246）：只列已設定金鑰的模型，預設空白。 */
 export function AutoReviewerSettings({ autonomyConfig, setAutonomyConfig, isSavingAutonomy, saveAutonomy }: Props) {
   const { t } = useTranslation();
   const { models, loadFailed, selectedModel, editable, setReviewerModel, timeoutS, timeoutMaxS, timeoutValid, setReviewerTimeout } =

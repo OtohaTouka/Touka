@@ -78,7 +78,7 @@ def test_seed_ships_tier_a_connectors():
     """Tier A 貨架（ADR-0191）：經 spawn 實證＋對抗式覆核的第三方服務條目在種子。
 
     Stripe 刻意不在此列（實為 stdio↔HTTP 橋接器、本質屬 remote，待批次 2 以 remote
-    形態重評）。Sentry 於 owner 拍板收錄非 OSI 授權條目後補上（ADR-0192）。
+    形態重評）。Sentry 於收錄非 OSI 授權條目後補上（ADR-0192）。
     """
     ids = {s["id"] for s in _hub()}
     assert {"curated-notion", "curated-atlassian", "curated-figma",
@@ -186,7 +186,7 @@ def test_figma_recipe_carries_stdio_flag():
 def test_every_seed_entry_pins_its_package_version():
     """釘版棘輪（ADR-0191）：種子每一條的套件名位都必須釘定版本。
 
-    owner 拍板把禁令 55「只裝人工已審、pinned 來源」的精神延伸到 hub 的 npm/pypi
+    把禁令 55「只裝人工已審、pinned 來源」的精神延伸到 hub 的 npm/pypi
     條目——未釘版＝安裝當下抓上游最新版，等同把供應鏈信任交給「未來某個尚未存在
     的版本」。``@latest``／``@next`` 這類浮動標記亦視為未釘版（版本段須數字起頭）。
     """

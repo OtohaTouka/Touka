@@ -1,4 +1,4 @@
-"""決定 4：YOLO 無人在場時，dangerous 的 MCP 工具只有人能核准（iso-c2 U1d，禁令 20）.
+"""ADR-0272 決定 4：YOLO 無人在場時，dangerous 的 MCP 工具只有人能核准（iso-c2 U1d，禁令 20）.
 
 - 政策層：``mcp_server``＋風險 dangerous＋``human_present`` 不是 ``True``（缺鍵、``False``、
   字串、數字都算不在場）→ HUMAN_ONLY；有人在場、safe／read_only、原生工具照舊放行；

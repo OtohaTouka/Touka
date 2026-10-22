@@ -134,7 +134,7 @@ def test_claude_converter_forwards_sampling_params():
 
 
 def test_gemini_converter_sends_only_output_limits():
-    """model-p0（Owner 決定 A）：取樣參數一律不送；3b-U3：generationConfig 只放輸出上限與
+    """model-p0（ADR-0241 決定 A）：取樣參數一律不送；3b-U3：generationConfig 只放輸出上限與
     停止字串（請求沒帶就整段不組）。"""
     gemini_req = convert_openai_to_gemini(_req(temperature=0.3, top_p=0.8, top_k=20))
     assert "generationConfig" not in gemini_req

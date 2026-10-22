@@ -89,7 +89,7 @@ export function SettingsView() {
   );
   const isSearching = query.trim().length > 0;
 
-  // 群組摺疊（桌機側邊欄；擁有者裁示「只展開目前群組」）：記住手動展開的群組，
+  // 群組摺疊（桌機側邊欄；只展開目前群組）：記住手動展開的群組，
   // 但目前所在分頁的群組永遠可見（force-show）。手機維持橫向平鋪、不套用摺疊。
   const [expandedGroupIds, setExpandedGroupIds] = useLocalStorage<string[]>(
     "touka_settings_expanded_groups",

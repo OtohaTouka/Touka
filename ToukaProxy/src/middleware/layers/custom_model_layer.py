@@ -41,7 +41,7 @@ class CustomModelLayer(ProxyLayer):
             request.model = base_model
             logger.debug(f"  -> Swapped base model: {base_model}")
 
-        # 注入推理參數 (Temperature, TopP, TopK)
+        # 注入推理參數（Temperature, TopP, TopK）
         for param in ["temperature", "top_p", "top_k", "max_tokens"]:
             if param in config:
                 if hasattr(request, param):
@@ -83,6 +83,6 @@ class CustomModelLayer(ProxyLayer):
                 new_msg = {"role": "system", "content": final_system_prompt}
                 request.messages.insert(0, new_msg)
         
-        # 注入安全設定 (如果有)
+        # 注入安全設定（如果有）
         if "safety_settings" in config:
             request.safety_settings = config["safety_settings"]

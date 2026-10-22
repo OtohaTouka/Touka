@@ -1,4 +1,4 @@
-"""r55：用途標頭 ``X-Touka-Purpose`` 只能讓 Claude 少想（T4；CTO 條件 1、2；禁令 16 精神）。
+"""r55：用途標頭 ``X-Touka-Purpose`` 只能讓 Claude 少想（T4；禁令 16 精神）。
 
 標頭由客戶端控制。``routers/proxy.py`` 只認白名單值（``inline-completion``），換成 context
 專用鍵 ``thinking_profile``；其他值（偽造的用途名、變形、超長、非 ASCII）一律忽略、不報錯。

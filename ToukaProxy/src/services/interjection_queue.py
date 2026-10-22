@@ -37,7 +37,7 @@ INTERJECTION_MAX_CHARS = 4000
 # queued 的有效秒數；也是整串閒置後清掉的秒數
 INTERJECTION_TTL_SECONDS = 600
 
-# SSE 契約（ADR-0249 技術主管追加 6）：前端 ToukaChat/src/lib/chat/interjections.ts 同名常數；
+# SSE 契約（ADR-0249）：前端 ToukaChat/src/lib/chat/interjections.ts 同名常數；
 # 取出點（U4a-2）照這份送，不另起名稱。
 INTERJECTION_DELIVERED_EVENT = "interjection_delivered"
 INTERJECTION_UNDELIVERED_EVENT = "interjection_undelivered"

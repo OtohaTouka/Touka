@@ -300,7 +300,7 @@ async def test_third_party_waits_while_pending_or_on_a_temporary_reason(tmp_path
 async def test_third_party_on_a_stable_reason_starts_the_way_it_does_today(
     tmp_path, monitor, reason
 ):
-    """決定 5 甲＋MEDIUM-7：穩定原因照今天的方式未隔離啟動（不建 profile、不碰 ST），原因照實."""
+    """ADR-0275＋MEDIUM-7：穩定原因照今天的方式未隔離啟動（不建 profile、不碰 ST），原因照實."""
     source = _Source(tmp_path)
     got = await _broker(tmp_path, monitor).acquire_third_party(ProfileSource(source, None))
     assert got == ThirdPartyAcquired(None, reason)
@@ -640,7 +640,7 @@ async def test_sandbox_paths_reach_only_matching_third_party_records(tmp_path, r
 
 
 async def test_exec_env_values_never_reach_logs_the_book_or_the_api(tmp_path, caplog):
-    """CTO 10/16：條目 env 的值不進 log、``/mcp/list``、``/isolation``、``repr``；濾掉的只記名稱."""
+    """條目 env 的值不進 log、``/mcp/list``、``/isolation``、``repr``；濾掉的只記名稱."""
     caplog.set_level(logging.DEBUG)
     env = {"HOME": PRIVATE, "LD_PRELOAD": PRIVATE, "K": PRIVATE}
     entry = RawMcpEntry("uvx", ("srv",), env, None)
@@ -863,7 +863,7 @@ def _recorded_grants(launcher: McpLauncher) -> list[ExecutionGrant]:
 
 @pytest.mark.parametrize("level", ["landlock", "executor"])
 async def test_a_consented_unisolated_start_is_relaunched_once_isolation_returns(tmp_path, level):
-    """PM 裁定（U3d-2）：人同意的是「現在沒有隔離，先不隔離跑」；隔離恢復就不帶同意重新判定."""
+    """（U3d-2）人同意的是「現在沒有隔離，先不隔離跑」；隔離恢復就不帶同意重新判定."""
     monitor = _unavailable("kernel_not_installed")  # 層級 none、本機也不能用：只剩未隔離
     launcher, book = _launcher(tmp_path, monitor)
     reader = _Reader("creation")

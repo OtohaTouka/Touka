@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # P18 fix: serialize quota reads/writes to prevent concurrent file corruption
 _autonomy_lock = threading.Lock()
 
-# 配置與日誌路徑 (SSOT)
+# 配置與日誌路徑（SSOT）
 CONFIG_FILE = get_config_dir() / "autonomy.json"
 
 
