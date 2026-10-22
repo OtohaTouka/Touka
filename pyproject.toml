@@ -19,6 +19,8 @@ dev = [
     # ruff：程式碼 lint（ruff.toml SSOT）。先前為 .venv 內臨時安裝、未入鎖檔，會被
     # `uv sync` exact 同步剝除；納入 dev group 以持久化並使 fresh checkout 佈建即可用。
     "ruff==0.15.20",
+    # pyrefly：型別檢查只減不增（ADR-0278 §7）。釘死版本；升級時同一個 PR 重拍基準。
+    "pyrefly==1.4.0",
     # 文件站台建置工具（scripts/update_docs.py → mkdocs build）。納入 dev group 使
     # `uv sync --all-packages` 佈建後 mkdocs 與程式碼依賴同處 .venv（3.12），mkdocstrings
     # 得以匯入 ToukaProxy/ToukaMemory 生成 API 參考頁；--no-dev 故不進 Docker 生產映像。
@@ -58,14 +60,26 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 
+# 型別檢查只減不增（ADR-0278 §7）：基準在 tests/lint/pyrefly_baseline.json，
+# 收集指令只在 scripts/lint_ratchet.py。直譯器由呼叫端用 --python-interpreter-path 傳入，
+# 平台固定 linux，讓 Windows 本機和 CI 算出同一組錯誤。
 [tool.pyrefly]
-python-interpreter-path = ".venv/Scripts/python.exe"
-search-path = [
-    "./ToukaProxy",
-    "./ToukaMemory",
-    "./ToukaHeartbeat",
-    "./ToukaDispatch"
+project-includes = [
+    "ToukaProxy/src/sandbox_kernel/**/*.py",
+    "ToukaProxy/src/services/isolation/**/*.py",
+    "ToukaProxy/src/services/authorization_gateway.py",
+    "ToukaProxy/src/services/execution_broker.py",
 ]
+# ToukaMemory 的套件在 src/ 底下（memory_server）；只放 ToukaMemory 會和 ToukaProxy 的 src 撞名。
+search-path = [
+    "ToukaProxy",
+    "ToukaMemory/src",
+]
+python-platform = "linux"
+python-version = "3.12"
+# 不讀 .gitignore、.ignore、.git/info/exclude：寫一行就能讓範圍內的檔案悄悄不檢查，
+# 而且 .git/info/exclude 不進版控，本機和 CI 的範圍可能不同。
+use-ignore-files = false
 
 [tool.pyright]
 extraPaths = [
