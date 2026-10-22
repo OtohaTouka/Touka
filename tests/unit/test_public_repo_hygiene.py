@@ -76,6 +76,25 @@ def test_local_secret_files_are_ignored() -> None:
     assert [path for path in MUST_BE_IGNORED if path not in ignored] == []
 
 
+def test_shipped_skills_and_evals_stay_trackable() -> None:
+    """The skills and evals the repo ships must not be ignored, or a re-add would be refused.
+
+    `--verbose` without `--non-matching` prints only paths some rule matched; a `!` rule match
+    means the path was re-included.
+    """
+    shipped = _git("ls-files", "-z", "--", "ToukaProxy/config/skills", "ToukaProxy/config/evals")
+    assert shipped.returncode == 0, shipped.stderr
+    paths = [path for path in shipped.stdout.decode("utf-8").split("\0") if path]
+    assert paths
+    stdin = "\0".join(paths).encode("utf-8") + b"\0"
+    result = _git("check-ignore", "--no-index", "--stdin", "-z", "--verbose", stdin=stdin)
+    assert result.returncode in (0, 1), result.stderr
+    fields = result.stdout.decode("utf-8").split("\0")[:-1]
+    records = [fields[index : index + 4] for index in range(0, len(fields), 4)]
+
+    assert [path for _, _, rule, path in records if not rule.startswith("!")] == []
+
+
 def _proxy_environment(service: dict) -> dict[str, str]:
     raw = service.get("environment", {})
     if isinstance(raw, dict):
