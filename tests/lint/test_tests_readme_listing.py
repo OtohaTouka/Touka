@@ -3,11 +3,14 @@
 案例數在不同平台本來就不同（例如 Linux 專用的隔離測試在 Windows 收集到 0 個），
 CI 的結果才是正本，README 只留檔名與說明。
 
-- 版控中的每個 `tests/**/test_*.py` 都要在 README 用反引號列出。只認反引號裡的名稱：
+- 版控中的每個 `tests/**/test_*.py` 都要在 README 用反引號列出。沒加反引號的不算；
   有相對路徑就比對相對路徑；只寫檔名時，那個檔名在 tests/ 裡必須唯一。
+- 反引號裡的 test_*.py 都要對得到實際檔案：改名或刪掉的舊名要拿掉反引號，
+  免得之後出現的同名新檔被當成已列。
 - 現在還沒列的檔案凍結在 `tests_readme_unlisted.json`，清單只准變短：
   新測試檔要直接在 README 加一列；已經補列或刪掉的檔案要從清單拿掉。
-- README 不再寫案例數。
+- README 不寫「現在有幾個案例」。某一批加了幾個的歷史紀錄、HTTP 狀態碼、
+  有日期的實跑結果、人工 live 評測的預算不算案例數。
 """
 
 import json
@@ -21,11 +24,20 @@ ROOT = Path(__file__).absolute().parents[2]
 README = ROOT / "tests" / "README.md"
 UNLISTED = Path(__file__).with_name("tests_readme_unlisted.json")
 BACKTICKED_PY = re.compile(r"`([^`\s]+\.py)`")
+WILDCARD = re.compile(r"[*?{]")
+NOT_A_COUNT = r"(?![1-5]\d\d\D|(?:19|20)\d\d\D)"  # HTTP 狀態碼、年份
 COUNT_PATTERNS = (
     re.compile(r"^\|[^|]+\| 案例數 \|"),
+    re.compile(r"\*\*\d+(?:[＋+]\d+)*(?:\s*(?:cases?|collected|測|案))?\*\*"),
     re.compile(r"\*\*\d+(?:[＋+]\d+)*\s*cases?\b"),
     re.compile(r"（\d+(?:[＋+]\d+)*(?:\s*(?:測|cases?))?）\*\*"),
-    re.compile(r"^\| [^|]+ \| [^|（]{0,60}?（[\d＋+]+）(?:[：；]|——)"),
+    re.compile(r"\*\*[^*|]*（\d+[，；＝][^*|]*\*\*"),
+    re.compile(
+        rf"^\| [^|]+ \| [^|（]{{0,60}}?（{NOT_A_COUNT}\d[\d＋+]*(?:）(?:[：；]|——)|[，；＝])"
+    ),
+    re.compile(r"（\d+ 個）"),
+    re.compile(r"`[^`]+\.py`（\d+[：；，]"),
+    re.compile(r"(?:合計|共)\s*\**\d+\s*(?:cases?|案)"),
 )
 
 
@@ -69,6 +81,23 @@ def test_every_test_file_is_listed_or_frozen() -> None:
     assert not stale, f"這些已經列在 README 或已刪除，請從 {UNLISTED.name} 拿掉：{stale}"
 
 
+def test_backticked_test_names_point_at_real_files() -> None:
+    tracked = tracked_test_files()
+    names = Counter(PurePosixPath(path).name for path in tracked)
+    stale = sorted(
+        {
+            token
+            for token in BACKTICKED_PY.findall(README.read_text(encoding="utf-8"))
+            if PurePosixPath(token).name.startswith("test_")
+            and not WILDCARD.search(token)
+            and token.removeprefix("tests/") not in tracked
+            and names[PurePosixPath(token).name] != 1
+            and not (ROOT / token).is_file()
+        }
+    )
+    assert not stale, f"這些名稱對不到任何檔案；改名或刪掉的舊名請拿掉反引號：{stale}"
+
+
 def test_readme_writes_no_case_counts() -> None:
     lines = README.read_text(encoding="utf-8").splitlines()
     hits = [
@@ -104,10 +133,31 @@ def test_count_patterns_catch_each_old_style() -> None:
         "| `test_x.py` | **ADR-0245（8）**：說明 |",
         "| `test_x.py` | **B2（8 測）**（ADR-0137）：說明 |",
         "| `x.test.tsx` | ADR-0081 重整接回（3）：說明 |",
+        "| `test_x.py` | **21＋23**：說明 |",
+        "| `test_x.py` | **15 collected**：說明 |",
+        "| `test_x.py` | **12 測**：說明 |",
+        "| `test_x.py` | **Guard #16 成員鎖（21，ADR-0240）**：說明 |",
+        "| `test_x.py` | **原生聚合器（25＝原23＋2）**：說明 |",
+        "| `x.test.tsx` | ADR-0250 A2（6，新檔）：說明 |",
+        "| `x.test.tsx` | 設定搜尋（9；ADR-0254 N1 +1）：說明 |",
+        "| `test_x.py` | 說明（28 個） |",
+        "| `characterization/` | `test_harness.py`（7：說明） |",
+        "六個新測試檔共 **168 案**，說明",
+        "全部離線。合計 177 cases。",
     ]
     for line in old_styles:
         assert any(pattern.search(line) for pattern in COUNT_PATTERNS), line
-    assert not any(
-        pattern.search("| `test_x.py` | 含 `..` 的 ID（422），不改寫 |")
-        for pattern in COUNT_PATTERNS
-    )
+    not_counts = [
+        "| `test_x.py` | 含 `..` 的 ID（422），不改寫 |",
+        "| `test_x.py` | 沒登入（401）：說明 |",
+        "| `test_x.py` | 欄位錯誤（422）；說明 |",
+        "| `test_x.py` | 舊格式（2026）——說明 |",
+        "| `test_x.py` | 改名拒絕（409，含 `ToukaSoul`） |",
+        "| `x.test.tsx` | ADR-0254 H1（+4）：某一批加的案例 |",
+        "| `test_x.py` | （C2-2 +3：某一批加的案例） |",
+        "| `test_x.py` | 2026-08-14 實跑結果：**24/24 Green** |",
+        "| `test_x.py` | 先 **1 failed／1 passed**，再 **2 passed** |",
+        "| `tool_eval` | 12 cases；samples／turns 硬上限 4，最多 48 requests |",
+    ]
+    for line in not_counts:
+        assert not any(pattern.search(line) for pattern in COUNT_PATTERNS), line

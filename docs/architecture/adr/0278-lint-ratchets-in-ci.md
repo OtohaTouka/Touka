@@ -2,7 +2,7 @@
 
 - 狀態：✅ 已接受
 - 日期：2026-10-22
-- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版
+- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列
 - 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）
 
 ## 背景
@@ -45,21 +45,26 @@
 - CI 綠燈就能開 PR；guard_all 與 ToukaIDE 打包由維護者在合併前補跑。
 - 完整 ruff 與 ESLint 改標「CI 會跑」。
 
-### 5. `tests/README.md` 只列檔名與說明，不寫案例數（2026-10-22 增補）
-- **為什麼不自動核對數量**：README 原本有 606 列手寫的數量，寫法不一：
+### 5. `tests/README.md` 只列檔名與說明，不寫「現在有幾個案例」（2026-10-22 增補）
+- **為什麼不自動核對數量**：README 原本約 420 行寫了數量，寫法不一：
   - 4 張表有數字欄；
-  - 有的寫在粗體標籤裡，例如 `**41 cases**`、`**ADR-0245（8）**`；
+  - 有的寫在粗體或標籤裡，例如 `**41 cases**`、`**ADR-0245（8）**`、`**15 collected**`、`（28 個）`；
   - 還有合計句。
   - 至少 9 列已經對不上。Linux 專用的隔離測試在 Windows 收集到 0 個，自動核對數量在本機和 CI 一定有一邊對不上。
-  - 所以拿掉全部案例數，CI 的結果才是正本。
-- **保留的數字**：HTTP 狀態碼、檔案操作數、歷史驗證紀錄裡的 passed 數，以及人工 live 評測的預算（案例數與請求上限，禁令 61 的同意依據）。這些不是案例數，所以保留。
+  - 所以拿掉「現在有幾個案例」的寫法，CI 的結果才是正本。
+- **保留的數字**：這些不是「現在有幾個」，內容不會因為之後改測試而變錯，所以保留：
+  - 某一批加了幾個的歷史紀錄（例如「C2-2 +3」「ADR-0263 加 8 個」）；
+  - HTTP 狀態碼、檔案操作數；
+  - 有日期的實跑結果（passed 數）；
+  - 人工 live 評測的預算（案例數與請求上限，禁令 61 的同意依據）。
 - **列表核對**：`tests/lint/test_tests_readme_listing.py` 要求版控中的每個 `tests/**/test_*.py` 都在 README 用反引號列出：
   - 有相對路徑就比對相對路徑；
   - 只寫檔名時，檔名在 `tests/` 裡必須唯一；
-  - 寫在說明文字裡的不算。
-- **凍結清單**：當時沒列的 212 個凍結在 `tests/lint/tests_readme_unlisted.json`，清單只准變短。已補列或已刪除的檔案還留在清單裡，也算失敗。
+  - 沒加反引號的不算。
+- **舊名不能留反引號**：反引號裡的 `test_*.py` 都要對得到實際檔案（萬用字元寫法除外）。改名或刪掉的舊名要拿掉反引號，免得之後出現的同名新檔被當成已列。
+- **凍結清單**：當時沒列的 209 個凍結在 `tests/lint/tests_readme_unlisted.json`，清單只准變短。已補列或已刪除的檔案還留在清單裡，也算失敗。
 - **其他**：
-  - 同一支測試也擋 README 再寫案例數；
+  - 同一支測試也擋 README 再寫「現在有幾個案例」；
   - 用 git 取得檔案清單，沒有 git 就失敗、不跳過；
   - AGENTS.md「任務後文件更新協議」改成「新增測試檔 → tests/README 加一列（檔名、說明）」。
 
@@ -68,6 +73,7 @@
 - **每條規則只算總數**：在 A 檔修一個、在 B 檔加一個，數字不變，擋不到。這是刻意的取捨，和 Guard #35 相同，搬移程式才不會誤擋。
 - **壓掉不修，不會被計數**：用 `# noqa: E501` 這類標準規則代號或 per-file-ignores 壓掉的違規不算數。Guard #19 只核對 NOQA_REGISTRY 統計表有列的規則。
 - **兩個 PR 同時重拍基準**：兩個 PR 各自把同一條規則從 45 修到 44 並重拍時，兩邊的基準改動一模一樣，git 會乾淨地合成 44，但實際已經是 43，合併後 dev 會轉紅。合併規則只核對 PR 自己的 CI。所以合併前如果 dev 已經進了另一個重拍基準的 PR，要先把 dev 合進來重跑 CI。
+- **凍結清單只靠審查擋住變長**：把新的未列檔加進 `tests_readme_unlisted.json` 測試也會過，要靠審查時看差異擋下。另外，出現同名檔時，錯誤訊息會把原本已列的那一個也列為要「加一列」，要看路徑判斷。
 - **自訂豁免標記的警告**：Touka 的 `# noqa: ENV_SSOT_VIOLATION` 這類標記會讓 ruff 印出約 110 個「無效的 noqa」警告。ruff 只認「字母＋數字」格式的代號，10/22 實測 ruff 0.15.20 的 `lint.external` 消不掉。改寫成別的標記要動 166 行、Guard #19 與規則文字，這次不做；棘輪只讀 JSON 結果，不受影響。
 
 ## 後續

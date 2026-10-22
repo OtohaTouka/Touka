@@ -91,7 +91,8 @@ python -B scripts/guard_eslint_ratchet.py
 #    guard_all 內部 shell 子命令才會走 3.12
 python -B scripts/guard_all.py
 
-# 5. 後端測試（CI 會跑）
+# 5. 後端測試（CI 會跑）：新增測試檔時，在 tests/README.md 加一列（檔名放在反引號裡、不寫案例數），
+#    tests/lint/test_tests_readme_listing.py 會檢查
 python -B -m pytest tests/
 
 # 6. 前端測試（CI 會跑）：npm run test 會先產生 artifact runtime 再跑 vitest
