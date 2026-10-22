@@ -2,7 +2,7 @@
 
 > 本檔保存原 CHANGELOG 的歷史紀錄，保留當時的 PASS／FAIL／UNKNOWN／NOT_RUN／HOLD／REUSED_NOT_FRESH 與限制；舊「current」、批准與命令不代表現在可執行。唯一現況見 [HANDOVER](../../HANDOVER.md)，有效規範見 [AGENTS](../../AGENTS.md)；返回 [更新摘要](../CHANGELOG.md)／[歷史索引](README.md)。
 
-> 依各紀錄明示日期與階段分類，檔內維持原文相對順序。開源前的歷史紀錄，PR 編號、commit 與 run 編號指的是私人歷史。
+> 本檔是開源前的歷史紀錄；文中的 PR 編號、commit 與 run 編號指的是私人歷史。依各紀錄明示日期與階段分類，檔內維持原文相對順序。
 
 ---
 
@@ -24,7 +24,7 @@
 - 明示UI typed終態、固定節點、trim條件提交與buffer owner／generation隔離；外部wire保持。
 - Chat純writer、scope清除、保守刪除、富樹保留／核對／單次僅保存重試；無痕零持久化。
 - 真Python producer／TS decoder／writer／owned SQLite共用fixture，保留JSON擴充與presence。
-- AnyIO因fresh audit發現升精確4.14.2；沒有Git提交、發版或live。9/16遺失的原始證據不重建，9/21的證據獨立保存（均未入版控）。
+- AnyIO因fresh audit發現升精確4.14.2；沒有Git提交、發版或live。9/16的原始證據已遺失、不重建；9/21的證據獨立保存（未入版控）。
 
 完整Python R4通過10048P／9個既有條件skip／5warnings，2464來源inputs＋6runtime前後零漂移；最終驗證與102檔材料的證據未入版控，最終審查以當次審查紀錄為準。Chat1409P與其他適用既有驗證按hash重用，43非audit及兩audit回讀分列；未提交、發布或部署。
 Windows cleanup兩次FAIL及其後NOT_REPRODUCED保留，歷史原因仍UNKNOWN。續行時以官方API契約與零child反例證實ReadFile109的EOF分類缺漏，正式5F／9P→14P、整檔700P及完整R4通過；不把語意修正冒稱兩次歷史失敗已唯一歸因。

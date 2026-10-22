@@ -2,7 +2,7 @@
 
 > 本檔保存原 CHANGELOG 的歷史紀錄，保留當時的 PASS／FAIL／UNKNOWN／NOT_RUN／HOLD／REUSED_NOT_FRESH 與限制；舊「current」、批准與命令不代表現在可執行。唯一現況見 [HANDOVER](../../HANDOVER.md)，有效規範見 [AGENTS](../../AGENTS.md)；返回 [更新摘要](../CHANGELOG.md)／[歷史索引](README.md)。
 
-> 依各紀錄明示日期與階段分類，檔內維持原文相對順序。開源前的歷史紀錄，PR 編號、commit 與 run 編號指的是私人歷史。
+> 本檔是開源前的歷史紀錄；文中的 PR 編號、commit 與 run 編號指的是私人歷史。依各紀錄明示日期與階段分類，檔內維持原文相對順序。
 
 ---
 
@@ -70,12 +70,12 @@
 
 <a id="entry-0080"></a>
 
-- **2026-09-06～07：P11 audit 前置接續完成**。既有Guard #22／#23補create-only原始bytes證據、明確npm零retry、Python scope cache／timeout與Windows必要SystemRoot；新增16個audit回歸。smoke跨磁碟負例沿用sandbox並加2例。完整Python **5290 passed／9 skipped／3 warnings**、smoke **24/24**、non-audit **42/42 PASS**；兩個CLI環境讀取採精確登記，不放寬scanner。啟動／驗證入口與首輪guard失敗全部保留。63-path完整候選與待核准network範圍見接續計畫，未audit、最終審查、stage／commit或發布。
+- **2026-09-06～07：P11 audit 前置接續完成**。既有Guard #22／#23補create-only原始bytes證據、明確npm零retry、Python scope cache／timeout與Windows必要SystemRoot；新增16個audit回歸。smoke跨磁碟負例沿用sandbox並加2例。完整Python **5290 passed／9 skipped／3 warnings**、smoke **24/24**、non-audit **42/42 PASS**；兩個CLI環境讀取採精確登記，不放寬scanner。啟動／驗證入口與首輪guard失敗全部保留。63-path完整候選與待核准network範圍見接續計畫（未入版控），未audit、最終審查、stage／commit或發布。
 
 
 <a id="entry-0081"></a>
 
-- **2026-09-06：維護者改採 P11 Next 原生驗證優先**。沿用專案pytest／Vitest／guards與既有sandbox，允許必要tests／guards／mocks修正；先前repoWritePaths=[]、完整source/node_modules外部投影與launcher限定不再套用新工作。新增aggregate non-audit／dependency-cache-only入口，Docker探測延至明確opt-in執行期，Guard16使用既有smoke sandbox並保留member依賴隔離；三scanner在metadata／下探前排除data及連結，靜態測試負向fixture移至tmp_path。原工作區離線npm ci重用既有cache，未改manifest／lock或下載；Python **5272 passed／9 skipped／3 warnings**，Vitest **1159 passed／230 files**，root TypeScript／Next16.3.4 build、non-audit **42/42 PASS**。舊的除錯計畫與R1／R2失敗及未執行證據保留，七份暫存文件以sidecar註記取代舊指示（皆未入版控）；完整驗證與依賴安裝狀態見接續計畫。#22／#23與audit NOT RUN，最終審查未執行，不宣稱P11完成。
+- **2026-09-06：維護者改採 P11 Next 原生驗證優先**。沿用專案pytest／Vitest／guards與既有sandbox，允許必要tests／guards／mocks修正；先前repoWritePaths=[]、完整source/node_modules外部投影與launcher限定不再套用新工作。新增aggregate non-audit／dependency-cache-only入口，Docker探測延至明確opt-in執行期，Guard16使用既有smoke sandbox並保留member依賴隔離；三scanner在metadata／下探前排除data及連結，靜態測試負向fixture移至tmp_path。原工作區離線npm ci重用既有cache，未改manifest／lock或下載；Python **5272 passed／9 skipped／3 warnings**，Vitest **1159 passed／230 files**，root TypeScript／Next16.3.4 build、non-audit **42/42 PASS**。舊的除錯計畫與R1／R2失敗及未執行證據保留，七份暫存文件以sidecar註記取代舊指示（皆未入版控）；完整驗證與依賴安裝狀態見接續計畫（未入版控）。#22／#23與audit NOT RUN，最終審查未執行，不宣稱P11完成。
 
 
 
