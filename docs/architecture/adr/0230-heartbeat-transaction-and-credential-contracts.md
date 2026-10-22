@@ -87,7 +87,7 @@ Guard24按同檔module-level APIRouter變數及本地include鏈解析每個decor
 ## 驗證、限制與回復
 
 B2 130P、UI19P；B3 135P（含真正 fresh restart）；B6 目前 CI selectors512P、
-source/smoke安全前置76P。B6 final full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke、Chat1241P及78Python靜態通過；最終來源與doc-only閉包記錄在當時的交班文件，不套歷史PASS。
+source/smoke安全前置76P。B6 final full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke、Chat1241P及78Python靜態通過；最終來源與doc-only閉包記錄在當時的交班文件（現在只留在開源前的私人歷史），不套歷史PASS。
 原 RED、fixture／匯入錯誤及前置環境失敗分開保存；資料 I/O 歷史不作未存取保證。
 
 F05 workflow 只承諾 SOURCE_READY：核心必跑、前端保守分類、最小 read-only 權限、精確來源與

@@ -129,7 +129,7 @@ S2：
 - **同一 session 開多個前端分頁**：取最近一次請求。
 - **`log_payload`**：非無痕時，`proxy_service.log_payload` 會把完整請求（含這段）寫進 `logs/proxy_payload.log`。和其他 prompt 區塊一樣，是除錯日誌，不是對話紀錄。
 - **任務看板多讀一次**：每次請求多讀一次看板檔（ToolLayer 也會讀）。`MissionManager` 取路徑時會順手建立 `missions/` 目錄（既有行為，ToolLayer 每次請求本來就會觸發）；看板內容不改。
-- **IDE 資訊區塊**：`ContextLayer._append_context` 把 `<ide_context>` 直接接在字串後面；IDE 請求若帶圖片（多模態 JSON 字串），圖片會壞掉。目前 IDE 多半只送文字；本 PR 不改（列在 HANDOVER §3）。
+- **IDE 資訊區塊**：`ContextLayer._append_context` 把 `<ide_context>` 直接接在字串後面；IDE 請求若帶圖片（多模態 JSON 字串），圖片會壞掉。目前 IDE 多半只送文字；本 PR 不改（當時列在 HANDOVER §3；後來在 ADR-0264 修好）。
 
 S1：
 

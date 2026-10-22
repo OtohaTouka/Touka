@@ -389,7 +389,7 @@ F6 核對：原生工具只有 `send_message` 與舊名 `sns_control` 以靈魂�
 
 - 新測試：`test_review_command_approval_security.py` 8 個（B2）、`test_review_awaiting_human_security.py` 12 個（B1）、`test_approval_card_full_command_security.py` 4 個（A7）、`ToolApprovalCard.test.tsx` 1 個。改動：`test_subprocess_hardening_security.py`（政策閘改 async 與 approver，現 29 個）、`test_dispatch_subagent.py` 加 1 個（子 ctx 帶 `subagent_run`）；`test_evidence_collector.py`、`test_exec_cleanup_off_loop.py` 的放行閘改 async，`test_hitl_broker_executor.py` 改從 `approval_flow` 匯入預覽函式，斷言都沒動。
 - 先紅後綠：B2 紅 4、A7 紅 3、卡片 1、B1 兩輪各紅 4、6。突變證明：U2b-1 13 個、U2b-2 17 個，改壞都會變紅、還原後無殘留。
-- golden 零差異。全量 pytest 與守衛結果當時記在 HANDOVER，現在只留在開源前的私人歷史。
+- golden 零差異。全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。
 - 2c 新測試（全部用假的 Completer、不打 API）：`test_hard_floor_security.py` 111、`test_auth_mode_three_modes.py` 69、`test_auth_mode_not_wider_security.py` 6、`test_auth_mode_authority_security.py` 28、`test_user_intent_presence_security.py` 28、`test_auto_reviewer_security.py` 85、`test_auto_review_execution_security.py` 48、`test_heartbeat_modes_security.py` 8、`test_ide_human_approval_security.py` 11、`test_reviewer_models_endpoint.py` 3、`test_incognito_manual_only_security.py` 21（U2c-9）；IDE Vitest 83（14 檔）、ToukaChat Vitest 1,537。既有測試只有事先核准的四項變寬與 `test_kf*` 照 docstring 翻轉，其餘同嚴或更嚴（見各小節「驗證」）。
 - 2c 突變證明：U2c-1 24 個、U2c-4 15 個、U2c-2 27 個、U2c-3 56 個、U2c-5 15 個、U2c-7 19 個、U2c-6 33 個，改壞都會變紅、還原後無殘留。各單位 golden 零差異。
 

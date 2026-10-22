@@ -66,7 +66,7 @@
 - 新測試：`test_unauthenticated_chat_security.py` 8 個（修補前 6 個紅，證明沒登入能叫出靈魂人設與家對話）、`test_guest_role_retirement.py` 8 個（子代理工具與改名前逐項相同）、`test_soul_only_agent_roles.py` 17 個、`test_group_soul_only.py` 14 個、`HeartbeatWhitelist.test.tsx` 3 個（第 1 個先紅，證明靈魂被寫成 Base）。把 Guest 當低權限樣本的既有測試改指 Subagent 或 Base，不改斷言強度；改成更嚴的期望：`test_proxy_auth_flow` 的外部無卡改為 401。
 - 突變證明：U2a-1 7 個、U2a-2 18 個、U2a-3 18 個（含前端 6 個）、U2a-4 11 個，改壞都會變紅、還原後無殘留。
 - R-2a 修正（前綴 ID、群聊靈魂檢查、舊群聊歷史點名）：新增 6 個測試（前綴 ID 2、群聊 4），用合成靈魂 ID 的既有測試改成先宣告或建立靈魂、斷言不變；突變 6 個都會變紅。
-- 全量 pytest、golden（零差異）、守衛與前端結果當時記在 HANDOVER，現在只留在開源前的私人歷史。本段沒有打任何 API。
+- 全量 pytest、golden（零差異）、守衛與前端結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。本段沒有打任何 API。
 - 修補（session 歸屬）：新增 `test_session_binding_security.py` 15 個（修補前 8 個紅：兩個端點、一般與 SNS 形式的 session ID，前情摘要被注入、回覆寫進對方 session 且綁定被改成 Bob）；`test_soul_layer_incognito` 讓 sess-1 綁在 Sumi，兩例只差在無痕閘，斷言不變。一般模型寫回補 4 個（修補前 2 個紅：normal 使用者帶別人的 session_id，回覆寫進對方 session），共 19 個。
 - 修補（非擁有者指定靈魂）：新增 `test_soul_target_ownership_security.py` 30 個（修補前 14 個紅：HTTP 10 個回 200 且人設、家對話、上游都被觸及；子代理 1 個把別人的靈魂人設注入；群聊 3 個照樣派發）；兩個既有測試因新規則調整、不放寬：`test_monitor_authlevel_gate` 的一般使用者改為預期 403（另保留模式不被寫入的斷言），`test_auth_mode_authority_security` 點名另一個靈魂的那一例改由兩個都擁有的擁有者發出，斷言不變。再審（R-2a ① 第 2 次）的繞法：新增 `test_soul_target_bypass_security.py` 28 個（修補前 21＋3 個紅：再審第 2 次的子代理 `model=None` 兩例回 `MODEL_NOT_FOUND`、`ToukaSoul<靈魂>` 建立回 200；其餘：同名自訂模型與 `../soul/`、`..\soul\` 穿越都會套上別人的人設；建立、改名自訂模型照樣接受靈魂名稱與含 `..` 的 ID；ToukaChat 靈魂對話裡的子代理被 403、還清掉父 session 的中斷旗標；計分卡對別人的靈魂照樣開跑）；Guard #45 基準只新增子代理讀 `base_ctx` 的 `headers` 一項。
 

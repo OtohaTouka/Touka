@@ -34,7 +34,7 @@
 
 ## 發布前來源契約：排程交易與憑證（ADR-0230）
 
-此節為已實作來源候選，B2／B3 階段接受；B6 見 ADR-0230；發布／live 狀態當時記在 HANDOVER，現在只留在開源前的私人歷史。
+此節為已實作來源候選，B2／B3 階段接受；最終 B6 見 ADR-0230；發布／live 狀態當時記在 HANDOVER，現在只留在開源前的私人歷史。
 
 - HB `GET/POST /v1/schedules`、`DELETE /v1/schedules/{id}` 沿 Bearer secret。GET 保留原欄位 presence，ETag 是 schedules-only canonical revision，不包含 token；mutation 在同一交易 lock 內檢查可選 If-Match。
 - 真人管理走 Proxy `/v1/heartbeat/schedules`：fresh human JWT、一般 user 限 owned agents、admin 全域；更新驗舊／新 agent，隱藏 ID 不洩漏。bridge 必帶 If-Match，409 無副作用。
