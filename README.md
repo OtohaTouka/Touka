@@ -24,7 +24,7 @@ Touka is an experimental, local-first AI agent system. Agents ("souls") keep lon
 
 ## 🌌 關於本專案
 
-**Touka** 是一個以「本機部署優先（local-first）」為設計理念的 AI 代理人作業系統。你的對話、記憶與設定完全保存在你自己的機器上，不依賴任何雲端服務。
+**Touka** 是一個以「本機部署優先（local-first）」為設計理念的 AI 代理人作業系統。你的對話、記憶與設定完全保存在你自己的機器上；除了你選擇的模型供應商，不依賴其他雲端服務。
 
 本專案是受 [openclaw](https://openclaw.ai/) 與 [hermes-agent](https://hermes-agent.nousresearch.com/) 啟發的實驗性模仿作品，旨在探索「具備長期記憶的個人 AI 助理」的可能性。每一行程式碼均由人類開發者透過高階指令（Orchestration）引導 AI 協作完成。
 
