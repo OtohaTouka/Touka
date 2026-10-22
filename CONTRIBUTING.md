@@ -85,10 +85,13 @@ python -B -m pytest tests/
 # 1. 後端 pyflakes（CI 會跑）：四個產品子專案不能有未定義名稱、沒用到的匯入或變數，必須 0 錯誤
 ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
 
-# 2. 後端完整 ruff 只減不增（CI 會跑）：每條規則的錯誤數必須和 tests/lint/ruff_baseline.json 完全相等，
-#    CI 在第 5 項的 pytest 裡檢查（tests/lint/test_ruff_ratchet.py）。修掉舊錯誤後，重拍基準一起提交：
-#    python -B scripts/lint_ratchet.py ruff --update
+# 2. 後端完整 ruff 與型別檢查只減不增（CI 會跑）：每條規則、每種型別錯誤的數量必須和
+#    tests/lint/ruff_baseline.json、tests/lint/pyrefly_baseline.json 完全相等。CI 在第 5 項的 pytest
+#    裡檢查（tests/lint/test_ruff_ratchet.py、test_pyrefly_ratchet.py）。型別檢查的範圍在 pyproject.toml
+#    的 [tool.pyrefly]。修掉舊錯誤後，重拍基準一起提交：
+#    python -B scripts/lint_ratchet.py ruff --update（型別檢查是 pyrefly --update）
 python -B scripts/lint_ratchet.py ruff
+python -B scripts/lint_ratchet.py pyrefly
 
 # 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint
