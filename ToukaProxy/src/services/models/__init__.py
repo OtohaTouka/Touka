@@ -5,7 +5,7 @@
 
 from .manager import ModelManager
 
-# 全系統唯一的模型管理員單例 (SSOT)
+# 全系統唯一的模型管理員單例（SSOT）
 model_manager = ModelManager()
 
 __all__ = ["ModelManager", "model_manager"]

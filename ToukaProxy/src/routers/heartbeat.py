@@ -182,7 +182,7 @@ async def delete_human_heartbeat_schedule(
 router.include_router(schedule_router)
 
 
-# DA24 + ADR-0246 U2c-5 (decision 8 丙): heartbeat security_level → mode. Only the explicit
+# DA24 + ADR-0246 U2c-5 (decision 8): heartbeat security_level → mode. Only the explicit
 # "full" value may escalate to YOLO; safe → Auto (headless: no terminal, no reviewer call);
 # any unknown/garbage value fails safe to the strictest mode, Manual.
 _SECURITY_LEVEL_TO_AUTH = {"safe": "Auto", "full": "YOLO"}

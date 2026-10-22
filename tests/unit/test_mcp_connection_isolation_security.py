@@ -210,14 +210,14 @@ async def _never(_seconds: float) -> None:
 
 
 async def _selftest_ok(_kernel_dir: Any, _test_dir: Any) -> SelfTestResult:
-    """和 C 線 `_SelfTest` 預設同形狀的假自測：不碰真的 Landlock 或 Docker。"""
+    """和隔離層 `_SelfTest` 預設同形狀的假自測：不碰真的 Landlock 或 Docker。"""
     return SelfTestResult(ok=True, abi=7)
 
 
 async def test_midflight_failure_keeps_isolation_background_reprobe_running(
     monkeypatch, tmp_path, no_unretrieved
 ):
-    """I1：lifespan 被取消時，收尾會先取消所有 spawn_logged 背景任務（含 C 線的隔離背景重測）。"""
+    """I1：lifespan 被取消時，收尾會先取消所有 spawn_logged 背景任務（含隔離層的背景重測）。"""
     router = peers.PeerRouter("alpha", "beta")
     peers.install(monkeypatch, router)
     manager = ProtocolManager(router.registry())

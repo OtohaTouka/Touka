@@ -444,7 +444,7 @@ async def test_incognito_intent_is_sent_but_never_written(audits, monkeypatch, c
     reviewer = _reviewer(completer)
     with caplog.at_level("DEBUG"):
         await _review(reviewer, _request(intent=intent))
-    assert private_text in completer.calls[0]["user"]  # ④甲：無痕也送審
+    assert private_text in completer.calls[0]["user"]  # ADR-0246 ④：無痕也送審
     assert all(private_text not in r.getMessage() for r in caplog.records)
     assert all(private_text not in repr(c) + repr(d) for c, d in audits)
     assert private_text not in repr(reviewer.breaker._counts)
@@ -476,7 +476,7 @@ def _effect(level: str, resource: str, action: str = "terminal_execute") -> str:
         ("Auto", "cat .env", "terminal_execute", "HUMAN_ONLY"),  # F2 先判斷
         ("Auto", "docker compose down", "terminal_execute", "HUMAN_ONLY"),  # F7
         ("Auto", "sudo ls", "terminal_execute", "DENY"),  # 黑名單
-        ("Auto", "delete", "tool_call", "REVIEW"),  # dangerous 工具交給審查員（決定 3）
+        ("Auto", "delete", "tool_call", "REVIEW"),  # dangerous 工具交給審查員（ADR-0246 決定 3）
         ("Auto", "some_unlisted_mcp_tool", "tool_call", "REVIEW"),
         ("Auto", "write", "tool_call", "ALLOW"),  # safe 類照舊
         ("Auto", "send_message", "tool_call", "HUMAN_ONLY"),  # F6

@@ -94,7 +94,7 @@ _MATRIX = {
     ("Manual", "send_message"): "CONFIRM",
     ("Auto", "read"): "ALLOW",
     ("Auto", "write"): "ALLOW",
-    ("Auto", "send_message"): "HUMAN_ONLY",  # F6 對外發言：Auto 下只有人能核准（決定 6）
+    ("Auto", "send_message"): "HUMAN_ONLY",  # F6 對外發言：Auto 下只有人能核准（ADR-0246 決定 6）
     ("YOLO", "read"): "ALLOW",
     ("YOLO", "write"): "ALLOW",
     ("YOLO", "send_message"): "ALLOW",

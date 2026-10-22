@@ -2,8 +2,8 @@
 
 `POST /v1/autonomy` 原本整份用 `require_privileged`：非 admin 擁有者帶 X-Agent-ID 切成自己的
 靈魂（代理角色 Owner）、靈魂本身、Debugger 都能改 `auto_review`——`model` 決定 Auto 的資料送
-到哪家廠商（決定 ④），`headless_terminal=true` 讓所有靈魂無人在場的終端指令改成送審（決定 8
-丙要人類決定才開）。現在：
+到哪家廠商（ADR-0246 ④），`headless_terminal=true` 讓所有靈魂無人在場的終端指令改成送審
+（ADR-0246 決定 8：要人類決定才開）。現在：
 
 - `auto_review` 有變更時只有人類 admin 能改（`require_admin_human`，admin 代打也不算）；
   其他自主預算欄位照舊 Owner／Debugger／admin。

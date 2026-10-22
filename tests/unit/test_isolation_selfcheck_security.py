@@ -170,7 +170,7 @@ async def test_launcher_selftest_stdin_is_devnull(tmp_path, monkeypatch):
     assert seen["stdin"] == asyncio.subprocess.DEVNULL
 
 
-# --- 自測的直譯器與環境（C2-2 §2.9；PM 10/15 18:00 決定①） -----------------------------------
+# --- 自測的直譯器與環境（C2-2 §2.9） -----------------------------------
 
 
 @pytest.mark.parametrize("in_container", [True, False])

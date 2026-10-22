@@ -140,7 +140,7 @@ def test_code_digest_covers_every_listed_file(tmp_path: Path) -> None:
     assert executor_server.executor_code_digest(copy) == original
 
 
-# ── 型別要具名：不准用 Any、SimpleNamespace 壓掉型別（CTO 10/16）──────────────────────
+# ── 型別要具名：不准用 Any、SimpleNamespace 壓掉型別──────────────────────
 _LOOSE_TYPES = frozenset({"Any", "SimpleNamespace"})
 
 

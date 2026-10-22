@@ -7,7 +7,7 @@
 - 自建：層級 executor／landlock → ``RunnerBroker.acquire``；層級 none 不自動啟動
   （``waiting_isolation``）；人在設定頁確認降級去處後帶同意啟動一次（``McpManualStart``）。
 - 第三方與 scaffold：``RunnerBroker.acquire_third_party``，看本機判定、不看層級；還在檢查或
-  暫時有問題時等（``waiting_probe``），穩定原因才照今天的方式未隔離啟動（決定 5 甲）。
+  暫時有問題時等（``waiting_probe``），穩定原因才照今天的方式未隔離啟動（ADR-0275）。
 - 環境：條目自己的 env 一律放 ``exec_env``（先濾掉 profile 管的名稱；值不進 log、``repr``、
   帳本或 API）；啟動器自己的環境由 protocols 層組好傳進來（隔離邊界不碰父行程的完整環境）。
 判定結果記在 ``mcp_launch_book``（只有代碼），給 ``/mcp/list``、``/isolation`` 與重連用。

@@ -221,7 +221,7 @@ def test_registry_tool_count_is_frozen():
 def test_production_config_equals_example():
     """`permissions.json` 與 `.example` 整份相同——本檔只凍結前者，靠這條涵蓋後者。
 
-    live 權限設定檔已改成新版面（人類 10/12 同意，ADR-0245），不再容許任何差異。
+    live 權限設定檔已改成新版面（ADR-0245），不再容許任何差異。
     """
     live = json.loads(_PROD_PERMISSIONS.read_text(encoding="utf-8"))
     example = json.loads(

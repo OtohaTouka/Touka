@@ -12,9 +12,10 @@
    ``PermissionError(...)`` 恰好一個位置參數；``OSError``／``IOError``／``EnvironmentError`` 不得帶
    2 個以上參數（帶 errno 的會建出 PermissionError，保護拒絕的 errno 就不再是 None）。
 
-A 線第 7 段的 6 個新方法（``rewrite_archive``、``copy_file_metadata``、``fsync_file``、
-``fsync_dir``、``read_file_prefix``、``make_writable``）由後合併的 C 線在 merge dev 時加上
-``a_line_swap_semantics`` 並列進 ``EXPECTED_EXEMPT``；之後新增會碰檔案的方法，漏歸類這裡會紅。
+記憶系統第 7 段（ADR-0270）的 6 個方法（``rewrite_archive``、``copy_file_metadata``、
+``fsync_file``、``fsync_dir``、``read_file_prefix``、``make_writable``）歸為
+``swap_semantics``，列在 ``EXPECTED_EXEMPT``；
+之後新增會碰檔案的方法，漏歸類這裡會紅。
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ EXPECTED_RETRY = {
     "stat_files": True,
     "list_directory": True,
     "glob_search": True,
-    "write_file_binary": True,  # CTO：權限錯誤只在開檔時、截斷之前
+    "write_file_binary": True,  # 權限錯誤只在開檔時、截斷之前
     "write_file_text": False,
     "copy_file": False,
     "remove_dir": False,
@@ -52,14 +53,14 @@ EXPECTED_RETRY = {
 }
 # 方法 → (類別, 理由裡必須出現的摘要)
 EXPECTED_EXEMPT = {
-    "move_file": ("a_line_swap_semantics", "in_use"),
-    "remove_file": ("a_line_swap_semantics", "原樣往上丟"),
-    "rewrite_archive": ("a_line_swap_semantics", "一部分輸出"),
-    "copy_file_metadata": ("a_line_swap_semantics", "改權限"),
-    "fsync_file": ("a_line_swap_semantics", "置換前"),
-    "fsync_dir": ("a_line_swap_semantics", "改名後"),
-    "read_file_prefix": ("a_line_swap_semantics", "中斷暫存"),
-    "make_writable": ("a_line_swap_semantics", "唯讀位元"),
+    "move_file": ("swap_semantics", "in_use"),
+    "remove_file": ("swap_semantics", "原樣往上丟"),
+    "rewrite_archive": ("swap_semantics", "一部分輸出"),
+    "copy_file_metadata": ("swap_semantics", "改權限"),
+    "fsync_file": ("swap_semantics", "置換前"),
+    "fsync_dir": ("swap_semantics", "改名後"),
+    "read_file_prefix": ("swap_semantics", "中斷暫存"),
+    "make_writable": ("swap_semantics", "唯讀位元"),
     "is_protected_path": ("path_only", "路徑"),
     "get_vault_path": ("path_only", "路徑"),
     "is_within_workspace": ("path_only", "路徑"),
@@ -89,7 +90,7 @@ WRITE_ATTRS = frozenset(
 )
 IO_HELPERS = frozenset({"validate_no_symlink_escape"})
 EXTERNAL_READ_DELEGATES = frozenset({"self._ui_conversation_reader.query_ui_conversations"})
-CATEGORIES = frozenset({"a_line_swap_semantics", "path_only", "delegates"})
+CATEGORIES = frozenset({"swap_semantics", "path_only", "delegates"})
 OSERROR_NAMES = frozenset({"OSError", "IOError", "EnvironmentError"})
 
 
@@ -487,7 +488,7 @@ def test_self_test_catches_the_reverse_cases(body, expected):
         "class R:\n    def child(self, p):\n        return Path(p) / \"x\"\n",
         (
             "class R:\n"
-            "    @permission_repair_exempt(category=\"a_line_swap_semantics\", reason=\"swap\")\n"
+            "    @permission_repair_exempt(category=\"swap_semantics\", reason=\"swap\")\n"
             "    def mv(self, a, b):\n        Path(a).replace(b)\n        Path(a).chmod(0)\n"
         ),
         (

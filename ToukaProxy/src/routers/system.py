@@ -185,7 +185,7 @@ async def list_backups(
         logger.exception("Failed to list backups")
         return []
 
-    # 按日期排序 (最新在前)
+    # 按日期排序（最新在前）
     return sorted(backups, key=lambda x: x.created_at, reverse=True)
 
 

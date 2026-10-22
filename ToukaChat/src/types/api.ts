@@ -3796,7 +3796,7 @@ export interface paths {
         };
         /**
          * List Reviewer Models
-         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（決定 5）。
+         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246）。
          */
         get: operations["list_reviewer_models_v1_autonomy_reviewer_models_get"];
         put?: never;
@@ -3852,7 +3852,7 @@ export interface paths {
         };
         /**
          * List Reviewer Models
-         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（決定 5）。
+         * @description Auto 審查員可選的模型：供應商金鑰已設定、啟用中的一般模型（ADR-0246）。
          */
         get: operations["list_reviewer_models_autonomy_reviewer_models_get"];
         put?: never;
@@ -7002,8 +7002,8 @@ export interface components {
          * @description Auto 審查員（ADR-0246 U2c-3）。
          *
          *     model 預設空白＝未設定：每次要審的動作都以「審查員未設定」轉人（有人在場）或拒絕（無人
-         *     在場）。headless_terminal 預設 False：無人在場的終端指令直接拒絕、不送審（決定 8 丙）。
-         *     timeout_s 預設 60（r55，Owner 決定 2 甲）：逾時＝轉人／拒絕，不是放行條件。
+         *     在場）。headless_terminal 預設 False：無人在場的終端指令直接拒絕、不送審（ADR-0246 決定 8）。
+         *     timeout_s 預設 60（r55，ADR-0271）：逾時＝轉人／拒絕，不是放行條件。
          */
         AutoReviewConfig: {
             /**
@@ -9489,7 +9489,7 @@ export interface components {
         };
         /**
          * ReviewerModelOption
-         * @description 審查員選單的一個選項（ADR-0246，決定 5）。
+         * @description 審查員選單的一個選項（ADR-0246）。
          */
         ReviewerModelOption: {
             /** Id */

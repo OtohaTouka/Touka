@@ -90,7 +90,7 @@ function widenedCells(): string[] {
 
 describe('ToukaIDE not-wider table (ADR-0246 U2c-7)', () => {
     it('widens exactly the pre-approved cells', () => {
-        // ③ ReadOnly→Manual (ask, then run); decision 9 甲: a human approval on the
+        // ③ ReadOnly→Manual (ask, then run); ADR-0246 decision 9: a human approval on the
         // Touka card skips the second IDE prompt. Nothing else may widen.
         const approved = [
             ...['npm_test', 'curl', 'write_file', 'git_commit'].flatMap((action) => [

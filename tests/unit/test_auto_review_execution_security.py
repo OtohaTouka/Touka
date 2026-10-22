@@ -239,7 +239,7 @@ async def test_escalate_without_human_is_refused(monkeypatch):
     assert approval_service.pending_count() == 0
 
 
-# ── 高風險工具（決定 3）：有人在場送審，無人在場不送審 ────────────────────────────
+# ── 高風險工具（ADR-0246 決定 3）：有人在場送審，無人在場不送審 ────────────────────────────
 
 _DELETE_ARGS = {"scope": "vault", "path": "notes/old.md"}
 

@@ -130,7 +130,7 @@ def test_legacy_permissions_guest_is_ignored_and_file_unchanged(build, tmp_path,
 
 
 def test_legacy_guest_is_not_used_as_subagent(build, caplog):
-    """沒有 Subagent 的舊檔：舊 Guest 只略過，Subagent 沒有工具並記警告（人類 10/12 同意）。"""
+    """沒有 Subagent 的舊檔：舊 Guest 只略過，Subagent 沒有工具並記警告。"""
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         svc = build({"roles": _LEGACY_ROLES})
     assert svc.resolve_grants("Subagent") == RoleGrants()

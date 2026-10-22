@@ -263,7 +263,7 @@ def test_group_whitelist_already_has_auth():
 
 
 def test_group_whitelist_post_admin_passes():
-    """P1 (owner decision): human admins (role 'admin'), not just RBAC 'Owner', can manage the whitelist."""
+    """P1: human admins (role 'admin'), not just RBAC 'Owner', can manage the whitelist."""
     c = _as_admin()
     resp = c.post("/group/whitelist", json={})
     _clear()

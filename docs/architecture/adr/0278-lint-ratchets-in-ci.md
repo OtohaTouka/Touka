@@ -2,7 +2,7 @@
 
 - 狀態：✅ 已接受
 - 日期：2026-10-22
-- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列
+- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）
 - 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）
 
 ## 背景
@@ -68,6 +68,25 @@
   - 用 git 取得檔案清單，沒有 git 就失敗、不跳過；
   - AGENTS.md「任務後文件更新協議」改成「新增測試檔 → tests/README 加一列（檔名、說明）」。
 
+### 6. 註解與內部用語清理（2026-10-22 增補）
+- **ERA**：產品程式的 17 處全是誤判，沒有任何被註解掉的舊程式，所以改寫而不刪除：
+  - 16 處是中文註解後面接半形括號或冒號，例如 `# 初始化路徑 (SSOT)`，Python 會把它讀成函式呼叫或型別標註，改成全形括號、全形冒號；
+  - 1 處是用字典字面值寫的結構說明，改寫成一般句子。
+  - 基準的 ERA001 從 17 降到 0。
+- **內部角色稱呼與決定歸屬**：程式與測試裡的 CTO、PM、技術主管、A 線、C 線，以及「人類 10/12」「擁有者定案」「使用者拍板」「owner decision」這類歸屬，拿掉或改寫成它實際指的東西，例如記憶系統、隔離層、個人空間目錄、系統快照與記憶庫升級備份。
+  - `permission_repair_exempt` 的分類 `a_line_swap_semantics` 改名為 `swap_semantics`。這個字串只存在函式屬性上，沒有寫進持久資料、日誌或 API。
+- **決定代號**：一律寫成「ADR-NNNN 決定 N」，拿掉甲乙丙。
+  - ADR 裡沒有那個標籤的，只寫 ADR 編號：r55 的審查員設定寫 ADR-0271，第三方 MCP 未隔離啟動寫 ADR-0275。
+  - ADR-0246 有兩套編號：「決定 N」與圈號 ①～⑨。兩者是不同的事，圈號寫成「ADR-0246 ③」，不改成「決定 3」。ADR-0246 沒有「決定 5」，原本寫「決定 5」的只寫 ADR-0246。
+  - ADR 內部的「決策 N」編號（例如 ADR-0146 決策 2）保留。
+  - openapi.json 與 api.ts 跟著重新產生，只有說明文字改變。
+- **保留不改的**：
+  - 查證來源與事故的日期，例如價目表的查證日期；
+  - 子代理提示裡的「主代理」，這是產品用語；
+  - 單元代號（U2c-3、r55 等），開源審查報告建議保留，它們對得到 ADR 的小節；
+  - 審查流程的稱呼（DEV-A、reviewer ①），以及 `scripts/guard_harness_context.py` 錯誤訊息裡的 owner decision，改了會改變輸出。
+- **順手拿掉的豁免**：頂層 `tests/` 不再算業務層之後，用不到的 3 個 `# noqa: IO_PRISON_VIOLATION`（NOQA_REGISTRY 16 → 13）。
+
 ## 已知限制
 
 - **每條規則只算總數**：在 A 檔修一個、在 B 檔加一個，數字不變，擋不到。這是刻意的取捨，和 Guard #35 相同，搬移程式才不會誤擋。
@@ -80,5 +99,4 @@
 ## 後續
 
 同一任務的後續 PR 會在本 ADR 增補：
-- Python 型別檢查（pyrefly）只減不增；
-- 註解與內部用語清理，ERA 降到 0。
+- Python 型別檢查（pyrefly）只減不增。
