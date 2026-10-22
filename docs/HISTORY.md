@@ -69,7 +69,7 @@
 
 ### 📌 環境同步註記（歷史，僅適用特定本機環境）
 
-早期實體執行環境位於 `D:\ToukaSanctuary\ToukaMemory`，曾需手動同步整合點：將 `D:\Touka\ToukaMemory\src\memory_server\tools\__init__.py` 複製覆蓋至該路徑，並 `docker-compose up -d --build`；因密碼雜湊演算法變更，舊 `users.json` 需刪除以自動重生 admin。此為個人環境一次性操作，非通用部署需求，僅留存備查。
+早期實體執行環境位於 `<ToukaSanctuary>\ToukaMemory`，曾需手動同步整合點：將 `<repo>\ToukaMemory\src\memory_server\tools\__init__.py` 複製覆蓋至該路徑，並 `docker-compose up -d --build`；因密碼雜湊演算法變更，舊 `users.json` 需刪除以自動重生 admin。此為個人環境一次性操作，非通用部署需求，僅留存備查。
 
 ### 資源管理器 MCP 回退機制實作詳解 (Resource Manager MCP Fallback Implementation)
 

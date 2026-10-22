@@ -1928,7 +1928,7 @@
       "field_name_label": "專案名稱",
       "field_name_placeholder": "例如：ToukaChat 重構",
       "field_root_path_label": "本機根目錄路徑 (絕對路徑)",
-      "field_root_path_placeholder": "例如：D:/Touka/ToukaChat",
+      "field_root_path_placeholder": "例如：D:/Projects/MyApp",
       "field_description_label": "專案描述 (選填)",
       "field_description_placeholder": "描述此專案的目標...",
       "cancel_button": "取消",

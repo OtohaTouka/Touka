@@ -37,7 +37,7 @@ EOF 只表示 unknown，error／cancelled 不自動保存部分結果。`skipped
 
 ## 1. 基線、證據地位與目標
 
-本文件是本工作包新版 R2 SSOT。歷史輸入為 `D:\TOUKA_RELIABILITY_HANDOFF_2026-09-13.md`，
+本文件是本工作包新版 R2 SSOT。歷史輸入為本機交接檔（2026-09-13，未入版控），
 SHA256 `78dff3225cbc49f4ed023def8e376451eadc60f0b3e3a4485ce982ef1355bf2d`；其 `c790e03` 抽查、未發布背景及建議順序不是現況或授權。
 保留歷史原文，不覆寫它；已結案的 `tool-observability-and-reliability.md` 是另一份工具觀測提案，不併入本工作包。
 
