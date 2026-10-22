@@ -1,4 +1,4 @@
-"""④ 身分裂腦修復（owner 拍板 Option A：前景對話以靈魂身分執行）。
+"""④ 身分裂腦修復（Option A：前景對話以靈魂身分執行）。
 
 根因：MonitorLayer 解析出 target 靈魂後，只把 ``ctx["agent_id"]`` 字串改成靈魂 id，
 ``ctx["identity"]`` 仍是人類請求者 → 下游全走人類身分：
