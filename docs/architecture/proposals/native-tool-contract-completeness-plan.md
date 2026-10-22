@@ -56,11 +56,11 @@ Root原件 `ROOT_DEV_A_R3_ACCEPTANCE.json`；新增兩檔後實際候選44。新
 - 本次採「8 組、12 個非 alias 欄位＋1 個 action」及另外 6 組條件／描述問題作修復範圍。
 - 上述數量只描述基線，不寫成守衛硬編碼的預期工具數，也不作為執行通過證據。
 
-證據入口：[builtin registry](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/builtin/__init__.py)、
-[Memory registry 與 action 分派](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/__init__.py)、
-[Memory schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/schemas.py#L51)、
-[ToolLayer](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/middleware/layers/tool.py)、
-[ToolExecutor](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/services/tool_executor.py)。
+證據入口：builtin registry（`ToukaProxy/src/tools/builtin/__init__.py`）、
+Memory registry 與 action 分派（`ToukaMemory/src/memory_server/tools/__init__.py`）、
+Memory schema（`ToukaMemory/src/memory_server/tools/schemas.py`）、
+ToolLayer（`ToukaProxy/src/middleware/layers/tool.py`）、
+ToolExecutor（`ToukaProxy/src/services/tool_executor.py`）。
 
 ### 1.1 與既有重設計的關係
 
@@ -89,14 +89,14 @@ ADR 的 Tier 2 明確決定 identity／project_id 僅描述透明化、不進模
 
 | ID／範圍 | 基線證據與問題 | 預期行為／RED 理由 | 測試與修改落點 |
 |---|---|---|---|
-| M1：`memory_tools.emotions`，save／query 共用 1 欄 | [manager.save_memory／query_memory](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/services/manager.py#L213) 已接受；[schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/schemas.py) 缺欄位，與 tags 是不同用途 | `list[str]` 自由感情標籤，不新增封閉 enum；schema 說明查詢用途，非預設值經公開入口到 factual／vector。RED：模型 schema 無欄位 | Memory public contracts、schemas、gateway；新增 memory contract tests，mock／sandbox 驗證保存與篩選 |
-| M2：query 的 `date_start`／`date_end`／`is_recent`，3 欄 | [manager 的日期正規化與 query](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/services/manager.py#L264) 已支援；目前「最近」字樣只影響 query 策略，不等同 7 日限制 | `is_recent=True` 取最近 7 日；與 date_start 同給取較晚起點，date_end 含當日末；時間走既有 SSOT。RED：schema 不含三欄 | 同 M1；固定時鐘、起訖邊界、指定日期＋recent 組合、無結果與非預設值傳遞 |
-| M3：forget 的 `fact_id_to_archive`，1 欄 | [resolve_duplicate](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/services/manager.py#L367) 必需 ID；schema 只列 forget action，query render 未顯示可用 ID | forget 條件必填；query 的 factual 命中用 `id`、vector 命中用 `fact_id`，輸出同一 canonical factual ID，保持目前文字回傳型態。RED：無公開參數且查詢結果不能穩定取得 ID | Memory manager／gateway／contracts；sandbox query→forget→確認該 fact archived；另一 identity 的 ID 拒絕且不洩漏 |
-| M4：`manage_dups`，1 action | [MEMORY_ACTIONS](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/__init__.py#L89) 已分派；[diag](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/diag.py#L116) 的內層 `action=scan/resolve` 與外層衝突 | 公開 `action=manage_dups`，另用 `operation=scan/resolve`，預設 scan；resolve 條件必填 `target_id`。gateway 明確映射至內層 action。RED：enum 缺漏且 resolve 無正確外層路徑 | Memory contracts／gateway／diag；正式入口 scan、resolve、缺 target、未知 operation、跨 identity 拒絕 |
-| M5：mission initialize 的 `tasks[].review_required`／`review_risk`，2 欄 | [MissionManager.initialize_mission](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/services/mission_manager.py#L185) 消費；[Proxy schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/mission_tools.py#L410) 缺巢狀欄位 | 原 false／normal 預設與領域有效值不變；非預設值建立出的任務可回讀。RED：tasks item schema 缺欄位 | mission typed inputs／schema／橋接；既有 manager sandbox、任務審核政策與非法值測試 |
-| M6：mission initialize 的 `tasks[].test_log`／`artifact_refs`，2 欄 | [初始化證據欄位](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/services/mission_manager.py#L185)；目前僅 top-level update_status 揭露 | 初始任務可攜帶既有格式的證據；沿領域路徑驗證與 FSM，不把初始化證據等同 DONE／審核通過。RED：巢狀 schema 缺欄位 | 同 M5；非空 test_log／多 refs、路徑穿越拒絕、內容回讀、既有獨立單複數欄位保真 |
-| M7：`evolution_implement_and_verify.timeout_override`／`max_storage_mb`，2 欄 | [evolution wrapper／verify_mcp_locally](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/builtin/evolution.py#L400) 已傳遞與消費；[builtin schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/builtin/schemas.py#L366) 缺欄位 | 只縮小 MCP 驗證 sandbox 配額，不控制整體安裝／實作耗時，也不套到一般 Skill。沿既有 clamp：正數且小於系統上限才生效，其他值維持上限 | Proxy public contracts／schemas；mock sandbox 驗有效值、等於／大於上限、零／負數與既有型別邊界，不能放大配額 |
-| M8：`create_skill.author`，1 欄 | [creation wrapper](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/builtin/creation.py#L47) 接受，落到 [SkillSpec](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/services/creation/models.py)；schema 缺 | 只設定作者 metadata；未填／空值沿既有 agent_id fallback，不改身份／Owner 閘。RED：schema 無 author | Proxy public contracts／schemas；mock creation API 驗作者與預設值，禁止因產生 schema 暴露 `is_system`／MCP `sdk_major` |
+| M1：`memory_tools.emotions`，save／query 共用 1 欄 | manager.save_memory／query_memory（`ToukaMemory/src/memory_server/services/manager.py`） 已接受；schema（`ToukaMemory/src/memory_server/tools/schemas.py`） 缺欄位，與 tags 是不同用途 | `list[str]` 自由感情標籤，不新增封閉 enum；schema 說明查詢用途，非預設值經公開入口到 factual／vector。RED：模型 schema 無欄位 | Memory public contracts、schemas、gateway；新增 memory contract tests，mock／sandbox 驗證保存與篩選 |
+| M2：query 的 `date_start`／`date_end`／`is_recent`，3 欄 | manager 的日期正規化與 query（`ToukaMemory/src/memory_server/services/manager.py`） 已支援；目前「最近」字樣只影響 query 策略，不等同 7 日限制 | `is_recent=True` 取最近 7 日；與 date_start 同給取較晚起點，date_end 含當日末；時間走既有 SSOT。RED：schema 不含三欄 | 同 M1；固定時鐘、起訖邊界、指定日期＋recent 組合、無結果與非預設值傳遞 |
+| M3：forget 的 `fact_id_to_archive`，1 欄 | resolve_duplicate（`ToukaMemory/src/memory_server/services/manager.py`） 必需 ID；schema 只列 forget action，query render 未顯示可用 ID | forget 條件必填；query 的 factual 命中用 `id`、vector 命中用 `fact_id`，輸出同一 canonical factual ID，保持目前文字回傳型態。RED：無公開參數且查詢結果不能穩定取得 ID | Memory manager／gateway／contracts；sandbox query→forget→確認該 fact archived；另一 identity 的 ID 拒絕且不洩漏 |
+| M4：`manage_dups`，1 action | MEMORY_ACTIONS（`ToukaMemory/src/memory_server/tools/__init__.py`） 已分派；diag（`ToukaMemory/src/memory_server/tools/diag.py`） 的內層 `action=scan/resolve` 與外層衝突 | 公開 `action=manage_dups`，另用 `operation=scan/resolve`，預設 scan；resolve 條件必填 `target_id`。gateway 明確映射至內層 action。RED：enum 缺漏且 resolve 無正確外層路徑 | Memory contracts／gateway／diag；正式入口 scan、resolve、缺 target、未知 operation、跨 identity 拒絕 |
+| M5：mission initialize 的 `tasks[].review_required`／`review_risk`，2 欄 | MissionManager.initialize_mission（`ToukaMemory/src/memory_server/services/mission_manager.py`） 消費；Proxy schema（`ToukaProxy/src/tools/mission_tools.py`） 缺巢狀欄位 | 原 false／normal 預設與領域有效值不變；非預設值建立出的任務可回讀。RED：tasks item schema 缺欄位 | mission typed inputs／schema／橋接；既有 manager sandbox、任務審核政策與非法值測試 |
+| M6：mission initialize 的 `tasks[].test_log`／`artifact_refs`，2 欄 | 初始化證據欄位（`ToukaMemory/src/memory_server/services/mission_manager.py`）；目前僅 top-level update_status 揭露 | 初始任務可攜帶既有格式的證據；沿領域路徑驗證與 FSM，不把初始化證據等同 DONE／審核通過。RED：巢狀 schema 缺欄位 | 同 M5；非空 test_log／多 refs、路徑穿越拒絕、內容回讀、既有獨立單複數欄位保真 |
+| M7：`evolution_implement_and_verify.timeout_override`／`max_storage_mb`，2 欄 | evolution wrapper／verify_mcp_locally（`ToukaProxy/src/tools/builtin/evolution.py`） 已傳遞與消費；builtin schema（`ToukaProxy/src/tools/builtin/schemas.py`） 缺欄位 | 只縮小 MCP 驗證 sandbox 配額，不控制整體安裝／實作耗時，也不套到一般 Skill。沿既有 clamp：正數且小於系統上限才生效，其他值維持上限 | Proxy public contracts／schemas；mock sandbox 驗有效值、等於／大於上限、零／負數與既有型別邊界，不能放大配額 |
+| M8：`create_skill.author`，1 欄 | creation wrapper（`ToukaProxy/src/tools/builtin/creation.py`） 接受，落到 SkillSpec（`ToukaProxy/src/services/creation/models.py`）；schema 缺 | 只設定作者 metadata；未填／空值沿既有 agent_id fallback，不改身份／Owner 閘。RED：schema 無 author | Proxy public contracts／schemas；mock creation API 驗作者與預設值，禁止因產生 schema 暴露 `is_system`／MCP `sdk_major` |
 
 M4 的 `operation`／`target_id` 是打通既有 duplicate 功能所需的公開子參數，不回填成「原稽核 12 欄」的一部分。
 M3 不使用 vector 自身 ID、顯示序號或內容 hash 代替 factual ID；無 canonical ID 的結果不得被偽裝為可 forget 的項目。
@@ -112,12 +112,12 @@ M7 配額以執行時既有 SSOT 上限為準；程式 fallback 30 秒／50 MiB 
 
 | ID | 基線證據 | 決定與預期 RED | 測試／修改落點 |
 |---|---|---|---|
-| C1：save 的 content | [Memory schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/schemas.py#L51) root required 僅 action | save 明確條件必填 content；沿既有內容清理與長度限制，不把其他 action 也設 content 必填。RED：漏 content 的公開呼叫未由 contract 給出可修正錯誤 | M1 contracts／gateway；各 action 正反例，現有清理與 8000 字規則回歸 |
-| C2：完成通知條件 | [mission_tools](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/mission_tools.py#L106) 僅 target_agent_id 為 DispatchAgent 時採用 notify_on_complete | 描述明示 target 條件，其他 target 不發通知；保持既有權限與預設。RED：schema 描述未交代，只有正向測試不足 | mission schema、[既有 notify tests](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/tests/unit/test_mission_tools_notify.py) 加非 DispatchAgent 與未授權分支 |
-| C3：ide_open_diff 的 session_id | [editor schema](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/editor.py#L293) 要求模型填；[executor](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/services/tool_executor.py#L588) 最後覆寫 | 公開 properties／required 不要求 session_id；可信 runtime 照常注入。舊模型送入的此欄於邊界剝除，不准跨 session 控制。RED：公開 schema 仍 required | editor schema／contract、executor；無 session 參數可正常呼叫、偽造值不能覆蓋 context |
-| C4：vault_tools 舊 schema 回流 | [Memory schema list](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaMemory/src/memory_server/tools/schemas.py#L117) 回流；[Proxy bridge](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/vault_tools.py#L53) soul 僅讀 | 從完整廣告來源移除 legacy shim；保留必要執行相容，不擴 soul 寫權。同步校正殘留 legacy 形狀說明。RED：帶真 Memory schemas 的 ToolLayer 最終清單出現 vault_tools | Memory schema exports、ToolLayer 契約檢查、[schema hygiene test](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/tests/unit/test_tool_schema_hygiene.py) |
-| C5：edit_soul 約束 | [system 實作](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/builtin/system.py#L155)：insert_line 為 0-based；soul.md 最少 50 字；soul.md／config.json 不可 delete | schema 如實寫現行語意；本案不默改成其他檔案動詞的 1-based。RED：描述未完整揭露重要條件 | edit_soul schema／contract；sandbox 0／中間位置、49／50 字、protected delete 拒絕；不操作真 soul |
-| C6：dispatch_subagent_group 上限 | [subagent_tools](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/subagent_tools.py#L58) 單批 8、並行 4；描述只說有上限 | 公開明示單批最多 8、最多並行 4；由現行常數生成相關限制，不另存兩份數字。RED：schema／描述無精確限制 | group schema／contract、[既有 group tests](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/tests/unit/test_subagent_group.py)；8／9 個任務與受控 async fake 併發上限 |
+| C1：save 的 content | Memory schema（`ToukaMemory/src/memory_server/tools/schemas.py`） root required 僅 action | save 明確條件必填 content；沿既有內容清理與長度限制，不把其他 action 也設 content 必填。RED：漏 content 的公開呼叫未由 contract 給出可修正錯誤 | M1 contracts／gateway；各 action 正反例，現有清理與 8000 字規則回歸 |
+| C2：完成通知條件 | mission_tools（`ToukaProxy/src/tools/mission_tools.py`） 僅 target_agent_id 為 DispatchAgent 時採用 notify_on_complete | 描述明示 target 條件，其他 target 不發通知；保持既有權限與預設。RED：schema 描述未交代，只有正向測試不足 | mission schema、既有 notify tests（`tests/unit/test_mission_tools_notify.py`） 加非 DispatchAgent 與未授權分支 |
+| C3：ide_open_diff 的 session_id | editor schema（`ToukaProxy/src/tools/editor.py`） 要求模型填；executor（`ToukaProxy/src/services/tool_executor.py`） 最後覆寫 | 公開 properties／required 不要求 session_id；可信 runtime 照常注入。舊模型送入的此欄於邊界剝除，不准跨 session 控制。RED：公開 schema 仍 required | editor schema／contract、executor；無 session 參數可正常呼叫、偽造值不能覆蓋 context |
+| C4：vault_tools 舊 schema 回流 | Memory schema list（`ToukaMemory/src/memory_server/tools/schemas.py`） 回流；Proxy bridge（`ToukaProxy/src/tools/vault_tools.py`） soul 僅讀 | 從完整廣告來源移除 legacy shim；保留必要執行相容，不擴 soul 寫權。同步校正殘留 legacy 形狀說明。RED：帶真 Memory schemas 的 ToolLayer 最終清單出現 vault_tools | Memory schema exports、ToolLayer 契約檢查、schema hygiene test（`tests/unit/test_tool_schema_hygiene.py`） |
+| C5：edit_soul 約束 | system 實作（`ToukaProxy/src/tools/builtin/system.py`）：insert_line 為 0-based；soul.md 最少 50 字；soul.md／config.json 不可 delete | schema 如實寫現行語意；本案不默改成其他檔案動詞的 1-based。RED：描述未完整揭露重要條件 | edit_soul schema／contract；sandbox 0／中間位置、49／50 字、protected delete 拒絕；不操作真 soul |
+| C6：dispatch_subagent_group 上限 | subagent_tools（`ToukaProxy/src/tools/subagent_tools.py`） 單批 8、並行 4；描述只說有上限 | 公開明示單批最多 8、最多並行 4；由現行常數生成相關限制，不另存兩份數字。RED：schema／描述無精確限制 | group schema／contract、既有 group tests（`tests/unit/test_subagent_group.py`）；8／9 個任務與受控 async fake 併發上限 |
 
 ## 3. 合約設計與所有權
 
@@ -152,7 +152,7 @@ create_skill、ide_open_diff、edit_soul、dispatch_subagent_group。mission 的
 M7 兩個 quota override 為明列例外：保留原值到既有 verifier 只 clamp 一次；無效值仍回系統上限，不讓通用 strict 型別驗證改成直接拒絕。
 此逐欄策略由 contract metadata／normalizer 記錄並測試，不使用全域寬鬆 `extra=allow` 放過未知欄位。
 
-沿用 [EXECUTION_CONTEXT_KWARG_NAMES](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/tools/execution_context.py) 作 runtime metadata SSOT；
+沿用 EXECUTION_CONTEXT_KWARG_NAMES（`ToukaProxy/src/tools/execution_context.py`） 作 runtime metadata SSOT；
 `identity` 是另有明確保護的領域身份，不因未列入該集合而允許模型提供。
 canonical 公開參數、內部可接受 alias、trusted context 三者分開驗證；不把所有 kwargs 差異都宣告漏洞。
 
@@ -165,7 +165,7 @@ Memory action 的公開名稱與對應 contract 由同一 registry 記錄，導�
 
 沿用 [ADR-0100](../adr/0100-tool-schema-canonical-openai.md) 的 canonical／最後一步 provider 投影。
 處理 Pydantic `$defs`／`$ref`、nullable 與 union 時，僅展開本機封閉 definitions，不抓外部 `$ref`；遞迴／未知投影明確報錯。
-[Gemini converter](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/ToukaProxy/src/adapters/openai_to_gemini.py) 目前剝除 oneOf／anyOf／allOf／const；
+Gemini converter（`ToukaProxy/src/adapters/openai_to_gemini.py`） 目前剝除 oneOf／anyOf／allOf／const；
 不能把全部欄位藏在將被剝除的 union 分支中。投影保留公開 property paths、型別、enum、必要描述與 top-level required，
 條件必填另保留對模型可讀的 action 說明並由 runtime 強制；不要求 provider schema bytes 完全相同。
 OpenAI／Anthropic／Gemini 全部以真實工具 schema 驗 semantic parity，不只用 toy schema 證明 converter 能運作。
@@ -189,9 +189,9 @@ OpenAI／Anthropic／Gemini 全部以真實工具 schema 驗 semantic parity，�
 6. 完整組裝後的 public tool set 不含 legacy shim，去重優先序有測試，不能僅看 builtin list。
 7. 失敗輸出定位 tool／action／field path／source 與原因，不印真資料或完整模型參數。
 
-現有 [Guard 32](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/scripts/guard_permissions_registry.py) 繼續維護名稱／風險分類，
-[Guard 38](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/scripts/guard_tool_events.py) 繼續驗事件 envelope；本案不挪用其名稱冒稱 input completeness 已受保護。
-[smoke_tool_coverage](https://github.com/OtohaTouka/Touka/blob/1093e8d8e9a355c32b363c9dfa9b335dca474cb2/tests/smoke/smoke_tool_coverage.py) 的 memory schema 豁免改為正確跨 registry 檢查，
+現有 Guard 32（`scripts/guard_permissions_registry.py`） 繼續維護名稱／風險分類，
+Guard 38（`scripts/guard_tool_events.py`） 繼續驗事件 envelope；本案不挪用其名稱冒稱 input completeness 已受保護。
+smoke_tool_coverage（`tests/smoke/smoke_tool_coverage.py`） 的 memory schema 豁免改為正確跨 registry 檢查，
 legacy shim 仍可明確分類；危險工具的 `WIRED_ONLY` 不改成真執行或真寫入。
 
 ### 4.1 守衛的反例測試

@@ -20,9 +20,17 @@
 
 ## 💡 提交 Pull Request
 
+### 開到哪個分支
+
+PR 請開到 **`dev`** 分支。預設分支 `main` 是穩定版，只由維護者把 `dev` 合入；開到 `main` 的 PR 會請你改目標分支。`dev` 與 `main` 都要求透過 PR 合併，而且必須通過 CI 的 `contracts`、`frontend`、`toukaide`、`landlock` 四項檢查。
+
+### 給 AI 程式代理人的規則（AGENTS.md）
+
+repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
+
 ### 環境設置（首次接手 / fresh clone）
 
-**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.21.0／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。
+**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.21.0／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。系統的 Node 是別的版本時不必改系統設定，用 [fnm](https://github.com/Schniz/fnm) 或 nvm 只替這次指令切換即可，例如 `fnm exec --using 24.21.0 -- npm run install:controlled`。
 
 ```bash
 # 1. 後端：一鍵佈建（uv workspace 單一 uv.lock：全部子專案依賴＋CPU 版 torch＋測試工具 dev group）
@@ -46,7 +54,7 @@ python -B scripts/guard_all.py
 python -B -m pytest tests/
 ```
 
-已具備相容開發環境的 Bash 使用者：
+Linux、macOS（bash／zsh）啟用後驗證：
 
 ```bash
 source .venv/bin/activate
@@ -54,7 +62,7 @@ python -B scripts/guard_all.py
 python -B -m pytest tests/
 ```
 
-兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前；這些開發命令不是新增平台的產品安裝保證。
+兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前。Linux 上會多跑 `tests/integration/test_isolation_linux.py` 的真核心隔離測試（Windows、macOS 整個模組跳過；Linux 主機沒有 Landlock 時也會跳過，設 `TOUKA_REQUIRE_LANDLOCK=1` 則改成失敗）；macOS 的開發命令沒有實測過。這些開發命令不是新增平台的產品安裝保證。
 
 > **★ `uv sync` 必帶 `--all-packages`**：root 是虛擬協調者（無依賴），裸 `uv sync` 是 exact 同步 → 會**剝除全部成員依賴**（venv 歸零；數秒可用 `--all-packages` 復原，但誤剝後測試全紅）。`uv run <cmd>` 則安全（inexact，不剝除、可直接用）。（ADR-0117）
 >

@@ -39,7 +39,7 @@
 
 ### E2E 實跑（owner 裁決 C＝代跑；走生產碼路徑、hub/config DI 至 tmp）
 
-真 `sync()` 106 條（7 官方規格全數正確落盤）→ 真 `install()`（git＝uvx 路線；filesystem＝哨兵路線，args 落盤 `D:\Touka\data` 絕對路徑）→ 真 stdio `connect_mcp_server`＋`list_tools`：**git CONNECTED 12 工具**（git_status/git_diff…）、**filesystem CONNECTED 14 工具**（read_file/write_file…）。
+真 `sync()` 106 條（7 官方規格全數正確落盤）→ 真 `install()`（git＝uvx 路線；filesystem＝哨兵路線，args 落盤 `<repo>\data` 絕對路徑）→ 真 stdio `connect_mcp_server`＋`list_tools`：**git CONNECTED 12 工具**（git_status/git_diff…）、**filesystem CONNECTED 14 工具**（read_file/write_file…）。
 
 Windows 插曲（環境、非本修）：首跑 `uvx mcp-server-git` 在全域 uv cache 安裝 pywin32（`mcp` SDK 的 win32 相依）時撞長命檔案鎖（os error 32）、中斷後 wheels cache 殘 `.tmp` 目錄毒化，`uv cache clean pywin32` 同鎖無效；以乾淨 `UV_CACHE_DIR` 隔離後一次成功＝**uvx 路線本身無恙**。容器（Linux）無 pywin32 相依，不受此影響。owner 後續可於鎖釋放（如重開機）後 `uv cache clean pywin32` 清理。
 

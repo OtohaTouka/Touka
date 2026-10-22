@@ -36,7 +36,7 @@
 
 ### 1. ToukaProxy 設定重構
 
-在 [config.py (ToukaProxy)](file:///d:/Touka/ToukaProxy/src/config.py) 中：
+在 [config.py (ToukaProxy)](../../../ToukaProxy/src/config.py) 中：
 ```python
 def resolve_env_file_path() -> Path:
     """根據執行模式動態解析 .env 檔案路徑 (SSOT)."""
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
 ### 2. ToukaHeartbeat 設定重構
 
-在 [config.py (ToukaHeartbeat)](file:///d:/Touka/ToukaHeartbeat/config.py) 中：
+在 [config.py (ToukaHeartbeat)](../../../ToukaHeartbeat/config.py) 中：
 ```python
 def resolve_heartbeat_env_file_path() -> Path:
     """根據執行模式動態解析 .env 檔案路徑 (SSOT)."""
@@ -87,7 +87,7 @@ class HeartbeatSettings(BaseSettings):
 
 ### 3. Gemini 模型篩選器重構
 
-在 [fetcher.py](file:///d:/Touka/ToukaProxy/src/services/models/fetcher.py) 中：
+在 [fetcher.py](../../../ToukaProxy/src/services/models/fetcher.py) 中：
 ```python
                     match = re.search(r"gemini-(\d+(?:\.\d+)?)", model_id)
                     if match:
@@ -102,8 +102,8 @@ class HeartbeatSettings(BaseSettings):
 ## 驗證流程 (TDD)
 
 1. **環境感知單元測試**：
-   * 建立 [test_config_env_selection.py](file:///d:/Touka/tests/unit/test_config_env_selection.py)，在隔離的 temp 沙盒中 Mock `Path.cwd()` 與 `os.environ` 參數，驗證 `Settings` 與 `HeartbeatSettings` 在整合模式、獨立模式以及環境變數覆寫下，載入的 `.env` 變數與路徑是否嚴格互斥。
+   * 建立 [test_config_env_selection.py](../../../tests/unit/test_config_env_selection.py)，在隔離的 temp 沙盒中 Mock `Path.cwd()` 與 `os.environ` 參數，驗證 `Settings` 與 `HeartbeatSettings` 在整合模式、獨立模式以及環境變數覆寫下，載入的 `.env` 變數與路徑是否嚴格互斥。
 2. **Gemini 篩選單元測試**：
-   * 在 [test_fetcher_ssot.py](file:///d:/Touka/tests/unit/test_fetcher_ssot.py) 中新增 `test_gemini_fetcher_version_filtering`，以 Mock 響應數據驗證 `gemini-2.0`, `gemini-2.5`, `gemini-3.0` 等正確保留，而 `gemini-1.5` 被準確過濾。
+   * 在 [test_fetcher_ssot.py](../../../tests/unit/test_fetcher_ssot.py) 中新增 `test_gemini_fetcher_version_filtering`，以 Mock 響應數據驗證 `gemini-2.0`, `gemini-2.5`, `gemini-3.0` 等正確保留，而 `gemini-1.5` 被準確過濾。
 3. **品質與冒煙測試**：
    * 執行全體 923 個 Pytest 測試，並運行 `python scripts/guard_all.py` 確保 26 道靜態與架構守衛全綠通過。
