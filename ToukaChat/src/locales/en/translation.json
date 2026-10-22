@@ -1257,7 +1257,7 @@
       "warning_marker": "A feature is stopped by a settings problem — details in the right sidebar"
     },
     "setup_notice": {
-      "temp_password": "The admin password is still the temporary default. Change it soon.",
+      "temp_password": "The admin password is still the temporary default. Change it now.",
       "change_password": "Change password",
       "setup_incomplete": "Initial setup isn't finished — some security settings need your attention.",
       "setup_now": "Set up now",

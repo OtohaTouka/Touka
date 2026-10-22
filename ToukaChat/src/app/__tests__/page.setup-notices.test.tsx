@@ -5,10 +5,13 @@
  *    否則 Sheet 會擋住精靈的點擊與焦點。LeftSidebar 換成記下 props 的假元件，直接呼叫
  *    page.tsx 傳進來的 onSetupAction，確認它把側欄收起來。
  * 2. 選單沒打開時，選單按鈕上有紅點、按鈕名稱說明側欄裡有設定警告；沒有警告時兩者都沒有。
+ * 3. app/layout.tsx 在 AuthGuard 裡用 SetupNoticesProvider 包住頁面（源碼檢查）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { SetupNoticesProvider } from '@/components/setup/SetupNoticesProvider';
 
 const { leftSidebarProps, setSidebarCollapsed, mockUseLocalStorage } = vi.hoisted(() => ({
@@ -89,6 +92,26 @@ function renderPage({ collapsed, warning }: { collapsed: boolean; warning: boole
     vi.mocked(useSetupStatus).mockReturnValue({ status: setupStatus(warning), isLoading: false, refetch: vi.fn() });
     return render(<SetupNoticesProvider><ChatPage /></SetupNoticesProvider>);
 }
+
+describe('app/layout.tsx — 首次設定警告的提供者接線', () => {
+    // layout 是 server component（含 <html>/<body>），不適合直接 render；以源碼確認接線。
+    // 提供者沒有掛上時 context 預設值是「全部不顯示」，臨時密碼警告會整個消失而沒有測試變紅；
+    // 移到 AuthGuard 外面則登出、換使用者後「稍後」不會重置。
+    const src = readFileSync(path.resolve(__dirname, '../layout.tsx'), 'utf-8');
+
+    it('SetupNoticesProvider 包住頁面內容，而且在 AuthGuard 裡面', () => {
+        const guardOpen = src.indexOf('<AuthGuard>');
+        const providerOpen = src.indexOf('<SetupNoticesProvider>');
+        const children = src.indexOf('{children}', providerOpen);
+        const providerClose = src.indexOf('</SetupNoticesProvider>');
+        const guardClose = src.indexOf('</AuthGuard>');
+        expect(guardOpen).toBeGreaterThan(-1);
+        expect(providerOpen).toBeGreaterThan(guardOpen);
+        expect(children).toBeGreaterThan(providerOpen);
+        expect(providerClose).toBeGreaterThan(children);
+        expect(guardClose).toBeGreaterThan(providerClose);
+    });
+});
 
 describe('page.tsx — 左側邊欄首次設定警告（手機版）', () => {
     beforeEach(() => {

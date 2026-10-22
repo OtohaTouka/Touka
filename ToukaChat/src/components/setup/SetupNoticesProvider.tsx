@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSetupStatus, type SetupStatus } from '@/hooks/useSetupStatus';
 import { SetupWizard } from './SetupWizard';
@@ -43,6 +43,7 @@ export function SetupNoticesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { status, refetch } = useSetupStatus();
   // 重讀時 hook 會先把狀態設成 null；保留上次讀到的狀態，重讀失敗也不讓警告消失。
+  // 這裡依賴 hook 回傳的 status 在兩次讀取之間是同一個物件（它直接回傳 state）。
   const [lastStatus, setLastStatus] = useState<SetupStatus | null>(null);
   if (status !== null && status !== lastStatus) setLastStatus(status);
   const [promptDismissed, setPromptDismissed] = useState(false);
@@ -50,12 +51,12 @@ export function SetupNoticesProvider({ children }: { children: ReactNode }) {
 
   const shown = status ?? lastStatus;
   const isAdmin = user?.role === 'admin';
-  const value: SetupNotices = {
+  const value = useMemo<SetupNotices>(() => ({
     showTempPassword: isAdmin && shown !== null && shown.is_admin_temp_password,
     showSetupPrompt: isAdmin && !promptDismissed && shown !== null && hasSetupIssues(shown),
     openWizard: (stepId) => setWizard({ stepId }),
     dismissPrompt: () => setPromptDismissed(true),
-  };
+  }), [isAdmin, shown, promptDismissed]);
 
   return (
     <SetupNoticesContext.Provider value={value}>

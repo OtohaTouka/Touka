@@ -1251,7 +1251,7 @@
       "warning_marker": "有功能因設定問題停用，詳情在右側欄"
     },
     "setup_notice": {
-      "temp_password": "管理員密碼還是臨時預設值，請盡快變更。",
+      "temp_password": "管理員密碼還是臨時預設值，請立即變更。",
       "change_password": "變更密碼",
       "setup_incomplete": "初次設定還沒完成，有些安全設定需要你處理。",
       "setup_now": "立即設定",

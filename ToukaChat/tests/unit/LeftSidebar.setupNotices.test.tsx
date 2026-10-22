@@ -88,6 +88,6 @@ describe('LeftSidebar — 首次設定警告放在側欄裡', () => {
     expect(column.className).toContain('overflow-y-auto');
     expect(column.className).toContain('overflow-x-hidden');
     const sessionList = screen.getByRole('heading', { level: 2 }).closest('div.flex-grow') as HTMLElement;
-    expect(sessionList.className).toMatch(/\bmin-h-\d+\b/);
+    expect(sessionList.className.split(/\s+/)).toContain('min-h-12');
   });
 });
