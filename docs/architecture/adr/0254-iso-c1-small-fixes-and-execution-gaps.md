@@ -1,8 +1,8 @@
-# ADR-0254：隔離執行第一批：小件修補與執行路徑既有缺口（iso-c1）
+# ADR-0254：隔離第一批（iso-c1）：小件修補與執行路徑既有缺口
 
 > C2-3 現況補註：缺口 2 的檔案隔離已接上 stdio MCP；第三方穩定不可用與人同意的 direct 仍無檔案隔離，原生 Windows 也在此列。本文先前的「等第二批」描述該版範圍，現況見 SECURITY.md。 詳見 ADR-0275。
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准隔離執行計畫第一批與各項做法；U1～U6 各單位已驗收，跨單位最終審查見文末驗證；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：缺口 2〔第三方 MCP 讀得到 `.env` 檔〕寫的「要等第二批」指的是 MCP 伺服器的隔離〔第二批第三段 C2-3，另一份 ADR〕；ADR-0272 只隔離代理人指令，這個缺口在 C2-3 合併前仍在）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准隔離計畫第一批與各項做法；U1～U6 各單位已驗收，跨單位最終審查見文末驗證；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：缺口 2〔第三方 MCP 讀得到 `.env` 檔〕寫的「要等第二批」指的是 MCP 伺服器的隔離〔第二批第三段 C2-3，另一份 ADR〕；ADR-0272 只隔離代理人指令，這個缺口在 C2-3 合併前仍在）
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：O20 的評分卡情境上限送 Claude 時，碰到 5.x（default_on 思考）照實際值補到 8,192（`_scenario_request` 不標 fields_set 的做法不變，其他家照舊不帶上限）
 - 日期：2026-10-15
 - 決策者：維護者
@@ -25,7 +25,7 @@
 
 ## 背景
 
-- 隔離執行（iso）＝模型層第 5 段「隔離執行環境」＋幾件小修。分兩批：第一批（本 ADR）做 `HANDOVER.md` §3 待排小項裡仍成立、快、風險低的，以及研究找到的三個執行路徑既有缺口；第二批 iso-c2（隔離執行環境，另一份 ADR）等維護者選完設計才開始。
+- 隔離系列（iso）＝模型層第 5 段「隔離執行環境」＋幾件小修。分兩批：第一批（本 ADR）做 `HANDOVER.md` §3 待排小項裡仍成立、快、風險低的，以及研究找到的三個執行路徑既有缺口；第二批 iso-c2（隔離執行環境，另一份 ADR）等維護者選完設計才開始。
 - 三個既有缺口（審查時抽查屬實）：
   - 缺口 1：`evolution_implement_and_verify` 在註冊時被分類成「自帶審批」，Manual／CONFIRM 時 executor 不跳卡，工具自己只在最後「部署」才問人；前面的寫檔與建 venv 不問人就跑，無人在場也跑。後面的 `pip install`、本機驗證（import 代理人寫的 `server.py`）與部署原本同樣不問人，只是 H3 之前 venv 的 Python 路徑錯（相對路徑 `Scripts/python.exe`／`bin/python`，venv 實際在 `.venv` 底下），這幾步一律 FileNotFoundError，從沒真的跑起來（跨單位最終審查查出）。H3 修好路徑的同時，缺口 1 讓整個建置改走一般審批。Auto 下它屬 F5（只有人能核准），所以 Manual 反而比 Auto 鬆。
   - 缺口 2：已安裝的 MCP stdio 伺服器啟動時拿到 `os.environ.copy()`（`settings.get_full_env()`），含全部廠商金鑰與 `TOUKA_AUTH_SECRET`、`DISPATCH_TOKEN`、`HEARTBEAT_TOKEN`。

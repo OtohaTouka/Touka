@@ -1,6 +1,6 @@
 # ADR-0269：模型只能執行這一輪列給它的工具（執行前核對清單）
 
-- 狀態：✅ 已接受（隔離執行系列的安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190）
+- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
