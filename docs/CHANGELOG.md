@@ -6,6 +6,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-22 | **完整 ruff 與 ESLint 只減不增，改由 CI 擋**：完整 ruff（加上 ERA，被註解掉的程式）在四個產品資料夾的 281 個舊違規凍結成基準，`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等，跟著 CI 的 pytest 跑；ruff 釘成 `==0.15.20`。ESLint 棘輪 Guard #35 加進 CI 的 `frontend` job，基準由 6 收緊到 0。`lint_ssot` 不再把頂層 `tests/` 當業務層（以前檔名含 tools、service 的 32 個測試被誤判；產品程式的判定不變）。CONTRIBUTING「PR 前必做」改成 CI 綠燈就能開 PR、其他由維護者合併前補跑。不新增 guard_all 守衛 | [ADR-0278](architecture/adr/0278-lint-ratchets-in-ci.md) |
 | 2026-10-21 | **Node 依賴弱點：MCP TypeScript SDK 與 vite**：10/20 公告讓 Guard #23 轉紅。Chat 的 `@modelcontextprotocol/sdk` 1.31.0 → 1.32.1（shadcn dev）、IDE 的 `@modelcontextprotocol/server` 2.0.0 → 2.3.1（runtime），vite Chat 8.0.16 → 8.1.6、IDE 8.2.0 → 8.2.4（dev）。Touka 實際都不受影響（IDE 每次呼叫新建 MCP server、只綁 loopback 且先驗 Bearer；不跑 vite dev server），仍升級。修正版都已滿 7 天，lock 以 `--before=2026-10-14` 重生、只改必要節點，不用 `npm audit fix --force`。IDE 打包工具帶入的 markdown-it（兩筆 high，Touka 不受影響）唯一修正版未滿 7 天，待 10/23 更新，在那之前 Guard #23 的 IDE full 仍紅 | [SECURITY](../SECURITY.md) |
 | 2026-10-21 | **四個偶發測試改成只看事件先後**：fd 測試比對前先等策略稽核的背景寫入做完（終端的權限判定會在背景寫 `stats/decisions.csv`）；workload 的斷線守衛測試改看「建立委派排到鎖後面」，原寫法在守衛提早放鎖時也會過；heartbeat 子行程逾時改成 300 秒卡死保護；Guard #22 的 pip-audit 空輸出重跑一次，仍空就回報「掃描沒跑成」並判紅。只改測試與 Guard #22，產品程式不變。 | [ADR-0222](architecture/adr/0222-dependency-audit-gate-hardening.md)、[tests/README](../tests/README.md) |
 | 2026-10-20 | **aiohttp 3.14.3 → 3.14.5（yarl 1.24.2 → 1.25.1）**：10/19 公告的三筆 aiohttp 漏洞讓 Guard #22 轉紅；Touka 只經 discord.py 當客戶端使用，兩筆 high 屬伺服器端，實際不受影響，仍升級當縱深防禦。兩版都已過 7 天冷卻期，不開例外 | [SECURITY](../SECURITY.md) |

@@ -18,7 +18,7 @@ dev = [
     "pip-audit~=2.10",
     # ruff：程式碼 lint（ruff.toml SSOT）。先前為 .venv 內臨時安裝、未入鎖檔，會被
     # `uv sync` exact 同步剝除；納入 dev group 以持久化並使 fresh checkout 佈建即可用。
-    "ruff~=0.15.20",
+    "ruff==0.15.20",
     # 文件站台建置工具（scripts/update_docs.py → mkdocs build）。納入 dev group 使
     # `uv sync --all-packages` 佈建後 mkdocs 與程式碼依賴同處 .venv（3.12），mkdocstrings
     # 得以匯入 ToukaProxy/ToukaMemory 生成 API 參考頁；--no-dev 故不進 Docker 生產映像。
