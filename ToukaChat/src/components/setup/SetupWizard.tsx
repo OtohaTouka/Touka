@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SETUP_WIZARD_STEPS } from './setupWizardConfig';
+import { SETUP_WIZARD_STEPS, type WizardStepId } from './setupWizardConfig';
 import { SetupStatus } from '@/hooks/useSetupStatus';
 import { Step1SystemHealth } from './steps/Step1SystemHealth';
 import { Step2AdminPassword } from './steps/Step2AdminPassword';
@@ -14,12 +14,16 @@ import { Step7Complete } from './steps/Step7Complete';
 
 interface Props {
   status: SetupStatus | null;
+  /** 從哪一步開始（例如側欄「變更密碼」直接到管理員密碼）；沒給或找不到就從第一步。 */
+  initialStepId?: WizardStepId;
   onClose: () => void;
 }
 
-export function SetupWizard({ status, onClose }: Props) {
+export function SetupWizard({ status, initialStepId, onClose }: Props) {
   const { t } = useTranslation();
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(() =>
+    Math.max(0, SETUP_WIZARD_STEPS.findIndex((s) => s.id === initialStepId)),
+  );
 
   const step = SETUP_WIZARD_STEPS[stepIndex];
   const totalSteps = SETUP_WIZARD_STEPS.length;

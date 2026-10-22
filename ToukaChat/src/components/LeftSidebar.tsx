@@ -18,6 +18,7 @@ import { useSessionActions } from '@/hooks/useSessionActions';
 
 // Components
 import { SidebarIdentity } from './sidebar/left/SidebarIdentity';
+import { SidebarSetupNotices } from './sidebar/left/SidebarSetupNotices';
 import { NavigationArea } from './sidebar/left/NavigationArea';
 import { SessionItem } from './sidebar/left/SessionItem';
 
@@ -31,10 +32,12 @@ interface LeftSidebarProps {
     activeMode?: "chat" | "soul" | "studio" | "pulse" | "vault" | "settings" | "agent" | "projects";
     onProjectsClick?: () => void;
     isCollapsed?: boolean;
+    /** 按下首次設定警告的按鈕後呼叫（手機版用來關掉選單，讓精靈不被擋住）。 */
+    onSetupAction?: () => void;
 }
 
 function LeftSidebar({ 
-    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick,
+    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick, onSetupAction,
     activeMode = "chat",
     isCollapsed = false
 }: LeftSidebarProps) {
@@ -80,12 +83,16 @@ function LeftSidebar({
         )}>
             {/* WCAG（A5 axe landmark-unique）：兩個 aside 地標需可辨識名稱 */}
             <aside aria-label={t('layout.left_sidebar.nav_aria_label')} className="h-full bg-sidebar flex flex-col border-r border-border overflow-hidden w-full">
-                <div className="py-4 flex flex-col gap-6 h-full relative transition-all duration-300 w-full min-w-0 px-4">
+                {/* 側欄太矮（例如首次設定警告佔了位置）時整欄捲動，底部導覽與登出一定點得到 */}
+                <div className="py-4 flex flex-col gap-6 h-full relative transition-all duration-300 w-full min-w-0 px-4 overflow-y-auto overflow-x-hidden custom-scrollbar">
                     
                     {/* Identity (SRP: SidebarIdentity) */}
                     <SidebarIdentity mode={sysStatus.mode} checkState={sysStatus.checkState}
                         memoryWarning={hasMemoryWarning(sysStatus.memoryNotices)}
                         systemWarning={hasMemoryWarning(sysStatus.systemNotices)} />
+
+                    {/* 首次設定警告（管理員密碼還是臨時的、初次設定還沒完成；ADR-0053） */}
+                    <SidebarSetupNotices onAction={onSetupAction} />
 
                     {/* New Chat ＋ 無痕對話（HAX G17，ADR-0086） */}
                     <div className="w-full px-2 flex flex-col gap-2">
@@ -116,7 +123,7 @@ function LeftSidebar({
                     </div>
 
                     {/* Session List (SRP: SessionItem) */}
-                    <div className="flex-grow overflow-y-auto custom-scrollbar flex flex-col gap-1 w-full px-2">
+                    <div className="flex-grow min-h-12 overflow-y-auto custom-scrollbar flex flex-col gap-1 w-full px-2">
                         <div className="flex items-center justify-between px-2 mb-1">
                             <h2 className="text-xs font-black text-muted-foreground uppercase tracking-widest">{t('layout.left_sidebar.session_history_heading')}</h2>
                         </div>

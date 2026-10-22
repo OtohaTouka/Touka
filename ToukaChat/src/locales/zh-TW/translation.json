@@ -202,14 +202,6 @@
         "no_api_keys": "尚未設定任何 API 金鑰",
         "admin_temp_password": "管理員密碼尚未變更"
       }
-    },
-    "banner": {
-      "setup_incomplete": "🔧 初次設定尚未完成 — 有些安全設定需要你處理。",
-      "setup_now": "立即設定",
-      "later": "稍後",
-      "dismiss_aria": "關閉設定提示橫幅",
-      "temp_password": "⚠️ 管理員密碼仍是臨時預設值 — 請立即變更以確保系統安全。",
-      "change_password": "變更密碼"
     }
   },
   "connections": {
@@ -1257,6 +1249,16 @@
       "autonomy_config_unreadable": "自主設定（autonomy.json）讀不到，已暫停自主執行：工具與心跳都停了（聊天時出現「已達總量上限」也是這個原因）。這時不要在安全設定頁按存檔：會用暫代的最嚴值蓋掉原本的設定。修好檔案權限後重新啟動 Touka；用 Docker 時執行：\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
       "auth_policies_unreadable": "安全規則（auth_policies.json）在啟動時讀不到：所有工具和指令都拒絕，代理人只能聊天。修好或還原這個檔後重新啟動 Touka；用 Docker 修權限時執行：\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
       "warning_marker": "有功能因設定問題停用，詳情在右側欄"
+    },
+    "setup_notice": {
+      "temp_password": "管理員密碼還是臨時預設值，請盡快變更。",
+      "change_password": "變更密碼",
+      "setup_incomplete": "初次設定還沒完成，有些安全設定需要你處理。",
+      "setup_now": "立即設定",
+      "later": "稍後",
+      "dismiss_aria": "稍後：先關閉初次設定提示",
+      "toggle_sidebar_aria": "切換側邊欄（側邊欄裡有設定警告）",
+      "open_menu_aria": "開啟選單（側邊欄裡有設定警告）"
     },
     "isolation_banner": {
       "mcp": "MCP：{{unisolated}} 台未隔離、{{waiting}} 台等待隔離、{{suspended}} 台因隔離自測失敗暫停。",

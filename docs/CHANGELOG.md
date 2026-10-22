@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-23 | **首次登入的兩個警告改到左側邊欄裡**：「管理員密碼還是臨時的」和「初次設定還沒完成」以前放在最外層左右排列的版面裡，第一次登入時在左側邊欄外排成兩條大直欄；改成左側邊欄最上面的小卡。出現條件、密碼警告不能關、「稍後」的範圍都不變；「變更密碼」直接進精靈的管理員密碼步驟，精靈關掉會重讀狀態（重讀失敗保留警告），有警告時側欄收合鈕與手機選單鈕上有紅點，側欄太矮時整欄可以捲動。設定狀態只讀一次（原本三次）。只改 ToukaChat | [ADR-0053](architecture/adr/0053-first-run-setup-wizard.md) |
 | 2026-10-22 | **程式與測試的註解清理**：ruff ERA 抓到的 17 處都是誤判（16 處中文註解接半形括號或冒號、1 處結構說明），改寫後 ERA 歸零（基準 17 → 0）；程式與測試裡的 CTO／PM／技術主管、A 線／C 線、「人類 10/12」這類決定歸屬改寫成實際指的東西，用不到的 3 個 IO_PRISON 豁免拿掉，`a_line_swap_semantics` 改名 `swap_semantics`；決定代號一律寫成「ADR-NNNN 決定 N」、拿掉甲乙丙（ADR-0246 的圈號 ③④ 是另一套編號，照留），openapi.json 與 api.ts 只有說明文字跟著改。程式行為不變 | [ADR-0278](architecture/adr/0278-lint-ratchets-in-ci.md) |
 | 2026-10-22 | **tests/README 只列檔名與說明，不寫「現在有幾個案例」**：拿掉 4 張表的數字欄、粗體與標籤裡的數量和合計句（原本寫法不一、至少 9 列對不上，Windows／Linux 收集數本來就不同）；某一批加了幾個的歷史紀錄、有日期的實跑結果保留。新測試 `tests/lint/test_tests_readme_listing.py` 要求每個測試檔都用反引號列在 README（當時沒列的 209 個凍結、只准變短）、反引號裡的測試檔名要對得到檔案，並擋這類數量再出現。AGENTS.md 文件協議改成「新增測試檔 → 加一列（檔名、說明）」 | [ADR-0278](architecture/adr/0278-lint-ratchets-in-ci.md) |
 | 2026-10-22 | **授權聲明與映像發布**：三個映像的 `/app` 都帶 LICENSE、NOTICE（chat 經具名 context `touka-root`）；chat 執行期不再安裝選用套件，拿掉 sharp 帶進的 LGPL libvips；ToukaIDE 擴充套件附上打包進去的 73 個 npm 套件的授權清單；NOTICE 修正三處並補「Container images」一節。GHCR 發布只從 main 執行、action 全部釘 commit SHA；新增 Dependabot（GitHub Actions，冷卻 7 天）；SearXNG 映像釘版本與 digest。代理人新建的技能與評測不再能被提交；網站圖示換成 Touka 自己的。 | `tests/lint/test_release_licensing.py`、`test_public_repo_hygiene.py` |

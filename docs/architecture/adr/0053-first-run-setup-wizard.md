@@ -46,8 +46,10 @@ Touka 系統準備開源，但新使用者面臨多個設定障礙：
 7. **`useSetupStatus` Hook**：僅在 `user.role === 'admin'` 時呼叫 `/v1/admin/setup/status`，靜默處理錯誤。
 
 8. **持續警告 Banner**（`TempPasswordBanner`）：當 `is_admin_temp_password: true` 時顯示紅色全寬 Banner，持續提示 admin 更改臨時密碼，直到密碼被更換。
+   - 〔2026-10-23 補記〕改成左側邊欄最上面的紅色小卡（`SidebarSetupNotices`，狀態在 `SetupNoticesProvider`），仍不能關；「變更密碼」直接打開精靈的管理員密碼步驟。舊的全寬 Banner 放在最外層左右排列的版面裡，會變成左側邊欄外的大直欄，已移除。
 
 9. **Setup Prompt Banner**（`SetupPromptBanner`）：當設定尚未完整時（預設 Token、未持久化 Secret 等）顯示 amber Banner，可點擊「立即設定」或「稍後設定」。
+   - 〔2026-10-23 補記〕同樣改成左側邊欄裡的小卡，出現條件不變；「稍後」記在 `AuthGuard` 裡的提供者，同一個分頁切換畫面都有效，重新整理、登出、登入過期或換使用者後再出現。精靈關掉時重讀狀態（重讀失敗保留上次的警告）。有任一張卡時，桌面側欄收合鈕與手機選單鈕上有紅點，按鈕名稱說明側欄裡有設定警告。
 
 10. **Wizard 容器（OCP 設計）**：`SetupWizard.tsx` 使用 `setupWizardConfig.ts` 的步驟設定陣列驅動，新增步驟只需修改設定陣列（Open-Closed Principle）。
 
@@ -69,7 +71,7 @@ Touka 系統準備開源，但新使用者面臨多個設定障礙：
 - **安全性提升**：新使用者在第一次啟動時即被引導更換所有高風險預設值，顯著降低以預設設定上線的風險。
 - **使用者體驗改善**：結構化的 7 步 Wizard 取代了需要手動編輯 `.env` 的繁瑣流程。
 - **語言感知**：Wizard 推薦 CJK 使用者切換至 `paraphrase-multilingual-MiniLM-L12-v2`，避免 Embedding 品質下降。
-- **持續提醒機制**：臨時密碼 Banner 不可關閉（直到真正更改），避免使用者忽略安全警告。
+- **持續提醒機制**：臨時密碼 Banner 不可關閉（直到真正更改），避免使用者忽略安全警告。（2026-10-23 起在左側邊欄，仍不可關閉；側欄收起時看不到卡片，改由選單按鈕上的紅點提醒。）
 
 ### 權衡
 
