@@ -1936,7 +1936,7 @@
       "field_name_label": "Project Name",
       "field_name_placeholder": "e.g. ToukaChat refactor",
       "field_root_path_label": "Local Root Path (absolute)",
-      "field_root_path_placeholder": "e.g. D:/Touka/ToukaChat",
+      "field_root_path_placeholder": "e.g. D:/Projects/MyApp",
       "field_description_label": "Project Description (optional)",
       "field_description_placeholder": "Describe the goal of this project...",
       "cancel_button": "Cancel",

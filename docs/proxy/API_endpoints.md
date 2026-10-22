@@ -106,7 +106,7 @@
 {
   "id": "project-id",
   "name": "MyProject",
-  "root_path": "D:/Touka/MyProject",
+  "root_path": "/path/to/MyProject",
   "description": "Optional desc",
   "updatedAt": 171XXXXX
 }

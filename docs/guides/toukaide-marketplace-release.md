@@ -77,7 +77,7 @@ Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取�
 
 ## 5. 當前狀態與回復
 
-`0.3.0` 已在[Marketplace](https://marketplace.visualstudio.com/items?itemName=touka-ai.toukaide)公開。[PR56](https://github.com/OtohaTouka/Touka/pull/56)
+`0.3.0` 已在[Marketplace](https://marketplace.visualstudio.com/items?itemName=touka-ai.toukaide)公開。開源前的 PR56（私人歷史）
 把來源 `58e63e4361a947b4f22a0d025d9dc2ab0d9661d5` 合併為 main／dev 的 `ff711dc622ee76274289af993d5530a85af780a0`；
 原 builder 在該 clean source／local `v0.3.0` 建置一次。後續文件 commit 不改這個 build source，也不重建VSIX。
 

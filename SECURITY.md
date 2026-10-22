@@ -94,6 +94,16 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - 經過濾後仍留下、但不符合 `[A-Za-z_][A-Za-z0-9_]{0,127}` 的 env 名稱，才由 kernel 回 `spec_invalid`、不啟動；需改用英數與底線、首字不能是數字。格式錯誤與上述只記 log 的名稱移除是兩種不同處理。
 - `temp/docgen_output` 不在權限自癒白名單；權限被改壞時 docgen 可能寫不出檔。遠端 URL MCP、IDE 終端與 Dispatch 自動召喚不在這套子程序隔離範圍。
 
+### 代理人指令隔離的其他已知限制
+
+- **AF_SMC 沒有處理**（ADR-0272）：沒有可靠的唯讀方法判斷主機能不能建立 SMC socket。【推測】SMC 連線退回 TCP 時，核心內部的 socket 可能不經過 Landlock 的埠檢查，因此有機會繞過封鎖埠；Docker 預設的 seccomp 不擋 AF_SMC。對策見 README_QUICKSTART 的隔離說明。
+- **Landlock ABI 3～5 沒有隔開信號**（ADR-0272）：核心 6.2～6.11 上，執行器裡的代理人可以讓執行器伺服器停掉。結果會 fail-closed（之後的代理人指令一律要人核准），屬於阻斷服務，不會放寬權限；核心 6.12 以上（ABI 6）沒有這個問題。
+- **proxy 自己的 HOME 與 `/tmp` 不在永不授權的範圍內**（ADR-0272）：admin 或 Debugger 可以把專案根設在工作區外。專案根涵蓋 proxy 的 HOME 或 `/tmp` 時，綁定這個專案、在 Touka 主容器內以檔案隔離執行的代理人指令，讀得到那裡的憑證，例如先前未隔離指令留在 `~` 的。`config/skills` 所有代理人都讀得到，`.mcp.json` 的 env 不要放金鑰。
+
+### MCP workload OAuth 的一次性票（ADR-0273）
+
+MCP 連線的 owner task 與訂閱 supervisor 的 context 已清掉 workload 一次性票，但握手期間複製出來的 transport 子 task 仍帶著它。這個功能在程式裡固定關閉（`HEARTBEAT_WORKLOAD_OAUTH_ENABLED = False`），目前不可利用；啟用 heartbeat workload OAuth 之前必須先修。
+
 ### 演化部署的審批範圍與設定競爭
 
 部署核准只綁定 `server.py` 與 `requirements.txt` 的原始位元組雜湊，沒有綁定整個 `managed/<skill>`。建置或驗證留下的 `.venv` 內 `.pth`、套件及同名遮蔽模組仍可能在部署後執行；兩檔雜湊相同不代表全部執行內容經過人工審查。部署未改為全目錄快照或乾淨重建。
@@ -121,6 +131,8 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 ---
 
 ## Known Resolved Vulnerabilities
+
+以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
 ### 刪除靈魂的家目錄殘留、首裝密碼檔與密碼重輸（2026-10-21）
 
