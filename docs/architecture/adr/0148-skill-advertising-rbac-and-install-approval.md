@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（07-11 認證事故餘波清單 #4 剩餘項；owner「先修 B 再評估」後執行）
+✅ 已接受（07-11 認證事故餘波清單 #4 剩餘項；維護者決定先修 B 再評估後執行）
 
 ## 日期
 
@@ -98,4 +98,4 @@ Sumi/grok-4.5 診斷的「看得到用不了」第三例，以及 skill 安裝�
   「通道收斂待另案」；request_skill_install 自帶審批不遷 broker，改跳過 broker）
 - [ADR-0147](0147-soul-role-type-binding.md)（先修 B：souls→Owner 後 A1 只剩 Base/Guest）
 - [ADR-0066](0066-skill-system-anthropic-standard-migration.md)（技能 Pull 模式 dispatcher）
-- 診斷：6 路平行調查（skill-advertising / skill-install-approval facets）
+- 診斷：平行調查（skill-advertising / skill-install-approval facets）

@@ -4,7 +4,7 @@
 
 **狀態 (Status):** ✅ 已接受（設計 token 修訂 by [ADR-0105](0105-toukachat-light-dark-system-theme-mode.md)：inputBorder 單一全域值→加 light 模式 LIGHT_FORM_INPUT_BORDER 雙模；WCAG 2.2 AA 對比度基線本身不變）
 **日期 (Date):** 2026-06-12
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -24,7 +24,7 @@ label、串流對螢幕閱讀器無聲、會話切換鍵盤不可達、自製彈
 3. **A3 彈窗**：新 `ui/dialog.tsx`（Radix 薄封裝、低主見、`overlayClassName`）；Evolution／
    ImportAgent／SoulStudio 三彈窗零視覺遷移（焦點陷阱／Esc／焦點歸位內建）。附帶修正：
    eslint「禁直引 Radix」規則對封裝層 `src/components/ui/**` 自相矛盾 → 範圍豁免。
-4. **A4 視覺（兩項擁有者決策）**：
+4. **A4 視覺（兩項維護者決策）**：
    - **決策①** 各主題加深階 CTA 底色 `primaryButton`（白字實算 4.70–7.58:1）：touka `#1d6fd1`、
      rose `#e11d48`、amber `#b45309`、emerald `#047857`、violet `#7c3aed`、slate `#475569`；
      SSOT 鏈＝tokens.ts → sync-design.ts → `--primary-button` → Button 元件＋45 檔實心 CTA 批次替換。
@@ -52,10 +52,10 @@ label、串流對螢幕閱讀器無聲、會話切換鍵盤不可達、自製彈
 
 ## 後果與影響 (Consequences)
 
-- 可見視覺變化（擁有者已驗收六主題截圖）：實心 CTA 深一階（含使用者訊息泡泡）、表單邊框
+- 可見視覺變化（維護者已驗收六主題截圖）：實心 CTA 深一階（含使用者訊息泡泡）、表單邊框
   明顯提亮、slate 灰階變亮、空狀態提示文字由 30% 透明改合格 token。
 - `npm run build`／docker 重建後生效於部署實例；既有 docker 快照為 A4 狀態。
-- 殘留（記錄不修）：NVDA 人工清單待擁有者執行；`lang="zh-TW"` 混語字串（3.1.2）待 i18n
+- 殘留（記錄不修）：NVDA 人工清單待維護者執行；`lang="zh-TW"` 混語字串（3.1.2）待 i18n
   全面化；ESLint 既有基線（71 errors，較開工時 79 淨減 8）另案。
 - 新增本機 preview 啟動設定（dev／static 兩組，autoPort；設定檔未入版控）。
 
@@ -64,5 +64,5 @@ label、串流對螢幕閱讀器無聲、會話切換鍵盤不可達、自製彈
 2. [x] A5 axe 實機掃描＋7 類漏網修復＋SessionItem nested-interactive 根治。
 3. [x] 六主題截圖驗收材料、行動版 Esc 實測、skip link Tailwind v4 修復。
 4. [x] `docs/chat/accessibility.md`（基線聲明＋鍵盤速覽＋NVDA 清單）。
-5. [x] 擁有者執行 NVDA 5 分鐘清單（2026-06-12）——**全數通過、無發現項**。
+5. [x] 維護者執行 NVDA 5 分鐘清單（2026-06-12）——**全數通過、無發現項**。
 6. [ ] docker 重建後以 axe 對部署實例複掃一次（預期僅剩第三方/誤報級）。

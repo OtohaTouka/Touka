@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受（依賴機制取代 by [ADR-0117](0117-uv-workspace-single-lock-migration.md)：requirements.in/txt 依賴 SSOT＋Guard #16/#30＋deps-parity 測試→pyproject 單一 uv.lock 全面重寫；容器整併決策本身不變）
 **日期 (Date):** 2026-06-12
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -12,7 +12,7 @@
 2. **dispatch 的存在形態**：ToukaDispatch 是標準 FastMCP SSE 伺服器，真正用途是給**容器外的外部 AI**（被 ADR-0067 召喚的 claude）連任務看板——proxy 內部 agent 早有原生 `mission_tools.py`，proxy 對 dispatch 並**無** MCP client 連線（proxy 的 MCP client 是 stdio-only；`config/skills/touka-dispatch-coordinator/.mcp.json` 的 `${DISPATCH_URL}` 是給外部 claude 用、由 dispatch 注入子程序 env）。一個只服務外部回連的薄 MCP，不需要獨立容器與獨立映像。
 3. **ADR-0051 回呼在 Docker 模式下本來就壞**：compose 從未給 dispatch 容器設 `TOUKA_PROXY_URL`（`server.py` 預設 `http://localhost:8000`，跨容器是錯的），且 `routers/dispatch_callback.py` 僅接受 localhost 來源——URL 與來源檢查雙重不通。同容器化後兩者**自然變正確**。
 
-擁有者裁定：**proxy + ToukaMemory + ToukaDispatch 合併為單一映像**；dispatch 由 proxy 啟動時 spawn 並監督（proxy-spawn）；**功能與安全一律不減、外部召喚保留**。
+維護者決定：**proxy + ToukaMemory + ToukaDispatch 合併為單一映像**；dispatch 由 proxy 啟動時 spawn 並監督（proxy-spawn）；**功能與安全一律不減、外部召喚保留**。
 
 ## 決策方案 (Decision)
 

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（Tier 1–3 全部實作完成、全綠——guard_all 37/37、後端 pytest 2589 passed/4 skipped；擁有者尚未 commit）**。本 ADR 收斂提案 `docs/architecture/proposals/native-tool-interface-redesign.md`（設計 2026-07-03 與擁有者定案；量測數據與逐層落地紀錄見提案 §11），並延伸 ADR-0100（工具 schema canonical）、ADR-0102（技能↔MCP 接線）、禁令 59（工具失敗可見性）。
+✅ **已接受（Tier 1–3 全部實作完成、全綠——guard_all 37/37、後端 pytest 2589 passed/4 skipped）**。本 ADR 收斂提案 `docs/architecture/proposals/native-tool-interface-redesign.md`（設計 2026-07-03 與維護者定案；量測數據與逐層落地紀錄見提案 §11），並延伸 ADR-0100（工具 schema canonical）、ADR-0102（技能↔MCP 接線）、禁令 59（工具失敗可見性）。
 
 Tier 2 的「Anthropic 原樣保留」一句已由 ADR-0266 修訂：送給 Claude 時只剝根層組合子（Anthropic 不收根層 `oneOf`／`anyOf`／`allOf`）；條件必填的正本與 Gemini 剝除不變。
 

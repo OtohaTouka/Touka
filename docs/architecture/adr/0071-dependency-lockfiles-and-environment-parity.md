@@ -54,7 +54,7 @@ Touka 的 Python 相依以 4 個分散的 `requirements.txt`（ToukaProxy / Touk
 原 `python:3.12-alpine`（musl libc）的 **ToukaHeartbeat / ToukaDispatch 統一改用 `python:3.12-slim`（glibc）**，與 ToukaProxy 一致：① alpine 用 musl、缺 manylinux wheel，C-extension 相依（如 `pydantic-core`）須源碼編譯，且開發端（glibc）無法證明其在 musl 可裝（musl 盲區）；slim 用 glibc + manylinux，直接裝預編譯 wheel。② 非 root 使用者建立改用 Debian `useradd -r -u 1001 -m appuser`（對齊 ToukaProxy 的 SSOT，取代 alpine BusyBox 的 `adduser -D`）。已實機 `docker build` 驗證兩服務於 Linux glibc 成功安裝雜湊鎖檔（**musl 盲區消除，非僅宣稱**）。`tests/lint/test_dockerfile_base_images.py` 靜態守衛三個 Python 服務皆 slim、非 alpine、非 root。
 
 ### 強制力
-依擁有者決策，Guard #30 **放進 `guard_all.py` 手動執行**（不加 pre-push hook / CI）。深度連網檢查 `python scripts/lock_requirements.py --check`（重編並比對釘版集合）為選用的人工/CI 驗證。
+依維護者決策，Guard #30 **放進 `guard_all.py` 手動執行**（不加 pre-push hook / CI）。深度連網檢查 `python scripts/lock_requirements.py --check`（重編並比對釘版集合）為選用的人工/CI 驗證。
 
 ## 設計決策
 

@@ -15,7 +15,7 @@
 **永不觸及代理人身分、永不波及其他代理人**，靠兩道獨立地板：① 每個清除原語以 `agent_id` 嚴格限定（SQL `WHERE agent_id=?`、per-agent Qdrant collection、沙箱路徑）；② **`is_protected_path` 檔案系統地板**（`is_relative_to`）物理性拒絕刪除 `data/soul/*`、`data/legacy/*`，不可繞過。
 
 ### D1 — 範圍（重用 `ALL_STORES`；保守不碰上傳檔）
-**重置**（執行期，按 agent_id）：對話/工作階段、訊息回饋、大腦選擇、統計遙測、任務板、docgen 產出、**記憶 facts＋向量**（經 importlib 橋接 `MemoryManager.purge_agent`）、context 快照——即既有 `ALL_STORES` 八項，皆已 agent_id 化＋protected-path-aware。**保留**：靈魂 `soul/`（受保護路徑）、`legacy/` 歸檔（受保護路徑）、**自訂模型 `system_prompt.md`＋`config.json`（Level-2 身分，由清除原語範圍排除、非保護路徑→須回歸測試）**、專案稽核、代理人註冊。**擁有者裁示：保留個人硬碟「使用者上傳檔案」**（既有原語只清 `outputs/`／`missions/` 子目錄，天然不碰上傳檔，故無需新增 `purge_personal_drive`）。
+**重置**（執行期，按 agent_id）：對話/工作階段、訊息回饋、大腦選擇、統計遙測、任務板、docgen 產出、**記憶 facts＋向量**（經 importlib 橋接 `MemoryManager.purge_agent`）、context 快照——即既有 `ALL_STORES` 八項，皆已 agent_id 化＋protected-path-aware。**保留**：靈魂 `soul/`（受保護路徑）、`legacy/` 歸檔（受保護路徑）、**自訂模型 `system_prompt.md`＋`config.json`（Level-2 身分，由清除原語範圍排除、非保護路徑→須回歸測試）**、專案稽核、代理人註冊。**維護者決定：保留個人硬碟「使用者上傳檔案」**（既有原語只清 `outputs/`／`missions/` 子目錄，天然不碰上傳檔，故無需新增 `purge_personal_drive`）。
 
 ### D2 — 安全架構：反轉守衛＋共用核心（不弱化 DebugAgent 路徑）
 - **唯一新關鍵碼＝反轉的擁有權守衛 `assert_agent_resettable(candidate, actor)`**：要求目標**存在**（`_is_real_persona_strict`，**fail-closed**：列舉失敗→拒絕，與 DebugAgent 守衛的「不確定→拒絕重置」反向但同樣保守）＋**非系統保護**（`SYSTEM_PROTECTED_AGENTS`＝DebugAgent…）＋**被 actor 擁有**（`is_owner`；admin 絕對放行，保留檢查以利未來非-admin Owner 路徑＋稽核）。**刻意不與 `assert_resettable` 合併成可配置函式**（單一可被告知「誰可重置」的函式會擴大全系統最危險路徑；兩個窄函式更安全）。

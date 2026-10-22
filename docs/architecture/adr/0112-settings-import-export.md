@@ -48,7 +48,7 @@
 ## 後果（Consequences）
 
 - ✅ admin 可把系統設定克隆到新機器／版本化／還原基線，constraint-clean（零機密、零使用者資料、不碰靈魂）。
-- ✅ 合併為主＋乾跑預覽＋匯入前自動備份＋密碼重輸 → 對非技術擁有者 safety-first。
+- ✅ 合併為主＋乾跑預覽＋匯入前自動備份＋密碼重輸 → 對非技術使用者 safety-first。
 - ⚠️ 跨版本 schema 漂移由 `schema_version` 擋未來版＋ sha256 完整性緩解；未知區忽略不阻斷。
 - ⚠️ 部分區（MCP／定價／視窗）需重啟才完全生效，回應明列 `requires_restart`，不靜默 stale。
 

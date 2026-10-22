@@ -41,6 +41,6 @@ facts 為 ToukaMemory 私有 DB → 在 `memory_server/tools/__init__.py` 加 `e
 身分/IDOR/密碼閘/CSRF/脫敏/範圍化/加密/暫存清理經測試覆蓋；Phase 1 後完整對抗式複審見 SECURITY.md「軌2」。
 
 ## 替代方案（Rejected）
-- **不加密純 ZIP**：含高敏對話/記憶 → 否決（經擁有者裁示加密）。
+- **不加密純 ZIP**：含高敏對話/記憶 → 否決（經維護者決定加密）。
 - **直接讀 ToukaMemory 私有 DB**：硬耦合其 schema、繞過閘道 SSOT → 改用 `export_facts` 閘道動作。
-- **僅對話不含 facts**：不符「完整」 → 經擁有者裁示納入 facts。
+- **僅對話不含 facts**：不符「完整」 → 經維護者決定納入 facts。

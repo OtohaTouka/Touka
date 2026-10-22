@@ -43,7 +43,7 @@ ACCENTS  = { touka: {primaryDark, primaryLight, primaryButtonDark, primaryButton
 
 淨增 ~12 個 per-mode accent 值，**仍遠少於**「每主題亮變體」的 12 整套中性。
 
-**被否決：每主題亮變體（12 整套中性）。** 維護面 ×6、對非技術擁有者漂移風險高（每次調色都可能讓 12 個亮底之一悄悄掉破 AA）、強迫 `ThemeColor` union 6→12 爆炸、System 模式無乾淨歸宿。
+**被否決：每主題亮變體（12 整套中性）。** 維護面 ×6、對不寫程式的維護者漂移風險高（每次調色都可能讓 12 個亮底之一悄悄掉破 AA）、強迫 `ThemeColor` union 6→12 爆炸、System 模式無乾淨歸宿。
 
 ### 決策② — 機制：**next-themes 管 mode、ThemeContext 續管 accent**
 

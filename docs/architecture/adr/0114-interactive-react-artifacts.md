@@ -9,7 +9,7 @@
 
 Artifact 預覽原本只能渲染**純 HTML + inline JS**（`WebRenderer` 把內容塞進沙箱 iframe 的 srcdoc）。AI 寫的 **React/JSX/TSX 元件**不會被轉譯/執行——只會顯示壞掉的標記或原始碼，無法像 claude.ai 那樣「點擊、互動」。
 
-擁有者要求達到「類 claude.ai 互動」。評估後分三層：L1 純 HTML 互動（已有）、**L2 React 元件真的跑起來且離線**、L3 外部函式庫/CDN/網路。本 ADR 實作 **L2（選項 A）**；L3 明確留待「獨立沙箱 origin」（選項 B）另案，因 L3 需放寬隔離＋新增 origin 基礎設施，牴觸 local-first／精簡。
+維護者要求達到類 claude.ai 的互動。評估後分三層：L1 純 HTML 互動（已有）、**L2 React 元件真的跑起來且離線**、L3 外部函式庫/CDN/網路。本 ADR 實作 **L2（選項 A）**；L3 明確留待「獨立沙箱 origin」（選項 B）另案，因 L3 需放寬隔離＋新增 origin 基礎設施，牴觸 local-first／精簡。
 
 claude.ai 的互動能力來自**跨來源隔離**（artifact 跑在獨立 cookieless origin，故敢放寬能力）。Touka 不走那條路，改採「**鎖死換簡單**」：在既有同頁沙箱 iframe 內，僅多跑 inline JS（React），**完全不放寬隔離、不開網路**——保住 Touka 的核心資安強項「不能外連→不能外洩」。
 

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07；擁有者尚未 commit）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) **Phase 3 本體**＝需求 2（對抗式互審），依[設計文件](../proposals/adversarial-review-subsystem-design.md) §8 八步 TDD 落地（前置 eval 軌為 [ADR-0136](0136-review-eval-rails.md)）。
+✅ **已接受（實作與驗證 2026-07-07）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) **Phase 3 本體**＝需求 2（對抗式互審），依[設計文件](../proposals/adversarial-review-subsystem-design.md) §8 八步 TDD 落地（前置 eval 軌為 [ADR-0136](0136-review-eval-rails.md)）。
 
 ## 日期
 
@@ -24,7 +24,7 @@
 ## 後果
 
 - **需求 2 骨架完成**：主 agent 可 `dispatch_subagent`（Phase 1）→ 拿結構化回報（Phase 2）→ `request_review`（本 ADR）→ 依 verdict 收案／退修／轉人；gate 物理擋在落盤層。三 ADR（0134/0135/0137）疊成完整 producer→report→review→gate 鏈。
-- **邊界（誠實，未做即說）**：①**互審有效性尚未實測**——ADR-0136 的量測軌就位、但注錯案例集＋五臂 A/B（設計 §7.2/7.3）需 LLM 實跑（擁有者手動、案例人類 commit）；**未達預註冊門檻前不得宣稱「降幻覺」**；②critic 傳輸 v1 走 anthropic_client（Claude 原生）——異模型隔離的完整實現（OpenAI 相容 critic 傳輸）為後續項，現階段異模型不可用時 fail-closed 轉人；③往返的「producer 修正重跑」由主 agent 決策驅動（工具回 REVISING→主 agent 改產出後再 request_review），非全自動循環；④跨身分看板路徑既有歧異（`_PathIdentity` 角色猜測）已另立背景任務追蹤，本 ADR 的 record_review 沿用既有權限牆不擴大攻擊面。
+- **邊界（誠實，未做即說）**：①**互審有效性尚未實測**——ADR-0136 的量測軌就位、但注錯案例集＋五臂 A/B（設計 §7.2/7.3）需 LLM 實跑（維護者手動、案例由人 commit）；**未達預註冊門檻前不得宣稱「降幻覺」**；②critic 傳輸 v1 走 anthropic_client（Claude 原生）——異模型隔離的完整實現（OpenAI 相容 critic 傳輸）為後續項，現階段異模型不可用時 fail-closed 轉人；③往返的「producer 修正重跑」由主 agent 決策驅動（工具回 REVISING→主 agent 改產出後再 request_review），非全自動循環；④跨身分看板路徑既有歧異（`_PathIdentity` 角色猜測）已另立背景任務追蹤，本 ADR 的 record_review 沿用既有權限牆不擴大攻擊面。
 - **驗收**：ruff（改動檔）＋lint_ssot＋**guard_all 39/39**＋**後端 pytest 全綠**（新增 test_reviewer 14／test_review_gate 15／test_evidence_collector 8／test_review_budget 8／test_review_loop 10＝55 測，含後門繞過／自簽／TOCTOU／同腦降級／證據優先／停滯／cap 紅隊）＋前端 vitest 971（前端零改動）。NOQA registry 同步。
 
 ## 補記（2026-10-09）：verification_cmd 執行邊界

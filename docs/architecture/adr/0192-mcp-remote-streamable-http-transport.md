@@ -14,7 +14,7 @@
 
 批次 2 即提案的 **L1（remote transport＋靜態 header）**，是四階授權階梯裡投報比最高的一階：解鎖 vendor-hosted 貨架，且**零新依賴**——鎖定的 `mcp ~=1.26.0` 已內建 `client/streamable_http.py`。
 
-owner 另拍板：**Sentry 收錄**（批次 1 因 FSL-1.1 非 OSI 授權而 hold 的政策題，已裁示收）。
+維護者另決定：**Sentry 收錄**（批次 1 因 FSL-1.1 非 OSI 授權而 hold 的政策題，決定收錄）。
 
 ## 決策與實作
 
@@ -96,12 +96,12 @@ Registry 的 `remotes[].headers[]` 與 `environmentVariables` 結構對稱（`na
 ## 誠實邊界
 
 - **E2E 只驗了免認證端點**：真實連線已實證（見上表），但帶**真憑證**的 remote（GitHub PAT 等）未實跑——無可用 token，且不應為測試索取。header 模板路徑已以自訂 header 驗過解析與送出，憑證正確性的端到端驗證留待批次 3 上架 GitHub remote 時由維護者實機確認。
-- **無 OAuth**：僅支援靜態 header（PAT／API key）。OAuth 2.1（PKCE＋DCR）為批次 4，owner 已裁示擱置；`mcp` SDK 已內建 `client/auth/oauth2.py`，屆時仍是零新依賴。查證附帶取得 GitHub 的權威形狀供批次 4 參考：authorization server 為 `github.com/login/oauth`，且其 protected-resource metadata **只在路徑後綴式位址**（`/.well-known/oauth-protected-resource/mcp`）有效、根路徑回 404——實作須走 RFC 9728 的後綴發現或直接採用 401 標頭的 `resource_metadata`。
+- **無 OAuth**：僅支援靜態 header（PAT／API key）。OAuth 2.1（PKCE＋DCR）為批次 4，維護者已決定擱置；`mcp` SDK 已內建 `client/auth/oauth2.py`，屆時仍是零新依賴。查證附帶取得 GitHub 的權威形狀供批次 4 參考：authorization server 為 `github.com/login/oauth`，且其 protected-resource metadata **只在路徑後綴式位址**（`/.well-known/oauth-protected-resource/mcp`）有效、根路徑回 404——實作須走 RFC 9728 的後綴發現或直接採用 401 標頭的 `resource_metadata`。
 - **registry 的 `headers` 欄位不可當免認證判準**：實測發現 HuggingFace 宣告了 `Authorization` 卻能匿名連上（工具減量），反向也存在宣告空 header 實際走 OAuth 者。故 hub 上的 remote 條目「要不要填憑證」只能靠 description 提示與使用者實試，貨架不宣稱其認證需求為權威。
 - **SDK 關閉期噪音**：部分伺服器在收線時會讓 SDK 印出 `Session termination failed: 404`（非致命，連線與工具呼叫皆已成功）。若日後把關閉期日誌當錯誤處理會產生假陽性。
 - **header 格式揭露只到 description**：結構化的 per-variable 說明（`env_descriptions`）留待批次 3；目前使用者靠 description 尾部的認證提示。
 - **URL 閘不防 SSRF**：`validate_remote_url` 的職責是「憑證不得明文外傳」，不是限制可連的主機。remote 端點由使用者/策展人指定，與 MCP 的本質一致。
-- **Sentry 授權**：FSL-1.1-ALv2 屬 source-available 而非 OSI 開源，收錄係 owner 具名例外，非準則放寬——後續非 OSI 條目仍須逐案拍板。
+- **Sentry 授權**：FSL-1.1-ALv2 屬 source-available 而非 OSI 開源，收錄係維護者具名例外，非準則放寬——後續非 OSI 條目仍須逐案拍板。
 
 ## 關聯
 

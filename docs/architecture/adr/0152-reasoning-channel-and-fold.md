@@ -10,7 +10,7 @@
 
 ## 背景
 
-Sumi（grok-4.5）症狀「思考內容漏進對話」（07-11 診斷，owner 目標②：思考預設摺疊、
+Sumi（grok-4.5）症狀「思考內容漏進對話」（07-11 診斷，維護者的目標②：思考預設摺疊、
 點開可見）。診斷指出 openai_handler 只讀 `message.content` 逐字透傳、全路徑 grep
 `reasoning` 零命中；claude_handler 則把 native thinking blocks 包成 `<thinking>` 文字
 直塞 content。當時唯一無法讀碼證實的環節＝「grok-4.5 在傳統端點的思考實際格式」。

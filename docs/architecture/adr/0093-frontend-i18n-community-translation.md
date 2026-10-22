@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-14
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -85,4 +85,4 @@ OSS 免費），志工網頁翻譯 → 自動開 PR → 守衛 #33 在 CI 把關
 4. [x] **Phase 3**：語言註冊 barrel、**守衛 #33**（ja stub 實測 stale→FAIL/partial→WARN）、
    `errors.json` 橋接（`errorMsg` + 呼叫點轉換）、`CONTRIBUTING-translations.md`。
 5. [x] **Phase 4**：本 ADR、`SSOT_MASTER_MAP` 更新、孤兒 key 清理、CHANGELOG/README 收尾；
-   guard 33/33、vitest 全綠。TMS 實際 hosting 待擁有者。
+   guard 33/33、vitest 全綠。TMS 實際 hosting 待維護者。

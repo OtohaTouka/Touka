@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2679 passed/5 skipped；擁有者尚未 commit）**。本 ADR 是「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 2a** 的核心（模型面「after／正確性」收口），延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0122](0122-tool-event-telemetry-envelope.md)）。**P2a-2「工具回傳最終狀態（省重讀）」暫緩**——見「後果」。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2679 passed/5 skipped）**。本 ADR 是「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 2a** 的核心（模型面「after／正確性」收口），延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0122](0122-tool-event-telemetry-envelope.md)）。**P2a-2「工具回傳最終狀態（省重讀）」暫緩**——見「後果」。
 
 > 🔧 **決策 3「積極度依審批模式」已被 [ADR-0143](0143-hitl-unification.md)（H4）由二元改為三分**：原「Manual＝提醒／自動模式＝強制」→現 `build_validation_protocol(auth_level, *, interactive=True)` 三分支——Manual+互動＝審批卡提醒／Manual+headless＝fail-closed「拒絕、勿重試」／自動＝強制（0143 明言舊 Manual 措辭在 fail-open 時代不準）。`validation_protocol` 塊、tool-presence gate（`_MUTATING_DEV_TOOLS`）核心仍有效。
 

@@ -2,9 +2,9 @@
 
 ## 狀態
 
-✅ **已接受並實作完成（決策 2026-07-09；P0–P7 全數落地、2026-07-10 收官；擁有者逐階段 commit）**。
-本 ADR 記錄擁有者對 [role-plane-separation 提案](../proposals/role-plane-separation.md)
-的核准與六個拍板點定案，並涵蓋絞殺者**全階段**：P0（特徵化矩陣＋棘輪基線）→ P1（模型雙欄位＋
+✅ **已接受並實作完成（決策 2026-07-09；P0–P7 全數落地、2026-07-10 收官）**。
+本 ADR 記錄維護者對 [role-plane-separation 提案](../proposals/role-plane-separation.md)
+的核准與六個決策點定案，並涵蓋絞殺者**全階段**：P0（特徵化矩陣＋棘輪基線）→ P1（模型雙欄位＋
 相容計算屬性）→ P2–P5（閘/組裝點逐批遷移，Guard #41 棘輪 28→0）→ P6（四刻意行為修正）→
 **P7（拆除 `.role` 相容層＋`for_role`/`display_role` SSOT＋Guard #41 升 AST 永久禁令＋文件收官）**。
 各階段成果於下逐節補記。**終態**：`AgentIdentity` 無扁平 `.role`，人類角色（admin/normal）只存
@@ -189,8 +189,8 @@ setup_service/user_service）。
 
 ## P6 成果（四刻意行為修正——**這批刻意改變行為**，各自顯式 diff）
 
-與 P2–P5 不同，P6 修的是拆分前的漏洞/不一致行為（矩陣顯式 diff、非零變動）。擁有者
-核准「四條全做」。測試：fix a 於 `test_identity_admin_security.py`，b/c/d 於
+與 P2–P5 不同，P6 修的是拆分前的漏洞/不一致行為（矩陣顯式 diff、非零變動）。維護者
+核准四條全做。測試：fix a 於 `test_identity_admin_security.py`，b/c/d 於
 `test_role_plane_p6_intentional_fixes.py`。
 
 - **a. identity_map 寫入只驗可指派 AGENT 角色**：`VALID_ROLES`（含 admin 的矛盾聯集）→
@@ -282,7 +282,7 @@ admin 恆落 human 面）。Guard #41 AST 永久防復活。
 
 ## 相關
 
-- [提案：role-plane-separation](../proposals/role-plane-separation.md)（§8 六拍板點、
+- [提案：role-plane-separation](../proposals/role-plane-separation.md)（§8 六個決策點、
   §9 矩陣、§10 P0–P7）；遷移棘輪基線
 - [ADR-0104]（Debugger 排除姿態：reset／bots，本提案保留）；[ADR-0132]（session owner
   human/agent 通道分離先例）；[ADR-0134~0138]（多階段提案執行慣例）

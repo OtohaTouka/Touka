@@ -313,8 +313,8 @@ scaffold 在隔離試跑時將 APPDATA 參數對映到 personal_drive 根，與�
 
 **升級**（合併時還沒從 repo 根目錄的正式 compose 起過執行器；第 4 步的 log 一定要看）：
 
-1. 先備份 `data`、`.env`、`ToukaProxy\config`、`ToukaHeartbeat\config`，再取得新版程式。Touka 資料夾有 `docker-compose.override.yml` 時，裡面不要有 `net.mptcp.enabled`（核心沒有 MPTCP 時容器會起不來）。
-2. 看核心版本：`docker run --rm alpine:3.20 uname -r`。6.12 以上完整；6.7～6.11 可以隔離、但信號沒隔開；6.2～6.6 埠擋不住（執行器照樣跑，側欄會標示）；更舊的不算隔離，代理人指令在 Auto／YOLO 都要你核准。核心有 MPTCP，或之後卡片或側欄寫 `net_mptcp`（Docker Desktop 更新核心後可能會變）時，照它在覆寫檔的 `touka-proxy` 與 `touka-executor` 兩個服務都加那一行。
+1. 先備份 `data`、`.env`、`ToukaProxy\config`、`ToukaHeartbeat\config`，再取得新版程式。核心沒有 MPTCP 時，Touka 資料夾的 `docker-compose.override.yml` 裡不要有 `net.mptcp.enabled`（容器會起不來）。
+2. 看核心版本：`docker run --rm alpine:3.20 uname -r`。6.12 以上完整；6.7～6.11 可以隔離、但信號沒隔開；6.2～6.6 埠擋不住（執行器照樣跑，側欄會標示）；更舊的不算隔離，代理人指令在 Auto／YOLO 都要你核准。核心有 MPTCP，或之後卡片或側欄寫 `net_mptcp`（Docker Desktop 更新核心後可能會變）時，在覆寫檔的 `touka-proxy` 與 `touka-executor` 兩個服務的 `sysctls` 都加 `net.mptcp.enabled: 0`。
 3. `docker compose up -d --build`。這一步會：重建映像（名稱改成 `touka-proxy:local`，隔離程式放在映像裡唯讀的位置）；多一個常駐容器 `touka-executor`（代理人的指令改在這裡跑）；多三個 volume——`touka_touka-sandbox-state`、`touka_touka-exec-ipc`、`touka_touka-executor-state`（代理人的 HOME、暫存、快取與執行器的控制通道；不在 data 裡、不進備份）；多一個網路 `touka_touka-exec-net`。舊映像 `touka-touka-proxy`（約 2.5 GB）從此不用，要不要刪由你決定。`.env` 裡還沒有 `HEARTBEAT_TOKEN`（從沒啟動過）時，照 `README_QUICKSTART.md`「從原始碼建置」分段。以後每次更新也一樣用 `docker compose up -d --build`：proxy 直接讀資料夾裡的程式、執行器跑映像裡的程式，只重啟或沒加 `--build` 時，若那次更新改到隔離或執行器的程式（`kernel_outdated`、`executor_version_mismatch`），代理人的指令全部要你核准、心跳裡的指令被拒，卡片可能寫「未隔離」。
 4. 確認：約 90 秒內 `docker compose ps` 看到 `touka-executor` 是 healthy（剛起來顯示 starting，實測約 6 秒變 healthy，最久一分多鐘：它要先做兩次自我檢查），**而且** `docker compose logs touka-executor` 沒有 `Executor is not serving`（ipc volume 擁有者不對時會先假 healthy 約一分鐘；有那一行照下面「出問題時」）；【推測】萬一報找不到 `touka-proxy:local`，再跑一次 `docker compose up -d`。聊天分頁先重新整理（舊頁沒有隔離橫幅，核准任何有隔離標示的卡都會回 422），再看側欄沒有紅色的隔離橫幅，在 Manual 下讓代理人跑 `id -u; echo $HOME`，看到 `1001` 和 `/app/executor_state/agents/…` 才算在執行器裡。卡上沒有標示不能當證據。
 5. 不用改任何設定檔。執行器的資源上限（全部代理人共用 2g／512／2）要調時，取消 `.env` 裡 `TOUKA_EXECUTOR_MEM_LIMIT` 等三行的註解改值，再 `docker compose up -d`。
@@ -384,7 +384,7 @@ scaffold 在隔離試跑時將 APPDATA 參數對映到 personal_drive 根，與�
 
 - 細部設計（C2-1）與 C2-2 設計在寫程式前就經多次審查，嚴重問題都在寫程式前抓到；「永不授權」規則因此修了三版（第 1 版太寬、第 2 版太窄、第 3 版讓 Touka 資料夾裡的專案跑不了 pytest），第 4 版通過。
 - C2-1 實作（`c27699db`，第 2 次複審）：實測證實「`create_mcp`、`scaffold_mcp` 卡片寫隔離降級、其實未隔離」與「專案資料夾換成連結就拿到別人資料夾」兩個問題，已修正。修正後的差異複審中，攻擊角度（①）沒有得出判決，攻擊面只由防線對照表與③的獨立核對支持，**這一次沒有獨立的攻擊角度審查**。
-- C2-2 實作（`60956fda` 第 3 次複審、`e5e15157` 第 4 次複審）：①改用防禦清單核對（先自列約 90 條防線再對照 146 列的防線表，另做 19 項與 18 項突變；第 4 次的 18 項是 16 紅、1 等價、1 只有 Linux 擋得住）；三個角度都沒有 BLOCKING／HIGH，也確認沒有放寬已核准的決定、翻轉的既有期望都更嚴或等價。指出的問題已修正：執行器收回自己私有資料夾的權限、背景工作接所有例外、補測試與突變、CI 容器 job 條件與路徑篩選、`.gitignore`（R3a、R4a），以及 MCP 被誤會已隔離的句子、網路分開的告知、刪 volume 那條恢復方式（R3b、R3c、R4b 文件）。
+- C2-2 實作（`60956fda` 第 3 次複審、`e5e15157` 第 4 次複審）：①改用防禦清單核對（先自列約 90 條防線再對照 146 列的防線表，另做 19 項與 18 項突變；第 4 次的 18 項是 16 紅、1 等價、1 只有 Linux 擋得住）；三個角度都沒有 BLOCKING／HIGH，也確認沒有放寬已核准的決定、翻轉的既有期望都更嚴或等價。指出的問題已修正：R3a 修執行器收回自己私有資料夾的權限、背景工作接所有例外、補測試與突變、CI 容器 job 條件、`.gitignore`；R4a 修 CI 路徑篩選、說明與註解、Linux 案例、提示文案、`.env.example`；R3b、R3c、R4b 改文件（MCP 被誤會已隔離的句子、網路分開的告知、刪 volume 那條恢復方式）。
 - merge dev 已完成（見「驗證」；dep1 改的 `protocols/manager.py` 是 MCP manager，這個 PR 改的是 `services/models/manager.py`，不同檔）。`guard_all` 43/43 通過（`20e59c73`，2026-10-16；P4c 只改文字與兩句翻譯，開 PR 前在新 head 上再跑一次）。合併前還要：GitHub 上 `isolation.yml` 的 `landlock` 與 `container` 兩個 job 在審過的 head 上成功（這個 PR 改到隔離路徑，`container` 會自動跑；`landlock` 會在全新的 venv 上再跑一次 Linux 模組）。dev 合入後的 Linux 模組已經跑過（見「驗證」），不需要重建本機測試映像。
 
 ## 回復

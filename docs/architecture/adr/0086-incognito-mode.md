@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-13
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -45,7 +45,7 @@ localStorage、關閉即丟、視覺明顯標示。維護者決定：**完全失
 
 - 新增 `incognito` 旗標貫穿 schema/context/proxy；四個後端閘門＋前端 syncSession 收口；
   `openapi.json`＋`api.ts` 重生（Guard #17）。端點 auth 不變（Guard #24）。
-- 完全失憶：無痕對話中 AI 不引用既有記憶/家對話、不寫新記憶——可見行為變化（擁有者已知）。
+- 完全失憶：無痕對話中 AI 不引用既有記憶/家對話、不寫新記憶——可見行為變化（維護者已知）。
 - 以 integration 守衛證明「無痕請求 → `log_payload` 未呼叫」＋ dispatcher 落盤閘門單元測試證明零落盤。
 
 ## Action Items

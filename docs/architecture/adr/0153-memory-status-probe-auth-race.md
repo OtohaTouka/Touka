@@ -24,7 +24,7 @@
 **影響（輕微、非破壞）**：①console 噪音（每次頁面載入輸掉競態即一筆 401）；②`checkStatus`
 只在掛載＋`touka_connections_updated` 跑，不在 auth 完成後補跑 → `mode` 卡在 `standalone`，
 頁首／左側欄的「hybrid／記憶啟用」徽章整場顯示錯誤（記憶其實是活的）。無資料／功能損失。
-Owner 之所以現在看到＝proxy 重啟（載 ADR-0152 新碼）致登出重登，全新頁面載入剛好輸掉競態。
+這次會出現＝proxy 重啟（載 ADR-0152 新碼）致登出重登，全新頁面載入剛好輸掉競態。
 
 ## 決策
 
@@ -76,7 +76,7 @@ provider 巢狀**：
   `refreshSessions()`；卸載反註冊。與 `SystemStatusContext` 同構。認證就緒（登入／開機還原）
   後列表自動補回。測試 `SessionListProvider.authSelfHeal.test.tsx`（掛載首探 401→事件→補回；
   卸載反註冊）。
-- **未納入（另案，owner 排序）**：token 為何於使用者編輯後反覆撤銷（餘波追查）；前景對話身分
+- **未納入（另案，由維護者排序）**：token 為何於使用者編輯後反覆撤銷（餘波追查）；前景對話身分
   裂腦（人類 UUID 洩為 agent 身分、`data/custom/{human_uuid}/drive` 幻影目錄，ADR-0147 撞名於
   runtime 現形）。
 

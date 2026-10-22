@@ -9,7 +9,7 @@
 
 ## 背景
 
-Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題：Gemini 顯式快取在迴圈重建時會丟掉較早的對話，還會和 `tool_config`、`system_instruction`／`tools` 一起送（KF-1、KF-2、KF-2d；Owner 在 1a 已選全停）；Claude 與 OpenAI 的健康檢查請求不合廠商要求（KF-6）；根 `.env.example` 沒有列出廠商金鑰；Guard #23 擋下 `next@16.3.6`；Docker 映像的 uv 能不能讀冷卻期設定一直沒確認（ADR-0241 已知限制）。另外，曾有一次臨時查驗在沙盒外載入專案程式，初始化時自動寫出設定檔，差點出事，寫成禁令 63。
+Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題：Gemini 顯式快取在迴圈重建時會丟掉較早的對話，還會和 `tool_config`、`system_instruction`／`tools` 一起送（KF-1、KF-2、KF-2d；維護者在 1a 已決定全停）；Claude 與 OpenAI 的健康檢查請求不合廠商要求（KF-6）；根 `.env.example` 沒有列出廠商金鑰；Guard #23 擋下 `next@16.3.6`；Docker 映像的 uv 能不能讀冷卻期設定一直沒確認（ADR-0241 已知限制）。另外，曾有一次臨時查驗在沙盒外載入專案程式，初始化時自動寫出設定檔，差點出事，寫成禁令 63。
 
 ## 決策
 

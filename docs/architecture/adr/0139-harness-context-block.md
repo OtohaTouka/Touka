@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07；擁有者尚未 commit）**。
+✅ **已接受（實作與驗證 2026-07-07）**。
 
 > 🔧 **後續修訂（Guard #40 承諾句對已改釘）**：（1）[ADR-0146](0146-tool-round-budget.md)（2026-07-12）移除 `mission_stop_gate` / `board_allows_stop` 後，原「看板未清不可停 ⇄ board_allows_stop」承諾句對已改釘「回合結束、無自動續跑 ⇄ `rhythm_service.consume_round`」；harness_context 的 Autonomy 段亦隨之改寫。（2）[ADR-0143](0143-hitl-unification.md)（2026-07-11）把 Tools-and-approval 段的「`execute_command` 非同步審批」改為同步阻塞審批（新增 Guard #40 釘「pause for human approval ⇄ `_await_human_approval`」）。**`<harness_context>` 塊本體、英文零風格、穩定層快取與 Guard #40 反漂移機制本身不變。**
 
@@ -17,7 +17,7 @@ Touka 的定位是「維持 AI agent 人格」的 agent OS：**soul.md 管「我
 物理法則**」——目前底層模型、角色權限面、審批機制、心跳、派工生態、記憶摘要機制——
 一無所知或只能從工具 description 拼湊。對照 Claude Code／Codex CLI 等 harness 的
 prompt 分層（工具 schema 講 API 形狀、harness 規範講何時為何怎麼用），Touka 缺的正是
-這一層「**與人格零重疊的 OS 使用說明**」。擁有者要求：在**不影響、不改變 soul.md**
+這一層「**與人格零重疊的 OS 使用說明**」。維護者要求：在**不影響、不改變 soul.md**
 的前提下讓 agent 知道環境；拍板——名稱 `harness_context`、**英文內文**、XML 分塊
 沿用 tag SSOT、需 SSOT＋守衛防漂移、ToukaChat 檢查走既有 context snapshot 分頁
 （**唯讀**、不做 UI 編輯）。
@@ -52,7 +52,7 @@ prompt 分層（工具 schema 講 API 形狀、harness 規範講何時為何怎�
    指南、或改指南沒改行為都會紅**）；builder 內文（排除中文 docstring）不得含 CJK。
 5. **snapshot 自動可視化**：`BLOCK_META` 補 `HARNESS_CONTEXT` 一筆（Guard #39 逼的）
    → Debug Center「Context」分頁自動顯示本塊的實際渲染、token 成本、`stable` 快取層
-   ——即擁有者要的 admin 檢查面（唯讀）。
+   ——即維護者要的 admin 檢查面（唯讀）。
 
 ## 後果
 
@@ -61,7 +61,7 @@ prompt 分層（工具 schema 講 API 形狀、harness 規範講何時為何怎�
   自主演化）——結構性保證互不污染。
 - **誠實邊界**：①內容正確性已測（10 單元測試：核心事實／工具面條件化／英文／token
   上限／注入條件／快取層），但**對模型行為的實際效益未證**——需以 ADR-0136 eval 軌
-  跑注入前後對照（pass^k、停止閘觸發率等）＝擁有者手動實跑項；②Guest 子代理精簡版
+  跑注入前後對照（pass^k、停止閘觸發率等）＝維護者手動實跑項；②Guest 子代理精簡版
   明確**不在本 ADR 範圍**（子代理面另有 REPORT_INSTRUCTION，日後要做按角色分流）；
   ③心跳「本回合模式」等 per-turn 事實刻意不進本塊（會碎片化快取），只描述機制。
 - **驗收**：ruff（改動檔）＋lint_ssot＋**guard_all 40/40**（新 Guard #40）＋後端

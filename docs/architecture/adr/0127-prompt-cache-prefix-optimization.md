@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2698 passed/4 skipped；擁有者尚未 commit）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 落地「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 4（選配延伸）的快取前綴一項**（擁有者三選一裁示：做快取前綴）。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0126](0126-tool-result-card-spec.md)）。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、後端 pytest 2698 passed/4 skipped）**（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：快取套用點自 claude_handler 抽取至 claude_adapter，wire 職責；快取行為與斷點位置不變）。本 ADR 落地「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 4（選配延伸）的快取前綴一項**（維護者三選一決定：做快取前綴）。延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0126](0126-tool-result-card-spec.md)）。
 
 ## 日期
 
@@ -22,13 +22,13 @@ Anthropic prompt caching 的快取順序＝**tools → system → messages**；�
 ## 後果
 
 - **ReAct 迴圈省 token／加速**：同一組工具（≈6346 token）於迴圈內每次 `messages.create` 重複命中→**快取讀取省約 90% token 成本**、加速首 token；跨會話同工具集也命中。首次寫入 +25%（攤銷於重複命中）。
-- **落地提案 P4 的一項**（擁有者三選一）：其餘 P4 子項維持選配/另案（見下）。
+- **落地提案 P4 的一項**（維護者三選一）：其餘 P4 子項維持選配/另案（見下）。
 - **驗收**：ruff（改動檔）＋lint_ssot 全清、**guard_all 38/38**、**pytest 2698 passed/4 skipped**（+4；純函式斷點器四測，claude_handler 含新快取路徑零回歸）。
 - **範圍/邊界（刻意）**：
   - 只快取 **tools**（最大、最穩定、最乾淨的一塊，斷點獨立於 system 波動）。
   - **system 前綴快取**需把 `system` 由串接字串改成 block list＋處理 degraded 警告附加與遙測讀取，較侵入——**列為後續另案**（迴圈內 system 也穩定、有進一步空間）。
   - **逐腦 emphasis 調校**（P4 另一子項）需 LIVE eval、探索性——未選。
-  - **真 OTel exporter/spans**（P4 另一子項）需新增 SDK 依賴＋把遙測外送，**與 Touka 本地優先／隱私／開源定位有張力**——擁有者未選、不做。
+  - **真 OTel exporter/spans**（P4 另一子項）需新增 SDK 依賴＋把遙測外送，**與 Touka 本地優先／隱私／開源定位有張力**——維護者未選、不做。
 
 ## 相關
 

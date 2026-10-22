@@ -8,7 +8,7 @@
   [ADR-0221](0221-modern-only-local-cold-cutover.md)、
   [MCP 2026 完整遷移計畫](../proposals/mcp-2026-07-28-protocol-migration.md)
 
-> **2026-09-04 適用狀態修訂**：Owner 已依 ADR-0221 選定 `modern-only cold cutover`
+> **2026-09-04 適用狀態修訂**：維護者已依 ADR-0221 選定 `modern-only cold cutover`
 > 目標，但仍為 `implementation pending`。在 IDE 自有的 modern auth／version smoke、tracked
 > consumer inventory、rollback seal 與 fresh exact removal 核准完成前，本 ADR 的 dual-era
 > routes 與 discovery projection 仍是現行事實。

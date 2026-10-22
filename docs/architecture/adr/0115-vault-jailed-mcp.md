@@ -43,7 +43,7 @@
 
 ## 替代方案（Rejected）
 - **每個 agent 起一個 docgen 子行程**（各自 env jail）：N 個 agent → 資源與生命週期不可行。
-- **加一個 Touka 原生 broker 工具包住 docgen**：多一層工具面；擁有者取向＝「零重複工具」→ 派發注入更貼合，且不需把 ProtocolManager 接進原生工具層。
+- **加一個 Touka 原生 broker 工具包住 docgen**：多一層工具面；維護者的取向＝零重複工具→ 派發注入更貼合，且不需把 ProtocolManager 接進原生工具層。
 - **改 wire format、前端送真實多模態/路徑陣列**：牽動持久化與對話樹，風險高 → 後端覆寫更內聚。
 - **仰賴 docgen env 做 per-agent 隔離**：env 是 process-global，共用行程無法 per-agent → 必須走每次呼叫的參數。
 - **把 vault-jail 政策放純使用者可改 config、無 API round-trip/還原**：一次設定存檔就 fail open（複審 High）→ 改為 API 契約＋磁碟還原＋快照重蓋。

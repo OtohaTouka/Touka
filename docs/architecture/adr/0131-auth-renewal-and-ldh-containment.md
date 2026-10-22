@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05；擁有者尚未 commit）**（採納條件收窄 by [ADR-0144](0144-auth-seam-hardening.md)：X-New-Auth-Token「僅未登入採納」另加 `!hasEverLoggedIn()`（touka_has_logged_in）閉殭屍身分縫；LDH 收斂機制本身不變）。修復維護者回報「進入無痕對話後側欄對話紀錄被打亂/消失、模型變成 DebugAgent」的不定性缺陷簇；經源碼追蹤＋實機日誌證實根因為**認證身分無聲翻轉**（2,142 筆 `Local Graceful Downgrade: 'DebugAgent'` 實錘），無痕操作僅為放大器。新增**禁令 60**。
+✅ **已接受（實作與驗證 2026-07-05）**（採納條件收窄 by [ADR-0144](0144-auth-seam-hardening.md)：X-New-Auth-Token「僅未登入採納」另加 `!hasEverLoggedIn()`（touka_has_logged_in）閉殭屍身分縫；LDH 收斂機制本身不變）。修復維護者回報「進入無痕對話後側欄對話紀錄被打亂/消失、模型變成 DebugAgent」的不定性缺陷簇；經源碼追蹤＋實機日誌證實根因為**認證身分無聲翻轉**（2,142 筆 `Local Graceful Downgrade: 'DebugAgent'` 實錘），無痕操作僅為放大器。新增**禁令 60**。
 
 ## 日期
 

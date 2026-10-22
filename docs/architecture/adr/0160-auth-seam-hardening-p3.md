@@ -10,7 +10,7 @@
 
 ## 背景
 
-四功能區調查（07-15）對 07-11 空密碼事故（ADR-0144）同族做了完整 code review，在「安全設定/使用者管理改動引發 token 或權限補發競態」這條線找到 9 個未修站點。owner 點名處理 P3；多分頁 JTI 亂序（#5）經查 proxy 日誌**零筆 `AUTH_REFRESH_TOKEN_REUSE`**＋動 refresh 輪替核心有風險，判為「已知不動」。其餘八站分四區實作。
+四功能區調查（07-15）對 07-11 空密碼事故（ADR-0144）同族做了完整 code review，在「安全設定/使用者管理改動引發 token 或權限補發競態」這條線找到 9 個未修站點。維護者點名處理 P3；多分頁 JTI 亂序（#5）經查 proxy 日誌**零筆 `AUTH_REFRESH_TOKEN_REUSE`**＋動 refresh 輪替核心有風險，判為「已知不動」。其餘八站分四區實作。
 
 ## 決策與實作
 
@@ -38,7 +38,7 @@
 ## 後果（誠實行為變化）
 
 - admin 編輯面對 null/typo/撞號 email fail-loud（毒化不再拖垮全站）；登出真正撤銷（過期卡也能登出、既有 access 即失效、session 不復活）；改密碼前的 refresh token 與驗證期間改密碼的重武裝皆被堵；前端登出無半殭屍卡殘留、換帳號無跨帳號清單殘留。
-- **未納入（已知不動）**：多分頁 refresh 亂序「中間代 JTI」誤判 replay（#5）——proxy 日誌零實跡＋動輪替核心風險高，記錄於此；owner 若日後見無故被踢＋日誌出現 `AUTH_REFRESH_TOKEN_REUSE` 再議。
+- **未納入（已知不動）**：多分頁 refresh 亂序「中間代 JTI」誤判 replay（#5）——proxy 日誌零實跡＋動輪替核心風險高，記錄於此；若日後遇到無故被踢＋日誌出現 `AUTH_REFRESH_TOKEN_REUSE` 再議。
 - **openapi 變更**：`AdminUpdateUserRequest` role/status → enum、logout 端點簽章（移除 Bearer 依賴）；`User` 內部欄位 `tokens_revoked_at` 不進 wire（UserOut 未含）。api.ts 隨之重生。
 - **驗收**：後端 pytest **3546 passed**（新 test_auth_seam_hardening_p3 14 條＋既有 grace/h6/logout 回歸）／前端 vitest **1060 passed**（新 connections/authService P3 測試，紅→綠 stash 驗證）／guard_all **41/41**（logout 入 allowlist、NOQA registry 淨 +6→205）／lint_ssot clean／ruff 基線持平（664）／tsc 零新增（44≤基線 45）。
 

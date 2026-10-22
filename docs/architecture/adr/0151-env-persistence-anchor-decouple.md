@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（07-11 認證事故餘波 #5；owner 決策「解耦（推薦）」＋「我改 compose/程式後自行改 .env」）
+✅ 已接受（07-11 認證事故餘波 #5；維護者決定採解耦（推薦），本案只改 compose／程式，既有 .env 由部署者自行處理）
 
 **部分取代 [ADR-0118](0118-setup-wizard-reliability-and-embedding-lifecycle.md)** 的
 `TOUKA_ENV_FILE=/app/workspace/.env` 決策（該路徑綁 `WORKSPACE_ROOT`，此處改錨 compose 目錄）。
@@ -89,7 +89,7 @@
   他人 uid 所有（典型 755），寫入 PermissionError → `persist_generated_secret` 捕捉、loud log、
   回 False → token 該窗不持久（**症狀同病根不同**；守衛只抓「寫錯檔」模式、抓不到「寫不進」
   模式——後者已由 persist 自身 log）。**舊制同界限**（`${WORKSPACE_ROOT:-.}` 預設＝同一 compose
-  目錄），Windows/Docker Desktop（owner 平台）不受影響。緩解＝operator 給 compose 目錄 uid 1001
+  目錄），Windows/Docker Desktop（維護者的平台）不受影響。緩解＝operator 給 compose 目錄 uid 1001
   寫權或 `user:` 覆寫；根治（root entrypoint chown 後 drop）與 ADR-0150 同款、屬另案。
 
 ## 限制與邊界（誠實界定）

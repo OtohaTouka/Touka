@@ -50,7 +50,7 @@
 
 ## 相關
 
-- 提案：[react-core-extraction](../proposals/react-core-extraction.md)（K1–K5 拍板、階段規劃、風險清單）
+- 提案：[react-core-extraction](../proposals/react-core-extraction.md)（K1–K5 決策、階段規劃、風險清單）
 - [ADR-0155](0155-handler-drift-fix-batch.md)（前置步驟 0＝漂移修復批；本案的乾淨基線）
 - [ADR-0146](0146-tool-round-budget.md)／[ADR-0152](0152-reasoning-channel-and-fold.md)（收進核心的保險絲與 reasoning 分頻語意）
 - [ADR-0127](0127-prompt-cache-prefix-optimization.md)～[ADR-0130](0130-stable-first-system-reorder.md)（claude 四斷點快取＝ClaudeAdapter wire 職責）

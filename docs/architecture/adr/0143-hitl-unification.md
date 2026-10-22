@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（H1–H4 全數落地，2026-07-11 同日；owner 逐批 commit）
+✅ 已接受（H1–H4 全數落地，2026-07-11 同日）
 
 > 🔧 **四級決策表已被 [ADR-0246](0246-model-layer-stage-2b-2c.md)（Manual／Auto／YOLO 三模式）修訂**：4×3 表改成三模式表（Auto 的終端與 dangerous 工具回 `REVIEW` 交審查員，底線回 `HUMAN_ONLY`）；終端不再依 `safe_whitelist` 分類、一律 dangerous；心跳的四級欄位改收三模式。`tool_risk`、CONFIRM fail-closed、聊天審批 broker 與 `/v1/tools/approve|reject` 的人類硬閘不變。
 
@@ -32,7 +32,7 @@ Sumi（grok-4.5）診斷揭露 HITL 整條斷裂——使用者選 Manual，工�
 引擎本身（`safety.py` 四級矩陣＋黑名單先行＋ADR-0089 唯讀豁免）語意正確——本案修
 其輸入（分類、持久化）與輸出（CONFIRM 處置、審批通道），不重寫引擎。
 
-## 決策（五個決定點；維護者核准，第 3 點為維護者修改版）
+## 決策（五個決策點；維護者核准，第 3 點為維護者修改版）
 
 1. **工具風險分類 SSOT**：`auth_policies.json` 新 `tool_risk`——三類
    （read_only／safe／dangerous）＋聚合多動詞工具按 `action_param` 逐動詞細分；
@@ -50,7 +50,7 @@ Sumi（grok-4.5）診斷揭露 HITL 整條斷裂——使用者選 Manual，工�
 
    終端指令沿 regex 白名單分類（命中＝safe、其餘＝dangerous）。**刻意變更**：
    ReadOnly 下白名單指令由舊 ALLOW 改 DENY（pytest/npm test 會執行程式碼）。
-3. **無人 session 設定時定權**（owner 版）：`/heartbeat/awaken` 新明確四級
+3. **無人 session 設定時定權**（維護者修改版）：`/heartbeat/awaken` 新明確四級
    `auth_level` 欄位（優先於 safe/full 舊映射；不回寫 session row——home 模式共用
    人類家會話，不得踩掉 AuthSwitcher）；子代理組裝／執行兩階段統一**繼承父 ctx**
    （派工當下人類的選擇＝事先決定，子代理不可自升）。headless 的 CONFIRM 解算

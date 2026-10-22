@@ -39,7 +39,7 @@
 ## 已知限制
 
 - 網路封鎖管不到：子程序；Windows Proactor 上以 IP 字面值發起的 async 連線；`socket.sendmsg`／`getnameinfo` 事件。
-- Gemini 兩個疑似問題（非無痕、快取啟用時）：迴圈重建可能漏舊對話；`cachedContent` 與 `tool_config` 並用可能 400。Gemini 兩項已由 1a 確認，見 ADR-0242（KF-1、KF-2、KF-2d；Owner 已選之後全停顯式快取）。
+- Gemini 兩個疑似問題（非無痕、快取啟用時）：迴圈重建可能漏舊對話；`cachedContent` 與 `tool_config` 並用可能 400。Gemini 兩項已由 1a 確認，見 ADR-0242（KF-1、KF-2、KF-2d；維護者已決定之後全停顯式快取）。
 - Anthropic 形狀入口（如 IDE 的 `/v1/messages`）接非 Claude 模型（KF-9，見 ADR-0242）：OpenAI 相容端 `tool_use`／`tool_result` 原樣外送，list system 被解回 text 區塊、連 `cache_control` 一起外送（降級時才以跳脫中文的 JSON 字串外送）；Gemini 端工具紀錄與 `system_instruction` 都消失。
 - 呼叫端在等備份鎖時被取消，排隊中的備份之後仍會執行（失敗會記 warning）；`dispatch_supervisor` 的同步 taskkill 仍在事件迴圈上。
 - `list_souls` 對沒設主要模型的代理人顯示「未配置」，SoulStudio 因此不顯示 `base_model`。

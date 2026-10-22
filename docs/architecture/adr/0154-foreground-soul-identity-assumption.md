@@ -36,7 +36,7 @@
 
 ## 決策
 
-owner 於設計岔路拍板 **Option A：前景對話以靈魂身分執行**（明示接受「在該對話中以 Owner 而非 admin
+維護者於設計岔路決定採 **Option A：前景對話以靈魂身分執行**（明示接受「在該對話中以 Owner 而非 admin
 行事」）。target 解析為「人類擁有（或人類 admin）的靈魂」時，把 `ctx["identity"]` 換成該靈魂身分
 （= 心跳 `get_identity` 同源的 Owner 身分），使工具/記憶/vault/payload 全部一致以靈魂身分執行。
 **人類請求者的角色僅作 Gate-1 授權**（擁有該靈魂或人類 admin），不參與執行身分。

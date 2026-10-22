@@ -2,10 +2,10 @@
 
 ## 狀態
 
-✅ **已接受並實作完成（決策 2026-07-10；C1–C5 全數落地同日收官；擁有者逐批 commit）**。
-本 ADR 記錄擁有者對
+✅ **已接受並實作完成（決策 2026-07-10；C1–C5 全數落地同日收官）**。
+本 ADR 記錄維護者對
 [soul-crud-repair-and-admin-stepup 提案](../proposals/soul-crud-repair-and-admin-stepup.md)
-的核准（六拍板點 D1–D6 全照建議）與全部五批實作：C1 後端修復（soul_io 通道＋回滾）→
+的核准（六個決策點 D1–D6 全照建議）與全部五批實作：C1 後端修復（soul_io 通道＋回滾）→
 C2 前端修復（模型選單刷新＋錯誤對映）→ C3 功能後端（步升驗證＋DELETE）→ C4 功能前端
 （編輯/刪除 UI＋密碼 modal）→ C5 文件收官。**終態**：建立/編輯/刪除靈魂全鏈路可用；
 靈魂資料的人類面變更一律 admin 步升重驗密碼＋AUDIT；Soul Protection 原語零弱化
@@ -18,7 +18,7 @@ C2 前端修復（模型選單刷新＋錯誤對映）→ C3 功能後端（步�
 ## 背景
 
 使用者回報建立新靈魂的四個症狀：soul.md 存不進（BUG1）、brain 設定存不進（BUG2）、
-存檔後不能說話（BUG3）、手動補檔仍不能說話（BUG4）。同日五路並行診斷＋逐條對抗驗證
+存檔後不能說話（BUG3）、手動補檔仍不能說話（BUG4）。同日並行診斷＋逐條對抗驗證
 （12 CONFIRMED）鎖定根因：
 
 - **BUG1/2/3 同源**：`create_soul`（`souls.py:53/56`）與 `update_soul`（`:172/175`）經
@@ -33,7 +33,7 @@ C2 前端修復（模型選單刷新＋錯誤對映）→ C3 功能後端（步�
   精確鍵／可辨識供應商模型名／models+registry 註冊），缺任一即靜默失敗。
 - **遮蔽原因**：souls 測試把 `write_*` monkeypatch 成 no-op＝真實落盤零涵蓋。
 
-## 決策（六個決定點，維護者全部照建議核准）
+## 決策（六個決策點，維護者全部照建議核准）
 
 - **D1 寫入機制＝soul_io 受認可通道**：souls 路由寫入改走 `soul_io.write_soul_file`／
   新增 `write_soul_json`（raw 原子寫＋自動 `.bak`＋`_safe_target` 監獄）。
@@ -124,7 +124,7 @@ C2 前端修復（模型選單刷新＋錯誤對映）→ C3 功能後端（步�
 ## C5 成果（文件收官）
 
 本 ADR 定稿（狀態→✅）；ADR 索引／提案狀態同步收官；SECURITY.md 補步升面附註；
-HANDOVER／memory 更新。**全提案終態驗收**：後端 pytest **3245**（C1 +11、C3 +12 淨）／
+HANDOVER 更新。**全提案終態驗收**：後端 pytest **3245**（C1 +11、C3 +12 淨）／
 guard_all **41/41**／前端 vitest **984**（C2 +6、C4 +4）／ruff・lint_ssot 零新增／
 openapi＋api.ts 與 wire 同步（C3 重生）。
 
@@ -142,7 +142,7 @@ openapi＋api.ts 與 wire 同步（C3 重生）。
 ## 相關
 
 - [提案：soul-crud-repair-and-admin-stepup](../proposals/soul-crud-repair-and-admin-stepup.md)
-  （拍板點 D1–D6、批次 C1–C5、風險）；診斷（2026-07-10，12 項確認）
+  （決策點 D1–D6、批次 C1–C5、風險）；診斷（2026-07-10，12 項確認）
 - [ADR-0113]（per-agent 破壞性重置——D4 刪除範圍與其分工）；[ADR-0141]（角色權限面
   分離——`agent_role="Owner"` 建構慣例）；SECURITY.md DA17/DA18（is_owner 閘與
   soul_io `_safe_target` 監獄的由來）

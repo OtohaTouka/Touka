@@ -110,7 +110,7 @@
   - ⚠️ **踩雷紀錄（重要）**：初版把依賴裝進 venv 後仍沿用結尾 `chown -R appuser /app`——**overlayfs 的 chown 會把整個 venv 重複進第二個 layer**（proxy 2.66→4.5GB、heartbeat 220→327MB）。修法＝venv 維持 root 擁有（appuser 只讀執行，與舊「系統 site-packages」等價）＋源碼 `COPY --chown` 一次到位＋`/app` 目錄本身非遞迴 chown（執行期可建新檔）。heartbeat 再以 multi-stage 拔掉 runtime 的 uv 二進位（~40MB）後才降到 207MB。
 - **runtime 冒煙（容器內實測）**：兩映像 python/uvicorn 解析至 venv、以 `appuser` 執行、`/app` 可寫；proxy `torch 2.12.1+cpu`＋fastapi/mcp/qdrant 匯入 OK；heartbeat apscheduler/fastapi/httpx/pydantic-settings OK。
 - **守衛/測試同步**：Guard #16 `check_dockerfile_parity` 擴充接受「`COPY [--chown] . .`」與「`COPY [--chown] <專案目錄>/ .`」兩個等價變體；`test_dockerfile_dispatch.py` 的 full-copy 斷言同步接受 `--chown`。Dockerfile 相關 lint/unit 測試 29/29、Guard #16 4/4、`docker compose config` 解析通過。
-- **注**：`requirements.in/.txt` 與 `lock_requirements.py` 尚未退役（Phase 4）——Dockerfile 已不再使用它們，但守衛（#30）與 parity 測試仍讀取，雙軌維持至 Phase 4。實機 `docker compose up` 全鏈路驗收（需擁有者 `.env`/data volume）留待 Phase 5。
+- **注**：`requirements.in/.txt` 與 `lock_requirements.py` 尚未退役（Phase 4）——Dockerfile 已不再使用它們，但守衛（#30）與 parity 測試仍讀取，雙軌維持至 Phase 4。實機 `docker compose up` 全鏈路驗收（需真實 `.env`/data volume）留待 Phase 5。
 
 ### Phase 4 結果（2026-07-02 落地，守衛/禁令切換＋requirements 全面退役）
 
@@ -148,7 +148,7 @@
 ## 後果
 
 ### 正面
-- **漂移不可能發生**：單一 lock、一次解析，dev＝test＝每個映像位元相同（直接根治擁有者痛點）。
+- **漂移不可能發生**：單一 lock、一次解析，dev＝test＝每個映像位元相同（直接根治維護者的痛點）。
 - uv 原生工作流可用（`uv run`/`uv sync`），移除「裸 `uv run` 會清空 venv」的地雷。
 - 移除自製鎖檔管線（`lock_requirements.py`＋四份 `.in/.txt`＋聯集 sync）的維護面。
 

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（MCP connectors 調查 F6，owner 點名修復；F1–F6 全線收官）
+✅ 已接受（MCP connectors 調查 F6，維護者點名修復；F1–F6 全線收官）
 
 ## 日期
 

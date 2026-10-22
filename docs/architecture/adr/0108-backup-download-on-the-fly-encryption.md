@@ -9,7 +9,7 @@
 
 設定頁「資料生命週期·軌1」Phase 1 已補齊系統備份的還原密碼閘（BK1）、刪除（BK2）、磁碟統計（BK3）。但仍缺「**下載備份**」。研究（4 探子）挖出關鍵風險：**備份 zip 含 `.env` 明文（所有 API 金鑰）且無遮罩**——若直接提供下載端點，等於用 HTTP 把全系統機密外送。
 
-擁有者裁示：**下載＝加密**；並選擇**標準加密 ZIP（pyzipper）**方案（而非自訂 `.zip.enc` + 專屬解密工具），使下載產物可被 **7-Zip / WinRAR 直接以密碼開啟**，對非技術擁有者更友善。
+維護者決定：**下載＝加密**；並選擇**標準加密 ZIP（pyzipper）**方案（而非自訂 `.zip.enc` + 專屬解密工具），使下載產物可被 **7-Zip / WinRAR 直接以密碼開啟**，對非技術使用者更友善。
 
 ## 決策（Decision）
 
@@ -42,5 +42,5 @@
 下載端點繞過/路徑穿越/CSRF/非-admin/passphrase 下限與 `backup_crypto` round-trip/錯密碼偵測經複審與測試覆蓋。詳見 SECURITY.md「軌1 Phase 2」。
 
 ## 替代方案（Rejected）
-- **cryptography + `.zip.enc` 自訂格式 + 離線 `decrypt` CLI**：零新相依、AEAD 串流，但需專屬工具解密 → UX 較差，擁有者否決。
+- **cryptography + `.zip.enc` 自訂格式 + 離線 `decrypt` CLI**：零新相依、AEAD 串流，但需專屬工具解密 → UX 較差，維護者否決。
 - **加密儲存（所有備份恆加密）**：破壞內部無密碼的「備份優先」流程與既有明文備份，blast radius 過大。

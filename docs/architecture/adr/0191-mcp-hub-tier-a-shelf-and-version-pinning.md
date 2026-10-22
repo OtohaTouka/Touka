@@ -16,7 +16,7 @@
 
 據此立提案，把工作切成四階授權（L1 remote＋靜態 header → L2 OAuth → L3 token 儲存 → L4 平台級 hosted＝結構性不可對齊）與三檔貨架（Tier A 現成 stdio＋API key／Tier B 需 remote／Tier C 需 OAuth）。維護者決定做批次 1→3、批次 4 擱置。**本 ADR 為批次 1（Tier A 策展），零新基建。**
 
-owner 五決策點裁示：①核准 1→2→3、4 擱置；②新條目必釘版、既有種子同批補釘；③Slack 社群版先不收（列觀察名單）；④瀏覽器自動化（Playwright 類）另案；⑤Tier A 首發不含 Perplexity。
+維護者對五個決策點的決定：①核准 1→2→3、4 擱置；②新條目必釘版、既有種子同批補釘；③Slack 社群版先不收（列觀察名單）；④瀏覽器自動化（Playwright 類）另案；⑤Tier A 首發不含 Perplexity。
 
 ## 決策與實作
 
@@ -59,7 +59,7 @@ owner 五決策點裁示：①核准 1→2→3、4 擱置；②新條目必釘�
 ### 3. 兩條擋下（hold，非 reject）
 
 - **Stripe（`@stripe/mcp`）**：套件本身無可挑剔（第一方、SLSA provenance、MIT、無 install hook），但它實為 **stdio↔HTTP 橋接器**，轉發至 `mcp.stripe.com`。金鑰格式合法但無效時，遠端 401 只被 `console.error` 吞掉、stdio 不關 → **靜默無限掛住**。擋點不在套件而在 Touka 自家連線路徑（見下節），且它本質上屬 remote，歸屬應為批次 2/3 而非 Tier A。
-- **Sentry（`@sentry/mcp-server`）**：技術面零缺陷（第一方、9 工具 E2E 通過、極活躍），但授權為 **FSL-1.1-ALv2（Functional Source License）＝非 OSI 開源**，與提案「只收 Apache-2.0／MIT／BSD 系」的收錄準則牴觸。覆核者實讀 FSL 全文後認為侵權風險被高估（Touka 非 Sentry 的競品、且散布的只是指向 npm 的 config），**真正待解的是「種子可否收錄非 OSI 條目」的內規**——這是 owner 政策題，不是工程題，故留 hold 待明示。
+- **Sentry（`@sentry/mcp-server`）**：技術面零缺陷（第一方、9 工具 E2E 通過、極活躍），但授權為 **FSL-1.1-ALv2（Functional Source License）＝非 OSI 開源**，與提案「只收 Apache-2.0／MIT／BSD 系」的收錄準則牴觸。覆核者實讀 FSL 全文後認為侵權風險被高估（Touka 非 Sentry 的競品、且散布的只是指向 npm 的 config），**真正待解的是「種子可否收錄非 OSI 條目」的內規**——這是維護者政策題，不是工程題，故留 hold 待明示。
 
 ### 4. LIVE 生產缺陷修復：MCP 初次連線無逾時
 

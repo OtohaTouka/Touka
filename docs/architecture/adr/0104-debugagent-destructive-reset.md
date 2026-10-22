@@ -9,7 +9,7 @@
 
 軌B 計分卡（ADR-0101）以 **DebugAgent** 為實機評測身分，反覆跑情境會在多個 store 累積資料（對話、回饋、記憶、產出、任務…）。為了能在評測之間把 DebugAgent 回到白紙、並對照「原始 vs 累積」，需要一個**破壞性重置**：清空 DebugAgent 的累積資料，但**保留其身分／註冊**（重置後仍可用）。
 
-破壞性 × 跨子系統（ToukaProxy ＋ ToukaMemory）× 真實刪除 → 此功能的首要風險是**誤刪真實 agent（Jin/Yan/Code）**或**在無備份下不可逆刪除**。使用者（擁有者）明確要求：**清空前先執行全系統備份**。
+破壞性 × 跨子系統（ToukaProxy ＋ ToukaMemory）× 真實刪除 → 此功能的首要風險是**誤刪真實 agent（Jin/Yan/Code）**或**在無備份下不可逆刪除**。維護者明確要求：**清空前先執行全系統備份**。
 
 ## 決策（Decision）
 
@@ -40,7 +40,7 @@
 
 ### 被否決的方案
 
-- **清除 `project_audit`／`decisions.csv`**：兩者為審計軌跡，刪除有損稽核完整性。改採「保留＋報告透明列為排除項」（擁有者決策）。
+- **清除 `project_audit`／`decisions.csv`**：兩者為審計軌跡，刪除有損稽核完整性。改採「保留＋報告透明列為排除項」（維護者決策）。
 - **把 reset 收緊為 admin-only**：完全對齊 `/system/backup/run`，但若人類擁有者角色為 Owner（非 admin）會使前端重置鈕失效。改採 Owner/admin（排除 Debugger），兼顧安全與可用。
 
 ## 後果（Consequences）

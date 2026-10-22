@@ -53,7 +53,7 @@
 ### 7. 審查員等待 60 秒
 
 - `AutoReviewConfig.timeout_s` 預設 20→60（`gt=0, le=120` 不變），範例檔同步。**逾時不是放行條件**：審查員要明確判 allow 才放行，逾時＝轉人（有人在場）或拒絕（無人在場），所以加長不放寬規則；但用 5.5 當審查員時，原本逾時轉人的動作改由審查員判斷，實際自動放行會比現在多（恢復 Auto 原本的設計）。審查員卡住時要等約 65 秒（60＋寬限 5 秒）才跳審批卡。
-- live `autonomy.json` 若是從舊範例長出來、已寫 `"timeout_s": 20`，改預設不會生效，也不做啟動遷移：**Owner 在設定頁「審查員等待秒數」看到 20 時，改成 60 存檔**。設定頁新欄位見 CHAT_INTERFACE。
+- live `autonomy.json` 若是從舊範例長出來、已寫 `"timeout_s": 20`，改預設不會生效，也不做啟動遷移：**在設定頁「審查員等待秒數」看到 20 時，改成 60 存檔**。設定頁新欄位見 CHAT_INTERFACE。
 - `services/auto_reviewer.py` 一行沒改（另一批正在改那幾段）。
 
 ### 8. 人工實測工具（只寫、未跑）
@@ -63,7 +63,7 @@
 
 ## 會改變的行為
 
-- 摘要員、評分、IDE 補全用 Haiku／Sonnet 5.5 時：送 `disabled`／`between_tools`＋effort low，輸出上限回到請求值（摘要員寫超過預算會截斷→退回無損剪裁；以前 8,192 讓它寫超過）；Opus 5.5 只送 effort low、仍 8,192。摘要員預設模型是 Haiku 4.5 且預設不啟用，目前對 Owner 無影響。審查員、互審送出內容不變。
+- 摘要員、評分、IDE 補全用 Haiku／Sonnet 5.5 時：送 `disabled`／`between_tools`＋effort low，輸出上限回到請求值（摘要員寫超過預算會截斷→退回無損剪裁；以前 8,192 讓它寫超過）；Opus 5.5 只送 effort low、仍 8,192。摘要員預設模型是 Haiku 4.5 且預設不啟用，預設設定下沒有影響。審查員、互審送出內容不變。
 - 所有用 OpenAI 格式送 Claude 的請求，`stop` 開始生效；IDE 補全的 "```" 照舊保留（模型以程式碼圍欄開頭時補全會變空，和 OpenAI 相容路徑一致）。
 - 原生入口：客戶端的 effort 開始照送（5.5）；`disabled` 依型號改寫或不送；5.x 的小輸出上限補到 8,192（ToukaChat／IDE 選 anthropic 協定的 4,096、計分卡 512／1,024）；`enabled`＋budget 補到 budget＋1,024。
 - 花費上限有開時，`complete_once` 送前就可能回 `over_budget`（例：上限 $1、已花 $0.95，Opus 5.5 審查員最壞約 $0.17 → 不送、轉人）。
@@ -109,11 +109,11 @@
 
 - 新測試：`test_claude_thinking_profile.py` 57、`test_complete_once_thinking.py` 44、`test_thinking_purpose_header_security.py` 46、`test_cost_guard.py` 30、`test_run_usage_tiers.py` 11、`test_thinking_latency_probe.py` 20；擴充 `test_model_rules.py` 151→215、`test_internal_callers_max_tokens.py` 9→12、`test_pricing.py` 37→45、`memory_eval/test_probe_bounds.py` 47→48；`proxy/upstream/test_upstream_claude.py` 的 stop 斷言改成「以 `stop_sequences` 送出」（預期的行為改變）；`test_complete_once_contract.py`、`test_anthropic_base_url_pinned.py`、`test_anthropic_sdk_env_security.py`、`test_side_caller_billing.py` 的假預算物件只補 `would_exceed`（回 False），斷言不改；`test_live_api_consent.py` 的 operation 集合多一筆。ToukaChat `AutoReviewerSettings.test.tsx` 10→18、`useAutoReviewSettings.test.ts` 3→15；ToukaIDE `inlineCompletion.test.ts` 5→12。先紅後綠。
 - 突變：思考路徑 M1～M13（含 13a／b／c）、M6b、M18、MR1（旁路一律少想＝模擬繼承主 context）；送前估算接點 MS1～MS6；5.6 列 MF3；花費 M14a～e、M15a～c、M16a～d、M17a～d；前端 M19a～f、M20a～g；實測工具 M21a～i；最後全部有測試變紅（M6b 加跑規則表測試、M20e 補測試後才變紅）。
-- 全量（`wt/r55`，程式 HEAD `4a433502`＋文件）：pytest 10639 passed／7 skipped／6 failed（6 個是本機 Docker Desktop 的 `test_local_compose_bindings`，以 CI 為準；7 個跳過與 ADR-0251 的基準相同）；ToukaChat vitest 277 個檔、1738 個測試全過，前端守衛（prune 以外）通過；ToukaIDE 95 個測試全過、typecheck 通過。`guard_adr_integrity.py`（配號後 0001..0271 連續、修訂雙向一致）、`guard_noqa_registry.py`、`lint_ssot.py`、`guard_native_tool_contracts.py`（基準不動）、`guard_module_boundaries.py`、`guard_endpoint_auth.py`、文件契約測試、ruff（改到的產品程式沒有新增問題）通過。
+- 全量（程式 HEAD `4a433502`＋文件）：pytest 10639 passed／7 skipped／6 failed（6 個是本機 Docker Desktop 的 `test_local_compose_bindings`，以 CI 為準；7 個跳過與 ADR-0251 的基準相同）；ToukaChat vitest 277 個檔、1738 個測試全過，前端守衛（prune 以外）通過；ToukaIDE 95 個測試全過、typecheck 通過。`guard_adr_integrity.py`（配號後 0001..0271 連續、修訂雙向一致）、`guard_noqa_registry.py`、`lint_ssot.py`、`guard_native_tool_contracts.py`（基準不動）、`guard_module_boundaries.py`、`guard_endpoint_auth.py`、文件契約測試、ruff（改到的產品程式沒有新增問題）通過。
 
 ## 回復
 
-- 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）；程式可分段撤：用途表／規則表新欄位、原生入口與 stop、送前估算、價目分檔、審查員預設各自獨立。撤回 `timeout_s` 預設不會改 Owner 已存的設定。Guard #45 基準、禁令、AGENTS.md、SECURITY.md 都沒動。
+- 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）；程式可分段撤：用途表／規則表新欄位、原生入口與 stop、送前估算、價目分檔、審查員預設各自獨立。撤回 `timeout_s` 預設不會改使用者已存的設定。Guard #45 基準、禁令、AGENTS.md、SECURITY.md 都沒動。
 
 ## 參考
 

@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2485 passed/3 skipped、前端 vitest 934 passed；擁有者尚未 commit）**。本 ADR **延伸／修訂 ADR-0053（初次設定精靈）**，並擴充 ADR-0052（環境感知 .env 載入）、ADR-0099（Provider Registry SSOT）、ADR-0070（中文向量記憶）、ADR-0038（Init 容器 volume 權限）。
+✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2485 passed/3 skipped、前端 vitest 934 passed）**。本 ADR **延伸／修訂 ADR-0053（初次設定精靈）**，並擴充 ADR-0052（環境感知 .env 載入）、ADR-0099（Provider Registry SSOT）、ADR-0070（中文向量記憶）、ADR-0038（Init 容器 volume 權限）。
 
 > ⚠️ **部分被 [ADR-0151](0151-env-persistence-anchor-decouple.md) 取代（2026-07-12）**：本 ADR 的
 > `TOUKA_ENV_FILE=/app/workspace/.env`（綁 `WORKSPACE_ROOT` 掛載）在使用者把 `WORKSPACE_ROOT`
@@ -23,7 +23,7 @@
 - **C 前端靜默吞失敗**：`fetchTouka` 對非 2xx 不 throw，`SetupWizard` 的 apply 不檢查 `res.ok`、catch 後仍無條件 `next()` → 金鑰打錯／寫檔失敗／401 全部無聲，使用者以為成功。
 - **D／E**：狀態偵測三方分裂（重啟後有效卻顯示未設定）、provider 對照表漏 deepseek、CORS 精確比對擋掉 127.0.0.1／區網、500 洩漏例外字串等。
 
-擁有者另回報兩個延伸缺口：初次選了嵌入模型不會下載；想在精靈指定「容器外本機目錄」且 Touka 對其有完全 CRUD（類 Claude Desktop）。經查證 **Claude Desktop 是以原生 MCP 子程序 ＋ 允許目錄清單 ＋ 重啟** 存取本機檔案，並非容器動態掛載；而**運行中的容器無法動態掛載任意宿主路徑**（硬限制）——正確途徑是「宿主路徑寫入 .env → `docker compose up` bind-mount → 重啟生效」。
+維護者另回報兩個延伸缺口：初次選了嵌入模型不會下載；想在精靈指定「容器外本機目錄」且 Touka 對其有完全 CRUD（類 Claude Desktop）。經查證 **Claude Desktop 是以原生 MCP 子程序 ＋ 允許目錄清單 ＋ 重啟** 存取本機檔案，並非容器動態掛載；而**運行中的容器無法動態掛載任意宿主路徑**（硬限制）——正確途徑是「宿主路徑寫入 .env → `docker compose up` bind-mount → 重啟生效」。
 
 ## 問題
 

@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受（範圍擴充：_MODELED 建模 config 4→6（加 identity_map.json〔ADR-0147〕/group_whitelist.json）＋Guard #34 增 errors.json 結構/parity 檢查（2026-07-02）；config drift 防線機制本身不變、僅列舉範圍過時）
 **日期 (Date):** 2026-06-15
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 

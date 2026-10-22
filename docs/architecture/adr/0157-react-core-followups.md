@@ -10,7 +10,7 @@
 
 ## 背景
 
-ADR-0156 以行為保持為鐵則收官，三項「新行為」依拍板 K1/K2/K3 刻意排除。抽取後的架構讓三項的成本大降：K1＝核心一個 wrapper（而非三份拷貝）、K2＝兩個 adapter 各一個 `mid_loop_hook`（機制核心早已接好）、K3＝改一個 `parse_round`。另含第四小項：誠實矯正輪注入模型的上游文案仍教已退役工具名（`query_memory`/`access_personal_drive`）＝ADR-0155 D3（下游警告文案）漏網的最後一站。
+ADR-0156 以行為保持為鐵則收官，三項「新行為」依決策 K1/K2/K3 刻意排除。抽取後的架構讓三項的成本大降：K1＝核心一個 wrapper（而非三份拷貝）、K2＝兩個 adapter 各一個 `mid_loop_hook`（機制核心早已接好）、K3＝改一個 `parse_round`。另含第四小項：誠實矯正輪注入模型的上游文案仍教已退役工具名（`query_memory`/`access_personal_drive`）＝ADR-0155 D3（下游警告文案）漏網的最後一站。
 
 ## 決策與實作
 
