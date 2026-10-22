@@ -28,8 +28,15 @@ TOOL_TIMEOUT_SECONDS = 300
 SYNTAX_ERROR_KEY = "syntax-error"
 # pyrefly 在有型別錯誤時結束碼是 1，可以接受；設定壞掉的結束碼也是 1，只能從輸出分辨。
 PYREFLY_FINISHED_EXIT_CODES = (0, 1)
-# 設定打錯欄位、search-path 不存在都只印 WARN 就照跑，範圍會悄悄變掉，所以一律算失敗。
-PYREFLY_WARNING_MARKER = " WARN "
+# 正常跑完時 stderr 只有 INFO 行。設定打錯欄位、search-path 不存在都只印 WARN 就照跑，
+# 範圍會悄悄變掉；升級後日誌格式也可能改變。所以只要有一行不是 INFO 就算失敗。
+PYREFLY_LOG_PREFIX = "INFO "
+
+
+def _only_info_logs(stderr: str) -> bool:
+    """每一行非空白的錯誤輸出都是 INFO 才回 True。"""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    return all(line.startswith(PYREFLY_LOG_PREFIX) for line in lines)
 
 
 def _run_tool_module(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -70,7 +77,7 @@ def collect_pyrefly() -> Counter[str]:
     """依 pyproject.toml 的 [tool.pyrefly] 做型別檢查，回傳 {錯誤種類: 數量}。
 
     直譯器用目前這一個，平台由設定固定成 linux，Windows 本機和 CI 才會算出同一組錯誤。
-    只有結束碼正常、沒有 WARN、輸出是完整 JSON，才算跑完。
+    只有結束碼正常、stderr 只有 INFO、輸出是完整 JSON，才算跑完。
     """
     result = _run_tool_module(
         [
@@ -86,7 +93,7 @@ def collect_pyrefly() -> Counter[str]:
     )
     failure = f"pyrefly did not finish (exit {result.returncode}): {result.stderr[-1500:]}"
     finished = result.returncode in PYREFLY_FINISHED_EXIT_CODES
-    if not finished or PYREFLY_WARNING_MARKER in result.stderr:
+    if not finished or not _only_info_logs(result.stderr):
         raise RuntimeError(failure)
     try:
         errors = json.loads(result.stdout)["errors"]

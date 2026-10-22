@@ -6,6 +6,7 @@
 """
 
 import json
+import re
 import sys
 import tomllib
 from collections import Counter
@@ -18,6 +19,21 @@ from lint_ratchet import PROJECT_ROOT, PYREFLY_BASELINE, collect_pyrefly, compar
 
 PYPROJECT = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 PYREFLY_CONFIG = PYPROJECT["tool"]["pyrefly"]
+# 審查過的範圍。縮小範圍、排除檔案、關掉錯誤種類、換平台都會讓數字悄悄變好看，
+# 所以整份設定釘在這裡；要調整就改這裡，改動會出現在審查的差異裡。
+REVIEWED_CONFIG = {
+    "project-includes": [
+        "ToukaProxy/src/sandbox_kernel/**/*.py",
+        "ToukaProxy/src/services/isolation/**/*.py",
+        "ToukaProxy/src/services/authorization_gateway.py",
+        "ToukaProxy/src/services/execution_broker.py",
+    ],
+    "search-path": ["ToukaProxy", "ToukaMemory/src"],
+    "python-platform": "linux",
+}
+# 這個註解會壓掉整個檔案的錯誤（10/23 實測；`# type: ignore`、`# pyre-ignore-all-errors` 不會）。
+WHOLE_FILE_IGNORE = re.compile(r"pyrefly:\s*ignore-errors")
+TINY_PROJECT_SOURCE = 'x: int = "a"\n'
 
 
 def _fake_pyrefly(
@@ -46,18 +62,28 @@ def test_pyrefly_is_a_registered_ratchet() -> None:
     assert lint_ratchet.TOOLS["pyrefly"] == (collect_pyrefly, PYREFLY_BASELINE)
 
 
-def test_config_fixes_platform_and_version_without_an_interpreter_path() -> None:
-    """平台固定 linux、版本對齊 .python-version；直譯器不寫死，由收集指令傳入。"""
+def test_config_is_exactly_the_reviewed_scope() -> None:
+    """平台固定 linux、版本對齊 .python-version；沒有排除、錯誤開關，也不寫死直譯器。"""
     pinned = (PROJECT_ROOT / ".python-version").read_text(encoding="utf-8").strip()
-    assert PYREFLY_CONFIG["python-platform"] == "linux"
-    assert PYREFLY_CONFIG["python-version"] == pinned
-    assert "python-interpreter-path" not in PYREFLY_CONFIG
+    assert {**REVIEWED_CONFIG, "python-version": pinned} == PYREFLY_CONFIG
 
 
-@pytest.mark.parametrize("pattern", PYREFLY_CONFIG["project-includes"])
+@pytest.mark.parametrize("pattern", REVIEWED_CONFIG["project-includes"])
 def test_every_include_pattern_still_matches_files(pattern: str) -> None:
     """pyrefly 對一個檔案也沒對到的樣式不報錯；檔案改名時範圍會悄悄變小。"""
     assert any(PROJECT_ROOT.glob(pattern)), f"{pattern} 沒有對到任何檔案"
+
+
+def test_no_file_in_scope_switches_off_type_checking() -> None:
+    """整檔壓制會讓錯誤數變少，卻不是真的修好。"""
+    patterns = REVIEWED_CONFIG["project-includes"]
+    files = {path for pattern in patterns for path in PROJECT_ROOT.glob(pattern)}
+    offenders = sorted(
+        path.relative_to(PROJECT_ROOT).as_posix()
+        for path in files
+        if WHOLE_FILE_IGNORE.search(path.read_text(encoding="utf-8"))
+    )
+    assert not offenders, f"範圍內不要整檔壓制型別檢查：{offenders}"
 
 
 def test_collect_runs_pyrefly_with_this_interpreter_and_the_repo_config(
@@ -77,7 +103,8 @@ NO_ERRORS = json.dumps({"errors": []})
 
 
 def test_collect_accepts_a_clean_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_pyrefly(monkeypatch, returncode=0, stdout=NO_ERRORS, stderr=" INFO 0 errors")
+    logs = " INFO Checking project configured at `pyproject.toml`\n INFO 0 errors\n\n"
+    _fake_pyrefly(monkeypatch, returncode=0, stdout=NO_ERRORS, stderr=logs)
     assert collect_pyrefly() == Counter()
 
 
@@ -85,9 +112,12 @@ def test_collect_accepts_a_clean_run(monkeypatch: pytest.MonkeyPatch) -> None:
     ("returncode", "stdout", "stderr"),
     [
         # 設定壞掉時結束碼和「有型別錯誤」一樣是 1，只能從輸出分辨。
-        (1, "", " INFO Fatal configuration error"),
+        (1, "", " WARN pyproject.toml: failed to parse\nFatal configuration error"),
         (1, NO_ERRORS, " WARN pyproject.toml: Extra keys found in config: pyhton-platform"),
         (1, NO_ERRORS, " WARN pyproject.toml: Invalid search-path: `ToukaMemory/src` is missing"),
+        # 升級後日誌格式變了，也不能當成正常跑完。
+        (1, NO_ERRORS, " INFO 0 errors\nWARNING something changed"),
+        (1, NO_ERRORS, " ERROR something failed"),
         (2, NO_ERRORS, ""),
         (0, "[]", ""),
     ],
@@ -96,6 +126,36 @@ def test_collect_fails_instead_of_counting_zero(
     monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str
 ) -> None:
     _fake_pyrefly(monkeypatch, returncode=returncode, stdout=stdout, stderr=stderr)
+    with pytest.raises(RuntimeError, match="pyrefly did not finish"):
+        collect_pyrefly()
+
+
+def _tiny_project(monkeypatch: pytest.MonkeyPatch, root: Path, extra_config: str) -> None:
+    """在暫存資料夾放一份設定和一個有型別錯誤的檔案，讓收集指令改去檢查它。"""
+    config = '[tool.pyrefly]\nproject-includes = ["m.py"]\n' + extra_config
+    (root / "pyproject.toml").write_text(config, encoding="utf-8")
+    (root / "m.py").write_text(TINY_PROJECT_SOURCE, encoding="utf-8")
+    monkeypatch.setattr(lint_ratchet, "PROJECT_ROOT", root)
+
+
+def test_real_pyrefly_output_is_counted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """用真的 pyrefly 核對輸出格式；升級後格式變了，這裡會先失敗。"""
+    _tiny_project(monkeypatch, tmp_path, "")
+    assert collect_pyrefly() == Counter({"bad-assignment": 1})
+
+
+@pytest.mark.parametrize(
+    "extra_config",
+    [
+        'python-platfrom = "linux"\n',  # 欄位打錯：只印 WARN 就照跑
+        'search-path = ["missing"]\n',  # 資料夾不存在：只印 WARN 就照跑
+        "project-excludes = [1]\n",  # 設定讀不懂
+    ],
+)
+def test_real_pyrefly_config_mistakes_fail_the_collection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra_config: str
+) -> None:
+    _tiny_project(monkeypatch, tmp_path, extra_config)
     with pytest.raises(RuntimeError, match="pyrefly did not finish"):
         collect_pyrefly()
 
