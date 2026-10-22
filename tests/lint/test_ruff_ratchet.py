@@ -71,6 +71,15 @@ def test_update_writes_a_sorted_baseline_that_then_passes(
 
 
 @pytest.mark.parametrize("argv", [[], ["eslint"], ["ruff", "--updat"], ["ruff", "--update", "x"]])
-def test_main_rejects_unknown_tools_and_flags(argv: list[str]) -> None:
-    """打錯的參數要報錯，不能默默照常檢查。"""
+def test_main_rejects_unknown_tools_and_flags(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]
+) -> None:
+    """打錯的參數要報錯，不能默默照常檢查；擋在收集之前，也碰不到真的基準檔。"""
+
+    def must_not_collect() -> Counter[str]:
+        pytest.fail("arguments must be rejected before collecting")
+
+    baseline = tmp_path / "baseline.json"
+    monkeypatch.setattr(lint_ratchet, "TOOLS", {"ruff": (must_not_collect, baseline)})
     assert lint_ratchet.main(argv) == 2
+    assert not baseline.exists()
