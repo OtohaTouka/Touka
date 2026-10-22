@@ -117,7 +117,7 @@ Proxy 只接受合法 port、非空 token、exact modern mode 與本機絕對 pa
   `@vscode/test-electron`。
 - Candidate builder要求root `LICENSE`與`ToukaIDE` release inputs clean、tag解析到HEAD，並在bundle前後
   重驗source identity；不檢查或存取`data/`。
-- Node 24.21.0直接執行npm 11.19.1的package-local `npm-cli.js`及repo-local `vsce` JavaScript entry；
+- Node 24.22.1直接執行npm 11.19.1的package-local `npm-cli.js`及repo-local `vsce` JavaScript entry；
   禁止batch／shell fallback與publish credential繼承。
 - Repo外create-only output只能含`toukaide-<version>.vsix`與
   `toukaide-<version>.manifest.json`。Manifest綁source commit、tag、identity、license、archive SHA-256與

@@ -58,7 +58,7 @@ python scripts/guard_dependencies.py   # 依賴主權與 Docker 物理一致性�
 
 ## VS Code 擴充測試與打包（ToukaIDE）
 
-ToukaIDE 的 build/test runner 固定使用 Node.js 24.21.0 LTS／npm 11.19.1、Vitest、
+ToukaIDE 的 build/test runner 固定使用 Node.js 24.22.1 LTS／npm 11.19.1、Vitest、
 TypeScript 與 esbuild；extension host API 下限仍是 Node.js 20／VS Code 1.90，故
 `@types/node` 保持 20.x。MCP P4-B 驗收不可只跑 compile；以下四步必須分開執行，
 且 compile／package 不可並行寫同一個 `dist/`：

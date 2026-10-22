@@ -30,7 +30,7 @@ repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Co
 
 ### 環境設置（首次接手 / fresh clone）
 
-**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.21.0／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。系統的 Node 是別的版本時不必改系統設定，用 [fnm](https://github.com/Schniz/fnm) 或 nvm 只替這次指令切換即可，例如 `fnm exec --using 24.21.0 -- npm run install:controlled`。
+**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.22.1／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。系統的 Node 是別的版本時不必改系統設定，用 [fnm](https://github.com/Schniz/fnm) 或 nvm 只替這次指令切換即可，例如 `fnm exec --using 24.22.1 -- npm run install:controlled`。
 
 ```bash
 # 1. 後端：一鍵佈建（uv workspace 單一 uv.lock：全部子專案依賴＋CPU 版 torch＋測試工具 dev group）
@@ -78,7 +78,7 @@ python -B -m pytest tests/
 
 **CI 綠燈就能開 PR。** 下面每一項都標了誰跑：
 
-- **「CI 會跑」**：GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上自動跑，全部要通過。想先在本機確認，就在**啟用的 root 3.12 venv** 內、用 Node 24.21.0／npm 11.19.1 照指令跑。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
+- **「CI 會跑」**：GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上自動跑，全部要通過。想先在本機確認，就在**啟用的 root 3.12 venv** 內、用 Node 24.22.1／npm 11.19.1 照指令跑。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
 - **「維護者合併前補跑」**：CI 不跑，因為要特定環境或比較久。維護者會在合併前補跑，你能跑的話歡迎先跑。
 
 ```bash

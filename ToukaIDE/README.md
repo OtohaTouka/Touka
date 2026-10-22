@@ -52,7 +52,7 @@ ToukaIDE 是為 VS Code 量身打造的 AI 原生開發插件。它不僅提供�
 
 ## 原始碼開發與發行
 
-建置固定 **Node.js 24.21.0／npm 11.19.1**。從 `ToukaIDE` 目錄依序執行：
+建置固定 **Node.js 24.22.1／npm 11.19.1**。從 `ToukaIDE` 目錄依序執行：
 
 ```powershell
 npm ci --ignore-scripts --no-audit --no-fund

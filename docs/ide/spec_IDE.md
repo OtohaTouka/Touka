@@ -106,7 +106,7 @@
     - **安全套用機制**: Artifact 內容會以 **「虛擬編輯器 (Virtual Buffer)」** 形式開啟，不直接寫入磁碟，確保使用者能在存檔前進行最終審核。
 *   **Phase 7: Visual Studio Marketplace 最小首發（ADR-0218；implementation candidate）**
     - 固定`0.2.0`／`v0.2.0`、MIT、`touka-ai.toukaide`與一份universal VSIX。
-    - `@vscode/vsce@3.9.2` direct exact pin；Node 24.21.0直接執行npm 11.19.1 CLI與local vsce，
+    - `@vscode/vsce@3.9.2` direct exact pin；Node 24.22.1直接執行npm 11.19.1 CLI與local vsce，
       不使用`npx`或batch fallback。
     - Builder只接受clean、tag-anchored source，在repo外create-only輸出VSIX＋canonical manifest；root
       LICENSE只注入staging，不建立tracked `ToukaIDE/LICENSE`。

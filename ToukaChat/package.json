@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "24.21.0",
+    "node": "24.22.1",
     "npm": "11.19.1"
   },
   "packageManager": "npm@11.19.1",
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "24.21.0",
+      "version": "24.22.1",
       "onFail": "error"
     },
     "packageManager": {
@@ -63,7 +63,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.17",
     "framer-motion": "^12.34.4",
     "i18next": "^26.3.1",
     "i18next-browser-languagedetector": "^8.2.1",

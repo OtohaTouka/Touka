@@ -93,7 +93,7 @@
 > 注意：`guard_all.py` 以 `shell=True` 跑子命令，若沒先把 `.venv\Scripts` 置於 `PATH` 最前面（啟用 venv 即自動滿足），內部的 `python` 仍可能落到系統的其他版本（例如全域 3.14）。
 
 > 🪟 **Windows 本機跑後端測試的前置條件（pytest、guard_all）**：GitHub CI 已在 workflow 裡備好，這段只管本機。
-> - **Node／npm 版本**：PATH 上的 `node`、`npm` 要等於 `ToukaChat/package.json` 的 `engines` 與 `ToukaIDE/package.json` 的 `devEngines`（目前 Node 24.21.0、npm 11.19.1）。系統是別的版本時不改系統 Node，只替這次指令切換，例如 `fnm exec --using 24.21.0 -- python -m pytest tests/`。版本不對時 `test_mcp_modern_companion` 會 ERROR，guard_all 的前置檢查直接擋下。
+> - **Node／npm 版本**：PATH 上的 `node`、`npm` 要等於 `ToukaChat/package.json` 的 `engines` 與 `ToukaIDE/package.json` 的 `devEngines`（目前 Node 24.22.1、npm 11.19.1）。系統是別的版本時不改系統 Node，只替這次指令切換，例如 `fnm exec --using 24.22.1 -- python -m pytest tests/`。版本不對時 `test_mcp_modern_companion` 會 ERROR，guard_all 的前置檢查直接擋下。
 > - **前端依賴**：用上面的 Node 先在 `ToukaIDE` 跑一次 `npm run install:controlled`（companion 測試要用它的 esbuild，沒裝會 ERROR）；要跑 guard_all 時 `ToukaChat` 也要跑過一次，再跑 `npm run gen:artifact-runtime`（沒有產生檔時 Guard #27 型別檢查會失敗）。
 > - **Git for Windows**：9 個安裝腳本測試用 Git for Windows 自帶的 `bin\bash.exe`（從 PATH 上 `git` 的位置推算，不用 WSL 的 `bash`）；沒裝時這 9 個以「Bash is unavailable on this host」跳過。
 > - **核對結尾摘要**：pytest 結尾會列出失敗、錯誤與每個跳過的原因（`pytest.ini` 的 `-rfEs`）。

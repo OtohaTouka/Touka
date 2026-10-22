@@ -56,7 +56,7 @@ def test_runtime_preflight_reports_expected_and_actual_versions() -> None:
 
     assert success is False
     assert calls == ["node --version", "npm --version"]
-    assert "Node expected=24.21.0 actual=26.2.0" in detail
+    assert "Node expected=24.22.1 actual=26.2.0" in detail
     assert "npm expected=11.19.1 actual=11.13.0" in detail
 
 
@@ -65,7 +65,7 @@ def test_runtime_preflight_accepts_exact_project_versions() -> None:
 
     def fake_runner(command: str, **_: Any) -> tuple[bool, str]:
         outputs = {
-            "node --version": "v24.21.0\n",
+            "node --version": "v24.22.1\n",
             "npm --version": "11.19.1\n",
         }
         if command.startswith("node -e "):
@@ -78,7 +78,7 @@ def test_runtime_preflight_accepts_exact_project_versions() -> None:
     )
 
     assert success is True
-    assert detail == "Node 24.21.0 / npm 11.19.1"
+    assert detail == "Node 24.22.1 / npm 11.19.1"
 
 
 def test_runtime_preflight_rejects_missing_windows_user_profile_capability() -> None:
@@ -88,7 +88,7 @@ def test_runtime_preflight_rejects_missing_windows_user_profile_capability() -> 
     def fake_runner(command: str, **_: Any) -> tuple[bool, str]:
         calls.append(command)
         outputs = {
-            "node --version": (True, "v24.21.0\n"),
+            "node --version": (True, "v24.22.1\n"),
             "npm --version": (True, "11.19.1\n"),
         }
         if command.startswith("node -e "):
