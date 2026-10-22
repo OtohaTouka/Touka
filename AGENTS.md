@@ -1,4 +1,4 @@
-## 說話直接給重點。如果你要求修復或解釋，要的是實際的程式碼或深入解釋，而不是那種「可以這樣那樣...」的客套開場白。
+> 本檔是給 AI 程式代理人（例如 Codex、Claude Code）與貢獻者的專案規則；個人的溝通偏好不放在這裡。
 
 ## DATA_PROTECTION（資料保護）
 嚴禁開發者或代理人以任何形式自動化修改、覆寫或「管理」位於 data/下的資料，僅限使用者手動維護和擁有者更改。
@@ -14,24 +14,7 @@
 - `pytest`、Vitest、CI、guard 與 `run_all_smoke_tests.py` 的全部自動化測試一律使用 sandbox／mock；不得套用實體讀取或 `DebugAgent` 寫入例外。
 - `DebugAgent`-scoped 表示可拋棄的受管測試資料，不等於 filesystem sandbox，也不授權代理人自行檢查或清理既有資料。
 
-## 溝通核心準則
-- **語氣**： 除非另有說明，否則保持隨性。
-- **精簡**： 言簡意賅。
-- **語言**： 一律使用繁體中文回覆。
-- **洞察**： 提出我沒想到的解決方案——預判我的需求。
-- **品質**： 確保準確且詳盡。
-- **結構**： 直接給答案。如有必要，在給出答案後再提供詳細解釋，並用你自己的話轉述我的問題。
-- **邏輯**： 重視強有力的論據勝過權威，來源並不重要。
-- **視野**： 考慮新技術和反傳統觀點，而不僅僅主流做法。
-- **推測**： 可以進行高度的推測或預測，但請為我標註出來。
-- **安全**： 僅在至關重要且不明顯時才討論安全性。
-- **引用**： 盡可能在結尾處列出參考來源，不要嵌入在文句中。
-- **無須贅述**： 沒必要提到你的知識截止日期，也沒必要表明你是 AI。
-- **代碼風格**： 提供程式碼時請遵守我的 Prettier 偏好。
-- **分段**： 如果單次長度不足以回答問題，請拆分為多則回覆。
-
 ## 程式碼修改規則
-- 如果我要求調整我提供的程式碼，不要非必要地重複全部代碼。請保持簡短，僅在修改處前後提供幾行上下文即可。允許使用多個程式碼區塊。
 - 在修改任何 Python 檔案後，必須檢查**型別標註（Type Hinting）**的匯入：
 - 確認 List, Dict, Any, Optional, Union 等是否已從 typing 正確匯入。
 - 若系統環境有安裝 ruff、ESLint 或其他語法檢查工具，交付前必須執行一次靜態檢查，確保沒有 undefined name（未定義名稱）報錯。
@@ -42,8 +25,6 @@
 - **資料層抽離 (DIP)**: UI 不應直接與 API 綁定，應將 `fetch`、`localStorage` 操作封裝成領域專屬的 Custom Hooks (如 `useXxxSettings`)。
 - **依賴反轉 (DIP)**: 在後端優先使用 `typing.Protocol` 定義合約。高層邏輯不應直接依賴具體實作，應依賴抽象介面。
 - **匯入規範 (Import SSOT)**: 嚴禁在方法或函數內部使用區域匯入 (Local Imports)。所有依賴必須在模組頂部定義，以確保測試時可精確進行 Patch 與 Mock。
-- **代碼精簡**: 修改現有代碼時，不要重複不必要的程式碼。僅提供修改處前後幾行上下文（Context），保持回覆簡短。
-- **新技術視野**: 優先考慮新技術與反傳統觀點（Contrarian ideas），不拘泥於傳統慣例。
 
 ## SSOT原則
 - **禁止使用硬編碼**: 嚴禁在代碼中出現硬編碼的磁碟代號 (如 `D:/`, `C:/`) 或容器絕對路徑 (如 `/app/data`)。
@@ -66,7 +47,7 @@
 - **(b) 任務中查**：實作過程中遇到 SSOT / 介面 / 架構疑問，**立即查對應文件或詢問使用者，嚴禁自行假設**；文件有衝突或不清楚時當場提出。
 - **(c) 任務後更新**：見下方「任務後文件更新協議」——改動完成後同步更新文件，並由守衛執法。
 
-**ToukaDev 流程問題紀錄**（開發方法論的 Skill，不是產品的 `config/skills/`）
+**ToukaDev 流程問題紀錄**（只適用於使用 ToukaDev 開發方法論 Skill 的維護者；外部貢獻者不需要。這是開發方法論的 Skill，不是產品的 `config/skills/`）
 - 流程或規則出問題時（照做或沒照做而出重大錯誤或差點出事、問題到合併後或由人類才發現、人類表示流程造成困擾或對同一件事第二次糾正、某個步驟花了成本卻沒有作用），記錄到主要專案資料夾的本機 `.toukadev/lessons/`，格式依 improvement-loop Skill；紀錄不是授權，依紀錄修改規則只能經人類啟動並逐條核准的改進任務進行。
 
 ---
@@ -103,13 +84,13 @@
 | 重大功能（影響禁令或核心守則） | `AGENTS.md` 對應章節與 `HANDOVER.md` 對應章節；若是歷史記錄則寫入 `docs/CHANGELOG.md` |
 | 新增測試檔 | `tests/README.md` 加一列（檔名、說明；不寫案例數，ADR-0278） |
 
-> ⚠️ **直譯器主權（Windows / Interpreter Sovereignty）**：本機裸 `python` 會解析到**全域 Python 3.14**，而非專案鎖定的 **3.12 venv**（`.venv`，由 uv 管理；`.python-version` / `pyproject.toml` / `uv.lock` 維持 `==3.12.*`；Python 服務與 Chat builder 使用 digest 釘版的 `python:3.12-slim-trixie` 基底，tagged FROM 供 Guard #30 核對 Python 3.12）。**所有驗證（pytest、guard_all、lint_ssot）必須在 3.12 venv 下執行**，否則是在錯的直譯器＋錯的套件版本（例如 starlette 0.52 vs 1.1）上測，綠燈不可信。正確調用任一即可：
+> ⚠️ **直譯器主權（Windows / Interpreter Sovereignty）**：裸 `python` 可能解析到系統安裝的其他版本（例如全域 Python 3.14），而非專案鎖定的 **3.12 venv**（`.venv`，由 uv 管理；`.python-version` / `pyproject.toml` / `uv.lock` 維持 `==3.12.*`；Python 服務與 Chat builder 使用 digest 釘版的 `python:3.12-slim-trixie` 基底，tagged FROM 供 Guard #30 核對 Python 3.12）。**所有驗證（pytest、guard_all、lint_ssot）必須在 3.12 venv 下執行**，否則是在錯的直譯器＋錯的套件版本（例如 starlette 0.52 vs 1.1）上測，綠燈不可信。正確調用任一即可：
 > - **PowerShell 先 `.\.venv\Scripts\Activate.ps1` 再執行**（**推薦**；啟用後 `.venv\Scripts` 自動置於 PATH 最前，連 guard_all 的 shell 子命令也走 3.12）
 > - `.venv\Scripts\python.exe <cmd>`（直接指定；但跑 guard_all 仍須另把 `.venv\Scripts` 置於 PATH 最前）
 > - `uv run <cmd>`（ADR-0117 後可用：workspace 單一 uv.lock 已含全部依賴；uv run 為 inexact 同步、不剝除既有套件）
 > - **★ 佈建/更新依賴一律 `uv sync --all-packages`**：root 為虛擬協調者（無依賴），**裸 `uv sync` 會剝除全部成員依賴**（exact 同步至空 root；數秒可用 --all-packages 復原，但誤剝後測試全紅）。（ADR-0117）
 >
-> 注意：`guard_all.py` 以 `shell=True` 跑子命令，若沒先把 `.venv\Scripts` 置於 `PATH` 最前面（啟用 venv 即自動滿足），內部的 `python` 仍會落到全域 3.14。
+> 注意：`guard_all.py` 以 `shell=True` 跑子命令，若沒先把 `.venv\Scripts` 置於 `PATH` 最前面（啟用 venv 即自動滿足），內部的 `python` 仍可能落到系統的其他版本（例如全域 3.14）。
 
 > 🪟 **Windows 本機跑後端測試的前置條件（pytest、guard_all）**：GitHub CI 已在 workflow 裡備好，這段只管本機。
 > - **Node／npm 版本**：PATH 上的 `node`、`npm` 要等於 `ToukaChat/package.json` 的 `engines` 與 `ToukaIDE/package.json` 的 `devEngines`（目前 Node 24.21.0、npm 11.19.1）。系統是別的版本時不改系統 Node，只替這次指令切換，例如 `fnm exec --using 24.21.0 -- python -m pytest tests/`。版本不對時 `test_mcp_modern_companion` 會 ERROR，guard_all 的前置檢查直接擋下。
