@@ -26,7 +26,7 @@
    ADR-0141 語言的跨面越界（human 面失敗換到 agent 面的卡），整個 app 被降級卡
    挾持、看起來像登入卻不是任何人，還擋住正常登入流程。
 
-維護者事後檢討（HANDOVER 07-11）：主病根＝「縫上的承諾沒被釘」＋接縫預設
+維護者事後檢討（當時 HANDOVER 的 07-11 紀錄，現在只留在開源前的私人歷史）：主病根＝「縫上的承諾沒被釘」＋接縫預設
 fail-open／靜默降級。本案三修全部向 fail-loud 收斂。
 
 ## 決策
@@ -90,5 +90,5 @@ fail-open／靜默降級。本案三修全部向 fail-loud 收斂。
 - [ADR-0131](0131-auth-renewal-and-ldh-containment.md)（LDH 收斂前篇：帶壞卡→401）
 - [ADR-0141](0141-role-plane-separation.md)（人類面／agent 面互斥——修復 3 堵住的跨面越界）
 - [ADR-0143](0143-hitl-unification.md)（同事故季的 HITL 統一）
-- 事故鏈與修復清單：HANDOVER.md「07-11 認證事故」節；修復 0＝
+- 事故鏈與修復清單：當時 HANDOVER.md 的「07-11 認證事故」節（現在只留在開源前的私人歷史）；修復 0＝
   `tests/unit/test_password_change_safety.py`

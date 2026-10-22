@@ -106,7 +106,7 @@ python -m pytest --collect-only -q <檔案>
 - 新測試 109 個（上游 83、characterization 18、unit 8）全綠；每個新檔與每個 KF 釘子都做過「改壞產品程式→變紅→還原」與「套用修正→釘子變紅」，紀錄在各單位回報。
 - `git diff --stat 630185f3..<候選> -- ToukaProxy ToukaMemory ToukaHeartbeat ToukaDispatch ToukaChat ToukaIDE config` 為空。
 - golden 31→40 份：只多 9 個 `A`、沒有 `M`／`D`；characterization 0 skip；全量 skip 數與 U0 相同（17）。
-- 全量 pytest 與守衛結果見 HANDOVER；只剩已知 12 個環境問題（compose 外掛 6、Node 26 companion 6）。
+- 全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到；只剩已知 12 個環境問題（compose 外掛 6、Node 26 companion 6）。
 
 ## 回復
 

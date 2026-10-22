@@ -90,5 +90,5 @@
 - [ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（停止綁看板——本案退役其駁回半邊）
 - [ADR-0139](0139-harness-context-block.md)（harness_context——本案更新 Autonomy 節＋換釘）
 - [ADR-0143](0143-hitl-unification.md)（HITL——互動煞車的另一半）
-- 診斷全文：HANDOVER「07-11 事故餘波」節；業界對照見對話（Claude Agent SDK／
+- 診斷全文：當時 HANDOVER 的「07-11 事故餘波」節（現在只留在開源前的私人歷史）；業界對照見對話（Claude Agent SDK／
   LangGraph／Anthropic long-running agents）

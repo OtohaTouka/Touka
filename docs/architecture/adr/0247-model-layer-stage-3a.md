@@ -63,7 +63,7 @@ Claude 走官方 SDK 0.83。主迴圈、工具評測腳本與人工 probe 的 cl
 - 快取正確性（3a-U3）：KF-5、KF-10、第 2 輪三個釘子翻轉，新增多輪多 system 與呼叫端斷點的上限測試；9 個突變都紅。
 - 目的地固定與 `complete_once`（3a-U4）：`test_anthropic_base_url_pinned.py` 6 個（對照組證明環境變數真的生效；主迴圈、factory 換金鑰後、`complete_once` 仍送到 Touka 設定的目的地）；禁令 22 守衛加 `base_url` 規則與違規範例（39→56 個）；15 個突變都紅。
 - 對抗式複審修正（R-3a）：新增 `test_anthropic_sdk_env_security.py` 7 個（環境變數清除、對照組、主迴圈／換金鑰副本／`complete_once` 只送 Touka 的金鑰與標頭、`ANTHROPIC_LOG` 不寫請求內容）；禁令 22 守衛 56→111 個；`test_model_rules.py` 103→142 個（default_on 下限、Mythos Preview、禁令 39 匯入圖含兩跳、家族判斷與 `native_family` 一致）；`test_pricing.py` 加 19 個、`test_budget_cap.py` 加 3 個（新價格、家族最高價與成本上限閘）；環境變數 8 個；真 SDK `Message` 2 個；Gemini 轉小寫 1 個；53 個突變都紅。全量 pytest 另跑一次帶不可信 `ANTHROPIC_BASE_URL` 的固定順序，結果與不帶時相同。
-- golden 零差異（`tests/proxy/characterization/goldens` 對本段起點沒有任何變動）。全量 pytest 與守衛結果見 HANDOVER。本段沒有打任何 API，也沒有啟動 Touka。
+- golden 零差異（`tests/proxy/characterization/goldens` 對本段起點沒有任何變動）。全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。本段沒有打任何 API，也沒有啟動 Touka。
 
 ## 回復
 

@@ -117,4 +117,4 @@ AuthSwitcher 四級 desc 對齊決策表＋SECURITY.md HITL 節＋本 ADR。
 - [ADR-0089](0089-read-only-tool-auto-allow.md)（read_only 豁免——欄位由 tool_risk 承接）
 - [ADR-0123](0123-verification-convention.md)（validation_protocol；本案對齊其 Manual 句）
 - [ADR-0139](0139-harness-context-block.md)（harness_context；本案更新審批承諾句＋Guard #40 新釘）
-- diag 記錄：Sumi/grok-4.5 三症狀（2026-07-11，HANDOVER）
+- diag 記錄：Sumi/grok-4.5 三症狀（2026-07-11；當時記在 HANDOVER，現在只留在開源前的私人歷史）

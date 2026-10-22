@@ -8,7 +8,7 @@
 無法確認保存時拋 `MissionPersistenceError`，`str(error)` 固定、不含原路徑或資料；原例外只透過 chaining 留作內部診斷。
 initialize／save／update／record_review／finalize 不得在失敗後回成功狀態，鎖仍由原 finally 釋放。提交點不明不代表一定未寫，不能自動重送。
 Memory 薄工具保持例外傳播，Proxy 原生入口才產生 `build_tool_error`，Memory 不反向匯入 Proxy 錯誤模組。
-本批 read-error 回歸確認 update／review／finalize 不會寫回，未更改既有讀取降級或明確初始化語意；來源整合狀態見 HANDOVER；架構見 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)，尚未發布。
+本批 read-error 回歸確認 update／review／finalize 不會寫回，未更改既有讀取降級或明確初始化語意；來源整合狀態當時記在 HANDOVER，現在只留在開源前的私人歷史；架構見 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)，尚未發布。
 
 ## 顯式環境來源（ADR-0228 R3）
 

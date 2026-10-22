@@ -54,7 +54,7 @@ ReAct 迴圈只記最後一次回覆的用量，工具輪全部漏記，成本�
 - 每輪記帳：`test_per_round_accounting.py` 6 個、`test_adapter_contract.py` 改為原生出口記帳但不送事件；14 個突變都紅。重錄的 14 份 golden 由獨立審查代理逐份手算核對，其餘 26 份不該變的理由成立。
 - `complete_once`：契約測試 `test_complete_once_contract.py` 35 個（3a 換 SDK、3b 換傳輸時必須原封不動通過）、`upstream/test_adapter_stop_reason.py` 36 個、`test_model_route_resolution.py` 15 個、`test_gemini_send_attempts.py` 2 個；36 個突變都紅。
 - 旁路呼叫：`test_side_caller_requests.py` 改為 `complete_once` 層的整組字面值比對，`test_side_caller_billing.py` 證明三者記帳與超預算行為，critic 10 種非成功都 REJECT；16 個突變都紅。
-- 全量 pytest 與守衛結果見 HANDOVER。本段沒有打任何 API，也沒有啟動 Touka。
+- 全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。本段沒有打任何 API，也沒有啟動 Touka。
 
 ## 回復
 

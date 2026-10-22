@@ -2,7 +2,7 @@
 
 # ADR-0220：本機產品邊界與 GitHub／GHCR 發行剖面
 
-> **2026-09-12 歷史 P11 快照**：modern-only M1–M4 本機來源驗證已完成，最終精確候選交付最終審查；不等於映像 qualification、發布或 live cutover。已合併 S36=`3fe08de1587121de370a501aa7cbe4569de30963` 的安全診斷保留於候選與隔離 baseline consumer。Q36 run34626118610/a1 在 entry Android cleanup DEADLINE／WAIT 失敗，build/runtime 未執行、artifacts 0；與 Q35 的容量成功／runtime UNKNOWN 分開。兩次相同方向容量失敗後不改 timeout 或盲重跑，未查得可驗證的新外部條件。最新 P11 依維護者的一次性委託經審查接受；M4／精確 commit／draft PR 可先完成，modern main merge／hosted／發布／切換仍待實際 immutable rollback seal。詳見[當前交班](../../../HANDOVER.md)。
+> **2026-09-12 歷史 P11 快照**：modern-only M1–M4 本機來源驗證已完成，最終精確候選交付最終審查；不等於映像 qualification、發布或 live cutover。已合併 S36=`3fe08de1587121de370a501aa7cbe4569de30963` 的安全診斷保留於候選與隔離 baseline consumer。Q36 run34626118610/a1 在 entry Android cleanup DEADLINE／WAIT 失敗，build/runtime 未執行、artifacts 0；與 Q35 的容量成功／runtime UNKNOWN 分開。兩次相同方向容量失敗後不改 timeout 或盲重跑，未查得可驗證的新外部條件。最新 P11 依維護者的一次性委託經審查接受；M4／精確 commit／draft PR 可先完成，modern main merge／hosted／發布／切換仍待實際 immutable rollback seal。當時的交班紀錄只留在開源前的私人歷史。
 
 > **2026-09-08 歷史程序**：維護者於 2026-09-08 一次性授權 P11 不再逐次人工核准；network、Git 與發行程序改依委託經審查處理，source identity、consumer、rollback、build-once、qualification 與 readback 條件仍有效。以下較早候選狀態／FAIL 依當時範圍保留；整體 implementation 仍 pending，未選 Azure／provider-v3／8 IDE host lanes 保持 dormant。
 

@@ -48,7 +48,7 @@
 
 ## 驗證
 
-Claude 實測（10/11 經維護者同意，在 317bc304 以 `live_chat_probe.py` 各送 1 次，max_tokens 128、不重試）：claude-opus-5-5、claude-haiku-5-5、claude-haiku-4-5（解析為 claude-haiku-4-5-20251001）都沒有 400，回覆都是 LIVE_PROBE_OK；Opus 5.5 修正前每次都會因溫度被拒，這次直接證明修好。另經維護者逐批同意，gemini-2.5-flash、grok-4.20-0309-non-reasoning、deepseek-flash 各 1 次，都沒有 400／404、回覆都是 LIVE_PROBE_OK；擔心的內部欄位外送沒有造成 Grok、DeepSeek 拒收。OpenAI 未做 live 驗證，只靠契約測試。自動測試結果見 HANDOVER。經 3 位審查者對抗式複審，修正後由原審查者再審差異。
+Claude 實測（10/11 經維護者同意，在 317bc304 以 `live_chat_probe.py` 各送 1 次，max_tokens 128、不重試）：claude-opus-5-5、claude-haiku-5-5、claude-haiku-4-5（解析為 claude-haiku-4-5-20251001）都沒有 400，回覆都是 LIVE_PROBE_OK；Opus 5.5 修正前每次都會因溫度被拒，這次直接證明修好。另經維護者逐批同意，gemini-2.5-flash、grok-4.20-0309-non-reasoning、deepseek-flash 各 1 次，都沒有 400／404、回覆都是 LIVE_PROBE_OK；擔心的內部欄位外送沒有造成 Grok、DeepSeek 拒收。OpenAI 未做 live 驗證，只靠契約測試。自動測試結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。經 3 位審查者對抗式複審，修正後由原審查者再審差異。
 
 ## 回復
 
