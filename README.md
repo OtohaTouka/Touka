@@ -3,8 +3,22 @@
 > **A local-first AI agent operating system with persistent memory, autonomous heartbeat, and multi-platform integration.**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-green.svg)](https://python.org)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-green.svg)](https://python.org)
+[![Node.js 24.21.0](https://img.shields.io/badge/Node.js-24.21.0-green.svg)](https://nodejs.org)
+
+---
+
+## English summary
+
+Touka is an experimental, local-first AI agent system. Agents ("souls") keep long-term memory across conversations, a heartbeat service wakes them for background work, tools run under a human-approval mode, and a Next.js chat UI ties it together. Everything runs on your own machine with Docker; conversations, memory and settings stay local.
+
+- **Status**: experimental and maintained by one person. Expect breaking changes; there is no stability or support guarantee.
+- **Install**: use the prebuilt Linux amd64 images on GHCR as described in [README_QUICKSTART.md](README_QUICKSTART.md). The services listen on localhost only.
+- **Contribute**: see [CONTRIBUTING.md](CONTRIBUTING.md) and open pull requests against the `dev` branch.
+- **Security**: report vulnerabilities privately through GitHub; see [SECURITY.md](SECURITY.md).
+- **Language**: most documentation is written in Traditional Chinese.
+- **History**: development before the open-source release (October 2026) happened in a private repository. Pull request numbers and commit hashes in older documents refer to that history and do not resolve here.
+- **License**: MIT; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
@@ -13,6 +27,8 @@
 **Touka** 是一個以「本機部署優先（local-first）」為設計理念的 AI 代理人作業系統。你的對話、記憶與設定完全保存在你自己的機器上，不依賴任何雲端服務。
 
 本專案是受 [openclaw](https://openclaw.ai/) 與 [hermes-agent](https://hermes-agent.nousresearch.com/) 啟發的實驗性模仿作品，旨在探索「具備長期記憶的個人 AI 助理」的可能性。每一行程式碼均由人類開發者透過高階指令（Orchestration）引導 AI 協作完成。
+
+開源（2026 年 10 月）之前的開發在私人 repo 進行；較早的文件裡提到的 PR 編號與 commit 指的是那段歷史，在這個 repo 找不到。
 
 ---
 
@@ -33,7 +49,7 @@ Touka 由四個獨立子系統組成：
 
 - **長期語義記憶**：跨會話向量檢索，Agent 記得幾週前的對話細節
 - **自主心跳排程**：ToukaHeartbeat 定時喚醒 Agent 執行背景任務，不需人工觸發
-- **多平台訊息整合**：支援 Telegram、Discord、LINE Bot 等訊息平台接入
+- **多平台訊息整合**：支援 Telegram、Discord 訊息平台接入
 - **本機資料主權**：所有對話、記憶、設定均存於本機，不上雲
 - **三種權限模式**：Manual / Auto / YOLO，HITL 人工確認機制；Auto 由審查員把關，刪改資料、讀金鑰等底線寫在程式裡、只有人能核准
 - **多模型支援**：Claude、Gemini、GPT、Grok 及 Ollama 本地模型
@@ -45,7 +61,7 @@ Touka 由四個獨立子系統組成：
 - **湧現指標 (E-Index)**：計算意識成長與人格穩定性。
 - **終端機修復**：自動生成與執行 Exit Code 修復腳本。
 - **背景任務**：非同步執行長時間多脈衝 ReAct 循環。
-- **動態 MCP 調度**：會話級別的工具按需掛載（不是行程隔離：MCP 伺服器仍和 Touka 同權限執行，見 SECURITY.md）。
+- **動態 MCP 調度**：會話級別的工具按需掛載。本機啟動的 MCP 伺服器依隔離層級執行：代理人建立的在執行器或 Landlock 裡跑，沒有隔離時要人確認才啟動；第三方的在 Landlock 可用時包住，不可用時直接啟動並標示「未隔離」（ADR-0275；限制見 SECURITY.md）。
 - **群聊分發員 (ToukaGroup)**：讓多個靈魂在同一場對話輪流發言，支援自定義「點名別名」與靈魂 ID 的解耦映射；成員只限靈魂（ADR-0245）。
 - **自主演化流水線**：具備「發現 -> 獲取 -> 創造」的全鏈路進化能力。
 - **自主任務看板 (Mission Board)**：作為 Agent 的「非對話式外部記憶」。支援任務樹拆解、進度持久化與 Artifacts (產出物) 關聯，解決長生命週期任務中的專注力流失問題。
@@ -110,7 +126,7 @@ Touka/
 ```bash
 uv sync --locked --all-packages
 cd ToukaChat
-npm ci --ignore-scripts --no-audit --no-fund
+npm run install:controlled   # npm ci --ignore-scripts，再做 braces 回補與驗證
 npm run gen:artifact-runtime
 ```
 

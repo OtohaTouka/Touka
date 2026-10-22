@@ -2,10 +2,21 @@
 
 本指南供部署者手動安裝整合產品；開發者依賴佈建見 [CONTRIBUTING](CONTRIBUTING.md)。支援範圍是 **Linux amd64 容器、本機 loopback 存取**，已使用過的主機是 Windows Docker Desktop 的 Linux containers；ARM64、macOS、公網及其他主機組合尚未驗證。
 
+本指南的 docker 指令在 PowerShell 與 bash 寫法相同；只有第 2 節複製 `.env` 那一步分成兩種寫法。
+
+## 快速開始（最短路徑）
+
+1. 確認 Docker Engine 26.0 以上、Docker Compose 2.26 以上能執行 Linux amd64 容器，本機 8000、8082、8083、3001 沒被其他服務占用。
+2. 從要安裝的版本取得 `docker-compose.ghcr.yml` 與 `.env.example`，放進一個全新的安裝目錄。
+3. 在安裝目錄建立 `data`、`data/personal_drive`、`data/mcp_servers`、`heartbeat-config` 四個資料夾，把 `.env.example` 複製成 `.env`，設定 `TOUKA_VERSION`（第 2 節）。
+4. 分三段啟動：先 `touka-proxy`，等它 healthy 後再 `touka-heartbeat touka-chat`，最後 `touka-executor`（第 3 節）。
+5. 讀出初始管理員密碼，開 <http://localhost:3001> 登入並變更密碼（第 3 節）。
+
+代理人指令能隔離到什麼程度，取決於 Linux 核心版本與網路設定；正式使用前請讀第 1 節的隔離說明。
+
 ## 1. 取得映像與前置條件
 
 - 三個映像由 [GHCR 發布 workflow](.github/workflows/ghcr-publish.yml) 建置：`ghcr.io/otohatouka/touka-proxy`、`touka-heartbeat`、`touka-chat`。手動觸發（`workflow_dispatch`）：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號與 `latest`。不用 tag 觸發，因為 ToukaIDE 的 Marketplace 發行使用 `v*` tag。建議在 `.env` 以 `TOUKA_VERSION` 釘固定 tag，避免 `latest` 更新後意外換版。
-- 舊發行流程最後一批映像的共用 tag 是 `modern-5c48a5bd51e6-q34854176569-a1`（來源 `5c48a5bd51e61081bdeb58493fea1343bc4a10cd`）。
 - 已安裝 Git；原始碼可直接取得：`git clone https://github.com/OtohaTouka/Touka.git`，不需要登入。
 - Docker Engine 能執行 Linux amd64 容器，Docker Compose **2.26 以上**（使用 `env_file.required: false`；執行器掛 skills 用的 volume `subpath` 要 2.26，Docker Engine 也要 26.0 以上：Engine 26.0.0 的 release notes 寫「Add `Subpath` field to the `VolumeOptions`」，2026-10-16 查 <https://docs.docker.com/engine/release-notes/26.0/>）。由部署者確認自己的磁碟與掛載符合 local filesystem 政策；未知、遠端或不符合權限的儲存不可假填 local。
 - 使用全新的安裝目錄，確認本機 8000、8083、8082、3001 未被其他服務占用。
@@ -51,11 +62,17 @@
 
 由使用者手動建立安裝目錄內的 `data`、`data/personal_drive`、`data/mcp_servers` 與 `heartbeat-config` **目錄**（執行器只掛 data 底下那兩個），不要建成檔案或連結。Compose 的 `create_host_path: false` 會拒絕缺席目錄；`touka-init` 只做權限初始化，不替你建立、搬移或覆寫資料。
 
-只在 `.env` 不存在時複製範本：
+只在 `.env` 不存在時複製範本。PowerShell：
 
 ```powershell
 if (Test-Path ./.env) { throw '.env 已存在，請手動核對，不可覆寫' }
 Copy-Item -LiteralPath ./.env.example -Destination ./.env
+```
+
+bash（Linux、macOS）：
+
+```bash
+if [ -e .env ]; then echo '.env 已存在，請手動核對，不可覆寫' >&2; else cp .env.example .env; fi
 ```
 
 使用者編輯這份 `.env`：
@@ -74,7 +91,7 @@ Proxy 的活體設定使用 `proxy-config` named volume，模型使用 `hf-cache
 
 代理人的 HOME、暫存與快取放在 named volume `touka-sandbox-state`（不在 `data`、不進備份、沒有大小上限；`docker compose down -v` 也會刪掉它，快取要重新下載）。要清快取時先確定沒有代理人指令在跑，用 `docker volume ls` 確認實際名稱（以 compose 專案名開頭，例如資料夾叫 `Touka` 時是 `touka_touka-sandbox-state`；名稱打錯時 Docker 會另建一個空的 volume，什麼都不會清到），再執行：
 
-```powershell
+```shell
 docker run --rm -v touka_touka-sandbox-state:/s alpine:3.20 sh -c 'rm -rf /s/*/*/*/tmp/* /s/*/*/*/tmp/.[!.]* /s/*/*/*/home/.cache'
 ```
 
@@ -90,7 +107,7 @@ docker run --rm -v touka_touka-sandbox-state:/s alpine:3.20 sh -c 'rm -rf /s/*/*
 
 先建立 Proxy 及其 init 相依服務：
 
-```powershell
+```shell
 docker compose -f docker-compose.ghcr.yml up -d touka-proxy
 docker compose -f docker-compose.ghcr.yml ps -a
 ```
@@ -99,7 +116,7 @@ docker compose -f docker-compose.ghcr.yml ps -a
 
 **之後用另一個 Compose invocation** 讀取已更新的 `.env`，建立 Heartbeat 與 Chat：
 
-```powershell
+```shell
 docker compose -f docker-compose.ghcr.yml up -d --no-deps touka-heartbeat touka-chat
 docker compose -f docker-compose.ghcr.yml ps -a
 ```
@@ -108,7 +125,7 @@ docker compose -f docker-compose.ghcr.yml ps -a
 
 最後一段建立執行器（它的 skills 取自 Proxy 已播種好的 `proxy-config`）：
 
-```powershell
+```shell
 docker compose -f docker-compose.ghcr.yml up -d --no-deps touka-executor
 docker compose -f docker-compose.ghcr.yml ps -a
 ```
@@ -117,7 +134,7 @@ docker compose -f docker-compose.ghcr.yml ps -a
 
 在本機讀取初始管理員憑證（不要把輸出分享出去）：
 
-```powershell
+```shell
 docker compose -f docker-compose.ghcr.yml exec touka-proxy cat /app/ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt
 ```
 
@@ -127,7 +144,7 @@ docker compose -f docker-compose.ghcr.yml exec touka-proxy cat /app/ToukaProxy/c
 
 在 repo 根目錄使用開發版 `docker-compose.yml`，同樣分兩階段：
 
-```powershell
+```shell
 docker compose up -d --build touka-proxy
 docker compose up -d --build --no-deps touka-heartbeat touka-chat
 docker compose up -d --no-deps touka-executor

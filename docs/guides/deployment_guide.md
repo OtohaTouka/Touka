@@ -21,7 +21,7 @@ MCP 只使用 modern `/mcp`，舊 `/sse` 退役；固定本機 ports 不表示�
 
 ## 開發環境
 
-[CONTRIBUTING](https://github.com/OtohaTouka/Touka/blob/main/CONTRIBUTING.md) 指定 Python 3.12 root venv、uv.lock、Node.js 24.19.0／npm 11.19.1。uv 必須 --all-packages，安裝既定版本再加 --locked；npm lifecycle 關閉，Chat 顯式執行 gen:artifact-runtime 後才測試／build。CPU torch 已在 uv.lock，兩個舊裸 pip installer 已退役。
+[CONTRIBUTING](https://github.com/OtohaTouka/Touka/blob/main/CONTRIBUTING.md) 指定 Python 3.12 root venv、uv.lock、Node.js 24.21.0／npm 11.19.1。uv 必須 --all-packages，安裝既定版本再加 --locked；npm lifecycle 關閉，Chat 顯式執行 gen:artifact-runtime 後才測試／build。CPU torch 已在 uv.lock，兩個舊裸 pip installer 已退役。
 
 根 docker-compose.yml 是 source 開發組態，Proxy／Heartbeat 子目錄 Compose 則是舊的獨立開發參考；不得當成已發布本機 profile 的等價替代。沒有 installer 的元件不新增。是否保留獨立安裝策略在整體更新完成後再評估，本輪不作新支援承諾。
 
