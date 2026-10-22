@@ -103,4 +103,4 @@
 - [ADR-0141](0141-role-plane-separation.md)（human/agent 角色面分離——本案的 agent_role 語意）
 - [ADR-0142](0142-soul-crud-repair-and-admin-stepup.md)（靈魂 CRUD＋admin 步升——本案延續其「模型類型→角色」另案）
 - [ADR-0144](0144-auth-seam-hardening.md)（verify_token 人類分支——本案 id 撞名防禦的同一短路）
-- 診斷：07-11 事故餘波清單 #4-B（HANDOVER）；平行調查＋合成
+- 診斷：07-11 事故餘波清單 #4-B（當時記在 HANDOVER，現在只留在開源前的私人歷史）；平行調查＋合成

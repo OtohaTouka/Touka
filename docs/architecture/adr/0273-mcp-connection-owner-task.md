@@ -88,7 +88,7 @@
 - 新測試：安全檔 5 個（restart、重載、遠端斷線、302、I1：遠端斷線後 C2-3 的隔離背景重測仍在跑；檢查建立者沒被取消、另一條照常、斷掉那台快速失敗且不自己重連、失聯通知恰好一次、沒有未讀取的 task 例外）；owner 檔 38 個（見 tests/README）。
 - 突變：owner 改回在呼叫端進入、不關舊的、`on_lost` 跳過或兩次、不取根因、吞 ExceptionGroup、在 anyio 取消範圍內通知、硬關也通知、不清強參考、cleanup 不中止握手、不清票、失聯時重連、改用 `spawn_logged`、握手被取消不中止、先關再換、`_protocol_version` 不接 RuntimeError、不核對 owner、硬關改回原生 `task.cancel()`、呼叫端被取消就硬關、cleanup 逐台關、不收期間裝進來的、不記 WARNING、裝的期間斷線仍清錯誤、`pop(key)`、收尾等待不吞取消、`_install_handle` 吞取消、中止的握手照樣重試、非取消 BaseException 也重拋、KeyboardInterrupt／SystemExit 被吞、WARNING 記全文、hook 沒收到 owner、supervisor 不清票、`_install_handle` 不停舊訂閱、失聯不停訂閱、不看外部原生取消，全部有測試變紅。
 - I1 在 life1 之前的產品程式上是紅的（背景重測被 lifespan 收尾連帶取消），之後是綠的。
-- 全部 MCP 單元測試連跑 5 次穩定；全量結果見 HANDOVER §2。
+- 全部 MCP 單元測試連跑 5 次穩定；全量結果當時記在 HANDOVER，現在只留在開源前的私人歷史。
 
 ## 回復
 

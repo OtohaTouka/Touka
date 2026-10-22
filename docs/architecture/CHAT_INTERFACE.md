@@ -146,7 +146,7 @@ full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對
 
 匯入部分失敗不報全部成功；split 匯出後縮減綁開始時的內容，等待期間 drift 拒絕覆蓋。
 無痕 split 拒絕縮減，提示使用既有本機匯出。提示具 en／zh-TW 資源，不能由 fallback 假通過。
-詳 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)；完整來源驗收以 HANDOVER Current 為準。
+詳 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)；完整來源驗收當時記在 HANDOVER，現在只留在開源前的私人歷史。
 
 ## 對話刪除結果（可靠性 R2／B2，來源候選）
 

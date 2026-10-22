@@ -1,7 +1,7 @@
 # 📚 Touka 系統開發歷史 (Development History)
 
 > 本文件保存各歷史階段的成果與背景；「已達成」只限各條所述當時範圍，不表示全部計畫或目前待辦已完成。唯一現況入口為 [HANDOVER.md](../HANDOVER.md)，有效規範以根 [AGENTS.md](../AGENTS.md) 為準；以下舊命令不授權直接執行。
-> 2026-10-04 整理前的 AGENTS／HANDOVER 完整原文已隨 ADR-0238 刪除，需要時請從 Git 歷史取得。
+> 2026-10-04 整理前的 AGENTS／HANDOVER 完整原文已隨 ADR-0238 刪除，只留在開源前的私人歷史。
 
 最近來源成果見 [CHANGELOG 摘要](CHANGELOG.md)，完整更新紀錄按 [月份](changelog/README.md)歸檔。
 

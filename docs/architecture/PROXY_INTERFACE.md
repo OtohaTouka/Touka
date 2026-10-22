@@ -363,7 +363,7 @@ ABI≥4 但 Fast Open 或 MPTCP 沒關時，上表前兩列改成 `none`（`net_
 原生 `mission_tools` 收到 Memory `MissionPersistenceError` 時，以既有 `build_tool_error` 回傳
 `error_class=internal_error`、`error_code=1302`（出貨 `PERSISTENCE_ERROR`）與 `outcome=unknown`；不回原 exception 內容，也不假稱任務初始化／更新／收案成功。
 unknown 表示無法證明提交結果，建議先讀取看板再決定保存；不是可以自動重送的「確定未寫」。角色、目標 agent、review 與任務鎖邊界不變。
-Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與外部啟動；本批只驗 sandbox/mock，不啟動外部工具。本契約來源驗證狀態見 HANDOVER；發布／live 未執行。
+Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與外部啟動；本批只驗 sandbox/mock，不啟動外部工具。本契約來源驗證狀態當時記在 HANDOVER，現在只留在開源前的私人歷史；發布／live 未執行。
 
 ## 對話保存／終態模型（可靠性 R2，來源候選）
 

@@ -43,7 +43,7 @@ Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題�
 - 健康檢查與 `.env.example`：2＋2 個測試，各突變都會變紅。
 - Next.js：升級前 Guard #23 因 `next` 的 high advisory 擋下（同套件共 6 個 advisory），升級後 Chat 與 IDE 都通過；Vitest 1,494、build 通過。
 - uv：p8b 與 `test_docker_build_inputs.py` 113 passed，把任一 Dockerfile 換回舊 digest 都會變紅；Guard #16、#30 通過。
-- 全量 pytest 與守衛結果見 HANDOVER。本段沒有打任何 API，也沒有啟動 Touka。
+- 全量 pytest 與守衛結果當時記在 HANDOVER，現在只留在開源前的私人歷史。本段沒有打任何 API，也沒有啟動 Touka。
 
 ## 回復
 
