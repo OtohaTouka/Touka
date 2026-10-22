@@ -81,6 +81,7 @@ def _package_manifest(**overrides: Any) -> dict[str, Any]:
             "dist/webview/style.css",
             "README.md",
             "LICENSE",
+            "THIRD_PARTY_NOTICES.txt",
         ],
         "main": "./dist/extension.js",
         "scripts": {
@@ -123,6 +124,9 @@ def _write_raw_vsix(path: Path, staging_root: Path) -> None:
         ).encode(),
         "extension/readme.md": (staging_root / "README.md").read_bytes(),
         "extension/LICENSE.txt": (staging_root / "LICENSE").read_bytes(),
+        "extension/THIRD_PARTY_NOTICES.txt": (
+            staging_root / "THIRD_PARTY_NOTICES.txt"
+        ).read_bytes(),
         "extension/dist/extension.js": (staging_root / "dist" / "extension.js").read_bytes(),
         "extension/dist/webview/index.html": (
             staging_root / "dist" / "webview" / "index.html"
@@ -154,6 +158,7 @@ def _candidate_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     tools.mkdir()
     (repo / "LICENSE").write_bytes(ROOT_LICENSE)
     (ide / "README.md").write_text("# Touka IDE\n", encoding="utf-8")
+    (ide / "THIRD_PARTY_NOTICES.txt").write_text("ToukaIDE third-party notices\n", encoding="utf-8")
     (ide / "dist" / "extension.js").write_bytes(b"exports.activate = () => {};\n")
     (dist_webview / "index.html").write_bytes(b"<!doctype html>\n")
     (dist_webview / "main.js").write_bytes(b"// webview\n")
@@ -310,6 +315,7 @@ def test_builds_a_create_only_external_candidate_with_canonical_manifest(
         "extension/package.json",
         "extension/readme.md",
         "extension/LICENSE.txt",
+        "extension/THIRD_PARTY_NOTICES.txt",
         "extension/dist/extension.js",
         "extension/dist/webview/index.html",
         "extension/dist/webview/main.js",

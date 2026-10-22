@@ -10,6 +10,11 @@
 
 FROM node@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 
+# repo 根的 LICENSE／NOTICE：build context 只有 ToukaChat/，由具名 context touka-root 提供
+#（compose 的 additional_contexts、GHCR 發布的 build-contexts）。具名 context 會取代這個同名的空階段；
+# 沒帶它時下面的 COPY 找不到檔案而建置失敗，不會改去 registry 拉一個叫 touka-root 的映像。
+FROM scratch AS touka-root
+
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
 # builder 以 Python 基底提供 node-gyp 需要的 python3、make、g++。
 FROM python:3.12-slim-trixie@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea AS builder
@@ -55,6 +60,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # repo-owned generator 與 build 明示分離；不得依賴 prebuild/postinstall lifecycle。
 RUN npm run gen:artifact-runtime --ignore-scripts
 RUN npm run build --ignore-scripts
+COPY --from=touka-root LICENSE NOTICE /touka-licenses/
 
 # ── Stage 2: Runner ───────────────────────────────────────────────────────────
 FROM node-runtime AS runner
@@ -68,11 +74,13 @@ COPY package*.json .npmrc ./
 COPY container-security/braces-backport/backport.mjs container-security/braces-backport/backport.mjs
 COPY container-security/braces-backport/manifest.json container-security/braces-backport/manifest.json
 COPY container-security/braces-backport/braces-3.0.3-depth-limit.patch container-security/braces-backport/braces-3.0.3-depth-limit.patch
-RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+# --omit=optional：serve 只送靜態檔，不需要 next 的選用依賴（sharp 會帶進 LGPL 的 libvips）。
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund --omit=optional
 RUN node container-security/braces-backport/backport.mjs verify --project-root . --scope runtime
 
-# 從 builder 複製靜態輸出
+# 從 builder 複製靜態輸出與授權檔（授權檔隨映像散布）
 COPY --from=builder /app/out ./out
+COPY --from=builder /touka-licenses/ ./
 
 # P8 fix: 以非 root 使用者執行（依賴與靜態資產維持 root-owned read-only）。
 RUN groupadd -g 1001 appuser && useradd -r -u 1001 -g 1001 -m appuser

@@ -8,7 +8,8 @@
 # 若需主機瀏覽器除錯可自行加 ports: ["8080:8080"]。
 services:
   touka-searxng:
-    image: searxng/searxng:latest
+    # 釘版本與 digest，升級時兩個一起換（新版發布滿 7 天再升）。
+    image: searxng/searxng:2026.10.13-22c64b8d3@sha256:9b61996edcc679fb6665290f95fda15389a14eda6060e41a25c63ab2758f2436
     container_name: touka-searxng
     environment:
       - TZ=Asia/Taipei

@@ -124,7 +124,9 @@ npm run gen:artifact-runtime
 
 - [`python-telegram-bot`](https://github.com/python-telegram-bot/python-telegram-bot) — LGPL v3（動態連結，不影響本專案 MIT 授權）
 
-其他主要依賴均為 MIT 或 Apache 2.0 授權，與本專案 MIT 授權相容。
+其他依賴多為 MIT、BSD、Apache-2.0、ISC、PSF-2.0、Unlicense 等寬鬆授權，另有例如 MPL-2.0（certifi、tqdm）與 CC-BY-4.0（caniuse-lite 的瀏覽器相容性資料）。這些授權都允許和本專案一起使用與散布。需要署名的第三方內容列在 [NOTICE](NOTICE)；ToukaIDE 打包進擴充套件的 npm 套件列在 [ToukaIDE/THIRD_PARTY_NOTICES.txt](ToukaIDE/THIRD_PARTY_NOTICES.txt)。
+
+GHCR 上的容器映像以 Debian 為基底，內含的 Debian 套件（例如 bash、glibc，部分為 GPL 授權）保有各自的授權，原始碼取得方式見 NOTICE 的「Container images」一節。
 
 ---
 

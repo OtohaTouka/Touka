@@ -44,7 +44,7 @@ def test_vsix_members_are_the_closed_package_files_projection() -> None:
     projected = {renamed.get(path, f"extension/{path}") for path in vsix.PACKAGE_FILES}
     metadata = {"[Content_Types].xml", "extension.vsixmanifest", "extension/package.json"}
     assert set(vsix.EXPECTED_MEMBERS) == metadata | projected
-    assert len(vsix.EXPECTED_MEMBERS) == len(set(vsix.EXPECTED_MEMBERS)) == 9
+    assert len(vsix.EXPECTED_MEMBERS) == len(set(vsix.EXPECTED_MEMBERS)) == 10
 
 
 def test_root_license_checkout_policy_forces_lf() -> None:
@@ -143,6 +143,7 @@ def _member_payloads(
         ).encode(),
         "extension/readme.md": b"# Touka IDE\n",
         "extension/LICENSE.txt": license_bytes,
+        "extension/THIRD_PARTY_NOTICES.txt": b"ToukaIDE third-party notices\n",
         "extension/dist/extension.js": b"exports.activate = async () => {};\n",
         "extension/dist/webview/index.html": b"<!doctype html>\n",
         "extension/dist/webview/main.js": b"// webview\n",
