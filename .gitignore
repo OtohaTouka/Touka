@@ -1,6 +1,8 @@
 # API Keys and sensitive environment variables
 .env*
 !.env.example
+# 首裝寫入的管理員一次性密碼檔（首次改密後自動刪除）；.dockerignore 也排除
+ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt
 
 # Docker
 # （ADR-0082：.dockerignore 必須入版控——它是阻止 .env/活體 config 烤進映像的安全黑名單，

@@ -122,6 +122,14 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 
 ## Known Resolved Vulnerabilities
 
+### 刪除靈魂的家目錄殘留、首裝密碼檔與密碼重輸（2026-10-21）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 刪除靈魂不清隔離暫存區的家目錄：執行器 `touka-executor-state` 與 proxy `touka-sandbox-state` 的 `agents/<id>/{home,tmp}` 留著，同 ID 的新靈魂沿用舊靈魂留在 `~` 的檔案（例如工具權杖；ADR-0272 已知限制 26） | 刪除在記憶檢查後、刪任何東西前清兩處：proxy 那一層直接刪（連結不跟）；執行器那一層走既有 START（kind agents、固定 `/bin/sh` 清除指令、不帶 proxy 的環境），不改協定、不碰執行器 volume。預期是執行器卻不能用、清不乾淨或逾時就 503 `SOUL_SANDBOX_HOME_NOT_CLEARED`、什麼都不刪，不降級。測試：`tests/unit/test_soul_delete_sandbox_home_security.py`、`test_executor_runner_security.py`（+4）、`tests/integration/test_isolation_linux.py::test_soul_delete_wipe_empties_its_executor_home` |
+| 首裝一次性密碼檔 `ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt` 沒被 `.gitignore` 排除，`git add .` 會把管理員初始密碼收進 commit；私人開發期間曾被提交過一次，那組密碼對應的帳號早已不存在，那段歷史也不在這個公開 repo 裡 | `.gitignore` 加入；`tests/lint/test_dockerfile_dispatch.py` 以 `git check-ignore` 核對 |
+| 密碼重輸打錯回 401，前端續期後重送：同一次點擊驗兩次密碼，還多觸發一次 refresh 輪替 | 重置（含清除連備份）、還原、設定匯入、清除／匯出我的資料、改密碼改回 403 `AUTH_REAUTH_FAILED`（比照靈魂步升），登入照舊 401。測試：`tests/unit/test_password_reentry_status_security.py`（`AUTH_INVALID_CREDENTIALS` 只准登入用）與各端點既有測試 |
+
 ### 心跳、排程與 SNS 對話歸屬（2026-10-17）
 
 | 弱點 | 修正與驗證 |

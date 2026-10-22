@@ -82,6 +82,8 @@ docker run --rm -v touka_touka-sandbox-state:/s alpine:3.20 sh -c 'rm -rf /s/*/*
 
 執行器另有兩個 named volume：`touka-exec-ipc`（proxy 和執行器之間的控制通道）與 `touka-executor-state`（代理人指令在執行器裡的 HOME、暫存與快取，層級是 `/s/<agents|evolution>/<id>/{tmp,home}`，清法同上、萬用字元少一層 `*`）；`docker compose down -v` 也會刪掉它們。執行器的資源上限是全部代理人共用的 2g 記憶體、512 個行程、2 顆 CPU，要調就取消 `.env` 裡 `TOUKA_EXECUTOR_MEM_LIMIT`、`TOUKA_EXECUTOR_PIDS_LIMIT`、`TOUKA_EXECUTOR_CPUS` 的註解，再重新 `up`。主機（或 Docker 分到的）CPU 少於 2 顆時，取消 `TOUKA_EXECUTOR_CPUS` 的註解並調低（例如 1），否則執行器可能建不起來【推測：沒實測】。
 
+刪除靈魂時 Touka 會自動清掉它在 `touka-executor-state` 與 `touka-sandbox-state` 裡的家目錄；執行器沒在服務時刪不了靈魂，等它恢復再刪。這個功能之前就刪掉的靈魂，先確認沒有現存的靈魂或自訂模型用同一個 ID，再整個刪掉 `/s/agents/<id>`（`touka-executor-state`）與 `/s/proxy/agents/<id>`（`touka-sandbox-state`），例如 `docker run --rm -v touka_touka-executor-state:/s alpine:3.20 rm -rf /s/agents/<id>`。
+
 ## 3. 分階段啟動
 
 核心有 MPTCP、建了第 1 節的覆寫檔時，本節**每一行**指令都要在 `-f docker-compose.ghcr.yml` 後面再加 `-f touka-mptcp.override.yml`。
@@ -111,7 +113,7 @@ docker compose -f docker-compose.ghcr.yml up -d --no-deps touka-executor
 docker compose -f docker-compose.ghcr.yml ps -a
 ```
 
-`touka-executor` 剛起來的一分多鐘是 starting（要先做兩次自我檢查），之後要變成 healthy。一直不是 healthy 時，`docker compose -f docker-compose.ghcr.yml logs touka-executor` 會有一行 `Executor is not serving: <原因>`：`root_path` 是 `data/personal_drive` 或 `data/mcp_servers` 不存在；`touka_root` 是掛進去的資料夾第一層有 Touka 資料根或標記的名稱（例如 `soul`、`ui_sessions.db`），或那個資料夾本身讀不到（權限被改掉也算）：名稱衝突就把那一項改名或移走；讀不到時，`data/personal_drive`、`data/mcp_servers` 只是權限位元被改的話 Touka 約 60 秒內會修好，其他情況（技能資料夾、擁有者不對）照第 4 節「權限被改壞時」跑 `touka-init`；修好後執行 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（執行器啟動檢查沒過就一直不服務，不會自己重試）；`private_dir` 是執行器自己的兩個 volume（`touka-executor-state`、`touka-exec-ipc`）的根不是 uid 1001 擁有（例如舊映像先建過的 `0:0 755`、有人用 root 容器 chown 過）、是連結或不存在——只是權限位元被改（例如 777、000）時，執行器每 5 秒與重啟時都會自己收回，不會停。擁有者不對時先用 `docker volume ls` 確認名稱（例如 `touka_touka-executor-state`；名稱打錯時 Docker 會另建一個空的 volume，什麼都沒改），對有問題的那個執行 `docker run --rm -v <volume 名稱>:/s alpine:3.20 chown 1001:1001 /s`，再 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（權限位元由執行器自己收回）；ipc 那個 volume 擁有者不對時，`docker compose ps` 可能先顯示 healthy 約一分鐘（舊的 socket 還在），要以這行 log 或 Touka 側欄的橫幅為準；`interpreter_untrusted` 是映像裡的 Python 被改過（重新拉映像）。執行器沒起來時 Touka 照常運作，只是 Auto／YOLO 的代理人指令每條都要人核准。
+`touka-executor` 剛起來的一分多鐘是 starting（要先做兩次自我檢查），之後要變成 healthy。一直不是 healthy 時，`docker compose -f docker-compose.ghcr.yml logs touka-executor` 會有一行 `Executor is not serving: <原因>`：`root_path` 是 `data/personal_drive` 或 `data/mcp_servers` 不存在；`touka_root` 是掛進去的資料夾第一層有 Touka 資料根或標記的名稱（例如 `soul`、`ui_sessions.db`），或那個資料夾本身讀不到（權限被改掉也算）：名稱衝突就把那一項改名或移走；讀不到時，`data/personal_drive`、`data/mcp_servers` 只是權限位元被改的話 Touka 約 60 秒內會修好，其他情況（技能資料夾、擁有者不對）照第 4 節「權限被改壞時」跑 `touka-init`；修好後執行 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（執行器啟動檢查沒過就一直不服務，不會自己重試）；`private_dir` 是執行器自己的兩個 volume（`touka-executor-state`、`touka-exec-ipc`）的根不是 uid 1001 擁有（例如舊映像先建過的 `0:0 755`、有人用 root 容器 chown 過）、是連結或不存在——只是權限位元被改（例如 777、000）時，執行器每 5 秒與重啟時都會自己收回，不會停。擁有者不對時先用 `docker volume ls` 確認名稱（例如 `touka_touka-executor-state`；名稱打錯時 Docker 會另建一個空的 volume，什麼都沒改），對有問題的那個執行 `docker run --rm -v <volume 名稱>:/s alpine:3.20 chown 1001:1001 /s`，再 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（權限位元由執行器自己收回）；ipc 那個 volume 擁有者不對時，`docker compose ps` 可能先顯示 healthy 約一分鐘（舊的 socket 還在），要以這行 log 或 Touka 側欄的橫幅為準；`interpreter_untrusted` 是映像裡的 Python 被改過（重新拉映像）。執行器沒起來時 Touka 照常運作，只是 Auto／YOLO 的代理人指令每條都要人核准，也不能刪除靈魂。
 
 在本機讀取初始管理員憑證（不要把輸出分享出去）：
 

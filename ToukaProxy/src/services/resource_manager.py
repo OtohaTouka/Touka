@@ -16,6 +16,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,8 @@ from src.utils.path_security import validate_no_symlink_escape
 from src.utils.permission_repair import permission_repair, permission_repair_exempt
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from memory_server.models.conversation_search import ConversationPage
     from memory_server.protocols import IConversationReader
 
@@ -42,6 +45,30 @@ _ARCHIVE_EXCLUDE_FILES = frozenset({".DS_Store"})
 ARCHIVE_MAX_ENTRIES = 2_000
 ARCHIVE_MAX_TOTAL_BYTES = 50 * 1024 * 1024  # 50 MiB
 _ARCHIVE_COPY_CHUNK = 1024 * 1024  # rewrite_archive 串流照抄時每次搬的位元組數
+
+
+def _unlock_and_retry(
+    root: Path, unlocked: set[str], func: Callable[[str], object], failed: str, exc: BaseException
+) -> None:
+    """``remove_dir(unlock=True)`` 的 rmtree onexc：權限錯誤時補回擁有者權限再刪.
+
+    只動要刪的樹裡、不是連結的項目（父資料夾要能寫、資料夾本身要能列）；同一項只補一次，
+    補過還失敗（例如被別的行程開著）或其他錯誤照丟.
+    """
+    target = Path(failed)
+    retried = failed in unlocked
+    if not isinstance(exc, PermissionError) or not target.is_relative_to(root) or retried:
+        raise exc
+    unlocked.add(failed)
+    link = target.is_symlink() or target.is_junction()
+    if target.parent.is_relative_to(root) and not target.parent.is_symlink():
+        target.parent.chmod(stat.S_IRWXU)
+    if not link:
+        target.chmod(stat.S_IRWXU)
+    if func in (os.rmdir, os.unlink, os.remove) or link or not target.is_dir():
+        func(failed)  # 刪除本身失敗：補權限後重試一次
+    else:  # 資料夾讀不到（open、scandir、lstat）：補權限後整個重刪
+        shutil.rmtree(target, onexc=partial(_unlock_and_retry, root, unlocked))
 
 
 class ResourceManager:
@@ -680,12 +707,15 @@ class ResourceManager:
         p.unlink(missing_ok=missing_ok)
 
     @permission_repair(retry=False)
-    def remove_dir(self, path: Path | str, missing_ok: bool = True) -> None:
+    def remove_dir(
+        self, path: Path | str, missing_ok: bool = True, *, unlock: bool = False
+    ) -> None:
         """安全地遞迴刪除目錄，強制保護核心目錄.
 
         Args:
             path: 要刪除的目錄路徑.
             missing_ok: 目錄不存在時是否靜默略過.
+            unlock: 樹裡有唯讀或被拿掉權限的項目時補回擁有者權限再刪（不跟連結）.
         """
         p = Path(path)
         if self.is_protected_path(p):
@@ -696,7 +726,7 @@ class ResourceManager:
                 return
             msg = f"Directory not found: {p}"
             raise FileNotFoundError(msg)
-        shutil.rmtree(p)
+        shutil.rmtree(p, onexc=partial(_unlock_and_retry, p, set()) if unlock else None)
 
     # --- Archive (skill 打包/解壓) ---
 

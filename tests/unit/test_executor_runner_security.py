@@ -338,6 +338,35 @@ async def test_executor_policy_after_the_level_dropped_is_refused(tmp_path):
         )
 
 
+# --- acquire_maintenance：刪除靈魂前清 home／tmp（home_wipe），固定指令、不看 grant ---------------
+
+
+@pytest.mark.parametrize(
+    ("level", "net", "features"), [("executor", None, ALL), ("none", "net_mptcp", ALL - {"tcp"})]
+)
+async def test_maintenance_runs_in_the_executor_without_a_grant(tmp_path, level, net, features):
+    """網路設定不安全（層級 none）也照樣在執行器裡清，features 不含 tcp."""
+    monitor = _monitor(level, ready=_ready(net=net), executor=features)
+    source = _Source(tmp_path)
+    acquired = await _broker(tmp_path, monitor).acquire_maintenance(source.source())
+    assert isinstance(acquired.runner, ExecutorRunner)
+    assert acquired.runner.features == features
+    assert source.built == [("executor", STATE)]
+
+
+@pytest.mark.parametrize("case", ["executor_down", "out_of_scope"])
+async def test_maintenance_never_falls_back_to_landlock_or_direct(tmp_path, case):
+    """本機 Landlock 可用也不退回：執行器那份家目錄只有執行器清得到."""
+    ready, executor = (None, None) if case == "executor_down" else (_ready(), ALL)
+    monitor = _monitor(ready=ready, executor=executor)
+    issue = "agent_dir_not_in_executor" if case == "out_of_scope" else None
+    source = _Source(tmp_path, issue=issue)
+    with pytest.raises(IsolationUnavailableError) as raised:
+        await _broker(tmp_path, monitor).acquire_maintenance(source.source())
+    assert raised.value.reason == (issue or "isolation_unavailable")
+    assert source.built == []
+
+
 # --- acquire：人核准的降級（種類不低於卡片、features 包含卡片的） --------------------------------
 
 

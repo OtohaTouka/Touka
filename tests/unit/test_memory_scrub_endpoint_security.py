@@ -98,7 +98,7 @@ async def test_e02_checkbox_without_second_confirmation(
 async def test_e03_wrong_password(calls: list[dict], caplog: pytest.LogCaptureFixture) -> None:
     with pytest.raises(ToukaException) as exc:
         await _call(_request(), auth=_auth(ok=False))
-    assert exc.value.code is ErrorCode.AUTH_INVALID_CREDENTIALS
+    assert exc.value.code is ErrorCode.AUTH_REAUTH_FAILED
     assert calls == []
     assert "bad_password" in caplog.text
 

@@ -119,7 +119,7 @@ class UserService:
             current_password, user.hashed_password
         ):
             raise ToukaException(
-                ErrorCode.AUTH_INVALID_CREDENTIALS,
+                ErrorCode.AUTH_REAUTH_FAILED,
                 detail_override="Current password is incorrect.",
             )
         # 修復 0：服務層縱深防禦（端點 pydantic min_length=8 之下再守一層——

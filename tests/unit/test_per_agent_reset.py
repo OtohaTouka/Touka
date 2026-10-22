@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from src.core.exceptions import ToukaException
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.routers import admin as A
 from src.services.agent_reset import guard as G
@@ -152,8 +152,11 @@ async def test_endpoint_rejects_wrong_password(monkeypatch):
     auth.verify_password.return_value = False
     req = A.AgentResetRequest(confirm=True, confirm_agent_id="Jin", current_password="wrong")
     user = SimpleNamespace(role="admin", hashed_password="h", id="admin1")
-    with pytest.raises(ToukaException):
+    with pytest.raises(ToukaException) as exc:
         await A.reset_agent("Jin", req, None, _admin(), user, auth)
+    # 403 不是 401：前端遇 401 會續期重送，同一次點擊驗兩次密碼（比照靈魂 step-up）
+    assert (exc.value.code, exc.value.status_code) == (ErrorCode.AUTH_REAUTH_FAILED, 403)
+    auth.verify_password.assert_called_once()
 
 
 async def test_endpoint_happy_path(monkeypatch):

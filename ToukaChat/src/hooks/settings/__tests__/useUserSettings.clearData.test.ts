@@ -10,6 +10,9 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }
 
 import { useUserSettings } from '../useUserSettings';
 import { fetchTouka } from '@/lib/connections';
+import { ERRORS } from '@/lib/error_codes';
+import i18n from '@/lib/i18n';
+import { toast } from 'sonner';
 
 describe('useUserSettings.clearMyData (ADR-0107)', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -29,6 +32,22 @@ describe('useUserSettings.clearMyData (ADR-0107)', () => {
     expect(call![2].method).toBe('POST');
     expect(JSON.parse(call![2].body).current_password).toBe('pw_123');
     expect(ok).toBe(true);
+  });
+
+  it('密碼打錯（403 AUTH_REAUTH_FAILED）：回 false、顯示在地化的錯誤，不自己重送', async () => {
+    (fetchTouka as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ detail: {
+        code: 'AUTH_REAUTH_FAILED', id: ERRORS.AUTH_REAUTH_FAILED.id, message: ERRORS.AUTH_REAUTH_FAILED.msg,
+      } }),
+    });
+    const { result } = renderHook(() => useUserSettings());
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.clearMyData('wrong'); });
+    expect(ok).toBe(false);
+    expect(toast.error).toHaveBeenCalledWith(i18n.t('error.auth.reauth_failed'));
+    expect(fetchTouka).toHaveBeenCalledTimes(1);
   });
 
   it('returns false on backend failure', async () => {

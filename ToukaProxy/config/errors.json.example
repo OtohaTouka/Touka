@@ -107,6 +107,12 @@
     "msg": "Could not confirm this soul has no memory left; the soul was not deleted",
     "i18n": "error.soul.memory_check_failed"
   },
+  "SOUL_SANDBOX_HOME_NOT_CLEARED": {
+    "id": 1418,
+    "status": 503,
+    "msg": "Could not clear this soul's sandbox home folders; the soul was not deleted",
+    "i18n": "error.soul.sandbox_home_not_cleared"
+  },
   "MEMORY_SCRUB_NOT_ACKNOWLEDGED": {
     "id": 1410,
     "status": 422,

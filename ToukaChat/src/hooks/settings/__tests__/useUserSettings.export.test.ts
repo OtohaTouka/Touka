@@ -13,6 +13,9 @@ vi.mock('@/lib/time_utils', () => ({
 
 import { useUserSettings } from '../useUserSettings';
 import { fetchTouka } from '@/lib/connections';
+import { ERRORS } from '@/lib/error_codes';
+import i18n from '@/lib/i18n';
+import { toast } from 'sonner';
 
 describe('useUserSettings.exportMyData (ADR-0110)', () => {
   beforeEach(() => {
@@ -62,5 +65,24 @@ describe('useUserSettings.exportMyData (ADR-0110)', () => {
     });
     expect(ok).toBe(false);
     expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('密碼打錯（403 AUTH_REAUTH_FAILED）：不下載、顯示在地化的錯誤，不自己重送', async () => {
+    (fetchTouka as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ detail: {
+        code: 'AUTH_REAUTH_FAILED', id: ERRORS.AUTH_REAUTH_FAILED.id, message: ERRORS.AUTH_REAUTH_FAILED.msg,
+      } }),
+    });
+    const { result } = renderHook(() => useUserSettings());
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.exportMyData('wrong', 'passphrase-123456');
+    });
+    expect(ok).toBe(false);
+    expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(i18n.t('error.auth.reauth_failed'));
+    expect(fetchTouka).toHaveBeenCalledTimes(1);
   });
 });
