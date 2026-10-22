@@ -13,7 +13,7 @@
 
 ## 已發行產品
 
-需要 Compose 2.24.0+、Linux amd64 containers、實際符合政策的 local filesystem 與既存 bind 目錄；非 root runtime／四個 init 掛載／loopback 不得放寬。使用者手動建立自己的 data／heartbeat-config 目錄，`.env` 只在不存在時複製範本。GHCR 主機路徑和容器內路徑要分開，不能抄固定磁碟號的歷史設定。
+需要 Docker Engine 26.0+ 與 Compose 2.26+、Linux amd64 containers、實際符合政策的 local filesystem 與既存 bind 目錄；非 root runtime／四個 init 掛載／loopback 不得放寬。使用者手動建立自己的 data／heartbeat-config 目錄，`.env` 只在不存在時複製範本。GHCR 主機路徑和容器內路徑要分開，不能抄固定磁碟號的歷史設定。
 
 三映像由 `.github/workflows/ghcr-publish.yml` 建置推送：手動觸發（`workflow_dispatch`）：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號與 `latest`；建議以 `.env` 的 `TOUKA_VERSION` 釘固定 tag。先建立 Proxy／init、確認 healthy 和受管 secret 持久化，再用新的 Compose invocation 建立 Heartbeat／Chat；不能從 depends_on 推定同次 env_file 會重新載入。不在這份導覽重複一組可能漂移的啟動指令，完整命令見根正本。
 

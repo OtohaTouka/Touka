@@ -62,7 +62,7 @@ python -B scripts/guard_all.py
 python -B -m pytest tests/
 ```
 
-兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前。Linux 上會多跑 `tests/integration/test_isolation_linux.py` 的真核心隔離測試（Windows、macOS 整個模組跳過）；macOS 的開發命令沒有實測過。這些開發命令不是新增平台的產品安裝保證。
+兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前。Linux 上會多跑 `tests/integration/test_isolation_linux.py` 的真核心隔離測試（Windows、macOS 整個模組跳過；Linux 主機沒有 Landlock 時也會跳過，設 `TOUKA_REQUIRE_LANDLOCK=1` 則改成失敗）；macOS 的開發命令沒有實測過。這些開發命令不是新增平台的產品安裝保證。
 
 > **★ `uv sync` 必帶 `--all-packages`**：root 是虛擬協調者（無依賴），裸 `uv sync` 是 exact 同步 → 會**剝除全部成員依賴**（venv 歸零；數秒可用 `--all-packages` 復原，但誤剝後測試全紅）。`uv run <cmd>` 則安全（inexact，不剝除、可直接用）。（ADR-0117）
 >
@@ -99,7 +99,8 @@ python -B scripts/guard_eslint_ratchet.py
 #    guard_all 內部 shell 子命令才會走 3.12
 python -B scripts/guard_all.py
 
-# 5. 後端測試（CI 會跑）
+# 5. 後端測試（CI 會跑）：新增測試檔時，在 tests/README.md 加一列（檔名放在反引號裡、不寫案例數），
+#    tests/lint/test_tests_readme_listing.py 會檢查
 python -B -m pytest tests/
 
 # 6. 前端測試（CI 會跑）：npm run test 會先產生 artifact runtime 再跑 vitest

@@ -17,6 +17,7 @@
 ## 1. 取得映像與前置條件
 
 - 三個映像由 [GHCR 發布 workflow](.github/workflows/ghcr-publish.yml) 建置：`ghcr.io/otohatouka/touka-proxy`、`touka-heartbeat`、`touka-chat`。手動觸發（`workflow_dispatch`）：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號與 `latest`。不用 tag 觸發，因為 ToukaIDE 的 Marketplace 發行使用 `v*` tag。建議在 `.env` 以 `TOUKA_VERSION` 釘固定 tag，避免 `latest` 更新後意外換版。
+- 撰寫時（2026-10-22）公開 repo 還沒有 tag 或 release，GHCR 上的 `0.1.0` 與 `latest` 由公開 main 的 commit `62197042` 建置，等同 `sha-62197042…`；之後發布新版時 `latest` 會跟著換。也可以直接用 `sha-<commit>` 釘版，但只用這個公開 repo 裡找得到的 commit。無論選哪個，都從同一個 commit 取 `docker-compose.ghcr.yml` 與 `.env.example`。GHCR 上 `modern-*`、`rollback-*` 開頭的 tag 是開源前的舊發行，不要使用。
 - 已安裝 Git；原始碼可直接取得：`git clone https://github.com/OtohaTouka/Touka.git`，不需要登入。
 - Docker Engine 能執行 Linux amd64 容器，Docker Compose **2.26 以上**（使用 `env_file.required: false`；執行器掛 skills 用的 volume `subpath` 要 2.26，Docker Engine 也要 26.0 以上：Engine 26.0.0 的 release notes 寫「Add `Subpath` field to the `VolumeOptions`」，2026-10-16 查 <https://docs.docker.com/engine/release-notes/26.0/>）。由部署者確認自己的磁碟與掛載符合 local filesystem 政策；未知、遠端或不符合權限的儲存不可假填 local。
 - 使用全新的安裝目錄，確認本機 8000、8083、8082、3001 未被其他服務占用。
@@ -142,7 +143,7 @@ docker compose -f docker-compose.ghcr.yml exec touka-proxy cat /app/ToukaProxy/c
 
 ### 從原始碼建置
 
-在 repo 根目錄使用開發版 `docker-compose.yml`，同樣分兩階段：
+在 repo 根目錄使用開發版 `docker-compose.yml`，同樣分段啟動：
 
 ```shell
 docker compose up -d --build touka-proxy

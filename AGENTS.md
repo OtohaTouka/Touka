@@ -101,7 +101,7 @@
 | 配給 ADR 編號（在程式/測試/文件引用 `ADR-NNNN`） | **ADR 編號主權**：必須**同步**建立 `docs/architecture/adr/NNNN-*.md` 並補 `adr/README.md` 索引列；編號連續無跳號，**嚴禁**引用尚未建檔的編號（Guard #28 `guard_adr_integrity.py` 自動執法） |
 | API 行為變化（影響前端整合） | 對應 `*_INTERFACE.md` 的相關章節 |
 | 重大功能（影響禁令或核心守則） | `AGENTS.md` 對應章節與 `HANDOVER.md` 對應章節；若是歷史記錄則寫入 `docs/CHANGELOG.md` |
-| 新增測試案例 | `tests/README.md` 測試清單表格（計數、檔名、說明） |
+| 新增測試檔 | `tests/README.md` 加一列（檔名、說明；不寫案例數，ADR-0278） |
 
 > ⚠️ **直譯器主權（Windows / Interpreter Sovereignty）**：本機裸 `python` 會解析到**全域 Python 3.14**，而非專案鎖定的 **3.12 venv**（`.venv`，由 uv 管理；`.python-version` / `pyproject.toml` / `uv.lock` 維持 `==3.12.*`；Python 服務與 Chat builder 使用 digest 釘版的 `python:3.12-slim-trixie` 基底，tagged FROM 供 Guard #30 核對 Python 3.12）。**所有驗證（pytest、guard_all、lint_ssot）必須在 3.12 venv 下執行**，否則是在錯的直譯器＋錯的套件版本（例如 starlette 0.52 vs 1.1）上測，綠燈不可信。正確調用任一即可：
 > - **PowerShell 先 `.\.venv\Scripts\Activate.ps1` 再執行**（**推薦**；啟用後 `.venv\Scripts` 自動置於 PATH 最前，連 guard_all 的 shell 子命令也走 3.12）

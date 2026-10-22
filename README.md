@@ -10,7 +10,7 @@
 
 ## English summary
 
-Touka is an experimental, local-first AI agent system. Agents ("souls") keep long-term memory across conversations, a heartbeat service wakes them for background work, tools run under a human-approval mode, and a Next.js chat UI ties it together. Everything runs on your own machine with Docker; conversations, memory and settings stay local.
+Touka is an experimental, local-first AI agent system. Agents ("souls") keep long-term memory across conversations, a heartbeat service wakes them for background work, tool use follows a permission mode you choose (manual approval, an automatic reviewer, or fully automatic within hard limits), and a Next.js chat UI ties it together. Everything runs on your own machine with Docker and conversations, memory and settings are stored locally; messages are still sent to the model provider you configure, unless you use a local model such as Ollama.
 
 - **Status**: experimental and maintained by one person. Expect breaking changes; there is no stability or support guarantee.
 - **Install**: use the prebuilt Linux amd64 images on GHCR as described in [README_QUICKSTART.md](README_QUICKSTART.md). The services listen on localhost only.
@@ -24,7 +24,7 @@ Touka is an experimental, local-first AI agent system. Agents ("souls") keep lon
 
 ## 🌌 關於本專案
 
-**Touka** 是一個以「本機部署優先（local-first）」為設計理念的 AI 代理人作業系統。你的對話、記憶與設定完全保存在你自己的機器上，不依賴任何雲端服務。
+**Touka** 是一個以「本機部署優先（local-first）」為設計理念的 AI 代理人作業系統。你的對話、記憶與設定完全保存在你自己的機器上；除了你選擇的模型供應商，不依賴其他雲端服務。
 
 本專案是受 [openclaw](https://openclaw.ai/) 與 [hermes-agent](https://hermes-agent.nousresearch.com/) 啟發的實驗性模仿作品，旨在探索「具備長期記憶的個人 AI 助理」的可能性。每一行程式碼均由人類開發者透過高階指令（Orchestration）引導 AI 協作完成。
 
@@ -50,7 +50,7 @@ Touka 由四個獨立子系統組成：
 - **長期語義記憶**：跨會話向量檢索，Agent 記得幾週前的對話細節
 - **自主心跳排程**：ToukaHeartbeat 定時喚醒 Agent 執行背景任務，不需人工觸發
 - **多平台訊息整合**：支援 Telegram、Discord 訊息平台接入
-- **本機資料主權**：所有對話、記憶、設定均存於本機，不上雲
+- **本機資料主權**：所有對話、記憶、設定均存於本機；對話內容仍會送到你設定的模型供應商（用 Ollama 等本地模型時除外）
 - **三種權限模式**：Manual / Auto / YOLO，HITL 人工確認機制；Auto 由審查員把關，刪改資料、讀金鑰等底線寫在程式裡、只有人能核准
 - **多模型支援**：Claude、Gemini、GPT、Grok 及 Ollama 本地模型
 - **MCP 生態系整合**：支援 Model Context Protocol 第三方工具
@@ -61,7 +61,7 @@ Touka 由四個獨立子系統組成：
 - **湧現指標 (E-Index)**：計算意識成長與人格穩定性。
 - **終端機修復**：自動生成與執行 Exit Code 修復腳本。
 - **背景任務**：非同步執行長時間多脈衝 ReAct 循環。
-- **動態 MCP 調度**：會話級別的工具按需掛載。本機啟動的 MCP 伺服器依隔離層級執行：代理人建立的在執行器或 Landlock 裡跑，沒有隔離時要人確認才啟動；第三方的在 Landlock 可用時包住，不可用時直接啟動並標示「未隔離」（ADR-0275；限制見 SECURITY.md）。
+- **動態 MCP 調度**：會話級別的工具按需掛載。本機啟動的 MCP 伺服器依隔離層級執行：代理人建立的在執行器或 Landlock 裡跑，沒有隔離時要人確認才啟動；第三方與 scaffold 產生的在 Landlock 可用時包住，還在檢查或暫時故障時等待，確定不可用時才直接啟動並標示「未隔離」（ADR-0275；限制見 SECURITY.md）。
 - **群聊分發員 (ToukaGroup)**：讓多個靈魂在同一場對話輪流發言，支援自定義「點名別名」與靈魂 ID 的解耦映射；成員只限靈魂（ADR-0245）。
 - **自主演化流水線**：具備「發現 -> 獲取 -> 創造」的全鏈路進化能力。
 - **自主任務看板 (Mission Board)**：作為 Agent 的「非對話式外部記憶」。支援任務樹拆解、進度持久化與 Artifacts (產出物) 關聯，解決長生命週期任務中的專注力流失問題。
@@ -77,7 +77,7 @@ Touka 歷經多輪系統性安全審計與深度對抗式複審（涵蓋身分�
 主要安全機制：
 
 - **JWT 認證**：所有 API 端點強制驗證（Guard #24 端點認證守衛掃描執法）
-- **本機動態握手（LDH）**：本機開發免 token 自動降級；雲端部署可啟用 `CLOUD_MODE=true` 關閉 LDH
+- **本機動態握手（LDH）**：只在系統還沒被認領（首次安裝前）時，對完全沒帶憑證的本機請求核發通行證，讓首次設定能建立認證；認領後一律要登入。雲端部署可啟用 `CLOUD_MODE=true` 關閉 LDH
 - **Refresh Token jti 輪換**：重用舊 token 立即撤銷全部 session
 - **速率限制**：登入 / 註冊 / 刷新 token 均有 IP 滑動視窗防護
 - **非 root Docker 容器**：三個服務均以 `appuser` 身分執行
@@ -90,7 +90,7 @@ Touka 歷經多輪系統性安全審計與深度對抗式複審（涵蓋身分�
 
 ## 🚀 安裝與啟動
 
-一般使用者使用 GHCR 上的三個 Linux amd64 映像，依 [README_QUICKSTART.md](README_QUICKSTART.md) 準備目錄與 `.env`，再分階段啟動。需要 Docker Compose 2.24.0+；四個服務埠限本機 loopback，沒有零設定、ARM64 或公網部署承諾。初始密碼與金鑰由產品 bootstrap／UI 管理。
+一般使用者使用 GHCR 上的三個 Linux amd64 映像，依 [README_QUICKSTART.md](README_QUICKSTART.md) 準備目錄與 `.env`，再分階段啟動。需要 Docker Engine 26.0+ 與 Docker Compose 2.26+；四個服務埠限本機 loopback，沒有零設定、ARM64 或公網部署承諾。初始密碼與金鑰由產品 bootstrap／UI 管理。
 
 開發者改走 [CONTRIBUTING.md](CONTRIBUTING.md) 的受鎖環境。根 `docker-compose.yml` 是 source 開發組態，含原始碼掛載，可直接 `docker compose up --build`；安裝預建映像請使用 `docker-compose.ghcr.yml`。Memory 整合在 Proxy 中，Dispatch 由 Proxy supervisor 啟動，無須額外安裝 Memory／Dispatch。
 
@@ -140,7 +140,7 @@ npm run gen:artifact-runtime
 
 - [`python-telegram-bot`](https://github.com/python-telegram-bot/python-telegram-bot) — LGPL v3（動態連結，不影響本專案 MIT 授權）
 
-其他依賴多為 MIT、BSD、Apache-2.0 或 ISC 授權；另有 MPL-2.0（例如 certifi、tqdm）與 CC-BY-4.0（caniuse-lite 的瀏覽器相容性資料）。這些授權都允許和本專案一起使用與散布。需要署名的第三方內容列在 [NOTICE](NOTICE)；ToukaIDE 打包進擴充套件的 npm 套件列在 [ToukaIDE/THIRD_PARTY_NOTICES.txt](ToukaIDE/THIRD_PARTY_NOTICES.txt)。
+其他依賴多為 MIT、BSD、Apache-2.0、ISC、PSF-2.0、Unlicense 等寬鬆授權，另有例如 MPL-2.0（certifi、tqdm）與 CC-BY-4.0（caniuse-lite 的瀏覽器相容性資料）。這些授權都允許和本專案一起使用與散布。需要署名的第三方內容列在 [NOTICE](NOTICE)；ToukaIDE 打包進擴充套件的 npm 套件列在 [ToukaIDE/THIRD_PARTY_NOTICES.txt](ToukaIDE/THIRD_PARTY_NOTICES.txt)。
 
 GHCR 上的容器映像以 Debian 為基底，內含的 Debian 套件（例如 bash、glibc，部分為 GPL 授權）保有各自的授權，原始碼取得方式見 NOTICE 的「Container images」一節。
 
