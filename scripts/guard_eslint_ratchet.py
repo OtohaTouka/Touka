@@ -118,7 +118,8 @@ def main() -> None:
         sys.exit(0)
 
     baseline = load_baseline()
-    if not baseline:
+    # 只有基準檔不存在才算沒設定；違規修到 0 後重拍出的 `{}` 是合法基準（ADR-0278）。
+    if not BASELINE_PATH.exists():
         print(
             f"❌ 找不到基準檔 {BASELINE_PATH}。"
             " 首次啟用請先跑 `python scripts/guard_eslint_ratchet.py --update`。"

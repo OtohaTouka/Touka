@@ -76,25 +76,26 @@ python -B -m pytest tests/
 
 ### PR 前必做
 
-提交 PR 前請在**啟用的 root 3.12 venv** 內、用 Node 24.21.0／npm 11.19.1 跑過以下檢查。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
+**CI 綠燈就能開 PR。** 下面每一項都標了誰跑：
 
-每一項都標了誰會跑：標「CI 會跑」的，GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上也會跑；標「只在本機」的 CI 不跑，要你自己跑過。除了第 2 項（完整 ruff，見說明），其他都必須通過。
+- **「CI 會跑」**：GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上自動跑，全部要通過。想先在本機確認，就在**啟用的 root 3.12 venv** 內、用 Node 24.21.0／npm 11.19.1 照指令跑。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
+- **「維護者合併前補跑」**：CI 不跑，因為要特定環境或比較久。維護者會在合併前補跑，你能跑的話歡迎先跑。
 
 ```bash
 # 1. 後端 pyflakes（CI 會跑）：四個產品子專案不能有未定義名稱、沒用到的匯入或變數，必須 0 錯誤
 ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
 
-# 2. 後端完整 ruff（只在本機）：全部規則目前還有上百個既有錯誤，還沒有棘輪基準，整包跑不會是 0。
-#    要求：你改到的檔，錯誤不能比改之前多。CI 只擋第 1 項的 F
-ruff check ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch --statistics   # 看全貌
-ruff check <你改到的 .py 檔>                                                          # 和改之前比
+# 2. 後端完整 ruff 只減不增（CI 會跑）：每條規則的錯誤數必須和 tests/lint/ruff_baseline.json 完全相等，
+#    CI 在第 5 項的 pytest 裡檢查（tests/lint/test_ruff_ratchet.py）。修掉舊錯誤後，重拍基準一起提交：
+#    python -B scripts/lint_ratchet.py ruff --update
+python -B scripts/lint_ratchet.py ruff
 
-# 3. 前端 ESLint（只在本機）：Guard #35 跑完整 ESLint，對照棘輪基準 scripts/eslint_baseline.json，
+# 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint
 python -B scripts/guard_eslint_ratchet.py
 
-# 4. 架構守衛（只在本機）：43 道全部必須通過。CI 只跑其中 5 道——#1 lint_ssot、#2 guard:api、
-#    #27 guard:typecheck、#32 權限登記、#45 原生工具合約。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
+# 4. 架構守衛（維護者合併前補跑）：guard_all 跑全部守衛，其中 lint_ssot、guard:api、guard:typecheck、
+#    權限登記、ESLint 棘輪、原生工具合約這幾道 CI 也會跑。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
 #    guard_all 內部 shell 子命令才會走 3.12
 python -B scripts/guard_all.py
 
@@ -107,7 +108,7 @@ cd ToukaChat && npm run test && cd ..
 # 7. ToukaIDE 測試、型別檢查、建置（CI 會跑）：照順序一個跑完再跑下一個，compile 與 package 會寫同一個 dist/
 cd ToukaIDE && npm run install:controlled && npm test && npm run typecheck && npm run compile && cd ..
 
-# 8. ToukaIDE 打包（只在本機）：接在第 7 項之後跑
+# 8. ToukaIDE 打包（維護者合併前補跑）：接在第 7 項之後跑
 cd ToukaIDE && npm run package && cd ..
 ```
 
