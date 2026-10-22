@@ -350,8 +350,9 @@ braces專案依賴與npm CLI內的brace-expansion是不同套件，不能互借P
 | 出貨錯誤定義 | `ToukaProxy/config/errors.json.example` | sync_errors生成HB／Chat；Proxy既有registry缺項in-memory補齊 |
 | 安全設定來源驗證 | Guard32的required examples＋fallback | 不讀取私有現場設定 |
 | 出貨技能MCP宣告 | Guard37的SHIPPED_MCP_DECLARATIONS | required hub example；不glob未列宣告 |
-| 前端 CI | `.github/workflows/native-tool-contracts.yml` 的 `frontend` job | 每次 PR／push 都跑，不做影響判斷 |
-| 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch` | 每次 PR／push；完整 ruff 只在本機（`CONTRIBUTING.md`）；`tests/lint/test_ci_pr_checks.py` 釘住 |
+| 前端 CI | `.github/workflows/native-tool-contracts.yml` 的 `frontend` job；最後一步從 repo 根目錄跑 ESLint 棘輪 Guard #35（ADR-0278） | 每次 PR／push 都跑，不做影響判斷；`tests/lint/test_ci_pr_checks.py` 釘住 Guard #35 那一步 |
+| 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch` | 每次 PR／push；`tests/lint/test_ci_pr_checks.py` 釘住 |
+| 完整 ruff 只減不增（ADR-0278） | `scripts/lint_ratchet.py` 收集與重拍；基準 `tests/lint/ruff_baseline.json`；`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善後同一個 PR 重拍基準 |
 | ToukaIDE CI（ADR-0254） | 同一個 workflow 的 `toukaide` job（Node 24.21.0、npm 11.19.1）：`install:controlled`、`test`、`typecheck`、`compile` 依序 | 每次 PR／push；`package` 只在本機；`tests/lint/test_ci_pr_checks.py` 釘住 |
 
 詳 [ADR-0230](adr/0230-heartbeat-transaction-and-credential-contracts.md)。

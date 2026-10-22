@@ -12,6 +12,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator  # noqa: TC003
 from pathlib import Path
 
+REPO_TESTS_DIR = Path(__file__).absolute().parent.parent / "tests"
+
+
+def _is_top_level_tests_path(filename: str) -> bool:
+    """只認 repo 頂層的 tests/；判斷不跟隨連結，比對不上就照舊當成可能是業務層。"""
+    path = Path(filename)
+    if path.is_absolute():
+        return path.absolute().is_relative_to(REPO_TESTS_DIR)
+    return path.parts[:1] == ("tests",)
+
+
 # --- 基礎介面定義 ---
 
 
@@ -37,12 +48,13 @@ class BaseRule(ABC):
         self.ignored_lines = ignored_lines or {}
         self.violations = []
 
-        # 判定是否為核心邏輯層
-        self.is_service = any(
+        # 判定是否為核心邏輯層；repo 頂層 tests/ 一律不算（ADR-0278）
+        in_tests = _is_top_level_tests_path(filename)
+        self.is_service = not in_tests and any(
             x in self.full_path
             for x in ["services", "tools", "routers", "memory_server", "awaken.py", "service"]
         )
-        self.is_middleware_or_router = any(
+        self.is_middleware_or_router = not in_tests and any(
             x in self.full_path for x in ["middleware", "routers", "handlers", "awaken.py"]
         )
 
