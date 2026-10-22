@@ -114,7 +114,7 @@ def test_ide_notices_match_the_lockfile() -> None:
 
     The list may carry a few more entries than the runtime set: esbuild bundles what the code
     imports, which can include packages the lock files under dev (has-flag, supports-color).
-    Peer dependencies are not installed by the extension and are not listed.
+    Peer dependencies (hono) are not bundled into dist/extension.js and are not listed.
     """
     packages = json.loads(IDE_LOCK.read_text(encoding="utf-8"))["packages"]
 
