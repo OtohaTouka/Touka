@@ -325,7 +325,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | 檔案 | 說明 |
 |------|------|
 | `test_lint_ssot.py` | `lint_ssot.py` 主規則集：時間/環境/IO 監獄/本地匯入/raise 硬編碼等 |
-| `test_lint_ssot_top_level_tests.py` | **ADR-0278（11）**：repo 頂層 `tests/` 底下的檔案不算業務層，檔名含 tools、service 也不會被 IO 監獄擋（相對、`./` 開頭、絕對路徑 4 案）；`ToukaProxy/tests/`、`tests_old/`、`src/tests/`、產品的 services／tools 與 `*_service.py`、絕對路徑的產品檔照舊攔（7 案） |
+| `test_lint_ssot_top_level_tests.py` | **ADR-0278（13）**：repo 頂層 `tests/` 底下的檔案不算業務層，檔名含 tools、service 也不會被 IO 監獄擋（相對、`./` 開頭、絕對路徑 4 案）；`ToukaProxy/tests/`、`tests_old/`、`src/tests/`、產品的 services／tools 與 `*_service.py`、絕對路徑的產品檔、含 `..` 從 tests/ 繞回產品資料夾的相對與絕對路徑照舊攔（9 案） |
 | `test_eslint_ratchet_guard_registration.py` | **ADR-0098／ADR-0278（8）**：Guard #35 腳本、基準檔格式與 guard_all 註冊；braces 補丁驗證失敗時先印出兩個串流、不跑 ESLint；基準是 `{}` 而且沒有違規時通過，基準檔不存在時失敗 |
 | `test_ssot_guard_io.py` | `SSOTGuard` IO Prison 層感知規則單元測試 |
 | `test_ssot_guard_local_import.py` | `LOCAL_IMPORT_BAN` 規則正確性驗證 |
@@ -828,7 +828,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_dockerfile_base_images.py` ⭐ | **7 cases**：Proxy／Heartbeat必須用核准 官方Debian trixie-slim tagged immutable ref、Python3.12與明示bash供應與非root useradd；拒絕alpine/musl替代，保留CPU manylinux相容條件。 |
 | `test_npm_docker_paths_guard.py` | Guard #26：npm scripts 的父目錄相對路徑必須在 `docker-compose.yml` 掛載為 volume |
 | `test_ci_pr_checks.py` | **ADR-0254 A4、ADR-0278（9）**：四個產品子專案（`ToukaProxy/src`、`ToukaMemory/src`、`ToukaHeartbeat`、`ToukaDispatch`）`ruff --select F` 0 錯誤；CI `contracts` job 恰有一個鎖定版 ruff F 步驟涵蓋四個根目錄、沒有放寬旗標；`toukaide` job 在 devEngines 的 Node／npm 上依序跑 `install:controlled`、`test`、`typecheck`、`compile`，不能被 `if`／`continue-on-error` 跳過；`CONTRIBUTING.md`「PR 前必做」寫明 CI 綠燈就能開 PR、每項都標「CI 會跑」或「維護者合併前補跑」、完整 ruff 與 ESLint 棘輪標 CI、標示和 CI 實際跑的對得上；`frontend` job 在安裝依賴與 braces 補丁之後跑 Guard #35、不能被跳過；跑整套 pytest 的 job 恰有一個（ruff 棘輪靠它進 CI）。ruff 帶 `--no-cache`，不寫檔 |
-| `test_ruff_ratchet.py` | **ADR-0278（3）**：四個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍和 CI 的 F 步驟相同；比對函式的變多、變少、新規則三種情況。收集與重拍共用 `scripts/lint_ratchet.py` |
+| `test_ruff_ratchet.py` | **ADR-0278（9）**：四個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍從 CI workflow 讀出、和 F 步驟相同；比對函式的變多、變少、新規則三種情況；ruff 異常結束時收集失敗、不當成 0 個；`--update` 依規則代號排序寫出、寫完即通過、再多一個就失敗；打錯的工具名或參數回 2、不做檢查。收集與重拍共用 `scripts/lint_ratchet.py` |
 
 ---
 

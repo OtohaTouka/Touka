@@ -16,8 +16,13 @@ REPO_TESTS_DIR = Path(__file__).absolute().parent.parent / "tests"
 
 
 def _is_top_level_tests_path(filename: str) -> bool:
-    """只認 repo 頂層的 tests/；判斷不跟隨連結，比對不上就照舊當成可能是業務層。"""
+    """只認 repo 頂層的 tests/；判斷不跟隨連結，比對不上就照舊當成可能是業務層。
+
+    含 `..` 的路徑可能從 tests/ 繞回產品資料夾，一律照舊判斷。
+    """
     path = Path(filename)
+    if ".." in path.parts:
+        return False
     if path.is_absolute():
         return path.absolute().is_relative_to(REPO_TESTS_DIR)
     return path.parts[:1] == ("tests",)

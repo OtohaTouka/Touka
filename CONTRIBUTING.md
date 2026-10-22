@@ -87,7 +87,7 @@ python -B scripts/lint_ratchet.py ruff
 python -B scripts/guard_eslint_ratchet.py
 
 # 4. 架構守衛（維護者合併前補跑）：guard_all 跑全部守衛，其中 lint_ssot、guard:api、guard:typecheck、
-#    權限登記、原生工具合約這幾道 CI 也會跑。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
+#    權限登記、ESLint 棘輪、原生工具合約這幾道 CI 也會跑。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
 #    guard_all 內部 shell 子命令才會走 3.12
 python -B scripts/guard_all.py
 

@@ -23,7 +23,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --all-packages --python 3.12
-      # 四個產品子專案不能有 pyflakes 錯誤（未定義名稱、沒用到的匯入）；完整 ruff 只在本機跑。
+      # 四個產品子專案不能有 pyflakes 錯誤（未定義名稱、沒用到的匯入）；完整 ruff 由 pytest 裡的 tests/lint/test_ruff_ratchet.py 擋（ADR-0278）。
       - run: uv run --no-sync ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
       - run: uv run --no-sync python -B scripts/lint_ssot.py
       - run: uv run --no-sync python -B scripts/guard_native_tool_contracts.py

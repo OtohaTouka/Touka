@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from lint_ssot import SSOTGuard  # scripts/ 由 tests/conftest.py 加進 sys.path
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
+PROJECT_ROOT = Path(__file__).absolute().parent.parent.parent
 IO_CALL = "open('x.txt', 'w')"
 
 
@@ -43,6 +43,8 @@ def test_top_level_tests_are_not_business_layer(filename: str) -> None:
         "src/tests/services/probe.py",
         "ToukaHeartbeat/storage_service.py",
         str(PROJECT_ROOT / "ToukaProxy" / "src" / "tools" / "probe.py"),
+        "tests/../ToukaProxy/src/services/probe.py",
+        str(PROJECT_ROOT / "tests" / ".." / "ToukaProxy" / "src" / "services" / "probe.py"),
     ],
 )
 def test_other_paths_keep_the_business_layer_check(filename: str) -> None:

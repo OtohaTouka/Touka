@@ -86,12 +86,13 @@ TOOLS: dict[str, tuple[Callable[[], Counter[str]], Path]] = {
 
 def main(argv: list[str]) -> int:
     """命令列入口：第一個參數是工具名稱，加 --update 就重拍基準。"""
-    if not argv or argv[0] not in TOOLS:
+    flags = argv[1:]
+    if not argv or argv[0] not in TOOLS or any(flag != "--update" for flag in flags):
         print(f"usage: python scripts/lint_ratchet.py {{{'|'.join(TOOLS)}}} [--update]")
         return 2
     collect, baseline_path = TOOLS[argv[0]]
     current = collect()
-    if "--update" in argv[1:]:
+    if flags:
         write_baseline(baseline_path, current)
         total, rules = sum(current.values()), len(current)
         print(f"{argv[0]}: baseline updated, {total} violations / {rules} rules")
