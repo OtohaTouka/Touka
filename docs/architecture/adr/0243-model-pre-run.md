@@ -1,15 +1,15 @@
 # ADR-0243：Touka 重新運作前的小任務（全停 Gemini 顯式快取、KF-6、.env.example、Next.js 升級、Docker uv、禁令 63）
 
-- 狀態：✅ 已接受（Owner 2026-10-12 核准模型層總計畫）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫）
 - 日期：2026-10-12
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`gemini_adapter`（刪 `gemini_cache_service`）、模型健康檢查（`routers/models.py`）、根 `.env.example`、ToukaChat `next`／`eslint-config-next` 與鎖檔、Proxy 與 Heartbeat Dockerfile 的 uv 映像、AGENTS.md 禁令 63、對應測試與文件
 - 消除：[ADR-0242](0242-model-layer-stage-1a.md) 的 KF-1、KF-2、KF-2d、KF-6
 - 已知限制中的 Guard #20 knip 在工作資料夾假紅，已由 [ADR-0250](0250-touka-leftovers.md) K1 修正（2026-10-14：`guard:prune` 加 `--no-gitignore`，產生檔與建置產物改用 knip `project` 排除）
 
 ## 背景
 
-Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題：Gemini 顯式快取在迴圈重建時會丟掉較早的對話，還會和 `tool_config`、`system_instruction`／`tools` 一起送（KF-1、KF-2、KF-2d；Owner 在 1a 已選全停）；Claude 與 OpenAI 的健康檢查請求不合廠商要求（KF-6）；根 `.env.example` 沒有列出廠商金鑰；Guard #23 擋下 `next@16.3.6`；Docker 映像的 uv 能不能讀冷卻期設定一直沒確認（ADR-0241 已知限制）。另外，曾有一次臨時查驗在沙盒外載入專案程式，初始化時自動寫出設定檔，差點出事，寫成禁令 63。
+Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題：Gemini 顯式快取在迴圈重建時會丟掉較早的對話，還會和 `tool_config`、`system_instruction`／`tools` 一起送（KF-1、KF-2、KF-2d；維護者在 1a 已決定全停）；Claude 與 OpenAI 的健康檢查請求不合廠商要求（KF-6）；根 `.env.example` 沒有列出廠商金鑰；Guard #23 擋下 `next@16.3.6`；Docker 映像的 uv 能不能讀冷卻期設定一直沒確認（ADR-0241 已知限制）。另外，曾有一次臨時查驗在沙盒外載入專案程式，初始化時自動寫出設定檔，差點出事，寫成禁令 63。
 
 ## 決策
 
@@ -30,11 +30,11 @@ Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題�
 - 全停只代表 Touka 不在 Google 端另建 1 小時副本；Google 仍可能依其政策保留請求。
 - 健康檢查與 Gemini 的新請求只用 mock 驗證，廠商是否接受留到下一段實測（禁令 61）。
 - uv 0.12.1 在 Python 基底映像裡實際跑 `uv sync --locked`，要等下一段的完整 `docker build` 才算確認。
-- 禁令 63 沒有工具能偵測，靠執行者遵守。
+- 禁令 63 沒有工具能偵測，靠開發者遵守。
 
 ## 已知限制
 
-- Guard #20 的 knip 在 `.toukadev/worktrees/` 底下的工作資料夾會假紅：根 `.gitignore` 有 `.toukadev/`，knip 依 gitignore 濾掉絕對路徑含 `.toukadev` 的入口檔，因此誤報 `backport.mjs`、`build-artifact-runtime.mjs` 沒被使用；加 `--no-gitignore` 即通過。屬環境問題，守衛未改；這類工作資料夾的 knip 改在路徑不含 `.toukadev` 的複本驗證。（2026-10-14 已由 ADR-0250 K1 修正，工作資料夾裡直接跑即可）
+- Guard #20 的 knip 在 `.toukadev/worktrees/`（維護流程放 git worktree 的位置）底下的工作資料夾會假紅：根 `.gitignore` 有 `.toukadev/`，knip 依 gitignore 濾掉絕對路徑含 `.toukadev` 的入口檔，因此誤報 `backport.mjs`、`build-artifact-runtime.mjs` 沒被使用；加 `--no-gitignore` 即通過。屬環境問題，守衛未改；這類工作資料夾的 knip 改在路徑不含 `.toukadev` 的複本驗證。（2026-10-14 已由 ADR-0250 K1 修正，工作資料夾裡直接跑即可）
 - Guard #23 只擋 high 以上；Chat／IDE 仍有少數 moderate advisory（如 fast-uri），隨上游相容修正版更新。
 
 ## 驗證
@@ -47,4 +47,4 @@ Touka 重新運作前，先清掉 1a 凍結出來、或擋住檢查的小問題�
 
 ## 回復
 
-不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）。各項彼此獨立，逐項 revert 產品程式、測試與對應文件；本 ADR 改「⛔ 已撤回」（或註明撤回哪一項），CHANGELOG 加一列。撤回快取＝連同 ADR-0241 決策 4 的無痕行為一起回來。撤回 Next.js 會讓 Guard #23 再次擋下，不建議。撤回 uv＝兩個 Dockerfile 與 `UV_CHILD` 換回舊 digest。禁令 63 要刪須經 Owner 同意，編號照禁令 54、62 留墓碑。
+不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）。各項彼此獨立，逐項 revert 產品程式、測試與對應文件；本 ADR 改「⛔ 已撤回」（或註明撤回哪一項），CHANGELOG 加一列。撤回快取＝連同 ADR-0241 決策 4 的無痕行為一起回來。撤回 Next.js 會讓 Guard #23 再次擋下，不建議。撤回 uv＝兩個 Dockerfile 與 `UV_CHILD` 換回舊 digest。禁令 63 要刪須經維護者同意，編號照禁令 54、62 留墓碑。

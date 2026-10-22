@@ -1,8 +1,8 @@
 # ADR-0219：ToukaIDE Webview 純文字安全邊界
 
-- 狀態：✅ implementation committed（Owner `HUMAN_ONLY` DEV-B；commit `94aa17976b7262bdda54df98dc1254dae072590c`）；本機lightweight `v0.2.0`同指該commit
+- 狀態：✅ implementation committed（經維護者人工審查；commit `94aa17976b7262bdda54df98dc1254dae072590c`）；本機lightweight `v0.2.0`同指該commit
 - 日期：2026-08-30（2026-09-02 狀態同步）
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaIDE Webview CSP、動態內容渲染、0.2.0 使用者介面、Marketplace 候選與測試
 - 相關決策：[ADR-0202](0202-toukaide-node-v2-streamable-http.md)、[ADR-0218](0218-toukaide-first-marketplace-release.md)
 
@@ -15,7 +15,7 @@ Agent／工作區 mention 又會經 `marked.parse()` 或 template literal 寫入
 VS Code message bridge 能力。
 
 此問題是在首份 `f9e78c3934d5` 候選的 Windows manual-smoke preflight 發現；該候選因此固定為
-`DO NOT PUBLISH`。Owner 選擇以最小、無新增 npm 依賴的方式先恢復安全發行路徑。
+`DO NOT PUBLISH`。維護者選擇以最小、無新增 npm 依賴的方式先恢復安全發行路徑。
 
 ## 決策
 
@@ -40,8 +40,8 @@ VS Code message bridge 能力。
 
 ### 4. ToukaIDE 0.2.0 暫不支援 Markdown
 
-本版不引入 DOMPurify、Markdown renderer 或其他新 dependency。未來若要恢復 Markdown，必須另開
-DEV-A，使用封裝內、精確版本的 renderer，加上明確 sanitizer policy、惡意 payload 測試與新候選；
+本版不引入 DOMPurify、Markdown renderer 或其他新 dependency。未來若要恢復 Markdown，必須另提計畫並
+經審查，使用封裝內、精確版本的 renderer，加上明確 sanitizer policy、惡意 payload 測試與新候選；
 不得恢復 CDN 或把 parser output 直接寫入 HTML sink。
 
 ### 5. 安全不變式由現有 Vitest 執法
@@ -54,7 +54,7 @@ sink 與換行 CSS。測試不新增 DOM library，也不接觸網路或 `data/`
 
 - 優點：移除 runtime CDN 供應鏈與 HTML 注入面，package／lockfile保持不變，離線建置更可重現。
 - 取捨：0.2.0 不顯示 Markdown 樣式、code block 或富文字；標記會直接顯示。
-- 發行：任何在本 ADR 修復前建立的 VSIX 都不可發布。修復已分別通過 DEV-B、commit、tag、
+- 發行：任何在本 ADR 修復前建立的 VSIX 都不可發布。修復已分別通過最終審查、commit、tag、
   create-only candidate 與隔離 Windows smoke gates；舊候選仍不得覆寫。
 - 殘留：Webview message payload schema／來源驗證是另一個 defense-in-depth 議題，不在本次最小修復；
   本 ADR 不宣稱 extension host 完全無網路能力。
@@ -72,7 +72,7 @@ sink 與換行 CSS。測試不新增 DOM library，也不接觸網路或 `data/`
 - Exact修復已提交為`94aa17976b7262bdda54df98dc1254dae072590c`，本機lightweight `v0.2.0`
   同指該commit；新local exact VSIX SHA-256為
   `688d69d0b6bb71bcbd3f7d689d838cd34c4999265c606adb507d735d4a678a62`。
-- Owner人工見證隔離VS Code smoke、Marketplace手動upload，以及READBACK-R1從Marketplace安裝
+- 維護者人工見證隔離VS Code smoke、Marketplace手動upload，以及READBACK-R1從Marketplace安裝
   `touka-ai.toukaide@0.2.0`後的人工smoke均符合。這不證明Marketplace遠端bytes與local VSIX全等，
   不構成receipt v3或public-release authority activation；P11-C provider activation／sunset仍BLOCKED，
   Git push未發生。舊`f9e78c3934d5`候選持續固定`DO NOT PUBLISH`。

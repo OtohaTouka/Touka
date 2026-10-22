@@ -1,13 +1,13 @@
 # ADR-0237：braces 同版本防禦回補與安裝內容身分
 
 - 日期：2026-10-06。
-- 狀態：DEV-A SUPERVISOR_ACCEPTANCE；候選進行中，A核心30案有限通過，整合及正式驗收未完成。
-- 影響：Chat／IDE建置依賴、安裝／工具入口、Guard23、Owner audit reader／host。
-- 前置：[ADR-0236](0236-security-candidate-source-and-installed-identity.md)；本決策只補braces專案依賴，不重定義npm CLI bundle或Owner發行框架。
+- 狀態：計畫經審查接受；候選進行中，A核心30案有限通過，整合及正式驗收未完成。
+- 影響：Chat／IDE建置依賴、安裝／工具入口、Guard23、維護者本機的 audit reader／host。
+- 前置：[ADR-0236](0236-security-candidate-source-and-installed-identity.md)；本決策只補braces專案依賴，不重定義npm CLI bundle或維護者本機的發行框架。
 
 ## 問題
 
-braces維持3.0.3時，lock與npm audit不能單憑版本辨識本機內容回補；copied PASS也不能證明每個實際安裝副本已修補。Owner選擇固定PR72且不重現漏洞，須分開保存來源適用性、普通API驗證、安裝bytes與原audit結果。
+braces維持3.0.3時，lock與npm audit不能單憑版本辨識本機內容回補；copied PASS也不能證明每個實際安裝副本已修補。維護者選擇固定PR72且不重現漏洞，須分開保存來源適用性、普通API驗證、安裝bytes與原audit結果。
 
 ## 決策
 
@@ -22,6 +22,6 @@ braces維持3.0.3時，lock與npm audit不能單憑版本辨識本機內容回�
 
 測試原件納入四個官方MIT小tarball（braces3.0.3、fill-range7.1.1、to-regex-range5.0.1、is-number7.0.0，共30,904bytes），目標是Git-only checkout可重播；它們是公開依賴fixture，不是PoC。正式預設patched，以動態ROOT固定archive/hash與PATH Node取得輸入，缺inputs／Node須FAIL，不靠額外env才啟用；operator的unpatched RED覆蓋仍保留。A10最終30 PASS／0 skip、完整PRE=POST（Python3.12.12／Windows Node26.2.0）。正常Vite `.vite`／`.vite-temp` cache只做有界metadata核對；links／hardlinks、隱藏package與dangling node_modules link仍拒絕，不把斷鏈視為absence。
 
-普通短pattern／小AST及maxDepth=1或2驗新API契約；未修版正常結束但不符合新選項可形成RED。禁止深層、循環AST、資源耗盡刺激與漏洞重現。Owner不申請Daybreak；此範圍不是平台解除聲明，原具體拒絕不可繞過。歷史29案身份UNKNOWN保留，沒有新增EXCLUDE。
+普通短pattern／小AST及maxDepth=1或2驗新API契約；未修版正常結束但不符合新選項可形成RED。禁止深層、循環AST、資源耗盡刺激與漏洞重現。維護者不申請Daybreak；此範圍不是平台解除聲明，原具體拒絕不可繞過。歷史29案身份UNKNOWN保留，沒有新增EXCLUDE。
 
-A只有上述Windows Node26有限結果，B/C只有專用交接所列有限來源／mock結果。正式Linux Node24.21.0、六fresh audits、完整品質、build、P3 qualification、P4 publish／readback與P5 cutover仍NOT RUN。G13 PARTIAL／full P5 OPEN及ADR-0236既有分期保持；不宣稱Known Resolved、部署完成或runtime無漏洞。
+A只有上述Windows Node26有限結果，B/C只有交接紀錄（未入版控）所列有限來源／mock結果。正式Linux Node24.21.0、六fresh audits、完整品質、build、P3 qualification、P4 publish／readback與P5 cutover仍NOT RUN。G13 PARTIAL／full P5 OPEN及ADR-0236既有分期保持；不宣稱Known Resolved、部署完成或runtime無漏洞。

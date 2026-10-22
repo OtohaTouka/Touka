@@ -2,7 +2,7 @@
 
 - 狀態：✅ 已實作（評估框架與人工 probe；真模型實測每批另經人類同意，尚未執行）
 - 日期：2026-10-15
-- 決策者：Owner（10/15 核准記憶系統第二批計畫，段 E1）
+- 決策者：維護者（2026-10-15 核准記憶系統第二批計畫，段 E1）
 - 影響範圍：`tests/memory_eval/`、`tests/smoke/manual/memory_eval_probe.py`、`tests/live_api_policy.py`、
   `tests/smoke/manifest.py`、`tests/proxy/upstream/test_long_horizon_prompt_invariants.py`、
   `scripts/run_scorecard.py`、`scripts/run_tool_eval_episode.py`、`docs/proxy/live-check-backlog.md`

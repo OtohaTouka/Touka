@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07、全綠——guard_all 39/39、後端 pytest 2745 passed/4 skipped（+11）、前端 vitest 971；擁有者尚未 commit）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) §9 **Phase 1 MVP**：主 agent 在 ReAct loop 內派「一個」in-process 子代理跑單一任務、拿回結果——補上全庫缺席的「agent-as-tool」原語，驗證「in-process 取代外派」的核心假設。
+✅ **已接受（實作與驗證 2026-07-07、全綠——guard_all 39/39、後端 pytest 2745 passed/4 skipped（+11）、前端 vitest 971）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) §9 **Phase 1 MVP**：主 agent 在 ReAct loop 內派「一個」in-process 子代理跑單一任務、拿回結果——補上全庫缺席的「agent-as-tool」原語，驗證「in-process 取代外派」的核心假設。
 
 > 🔧 **兩處決策/後果描述已過時（部分修訂）**：
 > 1. **決策 3 子 ctx `enable_autonomy=False` 硬編 → 沿父鏈繼承**：[ADR-0146](0146-tool-round-budget.md) 後 `subagent_tools.py` 改 `ctx["enable_autonomy"] = bool(base_ctx.get("enable_autonomy"))`（headless 判準沿父鏈；`is_toukasoul=False` 仍硬編）；nudge 續圈那半已隨 0146 移除。
@@ -18,7 +18,7 @@
 
 ## 背景
 
-提案盤點（2026-07-06 8-agent 調查）確認：ReAct 迴圈、Mission Board、`get_stream_generator`、`DispatchCallbackStore` 等地基成熟，但**全樹無任何工具能在 loop 內開子 loop**（需求 1 最大缺口）。既有外派路徑（ToukaDispatch，[ADR-0051](0051-dispatch-callback-channel.md)／[ADR-0082](0082-dispatch-in-proxy-consolidation.md)）把任務派給**外部 AI**；Phase 1 要的是同語義但**整個在 Touka 內部完成**的新分支——外派路徑原地不動（提案 §6 邊界 3）。
+提案盤點（2026-07-06 調查）確認：ReAct 迴圈、Mission Board、`get_stream_generator`、`DispatchCallbackStore` 等地基成熟，但**全樹無任何工具能在 loop 內開子 loop**（需求 1 最大缺口）。既有外派路徑（ToukaDispatch，[ADR-0051](0051-dispatch-callback-channel.md)／[ADR-0082](0082-dispatch-in-proxy-consolidation.md)）把任務派給**外部 AI**；Phase 1 要的是同語義但**整個在 Touka 內部完成**的新分支——外派路徑原地不動（提案 §6 邊界 3）。
 
 ## 決策
 
@@ -33,7 +33,7 @@
 
 - **需求 1 的最小閉環打通**：主 agent 可 dispatch → await → 讀結果 → 自行 `update_status`（看板更新仍由主 agent、主身分執行——不碰 §7.2-2 權限牆）。Phase 2（結構化回報 schema）與 Phase 3（互審，見[設計文件](../proposals/adversarial-review-subsystem-design.md)）都在此原語上疊加。
 - **外派路徑零改動**：ToukaDispatch／HTTP 回呼／`dispatch_supervisor` 原地不動；in-process 是 callback store 的新交付路徑，非替換。
-- **邊界（誠實）**：①deliver 後無人 await 的 token 會留在 in-memory dict（`wait_for_result` 才清）——MVP 接受，量級小；②背景子 loop 不隨父請求中斷自動取消（無 session 綁定是刻意的隔離取捨）——長跑治理屬 Phase 4（續跑韌性）；③子代理工具面＝Guest（唯讀 auth 檔案動詞＋research）——夠不夠用待真實任務實測，Phase 4 權限收尾再議；④**live E2E（真模型）待擁有者手動 smoke**——單元契約以 fake stream 全覆蓋，真實端到端需跑服務＋API 金鑰。
+- **邊界（誠實）**：①deliver 後無人 await 的 token 會留在 in-memory dict（`wait_for_result` 才清）——MVP 接受，量級小；②背景子 loop 不隨父請求中斷自動取消（無 session 綁定是刻意的隔離取捨）——長跑治理屬 Phase 4（續跑韌性）；③子代理工具面＝Guest（唯讀 auth 檔案動詞＋research）——夠不夠用待真實任務實測，Phase 4 權限收尾再議；④**live E2E（真模型）待維護者手動 smoke**——單元契約以 fake stream 全覆蓋，真實端到端需跑服務＋API 金鑰。
 - **驗收**：ruff（改動檔）＋lint_ssot＋**guard_all 39/39**（NOQA registry：`LOCAL_IMPORT_BAN` 19→20）＋**後端 pytest 2745 passed/4 skipped**（新增 [test_dispatch_subagent.py](../../../tests/unit/test_dispatch_subagent.py) 11 測：註冊／廣告／Guest 排除／token 契約／in-process 喚醒／FAILED 交付／隔離契約／遞迴剝除／參數防呆／executor 接線）＋**前端 vitest 971**（前端零改動）。
 
 ## 相關

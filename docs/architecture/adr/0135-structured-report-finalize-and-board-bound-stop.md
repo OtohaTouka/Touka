@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07；擁有者尚未 commit）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) §9 **Phase 2**：讓弱模型路徑穩定——需求 4（程式化裁決）、需求 5（最終驗收閉環）、目標 b（防「說完成了」偏移）。
+✅ **已接受（實作與驗證 2026-07-07）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) §9 **Phase 2**：讓弱模型路徑穩定——需求 4（程式化裁決）、需求 5（最終驗收閉環）、目標 b（防「說完成了」偏移）。
 
 > 🗑️ **決策 #3「停止綁看板」（`mission_stop_gate.board_allows_stop` + claude_handler 接線）已被 [ADR-0146](0146-tool-round-budget.md)（自主語意翻轉，2026-07-12）移除**：隨 nudge 續圈退役，`ToukaProxy/src/services/mission_stop_gate.py` 整檔刪除、`board_allows_stop` 全 repo 零引用、`tests/unit/test_mission_stop_gate.py` 亦刪。看板驅動的續跑改由 heartbeat `init_prompt` / `<harness_context>` 軟提示承接（非硬性程式閘）。**決策 #1（結構化回報 `subagent_report`）與決策 #2（`finalize_mission` 閉環）仍完全有效。**
 

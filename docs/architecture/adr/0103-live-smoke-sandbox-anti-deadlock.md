@@ -42,6 +42,6 @@
 
 ## 驗證
 
-- 每個 migrated smoke 在 **3.12 venv**（[[feedback-python-venv]] 直譯器主權）下 EXIT=0 並功能通過。
+- 每個 migrated smoke 在 **3.12 venv**（直譯器主權）下 EXIT=0 並功能通過。
 - 整套 smoke 在 3.12 venv 下完整跑完、無 hang。
 - 建基於 conftest 的 sandbox 機制（ADR-0006 測試主權／沙盒）。

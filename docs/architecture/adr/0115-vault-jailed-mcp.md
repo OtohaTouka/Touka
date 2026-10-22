@@ -1,6 +1,6 @@
 # ADR-0115：Vault-jailed MCP — 依身分把「檔案型 MCP 伺服器」鎖進各 agent 自己的 vault
 
-- **狀態**：✅ 已接受（2026-06-25；Touka 派發注入＋docgen v0.6 經 TDD 完成並全綠驗證，經 31-agent 對抗式安全複審）
+- **狀態**：✅ 已接受（2026-06-25；Touka 派發注入＋docgen v0.6 經 TDD 完成並全綠驗證，經對抗式安全複審）
 - **日期**：2026-06-25
 - **影響範圍**：ToukaProxy（`services/mcp_vault_jail.py` SSOT／`services/tool_executor.py` 派發注入／`protocols/registry.py` `vault_jail_arg` 欄／`utils/mcp_sentinels.py` env backstop＋`protocols/mcp/client.py` 連線期解析／`services/mcp_hub_service.py` install 傳遞／`services/settings_snapshot_service.py` 快照重蓋／`routers/mcp.py` API round-trip／config）＋ ToukaChat（`buildFileRefHint` 指向 vault-scoped read 工具）＋ **外部 mcp-docgen v0.6**（全 17 工具 `base_dir`，同管 input+output）
 - **關鍵字**：vault-jailed MCP, per-agent isolation, dispatcher injection, base_dir, MCP path jail, identity-derived root, fail-closed, env backstop, sentinel, config drift fail-safe, cooperative vs enforced isolation, 聊天上傳多格式讀取
@@ -43,7 +43,7 @@
 
 ## 替代方案（Rejected）
 - **每個 agent 起一個 docgen 子行程**（各自 env jail）：N 個 agent → 資源與生命週期不可行。
-- **加一個 Touka 原生 broker 工具包住 docgen**：多一層工具面；擁有者取向＝「零重複工具」→ 派發注入更貼合，且不需把 ProtocolManager 接進原生工具層。
+- **加一個 Touka 原生 broker 工具包住 docgen**：多一層工具面；維護者的取向＝零重複工具→ 派發注入更貼合，且不需把 ProtocolManager 接進原生工具層。
 - **改 wire format、前端送真實多模態/路徑陣列**：牽動持久化與對話樹，風險高 → 後端覆寫更內聚。
 - **仰賴 docgen env 做 per-agent 隔離**：env 是 process-global，共用行程無法 per-agent → 必須走每次呼叫的參數。
 - **把 vault-jail 政策放純使用者可改 config、無 API round-trip/還原**：一次設定存檔就 fail open（複審 High）→ 改為 API 契約＋磁碟還原＋快照重蓋。

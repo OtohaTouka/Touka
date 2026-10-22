@@ -2,32 +2,32 @@
 
 ## 現行0.3.0發行批次（2026-09-15）
 
-Owner當次要求更新MCP計畫並處理ToukaIDE新版發行；採SUPERVISOR_DELEGATED／SUPERVISOR_ACCEPTANCE，
-主代理技術代審，不宣稱嚴格獨立資格。本輪版本0.3.0／tag v0.3.0／ID touka-ai.toukaide，
+維護者要求更新MCP計畫並處理ToukaIDE新版發行；本輪技術審查
+不宣稱嚴格獨立。本輪版本0.3.0／tag v0.3.0／ID touka-ai.toukaide，
 反映已完成modern-only來源及legacy入口退役；實際source／VSIX／Windows smoke／Marketplace發行與回讀仍分別驗收。
 工具鏈對齊現有package SSOT：Node24.19.0／npm11.19.1／vsce3.9.2，原builder的npm11.17.0漂移本輪修正。
 精確source/tag、root LF LICENSE／MIT、create-only單一VSIX／canonical manifest、strictUTF8與shared10-member合約保持。
 authority的0.2.0版本身份仍屬未選provider-v3 profile，不隨IDE升版或啟用。
 
-本輪明確授權取代下方歷史逐步另問程序；必要技術證據不省略。Marketplace登入仍由Owner完成，
-僅使用既有帳號／方案，不讀credential/PAT。原工具不支援native UI時，必要Windows GUI／network觀察由Owner見證；
+本輪一次授權取代下方歷史的逐步確認程序；必要技術證據不省略。Marketplace登入仍由維護者完成，
+僅使用既有帳號／方案，不讀credential/PAT。原工具不支援native UI時，必要Windows GUI／network觀察由維護者見證；
 CLI安裝/version不等於GUI smoke，必要證據未取得不得發布。完整現行步驟見[發行指南](../../guides/toukaide-marketplace-release.md)。
-0.2.0與全部拒絕候選／原失敗保留；新版本不覆寫舊tag/產物、不更新Owner日常profile，也不改Touka runtime/data。
+0.2.0與全部拒絕候選／原失敗保留；新版本不覆寫舊tag/產物、不更新維護者日常使用的profile，也不改Touka runtime/data。
 選定本機P11與GHCR後續已完成，見ADR-0220／0227；Azure／Open VSX／八個IDEhost lanes與provider-v3仍NOT SELECTED。
 
 ## 以下為0.2.0原始決策與見證歷史
 
-下面全部狀態、版本、工具chain與逐步授權只代表當時，原字保留；不代表目前待辦或新版已通過。
+下面全部狀態、版本、工具chain與逐步授權只代表當時；不代表目前待辦或新版已通過。
 
 # ADR-0218：ToukaIDE 優先的 Marketplace 人工發行邊界
 
-- 狀態：✅ implementation committed；ADR-0219安全修復與本機lightweight `v0.2.0`同指`94aa17976b7262bdda54df98dc1254dae072590c`；Marketplace upload／readback已由Owner人工見證，官方審核通過為Owner reported，remote byte identity未證
+- 狀態：✅ implementation committed；ADR-0219安全修復與本機lightweight `v0.2.0`同指`94aa17976b7262bdda54df98dc1254dae072590c`；Marketplace upload／readback已由維護者人工見證，官方審核通過為維護者回報，remote byte identity未證
 - 日期：2026-08-27（2026-09-04 狀態同步）
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaIDE npm lock、Marketplace candidate builder、VSIX evidence manifest、Webview發行安全、IDE發行文件與測試
 - 相關決策：[ADR-0217](0217-public-release-authority-v3-bootstrap.md)、[ADR-0219](0219-toukaide-webview-plaintext-security-boundary.md)、[ADR-0220](0220-local-only-github-ghcr-release-profile.md)
 
-> **2026-09-04 狀態修訂**：Owner 回報 Visual Studio Marketplace 官方審核已通過；
+> **2026-09-04 狀態修訂**：維護者回報 Visual Studio Marketplace 官方審核已通過；
 > 這是外部審核狀態，不證明已上架 VSIX 與本機 candidate 的 remote-byte identity，也不替代
 > 後續版本的 Windows＋VS Code Stable 最小 smoke。ADR-0220 將八個 IDE host lanes 與 receipt v3
 > aggregate 列為 `NOT SELECTED`／dormant；目前選定的下一發行面是 Docker／GitHub Actions／GHCR，
@@ -40,7 +40,7 @@ ADR-0217 把 OCI、八個 IDE host lanes、Azure authority、reusable workflows 
 必要條件。Touka 現階段是個人本機使用的單機 Agent 系統；公開面只規劃 GitHub 原始碼／文件、GHCR
 映像與 Visual Studio Marketplace 的 ToukaIDE。
 
-Owner 決定先以最小、可人工核對的流程發行 ToukaIDE。GHCR 打包、容器驗證與試跑是後續獨立階段；
+維護者決定先以最小、可人工核對的流程發行 ToukaIDE。GHCR 打包、容器驗證與試跑是後續獨立階段；
 Azure runtime、Open VSX、private runner、OIDC 自動發布與跨平台 extension-host matrix 都不在本階段。
 
 ## 決策
@@ -88,7 +88,7 @@ publisher、license、extension ID、archive SHA-256與逐member size／SHA-256�
 
 ### 5. Candidate、smoke、upload與readback是獨立 gates
 
-- DEV-B、exact stage、commit與tag各自需要人類核准。
+- 最終審查、exact stage、commit與tag各自需要人類核准。
 - Candidate build只在核准commit已clean且`v0.2.0`已錨定後執行。先前三次失敗流程依序揭露root LICENSE checkout CRLF、Windows locale解碼與真vsce raw inventory漂移；live-parity修復後建立的`f9e78c3`候選雖通過composition驗證，但manual-smoke preflight發現ADR-0219 Webview安全阻礙，因此該目錄與manifest只能保留為拒絕證據、不得發布或覆寫。修復後必須使用新的commit、tag anchor與create-only output directory。
 - ADR-0219修復提交後，新的create-only候選以`94aa17976b7262bdda54df98dc1254dae072590c`／`v0.2.0`
   為錨，local exact VSIX SHA-256為
@@ -110,16 +110,16 @@ publisher、license、extension ID、archive SHA-256與逐member size／SHA-256�
 - Webview必須符合ADR-0219：只載入VSIX內script/style，所有動態內容只走`textContent`，0.2.0不解析Markdown／HTML。
 - 自動測試只用pytest temp sandbox與fake runner，不登入Marketplace、不啟動VS Code、不碰`data/`。
 - Docker、GHCR、audit、Azure、GitHub Actions、Open VSX與push未因本流程獲得授權；已發生的stage、commit、
-  tag、candidate、smoke、upload與readback均來自各自的fresh Owner gate，互不構成其他動作的授權。
+  tag、candidate、smoke、upload與readback均各自經維護者當次核准，互不構成其他動作的授權。
 - npm registry transmission只授權exact依賴與lock/node_modules重建；它不授權VSIX upload或任何publication。
 
 ## 目前人工發行證據
 
-- Owner人工見證本機候選的隔離Windows／VS Code smoke全部符合，並在Marketplace網頁完成單次手動upload。
+- 維護者人工見證本機候選的隔離Windows／VS Code smoke全部符合，並在Marketplace網頁完成單次手動upload。
 - READBACK-R1在全新隔離profile從Marketplace安裝`touka-ai.toukaide@0.2.0`，其後版本、啟動、側欄／
-  commands、惡意HTML／Markdown純文字顯示與換行的人工smoke均由Owner回報符合。
+  commands、惡意HTML／Markdown純文字顯示與換行的人工smoke均由維護者回報符合。
 - 此紀錄沒有Marketplace回傳的artifact digest或其他可證明遠端bytes與上述local VSIX全等的證據；因此只能
-  標示為Owner／human attestation，不能標示為exact-byte readback。
+  標示為維護者／human attestation，不能標示為exact-byte readback。
 - 本流程不建立或驗證receipt v3，不啟動ToukaReleaseAuthority production provider，也不解鎖P11-C、
   provider-backed qualification或sunset decision；Git push亦未發生。
 
@@ -133,5 +133,5 @@ publisher、license、extension ID、archive SHA-256與逐member size／SHA-256�
 ## 後續階段
 
 ToukaIDE Marketplace人工流程完成後已停止。GHCR的三個產品映像打包、掃描、雙平台／試跑、publish與readback
-必須重新提出DEV-A；不得沿用本ADR或Marketplace登入的授權。Azure與ADR-0217 aggregate activation只有
-在Owner未來明確選擇自動化高保證release chain時才重新評估。
+必須重新提出計畫並經審查；不得沿用本ADR或Marketplace登入的授權。Azure與ADR-0217 aggregate activation只有
+在維護者未來明確選擇自動化高保證release chain時才重新評估。

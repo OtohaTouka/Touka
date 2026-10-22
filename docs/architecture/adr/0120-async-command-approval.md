@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2600 passed/4 skipped；擁有者尚未 commit）**。本 ADR 落地 [ADR-0119](0119-unified-tool-interface-redesign.md) 的刻意遞延項之一，延續其雙軌 shim 原則與 Tier 1 結構化錯誤（禁令 59）。
+✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2600 passed/4 skipped）**。本 ADR 落地 [ADR-0119](0119-unified-tool-interface-redesign.md) 的刻意遞延項之一，延續其雙軌 shim 原則與 Tier 1 結構化錯誤（禁令 59）。
 
 > 🗑️ **非同步審批機制已被 [ADR-0143](0143-hitl-unification.md)（HITL 統一，2026-07-11）反轉（含行為回退）**：互動路徑改由統一聊天審批 broker（`tool_executor._await_human_approval`，Gate 2）在 `execute_command` 被呼叫**之前**同步阻塞等待審批（最多 `approval_service.DEFAULT_TIMEOUT_S=180s`），通過後才以 `_hitl_preapproved=True` 執行；terminal 自帶的 `approval_pending → get_command_result` 流在正常互動下不再被觸及（headless 因前端不訂閱 `/terminal/stream` 而 fast-fail）。**故本 ADR 的兩項核心後果——「不阻塞 ReAct 迴圈」與「前端零改動」——已不成立**（0143 新增 `ToolApprovalCard.tsx` 及相關前端接線）。`execute_command` / `get_command_result` / 背景執行（`background=true`）工具面本身仍有效。
 

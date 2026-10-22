@@ -1,8 +1,8 @@
 # ADR-0247：模型溝通層第 3a 段（Claude 官方 SDK 1.x、每模型規則表）
 
-- 狀態：✅ 已接受（Owner 2026-10-12 核准模型層總計畫）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫）
 - 日期：2026-10-12
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`services/models/model_rules.py`（新）、刪 `handlers/adapters/claude_model_rules.py`、`adapters/openai_to_claude.py`、`claude_adapter`、`gemini_adapter`、`services/completion.py`、`main.py`、`config.py`（`ANTHROPIC_API_BASE_URL`、SDK 環境變數清除）、`dispatchers/factory.py`、`providers/pricing.py`（新型號價格）、`services/models/fetcher.py`、`routers/models.py`（Claude 健康檢查）、另外 6 個檔共 8 處 httpx client 補明寫 `follow_redirects=False`（httpx 預設就不跟隨，行為不變）、`scripts/run_tool_eval_episode.py`、`tests/smoke/manual/live_chat_probe.py`、`ToukaProxy/pyproject.toml`／`uv.lock`、`SECURITY.md`、對應測試與文件；golden 零差異
 - 取代 [ADR-0241](0241-model-layer-stage-0.md) 決策 3（Claude 思考與強制工具暫行規則併入每模型規則表）
 - 修訂 [ADR-0242](0242-model-layer-stage-1a.md) 的 KF 表：KF-5、KF-7b、KF-10 與新對話第 2 輪沒有斷點，改為已修

@@ -1,6 +1,6 @@
 # ADR-0116：ToukaMemory 收斂為「整合模式單一部署」— 退役獨立 MCP 模式、保留依賴反轉接縫
 
-- **狀態**：✅ 已接受（2026-06-25；擁有者核准 Option B，已實作並全綠驗證：guard 37/37、後端 pytest 2431 passed/2 skipped、smoke 24/24，整合路徑零回歸）
+- **狀態**：✅ 已接受（2026-06-25；維護者核准 Option B，已實作並全綠驗證：guard 37/37、後端 pytest 2431 passed/2 skipped、smoke 24/24，整合路徑零回歸）
 - **日期**：2026-06-25
 - **影響範圍（若採納）**：ToukaMemory（`server.py`／`run_server.py`／`config_utils._FallbackResourceProxy` 退役、`get_resource_proxy()` 簡化、獨立安裝足跡）＋ 守衛/文件（Guard #21 `.importlinter`、ADR-0032、`AGENTS.md` 禁令 14、`docs/guides/deployment_guide.md`、`ToukaMemory/README.md`、`tests/unit/test_memory_resource_proxy.py`）
 - **關鍵字**：ToukaMemory, MCP standalone mode, integration-only, dependency inversion, IResourceProxy, ResourceManager, Guard #21, ADR-0032, 禁令 14, deployment simplification, maintenance burden, scope reduction
@@ -14,7 +14,7 @@ ToukaMemory（套件 `memory_server`）目前設計為**雙模式**運作：
 
 模式 B 的存在驅動了一整套抽象與守衛：依賴反轉協定 `IResourceProxy`、工廠 `get_resource_proxy()`、純 `pathlib/os` 的 `_FallbackResourceProxy`、模組邊界守衛 Guard #21（`.importlinter` contract `toukamemory-independence`，即 AGENTS.md **禁令 14** / ADR-0032），確保 ToukaMemory 不硬依賴 ToukaProxy 內部模組。
 
-**觸發本評估的兩件事**：①雙模式提高了 ToukaMemory 每次變更的維護稅（「兩個模式都要顧」）；②擁有者裁示——GitHub 上 AI 記憶專案眾多，**ToukaMemory 是設計給 Touka 自家用的，不需要再保留 MCP 模式給外部工具**。
+**觸發本評估的兩件事**：①雙模式提高了 ToukaMemory 每次變更的維護稅（「兩個模式都要顧」）；②維護者決定——GitHub 上 AI 記憶專案眾多，**ToukaMemory 是設計給 Touka 自家用的，不需要再保留 MCP 模式給外部工具**。
 
 ### 已驗證的事實（2026-06-25 對抗式查證，附證據）
 
@@ -75,7 +75,7 @@ ToukaMemory（套件 `memory_server`）目前設計為**雙模式**運作：
 
 核心取捨是「**簡化程度 vs 解耦保留**」。Option C 最簡但把記憶與代理層焊死；Option A 最有彈性但為死功能付稅。Option B 取中間：**只移除「跨進程/雙部署」這個真正昂貴的維度，保留「依賴反轉」這個便宜又有價值的設計**。由於 `IResourceProxy` 是純介面、`get_resource_proxy()` 是單一注入點、`ResourceManager` 已實作全介面，保留它幾乎零成本，卻換得解耦與可測試性。
 
-唯一被放棄的能力是「把 Touka 記憶當獨立 MCP server 開放給外部 AI 宿主」。鑑於：①該模式現為**降級**（無身分隔離、無路徑保護），本就不宜外露；②擁有者明示**不需要**（ToukaMemory 為自家用、市面 AI 記憶專案已多）；③日後若真要，應重新設計**有隔離的正式版**，而非沿用今日的降級分支——此選項的喪失成本實質為零。
+唯一被放棄的能力是「把 Touka 記憶當獨立 MCP server 開放給外部 AI 宿主」。鑑於：①該模式現為**降級**（無身分隔離、無路徑保護），本就不宜外露；②維護者明示**不需要**（ToukaMemory 為自家用、市面 AI 記憶專案已多）；③日後若真要，應重新設計**有隔離的正式版**，而非沿用今日的降級分支——此選項的喪失成本實質為零。
 
 ## 後果（Consequences）
 

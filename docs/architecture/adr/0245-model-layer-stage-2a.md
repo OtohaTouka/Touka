@@ -2,15 +2,15 @@
 
 > ADR-0276 修訂對話綁定與 SNS 邊界：家定位／注入必驗同列 agent_id；人類 UI 換綁需兩側授權、家先取消，非人類不得換綁。SNS 使用可信執行身分與每靈魂頻道，跨目標限 adapter 唯一人類擁有者同時擁有的靈魂，群聊不寫單靈魂 session。
 
-- 狀態：✅ 已接受（Owner 2026-10-12 核准模型層總計畫與 AGENTS 大綱）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫與 AGENTS 大綱）
 - 日期：2026-10-12
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：聊天端點（`routers/proxy.py`）與上傳（`routers/chat_upload.py`）、`MonitorLayer`／`SoulLayer`／`CustomModelLayer`（靈魂目標授權，修補）、`authorization_gateway`（`can_drive_soul`／`require_soul_access`，修補）、自訂模型路由與 `custom_soul` 路徑（修補）、計分卡路由（修補）、前情摘要與舊串流寫回的 session 綁定（`SoulLayer`／`dispatcher`，修補）、`SkillLayer`、`models/identity.py` 的角色集合、`permission_service`（角色解析、讀到舊值略過）、`agent_service.holds_agent_role`、`identity_router` 的 X-Agent-ID 切換、`/identity` 路由、子代理（`subagent_tools`）、群聊（`group_router`、`dispatchers/group.py`、`group_settings`、SNS `@別名`）、三個 `.example` 設定與 `permission_defaults`、`endpoint_auth_allowlist`、`guard_role_plane` 鏡像、ToukaChat 身分對應／心跳白名單／群聊設定頁、AGENTS.md（身分、禁令 16、群聊）
 - 修訂關係：本 ADR 修訂 [ADR-0134](0134-in-process-subagent-dispatch.md)（子代理改用 Subagent）、修訂 [ADR-0141](0141-role-plane-separation.md)（代理角色集合、X-Agent-ID 只切靈魂）、修訂 [ADR-0147](0147-soul-role-type-binding.md)（拿掉自訂模型的類型規則、覆寫只對三種 ID 生效）、修訂 [ADR-0154](0154-foreground-soul-identity-assumption.md)（修補：不擁有靈魂的非 admin 人類指定靈魂改為 403，不再只是不換身分）
 
 ## 背景
 
-Owner 決定之後只讓靈魂有代理權限（DebugAgent、DispatchAgent 保留），群聊的一般模型與訪客移除。盤點時確認：
+維護者決定之後只讓靈魂有代理權限（DebugAgent、DispatchAgent 保留），群聊的一般模型與訪客移除。盤點時確認：
 
 - **既有漏洞**：`/messages`、`/chat/completions`（含 `/v1`）在免登入清單內，沒帶憑證就以 Guest 情境進 pipeline。指定靈魂名字會套上它的人設、注入家對話，並用伺服器金鑰呼叫模型；外部無卡與「系統認領後的本機無卡」都成立。
 - **Guest 被三種東西共用**：未登入的訪客、自訂模型（ADR-0147 的 `is_custom→Guest`）、in-process 子代理（ADR-0134）。
@@ -42,19 +42,19 @@ Owner 決定之後只讓靈魂有代理權限（DebugAgent、DispatchAgent 保�
    - 群聊派發一律以靈魂身分執行（套人設與家對話、`is_toukasoul=True`），刪掉一般模型分支與它的 Guest 身分。SNS 的 `@別名` 走同一條路，只到靈魂。
    - `GroupWhitelist` 只剩 `ToukaSoul` 一區（`extra="forbid"`，送 `Native`／`Custom` 回 422）；`group_whitelist.json.example` 與前端群聊設定頁一併移除兩區與對應翻譯 key。
    - 1:1 直接和一般模型聊天不在本段範圍：照舊以人類身分執行，沒有工具也沒有技能。
-5. **讀到 live 設定舊值時：略過＋警告，不改檔**（tracked live 設定由 Owner 手動維護）
+5. **讀到 live 設定舊值時：略過＋警告，不改檔**（live 設定由使用者手動維護）
    - `identity_map.json`：指派給 Guest 的規則一律當 Base（不往下落到其他規則，避免升級）；非這三種 ID 的覆寫與規則讀取時略過。
-   - `permissions.json`：Guest 角色與 `inherits` 裡的 Guest 移除，不當 Subagent 用；檔內沒有 `Subagent` 時子代理沒有工具。live 權限設定檔已改成新版面（人類 10/12 同意），與 `.example` 相同。
+   - `permissions.json`：Guest 角色與 `inherits` 裡的 Guest 移除，不當 Subagent 用；檔內沒有 `Subagent` 時子代理沒有工具。
    - `group_whitelist.json`：`Native`／`Custom` 等非 `ToukaSoul` 區讀到就略過。
-   - `POST /identity` 存檔時，檔內原有、讀取時被略過的舊覆寫原樣保留，不替 Owner 刪設定。群聊設定頁存檔則照舊整份寫回，只寫 `ToukaSoul` 區（見剩餘風險）。
+   - `POST /identity` 存檔時，檔內原有、讀取時被略過的舊覆寫原樣保留，不替使用者刪設定。群聊設定頁存檔則照舊整份寫回，只寫 `ToukaSoul` 區（見剩餘風險）。
 
 ## 代價與剩餘風險
 
-- live `identity_map.json` 仍留著舊值：非靈魂的舊覆寫畫面上看不到、但會被存檔保留，要清掉只能手動改檔。每次載入都會記 AUDIT 警告。live 權限設定檔已改成新版面（人類 10/12 同意）。
+- live `identity_map.json` 仍留著舊值：非靈魂的舊覆寫畫面上看不到、但會被存檔保留，要清掉只能手動改檔。每次載入都會記 AUDIT 警告。
 - 使用者自己的舊權限檔若還有 Guest、沒有 `Subagent`，子代理沒有工具（舊 Guest 只略過並記警告），要手動改成新版面。
 - 自訂模型、一般模型不再能當代理人使用（沒有工具、不能被 X-Agent-ID 切入、不能進群聊）。管理員也不能再用 X-Agent-ID 切進 DebugAgent、DispatchAgent。
 - 靈魂判定依 soul 目錄與 config 標記；資料不完整的靈魂會被當成非靈魂（Base）。
-- 群聊設定頁存檔時只寫 `ToukaSoul` 區，live `group_whitelist.json` 裡的舊 `Native`／`Custom` 區會在 Owner 按下存檔那次消失（和 `POST /identity` 保留舊覆寫的做法不同；只在人按存檔時發生）。
+- 群聊設定頁存檔時只寫 `ToukaSoul` 區，live `group_whitelist.json` 裡的舊 `Native`／`Custom` 區會在使用者按下存檔那次消失（和 `POST /identity` 保留舊覆寫的做法不同；只在人按存檔時發生）。
 - 舊版前端若還送 `Native`／`Custom` 會被 422 拒絕，載入新版即可。
 - **原列已知殘留，已修**：本段第 1 項只擋了「未登入」；已登入的非擁有者（含經 `/auth/register` 自助註冊的帳號）仍能指定別人的靈魂（套人設、注入家對話與前情摘要、用伺服器金鑰呼叫模型），群聊 `@別名`、子代理 `sub_model` 同一根因。已由下方「修補：非擁有者不能指定別人的靈魂」一節修掉。
 - 首裝前帶 X-Agent-ID＝靈魂名領到的 LDH 卡只綁 ID、效期 7 天；系統認領後這張卡會解析成該靈魂的 Owner（含兩個能力）。既有行為，另案處理。
@@ -70,14 +70,14 @@ Owner 決定之後只讓靈魂有代理權限（DebugAgent、DispatchAgent 保�
 - 修補（session 歸屬）：新增 `test_session_binding_security.py` 15 個（修補前 8 個紅：兩個端點、一般與 SNS 形式的 session ID，前情摘要被注入、回覆寫進對方 session 且綁定被改成 Bob）；`test_soul_layer_incognito` 讓 sess-1 綁在 Sumi，兩例只差在無痕閘，斷言不變。一般模型寫回補 4 個（修補前 2 個紅：normal 使用者帶別人的 session_id，回覆寫進對方 session），共 19 個。
 - 修補（非擁有者指定靈魂）：新增 `test_soul_target_ownership_security.py` 30 個（修補前 14 個紅：HTTP 10 個回 200 且人設、家對話、上游都被觸及；子代理 1 個把別人的靈魂人設注入；群聊 3 個照樣派發）；兩個既有測試因新規則調整、不放寬：`test_monitor_authlevel_gate` 的一般使用者改為預期 403（另保留模式不被寫入的斷言），`test_auth_mode_authority_security` 點名另一個靈魂的那一例改由兩個都擁有的擁有者發出，斷言不變。再審（R-2a ① 第 2 次）的繞法：新增 `test_soul_target_bypass_security.py` 28 個（修補前 21＋3 個紅：再審第 2 次的子代理 `model=None` 兩例回 `MODEL_NOT_FOUND`、`ToukaSoul<靈魂>` 建立回 200；其餘：同名自訂模型與 `../soul/`、`..\soul\` 穿越都會套上別人的人設；建立、改名自訂模型照樣接受靈魂名稱與含 `..` 的 ID；ToukaChat 靈魂對話裡的子代理被 403、還清掉父 session 的中斷旗標；計分卡對別人的靈魂照樣開跑）；Guard #45 基準只新增子代理讀 `base_ctx` 的 `headers` 一項。
 
-## 修補：非擁有者不能指定別人的靈魂（Owner 2026-10-12 19:04「一 甲」）
+## 修補：非擁有者不能指定別人的靈魂（維護者 2026-10-12 決定採用下列新規則）
 
 R-2a ① 指出：已登入的非擁有者（含自助註冊後立即登入的帳號）或別的代理 token，只要把 `model` 或 `X-Touka-Soul-ID` 指向別人的靈魂，MonitorLayer 認出靈魂後只是「不換身分」，SoulLayer 照樣套人設、注入家對話與前情摘要，再用伺服器金鑰呼叫模型。群聊 `@別名` 與子代理 `sub_model=<靈魂>` 是同一個根因（子代理已用測試確認：組裝時會套上別人的靈魂人設，家對話由 SoulLayer 同一段接著注入）。
 
 新規則（授權閘道 `can_drive_soul`／`require_soul_access`，不是 Depends，由呼叫端在解析出目標後呼叫）：
 
 - **人類呼叫者**：要擁有該靈魂（`owned_agents`）或是 admin，否則 403 `AUTH_PERMISSION_DENIED`。
-- **代理呼叫者**：只能是靈魂本身或 `DebugAgent`，否則 403。admin 經 X-Agent-ID 代打（ADR-0141 §8-1 選項 A，保留 `human_role="admin"`）照舊算 admin（技術主管 10/12 裁定）；擁有者經 X-Agent-ID 切進自己的靈魂後，就是那個靈魂的代理身分，不能再指定別的靈魂。
+- **代理呼叫者**：只能是靈魂本身或 `DebugAgent`，否則 403。admin 經 X-Agent-ID 代打（ADR-0141 §8-1 選項 A，保留 `human_role="admin"`）照舊算 admin（2026-10-12 審查時決定）；擁有者經 X-Agent-ID 切進自己的靈魂後，就是那個靈魂的代理身分，不能再指定別的靈魂。
 - **兩道檢查**：MonitorLayer 解析完目標（標頭、模型名、session 連結、已驗證身分四個來源都算）之後、寫入 `is_toukasoul` 與前景代打（ADR-0154）之前先驗一次；SoulLayer 套人設、注入家對話之前，對它真的要注入的靈魂 ID 再驗一次（前景代打後 ctx 身分已是該靈魂）。中間的層改了 `agent_id` 也擋得住。擁有者或 admin 與靈魂交談的既有前景代打不變；心跳不經 pipeline，不受影響。
 - **自訂模型**（再審第 1 點）：CustomModelLayer 遇到靈魂請求直接跳過，同名自訂模型不能把已授權的目標換掉。`custom_soul` 路徑必須留在 `custom/` 底下（禁令 17，`is_relative_to`）：`../soul/<靈魂>`（Windows 另有 `..\soul\<靈魂>`）不再讀到、也寫不進靈魂目錄或資料夾外。建立自訂模型與改名時，新 ID 和靈魂撞名回 409 `MODEL_ALREADY_EXISTS`（經 `agent_service.identify_agent` 正規化，`ToukaSoul<靈魂>` 也算；大小寫跟著檔案系統，Windows 不分），含 `/`、`\` 或 `..` 回 422 `VALIDATION_ERROR`；更新既有自訂模型不受影響。
 - **群聊**：成員名單解析完後，每位成員都檢查；有一位不行整輪不派發（連可以的成員也不先講），以群聊既有的串流內錯誤訊息回覆（名單在串流內解析，HTTP 狀態已是 200，和其他群聊錯誤一致）。成員必須是靈魂（`resolve_soul` 的 `is_toukasoul` 檢查）已在 R-2a 修正時加上，本次只補釘出貨範本 HeartbeatTester 的測試。
@@ -92,14 +92,14 @@ R-2a ① 指出：已登入的非擁有者（含自助註冊後立即登入的�
 - 靈魂判定（`is_toukasoul`）本身不擋 `../soul/<靈魂>` 這類變形 ID；這種 ID 對不上任何人的 `owned_agents`，一般使用者會被 403，只有 admin 與 DebugAgent 走得過去（他們本來就能指定任何靈魂）。
 - `/v1/models` 仍列出所有靈魂（不看擁有權），非擁有者在選單看得到別人的靈魂名稱，選了才會收到 403。
 - SNS 等內部路徑不檢查，安全性依賴「HTTP 聊天端點一定有身分」；之後若新增不經 `require_authenticated` 的入口呼叫 pipeline，要自己帶身分。
-- 已存在、和靈魂同名的舊自訂模型不會被改名或刪除；它們不再能蓋過靈魂（MonitorLayer 先認靈魂、CustomModelLayer 跳過靈魂請求），要清掉須 Owner 手動處理。
+- 已存在、和靈魂同名的舊自訂模型不會被改名或刪除；它們不再能蓋過靈魂（MonitorLayer 先認靈魂、CustomModelLayer 跳過靈魂請求），要清掉須使用者手動處理。
 - 父代理沒有大腦設定時（例如人類身分直接跟一般 Claude 模型聊天），沒指定 `sub_model` 的子代理仍會路由失敗（既有問題，本次未擴大範圍）。
 - 子代理的預設模型：主要情況已修。3b-U4b-2（ADR-0248，附註 35）讓 factory 的 Anthropic 分支也寫入 `context["model"]`，執行器注入的就是父這一輪實際用的模型，心跳 `model_override`、計分卡、admin 或 DebugAgent 驅動別的靈魂都對。剩父這一輪的 context 完全沒有模型的情形，才退回「執行中身分設定的大腦」（`get_active_brain`），那時仍可能和父實際用的模型不同。
 - 原列「前情摘要與 assistant 回覆寫入不檢查 session 屬於誰」已修，見下方「修補：session 歸屬」一節。
 - 自訂模型存檔失敗（`save_model` 回 False）時路由仍回 success（既有問題，本次未修）。
 - 靈魂把自己當 `sub_model` 也會被拒（臨時身分不是它）；原本這樣用時請求的模型名是靈魂 ID，本來就路由不到模型。
 
-## 修補：session 歸屬（Owner 2026-10-12 21:29「甲」）
+## 修補：session 歸屬（維護者 2026-10-12 決定採用下列規則）
 
 R-2a ① 再審第 2 次問題 2：靈魂對話的前情摘要（`context_summary`）只用 session_id 查、不看 session 屬於誰；沒帶 `ui_persistence` 的舊串流路徑（`resumable_stream`）也只用 session_id 把回覆寫回。擁有 Bob 的人送「model／標頭 Bob＋別人 session 的 session_id」，就讀到對方的前情摘要，回覆還寫進對方的 session，連 session 綁的 agent 都被改成 Bob（測試實測）。SNS 的 session ID（`sns_{platform}_{channel}`）可預測。R-U2-SESSION 再審又找到兩條能**改寫綁定**的路徑（綁定一改，`session_bound` 就放行）：Owner 角色的代理對「沒有人類擁有者」的一般模型 session 被 `can_access_session` 放行（attack_a）；`connect_mcp_server`／`activate_skill` 寫 session 不檢查綁定、還用 `identity=` 改綁定（attack_b）。兩條都一併修掉。
 
@@ -118,13 +118,13 @@ R-2a ① 再審第 2 次問題 2：靈魂對話的前情摘要（`context_summar
 - ToolLayer 照 session 讀 `active_mcp_servers` 時不看綁定（只影響掛哪些 MCP、仍受角色授權，不在本次範圍）。
 - MonitorLayer 清中斷旗標已移到 `require_soul_access` 之後——被 403 的靈魂請求不再清旗標（R-U2-SESSION 再審第 2 次 LOW）。殘留：一般模型對話帶別人 sid 仍會在授權前清到該 sid 的旗標（非靈魂、不經 soul-access 檢查；資料不外洩、buffer 不為未授權寫入建立、且需先知道對方 UUID／8 位隨機碼 sid）。
 - 工具綁定守衛以去 `ToukaSoul` 前綴後字串比對，不走 `identify_agent` 的完整正規化（自訂模型等情形不適用，因綁定值為靈魂 id）。
-- set_home 現在以正規化後的正式靈魂 id 為準，兩個邊角可接受（reviewer 判斷）：伺服器端 `agent_id` 為 NULL 的舊 session 無法設家（R4 正規化後 None≠req）；家對話裡已換過模型（綁定被改成另一個模型）時，無法再經 set_home 取消該家對話。前端正常流程送 `sess.agent_id`、與伺服器綁定一致，不受影響。
+- set_home 現在以正規化後的正式靈魂 id 為準，兩個邊角可接受（審查判斷）：伺服器端 `agent_id` 為 NULL 的舊 session 無法設家（R4 正規化後 None≠req）；家對話裡已換過模型（綁定被改成另一個模型）時，無法再經 set_home 取消該家對話。前端正常流程送 `sess.agent_id`、與伺服器綁定一致，不受影響。
 
 ## 回復
 
 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）。四件事分開撤回，各自 revert 產品程式、測試與對應文件；本 ADR 改「⛔ 已撤回」（或註明撤回哪一項），ADR-0134／0141／0147 的反向註記同步改寫，CHANGELOG 加一列。
 
 - 撤回 1＝重新開放沒登入的聊天，會把漏洞帶回來，不建議。
-- 撤回 2 要一起還原 Guest 角色、`.example`、`permission_defaults`、`guard_role_plane` 鏡像與子代理角色；live 權限設定檔已改成新版面（人類 10/12 同意），要一起改回舊版面。
+- 撤回 2 要一起還原 Guest 角色、`.example`、`permission_defaults`、`guard_role_plane` 鏡像與子代理角色；已改成新版面的 live 權限設定檔也要一起改回舊版面。
 - 撤回 3、4 各自還原角色解析、X-Agent-ID、`/identity`、群聊與前端；live 設定裡被略過的舊值會重新生效。
-- AGENTS.md 的身分、禁令 16、群聊段落要改回須經 Owner 同意。
+- AGENTS.md 的身分、禁令 16、群聊段落要改回須經維護者同意。

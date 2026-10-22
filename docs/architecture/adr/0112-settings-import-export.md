@@ -16,7 +16,7 @@
 
 ## 決策（Decision）
 
-新機制命名 **設定快照（Config Snapshot，`settings_snapshot`）**，與「備份」區隔。擁有者拍板三決策：**合併為主＋逐區可選覆蓋**、**純 JSON 為主（加密選用）**、**v1 只含 config JSON（不含 .env 微調）**。
+新機制命名 **設定快照（Config Snapshot，`settings_snapshot`）**，與「備份」區隔。維護者決定三件事：**合併為主＋逐區可選覆蓋**、**純 JSON 為主（加密選用）**、**v1 只含 config JSON（不含 .env 微調）**。
 
 ### D1 — 範圍（單一 `SECTIONS` 註冊表 SSOT）
 `settings_snapshot_service.SECTIONS` 宣告每區的：來源檔、合併策略、匯出脫敏／匯入清洗、熱載入器、是否需重啟。**納入（14 區）**：autonomy、permissions、auth_policies、sliding_window、group_whitelist、instruction_templates、model_pricing、model_context_windows、models_blacklist、models、connections、mcp_servers、skills_custom、backup_schedule。
@@ -48,14 +48,14 @@
 ## 後果（Consequences）
 
 - ✅ admin 可把系統設定克隆到新機器／版本化／還原基線，constraint-clean（零機密、零使用者資料、不碰靈魂）。
-- ✅ 合併為主＋乾跑預覽＋匯入前自動備份＋密碼重輸 → 對非技術擁有者 safety-first。
+- ✅ 合併為主＋乾跑預覽＋匯入前自動備份＋密碼重輸 → 對非技術使用者 safety-first。
 - ⚠️ 跨版本 schema 漂移由 `schema_version` 擋未來版＋ sha256 完整性緩解；未知區忽略不阻斷。
 - ⚠️ 部分區（MCP／定價／視窗）需重啟才完全生效，回應明列 `requires_restart`，不靜默 stale。
 
 ## 驗證
 build/validate/apply 全路徑＋機密回填＋only_existing 警告＋replace＋dry_run＋subset＋端點 admin/密碼/dry-run 閘皆經測試覆蓋（Phase 1：20 測，3.12 venv）。openapi+api.ts 重生；`guard_all` 37/37、pytest 2358、smoke 24/24。
 
-**Phase 1 對抗式安全複審（5 維×30 agent；25 findings → 逐項對抗式驗證 → 修 11、其餘駁回/by-design）**：
+**Phase 1 對抗式安全複審（5 個維度；25 findings → 逐項對抗式驗證 → 修 11、其餘駁回/by-design）**：
 - **🔴 High 機密遺失**：`replace` 模式與「env=null」會以遮罩假值/null 覆寫真金鑰 → 把 `import_clean_fn` 從「丟棄遮罩」改為「**從目標既有值回填**」（merge＋replace 兩模式皆不丟金鑰；非 dict env 還原既有）。
 - **🔴 High 機密漏遮罩**：`secrets.py` 遮罩正則過窄（僅 `API_KEY|SECRET|TOKEN|PASSWORD`）→ 擴充 `_KEY|CREDENTIAL|BEARER|PASSWD`（涵蓋 `ANTHROPIC_KEY` 等 MCP env），全系統遮罩 SSOT 受惠、無測試回歸。
 - **🟠 Med 連線 URL 內嵌帳密**：`_export_connections` 去除 `https://user:pass@host` 帳密。
@@ -65,4 +65,4 @@ build/validate/apply 全路徑＋機密回填＋only_existing 警告＋replace�
 - **🟢 Low**：`skipped_secrets` 改報「遮罩且目標無值可回填」之真待補填項；`mode` 改 `Literal`；模型匯入欄位顯式常數。
 - **駁回/by-design**：cross-instance 懸空參照（執行期已優雅處理）、reloader 失敗無回滾（刻意，有匯入前備份＋requires_restart 揭露）、partial-apply（匯入前備份已記入 AUDIT log）。
 
-**Phase 2 前端（EnvSettings 設定快照卡）**：`SettingsSnapshotCard`——匯出鈕（＋加密選用 checkbox／密語、blob 下載）；匯入選檔 → **自動乾跑預覽**（顯示涵蓋區／警告／待補機密／需重啟）→ merge/replace 模式切換（replace 顯破壞性警告）→「套用」開 Radix 確認框（密碼重輸）→ 套用 → 結果摘要（pre_import_backup／applied／requires_restart）。i18n zh/en（28 鍵×2）。對抗式複審（單 agent 聚焦）證實密碼/dry-run 安全面正確、無機密外洩；修 2 Med 狀態陳舊（預覽失敗清 stale preview、套用後改模式清 result 重啟循環）。前端 4 測；guard 37/37、vitest 813。
+**Phase 2 前端（EnvSettings 設定快照卡）**：`SettingsSnapshotCard`——匯出鈕（＋加密選用 checkbox／密語、blob 下載）；匯入選檔 → **自動乾跑預覽**（顯示涵蓋區／警告／待補機密／需重啟）→ merge/replace 模式切換（replace 顯破壞性警告）→「套用」開 Radix 確認框（密碼重輸）→ 套用 → 結果摘要（pre_import_backup／applied／requires_restart）。i18n zh/en（28 鍵×2）。聚焦的對抗式複審證實密碼/dry-run 安全面正確、無機密外洩；修 2 Med 狀態陳舊（預覽失敗清 stale preview、套用後改模式清 result 重啟循環）。前端 4 測；guard 37/37、vitest 813。

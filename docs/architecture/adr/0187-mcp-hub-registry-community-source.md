@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（MCP connectors 調查 F3，owner 點名修復；接續 ADR-0186 的 F1/F2）
+✅ 已接受（MCP connectors 調查 F3，維護者點名修復；接續 ADR-0186 的 F1/F2）
 
 ## 日期
 
@@ -60,7 +60,7 @@ TDD：6 行為紅＋1 ImportError 先行 → 實作轉綠 → 四變異單點紅
 
 - 社群貨架從「~100 條全死」→「誠實過濾後 N 條可裝」：面積縮小（registry 條目 stdio 佔比低，首頁樣本 7/50）換真實可用性＋真實 env 提示。
 - Smithery 匿名 API 仍活但只剩目錄價值、無可靠啟動路徑——不再使用。技能市場的 smithery.ai URL 白名單（`skill_service`）是另一功能、不受影響。
-- F4（enabled 半承接）／F5（種子單薄）不在本批；**F6＝本批調查新發現**：前端 `computeMcpStatus` 以 `hub.id` 比對 `server_config` 鍵，但安裝寫入鍵＝`derive_server_key(name)`（ADR-0102）→ Hub 卡片「已安裝／可更新」徽章恆判 `not_installed`——owner 點名制，僅記錄。
+- F4（enabled 半承接）／F5（種子單薄）不在本批；**F6＝本批調查新發現**：前端 `computeMcpStatus` 以 `hub.id` 比對 `server_config` 鍵，但安裝寫入鍵＝`derive_server_key(name)`（ADR-0102）→ Hub 卡片「已安裝／可更新」徽章恆判 `not_installed`——由維護者點名，僅記錄。
 
 ## 教訓
 

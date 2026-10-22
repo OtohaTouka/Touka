@@ -2,11 +2,11 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-13
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
-對 claude.ai／ChatGPT／Gemini 網頁版做競品功能盤點（2026 中、web 查證）後確認：三家皆有「Deep Research」（多步搜尋→閱讀→產出帶引用的長報告），ToukaChat 雖有 `research` 工具（Tavily/Google）卻無打包的研究 UX。鑑於 Touka 本就是**自主代理平台**（ReAct 迴圈＋Skills＋artifacts），此功能與定位高度契合，故補上。擁有者拍板採**逐則切換鈕**觸發（非整段對話模式、非自動召喚）。
+對 claude.ai／ChatGPT／Gemini 網頁版做競品功能盤點（2026 中、web 查證）後確認：三家皆有「Deep Research」（多步搜尋→閱讀→產出帶引用的長報告），ToukaChat 雖有 `research` 工具（Tavily/Google）卻無打包的研究 UX。鑑於 Touka 本就是**自主代理平台**（ReAct 迴圈＋Skills＋artifacts），此功能與定位高度契合，故補上。維護者決定採**逐則切換鈕**觸發（非整段對話模式、非自動召喚）。
 
 ## 決策方案 (Decision)
 

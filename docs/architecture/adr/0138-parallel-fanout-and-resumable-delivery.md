@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-07；擁有者尚未 commit）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) **Phase 4**（規模化與可靠性收尾）——需求 1 完整 fan-out ＋ 需求 3 斷線續接韌性。**本 ADR 落地即完成整份提案的四階段增量。**
+✅ **已接受（實作與驗證 2026-07-07）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) **Phase 4**（規模化與可靠性收尾）——需求 1 完整 fan-out ＋ 需求 3 斷線續接韌性。**本 ADR 落地即完成整份提案的四階段增量。**
 
 ## 日期
 

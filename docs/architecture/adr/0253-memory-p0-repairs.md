@@ -1,8 +1,8 @@
 # ADR-0253：記憶系統第一批 PR-1：退役舊事實檔自動匯入、記憶提示管道、舊對話同步照實回報、恢復重複掃描、Guard #45 讀內部 action 正本
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第一批計畫；本 ADR 是第一個 PR（段 1））
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是第一個 PR（段 1））
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（`factual.py`、`services/legacy_store.py`、`services/legacy_sync.py`、`services/manager.py`、`tools/recall.py`、`tools/diag.py`、`tools/__init__.py`）；ToukaProxy（記憶閘道 `tools/builtin/memory.py`、`routers/stats.py`、`routers/observability.py`、`main.py` lifespan、`services/gdpr_export_service.py`）；ToukaChat（`SystemStatusContext`、`MemoryNoticeBar`、`SidebarIdentity`／`LeftSidebar`、`useLegacySync`、兩語翻譯）；Guard #45（`scripts/guard_native_tool_contracts.py`）
 - 相關：ADR-0078（失效可觀察性）、ADR-0116（整合模式單一部署）、ADR-0228（原生公開合約；本 ADR 維持其決策 5 的 `manage_dups` 合約）。這些 ADR 的決策都不變。
 
@@ -85,7 +85,7 @@
 
 ## 已知限制（本批不動）
 
-- `async_db.cleanup_expired_sessions()` 以秒算截止值，但 `last_activity_at` 存毫秒，所以「刪 90 天前的舊對話」從沒刪過任何列。直接修好的話，下次啟動會一次刪光 90 天前的非家對話（不轉存）。列在第二批，連同對話生命週期由 Owner 決定（修好並先轉存、正式拿掉這個清理、或維持現狀）；決定前不要順手修。
+- `async_db.cleanup_expired_sessions()` 以秒算截止值，但 `last_activity_at` 存毫秒，所以「刪 90 天前的舊對話」從沒刪過任何列。直接修好的話，下次啟動會一次刪光 90 天前的非家對話（不轉存）。列在第二批，連同對話生命週期由維護者決定（修好並先轉存、正式拿掉這個清理、或維持現狀）；決定前不要順手修。
 - `FactualStore.query_facts` 仍把查詢失敗吞成空清單；隨機回想只偵測得到呼叫層級的失敗（例如參數錯），資料庫讀取失敗仍會被當成「沒有事實」。列在第二批，和記憶庫正本化一起處理。
 - `time_utils.py` 仍判斷已退役的工具名 `save_memory`，要改 `tool_executor.py`，延到第二批。
 - 舊事實檔提示最多算到 50 個靈魂：`glob_search` 每次最多回 50 筆。

@@ -4,7 +4,7 @@
 **日期 (Date):** 2026-06-13
 
 > 🗑️ **具名機制已被 [ADR-0143](0143-hitl-unification.md)（HITL 統一，2026-07-11）汰換**：`AuthPoliciesConfig.read_only_tools: list[str]` 欄位、`config/auth_policies.json` 的 `read_only_tools` 鍵、以及 Guard #32 的 `read_only_tools ⊆ tool_registry` 驗證，皆已改為 `tool_risk: ToolRiskConfig`（`read_only`/`safe`/`dangerous` 三類分類表；Guard #32 改驗 tool_risk 分類雙向對齊）。**「read-only ⇒ 全等級（含 ReadOnly）ALLOW、免 HITL」的核心語意由 `tool_risk` 的 `read_only` 類承接不變**（`safety.py` `evaluate()` `if risk == "read_only": return ALLOW`）。
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 > 🔧 **「全等級（含 ReadOnly）ALLOW」已被 [ADR-0246](0246-model-layer-stage-2b-2c.md)（Manual／Auto／YOLO 三模式）修訂**：ReadOnly 已退役，read_only 類改為三種模式都 ALLOW、免 HITL，語意不變。
 
@@ -16,7 +16,7 @@
 **ReadOnly=DENY、Manual=CONFIRM、SafeAuto=CONFIRM、只有 FullYOLO=ALLOW**。等於唯讀的網路
 搜尋在預設等級下每次都要人工確認、ReadOnly 下還直接被擋。
 
-擁有者要：**唯讀（side-effect-free）動作（如網路搜尋）在任何 auth_level 一律自動執行、免確認。**
+維護者要求：**唯讀（side-effect-free）動作（如網路搜尋）在任何 auth_level 一律自動執行、免確認。**
 此為 Web Search 改進 Phase A（最小、自足、立即改善體驗）。
 
 ## 決策方案 (Decision)

@@ -1,8 +1,8 @@
 # ADR-0263：記憶系統第二批段 L：記憶會演變（一步取代）與安全標記
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 3 段的 PR，照一般驗收）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 3 段的 PR，照一般驗收）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（`factual.py`、新 `services/lifecycle.py`、`services/index_state.py`、`services/manager.py`、`tools/diag.py`、`tools/recall.py`、`tools/contracts.py`、`utils/content_guard.py`）；ToukaProxy 記憶閘道（`tools/builtin/memory.py`）；Guard #45 基準（`scripts/native_tool_contract_baseline.json`，1 行）；SECURITY.md
 - 相關：ADR-0228（公開合約、可信參數、Guard #45）、ADR-0246（Manual／Auto／YOLO）、ADR-0256（升級機制、只增不減與凍結、事實庫是正本、記憶來源）、ADR-0257（歷史資料界線）、ADR-0258（給模型看的時間），決策都不變；解決 ADR-0256 段 3 的兩條已知限制（取不到向量庫時 `query` 不退路；`reindex` 不修封存時沒同步的向量 payload），ADR-0256 已加反向註記
 
@@ -18,7 +18,7 @@
 
 - `FACTS_SCHEMA_STEPS` 加 v2：`status`、`superseded_by`、`safety_flags` 三欄（`TEXT DEFAULT NULL`，舊資料都是 NULL、不回填）＋`CREATE INDEX IF NOT EXISTS idx_superseded_by ON facts(superseded_by)`。v2 合併後凍結（`test_t17b_v2_is_frozen`）。
 - `status` 的值以 `factual.FactStatus` 為正本，目前只有 `superseded`（同時 `archived=1`、`superseded_by` 指向新的那筆）；NULL＝一般（有效，或只是被 forget 封存）。
-- 升級沿用 ADR-0256：只在 Proxy 啟動時、先備份、同一個交易、失敗停在舊版並出提示。**下次啟動 Touka 會自動把記憶庫升級一次（v1→v2），升級前先備份成 `core_memory.v1-to-v2.<epoch>.db`；Owner 目前沒有資料，實際上只會多一份備份檔。**
+- 升級沿用 ADR-0256：只在 Proxy 啟動時、先備份、同一個交易、失敗停在舊版並出提示。**下次啟動 Touka 會自動把記憶庫升級一次（v1→v2），升級前先備份成 `core_memory.v1-to-v2.<epoch>.db`。**
 - 讀取依結構版本選欄位（ADR-0256 2-7）：目前版本讀 v0＋`sources`＋三個 v2 欄（`_FACT_SELECT_V2`）；較新版本（NEWER）與失敗狀態只讀 v0 欄。寫入：目前版本一律用含 `sources`、`safety_flags` 的 INSERT（沒有就寫 NULL），較新版本用 v0 欄的 INSERT（來源與旗標都不記，同降版期間）。寫新欄位的 SQL 都在自己呼叫 `_require_schema(write=True)` 的函式裡，`test_t40` 擴到所有版本，並擋「把寫入 SQL 放成模組常數」的寫法。
 
 ### 2. 一步取代：`manage_dups(operation="supersede")`
@@ -83,13 +83,13 @@
 ## 和計畫不同的地方
 
 - forget 已被取代的舊版本時把它從歷史拿掉（計畫沒寫；不做的話 forget 回成功，舊版本卻照樣出現在歷史）。
-- supersede 沒給 tags 等就沿用舊的那筆（技術主管裁定）。
+- supersede 沒給 tags 等就沿用舊的那筆（審查時裁定）。
 - 閘道直接在模組頂部匯入 `SupersedeTargetError`：閘道頂部本來就經記憶來源查回器依賴 memory_server，不放進 try、不加 noqa。
 - 歷史的 SQL 寫成整句字面量（拼接常數會被 ruff S608 標記），排序用往回的層數（同一秒內連續取代時 created_at 相同）。
 
 ## 影響
 
-- **第一次啟動**：下次啟動 Touka 會自動把記憶庫升級一次（v1→v2），升級前先備份；Owner 目前沒有資料，只會多一份備份檔。之後重啟不再升級。
+- **第一次啟動**：下次啟動 Touka 會自動把記憶庫升級一次（v1→v2），升級前先備份。之後重啟不再升級。
 - 記憶工具公開合約：`manage_dups` 多 operation `supersede` 與 `content`／`tags`／`importance`／`emotions`；`query` 多 `include_history`。權限設定檔、openapi、NOQA、AGENTS.md 都不變。
 - 存含疑似指令的記憶，回覆多一句說明；語意查重擋下的回覆多一句 supersede 提示（`(ID: …)` 格式不變）。
 - GDPR 匯出（`export_facts`）在目前版本多帶 `status`、`superseded_by`、`safety_flags`。

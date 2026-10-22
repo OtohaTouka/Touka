@@ -1,8 +1,8 @@
 # ADR-0214：Standalone smoke 資料隔離與計量 API 人工閘
 
-- 狀態：✅ 已實作；Owner 以 `HUMAN_ONLY` 完成 DEV-B，並提交為 `a8f63e33`
+- 狀態：✅ 已實作；經維護者人工審查後提交為 `a8f63e33`
 - 日期：2026-08-14
-- 決策者：Owner（DEV-A／DEV-B 均選擇 `HUMAN_ONLY`）
+- 決策者：維護者（計畫與成果都由維護者親自審查）
 - 影響範圍：`tests/smoke/`、manual live probes、tool eval／scorecard CLI、
   ToukaMemory app-data resolver／vector lifecycle、Memory gateway、測試與安全文件
 - 修訂：[ADR-0006](0006-unified-testing-suite.md)、
@@ -25,7 +25,7 @@ sandbox。`smoke_memory_tools.py` 已把 app-data 解析到實體 DebugAgent 目
 migration；`smoke_chat.py` 更被裸 `smoke_*.py` glob 自動納入，會呼叫真實 provider、消耗額度，
 且吞掉例外後仍可能 exit 0 假綠。
 
-Owner 決定測試可以讀取實體資料，人工 live probe 亦可寫精確 DebugAgent 邏輯範圍；但任何自動化
+維護者決定測試可以讀取實體資料，人工 live probe 亦可寫精確 DebugAgent 邏輯範圍；但任何自動化
 寫入都必須進 sandbox／mock，非 DebugAgent／全域寫入永遠不得套用例外。由於目前 read path
 可能隱含 migration／index／lock 等寫入，本批不嘗試 selective live-read，而讓全部自動 smoke
 採更嚴格、可證明的全 sandbox。
@@ -121,7 +121,7 @@ Owner 決定測試可以讀取實體資料，人工 live probe 亦可寫精確 D
   live probe 的 `NOT RUN` 誠實保留 deployment／credential residual。
 - Manifest 與 CLI policy 分別成為執行分類與人工核准的 SSOT，新增測試時不再靠檔名慣例或文件
   記憶辨識費用風險。
-- 全 sandbox 比 Owner 允許的 live-read 更保守；若日後需要 production-fidelity read probe，必須
+- 全 sandbox 比維護者允許的 live-read 更保守；若日後需要 production-fidelity read probe，必須
   另案提供真正 read-only connection／preinitialized store 的機械證據。
 
 ## 驗證狀態
@@ -133,7 +133,7 @@ smoke 為 **24/24 Green**。Manual live probe 明列
 逐案 INFO log 的 full run 非零，但輸出截斷未留下 failure summary，後續四次未重現；此 residual
 不冒充 Green 或已定位問題。本機 Guard #1–21、#24–44 為 **42/42 Green**；外部 Guard #22
 pip-audit／#23 npm audit 均為 **NOT RUN**。所有計量／外部 API probe 固定 **NOT RUN**，不能列入
-Green 數字。Owner 已以 `HUMAN_ONLY` 完成 P11-B／ADR-0214 DEV-B，精確 95-path candidate 提交為
+Green 數字。P11-B／ADR-0214 經維護者人工審查，精確 95-path candidate 提交為
 `a8f63e33e4dde352aa6dd686d002cf4cf53a890e`。逐程序 temp write-root、mock／offline 與 credential
 scrub 不等於 OS-level egress jail；Debug Center backend gate 與不可重現 INFO-heavy run 仍保留為
 後續 residual。

@@ -1,8 +1,8 @@
 # ADR-0239：Authorization Gateway 與 ExecutionBroker（純重構）
 
-- 狀態：✅ 已接受（Owner 2026-10-09 核准計畫；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：子程序仍只經 ExecutionBroker 啟動，runner 只改寫啟動參數，exec 類呼叫只准出現在 `sandbox_kernel/launcher.py`；執行器伺服器也經 broker 啟動啟動器，ratchet 不放寬）
+- 狀態：✅ 已接受（維護者 2026-10-09 核准計畫；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：子程序仍只經 ExecutionBroker 啟動，runner 只改寫啟動參數，exec 類呼叫只准出現在 `sandbox_kernel/launcher.py`；執行器伺服器也經 broker 啟動啟動器，ratchet 不放寬）
 - 日期：2026-10-09
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`ToukaProxy/src/routers/*` 的角色檢查 helper、`services/authorization_gateway.py`（新增）、`services/execution_broker.py`（新增）、terminal／dispatch supervisor／review evidence／evolution／system backup／restore／`/mcp/scan` 的子程序啟動、`tests/lint/` ratchet 測試
 - 相關：ADR-0141（角色平面分離）、ADR-0034（端點認證守衛）、ADR-0069（創建主權）、ADR-0076（演化沙箱資源限制）、ADR-0082（Dispatch 併入 Proxy 容器）、ADR-0103（Windows Proactor 反死鎖）
 
@@ -13,7 +13,7 @@
 - **角色檢查**：`routers/` 內有 25 個私有 helper（如 `_require_mcp_role`、`_require_admin`），全部只是包一層 `AgentIdentity` 的判斷式（`is_privileged()`、`is_owner_or_admin()`、`is_admin_authority()`），歸納起來是 4 類相同行為加 1 個特例。
 - **子程序啟動**：Windows／POSIX 新行程群組設定重複 2 處；同步／非同步啟動散在 7 個服務與 router。各處環境淨化（`get_clean_env` 黑名單、Dispatch 白名單、Dispatch supervisor 全量＋注入、MCP `LaunchEnvironmentPolicy`）是刻意不同的政策，不是複製。
 
-Owner 決定本輪是**純重構**：收斂重複程式碼，對外行為（HTTP 狀態碼、錯誤碼、優先序、子程序參數與環境）完全不變。
+維護者決定本輪是**純重構**：收斂重複程式碼，對外行為（HTTP 狀態碼、錯誤碼、優先序、子程序參數與環境）完全不變。
 
 ## 決策
 

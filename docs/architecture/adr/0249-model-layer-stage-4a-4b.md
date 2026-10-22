@@ -1,8 +1,8 @@
 # ADR-0249：模型溝通層第 4a＋4b 段（插話）
 
-- 狀態：✅ 已接受（Owner 2026-10-13 12:38 看過模型層總計畫的最後報告後點頭，PR #79 已合併進 dev（`2e15da49`）；4a、4b 實作完成；R-4 對抗式複審與跨段 DEV-B 通過附註；Owner 2026-10-12 00:43 核准總計畫；DB-20、DB-21 甲、DB-22、DB-24 第 6、8 點；技術主管 4a DEV-A 裁定 1～11、追加 6～8；4b DEV-A 裁定 1～8）
+- 狀態：✅ 已接受（維護者 2026-10-13 看過模型層總計畫的最後報告後核准，PR #79 已合併進 dev（`2e15da49`）；4a、4b 實作完成；R-4 對抗式複審與跨段最終審查通過附註；維護者 2026-10-12 核准總計畫；DB-20、DB-21、DB-22、DB-24 第 6、8 點；4a 計畫審查裁定 1～11、追加 6～8；4b 計畫審查裁定 1～8）
 - 日期：2026-10-12（4a、4b 定稿 2026-10-13）
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：（4a）新 `services/interjection_queue.py`、`models/interjection.py`、`routers/ui_interjections.py`、`handlers/interjections.py`、`utils/interjection_notes.py`；`services/authorization_gateway.py`（`require_human_requester`）、`services/stream_buffer_service.py`（清空佇列）、`handlers/react_core.py`、`handlers/adapters/{base,claude_adapter,openai_adapter,gemini_adapter,responses_adapter}.py`、`services/dispatcher.py`、`routers/heartbeat.py`、`utils/async_db.py`、`services/dialogue_summarizer.py`、`main.py`、`config/errors.json.example`；ToukaChat（`lib/chat/interjections.ts`、`lib/chat/interjectionStore.ts`、`buildApiMessage`、`stream_tree`、`connections`、`StreamRegistryProvider`、`useInterjectionQueue`、`useInterjectionComposer`、`QueuedMessageList`、`InterjectionMarker`、`ChatArea`、`MessageItem`、兩語 locales）、openapi.json／api.ts、AGENTS.md（§3、禁令 65）；（4b）`services/interjection_queue.py`（`urgent_signal`、打斷事件）、`handlers/react_core.py`（`pump_send_round` 的 `urgent`、`RoundInterrupted`）、`handlers/interjections.py`、`handlers/adapters/*`（`interrupted=`、`INTERRUPT_TEMPLATE`）；ToukaChat（`interjections.ts`、`stream_tree`、`connections`、`InterjectionMarker`、`MessageItem`、兩語 locales）
 - 修訂 [ADR-0156](0156-react-core-extraction.md) 的 Provider Protocol 與 `run_react_loop` 簽名：`ProviderAdapter` 多 `append_interjection`、`hold_tool_choice`；`run_react_loop` 多關鍵字參數 `interjections=`、`stream_state=`；4b 再加 `append_interjection(..., interrupted=)`、`pump_send_round(round_gen, urgent)` 與 `RoundInterrupted`
 - 修訂 [ADR-0247](0247-model-layer-stage-3a.md) 剩餘風險的 Mythos Preview：中途 system 已核對，規則表改 False（M9-R1a）
@@ -52,7 +52,7 @@ AI 跑多步工具時，使用者想補一句（改方向、補條件）只能�
 - OpenAI 相容：tool 訊息之後一則 user 訊息。Gemini：functionResponse 同一個 content 加 text part。Responses：function_call_output 之後一個 `{"role":"user"}` input item。
 - OpenAI 相容、Gemini、Responses 是否接受這些格式未實測，只有模擬契約測試；Claude 中途 system 訊息也待實測（live-check backlog L6、L7）。
 
-### 6. 存檔（U4a-3，DB-21 甲）
+### 6. 存檔（U4a-3，DB-21）
 
 - `dispatcher._persist_ui_assistant_turn` 把這個串流 delivered 的插話存進助理節點 `interjections[]`，形狀同 API `Interjection`（id、text、urgent、status、step、created_at），和前端寫進節點的相同。讀佇列發生在 `finish` 清空之前，禁令 28／57 不動。
 - 沒有已送達的插話時不加欄位（存檔逐位元不變）；停止、錯誤、無痕照舊不存。
@@ -75,7 +75,7 @@ AI 跑多步工具時，使用者想補一句（改方向、補條件）只能�
 - 滑動視窗估 token 時不算插話文字。
 - 停止或錯誤時伺服器不存（照舊）；已送達的插話只留在前端的樹裡，前端停止時存不存檔照現行行為。
 - 佇列只在記憶體，伺服器重啟後未送達的項目消失；重整後重播靠 `interjection_delivered` 的 `text` 還原節點。
-- ~~AGENTS.md §2 的授權閘道函式清單沒有列 `require_human_requester`~~：Owner 2026-10-13 12:38 同意後，已在 `0b9ace28` 補進 AGENTS.md 第 161 行。
+- ~~AGENTS.md §2 的授權閘道函式清單沒有列 `require_human_requester`~~：維護者 2026-10-13 同意後，已在 `0b9ace28` 補進 AGENTS.md 第 161 行。
 - Claude `mid_conversation_system` 為真時，使用者原文放在 system 角色（已核准的設計），使用者文字因此有 system 權威，可能蓋過系統提示的規則；HITL、模式與工具權限由程式強制，不受影響。
 - 同一步有多則插話、urgent 又不是最先加入時，伺服器存的順序（加入順序）和前端（取出順序）可能不同，只影響標註順序。
 - 自動送出會帶走當時暫存的附件。
@@ -126,7 +126,7 @@ Ctrl+Enter 的說明改成「立即中斷正在寫的回答」（兩語）。收
 
 ## 驗證
 
-- 第 4a 段：每個單位紅測試先行，突變全紅（U4a-1 15 個、U4a-2 18 個、U4a-3 9 個、U4a-4 20 個），期望翻轉 0。段分支 4e7ec871 的 DEV-B：pytest 全量兩種順序 8,580 passed／17 skipped／6 failed（已知 compose 環境），smoke 24/24，guard_all 只有 Guard #20 的 knip 段（工作資料夾）紅；golden 40 份零差異；Vitest 258 檔、1,591 個測試。沒有打任何 API。
+- 第 4a 段：每個單位紅測試先行，突變全紅（U4a-1 15 個、U4a-2 18 個、U4a-3 9 個、U4a-4 20 個），期望翻轉 0。段分支 4e7ec871 的最終審查：pytest 全量兩種順序 8,580 passed／17 skipped／6 failed（已知 compose 環境），smoke 24/24，guard_all 只有 Guard #20 的 knip 段（工作資料夾）紅；golden 40 份零差異；Vitest 258 檔、1,591 個測試。沒有打任何 API。
 - 第 4b 段：紅測試先行，突變全紅（U4b-1 22 個、U4b-2 8 個、U4b-3 一致性測試 4 個），期望翻轉 0；golden 40 份零差異；U4b-1 工作資料夾 pytest 全量 8,605 passed／17 skipped／6 failed（已知 compose 環境）；Vitest 260 檔、1,600 個測試（U4b-2）。沒有打任何 API。
 
 ## 回復

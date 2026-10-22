@@ -1,8 +1,8 @@
 # ADR-0267：記憶系統第二批段 4：可信活動時間軸與時間感（continuity v1）
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫，心跳也注入；本 ADR 是第 4 段的 PR，照一般驗收）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，心跳也注入；本 ADR 是第 4 段的 PR，照一般驗收）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（`utils/async_db.py` 的 `init_db_async`、新 `utils/continuity_events_db.py`、新 `services/continuity_events.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`routers/heartbeat.py`、`tools/mission_tools.py`、`tools/builtin/memory.py`、`main.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`routers/souls.py`、`services/gdpr_export_service.py`）；ToukaMemory（`protocols.py`、新 `services/event_recorder.py`、`services/manager.py`、`services/lifecycle.py`）
 - 相關：ADR-0013（時間 SSOT）、ADR-0030（sqlite3 白名單，照舊）、ADR-0035／0092（滑動視窗觸發點）、ADR-0086（無痕零殘留）、ADR-0104／0113（重置）、ADR-0110（GDPR 匯出）、ADR-0228（原生工具合約與 Guard #45）、ADR-0231（結果不明不寫）、ADR-0245（只留靈魂、`session_bound`）、ADR-0262（刪除靈魂前檢查）、ADR-0263（一步取代），決策都不變。修訂 ADR-0257 決策 3（上一輪的來源順序）與決策 4（心跳不注入）；修訂 ADR-0264 決策 3（記憶體那條上一輪改標 `(server memory)`）；兩份的狀態行都已加反向註記。對話樹時間的「可能來自使用者裝置」標示沿用 ADR-0264
 
@@ -106,7 +106,7 @@
 
 - 事件種類是 14 種（設計稿寫 13 是筆誤）。
 - 寫入照呼叫順序用鎖逐筆寫（設計沒有）：理由見決策 4。
-- recorder 選迴圈：只有目前的 running loop 就是綁定的那個才直接寫，其他一律排回主迴圈（技術主管裁定）。
+- recorder 選迴圈：只有目前的 running loop 就是綁定的那個才直接寫，其他一律排回主迴圈（審查時裁定）。
 - `mission_tools` 用 `from src.services import continuity_events` 匯入，避開同一個檔另一處改動的相鄰行。
 - 記憶體那條上一輪改標 `(server memory)`（見「相關」對 ADR-0264 決策 3 的修訂）；原本要求它不帶任何標示的測試，預期改成帶這個標示，「絕不出現前端時間標示」的斷言保留。
 - 刪除前檢查只有活動事件時，409 的 detail 是 `activity_events`，沒有 `facts`／`vectors` 欄位。

@@ -4,7 +4,7 @@
 
 > ADR-0276 修訂對話寫入邊界：`owner_user_id` 仍只在 INSERT 記錄；人類身分透傳供交易內授權與 CAS，不能代替執行靈魂。換綁只限授權人類 UI 專用入口，非空換綁撤銷建立標記。
 
-✅ **已接受（實作與驗證 2026-07-05；擁有者核准計畫後動工——Q1 聯集／Q2 手動 backfill／Q3 不收緊皆照推薦）**。實作 [ADR-0131](0131-auth-renewal-and-ldh-containment.md) 明列的「授權地基長期正解」；計畫全文見 [proposals/session-owner-attribution-plan.md](../proposals/session-owner-attribution-plan.md)。比照 [ADR-0107](0107-user-self-service-data-clearing.md) 對 projects 的做法。
+✅ **已接受（實作與驗證 2026-07-05；維護者核准計畫後動工——Q1 聯集／Q2 手動 backfill／Q3 不收緊皆照推薦）**。實作 [ADR-0131](0131-auth-renewal-and-ldh-containment.md) 明列的「授權地基長期正解」；計畫全文見 [proposals/session-owner-attribution-plan.md](../proposals/session-owner-attribution-plan.md)。比照 [ADR-0107](0107-user-self-service-data-clearing.md) 對 projects 的做法。
 
 ## 日期
 
@@ -26,7 +26,7 @@
 4. **授權聯集通道（D4，Q1 裁決）**：`_can_access_session(caller, agent_id, owner_user_id=None)` 三段——admin/Debugger 不變 → **owner 本人（human）放行（新）** → 其餘走既有 agent-derived `is_owner`。**聯集 additive、零縮窄**：既有 DA3 IDOR 測試零改動全綠；NULL owner＝legacy 行為逐位不變。8 個 route 呼叫面傳入 owner。
 5. **指派檢查放行裸模型 id（D5，Q3 裁決＝不收緊）**：`save_session` 的「不得掛到別人 agent 名下」防護改為**僅對真 agent 執行**（新 helper `_is_registered_agent`，名冊＝`agent_service.get_all_agents()`；**名冊不可用 fail-closed 當作 agent**）；裸模型 id 為顯示標籤、一律放行。已知取捨（低風險，接受）：可預標「未來 agent 名」搶位；hardening（僅 registry 已知模型）列為選配未做。
 6. **出口消毒（D6）**：`list_sessions`／`get_session` 回傳前 `pop("owner_user_id")`（internal authz field，比照 projects）——前端合約零變、`openapi.json` 零 diff、ToukaChat 零改動。
-7. **Backfill 運維腳本（Phase 5，Q2 裁決）**：[`scripts/backfill_session_owner.py`](../../../scripts/backfill_session_owner.py)——**預設 dry-run**、`--apply` 才落盤、只填 NULL（絕不覆蓋既有歸屬）、重跑冪等；僅 Owner 手動執行、不進 runtime/guard_all。單人部署以此把 legacy NULL rows 一次性歸屬主帳號。
+7. **Backfill 運維腳本（Phase 5，Q2 裁決）**：[`scripts/backfill_session_owner.py`](../../../scripts/backfill_session_owner.py)——**預設 dry-run**、`--apply` 才落盤、只填 NULL（絕不覆蓋既有歸屬）、重跑冪等；只由部署者手動執行、不進 runtime/guard_all。單人部署以此把 legacy NULL rows 一次性歸屬主帳號。
 
 ## 後果
 

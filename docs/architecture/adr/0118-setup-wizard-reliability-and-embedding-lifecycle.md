@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2485 passed/3 skipped、前端 vitest 934 passed；擁有者尚未 commit）**。本 ADR **延伸／修訂 ADR-0053（初次設定精靈）**，並擴充 ADR-0052（環境感知 .env 載入）、ADR-0099（Provider Registry SSOT）、ADR-0070（中文向量記憶）、ADR-0038（Init 容器 volume 權限）。
+✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2485 passed/3 skipped、前端 vitest 934 passed）**。本 ADR **延伸／修訂 ADR-0053（初次設定精靈）**，並擴充 ADR-0052（環境感知 .env 載入）、ADR-0099（Provider Registry SSOT）、ADR-0070（中文向量記憶）、ADR-0038（Init 容器 volume 權限）。
 
 > ⚠️ **部分被 [ADR-0151](0151-env-persistence-anchor-decouple.md) 取代（2026-07-12）**：本 ADR 的
 > `TOUKA_ENV_FILE=/app/workspace/.env`（綁 `WORKSPACE_ROOT` 掛載）在使用者把 `WORKSPACE_ROOT`
@@ -16,14 +16,14 @@
 
 ## 背景
 
-擁有者實機 `docker compose up` 驗收時回報「引導精靈輸入金鑰後完全不能對話、金鑰沒寫進 .env」。對整個精靈相關功能做 33-agent 對抗式 code review，確認 **23 個真實問題**，收斂為三大根因（A/B/C）＋兩組其他問題（D 狀態偵測分裂、E 其他確認問題）：
+維護者在測試環境 `docker compose up` 驗收時回報「引導精靈輸入金鑰後完全不能對話、金鑰沒寫進 .env」。對整個精靈相關功能做對抗式 code review，確認 **23 個真實問題**，收斂為三大根因（A/B/C）＋兩組其他問題（D 狀態偵測分裂、E 其他確認問題）：
 
 - **A 寫錯檔／不持久**：`routers/config.py` 以裸相對 `".env"` 寫入 → docker 下落在容器暫存層 `/app/ToukaProxy/.env`（非 compose `env_file` 讀的宿主 .env、重建即蒸發）。
 - **B 陳舊金鑰快照**：`main.py` 於 import 時以當時 `os.environ` 建好 Anthropic client、`factory.py` 以 `from src.config import GEMINI_API_KEY` 綁死 import 值 → 精靈補的金鑰在「免重啟」情況下到不了聊天路徑。
 - **C 前端靜默吞失敗**：`fetchTouka` 對非 2xx 不 throw，`SetupWizard` 的 apply 不檢查 `res.ok`、catch 後仍無條件 `next()` → 金鑰打錯／寫檔失敗／401 全部無聲，使用者以為成功。
 - **D／E**：狀態偵測三方分裂（重啟後有效卻顯示未設定）、provider 對照表漏 deepseek、CORS 精確比對擋掉 127.0.0.1／區網、500 洩漏例外字串等。
 
-擁有者另回報兩個延伸缺口：初次選了嵌入模型不會下載；想在精靈指定「容器外本機目錄」且 Touka 對其有完全 CRUD（類 Claude Desktop）。經查證 **Claude Desktop 是以原生 MCP 子程序 ＋ 允許目錄清單 ＋ 重啟** 存取本機檔案，並非容器動態掛載；而**運行中的容器無法動態掛載任意宿主路徑**（硬限制）——正確途徑是「宿主路徑寫入 .env → `docker compose up` bind-mount → 重啟生效」。
+維護者另回報兩個延伸缺口：初次選了嵌入模型不會下載；想在精靈指定「容器外本機目錄」且 Touka 對其有完全 CRUD（類 Claude Desktop）。經查證 **Claude Desktop 是以原生 MCP 子程序 ＋ 允許目錄清單 ＋ 重啟** 存取本機檔案，並非容器動態掛載；而**運行中的容器無法動態掛載任意宿主路徑**（硬限制）——正確途徑是「宿主路徑寫入 .env → `docker compose up` bind-mount → 重啟生效」。
 
 ## 問題
 
@@ -69,7 +69,7 @@ Step5 改雙欄位，`SANCTUARY_DATA_PATH`（資料）與 `WORKSPACE_ROOT`（工
 ### 已驗證免修 / 保留
 - **D#13/20**（狀態三方分裂）已由 A 修掉（三源同步＋TOUKA_ENV_FILE 持久化）。
 - **E#16/19**（Tavily 排除即時生效）非 bug——Tavily 為搜尋金鑰。
-- **E#14**（改密碼登出自己，low、可重登恢復）擁有者決定保留。
+- **E#14**（改密碼登出自己，low、可重登恢復）維護者決定保留。
 
 ## 影響範圍（採納後改動的檔）
 
@@ -86,7 +86,7 @@ Step5 改雙欄位，`SANCTUARY_DATA_PATH`（資料）與 `WORKSPACE_ROOT`（工
 - **`with_options` 而非重建 client**：套用即時 Anthropic 金鑰又共用連線池，避免每請求重建 httpx pool。
 - **狀態 provider 清單改 registry 衍生**：ADR-0099 registry 正為消除此類硬編碼漂移；值仍讀 os.environ 以反映真實生效並相容既有測試/重啟語義。
 - **CORS 用 regex 而非放寬 `*`**：`allow_credentials=True` 下不能用 `*`；regex 精確涵蓋本機/私網/webview，公開網域仍白名單。
-- **已知侷限**：standalone `ToukaProxy/docker-compose.yml`（無 init 容器）刻意不加 hf-cache/host-dir（無 chown 機制反而會壞，dev-only 不持久＝可接受漂移）；E#14 未修（擁有者決定）。
+- **已知侷限**：standalone `ToukaProxy/docker-compose.yml`（無 init 容器）刻意不加 hf-cache/host-dir（無 chown 機制反而會壞，dev-only 不持久＝可接受漂移）；E#14 未修（維護者決定）。
 
 ## 後果
 

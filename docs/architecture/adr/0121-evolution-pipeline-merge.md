@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2611 passed/4 skipped；擁有者尚未 commit）**。本 ADR 落地 [ADR-0119](0119-unified-tool-interface-redesign.md) 的最後一個遞延項，沿用其雙軌 shim 原則；與 [ADR-0120](0120-async-command-approval.md) 同屬工具介面重設計的收尾系列。
+✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2611 passed/4 skipped）**。本 ADR 落地 [ADR-0119](0119-unified-tool-interface-redesign.md) 的最後一個遞延項，沿用其雙軌 shim 原則；與 [ADR-0120](0120-async-command-approval.md) 同屬工具介面重設計的收尾系列。
 
 ## 日期
 
