@@ -123,9 +123,9 @@
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
 | 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（真正交給 handler 時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛與 e_index（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
-| 能不能用使用者各自授權（`oauth_user`）的 MCP：已驗證的靈魂身分、人在場、不是群聊（`ToukaGroup`／`group_member_run`）、有原始人類 | `ToukaProxy/src/utils/mcp_request_identity.py` `user_scoped_mcp_allowed`（純函式）、`GROUP_MEMBER_FLAG` | ToolLayer（組清單）、`ToolExecutor._user_scope_denial`（第二層防線，原因 `user_scoped_mcp_unavailable`）；群聊分發器設旗標 |
+| 能不能用使用者各自授權（`oauth_user`）的 MCP：已驗證的靈魂身分且就是對話目標、人在場、不是群聊（`ToukaGroup`／`group_member_run`）、有原始人類 | `ToukaProxy/src/utils/mcp_request_identity.py` `user_scoped_mcp_allowed`（純函式）、`GROUP_MEMBER_FLAG` | ToolLayer（組清單）、`ToolExecutor._user_scope_denial`（第二層防線，原因 `user_scoped_mcp_unavailable`）；群聊分發器設旗標 |
 | MCP 操作的請求上下文（來源、執行種類、原始人類） | `utils/mcp_request_identity.py` `mcp_request_context` | ToolLayer（組清單）、`ToolExecutor`（呼叫 MCP） |
-| 組清單時只為 `oauth_user` 帶身分、先查授權、第一次連線上限 | `protocols/manager.py` `get_all_tools`、`_user_scoped_listing_handle`、`USER_SCOPED_CONNECT_TIMEOUT_S` | ToolLayer |
+| 組清單時只為 `oauth_user` 帶身分、先查授權、第一次連線上限、連線中不重開、失敗冷卻 | `protocols/manager.py` `get_all_tools`、`_user_scoped_listing_handle`、`USER_SCOPED_CONNECT_TIMEOUT_S`、`USER_SCOPED_RETRY_COOLDOWN_S` | ToolLayer |
 | 組清單用的只讀授權查詢（不推進時鐘、不寫、不解密；懸空指標算損毀） | `protocols/mcp/oauth/runtime.py` `has_usable_grant` → `oauth/store.py` `OAuthSqliteStore.has_usable_grant` | `ProtocolManager._user_scoped_listing_handle` |
 | 設定好但沒連上的共用 MCP（只看狀態、不連線）與說明區塊 | `ProtocolManager.unavailable_shared_servers`；區塊 tag `prompt_blocks.MCP_UNAVAILABLE`（在 `ALL_BLOCK_TAGS`、`VOLATILE_SYSTEM_TAGS`） | ToolLayer 依軸 B 過濾後注入 |
 

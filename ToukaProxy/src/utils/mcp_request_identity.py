@@ -22,11 +22,15 @@ GROUP_MEMBER_FLAG = "group_member_run"
 
 
 def user_scoped_mcp_allowed(ctx: Any, *, request_model: str | None = None) -> bool:
-    """這次執行能不能用使用者各自授權的 MCP：已驗證的靈魂身分、人在場、不是群聊、有原始人類。"""
+    """這次執行能不能用使用者各自授權的 MCP：已驗證的靈魂身分、人在場、不是群聊、有原始人類。
+
+    執行身分必須就是對話目標（前景代打後兩者相同）；X-Agent-ID 切成別的代理人來驅動靈魂時不算。
+    """
     identity = ctx.get("identity")
     return (
         isinstance(identity, AgentIdentity)
         and not identity.is_human
+        and identity.agent_id == ctx.get("agent_id")
         and bool(ctx.get("is_toukasoul"))
         and is_human_present(ctx)
         and request_model != GROUP_MODEL

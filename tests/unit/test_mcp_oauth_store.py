@@ -815,3 +815,21 @@ async def test_expired_grant_without_refresh_is_unusable_and_left_untouched(tmp_
     assert await store.has_usable_grant(_slot(models), now=5000.0) is False
 
     assert await _rows(path) == before
+
+
+@pytest.mark.asyncio
+async def test_usable_grant_check_never_decrypts_and_reads_in_one_statement(
+    tmp_path, monkeypatch
+):
+    """不解密；指標與授權用同一句讀（不經兩段式的 _find_slot_row，中途提交不被誤判成損毀）。"""
+    _keyring, models, _store_module = _modules()
+    store = await _authorized_store(tmp_path, models)
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError
+
+    monkeypatch.setattr(store._keyring, "decrypt", _forbidden)
+    monkeypatch.setattr(store, "_decrypt_grant_row", _forbidden)
+    monkeypatch.setattr(store, "_find_slot_row", _forbidden)
+
+    assert await store.has_usable_grant(_slot(models), now=1500.0) is True

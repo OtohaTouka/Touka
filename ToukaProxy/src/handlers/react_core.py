@@ -545,7 +545,7 @@ async def run_react_loop(  # noqa: PLR0915
         # 已知工具集走 guard_service SSOT——涵蓋動態 MCP 工具（禁令 59(c)）。
         all_known_tools = await guard_service.collect_known_tool_names(
             tool_registry, memory_tool_registry, plugin_registry, protocol_manager,
-            request_tools=getattr(request, "tools", None),
+            extra_names=context.get("user_scoped_tool_names"),
         )
         hallucination_warnings = guard_service.detect_tool_hallucinations(
             response_text, actually_used_tools, all_known_tools

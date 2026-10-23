@@ -838,19 +838,25 @@ class OAuthSqliteStore:
     async def has_usable_grant(self, slot: OAuthAuthorizationSlotKey, *, now: float) -> bool:
         """組工具清單用的只讀查詢（ADR-0281 T1）：不開寫入交易、不改狀態、不解密。
 
-        指標指向不存在的授權算損毀，照 ADR-0206 明確丟出。
+        指標和授權用同一句 SELECT 讀（一致的快照，中間的提交不會被誤判成損毀）；指標指向不存在的
+        授權算損毀，照 ADR-0206 明確丟出。
         """
+        grant = None
         async with self._connection() as db:
-            slot_row = await self._find_slot_row(db, slot)
-            if slot_row is None or slot_row["active_grant_id"] is None:
-                return False
-            async with db.execute(
-                "SELECT status, access_expires_at, has_refresh FROM oauth_grants "
-                "WHERE grant_id = ? AND slot_digest = ?",
-                (slot_row["active_grant_id"], slot_row["slot_digest"]),
-            ) as cursor:
-                grant = await cursor.fetchone()
-        if grant is None:
+            for _kid, digest in self._keyring.slot_digest_candidates(slot.canonical_bytes()):
+                async with db.execute(
+                    "SELECT s.active_grant_id, g.grant_id, g.status, g.access_expires_at, "
+                    "g.has_refresh FROM oauth_slots AS s LEFT JOIN oauth_grants AS g "
+                    "ON g.grant_id = s.active_grant_id AND g.slot_digest = s.slot_digest "
+                    "WHERE s.slot_digest = ?",
+                    (digest,),
+                ) as cursor:
+                    grant = await cursor.fetchone()
+                if grant is not None:
+                    break
+        if grant is None or grant["active_grant_id"] is None:
+            return False
+        if grant["grant_id"] is None:
             raise OAuthStoreCorruptionError()
         usable_statuses = {OAuthGrantStatus.ACTIVE.value, OAuthGrantStatus.REFRESHING.value}
         if grant["status"] not in usable_statuses:

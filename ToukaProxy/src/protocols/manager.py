@@ -142,6 +142,8 @@ MCP_LOST_RELAUNCH_LIMIT = 3
 MCP_LOST_RELAUNCH_RESET_SECONDS = 600.0
 # 組清單時第一次連使用者各自授權的 MCP 最多等幾秒；逾時只略過這一輪（ADR-0281 T1）
 USER_SCOPED_CONNECT_TIMEOUT_S = 5.0
+# 組清單時連線或授權查詢失敗後，多久內不再試（不每輪重連、不每輪記錯誤）
+USER_SCOPED_RETRY_COOLDOWN_S = 60.0
 _JUDGED_DIRECT = object()
 MCP_SERVER_WAITING = "MCP server is waiting for isolation; it has not started."
 MCP_SERVER_BUSY = "MCP server is reconnecting; try again shortly."
@@ -417,6 +419,9 @@ class ProtocolManager:
         self._installations: dict[str, InstallationState] = {}
         self._handle_meta: dict[McpHandleKey, dict[str, Any]] = {}
         self._connect_locks: dict[McpHandleKey, asyncio.Lock] = {}
+        # 組清單時對使用者授權伺服器的連線：還在跑的、最近失敗的時間（ADR-0281 T1）
+        self._listing_connects: dict[McpHandleKey, asyncio.Task[Any]] = {}
+        self._listing_failed_at: dict[McpHandleKey, float] = {}
         self._circuit_breakers: dict[str | McpHandleKey, CircuitBreaker] = {}
         self._ide_clients = {}
         # v1 相容診斷視圖；SSOT 寫入 InstallationState，舊測試/呼叫者仍可讀本 dict。
@@ -2541,9 +2546,18 @@ class ProtocolManager:
         """組清單用：有能用的授權才連，第一次連線最多等一段時間（ADR-0281 T1）。
 
         授權查詢只讀（不推進時鐘、不寫、不解密）；真的連線時照舊由既有防線推進時鐘（ADR-0206）。
-        逾時只略過這一輪，背景連線照樣跑完（ADR-0273：不從呼叫端取消）。
+        逾時只略過這一輪，背景連線照樣跑完（ADR-0273：不從呼叫端取消）。上一輪的連線還在跑就不再
+        開、也不等；連線或授權查詢失敗後冷卻一段時間不再試。
         """
         if self._oauth_auth_service is None:
+            return None
+        key = self.handle_key_for(name, request_context)
+        running = self._listing_connects.get(key)
+        failed_at = self._listing_failed_at.get(key)
+        now = get_monotonic_ms() / 1000
+        if (running is not None and not running.done()) or (
+            failed_at is not None and now - failed_at < USER_SCOPED_RETRY_COOLDOWN_S
+        ):
             return None
         try:
             usable = await self._oauth_auth_service.has_usable_grant(
@@ -2552,20 +2566,36 @@ class ProtocolManager:
                 installation_generation=self.get_installation_generation(name),
             )
         except OAuthStoreCorruptionError:
+            self._listing_failed_at[key] = now
             logger.exception("MCP server %s：使用者授權資料損毀，這一輪不列。", name)
             return None
+        except Exception:
+            self._listing_failed_at[key] = now
+            raise
         if not usable:
             return None
         task = spawn_logged(self._ensure_handle(name, request_context), name=f"mcp-list:{name}")
-        done, _pending = await asyncio.wait({task}, timeout=USER_SCOPED_CONNECT_TIMEOUT_S)
-        if not done or task.exception() is not None:  # 失敗由 spawn_logged 記下
-            return None
+        self._listing_connects[key] = task
+        task.add_done_callback(lambda done: self._listing_connect_finished(key, done))
+        await asyncio.wait({task}, timeout=USER_SCOPED_CONNECT_TIMEOUT_S)
+        if not task.done() or task.cancelled() or task.exception() is not None:
+            return None  # 失敗由 spawn_logged 記下
         return task.result()
+
+    def _listing_connect_finished(self, key: McpHandleKey, task: asyncio.Task[Any]) -> None:
+        """組清單的連線結束：失敗或被取消就記下時間（冷卻），成功就清掉。"""
+        if self._listing_connects.get(key) is task:
+            self._listing_connects.pop(key)
+        if task.cancelled() or task.exception() is not None:
+            self._listing_failed_at[key] = get_monotonic_ms() / 1000
+        else:
+            self._listing_failed_at.pop(key, None)
 
     def unavailable_shared_servers(self) -> list[str]:
         """設定好、但現在沒連上的共用伺服器（啟動失敗、斷線、斷路器打開）；只看狀態、不連線。"""
         names: list[str] = []
-        for name, config in self.registry.servers.items():
+        for name, state in self._installations.items():
+            config = state.config
             if not getattr(config, "enabled", True) or config.is_principal_scoped:
                 continue
             handle = self.handle_pool.get(self.handle_key_for(name, None))

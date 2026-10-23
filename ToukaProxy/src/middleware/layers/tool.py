@@ -1,6 +1,7 @@
 """工具裝配與動態權限過濾中介軟體層。"""
 
 import logging
+import re
 from typing import Any
 
 from src.adapters import tool_schema
@@ -40,6 +41,9 @@ from src.utils.presence import is_human_present
 
 logger = logging.getLogger(__name__)
 
+# <mcp_unavailable> 只原樣列出這種名稱（ADR-0281 T1）
+_SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
 
 def _shared_server(registry: Any, server: str) -> bool:
     """設定裡找得到、而且不是要個人授權的伺服器；要個人授權的只由 get_all_tools 帶身分列出。"""
@@ -48,10 +52,14 @@ def _shared_server(registry: Any, server: str) -> bool:
 
 
 def _unavailable_shared_servers(protocol_manager: Any) -> list[str]:
-    """沒連上的共用伺服器；替身沒有這個方法時當成沒有（只看狀態、不連線）。"""
+    """沒連上的共用伺服器（只看狀態、不連線）；這只是說明，讀不到就當成沒有、不讓請求失敗。"""
     if not callable(getattr(type(protocol_manager), "unavailable_shared_servers", None)):
         return []
-    return list(protocol_manager.unavailable_shared_servers())
+    try:
+        return list(protocol_manager.unavailable_shared_servers())
+    except Exception:
+        logger.warning("ToolLayer: could not read unconnected MCP servers.", exc_info=True)
+        return []
 
 # P2a：改動類（mutating）開發工具——廣告集含其一即注入 <validation_protocol>
 # 慣例段（開發流程才提示自我驗證，不擾唯讀/一般 persona 對話）。
@@ -193,6 +201,7 @@ class ToolLayer(ProxyLayer):
         combined_schemas = active_builtin_schemas + active_memory_schemas
         
         # 9. 處理 MCP 工具
+        ctx["user_scoped_tool_names"] = frozenset()
         protocol_manager = ctx.get("protocol_manager")
         if protocol_manager:
             if is_custom and desired_tools:
@@ -238,6 +247,8 @@ class ToolLayer(ProxyLayer):
                 else None
             )
             mcp_tools = await protocol_manager.get_all_tools(request_context=listing_context)
+            mcp_registry = getattr(protocol_manager, "registry", None)
+            user_scoped_names: set[str] = set()
             for mcp_tool in mcp_tools:
                 server_name = mcp_tool.get("server", "Unknown")
 
@@ -264,6 +275,12 @@ class ToolLayer(ProxyLayer):
                 if show_tool:
                     mcp_tool["category"] = "MCP"
                     combined_schemas.append(mcp_tool)
+                    if listing_context is not None and mcp_registry is not None and getattr(
+                        mcp_registry.get_server(server_name), "auth_mode", None
+                    ) == "oauth_user":
+                        user_scoped_names.add(t_name)
+            # 幻覺偵測只多認這一輪伺服器自己列出的使用者授權工具（不認客戶端自帶的工具名）
+            ctx["user_scoped_tool_names"] = frozenset(user_scoped_names)
 
             # 9b. 沒連上的共用伺服器只在說明裡寫明、不列成工具（ADR-0281 T1，決定 1 甲）
             unavailable = [
@@ -274,6 +291,10 @@ class ToolLayer(ProxyLayer):
                     not is_dispatcher_active
                     or server in active_session_mcps
                     or server in skill_required_mcp
+                )
+                and (
+                    not desired_tools
+                    or any(str(name).startswith(f"{server}__") for name in desired_tools)
                 )
             ]
             if unavailable:
@@ -372,12 +393,18 @@ class ToolLayer(ProxyLayer):
             inject_openai_system(messages, note)
 
     def _inject_unavailable_note(self, request: Any, servers: list[str]) -> None:
-        """把「設定好但沒連上的共用 MCP」寫進每輪會變動的 system 區塊（不列成工具）。"""
-        note = wrap_block(
+        """把「設定好但沒連上的共用 MCP」寫進每輪會變動的 system 區塊（不列成工具）。
+
+        伺服器名稱可由有權限的人自訂：只列安全字元組成的名稱，其他只寫數量（不原樣進 system）。
+        """
+        shown = [server for server in servers if _SAFE_SERVER_NAME.fullmatch(server)]
+        hidden = len(servers) - len(shown)
+        names = "、".join(shown) + (f"（另有 {hidden} 台名稱無法顯示）" if hidden else "")
+        note = "\n" + wrap_block(
             MCP_UNAVAILABLE,
-            "以下 MCP 伺服器已設定但目前沒連上，這一輪叫不到它們的工具："
-            f"{'、'.join(servers)}。不要呼叫、也不要聲稱用過它們；需要時告訴使用者它們沒連上。",
-        )
+            f"以下 MCP 伺服器已設定但目前沒連上，這一輪叫不到它們的工具：{names}。"
+            "不要呼叫、也不要聲稱用過它們。",
+        ) + "\n"
         if "anthropic" in str(type(request)).lower():
             inject_anthropic_system(request, note)
             return

@@ -211,7 +211,6 @@ class _Store:
         return self.active_grant
 
     usable = True
-    usable_checks = []
 
     async def has_usable_grant(self, slot, *, now):
         self.usable_checks.append((slot, now))
@@ -261,6 +260,7 @@ def _runtime(
     store.mutation_events = []
     store.updating_profiles = []
     store.frozen_grants = []
+    store.usable_checks = []
     profiles = _Profiles()
     metadata = _Metadata()
     runtime = McpOAuthRuntimeService(
@@ -812,7 +812,6 @@ def _listing_check(runtime):
 async def test_listing_grant_check_reads_the_store_without_advancing_the_clock():
     """ADR-0281 T1：組工具清單的授權查詢不推進時鐘高水位；查的是這個人＋靈魂的授權位置。"""
     runtime, _connector, store, _profiles = _runtime()
-    store.usable_checks = []
 
     async def _no_clock(**_kwargs):
         raise AssertionError
@@ -831,7 +830,6 @@ async def test_listing_grant_check_reads_the_store_without_advancing_the_clock()
 @pytest.mark.asyncio
 async def test_listing_grant_check_is_false_when_the_fence_or_server_refuses():
     fenced, _c, fenced_store, _p = _runtime(authorization_fence=lambda _slot: False)
-    fenced_store.usable_checks = []
     disabled, _c, disabled_store, _p = _runtime(enabled=False)
 
     assert await _listing_check(fenced) is False
