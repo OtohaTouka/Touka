@@ -120,6 +120,7 @@ describe('第 7 步顯示最新狀態', () => {
     fireEvent.click(screen.getByRole('button', { name: 'open' }));
     fireEvent.click(screen.getByRole('button', { name: '略過 — 結束設定' }));
     expect(refetch).toHaveBeenCalledOnce();
+    expect(screen.getByText('尚未設定任何 API 金鑰')).toBeInTheDocument();
 
     signIn({ id: 'admin-1', role: 'admin' }, allSet);
     rerender(tree());
