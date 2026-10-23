@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from tests.memory_eval.scenarios import Scenario
 
 ENCODER_DIM = 256
+# 替身編碼器在產品裡的嵌入模型名稱（實測腳本固定套用，不看 .env）。不含 e5：不加前綴，
+# 查詢下限與查重門檻取產品對這個名稱的預設值。
+STUB_EMBEDDING_MODEL = "touka-eval-stub-ngram"
 DRIVER_USER_ID = "eval-human-owner"
 SOUL_CONFIG = {"is_toukasoul": True, "enabled_tools": ["memory_tools", "mission_tools"]}
 _MS = 1000

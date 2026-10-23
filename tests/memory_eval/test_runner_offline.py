@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+from memory_server import config_utils
+from memory_server import vector as memory_vector
 from src.main import build_base_context
 from src.services.permission_service import permission_service
 from src.utils.async_db import init_db_async, session_service
@@ -177,6 +179,27 @@ def test_deterministic_encoder_is_stable_normalized_and_offline() -> None:
     assert len(first) == encoder.get_sentence_embedding_dimension()
     assert math.isclose(math.sqrt(cos(first, first)), 1.0, rel_tol=1e-9)
     assert cos(first, near) > cos(first, other)
+
+
+def test_stub_name_recalls_a_paraphrase_from_a_real_local_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """替身名稱走產品的預設下限：存一筆、用改述查得到（10/15 套到 e5 的下限時兩次都查不到）."""
+    monkeypatch.setenv("EMBEDDING_MODEL", seeding.STUB_EMBEDDING_MODEL)
+    monkeypatch.setattr(memory_vector, "SentenceTransformer", seeding.DeterministicEncoder)
+    directory = tmp_path / "vectors"
+    store = memory_vector.VectorStore(
+        base_dir=directory, model_name=config_utils.get_embedding_model_name()
+    )
+    try:
+        soul = seeding.soul_identity()
+        assert store.save_vector(soul, "fact-cat", "使用者的貓叫麻糬，今年三歲。")
+        hits = store.query_vectors(soul, "我的貓叫什麼名字？")
+    finally:
+        client_key = str((directory / memory_vector.QDRANT_DIR_NAME).absolute())
+        memory_vector.VectorStore._client_cache.pop(client_key).close()
+
+    assert [hit["fact_id"] for hit in hits] == ["fact-cat"]
 
 
 # --- 多輪 driver --------------------------------------------------------------
