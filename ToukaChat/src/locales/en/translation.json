@@ -106,9 +106,11 @@
     },
     "step2": {
       "description": "Your admin account was created with a temporary password. Set a strong new password now.",
+      "description_already_set": "The admin password has already been set. Enter a new one below to change it, or keep the current password.",
       "new_password": "New Password",
       "confirm_password": "Confirm Password",
       "submit": "Set Password & Continue",
+      "keep_current": "Keep current password",
       "requirements": "Password requirements",
       "rules": {
         "length": "At least 8 characters",
@@ -128,6 +130,11 @@
         "update_failed": "Update failed",
         "generic": "An error occurred"
       }
+    },
+    "relogin": {
+      "message": "Password updated. Log in again with the new password; if anything is still left to set up, you will continue from the next step.",
+      "go_to_login": "Go to login",
+      "login_notice": "The admin password was updated. Log in with the new password; if anything is still left to set up, first-run setup will continue."
     },
     "step3": {
       "description": "Enter at least one provider API key to start using Touka. Keys are stored in the backend .env; restart ToukaProxy after saving for them to take effect. You can also set these later in Settings → API Keys.",

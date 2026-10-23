@@ -71,6 +71,22 @@ describe('SetupWizard', () => {
     expect(screen.queryByRole('button', { name: /上一步/ })).toBeNull();
   });
 
+  it('前進到「完成」時重讀設定狀態（第 7 步不能用精靈打開時的舊狀態）', () => {
+    const onStatusRefresh = vi.fn();
+    render(<SetupWizard status={mockStatus} initialStepId="create_user" onClose={vi.fn()} onStatusRefresh={onStatusRefresh} />);
+    fireEvent.click(screen.getByRole('button', { name: '略過 — 結束設定' }));
+    expect(screen.getByText(/步驟 7/)).toBeInTheDocument();
+    expect(onStatusRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('其他步驟之間前進不重讀設定狀態', () => {
+    const onStatusRefresh = vi.fn();
+    render(<SetupWizard status={mockStatus} onClose={vi.fn()} onStatusRefresh={onStatusRefresh} />);
+    fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+    expect(screen.getByText(/步驟 2/)).toBeInTheDocument();
+    expect(onStatusRefresh).not.toHaveBeenCalled();
+  });
+
   it('uses a scrollable overlay with m-auto card (tall steps stay reachable)', () => {
     // 回歸測試（實際事故）：金鑰步驟 7 個供應商輸入使卡片高於視窗時，
     // flex 置中會裁掉上下兩端且無法捲動 → 「下一步」按鈕點不到。

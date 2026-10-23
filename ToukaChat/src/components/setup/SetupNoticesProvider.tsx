@@ -3,6 +3,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSetupStatus, type SetupStatus } from '@/hooks/useSetupStatus';
+import { saveSetupResume, useSetupResumeAfterLogin } from '@/hooks/useSetupResume';
 import { SetupWizard } from './SetupWizard';
 import type { WizardStepId } from './setupWizardConfig';
 
@@ -38,9 +39,11 @@ function hasSetupIssues(status: SetupStatus): boolean {
  * 首次設定警告的狀態與設定精靈（ADR-0053）。警告本身畫在左側邊欄（SidebarSetupNotices），
  * 這裡只保管狀態、不畫任何版面元素，避免又在最外層排出一條直欄。
  * 必須放在 AuthGuard 裡：登出、登入過期或換使用者時跟著卸載，「稍後」才會重置。
+ * 登出時整棵樹先卸載，到 `/login`（公開頁）重新掛上；登入後到首頁不會重掛，
+ * 所以精靈改完密碼後的接續（useSetupResume）靠 user 從 null 變成管理員來觸發。
  */
 export function SetupNoticesProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { status, refetch } = useSetupStatus();
   // 重讀時 hook 會先把狀態設成 null；保留上次讀到的狀態，重讀失敗也不讓警告消失。
   // 這裡依賴 hook 回傳的 status 在兩次讀取之間是同一個物件（它直接回傳 state）。
@@ -51,6 +54,13 @@ export function SetupNoticesProvider({ children }: { children: ReactNode }) {
 
   const shown = status ?? lastStatus;
   const isAdmin = user?.role === 'admin';
+
+  // 精靈改完密碼、重新登入後接續：要等狀態讀到，而且還有沒設定完的項目才打開；都設好了就丟掉。
+  const { resumeStepId, clearResume } = useSetupResumeAfterLogin(isAdmin && user ? user.id : null);
+  if (resumeStepId !== null && shown !== null) {
+    clearResume();
+    if (hasSetupIssues(shown)) setWizard({ stepId: resumeStepId });
+  }
   const value = useMemo<SetupNotices>(() => ({
     showTempPassword: isAdmin && shown !== null && shown.is_admin_temp_password,
     showSetupPrompt: isAdmin && !promptDismissed && shown !== null && hasSetupIssues(shown),
@@ -69,6 +79,9 @@ export function SetupNoticesProvider({ children }: { children: ReactNode }) {
             setWizard(null);
             refetch();
           }}
+          onPasswordChanged={saveSetupResume}
+          onRelogin={() => void logout()}
+          onStatusRefresh={refetch}
         />
       )}
     </SetupNoticesContext.Provider>
