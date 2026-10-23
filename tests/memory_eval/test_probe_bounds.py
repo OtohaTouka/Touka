@@ -34,7 +34,7 @@ from src.services.review import review_loop
 from src.utils.brain_persistence import get_active_brain
 
 from tests.memory_eval import live_bounds, seeding
-from tests.memory_eval.scenarios import SMOKE, select_scenarios
+from tests.memory_eval.scenarios import CONTINUITY, SMOKE, select_scenarios
 from tests.smoke.lib.sandbox_env import SmokeSandboxError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,10 +71,12 @@ def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> 
     probe._install_bounds(max_requests, wire_cap, model="deepseek-v4-flash", budget=budget)
 
 
-def _scope(max_tokens: int = 64) -> Any:
+def _scope(
+    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",)
+) -> Any:
     return probe._memory_eval_scope(
-        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
-        scenario_ids=["poison_home"], max_requests=3, max_tokens=max_tokens, budget=0.1,
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenario_ids=list(ids), max_requests=3, max_tokens=max_tokens, budget=0.1,
     )
 
 
@@ -298,11 +300,44 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
 
 
 class _FakeDriver:
-    def __init__(self, **_kwargs: Any) -> None:
-        pass
+    built: list[dict[str, Any]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        _FakeDriver.built.append(kwargs)
 
     async def run_batch(self, _scenarios: Any) -> Any:
         return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
+
+
+@pytest.mark.parametrize(
+    ("suite", "ids", "recording"),
+    [(SMOKE, ("poison_home",), False), (CONTINUITY, ("continuity_last_visit",), True)],
+)
+async def test_only_the_continuity_batch_turns_the_activity_record_on(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    suite: str, ids: tuple[str, ...], recording: bool,
+) -> None:
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+
+    await probe.run_memory_eval_probe(
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenarios=select_scenarios(suite, list(ids)), max_requests=3, max_tokens=64,
+        budget=0.1, sandbox_root=tmp_path,
+        approval=policy.issue_live_api_approval(
+            approved=True, scope=_scope(suite=suite, ids=ids)),
+    )
+
+    (kwargs,) = _FakeDriver.built
+    assert kwargs["activity_record"] is recording
+
+
+async def _no_init_db() -> None:
+    pass
 
 
 async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
@@ -393,9 +428,19 @@ def test_scope_lists_every_bound() -> None:
                  "pre_send_worst_case", "budget_usd=0.1000", "provider_retry=0",
                  "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
                  f"embedding_stub={seeding.STUB_EMBEDDING_MODEL};query_floor=0.3;"
-                 "dedup_threshold=0.92", probe.STUB_NOTE,
+                 "dedup_threshold=0.92", probe.STUB_NOTE, "activity_record=off",
                  "write_scope=temporary sandbox only"):
         assert item in rendered
+
+
+def test_continuity_scope_says_the_activity_record_is_on() -> None:
+    rendered = policy.format_live_api_scope(
+        _scope(suite=CONTINUITY, ids=("continuity_last_visit", "continuity_recent_done"))
+    )
+
+    assert "suite=continuity" in rendered
+    assert "activity_record=on (seeded events written to the sandbox only)" in rendered
+    assert "activity_record=off" not in rendered
 
 
 def test_haiku_5_5_scope_shows_the_wire_cap_touka_will_send(

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.models.identity import AgentIdentity
+from src.services.continuity_events import event_id
+from src.utils.continuity_events_db import EventRow
 
 from tests.memory_eval.scenarios import PERSONA_TEXT, SOUL_ID
 
@@ -155,3 +157,20 @@ def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     for role, content in scenario.seed.home:
         append_node(home_tree, role, content, None)
     return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary)
+
+
+def plan_timeline(scenario: Scenario, now_ms: int) -> tuple[EventRow, ...]:
+    """情境預放的活動事件：合成靈魂名下、產品的事件 id 規則，都記在另一個較早的對話。
+
+    人類訊息不在這個情境的對話裡，所以不會被當成「這段對話上一輪」。
+    """
+    session_id = f"memory-eval-{scenario.id}-earlier"
+    rows = []
+    for event in scenario.seed.timeline:
+        occurred = now_ms - event.age_s * _MS
+        rows.append(EventRow(
+            event_id=event_id(event.kind, SOUL_ID, event.subject, occurred), agent=SOUL_ID,
+            kind=event.kind, occurred_at=occurred, subject=event.subject,
+            session_id=session_id, metadata=dict(event.metadata),
+        ))
+    return tuple(rows)

@@ -17,6 +17,9 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 嵌入一律用替身編碼器：產品讀到的嵌入模型名稱在建庫前固定成評估專用名稱（不看 .env），查詢下限
 與查重門檻取產品對這個名稱的預設值；核准範圍與報告都印這一行。分數只代表替身，不代表真實嵌入
 模型的召回。
+
+``--suite continuity``（時間軸）另外打開活動記錄器，每個情境先在沙盒預放活動事件；核准範圍印
+``activity_record=on``。smoke 不開。兩條命令算兩批，各自取得同意。
 """
 
 from __future__ import annotations
@@ -132,6 +135,7 @@ from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
 from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
+    ACTIVITY_RECORD_SUITES,
     SOUL_ID,
     SUITES,
     UnknownScenario,
@@ -155,6 +159,8 @@ MAX_BUDGET_USD = 2.0
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
 STUB_NOTE = "stub encoder; recall does not reflect a real embedding model"
+ACTIVITY_RECORD_ON = "activity_record=on (seeded events written to the sandbox only)"
+ACTIVITY_RECORD_OFF = "activity_record=off"
 _ADAPTERS = (ClaudeAdapter, OpenAIAdapter, ResponsesAdapter, GeminiAdapter)
 _ORIGINAL_SEND_ROUNDS = {adapter: adapter.send_round for adapter in _ADAPTERS}
 _ORIGINAL_EXTRACT_USAGES = {adapter: adapter.extract_usage for adapter in _ADAPTERS}
@@ -398,6 +404,7 @@ def _memory_eval_scope(
             "auxiliary_model_calls=0",
             f"embedding_stub={stub['model']};query_floor={stub['query_floor']:g};"
             f"dedup_threshold={stub['dedup_threshold']:g} ({stub['note']})",
+            ACTIVITY_RECORD_ON if suite in ACTIVITY_RECORD_SUITES else ACTIVITY_RECORD_OFF,
             f"env_file={env_file}",
         ),
         data_scope="synthetic persona, facts, conversations and injection text only",
@@ -468,6 +475,7 @@ async def run_memory_eval_probe(
     driver = runner.MemoryEvalDriver(
         base_ctx=base_ctx, send_turn=runner.pipeline_send_turn,
         save_fact=runner.memory_save_fact, max_tokens=max_tokens, budget_usd=budget,
+        activity_record=suite in ACTIVITY_RECORD_SUITES,
     )
     try:
         report = (await driver.run_batch(scenarios)).to_dict()

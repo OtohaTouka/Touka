@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from pathlib import Path
@@ -15,11 +16,15 @@ from unittest.mock import patch
 import pytest
 from memory_server import config_utils
 from memory_server import vector as memory_vector
+from memory_server.services import event_recorder as memory_events
 from src.main import build_base_context
+from src.services import continuity_events as ce
 from src.services.permission_service import permission_service
+from src.utils import task_utils
 from src.utils.async_db import init_db_async, session_service
 from src.utils.auth_mode import mode_for_acting_agent
 from src.utils.brain_persistence import set_active_brain
+from src.utils.continuity_events_db import list_agent_events
 from src.utils.history_manager import TreeMessageManager
 from src.utils.tool_events import TOOL_RESULT, TOOL_START
 
@@ -202,6 +207,25 @@ def test_stub_name_recalls_a_paraphrase_from_a_real_local_store(
     assert [hit["fact_id"] for hit in hits] == ["fact-cat"]
 
 
+def test_timeline_seed_rows_follow_the_product_event_shape() -> None:
+    scenario = sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])[0]
+
+    rows = seeding.plan_timeline(scenario, NOW_MS)
+
+    assert [row.kind for row in rows] == [event.kind for event in scenario.seed.timeline]
+    for row, event in zip(rows, scenario.seed.timeline, strict=True):
+        assert row.agent == sc.SOUL_ID
+        assert row.occurred_at == NOW_MS - event.age_s * 1000
+        assert row.event_id == ce.event_id(row.kind, row.agent, row.subject, row.occurred_at)
+        assert row.metadata == dict(event.metadata)
+        assert row.session_id == f"memory-eval-{scenario.id}-earlier"
+
+
+def test_continuity_seeds_use_only_product_event_kinds() -> None:
+    kinds = {e.kind for s in sc.select_scenarios(sc.CONTINUITY) for e in s.seed.timeline}
+    assert kinds <= ce.EVENT_KINDS
+
+
 # --- 多輪 driver --------------------------------------------------------------
 
 
@@ -335,6 +359,80 @@ async def test_scenario_stops_mid_way_at_the_budget_soft_cap(sandbox_db: Any) ->
     assert result.error == runner.BUDGET_REACHED
 
 
+# --- 活動記錄器（只在時間軸套件打開） ------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_soul(global_test_sandbox: str) -> None:
+    """記錄器只記正式靈魂：沙盒裡要有合成靈魂的設定."""
+    seeding.write_synthetic_soul(Path(global_test_sandbox), sandbox_root=Path(global_test_sandbox))
+
+
+@pytest.fixture
+def slow_activity_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """記錄器的背景寫入慢一點（比下一個情境開始前的工作久）：沒等寫入做完就往下走，測試看得出來."""
+    real_insert = ce.insert_event
+
+    async def _slow_insert(row: Any) -> bool:
+        await asyncio.sleep(0.5)
+        return await real_insert(row)
+
+    monkeypatch.setattr(ce, "insert_event", _slow_insert)
+
+
+def _pending_background_tasks() -> list[asyncio.Task[Any]]:
+    loop = asyncio.get_running_loop()
+    return [t for t in list(task_utils._background_tasks) if t.get_loop() is loop and not t.done()]
+
+
+async def test_recorder_runs_only_for_the_activity_record_batch(
+    sandbox_db: Any, synthetic_soul: None
+) -> None:
+    bound: list[bool] = []
+
+    async def _send(_request: Any, _ctx: Any) -> list[str]:
+        bound.append(ce.recorder._loop is asyncio.get_running_loop())
+        return _text_chunks("大約 3 天前。")
+
+    await _driver(_send).run_batch(sc.select_scenarios(sc.SMOKE, ["elapsed_3h"]))
+    await _driver(_send, activity_record=True).run_batch(
+        sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
+    )
+
+    assert bound == [False, True]
+    assert ce.recorder._loop is None
+    assert memory_events._Registration.recorder is None
+
+
+async def test_batch_end_closes_the_recorder_and_waits_for_its_writes(
+    sandbox_db: Any, synthetic_soul: None, slow_activity_writes: None
+) -> None:
+    async def _send(_request: Any, _ctx: Any) -> list[str]:
+        ce.recorder.record(seeding.soul_identity(), "task_done", "m-live/live-task",
+                           {"mission_id": "m-live", "task_id": "live-task"})
+        return _text_chunks("大約 3 天前。")
+
+    await _driver(_send, activity_record=True).run_batch(
+        sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
+    )
+
+    assert ce.recorder._loop is None
+    assert _pending_background_tasks() == []
+    subjects = {e["subject"] for e in await list_agent_events(seeding.soul_identity())}
+    assert "m-live/live-task" in subjects
+
+
+async def test_drain_reports_writes_still_pending_after_the_timeout() -> None:
+    gate = asyncio.Event()
+    task = task_utils.spawn_logged(gate.wait(), name="continuity_event")
+    try:
+        assert await runner.drain_activity_writes(timeout_s=0.01) == 1
+    finally:
+        gate.set()
+        await task
+    assert await runner.drain_activity_writes(timeout_s=0.01) == 0
+
+
 # --- 真 pipeline（送出換假串流） ------------------------------------------------
 
 
@@ -397,3 +495,48 @@ async def test_real_pipeline_reaches_the_synthetic_soul(
     sent = request.model_dump_json()
     assert Path(global_test_sandbox).name not in sent
     assert Path.home().name not in sent
+
+
+async def test_continuity_suite_shows_only_this_scenarios_timeline(
+    sandbox_db: Any, seeded_identity_map: Any, synthetic_soul: None, slow_activity_writes: None
+) -> None:
+    """模型收到的時間軸三行都有內容；情境 N+1 看不到情境 N 預放或執行中記下的事件."""
+    set_active_brain(seeding.soul_identity(), "deepseek-v4-flash")
+    blocks: list[str] = []
+
+    async def _fake_dispatch(_model: str, request: Any, _identity: Any, *_a: Any) -> Any:
+        blocks.append(request.messages[-1].content)
+        live = f"live-{len(blocks)}"  # 這一輪執行中記下的事件（例如工具完成任務）
+        ce.recorder.record(seeding.soul_identity(), "task_done", f"m-live/{live}",
+                           {"mission_id": "m-live", "task_id": live})
+        return _FakeStreamingResponse(_text_chunks("大約 3 天前。"))
+
+    driver = runner.MemoryEvalDriver(
+        base_ctx=build_base_context(), send_turn=runner.pipeline_send_turn,
+        save_fact=_no_save, max_tokens=128, activity_record=True,
+    )
+    with patch("src.services.proxy_service.dispatch_request", _fake_dispatch):
+        await driver.run_batch(sc.select_scenarios(sc.CONTINUITY))
+
+    first, second = blocks
+    assert "Last message from a human (any conversation): 3d 0h ago" in first
+    assert "Last autonomous run: ended 6h 0m ago" in first
+    assert "3/3 pulses, completed" in first
+    assert "task catalog-0815 done 1h 0m ago" in first
+    # 預放的人類訊息在另一個對話：不算「這段對話上一輪」
+    assert "Since your previous turn in this conversation: unknown" in first
+    assert "Last message from a human (any conversation): 5d 0h ago" in second
+    assert "Last autonomous run: ended 2d 0h ago" in second
+    assert "2/2 pulses, completed" in second
+    assert "task repair-0921 done 20h 0m ago" in second
+    assert "catalog-0815" not in second
+    assert "live-1" not in second
+    for block in blocks:
+        assert "none recorded" not in block
+        assert "Activity records start" not in block
+    assert _pending_background_tasks() == []
+    assert ce.recorder._loop is None
+    # 情境 1 執行中記下的事件在情境 2 開始前寫完、被清掉；情境 2 的留到最後
+    subjects = {e["subject"] for e in await list_agent_events(seeding.soul_identity())}
+    assert "m-live/live-2" in subjects
+    assert "m-live/live-1" not in subjects

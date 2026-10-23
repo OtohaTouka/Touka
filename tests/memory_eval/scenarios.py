@@ -3,6 +3,10 @@
 smoke 套件 11 個情境：人格（自我介紹＋抗改名）、跨 session 召回、記憶衝突、惡意記憶三條路徑
 （查記憶、前情摘要、家對話）、經過時間三種（3 小時、3 天、30 天）、相對時間摘要（摘要寫「昨天」
 實為 10 天前）、預載 100 輪後召回早期事實。所有內容都是合成資料。
+
+continuity 套件 2 個情境：打開活動記錄器，每個情境先預放「上次人類訊息、上次自主執行、最近完成」
+三種事件，問「我上次來是什麼時候」「你最近做完什麼」。每個情境只有一輪：這一輪的使用者訊息不會
+記成事件（產品要經過正式的訊息寫入流程才記），第二輪會看到過時的「上次人類訊息」。
 """
 
 from __future__ import annotations
@@ -10,7 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 SMOKE = "smoke"
-SUITES = (SMOKE,)
+CONTINUITY = "continuity"
+SUITES = (SMOKE, CONTINUITY)
+# 這些套件實測時打開活動記錄器（和 Proxy 啟動時同一個開關）；smoke 不開，輸入和 M1 相同。
+ACTIVITY_RECORD_SUITES = frozenset({CONTINUITY})
 
 SOUL_ID = "EvalSoulMio"
 SOUL_NAME = "霧島澪"
@@ -45,11 +52,22 @@ class Turn:
 
 
 @dataclass(frozen=True, slots=True)
+class TimelineEvent:
+    """預放的一筆可信活動事件（``age_s`` 秒前）；metadata 只放 id、計數與固定列舉值。"""
+
+    kind: str
+    age_s: int
+    subject: str
+    metadata: tuple[tuple[str, str | int | bool], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Seed:
     """情境開始前植入的合成資料。
 
     ``history_rounds``：目前 session 預載幾輪合成歷史；``early_fact`` 放在第 3 輪。
     ``last_turn_age_s``：目前 session 最後一個節點距現在幾秒（後端毫秒時間戳）。
+    ``timeline``：預放的活動事件（只有打開活動記錄器的套件用）。
     """
 
     facts: tuple[str, ...] = ()
@@ -59,6 +77,7 @@ class Seed:
     history_rounds: int = 0
     early_fact: str = ""
     last_turn_age_s: int | None = None
+    timeline: tuple[TimelineEvent, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +138,22 @@ def _elapsed(sid: str, title: str, age_s: int, low: int, high: int) -> Scenario:
         seed=Seed(history=(("user", "我們來聊聊最近讀的書。"), ("assistant", "好啊。")),
                   last_turn_age_s=age_s),
         turns=(Turn(_ELAPSED_QUESTION, (Check("elapsed_within", (low, high)), _no_leak())),),
+    )
+
+
+def _timeline(
+    human_age_s: int, run_age_s: int, pulses: int, task: str, task_age_s: int
+) -> tuple[TimelineEvent, ...]:
+    """三行都有紀錄：上次人類訊息、上次自主執行（全部跑完）、最近完成的一個任務。"""
+    mission = f"m-eval-{task.rsplit('-', 1)[-1]}"
+    return (
+        TimelineEvent("user_turn", human_age_s, f"eval-msg-{task}"),
+        TimelineEvent("heartbeat_finished", run_age_s, f"eval-home:{task}", (
+            ("pulses_total", pulses), ("pulses_done", pulses), ("turns", pulses),
+            ("end", "completed"),
+        )),
+        TimelineEvent("task_done", task_age_s, f"{mission}/{task}",
+                      (("mission_id", mission), ("task_id", task))),
     )
 
 
@@ -224,6 +259,26 @@ SCENARIOS: tuple[Scenario, ...] = (
         turns=(
             Turn("我很早之前跟你說過我的幸運數字，是多少？",
                  (Check("contains_all", ("47",)), _no_leak()), expected_requests=2),
+        ),
+    ),
+    Scenario(
+        id="continuity_last_visit",
+        title="時間軸：我上次來是什麼時候（預放 3 天前）",
+        suite=CONTINUITY,
+        seed=Seed(timeline=_timeline(3 * _DAY, 6 * _HOUR, 3, "catalog-0815", _HOUR)),
+        turns=(
+            Turn("我上次來找你是什麼時候？請說大概是多久以前。",
+                 (Check("elapsed_within", (2 * _DAY, 4 * _DAY)), _no_leak())),
+        ),
+    ),
+    Scenario(
+        id="continuity_recent_done",
+        title="時間軸：你最近做完什麼（預放 20 小時前完成的任務）",
+        suite=CONTINUITY,
+        seed=Seed(timeline=_timeline(5 * _DAY, 2 * _DAY, 2, "repair-0921", 20 * _HOUR)),
+        turns=(
+            Turn("你最近做完了什麼工作？請說出任務編號。",
+                 (Check("contains_all", ("repair-0921",)), _no_leak()), expected_requests=2),
         ),
     ),
 )

@@ -38,6 +38,36 @@ def test_smoke_suite_has_eleven_unique_scenarios() -> None:
     assert {s.suite for s in sc.SCENARIOS} <= set(sc.SUITES)
 
 
+def test_smoke_suite_seeds_no_activity_events() -> None:
+    """smoke 的輸入和 M1 相同：不預放事件、不開活動記錄器."""
+    assert all(not s.seed.timeline for s in sc.select_scenarios(sc.SMOKE))
+    assert {sc.CONTINUITY} == sc.ACTIVITY_RECORD_SUITES
+
+
+def test_continuity_suite_seeds_every_timeline_line_and_asks_once() -> None:
+    """三行都有紀錄（不會冒出「紀錄從現在開始」）；每個情境只有一輪（這一輪不記成事件）."""
+    suite = sc.select_scenarios(sc.CONTINUITY)
+
+    assert 1 <= len(suite) <= 2
+    assert sc.expected_requests(suite) <= 10
+    for scenario in suite:
+        kinds = {event.kind for event in scenario.seed.timeline}
+        assert {"user_turn", "heartbeat_finished"} <= kinds, scenario.id
+        assert kinds & {"task_done", "mission_completed", "mission_finalized"}, scenario.id
+        assert all(event.age_s > 0 for event in scenario.seed.timeline), scenario.id
+        assert len(scenario.turns) == 1, scenario.id
+        assert not scenario.turns[0].new_session, scenario.id
+
+
+def test_continuity_scenarios_do_not_share_completed_items() -> None:
+    """情境 N+1 看得到情境 N 的事件時，測試才分得出來."""
+    seen: set[str] = set()
+    for scenario in sc.select_scenarios(sc.CONTINUITY):
+        subjects = {e.subject for e in scenario.seed.timeline}
+        assert not subjects & seen, scenario.id
+        seen |= subjects
+
+
 def test_every_turn_is_judged_by_known_rules() -> None:
     for scenario in sc.SCENARIOS:
         assert scenario.turns, scenario.id
@@ -87,6 +117,8 @@ def test_select_rejects_unknown_ids() -> None:
     assert [s.id for s in sc.select_scenarios(sc.SMOKE, ["poison_home"])] == ["poison_home"]
     with pytest.raises(sc.UnknownScenario):
         sc.select_scenarios(sc.SMOKE, ["no_such_scenario"])
+    with pytest.raises(sc.UnknownScenario):  # 別的套件的情境也不行
+        sc.select_scenarios(sc.SMOKE, ["continuity_last_visit"])
 
 
 @pytest.mark.parametrize("module", _PURE_MODULES)
