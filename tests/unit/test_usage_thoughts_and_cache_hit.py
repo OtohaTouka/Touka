@@ -26,7 +26,7 @@ from src.services.autonomy import autonomy_service
 from src.services.providers import pricing
 from src.services.resource_manager import resource_manager
 from src.services.telemetry import accumulate_token_usage
-from src.services.tool_executor import record_tool_usage
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 from tests.helpers.stream_transport import FakeUpstream, Reply, sse
 
@@ -147,7 +147,10 @@ async def _run_gemini(agent_id: str, thoughts: int) -> list[str]:
 
     async def execute(name: str, args: Any, _rid: Any, _ctx: Any, queue: Any, **kw: Any) -> str:
         executed.append(name)
-        record_tool_usage(kw.get("actually_used_tools"), name, args)
+        used = kw.get("actually_used_tools")
+        record_tool_usage(used, name, args)
+        record_tool_executed(used, name, args)
+        record_tool_succeeded(used, name, args)
         await queue.put({"type": "log", "content": f"[{name} done]"})
         await queue.put(None)
         return "ok"

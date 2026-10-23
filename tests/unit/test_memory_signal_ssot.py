@@ -128,7 +128,8 @@ def test_warning_messages_reference_only_real_tools():
 @pytest.mark.parametrize("handler_file", ["react_core.py"])
 def test_e_index_retrieval_signal_reads_ssot(handler_file: str):
     src = _src(handler_file)
-    assert '"memory_tools.query" in actually_used_tools' in src
+    # T3：檢索訊號看「執行過」，被擋下的 query 不算有查
+    assert '"memory_tools.query" in actually_used_tools.executed' in src
     assert '"query_memory" in all_thinking_and_tool_logs' not in src
 
 

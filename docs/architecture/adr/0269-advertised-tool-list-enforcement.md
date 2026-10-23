@@ -81,7 +81,7 @@
 
 ## 已知限制
 
-- **LOW-2（另開 T3）**：`record_tool_usage` 在所有拒絕之前就記錄（角色權限、PaC、審批的拒絕本來就這樣，不是本 ADR 造成的），記憶承諾守衛（`guard_service`）把被擋的 `memory_tools` 也算成用過：無痕或 SNS 裡模型說「記住了」不會跳提醒。因為實際沒有寫入，資料保護不受影響，只少一個使用者提示。正確修法要把「試過」（幻覺偵測需要）和「真的執行」（記憶守衛、查證守衛需要）分成兩個集合，會動到 `guard_service`、react_core 與四個 adapter 的 mid_loop_hook，超出本次範圍。
+- **LOW-2（另開 T3）**：`record_tool_usage` 在所有拒絕之前就記錄（角色權限、PaC、審批的拒絕本來就這樣，不是本 ADR 造成的），記憶承諾守衛（`guard_service`）把被擋的 `memory_tools` 也算成用過：無痕或 SNS 裡模型說「記住了」不會跳提醒。因為實際沒有寫入，資料保護不受影響，只少一個使用者提示。正確修法要把「試過」（幻覺偵測需要）和「真的執行」（記憶守衛、查證守衛需要）分成兩個集合，會動到 `guard_service`、react_core 與四個 adapter 的 mid_loop_hook，超出本次範圍。〔已修：ADR-0281 T3。〕
 - 行為改變第 4 點的三類要等 T1、T2 才能重新列給模型。
 - C2、C3 不聲稱能抓任意動態 Python（見上一節殘餘限制）。
 - 呼叫 MCP 工具當下，manager 另外依伺服器當下的清單與隔離紀錄核對（dep1，見 ADR-0203 的 dep1 補記）：所有入口都適用、`/debug/execute` 也擋；和本 ADR 不重疊，分工見該節。
@@ -94,7 +94,7 @@
 
 - **T1**：ToolLayer 帶精確的 request context，列出使用者各自授權的 MCP 與還沒連線的共享 MCP。
 - **T2**：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名），並決定外掛選項的語意（要讓模型用外掛時和角色權限一起另開 ADR）。在 T2 修好前，建立新靈魂時工具清單留空（等於全部可用），不要只勾幾個 MCP 工具。
-- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。
+- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T3。〕
 - **終端配套工具（候選）**：`execute_command` 走非同步流程時，會叫模型之後呼叫 `get_command_result(execution_id=…)` 取結果（`tools/terminal.py` 的 `_pending_payload`）。靈魂的 `enabled_tools` 只勾 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）。後續可讓 ToolLayer 列出 `execute_command` 時自動帶上配套工具，或讓 SoulStudio 成組勾選；另開任務，不在本 ADR 做。
 
 ## 和設計的小差異
