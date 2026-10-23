@@ -1,7 +1,7 @@
 # ADR-0278：靜態檢查只減不增，並在 CI 執行
 
 - 狀態：✅ 已接受
-- 日期：2026-10-22（2026-10-23 增補 §7）
+- 日期：2026-10-22（2026-10-23 增補 §7，以及 §2 升級帶進新規則）
 - 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）；pyproject.toml 的 `[tool.pyrefly]` 與 root 開發依賴 pyrefly 釘版、`tests/lint/pyrefly_baseline.json`、`tests/lint/test_pyrefly_ratchet.py`
 - 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）
 
@@ -30,6 +30,7 @@
 - `tests/lint/test_ci_pr_checks.py` 釘住兩件事：這一步要在安裝依賴與 braces 補丁之後跑，而且不能被 `if` 或 `continue-on-error` 跳過。
 - 基準收緊成 `{}`。守衛原本把空基準當成「沒設定」而失敗，改成只有基準檔不存在才算沒設定。
 - 兩者規則不同：Guard #35 照 ADR-0098 是「超過才失敗」，ruff 棘輪是「完全相等」。ESLint 不改，因為兩支既有測試直接替換它的內部函式，改動風險大於好處。
+- **升級讓規則多抓到既有程式時（2026-10-23 增補）**：做法和 §1 的 ruff 升級相同，升級後多抓到的既有違規在同一個 PR 凍結進基準，並在 PR 說明；新寫的程式只要讓數量超過基準就被擋。數量降下來以後，要在同一個 PR 跑 `--update` 收緊，否則降下來的空間之後又能被用掉（Guard #35 是「超過才失敗」）。第一次是 Next.js 16.4.2：eslint-config-next 16.4.2 要求 eslint-plugin-react-hooks `^7.1.0`。`react-hooks/set-state-in-effect` 與 `react-hooks/refs` 在 7.0 就是 error 級（repo 裡已有用 `eslint-disable-next-line` 壓掉的例子），7.1 的偵測範圍變寬，在既有程式多抓到 18 處與 1 處，基準從 `{}` 變成這 19 個。沒有選的做法：把 eslint-config-next 留在舊版，會被 `test_cve_2026_75604_nextjs_security.py` 擋下（要求和 next 同版）；用 override 把外掛鎖在 7.0.1，會超出 eslint-config-next 宣告的 `^7.1.0`，還多一個和安全無關的 override；在安全更新裡一次改 19 處 effect，會夾帶行為改變的風險。
 
 ### 3. `lint_ssot` 不把頂層 `tests/` 當業務層
 - **只認 repo 頂層的 `tests/`**：

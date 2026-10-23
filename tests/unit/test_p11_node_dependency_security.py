@@ -23,7 +23,7 @@ SECURITY_FLOORS = {
     "postcss-selector-parser": "7.1.3",
     "smol-toml": "1.7.1",
     "engine.io": "6.6.10",
-    "next": "16.3.8",
+    "next": "16.4.2",
 }
 PROJECT_PACKAGES = {
     "ToukaChat": tuple(SECURITY_FLOORS),

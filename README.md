@@ -4,7 +4,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-green.svg)](https://python.org)
-[![Node.js 24.21.0](https://img.shields.io/badge/Node.js-24.21.0-green.svg)](https://nodejs.org)
+[![Node.js 24.22.1](https://img.shields.io/badge/Node.js-24.22.1-green.svg)](https://nodejs.org)
 
 ---
 
@@ -121,7 +121,7 @@ Touka/
 
 ## 🔧 開發（接手開發者）
 
-完整步驟見 [CONTRIBUTING.md](CONTRIBUTING.md)。Python 由 `.python-version`／`uv.lock` 鎖定 3.12；Chat／IDE 的 `package.json` 固定 Node.js 24.21.0／npm 11.19.1。
+完整步驟見 [CONTRIBUTING.md](CONTRIBUTING.md)。Python 由 `.python-version`／`uv.lock` 鎖定 3.12；Chat／IDE 的 `package.json` 固定 Node.js 24.22.1／npm 11.19.1。
 
 ```bash
 uv sync --locked --all-packages

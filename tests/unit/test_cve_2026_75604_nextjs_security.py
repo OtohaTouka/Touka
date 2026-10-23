@@ -9,8 +9,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 CHAT = ROOT / "ToukaChat"
-PATCHED_NEXT_VERSION = "16.3.8"
-PATCHED_SHARP_RANGE = "^0.35.4"
+PATCHED_NEXT_VERSION = "16.4.2"
+PATCHED_SHARP_RANGE = "^0.35.5"
 
 
 def _read_json(path: Path) -> dict[str, Any]:

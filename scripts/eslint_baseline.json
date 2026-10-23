@@ -1,1 +1,4 @@
-{}
+{
+  "react-hooks/refs": 1,
+  "react-hooks/set-state-in-effect": 18
+}

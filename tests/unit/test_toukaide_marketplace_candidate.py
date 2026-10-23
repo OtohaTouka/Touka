@@ -65,7 +65,7 @@ def _package_manifest(**overrides: Any) -> dict[str, Any]:
         "devEngines": {
             "runtime": {
                 "name": "node",
-                "version": "24.21.0",
+                "version": "24.22.1",
                 "onFail": "error",
             },
             "packageManager": {
@@ -223,7 +223,7 @@ class FakeRunner:
         elif normalized[:3] == ("git", "rev-parse", "--verify"):
             stdout = f"{self.tagged_commit}\n"
         elif len(normalized) == 2 and normalized[-1:] == ("--version",):
-            stdout = "v24.21.0\n"
+            stdout = "v24.22.1\n"
         elif (
             len(normalized) == 3
             and normalized[-1:] == ("--version",)

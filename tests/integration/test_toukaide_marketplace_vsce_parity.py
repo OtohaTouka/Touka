@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IDE_ROOT = REPO_ROOT / "ToukaIDE"
 BUILDER_PATH = IDE_ROOT / "scripts" / "build_marketplace_candidate.py"
-EXPECTED_NODE_VERSION = "v24.21.0"
+EXPECTED_NODE_VERSION = "v24.22.1"
 
 
 def _load_builder() -> ModuleType:

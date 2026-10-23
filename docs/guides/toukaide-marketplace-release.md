@@ -6,7 +6,7 @@
 
 ## 1. 來源與提交前驗證
 
-exact Node.js **24.21.0**／npm **11.19.1**／repo-local `@vscode/vsce@3.9.2`；先核對實際CLI與package／lock／devEngines。
+exact Node.js **24.22.1**／npm **11.19.1**／repo-local `@vscode/vsce@3.9.2`；先核對實際CLI與package／lock／devEngines。
 從ToukaIDE目錄串行執行：
 
 ```powershell
@@ -25,7 +25,7 @@ npm run package
 原真vsce的opt-in parity使用exact Node及pytest synthetic staging，不建立產品候選且不得skip：
 
 ```powershell
-$env:TOUKA_NODE_24_EXECUTABLE = '<Node-24.21.0的node.exe>'
+$env:TOUKA_NODE_24_EXECUTABLE = '<Node-24.22.1的node.exe>'
 python -B -m pytest tests/integration/test_toukaide_marketplace_vsce_parity.py -q
 ```
 
@@ -43,7 +43,7 @@ root LICENSE與ToukaIDE release inputs須clean，`v0.3.0^{commit}`必須等於HE
 python -B ToukaIDE/scripts/build_marketplace_candidate.py `
   --repo-root . `
   --output-dir <repo外的新目錄> `
-  --node <Node-24.21.0的node.exe> `
+  --node <Node-24.22.1的node.exe> `
   --npm-cli <npm-11.19.1的bin/npm-cli.js>
 ```
 
