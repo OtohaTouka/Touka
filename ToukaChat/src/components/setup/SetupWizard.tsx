@@ -11,25 +11,45 @@ import { Step4Secrets } from './steps/Step4Secrets';
 import { Step5DataPath } from './steps/Step5DataPath';
 import { Step6CreateUser } from './steps/Step6CreateUser';
 import { Step7Complete } from './steps/Step7Complete';
+import { ReloginNotice } from './ReloginNotice';
 
 interface Props {
   status: SetupStatus | null;
   /** 從哪一步開始（例如側欄「變更密碼」直接到管理員密碼）；沒給或找不到就從第一步。 */
   initialStepId?: WizardStepId;
   onClose: () => void;
+  /** 第 2 步改好密碼：記下「這位使用者重新登入後從 nextStepId 接續」。 */
+  onPasswordChanged?: (userId: string, nextStepId: WizardStepId) => void;
+  /** 「前往登入」：登出並回到登入頁。 */
+  onRelogin?: () => void;
+  /** 前進到「完成」時重讀設定狀態，第 7 步才不會顯示精靈打開時的舊狀態。 */
+  onStatusRefresh?: () => void;
 }
 
-export function SetupWizard({ status, initialStepId, onClose }: Props) {
+// 改完密碼後接續的步驟：管理員密碼的下一步。
+const AFTER_PASSWORD_STEP_ID =
+  SETUP_WIZARD_STEPS[SETUP_WIZARD_STEPS.findIndex((s) => s.id === "admin_password") + 1].id;
+
+export function SetupWizard({ status, initialStepId, onClose, onPasswordChanged, onRelogin, onStatusRefresh }: Props) {
   const { t } = useTranslation();
   const [stepIndex, setStepIndex] = useState(() =>
     Math.max(0, SETUP_WIZARD_STEPS.findIndex((s) => s.id === initialStepId)),
   );
+  // 改完密碼後舊卡全失效，只能重新登入；這時不再顯示步驟內容，也不能回上一步重送。
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   const step = SETUP_WIZARD_STEPS[stepIndex];
   const totalSteps = SETUP_WIZARD_STEPS.length;
 
   function next() {
-    if (stepIndex < totalSteps - 1) setStepIndex((i) => i + 1);
+    if (stepIndex >= totalSteps - 1) return;
+    if (SETUP_WIZARD_STEPS[stepIndex + 1].id === "complete") onStatusRefresh?.();
+    setStepIndex((i) => i + 1);
+  }
+
+  function handlePasswordChanged(userId: string) {
+    onPasswordChanged?.(userId, AFTER_PASSWORD_STEP_ID);
+    setPasswordChanged(true);
   }
 
   function back() {
@@ -43,7 +63,7 @@ export function SetupWizard({ status, initialStepId, onClose }: Props) {
       case "system_health":
         return <Step1SystemHealth status={status} onNext={next} />;
       case "admin_password":
-        return <Step2AdminPassword onNext={next} />;
+        return <Step2AdminPassword status={status} onNext={next} onPasswordChanged={handlePasswordChanged} />;
       case "api_keys":
         return <Step3ApiKeys status={status} onNext={next} />;
       case "secrets":
@@ -104,9 +124,9 @@ export function SetupWizard({ status, initialStepId, onClose }: Props) {
         </div>
 
         {/* Step content */}
-        {renderStep()}
+        {passwordChanged ? <ReloginNotice onRelogin={onRelogin} /> : renderStep()}
 
-        {stepIndex > 0 && (
+        {stepIndex > 0 && !passwordChanged && (
           <div className="mt-4 pt-3 border-t border-border">
             <button
               onClick={back}

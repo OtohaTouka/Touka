@@ -5,9 +5,17 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
 import { logSSOTError } from '@/lib/error_handler';
+import type { SetupStatus } from '@/hooks/useSetupStatus';
 
 interface Props {
+  status: SetupStatus | null;
+  /** 保留目前密碼時前進。 */
   onNext: () => void;
+  /**
+   * 密碼改好了。後端已撤銷這個人所有舊卡（ADR-0144），所以不直接前進，交給上層請使用者重新登入。
+   * 傳的是實際被改密碼的使用者；畫面已經卸載（例如背景請求先觸發登入逾期）也照樣呼叫。
+   */
+  onPasswordChanged: (userId: string) => void;
 }
 
 /** 回傳違規規則的 i18n key（setup.step2.errors.*），合格回 null。 */
@@ -29,8 +37,10 @@ const PASSWORD_RULES: { key: string; test: (pw: string) => boolean }[] = [
   { key: "special", test: (pw) => /[^A-Za-z0-9]/.test(pw) },
 ];
 
-export function Step2AdminPassword({ onNext }: Props) {
+export function Step2AdminPassword({ status, onNext, onPasswordChanged }: Props) {
   const { t } = useTranslation();
+  // 只有後端說已經不是臨時密碼時才能保留；狀態還沒讀到時不給略過。
+  const passwordAlreadySet = status?.is_admin_temp_password === false;
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +69,7 @@ export function Step2AdminPassword({ onNext }: Props) {
         setError(d.detail ?? t("setup.step2.errors.update_failed"));
         return;
       }
-      onNext();
+      onPasswordChanged(me.id);
     } catch (err) {
       logSSOTError(err, "Step2AdminPassword");
       setError(t("setup.step2.errors.generic"));
@@ -71,7 +81,7 @@ export function Step2AdminPassword({ onNext }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {t("setup.step2.description")}
+        {t(passwordAlreadySet ? "setup.step2.description_already_set" : "setup.step2.description")}
       </p>
       <div>
         <label htmlFor="new-password" className="block text-sm font-medium mb-1">{t("setup.step2.new_password")}</label>
@@ -122,6 +132,16 @@ export function Step2AdminPassword({ onNext }: Props) {
           <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t("setup.common.saving")}</span>
         ) : t("setup.step2.submit")}
       </button>
+      {passwordAlreadySet && (
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={saving}
+          className="ml-2 px-4 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {t("setup.step2.keep_current")}
+        </button>
+      )}
     </form>
   );
 }

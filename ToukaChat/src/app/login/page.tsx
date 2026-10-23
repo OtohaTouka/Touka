@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { logSSOTError } from '../../lib/error_handler';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,6 +9,7 @@ import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { safeAuthError } from '../../lib/api/authService';
+import { peekSetupResume } from '@/hooks/useSetupResume';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,6 +17,10 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const submitting = useRef(false);
+  const { t } = useTranslation();
+  // 精靈改完管理員密碼後，背景請求常先把人帶到這裡，「登入已逾期」提示會隨 Toaster 卸載消失；
+  // 有有效的接續點就在這裡說明（只看不取，ADR-0053 補記 2026-10-23）。
+  const [setupResumePending] = useState(peekSetupResume);
   const { login } = useAuth();
   const router = useRouter();
 
@@ -49,6 +55,11 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {setupResumePending && (
+              <p role="status" className="text-sm text-center text-muted-foreground">
+                {t('setup.relogin.login_notice')}
+              </p>
+            )}
             <div className="space-y-2">
               {/* WCAG 3.3.2：程式化標籤（sr-only 保持視覺不變，placeholder 仍為可視提示） */}
               <label htmlFor="login-email" className="sr-only">Email</label>

@@ -137,6 +137,7 @@ tests/
 |------|------|
 | `test_auth_service.py` | AuthService 核心邏輯：JWT 簽發、Bcrypt SHA256 預雜湊、refresh token 輪換 |
 | `test_auth_logout.py` | 登出流程：Cookie 撤銷、session 清理 |
+| `test_wizard_password_relogin_contract.py` | ADR-0053 補記（2026-10-23）首次設定精靈的後端契約：管理員用自己的卡改自己的密碼後，舊 access 與舊 refresh cookie 都 401（ADR-0144），用新密碼登入立刻可用、新的 refresh cookie 能續期 |
 | `test_password_reentry_status_security.py` ⭐ | 密碼重輸打錯回 403 `AUTH_REAUTH_FAILED`（401 會被前端續期重送、驗兩次）——`AUTH_INVALID_CREDENTIALS` 只留給登入（AST 掃 `ToukaProxy/src`）、改密碼端點目前密碼錯回 403、首次登入用初始密碼改密碼（打錯 403 且檔案與臨時旗標都還在，打對才換掉並刪檔）；重置、還原、設定匯入、清除／匯出我的資料的既有測試同步改斷言 403 |
 | `test_auth_register_security.py` ⭐ | 公開註冊端點防護：強制 `normal` 角色，防止攻擊者透過 body 提升至 `admin` |
 | `test_get_current_user_401.py` ⭐ | `get_current_user` 錯誤碼修復：過期/非法 token、missing sub、user not found 均回 401 `AUTH_INVALID_TOKEN`，不得回 500 |
@@ -1003,7 +1004,11 @@ python scripts/guard_all.py
 | `unit/ToolStepTracker.test.tsx` | HAX G11：記憶/檔案庫工具顯示「記憶：<query/path>」徽章、非記憶工具不顯示 |
 | `unit/ContextMeter.test.tsx` | HAX G12：context % 標示點擊開啟說明面板（揭露載入則數/上限/滑動視窗），空對話不顯示 |
 | `unit/connections.deepResearch.test.ts` | ADR-0087：`deepResearch` 旗標於 openai/anthropic 兩協定皆 threading 至 body `deep_research`（以 onBeforeSend 攔截斷言） |
-| `components/setup/__tests__/SetupWizard.test.tsx` ⭐ | ADR-0118 首裝精靈殼層：首步渲染、Next/Back 步進、第一步無 Back、× 觸發 `onClose`、可捲動 overlay + `m-auto` 卡片（高步驟仍可觸及）；ADR-0053 補記：`initialStepId` 從指定步驟開始（側欄「變更密碼」到管理員密碼）、找不到就從第一步 |
+| `components/setup/__tests__/SetupWizard.test.tsx` ⭐ | ADR-0118 首裝精靈殼層：首步渲染、Next/Back 步進、第一步無 Back、× 觸發 `onClose`、可捲動 overlay + `m-auto` 卡片（高步驟仍可觸及）；ADR-0053 補記：`initialStepId` 從指定步驟開始（側欄「變更密碼」到管理員密碼）、找不到就從第一步；前進到「完成」時呼叫 `onStatusRefresh` 重讀狀態，其他步驟之間不重讀 |
+| `src/components/setup/__tests__/SetupWizard.passwordRelogin.test.tsx` ⭐ | ADR-0053 補記（2026-10-23）精靈改完管理員密碼：真的 connections 配照後端規則的假伺服器（改密碼即撤銷所有舊卡）——改完顯示「請重新登入」、隱藏上一步、記下接續第 3 步，沒有用失效的卡打後端；按「前往登入」才登出、登出中按鈕停用；改密碼的回應晚到、畫面已卸載時接續點照樣記下；改密碼失敗顯示原錯誤、不記接續點 |
+| `src/components/setup/__tests__/SetupNoticesProvider.resume.test.tsx` ⭐ | ADR-0053 補記：重新登入後接續——同一位管理員且還有沒設定完的項目才開在記下的步驟並用掉接續點；都設好了不開並丟掉；別人的接續點不開不刪；非管理員不取；登入頁還沒有使用者時不取、狀態讀到才開；關掉後不再自己打開 |
+| `src/hooks/__tests__/useSetupResume.test.tsx` ⭐ | ADR-0053 補記：接續點存取——同一位使用者取得且取過就刪；別人的不取不刪；1 小時邊界、過期與時間在未來都整筆刪；格式不對（非物件、陣列、欄位型別錯、空編號、不存在的步驟）整筆刪；沒有紀錄時不寫不刪；登入頁只看不取；hook 只在登入後取一次，StrictMode 第二次讀不到不清掉已取得的步驟 |
+| `auth/LoginSetupResumeNotice.test.tsx` ⭐ | ADR-0053 補記：登入頁有有效接續點時用 `role="status"` 說明「管理員密碼已更新」且不取走紀錄；沒有或過期時不顯示 |
 | `src/components/sidebar/left/__tests__/SidebarSetupNotices.test.tsx` ⭐ | ADR-0053 補記（2026-10-23）左側邊欄的首次設定警告：出現條件對照表（只給管理員；臨時密碼兩張都出現；其他三種只出現設定警告；狀態沒讀到或全設好時不出現）；沒有警告或沒有提供者時完全不畫；密碼警告只有「變更密碼」、不能關；「變更密碼」打開精靈到管理員密碼步驟、「立即設定」從第一步，兩者都呼叫 `onAction`；「稍後」只隱藏設定警告，側欄重新掛上後仍隱藏；關掉精靈會重讀、問題處理好時警告消失；重讀中或重讀失敗保留上次的警告；提供者在有警告時也不在頁面上多畫東西（舊橫幅在最外層排成直欄的回歸） |
 | `unit/LeftSidebar.setupNotices.test.tsx` ⭐ | ADR-0053 補記：兩個警告在左側邊欄裡、「新對話」按鈕上面；按警告的按鈕會呼叫 `onSetupAction`；側欄整欄可上下捲動、不橫向捲動，對話紀錄區有最小高度 |
 | `src/components/layout/__tests__/MainHeader.setupWarning.test.tsx` ⭐ | ADR-0053 補記：有首次設定警告時，桌面側欄收合鈕上有紅點、按鈕名稱說明側欄裡有設定警告；沒有警告時沒有紅點、名稱照舊 |
