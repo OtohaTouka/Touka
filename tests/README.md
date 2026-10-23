@@ -243,7 +243,7 @@ tests/
 
 C2-3 的來源、正式啟動、創建試跑與演化驗證也沿用這個沙盒；決策見 ADR-0275。下表列出測試索引；Linux 案例須在 Linux 收集及執行。
 
-Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過一次，不因新增案例增加平台跳過數。容器 CI 的觸發清單目前是 **28 個路徑模式**：含 `models/mcp_isolation.py`、`services/mcp_isolation_store.py` 與 `protocols/mcp/isolated_stdio.py`，由 `tests/lint/test_isolation_ci_workflow.py` 核對。先前待重跑的執行器突變已拆成 9 項，既有驗證紀錄皆因預期防線而失敗；這不代替整批 C2-3 的 Docker／突變／9p 驗證。
+Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過一次，不因新增案例增加平台跳過數。容器 CI 的觸發清單目前是 **29 個路徑模式**：含 `models/mcp_isolation.py`、`services/mcp_isolation_store.py` 與 `protocols/mcp/isolated_stdio.py`，由 `tests/lint/test_isolation_ci_workflow.py` 核對。先前待重跑的執行器突變已拆成 9 項，既有驗證紀錄皆因預期防線而失敗；這不代替整批 C2-3 的 Docker／突變／9p 驗證。
 
 | 檔案 | 說明 |
 |------|------|
@@ -305,7 +305,8 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `ToukaChat/src/hooks/settings/__tests__/useMcpSettings.test.ts` | **新增**：busy／waiting 翻譯提示、刷新清單並解除等待、完整同意且不沿用、三種隔離拒絕碼翻譯與刷新 |
 | `ToukaChat/src/components/sidebar/__tests__/IsolationBanner.test.tsx` | **新增**：四組 MCP 計數在隔離正常時仍顯示且不洩明細；五種無效計數不影響其他警告、保留有效計數與埠警告；預期為 none 時不計未隔離台數。來源只能往嚴與資料夾錯誤保留輸入沿用 `McpIsolationSection.test.tsx` 的案例 |
 | `test_executor_compose_security.py`、`test_executor_server_cli.py`、`test_executor_e2e_assets.py` | （第 3 輪 +1：README 建議的 `docker-compose.override.yml` 被 git 忽略）：三份 compose 的執行器（允許的鍵、禁止項目、只接 `touka-exec-net`、volume 只在該在的服務、sysctl 只有 Fast Open、command 和預期的 roots 一致、healthcheck 與 `start_period`、GHCR 的 long syntax 與 subpath、`.env.example` 的三個上限）、Dockerfile 預建目錄與 git 層；`python -m` 命令列在設定有錯時保持存活；`tests/docker` 的端到端 compose 和正式的執行器逐鍵相同 |
-| `test_isolation_junit_check.py`、`tests/lint/test_isolation_ci_workflow.py` | CI 的 junit checker（failed／error、skip 標籤、不安全分支必須 passed、拒收 PID 1、facts）與 workflow 形狀（types、REQUIRE、sysctl 步驟、兩個 pass、不可跳過、唯讀權限、容器 job 的步驟與 MPTCP 覆寫；容器 job 在 PR 改到隔離路徑時自動跑，帶 `isolation` 標籤或手動觸發強制跑；路徑清單含 `protocols/mcp/isolated_stdio.py`，與觸發條件都釘住） |
+| `test_isolation_junit_check.py`、`tests/lint/test_isolation_ci_workflow.py` | CI 的 junit checker（failed／error、skip 標籤、不安全分支必須 passed、拒收 PID 1、facts）與 workflow 形狀（types、REQUIRE、sysctl 步驟、兩個 pass、不可跳過、唯讀權限、容器 job 的步驟與 MPTCP 覆寫；容器 job 在 PR 改到隔離路徑時自動跑，帶 `isolation` 標籤或手動觸發強制跑；路徑清單含 `protocols/mcp/isolated_stdio.py`，與觸發條件都釘住；ADR-0279 起容器 job 在建好映像後跑 `tests/docker/permission_init_real.py`，路徑清單加 `ToukaHeartbeat/permission_init.py`） |
+| `test_deployment_permissions.py` | GHCR `touka-init`（`ToukaHeartbeat/permission_init.py`）的契約，只用模擬中繼資料：帳號與權限能力、掛載重疊與別名、漂移、上限、描述元預算、只經描述元修改、輸出不含名稱；ADR-0279 的略過規則（符號連結、FIFO、socket、裝置、多連結檔、setid 檔不開啟；延伸屬性只讀不改；根目錄與兩個工作區根照舊失敗；只需改擁有者的 setgid 資料夾照常處理、還要補權限位元的在盤點時就拒絕；工具資料夾只在代理人或伺服器資料夾底下略過、只限資料夾、名單和 `SCAN_SKIP_NAMES` 相同；略過算進項目數、層數與清單位元組上限；無法解碼的檔名照常處理；略過的項目被換掉仍失敗）。真核心那一半在 `tests/docker/permission_init_real.py`（主機上用 docker 跑三種情況，資料只在 `touka-pinit-test-*` volume） |
 | `tests/lint/test_executor_server_imports.py`、`test_isolation_boundary_no_full_env.py` | 執行器伺服器只匯入允許的模組、匯入的專案模組都在 `EXECUTOR_CODE_FILES`、不用 `Any`／SimpleNamespace；隔離邊界（含 `protocols/mcp/isolated_stdio.py`）不碰 `child_python_env`／`get_full_env`／`get_clean_env`（含別名、相對匯入、字串取用） |
 | `tests/lint/test_resource_manager_permission_repair.py` | ResourceManager 每個碰檔案的公開方法都有自癒或豁免裝飾器（AST 遞移、兩份釘選清單、from-import 與帶 errno 例外的棘輪、自我測試）；ADR-0277 將外部 UI reader 委派列為讀取並登記既有 delegates 豁免，新增正反兩案，防漏標 |
 | `test_settings_snapshot.py`（只列 C2-2 加的 2 個） | 匯入連線設定真的寫檔後才重讀路由（dry run 不呼叫）；匯入後自訂模型路由先關閉，要重新掃描或重啟才恢復 |
