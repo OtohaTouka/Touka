@@ -159,7 +159,7 @@ tests/
 | `test_interjection_adapters.py` ⭐ | **ADR-0249 第 4a／4b 段・四家插話格式**：Claude 規則表 `mid_conversation_system=True` 加 system 訊息、其他三種型號在最後一個 tool_result 後加 text block；OpenAI 相容在 tool 訊息後加 user 訊息；Gemini 在 functionResponse 同一個 content 加 text part；Responses 在 function_call_output 後加 user input item；`hold_tool_choice` 設成 none 並還原原值；打斷後接在原本提問之後，四家各自的形狀（4b） |
 | `test_interjection_persistence.py` ⭐ | **ADR-0249 第 4a 段・插話存檔**：這個串流 delivered 的插話以 API `Interjection` 形狀存進助理節點 `interjections[]`（queued／pending／undelivered／收回的與別的串流不存）；沒有已送達的插話時節點欄位不變；pump 在串流結束清空佇列之前存檔；停止、錯誤不存；無痕不碰 DB |
 | `test_interjection_notes.py` ⭐ | **ADR-0249 第 4a 段・伺服器端重組標註**：範本與前端 `INTERJECTION_NOTE_TEMPLATE` 純文字比對相同；照步數排、只取已送達有文字的；只改助理節點、不改原節點；回合數不變；心跳脈衝訊息、`get_home_messages`、摘要輸入都帶標註 |
-| `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
+| `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不印指令內容，禁令 23）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
 | `test_heartbeat_schedules_auth.py` | C9：Heartbeat `/v1/schedules` Bearer Token 驗證 |
 | `test_h1_h2_h6_security.py` | H1/H2/H6：Secure Cookie、IP 速率限制、Refresh Token 輪換 |
