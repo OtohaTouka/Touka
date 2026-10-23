@@ -23,12 +23,13 @@ from src.services import approval_flow, tool_errors
 from src.services.auto_reviewer import auto_reviewer
 from src.services.guard_service import guard_service
 from src.services.permission_service import permission_service
-from src.services.tool_executor import ToolExecutor, record_tool_usage
+from src.services.tool_executor import ToolExecutor
 from src.utils.tool_usage import (
     ToolUsage,
     executed_tools,
     record_tool_executed,
     record_tool_succeeded,
+    record_tool_usage,
     succeeded_tools,
 )
 
@@ -192,3 +193,111 @@ async def test_raising_handler_is_executed_but_not_succeeded(gates):
 
     assert used.executed == {"list"}
     assert used.succeeded == set()
+
+
+# --- 執行器：每一種擋下都不算執行過（DEV-B M1） ------------------------------------
+
+
+@pytest.fixture
+def all_roles_allowed(monkeypatch, gates):
+    """角色權限一律放行，讓測試只看後面的 PaC／審批／參數檢查."""
+    grants = SimpleNamespace(tools=SimpleNamespace(allows=lambda _name: True))
+    monkeypatch.setattr(permission_service, "resolve_grants", lambda _role: grants)
+    return gates
+
+
+async def _run_registries(
+    tools: dict, memory_tools: dict, name: str, ctx: PipelineContext, args: dict
+) -> tuple[ToolUsage, str]:
+    used = ToolUsage()
+    queue: asyncio.Queue = asyncio.Queue()
+    executor = ToolExecutor(None, tools, memory_tools, {}, enforce_advertised=True)
+    result = await executor.execute_to_queue(
+        name, dict(args), "req-t3", ctx, queue, call_id="c1", actually_used_tools=used
+    )
+    return used, result
+
+
+@pytest.mark.parametrize(
+    ("effect", "present", "card"),
+    [
+        ("DENY", False, "approved"),  # PaC 拒絕
+        ("CONFIRM", False, "approved"),  # 無人在場要審批
+        ("HUMAN_ONLY", False, "approved"),  # 只有人能核准、無人在場
+        ("CONFIRM", True, "rejected"),  # 有人在場、審批卡被拒
+    ],
+)
+async def test_policy_and_approval_blocks_are_not_executed(
+    all_roles_allowed, monkeypatch, effect, present, card
+):
+    monkeypatch.setattr(permission_service, "evaluate_policy", lambda _ctx: _Decision(effect))
+    monkeypatch.setattr(approval_flow, "await_human_approval", AsyncMock(return_value=card))
+    handler = AsyncMock(return_value="files")
+    extra = {"resumable_stream": True} if present else {}
+    used, _result = await _run_registries(
+        {"list": handler}, {}, "list", _ctx({"list"}, **extra), {"scope": "vault"}
+    )
+
+    handler.assert_not_awaited()
+    assert used == {"list"}
+    assert used.executed == set()
+    assert used.succeeded == set()
+
+
+async def test_argument_validation_error_is_not_executed(all_roles_allowed):
+    backend = AsyncMock(return_value="ok")
+    used, result = await _run_registries(
+        {}, {"memory_tools": backend}, "memory_tools", _ctx({"memory_tools"}),
+        {"action": "bogus"},
+    )
+
+    backend.assert_not_awaited()
+    assert "validation_error" in result
+    assert used == {"memory_tools", "memory_tools.bogus"}
+    assert used.executed == set()
+
+
+async def test_call_without_arguments_is_not_executed(all_roles_allowed):
+    """沒帶參數的 read 不呼叫 handler，也不算查過（DEV-B L1）."""
+    handler = AsyncMock(return_value="content")
+    used, result = await _run_registries({"read": handler}, {}, "read", _ctx({"read"}), {})
+
+    handler.assert_not_awaited()
+    assert "validation_error" in result
+    assert used == {"read"}
+    assert used.executed == set()
+    assert guard_service.check_fact_without_tools(_RECALL, used) is True
+
+
+async def test_real_memory_save_records_the_qualified_name(all_roles_allowed):
+    backend = AsyncMock(return_value="Memory successfully saved (ID: f1).")
+    used, _result = await _run_registries(
+        {}, {"memory_tools": backend}, "memory_tools", _ctx({"memory_tools"}), _SAVE
+    )
+
+    backend.assert_awaited_once()
+    assert "memory_tools.save" in used.executed
+    assert "memory_tools.save" in used.succeeded
+    assert guard_service.check_memory_hallucination(_PROMISE, used) is False
+
+
+async def test_legacy_failure_text_is_not_succeeded(all_roles_allowed):
+    backend = AsyncMock(return_value="❌ 存儲失敗：disk")
+    used, _result = await _run_registries(
+        {}, {"memory_tools": backend}, "memory_tools", _ctx({"memory_tools"}), _SAVE
+    )
+
+    assert "memory_tools.save" in used.executed
+    assert "memory_tools.save" not in used.succeeded
+    assert guard_service.check_memory_hallucination(_PROMISE, used) is True
+
+
+async def test_duplicate_notice_still_counts_as_succeeded(all_roles_allowed):
+    """現況（ADR-0281 已知限制）：記憶系統因內容相似而不寫入時，執行器照樣判成功."""
+    backend = AsyncMock(return_value="⚠️ [重複內容] 記憶庫中已存在相似事實 (ID: f1)。")
+    used, _result = await _run_registries(
+        {}, {"memory_tools": backend}, "memory_tools", _ctx({"memory_tools"}), _SAVE
+    )
+
+    assert "memory_tools.save" in used.succeeded
+    assert guard_service.check_memory_hallucination(_PROMISE, used) is False

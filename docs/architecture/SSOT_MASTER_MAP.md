@@ -122,7 +122,7 @@
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
-| 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（送出工具開始事件時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛與 e_index（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
+| 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（真正交給 handler 時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛與 e_index（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
 
 ## 記憶系統第二批：段 4 可信活動時間軸與時間感（2026-10-15，ADR-0267）
 

@@ -4,7 +4,7 @@
 迴圈結束後依賴殘留的最後一輪 `tool_use_blocks` 推導 save/query，較早回合的記憶
 動作會偵測遺漏（誤發記憶幻覺警告／e_index 被算成 0）。
 
-漂移修復批 C2 之後：訊號 SSOT ＝ `tool_executor.record_tool_usage` 產生的限定名
+漂移修復批 C2 之後：訊號 SSOT ＝ `utils/tool_usage` 的記錄函式產生的限定名
 （`memory_tools.save`/`memory_tools.query`，記入 `actually_used_tools`、天然跨輪
 累積），三 handler 同源消費。本檔守的**跨輪語意不變**——mock 執行器改呼叫真的
 `record_tool_usage`，使測試持續追蹤生產訊號機制：
@@ -23,8 +23,7 @@ from src.handlers.claude_handler import handle_claude_request
 from src.models.identity import AgentIdentity
 from src.services.autonomy import autonomy_service
 from src.services.rhythm_service import rhythm_service
-from src.services.tool_executor import record_tool_usage
-from src.utils.tool_usage import record_tool_executed, record_tool_succeeded
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 

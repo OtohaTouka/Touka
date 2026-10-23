@@ -696,8 +696,7 @@ class ToolExecutor:
                 await queue.put(None)
                 return validation_error
 
-        # 1. 發送 tool_start 事件；從這裡起才算「執行過」（T3）
-        record_tool_executed(actually_used_tools, name, args)
+        # 1. 發送 tool_start 事件
         await queue.put(tool_start_event(call_id=call_id, tool=name, args=args))
         await queue.put({"type": "touka_status", "status": f"tool_use: {name}"})
 
@@ -764,6 +763,8 @@ class ToolExecutor:
                 }
 
                 # --- [工具尋址與執行 - SSOT via ProtocolManager] ---
+                # 真正交給 handler 才算「執行過」（T3）；前面任何一關擋下都不算
+                record_tool_executed(actually_used_tools, name, args)
                 t0_monotonic = get_monotonic_ms()  # 單調時鐘：量測純執行耗時
                 if is_native:
                     res_data = await resolved_handler(**call_kwargs)

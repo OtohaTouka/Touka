@@ -20,8 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.models.identity import AgentIdentity
-from src.services.tool_executor import record_tool_usage
-from src.utils.tool_usage import record_tool_executed, record_tool_succeeded
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 _GOLDEN_DIR = Path(__file__).parent / "goldens"
 _CI_TRUE_VALUES = frozenset({"1", "true", "yes"})
