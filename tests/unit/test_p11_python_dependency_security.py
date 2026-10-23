@@ -23,6 +23,7 @@ SECURITY_FLOORS = (
     ("sentence-transformers", "6.0.0"),
     ("pyjwt", "2.15.1"),
     ("urllib3", "2.8.0"),
+    ("opentelemetry-api", "1.45.1"),
 )
 
 
