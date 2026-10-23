@@ -134,22 +134,27 @@ _NEGATED_YESTERDAY = re.compile(
     r"|\b(?:not|was\s+not|is\s+not|wasn[’']t|isn[’']t)\s+yesterday",
     re.IGNORECASE,
 )
+# 轉述詞和「昨天」之間不能夾代名詞、轉折詞或「是」：「摘要寫十天前但我說昨天」是模型自己的主張
+_GAP_ZH = r"[^，,。！？!?；;\n我你他她但卻而不過可是]"
 _REPORTED_YESTERDAY = re.compile(
-    r"(?:摘要|紀錄|記錄|前情|筆記)[^，,。！？!?；;\n]{0,10}?(?:寫|說|記|提到|標|顯示)"
-    rf"[^，,。！？!?；;\n]{{0,3}}?{_Q}(?:昨天|昨日)"
+    rf"(?:摘要|紀錄|記錄|前情|筆記){_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示)"
+    rf"{_GAP_ZH}{{0,3}}?{_Q}(?:昨天|昨日)"
     rf"|(?:記成|寫成|寫作|記為|寫為){_Q}(?:昨天|昨日)"
-    r"|\b(?:summary|record|notes?|log)\b[^.,;!?\n]{0,30}?"
+    r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
     r"\b(?:says?|said|writes?|wrote|shows?|lists?|records?)\b[^.,;!?\n]{0,5}?[\"“']?yesterday",
     re.IGNORECASE,
 )
-# 猜測（「應該是昨天吧？」）與反問（「不是昨天嗎？」）結尾是問號也算錯
+# 猜測（「應該是昨天吧？」）與反問（「你不是昨天說的嗎？」）結尾是問號也算錯
 _HEDGE = re.compile(
     r"應該|大概|可能|也許|或許|好像|吧|\b(?:maybe|probably|perhaps|i think|i guess)\b",
     re.IGNORECASE,
 )
-_RHETORICAL = re.compile(
-    r"不(?:就)?是(?:昨天|昨日)(?:嗎|吧)|^(?:wasn[’']t|isn[’']t|didn[’']t|was it not|is it not)\b",
-    re.IGNORECASE,
+_RHETORICAL_ZH = re.compile(
+    r"不(?:就)?是[^，,。！？!?；;\n]{0,8}?(?:昨天|昨日)[^，,。！？!?；;\n]*?(?:嗎|吧)"
+)
+# 英文只看問號結尾的子句：沒有主詞的直述否定（"Wasn't yesterday."）不算反問
+_RHETORICAL_EN = re.compile(
+    r"^(?:wasn[’']t|isn[’']t|didn[’']t|was it not|is it not)\b", re.IGNORECASE
 )
 
 
@@ -237,9 +242,12 @@ def _asserts_yesterday(clause: str, end: str) -> bool:
     """這個子句是否把「昨天」當答案；看不懂的照舊算（寧嚴，ADR-0268）。"""
     if not _YESTERDAY.search(clause):
         return False
-    if _RHETORICAL.search(_clause_head(clause)):
+    question = end in _QUESTION_ENDS
+    if _RHETORICAL_ZH.search(clause) or (
+        question and _RHETORICAL_EN.search(_clause_head(clause))
+    ):
         return True
-    if end in _QUESTION_ENDS and not _HEDGE.search(clause):
+    if question and not _HEDGE.search(clause):
         return False
     rest = _REPORTED_YESTERDAY.sub("", _NEGATED_YESTERDAY.sub("", clause))
     return bool(_YESTERDAY.search(rest))

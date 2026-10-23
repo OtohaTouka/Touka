@@ -422,6 +422,48 @@ async def test_batch_end_closes_the_recorder_and_waits_for_its_writes(
     assert "m-live/live-task" in subjects
 
 
+async def test_scenario_is_not_sent_while_earlier_writes_are_still_pending(
+    sandbox_db: Any, synthetic_soul: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """情境開始前等不到背景寫入做完：這個情境不送、整批停下."""
+    sent: list[tuple[Any, Any]] = []
+
+    async def _still_pending(**_kwargs: Any) -> int:
+        return 1
+
+    monkeypatch.setattr(runner, "drain_activity_writes", _still_pending)
+    batch = sc.select_scenarios(sc.CONTINUITY)
+
+    report = await _driver(_fake_sender([], sent), activity_record=True).run_batch(batch)
+
+    assert sent == []
+    assert report.results == []
+    assert report.not_run == [s.id for s in batch]
+    assert "still pending" in report.stopped_reason
+    assert ce.recorder._loop is None
+
+
+async def test_writes_pending_at_the_batch_end_stop_the_batch(
+    sandbox_db: Any, synthetic_soul: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """整批結束時還有沒寫完的背景寫入：記成停止原因（實測腳本以非零結束）."""
+    calls: list[int] = []
+
+    async def _pending_only_at_the_end(**_kwargs: Any) -> int:
+        calls.append(1)
+        return 1 if len(calls) > 1 else 0  # 第 1 次是情境開始前，第 2 次是整批結束
+
+    monkeypatch.setattr(runner, "drain_activity_writes", _pending_only_at_the_end)
+    send = _fake_sender([_text_chunks("大約 3 天前。")], [])
+    batch = sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
+
+    report = await _driver(send, activity_record=True).run_batch(batch)
+
+    assert len(calls) == 2
+    assert [r.scenario_id for r in report.results] == ["continuity_last_visit"]
+    assert "still pending" in report.stopped_reason
+
+
 async def test_drain_reports_writes_still_pending_after_the_timeout() -> None:
     gate = asyncio.Event()
     task = task_utils.spawn_logged(gate.wait(), name="continuity_event")

@@ -135,6 +135,16 @@ CASES = [
     ("not_yesterday", (), _obs("Maybe yesterday?"), False),
     ("not_yesterday", (), _obs("雖然摘要寫昨天但我覺得就是昨天。"), False),
     ("not_yesterday", (), _obs("是昨天，摘要寫昨天也沒錯。"), False),
+    # 轉述詞後面接自己的主張（DEV-B 找到的漏網句）
+    ("not_yesterday", (), _obs("摘要寫十天前但我說昨天。"), False),
+    ("not_yesterday", (), _obs("根據摘要我記得是昨天。"), False),
+    ("not_yesterday", (), _obs("摘要說得對是昨天。"), False),
+    ("not_yesterday", (), _obs("The summary says ten days but I'd say yesterday."), False),
+    ("not_yesterday", (), _obs("你不是昨天才跟我說要去舊書市集嗎？"), False),  # 反問
+    ("not_yesterday", (), _obs("你不是昨天說的嗎？"), False),
+    # 沒有主詞的直述否定不算錯；英文反問只看問號結尾的子句
+    ("not_yesterday", (), _obs("Wasn't yesterday, it was ten days ago."), True),
+    ("not_yesterday", (), _obs("No, wasn't yesterday."), True),
 ]
 
 
