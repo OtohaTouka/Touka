@@ -17,8 +17,8 @@ NODE_VERSION = "24.22.1"
 NPM_VERSION = "11.19.1"
 # 映像自帶 npm 不保證符合 engine-strict 版本；唯一允許的 npm install 是此精確自我釘版。
 NPM_SELF_PIN = f"npm install -g --ignore-scripts --no-audit --no-fund npm@{NPM_VERSION}"
-NEXT_VERSION = "16.3.8"
-NEXT_SHARP_RANGE = "^0.35.4"
+NEXT_VERSION = "16.4.2"
+NEXT_SHARP_RANGE = "^0.35.5"
 NODE_INDEX = "sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea"
 PYTHON_IMAGE = (
     "python:3.12-slim-trixie@"

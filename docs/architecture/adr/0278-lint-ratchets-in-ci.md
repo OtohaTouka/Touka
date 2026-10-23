@@ -30,6 +30,7 @@
 - `tests/lint/test_ci_pr_checks.py` 釘住兩件事：這一步要在安裝依賴與 braces 補丁之後跑，而且不能被 `if` 或 `continue-on-error` 跳過。
 - 基準收緊成 `{}`。守衛原本把空基準當成「沒設定」而失敗，改成只有基準檔不存在才算沒設定。
 - 兩者規則不同：Guard #35 照 ADR-0098 是「超過才失敗」，ruff 棘輪是「完全相等」。ESLint 不改，因為兩支既有測試直接替換它的內部函式，改動風險大於好處。
+- **升級帶進新規則時（2026-10-23 增補）**：做法和 §1 的 ruff 升級相同，新規則抓到的既有違規在同一個 PR 凍結進基準，並在 PR 說明；新寫的程式照樣被擋，舊的之後只准減少。第一次是 Next.js 16.4.2：eslint-config-next 16.4.2 要求 eslint-plugin-react-hooks `^7.1.0`，7.1 新增 error 級的 `react-hooks/set-state-in-effect`（18 處）與 `react-hooks/refs`（1 處），基準從 `{}` 變成這 19 個。不把外掛留在舊版，因為 `test_cve_2026_75604_nextjs_security.py` 要求 eslint-config-next 和 next 同版。
 
 ### 3. `lint_ssot` 不把頂層 `tests/` 當業務層
 - **只認 repo 頂層的 `tests/`**：
