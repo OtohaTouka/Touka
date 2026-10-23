@@ -38,6 +38,13 @@ ADR-0268 起輸出上限改成比對 Touka 實際要送的值（Anthropic 照規
 | **M1-d** | 同上 | 同上換 `--provider anthropic --model claude-haiku-4-5 --budget 0.50` | Anthropic | `claude-haiku-4-5` | 同上 | 硬上限 40；輸出 ≤512；0.50；估約 $0.16、滿 40 約 $0.34（未計快取） | 同上 | 同上 |
 | **M2** | 完整批：多次取樣、真跑 100 輪、換模型、心跳恢復 | 待定（記憶功能合併、加情境後補精確命令） | 待定（每家一批） | 待定 | 待定 | 待定 | 同 M1 | 同 M1 |
 
+ADR-0280 起：替身的嵌入模型名稱固定成 `touka-eval-stub-ngram`（不看 `.env`），核准範圍多一行 `embedding_stub=touka-eval-stub-ngram;query_floor=0.3;dedup_threshold=0.92 (stub encoder; recall does not reflect a real embedding model)`，分數只代表替身、不代表真實嵌入模型的召回；另一行 `activity_record=off`（smoke）或 `activity_record=on (seeded events written to the sandbox only)`（continuity）。「不得說昨天」改成逐子句判。工具改過，上面 M1 四批與 10/15 的同意都不沿用。下表是修好後要問的兩批（格式，不代表核准；屆時以實際揭露為準）：
+
+| 批 | 要驗的事 | ①命令／script | ②provider | ③model | ④case／重試 | ⑤上限 | ⑥送出內容 | ⑦本機寫入 |
+|---|---|---|---|---|---|---|---|---|
+| **E1** | 修好後重跑 smoke：替身門檻固定、「昨天」逐子句判 | `python tests/smoke/manual/memory_eval_probe.py --provider anthropic --model claude-haiku-5-5 --suite smoke --max-provider-requests 40 --max-tokens 512 --budget 1.20 --human-approved-live-api [--env-file <金鑰 .env>]` | Anthropic | `claude-haiku-5-5` | smoke 11 情境、預計 20 請求；重試 0、備援 0；摘要員／審查員／評審 0 | 請求硬上限 40；請求裡 512、實送 8,192（天花板 8,192）；USD 上限 1.20；10/15 同條件實花約 $0.03 | 同 M1 | 同 M1 |
+| **E2** | 時間軸：模型有沒有看到、用到預放的上次人類訊息與最近完成 | 同上換 `--suite continuity --max-provider-requests 10 --budget 0.30` | Anthropic | `claude-haiku-5-5` | continuity 2 情境、各 1 輪、預計 3 請求；重試 0、備援 0 | 請求硬上限 10；實送 8,192；USD 上限 0.30 | 同 M1；另有活動記錄器開著（預放事件只寫沙盒） | 同 M1 |
+
 ## Claude 5.5 少想的延遲（T1，ADR-0271）
 
 工具：`tests/smoke/manual/thinking_latency_probe.py`（**寫好、未執行**）。直接呼叫產品 `complete_once`：minimal＝用途 summarizer（用途表少想）、default＝用途 critic（模型預設），啟動時核對用途表；只收三個 5.5 型號且路由是 Anthropic；`complete_once` 不重試、不換廠商。每個請求外連前依序核對實送上限 → 已花＋最壞（該型號價，Haiku 5.5 取貴檔）≤ `--budget` → 核銷請求數；任何一個請求失敗整批停。報告每請求的實送上限、思考設定、耗時、四欄用量與金額，每組最小／中位數／最大耗時；不印回應原文。目的是確認少想實際快多少、審查員等 60 秒夠不夠（ADR-0271；60 秒是推測值，不實測也安全）。

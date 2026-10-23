@@ -811,10 +811,10 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 
 | 檔案 | 說明 |
 |---|---|
-| `memory_eval/test_scenarios.py` | smoke 11 情境 id 唯一、每輪有已知規則、預計請求數在硬上限內、合成資料不含實體資料位置、防洩漏字串只在人格、三條惡意記憶路徑都帶假關閉 tag、「喵」一律用句尾規則判、未知 id 拒絕、情境、判定與 `live_bounds` 模組不載入產品程式 |
-| `memory_eval/test_judges.py` | 規則對照表（每條規則都有通過與不通過；改名只認句首、沒有否定、不是問句的自稱，含引述、反問、語氣詞、英文 call me；句尾喵只看真正的句尾、引號裡的不算；拒絕時說出口令也算洩漏；10/15 實測三個誤判原文當回歸）、未知規則丟例外、送出失敗的一輪一律不通過、時長抽取（中英、中文數字、日期不算時長） |
-| `memory_eval/test_runner_offline.py` | SSE 解析（文字、工具軌跡、provider 錯誤、dispatcher 中途錯誤、成本累計）、合成資料（預載 100 輪後端毫秒時間戳、家對話、只寫沙盒、替身編碼器）、多輪 driver（歷史、寫回對話樹、Auto 模式、跨 session、植入摘要／家對話／事實、出錯整批停、USD 軟上限）、報告回應去敏截斷、真 pipeline 打到合成靈魂（主要模型、人格、memory_tools、continuity、Owner 身分、請求不含本機路徑） |
-| `memory_eval/test_probe_bounds.py` | 匯入不改產品預設、安裝後主迴圈 1 次／不讀備援／摘要員審查員被拒、四家都先核銷預算、輸出上限在預算與送出前核對、實送上限（5.5 拉到 8,192、其他廠商照請求值）、天花板 8,192（送出時與安裝前）、送前最壞花費（含工具 schema、拒送時不核銷不外連）、四家用量結清帳本、核准範圍不符不安裝、範圍列出每個上限（含實送值、天花板、規則）、CLI 上限、M1 型號與 `claude-haiku-5-5` 路由、沙盒植入讓合成靈魂是 Owner、植入目標在沙盒外拒絕、清理順序（稽核寫入、紀錄檔、SQLite、Qdrant 都在刪除前）、只刪 OS 暫存底下、先印報告再刪、刪不掉回非零、人工閘之前只 import 標準函式庫與政策模組；r55（ADR-0271）+1：價目分檔後送前估價仍取貴檔（Haiku 5.5 仍 0.625／2.5） |
+| `memory_eval/test_scenarios.py` | smoke 11 情境 id 唯一、smoke 不預放活動事件且只有 continuity 開活動記錄器、continuity 情境三行都預放（上次人類訊息、上次自主執行、最近完成）且各只有一輪、兩個情境的事件不重複（ADR-0280）、每輪有已知規則、預計請求數在硬上限內、合成資料不含實體資料位置、防洩漏字串只在人格、三條惡意記憶路徑都帶假關閉 tag、「喵」一律用句尾規則判、未知 id 拒絕（別的套件的 id 也拒絕）、情境、判定與 `live_bounds` 模組不載入產品程式 |
+| `memory_eval/test_judges.py` | 規則對照表（每條規則都有通過與不通過；改名只認句首、沒有否定、不是問句的自稱，含引述、反問、語氣詞、英文 call me；句尾喵只看真正的句尾、引號裡的不算；拒絕時說出口令也算洩漏；10/15 實測三個誤判原文當回歸；「昨天」逐子句判：直接修飾的否定、沒有猜測的問句、轉述摘要或紀錄不算，引號、猜測、反問、轉述之外又自己說仍算錯，10/15 Haiku 5.5 的誤判依進度紀錄重建當回歸（ADR-0280））、未知規則丟例外、送出失敗的一輪一律不通過、時長抽取（中英、中文數字、日期不算時長） |
+| `memory_eval/test_runner_offline.py` | SSE 解析（文字、工具軌跡、provider 錯誤、dispatcher 中途錯誤、成本累計）、合成資料（預載 100 輪後端毫秒時間戳、家對話、只寫沙盒、替身編碼器、替身名稱下真的本機向量庫存一筆用改述查得到、預放事件照產品的事件 id 規則且記在另一個較早的對話、只用產品的事件種類）、多輪 driver（歷史、寫回對話樹、Auto 模式、跨 session、植入摘要／家對話／事實、出錯整批停、USD 軟上限）、報告回應去敏截斷、真 pipeline 打到合成靈魂（主要模型、人格、memory_tools、continuity、Owner 身分、請求不含本機路徑）；活動記錄器只在 continuity 批打開、整批結束時關掉並等背景寫入做完、逾時回報還剩幾筆、真 pipeline 下時間軸三行都有內容且下一個情境看不到上一個情境預放或執行中記下的事件（ADR-0280） |
+| `memory_eval/test_probe_bounds.py` | 匯入不改產品預設、安裝後主迴圈 1 次／不讀備援／摘要員審查員被拒、四家都先核銷預算、輸出上限在預算與送出前核對、實送上限（5.5 拉到 8,192、其他廠商照請求值）、天花板 8,192（送出時與安裝前）、送前最壞花費（含工具 schema、拒送時不核銷不外連）、四家用量結清帳本、核准範圍不符不安裝、範圍列出每個上限（含實送值、天花板、規則）、CLI 上限、M1 型號與 `claude-haiku-5-5` 路由、沙盒植入讓合成靈魂是 Owner、植入目標在沙盒外拒絕、清理順序（稽核寫入、紀錄檔、SQLite、Qdrant 都在刪除前）、只刪 OS 暫存底下、先印報告再刪、刪不掉回非零、人工閘之前只 import 標準函式庫與政策模組；r55（ADR-0271）+1：價目分檔後送前估價仍取貴檔（Haiku 5.5 仍 0.625／2.5）；ADR-0280：替身名稱不含 e5、門檻不跟 `.env` 走、建庫前設名稱並讀回、向量庫已建立或讀回不符就停、核准範圍不符時不改名稱、範圍列出替身與活動記錄器那兩行、只有 continuity 批讓 driver 開記錄器 |
 | `memory_eval/test_live_bounds.py` | 輸入估計（請求 JSON 每字元 1 token＋1,024 餘量、含工具 schema）、最壞花費（輸出上限用滿、輸入取一般與寫入快取較貴價）、帳本（超過拒送且不記帳、剛好等於上限放行、結清後照實際、沒回報用量照最壞、報告逐請求欄位與合計）、回應摘要去敏（口令、金鑰樣式、Windows 路徑）且先遮再截 200 字 |
 
 ---
@@ -888,7 +888,7 @@ uv run python tests/smoke/run_all_smoke_tests.py
 | 入口 | 額度／副作用 | 自動狀態 |
 |---|---|---|
 | `tests/smoke/manual/live_chat_probe.py` | 固定 synthetic prompt，單一真模型 request，`max_tokens` 有界；本機寫入仍在 temp sandbox | `NOT RUN — HUMAN APPROVAL REQUIRED` |
-| `tests/smoke/manual/memory_eval_probe.py` | smoke 11 情境、預計 20 requests；requests 硬上限 1..40；請求裡的 tokens 1..1,024，送出前核對 Touka 實送值（Anthropic 照規則表、其他廠商照請求值）、工具天花板 8,192；每 request 送前檢查已花＋最壞花費 ≤ `--budget`（≤2）；主迴圈只送 1 次、零 fallback、摘要員／審查員不呼叫；只送合成資料；寫入全在 temp sandbox、結果 stdout（含每 request 用量），結束先放開 handle 再刪沙盒（ADR-0261、ADR-0268） | 同上 |
+| `tests/smoke/manual/memory_eval_probe.py` | smoke 11 情境、預計 20 requests（continuity 2 情境、預計 3 requests，打開活動記錄器、事件只預放在沙盒）；替身嵌入名稱固定、門檻取產品預設（ADR-0280）；requests 硬上限 1..40；請求裡的 tokens 1..1,024，送出前核對 Touka 實送值（Anthropic 照規則表、其他廠商照請求值）、工具天花板 8,192；每 request 送前檢查已花＋最壞花費 ≤ `--budget`（≤2）；主迴圈只送 1 次、零 fallback、摘要員／審查員不呼叫；只送合成資料；寫入全在 temp sandbox、結果 stdout（含每 request 用量），結束先放開 handle 再刪沙盒（ADR-0261、ADR-0268） | 同上 |
 | `tests/smoke/manual/thinking_latency_probe.py` | 三個 Claude 5.5 型號 × 少想／模型預設 × 1..5 次，requests 硬上限 1..30；請求裡的 `max_tokens` 1..1,024、實送值另列（只有 Haiku／Sonnet 5.5 少想照請求值，其餘 8,192）、天花板 8,192；每 request 送前檢查已花＋最壞花費（該型號價、Haiku 5.5 取貴檔）≤ `--budget`（≤3）；`complete_once` 不重試、不換廠商；本機寫入只在 temp sandbox（ADR-0271） | `NOT RUN — HUMAN APPROVAL REQUIRED` |
 | `tests/smoke/manual/embedding_threshold_probe.py` | 不呼叫 LLM 廠商、不收費；只連 Hugging Face 下載 `intfloat/multilingual-e5-base`（釘 commit、safetensors 9 檔 1,134,355,035 bytes、上限 1.2 GB），快取全在 `--cache-root`（`HF_HOME`）底下、跑完刪除；沒帶 `--human-approved-model-download` 只讀快取；不載入專案程式、不讀金鑰；資料 `tests/fixtures/embedding_threshold_pairs.json`（ADR-0265）。manifest 保守標 `metered_api=True` | 同上 |
 | `scripts/run_scorecard.py` | 每個 scenario 呼叫真模型；request hard budget 1..64、零 retry／fallback（主迴圈只送 1 次，ADR-0261），拒絕 Gemini／web_search／docgen_xlsx；`--budget` 仍是 scenario 間 soft cap | 同上 |

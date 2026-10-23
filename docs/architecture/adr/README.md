@@ -295,9 +295,10 @@
 | [ADR-0277](0277-chat-conversation-search.md) | [聊天對話搜尋與跨來源分頁](0277-chat-conversation-search.md) | ✅ 已接受（修訂 ADR-0274，延伸 ADR-0276，兩份均已回指） | 2026-10-17 | Memory conversations／LegacyStore／row-page／資源協定；Proxy ResourceManager／SessionService／ui_conversation_reader／session_scope／記憶閘道與啟動接線；沙盒測試 | conversations, ui, legacy, all, query_ui_conversations, session_scope_version, 目前分支, 合併分頁, 未知時間 |
 | [ADR-0278](0278-lint-ratchets-in-ci.md) | [靜態檢查只減不增，並在 CI 執行](0278-lint-ratchets-in-ci.md) | ✅ 已接受（相關 ADR-0098、ADR-0254） | 2026-10-22 | ruff.toml（ERA）・scripts/lint_ratchet.py 與 ruff 基準・CI frontend job 跑 Guard #35・ESLint 基準收緊・lint_ssot 頂層 tests/ 不算業務層・CONTRIBUTING PR 前必做・test_ci_pr_checks・tests/README 不寫案例數與列表核對・pyrefly 型別檢查只減不增（隔離與安全邊界） | ratchet, 只減不增, ruff 基準, ERA, ESLint CI, lint_ssot, tests 業務層, CI 綠燈開 PR, tests/README 列表, pyrefly, 型別檢查 |
 | [ADR-0279](0279-permission-init-skips-special-entries.md) | [GHCR 啟動權限檢查遇到特殊項目改成略過](0279-permission-init-skips-special-entries.md) | ✅ 已接受（相關 ADR-0221、ADR-0272） | 2026-10-23 | ToukaHeartbeat/permission_init.py（分類、根目錄嚴格、略過計數、工作區工具資料夾）・tests/docker/permission_init_real.py・isolation.yml 容器 job 一步與觸發路徑・README_QUICKSTART | touka-init, permission_init, 符號連結, hf_cache, 略過, tool_dir, SCAN_SKIP_NAMES, 真核心 |
+| [ADR-0280](0280-memory-eval-fixed-stub-and-continuity-suite.md) | [記憶評估工具可以重現、不誤判「昨天」，也評估得到時間軸](0280-memory-eval-fixed-stub-and-continuity-suite.md) | ✅ 已實作（相關 ADR-0261、ADR-0268、ADR-0267、ADR-0214，決策都不變；修好後的實測每批另經同意、尚未執行） | 2026-10-24 | tests `smoke/manual/memory_eval_probe.py`・`memory_eval/`（`seeding`、`runner`、`judges`、`scenarios`）；`docs/proxy/live-check-backlog.md`；產品 0 行 | STUB_EMBEDDING_MODEL, apply_runtime_env, query_score_floor, duplicate_similarity_threshold, embedding_stub, not_yesterday 逐子句, 轉述, 反問, continuity 套件, activity_record, start_recording, purge_agent_events, insert_event, drain_activity_writes |
 
 ---
 
 
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-24*
 
