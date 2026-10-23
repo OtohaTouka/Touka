@@ -94,7 +94,7 @@
 
 - **T1**：ToolLayer 帶精確的 request context，列出使用者各自授權的 MCP 與還沒連線的共享 MCP。
 - **T2**：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名），並決定外掛選項的語意（要讓模型用外掛時和角色權限一起另開 ADR）。在 T2 修好前，建立新靈魂時工具清單留空（等於全部可用），不要只勾幾個 MCP 工具。
-- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。
+- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T3。〕
 - **終端配套工具（候選）**：`execute_command` 走非同步流程時，會叫模型之後呼叫 `get_command_result(execution_id=…)` 取結果（`tools/terminal.py` 的 `_pending_payload`）。靈魂的 `enabled_tools` 只勾 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）。後續可讓 ToolLayer 列出 `execute_command` 時自動帶上配套工具，或讓 SoulStudio 成組勾選；另開任務，不在本 ADR 做。
 
 ## 和設計的小差異

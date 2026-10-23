@@ -47,6 +47,7 @@ from src.services.tool_executor import ToolExecutor
 from src.utils.progress_events import react_slots_event, token_usage_event
 from src.utils.sse import sse_line
 from src.utils.time_utils import get_current_epoch
+from src.utils.tool_usage import ToolUsage
 
 from .adapters.base import ProviderAdapter, RoundError, Turn  # noqa: TC001
 from .adapters.usage import PartialUsage
@@ -258,7 +259,7 @@ async def run_react_loop(  # noqa: PLR0915
             restore_tool_choice = adapter.hold_tool_choice(state, "none")
 
     all_thinking_and_tool_logs = ""
-    actually_used_tools: set[str] = set()
+    actually_used_tools = ToolUsage()  # 試過／執行過／存成功由執行器記（T3）
     final_raw: Any = {}
     turn = Turn()
     wrapping_up = False  # ADR-0146：額度耗盡後的「最後一次無工具收尾呼叫」旗標
@@ -558,9 +559,9 @@ async def run_react_loop(  # noqa: PLR0915
     t3 = get_current_epoch()
     gen_time = upstream_gen_s  # C4：Σ上游耗時（e_index 與 pure_gen_ms 同源）
     last_msg = request.messages[-1].content if request.messages else ""
-    # 檢索訊號讀 tool_executor 限定名 SSOT（ADR-0155 C2）。
+    # 檢索訊號讀執行器記的限定名（ADR-0155 C2）；T3 起只看「執行過」，被擋下的 query 不算。
     e_index = calculate_emergence_index(
-        5 if "memory_tools.query" in actually_used_tools else 0,
+        5 if "memory_tools.query" in actually_used_tools.executed else 0,
         0.7,
         gen_time,
         str(last_msg),

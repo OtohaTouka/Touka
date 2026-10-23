@@ -498,6 +498,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_side_caller_billing.py` | （ADR-0244）：走真的 `complete_once`（只換傳輸），三個旁路呼叫都記帳（provider＝purpose、記到對應身分）；超過成本上限不送出，摘要回 None、critic REJECT、評分 0.0；r55（ADR-0271）假預算物件只補 `would_exceed`（回 False），斷言不改 |
 | `test_complete_once_contract.py` | （ADR-0244 契約；3a／3b 換底層時須原封不動通過，3a 已照原樣通過）：三家成功形狀與送出內容、先過成本上限、只記用量不記內容、拒答／截斷／安全過濾／逾時／廠商錯誤一律結構化非成功、不跨廠商、不重試、`timeout_s` 為總時間、`response_schema` 只對 Claude 外送；r55（ADR-0271）假預算物件只補 `would_exceed`（回 False），斷言不改 |
 | `test_usage_normalization.py` | （ADR-0244）：三家 `extract_usage` 回四欄＋本輪總輸入；OpenAI 扣 `cached_tokens`、Gemini 扣 `cachedContentTokenCount` |
+| `test_tool_usage_tracking.py` | （ADR-0281 T3）：工具使用分成試過／執行過／存成功——記錄函式只填自己的集合、限定名 `name.action`、只給一個集合的舊呼叫端照舊；存記憶被擋或失敗仍跳記憶提醒、真的存成功才不跳、提醒保留 `[記憶幻覺警告]` 標籤；被擋的查證工具不算查過；被擋的呼叫不算幻覺；真執行器：沒列出的呼叫只算試過、成功的算執行過與存成功、回結構化錯誤或丟例外只算執行過 |
 | `test_per_round_accounting.py` | （ADR-0244）：每輪入帳、E-Index 每次 run 一筆、CSV 一列含快取、事件為整次加總且 `usage_pct` 用最後一輪、原生出口記帳但不送事件 |
 | `test_model_route_resolution.py` | （ADR-0244；ADR-0248 加 Responses 路由（只限非自訂、官方 OpenAI、規則表標記，目的地是常數）、自訂連線標記與 Anthropic 分支寫入 model）：`resolve_model_route` 與 factory 六個入口（Human、有效／停用自訂連線、Claude、Gemini、OpenAI 相容）交給 handler 的 context 逐鍵釘死 |
 | `test_gemini_send_attempts.py` | （ADR-0244；ADR-0248 起主迴圈只送 1 次、不等待，重試在 react_core，還沒收到 200 就斷標成可重試；R-3b 移除沒有呼叫者的「預設送 3 次」路徑）：主迴圈外預設只送 1 次；`max_attempts=1` 時 503 與連線錯誤都只送一次 |

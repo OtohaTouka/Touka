@@ -347,7 +347,6 @@
   - 【推測】Gemini 出場對外部 MCP 工具的 `$ref`／`$defs` 不處理，欄位只寫在條件分支裡的也會在剝分支時消失；這類 MCP 工具在 Gemini 可能被拒收或變成沒有欄位（ADR-0266）。
   - T1：ToolLayer 帶精確的 request context，把使用者各自授權的 MCP（oauth／enterprise）與還沒連線的共享 MCP 列給模型；在那之前這兩類一律回 `not_advertised`（ADR-0269）。
   - T2：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名，靈魂設了工具清單時 MCP 工具一律被濾掉），並決定外掛選項的語意；要讓模型用外掛時，「列給模型＋補角色權限」一起另開 ADR（ADR-0269）。
-  - T3：記憶守衛與查證守衛分開「試過」和「真的執行」；目前被擋的 `memory_tools` 也算用過，模型說「記住了」不會跳提醒（ADR-0269 LOW-2）。
   - h2 附帶發現、未修：ToukaUI 的 `openDiff`（不帶伺服器前綴）回 `resource_not_found`；ModelStudio 的工具選單是空的（端點沒回它讀的 `data.tools`）（ADR-0269）。
   - 終端配套工具：靈魂的工具清單只勾 `execute_command`、沒勾 `get_command_result`（與 `stop_command`）時，背景指令取結果那一步會被擋（`not_advertised`）；可讓 ToolLayer 自動帶上配套工具或讓 SoulStudio 成組勾選，另排（ADR-0269）。
   - `scripts/lint_ssot.py` 用「完整路徑含 `tools` 等子字串」判斷業務層，測試檔名含 `tools` 時會被當成業務層而誤判 I/O 違規（h2 改檔名避開，守衛未改；已列為候選）。

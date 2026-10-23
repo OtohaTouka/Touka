@@ -118,6 +118,12 @@
 | 執行器要不要核對清單（只能用名稱指定、建立後唯讀；正式程式只有兩個建立點、各一次，結構測試 C2 逐一比對建立點，並限定只有這兩個檔能匯入 `tool_executor` 模組） | `ToolExecutor(..., *, enforce_advertised)`：`handlers/react_core.py` `run_react_loop` 寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈；人按的 `/debug/execute` |
 | 子代理一定拿掉的工具（請求與清單同步） | `tools/subagent_tools.py` `_SUBAGENT_STRIPPED_TOOLS`（`dispatch_subagent`、`dispatch_subagent_group`） | `_assemble_subagent_request`、`_run_subagent` |
 
+## ADR-0269 的後續：工具使用分三種（2026-10-24，ADR-0281 T3）
+
+| 責任 | 唯一來源 | 使用者 |
+|---|---|---|
+| 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（送出工具開始事件時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛與 e_index（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
+
 ## 記憶系統第二批：段 4 可信活動時間軸與時間感（2026-10-15，ADR-0267）
 
 | 責任 | 唯一來源 | 使用者 |

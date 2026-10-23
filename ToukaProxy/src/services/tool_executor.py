@@ -58,6 +58,7 @@ from src.utils.tool_events import (
     tool_error_event,
     tool_start_event,
 )
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -140,27 +141,6 @@ _SELF_APPROVING_TOOLS = frozenset(
     for name, binding in BUILTIN_EXECUTION_BINDINGS.items()
     if binding.kind == ToolExecutionClass.SELF_APPROVING
 )
-
-
-def record_tool_usage(
-    actually_used_tools: set[str] | None,
-    name: str,
-    args: dict[str, Any] | None,
-) -> None:
-    """把工具使用記入追蹤集（訊號生產 SSOT，漂移修復批 C2）。
-
-    記入工具名本身；聚合工具（memory_tools/vault_tools 等）帶 `action` 參數時
-    **同時記入限定名 ``name.action``**（如 ``memory_tools.save``）——guard_service
-    的記憶/誠實判定與 e_index 檢索訊號一律消費此集合，取代三 handler 各自的
-    字串嗅探/私有旗標（漂移根絕）。九裸動詞無 action、依名計；語意為「模型
-    實際發起了呼叫」（與舊行為一致，於執行前記入、不表成敗）。
-    """
-    if actually_used_tools is None:
-        return
-    actually_used_tools.add(name)
-    action = (args or {}).get("action")
-    if isinstance(action, str) and action:
-        actually_used_tools.add(f"{name}.{action}")
 
 
 def _unknown_tool_error(name: str) -> str:
@@ -716,7 +696,8 @@ class ToolExecutor:
                 await queue.put(None)
                 return validation_error
 
-        # 1. 發送 tool_start 事件
+        # 1. 發送 tool_start 事件；從這裡起才算「執行過」（T3）
+        record_tool_executed(actually_used_tools, name, args)
         await queue.put(tool_start_event(call_id=call_id, tool=name, args=args))
         await queue.put({"type": "touka_status", "status": f"tool_use: {name}"})
 
@@ -981,6 +962,8 @@ class ToolExecutor:
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
             #    duration_ms／error_class；失敗才抬 error_class、成功不帶）
+            if is_success:
+                record_tool_succeeded(actually_used_tools, name, args)
             await queue.put(
                 ToolCallEvent(
                     call_id=call_id,

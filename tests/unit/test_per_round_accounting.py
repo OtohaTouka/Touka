@@ -27,6 +27,7 @@ from src.services.providers import pricing
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
 from src.services.tool_executor import record_tool_usage
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 from tests.helpers.stream_transport import FakeUpstream, stream_reply
@@ -119,7 +120,10 @@ def _ctx(agent_id: str, **extra) -> dict:
 def _executor(executed: list[str]):
     async def execute(name, args, _req_id, _ctx, queue, **kwargs):
         executed.append(name)
-        record_tool_usage(kwargs.get("actually_used_tools"), name, args)
+        used = kwargs.get("actually_used_tools")
+        record_tool_usage(used, name, args)
+        record_tool_executed(used, name, args)
+        record_tool_succeeded(used, name, args)
         await queue.put({"type": "log", "content": f"[{name} done]"})
         await queue.put(None)
         return "ok"

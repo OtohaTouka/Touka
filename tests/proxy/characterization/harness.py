@@ -3,7 +3,7 @@
 正規化＝假時鐘（monkeypatch 各 handler 模組的 ``get_current_epoch``）＋固定
 request_id（ctx 注入）——SSE chunk 內的 created/telemetry 全數決定性。
 mock 慣例沿用 ADR-0155 教訓：執行器先 put log（``has_tool_call`` 由 log 事件
-置真）再 put sentinel，並以真的 ``record_tool_usage`` 登記（追蹤生產訊號）。
+置真）再 put sentinel，並以真的記錄函式登記試過、執行過、存成功（追蹤生產訊號，T3）。
 
 golden 生命週期：缺檔＝錄製＋skip（重跑即斷言）；CI 上缺檔＝失敗（model-p1a U4）；
 **刻意**行為變化＝刪 golden 檔重錄（diff 進 code review）。檔案 I/O 僅此兩站點
@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.models.identity import AgentIdentity
 from src.services.tool_executor import record_tool_usage
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded
 
 _GOLDEN_DIR = Path(__file__).parent / "goldens"
 _CI_TRUE_VALUES = frozenset({"1", "true", "yes"})
@@ -83,11 +84,14 @@ def msg(role: str, content: str) -> SimpleNamespace:
 
 
 def make_mock_executor(clock: dict):
-    """生產同構的假執行器：推進工具時鐘、發 log 事件、真 record_tool_usage。"""
+    """生產同構的假執行器：推進工具時鐘、發 log 事件、真的記錄函式（執行成功）。"""
 
     async def mock_execute(name, args, req_id, ctx, queue, **kwargs):
         clock["now"] += TOOL_S
-        record_tool_usage(kwargs.get("actually_used_tools"), name, args)
+        used = kwargs.get("actually_used_tools")
+        record_tool_usage(used, name, args)
+        record_tool_executed(used, name, args)
+        record_tool_succeeded(used, name, args)
         await queue.put({"type": "log", "content": f"[{name} done]"})
         await queue.put(None)
         return "Tool Success"
