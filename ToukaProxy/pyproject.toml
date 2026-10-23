@@ -21,7 +21,7 @@ dependencies = [
     "openai~=3.24.0",
     "mcp==2.2.0",
     # P6：Proxy 直接建立 payload-free MCP spans；不得依賴 MCP SDK 傳遞帶入。
-    "opentelemetry-api~=1.44.0",
+    "opentelemetry-api~=1.45.1",
     # P5：MCP tool schema quarantine 直接使用 Draft 2020-12 validator，
     # 不依賴 MCP SDK 的傳遞依賴偶然存在。
     "jsonschema~=4.26.0",
