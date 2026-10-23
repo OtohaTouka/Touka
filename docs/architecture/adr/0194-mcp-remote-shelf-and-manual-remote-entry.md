@@ -12,7 +12,7 @@
 
 批次 2（ADR-0192）開通了 remote streamable HTTP 傳輸，但**貨架上一條 remote 條目都沒有**，且前端只有安裝彈窗跟上了新形狀——伺服器列表與手動新增表單仍是 stdio-only。批次 3 補齊這兩件事：把 remote 條目真的放上貨架，並讓使用者能自己新增／編輯 remote 伺服器。
 
-owner 於本批點名加入 MS Learn 與 DeepWiki（批次 2 E2E 調查時實測連通的免認證公開端點）。
+維護者於本批點名加入 MS Learn 與 DeepWiki（批次 2 E2E 調查時實測連通的免認證公開端點）。
 
 ## 決策與實作
 
@@ -72,7 +72,7 @@ owner 於本批點名加入 MS Learn 與 DeepWiki（批次 2 E2E 調查時實測
 **Figma 的兩條路都不通，但性質不同**：
 
 - **遠端版 OAuth-only**——與 ADR-0191 認定的 L4 平台級 hosted 同屬**結構性不可對齊**。現勘中出現一條極具誘導性的線索（回應寫「figd_ tokens must be passed via X-Figma-Token header」，看似只要換 header 就能用 PAT），經三路證偽：該訊息是 Figma REST gateway 的全域規則（對 `api.figma.com/v1/me` 送同樣 header 得到逐字相同回應）；行為級反證是帶 `X-Figma-Token` 與**完全不帶認證**的回應位元組相同（MCP 層根本不消費該 header）；Figma 官方支援亦明覆「does not support authentication using personal access tokens and this cannot be enabled」。
-- **本機 Dev Mode 版形狀完美卻被部署形態擋死**——端點 `http://127.0.0.1:3845/mcp`、免認證、streamable HTTP，且 Touka 的 URL 閘對 loopback 明文 http 本就豁免。但 `touka-proxy` 跑在 bridge 網路容器內，容器的 `127.0.0.1` 是容器自己、不是跑著 Figma 桌面版的主機；慣用解 `host.docker.internal` 又會被同一個安全閘擋下（明文 http 非 loopback）。**這是唯一需要 owner 決策的項目**：原生部署即可用；容器部署則須評估是否為此放寬 URL 閘——該端點不帶任何憑證，明文外傳沒有金鑰可洩，風險論證與一般 remote 條目本質不同，值得單獨評估而非一概否決。
+- **本機 Dev Mode 版形狀完美卻被部署形態擋死**——端點 `http://127.0.0.1:3845/mcp`、免認證、streamable HTTP，且 Touka 的 URL 閘對 loopback 明文 http 本就豁免。但 `touka-proxy` 跑在 bridge 網路容器內，容器的 `127.0.0.1` 是容器自己、不是跑著 Figma 桌面版的主機；慣用解 `host.docker.internal` 又會被同一個安全閘擋下（明文 http 非 loopback）。**這是唯一需要維護者決策的項目**：原生部署即可用；容器部署則須評估是否為此放寬 URL 閘——該端點不帶任何憑證，明文外傳沒有金鑰可洩，風險論證與一般 remote 條目本質不同，值得單獨評估而非一概否決。
 
 **OAuth 解決不了 Stripe 的權限問題（批次 4 的決策依據，2026-07-26 查證）**：直覺上會以為「等批次 4 上了 OAuth，Stripe 就安全了」。**實測推翻此假設**——`https://access.stripe.com/.well-known/oauth-authorization-server/mcp` 的 `scopes_supported` **只有一個值 `["mcp"]`**：沒有逐資源 scope、沒有 read/write 分離、沒有任何可勾選細項。OAuth 授權綁定的是一個 Stripe Dashboard 使用者，token **繼承該使用者的角色權限**（授權者若是 Administrator，token 就約等於 Administrator）。
 
@@ -85,7 +85,7 @@ owner 於本批點名加入 MS Learn 與 DeepWiki（批次 2 E2E 調查時實測
 
 結論：**Stripe 條目維持走 restricted key 是正確選擇，且不會因批次 4 落地而改變。**
 
-**Stripe 的風險必須單獨記帳**：它是目前**唯一無法出廠鎖唯讀**的條目。官方工具表共 13 個，其中兩個容易被漏看的風險面：`stripe_api_write` 可**建立 webhook endpoint**（把金流事件導向任意外部 URL＝資料外洩管道），`send_stripe_mcp_feedback` 會把內容外送給 Stripe。另注意官方文件自相矛盾——`stripe_api_write` 描述寫「any Stripe API POST/PATCH/PUT/DELETE method」（無界），但同頁「Supported API methods」是有限清單，官方未澄清何者為實際邊界，**不應假設有限清單就是硬邊界**。Treasury 工具（真正的移錢、付帳單、發卡）需另行申請 preview，目前預設關閉。GitHub 有 `/readonly` 端點、Atlassian 有 `READ_ONLY_MODE` env，Stripe 兩者皆無——其工具面含 `stripe_api_write`（可對任意 Stripe API 發 POST/PATCH/DELETE）與 `create_refund` 這類直接動錢的原語，且「哪些工具存在」與「金鑰能做什麼」完全脫鉤。**安全邊界 100% 落在使用者的受限金鑰權限上，Touka 這端一個檢查點都沒有。** 因此配方取最保守值：env 變數刻意命名 `STRIPE_RESTRICTED_KEY`（而非慣例的 `STRIPE_API_KEY`）作為 UI 上唯一的提示槓桿，description 明講「金鑰權限是唯一的安全邊界、Touka 無法代為限制」並建議先用 `rk_test_`。若 owner 認為金流風險不該由文案承擔，撤下此條目即可（使用者仍可自行手動新增）。
+**Stripe 的風險必須單獨記帳**：它是目前**唯一無法出廠鎖唯讀**的條目。官方工具表共 13 個，其中兩個容易被漏看的風險面：`stripe_api_write` 可**建立 webhook endpoint**（把金流事件導向任意外部 URL＝資料外洩管道），`send_stripe_mcp_feedback` 會把內容外送給 Stripe。另注意官方文件自相矛盾——`stripe_api_write` 描述寫「any Stripe API POST/PATCH/PUT/DELETE method」（無界），但同頁「Supported API methods」是有限清單，官方未澄清何者為實際邊界，**不應假設有限清單就是硬邊界**。Treasury 工具（真正的移錢、付帳單、發卡）需另行申請 preview，目前預設關閉。GitHub 有 `/readonly` 端點、Atlassian 有 `READ_ONLY_MODE` env，Stripe 兩者皆無——其工具面含 `stripe_api_write`（可對任意 Stripe API 發 POST/PATCH/DELETE）與 `create_refund` 這類直接動錢的原語，且「哪些工具存在」與「金鑰能做什麼」完全脫鉤。**安全邊界 100% 落在使用者的受限金鑰權限上，Touka 這端一個檢查點都沒有。** 因此配方取最保守值：env 變數刻意命名 `STRIPE_RESTRICTED_KEY`（而非慣例的 `STRIPE_API_KEY`）作為 UI 上唯一的提示槓桿，description 明講「金鑰權限是唯一的安全邊界、Touka 無法代為限制」並建議先用 `rk_test_`。若維護者認為金流風險不該由文案承擔，撤下此條目即可（使用者仍可自行手動新增）。
 
 ## 測試
 
@@ -108,7 +108,7 @@ owner 於本批點名加入 MS Learn 與 DeepWiki（批次 2 E2E 調查時實測
 
 ## 誠實邊界
 
-- **帶憑證的條目未做真連線 E2E**：GitHub／Zapier／Stripe 三條的**成功路徑**未實跑——不應為測試索取真實憑證。已驗證的是形狀（模型層、header 模板解析）與**失敗路徑**（假憑證乾淨失敗）。首次使用前建議 owner 自備短效憑證各跑一次確認。
+- **帶憑證的條目未做真連線 E2E**：GitHub／Zapier／Stripe 三條的**成功路徑**未實跑——不應為測試索取真實憑證。已驗證的是形狀（模型層、header 模板解析）與**失敗路徑**（假憑證乾淨失敗）。首次使用前建議使用者自備短效憑證各跑一次確認。
 - **免認證條目的可用性依賴第三方**：MS Learn／DeepWiki 是外部免費服務，可能變更政策或下線。種子條目失效時使用者會看到連線錯誤（有逾時與取消洩漏保護、不會卡死啟動），但 Touka 無從預警。
 - **手動新增的 remote 未做端點可達性預檢**：存檔即寫入設定，連不連得上要等 agent 實際使用時才知道。stdio 路徑有 mcp-scan 安全掃描，remote 沒有對應機制（掃描的是本地指令）。（2026-10-09 補記：stdio 的 mcp-scan 掃描也已移除，見 SECURITY.md SP3。）
 - **Stripe 無 per-tool 治理**：Touka 目前只有 per-server 的 `enabled` 開關與逐呼叫 HITL 審批，沒有 Codex `enabled_tools`／Antigravity `disabledTools` 的對等物。對含通用寫入原語的服務（Stripe）而言，這代表無法在 Touka 側收斂工具面——per-tool 治理已列於提案 §7 的日後候選。

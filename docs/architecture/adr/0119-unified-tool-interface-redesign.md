@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（Tier 1–3 全部實作完成、全綠——guard_all 37/37、後端 pytest 2589 passed/4 skipped；擁有者尚未 commit）**。本 ADR 收斂提案 `docs/architecture/proposals/native-tool-interface-redesign.md`（設計 2026-07-03 與擁有者定案；量測數據與逐層落地紀錄見提案 §11），並延伸 ADR-0100（工具 schema canonical）、ADR-0102（技能↔MCP 接線）、禁令 59（工具失敗可見性）。
+✅ **已接受（Tier 1–3 全部實作完成、全綠——guard_all 37/37、後端 pytest 2589 passed/4 skipped）**。本 ADR 收斂提案 `docs/architecture/proposals/native-tool-interface-redesign.md`（設計 2026-07-03 與維護者定案；量測數據與逐層落地紀錄見提案 §11），並延伸 ADR-0100（工具 schema canonical）、ADR-0102（技能↔MCP 接線）、禁令 59（工具失敗可見性）。
 
 Tier 2 的「Anthropic 原樣保留」一句已由 ADR-0266 修訂：送給 Claude 時只剝根層組合子（Anthropic 不收根層 `oneOf`／`anyOf`／`allOf`）；條件必填的正本與 Gemini 剝除不變。
 
@@ -14,7 +14,7 @@ Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完�
 
 ## 背景
 
-擁有者回報 AI agent 常「調用工具失敗或幻覺」。實地稽核 `ToukaProxy/src/tools/**` 與 middleware/handler，對照 Anthropic《Writing tools for agents》、OpenAI function-calling 與 MCP tools 準則，定位三類病灶：**A 失敗不可見**（Gate 1 靜默過濾、幻覺偵測器漏 MCP）、**B 錯誤無結構混語言**（模型無法自我修正）、**C schema 衛生**（action-enum god-tools、`vault_tools` 無 schema 永不被廣告、隱藏必填參、動詞不一致）。select-only eval 基準（DebugAgent、真實模型）證實：兩腦（deepseek-v4-flash／grok-4.3）選對率皆僅 80%。
+維護者回報 AI agent 常「調用工具失敗或幻覺」。實地稽核 `ToukaProxy/src/tools/**` 與 middleware/handler，對照 Anthropic《Writing tools for agents》、OpenAI function-calling 與 MCP tools 準則，定位三類病灶：**A 失敗不可見**（Gate 1 靜默過濾、幻覺偵測器漏 MCP）、**B 錯誤無結構混語言**（模型無法自我修正）、**C schema 衛生**（action-enum god-tools、`vault_tools` 無 schema 永不被廣告、隱藏必填參、動詞不一致）。select-only eval 基準（DebugAgent、真實模型）證實：兩腦（deepseek-v4-flash／grok-4.3）選對率皆僅 80%。
 
 設計錨定 pi coding agent 的啟示：**裸動詞（read/write/edit…）在模型的 RL 訓練分布內**，自製 action-enum 方言不在——弱模型受害最深。
 

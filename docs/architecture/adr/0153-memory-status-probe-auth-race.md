@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（owner 回報 console `GET /v1/memory 401`；診斷為既有啟動競態，非 T 系列引入）
+✅ 已接受（維護者回報 console `GET /v1/memory 401`；診斷為既有啟動競態，非 T 系列引入）
 
 ## 日期
 
@@ -10,7 +10,7 @@
 
 ## 背景
 
-Owner 回報 console 反覆 `GET http://localhost:8000/v1/memory 401`。日誌鐵證使用者**完全登入
+維護者回報 console 反覆 `GET http://localhost:8000/v1/memory 401`。日誌鐵證使用者**完全登入
 正常**（`/v1/auth/me`、`/v1/memory/health`、`/v1/memory/list` 同一 token 皆 200），偏偏裸
 `/v1/memory` 401。三個端點在 `observability.py` 的認證依賴**完全相同**（`get_verified_identity`）
 ——同後端邏輯卻一 401 兩 200，唯一可能是那個 `/v1/memory` 請求**送出時未帶 token**。
@@ -24,7 +24,7 @@ Owner 回報 console 反覆 `GET http://localhost:8000/v1/memory 401`。日誌�
 **影響（輕微、非破壞）**：①console 噪音（每次頁面載入輸掉競態即一筆 401）；②`checkStatus`
 只在掛載＋`touka_connections_updated` 跑，不在 auth 完成後補跑 → `mode` 卡在 `standalone`，
 頁首／左側欄的「hybrid／記憶啟用」徽章整場顯示錯誤（記憶其實是活的）。無資料／功能損失。
-Owner 之所以現在看到＝proxy 重啟（載 ADR-0152 新碼）致登出重登，全新頁面載入剛好輸掉競態。
+這次會出現＝proxy 重啟（載 ADR-0152 新碼）致登出重登，全新頁面載入剛好輸掉競態。
 
 ## 決策
 
@@ -65,10 +65,10 @@ provider 巢狀**：
 - **根因**：`SessionListProvider` 掛載時 `refreshSessions()` 只探一次；`GET /v1/ui/sessions`
   若 `res.ok=false`／throw，`refreshSessions` **靜默回 `[]` 不動 `sessions`**（SessionListProvider.tsx:46-49），
   且**無 `touka_auth_changed` 重探監聽** → 空清單在該頁生命週期內不自癒，直到手動重整。
-- **實機觸發**：admin（`75ec02b2`）於管理頁編輯使用者 → 觸發自身 token 撤銷
-  （`system_status.log` 07-13 06:59:46／07:01:03「Tokens revoked」＋隨後 `LDH refused: cardless`
+- **觸發情境**（維護者的測試環境）：admin（`75ec02b2`）於管理頁編輯使用者 → 觸發自身 token 撤銷
+  （`system_status.log` 兩次「Tokens revoked」＋隨後 `LDH refused: cardless`
   ＋兩檔合計 7× `401`）→ 之後的 `/v1/ui/sessions` 吃 401 → 空側欄。**資料完好**
-  （`ui_sessions.db` 該 row `agent_id='Sumi'`、`is_home=1`、6969B 訊息樹完整），純顯示層。
+  （`ui_sessions.db` 該 row `agent_id='Sumi'`、`is_home=1`、訊息樹完整），純顯示層。
 - **後端已排除為肇因**（對抗式覆核）：`/v1/ui/sessions` 查詢無過濾，`_can_access_session`
   對 admin/Debugger **無條件先放行**（ui_sessions.py:85，早於 `owner_user_id` 檢查）→ 兩個
   admin 帳號皆可見該 row → **非 owner_user_id 過濾、非帳號切換**所致。
@@ -76,7 +76,7 @@ provider 巢狀**：
   `refreshSessions()`；卸載反註冊。與 `SystemStatusContext` 同構。認證就緒（登入／開機還原）
   後列表自動補回。測試 `SessionListProvider.authSelfHeal.test.tsx`（掛載首探 401→事件→補回；
   卸載反註冊）。
-- **未納入（另案，owner 排序）**：token 為何於使用者編輯後反覆撤銷（餘波追查）；前景對話身分
+- **未納入（另案，由維護者排序）**：token 為何於使用者編輯後反覆撤銷（餘波追查）；前景對話身分
   裂腦（人類 UUID 洩為 agent 身分、`data/custom/{human_uuid}/drive` 幻影目錄，ADR-0147 撞名於
   runtime 現形）。
 

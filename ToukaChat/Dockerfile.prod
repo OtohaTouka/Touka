@@ -5,10 +5,15 @@
 #   1. builder stage：安裝依賴 → npm run build → 輸出靜態檔案到 out/
 #   2. runner stage：以 serve 服務 out/ 目錄（無 Next.js server 需求）
 #
-# Node／npm 取自官方 node 映像（v24.21.0，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
+# Node／npm 取自官方 node 映像（v24.22.1，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
 # 注意：terminal_server.mjs 屬於 ToukaIDE（本機 PTY 橋接），不包含在此映像中。
 
-FROM node@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
+FROM node@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node-runtime
+
+# repo 根的 LICENSE／NOTICE：build context 只有 ToukaChat/，由具名 context touka-root 提供
+#（compose 的 additional_contexts、GHCR 發布的 build-contexts）。具名 context 會取代這個同名的空階段；
+# 沒帶它時下面的 COPY 找不到檔案而建置失敗，不會改去 registry 拉一個叫 touka-root 的映像。
+FROM scratch AS touka-root
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
 # builder 以 Python 基底提供 node-gyp 需要的 python3、make、g++。
@@ -19,7 +24,7 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
-    test "$(node --version)" = 'v24.21.0'
+    test "$(node --version)" = 'v24.22.1'
 # package.json 以 engine-strict 鎖定 npm 11.19.1；映像自帶版本不保證相同，明確安裝。
 RUN npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1 && test "$(npm --version)" = '11.19.1'
 
@@ -55,6 +60,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # repo-owned generator 與 build 明示分離；不得依賴 prebuild/postinstall lifecycle。
 RUN npm run gen:artifact-runtime --ignore-scripts
 RUN npm run build --ignore-scripts
+COPY --from=touka-root LICENSE NOTICE /touka-licenses/
 
 # ── Stage 2: Runner ───────────────────────────────────────────────────────────
 FROM node-runtime AS runner
@@ -68,11 +74,13 @@ COPY package*.json .npmrc ./
 COPY container-security/braces-backport/backport.mjs container-security/braces-backport/backport.mjs
 COPY container-security/braces-backport/manifest.json container-security/braces-backport/manifest.json
 COPY container-security/braces-backport/braces-3.0.3-depth-limit.patch container-security/braces-backport/braces-3.0.3-depth-limit.patch
-RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+# --omit=optional：serve 只送靜態檔，不需要 next 的選用依賴（sharp 會帶進 LGPL 的 libvips）。
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund --omit=optional
 RUN node container-security/braces-backport/backport.mjs verify --project-root . --scope runtime
 
-# 從 builder 複製靜態輸出
+# 從 builder 複製靜態輸出與授權檔（授權檔隨映像散布）
 COPY --from=builder /app/out ./out
+COPY --from=builder /touka-licenses/ ./
 
 # P8 fix: 以非 root 使用者執行（依賴與靜態資產維持 root-owned read-only）。
 RUN groupadd -g 1001 appuser && useradd -r -u 1001 -g 1001 -m appuser

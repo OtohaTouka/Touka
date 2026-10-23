@@ -100,3 +100,30 @@ def test_installed_verifier_failure_reports_streams_before_eslint(
         "cwd": PROJECT_ROOT / "ToukaChat", "check": True, "capture_output": True,
         "text": True, "timeout": 30,
     }
+
+
+def _load_guard() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "eslint_ratchet_baseline_under_test", SCRIPTS_DIR / "guard_eslint_ratchet.py"
+    )
+    assert spec is not None and spec.loader is not None
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    return guard
+
+
+@pytest.mark.parametrize(("baseline_text", "expected_exit"), [("{}\n", 0), (None, 1)])
+def test_empty_baseline_passes_but_missing_baseline_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, baseline_text: str | None, expected_exit: int
+) -> None:
+    """違規修到 0 後重拍出 `{}` 仍要能通過；只有基準檔不存在才算沒設定（ADR-0278）。"""
+    guard = _load_guard()
+    baseline = tmp_path / "eslint_baseline.json"
+    if baseline_text is not None:
+        baseline.write_text(baseline_text, encoding="utf-8")
+    monkeypatch.setattr(guard, "BASELINE_PATH", baseline)
+    monkeypatch.setattr(guard, "collect_violations", lambda: guard.Counter())
+    monkeypatch.setattr(guard.sys, "argv", ["guard_eslint_ratchet.py"])
+    with pytest.raises(SystemExit) as exit_info:
+        guard.main()
+    assert exit_info.value.code == expected_exit

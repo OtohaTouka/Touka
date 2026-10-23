@@ -1,13 +1,13 @@
 # ADR-0106：使用者頭像檔案上傳與安全存取 — multipart 上傳、magic-byte 驗證、納入備份、向後相容 avatar_url
 
-- **狀態**：✅ 已接受（2026-06-22 經 TDD 分階實作完成並全綠驗證：guard 37/37、後端 pytest（含 avatar 18 測）、vitest 735、smoke 24/24；資安導向對抗式複審 43 agent，加固 AV-001 寫入失敗回滾保護）（命名草圖修訂：影響範圍/Action B1 具名的 `utils/image_validation` 模組從未存在，實作在 `services/avatar_service.py`（權威 Decision D1-D7 忠實實作）；頭像上傳/驗證安全機制不變）
+- **狀態**：✅ 已接受（2026-06-22 經 TDD 分階實作完成並全綠驗證：guard 37/37、後端 pytest（含 avatar 18 測）、vitest 735、smoke 24/24；資安導向對抗式複審，加固 AV-001 寫入失敗回滾保護）（命名草圖修訂：影響範圍/Action B1 具名的 `utils/image_validation` 模組從未存在，實作在 `services/avatar_service.py`（權威 Decision D1-D7 忠實實作）；頭像上傳/驗證安全機制不變）
 - **日期**：2026-06-22
 - **影響範圍**：ToukaProxy（`routers/auth.py` 新 avatar 端點、新 `routers/users.py` 或既有 router 的 GET 服務端點、`utils/` 新 `image_validation`、`config.py` avatar 常數、`scripts/manage_backup.py` SANCTUARY_FOLDERS、`core` 錯誤碼）＋ ToukaChat（`GeneralTab.tsx`、`useUserSettings.ts`、`lib/connections.ts` FormData 支援、Avatar 渲染、i18n catalogs）
 - **關鍵字**：avatar upload, multipart/form-data, magic-byte validation, SVG-XSS, polyglot, EXIF, path traversal, ResourceManager, atomic write, SANCTUARY_FOLDERS 備份, avatar_url 向後相容, 設定頁路線圖, 建基於 ADR-0078（原子寫）/ADR-0033（資安加固）/ADR-0014（錯誤碼 SSOT）
 
 ## 背景（Context）
 
-設定頁批次審查（路線圖 ADR 級項目 #2）指出：頭像目前是**手填 URL 文字框**（`avatar_url: str|None`，user.py:11），非技術擁有者難用、外部 URL 有可用性與隱私顧慮。需要「選圖 → 上傳 → 儲存 → 顯示」的真實檔案上傳，且安全、納入備份、不破壞既有相容。
+設定頁批次審查（路線圖 ADR 級項目 #2）指出：頭像目前是**手填 URL 文字框**（`avatar_url: str|None`，user.py:11），非技術使用者難用、外部 URL 有可用性與隱私顧慮。需要「選圖 → 上傳 → 儲存 → 顯示」的真實檔案上傳，且安全、納入備份、不破壞既有相容。
 
 經 6 區唯讀測繪（avatar 生命週期、上傳/服務前例、儲存/部署/備份、資安威脅模型、ADR 慣例、前端）確認的現況：
 
@@ -21,7 +21,7 @@
 
 ## 決策（Decision）
 
-七個子決策，皆經擁有者核准（2026-06-22）：
+七個子決策，皆經維護者核准（2026-06-22）：
 
 ### D1 — 檔案儲存：`SANCTUARY_DATA_PATH/avatars/{user_id}.{ext}`，納入備份
 單檔/人（重傳覆蓋 → **零孤兒檔**），經 `ResourceManager` 原子二進位寫入（ADR-0078）。**`avatars` 加入 `manage_backup.py` 的 `SANCTUARY_FOLDERS`（SSOT）**，確保納入備份與還原。
@@ -56,7 +56,7 @@ admin `delete_user`（及自助刪號未來功能）移除使用者時，一併�
 ## 後果（Consequences）
 
 **正面**：
-- 非技術擁有者可直接選圖上傳，取代易錯的手填 URL。
+- 非技術使用者可直接選圖上傳，取代易錯的手填 URL。
 - 檔案納入既有備份/還原架構（D1 加入 SANCTUARY_FOLDERS）。
 - 向後相容（D2 沿用 `avatar_url`），舊外部 URL 不受影響、零 model 遷移。
 - 複用既有安全前例（sovereign-output 服務模式、ResourceManager 原子寫、path_security、nosniff）。

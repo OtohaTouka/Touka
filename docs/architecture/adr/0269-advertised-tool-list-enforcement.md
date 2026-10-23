@@ -1,8 +1,8 @@
 # ADR-0269：模型只能執行這一輪列給它的工具（執行前核對清單）
 
-- 狀態：✅ 已接受（C 線安全修補 h2；Owner 2026-10-15 核准一頁計畫第 3 版，CTO 同日裁定執行器開關採方案 (a)；產品行數上限 Owner 同日由 +150 提高到 +190）
+- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
 - 相關：本 ADR 修訂 ADR-0119 Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完全相容」（改為有條件相容，見決策 5）；補註 ADR-0195（軸 B 不變，這一輪的清單另外也是執行條件）。ADR-0228（原生角色權限）、ADR-0229（批准分類順序）、ADR-0246（三種模式、底線、審查員）、ADR-0206（使用者各自授權的 MCP）、禁令 59（結構化工具錯誤），決策都不變
 
@@ -55,7 +55,7 @@
 - **結構測試 C2**（範圍見下方「掃描範圍」，只讀原始碼、不匯入）：所有建立點收成（檔案, 外層函式, 字面值）的清單，**不去重**，排序後必須**整個等於** `[(debug.py, debug_execute_tool, False), (react_core.py, run_react_loop, True)]`；新增、移除、改值、沒帶參數（`MISSING`）、傳變數（`NON_LITERAL`），或同一個允許點重複建立（字面值相同也算），都轉紅，失敗訊息印出每個建立點。識別字 `ToolExecutor` 只能出現在三個檔；改名 import、`partial`、子類別、當參數傳遞、整串等於 `"ToolExecutor"`／`"src.services.tool_executor"` 的字串都轉紅；tool_executor.py 以外對開關的任何寫入、出現 `_enforce_advertised`、整串等於開關名的字串也轉紅。**匯入棘輪**：`tool_executor` 模組只有 react_core.py、debug.py 能匯入，而且各只能是那一行 `from src.services.tool_executor import ToolExecutor`；其他正式檔用絕對、相對、`import … as`、`from … import` 任何名稱，或 `importlib.import_module`／`__import__` 加字面字串匯入這個模組，都轉紅；tool_executor.py 以外出現屬性 `.tool_executor` 或整串字串 `"tool_executor"`（經上層套件取得模組）也轉紅。附掃描器自我測試（每種繞法一個合成片段要轉紅，docstring、路徑字串、名為 `tool_executor` 的區域變數這些反例要保持綠）。
 - **結構測試 C3**：識別字或整串字串 `advertised_tools` 只能出現在 5 個白名單檔，各自恰好一處指定用法（context.py 欄位宣告、tool.py 寫入、subagent_tools.py 寫入、tool_executor.py 讀取、live_episode.py 寫入）。
 - **執行期檢查**：`run_react_loop` 建好執行器、送出上游之前，`if not tool_executor.enforce_advertised:` 就記 `logger.error` 並 `raise ToukaException(ErrorCode.SYSTEM_ERROR)`（不用 `assert`，不帶字串，禁令 10）。用真假值判斷、不寫 `is not True`：16 個既有測試檔把執行器換成 MagicMock，屬性是真值，要照常跑。
-- **為什麼不選 (c) 預設開**：要改 31 個測試檔共 64 處建構（h2 基準的 29 檔 60 處，加上 iso-c2 的 2 檔 4 處），會和 iso-c2、其他並行線的測試衝突；正式程式的行為沒有任何差別。
+- **為什麼不選 (c) 預設開**：要改 31 個測試檔共 64 處建構（h2 基準的 29 檔 60 處，加上 iso-c2 的 2 檔 4 處），會和 iso-c2 及其他同時進行的改動的測試衝突；正式程式的行為沒有任何差別。
 - **為什麼不選 (b) 必須傳參數**：同樣要改 64 處；忘了傳參數會在建立時直接 TypeError 當掉，不是安全地擋下；而且仍然要 C2 才能確認 react_core 傳的是字面 `True`。
 - **掃描範圍**：C2、C3 走訪 `ToukaProxy/`、`ToukaMemory/`、`ToukaHeartbeat/`、`ToukaDispatch/` 與 repo 根的 `scripts/` 底下全部 .py（含 `ToukaProxy/plugin_manager.py`、`ToukaProxy/scripts/`、`ToukaMemory/scripts/`），走訪時就剪掉 `tests`、`.venv`、`venv`、`node_modules`、`__pycache__`、`build`、`dist`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`、`.git`、`*.egg-info`，以及 `data`、`soul`（不讀實體資料）；用 `Path` 走訪，不呼叫 git 或子程序。C3 另外明列 `tests/tool_eval/live_episode.py`。另有一個測試釘住這幾個位置確實在範圍內。不掃：`ToukaChat/`、`ToukaIDE/`（含 `ToukaIDE/scripts/`）、`violations/` 與其餘 `tests/`，這些地方沒有引用執行器或清單欄位。
 - **殘餘限制**：C2、C3 是靜態掃描，抓不到動態取得類別、模組或屬性的寫法，例如：
@@ -88,7 +88,7 @@
 - 伺服器名本身含 `__` 時，誤判只落在錯誤類別（`resource_not_found` 或 `not_advertised`），不會放行。
 - 合併 iso-c2（隔離執行環境）時，本 ADR 的核對必須排在 iso-c2 的 `policy_level` 之前，被擋的呼叫不得寫同意紀錄；屆時補測試 D1（三種被擋的呼叫都不呼叫 `policy_level` 與 `consent_ledger.record_policy`）與突變 M25（把核對移到 `policy_level` 之後要轉紅）。（已完成：iso-c2 整合 9 補上 D1 與 M25，見 ADR-0272 驗證段。）
 - 附帶發現、本 ADR 不修：無痕對話仍列出 `read(scope=legacy)`〔ADR-0274 已修：無痕不列、硬叫也擋，含讀寫家族與 `vault_tools` shim〕；ToukaUI 的 `openDiff`（不帶伺服器前綴）照舊回 `resource_not_found`（測試只釘現況）；ModelStudio 的工具選單是空的。
-- 【推測】Owner 本機設定若寫了舊名、短名或外掛，合併後叫那個工具會照實回 `not_advertised`。Owner 10/15 表示目前沒有任何代理人和資料，不另行檢查。
+- 【推測】既有本機設定若寫了舊名、短名或外掛，更新後叫那個工具會照實回 `not_advertised`。
 
 ## 另開任務
 
@@ -99,26 +99,26 @@
 
 ## 和設計的小差異
 
-設計正本是 h2 設計第 2 版加第 3 版改動段落（DEV-A 三輪，第 3 輪 PASS）。實作時：
+設計以 h2 設計第 2 版加第 3 版改動段落為準（第 3 版經審查通過；設計文件未入版控）。實作時：
 
 - `permits_native` 遇到空的後繼集合不放行（fail-closed）。
 - `from_schemas` 略過不是 dict 的條目。
 - `_offer_denial` 的參數名縮成 `handler`／`server`／`tool`。
-- C2 比規格嚴：react_core 以外讀 `.enforce_advertised` 也算違規；不是建立呼叫卻用 `enforce_advertised=` 也算違規；react_core、debug.py 各只能有一個不改名的 import 加一個建立呼叫。「各只能一個建立呼叫」最初用集合收集、會合併字面值相同的重複建立點，DEV-B 第 1 輪指出後改成逐一比對（不去重），現在成立。
-- DEV-B 第 1 輪之後另外補上（只改測試，產品 0 行）：沒列出又沒授權的原生工具回 `native_tool_rbac` 的順序釘子；`tool_executor` 模組的匯入棘輪；掃描範圍從各子專案的 `src` 擴大到上面「掃描範圍」所列。
+- C2 比規格嚴：react_core 以外讀 `.enforce_advertised` 也算違規；不是建立呼叫卻用 `enforce_advertised=` 也算違規；react_core、debug.py 各只能有一個不改名的 import 加一個建立呼叫。「各只能一個建立呼叫」最初用集合收集、會合併字面值相同的重複建立點，最終審查指出後改成逐一比對（不去重），現在成立。
+- 最終審查之後另外補上（只改測試，產品 0 行）：沒列出又沒授權的原生工具回 `native_tool_rbac` 的順序釘子；`tool_executor` 模組的匯入棘輪；掃描範圍從各子專案的 `src` 擴大到上面「掃描範圍」所列。
 - C3 只算欄位名本身的用法，import 的模組路徑不算；白名單檔各「恰好一處、指定用法」。
-- Guard #40（`scripts/guard_harness_context.py`）的行為標記隨 `_SUBAGENT_STRIPPED_TOOLS` 一起更新（經 Owner 同意）：「cannot dispatch further sub-agents」這句承諾原本對到 `subagent_tools.py` 的 `== "dispatch_subagent"`，子代理剝除改用集合後，標記改成整行 `_SUBAGENT_STRIPPED_TOOLS = frozenset({"dispatch_subagent", "dispatch_subagent_group"})`，集合裡少了單一子代理或子代理群組任一個都會轉紅。指南文字不變。
-- 測試檔名：派工規則原訂 `tests/unit/test_advertised_tools_security.py`；`scripts/lint_ssot.py` 用「完整路徑含 `tools` 子字串」判斷業務層，把這個測試檔當成業務層，結構測試讀原始碼的 `read_text` 因此被判 IO_PRISON_VIOLATION。改用 `git mv` 換成 `test_advertised_tool_list_security.py`，內容不變、守衛不改（守衛的子字串判斷是另一個問題，CTO 已放進總覽板候選）。
-- 設計 §13 只推測 `test_progress_emit`、`test_budget_cap` 可能受影響，漏了 `tests/integration/test_tool_loop_budget.py` 的 `test_interactive_multi_tool_rounds_unlimited_by_default`、`test_bounded_run_wraps_up_gracefully`：模型叫舊名 `vault_tools`，測試把授權 patch 成只有 `vault_tools`，7 個檔案動詞後繼都沒列出 → `not_advertised`。兩個測試只把授權補成 `vault_tools`＋7 個檔案動詞，斷言不動（測試要驗的是預算與多輪行為；舊名仍走 shim，只是新規則要求後繼動詞都在這一輪的清單上）。CTO 裁定這不算改既有測試的判定。
-- 產品程式 +180／−11（設計估約 +130；`tool_executor.py` 照檔案原有格式寫拒絕事件與唯讀屬性說明，功能範圍沒變），在 Owner 核准的 +190 內。
+- Guard #40（`scripts/guard_harness_context.py`）的行為標記隨 `_SUBAGENT_STRIPPED_TOOLS` 一起更新（經維護者同意）：「cannot dispatch further sub-agents」這句承諾原本對到 `subagent_tools.py` 的 `== "dispatch_subagent"`，子代理剝除改用集合後，標記改成整行 `_SUBAGENT_STRIPPED_TOOLS = frozenset({"dispatch_subagent", "dispatch_subagent_group"})`，集合裡少了單一子代理或子代理群組任一個都會轉紅。指南文字不變。
+- 測試檔名：工作說明原訂 `tests/unit/test_advertised_tools_security.py`；`scripts/lint_ssot.py` 用「完整路徑含 `tools` 子字串」判斷業務層，把這個測試檔當成業務層，結構測試讀原始碼的 `read_text` 因此被判 IO_PRISON_VIOLATION。改用 `git mv` 換成 `test_advertised_tool_list_security.py`，內容不變、守衛不改（守衛的子字串判斷是另一個問題，另列候選）。
+- 設計 §13 只推測 `test_progress_emit`、`test_budget_cap` 可能受影響，漏了 `tests/integration/test_tool_loop_budget.py` 的 `test_interactive_multi_tool_rounds_unlimited_by_default`、`test_bounded_run_wraps_up_gracefully`：模型叫舊名 `vault_tools`，測試把授權 patch 成只有 `vault_tools`，7 個檔案動詞後繼都沒列出 → `not_advertised`。兩個測試只把授權補成 `vault_tools`＋7 個檔案動詞，斷言不動（測試要驗的是預算與多輪行為；舊名仍走 shim，只是新規則要求後繼動詞都在這一輪的清單上）。審查裁定這不算改既有測試的判定。
+- 產品程式 +180／−11（設計估約 +130；`tool_executor.py` 照檔案原有格式寫拒絕事件與唯讀屬性說明，功能範圍沒變），在核准的 +190 內。
 
 ## 驗證
 
 本機 Windows、3.12 venv、fnm Node 24.21.0；全部走 conftest 沙盒與 mock，不讀 `data/`、不連外、不打付費 API，也沒有啟動 Touka。
 
 - 新測試 `tests/unit/test_advertised_tool_list_security.py` 159 個、59 個測試函式（`--collect-only`）：清單資料結構與型別 9、舊名對應表 C7 4、ToolLayer A1～A10 12、子代理 C4／心跳 C5／群聊 C8／備援 C9 各 1、執行器 B 組 67（B7 參數化 32、B8 5、B11 7，含順序釘子 B9b）、接線 C1／C1b／C1c／B14／`/debug/execute` C6／live_episode 各 1、C2 43（正式掃描 1、掃描範圍釘子 1、掃描器自我測試 41，其中匯入棘輪與套件屬性 16）、C3 14（含 13 個自我測試）。每一項先紅後綠；順序釘子在現行程式本來就綠，紅燈由突變 M-B1 證明。
-- 突變 M1～M24、M26～M31 全殺（M25 屬 iso-c2 合併時的 D 組，已由 ADR-0272 補上並轉紅）。DEV-B 第 1 輪的突變：M-B1（原生角色權限搬到清單核對之後）、M-B3（新正式檔用 `getattr(te, "Tool" + "Executor")` 建執行器）、M-B5（`debug_execute_tool` 多建一個 `False` 的執行器），與第 2 輪的 M-B6（新正式檔 `import src.services` 再 `getattr(src.services.tool_executor, "Tool" + "Executor")`），補測試後全殺；另在 `ToukaProxy/scripts/`、`ToukaMemory/scripts/`、`ToukaProxy/` 放探針檔，擴大掃描後 C2／C3 都轉紅。
-- 全量（固定順序）：實作 HEAD `eb97f280` 9779 passed（＝基準 9641＋138）／7 skipped／6 failed；merge dev `583e1c7f` 後 9983 passed（＝dev 的 9845＋138）／7 skipped／6 failed；DEV-B 第 1 輪補測試、改號後再 merge dev `585a42b2`（含 A 線 e1b）後 10076 passed（＝dev 的 9921＋155）／7 skipped／6 failed；DEV-B 第 2 輪補 C2 規則後 10080 passed（＝9921＋159）／7 skipped／6 failed。6 個都是 E1 的 `test_local_compose_bindings`（本機 Docker Desktop，以 CI 為準），7 個跳過與 ADR-0251 的基準相同；`test_tool_loop_budget.py` 那 2 個是綠的。`lint_ssot.py`、`guard_noqa_registry.py`、`guard_adr_integrity.py`（0001..0269 連續）、`guard_native_tool_contracts.py`（基準不改）、`guard_endpoint_auth.py`、`guard_ruff_banned_api.py`、`guard_module_boundaries.py` 通過。
+- 突變 M1～M24、M26～M31 全殺（M25 屬 iso-c2 合併時的 D 組，已由 ADR-0272 補上並轉紅）。審查提出的突變：M-B1（原生角色權限搬到清單核對之後）、M-B3（新正式檔用 `getattr(te, "Tool" + "Executor")` 建執行器）、M-B5（`debug_execute_tool` 多建一個 `False` 的執行器），與再審提出的 M-B6（新正式檔 `import src.services` 再 `getattr(src.services.tool_executor, "Tool" + "Executor")`），補測試後全殺；另在 `ToukaProxy/scripts/`、`ToukaMemory/scripts/`、`ToukaProxy/` 放探針檔，擴大掃描後 C2／C3 都轉紅。
+- 全量（固定順序）：實作 HEAD `eb97f280` 9779 passed（＝基準 9641＋138）／7 skipped／6 failed；merge dev `583e1c7f` 後 9983 passed（＝dev 的 9845＋138）／7 skipped／6 failed；審查後補測試、改號再 merge dev `585a42b2`（含 e1b）後 10076 passed（＝dev 的 9921＋155）／7 skipped／6 failed；再審補 C2 規則後 10080 passed（＝9921＋159）／7 skipped／6 failed。6 個都是 E1 的 `test_local_compose_bindings`（本機 Docker Desktop，以 CI 為準），7 個跳過與 ADR-0251 的基準相同；`test_tool_loop_budget.py` 那 2 個是綠的。`lint_ssot.py`、`guard_noqa_registry.py`、`guard_adr_integrity.py`（0001..0269 連續）、`guard_native_tool_contracts.py`（基準不改）、`guard_endpoint_auth.py`、`guard_ruff_banned_api.py`、`guard_module_boundaries.py` 通過。
 - 不變：openapi、NOQA_REGISTRY、Guard #45 基準、characterization golden。
 
 ## 回復

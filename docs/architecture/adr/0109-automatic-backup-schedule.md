@@ -16,7 +16,7 @@ Phase 1+2 已有手動建立/還原/刪除/加密下載，但仍靠人記得手�
 ### D1 — 排程器放在 proxy 內（輕量 asyncio service）
 `services/backup_scheduler_service.py`：`run_loop()` 每小時醒一次、讀 `config/backup_schedule.json`、純函式 `is_backup_due()` 判斷到期；到期則 `create_backup(auto=True)` → 保留修剪 → 寫回 `last_run_epoch`（best-effort，例外只記 log）。以 `spawn_logged(...)` 於 lifespan 啟動，既有 `cancel_all_background_tasks()` 收尾。**零新相依、零跨容器**。時間走 SSOT `get_current_epoch()`；`datetime.fromtimestamp(epoch, tz)` 為決定性轉換（同 `scheduler_service`，不踩 TIME_SSOT 守衛）。
 
-### D2 — 自動備份檔名隔離 + 保留只計自動備份（擁有者要求）
+### D2 — 自動備份檔名隔離 + 保留只計自動備份（維護者要求）
 - `manage_backup.py` 加 `--prefix`（預設 `Touka_Backup`）；順手修檔名筆誤 `%HH%MM`→`%H%M`。
 - `system_backup.create_backup(auto=True)` 用 `AUTO_BACKUP_PREFIX = "Touka_AutoBackup"`（SSOT 常數）。
 - 保留 `prune_old_auto_backups()` **只 glob `Touka_AutoBackup_*`**，保留最新 N、刪其餘最舊。**人工備份（`Touka_Backup_*`）永不被自動刪、不計入保留份數**。
@@ -31,7 +31,7 @@ Phase 1+2 已有手動建立/還原/刪除/加密下載，但仍靠人記得手�
 
 ## 後果（Consequences）
 
-- ✅ 自動備份防資料遺失；自動/人工備份檔名與保留完全隔離（擁有者要求）。
+- ✅ 自動備份防資料遺失；自動/人工備份檔名與保留完全隔離（維護者要求）。
 - ✅ 複用既有 in-proxy 排程模式，零新相依、零跨容器、優雅收尾。
 - ⚠️ 每小時粒度（非精準到分）；設定改動 ≤1hr 生效（loop 每次醒重讀設定）。
 - ⚠️ 自動備份不加密（伺服器端明文，與手動同）；下載才加密（ADR-0108）。

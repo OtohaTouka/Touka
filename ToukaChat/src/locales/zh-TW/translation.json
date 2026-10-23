@@ -106,9 +106,11 @@
     },
     "step2": {
       "description": "你的管理員帳號是以臨時密碼建立的，請立即設定一組強密碼。",
+      "description_already_set": "管理員密碼已經設定過。要換新密碼就在下面輸入；不換的話按「保留目前密碼」。",
       "new_password": "新密碼",
       "confirm_password": "確認密碼",
       "submit": "設定密碼並繼續",
+      "keep_current": "保留目前密碼",
       "requirements": "密碼需求",
       "rules": {
         "length": "至少 8 個字元",
@@ -128,6 +130,11 @@
         "update_failed": "更新失敗",
         "generic": "發生錯誤"
       }
+    },
+    "relogin": {
+      "message": "密碼已更新。請用新密碼重新登入；如果還有沒設定完的項目，登入後會從下一步接續。",
+      "go_to_login": "前往登入",
+      "login_notice": "管理員密碼已更新，請用新密碼登入。如果還有沒設定完的項目，登入後會接續初次設定。"
     },
     "step3": {
       "description": "至少填入一個供應商 API 金鑰即可開始使用 Touka。金鑰存於後端 .env；儲存後需重啟 ToukaProxy 才會生效。你也可以稍後在「設定 → API 金鑰」設定。",
@@ -202,14 +209,6 @@
         "no_api_keys": "尚未設定任何 API 金鑰",
         "admin_temp_password": "管理員密碼尚未變更"
       }
-    },
-    "banner": {
-      "setup_incomplete": "🔧 初次設定尚未完成 — 有些安全設定需要你處理。",
-      "setup_now": "立即設定",
-      "later": "稍後",
-      "dismiss_aria": "關閉設定提示橫幅",
-      "temp_password": "⚠️ 管理員密碼仍是臨時預設值 — 請立即變更以確保系統安全。",
-      "change_password": "變更密碼"
     }
   },
   "connections": {
@@ -1258,6 +1257,16 @@
       "auth_policies_unreadable": "安全規則（auth_policies.json）在啟動時讀不到：所有工具和指令都拒絕，代理人只能聊天。修好或還原這個檔後重新啟動 Touka；用 Docker 修權限時執行：\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
       "warning_marker": "有功能因設定問題停用，詳情在右側欄"
     },
+    "setup_notice": {
+      "temp_password": "管理員密碼還是臨時預設值，請立即變更。",
+      "change_password": "變更密碼",
+      "setup_incomplete": "初次設定還沒完成，有些安全設定需要你處理。",
+      "setup_now": "立即設定",
+      "later": "稍後",
+      "dismiss_aria": "稍後：先關閉初次設定提示",
+      "toggle_sidebar_aria": "切換側邊欄（側邊欄裡有設定警告）",
+      "open_menu_aria": "開啟選單（側邊欄裡有設定警告）"
+    },
     "isolation_banner": {
       "mcp": "MCP：{{unisolated}} 台未隔離、{{waiting}} 台等待隔離、{{suspended}} 台因隔離自測失敗暫停。",
       "below": "隔離比預期弱：代理人的指令在 Auto／YOLO 也都要你核准，無人在場時一律拒絕。",
@@ -1928,7 +1937,7 @@
       "field_name_label": "專案名稱",
       "field_name_placeholder": "例如：ToukaChat 重構",
       "field_root_path_label": "本機根目錄路徑 (絕對路徑)",
-      "field_root_path_placeholder": "例如：D:/Touka/ToukaChat",
+      "field_root_path_placeholder": "例如：D:/Projects/MyApp",
       "field_description_label": "專案描述 (選填)",
       "field_description_placeholder": "描述此專案的目標...",
       "cancel_button": "取消",

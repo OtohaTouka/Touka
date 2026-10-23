@@ -1,8 +1,8 @@
 # ADR-0223：依賴稽核覆蓋與來源身分
 
-- 狀態：✅ coverage／error-path與101-path原生整合已獲 SUPERVISOR_ACCEPTANCE；P11／發版仍未完成
+- 狀態：✅ coverage／error-path與101-path原生整合已經審查接受；P11／發版仍未完成
 - 日期：2026-09-08
-- 決策者：Owner 直接委託下的主代理代審
+- 決策者：維護者（委託審查）
 - 影響範圍：Guard #22、Python lock projection、advisory query coverage、Torch CPU 來源 SSOT、first-party editable 身分、sandbox tests
 - 相關決策：[ADR-0117](0117-uv-workspace-single-lock-migration.md)、[ADR-0222](0222-dependency-audit-gate-hardening.md)
 
@@ -10,7 +10,7 @@
 
 首批 Python runtime audit 留下 Torch CPU 與 first-party editable skip；合法 skip 的報告解析已補齊，但 skip 仍代表未完成覆蓋。只檢查回傳列、只採本機 marker 或把 `+cpu` 去掉後直接當作同一來源，都不能證明鎖定相依已完整查核。R2 套件修復及原生相容性檢查可接續，不等於新 audit 已通過。
 
-本決策的審查來源是本對話 2026-09-08 起首「請以 SUPERVISOR_DELEGATED（主代理代審）模式」的使用者九點直接委託；本 ADR 只記錄契約，不創造 network、Git 或 release 權限。現行範圍與證據見接續計畫。
+本決策依維護者 2026-09-08 的一次性授權審查；本 ADR 只記錄契約，不創造 network、Git 或 release 權限。現行範圍與證據見接續計畫（未入版控）。
 
 ## 決策
 
@@ -23,11 +23,11 @@
 
 ## 驗證與交付
 
-實作須先以合成 fixture 取得缺失 query、重複／錯版本、跨平台 marker 遺漏、未受信任 CPU 映射及偽造 first-party 身分的 RED，再驗證相應 GREEN；既有 parser 與 evidence 案例必須保留。完整 query pairing、scope／來源 hash 與原始 audit 結果須交叉核對。設計接受、離線 GREEN、network audit、完整 DEV-B 與 release qualification 分別記錄，不能互相替代。
+實作須先以合成 fixture 取得缺失 query、重複／錯版本、跨平台 marker 遺漏、未受信任 CPU 映射及偽造 first-party 身分的 RED，再驗證相應 GREEN；既有 parser 與 evidence 案例必須保留。完整 query pairing、scope／來源 hash 與原始 audit 結果須交叉核對。設計接受、離線 GREEN、network audit、完整最終審查與 release qualification 分別記錄，不能互相替代。
 
-Coverage／error-path 切片已由主代理接受，121 focused passed（helper 25／guard 64／其他 32）、Ruff 通過，來源與原始 audit evidence hashes 核對符合。六個 scopes 已按完整 query 執行；Python runtime 110/110、build-test 152/152，均 0 skip；六個 first-party source 身分另列，不冒充外部查核。CPU 映射證明 advisory 身分來源，不宣稱 CPU 與 upstream wheel 的 binary equivalence。
+Coverage／error-path 切片已經審查接受，121 focused passed（helper 25／guard 64／其他 32）、Ruff 通過，來源與原始 audit evidence hashes 核對符合。六個 scopes 已按完整 query 執行；Python runtime 110/110、build-test 152/152，均 0 skip；六個 first-party source 身分另列，不冒充外部查核。CPU 映射證明 advisory 身分來源，不宣稱 CPU 與 upstream wheel 的 binary equivalence。
 
-首批完整 coverage 仍找到 build-test 四項 UNRATED 與 Node findings，原 FAIL 保留。Python build/test 工具定向修復後，fresh Python runtime 110/110、build-test 152/152 均 0 skip／0 finding；最後整合守衛亦完成Node四個fresh scopes，各severity皆0；101-path cumulative技術DEV-B已由主代理接受。上述不代表所有平台runtime qualification、完整P11或release PASS；實測與審查狀態集中於接續計畫。
+首批完整 coverage 仍找到 build-test 四項 UNRATED 與 Node findings，原 FAIL 保留。Python build/test 工具定向修復後，fresh Python runtime 110/110、build-test 152/152 均 0 skip／0 finding；最後整合守衛亦完成Node四個fresh scopes，各severity皆0；101-path cumulative已通過技術最終審查。上述不代表所有平台runtime qualification、完整P11或release PASS；實測與審查狀態集中於接續計畫。
 
 ## 回復與限制
 

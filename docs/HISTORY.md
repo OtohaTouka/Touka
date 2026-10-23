@@ -1,7 +1,7 @@
 # 📚 Touka 系統開發歷史 (Development History)
 
 > 本文件保存各歷史階段的成果與背景；「已達成」只限各條所述當時範圍，不表示全部計畫或目前待辦已完成。唯一現況入口為 [HANDOVER.md](../HANDOVER.md)，有效規範以根 [AGENTS.md](../AGENTS.md) 為準；以下舊命令不授權直接執行。
-> 2026-10-04 整理前的 AGENTS／HANDOVER 完整原文已隨 ADR-0238 刪除，需要時請從 Git 歷史取得。
+> 2026-10-04 整理前的 AGENTS／HANDOVER 完整原文已隨 ADR-0238 刪除，只留在開源前的私人歷史。
 
 最近來源成果見 [CHANGELOG 摘要](CHANGELOG.md)，完整更新紀錄按 [月份](changelog/README.md)歸檔。
 
@@ -69,7 +69,7 @@
 
 ### 📌 環境同步註記（歷史，僅適用特定本機環境）
 
-早期實體執行環境位於 `D:\ToukaSanctuary\ToukaMemory`，曾需手動同步整合點：將 `D:\Touka\ToukaMemory\src\memory_server\tools\__init__.py` 複製覆蓋至該路徑，並 `docker-compose up -d --build`；因密碼雜湊演算法變更，舊 `users.json` 需刪除以自動重生 admin。此為個人環境一次性操作，非通用部署需求，僅留存備查。
+早期實體執行環境位於 `<ToukaSanctuary>\ToukaMemory`，曾需手動同步整合點：將 `<repo>\ToukaMemory\src\memory_server\tools\__init__.py` 複製覆蓋至該路徑，並 `docker-compose up -d --build`；因密碼雜湊演算法變更，舊 `users.json` 需刪除以自動重生 admin。此為個人環境一次性操作，非通用部署需求，僅留存備查。
 
 ### 資源管理器 MCP 回退機制實作詳解 (Resource Manager MCP Fallback Implementation)
 

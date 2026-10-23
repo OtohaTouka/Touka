@@ -8,7 +8,7 @@
 無法確認保存時拋 `MissionPersistenceError`，`str(error)` 固定、不含原路徑或資料；原例外只透過 chaining 留作內部診斷。
 initialize／save／update／record_review／finalize 不得在失敗後回成功狀態，鎖仍由原 finally 釋放。提交點不明不代表一定未寫，不能自動重送。
 Memory 薄工具保持例外傳播，Proxy 原生入口才產生 `build_tool_error`，Memory 不反向匯入 Proxy 錯誤模組。
-本批 read-error 回歸確認 update／review／finalize 不會寫回，未更改既有讀取降級或明確初始化語意；來源整合狀態見 HANDOVER；架構見 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)，尚未發布。
+本批 read-error 回歸確認 update／review／finalize 不會寫回，未更改既有讀取降級或明確初始化語意；來源整合狀態當時記在 HANDOVER，現在只留在開源前的私人歷史；架構見 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)，尚未發布。
 
 ## 顯式環境來源（ADR-0228 R3）
 
@@ -28,7 +28,7 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 
 ## 記憶系統第一批 PR-1（ADR-0253）
 
-- **舊版 `facts.jsonl` 自動匯入已退役**：`FactualStore` 建構時不再讀、改或改名舊檔。舊程式搬完會改名成 `facts.jsonl.bak`，所以還叫 `facts.jsonl` 的檔代表內容從沒搬進記憶庫。`memory_server.factual.find_unmigrated_jsonl_agents()` 只經資源代理的 `glob_search` 列 `<vault>/<agent>/fact/facts.jsonl` 的檔名、不開檔；`glob_search` 每次最多 50 筆，所以最多算到 50 個靈魂。正式匯入不做（Owner 目前沒有舊資料）；只看檔名的提示保留，是還原 2026-05 以前的備份時唯一的安全網（ADR-0263）。
+- **舊版 `facts.jsonl` 自動匯入已退役**：`FactualStore` 建構時不再讀、改或改名舊檔。舊程式搬完會改名成 `facts.jsonl.bak`，所以還叫 `facts.jsonl` 的檔代表內容從沒搬進記憶庫。`memory_server.factual.find_unmigrated_jsonl_agents()` 只經資源代理的 `glob_search` 列 `<vault>/<agent>/fact/facts.jsonl` 的檔名、不開檔；`glob_search` 每次最多 50 筆，所以最多算到 50 個靈魂。正式匯入不做；只看檔名的提示保留，是還原 2026-05 以前的備份時唯一的安全網（ADR-0263）。
 - **記憶提示管道（只給畫面看）**：`GET /v1/memory` 的 `memory_notices`，每一項是 `{"code", "level", 選填欄位…}`，只放代碼、不放文字。
   - 等級只有 `info`（平靜顯示）與 `warning`（和降級橫幅一樣醒目，左側身分列另加警告標記）。代碼與等級的正本是 `ToukaProxy/src/routers/observability.py` 的 `MEMORY_NOTICE_*` 常數；代碼有 `unmigrated_legacy_facts`（`info`，帶 `count`）與記憶庫結構的 5 個 `warning` 代碼（見「記憶庫結構版本與升級」）。
   - 舊記憶檔提示在 Proxy 啟動時（lifespan）由 `collect_memory_notices()` 算一次存進 context（重啟前不會反映手動搬移的檔案）；結構提示由 `memory_schema_notices()` 每次請求即時算。前端不輪詢：側欄在頁面載入、連線或登入變化時重抓，記憶寶庫列表讀取失敗也會叫它重抓。
@@ -308,7 +308,7 @@ index／cache／lock 都算**寫入**。
 *   **對應端點**（admin）：`POST /v1/admin/setup/embedding/download`、`GET /v1/admin/setup/embedding/download-status`、`POST /v1/admin/setup/embedding/switch {model, force}`。
 *   **HF 快取持久化**：`docker-compose.yml` 以具名 volume `hf-cache` 掛載於 touka-proxy 的 `/app/hf_cache`，並設 `HF_HOME=/app/hf_cache`（同一變數同時涵蓋**精靈下載**與 `vector.py` 執行期 `SentenceTransformer` 載入，兩者共用 HF hub 快取）。`touka-init` 掛載同 volume 並將 `/app/hf_cache` chown 至 `1001:1001`（新 volume 預設 root 擁有，appuser 需 chown 後才可寫，ADR-0038）。已下載模型可跨 `docker compose up --build` 保留；`docker compose down -v` 才會清除。
 
-*   **模型程式碼載入限制（安全修補候選）**：`vector.py` 明示傳入 `trust_remote_code=False`；workspace 將 Sentence Transformers 固定於 6.0 修正版線。遠端或本機模型要求執行自訂 Python module 時均須拒絕，不能因模型已在本機快取就放行。相容驗證使用 sandbox 的本機小模型與 CPU，涵蓋單一字串／字串列表的浮點向量；不讀 Owner 模型快取、不重新嵌入既有資料。來源／依賴驗證與實際產品發布分別驗收。
+*   **模型程式碼載入限制（安全修補候選）**：`vector.py` 明示傳入 `trust_remote_code=False`；workspace 將 Sentence Transformers 固定於 6.0 修正版線。遠端或本機模型要求執行自訂 Python module 時均須拒絕，不能因模型已在本機快取就放行。相容驗證使用 sandbox 的本機小模型與 CPU，涵蓋單一字串／字串列表的浮點向量；不讀使用者本機的模型快取、不重新嵌入既有資料。來源／依賴驗證與實際產品發布分別驗收。
 
 ## 4. 錯誤處理 (Error Handling)
 當記憶系統未正確掛載或整合失敗時：

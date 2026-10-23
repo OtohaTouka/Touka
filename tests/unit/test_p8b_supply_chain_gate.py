@@ -13,13 +13,13 @@ from hermetic_gate import npm_offline_gate
 ROOT = Path(__file__).resolve().parents[2]
 CHAT = ROOT / "ToukaChat"
 IDE = ROOT / "ToukaIDE"
-NODE_VERSION = "24.21.0"
+NODE_VERSION = "24.22.1"
 NPM_VERSION = "11.19.1"
 # 映像自帶 npm 不保證符合 engine-strict 版本；唯一允許的 npm install 是此精確自我釘版。
 NPM_SELF_PIN = f"npm install -g --ignore-scripts --no-audit --no-fund npm@{NPM_VERSION}"
-NEXT_VERSION = "16.3.8"
-NEXT_SHARP_RANGE = "^0.35.4"
-NODE_INDEX = "sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe"
+NEXT_VERSION = "16.4.2"
+NEXT_SHARP_RANGE = "^0.35.5"
+NODE_INDEX = "sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea"
 PYTHON_IMAGE = (
     "python:3.12-slim-trixie@"
     "sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea"
@@ -38,7 +38,7 @@ DEV_ENGINES = {
     },
 }
 AUDIT_SAFE_DIRECT_DEPENDENCIES = {
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.17",
     "mermaid": "11.16.1",
 }
 AUDIT_SAFE_OVERRIDES = {

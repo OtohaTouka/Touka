@@ -72,7 +72,7 @@ def _text(role: str, text: str) -> dict:
     ("models/gemini-2.5-flash", "gemini-2.5-flash"),  # 只去 models/ 前綴
 ])
 async def test_kf7b_model_id_rewrite_table(monkeypatch, requested, sent):
-    """已知故障 KF-7b，見 ADR-0242；3a 已修正（ADR-0247，決定 A13）。
+    """已知故障 KF-7b，見 ADR-0242；3a 已修正（ADR-0247 決定 A13）。
 
     請求的模型名進 URL 前只去 ``models/`` 前綴並轉小寫，不再經關鍵字比對換成別的模型。"""
     run = await _run(monkeypatch, _ui(model=requested), [gemini_text("好")], "map")

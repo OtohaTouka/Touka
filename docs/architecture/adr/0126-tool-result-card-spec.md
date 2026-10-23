@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、前端 vitest 944 passed/184 檔；擁有者尚未 commit）**。本 ADR 完成「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 3（目標 2：人類面可視）**，延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0125](0125-long-running-command-monitor.md)）。**消費** P1（[ADR-0122](0122-tool-event-telemetry-envelope.md)：`error_class`）與 P2a-2（[ADR-0124](0124-structured-success-and-applied-state-echo.md)：結構化成功＋`preview`）的封套。
+✅ **已接受（實作與驗證 2026-07-05、全綠——guard_all 38/38、前端 vitest 944 passed/184 檔）**。本 ADR 完成「[工具可觀測性與可靠度](../proposals/tool-observability-and-reliability.md)」提案 **Phase 3（目標 2：人類面可視）**，延續工具系列（[ADR-0119](0119-unified-tool-interface-redesign.md)~[ADR-0125](0125-long-running-command-monitor.md)）。**消費** P1（[ADR-0122](0122-tool-event-telemetry-envelope.md)：`error_class`）與 P2a-2（[ADR-0124](0124-structured-success-and-applied-state-echo.md)：結構化成功＋`preview`）的封套。
 
 ## 日期
 

@@ -121,12 +121,12 @@ def assert_golden(provider: str, scenario: str, chunks: list[str]) -> None:
     if not golden_path.exists():
         if _is_ci():
             pytest.fail(f"CI 缺 golden：{golden_path.name}（本機跑一次錄製後提交；CI 不錄製）")
-        golden_path.write_text(  # noqa: IO_PRISON_VIOLATION — golden 錄製站（測試基建，非業務 I/O）
+        golden_path.write_text(
             json.dumps(chunks, ensure_ascii=False, indent=1), encoding="utf-8"
         )
         pytest.skip(f"golden 已錄製：{golden_path.name}（重跑即斷言）")
     golden: list[str] = json.loads(
-        golden_path.read_text(encoding="utf-8")  # noqa: IO_PRISON_VIOLATION — golden 讀取站（測試基建）
+        golden_path.read_text(encoding="utf-8")
     )
     if chunks == golden:
         return

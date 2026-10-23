@@ -21,7 +21,7 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "24.21.0",
+      "version": "24.22.1",
       "onFail": "error"
     },
     "packageManager": {
@@ -40,7 +40,8 @@
     "dist/webview/main.js",
     "dist/webview/style.css",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.txt"
   ],
   "main": "./dist/extension.js",
   "contributes": {

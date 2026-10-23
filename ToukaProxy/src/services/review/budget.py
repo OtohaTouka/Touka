@@ -26,7 +26,7 @@ from src.services.autonomy import autonomy_service
 
 logger = logging.getLogger(__name__)
 
-# 決策 1（2026-07-07 擁有者拍板）：CAP=3、兩層深度。
+# ADR-0137 決策 1：CAP=3、兩層深度。
 GLOBAL_REVIEW_CAP = 3
 MAX_REVIEW_DEPTH = 1  # 主(0) 可開子；子(>=1) 不可再開＝「兩層」行為承諾
 DEFAULT_SPAWN_CEILING = 12  # 每 mission 子 loop（producer+critic 合計）開啟上限

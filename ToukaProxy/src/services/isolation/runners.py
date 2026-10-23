@@ -620,7 +620,7 @@ class RunnerBroker:
         return Acquired(self._landlock(self._monitor.local_decision().features), profile)
 
     async def acquire_third_party(self, source: ProfileSource) -> ThirdPartyAcquired:
-        """第三方與 scaffold 的正式啟動（不需同意，決定 5 甲）：只看本機判定，不看層級.
+        """第三方與 scaffold 的正式啟動（不需同意，ADR-0275）：只看本機判定，不看層級.
 
         可用 → 本機 Landlock（features 照本機；沒授權到的路徑照樣啟動）；還在檢查或暫時性原因 →
         ``IsolationPendingError``（不先未隔離啟動）；穩定原因 → 照今天的方式未隔離（不建 profile、

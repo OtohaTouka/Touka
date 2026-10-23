@@ -1,8 +1,8 @@
 # ADR-0224：SNS 憑證純記憶體表單與退役儲存清除
 
-- 狀態：✅ SNS 13-path 修復切片與完整前端驗證已獲 SUPERVISOR_ACCEPTANCE；部署及舊 client 清除待確認
+- 狀態：✅ SNS 13-path 修復切片與完整前端驗證已經審查接受；部署及舊 client 清除待確認
 - 日期：2026-09-08
-- 決策者：Owner 直接委託下的主代理代審
+- 決策者：維護者（委託審查）
 - 影響範圍：ToukaChat SNS 設定表單、領域 Hook、`useLocalStorage`、全 app 清除接線、Vitest
 - 相關契約：[Chat Interface](../CHAT_INTERFACE.md)、repo 根目錄 `SECURITY.md` 的安全追蹤（站台外文件）
 
@@ -10,7 +10,7 @@
 
 SNS 表單曾將 raw token／secret 存入 localStorage，列為 Known Open HIGH。只移除新寫入仍會留下既有使用者的舊值；只在 SNS 分頁掛載時清除，沒有進該分頁的使用者仍保有持久化憑證。前端同時需遵守 storage 與領域 Hook 的單一責任邊界。
 
-本決策的審查來源是本對話 2026-09-08 起首「請以 SUPERVISOR_DELEGATED（主代理代審）模式」的使用者九點直接委託；本 ADR 不自行授權，現行範圍見接續計畫。
+本決策依維護者 2026-09-08 的一次性授權審查；本 ADR 不自行授權，現行範圍見接續計畫（未入版控）。
 
 ## 決策
 
@@ -28,7 +28,7 @@ SNS 表單曾將 raw token／secret 存入 localStorage，列為 Known Open HIGH
 
 `RetiredSnsStorageCleanup` 掛於 I18nProvider 內、AuthGuard 外，登入前即移除精確 `touka_sns_bots`，只 remove、不 get／parse，並回應跨 tab 的同 key 重寫；失敗顯示翻譯 alert，不回顯例外或秘密。關閉／離線的舊 browser client 必須載入新版本後才執行清除；本批未部署或操作使用者 browser storage，不能宣稱既有秘密已全部清空。
 
-實作與實測收據已由主代理核對接受，SECURITY、CHAT_INTERFACE、SSOT 與測試清單同步記錄「程式缺口已修復，部署及既有 client 清除待確認」。此狀態不代表沒有曾經外洩，也不以文件代替部署證據。
+實作與實測收據已經審查核對接受，SECURITY、CHAT_INTERFACE、SSOT 與測試清單同步記錄「程式缺口已修復，部署及既有 client 清除待確認」。此狀態不代表沒有曾經外洩，也不以文件代替部署證據。
 
 ## 回復與限制
 

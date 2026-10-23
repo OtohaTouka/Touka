@@ -26,7 +26,7 @@
    ADR-0141 語言的跨面越界（human 面失敗換到 agent 面的卡），整個 app 被降級卡
    挾持、看起來像登入卻不是任何人，還擋住正常登入流程。
 
-owner 反思定調（HANDOVER 07-11）：主病根＝「縫上的承諾沒被釘」＋接縫預設
+維護者事後檢討（當時 HANDOVER 的 07-11 紀錄，現在只留在開源前的私人歷史）：主病根＝「縫上的承諾沒被釘」＋接縫預設
 fail-open／靜默降級。本案三修全部向 fail-loud 收斂。
 
 ## 決策
@@ -79,7 +79,7 @@ fail-open／靜默降級。本案三修全部向 fail-loud 收斂。
     換取「改完密碼立即重登」不被誤殺）。
   - 舊制無 `iat` token 在該使用者首次改密碼後即全數失效（正是意圖）。
   - 已認領系統上，依賴 LDH 的本機腳本／開發工具需改用正規憑證（fail-loud 揭露
-    而非掩蓋設定缺失，與 owner 修復哲學一致）。
+    而非掩蓋設定缺失，與維護者的修復原則一致）。
   - 測試面：LDH 行為自此依賴使用者狀態，相關測試必須顯式建立認領狀態
     （`test_ldh_first_run_gate.py` 為狀態矩陣 SSOT）。
 - **不做**（刻意）：access token 黑名單／jti 撤銷表（有狀態、複雜度不成比例）；
@@ -90,5 +90,5 @@ fail-open／靜默降級。本案三修全部向 fail-loud 收斂。
 - [ADR-0131](0131-auth-renewal-and-ldh-containment.md)（LDH 收斂前篇：帶壞卡→401）
 - [ADR-0141](0141-role-plane-separation.md)（人類面／agent 面互斥——修復 3 堵住的跨面越界）
 - [ADR-0143](0143-hitl-unification.md)（同事故季的 HITL 統一）
-- 事故鏈與修復清單：HANDOVER.md「07-11 認證事故」節；修復 0＝
+- 事故鏈與修復清單：當時 HANDOVER.md 的「07-11 認證事故」節（現在只留在開源前的私人歷史）；修復 0＝
   `tests/unit/test_password_change_safety.py`

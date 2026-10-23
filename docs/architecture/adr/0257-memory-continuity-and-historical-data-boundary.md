@@ -1,8 +1,8 @@
 # ADR-0257：記憶系統第一批段 6：現在時間區塊（continuity v0）與歷史資料界線
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`adapters/openai_to_claude.py` 的斷點 2、`services/soul_service.py`）；ToukaMemory（新 `utils/historical_data.py`、`services/manager.py`、`tools/recall.py`）；SECURITY.md 一列
 - 相關：ADR-0013（時間 SSOT）、ADR-0086（無痕零殘留）、ADR-0092（prompt 區塊邊界、前情摘要）、ADR-0127～0129（Claude 提示快取、波動區塊）、ADR-0139（harness 區塊與 token 上限）、ADR-0245（`session_bound`、只留靈魂）、ADR-0246（審查員）、ADR-0249（插話）、ADR-0253、ADR-0256（隨機回想、記憶來源）。這些 ADR 的決策都不變。
 
@@ -129,7 +129,7 @@ S2：
 - **同一 session 開多個前端分頁**：取最近一次請求。
 - **`log_payload`**：非無痕時，`proxy_service.log_payload` 會把完整請求（含這段）寫進 `logs/proxy_payload.log`。和其他 prompt 區塊一樣，是除錯日誌，不是對話紀錄。
 - **任務看板多讀一次**：每次請求多讀一次看板檔（ToolLayer 也會讀）。`MissionManager` 取路徑時會順手建立 `missions/` 目錄（既有行為，ToolLayer 每次請求本來就會觸發）；看板內容不改。
-- **IDE 資訊區塊**：`ContextLayer._append_context` 把 `<ide_context>` 直接接在字串後面；IDE 請求若帶圖片（多模態 JSON 字串），圖片會壞掉。目前 IDE 多半只送文字；本 PR 不改（列在 HANDOVER §3）。
+- **IDE 資訊區塊**：`ContextLayer._append_context` 把 `<ide_context>` 直接接在字串後面；IDE 請求若帶圖片（多模態 JSON 字串），圖片會壞掉。目前 IDE 多半只送文字；本 PR 不改（當時列在 HANDOVER §3；後來在 ADR-0264 修好）。
 
 S1：
 

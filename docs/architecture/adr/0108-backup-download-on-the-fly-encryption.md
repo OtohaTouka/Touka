@@ -9,7 +9,7 @@
 
 設定頁「資料生命週期·軌1」Phase 1 已補齊系統備份的還原密碼閘（BK1）、刪除（BK2）、磁碟統計（BK3）。但仍缺「**下載備份**」。研究（4 探子）挖出關鍵風險：**備份 zip 含 `.env` 明文（所有 API 金鑰）且無遮罩**——若直接提供下載端點，等於用 HTTP 把全系統機密外送。
 
-擁有者裁示：**下載＝加密**；並選擇**標準加密 ZIP（pyzipper）**方案（而非自訂 `.zip.enc` + 專屬解密工具），使下載產物可被 **7-Zip / WinRAR 直接以密碼開啟**，對非技術擁有者更友善。
+維護者決定：**下載＝加密**；並選擇**標準加密 ZIP（pyzipper）**方案（而非自訂 `.zip.enc` + 專屬解密工具），使下載產物可被 **7-Zip / WinRAR 直接以密碼開啟**，對非技術使用者更友善。
 
 ## 決策（Decision）
 
@@ -22,7 +22,7 @@
 **為何不「加密儲存」**：會破壞內部 `create_backup()`（重置備份優先流程無密碼）＋既有明文備份，blast radius 大。下載時加密只動下載路徑、對既有流程零干擾、且對既有備份也適用。
 
 ### D2 — 加密庫：pyzipper（標準 WinZip-AES-256）
-- 擁有者選 **pyzipper**（而非已是相依的 `cryptography` + 自訂格式），換取「7-Zip/WinRAR 直接可開」的 UX。新增相依經 ADR-0071 鎖檔流程（`requirements.in` → `lock_requirements.py` 釘版＋雜湊；pyzipper 0.4.0 + pycryptodomex）。
+- 維護者選 **pyzipper**（而非已是相依的 `cryptography` + 自訂格式），換取「7-Zip/WinRAR 直接可開」的 UX。新增相依經 ADR-0071 鎖檔流程（`requirements.in` → `lock_requirements.py` 釘版＋雜湊；pyzipper 0.4.0 + pycryptodomex）。
 - `services/backup_crypto.encrypt_backup_zip(plain_zip, passphrase)`：逐條目讀取明文 zip、以 `AESZipFile(WZ_AES, nbits=256)` **flat re-zip**（非巢狀 → 開啟即見 `.env`/`data/`/`config/`）寫入暫存檔；逐條目處理 → 記憶體上限為最大單一條目，大型備份不整包進 RAM。
 
 ### D3 — 端點與前端
@@ -42,5 +42,5 @@
 下載端點繞過/路徑穿越/CSRF/非-admin/passphrase 下限與 `backup_crypto` round-trip/錯密碼偵測經複審與測試覆蓋。詳見 SECURITY.md「軌1 Phase 2」。
 
 ## 替代方案（Rejected）
-- **cryptography + `.zip.enc` 自訂格式 + 離線 `decrypt` CLI**：零新相依、AEAD 串流，但需專屬工具解密 → UX 較差，擁有者否決。
+- **cryptography + `.zip.enc` 自訂格式 + 離線 `decrypt` CLI**：零新相依、AEAD 串流，但需專屬工具解密 → UX 較差，維護者否決。
 - **加密儲存（所有備份恆加密）**：破壞內部無密碼的「備份優先」流程與既有明文備份，blast radius 過大。

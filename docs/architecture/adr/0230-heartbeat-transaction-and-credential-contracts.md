@@ -1,7 +1,7 @@
 # ADR-0230：Heartbeat 持久化交易、真人管理與服務憑證契約
 
 - 日期：2026-09-16
-- 狀態：Owner DEV-A approved；B2／B3 主代理階段 SUPERVISOR_ACCEPTANCE；B6必要來源驗證完成，來源實作與驗證完成最終DEV-B原件見`ROOT_DEV_B_ACCEPTANCE_R1.json`。
+- 狀態：維護者核准計畫；B2／B3 階段經審查接受；B6必要來源驗證完成，來源實作與驗證已通過最終審查（審查原件未入版控）。
 - 範圍：Heartbeat／Proxy human bridge／Chat 排程管理；來源候選，未發布／未部署。
 - 前置：[ADR-0229](0229-trusted-tool-execution-classification.md)；[Heartbeat 介面](../HEARTBEAT_INTERFACE.md)。
 
@@ -87,7 +87,7 @@ Guard24按同檔module-level APIRouter變數及本地include鏈解析每個decor
 ## 驗證、限制與回復
 
 B2 130P、UI19P；B3 135P（含真正 fresh restart）；B6 目前 CI selectors512P、
-source/smoke安全前置76P。B6 final full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke、Chat1241P及78Python靜態通過；最終來源與doc-only閉包見HANDOVER current，不套歷史PASS。
+source/smoke安全前置76P。B6 final full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke、Chat1241P及78Python靜態通過；最終來源與doc-only閉包記錄在當時的交班文件（現在只留在開源前的私人歷史），不套歷史PASS。
 原 RED、fixture／匯入錯誤及前置環境失敗分開保存；資料 I/O 歷史不作未存取保證。
 
 F05 workflow 只承諾 SOURCE_READY：核心必跑、前端保守分類、最小 read-only 權限、精確來源與

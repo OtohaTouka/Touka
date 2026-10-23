@@ -51,6 +51,8 @@ WORKDIR /app
 
 # 複製本子專案完整源碼（整目錄複製、非逐檔挑選——物理完整性同 COPY . .，Guard #16 認可）
 COPY --chown=appuser:appuser ToukaHeartbeat/ .
+# 授權檔隨映像散布（root 擁有、唯讀）
+COPY LICENSE NOTICE ./
 
 EXPOSE 8082
 

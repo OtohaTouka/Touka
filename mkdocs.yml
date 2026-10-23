@@ -70,6 +70,7 @@ nav:
       - "架構決策紀錄 (ADR) 索引": architecture/adr/README.md
       - "ADR-0207 MCP Workload OAuth": architecture/adr/0207-mcp-workload-oauth-single-proxy.md
       - "ADR-0208 Model Route Credential Atomicity": architecture/adr/0208-model-route-provenance-and-credential-atomicity.md
+      - "設計提案（歷史）說明": architecture/proposals/README.md
       - "MCP 2026 P8-B Workload OAuth 計畫": architecture/proposals/mcp-2026-p8b-workload-oauth-plan.md
       - SSOT 主地圖: architecture/SSOT_MASTER_MAP.md
       - Proxy 介面規範: architecture/PROXY_INTERFACE.md

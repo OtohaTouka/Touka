@@ -2,11 +2,11 @@
 
 **狀態 (Status):** ✅ 已接受（分階段落地**全數完成**：Phase A / B0 / B / C / D / E 均已實作並驗證——見下方 Action Items [x]；`dispatcher._maybe_trim_after_chat` 雙觸發、AGENTS.md 禁令 28/57、ContextMeter、四組 SSOT 元件皆活體）
 **日期 (Date):** 2026-06-14
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
-現行 sliding window（ADR-0035）以「對話則數」（`upper_limit_rounds=150 / keep_rounds=100`）為切斷規則。**則數是很差的容量代理指標**：一則可以是 10 token、也可以是含工具輸出/圖片的上萬 token，「150 則」在 Gemini（百萬窗）與 Claude（20 萬窗）的實際占用天差地別。擁有者要對標桌面版 Claude Code 的 auto-compact + context meter：
+現行 sliding window（ADR-0035）以「對話則數」（`upper_limit_rounds=150 / keep_rounds=100`）為切斷規則。**則數是很差的容量代理指標**：一則可以是 10 token、也可以是含工具輸出/圖片的上萬 token，「150 則」在 Gemini（百萬窗）與 Claude（20 萬窗）的實際占用天差地別。維護者要對標桌面版 Claude Code 的 auto-compact + context meter：
 
 1. 以「真實 token ÷ 模型 context window」的百分比顯示與觸發剪裁。
 2. 送走的舊對話用 LLM 壓成摘要保留連續性（摘要失敗則優雅降級為純無損剪裁）。
@@ -29,7 +29,7 @@
 
 不變式（validator 強制）：**`target_floor_pct + summary_budget_pct < trigger_pct`**（防剪完立即重觸發迴圈）。邊界：OVERHEAD 已超地板時，剪到只剩 `min_keep_pairs`（預設 2）＋WARN，不報錯。
 
-### 量測（使用者拍板：真 token ÷ 模型 window）
+### 量測（維護者決定：真 token ÷ 模型 window）
 - **token 估算混合法**：以上一輪 API 回傳的 authoritative `input_tokens` 為分子權威值，本地以字元啟發式估「下一則增量」；無 usage 時降級純本地估，**永不拋例外**。不引入 tiktoken（各家 tokenizer 不一，對 Claude/Gemini 反不準）。
 - **分母**：模型 context window，以「當前 active 模型」現算（換模型自然跟著變）。未知模型保守 fallback **128K**。
 
@@ -47,7 +47,7 @@
 - **Phase E**：退役則數的 sliding-window 用途、文件收尾（則數顯示保留）。
 
 ### 禁令影響
-- **禁令 28（Phase D 改寫，已獲擁有者書面同意）**：授權觸發點由「唯一 heartbeat finally」擴為兩處——(a) heartbeat finally、(b) dispatcher assistant turn 落盤後；仍禁串流中途/第三觸發點，兩點經 per-session 鎖序列化。對應新增**禁令 57**（聊天剪裁須非阻塞/排除無痕子對話/經鎖/不影響 finish）。
+- **禁令 28（Phase D 改寫，已獲維護者書面同意）**：授權觸發點由「唯一 heartbeat finally」擴為兩處——(a) heartbeat finally、(b) dispatcher assistant turn 落盤後；仍禁串流中途/第三觸發點，兩點經 per-session 鎖序列化。對應新增**禁令 57**（聊天剪裁須非阻塞/排除無痕子對話/經鎖/不影響 finish）。
 - **禁令 27（保留不改寫）**：則數計算續供顯示用途。
 - **ADR-0035** 將於 Phase C/D 標記為 Amended by ADR-0092；**ADR-0036** 保留（則數顯示）。
 
@@ -71,4 +71,4 @@
    - [x] **D-summary（不碰禁令 28）**：session `context_summary` 欄位（`async_db` schema＋migration＋upsert 參數）；`dialogue_summarizer.py`（haiku 一次呼叫、fail-safe 回 None）；`prompt_blocks` 加 `conversation_summary` tag；`soul_service.inject_context_summary`（`<conversation_summary>` system 區塊、無痕由 SoulLayer gate）；`check_and_trim` 三步 ACID（A 寫 legacy→S 摘要 best-effort→B upsert＋`context_summary` 替換式）；`SlidingWindowConfig.summary_model`。NOQA registry 14→15、openapi/api.ts 重生。12 新 TDD；guard 32/32、pytest 1700、vitest 543、smoke 17/17。
    - [x] **D-trigger（動禁令 28）**：聊天側觸發（`dispatcher._maybe_trim_after_chat` 於 `_pump_stream_to_buffer` 持久化後 `spawn_logged` 非阻塞、僅家對話、無痕由既有閘門擋）＋`SlidingWindowService` per-session 鎖（`check_and_trim`→鎖包裝＋`_check_and_trim_inner`，序列化兩觸發點）；**改寫禁令 28**（授權兩觸發點、須經鎖）＋新增**禁令 57**（`AGENTS.md`，禁令計數 1–57）。4 新 TDD（鎖 1＋chat-trigger 3）；guard 32/32、pytest 1704、smoke 17/17。
    - [x] **D-ui**：`useSlidingWindowSettings` interface＋`SlidingWindowTab` 改三個 pct slider（trigger/floor/summary，client validate `floor+summary<trigger`），舊 round 欄位轉 optional 相容；TS 型別/設計token/vitest 543 全綠。
-7. [x] **Phase E（收尾）**：因使用者拍板「則數顯示保留」，退役範圍縮減為文件收尾——ADR-0035 索引標「ADR-0092 修訂」；`SSOT_MASTER_MAP` 更新滑動視窗列為 token% 規則＋新增三列（Context Token 量測 / Prompt 區塊邊界 / 對話摘要欄位）；`CHANGELOG`／`README_HANDOVER` 收尾。**保留為 deprecated**：`SlidingWindowService.compute_split`/`count_rounds`（生產零引用、僅測試；vulture 不報、無害）、`keep_rounds`/`upper_limit_rounds` config 欄位（移除會破壞既有 config/openapi 相容）。則數計算 SSOT `count_rounds_from_linear`/`countRounds` 保留供顯示（禁令 27 不改）。guard 32/32、pytest 1704。
+7. [x] **Phase E（收尾）**：因維護者決定保留則數顯示，退役範圍縮減為文件收尾——ADR-0035 索引標「ADR-0092 修訂」；`SSOT_MASTER_MAP` 更新滑動視窗列為 token% 規則＋新增三列（Context Token 量測 / Prompt 區塊邊界 / 對話摘要欄位）；`CHANGELOG`／`README_HANDOVER` 收尾。**保留為 deprecated**：`SlidingWindowService.compute_split`/`count_rounds`（生產零引用、僅測試；vulture 不報、無害）、`keep_rounds`/`upper_limit_rounds` config 欄位（移除會破壞既有 config/openapi 相容）。則數計算 SSOT `count_rounds_from_linear`/`countRounds` 保留供顯示（禁令 27 不改）。guard 32/32、pytest 1704。

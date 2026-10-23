@@ -1,3 +1,4 @@
 {
-  "react-hooks/preserve-manual-memoization": 6
+  "react-hooks/refs": 1,
+  "react-hooks/set-state-in-effect": 18
 }

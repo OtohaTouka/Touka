@@ -681,7 +681,7 @@ class PermissionService:
         else:
             decision = self.policies.evaluate(context)
 
-        # 記錄審計日誌 (非同步)
+        # 記錄審計日誌（非同步）
         audit_service.log_decision(context, decision)
 
         return decision
@@ -707,7 +707,7 @@ class PermissionService:
         Returns:
             str: 決策效果 (如 'CONFIRM', 'REJECT', 'NEED_APPROVAL').
         """
-        # 構建策略上下文 (PolicyContext)
+        # 構建策略上下文（PolicyContext）
         context = PolicyContext(
             actor=identity,
             resource=args.get("command", tool_name),
@@ -744,9 +744,10 @@ class PermissionService:
             isolation=isolation,
         )
         if strategy == "ALLOW" and has_chaining_metacharacters(command):
+            # 只記長度不記內容：代理人的指令可能帶著金鑰（禁令 23 同類）。
             logger.info(
-                "[Security] Escalating '%s...' to CONFIRM: shell metacharacters detected",
-                command[:60],
+                "[Security] Escalating a %d-char command to CONFIRM: shell metacharacters detected",
+                len(command),
             )
             return "CONFIRM"
         return strategy

@@ -1,4 +1,7 @@
 /LICENSE text eol=lf
+# License notices copied into images and the ToukaIDE VSIX keep LF on every checkout.
+/NOTICE text eol=lf
+/ToukaIDE/THIRD_PARTY_NOTICES.txt text eol=lf
 /ToukaProxy/setup.sh text eol=lf
 
 # Container build inputs keep LF on every checkout.

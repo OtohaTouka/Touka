@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/native-tool-contracts.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
 CI_LABEL = "（CI 會跑）"
-LOCAL_LABEL = "（只在本機）"
+LOCAL_LABEL = "（維護者合併前補跑）"
 RUFF_CONFIG = "ruff.toml"
 PRODUCT_SOURCE_ROOTS = (
     "ToukaProxy/src",
@@ -175,21 +175,55 @@ def test_contributing_labels_every_pr_check_as_ci_or_local() -> None:
         assert stale not in _pr_section(), f"{stale} does not match how the project runs it"
 
 
-def test_contributing_keeps_full_ruff_and_eslint_in_pr_checks() -> None:
+def test_contributing_lists_full_ruff_and_eslint_as_ci_ratchets() -> None:
+    """ADR-0278: full ruff and ESLint only go down, and CI enforces both."""
     items = _pr_checklist()
-    full_ruff = [
-        label
-        for label, _, commands in items
+    bare_full_ruff = [
+        command
+        for _, _, commands in items
         for command in commands
         if command.startswith("ruff check") and "--select" not in command
     ]
-    assert full_ruff and set(full_ruff) == {LOCAL_LABEL}, "full ruff stays, run locally"
-    assert _item_running(items, "scripts/guard_eslint_ratchet.py") == LOCAL_LABEL
+    assert not bare_full_ruff, "full ruff runs through scripts/lint_ratchet.py"
+    assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
+    assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
+
+
+def test_contributing_lets_a_green_ci_open_the_pr() -> None:
+    assert "CI 綠燈就能開 PR" in _pr_section()
+
+
+def test_ci_runs_the_eslint_ratchet_after_installing_the_frontend() -> None:
+    job = _jobs()["frontend"]
+    _assert_blocking("frontend", job)
+    steps = _run_steps(job)
+    ratchet = (".", "python3 -B scripts/guard_eslint_ratchet.py")
+    assert ratchet in steps, "Guard #35 must run in the frontend job from the repo root"
+    position = steps.index(ratchet)
+    assert steps.index(("ToukaChat", "npm ci --ignore-scripts")) < position
+    apply = "node container-security/braces-backport/backport.mjs apply --project-root ."
+    assert steps.index(("ToukaChat", apply)) < position
+
+
+def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
+    assert (ROOT / "tests/lint/test_ruff_ratchet.py").is_file()
+    assert (ROOT / "tests/lint/test_pyrefly_ratchet.py").is_file()
+    found = [
+        (name, job)
+        for name, job in _jobs().items()
+        if any(run.endswith("python -m pytest tests/ -q") for _, run in _run_steps(job))
+    ]
+    assert len(found) == 1, "one CI job runs the whole pytest suite"
+    _assert_blocking(*found[0])
 
 
 def test_contributing_ci_labels_match_what_ci_runs() -> None:
     items = _pr_checklist()
     assert _item_running(items, "ruff check --select F", *PRODUCT_SOURCE_ROOTS) == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
+    assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
     assert _item_running(items, "-m pytest tests/") == CI_LABEL
     assert _item_running(items, "cd ToukaChat", "npm run test") == CI_LABEL
     assert _item_running(items, "cd ToukaIDE", *IDE_CI_COMMANDS) == CI_LABEL

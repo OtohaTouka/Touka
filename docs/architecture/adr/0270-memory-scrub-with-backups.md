@@ -1,15 +1,15 @@
 # ADR-0270：記憶系統第二批段 7：重置時一併清除靈魂在備份裡的記憶（清除連備份）
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，經設計三輪與成果一輪對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/memory_scrub/`（`__init__`、`orchestrator`、`leftovers`、`swap`、`qdrant_meta`、`upgrade_backups`、`snapshots`、`ports`）、新 `services/memory_collection_guard.py`、新 `models/memory_scrub.py`、新 `models/agent_reset.py`、`services/agent_reset/orchestrator.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`services/system_backup.py`、`services/resource_manager.py`、`services/backup_scheduler_service.py`、`services/agent_service.py`、`utils/config_utils.py`、`routers/admin.py`、`routers/system.py`、`routers/debug.py`、`routers/souls.py`、`routers/custom_models.py`、`scripts/manage_backup.py`、`config/errors.json.example`）；ToukaMemory（`factual.py`、`vector.py`、新 `utils/collection_names.py`）；ToukaChat（重置卡、新 `useAgentDataReset`、`AgentResetScrubOption`、`AgentResetScrubResult`、`error_handler`、SoulStudio、ModelStudio、兩語翻譯）；`nginx/nginx.conf.example`；openapi／api.ts／錯誤常數重產；NOQA_REGISTRY `BLE001` +3
 - 相關：ADR-0104／0113（重置的備份優先與保留清單）、ADR-0214（測試沙盒）、ADR-0228（Guard #45）、ADR-0030（sqlite3 白名單，照舊）、ADR-0231（結果不明不寫失敗）、ADR-0262（系統快照的單一來源、刪除靈魂前檢查）、ADR-0263（記憶庫 v2）、ADR-0267（活動時間軸）。ADR-0256 留下的「重置時升級備份與系統快照不會一起清」由本 ADR 補上選項（ADR-0256 狀態區已加反向註記）；預設不勾時 ADR-0256 的說法不變。其他 ADR 的決策都不變。
 
 ## 背景
 
 - 每靈魂資料重置（ADR-0113）清掉線上資料，但刻意保留「記憶庫升級備份」與「系統快照」；重置後備份裡仍讀得到這個靈魂的記憶，還原任何一份快照就會拿回來。
-- 系統快照也會把升級備份包進去。Owner 決定：提供一個選項，只清**記憶**（事實與語意索引），而且只給人類管理員。
+- 系統快照也會把升級備份包進去。維護者決定：提供一個選項，只清**記憶**（事實與語意索引），而且只給人類管理員。
 - 審查時另外發現：向量 collection 名稱把非英數字元換成底線，`a-b` 與 `a_b` 共用同一個 collection；不分大小寫的檔案系統上 `Jin` 與 `jin` 也落到同一個資料夾。一般重置會刪掉整個共用 collection（連別人的向量一起），刪除靈魂前的檢查也會被別人的向量擋住。
 
 ## 決策
@@ -138,7 +138,7 @@
 - 每份資料庫副本都在記憶體裡處理（上限 256 MiB），容器的記憶體需求跟著增加。
 - 快照目錄本身是連結時，清單看不到快照、清除不能完成（要改成真的資料夾）。
 - 閘道逾時（預設 60 秒）的部署沒有照新範本加長時，清除超過 60 秒畫面會顯示「結果不明」。
-- 多個管理員時，任何 admin 都能清除任何靈魂的備份記憶：權限只限「人類 admin」，Touka 目前只有一位管理員；加擁有者限制可能擋到管理員自己對未登記擁有者的舊靈魂。
+- 多個管理員時，任何 admin 都能清除任何靈魂的備份記憶：權限只限「人類 admin」，單一管理員的部署不受影響；加擁有者限制可能擋到管理員自己對未登記擁有者的舊靈魂。
 
 ## 和設計不同的地方
 
@@ -180,11 +180,11 @@
 
 ## DATA_PROTECTION
 
-本功能是產品受管行為：由人類管理員在產品介面上勾選並確認後，由 Touka 執行，屬 Owner 授權的 runtime 行為。開發代理不因此取得直接修改 `data/` 的授權；所有自動化測試都在 `tmp_path` 沙盒裡，用正面白名單守衛擋住路徑來源與寫入、讀取出口。
+本功能是產品受管行為：由人類管理員在產品介面上勾選並確認後，由 Touka 執行，屬維護者授權的 runtime 行為。開發代理不因此取得直接修改 `data/` 的授權；所有自動化測試都在 `tmp_path` 沙盒裡，用正面白名單守衛擋住路徑來源與寫入、讀取出口。
 
 ## 補記：還有備份的提醒（2026-10-16，hist-bak a）
 
-Owner 選擇保留「一併清除備份裡這個靈魂的記憶」的勾選、只補提醒。只改 ToukaChat 畫面與兩語翻譯；後端、API、openapi 與清除本身都不變，**預設仍不清備份**。
+維護者選擇保留「一併清除備份裡這個靈魂的記憶」的勾選、只補提醒。只改 ToukaChat 畫面與兩語翻譯；後端、API、openapi 與清除本身都不變，**預設仍不清備份**。
 
 - **放在哪裡**：重置卡的確認畫面（「將清除／將保留」下方）與完成畫面（清除連備份完整完成時換成另一版：記憶已從備份清掉，但對話與其他資料還留在系統快照裡，只列快照位置、刪整份快照與還原的副作用，不提升級備份）；SoulStudio 刪除靈魂的確認框，與完成訊息（toast 的說明行）；DebugAgent 重置區（計分卡面板）。三處共用 `components/common/BackupRetentionNotice.tsx`（`variant` 決定列哪些句子），翻譯在 `backup_notice.*`。
 - **寫什麼**：資料還留在系統快照裡、記憶也可能留在升級備份裡（刪除畫面寫「可能還留在之前的快照」，因為刪除前不做快照）；系統快照在 `.env` 所在資料夾的 `backups`（`Touka_Backup_*.zip`、`Touka_AutoBackup_*.zip`），升級備份在資料資料夾的 `vault/core_memory_backups`；要徹底刪：重置時勾選（只清這個靈魂的記憶）、或到「設定 → 系統備份」刪整份快照（連其他靈魂一起刪）、升級備份是共用檔只能手動刪；DebugAgent 沒有勾選，只寫刪整份快照；刪除前不會自動存快照；還原舊快照會把這個代理人的舊資料帶回來，同時所有靈魂的記憶退回那個時間點；這裡的系統快照和重置會刪的情境快照是兩回事。

@@ -13,7 +13,7 @@
 
 ## 已發行產品
 
-需要 Compose 2.24.0+、Linux amd64 containers、實際符合政策的 local filesystem 與既存 bind 目錄；非 root runtime／四個 init 掛載／loopback 不得放寬。使用者手動建立自己的 data／heartbeat-config 目錄，`.env` 只在不存在時複製範本。GHCR 主機路徑和容器內路徑要分開，不能抄固定磁碟號的歷史設定。
+需要 Docker Engine 26.0+ 與 Compose 2.26+、Linux amd64 containers、實際符合政策的 local filesystem 與既存 bind 目錄；非 root runtime／四個 init 掛載／loopback 不得放寬。使用者手動建立自己的 data／heartbeat-config 目錄，`.env` 只在不存在時複製範本。GHCR 主機路徑和容器內路徑要分開，不能抄固定磁碟號的歷史設定。
 
 三映像由 `.github/workflows/ghcr-publish.yml` 建置推送：手動觸發（`workflow_dispatch`）：一律發布 `sha-<commit>`，填入 `version` 時另發布該版號與 `latest`；建議以 `.env` 的 `TOUKA_VERSION` 釘固定 tag。先建立 Proxy／init、確認 healthy 和受管 secret 持久化，再用新的 Compose invocation 建立 Heartbeat／Chat；不能從 depends_on 推定同次 env_file 會重新載入。不在這份導覽重複一組可能漂移的啟動指令，完整命令見根正本。
 
@@ -21,7 +21,7 @@ MCP 只使用 modern `/mcp`，舊 `/sse` 退役；固定本機 ports 不表示�
 
 ## 開發環境
 
-[CONTRIBUTING](https://github.com/OtohaTouka/Touka/blob/main/CONTRIBUTING.md) 指定 Python 3.12 root venv、uv.lock、Node.js 24.19.0／npm 11.19.1。uv 必須 --all-packages，安裝既定版本再加 --locked；npm lifecycle 關閉，Chat 顯式執行 gen:artifact-runtime 後才測試／build。CPU torch 已在 uv.lock，兩個舊裸 pip installer 已退役。
+[CONTRIBUTING](https://github.com/OtohaTouka/Touka/blob/main/CONTRIBUTING.md) 指定 Python 3.12 root venv、uv.lock、Node.js 24.22.1／npm 11.19.1。uv 必須 --all-packages，安裝既定版本再加 --locked；npm lifecycle 關閉，Chat 顯式執行 gen:artifact-runtime 後才測試／build。CPU torch 已在 uv.lock，兩個舊裸 pip installer 已退役。
 
 根 docker-compose.yml 是 source 開發組態，Proxy／Heartbeat 子目錄 Compose 則是舊的獨立開發參考；不得當成已發布本機 profile 的等價替代。沒有 installer 的元件不新增。是否保留獨立安裝策略在整體更新完成後再評估，本輪不作新支援承諾。
 

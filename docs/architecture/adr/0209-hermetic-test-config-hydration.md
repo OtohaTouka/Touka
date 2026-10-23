@@ -1,8 +1,8 @@
 # ADR-0209：Hermetic 測試設定範本 hydration
 
-- 狀態：✅ 已接受（HUMAN_ONLY）
+- 狀態：✅ 已接受（經維護者人工審查）
 - 日期：2026-08-09
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`ToukaProxy/src/core/bootstrap.py`、`ToukaProxy/src/config.py`、`tests/conftest.py`、hermetic collection gate
 
 > **2026-08-14 修訂（[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)）**：

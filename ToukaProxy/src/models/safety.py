@@ -20,7 +20,7 @@ F5、F6 在 Auto 下都改成 HUMAN_ONLY（只有人能核准），但不把 DEN
 免 HITL（ADR-0089 語意由 tool_risk 承接）。看不懂的模式值一律 CONFIRM（等同 Manual）。
 要隔離的動作（``isolation_policy.requires_isolation``）在 environment 的 ``isolation`` 是 none
 （缺鍵、看不懂的值也算）時，Auto 與 YOLO 改成 HUMAN_ONLY（程式常數，設定檔改不鬆）。
-YOLO 下 dangerous 的 MCP 工具在 ``human_present`` 不是 True 時也是 HUMAN_ONLY（決定 4）。
+YOLO 下 dangerous 的 MCP 工具在 ``human_present`` 不是 True 時也是 HUMAN_ONLY（ADR-0272 決定 4）。
 """
 
 import logging
@@ -245,8 +245,8 @@ class AuthPoliciesConfig(BasePolicyModel):
                 return PolicyDecision(
                     effect="ALLOW", reason="Safe-class action auto-allowed in Auto mode"
                 )
-            # 終端與 dangerous 工具（決定 3）只回「要審」：審查員是非同步呼叫，由 ToolExecutor
-            # 接手（evaluate 維持純函式）
+            # 終端與 dangerous 工具（ADR-0246 決定 3）只回「要審」：審查員是非同步呼叫，
+            # 由 ToolExecutor 接手（evaluate 維持純函式）
             return PolicyDecision(
                 effect="REVIEW", reason="Dangerous action goes to the Auto reviewer"
             )
@@ -255,7 +255,7 @@ class AuthPoliciesConfig(BasePolicyModel):
             env = context.environment
             headless = env.get("human_present") is not True
             if env.get("mcp_server") and risk == "dangerous" and headless:
-                # 決定 4：無人在場時 dangerous 的 MCP 工具只有人能核准（＝拒絕）
+                # ADR-0272 決定 4：無人在場時 dangerous 的 MCP 工具只有人能核准（＝拒絕）
                 return PolicyDecision(
                     effect="HUMAN_ONLY",
                     reason="Dangerous MCP tool in YOLO mode with no human present: only a "

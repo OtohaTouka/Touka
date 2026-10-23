@@ -1,8 +1,8 @@
 # ADR-0242：模型溝通層第 1a 段（凍結現況的快照）
 
-- 狀態：✅ 已接受（Owner 2026-10-11 核准「甲＋全停」：本段只釘不修；Gemini 顯式快取之後全停）
+- 狀態：✅ 已接受（維護者 2026-10-11 核准：本段只釘不修；Gemini 顯式快取之後全停）
 - 日期：2026-10-11
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`tests/proxy/upstream/`（新）、`tests/proxy/characterization/`（9 份新 golden、CI 缺檔改失敗）、`tests/unit/` 三個釘子檔、文件；產品程式 0 行。延續 [ADR-0241](0241-model-layer-stage-0.md)
 - 決策 2 中「Gemini 快取加 `tool_config` 會不會被拒」的實測，已因 [ADR-0243](0243-model-pre-run.md) 全停 Gemini 顯式快取而失效（2026-10-12）
 - KF 表的 KF-5、KF-7b、KF-10 與新對話第 2 輪沒有斷點，已由 [ADR-0247](0247-model-layer-stage-3a.md) 修正（2026-10-12；釘子照 docstring 翻轉）
@@ -89,7 +89,7 @@ U0＝`630185f3`；最終＝`9731f1f2` 加 U7 文件（U7 不改測試的比對�
 | 金鑰標頭與端點 URL | `openai_adapter.py:92-99` | 全部（含自訂連線） | `test_upstream_openai::test_headers_and_url`（3）；路由本身見 `test_model_route_isolation` | 3 |
 | 取樣參數不送 | `adapters/sampling.py` | 全部 | `test_no_sampling_on_wire` 的 openai 6 組 | 6 |
 
-**(d) 依 3b 候選換算**（只列檔數與測試數，行數是 3b 的事）：甲＝(a)①②③全部要搬，15 檔、70 個測試＋1 支 smoke；折衷＝(a)②③，12 檔、44 個測試，另新寫 Responses 測試；甲′＝0，但串流改造時三家的上游 mock 都要重做。S1 與三個候選無關（Claude 走 3a）。
+**(d) 依 3b 候選換算**（只列檔數與測試數，行數是 3b 的事）：OpenAI 相容與 Gemini 都改用 SDK＝(a)①②③全部要搬，15 檔、70 個測試＋1 支 smoke；折衷（只有 Gemini 改用 SDK）＝(a)②③，12 檔、44 個測試，另新寫 Responses 測試；兩者都自寫＝0，但串流改造時三家的上游 mock 都要重做。S1 與三個候選無關（Claude 走 3a）。
 
 **重跑命令**（在 3.12 venv 的工作資料夾，只讀文字）：
 ```
@@ -106,7 +106,7 @@ python -m pytest --collect-only -q <檔案>
 - 新測試 109 個（上游 83、characterization 18、unit 8）全綠；每個新檔與每個 KF 釘子都做過「改壞產品程式→變紅→還原」與「套用修正→釘子變紅」，紀錄在各單位回報。
 - `git diff --stat 630185f3..<候選> -- ToukaProxy ToukaMemory ToukaHeartbeat ToukaDispatch ToukaChat ToukaIDE config` 為空。
 - golden 31→40 份：只多 9 個 `A`、沒有 `M`／`D`；characterization 0 skip；全量 skip 數與 U0 相同（17）。
-- 全量 pytest 與守衛結果見 HANDOVER；只剩已知 12 個環境問題（compose 外掛 6、Node 26 companion 6）。
+- 全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到；只剩已知 12 個環境問題（compose 外掛 6、Node 26 companion 6）。
 
 ## 回復
 

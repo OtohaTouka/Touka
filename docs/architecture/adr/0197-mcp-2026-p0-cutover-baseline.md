@@ -2,7 +2,7 @@
 
 > **現況**：本文提到的 v1 特性矩陣、cutover inventory、v1 rollback smoke 腳本與兩份 rollback manifest 共 5 個檔，已在 ADR-0238 的退役 commit（`4a0bf452`）刪除；`config/mcp_servers/*/*.py` 是執行時產生的路徑樣式，從來不在版控。
 
-- **狀態**：Accepted；本機 previous-image live smoke 已通過，registry durability 由 owner 延後
+- **狀態**：Accepted；本機 previous-image live smoke 已通過，registry durability 由維護者延後
 - **日期**：2026-07-30
 - **相關**：[ADR-0191](0191-mcp-hub-tier-a-shelf-and-version-pinning.md)、
   [ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)、
@@ -18,7 +18,7 @@ identity 列 catalog，且永久快取 `tools/call` 完成結果。若直接升 
 會壞，也會把跨 principal 汙染帶進新的 capability 與 OAuth 生命週期。
 
 P0 的任務不是修這些 blocker，而是讓它們全部可見、可重現，並使 P2 在 blocker
-未處置時機械失敗。既有 Creation 產物與 `data/` 受 owner 主權保護，掃描器只能讀取
+未處置時機械失敗。既有 Creation 產物與 `data/` 受資料保護規則保護，掃描器只能讀取
 與報告，不能自動改寫或遷移。
 
 ## 決策
@@ -53,7 +53,7 @@ blocker 仍回 0，方便產報告；只有 `--check-cutover` 回 2 阻止 P2。
 ### 3. generated artifact 未處置即阻擋，不自動修
 
 任何 `config/mcp_servers/*/*.py` 含 v1-only marker 都產生
-`generated.v1_artifact` blocker。owner 必須手動修正、停用，或另行核准與驗證隔離
+`generated.v1_artifact` blocker。維護者必須手動修正、停用，或另行核准與驗證隔離
 v1 runner；掃描器不修改檔案，也不進 `data/`。目前本機 registry 是空集合且無
 generated artifact；部署或 named-volume config 仍須在 P2 前以 `--config-dir`
 對目標環境重跑，不能用本機空集合推論所有部署都空。
@@ -74,7 +74,7 @@ container name，避免繼承正式 compose 名稱而撞到現行容器。compos
 內的獨立 env file 注入，不直接讀取全域環境。未提供 digest 的 tracked example
 刻意驗證失敗；`latest`／semver tag 也一律拒絕。
 
-owner 於 2026-07-30 明示暫不發布 GHCR，接受本機 content-addressed RepoDigest
+維護者 2026-07-30 決定暫不發布 GHCR，接受本機 content-addressed RepoDigest
 作為本次遷移 rollback 基線。`rollback_manifest.local.json` 固定三個本機 digest；
 通用 `rollback_manifest.example.json` 仍維持 fail-closed，避免把本機接受誤表述為
 跨主機可恢復的 registry artifact。

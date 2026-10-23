@@ -2,7 +2,7 @@
 
 ## 狀態
 
-✅ 已接受（MCP connectors 調查 F5，owner 點名修復；接續 ADR-0186／0187／0188）
+✅ 已接受（MCP connectors 調查 F5，維護者點名修復；接續 ADR-0186／0187／0188）
 
 ## 日期
 
@@ -17,7 +17,7 @@ F5＝出廠貨架近乎空。種子 `mcp_hub.json.example`（tracked；bootstrap
 1. **種子 +3 官方條目**：`fetch`／`filesystem`／`git`——全數 ADR-0186 啟動規格＋**真 stdio 連線實證**（git 12 工具／filesystem 14 工具＝ADR-0186 E2E；fetch 1 工具＝本批 E2E）；免金鑰、容器可跑（映像自帶 npx/uvx）、涵蓋 Browser／File／Dev 三分類；filesystem 帶 `@TOUKA_APPDATA@` 哨兵（可攜，install／connect 雙端解析）。官方另四條**刻意不入種子**：everything（client 測試用）、memory（與 ToukaMemory 職能重疊，避免雙記憶混淆）、sequentialthinking／time（邊際效用低）——手動 sync 一鍵即得。
 2. **配方 SSOT 抽取**：`official_hub_entry(dir_name) -> (dict, known)`（`mcp_official_map` 純函式）＝官方條目「完整 dict 配方」的唯一事實來源；`fetch_official_servers` 改為消費配方（SRP：service 只剩 IO＋fallback 告警）。**種子＝配方快照**：seed-integrity parity 測試對每條種子官方條目與配方輸出**逐欄精確相等**——ADR-0186 啟動規格表未來演進時，種子漂移立刻紅。
 3. **種子官方條目 `source: "official"`（非 curated）**：sync 只 survive curated → 種子官方條目於首次 sync 被抓取結果**原位取代、不重複**（行為 pin 測試釘死）。
-4. **自動 sync 刻意不做**（scope 取捨，非遺漏）：開機靜默外呼 GitHub／MCP Registry 牴觸 local-first 隱私姿態（README「所有資料存於本機、不上雲」承諾）；出廠貨架由種子解決、新鮮度由手動 sync 鈕承擔。若要 opt-in 自動同步＝另案 owner 點名。
+4. **自動 sync 刻意不做**（scope 取捨，非遺漏）：開機靜默外呼 GitHub／MCP Registry 牴觸 local-first 隱私姿態（README「所有資料存於本機、不上雲」承諾）；出廠貨架由種子解決、新鮮度由手動 sync 鈕承擔。若要 opt-in 自動同步＝另案由維護者點名。
 
 ### 變異驗證（逐條隔離、皆已還原）
 
@@ -42,7 +42,7 @@ TDD：parity ImportError 紅先行（`official_hub_entry` 未存在）＋starter
 
 - fresh install 開箱即有 4 條可用貨架（自家文件引擎＋官方網頁抓取／檔案／git），全數實證可連。
 - 官方條目 dict 形狀自此單點維護（service／種子共用配方）；種子與代碼零漂移保證。
-- F6（前端安裝徽章鍵不匹配）不在本批——owner 點名制。
+- F6（前端安裝徽章鍵不匹配）不在本批——由維護者點名。
 
 ## 教訓
 

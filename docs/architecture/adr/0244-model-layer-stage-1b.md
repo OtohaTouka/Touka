@@ -1,8 +1,8 @@
 # ADR-0244：模型溝通層第 1b 段（修計費、complete_once）
 
-- 狀態：✅ 已接受（Owner 2026-10-12 核准模型層總計畫）
+- 狀態：✅ 已接受（維護者 2026-10-12 核准模型層總計畫）
 - 日期：2026-10-12
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：三個 provider adapter 與 `handlers/adapters/usage.py`（新）、`react_core`、`telemetry`、`providers/pricing.py`、`services/completion.py`（新）、`dispatchers/route_family.py`／`factory.py`、`dialogue_summarizer`／`sliding_window_service`、`review/review_loop`／`tools/mission_tools`、`creation`（`model_judge`／`evaluation`／`engine`／`api`／`routers/creation.py`）、`main.py`、14 份 characterization golden、對應測試與文件
 - 修訂 [ADR-0156](0156-react-core-extraction.md)（原生 `/v1/messages` 出口不記帳的凍結舊制，見決策 2）
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：`_shape_claude` 把 schema 併進 adapter 已放的 `output_config`（不覆寫 effort）；`complete_once` 在送出前多一道最壞花費估算（`cost_guard`＋`would_exceed`，超過回 `over_budget`、不送不記帳）；畫面 `token_usage` 與稽核 CSV 的整次 run 金額改為每輪分檔相加。「契約測試原封不動」是 3a／3b 的要求：`test_complete_once_contract.py` 等三個檔與 `test_side_caller_billing.py` 的假預算物件只補 `would_exceed`（回 False），斷言不改
@@ -54,7 +54,7 @@ ReAct 迴圈只記最後一次回覆的用量，工具輪全部漏記，成本�
 - 每輪記帳：`test_per_round_accounting.py` 6 個、`test_adapter_contract.py` 改為原生出口記帳但不送事件；14 個突變都紅。重錄的 14 份 golden 由獨立審查代理逐份手算核對，其餘 26 份不該變的理由成立。
 - `complete_once`：契約測試 `test_complete_once_contract.py` 35 個（3a 換 SDK、3b 換傳輸時必須原封不動通過）、`upstream/test_adapter_stop_reason.py` 36 個、`test_model_route_resolution.py` 15 個、`test_gemini_send_attempts.py` 2 個；36 個突變都紅。
 - 旁路呼叫：`test_side_caller_requests.py` 改為 `complete_once` 層的整組字面值比對，`test_side_caller_billing.py` 證明三者記帳與超預算行為，critic 10 種非成功都 REJECT；16 個突變都紅。
-- 全量 pytest 與守衛結果見 HANDOVER。本段沒有打任何 API，也沒有啟動 Touka。
+- 全量 pytest 與守衛結果記在當時 HANDOVER 的第 2 節，公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 還查得到。本段沒有打任何 API，也沒有啟動 Touka。
 
 ## 回復
 

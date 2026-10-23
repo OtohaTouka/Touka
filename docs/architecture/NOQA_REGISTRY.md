@@ -18,15 +18,15 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
-| `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原 Owner-local 發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
+| `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
 | `B008` | 228 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
 | `LOCAL_IMPORT_BAN` | 25 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）。其餘位置見下方明細。 |
-| `S603` | 31 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序）。 |
+| `S603` | 33 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集；+1 ADR-0278 tests/README 列表核對的 git ls-files）。 |
 | `SLF001` | 68 | 跨類別私有成員存取（-2 ADR-0253 `services/legacy_sync.py` 改用公開的 `MemoryManager.get_legacy_dir`；P2 -3：刪除 `_get_effective_permissions` 私有測試接點；P5 +1：`PermissionService.reset_singleton()` 重設不可變 `_permission_config_health` 快照；+1 ADR-0195 tests/unit/test_mcp_server_tools_endpoint.py 注入 `_active_sessions` 建立「已連線」態以做 HTTP 級端點測試；+4 ADR-0195 tests/unit/test_mcp_tool_governance.py 直接注入 ProtocolManager 的 `_active_sessions`／`_circuit_breakers` 以建立不含真實子進程的受控連線態；-1 ADR-0146 test_mission_stop_gate 隨 nudge 退役刪除；+4 ADR-0148 test_skill_registry_rbac 注入/還原 skill_service._metadata 測試 seed；+5 P3 認證縫 test_auth_seam_hardening_p3 顯式建立/毒化沙箱 users.json（_atomic_users_write 清空／注入毒化／改水位／改密碼快照）＋user_service.create_user 單閉包呼叫 _atomic_users_write；+1 G03 test_ldh_cardless_no_type_flag 清空沙箱 users.json 設「未認領」LDH 前提；+1 G05 test_soul_stepup_audit 清空沙箱 users.json 建 admin 驗步升 AUDIT；+4 G07 test_soul_model_registration_cache 存取 model_manager._models_cache／_save_config 與 souls._update_models_config 源碼驗快取權威；+1 G13 test_env_persistence_anchor 讀 config._ENV_PERSISTENCE_PROBE_KEYS 驗 compose environment parity；+3 G20/G22 test_soul_model_registration_cache 讀 model_manager._models_cache 驗冪等/裸條目；-1 ADR-0208 connections status 改用 public diagnostics getter；+1 演化 MCP 驗證沿用 `EvolutionPathGuard._build_rlimit_preexec`，保持直接執行與啟動器的配額同源） |
 | `PTH121` | 1 | 演化技能的實體別名判斷使用 `os.path.samefile`，可對不分大小寫的掛載注入一致的測試接點。 |
 | `ARG002` | 5 | 介面協議規定的未使用參數（+4 ADR-0137 NoopReviewer.review 實作 Reviewer Protocol 對稱簽名，哨兵無條件放行不使用參數） |
 | `TID251` | 3 | 物理路徑禁令 (Path Ban)／受控 `subprocess` 匯入／隔離啟動器組目標環境：僅限明細表所列的基礎建設與測試咽喉（+1 ADR-0275 `sandbox_kernel/launcher.py` `_exec`）。 |
-| `IO_PRISON_VIOLATION` | 16 | I/O 監獄違規（備援實作、引導邏輯或獨立容器存取）；明細見下表（+3 ADR-0272 執行器伺服器）。 |
+| `IO_PRISON_VIOLATION` | 13 | I/O 監獄違規（備援實作、引導邏輯或獨立容器存取）；明細見下表（+3 ADR-0272 執行器伺服器）。 |
 | `IDENTITY_SSOT` | 39 | 身分物件化違規（獨立容器協約、路由層 URL 參數、回應模型欄位、鎖原語 key 或誤判；含 debug.py `_read_last_payload(agent_id)` 依 payload log 的 agent_id 字串比對；跨身分看板定址修復淨 +1：-1 mission_manager 移除硬編 role="Base" 的 `_PathIdentity`，+2 `resource_manager`/`protocols` 的 `get_vault_path_for_agent(agent_id: str)`——跨身分定址入口以 agent_id 字串為鍵，於函式內查真實註冊身分後才物件化；ADR-0142 soul CRUD 修復 +3：`routers/souls.py` 的 `delete_soul(soul_id)` 端點＋`_remove_from_all_owned_agents(soul_id)`／`_remove_identity_override(soul_id)` 清除輔助，soul_id 為攻擊者可控的 URL path 字串、於函式內過路徑監獄後才操作，同既有 `update_soul(soul_id)` 慣例；hitl-unification H2 +1：`services/approval_service.py` 的 `PendingApproval.agent_id`——待批快照的顯示／owned_agents 比對用字串，授權判定主體是解算端點的已驗證 `AgentIdentity`；ADR-0214 +1：execution context 的 legacy `agent_id` kwargs 是已驗證 identity 的字串投影，不是授權 principal） |
 | `TRY003` | 23 | 例外訊息過長或直接寫在 raise 中 (基礎建設底層 + Pydantic 模型驗證器 + setup_service.py 輸入驗證 + embedding_service.py apply_switch 空值檢查；+1 ADR-0137 test_reviewer 測試替身模擬傳輸失敗) |
 | `FETCH_SSOT` | 6 | 前端直接 fetch() 合法豁免（fetchTouka 核心定義、多供應商 SSE 串流、外部 URL 入參、認證續期直呼 refresh 避免遞迴） |
@@ -272,6 +272,8 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 | 路徑／接點 | 規則 | 原因與限制 |
 | --- | --- | --- |
 | `scripts/guard_eslint_ratchet.py` readonly verify | `S603` ×1 | resolved Node、固定helper／argv、shell=False；verify失敗不進lint。 |
+| `scripts/lint_ratchet.py::_run_tool_module` | `S603` ×1 | ADR-0278：ruff 與 pyrefly 共用的子程序入口，以 `sys.executable -m <工具>` 跑固定 argv（ruff：四個產品資料夾、`--no-cache`、JSON 輸出；pyrefly：`--config pyproject.toml`、目前的直譯器、JSON 輸出），`shell=False`、有逾時；工具異常結束就失敗，不當成 0 個違規。 |
+| `tests/lint/test_tests_readme_listing.py::git_ls_files` | `S603` ×1 | ADR-0278：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z -- <pathspec>`（`tests` 或全 repo），`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
 | `scripts/list_theme_violations.py`、`scripts/summarize_theme_violations.py` readonly verify | `S603` ×2 | 同一固定helper，每支各一筆；不執行呼叫者任意程式。 |
 | 上述兩支theme工具的既有固定shell命令 | `S602` ×2 | 保留既有命令／診斷語義，新增verify先行；不接收自由shell輸入。 |
 | `tests/unit/test_braces_backport.py::_node` | `S603` ×1 | 固定bound Node、normal test sandbox／closed env、20秒；最終第163行，A有限30 PASS／0 skip。 |
@@ -300,7 +302,6 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | `unit/test_heartbeat_token_ssot.py` | L87 | `SLF001` | 🔴 不可修復 | Token 優先鏈測試需存取 `StorageService._env_token` 驗證注入值 |
 | `unit/test_mission_manager_bugfixes.py` | L246 | `SLF001` | 🔴 不可修復 | C2 修復驗證：直接呼叫 `_resolve_target_agent_id` 確認非 Supervisor 身分拋出 PermissionError |
 | `unit/test_permission_service.py` | 多處 | `SLF001` | 🔴 不可修復 | PermissionService 突變補測：直接呼叫 `_check_pattern`／`_load_config`／`_load_identity_map`／`_load_policies` 驗證私有載入與安全邏輯邊界；P2 授權解析改走公開 `resolve_grants` |
-| `unit/test_custom_model_service_ssot.py` | L66 | `IO_PRISON_VIOLATION` | 🔴 不可修復 | 靜態稽核測試：故意讀取原始碼檔案以進行 AST 解析驗證。 |
 | `unit/test_permission_service_sandbox_isolation.py` | L34-L83 | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | 測試動態切換 TOUKA_CONFIG_DIR 環境變數與路徑重置。 |
 | `unit/test_live_api_consent.py` | process environment oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須驗證 pytest 在任何產品 import 前停用計量功能、清空 provider credential 並錨定 sandbox env file。 |
 | `unit/test_smoke_sandbox_governance.py` | process environment mutation oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須對 sandbox helper 的 process environment mutation 做完整斷言，並在 `finally` 還原原始 mapping。 |

@@ -2,14 +2,14 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-13
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
 `research` 原本只有單一主來源 Tavily（外加正交的 Gemini 原生 Google）。三個問題：
 
 1. **韌性**：Tavily 金鑰缺失/額度用罄/服務異常時，搜尋直接硬失敗（回 `Error: TAVILY_API_KEY not found.`），無任何後援。
-2. **免金鑰選項**：擁有者明確問過「有無不需要 API key 的方案？」——單靠 Tavily 無法回答。
+2. **免金鑰選項**：維護者問過有沒有不需要 API key 的方案——單靠 Tavily 無法回答。
 3. **隱私**：ADR-0089 讓搜尋在所有 auth_level 自動執行、ADR-0090 預設 advanced 深度——查詢量上升且全數外送 Tavily。需要一條「查詢不外洩」的路徑。
 
 這是 Web Search 改進 **Phase C（韌性＋免金鑰＋隱私）**，一併補上 Phase A/B 記錄的兩個取捨缺口。
@@ -34,7 +34,7 @@
 ## 後果與影響 (Consequences)
 
 - 搜尋不再因 Tavily 缺金鑰/掛點而硬失敗——`auto` 一路降級到免金鑰的 DuckDuckGo，**零設定即有保底**。
-- **免金鑰**：DuckDuckGo（零設定）與自架 SearXNG（需起容器）皆免 API key，回答擁有者的提問。
+- **免金鑰**：DuckDuckGo（零設定）與自架 SearXNG（需起容器）皆免 API key，回答維護者的提問。
 - **隱私**：自架 SearXNG 使查詢不外洩第三方（補上 Phase A/B 的隱私缺口）；DuckDuckGo IA 僅回 instant answer、對一般查詢常為空（保底而非主力）。
 - **取捨**：DuckDuckGo IA 非通用網頁結果 API，對多數一般查詢回得有限——它是「最後保底」，主力仍為 Tavily（品質）或自架 SearXNG（通用＋隱私）。
 - **隱私邊界**：auto 的最後備援 DuckDuckGo 仍會把查詢送往 `api.duckduckgo.com`（免金鑰、HTTPS、不帶 Touka 憑證）。要「零查詢外送」須自架 SearXNG 並固定 `source=searxng`；`.env.example` 已加註此邊界。

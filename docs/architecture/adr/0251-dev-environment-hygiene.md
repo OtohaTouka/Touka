@@ -1,8 +1,8 @@
 # ADR-0251：開發環境整理：Windows 測試前置條件、結尾摘要、測試沙盒收尾、建置產物宣告、公開金鑰拒用
 
-- 狀態：✅ 已接受（Owner 2026-10-14 核准一頁計畫：五項做法、AGENTS.md 的 Windows 前置條件文字、建置產物宣告 7 行，以及第 5 項的產品行為改變；U1～U3 完成，任務分支 `252a19cc` 整體驗收通過，見文末）
+- 狀態：✅ 已接受（維護者 2026-10-14 核准計畫：五項做法、AGENTS.md 的 Windows 前置條件文字、建置產物宣告 7 行，以及第 5 項的產品行為改變；U1～U3 完成，任務分支 `252a19cc` 整體驗收通過，見文末）
 - 日期：2026-10-14
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`AGENTS.md`（直譯器主權段之後新增一段）、`CONTRIBUTING.md` 佈建步驟、`pytest.ini`、`tests/conftest.py`、新 `tests/sandbox_cleanup.py`、`tests/unit/test_installation_entrypoints.py`、根目錄新 `rebuildable-outputs.txt`、`ToukaProxy/src/config.py`、`ToukaProxy/src/core/security.py`、`ToukaProxy/src/services/dispatch_supervisor.py`、`ToukaProxy/src/services/setup_service.py`、`ToukaProxy/.env.example`、`tests/unit/test_sec_batch_delta.py`、`SECURITY.md` 三列
 - 相關：ADR-0053（設定精靈的派工 token 提醒）、ADR-0064（派工 token 不離開 Touka 程序）、ADR-0193（測試沙盒與 repo 落盤哨兵）、ADR-0214（自動測試一律沙盒）、ADR-0230（心跳服務憑證）、ADR-0240（Guard #16 快取與工作資料夾清理）、ADR-0250（E1 本機 compose 失敗與上一輪的 8 個跳過）。這些 ADR 的決策都不變。
 - 修正（[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)）：已知限制「設定精靈的 `apply` 仍可寫入公開值」已修，精靈收到公開值回 422、`.env` 不寫
@@ -136,9 +136,9 @@
 
 ## 實作偏離
 
-- U1（技術主管單位驗收時接受）：Qdrant 那步不在 conftest 頂部匯入，只在向量模組已載入時關；`pytest_sessionfinish` 也呼叫清理（計畫原本只讓它記錄殘留）；atexit 多一個 PID 檢查與寫 stderr 的那一行。
+- U1（單位驗收時經審查接受）：Qdrant 那步不在 conftest 頂部匯入，只在向量模組已載入時關；`pytest_sessionfinish` 也呼叫清理（計畫原本只讓它記錄殘留）；atexit 多一個 PID 檢查與寫 stderr 的那一行。
 - U2：宣告測試判斷「有沒有被 git 忽略」時，只認非空、非否定（不是 `!` 開頭）的規則。原因：Windows 的 CRLF checkout 裡，`.gitignore` 的空白行會變成空 pattern，`git check-ignore` 對任何沒被追蹤、寫成結尾 `/` 的路徑都回「被忽略」；照計畫只看結束碼的話，拿掉 `ToukaIDE/.gitignore` 的 `dist/` 測試仍是綠的。改成只認真正的規則後這個突變會紅。
-- AGENTS.md 前置條件（技術主管核可）：附錄 A 原文漏了 `ToukaChat` 的 `npm run gen:artifact-runtime`，最終驗收時新工作資料夾的 guard_all 因此在 Guard #27 型別檢查失敗，所以在「前端依賴」那一條補上這一步。Owner 核准時看過的版本沒有這一句，其他字不變。
+- AGENTS.md 前置條件（經審查核可）：附錄 A 原文漏了 `ToukaChat` 的 `npm run gen:artifact-runtime`，最終驗收時新工作資料夾的 guard_all 因此在 Guard #27 型別檢查失敗，所以在「前端依賴」那一條補上這一步。維護者核准時看過的版本沒有這一句，其他字不變。
 - NOQA_REGISTRY：刪掉明細表裡過時的 `config.py` L60、L64 `S105` 那一列（`config.py` 現在沒有 `S105` 的 noqa，不在掃描結果裡，統計數字不變）。
 - NOQA：U1 新增 1 個 `S603`（`tests/integration/test_session_sandbox_no_residue.py` 的 `_run_child_pytest`），統計 29 → 30；conftest 的 `E402` 加 2 個、刪 1 個（格式類，不在統計表）；U3 刪掉 1 個 `S105`（隨刪除的測試），「其他」列照 Guard #19 的掃描法實際清點：`S105` 19 → 18、合計 327 → 326。
 

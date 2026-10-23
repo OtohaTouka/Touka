@@ -1,15 +1,15 @@
 # ADR-0238：退役發版資格機制與容器安全管線
 
-- 狀態：✅ 已接受（Owner 2026-10-08 直接指示）
+- 狀態：✅ 已接受（維護者 2026-10-08 決定）
 - 更正（[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)）：決策 5 寫 CI 直接執行 Ruff，但從 `4a0bf452` 起 workflow 沒有 Ruff 步驟；ADR-0254 起 `contracts` job 跑鎖定版 ruff `--select F`（四個產品子專案）並新增 `toukaide` job，完整 ruff 只在本機。
 - 日期：2026-10-08
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：`scripts/` 發版工具、GitHub workflows、`ToukaReleaseAuthority`、`infra/release-authority`、三個產品 Dockerfile、`ToukaChat/container-security`、`ToukaChat/node-security`、MCP rollout evidence（Proxy／Dispatch／IDE）、Guard #42／#43、禁令 62、交班與證據文件
 - 取代：ADR-0210、ADR-0211、ADR-0212、ADR-0213、ADR-0215、ADR-0216、ADR-0217、ADR-0225、ADR-0226、ADR-0227、ADR-0233、ADR-0234、ADR-0235、ADR-0236；ADR-0220 與 ADR-0221 的發行／冷切換部分
 
 ## 背景
 
-Touka 的產品 runtime 與資料都在 Owner 本機，所有 client 也在同一台機器（ADR-0220、ADR-0221）。為了證明每一次發版「確實由同一份 bytes 建置、驗證、發布、部署」，專案累積了一整套資格驗證機制：
+Touka 的產品 runtime 與資料都在使用者自己的本機，所有 client 也在同一台機器（ADR-0220、ADR-0221）。為了證明每一次發版「確實由同一份 bytes 建置、驗證、發布、部署」，專案累積了一整套資格驗證機制：
 
 - `scripts/local_release*`、`local_cold_cutover.py` 等約 7.9 萬行發版腳本，以及約 10 萬行對應測試。
 - 9 支 GitHub release workflow、Azure release authority 套件與 IaC。
@@ -30,7 +30,7 @@ Touka 的產品 runtime 與資料都在 Owner 本機，所有 client 也在同�
 
 ## 後果
 
-- 產品可再用一般 `docker compose build` 建置；發版不再需要 Owner 本機 runner、獨立 daemon 或受管 controller。
+- 產品可再用一般 `docker compose build` 建置；發版不再需要維護者本機的 runner、獨立 daemon 或受管 controller。
 - 失去「同一 bytes 從建置到部署」的可驗證鏈，以及 Debian／Node 層級早於官方套件的自行修補；改依官方映像與 Debian 安全更新。供應鏈風險改由既有 Python／Node CVE 守衛（Guard #22／#23）與官方更新承擔。
 - 既有 GHCR 上的舊映像（如 `modern-5c48a5bd51e6-q34854176569-a1`）仍可使用；新發行使用手動填入的版號。
 - 依賴弱點稽核守衛（ADR-0222、ADR-0223）、braces 回補（ADR-0237）與所有產品安全修補維持不變。

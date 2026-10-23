@@ -1,6 +1,6 @@
 # ADR-0229：可信工具執行分類與批准例外
 
-日期：2026-09-16。狀態：Owner DEV-A 已批准；F01 已實作，B1 已主代理階段 SUPERVISOR_ACCEPTANCE，整體 B6 驗收中。
+日期：2026-09-16。狀態：維護者已核准計畫；F01 已實作，B1 階段已經審查接受，整體 B6 驗收中。
 
 〔[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md) 修訂：自帶批准工具剩 `request_skill_install`、`request_mcp_creation` 兩個；`evolution_implement_and_verify` 改為一般分類。〕
 
@@ -44,9 +44,9 @@ Manual/SafeAuto 需批准、pending 零寫入、批准一次、拒絕零寫入�
 獨立 CLI 僅載入 fixture AST 至 owned 合成樹的原 RED 保留；這證明存在舊私有 copy 路徑，
 不證明歷史執行曾讀到私有資料。回歸中的單行 `S102` 例外只用於同一受控 AST 接縫。
 
-原件存在本機，未入版控。
-F01 原 RED 為 12F/16P；最後純格式收尾後相關回歸 238P／1 個既有 warning，11 檔 Ruff／format、SSOT 與 Guard19／28／45 通過；精確範圍及原件見 `B1_RECEIPT.json`／`B1_CANDIDATE_R1.json` 與 HANDOVER。
-B1時尚待的B6現已完成來源驗證：full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke及Chat1241P。來源實作與驗證完成最終DEV-B原件見`ROOT_DEV_B_ACCEPTANCE_R1.json`；自動化以sandbox/mock為目標、歷史I/O NOT_PROVEN。
+原件未入版控。
+F01 原 RED 為 12F/16P；最後純格式收尾後相關回歸 238P／1 個既有 warning，11 檔 Ruff／format、SSOT 與 Guard19／28／45 通過；精確範圍記錄在未入版控的收據檔。
+B1時尚待的B6現已完成來源驗證：full 9862P／9skip／5warnings，425.71秒、43fresh guards＋2audit REUSED_NOT_FRESH、24smoke及Chat1241P。來源實作與驗證已通過最終審查（審查原件未入版控）；自動化以sandbox/mock為目標、歷史I/O NOT_PROVEN。
 
 ## 相容性與回復
 

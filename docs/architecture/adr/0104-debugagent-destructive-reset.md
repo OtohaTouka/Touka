@@ -9,7 +9,7 @@
 
 軌B 計分卡（ADR-0101）以 **DebugAgent** 為實機評測身分，反覆跑情境會在多個 store 累積資料（對話、回饋、記憶、產出、任務…）。為了能在評測之間把 DebugAgent 回到白紙、並對照「原始 vs 累積」，需要一個**破壞性重置**：清空 DebugAgent 的累積資料，但**保留其身分／註冊**（重置後仍可用）。
 
-破壞性 × 跨子系統（ToukaProxy ＋ ToukaMemory）× 真實刪除 → 此功能的首要風險是**誤刪真實 agent（Jin/Yan/Code）**或**在無備份下不可逆刪除**。使用者（擁有者）明確要求：**清空前先執行全系統備份**。
+破壞性 × 跨子系統（ToukaProxy ＋ ToukaMemory）× 真實刪除 → 此功能的首要風險是**誤刪真實 agent（Jin/Yan/Code）**或**在無備份下不可逆刪除**。維護者明確要求：**清空前先執行全系統備份**。
 
 ## 決策（Decision）
 
@@ -23,7 +23,7 @@
 - **只清資料、不動身分**：`ALL_STORES` 不含 identity_map／users／registry，重置後 DebugAgent 仍可用。
 - **SQL 全 scoped**：所有刪除為參數化 `WHERE agent_id = ?`（永不 `DROP TABLE`／無 WHERE）；向量為 per-agent collection（`memory_<id>`）整個 drop＝單 agent 範圍；檔案刪除經 `resource_manager`（受 `is_protected_path` 保護）。
 
-### 對抗式複審（41 agent fan-out × 7 攻擊視角 ＋ 懷疑者驗證 panel）後的加固
+### 對抗式複審（7 個攻擊視角＋懷疑者驗證）後的加固
 
 複審**證實安全核心無破口**：無任何路徑能誤刪真實 agent、安全閘對所有對抗輸入（casing/空白/unicode/`ToukaSoul` 前綴/`../` 穿越）皆 fail-closed、刪除全 scoped。以下為複審揭出、本 ADR 採納修復的真實缺陷：
 
@@ -40,7 +40,7 @@
 
 ### 被否決的方案
 
-- **清除 `project_audit`／`decisions.csv`**：兩者為審計軌跡，刪除有損稽核完整性。改採「保留＋報告透明列為排除項」（擁有者決策）。
+- **清除 `project_audit`／`decisions.csv`**：兩者為審計軌跡，刪除有損稽核完整性。改採「保留＋報告透明列為排除項」（維護者決策）。
 - **把 reset 收緊為 admin-only**：完全對齊 `/system/backup/run`，但若人類擁有者角色為 Owner（非 admin）會使前端重置鈕失效。改採 Owner/admin（排除 Debugger），兼顧安全與可用。
 
 ## 後果（Consequences）
@@ -54,6 +54,6 @@
 
 ## 驗證
 
-- 對抗式複審：41 agent、7 視角、懷疑者 panel（refute＋confirm-by-trace）；確認缺陷全數修復或文件化。
-- 全程於 **3.12 venv**（[[feedback-python-venv]] 直譯器主權）：guard_all 37/37、pytest 全綠（含 reset guard/primitives/orchestrator/endpoint/backup ＋ 核心模組回歸）、vitest、smoke 24/24。
+- 對抗式複審：7 個攻擊視角＋懷疑者驗證（refute＋confirm-by-trace）；確認缺陷全數修復或文件化。
+- 全程於 **3.12 venv**（直譯器主權）：guard_all 37/37、pytest 全綠（含 reset guard/primitives/orchestrator/endpoint/backup ＋ 核心模組回歸）、vitest、smoke 24/24。
 - 建基於 ADR-0101（計分卡生產保真、Debugger 角色）。

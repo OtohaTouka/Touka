@@ -1,14 +1,14 @@
 # ADR 對齊漂移修訂 Backlog（Phase 2）
 
-> **狀態**：🏁🏁 文件修訂全收官（R1–R4 全數落地，2026-07-22）——64 條受害者 ADR 三處視型態補反向註記＋ADR-0173 機器執法納閘（Guard #28 第 4 檢查、活體 0 違規）。純文件零行為碼、未 commit。**僅餘候選真實缺口 G-1/G-2/G-3＝碼/行為層，超出本 backlog（補註記）範疇，待 owner 另評修碼。**
+> **狀態**：🏁🏁 文件修訂全收官（R1–R4 全數落地，2026-07-22）——64 條受害者 ADR 三處視型態補反向註記＋ADR-0173 機器執法納閘（Guard #28 第 4 檢查、活體 0 違規）。純文件、零行為碼變更。**僅餘候選真實缺口 G-1/G-2/G-3＝碼/行為層，超出本 backlog（補註記）範疇，待維護者另行評估是否修碼。**
 > **前置**：ADR 對齊回顧線 Phase 1（0001–0168，除已退役 0048/0063/0072＝165 篇 100% 掃完）
-> **總帳（逐塊逐條 file:line 證據）**：scratchpad `adr_align_DRIFTS.md`（session 內），本文件為其可執行摘要。
+> **總帳**：逐塊逐條的 file:line 證據原件未入版控，本文件為其可執行摘要。
 
 ---
 
 ## 方法與結果
 
-- **方法**：每 Accepted ADR 派 analyze 比對現行碼分類 `aligned/partial/stale/superseded_unmarked`；`high/med` 漂移派獨立 verify 代理對抗覆核（盡力推翻）。workflow `wf_adr_align_chunk.js`（analyze=sonnet / verify=opus 已校準）。
+- **方法**：逐份比對每個 Accepted ADR 與現行程式碼，分類為 `aligned/partial/stale/superseded_unmarked`；`high/med` 漂移再做獨立的對抗式覆核（盡力推翻）。
 - **結果**：**91 aligned（55%）/ 70 partial / 0 stale / 4 superseded_unmarked**；**82 條確認漂移（42 MED＋40 low）** ＋ ~49 條 low 面值（未覆核）；**7 條推翻**（假陽性，見附錄 A，不需修訂）。
 - **健康度佳**：`0 stale`＝無任何「核心決策整個錯、卻沒人知道」的案例。漂移全集中在 `partial` 的**點狀過時**，非系統性腐化。
 
@@ -57,7 +57,7 @@
 
 ## 批 R1 — superseded_unmarked ＋「機制已刪仍列活體」（🔴 最高，6 ADR）🏁
 
-**🏁 已完成（2026-07-22）**：6 條全補反向註記，三處同步（① ADR 本體狀態行 `🗑️`/修訂註 ② README 索引狀態欄 ③ 相關段反向連結）；Guard #28 綠（交叉連結全解析、索引齊全）。**純文件、零行為碼變更。未 commit（owner 自行）。**
+**🏁 已完成（2026-07-22）**：6 條全補反向註記，三處同步（① ADR 本體狀態行 `🗑️`/修訂註 ② README 索引狀態欄 ③ 相關段反向連結）；Guard #28 綠（交叉連結全解析、索引齊全）。**純文件、零行為碼變更。**
 
 這批的共通特徵：**核心 Decision 已被整個取代或機制已被刪除，ADR 卻仍標 `✅ 已接受`、讀起來像機制還在**。三處全標（含 ③ 相關段）。
 
@@ -74,7 +74,7 @@
 
 ## 批 R2 — 安全/行為語意反轉（🔴 高，Class A MED，~14 ADR）🏁
 
-**🏁 已完成（2026-07-22）**：20 條全補反向註記，三處同步；Guard #28 綠。**例外 0040＝守衛訊息碼修正**（非反向註記）：`guard_eventSource.ts` runner 的 3 條 console 訊息原教「EventSource URL 須含 token 參數」＝ADR-0040 要消滅的反模式，已改為「全面禁用 EventSource、改 Fetch+Header、token 絕不進 URL」（執法邏輯與 per-violation 訊息本就正確、無測試斷言舊字串）。**其餘純文件、零行為碼變更。未 commit（owner 自行）。**
+**🏁 已完成（2026-07-22）**：20 條全補反向註記，三處同步；Guard #28 綠。**例外 0040＝守衛訊息碼修正**（非反向註記）：`guard_eventSource.ts` runner 的 3 條 console 訊息原教「EventSource URL 須含 token 參數」＝ADR-0040 要消滅的反模式，已改為「全面禁用 EventSource、改 Fetch+Header、token 絕不進 URL」（執法邏輯與 per-violation 訊息本就正確、無測試斷言舊字串）。**其餘純文件、零行為碼變更。**
 
 Decision 描述的**機制/安全邊界已被後續 ADR 反轉**，讀者信舊 ADR 會誤解現行安全行為。三處全標。
 
@@ -105,7 +105,7 @@ Decision 描述的**機制/安全邊界已被後續 ADR 反轉**，讀者信舊 
 
 ## 批 R3 — amendment hub 一次一族（🟡 中，低風險高數量）🏁
 
-**🏁 已完成（2026-07-22）**：**38 條**補反向註記，三處視型態同步（① ADR 本體狀態行／② README 索引狀態欄；純檔案指標 Class B 只補 ①＋②）；Guard #28 綠（172 份、0001..0172 連續、無斷鏈、所有新交叉連結解析、索引齊全）。**純文件、零行為碼變更。未 commit（owner 自行）。** 分佈：
+**🏁 已完成（2026-07-22）**：**38 條**補反向註記，三處視型態同步（① ADR 本體狀態行／② README 索引狀態欄；純檔案指標 Class B 只補 ①＋②）；Guard #28 綠（172 份、0001..0172 連續、無斷鏈、所有新交叉連結解析、索引齊全）。**純文件、零行為碼變更。** 分佈：
 > - **ADR-0156 react-core hub（9）**：0078/0100/0111/0127/0128/0129/0130/0146/0152＝claude/gemini/openai handler 薄殼化後的檔案指標（→adapters／react_core）；README:136-139 與 0156 line 52（已寫 ClaudeAdapter）的自我不一致隨 0127-0130 反向註記一併收斂。0129 另註明 Guard #21 層界引用為自始不準（非漂移、不在本註記範圍）。
 > - **ADR-0117 uv workspace hub（5，+0071 已在 R1）**：0016/0049/0070/0082/0108＝requirements.*／pyzipper／qdrant/filelock 依賴宣告載體遷 pyproject/單一 uv.lock。
 > - **ADR-0143 hitl hub（8）＋ADR-0146 nudge hub（4）＝已於 R1/R2 全數覆蓋**：0089/0120/0139（R1）＋0012/0018/0021/0123/0134/0135（R1/R2）皆已補反向；唯 **0125（dangerous+background emergent 未測）＝候選真實缺口 G-3**、非補註記可解，另案。
@@ -134,7 +134,7 @@ Decision 描述的**機制/安全邊界已被後續 ADR 反轉**，讀者信舊 
 > - **方向判別**：只認「動詞在前、ADR 編號緊接、中間無 by、非冒號標籤」的正向宣告；「ADR-Y 動詞…」（編號在前）／「… by ADR-Y」（被動）／「動詞：ADR-Y」（冒號標籤）三種反向註記格式天然排除，故掃全 ADR 內文＋README 列不會把 R1–R3 補的反向註記誤判為正向 cite。
 > - **反向註記驗證**：正向對 (Y→X) 須在 X 狀態區或 README 索引列回指 Y；否則 FAIL。逃生口 `AMENDMENT_BACKLINK_GRANDFATHER`（目前空集）。
 > - **紅→綠實證**：合成單元測試（動詞在前匹配／編號在前・by・冒號三式不匹配／弱動詞不納入／README 列偵測／缺反向註記紅→補上綠→grandfather 抑制）＋**活體**掃出 6 個正向對（0050↦0048／0092↦0035／0105↦0083／0117↦0071／0118↦0053／0151↦0118）**全數已有反向註記＝0 違規**＝R1–R3 治本完整的機器證明，直接納閘無需 grandfather。
-> - 驗收：`guard_adr_integrity` 173 份 0001..0173 連續＋4 檢查全綠；`test_guard_adr_integrity` 25 passed；ruff clean。**順手修 R2 遺留迴歸**（`guard_eventSource.ts` 訊息字串含字面 `// noqa: EVENTSOURCE_SSOT` 被 Guard #19 掃成未登記 noqa→改為不帶 `noqa:` 前綴的規則名，Guard #19 復綠）。**未 commit（owner 自行）。**
+> - 驗收：`guard_adr_integrity` 173 份 0001..0173 連續＋4 檢查全綠；`test_guard_adr_integrity` 25 passed；ruff clean。**順手修 R2 遺留迴歸**（`guard_eventSource.ts` 訊息字串含字面 `// noqa: EVENTSOURCE_SSOT` 被 Guard #19 掃成未登記 noqa→改為不帶 `noqa:` 前綴的規則名，Guard #19 復綠）。
 > - ⚠️ **既有失敗非本案**：`guard_all` 唯 **Guard #23（npm audit）**FAIL＝既有依賴 CVE（@hono/node-server 路徑穿越／body-parser DoS／brace-expansion 等），與 Phase 2 零關係（`npm audit fix --force` 破壞 shadcn＝另案）。
 
 **目標**：防止未來再出現單向修訂追蹤。擴充 `scripts/guard_adr_integrity.py`（Guard #28，現只查引用/連續/索引結構）加一條**雙向一致檢查**：
@@ -150,7 +150,7 @@ Decision 描述的**機制/安全邊界已被後續 ADR 反轉**，讀者信舊 
 
 ## ⚠️ 候選真實缺口（非文件問題，另評——不屬本 backlog 修訂範圍）
 
-以下三條**超出「ADR 過時」範疇**，是碼/行為層的候選缺口，須 owner 另評是否修碼（非補註記能解）：
+以下三條**超出「ADR 過時」範疇**，是碼/行為層的候選缺口，須維護者另行評估是否修碼（非補註記能解）：
 
 | # | ADR | 缺口 | 風險 |
 | :-- | :-- | :-- | :-- |
@@ -162,7 +162,7 @@ Decision 描述的**機制/安全邊界已被後續 ADR 反轉**，讀者信舊 
 
 ## 附錄 A — 推翻的假陽性（7 條，不需修訂）
 
-opus 對抗覆核推翻，證明**原措辭本就精準或 analyzer 誤讀**，非事後漂移：
+對抗式覆核推翻，證明**原措辭本就精準或 analyzer 誤讀**，非事後漂移：
 - **0028** passlib：原始措辭本就不精準（非事後漂移）。
 - **0031** DIP 歸屬：analyzer 誤讀（ADR 本就說 DIP 守衛非 console 守衛）。
 - **0039** Background 句：該 fallback predates ADR 同 commit、後續只加固（碼朝宣稱靠攏非漂離）。
@@ -183,4 +183,4 @@ opus 對抗覆核推翻，證明**原措辭本就精準或 analyzer 誤讀**，�
 
 ---
 
-*建立：2026-07-22（Phase 1 收官同日）。living doc：R1–R4 逐批完成時回填 🏁。逐塊逐條 file:line 證據見 session scratchpad `adr_align_DRIFTS.md`。*
+*建立：2026-07-22（Phase 1 收官同日）。living doc：R1–R4 逐批完成時回填 🏁。逐塊逐條 file:line 證據原件未入版控。*

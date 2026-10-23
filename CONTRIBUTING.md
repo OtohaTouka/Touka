@@ -20,9 +20,17 @@
 
 ## 💡 提交 Pull Request
 
+### 開到哪個分支
+
+PR 請開到 **`dev`** 分支。預設分支 `main` 是穩定版，只由維護者把 `dev` 合入；開到 `main` 的 PR 會請你改目標分支。`dev` 與 `main` 都要求透過 PR 合併，而且必須通過 CI 的 `contracts`、`frontend`、`toukaide`、`landlock` 四項檢查。
+
+### 給 AI 程式代理人的規則（AGENTS.md）
+
+repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
+
 ### 環境設置（首次接手 / fresh clone）
 
-**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.21.0／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。
+**前置需求**：[uv](https://docs.astral.sh/uv/)、Node.js 24.22.1／npm 11.19.1、git。後端鎖定 **Python 3.12**（`.python-version`，uv 自動選用）。系統的 Node 是別的版本時不必改系統設定，用 [fnm](https://github.com/Schniz/fnm) 或 nvm 只替這次指令切換即可，例如 `fnm exec --using 24.22.1 -- npm run install:controlled`。
 
 ```bash
 # 1. 後端：一鍵佈建（uv workspace 單一 uv.lock：全部子專案依賴＋CPU 版 torch＋測試工具 dev group）
@@ -46,7 +54,7 @@ python -B scripts/guard_all.py
 python -B -m pytest tests/
 ```
 
-已具備相容開發環境的 Bash 使用者：
+Linux、macOS（bash／zsh）啟用後驗證：
 
 ```bash
 source .venv/bin/activate
@@ -54,7 +62,7 @@ python -B scripts/guard_all.py
 python -B -m pytest tests/
 ```
 
-兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前；這些開發命令不是新增平台的產品安裝保證。
+兩者都必須讓 root venv 的 Scripts/bin 位於 PATH 最前。Linux 上會多跑 `tests/integration/test_isolation_linux.py` 的真核心隔離測試（Windows、macOS 整個模組跳過；Linux 主機沒有 Landlock 時也會跳過，設 `TOUKA_REQUIRE_LANDLOCK=1` 則改成失敗）；macOS 的開發命令沒有實測過。這些開發命令不是新增平台的產品安裝保證。
 
 > **★ `uv sync` 必帶 `--all-packages`**：root 是虛擬協調者（無依賴），裸 `uv sync` 是 exact 同步 → 會**剝除全部成員依賴**（venv 歸零；數秒可用 `--all-packages` 復原，但誤剝後測試全紅）。`uv run <cmd>` 則安全（inexact，不剝除、可直接用）。（ADR-0117）
 >
@@ -68,29 +76,34 @@ python -B -m pytest tests/
 
 ### PR 前必做
 
-提交 PR 前請在**啟用的 root 3.12 venv** 內、用 Node 24.21.0／npm 11.19.1 跑過以下檢查。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
+**CI 綠燈就能開 PR。** 下面每一項都標了誰跑：
 
-每一項都標了誰會跑：標「CI 會跑」的，GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上也會跑；標「只在本機」的 CI 不跑，要你自己跑過。除了第 2 項（完整 ruff，見說明），其他都必須通過。
+- **「CI 會跑」**：GitHub Actions（`.github/workflows/native-tool-contracts.yml`）在 PR 上自動跑，全部要通過。想先在本機確認，就在**啟用的 root 3.12 venv** 內、用 Node 24.22.1／npm 11.19.1 照指令跑。本專案驗證優先原生 `python -B -m pytest`；如依 AGENTS 使用 `uv run`，仍須證明 interpreter、來源與 lock 正確，不混用全域 Python。
+- **「維護者合併前補跑」**：CI 不跑，因為要特定環境或比較久。維護者會在合併前補跑，你能跑的話歡迎先跑。
 
 ```bash
 # 1. 後端 pyflakes（CI 會跑）：四個產品子專案不能有未定義名稱、沒用到的匯入或變數，必須 0 錯誤
 ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
 
-# 2. 後端完整 ruff（只在本機）：全部規則目前還有上百個既有錯誤，還沒有棘輪基準，整包跑不會是 0。
-#    要求：你改到的檔，錯誤不能比改之前多。CI 只擋第 1 項的 F
-ruff check ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch --statistics   # 看全貌
-ruff check <你改到的 .py 檔>                                                          # 和改之前比
+# 2. 後端完整 ruff 與型別檢查只減不增（CI 會跑）：每條規則、每種型別錯誤的數量必須和
+#    tests/lint/ruff_baseline.json、tests/lint/pyrefly_baseline.json 完全相等。CI 在第 5 項的 pytest
+#    裡檢查（tests/lint/test_ruff_ratchet.py、test_pyrefly_ratchet.py）。型別檢查的範圍在 pyproject.toml
+#    的 [tool.pyrefly]。修掉舊錯誤後，重拍基準一起提交：
+#    python -B scripts/lint_ratchet.py ruff --update（型別檢查是 pyrefly --update）
+python -B scripts/lint_ratchet.py ruff
+python -B scripts/lint_ratchet.py pyrefly
 
-# 3. 前端 ESLint（只在本機）：Guard #35 跑完整 ESLint，對照棘輪基準 scripts/eslint_baseline.json，
+# 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint
 python -B scripts/guard_eslint_ratchet.py
 
-# 4. 架構守衛（只在本機）：43 道全部必須通過。CI 只跑其中 5 道——#1 lint_ssot、#2 guard:api、
-#    #27 guard:typecheck、#32 權限登記、#45 原生工具合約。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
+# 4. 架構守衛（維護者合併前補跑）：guard_all 跑全部守衛，其中 lint_ssot、guard:api、guard:typecheck、
+#    權限登記、ESLint 棘輪、原生工具合約這幾道 CI 也會跑。啟用 venv 後 .venv\Scripts 已在 PATH 最前，
 #    guard_all 內部 shell 子命令才會走 3.12
 python -B scripts/guard_all.py
 
-# 5. 後端測試（CI 會跑）
+# 5. 後端測試（CI 會跑）：新增測試檔時，在 tests/README.md 加一列（檔名放在反引號裡、不寫案例數），
+#    tests/lint/test_tests_readme_listing.py 會檢查
 python -B -m pytest tests/
 
 # 6. 前端測試（CI 會跑）：npm run test 會先產生 artifact runtime 再跑 vitest
@@ -99,7 +112,7 @@ cd ToukaChat && npm run test && cd ..
 # 7. ToukaIDE 測試、型別檢查、建置（CI 會跑）：照順序一個跑完再跑下一個，compile 與 package 會寫同一個 dist/
 cd ToukaIDE && npm run install:controlled && npm test && npm run typecheck && npm run compile && cd ..
 
-# 8. ToukaIDE 打包（只在本機）：接在第 7 項之後跑
+# 8. ToukaIDE 打包（維護者合併前補跑）：接在第 7 項之後跑
 cd ToukaIDE && npm run package && cd ..
 ```
 

@@ -2,11 +2,11 @@
 
 現行 Marketplace 公開版本 **0.3.0**／tag **v0.3.0**／ID **touka-ai.toukaide**／MIT，一份universal VSIX。
 依ADR-0218／0219，使用既有Marketplace產品，不涉及Open VSX或runtime映像更新。
-每次發行須有Owner當次授權，不構成永久Git／發行權限；既有版本與tag不覆寫。
+每次發行須有維護者當次授權，不構成永久Git／發行權限；既有版本與tag不覆寫。
 
 ## 1. 來源與提交前驗證
 
-exact Node.js **24.21.0**／npm **11.19.1**／repo-local `@vscode/vsce@3.9.2`；先核對實際CLI與package／lock／devEngines。
+exact Node.js **24.22.1**／npm **11.19.1**／repo-local `@vscode/vsce@3.9.2`；先核對實際CLI與package／lock／devEngines。
 從ToukaIDE目錄串行執行：
 
 ```powershell
@@ -25,7 +25,7 @@ npm run package
 原真vsce的opt-in parity使用exact Node及pytest synthetic staging，不建立產品候選且不得skip：
 
 ```powershell
-$env:TOUKA_NODE_24_EXECUTABLE = '<Node-24.21.0的node.exe>'
+$env:TOUKA_NODE_24_EXECUTABLE = '<Node-24.22.1的node.exe>'
 python -B -m pytest tests/integration/test_toukaide_marketplace_vsce_parity.py -q
 ```
 
@@ -43,7 +43,7 @@ root LICENSE與ToukaIDE release inputs須clean，`v0.3.0^{commit}`必須等於HE
 python -B ToukaIDE/scripts/build_marketplace_candidate.py `
   --repo-root . `
   --output-dir <repo外的新目錄> `
-  --node <Node-24.21.0的node.exe> `
+  --node <Node-24.22.1的node.exe> `
   --npm-cli <npm-11.19.1的bin/npm-cli.js>
 ```
 
@@ -62,11 +62,11 @@ exact10members各自size/SHA256及archive_sha256。不得拿別的來源、重�
 `<img src=x onerror="alert(1)">**bold**`，以 Shift+Enter 換行後按送出，檢查實際對話泡泡逐字顯示，
 沒有圖片／彈窗／Markdown解析且換行保留；僅看輸入框不算通過。proxy 未設定錯誤為此隔離測試的預期結果；
 Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取得，記NOT_ATTESTED，不推定PASS。
-原工具無native UI能力時由Owner執行精確受限啟動與見證；代理不自製UI控制繞過。所有必要smoke證據取得前不得上傳。
+原工具無native UI能力時由維護者執行精確受限啟動與見證；代理不自製UI控制繞過。所有必要smoke證據取得前不得上傳。
 
 ## 4. Marketplace上傳與回讀
 
-只用既有touka-ai publisher帳號及方案；登入由Owner自行完成，不抽取PAT／session token。
+只用既有touka-ai publisher帳號及方案；登入由維護者自行完成，不抽取PAT／session token。
 核對產品ID/version與public README，指定manifest原SHA256對應的exactVSIX上傳一次，upload時不bundle或repack。
 結果不明／timeout／版本衝突先停止變更並回讀遠端狀態，不盲重送或換registry。
 
@@ -77,25 +77,25 @@ Webview不請求jsDelivr或其他遠端script。若可靠network觀察不可取�
 
 ## 5. 當前狀態與回復
 
-`0.3.0` 已在[Marketplace](https://marketplace.visualstudio.com/items?itemName=touka-ai.toukaide)公開。[PR56](https://github.com/OtohaTouka/Touka/pull/56)
+`0.3.0` 已在[Marketplace](https://marketplace.visualstudio.com/items?itemName=touka-ai.toukaide)公開。開源前的 PR56（私人歷史）
 把來源 `58e63e4361a947b4f22a0d025d9dc2ab0d9661d5` 合併為 main／dev 的 `ff711dc622ee76274289af993d5530a85af780a0`；
 原 builder 在該 clean source／local `v0.3.0` 建置一次。後續文件 commit 不改這個 build source，也不重建VSIX。
 
 - Archive：`toukaide-0.3.0.vsix`，1829063 bytes，SHA-256 `1e2e6cc444d7f4102d49cd70cc006a39ca56b477ff047985dcd18ff94ae40266`。
 - Manifest：`toukaide-0.3.0.manifest.json`，1663 bytes，SHA-256 `0e63c00f623b0fab47e79e39b3c5d426c16628bd0d4dfc2e510158195c29bee8`。
-- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由 Owner 人工回報通過；
+- Windows Stable 1.137.0／x64 隔離 profile 的發布前與發布後 GUI／Webview network 檢查均由維護者人工回報通過；
   Marketplace 下載的 VSIX 解碼後與原 members 全等，package.json 只多官方 `__metadata`。
 
 **`v*` tag 注意**：`v0.3.0` 只建立於本機、未推送遠端。runtime 映像的 `.github/workflows/ghcr-publish.yml`
 只接受手動觸發，推送 IDE 的 `v*` tag 不會發布 runtime 映像。
 
 Source可普通revert；未發布候選保留原VSIX/manifest；已發布版不可覆寫，必要修復需新的版本決定。
-不清理Owner資料或舊發布。
+不清理維護者資料或舊發布。
 
 ## 歷史 0.2.0（不作新版PASS）
 
 - 核准commit與本機lightweight tag：`94aa17976b7262bdda54df98dc1254dae072590c`／`v0.2.0`；
   Local exact VSIX SHA-256 `688d69d0b6bb71bcbd3f7d689d838cd34c4999265c606adb507d735d4a678a62`。
-- Owner回報隔離VS Code smoke與Marketplace安裝回讀均符合，並在Marketplace網頁手動upload。
-  Repo內沒有遠端bytes與local VSIX全等的證據，只能視為Owner人工見證，不能稱exact-byte readback。
+- 維護者回報隔離VS Code smoke與Marketplace安裝回讀均符合，並在Marketplace網頁手動upload。
+  Repo內沒有遠端bytes與local VSIX全等的證據，只能視為維護者人工見證，不能稱exact-byte readback。
 - 舊`f9e78c3934d5`候選持續固定`DO NOT PUBLISH`。

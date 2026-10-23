@@ -104,7 +104,7 @@ class VectorStore:
         self._model: SentenceTransformer | None = None
         self._embedding_cache: dict[str, list[float]] = {}
 
-        # SSOT: 資料庫物理位址
+        # SSOT：資料庫物理位址
         qdrant_path = self.base_dir / QDRANT_DIR_NAME
         get_resource_proxy().make_dir(str(qdrant_path))
         

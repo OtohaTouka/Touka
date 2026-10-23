@@ -1855,7 +1855,7 @@ def test_check_roots_repairs_a_locked_personal_drive_root(repairing):
     assert _mode(root) == 0o700
 
 
-# ── U2n 附錄：A 線的快照與升級備份在白名單外（不修、權限不變、例外照丟）───────────────
+# ── U2n 附錄：系統快照與記憶庫升級備份（ADR-0270）在白名單外（不修、權限不變、例外照丟）──
 
 
 def test_a_read_only_snapshot_zip_is_not_repaired(repairing):

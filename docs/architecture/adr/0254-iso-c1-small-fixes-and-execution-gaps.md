@@ -1,11 +1,11 @@
-# ADR-0254：C 線第一批：小件修補與執行路徑既有缺口（iso-c1）
+# ADR-0254：隔離第一批（iso-c1）：小件修補與執行路徑既有缺口
 
 > C2-3 現況補註：缺口 2 的檔案隔離已接上 stdio MCP；第三方穩定不可用與人同意的 direct 仍無檔案隔離，原生 Windows 也在此列。本文先前的「等第二批」描述該版範圍，現況見 SECURITY.md。 詳見 ADR-0275。
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准 C 線一頁計畫第一批與各項做法，細節見進度紀錄；U1～U6 各單位已驗收，跨單位 DEV-B 見文末驗證；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：缺口 2〔第三方 MCP 讀得到 `.env` 檔〕寫的「要等第二批」指的是 MCP 伺服器的隔離〔C 線第二批第三段 C2-3，另一份 ADR〕；ADR-0272 只隔離代理人指令，這個缺口在 C2-3 合併前仍在）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准隔離計畫第一批與各項做法；U1～U6 各單位已驗收，跨單位最終審查見文末驗證；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：缺口 2〔第三方 MCP 讀得到 `.env` 檔〕寫的「要等第二批」指的是 MCP 伺服器的隔離〔第二批第三段 C2-3，另一份 ADR〕；ADR-0272 只隔離代理人指令，這個缺口在 C2-3 合併前仍在）
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：O20 的評分卡情境上限送 Claude 時，碰到 5.x（default_on 思考）照實際值補到 8,192（`_scenario_request` 不標 fields_set 的做法不變，其他家照舊不帶上限）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：
   - 金鑰與擁有權（U1）：`services/setup_service.py`、`services/custom_model_service.py`、`utils/custom_io.py`、`routers/souls.py`
   - 執行路徑缺口（U2）：`tools/builtin/__init__.py`（拿掉一個自帶審批綁定）、`scripts/native_tool_contract_baseline.json`（Guard #45 基準）、`protocols/mcp/environment.py`、`services/creation/smoke.py`、`services/tool_executor.py`（修復名單與它的模組常數）、`tools/builtin/evolution.py`、`services/auto_reviewer.py`、`services/review/evidence.py`、`services/approval_flow.py`
@@ -25,9 +25,9 @@
 
 ## 背景
 
-- C 線＝模型層第 5 段「隔離執行環境」＋幾件小修。分兩批：第一批（本 ADR）做 `HANDOVER.md` §3 待排小項裡仍成立、快、風險低的，以及研究找到的三個執行路徑既有缺口；第二批 iso-c2（隔離執行環境，另一份 ADR）等 Owner 選完設計才開始。
-- 三個既有缺口（PM 與審查者都抽查屬實）：
-  - 缺口 1：`evolution_implement_and_verify` 在註冊時被分類成「自帶審批」，Manual／CONFIRM 時 executor 不跳卡，工具自己只在最後「部署」才問人；前面的寫檔與建 venv 不問人就跑，無人在場也跑。後面的 `pip install`、本機驗證（import 代理人寫的 `server.py`）與部署原本同樣不問人，只是 H3 之前 venv 的 Python 路徑錯（相對路徑 `Scripts/python.exe`／`bin/python`，venv 實際在 `.venv` 底下），這幾步一律 FileNotFoundError，從沒真的跑起來（跨單位 DEV-B 查出）。H3 修好路徑的同時，缺口 1 讓整個建置改走一般審批。Auto 下它屬 F5（只有人能核准），所以 Manual 反而比 Auto 鬆。
+- 隔離系列（iso）＝模型層第 5 段「隔離執行環境」＋幾件小修。分兩批：第一批（本 ADR）做 `HANDOVER.md` §3 待排小項裡仍成立、快、風險低的，以及研究找到的三個執行路徑既有缺口；第二批 iso-c2（隔離執行環境，另一份 ADR）等維護者選完設計才開始。
+- 三個既有缺口（審查時抽查屬實）：
+  - 缺口 1：`evolution_implement_and_verify` 在註冊時被分類成「自帶審批」，Manual／CONFIRM 時 executor 不跳卡，工具自己只在最後「部署」才問人；前面的寫檔與建 venv 不問人就跑，無人在場也跑。後面的 `pip install`、本機驗證（import 代理人寫的 `server.py`）與部署原本同樣不問人，只是 H3 之前 venv 的 Python 路徑錯（相對路徑 `Scripts/python.exe`／`bin/python`，venv 實際在 `.venv` 底下），這幾步一律 FileNotFoundError，從沒真的跑起來（跨單位最終審查查出）。H3 修好路徑的同時，缺口 1 讓整個建置改走一般審批。Auto 下它屬 F5（只有人能核准），所以 Manual 反而比 Auto 鬆。
   - 缺口 2：已安裝的 MCP stdio 伺服器啟動時拿到 `os.environ.copy()`（`settings.get_full_env()`），含全部廠商金鑰與 `TOUKA_AUTH_SECRET`、`DISPATCH_TOKEN`、`HEARTBEAT_TOKEN`。
   - 缺口 3：終端自我修復名單寫死 `["bash","terminal__bash","execute_terminal"]`，沒有現在廣告的 `execute_command`，背景指令的結果經 `get_command_result` 也不在名單，失敗後的修復提示從不附上。
 - 小件來自 ADR-0246、0250、0251 的已知限制與交班待排小項；A4 來自研究發現 CI 沒有跑 Ruff、CONTRIBUTING 的指令和 CI 對不上。
@@ -56,7 +56,7 @@
   - 刻意不列：代理伺服器設定（`HTTP_PROXY`／`HTTPS_PROXY`，可能夾帶帳密）、uv／npm 的 index、registry 設定（可能夾帶 token）、`PYTHONPATH`、`HF_HOME`、Windows 的 `HOME`。伺服器需要的話寫進條目自己的 `env`。
   - 效果只擋「環境變數順手帶走」，擋不住會去讀 `.env` 檔的惡意套件：Docker 裡 MCP 子程序和 Touka 同容器同帳號，`.env` 掛在 `/app/host_root`、金鑰也在 PID 1 的環境裡；原生 Windows 讀得到 repo 根的 `.env`。要擋惡意套件得靠第二批的隔離執行環境。
 - **缺口 3 終端自我修復名單**：名單改成 `tool_executor.py` 的模組常數 `TERMINAL_REPAIR_TOOLS`（`execute_command`、`get_command_result` 加上舊名 `bash`、`terminal__bash`、`execute_terminal`）。非 0 exit code 附修復提示並送 `repair` 進度事件，0 時重置次數。`get_command_result` 對同一個 execution_id 每次都回同一份含 `[EXIT_CODE]` 的結果，只計第一次：記住已計過的 (session, execution_id)，上限 `MAX_TRACKED_REPAIR_RESULTS = 1024`、超過淘汰最舊的（行程記憶體、不落地）。只附提示文字給模型，下一次執行仍照常過政策，不會自動執行任何東西。
-- **H3 演化沙盒用 venv Python 的絕對路徑**：新 helper `evolution._venv_python(skill_id)` 回 `<工具沙盒根>/.venv/Scripts/python.exe`（POSIX `bin/python`），`.venv` 名稱是模組常數 `_VENV_DIR`、和建 venv 那步共用。pip 安裝、本機驗證與部署寫進 `server_config.json` 的 `command` 都用它。原本前兩者傳相對路徑（Windows 找執行檔不看子程序 cwd，而且 venv 在 `.venv` 底下，相對路徑本來就指錯）；部署的 `command` 少了 `.venv`，部署後的伺服器指向不存在的直譯器（研究原判為沒問題，執行者查出後由 PM 退回補做）。所以修補前演化從沒真的執行過代理人的程式；H3 之後才第一次會真的跑（Manual／Auto 由缺口 1 先問人；YOLO 照定義會跑）。
+- **H3 演化沙盒用 venv Python 的絕對路徑**：新 helper `evolution._venv_python(skill_id)` 回 `<工具沙盒根>/.venv/Scripts/python.exe`（POSIX `bin/python`），`.venv` 名稱是模組常數 `_VENV_DIR`、和建 venv 那步共用。pip 安裝、本機驗證與部署寫進 `server_config.json` 的 `command` 都用它。原本前兩者傳相對路徑（Windows 找執行檔不看子程序 cwd，而且 venv 在 `.venv` 底下，相對路徑本來就指錯）；部署的 `command` 少了 `.venv`，部署後的伺服器指向不存在的直譯器（研究原判為沒問題，實作時查出並補做）。所以修補前演化從沒真的執行過代理人的程式；H3 之後才第一次會真的跑（Manual／Auto 由缺口 1 先問人；YOLO 照定義會跑）。
 - **H4 互審驗證指令的卡帶審查理由與「只有你能核准」**：`AutoReviewer.command_reviewer` 回 `ReviewOutcome`（判決＋理由）；`policy_command_gate` 在審查員轉人時把理由、在 `HUMAN_ONLY`（底線）時把 `human_only=True` 交給 approver；`services/review/evidence.py` 的 `CommandApprover` 改成 `typing.Protocol`，多兩個選填 keyword（`review_reason`、`human_only`），`approval_flow.CommandApprover` 放上卡，和 executor 的終端卡一致。底線指令照舊不送審查員，審查員的核准不能滿足底線（釘住）。
 
 ### 刪走不到的程式與 Windows 停止
@@ -70,7 +70,7 @@
 - **H11**：IDE 行內補全不送 `temperature`（原本寫死 0.1，後端本來就不送，ADR-0241）。
 - **N1**：設定頁搜尋拿掉已不存在的「取樣參數（溫度／Top P／Top K）」條目，兩語翻譯同步刪除。
 - **O20**：Proxy 的 Anthropic 形狀入口（IDE／Chat 選 anthropic 協定時的 `/v1/messages`）接非 Claude 模型時，`convert_to_openai` 帶上呼叫端明確給的 `max_tokens`（看 `model_fields_set`）；沒給時 `AnthropicRequest` 的預設 8192 照舊不帶。
-  - 內部呼叫端（子代理、評分卡）維持原行為（跨單位 DEV-B 查出 O20 波及這兩條，已改回）：子代理不再明寫 `max_tokens=8192`，Claude 仍用 `AnthropicRequest` 的預設 8192、其他家不帶上限；評分卡的情境上限只給 Claude，`scorecard/runner.py` 的 `_scenario_request` 照設值，但用 `model_construct(_fields_set=…)` 不記成呼叫端明確給的欄位，轉成其他家時就不帶。評分卡的模型可能是靈魂，要到 SoulLayer 才換成主要模型，所以不在組請求時依模型名判斷家族。`context_snapshot_service.py` 的 `max_tokens=1024` 只跑 `pipeline.execute`（各中介層）、不送模型，不受影響。
+  - 內部呼叫端（子代理、評分卡）維持原行為（跨單位最終審查查出 O20 波及這兩條，已改回）：子代理不再明寫 `max_tokens=8192`，Claude 仍用 `AnthropicRequest` 的預設 8192、其他家不帶上限；評分卡的情境上限只給 Claude，`scorecard/runner.py` 的 `_scenario_request` 照設值，但用 `model_construct(_fields_set=…)` 不記成呼叫端明確給的欄位，轉成其他家時就不帶。評分卡的模型可能是靈魂，要到 SoulLayer 才換成主要模型，所以不在組請求時依模型名判斷家族。`context_snapshot_service.py` 的 `max_tokens=1024` 只跑 `pipeline.execute`（各中介層）、不送模型，不受影響。
   - L2 自訂模型設定裡的 `max_tokens`（`CustomModelLayer` 寫進請求）在 Anthropic 入口現在也會帶給非 Claude 的基礎模型，和 openai 協定本來的行為一致。
 
 ### CONTRIBUTING 與 CI（A4）
@@ -86,44 +86,44 @@
 - 新端點 `GET /v1/system/restore/status`（與根路徑對等）：admin 限定（`Annotated[..., Depends(_require_admin)]`，`require_admin_authority` 的別名，登記進 Guard #24 的 admin 清單），唯讀，`response_model=RestoreStatus`；沒登入 401 `AUTH_INVALID_TOKEN`、非 admin 403 `AUTH_ADMIN_REQUIRED`。`openapi.json` 與 `api.ts` 重生。
 - 前端：新領域 hook `useRestoreWatch`（經 `fetchTouka`）擁有計時器與查詢。還原送出後 15 秒第一次查：`failed` → `EnvSettings` 關掉「還原中」對話框、顯示常駐錯誤 toast（專用翻譯 `dashboard.env_settings.restore_failed`）、不重整、回到備份清單；`running` → 5 秒後再查、不重整；其他（成功後重啟回 `idle`、伺服器重啟中連不上、非 2xx）→ 照舊重整。`RestoreStatus` 在 `lib/types.ts` 從生成的合約取別名。
 
-### 這次不做（理由見計畫 §2.2）
+### 這次不做
 
-H5 審查員準確率實測（要付費 API）、H6 YOLO 心跳無人在場用 MCP 工具（移到第二批）、H13 小寫模型名直送自訂端點、O11、O13（延到模型路由規劃）、H14 `update_docs.py` 實跑、H15 Guard #22 誤報、H18 強制結束留沙盒（照原條件再做）、H16 禁令 22 守衛掃到子專案 `.venv`（還沒發生）、H17 ADR-0250 其他限制（延到「靈魂模型三種模式」任務）、H19 Heartbeat 8082 在重建前接受公開值（不改程式）、H21（分給 B 線，已由 ADR-0252 做完）、CI 跑完整 guard_all（會連網、誤報會卡合併）。這些留在 `HANDOVER.md` §3。
+H5 審查員準確率實測（要付費 API）、H6 YOLO 心跳無人在場用 MCP 工具（移到第二批）、H13 小寫模型名直送自訂端點、O11、O13（延到模型路由規劃）、H14 `update_docs.py` 實跑、H15 Guard #22 誤報、H18 強制結束留沙盒（照原條件再做）、H16 禁令 22 守衛掃到子專案 `.venv`（還沒發生）、H17 ADR-0250 其他限制（延到「靈魂模型三種模式」任務）、H19 Heartbeat 8082 在重建前接受公開值（不改程式）、H21（另案，已由 ADR-0252 做完）、CI 跑完整 guard_all（會連網、誤報會卡合併）。這些留在 `HANDOVER.md` §3。
 
-## PM 的裁定（單位驗收時）
+## 單位驗收時的裁定
 
 - H12：錯誤碼對應 404 `MODEL_NOT_FOUND`／409 `MODEL_ALREADY_EXISTS`／500 `SYSTEM_ERROR` 接受（沿用路由既有 except，沒有新增錯誤碼）。
-- H9：只有空白的模型名照 ADR-0250 A1 當「沒指定」，第一次交件時會回 404，退回補做；補做改用 `normalize_model_choice` 並把正規化後的值寫回 `config.json`（`5b80cad5`）。
+- H9：只有空白的模型名照 ADR-0250 A1 當「沒指定」，第一次實作會回 404，補做改用 `normalize_model_choice` 並把正規化後的值寫回 `config.json`（`5b80cad5`）。
 - H8：清單裡沒存 `base_model` 時回 `None` 接受。
-- H3：部署寫進 `server_config.json` 的 `command` 少了 `.venv`（交班原列的第 338 行，研究誤判為沒問題），在核准範圍內，退回補做（`d40f2ea1`）。
+- H3：部署寫進 `server_config.json` 的 `command` 少了 `.venv`（研究誤判為沒問題），在核准範圍內，補做（`d40f2ea1`）。
 - O20：`test_no_sampling_on_wire.py` 原本就釘著「原生 Anthropic 入口不帶 `generationConfig`」這個錯（註解寫「另記」），翻轉是核准行為的直接結果；新斷言仍禁取樣參數、其他入口仍不帶 `generationConfig`。
-- H7：`test_role_plane_characterization` 的 PD 數 16 → 15 派工沒點名，是刪掉排程閘道的直接結果，接受。
+- H7：`test_role_plane_characterization` 的 PD 數 16 → 15 原本沒點名，是刪掉排程閘道的直接結果，接受。
 - H1：
   - 還原還在跑時每 5 秒再查、不重整，接受（照實顯示比強制重整好；代價是還原卡住時畫面停在「還原中」）。
-  - 失敗提示用專用翻譯、不用 `errorMsg(SYSTEM_BACKUP_FAILED)`（「系統備份失敗」用在還原會誤導），接受；用的是 `t()`、不是硬編碼，前端錯誤守衛通過。API 回的錯誤碼語意不精確，新增 `SYSTEM_RESTORE_FAILED` 要動和 A 線共用的 `errors.json`，列待排。
-  - 計畫清單外的 4 個檔（`models/system_restore.py`、`hooks/useRestoreWatch.ts`、`lib/types.ts` 的別名、Guard #24 admin 清單）都是派工直接要求的，接受。
+  - 失敗提示用專用翻譯、不用 `errorMsg(SYSTEM_BACKUP_FAILED)`（「系統備份失敗」用在還原會誤導），接受；用的是 `t()`、不是硬編碼，前端錯誤守衛通過。API 回的錯誤碼語意不精確，新增 `SYSTEM_RESTORE_FAILED` 要動另一批同時在改的 `errors.json`，列待排。
+  - 計畫清單外的 4 個檔（`models/system_restore.py`、`hooks/useRestoreWatch.ts`、`lib/types.ts` 的別名、Guard #24 admin 清單）都是工作說明直接要求的，接受。
 - 缺口 2：`test_subprocess_hardening_security.py` SP7 那個測試的前置改動接受（拿掉 `clean_base_factory` 的直接結果，改用假的父環境，斷言意思不變）。
 - H4：介面多兩個選填欄位後，4 個測試檔的假 approver／reviewer 改簽章接受（斷言沒動）。
-- `tool_executor.py` 的 ADR-0149 註解：CTO 10/15 同意由 U7 在本批改正（只改註解）。
+- `tool_executor.py` 的 ADR-0149 註解：2026-10-15 決定由 U7 在本批改正（只改註解）。
 
 ## 期望翻轉（只限核准行為的直接結果）
 
 | # | 測試或基準 | 原本 | 現在 | 依據 |
 |---|---|---|---|---|
-| 1 | `tests/unit/test_evolution_deploy_approval.py`（約 :171-174） | `evolution_implement_and_verify` 在自帶審批名單 | 不在；`request_mcp_creation` 仍在 | 計畫 §6、缺口 1 |
-| 2 | `tests/unit/test_evolution_deploy_approval.py`（約 :177-212） | Manual／CONFIRM 下不跳卡、直接執行（含無人在場） | 有人在場先跳一般審批卡；無人在場 executor 拒絕、不執行 | 計畫 §6、缺口 1 |
-| 3 | `tests/unit/test_tool_execution_classification.py`（約 :139-160、:293-339） | 分類清單含演化工具；Manual 無人在場時回應含工具的「interactive session」部署拒絕訊息 | 清單少一個；executor 先拒絕；有人在場先跳卡 | 計畫 §6、缺口 1 |
-| 4 | `scripts/native_tool_contract_baseline.json`（Guard #45 基準） | 演化工具的 `SELF_APPROVING` 條目 | 刪掉；另加 `_venv_python` 的 consumer 條目（H3） | 計畫 §6 |
-| 5 | `tests/unit/test_scheduler_engine_removed.py` | 只斷言引擎函式不在、CRUD 在沙盒照常 | 兩個檔不在、設定不在、範本不寫、舊 `.env` 帶這個鍵照常載入（4 → 7 cases） | 計畫 §6、H7 |
-| 6 | `tests/unit/test_role_plane_characterization.py` | 含 `scheduler:_require_scheduler_role` 閘、PD 16 個 | 拿掉、PD 15 個（255 → 246 cases） | 計畫 §6、H7 |
+| 1 | `tests/unit/test_evolution_deploy_approval.py`（約 :171-174） | `evolution_implement_and_verify` 在自帶審批名單 | 不在；`request_mcp_creation` 仍在 | 核准的計畫、缺口 1 |
+| 2 | `tests/unit/test_evolution_deploy_approval.py`（約 :177-212） | Manual／CONFIRM 下不跳卡、直接執行（含無人在場） | 有人在場先跳一般審批卡；無人在場 executor 拒絕、不執行 | 核准的計畫、缺口 1 |
+| 3 | `tests/unit/test_tool_execution_classification.py`（約 :139-160、:293-339） | 分類清單含演化工具；Manual 無人在場時回應含工具的「interactive session」部署拒絕訊息 | 清單少一個；executor 先拒絕；有人在場先跳卡 | 核准的計畫、缺口 1 |
+| 4 | `scripts/native_tool_contract_baseline.json`（Guard #45 基準） | 演化工具的 `SELF_APPROVING` 條目 | 刪掉；另加 `_venv_python` 的 consumer 條目（H3） | 核准的計畫 |
+| 5 | `tests/unit/test_scheduler_engine_removed.py` | 只斷言引擎函式不在、CRUD 在沙盒照常 | 兩個檔不在、設定不在、範本不寫、舊 `.env` 帶這個鍵照常載入（4 → 7 cases） | 核准的計畫、H7 |
+| 6 | `tests/unit/test_role_plane_characterization.py` | 含 `scheduler:_require_scheduler_role` 閘、PD 16 個 | 拿掉、PD 15 個（255 → 246 cases） | 核准的計畫、H7 |
 | 7 | `tests/integration/test_server_lifecycle.py` | 啟動前設 `ENABLE_SCHEDULER=False` | 拿掉那一行 | H7 的直接結果 |
-| 8 | `ToukaChat/.../settings/__tests__/searchIndex.test.ts` | 搜「溫度」命中「取樣參數」 | 搜不到；通用命中與排序改用其他條目 | 計畫 §6、N1 |
-| 9 | `test_soul_admin_stepup.py`、`test_soul_crud_real_writes.py`、`test_soul_role_binding.py` | 用不可選的 `claude-test-brain` 建立靈魂 | fixture 把它種成清單裡可選的一般模型（只改前置，斷言不動） | 計畫 §6、H9 |
-| 10 | `tests/unit/test_creation_engine.py`（約 :225-230） | patch `get_clean_env` 再斷言合併結果 | patch 父環境，斷言白名單底＋spec 宣告的 env | 計畫 §6、缺口 2 |
+| 8 | `ToukaChat/.../settings/__tests__/searchIndex.test.ts` | 搜「溫度」命中「取樣參數」 | 搜不到；通用命中與排序改用其他條目 | 核准的計畫、N1 |
+| 9 | `test_soul_admin_stepup.py`、`test_soul_crud_real_writes.py`、`test_soul_role_binding.py` | 用不可選的 `claude-test-brain` 建立靈魂 | fixture 把它種成清單裡可選的一般模型（只改前置，斷言不動） | 核准的計畫、H9 |
+| 10 | `tests/unit/test_creation_engine.py`（約 :225-230） | patch `get_clean_env` 再斷言合併結果 | patch 父環境，斷言白名單底＋spec 宣告的 env | 核准的計畫、缺口 2 |
 | 11 | `tests/unit/test_mcp_2026_p1_boundary.py`（約 :420-440） | 注入 `clean_base_factory` | 改用白名單常數；仍釘住「不繼承父環境的金鑰、只加 spec 宣告的 env、不解析哨兵（SP7）」 | R4-1 |
-| 12 | `tests/unit/test_subprocess_hardening_security.py`（SP7，約 :556-561） | 傳 `clean_base_factory` | 改用假的父環境，斷言不變 | PM 裁定（缺口 2） |
-| 13 | `test_auto_review_execution_security.py`、`test_hard_floor_security.py`、`test_review_awaiting_human_security.py`、`test_subprocess_hardening_security.py` 的假 approver／reviewer | approver 只收 `cmd`；reviewer 回字串 | approver 多收卡片 keyword；reviewer 回 `ReviewOutcome`（斷言不動） | PM 裁定（H4） |
-| 14 | `tests/unit/test_no_sampling_on_wire.py`（約 :178-181） | 原生 Anthropic 入口的 Gemini wire 沒有 `generationConfig` | 只有 `{"maxOutputTokens": 100}`；其他入口仍沒有 | PM 裁定（O20） |
+| 12 | `tests/unit/test_subprocess_hardening_security.py`（SP7，約 :556-561） | 傳 `clean_base_factory` | 改用假的父環境，斷言不變 | 驗收裁定（缺口 2） |
+| 13 | `test_auto_review_execution_security.py`、`test_hard_floor_security.py`、`test_review_awaiting_human_security.py`、`test_subprocess_hardening_security.py` 的假 approver／reviewer | approver 只收 `cmd`；reviewer 回字串 | approver 多收卡片 keyword；reviewer 回 `ReviewOutcome`（斷言不動） | 驗收裁定（H4） |
+| 14 | `tests/unit/test_no_sampling_on_wire.py`（約 :178-181） | 原生 Anthropic 入口的 Gemini wire 沒有 `generationConfig` | 只有 `{"maxOutputTokens": 100}`；其他入口仍沒有 | 驗收裁定（O20） |
 
 ## ADR-0238 的更正
 
@@ -163,25 +163,25 @@ ADR-0238 決策 5 寫「改為直接執行 Ruff、lint_ssot、原生工具契約
 - 缺口 1 改在 executor 依工具名特判（例如演化工具在 Manual 時強制跳卡）：分類的 SSOT 是註冊時的 binding（ADR-0229），依名稱特判會多一份清單。
 - 缺口 2 沿用 `EvolutionPathGuard.get_clean_env`：它會把名稱含 KEY／TOKEN／PYTHON／NODE_ 的全拿掉（條目自己的 `NOTION_TOKEN` 這類也一起拿掉），還把 `PYTHONPATH` 設成 `.`；黑名單也漏得掉 `*_PASS`、`DATABASE_URL` 一類。改用白名單底，並參考 Dispatch `_build_child_env`（ADR-0067）的做法、不跨模組匯入。
 - 缺口 2 白名單列 `HTTP_PROXY`／`HTTPS_PROXY`：可能夾帶帳密，要用的伺服器寫進自己的 `env`。
-- H1 新增 `SYSTEM_RESTORE_FAILED`：要動 A 線同時在改的 `errors.json` 與兩端產生檔，本批沿用 `SYSTEM_BACKUP_FAILED`，前端用專用翻譯，新錯誤碼列待排。
+- H1 新增 `SYSTEM_RESTORE_FAILED`：要動另一批同時在改的 `errors.json` 與兩端產生檔，本批沿用 `SYSTEM_BACKUP_FAILED`，前端用專用翻譯，新錯誤碼列待排。
 - H1 還原還在跑時照舊 15 秒就重整：會在還原中途重整，畫面以為成功。
-- A4 CI 跑完整 guard_all：會連網跑 audit、誤報會卡合併，Guard #30 Owner 決定只手動跑（ADR-0071）。
+- A4 CI 跑完整 guard_all：會連網跑 audit、誤報會卡合併，Guard #30 由維護者決定只手動跑（ADR-0071）。
 - A4 CI 跑完整 ruff：還有上百個既有錯誤、沒有棘輪基準，現在加會整片紅；先只擋 F。
 
 ## 實作偏離
 
-- H9：計畫只寫「不可選 404、模糊 409」；PM 加了「只有空白當沒指定、正規化值寫回」（比照存檔），見 PM 裁定。
-- H3：計畫只列 pip 與本機驗證（約 :211、:265）；部署的 `command` 也補上（PM 退回補做）。
-- H1：計畫只寫「失敗就顯示錯誤、不自動重整」；多了「還在跑時每 5 秒再查」與專用翻譯（PM 接受）。
+- H9：計畫只寫「不可選 404、模糊 409」；驗收時加了「只有空白當沒指定、正規化值寫回」（比照存檔），見「單位驗收時的裁定」。
+- H3：計畫只列 pip 與本機驗證（約 :211、:265）；部署的 `command` 也補上（驗收時補做）。
+- H1：計畫只寫「失敗就顯示錯誤、不自動重整」；多了「還在跑時每 5 秒再查」與專用翻譯（驗收時接受）。
 - 缺口 3：去重用 (session, execution_id)、行程記憶體、上限 1024（計畫只要求「同一個 execution_id 只計一次」）。
 - H12：只差大小寫的改名用 `samefile` 判斷（不比字串），`custom_io` 多一個 `custom_path_exists`。
 - 研究更正（U4）：研究說留下 `_get_safe_filename` 會讓 vulture 紅，實際不會（信心度 60 < 80）；死碼照計畫刪掉，因為 ruff F 會抓到 `safe_agent_id`。
-- 跨單位 DEV-B（CHANGES_REQUIRED）的修正：O20 波及子代理與評分卡兩條內部路徑（核准範圍只有 IDE／Chat 的 Anthropic 入口），改回原行為並以 `test_internal_callers_max_tokens.py` 釘住；缺口 1 的背景與回復說明照實改寫（H3 之前演化的後續步驟跑不起來）。
+- 跨單位最終審查要求的修正：O20 波及子代理與評分卡兩條內部路徑（核准範圍只有 IDE／Chat 的 Anthropic 入口），改回原行為並以 `test_internal_callers_max_tokens.py` 釘住；缺口 1 的背景與回復說明照實改寫（H3 之前演化的後續步驟跑不起來）。
 
 ## 已知限制
 
 - 缺口 2 只擋環境變數繼承；第三方 MCP 套件直接讀 `.env` 檔（Docker 的 `/app/host_root/.env`、PID 1 的環境；原生 Windows 的 repo 根 `.env`）仍讀得到，要等第二批的隔離執行環境。
-- 缺口 2 之後，MCP 伺服器不再拿到 `PYTHONPATH`、`HF_HOME`、`HTTP_PROXY`／`HTTPS_PROXY`、Windows 的 `HOME`，以及沒寫進條目 `env` 的廠商金鑰；靠這些的伺服器會連不上並顯示錯誤，到 MCP 設定頁把需要的值寫進該伺服器的 `env` 即可。靠 `PYTHONPATH` 或公司內部憑證變數（`SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`NODE_EXTRA_CA_CERTS`）的 MCP 也一樣，要把變數寫進該條目自己的 `env`。合併後請 Owner 到 MCP 設定頁看一次連線狀態（團隊不讀 Owner 的 MCP 設定檔）。
+- 缺口 2 之後，MCP 伺服器不再拿到 `PYTHONPATH`、`HF_HOME`、`HTTP_PROXY`／`HTTPS_PROXY`、Windows 的 `HOME`，以及沒寫進條目 `env` 的廠商金鑰；靠這些的伺服器會連不上並顯示錯誤，到 MCP 設定頁把需要的值寫進該伺服器的 `env` 即可。靠 `PYTHONPATH` 或公司內部憑證變數（`SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`NODE_EXTRA_CA_CERTS`）的 MCP 也一樣，要把變數寫進該條目自己的 `env`。更新後請到 MCP 設定頁看一次連線狀態。
 - 缺口 1：Manual 下第一張是一般審批卡，很長的程式碼參數可能只預覽前段（`approval_preview_truncated`）；部署卡仍顯示全文。YOLO 無人在場時建置照跑（YOLO 的定義），部署照舊 fail-closed。
 - 缺口 3 的去重紀錄只在行程記憶體，重啟歸零。
 - H1：狀態只在記憶體，重啟後是 `idle`；還原卡住時畫面停在「還原中」並每 5 秒再查；錯誤碼用 `SYSTEM_BACKUP_FAILED`（語意不精確，待排）；`manage_backup.py` 還原找不到 zip 時印錯誤後 exit 0，會被當成成功（端點接受前已檢查，只剩時間差，待排）。
@@ -205,9 +205,9 @@ ADR-0238 決策 5 寫「改為直接執行 Ruff、lint_ssot、原生工具契約
 - U4（A4，`4acccf17`）：突變 18 個都紅；全量 8894 passed／7 skipped／6 failed；IDE 五指令、ToukaChat Vitest 1624、ESLint 棘輪、vulture＋knip 通過。
 - U1（H20、H12、H9、H8，`5b80cad5`）：全量 8926 passed／7 skipped／6 failed；lint_ssot、#19、#28、#24、#21、#44、vulture、ruff 通過；沒有新增 noqa、錯誤碼、依賴。
 - U6（H1，`02674bda`）：突變後端 5、前端 5 都紅；全量 8937 passed／7 skipped／6 failed；Vitest 1630、前端守衛全過、#24、#41、#19、#28 通過。
-- 整合分支跨單位 DEV-B：判決 PASS_WITH_NOTES；`54959d82` 的 pytest 固定順序與隨機順序都是 8984 passed／7 skipped／6 failed（＝8888 ＋ U2 41 − U3 5 ＋ U5 2 ＋ U4 6 ＋ U1 41 ＋ U6 11）。
-- 修正後（`d77a4f51`，含 dev `22416643` 與 DEV-B 要求的修正）：pytest 固定順序與隨機順序（seed 20261015）都是 9028 passed／7 skipped／6 failed（＝8984＋dev 的 35＋修正新增的 9），6 個 failed 都是 E1 的 `test_local_compose_bindings`，7 個跳過與基準相同；guard_all 43／43 PASS；自動 smoke 24／24；ToukaChat Vitest 272 檔 1657 個，typecheck、guard:api、guard:i18n 通過；ToukaIDE test、typecheck、compile、package 通過。
-- 文件（U7，工作資料夾 `wt/iso-c1-u7` 的 `56c65da4`，已 merge 整合分支 `03a23bda`；之後補 `6ff201c4`、`993a87bf` 兩處說明）：lint_ssot、Guard #19、Guard #28（252 份，0001..0252 連續）通過；`test_documentation_contracts.py`＋`test_tool_execution_classification.py` 40 passed、`test_guard_adr_integrity.py` 25 passed；`tool_executor.py` 只改註解，ruff 通過。建正式檔（`wt/iso-c1-fin`，已 merge dev `22416643`）後 Guard #28 為 254 份、0001..0254 連續。
+- 整合分支跨單位最終審查：通過（附註）；`54959d82` 的 pytest 固定順序與隨機順序都是 8984 passed／7 skipped／6 failed（＝8888 ＋ U2 41 − U3 5 ＋ U5 2 ＋ U4 6 ＋ U1 41 ＋ U6 11）。
+- 修正後（`d77a4f51`，含 dev `22416643` 與最終審查要求的修正）：pytest 固定順序與隨機順序（seed 20261015）都是 9028 passed／7 skipped／6 failed（＝8984＋dev 的 35＋修正新增的 9），6 個 failed 都是 E1 的 `test_local_compose_bindings`，7 個跳過與基準相同；guard_all 43／43 PASS；自動 smoke 24／24；ToukaChat Vitest 272 檔 1657 個，typecheck、guard:api、guard:i18n 通過；ToukaIDE test、typecheck、compile、package 通過。
+- 文件（U7，`56c65da4`，已 merge 整合分支 `03a23bda`；之後補 `6ff201c4`、`993a87bf` 兩處說明）：lint_ssot、Guard #19、Guard #28（252 份，0001..0252 連續）通過；`test_documentation_contracts.py`＋`test_tool_execution_classification.py` 40 passed、`test_guard_adr_integrity.py` 25 passed；`tool_executor.py` 只改註解，ruff 通過。建正式檔（已 merge dev `22416643`）後 Guard #28 為 254 份、0001..0254 連續。
 
 ## 回復
 

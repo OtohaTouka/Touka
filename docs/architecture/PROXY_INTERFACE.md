@@ -188,7 +188,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - OpenAPI：只有 `AnthropicThinking` 的兩個元件（`src__adapters__schemas__AnthropicThinking__1`／`__2`）合成一個 `AnthropicThinking`，`$ref` 跟著改；端點不變。重生腳本 `scripts/update_openapi.py` 先開沙盒再載入產品程式，合併函式在 `scripts/openapi_merge.py`。
 - Proxy 內走不到的排程引擎已刪（`start_engine` 那條路徑）；Proxy 照舊不做主動排程。沒有掛載的排程 CRUD（`routers/scheduler.py`、`SchedulerService`）與 `ENABLE_SCHEDULER` 也已刪除（ADR-0254，見下一節）。
 
-## C 線第一批：小件修補與執行路徑缺口（ADR-0254）
+## 隔離第一批（iso-c1）：小件修補與執行路徑缺口（ADR-0254）
 
 - 新端點 `GET /v1/system/restore/status`（根路徑 `/system/restore/status` 對等）：admin 限定（`require_admin_authority`，登記在 Guard #24 的 admin 清單），唯讀。回 `RestoreStatus`：`state` 為 `idle`（這次啟動後沒有還原紀錄）、`running`（還原進行中）或 `failed`（還原失敗），`error_code` 只在失敗時有值，目前是 `SYSTEM_BACKUP_FAILED`（1303），其他時候 `null`；不帶路徑或例外原文。沒登入 401 `AUTH_INVALID_TOKEN`，不是 admin 403 `AUTH_ADMIN_REQUIRED`。紀錄只在記憶體：`POST /v1/system/restore/run` 接受時記 `running`（蓋掉上一次的失敗；回應形狀不變），背景還原丟例外時記 `failed`；成功時進程結束重啟，新進程回 `idle`。OpenAPI 已重生。
 - `POST /v1/souls`（建立靈魂）：`config.base_model` 比照存檔（ADR-0250）先正規化，`null`、空字串、只有空白都當沒指定、`config.json` 存 `null`，有值時去掉前後空白後寫回。有指定時在建任何資料夾之前先驗：不在模型清單裡（`is_selectable_brain` 不過）回 404 `MODEL_NOT_FOUND`（1202），只差大小寫的兩個自訂連線都在、寫法又對不上時回 409 `MODEL_NAME_AMBIGUOUS`（1220）；兩者都不建資料夾、不註冊、不加擁有權。驗模型排在人類 ID 撞名與 409 `SOUL_ALREADY_EXISTS` 之後。可選或沒指定照舊建立（可選時設成主要模型），成功回應不變。
@@ -276,7 +276,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 價目：Haiku 5.5 每個請求依含快取讀寫的提示長度分兩檔（≤10 萬 $0.10／$0.50，超過 $0.50／$2.50）；Sonnet 5.5 快取命中 $0.10。`token_usage` 事件的 `cost` 與稽核 CSV 的整次 run 金額改為每輪分檔相加。`model_pricing.json` 覆寫仍是單一費率（覆寫 Haiku 5.5 就不分檔）。
 - `AutoReviewConfig.timeout_s` 預設 60（範圍 >0、≤120 不變；逾時仍是轉人／拒絕）。openapi 新增 `AnthropicOutputConfig` 與 `AnthropicRequest.output_config`，`timeout_s` default 改 60；`api.ts` 已重產；沒有新錯誤碼。
 
-## C 線第二批第一段：代理人指令的隔離（ADR-0272）
+## 隔離第二批（iso-c2）第一段：代理人指令的隔離（ADR-0272）
 
 - 範圍：終端（`execute_command`／`bash`）、互審驗證指令、演化的建置與驗證，spawn 前才經 `services/isolation` 的 runner 改寫成 `python -I -S <kernel>/launcher.py --spec-fd N -- argv`（人核准「未隔離」時照原樣）。ADR-0272 的原範圍不含 MCP；C2-3 已接上 MCP 伺服器與創建試跑，見本文前面的專節。IDE 終端與 Dispatch `auto_invoke` 仍不在範圍。這一段沒有新端點；執行器與 `GET /isolation` 見下一節「第二段」。
 - 政策：`PolicyContext.environment` 多 `isolation`（政策當下的層級）與 `human_present`，由 executor 依身分、ctx 放入，模型參數改不動。要隔離的動作在層級 `none`（缺值、看不懂也算）時，Auto、YOLO 都是 `HUMAN_ONLY`；YOLO 下 dangerous 的 MCP 工具在無人在場時也是 `HUMAN_ONLY`。F5 多 `write_mcp_implementation`、`verify_mcp_locally`。審查員的 `<environment>` 多 `isolation`（只供參考）：只有經 runner 的內建工具給政策層級，其餘（含所有 MCP 工具）一律 `none`，決策表的層級不變。隔離判定只看內建工具，MCP 工具和隔離動作同名也取全域層級、不記同意帳本。
@@ -324,7 +324,7 @@ ABI≥4 但 Fast Open 或 MPTCP 沒關時，上表前兩列改成 `none`（`net_
 
 - 設定：`TOUKA_SANDBOX_STATE_DIR`（compose 設成 named volume `touka-sandbox-state` 的掛載點）、`TOUKA_SANDBOX_KERNEL_DIR`（映像 `ENV`）、`TOUKA_EXECUTOR_DIR`（有值時預期是執行器層，見下一節）；`PROXY_PORT`、`HEARTBEAT_PORT`、`CHAT_PORT` 是字串，只用來算封鎖埠。
 
-## C 線第二批第二段：執行器容器與隔離狀態（ADR-0272）
+## 隔離第二批（iso-c2）第二段：執行器容器與隔離狀態（ADR-0272）
 
 - 範圍：預期是執行器（`TOUKA_EXECUTOR_DIR`，compose 設成 `/app/ipc/executor`）時，終端、互審驗證指令、演化改經本機 relay 交給 `touka-executor` 容器執行；呼叫方式、背景、停止、逾時不變（執行器端的上限是本機逾時＋30 秒、最多 900 秒）。控制通道是 ipc volume 裡的 unix socket（frame 格式的 SSOT 是 `sandbox_kernel/framing.py`），不是 HTTP 端點，也不在 OpenAPI 裡。
 - 層級 `executor` 要 READY 的版本、kernel 雜湊、伺服器程式雜湊、封鎖埠雜湊、roots、自測、ABI≥3 全部相符；ABI≥4 時網路設定也要安全、封鎖埠不能擋不全。ABI 3 的執行器仍判 `executor`、features 只有 `fs`。不在執行器範圍（綁了專案、代理人資料夾是 `custom/<id>/drive`）時那次判 `none`。
@@ -363,7 +363,7 @@ ABI≥4 但 Fast Open 或 MPTCP 沒關時，上表前兩列改成 `none`（`net_
 原生 `mission_tools` 收到 Memory `MissionPersistenceError` 時，以既有 `build_tool_error` 回傳
 `error_class=internal_error`、`error_code=1302`（出貨 `PERSISTENCE_ERROR`）與 `outcome=unknown`；不回原 exception 內容，也不假稱任務初始化／更新／收案成功。
 unknown 表示無法證明提交結果，建議先讀取看板再決定保存；不是可以自動重送的「確定未寫」。角色、目標 agent、review 與任務鎖邊界不變。
-Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與外部啟動；本批只驗 sandbox/mock，不啟動外部工具。本契約來源驗證狀態見 HANDOVER；發布／live 未執行。
+Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與外部啟動；本批只驗 sandbox/mock，不啟動外部工具。本契約來源驗證狀態當時記在 HANDOVER，現在只留在開源前的私人歷史；發布／live 未執行。
 
 ## 對話保存／終態模型（可靠性 R2，來源候選）
 
@@ -489,7 +489,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 
 ### 1.6d ToukaDispatch modern transport 與 request auth（ADR-0201）⭐
 
-- 只提供 stateless Streamable HTTP `/mcp`；舊 `GET /sse` 與 `POST /sse/messages/` 回 404。modern request-scoped SSE 保留。Owner 已確認沒有舊版使用需求，不再安排 sunset traffic 調查。
+- 只提供 stateless Streamable HTTP `/mcp`；舊 `GET /sse` 與 `POST /sse/messages/` 回 404。modern request-scoped SSE 保留。維護者已確認沒有舊版使用需求，不再安排 sunset traffic 調查。
 - MCP connection/session/clientInfo 不具授權力。Handshake 後每次 tool call 都
   顯式帶 application `session_token`，並重驗 expiry、server-owned transport、
   audience、method 與 external mission generation。
@@ -632,7 +632,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **`POST /v1/heartbeat/retrigger`**：人類擁有者一鍵重跑中斷會話（強制 `Auto`、只給 admin 或人類擁有者、會話須屬於該靈魂、`can_awaken` 能力守衛、`pulse` 夾 1..5），詳見 [HEARTBEAT_INTERFACE.md](HEARTBEAT_INTERFACE.md)。
 - **系統降級可見化**：記憶系統未載入（degraded）由 `GET /v1/memory` 的 `system_degraded`/`degraded_reason` 暴露；前端 `SystemStatusContext` 解析後於側欄常駐 `DegradedBanner`（`role="alert"`）。
 - **記憶提示（ADR-0253；結構提示 ADR-0256）**：`GET /v1/memory` 另回 `memory_notices`（list），每一項是 `{"code", "level", 選填欄位…}`，只放代碼；`level` 是 `info` 或 `warning`。代碼與等級的正本是 `routers/observability.py` 的 `MEMORY_NOTICE_*` 常數：舊記憶檔提示由 lifespan 的 `collect_memory_notices()` 算一次；記憶庫結構提示（5 個 `warning` 代碼）由 `memory_schema_notices()` 每次請求即時算，狀態讀自 `FactualStore.existing_shared()`。這是只給畫面看的提示，不是降級：不改 `system_degraded`、不進 prompt。既有三個欄位不變；端點沒有 `response_model`，openapi 不變，前端型別（`MemoryNotice`）自己宣告。前端：`MemoryNoticeBar` 放在右側欄降級橫幅下方（`info` 是 `role="status"`、`warning` 是 `role="alert"` 且和降級橫幅同色），有 `warning` 時左側身分列另加警告標記（`lib/memoryNotices.ts` 的 `hasMemoryWarning`）。
-- **權限設定熱重載健康度（permission convergence P5）**：`GET /health` 與 `GET /system_health`（含 `/v1` 對等路徑）使用 `HealthResponse`／`SystemHealthResponse`，回傳 `permission_config_degraded` 與 `permission_config_degraded_reason`。熱重載解析失敗時服務保留 last-known-good、記錄 `AUDIT` warning，HTTP 仍為 200 但 `status="degraded"`、reason 固定為 `permissions_config_reload_failed`；下一次成功重載自動恢復 healthy。既有非空、非 `{}` 的壞設定在啟動期直接拒絕啟動；檔案不存在、空白或 `{}` 才是合法 bootstrap fallback。啟動時讀不到 `auth_policies.json` 與 `autonomy.json` 的情況見「C 線第二批第二段」。
+- **權限設定熱重載健康度（permission convergence P5）**：`GET /health` 與 `GET /system_health`（含 `/v1` 對等路徑）使用 `HealthResponse`／`SystemHealthResponse`，回傳 `permission_config_degraded` 與 `permission_config_degraded_reason`。熱重載解析失敗時服務保留 last-known-good、記錄 `AUDIT` warning，HTTP 仍為 200 但 `status="degraded"`、reason 固定為 `permissions_config_reload_failed`；下一次成功重載自動恢復 healthy。既有非空、非 `{}` 的壞設定在啟動期直接拒絕啟動；檔案不存在、空白或 `{}` 才是合法 bootstrap fallback。啟動時讀不到 `auth_policies.json` 與 `autonomy.json` 的情況見「隔離第二批（iso-c2）第二段」。
 
 ### 1.10c 可恢復串流 — ADR-0081／ADR-0231
 

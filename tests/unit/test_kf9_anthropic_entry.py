@@ -1,4 +1,4 @@
-"""3b-U5b：Anthropic 形狀入口接非 Claude 模型時保留工具紀錄（KF-9；決定 A12 甲）。
+"""3b-U5b：Anthropic 形狀入口接非 Claude 模型時保留工具紀錄（KF-9；ADR-0248 決定 A12）。
 
 （ADR-0248；KF-9 見 ADR-0242。）
 

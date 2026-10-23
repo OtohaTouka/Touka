@@ -15,7 +15,7 @@
 **永不觸及代理人身分、永不波及其他代理人**，靠兩道獨立地板：① 每個清除原語以 `agent_id` 嚴格限定（SQL `WHERE agent_id=?`、per-agent Qdrant collection、沙箱路徑）；② **`is_protected_path` 檔案系統地板**（`is_relative_to`）物理性拒絕刪除 `data/soul/*`、`data/legacy/*`，不可繞過。
 
 ### D1 — 範圍（重用 `ALL_STORES`；保守不碰上傳檔）
-**重置**（執行期，按 agent_id）：對話/工作階段、訊息回饋、大腦選擇、統計遙測、任務板、docgen 產出、**記憶 facts＋向量**（經 importlib 橋接 `MemoryManager.purge_agent`）、context 快照——即既有 `ALL_STORES` 八項，皆已 agent_id 化＋protected-path-aware。**保留**：靈魂 `soul/`（受保護路徑）、`legacy/` 歸檔（受保護路徑）、**自訂模型 `system_prompt.md`＋`config.json`（Level-2 身分，由清除原語範圍排除、非保護路徑→須回歸測試）**、專案稽核、代理人註冊。**擁有者裁示：保留個人硬碟「使用者上傳檔案」**（既有原語只清 `outputs/`／`missions/` 子目錄，天然不碰上傳檔，故無需新增 `purge_personal_drive`）。
+**重置**（執行期，按 agent_id）：對話/工作階段、訊息回饋、大腦選擇、統計遙測、任務板、docgen 產出、**記憶 facts＋向量**（經 importlib 橋接 `MemoryManager.purge_agent`）、context 快照——即既有 `ALL_STORES` 八項，皆已 agent_id 化＋protected-path-aware。**保留**：靈魂 `soul/`（受保護路徑）、`legacy/` 歸檔（受保護路徑）、**自訂模型 `system_prompt.md`＋`config.json`（Level-2 身分，由清除原語範圍排除、非保護路徑→須回歸測試）**、專案稽核、代理人註冊。**維護者決定：保留個人硬碟「使用者上傳檔案」**（既有原語只清 `outputs/`／`missions/` 子目錄，天然不碰上傳檔，故無需新增 `purge_personal_drive`）。
 
 ### D2 — 安全架構：反轉守衛＋共用核心（不弱化 DebugAgent 路徑）
 - **唯一新關鍵碼＝反轉的擁有權守衛 `assert_agent_resettable(candidate, actor)`**：要求目標**存在**（`_is_real_persona_strict`，**fail-closed**：列舉失敗→拒絕，與 DebugAgent 守衛的「不確定→拒絕重置」反向但同樣保守）＋**非系統保護**（`SYSTEM_PROTECTED_AGENTS`＝DebugAgent…）＋**被 actor 擁有**（`is_owner`；admin 絕對放行，保留檢查以利未來非-admin Owner 路徑＋稽核）。**刻意不與 `assert_resettable` 合併成可配置函式**（單一可被告知「誰可重置」的函式會擴大全系統最危險路徑；兩個窄函式更安全）。
@@ -27,7 +27,7 @@
 
 ### 替代方案（Rejected）
 - **統一守衛加 `allowed_set` 參數**：擴大最危險路徑 → 否決，改兩個窄函式。
-- **新增 `purge_personal_drive`（全清個人硬碟）**：擁有者選保守（保留上傳檔）→ v1 不需。
+- **新增 `purge_personal_drive`（全清個人硬碟）**：維護者選保守（保留上傳檔）→ v1 不需。
 - **記憶新增 `purge_facts` MEMORY_ACTION**：重置走 `MemoryManager.purge_agent` 直接橋接（已 agent_id 化、不可用即 raise）→ 多餘且增破壞性面 → 否決。
 - **admin＋非-admin Owner**：開啟跨使用者波及面 → v1 admin-only（保留 `is_owner` 以利日後一行擴充）。
 
@@ -42,4 +42,4 @@
 ## 驗證
 守衛（接受/拒絕 DebugAgent·未知·未擁有/正規化/fail-closed）、協調器（驅動 stores·false-clean）、端點（admin/CSRF/密碼/雙重確認）、**🛡️ 關鍵回歸：custom config.json／system_prompt.md 於重置後存活、僅 drive/outputs 被清**皆經測試覆蓋（14 後端＋3 前端）；既有 DebugAgent reset 測試全綠。openapi+api.ts 重生；`guard_all` 37/37、pytest 2372、vitest 816、smoke 24/24。
 
-**對抗式安全複審（5 維×13 agent；8 findings → 逐項對抗式驗證 → 修 2、駁回 6）**：最高優先的三大關切——**身分摧毀、跨 agent 波及、守衛繞過——全數確認無破口**（清除原語逐 agent_id 範圍化＋`is_protected_path` 物理地板＋custom config 範圍排除，結構性成立）。修：①**【Med】重置報告的 store 錯誤訊息**直接回傳原始例外（可能含絕對路徑/DB 細節）→ 改回傳泛用碼（`purge_failed`/`verify_failed`），完整細節僅進伺服器日誌（同時惠及 DebugAgent 路徑）；②**【Low】`ResetReport.agent` docstring 過時**（「恆為 DebugAgent」）→ 更正為兩路徑通用。駁回 6（路徑逃逸、prefix 碰撞、role 誤判、refactor 弱化 DebugAgent 路徑等經驗證均不可達）。
+**對抗式安全複審（5 個維度；8 findings → 逐項對抗式驗證 → 修 2、駁回 6）**：最高優先的三大關切——**身分摧毀、跨 agent 波及、守衛繞過——全數確認無破口**（清除原語逐 agent_id 範圍化＋`is_protected_path` 物理地板＋custom config 範圍排除，結構性成立）。修：①**【Med】重置報告的 store 錯誤訊息**直接回傳原始例外（可能含絕對路徑/DB 細節）→ 改回傳泛用碼（`purge_failed`/`verify_failed`），完整細節僅進伺服器日誌（同時惠及 DebugAgent 路徑）；②**【Low】`ResetReport.agent` docstring 過時**（「恆為 DebugAgent」）→ 更正為兩路徑通用。駁回 6（路徑逃逸、prefix 碰撞、role 誤判、refactor 弱化 DebugAgent 路徑等經驗證均不可達）。

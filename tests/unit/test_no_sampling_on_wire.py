@@ -1,6 +1,6 @@
 """model-p0 U1：取樣參數一律不送（三家 adapter × 各入口；攔截實際送出內容）。
 
-Owner 決定 A：temperature／top_p／top_k 三家一律不送（用廠商預設）。所有主對話
+ADR-0241 決定 A：temperature／top_p／top_k 三家一律不送（用廠商預設）。所有主對話
 入口都收斂到三個 adapter，故各入口組出的請求逐一走 adapter 的 prepare_request＋
 send_round，攔截送出內容。Pydantic 欄位與舊設定照常載入、值被忽略（不遷移）。
 """

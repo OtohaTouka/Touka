@@ -104,6 +104,7 @@ jobs:
                 docker-compose.yml) changed=true ;;
                 docker-compose.ghcr.yml) changed=true ;;
                 ToukaProxy/docker-compose.yml) changed=true ;;
+                ToukaHeartbeat/permission_init.py) changed=true ;;
                 tests/docker/*) changed=true ;;
                 tests/network_guard.py) changed=true ;;
                 tests/smoke/lib/sandbox_env.py) changed=true ;;
@@ -138,6 +139,10 @@ jobs:
       # 1. 映像直接用 GHCR compose 會解析出的名稱（owner／version 都是 ci），不推送
       - name: Build the proxy image
         run: docker build -f ToukaProxy/Dockerfile -t ghcr.io/ci/touka-proxy:ci .
+      # touka-init 在真核心上（ADR-0279）：特殊項目略過、根目錄照舊嚴格。用同一個映像的 python 與
+      # appuser 跑 checkout 裡的 permission_init.py；測試資料只放在腳本自己建的 volume，跑完刪掉
+      - name: touka-init on a real kernel
+        run: python3 -I tests/docker/permission_init_real.py --image ghcr.io/ci/touka-proxy:ci
       # 2. 三份有執行器的 compose 複製到暫存區、旁邊放空的 .env，用 runner 上真的 Compose 解析
       - name: Parse the compose files with an empty .env
         run: |

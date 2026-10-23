@@ -1292,7 +1292,7 @@ async def test_failed_data_selftest_keeps_the_executor_unenforced_until_it_passe
     assert seen == ["data", "state", "data"] and server.enforced is True
 
 
-# ── 型別：kernel 模組照 Protocol 標註（CTO 10/16：恢復具名型別）──────────────────────
+# ── 型別：kernel 模組照 Protocol 標註（恢復具名型別）──────────────────────
 
 
 def _kernel_protocols() -> dict:
@@ -1414,7 +1414,7 @@ def test_load_kernel_returns_a_frozen_typed_kernel():
         kernel.spec = kspec
 
 
-# ── 8474b22f 的補測（CTO 10/16：每個行為拿掉程式碼都要有測試變紅）────────────────────
+# ── 8474b22f 的補測（每個行為拿掉程式碼都要有測試變紅）────────────────────
 
 
 async def test_group_is_killed_only_while_the_leader_is_unreaped_and_then_reaped():

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IDE_ROOT = REPO_ROOT / "ToukaIDE"
 BUILDER_PATH = IDE_ROOT / "scripts" / "build_marketplace_candidate.py"
-EXPECTED_NODE_VERSION = "v24.21.0"
+EXPECTED_NODE_VERSION = "v24.22.1"
 
 
 def _load_builder() -> ModuleType:
@@ -105,7 +105,7 @@ def test_real_pinned_vsce_raw_inventory_matches_deterministic_vsix_members(
         members = tuple(info.filename for info in archive.infolist())
 
     expected = builder.vsix.EXPECTED_MEMBERS
-    assert len(members) == len(expected) == 9
+    assert len(members) == len(expected) == 10
     assert set(members) == set(expected)
     assert "extension/readme.md" in members
     assert "extension/LICENSE.txt" in members

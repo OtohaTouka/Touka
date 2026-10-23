@@ -1,6 +1,6 @@
 # MCP 2026 P8-A：互動式 OAuth authorization-code 實作計畫
 
-> **狀態**：owner 已回報 HUMAN_ONLY DEV-B 通過並已 commit；P8-B successor candidate 見 ADR-0207
+> **狀態**：已實作，通過維護者的人工最終審查並已 commit；P8-B 的後續設計見 ADR-0207
 >
 > **風險**：HIGH（認證、憑證、SSRF、跨程序一致性、瀏覽器 callback）
 >
@@ -8,7 +8,7 @@
 >
 > **修訂日期**：2026-08-03
 
-## 1. 已確認的 owner 決策
+## 1. 已確認的維護者決策
 
 1. OAuth credential 使用動態 get_config_dir() 下的加密 SQLite；不得位於或碰觸 data/。
 2. 敏感 payload 使用專用 TOUKA_MCP_OAUTH_KEY 與 AES-256-GCM；不得重用 JWT、Dispatch 或 Heartbeat 金鑰。
@@ -19,7 +19,7 @@
    - raw state 只允許作為一次性協定資料出現在 outbound authorization URL 與 inbound callback。
    - 授權伺服器或瀏覽器自行管理的跨來源歷史不在 Touka 可控制範圍；不得再宣稱 Touka 能刪除它。
    - 殘餘風險以高熵、短 TTL、HMAC-only server lookup、原子單次消耗與 callback 立即清理降低。
-6. 第 2 輪是自動修正／重審上限。本文件吸收審查意見，但不等同新 reviewer PASS；進入 TDD 前仍須 owner 明確核准 DEV-A。
+6. 本文件已吸收計畫審查的意見；進入 TDD 前仍須維護者明確核准計畫。
 
 ## 2. 使用者可見驗收場景
 
@@ -530,7 +530,7 @@ scripts/verify_mcp_oauth_p8a.py 是 hermetic SSOT，必須：
 - 清除 proxy env，patch DNS／socket 預設拒絕所有 external network，只允許 test fixture 明列的 loopback TLS endpoints；
 - 對任何解析至真實 data/ 的路徑 fail-fast；
 - 執行上述 targeted tests、Ruff check/format、ToukaChat ESLint/full Vitest、Playwright、guard_all、guard_security、guard_dependencies、full pytest、MkDocs、nginx config/canary、mock-AS/container/lifespan smoke、backup ZIP inspection；
-- 保存 RED／GREEN 原始輸出供 DEV-B；
+- 保存 RED／GREEN 原始輸出供最終審查；
 - dependency 變更只走 pyproject → uv lock → uv sync --all-packages，嚴禁裸 uv sync。
 
 **實作結果（2026-08-01）**：verifier 以 `sitecustomize` 在 Python DNS／socket
@@ -551,10 +551,10 @@ fake state/code canary 均未進 log。精確 Proxy image
 一致，lifespan、`/health`、14 個 OAuth production imports、8 個 OpenAPI parity path
 與 access-log 關閉均通過。smoke 同時揭露兩份 dev Compose command 覆寫 Dockerfile
 CMD 時漏掉 `--no-access-log`；新增回歸斷言先 RED，再只修正 root／standalone Compose
-為 GREEN。DEV-B 第 1 輪修正後 verifier 重新全跑為 targeted 195、pytest 4392／5 skipped、Vitest
+為 GREEN。最終審查的修正完成後，verifier 重新全跑為 targeted 195、pytest 4392／5 skipped、Vitest
 1144／225 files、Playwright 1、guards 44/44、dependencies 4/4、Ruff／ESLint／MkDocs／
-Compose config 全綠；第一次以 `C:\tmp` 作 child temp 因 Windows sandbox EPERM 停在
-Vitest collection，改用 repo 外 session artifact root 後通過，失敗證據保留。
+Compose config 全綠；第一次以磁碟根目錄下的暫存資料夾作 child temp 時，因 Windows sandbox EPERM 停在
+Vitest collection，改用 repo 外的另一個暫存根目錄後通過，失敗證據保留。
 
 ## 17. Backup／restore 與 rollout
 
@@ -599,9 +599,9 @@ rollback 不 migration token 至 config、不刪 DB/key、不 fallback他人/sta
 
 同步更新 SECURITY、PROXY_INTERFACE、CHAT_INTERFACE、SSOT_MASTER_MAP、ADR index、deployment/nginx、backup/restore、.env.example、errors.json、OpenAPI/generated types、tests README、CHANGELOG、HANDOVER與上位 MCP proposal。
 
-交付順序固定為：DEV-A owner核准 → baseline GREEN → backend/frontend RED → minimal GREEN → refactor → hermetic/full verification → 文件 → immutable DEV-B bundle → owner選擇 DEV-B模式。Agent 不自行 commit。
+交付順序固定為：計畫經維護者核准 → baseline GREEN → backend/frontend RED → minimal GREEN → refactor → hermetic/full verification → 文件 → 最終審查。實作者不自行 commit。
 
-## 19. 第 2 輪 finding traceability
+## 19. 計畫審查發現的處理對照
 
 | 審查問題 | 本版處理 |
 |---|---|
@@ -633,39 +633,21 @@ rollback 不 migration token 至 config、不刪 DB/key、不 fallback他人/sta
 - [RFC 7591：Dynamic Client Registration](https://datatracker.ietf.org/doc/html/rfc7591)
 - [RFC 7009：Token Revocation](https://datatracker.ietf.org/doc/html/rfc7009)
 
-## 21. DEV-A 第 2 輪治理紀錄
+## 21. 計畫審查紀錄
 
-| 欄位 | 紀錄 |
-|---|---|
-| Review mode | ADVERSARIAL |
-| Review round | 2 |
-| Reviewers | 3 個全新、唯讀、禁止 delegation 的 Codex CLI sessions |
-| Requested model | gpt-5.6-sol，reasoning high |
-| Actual model | unknown；CLI event contract 未提供 positive attestation |
-| Fallback | not_observed；JSONL 無 fallback／reroute event，不等同供應端證明 none |
-| Immutable bundle | 7 個去密檔案；manifest SHA-256 794d19858c805c99605550b9feccbae7ab3aaf767d5c34003d19a88af25d7414 |
-| Verdict | 3/3 CHANGES_REQUIRED；合計 2 BLOCKING／15 HIGH／5 MEDIUM |
-| Reviewer qualification | BLOCKED；actual-model attestation 未知，因此不得標示 AI PASS |
-| Human decision | 2026-08-01 owner 核准 Scenario 8 可控邊界縮限 |
-| Current gate | owner 已核准修訂版 DEV-A；TDD、實作、本機驗證與真 nginx/container smoke 完成，等待 immutable DEV-B 與 owner 選擇複審模式；`349a126d` 已先包含 P8-A 累積內容，因此 DEV-B 必須以其 parent `b6e7d169` 至當前工作樹作完整候選，不改寫歷史，也不得自動啟動第 3 輪 |
+- 計畫的對抗式審查由三位獨立審查者唯讀進行，三份結論都是需要修改，合計 2 個 BLOCKING、15 個 HIGH、5 個 MEDIUM；逐項處理見 §19。
+- 維護者 2026-08-01 核准 Scenario 8 的可控邊界縮限（§1 第 5 點），並核准修訂後的計畫。
 
-## 22. DEV-B 第 1 輪治理紀錄（2026-08-02）
+## 22. 最終審查紀錄（2026-08-02）
 
-| 欄位 | 紀錄 |
-|---|---|
-| Review mode | ADVERSARIAL；owner 明示同意啟動 3 個 reviewer |
-| Reviewers | 3 個全新、唯讀、禁止 delegation、彼此隔離的 Codex CLI sessions |
-| Requested model | gpt-5.6-sol，reasoning high |
-| Actual model／qualification | unknown／BLOCKED；CLI JSONL 無 positive model attestation，不得計為正式 AI approval |
-| Advisory verdict | 3/3 CHANGES_REQUIRED |
-| Confirmed fixes | 動態 authority egress fence（含 return-boundary 撤權 freeze exact grant）、none/static 零 key/DB I/O、request-time CIDR、query failure history scrub、worker lease、corrupt-row fail-loud |
-| Rejected finding | `trust_env=False` 缺失不成立；MCP resource client 與 OAuth outbound client 都已明示關閉 environment proxy |
-| Current gate | TDD 修正與完整 verifier 已通過；需重建 immutable DEV-B package，再由 owner 明示是否啟動第 2 輪或改 HUMAN_ONLY |
+- 最終審查同樣由三位獨立審查者唯讀進行，三份結論都是需要修改。
+- 確認並修正：動態 authority egress fence（含 return-boundary 撤權 freeze exact grant）、none/static 零 key/DB I/O、request-time CIDR、query failure history scrub、worker lease、corrupt-row fail-loud。
+- 未成立的發現：`trust_env=False` 缺失不成立；MCP resource client 與 OAuth outbound client 都已明示關閉 environment proxy。
+- TDD 修正後，完整 verifier 已通過。
 
 ## 23. 收官與 P8-B successor（2026-08-03）
 
-Owner 已回報 P8-A 以 HUMAN_ONLY 通過並完成 commit；本文件前述 DEV-B 紀錄保留為歷史證據，
-不再是當前 gate。P8-B 不修改本計畫的 P8-A 邊界，而以
+P8-A 已通過維護者的人工最終審查並完成 commit；本文件前述審查紀錄保留為歷史。P8-B 不修改本計畫的 P8-A 邊界，而以
 [ADR-0207](../adr/0207-mcp-workload-oauth-single-proxy.md) 與
 [P8-B 第三版計畫](mcp-2026-p8b-workload-oauth-plan.md)建立獨立 workload store/key/audit、
 HEARTBEAT-only direct client credentials 與 exact owner delegation。enterprise／SSO 仍未支援。

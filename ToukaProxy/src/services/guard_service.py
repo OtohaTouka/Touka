@@ -35,7 +35,7 @@ class GuardService:
 
         建立工具日誌特徵、記憶承諾與誠實度觸發的正則表達式 Pattern。
         """
-        # 僅攔截帶有日誌特徵的模擬 (必須在同一行或極近距離)
+        # 僅攔截帶有日誌特徵的模擬（必須在同一行或極近距離）
         # 防止單純提到工具名與無關勾選符號觸發誤判
         # 支援格式：> search, search ✅, (開始調用工具): search, > 正在執行工具：search
         self.log_features_pattern = r"(?:> ?{tool_name}|{tool_name} ?[✅✓]|[✅✓] ?{tool_name}|\(開始調用工具\)\:? ?{tool_name}|> ?正在執行工具[\:：]? ?`?{tool_name}`?)"

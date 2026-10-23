@@ -8,7 +8,7 @@
   [ADR-0221](0221-modern-only-local-cold-cutover.md)、
   [MCP 2026 完整遷移計畫](../proposals/mcp-2026-07-28-protocol-migration.md)
 
-> **2026-09-04 適用狀態修訂**：Owner 已依 ADR-0221 選定 `modern-only cold cutover`
+> **2026-09-04 適用狀態修訂**：維護者已依 ADR-0221 選定 `modern-only cold cutover`
 > 目標，但仍為 `implementation pending`。在 exact removal candidate 完成 inventory、modern
 > 證據、rollback seal 與 fresh 核准前，本 ADR 的 dual-era endpoint／request auth／release probe
 > 仍是現行事實；modern request-scoped SSE 不是 legacy endpoint，不得誤刪。
@@ -41,7 +41,7 @@ MCP transport session state。應用 session 仍可共用同一個 manager，但
 固定綁定建立它的 transport；拿 modern session token 呼叫 legacy，或反向使用，
 一律拒絕。
 
-legacy sunset 日期不在本 ADR 擅自決定。先觀察使用量，再由 owner 明示期限；在此
+legacy sunset 日期不在本 ADR 擅自決定。先觀察使用量，再由維護者明示期限；在此
 之前 `/sse` 是 deprecated compatibility endpoint，不是新整合的預設入口。
 
 ### 2. 應用授權逐 tool request 執法

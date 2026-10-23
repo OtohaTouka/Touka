@@ -1,8 +1,8 @@
 # 提案：工具可觀測性與可靠度（Tool Observability & Reliability）
 
-> 狀態：**✅ 收官（2026-07-05）——P0→P4 全數落地（擁有者尚未 commit 最後一批 ADR-0130）。** 三目標（量測／模型面／人面）可交付部分全數收口、皆以 P1 統一封套（[ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)）為骨幹；P4 快取前綴**四層斷點疊加**（工具＋system＋穩定前綴細分＋順序重排）。工具系列 ADR **0119~0130（12 份）**。**剩餘僅兩項選配另案**（逐腦 emphasis 調校＝需 LIVE eval、探索性；OTel exporter＝外送遙測、與本地優先/隱私有張力），**擁有者明示啟動前不做**。本提案是「原生工具介面重設計」（`native-tool-interface-redesign.md` / ADR-0119、0120、0121）的**續章**：介面（用什麼工具、參數形狀、雙軌）已收斂，本提案提升「調用的**可觀測性與可靠度**」。
-> 約束：**由人類 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all(38)＋pytest＋vitest。
-> 依據：**Claude Code 與 Codex CLI 的 system prompt 研究**（2026-07-04，含出處與官方/洩漏/推測分級）＋**公開評測標準盤點**（BFCL v3/v4、τ-bench pass^k、MCP-Bench 家族、OpenTelemetry GenAI semantic conventions）。
+> 狀態：**✅ 收官（2026-07-05）——P0→P4 全數落地（最後一批為 ADR-0130）。** 三目標（量測／模型面／人面）可交付部分全數收口、皆以 P1 統一封套（[ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)）為骨幹；P4 快取前綴**四層斷點疊加**（工具＋system＋穩定前綴細分＋順序重排）。工具系列 ADR **0119~0130（12 份）**。**剩餘僅兩項選配另案**（逐腦 emphasis 調校＝需 LIVE eval、探索性；OTel exporter＝外送遙測、與本地優先/隱私有張力），**維護者明確啟動前不做**。本提案是「原生工具介面重設計」（`native-tool-interface-redesign.md` / ADR-0119、0120、0121）的**續章**：介面（用什麼工具、參數形狀、雙軌）已收斂，本提案提升「調用的**可觀測性與可靠度**」。
+> 約束：**由維護者 commit**；只用 **DebugAgent** 身分驗證、不動其他 agent 資料；**嚴禁自動修改 `data/`**；每步過 ruff＋lint_ssot＋guard_all(38)＋pytest＋vitest。
+> 依據：**Claude Code 與 Codex CLI 的 system prompt 研究**（2026-07-04，各項標註出處與可信度）＋**公開評測標準盤點**（BFCL v3/v4、τ-bench pass^k、MCP-Bench 家族、OpenTelemetry GenAI semantic conventions）。
 
 ---
 
@@ -99,11 +99,11 @@
 - **驗收**：ESLint＋tsc（Guard #27）＋前端 vitest **944 passed/184 檔**（+10）＋Guard #5 主題/#33 i18n／guard_all 38/38。**範圍守住**＝「一次卡片規範＋套用」，未膨脹成大前端（`duration_ms`／bash markdown 合流留另案）。
 
 ### Phase 4 — 選配延伸（三子項獨立、另案）
-- **快取前綴優化 ✅ 已完成 2026-07-05＝[ADR-0127](../adr/0127-prompt-cache-prefix-optimization.md)**（擁有者三選一裁示）：`tool_schema.apply_tool_cache_breakpoint` 在最後一個工具加 Anthropic `cache_control` ephemeral——快取**最大穩定塊＝工具 schema**（P0 量到 ≈6346 token），ReAct 迴圈重複命中省 ~90% 讀取 token/加速；`claude_handler` Anthropic-only 套用、無 flag、graceful。驗收：guard 38/38、pytest 2698（+4）。
+- **快取前綴優化 ✅ 已完成 2026-07-05＝[ADR-0127](../adr/0127-prompt-cache-prefix-optimization.md)**（維護者從三個選項中選定）：`tool_schema.apply_tool_cache_breakpoint` 在最後一個工具加 Anthropic `cache_control` ephemeral——快取**最大穩定塊＝工具 schema**（P0 量到 ≈6346 token），ReAct 迴圈重複命中省 ~90% 讀取 token/加速；`claude_handler` Anthropic-only 套用、無 flag、graceful。驗收：guard 38/38、pytest 2698（+4）。
 - **system 前綴快取 ✅ 已完成 2026-07-05＝[ADR-0128](../adr/0128-system-prompt-prefix-caching.md)**（延續快取前綴）：`tool_schema.to_cached_system` 把 system 字串轉 block list＋cache 斷點；`claude_handler` 迴圈前套用——ReAct 迴圈內 system 穩定→命中；遙測零改動（`_system_to_text` 早已相容 block list）。驗收：guard 38/38、pytest 2703（+5）。
 - **穩定前綴細分 ✅ 已完成 2026-07-05＝[ADR-0129](../adr/0129-stable-prefix-split-caching.md)**（讓 persona 跨回合快取）：`prompt_blocks.VOLATILE_SYSTEM_TAGS`（mission/summary）＋`to_cached_system` 於最早波動 tag 切成 `[穩定前綴(斷點), 波動後綴(斷點)]`——**兩斷點疊加**：穩定前綴（persona）跨回合命中、波動後綴迴圈內命中。加上 tools 斷點＝三層快取。驗收：guard 38/38、pytest 2708（+5）。
 - **中介層順序重排 ✅ 已完成 2026-07-05＝[ADR-0130](../adr/0130-stable-first-system-reorder.md)**（讓穩定工具區塊也進跨回合前綴）：`tool_schema.reorder_system_stable_first` 在送出前把波動區塊（跨 SoulLayer/ToolLayer 兩層注入的 summary/mission）逐字搬到 system 尾端，使 `tool_availability`／`validation_protocol` 連進穩定前綴——**不動 pipeline 層順序**（承重）、只在單一出場點正規化；冪等、尾端即 no-op；逐 tag 遙測相容。四層快取前綴收尾。驗收：guard 38/38、pytest 2715（+7）。
-- **其餘子項維持選配/另案**：**逐腦 emphasis 調校**（用 P0 eval 實測「某句 IMPORTANT 對 DeepSeek 有沒有用」，需 LIVE、探索性）；**真 OTel exporter/spans**（需 SDK 依賴＋遙測外送，**與本地優先/隱私/開源定位有張力**，擁有者未選、不做）。
+- **其餘子項維持選配/另案**：**逐腦 emphasis 調校**（用 P0 eval 實測「某句 IMPORTANT 對 DeepSeek 有沒有用」，需 LIVE、探索性）；**真 OTel exporter/spans**（需 SDK 依賴＋遙測外送，**與本地優先/隱私/開源定位有張力**，維護者未選、不做）。
 
 ---
 
@@ -118,6 +118,6 @@
 ## 8. 決策紀錄與待明示項
 
 - 排序＝ **P0 ✅ → P1 ✅ → P2 ✅（a＋b）→ P3 ✅ → P4 快取前綴 ✅（四層：工具＋system＋穩定前綴細分＋順序重排；其餘選配）**；理由：先有尺、再統一骨幹、再收模型面（北極星）、再人面打磨、最後選配優化。
-- **P0、P1（2026-07-04）、P2、P3、P4 快取前綴（工具＋system＋順序重排，2026-07-05）已完成**（見上）。**提案三目標的可交付部分全數收口**：量測（P0）／模型面 before-during-after（P2）／人面卡片一致性（P3，[ADR-0126](../adr/0126-tool-result-card-spec.md)），皆以 P1 統一封套（[ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)）為骨幹；P4 取**快取前綴**並推廣至工具 schema（[ADR-0127](../adr/0127-prompt-cache-prefix-optimization.md)）＋system（[ADR-0128](../adr/0128-system-prompt-prefix-caching.md)）＋穩定前綴細分讓 persona 跨回合快取（[ADR-0129](../adr/0129-stable-prefix-split-caching.md)）＋中介層順序重排讓穩定工具區塊也進跨回合前綴（[ADR-0130](../adr/0130-stable-first-system-reorder.md)，**四層斷點疊加**）。**提案主體收官**；剩餘僅選配另案（逐腦 emphasis、OTel exporter），**擁有者明示啟動前不改任何程式碼。**
+- **P0、P1（2026-07-04）、P2、P3、P4 快取前綴（工具＋system＋順序重排，2026-07-05）已完成**（見上）。**提案三目標的可交付部分全數收口**：量測（P0）／模型面 before-during-after（P2）／人面卡片一致性（P3，[ADR-0126](../adr/0126-tool-result-card-spec.md)），皆以 P1 統一封套（[ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)）為骨幹；P4 取**快取前綴**並推廣至工具 schema（[ADR-0127](../adr/0127-prompt-cache-prefix-optimization.md)）＋system（[ADR-0128](../adr/0128-system-prompt-prefix-caching.md)）＋穩定前綴細分讓 persona 跨回合快取（[ADR-0129](../adr/0129-stable-prefix-split-caching.md)）＋中介層順序重排讓穩定工具區塊也進跨回合前綴（[ADR-0130](../adr/0130-stable-first-system-reorder.md)，**四層斷點疊加**）。**提案主體收官**；剩餘僅選配另案（逐腦 emphasis、OTel exporter），**維護者明確啟動前不改任何程式碼。**
 - P0（純測試層）不立 ADR；**P1 因動 runtime 事件流，已正式收斂為 [ADR-0122](../adr/0122-tool-event-telemetry-envelope.md)**（延續 0119~0121 工具系列）。
-- **🏁 收官（2026-07-05）**：本提案自 2026-07-04 起 P0→P4 逐階段 TDD（盤點→紅燈→綠燈→全套驗證→ADR＋文件、由人類 commit）落地完畢。最終驗收：**guard_all 38/38、後端 pytest 2715 passed/4 skipped、前端 vitest 944/184、ADR 0001..0130 連續無斷鏈**。可交付範圍全數收口；**兩項選配另案（逐腦 emphasis、OTel exporter）不在本提案範圍內收束，若日後啟動另立提案/ADR**。工具系列自此告一段落（ADR 0119~0130，共 12 份）。
+- **🏁 收官（2026-07-05）**：本提案自 2026-07-04 起 P0→P4 逐階段 TDD（盤點→紅燈→綠燈→全套驗證→ADR＋文件、由維護者 commit）落地完畢。最終驗收：**guard_all 38/38、後端 pytest 2715 passed/4 skipped、前端 vitest 944/184、ADR 0001..0130 連續無斷鏈**。可交付範圍全數收口；**兩項選配另案（逐腦 emphasis、OTel exporter）不在本提案範圍內收束，若日後啟動另立提案/ADR**。工具系列自此告一段落（ADR 0119~0130，共 12 份）。

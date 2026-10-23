@@ -1,9 +1,9 @@
 # ADR-0274：靈魂依日期查舊對話（memory_tools 的 conversations，先接舊對話庫）；無痕讀寫不到舊對話庫
 
-- 狀態：✅ 已接受（hist-bak b；Owner 2026-10-16 核准一頁計畫第一件：選甲〔兩個來源都查，分 b、c 兩個 PR〕、可見範圍 (i)、無痕一律讀不到並修漏洞；權限設定檔加一行同日同意）。編號開 PR 時配
+- 狀態：✅ 已接受（hist-bak b；維護者 2026-10-16 核准計畫第一件：兩個來源都查、分 b、c 兩個 PR，可見範圍只看自己的，無痕一律讀不到並修漏洞；權限設定檔加一行同日同意）
 - 日期：2026-10-16
 - 後續修訂：[ADR-0277](0277-chat-conversation-search.md) 接上聊天對話；conversations 預設查 ui 與 legacy，明示 ui／all 已可用，來源與分頁以該 ADR 為準。
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（`tools/contracts.py` 新 `MemoryConversationsInput`；`tools/legacy_vault.py` 改寫為 `search_conversations`；`services/legacy_store.query_messages`；`tools/__init__.py`）；ToukaProxy（`tools/builtin/memory.py`、`tools/file_verbs.py`、`tools/vault_tools.py`、`middleware/layers/tool.py`、`utils/auth_mode.py`；`config/auth_policies.json(.example)` 各一行）；`scripts/native_tool_contract_baseline.json`
 - 相關：ADR-0257（歷史資料界線）、ADR-0258（舊對話時間；本 ADR 接上它留下的未接入口）、ADR-0228（公開合約與 Guard #45）、ADR-0269（只用這一輪列出的工具）、ADR-0086（無痕）、ADR-0119（檔案動詞）
 

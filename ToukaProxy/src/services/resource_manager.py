@@ -674,7 +674,7 @@ class ResourceManager:
         shutil.copy2(str(src), str(d))
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線 swap：被占用要原樣報 in_use、原檔不動"
+        category="swap_semantics", reason="swap：被占用要原樣報 in_use、原檔不動"
     )
     def move_file(self, src: Path | str, dst: Path | str) -> None:
         """安全地移動/重新命名檔案."""
@@ -696,7 +696,7 @@ class ResourceManager:
         Path(path).mkdir(parents=parents, exist_ok=exist_ok)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線刪暫存與快照：權限錯誤要原樣往上丟"
+        category="swap_semantics", reason="刪暫存與快照：權限錯誤要原樣往上丟"
     )
     def remove_file(self, path: Path | str, missing_ok: bool = True) -> None:
         """安全地刪除檔案."""
@@ -850,7 +850,7 @@ class ResourceManager:
                 target.write_bytes(data)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：快照改寫，失敗前可能已寫了一部分輸出"
+        category="swap_semantics", reason="快照改寫，失敗前可能已寫了一部分輸出"
     )
     def rewrite_archive(
         self,
@@ -891,7 +891,7 @@ class ResourceManager:
                     shutil.copyfileobj(reader, writer, _ARCHIVE_COPY_CHUNK)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：swap 換檔前複製屬性，本身就在改權限"
+        category="swap_semantics", reason="swap 換檔前複製屬性，本身就在改權限"
     )
     def copy_file_metadata(self, src: Path | str, dst: Path | str) -> None:
         """把 src 的修改時間與權限複製到 dst（換上清除後的檔之前用；dst 不得是受保護路徑）."""
@@ -901,7 +901,7 @@ class ResourceManager:
         shutil.copystat(str(src), str(dst))
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：swap 置換前把暫存檔落盤，錯誤原樣往上丟"
+        category="swap_semantics", reason="swap 置換前把暫存檔落盤，錯誤原樣往上丟"
     )
     def fsync_file(self, path: Path | str) -> None:
         """把檔案內容確實寫到磁碟（原子置換前用；以讀寫開檔，受保護路徑不碰）."""
@@ -915,7 +915,7 @@ class ResourceManager:
             os.close(fd)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：swap 改名後把資料夾落盤，錯誤原樣往上丟"
+        category="swap_semantics", reason="swap 改名後把資料夾落盤，錯誤原樣往上丟"
     )
     def fsync_dir(self, path: Path | str) -> None:
         """改名後把資料夾項目寫到磁碟；Windows 不支援對資料夾 fsync，略過."""
@@ -928,7 +928,7 @@ class ResourceManager:
             os.close(fd)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：判斷中斷暫存的格式，錯誤原樣往上丟"
+        category="swap_semantics", reason="判斷中斷暫存的格式，錯誤原樣往上丟"
     )
     def read_file_prefix(self, path: Path | str, size: int) -> bytes:
         """只讀檔案開頭的 size 個位元組（判斷格式用，不整個讀進記憶體）."""
@@ -936,7 +936,7 @@ class ResourceManager:
             return handle.read(size)
 
     @permission_repair_exempt(
-        category="a_line_swap_semantics", reason="A 線指定：刪不掉時先清唯讀位元，本身就在改權限"
+        category="swap_semantics", reason="刪不掉時先清唯讀位元，本身就在改權限"
     )
     def make_writable(self, path: Path | str) -> None:
         """清掉唯讀位元（清除暫存檔前用；受保護路徑不動）."""
@@ -1049,7 +1049,7 @@ class ResourceManager:
         content = json.dumps(data, indent=indent, ensure_ascii=False)
         self.write_file_text(path, content, encoding=encoding)
 
-    # retry=True 的前提（CTO）：權限錯誤只在 mkdir（冪等）或開檔時發生，VFS 先檢查權限再截斷，
+    # retry=True 的前提：權限錯誤只在 mkdir（冪等）或開檔時發生，VFS 先檢查權限再截斷，
     # 開檔失敗就不會截斷；改成多步驟寫入時要重新評估這個標記。
     @permission_repair(retry=True)
     def write_file_binary(self, path: Path | str, content: bytes) -> None:

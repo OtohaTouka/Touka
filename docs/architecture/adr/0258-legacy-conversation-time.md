@@ -1,8 +1,8 @@
 # ADR-0258：記憶系統第二批段 T1：舊對話時間統一毫秒，給模型看的時間一律台北並標時區
 
-- 狀態：✅ 已接受（Owner 2026-10-15 核准記憶系統第二批計畫；本 ADR 是段 T1 的 PR，P28 撤回另見同一個 PR 的 ADR-0259）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫；本 ADR 是段 T1 的 PR，P28 撤回另見同一個 PR 的 ADR-0259）
 - 日期：2026-10-15
-- 決策者：Owner
+- 決策者：維護者
 - 影響範圍：ToukaMemory（新 `utils/legacy_time.py`、`services/legacy_store.py`、`services/legacy_sync.py`、`tools/legacy_vault.py`、`tools/recall.py`、`services/manager.py` 的 `normalize_time_range` 與 `query_memory` 日期顯示）；ToukaProxy（`utils/time_utils.py` 的 `inject_time_to_result`）
 - 相關：ADR-0013（時間 SSOT）、ADR-0030（sqlite3 匯入限制）、ADR-0119（檔案動詞）、ADR-0228（Guard #45）、ADR-0253（第一批修補與已知限制）、ADR-0256（記憶來源）、ADR-0257（`<continuity>` 用台北時間、歷史資料界線），決策都不變；解決 ADR-0253 已知限制「`time_utils.py` 仍判斷已退役的 `save_memory`」
 
@@ -40,7 +40,7 @@
 - 秒列不再顯示成 1970 年；日期搜尋秒列、毫秒列都找得到，日界是台北；排序依真實時間。
 - 給模型看的時間多了 `Asia/Taipei` 標記（每個時間約多 3～4 個 token）。
 - 讀不出時間的舊列（例如任意文字）顯示「未知時間」，不再原樣顯示前 10 個字。
-- 沒有時區的 ISO 字串在同步時視為讀不出，改用 `createdAt` 或同步當下；Owner 目前沒有舊對話資料，實際不受影響。
+- 沒有時區的 ISO 字串在同步時視為讀不出，改用 `createdAt` 或同步當下。
 
 ## 驗證
 

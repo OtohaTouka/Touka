@@ -4,7 +4,7 @@
 
 ## 狀態
 
-✅ **已接受（實作 2026-07-08；擁有者尚未 commit、尚未推首個 tag）**。
+✅ **已接受（實作 2026-07-08；尚未推首個 tag）**。
 
 > 🔧 **兩處部署細節已被後續 ADR 更新**：①**heartbeat config 由「單檔 `./heartbeat-config.json` 播種」改為 [ADR-0150](0150-heartbeat-config-dir-mount.md) 的目錄掛載**（`${HEARTBEAT_CONFIG_DIR}:/app/config`、`touka-init` `mkdir`+遷移舊單檔+播種）；②**.env 錨 `TOUKA_ENV_FILE` 由綁 `WORKSPACE_ROOT` 改為 [ADR-0151](0151-env-persistence-anchor-decouple.md) 的 `./:/app/host_root` 解耦**（`TOUKA_ENV_FILE=/app/host_root/.env`，避免寫進幽靈 .env）。pull-not-build 核心架構＋CI 兩階段閘（trivy secret 硬閘＋fresh-volume 啟動閘）仍有效。
 
@@ -52,7 +52,7 @@ HEARTBEAT_TOKEN 自生、HF 快取 named volume；心跳映像已烤 `awaken.py`
 
 - **使用者不需 clone／build**：一個資料夾＋一份 compose（＋選用 .env）即完整系統；
   備份單位＝該資料夾（data／.env／heartbeat-config.json）＋兩個 named volumes。
-- **誠實邊界**：①管線**未實跑**——首次觸發需擁有者推 `v*` tag（並到 ghcr 套件頁把
+- **誠實邊界**：①管線**未實跑**——首次觸發需維護者推 `v*` tag（並到 ghcr 套件頁把
   三個 package 設 public，首推預設 private）；②trivy **弱點**掃描刻意不設硬閘（基底
   CVE 非本 repo 可控），密鑰掃描才是零容忍；③映像簽章／attestation（cosign／SLSA）
   ＝既定選配、本 ADR 不含；④repo 開源是另一件事——公開映像≈公開程式碼內容物，

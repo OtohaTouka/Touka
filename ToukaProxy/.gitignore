@@ -51,3 +51,14 @@ config/*.json
 # 執行期寫進 config/、不是 JSON 的檔：首裝管理員密碼（src/config.py）、代理人建立的 MCP 伺服器
 config/INITIAL_ADMIN_PASSWORD.txt
 config/mcp_servers/
+
+# 代理人在執行期建立的技能與評測：只追蹤 repo 自帶的，新建的不進版控
+config/skills/*
+!config/skills/deep-research-coordinator/
+!config/skills/document-generator/
+!config/skills/system-mcp-dispatcher/
+!config/skills/system-skill-dispatcher/
+config/evals/*
+!config/evals/mcp/
+config/evals/mcp/*
+!config/evals/mcp/smoke_scaffold_server.eval.md

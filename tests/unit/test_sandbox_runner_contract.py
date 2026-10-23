@@ -185,7 +185,7 @@ def test_spec_goes_through_inherited_pipe_not_argv(tmp_path):
     ],
 )
 def test_landlock_runner_spec_is_net_strict_exactly_when_it_has_tcp(tmp_path, features, strict):
-    """``net_strict == ("tcp" in runner 的 features)``（CTO 已定）：降級後的指令不被網路設定擋掉."""
+    """``net_strict == ("tcp" in runner 的 features)``：降級後的指令不被網路設定擋掉."""
     plan = _runner(tmp_path, features).plan(_request(tmp_path))
     try:
         assert json.loads(_read_fd(int(plan.argv[5])))["net_strict"] is strict

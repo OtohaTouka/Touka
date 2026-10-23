@@ -67,6 +67,7 @@ ISOLATION_PATHS = (
     "docker-compose.yml",
     "docker-compose.ghcr.yml",
     "ToukaProxy/docker-compose.yml",
+    "ToukaHeartbeat/permission_init.py",
     "tests/docker/*",
     "tests/network_guard.py",
     "tests/smoke/lib/sandbox_env.py",
@@ -100,6 +101,7 @@ COMPOSE_COPY = "$RUNNER_TEMP/compose"
 GHCR_PROJECT = "touka-iso-ghcr"
 E2E_COMPOSE = "tests/docker/isolation.compose.yml"
 E2E_PROJECT = "touka-iso-ci"
+INIT_REAL_CHECK = "tests/docker/permission_init_real.py"
 ISO_OVERRIDE = "tests/docker/isolation.mptcp.override.yml"
 GHCR_OVERRIDE = "tests/docker/ghcr.mptcp.override.yml"
 # 核心有 MPTCP 時才帶覆寫檔（沒有 MPTCP 的核心加了 net.mptcp.enabled，容器會起不來）
@@ -533,6 +535,19 @@ def test_container_job_runs_the_end_to_end_assets_and_cannot_swallow_a_failure()
     for each in job["steps"]:  # 失敗不能被吞掉（GitHub 的 bash 預設 -e）
         text = each.get("run", "")
         assert "||" not in text and "set +e" not in text and "shell" not in each, each
+
+
+def test_container_job_runs_touka_init_on_a_real_kernel_with_the_image_it_built() -> None:
+    """ADR-0279：checkout 裡的 permission_init.py 在真核心上跑（特殊項目略過、根目錄照舊嚴格）."""
+    job = _job("container")
+    index, step = _named_step(job, "touka-init")
+    builds = [argv for argv in _container_commands() if argv[:2] == ["docker", "build"]]
+    image = builds[0][builds[0].index("-t") + 1]
+    assert _commands(step) == [["python3", "-I", INIT_REAL_CHECK, "--image", image]]
+    build_index, _ = _named_step(job, "Build the proxy image")
+    assert build_index < index
+    assert (ROOT / INIT_REAL_CHECK).is_file()
+    assert _scoped("ToukaHeartbeat/permission_init.py") and _scoped(INIT_REAL_CHECK)
 
 
 def test_mptcp_overrides_are_added_only_when_the_kernel_has_mptcp() -> None:

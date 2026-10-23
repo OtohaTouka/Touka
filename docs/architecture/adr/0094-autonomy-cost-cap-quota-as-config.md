@@ -2,7 +2,7 @@
 
 **狀態 (Status):** ✅ 已接受
 **日期 (Date):** 2026-06-15
-**決策者 (Deciders):** 專案擁有者 + 主程
+**決策者 (Deciders):** 維護者
 
 ## 上下文 (Context)
 
@@ -22,13 +22,13 @@
 - **設定檔**：`config/autonomy.json`（＋`.example`）補上 `quota`/`cap` 區塊，runtime `self.config` 直接讀得到。
 - **預設行為不變**：`cap.enabled=false`、`max_total_cost_usd=null`、`daily_max=50`——與今日「有效行為」一致。本變更只是讓它們**變得可見、可設定且真正生效**，不會突然開始攔截既有自主流程。要啟用成本煞車：設 `cap.enabled=true` ＋ 給定 `max_total_cost_usd`。
 - **刻意排除 `reset_hour`**：fallback 雖有此 key，但配額重置走「台北日界」日期比對、從不讀 `reset_hour`（本身即 inert），故不納入模型，以免再引入死設定。
-- **前端**：`settings → 安全 → Autonomy Budget` 既有面板新增「成本上限」卡（開關＋USD 上限輸入），讓非技術擁有者免改 JSON 即可啟用。
+- **前端**：`settings → 安全 → Autonomy Budget` 既有面板新增「成本上限」卡（開關＋USD 上限輸入），讓非技術使用者免改 JSON 即可啟用。
 
 ## 後果與影響 (Consequences)
 
-- 成本煞車從「永遠失效」變成「可由擁有者一鍵啟用且真正攔截」；每日配額亦可調整。
+- 成本煞車從「永遠失效」變成「可由使用者一鍵啟用且真正攔截」；每日配額亦可調整。
 - **API 變更**：`AutonomyConfigModel` 新增兩個帶預設的選用欄位 → `openapi.json` ＋ 前端 `api.ts` 已重生（Guard #17）；向後相容（既有客戶端忽略新欄位）。
-- 既有部署：autonomy.json 若無 cap/quota，runtime 仍落回相同預設（行為不變）；擁有者於 UI 儲存一次後，admin POST 會把完整 model dump（含 cap/quota）寫回檔案。
+- 既有部署：autonomy.json 若無 cap/quota，runtime 仍落回相同預設（行為不變）；使用者於 UI 儲存一次後，admin POST 會把完整 model dump（含 cap/quota）寫回檔案。
 - 範圍僅 #1（成本上限/配額）。稽核其餘 autonomy 漂移（`.example` 的 `pulse_cooldown_seconds`/`enable_heartbeat` inert、`max_pulses_per_session` inert 等）留待後續優先序處理。
 
 ## Action Items

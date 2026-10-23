@@ -116,7 +116,7 @@ ToukaProxy/src/services/identity_router.py          # :96/:105/:119 閘讀→hum
 
 **identity_router.py:105 走私殲滅**（§8-1）：舊碼把 `"admin"` 字串貼到 `is_human=False`
 身分（`role="admin"`）＝跨面走私。改雙分支：admin 駕駛員 → `human_role="admin"`／
-`agent_role=None`（**Option A：僅管理權**，擁有者拍板；不繼承目標軀體工具/is_owner）；
+`agent_role=None`（**Option A：僅管理權**，維護者決定；不繼承目標軀體工具/is_owner）；
 非 admin 擁有者 → `role=get_role_key(target)`（value-route 至 agent_role＝成為軀體）。
 **行為逐欄位保持**（舊 role="admin" 亦 value-route 至 human_role="admin"）。§8-1 字面的
 「agent_role=目標軀體」（Option B，admin 繼承軀體特權）**未採**，留日後明示。
@@ -202,7 +202,7 @@ agent_reset——讀寫 role 但非比較閘，regex 不偵測），它們隨各
 - P5（identity_router：3 閘讀＋admin 代打走私殲滅 Option A）：閘＋路徑矩陣**零 cell 變動**；
   代打雙向測試（admin 過管理閘 ✓／owner ✗）；後端 pytest 3184（+2）、ruff 零新增、
   openapi 無變、guard_all 41/41、Guard #41 `_BASELINE` 1→0。
-- **P6（四刻意行為修正，擁有者核准四條全做）**：a. identity_map 寫入只驗 `ASSIGNABLE_AGENT_ROLES`
+- **P6（四刻意行為修正，維護者核准四條全做）**：a. identity_map 寫入只驗 `ASSIGNABLE_AGENT_ROLES`
   （拒 admin/System，200→422）；b. is_owner Debugger 旁路補 `not is_human`；c. `_resolve_project_path`:503
   拆顯式雙面（admin 代打失 :503 工作區旁路、與 get_vault_root/is_owner 一致）；d. 跨面純度
   validator（`CrossPlaneRoleError`：agent_role ∉ HUMAN_ROLES、human_role ∉ AGENT_ROLES）＋移除

@@ -13,7 +13,7 @@ CHAIN_METACHAR_RE = re.compile(r"[;|`\n\r]|&&|\|\||[$][(]|[<>][(]")
 RUNNABLE_STRATEGIES = frozenset({"ALLOW", "CONFIRM"})
 _WINDOWS_SHELLS = frozenset({"powershell", "wsl"})  # Windows 上 execute_command 的 env
 
-# Auto 模式下只有人能核准的動態 shell 寫法（決定 4 丙，ADR-0246）：讓「看到的」和
+# Auto 模式下只有人能核准的動態 shell 寫法（ADR-0246 決定 4）：讓「看到的」和
 # 「實際跑的」不一樣的變數、子指令、PowerShell 編碼參數、eval，以及把輸出寫進檔案。
 # 引號、簡單管線、萬用字元不在此列（之後交給審查員）。盡力而為、寧嚴勿鬆。
 DYNAMIC_SHELL_RE = re.compile(

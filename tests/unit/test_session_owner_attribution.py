@@ -157,7 +157,7 @@ async def test_persist_assistant_turn_human_does_not_pollute_agent_id(tmp_path):
         session = await SessionService.get_session_by_id(sid)
     assert session is not None
     assert session["agent_id"] == "gemini-2.5-flash"  # 不被 human UUID 污染
-    # Q2 裁決（不 runtime claim）：owner 僅 INSERT 記錄；既有 legacy session 走
+    # 不 runtime claim：owner 僅 INSERT 記錄；既有 legacy session 走
     # UPDATE 路徑 → owner 維持 NULL（真實流程中 owner 由 save_session 建立時記錄）。
     assert session.get("owner_user_id") is None
 

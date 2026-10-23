@@ -423,7 +423,7 @@ async def test_send_message_and_sns_shim():
 @pytest.mark.parametrize(
     "cfg",
     [
-        # live 權限設定檔已改成新版面（人類 10/12 同意，ADR-0245）
+        # live 權限設定檔已改成新版面（ADR-0245）
         "ToukaProxy/config/permissions.json",
         "ToukaProxy/config/permissions.json.example",
     ],

@@ -106,7 +106,10 @@ class _State:
 
 
 def _wire_model_id(req_model_raw: str) -> str:
-    """模型名只去 ``models/`` 前綴並轉小寫（同型號正規化）；空名或非法名回可讀錯誤（決定 A13）。"""
+    """模型名只去 ``models/`` 前綴並轉小寫（同型號正規化）。
+
+    空名或非法名回可讀錯誤（ADR-0247 決定 A13）。
+    """
     model_id = req_model_raw.lower().removeprefix("models/")
     if not _MODEL_ID.fullmatch(model_id):
         raise ToukaException(

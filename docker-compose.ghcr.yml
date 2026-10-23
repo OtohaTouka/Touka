@@ -60,7 +60,8 @@ services:
         bind:
           create_host_path: false
     # ADR-0221：原 helper 僅在 quiescent、可驗證 metadata 的四個既有 roots 上執行。
-    # 缺少 bind 目錄、symlink／hardlink、未知 filesystem 或不符權限即失敗，不自建／seed。
+    # 缺少 bind 目錄、未知 filesystem 或不符權限即失敗，不自建／seed；symlink、hardlink、FIFO、
+    # socket、setid 檔、帶 xattr 的項目不開啟、不修改，只計數（ADR-0279）。
     command: ["python", "-I", "-B", "permission_init.py", "--profile", "local-permissions-v1", "--expected-uid", "1001", "--expected-gid", "1001"]
 
   # ── 核心 Proxy（單一映像：整合式 ToukaMemory ＋ 內建 ToukaDispatch，ADR-0082）──
