@@ -29,6 +29,15 @@ else:
 
 PROFILE = "local-permissions-v1"
 LAYOUT = ("data", "hf_cache", "proxy_config", "heartbeat_config")
+# Agent workspaces stay as strict as the roots themselves; below them, rebuildable tool
+# directories are left untouched. The names mirror SCAN_SKIP_NAMES (pinned by a test, ADR-0279).
+WORKSPACE_ROOTS = (("data", "personal_drive"), ("data", "mcp_servers"))
+TOOL_DIR_NAMES = frozenset(
+    {"node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", ".tox"}
+    | {".mypy_cache", ".next", "target", "vendor", ".cache", "coverage", "out", ".gradle"}
+    | {".terraform"}
+)
+SKIP_KINDS = ("symlink", "fifo", "socket", "device", "hardlink", "setid_file", "xattr", "tool_dir")
 _CLOSED_REASONS = frozenset(
     {
         "ACCOUNT_MISMATCH",
@@ -193,11 +202,37 @@ def _snapshot(value: StatView) -> Snapshot:
     _require(all(type(item) is int for item in fields), "UNSAFE_METADATA")
     _require(all(item >= 0 for item in fields[:7]), "UNSAFE_METADATA")
     result = Snapshot(*fields)
-    directory = stat.S_ISDIR(result.mode)
-    _require(directory or stat.S_ISREG(result.mode), "UNSAFE_METADATA")
-    _require(result.links >= 1 and (directory or result.links == 1), "UNSAFE_METADATA")
-    _require(not result.mode & (stat.S_ISUID | stat.S_ISGID), "UNSUPPORTED_METADATA")
+    _require(result.links >= 1, "UNSAFE_METADATA")
     return result
+
+
+def _skip_kind(value: Snapshot) -> str | None:
+    """Classify from no-follow metadata; skipped entries are never opened or changed."""
+    mode = value.mode
+    if stat.S_ISDIR(mode):
+        # Linux keeps S_ISGID on directories across chown; the postcondition still checks it.
+        return None
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+        return "device"
+    _require(stat.S_ISREG(mode), "UNSAFE_METADATA")
+    if value.links != 1:
+        return "hardlink"
+    if mode & (stat.S_ISUID | stat.S_ISGID):
+        return "setid_file"
+    return None
+
+
+def _strict(value: Snapshot) -> Snapshot:
+    """Mount roots and agent workspace roots keep the original closed checks."""
+    _require(stat.S_ISDIR(value.mode), "UNSAFE_METADATA")
+    _require(not value.mode & (stat.S_ISUID | stat.S_ISGID), "UNSUPPORTED_METADATA")
+    return value
 
 
 def _target_mode(value: Snapshot) -> int:
@@ -398,6 +433,7 @@ class _Engine:
         self.handles: set[int] = set()
         self.roots: dict[str, int] = {}
         self.inventory: dict[tuple[str, ...], Snapshot] = {}
+        self.skipped: dict[tuple[str, ...], tuple[str, Snapshot]] = {}
         self.points: dict[str, str] = {}
         self.mount_raw = b""
         self.chown_count = 0
@@ -442,10 +478,14 @@ class _Engine:
             except PermissionFailure:
                 self.cleanup_failed = True
 
-    def inspect(self, fd: int) -> Snapshot:
+    def observe(self, fd: int) -> tuple[Snapshot, bool]:
         value = _snapshot(self.call(self.backend.fstat, fd))
+        return value, self.call(self.backend.xattrs, fd) != []
+
+    def inspect(self, fd: int) -> Snapshot:
+        value, labelled = self.observe(fd)
         # Unknown xattr semantics cannot be certified as preserved by chown.
-        _require(self.call(self.backend.xattrs, fd) == [], "UNSUPPORTED_METADATA")
+        _require(not labelled, "UNSUPPORTED_METADATA")
         return value
 
     def mount_snapshot(self) -> bytes:
@@ -533,43 +573,73 @@ class _Engine:
             if close_iterator is not None:
                 self.call(close_iterator)
 
-    def inventory_scan(self) -> dict[tuple[str, ...], Snapshot]:
+    def inventory_scan(
+        self,
+    ) -> tuple[dict[tuple[str, ...], Snapshot], dict[tuple[str, ...], tuple[str, Snapshot]]]:
         result: dict[tuple[str, ...], Snapshot] = {}
+        skipped: dict[tuple[str, ...], tuple[str, Snapshot]] = {}
         identities: set[tuple[int, int]] = set()
         manifest_bytes = 0
 
-        def visit(fd: int, key: tuple[str, ...]) -> None:
+        def count(key: tuple[str, ...]) -> None:
             nonlocal manifest_bytes
             self.budget()
             _require(
-                len(key) - 1 <= self.limits.depth and len(result) < self.limits.nodes,
+                len(key) - 1 <= self.limits.depth
+                and len(result) + len(skipped) < self.limits.nodes,
                 "LIMIT_EXCEEDED",
             )
-            value = self.inspect(fd)
-            _require((value.dev, value.inode) not in identities, "INODE_ALIAS")
-            identities.add((value.dev, value.inode))
             manifest_bytes += len("/".join(key).encode("utf-8")) + 128
             _require(manifest_bytes <= self.limits.manifest_bytes, "LIMIT_EXCEEDED")
+
+        def visit(fd: int, key: tuple[str, ...], value: Snapshot) -> None:
+            _require((value.dev, value.inode) not in identities, "INODE_ALIAS")
+            identities.add((value.dev, value.inode))
             result[key] = value
             if not stat.S_ISDIR(value.mode):
                 return
-            for name in self.names(fd, self.limits.nodes - len(result), manifest_bytes):
-                self.budget()
+            available = self.limits.nodes - len(result) - len(skipped)
+            for name in self.names(fd, available, manifest_bytes):
+                child_key = (*key, name)
+                count(child_key)
                 expected = _snapshot(self.call(self.backend.lstat, fd, name))
+                strict = child_key in WORKSPACE_ROOTS
+                if strict:
+                    _strict(expected)
+                    kind = None
+                else:
+                    kind = _skip_kind(expected)
+                    if (
+                        kind is None
+                        and stat.S_ISDIR(expected.mode)
+                        and child_key[:2] in WORKSPACE_ROOTS
+                        and name in TOOL_DIR_NAMES
+                    ):
+                        kind = "tool_dir"
+                if kind is not None:
+                    skipped[child_key] = (kind, expected)
+                    continue
                 directory = stat.S_ISDIR(expected.mode)
                 child = self.opened(
                     self.backend.open_child, fd, name, directory, reserve=1 if directory else 2
                 )
                 try:
-                    _require(self.inspect(child) == expected, "METADATA_DRIFT")
-                    visit(child, (*key, name))
+                    observed, labelled = self.observe(child)
+                    _require(observed == expected, "METADATA_DRIFT")
+                    if labelled:
+                        # Opened only to list xattr names; such entries are never changed.
+                        _require(not strict, "UNSUPPORTED_METADATA")
+                        skipped[child_key] = ("xattr", observed)
+                    else:
+                        visit(child, child_key, observed)
                 finally:
                     self.close(child)
             _require(self.inspect(fd) == value, "METADATA_DRIFT")
 
         for role in LAYOUT:
-            visit(self.roots[role], (role,))
-        return result
+            count((role,))
+            visit(self.roots[role], (role,), _strict(self.inspect(self.roots[role])))
+        return result, skipped
 
     def apply_one(self, key: tuple[str, ...]) -> None:
         fd = self.roots[key[0]]
@@ -673,14 +743,14 @@ class _Engine:
         for role in LAYOUT:
             fd = self.opened(self.backend.open_root, role)
             self.roots[role] = fd
-            value = self.inspect(fd)
+            value = _strict(self.inspect(fd))
             _require(
                 stat.S_ISDIR(value.mode) and (value.dev, value.inode) not in root_ids,
                 "ROOT_IDENTITY",
             )
             root_ids.add((value.dev, value.inode))
         self.mount_raw = self.mount_snapshot()
-        self.inventory = self.inventory_scan()
+        self.inventory, self.skipped = self.inventory_scan()
         self.stage = "apply"
         _require(self.mount_snapshot() == self.mount_raw, "MOUNT_DRIFT")
         for role in LAYOUT:
@@ -689,7 +759,7 @@ class _Engine:
             self.apply_one(key)
         self.stage = "verify"
         _require(self.mount_snapshot() == self.mount_raw, "MOUNT_DRIFT")
-        _require(self.inventory_scan() == self.inventory, "METADATA_DRIFT")
+        _require(self.inventory_scan() == (self.inventory, self.skipped), "METADATA_DRIFT")
         self.budget()
 
 
@@ -720,6 +790,7 @@ def run_permission_init(backend: Metadata, *, limits: Limits | None = None) -> d
     partial = engine is not None and engine.mutation_attempted and not success
     if partial and reason != "CLEANUP_FAILED":
         reason = "PARTIAL_PERMISSION_FAILURE"
+    kinds = [kind for kind, _ in engine.skipped.values()] if engine is not None else []
     return {
         "profile": PROFILE,
         "status": "PASS" if success else "FAIL",
@@ -729,6 +800,7 @@ def run_permission_init(backend: Metadata, *, limits: Limits | None = None) -> d
         "nodes": len(engine.inventory) if engine is not None else 0,
         "chown_completed": engine.chown_count if engine is not None else 0,
         "chmod_completed": engine.chmod_count if engine is not None else 0,
+        "skipped": {kind: kinds.count(kind) for kind in SKIP_KINDS},
         "mutation_uncertain": partial,
         "cleanup": "FAIL" if engine is not None and engine.cleanup_failed else "PASS",
     }

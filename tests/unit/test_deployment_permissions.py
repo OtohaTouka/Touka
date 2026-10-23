@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from src.utils.touka_dirs import SCAN_SKIP_NAMES
 
 ROOT = Path(__file__).parent.parent.parent
 
@@ -50,6 +51,8 @@ class SyntheticMetadata:
         self.extra_mounts = ""
         self.mount_calls = 0
         self.mount_change = False
+        self.opened = []
+        self.xattr_keys = set()
         for role in ("data", "hf_cache", "proxy_config", "heartbeat_config"):
             self.add((role,), stat.S_IFDIR | 0o000, nlink=2)
         self.add(("data", "ordinary"), stat.S_IFREG | 0o000)
@@ -102,6 +105,7 @@ class SyntheticMetadata:
             self.hook(self, key)
         if key not in self.rows:
             raise FileNotFoundError
+        self.opened.append(key)
         self.next_fd += 1
         self.handles[self.next_fd] = key
         return self.next_fd
@@ -123,7 +127,9 @@ class SyntheticMetadata:
         return iter([key[-1] for key in self.rows if key[:-1] == parent])
 
     def xattrs(self, fd):
-        return ["system.posix_acl_access"] if self.fault == "acl" else []
+        if self.fault == "acl":
+            return ["system.posix_acl_access"]
+        return ["user.synthetic"] if self.handles[fd] in self.xattr_keys else []
 
     def fchown(self, fd, uid, gid):
         key = self.handles[fd]
@@ -192,12 +198,14 @@ def test_q42_algorithm_rejects_identity_and_capability_drift_before_mutation(
     "defect",
     [
         "missing",
-        "symlink",
-        "hardlink",
-        "fifo",
-        "setuid",
-        "setgid",
         "acl",
+        "root-symlink",
+        "root-setuid",
+        "root-setgid",
+        "root-xattr",
+        "workspace-root-symlink",
+        "workspace-root-xattr",
+        "workspace-root-setgid",
         "root-alias",
         "nested-mount",
         "backing-alias",
@@ -206,21 +214,26 @@ def test_q42_algorithm_rejects_identity_and_capability_drift_before_mutation(
 )
 def test_q42_preflight_rejects_unsafe_metadata_with_zero_changes(permission, defect):
     backend = SyntheticMetadata()
-    leaf = backend.rows[("data", "ordinary")]
+    root = backend.rows[("data",)]
     if defect == "missing":
         del backend.rows[("heartbeat_config",)]
-    elif defect == "symlink":
-        leaf.st_mode = stat.S_IFLNK | 0o777
-    elif defect == "hardlink":
-        leaf.st_nlink = 2
-    elif defect == "fifo":
-        leaf.st_mode = stat.S_IFIFO | 0o600
-    elif defect == "setuid":
-        leaf.st_mode |= stat.S_ISUID
-    elif defect == "setgid":
-        leaf.st_mode |= stat.S_ISGID
     elif defect == "acl":
         backend.fault = "acl"
+    elif defect == "root-symlink":
+        root.st_mode = stat.S_IFLNK | 0o777
+    elif defect == "root-setuid":
+        root.st_mode |= stat.S_ISUID
+    elif defect == "root-setgid":
+        root.st_mode |= stat.S_ISGID
+    elif defect == "root-xattr":
+        backend.xattr_keys.add(("hf_cache",))
+    elif defect == "workspace-root-symlink":
+        backend.add(("data", "personal_drive"), stat.S_IFLNK | 0o777)
+    elif defect == "workspace-root-xattr":
+        backend.add(("data", "mcp_servers"), stat.S_IFDIR | 0o700, nlink=2)
+        backend.xattr_keys.add(("data", "mcp_servers"))
+    elif defect == "workspace-root-setgid":
+        backend.add(("data", "personal_drive"), stat.S_IFDIR | stat.S_ISGID | 0o700, nlink=2)
     elif defect == "root-alias":
         backend.rows[("proxy_config",)].st_ino = backend.rows[("data",)].st_ino
     elif defect == "nested-mount":
@@ -232,6 +245,142 @@ def test_q42_preflight_rejects_unsafe_metadata_with_zero_changes(permission, def
     result = permission.run_permission_init(backend)
     assert result["status"] == "FAIL" and result["stage"] == "preflight"
     assert not backend.mutations and not backend.handles
+
+
+SKIP_KINDS = ("symlink", "fifo", "socket", "device", "hardlink", "setid_file", "xattr", "tool_dir")
+
+
+@pytest.mark.parametrize(
+    "mode,nlink,kind",
+    [
+        (stat.S_IFLNK | 0o777, 1, "symlink"),
+        (stat.S_IFIFO | 0o600, 1, "fifo"),
+        (stat.S_IFSOCK | 0o600, 1, "socket"),
+        (stat.S_IFCHR | 0o600, 1, "device"),
+        (stat.S_IFBLK | 0o600, 1, "device"),
+        (stat.S_IFREG | 0o600, 2, "hardlink"),
+        (stat.S_IFREG | stat.S_ISUID | 0o700, 1, "setid_file"),
+        (stat.S_IFREG | stat.S_ISGID | 0o700, 1, "setid_file"),
+    ],
+    ids=["symlink", "fifo", "socket", "char", "block", "hardlink", "setuid", "setgid"],
+)
+def test_special_entries_are_skipped_without_being_opened(permission, mode, nlink, kind):
+    backend = SyntheticMetadata()
+    backend.add(("hf_cache", "snapshot-link"), mode, nlink=nlink)
+    before = copy.deepcopy(backend.rows[("hf_cache", "snapshot-link")])
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS"
+    assert ("hf_cache", "snapshot-link") not in backend.opened
+    assert all(key != ("hf_cache", "snapshot-link") for _, key in backend.mutations)
+    assert backend.rows[("hf_cache", "snapshot-link")] == before
+    assert result["skipped"] == {name: int(name == kind) for name in SKIP_KINDS}
+    assert backend.rows[("data", "ordinary")].st_uid == 1001
+    assert not backend.handles
+
+
+def test_xattr_entries_are_read_for_metadata_but_never_changed_or_descended(permission):
+    backend = SyntheticMetadata()
+    backend.add(("data", "labelled"), stat.S_IFREG | 0o600)
+    backend.add(("data", "labelled_dir"), stat.S_IFDIR | 0o700, nlink=2)
+    backend.add(("data", "labelled_dir", "inner"), stat.S_IFREG | 0o600)
+    backend.xattr_keys |= {("data", "labelled"), ("data", "labelled_dir")}
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS"
+    assert result["skipped"]["xattr"] == 2
+    touched = {key for _, key in backend.mutations}
+    assert not touched & {("data", "labelled"), ("data", "labelled_dir")}
+    assert ("data", "labelled_dir", "inner") not in backend.opened
+    assert backend.rows[("data", "labelled")].st_uid == 0
+    assert not backend.handles
+
+
+def test_setgid_directory_below_a_root_is_processed(permission):
+    backend = SyntheticMetadata()
+    backend.add(("data", "shared"), stat.S_IFDIR | stat.S_ISGID | 0o770, nlink=2)
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS"
+    row = backend.rows[("data", "shared")]
+    assert (row.st_uid, row.st_gid) == (1001, 1001)
+    assert stat.S_IMODE(row.st_mode) == stat.S_ISGID | 0o770
+
+
+def test_tool_directories_are_skipped_only_inside_agent_workspaces(permission):
+    backend = SyntheticMetadata()
+    alice = ("data", "personal_drive", "Alice")
+    modules = (*alice, "project", "node_modules")
+    board = (*alice, "missions", "board.json")
+    for key in (
+        ("data", "personal_drive"),
+        alice,
+        (*alice, "project"),
+        modules,
+        (*alice, "missions"),
+        ("data", "mcp_servers"),
+        ("data", "mcp_servers", ".venv"),
+        ("data", "soul"),
+        ("data", "soul", "node_modules"),
+    ):
+        backend.add(key, stat.S_IFDIR | 0o700, nlink=2)
+    backend.add((*modules, "x.js"), stat.S_IFREG)
+    backend.add(board, stat.S_IFREG)
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS"
+    assert result["skipped"]["tool_dir"] == 2
+    skipped = {modules, (*modules, "x.js"), ("data", "mcp_servers", ".venv")}
+    assert not skipped & set(backend.opened)
+    assert not skipped & {key for _, key in backend.mutations}
+    assert backend.rows[board].st_uid == 1001
+    assert backend.rows[("data", "soul", "node_modules")].st_uid == 1001
+
+
+def test_skipped_entries_count_toward_the_node_limit(permission):
+    backend = SyntheticMetadata()
+    for index in range(3):
+        backend.add(("hf_cache", f"link-{index}"), stat.S_IFLNK | 0o777)
+    result = permission.run_permission_init(backend, limits=permission.Limits(nodes=8))
+    assert result["status"] == "FAIL" and result["reason"] == "LIMIT_EXCEEDED"
+    assert not backend.mutations and not backend.handles
+
+
+@pytest.mark.parametrize("change", ["to_regular_file", "to_fifo", "retimed"])
+def test_skipped_entry_changed_after_inventory_fails_closed(permission, change):
+    backend = SyntheticMetadata()
+    backend.add(("hf_cache", "snapshot-link"), stat.S_IFLNK | 0o777)
+    original = backend.mountinfo
+
+    def replace_link(limit):
+        raw = original(limit)
+        if backend.mount_calls == 2:
+            row = backend.rows[("hf_cache", "snapshot-link")]
+            if change == "to_regular_file":
+                row.st_mode = stat.S_IFREG | 0o600
+            elif change == "to_fifo":
+                row.st_mode = stat.S_IFIFO | 0o600
+            else:
+                row.st_mtime_ns += 1
+        return raw
+
+    backend.mountinfo = replace_link
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "FAIL"
+    assert all(key != ("hf_cache", "snapshot-link") for _, key in backend.mutations)
+    assert not backend.handles
+
+
+def test_result_reports_every_skip_kind_without_names(permission, monkeypatch, capsys):
+    backend = SyntheticMetadata()
+    backend.add(("data", "private-link-name"), stat.S_IFLNK | 0o777)
+    monkeypatch.setattr(permission, "NativeMetadata", lambda: backend)
+    argv = ["--profile", "local-permissions-v1", "--expected-uid", "1001", "--expected-gid", "1001"]
+    assert permission.main(argv) == 0
+    output = capsys.readouterr().out
+    assert '"symlink": 1' in output and "private-link-name" not in output
+    for kind in SKIP_KINDS:
+        assert f'"{kind}"' in output
+
+
+def test_tool_directory_names_match_the_project_scan_skip_list(permission):
+    assert permission.TOOL_DIR_NAMES == SCAN_SKIP_NAMES
 
 
 @pytest.mark.parametrize("fault", ["chmod", "chown-after-mutation", "close"])
