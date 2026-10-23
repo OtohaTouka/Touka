@@ -139,6 +139,9 @@ CASES = [
     ("not_yesterday", (), _obs("摘要寫十天前但我說昨天。"), False),
     ("not_yesterday", (), _obs("根據摘要我記得是昨天。"), False),
     ("not_yesterday", (), _obs("摘要說得對是昨天。"), False),
+    ("not_yesterday", (), _obs("摘要說不定是昨天。"), False),
+    ("not_yesterday", (), _obs("摘要說是昨天，但其實是十天前。"), True),  # 「說是」照樣算轉述
+    ("not_yesterday", (), _obs("摘要裡寫的是「昨天」，其實是十天前。"), True),
     ("not_yesterday", (), _obs("The summary says ten days but I'd say yesterday."), False),
     ("not_yesterday", (), _obs("你不是昨天才跟我說要去舊書市集嗎？"), False),  # 反問
     ("not_yesterday", (), _obs("你不是昨天說的嗎？"), False),
