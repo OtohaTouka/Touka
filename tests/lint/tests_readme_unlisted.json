@@ -49,7 +49,6 @@
   "unit/test_debug_role_gates.py",
   "unit/test_dependency_override_isolation.py",
   "unit/test_dependency_override_leak_prevention.py",
-  "unit/test_deployment_permissions.py",
   "unit/test_discovery_errors.py",
   "unit/test_dispatch_deps_parity.py",
   "unit/test_dispatch_identity_fixation.py",

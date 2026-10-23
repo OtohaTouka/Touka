@@ -1,8 +1,10 @@
 # Touka 目前交班
 
-更新：2026-10-22。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
+更新：2026-10-23。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## 1. 現況
+
+- **GHCR 的 `touka-init` 遇到特殊項目改成略過（2026-10-23，ADR-0279）**：以前資料裡只要有一個符號連結（Hugging Face 模型快取一定有）、FIFO、socket、多連結檔、setid、延伸屬性就整個拒絕，用過記憶的 GHCR 部署下一次 `up` 起不來。現在這些項目不開啟、不跟進、不修改，結果多一個 `skipped` 計數；四個掛載根目錄與兩個代理人工作區根目錄照舊嚴格；最後驗證連略過的一起比對，中途被換掉仍失敗；工作區底下 `SCAN_SKIP_NAMES` 那些工具資料夾不往下走（init 裡的副本由測試釘住）。CI 容器 job 用建好的 Proxy 映像在真核心上跑 `tests/docker/permission_init_real.py`；觸發路徑加 `permission_init.py`。原始碼版 compose 不受影響。
 
 - **首次設定精靈改密碼後請重新登入、登入後接續（2026-10-23，ADR-0053 補記）**：第 2 步改完密碼不再直接前進（舊卡已被撤銷，ADR-0144），改請使用者重新登入；接續點存在瀏覽器（`useSetupResume`，1 小時、用過即刪），同一位管理員登入且還有沒設定完的項目時精靈開在下一步，登入頁看到有效接續點會說明。非臨時密碼時第 2 步可「保留目前密碼」；第 7 步會重讀狀態。只改 ToukaChat；登入頁其餘文字仍是寫死的英文（原本就這樣）。尚未部署。
 
@@ -349,9 +351,8 @@
   - 終端配套工具：靈魂的工具清單只勾 `execute_command`、沒勾 `get_command_result`（與 `stop_command`）時，背景指令取結果那一步會被擋（`not_advertised`）；可讓 ToolLayer 自動帶上配套工具或讓 SoulStudio 成組勾選，另排（ADR-0269）。
   - `scripts/lint_ssot.py` 用「完整路徑含 `tools` 等子字串」判斷業務層，測試檔名含 `tools` 時會被當成業務層而誤判 I/O 違規（h2 改檔名避開，守衛未改；已列為候選）。
   - r55（ADR-0271）：子代理與群聊會繼承主對話的少想；IDE 中止後 Proxy 端非串流請求不會跟著停、仍會花錢【推測】；並行的旁路呼叫不互相預留花費、主迴圈第一輪送前不檢查上限；`model_pricing.json` 覆寫不分檔；原生 `stop_sequences` 未轉送；原生 `between_tools` 給 Opus／Haiku 5.5 照原樣轉出（廠商會 400）；少想的實際延遲與 60 秒夠不夠都還沒實測（工具已寫，`docs/proxy/live-check-backlog.md` T1）。
-  - C2-3 決策已記於 ADR-0275，仍待整批整合驗證；原先待重跑的執行器突變已拆成 9 項，依既有驗證紀錄全部因預期防線而失敗，不再列為未完成。容器 CI 現有 28 個觸發路徑，包含隔離模型、設定儲存與 stdio 傳輸。
+  - C2-3 決策已記於 ADR-0275，仍待整批整合驗證；原先待重跑的執行器突變已拆成 9 項，依既有驗證紀錄全部因預期防線而失敗，不再列為未完成。容器 CI 現有 29 個觸發路徑，包含隔離模型、設定儲存與 stdio 傳輸。
   - ADR-0272 的後續候選：執行器層失敗時模型只看到 exit 125；演化在執行器裡裝套件的自動測試與連外網實測；區網網域名（例如 `nas.lan`）的埠自動擋；MPTCP 與 ABI 3 的真核心證據；執行器重啟那一刻讀寫根讀不到時不會自己重試（候選：遇到可恢復的問題每 60 秒重跑 `start()`，不修讀寫根）；綁專案時卡片原因不夠準；自主設定讀不到時安全設定頁的存檔防呆；讓主容器的工具看到代理人在執行器裡起的服務（C2-3 之後評估）。隔離程式的 CI 型別檢查已由 ADR-0278 §7 的 pyrefly 棘輪接上。
-  - GHCR 的 `touka-init`（`permission_init`）遇到符號連結、FIFO、多連結檔等會拒絕啟動，另行處理；dev compose 不受影響（ADR-0272）。
   - MCP 連線（ADR-0273）：direct stdio 自己結束時仍不即時通知，隔離 stdio 已有 EOF 通知；transport 子 task 仍帶 workload bootstrap 票（啟用 heartbeat workload OAuth 前必修）；C2-3 已補 generation 安裝檢查、失聯清單略過、隔離重連與關機閘；compose 的 `stop_grace_period` 列候選。
 
 ## 4. 邊界

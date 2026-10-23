@@ -51,6 +51,7 @@
 | 隔離邊界不碰完整環境 | `tests/lint/test_isolation_boundary_no_full_env.py`（`child_python_env`、`get_full_env`、`get_clean_env`）；`utils/child_env.py` 的說明 | `sandbox_kernel/**`、`services/isolation/**` |
 | 執行器容器、ipc 與 state volume | 三份 compose 的 `touka-executor`、volume `touka-exec-ipc`、`touka-executor-state`、網路 `touka-exec-net`；Dockerfile 預建 `/app/ipc/executor`、`/app/executor_state` | `test_executor_compose_security.py` 釘住 |
 | Linux 隔離 CI 的判定 | `.github/workflows/isolation.yml`＋`scripts/ci/isolation_junit_check.py` | GitHub Actions |
+| GHCR `touka-init` 不往下走的工具資料夾名單（ADR-0279） | `ToukaProxy/src/utils/touka_dirs.py` `SCAN_SKIP_NAMES`；`ToukaHeartbeat/permission_init.py` `TOOL_DIR_NAMES` 是副本（init 獨立執行、不能匯入 Proxy），由 `test_tool_directory_names_match_the_project_scan_skip_list` 釘住相同 | `permission_init` 的代理人工作區走訪 |
 
 ## 隔離第二批（iso-c2）第一段：代理人指令的隔離（2026-10-15，ADR-0272）
 
