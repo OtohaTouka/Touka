@@ -134,6 +134,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 終端指令升級日誌印出指令內容（2026-10-23）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 代理人的終端指令含 shell 串接字元而升級成 CONFIRM 時，`permission_service.classify_command` 的 info 日誌會印出指令前 60 個字；指令裡帶的金鑰（例如 `curl -H "Authorization: Bearer ..."`）就會進日誌（禁令 23 同類）。由 GitHub CodeQL 的 py/clear-text-logging-sensitive-data 在 dev → main 的 PR 抓到 | 日誌只記指令長度，不記內容。測試：`tests/unit/test_c4_c5_c6_c7_security.py::test_metachar_escalation_log_does_not_echo_the_command`（指令帶假金鑰，日誌不得含指令的任何 8 字片段，連截斷印出也擋；修前紅、修後綠）。這裡只管程式日誌：政策稽核帳本 `stats/decisions.csv` 依設計仍記錄完整指令（重置時也刻意保留），指令裡的金鑰會落在那裡，列為後續待處理 |
+
 ### 刪除靈魂的家目錄殘留、首裝密碼檔與密碼重輸（2026-10-21）
 
 | 弱點 | 修正與驗證 |

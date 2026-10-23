@@ -208,7 +208,8 @@ def test_executor_runs_the_proxy_image_unprivileged(rel):
     if rel in LOCAL_BUILDS:  # proxy 建的本機映像；不能被拉成同名的別人映像
         assert executor["pull_policy"] == "never" and "build" in proxy
     else:
-        assert "pull_policy" not in executor and executor["image"].startswith("ghcr.io/")
+        registry, slash, _ = executor["image"].partition("/")
+        assert "pull_policy" not in executor and slash and registry == "ghcr.io"
 
 
 @pytest.mark.parametrize("rel", COMPOSES)
