@@ -835,6 +835,28 @@ class OAuthSqliteStore:
             )
             await db.commit()
 
+    async def has_usable_grant(self, slot: OAuthAuthorizationSlotKey, *, now: float) -> bool:
+        """組工具清單用的只讀查詢（ADR-0281 T1）：不開寫入交易、不改狀態、不解密。
+
+        指標指向不存在的授權算損毀，照 ADR-0206 明確丟出。
+        """
+        async with self._connection() as db:
+            slot_row = await self._find_slot_row(db, slot)
+            if slot_row is None or slot_row["active_grant_id"] is None:
+                return False
+            async with db.execute(
+                "SELECT status, access_expires_at, has_refresh FROM oauth_grants "
+                "WHERE grant_id = ? AND slot_digest = ?",
+                (slot_row["active_grant_id"], slot_row["slot_digest"]),
+            ) as cursor:
+                grant = await cursor.fetchone()
+        if grant is None:
+            raise OAuthStoreCorruptionError()
+        usable_statuses = {OAuthGrantStatus.ACTIVE.value, OAuthGrantStatus.REFRESHING.value}
+        if grant["status"] not in usable_statuses:
+            return False
+        return now < float(grant["access_expires_at"]) or bool(grant["has_refresh"])
+
     async def get_active_grant(
         self,
         slot: OAuthAuthorizationSlotKey,

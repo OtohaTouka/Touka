@@ -238,11 +238,12 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
   | 完全找不到（不是 builtin／memory／plugin，解析出的 MCP 伺服器不在 registry、清單上也沒有任何一對用這台） | `resource_not_found` | （無） |
   | 這一輪的清單不可用（缺失或型別不對；接線問題，伺服器記 error log） | `internal_error` | `advertised_tools_unavailable` |
   | 這一輪沒列出 | `permission_denied` | `not_advertised` |
+  | 列出了，但這是使用者各自授權（`oauth_user`）的 MCP，而這次不是人在場、和靈魂的前景對話（心跳、SNS、群聊成員、子代理、派工等；ADR-0281 T1 的第二層防線，排在審查員與審批卡之前、不寫同意紀錄） | `permission_denied` | `user_scoped_mcp_unavailable` |
 
   `internal_error`／`permission_denied` 兩種另帶 `denied_tool`（模型叫的名稱）與 `suggestion`。
 - 舊名工具（`bash`、`vault_tools`、`project_tools`、`update_my_soul`、`sns_control` 與四個演化舊名）：它的後繼正式工具**全部**在這一輪清單上才放行，不看參數裡的 action（對應表 `tools/builtin/__init__.py` 的 `LEGACY_ADVERTISED_SUCCESSORS`）。舊名各自的角色權限照舊。
 - MCP：核對（伺服器, 裸工具名）這一對。`connect_mcp_server` 掛上的伺服器，下一輪對話才列出（背景執行是下一次脈衝），同一輪叫回 `not_advertised`。伺服器當下沒連上時同樣回 `not_advertised`，不會現場連線。
-- Gate 1 從來不列、因此一律回 `not_advertised` 的三類：使用者各自授權的 MCP（`auth_mode` 為 `oauth_user`、`oauth_client_credentials` 或 enterprise）、還沒連線的共享 MCP、SoulStudio 存成短名的 MCP 工具與外掛（plugin）。修正另開任務（T1、T2，見 ADR-0269）。
+- 使用者各自授權的 MCP（ADR-0281 T1）：只在人在場、和靈魂的前景對話時，ToolLayer 為 `oauth_user` 的伺服器帶身分列出（先做只讀的授權查詢，沒授權不連；第一次連線最多等 5 秒，逾時這一輪不列）；其他情況、`oauth_client_credentials` 與 enterprise 一律不列。還沒連線的共享 MCP 不列成工具，名字寫在每輪會變動的 `<mcp_unavailable>` 區塊。SoulStudio 存成短名的 MCP 工具與外掛（plugin）仍不列，修正另開任務（T2，見 ADR-0269）。
 - 子代理：用自己組裝出的清單，不沿用父代理；`dispatch_subagent` 與 `dispatch_subagent_group` 從請求與清單都拿掉。
 - 成對的工具要一起開：`execute_command` 的非同步流程會叫模型之後呼叫 `get_command_result` 取結果（`tools/terminal.py`）。靈魂的 `enabled_tools` 只勾了 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）；自動帶上配套工具另開後續任務（見 ADR-0269）。
 - `/v1/debug/execute`：人按的執行，不核對清單（行為不變）。

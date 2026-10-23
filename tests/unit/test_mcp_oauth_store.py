@@ -101,7 +101,7 @@ async def _store(tmp_path: Path):
     return store
 
 
-async def _authorized_store(tmp_path: Path, models):
+async def _authorized_store(tmp_path: Path, models, tokens=None):
     store = await _store(tmp_path)
     transaction = await store.create_transaction(
         slot=_slot(models),
@@ -120,7 +120,7 @@ async def _authorized_store(tmp_path: Path, models):
         transaction_id=transaction.transaction_id,
         expected_slot_version=transaction.slot_version,
         binding=_binding(models),
-        tokens=_tokens(models),
+        tokens=tokens or _tokens(models),
         now=1002.0,
     )
     return store
@@ -754,3 +754,64 @@ async def test_rotation_rekeys_registration_before_retiring_key_removal(tmp_path
     assert sum((await store.count_key_references(old_key.kid)).values()) == 0
     store.replace_keyring(keyring_module.OAuthKeyRing(current=new_key))
     assert await store.get_registration(registration_key, now=1002.0) == binding
+
+
+_READ_ONLY_QUERIES = (
+    "SELECT * FROM oauth_slots ORDER BY slot_digest",
+    "SELECT * FROM oauth_grants ORDER BY grant_id",
+    "SELECT * FROM oauth_transactions ORDER BY transaction_id",
+    "SELECT * FROM oauth_runtime_state ORDER BY name",
+)
+
+
+async def _rows(path: Path) -> list[list[tuple]]:
+    async with aiosqlite.connect(str(path)) as db:
+        result = []
+        for query in _READ_ONLY_QUERIES:
+            async with db.execute(query) as cursor:
+                result.append([tuple(row) for row in await cursor.fetchall()])
+        return result
+
+
+@pytest.mark.asyncio
+async def test_usable_grant_check_for_tool_listing_is_read_only(tmp_path):
+    """ADR-0281 T1：組工具清單的授權查詢不寫資料庫、不推進時鐘高水位、不把過期授權改狀態。"""
+    _keyring, models, _store_module = _modules()
+    store = await _authorized_store(tmp_path, models)
+    path = tmp_path / "mcp_oauth.sqlite3"
+    other_slot = _slot(models).model_copy(update={"execution_agent_id": "agent-b"})
+    before = await _rows(path)
+
+    assert await store.has_usable_grant(_slot(models), now=1500.0) is True
+    assert await store.has_usable_grant(_slot(models), now=5000.0) is True  # 有 refresh 可續
+    assert await store.has_usable_grant(other_slot, now=1500.0) is False
+
+    assert await _rows(path) == before
+
+
+@pytest.mark.asyncio
+async def test_usable_grant_check_fails_loud_on_a_dangling_pointer(tmp_path):
+    _keyring, models, store_module = _modules()
+    store = await _authorized_store(tmp_path, models)
+    async with aiosqlite.connect(str(tmp_path / "mcp_oauth.sqlite3")) as db:
+        await db.execute("PRAGMA foreign_keys = OFF")
+        await db.execute("UPDATE oauth_slots SET active_grant_id = ?", ("missing-grant",))
+        await db.commit()
+
+    with pytest.raises(store_module.OAuthStoreCorruptionError):
+        await store.has_usable_grant(_slot(models), now=1500.0)
+
+
+@pytest.mark.asyncio
+async def test_expired_grant_without_refresh_is_unusable_and_left_untouched(tmp_path):
+    """過期又沒有 refresh：回不能用，但不像 get_active_grant 那樣把狀態改成 EXPIRED。"""
+    _keyring, models, _store_module = _modules()
+    no_refresh = _tokens(models).model_copy(update={"refresh_token": None})
+    store = await _authorized_store(tmp_path, models, tokens=no_refresh)
+    path = tmp_path / "mcp_oauth.sqlite3"
+    before = await _rows(path)
+
+    assert await store.has_usable_grant(_slot(models), now=1500.0) is True
+    assert await store.has_usable_grant(_slot(models), now=5000.0) is False
+
+    assert await _rows(path) == before

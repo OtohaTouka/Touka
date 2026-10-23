@@ -67,6 +67,7 @@ from src.protocols.mcp.mrtr import (
     McpMrtrDriver,
     digest_mcp_arguments,
 )
+from src.protocols.mcp.oauth.store import OAuthStoreCorruptionError
 from src.protocols.mcp.oauth.workload.target import (
     McpOAuthTargetBindingError,
     canonical_mcp_transport_url,
@@ -139,6 +140,8 @@ MCP_HTTP_RESTART_SECONDS = 15.0
 MCP_LOST_RELAUNCH_DELAY_SECONDS = 5.0
 MCP_LOST_RELAUNCH_LIMIT = 3
 MCP_LOST_RELAUNCH_RESET_SECONDS = 600.0
+# 組清單時第一次連使用者各自授權的 MCP 最多等幾秒；逾時只略過這一輪（ADR-0281 T1）
+USER_SCOPED_CONNECT_TIMEOUT_S = 5.0
 _JUDGED_DIRECT = object()
 MCP_SERVER_WAITING = "MCP server is waiting for isolation; it has not started."
 MCP_SERVER_BUSY = "MCP server is reconnecting; try again shortly."
@@ -165,6 +168,10 @@ class McpOAuthAuthService(Protocol):
         **kwargs: Any,
     ) -> None:
         """Authorize one interactive request-time OAuth operation。"""
+        ...
+
+    async def has_usable_grant(self, **kwargs: Any) -> bool:
+        """Read-only listing check: no clock advance, no write, no decryption（ADR-0281 T1）。"""
         ...
 
 
@@ -2528,41 +2535,87 @@ class ProtocolManager:
             source_protocol_version=_protocol_version(session),
         )
 
+    async def _user_scoped_listing_handle(
+        self, name: str, request_context: McpRequestContext
+    ) -> LegacyMcpHandle | None:
+        """組清單用：有能用的授權才連，第一次連線最多等一段時間（ADR-0281 T1）。
+
+        授權查詢只讀（不推進時鐘、不寫、不解密）；真的連線時照舊由既有防線推進時鐘（ADR-0206）。
+        逾時只略過這一輪，背景連線照樣跑完（ADR-0273：不從呼叫端取消）。
+        """
+        if self._oauth_auth_service is None:
+            return None
+        try:
+            usable = await self._oauth_auth_service.has_usable_grant(
+                server_name=name,
+                request_context=request_context,
+                installation_generation=self.get_installation_generation(name),
+            )
+        except OAuthStoreCorruptionError:
+            logger.exception("MCP server %s：使用者授權資料損毀，這一輪不列。", name)
+            return None
+        if not usable:
+            return None
+        task = spawn_logged(self._ensure_handle(name, request_context), name=f"mcp-list:{name}")
+        done, _pending = await asyncio.wait({task}, timeout=USER_SCOPED_CONNECT_TIMEOUT_S)
+        if not done or task.exception() is not None:  # 失敗由 spawn_logged 記下
+            return None
+        return task.result()
+
+    def unavailable_shared_servers(self) -> list[str]:
+        """設定好、但現在沒連上的共用伺服器（啟動失敗、斷線、斷路器打開）；只看狀態、不連線。"""
+        names: list[str] = []
+        for name, config in self.registry.servers.items():
+            if not getattr(config, "enabled", True) or config.is_principal_scoped:
+                continue
+            handle = self.handle_pool.get(self.handle_key_for(name, None))
+            breaker = self._circuit_breakers.get(name)
+            if (
+                handle is None
+                or (isinstance(handle.stack, McpConnectionOwner) and not handle.stack.alive)
+                or (breaker is not None and breaker.state.value not in ("CLOSED", "HALF_OPEN"))
+            ):
+                names.append(name)
+        return names
+
     async def get_all_tools(
         self,
         request_context: McpRequestContext | None = None,
     ) -> list[dict[str, Any]]:
-        """列出 shared installations 的工具並在最後一步投影為 provider function schema。
+        """列出工具並在最後一步投影為 provider function schema。
 
-        principal-scoped catalog 必須有 request context；OAuth 尚未於 P1 開放，故不從其他
-        principal handle 聚合，避免私有 catalog 跨人顯示。
+        ``request_context`` 只交給使用者各自授權（``oauth_user``）的 installation（ADR-0281 T1）：
+        共用伺服器照舊不帶身分、不因此連線，快取分區不變；企業版與機器對機器一律略過。每一台
+        各自包住錯誤，一台出錯只略過那一台。
         """
         all_tools = []
         for name, state in self._installations.items():
             scoped_context = (
                 request_context.model_copy(update={"installation_id": name})
-                if request_context is not None
+                if request_context is not None and state.config.auth_mode == "oauth_user"
                 else None
             )
             if state.config.is_principal_scoped and scoped_context is None:
                 continue
-            key = self.handle_key_for(name, scoped_context)
-            handle = self.handle_pool.get(key)
-            if handle is None:
-                pending = self._book.get(name)
-                lock = self._installation_locks.get(name)
-                if (pending is not None and pending.state != "launched") or (
-                    lock is not None and lock.locked()
-                ):
-                    continue
-                # P1 不讓 identity-less catalog enumeration 觸發私有連線；有精確 request
-                # context 時才可 lazy connect。
-                if scoped_context is None:
-                    continue
-                try:
-                    handle = await self._ensure_handle(name, scoped_context)
-                except McpOperationException:
-                    continue
+            try:
+                key = self.handle_key_for(name, scoped_context)
+                handle = self.handle_pool.get(key)
+                if handle is None:
+                    pending = self._book.get(name)
+                    lock = self._installation_locks.get(name)
+                    if (pending is not None and pending.state != "launched") or (
+                        lock is not None and lock.locked()
+                    ):
+                        continue
+                    # 沒有身分的列舉不觸發連線；使用者授權的伺服器先確認有授權才連
+                    if scoped_context is None:
+                        continue
+                    handle = await self._user_scoped_listing_handle(name, scoped_context)
+                    if handle is None:
+                        continue
+            except Exception as exc:
+                logger.warning("略過 server %s：%s", name, self._sanitize_for(name, str(exc)))
+                continue
             if isinstance(handle.stack, McpConnectionOwner) and not handle.stack.alive:
                 continue
             session = handle.session

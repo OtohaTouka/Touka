@@ -5,6 +5,7 @@
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
 - 相關：本 ADR 修訂 ADR-0119 Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完全相容」（改為有條件相容，見決策 5）；補註 ADR-0195（軸 B 不變，這一輪的清單另外也是執行條件）。ADR-0228（原生角色權限）、ADR-0229（批准分類順序）、ADR-0246（三種模式、底線、審查員）、ADR-0206（使用者各自授權的 MCP）、禁令 59（結構化工具錯誤），決策都不變
+- 2026-10-24 由 [ADR-0281](0281-tool-list-follow-ups.md) 修訂（T1）：行為改變第 4 點的 (a) 改成人在場、和靈魂的前景對話時可以用使用者各自授權的 MCP；(b) 還沒連上的共用 MCP 改成在說明區塊列出名字（仍不列成工具）；(c) 等 T2
 
 ## 背景
 

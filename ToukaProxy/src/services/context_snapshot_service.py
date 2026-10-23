@@ -29,6 +29,7 @@ from src.services.prompt_blocks import (
     CONVERSATION_SUMMARY,
     HARNESS_CONTEXT,
     IDE_CONTEXT,
+    MCP_UNAVAILABLE,
     MISSION_AWARENESS,
     PERSONA,
     PROJECT_CONTEXT,
@@ -96,6 +97,13 @@ BLOCK_META: dict[str, dict[str, str]] = {
         "source": "Gate-1 政策過濾（被拒工具的可讀說明）",
         "kind": "real",
         "mock": "（有工具被政策過濾時注入；防模型幻覺被過濾的工具）",
+    },
+    MCP_UNAVAILABLE: {
+        "name": "MCP Unavailable",
+        "layer": "ToolLayer",
+        "source": "ProtocolManager.unavailable_shared_servers()（ADR-0281 T1）",
+        "kind": "real",
+        "mock": "（有設定好但沒連上的共用 MCP 時注入；每輪會變）",
     },
     VALIDATION_PROTOCOL: {
         "name": "Validation Protocol",

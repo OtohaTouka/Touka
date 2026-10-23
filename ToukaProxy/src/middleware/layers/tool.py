@@ -17,6 +17,7 @@ from src.models.policy import PolicyContext
 from src.services.agent_service import agent_service
 from src.services.permission_service import permission_service
 from src.services.prompt_blocks import (
+    MCP_UNAVAILABLE,
     TOOL_AVAILABILITY,
     build_harness_context,
     build_validation_protocol,
@@ -34,9 +35,23 @@ from src.utils.auth_mode import (
     normalize_auth_mode,
     request_is_incognito,
 )
+from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
 
 logger = logging.getLogger(__name__)
+
+
+def _shared_server(registry: Any, server: str) -> bool:
+    """設定裡找得到、而且不是要個人授權的伺服器；要個人授權的只由 get_all_tools 帶身分列出。"""
+    config = registry.get_server(server) if registry is not None else None
+    return config is not None and getattr(config, "is_principal_scoped", False) is not True
+
+
+def _unavailable_shared_servers(protocol_manager: Any) -> list[str]:
+    """沒連上的共用伺服器；替身沒有這個方法時當成沒有（只看狀態、不連線）。"""
+    if not callable(getattr(type(protocol_manager), "unavailable_shared_servers", None)):
+        return []
+    return list(protocol_manager.unavailable_shared_servers())
 
 # P2a：改動類（mutating）開發工具——廣告集含其一即注入 <validation_protocol>
 # 慣例段（開發流程才提示自我驗證，不擾唯讀/一般 persona 對話）。
@@ -185,7 +200,7 @@ class ToolLayer(ProxyLayer):
                 if registry:
                     for t_name in desired_tools:
                         server_id = registry.find_server_by_tool_name(t_name)
-                        if server_id:
+                        if server_id and _shared_server(registry, server_id):
                             is_authorized = permission_service.is_mcp_server_allowed(
                                 server_id, identity
                             )
@@ -201,6 +216,8 @@ class ToolLayer(ProxyLayer):
                             f"ToolLayer: Skill MCP '{_srv}' not in registry, skipping."
                         )
                         continue
+                    if _registry and not _shared_server(_registry, _srv):
+                        continue  # 要個人授權：只由下面的 get_all_tools 帶身分列出（ADR-0281 T1）
                     if permission_service.is_mcp_server_allowed(_srv, identity):
                         await protocol_manager.ensure_connected(_srv)
                     else:
@@ -209,7 +226,18 @@ class ToolLayer(ProxyLayer):
                         )
 
             # 軸 A（per-installation）已於 get_all_tools 供給面濾除，此處只做軸 B（身分面）。
-            mcp_tools = await protocol_manager.get_all_tools()
+            # 使用者各自授權的 MCP 只在人在場、和靈魂的前景對話時帶身分（ADR-0281 T1）。
+            listing_context = (
+                mcp_request_context(
+                    ctx,
+                    ctx["identity"],
+                    request_id=str(ctx.get("request_id") or "tool-listing"),
+                    installation_id="",
+                )
+                if user_scoped_mcp_allowed(ctx, request_model=getattr(request, "model", None))
+                else None
+            )
+            mcp_tools = await protocol_manager.get_all_tools(request_context=listing_context)
             for mcp_tool in mcp_tools:
                 server_name = mcp_tool.get("server", "Unknown")
 
@@ -236,7 +264,21 @@ class ToolLayer(ProxyLayer):
                 if show_tool:
                     mcp_tool["category"] = "MCP"
                     combined_schemas.append(mcp_tool)
-        
+
+            # 9b. 沒連上的共用伺服器只在說明裡寫明、不列成工具（ADR-0281 T1，決定 1 甲）
+            unavailable = [
+                server
+                for server in _unavailable_shared_servers(protocol_manager)
+                if permission_service.is_mcp_server_allowed(server, identity)
+                and (
+                    not is_dispatcher_active
+                    or server in active_session_mcps
+                    or server in skill_required_mcp
+                )
+            ]
+            if unavailable:
+                self._inject_unavailable_note(request, unavailable)
+
         # 11. 最終過濾
         if desired_tools:
             essential_tools = ["connect_mcp_server", "agent_control", "search_skill_market"]
@@ -322,6 +364,20 @@ class ToolLayer(ProxyLayer):
         lines.append("提示：工具清單以實際提供者為準；請只使用清單內的工具。")
         note = "\n" + wrap_block(TOOL_AVAILABILITY, "\n".join(lines)) + "\n"
 
+        if "anthropic" in str(type(request)).lower():
+            inject_anthropic_system(request, note)
+            return
+        messages = getattr(request, "messages", None)
+        if messages is not None:
+            inject_openai_system(messages, note)
+
+    def _inject_unavailable_note(self, request: Any, servers: list[str]) -> None:
+        """把「設定好但沒連上的共用 MCP」寫進每輪會變動的 system 區塊（不列成工具）。"""
+        note = wrap_block(
+            MCP_UNAVAILABLE,
+            "以下 MCP 伺服器已設定但目前沒連上，這一輪叫不到它們的工具："
+            f"{'、'.join(servers)}。不要呼叫、也不要聲稱用過它們；需要時告訴使用者它們沒連上。",
+        )
         if "anthropic" in str(type(request)).lower():
             inject_anthropic_system(request, note)
             return

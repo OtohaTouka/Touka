@@ -345,7 +345,6 @@
   - 重複掃描（`manage_dups` 的 scan）和存記憶共用查重門檻，0.93 下幾乎列不出換句話說的重複；【推測】掃描只列給人看，可改用較低的門檻（例如 0.85 時列出 92% 的重述、也列出 47.5% 的更新），另排（ADR-0265）。
   - 門檻只量了 e5-base（合成短句 39 組）；e5 其他尺寸套同一組值、真實記憶下的分數是否偏移都沒驗證（ADR-0265）。
   - 【推測】Gemini 出場對外部 MCP 工具的 `$ref`／`$defs` 不處理，欄位只寫在條件分支裡的也會在剝分支時消失；這類 MCP 工具在 Gemini 可能被拒收或變成沒有欄位（ADR-0266）。
-  - T1：ToolLayer 帶精確的 request context，把使用者各自授權的 MCP（oauth／enterprise）與還沒連線的共享 MCP 列給模型；在那之前這兩類一律回 `not_advertised`（ADR-0269）。
   - T2：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名，靈魂設了工具清單時 MCP 工具一律被濾掉），並決定外掛選項的語意；要讓模型用外掛時，「列給模型＋補角色權限」一起另開 ADR（ADR-0269）。
   - h2 附帶發現、未修：ToukaUI 的 `openDiff`（不帶伺服器前綴）回 `resource_not_found`；ModelStudio 的工具選單是空的（端點沒回它讀的 `data.tools`）（ADR-0269）。
   - 終端配套工具：靈魂的工具清單只勾 `execute_command`、沒勾 `get_command_result`（與 `stop_command`）時，背景指令取結果那一步會被擋（`not_advertised`）；可讓 ToolLayer 自動帶上配套工具或讓 SoulStudio 成組勾選，另排（ADR-0269）。
