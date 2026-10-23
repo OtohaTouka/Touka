@@ -560,7 +560,7 @@ class _Engine:
                     and not any(value in name for value in ("/", "\\", "\x00")),
                     "ENTRY_NAME",
                 )
-                used += len(name.encode("utf-8")) + 128
+                used += len(os.fsencode(name)) + 128
                 _require(
                     len(result) < available and used + manifest_bytes <= self.limits.manifest_bytes,
                     "LIMIT_EXCEEDED",
@@ -589,7 +589,7 @@ class _Engine:
                 and len(result) + len(skipped) < self.limits.nodes,
                 "LIMIT_EXCEEDED",
             )
-            manifest_bytes += len("/".join(key).encode("utf-8")) + 128
+            manifest_bytes += len(os.fsencode("/".join(key))) + 128
             _require(manifest_bytes <= self.limits.manifest_bytes, "LIMIT_EXCEEDED")
 
         def visit(fd: int, key: tuple[str, ...], value: Snapshot) -> None:
@@ -609,13 +609,22 @@ class _Engine:
                     kind = None
                 else:
                     kind = _skip_kind(expected)
+                    directory = stat.S_ISDIR(expected.mode)
                     if (
                         kind is None
-                        and stat.S_ISDIR(expected.mode)
+                        and directory
+                        and len(child_key) >= 4
                         and child_key[:2] in WORKSPACE_ROOTS
                         and name in TOOL_DIR_NAMES
                     ):
                         kind = "tool_dir"
+                    # Adding owner bits clears S_ISGID (not in group 1001, no CAP_FSETID).
+                    _require(
+                        kind is not None
+                        or not (directory and expected.mode & stat.S_ISGID)
+                        or _target_mode(expected) == stat.S_IMODE(expected.mode),
+                        "UNSUPPORTED_METADATA",
+                    )
                 if kind is not None:
                     skipped[child_key] = (kind, expected)
                     continue

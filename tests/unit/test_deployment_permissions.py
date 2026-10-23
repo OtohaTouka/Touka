@@ -309,28 +309,89 @@ def test_tool_directories_are_skipped_only_inside_agent_workspaces(permission):
     alice = ("data", "personal_drive", "Alice")
     modules = (*alice, "project", "node_modules")
     board = (*alice, "missions", "board.json")
+    server_venv = ("data", "mcp_servers", "srv", ".venv")
+    processed = (
+        ("data", "soul", "node_modules"),
+        ("data", "soul", "Alice", "node_modules"),
+        ("data", "personal_drive", "build"),
+        ("data", "mcp_servers", ".venv"),
+        (*alice, "out"),
+        board,
+    )
     for key in (
         ("data", "personal_drive"),
         alice,
         (*alice, "project"),
         modules,
         (*alice, "missions"),
+        ("data", "personal_drive", "build"),
         ("data", "mcp_servers"),
         ("data", "mcp_servers", ".venv"),
+        ("data", "mcp_servers", "srv"),
+        server_venv,
         ("data", "soul"),
         ("data", "soul", "node_modules"),
+        ("data", "soul", "Alice"),
+        ("data", "soul", "Alice", "node_modules"),
     ):
         backend.add(key, stat.S_IFDIR | 0o700, nlink=2)
     backend.add((*modules, "x.js"), stat.S_IFREG)
     backend.add(board, stat.S_IFREG)
+    backend.add((*alice, "out"), stat.S_IFREG)
     result = permission.run_permission_init(backend)
     assert result["status"] == "PASS"
     assert result["skipped"]["tool_dir"] == 2
-    skipped = {modules, (*modules, "x.js"), ("data", "mcp_servers", ".venv")}
+    skipped = {modules, (*modules, "x.js"), server_venv}
     assert not skipped & set(backend.opened)
     assert not skipped & {key for _, key in backend.mutations}
-    assert backend.rows[board].st_uid == 1001
-    assert backend.rows[("data", "soul", "node_modules")].st_uid == 1001
+    for key in processed:
+        assert backend.rows[key].st_uid == 1001, key
+
+
+def test_setgid_directory_that_needs_owner_bits_fails_before_any_change(permission):
+    backend = SyntheticMetadata()
+    backend.add(("data", "trap"), stat.S_IFDIR | stat.S_ISGID | 0o070, nlink=2)
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "FAIL" and result["stage"] == "preflight"
+    assert result["reason"] == "UNSUPPORTED_METADATA"
+    assert not backend.mutations and not backend.handles
+
+
+def test_setgid_tool_directory_in_a_workspace_is_skipped_not_refused(permission):
+    backend = SyntheticMetadata()
+    for key in (("data", "personal_drive"), ("data", "personal_drive", "Alice")):
+        backend.add(key, stat.S_IFDIR | 0o700, nlink=2)
+    backend.add(("data", "personal_drive", "Alice", "node_modules"), stat.S_IFDIR | 0o2070, nlink=2)
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS" and result["skipped"]["tool_dir"] == 1
+
+
+def test_undecodable_entry_name_does_not_break_the_walk(permission):
+    backend = SyntheticMetadata()
+    backend.add(("data", "bad-\udcff-name"), stat.S_IFREG | 0o600)
+    result = permission.run_permission_init(backend)
+    assert result["status"] == "PASS"
+    assert backend.rows[("data", "bad-\udcff-name")].st_uid == 1001
+
+
+def test_skipped_entries_count_toward_the_depth_limit(permission):
+    backend = SyntheticMetadata()
+    backend.add(("hf_cache", "models"), stat.S_IFDIR | 0o700, nlink=2)
+    backend.add(("hf_cache", "models", "link"), stat.S_IFLNK | 0o777)
+    result = permission.run_permission_init(backend, limits=permission.Limits(depth=1))
+    assert result["status"] == "FAIL" and result["reason"] == "LIMIT_EXCEEDED"
+    assert not backend.mutations and not backend.handles
+
+
+def test_skipped_entries_count_toward_the_manifest_limit(permission):
+    # Names fit the per-directory check; only the cumulative path bytes of the
+    # skipped entries push the manifest over the limit.
+    backend = SyntheticMetadata()
+    for index in range(10):
+        backend.add(("hf_cache", f"link-{index:05d}"), stat.S_IFLNK | 0o777)
+    result = permission.run_permission_init(backend, limits=permission.Limits(manifest_bytes=2000))
+    assert result["status"] == "FAIL" and result["reason"] == "LIMIT_EXCEEDED"
+    assert not backend.mutations and not backend.handles
 
 
 def test_skipped_entries_count_toward_the_node_limit(permission):

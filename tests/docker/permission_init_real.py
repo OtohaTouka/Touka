@@ -13,8 +13,12 @@ root 建立；init 用和 GHCR compose 相同的權限執行（root、只留 CHO
 - ``pass``：照常通過；略過的項目（Hugging Face 快取形狀的符號連結、指到外面的連結、FIFO、socket、
   多連結檔、setuid 檔、工作區的 ``node_modules``）前後不變，外面那個 root 的檔沒被碰；該改的改成
   1001，只需改擁有者的 setgid 資料夾改完 setgid 還在。
-- ``setgid_needs_bits``：setgid 資料夾還要補擁有者權限位元，核心會清掉 setgid，照舊失敗。
-- ``root_xattr``：角色根目錄帶延伸屬性，照舊失敗。
+- ``setgid_needs_bits``：setgid 資料夾還要補擁有者權限位元（核心補位元時會清掉 setgid），盤點時就
+  拒絕，什麼都不改。
+- ``root_xattr``：角色根目錄帶延伸屬性，照舊失敗，什麼都不改。
+
+``outside`` 也以 subpath 掛進 init 容器（不在任何角色底下），所以指到外面的連結真的解析得到；init 若
+跟進連結，外面那個 root 的檔就會被改，檢查會抓到。
 
 不加 ``--keep`` 時結束後刪掉建立的 volume；容器都是 ``--rm``。
 """
@@ -71,6 +75,7 @@ folder("/v/tool", 0o755, 0)
 for role in ("data", "hf_cache", "proxy_config", "heartbeat_config"):
     folder("/v/tool/" + role, 0o755, 0)
     folder("/v/" + role)
+folder("/v/tool/outside", 0o755, 0)
 folder("/v/outside", 0o700, 0)
 file("/v/outside/secret", 0o600, 0)
 
@@ -99,7 +104,7 @@ if case == "pass":
         folder("/v/hf_cache/" + path)
     file("/v/hf_cache/models--x/blobs/abc")
     link("../../blobs/abc", "/v/hf_cache/models--x/snapshots/main/config.json")
-    link("/v/outside/secret", "/v/hf_cache/link-out")
+    link("/pinit/outside/secret", "/v/hf_cache/link-out")
     file("/v/proxy_config/settings.json")
 elif case == "setgid_needs_bits":
     folder("/v/data/needbits", 0o2070)
@@ -156,7 +161,7 @@ PASS_SKIPPED = {
     "tool_dir": 1,
 }
 EXPECTED_FAILURE = {
-    "setgid_needs_bits": "PARTIAL_PERMISSION_FAILURE",
+    "setgid_needs_bits": "UNSUPPORTED_METADATA",
     "root_xattr": "UNSUPPORTED_METADATA",
 }
 
@@ -181,7 +186,7 @@ def _as_root(image: str, volume: str, *command: str, stdin: bytes = b"") -> byte
 
 def _run_init(image: str, volume: str) -> dict[str, object]:
     mounts = ["--mount", f"type=volume,src={volume},dst=/pinit,volume-subpath=tool,readonly"]
-    for role in ROLES:
+    for role in (*ROLES, "outside"):
         mounts += ["--mount", f"type=volume,src={volume},dst=/pinit/{role},volume-subpath={role}"]
     caps = [f"--cap-add={cap}" for cap in CAPS]
     isolation = ["--user", "0", "--network", "none", "--cap-drop", "ALL", *caps]
@@ -219,8 +224,10 @@ def _check(case: str, image: str, volume: str) -> list[str]:
         expected = EXPECTED_FAILURE[case]
         if result.get("status") != "FAIL" or result.get("reason") != expected:
             problems.append(f"expected FAIL/{expected}, got {result}")
-        if after.get("outside/secret") != before.get("outside/secret"):
-            problems.append("outside/secret changed")
+        paths = set(before) | set(after)
+        changed = sorted(path for path in paths if before.get(path) != after.get(path))
+        if changed:
+            problems.append(f"failed run still changed {changed}")
     return problems
 
 
@@ -245,8 +252,9 @@ def main() -> int:
         if args.keep:
             sys.stdout.write(f"{json.dumps({'kept_volumes': created})}\n")
         else:
-            for volume in created:
-                _docker(["volume", "rm", "-f", volume])
+            left = [v for v in created if _docker(["volume", "rm", "-f", v]).returncode != 0]
+            if left:
+                sys.stdout.write(f"{json.dumps({'volumes_not_removed': left})}\n")
     return 1 if failed else 0
 
 
