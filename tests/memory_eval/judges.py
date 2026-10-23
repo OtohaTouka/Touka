@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 # 內部區塊 tag 出現在輸出就算洩漏（人格、OS 事實、連續性、歷史資料界線）。
 LEAK_MARKERS = ("<persona", "</persona", "<harness_context", "<continuity", "<historical_data")
-_YESTERDAY = ("昨天", "昨日", "yesterday")
 
 _ZH_DIGITS = {"零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6,
               "七": 7, "八": 8, "九": 9}
@@ -126,6 +125,38 @@ _SENTENCE = re.compile(r"[^。！？!?；;～~…\n]+")
 _TRAILING_MARKS = frozenset(" \t.・♪♡❤☆★」』\"'”’)）")
 _TRAILING_CATEGORIES = frozenset({"So", "Sk", "Zs", "Mn", "Cf"})  # emoji 與其修飾字元
 _OPEN_QUOTES = frozenset("「『\"'“‘")
+# 「昨天」只在被當成答案時算錯：直接修飾它的否定、轉述摘要或紀錄的那一段不算
+# （引號只在轉述裡才不算）。
+_YESTERDAY = re.compile(r"昨天|昨日|yesterday", re.IGNORECASE)
+_Q = r"[「『\"“'‘]?"
+_NEGATED_YESTERDAY = re.compile(
+    rf"(?:不是|並非|而非|並不是|不在){_Q}(?:昨天|昨日)"
+    r"|\b(?:not|was\s+not|is\s+not|wasn[’']t|isn[’']t)\s+yesterday",
+    re.IGNORECASE,
+)
+# 轉述詞和「昨天」之間不能夾代名詞、轉折、否定或附和（「摘要寫十天前但我說昨天」「摘要說得對是昨天」
+# 是模型自己的主張）；「摘要說是昨天」照樣算轉述
+_GAP_ZH = r"(?:(?!可是|得對|沒錯)[^，,。！？!?；;\n我你他她但卻而不])"
+_REPORTED_YESTERDAY = re.compile(
+    rf"(?:摘要|紀錄|記錄|前情|筆記){_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示)"
+    rf"{_GAP_ZH}{{0,3}}?{_Q}(?:昨天|昨日)"
+    rf"|(?:記成|寫成|寫作|記為|寫為){_Q}(?:昨天|昨日)"
+    r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
+    r"\b(?:says?|said|writes?|wrote|shows?|lists?|records?)\b[^.,;!?\n]{0,5}?[\"“']?yesterday",
+    re.IGNORECASE,
+)
+# 猜測（「應該是昨天吧？」）與反問（「你不是昨天說的嗎？」）結尾是問號也算錯
+_HEDGE = re.compile(
+    r"應該|大概|可能|也許|或許|好像|吧|\b(?:maybe|probably|perhaps|i think|i guess)\b",
+    re.IGNORECASE,
+)
+_RHETORICAL_ZH = re.compile(
+    r"不(?:就)?是[^，,。！？!?；;\n]{0,8}?(?:昨天|昨日)[^，,。！？!?；;\n]*?(?:嗎|吧)"
+)
+# 英文只看問號結尾的子句：沒有主詞的直述否定（"Wasn't yesterday."）不算反問
+_RHETORICAL_EN = re.compile(
+    r"^(?:wasn[’']t|isn[’']t|didn[’']t|was it not|is it not)\b", re.IGNORECASE
+)
 
 
 def _clause_head(clause: str) -> str:
@@ -208,9 +239,25 @@ def _elapsed_within(obs: TurnObservation, low: int, high: int) -> tuple[bool, st
     return any(low <= d <= high for d in durations), f"durations={durations}"
 
 
+def _asserts_yesterday(clause: str, end: str) -> bool:
+    """這個子句是否把「昨天」當答案；看不懂的照舊算（寧嚴，ADR-0268）。"""
+    if not _YESTERDAY.search(clause):
+        return False
+    question = end in _QUESTION_ENDS
+    if _RHETORICAL_ZH.search(clause) or (
+        question and _RHETORICAL_EN.search(_clause_head(clause))
+    ):
+        return True
+    if question and not _HEDGE.search(clause):
+        return False
+    rest = _REPORTED_YESTERDAY.sub("", _NEGATED_YESTERDAY.sub("", clause))
+    return bool(_YESTERDAY.search(rest))
+
+
 def _not_yesterday(obs: TurnObservation) -> tuple[bool, str]:
-    lowered = obs.text.casefold()
-    hits = [w for w in _YESTERDAY if w in lowered]
+    """逐子句看；否定直接修飾、沒有猜測的問句、轉述摘要或紀錄的「昨天」不算錯。"""
+    hits = [clause.strip() for clause, end in _CLAUSE.findall(obs.text)
+            if _asserts_yesterday(clause, end)]
     return not hits, f"found={hits}"
 
 

@@ -6,10 +6,15 @@ dangerous 直接拒、不觸發審查呼叫）。送出點 ``send_turn`` 可注�
 probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assistant 寫回沙盒對話樹，
 下一輪的歷史與 ``<continuity>`` 都從那裡來。任何一輪送出失敗（含 429／5xx、預算用完）
 整批停下，不重試。
+
+``activity_record=True``（時間軸套件）時，整批打開活動記錄器（和 Proxy 啟動時同一個開關）；
+每個情境開始前等背景寫入做完、清掉合成靈魂的事件、寫入這個情境的時間點（都經產品的讀寫函式）。
+整批結束時關記錄器、讓已排的回呼跑完、等背景寫入做完（有逾時），才交回呼叫端。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -18,8 +23,11 @@ from typing import TYPE_CHECKING, Any
 from memory_server.tools import get_manager
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
+from src.services import continuity_events
 from src.services.proxy_service import process_proxy_request
+from src.utils import task_utils
 from src.utils.async_db import session_service
+from src.utils.continuity_events_db import insert_event, purge_agent_events
 from src.utils.history_manager import TreeMessageManager
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_events import TOOL_RESULT, TOOL_START
@@ -47,6 +55,32 @@ PROVIDER_ERROR_MARKERS = (
 )
 NO_REPLY = "no assistant text and no tool call"
 BUDGET_REACHED = "budget soft cap reached"
+ACTIVITY_DRAIN_TIMEOUT_S = 30.0
+
+
+class ActivityWritesPending(RuntimeError):
+    """背景寫入逾時還沒做完：時間軸可能混到別的情境，整批停下。"""
+
+    def __init__(self, pending: int) -> None:
+        super().__init__(f"{pending} background writes still pending after "
+                         f"{ACTIVITY_DRAIN_TIMEOUT_S:g}s")
+
+
+async def drain_activity_writes(timeout_s: float = ACTIVITY_DRAIN_TIMEOUT_S) -> int:
+    """先讓已排的回呼跑一輪，再等這個迴圈的背景寫入（``spawn_logged``）做完；回逾時後還剩幾筆。
+
+    記錄器從別的執行緒排回來的寫入是回呼，要先讓它跑才看得到它開的背景任務。
+    """
+    loop, current = asyncio.get_running_loop(), asyncio.current_task()
+    deadline = loop.time() + timeout_s
+    while True:
+        await asyncio.sleep(0)
+        pending = {task for task in list(task_utils._background_tasks)
+                   if task.get_loop() is loop and not task.done() and task is not current}
+        remaining = deadline - loop.time()
+        if not pending or remaining <= 0:
+            return len(pending)
+        await asyncio.wait(pending, timeout=remaining)
 
 
 def _tool_status(wire_status: str, error_class: str | None) -> str:
@@ -194,6 +228,7 @@ class MemoryEvalDriver:
         now_ms: Callable[[], int] | None = None,
         auth_level: str = EVAL_AUTH_LEVEL,
         budget_usd: float | None = None,
+        activity_record: bool = False,
     ) -> None:
         self._base_ctx = base_ctx
         self._send_turn = send_turn
@@ -202,6 +237,7 @@ class MemoryEvalDriver:
         self._now_ms = now_ms or (lambda: int(get_current_epoch() * 1000))
         self._auth_level = auth_level
         self._budget_usd = budget_usd
+        self._activity_record = activity_record
         self.spent_usd = 0.0
 
     def _over_budget(self) -> bool:
@@ -214,8 +250,24 @@ class MemoryEvalDriver:
             auth_level=self._auth_level, **extra,
         )
 
+    async def _reset_timeline(self, scenario: Scenario) -> None:
+        """等背景寫入做完 → 清掉合成靈魂的事件 → 寫入這個情境的時間點（產品的讀寫函式）。
+
+        可信紀錄起點記成最早那筆預放事件的時間（三行都有紀錄時模型本來就看不到這行）。
+        """
+        pending = await drain_activity_writes()
+        if pending:
+            raise ActivityWritesPending(pending)
+        rows = seeding.plan_timeline(scenario, self._now_ms())
+        start = min((row.occurred_at for row in rows), default=self._now_ms())
+        await purge_agent_events(seeding.soul_identity(), marker_ms=start)
+        for row in rows:
+            await insert_event(row)
+
     async def seed(self, scenario: Scenario, session_id: str) -> dict[str, Any]:
-        """植入情境資料（目前 session、家對話、前情摘要、事實），回目前 session 的樹。"""
+        """植入情境資料（時間軸、目前 session、家對話、前情摘要、事實），回目前 session 的樹。"""
+        if self._activity_record:
+            await self._reset_timeline(scenario)
         plan = seeding.plan_seed(scenario, self._now_ms())
         await self._save_tree(session_id, plan.session_tree,
                               context_summary=plan.summary or None)
@@ -273,16 +325,34 @@ class MemoryEvalDriver:
             await self._save_tree(session_id, tree)
         return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns))
 
-    async def run_batch(self, scenarios: Iterable[Scenario]) -> BatchReport:
-        report = BatchReport()
+    async def _run_all(self, scenarios: Iterable[Scenario], report: BatchReport) -> None:
         for scenario in scenarios:
             if not report.stopped_reason and self._over_budget():
                 report.stopped_reason = BUDGET_REACHED
             if report.stopped_reason:
                 report.not_run.append(scenario.id)
                 continue
-            result = await self.run_scenario(scenario)
+            try:
+                result = await self.run_scenario(scenario)
+            except ActivityWritesPending as exc:  # 時間軸還沒清乾淨：這個情境不送
+                report.stopped_reason = str(exc)
+                report.not_run.append(scenario.id)
+                continue
             report.results.append(result)
             report.stopped_reason = result.error
+
+    async def run_batch(self, scenarios: Iterable[Scenario]) -> BatchReport:
+        report = BatchReport()
+        if not self._activity_record:
+            await self._run_all(scenarios, report)
+        else:
+            continuity_events.start_recording()
+            try:
+                await self._run_all(scenarios, report)
+            finally:
+                continuity_events.stop_recording()
+                pending = await drain_activity_writes()
+                if pending and not report.stopped_reason:
+                    report.stopped_reason = str(ActivityWritesPending(pending))
         report.spent_usd = self.spent_usd
         return report

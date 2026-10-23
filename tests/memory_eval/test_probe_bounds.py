@@ -16,8 +16,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from memory_server import config_utils
 from memory_server import vector as memory_vector
 from memory_server.factual import FactualStore
+from memory_server.services.manager import MemoryManager
 from src.handlers import react_core
 from src.handlers.adapters.claude_adapter import ClaudeAdapter
 from src.handlers.adapters.gemini_adapter import GeminiAdapter
@@ -32,7 +34,7 @@ from src.services.review import review_loop
 from src.utils.brain_persistence import get_active_brain
 
 from tests.memory_eval import live_bounds, seeding
-from tests.memory_eval.scenarios import SMOKE, select_scenarios
+from tests.memory_eval.scenarios import CONTINUITY, SMOKE, select_scenarios
 from tests.smoke.lib.sandbox_env import SmokeSandboxError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +43,7 @@ probe = importlib.import_module("tests.smoke.manual.memory_eval_probe")
 policy = importlib.import_module("tests.live_api_policy")
 _CLI_ARGS = ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--suite", "smoke",
              "--max-provider-requests", "3", "--max-tokens", "64", "--budget", "0.1"]
+E5 = "intfloat/multilingual-e5-base"  # 10/15 實測時 .env 的嵌入模型
 
 
 @pytest.fixture
@@ -55,6 +58,9 @@ def restore_product(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dialogue_summarizer, "complete_once", dialogue_summarizer.complete_once)
     monkeypatch.setattr(review_loop, "complete_once", review_loop.complete_once)
     monkeypatch.setattr(memory_vector, "SentenceTransformer", memory_vector.SentenceTransformer)
+    # probe 用 apply_runtime_env 改 EMBEDDING_MODEL：先設成 e5（像 10/15 的 .env），teardown 還原
+    monkeypatch.setenv("EMBEDDING_MODEL", E5)
+    monkeypatch.setattr(MemoryManager, "_vector_store_singleton", None)
     monkeypatch.setattr(probe, "_PROVIDER_REQUEST_BUDGET", None)
     monkeypatch.setattr(probe, "_OUTPUT_CAP", None)
     monkeypatch.setattr(probe, "_LEDGER", None)
@@ -65,10 +71,12 @@ def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> 
     probe._install_bounds(max_requests, wire_cap, model="deepseek-v4-flash", budget=budget)
 
 
-def _scope(max_tokens: int = 64) -> Any:
+def _scope(
+    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",)
+) -> Any:
     return probe._memory_eval_scope(
-        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
-        scenario_ids=["poison_home"], max_requests=3, max_tokens=max_tokens, budget=0.1,
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenario_ids=list(ids), max_requests=3, max_tokens=max_tokens, budget=0.1,
     )
 
 
@@ -288,6 +296,126 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
     with pytest.raises(seeding.SeedOutsideSandbox):
         await probe.run_memory_eval_probe(**{**run, "sandbox_root": Path()}, approval=exact)
     assert installed == []
+    assert config_utils.get_embedding_model_name() == E5  # 範圍不符時替身也沒設
+
+
+class _FakeDriver:
+    built: list[dict[str, Any]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        _FakeDriver.built.append(kwargs)
+
+    async def run_batch(self, _scenarios: Any) -> Any:
+        return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
+
+
+@pytest.mark.parametrize(
+    ("suite", "ids", "recording"),
+    [(SMOKE, ("poison_home",), False), (CONTINUITY, ("continuity_last_visit",), True)],
+)
+async def test_only_the_continuity_batch_turns_the_activity_record_on(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    suite: str, ids: tuple[str, ...], recording: bool,
+) -> None:
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+
+    await probe.run_memory_eval_probe(
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenarios=select_scenarios(suite, list(ids)), max_requests=3, max_tokens=64,
+        budget=0.1, sandbox_root=tmp_path,
+        approval=policy.issue_live_api_approval(
+            approved=True, scope=_scope(suite=suite, ids=ids)),
+    )
+
+    (kwargs,) = _FakeDriver.built
+    assert kwargs["activity_record"] is recording
+
+
+async def _no_init_db() -> None:
+    pass
+
+
+async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    order: list[Any] = []
+    real_pin = probe._pin_stub_embedding
+
+    def _pin() -> dict[str, Any]:
+        order.append("pin")
+        return real_pin()
+
+    async def _init_db() -> None:
+        order.append(("init_db", config_utils.get_embedding_model_name()))
+
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: order.append("bounds"))
+    monkeypatch.setattr(probe, "_pin_stub_embedding", _pin)
+    monkeypatch.setattr(probe, "init_db_async", _init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: order.append("seed"))
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+
+    report = await probe.run_memory_eval_probe(
+        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+        scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+        budget=0.1, sandbox_root=tmp_path,
+        approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+    )
+
+    assert order == ["bounds", "pin", ("init_db", seeding.STUB_EMBEDDING_MODEL), "seed"]
+    assert report["embedding_stub"] == probe._stub_facts()
+
+
+# --- 替身嵌入：名稱與門檻固定，不跟 .env 走 -----------------------------------------
+
+
+def test_stub_name_is_not_an_e5_model() -> None:
+    assert "e5" not in seeding.STUB_EMBEDDING_MODEL.casefold()
+
+
+def test_stub_uses_the_product_default_thresholds_whatever_the_env_says(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = []
+    for model in (E5, "all-MiniLM-L6-v2"):
+        monkeypatch.setenv("EMBEDDING_MODEL", model)
+        seen.append(probe._stub_facts())
+
+    assert seen[0] == seen[1] == {
+        "model": seeding.STUB_EMBEDDING_MODEL, "query_floor": 0.3, "dedup_threshold": 0.92,
+        "note": probe.STUB_NOTE,
+    }
+
+
+def test_pin_overrides_the_env_model(restore_product: None) -> None:
+    assert config_utils.get_embedding_model_name() == E5
+
+    assert probe._pin_stub_embedding() == probe._stub_facts()
+    assert config_utils.get_embedding_model_name() == seeding.STUB_EMBEDDING_MODEL
+
+
+def test_pin_stops_when_the_vector_store_already_exists(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(MemoryManager, "_vector_store_singleton", object())
+
+    with pytest.raises(probe._StubEmbeddingNotPinned):
+        probe._pin_stub_embedding()
+    assert config_utils.get_embedding_model_name() == E5
+
+
+def test_pin_stops_when_the_product_reads_another_name(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config_utils, "get_embedding_model_name", lambda: E5)
+
+    with pytest.raises(probe._StubEmbeddingNotPinned):
+        probe._pin_stub_embedding()
 
 
 def test_scope_lists_every_bound() -> None:
@@ -299,8 +427,20 @@ def test_scope_lists_every_bound() -> None:
                  "wire_max_tokens_ceiling=8192", "other providers send the requested value",
                  "pre_send_worst_case", "budget_usd=0.1000", "provider_retry=0",
                  "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
+                 f"embedding_stub={seeding.STUB_EMBEDDING_MODEL};query_floor=0.3;"
+                 "dedup_threshold=0.92", probe.STUB_NOTE, "activity_record=off",
                  "write_scope=temporary sandbox only"):
         assert item in rendered
+
+
+def test_continuity_scope_says_the_activity_record_is_on() -> None:
+    rendered = policy.format_live_api_scope(
+        _scope(suite=CONTINUITY, ids=("continuity_last_visit", "continuity_recent_done"))
+    )
+
+    assert "suite=continuity" in rendered
+    assert "activity_record=on (seeded events written to the sandbox only)" in rendered
+    assert "activity_record=off" not in rendered
 
 
 def test_haiku_5_5_scope_shows_the_wire_cap_touka_will_send(

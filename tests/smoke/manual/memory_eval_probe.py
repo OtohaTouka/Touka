@@ -13,6 +13,13 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 「已花＋這個請求最壞花費」不超過金額上限、核銷請求預算；不換模型、摘要員與審查員一律不呼叫；
 任何一輪遇到 429／5xx 或其他錯誤，整批停下。報告先印出（含每個請求的用量），再放開紀錄檔、
 記憶庫與向量庫的連線、刪掉沙盒；刪不掉照實回報並以非零結束。
+
+嵌入一律用替身編碼器：產品讀到的嵌入模型名稱在建庫前固定成評估專用名稱（不看 .env），查詢下限
+與查重門檻取產品對這個名稱的預設值；核准範圍與報告都印這一行。分數只代表替身，不代表真實嵌入
+模型的召回。
+
+``--suite continuity``（時間軸）另外打開活動記錄器，每個情境先在沙盒預放活動事件；核准範圍印
+``activity_record=on``。smoke 不開。兩條命令算兩批，各自取得同意。
 """
 
 from __future__ import annotations
@@ -95,7 +102,13 @@ from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient  # noqa: E402
 from memory_server import config_utils  # noqa: E402
 from memory_server import vector as memory_vector  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
-from src.config import ANTHROPIC_API_BASE_URL, strip_anthropic_sdk_env_overrides  # noqa: E402
+from memory_server.services.lifecycle import duplicate_similarity_threshold  # noqa: E402
+from memory_server.services.manager import MemoryManager  # noqa: E402
+from src.config import (  # noqa: E402
+    ANTHROPIC_API_BASE_URL,
+    apply_runtime_env,
+    strip_anthropic_sdk_env_overrides,
+)
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.handlers import react_core  # noqa: E402
 from src.handlers.adapters.claude_adapter import ClaudeAdapter  # noqa: E402
@@ -122,6 +135,7 @@ from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
 from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
+    ACTIVITY_RECORD_SUITES,
     SOUL_ID,
     SUITES,
     UnknownScenario,
@@ -144,6 +158,9 @@ MAX_BUDGET_USD = 2.0
 # 主迴圈的四家共用重試開關（react_core.MAX_SEND_ATTEMPTS 是總送出次數）：只送 1 次、不重試。
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
+STUB_NOTE = "stub encoder; recall does not reflect a real embedding model"
+ACTIVITY_RECORD_ON = "activity_record=on (seeded events written to the sandbox only)"
+ACTIVITY_RECORD_OFF = "activity_record=off"
 _ADAPTERS = (ClaudeAdapter, OpenAIAdapter, ResponsesAdapter, GeminiAdapter)
 _ORIGINAL_SEND_ROUNDS = {adapter: adapter.send_round for adapter in _ADAPTERS}
 _ORIGINAL_EXTRACT_USAGES = {adapter: adapter.extract_usage for adapter in _ADAPTERS}
@@ -183,6 +200,13 @@ class _ProviderRouteMismatch(ValueError):
 class _SoulNotOwner(RuntimeError):
     def __init__(self, role: str) -> None:
         super().__init__(f"synthetic soul resolved to role {role!r}, expected Owner")
+
+
+class _StubEmbeddingNotPinned(RuntimeError):
+    def __init__(self, found: str | None = None) -> None:
+        reason = "the vector store already exists" if found is None else (
+            f"the product reads {found!r}")
+        super().__init__(f"stub embedding model not pinned ({reason}); nothing sent")
 
 
 def _bounded_int(label: str, high: int) -> Callable[[str], int]:
@@ -323,6 +347,27 @@ async def _refuse_auxiliary_call(*args: Any, **kwargs: Any) -> CompletionResult:
     )
 
 
+def _stub_facts() -> dict[str, Any]:
+    """替身的名稱與兩個門檻（經產品自己的查表，不看 .env）。"""
+    name = seeding.STUB_EMBEDDING_MODEL
+    return {"model": name, "query_floor": memory_vector.query_score_floor(name),
+            "dedup_threshold": duplicate_similarity_threshold(name), "note": STUB_NOTE}
+
+
+def _pin_stub_embedding() -> dict[str, Any]:
+    """建庫前把產品讀到的嵌入模型名稱換成替身名稱（之後讀 .env 也蓋不掉）。
+
+    向量庫已經建立（名稱已定）或產品讀回的名稱不符就停下，不送任何請求。
+    """
+    if MemoryManager._vector_store_singleton is not None:
+        raise _StubEmbeddingNotPinned
+    apply_runtime_env({"EMBEDDING_MODEL": seeding.STUB_EMBEDDING_MODEL})
+    found = config_utils.get_embedding_model_name()
+    if found != seeding.STUB_EMBEDDING_MODEL:
+        raise _StubEmbeddingNotPinned(found)
+    return _stub_facts()
+
+
 def _memory_eval_scope(
     *,
     provider: str,
@@ -335,6 +380,7 @@ def _memory_eval_scope(
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> LiveApiScope:
     rate = _dearest_rate(model)
+    stub = _stub_facts()
     return LiveApiScope(
         operation_id="manual_memory_eval_probe",
         provider=provider,
@@ -356,6 +402,9 @@ def _memory_eval_scope(
             "main_loop_send_attempts=1",
             "fallback=0",
             "auxiliary_model_calls=0",
+            f"embedding_stub={stub['model']};query_floor={stub['query_floor']:g};"
+            f"dedup_threshold={stub['dedup_threshold']:g} ({stub['note']})",
+            ACTIVITY_RECORD_ON if suite in ACTIVITY_RECORD_SUITES else ACTIVITY_RECORD_OFF,
             f"env_file={env_file}",
         ),
         data_scope="synthetic persona, facts, conversations and injection text only",
@@ -408,6 +457,7 @@ async def run_memory_eval_probe(
         max_tokens=max_tokens, budget=budget, env_file=env_file,
     ))
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
+    stub = _pin_stub_embedding()
     await init_db_async()
     _seed_sandbox(sandbox_root, model)
     base_ctx = build_base_context()
@@ -425,6 +475,7 @@ async def run_memory_eval_probe(
     driver = runner.MemoryEvalDriver(
         base_ctx=base_ctx, send_turn=runner.pipeline_send_turn,
         save_fact=runner.memory_save_fact, max_tokens=max_tokens, budget_usd=budget,
+        activity_record=suite in ACTIVITY_RECORD_SUITES,
     )
     try:
         report = (await driver.run_batch(scenarios)).to_dict()
@@ -434,6 +485,7 @@ async def run_memory_eval_probe(
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0
     return {
         **report, "provider_requests_used": used, "auxiliary_calls_refused": _AUXILIARY_CALLS,
+        "embedding_stub": stub,
         "wire_max_tokens": {"per_request": wire_cap, "ceiling": OUTPUT_TOKEN_CEILING,
                             "rule": _WIRE_RULE},
         **(_LEDGER.to_dict() if _LEDGER else {}),
