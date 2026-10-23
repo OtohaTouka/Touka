@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface Props {
@@ -14,11 +14,15 @@ interface Props {
 export function ReloginNotice({ onRelogin }: Props) {
   const { t } = useTranslation();
   const [leaving, setLeaving] = useState(false);
+  // 原本的送出鈕已卸載，焦點移到唯一能做的動作，鍵盤與讀螢幕使用者才不會迷路。
+  const goToLogin = useRef<HTMLButtonElement>(null);
+  useEffect(() => { goToLogin.current?.focus(); }, []);
 
   return (
     <div className="space-y-4">
       <p role="status" className="text-sm">{t('setup.relogin.message')}</p>
       <button
+        ref={goToLogin}
         type="button"
         disabled={leaving}
         onClick={() => {

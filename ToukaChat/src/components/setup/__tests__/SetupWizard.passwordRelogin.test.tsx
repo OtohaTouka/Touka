@@ -133,6 +133,9 @@ describe('精靈改完密碼：請重新登入，登入後從下一步接續', (
     expect(await screen.findByText(/密碼已更新。請用新密碼重新登入/)).toBeInTheDocument();
     expect(screen.getByText('步驟 2 / 7：管理員密碼')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /上一步/ })).toBeNull();
+    // 舊卡已失效：關掉精靈會用失效的卡重讀狀態而被登出，所以只留「前往登入」，焦點也移過去。
+    expect(screen.queryByLabelText('關閉設定精靈')).toBeNull();
+    expect(screen.getByRole('button', { name: '前往登入' })).toHaveFocus();
     expect(storedResume()).toMatchObject({ userId: ADMIN.id, stepId: 'api_keys' });
 
     const calls = backend.fetch.mock.calls.map(([url]) => new URL(String(url), 'http://touka.test').pathname);

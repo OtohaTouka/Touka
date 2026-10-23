@@ -98,7 +98,8 @@ export function SetupWizard({ status, initialStepId, onClose, onPasswordChanged,
               {!step.isRequired && <span className="ml-2 text-xs text-muted-foreground">{t('setup.wizard.optional')}</span>}
             </p>
           </div>
-          {step.id !== "complete" && (
+          {/* 改完密碼後關掉精靈會用已撤銷的卡重讀狀態而被登出，只留「前往登入」。 */}
+          {step.id !== "complete" && !passwordChanged && (
             <button
               onClick={onClose}
               className="text-muted-foreground hover:text-foreground text-xl leading-none"

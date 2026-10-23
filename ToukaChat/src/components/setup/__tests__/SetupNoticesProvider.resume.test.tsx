@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SetupNoticesProvider } from '../SetupNoticesProvider';
+import { SetupNoticesProvider, useSetupNotices } from '../SetupNoticesProvider';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSetupStatus, type SetupStatus } from '@/hooks/useSetupStatus';
 import { saveSetupResume } from '@/hooks/useSetupResume';
@@ -30,9 +30,11 @@ const allSet: SetupStatus = {
   api_keys_configured: ['anthropic'],
 };
 
+const refetch = vi.fn();
+
 function signIn(user: { id: string; role: string } | null, status: SetupStatus | null) {
   vi.mocked(useAuth).mockReturnValue({ user, logout: vi.fn() } as unknown as ReturnType<typeof useAuth>);
-  vi.mocked(useSetupStatus).mockReturnValue({ status, isLoading: false, refetch: vi.fn() });
+  vi.mocked(useSetupStatus).mockReturnValue({ status, isLoading: false, refetch });
 }
 
 const app = () => <SetupNoticesProvider><p>app</p></SetupNoticesProvider>;
@@ -97,5 +99,31 @@ describe('重新登入後接續精靈', () => {
     fireEvent.click(screen.getByLabelText('關閉設定精靈'));
     rerender(app());
     expect(screen.queryByText(STEP3)).toBeNull();
+  });
+});
+
+function OpenCreateUserStep() {
+  const { openWizard } = useSetupNotices();
+  return <button type="button" onClick={() => openWizard('create_user')}>open</button>;
+}
+
+describe('第 7 步顯示最新狀態', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it('前進到完成時重讀狀態，第 7 步顯示重讀後的結果', () => {
+    signIn({ id: 'admin-1', role: 'admin' }, unfinished);
+    const tree = () => <SetupNoticesProvider><OpenCreateUserStep /></SetupNoticesProvider>;
+    const { rerender } = render(tree());
+    fireEvent.click(screen.getByRole('button', { name: 'open' }));
+    fireEvent.click(screen.getByRole('button', { name: '略過 — 結束設定' }));
+    expect(refetch).toHaveBeenCalledOnce();
+
+    signIn({ id: 'admin-1', role: 'admin' }, allSet);
+    rerender(tree());
+    expect(screen.getByText(/步驟 7/)).toBeInTheDocument();
+    expect(screen.queryByText('尚未設定任何 API 金鑰')).toBeNull();
   });
 });

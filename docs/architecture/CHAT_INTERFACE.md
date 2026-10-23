@@ -114,7 +114,7 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 - 管理員密碼還是臨時的、初次設定還沒完成這兩個警告，畫在左側邊欄最上面（`SidebarSetupNotices`）。狀態、「稍後」與設定精靈都在 `app/layout.tsx` 的 `SetupNoticesProvider`（在 `AuthGuard` 裡，只呼叫一次 `useSetupStatus`）；這個提供者不能畫任何佔版面的元素，因為 body 是左右排列。
 - 有警告時桌面側欄收合鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
 - 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部導覽與登出仍點得到。
-- 精靈第 2 步改完密碼（後端撤銷所有舊卡，ADR-0144）後不前進：`SetupWizard` 改畫 `ReloginNotice`（隱藏上一步，「前往登入」呼叫 `useAuth().logout()`），並由提供者經 `useSetupResume.saveSetupResume` 記下接續點（localStorage `touka_setup_resume`：`{ userId, stepId, savedAt }`，`SETUP_RESUME_TTL_MS`＝1 小時；三欄型別、步驟名稱、時間不在未來都驗過才算有效，壞的整筆刪；`me.id` 由第 2 步傳上來，畫面已卸載也照寫）。登出時 `AuthGuard` 先卸載整棵樹（含 Toaster），到 `/login` 重新掛上；登入後到首頁不重掛，所以 `useSetupResumeAfterLogin` 在 user 從 null 變成管理員時取一次（別人的不取不刪），提供者等狀態讀到、`hasSetupIssues` 為真才打開精靈。登入頁用 `peekSetupResume`（只看不取）顯示說明。管理員密碼已不是臨時密碼時第 2 步有「保留目前密碼」；前進到第 7 步時呼叫 `onStatusRefresh` 重讀狀態（在 `next()` 裡觸發，不用 effect）。
+- 精靈第 2 步改完密碼（後端撤銷所有舊卡，ADR-0144）後不前進：`SetupWizard` 改畫 `ReloginNotice`（隱藏上一步與 ×，焦點移到「前往登入」，按下呼叫 `useAuth().logout()`），並由提供者經 `useSetupResume.saveSetupResume` 記下接續點（localStorage `touka_setup_resume`：`{ userId, stepId, savedAt }`，`SETUP_RESUME_TTL_MS`＝1 小時；三欄型別、步驟名稱、時間不在未來都驗過才算有效，能解析但格式不對或過期的整筆刪；`me.id` 由第 2 步傳上來，畫面已卸載也照寫）。登出時 `AuthGuard` 先卸載整棵樹（含 Toaster），到 `/login` 重新掛上；登入後到首頁不重掛，所以 `useSetupResumeAfterLogin` 在管理員的 user.id 出現或改變時取一次（登入、帶有效 session 重新整理都算；別人的不取不刪），提供者等狀態讀到、`hasSetupIssues` 為真才打開精靈。登入頁用 `peekSetupResume`（只看不取）顯示說明。管理員密碼已不是臨時密碼時第 2 步有「保留目前密碼」；前進到第 7 步時呼叫 `onStatusRefresh` 重讀狀態（在 `next()` 裡觸發，不用 effect）。
 
 ## 訊息時間戳（ADR-0264）
 
