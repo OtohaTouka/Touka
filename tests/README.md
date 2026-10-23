@@ -1003,7 +1003,11 @@ python scripts/guard_all.py
 | `unit/ToolStepTracker.test.tsx` | HAX G11：記憶/檔案庫工具顯示「記憶：<query/path>」徽章、非記憶工具不顯示 |
 | `unit/ContextMeter.test.tsx` | HAX G12：context % 標示點擊開啟說明面板（揭露載入則數/上限/滑動視窗），空對話不顯示 |
 | `unit/connections.deepResearch.test.ts` | ADR-0087：`deepResearch` 旗標於 openai/anthropic 兩協定皆 threading 至 body `deep_research`（以 onBeforeSend 攔截斷言） |
-| `components/setup/__tests__/SetupWizard.test.tsx` ⭐ | ADR-0118 首裝精靈殼層：首步渲染、Next/Back 步進、第一步無 Back、× 觸發 `onClose`、可捲動 overlay + `m-auto` 卡片（高步驟仍可觸及）|
+| `components/setup/__tests__/SetupWizard.test.tsx` ⭐ | ADR-0118 首裝精靈殼層：首步渲染、Next/Back 步進、第一步無 Back、× 觸發 `onClose`、可捲動 overlay + `m-auto` 卡片（高步驟仍可觸及）；ADR-0053 補記：`initialStepId` 從指定步驟開始（側欄「變更密碼」到管理員密碼）、找不到就從第一步 |
+| `src/components/sidebar/left/__tests__/SidebarSetupNotices.test.tsx` ⭐ | ADR-0053 補記（2026-10-23）左側邊欄的首次設定警告：出現條件對照表（只給管理員；臨時密碼兩張都出現；其他三種只出現設定警告；狀態沒讀到或全設好時不出現）；沒有警告或沒有提供者時完全不畫；密碼警告只有「變更密碼」、不能關；「變更密碼」打開精靈到管理員密碼步驟、「立即設定」從第一步，兩者都呼叫 `onAction`；「稍後」只隱藏設定警告，側欄重新掛上後仍隱藏；關掉精靈會重讀、問題處理好時警告消失；重讀中或重讀失敗保留上次的警告；提供者在有警告時也不在頁面上多畫東西（舊橫幅在最外層排成直欄的回歸） |
+| `unit/LeftSidebar.setupNotices.test.tsx` ⭐ | ADR-0053 補記：兩個警告在左側邊欄裡、「新對話」按鈕上面；按警告的按鈕會呼叫 `onSetupAction`；側欄整欄可上下捲動、不橫向捲動，對話紀錄區有最小高度 |
+| `src/components/layout/__tests__/MainHeader.setupWarning.test.tsx` ⭐ | ADR-0053 補記：有首次設定警告時，桌面側欄收合鈕上有紅點、按鈕名稱說明側欄裡有設定警告；沒有警告時沒有紅點、名稱照舊 |
+| `src/app/__tests__/page.setup-notices.test.tsx` ⭐ | ADR-0053 補記（手機版）：左側欄在 Sheet 裡時，按警告按鈕會把選單收起來（精靈才不會被 Sheet 擋住）；選單沒打開且有警告時選單鈕上有紅點與說明名稱，沒有警告時都沒有；`app/layout.tsx` 在 `AuthGuard` 裡用 `SetupNoticesProvider` 包住頁面（源碼檢查） |
 | `components/setup/steps/__tests__/Step1SystemHealth.test.tsx` ⭐ | ADR-0118 嵌入模型下載＋切換防呆（fail-loud）：模型未變更不打端點直接 `onNext`；變更→下載完成→切換成功→前進；既有記憶需確認顯示警告且不前進，按「仍要切換」以 `force` 切換；下載失敗（status error）顯示錯誤且不前進 |
 | `components/setup/steps/__tests__/Step3ApiKeys.test.tsx` ⭐ | ADR-0118 精靈金鑰輸入（永不回填＋不吞失敗，配合 fetchTouka 不 throw）：輸入框一律留空（含已設 anthropic）、有輸入成功→`POST /v1/config/env` 後 `onNext`、套用失敗（`res.ok=false`）不前進並顯示 detail、網路錯誤不前進並記 SSOT 錯誤、無輸入直接 `onNext` 不 POST |
 | `components/setup/__tests__/Step5DataPath.test.tsx` ⭐ | ADR-0118 雙欄位主機路徑（bug②）：資料目錄＋工作區根目錄兩欄位；皆空直接 `onNext` 不 POST、皆填成功→POST 帶 `data_path`＋`workspace_root`、僅填工作區則只帶 `workspace_root`、失敗（ToukaException 物件 detail）顯示 message 且不前進 |

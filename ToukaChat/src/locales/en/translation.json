@@ -202,14 +202,6 @@
         "no_api_keys": "No API keys configured",
         "admin_temp_password": "Admin password not changed"
       }
-    },
-    "banner": {
-      "setup_incomplete": "🔧 Initial setup is not complete — some security settings need your attention.",
-      "setup_now": "Setup Now",
-      "later": "Later",
-      "dismiss_aria": "Dismiss setup banner",
-      "temp_password": "⚠️ Admin password is still the temporary default — change it immediately to secure your system.",
-      "change_password": "Change Password"
     }
   },
   "connections": {
@@ -1263,6 +1255,16 @@
       "autonomy_config_unreadable": "The autonomy settings (autonomy.json) can't be read, so autonomous runs are paused: tools and heartbeats have stopped (this is also why chat says the total budget is reached). Don't save anything on the Security settings page meanwhile: it would overwrite your original settings with temporary strictest values. Fix the file's permissions, then restart Touka; with Docker run:\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
       "auth_policies_unreadable": "The security rules (auth_policies.json) couldn't be read at startup: every tool and command is refused, and agents can only chat. Fix or restore the file, then restart Touka; to fix the permissions with Docker run:\ndocker compose run --rm touka-init\ndocker compose restart touka-proxy",
       "warning_marker": "A feature is stopped by a settings problem — details in the right sidebar"
+    },
+    "setup_notice": {
+      "temp_password": "The admin password is still the temporary default. Change it now.",
+      "change_password": "Change password",
+      "setup_incomplete": "Initial setup isn't finished — some security settings need your attention.",
+      "setup_now": "Set up now",
+      "later": "Later",
+      "dismiss_aria": "Later: dismiss the setup notice",
+      "toggle_sidebar_aria": "Toggle Sidebar (setup warnings in the sidebar)",
+      "open_menu_aria": "Open menu (setup warnings in the sidebar)"
     },
     "isolation_banner": {
       "mcp": "MCP: {{unisolated}} unisolated, {{waiting}} waiting for isolation, {{suspended}} suspended after an isolation self-test failure.",

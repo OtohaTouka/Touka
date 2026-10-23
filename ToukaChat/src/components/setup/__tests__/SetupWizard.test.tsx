@@ -53,6 +53,19 @@ describe('SetupWizard', () => {
     expect(screen.getByText(/步驟 1/)).toBeInTheDocument();
   });
 
+  it('starts at the given step when initialStepId is set (sidebar「變更密碼」)', () => {
+    render(<SetupWizard status={mockStatus} initialStepId="admin_password" onClose={vi.fn()} />);
+    expect(screen.getByText(/步驟 2/)).toBeInTheDocument();
+    expect(screen.getByLabelText('新密碼')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
+    expect(screen.getByText(/步驟 1/)).toBeInTheDocument();
+  });
+
+  it('falls back to the first step when initialStepId is unknown', () => {
+    render(<SetupWizard status={mockStatus} initialStepId={'no_such_step' as never} onClose={vi.fn()} />);
+    expect(screen.getByText(/步驟 1/)).toBeInTheDocument();
+  });
+
   it('does not show a Back button on the first step', () => {
     render(<SetupWizard status={mockStatus} onClose={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /上一步/ })).toBeNull();
