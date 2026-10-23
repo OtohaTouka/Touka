@@ -186,6 +186,7 @@ def test_contributing_lists_full_ruff_and_eslint_as_ci_ratchets() -> None:
     ]
     assert not bare_full_ruff, "full ruff runs through scripts/lint_ratchet.py"
     assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
     assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
 
 
@@ -205,8 +206,9 @@ def test_ci_runs_the_eslint_ratchet_after_installing_the_frontend() -> None:
     assert steps.index(("ToukaChat", apply)) < position
 
 
-def test_ci_pytest_carries_the_ruff_ratchet() -> None:
+def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
     assert (ROOT / "tests/lint/test_ruff_ratchet.py").is_file()
+    assert (ROOT / "tests/lint/test_pyrefly_ratchet.py").is_file()
     found = [
         (name, job)
         for name, job in _jobs().items()
@@ -220,6 +222,7 @@ def test_contributing_ci_labels_match_what_ci_runs() -> None:
     items = _pr_checklist()
     assert _item_running(items, "ruff check --select F", *PRODUCT_SOURCE_ROOTS) == CI_LABEL
     assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
     assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
     assert _item_running(items, "-m pytest tests/") == CI_LABEL
     assert _item_running(items, "cd ToukaChat", "npm run test") == CI_LABEL

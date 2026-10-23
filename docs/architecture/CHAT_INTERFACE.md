@@ -109,6 +109,12 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 - 「切分存入舊對話」（`useSessionActions.handleSplitExport`）：端點直接歸檔進該靈魂的舊對話庫，回應不含路徑；成功才把前段剪掉（ADR-0264）。
 - 端點行為見 [PROXY_INTERFACE](PROXY_INTERFACE.md) §1.10b 與「Legacy 統計端點」一節。
 
+## 首次設定警告（ADR-0053，2026-10-23 補記）
+
+- 管理員密碼還是臨時的、初次設定還沒完成這兩個警告，畫在左側邊欄最上面（`SidebarSetupNotices`）。狀態、「稍後」與設定精靈都在 `app/layout.tsx` 的 `SetupNoticesProvider`（在 `AuthGuard` 裡，只呼叫一次 `useSetupStatus`）；這個提供者不能畫任何佔版面的元素，因為 body 是左右排列。
+- 有警告時桌面側欄收合鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
+- 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部導覽與登出仍點得到。
+
 ## 訊息時間戳（ADR-0264）
 
 - `MessageNode.timestamp`（毫秒，經 `time_utils.getSystemEpoch`）：使用者訊息在送出時蓋（`buildUserTurnTree`，同一次送出只取一次，保存重試時重算的樹相同）；助理回覆在 `persistDone` 蓋完成時間（`stampNodeTime`）。節點已有時間（含後端寫的心跳節點、重整後接回的節點）一律不動；寫回整棵樹時照原樣帶回。伺服器不補時間（會和讀回核對衝突）。

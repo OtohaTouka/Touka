@@ -7,7 +7,7 @@ import { SessionProvider } from "@/lib/SessionContext";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
-import { SetupBanners } from "@/components/setup/SetupBanners";
+import { SetupNoticesProvider } from "@/components/setup/SetupNoticesProvider";
 import { RetiredSnsStorageCleanup } from "@/components/security/RetiredSnsStorageCleanup";
 import "./globals.css";
 
@@ -43,9 +43,11 @@ export default function RootLayout({
                 <SystemStatusProvider>
                   <AuthGuard>
                     <SessionProvider>
-                      <SetupBanners />
-                      {children}
-                      <Toaster position="bottom-right" />
+                      {/* 首次設定警告畫在左側邊欄裡；這裡只放狀態與精靈，不能放會佔版面的元素（body 是左右排列） */}
+                      <SetupNoticesProvider>
+                        {children}
+                        <Toaster position="bottom-right" />
+                      </SetupNoticesProvider>
                     </SessionProvider>
                   </AuthGuard>
                 </SystemStatusProvider>

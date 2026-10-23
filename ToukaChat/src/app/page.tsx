@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { MainHeader } from '@/components/layout/MainHeader';
+import { SetupNoticeDot } from '@/components/setup/SetupNoticeDot';
+import { useHasSetupNotice } from '@/components/setup/SetupNoticesProvider';
 import {
   Settings, MessageSquare,  BarChart4,
   Menu, Loader2
@@ -67,6 +69,7 @@ function ChatLobby() {
 
   const { isOpen: isRightSidebarOpen, setIsOpen: setRightSidebarOpen, setActiveTab } = useArtifacts();
   const { isSimulationMode } = useDebug();
+  const hasSetupNotice = useHasSetupNotice();
   
   // 視圖狀態持久化：在掛載後讀取以避免 Hydration Mismatch
   const [viewMode, setViewMode] = useState<"chat" | "soul" | "studio" | "pulse" | "vault" | "settings" | "projects">("chat");
@@ -251,9 +254,11 @@ function ChatLobby() {
                 <Sheet open={!isSidebarCollapsed} onOpenChange={(open) => setIsSidebarCollapsed(!open)}>
                   <SheetTrigger asChild>
                     <button 
-                      className="p-2 -ml-2 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                      className="relative p-2 -ml-2 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                      aria-label={hasSetupNotice ? t('sidebar.setup_notice.open_menu_aria') : undefined}
                     >
                       <Menu size={24} />
+                      <SetupNoticeDot />
                     </button>
                   </SheetTrigger>
                   <SheetContent side="left" className="p-0 w-72 border-none shadow-2xl bg-sidebar">
@@ -266,6 +271,7 @@ function ChatLobby() {
                       onVaultClick={() => { setViewMode("vault"); setIsSidebarCollapsed(true); }}
                       onSettingsClick={() => { setViewMode("settings"); setIsSidebarCollapsed(true); }}
                       onProjectsClick={() => { setViewMode("projects"); setIsSidebarCollapsed(true); }}
+                      onSetupAction={() => setIsSidebarCollapsed(true)}
                       activeMode={viewMode}
                       isCollapsed={false}
                     />

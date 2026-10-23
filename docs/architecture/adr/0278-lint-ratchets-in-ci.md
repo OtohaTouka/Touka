@@ -1,8 +1,8 @@
 # ADR-0278：靜態檢查只減不增，並在 CI 執行
 
 - 狀態：✅ 已接受
-- 日期：2026-10-22
-- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）
+- 日期：2026-10-22（2026-10-23 增補 §7，以及 §2 升級帶進新規則）
+- 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）；pyproject.toml 的 `[tool.pyrefly]` 與 root 開發依賴 pyrefly 釘版、`tests/lint/pyrefly_baseline.json`、`tests/lint/test_pyrefly_ratchet.py`
 - 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）
 
 ## 背景
@@ -88,6 +88,24 @@
   - 審查流程的稱呼（DEV-A、reviewer ①），以及 `scripts/guard_harness_context.py` 錯誤訊息裡的 owner decision，改了會改變輸出。
 - **順手拿掉的豁免**：頂層 `tests/` 不再算業務層之後，用不到的 3 個 `# noqa: IO_PRISON_VIOLATION`（NOQA_REGISTRY 16 → 13）。
 
+### 7. Python 型別檢查只減不增（pyrefly，2026-10-23 增補）
+- **工具**：pyrefly，開發依賴釘 `==1.4.0`（MIT，各平台有預先編好的 wheel）。經 uv 鎖檔，有雜湊與 7 天冷卻期；不進 Docker 映像。
+- **範圍先從隔離與安全邊界開始**：`sandbox_kernel/`、`services/isolation/`、`authorization_gateway.py`、`execution_broker.py`。錯誤數少，只減不增才有意義；之後再逐步擴大。範圍寫在 pyproject.toml 的 `[tool.pyrefly]` `project-includes`。
+- **設定**：
+  - `python-platform = "linux"`、`python-version = "3.12"`，Windows 本機和 CI 才會算出同一組錯誤。10/23 實測同一範圍用 win32 平台是 65 個，用 linux 是 34 個。
+  - 不在設定裡寫直譯器路徑。收集指令用 `--python-interpreter-path` 傳入目前的直譯器（`sys.executable`）。
+  - `search-path` 是 `ToukaProxy` 與 `ToukaMemory/src`。原本的 `./ToukaMemory` 對不到 `memory_server`，還可能和 ToukaProxy 的 `src` 撞名；目前範圍內兩種寫法算出的錯誤相同，沒有匯入錯誤。
+  - `use-ignore-files = false`：pyrefly 預設會跳過 `.gitignore`、`.ignore`、`.git/info/exclude` 列的檔案，寫一行就能讓範圍內的檔案不被檢查，而且 `.git/info/exclude` 不進版控，本機和 CI 可能不同。
+- **收集**：`scripts/lint_ratchet.py pyrefly` 跑 `python -m pyrefly check --config pyproject.toml --output-format json`，依錯誤種類（例如 `bad-argument-type`）計數。ruff 與 pyrefly 共用同一個子程序入口與比對、重拍函式。
+- **跑完的判定**：pyrefly 有型別錯誤和設定壞掉時，結束碼都是 1。所以只有結束碼是 0 或 1、輸出是完整的 JSON、而且錯誤輸出每一行都是 INFO 時才算跑完，其他一律當失敗，不當成 0 個錯誤。設定欄位打錯、`search-path` 不存在時，pyrefly 都只印 WARN 就照跑，範圍會悄悄改變。用「只准 INFO」而不是「擋 WARN」，升級後日誌格式變了也會失敗。
+  - 本機設了 `PYTHONPATH`（即使是空值）時 pyrefly 會印 WARN，收集一定失敗；跑之前先取消 `PYTHONPATH`。CI 沒有設。
+- **基準**：`tests/lint/pyrefly_baseline.json`，10/23 是 34 個：`bad-argument-type` 19、`missing-attribute` 14、`bad-assignment` 1。規則同 §1，完全相等，變少要在同一個 PR 重拍。
+- **升級**：升級 pyrefly，或升級會影響型別推論的第三方套件時，數字可能跟著變。在同一個 PR 重拍基準，並在 PR 說明變化。
+- `tests/lint/test_pyrefly_ratchet.py` 另外釘住：
+  - **整份設定**：範圍、`search-path`、平台、版本（和 `.python-version` 一致）、不讀 ignore 檔逐項相等，不准多出排除、錯誤開關或直譯器路徑；收集指令的參數也整組釘住，不准多加 `--ignore` 之類的參數。縮小範圍、排除檔案、關掉錯誤種類都會讓數字悄悄變好看，pyrefly 本身不會警告，所以要調整就得改測試，改動會出現在審查的差異裡。
+  - `project-includes` 的每個樣式都還對得到檔案；範圍內的檔案不准用 `# pyrefly: ignore-errors` 整檔壓制。
+  - 用真的 pyrefly 檢查暫存資料夾裡的小專案，核對輸出格式，並確認欄位打錯、`search-path` 不存在、設定讀不懂都會讓收集失敗。升級 pyrefly 後格式變了，這裡會先失敗。
+
 ## 已知限制
 
 - **每條規則只算總數**：在 A 檔修一個、在 B 檔加一個，數字不變，擋不到。這是刻意的取捨，和 Guard #35 相同，搬移程式才不會誤擋。
@@ -96,8 +114,8 @@
 - **說明文字裡的數量只靠審查**：自由文字不可能用規則擋乾淨，規則只擋固定格式。沒有單位的寫法不擋 100～599 與 1900～2099 的數字（避開 HTTP 狀態碼與年份），所以「標籤（163）：」擋不到；帶 cases／collected／測／案 單位的不受這個限制。粗體只在成對的範圍裡比對。其他寫法靠審查。
 - **凍結清單只靠審查擋住變長**：把新的未列檔加進 `tests_readme_unlisted.json` 測試也會過，要靠審查時看差異擋下。另外，出現同名檔時，錯誤訊息會把原本已列的那一個也列為要「加一列」，要看路徑判斷。
 - **自訂豁免標記的警告**：Touka 的 `# noqa: ENV_SSOT_VIOLATION` 這類標記會讓 ruff 印出約 110 個「無效的 noqa」警告。ruff 只認「字母＋數字」格式的代號，10/22 實測 ruff 0.15.20 的 `lint.external` 消不掉。改寫成別的標記要動 166 行、Guard #19 與規則文字，這次不做；棘輪只讀 JSON 結果，不受影響。
-
-## 後續
-
-同一任務的後續 PR 會在本 ADR 增補：
-- Python 型別檢查（pyrefly）只減不增。
+- **型別檢查的範圍很小**：只涵蓋 §7 列的隔離與安全邊界，其他產品程式沒有型別檢查。
+- **型別檢查看不到動態產生的成員**：`ErrorCode` 是執行時從 errors.json 產生的列舉，型別檢查看不到它的成員。基準 34 個裡有 7 個 `missing-attribute` 是這個原因，不是程式錯誤。
+- **型別檢查的壓制不被計數**：單行的 `# type: ignore` 與 `# pyrefly: ignore` 壓掉的錯誤不算數（10/23 範圍內有 1 個），和 ruff 的 `# noqa` 一樣，靠審查擋。整檔的 `# pyrefly: ignore-errors` 由測試擋。
+- **warn 等級的診斷不計數**：只算 error 等級。10/23 範圍內另有 3 個 warn 等級的診斷（`unreachable`、`deprecated`、`unreachable-except-clause`），不在基準裡。
+- **兩個平台的套件不同**：平台固定只統一型別存根。Windows 的 venv 多了 `pywin32`、`colorama`、`tzdata` 等套件。目前範圍只匯入標準函式庫、`src` 和 `fastapi`，影響小；擴大範圍時要再確認本機和 CI 的數字一致。

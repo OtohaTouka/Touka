@@ -1,5 +1,14 @@
+export type WizardStepId =
+  | "system_health"
+  | "admin_password"
+  | "api_keys"
+  | "secrets"
+  | "data_path"
+  | "create_user"
+  | "complete";
+
 export interface WizardStep {
-  id: string;
+  id: WizardStepId;
   title: string;
   isRequired: boolean;
 }

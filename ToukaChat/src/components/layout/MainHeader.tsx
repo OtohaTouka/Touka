@@ -5,6 +5,8 @@ import {
   LucideIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SetupNoticeDot } from "@/components/setup/SetupNoticeDot";
+import { useHasSetupNotice } from "@/components/setup/SetupNoticesProvider";
 
 interface MainHeaderProps {
   viewMode: "chat" | "soul" | "studio" | "pulse" | "vault" | "settings" | "projects";
@@ -60,6 +62,7 @@ export function MainHeader({
   sysStatus
 }: MainHeaderProps) {
   const { t } = useTranslation();
+  const hasSetupNotice = useHasSetupNotice();
 
   const handleNavClick = (mode: MainHeaderProps["viewMode"]) => setViewMode(mode);
 
@@ -73,10 +76,11 @@ export function MainHeader({
         {!isIDE && (
           <button 
             onClick={onToggleSidebar}
-            className="p-2 -ml-2 text-muted-foreground hover:text-primary transition-colors shrink-0"
-            aria-label={t('layout.main_header.toggle_sidebar')}
+            className="relative p-2 -ml-2 text-muted-foreground hover:text-primary transition-colors shrink-0"
+            aria-label={hasSetupNotice ? t('sidebar.setup_notice.toggle_sidebar_aria') : t('layout.main_header.toggle_sidebar')}
           >
             <Menu size={24} />
+            <SetupNoticeDot />
           </button>
         )}
         <div className={cn("flex items-center gap-2 lg:gap-3 min-w-0", !isIDE && "ml-2 lg:ml-6")}>
