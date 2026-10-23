@@ -168,7 +168,7 @@ def _fail(message: str) -> NoReturn:
 
 def _docker(args: list[str], stdin: bytes = b"") -> subprocess.CompletedProcess[bytes]:
     docker = shutil.which("docker") or _fail("docker is not on PATH")
-    return subprocess.run([docker, *args], input=stdin, capture_output=True, check=False)  # noqa: S603
+    return subprocess.run([docker, *args], input=stdin, capture_output=True, check=False)
 
 
 def _as_root(image: str, volume: str, *command: str, stdin: bytes = b"") -> bytes:
