@@ -67,8 +67,8 @@ npm run guard:all
 docker compose build touka-chat
 ```
 
-> **注意**：`ToukaChat/Dockerfile` 使用固定官方 Node 24.22.1 工具映像；production 的
-> Node 另以相同版本的原始碼套用已核 OpenSSL 修補並建置、驗證。開發 builder 保留
+> **注意**：`ToukaChat/Dockerfile` 與 `Dockerfile.prod` 都從 digest 釘版的官方 Node 24.22.1
+> 映像取得 Node／npm，production 的 runner 直接以該映像為基底。開發 builder 保留
 > `python3 make g++`。全域 lifecycle 維持停用，只有 dev terminal 需要的
 > `node-pty` 會以明示 `npm rebuild node-pty` 在 Linux 容器中編譯。
 

@@ -30,7 +30,7 @@
 - `tests/lint/test_ci_pr_checks.py` 釘住兩件事：這一步要在安裝依賴與 braces 補丁之後跑，而且不能被 `if` 或 `continue-on-error` 跳過。
 - 基準收緊成 `{}`。守衛原本把空基準當成「沒設定」而失敗，改成只有基準檔不存在才算沒設定。
 - 兩者規則不同：Guard #35 照 ADR-0098 是「超過才失敗」，ruff 棘輪是「完全相等」。ESLint 不改，因為兩支既有測試直接替換它的內部函式，改動風險大於好處。
-- **升級帶進新規則時（2026-10-23 增補）**：做法和 §1 的 ruff 升級相同，新規則抓到的既有違規在同一個 PR 凍結進基準，並在 PR 說明；新寫的程式照樣被擋，舊的之後只准減少。第一次是 Next.js 16.4.2：eslint-config-next 16.4.2 要求 eslint-plugin-react-hooks `^7.1.0`，7.1 新增 error 級的 `react-hooks/set-state-in-effect`（18 處）與 `react-hooks/refs`（1 處），基準從 `{}` 變成這 19 個。不把外掛留在舊版，因為 `test_cve_2026_75604_nextjs_security.py` 要求 eslint-config-next 和 next 同版。
+- **升級讓規則多抓到既有程式時（2026-10-23 增補）**：做法和 §1 的 ruff 升級相同，升級後多抓到的既有違規在同一個 PR 凍結進基準，並在 PR 說明；新寫的程式只要讓數量超過基準就被擋。數量降下來以後，要在同一個 PR 跑 `--update` 收緊，否則降下來的空間之後又能被用掉（Guard #35 是「超過才失敗」）。第一次是 Next.js 16.4.2：eslint-config-next 16.4.2 要求 eslint-plugin-react-hooks `^7.1.0`。`react-hooks/set-state-in-effect` 與 `react-hooks/refs` 在 7.0 就是 error 級（repo 裡已有用 `eslint-disable-next-line` 壓掉的例子），7.1 的偵測範圍變寬，在既有程式多抓到 18 處與 1 處，基準從 `{}` 變成這 19 個。沒有選的做法：把 eslint-config-next 留在舊版，會被 `test_cve_2026_75604_nextjs_security.py` 擋下（要求和 next 同版）；用 override 把外掛鎖在 7.0.1，會超出 eslint-config-next 宣告的 `^7.1.0`，還多一個和安全無關的 override；在安全更新裡一次改 19 處 effect，會夾帶行為改變的風險。
 
 ### 3. `lint_ssot` 不把頂層 `tests/` 當業務層
 - **只認 repo 頂層的 `tests/`**：
