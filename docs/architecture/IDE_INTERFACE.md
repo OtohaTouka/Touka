@@ -85,6 +85,9 @@ IDE 工具系統（`vault_tools`, `project_tools` 等）由 ToukaMemory 提供�
 - JSON 請求內容只收未壓縮的：`Content-Type` 是 JSON 的請求帶 `Content-Encoding`（`identity` 或空值除外）
   時回 415。這一步在 Bearer 驗證之前，也在建立任何解壓縮串流之前（GHSA-27r3-jxmh-p828）。其他
   `Content-Type` 不在這裡解析，沒帶權杖照常回 401，整條路上都不解壓縮。
+- 錯誤回應是固定的 JSON：請求內容解析失敗等 4xx 照原狀態碼回 `{"error":"Invalid request"}`，未預期的錯誤回
+  500 `{"error":"Internal server error"}`，不回 stack、錯誤訊息或檔案路徑。Bearer、Host／Origin 等既有的
+  拒絕訊息不變。
 - modern HTTP stream 關閉會把 AbortSignal 傳入工具 executor；終端子程序收到取消後
   會被終止，避免 client 斷線後繼續執行。
 - 多個 modern client 彼此 request-scoped；取消其中一個 stream 後，另一個 client 仍須能執行工具。

@@ -145,6 +145,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### IDE 本機 MCP 伺服器的錯誤頁帶出 stack 與檔案路徑（2026-10-24）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| ToukaIDE 的本機 MCP 伺服器沒有自己的錯誤處理。請求內容解析失敗（格式錯的 JSON 400、超過大小 413、壓縮內容 415）或路由丟出未預期的錯誤時，由 Express 預設處理回 HTML 錯誤頁；擴充主機沒設 `NODE_ENV=production`，所以錯誤頁含 stack，裡面有擴充套件的絕對路徑（含 Windows 使用者名稱）。JSON 解析排在 Bearer 驗證之前，同一台電腦上的其他程式不帶權杖就看得到（伺服器只綁 loopback）。由 body-parser 暫時解法（GHSA-27r3-jxmh-p828）的獨立審查查到 | `ToukaIDE/src/mcp/server.ts` 在掛完 MCP 路由之後加一個錯誤處理：4xx 照原狀態碼回固定的 `{"error":"Invalid request"}`，其他一律回 500 `{"error":"Internal server error"}`，不回 stack、錯誤訊息或路徑；回應已開始送出時交回 Express 預設處理（只關連線）。測試：`ToukaIDE/src/__tests__/mcpServerErrorResponse.test.ts` 起真的 `ToukaMcpServer`，400、413、415 與路由丟錯的 500 都是固定 JSON、不含 stack 與路徑，格式正確但沒帶權杖的請求照舊回 401（修前紅、修後綠） |
+
 ### 終端指令升級日誌印出指令內容（2026-10-23）
 
 | 弱點 | 修正與驗證 |
