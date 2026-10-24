@@ -564,3 +564,76 @@ describe('SoulStudio — 你指定的模型／目前在用的模型', () => {
     expect(screen.queryByText('Top K')).not.toBeInTheDocument();
   });
 });
+
+// ADR-0281 T2：建立與編輯共用同一個工具勾選器；MCP 存 `伺服器/工具`；外掛不列；看不到的條目保留。
+describe('SoulStudio — 工具清單', () => {
+  const STATS = {
+    builtin_schemas: [{ function: { name: 'read' } }],
+    memory_schemas: [],
+    plugin_schemas: [{ function: { name: 'my_plugin' } }],
+    mcp_schemas: [{ function: { name: 'lookup', raw_name: 'srv__lookup' }, server: 'srv', tool: 'lookup' }],
+  };
+
+  function serveTools(enabledTools: string[]) {
+    const soul = { ...SOUL, config: { ...SOUL.config, enabled_tools: enabledTools } };
+    mockFetchTouka.mockImplementation((proxy: string, path: string, opts?: RequestInit) => {
+      if (opts?.method) return baseImpl(proxy, path, opts);
+      if (path === '/v1/tools_stats') return Promise.resolve(Response.json(STATS));
+      if (path === '/v1/souls') return Promise.resolve(Response.json({ souls: [soul] }));
+      return baseImpl(proxy, path, opts);
+    });
+  }
+
+  function sentConfig(path: string) {
+    const call = mockFetchTouka.mock.calls.find(([, p, opts]) => p === path && opts?.method === 'POST');
+    return call ? JSON.parse((call[2] as RequestInit).body as string).config : undefined;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockProxy.mockReturnValue('http://localhost:8000');
+    agentState.agents = [];
+    mockRefreshAgents.mockResolvedValue(true);
+  });
+
+  it('唯讀頁只列勾了的工具，看不到的條目標「目前不在清單」', async () => {
+    serveTools(['srv__lookup', 'gone/tool']);
+    render(<SoulStudio />);
+    await screen.findByRole('heading', { name: /MySoul/i });
+
+    expect(await screen.findByText('srv/lookup')).toBeInTheDocument();
+    expect(screen.queryByText('read')).not.toBeInTheDocument();
+    expect(screen.getByText(/gone\/tool/)).toHaveTextContent('目前不在清單');
+    expect(screen.getByText('2 個啟用')).toBeInTheDocument();
+  });
+
+  it('編輯時能改工具清單：存 `伺服器/工具`，保留看不到的條目，沒有外掛', async () => {
+    serveTools(['read', 'gone/tool']);
+    render(<SoulStudio />);
+    await screen.findByRole('heading', { name: /MySoul/i });
+    fireEvent.click(screen.getByTitle('編輯靈魂'));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'srv/lookup' }));
+    expect(screen.queryByRole('button', { name: 'my_plugin' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /儲存變更/i }));
+    fireEvent.change(await screen.findByPlaceholderText(/管理員密碼/i), { target: { value: 'synthetic' } });
+    fireEvent.click(screen.getByRole('button', { name: /確認儲存/i }));
+
+    await waitFor(() => expect(sentConfig('/v1/souls/MySoul')?.enabled_tools)
+      .toEqual(['read', 'gone/tool', 'srv/lookup']));
+  });
+
+  it('建立靈魂時用同一個勾選器，存 `伺服器/工具`', async () => {
+    serveTools([]);
+    render(<SoulStudio />);
+    await screen.findByRole('heading', { name: /MySoul/i });
+    fireEvent.click(screen.getByTitle('新增核心'));
+    const dialog = await screen.findByRole('dialog');
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'srv/lookup' }));
+    expect(within(dialog).queryByRole('button', { name: 'my_plugin' })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /啟動靈魂核心/i }));
+
+    await waitFor(() => expect(sentConfig('/v1/souls')?.enabled_tools).toEqual(['srv/lookup']));
+  });
+});
