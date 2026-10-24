@@ -204,7 +204,13 @@ def test_q44_offline_sequence_uses_explicit_node_and_cache(tmp_path):
     commands = npm_offline_gate.npm_command_sequence(
         npm, runtime=False, node_executable=node, cache_dir=cache
     )
-    assert commands[3] == [
+    assert [command[1:3] for command in commands] == [
+        ["ci", "--offline"],
+        ["scripts/ensure-critical-native.mjs", "--npm"],
+        ["run", "gen:artifact-runtime"],
+        ["run", "build"],
+    ]
+    assert commands[1] == [
         str(node),
         "scripts/ensure-critical-native.mjs",
         "--npm",
@@ -215,15 +221,6 @@ def test_q44_offline_sequence_uses_explicit_node_and_cache(tmp_path):
     ]
     assert npm_offline_gate.npm_command_sequence(npm, runtime=True) == (
         [str(npm), "ci", "--omit=dev", "--offline", "--ignore-scripts"],
-        [
-            "node",
-            "container-security/braces-backport/backport.mjs",
-            "verify",
-            "--project-root",
-            ".",
-            "--scope",
-            "runtime",
-        ],
     )
 
 
@@ -265,8 +262,8 @@ def test_q44_offline_proof_maps_actual_execution_to_canonical_argv(tmp_path, mon
             runtime=False,
         )
     )
-    assert len(calls) == 8
-    actual = calls[5][0]
+    assert len(calls) == 6
+    actual = calls[3][0]
     assert actual == [
         str(node),
         "scripts/ensure-critical-native.mjs",
@@ -276,7 +273,7 @@ def test_q44_offline_proof_maps_actual_execution_to_canonical_argv(tmp_path, mon
         str(cache),
         "--offline",
     ]
-    proof = result["commands"][3]
+    proof = result["commands"][1]
     assert proof["argv"] == [
         "scripts/ensure-critical-native.mjs",
         "--npm",

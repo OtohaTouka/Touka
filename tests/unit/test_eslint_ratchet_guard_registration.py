@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -48,58 +48,25 @@ def test_guard_all_includes_ratchet_guard() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("stdout", "stderr"),
-    [("verifier detail\n", ""), ("", "braces-backport: unknown-metadata\n"),
-     ("verifier detail\n", "braces-backport: unknown-metadata\n")],
-)
-def test_installed_verifier_failure_reports_streams_before_eslint(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    stdout: str,
-    stderr: str,
-) -> None:
+def test_collect_violations_runs_only_eslint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR-0282: Guard #35 no longer runs a braces verifier before ESLint."""
     spec = importlib.util.spec_from_file_location(
         "eslint_ratchet_under_test", SCRIPTS_DIR / "guard_eslint_ratchet.py"
     )
     assert spec is not None and spec.loader is not None
     guard = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(guard)
-    node = tmp_path / "node.exe"
-    calls: list[tuple[list[str], dict[str, Any]]] = []
-    failure = subprocess.CalledProcessError(1, [], output=stdout, stderr=stderr)
+    calls: list[tuple[object, dict[str, Any]]] = []
 
-    def fake_run(command: list[str], **kwargs: Any) -> None:
+    def fake_run(command: object, **kwargs: Any) -> SimpleNamespace:
         calls.append((command, kwargs))
-        assert len(calls) == 1, "ESLint must not run after installed-byte verification fails"
-        failure.cmd = command
-        raise failure
+        return SimpleNamespace(stdout="[]", stderr="", returncode=0)
 
-    monkeypatch.setattr(guard, "shutil", SimpleNamespace(which=lambda name: str(node)))
-    monkeypatch.setattr(
-        guard, "subprocess",
-        SimpleNamespace(run=fake_run, CalledProcessError=subprocess.CalledProcessError),
-    )
-    with pytest.raises(subprocess.CalledProcessError) as raised:
-        guard.collect_violations()
+    monkeypatch.setattr(guard, "subprocess", SimpleNamespace(run=fake_run))
 
-    assert raised.value is failure
-    captured = capsys.readouterr()
-    if stdout:
-        assert stdout in captured.out
-    if stderr:
-        assert stderr in captured.err
-    assert len(calls) == 1
-    assert calls[0][0] == [
-        str(node.resolve()),
-        str(PROJECT_ROOT / "ToukaChat/container-security/braces-backport/backport.mjs"),
-        "verify", "--project-root", str(PROJECT_ROOT / "ToukaChat"), "--scope", "full",
-    ]
-    assert calls[0][1] == {
-        "cwd": PROJECT_ROOT / "ToukaChat", "check": True, "capture_output": True,
-        "text": True, "timeout": 30,
-    }
+    assert guard.collect_violations() == Counter()
+    assert [command for command, _ in calls] == [guard.ESLINT_CMD]
+    assert calls[0][1]["cwd"] == PROJECT_ROOT / "ToukaChat"
 
 
 def _load_guard() -> Any:

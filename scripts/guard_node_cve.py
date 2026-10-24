@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,16 +21,6 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from braces_backport_evidence import (
-    BRACES_HELPER_PATH,
-    BRACES_NODE_PROFILE,
-    BRACES_READER_PATH,
-    BRACES_SOURCE_PATHS,
-    BRACES_VERIFY_TIMEOUT,
-    LEGACY_NODE_PROFILE,
-    assess_braces_audit,
-    consume_braces_installed,
-)
 from dependency_audit_evidence import (
     ProcessEvidence,
     create_evidence_root,
@@ -41,12 +32,11 @@ from hermetic_gate.npm_offline_gate import (
 )
 from hermetic_gate.npm_offline_gate import (
     parse_npm_policy,
+    validate_lockfile,
 )
 
 if TYPE_CHECKING:
     from pathlib import PurePath
-
-    from braces_backport_evidence import BracesInstalledEvidence
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 PROJECT_NAMES: tuple[str, ...] = ("ToukaChat", "ToukaIDE")
@@ -56,12 +46,9 @@ AUDIT_SCOPES: tuple[tuple[str, bool], ...] = (
 )
 AUDIT_TIMEOUT_SECONDS = 300
 PUBLIC_NPM_REGISTRY = EXPECTED_NPM_POLICY["registry"]
-_BRACES_READSET = (
-    "scripts/guard_node_cve.py",
-    "scripts/dependency_audit_evidence.py",
-    "scripts/hermetic_gate/npm_offline_gate.py",
-    BRACES_READER_PATH,
-    *BRACES_SOURCE_PATHS,
+# The npm inputs that must not change while the scopes are audited. The guard's
+# own modules are already loaded when it starts, so they are not listed.
+TRACKED_SOURCES: tuple[str, ...] = (
     "ToukaChat/.npmrc",
     *(
         f"{project}/{name}"
@@ -69,6 +56,9 @@ _BRACES_READSET = (
         for name in ("package.json", "package-lock.json")
     ),
 )
+BLOCKING_SEVERITIES = frozenset({"high", "critical"})
+_ADVISORY_ID = re.compile(r"GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}")
+_PACKAGE_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
 
 
 class AuditExecutionError(RuntimeError):
@@ -139,6 +129,10 @@ def _validate_lockfile(project: Path) -> None:
         if not isinstance(metadata, dict):
             _abort(f"{project.name} lock package entry is invalid")
     _validate_resolved_urls(lock, project_name=project.name)
+    try:
+        validate_lockfile(project)
+    except (OSError, ValueError) as exc:
+        _abort(f"{project.name} lock is not integrity-bound with sha512", cause=exc)
 
 
 def _parse_npm_audit_output(output: str) -> tuple[int, int]:
@@ -207,6 +201,54 @@ def consume_npm_audit_result(stdout: bytes | str, *, exit_code: int) -> tuple[in
     if exit_code == 1 and not blocking:
         _abort("npm audit exit 1 has no high/critical JSON findings")
     return blocking, warnings
+
+
+def _printable_package(name: object) -> str:
+    """Return an npm package name, or a placeholder for anything else."""
+    if isinstance(name, str) and _PACKAGE_NAME.fullmatch(name):
+        return name
+    return "<unprintable>"
+
+
+def describe_blocking_findings(stdout: bytes | str) -> list[str]:
+    """List high/critical packages and their advisory ids for the operator.
+
+    Output only: it never changes the verdict, skips malformed entries, and
+    never echoes free text such as advisory titles or URLs.
+    """
+    try:
+        output = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
+        data = json.loads(output)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    vulnerabilities = data.get("vulnerabilities") if isinstance(data, dict) else None
+    if not isinstance(vulnerabilities, dict):
+        return []
+    lines: list[str] = []
+    for package, finding in sorted(vulnerabilities.items(), key=lambda item: str(item[0])):
+        if not isinstance(finding, dict):
+            continue
+        severity = finding.get("severity")
+        if not isinstance(severity, str) or severity.strip().lower() not in BLOCKING_SEVERITIES:
+            continue
+        via = finding.get("via")
+        advisories: set[str] = set()
+        through: set[str] = set()
+        for item in via if isinstance(via, list) else []:
+            if isinstance(item, str):
+                through.add(_printable_package(item))
+            elif isinstance(item, dict):
+                item_severity = item.get("severity")
+                url = item.get("url")
+                if (
+                    isinstance(item_severity, str)
+                    and item_severity.strip().lower() in BLOCKING_SEVERITIES
+                    and isinstance(url, str)
+                ):
+                    advisories.update(_ADVISORY_ID.findall(url))
+        details = [*sorted(advisories), *(f"via {name}" for name in sorted(through))]
+        lines.append(" ".join([severity.strip().lower(), _printable_package(package), *details]))
+    return lines
 
 
 def _resolve_npm() -> tuple[Path, Path]:
@@ -334,7 +376,6 @@ def scan_project(
     node_executable: Path,
     npm_cli: Path,
     audit_root: Path,
-    installed: BracesInstalledEvidence | None = None,
 ) -> tuple[int, int]:
     """Audit one exact project/scope pair and return blocking/warning totals."""
     expected_scopes = dict(AUDIT_SCOPES)
@@ -391,68 +432,10 @@ def scan_project(
         _abort("npm audit could not complete", cause=exc)
     evidence.finish(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
     blocking, warnings = consume_npm_audit_result(result.stdout, exit_code=result.returncode)
-    if installed is not None:
-        assessment = assess_braces_audit(
-            result.stdout, scope=scope_name, raw_blocking=blocking, installed=installed
-        )
-        print(
-            f"  raw blocking={blocking}; "
-            f"verified backport coverage={assessment.covered_blocking}; "
-            f"unresolved blocking={assessment.unresolved_blocking}"
-        )
-        return assessment.unresolved_blocking, warnings
+    if blocking:
+        for line in describe_blocking_findings(result.stdout):
+            print(f"  {line}")
     return blocking, warnings
-
-
-def _verify_braces(
-    project: Path, node: Path, audit_root: Path, sources: dict[str, bytes]
-) -> BracesInstalledEvidence:
-    """Capture a readonly installed-byte proof before the project audit pair."""
-    scope_root = audit_root / f"{project.name}-braces-environment"
-    scope_root.mkdir()
-    cache, logs, user_config = _write_controlled_configs(scope_root)
-    environment = _isolated_environment(
-        scope_root,
-        cache=cache,
-        logs=logs,
-        user_config=user_config,
-        global_config=scope_root / "global.npmrc",
-    )
-    command = [
-        str(node),
-        str(PROJECT_ROOT / BRACES_HELPER_PATH),
-        "verify",
-        "--project-root",
-        str(project),
-        "--scope",
-        "full",
-    ]
-    evidence = ProcessEvidence(
-        audit_root,
-        f"{project.name}-braces-verify",
-        command,
-        project,
-        environment,
-        BRACES_VERIFY_TIMEOUT,
-    )
-    try:
-        result = subprocess.run(
-            command,
-            cwd=str(project),
-            capture_output=True,
-            text=False,
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            shell=False,
-            timeout=BRACES_VERIFY_TIMEOUT,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        evidence.finish(error=exc)
-        _abort("braces readonly verification could not complete", cause=exc)
-    evidence.finish(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
-    if result.returncode != 0:
-        _abort("braces readonly verification failed")
-    return consume_braces_installed(result.stdout, project=project.name, source_files=sources)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -465,20 +448,16 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 60)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-dir", type=Path)
-    parser.add_argument(
-        "--profile", choices=(LEGACY_NODE_PROFILE, BRACES_NODE_PROFILE), default=LEGACY_NODE_PROFILE
-    )
     arguments = parser.parse_args(argv or [])
     retained_root: Path | None = None
     try:
         if arguments.evidence_dir is not None:
             retained_root = create_evidence_root(arguments.evidence_dir, PROJECT_ROOT)
+        sources = {
+            name: hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest()
+            for name in TRACKED_SOURCES
+        }
         _load_tracked_npm_policy()
-        sources = (
-            {name: (PROJECT_ROOT / name).read_bytes() for name in _BRACES_READSET}
-            if arguments.profile == BRACES_NODE_PROFILE
-            else {}
-        )
         if retained_root is not None:
             inputs = {"tracked.npmrc": PROJECT_ROOT / "ToukaChat" / ".npmrc"}
             for project_name in PROJECT_NAMES:
@@ -497,28 +476,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         with context as temporary:
             audit_root = _external_audit_root(Path(temporary))
-            if sources:
-                write_json(
-                    audit_root / "batch.json",
-                    {
-                        "profile": BRACES_NODE_PROFILE,
-                        "input_manifest": [
-                            {
-                                "path": name,
-                                "bytes": len(raw),
-                                "sha256": hashlib.sha256(raw).hexdigest(),
-                            }
-                            for name, raw in sorted(sources.items())
-                        ],
-                    },
-                )
             for project_name in PROJECT_NAMES:
                 project = PROJECT_ROOT / project_name
-                extra = (
-                    {"installed": _verify_braces(project, node_executable, audit_root, sources)}
-                    if sources
-                    else {}
-                )
                 for scope_name, omit_dev in AUDIT_SCOPES:
                     print(f"[Scan] {project_name} {scope_name} dependency scope")
                     blocking, warnings = scan_project(
@@ -528,7 +487,6 @@ def main(argv: list[str] | None = None) -> int:
                         node_executable=node_executable,
                         npm_cli=npm_cli,
                         audit_root=audit_root,
-                        **extra,
                     )
                     blocking_total += blocking
                     warning_total += warnings
@@ -536,8 +494,11 @@ def main(argv: list[str] | None = None) -> int:
                         f"  blocking={blocking} lower-severity={warnings} "
                         f"registry={PUBLIC_NPM_REGISTRY}"
                     )
-            if any((PROJECT_ROOT / name).read_bytes() != raw for name, raw in sources.items()):
-                _abort("braces audit source changed during execution")
+            if any(
+                hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest() != digest
+                for name, digest in sources.items()
+            ):
+                _abort("tracked npm source changed during execution")
     except (AuditExecutionError, OSError, ValueError) as exc:
         if retained_root is not None:
             write_json(
@@ -551,11 +512,7 @@ def main(argv: list[str] | None = None) -> int:
     if blocking_total:
         print(f"[FAIL] {blocking_total} HIGH/CRITICAL finding(s) across audited scopes.")
         return 1
-    print(
-        "[OK] No unresolved HIGH/CRITICAL findings; original audit highs retained."
-        if arguments.profile == BRACES_NODE_PROFILE
-        else "[OK] No HIGH/CRITICAL Node dependency vulnerabilities found."
-    )
+    print("[OK] No HIGH/CRITICAL Node dependency vulnerabilities found.")
     return 0
 
 

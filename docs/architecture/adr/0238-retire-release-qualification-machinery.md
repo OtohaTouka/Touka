@@ -1,6 +1,7 @@
 # ADR-0238：退役發版資格機制與容器安全管線
 
 - 狀態：✅ 已接受（維護者 2026-10-08 決定）
+- 修訂（[ADR-0282](0282-braces-backport-retirement.md)）：決策 3 與「影響」裡「braces 回補維持不變」不再適用，braces 回補已整套退役。
 - 更正（[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)）：決策 5 寫 CI 直接執行 Ruff，但從 `4a0bf452` 起 workflow 沒有 Ruff 步驟；ADR-0254 起 `contracts` job 跑鎖定版 ruff `--select F`（四個產品子專案）並新增 `toukaide` job，完整 ruff 只在本機。
 - 日期：2026-10-08
 - 決策者：維護者

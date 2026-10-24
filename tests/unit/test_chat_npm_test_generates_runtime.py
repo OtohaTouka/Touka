@@ -16,7 +16,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_JSON = PROJECT_ROOT / "ToukaChat" / "package.json"
 
-BRACES_VERIFY = "npm run braces:verify"
 GEN_RUNTIME = "npm run gen:artifact-runtime"
 
 
@@ -26,11 +25,6 @@ def _scripts() -> dict[str, str]:
 
 def _test_steps() -> list[str]:
     return [step.strip() for step in _scripts()["test"].split("&&")]
-
-
-def test_braces_verify_still_runs_first() -> None:
-    steps = _test_steps()
-    assert steps[0] == BRACES_VERIFY, steps
 
 
 def test_artifact_runtime_is_generated_before_vitest() -> None:

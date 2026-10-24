@@ -56,9 +56,64 @@ def _audit_payload(*, high: int = 0, critical: int = 0, moderate: int = 0) -> st
     )
 
 
+def _audit_payload_with(vulnerabilities: dict[str, dict[str, object]]) -> str:
+    counts = dict.fromkeys(("info", "low", "moderate", "high", "critical"), 0)
+    for finding in vulnerabilities.values():
+        counts[str(finding["severity"])] += 1
+    return json.dumps(
+        {
+            "auditReportVersion": 2,
+            "vulnerabilities": vulnerabilities,
+            "metadata": {"vulnerabilities": {**counts, "total": sum(counts.values())}},
+        }
+    )
+
+
 def _runtime_paths(tmp_path: Path) -> tuple[Path, Path]:
     runtime = tmp_path / "runtime"
     return runtime / "node.exe", runtime / "node_modules" / "npm" / "bin" / "npm-cli.js"
+
+
+def _fake_repo(tmp_path: Path) -> Path:
+    """Create the five tracked npm sources the guard snapshots at start."""
+    repo = tmp_path / "repo"
+    for project_name in ("ToukaChat", "ToukaIDE"):
+        project = repo / project_name
+        project.mkdir(parents=True)
+        (project / "package.json").write_text("{}\n", encoding="utf-8")
+        (project / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
+    (repo / "ToukaChat" / ".npmrc").write_text("registry=https://registry.npmjs.org/\n")
+    return repo
+
+
+def _scan_with_stdout(
+    guard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stdout: str,
+    *,
+    returncode: int = 1,
+) -> tuple[int, int]:
+    project = tmp_path / "ToukaIDE"
+    project.mkdir()
+    (project / "package.json").write_text("{}\n", encoding="utf-8")
+    (project / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        guard.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=returncode, stdout=stdout.encode(), stderr=b""
+        ),
+    )
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    return guard.scan_project(
+        project,
+        scope_name="full",
+        omit_dev=False,
+        node_executable=node_executable,
+        npm_cli=npm_cli,
+        audit_root=tmp_path / "outside-audit",
+    )
 
 
 def test_guard_file_exists() -> None:
@@ -493,7 +548,7 @@ def test_main_runs_four_project_scope_pairs_outside_repository(
     guard = _load_guard()
     calls: list[tuple[str, str, bool, Path]] = []
 
-    monkeypatch.setattr(guard, "PROJECT_ROOT", tmp_path / "repo")
+    monkeypatch.setattr(guard, "PROJECT_ROOT", _fake_repo(tmp_path))
     monkeypatch.setattr(guard, "_load_tracked_npm_policy", lambda: {})
     node_executable, npm_cli = _runtime_paths(tmp_path)
     monkeypatch.setattr(
@@ -628,6 +683,224 @@ def test_evidence_cli_snapshots_all_inputs_before_first_audit(
     for project_name in ("ToukaChat", "ToukaIDE"):
         for scope_name in ("runtime", "full"):
             assert (root / f"{project_name}-{scope_name}" / "npm-audit" / "receipt.json").is_file()
+
+
+def test_lock_without_sha512_integrity_stops_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    guard = _load_guard()
+    project = tmp_path / "ToukaIDE"
+    project.mkdir()
+    (project / "package.json").write_text("{}\n", encoding="utf-8")
+    (project / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "": {"name": "touka-ide"},
+                    "node_modules/example": {
+                        "version": "1.0.0",
+                        "resolved": "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def unexpected_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        pytest.fail("npm must not run for a lock entry without sha512 integrity")
+
+    monkeypatch.setattr(guard.subprocess, "run", unexpected_run)
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+
+    with pytest.raises(guard.AuditExecutionError):
+        guard.scan_project(
+            project,
+            scope_name="full",
+            omit_dev=False,
+            node_executable=node_executable,
+            npm_cli=npm_cli,
+            audit_root=tmp_path / "outside-audit",
+        )
+
+
+def test_scan_prints_blocking_package_names_and_advisory_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    payload = _audit_payload_with(
+        {
+            "body-parser": {
+                "severity": "high",
+                "via": [
+                    {
+                        "name": "body-parser",
+                        "severity": "high",
+                        "title": "\x1b[2Jterminal control in a title",
+                        "url": "https://github.com/advisories/GHSA-27r3-jxmh-p828",
+                    }
+                ],
+            },
+            "@vscode/vsce": {"severity": "high", "via": ["@azure/msal-node"]},
+            "evil\x1b[2Jname": {"severity": "critical", "via": ["also\x1bbad"]},
+            "left-pad": {
+                "severity": "moderate",
+                "via": [{"severity": "moderate", "url": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"}],
+            },
+        }
+    )
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, payload) == (3, 1)
+    output = capsys.readouterr().out
+    assert "high body-parser GHSA-27r3-jxmh-p828" in output
+    assert "high @vscode/vsce via @azure/msal-node" in output
+    assert "critical <unprintable>" in output
+    assert "left-pad" not in output
+    assert "GHSA-aaaa-bbbb-cccc" not in output
+    assert "\x1b" not in output
+    assert "terminal control" not in output
+
+
+@pytest.mark.parametrize(
+    "finding",
+    [
+        {"severity": "high"},
+        {"severity": "high", "via": ["only-a-name"]},
+        {"severity": "high", "via": 5},
+        {"severity": "high", "via": [5, None, {"severity": 3, "url": 7}]},
+        {"severity": "high", "via": [{"severity": "high"}]},
+    ],
+)
+def test_blocking_count_survives_any_via_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, finding: dict[str, object]
+) -> None:
+    guard = _load_guard()
+    payload = _audit_payload_with({"pkg": finding})
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, payload) == (1, 0)
+
+
+def test_main_scans_every_scope_and_counts_a_full_scope_high(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    monkeypatch.setattr(guard, "_resolve_npm", lambda: (node_executable, npm_cli))
+    commands: list[list[str]] = []
+    full_high = _audit_payload_with(
+        {
+            "body-parser": {
+                "severity": "high",
+                "via": [
+                    {
+                        "severity": "high",
+                        "url": "https://github.com/advisories/GHSA-27r3-jxmh-p828",
+                    }
+                ],
+            }
+        }
+    )
+
+    def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        if "--omit=dev" in command:
+            return SimpleNamespace(returncode=0, stdout=_audit_payload().encode(), stderr=b"")
+        return SimpleNamespace(returncode=1, stdout=full_high.encode(), stderr=b"")
+
+    monkeypatch.setattr(guard.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        guard.tempfile,
+        "TemporaryDirectory",
+        lambda **_kwargs: _TemporaryDirectory(tmp_path / "os-temp"),
+    )
+
+    assert guard.main() == 1
+    assert len(commands) == 4
+    output = capsys.readouterr().out
+    assert "[FAIL] 2 HIGH/CRITICAL finding(s) across audited scopes." in output
+    assert "evidence invalid" not in output
+
+
+def _run_main_with_fake_scan(
+    guard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    repo: Path,
+    *,
+    policy_loader: Any = None,
+    on_scan: Any = None,
+) -> int:
+    monkeypatch.setattr(guard, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(guard, "_load_tracked_npm_policy", policy_loader or (lambda: {}))
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    monkeypatch.setattr(guard, "_resolve_npm", lambda: (node_executable, npm_cli))
+
+    def fake_scan(project: Path, **_kwargs: object) -> tuple[int, int]:
+        if on_scan is not None:
+            on_scan(project)
+        return 0, 0
+
+    monkeypatch.setattr(guard, "scan_project", fake_scan)
+    monkeypatch.setattr(
+        guard.tempfile,
+        "TemporaryDirectory",
+        lambda **_kwargs: _TemporaryDirectory(tmp_path / "os-temp"),
+    )
+    return guard.main()
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "ToukaChat/.npmrc",
+        "ToukaChat/package.json",
+        "ToukaChat/package-lock.json",
+        "ToukaIDE/package.json",
+        "ToukaIDE/package-lock.json",
+    ],
+)
+def test_main_aborts_when_a_tracked_source_changes_during_the_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    relative: str,
+) -> None:
+    guard = _load_guard()
+    repo = _fake_repo(tmp_path)
+
+    def change_source(project: Path) -> None:
+        if project.name == "ToukaIDE":
+            with (repo / relative).open("a", encoding="utf-8") as handle:
+                handle.write("\n")
+
+    assert _run_main_with_fake_scan(guard, monkeypatch, tmp_path, repo, on_scan=change_source) == 1
+    assert "changed during execution" in capsys.readouterr().out
+
+
+def test_source_snapshot_is_taken_before_the_policy_is_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    repo = _fake_repo(tmp_path)
+
+    def policy_loader_that_races() -> dict[str, str]:
+        (repo / "ToukaChat" / ".npmrc").write_text("registry=https://example.invalid/\n")
+        return {}
+
+    assert (
+        _run_main_with_fake_scan(
+            guard, monkeypatch, tmp_path, repo, policy_loader=policy_loader_that_races
+        )
+        == 1
+    )
+    assert "changed during execution" in capsys.readouterr().out
+
+
+def test_main_has_no_profile_option() -> None:
+    guard = _load_guard()
+
+    with pytest.raises(SystemExit):
+        guard.main(["--profile", "node-lock-and-braces-backport-v1"])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native runtime contract")

@@ -126,7 +126,7 @@ Touka/
 ```bash
 uv sync --locked --all-packages
 cd ToukaChat
-npm run install:controlled   # npm ci --ignore-scripts，再做 braces 回補與驗證
+npm run install:controlled   # npm ci --ignore-scripts（不跑套件的安裝腳本）
 npm run gen:artifact-runtime
 ```
 

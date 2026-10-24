@@ -38,7 +38,7 @@ uv sync --locked --all-packages
 
 # 2. 前端（lifecycle 關閉，顯式生成 artifact runtime）
 cd ToukaChat
-npm run install:controlled   # npm ci --ignore-scripts＋braces 回補與驗證（同 CI）
+npm run install:controlled   # npm ci --ignore-scripts（同 CI）
 npm run gen:artifact-runtime
 cd ../ToukaIDE
 npm run install:controlled   # pytest 的 companion 測試要用它的 esbuild

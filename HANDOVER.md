@@ -38,7 +38,7 @@
 - **本次清理（2026-10-08，ADR-0238）**：發版資格機制整體移除。
   - 刪除：本機發版／冷切換腳本與對應測試、`ToukaReleaseAuthority`、release workflows、Guard #42／#43。
   - 產品內移除：MCP rollout evidence（Proxy／Dispatch／IDE），以及 `ResourceManager` 只服務它的可信 I/O 區塊。
-  - Dockerfile 改為標準建置：官方 node 映像＋`apt-get upgrade`，保留 braces 回補。
+  - Dockerfile 改為標準建置：官方 node 映像＋`apt-get upgrade`，當時保留 braces 回補（2026-10-24 由 ADR-0282 退役）。
   - 發布改用 `.github/workflows/ghcr-publish.yml`；CI 直接執行檢查。
   - 禁令 62 保留退役墓碑；守衛剩 43 道。
 - **ADR-0239 已合併**：Authorization Gateway 與 ExecutionBroker 純重構已併入 `dev`。
@@ -140,7 +140,7 @@
   - 開發環境：Guard #20 knip 加 `--no-gitignore`，工作資料夾不再假紅（ADR-0243 的已知限制）；ToukaChat `npm run test` 先產生 artifact runtime；env_guard 測試改用系統暫存資料夾。
   - 現有靈魂實際的主要模型值沒有查（沒讀 `data/`），部署者可以在靈魂頁自己確認或改正。AGENTS.md 不改（沒有新增或改動禁令與核心守則），SECURITY.md 不改（審查判定沒有安全弱點修補）。已知限制見 ADR-0250，範圍外的事列在 §3 待排小項。
 - **開發環境整理（2026-10-14，ADR-0251）**：含 AGENTS.md 文字、建置產物宣告 7 行與金鑰的行為改變。
-  - AGENTS.md「直譯器主權」之後新增「Windows 本機跑後端測試的前置條件」：Node／npm 版本以兩個 `package.json` 為準（目前 24.21.0／11.19.1，只替這次指令切換）、先在 `ToukaIDE` 跑 `npm run install:controlled`（要跑 guard_all 時 `ToukaChat` 也跑一次，再跑 `npm run gen:artifact-runtime`）、9 個安裝腳本測試用 Git for Windows 的 bash；條件都對時已知只有 E1 的 6 個 failed 與 7 個環境跳過，比這多就查原因。`CONTRIBUTING.md` 的佈建對齊 CI（`ToukaChat`、`ToukaIDE` 都用 `install:controlled`；只跑 `npm ci` 時 braces 沒回補，`gen:artifact-runtime` 會失敗）。
+  - AGENTS.md「直譯器主權」之後新增「Windows 本機跑後端測試的前置條件」：Node／npm 版本以兩個 `package.json` 為準（目前 24.21.0／11.19.1，只替這次指令切換）、先在 `ToukaIDE` 跑 `npm run install:controlled`（要跑 guard_all 時 `ToukaChat` 也跑一次，再跑 `npm run gen:artifact-runtime`）、9 個安裝腳本測試用 Git for Windows 的 bash；條件都對時已知只有 E1 的 6 個 failed 與 7 個環境跳過，比這多就查原因。`CONTRIBUTING.md` 的佈建對齊 CI（`ToukaChat`、`ToukaIDE` 都用 `install:controlled`；ADR-0282 起它就是 `npm ci --ignore-scripts`）。
   - `pytest.ini` 加 `addopts = -rfEs`：結尾列出失敗、錯誤與每個跳過的原因。安裝腳本測試從 PATH 上 `git` 的位置推算 bash，`mingw64` 位置多往上一層，從 Git Bash 跑也不再跳過。
   - 測試沙盒收尾：`tests/conftest.py` 的 `SANDBOX_RELEASE_STEPS` 依序等稽核寫入、關 Qdrant（只在向量模組已載入時）、關 SQLite、關 log handler，再由 `tests/sandbox_cleanup.py` 刪除；`mkdtemp` 後立刻登記 atexit，session fixture 與 `pytest_sessionfinish` 也呼叫同一個函式；刪不掉時結尾印「測試沙盒沒刪乾淨：<路徑>」。強制結束的 pytest 仍會留下沙盒。
   - 根目錄 `rebuildable-outputs.txt` 宣告 7 種可以直接刪的建置產物（`ToukaChat` 的 `.next/`、`out/`、`next-env.d.ts`、`src/generated/`、兩個 `tsbuildinfo`，`ToukaIDE/dist/`），由 `test_rebuildable_outputs_declaration.py` 檢查格式與忽略狀態。**要等 dev 合進 main、本機執行 `git fetch origin` 之後，清理工作資料夾前的檢查才採用**；撤回只要刪檔並合進 main。

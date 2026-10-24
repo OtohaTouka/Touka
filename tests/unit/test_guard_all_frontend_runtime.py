@@ -147,7 +147,8 @@ def test_dependency_audit_guards_use_dedicated_fail_closed_scripts() -> None:
     }
 
     assert "python scripts/guard_python_cve.py" in commands
-    assert "python scripts/guard_node_cve.py --profile node-lock-and-braces-backport-v1" in commands
+    assert "python scripts/guard_node_cve.py" in commands
+    assert not any("--profile" in command for command in commands)
     assert "npm run guard:audit" not in commands
 
 
@@ -175,9 +176,7 @@ def test_main_keeps_43_guards_and_registers_both_audit_aggregates(
     assert len(calls) == len(GUARD_IDS) == 43
     assert calls[21][0] == "python scripts/guard_python_cve.py"
     assert "[Guard #22]" in calls[21][2]
-    assert calls[22][0] == (
-        "python scripts/guard_node_cve.py --profile node-lock-and-braces-backport-v1"
-    )
+    assert calls[22][0] == "python scripts/guard_node_cve.py"
     assert "[Guard #23]" in calls[22][2]
     assert calls[42][0] == "python -B scripts/guard_native_tool_contracts.py"
     assert "[Guard #45]" in calls[42][2]

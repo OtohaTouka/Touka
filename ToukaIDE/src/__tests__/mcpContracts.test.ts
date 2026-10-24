@@ -41,8 +41,8 @@ describe('ToukaIDE MCP 2026 contracts', () => {
         expect(manifest.dependencies['@modelcontextprotocol/node']).toBe('2.0.0');
         expect(manifest.dependencies['@modelcontextprotocol/server-legacy']).toBeUndefined();
         expect(manifest.devDependencies['@modelcontextprotocol/client']).toBe('2.2.0');
-        expect(manifest.scripts.test).toBe('npm run braces:verify && vitest run');
-        expect(manifest.scripts.typecheck).toBe('npm run braces:verify && tsc --noEmit');
+        expect(manifest.scripts.test).toBe('vitest run');
+        expect(manifest.scripts.typecheck).toBe('tsc --noEmit');
         expect(manifest.engines.node).toBe('>=20');
         expect(manifest.engines.vscode).toBe('^1.90.0');
     });
