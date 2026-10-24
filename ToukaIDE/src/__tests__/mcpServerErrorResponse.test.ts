@@ -24,30 +24,35 @@ interface RunningServer {
 const running: ToukaMcpServer[] = [];
 
 afterEach(async () => {
+    vi.restoreAllMocks();
     for (const server of running.splice(0)) {
         await server.stop();
     }
 });
 
-// Starts the real server on an ephemeral loopback port. A bridge that throws
-// stands in for an unexpected failure after the Bearer check.
-async function startServer(withThrowingBridge = false): Promise<RunningServer> {
+// Starts the real server on an ephemeral loopback port. With `routeError`, a
+// stub bridge runs the real Bearer check and then rejects with that error, in
+// place of an unexpected failure inside the MCP route.
+async function startServer(routeError?: unknown): Promise<RunningServer> {
     const app = express();
     const listen = vi.spyOn(app, 'listen');
     const server = new ToukaMcpServer({
         app,
-        ...(withThrowingBridge
-            ? {
+        ...(routeError === undefined
+            ? {}
+            : {
                 httpBridge: {
-                    mount: (mountedApp: express.Application) => {
-                        mountedApp.post('/mcp', () => {
-                            throw new Error('unexpected failure at D:\\secret\\path');
+                    mount: (
+                        mountedApp: express.Application,
+                        authMiddleware: express.RequestHandler,
+                    ) => {
+                        mountedApp.post('/mcp', authMiddleware, async () => {
+                            throw routeError;
                         });
                     },
                     close: vi.fn(async () => undefined),
                 },
-            }
-            : {}),
+            }),
     });
     running.push(server);
     await server.start(0, TOKEN);
@@ -92,14 +97,18 @@ function expectFixedJson(
     expect(response.body).not.toMatch(/\bat\s|node_modules|[A-Za-z]:\\|<html|<pre/i);
 }
 
+const AUTHORIZED = { Authorization: `Bearer ${TOKEN}` };
+
 describe('ToukaMcpServer error responses', () => {
     it('answers malformed JSON with a fixed 400 body before the Bearer check', async () => {
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { baseUrl } = await startServer();
 
         const response = await post(`${baseUrl}/mcp`, Buffer.from('{"jsonrpc":'));
 
         expect(response.status).toBe(400);
         expectFixedJson(response, { error: 'Invalid request' });
+        expect(errorLog).not.toHaveBeenCalled();
     });
 
     it('answers an oversized body with a fixed 413 body', async () => {
@@ -125,14 +134,55 @@ describe('ToukaMcpServer error responses', () => {
         expectFixedJson(response, { error: 'Invalid request' });
     });
 
-    it('answers an unexpected error after the bridge with a fixed 500 body', async () => {
-        const { baseUrl } = await startServer(true);
+    it('answers an unexpected route error with a fixed 500 body and logs it locally', async () => {
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const routeError = new Error('unexpected failure at D:\\secret\\path');
+        const { baseUrl } = await startServer(routeError);
 
-        const response = await post(`${baseUrl}/mcp`, Buffer.from('{"jsonrpc":"2.0"}'));
+        const response = await post(
+            `${baseUrl}/mcp`,
+            Buffer.from('{"jsonrpc":"2.0"}'),
+            AUTHORIZED,
+        );
 
         expect(response.status).toBe(500);
         expectFixedJson(response, { error: 'Internal server error' });
         expect(response.body).not.toContain('secret');
+        expect(errorLog).toHaveBeenCalledWith('[ToukaIDE] MCP request failed:', routeError);
+    });
+
+    it.each([
+        [{ status: 409, statusCode: 400 }, 409],
+        [{ status: '400', statusCode: 422 }, 422],
+    ])('reads status before statusCode, as Express does (%o)', async (fields, expected) => {
+        const { baseUrl } = await startServer(
+            Object.assign(new Error('bad request'), fields),
+        );
+
+        const response = await post(
+            `${baseUrl}/mcp`,
+            Buffer.from('{"jsonrpc":"2.0"}'),
+            AUTHORIZED,
+        );
+
+        expect(response.status).toBe(expected);
+        expectFixedJson(response, { error: 'Invalid request' });
+    });
+
+    it('keeps a 5xx status from the error with the fixed server body', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { baseUrl } = await startServer(
+            Object.assign(new Error('unavailable'), { status: 503 }),
+        );
+
+        const response = await post(
+            `${baseUrl}/mcp`,
+            Buffer.from('{"jsonrpc":"2.0"}'),
+            AUTHORIZED,
+        );
+
+        expect(response.status).toBe(503);
+        expectFixedJson(response, { error: 'Internal server error' });
     });
 
     it('keeps the Bearer rejection for a well-formed unauthenticated request', async () => {

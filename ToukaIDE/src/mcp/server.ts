@@ -30,36 +30,39 @@ export interface ToukaMcpServerOptions {
 
 const LISTENER_CLOSE_TIMEOUT_MS = 1_000;
 
-function clientErrorStatus(error: unknown): number | undefined {
-    if (typeof error !== 'object' || error === null) {
-        return undefined;
+// Same order as Express's finalhandler: `status`, then `statusCode`.
+function httpErrorStatus(error: unknown): number {
+    if (typeof error === 'object' && error !== null) {
+        const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
+        for (const candidate of [status, statusCode]) {
+            if (
+                typeof candidate === 'number'
+                && Number.isInteger(candidate)
+                && candidate >= 400
+                && candidate < 600
+            ) {
+                return candidate;
+            }
+        }
     }
-    const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
-    const candidate = status ?? statusCode;
-    if (
-        typeof candidate === 'number'
-        && Number.isInteger(candidate)
-        && candidate >= 400
-        && candidate < 500
-    ) {
-        return candidate;
-    }
-    return undefined;
+    return 500;
 }
 
 // Express's default error page carries the stack trace and local file paths,
-// and body parsing errors reach it before the Bearer check.
+// and body parsing errors reach it before the Bearer check. Server-side
+// failures still go to the extension host log.
 const respondWithFixedError: express.ErrorRequestHandler = (error, _req, res, next) => {
     if (res.headersSent) {
         next(error);
         return;
     }
-    const status = clientErrorStatus(error);
-    if (status === undefined) {
-        res.status(500).json({ error: 'Internal server error' });
+    const status = httpErrorStatus(error);
+    if (status < 500) {
+        res.status(status).json({ error: 'Invalid request' });
         return;
     }
-    res.status(status).json({ error: 'Invalid request' });
+    console.error('[ToukaIDE] MCP request failed:', error);
+    res.status(status).json({ error: 'Internal server error' });
 };
 
 export class ToukaMcpServer {
