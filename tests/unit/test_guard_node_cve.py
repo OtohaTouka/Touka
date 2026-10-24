@@ -713,7 +713,7 @@ def test_lock_without_sha512_integrity_stops_before_subprocess(
     monkeypatch.setattr(guard.subprocess, "run", unexpected_run)
     node_executable, npm_cli = _runtime_paths(tmp_path)
 
-    with pytest.raises(guard.AuditExecutionError):
+    with pytest.raises(guard.AuditExecutionError, match="node_modules/example"):
         guard.scan_project(
             project,
             scope_name="full",
@@ -738,14 +738,20 @@ def test_scan_prints_blocking_package_names_and_advisory_ids(
                         "severity": "high",
                         "title": "\x1b[2Jterminal control in a title",
                         "url": "https://github.com/advisories/GHSA-27r3-jxmh-p828",
-                    }
+                    },
+                    {
+                        "severity": "moderate",
+                        "url": "https://github.com/advisories/GHSA-5555-6666-7777",
+                    },
                 ],
             },
             "@vscode/vsce": {"severity": "high", "via": ["@azure/msal-node"]},
             "evil\x1b[2Jname": {"severity": "critical", "via": ["also\x1bbad"]},
             "left-pad": {
                 "severity": "moderate",
-                "via": [{"severity": "moderate", "url": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"}],
+                "via": [
+                    {"severity": "moderate", "url": "https://github.com/advisories/GHSA-2222-3333-4444"}
+                ],
             },
         }
     )
@@ -756,7 +762,8 @@ def test_scan_prints_blocking_package_names_and_advisory_ids(
     assert "high @vscode/vsce via @azure/msal-node" in output
     assert "critical <unprintable>" in output
     assert "left-pad" not in output
-    assert "GHSA-aaaa-bbbb-cccc" not in output
+    assert "GHSA-2222-3333-4444" not in output
+    assert "GHSA-5555-6666-7777" not in output
     assert "\x1b" not in output
     assert "terminal control" not in output
 
@@ -896,11 +903,31 @@ def test_source_snapshot_is_taken_before_the_policy_is_read(
     assert "changed during execution" in capsys.readouterr().out
 
 
-def test_main_has_no_profile_option() -> None:
+def test_main_has_no_profile_option(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     guard = _load_guard()
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    monkeypatch.setattr(guard, "_resolve_npm", lambda: (node_executable, npm_cli))
+
+    def no_network(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("a rejected option must stop before any npm audit runs")
+
+    monkeypatch.setattr(guard.subprocess, "run", no_network)
 
     with pytest.raises(SystemExit):
         guard.main(["--profile", "node-lock-and-braces-backport-v1"])
+
+
+def test_missing_tracked_source_fails_with_a_fixed_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    repo = _fake_repo(tmp_path)
+    (repo / "ToukaChat" / ".npmrc").unlink()
+
+    assert _run_main_with_fake_scan(guard, monkeypatch, tmp_path, repo) == 1
+    output = capsys.readouterr().out
+    assert "tracked npm source is unavailable" in output
+    assert str(tmp_path) not in output
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native runtime contract")

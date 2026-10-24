@@ -132,7 +132,24 @@ def _validate_lockfile(project: Path) -> None:
     try:
         validate_lockfile(project)
     except (OSError, ValueError) as exc:
-        _abort(f"{project.name} lock is not integrity-bound with sha512", cause=exc)
+        # Violation lines name lock entries only; the first line may hold a local path.
+        entries = str(exc).splitlines()[1:4]
+        detail = f": {'; '.join(entries)}" if entries else ""
+        _abort(
+            f"{project.name} lock is not bound to the official registry with sha512{detail}",
+            cause=exc,
+        )
+
+
+def _source_digests() -> dict[str, str]:
+    """Hash the tracked npm sources; a missing one is a fixed, path-free failure."""
+    try:
+        return {
+            name: hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest()
+            for name in TRACKED_SOURCES
+        }
+    except OSError as exc:
+        _abort("tracked npm source is unavailable", cause=exc)
 
 
 def _parse_npm_audit_output(output: str) -> tuple[int, int]:
@@ -453,10 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if arguments.evidence_dir is not None:
             retained_root = create_evidence_root(arguments.evidence_dir, PROJECT_ROOT)
-        sources = {
-            name: hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest()
-            for name in TRACKED_SOURCES
-        }
+        sources = _source_digests()
         _load_tracked_npm_policy()
         if retained_root is not None:
             inputs = {"tracked.npmrc": PROJECT_ROOT / "ToukaChat" / ".npmrc"}
@@ -494,10 +508,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"  blocking={blocking} lower-severity={warnings} "
                         f"registry={PUBLIC_NPM_REGISTRY}"
                     )
-            if any(
-                hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest() != digest
-                for name, digest in sources.items()
-            ):
+            if _source_digests() != sources:
                 _abort("tracked npm source changed during execution")
     except (AuditExecutionError, OSError, ValueError) as exc:
         if retained_root is not None:

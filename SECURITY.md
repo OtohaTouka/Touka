@@ -145,7 +145,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 
 | 弱點 | 處理與驗證 |
 |------|------|
-| CVE-2026-93687／GHSA-vfj7-8cjw-p6xm：braces ≤ 3.0.3 遇到深層巢狀 pattern 會耗盡 call stack（Chat／IDE 的開發相依）。上游沒有修正版，Touka 曾以固定 PR72 的 depth 上限對安裝好的 3.0.3 做同版本回補（ADR-0237）。GitHub 於 2026-10-23 撤回這則公告，理由是「實際上無法被利用」 | **這是公告撤回，不是修好了**：braces 仍是官方原版 3.0.3（上游最新版），公告的 CVE 編號仍在。回補與 Guard #23 的 braces 證據檢查整套退役（[ADR-0282](docs/architecture/adr/0282-braces-backport-retirement.md)）；braces 在兩份 lock 都只有一份、標開發相依，產品執行環境不用它。公告若日後恢復，Guard #23 會照常變紅再評估。退役同時收緊 Guard #23：lock 每個套件都要有 SHA-512 integrity、掃描途中 npm 來源被改就中止（`tests/unit/test_guard_node_cve.py`） |
+| CVE-2026-93687／GHSA-vfj7-8cjw-p6xm：braces ≤ 3.0.3 遇到深層巢狀 pattern 會耗盡 call stack（Chat／IDE 的開發相依）。上游沒有修正版，Touka 曾以固定 PR72 的 depth 上限對安裝好的 3.0.3 做同版本回補（ADR-0237）。GitHub 於 2026-10-23 撤回這則公告，理由是「實際上無法被利用」 | **這是公告撤回，不是修好了**：braces 仍是官方原版 3.0.3（上游最新版），公告的 CVE 編號仍在（CVE 編號、撤回時間與理由取自 GitHub advisory 資料，2026-10-24 以 `gh api advisories/GHSA-vfj7-8cjw-p6xm` 查證）。回補與 Guard #23 的 braces 證據檢查整套退役（[ADR-0282](docs/architecture/adr/0282-braces-backport-retirement.md)）；braces 在兩份 lock 都只有一份、標開發相依，產品執行環境不用它。公告若日後恢復，Guard #23 會照常變紅再評估。退役同時收緊 Guard #23 一項：lock 每個套件都要有 SHA-512 integrity；「掃描途中 npm 來源被改就中止」原本在 braces 證據檢查裡，保留下來、改成不依賴 braces（`tests/unit/test_guard_node_cve.py`） |
 
 ### IDE 本機 MCP 伺服器的錯誤頁帶出 stack 與檔案路徑（2026-10-24）
 

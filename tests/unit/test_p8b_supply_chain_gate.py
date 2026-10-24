@@ -123,6 +123,15 @@ def test_controlled_install_runs_no_lifecycle_scripts(project: Path) -> None:
     assert scripts["install:controlled"] == "npm ci --ignore-scripts"
 
 
+@pytest.mark.parametrize("project", [CHAT, IDE], ids=["ToukaChat", "ToukaIDE"])
+def test_npm_scripts_no_longer_reference_the_braces_backport(project: Path) -> None:
+    """ADR-0282: no script runs, defines or points at the retired braces backport."""
+    scripts = json.loads((project / "package.json").read_text(encoding="utf-8"))["scripts"]
+    for name, command in scripts.items():
+        assert "braces" not in name, name
+        assert "braces" not in command and "container-security" not in command, name
+
+
 def test_toukaide_uses_exact_build_toolchain_without_widening_host_api() -> None:
     package = json.loads((IDE / "package.json").read_text(encoding="utf-8"))
 
