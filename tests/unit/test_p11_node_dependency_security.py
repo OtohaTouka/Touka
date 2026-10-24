@@ -20,11 +20,12 @@ SECURITY_FLOORS = {
     "hono": "4.12.34",
     "qs": "6.16.0",
     "@humanfs/node": "0.16.8",
-    "postcss-selector-parser": "7.1.3",
+    "postcss-selector-parser": "7.1.6",
     "smol-toml": "1.7.1",
     "engine.io": "6.6.10",
     "next": "16.4.2",
     "zod": "4.6.6",
+    "baseline-browser-mapping": "2.11.0",
 }
 PROJECT_PACKAGES = {
     "ToukaChat": tuple(SECURITY_FLOORS),
@@ -38,6 +39,7 @@ PROJECT_PACKAGES = {
         "hono",
         "qs",
         "zod",
+        "baseline-browser-mapping",
     ),
 }
 
