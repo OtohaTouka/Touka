@@ -46,7 +46,10 @@ export class ToukaMcpServer {
 
     public constructor(options: ToukaMcpServerOptions = {}) {
         this.app = options.app ?? express();
-        this.app.use(express.json());
+        // Runs before the Bearer check, so compressed bodies are refused with
+        // 415 before any decompression stream exists (GHSA-27r3-jxmh-p828).
+        // Touka never sends them.
+        this.app.use(express.json({ inflate: false }));
         this.httpBridge = options.httpBridge ?? new McpHttpBridge(
             (name, args, signal, meta) => this.executeTool(name, args, signal, meta),
         );
