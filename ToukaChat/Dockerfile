@@ -16,12 +16,7 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY .npmrc ./
-COPY container-security/braces-backport/backport.mjs container-security/braces-backport/backport.mjs
-COPY container-security/braces-backport/manifest.json container-security/braces-backport/manifest.json
-COPY container-security/braces-backport/braces-3.0.3-depth-limit.patch container-security/braces-backport/braces-3.0.3-depth-limit.patch
 RUN npm ci --ignore-scripts --no-audit --no-fund
-RUN node container-security/braces-backport/backport.mjs apply --project-root .
-RUN node container-security/braces-backport/backport.mjs verify --project-root . --scope full
 # Dev terminal runtime needs the lockfile-bound node-pty native binary. Keep
 # global lifecycle disabled and explicitly allow only this package's build.
 RUN npm rebuild node-pty --ignore-scripts=false --foreground-scripts --no-audit --no-fund

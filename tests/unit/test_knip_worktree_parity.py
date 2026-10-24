@@ -121,6 +121,23 @@ def test_guard_prune_does_not_filter_entries_through_gitignore():
     assert "--no-gitignore" in scripts["guard:prune"].split()
 
 
+def test_guard_prune_runs_knip_with_the_scoped_cache_preload():
+    """Only the owned CLI cache policy changes; the knip invocation stays exact."""
+    scripts = json.loads((CHAT_DIR / "package.json").read_bytes())["scripts"]
+    assert scripts["guard:prune"].split() == [
+        "node",
+        "--import",
+        "./scripts/knip-no-cache.mjs",
+        "./node_modules/knip/bin/knip.js",
+        "--no-gitignore",
+        "--reporter",
+        "compact",
+    ]
+    preload = CHAT_DIR / "scripts" / "knip-no-cache.mjs"
+    assert preload.is_file() and not preload.is_symlink()
+    assert preload.read_text(encoding="utf-8").strip() == 'process.env.JITI_FS_CACHE = "false";'
+
+
 def test_knip_project_keeps_default_source_glob():
     assert DEFAULT_PROJECT_GLOB in _knip_string_array("project")
 

@@ -120,10 +120,6 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 映像內 Debian 套件改由建置時 `apt-get upgrade` 取得官方安全更新（ADR-0238）；先前對 liblzma5 `5.8.1-1+deb13u1`（TEMP-1147318-639065／GHSA-5qpq-xqfv-j9pg）的 `RISK_ACCEPTED_DEFERRED` 追蹤隨該管線退役而結束，之後以一般 Debian 更新重新確認。
 
-### braces stack exhaustion（GHSA-vfj7-8cjw-p6xm，Chat／IDE；以防禦回補緩解）
-
-`braces` ≤ 3.0.3 可因深層巢狀 pattern 造成 stack exhaustion DoS（HIGH）。Chat／IDE 維持 braces 3.0.3（lock URL／SRI 不變），以固定 PR72 head `28d440b5dd449dbf1fe6f3506cf94ecca4d02660` 的 depth 上限做同版本防禦回補：`ToukaChat/container-security/braces-backport/` 對實際安裝副本 apply 與唯讀 verify，未知、部分修補或額外副本一律拒絕。npm audit 的原始 HIGH 保留；Guard #23 只在完整可信修補內容與固定 GHSA 相依圖吻合時列為 covered，runtime HIGH、CRITICAL、其他 advisory 或未知相依圖仍阻擋。不宣稱上游已有修正版，也不執行漏洞重現（[ADR-0237](docs/architecture/adr/0237-braces-backport-installed-identity.md)）。GitHub 已於 2026-10-23 撤回這則公告，npm audit 不再列出 braces；但 Guard #23 的證據檢查仍要求 full scope 的 high 必須等於 braces 相依圖，所以現在只要有任何其他 high，Guard #23 就以「braces blocking graph coverage」證據不符中止，不會跑到後面的範圍。這套檢查要另外改寫或退役。
-
 ### body-parser 阻斷服務（GHSA-27r3-jxmh-p828；IDE 已用暫時解法擋下，2026-10-29 升修正版）
 
 台北時間 2026-10-24 公告（GitHub 2026-10-23T20:53Z）：body-parser 2.0.0～2.3.x 收到壓縮過的請求內容、後面又多帶位元組時，多出的位元組會讓已經結束的解壓縮串流丟出沒人接的例外，使整個程序結束（high）。修正版 2.4.0 於 2026-10-22 上架，台北時間 2026-10-29 19:39 才滿 7 天冷卻期，屆時更新；官方的暫時解法是 `inflate: false`（不接受壓縮過的請求內容）。在那之前 Guard #23 是紅的。
@@ -144,6 +140,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；最近一次記錄的 Chat／IDE
 ## Known Resolved Vulnerabilities
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
+
+### braces 公告撤回與回補退役（2026-10-24）
+
+| 弱點 | 處理與驗證 |
+|------|------|
+| CVE-2026-93687／GHSA-vfj7-8cjw-p6xm：braces ≤ 3.0.3 遇到深層巢狀 pattern 會耗盡 call stack（Chat／IDE 的開發相依）。上游沒有修正版，Touka 曾以固定 PR72 的 depth 上限對安裝好的 3.0.3 做同版本回補（ADR-0237）。GitHub 於 2026-10-23 撤回這則公告，理由是「實際上無法被利用」 | **這是公告撤回，不是修好了**：braces 仍是官方原版 3.0.3（上游最新版），公告的 CVE 編號仍在（CVE 編號、撤回時間與理由取自 GitHub advisory 資料，2026-10-24 以 `gh api advisories/GHSA-vfj7-8cjw-p6xm` 查證）。回補與 Guard #23 的 braces 證據檢查整套退役（[ADR-0282](docs/architecture/adr/0282-braces-backport-retirement.md)）；braces 在兩份 lock 都只有一份、標開發相依，產品執行環境不用它。公告若日後恢復，Guard #23 會照常變紅再評估。退役同時收緊 Guard #23 一項：lock 每個套件都要有 SHA-512 integrity；「掃描途中 npm 來源被改就中止」原本在 braces 證據檢查裡，保留下來、改成不依賴 braces（`tests/unit/test_guard_node_cve.py`） |
 
 ### IDE 本機 MCP 伺服器的錯誤頁帶出 stack 與檔案路徑（2026-10-24）
 
@@ -408,7 +410,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | **Docker non-root** | 三個服務容器（Proxy / Heartbeat / Chat）均加入 `USER appuser`，符合 CIS Docker 基準 |
 | **jti Replay Detection** | Refresh token 輪換加入 jti 機制，重用舊 token 立即撤銷全部 session |
 | **Guard #22** (pip-audit) | 從 frozen 單一 lock 建立 repo 外 runtime＋build/test 兩 scope；invalid evidence、tool error 與無權威 severity fail-closed，缺 tool 不自動安裝；合法 skip row 保留名稱／原因並以 INCOMPLETE 停止，不放行未查核依賴（ADR-0222） |
-| **Guard #23** (npm audit) | ToukaChat／ToukaIDE 各掃 runtime＋full graph；直接 Node＋npm-cli argv、public-registry lock（official registry＋SHA-512）與無憑證 child env，invalid evidence／high／critical 阻斷；braces 回補 coverage 見 ADR-0237（ADR-0222） |
+| **Guard #23** (npm audit) | ToukaChat／ToukaIDE 各掃 runtime＋full graph；直接 Node＋npm-cli argv、public-registry lock（official registry＋SHA-512）與無憑證 child env，掃描途中 npm 來源被改即中止；invalid evidence／high／critical 阻斷，失敗時列出阻擋套件與 GHSA（ADR-0222、ADR-0282） |
 | **Guard #24** (Endpoint Auth Dependency Guard) | AST 掃描所有 FastAPI router 端點，強制每個非豁免端點必須帶有至少一個認證 Depends；grandfather 清單（52 個歷史技術債端點）全部補修完畢（ADR-0034） |
 | **SOLID-SRP Heartbeat Token** | `/heartbeat/awaken` 的所有 JWT 驗證邏輯移入獨立的 `verify_heartbeat_token()` Depends 函式；`awaken_agent` body 不再包含任何 token 驗證邏輯 |
 | **Guard #25 Native NPM Build Environment** | `scripts/guard_native_npm.py` 靜態掃描前端 `dependencies` 中的 native module（`KNOWN_NATIVE_MODULES` SSOT），驗證 Dockerfile 備妥 `python3 make g++` |

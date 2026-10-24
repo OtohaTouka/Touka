@@ -67,7 +67,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 - 預設模型不寫死：`ModelProvider` 的 `selectedModel` 初值是空字串，模型清單載入後若還沒選，選 `pickDefaultModel`（`src/lib/default_model.ts`：第一個啟用、沒隱藏、非代理、不離線的模型）；已選的不被蓋掉，找不到就維持空字串。`ChatProvider` 開新對話時目前選的是靈魂，就換成 `pickDefaultModel` 的結果並提示；找不到就不切換、不提示。SoulStudio 建立表單與 `ModelStudio` 的基礎引擎同樣在清單載入後選第一個一般模型。
 - 取樣參數 UI 移除：SoulStudio（唯讀、編輯與建立）、`ModelStudio` 的推理參數欄、設定頁 `ModelsTab` 的參數面板都拿掉了；`/create` 頁（沒有任何入口）整頁刪除。`temperature`／`top_p`／`top_k` 的 API 欄位與存放值保留，存檔照原值送回（ADR-0241 起本來就不送給廠商）。
 - ToukaIDE 行內補全：`touka.inlineCompletionModel` 預設留空，留空表示不啟用、不發任何請求；有設才用設定的模型送出。
-- 開發：`npm run test` 會先 `braces:verify`、再產生 artifact runtime（`gen:artifact-runtime`）才跑 Vitest；`guard:prune`（knip）帶 `--no-gitignore`，產生檔與建置產物由 `knip.config.ts` 的 `project` 排除。
+- 開發：`npm run test` 先產生 artifact runtime（`gen:artifact-runtime`）才跑 Vitest；`guard:prune`（knip）帶 `--no-gitignore`，產生檔與建置產物由 `knip.config.ts` 的 `project` 排除。
 
 ## 隔離第一批（iso-c1）：還原結果、模型下拉、設定搜尋（ADR-0254）
 

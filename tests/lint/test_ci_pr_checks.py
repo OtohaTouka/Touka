@@ -202,8 +202,7 @@ def test_ci_runs_the_eslint_ratchet_after_installing_the_frontend() -> None:
     assert ratchet in steps, "Guard #35 must run in the frontend job from the repo root"
     position = steps.index(ratchet)
     assert steps.index(("ToukaChat", "npm ci --ignore-scripts")) < position
-    apply = "node container-security/braces-backport/backport.mjs apply --project-root ."
-    assert steps.index(("ToukaChat", apply)) < position
+    assert not any("braces" in run for _, run in steps), "ADR-0282 retired the braces backport"
 
 
 def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:

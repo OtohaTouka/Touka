@@ -330,9 +330,7 @@ def main(argv: Sequence[str] = ()) -> None:
         },
         {
             "name": "Node CVE Guard (Chat + IDE, runtime + full) [Guard #23]",
-            "command": (
-                "python scripts/guard_node_cve.py --profile node-lock-and-braces-backport-v1"
-            ),
+            "command": "python scripts/guard_node_cve.py",
             "cwd": root_dir,
             "requires_audit": True,
             "audit_evidence_name": "node",

@@ -167,23 +167,11 @@ def npm_command_sequence(
     """
     npm = str(npm_executable)
     node = str(node_executable) if node_executable is not None else "node"
-    helper = "container-security/braces-backport/backport.mjs"
-    verify = [
-        node,
-        helper,
-        "verify",
-        "--project-root",
-        ".",
-        "--scope",
-        "runtime" if runtime else "full",
-    ]
     if runtime:
-        return ([npm, "ci", "--omit=dev", "--offline", "--ignore-scripts"], verify)
+        return ([npm, "ci", "--omit=dev", "--offline", "--ignore-scripts"],)
     cache = str(cache_dir) if cache_dir is not None else "cache"
     return (
         [npm, "ci", "--offline", "--ignore-scripts"],
-        [node, helper, "apply", "--project-root", "."],
-        verify,
         [
             node,
             "scripts/ensure-critical-native.mjs",

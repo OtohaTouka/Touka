@@ -54,8 +54,6 @@ jobs:
           package-manager-cache: false
       - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
       - run: npm ci --ignore-scripts
-      - run: node container-security/braces-backport/backport.mjs apply --project-root .
-      - run: node container-security/braces-backport/backport.mjs verify --project-root . --scope full
       - run: npm run gen:artifact-runtime --ignore-scripts
       - run: npm run test
       - run: npm run guard:typecheck

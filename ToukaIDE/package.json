@@ -135,14 +135,12 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "test": "npm run braces:verify && vitest run",
-    "typecheck": "npm run braces:verify && tsc --noEmit",
-    "compile": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node",
-    "watch": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --watch",
-    "package": "npm run braces:verify && node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --minify",
-    "braces:apply": "node ../ToukaChat/container-security/braces-backport/backport.mjs apply --project-root .",
-    "braces:verify": "node ../ToukaChat/container-security/braces-backport/backport.mjs verify --project-root . --scope full",
-    "install:controlled": "npm ci --ignore-scripts && npm run braces:apply && npm run braces:verify"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "compile": "node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node",
+    "watch": "node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --watch",
+    "package": "node scripts/copy-webview.js && esbuild ./src/extension.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --minify",
+    "install:controlled": "npm ci --ignore-scripts"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.2.0",

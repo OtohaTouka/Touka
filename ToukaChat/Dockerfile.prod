@@ -33,12 +33,7 @@ WORKDIR /app
 # 安裝完整建置依賴，但拒絕 package lifecycle scripts。
 COPY package*.json .npmrc ./
 COPY scripts/ensure-critical-native.mjs scripts/ensure-critical-native.mjs
-COPY container-security/braces-backport/backport.mjs container-security/braces-backport/backport.mjs
-COPY container-security/braces-backport/manifest.json container-security/braces-backport/manifest.json
-COPY container-security/braces-backport/braces-3.0.3-depth-limit.patch container-security/braces-backport/braces-3.0.3-depth-limit.patch
 RUN npm ci --ignore-scripts --no-audit --no-fund --cache=.npm-cache
-RUN node container-security/braces-backport/backport.mjs apply --project-root .
-RUN node container-security/braces-backport/backport.mjs verify --project-root . --scope full
 RUN node scripts/ensure-critical-native.mjs --npm /usr/local/bin/npm --cache .npm-cache
 
 # 複製原始碼
@@ -71,12 +66,8 @@ WORKDIR /app
 
 # Runtime 只用 lockfile 內精確依賴；lifecycle 永遠停用，不安裝 global latest。
 COPY package*.json .npmrc ./
-COPY container-security/braces-backport/backport.mjs container-security/braces-backport/backport.mjs
-COPY container-security/braces-backport/manifest.json container-security/braces-backport/manifest.json
-COPY container-security/braces-backport/braces-3.0.3-depth-limit.patch container-security/braces-backport/braces-3.0.3-depth-limit.patch
 # --omit=optional：serve 只送靜態檔，不需要 next 的選用依賴（sharp 會帶進 LGPL 的 libvips）。
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund --omit=optional
-RUN node container-security/braces-backport/backport.mjs verify --project-root . --scope runtime
 
 # 從 builder 複製靜態輸出與授權檔（授權檔隨映像散布）
 COPY --from=builder /app/out ./out

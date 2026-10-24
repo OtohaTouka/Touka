@@ -204,7 +204,13 @@ def test_q44_offline_sequence_uses_explicit_node_and_cache(tmp_path):
     commands = npm_offline_gate.npm_command_sequence(
         npm, runtime=False, node_executable=node, cache_dir=cache
     )
-    assert commands[3] == [
+    assert [command[1:3] for command in commands] == [
+        ["ci", "--offline"],
+        ["scripts/ensure-critical-native.mjs", "--npm"],
+        ["run", "gen:artifact-runtime"],
+        ["run", "build"],
+    ]
+    assert commands[1] == [
         str(node),
         "scripts/ensure-critical-native.mjs",
         "--npm",
@@ -215,15 +221,6 @@ def test_q44_offline_sequence_uses_explicit_node_and_cache(tmp_path):
     ]
     assert npm_offline_gate.npm_command_sequence(npm, runtime=True) == (
         [str(npm), "ci", "--omit=dev", "--offline", "--ignore-scripts"],
-        [
-            "node",
-            "container-security/braces-backport/backport.mjs",
-            "verify",
-            "--project-root",
-            ".",
-            "--scope",
-            "runtime",
-        ],
     )
 
 
@@ -265,8 +262,8 @@ def test_q44_offline_proof_maps_actual_execution_to_canonical_argv(tmp_path, mon
             runtime=False,
         )
     )
-    assert len(calls) == 8
-    actual = calls[5][0]
+    assert len(calls) == 6
+    actual = calls[3][0]
     assert actual == [
         str(node),
         "scripts/ensure-critical-native.mjs",
@@ -276,7 +273,7 @@ def test_q44_offline_proof_maps_actual_execution_to_canonical_argv(tmp_path, mon
         str(cache),
         "--offline",
     ]
-    proof = result["commands"][3]
+    proof = result["commands"][1]
     assert proof["argv"] == [
         "scripts/ensure-critical-native.mjs",
         "--npm",
@@ -361,3 +358,68 @@ def test_q44_product_and_offline_call_same_helper_before_build():
     assert production.index("RUN node scripts/" + helper) < production.index("RUN npm run gen:")
     gate = (ROOT / "scripts/hermetic_gate/npm_offline_gate.py").read_text("utf-8")
     assert helper in gate and '"--offline"' in gate
+
+
+def _offline_gate_case(tmp_path, monkeypatch, *, runtime, missing_node=False):
+    """Mock the gate's host side so execute_gate runs its real command order."""
+    project = tmp_path / "project"
+    project.mkdir()
+    npm, node, config = (tmp_path / name for name in ("npm", "node", "global.npmrc"))
+    for file in (npm, node, config):
+        file.touch()
+    for name in ("cache", "home"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setattr(npm_offline_gate, "load_npm_policy", lambda root: None)
+    monkeypatch.setattr(npm_offline_gate, "validate_lockfile", lambda root: None)
+    monkeypatch.setattr(
+        npm_offline_gate, "build_clean_environment", lambda *a, **k: {"PATH": str(tmp_path)}
+    )
+    monkeypatch.setattr(
+        npm_offline_gate,
+        "shutil",
+        SimpleNamespace(which=lambda *a, **k: None if missing_node else str(node)),
+    )
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        stdout = (
+            "https://registry.npmjs.org/\n"
+            if command[1:4] == ["config", "get", "registry"]
+            else "fixture"
+        )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr(npm_offline_gate, "_run", run)
+    args = SimpleNamespace(
+        project=project,
+        npm=npm,
+        global_config=config,
+        cache=tmp_path / "cache",
+        home=tmp_path / "home",
+        validate_only=False,
+        runtime=runtime,
+    )
+    return args, calls, node
+
+
+@pytest.mark.parametrize("runtime", [False, True])
+def test_offline_actual_and_canonical_commands_have_same_order(tmp_path, monkeypatch, runtime):
+    args, calls, node = _offline_gate_case(tmp_path, monkeypatch, runtime=runtime)
+    proof = npm_offline_gate.execute_gate(args)
+    commands = npm_offline_gate.npm_command_sequence(Path("npm"), runtime=runtime)
+    assert len(proof["commands"]) == (1 if runtime else 4)
+    assert [item["argv"] for item in proof["commands"]] == [command[1:] for command in commands]
+    if not runtime:
+        native = next(
+            command for command, _ in calls if "scripts/ensure-critical-native.mjs" in command
+        )
+        assert native[0] == str(node)
+    assert all(options["cwd"] == args.project for _, options in calls)
+
+
+def test_runtime_requires_resolved_node(tmp_path, monkeypatch):
+    args, calls, _ = _offline_gate_case(tmp_path, monkeypatch, runtime=True, missing_node=True)
+    with pytest.raises(npm_offline_gate.NpmPolicyError, match="NODE_EXECUTABLE_REQUIRED"):
+        npm_offline_gate.execute_gate(args)
+    assert not any("ci" in command for command, _ in calls)
