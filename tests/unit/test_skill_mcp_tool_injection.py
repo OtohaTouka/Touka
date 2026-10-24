@@ -36,7 +36,7 @@ class _FakePM:
     async def ensure_connected(self, _name: str) -> None:
         """連線 no-op。"""
 
-    async def get_all_tools(self) -> list[dict]:
+    async def get_all_tools(self, request_context=None) -> list[dict]:
         """回傳 docgen 的 MCP 工具（前綴命名 server__tool）。"""
         return [_DOCGEN_TOOL]
 

@@ -1,6 +1,7 @@
 """工具裝配與動態權限過濾中介軟體層。"""
 
 import logging
+import re
 from typing import Any
 
 from src.adapters import tool_schema
@@ -17,6 +18,7 @@ from src.models.policy import PolicyContext
 from src.services.agent_service import agent_service
 from src.services.permission_service import permission_service
 from src.services.prompt_blocks import (
+    MCP_UNAVAILABLE,
     TOOL_AVAILABILITY,
     build_harness_context,
     build_validation_protocol,
@@ -34,9 +36,30 @@ from src.utils.auth_mode import (
     normalize_auth_mode,
     request_is_incognito,
 )
+from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
 
 logger = logging.getLogger(__name__)
+
+# <mcp_unavailable> 只原樣列出這種名稱（ADR-0281 T1）
+_SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def _shared_server(registry: Any, server: str) -> bool:
+    """設定裡找得到、而且不是要個人授權的伺服器；要個人授權的只由 get_all_tools 帶身分列出。"""
+    config = registry.get_server(server) if registry is not None else None
+    return config is not None and getattr(config, "is_principal_scoped", False) is not True
+
+
+def _unavailable_shared_servers(protocol_manager: Any) -> list[str]:
+    """沒連上的共用伺服器（只看狀態、不連線）；這只是說明，讀不到就當成沒有、不讓請求失敗。"""
+    if not callable(getattr(type(protocol_manager), "unavailable_shared_servers", None)):
+        return []
+    try:
+        return list(protocol_manager.unavailable_shared_servers())
+    except Exception:
+        logger.warning("ToolLayer: could not read unconnected MCP servers.", exc_info=True)
+        return []
 
 # P2a：改動類（mutating）開發工具——廣告集含其一即注入 <validation_protocol>
 # 慣例段（開發流程才提示自我驗證，不擾唯讀/一般 persona 對話）。
@@ -178,6 +201,7 @@ class ToolLayer(ProxyLayer):
         combined_schemas = active_builtin_schemas + active_memory_schemas
         
         # 9. 處理 MCP 工具
+        ctx["user_scoped_tool_names"] = frozenset()
         protocol_manager = ctx.get("protocol_manager")
         if protocol_manager:
             if is_custom and desired_tools:
@@ -185,7 +209,7 @@ class ToolLayer(ProxyLayer):
                 if registry:
                     for t_name in desired_tools:
                         server_id = registry.find_server_by_tool_name(t_name)
-                        if server_id:
+                        if server_id and _shared_server(registry, server_id):
                             is_authorized = permission_service.is_mcp_server_allowed(
                                 server_id, identity
                             )
@@ -201,6 +225,8 @@ class ToolLayer(ProxyLayer):
                             f"ToolLayer: Skill MCP '{_srv}' not in registry, skipping."
                         )
                         continue
+                    if _registry and not _shared_server(_registry, _srv):
+                        continue  # 要個人授權：只由下面的 get_all_tools 帶身分列出（ADR-0281 T1）
                     if permission_service.is_mcp_server_allowed(_srv, identity):
                         await protocol_manager.ensure_connected(_srv)
                     else:
@@ -209,7 +235,20 @@ class ToolLayer(ProxyLayer):
                         )
 
             # 軸 A（per-installation）已於 get_all_tools 供給面濾除，此處只做軸 B（身分面）。
-            mcp_tools = await protocol_manager.get_all_tools()
+            # 使用者各自授權的 MCP 只在人在場、和靈魂的前景對話時帶身分（ADR-0281 T1）。
+            listing_context = (
+                mcp_request_context(
+                    ctx,
+                    ctx["identity"],
+                    request_id=str(ctx.get("request_id") or "tool-listing"),
+                    installation_id="",
+                )
+                if user_scoped_mcp_allowed(ctx, request_model=getattr(request, "model", None))
+                else None
+            )
+            mcp_tools = await protocol_manager.get_all_tools(request_context=listing_context)
+            mcp_registry = getattr(protocol_manager, "registry", None)
+            user_scoped_names: set[str] = set()
             for mcp_tool in mcp_tools:
                 server_name = mcp_tool.get("server", "Unknown")
 
@@ -236,7 +275,31 @@ class ToolLayer(ProxyLayer):
                 if show_tool:
                     mcp_tool["category"] = "MCP"
                     combined_schemas.append(mcp_tool)
-        
+                    if listing_context is not None and mcp_registry is not None and getattr(
+                        mcp_registry.get_server(server_name), "auth_mode", None
+                    ) == "oauth_user":
+                        user_scoped_names.add(t_name)
+            # 幻覺偵測只多認這一輪伺服器自己列出的使用者授權工具（不認客戶端自帶的工具名）
+            ctx["user_scoped_tool_names"] = frozenset(user_scoped_names)
+
+            # 9b. 沒連上的共用伺服器只在說明裡寫明、不列成工具（ADR-0281 T1，決定 1 甲）
+            unavailable = [
+                server
+                for server in _unavailable_shared_servers(protocol_manager)
+                if permission_service.is_mcp_server_allowed(server, identity)
+                and (
+                    not is_dispatcher_active
+                    or server in active_session_mcps
+                    or server in skill_required_mcp
+                )
+                and (
+                    not desired_tools
+                    or any(str(name).startswith(f"{server}__") for name in desired_tools)
+                )
+            ]
+            if unavailable:
+                self._inject_unavailable_note(request, unavailable)
+
         # 11. 最終過濾
         if desired_tools:
             essential_tools = ["connect_mcp_server", "agent_control", "search_skill_market"]
@@ -322,6 +385,26 @@ class ToolLayer(ProxyLayer):
         lines.append("提示：工具清單以實際提供者為準；請只使用清單內的工具。")
         note = "\n" + wrap_block(TOOL_AVAILABILITY, "\n".join(lines)) + "\n"
 
+        if "anthropic" in str(type(request)).lower():
+            inject_anthropic_system(request, note)
+            return
+        messages = getattr(request, "messages", None)
+        if messages is not None:
+            inject_openai_system(messages, note)
+
+    def _inject_unavailable_note(self, request: Any, servers: list[str]) -> None:
+        """把「設定好但沒連上的共用 MCP」寫進每輪會變動的 system 區塊（不列成工具）。
+
+        伺服器名稱可由有權限的人自訂：只列安全字元組成的名稱，其他只寫數量（不原樣進 system）。
+        """
+        shown = [server for server in servers if _SAFE_SERVER_NAME.fullmatch(server)]
+        hidden = len(servers) - len(shown)
+        names = "、".join(shown) + (f"（另有 {hidden} 台名稱無法顯示）" if hidden else "")
+        note = "\n" + wrap_block(
+            MCP_UNAVAILABLE,
+            f"以下 MCP 伺服器已設定但目前沒連上，這一輪叫不到它們的工具：{names}。"
+            "不要呼叫、也不要聲稱用過它們。",
+        ) + "\n"
         if "anthropic" in str(type(request)).lower():
             inject_anthropic_system(request, note)
             return

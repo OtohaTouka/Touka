@@ -20,6 +20,7 @@ from src.services.prompt_blocks import IDE_CONTEXT, wrap_block
 from src.services.resource_manager import resource_manager
 from src.services.soul_service import soul_service
 from src.utils.brain_persistence import get_active_brain, record_working_brain
+from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 from src.utils.progress_events import group_event
 from src.utils.time_utils import get_current_epoch
 
@@ -200,6 +201,8 @@ async def dispatch_group_stream(
         # Nested context for individual agent call
         nested_ctx = context.model_copy()
         nested_ctx["is_toukasoul"] = True
+        # 成員的 ctx 看起來和直接跟靈魂聊天一樣：標成群聊，執行器才不讓它用使用者各自授權的 MCP
+        nested_ctx[GROUP_MEMBER_FLAG] = True
 
         stream_gen = await get_stream_generator(
             brain_model,
