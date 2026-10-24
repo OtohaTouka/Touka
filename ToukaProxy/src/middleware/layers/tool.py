@@ -50,7 +50,10 @@ _ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market"
 _SHORT_NAME_WARNED: set[str] = set()
 
 
-def _warn_short_names(agent_id: str, selection: ToolSelection, memory_schemas: list) -> None:
+def _warn_short_names(
+    identity: AgentIdentity, selection: ToolSelection, memory_schemas: list
+) -> None:
+    agent_id = identity.agent_id
     if agent_id in _SHORT_NAME_WARNED:
         return
     known = frozenset(
@@ -349,7 +352,7 @@ class ToolLayer(ProxyLayer):
                 ):
                     final_schemas.append(s)
             combined_schemas = final_schemas
-            _warn_short_names(str(agent_id), selection, ctx.get("memory_tools_schema") or [])
+            _warn_short_names(identity, selection, ctx.get("memory_tools_schema") or [])
 
         # 這一輪實際列給模型的伺服器端工具（去重後；被客戶端同名 schema 蓋掉的不算）。
         # 一律覆寫：心跳與子代理組裝共用 ctx，舊清單不得沿用。
