@@ -82,6 +82,8 @@ IDE 工具系統（`vault_tools`, `project_tools` 等）由 ToukaMemory 提供�
 - Node runtime 使用 `@modelcontextprotocol/server`／`node` v2 public API；已移除 `server-legacy` 依賴、相容入口及 session transport Map。
 - Server 只監聽 loopback，並驗證 Host／Origin；缺少或錯誤 Bearer 回 401，啟動 token
   為空回 503。MCP session 與 `clientInfo` 不能代替 Bearer。
+- 請求內容只收未壓縮的 JSON：帶 `Content-Encoding`（`identity` 除外）回 415。這一步在 Bearer
+  驗證之前，也在建立任何解壓縮串流之前（GHSA-27r3-jxmh-p828）。
 - modern HTTP stream 關閉會把 AbortSignal 傳入工具 executor；終端子程序收到取消後
   會被終止，避免 client 斷線後繼續執行。
 - 多個 modern client 彼此 request-scoped；取消其中一個 stream 後，另一個 client 仍須能執行工具。

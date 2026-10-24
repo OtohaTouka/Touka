@@ -124,11 +124,11 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 `braces` ≤ 3.0.3 可因深層巢狀 pattern 造成 stack exhaustion DoS（HIGH）。Chat／IDE 維持 braces 3.0.3（lock URL／SRI 不變），以固定 PR72 head `28d440b5dd449dbf1fe6f3506cf94ecca4d02660` 的 depth 上限做同版本防禦回補：`ToukaChat/container-security/braces-backport/` 對實際安裝副本 apply 與唯讀 verify，未知、部分修補或額外副本一律拒絕。npm audit 的原始 HIGH 保留；Guard #23 只在完整可信修補內容與固定 GHSA 相依圖吻合時列為 covered，runtime HIGH、CRITICAL、其他 advisory 或未知相依圖仍阻擋。不宣稱上游已有修正版，也不執行漏洞重現（[ADR-0237](docs/architecture/adr/0237-braces-backport-installed-identity.md)）。GitHub 已於 2026-10-23 撤回這則公告，npm audit 不再列出 braces；但 Guard #23 的證據檢查仍要求 full scope 的 high 必須等於 braces 相依圖，所以現在只要有任何其他 high，Guard #23 就以「braces blocking graph coverage」證據不符中止，不會跑到後面的範圍。這套檢查要另外改寫或退役。
 
-### body-parser 阻斷服務（GHSA-27r3-jxmh-p828，2026-10-29 前未修）
+### body-parser 阻斷服務（GHSA-27r3-jxmh-p828；IDE 已用暫時解法擋下，2026-10-29 升修正版）
 
 台北時間 2026-10-24 公告（GitHub 2026-10-23T20:53Z）：body-parser 2.0.0～2.3.x 收到壓縮過的請求內容、後面又多帶位元組時，多出的位元組會讓已經結束的解壓縮串流丟出沒人接的例外，使整個程序結束（high）。修正版 2.4.0 於 2026-10-22 上架，台北時間 2026-10-29 19:39 才滿 7 天冷卻期，屆時更新；官方的暫時解法是 `inflate: false`（不接受壓縮過的請求內容）。在那之前 Guard #23 是紅的。
 
-- **ToukaIDE（執行期）**：擴充套件裡的本機 MCP 伺服器在 `ToukaIDE/src/mcp/server.ts` 全域掛 `express.json()`（預設會解壓縮），排在 Bearer 驗證與 Host／Origin 檢查之前，所以同一台電腦上的其他程式不帶權杖也能送出這種請求。後果是 VS Code 的擴充主機程序結束，或被它攔下記錄（沒有實測）。伺服器只綁 loopback、沒有 CORS；一般網頁的跨來源請求要先過預檢，送不出去，但遇到 DNS rebinding 時請求變成同源、不必預檢，排在後面的 Host／Origin 檢查擋不到，能不能成功取決於瀏覽器有沒有本機網路存取保護。
+- **ToukaIDE（執行期，已擋下）**：擴充套件裡的本機 MCP 伺服器在 `ToukaIDE/src/mcp/server.ts` 全域掛 JSON 解析，排在 Bearer 驗證與 Host／Origin 檢查之前，所以同一台電腦上的其他程式不帶權杖也能送出請求；伺服器只綁 loopback、沒有 CORS，一般網頁的跨來源請求要先過預檢，但遇到 DNS rebinding 時請求變成同源、不必預檢，排在後面的 Host／Origin 檢查擋不到。原本的 `express.json()` 預設會解壓縮，這種請求可能讓 VS Code 的擴充主機程序結束（沒有實測）。現在改成 `express.json({ inflate: false })`：帶 `Content-Encoding`（`identity` 除外）的請求在建立任何解壓縮串流之前就回 415，不會進到任何路由；Touka 自己不送壓縮過的請求內容，行為不變。升到 2.4.0 後仍保留這個設定。由 `ToukaIDE/src/__tests__/mcpServerBodyParsing.test.ts` 釘住：gzip、deflate、br 都回 415 且碰不到路由，後面多帶位元組的 gzip 回 415 後伺服器照常服務，未壓縮與 `identity` 照常解析。
 - **ToukaChat（開發工具）**：只在開發工具裡，產品執行時不載入。
 
 ### @azure/msal-node（IDE dev：只由打包工具 `@vscode/vsce` 經 `@azure/identity` 帶入）
