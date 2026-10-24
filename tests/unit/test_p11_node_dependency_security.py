@@ -16,7 +16,7 @@ SECURITY_FLOORS = {
     "browserslist": "4.28.7",
     "ip-address": "10.3.1",
     "js-yaml": "4.3.1",
-    "undici": "7.29.1",
+    "undici": "7.30.1",
     "hono": "4.12.34",
     "qs": "6.16.0",
     "@humanfs/node": "0.16.8",
@@ -24,6 +24,7 @@ SECURITY_FLOORS = {
     "smol-toml": "1.7.1",
     "engine.io": "6.6.10",
     "next": "16.4.2",
+    "zod": "4.6.6",
 }
 PROJECT_PACKAGES = {
     "ToukaChat": tuple(SECURITY_FLOORS),
@@ -36,6 +37,7 @@ PROJECT_PACKAGES = {
         "undici",
         "hono",
         "qs",
+        "zod",
     ),
 }
 
