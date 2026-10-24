@@ -37,6 +37,7 @@ PROJECT_PACKAGES = {
         "undici",
         "hono",
         "qs",
+        "zod",
     ),
 }
 
