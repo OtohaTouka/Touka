@@ -19,12 +19,9 @@ from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
 from src.protocols.manager import McpToolArgumentRefusal, McpToolCatalogRefusal, ToolDisabledError
 from src.protocols.mcp.canonical import (
-    ExecutionKind,
     McpCompleteOutcome,
     McpErrorKind,
     McpOperationException,
-    McpRequestContext,
-    McpRequestOrigin,
 )
 from src.protocols.mcp.error_mapping import map_mcp_error
 from src.protocols.mcp.interaction import (
@@ -45,6 +42,8 @@ from src.tools.execution_policy import ToolExecutionClass, classify_registered_t
 from src.utils.async_db import session_service
 from src.utils.command_safety import effective_shell
 from src.utils.hard_floor import floor_tool_action
+from src.utils.mcp_request_identity import mcp_request_context as build_mcp_request_context
+from src.utils.mcp_request_identity import user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
 from src.utils.progress_events import repair_event
 from src.utils.time_utils import (
@@ -266,6 +265,21 @@ class ToolExecutor:
             reason="not_advertised",
         )
 
+    def _user_scope_denial(self, name: str, ctx: dict[str, Any], server: str | None) -> str | None:
+        """使用者各自授權的 MCP 只給人在場、和靈魂的前景對話（ToolLayer 之外的第二層防線）."""
+        registry = getattr(self.protocol_manager, "registry", None)
+        config = registry.get_server(server) if server and registry is not None else None
+        if getattr(config, "auth_mode", None) != "oauth_user" or user_scoped_mcp_allowed(ctx):
+            return None
+        return tool_errors.build_tool_error(
+            tool_errors.PERMISSION_DENIED,
+            f"Tool '{name}' uses the user's own authorization, which only works in a foreground "
+            "conversation with a soul while the user is present.",
+            suggestion="Do not retry this tool in this run.",
+            denied_tool=name,
+            reason="user_scoped_mcp_unavailable",
+        )
+
     async def _await_human_approval(
         self,
         *,
@@ -435,9 +449,13 @@ class ToolExecutor:
         ):
             mcp_server, mcp_tool_name = self.protocol_manager.resolve_tool(name)
 
-        # 這一輪清單核對（模型迴圈）：角色權限之後、軸 B／PaC／審查員／審批卡之前
+        # 這一輪清單核對（模型迴圈）：角色權限之後、軸 B／PaC／審查員／審批卡之前；使用者各自授權
+        # 的 MCP 另外再核一次在場條件（ADR-0281 T1）
         offer_denial = (
-            self._offer_denial(name, ctx, handler_source, mcp_server, mcp_tool_name)
+            (
+                self._offer_denial(name, ctx, handler_source, mcp_server, mcp_tool_name)
+                or self._user_scope_denial(name, ctx, mcp_server)
+            )
             if self._enforce_advertised
             else None
         )
@@ -786,40 +804,13 @@ class ToolExecutor:
                         mcp_vault_jail.apply(
                             self.protocol_manager.registry, server_id, args, identity
                         )
-                        # 派工（子代理）優先於心跳：心跳派出的子代理算派工（U2c-2）
                         human_present = is_human_present(ctx)
-                        origin_value = ctx.get("request_origin")
-                        if origin_value is None:
-                            origin_value = (
-                                McpRequestOrigin.FOREGROUND
-                                if human_present
-                                else McpRequestOrigin.DISPATCH
-                                if ctx.get("dispatch_run")
-                                else McpRequestOrigin.HEARTBEAT
-                                if ctx.get("heartbeat_run")
-                                else McpRequestOrigin.FOREGROUND
-                            )
-                        mcp_request_context = McpRequestContext(
+                        mcp_request_context = build_mcp_request_context(
+                            ctx,
+                            identity,
                             request_id=request_id,
-                            session_id=session_id,
-                            identity=identity,
-                            human_principal_id=(
-                                ctx.get("human_principal_id")
-                                or (identity.agent_id if identity.is_human else None)
-                            ),
                             installation_id=server_id,
-                            auth_level=ctx.get("auth_level") or "Manual",
-                            execution_kind=(
-                                ExecutionKind.DISPATCH
-                                if ctx.get("dispatch_run")
-                                else ExecutionKind.HEARTBEAT
-                                if ctx.get("heartbeat_run")
-                                else ExecutionKind.FOREGROUND
-                            ),
-                            origin=origin_value,
                             policy_context=policy_context,
-                            cancellation_id=ctx.get("cancellation_id"),
-                            trace_context=ctx.get("trace_context") or {},
                             # U2c-7：只有人類卡片核准、且卡上參數沒被截斷；審查員與 YOLO 放行不帶
                             human_approved=hitl_preapproved and card_complete,
                         )

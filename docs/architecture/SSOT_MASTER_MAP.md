@@ -118,11 +118,16 @@
 | 執行器要不要核對清單（只能用名稱指定、建立後唯讀；正式程式只有兩個建立點、各一次，結構測試 C2 逐一比對建立點，並限定只有這兩個檔能匯入 `tool_executor` 模組） | `ToolExecutor(..., *, enforce_advertised)`：`handlers/react_core.py` `run_react_loop` 寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈；人按的 `/debug/execute` |
 | 子代理一定拿掉的工具（請求與清單同步） | `tools/subagent_tools.py` `_SUBAGENT_STRIPPED_TOOLS`（`dispatch_subagent`、`dispatch_subagent_group`） | `_assemble_subagent_request`、`_run_subagent` |
 
-## ADR-0269 的後續：工具使用分三種（2026-10-24，ADR-0281 T3）
+## ADR-0269 的後續：工具使用分三種、使用者授權的 MCP（2026-10-24，ADR-0281 T3、T1）
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
 | 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（真正交給 handler 時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛與 e_index（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
+| 能不能用使用者各自授權（`oauth_user`）的 MCP：已驗證的靈魂身分且就是對話目標、人在場、不是群聊（`ToukaGroup`／`group_member_run`）、有原始人類 | `ToukaProxy/src/utils/mcp_request_identity.py` `user_scoped_mcp_allowed`（純函式）、`GROUP_MEMBER_FLAG` | ToolLayer（組清單）、`ToolExecutor._user_scope_denial`（第二層防線，原因 `user_scoped_mcp_unavailable`）；群聊分發器設旗標 |
+| MCP 操作的請求上下文（來源、執行種類、原始人類） | `utils/mcp_request_identity.py` `mcp_request_context` | ToolLayer（組清單）、`ToolExecutor`（呼叫 MCP） |
+| 組清單時只為 `oauth_user` 帶身分、先查授權、第一次連線上限、連線中不重開、失敗冷卻 | `protocols/manager.py` `get_all_tools`、`_user_scoped_listing_handle`、`USER_SCOPED_CONNECT_TIMEOUT_S`、`USER_SCOPED_RETRY_COOLDOWN_S` | ToolLayer |
+| 組清單用的只讀授權查詢（不推進時鐘、不寫、不解密；懸空指標算損毀） | `protocols/mcp/oauth/runtime.py` `has_usable_grant` → `oauth/store.py` `OAuthSqliteStore.has_usable_grant` | `ProtocolManager._user_scoped_listing_handle` |
+| 設定好但沒連上的共用 MCP（只看狀態、不連線）與說明區塊 | `ProtocolManager.unavailable_shared_servers`；區塊 tag `prompt_blocks.MCP_UNAVAILABLE`（在 `ALL_BLOCK_TAGS`、`VOLATILE_SYSTEM_TAGS`） | ToolLayer 依軸 B 過濾後注入 |
 
 ## 記憶系統第二批：段 4 可信活動時間軸與時間感（2026-10-15，ADR-0267）
 

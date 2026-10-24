@@ -55,8 +55,13 @@ class GuardService:
         memory_tool_registry: dict[str, Any] | None,
         plugin_registry: dict[str, Any] | None,
         protocol_manager: Any,
+        *,
+        extra_names: frozenset[str] | None = None,
     ) -> set[str]:
-        """幻覺偵測的「已知工具」全集：三個靜態 registry ＋ 動態 MCP 工具名（SSOT）。
+        """幻覺偵測的「已知工具」全集（SSOT）：三個靜態 registry ＋ 動態 MCP ＋ ``extra_names``。
+
+        ``extra_names``：ToolLayer 這一輪為人在場的前景對話列出的使用者授權 MCP（ADR-0281 T1）；
+        不收客戶端自帶的工具名，不擴大誤報。
 
         禁令 59(c)：已知工具集**必須涵蓋 MCP 工具**——過去只比對靜態 registry，
         模型文字提及（未實際呼叫的）MCP 工具時偵測不到（假陰性）。MCP 列舉失敗
@@ -69,6 +74,7 @@ class GuardService:
         for reg in (tool_registry, memory_tool_registry, plugin_registry):
             if reg:
                 names.update(reg.keys())
+        names.update(extra_names or ())
         if protocol_manager is None:
             return names
         try:

@@ -302,7 +302,9 @@ async def test_principal_stdio_refused_and_visible(harness, monkeypatch, entry):
     manager._refresh_installations()
     transport = AsyncMock(return_value=(SimpleNamespace(), AsyncExitStack()))
     monkeypatch.setattr(mod, "connect_mcp_server", transport)
-    manager._oauth_auth_service = SimpleNamespace(bearer_credential_guard=Mock())
+    manager._oauth_auth_service = SimpleNamespace(
+        bearer_credential_guard=Mock(), has_usable_grant=AsyncMock(return_value=True)
+    )
     try:
         if entry == "tools":
             assert await manager.get_all_tools(context()) == []

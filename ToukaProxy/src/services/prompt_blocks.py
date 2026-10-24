@@ -19,6 +19,7 @@ TOOL_AVAILABILITY = "tool_availability"  # Tier 1：Gate 1 過濾的可讀說明
 VALIDATION_PROTOCOL = "validation_protocol"  # P2a：改動後自我驗證慣例（僅開發流程注入）
 HARNESS_CONTEXT = "harness_context"  # ADR-0139：OS 環境事實宣告（穩定層、與人格零重疊）
 CONTINUITY = "continuity"  # 現在時間／距上一輪多久／任務看板時間（附在最後一則 user 訊息尾端）
+MCP_UNAVAILABLE = "mcp_unavailable"  # ADR-0281 T1：設定好但現在沒連上的共用 MCP（每輪會變）
 
 # 全部已知的 system-prompt 區塊 tag（供 Phase B breakdown parser 列舉）。
 ALL_BLOCK_TAGS: tuple[str, ...] = (
@@ -32,12 +33,13 @@ ALL_BLOCK_TAGS: tuple[str, ...] = (
     VALIDATION_PROTOCOL,
     HARNESS_CONTEXT,
     CONTINUITY,
+    MCP_UNAVAILABLE,
 )
 
 # 每回合會變動的區塊（P4c 穩定前綴細分用）：只有排在「最早一個波動區塊」**之前**的
 # 內容（persona 等）才可跨回合快取。mission 進度與被剪對話摘要每回合都可能變。
 # CONTINUITY 每次請求都變，但不在 system（附在最後一則 user 訊息尾端），故不列入。
-VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (MISSION_AWARENESS, CONVERSATION_SUMMARY)
+VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (MISSION_AWARENESS, CONVERSATION_SUMMARY, MCP_UNAVAILABLE)
 
 # 只在這一次請求附在最後一則 user 訊息尾端（"\n\n<tag>…</tag>"）、不進下一輪歷史的區塊：
 # Claude 的對話歷史快取斷點要打在它們之前，下一輪的前綴才對得上。
