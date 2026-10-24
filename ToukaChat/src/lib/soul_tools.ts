@@ -102,5 +102,10 @@ export function shortNames(value: readonly string[], catalog: readonly SoulToolE
 
 /** 因為勾了別的工具而一起開的工具（例如執行指令的取結果、停止指令）。 */
 export function impliedTools(value: readonly string[], companions: Record<string, string[]>): Set<string> {
-    return new Set(value.flatMap(item => companions[item] ?? []));
+    return new Set(value.flatMap(item => companionsFor(companions, item)));
+}
+
+/** 一個工具的配套；只看自己的鍵（`constructor` 這類名稱在每個物件的原型上都有）。 */
+export function companionsFor(companions: Record<string, string[]>, item: string): string[] {
+    return Object.hasOwn(companions, item) ? companions[item] : [];
 }

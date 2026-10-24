@@ -1749,7 +1749,7 @@
       "tools_empty_means_all": "Selecting no tools means every tool is available",
       "tools_companion": "Comes with {{tool}}",
       "tools_loading": "Loading the tool list…",
-      "tools_load_failed": "Could not load the tool list, so it cannot be changed right now",
+      "tools_load_failed": "Could not load the tool list. Open this screen again to retry",
       "cancel": "Cancel",
       "initialize_soul": "Initialize Soul",
       "edit_soul": "Edit Soul",

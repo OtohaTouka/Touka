@@ -68,5 +68,7 @@ describe('selection helpers', () => {
         const companions = { execute_command: ['get_command_result', 'stop_command'] };
         expect([...impliedTools(['execute_command', 'read'], companions)]).toEqual(['get_command_result', 'stop_command']);
         expect(impliedTools(['bash', 'read'], companions).size).toBe(0);
+        // 物件原型上的名稱不算配套
+        expect(impliedTools(['constructor', 'toString', '__proto__'], companions).size).toBe(0);
     });
 });

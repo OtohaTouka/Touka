@@ -33,6 +33,7 @@ from src.services.prompt_blocks import MCP_UNAVAILABLE
 from src.utils.soul_tool_selection import TOOL_COMPANIONS, ToolSelection, companions_of
 
 _SOUL = AgentIdentity.for_role(agent_id="PickSoul", role="Owner")
+_HUMAN = AgentIdentity.for_role(agent_id="human-pick", role="admin", is_human=True)
 
 
 # --- 1. 比對函式 ----------------------------------------------------------------
@@ -69,12 +70,14 @@ def test_short_names_server_names_and_wildcards_open_no_mcp_tool(entry):
     assert not selection.selects("srv__lookup", server="srv", tool="lookup")
 
 
-@pytest.mark.parametrize("entry", ["srv/*", "*/lookup", "*/*", "srv/look*", "s*v/x", "srv/*x"])
-def test_wildcard_pairs_are_dropped_not_kept(entry):
-    """萬用字元不收：不能留成一對，否則會被當成「勾了這台」去連線、列進說明區塊。"""
+@pytest.mark.parametrize(
+    "entry", ["srv/*", "*/lookup", "*/*", "srv/look*", "s*v/x", "srv/*x", "srv__*", "*"]
+)
+def test_wildcard_entries_are_dropped_entirely(entry):
+    """含萬用字元的整條不收（兩種寫法都是）：否則會被當成「勾了這台」去連線、列進說明區塊。"""
     selection = ToolSelection.parse([entry])
 
-    assert selection.mcp_pairs == frozenset()
+    assert selection == ToolSelection()
     assert not selection.mentions_server("srv")
 
 
@@ -222,6 +225,18 @@ async def test_no_companions_when_execute_command_is_not_listed(monkeypatch):
         assert not {"execute_command", "get_command_result", "stop_command"} & advertised.native
 
 
+async def test_no_companions_when_the_client_brings_its_own_execute_command():
+    """客戶端自帶同名工具時，伺服器端的執行指令不會列出，配套也不帶。"""
+    request = _request()
+    request.tools = [
+        {"type": "function", "function": {"name": "execute_command", "parameters": {}}}
+    ]
+
+    advertised = await _listed(_ctx(desired_tools=["execute_command"]), request)
+
+    assert not {"execute_command", "get_command_result", "stop_command"} & advertised.native
+
+
 async def test_pair_entries_still_need_the_mcp_role_grant(tmp_path, monkeypatch):
     manager = _manager(tmp_path, {"srv": ["lookup"]})
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: False)
@@ -339,7 +354,15 @@ async def test_no_warning_for_a_name_this_turn_listed(monkeypatch, warnings_seen
     assert not warnings_seen()
 
 
-@pytest.mark.parametrize("run", [{"subagent_run": True}, {"is_custom": True}, {}])
+@pytest.mark.parametrize(
+    "run",
+    [
+        {"is_toukasoul": True, "subagent_run": True},
+        {"is_toukasoul": True, "identity": _HUMAN},
+        {"is_custom": True},
+        {},
+    ],
+)
 async def test_short_names_are_warned_only_for_a_soul_s_own_run(run, warnings_seen):
     """子代理每次身分都不同、自訂模型的身分是人類：只在靈魂自己的執行記警告。"""
     await _listed(_ctx(desired_tools=["lookup"], **run))

@@ -73,7 +73,20 @@ describe('SoulToolPicker', () => {
         expect(screen.getByText('read')).toBeInTheDocument();
         expect(screen.queryByText(/目前不在清單/)).not.toBeInTheDocument();
         expect(screen.queryByText(/對不到任何工具/)).not.toBeInTheDocument();
-        expect(screen.getByText(status === 'loading' ? '正在讀取工具清單…' : '讀不到工具清單，暫時不能修改')).toBeInTheDocument();
+        expect(screen.getByText(status === 'loading' ? '正在讀取工具清單…' : '讀不到工具清單：重新開啟這個畫面再試一次')).toBeInTheDocument();
+    });
+
+    it('an empty list still says every tool is available while the list cannot be read', () => {
+        render(<SoulToolPicker catalog={{ status: 'failed', tools: [], companions: {} }} value={[]} onChange={vi.fn()} />);
+
+        expect(screen.getByText('不勾任何工具代表全部可用')).toHaveClass('text-status-warning');
+    });
+
+    it('does not crash on names that are built into every JavaScript object', () => {
+        render(<SoulToolPicker catalog={READY} value={['constructor', 'toString', 'execute_command']} onChange={vi.fn()} />);
+
+        expect(screen.getByRole('button', { name: /stop_command/ })).toHaveAttribute('title', '隨 execute_command 一起開');
+        expect(screen.getByRole('button', { name: /constructor/ })).toHaveTextContent('目前不在清單');
     });
 
     it('an empty list says every tool is available, louder while editing', () => {

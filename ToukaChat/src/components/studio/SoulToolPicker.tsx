@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import {
+    companionsFor,
     impliedTools,
     isToolSelected,
     shortNames,
@@ -28,6 +29,11 @@ const OFF = "border-border bg-background text-muted-foreground hover:border-prim
  */
 export function SoulToolPicker({ catalog, value, onChange }: SoulToolPickerProps) {
     const { t } = useTranslation();
+    const emptyHint = (onChange || value.length === 0) && (
+        <p className={`text-xs ${onChange && value.length === 0 ? "text-status-warning" : "text-muted-foreground"}`}>
+            {t("layout.soul_studio.tools_empty_means_all")}
+        </p>
+    );
     if (catalog.status !== "ready") {
         return (
             <div className="space-y-2">
@@ -37,6 +43,7 @@ export function SoulToolPicker({ catalog, value, onChange }: SoulToolPickerProps
                 <p className="text-xs text-muted-foreground">
                     {t(catalog.status === "loading" ? "layout.soul_studio.tools_loading" : "layout.soul_studio.tools_load_failed")}
                 </p>
+                {emptyHint}
             </div>
         );
     }
@@ -47,7 +54,7 @@ export function SoulToolPicker({ catalog, value, onChange }: SoulToolPickerProps
     const shown = onChange ? tools : tools.filter(entry => isToolSelected(entry, value) || implied.has(entry.key));
     const notListed = t("layout.soul_studio.tools_not_listed");
     const companionOf = (key: string) => t("layout.soul_studio.tools_companion", {
-        tool: value.find(item => companions[item]?.includes(key)),
+        tool: value.find(item => companionsFor(companions, item).includes(key)),
     });
 
     return (
@@ -96,11 +103,7 @@ export function SoulToolPicker({ catalog, value, onChange }: SoulToolPickerProps
                     {t("layout.soul_studio.tools_needs_reselect", { count: shortCount })}
                 </p>
             )}
-            {(onChange || value.length === 0) && (
-                <p className={`text-xs ${onChange && value.length === 0 ? "text-status-warning" : "text-muted-foreground"}`}>
-                    {t("layout.soul_studio.tools_empty_means_all")}
-                </p>
-            )}
+            {emptyHint}
         </div>
     );
 }

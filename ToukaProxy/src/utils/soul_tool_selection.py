@@ -3,8 +3,9 @@
 ``enabled_tools`` 每一條的意思：
 
 - 內建與記憶工具：名稱，逐字比對。
-- MCP：恰好一個斜線的 ``伺服器/工具``，比（伺服器, 工具）這一對；含萬用字元的整條不收、
-  不收只寫伺服器名（刻意不沿用 MCP 權限設定「只寫伺服器名＝整台全開」那套比對）。
+- MCP：恰好一個斜線的 ``伺服器/工具``，比（伺服器, 工具）這一對；不收只寫伺服器名
+  （刻意不沿用 MCP 權限設定「只寫伺服器名＝整台全開」那套比對）。
+- 含萬用字元 ``*`` 的整條不收（兩種寫法都是）。
 - 舊的長名 ``伺服器__工具``：照舊逐字比廣告名。
 - 其他（舊短名、空的一邊、兩個以上斜線）：不生效。短名不自動對應：同名可能在好幾台，
   也可能和內建工具或伺服器同名，自動對應會打開沒勾的工具。
@@ -47,13 +48,13 @@ class ToolSelection:
         names: set[str] = set()
         pairs: set[tuple[str, str]] = set()
         for entry in entries:
-            if not isinstance(entry, str) or not entry:
+            if not isinstance(entry, str) or not entry or _WILDCARD in entry:
                 continue
             if MCP_SEPARATOR not in entry:
                 names.add(entry)
                 continue
             server, _, tool = entry.partition(MCP_SEPARATOR)
-            if server and tool and MCP_SEPARATOR not in tool and _WILDCARD not in entry:
+            if server and tool and MCP_SEPARATOR not in tool:
                 pairs.add((server, tool))
         return cls(frozenset(names), frozenset(pairs))
 

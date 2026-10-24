@@ -355,9 +355,10 @@ class ToolLayer(ProxyLayer):
                     t_name, server=server, tool=(s.get("tool") or t_name) if server else None
                 ):
                     final_schemas.append(s)
-            # 執行指令真的留在清單上才帶配套；配套本身已經過政策與角色權限（第 4 步）
+            # 執行指令真的留在清單上才帶配套；配套本身已經過政策與角色權限（第 4 步）。
+            # 客戶端自帶同名工具時，伺服器端那個會在注入時被去重拿掉，也不算列出。
             listed = _schema_names(final_schemas)
-            companions = companions_of(listed) - listed
+            companions = companions_of(listed - _schema_names(request.tools)) - listed
             final_schemas += [
                 s for s in combined_schemas
                 if not s.get("server") and _schema_names([s]) & companions
