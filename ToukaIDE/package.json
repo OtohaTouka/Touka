@@ -166,12 +166,12 @@
   "overrides": {
     "fast-uri": "3.1.7",
     "nanoid": "3.3.18",
-    "browserslist": "4.28.7",
+    "browserslist": "4.29.3",
     "hono": "4.12.34",
     "qs": "6.16.0",
-    "caniuse-lite": "1.0.30001806",
-    "node-releases": "2.0.51",
-    "electron-to-chromium": "1.5.393",
-    "baseline-browser-mapping": "2.10.44"
+    "caniuse-lite": "1.0.30001816",
+    "node-releases": "2.0.59",
+    "electron-to-chromium": "1.5.458",
+    "baseline-browser-mapping": "2.11.29"
   }
 }
