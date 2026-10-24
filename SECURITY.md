@@ -128,7 +128,7 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 台北時間 2026-10-24 公告（GitHub 2026-10-23T20:53Z）：body-parser 2.0.0～2.3.x 收到壓縮過的請求內容、後面又多帶位元組時，多出的位元組會讓已經結束的解壓縮串流丟出沒人接的例外，使整個程序結束（high）。修正版 2.4.0 於 2026-10-22 上架，台北時間 2026-10-29 19:39 才滿 7 天冷卻期，屆時更新；官方的暫時解法是 `inflate: false`（不接受壓縮過的請求內容）。在那之前 Guard #23 是紅的。
 
-- **ToukaIDE（執行期，已擋下）**：擴充套件裡的本機 MCP 伺服器在 `ToukaIDE/src/mcp/server.ts` 全域掛 JSON 解析，排在 Bearer 驗證與 Host／Origin 檢查之前，所以同一台電腦上的其他程式不帶權杖也能送出請求；伺服器只綁 loopback、沒有 CORS，一般網頁的跨來源請求要先過預檢，但遇到 DNS rebinding 時請求變成同源、不必預檢，排在後面的 Host／Origin 檢查擋不到。原本的 `express.json()` 預設會解壓縮，這種請求可能讓 VS Code 的擴充主機程序結束（沒有實測）。現在改成 `express.json({ inflate: false })`：帶 `Content-Encoding`（`identity` 除外）的請求在建立任何解壓縮串流之前就回 415，不會進到任何路由；Touka 自己不送壓縮過的請求內容，行為不變。升到 2.4.0 後仍保留這個設定。由 `ToukaIDE/src/__tests__/mcpServerBodyParsing.test.ts` 釘住：gzip、deflate、br 都回 415 且碰不到路由，後面多帶位元組的 gzip 回 415 後伺服器照常服務，未壓縮與 `identity` 照常解析。
+- **ToukaIDE（執行期，已擋下）**：擴充套件裡的本機 MCP 伺服器在 `ToukaIDE/src/mcp/server.ts` 全域掛 JSON 解析，排在 Bearer 驗證與 Host／Origin 檢查之前，所以同一台電腦上的其他程式不帶權杖也能送出請求；伺服器只綁 loopback、沒有 CORS，一般網頁的跨來源請求要先過預檢，但遇到 DNS rebinding 時請求變成同源、不必預檢，排在後面的 Host／Origin 檢查擋不到。原本的 `express.json()` 預設會解壓縮，這種請求可能讓 VS Code 的擴充主機程序結束（沒有實測）。現在改成 `express.json({ inflate: false })`：JSON 請求帶 `Content-Encoding`（`identity` 或空值除外）時，在建立任何解壓縮串流之前就回 415，不會進到任何路由；其他 `Content-Type` 不在這裡解析，沒帶權杖照常回 401，整條路上都不解壓縮。Touka 自己不送壓縮過的請求內容，行為不變。升到 2.4.0 後仍保留這個設定（2.4.0 新增 zstd 解壓，保留設定也一併擋掉）。由 `ToukaIDE/src/__tests__/mcpServerBodyParsing.test.ts` 釘住：gzip、deflate、br 都回 415、碰不到路由，也沒有呼叫任何 zlib 解壓函式；公告描述的「gzip 後面多帶位元組」請求同樣在解壓前被擋，之後伺服器照常服務（測試不重現當機）；未壓縮與 `identity` 照常解析。
 - **ToukaChat（開發工具）**：只在開發工具裡，產品執行時不載入。
 
 ### @azure/msal-node（IDE dev：只由打包工具 `@vscode/vsce` 經 `@azure/identity` 帶入）

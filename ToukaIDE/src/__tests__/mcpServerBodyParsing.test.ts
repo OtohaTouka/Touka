@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { request as httpRequest } from 'node:http';
-import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib';
+import zlib, { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib';
 
 import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -78,7 +78,17 @@ async function post(
     });
 }
 
+// body-parser looks these up on the shared zlib module when it decompresses.
+function spyOnDecompressors(): Array<ReturnType<typeof vi.spyOn>> {
+    return [
+        vi.spyOn(zlib, 'createGunzip'),
+        vi.spyOn(zlib, 'createInflate'),
+        vi.spyOn(zlib, 'createBrotliDecompress'),
+    ];
+}
+
 afterEach(async () => {
+    vi.restoreAllMocks();
     for (const { httpServer } of running.splice(0)) {
         await new Promise<void>((resolveClose) => httpServer.close(() => resolveClose()));
     }
@@ -109,8 +119,9 @@ describe('ToukaMcpServer JSON body parsing', () => {
         ['gzip', gzipSync],
         ['deflate', deflateSync],
         ['br', brotliCompressSync],
-    ])('rejects a %s-encoded body with 415 before it reaches any route', async (encoding, compress) => {
+    ])('rejects a %s-encoded body with 415 without decompressing it', async (encoding, compress) => {
         const app = await startServerApp();
+        const decompressors = spyOnDecompressors();
 
         const response = await post(app.url, compress(Buffer.from(PAYLOAD)), {
             'Content-Encoding': encoding,
@@ -118,23 +129,30 @@ describe('ToukaMcpServer JSON body parsing', () => {
 
         expect(response.status).toBe(415);
         expect(app.reachedRoute()).toBe(0);
+        for (const decompressor of decompressors) {
+            expect(decompressor).not.toHaveBeenCalled();
+        }
     });
 
-    // GHSA-27r3-jxmh-p828: trailing bytes after a compressed frame used to
-    // reach a finished decoder and end the whole process.
-    it('rejects a gzip frame with trailing bytes and keeps serving', async () => {
+    // GHSA-27r3-jxmh-p828 describes a compressed frame followed by trailing
+    // bytes. This checks that request shape is refused before decompression;
+    // it does not reproduce the crash.
+    it('refuses a gzip frame with trailing bytes before decompressing it', async () => {
         const app = await startServerApp();
+        const decompressors = spyOnDecompressors();
         const crafted = Buffer.concat([
             gzipSync(Buffer.from(PAYLOAD)),
             Buffer.from('trailing bytes after the gzip frame'),
         ]);
 
         const rejected = await post(app.url, crafted, { 'Content-Encoding': 'gzip' });
-        await new Promise((resolveTick) => setTimeout(resolveTick, 50));
         const next = await post(app.url, Buffer.from(PAYLOAD));
 
         expect(rejected.status).toBe(415);
         expect(next.status).toBe(200);
         expect(app.reachedRoute()).toBe(1);
+        for (const decompressor of decompressors) {
+            expect(decompressor).not.toHaveBeenCalled();
+        }
     });
 });
