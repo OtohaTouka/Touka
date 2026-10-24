@@ -30,7 +30,7 @@ from src.protocols.registry import ProtocolRegistry, ProtocolServerConfig
 from src.routers import observability
 from src.services.permission_service import permission_service
 from src.services.prompt_blocks import MCP_UNAVAILABLE
-from src.utils.soul_tool_selection import TOOL_COMPANIONS, ToolSelection
+from src.utils.soul_tool_selection import TOOL_COMPANIONS, ToolSelection, companions_of
 
 _SOUL = AgentIdentity.for_role(agent_id="PickSoul", role="Owner")
 
@@ -69,7 +69,7 @@ def test_short_names_server_names_and_wildcards_open_no_mcp_tool(entry):
     assert not selection.selects("srv__lookup", server="srv", tool="lookup")
 
 
-@pytest.mark.parametrize("entry", ["srv/*", "*/lookup", "*/*"])
+@pytest.mark.parametrize("entry", ["srv/*", "*/lookup", "*/*", "srv/look*", "s*v/x", "srv/*x"])
 def test_wildcard_pairs_are_dropped_not_kept(entry):
     """萬用字元不收：不能留成一對，否則會被當成「勾了這台」去連線、列進說明區塊。"""
     selection = ToolSelection.parse([entry])
@@ -93,16 +93,12 @@ def test_non_string_entries_are_ignored():
     assert selection.mcp_pairs == frozenset()
 
 
-@pytest.mark.parametrize("terminal", ["execute_command", "bash"])
-def test_terminal_brings_its_companions(terminal):
-    selection = ToolSelection.parse([terminal])
-
-    assert selection.names == frozenset({terminal, "get_command_result", "stop_command"})
-    assert TOOL_COMPANIONS[terminal] == ("get_command_result", "stop_command")
-
-
-def test_companions_come_only_with_the_terminal():
-    assert ToolSelection.parse(["read"]).names == frozenset({"read"})
+def test_companions_follow_only_a_listed_execute_command():
+    """配套跟著「這一輪真的列出的」執行指令走；舊名 bash 不列給模型，不帶配套。"""
+    assert TOOL_COMPANIONS == {"execute_command": ("get_command_result", "stop_command")}
+    assert companions_of({"execute_command", "read"}) == {"get_command_result", "stop_command"}
+    assert companions_of({"bash", "read"}) == frozenset()
+    assert ToolSelection.parse(["execute_command"]).names == frozenset({"execute_command"})
 
 
 def test_mentions_server_reads_both_forms_but_not_a_bare_server_name():
@@ -120,9 +116,9 @@ def test_servers_for_connecting():
 
 
 def test_short_names_are_the_plain_names_no_known_tool_has():
-    selection = ToolSelection.parse(["read", "lookup", "srv__x", "srv/y", "execute_command"])
+    selection = ToolSelection.parse(["read", "lookup", "srv__x", "srv/y", "openDiff"])
 
-    assert selection.short_names(frozenset({"read", "execute_command"})) == frozenset({"lookup"})
+    assert selection.short_names(frozenset({"read", "openDiff"})) == frozenset({"lookup"})
 
 
 # --- 2. ToolLayer ---------------------------------------------------------------
@@ -208,6 +204,37 @@ async def test_terminal_companions_are_listed_with_it(tmp_path):
     assert {"execute_command", "get_command_result", "stop_command"} <= advertised.native
 
 
+async def test_no_companions_when_execute_command_is_not_listed(monkeypatch):
+    """被政策擋下的執行指令不帶配套；只勾舊名 bash（不列給模型）也不帶。"""
+    real = permission_service.evaluate_policy
+
+    def _deny_terminal(policy_context: Any) -> Any:
+        if policy_context.resource == "execute_command":
+            return SimpleNamespace(effect="DENY", reason="test")
+        return real(policy_context)
+
+    monkeypatch.setattr(permission_service, "evaluate_policy", _deny_terminal)
+    denied = await _listed(_ctx(desired_tools=["execute_command"]))
+    monkeypatch.setattr(permission_service, "evaluate_policy", real)
+    legacy = await _listed(_ctx(desired_tools=["bash"]))
+
+    for advertised in (denied, legacy):
+        assert not {"execute_command", "get_command_result", "stop_command"} & advertised.native
+
+
+async def test_pair_entries_still_need_the_mcp_role_grant(tmp_path, monkeypatch):
+    manager = _manager(tmp_path, {"srv": ["lookup"]})
+    monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: False)
+
+    soul = await _listed(_ctx(protocol_manager=manager, desired_tools=["srv/lookup"]))
+    custom = await _listed(
+        _ctx(protocol_manager=manager, is_custom=True, desired_tools=["srv/lookup"])
+    )
+
+    assert soul.mcp == frozenset()
+    assert custom.mcp == frozenset()
+
+
 async def test_companions_still_pass_the_role_grants(monkeypatch):
     monkeypatch.setattr(
         permission_service,
@@ -219,9 +246,12 @@ async def test_companions_still_pass_the_role_grants(monkeypatch):
     monkeypatch.setattr(permission_service, "_auto_reload_check", lambda: None)
 
     advertised = await _listed(_ctx(desired_tools=["execute_command"]))
+    # 自己勾了也一樣：工具清單不能繞過角色權限
+    ticked = await _listed(_ctx(desired_tools=["execute_command", "stop_command"]))
 
     assert "get_command_result" in advertised.native
     assert "stop_command" not in advertised.native
+    assert "stop_command" not in ticked.native
 
 
 async def test_custom_model_connects_the_server_of_a_pair_entry(tmp_path):
@@ -269,25 +299,56 @@ async def test_unavailable_note_follows_pair_entries(tmp_path):
     assert "unrelated" not in note
 
 
-async def test_short_names_are_warned_once_per_soul(monkeypatch, caplog):
+@pytest.fixture
+def warnings_seen(monkeypatch, caplog):
     monkeypatch.setattr(tool_layer_module, "_SHORT_NAME_WARNED", set())
     caplog.set_level(logging.WARNING, logger=tool_layer_module.logger.name)
-
-    await _listed(_ctx(desired_tools=["read", "lookup", "search"]))
-    await _listed(_ctx(desired_tools=["read", "lookup", "search"]))
-
-    warnings = [r for r in caplog.records if "PickSoul" in r.getMessage()]
-    assert len(warnings) == 1
-    assert "2" in warnings[0].getMessage()
+    return lambda: [r for r in caplog.records if "工具清單" in r.getMessage()]
 
 
-async def test_no_warning_for_known_names_and_mcp_entries(monkeypatch, caplog):
-    monkeypatch.setattr(tool_layer_module, "_SHORT_NAME_WARNED", set())
-    caplog.set_level(logging.WARNING, logger=tool_layer_module.logger.name)
+async def test_short_names_are_warned_once_per_soul(warnings_seen):
+    await _listed(_ctx(is_toukasoul=True, desired_tools=["read", "lookup", "search"]))
+    await _listed(_ctx(is_toukasoul=True, desired_tools=["read", "lookup", "search"]))
 
-    await _listed(_ctx(desired_tools=["read", "srv/lookup", "srv__write", "execute_command"]))
+    (warning,) = warnings_seen()
+    assert "PickSoul" in warning.getMessage()
+    assert "2" in warning.getMessage()
 
-    assert not [r for r in caplog.records if "PickSoul" in r.getMessage()]
+
+async def test_no_warning_for_known_names_and_mcp_entries(warnings_seen):
+    entries = ["read", "srv/lookup", "srv__write", "execute_command"]
+    await _listed(_ctx(is_toukasoul=True, desired_tools=entries))
+
+    assert not warnings_seen()
+
+
+async def test_no_warning_for_a_name_this_turn_listed(monkeypatch, warnings_seen):
+    """ToukaUI 這類工具的廣告名沒有伺服器前綴：這一輪有列出就不算舊短名。"""
+    ui = {"server": "ToukaUI", "type": "function", "function": {"name": "openDiff"}}
+    protocols = SimpleNamespace(
+        get_all_tools=lambda **_k: _async([dict(ui)]),
+        registry=SimpleNamespace(get_server=lambda _n: None),
+    )
+    monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: True)
+
+    advertised = await _listed(
+        _ctx(is_toukasoul=True, protocol_manager=protocols, desired_tools=["openDiff"])
+    )
+
+    assert ("ToukaUI", "openDiff") in advertised.mcp
+    assert not warnings_seen()
+
+
+@pytest.mark.parametrize("run", [{"subagent_run": True}, {"is_custom": True}, {}])
+async def test_short_names_are_warned_only_for_a_soul_s_own_run(run, warnings_seen):
+    """子代理每次身分都不同、自訂模型的身分是人類：只在靈魂自己的執行記警告。"""
+    await _listed(_ctx(desired_tools=["lookup"], **run))
+
+    assert not warnings_seen()
+
+
+async def _async(value: Any) -> Any:
+    return value
 
 
 # --- 3. /v1/tools_stats ---------------------------------------------------------
@@ -305,3 +366,5 @@ async def test_tools_stats_adds_server_and_tool_fields(tmp_path, monkeypatch):
     # 舊欄位不拿掉
     assert entries[("srv", "lookup")]["function"]["raw_name"] == "srv__lookup"
     assert entries[("srv", "lookup")]["category"] == "MCP: srv"
+    # 畫面用來標「隨執行指令一起開」；來源是同一份 TOOL_COMPANIONS
+    assert body["tool_companions"] == {"execute_command": ["get_command_result", "stop_command"]}

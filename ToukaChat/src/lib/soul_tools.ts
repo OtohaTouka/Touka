@@ -25,19 +25,39 @@ export interface ToolsStats {
     memory_schemas?: ToolSchema[];
     plugin_schemas?: ToolSchema[];
     mcp_schemas?: ToolSchema[];
+    /** 勾了左邊就一起開的工具（後端 `TOOL_COMPANIONS`） */
+    tool_companions?: Record<string, unknown>;
+}
+
+/** 勾選清單：讀完之前（loading／failed）不能拿來判斷「不在清單」。 */
+export interface SoulToolCatalog {
+    status: 'loading' | 'ready' | 'failed';
+    tools: SoulToolEntry[];
+    companions: Record<string, string[]>;
 }
 
 const MCP_SEPARATOR = '/';
 const LEGACY_MCP_SEPARATOR = '__';
 
-export function catalogFromToolsStats(stats: ToolsStats): SoulToolEntry[] {
+export function catalogFromToolsStats(stats: ToolsStats): SoulToolCatalog {
+    return { status: 'ready', tools: toolEntries(stats), companions: companionMap(stats.tool_companions) };
+}
+
+function companionMap(raw: Record<string, unknown> | undefined): Record<string, string[]> {
+    return Object.fromEntries(Object.entries(raw ?? {}).filter(
+        (pair): pair is [string, string[]] => Array.isArray(pair[1]) && pair[1].every(name => typeof name === 'string'),
+    ));
+}
+
+function toolEntries(stats: ToolsStats): SoulToolEntry[] {
     const entries: SoulToolEntry[] = [];
     for (const schema of [...(stats.builtin_schemas ?? []), ...(stats.memory_schemas ?? [])]) {
         const name = schema.function?.name;
         if (name) entries.push({ key: name, label: name, description: schema.function?.description ?? '' });
     }
     for (const schema of stats.mcp_schemas ?? []) {
-        if (!schema.server || !schema.tool) continue;
+        // 名稱含斜線的存不成恰好一個斜線的 `伺服器/工具`（後端不認），不列
+        if (!schema.server || !schema.tool || `${schema.server}${schema.tool}`.includes(MCP_SEPARATOR)) continue;
         const key = `${schema.server}${MCP_SEPARATOR}${schema.tool}`;
         entries.push({
             key,
@@ -78,4 +98,9 @@ export function shortNames(value: readonly string[], catalog: readonly SoulToolE
     return unlistedEntries(value, catalog).filter(
         item => !item.includes(MCP_SEPARATOR) && !item.includes(LEGACY_MCP_SEPARATOR),
     );
+}
+
+/** 因為勾了別的工具而一起開的工具（例如執行指令的取結果、停止指令）。 */
+export function impliedTools(value: readonly string[], companions: Record<string, string[]>): Set<string> {
+    return new Set(value.flatMap(item => companions[item] ?? []));
 }

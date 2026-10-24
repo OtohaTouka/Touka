@@ -33,6 +33,7 @@ from src.services.isolation.status import IsolationSnapshot, isolation_monitor
 from src.services.mcp_isolation_store import McpIsolationStore
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
+from src.utils.soul_tool_selection import TOOL_COMPANIONS
 from src.utils.time_utils import get_current_epoch, get_current_taipei_iso
 
 logger = logging.getLogger(__name__)
@@ -473,7 +474,8 @@ async def get_tools_stats(
         "builtin_schemas": ctx.get("builtin_tools_schema", []),
         "memory_schemas": ctx.get("memory_tools_schema", []),
         "plugin_schemas": ctx.get("plugin_schemas", []),
-        "mcp_schemas": mcp_schemas
+        "mcp_schemas": mcp_schemas,
+        "tool_companions": {tool: list(names) for tool, names in TOOL_COMPANIONS.items()},
     }
 
 

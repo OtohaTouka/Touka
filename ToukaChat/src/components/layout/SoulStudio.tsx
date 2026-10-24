@@ -572,7 +572,7 @@ export function SoulStudio() {
                                                 <span className="text-primary">{t("layout.soul_studio.tools_active", { count: (isEditing && editForm ? editForm : activeSoul).enabledTools.length })}</span>
                                             </div>
                                             <SoulToolPicker
-                                                tools={toolCatalog}
+                                                catalog={toolCatalog}
                                                 value={isEditing && editForm ? editForm.enabledTools : activeSoul.enabledTools}
                                                 onChange={isEditing && editForm
                                                     ? next => setEditForm(f => f ? { ...f, enabledTools: next } : f)
@@ -686,7 +686,7 @@ export function SoulStudio() {
                                         <Wrench className="w-4 h-4 text-primary" /> {t("layout.soul_studio.section_abilities_tools")}
                                     </h4>
                                     <SoulToolPicker
-                                        tools={toolCatalog}
+                                        catalog={toolCatalog}
                                         value={creationForm.enabledTools}
                                         onChange={next => setCreationForm({ ...creationForm, enabledTools: next })}
                                     />

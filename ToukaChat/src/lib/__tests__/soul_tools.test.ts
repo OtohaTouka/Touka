@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     catalogFromToolsStats,
+    impliedTools,
     isToolSelected,
     shortNames,
     toggleTool,
@@ -16,26 +17,31 @@ const STATS = {
         { function: { name: 'lookup', raw_name: 'srv__lookup', description: '查' }, server: 'srv', tool: 'lookup' },
         { function: { name: 'lookup', raw_name: 'other__lookup' }, server: 'other', tool: 'lookup' },
         { function: { name: 'legacy', raw_name: 'old__legacy' } },
+        // 名稱含斜線的存不成恰好一個斜線的 `伺服器/工具`，不列
+        { function: { name: 'a/b', raw_name: 'srv__a/b' }, server: 'srv', tool: 'a/b' },
     ],
+    tool_companions: { execute_command: ['get_command_result', 'stop_command'], broken: 'x' },
 };
 
 describe('catalogFromToolsStats', () => {
     it('keys MCP tools as server/tool, keeps builtin names and drops plugins', () => {
         const catalog = catalogFromToolsStats(STATS);
-        expect(catalog.map(entry => entry.key)).toEqual(['read', 'memory_tools', 'srv/lookup', 'other/lookup']);
-        expect(catalog.find(entry => entry.key === 'srv/lookup')).toMatchObject({
+        expect(catalog.status).toBe('ready');
+        expect(catalog.tools.map(entry => entry.key)).toEqual(['read', 'memory_tools', 'srv/lookup', 'other/lookup']);
+        expect(catalog.tools.find(entry => entry.key === 'srv/lookup')).toMatchObject({
             label: 'srv/lookup', description: '查', legacyKey: 'srv__lookup',
         });
+        expect(catalog.companions).toEqual({ execute_command: ['get_command_result', 'stop_command'] });
     });
 
     it('tolerates a missing or partial response', () => {
-        expect(catalogFromToolsStats({})).toEqual([]);
-        expect(catalogFromToolsStats({ builtin_schemas: [{}, { function: { name: '' } }] })).toEqual([]);
+        expect(catalogFromToolsStats({})).toEqual({ status: 'ready', tools: [], companions: {} });
+        expect(catalogFromToolsStats({ builtin_schemas: [{}, { function: { name: '' } }] }).tools).toEqual([]);
     });
 });
 
 describe('selection helpers', () => {
-    const catalog = catalogFromToolsStats(STATS);
+    const { tools: catalog } = catalogFromToolsStats(STATS);
     const srv = catalog.find(entry => entry.key === 'srv/lookup')!;
     const read = catalog.find(entry => entry.key === 'read')!;
 
@@ -56,5 +62,11 @@ describe('selection helpers', () => {
         const value = ['read', 'srv__lookup', 'gone/tool', 'old__legacy', 'lookup', 'search', 'lookup'];
         expect(unlistedEntries(value, catalog)).toEqual(['gone/tool', 'old__legacy', 'lookup', 'search']);
         expect(shortNames(value, catalog)).toEqual(['lookup', 'search']);
+    });
+
+    it('companions come only with a ticked tool that has them', () => {
+        const companions = { execute_command: ['get_command_result', 'stop_command'] };
+        expect([...impliedTools(['execute_command', 'read'], companions)]).toEqual(['get_command_result', 'stop_command']);
+        expect(impliedTools(['bash', 'read'], companions).size).toBe(0);
     });
 });

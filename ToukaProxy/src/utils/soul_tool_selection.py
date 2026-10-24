@@ -3,13 +3,13 @@
 ``enabled_tools`` 每一條的意思：
 
 - 內建與記憶工具：名稱，逐字比對。
-- MCP：恰好一個斜線的 ``伺服器/工具``，比（伺服器, 工具）這一對；不收萬用字元、不收只寫伺服器名
-  （刻意不沿用 MCP 權限設定「只寫伺服器名＝整台全開」那套比對）。
+- MCP：恰好一個斜線的 ``伺服器/工具``，比（伺服器, 工具）這一對；含萬用字元的整條不收、
+  不收只寫伺服器名（刻意不沿用 MCP 權限設定「只寫伺服器名＝整台全開」那套比對）。
 - 舊的長名 ``伺服器__工具``：照舊逐字比廣告名。
 - 其他（舊短名、空的一邊、兩個以上斜線）：不生效。短名不自動對應：同名可能在好幾台，
   也可能和內建工具或伺服器同名，自動對應會打開沒勾的工具。
 
-勾了「執行指令」就一起帶上「取結果」「停止指令」；它們照樣經過角色權限與政策。
+「執行指令」真的列出時才一起帶上「取結果」「停止指令」（``companions_of``）；它們照樣經過角色權限與政策。
 純函式（禁令 18）。
 """
 
@@ -25,11 +25,13 @@ if TYPE_CHECKING:
 MCP_SEPARATOR = "/"
 LEGACY_MCP_SEPARATOR = "__"
 _WILDCARD = "*"
-_TERMINAL_COMPANIONS = ("get_command_result", "stop_command")
-TOOL_COMPANIONS = MappingProxyType(
-    {"execute_command": _TERMINAL_COMPANIONS, "bash": _TERMINAL_COMPANIONS}
-)
-_COMPANION_NAMES = frozenset(name for names in TOOL_COMPANIONS.values() for name in names)
+# 舊名 bash 不列給模型（ADR-0269 舊名規則），不帶配套
+TOOL_COMPANIONS = MappingProxyType({"execute_command": ("get_command_result", "stop_command")})
+
+
+def companions_of(listed: Iterable[str]) -> frozenset[str]:
+    """這一輪真的列出的工具要一起帶上的配套。"""
+    return frozenset(name for tool in listed for name in TOOL_COMPANIONS.get(tool, ()))
 
 
 @dataclass(frozen=True)
@@ -49,10 +51,9 @@ class ToolSelection:
                 continue
             if MCP_SEPARATOR not in entry:
                 names.add(entry)
-                names.update(TOOL_COMPANIONS.get(entry, ()))
                 continue
             server, _, tool = entry.partition(MCP_SEPARATOR)
-            if server and tool and MCP_SEPARATOR not in tool and _WILDCARD not in (server, tool):
+            if server and tool and MCP_SEPARATOR not in tool and _WILDCARD not in entry:
                 pairs.add((server, tool))
         return cls(frozenset(names), frozenset(pairs))
 
@@ -74,9 +75,5 @@ class ToolSelection:
         return frozenset(server for server, _ in self.mcp_pairs)
 
     def short_names(self, known: frozenset[str]) -> frozenset[str]:
-        """對不到任何已知工具的名稱（舊短名）；長名、``伺服器/工具`` 與自動帶上的配套不算。"""
-        return frozenset(
-            name
-            for name in self.names - known - _COMPANION_NAMES
-            if LEGACY_MCP_SEPARATOR not in name
-        )
+        """對不到任何已知工具的名稱（舊短名）；長名與 ``伺服器/工具`` 不算。"""
+        return frozenset(name for name in self.names - known if LEGACY_MCP_SEPARATOR not in name)

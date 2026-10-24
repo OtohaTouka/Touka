@@ -38,7 +38,7 @@ from src.utils.auth_mode import (
 )
 from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
-from src.utils.soul_tool_selection import ToolSelection
+from src.utils.soul_tool_selection import ToolSelection, companions_of
 
 logger = logging.getLogger(__name__)
 
@@ -50,22 +50,26 @@ _ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market"
 _SHORT_NAME_WARNED: set[str] = set()
 
 
+def _schema_names(schemas: Any) -> frozenset[str]:
+    return frozenset(
+        name for schema in schemas if (name := (schema.get("function") or {}).get("name"))
+    )
+
+
+# 被政策擋下、這一輪沒列出的內建工具也不算舊短名
+_BUILTIN_NAMES = _schema_names(
+    (*builtin_tools_schema, CONNECT_MCP_SERVER_SCHEMA, ACTIVATE_SKILL_SCHEMA)
+) | frozenset(_ESSENTIAL_TOOLS)
+
+
 def _warn_short_names(
-    identity: AgentIdentity, selection: ToolSelection, memory_schemas: list
+    identity: AgentIdentity, selection: ToolSelection, candidates: frozenset[str]
 ) -> None:
+    """``candidates``：這一輪所有候選工具的名稱（過濾前）；對不到的才算舊短名。"""
     agent_id = identity.agent_id
     if agent_id in _SHORT_NAME_WARNED:
         return
-    known = frozenset(
-        (schema.get("function") or {}).get("name")
-        for schema in (
-            *builtin_tools_schema,
-            *memory_schemas,
-            CONNECT_MCP_SERVER_SCHEMA,
-            ACTIVATE_SKILL_SCHEMA,
-        )
-    )
-    short = selection.short_names(known | frozenset(_ESSENTIAL_TOOLS))
+    short = selection.short_names(candidates | _BUILTIN_NAMES)
     if short:
         _SHORT_NAME_WARNED.add(agent_id)
         logger.warning(
@@ -351,8 +355,21 @@ class ToolLayer(ProxyLayer):
                     t_name, server=server, tool=(s.get("tool") or t_name) if server else None
                 ):
                     final_schemas.append(s)
+            # 執行指令真的留在清單上才帶配套；配套本身已經過政策與角色權限（第 4 步）
+            listed = _schema_names(final_schemas)
+            companions = companions_of(listed) - listed
+            final_schemas += [
+                s for s in combined_schemas
+                if not s.get("server") and _schema_names([s]) & companions
+            ]
+            if ctx.get("is_toukasoul") and not ctx.get("subagent_run") and not identity.is_human:
+                _warn_short_names(
+                    identity,
+                    selection,
+                    _schema_names(combined_schemas)
+                    | _schema_names(ctx.get("memory_tools_schema") or []),
+                )
             combined_schemas = final_schemas
-            _warn_short_names(identity, selection, ctx.get("memory_tools_schema") or [])
 
         # 這一輪實際列給模型的伺服器端工具（去重後；被客戶端同名 schema 蓋掉的不算）。
         # 一律覆寫：心跳與子代理組裝共用 ctx，舊清單不得沿用。

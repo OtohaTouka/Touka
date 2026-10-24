@@ -126,7 +126,7 @@
 | 能不能用使用者各自授權（`oauth_user`）的 MCP：已驗證的靈魂身分且就是對話目標、人在場、不是群聊（`ToukaGroup`／`group_member_run`）、有原始人類 | `ToukaProxy/src/utils/mcp_request_identity.py` `user_scoped_mcp_allowed`（純函式）、`GROUP_MEMBER_FLAG` | ToolLayer（組清單）、`ToolExecutor._user_scope_denial`（第二層防線，原因 `user_scoped_mcp_unavailable`）；群聊分發器設旗標 |
 | MCP 操作的請求上下文（來源、執行種類、原始人類） | `utils/mcp_request_identity.py` `mcp_request_context` | ToolLayer（組清單）、`ToolExecutor`（呼叫 MCP） |
 | 組清單時只為 `oauth_user` 帶身分、先查授權、第一次連線上限、連線中不重開、失敗冷卻 | `protocols/manager.py` `get_all_tools`、`_user_scoped_listing_handle`、`USER_SCOPED_CONNECT_TIMEOUT_S`、`USER_SCOPED_RETRY_COOLDOWN_S` | ToolLayer |
-| 靈魂與自訂模型工具清單（`enabled_tools`）的比對：名稱、`伺服器/工具` 這一對、舊長名；不生效的寫法；終端配套工具 | `ToukaProxy/src/utils/soul_tool_selection.py` `ToolSelection`、`TOOL_COMPANIONS`（純函式） | ToolLayer（最後過濾、自訂模型連線、`<mcp_unavailable>` 過濾、舊短名警告） |
+| 靈魂與自訂模型工具清單（`enabled_tools`）的比對：名稱、`伺服器/工具` 這一對、舊長名；不生效的寫法；終端配套工具 | `ToukaProxy/src/utils/soul_tool_selection.py` `ToolSelection`、`TOOL_COMPANIONS`、`companions_of`（純函式） | ToolLayer（最後過濾、配套、自訂模型連線、`<mcp_unavailable>` 過濾、舊短名警告）；`/v1/tools_stats` 的 `tool_companions` |
 | 畫面存工具清單的格式與「勾了沒」（MCP 存 `伺服器/工具`、舊長名算勾了、不列外掛、保留看不到的條目） | `ToukaChat/src/lib/soul_tools.ts`；讀清單 `hooks/useSoulToolCatalog.ts` | `components/studio/SoulToolPicker.tsx`（SoulStudio 建立與編輯） |
 | 組清單用的只讀授權查詢（不推進時鐘、不寫、不解密；懸空指標算損毀） | `protocols/mcp/oauth/runtime.py` `has_usable_grant` → `oauth/store.py` `OAuthSqliteStore.has_usable_grant` | `ProtocolManager._user_scoped_listing_handle` |
 | 設定好但沒連上的共用 MCP（只看狀態、不連線）與說明區塊 | `ProtocolManager.unavailable_shared_servers`；區塊 tag `prompt_blocks.MCP_UNAVAILABLE`（在 `ALL_BLOCK_TAGS`、`VOLATILE_SYSTEM_TAGS`） | ToolLayer 依軸 B 過濾後注入 |

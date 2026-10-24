@@ -4,9 +4,9 @@
 
 ## 靈魂的工具清單（ADR-0281 T2）
 
-- SoulStudio 建立與編輯共用 `components/studio/SoulToolPicker.tsx`；清單由 `hooks/useSoulToolCatalog.ts` 讀 `/v1/tools_stats`（換連線就重讀，別的連線讀到的清單不給）。
+- SoulStudio 建立與編輯共用 `components/studio/SoulToolPicker.tsx`；清單由 `hooks/useSoulToolCatalog.ts` 讀 `/v1/tools_stats`，回讀取中／讀完／讀不到三種狀態（換連線就重讀，別的連線讀到的清單不給）。沒讀完時照原樣列出存的條目、不判斷「不在清單」、不給改。
 - 存檔格式與「勾了沒」由 `lib/soul_tools.ts` 決定：內建與記憶工具存名稱，MCP 存 `伺服器/工具`（用 tools_stats 的 `server`、`tool` 欄位）；舊長名 `伺服器__工具` 照舊算勾了，取消勾選時兩種寫法一起拿掉。比對規則以後端 `utils/soul_tool_selection.py` 為準。
-- 清單裡找不到的條目（斷線伺服器的工具、使用者個人授權的工具、舊短名）存檔時保留，標「目前不在清單」，要拿掉得自己按；舊短名另外提示「有幾個工具名稱需要重新勾選」。外掛不在清單裡。不勾任何工具代表全部可用。
+- 清單裡找不到的條目（斷線伺服器的工具、使用者個人授權的工具、舊短名）存檔時保留，標「目前不在清單」，要拿掉得自己按；對不到任何工具的純名稱另外提示可以移除或重新勾選。勾了 `execute_command` 時，tools_stats 的 `tool_companions` 列的配套標「隨 execute_command 一起開」、不能單獨取消。外掛與名稱含斜線的 MCP 工具不在清單裡。不勾任何工具代表全部可用（唯讀頁也寫明，編輯時用警告色）。
 
 ## 對話換靈魂與家欄位（ADR-0276）
 
