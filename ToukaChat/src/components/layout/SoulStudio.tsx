@@ -12,11 +12,13 @@ import { getSystemEpoch } from "@/lib/time_utils";
 import { useAgents } from "@/lib/providers/AgentProvider";
 import { SafetySettingsGrid } from "@/components/studio/SafetySettingsGrid";
 import { SystemPromptEditor } from "@/components/studio/SystemPromptEditor";
+import { SoulToolPicker } from "@/components/studio/SoulToolPicker";
 import { BackupRetentionNotice } from "@/components/common/BackupRetentionNotice";
 import { logSSOTError, getErrorMessage, getCollisionMessage, errorMsg } from "@/lib/error_handler";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useSoulSave } from "@/hooks/useSoulSave";
+import { useSoulToolCatalog } from "@/hooks/useSoulToolCatalog";
 import { isSelectableBaseModel } from "@/lib/default_model";
 import {
     Dialog,
@@ -78,7 +80,6 @@ export function SoulStudio() {
     const [souls, setSouls] = useState<SoulConfig[]>([]);
     const [activeSoulId, setActiveSoulId] = useState<string | null>(null);
     const [availableBaseModels, setAvailableBaseModels] = useState<string[]>([]);
-    const [dynamicTools, setDynamicTools] = useState<{ name: string, desc: string, category: string }[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     
     // 建立新靈魂的表單狀態
@@ -93,6 +94,7 @@ export function SoulStudio() {
     const [confirmPassword, setConfirmPassword] = useState("");
     const [actionBusy, setActionBusy] = useState(false);
     const saveProxyUrl = useSyncExternalStore(subscribeProxy, getActiveProxyUrl, getActiveProxyUrl);
+    const toolCatalog = useSoulToolCatalog(saveProxyUrl);
     const [soulsProxyUrl, setSoulsProxyUrl] = useState<string | null>(null);
     const activeSoul = soulsProxyUrl === saveProxyUrl
         ? souls.find(s => s.id === (activeSoulId || souls[0]?.id)) || souls[0] : undefined;
@@ -104,10 +106,9 @@ export function SoulStudio() {
     const passwordInput = useRef<HTMLInputElement>(null);
     const feedbackId = useId();
 
-    const loadModelsAndTools = useCallback(async () => {
+    const loadModels = useCallback(async () => {
         try {
             const proxyUrl = getActiveProxyUrl();
-            // 1. 基礎模型
             const mRes = await fetchTouka(proxyUrl, "/v1/models");
             if (mRes.ok) {
                 const data = await mRes.json();
@@ -124,24 +125,8 @@ export function SoulStudio() {
                     }
                 }
             }
-            // 2. 工具 (SSOT 動態獲取)
-            const tRes = await fetchTouka(proxyUrl, "/v1/tools_stats");
-            if (tRes.ok) {
-                const data = await tRes.json();
-                const flattened = [
-                    ...(data.builtin_schemas || []),
-                    ...(data.memory_schemas || []),
-                    ...(data.plugin_schemas || []),
-                    ...(data.mcp_schemas || [])
-                ].map((s: { function?: { name?: string; description?: string }; category?: string }) => ({
-                    name: s.function?.name || "Unknown",
-                    desc: s.function?.description || "",
-                    category: s.category || "系統"
-                }));
-                setDynamicTools(flattened);
-            }
         } catch (err) {
-            logSSOTError(err, "SoulStudio:loadModelsAndTools");
+            logSSOTError(err, "SoulStudio:loadModels");
         }
     }, [creationForm.baseModel]);
 
@@ -240,7 +225,7 @@ export function SoulStudio() {
         loadingProxy.current = saveProxyUrl;
         if (!proxyChanged && (feedback.phase === 'saving' || feedback.phase === 'saved' || feedback.phase === 'unknown')) return;
         loadSouls();
-        loadModelsAndTools();
+        loadModels();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [allAgents.length, saveProxyUrl]);
 
@@ -583,14 +568,16 @@ export function SoulStudio() {
 
                                         <div className="pt-4 border-t border-border">
                                             <div className="flex items-center justify-between text-xs font-black text-muted-foreground uppercase tracking-widest mb-3">
-                                                <span>Abilities</span>
-                                                <span className="text-primary">{activeSoul.enabledTools.length} Active</span>
+                                                <span>{t("layout.soul_studio.tools_title")}</span>
+                                                <span className="text-primary">{t("layout.soul_studio.tools_active", { count: (isEditing && editForm ? editForm : activeSoul).enabledTools.length })}</span>
                                             </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {activeSoul.enabledTools.map(t => (
-                                                    <span key={t} className="px-2 py-1 bg-background border border-border rounded-lg text-xs font-bold text-foreground/80">{t}</span>
-                                                ))}
-                                            </div>
+                                            <SoulToolPicker
+                                                tools={toolCatalog}
+                                                value={isEditing && editForm ? editForm.enabledTools : activeSoul.enabledTools}
+                                                onChange={isEditing && editForm
+                                                    ? next => setEditForm(f => f ? { ...f, enabledTools: next } : f)
+                                                    : undefined}
+                                            />
                                         </div>
                                     </div>
                                 </section>
@@ -698,27 +685,11 @@ export function SoulStudio() {
                                     <h4 className="text-xs font-black flex items-center gap-2 text-muted-foreground uppercase tracking-widest border-b border-border pb-2">
                                         <Wrench className="w-4 h-4 text-primary" /> {t("layout.soul_studio.section_abilities_tools")}
                                     </h4>
-                                    <div className="flex flex-wrap gap-2">
-                                        {dynamicTools.map(tool => (
-                                            <button
-                                                key={tool.name}
-                                                onClick={() => {
-                                                    const tools = [...creationForm.enabledTools];
-                                                    setCreationForm({
-                                                        ...creationForm,
-                                                        enabledTools: tools.includes(tool.name) ? tools.filter(existing => existing !== tool.name) : [...tools, tool.name]
-                                                    });
-                                                }}
-                                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                                    creationForm.enabledTools.includes(tool.name)
-                                                        ? "border-primary bg-primary/10 text-primary shadow-sm"
-                                                        : "border-border bg-background text-muted-foreground hover:border-primary/30"
-                                                }`}
-                                            >
-                                                {tool.name}
-                                            </button>
-                                        ))}
-                                    </div>
+                                    <SoulToolPicker
+                                        tools={toolCatalog}
+                                        value={creationForm.enabledTools}
+                                        onChange={next => setCreationForm({ ...creationForm, enabledTools: next })}
+                                    />
                                 </div>
                             </div>
 

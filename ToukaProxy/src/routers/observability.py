@@ -461,7 +461,10 @@ async def get_tools_stats(
                     "description": fn.get("description", ""),
                     "parameters": fn.get("parameters", {})
                 },
-                "category": f"MCP: {server_id}"
+                "category": f"MCP: {server_id}",
+                # 靈魂工具清單存 `伺服器/工具`（ADR-0281 T2）：分開給，不從廣告名切
+                "server": server_id,
+                "tool": tool_schema.get("tool") or display_name,
             })
     except Exception as e:
         logger.warning(f"Failed to fetch MCP stats: {e}")

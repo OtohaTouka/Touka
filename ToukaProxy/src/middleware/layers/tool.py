@@ -38,11 +38,39 @@ from src.utils.auth_mode import (
 )
 from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
+from src.utils.soul_tool_selection import ToolSelection
 
 logger = logging.getLogger(__name__)
 
 # <mcp_unavailable> 只原樣列出這種名稱（ADR-0281 T1）
 _SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# 有設工具清單時也保留的調度工具（自訂模型只保留它自己勾的）
+_ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market")
+# 工具清單裡有舊短名的靈魂（每個只記一次警告，ADR-0281 T2）
+_SHORT_NAME_WARNED: set[str] = set()
+
+
+def _warn_short_names(agent_id: str, selection: ToolSelection, memory_schemas: list) -> None:
+    if agent_id in _SHORT_NAME_WARNED:
+        return
+    known = frozenset(
+        (schema.get("function") or {}).get("name")
+        for schema in (
+            *builtin_tools_schema,
+            *memory_schemas,
+            CONNECT_MCP_SERVER_SCHEMA,
+            ACTIVATE_SKILL_SCHEMA,
+        )
+    )
+    short = selection.short_names(known | frozenset(_ESSENTIAL_TOOLS))
+    if short:
+        _SHORT_NAME_WARNED.add(agent_id)
+        logger.warning(
+            "ToolLayer: %s 的工具清單有 %d 個名稱對不到任何工具"
+            "（舊短名不生效，要到編輯畫面重新勾選）。",
+            agent_id,
+            len(short),
+        )
 
 
 def _shared_server(registry: Any, server: str) -> bool:
@@ -92,7 +120,8 @@ class ToolLayer(ProxyLayer):
 
         session_id = ctx.get("session_id")
         desired_tools = ctx.get("desired_tools")
-        
+        selection = ToolSelection.parse(desired_tools or [])
+
         # 1. 獲取 Session 的模式與已掛載的 MCP (SSOT)；舊值讀取時對照（ADR-0246）
         auth_level = "Manual"
         active_session_mcps = []
@@ -207,9 +236,12 @@ class ToolLayer(ProxyLayer):
             if is_custom and desired_tools:
                 registry = getattr(protocol_manager, "registry", None)
                 if registry:
-                    for t_name in desired_tools:
-                        server_id = registry.find_server_by_tool_name(t_name)
-                        if server_id and _shared_server(registry, server_id):
+                    wanted_servers = set(selection.pair_servers())
+                    wanted_servers.update(
+                        registry.find_server_by_tool_name(t_name) for t_name in selection.names
+                    )
+                    for server_id in sorted(s for s in wanted_servers if s):
+                        if _shared_server(registry, server_id):
                             is_authorized = permission_service.is_mcp_server_allowed(
                                 server_id, identity
                             )
@@ -261,7 +293,12 @@ class ToolLayer(ProxyLayer):
                     server_name, bare_tool, identity
                 )
 
-                if is_custom and desired_tools and t_name in desired_tools and is_authorized:
+                if (
+                    is_custom
+                    and desired_tools
+                    and selection.selects(t_name, server=server_name, tool=bare_tool)
+                    and is_authorized
+                ):
                     show_tool = True
                 elif is_dispatcher_active:
                     if is_authorized and (
@@ -292,26 +329,27 @@ class ToolLayer(ProxyLayer):
                     or server in active_session_mcps
                     or server in skill_required_mcp
                 )
-                and (
-                    not desired_tools
-                    or any(str(name).startswith(f"{server}__") for name in desired_tools)
-                )
+                and (not desired_tools or selection.mentions_server(server))
             ]
             if unavailable:
                 self._inject_unavailable_note(request, unavailable)
 
         # 11. 最終過濾
         if desired_tools:
-            essential_tools = ["connect_mcp_server", "agent_control", "search_skill_market"]
+            essential_tools = list(_ESSENTIAL_TOOLS)
             if is_custom:
                 essential_tools = [t for t in essential_tools if t in desired_tools]
             
             final_schemas = []
             for s in combined_schemas:
                 t_name = s.get("function", {}).get("name") or s.get("name")
-                if t_name in desired_tools or t_name in essential_tools:
+                server = s.get("server")
+                if t_name in essential_tools or selection.selects(
+                    t_name, server=server, tool=(s.get("tool") or t_name) if server else None
+                ):
                     final_schemas.append(s)
             combined_schemas = final_schemas
+            _warn_short_names(str(agent_id), selection, ctx.get("memory_tools_schema") or [])
 
         # 這一輪實際列給模型的伺服器端工具（去重後；被客戶端同名 schema 蓋掉的不算）。
         # 一律覆寫：心跳與子代理組裝共用 ctx，舊清單不得沿用。

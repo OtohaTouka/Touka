@@ -243,9 +243,10 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
   `internal_error`／`permission_denied` 兩種另帶 `denied_tool`（模型叫的名稱）與 `suggestion`。
 - 舊名工具（`bash`、`vault_tools`、`project_tools`、`update_my_soul`、`sns_control` 與四個演化舊名）：它的後繼正式工具**全部**在這一輪清單上才放行，不看參數裡的 action（對應表 `tools/builtin/__init__.py` 的 `LEGACY_ADVERTISED_SUCCESSORS`）。舊名各自的角色權限照舊。
 - MCP：核對（伺服器, 裸工具名）這一對。`connect_mcp_server` 掛上的伺服器，下一輪對話才列出（背景執行是下一次脈衝），同一輪叫回 `not_advertised`。伺服器當下沒連上時同樣回 `not_advertised`，不會現場連線。
-- 使用者各自授權的 MCP（ADR-0281 T1）：只在人在場、和靈魂的前景對話時，ToolLayer 為 `oauth_user` 的伺服器帶身分列出（先做只讀的授權查詢，沒授權不連；第一次連線最多等 5 秒，逾時這一輪不列；連線還在跑或失敗後 60 秒內這一輪直接略過）；其他情況、`oauth_client_credentials` 與 enterprise 一律不列。還沒連線的共享 MCP 不列成工具，名字寫在每輪會變動的 `<mcp_unavailable>` 區塊。SoulStudio 存成短名的 MCP 工具與外掛（plugin）仍不列，修正另開任務（T2，見 ADR-0269）。
+- 使用者各自授權的 MCP（ADR-0281 T1）：只在人在場、和靈魂的前景對話時，ToolLayer 為 `oauth_user` 的伺服器帶身分列出（先做只讀的授權查詢，沒授權不連；第一次連線最多等 5 秒，逾時這一輪不列；連線還在跑或失敗後 60 秒內這一輪直接略過）；其他情況、`oauth_client_credentials` 與 enterprise 一律不列。還沒連線的共享 MCP 不列成工具，名字寫在每輪會變動的 `<mcp_unavailable>` 區塊。
+- 靈魂與自訂模型的工具清單（`enabled_tools`，ADR-0281 T2）：比對只用 `utils/soul_tool_selection.py`。內建與記憶工具比名稱；MCP 只認恰好一個斜線的 `伺服器/工具`，比（伺服器, 工具）這一對；舊長名 `伺服器__工具` 照舊比廣告名；舊短名、只寫伺服器名、萬用字元、兩個以上斜線都不生效（舊短名每個靈魂記一次警告）。外掛（plugin）照舊不列。`/v1/tools_stats` 的 MCP 條目附加 `server`、`tool` 欄位給畫面存檔用。
 - 子代理：用自己組裝出的清單，不沿用父代理；`dispatch_subagent` 與 `dispatch_subagent_group` 從請求與清單都拿掉。
-- 成對的工具要一起開：`execute_command` 的非同步流程會叫模型之後呼叫 `get_command_result` 取結果（`tools/terminal.py`）。靈魂的 `enabled_tools` 只勾了 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）；自動帶上配套工具另開後續任務（見 ADR-0269）。
+- 成對的工具一起開：`execute_command` 的非同步流程會叫模型之後呼叫 `get_command_result` 取結果（`tools/terminal.py`）。工具清單有 `execute_command`（或 `bash`）時，`get_command_result`、`stop_command` 自動一起算勾了（ADR-0281 T2 的 `TOOL_COMPANIONS`）；它們照樣先經過政策與角色權限。
 - `/v1/debug/execute`：人按的執行，不核對清單（行為不變）。
 - 模型迴圈建立的執行器若沒開核對，`run_react_loop` 在送出上游之前以 `ToukaException(SYSTEM_ERROR)`（1000）中止，不執行任何工具。
 - 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。

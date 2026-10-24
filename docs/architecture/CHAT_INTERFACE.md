@@ -2,6 +2,12 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；ToukaChat 跑在 port 3001。
 
+## 靈魂的工具清單（ADR-0281 T2）
+
+- SoulStudio 建立與編輯共用 `components/studio/SoulToolPicker.tsx`；清單由 `hooks/useSoulToolCatalog.ts` 讀 `/v1/tools_stats`（換連線就重讀，別的連線讀到的清單不給）。
+- 存檔格式與「勾了沒」由 `lib/soul_tools.ts` 決定：內建與記憶工具存名稱，MCP 存 `伺服器/工具`（用 tools_stats 的 `server`、`tool` 欄位）；舊長名 `伺服器__工具` 照舊算勾了，取消勾選時兩種寫法一起拿掉。比對規則以後端 `utils/soul_tool_selection.py` 為準。
+- 清單裡找不到的條目（斷線伺服器的工具、使用者個人授權的工具、舊短名）存檔時保留，標「目前不在清單」，要拿掉得自己按；舊短名另外提示「有幾個工具名稱需要重新勾選」。外掛不在清單裡。不勾任何工具代表全部可用。
+
 ## 對話換靈魂與家欄位（ADR-0276）
 
 - 後端允許真正人類在有權存取的非家對話換靈魂；舊、新靈魂都須有驅動權。非空換綁保留原樹，內部建立標記永久降為 0；只有原列與待存列整棵樹無節點、摘要為 NULL、無家欄位且非保留／退休 ID 的嚴格空草稿可保留原標記。一般模型對話轉靈魂也照此規則，不必另建 ID。
