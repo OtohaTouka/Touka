@@ -30,6 +30,41 @@ export interface ToukaMcpServerOptions {
 
 const LISTENER_CLOSE_TIMEOUT_MS = 1_000;
 
+// Same order as Express's finalhandler: `status`, then `statusCode`.
+function httpErrorStatus(error: unknown): number {
+    if (typeof error === 'object' && error !== null) {
+        const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
+        for (const candidate of [status, statusCode]) {
+            if (
+                typeof candidate === 'number'
+                && Number.isInteger(candidate)
+                && candidate >= 400
+                && candidate < 600
+            ) {
+                return candidate;
+            }
+        }
+    }
+    return 500;
+}
+
+// Express's default error page carries the stack trace and local file paths,
+// and body parsing errors reach it before the Bearer check. Server-side
+// failures still go to the extension host log.
+const respondWithFixedError: express.ErrorRequestHandler = (error, _req, res, next) => {
+    if (res.headersSent) {
+        next(error);
+        return;
+    }
+    const status = httpErrorStatus(error);
+    if (status < 500) {
+        res.status(status).json({ error: 'Invalid request' });
+        return;
+    }
+    console.error('[ToukaIDE] MCP request failed:', error);
+    res.status(status).json({ error: 'Internal server error' });
+};
+
 export class ToukaMcpServer {
     private readonly app: express.Application;
     private readonly httpBridge: McpHttpBridgePort;
@@ -135,6 +170,7 @@ export class ToukaMcpServer {
 
             try {
                 this.httpBridge.mount(this.app, createAuthMiddleware(authToken));
+                this.app.use(respondWithFixedError);
                 this.server = this.app.listen(
                     port,
                     '127.0.0.1',

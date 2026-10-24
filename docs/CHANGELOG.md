@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-24 | **IDE 錯誤頁不再帶出內部路徑**：ToukaIDE 的本機 MCP 伺服器在請求內容解析失敗或發生未預期錯誤時，原本回 Express 預設的 HTML 錯誤頁，含 stack 與擴充套件的絕對路徑（路徑含 Windows 使用者名稱），本機其他程式不帶權杖就看得到（DNS rebinding 的網頁也可能讀到）。現在改回固定內容的 JSON（照原狀態碼），不帶任何內部資訊；伺服器端的錯誤仍會寫進擴充主機日誌 | [SECURITY](../SECURITY.md) |
 | 2026-10-24 | **browserslist 這組釘版與 postcss-selector-parser**：Chat 與 IDE 的 browserslist 4.28.7 → 4.29.3，連同它要求的 caniuse-lite、node-releases、electron-to-chromium、baseline-browser-mapping 一起升，update-browserslist-db 也跟著 browserslist 的範圍升到 1.3.4（baseline-browser-mapping 2.11.29 修 GHSA-w5vr-8v7q-w6rv，medium）；Chat 的 postcss-selector-parser 7.1.3 → 7.1.6（修 GHSA-rj75-hqrm-r3gf，medium）。主要是讓元件產生器 shadcn 4.22.0 要求的版本範圍成立；都是建置與開發工具，產品執行時不受影響，版本都已上架滿 7 天 | [SECURITY](../SECURITY.md) |
 | 2026-10-24 | **靈魂設定畫面勾的 MCP 工具真的有效了**：工具清單的 MCP 工具改存 `伺服器/工具`，比對只認這一對（舊長名 `伺服器__工具` 照舊有效；舊短名、只寫伺服器名、萬用字元都不生效，不會打開沒勾的工具）。編輯靈魂時也能改工具清單，建立與編輯共用同一個勾選元件；清單裡看不到的條目存檔時保留並標「目前不在清單」；外掛從勾選清單拿掉（照舊用不到）。勾了「執行指令」會自動帶上「取結果」「停止指令」（照樣經過權限與政策）。已經存了舊短名的靈魂要到編輯畫面重新勾一次 | [ADR-0281](architecture/adr/0281-tool-list-follow-ups.md) |
 | 2026-10-24 | **IDE 先擋 body-parser 弱點**：ToukaIDE 的本機 MCP 伺服器不再接受壓縮過的 JSON 請求內容（帶 `identity` 以外的 `Content-Encoding` 就回 415），套用官方的暫時解法 `inflate: false`，避免 GHSA-27r3-jxmh-p828（high）讓 VS Code 擴充主機程序結束。這個解析排在驗權杖之前，同一台電腦上的其他程式不帶權杖也能送；Touka 自己不送壓縮請求，行為不變。修正版 2.4.0 要到台北時間 10/29 19:39 才滿 7 天，屆時照常升級，這個設定保留 | [SECURITY](../SECURITY.md) |
