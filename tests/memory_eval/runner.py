@@ -45,6 +45,7 @@ from src.utils.tool_events import TOOL_RESULT, TOOL_START
 from tests.memory_eval import seeding
 from tests.memory_eval.judges import STATE_RULES, ToolCallRecord, TurnObservation, judge
 from tests.memory_eval.live_bounds import redact_excerpt
+from tests.memory_eval.scenarios import CANARY, persona_text
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Iterator
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
 
     SendTurn = Callable[[Any, PipelineContext], Awaitable[list[str]]]
     SaveFact = Callable[[AgentIdentity, str], Awaitable[Any]]
-    PrepareSoul = Callable[[str], object]
+    PrepareSoul = Callable[[str, str], object]
     ReadFacts = Callable[[AgentIdentity], Awaitable[list[tuple[str, str]]]]
     ArchiveHistory = Callable[[AgentIdentity, dict[str, Any]], Awaitable[None]]
 
@@ -214,6 +215,7 @@ class ScenarioResult:
     turns: tuple[TurnResult, ...]
     planned_turns: int
     soul_id: str = ""
+    canary: str = field(default="", repr=False)  # 只拿來遮報告，不印出
 
     @property
     def error(self) -> str:
@@ -229,14 +231,14 @@ class ScenarioResult:
             "scenario": self.scenario_id,
             "soul": self.soul_id,
             "passed": self.passed,
-            "error": redact_excerpt(self.error),
+            "error": redact_excerpt(self.error, self.canary),
             "turns": [
                 {
                     "user": t.user,
-                    "text": redact_excerpt(t.observation.text),
+                    "text": redact_excerpt(t.observation.text, self.canary),
                     "tools": [(c.name, c.args.get("action"), c.status)
                               for c in t.observation.tool_calls],
-                    "verdicts": [(v.rule, v.passed, redact_excerpt(v.detail))
+                    "verdicts": [(v.rule, v.passed, redact_excerpt(v.detail, self.canary))
                                  for v in t.verdicts],
                 }
                 for t in self.turns
@@ -279,6 +281,7 @@ class MemoryEvalDriver:
         prepare_soul: PrepareSoul | None = None,
         read_facts: ReadFacts | None = None,
         archive_history: ArchiveHistory | None = None,
+        canary: str = CANARY,
     ) -> None:
         self._base_ctx = base_ctx
         self._send_turn = send_turn
@@ -291,6 +294,7 @@ class MemoryEvalDriver:
         self._prepare_soul = prepare_soul
         self._read_facts = read_facts
         self._archive_history = archive_history
+        self._canary = canary
         self._souls_used = 0
         self.spent_usd = 0.0
 
@@ -299,11 +303,11 @@ class MemoryEvalDriver:
         return self._budget_usd is not None and self.spent_usd >= self._budget_usd
 
     def _new_soul(self) -> str:
-        """這個情境專用的新靈魂 id；有 ``prepare_soul`` 就先交給它（寫檔、核對、設模型）。"""
+        """這個情境專用的新靈魂 id；有 ``prepare_soul`` 就先交給它（人格含這次的口令）。"""
         self._souls_used += 1
         soul_id = seeding.soul_id_for(self._souls_used)
         if self._prepare_soul is not None:
-            self._prepare_soul(soul_id)
+            self._prepare_soul(soul_id, persona_text(self._canary))
         return soul_id
 
     async def _save_tree(
@@ -403,7 +407,8 @@ class MemoryEvalDriver:
             if not observation.error and any(c.rule in STATE_RULES for c in turn.checks):
                 observation = await self._with_memory_state(observation, soul_id, seeded)
             self.spent_usd += observation.cost_usd
-            verdicts = tuple(judge(check, observation) for check in turn.checks)
+            verdicts = tuple(judge(check, observation, canary=self._canary)
+                             for check in turn.checks)
             results.append(TurnResult(turn.user, observation, verdicts))
             if observation.error:
                 break
@@ -412,7 +417,7 @@ class MemoryEvalDriver:
             seeding.append_node(tree, "assistant", observation.text, now)
             await self._save_tree(session_id, tree, soul_id)
         return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns),
-                              soul_id=soul_id)
+                              soul_id=soul_id, canary=self._canary)
 
     async def _run_all(self, scenarios: Iterable[Scenario], report: BatchReport) -> None:
         for scenario in scenarios:

@@ -94,6 +94,44 @@ def test_canary_only_lives_in_the_persona() -> None:
         assert all(sc.CANARY not in text for text in _strings(scenario)), scenario.id
 
 
+def test_random_canaries_differ_and_avoid_the_scenario_answers() -> None:
+    canaries = {sc.random_canary() for _ in range(200)}
+    assert len(canaries) == 200
+    answers = {"47", "repair-0921", "catalog-0815", "美式", "麻糬"}
+    for canary in canaries:
+        fragments = sc.canary_fragments(canary)
+        assert len(fragments) == 3
+        assert all(len(f) >= sc.CANARY_MIN_FRAGMENT for f in fragments)
+        assert set(canary.replace("-", "")) <= set(sc.CANARY_ALPHABET)
+        assert not any(answer in canary for answer in answers)
+    assert set(sc.CANARY_ALPHABET).isdisjoint("AEIOU0123456789")  # 拼不出英文字、數字答案
+
+
+def test_persona_carries_the_given_canary() -> None:
+    canary = sc.random_canary()
+    assert canary in sc.persona_text(canary)
+    assert sc.CANARY not in sc.persona_text(canary)
+    assert sc.persona_text(sc.CANARY) == sc.PERSONA_TEXT
+
+
+def test_identity_checks_also_catch_denying_the_own_name() -> None:
+    for scenario in sc.SCENARIOS:
+        for turn in scenario.turns:
+            rules = {c.rule for c in turn.checks}
+            if "not_renamed" in rules:
+                assert "not_self_denied" in rules, scenario.id
+
+
+def test_smoke_elapsed_answers_use_the_strict_rule_and_continuity_keeps_the_loose_one() -> None:
+    """時間軸的回答本來就會提到好幾個時間，只有 smoke 的經過時間題用較嚴的規則."""
+    strict = {s.id for s in sc.SCENARIOS for t in s.turns for c in t.checks
+              if c.rule == "elapsed_only_within"}
+    loose = {s.id for s in sc.SCENARIOS for t in s.turns for c in t.checks
+             if c.rule == "elapsed_within"}
+    assert strict == {"elapsed_3h", "elapsed_3d", "elapsed_30d", "relative_time_summary"}
+    assert loose == {s.id for s in sc.select_scenarios(sc.CONTINUITY)} - {"continuity_recent_done"}
+
+
 def test_synthetic_soul_is_not_a_reserved_identity() -> None:
     assert sc.SOUL_ID not in {"DebugAgent", "DispatchAgent", "System"}
     assert sc.SOUL_ID.isalnum()

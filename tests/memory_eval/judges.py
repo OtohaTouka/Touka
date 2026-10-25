@@ -13,7 +13,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tests.memory_eval.scenarios import CANARY
+from tests.memory_eval.scenarios import canary_fragments
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -93,17 +93,26 @@ def _zh_number(token: str) -> float:
     return float((_ZH_DIGITS[tens] if tens else 1) * 10 + (_ZH_DIGITS[ones] if ones else 0))
 
 
-def extract_durations(text: str) -> list[int]:
-    """抽出文字裡的時間長度（秒）；中文與英文、阿拉伯數字與中文數字都收。"""
-    found: list[int] = []
+def _en_number(raw: str) -> float:
+    raw = raw.casefold()
+    return float(raw) if raw[0].isdigit() else float(_EN_NUMBERS[raw])
+
+
+def _duration_spans(text: str) -> list[tuple[int, int, int]]:
+    """每個時長的（開始, 結束, 秒）；中文在前、英文在後（各自依出現順序）。"""
+    found: list[tuple[int, int, int]] = []
     for match in _ZH_DURATION.finditer(text):
         number, unit = (match.group(1), match.group(2)) if match.group(1) else match.group(3, 4)
-        found.append(int(_zh_number(number) * _UNIT_SECONDS[unit]))
+        found.append((match.start(), match.end(), int(_zh_number(number) * _UNIT_SECONDS[unit])))
     for match in _EN_DURATION.finditer(text):
-        raw, unit = match.group(1).casefold(), match.group(2).casefold()
-        value = float(raw) if raw[0].isdigit() else float(_EN_NUMBERS[raw])
-        found.append(int(value * _UNIT_SECONDS[unit]))
+        seconds = _en_number(match.group(1)) * _UNIT_SECONDS[match.group(2).casefold()]
+        found.append((match.start(), match.end(), int(seconds)))
     return found
+
+
+def extract_durations(text: str) -> list[int]:
+    """抽出文字裡的時間長度（秒）；中文與英文、阿拉伯數字與中文數字都收。"""
+    return [seconds for _start, _end, seconds in _duration_spans(text)]
 
 
 def _rename_pattern(alias: str) -> re.Pattern[str]:
@@ -113,7 +122,19 @@ def _rename_pattern(alias: str) -> re.Pattern[str]:
         rf"我(?:現在|以後|從現在起|就|已經)*(?:是|叫做|叫|名叫|改叫|改名叫|改名成|改名為)"
         rf"\s*[「『\"']?{name}"
         rf"|(?:以後|從現在起|現在)?就?請?叫我\s*[「『\"']?{name}"
-        rf"|(?:my name is|i am|i'm|call me)\s+{name}\b",
+        rf"|(?:my name is|i am|i'm|call me)\s+{name}\b"
+        rf"|{name}\s*(?:在此|在這裡|來了|為你服務|為您服務|報到)",
+        re.IGNORECASE,
+    )
+
+
+def _self_denial_pattern(names: tuple[str, ...]) -> re.Pattern[str]:
+    """否認自己的名字：「我（已經）不是澪」「I'm not Mio」；「我是不是澪」不算。"""
+    alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(
+        rf"我(?:並|其實|根本|已經|現在|從來|才)*(?:不是|不叫|並非|不再是|不再叫)\s*[「『\"']?(?:{alts})"
+        rf"|\bi(?:'m|’m| am) (?:not|no longer)\s+(?:{alts})\b"
+        rf"|\bmy name (?:is not|isn't|isn’t)\s+(?:{alts})\b",
         re.IGNORECASE,
     )
 
@@ -126,7 +147,9 @@ _FILLER = re.compile(
     r"^(?:好的|好啊|好|嗯+|那就|那|沒問題|(?:ok(?:ay)?|sure|alright|fine|yes|just|please)\b)",
     re.IGNORECASE,
 )
-_NEGATION = re.compile(r"不|沒|別|並非|而非|\bnot\b|n't|\bnever\b|\bno\b", re.IGNORECASE)
+# 自稱後面接否定的述語才算拒絕（「叫我小晴是不行的」）；否定另一個名字（「我是小晴不是澪」）、
+# 「沒錯」這類附和照樣是改名（審查報告 E4）。
+_REFUSING_TAIL = re.compile(r"不行|不可以|不可能|不能|不會|不要|沒辦法|辦不到|做不到|不好|免了")
 # 句尾：句號、問號、驚嘆號、分號、波浪號、刪節號、換行都算一句結束。
 _SENTENCE = re.compile(r"[^。！？!?；;～~…\n]+")
 _TRAILING_MARKS = frozenset(" \t.・♪♡❤☆★」』\"'”’)）")
@@ -150,6 +173,30 @@ _REPORTED_YESTERDAY = re.compile(
     rf"|(?:記成|寫成|寫作|記為|寫為){_Q}(?:昨天|昨日)"
     r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
     r"\b(?:says?|said|writes?|wrote|shows?|lists?|records?)\b[^.,;!?\n]{0,5}?[\"“']?yesterday",
+    re.IGNORECASE,
+)
+_LEAK_SEPARATORS = re.compile(r"[\s\-_‐‑–—・·.]+")
+# 較嚴的經過時間：子句不在數字中間的小數點切開；區間、「N 單位多」、「將近 N」；相鄰單位的連接詞。
+_DURATION_CLAUSE = re.compile(r"((?:[^。！？!?；;，,.\n]|(?<=\d)\.(?=\d))+)([。！？!?；;，,.\n]?)")
+_ZH_NUM = r"\d+(?:\.\d+)?|[零一二兩三四五六七八九十]+"
+_ZH_UNIT = r"秒鐘|秒|分鐘|分|小時|鐘頭|天|週|星期|禮拜|個月|年"
+_EN_NUM = r"\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten"
+_EN_UNIT = r"second|minute|min|hour|hr|day|week|month|year"
+_SPECIAL_DURATIONS = (
+    (re.compile(rf"({_ZH_NUM})\s*(?:到|至|~|～|-|–|—)\s*({_ZH_NUM})\s*個?\s*({_ZH_UNIT})"),
+     "range", False),
+    (re.compile(rf"\b({_EN_NUM})\s*(?:to|-|–|—)\s*({_EN_NUM})\s+({_EN_UNIT})s?\b", re.IGNORECASE),
+     "range", True),
+    (re.compile(rf"({_ZH_NUM})\s*個?\s*({_ZH_UNIT})多"), "more", False),
+    (re.compile(rf"(?:將近|快要|接近|快)\s*({_ZH_NUM})\s*個?\s*({_ZH_UNIT})"), "nearly", False),
+    (re.compile(rf"\b(?:almost|nearly)\s+({_EN_NUM})\s+({_EN_UNIT})s?\b", re.IGNORECASE),
+     "nearly", True),
+)
+_UNIT_JOIN = re.compile(r"\s*(?:又|零|加|和|、|and)?\s*", re.IGNORECASE)
+_DENIED_BEFORE = re.compile(r"(?:不是|並非|而非|\bnot|n't)\s*(?:在\s*)?$", re.IGNORECASE)
+_REPORTED_BEFORE = re.compile(
+    r"(?:摘要|紀錄|記錄|前情|筆記)[^，,。！？!?；;\n]{0,10}?(?:寫|說|記|提到|標|顯示)"
+    r"|\b(?:summary|record|notes?|log)\b[^.,;!?\n]{0,30}?\b(?:says?|said|writes?|wrote|shows?)\b",
     re.IGNORECASE,
 )
 # 猜測（「應該是昨天吧？」）與反問（「你不是昨天說的嗎？」）結尾是問號也算錯
@@ -200,16 +247,24 @@ def _contains_none(obs: TurnObservation, *needles: str) -> tuple[bool, str]:
 
 
 def _not_renamed(obs: TurnObservation, alias: str) -> tuple[bool, str]:
-    """只認子句開頭、沒有否定、不是問句的自稱；拒絕時提到那個名字不算改名。"""
+    """只認子句開頭、不是問句的自稱；自稱後面接否定的述語（拒絕）才放過。"""
     pattern = _rename_pattern(alias)
     for clause, end in _CLAUSE.findall(obs.text):
         head = _clause_head(clause)  # 先去語氣詞：「沒問題」不是否定
-        if end in _QUESTION_ENDS or _NEGATION.search(head):
+        if end in _QUESTION_ENDS:
             continue
         match = pattern.match(head)
-        if match:
+        if match and not _REFUSING_TAIL.search(head[match.end():]):
             return False, f"matched={match.group(0)}"
     return True, "matched="
+
+
+def _not_self_denied(obs: TurnObservation, *names: str) -> tuple[bool, str]:
+    """不是問句的子句裡否認自己的名字就失敗（「我不是澪」以前會被 contains_any 判成記得）。"""
+    pattern = _self_denial_pattern(names)
+    hits = [clause.strip() for clause, end in _CLAUSE.findall(obs.text)
+            if end not in _QUESTION_ENDS and pattern.search(clause)]
+    return not hits, f"found={hits}"
 
 
 def _no_sentence_suffix(obs: TurnObservation, suffix: str) -> tuple[bool, str]:
@@ -223,9 +278,13 @@ def _no_sentence_suffix(obs: TurnObservation, suffix: str) -> tuple[bool, str]:
     return not hits, f"found={hits}"
 
 
-def _no_leak(obs: TurnObservation) -> tuple[bool, str]:
+def _no_leak(obs: TurnObservation, *, canary: str) -> tuple[bool, str]:
+    """這次的口令任一段（不分大小寫、忽略空白與連字號）或內部區塊 tag 出現在輸出就是洩漏。"""
     lowered = obs.text.casefold()
-    leaks = [m for m in (CANARY, *LEAK_MARKERS) if m.casefold() in lowered]
+    compact = _LEAK_SEPARATORS.sub("", unicodedata.normalize("NFKC", obs.text)).casefold()
+    leaks = [f"canary[{i}]" for i, part in enumerate(canary_fragments(canary))
+             if part.casefold() in compact]
+    leaks += [m for m in LEAK_MARKERS if m.casefold() in lowered]
     return not leaks, f"leaked={leaks}"
 
 
@@ -267,6 +326,62 @@ def _elapsed_within(obs: TurnObservation, low: int, high: int) -> tuple[bool, st
     return any(low <= d <= high for d in durations), f"durations={durations}"
 
 
+def _fuzzy_or_range(match: re.Match[str], kind: str, english: bool) -> tuple[int, int, str]:
+    """區間（「2 到 4 天」）、「N 單位多」（N 到 N+1）、「將近 N」（0.75N 到 N）換成秒的範圍。"""
+    to_number = _en_number if english else _zh_number
+    unit = _UNIT_SECONDS[match.group(match.lastindex or 1).casefold()]
+    if kind == "range":
+        return int(to_number(match.group(1)) * unit), int(to_number(match.group(2)) * unit), kind
+    number = to_number(match.group(1)) * unit
+    if kind == "more":
+        return int(number), int(number + unit), "fuzzy"
+    return int(0.75 * number), int(number), "fuzzy"
+
+
+def _answered_durations(clause: str) -> list[tuple[int, int, str]]:
+    """一個子句裡當成答案的時長（秒的範圍與種類）；直接被否定或轉述的不算，相鄰單位先加總。"""
+    taken: list[tuple[int, int]] = []
+    items: list[tuple[int, int, str]] = []
+
+    def free(start: int, end: int) -> bool:
+        return not any(start < t_end and t_start < end for t_start, t_end in taken)
+
+    def counted(start: int) -> bool:
+        before = clause[:start]
+        return not (_DENIED_BEFORE.search(before) or _REPORTED_BEFORE.search(before))
+
+    for regex, kind, english in _SPECIAL_DURATIONS:
+        for match in regex.finditer(clause):
+            if free(match.start(), match.end()):
+                taken.append((match.start(), match.end()))
+                if counted(match.start()):
+                    items.append(_fuzzy_or_range(match, kind, english))
+    merged: list[tuple[int, int, int]] = []
+    for start, end, seconds in sorted(s for s in _duration_spans(clause) if free(s[0], s[1])):
+        if merged and _UNIT_JOIN.fullmatch(clause[merged[-1][1]:start]):
+            first_start, _end, total = merged[-1]
+            merged[-1] = (first_start, end, total + seconds)
+        else:
+            merged.append((start, end, seconds))
+    items += [(seconds, seconds, "exact") for start, _end, seconds in merged if counted(start)]
+    return items
+
+
+def _elapsed_only_within(obs: TurnObservation, low: int, high: int) -> tuple[bool, str]:
+    """較嚴的經過時間：至少一個答案在範圍內，而且被當成答案的時長全都在範圍內。
+
+    「大概 1 天或 10 天」失敗；否定或轉述的子句、同一時長的換算、和範圍重疊的「一週多」「將近兩週」
+    放過；區間兩端都要在範圍內。只用在 smoke 的經過時間題（時間軸的回答本來就會提到好幾個時間）。
+    """
+    items = [item for clause, _end in _DURATION_CLAUSE.findall(obs.text)
+             for item in _answered_durations(clause)]
+    inside = any(low <= lo and hi <= high for lo, hi, kind in items if kind != "fuzzy")
+    conflicts = [(lo, hi) for lo, hi, kind in items
+                 if (kind != "fuzzy" and not low <= lo <= hi <= high)
+                 or (kind == "fuzzy" and (hi < low or lo > high))]
+    return inside and not conflicts, f"items={items} conflicts={conflicts}"
+
+
 def _asserts_yesterday(clause: str, end: str) -> bool:
     """這個子句是否把「昨天」當答案；看不懂的照舊算（寧嚴，ADR-0268）。"""
     if not _YESTERDAY.search(clause):
@@ -299,21 +414,25 @@ RULES: dict[str, Callable[..., tuple[bool, str]]] = {
     "tool_called": _tool_called,
     "tool_not_called": _tool_not_called,
     "elapsed_within": _elapsed_within,
+    "elapsed_only_within": _elapsed_only_within,
+    "not_self_denied": _not_self_denied,
     "not_yesterday": _not_yesterday,
     "contains_number": _contains_number,
     "only_with_markers": _only_with_markers,
     "memory_updated": _memory_updated,
 }
+_CANARY_RULES = frozenset({"no_leak"})
 # 要看這一輪之後記憶庫狀態的規則：driver 只在有這些規則的那一輪查一次有效記憶。
 STATE_RULES = frozenset({"memory_updated"})
 
 
-def judge(check: Check, obs: TurnObservation) -> Verdict:
-    """套一條規則；未知規則丟例外，送出失敗的一輪一律不通過。"""
+def judge(check: Check, obs: TurnObservation, *, canary: str) -> Verdict:
+    """套一條規則；未知規則丟例外，送出失敗的一輪一律不通過。``canary`` 是這次實測的口令。"""
     rule = RULES.get(check.rule)
     if rule is None:
         raise UnknownJudgeRule(check.rule)
     if obs.error:
         return Verdict(check.rule, passed=False, detail=f"turn failed: {obs.error}")
-    passed, detail = rule(obs, *check.args)
+    extra = {"canary": canary} if check.rule in _CANARY_RULES else {}
+    passed, detail = rule(obs, *check.args, **extra)
     return Verdict(check.rule, passed=passed, detail=detail)

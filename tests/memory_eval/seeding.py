@@ -18,7 +18,7 @@ from src.models.identity import AgentIdentity
 from src.services.continuity_events import event_id
 from src.utils.continuity_events_db import EventRow
 
-from tests.memory_eval.scenarios import PERSONA_TEXT, SOUL_ID
+from tests.memory_eval.scenarios import SOUL_ID
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -65,13 +65,15 @@ def driver_identity(soul_id: str) -> AgentIdentity:
     )
 
 
-def write_synthetic_soul(app_data_dir: Path, soul_id: str, *, sandbox_root: Path) -> Path:
-    """在 ``<app_data_dir>/soul/<soul_id>`` 寫合成人格與設定；目標必須在沙盒根之下。"""
+def write_synthetic_soul(
+    app_data_dir: Path, soul_id: str, *, sandbox_root: Path, persona: str
+) -> Path:
+    """在 ``<app_data_dir>/soul/<soul_id>`` 寫合成人格（含這次口令）與設定；目標須在沙盒根之下。"""
     soul_dir = (app_data_dir / "soul" / soul_id).resolve()
     if not soul_dir.is_relative_to(sandbox_root.resolve()):
         raise SeedOutsideSandbox
     soul_dir.mkdir(parents=True, exist_ok=True)
-    (soul_dir / "soul.md").write_text(PERSONA_TEXT, encoding="utf-8")
+    (soul_dir / "soul.md").write_text(persona, encoding="utf-8")
     (soul_dir / "config.json").write_text(json.dumps(SOUL_CONFIG), encoding="utf-8")
     return soul_dir
 

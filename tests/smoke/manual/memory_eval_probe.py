@@ -140,6 +140,7 @@ from tests.memory_eval.scenarios import (  # noqa: E402
     SUITES,
     UnknownScenario,
     expected_requests,
+    random_canary,
     select_scenarios,
 )
 from tests.sandbox_cleanup import remove_session_sandbox  # noqa: E402
@@ -421,10 +422,11 @@ def _seed_sandbox(sandbox_root: Path) -> None:
     permission_service.reload_all()
 
 
-def _prepare_soul(soul_id: str, *, sandbox_root: Path, model: str) -> None:
-    """這個情境的合成靈魂：寫進沙盒、核對解析成 Owner、設主要模型（核准的那一個）。"""
+def _prepare_soul(soul_id: str, persona: str, *, sandbox_root: Path, model: str) -> None:
+    """這個情境的合成靈魂：人格寫進沙盒、核對解析成 Owner、設主要模型（核准的那一個）。"""
     seeding.write_synthetic_soul(
-        Path(config_utils.get_app_data_dir()), soul_id, sandbox_root=sandbox_root
+        Path(config_utils.get_app_data_dir()), soul_id, sandbox_root=sandbox_root,
+        persona=persona,
     )
     role, _caps = agent_service.resolve_role_and_caps(soul_id)
     if role != "Owner":
@@ -487,6 +489,7 @@ async def run_memory_eval_probe(
         prepare_soul=partial(_prepare_soul, sandbox_root=sandbox_root, model=model),
         read_facts=runner.memory_active_facts,
         archive_history=runner.legacy_archiver(sandbox_root),
+        canary=random_canary(),  # 每次實測一組新口令，事先猜不到；不印出
     )
     try:
         report = (await driver.run_batch(scenarios)).to_dict()

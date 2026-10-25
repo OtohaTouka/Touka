@@ -78,11 +78,13 @@ async def _no_save(_identity: Any, _content: str) -> str:
     return "saved"
 
 
-def _soul_writer(sandbox: str, model: str | None = None) -> Callable[[str], None]:
+def _soul_writer(sandbox: str, model: str | None = None) -> Callable[[str, str], None]:
     """每個情境的合成靈魂寫進測試沙盒（記錄器只記正式靈魂；真 pipeline 還要主要模型）."""
 
-    def _prepare(soul_id: str) -> None:
-        seeding.write_synthetic_soul(Path(sandbox), soul_id, sandbox_root=Path(sandbox))
+    def _prepare(soul_id: str, persona: str = sc.PERSONA_TEXT) -> None:
+        seeding.write_synthetic_soul(
+            Path(sandbox), soul_id, sandbox_root=Path(sandbox), persona=persona
+        )
         if model is not None:
             set_active_brain(seeding.soul_identity(soul_id), model)
 
@@ -187,7 +189,9 @@ def test_seed_plan_without_age_has_no_timestamps() -> None:
 
 def test_synthetic_soul_is_written_only_under_the_sandbox_root(tmp_path: Path) -> None:
     root = tmp_path / "sandbox"
-    soul_dir = seeding.write_synthetic_soul(root / "app", SOUL_1, sandbox_root=root)
+    soul_dir = seeding.write_synthetic_soul(
+        root / "app", SOUL_1, sandbox_root=root, persona=sc.PERSONA_TEXT
+    )
 
     assert soul_dir.name == SOUL_1
     assert (soul_dir / "soul.md").read_text(encoding="utf-8") == sc.PERSONA_TEXT
@@ -195,7 +199,9 @@ def test_synthetic_soul_is_written_only_under_the_sandbox_root(tmp_path: Path) -
     assert config["is_toukasoul"] is True
     assert set(config["enabled_tools"]) == {"memory_tools", "mission_tools"}
     with pytest.raises(seeding.SeedOutsideSandbox):
-        seeding.write_synthetic_soul(tmp_path / "elsewhere", SOUL_1, sandbox_root=root)
+        seeding.write_synthetic_soul(
+            tmp_path / "elsewhere", SOUL_1, sandbox_root=root, persona=sc.PERSONA_TEXT
+        )
 
 
 def test_deterministic_encoder_is_stable_normalized_and_offline() -> None:
@@ -641,7 +647,7 @@ async def test_each_scenario_is_seeded_and_sent_as_its_own_soul(sandbox_db: Any)
     send = _fake_sender([_text_chunks("我是霧島澪。"), _text_chunks("我是霧島澪。")], sent)
     driver = runner.MemoryEvalDriver(
         base_ctx={}, send_turn=send, save_fact=_save, max_tokens=64, now_ms=lambda: NOW_MS,
-        prepare_soul=prepared.append,
+        prepare_soul=lambda soul_id, _persona: prepared.append(soul_id),
     )
     batch = sc.select_scenarios(sc.SMOKE, ["poison_memory_query", "poison_home"])
 
@@ -806,3 +812,20 @@ async def test_the_archiver_refuses_a_target_outside_the_sandbox(
 
     with pytest.raises(seeding.SeedOutsideSandbox):
         await archive(seeding.soul_identity(SOUL_1), seeding.plan_seed(scenario, NOW_MS).archive)
+
+
+async def test_the_run_canary_reaches_the_persona_the_judge_and_the_report(sandbox_db: Any) -> None:
+    """口令每次實測不同：寫進人格的、判定看的、報告遮的是同一組."""
+    canary = sc.random_canary()
+    personas: list[str] = []
+    send = _fake_sender([_text_chunks(f"我是霧島澪，口令是 {canary}。")], [])
+    driver = _driver(send, canary=canary,
+                     prepare_soul=lambda _soul_id, persona: personas.append(persona))
+    scenario = next(s for s in sc.SCENARIOS if s.id == "poison_summary")
+
+    result = await driver.run_scenario(scenario)
+
+    assert personas == [sc.persona_text(canary)]
+    leak = next(v for v in result.turns[0].verdicts if v.rule == "no_leak")
+    assert not leak.passed
+    assert canary not in json.dumps(result.to_dict(), ensure_ascii=False)
