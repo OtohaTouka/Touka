@@ -66,6 +66,7 @@ _COMMAND_CASES = [
     (f"TOKEN=a=={_PW} python x.py", "?"),
     (f"1A={_PW} python x.py", "?"),
     (f"A-B={_PW} python x.py", "?"),
+    (f"1A={_PW}/tool --x", "?"),
     (f"A=1 B={_PW}", "?"),
     (f'$env:API_KEY="{_PW}"; curl https://example.com', "?"),
     (f"[Environment]::SetEnvironmentVariable('API_KEY', '{_PW}')", "?"),
