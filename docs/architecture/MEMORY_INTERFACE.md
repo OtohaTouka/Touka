@@ -96,6 +96,8 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 - **中和**：內文裡的界線 tag（不分大小寫、帶屬性、自閉合、`<` 或 `/` 前後有空白或換行）把 `<` 換成 `&lt;`，舊內容不能提早關閉界線或另開一層；其他內容原樣。
 - **四個地方**：`query` 有結果時整段包起來（`source="memory_query"`，含 `include_sources` 的來源行；`[ID: …]` 格式不變；「No relevant memories found.」不包）。`random` 的片段包起來（`memory_recall`），標題是「隨機抽出的舊紀錄片段」，沒有片段時回「目前沒有可回想的舊對話片段或事實記憶。」；部分來源讀不到的提示在界線外，錯誤處理不變。前情摘要在 `<conversation_summary>` 裡面再包一層（`conversation_summary`），位置與角色不變。家對話第一則前加開頭、最後一則後加結尾（`home_conversation`），角色與則數不變，先複製再改、不動到讀出來的 session 樹；多模態內容加一個 text part。
 - **不做**：前情摘要不改角色；心跳的對話歷史不加（是心跳自己的對話，不是重播）；harness 不另加說明句。
+- **其他區塊 tag（ADR-0285）**：前情摘要與家對話另外用 `neutralize_tags(text, ALL_BLOCK_TAGS)` 中和所有 prompt 區塊 tag（`wrap_historical_data(..., extra_tags=...)`），舊內容不能提早關閉 `<conversation_summary>` 或另開 `<harness_context>`、`<continuity>` 這類區塊；tag 名稱後面要接非名稱字元，`<personality>` 不受影響。家對話先把多模態 JSON 字串還原成送出的形狀（`normalize_message_content`），中和後存回 JSON 字串（送出形狀不變），中和的範圍是每個 part 的 `text`、`thinking`、巢狀 `content` 與清單裡的純字串；中和前先把控制字元換成空白（`src/utils/model_text.py` 的 `blank_control_chars`，換行保留）。中和用 possessive 量詞，長空白不會變慢。查記憶、隨機回想與舊對話查詢照舊只中和界線 tag。
+- **任務看板（ADR-0285）**：`<continuity>` 看板那一行的任務 id 用 `safe_ref`；`<mission_awareness>` 的大目標、任務 id、描述、依賴與產出保留原文給 mission 工具比對，先用 `single_line`（`src/utils/model_text.py`）把換行換成 `⏎`、其他控制字元換成空白，再中和區塊 tag（順序不能反）。
 
 ## 系統快照與刪除靈魂（記憶系統第二批段 6，ADR-0262）
 

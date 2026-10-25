@@ -263,7 +263,8 @@ async def _mission_line(identity: Any, soul: AgentIdentity, now_s: float) -> str
         return f"- {MISSION_LABEL}: unknown (read failed)"
     if not mission or mission.status == "DONE":  # 與 ToolLayer 注入 mission_awareness 同條件
         return f"- {MISSION_LABEL}: {NO_ACTIVE_MISSION} {MISSION_BOARD}"
-    doing = [f"{t.id} (updated {_ago(now_s, t.updated_at)})" for t in mission.tasks
+    # 任務 id 是模型取的：這個區塊標成事實，id 只顯示過濾過的參照（ADR-0285）
+    doing = [f"{safe_ref(t.id)} (updated {_ago(now_s, t.updated_at)})" for t in mission.tasks
              if t.status == "DOING"]
     return (
         f"- {MISSION_LABEL}: updated {_ago(now_s, mission.updated_at)}; in progress: "
