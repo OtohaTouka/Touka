@@ -119,7 +119,7 @@ class CustomModelService:
 
         if not self._write_config_id(AgentIdentity(agent_id=new_id, agent_role="Base")):
             if not custom_io.move_custom_dir(new_id, old_identity.agent_id):
-                logger.error(
+                logger.critical(
                     "AUDIT: custom model rename rollback FAILED old=%s new=%s",
                     old_identity.agent_id,
                     new_id,
