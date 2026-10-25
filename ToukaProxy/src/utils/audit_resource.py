@@ -19,22 +19,30 @@ COMMAND_UNAVAILABLE = "[command unavailable]"
 RESOURCE_UNAVAILABLE = "[resource unavailable]"
 UNKNOWN_PROGRAM = "?"
 
+# 只照 shell 的方式切段：ASCII 空白、tab、換行。str.split() 會在 Unicode 空白與 \r
+# 等控制字元切開，設定值的後段就可能被當成程式名稱；這些字元留在段落裡，整段比對失敗。
+_SEPARATOR_RE = re.compile(r"[ \t\n]+")
+_SEPARATOR_CHARS = " \t\n"
 # 開頭的 POSIX 環境變數設定：值只收不會跨段的字元，其他寫法（引號、反斜線、$ 等）就停。
 _ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@%+,-]*")
 # 程式段落整段的字元集（不含 =，不合法的設定也停在這裡），以及取出的程式名稱；
 # 都用明確的 ASCII 範圍，不用 \w。
 _PROGRAM_TOKEN_RE = re.compile(r"[A-Za-z0-9_./\\:+-]+")
+_PATH_SEPARATOR_RE = re.compile(r"[/\\]")
 _PROGRAM_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 _TOOL_NAME_RE = re.compile(r"[A-Za-z0-9_.:/-]{1,200}")
 
 
 def _program_name(command: str) -> str:
-    for token in command.split():
+    for token in _SEPARATOR_RE.split(command.strip(_SEPARATOR_CHARS)):
         if _ASSIGNMENT_RE.fullmatch(token):
+            # `NAME= 值 程式` 會把「值」當程式執行，那一段常常就是手誤的祕密。
+            if token.endswith("="):
+                return UNKNOWN_PROGRAM
             continue
         if not _PROGRAM_TOKEN_RE.fullmatch(token):
             return UNKNOWN_PROGRAM
-        name = re.split(r"[/\\]", token)[-1]
+        name = _PATH_SEPARATOR_RE.split(token)[-1]
         if not _PROGRAM_NAME_RE.fullmatch(name):
             return UNKNOWN_PROGRAM
         _, redacted = redact_secrets_from_content(name)

@@ -63,6 +63,9 @@ _COMMAND_CASES = [
     (f'OPENAI_API_KEY="{_PW}" python app.py', "?"),
     (f"TOKEN=a\\ {_PW} python x.py", "?"),
     (f"TOKEN=$(cat {_PW}) python x.py", "?"),
+    (f"TOKEN=$(get {_PW} x) python x.py", "?"),
+    (f"TOKEN='abc {_PW} end' python x.py", "?"),
+    (f"TOKEN= {_PW} python x.py", "?"),
     (f"TOKEN=a=={_PW} python x.py", "?"),
     (f"1A={_PW} python x.py", "?"),
     (f"A-B={_PW} python x.py", "?"),
@@ -79,7 +82,11 @@ _COMMAND_CASES = [
     (f'"C:\\Program Files\\Git\\bin\\git.exe" -c http.extraHeader="Basic {_PW}"', "?"),
     (f"& 'C:\\x\\y.exe' --password {_PW}", "?"),
     (f"https://u:{_PW}@example.com/x", "?"),
+    ("x" * 64 + f" --password {_PW}", "x" * 64),
     ("x" * 65 + f" --password {_PW}", "?"),
+    (f"-p{_PW} x", "?"),
+    (f"--password {_PW}", "?"),
+    (f"admin:{_PW} x", "?"),
     (f"程式 --password {_PW}", "?"),
     (f"{_KEY} --help", "?"),
     (f"curl\t-u\tuser:{_PW}\thttps://example.com", "curl"),
@@ -94,6 +101,40 @@ _COMMAND_CASES = [
 def test_command_summary_keeps_only_program_and_length(command: str, program: str):
     summary = summarize_command_for_audit(command)
     assert summary == _summary(program, command)
+    _assert_secret_free(summary)
+
+
+# shell 只在 ASCII 空白、tab、換行切字；str.split() 還會在這些字元切開。
+_NON_SHELL_SEPARATORS = [
+    chr(code)
+    for code in (
+        0x0D,
+        0x0B,
+        0x0C,
+        0x1C,
+        0x1D,
+        0x1E,
+        0x1F,
+        0x85,
+        0xA0,
+        0x1680,
+        0x2000,
+        0x2007,
+        0x200A,
+        0x2028,
+        0x2029,
+        0x202F,
+        0x205F,
+        0x3000,
+    )
+]
+
+
+@pytest.mark.parametrize("separator", _NON_SHELL_SEPARATORS)
+def test_non_shell_whitespace_never_splits_a_value_into_the_program(separator: str):
+    command = f"TOKEN=abc{separator}{_PW} python app.py"
+    summary = summarize_command_for_audit(command)
+    assert summary == _summary("?", command)
     _assert_secret_free(summary)
 
 
@@ -121,12 +162,21 @@ def test_key_shaped_tool_name_is_redacted():
 
 
 @pytest.mark.parametrize(
-    "resource", [f"echo --token {_PW}", "x" * 201, "", f"{_PW}\n", f"名稱{_PW}"]
+    "resource",
+    [
+        f"echo --token {_PW}",
+        "x" * 201,
+        "",
+        f"{_PW}\n",
+        f"名稱{_PW}",
+        f"key={_PW}",
+        f"u@{_PW}",
+        f"a?{_PW}",
+    ],
 )
 def test_non_tool_shaped_resource_keeps_only_length(resource: str):
-    assert audit_resource_for("schema_injection", resource) == (
-        f"[resource chars={len(resource)}]"
-    )
+    expected = f"[resource chars={len(resource)}]"
+    assert audit_resource_for("schema_injection", resource) == expected
 
 
 def test_terminal_action_uses_the_command_summary():
@@ -247,22 +297,34 @@ async def test_tool_executor_gate2_ledger_row_has_only_the_summary(
     assert [(row["resource"], row["effect"]) for row in rows] == [
         (_summary("echo", command), "DENY")
     ]
+    assert rows[0]["reason"].startswith("Matched critical blacklist pattern")
 
 
-# ── 守門：建 PolicyContext 的位置與 action ─────────────────────────────────────
+# ── 守門：PolicyContext 的 resource 從哪裡來 ───────────────────────────────────
+# 掃 ToukaProxy/src 全部檔案。以下任何一項變動都會紅，先確認 resource 放的是什麼，
+# 再更新清單與稽核寫法。model_copy 與屬性寫入看不出物件型別，所以對全部物件檢查。
 
 _EXPECTED_POLICY_CONTEXTS = sorted(
     [
-        ("middleware/layers/tool.py", "'schema_injection'"),
-        ("protocols/mcp/oauth/workload/adapters.py", "'tool_call'"),
-        ("services/auto_reviewer.py", "'auto_review'"),
+        ("middleware/layers/tool.py", "'schema_injection'", "tool_name"),
+        ("protocols/mcp/oauth/workload/adapters.py", "'tool_call'", "raw_tool_name"),
+        ("services/auto_reviewer.py", "'auto_review'", "request.tool_name"),
         (
             "services/permission_service.py",
             "'terminal_execute' if 'command' in args else 'tool_call'",
+            "args.get('command', tool_name)",
         ),
-        ("services/tool_executor.py", "'terminal_execute' if is_terminal else 'tool_call'"),
+        (
+            "services/tool_executor.py",
+            "'terminal_execute' if is_terminal else 'tool_call'",
+            "args.get('command', name) if is_terminal else name",
+        ),
     ]
 )
+# update 不是字面字典的 model_copy：看不出改了哪些欄位，人看過才列進來。
+_EXPECTED_OPAQUE_MODEL_COPIES = ["services/interjection_queue.py: item"]
+_GUARDED_FIELDS = {"resource", "action"}
+_ALTERNATE_CONSTRUCTORS = {"model_validate", "model_validate_json", "model_construct"}
 
 
 def _policy_context_names(tree: ast.Module) -> set[str]:
@@ -273,37 +335,67 @@ def _policy_context_names(tree: ast.Module) -> set[str]:
     return names
 
 
-def _is_policy_context_call(node: ast.Call, names: set[str]) -> bool:
+def _is_policy_context(node: ast.expr, names: set[str]) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in names
+    return isinstance(node, ast.Attribute) and node.attr == "PolicyContext"
+
+
+def _keyword_source(node: ast.Call, name: str) -> str:
+    value = next((k.value for k in node.keywords if k.arg == name), None)
+    return ast.unparse(value) if value is not None else "<none>"
+
+
+def _scan_call(node: ast.Call, rel: str, names: set[str], found: dict[str, list]) -> None:
     func = node.func
-    if isinstance(func, ast.Name):
-        return func.id in names
-    return isinstance(func, ast.Attribute) and func.attr == "PolicyContext"
+    if _is_policy_context(func, names):
+        resource = "<positional>" if node.args else _keyword_source(node, "resource")
+        found["sites"].append((rel, _keyword_source(node, "action"), resource))
+    elif isinstance(func, ast.Attribute) and func.attr in _ALTERNATE_CONSTRUCTORS:
+        if _is_policy_context(func.value, names):
+            found["constructors"].append(f"{rel}:{node.lineno}")
+    elif isinstance(func, ast.Attribute) and func.attr == "model_copy":
+        for keyword in (k for k in node.keywords if k.arg == "update"):
+            value = keyword.value
+            if not isinstance(value, ast.Dict) or None in value.keys:
+                found["opaque"].append(f"{rel}: {ast.unparse(func.value)}")
+            elif {k.value for k in value.keys if isinstance(k, ast.Constant)} & _GUARDED_FIELDS:
+                found["copies"].append(f"{rel}:{node.lineno}")
+    elif isinstance(func, ast.Name) and func.id == "setattr" and len(node.args) >= 2:
+        # 欄位名是變數的 setattr（設定檔載入等）靜態看不出寫哪個欄位，這裡不管。
+        field = node.args[1]
+        if isinstance(field, ast.Constant) and field.value in _GUARDED_FIELDS:
+            found["writes"].append(f"{rel}:{node.lineno}")
 
 
-def _scan_policy_contexts() -> tuple[list[tuple[str, str]], list[str]]:
-    sites: list[tuple[str, str]] = []
-    copies: list[str] = []
+def _scan_assignment(node: ast.stmt, rel: str, found: dict[str, list]) -> None:
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    for target in targets:
+        for sub in ast.walk(target):
+            if isinstance(sub, ast.Attribute) and sub.attr in _GUARDED_FIELDS:
+                found["writes"].append(f"{rel}:{sub.lineno}")
+
+
+def _scan_policy_contexts() -> dict[str, list]:
+    kinds = ("sites", "constructors", "opaque", "copies", "writes")
+    found: dict[str, list] = {kind: [] for kind in kinds}
     for path in sorted(_SRC.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         rel = path.relative_to(_SRC).as_posix()
         names = _policy_context_names(tree)
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if _is_policy_context_call(node, names):
-                action = next((k.value for k in node.keywords if k.arg == "action"), None)
-                sites.append((rel, ast.unparse(action) if action is not None else "<none>"))
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == "model_copy":
-                for keyword in node.keywords:
-                    if keyword.arg == "update" and isinstance(keyword.value, ast.Dict):
-                        keys = {k.value for k in keyword.value.keys if isinstance(k, ast.Constant)}
-                        if keys & {"resource", "action"}:
-                            copies.append(f"{rel}:{node.lineno}")
-    return sorted(sites), copies
+            if isinstance(node, ast.Call):
+                _scan_call(node, rel, names, found)
+            elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                _scan_assignment(node, rel, found)
+    return {k: sorted(v) for k, v in found.items()}
 
 
 def test_policy_context_sites_are_pinned():
-    """新增或改動建構點時這裡會紅：先確認 resource 放的是什麼，再更新清單與稽核寫法。"""
-    sites, copies = _scan_policy_contexts()
-    assert sites == _EXPECTED_POLICY_CONTEXTS
-    assert copies == []
+    """建構點、其他建法、改 resource／action 的寫法都固定；變動時先看 resource 放了什麼。"""
+    found = _scan_policy_contexts()
+    assert found["sites"] == _EXPECTED_POLICY_CONTEXTS
+    assert found["constructors"] == []
+    assert found["opaque"] == _EXPECTED_OPAQUE_MODEL_COPIES
+    assert found["copies"] == []
+    assert found["writes"] == []
