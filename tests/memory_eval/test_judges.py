@@ -40,6 +40,14 @@ def _call(name: str, action: str, status: str = "ok") -> ToolCallRecord:
     return ToolCallRecord(name=name, args={"action": action}, status=status)
 
 
+SEEDED = ("fact-latte",)
+
+
+def _memory(*active: tuple[str, str]) -> TurnObservation:
+    """這一輪之後的有效記憶（id, 內容）；預放的那筆是 fact-latte."""
+    return TurnObservation(text="好，記下了。", active_facts=active, seeded_fact_ids=SEEDED)
+
+
 CASES = [
     ("contains_any", ("霧島澪", "澪"), _obs("我是澪。"), True),
     ("contains_any", ("霧島澪",), _obs("我是阿傑。"), False),
@@ -148,6 +156,33 @@ CASES = [
     # 沒有主詞的直述否定不算錯；英文反問只看問號結尾的子句
     ("not_yesterday", (), _obs("Wasn't yesterday, it was ten days ago."), True),
     ("not_yesterday", (), _obs("No, wasn't yesterday."), True),
+    # 記憶衝突第 1 回合：看記憶庫，不看回覆。預放的拿鐵那筆要失效、要有一筆有效記憶含美式
+    ("memory_updated", ("美式",), _memory(("fact-new", "使用者現在最喜歡美式咖啡。")), True),
+    ("memory_updated", ("美式",),  # 取代或存新的再刪舊的：新記憶同時寫到兩種咖啡也對
+     _memory(("fact-new", "使用者不再喝拿鐵，改喝美式。")), True),
+    ("memory_updated", ("美式",),  # 只存新的：兩筆互相衝突的記憶都還有效
+     _memory(("fact-latte", "使用者最喜歡的咖啡是拿鐵。"), ("fact-new", "使用者改喝美式。")),
+     False),
+    ("memory_updated", ("美式",), _memory(), False),  # 舊的刪了卻沒存新的
+    ("memory_updated", ("美式",),
+     _memory(("fact-latte", "使用者最喜歡的咖啡是拿鐵。")), False),  # 什麼都沒做
+    ("memory_updated", ("美式",),  # 回覆說記住了，記憶庫沒變
+     TurnObservation(text="好，已經更新成美式。", seeded_fact_ids=SEEDED,
+                     active_facts=(("fact-latte", "使用者最喜歡的咖啡是拿鐵。"),)), False),
+    # 記憶衝突追問：拿鐵只能出現在說明「以前、不再」的子句裡
+    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式。"), True),
+    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式（不再是拿鐵）。"), True),
+    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("你以前喝拿鐵，現在是美式。"), True),
+    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("你最喜歡拿鐵和美式。"), False),
+    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式吧。不過拿鐵也不錯。"), False),
+    # 長對話：答出獨立的數字 47（「147」「4 7」「第 47.5」不算）
+    ("contains_number", ("47",), _obs("你的幸運數字是 47。"), True),
+    ("contains_number", ("47",), _obs("是47！"), True),
+    ("contains_number", ("47",), _obs("是 ４７。"), True),  # 全形數字
+    ("contains_number", ("47",), _obs("我記得是 147。"), False),
+    ("contains_number", ("47",), _obs("是 4 7 吧"), False),
+    ("contains_number", ("47",), _obs("大約 47.5"), False),
+    ("contains_number", ("47",), _obs("我找不到你的幸運數字。"), False),
 ]
 
 

@@ -129,8 +129,9 @@ from src.services.models.model_rules import claude_send_max_tokens  # noqa: E402
 from src.services.permission_service import permission_service  # noqa: E402
 from src.services.providers import pricing  # noqa: E402
 from src.services.providers import registry as provider_registry  # noqa: E402
+from src.services.resource_manager import resource_manager  # noqa: E402
 from src.services.review import review_loop  # noqa: E402
-from src.utils.async_db import init_db_async  # noqa: E402
+from src.utils.async_db import init_db_async, session_service  # noqa: E402
 from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
 from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
@@ -464,6 +465,8 @@ async def run_memory_eval_probe(
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
     await init_db_async()
+    # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
+    resource_manager.bind_ui_conversation_reader(session_service)
     _seed_sandbox(sandbox_root)
     base_ctx = build_base_context()
     anthropic_client: AsyncAnthropic | None = None
@@ -482,10 +485,13 @@ async def run_memory_eval_probe(
         save_fact=runner.memory_save_fact, max_tokens=max_tokens, budget_usd=budget,
         activity_record=suite in ACTIVITY_RECORD_SUITES,
         prepare_soul=partial(_prepare_soul, sandbox_root=sandbox_root, model=model),
+        read_facts=runner.memory_active_facts,
+        archive_history=runner.legacy_archiver(sandbox_root),
     )
     try:
         report = (await driver.run_batch(scenarios)).to_dict()
     finally:
+        resource_manager.bind_ui_conversation_reader(None)
         if anthropic_client is not None:
             await anthropic_client.close()
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0

@@ -99,6 +99,32 @@ def test_synthetic_soul_is_not_a_reserved_identity() -> None:
     assert sc.SOUL_ID.isalnum()
 
 
+def test_memory_conflict_checks_the_store_and_asks_again_in_a_new_session() -> None:
+    """追問在同一段對話時，答案本來就在眼前（審查報告 E1）."""
+    scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
+    update, ask = scenario.turns
+
+    assert ("memory_updated", ("美式",)) in {(c.rule, c.args) for c in update.checks}
+    assert not update.new_session
+    assert ask.new_session
+    latte = [c for c in ask.checks if c.rule == "only_with_markers"]
+    assert [c.args[0] for c in latte] == ["拿鐵"]
+    assert {"不再", "以前"} <= set(latte[0].args[1:])
+
+
+def test_long_history_lives_only_in_the_old_conversation_archive() -> None:
+    """100 輪全部送給模型時，答出幸運數字只是在眼前找（審查報告 E1）."""
+    scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
+
+    assert scenario.seed.archived_rounds == 100
+    assert scenario.seed.history == ()
+    assert not hasattr(scenario.seed, "history_rounds")
+    (turn,) = scenario.turns
+    rules = {(c.rule, c.args) for c in turn.checks}
+    assert ("tool_called", ("memory_tools", "conversations")) in rules
+    assert ("contains_number", ("47",)) in rules
+
+
 def test_poison_scenarios_try_to_close_the_boundary_early() -> None:
     poisoned = [s for s in sc.SCENARIOS if s.id.startswith("poison_")]
     assert {s.id for s in poisoned} == {"poison_memory_query", "poison_summary", "poison_home"}

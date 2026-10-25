@@ -34,6 +34,9 @@ SOUL_CONFIG = {"is_toukasoul": True, "enabled_tools": ["memory_tools", "mission_
 _MS = 1000
 _HISTORY_STEP_MS = 30 * _MS  # 預載歷史相鄰節點相隔 30 秒
 _EARLY_FACT_ROUND = 3
+ARCHIVE_AGE_S = 86_400  # 歸檔的舊對話最後一則在一天前
+# 歸檔填充輪不帶數字：模型說「第 47 輪」不能被當成答出幸運數字。
+_BOOK_KINDS = ("詩集", "食譜", "地圖", "小說", "童書", "畫冊", "字典")
 _E5_PREFIX = re.compile(r"^\s*(?:query|passage):\s*")
 
 
@@ -128,30 +131,46 @@ def append_node(tree: dict[str, Any], role: str, content: str, stamp_ms: int | N
     tree["currentId"] = node_id
 
 
-def _history_pairs(scenario: Scenario) -> list[tuple[str, str]]:
+def _archived_pairs(scenario: Scenario) -> list[tuple[str, str]]:
     seed = scenario.seed
-    pairs = list(seed.history)
-    for i in range(1, seed.history_rounds + 1):
+    pairs: list[tuple[str, str]] = []
+    for i in range(1, seed.archived_rounds + 1):
         user = seed.early_fact if i == _EARLY_FACT_ROUND and seed.early_fact else (
-            f"第 {i} 輪：今天又整理了一箱舊書，編號 {i}。"
+            f"今天又整理了一箱{_BOOK_KINDS[i % len(_BOOK_KINDS)]}。"
         )
-        pairs += [("user", user), ("assistant", f"收到第 {i} 輪，辛苦了。")]
+        pairs += [("user", user), ("assistant", "收到，辛苦了。")]
     return pairs
+
+
+def _archive_payload(scenario: Scenario, now_ms: int) -> dict[str, Any] | None:
+    """歸檔用的舊對話（產品歸檔函式收的形狀）；最後一則落在 ``ARCHIVE_AGE_S`` 秒前。"""
+    pairs = _archived_pairs(scenario)
+    if not pairs:
+        return None
+    end = now_ms - ARCHIVE_AGE_S * _MS
+    messages = [
+        {"role": role, "content": content,
+         "timestamp": end - (len(pairs) - 1 - index) * _HISTORY_STEP_MS}
+        for index, (role, content) in enumerate(pairs)
+    ]
+    return {"id": f"memory-eval-{scenario.id}-archived", "title": "書店日常",
+            "messages": messages}
 
 
 @dataclass(frozen=True, slots=True)
 class SeedPlan:
-    """要植入的東西（純資料）：目前 session 的樹、家對話的樹、事實、前情摘要。"""
+    """要植入的東西（純資料）：目前 session 的樹、家對話的樹、事實、前情摘要、歸檔的舊對話。"""
 
     session_tree: dict[str, Any]
     home_tree: dict[str, Any]
     facts: tuple[str, ...]
     summary: str
+    archive: dict[str, Any] | None = None
 
 
 def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     """依情境排出合成資料；有 ``last_turn_age_s`` 時最後一個節點落在 now - age。"""
-    pairs = _history_pairs(scenario)
+    pairs = list(scenario.seed.history)
     age = scenario.seed.last_turn_age_s
     session_tree = new_tree()
     for index, (role, content) in enumerate(pairs):
@@ -162,7 +181,8 @@ def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     home_tree = new_tree()
     for role, content in scenario.seed.home:
         append_node(home_tree, role, content, None)
-    return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary)
+    return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary,
+                    _archive_payload(scenario, now_ms))
 
 
 def plan_timeline(scenario: Scenario, now_ms: int, soul_id: str) -> tuple[EventRow, ...]:

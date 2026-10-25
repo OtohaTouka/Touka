@@ -17,9 +17,12 @@ import pytest
 from memory_server import config_utils
 from memory_server import vector as memory_vector
 from memory_server.services import event_recorder as memory_events
+from memory_server.tools import get_manager
+from memory_server.tools.legacy_vault import search_conversations
 from src.main import build_base_context
 from src.services import continuity_events as ce
 from src.services.permission_service import permission_service
+from src.services.resource_manager import resource_manager
 from src.utils import task_utils
 from src.utils.async_db import init_db_async, session_service
 from src.utils.auth_mode import mode_for_acting_agent
@@ -144,19 +147,31 @@ def test_parse_sse_sums_token_usage_cost() -> None:
 # --- 合成資料 ---------------------------------------------------------------
 
 
-def test_seed_plan_preloads_history_with_backend_timestamps() -> None:
+def test_seed_plan_puts_the_long_history_only_in_the_archive() -> None:
     scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
 
     plan = seeding.plan_seed(scenario, NOW_MS)
-    path = TreeMessageManager.get_linear_path(plan.session_tree)
+    messages = plan.archive["messages"]
 
-    assert len(path) == 200
-    assert [n["role"] for n in path[:2]] == ["user", "assistant"]
-    assert scenario.seed.early_fact in path[4]["content"]  # 第 3 輪的 user
-    assert path[-1]["timestamp"] == NOW_MS - 5 * 60 * 1000
-    stamps = [n["timestamp"] for n in path]
+    assert TreeMessageManager.get_linear_path(plan.session_tree) == []
+    assert len(messages) == 200
+    assert [m["role"] for m in messages[:2]] == ["user", "assistant"]
+    assert messages[4]["content"] == scenario.seed.early_fact  # 第 3 輪的 user
+    # 只有那一句帶數字：「第 47 輪」不能被當成答對
+    assert [m["content"] for m in messages if any(ch.isdigit() for ch in m["content"])] == [
+        scenario.seed.early_fact
+    ]
+    stamps = [m["timestamp"] for m in messages]
     assert stamps == sorted(stamps)
     assert all(isinstance(s, int) for s in stamps)
+    assert stamps[-1] == NOW_MS - seeding.ARCHIVE_AGE_S * 1000
+    assert plan.archive["id"] != plan.archive["title"]
+
+
+def test_other_scenarios_archive_nothing() -> None:
+    assert [s.id for s in sc.SCENARIOS if seeding.plan_seed(s, NOW_MS).archive] == [
+        "long_history_recall"
+    ]
 
 
 def test_seed_plan_without_age_has_no_timestamps() -> None:
@@ -666,3 +681,128 @@ async def test_home_injection_does_not_reach_the_next_scenario(
     assert (home_soul.agent_id, elapsed_soul.agent_id) == (SOUL_1, SOUL_2)
     assert sc.INJECTED_ALIAS in home.model_dump_json()
     assert sc.INJECTED_ALIAS not in elapsed.model_dump_json()
+
+
+# --- 兩個題目改成真的要記憶（審查報告 E1） ---------------------------------------------
+
+
+async def test_long_history_is_archived_and_asked_in_an_empty_session(sandbox_db: Any) -> None:
+    archived: list[tuple[str, dict[str, Any]]] = []
+
+    async def _archive(identity: Any, payload: dict[str, Any]) -> None:
+        archived.append((identity.agent_id, payload))
+
+    sent: list[tuple[Any, Any]] = []
+    reply = [*_tool_chunks("memory_tools", {"action": "conversations"}), *_text_chunks("是 47。")]
+    driver = _driver(_fake_sender([reply], sent), archive_history=_archive)
+    scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
+
+    result = await driver.run_scenario(scenario)
+
+    assert result.passed, result.to_dict()
+    ((soul, payload),) = archived
+    assert soul == SOUL_1
+    assert len(payload["messages"]) == 200
+    (request, _ctx), = sent
+    assert [m.role for m in request.messages] == ["user"]
+    assert "47" not in request.model_dump_json()
+
+
+async def test_long_history_without_an_archive_hook_is_refused(sandbox_db: Any) -> None:
+    scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
+    with pytest.raises(runner.MissingSeedHook):
+        await _driver(_fake_sender([], [])).run_scenario(scenario)
+
+
+def _fact_reader(*snapshots: list[tuple[str, str]]) -> Any:
+    calls: list[str] = []
+    queue = list(snapshots)
+
+    async def _read(identity: Any) -> list[tuple[str, str]]:
+        calls.append(identity.agent_id)
+        return queue.pop(0)
+
+    _read.calls = calls  # type: ignore[attr-defined]
+    return _read
+
+
+@pytest.mark.parametrize(
+    ("after_update", "passed"),
+    [
+        ([("fact-new", "使用者不再喝拿鐵，改喝美式。")], True),  # 取代
+        ([("fact-latte", "使用者最喜歡的咖啡是拿鐵。"), ("fact-new", "使用者改喝美式。")], False),
+    ],
+)
+async def test_memory_conflict_reads_the_store_after_seeding_and_after_the_update(
+    sandbox_db: Any, after_update: list[tuple[str, str]], passed: bool
+) -> None:
+    read = _fact_reader([("fact-latte", "使用者最喜歡的咖啡是拿鐵。")], after_update)
+    sent: list[tuple[Any, Any]] = []
+    send = _fake_sender([
+        [*_tool_chunks("memory_tools", {"action": "save"}), *_text_chunks("記下了。")],
+        _text_chunks("美式（不再是拿鐵）。"),
+    ], sent)
+    scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
+
+    result = await _driver(send, read_facts=read).run_scenario(scenario)
+
+    assert read.calls == [SOUL_1, SOUL_1]  # 預放後一次、第 1 回合後一次；追問不查
+    first = result.turns[0].observation
+    assert first.seeded_fact_ids == ("fact-latte",)
+    assert first.active_facts == tuple(after_update)
+    assert result.turns[0].passed is passed
+    (first_request, _), (second_request, _) = sent
+    assert first_request.session_id != second_request.session_id  # 追問在新的對話
+    assert [m.role for m in second_request.messages] == ["user"]
+
+
+async def test_a_state_rule_without_a_store_reader_fails_the_turn(sandbox_db: Any) -> None:
+    send = _fake_sender([_text_chunks("記下了。")], [])
+    scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
+
+    result = await _driver(send).run_scenario(scenario)
+
+    assert not result.passed
+    assert runner.NO_STATE_READER in result.turns[0].observation.error
+
+
+def test_active_facts_come_from_the_product_store(global_test_sandbox: str) -> None:
+    """有效記憶走產品的唯讀查詢：封存（刪除）的那筆不算."""
+    soul = seeding.soul_identity(SOUL_1)
+    store = get_manager().get_factual_store()
+    kept = store.save_fact(soul, "使用者最喜歡的咖啡是美式。")["record"]["id"]
+    gone = store.save_fact(soul, "使用者最喜歡的咖啡是拿鐵。")["record"]["id"]
+    assert store.archive_fact(soul, gone)
+
+    facts = asyncio.run(runner.memory_active_facts(soul))
+
+    assert [fact_id for fact_id, _content in facts] == [kept]
+
+
+async def test_archived_history_is_found_by_the_real_conversation_search(
+    sandbox_db: Any, global_test_sandbox: str
+) -> None:
+    """經產品的歸檔函式寫進沙盒，再用真的查舊對話工具查得回那一句."""
+    soul = seeding.soul_identity(SOUL_1)
+    _soul_writer(global_test_sandbox)(SOUL_1)
+    scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
+    archive = runner.legacy_archiver(Path(global_test_sandbox))
+
+    await archive(soul, seeding.plan_seed(scenario, NOW_MS).archive)
+    resource_manager.bind_ui_conversation_reader(session_service)  # 和 probe 一樣（source=all）
+    try:
+        found = await search_conversations(soul, get_manager(), query="幸運數字")
+    finally:
+        resource_manager.bind_ui_conversation_reader(None)
+
+    assert "47" in found
+
+
+async def test_the_archiver_refuses_a_target_outside_the_sandbox(
+    sandbox_db: Any, tmp_path: Path
+) -> None:
+    archive = runner.legacy_archiver(tmp_path / "not-the-sandbox")
+    scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
+
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        await archive(seeding.soul_identity(SOUL_1), seeding.plan_seed(scenario, NOW_MS).archive)

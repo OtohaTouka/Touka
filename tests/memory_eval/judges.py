@@ -1,6 +1,7 @@
 """記憶評估的規則判定（純函式；不呼叫任何模型）。
 
-每條規則吃一輪的觀測（模型最後的文字＋工具軌跡），回 ``Verdict``。這一輪送出失敗時
+每條規則吃一輪的觀測（模型最後的文字＋工具軌跡；``STATE_RULES`` 另看這一輪之後的有效記憶），
+回 ``Verdict``。這一輪送出失敗時
 （例如遇到 429／5xx 停下），任何規則都判不通過。風格與自我一致性這類要 LLM 評審的判定
 不在這裡（只在完整批、另經同意）。
 """
@@ -62,12 +63,18 @@ class ToolCallRecord:
 
 @dataclass(frozen=True, slots=True)
 class TurnObservation:
-    """一輪的觀測；``error`` 非空表示這一輪送出失敗；``cost_usd`` 依內建價目表估計。"""
+    """一輪的觀測；``error`` 非空表示這一輪送出失敗；``cost_usd`` 依內建價目表估計。
+
+    ``active_facts``（id, 內容）是這一輪之後的有效記憶，``seeded_fact_ids`` 是情境預放的記憶；
+    兩者只在這一輪有 ``STATE_RULES`` 時由 driver 經產品的唯讀查詢填入。
+    """
 
     text: str
     tool_calls: tuple[ToolCallRecord, ...] = ()
     error: str = ""
     cost_usd: float = 0.0
+    active_facts: tuple[tuple[str, str], ...] = ()
+    seeded_fact_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +236,27 @@ def _tool_called(obs: TurnObservation, name: str, action: str | None = None) -> 
     return bool(ok), f"calls={seen}"
 
 
+def _contains_number(obs: TurnObservation, number: str) -> tuple[bool, str]:
+    """獨立的數字（全形先轉半形）：「147」「47.5」「4 7」都不算。"""
+    found = re.findall(r"\d+(?:\.\d+)?", unicodedata.normalize("NFKC", obs.text))
+    return number in found, f"numbers={found}"
+
+
+def _only_with_markers(obs: TurnObservation, word: str, *markers: str) -> tuple[bool, str]:
+    """``word`` 只能出現在帶任一 ``markers`` 的子句裡（例如舊偏好只在「以前、不再」時提到）。"""
+    hits = [clause.strip() for clause, _end in _CLAUSE.findall(obs.text)
+            if word in clause and not any(m in clause for m in markers)]
+    return not hits, f"found={hits}"
+
+
+def _memory_updated(obs: TurnObservation, needle: str) -> tuple[bool, str]:
+    """記憶庫真的換了：預放的記憶都失效，而且有一筆有效記憶含 ``needle``（取代、存新刪舊都算）。"""
+    active_ids = {fact_id for fact_id, _content in obs.active_facts}
+    stale = [fact_id for fact_id in obs.seeded_fact_ids if fact_id in active_ids]
+    fresh = [fact_id for fact_id, content in obs.active_facts if needle in content]
+    return bool(fresh) and not stale, f"still_active_seeded={stale} with_needle={fresh}"
+
+
 def _tool_not_called(obs: TurnObservation, name: str) -> tuple[bool, str]:
     hits = [c.name for c in obs.tool_calls if c.name == name]
     return not hits, f"calls={hits}"
@@ -272,7 +300,12 @@ RULES: dict[str, Callable[..., tuple[bool, str]]] = {
     "tool_not_called": _tool_not_called,
     "elapsed_within": _elapsed_within,
     "not_yesterday": _not_yesterday,
+    "contains_number": _contains_number,
+    "only_with_markers": _only_with_markers,
+    "memory_updated": _memory_updated,
 }
+# 要看這一輪之後記憶庫狀態的規則：driver 只在有這些規則的那一輪查一次有效記憶。
+STATE_RULES = frozenset({"memory_updated"})
 
 
 def judge(check: Check, obs: TurnObservation) -> Verdict:

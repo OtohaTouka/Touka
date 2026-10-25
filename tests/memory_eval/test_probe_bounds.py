@@ -30,7 +30,9 @@ from src.services import dialogue_summarizer, proxy_service, telemetry
 from src.services.audit_service import PolicyAuditService
 from src.services.permission_service import permission_service
 from src.services.providers import pricing
+from src.services.resource_manager import resource_manager
 from src.services.review import review_loop
+from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 
 from tests.memory_eval import live_bounds, seeding
@@ -301,11 +303,13 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
 
 class _FakeDriver:
     built: list[dict[str, Any]] = []
+    readers: list[Any] = []
 
     def __init__(self, **kwargs: Any) -> None:
         _FakeDriver.built.append(kwargs)
 
     async def run_batch(self, _scenarios: Any) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
         return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
 
 
@@ -323,6 +327,7 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
     monkeypatch.setattr(probe, "build_base_context", dict)
     monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
     monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
 
     await probe.run_memory_eval_probe(
         provider="deepseek", model="deepseek-v4-flash", suite=suite,
@@ -337,6 +342,11 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
     prepare = kwargs["prepare_soul"]  # 每個情境另建靈魂：核准的型號、這次的沙盒
     assert prepare.func is probe._prepare_soul
     assert prepare.keywords == {"sandbox_root": tmp_path, "model": "deepseek-v4-flash"}
+    assert kwargs["read_facts"] is probe.runner.memory_active_facts
+    assert callable(kwargs["archive_history"])
+    # 查舊對話要讀 UI 對話：跑的時候裝上沙盒的 session store，跑完卸下
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
 
 
 async def _no_init_db() -> None:

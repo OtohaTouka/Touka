@@ -11,6 +11,10 @@ probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assi
 都只屬於那個情境，前一個情境留下的東西帶不到下一個。開始前先交給可注入的 ``prepare_soul``
 （人工 probe 在這裡寫靈魂檔、核對 Owner、設主要模型）。
 
+記憶衝突這類要看記憶庫的判定（``judges.STATE_RULES``），在預放後與那一輪結束後各經可注入的
+``read_facts`` 查一次有效記憶；長對話的舊對話經可注入的 ``archive_history`` 歸檔（人工 probe 用
+``legacy_archiver``：產品的歸檔函式，目標必須在沙盒根之下）。
+
 ``activity_record=True``（時間軸套件）時，整批打開活動記錄器（和 Proxy 啟動時同一個開關）；
 每個情境開始前等背景寫入做完、清掉合成靈魂的事件、寫入這個情境的時間點（都經產品的讀寫函式）。
 整批結束時關記錄器、讓已排的回呼跑完、等背景寫入做完（有逾時），才交回呼叫端。
@@ -21,9 +25,11 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from memory_server.config_utils import get_resource_proxy
 from memory_server.tools import get_manager
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
@@ -37,7 +43,7 @@ from src.utils.time_utils import get_current_epoch
 from src.utils.tool_events import TOOL_RESULT, TOOL_START
 
 from tests.memory_eval import seeding
-from tests.memory_eval.judges import ToolCallRecord, TurnObservation, judge
+from tests.memory_eval.judges import STATE_RULES, ToolCallRecord, TurnObservation, judge
 from tests.memory_eval.live_bounds import redact_excerpt
 
 if TYPE_CHECKING:
@@ -51,6 +57,8 @@ if TYPE_CHECKING:
     SendTurn = Callable[[Any, PipelineContext], Awaitable[list[str]]]
     SaveFact = Callable[[AgentIdentity, str], Awaitable[Any]]
     PrepareSoul = Callable[[str], object]
+    ReadFacts = Callable[[AgentIdentity], Awaitable[list[tuple[str, str]]]]
+    ArchiveHistory = Callable[[AgentIdentity, dict[str, Any]], Awaitable[None]]
 
 EVAL_AUTH_LEVEL = "Auto"
 # handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）。
@@ -59,7 +67,15 @@ PROVIDER_ERROR_MARKERS = (
 )
 NO_REPLY = "no assistant text and no tool call"
 BUDGET_REACHED = "budget soft cap reached"
+NO_STATE_READER = "memory state reader not configured"
 ACTIVITY_DRAIN_TIMEOUT_S = 30.0
+
+
+class MissingSeedHook(RuntimeError):
+    """情境要的植入方式沒有接上（例如沒給歸檔舊對話的函式）：不送、不當成通過。"""
+
+    def __init__(self, hook: str, scenario_id: str) -> None:
+        super().__init__(f"scenario {scenario_id} needs the {hook} hook")
 
 
 class ActivityWritesPending(RuntimeError):
@@ -156,6 +172,31 @@ async def memory_save_fact(identity: AgentIdentity, content: str) -> str:
     return await get_manager().save_memory(identity, content)
 
 
+async def memory_active_facts(identity: AgentIdentity) -> list[tuple[str, str]]:
+    """這個靈魂的有效記憶（id, 內容）：產品的唯讀查詢，封存與被取代的不算。"""
+    rows = get_manager().get_factual_store().query_facts(identity)
+    return [(str(row["id"]), str(row["content"])) for row in rows]
+
+
+def legacy_archiver(sandbox_root: Path) -> ArchiveHistory:
+    """舊對話歸檔：和滑動視窗裁掉的舊對話同一個產品函式；舊對話庫的位置必須在沙盒根之下。
+
+    回傳的筆數不用（它的語意另有修正），寫入失敗照常往上拋。
+    """
+    root = sandbox_root.resolve()
+
+    async def _archive(identity: AgentIdentity, payload: dict[str, Any]) -> None:
+        manager = get_manager()
+        legacy_dir = Path(manager.get_legacy_dir(identity, resource_proxy=get_resource_proxy()))
+        if not legacy_dir.resolve().is_relative_to(root):
+            raise seeding.SeedOutsideSandbox
+        manager.get_legacy_sync_service().archive_payload(
+            identity, payload, f"{payload['id']}.json"
+        )
+
+    return _archive
+
+
 @dataclass(frozen=True, slots=True)
 class TurnResult:
     user: str
@@ -236,6 +277,8 @@ class MemoryEvalDriver:
         budget_usd: float | None = None,
         activity_record: bool = False,
         prepare_soul: PrepareSoul | None = None,
+        read_facts: ReadFacts | None = None,
+        archive_history: ArchiveHistory | None = None,
     ) -> None:
         self._base_ctx = base_ctx
         self._send_turn = send_turn
@@ -246,6 +289,8 @@ class MemoryEvalDriver:
         self._budget_usd = budget_usd
         self._activity_record = activity_record
         self._prepare_soul = prepare_soul
+        self._read_facts = read_facts
+        self._archive_history = archive_history
         self._souls_used = 0
         self.spent_usd = 0.0
 
@@ -295,7 +340,27 @@ class MemoryEvalDriver:
                                   is_home=True, home_for_agent=soul_id)
         for fact in plan.facts:
             await self._save_fact(seeding.soul_identity(soul_id), fact)
+        if plan.archive is not None:
+            if self._archive_history is None:
+                raise MissingSeedHook("archive_history", scenario.id)
+            await self._archive_history(seeding.soul_identity(soul_id), plan.archive)
         return plan.session_tree
+
+    async def _seeded_fact_ids(self, scenario: Scenario, soul_id: str) -> tuple[str, ...]:
+        """有看記憶庫的判定時，預放後先記下預放記憶的 id（新靈魂：現有的就是預放的）。"""
+        needs_state = any(c.rule in STATE_RULES for t in scenario.turns for c in t.checks)
+        if not needs_state or self._read_facts is None:
+            return ()
+        return tuple(fact_id for fact_id, _content in
+                     await self._read_facts(seeding.soul_identity(soul_id)))
+
+    async def _with_memory_state(
+        self, observation: TurnObservation, soul_id: str, seeded: tuple[str, ...]
+    ) -> TurnObservation:
+        if self._read_facts is None:
+            return replace(observation, error=NO_STATE_READER)
+        facts = await self._read_facts(seeding.soul_identity(soul_id))
+        return replace(observation, active_facts=tuple(facts), seeded_fact_ids=seeded)
 
     def _context(self, soul_id: str) -> PipelineContext:
         ctx = PipelineContext(**self._base_ctx)
@@ -313,6 +378,7 @@ class MemoryEvalDriver:
         soul_id = self._new_soul()
         session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
         tree = await self.seed(scenario, session_id, soul_id)
+        seeded = await self._seeded_fact_ids(scenario, soul_id)
         results: list[TurnResult] = []
         for turn in scenario.turns:
             if self._over_budget():
@@ -334,6 +400,8 @@ class MemoryEvalDriver:
                 max_tokens=self._max_tokens,
             )
             observation = await self._send(request, soul_id)
+            if not observation.error and any(c.rule in STATE_RULES for c in turn.checks):
+                observation = await self._with_memory_state(observation, soul_id, seeded)
             self.spent_usd += observation.cost_usd
             verdicts = tuple(judge(check, observation) for check in turn.checks)
             results.append(TurnResult(turn.user, observation, verdicts))
