@@ -298,8 +298,7 @@ async def test_g08_custom_models_refuse_colliding_ids(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         custom_router.custom_model_service, "rename_model", lambda *_a: calls.append("renamed")
     )
-    monkeypatch.setattr(custom_router.user_service, "remove_owned_agent", lambda *_a: None)
-    monkeypatch.setattr(custom_router.user_service, "add_owned_agent", lambda *_a: None)
+    monkeypatch.setattr(custom_router.user_service, "rename_owned_agent", lambda *_a: None)
     _sources(monkeypatch, customs=["zz g08 self"])
     await custom_router.rename_custom_model(
         "zz g08 self", CustomModelRenameRequest(new_id="zz-g08-self"), ADMIN

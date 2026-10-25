@@ -8,7 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
-| 2026-10-25 | **自訂模型改名不再弄丟擁有權**：改名改成一次把所有人清單裡的舊 ID 換成新 ID，admin 替別人改名時擁有權留給原主人；後續步驟失敗時把資料夾與設定搬回；模型工坊改名失敗就停下，不再多出第二個模型。舊審查報告丙組第 2 批 | [ADR-0254](architecture/adr/0254-iso-c1-small-fixes-and-execution-gaps.md)、[SECURITY](../SECURITY.md) |
+| 2026-10-25 | **自訂模型改名不再弄丟擁有權**：改名改成一次把所有人清單裡的舊 ID 換成新 ID，admin 替別人改名時擁有權留給原主人；刪掉的模型留在清單裡的 ID，不會再讓舊主人拿到別人新建或改名成同名的模型；後續步驟失敗時把資料夾與設定搬回；模型工坊改名失敗就停下，不再多出第二個模型；改名可以用中文名字（和建立時一樣）。舊審查報告丙組第 2 批 | [ADR-0254](architecture/adr/0254-iso-c1-small-fixes-and-execution-gaps.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **備份發布失敗不再留下空檔**：系統快照改名失敗時，0 位元組的佔位檔會被排程修剪算成一份備份，結果少留一份真的備份；改成失敗時刪掉空檔、暫時占用會重試、發布後資料夾落盤，修剪也不再把空檔算進份數。舊審查報告丙組第 1 批 | [ADR-0262](architecture/adr/0262-consistent-snapshots-and-soul-delete-memory-check.md) |
 | 2026-10-25 | **政策稽核帳本不再記下指令內容**：`stats/decisions.csv` 的終端指令列原本記下整條指令，指令裡的金鑰也會進去；改成只記程式名稱和長度，例如 `[command program=curl chars=87]`，認不出就記 `?`。權限判斷照舊看完整指令；已寫進帳本的舊列不自動改 | [ADR-0283](architecture/adr/0283-policy-ledger-command-summary.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **一批中風險依賴弱點**：hono 4.13.13（Chat 與 IDE）、ip-address 10.7.4（Chat）、vitest 4.1.12（Chat 與 IDE）、smol-toml 1.9.1（Chat）、IDE 測試用的 MCP client 2.3.1，共修 14 則 medium。除了 IDE 的 hono（MCP SDK 的 peer 相依，不打包進擴充套件），全部只在開發或測試工具裡。版本都已上架滿 7 天。fast-uri 的修正版 10/27 才滿 7 天，併入那批；katex（low）要升到 mermaid 12.2.0 以上（大版本）才有修正，暫不處理 | [SECURITY](../SECURITY.md) |

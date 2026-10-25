@@ -261,12 +261,18 @@ class TestCustomModelRenameRequestValidation:
 
     @pytest.mark.parametrize(
         "bad_id",
-        ["../../../../some/target/path", "../escape", "a/b", "a\\b", "", "foo/../bar"],
+        [
+            "../../../../some/target/path", "../escape", "a/b", "a\\b", "", "foo/../bar",
+            "a b", "中文/路徑",
+        ],
     )
     def test_traversal_new_id_rejected(self, bad_id):
         with pytest.raises(ValidationError):
             CustomModelRenameRequest(new_id=bad_id)
 
-    @pytest.mark.parametrize("good_id", ["modelY", "my_model-2.0", "Model_42", "a.b-c"])
+    # 建立時可以用中文 ID，改名收同樣的名字（舊審查報告丙-2）
+    @pytest.mark.parametrize(
+        "good_id", ["modelY", "my_model-2.0", "Model_42", "a.b-c", "新模型", "助手_2"]
+    )
     def test_legitimate_new_id_accepted(self, good_id):
         assert CustomModelRenameRequest(new_id=good_id).new_id == good_id

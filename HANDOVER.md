@@ -319,6 +319,9 @@
   - `ErrorCode.SCHEDULE_NOT_FOUND`（1205）在 Proxy 排程 CRUD 刪掉後沒有後端使用者；刪除要動 `errors.json` 與兩端產生檔，和其他改動共用，要排序（ADR-0254）。
   - 還原失敗的錯誤碼目前沿用 `SYSTEM_BACKUP_FAILED`（「系統備份失敗」），語意不精確；畫面用專用文字所以看不出來。改用專用的 `SYSTEM_RESTORE_FAILED` 要動 `errors.json` 與兩端產生檔（ADR-0254）。
   - `ToukaProxy/scripts/manage_backup.py` 還原時找不到 zip 會印錯誤但 exit 0，會被當成還原成功（端點接受前已檢查 zip 存在，只剩中間的時間差）（ADR-0254）。
+  - 自訂模型刪除只拿掉呼叫者自己清單裡的 ID（admin 刪別人的模型時原主人的清單不清，呼叫者不是人類時誰的都不清），`DELETE /v1/models/{id}` 完全不清。殘留不會再讓人拿到同名的新模型（新建與改名時會清），只是清單不乾淨（ADR-0254 2026-10-25 補記）。
+  - `ToukaProxy/src/utils/custom_io.py` 的 `write_custom_file` 直接 `write_text`，不是原子置換（ADR-0078）：寫到一半失敗時 config.json 會被截斷，改名的回滾會把截斷的檔搬回舊 ID（ADR-0254 2026-10-25 補記）。
+  - 模型工坊的改名在後端成功、回應卻在網路上遺失時，畫面還記著舊 ID，重新整理前存不進去（ADR-0254 2026-10-25 補記）。
   - Guard #45 基準檔裡 `ToukaProxy/src/tools/mission_tools.py` 的 `mission_tools`（typed）讀取快照和程式不一致，是早期改動留下的、不在 ADR-0256 範圍；守衛不比對這部分所以不會變紅，但這份快照不能拿來當現況參考。
   - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
   - `query_vectors` 自己吞錯回空清單時（例如嵌入模型載入失敗），記憶工具的 `query` 不知道語意半失效、不會註明（ADR-0263）。

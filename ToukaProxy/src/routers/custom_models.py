@@ -165,9 +165,12 @@ async def update_custom_model(
             custom_model_service.save_model(
                 temp_id, name, data.description, data.systemPrompt, data.config
             )
-            # IDOR fix: if creating a new model, associate it automatically with the human creator
-            if not exists and _identity.is_human:
-                user_service.add_owned_agent(_identity.agent_id, temp_id)
+            # IDOR fix：新模型只屬於建立它的人類；別人清單裡同一個 ID 是刪除後留下的殘留，
+            # 一併拿掉，免得新模型落到他手上（舊審查報告丙-2）
+            if not exists:
+                user_service.claim_owned_agent(
+                    temp_id, _identity.agent_id if _identity.is_human else None
+                )
         except Exception as e:
             logger.exception("Error saving custom model %s", model_id)
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
@@ -195,6 +198,15 @@ async def rename_custom_model(
         # IDOR fix: verify old ID ownership
         old_identity = AgentIdentity(agent_id=model_id, agent_role="Owner")
         _validate_model_access(old_identity, _identity)
+        # 只認實際的資料夾名稱：不分大小寫的磁碟上 mine 也搬得動 Mine，擁有清單卻比對不到
+        if model_id not in custom_io.list_custom_ids():
+            raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model_id)
+        if new_id == model_id:
+            return {"status": "success", "old_id": model_id, "new_id": new_id}
+        # 和靈魂同名的舊資料夾（ADR-0245 之前留下的）：清單裡的這個 ID 也是靈魂的擁有權，
+        # 改名會連靈魂一起拿走，所以不改（舊審查報告丙-2）
+        if model_id in soul_io.list_soul_ids():
+            raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=model_id)
         new_identity = AgentIdentity(agent_id=new_id, agent_role="Owner")
         _validate_new_model_id(new_identity, renaming=model_id)
         await _assert_collection_free(new_identity, renaming=model_id)
@@ -217,7 +229,10 @@ async def rename_custom_model(
             logger.exception("Error moving ownership of custom model %s to %s", model_id, new_id)
             if not custom_model_service.undo_rename(model_id, new_id):
                 logger.critical(
-                    "AUDIT: custom model rename rollback FAILED old=%s new=%s", model_id, new_id
+                    "AUDIT: custom model rename rollback FAILED old=%s new=%s by=%s",
+                    model_id,
+                    new_id,
+                    _identity.agent_id,
                 )
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
         return {"status": "success", "old_id": model_id, "new_id": new_id}
@@ -239,7 +254,8 @@ async def delete_custom_model(
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)
 
         # IDOR fix: remove the agent ID from the user's owned list
-        if _identity.is_human:
+        # 和靈魂同名的舊資料夾：清單裡的這個 ID 也是靈魂的擁有權，留著（舊審查報告丙-2）
+        if _identity.is_human and model_id not in soul_io.list_soul_ids():
             user_service.remove_owned_agent(_identity.agent_id, identity)
 
         return {"status": "success"}

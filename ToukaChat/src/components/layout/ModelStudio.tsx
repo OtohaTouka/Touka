@@ -174,6 +174,9 @@ export function ModelStudio() {
                     toast.error(await getErrorMessage(renameRes, "CONFIG_SAVE_FAILED"));
                     return;
                 }
+                // 改名成功就記下後端的新 ID：接下來的存檔失敗時，重試不會再送一次舊→新的改名。
+                // 不換畫面上的 ID：換了會重新載入清單，洗掉還沒存的修改（舊審查報告丙-2）
+                setModels(prev => prev.map(m => (m.id === activeModel.id ? { ...m, originalId: targetId } : m)));
             }
 
             const saveRes = await fetchTouka(proxyUrl, `/v1/ui/custom_models/${targetId}`, {

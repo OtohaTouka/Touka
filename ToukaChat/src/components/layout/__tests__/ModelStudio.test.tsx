@@ -178,3 +178,56 @@ describe('ModelStudio：改名失敗就停下（舊審查報告丙-2）', () => 
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
+
+/** 自訂模型的改名與存檔請求，依送出順序。 */
+function renameAndSaveCalls(): string[] {
+  return mockFetchTouka.mock.calls
+    .filter(([, path, opts]) => String(path).startsWith('/v1/ui/custom_models/') && opts?.method === 'POST')
+    .map(([, path, opts]) => {
+      const p = String(path);
+      return p.endsWith('/rename') ? `${p} -> ${JSON.parse(opts.body as string).new_id}` : p;
+    });
+}
+
+describe('ModelStudio：改名成功後記下新 ID（舊審查報告丙-2）', () => {
+  it('改名成功、存檔失敗之後重試：不再送一次改名，直接存到新 ID，沒存的修改還在', async () => {
+    const { toast } = await import('sonner');
+    customModels = [{
+      id: 'mine', name: 'mine', description: '', systemPrompt: 'old prompt', config: { base_model: 'm-first' },
+    }];
+    let saves = 0;
+    mockFetchTouka.mockImplementation((_url: string, path: string, opts?: RequestInit) => {
+      if (path === '/v1/models') return ok({ data: MODEL_LIST });
+      if (path === '/v1/ui/custom_models') return ok({ models: customModels });
+      if (path === '/v1/tools_stats') return ok({ tools: [] });
+      if (String(path).endsWith('/rename')) return ok({ status: 'success' });
+      if (String(path).startsWith('/v1/ui/custom_models/') && opts?.method === 'POST') {
+        saves += 1;
+        if (saves === 1) {
+          return Promise.resolve(Response.json({ detail: { code: 'SYSTEM_ERROR', id: 1000 } }, { status: 500 }));
+        }
+      }
+      return ok({});
+    });
+    // 已經記住目前的模型：掛載後不會再載入一次清單，免得慢回來的那次蓋掉下面的輸入
+    window.localStorage.setItem('touka_studio_active_id', JSON.stringify('mine'));
+    render(<ModelStudio />);
+    await waitForLoaded();
+    const nameInput = screen.getAllByDisplayValue('mine').find((el) => el.tagName === 'INPUT')!;
+    fireEvent.change(nameInput, { target: { value: 'renamed' } });
+    fireEvent.change(screen.getByDisplayValue('old prompt'), { target: { value: 'new prompt' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Config/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Config/ }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(renameAndSaveCalls()).toEqual([
+      '/v1/ui/custom_models/mine/rename -> renamed',
+      '/v1/ui/custom_models/renamed',
+      '/v1/ui/custom_models/renamed',
+    ]);
+    const retried = mockFetchTouka.mock.calls.filter(([, path, opts]) =>
+      path === '/v1/ui/custom_models/renamed' && opts?.method === 'POST').at(-1)!;
+    expect(JSON.parse(retried[2].body as string).systemPrompt).toBe('new prompt');
+  });
+});

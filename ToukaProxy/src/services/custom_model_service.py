@@ -118,7 +118,7 @@ class CustomModelService:
             raise OSError(new_id)
 
         if not self._write_config_id(AgentIdentity(agent_id=new_id, agent_role="Base")):
-            if not custom_io.move_custom_dir(new_id, old_identity.agent_id):
+            if not self._move_back(new_id, old_identity.agent_id):
                 logger.critical(
                     "AUDIT: custom model rename rollback FAILED old=%s new=%s",
                     old_identity.agent_id,
@@ -129,24 +129,49 @@ class CustomModelService:
     def undo_rename(self, old_id: str, new_id: str) -> bool:
         """改名之後的步驟失敗時搬回：資料夾搬回舊 ID、config.json 的 id 改回舊 ID。
 
-        回傳是否完整搬回；呼叫端在失敗時寫 AUDIT。
+        回傳是否完整搬回，出錯也算沒搬回、不往外丟；呼叫端在失敗時寫 AUDIT。
         """
-        if not custom_io.move_custom_dir(new_id, old_id):
+        if not self._move_back(new_id, old_id):
             return False
         return self._write_config_id(AgentIdentity(agent_id=old_id, agent_role="Base"))
 
+    @staticmethod
+    def _move_back(from_id: str, to_id: str) -> bool:
+        """回滾用的搬移：出錯一律當沒搬成，不往外丟。"""
+        try:
+            return custom_io.move_custom_dir(from_id, to_id)
+        except Exception:
+            logger.exception("Failed to move custom model %s back to %s", from_id, to_id)
+            return False
+
     def _write_config_id(self, identity: AgentIdentity) -> bool:
-        """把這個模型 config.json 的 id 改成資料夾的 ID；沒有 config.json 不算失敗。"""
-        config_raw = custom_io.read_custom_file(identity, "config.json")
-        if not config_raw:
+        """把這個模型 config.json 的 id 改成資料夾的 ID。
+
+        沒有 config.json、或內容不是 JSON 物件時不用改（之後存檔會整份重寫）；
+        讀不到、寫不進去或出錯回 False，不往外丟。
+        """
+        try:
+            return self._try_write_config_id(identity)
+        except Exception:
+            logger.exception("Failed to update config.json for %s", identity.agent_id)
+            return False
+
+    @staticmethod
+    def _try_write_config_id(identity: AgentIdentity) -> bool:
+        if not custom_io.custom_file_exists(identity, "config.json"):
             return True
+        config_raw = custom_io.read_custom_file(identity, "config.json")
+        if config_raw is None:
+            return False
         try:
             config_data = json.loads(config_raw)
             config_data["id"] = identity.agent_id
-            content = json.dumps(config_data, indent=4, ensure_ascii=False)
         except (ValueError, TypeError):
-            logger.exception("Failed to update config.json for %s", identity.agent_id)
-            return False
+            logger.warning(
+                "config.json for %s is not a JSON object; id left as is", identity.agent_id
+            )
+            return True
+        content = json.dumps(config_data, indent=4, ensure_ascii=False)
         return custom_io.write_custom_file(identity, "config.json", content)
 
 
