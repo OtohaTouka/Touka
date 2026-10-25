@@ -364,7 +364,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_python_transport_token_security.py` | 保留既有合成 key／stream／無網路案例；新增 padded／unpadded HS256 token 正常解碼及錯誤簽章拒絕。新增案例取自已審普通相容測試，不納入新 depth／junk cases；本列不宣稱整個模組已實跑。 |
 | `test_p11_build_tool_compatibility.py` | 更新後既有 build/test 工具的實際功能相容性；與上述版本模組共 23 passed，納入本批 162 focused GREEN。 |
 | `test_dependency_audit_coverage.py` | ADR-0223 完整 query pairing、跨平台 marker、first-party runtime／build 第三方依賴、CPU advisory 來源、畸形輸入零回顯與空 query 拒絕。 |
-| `test_p11_node_dependency_security.py` | **M4**：各scope安全floor含smol-toml1.7.1；只准退役IDE ip-address缺席，任意nested不安全版本重入仍拒絕。 |
+| `test_p11_node_dependency_security.py` | **M4**：各scope安全floor（2026-10-25 起含hono 4.13.11、ip-address 10.7.4、smol-toml 1.9.0、vitest 4.1.11、@vitest/mocker 4.1.12，IDE另有MCP client 2.3.0）；只准退役IDE ip-address缺席，任意nested不安全版本重入仍拒絕。 |
 | `test_p11_torch_cpu_compatibility.py` | CPU lock／來源／manifest／合成圖案例檢查全部 rows／edges、Darwin 分支、五類既有 cp312 wheel、SHA256 與 GPU 拒絕；另有真實 CPU 案例，使用本機 BoW→Dense→Normalize 驗證 encode 數值／批次順序／Tensor 與 NumPy、零向量，以及 VectorStore 真實 encode 與 cache。沿用既有 sandbox／mock，無模型下載。額外官方 CPU wheel 接受且缺既有 wheel 拒絕的判定修正先 **1 failed／1 passed**，再 **2 passed**；完整模組由 R2 聚焦 84 passed 與完整 Python 5342 passed 涵蓋。Windows ARM64 額外 wheel 僅為 lock 產物，不宣稱跨平台執行或 release qualification。 |
 | `test_dependency_audit_evidence.py` | create-only證據目錄、拒絕repo內路徑、拒絕link／reparse與root→leaf檢查順序；全為合成測試，不建立實體link。 |
 | `test_evolution_tool_ssot.py` | 演化工具 SSOT 靜態驗證：`propose_new_capability` 呼叫合規性 |
