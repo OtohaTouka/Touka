@@ -355,7 +355,7 @@ def _patch_custom_model_io(monkeypatch, calls: list[str]):
     monkeypatch.setattr(
         custom_models_router.custom_model_service,
         "save_model",
-        lambda *_a, **_k: calls.append("save"),
+        lambda *_a, **_k: calls.append("save") or True,
     )
     monkeypatch.setattr(
         custom_models_router.user_service,

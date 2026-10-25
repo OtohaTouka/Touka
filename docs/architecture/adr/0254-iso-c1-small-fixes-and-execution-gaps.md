@@ -233,11 +233,12 @@ ADR-0238 決策 5 寫「改為直接執行 Ruff、lint_ssot、原生工具契約
   - 擁有權寫不進去時用新的 `CustomModelService.undo_rename` 搬回資料夾、把 `config.json` 的 id 改回舊 ID，回 500 `SYSTEM_ERROR`；搬回失敗、出錯或 id 改不回去時寫一行 CRITICAL 的 `AUDIT: custom model rename rollback FAILED old= new= by=`。
   - 不新增錯誤碼。沿用路由已經按字典序拿好的兩把模型鎖，回滾在鎖內、全是同步呼叫。
 - 路由（刪除）：和靈魂同名的舊資料夾刪除時不動擁有權清單，其他都從所有人的清單拿掉。
+- 路由（存檔）：`save_model` 寫不進去（system_prompt.md 或 config.json）時回 500 `SYSTEM_ERROR`、不認領；新建時把寫了一半的資料夾刪掉，因為沒有 `config.json` 的資料夾不算模型，之後查看、刪除都找不到它。原本不看結果，照樣回 200。
 - `CustomModelRenameRequest.new_id` 的字元規則從 `^[A-Za-z0-9._-]+$` 放寬成 `^[\w.-]+$`（含中文等各語言的字母數字），和建立時能用的 ID 一致；斜線、反斜線、空白照舊擋，`..` 由路由的 `is_plain_custom_name` 擋。OpenAPI 已重生。
 - ModelStudio：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔；改名成功就記下新 ID，接下來的存檔失敗時重試直接存到新 ID、不再送一次改名，表單上沒存的修改留著（不換畫面上的 ID，換了會重新載入清單）。刪除送後端記著的 ID，後端沒刪成就顯示錯誤、不從畫面拿掉，回 404（已經被刪掉了）照樣拿掉；還沒存過的新模型只在畫面上拿掉。
 - 不在這次範圍（HANDOVER 已知問題）：`DELETE /v1/models/{id}` 刪自訂模型資料夾時不清擁有清單，殘留要等同一個 ID 再被建立時才清掉；agents_registry 裡不是靈魂的 ID 沒擋（平常只有靈魂會登記）；`custom_io.write_custom_file` 不是原子置換；改名的回應在網路上遺失時，畫面重新整理前存不進去；舊 ID 和靈魂同名的 409 沿用 `MODEL_ALREADY_EXISTS`，畫面看不出是舊名字的問題；`UserService.add_owned_agent` 已經沒有正式程式在用，只剩測試準備資料。
 - 測試：
-  - `tests/unit/test_custom_model_rename_security.py`：擁有權寫不進去，以及 config 讀不到、寫不進去、出錯時都搬回；搬回失敗或出錯、id 改不回去時有 CRITICAL 的 AUDIT；查看、存檔、改名、刪除用只差大小寫的 ID 都不動；沒有 `config.json` 的資料夾（個人空間）查看、改名、刪除都 404；和靈魂同名不能改名、刪除不動擁有權；新舊 ID 相同不寫；中文新 ID；DebugAgent、DispatchAgent 不能用；config 不是 JSON 物件照樣改名；非人類呼叫者也搬；新建時認領 ID；刪除從所有人的清單拿掉；`rename_owned_agent`、`claim_owned_agent`、`remove_owned_agent_from_all` 用沙盒裡真的 users.json。
+  - `tests/unit/test_custom_model_rename_security.py`：擁有權寫不進去，以及 config 讀不到、寫不進去、出錯時都搬回；搬回失敗或出錯、id 改不回去時有 CRITICAL 的 AUDIT；查看、存檔、改名、刪除用只差大小寫的 ID 都不動；沒有 `config.json` 的資料夾（個人空間）查看、改名、刪除都 404；存檔寫不進去 500、不認領、新建時清掉寫了一半的資料夾；和靈魂同名不能改名、刪除不動擁有權；新舊 ID 相同不寫；中文新 ID；DebugAgent、DispatchAgent 不能用；config 不是 JSON 物件照樣改名；非人類呼叫者也搬；新建時認領 ID；刪除從所有人的清單拿掉；`rename_owned_agent`、`claim_owned_agent`、`remove_owned_agent_from_all` 用沙盒裡真的 users.json。
   - `tests/unit/test_soul_crud_real_writes.py`：建立靈魂時拿掉別人清單裡同一個 ID 的殘留；和既有自訂模型（有 `config.json`）完全同名回 409、什麼都不建；同名資料夾沒有 `config.json`（個人空間之類的殘留）時照樣建立、不動它。
   - `tests/unit/test_idor_soul_sandbox_security.py`：中文新 ID 收，斜線與空白照擋。
   - `ToukaChat/src/components/layout/__tests__/ModelStudio.test.tsx`：改名回 500 不存檔；改名成功、存檔失敗後重試不再改名，沒存的修改還在；之後刪除刪的是新 ID；刪除失敗時模型留著；刪除回 404 照樣拿掉；沒存過的新模型不送刪除。

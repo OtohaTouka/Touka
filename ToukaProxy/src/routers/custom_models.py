@@ -186,20 +186,25 @@ async def update_custom_model(
 
         name = data.name or model_id
         try:
-            custom_model_service.save_model(
+            saved = custom_model_service.save_model(
                 temp_id, name, data.description, data.systemPrompt, data.config
             )
             # IDOR fix：新模型只屬於建立它的人類；別人清單裡同一個 ID 是刪除後留下的殘留，
             # 一併拿掉，免得新模型落到他手上（舊審查報告丙-2）
-            if not exists:
+            if saved and not exists:
                 user_service.claim_owned_agent(
                     temp_id, _identity.agent_id if _identity.is_human else None
                 )
         except Exception as e:
             logger.exception("Error saving custom model %s", model_id)
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
-        else:
-            return {"status": "success", "model_id": model_id}
+        if not saved:
+            # 寫不進去就不回成功、不認領。新建時把寫了一半的資料夾清掉：沒有 config.json 的
+            # 資料夾不算模型，之後查看、刪除都找不到它（舊審查報告丙-2）
+            if not exists and not custom_model_service.delete_model(temp_id):
+                logger.warning("Could not remove half-written custom model %s", model_id)
+            raise ToukaException(ErrorCode.SYSTEM_ERROR)
+        return {"status": "success", "model_id": model_id}
 
 
 @router.post("/{model_id}/rename")

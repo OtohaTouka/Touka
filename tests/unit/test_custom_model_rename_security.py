@@ -483,6 +483,32 @@ def test_creating_a_model_claims_its_id(
     owners.add_owned_agent.assert_not_called()
 
 
+def test_a_save_that_cannot_be_written_is_an_error(
+    owners: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既有模型寫不進去 → 500、不認領；新建時 config.json 寫不進去 → 500、寫了一半的資料夾清掉.
+
+    沒有 config.json 的資料夾不算模型，留著的話之後查看、刪除都找不到它（丙-2）。
+    """
+    before = _create(owners, OLD)
+    monkeypatch.setattr(
+        custom_io, "write_custom_file", _fail_for(OLD, custom_io.write_custom_file, False)
+    )
+    monkeypatch.setattr(
+        custom_io, "write_custom_file", _fail_for(NEW, custom_io.write_custom_file, False)
+    )
+
+    updated = _post(f"/v1/ui/custom_models/{OLD}", {**_BODY, "systemPrompt": "OTHER"})
+    created = _post(f"/v1/ui/custom_models/{NEW}", _BODY)
+
+    for response in (updated, created):
+        assert response.status_code == 500, response.text
+        assert response.json()["detail"]["code"] == "SYSTEM_ERROR"
+    _assert_ownership_untouched(owners)
+    assert (_custom_base() / OLD / "config.json").read_bytes() == before
+    assert not (_custom_base() / NEW).exists()
+
+
 def test_updating_an_existing_model_does_not_claim_it(owners: MagicMock) -> None:
     """已存在的模型存檔 → 擁有權不動。"""
     _create(owners, OLD)
