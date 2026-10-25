@@ -1,7 +1,6 @@
 """專案與任務上下文注入中介軟體層。"""
 
 import logging
-import re
 from typing import Any
 
 from memory_server.utils.historical_data import neutralize_tags
@@ -17,19 +16,16 @@ from src.services.prompt_blocks import (
     wrap_block,
 )
 from src.utils.async_db import get_project_context
+from src.utils.model_text import single_line
 
 logger = logging.getLogger(__name__)
 
-# 看板文字是模型寫的（ADR-0285）：換行換成可見的跳脫、其他控制字元換成空白，
-# 不能多造一行任務；區塊 tag 中和，不能關閉或另開區塊。id 保留原文給 mission 工具比對。
-_LINE_BREAK = re.compile("\r\n|[\n\r\x0b\x0c\x85" + chr(0x2028) + chr(0x2029) + "]")
-_CONTROL_CHAR = re.compile("[\x00-\x08\x0e-\x1f\x7f]")
-_LINE_BREAK_MARK = chr(0x23CE)
-
-
 def _board_text(value: Any) -> str:
-    text = _LINE_BREAK.sub(_LINE_BREAK_MARK, str(value))
-    return neutralize_tags(_CONTROL_CHAR.sub(" ", text), ALL_BLOCK_TAGS)
+    """看板文字是模型寫的（ADR-0285）：先壓成一行、再中和區塊 tag。
+
+    id 也保留原文（只做跳脫），mission 工具要用它完全比對。
+    """
+    return neutralize_tags(single_line(str(value)), ALL_BLOCK_TAGS)
 
 
 def inject_anthropic_system(request: Any, ctx_str: str) -> None:

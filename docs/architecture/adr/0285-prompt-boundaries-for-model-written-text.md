@@ -19,10 +19,14 @@
 
 1. **`<continuity>` 看板那一行用 `safe_ref`**：和「最近完成」那一行一致，只放行 `[A-Za-z0-9._:-]{1,32}`，其他換成 `h:` 加雜湊。這個區塊只是摘要，細節導向看板。
 2. **`<mission_awareness>` 保留原文、只做跳脫**：這個區塊是模型操作看板時看的，mission 工具用 id 完全比對找任務與依賴（`mission_manager.py:318, :363, :399`），所以不能換成 `safe_ref`（超過 32 字或含中文的 id 會之後更新不到）。大目標、任務 id、描述、依賴與產出：
-   - 換行（`\r\n`、`\n`、`\r`、`\x0b`、`\x0c`、U+0085、U+2028、U+2029）換成可見的 `⏎`，其他控制字元換成空白，不能多造一行；
-   - prompt 區塊 tag（`ALL_BLOCK_TAGS`）的開頭 `<` 換成 `&lt;`，不能關閉或另開區塊。
-3. **新純函式 `neutralize_tags(text, tags)`**（`memory_server/utils/historical_data.py`，禁令 18）：規則同既有的界線 tag 中和（不分大小寫、`<` 與 `/` 前後可有空白、帶屬性與自閉合都算），另要求 tag 名稱後面接非名稱字元，`persona` 不會動到 `<personality>`。`neutralize_historical_tags` 的行為不變。Memory 不能匯入 Proxy，所以 tag 清單由呼叫端傳入。
-4. **前情摘要與家對話也中和其他區塊 tag**：`wrap_historical_data` 多一個 `extra_tags` 參數；`soul_service` 的前情摘要與家對話傳入 `ALL_BLOCK_TAGS`（界線 tag 照舊另外中和）。
+   - `str.splitlines()` 會切開的字元（`\r\n`、`\n`、`\r`、`\x0b`、`\x0c`、`\x1c`～`\x1e`、U+0085、U+2028、U+2029）都換成可見的 `⏎`，其他控制字元換成空白，不能多造一行；
+   - 然後才把 prompt 區塊 tag（`ALL_BLOCK_TAGS`）的開頭 `<` 換成 `&lt;`，不能關閉或另開區塊。順序不能反：先中和、後刪控制字元的話，`<`＋NUL＋`/tag>` 會重組成真的 tag。
+   - 單行化與控制字元處理是新的純函式 `src/utils/model_text.py`（`single_line`、`blank_control_chars`，禁令 18）。
+3. **新純函式 `neutralize_tags(text, tags)`**（`memory_server/utils/historical_data.py`，禁令 18）：規則同既有的界線 tag 中和（不分大小寫、`<` 與 `/` 前後可有空白、帶屬性與自閉合都算），另要求 tag 名稱後面接非名稱字元，`persona` 不會動到 `<personality>`。Memory 不能匯入 Proxy，所以 tag 清單由呼叫端傳入。
+   - 空白用 possessive 量詞（`\s*+`），新舊兩個 pattern 都改：原本兩段 `\s*` 互相回溯，`<` 後面一長串空白要花平方時間（2 萬個空白約 9 秒），在主迴圈上會讓整個 Proxy 卡住。tag 名稱都是字母開頭，語意不變。
+4. **前情摘要與家對話也中和其他區塊 tag**：`wrap_historical_data` 多一個 `extra_tags` 參數；`soul_service` 的前情摘要與家對話傳入 `ALL_BLOCK_TAGS`（界線 tag 照舊另外中和），並先把控制字元換成空白（換行保留）。
+   - 家對話的內容先還原成模型會看到的形狀（`normalize_message_content`）再中和。舊做法在原始 JSON 字串上中和，JSON 跳脫（`\u003c`、`\/`）當下還不是 `<`、`/`，轉接層送出前解開後就變成真的 tag，連 `historical_data` 界線本身也能被關掉；這個漏洞從 ADR-0257 就有。
+   - 多模態 part 的 `text`、`thinking`、巢狀 `content`（工具結果等，字串或清單）與清單裡的純字串都中和。
 5. **不做**：
    - 任務 id 的格式限制（只在建立時檢查）：描述本來就是自由文字，增益很小；在 `Task.id` 加 validator 會因 `mission_manager.py:108-117` 吞錯而讓舊看板靜默消失。
    - Memory 端的查記憶、隨機回想與舊對話查詢（`manager.py`、`recall.py`、`legacy_vault.py`）只中和界線 tag：工具結果本來就在信任較低的位置，這批不改。
@@ -34,8 +38,13 @@
 - 已知限制：
   - ToukaDispatch 建任務不經 Proxy 的工具合約（`ToukaDispatch/server.py:358-391`），id 照樣不限格式；顯示端已處理，所以不會進到可信區塊。
   - 看板載入失敗會被吞成「沒有看板」（`mission_manager.py:108-117`），這批不改。
+  - 只有模型看得出來的變體沒有中和：`<` 後面夾零寬字元（U+200B、U+2060 等）、全形 `＜／＞`、`&#60;` 這類 HTML 實體，以及 NFKC 正規化後才變成 tag 的寫法。Touka 自己的解析（`parse_system_blocks`、`reorder_system_stable_first`、`to_cached_system`）只認精確的 `<tag>`，不受影響；剩下的是模型自己會不會誤讀。
+  - id 含換行、控制字元或區塊 tag 時，看板顯示的是跳脫後的樣子，模型照抄去呼叫 mission 工具會對不上；這類 id 本來就是異常輸入。
+  - 範圍外的觀察（審查時發現、不是這次造成）：`<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 用 `find` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，影響的是快取命中、不是安全（ADR-0139 起就有），記在 HANDOVER §3。
 - 撤回：revert 甲-1 的 commit 即恢復原樣；本 ADR 檔保留，在狀態註記撤回（後續批次會引用它）。
 
 ## 驗證
 
 - 先寫的測試在照原樣回傳的空殼上 8 個紅（看板偽造、`<mission_awareness>` 關閉與多造行、摘要與家對話關閉或另開區塊、摘要經重排後注入文字留在穩定前綴），實作後全綠；一般 id 與文字原樣的案例修前修後都綠。
+- 程式審查有兩位：內部子代理，以及 xAI `grok-4.7`（經 pi，只能讀檔；維護者同意送出那一次，送 12 個公開 repo 的檔，花費 US$0.72）。兩位都抓到家對話 JSON 跳脫的繞過；內部審查另外抓到長空白的平方時間。修正後新增的測試在修正前的版本上 10 個紅（JSON 跳脫 2、巢狀內容 1、控制字元 4、分隔字元 3），長空白的案例在修正前的版本超過 300 秒；每個區塊 tag 各一個案例與看板控制字元順序的案例是防回歸用，修正前後都綠。
+- 突變檢查 27 個全部變紅（含 possessive 量詞改回一般量詞時逾時）。
