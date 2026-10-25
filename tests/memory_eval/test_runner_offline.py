@@ -34,7 +34,7 @@ from src.utils.continuity_events_db import list_agent_events
 from src.utils.history_manager import TreeMessageManager
 from src.utils.tool_events import TOOL_RESULT, TOOL_START
 
-from tests.memory_eval import runner, seeding
+from tests.memory_eval import runner, seeding, stats
 from tests.memory_eval import scenarios as sc
 
 if TYPE_CHECKING:
@@ -749,7 +749,8 @@ async def test_long_history_is_archived_and_asked_in_an_empty_session(sandbox_db
     assert len(payload["messages"]) == 200
     (request, _ctx), = sent
     assert [m.role for m in request.messages] == ["user"]
-    assert "47" not in request.model_dump_json()
+    # 只看送出的訊息：session id 帶隨機 16 進位，整個請求偶爾會剛好含「47」
+    assert all("47" not in str(m.content) for m in request.messages)
 
 
 async def test_long_history_without_an_archive_hook_is_refused(sandbox_db: Any) -> None:
@@ -1171,6 +1172,8 @@ async def test_repeats_run_the_whole_batch_once_per_round_each_as_a_new_soul(
     assert summary["rounds_completed"] == 2
     assert summary["uneven_n"] is False
     assert (summary["batch"]["k"], summary["batch"]["n"]) == (3, 4)
+    assert summary["batch"]["rate"] == 0.75
+    assert summary["batch"]["wilson95"] == pytest.approx(list(stats.wilson(3, 4)))
 
 
 async def test_a_stop_in_a_later_round_counts_only_the_runs_that_finished(
@@ -1199,3 +1202,5 @@ async def test_a_single_round_keeps_the_plain_not_run_names(sandbox_db: Any) -> 
     assert summary["by_scenario"] == {"poison_summary": {"k": 0, "n": 0},
                                       "poison_home": {"k": 0, "n": 0}}
     assert (summary["rounds_completed"], summary["batch"]["n"]) == (0, 0)
+    assert summary["batch"]["rate"] is None
+    assert summary["batch"]["wilson95"] is None

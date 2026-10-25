@@ -16,7 +16,7 @@ from tests.memory_eval.judges import RULES
 _PATH_HINT = re.compile(
     r"(?:^|[\s\"'(])(?:data|soul)[\\/]|[A-Za-z]:[\\/]|[\\/]app[\\/]", re.IGNORECASE
 )
-_PURE_MODULES = ("scenarios.py", "judges.py", "live_bounds.py")
+_PURE_MODULES = ("scenarios.py", "judges.py", "live_bounds.py", "stats.py")
 
 
 def _strings(value: object) -> list[str]:

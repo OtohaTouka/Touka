@@ -35,7 +35,7 @@ from src.services.review import review_loop
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 
-from tests.memory_eval import live_bounds, seeding
+from tests.memory_eval import live_bounds, seeding, stats
 from tests.memory_eval.scenarios import (
     CANARY,
     CONTINUITY,
@@ -454,6 +454,10 @@ async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
 
     assert order == ["bounds", "pin", ("init_db", seeding.STUB_EMBEDDING_MODEL), "seed"]
     assert report["embedding_stub"] == probe._stub_facts()
+    # 比較工具要的欄位：同一份評估程式、同一套件與題目才比
+    assert report["eval_code_hash"] == stats.eval_code_hash(ROOT)
+    assert (report["provider"], report["model"]) == ("deepseek", "deepseek-v4-flash")
+    assert (report["suite"], report["scenarios"]) == (SMOKE, ["poison_home"])
 
 
 # --- 替身嵌入：名稱與門檻固定，不跟 .env 走 -----------------------------------------

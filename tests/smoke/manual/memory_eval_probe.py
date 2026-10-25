@@ -137,7 +137,7 @@ from src.services.review import review_loop  # noqa: E402
 from src.utils.async_db import init_db_async, session_service  # noqa: E402
 from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
-from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
+from tests.memory_eval import live_bounds, runner, seeding, stats  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
     ACTIVITY_RECORD_SUITES,
     SUITES,
@@ -480,6 +480,7 @@ async def run_memory_eval_probe(
         scenario_ids=[s.id for s in scenarios], max_requests=max_requests,
         max_tokens=max_tokens, budget=budget, repeats=repeats, env_file=env_file,
     ))
+    code_hash = stats.eval_code_hash(PROJECT_ROOT)  # 跑之前的評估程式（比較工具只比同一份）
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
     await init_db_async()
@@ -515,6 +516,8 @@ async def run_memory_eval_probe(
             await anthropic_client.close()
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0
     return {
+        "provider": provider.casefold(), "model": model, "suite": suite,
+        "scenarios": [s.id for s in scenarios], "eval_code_hash": code_hash,
         **report, "provider_requests_used": used, "auxiliary_calls_refused": _AUXILIARY_CALLS,
         "embedding_stub": stub,
         "wire_max_tokens": {"per_request": wire_cap, "ceiling": OUTPUT_TOKEN_CEILING,

@@ -55,6 +55,7 @@ from tests.memory_eval import seeding
 from tests.memory_eval.judges import STATE_RULES, ToolCallRecord, TurnObservation, judge
 from tests.memory_eval.live_bounds import redact_excerpt
 from tests.memory_eval.scenarios import CANARY, persona_text
+from tests.memory_eval.stats import wilson
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Iterator
@@ -403,6 +404,8 @@ class BatchReport:
             counts["k"] += result.passed
         rounds = self._rounds_completed(finished)
         in_rounds = [r for r in finished if r.round_number <= rounds]
+        k, n = sum(r.passed for r in in_rounds), len(in_rounds)
+        interval = wilson(k, n)
         return {
             "passed": sum(r.passed for r in self.results),
             "failed": sum(not r.passed for r in self.results),
@@ -413,8 +416,9 @@ class BatchReport:
             "rounds_completed": rounds,
             "by_scenario": by_scenario,
             "uneven_n": len({c["n"] for c in by_scenario.values()}) > 1,
-            "batch": {"k": sum(r.passed for r in in_rounds), "n": len(in_rounds),
-                      "rounds": rounds},
+            "batch": {"k": k, "n": n, "rounds": rounds,
+                      "rate": round(k / n, 6) if n else None,
+                      "wilson95": [round(x, 6) for x in interval] if interval else None},
             "results": [r.to_dict() for r in self.results],
         }
 
