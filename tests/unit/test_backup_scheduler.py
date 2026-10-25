@@ -138,6 +138,21 @@ def test_prune_drops_empty_auto_backups_and_does_not_count_them(tmp_path):
     assert human_empty.exists()
 
 
+def test_prune_deletes_the_oldest_by_modification_time(tmp_path):
+    """修剪看的是修改時間，不是檔名：檔名排序和時間排序故意相反（丙-1 審查補）。"""
+    files = []
+    for i in range(5):
+        f = tmp_path / f"{AUTO_BACKUP_PREFIX}_2026010{i}_0300.zip"
+        f.write_bytes(b"x")
+        os.utime(f, (2000 - i, 2000 - i))  # 檔名越大越舊
+        files.append(f)
+
+    deleted = prune_old_auto_backups(tmp_path, 3)
+
+    assert deleted == [files[4], files[3]]  # oldest first
+    assert [f.exists() for f in files] == [True, True, True, False, False]
+
+
 def test_prune_noop_when_under_retention(tmp_path):
     f = tmp_path / f"{AUTO_BACKUP_PREFIX}_20260101_0300.zip"
     f.write_bytes(b"x")
