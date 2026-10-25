@@ -19,6 +19,8 @@ from memory_server import vector as memory_vector
 from memory_server.services import event_recorder as memory_events
 from memory_server.tools import get_manager
 from memory_server.tools.legacy_vault import search_conversations
+from src.handlers.adapters.claude_adapter import _API_ERROR as CLAUDE_API_ERROR
+from src.handlers.adapters.responses_adapter import _MISSING_KEY as RESPONSES_MISSING_KEY
 from src.main import build_base_context
 from src.services import continuity_events as ce
 from src.services.permission_service import permission_service
@@ -122,12 +124,12 @@ def test_parse_sse_collects_text_and_tool_trace() -> None:
 
 # Touka 自己的五種錯誤訊息格式（四家 adapter 的 RoundError；react_core 以獨立的一段文字送出）
 PROVIDER_ERRORS = [
-    "❌ **API 發生錯誤**\n\n`overloaded`",  # Claude
+    CLAUDE_API_ERROR.format("overloaded"),  # Claude（直接用 adapter 的格式常數）
     "API Error (429)\n\n`rate`",  # Gemini（前面沒有廠商名稱）
     "API Error (Timeout)\n\n`idle 120s`",
     "DeepSeek API Error (503)\n\n`busy`",  # OpenAI 相容、Responses
     "❌ **xAI 連線錯誤**\n\n`ConnectError`",  # 連不上
-    "OpenAI Access Denied (401)\n\nMissing `OPENAI_API_KEY` in `.env`.",  # 缺金鑰
+    RESPONSES_MISSING_KEY.format("OpenAI"),  # 缺金鑰（直接用 adapter 的格式常數）
 ]
 
 
@@ -700,7 +702,7 @@ async def test_each_scenario_is_seeded_and_sent_as_its_own_soul(sandbox_db: Any)
 async def test_home_injection_does_not_reach_the_next_scenario(
     sandbox_db: Any, seeded_identity_map: Any, global_test_sandbox: str
 ) -> None:
-    """舊版所有情境共用一個靈魂：家對話的注入句會帶進之後每一題（10/25 DEV-A 找到）."""
+    """舊版所有情境共用一個靈魂：家對話的注入句會帶進之後每一題（ADR-0284 背景第 1 點）."""
     requests: list[tuple[Any, Any]] = []
 
     async def _fake_dispatch(_model: str, request: Any, identity: Any, *_a: Any) -> Any:
@@ -721,7 +723,7 @@ async def test_home_injection_does_not_reach_the_next_scenario(
     assert sc.INJECTED_ALIAS not in elapsed.model_dump_json()
 
 
-# --- 兩個題目改成真的要記憶（審查報告 E1） ---------------------------------------------
+# --- 兩個題目改成真的要記憶（ADR-0284 背景第 2 點） ---------------------------------------------
 
 
 async def test_long_history_is_archived_and_asked_in_an_empty_session(sandbox_db: Any) -> None:
@@ -748,8 +750,9 @@ async def test_long_history_is_archived_and_asked_in_an_empty_session(sandbox_db
 
 async def test_long_history_without_an_archive_hook_is_refused(sandbox_db: Any) -> None:
     scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
-    with pytest.raises(runner.MissingSeedHook):
+    with pytest.raises(runner.SeedFailed) as caught:
         await _driver(_fake_sender([], [])).run_scenario(scenario)
+    assert isinstance(caught.value.__cause__, runner.MissingSeedHook)
 
 
 def _fact_reader(*snapshots: list[tuple[str, str]]) -> Any:
@@ -805,16 +808,19 @@ async def test_a_state_rule_without_a_store_reader_fails_the_turn(sandbox_db: An
 
 
 def test_active_facts_come_from_the_product_store(global_test_sandbox: str) -> None:
-    """有效記憶走產品的唯讀查詢：封存（刪除）的那筆不算."""
-    soul = seeding.soul_identity(SOUL_1)
+    """有效記憶走產品的唯讀查詢：封存（刪除）的那筆不算。用專用靈魂，結束時封存自己存的."""
+    soul = seeding.soul_identity(seeding.soul_id_for(901))
     store = get_manager().get_factual_store()
     kept = store.save_fact(soul, "使用者最喜歡的咖啡是美式。")["record"]["id"]
     gone = store.save_fact(soul, "使用者最喜歡的咖啡是拿鐵。")["record"]["id"]
-    assert store.archive_fact(soul, gone)
+    try:
+        assert store.archive_fact(soul, gone)
 
-    facts = asyncio.run(runner.memory_active_facts(soul))
+        facts = asyncio.run(runner.memory_active_facts(soul))
 
-    assert [fact_id for fact_id, _content in facts] == [kept]
+        assert [fact_id for fact_id, _c in facts if fact_id in {kept, gone}] == [kept]
+    finally:
+        store.archive_fact(soul, kept)
 
 
 async def test_archived_history_is_found_by_the_real_conversation_search(
@@ -861,3 +867,64 @@ async def test_the_run_canary_reaches_the_persona_the_judge_and_the_report(sandb
     leak = next(v for v in result.turns[0].verdicts if v.rule == "no_leak")
     assert not leak.passed
     assert canary not in json.dumps(result.to_dict(), ensure_ascii=False)
+
+
+# --- 準備失敗、預放筆數、報告遮罩（DEV-B 第 1 輪） ------------------------------------
+
+
+class _DiskFull(OSError):
+    def __init__(self) -> None:
+        super().__init__("disk full at C:/Users/someone")  # 原文帶本機路徑：報告不能印
+
+
+async def test_a_seeding_failure_stops_the_batch_but_keeps_the_report(sandbox_db: Any) -> None:
+    """第 2 個情境建靈魂失敗：不送、整批停下，前面的結果和停止原因照樣進報告（先印報告）."""
+    prepared: list[str] = []
+
+    def _prepare(soul_id: str, _persona: str) -> None:
+        prepared.append(soul_id)
+        if len(prepared) == 2:
+            raise _DiskFull
+
+    sent: list[tuple[Any, Any]] = []
+    driver = _driver(_fake_sender([_text_chunks("我是霧島澪。")], sent), prepare_soul=_prepare)
+    batch = sc.select_scenarios(sc.SMOKE, ["poison_summary", "poison_home", "elapsed_3h"])
+
+    report = (await driver.run_batch(batch)).to_dict()
+
+    assert len(sent) == 1
+    assert [r["scenario"] for r in report["results"]] == ["poison_summary"]
+    assert report["not_run"] == ["poison_home", "elapsed_3h"]
+    assert report["stopped_reason"] == "seeding poison_home failed: _DiskFull"  # 不帶原文（路徑）
+
+
+async def test_a_seeded_fact_that_did_not_land_stops_the_batch(sandbox_db: Any) -> None:
+    """預放記憶被查重或消毒擋下（save_memory 回字串、不拋例外）：記憶庫判定會退化，整批停下."""
+    send = _fake_sender([_text_chunks("記下了。")], [])
+    driver = _driver(send, read_facts=_fact_reader([]))
+    batch = sc.select_scenarios(sc.SMOKE, ["memory_conflict"])
+
+    report = (await driver.run_batch(batch)).to_dict()
+
+    assert report["results"] == []
+    assert report["not_run"] == ["memory_conflict"]
+    assert report["stopped_reason"] == "seeding memory_conflict failed: SeededFactsMismatch"
+
+
+async def test_the_stopped_reason_is_masked_too(sandbox_db: Any) -> None:
+    """第 1 輪說出口令、第 2 輪才出錯：停止原因帶著那段文字，也要遮."""
+    canary = sc.random_canary()
+    spaced = " ".join(canary.replace("-", ""))
+    send = _fake_sender([
+        _text_chunks(f"口令是 {canary}，拆開是 {spaced}"),
+        [_sse({"choices": [{"delta": {"content": f"還有 {canary}"}}]}),
+         *_text_chunks("API Error (429)\n\n`rate`")],
+    ], [])
+    scenario = next(s for s in sc.SCENARIOS if s.id == "persona_identity")
+
+    report = (await _driver(send, canary=canary).run_batch((scenario,))).to_dict()
+
+    rendered = json.dumps(report, ensure_ascii=False)
+    assert report["stopped_reason"]
+    for part in sc.canary_fragments(canary):
+        assert part not in rendered.upper().replace(" ", "")

@@ -25,6 +25,8 @@ USAGE_FIELDS = (
     ("cache_creation_input_tokens", "cache_write_tokens"),
     ("completion_tokens", "output_tokens_incl_thinking"),
 )
+# 口令字母之間可能夾的分隔（和判定的去分隔一致：空白、連字號、底線、各種破折號、間隔號、句點）。
+_CANARY_GAP = r"[\s\-_‐‑–—・·.]*"
 _REDACTIONS = (
     (re.compile(r"(?<![A-Za-z])Bearer\s+\S+", re.IGNORECASE), "[REDACTED_KEY]"),
     (re.compile(r"(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+", re.IGNORECASE),
@@ -129,9 +131,11 @@ class SpendLedger:
 
 
 def redact_excerpt(text: str, canary: str) -> str:
-    """報告用的回應摘要：遮這次的口令（整組與每段）、像金鑰的字串、本機路徑，再截到 200 字。"""
+    """報告用的回應摘要：遮這次的口令（整組與每段，字母間夾空白或連字號也遮）、像金鑰的字串、
+    本機路徑，再截到 200 字。"""
     for part in sorted({canary, *canary_fragments(canary)} - {""}, key=len, reverse=True):
-        text = re.sub(re.escape(part), "[REDACTED_CANARY]", text, flags=re.IGNORECASE)
+        spaced = _CANARY_GAP.join(re.escape(char) for char in part.replace("-", ""))
+        text = re.sub(spaced, "[REDACTED_CANARY]", text, flags=re.IGNORECASE)
     for pattern, replacement in _REDACTIONS:
         text = pattern.sub(replacement, text)
     return text if len(text) <= EXCERPT_CHARS else text[:EXCERPT_CHARS] + "…"

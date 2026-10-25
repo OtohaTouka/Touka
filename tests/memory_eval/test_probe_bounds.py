@@ -363,6 +363,60 @@ async def _no_init_db() -> None:
     pass
 
 
+class _BlewUp(RuntimeError):
+    """測試用：故意讓實測流程中途失敗."""
+
+
+class _FailingDriver(_FakeDriver):
+    async def run_batch(self, _scenarios: Any) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        raise _BlewUp
+
+
+async def test_the_conversation_reader_is_unbound_when_the_batch_fails(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FailingDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
+
+
+async def test_a_failure_before_the_batch_never_binds_the_reader(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _broken_seed(*_a: Any) -> None:
+        raise _BlewUp
+
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", _broken_seed)
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert resource_manager._ui_conversation_reader is None
+
+
 async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
     restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

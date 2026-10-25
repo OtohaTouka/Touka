@@ -138,7 +138,7 @@ def test_synthetic_soul_is_not_a_reserved_identity() -> None:
 
 
 def test_memory_conflict_checks_the_store_and_asks_again_in_a_new_session() -> None:
-    """追問在同一段對話時，答案本來就在眼前（審查報告 E1）."""
+    """追問在同一段對話時，答案本來就在眼前（ADR-0284 背景第 2 點）."""
     scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
     update, ask = scenario.turns
 
@@ -151,7 +151,7 @@ def test_memory_conflict_checks_the_store_and_asks_again_in_a_new_session() -> N
 
 
 def test_long_history_lives_only_in_the_old_conversation_archive() -> None:
-    """100 輪全部送給模型時，答出幸運數字只是在眼前找（審查報告 E1）."""
+    """100 輪全部送給模型時，答出幸運數字只是在眼前找（ADR-0284 背景第 2 點）."""
     scenario = next(s for s in sc.SCENARIOS if s.id == "long_history_recall")
 
     assert scenario.seed.archived_rounds == 100

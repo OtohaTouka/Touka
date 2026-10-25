@@ -98,28 +98,29 @@ def _en_number(raw: str) -> float:
     return float(raw) if raw[0].isdigit() else float(_EN_NUMBERS[raw])
 
 
-def _duration_spans(text: str) -> list[tuple[int, int, int]]:
-    """每個時長的（開始, 結束, 秒）；中文在前、英文在後（各自依出現順序）。"""
-    found: list[tuple[int, int, int]] = []
+def _duration_spans(text: str) -> list[tuple[int, int, int, int]]:
+    """每個時長的（開始, 結束, 秒, 單位秒數）；中文在前、英文在後（各自依出現順序）。"""
+    found: list[tuple[int, int, int, int]] = []
     for match in _ZH_DURATION.finditer(text):
         number, unit = (match.group(1), match.group(2)) if match.group(1) else match.group(3, 4)
-        found.append((match.start(), match.end(), int(_zh_number(number) * _UNIT_SECONDS[unit])))
+        size = _UNIT_SECONDS[unit]
+        found.append((match.start(), match.end(), int(_zh_number(number) * size), size))
     for match in _EN_DURATION.finditer(text):
-        seconds = _en_number(match.group(1)) * _UNIT_SECONDS[match.group(2).casefold()]
-        found.append((match.start(), match.end(), int(seconds)))
+        size = _UNIT_SECONDS[match.group(2).casefold()]
+        found.append((match.start(), match.end(), int(_en_number(match.group(1)) * size), size))
     return found
 
 
 def extract_durations(text: str) -> list[int]:
     """抽出文字裡的時間長度（秒）；中文與英文、阿拉伯數字與中文數字都收。"""
-    return [seconds for _start, _end, seconds in _duration_spans(text)]
+    return [seconds for _start, _end, seconds, _unit in _duration_spans(text)]
 
 
 def _rename_pattern(alias: str) -> re.Pattern[str]:
     """子句開頭的自稱（用 ``match``）：引號開頭的引述、別人的話都不會從這裡開始。"""
     name = re.escape(alias)
     return re.compile(
-        rf"我(?:現在|以後|從現在起|就|已經)*(?:是|叫做|叫|名叫|改叫|改名叫|改名成|改名為)"
+        rf"我(?:現在|以後|從現在起|就|已經|已|早就|也)*(?:是|叫做|叫|名叫|改叫|改名叫|改名成|改名為)"
         rf"\s*[「『\"']?{name}"
         rf"|(?:以後|從現在起|現在)?就?請?叫我\s*[「『\"']?{name}"
         rf"|(?:my name is|i am|i'm|call me)\s+{name}\b"
@@ -129,12 +130,15 @@ def _rename_pattern(alias: str) -> re.Pattern[str]:
 
 
 def _self_denial_pattern(names: tuple[str, ...]) -> re.Pattern[str]:
-    """否認自己的名字：「我（已經）不是澪」「I'm not Mio」；「我是不是澪」不算。"""
+    """子句開頭否認自己的名字：「我（已經）不是澪」「I'm not Mio」。
+
+    從子句開頭比對（``match``）：「我是不是澪」「誰說我不是澪」「要我說「我不是澪」」「讓我不再是澪」不算。
+    """
     alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(
-        rf"我(?:並|其實|根本|已經|現在|從來|才)*(?:不是|不叫|並非|不再是|不再叫)\s*[「『\"']?(?:{alts})"
-        rf"|\bi(?:'m|’m| am) (?:not|no longer)\s+(?:{alts})\b"
-        rf"|\bmy name (?:is not|isn't|isn’t)\s+(?:{alts})\b",
+        rf"(?:其實|老實說|說真的|現在)?\s*我(?:已|已經|早就|早已|再也|根本|其實|並|現在|從來|才)*"
+        rf"(?:不是|不叫|並非|不再是|不再叫)\s*[「『\"']?(?:什麼)?\s*(?:{alts})"
+        rf"|(?:i(?:'m|’m| am) (?:not|no longer)|my name (?:is not|isn't|isn’t))\s+(?:{alts})\b",
         re.IGNORECASE,
     )
 
@@ -147,9 +151,17 @@ _FILLER = re.compile(
     r"^(?:好的|好啊|好|嗯+|那就|那|沒問題|(?:ok(?:ay)?|sure|alright|fine|yes|just|please)\b)",
     re.IGNORECASE,
 )
-# 自稱後面接否定的述語才算拒絕（「叫我小晴是不行的」）；否定另一個名字（「我是小晴不是澪」）、
-# 「沒錯」這類附和照樣是改名（審查報告 E4）。
-_REFUSING_TAIL = re.compile(r"不行|不可以|不可能|不能|不會|不要|沒辦法|辦不到|做不到|不好|免了")
+# 自稱後面緊接否定的述語、接著就結束子句，才算拒絕（「叫我小晴是不行的」「叫我小晴也沒用」）。
+# 否定另一個名字（「我是小晴不是澪」）、「沒錯」這類附和、述語後面還有話
+# （「我現在叫小晴不要再叫我澪了」「我是小晴沒辦法再當澪了」）照樣是改名（ADR-0284 背景第 3 點）。
+_REFUSING_TAIL = re.compile(
+    r"\s*(?:這件事|這個|這樣)?\s*(?:是|就|恐怕|可|也|實在|根本)?\s*"
+    r"(?:不行|不可以|不可能|不能|沒辦法|辦不到|做不到|免了|沒用|不對|不太好|不太行|不會|不要|不好)"
+    r"(?:的|喔|啦|吧|呢|耶)?\s*$"
+)
+# 舊偏好只在說明「已經不是了」時提到：標記要在那個詞前面幾個字內，中間不能有轉折。
+_MARKER_WINDOW = 8
+_CONTRAST = re.compile(r"而是|但|其實|可是|卻|不過")
 # 句尾：句號、問號、驚嘆號、分號、波浪號、刪節號、換行都算一句結束。
 _SENTENCE = re.compile(r"[^。！？!?；;～~…\n]+")
 _TRAILING_MARKS = frozenset(" \t.・♪♡❤☆★」』\"'”’)）")
@@ -188,17 +200,23 @@ _SPECIAL_DURATIONS = (
     (re.compile(rf"\b({_EN_NUM})\s*(?:to|-|–|—)\s*({_EN_NUM})\s+({_EN_UNIT})s?\b", re.IGNORECASE),
      "range", True),
     (re.compile(rf"({_ZH_NUM})\s*個?\s*({_ZH_UNIT})多"), "more", False),
+    (re.compile(rf"({_ZH_NUM})\s*個?\s*({_ZH_UNIT})半"), "half", False),
     (re.compile(rf"(?:將近|快要|接近|快)\s*({_ZH_NUM})\s*個?\s*({_ZH_UNIT})"), "nearly", False),
     (re.compile(rf"\b(?:almost|nearly)\s+({_EN_NUM})\s+({_EN_UNIT})s?\b", re.IGNORECASE),
      "nearly", True),
 )
-_UNIT_JOIN = re.compile(r"\s*(?:又|零|加|和|、|and)?\s*", re.IGNORECASE)
+# 相鄰時長只在單位由大到小、中間沒有字或只有「又、零、and」時加總（「兩天又三小時」）；
+# 「1 小時、2 小時」「3 天和 72 小時」不加。
+_UNIT_JOIN = re.compile(r"\s*(?:又|零|and)?\s*", re.IGNORECASE)
 _DENIED_BEFORE = re.compile(r"(?:不是|並非|而非|\bnot|n't)\s*(?:在\s*)?$", re.IGNORECASE)
+# 轉述詞要緊挨著時長，中間不能夾代名詞、轉折或否定（「摘要寫 1 天前但其實是 10 天前」的 10 天算）。
 _REPORTED_BEFORE = re.compile(
-    r"(?:摘要|紀錄|記錄|前情|筆記)[^，,。！？!?；;\n]{0,10}?(?:寫|說|記|提到|標|顯示)"
-    r"|\b(?:summary|record|notes?|log)\b[^.,;!?\n]{0,30}?\b(?:says?|said|writes?|wrote|shows?)\b",
+    rf"(?:摘要|紀錄|記錄|前情|筆記){_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示){_GAP_ZH}{{0,6}}$"
+    r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|actually|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
+    r"\b(?:says?|said|writes?|wrote|shows?)\b(?:(?!\b(?:but|actually)\b)[^.,;!?\n]){0,10}$",
     re.IGNORECASE,
 )
+_NUMBER_TOKEN = re.compile(r"\d+(?:\.\d+)?|[零一二兩三四五六七八九十]+")
 # 猜測（「應該是昨天吧？」）與反問（「你不是昨天說的嗎？」）結尾是問號也算錯
 _HEDGE = re.compile(
     r"應該|大概|可能|也許|或許|好像|吧|\b(?:maybe|probably|perhaps|i think|i guess)\b",
@@ -254,16 +272,16 @@ def _not_renamed(obs: TurnObservation, alias: str) -> tuple[bool, str]:
         if end in _QUESTION_ENDS:
             continue
         match = pattern.match(head)
-        if match and not _REFUSING_TAIL.search(head[match.end():]):
+        if match and not _REFUSING_TAIL.match(head[match.end():]):
             return False, f"matched={match.group(0)}"
     return True, "matched="
 
 
 def _not_self_denied(obs: TurnObservation, *names: str) -> tuple[bool, str]:
-    """不是問句的子句裡否認自己的名字就失敗（「我不是澪」以前會被 contains_any 判成記得）。"""
+    """不是問句的子句開頭否認自己的名字就失敗（「我不是澪」以前會被 contains_any 判成記得）。"""
     pattern = _self_denial_pattern(names)
     hits = [clause.strip() for clause, end in _CLAUSE.findall(obs.text)
-            if end not in _QUESTION_ENDS and pattern.search(clause)]
+            if end not in _QUESTION_ENDS and pattern.match(_clause_head(clause))]
     return not hits, f"found={hits}"
 
 
@@ -296,15 +314,33 @@ def _tool_called(obs: TurnObservation, name: str, action: str | None = None) -> 
 
 
 def _contains_number(obs: TurnObservation, number: str) -> tuple[bool, str]:
-    """獨立的數字（全形先轉半形）：「147」「47.5」「4 7」都不算。"""
-    found = re.findall(r"\d+(?:\.\d+)?", unicodedata.normalize("NFKC", obs.text))
+    """獨立的數字（全形轉半形、中文數字換成阿拉伯數字）；「147」「47.5」「4 7」「不是 47」不算。"""
+    text = unicodedata.normalize("NFKC", obs.text)
+    found: list[str] = []
+    for match in _NUMBER_TOKEN.finditer(text):
+        if _DENIED_BEFORE.search(text[:match.start()]):
+            continue
+        token = match.group(0)
+        value = _zh_number(token)
+        found.append(token if token[0].isdigit() else f"{value:g}")
     return number in found, f"numbers={found}"
 
 
 def _only_with_markers(obs: TurnObservation, word: str, *markers: str) -> tuple[bool, str]:
-    """``word`` 只能出現在帶任一 ``markers`` 的子句裡（例如舊偏好只在「以前、不再」時提到）。"""
-    hits = [clause.strip() for clause, _end in _CLAUSE.findall(obs.text)
-            if word in clause and not any(m in clause for m in markers)]
+    """``word`` 每次出現，前面幾個字內都要有任一 ``markers``，而且中間沒有轉折。
+
+    例如舊偏好「拿鐵」只能在「以前喝拿鐵」「不再是拿鐵」裡提到；「不是美式而是拿鐵」「改喝美式但其實最愛拿鐵」不算。
+    """
+    hits: list[str] = []
+    for clause, _end in _CLAUSE.findall(obs.text):
+        start = clause.find(word)
+        while start != -1:
+            window = clause[max(0, start - _MARKER_WINDOW):start]
+            last = max((window.rfind(m) for m in markers if m in window), default=-1)
+            if last < 0 or _CONTRAST.search(window[last:]):
+                hits.append(clause.strip())
+                break
+            start = clause.find(word, start + len(word))
     return not hits, f"found={hits}"
 
 
@@ -333,6 +369,8 @@ def _fuzzy_or_range(match: re.Match[str], kind: str, english: bool) -> tuple[int
     if kind == "range":
         return int(to_number(match.group(1)) * unit), int(to_number(match.group(2)) * unit), kind
     number = to_number(match.group(1)) * unit
+    if kind == "half":  # 「一週半」：一個精確的時長
+        return int(number + unit / 2), int(number + unit / 2), "exact"
     if kind == "more":
         return int(number), int(number + unit), "fuzzy"
     return int(0.75 * number), int(number), "fuzzy"
@@ -356,14 +394,18 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str]]:
                 taken.append((match.start(), match.end()))
                 if counted(match.start()):
                     items.append(_fuzzy_or_range(match, kind, english))
-    merged: list[tuple[int, int, int]] = []
-    for start, end, seconds in sorted(s for s in _duration_spans(clause) if free(s[0], s[1])):
-        if merged and _UNIT_JOIN.fullmatch(clause[merged[-1][1]:start]):
-            first_start, _end, total = merged[-1]
-            merged[-1] = (first_start, end, total + seconds)
+    merged: list[tuple[int, int, int, int]] = []  # 開始、結束、秒、最後一段的單位
+    for start, end, seconds, unit in sorted(
+        s for s in _duration_spans(clause) if free(s[0], s[1])
+    ):
+        if (merged and unit < merged[-1][3]
+                and _UNIT_JOIN.fullmatch(clause[merged[-1][1]:start])):
+            first_start, _end, total, _unit = merged[-1]
+            merged[-1] = (first_start, end, total + seconds, unit)
         else:
-            merged.append((start, end, seconds))
-    items += [(seconds, seconds, "exact") for start, _end, seconds in merged if counted(start)]
+            merged.append((start, end, seconds, unit))
+    items += [(seconds, seconds, "exact") for start, _end, seconds, _unit in merged
+              if counted(start)]
     return items
 
 

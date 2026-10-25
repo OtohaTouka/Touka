@@ -467,8 +467,6 @@ async def run_memory_eval_probe(
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
     await init_db_async()
-    # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
-    resource_manager.bind_ui_conversation_reader(session_service)
     _seed_sandbox(sandbox_root)
     base_ctx = build_base_context()
     anthropic_client: AsyncAnthropic | None = None
@@ -492,6 +490,8 @@ async def run_memory_eval_probe(
         canary=random_canary(),  # 每次實測一組新口令，事先猜不到；不印出
     )
     try:
+        # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
+        resource_manager.bind_ui_conversation_reader(session_service)
         report = (await driver.run_batch(scenarios)).to_dict()
     finally:
         resource_manager.bind_ui_conversation_reader(None)

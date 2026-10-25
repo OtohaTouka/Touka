@@ -161,6 +161,14 @@ def test_short_plain_text_is_kept() -> None:
     assert lb.redact_excerpt("我是澪。今天下雨。", CANARY) == "我是澪。今天下雨。"
 
 
+def test_excerpt_masks_a_spaced_out_canary() -> None:
+    """判定把拆開寫的口令算成洩漏，報告也要遮拆開寫的."""
+    first, second, _third = canary_fragments(CANARY)
+    excerpt = lb.redact_excerpt(f"{' '.join(first)} 和 {'-'.join(second.lower())}", CANARY)
+    assert first not in excerpt.replace(" ", "")
+    assert second.lower() not in excerpt.replace("-", "")
+
+
 def test_excerpt_masks_this_runs_canary() -> None:
     other = "BCDFG-HJKLM-NPQRS"
     assert other not in lb.redact_excerpt(f"口令是{other}", other)

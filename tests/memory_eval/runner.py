@@ -86,6 +86,23 @@ class MissingSeedHook(RuntimeError):
         super().__init__(f"scenario {scenario_id} needs the {hook} hook")
 
 
+class SeedFailed(RuntimeError):
+    """情境開始前的準備（建靈魂、植入、歸檔、讀預放記憶）失敗：這個情境不送、整批停下，報告照印。
+
+    只帶例外的類別名稱：原文可能含本機路徑。
+    """
+
+    def __init__(self, scenario_id: str, cause: BaseException) -> None:
+        super().__init__(f"seeding {scenario_id} failed: {type(cause).__name__}")
+
+
+class SeededFactsMismatch(RuntimeError):
+    """預放後查到的有效記憶筆數和情境預放的不同（例如被查重或消毒擋下）：記憶庫判定不可信。"""
+
+    def __init__(self, expected: int, found: int) -> None:
+        super().__init__(f"expected {expected} seeded facts, found {found}")
+
+
 class ActivityWritesPending(RuntimeError):
     """背景寫入逾時還沒做完：時間軸可能混到別的情境，整批停下。"""
 
@@ -263,13 +280,14 @@ class BatchReport:
     not_run: list[str] = field(default_factory=list)
     stopped_reason: str = ""
     spent_usd: float = 0.0
+    canary: str = field(default="", repr=False)  # 只拿來遮報告，不印出
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "passed": sum(r.passed for r in self.results),
             "failed": sum(not r.passed for r in self.results),
             "spent_usd": round(self.spent_usd, 6),
-            "stopped_reason": self.stopped_reason,
+            "stopped_reason": redact_excerpt(self.stopped_reason, self.canary),
             "not_run": list(self.not_run),
             "results": [r.to_dict() for r in self.results],
         }
@@ -366,8 +384,11 @@ class MemoryEvalDriver:
         needs_state = any(c.rule in STATE_RULES for t in scenario.turns for c in t.checks)
         if not needs_state or self._read_facts is None:
             return ()
-        return tuple(fact_id for fact_id, _content in
-                     await self._read_facts(seeding.soul_identity(soul_id)))
+        seeded = tuple(fact_id for fact_id, _content in
+                       await self._read_facts(seeding.soul_identity(soul_id)))
+        if len(seeded) != len(scenario.seed.facts):
+            raise SeededFactsMismatch(len(scenario.seed.facts), len(seeded))
+        return seeded
 
     async def _with_memory_state(
         self, observation: TurnObservation, soul_id: str, seeded: tuple[str, ...]
@@ -390,10 +411,15 @@ class MemoryEvalDriver:
             return TurnObservation(text="", error=f"{type(exc).__name__}: {exc}"[:300])
 
     async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
-        soul_id = self._new_soul()
         session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
-        tree = await self.seed(scenario, session_id, soul_id)
-        seeded = await self._seeded_fact_ids(scenario, soul_id)
+        try:
+            soul_id = self._new_soul()
+            tree = await self.seed(scenario, session_id, soul_id)
+            seeded = await self._seeded_fact_ids(scenario, soul_id)
+        except ActivityWritesPending:
+            raise
+        except Exception as exc:  # 準備失敗：不送，交給 _run_all 記成停止原因（報告照印）
+            raise SeedFailed(scenario.id, exc) from exc
         results: list[TurnResult] = []
         for turn in scenario.turns:
             if self._over_budget():
@@ -439,7 +465,7 @@ class MemoryEvalDriver:
                 continue
             try:
                 result = await self.run_scenario(scenario)
-            except ActivityWritesPending as exc:  # 時間軸還沒清乾淨：這個情境不送
+            except (ActivityWritesPending, SeedFailed) as exc:  # 準備沒做完：這個情境不送
                 report.stopped_reason = str(exc)
                 report.not_run.append(scenario.id)
                 continue
@@ -447,7 +473,7 @@ class MemoryEvalDriver:
             report.stopped_reason = result.error
 
     async def run_batch(self, scenarios: Iterable[Scenario]) -> BatchReport:
-        report = BatchReport()
+        report = BatchReport(canary=self._canary)
         if not self._activity_record:
             await self._run_all(scenarios, report)
         else:
