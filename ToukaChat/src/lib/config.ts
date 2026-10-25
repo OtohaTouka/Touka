@@ -16,4 +16,7 @@ export const CONFIG = {
     DEFAULT_AUTH_LEVEL: "Base",
     
     IS_DEV: process.env.NODE_ENV === 'development',
+
+    // 版本號：建置時由 next.config 的 env 從 package.json 注入
+    APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION || "",
 };
