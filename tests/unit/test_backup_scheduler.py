@@ -117,6 +117,27 @@ def test_prune_keeps_latest_n_auto_only(tmp_path):
         assert h.exists()
 
 
+def test_prune_drops_empty_auto_backups_and_does_not_count_them(tmp_path):
+    """0 位元組的自動備份（發布失敗留下的空檔）不算份數，直接刪；人工備份的空檔不動（丙-1）。"""
+    real = []
+    for i in range(3):
+        f = tmp_path / f"{AUTO_BACKUP_PREFIX}_2026010{i}_0300.zip"
+        f.write_bytes(b"x")
+        os.utime(f, (1000 + i, 1000 + i))
+        real.append(f)
+    empty = tmp_path / f"{AUTO_BACKUP_PREFIX}_20260109_0300.zip"
+    empty.write_bytes(b"")
+    os.utime(empty, (2000, 2000))  # newest, so it would push out a real one if it counted
+    human_empty = tmp_path / "Touka_Backup_20260109_0300.zip"
+    human_empty.write_bytes(b"")
+
+    deleted = prune_old_auto_backups(tmp_path, 3)
+
+    assert deleted == [empty]
+    assert all(f.exists() for f in real)
+    assert human_empty.exists()
+
+
 def test_prune_noop_when_under_retention(tmp_path):
     f = tmp_path / f"{AUTO_BACKUP_PREFIX}_20260101_0300.zip"
     f.write_bytes(b"x")

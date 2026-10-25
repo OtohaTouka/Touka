@@ -108,13 +108,16 @@ def is_backup_due(cfg: BackupScheduleConfig, now_epoch: float) -> bool:
 def prune_old_auto_backups(backup_dir: Path, retention_count: int) -> list[Path]:
     """只修剪自動備份（AUTO_BACKUP_PREFIX）：保留最新 retention_count 份，刪除其餘最舊者。
 
-    人工備份（``Touka_Backup_*``）完全不受影響、亦不計入份數。回傳被刪除的路徑清單。
+    人工備份（``Touka_Backup_*``）完全不受影響、亦不計入份數。0 位元組的自動備份是發布失敗
+    留下的空檔，不算份數、直接刪（否則少留一份真的備份）。回傳被刪除的路徑清單。
     """
     autos = sorted(
         (f for f in list_snapshot_files(backup_dir) if f.name.startswith(f"{AUTO_BACKUP_PREFIX}_")),
         key=lambda f: f.stat().st_mtime,
     )  # 最舊在前；只看清單規則內的檔（和清單、清除同一套）
-    to_delete = autos[:-retention_count] if retention_count > 0 else list(autos)
+    empty = [f for f in autos if f.stat().st_size == 0]
+    real = [f for f in autos if f not in empty]
+    to_delete = empty + (real[:-retention_count] if retention_count > 0 else real)
     for f in to_delete:
         resource_manager.remove_file(f)
     return to_delete

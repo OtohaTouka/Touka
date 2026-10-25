@@ -7,6 +7,7 @@ Qdrant 的 meta.json 與 collection 資料對得上；路徑由參數給時不�
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -18,6 +19,7 @@ import pytest
 from memory_server import factual as fm
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
+from src.services.memory_scrub import swap
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "scripts" / "manage_backup.py"
 FIXED_NOW = datetime(2026, 10, 15, 13, 15, 42)
@@ -364,3 +366,121 @@ def test_main_rejects_partial_path_arguments(mb, layout, monkeypatch):
 
     with pytest.raises(SystemExit):
         mb.main()
+
+
+# ── 發布：改名失敗不留下空檔、暫時占用會重試、發布後資料夾落盤（ADR-0262 補記，丙-1） ──
+
+
+def _flaky_publish(mb, monkeypatch: pytest.MonkeyPatch, failures: int, *, write: bytes = b""):
+    """暫存檔改名成正式檔名時，前 ``failures`` 次丟 PermissionError（防毒、索引占用）。"""
+    calls = {"n": 0}
+    real_replace = Path.replace
+
+    def replace(self: Path, target):
+        if self.name.endswith(mb.PARTIAL_SUFFIX) and calls["n"] < failures:
+            calls["n"] += 1
+            if write:
+                Path(target).write_bytes(write)
+            raise PermissionError  # locked by another process
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(mb.time, "sleep", lambda _seconds: None)
+    return calls
+
+
+def test_publish_failure_leaves_no_empty_backup(mb, layout, monkeypatch):
+    _flaky_publish(mb, monkeypatch, failures=99)
+
+    with pytest.raises(PermissionError):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert list(layout["out"].iterdir()) == []  # 沒有 0 位元組的 .zip，也沒有 .partial
+
+
+def test_publish_retries_a_briefly_locked_rename(mb, layout, monkeypatch):
+    calls = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS - 1)
+
+    created = _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert calls["n"] == mb.PUBLISH_RENAME_ATTEMPTS - 1
+    assert created.name == f"{STEM}.zip"
+    assert "data/soul/Alice/soul.md" in _names(created)
+
+
+def test_publish_gives_up_after_the_last_attempt(mb, layout, monkeypatch):
+    calls = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS)
+
+    with pytest.raises(PermissionError):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert calls["n"] == mb.PUBLISH_RENAME_ATTEMPTS
+    assert list(layout["out"].iterdir()) == []
+
+
+def test_publish_keeps_a_placeholder_that_is_no_longer_empty(mb, layout, monkeypatch):
+    _flaky_publish(mb, monkeypatch, failures=99, write=b"written by someone else")
+
+    with pytest.raises(PermissionError):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert (layout["out"] / f"{STEM}.zip").read_bytes() == b"written by someone else"
+
+
+def test_publish_retry_matches_the_scrub_swap(mb):
+    assert (mb.PUBLISH_RENAME_ATTEMPTS, mb.PUBLISH_RETRY_DELAY_S) == (
+        swap.RENAME_ATTEMPTS,
+        swap.RENAME_RETRY_DELAY_S,
+    )
+
+
+_DIR_FD = -7  # 假的資料夾 fd：Windows 不能開資料夾，用替身記下呼叫
+
+
+def _fake_dir_sync(mb, monkeypatch: pytest.MonkeyPatch, backup_dir: Path, *, fail: bool = False):
+    events: list[tuple[str, bool]] = []
+    real_open, real_fsync, real_close = os.open, os.fsync, os.close
+
+    def fake_open(path, flags, *args):
+        if Path(path) == backup_dir and flags == os.O_RDONLY:
+            return _DIR_FD
+        return real_open(path, flags, *args)
+
+    def fake_fsync(fd):
+        if fd != _DIR_FD:
+            return real_fsync(fd)
+        events.append(("fsync", (backup_dir / f"{STEM}.zip").stat().st_size > 0))
+        if fail:
+            raise OSError  # fsync not supported here
+        return None
+
+    def fake_close(fd):
+        return None if fd == _DIR_FD else real_close(fd)
+
+    monkeypatch.setattr(mb, "_SUPPORTS_DIR_FSYNC", True)
+    monkeypatch.setattr(mb.os, "open", fake_open)
+    monkeypatch.setattr(mb.os, "fsync", fake_fsync)
+    monkeypatch.setattr(mb.os, "close", fake_close)
+    return events
+
+
+def test_publish_syncs_the_directory_after_the_rename(mb, tmp_path, monkeypatch):
+    tmp = tmp_path / f".{STEM}.abcdefgh{mb.PARTIAL_SUFFIX}"
+    tmp.write_bytes(b"zip bytes")
+    events = _fake_dir_sync(mb, monkeypatch, tmp_path)
+
+    final = mb._publish_new(tmp, tmp_path, STEM)
+
+    assert final.read_bytes() == b"zip bytes"
+    assert events == [("fsync", True)]  # once, after the backup has its content
+
+
+def test_publish_directory_sync_failure_only_warns(mb, tmp_path, monkeypatch, capsys):
+    tmp = tmp_path / f".{STEM}.abcdefgh{mb.PARTIAL_SUFFIX}"
+    tmp.write_bytes(b"zip bytes")
+    _fake_dir_sync(mb, monkeypatch, tmp_path, fail=True)
+
+    final = mb._publish_new(tmp, tmp_path, STEM)
+
+    assert final.read_bytes() == b"zip bytes"
+    assert "WARNING" in capsys.readouterr().err
