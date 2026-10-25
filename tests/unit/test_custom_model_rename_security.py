@@ -23,8 +23,10 @@ import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
+from src.services.user_service import UserService
 from src.utils import custom_io
 
 OLD = "RenameSecOld"
@@ -73,17 +75,16 @@ def _rename(old_id: str, new_id: str) -> Any:
 
 
 def _assert_ownership_untouched(owners: MagicMock) -> None:
+    owners.rename_owned_agent.assert_not_called()
     owners.remove_owned_agent.assert_not_called()
     owners.add_owned_agent.assert_not_called()
 
 
 def _assert_ownership_moved(owners: MagicMock, old_id: str, new_id: str) -> None:
-    owners.remove_owned_agent.assert_called_once()
-    owners.add_owned_agent.assert_called_once()
-    removed = owners.remove_owned_agent.call_args.args
-    added = owners.add_owned_agent.call_args.args
-    assert (removed[0], removed[1].agent_id) == (_ADMIN.agent_id, old_id)
-    assert (added[0], added[1].agent_id) == (_ADMIN.agent_id, new_id)
+    """所有人的擁有清單一起換名（不再只搬呼叫者自己的，丙-2）。"""
+    owners.rename_owned_agent.assert_called_once_with(old_id, new_id)
+    owners.remove_owned_agent.assert_not_called()
+    owners.add_owned_agent.assert_not_called()
 
 
 def _stored_id(model_id: str) -> str:
@@ -170,3 +171,100 @@ def test_successful_rename_moves_folder_config_and_ownership(owners: MagicMock) 
     assert OLD not in ids
     assert _stored_id(NEW) == NEW
     _assert_ownership_moved(owners, OLD, NEW)
+
+
+# ── 後續步驟失敗：搬回原狀（ADR-0254 H12 補記，舊審查報告丙-2） ────────────────────
+
+
+def test_ownership_failure_rolls_the_rename_back(owners: MagicMock) -> None:
+    """擁有權寫不進去 → 500；資料夾搬回舊 ID、config.json 的 id 改回舊 ID。"""
+    _create(owners, OLD)
+    owners.rename_owned_agent.side_effect = OSError
+
+    response = _rename(OLD, NEW)
+
+    assert response.status_code == 500, response.text
+    assert response.json()["detail"]["code"] == "SYSTEM_ERROR"
+    ids = custom_io.list_custom_ids()
+    assert OLD in ids
+    assert NEW not in ids
+    assert _stored_id(OLD) == OLD
+
+
+def test_config_write_failure_rolls_the_rename_back(
+    owners: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """新位置的 config.json 寫不進去（回 False）→ 500；資料夾搬回、擁有權不動。"""
+    before = _create(owners, OLD)
+    real_write = custom_io.write_custom_file
+
+    def _failing(identity: AgentIdentity, filename: str, content: str) -> bool:
+        if identity.agent_id == NEW:
+            return False
+        return real_write(identity, filename, content)
+
+    monkeypatch.setattr(custom_io, "write_custom_file", _failing)
+
+    response = _rename(OLD, NEW)
+
+    assert response.status_code == 500, response.text
+    _assert_ownership_untouched(owners)
+    assert NEW not in custom_io.list_custom_ids()
+    assert (_custom_base() / OLD / "config.json").read_bytes() == before
+
+
+def test_failed_rollback_is_audited(
+    owners: MagicMock, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """搬回也失敗時寫一行 AUDIT，照樣回 500。"""
+    _create(owners, OLD)
+    owners.rename_owned_agent.side_effect = OSError
+    real_move = custom_io.move_custom_dir
+    moves = {"n": 0}
+
+    def _second_move_fails(old_id: str, new_id: str) -> bool:
+        moves["n"] += 1
+        return real_move(old_id, new_id) if moves["n"] == 1 else False
+
+    monkeypatch.setattr(custom_io, "move_custom_dir", _second_move_fails)
+
+    with caplog.at_level("ERROR"):
+        response = _rename(OLD, NEW)
+
+    assert response.status_code == 500, response.text
+    assert moves["n"] == 2
+    audit = [r.getMessage() for r in caplog.records if "AUDIT" in r.getMessage()]
+    assert audit == [f"AUDIT: custom model rename rollback FAILED old={OLD} new={NEW}"]
+
+
+# ── 擁有權：所有人的清單一起換名，不再只搬呼叫者自己的 ─────────────────────────────
+
+_PW = "RenameOwnersPass123!"
+
+
+def test_rename_owned_agent_keeps_every_owner() -> None:
+    """所有人的清單一起換名：admin 替別人改名時擁有權留給原主人。
+
+    別人的清單不動；兩個 ID 都有的人只留一份新 ID。
+    """
+    auth = AuthService()
+    users = UserService(auth)
+    created = [
+        auth.create_user(f"rename-{role}-{n}@test.com", _PW, role=role)
+        for n, role in enumerate(("normal", "normal", "normal"))
+    ]
+    owner, other, both = created
+    try:
+        users.add_owned_agent(owner.id, AgentIdentity(agent_id=OLD))
+        users.add_owned_agent(other.id, AgentIdentity(agent_id="RenameSecKeep"))
+        for model_id in (OLD, NEW):
+            users.add_owned_agent(both.id, AgentIdentity(agent_id=model_id))
+
+        users.rename_owned_agent(OLD, NEW)
+
+        assert users.get_user(owner.id).owned_agents == [NEW]
+        assert users.get_user(other.id).owned_agents == ["RenameSecKeep"]
+        assert users.get_user(both.id).owned_agents == [NEW]
+    finally:
+        for user in created:
+            users.delete_user(user.id)

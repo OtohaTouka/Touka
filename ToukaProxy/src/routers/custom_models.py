@@ -201,11 +201,6 @@ async def rename_custom_model(
 
         try:
             custom_model_service.rename_model(old_identity, new_id)
-
-            # IDOR fix: update the user's owned agents list atomically
-            if _identity.is_human:
-                user_service.remove_owned_agent(_identity.agent_id, old_identity)
-                user_service.add_owned_agent(_identity.agent_id, AgentIdentity(agent_id=new_id, agent_role="Owner"))
         except FileNotFoundError as e:
             raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model_id) from e
         except FileExistsError as e:
@@ -213,8 +208,19 @@ async def rename_custom_model(
         except Exception as e:
             logger.exception("Error renaming custom model %s to %s", model_id, new_id)
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
-        else:
-            return {"status": "success", "old_id": model_id, "new_id": new_id}
+
+        # 所有人的擁有清單一起換名（一次原子寫入）：admin 替別人改名時擁有權留給原主人，
+        # 呼叫者不是人類也照搬；寫不進去就把資料夾與 config 搬回（舊審查報告丙-2）。
+        try:
+            user_service.rename_owned_agent(model_id, new_id)
+        except Exception as e:
+            logger.exception("Error moving ownership of custom model %s to %s", model_id, new_id)
+            if not custom_model_service.undo_rename(model_id, new_id):
+                logger.critical(
+                    "AUDIT: custom model rename rollback FAILED old=%s new=%s", model_id, new_id
+                )
+            raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
+        return {"status": "success", "old_id": model_id, "new_id": new_id}
 
 
 @router.delete("/{model_id}")

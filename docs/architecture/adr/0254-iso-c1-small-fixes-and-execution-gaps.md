@@ -212,3 +212,12 @@ ADR-0238 決策 5 寫「改為直接執行 Ruff、lint_ssot、原生工具契約
 ## 回復
 
 不要整個 revert 合併（之後的 ADR 會讓 Guard #28 變紅）。各項各自 commit，可獨立 revert 產品程式與測試；不改資料格式、不搬資料。缺口 1 撤回時本 ADR 的缺口 1 段標「已撤回」，ADR-0149、0229 的反向註記改回。缺口 1 與 H3 必須一起撤：只撤缺口 1、保留 H3 時，Manual 與無人在場會真的不問人就裝套件、跑代理人的程式（H3 之前這幾步因路徑錯誤跑不起來）。缺口 2 撤回時 MCP 伺服器回到繼承完整環境（含全部金鑰）。H7 撤回要一起還原 `NOQA_REGISTRY.md` 的計數。
+
+## 補記：H12 改名之後的步驟失敗要搬回、擁有權留給原主人（2026-10-25，舊審查報告丙-2）
+
+- 原本資料夾搬完之後，新位置的 `config.json` 改不了 id 只記 log（`write_custom_file` 回 False 也沒人看），改名照樣算成功；擁有權用兩次寫入先移除再加回，加回失敗時非 admin 的主人新舊 ID 都進不去；擁有權只改呼叫者自己的清單，admin 替別人改名會把擁有權拿走；呼叫者不是人類時完全不搬。ModelStudio 改名回 409 以外的錯誤時仍對新 ID 存檔，多出第二個模型。
+- `CustomModelService.rename_model`：新位置的 `config.json` 改不了 id（例外或回 False）時把資料夾搬回再丟 `OSError`；搬回也失敗時寫 AUDIT。
+- 新 `UserService.rename_owned_agent(old, new)`：一次 `_atomic_users_write` 把所有使用者清單裡的舊 ID 原地換成新 ID，新 ID 已在清單裡只留一份（禁令 21）；路由不再限人類呼叫者。
+- 路由：擁有權寫不進去時用新的 `CustomModelService.undo_rename` 搬回資料夾、把 `config.json` 的 id 改回舊 ID，回 500 `SYSTEM_ERROR`；搬回也失敗時寫一行 `AUDIT: custom model rename rollback FAILED old= new=`。不新增錯誤碼。沿用路由已經按字典序拿好的兩把模型鎖，回滾在鎖內、全是同步呼叫。
+- ModelStudio：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔。
+- 測試：`tests/unit/test_custom_model_rename_security.py`（擁有權寫入失敗與 config 寫入失敗都搬回、搬回失敗有 AUDIT、所有人的清單一起換名並去重；成功時改呼叫 `rename_owned_agent`）、`ToukaChat/src/components/layout/__tests__/ModelStudio.test.tsx`（改名回 500 不存檔）。

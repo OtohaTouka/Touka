@@ -169,7 +169,10 @@ export function ModelStudio() {
                         toast.error((await getCollisionMessage(renameRes)) ?? errorMsg("MODEL_CONFLICT"));
                         return;
                     }
+                    // 改名失敗就停下：再對新 ID 存檔會多出第二個模型（舊審查報告丙-2）
                     logSSOTError(new Error("Rename failed"), "ModelStudio:saveModel:rename");
+                    toast.error(await getErrorMessage(renameRes, "CONFIG_SAVE_FAILED"));
+                    return;
                 }
             }
 

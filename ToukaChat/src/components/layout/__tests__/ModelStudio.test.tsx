@@ -150,3 +150,31 @@ describe('ModelStudio：建立時撞名（成果審 R24）', () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
+
+describe('ModelStudio：改名失敗就停下（舊審查報告丙-2）', () => {
+  it('改名回 500 時不再對新 ID 存檔，並顯示錯誤', async () => {
+    const { toast } = await import('sonner');
+    customModels = [{
+      id: 'mine', name: 'mine', description: '', systemPrompt: '', config: { base_model: 'm-first' },
+    }];
+    mockFetchTouka.mockImplementation((_url: string, path: string) => {
+      if (path === '/v1/models') return ok({ data: MODEL_LIST });
+      if (path === '/v1/ui/custom_models') return ok({ models: customModels });
+      if (path === '/v1/tools_stats') return ok({ tools: [] });
+      if (String(path).endsWith('/rename')) {
+        return Promise.resolve(Response.json({ detail: { code: 'SYSTEM_ERROR', id: 1000 } }, { status: 500 }));
+      }
+      return ok({});
+    });
+    render(<ModelStudio />);
+    await waitForLoaded();
+    const nameInput = screen.getAllByDisplayValue('mine').find((el) => el.tagName === 'INPUT')!;
+    fireEvent.change(nameInput, { target: { value: 'renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Config/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const saves = mockFetchTouka.mock.calls.filter(([, path, opts]) =>
+      /^\/v1\/ui\/custom_models\/[^/]+$/.test(String(path)) && opts?.method === 'POST');
+    expect(saves).toHaveLength(0);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});

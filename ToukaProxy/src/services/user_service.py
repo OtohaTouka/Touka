@@ -291,6 +291,18 @@ class UserService:
                 user.owned_agents.append(agent_id)
         self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
 
+    def rename_owned_agent(self, old_id: str, new_id: str) -> None:
+        """改名：所有使用者擁有清單裡的舊 ID 原地換成新 ID，一次原子寫入（禁令 21）。
+
+        新 ID 已在同一份清單裡時只留一份。
+        """
+        def _mutate(users: list[User]) -> None:
+            for user in users:
+                if old_id in user.owned_agents:
+                    renamed = [new_id if a == old_id else a for a in user.owned_agents]
+                    user.owned_agents = list(dict.fromkeys(renamed))
+        self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
+
     def remove_owned_agent(self, user_id: str, agent_identity: AgentIdentity) -> None:
         """Remove an agent from a user's owned list safely. (SOLID/SSOT)"""
         agent_id = agent_identity.agent_id
