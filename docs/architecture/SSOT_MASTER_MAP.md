@@ -188,7 +188,8 @@
 |---|---|---|
 | `<continuity>` 區塊（現在時間、距這個對話上一輪多久、任務看板時間）的 tag、組字與記憶體紀錄上限 | tag `ToukaProxy/src/services/prompt_blocks.py` `CONTINUITY`（列在 `ALL_BLOCK_TAGS`，不列 `VOLATILE_SYSTEM_TAGS`）；組字 `ToukaProxy/src/services/continuity_service.py`（`build_continuity_block`、`inject_continuity`、`HEADER`、`elapsed_seconds`、`format_elapsed`、`last_backend_timestamp_ms`、`MAX_TRACKED_SESSIONS`） | `middleware/layers/soul.py` `SoulLayer`（靈魂路，`session_bound` 或無痕）；`context_snapshot_service.BLOCK_META`〔ADR-0267：v1 另讀活動事件，心跳由 `routers/heartbeat._execute_single_pulse` 也注入〕 |
 | 只在這一次請求附在最後一則 user 訊息尾端、不進下一輪歷史的區塊 | `ToukaProxy/src/services/prompt_blocks.py` `REQUEST_TAIL_TAGS`（`IDE_CONTEXT`、`CONTINUITY`） | `adapters/openai_to_claude.py` `convert_openai_to_anthropic` 的斷點 2（`_mark_history_breakpoint`、`_split_request_tail`：Claude 歷史快取斷點打在這些區塊之前） |
-| 歷史資料界線的文字與中和規則（安全，禁令 18、20） | `ToukaMemory/src/memory_server/utils/historical_data.py`（`HISTORICAL_DATA_CLOSE`、`historical_data_open`、`neutralize_historical_tags`、`wrap_historical_data`） | `MemoryManager.query_memory`、`tools/recall.random_recall`、`SoulService.inject_context_summary`、`SoulService.inject_home_messages`（`_mark_home_history`）；Proxy 從這裡匯入 |
+| 歷史資料界線的文字與中和規則（安全，禁令 18、20） | `ToukaMemory/src/memory_server/utils/historical_data.py`（`HISTORICAL_DATA_CLOSE`、`historical_data_open`、`neutralize_historical_tags`、`neutralize_tags`（ADR-0285）、`wrap_historical_data`） | `MemoryManager.query_memory`、`tools/recall.random_recall`、`SoulService.inject_context_summary`、`SoulService.inject_home_messages`（`_mark_home_history`）；Proxy 從這裡匯入 |
+| 模型寫的文字進 prompt 前的單行化與控制字元處理（安全，禁令 18；必須在 tag 中和之前） | `ToukaProxy/src/utils/model_text.py`（`single_line`、`blank_control_chars`、`LINE_BREAK_MARK`，ADR-0285） | `middleware/layers/context.py` 的 `render_mission_block`（ContextLayer／ToolLayer 注入的 `<mission_awareness>`）、`services/soul_service.py` 的前情摘要與家對話 |
 
 ## 記憶系統第一批：段 2～4 記憶庫升級、事實庫是正本、記憶來源（2026-10-15，ADR-0256）
 

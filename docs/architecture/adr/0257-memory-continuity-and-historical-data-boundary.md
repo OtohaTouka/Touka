@@ -1,6 +1,6 @@
 # ADR-0257：記憶系統第一批段 6：現在時間區塊（continuity v0）與歷史資料界線
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`adapters/openai_to_claude.py` 的斷點 2、`services/soul_service.py`）；ToukaMemory（新 `utils/historical_data.py`、`services/manager.py`、`tools/recall.py`）；SECURITY.md 一列

@@ -15,29 +15,52 @@ from memory_server.utils.historical_data import (
     HISTORICAL_DATA_CLOSE,
     historical_data_open,
     neutralize_historical_tags,
+    neutralize_tags,
     wrap_historical_data,
 )
 
 from src.adapters.content_normalize import normalize_message_content
 from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
-from src.services.prompt_blocks import CONVERSATION_SUMMARY, PERSONA, wrap_block
+from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
+from src.utils.model_text import blank_control_chars
 
 logger = logging.getLogger(__name__)
 
 
 def _map_text(content: Any, fn: Callable[[str], str]) -> Any:
-    """對一則訊息內容的文字套用 ``fn``：字串直接套，多模態 list 套在每個 text part。"""
-    if isinstance(content, str):
-        return fn(content)
-    if isinstance(content, list):
-        return [
-            {**p, "text": fn(p["text"])}
-            if isinstance(p, dict) and isinstance(p.get("text"), str)
-            else p
-            for p in content
-        ]
-    return content
+    """對一則訊息內容的文字套用 ``fn``，套在模型會看到的形狀上（ADR-0285）。
+
+    多模態 JSON 字串先還原成 list 再套：轉接層送出前也會還原，在原始 JSON 上中和時
+    JSON 跳脫寫法（``<`` 寫成 u003c、``/`` 前面加反斜線）還不是 ``<``、``/``，解開後就變成
+    真的 tag。套完再存回 JSON 字串，送出的形狀和原本一樣（原生 Anthropic 入口不轉換
+    ``image_url``，改成 list 會被拒絕）。
+    """
+    decoded = normalize_message_content(content)
+    if isinstance(decoded, list):
+        mapped = [_map_part(part, fn) for part in decoded]
+        return json.dumps(mapped, ensure_ascii=False) if isinstance(content, str) else mapped
+    if isinstance(decoded, str):
+        return fn(decoded)
+    return decoded
+
+
+def _map_part(part: Any, fn: Callable[[str], str]) -> Any:
+    """一個 part：字串直接套；dict 套 ``text``、``thinking`` 與巢狀 ``content``（工具結果等）。"""
+    if isinstance(part, str):
+        return fn(part)
+    if not isinstance(part, dict):
+        return part
+    mapped = dict(part)
+    for key in ("text", "thinking"):
+        if isinstance(mapped.get(key), str):
+            mapped[key] = fn(mapped[key])
+    nested = mapped.get("content")
+    if isinstance(nested, str):
+        mapped["content"] = fn(nested)
+    elif isinstance(nested, list):
+        mapped["content"] = [_map_part(item, fn) for item in nested]
+    return mapped
 
 
 def _add_text(content: Any, text: str, *, before: bool) -> Any:
@@ -49,13 +72,18 @@ def _add_text(content: Any, text: str, *, before: bool) -> Any:
     return f"{text}\n{content or ''}" if before else f"{content or ''}\n{text}"
 
 
+def _neutralize_history(text: str) -> str:
+    """舊紀錄先把控制字元換成空白，再中和界線 tag 與其他 prompt 區塊 tag（ADR-0285）。"""
+    return neutralize_tags(neutralize_historical_tags(blank_control_chars(text)), ALL_BLOCK_TAGS)
+
+
 def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """家對話第一則前加歷史資料界線開頭、最後一則後加結尾：只加文字，角色與則數不變。
 
-    先複製再改，不動到讀出來的 session 樹；每則文字裡的界線 tag 先中和。
+    先複製再改，不動到讀出來的 session 樹；每則文字裡的區塊 tag 先中和。
     """
     marked = [
-        {**m, "content": _map_text(m.get("content"), neutralize_historical_tags)}
+        {**m, "content": _map_text(m.get("content"), _neutralize_history)}
         for m in home_msgs
     ]
     opening = historical_data_open("home_conversation")
@@ -308,7 +336,9 @@ class SoulService:
             return
 
         # 歷史資料界線包在 <conversation_summary> 裡面：位置與角色都不變，只加文字
-        historical = wrap_historical_data("conversation_summary", summary)
+        historical = wrap_historical_data(
+            "conversation_summary", blank_control_chars(summary), extra_tags=ALL_BLOCK_TAGS
+        )
         block = "\n\n" + wrap_block(CONVERSATION_SUMMARY, historical)
         if hasattr(request, "system"):
             if isinstance(request.system, list):
