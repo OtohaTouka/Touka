@@ -23,6 +23,9 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 
 ``--repeats N``（1..5）先把整批跑完一輪再跑下一輪，每一次都是新的合成靈魂；次數印在核准範圍，
 預計請求數印成「每輪 × 輪數」。同意跑 1 輪的核准不能拿來跑更多輪。
+
+價目表查不到的型號（產品會用保守預設價估）直接拒跑；靠家族名稱估價的型號，核准範圍標
+``pricing=family_estimate``。送前預留、結清與軟上限都用同一份產品價目表。
 """
 
 from __future__ import annotations
@@ -152,7 +155,7 @@ if TYPE_CHECKING:
     from tests.memory_eval.scenarios import Scenario
     from tests.sandbox_cleanup import ReleaseStep
 
-MAX_PROVIDER_REQUESTS = 40
+MAX_PROVIDER_REQUESTS = 200
 MAX_LIVE_TOKENS = 1024  # 請求裡的 max_tokens；Touka 送出時可能拉高（見 _wire_max_tokens）
 DEFAULT_LIVE_TOKENS = 512
 # 工具自己的天花板：Touka 實際要送的輸出上限超過就不送（之後規則表改 32K／64K 也不會照送）。
@@ -160,6 +163,8 @@ OUTPUT_TOKEN_CEILING = 8_192
 _WIRE_RULE = "anthropic follows Touka model rules; other providers send the requested value"
 MAX_BUDGET_USD = 2.0
 MAX_REPEATS = 5
+PRICE_EXACT = "exact"
+PRICE_FAMILY = "family_estimate"
 # 主迴圈的四家共用重試開關（react_core.MAX_SEND_ATTEMPTS 是總送出次數）：只送 1 次、不重試。
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
@@ -195,6 +200,12 @@ class _OutputCeilingExceeded(RuntimeError):
     def __init__(self, wire: int) -> None:
         super().__init__(f"Touka would send max_tokens={wire}, above the probe ceiling "
                          f"{OUTPUT_TOKEN_CEILING}; nothing sent")
+
+
+class _UnpricedModel(RuntimeError):
+    def __init__(self, model: str) -> None:
+        super().__init__(f"{model} 不在價目表裡（產品會用保守預設價估），不跑；"
+                         "要跑先把它補進產品價目表")
 
 
 class _ProviderRouteMismatch(ValueError):
@@ -317,6 +328,18 @@ def _dearest_rate(model: str) -> Any:
     return rate.long_prompt[1] if rate.long_prompt is not None else rate
 
 
+def _price_basis(model: str) -> str:
+    """價目表怎麼估這個型號：完整名稱有一筆是 exact，靠家族名稱（子字串）估是 family_estimate。
+
+    查不到（產品會用保守預設價）就拒跑。要分出完整名稱得讀價目表的私有部分（已知限制，ADR-0284）。
+    """
+    _rate, source = pricing.resolve(model)
+    if source == "fallback":
+        raise _UnpricedModel(model)
+    table = pricing._load_config()[0] if source == "override" else pricing._BUILTIN_PRICING
+    return PRICE_EXACT if model.strip().lower() in table else PRICE_FAMILY
+
+
 def _install_bounds(max_requests: int, wire_cap: int, *, model: str, budget: float) -> None:
     global _PROVIDER_REQUEST_BUDGET, _OUTPUT_CAP, _LEDGER
     _PROVIDER_REQUEST_BUDGET = LiveApiCallBudget(max_requests=max_requests)
@@ -391,6 +414,7 @@ def _memory_eval_scope(
     repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> LiveApiScope:
+    basis = _price_basis(model)  # 查不到價目就在這裡停下：連核准範圍都不印
     rate = _dearest_rate(model)
     stub = _stub_facts()
     return LiveApiScope(
@@ -410,6 +434,7 @@ def _memory_eval_scope(
             f"budget_usd={budget:.4f}",
             "pre_send_worst_case=spent + wire cap x output + (request chars + "
             f"{live_bounds.VENDOR_OVERHEAD_TOKENS}) x max(input|cache_write) <= budget",
+            f"pricing={basis}",
             f"worst_case_usd_per_mtok=input={live_bounds.worst_case_input_price(rate):g};"
             f"output={rate.output:g}",
             "provider_retry=0",
@@ -599,12 +624,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except UnknownScenario as exc:
         parser.error(str(exc))
     env_file = _resolve_env_file(sys.argv[1:] if argv is None else argv)
-    scope = _memory_eval_scope(
-        provider=provider, model=args.model, suite=args.suite,
-        scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
-        max_tokens=args.max_tokens, budget=args.budget, repeats=args.repeats,
-        env_file=env_file,
-    )
+    try:
+        scope = _memory_eval_scope(
+            provider=provider, model=args.model, suite=args.suite,
+            scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
+            max_tokens=args.max_tokens, budget=args.budget, repeats=args.repeats,
+            env_file=env_file,
+        )
+    except _UnpricedModel as exc:
+        parser.error(str(exc))
     approval = issue_live_api_approval(approved=args.human_approved_live_api, scope=scope)
     sys.stdout.write(format_live_api_scope(scope) + "\n")
     expected = _expected_requests(args.suite, [s.id for s in scenarios], args.repeats)

@@ -88,6 +88,8 @@
 | 整次 run 金額（畫面 `token_usage` 與稽核 CSV 同一個值） | `services/telemetry.py` `run_cost_usd`、`is_long_prompt`；`handlers/react_core.py` `_RunUsage.long_totals` | `react_core`、`log_usage_audit(cost_usd=)` |
 | 審查員等待預設與上限 | `models/autonomy.py` `AutoReviewConfig.timeout_s`（60，`gt=0, le=120`）＋`config/autonomy.json.example`；前端 `useAutoReviewSettings` `REVIEWER_TIMEOUT_MAX_S`（對齊 `le=120`） | `auto_reviewer._config`；ToukaChat 審查員卡片 |
 | 人工實測的最壞估價取貴檔 | `tests/smoke/manual/memory_eval_probe.py` `_dearest_rate` | 記憶評估工具、`thinking_latency_probe.py` |
+| 記憶評估的價目依據（查不到拒跑、家族估價標示；ADR-0284） | `tests/smoke/manual/memory_eval_probe.py` `_price_basis`（讀 `pricing.resolve` 與價目表私有部分） | 記憶評估工具（延遲實測腳本不用） |
+| 記憶評估的通過率範圍、兩次比較、評估程式雜湊（ADR-0284） | `tests/memory_eval/stats.py`（`wilson`、`newcombe`、`eval_code_hash`、`EVAL_CODE_FILES`、`compare_reports`） | `runner.BatchReport`、`memory_eval_probe.py`、比較工具 `python -m tests.memory_eval.stats` |
 
 ## 記憶系統第二批：段 7 清除連備份（2026-10-15，ADR-0270）
 

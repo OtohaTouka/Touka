@@ -616,7 +616,7 @@ def test_haiku_5_5_pre_send_worst_case_still_uses_the_dear_tier(
     [
         (probe._bounded_int("max-tokens", probe.MAX_LIVE_TOKENS), ["0", "1025"], "1024"),
         (probe._bounded_int("max-provider-requests", probe.MAX_PROVIDER_REQUESTS),
-         ["0", "41"], "40"),
+         ["0", "201"], "200"),
         (probe._bounded_budget, ["0", "-1", "2.01"], "2"),
         (probe._bounded_int("repeats", probe.MAX_REPEATS), ["0", "6"], "5"),
     ],
@@ -641,6 +641,60 @@ def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
 def test_m1_models_route_to_the_disclosed_provider(model: str, provider: str) -> None:
     """M1 揭露草稿寫的四個型號，路由結果要和揭露的 provider 一致（不一致 CLI 會拒絕）。"""
     assert probe._provider_for_model(model) == provider
+
+
+# --- 價目表：查不到拒跑、靠家族名稱估價要標出來（ADR-0284 第二部分） -----------------
+
+
+@pytest.fixture
+def builtin_prices_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+
+
+@pytest.mark.parametrize(
+    ("model", "basis"),
+    [("deepseek-v4-flash", "exact"), ("claude-haiku-5-5", "exact"),
+     ("grok-4.20-0309-non-reasoning", "family_estimate"),
+     ("claude-haiku-4-5", "family_estimate")],
+)
+def test_scope_says_whether_the_price_is_exact_or_a_family_estimate(
+    builtin_prices_only: None, model: str, basis: str
+) -> None:
+    rendered = policy.format_live_api_scope(probe._memory_eval_scope(
+        provider=probe._provider_for_model(model), model=model, suite=SMOKE,
+        scenario_ids=["poison_home"], max_requests=3, max_tokens=64, budget=0.1,
+    ))
+
+    assert f"pricing={basis}" in rendered
+
+
+def test_a_price_override_is_exact_only_under_the_full_model_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, entry = "grok-4.20-0309-non-reasoning", {"input": 3.0, "output": 15.0}
+
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {model: entry}})
+    assert probe._price_basis(model) == "exact"
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {"grok-4.20": entry}})
+    assert probe._price_basis(model) == "family_estimate"
+
+
+def test_a_model_without_a_price_is_refused_before_any_approval(
+    builtin_prices_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，價目表只有 gpt-4 這些
+
+    with pytest.raises(probe._UnpricedModel):
+        probe._memory_eval_scope(
+            provider="openai", model="gpt-5", suite=SMOKE, scenario_ids=["poison_home"],
+            max_requests=3, max_tokens=64, budget=0.1,
+        )
+    with pytest.raises(SystemExit):  # 還沒到問核准就停下（不是 LiveApiApprovalRequired）
+        probe.main(["--provider", "openai", "--model", "gpt-5", "--suite", "smoke",
+                    "--max-provider-requests", "3", "--budget", "0.1"])
 
 
 def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
