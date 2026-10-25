@@ -97,6 +97,7 @@ def _assert_ownership_untouched(owners: MagicMock) -> None:
     owners.remove_owned_agent.assert_not_called()
     owners.add_owned_agent.assert_not_called()
     owners.claim_owned_agent.assert_not_called()
+    owners.remove_owned_agent_from_all.assert_not_called()
 
 
 def _assert_ownership_moved(owners: MagicMock, old_id: str, new_id: str) -> None:
@@ -309,16 +310,33 @@ def test_a_model_without_config_is_still_renamed(owners: MagicMock) -> None:
     _assert_ownership_moved(owners, OLD, NEW)
 
 
-def test_a_corrupt_config_does_not_block_the_rename(owners: MagicMock) -> None:
-    """config.json 不是 JSON 物件時不用改 id（之後存檔會整份重寫）→ 照樣改名。"""
+@pytest.mark.parametrize("content", ["not json", "[]", '"x"'], ids=["invalid", "list", "string"])
+def test_a_config_that_is_not_a_json_object_does_not_block_the_rename(
+    owners: MagicMock, content: str
+) -> None:
+    """config.json 不是 JSON 物件時不用改 id（之後存檔會整份重寫）→ 照樣改名、內容不動。"""
     _create(owners, OLD)
-    (_custom_base() / OLD / "config.json").write_text("not json", encoding="utf-8")
+    (_custom_base() / OLD / "config.json").write_text(content, encoding="utf-8")
 
     response = _rename(OLD, NEW)
 
     assert response.status_code == 200, response.text
-    assert (_custom_base() / NEW / "config.json").read_text(encoding="utf-8") == "not json"
+    assert (_custom_base() / NEW / "config.json").read_text(encoding="utf-8") == content
     _assert_ownership_moved(owners, OLD, NEW)
+
+
+@pytest.mark.parametrize("reserved", ["DebugAgent", "dispatchagent"])
+def test_system_agent_ids_cannot_be_used_for_a_model(owners: MagicMock, reserved: str) -> None:
+    """DebugAgent、DispatchAgent（不分大小寫）不能拿來新建或改名：擁有清單和它們共用 ID。"""
+    created = _post(f"/v1/ui/custom_models/{reserved}", _BODY)
+    _create(owners, OLD)
+    renamed = _rename(OLD, reserved)
+
+    for response in (created, renamed):
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "MODEL_ALREADY_EXISTS"
+    _assert_ownership_untouched(owners)
+    assert reserved not in custom_io.list_custom_ids()
 
 
 # ── 後續步驟失敗：搬回原狀（ADR-0254 H12 補記，舊審查報告丙-2） ────────────────────
@@ -462,15 +480,39 @@ def test_updating_an_existing_model_does_not_claim_it(owners: MagicMock) -> None
     _assert_ownership_untouched(owners)
 
 
-def test_deleting_a_model_drops_the_callers_ownership(owners: MagicMock) -> None:
-    """釘住：一般模型刪除時，從呼叫者的清單拿掉。"""
+@pytest.mark.parametrize("who", [_ADMIN, _DEBUGGER], ids=["human", "non-human"])
+def test_deleting_a_model_drops_it_from_every_list(owners: MagicMock, who: AgentIdentity) -> None:
+    """刪除時所有人的清單都拿掉這個 ID，不只呼叫者的，也不限人類呼叫者（丙-2）。"""
     _create(owners, OLD)
 
-    response = _send("DELETE", f"/v1/ui/custom_models/{OLD}", None, _ADMIN)
+    response = _send("DELETE", f"/v1/ui/custom_models/{OLD}", None, who)
 
     assert response.status_code == 200, response.text
-    owners.remove_owned_agent.assert_called_once()
-    assert owners.remove_owned_agent.call_args.args[1].agent_id == OLD
+    assert OLD not in custom_io.list_custom_ids()
+    owners.remove_owned_agent_from_all.assert_called_once()
+    assert owners.remove_owned_agent_from_all.call_args.args[0].agent_id == OLD
+    owners.remove_owned_agent.assert_not_called()
+
+
+def test_other_endpoints_only_accept_the_real_folder_name(owners: MagicMock) -> None:
+    """查看、刪除用只差大小寫的 ID → 404；存檔 → 409（走新建的撞名檢查），什麼都不動（丙-2）.
+
+    不分大小寫的磁碟上這些 ID 找得到資料夾，擁有清單卻比對不到。
+    """
+    before = _create(owners, OLD)
+    other = OLD.lower()
+
+    got = _send("GET", f"/v1/ui/custom_models/{other}", None, _ADMIN)
+    deleted = _send("DELETE", f"/v1/ui/custom_models/{other}", None, _ADMIN)
+    saved = _post(f"/v1/ui/custom_models/{other}", {**_BODY, "systemPrompt": "OTHER"})
+
+    assert got.status_code == 404, got.text
+    assert deleted.status_code == 404, deleted.text
+    assert saved.status_code == 409, saved.text
+    assert saved.json()["detail"]["code"] == "MODEL_ALREADY_EXISTS"
+    _assert_ownership_untouched(owners)
+    assert (_custom_base() / OLD / "config.json").read_bytes() == before
+    assert OLD in custom_io.list_custom_ids()
 
 
 def test_deleting_a_legacy_folder_named_like_a_soul_keeps_ownership(
@@ -528,7 +570,7 @@ def test_rename_owned_agent_keeps_every_owner(four_users: Any) -> None:
 
 
 def test_claim_owned_agent_gives_the_id_to_the_creator_only(four_users: Any) -> None:
-    """新建的 ID：別人清單裡的殘留拿掉、只加給建立者；沒有建立者時只清殘留。"""
+    """新建的 ID：別人清單裡的殘留拿掉、只加給建立者；刪除時所有人的清單一起拿掉。"""
     users, (creator, stale, other, _unused) = four_users
     users.add_owned_agent(stale.id, AgentIdentity(agent_id=OLD))
     users.add_owned_agent(other.id, AgentIdentity(agent_id="RenameSecKeep"))
@@ -539,7 +581,7 @@ def test_claim_owned_agent_gives_the_id_to_the_creator_only(four_users: Any) -> 
     assert users.get_user(stale.id).owned_agents == []
     assert users.get_user(other.id).owned_agents == ["RenameSecKeep"]
 
-    users.claim_owned_agent(AgentIdentity(agent_id=OLD), None)
+    users.remove_owned_agent_from_all(AgentIdentity(agent_id=OLD))
 
     assert users.get_user(creator.id).owned_agents == []
     assert users.get_user(other.id).owned_agents == ["RenameSecKeep"]

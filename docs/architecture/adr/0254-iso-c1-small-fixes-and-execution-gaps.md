@@ -218,22 +218,27 @@ ADR-0238 決策 5 寫「改為直接執行 Ruff、lint_ssot、原生工具契約
 - 原本的問題：
   - 資料夾搬完之後，新位置的 `config.json` 改不了 id 只記 log（`write_custom_file` 回 False 也沒人看），改名照樣算成功。
   - 擁有權用兩次寫入先移除再加回，加回失敗時非 admin 的主人新舊 ID 都進不去；擁有權只改呼叫者自己的清單，admin 替別人改名會把擁有權拿走；呼叫者不是人類時完全不搬。
-  - 刪除後清單裡留下的 ID（刪除只拿掉呼叫者自己的），在別人新建或改名成同一個 ID 時，會讓舊主人能讀、改、刪這個新模型。
+  - 刪除後清單裡留下的 ID（刪除只拿掉呼叫者自己的），在別人新建自訂模型、改名或建立靈魂成同一個 ID 時，會讓舊主人能讀、改、刪這個新模型，或成為這個新靈魂的擁有者（擁有清單是靈魂和自訂模型共用的）。
+  - 建立靈魂不擋和既有自訂模型完全同名（collection 撞名檢查不算完全相同的 ID），自訂模型的主人會一起變成靈魂的擁有者。
   - 和靈魂同名的舊自訂模型資料夾（ADR-0245 之前留下的）和靈魂共用清單裡的同一個 ID，改名或刪除時會連靈魂的擁有權一起動。
+  - 查看、存檔、改名、刪除在不分大小寫的磁碟上把只差大小寫的 ID 當成同一個模型，擁有清單卻是精確比對：admin 會搬走別人的模型，非人類的 Owner 身分查不到擁有者、會被當成公用模型放行。新 ID 也沒擋 DebugAgent、DispatchAgent。
   - ModelStudio 改名回 409 以外的錯誤時仍對新 ID 存檔，多出第二個模型；改名只收英數字，中文名字改名一律 422（建立時可以用中文）。
 - `CustomModelService.rename_model`：新位置的 `config.json` 讀不到、寫不進去或出錯時把資料夾搬回再丟 `OSError`；搬回也失敗或出錯時寫 CRITICAL 的 AUDIT。沒有 `config.json`、或內容不是 JSON 物件時不改 id、照樣改名（id 沒有地方讀，之後存檔會整份重寫）。
 - 新 `UserService.rename_owned_agent(old, new)`：一次 `_atomic_users_write`（禁令 21）把所有使用者清單裡的舊 ID 原地換成新 ID，新 ID 已在清單裡只留一份；沒有舊 ID 的人清單裡的新 ID 是刪除後的殘留（改名前新 ID 沒有模型），一併拿掉。路由不再限人類呼叫者。
-- 新 `UserService.claim_owned_agent(id, owner)`：新建自訂模型時一次把這個 ID 從所有人的清單拿掉，再加給人類建立者（不是人類時誰都不加）。新建前已經擋掉和靈魂、其他自訂模型撞名，所以拿掉的只會是殘留。
+- 新 `UserService.claim_owned_agent(id, owner)`：新建自訂模型、建立靈魂時一次把這個 ID 從所有人的清單拿掉，再加給建立者（新建自訂模型時不是人類就誰都不加）。新建前已經擋掉和靈魂、其他自訂模型、DebugAgent、DispatchAgent 撞名，建立靈魂時另擋和既有自訂模型完全同名（409 `MODEL_ALREADY_EXISTS`），所以拿掉的是刪除留下的殘留。
+- 新 `UserService.remove_owned_agent_from_all(id)`：刪除自訂模型時從所有人的清單拿掉（原本只拿掉呼叫者的，呼叫者不是人類時誰的都不拿）。
+- 路由（查看、存檔、改名、刪除）：只認實際的資料夾名稱。查看、改名、刪除只差大小寫回 404 `MODEL_NOT_FOUND`；存檔只差大小寫時不當成既有模型，走新建的撞名檢查回 409（和 Linux 一樣）。新 ID 不能是 DebugAgent、DispatchAgent（不分大小寫，409）。
 - 路由（改名）：
-  - 請求的 ID 不是實際的資料夾名稱（不分大小寫的磁碟上只差大小寫也搬得動，擁有清單卻比對不到）回 404 `MODEL_NOT_FOUND`；新舊 ID 相同直接回成功、什麼都不寫；舊 ID 和靈魂同名回 409 `MODEL_ALREADY_EXISTS`、什麼都不動。
+  - 新舊 ID 相同直接回成功、什麼都不寫；舊 ID 和靈魂同名回 409 `MODEL_ALREADY_EXISTS`、什麼都不動。
   - 擁有權寫不進去時用新的 `CustomModelService.undo_rename` 搬回資料夾、把 `config.json` 的 id 改回舊 ID，回 500 `SYSTEM_ERROR`；搬回失敗、出錯或 id 改不回去時寫一行 CRITICAL 的 `AUDIT: custom model rename rollback FAILED old= new= by=`。
   - 不新增錯誤碼。沿用路由已經按字典序拿好的兩把模型鎖，回滾在鎖內、全是同步呼叫。
-- 路由（刪除）：和靈魂同名的舊資料夾刪除時不動擁有權清單。
+- 路由（刪除）：和靈魂同名的舊資料夾刪除時不動擁有權清單，其他都從所有人的清單拿掉。
 - `CustomModelRenameRequest.new_id` 的字元規則從 `^[A-Za-z0-9._-]+$` 放寬成 `^[\w.-]+$`（含中文等各語言的字母數字），和建立時能用的 ID 一致；斜線、反斜線、空白照舊擋，`..` 由路由的 `is_plain_custom_name` 擋。OpenAPI 已重生。
-- ModelStudio：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔；改名成功就記下新 ID，接下來的存檔失敗時重試直接存到新 ID、不再送一次改名，表單上沒存的修改留著（不換畫面上的 ID，換了會重新載入清單）。
-- 不在這次範圍（HANDOVER 已知問題）：刪除只拿掉呼叫者自己清單裡的 ID、`DELETE /v1/models/{id}` 完全不拿，殘留現在只在新建或改名成同一個 ID 時清掉；`custom_io.write_custom_file` 不是原子置換；改名的回應在網路上遺失時，畫面重新整理前存不進去。
+- ModelStudio：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔；改名成功就記下新 ID，接下來的存檔失敗時重試直接存到新 ID、不再送一次改名，表單上沒存的修改留著（不換畫面上的 ID，換了會重新載入清單）。刪除送後端記著的 ID，後端沒刪成就顯示錯誤、不從畫面拿掉；還沒存過的新模型只在畫面上拿掉。
+- 不在這次範圍（HANDOVER 已知問題）：`DELETE /v1/models/{id}` 刪自訂模型資料夾時不清擁有清單，殘留要等同一個 ID 再被建立時才清掉；agents_registry 裡不是靈魂的 ID 沒擋（平常只有靈魂會登記）；`custom_io.write_custom_file` 不是原子置換；改名的回應在網路上遺失時，畫面重新整理前存不進去；舊 ID 和靈魂同名的 409 沿用 `MODEL_ALREADY_EXISTS`，畫面看不出是舊名字的問題。
 - 測試：
-  - `tests/unit/test_custom_model_rename_security.py`：擁有權寫不進去，以及 config 讀不到、寫不進去、出錯時都搬回；搬回失敗或出錯、id 改不回去時有 CRITICAL 的 AUDIT；請求 ID 只差大小寫 404；和靈魂同名不能改名、刪除不動擁有權；新舊 ID 相同不寫；中文新 ID；壞掉的 config 照樣改名；非人類呼叫者也搬；新建時認領 ID；`rename_owned_agent` 與 `claim_owned_agent` 用沙盒裡真的 users.json。
+  - `tests/unit/test_custom_model_rename_security.py`：擁有權寫不進去，以及 config 讀不到、寫不進去、出錯時都搬回；搬回失敗或出錯、id 改不回去時有 CRITICAL 的 AUDIT；查看、存檔、改名、刪除用只差大小寫的 ID 都不動；和靈魂同名不能改名、刪除不動擁有權；新舊 ID 相同不寫；中文新 ID；DebugAgent、DispatchAgent 不能用；沒有 config 或不是 JSON 物件照樣改名；非人類呼叫者也搬；新建時認領 ID；刪除從所有人的清單拿掉；`rename_owned_agent`、`claim_owned_agent`、`remove_owned_agent_from_all` 用沙盒裡真的 users.json。
+  - `tests/unit/test_soul_crud_real_writes.py`：建立靈魂時拿掉別人清單裡同一個 ID 的殘留；和既有自訂模型完全同名回 409、什麼都不建。
   - `tests/unit/test_idor_soul_sandbox_security.py`：中文新 ID 收，斜線與空白照擋。
-  - `ToukaChat/src/components/layout/__tests__/ModelStudio.test.tsx`：改名回 500 不存檔；改名成功、存檔失敗後重試不再改名，沒存的修改還在。
-  - `tests/unit/test_code_review_fixes.py`、`tests/unit/test_memory_collection_collision_security.py` 改成替換新的擁有權呼叫。
+  - `ToukaChat/src/components/layout/__tests__/ModelStudio.test.tsx`：改名回 500 不存檔；改名成功、存檔失敗後重試不再改名，沒存的修改還在；之後刪除刪的是新 ID；刪除失敗時模型留著；沒存過的新模型不送刪除。
+  - `tests/unit/test_code_review_fixes.py`、`tests/unit/test_memory_collection_collision_security.py`、`tests/unit/test_soul_session_reuse_security.py` 改成替換新的擁有權呼叫。

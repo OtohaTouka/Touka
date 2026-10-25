@@ -215,13 +215,24 @@ export function ModelStudio() {
     };
 
     const deleteModel = async (id: string) => {
+        // 送後端記著的 ID（改名成功、存檔失敗後畫面上的 id 還是舊的）；還沒存過的新模型只在畫面上拿掉。
+        // 後端沒刪成就顯示錯誤、不從清單拿掉（舊審查報告丙-2）
+        const savedId = models.find(m => m.id === id)?.originalId;
         try {
-            const proxyUrl = getActiveProxyUrl();
-            // 職責邊界：ModelStudio 只刪除 Level 2 自訂模型
-            await fetchTouka(proxyUrl, `/v1/ui/custom_models/${id}`, { method: "DELETE" });
-            window.dispatchEvent(new CustomEvent("touka_refresh_models"));
+            if (savedId) {
+                const proxyUrl = getActiveProxyUrl();
+                // 職責邊界：ModelStudio 只刪除 Level 2 自訂模型
+                const res = await fetchTouka(proxyUrl, `/v1/ui/custom_models/${savedId}`, { method: "DELETE" });
+                if (!res.ok) {
+                    toast.error(await getErrorMessage(res, "MODEL_DELETE_FAILED"));
+                    return;
+                }
+                window.dispatchEvent(new CustomEvent("touka_refresh_models"));
+            }
         } catch (err) {
             logSSOTError(err, "ModelStudio:deleteModel");
+            toast.error(await getErrorMessage(err, "MODEL_DELETE_FAILED"));
+            return;
         }
 
         const filtered = models.filter(m => m.id !== id);

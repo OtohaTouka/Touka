@@ -30,7 +30,7 @@ from src.services.models import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
-from src.utils import soul_io
+from src.utils import custom_io, soul_io
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import (
     clear_agent,
@@ -120,6 +120,10 @@ async def create_soul(
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     if soul_path.exists():
         raise ToukaException(ErrorCode.SOUL_ALREADY_EXISTS)
+    # 和既有的自訂模型完全同名（collection 撞名檢查不算完全相同的 ID）：擁有清單共用同一筆，
+    # 自訂模型的主人會一起變成這個靈魂的擁有者（舊審查報告丙-2）
+    if agent_id in custom_io.list_custom_ids():
+        raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=agent_id)
     # 主要模型比照存檔先驗（先於任何建立動作）：不能用就 404；只差大小寫分不出時
     # resolve_custom_route 直接拋 409 MODEL_NAME_AMBIGUOUS。
     if base_model and not is_selectable_brain(base_model, manager=model_manager):
@@ -157,7 +161,9 @@ async def create_soul(
         # 過去建立側漏寫（刪除側反而會清＝不對稱），新靈魂在手動歸屬前心跳全滅。
         # 角色面毋須寫 identity_map——tag_rules is_toukasoul→Owner（ADR-0147）已涵蓋，
         # 寫 override 反而有蓋掉 tag_rules 的降級風險。
-        UserService().add_owned_agent(identity.agent_id, soul_identity)
+        # 舊審查報告丙-2：用認領，別人清單裡同一個 ID 的殘留（刪掉的自訂模型留下的）一併拿掉，
+        # 不然殘留的主人會變成這個新靈魂的擁有者。
+        UserService().claim_owned_agent(soul_identity, identity.agent_id)
 
         # 如果有大腦型號，就立刻寫入設定紀錄 (SSOT 原子化建立)
         if base_model:

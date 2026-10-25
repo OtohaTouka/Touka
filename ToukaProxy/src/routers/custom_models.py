@@ -14,7 +14,7 @@ from src.models.custom_models import (  # noqa: TC001
     CustomModelRenameRequest,
     CustomModelUpdateRequest,
 )
-from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
 from src.services import memory_collection_guard
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
@@ -51,6 +51,16 @@ def _validate_model_access(model_identity: AgentIdentity, identity: AgentIdentit
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
 
+def _assert_folder_name(model: AgentIdentity) -> None:
+    """只認實際的資料夾名稱，否則 404（舊審查報告丙-2）.
+
+    不分大小寫的磁碟上 mine 也找得到 Mine，擁有清單卻是精確比對：admin 會搬走別人的模型，
+    非人類的 Owner 身分查不到擁有者、會被當成公用模型放行。
+    """
+    if model.agent_id not in custom_io.list_custom_ids():
+        raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model.agent_id)
+
+
 def _names_a_soul(name: str, soul_ids: list[str]) -> bool:
     """去掉 MonitorLayer 認得的寫法（@、toukasoul 前綴）後和某個靈魂 ID 不分大小寫相同。
 
@@ -66,16 +76,18 @@ def _validate_new_model_id(model: AgentIdentity, *, renaming: str | None = None)
 
     ADR-0250 A5：和靈魂 ID、其他自訂模型 ID 只差大小寫也算撞名（Windows 與 Linux 一樣）；
     改名時排除被改名的自己，只改大小寫的自我改名不擋。已存在的資料不動。
+    DebugAgent、DispatchAgent 也不能用：擁有清單和它們共用 ID（舊審查報告丙-2）。
     """
     if not custom_io.is_plain_custom_name(model.agent_id):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     # 和 MonitorLayer 同樣解析模型名（@名稱、toukasoul 前綴）
     passport = agent_service.identify_model_target(model.agent_id)
     others = [mid for mid in custom_io.list_custom_ids() if mid != renaming]
+    folded = model.agent_id.casefold()
     if (
         (passport and passport["is_toukasoul"])
         or _names_a_soul(model.agent_id, soul_io.list_soul_ids())
-        or any(mid.casefold() == model.agent_id.casefold() for mid in others)
+        or any(mid.casefold() == folded for mid in [*others, *SYSTEM_AGENT_IDS])
     ):
         raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=model.agent_id)
 
@@ -127,6 +139,7 @@ async def get_custom_model(
     # IDOR fix: enforce ownership check
     temp_id = AgentIdentity(agent_id=model_id, agent_role="Owner")
     _validate_model_access(temp_id, _identity)
+    _assert_folder_name(temp_id)
 
     prompt, config = custom_model_service.get_model_data(temp_id)
     if not prompt and not config:
@@ -151,7 +164,11 @@ async def update_custom_model(
     """建立或更新自定義模型"""
     temp_id = AgentIdentity(agent_id=model_id, agent_role="Owner")
     async with _get_model_lock(model_id):
-        exists = custom_io.custom_file_exists(temp_id, "config.json")
+        # 只認實際的資料夾名稱：只差大小寫的 ID 在 Windows 上也找得到 config.json，
+        # 改走新建的撞名檢查回 409，和 Linux 一樣（舊審查報告丙-2）
+        exists = model_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+            temp_id, "config.json"
+        )
 
         # IDOR fix: if the custom model already exists, verify that the caller owns it
         if exists:
@@ -198,9 +215,7 @@ async def rename_custom_model(
         # IDOR fix: verify old ID ownership
         old_identity = AgentIdentity(agent_id=model_id, agent_role="Owner")
         _validate_model_access(old_identity, _identity)
-        # 只認實際的資料夾名稱：不分大小寫的磁碟上 mine 也搬得動 Mine，擁有清單卻比對不到
-        if model_id not in custom_io.list_custom_ids():
-            raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model_id)
+        _assert_folder_name(old_identity)
         if new_id == model_id:
             return {"status": "success", "old_id": model_id, "new_id": new_id}
         # 和靈魂同名的舊資料夾（ADR-0245 之前留下的）：清單裡的這個 ID 也是靈魂的擁有權，
@@ -248,14 +263,15 @@ async def delete_custom_model(
     async with _get_model_lock(model_id):
         # IDOR fix: verify ownership before deletion
         _validate_model_access(identity, _identity)
+        _assert_folder_name(identity)
 
         success = custom_model_service.delete_model(identity)
         if not success:
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)
 
-        # IDOR fix: remove the agent ID from the user's owned list
-        # 和靈魂同名的舊資料夾：清單裡的這個 ID 也是靈魂的擁有權，留著（舊審查報告丙-2）
-        if _identity.is_human and model_id not in soul_io.list_soul_ids():
-            user_service.remove_owned_agent(_identity.agent_id, identity)
+        # IDOR fix：所有人的清單都拿掉這個 ID，不只呼叫者的，免得留下殘留（舊審查報告丙-2）。
+        # 和靈魂同名的舊資料夾：清單裡的這個 ID 也是靈魂的擁有權，留著。
+        if model_id not in soul_io.list_soul_ids():
+            user_service.remove_owned_agent_from_all(identity)
 
         return {"status": "success"}

@@ -321,6 +321,10 @@ class UserService:
                     user.owned_agents.append(agent_id)
         self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
 
+    def remove_owned_agent_from_all(self, agent_identity: AgentIdentity) -> None:
+        """刪除：所有使用者清單裡的這個 ID 一起拿掉，一次原子寫入（禁令 21）。"""
+        self.claim_owned_agent(agent_identity, None)
+
     def remove_owned_agent(self, user_id: str, agent_identity: AgentIdentity) -> None:
         """Remove an agent from a user's owned list safely. (SOLID/SSOT)"""
         agent_id = agent_identity.agent_id

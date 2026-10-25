@@ -31,6 +31,7 @@ from src.services.identity_router import get_verified_identity
 from src.services.models import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
+from src.services.user_service import UserService
 
 ADMIN = AgentIdentity.for_role(agent_id="AdminH", role="admin", is_human=True)
 
@@ -310,6 +311,40 @@ def test_delete_soul_revokes_attribution_symmetry():
         app.dependency_overrides.clear()
     assert r2.status_code == 200, r2.text
     assert "CrudSoulG" not in auth.get_user_by_id(identity.agent_id).owned_agents
+
+
+def test_create_soul_drops_leftover_ownership_of_the_same_id():
+    """刪掉的自訂模型留在別人清單裡的同一個 ID，建立靈魂時拿掉（舊審查報告丙-2）.
+
+    擁有清單是靈魂和自訂模型共用的；不拿掉的話，殘留的主人會變成這個新靈魂的擁有者。
+    """
+    auth, identity = _real_admin("crud-leftover@test.com", "CrudLeftoverPass123!")
+    stale = auth.create_user("crud-leftover-stale@test.com", "CrudStalePass123!", role="normal")
+    users = UserService(auth)
+    users.add_owned_agent(stale.id, AgentIdentity(agent_id="CrudSoulJ"))
+    app.dependency_overrides[get_verified_identity] = lambda: identity
+    try:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            r = c.post("/v1/souls", json=_create_payload("CrudSoulJ"))
+        assert r.status_code == 200, r.text
+        assert "CrudSoulJ" in auth.get_user_by_id(identity.agent_id).owned_agents
+        assert "CrudSoulJ" not in auth.get_user_by_id(stale.id).owned_agents
+    finally:
+        app.dependency_overrides.clear()
+        users.delete_user(stale.id)
+
+
+def test_create_soul_named_like_an_existing_custom_model_is_rejected(admin_client):
+    """和既有的自訂模型完全同名 → 409，什麼都不建：擁有清單共用同一筆（舊審查報告丙-2）。"""
+    custom = _app_data() / "custom" / "CrudSoulK"
+    custom.mkdir(parents=True)
+    try:
+        r = admin_client.post("/v1/souls", json=_create_payload("CrudSoulK"))
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"]["code"] == "MODEL_ALREADY_EXISTS"
+        assert not (_app_data() / "soul" / "CrudSoulK").exists()
+    finally:
+        custom.rmdir()
 
 
 def test_create_failure_rollback_revokes_attribution(monkeypatch):

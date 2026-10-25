@@ -5,7 +5,7 @@
  * 基礎引擎沒有值時用模型清單裡第一個一般模型（不列 is_agent），不再寫死舊模型名。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 const { mockFetchTouka } = vi.hoisted(() => ({ mockFetchTouka: vi.fn() }));
@@ -229,5 +229,73 @@ describe('ModelStudio：改名成功後記下新 ID（舊審查報告丙-2）', 
     const retried = mockFetchTouka.mock.calls.filter(([, path, opts]) =>
       path === '/v1/ui/custom_models/renamed' && opts?.method === 'POST').at(-1)!;
     expect(JSON.parse(retried[2].body as string).systemPrompt).toBe('new prompt');
+  });
+});
+
+/** 標題列的刪除鈕（只有垃圾桶圖示，沒有文字）。 */
+function deleteButton(): HTMLElement {
+  return document.querySelector('[class*="lucide-trash"]')!.closest('button')!;
+}
+
+function deleteCalls(): string[] {
+  return mockFetchTouka.mock.calls
+    .filter(([, , opts]) => opts?.method === 'DELETE')
+    .map(([, path]) => String(path));
+}
+
+describe('ModelStudio：刪除送後端記著的 ID、失敗就留著（舊審查報告丙-2）', () => {
+  function serve(handlers: { rename?: number; save?: number; del?: number }) {
+    mockFetchTouka.mockImplementation((_url: string, path: string, opts?: RequestInit) => {
+      if (path === '/v1/models') return ok({ data: MODEL_LIST });
+      if (path === '/v1/ui/custom_models') return ok({ models: customModels });
+      if (path === '/v1/tools_stats') return ok({ tools: [] });
+      const status = String(path).endsWith('/rename') ? handlers.rename
+        : opts?.method === 'DELETE' ? handlers.del
+          : opts?.method === 'POST' ? handlers.save : undefined;
+      if (status && status >= 400) {
+        return Promise.resolve(Response.json({ detail: { code: 'SYSTEM_ERROR', id: 1000 } }, { status }));
+      }
+      return ok({});
+    });
+  }
+
+  it('改名成功、存檔失敗之後刪除：刪的是改名後的 ID', async () => {
+    const { toast } = await import('sonner');
+    customModels = [{ id: 'mine', name: 'mine', description: '', systemPrompt: '', config: {} }];
+    serve({ save: 500 });
+    window.localStorage.setItem('touka_studio_active_id', JSON.stringify('mine'));
+    render(<ModelStudio />);
+    await waitForLoaded();
+    const nameInput = screen.getAllByDisplayValue('mine').find((el) => el.tagName === 'INPUT')!;
+    fireEvent.change(nameInput, { target: { value: 'renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Config/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(deleteCalls()).toEqual(['/v1/ui/custom_models/renamed']));
+  });
+
+  it('後端刪除失敗：顯示錯誤，模型還在畫面上', async () => {
+    const { toast } = await import('sonner');
+    customModels = [{ id: 'mine', name: 'mine', description: '', systemPrompt: '', config: {} }];
+    serve({ del: 500 });
+    render(<ModelStudio />);
+    await waitForLoaded();
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(deleteCalls()).toEqual(['/v1/ui/custom_models/mine']);
+    expect(screen.getAllByDisplayValue('mine').some((el) => el.tagName === 'INPUT')).toBe(true);
+  });
+
+  it('還沒存過的新模型：只在畫面上拿掉，不送刪除', async () => {
+    const { toast } = await import('sonner');
+    serve({});
+    render(<ModelStudio />);
+    await waitForLoaded();
+    await act(async () => {
+      fireEvent.click(deleteButton());
+    });
+    expect(deleteCalls()).toEqual([]);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

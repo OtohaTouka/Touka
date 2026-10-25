@@ -412,11 +412,14 @@ async def test_delete_custom_model_respects_model_lock(monkeypatch):
         custom_models_router.resource_manager, "is_owner", lambda *_a: True
     )
     monkeypatch.setattr(
+        custom_models_router.custom_io, "list_custom_ids", lambda: ["doomed-model"]
+    )
+    monkeypatch.setattr(
         custom_models_router.custom_model_service, "delete_model", lambda *_a: True
     )
     monkeypatch.setattr(
         custom_models_router.user_service,
-        "remove_owned_agent",
+        "remove_owned_agent_from_all",
         lambda *_a, **_k: None,
     )
     custom_models_router._model_locks.clear()
