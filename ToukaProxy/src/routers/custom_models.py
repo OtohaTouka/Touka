@@ -51,13 +51,22 @@ def _validate_model_access(model_identity: AgentIdentity, identity: AgentIdentit
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
 
-def _assert_folder_name(model: AgentIdentity) -> None:
-    """只認實際的資料夾名稱，否則 404（舊審查報告丙-2）.
+def _is_model(model: AgentIdentity) -> bool:
+    """custom/ 底下名稱完全相同、而且有 config.json 的資料夾才是自訂模型（舊審查報告丙-2）.
 
-    不分大小寫的磁碟上 mine 也找得到 Mine，擁有清單卻是精確比對：admin 會搬走別人的模型，
-    非人類的 Owner 身分查不到擁有者、會被當成公用模型放行。
+    - 只認實際的資料夾名稱：不分大小寫的磁碟上 mine 也找得到 Mine，擁有清單卻是精確比對，
+      admin 會搬走別人的模型，非人類的 Owner 身分查不到擁有者、會被當成公用模型放行。
+    - 沒有 config.json 的是別的身分的個人空間（custom/<id>/drive，例如 DebugAgent 或人類），
+      不能被當成模型改名、刪除，也不能連帶改動擁有清單裡的這個 ID。
     """
-    if model.agent_id not in custom_io.list_custom_ids():
+    return model.agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+        model, "config.json"
+    )
+
+
+def _assert_is_model(model: AgentIdentity) -> None:
+    """不是自訂模型就 404（見 ``_is_model``）。"""
+    if not _is_model(model):
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model.agent_id)
 
 
@@ -139,7 +148,7 @@ async def get_custom_model(
     # IDOR fix: enforce ownership check
     temp_id = AgentIdentity(agent_id=model_id, agent_role="Owner")
     _validate_model_access(temp_id, _identity)
-    _assert_folder_name(temp_id)
+    _assert_is_model(temp_id)
 
     prompt, config = custom_model_service.get_model_data(temp_id)
     if not prompt and not config:
@@ -166,9 +175,7 @@ async def update_custom_model(
     async with _get_model_lock(model_id):
         # 只認實際的資料夾名稱：只差大小寫的 ID 在 Windows 上也找得到 config.json，
         # 改走新建的撞名檢查回 409，和 Linux 一樣（舊審查報告丙-2）
-        exists = model_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
-            temp_id, "config.json"
-        )
+        exists = _is_model(temp_id)
 
         # IDOR fix: if the custom model already exists, verify that the caller owns it
         if exists:
@@ -215,7 +222,7 @@ async def rename_custom_model(
         # IDOR fix: verify old ID ownership
         old_identity = AgentIdentity(agent_id=model_id, agent_role="Owner")
         _validate_model_access(old_identity, _identity)
-        _assert_folder_name(old_identity)
+        _assert_is_model(old_identity)
         if new_id == model_id:
             return {"status": "success", "old_id": model_id, "new_id": new_id}
         # 和靈魂同名的舊資料夾（ADR-0245 之前留下的）：清單裡的這個 ID 也是靈魂的擁有權，
@@ -263,7 +270,7 @@ async def delete_custom_model(
     async with _get_model_lock(model_id):
         # IDOR fix: verify ownership before deletion
         _validate_model_access(identity, _identity)
-        _assert_folder_name(identity)
+        _assert_is_model(identity)
 
         success = custom_model_service.delete_model(identity)
         if not success:

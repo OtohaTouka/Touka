@@ -287,6 +287,21 @@ describe('ModelStudio：刪除送後端記著的 ID、失敗就留著（舊審�
     expect(screen.getAllByDisplayValue('mine').some((el) => el.tagName === 'INPUT')).toBe(true);
   });
 
+  it('後端回 404（已經被刪掉了）：從畫面拿掉，不顯示錯誤', async () => {
+    const { toast } = await import('sonner');
+    customModels = [{ id: 'mine', name: 'mine', description: '', systemPrompt: '', config: {} }];
+    serve({ del: 404 });
+    render(<ModelStudio />);
+    await waitForLoaded();
+    customModels = []; // 別的分頁已經刪掉了：之後重新載入的清單裡沒有它
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(
+      screen.queryAllByDisplayValue('mine').filter((el) => el.tagName === 'INPUT'),
+    ).toHaveLength(0));
+    expect(deleteCalls()).toEqual(['/v1/ui/custom_models/mine']);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it('還沒存過的新模型：只在畫面上拿掉，不送刪除', async () => {
     const { toast } = await import('sonner');
     serve({});

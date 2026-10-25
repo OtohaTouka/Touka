@@ -147,8 +147,8 @@ class CustomModelService:
     def _write_config_id(self, identity: AgentIdentity) -> bool:
         """把這個模型 config.json 的 id 改成資料夾的 ID。
 
-        沒有 config.json、或內容不是 JSON 物件時不用改（之後存檔會整份重寫）；
-        讀不到、寫不進去或出錯回 False，不往外丟。
+        內容不是 JSON 物件時不用改（之後存檔會整份重寫）；不見了、讀不到、寫不進去或出錯
+        回 False，不往外丟（路由只對有 config.json 的模型改名）。
         """
         try:
             return self._try_write_config_id(identity)
@@ -158,8 +158,6 @@ class CustomModelService:
 
     @staticmethod
     def _try_write_config_id(identity: AgentIdentity) -> bool:
-        if not custom_io.custom_file_exists(identity, "config.json"):
-            return True
         config_raw = custom_io.read_custom_file(identity, "config.json")
         if config_raw is None:
             return False

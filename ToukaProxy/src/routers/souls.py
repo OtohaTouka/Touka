@@ -121,8 +121,11 @@ async def create_soul(
     if soul_path.exists():
         raise ToukaException(ErrorCode.SOUL_ALREADY_EXISTS)
     # 和既有的自訂模型完全同名（collection 撞名檢查不算完全相同的 ID）：擁有清單共用同一筆，
-    # 自訂模型的主人會一起變成這個靈魂的擁有者（舊審查報告丙-2）
-    if agent_id in custom_io.list_custom_ids():
+    # 自訂模型的主人會一起變成這個靈魂的擁有者（舊審查報告丙-2）。只看有 config.json 的模型；
+    # 沒有的是個人空間之類的殘留，清單裡的同一個 ID 由下面的認領清掉。
+    if agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+        new_identity, "config.json"
+    ):
         raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=agent_id)
     # 主要模型比照存檔先驗（先於任何建立動作）：不能用就 404；只差大小寫分不出時
     # resolve_custom_route 直接拋 409 MODEL_NAME_AMBIGUOUS。
@@ -413,12 +416,8 @@ async def delete_soul(
 
 
 def _remove_from_all_owned_agents(soul_id: str) -> None:  # noqa: IDENTITY_SSOT
-    """把 soul_id 從所有使用者的 owned_agents 清單移除（冪等）。"""
-    auth_service = AuthService()
-    user_service = UserService(auth_service=auth_service)
-    for user in auth_service.get_all_users():
-        if soul_id in user.owned_agents:
-            user_service.remove_owned_agent(user.id, AgentIdentity(agent_id=soul_id))
+    """把 soul_id 從所有使用者的 owned_agents 清單移除（冪等、一次原子寫入）。"""
+    UserService().remove_owned_agent_from_all(AgentIdentity(agent_id=soul_id))
 
 
 def _remove_identity_override(soul_id: str) -> None:  # noqa: IDENTITY_SSOT

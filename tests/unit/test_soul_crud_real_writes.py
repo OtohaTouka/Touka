@@ -15,6 +15,7 @@ soul/，絕不觸碰真實 data/）。
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -338,13 +339,28 @@ def test_create_soul_named_like_an_existing_custom_model_is_rejected(admin_clien
     """和既有的自訂模型完全同名 → 409，什麼都不建：擁有清單共用同一筆（舊審查報告丙-2）。"""
     custom = _app_data() / "custom" / "CrudSoulK"
     custom.mkdir(parents=True)
+    (custom / "config.json").write_text("{}", encoding="utf-8")
     try:
         r = admin_client.post("/v1/souls", json=_create_payload("CrudSoulK"))
         assert r.status_code == 409, r.text
         assert r.json()["detail"]["code"] == "MODEL_ALREADY_EXISTS"
         assert not (_app_data() / "soul" / "CrudSoulK").exists()
     finally:
-        custom.rmdir()
+        shutil.rmtree(custom)
+
+
+def test_create_soul_over_a_leftover_personal_space_is_allowed(admin_client):
+    """custom/ 底下同名、但沒有 config.json 的資料夾（個人空間之類的殘留）不擋，也不動它。"""
+    drive = _app_data() / "custom" / "CrudSoulL" / "drive"
+    drive.mkdir(parents=True)
+    (drive / "note.txt").write_text("keep", encoding="utf-8")
+    try:
+        r = admin_client.post("/v1/souls", json=_create_payload("CrudSoulL"))
+        assert r.status_code == 200, r.text
+        assert (_app_data() / "soul" / "CrudSoulL").is_dir()
+        assert (drive / "note.txt").read_text(encoding="utf-8") == "keep"
+    finally:
+        shutil.rmtree(drive.parent)
 
 
 def test_create_failure_rollback_revokes_attribution(monkeypatch):

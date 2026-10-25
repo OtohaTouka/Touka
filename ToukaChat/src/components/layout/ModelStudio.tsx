@@ -223,7 +223,8 @@ export function ModelStudio() {
                 const proxyUrl = getActiveProxyUrl();
                 // 職責邊界：ModelStudio 只刪除 Level 2 自訂模型
                 const res = await fetchTouka(proxyUrl, `/v1/ui/custom_models/${savedId}`, { method: "DELETE" });
-                if (!res.ok) {
+                // 404：已經被刪掉了（例如別的分頁），照樣從畫面拿掉
+                if (!res.ok && res.status !== 404) {
                     toast.error(await getErrorMessage(res, "MODEL_DELETE_FAILED"));
                     return;
                 }

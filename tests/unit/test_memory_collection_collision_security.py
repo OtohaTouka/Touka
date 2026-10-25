@@ -194,6 +194,10 @@ def _sources(
 ) -> None:
     monkeypatch.setattr(soul_io, "list_soul_ids", lambda: list(souls))
     monkeypatch.setattr(custom_io, "list_custom_ids", lambda: list(customs))
+    # 列出的自訂模型都當成有 config.json（路由只把有 config.json 的資料夾當模型，丙-2）
+    monkeypatch.setattr(
+        custom_io, "custom_file_exists", lambda identity, _name: identity.agent_id in customs
+    )
     monkeypatch.setattr(agent_service, "registered_ids", lambda: set(registry))
     monkeypatch.setattr(fm.FactualStore, "list_agent_ids", lambda self: set(facts))
 

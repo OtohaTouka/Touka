@@ -195,9 +195,9 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - `POST /ui/custom_models/{id}/rename`（含 `/v1`）：搬資料夾失敗不再回 200。來源不見 404 `MODEL_NOT_FOUND`（1202）、新 ID 已被占用 409 `MODEL_ALREADY_EXISTS`（1403）、其他失敗（沙箱檢查不過、搬移出錯）500 `SYSTEM_ERROR`（1000）；三種都不改 `config.json`、不搬擁有權。只差大小寫的改名（Windows 上是同一個資料夾）現在會真的改名並搬擁有權。成功回應照舊 `{"status":"success","old_id","new_id"}`；撞名檢查（ADR-0250 A5）不變。
 - 2026-10-25 起（ADR-0254 H12 補記），自訂模型（含 `/v1`）：
   - `POST /ui/custom_models/{id}/rename` 的 `new_id` 可以用中文等各語言的字母數字（`^[\w.-]+$`，和建立時一致；原本 `^[A-Za-z0-9._-]+$`）。新舊 ID 相同回成功、什麼都不寫；舊 ID 和靈魂同名回 409 `MODEL_ALREADY_EXISTS`；搬完之後 `config.json` 讀不到、寫不進去，或擁有權寫不進去時，把資料夾與 config 搬回、回 500 `SYSTEM_ERROR`。擁有權改成所有使用者的清單一起換名（不再只改呼叫者的，呼叫者不是人類也改），別人清單裡新 ID 的殘留拿掉。
-  - `GET`、`POST`、`DELETE /ui/custom_models/{id}` 與改名只認實際的資料夾名稱：只差大小寫時查看、改名、刪除回 404 `MODEL_NOT_FOUND`，存檔不當成既有模型、走新建的撞名檢查回 409 `MODEL_ALREADY_EXISTS`。新建與改名的新 ID 不能是 DebugAgent、DispatchAgent（不分大小寫，409）。
+  - `GET`、`POST`、`DELETE /ui/custom_models/{id}` 與改名只認名稱完全相同、有 `config.json` 的模型資料夾：只差大小寫的 ID、以及沒有 `config.json` 的資料夾（別的身分的個人空間），查看、改名、刪除回 404 `MODEL_NOT_FOUND`；存檔只差大小寫時不當成既有模型、走新建的撞名檢查回 409 `MODEL_ALREADY_EXISTS`。新建與改名的新 ID 不能是 DebugAgent、DispatchAgent（不分大小寫，409）。
   - 新建時別人清單裡這個 ID 的殘留拿掉、只加給人類建立者；刪除時從所有人的清單拿掉，不只呼叫者的（和靈魂同名的舊資料夾不動）。
-  - `POST /v1/souls`：和既有自訂模型完全同名回 409 `MODEL_ALREADY_EXISTS`、什麼都不建；建立成功時別人清單裡這個 ID 的殘留拿掉、只加給建立者。
+  - `POST /v1/souls`：和既有自訂模型（有 `config.json`）完全同名回 409 `MODEL_ALREADY_EXISTS`、什麼都不建；同名資料夾沒有 `config.json` 時照樣建立。建立成功時別人清單裡這個 ID 的殘留拿掉、只加給建立者。刪除靈魂從所有人的清單拿掉，改成一次原子寫入。
   - 沒有新增錯誤碼，成功回應不變。
 - `POST /v1/admin/setup/apply`：`dispatch_token` 或 `auth_secret` 是歷來公開過的值（`config.PUBLIC_SECRET_VALUES`，比對前去掉前後空白）時回 422 `VALIDATION_ERROR`（3001），`.env` 不寫任何欄位；訊息只寫欄位名、不帶值。非公開值照舊寫入。
 - 演化工具：`evolution_implement_and_verify` 不再是自帶審批，照一般工具過政策。Manual 有人在場時先送一張一般的 `tool_approval_request`（很長的參數可能只預覽前段），核准才建 venv、pip、驗證；無人在場時 executor 回 `permission_denied`（`reason=approval_required`）、什麼都不跑。`submit_for_deploy=True` 時部署前仍有 `skill_creation_approval_request` 卡（無人在場照舊 fail-closed）；Auto、YOLO 行為不變。自帶審批工具剩 `request_skill_install`、`request_mcp_creation`。

@@ -414,6 +414,7 @@ async def test_delete_custom_model_respects_model_lock(monkeypatch):
     monkeypatch.setattr(
         custom_models_router.custom_io, "list_custom_ids", lambda: ["doomed-model"]
     )
+    monkeypatch.setattr(custom_models_router.custom_io, "custom_file_exists", lambda *_a: True)
     monkeypatch.setattr(
         custom_models_router.custom_model_service, "delete_model", lambda *_a: True
     )
@@ -449,6 +450,7 @@ async def test_rename_custom_model_locks_both_ids(monkeypatch):
     monkeypatch.setattr(
         custom_models_router.custom_io, "list_custom_ids", lambda: ["old-name"]
     )
+    monkeypatch.setattr(custom_models_router.custom_io, "custom_file_exists", lambda *_a: True)
     monkeypatch.setattr(
         custom_models_router.custom_model_service,
         "rename_model",

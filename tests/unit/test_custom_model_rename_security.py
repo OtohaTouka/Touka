@@ -13,9 +13,11 @@
 - 改名之後的步驟失敗（config.json 讀不到或寫不進去、擁有權寫不進去）要把資料夾與 config 搬回；
   搬回也失敗或出錯時寫 CRITICAL 的 AUDIT。
 - 擁有權改成所有人的清單一起換名（不再只搬呼叫者自己的，呼叫者不是人類也搬），
-  沒有舊 ID 的人清單裡的新 ID 是殘留、拿掉；新建模型時別人清單裡的同一個 ID 也拿掉。
-- 和靈魂同名的舊資料夾不能改名、刪除時不動擁有權；請求的 ID 只認實際的資料夾名稱；
-  新舊 ID 相同什麼都不寫；新 ID 可以是中文（和建立時一樣）。
+  沒有舊 ID 的人清單裡的新 ID 是殘留、拿掉；新建模型時別人清單裡的同一個 ID 也拿掉，
+  刪除時所有人的清單一起拿掉。
+- 和靈魂同名的舊資料夾不能改名、刪除時不動擁有權；只認名稱完全相同、有 config.json 的
+  模型資料夾（個人空間不算）；新舊 ID 相同什麼都不寫；新 ID 可以是中文（和建立時一樣），
+  不能是 DebugAgent、DispatchAgent。
 
 路由測試寫在 conftest 測試沙盒，擁有清單的寫入換成 MagicMock、只記錄呼叫；
 ``UserService`` 的換名與認領用沙盒裡真的 users.json。
@@ -297,17 +299,27 @@ def test_a_chinese_new_id_is_accepted_like_on_create(owners: MagicMock) -> None:
     _assert_ownership_moved(owners, OLD, UNICODE)
 
 
-def test_a_model_without_config_is_still_renamed(owners: MagicMock) -> None:
-    """沒有 config.json 時沒有 id 要改 → 照樣改名。"""
-    _create(owners, OLD)
-    (_custom_base() / OLD / "config.json").unlink()
+def test_a_folder_without_config_is_not_a_model(owners: MagicMock) -> None:
+    """沒有 config.json 的資料夾（別的身分的個人空間 custom/<id>/drive）不是模型（丙-2）.
 
-    response = _rename(OLD, NEW)
+    查看、改名、刪除都 404：不搬、不刪，擁有清單裡的這個 ID 也不動。
+    """
+    drive = _custom_base() / GHOST / "drive"
+    drive.mkdir(parents=True)
+    (drive / "note.txt").write_text("keep", encoding="utf-8")
 
-    assert response.status_code == 200, response.text
-    assert NEW in custom_io.list_custom_ids()
-    assert not (_custom_base() / NEW / "config.json").exists()
-    _assert_ownership_moved(owners, OLD, NEW)
+    responses = [
+        _send("GET", f"/v1/ui/custom_models/{GHOST}", None, _ADMIN),
+        _rename(GHOST, NEW),
+        _send("DELETE", f"/v1/ui/custom_models/{GHOST}", None, _ADMIN),
+    ]
+
+    for response in responses:
+        assert response.status_code == 404, response.text
+        assert response.json()["detail"]["code"] == "MODEL_NOT_FOUND"
+    _assert_ownership_untouched(owners)
+    assert (drive / "note.txt").read_text(encoding="utf-8") == "keep"
+    assert NEW not in custom_io.list_custom_ids()
 
 
 @pytest.mark.parametrize("content", ["not json", "[]", '"x"'], ids=["invalid", "list", "string"])
@@ -336,7 +348,8 @@ def test_system_agent_ids_cannot_be_used_for_a_model(owners: MagicMock, reserved
         assert response.status_code == 409, response.text
         assert response.json()["detail"]["code"] == "MODEL_ALREADY_EXISTS"
     _assert_ownership_untouched(owners)
-    assert reserved not in custom_io.list_custom_ids()
+    # 實際環境裡 custom/DebugAgent 是它的個人空間、本來就在；只確認沒有變成模型
+    assert not (_custom_base() / reserved / "config.json").exists()
 
 
 # ── 後續步驟失敗：搬回原狀（ADR-0254 H12 補記，舊審查報告丙-2） ────────────────────
