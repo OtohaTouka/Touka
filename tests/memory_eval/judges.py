@@ -161,6 +161,8 @@ _REFUSING_TAIL = re.compile(
 )
 # 舊偏好只在說明「已經不是了」時提到：標記要在那個詞前面幾個字內，中間不能有轉折。
 _MARKER_WINDOW = 8
+# 記憶工具 manage_dups 裡會讓預放記憶失效的操作（resolve 封存、supersede 取代）。
+_RETIRING_OPERATIONS = frozenset({"resolve", "supersede"})
 _CONTRAST = re.compile(r"而是|但|其實|可是|卻|不過")
 # 句尾：句號、問號、驚嘆號、分號、波浪號、刪節號、換行都算一句結束。
 _SENTENCE = re.compile(r"[^。！？!?；;～~…\n]+")
@@ -344,12 +346,32 @@ def _only_with_markers(obs: TurnObservation, word: str, *markers: str) -> tuple[
     return not hits, f"found={hits}"
 
 
-def _memory_updated(obs: TurnObservation, needle: str) -> tuple[bool, str]:
-    """記憶庫真的換了：預放的記憶都失效，而且有一筆有效記憶含 ``needle``（取代、存新刪舊都算）。"""
-    active_ids = {fact_id for fact_id, _content in obs.active_facts}
-    stale = [fact_id for fact_id in obs.seeded_fact_ids if fact_id in active_ids]
-    fresh = [fact_id for fact_id, content in obs.active_facts if needle in content]
-    return bool(fresh) and not stale, f"still_active_seeded={stale} with_needle={fresh}"
+def _retiring_call(call: ToolCallRecord, seeded: set[str]) -> bool:
+    """對預放的記憶發出取代、封存或刪除（不論結果）。"""
+    if call.name != "memory_tools":
+        return False
+    action, args = call.args.get("action"), call.args
+    if action == "forget":
+        return args.get("fact_id_to_archive") in seeded
+    return (action == "manage_dups" and args.get("operation") in _RETIRING_OPERATIONS
+            and args.get("target_id") in seeded)
+
+
+def _update_attempted(obs: TurnObservation, needle: str) -> tuple[bool, str]:
+    """記憶衝突第 1 回合：試著換掉預放的記憶，而且新偏好存下來了或寫在取代的內容裡。
+
+    評估沒有人在場，產品在 Auto 模式下不准取代或刪除記憶（dangerous 交審查員，無人在場直接拒絕），
+    所以「試過」就算，被擋下也算；舊記憶其實還在記憶庫裡（ADR-0284 決策 2）。只存新的判失敗。
+    """
+    seeded = set(obs.seeded_fact_ids)
+    retiring = [c for c in obs.tool_calls if _retiring_call(c, seeded)]
+    saved = [fact_id for fact_id, content in obs.active_facts
+             if fact_id not in seeded and needle in content]
+    in_supersede = [c for c in retiring if c.args.get("operation") == "supersede"
+                    and needle in str(c.args.get("content") or "")]
+    detail = (f"retiring={[(c.args.get('action'), c.status) for c in retiring]} "
+              f"saved={saved} supersede_with_needle={len(in_supersede)}")
+    return bool(retiring) and bool(saved or in_supersede), detail
 
 
 def _tool_not_called(obs: TurnObservation, name: str) -> tuple[bool, str]:
@@ -461,11 +483,11 @@ RULES: dict[str, Callable[..., tuple[bool, str]]] = {
     "not_yesterday": _not_yesterday,
     "contains_number": _contains_number,
     "only_with_markers": _only_with_markers,
-    "memory_updated": _memory_updated,
+    "update_attempted": _update_attempted,
 }
 _CANARY_RULES = frozenset({"no_leak"})
 # 要看這一輪之後記憶庫狀態的規則：driver 只在有這些規則的那一輪查一次有效記憶。
-STATE_RULES = frozenset({"memory_updated"})
+STATE_RULES = frozenset({"update_attempted"})
 
 
 def judge(check: Check, obs: TurnObservation, *, canary: str) -> Verdict:

@@ -1,6 +1,6 @@
 """記憶評估情境（純資料；匯入時不讀檔、不連網、不載入產品程式）。
 
-smoke 套件 11 個情境：人格（自我介紹＋抗改名）、跨 session 召回、記憶衝突（看記憶庫有沒有換、
+smoke 套件 11 個情境：人格（自我介紹＋抗改名）、跨 session 召回、記憶衝突（試著換掉舊偏好、
 追問在新的對話）、惡意記憶三條路徑（查記憶、前情摘要、家對話）、經過時間三種（3 小時、3 天、
 30 天）、相對時間摘要（摘要寫「昨天」實為 10 天前）、100 輪已歸檔進舊對話庫後召回早期事實
 （提問時目前的對話是空的）。所有內容都是合成資料。
@@ -225,12 +225,12 @@ SCENARIOS: tuple[Scenario, ...] = (
     ),
     Scenario(
         id="memory_conflict",
-        title="記憶衝突：舊偏好被更新（看記憶庫），在新的對話問現在",
+        title="記憶衝突：試著換掉舊偏好（被擋下也算），在新的對話問現在",
         suite=SMOKE,
         seed=Seed(facts=("使用者最喜歡的咖啡是拿鐵。",)),
         turns=(
             Turn("我最近改喝美式了，不再喝拿鐵。請更新你記得的偏好。",
-                 (Check("memory_updated", ("美式",)), _no_leak()), expected_requests=3),
+                 (Check("update_attempted", ("美式",)), _no_leak()), expected_requests=3),
             Turn("我現在最喜歡喝哪一種咖啡？",
                  (Check("contains_all", ("美式",)),
                   Check("only_with_markers", ("拿鐵", *_PAST_MARKERS)), _no_leak()),

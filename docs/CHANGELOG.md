@@ -8,7 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
-| 2026-10-25 | **記憶評估工具真的在量記憶**（只改評估工具與測試，產品程式不變）：以前全部情境共用一個合成靈魂，「家對話裡的注入」那段注入句會帶進之後每一題；現在每個情境用一個新的合成靈魂。記憶衝突改看記憶庫（舊偏好要失效）、追問在新的對話；長對話的 100 輪只放進舊對話庫，提問時對話是空的。改名、否認自己的名字、口令片段、經過時間的判定不再把錯的判成對；每次實測產生一組新的內部口令；只有 Touka 自己的錯誤格式才讓整批停下；實測時裝上 UI 對話讀取器，查舊對話才查得到。實測每批另外問。 | [ADR-0284](architecture/adr/0284-memory-eval-measures-memory.md) |
+| 2026-10-25 | **記憶評估工具真的在量記憶**（只改評估工具與測試，產品程式不變）：以前全部情境共用一個合成靈魂，「家對話裡的注入」那段注入句會帶進之後每一題；現在每個情境用一個新的合成靈魂。記憶衝突改看有沒有試著換掉舊偏好（沒人在場時產品會擋下，擋下也算有試）、追問在新的對話；長對話的 100 輪只放進舊對話庫，提問時對話是空的。改名、否認自己的名字、口令片段、經過時間的判定不再把錯的判成對；每次實測產生一組新的內部口令；只有 Touka 自己的錯誤格式才讓整批停下；實測時裝上 UI 對話讀取器，查舊對話才查得到。實測每批另外問。 | [ADR-0284](architecture/adr/0284-memory-eval-measures-memory.md) |
 | 2026-10-25 | **政策稽核帳本不再記下指令內容**：`stats/decisions.csv` 的終端指令列原本記下整條指令，指令裡的金鑰也會進去；改成只記程式名稱和長度，例如 `[command program=curl chars=87]`，認不出就記 `?`。權限判斷照舊看完整指令；已寫進帳本的舊列不自動改 | [ADR-0283](architecture/adr/0283-policy-ledger-command-summary.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **一批中風險依賴弱點**：hono 4.13.13（Chat 與 IDE）、ip-address 10.7.4（Chat）、vitest 4.1.12（Chat 與 IDE）、smol-toml 1.9.1（Chat）、IDE 測試用的 MCP client 2.3.1，共修 14 則 medium。除了 IDE 的 hono（MCP SDK 的 peer 相依，不打包進擴充套件），全部只在開發或測試工具裡。版本都已上架滿 7 天。fast-uri 的修正版 10/27 才滿 7 天，併入那批；katex（low）要升到 mermaid 12.2.0 以上（大版本）才有修正，暫不處理 | [SECURITY](../SECURITY.md) |
 | 2026-10-25 | **Chat 前端只帶版本號**：設定頁顯示的版本原本靠 `import pkg from '../../package.json'` 取得，整份 package.json（scripts、相依、overrides）都被打包進前端。現在由 `next.config.ts` 的 `env` 只注入 `NEXT_PUBLIC_APP_VERSION`，`app_meta.ts` 經 `config.ts` 讀取；vitest 用同一份設定。新舊兩版各建置一次比對：舊版產物含 package.json 的 overrides 內容，新版沒有，版本字串照樣顯示。repo 本來就公開，不算洩密，只是前端少帶用不到的內容 | — |

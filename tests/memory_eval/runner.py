@@ -23,9 +23,11 @@ probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assi
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import re
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -36,6 +38,7 @@ from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
 from src.services import continuity_events
 from src.services.proxy_service import process_proxy_request
+from src.services.tool_executor import ToolExecutor
 from src.utils import task_utils
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import insert_event, purge_agent_events
@@ -49,7 +52,7 @@ from tests.memory_eval.live_bounds import redact_excerpt
 from tests.memory_eval.scenarios import CANARY, persona_text
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Iterator
+    from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 
     from src.models.identity import AgentIdentity
 
@@ -151,8 +154,42 @@ def _payloads(chunks: Iterable[str]) -> Iterator[dict[str, Any]]:
                 yield data
 
 
-def parse_sse(chunks: Iterable[str]) -> TurnObservation:
-    """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。"""
+_EXECUTE_SIGNATURE = inspect.signature(ToolExecutor.execute_to_queue)
+
+
+@contextmanager
+def record_tool_requests() -> Iterator[dict[str, tuple[str, dict[str, Any]]]]:
+    """這一輪模型要求執行的工具（呼叫 id → 名稱與參數），連被擋下的也記。
+
+    被政策擋下的呼叫只送 tool_result、不送帶名稱與參數的 tool_start，判定看不出它想做什麼
+    （例如記憶衝突要看有沒有試著換掉預放那筆）。所以在執行器入口記下；只在評估送出這一輪時包住，
+    結束（含失敗）就還原。
+    """
+    requested: dict[str, tuple[str, dict[str, Any]]] = {}
+    original = ToolExecutor.execute_to_queue
+
+    async def _recording(executor: ToolExecutor, *args: Any, **kwargs: Any) -> str:
+        bound = _EXECUTE_SIGNATURE.bind(executor, *args, **kwargs)
+        call_id = bound.arguments.get("call_id")
+        if call_id:
+            requested[str(call_id)] = (str(bound.arguments["name"]),
+                                       dict(bound.arguments.get("args") or {}))
+        return await original(executor, *args, **kwargs)
+
+    ToolExecutor.execute_to_queue = _recording  # type: ignore[method-assign]
+    try:
+        yield requested
+    finally:
+        ToolExecutor.execute_to_queue = original  # type: ignore[method-assign]
+
+
+def parse_sse(
+    chunks: Iterable[str], requested: Mapping[str, tuple[str, dict[str, Any]]] | None = None
+) -> TurnObservation:
+    """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。
+
+    被擋下的呼叫沒有 tool_start：名稱與參數改從 ``requested``（``record_tool_requests``）補上。
+    """
     texts: list[str] = []
     provider_error = ""
     pending: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -168,7 +205,9 @@ def parse_sse(chunks: Iterable[str]) -> TurnObservation:
         elif kind == TOOL_START:
             pending[str(data.get("id", ""))] = (str(data.get("tool", "")), data.get("args") or {})
         elif kind == TOOL_RESULT:
-            name, args = pending.pop(str(data.get("id", "")), (str(data.get("tool", "")), {}))
+            call_id = str(data.get("id", ""))
+            fallback = (requested or {}).get(call_id, (str(data.get("tool", "")), {}))
+            name, args = pending.pop(call_id, fallback)
             status = _tool_status(str(data.get("status", "")), data.get("error_class"))
             calls.append(ToolCallRecord(name=name, args=args, status=status))
         elif kind == "content_block_delta":
@@ -406,7 +445,9 @@ class MemoryEvalDriver:
 
     async def _send(self, request: Any, soul_id: str) -> TurnObservation:
         try:
-            return parse_sse(await self._send_turn(request, self._context(soul_id)))
+            with record_tool_requests() as requested:
+                chunks = await self._send_turn(request, self._context(soul_id))
+            return parse_sse(chunks, requested)
         except Exception as exc:  # 預算用完、閘門拒絕等：記成這一輪失敗，整批停下
             return TurnObservation(text="", error=f"{type(exc).__name__}: {exc}"[:300])
 

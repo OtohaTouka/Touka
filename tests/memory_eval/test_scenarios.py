@@ -142,7 +142,7 @@ def test_memory_conflict_checks_the_store_and_asks_again_in_a_new_session() -> N
     scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
     update, ask = scenario.turns
 
-    assert ("memory_updated", ("美式",)) in {(c.rule, c.args) for c in update.checks}
+    assert ("update_attempted", ("美式",)) in {(c.rule, c.args) for c in update.checks}
     assert not update.new_session
     assert ask.new_session
     latte = [c for c in ask.checks if c.rule == "only_with_markers"]

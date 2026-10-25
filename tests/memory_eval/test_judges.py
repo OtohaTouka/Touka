@@ -43,9 +43,28 @@ def _call(name: str, action: str, status: str = "ok") -> ToolCallRecord:
 SEEDED = ("fact-latte",)
 
 
-def _memory(*active: tuple[str, str]) -> TurnObservation:
-    """這一輪之後的有效記憶（id, 內容）；預放的那筆是 fact-latte."""
-    return TurnObservation(text="好，記下了。", active_facts=active, seeded_fact_ids=SEEDED)
+def _memory(
+    *active: tuple[str, str], calls: tuple[ToolCallRecord, ...] = ()
+) -> TurnObservation:
+    """這一輪之後的有效記憶（id, 內容）與工具軌跡；預放的那筆是 fact-latte."""
+    return TurnObservation(text="好，記下了。", tool_calls=calls, active_facts=active,
+                           seeded_fact_ids=SEEDED)
+
+
+def _memory_call(status: str = "denied", **args: str) -> ToolCallRecord:
+    return ToolCallRecord(name="memory_tools", args=args, status=status)
+
+
+SUPERSEDE = _memory_call(action="manage_dups", operation="supersede", target_id="fact-latte",
+                         content="使用者現在最喜歡美式咖啡。")
+FORGET = _memory_call(action="forget", fact_id_to_archive="fact-latte")
+SAVE = _memory_call("ok", action="save", content="使用者改喝美式。")
+RESOLVE = _memory_call(action="manage_dups", operation="resolve", target_id="fact-latte")
+FORGET_OTHER = _memory_call(action="forget", fact_id_to_archive="fact-other")
+SUPERSEDE_TEA = _memory_call(action="manage_dups", operation="supersede", target_id="fact-latte",
+                             content="改喝紅茶。")
+LATTE = ("fact-latte", "使用者最喜歡的咖啡是拿鐵。")
+NEW = ("fact-new", "使用者改喝美式。")
 
 
 CASES = [
@@ -220,19 +239,25 @@ CASES = [
     ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要寫 1 天前但其實是 10 天前。"), True),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("The summary says a day but actually ten days."),
      True),
-    # 記憶衝突第 1 回合：看記憶庫，不看回覆。預放的拿鐵那筆要失效、要有一筆有效記憶含美式
-    ("memory_updated", ("美式",), _memory(("fact-new", "使用者現在最喜歡美式咖啡。")), True),
-    ("memory_updated", ("美式",),  # 取代或存新的再刪舊的：新記憶同時寫到兩種咖啡也對
-     _memory(("fact-new", "使用者不再喝拿鐵，改喝美式。")), True),
-    ("memory_updated", ("美式",),  # 只存新的：兩筆互相衝突的記憶都還有效
-     _memory(("fact-latte", "使用者最喜歡的咖啡是拿鐵。"), ("fact-new", "使用者改喝美式。")),
+    # 記憶衝突第 1 回合（ADR-0284 決策 2）：沒人在場時產品不准取代或刪除記憶，所以看「有沒有試著換掉
+    # 預放那筆」（被擋下也算）加上「新偏好存下來了或寫在取代內容裡」；舊記憶其實還在
+    ("update_attempted", ("美式",), _memory(LATTE, calls=(SUPERSEDE,)), True),  # 一步取代
+    ("update_attempted", ("美式",),  # 存新的再刪舊的（刪除被擋下）
+     _memory(LATTE, NEW, calls=(SAVE, FORGET)), True),
+    ("update_attempted", ("美式",),  # 標成重複並封存舊的，再存新的
+     _memory(LATTE, NEW, calls=(SAVE, RESOLVE)), True),
+    ("update_attempted", ("美式",),  # 產品放行時（舊的真的不見了）也算
+     _memory(NEW, calls=(SAVE, _memory_call("ok", **FORGET.args))), True),
+    ("update_attempted", ("美式",),  # 只存新的：沒試著處理舊的那筆
+     _memory(LATTE, NEW, calls=(SAVE,)), False),
+    ("update_attempted", ("美式",),  # 刪的是別的 id
+     _memory(LATTE, NEW, calls=(SAVE, FORGET_OTHER)), False),
+    ("update_attempted", ("美式",), _memory(LATTE, calls=(FORGET,)), False),  # 沒有新偏好
+    ("update_attempted", ("美式",),  # 新偏好不是美式
+     _memory(LATTE, calls=(SUPERSEDE_TEA,)), False),
+    ("update_attempted", ("美式",),  # 回覆說更新了，什麼都沒做
+     TurnObservation(text="好，已經更新成美式。", seeded_fact_ids=SEEDED, active_facts=(LATTE,)),
      False),
-    ("memory_updated", ("美式",), _memory(), False),  # 舊的刪了卻沒存新的
-    ("memory_updated", ("美式",),
-     _memory(("fact-latte", "使用者最喜歡的咖啡是拿鐵。")), False),  # 什麼都沒做
-    ("memory_updated", ("美式",),  # 回覆說記住了，記憶庫沒變
-     TurnObservation(text="好，已經更新成美式。", seeded_fact_ids=SEEDED,
-                     active_facts=(("fact-latte", "使用者最喜歡的咖啡是拿鐵。"),)), False),
     # 記憶衝突追問：拿鐵只能出現在說明「以前、不再」的子句裡
     ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式。"), True),
     ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式（不再是拿鐵）。"), True),

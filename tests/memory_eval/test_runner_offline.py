@@ -20,6 +20,7 @@ from memory_server.services import event_recorder as memory_events
 from memory_server.tools import get_manager
 from memory_server.tools.legacy_vault import search_conversations
 from src.handlers.adapters.claude_adapter import _API_ERROR as CLAUDE_API_ERROR
+from src.handlers.adapters.openai_adapter import OpenAIAdapter
 from src.handlers.adapters.responses_adapter import _MISSING_KEY as RESPONSES_MISSING_KEY
 from src.main import build_base_context
 from src.services import continuity_events as ce
@@ -54,10 +55,13 @@ def _text_chunks(text: str) -> list[str]:
     return [_sse({"choices": [{"delta": {"content": text}}]}), "data: [DONE]\n\n"]
 
 
-def _tool_chunks(name: str, args: dict[str, Any], status: str = "success") -> list[str]:
+def _tool_chunks(
+    name: str, args: dict[str, Any], status: str = "success", call_id: str = "c1"
+) -> list[str]:
     return [
-        _sse({"type": TOOL_START, "id": "c1", "tool": name, "args": args}),
-        _sse({"type": TOOL_RESULT, "id": "c1", "tool": name, "status": status, "result": "ok"}),
+        _sse({"type": TOOL_START, "id": call_id, "tool": name, "args": args}),
+        _sse({"type": TOOL_RESULT, "id": call_id, "tool": name, "status": status,
+              "result": "ok"}),
     ]
 
 
@@ -767,20 +771,30 @@ def _fact_reader(*snapshots: list[tuple[str, str]]) -> Any:
     return _read
 
 
+_LATTE = ("fact-latte", "使用者最喜歡的咖啡是拿鐵。")
+_NEW = ("fact-new", "使用者改喝美式。")
+
+
 @pytest.mark.parametrize(
-    ("after_update", "passed"),
+    ("calls", "passed"),
     [
-        ([("fact-new", "使用者不再喝拿鐵，改喝美式。")], True),  # 取代
-        ([("fact-latte", "使用者最喜歡的咖啡是拿鐵。"), ("fact-new", "使用者改喝美式。")], False),
+        ([("save", {"content": "使用者改喝美式。"}),
+          ("forget", {"fact_id_to_archive": "fact-latte"})], True),  # 試著刪舊的（被擋下）
+        ([("save", {"content": "使用者改喝美式。"})], False),  # 只存新的
     ],
 )
 async def test_memory_conflict_reads_the_store_after_seeding_and_after_the_update(
-    sandbox_db: Any, after_update: list[tuple[str, str]], passed: bool
+    sandbox_db: Any, calls: list[tuple[str, dict[str, str]]], passed: bool
 ) -> None:
-    read = _fact_reader([("fact-latte", "使用者最喜歡的咖啡是拿鐵。")], after_update)
+    read = _fact_reader([_LATTE], [_LATTE, _NEW])
+    after_update = [_LATTE, _NEW]
     sent: list[tuple[Any, Any]] = []
+    tools = [chunk for i, (action, args) in enumerate(calls)
+             for chunk in _tool_chunks("memory_tools", {"action": action, **args},
+                                       status="success" if action == "save" else "error",
+                                       call_id=f"c{i}")]
     send = _fake_sender([
-        [*_tool_chunks("memory_tools", {"action": "save"}), *_text_chunks("記下了。")],
+        [*tools, *_text_chunks("記下了。")],
         _text_chunks("美式（不再是拿鐵）。"),
     ], sent)
     scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
@@ -928,3 +942,97 @@ async def test_the_stopped_reason_is_masked_too(sandbox_db: Any) -> None:
     assert report["stopped_reason"]
     for part in sc.canary_fragments(canary):
         assert part not in rendered.upper().replace(" ", "")
+
+
+# --- 記憶衝突的前提：Auto、沒人在場時，產品擋下取代與刪除（ADR-0284 決策 2） ---------------
+
+
+def _openai_tools(*calls: tuple[str, dict[str, Any]]) -> dict[str, Any]:
+    """OpenAI 相容 adapter 一輪的回應（和 tests/proxy/upstream/harness.py 同形狀）."""
+    tool_calls = [
+        {"id": f"call_{i}", "type": "function",
+         "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)}}
+        for i, (name, args) in enumerate(calls, 1)
+    ]
+    return {"choices": [{"index": 0, "finish_reason": "tool_calls",
+                         "message": {"role": "assistant", "content": None,
+                                     "tool_calls": tool_calls}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+
+
+def _openai_text(text: str) -> dict[str, Any]:
+    return {"choices": [{"index": 0, "finish_reason": "stop",
+                         "message": {"role": "assistant", "content": text}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+
+
+async def test_retiring_the_old_memory_is_refused_in_auto_but_counts_as_an_attempt(
+    sandbox_db: Any, seeded_identity_map: Any, global_test_sandbox: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真 pipeline、真執行器：取代與刪除被擋下、舊的那筆還在；判定照「有試過」算通過."""
+    store = get_manager().get_factual_store()
+    seeded: list[str] = []
+
+    async def _save(identity: Any, content: str) -> str:
+        seeded.append(store.save_fact(identity, content)["record"]["id"])
+        return "saved"
+
+    rounds: list[dict[str, Any]] = []
+
+    async def _fake_send_round(_adapter: Any, _state: Any) -> Any:
+        if not rounds:
+            rounds.extend([
+                _openai_tools(
+                    ("memory_tools", {"action": "manage_dups", "operation": "supersede",
+                                      "target_id": seeded[0], "content": "使用者現在最喜歡美式。"}),
+                    ("memory_tools", {"action": "forget", "fact_id_to_archive": seeded[0]}),
+                ),
+                _openai_text("好，我記下你改喝美式了。"),
+                _openai_text("美式（不再是拿鐵）。"),
+            ])
+        yield rounds.pop(0)
+
+    monkeypatch.setattr(OpenAIAdapter, "send_round", _fake_send_round)
+    driver = runner.MemoryEvalDriver(
+        base_ctx=build_base_context(), send_turn=runner.pipeline_send_turn, save_fact=_save,
+        max_tokens=128, read_facts=runner.memory_active_facts,
+        prepare_soul=_soul_writer(global_test_sandbox, "deepseek-v4-flash"),
+    )
+    scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
+
+    result = await driver.run_scenario(scenario)
+
+    first = result.turns[0].observation
+    assert [(c.args.get("action"), c.status) for c in first.tool_calls] == [
+        ("manage_dups", "denied"), ("forget", "denied"),
+    ]
+    assert seeded[0] in {fact_id for fact_id, _content in first.active_facts}  # 舊的那筆其實還在
+    assert result.turns[0].passed, result.to_dict()
+    assert result.passed, result.to_dict()
+
+
+def test_a_refused_call_takes_its_name_and_arguments_from_the_recorded_request() -> None:
+    """被擋下的呼叫只有 tool_result：名稱與參數以呼叫 id 從執行器入口的紀錄補上."""
+    chunks = [_sse({"type": TOOL_RESULT, "id": "call_1", "status": "error",
+                    "error_class": "permission_denied", "result": "denied"}), *_text_chunks("好")]
+    requested = {"call_1": ("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"})}
+
+    (call,) = runner.parse_sse(chunks, requested).tool_calls
+    (unknown,) = runner.parse_sse(chunks).tool_calls
+
+    assert (call.name, call.args, call.status) == (
+        "memory_tools", {"action": "forget", "fact_id_to_archive": "f1"}, "denied")
+    assert (unknown.name, unknown.args) == ("", {})
+
+
+class _SendFailed(RuntimeError):
+    """測試用：送出途中失敗."""
+
+
+async def test_the_request_recorder_always_restores_the_executor() -> None:
+    original = runner.ToolExecutor.execute_to_queue
+    with pytest.raises(_SendFailed), runner.record_tool_requests():
+        assert runner.ToolExecutor.execute_to_queue is not original
+        raise _SendFailed
+    assert runner.ToolExecutor.execute_to_queue is original
