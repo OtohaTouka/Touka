@@ -6,6 +6,7 @@
 - 影響範圍：`tests/smoke/manual/memory_eval_probe.py`、`tests/memory_eval/`（新 `live_bounds.py`；`judges.py`、
   `runner.py`、`scenarios.py`）、`docs/proxy/live-check-backlog.md`；產品程式 0 行
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：「5.5 思考關不掉」只對 Opus 5.5 成立（Sonnet 5.5 可送 `between_tools`、Haiku 5.5 可送 `disabled`，都要 effort ≤ high）；評估工具的送前估價改取分檔型號的貴檔（`_dearest_rate`，Haiku 5.5 仍 0.625／2.5），結清依實際提示長度選檔；工具改過，之後再跑要照新版重新取得同意
+- 2026-10-25 由 [ADR-0284](0284-memory-eval-measures-memory.md) 修訂決策 3：改名只在自稱後面接否定的述語時放過（否定另一個名字、「沒錯」照樣算改名），另加否認自己名字的判定；口令說出任一段就算洩漏；經過時間三題與相對時間題改用較嚴的規則
 - 相關：本 ADR 修訂 [ADR-0261](0261-memory-long-horizon-eval.md) 決策 5、6（已回指）；
   [ADR-0247](0247-model-layer-stage-3a.md)（每模型規則表）、
   [ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)（人工實測政策）決策不變
@@ -39,7 +40,7 @@
    - 價格取產品價目表 `pricing.get_pricing`（唯讀），核准範圍印出 `worst_case_usd_per_mtok`。
    - 已花：廠商回報用量的請求照實際金額（產品 `telemetry.usage_cost_usd`），沒回報的（中途失敗）照最壞值。
      原本每輪開始前的累計軟上限保留。
-3. **判定**（修訂 ADR-0261 決策 5）
+3. **判定**（修訂 ADR-0261 決策 5）〔改名、口令、經過時間由 ADR-0284 決策 4 修訂〕
    - 改名：切成子句，去掉開頭的空白、符號與語氣詞（好的、嗯、那就、沒問題、OK…）後，只認以自稱開頭、
      沒有否定詞、不是以問號結尾的子句。引號開頭的引述、別人的話（「你如果想叫我小晴」）、反問都不算；
      動詞多收「改名叫／改名成／改名為」。

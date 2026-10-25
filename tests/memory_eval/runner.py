@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -62,9 +63,15 @@ if TYPE_CHECKING:
     ArchiveHistory = Callable[[AgentIdentity, dict[str, Any]], Awaitable[None]]
 
 EVAL_AUTH_LEVEL = "Auto"
-# handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）。
-PROVIDER_ERROR_MARKERS = (
-    "API Error (", "API 發生錯誤", "連線錯誤", "Access Denied", "Dispatcher Error", "Missing `",
+# handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）：
+# 四家 adapter 的 RoundError 只有這五種開頭，react_core 把它當成獨立的一段文字送出（前面不一定有
+# 換行）。只看每一段文字的開頭；模型正常回答裡提到「連線錯誤」不算。
+_PROVIDER_NAME = r"[A-Za-z][\w.-]*(?: [A-Za-z][\w.-]*){0,2}"  # 廠商顯示名稱：英文 1～3 個字
+PROVIDER_ERROR_START = re.compile(
+    rf"❌ \*\*API 發生錯誤\*\*"  # Claude
+    rf"|❌ \*\*{_PROVIDER_NAME} 連線錯誤\*\*"  # OpenAI 相容、Responses 連不上
+    rf"|(?:{_PROVIDER_NAME} )?API Error \((?:\d{{3}}|Timeout)\)"  # Gemini 沒有廠商名稱
+    rf"|{_PROVIDER_NAME} Access Denied \(401\)"  # 缺金鑰
 )
 NO_REPLY = "no assistant text and no tool call"
 BUDGET_REACHED = "budget soft cap reached"
@@ -130,6 +137,7 @@ def _payloads(chunks: Iterable[str]) -> Iterator[dict[str, Any]]:
 def parse_sse(chunks: Iterable[str]) -> TurnObservation:
     """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。"""
     texts: list[str] = []
+    provider_error = ""
     pending: dict[str, tuple[str, dict[str, Any]]] = {}
     calls: list[ToolCallRecord] = []
     cost = 0.0
@@ -150,8 +158,11 @@ def parse_sse(chunks: Iterable[str]) -> TurnObservation:
             texts.append((data.get("delta") or {}).get("text") or "")
         elif isinstance(data.get("choices"), list) and data["choices"]:
             texts.append(((data["choices"][0] or {}).get("delta") or {}).get("content") or "")
+        if texts and not provider_error:
+            found = PROVIDER_ERROR_START.match(texts[-1].lstrip())
+            provider_error = found.group(0) if found else ""
     text = "".join(texts).strip()
-    error = stream_error or next((m for m in PROVIDER_ERROR_MARKERS if m in text), "")
+    error = stream_error or provider_error
     if not error and not text and not calls:
         error = NO_REPLY
     return TurnObservation(text=text, tool_calls=tuple(calls),

@@ -120,9 +120,41 @@ def test_parse_sse_collects_text_and_tool_trace() -> None:
     assert obs.error == ""
 
 
-@pytest.mark.parametrize("text", ["❌ API Error (429)\n\n`rate`", "連線錯誤：timeout"])
+# Touka 自己的五種錯誤訊息格式（四家 adapter 的 RoundError；react_core 以獨立的一段文字送出）
+PROVIDER_ERRORS = [
+    "❌ **API 發生錯誤**\n\n`overloaded`",  # Claude
+    "API Error (429)\n\n`rate`",  # Gemini（前面沒有廠商名稱）
+    "API Error (Timeout)\n\n`idle 120s`",
+    "DeepSeek API Error (503)\n\n`busy`",  # OpenAI 相容、Responses
+    "❌ **xAI 連線錯誤**\n\n`ConnectError`",  # 連不上
+    "OpenAI Access Denied (401)\n\nMissing `OPENAI_API_KEY` in `.env`.",  # 缺金鑰
+]
+
+
+@pytest.mark.parametrize("text", PROVIDER_ERRORS)
 def test_parse_sse_marks_provider_errors(text: str) -> None:
     assert runner.parse_sse(_text_chunks(text)).error
+
+
+@pytest.mark.parametrize("text", PROVIDER_ERRORS)
+def test_an_error_after_text_from_an_earlier_round_is_still_recognised(text: str) -> None:
+    """第 1 輪的文字結尾沒有換行，第 2 輪才出錯：錯誤是另一段文字，整批照樣停下."""
+    chunks = [_sse({"choices": [{"delta": {"content": "我先查一下記憶。"}}]}), *_text_chunks(text)]
+
+    assert runner.parse_sse(chunks).error
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "上次遇到連線錯誤，所以我重新查了一次。",  # 正常回答提到「連線錯誤」
+        "設定檔裡寫著 Missing `name`，看起來是範例。",
+        "如果看到 API Error (429) 就稍等一下。",  # 不在一段的開頭
+        "Access Denied 是這本書的書名。",
+    ],
+)
+def test_ordinary_replies_that_mention_errors_are_not_provider_errors(text: str) -> None:
+    assert runner.parse_sse(_text_chunks(text)).error == ""
 
 
 def test_parse_sse_without_any_reply_is_an_error() -> None:
@@ -339,7 +371,7 @@ async def test_driver_seeds_summary_home_and_facts(sandbox_db: Any) -> None:
 
 async def test_batch_stops_after_the_first_provider_error(sandbox_db: Any) -> None:
     sent: list[tuple[Any, Any]] = []
-    send = _fake_sender([_text_chunks("❌ API Error (429)\n\n`rate`")], sent)
+    send = _fake_sender([_text_chunks("API Error (429)\n\n`rate`")], sent)
     batch = sc.select_scenarios(sc.SMOKE, ["poison_summary", "poison_home"])
 
     report = await _driver(send).run_batch(batch)
