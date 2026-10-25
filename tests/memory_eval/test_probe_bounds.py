@@ -30,11 +30,20 @@ from src.services import dialogue_summarizer, proxy_service, telemetry
 from src.services.audit_service import PolicyAuditService
 from src.services.permission_service import permission_service
 from src.services.providers import pricing
+from src.services.resource_manager import resource_manager
 from src.services.review import review_loop
+from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 
 from tests.memory_eval import live_bounds, seeding
-from tests.memory_eval.scenarios import CONTINUITY, SMOKE, select_scenarios
+from tests.memory_eval.scenarios import (
+    CANARY,
+    CONTINUITY,
+    SMOKE,
+    canary_fragments,
+    persona_text,
+    select_scenarios,
+)
 from tests.smoke.lib.sandbox_env import SmokeSandboxError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -301,11 +310,13 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
 
 class _FakeDriver:
     built: list[dict[str, Any]] = []
+    readers: list[Any] = []
 
     def __init__(self, **kwargs: Any) -> None:
         _FakeDriver.built.append(kwargs)
 
     async def run_batch(self, _scenarios: Any) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
         return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
 
 
@@ -317,12 +328,14 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
     restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     suite: str, ids: tuple[str, ...], recording: bool,
 ) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
     monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
     monkeypatch.setattr(probe, "init_db_async", _no_init_db)
     monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
     monkeypatch.setattr(probe, "build_base_context", dict)
     monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
     monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
 
     await probe.run_memory_eval_probe(
         provider="deepseek", model="deepseek-v4-flash", suite=suite,
@@ -334,10 +347,77 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
 
     (kwargs,) = _FakeDriver.built
     assert kwargs["activity_record"] is recording
+    prepare = kwargs["prepare_soul"]  # 每個情境另建靈魂：核准的型號、這次的沙盒
+    assert prepare.func is probe._prepare_soul
+    # 每次實測一組新口令（不是固定常數），人格與判定都用它
+    assert kwargs["canary"] != CANARY
+    assert len(canary_fragments(kwargs["canary"])) == 3
+    assert prepare.keywords == {"sandbox_root": tmp_path, "model": "deepseek-v4-flash"}
+    assert kwargs["read_facts"] is probe.runner.memory_active_facts
+    assert callable(kwargs["archive_history"])
+    # 查舊對話要讀 UI 對話：跑的時候裝上沙盒的 session store，跑完卸下
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
 
 
 async def _no_init_db() -> None:
     pass
+
+
+class _BlewUp(RuntimeError):
+    """測試用：故意讓實測流程中途失敗."""
+
+
+class _FailingDriver(_FakeDriver):
+    async def run_batch(self, _scenarios: Any) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        raise _BlewUp
+
+
+async def test_the_conversation_reader_is_unbound_when_the_batch_fails(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FailingDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
+
+
+async def test_a_failure_before_the_batch_never_binds_the_reader(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _broken_seed(*_a: Any) -> None:
+        raise _BlewUp
+
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", _broken_seed)
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert resource_manager._ui_conversation_reader is None
 
 
 async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
@@ -509,13 +589,20 @@ def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
         probe.main([*_CLI_ARGS, "--scenarios", "no_such_scenario"])
 
 
-def test_seed_sandbox_makes_the_synthetic_soul_an_owner(
+def test_each_prepared_soul_is_an_owner_with_the_approved_model(
     restore_product: None, global_test_sandbox: str
 ) -> None:
+    sandbox = Path(global_test_sandbox)
     try:
-        probe._seed_sandbox(Path(global_test_sandbox), "deepseek-v4-flash")
-        assert get_active_brain(seeding.soul_identity()) == "deepseek-v4-flash"
+        probe._seed_sandbox(sandbox)
         assert memory_vector.SentenceTransformer is seeding.DeterministicEncoder
+        for number in (1, 2):
+            soul_id = seeding.soul_id_for(number)
+            persona = persona_text(f"BCDFG-HJKLM-NPQR{number}")
+            probe._prepare_soul(soul_id, persona, sandbox_root=sandbox, model="deepseek-v4-flash")
+            assert get_active_brain(seeding.soul_identity(soul_id)) == "deepseek-v4-flash"
+            soul_md = Path(config_utils.get_app_data_dir()) / "soul" / soul_id / "soul.md"
+            assert soul_md.read_text(encoding="utf-8") == persona
     finally:
         permission_service.identity_path.unlink(missing_ok=True)
         permission_service.reload_all()
@@ -525,7 +612,10 @@ def test_seed_sandbox_refuses_targets_outside_the_sandbox(
     restore_product: None, tmp_path: Path
 ) -> None:
     with pytest.raises(seeding.SeedOutsideSandbox):
-        probe._seed_sandbox(tmp_path / "not-the-sandbox", "deepseek-v4-flash")
+        probe._seed_sandbox(tmp_path / "not-the-sandbox")
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        probe._prepare_soul(seeding.soul_id_for(1), persona_text(CANARY),
+                            sandbox_root=tmp_path / "not-the-sandbox", model="deepseek-v4-flash")
 
 
 def test_cli_gate_precedes_every_provider_capable_import() -> None:

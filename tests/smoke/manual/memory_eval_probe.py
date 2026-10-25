@@ -129,17 +129,18 @@ from src.services.models.model_rules import claude_send_max_tokens  # noqa: E402
 from src.services.permission_service import permission_service  # noqa: E402
 from src.services.providers import pricing  # noqa: E402
 from src.services.providers import registry as provider_registry  # noqa: E402
+from src.services.resource_manager import resource_manager  # noqa: E402
 from src.services.review import review_loop  # noqa: E402
-from src.utils.async_db import init_db_async  # noqa: E402
+from src.utils.async_db import init_db_async, session_service  # noqa: E402
 from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
 from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
     ACTIVITY_RECORD_SUITES,
-    SOUL_ID,
     SUITES,
     UnknownScenario,
     expected_requests,
+    random_canary,
     select_scenarios,
 )
 from tests.sandbox_cleanup import remove_session_sandbox  # noqa: E402
@@ -412,18 +413,25 @@ def _memory_eval_scope(
     )
 
 
-def _seed_sandbox(sandbox_root: Path, model: str) -> None:
-    """合成靈魂、主要模型、身分對映（.example）、替身編碼器：全部只在沙盒。"""
+def _seed_sandbox(sandbox_root: Path) -> None:
+    """身分對映（.example）、替身編碼器：全部只在沙盒；合成靈魂每個情境另建（_prepare_soul）。"""
     memory_vector.SentenceTransformer = seeding.DeterministicEncoder  # 零下載
-    seeding.write_synthetic_soul(Path(config_utils.get_app_data_dir()), sandbox_root=sandbox_root)
     seeding.seed_identity_map(
         permission_service.identity_path, IDENTITY_MAP_EXAMPLE, sandbox_root=sandbox_root
     )
     permission_service.reload_all()
-    role, _caps = agent_service.resolve_role_and_caps(SOUL_ID)
+
+
+def _prepare_soul(soul_id: str, persona: str, *, sandbox_root: Path, model: str) -> None:
+    """這個情境的合成靈魂：人格寫進沙盒、核對解析成 Owner、設主要模型（核准的那一個）。"""
+    seeding.write_synthetic_soul(
+        Path(config_utils.get_app_data_dir()), soul_id, sandbox_root=sandbox_root,
+        persona=persona,
+    )
+    role, _caps = agent_service.resolve_role_and_caps(soul_id)
     if role != "Owner":
         raise _SoulNotOwner(role)
-    set_active_brain(seeding.soul_identity(), model)
+    set_active_brain(seeding.soul_identity(soul_id), model)
 
 
 async def run_memory_eval_probe(
@@ -459,7 +467,7 @@ async def run_memory_eval_probe(
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
     await init_db_async()
-    _seed_sandbox(sandbox_root, model)
+    _seed_sandbox(sandbox_root)
     base_ctx = build_base_context()
     anthropic_client: AsyncAnthropic | None = None
     if provider.casefold() == "anthropic":
@@ -476,10 +484,17 @@ async def run_memory_eval_probe(
         base_ctx=base_ctx, send_turn=runner.pipeline_send_turn,
         save_fact=runner.memory_save_fact, max_tokens=max_tokens, budget_usd=budget,
         activity_record=suite in ACTIVITY_RECORD_SUITES,
+        prepare_soul=partial(_prepare_soul, sandbox_root=sandbox_root, model=model),
+        read_facts=runner.memory_active_facts,
+        archive_history=runner.legacy_archiver(sandbox_root),
+        canary=random_canary(),  # 每次實測一組新口令，事先猜不到；不印出
     )
     try:
+        # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
+        resource_manager.bind_ui_conversation_reader(session_service)
         report = (await driver.run_batch(scenarios)).to_dict()
     finally:
+        resource_manager.bind_ui_conversation_reader(None)
         if anthropic_client is not None:
             await anthropic_client.close()
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0

@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-25 | **記憶評估工具真的在量記憶**（只改評估工具與測試，產品程式不變）：以前全部情境共用一個合成靈魂，「家對話裡的注入」那段注入句會帶進之後每一題；現在每個情境用一個新的合成靈魂。記憶衝突改看有沒有試著換掉舊偏好（沒人在場時產品會擋下，擋下也算有試）、追問在新的對話；長對話的 100 輪只放進舊對話庫，提問時對話是空的。改名、否認自己的名字、口令片段、經過時間的判定不再把錯的判成對；每次實測產生一組新的內部口令；只有 Touka 自己的錯誤格式才讓整批停下；實測時裝上 UI 對話讀取器，查舊對話才查得到。實測每批另外問。 | [ADR-0284](architecture/adr/0284-memory-eval-measures-memory.md) |
 | 2026-10-25 | **備份發布失敗不再留下空檔**：系統快照改名失敗時，0 位元組的佔位檔會被排程修剪算成一份備份，結果少留一份真的備份；改成失敗時刪掉空檔、暫時占用會重試、發布後資料夾落盤，修剪也不再把空檔算進份數。舊審查報告丙組第 1 批 | [ADR-0262](architecture/adr/0262-consistent-snapshots-and-soul-delete-memory-check.md) |
 | 2026-10-25 | **政策稽核帳本不再記下指令內容**：`stats/decisions.csv` 的終端指令列原本記下整條指令，指令裡的金鑰也會進去；改成只記程式名稱和長度，例如 `[command program=curl chars=87]`，認不出就記 `?`。權限判斷照舊看完整指令；已寫進帳本的舊列不自動改 | [ADR-0283](architecture/adr/0283-policy-ledger-command-summary.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **一批中風險依賴弱點**：hono 4.13.13（Chat 與 IDE）、ip-address 10.7.4（Chat）、vitest 4.1.12（Chat 與 IDE）、smol-toml 1.9.1（Chat）、IDE 測試用的 MCP client 2.3.1，共修 14 則 medium。除了 IDE 的 hono（MCP SDK 的 peer 相依，不打包進擴充套件），全部只在開發或測試工具裡。版本都已上架滿 7 天。fast-uri 的修正版 10/27 才滿 7 天，併入那批；katex（low）要升到 mermaid 12.2.0 以上（大版本）才有修正，暫不處理 | [SECURITY](../SECURITY.md) |
