@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import packageJson from "./package.json";
 
 const nextConfig: NextConfig = {
   output: "export",
@@ -8,6 +9,10 @@ const nextConfig: NextConfig = {
   },
   images: {
     unoptimized: true,
+  },
+  // 只把版本號內嵌進前端，不把整份 package.json 打包進去（app_meta.ts 經 config.ts 讀取）。
+  env: {
+    NEXT_PUBLIC_APP_VERSION: packageJson.version,
   },
   // Turbopack 設定（Next.js 16 預設使用 Turbopack）
   turbopack: {
