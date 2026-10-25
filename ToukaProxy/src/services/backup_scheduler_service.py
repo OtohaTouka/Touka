@@ -112,11 +112,15 @@ def prune_old_auto_backups(backup_dir: Path, retention_count: int) -> list[Path]
     留下的空檔，不算份數、直接刪（否則少留一份真的備份）。回傳被刪除的路徑清單。
     """
     autos = sorted(
-        (f for f in list_snapshot_files(backup_dir) if f.name.startswith(f"{AUTO_BACKUP_PREFIX}_")),
-        key=lambda f: f.stat().st_mtime,
-    )  # 最舊在前；只看清單規則內的檔（和清單、清除同一套）
-    empty = [f for f in autos if f.stat().st_size == 0]
-    real = [f for f in autos if f not in empty]
+        (
+            (f, f.stat())
+            for f in list_snapshot_files(backup_dir)
+            if f.name.startswith(f"{AUTO_BACKUP_PREFIX}_")
+        ),
+        key=lambda item: item[1].st_mtime,
+    )  # 最舊在前；只看清單規則內的檔（和清單、清除同一套）；每個檔只 stat 一次
+    empty = [f for f, st in autos if st.st_size == 0]
+    real = [f for f, st in autos if st.st_size > 0]
     to_delete = empty + (real[:-retention_count] if retention_count > 0 else real)
     for f in to_delete:
         resource_manager.remove_file(f)

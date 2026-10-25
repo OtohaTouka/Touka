@@ -14,6 +14,7 @@ import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from memory_server import factual as fm
@@ -371,9 +372,25 @@ def test_main_rejects_partial_path_arguments(mb, layout, monkeypatch):
 # ── 發布：改名失敗不留下空檔、暫時占用會重試、發布後資料夾落盤（ADR-0262 補記，丙-1） ──
 
 
-def _flaky_publish(mb, monkeypatch: pytest.MonkeyPatch, failures: int, *, write: bytes = b""):
-    """暫存檔改名成正式檔名時，前 ``failures`` 次丟 PermissionError（防毒、索引占用）。"""
+class _Locked(PermissionError):
+    """改名失敗時丟的那個錯誤；用子類別才分得出往外丟的是不是它。"""
+
+
+def _flaky_publish(
+    mb,
+    monkeypatch: pytest.MonkeyPatch,
+    failures: int,
+    *,
+    write: bytes = b"",
+    drop_target: bool = False,
+    error: type[BaseException] = _Locked,
+):
+    """暫存檔改名成正式檔名時，前 ``failures`` 次丟 ``error``（防毒、索引占用）。
+
+    ``sleep`` 換成只記下秒數的替身，只換腳本自己的 ``time``，不動整個行程。
+    """
     calls = {"n": 0}
+    sleeps: list[float] = []
     real_replace = Path.replace
 
     def replace(self: Path, target):
@@ -381,50 +398,124 @@ def _flaky_publish(mb, monkeypatch: pytest.MonkeyPatch, failures: int, *, write:
             calls["n"] += 1
             if write:
                 Path(target).write_bytes(write)
-            raise PermissionError  # locked by another process
+            if drop_target:
+                Path(target).unlink(missing_ok=True)
+            raise error
         return real_replace(self, target)
 
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(mb.time, "sleep", lambda _seconds: None)
-    return calls
+    monkeypatch.setattr(mb, "time", SimpleNamespace(sleep=sleeps.append))
+    return calls, sleeps
 
 
 def test_publish_failure_leaves_no_empty_backup(mb, layout, monkeypatch):
     _flaky_publish(mb, monkeypatch, failures=99)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(_Locked):
         _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
 
     assert list(layout["out"].iterdir()) == []  # 沒有 0 位元組的 .zip，也沒有 .partial
 
 
 def test_publish_retries_a_briefly_locked_rename(mb, layout, monkeypatch):
-    calls = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS - 1)
+    calls, sleeps = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS - 1)
 
     created = _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
 
     assert calls["n"] == mb.PUBLISH_RENAME_ATTEMPTS - 1
+    assert sleeps == [mb.PUBLISH_RETRY_DELAY_S] * (mb.PUBLISH_RENAME_ATTEMPTS - 1)
     assert created.name == f"{STEM}.zip"
     assert "data/soul/Alice/soul.md" in _names(created)
 
 
 def test_publish_gives_up_after_the_last_attempt(mb, layout, monkeypatch):
-    calls = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS)
+    calls, sleeps = _flaky_publish(mb, monkeypatch, failures=mb.PUBLISH_RENAME_ATTEMPTS)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(_Locked):
         _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
 
     assert calls["n"] == mb.PUBLISH_RENAME_ATTEMPTS
+    assert len(sleeps) == mb.PUBLISH_RENAME_ATTEMPTS - 1  # no wait after the last failure
+    assert list(layout["out"].iterdir()) == []
+
+
+def test_publish_does_not_retry_other_errors(mb, layout, monkeypatch):
+    calls, sleeps = _flaky_publish(mb, monkeypatch, failures=99, error=IsADirectoryError)
+
+    with pytest.raises(IsADirectoryError):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert (calls["n"], sleeps) == (1, [])
+    assert list(layout["out"].iterdir()) == []
+
+
+def test_publish_interrupted_while_waiting_cleans_up(mb, layout, monkeypatch):
+    _flaky_publish(mb, monkeypatch, failures=99)
+
+    def interrupt(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(mb, "time", SimpleNamespace(sleep=interrupt))
+
+    with pytest.raises(KeyboardInterrupt):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
     assert list(layout["out"].iterdir()) == []
 
 
 def test_publish_keeps_a_placeholder_that_is_no_longer_empty(mb, layout, monkeypatch):
     _flaky_publish(mb, monkeypatch, failures=99, write=b"written by someone else")
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(_Locked):
         _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
 
     assert (layout["out"] / f"{STEM}.zip").read_bytes() == b"written by someone else"
+
+
+def _locked_unlink(monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
+    """名稱以 ``suffix`` 結尾的檔刪不掉（Windows 上被別的程序開著）。"""
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, *args, **kwargs):
+        if self.name.endswith(suffix):
+            raise PermissionError
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+
+
+def test_publish_reports_the_rename_error_when_the_placeholder_is_locked(
+    mb, layout, monkeypatch, capsys
+):
+    _flaky_publish(mb, monkeypatch, failures=99)
+    _locked_unlink(monkeypatch, ".zip")
+
+    with pytest.raises(_Locked):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert "could not remove the empty placeholder" in capsys.readouterr().err
+
+
+def test_publish_reports_the_rename_error_when_the_partial_is_locked(
+    mb, layout, monkeypatch, capsys
+):
+    _flaky_publish(mb, monkeypatch, failures=99)
+    _locked_unlink(monkeypatch, mb.PARTIAL_SUFFIX)
+
+    with pytest.raises(_Locked):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert "could not remove the partial backup" in capsys.readouterr().err
+    assert not (layout["out"] / f"{STEM}.zip").exists()
+
+
+def test_publish_placeholder_already_gone_is_not_a_warning(mb, layout, monkeypatch, capsys):
+    _flaky_publish(mb, monkeypatch, failures=99, drop_target=True)
+
+    with pytest.raises(_Locked):
+        _engine(mb, layout).run_backup(layout["out"], "Touka_Backup")
+
+    assert "WARNING" not in capsys.readouterr().err
 
 
 def test_publish_retry_matches_the_scrub_swap(mb):
@@ -434,28 +525,37 @@ def test_publish_retry_matches_the_scrub_swap(mb):
     )
 
 
+def test_directory_sync_only_on_posix(mb):
+    assert mb._SUPPORTS_DIR_FSYNC is (os.name != "nt")
+
+
 _DIR_FD = -7  # 假的資料夾 fd：Windows 不能開資料夾，用替身記下呼叫
 
 
 def _fake_dir_sync(mb, monkeypatch: pytest.MonkeyPatch, backup_dir: Path, *, fail: bool = False):
-    events: list[tuple[str, bool]] = []
+    events: list[str] = []
     real_open, real_fsync, real_close = os.open, os.fsync, os.close
 
-    def fake_open(path, flags, *args):
+    def fake_open(path, flags, *args, **kwargs):
         if Path(path) == backup_dir and flags == os.O_RDONLY:
+            events.append("open")
             return _DIR_FD
-        return real_open(path, flags, *args)
+        return real_open(path, flags, *args, **kwargs)
 
     def fake_fsync(fd):
         if fd != _DIR_FD:
             return real_fsync(fd)
-        events.append(("fsync", (backup_dir / f"{STEM}.zip").stat().st_size > 0))
+        published = (backup_dir / f"{STEM}.zip").stat().st_size > 0
+        events.append("fsync-after-publish" if published else "fsync-before-publish")
         if fail:
             raise OSError  # fsync not supported here
         return None
 
     def fake_close(fd):
-        return None if fd == _DIR_FD else real_close(fd)
+        if fd == _DIR_FD:
+            events.append("close")
+            return None
+        return real_close(fd)
 
     monkeypatch.setattr(mb, "_SUPPORTS_DIR_FSYNC", True)
     monkeypatch.setattr(mb.os, "open", fake_open)
@@ -472,15 +572,16 @@ def test_publish_syncs_the_directory_after_the_rename(mb, tmp_path, monkeypatch)
     final = mb._publish_new(tmp, tmp_path, STEM)
 
     assert final.read_bytes() == b"zip bytes"
-    assert events == [("fsync", True)]  # once, after the backup has its content
+    assert events == ["open", "fsync-after-publish", "close"]
 
 
 def test_publish_directory_sync_failure_only_warns(mb, tmp_path, monkeypatch, capsys):
     tmp = tmp_path / f".{STEM}.abcdefgh{mb.PARTIAL_SUFFIX}"
     tmp.write_bytes(b"zip bytes")
-    _fake_dir_sync(mb, monkeypatch, tmp_path, fail=True)
+    events = _fake_dir_sync(mb, monkeypatch, tmp_path, fail=True)
 
     final = mb._publish_new(tmp, tmp_path, STEM)
 
     assert final.read_bytes() == b"zip bytes"
+    assert events == ["open", "fsync-after-publish", "close"]
     assert "WARNING" in capsys.readouterr().err

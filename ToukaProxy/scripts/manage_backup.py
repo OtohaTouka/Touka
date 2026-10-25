@@ -261,7 +261,7 @@ class BackupEngine:
                 os.fsync(raw.fileno())
             output = _publish_new(tmp, backup_dir, stem)
         except BaseException:
-            tmp.unlink(missing_ok=True)
+            _discard_partial(tmp)
             raise
         print(f"Backup completed: {output}")
         return output
@@ -353,11 +353,22 @@ def _replace_with_retry(tmp: Path, final: Path) -> None:
             return
 
 
+def _discard_partial(tmp: Path) -> None:
+    """刪掉寫到一半的暫存；被占用刪不掉時只警告，讓原本的錯誤照樣往外丟（清除會掃掉它）。"""
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"WARNING: could not remove the partial backup {tmp.name}: {exc}",
+              file=sys.stderr)
+
+
 def _drop_empty_placeholder(final: Path) -> None:
     """刪掉自己佔的空檔；已經不是 0 位元組就不碰（那不是我們寫的）。刪不掉只警告。"""
     try:
         if final.stat().st_size == 0:
             final.unlink()
+    except FileNotFoundError:
+        return  # 已經不在了，沒有要清的
     except OSError as exc:
         print(f"WARNING: could not remove the empty placeholder {final.name}: {exc}",
               file=sys.stderr)
