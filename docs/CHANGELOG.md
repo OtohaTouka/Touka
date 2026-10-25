@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-25 | **一批中風險依賴弱點**：hono 4.13.13（Chat 與 IDE）、ip-address 10.7.4（Chat）、vitest 4.1.12（Chat 與 IDE）、smol-toml 1.9.1（Chat）、IDE 測試用的 MCP client 2.3.1，共修 14 則 medium。除了 IDE 的 hono（MCP SDK 的 peer 相依，不打包進擴充套件），全部只在開發或測試工具裡。版本都已上架滿 7 天。fast-uri 的修正版 10/27 才滿 7 天，併入那批；katex（low）要升 mermaid 大版本才有修正，暫不處理 | [SECURITY](../SECURITY.md) |
 | 2026-10-24 | **braces 回補整套退役**：GitHub 撤回 braces 的公告 GHSA-vfj7-8cjw-p6xm（理由是實際上無法被利用），為它加的同版本修補、證據檢查與專用測試一併拿掉（刪約 3,100 行、淨減約 2,600 行）。npm 指令不再先驗補丁，`install:controlled` 就是 `npm ci --ignore-scripts`；Chat 的兩個 Dockerfile、CI、IDE Marketplace 打包也拿掉這兩步。Guard #23 回到單純的 npm audit：四個範圍都會掃完，失敗時列出阻擋的套件與 GHSA；另外收緊為 lock 每個套件都要有 SHA-512；「掃描途中 npm 來源被改就中止」保留，改成不依賴 braces。產品沒有差別；braces 回到官方原版 3.0.3 | [ADR-0282](architecture/adr/0282-braces-backport-retirement.md) |
 | 2026-10-24 | **IDE 錯誤頁不再帶出內部路徑**：ToukaIDE 的本機 MCP 伺服器在請求內容解析失敗或發生未預期錯誤時，原本回 Express 預設的 HTML 錯誤頁，含 stack 與擴充套件的絕對路徑（路徑含 Windows 使用者名稱），本機其他程式不帶權杖就看得到（DNS rebinding 的網頁也可能讀到）。現在改回固定內容的 JSON（照原狀態碼），不帶任何內部資訊；伺服器端的錯誤仍會寫進擴充主機日誌 | [SECURITY](../SECURITY.md) |
 | 2026-10-24 | **browserslist 這組釘版與 postcss-selector-parser**：Chat 與 IDE 的 browserslist 4.28.7 → 4.29.3，連同它要求的 caniuse-lite、node-releases、electron-to-chromium、baseline-browser-mapping 一起升，update-browserslist-db 也跟著 browserslist 的範圍升到 1.3.4（baseline-browser-mapping 2.11.29 修 GHSA-w5vr-8v7q-w6rv，medium）；Chat 的 postcss-selector-parser 7.1.3 → 7.1.6（修 GHSA-rj75-hqrm-r3gf，medium）。主要是讓元件產生器 shadcn 4.22.0 要求的版本範圍成立；都是建置與開發工具，產品執行時不受影響，版本都已上架滿 7 天 | [SECURITY](../SECURITY.md) |

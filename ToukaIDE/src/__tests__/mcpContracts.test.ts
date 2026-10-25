@@ -40,7 +40,7 @@ describe('ToukaIDE MCP 2026 contracts', () => {
         expect(manifest.dependencies['@modelcontextprotocol/server']).toBe('2.3.1');
         expect(manifest.dependencies['@modelcontextprotocol/node']).toBe('2.0.0');
         expect(manifest.dependencies['@modelcontextprotocol/server-legacy']).toBeUndefined();
-        expect(manifest.devDependencies['@modelcontextprotocol/client']).toBe('2.2.0');
+        expect(manifest.devDependencies['@modelcontextprotocol/client']).toBe('2.3.1');
         expect(manifest.scripts.test).toBe('vitest run');
         expect(manifest.scripts.typecheck).toBe('tsc --noEmit');
         expect(manifest.engines.node).toBe('>=20');
