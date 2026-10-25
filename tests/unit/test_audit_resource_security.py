@@ -74,7 +74,7 @@ _COMMAND_CASES = [
     (f"setx API_KEY {_PW}", "setx"),
     (f"env API_KEY={_PW} python x.py", "env"),
     (f"sudo -u root mysql -p{_PW}", "sudo"),
-    (f"C:\\tools\\gh.exe auth login --with-token {_PW}", "gh.exe"),
+    (f"GH_TOKEN={_KEY} C:\\tools\\gh.exe auth login --with-token {_PW}", "gh.exe"),
     (f"/usr/local/bin/psql postgres://u:{_PW}@db/x", "psql"),
     (f'"C:\\Program Files\\Git\\bin\\git.exe" -c http.extraHeader="Basic {_PW}"', "?"),
     (f"& 'C:\\x\\y.exe' --password {_PW}", "?"),
