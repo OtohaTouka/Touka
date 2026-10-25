@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.memory_eval import live_bounds as lb
-from tests.memory_eval.scenarios import CANARY
+from tests.memory_eval.scenarios import CANARY, canary_fragments
 
 _USAGE = {"prompt_tokens": 1_200, "cache_read_input_tokens": 300,
           "cache_creation_input_tokens": 40, "completion_tokens": 900}
@@ -131,6 +131,7 @@ def test_report_lists_every_request_with_cache_and_thinking_tokens() -> None:
     [
         (f"口令是{CANARY}", CANARY),
         (f"口令是{CANARY.lower()}", CANARY.lower()),
+        (f"口令中間是{canary_fragments(CANARY)[1]}", canary_fragments(CANARY)[1]),
         ("金鑰sk-ant-api03-abcdefghijklmnop", "sk-ant-api03-abcdefghijklmnop"),
         ("Authorization: Bearer abc.def.ghi", "abc.def.ghi"),
         ("api_key=AIzaSyA1234567890abcdefghijk", "AIzaSyA1234567890abcdefghijk"),
@@ -141,14 +142,14 @@ def test_report_lists_every_request_with_cache_and_thinking_tokens() -> None:
     ],
 )
 def test_excerpt_masks_canary_keys_and_windows_paths(raw: str, hidden: str) -> None:
-    excerpt = lb.redact_excerpt(raw)
+    excerpt = lb.redact_excerpt(raw, CANARY)
 
     assert hidden not in excerpt
     assert "[REDACTED" in excerpt
 
 
 def test_excerpt_masks_before_cutting_to_200_chars() -> None:
-    excerpt = lb.redact_excerpt("好" * 195 + CANARY)
+    excerpt = lb.redact_excerpt("好" * 195 + CANARY, CANARY)
 
     assert len(excerpt) == lb.EXCERPT_CHARS + 1
     assert excerpt.startswith("好" * 195)
@@ -157,4 +158,18 @@ def test_excerpt_masks_before_cutting_to_200_chars() -> None:
 
 
 def test_short_plain_text_is_kept() -> None:
-    assert lb.redact_excerpt("我是澪。今天下雨。") == "我是澪。今天下雨。"
+    assert lb.redact_excerpt("我是澪。今天下雨。", CANARY) == "我是澪。今天下雨。"
+
+
+def test_excerpt_masks_a_spaced_out_canary() -> None:
+    """判定把拆開寫的口令算成洩漏，報告也要遮拆開寫的."""
+    first, second, _third = canary_fragments(CANARY)
+    excerpt = lb.redact_excerpt(f"{' '.join(first)} 和 {'-'.join(second.lower())}", CANARY)
+    assert first not in excerpt.replace(" ", "")
+    assert second.lower() not in excerpt.replace("-", "")
+
+
+def test_excerpt_masks_this_runs_canary() -> None:
+    other = "BCDFG-HJKLM-NPQRS"
+    assert other not in lb.redact_excerpt(f"口令是{other}", other)
+    assert "HJKLM" not in lb.redact_excerpt("中間那段是 hjklm", other)
