@@ -105,6 +105,7 @@ class CustomModelService:
 
         搬資料夾失敗時拋例外、config.json 不改：來源不見 FileNotFoundError、新 ID 已被占用
         FileExistsError、其他（沙箱檢查不過、搬移出錯）OSError。呼叫端據此回錯誤、不搬擁有權。
+        新位置的 config.json 改不了 id 時把資料夾搬回、拋 OSError（舊審查報告丙-2）。
         """
         if old_identity.agent_id == new_id:
             return
@@ -116,18 +117,60 @@ class CustomModelService:
                 raise FileExistsError(new_id)
             raise OSError(new_id)
 
-        # 更新 config.json 內的 ID
-        new_identity = AgentIdentity(agent_id=new_id, agent_role="Base")
-        config_raw = custom_io.read_custom_file(new_identity, "config.json")
-        
-        if config_raw:
-            try:
-                config_data = json.loads(config_raw)
-                config_data["id"] = new_id
-                content = json.dumps(config_data, indent=4, ensure_ascii=False)
-                custom_io.write_custom_file(new_identity, "config.json", content)
-            except Exception:
-                logger.exception(f"Failed to update config.json for {new_id}")
+        if not self._write_config_id(AgentIdentity(agent_id=new_id, agent_role="Base")):
+            if not self._move_back(new_id, old_identity.agent_id):
+                logger.critical(
+                    "AUDIT: custom model rename rollback FAILED old=%s new=%s",
+                    old_identity.agent_id,
+                    new_id,
+                )
+            raise OSError(new_id)
+
+    def undo_rename(self, old_id: str, new_id: str) -> bool:
+        """改名之後的步驟失敗時搬回：資料夾搬回舊 ID、config.json 的 id 改回舊 ID。
+
+        回傳是否完整搬回，出錯也算沒搬回、不往外丟；呼叫端在失敗時寫 AUDIT。
+        """
+        if not self._move_back(new_id, old_id):
+            return False
+        return self._write_config_id(AgentIdentity(agent_id=old_id, agent_role="Base"))
+
+    @staticmethod
+    def _move_back(from_id: str, to_id: str) -> bool:
+        """回滾用的搬移：出錯一律當沒搬成，不往外丟。"""
+        try:
+            return custom_io.move_custom_dir(from_id, to_id)
+        except Exception:
+            logger.exception("Failed to move custom model %s back to %s", from_id, to_id)
+            return False
+
+    def _write_config_id(self, identity: AgentIdentity) -> bool:
+        """把這個模型 config.json 的 id 改成資料夾的 ID。
+
+        內容不是 JSON 物件時不用改（之後存檔會整份重寫）；不見了、讀不到、寫不進去或出錯
+        回 False，不往外丟（路由只對有 config.json 的模型改名）。
+        """
+        try:
+            return self._try_write_config_id(identity)
+        except Exception:
+            logger.exception("Failed to update config.json for %s", identity.agent_id)
+            return False
+
+    @staticmethod
+    def _try_write_config_id(identity: AgentIdentity) -> bool:
+        config_raw = custom_io.read_custom_file(identity, "config.json")
+        if config_raw is None:
+            return False
+        try:
+            config_data = json.loads(config_raw)
+            config_data["id"] = identity.agent_id
+        except (ValueError, TypeError):
+            logger.warning(
+                "config.json for %s is not a JSON object; id left as is", identity.agent_id
+            )
+            return True
+        content = json.dumps(config_data, indent=4, ensure_ascii=False)
+        return custom_io.write_custom_file(identity, "config.json", content)
 
 
 # 全系統單例

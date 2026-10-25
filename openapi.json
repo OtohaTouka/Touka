@@ -17661,7 +17661,7 @@
         "properties": {
           "new_id": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9._-]+$",
+            "pattern": "^[\\w.-]+$",
             "title": "New Id",
             "description": "新的模型 ID"
           }

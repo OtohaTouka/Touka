@@ -355,11 +355,11 @@ def _patch_custom_model_io(monkeypatch, calls: list[str]):
     monkeypatch.setattr(
         custom_models_router.custom_model_service,
         "save_model",
-        lambda *_a, **_k: calls.append("save"),
+        lambda *_a, **_k: calls.append("save") or True,
     )
     monkeypatch.setattr(
         custom_models_router.user_service,
-        "add_owned_agent",
+        "claim_owned_agent",
         lambda *_a, **_k: calls.append("own"),
     )
 
@@ -412,11 +412,15 @@ async def test_delete_custom_model_respects_model_lock(monkeypatch):
         custom_models_router.resource_manager, "is_owner", lambda *_a: True
     )
     monkeypatch.setattr(
+        custom_models_router.custom_io, "list_custom_ids", lambda: ["doomed-model"]
+    )
+    monkeypatch.setattr(custom_models_router.custom_io, "custom_file_exists", lambda *_a: True)
+    monkeypatch.setattr(
         custom_models_router.custom_model_service, "delete_model", lambda *_a: True
     )
     monkeypatch.setattr(
         custom_models_router.user_service,
-        "remove_owned_agent",
+        "remove_owned_agent_from_all",
         lambda *_a, **_k: None,
     )
     custom_models_router._model_locks.clear()
@@ -444,18 +448,17 @@ async def test_rename_custom_model_locks_both_ids(monkeypatch):
         custom_models_router.resource_manager, "is_owner", lambda *_a: True
     )
     monkeypatch.setattr(
+        custom_models_router.custom_io, "list_custom_ids", lambda: ["old-name"]
+    )
+    monkeypatch.setattr(custom_models_router.custom_io, "custom_file_exists", lambda *_a: True)
+    monkeypatch.setattr(
         custom_models_router.custom_model_service,
         "rename_model",
         lambda *_a, **_k: None,
     )
     monkeypatch.setattr(
         custom_models_router.user_service,
-        "remove_owned_agent",
-        lambda *_a, **_k: None,
-    )
-    monkeypatch.setattr(
-        custom_models_router.user_service,
-        "add_owned_agent",
+        "rename_owned_agent",
         lambda *_a, **_k: None,
     )
     custom_models_router._model_locks.clear()
