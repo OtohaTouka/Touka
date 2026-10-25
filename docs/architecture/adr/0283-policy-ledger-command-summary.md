@@ -30,7 +30,9 @@
    - `PolicyContext.model_validate`／`model_validate_json`／`model_construct` 一律不准；
    - `model_copy(update=…)` 的字面字典不得含 `resource`、`action`；update 不是字面字典的呼叫要人看過才列進清單（目前只有 `interjection_queue.py` 一處，和 PolicyContext 無關）；
    - 對 `.resource`、`.action` 的指派，以及欄位名寫死成這兩個的 `setattr`，一律不准。
-   - model_copy 與屬性寫入看不出物件型別，所以對全部物件檢查。新增或改動任何一項時測試會紅，提醒先看 resource 放了什麼。欄位名是變數的 `setattr` 靜態看不出寫哪個欄位，不在檢查範圍。
+   - model_copy 與屬性寫入看不出物件型別，所以對全部物件檢查。新增或改動任何一項時測試會紅，提醒先看 resource 放了什麼。欄位名是變數的 `setattr` 靜態看不出寫哪個欄位，不在檢查範圍；刻意繞過的寫法（`object.__setattr__`、直接改 `__dict__`）也不在範圍，這類寫法不會無意間出現。
+   - 寫入檢查目前沒有放行清單：`ToukaProxy/src` 沒有任何 `.resource =`／`.action =`。以後無關的 class 合法地這樣寫時，測試會紅，到時再加放行清單。
+   - 設定值、程式段落與工具名稱的字元集在測試裡逐字元固定（另寫一份，不從被測模組取），有人放寬時會紅。
 6. **舊紀錄不自動改**：已寫進帳本的舊列維持原樣（維護者選擇）。真的有金鑰時，有效的做法是到廠商那邊換掉那把金鑰；備份、對話紀錄與 payload 日誌裡也有，刪掉 `decisions.csv` 清不到，還會失去 ADR-0104 刻意保留的稽核紀錄。
 
 ## 後果

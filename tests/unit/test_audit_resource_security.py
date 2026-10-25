@@ -4,7 +4,10 @@
   參數和值一律不記，認不出程式名稱就記 ``?``，不猜。
 - 其他列記工具名稱；不像工具名稱的內容只記長度，像金鑰的工具名稱照既有樣式遮掉。
 - 只改寫進檔案的那一份：權限判斷照舊看完整指令，``PolicyContext`` 不被改動。
-- 守門：建 ``PolicyContext`` 的位置與它的 action 固定在清單裡，新增或改動時這裡會紅。
+- 只照 shell 的方式切段（ASCII 空白、tab、換行）；設定值、程式段落與工具名稱的字元集逐字元
+  固定，有人放寬時這裡會紅。
+- 守門：建 ``PolicyContext`` 的位置、action 與 resource 固定在清單裡；其他建法與改 resource／
+  action 的寫法一律擋下，新增或改動時這裡會紅。
 
 假金鑰都在執行時組出來，不在原始碼裡留下像金鑰的字面值。
 """
@@ -15,6 +18,7 @@ import ast
 import asyncio
 import csv
 import json
+import string
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -138,6 +142,50 @@ def test_non_shell_whitespace_never_splits_a_value_into_the_program(separator: s
     _assert_secret_free(summary)
 
 
+# 字元集逐字元固定（獨立寫一份，不從被測模組取）：以後有人放寬，不在集合裡的字元會讓
+# 值延伸到下一段，祕密就變成程式名稱或照記的工具名稱。
+_PRINTABLE_ASCII = [chr(code) for code in range(0x21, 0x7F)]
+_ALNUM = set(string.ascii_letters + string.digits)
+_VALUE_PUNCTUATION = set("_./:@%+,-")
+_PROGRAM_TOKEN_CHARS = _ALNUM | set("_./:+-") | {chr(92)}
+_TOOL_NAME_CHARS = _ALNUM | set("_.:/-")
+
+
+def _char_id(char: str) -> str:
+    return f"U+{ord(char):04X}"
+
+
+@pytest.mark.parametrize(
+    "char",
+    [c for c in _PRINTABLE_ASCII if c not in _ALNUM | _VALUE_PUNCTUATION],
+    ids=_char_id,
+)
+def test_assignment_value_stops_at_every_other_character(char: str):
+    command = f"TOKEN=a{char}b {_PW} x python"
+    summary = summarize_command_for_audit(command)
+    assert summary == _summary("?", command)
+    _assert_secret_free(summary)
+
+
+@pytest.mark.parametrize("char", sorted(_VALUE_PUNCTUATION), ids=_char_id)
+def test_assignment_value_punctuation_is_skipped(char: str):
+    command = f"TOKEN=a{char}b python {_PW}"
+    assert summarize_command_for_audit(command) == _summary("python", command)
+
+
+@pytest.mark.parametrize(
+    "char",
+    [c for c in _PRINTABLE_ASCII if c not in _PROGRAM_TOKEN_CHARS and c != "="],
+    ids=_char_id,
+)
+def test_program_segment_rejects_every_other_character(char: str):
+    # 第二種接路徑：只看最後一段的程式名稱檢查擋不住，要靠整段的字元集。
+    for command in (f"a{char}{_PW} x", f"a{char}{_PW}/tool x"):
+        summary = summarize_command_for_audit(command)
+        assert summary == _summary("?", command)
+        _assert_secret_free(summary)
+
+
 def test_summary_failure_never_lets_the_command_through(monkeypatch: pytest.MonkeyPatch):
     def _boom(_text: str) -> tuple[str, bool]:
         raise RuntimeError(_PW)
@@ -177,6 +225,15 @@ def test_key_shaped_tool_name_is_redacted():
 def test_non_tool_shaped_resource_keeps_only_length(resource: str):
     expected = f"[resource chars={len(resource)}]"
     assert audit_resource_for("schema_injection", resource) == expected
+
+
+@pytest.mark.parametrize(
+    "char", [c for c in _PRINTABLE_ASCII if c not in _TOOL_NAME_CHARS], ids=_char_id
+)
+def test_tool_name_shape_rejects_every_other_character(char: str):
+    resource = f"a{char}{_PW}"
+    expected = f"[resource chars={len(resource)}]"
+    assert audit_resource_for("tool_call", resource) == expected
 
 
 def test_terminal_action_uses_the_command_summary():
