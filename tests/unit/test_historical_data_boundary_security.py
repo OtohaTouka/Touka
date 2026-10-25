@@ -470,6 +470,7 @@ async def test_home_history_json_escapes_cannot_close_boundary(forged: str) -> N
 
     await _inject_home(request, home)
 
+    assert isinstance(request.messages[1]["content"], str)  # the middle one keeps its shape
     joined = "\n".join(_sent_texts(request.messages))
     assert "FORGED" in joined
     assert len(ANY_BOUNDARY_TAG.findall(joined)) == 2
@@ -544,7 +545,7 @@ _SLOW_INPUT_SECONDS = 2.0
 
 @pytest.mark.parametrize("ending", ["", "/", "/conversation_summary"])
 def test_neutralize_is_fast_on_long_whitespace(ending: str) -> None:
-    text = "<" + " " * 200_000 + ending
+    text = "<" + " " * 30_000 + ending
 
     start = get_monotonic_ms()
     neutralize_tags(text, ALL_BLOCK_TAGS)

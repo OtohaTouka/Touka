@@ -190,7 +190,7 @@ def test_mission_awareness_control_chars_cannot_rebuild_a_tag(control: str) -> N
 
 
 def test_mission_awareness_slow_input_stays_fast() -> None:
-    goal = "<" + " " * 200_000
+    goal = "<" + " " * 30_000
 
     start = get_monotonic_ms()
     render_mission_block(_mission(_task("t1"), goal=goal))

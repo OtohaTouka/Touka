@@ -33,14 +33,16 @@ def _map_text(content: Any, fn: Callable[[str], str]) -> Any:
 
     多模態 JSON 字串先還原成 list 再套：轉接層送出前也會還原，在原始 JSON 上中和時
     JSON 跳脫寫法（``<`` 寫成 u003c、``/`` 前面加反斜線）還不是 ``<``、``/``，解開後就變成
-    真的 tag。
+    真的 tag。套完再存回 JSON 字串，送出的形狀和原本一樣（原生 Anthropic 入口不轉換
+    ``image_url``，改成 list 會被拒絕）。
     """
-    content = normalize_message_content(content)
-    if isinstance(content, str):
-        return fn(content)
-    if isinstance(content, list):
-        return [_map_part(part, fn) for part in content]
-    return content
+    decoded = normalize_message_content(content)
+    if isinstance(decoded, list):
+        mapped = [_map_part(part, fn) for part in decoded]
+        return json.dumps(mapped, ensure_ascii=False) if isinstance(content, str) else mapped
+    if isinstance(decoded, str):
+        return fn(decoded)
+    return decoded
 
 
 def _map_part(part: Any, fn: Callable[[str], str]) -> Any:

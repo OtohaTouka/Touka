@@ -18,7 +18,7 @@ _CONTROL_CHAR = re.compile("[\x00-\x08\x0e-\x1f\x7f]")
 
 
 def blank_control_chars(text: str) -> str:
-    """控制字元換成空白（tab 與各種換行保留）。"""
+    """控制字元換成空白；tab 與 LF、CR、VT、FF 保留，檔案／群組／記錄分隔字元也換成空白。"""
     return _CONTROL_CHAR.sub(" ", text)
 
 
