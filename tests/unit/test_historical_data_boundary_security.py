@@ -543,7 +543,7 @@ async def test_history_control_chars_cannot_rebuild_a_tag(control: str) -> None:
 _SLOW_INPUT_SECONDS = 2.0
 
 
-@pytest.mark.parametrize("ending", ["", "/", "/conversation_summary"])
+@pytest.mark.parametrize("ending", ["", "/", "/zzz"])  # endings that do not match
 def test_neutralize_is_fast_on_long_whitespace(ending: str) -> None:
     text = "<" + " " * 30_000 + ending
 

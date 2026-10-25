@@ -25,7 +25,7 @@
 3. **新純函式 `neutralize_tags(text, tags)`**（`memory_server/utils/historical_data.py`，禁令 18）：規則同既有的界線 tag 中和（不分大小寫、`<` 與 `/` 前後可有空白、帶屬性與自閉合都算），另要求 tag 名稱後面接非名稱字元，`persona` 不會動到 `<personality>`。Memory 不能匯入 Proxy，所以 tag 清單由呼叫端傳入。
    - 空白用 possessive 量詞（`\s*+`），新舊兩個 pattern 都改：原本兩段 `\s*` 互相回溯，`<` 後面一長串空白要花平方時間（2 萬個空白約 9 秒），在主迴圈上會讓整個 Proxy 卡住。tag 名稱都是字母開頭，語意不變。
 4. **前情摘要與家對話也中和其他區塊 tag**：`wrap_historical_data` 多一個 `extra_tags` 參數；`soul_service` 的前情摘要與家對話傳入 `ALL_BLOCK_TAGS`（界線 tag 照舊另外中和），並先把控制字元換成空白（換行保留）。
-   - 家對話的內容先還原成模型會看到的形狀（`normalize_message_content`）再中和。舊做法在原始 JSON 字串上中和，JSON 跳脫（`\u003c`、`\/`）當下還不是 `<`、`/`，轉接層送出前解開後就變成真的 tag，連 `historical_data` 界線本身也能被關掉；這個漏洞從 ADR-0257 就有。
+   - 家對話的內容先還原成模型會看到的形狀（`normalize_message_content`）再中和；原本是 JSON 字串的，中和後存回 JSON 字串，送出形狀不變（原生 Anthropic 入口不轉換 `image_url`）。舊做法在原始 JSON 字串上中和，JSON 跳脫（`\u003c`、`\/`）當下還不是 `<`、`/`，轉接層送出前解開後就變成真的 tag，連 `historical_data` 界線本身也能被關掉；這個漏洞從 ADR-0257 就有。
    - 多模態 part 的 `text`、`thinking`、巢狀 `content`（工具結果等，字串或清單）與清單裡的純字串都中和。
 5. **不做**：
    - 任務 id 的格式限制（只在建立時檢查）：描述本來就是自由文字，增益很小；在 `Task.id` 加 validator 會因 `mission_manager.py:108-117` 吞錯而讓舊看板靜默消失。
@@ -39,6 +39,7 @@
   - ToukaDispatch 建任務不經 Proxy 的工具合約（`ToukaDispatch/server.py:358-391`），id 照樣不限格式；顯示端已處理，所以不會進到可信區塊。
   - 看板載入失敗會被吞成「沒有看板」（`mission_manager.py:108-117`），這批不改。
   - 只有模型看得出來的變體沒有中和：`<` 後面夾零寬字元（U+200B、U+2060 等）、全形 `＜／＞`、`&#60;` 這類 HTML 實體，以及 NFKC 正規化後才變成 tag 的寫法。Touka 自己的解析（`parse_system_blocks`、`reorder_system_stable_first`、`to_cached_system`）只認精確的 `<tag>`，不受影響；剩下的是模型自己會不會誤讀。
+  - 舊紀錄裡刻意用 JSON 跳脫寫出單獨的代理字元（U+D800～U+DFFF）時，解開後的文字無法編碼成 UTF-8，那次請求會失敗；經轉換的路徑本來就是這樣，這次原生 Anthropic 入口的中間幾則也一樣。
   - id 含換行、控制字元或區塊 tag 時，看板顯示的是跳脫後的樣子，模型照抄去呼叫 mission 工具會對不上；這類 id 本來就是異常輸入。
   - 範圍外的觀察（審查時發現、不是這次造成）：`<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 用 `find` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，影響的是快取命中、不是安全（ADR-0139 起就有），記在 HANDOVER §3。
 - 撤回：revert 甲-1 的 commit 即恢復原樣；本 ADR 檔保留，在狀態註記撤回（後續批次會引用它）。
