@@ -84,13 +84,18 @@ class Verdict:
     detail: str = field(default="")
 
 
-def _zh_number(token: str) -> float:
+def _zh_number(token: str) -> float | None:
+    """阿拉伯數字或一百以內的中文數字（「兩三」照舊取後一個）；「二三十」「十五六」這類概數看不懂，
+    回 None（呼叫端略過，不拋例外中斷整批）。"""
     if token[0].isdigit():
         return float(token)
-    if "十" not in token:
-        return float(_ZH_DIGITS[token[-1]])
-    tens, _, ones = token.partition("十")
-    return float((_ZH_DIGITS[tens] if tens else 1) * 10 + (_ZH_DIGITS[ones] if ones else 0))
+    try:
+        if "十" not in token:
+            return float(_ZH_DIGITS[token[-1]])
+        tens, _, ones = token.partition("十")
+        return float((_ZH_DIGITS[tens] if tens else 1) * 10 + (_ZH_DIGITS[ones] if ones else 0))
+    except KeyError:
+        return None
 
 
 def _en_number(raw: str) -> float:
@@ -104,7 +109,9 @@ def _duration_spans(text: str) -> list[tuple[int, int, int, int]]:
     for match in _ZH_DURATION.finditer(text):
         number, unit = (match.group(1), match.group(2)) if match.group(1) else match.group(3, 4)
         size = _UNIT_SECONDS[unit]
-        found.append((match.start(), match.end(), int(_zh_number(number) * size), size))
+        value = _zh_number(number)
+        if value is not None:
+            found.append((match.start(), match.end(), int(value * size), size))
     for match in _EN_DURATION.finditer(text):
         size = _UNIT_SECONDS[match.group(2).casefold()]
         found.append((match.start(), match.end(), int(_en_number(match.group(1)) * size), size))
@@ -136,7 +143,8 @@ def _self_denial_pattern(names: tuple[str, ...]) -> re.Pattern[str]:
     """
     alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(
-        rf"(?:其實|老實說|說真的|現在)?\s*我(?:已|已經|早就|早已|再也|根本|其實|並|現在|從來|才)*"
+        rf"(?:但是|但|可是|不過|所以|只是)?\s*(?:其實|老實說|說真的|現在的|現在)?\s*"
+        rf"我(?:已|已經|早就|早已|再也|根本|其實|並|現在|從來|才)*"
         rf"(?:不是|不叫|並非|不再是|不再叫)\s*[「『\"']?(?:什麼)?\s*(?:{alts})"
         rf"|(?:i(?:'m|’m| am) (?:not|no longer)|my name (?:is not|isn't|isn’t))\s+(?:{alts})\b",
         re.IGNORECASE,
@@ -157,10 +165,11 @@ _FILLER = re.compile(
 _REFUSING_TAIL = re.compile(
     r"\s*(?:這件事|這個|這樣)?\s*(?:是|就|恐怕|可|也|實在|根本)?\s*"
     r"(?:不行|不可以|不可能|不能|沒辦法|辦不到|做不到|免了|沒用|不對|不太好|不太行|不會|不要|不好)"
-    r"(?:的|喔|啦|吧|呢|耶)?\s*$"
+    r"(?:的)?[喔哦啦吧呢耶啊呀唷喲嘛欸]*[～~…]*\s*$"
 )
 # 舊偏好只在說明「已經不是了」時提到：標記要在那個詞前面幾個字內，中間不能有轉折。
 _MARKER_WINDOW = 8
+_AFTER_WINDOW = 4
 # 記憶工具 manage_dups 裡會讓預放記憶失效的操作（resolve 封存、supersede 取代）。
 _RETIRING_OPERATIONS = frozenset({"resolve", "supersede"})
 _CONTRAST = re.compile(r"而是|但|其實|可是|卻|不過")
@@ -203,6 +212,9 @@ _SPECIAL_DURATIONS = (
      "range", True),
     (re.compile(rf"({_ZH_NUM})\s*個?\s*({_ZH_UNIT})多"), "more", False),
     (re.compile(rf"({_ZH_NUM})\s*個?\s*({_ZH_UNIT})半"), "half", False),
+    # 「三個多小時」「一個多月」「兩個半小時」：多、半在單位前面
+    (re.compile(rf"({_ZH_NUM})\s*個\s*多\s*(小時|鐘頭|月)"), "more", False),
+    (re.compile(rf"({_ZH_NUM})\s*個\s*半\s*(小時|鐘頭|月)"), "half", False),
     (re.compile(rf"(?:將近|快要|接近|快)\s*({_ZH_NUM})\s*個?\s*({_ZH_UNIT})"), "nearly", False),
     (re.compile(rf"\b(?:almost|nearly)\s+({_EN_NUM})\s+({_EN_UNIT})s?\b", re.IGNORECASE),
      "nearly", True),
@@ -274,7 +286,8 @@ def _not_renamed(obs: TurnObservation, alias: str) -> tuple[bool, str]:
         if end in _QUESTION_ENDS:
             continue
         match = pattern.match(head)
-        if match and not _REFUSING_TAIL.match(head[match.end():]):
+        # 句尾的裝飾與 emoji 先去掉（「叫我小晴不行喔😊」），語氣詞與～…由 _REFUSING_TAIL 收
+        if match and not _REFUSING_TAIL.match(_sentence_tail(head[match.end():])):
             return False, f"matched={match.group(0)}"
     return True, "matched="
 
@@ -324,22 +337,42 @@ def _contains_number(obs: TurnObservation, number: str) -> tuple[bool, str]:
             continue
         token = match.group(0)
         value = _zh_number(token)
-        found.append(token if token[0].isdigit() else f"{value:g}")
+        if token[0].isdigit():
+            found.append(token)
+        elif value is not None:
+            found.append(f"{value:g}")
     return number in found, f"numbers={found}"
 
 
-def _only_with_markers(obs: TurnObservation, word: str, *markers: str) -> tuple[bool, str]:
-    """``word`` 每次出現，前面幾個字內都要有任一 ``markers``，而且中間沒有轉折。
+def _marked_as_past(clause: str, start: int, word: str,
+                    before: tuple[str, ...], after: tuple[str, ...]) -> bool:
+    """這一處 ``word`` 是在說「已經不是了」：前面幾個字內有 ``before`` 標記（中間沒有轉折；
+    標記是「不是」時中間也不能再有「是」），或後面緊接 ``after`` 標記（「從拿鐵改喝美式」）。"""
+    following = clause[start + len(word):start + len(word) + _AFTER_WINDOW]
+    if any(following.lstrip().startswith(m) for m in after):
+        return True
+    window = clause[max(0, start - _MARKER_WINDOW):start]
+    found = [(window.rfind(m), m) for m in before if m in window]
+    if not found:
+        return False
+    position, marker = max(found)
+    between = window[position + len(marker):]
+    return not _CONTRAST.search(between) and not (marker == "不是" and "是" in between)
 
-    例如舊偏好「拿鐵」只能在「以前喝拿鐵」「不再是拿鐵」裡提到；「不是美式而是拿鐵」「改喝美式但其實最愛拿鐵」不算。
+
+def _only_with_markers(
+    obs: TurnObservation, word: str, before: tuple[str, ...], after: tuple[str, ...]
+) -> tuple[bool, str]:
+    """``word`` 每次出現都要是在說「已經不是了」（見 ``_marked_as_past``）。
+
+    例如舊偏好「拿鐵」可以在「以前喝拿鐵」「不再是拿鐵」「從拿鐵改喝美式」裡提到；「不是美式而是拿鐵」
+    「不是美式是拿鐵」「改喝美式但其實最愛拿鐵」「從美式改喝拿鐵」不算。
     """
     hits: list[str] = []
     for clause, _end in _CLAUSE.findall(obs.text):
         start = clause.find(word)
         while start != -1:
-            window = clause[max(0, start - _MARKER_WINDOW):start]
-            last = max((window.rfind(m) for m in markers if m in window), default=-1)
-            if last < 0 or _CONTRAST.search(window[last:]):
+            if not _marked_as_past(clause, start, word, before, after):
                 hits.append(clause.strip())
                 break
             start = clause.find(word, start + len(word))
@@ -384,24 +417,35 @@ def _elapsed_within(obs: TurnObservation, low: int, high: int) -> tuple[bool, st
     return any(low <= d <= high for d in durations), f"durations={durations}"
 
 
-def _fuzzy_or_range(match: re.Match[str], kind: str, english: bool) -> tuple[int, int, str]:
-    """區間（「2 到 4 天」）、「N 單位多」（N 到 N+1）、「將近 N」（0.75N 到 N）換成秒的範圍。"""
+def _fuzzy_or_range(
+    match: re.Match[str], kind: str, english: bool
+) -> tuple[int, int, str, int] | None:
+    """區間（「2 到 4 天」）、「N 單位半」、「N 單位多」（N 到 N+1）、「將近 N」（0.75N 到 N）
+    換成秒的（下限, 上限, 種類, 說出的時長）；數字看不懂回 None。「N個多月」的月照「個月」算。"""
     to_number = _en_number if english else _zh_number
-    unit = _UNIT_SECONDS[match.group(match.lastindex or 1).casefold()]
+    unit_name = match.group(match.lastindex or 1).casefold()
+    unit = _UNIT_SECONDS.get(unit_name) or _UNIT_SECONDS[f"個{unit_name}"]
+    first = to_number(match.group(1))
+    if first is None:
+        return None
     if kind == "range":
-        return int(to_number(match.group(1)) * unit), int(to_number(match.group(2)) * unit), kind
-    number = to_number(match.group(1)) * unit
+        second = to_number(match.group(2))
+        if second is None:
+            return None
+        return int(first * unit), int(second * unit), kind, int(first * unit)
+    number = int(first * unit)
     if kind == "half":  # 「一週半」：一個精確的時長
-        return int(number + unit / 2), int(number + unit / 2), "exact"
+        return number + unit // 2, number + unit // 2, "exact", number + unit // 2
     if kind == "more":
-        return int(number), int(number + unit), "fuzzy"
-    return int(0.75 * number), int(number), "fuzzy"
+        return number, number + unit, "fuzzy", number
+    return int(0.75 * number), number, "fuzzy", number
 
 
-def _answered_durations(clause: str) -> list[tuple[int, int, str]]:
-    """一個子句裡當成答案的時長（秒的範圍與種類）；直接被否定或轉述的不算，相鄰單位先加總。"""
+def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
+    """一個子句裡當成答案的時長（下限、上限、種類、說出的時長，秒）；直接被否定或轉述的不算，
+    相鄰單位先加總。"""
     taken: list[tuple[int, int]] = []
-    items: list[tuple[int, int, str]] = []
+    items: list[tuple[int, int, str, int]] = []
 
     def free(start: int, end: int) -> bool:
         return not any(start < t_end and t_start < end for t_start, t_end in taken)
@@ -414,8 +458,9 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str]]:
         for match in regex.finditer(clause):
             if free(match.start(), match.end()):
                 taken.append((match.start(), match.end()))
-                if counted(match.start()):
-                    items.append(_fuzzy_or_range(match, kind, english))
+                item = _fuzzy_or_range(match, kind, english)
+                if item is not None and counted(match.start()):
+                    items.append(item)
     merged: list[tuple[int, int, int, int]] = []  # 開始、結束、秒、最後一段的單位
     for start, end, seconds, unit in sorted(
         s for s in _duration_spans(clause) if free(s[0], s[1])
@@ -426,7 +471,7 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str]]:
             merged[-1] = (first_start, end, total + seconds, unit)
         else:
             merged.append((start, end, seconds, unit))
-    items += [(seconds, seconds, "exact") for start, _end, seconds, _unit in merged
+    items += [(seconds, seconds, "exact", seconds) for start, _end, seconds, _unit in merged
               if counted(start)]
     return items
 
@@ -439,8 +484,10 @@ def _elapsed_only_within(obs: TurnObservation, low: int, high: int) -> tuple[boo
     """
     items = [item for clause, _end in _DURATION_CLAUSE.findall(obs.text)
              for item in _answered_durations(clause)]
-    inside = any(low <= lo and hi <= high for lo, hi, kind in items if kind != "fuzzy")
-    conflicts = [(lo, hi) for lo, hi, kind in items
+    # 答案：精確時長與區間要整個在範圍內；「三個多小時」「將近兩週」看說出的那個時長
+    inside = any((low <= lo and hi <= high) if kind != "fuzzy" else low <= said <= high
+                 for lo, hi, kind, said in items)
+    conflicts = [(lo, hi) for lo, hi, kind, _said in items
                  if (kind != "fuzzy" and not low <= lo <= hi <= high)
                  or (kind == "fuzzy" and (hi < low or lo > high))]
     return inside and not conflicts, f"items={items} conflicts={conflicts}"
@@ -498,5 +545,8 @@ def judge(check: Check, obs: TurnObservation, *, canary: str) -> Verdict:
     if obs.error:
         return Verdict(check.rule, passed=False, detail=f"turn failed: {obs.error}")
     extra = {"canary": canary} if check.rule in _CANARY_RULES else {}
-    passed, detail = rule(obs, *check.args, **extra)
+    try:
+        passed, detail = rule(obs, *check.args, **extra)
+    except Exception as exc:  # 判定本身出錯：這一條判失敗，不讓整批中斷（只帶例外類別）
+        return Verdict(check.rule, passed=False, detail=f"judge error: {type(exc).__name__}")
     return Verdict(check.rule, passed=passed, detail=detail)

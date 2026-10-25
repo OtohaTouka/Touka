@@ -25,8 +25,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import re
 import uuid
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -52,7 +54,7 @@ from tests.memory_eval.live_bounds import redact_excerpt
 from tests.memory_eval.scenarios import CANARY, persona_text
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
 
     from src.models.identity import AgentIdentity
 
@@ -64,6 +66,8 @@ if TYPE_CHECKING:
     PrepareSoul = Callable[[str, str], object]
     ReadFacts = Callable[[AgentIdentity], Awaitable[list[tuple[str, str]]]]
     ArchiveHistory = Callable[[AgentIdentity, dict[str, Any]], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 EVAL_AUTH_LEVEL = "Auto"
 # handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）：
@@ -79,6 +83,7 @@ PROVIDER_ERROR_START = re.compile(
 NO_REPLY = "no assistant text and no tool call"
 BUDGET_REACHED = "budget soft cap reached"
 NO_STATE_READER = "memory state reader not configured"
+STATE_READ_FAILED = "memory state read failed"
 ACTIVITY_DRAIN_TIMEOUT_S = 30.0
 
 
@@ -158,22 +163,27 @@ _EXECUTE_SIGNATURE = inspect.signature(ToolExecutor.execute_to_queue)
 
 
 @contextmanager
-def record_tool_requests() -> Iterator[dict[str, tuple[str, dict[str, Any]]]]:
-    """這一輪模型要求執行的工具（呼叫 id → 名稱與參數），連被擋下的也記。
+def record_tool_requests() -> Iterator[dict[str, list[tuple[str, dict[str, Any]]]]]:
+    """這一輪模型要求執行的工具（呼叫 id → 依序的名稱與參數），連被擋下的也記。
 
     被政策擋下的呼叫只送 tool_result、不送帶名稱與參數的 tool_start，判定看不出它想做什麼
-    （例如記憶衝突要看有沒有試著換掉預放那筆）。所以在執行器入口記下；只在評估送出這一輪時包住，
-    結束（含失敗）就還原。
+    （例如記憶衝突要看有沒有試著換掉預放那筆）。所以在執行器入口記下：同一個 id 依序存，沒有 id 的
+    記在 ``""`` 底下照順序對應。紀錄本身出錯不影響工具執行（參數不是 mapping 就記成空的）。
+
+    包的是類別方法，同一個程序裡所有 ToolExecutor 都會經過：不可重入，只能循序使用（評估本來就一輪
+    一輪送）；只在評估送出這一輪時包住，結束（含失敗）就還原。
     """
-    requested: dict[str, tuple[str, dict[str, Any]]] = {}
+    requested: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     original = ToolExecutor.execute_to_queue
 
     async def _recording(executor: ToolExecutor, *args: Any, **kwargs: Any) -> str:
-        bound = _EXECUTE_SIGNATURE.bind(executor, *args, **kwargs)
-        call_id = bound.arguments.get("call_id")
-        if call_id:
-            requested[str(call_id)] = (str(bound.arguments["name"]),
-                                       dict(bound.arguments.get("args") or {}))
+        try:
+            bound = _EXECUTE_SIGNATURE.bind(executor, *args, **kwargs).arguments
+            raw = bound.get("args")
+            entry = (str(bound.get("name", "")), dict(raw) if isinstance(raw, Mapping) else {})
+            requested.setdefault(str(bound.get("call_id") or ""), []).append(entry)
+        except Exception:  # 紀錄出任何錯都不記、照常執行（不能讓工具 task 失敗、主迴圈等不到結束）
+            logger.debug("memory eval: could not record a tool request", exc_info=True)
         return await original(executor, *args, **kwargs)
 
     ToolExecutor.execute_to_queue = _recording  # type: ignore[method-assign]
@@ -183,13 +193,26 @@ def record_tool_requests() -> Iterator[dict[str, tuple[str, dict[str, Any]]]]:
         ToolExecutor.execute_to_queue = original  # type: ignore[method-assign]
 
 
+def _requested_call(
+    requested: Mapping[str, list[tuple[str, dict[str, Any]]]], call_id: str
+) -> tuple[str, dict[str, Any]] | None:
+    """依序取出這個 id 的下一筆紀錄；沒有就取下一筆沒有 id 的。"""
+    for key in (call_id, ""):
+        entries = requested.get(key)
+        if entries:
+            return entries.pop(0)
+    return None
+
+
 def parse_sse(
-    chunks: Iterable[str], requested: Mapping[str, tuple[str, dict[str, Any]]] | None = None
+    chunks: Iterable[str],
+    requested: Mapping[str, list[tuple[str, dict[str, Any]]]] | None = None,
 ) -> TurnObservation:
     """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。
 
     被擋下的呼叫沒有 tool_start：名稱與參數改從 ``requested``（``record_tool_requests``）補上。
     """
+    requested = {key: list(entries) for key, entries in (requested or {}).items()}
     texts: list[str] = []
     provider_error = ""
     pending: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -206,8 +229,11 @@ def parse_sse(
             pending[str(data.get("id", ""))] = (str(data.get("tool", "")), data.get("args") or {})
         elif kind == TOOL_RESULT:
             call_id = str(data.get("id", ""))
-            fallback = (requested or {}).get(call_id, (str(data.get("tool", "")), {}))
-            name, args = pending.pop(call_id, fallback)
+            if call_id in pending:
+                name, args = pending.pop(call_id)
+            else:
+                name, args = (_requested_call(requested, call_id)
+                              or (str(data.get("tool", "")), {}))
             status = _tool_status(str(data.get("status", "")), data.get("error_class"))
             calls.append(ToolCallRecord(name=name, args=args, status=status))
         elif kind == "content_block_delta":
@@ -434,7 +460,10 @@ class MemoryEvalDriver:
     ) -> TurnObservation:
         if self._read_facts is None:
             return replace(observation, error=NO_STATE_READER)
-        facts = await self._read_facts(seeding.soul_identity(soul_id))
+        try:
+            facts = await self._read_facts(seeding.soul_identity(soul_id))
+        except Exception as exc:  # 讀記憶庫失敗：記成這一輪的錯誤（整批停下、報告照印）
+            return replace(observation, error=f"{STATE_READ_FAILED}: {type(exc).__name__}")
         return replace(observation, active_facts=tuple(facts), seeded_fact_ids=seeded)
 
     def _context(self, soul_id: str) -> PipelineContext:

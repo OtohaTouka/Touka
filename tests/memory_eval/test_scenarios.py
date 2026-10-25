@@ -147,7 +147,10 @@ def test_memory_conflict_checks_the_store_and_asks_again_in_a_new_session() -> N
     assert ask.new_session
     latte = [c for c in ask.checks if c.rule == "only_with_markers"]
     assert [c.args[0] for c in latte] == ["拿鐵"]
-    assert {"不再", "以前"} <= set(latte[0].args[1:])
+    before, after = latte[0].args[1:]
+    assert {"不再", "以前"} <= set(before)
+    assert "改喝" in after
+    assert "改喝" not in before  # 放在前面的「改喝」接的是新偏好
 
 
 def test_long_history_lives_only_in_the_old_conversation_archive() -> None:

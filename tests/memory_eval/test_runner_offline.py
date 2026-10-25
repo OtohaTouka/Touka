@@ -838,7 +838,7 @@ def test_active_facts_come_from_the_product_store(global_test_sandbox: str) -> N
 
 
 async def test_archived_history_is_found_by_the_real_conversation_search(
-    sandbox_db: Any, global_test_sandbox: str
+    sandbox_db: Any, global_test_sandbox: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """經產品的歸檔函式寫進沙盒，再用真的查舊對話工具查得回那一句."""
     soul = seeding.soul_identity(SOUL_1)
@@ -847,11 +847,9 @@ async def test_archived_history_is_found_by_the_real_conversation_search(
     archive = runner.legacy_archiver(Path(global_test_sandbox))
 
     await archive(soul, seeding.plan_seed(scenario, NOW_MS).archive)
-    resource_manager.bind_ui_conversation_reader(session_service)  # 和 probe 一樣（source=all）
-    try:
-        found = await search_conversations(soul, get_manager(), query="幸運數字")
-    finally:
-        resource_manager.bind_ui_conversation_reader(None)
+    # 和 probe 一樣裝上 UI 對話讀取器（source=all）；測試結束還原成原本的
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", session_service)
+    found = await search_conversations(soul, get_manager(), query="幸運數字")
 
     assert "47" in found
 
@@ -1001,7 +999,11 @@ async def test_retiring_the_old_memory_is_refused_in_auto_but_counts_as_an_attem
     )
     scenario = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
 
-    result = await driver.run_scenario(scenario)
+    try:
+        result = await driver.run_scenario(scenario)
+    finally:  # 刪除被擋下，預放那筆會一直留在共用的事實庫：自己清掉
+        for fact_id in seeded:
+            store.archive_fact(seeding.soul_identity(SOUL_1), fact_id)
 
     first = result.turns[0].observation
     assert [(c.args.get("action"), c.status) for c in first.tool_calls] == [
@@ -1016,7 +1018,7 @@ def test_a_refused_call_takes_its_name_and_arguments_from_the_recorded_request()
     """被擋下的呼叫只有 tool_result：名稱與參數以呼叫 id 從執行器入口的紀錄補上."""
     chunks = [_sse({"type": TOOL_RESULT, "id": "call_1", "status": "error",
                     "error_class": "permission_denied", "result": "denied"}), *_text_chunks("好")]
-    requested = {"call_1": ("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"})}
+    requested = {"call_1": [("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"})]}
 
     (call,) = runner.parse_sse(chunks, requested).tool_calls
     (unknown,) = runner.parse_sse(chunks).tool_calls
@@ -1036,3 +1038,72 @@ async def test_the_request_recorder_always_restores_the_executor() -> None:
         assert runner.ToolExecutor.execute_to_queue is not original
         raise _SendFailed
     assert runner.ToolExecutor.execute_to_queue is original
+
+
+def _refused(call_id: str) -> str:
+    return _sse({"type": TOOL_RESULT, "id": call_id, "status": "error",
+                 "error_class": "permission_denied", "result": "denied"})
+
+
+def test_requests_sharing_an_id_or_without_one_are_matched_in_order() -> None:
+    """同一個 id 被重用（某些相容後端每輪都給 call_0）、或根本沒有 id 時，照順序對上被擋下的結果."""
+    requested = {
+        "call_0": [("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"}),
+                   ("memory_tools", {"action": "forget", "fact_id_to_archive": "f2"})],
+        "": [("memory_tools", {"action": "manage_dups", "operation": "supersede"})],
+    }
+    chunks = [_refused("call_0"), _refused("call_0"), _refused("call_1730000000000"),
+              *_text_chunks("好")]
+
+    calls = runner.parse_sse(chunks, requested).tool_calls
+
+    assert [c.args for c in calls] == [
+        {"action": "forget", "fact_id_to_archive": "f1"},
+        {"action": "forget", "fact_id_to_archive": "f2"},
+        {"action": "manage_dups", "operation": "supersede"},
+    ]
+    assert len(requested["call_0"]) == 2  # 呼叫端的紀錄不被改動
+
+
+async def test_the_recorder_never_breaks_the_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """參數不是 mapping（例如模型給了 JSON 陣列）：記成空的，工具照常執行."""
+    executed: list[tuple[str, Any]] = []
+
+    async def _original(_executor: Any, name: str, args: Any, *_rest: Any, **_kwargs: Any) -> str:
+        executed.append((name, args))
+        return "done"
+
+    monkeypatch.setattr(runner.ToolExecutor, "execute_to_queue", _original)
+    with runner.record_tool_requests() as requested:
+        result = await runner.ToolExecutor.execute_to_queue(
+            object(), "memory_tools", [1], "req", {}, asyncio.Queue(), call_id="c1")
+        await runner.ToolExecutor.execute_to_queue(
+            object(), "memory_tools", {"action": "save"}, "req", {}, asyncio.Queue())
+
+    assert result == "done"
+    assert executed == [("memory_tools", [1]), ("memory_tools", {"action": "save"})]
+    assert requested == {"c1": [("memory_tools", {})], "": [("memory_tools", {"action": "save"})]}
+    assert runner.ToolExecutor.execute_to_queue is _original
+
+
+class _StoreDown(RuntimeError):
+    """測試用：記憶庫讀不到."""
+
+
+async def test_a_failed_store_read_after_the_turn_is_recorded_as_that_turns_error(
+    sandbox_db: Any,
+) -> None:
+    calls: list[int] = []
+
+    async def _read(_identity: Any) -> list[tuple[str, str]]:
+        calls.append(1)
+        if len(calls) == 2:
+            raise _StoreDown
+        return [_LATTE]
+
+    send = _fake_sender([_text_chunks("記下了。")], [])
+    report = (await _driver(send, read_facts=_read).run_batch(
+        sc.select_scenarios(sc.SMOKE, ["memory_conflict"]))).to_dict()
+
+    assert report["stopped_reason"].startswith(f"{runner.STATE_READ_FAILED}: _StoreDown")
+    assert [r["scenario"] for r in report["results"]] == ["memory_conflict"]

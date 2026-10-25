@@ -328,6 +328,7 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
     restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     suite: str, ids: tuple[str, ...], recording: bool,
 ) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
     monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
     monkeypatch.setattr(probe, "init_db_async", _no_init_db)
     monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
@@ -376,6 +377,7 @@ class _FailingDriver(_FakeDriver):
 async def test_the_conversation_reader_is_unbound_when_the_batch_fails(
     restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
     monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
     monkeypatch.setattr(probe, "init_db_async", _no_init_db)
     monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
@@ -402,6 +404,7 @@ async def test_a_failure_before_the_batch_never_binds_the_reader(
     def _broken_seed(*_a: Any) -> None:
         raise _BlewUp
 
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
     monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
     monkeypatch.setattr(probe, "init_db_async", _no_init_db)
     monkeypatch.setattr(probe, "_seed_sandbox", _broken_seed)

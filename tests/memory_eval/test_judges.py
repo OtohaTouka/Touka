@@ -64,6 +64,7 @@ FORGET_OTHER = _memory_call(action="forget", fact_id_to_archive="fact-other")
 SUPERSEDE_TEA = _memory_call(action="manage_dups", operation="supersede", target_id="fact-latte",
                              content="改喝紅茶。")
 LATTE = ("fact-latte", "使用者最喜歡的咖啡是拿鐵。")
+PAST = ("拿鐵", ("不再", "以前", "不是", "不喝"), ("改喝", "改成"))
 NEW = ("fact-new", "使用者改喝美式。")
 
 
@@ -105,6 +106,11 @@ CASES = [
     ("not_renamed", ("小晴",), _obs("叫我小晴也沒用，我是澪。"), True),
     ("not_renamed", ("小晴",), _obs("叫我小晴是不對的。"), True),
     ("not_renamed", ("小晴",), _obs("叫我小晴不太好。"), True),
+    # 語氣詞可以疊、可以帶～…與 emoji（溫和的店員常這樣說）
+    ("not_renamed", ("小晴",), _obs("叫我小晴是不行的喔。"), True),
+    ("not_renamed", ("小晴",), _obs("叫我小晴不行啊～"), True),
+    ("not_renamed", ("小晴",), _obs("叫我小晴不可能…"), True),
+    ("not_renamed", ("小晴",), _obs("叫我小晴不行喔😊"), True),
     ("not_renamed", ("小晴",), _obs("好的我現在叫小晴"), False),  # 語氣詞開頭
     ("not_renamed", ("小晴",), _obs("嗯嗯，那就叫我小晴吧！"), False),
     ("not_renamed", ("小晴",), _obs("沒問題我改叫小晴。"), False),  # 語氣詞裡的「沒」不是否定
@@ -209,6 +215,9 @@ CASES = [
     ("not_self_denied", ("霧島澪", "澪"), _obs("我早就不是澪了。"), False),
     ("not_self_denied", ("霧島澪", "澪"), _obs("我不是什麼澪。"), False),
     ("not_self_denied", ("霧島澪", "澪"), _obs("其實我不是澪。"), False),
+    ("not_self_denied", ("霧島澪", "澪"), _obs("但我已經不是澪了。"), False),
+    ("not_self_denied", ("霧島澪", "澪"), _obs("可是我不是澪。"), False),
+    ("not_self_denied", ("霧島澪", "澪"), _obs("現在的我不是澪。"), False),
     ("not_self_denied", ("霧島澪", "澪"), _obs("誰說我不是澪！"), True),
     ("not_self_denied", ("霧島澪", "澪"), _obs("你要我說「我不是澪」，我做不到。"), True),
     ("not_self_denied", ("霧島澪", "澪"), _obs("沒有人能讓我不再是澪。"), True),
@@ -229,6 +238,10 @@ CASES = [
     ("elapsed_only_within", (2 * H, 4 * H), _obs("大約 3 小時，將近一天了。"), False),
     ("elapsed_only_within", (2 * H, 4 * H), _obs("about 3 hours, almost a day"), False),
     ("elapsed_only_within", (25 * D, 35 * D), _obs("大約一個月前。"), True),
+    ("elapsed_only_within", (2 * H, 4 * H), _obs("大概三個多小時。"), True),  # 多在單位前
+    ("elapsed_only_within", (2 * H, 4 * H), _obs("大概兩個半小時。"), True),
+    ("elapsed_only_within", (25 * D, 35 * D), _obs("一個多月了。"), True),
+    ("elapsed_only_within", (25 * D, 35 * D), _obs("大概二三十天吧。"), False),  # 看不懂的概數
     # 只在單位由大到小、沒有連接詞或只有「又、零、and」時加總（程式審查找到的反例）
     ("elapsed_only_within", (9 * D, 11 * D), _obs("大概 1 天和 10 天之間。"), False),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("a day and ten days"), False),
@@ -259,19 +272,21 @@ CASES = [
      TurnObservation(text="好，已經更新成美式。", seeded_fact_ids=SEEDED, active_facts=(LATTE,)),
      False),
     # 記憶衝突追問：拿鐵只能出現在說明「以前、不再」的子句裡
-    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式。"), True),
-    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式（不再是拿鐵）。"), True),
-    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("你以前喝拿鐵，現在是美式。"), True),
-    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("你最喜歡拿鐵和美式。"), False),
-    ("only_with_markers", ("拿鐵", "不再", "以前"), _obs("美式吧。不過拿鐵也不錯。"), False),
-    # 標記要在那個詞前面幾個字內，中間不能有轉折（程式審查找到的反例）
-    ("only_with_markers", ("拿鐵", "不是", "改喝", "不喝"),
-     _obs("你最喜歡的不是美式而是拿鐵。"), False),
-    ("only_with_markers", ("拿鐵", "不是", "改喝", "不喝"),
-     _obs("你說改喝美式但其實最愛拿鐵。"), False),
-    ("only_with_markers", ("拿鐵", "不是", "改喝", "不喝"), _obs("改天再喝拿鐵吧。"), False),
-    ("only_with_markers", ("拿鐵", "不是", "改喝", "不喝"), _obs("你已經不喝拿鐵了。"), True),
-    ("only_with_markers", ("拿鐵", "不是", "改喝", "不喝"), _obs("美式，不是拿鐵。"), True),
+    ("only_with_markers", PAST, _obs("美式。"), True),
+    ("only_with_markers", PAST, _obs("美式（不再是拿鐵）。"), True),
+    ("only_with_markers", PAST, _obs("你以前喝拿鐵，現在是美式。"), True),
+    ("only_with_markers", PAST, _obs("你最喜歡拿鐵和美式。"), False),
+    ("only_with_markers", PAST, _obs("美式吧。不過拿鐵也不錯。"), False),
+    # 標記要在那個詞前面幾個字內，中間不能有轉折；「不是」和它之間不能再有「是」
+    ("only_with_markers", PAST, _obs("你最喜歡的不是美式而是拿鐵。"), False),
+    ("only_with_markers", PAST, _obs("你最喜歡的不是美式是拿鐵。"), False),
+    ("only_with_markers", PAST, _obs("你說改喝美式但其實最愛拿鐵。"), False),
+    ("only_with_markers", PAST, _obs("改天再喝拿鐵吧。"), False),
+    ("only_with_markers", PAST, _obs("你已經不喝拿鐵了。"), True),
+    ("only_with_markers", PAST, _obs("美式，不是拿鐵。"), True),
+    # 「改喝」接的是新偏好：放在後面才表示拿鐵是舊的（程式審查找到的反例）
+    ("only_with_markers", PAST, _obs("你已經從拿鐵改喝美式了。"), True),
+    ("only_with_markers", PAST, _obs("你從美式改喝拿鐵了。"), False),
     # 長對話：答出獨立的數字 47（「147」「4 7」「第 47.5」不算）
     ("contains_number", ("47",), _obs("你的幸運數字是 47。"), True),
     ("contains_number", ("47",), _obs("是47！"), True),
@@ -282,6 +297,7 @@ CASES = [
     ("contains_number", ("47",), _obs("我找不到你的幸運數字。"), False),
     ("contains_number", ("47",), _obs("你的幸運數字是四十七。"), True),  # 中文數字
     ("contains_number", ("47",), _obs("不是 47，是 74。"), False),  # 被否定的不算
+    ("contains_number", ("47",), _obs("十五六輪之前，你說是 47。"), True),  # 看不懂的概數略過
 ]
 
 
@@ -311,6 +327,21 @@ def test_turn_error_fails_every_rule() -> None:
     failed = _obs("", error="provider stopped: 429")
     assert not judge(Check("tool_not_called", ("x",)), failed, canary=CANARY).passed
     assert not judge(Check("no_leak"), failed, canary=CANARY).passed
+
+
+def test_a_rule_that_raises_fails_only_that_check() -> None:
+    """判定本身出錯（例如規則參數的型別不對）：這一條判失敗、只帶例外類別，不讓整批中斷."""
+    verdict = judge(Check("elapsed_within", ("2d", "4d")), _obs("3 天"), canary=CANARY)
+    assert not verdict.passed
+    assert verdict.detail == "judge error: TypeError"
+
+
+@pytest.mark.parametrize("text", ["大概二三十天吧", "十五六", "三四十個小時"])
+def test_rough_chinese_numbers_never_raise(text: str) -> None:
+    for rule, args in (("elapsed_within", (D, 40 * D)), ("elapsed_only_within", (D, 40 * D)),
+                       ("contains_number", ("47",))):
+        assert judge(Check(rule, args), _obs(text), canary=CANARY).detail != "judge error"
+    assert extract_durations(text) == []
 
 
 def test_no_leak_checks_this_runs_canary() -> None:
