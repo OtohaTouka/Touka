@@ -1,0 +1,308 @@
+"""ADR-0283：政策稽核帳本（``stats/decisions.csv``）不記終端指令內容。
+
+- 終端指令那一列只記程式名稱和長度：``[command program=<名稱或?> chars=<數字>]``；
+  參數和值一律不記，認不出程式名稱就記 ``?``，不猜。
+- 其他列記工具名稱；不像工具名稱的內容只記長度，像金鑰的工具名稱照既有樣式遮掉。
+- 只改寫進檔案的那一份：權限判斷照舊看完整指令，``PolicyContext`` 不被改動。
+- 守門：建 ``PolicyContext`` 的位置與它的 action 固定在清單裡，新增或改動時這裡會紅。
+
+假金鑰都在執行時組出來，不在原始碼裡留下像金鑰的字面值。
+"""
+
+from __future__ import annotations
+
+import ast
+import asyncio
+import csv
+import json
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import pytest
+from src.models.identity import AgentIdentity
+from src.models.policy import PolicyContext, PolicyDecision
+from src.services import tool_executor as executor_module
+from src.services.approval_service import approval_service
+from src.services.audit_service import PolicyAuditService, audit_service
+from src.services.permission_service import permission_service
+from src.services.tool_executor import ToolExecutor
+from src.utils import audit_resource
+from src.utils.audit_resource import audit_resource_for, summarize_command_for_audit
+
+_ROOT = Path(__file__).resolve().parents[2]
+_SRC = _ROOT / "ToukaProxy" / "src"
+_ACTOR = AgentIdentity.for_role(agent_id="AuditProbe", role="Owner", is_human=False)
+_DRAIN_TIMEOUT_SECONDS = 30
+
+# 像真金鑰的形狀（會被既有遮罩樣式認出）與一般密碼（任何樣式都認不出）。
+_KEY = "sk-" + "Zq7" * 14
+_PW = "Pw" + "9xQ" * 6
+
+
+def _fragments(secret: str) -> list[str]:
+    return [secret[i : i + 8] for i in range(len(secret) - 7)]
+
+
+def _assert_secret_free(text: str) -> None:
+    for secret in (_KEY, _PW):
+        for fragment in _fragments(secret):
+            assert fragment not in text
+
+
+def _summary(program: str, command: str) -> str:
+    return f"[command program={program} chars={len(command)}]"
+
+
+# ── 終端指令摘要 ───────────────────────────────────────────────────────────────
+
+_COMMAND_CASES = [
+    (f"curl -H 'Authorization: Bearer {_KEY}' https://api.example.com", "curl"),
+    (f"OPENAI_API_KEY={_KEY} python app.py", "python"),
+    (f"A=1 B={_PW} node run.js", "node"),
+    (f'OPENAI_API_KEY="{_PW}" python app.py', "?"),
+    (f"TOKEN=a\\ {_PW} python x.py", "?"),
+    (f"TOKEN=$(cat {_PW}) python x.py", "?"),
+    (f"TOKEN=a=={_PW} python x.py", "?"),
+    (f"1A={_PW} python x.py", "?"),
+    (f"A-B={_PW} python x.py", "?"),
+    (f"A=1 B={_PW}", "?"),
+    (f'$env:API_KEY="{_PW}"; curl https://example.com', "?"),
+    (f"[Environment]::SetEnvironmentVariable('API_KEY', '{_PW}')", "?"),
+    (f"set API_KEY={_PW}", "set"),
+    (f"setx API_KEY {_PW}", "setx"),
+    (f"env API_KEY={_PW} python x.py", "env"),
+    (f"sudo -u root mysql -p{_PW}", "sudo"),
+    (f"C:\\tools\\gh.exe auth login --with-token {_PW}", "gh.exe"),
+    (f"/usr/local/bin/psql postgres://u:{_PW}@db/x", "psql"),
+    (f'"C:\\Program Files\\Git\\bin\\git.exe" -c http.extraHeader="Basic {_PW}"', "?"),
+    (f"& 'C:\\x\\y.exe' --password {_PW}", "?"),
+    (f"https://u:{_PW}@example.com/x", "?"),
+    ("x" * 65 + f" --password {_PW}", "?"),
+    (f"程式 --password {_PW}", "?"),
+    (f"{_KEY} --help", "?"),
+    (f"curl\t-u\tuser:{_PW}\thttps://example.com", "curl"),
+    (f"\n  curl -u user:{_PW} https://example.com\n", "curl"),
+    ("curl\n", "curl"),
+    ("", "?"),
+    ("   ", "?"),
+]
+
+
+@pytest.mark.parametrize(("command", "program"), _COMMAND_CASES)
+def test_command_summary_keeps_only_program_and_length(command: str, program: str):
+    summary = summarize_command_for_audit(command)
+    assert summary == _summary(program, command)
+    _assert_secret_free(summary)
+
+
+def test_summary_failure_never_lets_the_command_through(monkeypatch: pytest.MonkeyPatch):
+    def _boom(_text: str) -> tuple[str, bool]:
+        raise RuntimeError(_PW)
+
+    monkeypatch.setattr(audit_resource, "redact_secrets_from_content", _boom)
+    summary = summarize_command_for_audit(f"curl --token {_PW}")
+    assert summary == "[command unavailable]"
+
+
+# ── 依動作挑寫法 ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "tool", ["vault_read", "mcp__github__create_issue", "server.tool:v2/list", "x" * 200]
+)
+def test_tool_names_are_kept(tool: str):
+    assert audit_resource_for("tool_call", tool) == tool
+
+
+def test_key_shaped_tool_name_is_redacted():
+    assert audit_resource_for("tool_call", _KEY) == "<redacted>"
+
+
+@pytest.mark.parametrize(
+    "resource", [f"echo --token {_PW}", "x" * 201, "", f"{_PW}\n", f"名稱{_PW}"]
+)
+def test_non_tool_shaped_resource_keeps_only_length(resource: str):
+    assert audit_resource_for("schema_injection", resource) == (
+        f"[resource chars={len(resource)}]"
+    )
+
+
+def test_terminal_action_uses_the_command_summary():
+    command = f"curl --token {_PW}"
+    assert audit_resource_for("terminal_execute", command) == _summary("curl", command)
+
+
+def test_resource_failure_never_lets_the_value_through(monkeypatch: pytest.MonkeyPatch):
+    def _boom(_text: str) -> tuple[str, bool]:
+        raise RuntimeError(_KEY)
+
+    monkeypatch.setattr(audit_resource, "redact_secrets_from_content", _boom)
+    assert audit_resource_for("tool_call", "vault_read") == "[resource unavailable]"
+    assert audit_resource_for("terminal_execute", "curl x") == "[command unavailable]"
+
+
+# ── 真實寫檔路徑 ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def ledger(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    _drain()
+    path = tmp_path / "decisions.csv"
+    monkeypatch.setattr(audit_service, "audit_file", path)
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _clean_broker():
+    approval_service.reset_for_test()
+    yield
+    approval_service.reset_for_test()
+
+
+def _drain() -> None:
+    PolicyAuditService._executor.submit(int).result(timeout=_DRAIN_TIMEOUT_SECONDS)
+
+
+def _rows(path: Path) -> list[dict[str, str]]:
+    _drain()
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _terminal_rows(path: Path) -> list[dict[str, str]]:
+    rows = _rows(path)
+    for row in rows:
+        _assert_secret_free(json.dumps(row, ensure_ascii=False))
+    return [row for row in rows if row["action"] == "terminal_execute"]
+
+
+def test_writer_keeps_the_policy_context_unchanged(ledger: Path):
+    command = f"curl --token {_PW}"
+    context = PolicyContext(
+        actor=_ACTOR,
+        resource=command,
+        action="terminal_execute",
+        environment={"auth_level": "Manual", "session_id": "s-audit"},
+    )
+    audit_service.log_decision(context, PolicyDecision(effect="CONFIRM", reason="r"))
+    rows = _terminal_rows(ledger)
+    assert [row["resource"] for row in rows] == [_summary("curl", command)]
+    assert context.resource == command
+
+
+def test_classify_command_ledger_row_has_only_the_summary(ledger: Path):
+    command = f"git push https://u:{_PW}@example.com/repo --token {_KEY}"
+    permission_service.classify_command(command, _ACTOR, auth_level="Manual", isolation="landlock")
+    rows = _terminal_rows(ledger)
+    assert [row["resource"] for row in rows] == [_summary("git", command)]
+
+
+def test_blacklist_still_sees_the_full_command(ledger: Path):
+    """黑名單樣式只出現在指令後段；判斷仍看完整原文，帳本只有摘要。"""
+    command = f"echo go --token {_PW} ; rm -rf /"
+    effect = permission_service.classify_command(
+        command, _ACTOR, auth_level="YOLO", isolation="landlock"
+    )
+    assert effect == "DENY"
+    rows = _terminal_rows(ledger)
+    assert [(row["resource"], row["effect"]) for row in rows] == [
+        (_summary("echo", command), "DENY")
+    ]
+    assert rows[0]["reason"].startswith("Matched critical blacklist pattern")
+
+
+class _Recorder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, **kwargs: Any) -> str:
+        self.calls.append(kwargs)
+        return json.dumps({"ok": True})
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_gate2_ledger_row_has_only_the_summary(
+    monkeypatch: pytest.MonkeyPatch, ledger: Path
+):
+    recorder = _Recorder()
+    bindings = dict(executor_module.BUILTIN_EXECUTION_BINDINGS)
+    bindings["execute_command"] = replace(bindings["execute_command"], handler=recorder)
+    monkeypatch.setattr(executor_module, "BUILTIN_EXECUTION_BINDINGS", bindings)
+    executor = ToolExecutor(
+        protocol_manager=None,
+        tool_registry={"execute_command": recorder},
+        memory_tool_registry={},
+        plugin_registry={},
+    )
+    command = f"OPENAI_API_KEY={_KEY} echo {_PW} && rm -rf /"
+    ctx = {"identity": _ACTOR, "auth_level": "YOLO", "session_id": "s-audit-gate2"}
+    result = await executor.execute_to_queue(
+        "execute_command", {"command": command}, "req-audit", ctx, asyncio.Queue()
+    )
+    assert recorder.calls == []
+    assert json.loads(result)["error_class"] == "permission_denied"
+    rows = _terminal_rows(ledger)
+    assert [(row["resource"], row["effect"]) for row in rows] == [
+        (_summary("echo", command), "DENY")
+    ]
+
+
+# ── 守門：建 PolicyContext 的位置與 action ─────────────────────────────────────
+
+_EXPECTED_POLICY_CONTEXTS = sorted(
+    [
+        ("middleware/layers/tool.py", "'schema_injection'"),
+        ("protocols/mcp/oauth/workload/adapters.py", "'tool_call'"),
+        ("services/auto_reviewer.py", "'auto_review'"),
+        (
+            "services/permission_service.py",
+            "'terminal_execute' if 'command' in args else 'tool_call'",
+        ),
+        ("services/tool_executor.py", "'terminal_execute' if is_terminal else 'tool_call'"),
+    ]
+)
+
+
+def _policy_context_names(tree: ast.Module) -> set[str]:
+    names = {"PolicyContext"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(a.asname for a in node.names if a.name == "PolicyContext" and a.asname)
+    return names
+
+
+def _is_policy_context_call(node: ast.Call, names: set[str]) -> bool:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id in names
+    return isinstance(func, ast.Attribute) and func.attr == "PolicyContext"
+
+
+def _scan_policy_contexts() -> tuple[list[tuple[str, str]], list[str]]:
+    sites: list[tuple[str, str]] = []
+    copies: list[str] = []
+    for path in sorted(_SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        rel = path.relative_to(_SRC).as_posix()
+        names = _policy_context_names(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if _is_policy_context_call(node, names):
+                action = next((k.value for k in node.keywords if k.arg == "action"), None)
+                sites.append((rel, ast.unparse(action) if action is not None else "<none>"))
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "model_copy":
+                for keyword in node.keywords:
+                    if keyword.arg == "update" and isinstance(keyword.value, ast.Dict):
+                        keys = {k.value for k in keyword.value.keys if isinstance(k, ast.Constant)}
+                        if keys & {"resource", "action"}:
+                            copies.append(f"{rel}:{node.lineno}")
+    return sorted(sites), copies
+
+
+def test_policy_context_sites_are_pinned():
+    """新增或改動建構點時這裡會紅：先確認 resource 放的是什麼，再更新清單與稽核寫法。"""
+    sites, copies = _scan_policy_contexts()
+    assert sites == _EXPECTED_POLICY_CONTEXTS
+    assert copies == []
