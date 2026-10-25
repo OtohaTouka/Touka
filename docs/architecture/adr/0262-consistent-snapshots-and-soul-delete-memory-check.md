@@ -44,6 +44,14 @@
 - 還原子程序沒有攔截輸出，它的 stderr 直接流進伺服器自己的 stderr、沒有消毒；不經過任何 API 回應。
 - 測試：`tests/unit/test_snapshot_consistency.py`、`test_backup_paths_ssot.py`、`test_backup_error_output_security.py`、`test_soul_delete_memory_guard.py`；前端 `AgentDataResetCard.test.tsx`、`SoulStudio.crud.test.tsx`。
 
+## 補記：發布失敗不留下空檔（2026-10-25，舊審查報告丙-1）
+
+- 原本先用 O_EXCL 佔正式檔名、再把暫存檔改名過去；改名失敗時只刪暫存檔，0 位元組的佔位檔留著。排程修剪只看 mtime 數份數，這個空檔被算成一份，結果少留一份真的備份；清除時它也被記成 `not_needed`。拿它還原時打不開、什麼都不寫（安全方向）。
+- 改成：改名遇 `PermissionError` 重試 3 次、間隔 0.5 秒（和 `memory_scrub/swap.py` 同值，腳本不載入 Proxy，測試核對兩邊一致）；仍失敗時，佔位檔仍是 0 位元組才刪掉，再把原本的錯誤往外丟（已經不在就略過，刪不掉只印警告），磁碟上不留 `.zip`；暫存檔本身被占用、刪不掉時可能留下 `.partial`（只印警告、原本的錯誤照樣往外丟；它不在清單上、修剪不算，記憶清除會掃掉），腳本回非 0、`create_backup` 照舊回 `SYSTEM_BACKUP_FAILED`、重置照舊中止。改名成功後在 POSIX 上 fsync 資料夾（Windows 略過），失敗只警告、備份仍算完成。
+- 排程修剪時 0 位元組的自動備份不算份數、直接刪；人工備份的 0 位元組檔不動。Proxy 的每條備份路徑都經 `run_backup_job` 的備份鎖，修剪碰不到正在佔的檔名；只有人手動用命令列以自動備份的前綴執行時例外，後果也只是那次改名到不存在的目標、照樣成功。
+- 沒採用 `os.link` 發布（遇到同名就失敗、不需要佔位檔）：bind mount 上不一定支援硬連結。
+- 測試：`tests/unit/test_snapshot_consistency.py`（改名一直失敗時資料夾是空的、失敗幾次後成功並照常數等待、最後一次仍失敗就放棄且不再等、其他錯誤不重試、等待中按 Ctrl+C 也清乾淨、佔位檔已不是空的就不刪、佔位檔或暫存刪不掉時丟出的仍是原本的錯誤並警告、佔位檔已消失不警告、重試常數和 swap 一致、只在 POSIX 對資料夾 fsync、改名後才 fsync 並關掉 fd、fsync 失敗只警告）、`tests/unit/test_backup_scheduler.py`（0 位元組的自動備份不算份數）；兩輪共 21 個突變全紅。
+
 ---
 
 

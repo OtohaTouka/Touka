@@ -18,7 +18,7 @@ from src.models.identity import AgentIdentity
 from src.services.continuity_events import event_id
 from src.utils.continuity_events_db import EventRow
 
-from tests.memory_eval.scenarios import PERSONA_TEXT, SOUL_ID
+from tests.memory_eval.scenarios import SOUL_ID
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,6 +34,9 @@ SOUL_CONFIG = {"is_toukasoul": True, "enabled_tools": ["memory_tools", "mission_
 _MS = 1000
 _HISTORY_STEP_MS = 30 * _MS  # 預載歷史相鄰節點相隔 30 秒
 _EARLY_FACT_ROUND = 3
+ARCHIVE_AGE_S = 86_400  # 歸檔的舊對話最後一則在一天前
+# 歸檔填充輪不帶數字：模型說「第 47 輪」不能被當成答出幸運數字。
+_BOOK_KINDS = ("詩集", "食譜", "地圖", "小說", "童書", "畫冊", "字典")
 _E5_PREFIX = re.compile(r"^\s*(?:query|passage):\s*")
 
 
@@ -44,25 +47,33 @@ class SeedOutsideSandbox(ValueError):
         super().__init__("memory eval seed target is outside the sandbox root")
 
 
-def soul_identity() -> AgentIdentity:
+def soul_id_for(number: int) -> str:
+    """第 ``number`` 個情境用的合成靈魂 id（英數字）：每個情境一個新靈魂，記憶、對話、家對話、
+    時間軸都不和前一個情境共用。"""
+    return f"{SOUL_ID}{number:03d}"
+
+
+def soul_identity(soul_id: str) -> AgentIdentity:
     """合成靈魂本身（前景代打後的執行身分）。"""
-    return AgentIdentity.for_role(agent_id=SOUL_ID, role="Owner", is_human=False)
+    return AgentIdentity.for_role(agent_id=soul_id, role="Owner", is_human=False)
 
 
-def driver_identity() -> AgentIdentity:
+def driver_identity(soul_id: str) -> AgentIdentity:
     """驅動對話的合成人類擁有者：Monitor 會照前景規則代打成靈魂（ADR-0154）。"""
     return AgentIdentity.for_role(
-        agent_id=DRIVER_USER_ID, role="normal", is_human=True, owned_agents=[SOUL_ID]
+        agent_id=DRIVER_USER_ID, role="normal", is_human=True, owned_agents=[soul_id]
     )
 
 
-def write_synthetic_soul(app_data_dir: Path, *, sandbox_root: Path) -> Path:
-    """在 ``<app_data_dir>/soul/<SOUL_ID>`` 寫合成人格與設定；目標必須在沙盒根之下。"""
-    soul_dir = (app_data_dir / "soul" / SOUL_ID).resolve()
+def write_synthetic_soul(
+    app_data_dir: Path, soul_id: str, *, sandbox_root: Path, persona: str
+) -> Path:
+    """在 ``<app_data_dir>/soul/<soul_id>`` 寫合成人格（含這次口令）與設定；目標須在沙盒根之下。"""
+    soul_dir = (app_data_dir / "soul" / soul_id).resolve()
     if not soul_dir.is_relative_to(sandbox_root.resolve()):
         raise SeedOutsideSandbox
     soul_dir.mkdir(parents=True, exist_ok=True)
-    (soul_dir / "soul.md").write_text(PERSONA_TEXT, encoding="utf-8")
+    (soul_dir / "soul.md").write_text(persona, encoding="utf-8")
     (soul_dir / "config.json").write_text(json.dumps(SOUL_CONFIG), encoding="utf-8")
     return soul_dir
 
@@ -122,30 +133,46 @@ def append_node(tree: dict[str, Any], role: str, content: str, stamp_ms: int | N
     tree["currentId"] = node_id
 
 
-def _history_pairs(scenario: Scenario) -> list[tuple[str, str]]:
+def _archived_pairs(scenario: Scenario) -> list[tuple[str, str]]:
     seed = scenario.seed
-    pairs = list(seed.history)
-    for i in range(1, seed.history_rounds + 1):
+    pairs: list[tuple[str, str]] = []
+    for i in range(1, seed.archived_rounds + 1):
         user = seed.early_fact if i == _EARLY_FACT_ROUND and seed.early_fact else (
-            f"第 {i} 輪：今天又整理了一箱舊書，編號 {i}。"
+            f"今天又整理了一箱{_BOOK_KINDS[i % len(_BOOK_KINDS)]}。"
         )
-        pairs += [("user", user), ("assistant", f"收到第 {i} 輪，辛苦了。")]
+        pairs += [("user", user), ("assistant", "收到，辛苦了。")]
     return pairs
+
+
+def _archive_payload(scenario: Scenario, now_ms: int) -> dict[str, Any] | None:
+    """歸檔用的舊對話（產品歸檔函式收的形狀）；最後一則落在 ``ARCHIVE_AGE_S`` 秒前。"""
+    pairs = _archived_pairs(scenario)
+    if not pairs:
+        return None
+    end = now_ms - ARCHIVE_AGE_S * _MS
+    messages = [
+        {"role": role, "content": content,
+         "timestamp": end - (len(pairs) - 1 - index) * _HISTORY_STEP_MS}
+        for index, (role, content) in enumerate(pairs)
+    ]
+    return {"id": f"memory-eval-{scenario.id}-archived", "title": "書店日常",
+            "messages": messages}
 
 
 @dataclass(frozen=True, slots=True)
 class SeedPlan:
-    """要植入的東西（純資料）：目前 session 的樹、家對話的樹、事實、前情摘要。"""
+    """要植入的東西（純資料）：目前 session 的樹、家對話的樹、事實、前情摘要、歸檔的舊對話。"""
 
     session_tree: dict[str, Any]
     home_tree: dict[str, Any]
     facts: tuple[str, ...]
     summary: str
+    archive: dict[str, Any] | None = None
 
 
 def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     """依情境排出合成資料；有 ``last_turn_age_s`` 時最後一個節點落在 now - age。"""
-    pairs = _history_pairs(scenario)
+    pairs = list(scenario.seed.history)
     age = scenario.seed.last_turn_age_s
     session_tree = new_tree()
     for index, (role, content) in enumerate(pairs):
@@ -156,10 +183,11 @@ def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     home_tree = new_tree()
     for role, content in scenario.seed.home:
         append_node(home_tree, role, content, None)
-    return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary)
+    return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary,
+                    _archive_payload(scenario, now_ms))
 
 
-def plan_timeline(scenario: Scenario, now_ms: int) -> tuple[EventRow, ...]:
+def plan_timeline(scenario: Scenario, now_ms: int, soul_id: str) -> tuple[EventRow, ...]:
     """情境預放的活動事件：合成靈魂名下、產品的事件 id 規則，都記在另一個較早的對話。
 
     人類訊息不在這個情境的對話裡，所以不會被當成「這段對話上一輪」。
@@ -169,7 +197,7 @@ def plan_timeline(scenario: Scenario, now_ms: int) -> tuple[EventRow, ...]:
     for event in scenario.seed.timeline:
         occurred = now_ms - event.age_s * _MS
         rows.append(EventRow(
-            event_id=event_id(event.kind, SOUL_ID, event.subject, occurred), agent=SOUL_ID,
+            event_id=event_id(event.kind, soul_id, event.subject, occurred), agent=soul_id,
             kind=event.kind, occurred_at=occurred, subject=event.subject,
             session_id=session_id, metadata=dict(event.metadata),
         ))

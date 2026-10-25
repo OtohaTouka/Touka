@@ -14,7 +14,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -61,6 +63,11 @@ QDRANT_SNAPSHOT_ATTEMPTS = 5  # 複製期間 meta.json 被改（新增／刪除 
 BACKUP_NAME_MAX_SUFFIX = 99  # 同一秒撞名時最多試幾個序號
 PARTIAL_SUFFIX = ".partial"  # 寫到一半的暫存檔（不符 *.zip，清單與排程都看不到）
 SNAPSHOT_WORKDIR_PREFIX = ".snapshot-"  # SQLite 複本的工作資料夾（中斷殘留由清除依形狀清掉）
+# 發布改名遇到暫時占用時的重試；同 memory_scrub.swap 的 RENAME_ATTEMPTS／RENAME_RETRY_DELAY_S
+# （腳本不載入 Proxy，數值由測試核對兩邊一致）
+PUBLISH_RENAME_ATTEMPTS = 3
+PUBLISH_RETRY_DELAY_S = 0.5
+_SUPPORTS_DIR_FSYNC = os.name != "nt"  # Windows 不支援對資料夾 fsync
 
 
 class OAuthRestoreConflictError(RuntimeError):
@@ -254,7 +261,7 @@ class BackupEngine:
                 os.fsync(raw.fileno())
             output = _publish_new(tmp, backup_dir, stem)
         except BaseException:
-            tmp.unlink(missing_ok=True)
+            _discard_partial(tmp)
             raise
         print(f"Backup completed: {output}")
         return output
@@ -312,17 +319,73 @@ def _qdrant_snapshot(qdrant_dir: Path, work: Path) -> tuple[bytes, dict[str, Pat
 
 
 def _publish_new(tmp: Path, backup_dir: Path, stem: str) -> Path:
-    """先以 O_EXCL 佔一個沒人用過的檔名，再用暫存檔取代自己剛佔的空檔；絕不覆蓋既有快照。"""
+    """先以 O_EXCL 佔一個沒人用過的檔名，再用暫存檔取代自己剛佔的空檔；絕不覆蓋既有快照。
+
+    改名失敗時刪掉自己佔的空檔再往外丟：留著的 0 位元組 zip 會被修剪算成一份備份。
+    """
     for suffix in range(1, BACKUP_NAME_MAX_SUFFIX + 1):
         final = backup_dir / (f"{stem}.zip" if suffix == 1 else f"{stem}_{suffix}.zip")
         try:
             os.close(os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
         except FileExistsError:
             continue
-        tmp.replace(final)
+        try:
+            _replace_with_retry(tmp, final)
+        except BaseException:
+            _drop_empty_placeholder(final)
+            raise
+        _fsync_dir(backup_dir)
         return final
     msg = f"CRITICAL: no free backup name for {stem}"
     raise FileExistsError(msg)
+
+
+def _replace_with_retry(tmp: Path, final: Path) -> None:
+    """Windows 上剛 fsync 完的大檔常被防毒或索引暫時占用：PermissionError 時隔一下再試。"""
+    for attempt in range(1, PUBLISH_RENAME_ATTEMPTS + 1):
+        try:
+            tmp.replace(final)
+        except PermissionError:
+            if attempt == PUBLISH_RENAME_ATTEMPTS:
+                raise
+            time.sleep(PUBLISH_RETRY_DELAY_S)
+        else:
+            return
+
+
+def _discard_partial(tmp: Path) -> None:
+    """刪掉寫到一半的暫存；被占用刪不掉時只警告，讓原本的錯誤照樣往外丟（清除會掃掉它）。"""
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"WARNING: could not remove the partial backup {tmp.name}: {exc}",
+              file=sys.stderr)
+
+
+def _drop_empty_placeholder(final: Path) -> None:
+    """刪掉自己佔的空檔；已經不是 0 位元組就不碰（那不是我們寫的）。刪不掉只警告。"""
+    try:
+        if final.stat().st_size == 0:
+            final.unlink()
+    except FileNotFoundError:
+        return  # 已經不在了，沒有要清的
+    except OSError as exc:
+        print(f"WARNING: could not remove the empty placeholder {final.name}: {exc}",
+              file=sys.stderr)
+
+
+def _fsync_dir(path: Path) -> None:
+    """改名後把資料夾項目寫到磁碟（同 ResourceManager.fsync_dir）；失敗只警告，備份仍算完成。"""
+    if not _SUPPORTS_DIR_FSYNC:
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        print(f"WARNING: could not sync the backup folder {path}: {exc}", file=sys.stderr)
 
 
 class RestoreEngine:

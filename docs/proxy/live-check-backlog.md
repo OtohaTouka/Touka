@@ -42,8 +42,10 @@ ADR-0280 起：替身的嵌入模型名稱固定成 `touka-eval-stub-ngram`（�
 
 | 批 | 要驗的事 | ①命令／script | ②provider | ③model | ④case／重試 | ⑤上限 | ⑥送出內容 | ⑦本機寫入 |
 |---|---|---|---|---|---|---|---|---|
-| **E1** | 修好後重跑 smoke：替身門檻固定、「昨天」逐子句判 | `python tests/smoke/manual/memory_eval_probe.py --provider anthropic --model claude-haiku-5-5 --suite smoke --max-provider-requests 40 --max-tokens 512 --budget 1.20 --human-approved-live-api [--env-file <金鑰 .env>]` | Anthropic | `claude-haiku-5-5` | smoke 11 情境、預計 20 請求；重試 0、備援 0；摘要員／審查員／評審 0 | 請求硬上限 40；請求裡 512、實送 8,192（天花板 8,192）；USD 上限 1.20；10/15 同條件實花約 $0.03 | 同 M1 | 同 M1 |
+| **E1** | 修好後重跑 smoke：替身門檻固定、「昨天」逐子句判；ADR-0284 的改動也在內 | `python tests/smoke/manual/memory_eval_probe.py --provider anthropic --model claude-haiku-5-5 --suite smoke --max-provider-requests 40 --max-tokens 512 --budget 1.20 --human-approved-live-api [--env-file <金鑰 .env>]` | Anthropic | `claude-haiku-5-5` | smoke 11 情境、預計 21 請求；重試 0、備援 0；摘要員／審查員／評審 0 | 請求硬上限 40；請求裡 512、實送 8,192（天花板 8,192）；USD 上限 1.20；10/15 同條件實花約 $0.03 | 同 M1 | 同 M1 |
 | **E2** | 時間軸：模型有沒有看到、用到預放的上次人類訊息與最近完成 | 同上換 `--suite continuity --max-provider-requests 10 --budget 0.30` | Anthropic | `claude-haiku-5-5` | continuity 2 情境、各 1 輪、預計 3 請求；重試 0、備援 0 | 請求硬上限 10；實送 8,192；USD 上限 0.30 | 同 M1；另有活動記錄器開著（預放事件只寫沙盒） | 同 M1 |
+
+ADR-0284 起：每個情境用一個新的合成靈魂（前一個情境的記憶、對話、家對話不會帶到下一個；之前排在「家對話裡的注入」之後的情境都帶著那段注入句，M1 與 10/15 的結果只當參考）；每次實測產生一組新的內部口令（不印出）；記憶衝突第 1 回合看有沒有試著換掉舊記憶（無人在場的 Auto 會擋下取代與刪除，舊的那筆其實還在）、追問在新的對話；長對話的 100 輪只放在舊對話庫，提問時對話是空的，要真的查舊對話；判定改嚴（改名、否認名字、口令片段、經過時間）；實測時裝上 UI 對話讀取器，查舊對話才查得到。smoke 預計請求數 20 → 21。工具改過，上面 E1／E2 的同意都還沒取得，取得時照新版揭露。
 
 ## Claude 5.5 少想的延遲（T1，ADR-0271）
 
