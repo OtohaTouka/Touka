@@ -491,6 +491,7 @@ def test_a_save_that_cannot_be_written_is_an_error(
     沒有 config.json 的資料夾不算模型，留著的話之後查看、刪除都找不到它（丙-2）。
     """
     before = _create(owners, OLD)
+    # 第二個替身包住第一個：OLD 與 NEW 的寫入都失敗，其他照原本的函式
     monkeypatch.setattr(
         custom_io, "write_custom_file", _fail_for(OLD, custom_io.write_custom_file, False)
     )
