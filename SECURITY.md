@@ -143,6 +143,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 政策稽核帳本記下整條終端指令（2026-10-25）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 每次權限判斷都在 `stats/decisions.csv` 記一列，終端指令那一列的 resource 欄原樣記下整條指令；指令裡帶的金鑰（`curl -H "Authorization: Bearer ..."`、`OPENAI_API_KEY=... python x.py`、`--password ...`）就明文留在這個檔（禁令 23 同類）。這個檔跨靈魂共用、重置靈魂時刻意保留（ADR-0104），備份也會打包整個 `stats/`；沒有網頁或 API 直接讀它。2026-10-23 修日誌時列為後續待處理 | 終端指令那一列改成只記 `[command program=<名稱或?> chars=<原文字元數>]`，參數和值一律不記；認不出程式名稱（例如 PowerShell 的 `$env:…` 開頭、引號開頭的路徑、帶引號的設定值）就記 `?`，程式名稱本身像金鑰也記 `?`。其他列記工具名稱，不像工具名稱的內容只記長度。只改寫進檔案的那一份，權限判斷照舊看完整原文（[ADR-0283](docs/architecture/adr/0283-policy-ledger-command-summary.md)，`ToukaProxy/src/utils/audit_resource.py`）。沒採用「遮掉認得出的金鑰寫法」：要認的寫法太多、仍會漏網。測試：`tests/unit/test_audit_resource_security.py` 的純函式案例與經 `classify_command`、ToolExecutor Gate 2 的真實寫檔路徑，整列所有欄位都不得含假金鑰的任何 8 字片段；黑名單樣式命中指令後段時仍是 DENY；`PolicyContext` 不被改動；只照 shell 的方式切段（Unicode 空白與 `\r` 不切）、值是空的設定記 `?`，設定值、程式段落與工具名稱的字元集逐字元固定；建 `PolicyContext` 的位置、action 與 resource 用 AST 固定，列出的其他建法與改寫法一律擋下（範圍見 ADR-0283 決定 5；修前紅、修後綠）。已寫進帳本的舊列不自動改；真的有金鑰時要到廠商那邊換掉，因為對話紀錄、payload 日誌與備份裡也有 |
+
 ### braces 公告撤回與回補退役（2026-10-24）
 
 | 弱點 | 處理與驗證 |
@@ -159,7 +165,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 | 弱點 | 修正與驗證 |
 |------|------|
-| 代理人的終端指令含 shell 串接字元而升級成 CONFIRM 時，`permission_service.classify_command` 的 info 日誌會印出指令前 60 個字；指令裡帶的金鑰（例如 `curl -H "Authorization: Bearer ..."`）就會進日誌（禁令 23 同類）。由 GitHub CodeQL 的 py/clear-text-logging-sensitive-data 在 dev → main 的 PR 抓到 | 日誌只記指令長度，不記內容。測試：`tests/unit/test_c4_c5_c6_c7_security.py::test_metachar_escalation_log_does_not_echo_the_command`（指令帶假金鑰，日誌不得含指令的任何 8 字片段，連截斷印出也擋；修前紅、修後綠）。這裡只管程式日誌：政策稽核帳本 `stats/decisions.csv` 依設計仍記錄完整指令（重置時也刻意保留），指令裡的金鑰會落在那裡，列為後續待處理 |
+| 代理人的終端指令含 shell 串接字元而升級成 CONFIRM 時，`permission_service.classify_command` 的 info 日誌會印出指令前 60 個字；指令裡帶的金鑰（例如 `curl -H "Authorization: Bearer ..."`）就會進日誌（禁令 23 同類）。由 GitHub CodeQL 的 py/clear-text-logging-sensitive-data 在 dev → main 的 PR 抓到 | 日誌只記指令長度，不記內容。測試：`tests/unit/test_c4_c5_c6_c7_security.py::test_metachar_escalation_log_does_not_echo_the_command`（指令帶假金鑰，日誌不得含指令的任何 8 字片段，連截斷印出也擋；修前紅、修後綠）。這裡只管程式日誌；政策稽核帳本 `stats/decisions.csv` 記錄完整指令的問題，2026-10-25 改成只記程式名稱和長度（見上面「政策稽核帳本記下整條終端指令」，ADR-0283） |
 
 ### 刪除靈魂的家目錄殘留、首裝密碼檔與密碼重輸（2026-10-21）
 

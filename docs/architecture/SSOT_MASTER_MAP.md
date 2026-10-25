@@ -367,8 +367,9 @@
 | 子程序淨化環境（呼叫端 env 亦過同一道過濾） | `EvolutionPathGuard.get_clean_env`／`strip_sensitive_env` | terminal、互審蒐證、演化沙箱 |
 | 子程序啟動與新行程群組 | `execution_broker.spawn_exec`／`run_sync`（ADR-0239） | 全部子程序（例外見 `tests/lint/test_security_kernel_ratchet.py`） |
 | 連坐殺行程樹 | `process_registry.terminate_process_tree` | terminal、互審蒐證、dispatch supervisor |
+| 政策稽核帳本的 resource 欄（終端指令只記程式名稱和長度，其他列只記工具名稱） | `src/utils/audit_resource.py`（`audit_resource_for`；金鑰樣式仍以 `utils/secrets.py` 為準，ADR-0283） | `PolicyAuditService._sync_log_write`（`stats/decisions.csv`） |
 
-見 SECURITY.md SP1–SP8、[ADR-0239](adr/0239-authorization-gateway-and-execution-broker.md) 與 [ADR-0137 補記](adr/0137-adversarial-review-subsystem.md)。
+見 SECURITY.md SP1–SP8、[ADR-0239](adr/0239-authorization-gateway-and-execution-broker.md)、[ADR-0283](adr/0283-policy-ledger-command-summary.md) 與 [ADR-0137 補記](adr/0137-adversarial-review-subsystem.md)。
 
 ## 可信工具執行分類（2026-09-16）
 
