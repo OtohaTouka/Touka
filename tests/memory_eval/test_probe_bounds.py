@@ -334,6 +334,9 @@ async def test_only_the_continuity_batch_turns_the_activity_record_on(
 
     (kwargs,) = _FakeDriver.built
     assert kwargs["activity_record"] is recording
+    prepare = kwargs["prepare_soul"]  # 每個情境另建靈魂：核准的型號、這次的沙盒
+    assert prepare.func is probe._prepare_soul
+    assert prepare.keywords == {"sandbox_root": tmp_path, "model": "deepseek-v4-flash"}
 
 
 async def _no_init_db() -> None:
@@ -509,13 +512,17 @@ def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
         probe.main([*_CLI_ARGS, "--scenarios", "no_such_scenario"])
 
 
-def test_seed_sandbox_makes_the_synthetic_soul_an_owner(
+def test_each_prepared_soul_is_an_owner_with_the_approved_model(
     restore_product: None, global_test_sandbox: str
 ) -> None:
+    sandbox = Path(global_test_sandbox)
     try:
-        probe._seed_sandbox(Path(global_test_sandbox), "deepseek-v4-flash")
-        assert get_active_brain(seeding.soul_identity()) == "deepseek-v4-flash"
+        probe._seed_sandbox(sandbox)
         assert memory_vector.SentenceTransformer is seeding.DeterministicEncoder
+        for number in (1, 2):
+            soul_id = seeding.soul_id_for(number)
+            probe._prepare_soul(soul_id, sandbox_root=sandbox, model="deepseek-v4-flash")
+            assert get_active_brain(seeding.soul_identity(soul_id)) == "deepseek-v4-flash"
     finally:
         permission_service.identity_path.unlink(missing_ok=True)
         permission_service.reload_all()
@@ -525,7 +532,10 @@ def test_seed_sandbox_refuses_targets_outside_the_sandbox(
     restore_product: None, tmp_path: Path
 ) -> None:
     with pytest.raises(seeding.SeedOutsideSandbox):
-        probe._seed_sandbox(tmp_path / "not-the-sandbox", "deepseek-v4-flash")
+        probe._seed_sandbox(tmp_path / "not-the-sandbox")
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        probe._prepare_soul(seeding.soul_id_for(1), sandbox_root=tmp_path / "not-the-sandbox",
+                            model="deepseek-v4-flash")
 
 
 def test_cli_gate_precedes_every_provider_capable_import() -> None:

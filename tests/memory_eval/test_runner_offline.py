@@ -34,6 +34,7 @@ from tests.memory_eval import scenarios as sc
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+SOUL_1, SOUL_2 = seeding.soul_id_for(1), seeding.soul_id_for(2)
 _IDENTITY_EXAMPLE = (
     Path(__file__).resolve().parents[2] / "ToukaProxy" / "config" / "identity_map.json.example"
 )
@@ -72,6 +73,17 @@ def _fake_sender(replies: list[list[str]], sent: list[tuple[Any, Any]]) -> Calla
 
 async def _no_save(_identity: Any, _content: str) -> str:
     return "saved"
+
+
+def _soul_writer(sandbox: str, model: str | None = None) -> Callable[[str], None]:
+    """每個情境的合成靈魂寫進測試沙盒（記錄器只記正式靈魂；真 pipeline 還要主要模型）."""
+
+    def _prepare(soul_id: str) -> None:
+        seeding.write_synthetic_soul(Path(sandbox), soul_id, sandbox_root=Path(sandbox))
+        if model is not None:
+            set_active_brain(seeding.soul_identity(soul_id), model)
+
+    return _prepare
 
 
 def _driver(send: Callable, **kwargs: Any) -> runner.MemoryEvalDriver:
@@ -160,14 +172,15 @@ def test_seed_plan_without_age_has_no_timestamps() -> None:
 
 def test_synthetic_soul_is_written_only_under_the_sandbox_root(tmp_path: Path) -> None:
     root = tmp_path / "sandbox"
-    soul_dir = seeding.write_synthetic_soul(root / "app", sandbox_root=root)
+    soul_dir = seeding.write_synthetic_soul(root / "app", SOUL_1, sandbox_root=root)
 
+    assert soul_dir.name == SOUL_1
     assert (soul_dir / "soul.md").read_text(encoding="utf-8") == sc.PERSONA_TEXT
     config = json.loads((soul_dir / "config.json").read_text(encoding="utf-8"))
     assert config["is_toukasoul"] is True
     assert set(config["enabled_tools"]) == {"memory_tools", "mission_tools"}
     with pytest.raises(seeding.SeedOutsideSandbox):
-        seeding.write_synthetic_soul(tmp_path / "elsewhere", sandbox_root=root)
+        seeding.write_synthetic_soul(tmp_path / "elsewhere", SOUL_1, sandbox_root=root)
 
 
 def test_deterministic_encoder_is_stable_normalized_and_offline() -> None:
@@ -197,7 +210,7 @@ def test_stub_name_recalls_a_paraphrase_from_a_real_local_store(
         base_dir=directory, model_name=config_utils.get_embedding_model_name()
     )
     try:
-        soul = seeding.soul_identity()
+        soul = seeding.soul_identity(SOUL_1)
         assert store.save_vector(soul, "fact-cat", "使用者的貓叫麻糬，今年三歲。")
         hits = store.query_vectors(soul, "我的貓叫什麼名字？")
     finally:
@@ -210,11 +223,11 @@ def test_stub_name_recalls_a_paraphrase_from_a_real_local_store(
 def test_timeline_seed_rows_follow_the_product_event_shape() -> None:
     scenario = sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])[0]
 
-    rows = seeding.plan_timeline(scenario, NOW_MS)
+    rows = seeding.plan_timeline(scenario, NOW_MS, SOUL_1)
 
     assert [row.kind for row in rows] == [event.kind for event in scenario.seed.timeline]
     for row, event in zip(rows, scenario.seed.timeline, strict=True):
-        assert row.agent == sc.SOUL_ID
+        assert row.agent == SOUL_1
         assert row.occurred_at == NOW_MS - event.age_s * 1000
         assert row.event_id == ce.event_id(row.kind, row.agent, row.subject, row.occurred_at)
         assert row.metadata == dict(event.metadata)
@@ -239,24 +252,24 @@ async def test_driver_runs_multi_turn_with_history_and_persists_tree(sandbox_db:
     assert result.passed, result.to_dict()
     assert len(sent) == 2
     first, second = (request for request, _ctx in sent)
-    assert first.model == sc.SOUL_ID
+    assert first.model == SOUL_1
     assert first.max_tokens == 256
     assert first.session_id == second.session_id
     assert [m.role for m in second.messages] == ["user", "assistant", "user"]
     assert second.messages[1].content == "我是霧島澪。"
     ctx = sent[0][1]
     assert ctx["identity"].is_human
-    assert ctx["identity"].owned_agents == [sc.SOUL_ID]
+    assert ctx["identity"].owned_agents == [SOUL_1]
     stored = await session_service.get_session_by_id(first.session_id)
     path = TreeMessageManager.get_linear_path(stored["messages"])
     assert [n["content"] for n in path] == [
         scenario.turns[0].user, "我是霧島澪。", scenario.turns[1].user, "我還是澪。",
     ]
     assert all(n["timestamp"] == NOW_MS for n in path)
-    assert stored["agent_id"] == sc.SOUL_ID
+    assert stored["agent_id"] == SOUL_1
     # ToolLayer 用同一個函式從 session 解析這次執行的模式（ADR-0246）
     resolved = mode_for_acting_agent(
-        stored["auth_level"], bound_agent=sc.SOUL_ID, acting_agent=sc.SOUL_ID
+        stored["auth_level"], bound_agent=SOUL_1, acting_agent=SOUL_1
     )
     assert resolved == runner.EVAL_AUTH_LEVEL == "Auto"
 
@@ -278,11 +291,10 @@ async def test_driver_new_session_drops_history(sandbox_db: Any) -> None:
 
 
 async def test_driver_seeds_summary_home_and_facts(sandbox_db: Any) -> None:
-    saved: list[str] = []
+    saved: list[tuple[str, str]] = []
 
     async def _save(identity: Any, content: str) -> str:
-        assert identity.agent_id == sc.SOUL_ID
-        saved.append(content)
+        saved.append((identity.agent_id, content))
         return "saved"
 
     scenario = next(s for s in sc.SCENARIOS if s.id == "relative_time_summary")
@@ -300,8 +312,8 @@ async def test_driver_seeds_summary_home_and_facts(sandbox_db: Any) -> None:
     assert stored["context_summary"] == scenario.seed.summary
     assert [m.content for m in request.messages[:2]] == [c for _r, c in scenario.seed.history]
     conflict = next(s for s in sc.SCENARIOS if s.id == "memory_conflict")
-    await driver.seed(conflict, "seed-only-session")
-    assert saved == list(conflict.seed.facts)
+    await driver.seed(conflict, "seed-only-session", SOUL_2)
+    assert saved == [(SOUL_2, fact) for fact in conflict.seed.facts]
 
 
 async def test_batch_stops_after_the_first_provider_error(sandbox_db: Any) -> None:
@@ -363,9 +375,9 @@ async def test_scenario_stops_mid_way_at_the_budget_soft_cap(sandbox_db: Any) ->
 
 
 @pytest.fixture
-def synthetic_soul(global_test_sandbox: str) -> None:
-    """記錄器只記正式靈魂：沙盒裡要有合成靈魂的設定."""
-    seeding.write_synthetic_soul(Path(global_test_sandbox), sandbox_root=Path(global_test_sandbox))
+def synthetic_soul(global_test_sandbox: str) -> Callable[[str], None]:
+    """記錄器只記正式靈魂：每個情境的合成靈魂寫進沙盒."""
+    return _soul_writer(global_test_sandbox)
 
 
 @pytest.fixture
@@ -386,7 +398,7 @@ def _pending_background_tasks() -> list[asyncio.Task[Any]]:
 
 
 async def test_recorder_runs_only_for_the_activity_record_batch(
-    sandbox_db: Any, synthetic_soul: None
+    sandbox_db: Any, synthetic_soul: Callable[[str], None]
 ) -> None:
     bound: list[bool] = []
 
@@ -394,8 +406,10 @@ async def test_recorder_runs_only_for_the_activity_record_batch(
         bound.append(ce.recorder._loop is asyncio.get_running_loop())
         return _text_chunks("大約 3 天前。")
 
-    await _driver(_send).run_batch(sc.select_scenarios(sc.SMOKE, ["elapsed_3h"]))
-    await _driver(_send, activity_record=True).run_batch(
+    await _driver(_send, prepare_soul=synthetic_soul).run_batch(
+        sc.select_scenarios(sc.SMOKE, ["elapsed_3h"])
+    )
+    await _driver(_send, activity_record=True, prepare_soul=synthetic_soul).run_batch(
         sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
     )
 
@@ -405,25 +419,25 @@ async def test_recorder_runs_only_for_the_activity_record_batch(
 
 
 async def test_batch_end_closes_the_recorder_and_waits_for_its_writes(
-    sandbox_db: Any, synthetic_soul: None, slow_activity_writes: None
+    sandbox_db: Any, synthetic_soul: Callable[[str], None], slow_activity_writes: None
 ) -> None:
     async def _send(_request: Any, _ctx: Any) -> list[str]:
-        ce.recorder.record(seeding.soul_identity(), "task_done", "m-live/live-task",
+        ce.recorder.record(seeding.soul_identity(SOUL_1), "task_done", "m-live/live-task",
                            {"mission_id": "m-live", "task_id": "live-task"})
         return _text_chunks("大約 3 天前。")
 
-    await _driver(_send, activity_record=True).run_batch(
+    await _driver(_send, activity_record=True, prepare_soul=synthetic_soul).run_batch(
         sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
     )
 
     assert ce.recorder._loop is None
     assert _pending_background_tasks() == []
-    subjects = {e["subject"] for e in await list_agent_events(seeding.soul_identity())}
+    subjects = {e["subject"] for e in await list_agent_events(seeding.soul_identity(SOUL_1))}
     assert "m-live/live-task" in subjects
 
 
 async def test_scenario_is_not_sent_while_earlier_writes_are_still_pending(
-    sandbox_db: Any, synthetic_soul: None, monkeypatch: pytest.MonkeyPatch
+    sandbox_db: Any, synthetic_soul: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """情境開始前等不到背景寫入做完：這個情境不送、整批停下."""
     sent: list[tuple[Any, Any]] = []
@@ -434,7 +448,9 @@ async def test_scenario_is_not_sent_while_earlier_writes_are_still_pending(
     monkeypatch.setattr(runner, "drain_activity_writes", _still_pending)
     batch = sc.select_scenarios(sc.CONTINUITY)
 
-    report = await _driver(_fake_sender([], sent), activity_record=True).run_batch(batch)
+    report = await _driver(
+        _fake_sender([], sent), activity_record=True, prepare_soul=synthetic_soul
+    ).run_batch(batch)
 
     assert sent == []
     assert report.results == []
@@ -444,7 +460,7 @@ async def test_scenario_is_not_sent_while_earlier_writes_are_still_pending(
 
 
 async def test_writes_pending_at_the_batch_end_stop_the_batch(
-    sandbox_db: Any, synthetic_soul: None, monkeypatch: pytest.MonkeyPatch
+    sandbox_db: Any, synthetic_soul: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """整批結束時還有沒寫完的背景寫入：記成停止原因（實測腳本以非零結束）."""
     calls: list[int] = []
@@ -457,7 +473,9 @@ async def test_writes_pending_at_the_batch_end_stop_the_batch(
     send = _fake_sender([_text_chunks("大約 3 天前。")], [])
     batch = sc.select_scenarios(sc.CONTINUITY, ["continuity_last_visit"])
 
-    report = await _driver(send, activity_record=True).run_batch(batch)
+    report = await _driver(send, activity_record=True, prepare_soul=synthetic_soul).run_batch(
+        batch
+    )
 
     assert len(calls) == 2
     assert [r.scenario_id for r in report.results] == ["continuity_last_visit"]
@@ -501,8 +519,6 @@ class _FakeStreamingResponse:
 async def test_real_pipeline_reaches_the_synthetic_soul(
     sandbox_db: Any, seeded_identity_map: Any, global_test_sandbox: str
 ) -> None:
-    seeding.write_synthetic_soul(Path(global_test_sandbox), sandbox_root=Path(global_test_sandbox))
-    set_active_brain(seeding.soul_identity(), "deepseek-v4-flash")
     dispatched: list[tuple[str, Any, Any]] = []
 
     async def _fake_dispatch(model: str, request: Any, identity: Any, *_a: Any) -> Any:
@@ -513,6 +529,7 @@ async def test_real_pipeline_reaches_the_synthetic_soul(
     driver = runner.MemoryEvalDriver(
         base_ctx=build_base_context(), send_turn=runner.pipeline_send_turn,
         save_fact=_no_save, max_tokens=128,
+        prepare_soul=_soul_writer(global_test_sandbox, "deepseek-v4-flash"),
     )
     with patch("src.services.proxy_service.dispatch_request", _fake_dispatch):
         result = await driver.run_scenario(scenario)
@@ -521,7 +538,7 @@ async def test_real_pipeline_reaches_the_synthetic_soul(
     (model, request, identity), = dispatched
     assert model == request.model == "deepseek-v4-flash"
     assert request.max_tokens == 128
-    assert identity.agent_id == sc.SOUL_ID
+    assert identity.agent_id == SOUL_1
     assert identity.agent_role == "Owner"
     system = request.messages[0]
     assert system.role == "system"
@@ -540,22 +557,23 @@ async def test_real_pipeline_reaches_the_synthetic_soul(
 
 
 async def test_continuity_suite_shows_only_this_scenarios_timeline(
-    sandbox_db: Any, seeded_identity_map: Any, synthetic_soul: None, slow_activity_writes: None
+    sandbox_db: Any, seeded_identity_map: Any, global_test_sandbox: str,
+    slow_activity_writes: None,
 ) -> None:
     """模型收到的時間軸三行都有內容；情境 N+1 看不到情境 N 預放或執行中記下的事件."""
-    set_active_brain(seeding.soul_identity(), "deepseek-v4-flash")
     blocks: list[str] = []
 
-    async def _fake_dispatch(_model: str, request: Any, _identity: Any, *_a: Any) -> Any:
+    async def _fake_dispatch(_model: str, request: Any, identity: Any, *_a: Any) -> Any:
         blocks.append(request.messages[-1].content)
         live = f"live-{len(blocks)}"  # 這一輪執行中記下的事件（例如工具完成任務）
-        ce.recorder.record(seeding.soul_identity(), "task_done", f"m-live/{live}",
+        ce.recorder.record(identity, "task_done", f"m-live/{live}",
                            {"mission_id": "m-live", "task_id": live})
         return _FakeStreamingResponse(_text_chunks("大約 3 天前。"))
 
     driver = runner.MemoryEvalDriver(
         base_ctx=build_base_context(), send_turn=runner.pipeline_send_turn,
         save_fact=_no_save, max_tokens=128, activity_record=True,
+        prepare_soul=_soul_writer(global_test_sandbox, "deepseek-v4-flash"),
     )
     with patch("src.services.proxy_service.dispatch_request", _fake_dispatch):
         await driver.run_batch(sc.select_scenarios(sc.CONTINUITY))
@@ -578,7 +596,73 @@ async def test_continuity_suite_shows_only_this_scenarios_timeline(
         assert "Activity records start" not in block
     assert _pending_background_tasks() == []
     assert ce.recorder._loop is None
-    # 情境 1 執行中記下的事件在情境 2 開始前寫完、被清掉；情境 2 的留到最後
-    subjects = {e["subject"] for e in await list_agent_events(seeding.soul_identity())}
-    assert "m-live/live-2" in subjects
-    assert "m-live/live-1" not in subjects
+    # 每個情境一個靈魂：情境 1 執行中記下的事件留在情境 1 的靈魂，情境 2 的靈魂看不到
+    first_soul = {e["subject"] for e in await list_agent_events(seeding.soul_identity(SOUL_1))}
+    second_soul = {e["subject"] for e in await list_agent_events(seeding.soul_identity(SOUL_2))}
+    assert "m-live/live-1" in first_soul
+    assert "m-live/live-2" in second_soul
+    assert "m-live/live-1" not in second_soul
+
+
+# --- 每個情境一個新的合成靈魂 ---------------------------------------------------
+
+
+def test_every_scenario_run_gets_a_distinct_alphanumeric_soul() -> None:
+    souls = [seeding.soul_id_for(number) for number in range(1, 300)]
+    assert len(set(souls)) == len(souls)
+    assert all(soul.isalnum() and soul.startswith(sc.SOUL_ID) for soul in souls)
+    assert not {s.casefold() for s in souls} & {"debugagent", "dispatchagent", "system"}
+
+
+async def test_each_scenario_is_seeded_and_sent_as_its_own_soul(sandbox_db: Any) -> None:
+    prepared: list[str] = []
+    saved: list[tuple[str, str]] = []
+
+    async def _save(identity: Any, content: str) -> str:
+        saved.append((identity.agent_id, content))
+        return "saved"
+
+    sent: list[tuple[Any, Any]] = []
+    send = _fake_sender([_text_chunks("我是霧島澪。"), _text_chunks("我是霧島澪。")], sent)
+    driver = runner.MemoryEvalDriver(
+        base_ctx={}, send_turn=send, save_fact=_save, max_tokens=64, now_ms=lambda: NOW_MS,
+        prepare_soul=prepared.append,
+    )
+    batch = sc.select_scenarios(sc.SMOKE, ["poison_memory_query", "poison_home"])
+
+    report = await driver.run_batch(batch)
+
+    assert prepared == [SOUL_1, SOUL_2]
+    assert [r.soul_id for r in report.results] == [SOUL_1, SOUL_2]
+    assert [request.model for request, _ctx in sent] == [SOUL_1, SOUL_2]
+    assert [ctx["identity"].owned_agents for _request, ctx in sent] == [[SOUL_1], [SOUL_2]]
+    assert saved == [(SOUL_1, fact) for fact in batch[0].seed.facts]
+    homes = [await session_service.get_session_by_id(f"{request.session_id}-home")
+             for request, _ctx in sent]
+    assert homes[0] is None
+    assert homes[1]["home_for_agent"] == SOUL_2
+    assert report.to_dict()["results"][1]["soul"] == SOUL_2
+
+
+async def test_home_injection_does_not_reach_the_next_scenario(
+    sandbox_db: Any, seeded_identity_map: Any, global_test_sandbox: str
+) -> None:
+    """舊版所有情境共用一個靈魂：家對話的注入句會帶進之後每一題（10/25 DEV-A 找到）."""
+    requests: list[tuple[Any, Any]] = []
+
+    async def _fake_dispatch(_model: str, request: Any, identity: Any, *_a: Any) -> Any:
+        requests.append((request, identity))
+        return _FakeStreamingResponse(_text_chunks("我是霧島澪。"))
+
+    driver = runner.MemoryEvalDriver(
+        base_ctx=build_base_context(), send_turn=runner.pipeline_send_turn,
+        save_fact=_no_save, max_tokens=128,
+        prepare_soul=_soul_writer(global_test_sandbox, "deepseek-v4-flash"),
+    )
+    with patch("src.services.proxy_service.dispatch_request", _fake_dispatch):
+        await driver.run_batch(sc.select_scenarios(sc.SMOKE, ["poison_home", "elapsed_3h"]))
+
+    (home, home_soul), (elapsed, elapsed_soul) = requests
+    assert (home_soul.agent_id, elapsed_soul.agent_id) == (SOUL_1, SOUL_2)
+    assert sc.INJECTED_ALIAS in home.model_dump_json()
+    assert sc.INJECTED_ALIAS not in elapsed.model_dump_json()

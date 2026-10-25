@@ -7,6 +7,10 @@ probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assi
 下一輪的歷史與 ``<continuity>`` 都從那裡來。任何一輪送出失敗（含 429／5xx、預算用完）
 整批停下，不重試。
 
+每個情境用一個新的合成靈魂（``seeding.soul_id_for``）：記憶、舊對話、家對話、對話紀錄與時間軸
+都只屬於那個情境，前一個情境留下的東西帶不到下一個。開始前先交給可注入的 ``prepare_soul``
+（人工 probe 在這裡寫靈魂檔、核對 Owner、設主要模型）。
+
 ``activity_record=True``（時間軸套件）時，整批打開活動記錄器（和 Proxy 啟動時同一個開關）；
 每個情境開始前等背景寫入做完、清掉合成靈魂的事件、寫入這個情境的時間點（都經產品的讀寫函式）。
 整批結束時關記錄器、讓已排的回呼跑完、等背景寫入做完（有逾時），才交回呼叫端。
@@ -35,7 +39,6 @@ from src.utils.tool_events import TOOL_RESULT, TOOL_START
 from tests.memory_eval import seeding
 from tests.memory_eval.judges import ToolCallRecord, TurnObservation, judge
 from tests.memory_eval.live_bounds import redact_excerpt
-from tests.memory_eval.scenarios import SOUL_ID
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Iterator
@@ -47,6 +50,7 @@ if TYPE_CHECKING:
 
     SendTurn = Callable[[Any, PipelineContext], Awaitable[list[str]]]
     SaveFact = Callable[[AgentIdentity, str], Awaitable[Any]]
+    PrepareSoul = Callable[[str], object]
 
 EVAL_AUTH_LEVEL = "Auto"
 # handler 在連線／認證／4xx／5xx 失敗時把錯誤當文字吐出（主迴圈只送 1 次時 429／5xx 也是）。
@@ -168,6 +172,7 @@ class ScenarioResult:
     scenario_id: str
     turns: tuple[TurnResult, ...]
     planned_turns: int
+    soul_id: str = ""
 
     @property
     def error(self) -> str:
@@ -181,6 +186,7 @@ class ScenarioResult:
         """報告：模型回的文字、錯誤與判定細節都先去敏再截 200 字（使用者句是合成資料）。"""
         return {
             "scenario": self.scenario_id,
+            "soul": self.soul_id,
             "passed": self.passed,
             "error": redact_excerpt(self.error),
             "turns": [
@@ -229,6 +235,7 @@ class MemoryEvalDriver:
         auth_level: str = EVAL_AUTH_LEVEL,
         budget_usd: float | None = None,
         activity_record: bool = False,
+        prepare_soul: PrepareSoul | None = None,
     ) -> None:
         self._base_ctx = base_ctx
         self._send_turn = send_turn
@@ -238,19 +245,31 @@ class MemoryEvalDriver:
         self._auth_level = auth_level
         self._budget_usd = budget_usd
         self._activity_record = activity_record
+        self._prepare_soul = prepare_soul
+        self._souls_used = 0
         self.spent_usd = 0.0
 
     def _over_budget(self) -> bool:
         """USD 軟上限（依串流回報的估計成本累計）；請求數硬上限在送出層另擋。"""
         return self._budget_usd is not None and self.spent_usd >= self._budget_usd
 
-    async def _save_tree(self, session_id: str, tree: dict[str, Any], **extra: Any) -> None:
+    def _new_soul(self) -> str:
+        """這個情境專用的新靈魂 id；有 ``prepare_soul`` 就先交給它（寫檔、核對、設模型）。"""
+        self._souls_used += 1
+        soul_id = seeding.soul_id_for(self._souls_used)
+        if self._prepare_soul is not None:
+            self._prepare_soul(soul_id)
+        return soul_id
+
+    async def _save_tree(
+        self, session_id: str, tree: dict[str, Any], soul_id: str, **extra: Any
+    ) -> None:
         await session_service.upsert_session(
-            session_id, "memory eval", tree, identity=seeding.soul_identity(),
+            session_id, "memory eval", tree, identity=seeding.soul_identity(soul_id),
             auth_level=self._auth_level, **extra,
         )
 
-    async def _reset_timeline(self, scenario: Scenario) -> None:
+    async def _reset_timeline(self, scenario: Scenario, soul_id: str) -> None:
         """等背景寫入做完 → 清掉合成靈魂的事件 → 寫入這個情境的時間點（產品的讀寫函式）。
 
         可信紀錄起點記成最早那筆預放事件的時間（三行都有紀錄時模型本來就看不到這行）。
@@ -258,41 +277,42 @@ class MemoryEvalDriver:
         pending = await drain_activity_writes()
         if pending:
             raise ActivityWritesPending(pending)
-        rows = seeding.plan_timeline(scenario, self._now_ms())
+        rows = seeding.plan_timeline(scenario, self._now_ms(), soul_id)
         start = min((row.occurred_at for row in rows), default=self._now_ms())
-        await purge_agent_events(seeding.soul_identity(), marker_ms=start)
+        await purge_agent_events(seeding.soul_identity(soul_id), marker_ms=start)
         for row in rows:
             await insert_event(row)
 
-    async def seed(self, scenario: Scenario, session_id: str) -> dict[str, Any]:
+    async def seed(self, scenario: Scenario, session_id: str, soul_id: str) -> dict[str, Any]:
         """植入情境資料（時間軸、目前 session、家對話、前情摘要、事實），回目前 session 的樹。"""
         if self._activity_record:
-            await self._reset_timeline(scenario)
+            await self._reset_timeline(scenario, soul_id)
         plan = seeding.plan_seed(scenario, self._now_ms())
-        await self._save_tree(session_id, plan.session_tree,
+        await self._save_tree(session_id, plan.session_tree, soul_id,
                               context_summary=plan.summary or None)
         if plan.home_tree["currentId"]:
-            await self._save_tree(f"{session_id}-home", plan.home_tree,
-                                  is_home=True, home_for_agent=SOUL_ID)
+            await self._save_tree(f"{session_id}-home", plan.home_tree, soul_id,
+                                  is_home=True, home_for_agent=soul_id)
         for fact in plan.facts:
-            await self._save_fact(seeding.soul_identity(), fact)
+            await self._save_fact(seeding.soul_identity(soul_id), fact)
         return plan.session_tree
 
-    def _context(self) -> PipelineContext:
+    def _context(self, soul_id: str) -> PipelineContext:
         ctx = PipelineContext(**self._base_ctx)
-        ctx.identity = seeding.driver_identity()
+        ctx.identity = seeding.driver_identity(soul_id)
         ctx.incognito = False
         return ctx
 
-    async def _send(self, request: Any) -> TurnObservation:
+    async def _send(self, request: Any, soul_id: str) -> TurnObservation:
         try:
-            return parse_sse(await self._send_turn(request, self._context()))
+            return parse_sse(await self._send_turn(request, self._context(soul_id)))
         except Exception as exc:  # 預算用完、閘門拒絕等：記成這一輪失敗，整批停下
             return TurnObservation(text="", error=f"{type(exc).__name__}: {exc}"[:300])
 
     async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
+        soul_id = self._new_soul()
         session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
-        tree = await self.seed(scenario, session_id)
+        tree = await self.seed(scenario, session_id, soul_id)
         results: list[TurnResult] = []
         for turn in scenario.turns:
             if self._over_budget():
@@ -301,19 +321,19 @@ class MemoryEvalDriver:
             if turn.new_session:
                 session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
                 tree = seeding.new_tree()
-                await self._save_tree(session_id, tree)
+                await self._save_tree(session_id, tree, soul_id)
             history = [
                 OpenAIMessage(role=node["role"], content=node["content"])
                 for node in TreeMessageManager.get_linear_path(tree)
             ]
             request = OpenAIChatRequest(
-                model=SOUL_ID,
+                model=soul_id,
                 messages=[*history, OpenAIMessage(role="user", content=turn.user)],
                 session_id=session_id,
                 stream=True,
                 max_tokens=self._max_tokens,
             )
-            observation = await self._send(request)
+            observation = await self._send(request, soul_id)
             self.spent_usd += observation.cost_usd
             verdicts = tuple(judge(check, observation) for check in turn.checks)
             results.append(TurnResult(turn.user, observation, verdicts))
@@ -322,8 +342,9 @@ class MemoryEvalDriver:
             now = self._now_ms()
             seeding.append_node(tree, "user", turn.user, now)
             seeding.append_node(tree, "assistant", observation.text, now)
-            await self._save_tree(session_id, tree)
-        return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns))
+            await self._save_tree(session_id, tree, soul_id)
+        return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns),
+                              soul_id=soul_id)
 
     async def _run_all(self, scenarios: Iterable[Scenario], report: BatchReport) -> None:
         for scenario in scenarios:

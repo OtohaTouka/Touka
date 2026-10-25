@@ -44,21 +44,27 @@ class SeedOutsideSandbox(ValueError):
         super().__init__("memory eval seed target is outside the sandbox root")
 
 
-def soul_identity() -> AgentIdentity:
+def soul_id_for(number: int) -> str:
+    """第 ``number`` 個情境用的合成靈魂 id（英數字）：每個情境一個新靈魂，記憶、對話、家對話、
+    時間軸都不和前一個情境共用。"""
+    return f"{SOUL_ID}{number:03d}"
+
+
+def soul_identity(soul_id: str) -> AgentIdentity:
     """合成靈魂本身（前景代打後的執行身分）。"""
-    return AgentIdentity.for_role(agent_id=SOUL_ID, role="Owner", is_human=False)
+    return AgentIdentity.for_role(agent_id=soul_id, role="Owner", is_human=False)
 
 
-def driver_identity() -> AgentIdentity:
+def driver_identity(soul_id: str) -> AgentIdentity:
     """驅動對話的合成人類擁有者：Monitor 會照前景規則代打成靈魂（ADR-0154）。"""
     return AgentIdentity.for_role(
-        agent_id=DRIVER_USER_ID, role="normal", is_human=True, owned_agents=[SOUL_ID]
+        agent_id=DRIVER_USER_ID, role="normal", is_human=True, owned_agents=[soul_id]
     )
 
 
-def write_synthetic_soul(app_data_dir: Path, *, sandbox_root: Path) -> Path:
-    """在 ``<app_data_dir>/soul/<SOUL_ID>`` 寫合成人格與設定；目標必須在沙盒根之下。"""
-    soul_dir = (app_data_dir / "soul" / SOUL_ID).resolve()
+def write_synthetic_soul(app_data_dir: Path, soul_id: str, *, sandbox_root: Path) -> Path:
+    """在 ``<app_data_dir>/soul/<soul_id>`` 寫合成人格與設定；目標必須在沙盒根之下。"""
+    soul_dir = (app_data_dir / "soul" / soul_id).resolve()
     if not soul_dir.is_relative_to(sandbox_root.resolve()):
         raise SeedOutsideSandbox
     soul_dir.mkdir(parents=True, exist_ok=True)
@@ -159,7 +165,7 @@ def plan_seed(scenario: Scenario, now_ms: int) -> SeedPlan:
     return SeedPlan(session_tree, home_tree, scenario.seed.facts, scenario.seed.summary)
 
 
-def plan_timeline(scenario: Scenario, now_ms: int) -> tuple[EventRow, ...]:
+def plan_timeline(scenario: Scenario, now_ms: int, soul_id: str) -> tuple[EventRow, ...]:
     """情境預放的活動事件：合成靈魂名下、產品的事件 id 規則，都記在另一個較早的對話。
 
     人類訊息不在這個情境的對話裡，所以不會被當成「這段對話上一輪」。
@@ -169,7 +175,7 @@ def plan_timeline(scenario: Scenario, now_ms: int) -> tuple[EventRow, ...]:
     for event in scenario.seed.timeline:
         occurred = now_ms - event.age_s * _MS
         rows.append(EventRow(
-            event_id=event_id(event.kind, SOUL_ID, event.subject, occurred), agent=SOUL_ID,
+            event_id=event_id(event.kind, soul_id, event.subject, occurred), agent=soul_id,
             kind=event.kind, occurred_at=occurred, subject=event.subject,
             session_id=session_id, metadata=dict(event.metadata),
         ))
