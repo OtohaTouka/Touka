@@ -106,6 +106,13 @@ class Scenario:
         return sum(turn.expected_requests for turn in self.turns)
 
 
+class DuplicateScenario(ValueError):
+    """同一個情境 id 列了兩次（重跑請用 ``--repeats``）。"""
+
+    def __init__(self, scenario_id: str) -> None:
+        super().__init__(f"scenario listed twice: {scenario_id}")
+
+
 class UnknownScenario(ValueError):
     """情境 id 不在清單裡。"""
 
@@ -321,14 +328,16 @@ SCENARIOS: tuple[Scenario, ...] = (
 
 
 def select_scenarios(suite: str, ids: list[str] | None = None) -> tuple[Scenario, ...]:
-    """依套件與 id 選情境；未知 id 一律拒絕（不默默略過）。"""
+    """依套件與 id 選情境；未知或重複的 id 一律拒絕（不默默略過）。"""
     in_suite = tuple(s for s in SCENARIOS if s.suite == suite)
     if not ids:
         return in_suite
     by_id = {s.id: s for s in in_suite}
-    for scenario_id in ids:
+    for index, scenario_id in enumerate(ids):
         if scenario_id not in by_id:
             raise UnknownScenario(scenario_id)
+        if scenario_id in ids[:index]:
+            raise DuplicateScenario(scenario_id)
     return tuple(by_id[scenario_id] for scenario_id in ids)
 
 

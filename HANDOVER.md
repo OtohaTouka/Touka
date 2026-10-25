@@ -337,7 +337,7 @@
   - 動作型工具（memory／mission／edit_soul）的廣告 schema 依動作合併同名欄位，只留第一個動作的型別限制（`contracts.action_parameters` 的 setdefault）；hist-bak b 用不同欄位名 `page_size` 避開，共用機制另排（ADR-0274 已知限制）。
   - 個人空間列目錄（`ToukaMemory/src/memory_server/tools/personal_drive.py`）的檔案修改時間仍用主機時區、不標時區，和其他給模型看的時間不一致（ADR-0258 範圍外）。
   - 計分卡與 tool_eval episode CLI 拒絕 Gemini 的說明「Gemini adapter 目前含內建 retry」已不準（真正原因是只包了 Claude／OpenAI 相容的 send_round），仍維持拒絕（ADR-0261）。
-  - 記憶評估工具修好後（替身名稱固定、「昨天」逐子句判、時間軸套件；ADR-0284 每個情境獨立靈魂、兩題要靠記憶、判定改嚴、每次新口令、實測裝上 UI 對話讀取器）還沒有實測；重跑與統計是 ADR-0284 第二部分，另一個 PR；smoke 與 continuity 是兩批，揭露草稿在 `docs/proxy/live-check-backlog.md` 的 E1／E2，每批照禁令 61 另外取得同意（ADR-0280）。評估工具的後續候選：空回覆時記下廠商回的結束原因（M1 DeepSeek 空回覆查不出原因）；實測改用真的 e5（約 1.13 GB、只從 Hugging Face 下載，也測得到自動帶入記憶）；實測腳本現在把整份 `.env` 灌進環境，可以改成只取廠商金鑰。
+  - 記憶評估工具修好後（替身名稱固定、「昨天」逐子句判、時間軸套件；ADR-0284 每個情境獨立靈魂、兩題要靠記憶、判定改嚴、每次新口令、實測裝上 UI 對話讀取器）還沒有實測；ADR-0284 第二部分已加重跑（1～5 輪，輪數進核准範圍）、每題 k/n 與整批 Wilson 範圍、兩次結果的比較工具（`python -m tests.memory_eval.stats`）、評估程式雜湊、價目表查不到的型號拒跑與家族估價標示、請求上限 200；smoke 與 continuity 是兩批，揭露草稿在 `docs/proxy/live-check-backlog.md` 的 E1／E2，每批照禁令 61 另外取得同意（ADR-0280）。評估工具的後續候選：空回覆時記下廠商回的結束原因（M1 DeepSeek 空回覆查不出原因）；實測改用真的 e5（約 1.13 GB、只從 Hugging Face 下載，也測得到自動帶入記憶）；實測腳本現在把整份 `.env` 灌進環境，可以改成只取廠商金鑰。
   - 活動事件只增不減，保留期限下一批再定；系統快照裡的 `ui_sessions.db` 仍含已重置靈魂的事件（只有中繼資料）（ADR-0267）。
   - 群聊（`ToukaGroup`）的人類訊息不記成活動事件；子代理與派工的動作不算到父靈魂；檔案寫入／刪除與換模型事件還沒做（ADR-0267）。
   - 關機時排隊中或寫到一半的活動事件會丟、不重試；被強制結束的心跳沒有結束紀錄（ADR-0267）。

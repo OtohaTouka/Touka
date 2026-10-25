@@ -34,7 +34,7 @@ from src.utils.continuity_events_db import list_agent_events
 from src.utils.history_manager import TreeMessageManager
 from src.utils.tool_events import TOOL_RESULT, TOOL_START
 
-from tests.memory_eval import runner, seeding
+from tests.memory_eval import runner, seeding, stats
 from tests.memory_eval import scenarios as sc
 
 if TYPE_CHECKING:
@@ -749,7 +749,8 @@ async def test_long_history_is_archived_and_asked_in_an_empty_session(sandbox_db
     assert len(payload["messages"]) == 200
     (request, _ctx), = sent
     assert [m.role for m in request.messages] == ["user"]
-    assert "47" not in request.model_dump_json()
+    # 只看送出的訊息：session id 帶隨機 16 進位，整個請求偶爾會剛好含「47」
+    assert all("47" not in str(m.content) for m in request.messages)
 
 
 async def test_long_history_without_an_archive_hook_is_refused(sandbox_db: Any) -> None:
@@ -1145,3 +1146,71 @@ def test_a_refused_result_before_an_allowed_start_is_still_matched() -> None:
 
     seen = [(c.args.get("action"), c.status) for c in calls]
     assert seen == [("forget", "denied"), ("query", "ok")]
+
+
+# --- 重跑：先跑完一輪再跑下一輪（ADR-0284 第二部分） ------------------------------------
+
+_PAIR = ["poison_summary", "poison_home"]
+_KEPT, _RENAMED = "我是霧島澪。", f"我是{sc.INJECTED_ALIAS}。"
+
+
+async def test_repeats_run_the_whole_batch_once_per_round_each_as_a_new_soul(
+    sandbox_db: Any,
+) -> None:
+    sent: list[tuple[Any, Any]] = []
+    send = _fake_sender([_text_chunks(r) for r in (_KEPT, _KEPT, _KEPT, _RENAMED)], sent)
+
+    report = await _driver(send).run_batch(sc.select_scenarios(sc.SMOKE, _PAIR), repeats=2)
+
+    summary = report.to_dict()
+    assert [(r["round"], r["scenario"]) for r in summary["results"]] == [
+        (1, "poison_summary"), (1, "poison_home"), (2, "poison_summary"), (2, "poison_home")]
+    assert len({request.model for request, _ctx in sent}) == 4  # 每一次都是新的靈魂
+    assert summary["repeats"] == 2
+    assert summary["by_scenario"] == {"poison_summary": {"k": 2, "n": 2},
+                                      "poison_home": {"k": 1, "n": 2}}
+    assert summary["rounds_completed"] == 2
+    assert summary["uneven_n"] is False
+    assert (summary["batch"]["k"], summary["batch"]["n"]) == (3, 4)
+    assert summary["batch"]["rate"] == 0.75
+    assert summary["batch"]["wilson95"] == pytest.approx(list(stats.wilson(3, 4)))
+
+
+async def test_a_stop_in_a_later_round_counts_only_the_runs_that_finished(
+    sandbox_db: Any,
+) -> None:
+    replies = [_text_chunks(_KEPT)] * 3 + [_text_chunks("API Error (429)\n\n`rate`")]
+    report = await _driver(_fake_sender(replies, [])).run_batch(
+        sc.select_scenarios(sc.SMOKE, _PAIR), repeats=3)
+
+    summary = report.to_dict()
+    assert summary["stopped_reason"]
+    assert summary["not_run"] == ["poison_summary#3", "poison_home#3"]
+    # 第 2 輪的 poison_home 出錯沒跑完：不算進 n；整批只用跑完的第 1 輪
+    assert summary["by_scenario"] == {"poison_summary": {"k": 2, "n": 2},
+                                      "poison_home": {"k": 1, "n": 1}}
+    assert summary["uneven_n"] is True
+    assert summary["rounds_completed"] == 1
+    assert (summary["batch"]["k"], summary["batch"]["n"]) == (2, 2)
+
+
+async def test_a_round_with_the_same_scenario_twice_counts_both_runs(sandbox_db: Any) -> None:
+    """同一輪重複的情境：第二份出錯時這一輪沒跑完（不是用集合比對就算完）."""
+    twice = sc.select_scenarios(sc.SMOKE, ["poison_home"]) * 2
+    send = _fake_sender([_text_chunks(_KEPT), _text_chunks("API Error (429)\n\n`rate`")], [])
+
+    summary = (await _driver(send).run_batch(twice)).to_dict()
+
+    assert (summary["rounds_completed"], summary["batch"]["n"]) == (0, 0)
+
+
+async def test_a_single_round_keeps_the_plain_not_run_names(sandbox_db: Any) -> None:
+    send = _fake_sender([_text_chunks("API Error (429)\n\n`rate`")], [])
+    summary = (await _driver(send).run_batch(sc.select_scenarios(sc.SMOKE, _PAIR))).to_dict()
+
+    assert summary["not_run"] == ["poison_home"]
+    assert summary["by_scenario"] == {"poison_summary": {"k": 0, "n": 0},
+                                      "poison_home": {"k": 0, "n": 0}}
+    assert (summary["rounds_completed"], summary["batch"]["n"]) == (0, 0)
+    assert summary["batch"]["rate"] is None
+    assert summary["batch"]["wilson95"] is None

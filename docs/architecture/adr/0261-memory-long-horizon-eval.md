@@ -10,7 +10,9 @@
   [ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)（計量 API 人工閘）、
   [ADR-0136](0136-review-eval-rails.md)（評估軌）；本 ADR 修訂 ADR-0101 與 ADR-0214 各一點（兩份都已回指）
 - 後續：[ADR-0268](0268-memory-eval-thinking-models.md) 修訂決策 5、6——輸出上限改比對 Touka 實際送出值
-  （工具天花板 8,192）、送前檢查最壞花費、改名與句尾判定修正、結束前先放開 handle 再刪沙盒
+  （工具天花板 8,192）、送前檢查最壞花費、改名與句尾判定修正、結束前先放開 handle 再刪沙盒；
+  [ADR-0284](0284-memory-eval-measures-memory.md) 第二部分修訂決策 6（請求硬上限 1..40 → 1..200）與「後果」的
+  多次取樣（`--repeats` 1～5、每題 k/n、Wilson／Newcombe 範圍）
 
 ## 背景
 
@@ -34,7 +36,7 @@
    `--env-file` 綁進核准範圍、沙盒先於任何產品 import；四家 send_round 在外連前先核對送出欄位的輸出上限
    （缺欄或超過就不送），再核銷請求預算；主迴圈 `MAX_SEND_ATTEMPTS=1`；Anthropic `max_retries=0`；
    不讀上一個可用模型；摘要員與審查員的 `complete_once` 換成「不送出、回結構化非成功並記下」；
-   任何一輪出錯（含 429／5xx）、請求用完或到 USD 軟上限，整批停下並以非零結束。請求硬上限 1..40、
+   任何一輪出錯（含 429／5xx）、請求用完或到 USD 軟上限，整批停下並以非零結束。請求硬上限 1..40〔ADR-0284 改為 1..200〕、
    輸出上限 1..1,024、USD 軟上限 ≤2。檔名不符合 pytest 與 smoke runner 的自動找檔規則，manifest 列為
    `MANUAL_LIVE`、`metered_api=True`。
 7. 組裝不變式（A1）放在上游錄製台：真 SoulLayer＋沙盒 session DB 的家對話與前情摘要＋真 MemoryManager
@@ -63,7 +65,7 @@ A1 實作時在 `ToukaProxy/src/services/soul_service.py` 的 `inject_home_messa
 
 - 真模型實測分批：M1 最小冒煙（四家各一批，smoke 11 情境、預計 20 請求、硬上限 40）、M2 完整（記憶功能
   合併後）；精確揭露在 `docs/proxy/live-check-backlog.md`。方案核准不等於同意執行（禁令 61）。
-- 情境只有 smoke 套件；完整套件（多次取樣、真跑 100 輪、換模型、心跳恢復）等記憶功能合併後再加。
+- 情境只有 smoke 套件；完整套件（多次取樣、真跑 100 輪、換模型、心跳恢復）等記憶功能合併後再加。〔多次取樣已由 ADR-0284 第二部分加上〕
 - USD 軟上限依串流回報的估計成本、在每輪開始前檢查，單一請求可能略超；硬界是請求數。
 - 計分卡與 tool_eval episode CLI 拒絕 Gemini 的說明（「Gemini adapter 目前含內建 retry」）已不準，真正原因
   是兩支 CLI 只包了 Claude／OpenAI 相容的 send_round；本 ADR 沒改，仍維持拒絕。

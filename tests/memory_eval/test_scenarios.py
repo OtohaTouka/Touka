@@ -16,7 +16,7 @@ from tests.memory_eval.judges import RULES
 _PATH_HINT = re.compile(
     r"(?:^|[\s\"'(])(?:data|soul)[\\/]|[A-Za-z]:[\\/]|[\\/]app[\\/]", re.IGNORECASE
 )
-_PURE_MODULES = ("scenarios.py", "judges.py", "live_bounds.py")
+_PURE_MODULES = ("scenarios.py", "judges.py", "live_bounds.py", "stats.py")
 
 
 def _strings(value: object) -> list[str]:
@@ -79,7 +79,7 @@ def test_every_turn_is_judged_by_known_rules() -> None:
 
 def test_expected_requests_fit_the_default_hard_limit() -> None:
     planned = sc.expected_requests(sc.select_scenarios(sc.SMOKE))
-    assert 11 <= planned <= 30  # 硬上限 40 留給工具輪的估計誤差
+    assert 11 <= planned <= 30  # 每輪 ≤30：跑 5 輪仍在硬上限 200 內，留給工具輪的估計誤差
 
 
 def test_synthetic_data_has_no_real_data_locations() -> None:
@@ -186,6 +186,8 @@ def test_select_rejects_unknown_ids() -> None:
         sc.select_scenarios(sc.SMOKE, ["no_such_scenario"])
     with pytest.raises(sc.UnknownScenario):  # 別的套件的情境也不行
         sc.select_scenarios(sc.SMOKE, ["continuity_last_visit"])
+    with pytest.raises(sc.DuplicateScenario):  # 重複的 id 會讓「跑完一輪」算錯
+        sc.select_scenarios(sc.SMOKE, ["poison_home", "poison_home"])
 
 
 @pytest.mark.parametrize("module", _PURE_MODULES)

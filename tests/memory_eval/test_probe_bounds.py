@@ -35,12 +35,13 @@ from src.services.review import review_loop
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 
-from tests.memory_eval import live_bounds, seeding
+from tests.memory_eval import live_bounds, seeding, stats
 from tests.memory_eval.scenarios import (
     CANARY,
     CONTINUITY,
     SMOKE,
     canary_fragments,
+    expected_requests,
     persona_text,
     select_scenarios,
 )
@@ -81,11 +82,13 @@ def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> 
 
 
 def _scope(
-    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",)
+    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",),
+    repeats: int = 1,
 ) -> Any:
     return probe._memory_eval_scope(
         provider="deepseek", model="deepseek-v4-flash", suite=suite,
         scenario_ids=list(ids), max_requests=3, max_tokens=max_tokens, budget=0.1,
+        repeats=repeats,
     )
 
 
@@ -311,12 +314,14 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
 class _FakeDriver:
     built: list[dict[str, Any]] = []
     readers: list[Any] = []
+    repeats: list[int] = []
 
     def __init__(self, **kwargs: Any) -> None:
         _FakeDriver.built.append(kwargs)
 
-    async def run_batch(self, _scenarios: Any) -> Any:
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
         _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        _FakeDriver.repeats.append(repeats)
         return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
 
 
@@ -369,7 +374,7 @@ class _BlewUp(RuntimeError):
 
 
 class _FailingDriver(_FakeDriver):
-    async def run_batch(self, _scenarios: Any) -> Any:
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
         _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
         raise _BlewUp
 
@@ -449,6 +454,10 @@ async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
 
     assert order == ["bounds", "pin", ("init_db", seeding.STUB_EMBEDDING_MODEL), "seed"]
     assert report["embedding_stub"] == probe._stub_facts()
+    # 比較工具要的欄位：同一份評估程式、同一套件與題目才比
+    assert report["eval_code_hash"] == stats.eval_code_hash(ROOT)
+    assert (report["provider"], report["model"]) == ("deepseek", "deepseek-v4-flash")
+    assert (report["suite"], report["scenarios"]) == (SMOKE, ["poison_home"])
 
 
 # --- 替身嵌入：名稱與門檻固定，不跟 .env 走 -----------------------------------------
@@ -509,8 +518,60 @@ def test_scope_lists_every_bound() -> None:
                  "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
                  f"embedding_stub={seeding.STUB_EMBEDDING_MODEL};query_floor=0.3;"
                  "dedup_threshold=0.92", probe.STUB_NOTE, "activity_record=off",
+                 "repeats=1", "expected_provider_requests=1x1=1",
                  "write_scope=temporary sandbox only"):
         assert item in rendered
+
+
+def test_scope_shows_the_rounds_and_the_requests_per_round_times_rounds() -> None:
+    ids = ("poison_home", "memory_conflict")
+    per_round = expected_requests(select_scenarios(SMOKE, list(ids)))
+    rendered = policy.format_live_api_scope(_scope(ids=ids, repeats=3))
+
+    assert per_round > 1
+    assert "repeats=3" in rendered
+    assert f"expected_provider_requests={per_round}x3={per_round * 3}" in rendered
+
+
+_RUN: dict[str, Any] = {
+    "provider": "deepseek", "model": "deepseek-v4-flash", "suite": SMOKE,
+    "max_requests": 3, "max_tokens": 64, "budget": 0.1,
+}
+
+
+async def test_an_approval_for_one_round_does_not_cover_more_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed: list[Any] = []
+    monkeypatch.setattr(probe, "_install_bounds", lambda *a, **_k: installed.append(a))
+    once = policy.issue_live_api_approval(approved=True, scope=_scope())
+    run = {**_RUN, "scenarios": select_scenarios(SMOKE, ["poison_home"]),
+           "sandbox_root": tmp_path, "approval": once}
+
+    with pytest.raises(policy.LiveApiApprovalScopeMismatch):
+        await probe.run_memory_eval_probe(**run, repeats=5)
+    with pytest.raises(argparse.ArgumentTypeError):
+        await probe.run_memory_eval_probe(**run, repeats=probe.MAX_REPEATS + 1)
+    assert installed == []
+
+
+async def test_the_driver_runs_the_approved_number_of_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "repeats", [])
+
+    await probe.run_memory_eval_probe(
+        **_RUN, scenarios=select_scenarios(SMOKE, ["poison_home"]), sandbox_root=tmp_path,
+        repeats=3, approval=policy.issue_live_api_approval(approved=True, scope=_scope(repeats=3)),
+    )
+
+    assert _FakeDriver.repeats == [3]
 
 
 def test_continuity_scope_says_the_activity_record_is_on() -> None:
@@ -555,8 +616,9 @@ def test_haiku_5_5_pre_send_worst_case_still_uses_the_dear_tier(
     [
         (probe._bounded_int("max-tokens", probe.MAX_LIVE_TOKENS), ["0", "1025"], "1024"),
         (probe._bounded_int("max-provider-requests", probe.MAX_PROVIDER_REQUESTS),
-         ["0", "41"], "40"),
+         ["0", "201"], "200"),
         (probe._bounded_budget, ["0", "-1", "2.01"], "2"),
+        (probe._bounded_int("repeats", probe.MAX_REPEATS), ["0", "6"], "5"),
     ],
 )
 def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
@@ -579,6 +641,95 @@ def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
 def test_m1_models_route_to_the_disclosed_provider(model: str, provider: str) -> None:
     """M1 揭露草稿寫的四個型號，路由結果要和揭露的 provider 一致（不一致 CLI 會拒絕）。"""
     assert probe._provider_for_model(model) == provider
+
+
+# --- 價目表：查不到拒跑、靠家族名稱估價要標出來（ADR-0284 第二部分） -----------------
+
+
+_PRICES = {  # 合成價目表：之後有人把 gpt-5、grok 的完整名稱補進產品價目表，這些測試也不會跟著變
+    "deepseek-v4-flash": pricing.Rate(0.27, 1.10), "claude-haiku-5-5": pricing.Rate(0.10, 0.50),
+    "grok-4": pricing.Rate(3.0, 15.0), "claude-haiku-4": pricing.Rate(1.0, 5.0),
+}
+
+
+@pytest.fixture
+def synthetic_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+    monkeypatch.setattr(pricing, "_BUILTIN_PRICING", _PRICES)
+
+
+@pytest.mark.parametrize(
+    ("model", "basis"),
+    [("deepseek-v4-flash", "exact"), ("claude-haiku-5-5", "exact"),
+     ("grok-4.20-0309-non-reasoning", "family_estimate"),
+     ("claude-haiku-4-5", "family_estimate")],
+)
+def test_scope_says_whether_the_price_is_exact_or_a_family_estimate(
+    synthetic_prices: None, model: str, basis: str
+) -> None:
+    rendered = policy.format_live_api_scope(probe._memory_eval_scope(
+        provider=probe._provider_for_model(model), model=model, suite=SMOKE,
+        scenario_ids=["poison_home"], max_requests=3, max_tokens=64, budget=0.1,
+    ))
+
+    assert f"pricing={basis}" in rendered
+
+
+def test_a_price_override_is_exact_only_under_the_full_model_name(
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, entry = "grok-4.20-0309-non-reasoning", {"input": 3.0, "output": 15.0}
+
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {model: entry}})
+    assert probe._price_basis(model) == "exact"
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {"grok-4.20": entry}})
+    assert probe._price_basis(model) == "family_estimate"
+
+
+def test_a_model_without_a_price_is_refused_before_any_approval(
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，合成價目表裡查不到
+
+    with pytest.raises(probe._UnpricedModel):
+        probe._memory_eval_scope(
+            provider="openai", model="gpt-5", suite=SMOKE, scenario_ids=["poison_home"],
+            max_requests=3, max_tokens=64, budget=0.1,
+        )
+    with pytest.raises(SystemExit):  # 還沒到問核准就停下（不是 LiveApiApprovalRequired）
+        probe.main(["--provider", "openai", "--model", "gpt-5", "--suite", "smoke",
+                    "--max-provider-requests", "3", "--budget", "0.1"])
+
+
+class _ScopeSeen(Exception):
+    """測試用：main 把核准範圍交給簽發之前就停下（不傳核准旗標）."""
+
+
+def test_the_cli_runs_one_round_unless_told_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[Any] = []
+
+    def _stop(*, approved: bool, scope: Any) -> None:
+        seen.append((approved, scope))
+        raise _ScopeSeen
+
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    monkeypatch.setattr(probe, "issue_live_api_approval", _stop)
+    for extra in ([], ["--repeats", "3"]):
+        with pytest.raises(_ScopeSeen):
+            probe.main([*_CLI_ARGS, *extra])
+
+    assert [approved for approved, _scope in seen] == [False, False]
+    assert [[item for item in scope.limits if item.startswith("repeats=")]
+            for _approved, scope in seen] == [["repeats=1"], ["repeats=3"]]
+
+
+def test_cli_refuses_the_same_scenario_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(SystemExit):
+        probe.main([*_CLI_ARGS, "--scenarios", "poison_home,poison_home"])
 
 
 def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:

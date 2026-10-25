@@ -4,7 +4,7 @@
 
     python tests/smoke/manual/memory_eval_probe.py \
         --provider deepseek --model deepseek-v4-flash --suite smoke \
-        --max-provider-requests 40 --max-tokens 512 --budget 0.20 \
+        --max-provider-requests 40 --max-tokens 512 --budget 0.20 [--repeats 3] \
         --human-approved-live-api [--env-file <金鑰 .env 路徑>]
 
 只送合成資料（合成人格、合成事實與對話、注入句）。所有本機寫入（靈魂檔、session DB、記憶庫、
@@ -20,6 +20,12 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 
 ``--suite continuity``（時間軸）另外打開活動記錄器，每個情境先在沙盒預放活動事件；核准範圍印
 ``activity_record=on``。smoke 不開。兩條命令算兩批，各自取得同意。
+
+``--repeats N``（1..5）先把整批跑完一輪再跑下一輪，每一次都是新的合成靈魂；次數印在核准範圍，
+預計請求數印成「每輪 × 輪數」。同意跑 1 輪的核准不能拿來跑更多輪。
+
+價目表查不到的型號（產品會用保守預設價估）直接拒跑；靠家族名稱估價的型號，核准範圍標
+``pricing=family_estimate``。送前預留、結清與軟上限都用同一份產品價目表。
 """
 
 from __future__ import annotations
@@ -134,10 +140,11 @@ from src.services.review import review_loop  # noqa: E402
 from src.utils.async_db import init_db_async, session_service  # noqa: E402
 from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
-from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
+from tests.memory_eval import live_bounds, runner, seeding, stats  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
     ACTIVITY_RECORD_SUITES,
     SUITES,
+    DuplicateScenario,
     UnknownScenario,
     expected_requests,
     random_canary,
@@ -149,13 +156,16 @@ if TYPE_CHECKING:
     from tests.memory_eval.scenarios import Scenario
     from tests.sandbox_cleanup import ReleaseStep
 
-MAX_PROVIDER_REQUESTS = 40
+MAX_PROVIDER_REQUESTS = 200
 MAX_LIVE_TOKENS = 1024  # 請求裡的 max_tokens；Touka 送出時可能拉高（見 _wire_max_tokens）
 DEFAULT_LIVE_TOKENS = 512
 # 工具自己的天花板：Touka 實際要送的輸出上限超過就不送（之後規則表改 32K／64K 也不會照送）。
 OUTPUT_TOKEN_CEILING = 8_192
 _WIRE_RULE = "anthropic follows Touka model rules; other providers send the requested value"
 MAX_BUDGET_USD = 2.0
+MAX_REPEATS = 5
+PRICE_EXACT = "exact"
+PRICE_FAMILY = "family_estimate"
 # 主迴圈的四家共用重試開關（react_core.MAX_SEND_ATTEMPTS 是總送出次數）：只送 1 次、不重試。
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
@@ -191,6 +201,12 @@ class _OutputCeilingExceeded(RuntimeError):
     def __init__(self, wire: int) -> None:
         super().__init__(f"Touka would send max_tokens={wire}, above the probe ceiling "
                          f"{OUTPUT_TOKEN_CEILING}; nothing sent")
+
+
+class _UnpricedModel(RuntimeError):
+    def __init__(self, model: str) -> None:
+        super().__init__(f"{model} 不在價目表裡（產品會用保守預設價估），不跑；"
+                         "要跑先把它補進產品價目表")
 
 
 class _ProviderRouteMismatch(ValueError):
@@ -313,6 +329,18 @@ def _dearest_rate(model: str) -> Any:
     return rate.long_prompt[1] if rate.long_prompt is not None else rate
 
 
+def _price_basis(model: str) -> str:
+    """價目表怎麼估這個型號：完整名稱有一筆是 exact，靠家族名稱（子字串）估是 family_estimate。
+
+    查不到（產品會用保守預設價）就拒跑。要分出完整名稱得讀價目表的私有部分（已知限制，ADR-0284）。
+    """
+    _rate, source = pricing.resolve(model)
+    if source == "fallback":
+        raise _UnpricedModel(model)
+    table = pricing._load_config()[0] if source == "override" else pricing._BUILTIN_PRICING
+    return PRICE_EXACT if model.strip().lower() in table else PRICE_FAMILY
+
+
 def _install_bounds(max_requests: int, wire_cap: int, *, model: str, budget: float) -> None:
     global _PROVIDER_REQUEST_BUDGET, _OUTPUT_CAP, _LEDGER
     _PROVIDER_REQUEST_BUDGET = LiveApiCallBudget(max_requests=max_requests)
@@ -369,6 +397,12 @@ def _pin_stub_embedding() -> dict[str, Any]:
     return _stub_facts()
 
 
+def _expected_requests(suite: str, scenario_ids: Sequence[str], repeats: int) -> str:
+    """預計請求數（估計）：每輪 × 輪數。"""
+    per_round = expected_requests(select_scenarios(suite, list(scenario_ids)))
+    return f"{per_round}x{repeats}={per_round * repeats}"
+
+
 def _memory_eval_scope(
     *,
     provider: str,
@@ -378,8 +412,10 @@ def _memory_eval_scope(
     max_requests: int,
     max_tokens: int,
     budget: float,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> LiveApiScope:
+    basis = _price_basis(model)  # 查不到價目就在這裡停下：連核准範圍都不印
     rate = _dearest_rate(model)
     stub = _stub_facts()
     return LiveApiScope(
@@ -389,6 +425,8 @@ def _memory_eval_scope(
         limits=(
             f"suite={suite}",
             f"scenarios={','.join(scenario_ids)}",
+            f"repeats={repeats}",
+            f"expected_provider_requests={_expected_requests(suite, scenario_ids, repeats)}",
             f"provider_requests<={max_requests}",
             f"max_tokens_requested={max_tokens}",
             f"wire_max_tokens_per_request={_wire_max_tokens(provider, model, max_tokens)}",
@@ -397,6 +435,7 @@ def _memory_eval_scope(
             f"budget_usd={budget:.4f}",
             "pre_send_worst_case=spent + wire cap x output + (request chars + "
             f"{live_bounds.VENDOR_OVERHEAD_TOKENS}) x max(input|cache_write) <= budget",
+            f"pricing={basis}",
             f"worst_case_usd_per_mtok=input={live_bounds.worst_case_input_price(rate):g};"
             f"output={rate.output:g}",
             "provider_retry=0",
@@ -445,6 +484,7 @@ async def run_memory_eval_probe(
     budget: float,
     approval: LiveApiApproval,
     sandbox_root: Path,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> dict[str, Any]:
     """驗證核准範圍與上限後跑一批；回彙總（含實際請求數與被拒的輔助呼叫）。"""
@@ -452,6 +492,8 @@ async def run_memory_eval_probe(
         raise _BoundsError("max-tokens", 1, MAX_LIVE_TOKENS)
     if not 1 <= max_requests <= MAX_PROVIDER_REQUESTS:
         raise _BoundsError("max-provider-requests", 1, MAX_PROVIDER_REQUESTS)
+    if not 1 <= repeats <= MAX_REPEATS:
+        raise _BoundsError("repeats", 1, MAX_REPEATS)
     wire_cap = _wire_max_tokens(provider, model, max_tokens)
     if wire_cap > OUTPUT_TOKEN_CEILING:
         raise _OutputCeilingExceeded(wire_cap)
@@ -462,8 +504,9 @@ async def run_memory_eval_probe(
     validate_live_api_approval(approval, expected_scope=_memory_eval_scope(
         provider=provider.casefold(), model=model, suite=suite,
         scenario_ids=[s.id for s in scenarios], max_requests=max_requests,
-        max_tokens=max_tokens, budget=budget, env_file=env_file,
+        max_tokens=max_tokens, budget=budget, repeats=repeats, env_file=env_file,
     ))
+    code_hash = stats.eval_code_hash(PROJECT_ROOT)  # 跑之前的評估程式（比較工具只比同一份）
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
     await init_db_async()
@@ -492,13 +535,15 @@ async def run_memory_eval_probe(
     try:
         # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
         resource_manager.bind_ui_conversation_reader(session_service)
-        report = (await driver.run_batch(scenarios)).to_dict()
+        report = (await driver.run_batch(scenarios, repeats=repeats)).to_dict()
     finally:
         resource_manager.bind_ui_conversation_reader(None)
         if anthropic_client is not None:
             await anthropic_client.close()
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0
     return {
+        "provider": provider.casefold(), "model": model, "suite": suite,
+        "scenarios": [s.id for s in scenarios], "eval_code_hash": code_hash,
         **report, "provider_requests_used": used, "auxiliary_calls_refused": _AUXILIARY_CALLS,
         "embedding_stub": stub,
         "wire_max_tokens": {"per_request": wire_cap, "ceiling": OUTPUT_TOKEN_CEILING,
@@ -564,6 +609,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                              f"另印在核准範圍，超過 {OUTPUT_TOKEN_CEILING} 不送")
     parser.add_argument("--budget", type=_bounded_budget, required=True,
                         help=f"USD 軟上限（0..{MAX_BUDGET_USD:g}；依內建價目表累計）")
+    parser.add_argument("--repeats", type=_bounded_int("repeats", MAX_REPEATS), default=1,
+                        help=f"整批跑幾輪（1..{MAX_REPEATS}）；每一次都是新的合成靈魂")
     parser.add_argument("--env-file", help=f"金鑰 .env 路徑（預設 {DEFAULT_ENV_FILE}）")
     parser.add_argument(LIVE_API_APPROVAL_FLAG, action="store_true",
                         help="確認已取得本批明確人類同意（不得由自動化傳入）")
@@ -575,24 +622,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     ids = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     try:
         scenarios = select_scenarios(args.suite, ids)
-    except UnknownScenario as exc:
+    except (UnknownScenario, DuplicateScenario) as exc:
         parser.error(str(exc))
     env_file = _resolve_env_file(sys.argv[1:] if argv is None else argv)
-    scope = _memory_eval_scope(
-        provider=provider, model=args.model, suite=args.suite,
-        scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
-        max_tokens=args.max_tokens, budget=args.budget, env_file=env_file,
-    )
+    try:
+        scope = _memory_eval_scope(
+            provider=provider, model=args.model, suite=args.suite,
+            scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
+            max_tokens=args.max_tokens, budget=args.budget, repeats=args.repeats,
+            env_file=env_file,
+        )
+    except _UnpricedModel as exc:
+        parser.error(str(exc))
     approval = issue_live_api_approval(approved=args.human_approved_live_api, scope=scope)
     sys.stdout.write(format_live_api_scope(scope) + "\n")
-    sys.stdout.write(f"expected_requests={expected_requests(scenarios)}\n")
+    expected = _expected_requests(args.suite, [s.id for s in scenarios], args.repeats)
+    sys.stdout.write(f"expected_requests={expected}\n")
     sys.stdout.write(f"sandbox={_SANDBOX_ROOT}\n")
 
     return _report_then_release(lambda: asyncio.run(run_memory_eval_probe(
         provider=provider, model=args.model, suite=args.suite, scenarios=scenarios,
         max_requests=args.max_provider_requests, max_tokens=args.max_tokens,
         budget=args.budget, approval=approval, sandbox_root=Path(_SANDBOX_ROOT),
-        env_file=env_file,
+        repeats=args.repeats, env_file=env_file,
     )), _SANDBOX_ROOT)
 
 
