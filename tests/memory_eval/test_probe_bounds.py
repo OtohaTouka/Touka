@@ -692,7 +692,7 @@ def test_a_model_without_a_price_is_refused_before_any_approval(
     synthetic_prices: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
-    assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，價目表只有 gpt-4 這些
+    assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，合成價目表裡查不到
 
     with pytest.raises(probe._UnpricedModel):
         probe._memory_eval_scope(
