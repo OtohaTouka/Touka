@@ -51,7 +51,7 @@ def _add_text(content: Any, text: str, *, before: bool) -> Any:
 
 
 def _neutralize_history(text: str) -> str:
-    """舊紀錄裡的界線 tag 與其他 prompt 區塊 tag 都中和，不能關閉或另開區塊（ADR-0284）。"""
+    """舊紀錄裡的界線 tag 與其他 prompt 區塊 tag 都中和，不能關閉或另開區塊（ADR-0285）。"""
     return neutralize_tags(neutralize_historical_tags(text), ALL_BLOCK_TAGS)
 
 

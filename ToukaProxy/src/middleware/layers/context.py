@@ -20,7 +20,7 @@ from src.utils.async_db import get_project_context
 
 logger = logging.getLogger(__name__)
 
-# 看板文字是模型寫的（ADR-0284）：換行換成可見的跳脫、其他控制字元換成空白，
+# 看板文字是模型寫的（ADR-0285）：換行換成可見的跳脫、其他控制字元換成空白，
 # 不能多造一行任務；區塊 tag 中和，不能關閉或另開區塊。id 保留原文給 mission 工具比對。
 _LINE_BREAK = re.compile("\r\n|[\n\r\x0b\x0c\x85" + chr(0x2028) + chr(0x2029) + "]")
 _CONTROL_CHAR = re.compile("[\x00-\x08\x0e-\x1f\x7f]")
