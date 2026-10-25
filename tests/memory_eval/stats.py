@@ -6,8 +6,9 @@
 - ``eval_code_hash``：評估程式本身的雜湊（換行不分 CRLF／LF）；分數要和「評估程式有沒有改過」
   一起看。
 - 比較工具：``python -m tests.memory_eval.stats <報告 A> <報告 B>``。報告是實測腳本印出的內容
-  （核准範圍幾行之後的 JSON），也可以只有 JSON。評估程式雜湊、套件或題目不同時拒絕比較；
-  型號不同照常比較並印出來。整批只用每題都跑完的輪；各題 n 不相等時照實標出。
+  （核准範圍幾行之後的 JSON），也可以只有 JSON。評估程式雜湊、套件或題目不同、或缺必要欄位時
+  拒絕比較；型號不同照常比較並印出來；輸出上限與替身設定兩邊都印，不同時標出。整批只用每題都
+  跑完的輪；各題 n 不相等時照實標出。
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ EVAL_CODE_FILES = (
     "tests/smoke/manual/memory_eval_probe.py",
 )
 COMPARABLE_FIELDS = ("eval_code_hash", "suite", "scenarios")
+REQUIRED_FIELDS = ("repeats", "rounds_completed", "by_scenario", "batch")
 _REPORTS_TO_COMPARE = 2
 _REPORT_START = re.compile(r"^\{", re.MULTILINE)
 _UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
@@ -118,16 +120,43 @@ def _rate(batch: dict[str, Any]) -> str:
     return f"{_kn(batch)} {batch['k'] / batch['n']:.3f} [{interval[0]:.3f}, {interval[1]:.3f}]"
 
 
-def compare_reports(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
-    """兩份報告並排：每題 k/n、整批通過率與 Wilson 範圍、差距的 Newcombe 範圍。"""
+def _check_comparable(first: dict[str, Any], second: dict[str, Any]) -> None:
     for field in COMPARABLE_FIELDS:
         if field not in first or field not in second or first[field] != second[field]:
             raise ReportsNotComparable(field)
+    if not first["scenarios"]:
+        raise ReportsNotComparable("scenarios")
+    for field in REQUIRED_FIELDS:
+        if field not in first or field not in second:
+            raise ReportsNotComparable(field)
+    for report in (first, second):
+        if any(sid not in report["by_scenario"] for sid in report["scenarios"]):
+            raise ReportsNotComparable("by_scenario")
+
+
+def _settings(report: dict[str, Any]) -> dict[str, str | None]:
+    """會影響分數、但不擋比較的設定：實送輸出上限、替身名稱與兩個門檻。"""
+    wire = (report.get("wire_max_tokens") or {}).get("per_request")
+    stub = report.get("embedding_stub") or {}
+    return {
+        "wire_max_tokens": None if wire is None else str(wire),
+        "embedding_stub": (f"{stub.get('model')}/{stub.get('query_floor')}/"
+                           f"{stub.get('dedup_threshold')}" if stub else None),
+    }
+
+
+def compare_reports(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
+    """兩份報告並排：每題 k/n、整批通過率與 Wilson 範圍、差距的 Newcombe 範圍。"""
+    _check_comparable(first, second)
     width = max(len("rounds"), *(len(sid) for sid in first["scenarios"]))
+    settings = (_settings(first), _settings(second))
     lines = [
         f"A: {first.get('provider')}/{first.get('model')}",
         f"B: {second.get('provider')}/{second.get('model')}",
         f"suite={first['suite']} eval_code_hash={first['eval_code_hash']}",
+        *(f"{key}: A={settings[0][key]} B={settings[1][key]}"
+          + (" (differs)" if settings[0][key] != settings[1][key] else "")
+          for key in settings[0] if settings[0][key] or settings[1][key]),
         f"{'scenario':<{width}}  A      B",
         *(f"{sid:<{width}}  {_kn(first['by_scenario'][sid]):<6} {_kn(second['by_scenario'][sid])}"
           for sid in first["scenarios"]),
@@ -138,7 +167,7 @@ def compare_reports(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
     ]
     uneven = [side for side, report in (("A", first), ("B", second)) if report.get("uneven_n")]
     if uneven:
-        lines.append(f"uneven n: {', '.join(uneven)} (a later round stopped part-way)")
+        lines.append(f"uneven n: {', '.join(uneven)} (a round stopped part-way)")
     interval = newcombe(first["batch"]["k"], first["batch"]["n"],
                         second["batch"]["k"], second["batch"]["n"])
     if interval is None:
@@ -154,13 +183,18 @@ def compare_reports(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """比較兩份實測輸出；不能比時回 1，參數不對回 2。"""
+    """比較兩份實測輸出；不能比時回 1，參數不對或讀不到檔回 2。"""
     paths = list(sys.argv[1:] if argv is None else argv)
     if len(paths) != _REPORTS_TO_COMPARE:
         sys.stderr.write("usage: python -m tests.memory_eval.stats <report A> <report B>\n")
         return 2
     try:
-        lines = compare_reports(*(load_report(_read(Path(path))) for path in paths))
+        texts = [_read(Path(path)) for path in paths]
+    except (OSError, UnicodeError) as exc:
+        sys.stderr.write(f"cannot read a report: {type(exc).__name__}\n")
+        return 2
+    try:
+        lines = compare_reports(*(load_report(text) for text in texts))
     except (ReportsNotComparable, NoReportFound) as exc:
         sys.stderr.write(f"{exc}\n")
         return 1

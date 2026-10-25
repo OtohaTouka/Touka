@@ -1194,6 +1194,16 @@ async def test_a_stop_in_a_later_round_counts_only_the_runs_that_finished(
     assert (summary["batch"]["k"], summary["batch"]["n"]) == (2, 2)
 
 
+async def test_a_round_with_the_same_scenario_twice_counts_both_runs(sandbox_db: Any) -> None:
+    """同一輪重複的情境：第二份出錯時這一輪沒跑完（不是用集合比對就算完）."""
+    twice = sc.select_scenarios(sc.SMOKE, ["poison_home"]) * 2
+    send = _fake_sender([_text_chunks(_KEPT), _text_chunks("API Error (429)\n\n`rate`")], [])
+
+    summary = (await _driver(send).run_batch(twice)).to_dict()
+
+    assert (summary["rounds_completed"], summary["batch"]["n"]) == (0, 0)
+
+
 async def test_a_single_round_keeps_the_plain_not_run_names(sandbox_db: Any) -> None:
     send = _fake_sender([_text_chunks("API Error (429)\n\n`rate`")], [])
     summary = (await _driver(send).run_batch(sc.select_scenarios(sc.SMOKE, _PAIR))).to_dict()

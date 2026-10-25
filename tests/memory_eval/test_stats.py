@@ -135,9 +135,38 @@ def test_unfinished_rounds_and_uneven_n_are_shown() -> None:
     out = "\n".join(stats.compare_reports(_report(), stopped))
 
     assert re.search(r"rounds\s+3/3\s+1/3", out)
-    assert "uneven n: B" in out
+    assert "uneven n: B (a round stopped part-way)" in out
     low, high = stats.newcombe(4, 6, 2, 2)
     assert f"[{low:+.3f}, {high:+.3f}]" in out
+
+
+@pytest.mark.parametrize("field", ["repeats", "rounds_completed", "by_scenario", "batch"])
+def test_a_report_missing_a_required_field_is_not_compared(field: str) -> None:
+    missing = {key: value for key, value in _report().items() if key != field}
+
+    with pytest.raises(stats.ReportsNotComparable, match=field):
+        stats.compare_reports(_report(), missing)
+
+
+def test_a_scenario_without_counts_or_an_empty_list_is_not_compared() -> None:
+    partial = _report(by_scenario={"persona_identity": {"k": 3, "n": 3}})
+
+    with pytest.raises(stats.ReportsNotComparable, match="by_scenario"):
+        stats.compare_reports(_report(), partial)
+    with pytest.raises(stats.ReportsNotComparable, match="scenarios"):
+        stats.compare_reports(_report(scenarios=[]), _report(scenarios=[]))
+
+
+def test_settings_that_change_the_scores_are_shown_and_flagged_when_they_differ() -> None:
+    stub = {"model": "touka-eval-stub-ngram", "query_floor": 0.3, "dedup_threshold": 0.92}
+    first = _report(wire_max_tokens={"per_request": 512}, embedding_stub=stub)
+    second = _report(wire_max_tokens={"per_request": 1024}, embedding_stub=stub)
+
+    out = "\n".join(stats.compare_reports(first, second))
+
+    assert "wire_max_tokens: A=512 B=1024 (differs)" in out
+    same = "touka-eval-stub-ngram/0.3/0.92"
+    assert f"embedding_stub: A={same} B={same}" in out.splitlines()  # 相同就不標
 
 
 def test_a_side_without_a_finished_round_has_no_range() -> None:
@@ -185,3 +214,6 @@ def test_main_refuses_reports_that_cannot_be_compared(
     assert "eval_code_hash" in captured.err
     assert not captured.out
     assert stats.main([str(first)]) == 2  # 只給一份
+    assert stats.main([str(first), str(tmp_path / "missing.txt")]) == 2  # 讀不到檔
+    (tmp_path / "ansi.txt").write_bytes("報告".encode("cp950"))
+    assert stats.main([str(first), str(tmp_path / "ansi.txt")]) == 2  # 不是 UTF-8／UTF-16

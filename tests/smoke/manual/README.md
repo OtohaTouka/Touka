@@ -58,6 +58,8 @@
 - `--repeats N`（1..5）先把整批跑完一輪再跑下一輪，每一次都是新的合成靈魂；輪數與「每輪×輪數」的預計請求數
   印在核准範圍，1 輪的同意不能跑更多輪。報告帶每題 k/n（只算跑完的次數）、整批通過率與 Wilson 範圍、評估程式
   雜湊；兩次結果用 `python -m tests.memory_eval.stats <A> <B>` 比較（雜湊、套件、題目不同就不比）。
+  Windows PowerShell 5.1 存報告前先設 `[Console]::OutputEncoding=[Text.UTF8Encoding]::new()`（或用 PowerShell 7.4
+  以上），否則中文會變亂碼。同一個情境 id 不能列兩次，重跑用 `--repeats`。
 - 價目表查不到的型號直接拒跑；靠家族名稱估價的型號，核准範圍印 `pricing=family_estimate`（ADR-0284）。
 - 每一批的精確命令與揭露見 `docs/proxy/live-check-backlog.md` 的 M1／M2 與 E1／E2。
 

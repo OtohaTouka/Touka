@@ -144,6 +144,7 @@ from tests.memory_eval import live_bounds, runner, seeding, stats  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
     ACTIVITY_RECORD_SUITES,
     SUITES,
+    DuplicateScenario,
     UnknownScenario,
     expected_requests,
     random_canary,
@@ -621,7 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ids = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     try:
         scenarios = select_scenarios(args.suite, ids)
-    except UnknownScenario as exc:
+    except (UnknownScenario, DuplicateScenario) as exc:
         parser.error(str(exc))
     env_file = _resolve_env_file(sys.argv[1:] if argv is None else argv)
     try:

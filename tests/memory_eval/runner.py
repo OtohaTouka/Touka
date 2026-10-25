@@ -387,11 +387,11 @@ class BatchReport:
         return [r for r in self.results if not r.error]
 
     def _rounds_completed(self, finished: list[ScenarioResult]) -> int:
-        """從第 1 輪起，每題都跑完的輪數（中途停下的那一輪不算）。"""
-        ids = set(self.scenario_ids)
+        """從第 1 輪起，每題都跑完的輪數（中途停下的那一輪不算；同一題列兩次就要跑完兩次）。"""
+        ids = sorted(self.scenario_ids)
         rounds = 0
-        while rounds < self.repeats and ids == {
-                r.scenario_id for r in finished if r.round_number == rounds + 1}:
+        while rounds < self.repeats and ids == sorted(
+                r.scenario_id for r in finished if r.round_number == rounds + 1):
             rounds += 1
         return rounds
 

@@ -186,6 +186,8 @@ def test_select_rejects_unknown_ids() -> None:
         sc.select_scenarios(sc.SMOKE, ["no_such_scenario"])
     with pytest.raises(sc.UnknownScenario):  # 別的套件的情境也不行
         sc.select_scenarios(sc.SMOKE, ["continuity_last_visit"])
+    with pytest.raises(sc.DuplicateScenario):  # 重複的 id 會讓「跑完一輪」算錯
+        sc.select_scenarios(sc.SMOKE, ["poison_home", "poison_home"])
 
 
 @pytest.mark.parametrize("module", _PURE_MODULES)

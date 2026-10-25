@@ -646,9 +646,16 @@ def test_m1_models_route_to_the_disclosed_provider(model: str, provider: str) ->
 # --- 價目表：查不到拒跑、靠家族名稱估價要標出來（ADR-0284 第二部分） -----------------
 
 
+_PRICES = {  # 合成價目表：之後有人把 gpt-5、grok 的完整名稱補進產品價目表，這些測試也不會跟著變
+    "deepseek-v4-flash": pricing.Rate(0.27, 1.10), "claude-haiku-5-5": pricing.Rate(0.10, 0.50),
+    "grok-4": pricing.Rate(3.0, 15.0), "claude-haiku-4": pricing.Rate(1.0, 5.0),
+}
+
+
 @pytest.fixture
-def builtin_prices_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def synthetic_prices(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+    monkeypatch.setattr(pricing, "_BUILTIN_PRICING", _PRICES)
 
 
 @pytest.mark.parametrize(
@@ -658,7 +665,7 @@ def builtin_prices_only(monkeypatch: pytest.MonkeyPatch) -> None:
      ("claude-haiku-4-5", "family_estimate")],
 )
 def test_scope_says_whether_the_price_is_exact_or_a_family_estimate(
-    builtin_prices_only: None, model: str, basis: str
+    synthetic_prices: None, model: str, basis: str
 ) -> None:
     rendered = policy.format_live_api_scope(probe._memory_eval_scope(
         provider=probe._provider_for_model(model), model=model, suite=SMOKE,
@@ -669,7 +676,7 @@ def test_scope_says_whether_the_price_is_exact_or_a_family_estimate(
 
 
 def test_a_price_override_is_exact_only_under_the_full_model_name(
-    monkeypatch: pytest.MonkeyPatch,
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model, entry = "grok-4.20-0309-non-reasoning", {"input": 3.0, "output": 15.0}
 
@@ -682,7 +689,7 @@ def test_a_price_override_is_exact_only_under_the_full_model_name(
 
 
 def test_a_model_without_a_price_is_refused_before_any_approval(
-    builtin_prices_only: None, monkeypatch: pytest.MonkeyPatch
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
     assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，價目表只有 gpt-4 這些
@@ -695,6 +702,34 @@ def test_a_model_without_a_price_is_refused_before_any_approval(
     with pytest.raises(SystemExit):  # 還沒到問核准就停下（不是 LiveApiApprovalRequired）
         probe.main(["--provider", "openai", "--model", "gpt-5", "--suite", "smoke",
                     "--max-provider-requests", "3", "--budget", "0.1"])
+
+
+class _ScopeSeen(Exception):
+    """測試用：main 把核准範圍交給簽發之前就停下（不傳核准旗標）."""
+
+
+def test_the_cli_runs_one_round_unless_told_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[Any] = []
+
+    def _stop(*, approved: bool, scope: Any) -> None:
+        seen.append((approved, scope))
+        raise _ScopeSeen
+
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    monkeypatch.setattr(probe, "issue_live_api_approval", _stop)
+    for extra in ([], ["--repeats", "3"]):
+        with pytest.raises(_ScopeSeen):
+            probe.main([*_CLI_ARGS, *extra])
+
+    assert [approved for approved, _scope in seen] == [False, False]
+    assert [[item for item in scope.limits if item.startswith("repeats=")]
+            for _approved, scope in seen] == [["repeats=1"], ["repeats=3"]]
+
+
+def test_cli_refuses_the_same_scenario_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(SystemExit):
+        probe.main([*_CLI_ARGS, "--scenarios", "poison_home,poison_home"])
 
 
 def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
