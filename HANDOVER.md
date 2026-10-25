@@ -319,7 +319,11 @@
   - `ErrorCode.SCHEDULE_NOT_FOUND`（1205）在 Proxy 排程 CRUD 刪掉後沒有後端使用者；刪除要動 `errors.json` 與兩端產生檔，和其他改動共用，要排序（ADR-0254）。
   - 還原失敗的錯誤碼目前沿用 `SYSTEM_BACKUP_FAILED`（「系統備份失敗」），語意不精確；畫面用專用文字所以看不出來。改用專用的 `SYSTEM_RESTORE_FAILED` 要動 `errors.json` 與兩端產生檔（ADR-0254）。
   - `ToukaProxy/scripts/manage_backup.py` 還原時找不到 zip 會印錯誤但 exit 0，會被當成還原成功（端點接受前已檢查 zip 存在，只剩中間的時間差）（ADR-0254）。
-  - 模型工坊改名失敗（404／500）時仍對新 ID 存檔，會多出第二個模型、畫面顯示成功（`ToukaChat/src/components/layout/ModelStudio.tsx` 第 167～173 行只擋 409；既有問題，ADR-0254 H12 之後舊模型的擁有權會保留）。
+  - `DELETE /v1/models/{id}`（`ModelManager.delete_model`）刪自訂模型資料夾時不清擁有清單，會留下殘留。同一個 ID 再被建立（新建自訂模型、改名、建立靈魂）時會清掉，不會讓人拿到新的模型或靈魂，只是清單不乾淨（ADR-0254 2026-10-25 補記）。
+  - `ToukaProxy/src/utils/custom_io.py` 的 `write_custom_file` 直接 `write_text`，不是原子置換（ADR-0078）：寫到一半失敗時 config.json 會被截斷，改名的回滾會把截斷的檔搬回舊 ID（ADR-0254 2026-10-25 補記）。
+  - 模型工坊的改名在後端成功、回應卻在網路上遺失時，畫面還記著舊 ID，重新整理前存不進去（ADR-0254 2026-10-25 補記）。
+  - 新建自訂模型時存檔成功、認領擁有權卻丟例外：回 500，但模型資料夾留著、沒有主人（admin 看得到，非人類的 Owner 身分會當成公用模型）；`save_model` 先寫 system_prompt.md 再寫 config.json，既有模型 config 寫不進去時 prompt 已經改了。兩件都是原本就有（ADR-0254 2026-10-25 補記）。
+  - `tests/unit/test_soul_primary_model_choice.py` 在 Windows 本機時好時壞：建立靈魂時 `invalidate_agent_sessions` 偶爾回 `SESSION_SAVE_FAILED`（例外被吞掉，沒有記下原因）。10/25 在 dev `4e5c85c5` 的乾淨複本上單獨跑 4 次，3 次各有 1～4 個失敗；整套 pytest 時常常剛好過。還沒查原因，CI 上是否也會發生未知。
   - Guard #45 基準檔裡 `ToukaProxy/src/tools/mission_tools.py` 的 `mission_tools`（typed）讀取快照和程式不一致，是早期改動留下的、不在 ADR-0256 範圍；守衛不比對這部分所以不會變紅，但這份快照不能拿來當現況參考。
   - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
   - `query_vectors` 自己吞錯回空清單時（例如嵌入模型載入失敗），記憶工具的 `query` 不知道語意半失效、不會註明（ADR-0263）。

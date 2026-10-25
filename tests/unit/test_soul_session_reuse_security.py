@@ -69,6 +69,7 @@ def soul_lifecycle(conversation_db: ConversationDB, tmp_path: Path, monkeypatch)
     monkeypatch.setattr(souls, "_remove_from_all_owned_agents", Mock())
     monkeypatch.setattr(souls, "_remove_identity_override", Mock())
     monkeypatch.setattr(UserService, "add_owned_agent", Mock())
+    monkeypatch.setattr(UserService, "claim_owned_agent", Mock())
     monkeypatch.setattr(UserService, "remove_owned_agent", Mock())
     return tmp_path / "soul" / A.agent_id
 
@@ -191,6 +192,7 @@ async def test_second_invalidation_failure_rolls_back_new_soul(
         call.kwargs.get("action") == "add" for call in souls._update_models_config.call_args_list
     )
     UserService.add_owned_agent.assert_not_called()
+    UserService.claim_owned_agent.assert_not_called()
     denied(await search(source="ui"))
     await visible_control()
 

@@ -143,6 +143,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 自訂模型改名會拿走或弄丟擁有權（2026-10-25）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 自訂模型改名時，擁有權只改呼叫者自己的清單：admin 替別人改名，新 ID 會加到 admin 名下、原主人失去這個模型。擁有權用兩次寫入先移除再加回，加回失敗時主人新舊兩個 ID 都進不去；資料夾搬完後 config.json 改不了 id 也照樣算成功。刪除只拿掉呼叫者清單裡的 ID，留下的殘留在別人新建自訂模型、改名或建立靈魂成同一個 ID 時，會讓舊主人能讀、改、刪這個新模型（含 system prompt），或成為新靈魂的擁有者（擁有清單是靈魂和自訂模型共用的）；建立靈魂不擋和既有自訂模型完全同名；和靈魂同名的舊資料夾改名或刪除時會連靈魂的擁有權一起動；不分大小寫的磁碟上只差大小寫的 ID 會被當成同一個模型，非人類的 Owner 身分因此查不到擁有者、被當成公用模型放行；別的身分的個人空間（`custom/<id>/drive`）也能被當成模型改名或刪除。由 10/15 的程式審查、這次的修法調查與三輪程式審查找到 | 改名改成一次原子寫入，把所有使用者清單裡的舊 ID 換成新 ID、拿掉別人清單裡新 ID 的殘留（`UserService.rename_owned_agent`，禁令 21）；新建自訂模型與建立靈魂時一次換掉這個 ID 的擁有權（`claim_owned_agent`），刪除從所有人的清單拿掉（`remove_owned_agent_from_all`）；建立靈魂擋和既有自訂模型完全同名；和靈魂同名的舊資料夾不能改名、刪除時不動清單；查看、存檔、改名、刪除只認名稱完全相同、有 config.json 的模型資料夾；新 ID 不能是 DebugAgent、DispatchAgent；config 或擁有權寫不進去時把資料夾與 config 搬回、回 500，搬回也失敗寫 AUDIT；ModelStudio 改名失敗就停下、不再對新 ID 存檔（[ADR-0254](docs/architecture/adr/0254-iso-c1-small-fixes-and-execution-gaps.md) 2026-10-25 補記）。測試：`tests/unit/test_custom_model_rename_security.py`、`tests/unit/test_soul_crud_real_writes.py`、`ToukaChat/src/components/layout/__tests__/ModelStudio.test.tsx`（修前紅、修後綠） |
+
 ### 政策稽核帳本記下整條終端指令（2026-10-25）
 
 | 弱點 | 修正與驗證 |

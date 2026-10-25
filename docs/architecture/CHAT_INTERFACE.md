@@ -77,6 +77,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
   - 成功（伺服器重啟後回 `idle`）、查不到（重啟中連不上、未授權或其他非 2xx）：照舊重整頁面，不跳錯誤。
   - 對話框關掉或元件卸載時計時器清掉。
 - `ModelStudio` 的基礎引擎下拉和 `SoulStudio` 的主要模型下拉用同一個規則 `isSelectableBaseModel`（`src/lib/default_model.ts`）：不列 `is_agent`、`owned_by` 是 human 或 touka 的項目；預設仍是清單載入後第一個一般模型。`pickDefaultModel` 本身沒改（還沒排除 human／touka，列待排）。
+- `ModelStudio` 改名與刪除（ADR-0254 H12 補記，2026-10-25）：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔；改名成功就記下新 ID（`originalId`），接下來的存檔失敗時重試直接存到新 ID、不再送一次改名，表單上沒存的修改留著。改名可以用中文名字（後端 `new_id` 規則和建立時一致）。刪除送 `originalId`（後端記著的 ID），後端沒刪成就顯示錯誤、不從畫面拿掉，回 404（已經被刪掉了）照樣拿掉；還沒存過的新模型只在畫面上拿掉、不送請求。
 - 設定頁搜尋拿掉已不存在的「取樣參數（溫度／Top P／Top K）」條目，搜「溫度」「Top P」找不到；兩語翻譯 `settings.search.entries.model_params` 一起刪。
 - ToukaIDE 行內補全的請求不再帶 `temperature`（後端本來就不送取樣參數，ADR-0241）。
 - 已知限制：ToukaChat 與 ToukaIDE 選 anthropic 協定時自己寫死 `max_tokens: 4096`；後端的 Anthropic 形狀入口現在會把它帶給非 Claude 模型（ADR-0254 O20），所以這條路接非 Claude 模型時輸出上限是 4096（預設協定是 openai，不受影響；列待排）。
