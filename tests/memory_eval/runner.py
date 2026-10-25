@@ -11,6 +11,9 @@ probe 用 ``pipeline_send_turn``（真 pipeline）。每輪結束把 user／assi
 都只屬於那個情境，前一個情境留下的東西帶不到下一個。開始前先交給可注入的 ``prepare_soul``
 （人工 probe 在這裡寫靈魂檔、核對 Owner、設主要模型）。
 
+重跑（``run_batch(..., repeats=N)``）先把整批跑完一輪再跑下一輪，每一次都是新的靈魂。報告的每題
+k/n 只算跑完（沒出錯）的次數；整批只算每題都跑完的輪。
+
 記憶衝突這類要看記憶庫的判定（``judges.STATE_RULES``），在預放後與那一輪結束後各經可注入的
 ``read_facts`` 查一次有效記憶；長對話的舊對話經可注入的 ``archive_history`` 歸檔（人工 probe 用
 ``legacy_archiver``：產品的歸檔函式，目標必須在沙盒根之下）。
@@ -336,6 +339,7 @@ class ScenarioResult:
     planned_turns: int
     soul_id: str = ""
     canary: str = field(default="", repr=False)  # 只拿來遮報告，不印出
+    round_number: int = 1
 
     @property
     def error(self) -> str:
@@ -349,6 +353,7 @@ class ScenarioResult:
         """報告：模型回的文字、錯誤與判定細節都先去敏再截 200 字（使用者句是合成資料）。"""
         return {
             "scenario": self.scenario_id,
+            "round": self.round_number,
             "soul": self.soul_id,
             "passed": self.passed,
             "error": redact_excerpt(self.error, self.canary),
@@ -373,14 +378,43 @@ class BatchReport:
     stopped_reason: str = ""
     spent_usd: float = 0.0
     canary: str = field(default="", repr=False)  # 只拿來遮報告，不印出
+    repeats: int = 1
+    scenario_ids: tuple[str, ...] = ()
+
+    def _finished(self) -> list[ScenarioResult]:
+        """跑完的次數：沒出錯（出錯、到軟上限都沒跑完，不算進 n）。"""
+        return [r for r in self.results if not r.error]
+
+    def _rounds_completed(self, finished: list[ScenarioResult]) -> int:
+        """從第 1 輪起，每題都跑完的輪數（中途停下的那一輪不算）。"""
+        ids = set(self.scenario_ids)
+        rounds = 0
+        while rounds < self.repeats and ids == {
+                r.scenario_id for r in finished if r.round_number == rounds + 1}:
+            rounds += 1
+        return rounds
 
     def to_dict(self) -> dict[str, Any]:
+        finished = self._finished()
+        by_scenario = {sid: {"k": 0, "n": 0} for sid in self.scenario_ids}
+        for result in finished:
+            counts = by_scenario.setdefault(result.scenario_id, {"k": 0, "n": 0})
+            counts["n"] += 1
+            counts["k"] += result.passed
+        rounds = self._rounds_completed(finished)
+        in_rounds = [r for r in finished if r.round_number <= rounds]
         return {
             "passed": sum(r.passed for r in self.results),
             "failed": sum(not r.passed for r in self.results),
             "spent_usd": round(self.spent_usd, 6),
             "stopped_reason": redact_excerpt(self.stopped_reason, self.canary),
             "not_run": list(self.not_run),
+            "repeats": self.repeats,
+            "rounds_completed": rounds,
+            "by_scenario": by_scenario,
+            "uneven_n": len({c["n"] for c in by_scenario.values()}) > 1,
+            "batch": {"k": sum(r.passed for r in in_rounds), "n": len(in_rounds),
+                      "rounds": rounds},
             "results": [r.to_dict() for r in self.results],
         }
 
@@ -507,7 +541,7 @@ class MemoryEvalDriver:
         except Exception as exc:  # 預算用完、閘門拒絕等：記成這一輪失敗，整批停下
             return TurnObservation(text="", error=f"{type(exc).__name__}: {exc}"[:300])
 
-    async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
+    async def run_scenario(self, scenario: Scenario, *, round_number: int = 1) -> ScenarioResult:
         session_id = f"memory-eval-{scenario.id}-{uuid.uuid4().hex[:8]}"
         try:
             soul_id = self._new_soul()
@@ -551,32 +585,37 @@ class MemoryEvalDriver:
             seeding.append_node(tree, "assistant", observation.text, now)
             await self._save_tree(session_id, tree, soul_id)
         return ScenarioResult(scenario.id, tuple(results), planned_turns=len(scenario.turns),
-                              soul_id=soul_id, canary=self._canary)
+                              soul_id=soul_id, canary=self._canary, round_number=round_number)
 
-    async def _run_all(self, scenarios: Iterable[Scenario], report: BatchReport) -> None:
-        for scenario in scenarios:
-            if not report.stopped_reason and self._over_budget():
-                report.stopped_reason = BUDGET_REACHED
-            if report.stopped_reason:
-                report.not_run.append(scenario.id)
-                continue
-            try:
-                result = await self.run_scenario(scenario)
-            except (ActivityWritesPending, SeedFailed) as exc:  # 準備沒做完：這個情境不送
-                report.stopped_reason = str(exc)
-                report.not_run.append(scenario.id)
-                continue
-            report.results.append(result)
-            report.stopped_reason = result.error
+    async def _run_all(self, scenarios: tuple[Scenario, ...], report: BatchReport) -> None:
+        """一輪跑完整批再跑下一輪；只跑一輪時沒跑的照舊只寫情境 id，多輪時加 ``#輪次``。"""
+        for round_number in range(1, report.repeats + 1):
+            for scenario in scenarios:
+                label = scenario.id if report.repeats == 1 else f"{scenario.id}#{round_number}"
+                if not report.stopped_reason and self._over_budget():
+                    report.stopped_reason = BUDGET_REACHED
+                if report.stopped_reason:
+                    report.not_run.append(label)
+                    continue
+                try:
+                    result = await self.run_scenario(scenario, round_number=round_number)
+                except (ActivityWritesPending, SeedFailed) as exc:  # 準備沒做完：這個情境不送
+                    report.stopped_reason = str(exc)
+                    report.not_run.append(label)
+                    continue
+                report.results.append(result)
+                report.stopped_reason = result.error
 
-    async def run_batch(self, scenarios: Iterable[Scenario]) -> BatchReport:
-        report = BatchReport(canary=self._canary)
+    async def run_batch(self, scenarios: Iterable[Scenario], *, repeats: int = 1) -> BatchReport:
+        batch = tuple(scenarios)
+        report = BatchReport(canary=self._canary, repeats=repeats,
+                             scenario_ids=tuple(s.id for s in batch))
         if not self._activity_record:
-            await self._run_all(scenarios, report)
+            await self._run_all(batch, report)
         else:
             continuity_events.start_recording()
             try:
-                await self._run_all(scenarios, report)
+                await self._run_all(batch, report)
             finally:
                 continuity_events.stop_recording()
                 pending = await drain_activity_writes()

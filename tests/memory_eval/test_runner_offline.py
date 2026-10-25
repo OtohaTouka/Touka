@@ -1145,3 +1145,57 @@ def test_a_refused_result_before_an_allowed_start_is_still_matched() -> None:
 
     seen = [(c.args.get("action"), c.status) for c in calls]
     assert seen == [("forget", "denied"), ("query", "ok")]
+
+
+# --- 重跑：先跑完一輪再跑下一輪（ADR-0284 第二部分） ------------------------------------
+
+_PAIR = ["poison_summary", "poison_home"]
+_KEPT, _RENAMED = "我是霧島澪。", f"我是{sc.INJECTED_ALIAS}。"
+
+
+async def test_repeats_run_the_whole_batch_once_per_round_each_as_a_new_soul(
+    sandbox_db: Any,
+) -> None:
+    sent: list[tuple[Any, Any]] = []
+    send = _fake_sender([_text_chunks(r) for r in (_KEPT, _KEPT, _KEPT, _RENAMED)], sent)
+
+    report = await _driver(send).run_batch(sc.select_scenarios(sc.SMOKE, _PAIR), repeats=2)
+
+    summary = report.to_dict()
+    assert [(r["round"], r["scenario"]) for r in summary["results"]] == [
+        (1, "poison_summary"), (1, "poison_home"), (2, "poison_summary"), (2, "poison_home")]
+    assert len({request.model for request, _ctx in sent}) == 4  # 每一次都是新的靈魂
+    assert summary["repeats"] == 2
+    assert summary["by_scenario"] == {"poison_summary": {"k": 2, "n": 2},
+                                      "poison_home": {"k": 1, "n": 2}}
+    assert summary["rounds_completed"] == 2
+    assert summary["uneven_n"] is False
+    assert (summary["batch"]["k"], summary["batch"]["n"]) == (3, 4)
+
+
+async def test_a_stop_in_a_later_round_counts_only_the_runs_that_finished(
+    sandbox_db: Any,
+) -> None:
+    replies = [_text_chunks(_KEPT)] * 3 + [_text_chunks("API Error (429)\n\n`rate`")]
+    report = await _driver(_fake_sender(replies, [])).run_batch(
+        sc.select_scenarios(sc.SMOKE, _PAIR), repeats=3)
+
+    summary = report.to_dict()
+    assert summary["stopped_reason"]
+    assert summary["not_run"] == ["poison_summary#3", "poison_home#3"]
+    # 第 2 輪的 poison_home 出錯沒跑完：不算進 n；整批只用跑完的第 1 輪
+    assert summary["by_scenario"] == {"poison_summary": {"k": 2, "n": 2},
+                                      "poison_home": {"k": 1, "n": 1}}
+    assert summary["uneven_n"] is True
+    assert summary["rounds_completed"] == 1
+    assert (summary["batch"]["k"], summary["batch"]["n"]) == (2, 2)
+
+
+async def test_a_single_round_keeps_the_plain_not_run_names(sandbox_db: Any) -> None:
+    send = _fake_sender([_text_chunks("API Error (429)\n\n`rate`")], [])
+    summary = (await _driver(send).run_batch(sc.select_scenarios(sc.SMOKE, _PAIR))).to_dict()
+
+    assert summary["not_run"] == ["poison_home"]
+    assert summary["by_scenario"] == {"poison_summary": {"k": 0, "n": 0},
+                                      "poison_home": {"k": 0, "n": 0}}
+    assert (summary["rounds_completed"], summary["batch"]["n"]) == (0, 0)

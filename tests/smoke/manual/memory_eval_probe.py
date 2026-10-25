@@ -4,7 +4,7 @@
 
     python tests/smoke/manual/memory_eval_probe.py \
         --provider deepseek --model deepseek-v4-flash --suite smoke \
-        --max-provider-requests 40 --max-tokens 512 --budget 0.20 \
+        --max-provider-requests 40 --max-tokens 512 --budget 0.20 [--repeats 3] \
         --human-approved-live-api [--env-file <金鑰 .env 路徑>]
 
 只送合成資料（合成人格、合成事實與對話、注入句）。所有本機寫入（靈魂檔、session DB、記憶庫、
@@ -20,6 +20,9 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 
 ``--suite continuity``（時間軸）另外打開活動記錄器，每個情境先在沙盒預放活動事件；核准範圍印
 ``activity_record=on``。smoke 不開。兩條命令算兩批，各自取得同意。
+
+``--repeats N``（1..5）先把整批跑完一輪再跑下一輪，每一次都是新的合成靈魂；次數印在核准範圍，
+預計請求數印成「每輪 × 輪數」。同意跑 1 輪的核准不能拿來跑更多輪。
 """
 
 from __future__ import annotations
@@ -156,6 +159,7 @@ DEFAULT_LIVE_TOKENS = 512
 OUTPUT_TOKEN_CEILING = 8_192
 _WIRE_RULE = "anthropic follows Touka model rules; other providers send the requested value"
 MAX_BUDGET_USD = 2.0
+MAX_REPEATS = 5
 # 主迴圈的四家共用重試開關（react_core.MAX_SEND_ATTEMPTS 是總送出次數）：只送 1 次、不重試。
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
@@ -369,6 +373,12 @@ def _pin_stub_embedding() -> dict[str, Any]:
     return _stub_facts()
 
 
+def _expected_requests(suite: str, scenario_ids: Sequence[str], repeats: int) -> str:
+    """預計請求數（估計）：每輪 × 輪數。"""
+    per_round = expected_requests(select_scenarios(suite, list(scenario_ids)))
+    return f"{per_round}x{repeats}={per_round * repeats}"
+
+
 def _memory_eval_scope(
     *,
     provider: str,
@@ -378,6 +388,7 @@ def _memory_eval_scope(
     max_requests: int,
     max_tokens: int,
     budget: float,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> LiveApiScope:
     rate = _dearest_rate(model)
@@ -389,6 +400,8 @@ def _memory_eval_scope(
         limits=(
             f"suite={suite}",
             f"scenarios={','.join(scenario_ids)}",
+            f"repeats={repeats}",
+            f"expected_provider_requests={_expected_requests(suite, scenario_ids, repeats)}",
             f"provider_requests<={max_requests}",
             f"max_tokens_requested={max_tokens}",
             f"wire_max_tokens_per_request={_wire_max_tokens(provider, model, max_tokens)}",
@@ -445,6 +458,7 @@ async def run_memory_eval_probe(
     budget: float,
     approval: LiveApiApproval,
     sandbox_root: Path,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> dict[str, Any]:
     """驗證核准範圍與上限後跑一批；回彙總（含實際請求數與被拒的輔助呼叫）。"""
@@ -452,6 +466,8 @@ async def run_memory_eval_probe(
         raise _BoundsError("max-tokens", 1, MAX_LIVE_TOKENS)
     if not 1 <= max_requests <= MAX_PROVIDER_REQUESTS:
         raise _BoundsError("max-provider-requests", 1, MAX_PROVIDER_REQUESTS)
+    if not 1 <= repeats <= MAX_REPEATS:
+        raise _BoundsError("repeats", 1, MAX_REPEATS)
     wire_cap = _wire_max_tokens(provider, model, max_tokens)
     if wire_cap > OUTPUT_TOKEN_CEILING:
         raise _OutputCeilingExceeded(wire_cap)
@@ -462,7 +478,7 @@ async def run_memory_eval_probe(
     validate_live_api_approval(approval, expected_scope=_memory_eval_scope(
         provider=provider.casefold(), model=model, suite=suite,
         scenario_ids=[s.id for s in scenarios], max_requests=max_requests,
-        max_tokens=max_tokens, budget=budget, env_file=env_file,
+        max_tokens=max_tokens, budget=budget, repeats=repeats, env_file=env_file,
     ))
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
     stub = _pin_stub_embedding()
@@ -492,7 +508,7 @@ async def run_memory_eval_probe(
     try:
         # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
         resource_manager.bind_ui_conversation_reader(session_service)
-        report = (await driver.run_batch(scenarios)).to_dict()
+        report = (await driver.run_batch(scenarios, repeats=repeats)).to_dict()
     finally:
         resource_manager.bind_ui_conversation_reader(None)
         if anthropic_client is not None:
@@ -564,6 +580,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                              f"另印在核准範圍，超過 {OUTPUT_TOKEN_CEILING} 不送")
     parser.add_argument("--budget", type=_bounded_budget, required=True,
                         help=f"USD 軟上限（0..{MAX_BUDGET_USD:g}；依內建價目表累計）")
+    parser.add_argument("--repeats", type=_bounded_int("repeats", MAX_REPEATS), default=1,
+                        help=f"整批跑幾輪（1..{MAX_REPEATS}）；每一次都是新的合成靈魂")
     parser.add_argument("--env-file", help=f"金鑰 .env 路徑（預設 {DEFAULT_ENV_FILE}）")
     parser.add_argument(LIVE_API_APPROVAL_FLAG, action="store_true",
                         help="確認已取得本批明確人類同意（不得由自動化傳入）")
@@ -581,18 +599,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     scope = _memory_eval_scope(
         provider=provider, model=args.model, suite=args.suite,
         scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
-        max_tokens=args.max_tokens, budget=args.budget, env_file=env_file,
+        max_tokens=args.max_tokens, budget=args.budget, repeats=args.repeats,
+        env_file=env_file,
     )
     approval = issue_live_api_approval(approved=args.human_approved_live_api, scope=scope)
     sys.stdout.write(format_live_api_scope(scope) + "\n")
-    sys.stdout.write(f"expected_requests={expected_requests(scenarios)}\n")
+    expected = _expected_requests(args.suite, [s.id for s in scenarios], args.repeats)
+    sys.stdout.write(f"expected_requests={expected}\n")
     sys.stdout.write(f"sandbox={_SANDBOX_ROOT}\n")
 
     return _report_then_release(lambda: asyncio.run(run_memory_eval_probe(
         provider=provider, model=args.model, suite=args.suite, scenarios=scenarios,
         max_requests=args.max_provider_requests, max_tokens=args.max_tokens,
         budget=args.budget, approval=approval, sandbox_root=Path(_SANDBOX_ROOT),
-        env_file=env_file,
+        repeats=args.repeats, env_file=env_file,
     )), _SANDBOX_ROOT)
 
 

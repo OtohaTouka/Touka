@@ -41,6 +41,7 @@ from tests.memory_eval.scenarios import (
     CONTINUITY,
     SMOKE,
     canary_fragments,
+    expected_requests,
     persona_text,
     select_scenarios,
 )
@@ -81,11 +82,13 @@ def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> 
 
 
 def _scope(
-    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",)
+    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",),
+    repeats: int = 1,
 ) -> Any:
     return probe._memory_eval_scope(
         provider="deepseek", model="deepseek-v4-flash", suite=suite,
         scenario_ids=list(ids), max_requests=3, max_tokens=max_tokens, budget=0.1,
+        repeats=repeats,
     )
 
 
@@ -311,12 +314,14 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
 class _FakeDriver:
     built: list[dict[str, Any]] = []
     readers: list[Any] = []
+    repeats: list[int] = []
 
     def __init__(self, **kwargs: Any) -> None:
         _FakeDriver.built.append(kwargs)
 
-    async def run_batch(self, _scenarios: Any) -> Any:
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
         _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        _FakeDriver.repeats.append(repeats)
         return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
 
 
@@ -369,7 +374,7 @@ class _BlewUp(RuntimeError):
 
 
 class _FailingDriver(_FakeDriver):
-    async def run_batch(self, _scenarios: Any) -> Any:
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
         _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
         raise _BlewUp
 
@@ -509,8 +514,60 @@ def test_scope_lists_every_bound() -> None:
                  "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
                  f"embedding_stub={seeding.STUB_EMBEDDING_MODEL};query_floor=0.3;"
                  "dedup_threshold=0.92", probe.STUB_NOTE, "activity_record=off",
+                 "repeats=1", "expected_provider_requests=1x1=1",
                  "write_scope=temporary sandbox only"):
         assert item in rendered
+
+
+def test_scope_shows_the_rounds_and_the_requests_per_round_times_rounds() -> None:
+    ids = ("poison_home", "memory_conflict")
+    per_round = expected_requests(select_scenarios(SMOKE, list(ids)))
+    rendered = policy.format_live_api_scope(_scope(ids=ids, repeats=3))
+
+    assert per_round > 1
+    assert "repeats=3" in rendered
+    assert f"expected_provider_requests={per_round}x3={per_round * 3}" in rendered
+
+
+_RUN: dict[str, Any] = {
+    "provider": "deepseek", "model": "deepseek-v4-flash", "suite": SMOKE,
+    "max_requests": 3, "max_tokens": 64, "budget": 0.1,
+}
+
+
+async def test_an_approval_for_one_round_does_not_cover_more_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed: list[Any] = []
+    monkeypatch.setattr(probe, "_install_bounds", lambda *a, **_k: installed.append(a))
+    once = policy.issue_live_api_approval(approved=True, scope=_scope())
+    run = {**_RUN, "scenarios": select_scenarios(SMOKE, ["poison_home"]),
+           "sandbox_root": tmp_path, "approval": once}
+
+    with pytest.raises(policy.LiveApiApprovalScopeMismatch):
+        await probe.run_memory_eval_probe(**run, repeats=5)
+    with pytest.raises(argparse.ArgumentTypeError):
+        await probe.run_memory_eval_probe(**run, repeats=probe.MAX_REPEATS + 1)
+    assert installed == []
+
+
+async def test_the_driver_runs_the_approved_number_of_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "repeats", [])
+
+    await probe.run_memory_eval_probe(
+        **_RUN, scenarios=select_scenarios(SMOKE, ["poison_home"]), sandbox_root=tmp_path,
+        repeats=3, approval=policy.issue_live_api_approval(approved=True, scope=_scope(repeats=3)),
+    )
+
+    assert _FakeDriver.repeats == [3]
 
 
 def test_continuity_scope_says_the_activity_record_is_on() -> None:
@@ -557,6 +614,7 @@ def test_haiku_5_5_pre_send_worst_case_still_uses_the_dear_tier(
         (probe._bounded_int("max-provider-requests", probe.MAX_PROVIDER_REQUESTS),
          ["0", "41"], "40"),
         (probe._bounded_budget, ["0", "-1", "2.01"], "2"),
+        (probe._bounded_int("repeats", probe.MAX_REPEATS), ["0", "6"], "5"),
     ],
 )
 def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
