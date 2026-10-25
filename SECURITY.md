@@ -143,6 +143,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 模型寫的任務與舊紀錄能偽造可信區塊（2026-10-25）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 每一輪附在最後一則 user 訊息的 `<continuity>` 區塊標成「系統記下的事實」，但看板那一行原樣印出模型自己取的任務 id（`continuity_service.py`，ADR-0267）；id 沒有格式限制，可以帶換行、假的「最後一則人類訊息」或 `</continuity>`，之後每一輪（含心跳）都會當成系統事實。同一個 id 也原樣出現在 system 的 `<mission_awareness>`，描述的換行還能多造一行任務。前情摘要與家對話只中和 `historical_data` 標籤：摘要裡一個 `</conversation_summary>` 會讓 Claude 送出前的區塊重排提早結束，後面的文字留在穩定前綴、沒有任何界線，還進跨回合快取。由 10/15 的程式審查（High）與這次的修法調查找到 | `<continuity>` 看板那一行改用 `safe_ref`；`<mission_awareness>` 的文字保留原文（mission 工具要完全比對 id），換行換成 `⏎`、控制字元換成空白、prompt 區塊 tag 中和；前情摘要與家對話另外中和所有 prompt 區塊 tag（新純函式 `neutralize_tags`，[ADR-0284](docs/architecture/adr/0284-prompt-boundaries-for-model-written-text.md)）。測試：`tests/unit/test_mission_board_boundary_security.py`（偽造的 id 與描述不能多造行、關閉或另開區塊；一般 id 與文字原樣）、`tests/unit/test_historical_data_boundary_security.py` 新增四個案例（含摘要經重排後注入文字不留在穩定前綴）；先寫的測試在照原樣回傳的空殼上 8 個紅、實作後全綠 |
+
 ### 政策稽核帳本記下整條終端指令（2026-10-25）
 
 | 弱點 | 修正與驗證 |

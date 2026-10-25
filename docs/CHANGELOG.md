@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-25 | **模型寫的任務與舊紀錄不能再偽造可信區塊**：時間線區塊裡看板那一行的任務 id 改用過濾過的參照；任務看板區塊保留原文、只把換行與區塊標籤跳脫；前情摘要與家對話也中和所有 prompt 區塊標籤。舊審查報告甲組第 1 批 | [ADR-0284](architecture/adr/0284-prompt-boundaries-for-model-written-text.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **政策稽核帳本不再記下指令內容**：`stats/decisions.csv` 的終端指令列原本記下整條指令，指令裡的金鑰也會進去；改成只記程式名稱和長度，例如 `[command program=curl chars=87]`，認不出就記 `?`。權限判斷照舊看完整指令；已寫進帳本的舊列不自動改 | [ADR-0283](architecture/adr/0283-policy-ledger-command-summary.md)、[SECURITY](../SECURITY.md) |
 | 2026-10-25 | **一批中風險依賴弱點**：hono 4.13.13（Chat 與 IDE）、ip-address 10.7.4（Chat）、vitest 4.1.12（Chat 與 IDE）、smol-toml 1.9.1（Chat）、IDE 測試用的 MCP client 2.3.1，共修 14 則 medium。除了 IDE 的 hono（MCP SDK 的 peer 相依，不打包進擴充套件），全部只在開發或測試工具裡。版本都已上架滿 7 天。fast-uri 的修正版 10/27 才滿 7 天，併入那批；katex（low）要升到 mermaid 12.2.0 以上（大版本）才有修正，暫不處理 | [SECURITY](../SECURITY.md) |
 | 2026-10-25 | **Chat 前端只帶版本號**：設定頁顯示的版本原本靠 `import pkg from '../../package.json'` 取得，整份 package.json（scripts、相依、overrides）都被打包進前端。現在由 `next.config.ts` 的 `env` 只注入 `NEXT_PUBLIC_APP_VERSION`，`app_meta.ts` 經 `config.ts` 讀取；vitest 用同一份設定。新舊兩版各建置一次比對：舊版產物含 package.json 的 overrides 內容，新版沒有，版本字串照樣顯示。repo 本來就公開，不算洩密，只是前端少帶用不到的內容 | — |

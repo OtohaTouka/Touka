@@ -1,13 +1,16 @@
 """專案與任務上下文注入中介軟體層。"""
 
 import logging
+import re
 from typing import Any
 
+from memory_server.utils.historical_data import neutralize_tags
 from src.adapters.content_normalize import append_text_part
 from src.adapters.schemas import OpenAIMessage
 from src.middleware.base import ProxyLayer
 from src.models.context import PipelineContext
 from src.services.prompt_blocks import (
+    ALL_BLOCK_TAGS,
     IDE_CONTEXT,
     MISSION_AWARENESS,
     PROJECT_CONTEXT,
@@ -16,6 +19,17 @@ from src.services.prompt_blocks import (
 from src.utils.async_db import get_project_context
 
 logger = logging.getLogger(__name__)
+
+# 看板文字是模型寫的（ADR-0284）：換行換成可見的跳脫、其他控制字元換成空白，
+# 不能多造一行任務；區塊 tag 中和，不能關閉或另開區塊。id 保留原文給 mission 工具比對。
+_LINE_BREAK = re.compile("\r\n|[\n\r\x0b\x0c\x85" + chr(0x2028) + chr(0x2029) + "]")
+_CONTROL_CHAR = re.compile("[\x00-\x08\x0e-\x1f\x7f]")
+_LINE_BREAK_MARK = chr(0x23CE)
+
+
+def _board_text(value: Any) -> str:
+    text = _LINE_BREAK.sub(_LINE_BREAK_MARK, str(value))
+    return neutralize_tags(_CONTROL_CHAR.sub(" ", text), ALL_BLOCK_TAGS)
 
 
 def inject_anthropic_system(request: Any, ctx_str: str) -> None:
@@ -61,16 +75,18 @@ def render_mission_block(mission: Any) -> str:
     awareness_block = [
         f"\n<{MISSION_AWARENESS}>",
         "### 📋 目前任務狀態 (Current Mission Progress)",
-        f"**大目標**: {mission.goal}",
+        f"**大目標**: {_board_text(mission.goal)}",
         f"**進度**: {len([t for t in mission.tasks if t.status == 'DONE'])}"
         f"/{len(mission.tasks)}",
         "---",
     ]
     for t in mission.tasks:
         icon = "✅" if t.status == "DONE" else "⏳" if t.status == "DOING" else "⬜"
-        dep = f" (依賴: {', '.join(t.dependencies)})" if t.dependencies else ""
-        art = f" [產出: {t.artifact_ref}]" if t.artifact_ref else ""
-        awareness_block.append(f"{icon} {t.id}: {t.description}{dep}{art}")
+        deps = ", ".join(_board_text(d) for d in t.dependencies)
+        dep = f" (依賴: {deps})" if t.dependencies else ""
+        art = f" [產出: {_board_text(t.artifact_ref)}]" if t.artifact_ref else ""
+        line = f"{icon} {_board_text(t.id)}: {_board_text(t.description)}{dep}{art}"
+        awareness_block.append(line)
     awareness_block.append(f"</{MISSION_AWARENESS}>\n")
     return "\n".join(awareness_block)
 

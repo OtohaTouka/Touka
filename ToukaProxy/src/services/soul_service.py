@@ -15,13 +15,14 @@ from memory_server.utils.historical_data import (
     HISTORICAL_DATA_CLOSE,
     historical_data_open,
     neutralize_historical_tags,
+    neutralize_tags,
     wrap_historical_data,
 )
 
 from src.adapters.content_normalize import normalize_message_content
 from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
-from src.services.prompt_blocks import CONVERSATION_SUMMARY, PERSONA, wrap_block
+from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,18 @@ def _add_text(content: Any, text: str, *, before: bool) -> Any:
     return f"{text}\n{content or ''}" if before else f"{content or ''}\n{text}"
 
 
+def _neutralize_history(text: str) -> str:
+    """舊紀錄裡的界線 tag 與其他 prompt 區塊 tag 都中和，不能關閉或另開區塊（ADR-0284）。"""
+    return neutralize_tags(neutralize_historical_tags(text), ALL_BLOCK_TAGS)
+
+
 def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """家對話第一則前加歷史資料界線開頭、最後一則後加結尾：只加文字，角色與則數不變。
 
-    先複製再改，不動到讀出來的 session 樹；每則文字裡的界線 tag 先中和。
+    先複製再改，不動到讀出來的 session 樹；每則文字裡的區塊 tag 先中和。
     """
     marked = [
-        {**m, "content": _map_text(m.get("content"), neutralize_historical_tags)}
+        {**m, "content": _map_text(m.get("content"), _neutralize_history)}
         for m in home_msgs
     ]
     opening = historical_data_open("home_conversation")
@@ -308,7 +314,9 @@ class SoulService:
             return
 
         # 歷史資料界線包在 <conversation_summary> 裡面：位置與角色都不變，只加文字
-        historical = wrap_historical_data("conversation_summary", summary)
+        historical = wrap_historical_data(
+            "conversation_summary", summary, extra_tags=ALL_BLOCK_TAGS
+        )
         block = "\n\n" + wrap_block(CONVERSATION_SUMMARY, historical)
         if hasattr(request, "system"):
             if isinstance(request.system, list):

@@ -7,6 +7,7 @@ import Proxy）；純函式、沒有 I/O。
 
 from __future__ import annotations
 
+import functools
 import re
 
 HISTORICAL_DATA_CLOSE = "</historical_data>"
@@ -29,7 +30,24 @@ def neutralize_historical_tags(text: str) -> str:
     return _TAG_START.sub("&lt;", text)
 
 
-def wrap_historical_data(source: str, text: str) -> str:
-    """整段包進界線；內文先中和。"""
-    body = neutralize_historical_tags(text)
+def neutralize_tags(text: str, tags: tuple[str, ...]) -> str:
+    """把內文裡這些 tag 的開頭 ``<`` 換成 ``&lt;``，其他內容原樣保留。
+
+    規則同界線 tag：不分大小寫、容許 ``<`` 與 ``/`` 前後有空白，帶屬性與自閉合也算。
+    tag 名稱之後要接非名稱字元，所以 ``persona`` 不會動到 ``<personality>``。
+    """
+    if not tags:
+        return text
+    return _tag_start_pattern(tags).sub("&lt;", text)
+
+
+@functools.lru_cache(maxsize=8)
+def _tag_start_pattern(tags: tuple[str, ...]) -> re.Pattern[str]:
+    names = "|".join(re.escape(tag) for tag in tags)
+    return re.compile(rf"<(?=\s*/?\s*(?:{names})(?![A-Za-z0-9_-]))", re.IGNORECASE)
+
+
+def wrap_historical_data(source: str, text: str, *, extra_tags: tuple[str, ...] = ()) -> str:
+    """整段包進界線；內文先中和界線 tag，以及呼叫端給的其他區塊 tag。"""
+    body = neutralize_tags(neutralize_historical_tags(text), extra_tags)
     return f"{historical_data_open(source)}\n{body}\n{HISTORICAL_DATA_CLOSE}"
