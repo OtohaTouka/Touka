@@ -239,6 +239,10 @@ CASES = [
     ("elapsed_only_within", (2 * H, 4 * H), _obs("about 3 hours, almost a day"), False),
     ("elapsed_only_within", (25 * D, 35 * D), _obs("大約一個月前。"), True),
     ("elapsed_only_within", (2 * H, 4 * H), _obs("大概三個多小時。"), True),  # 多在單位前
+    # 端點上的模糊說法其實在範圍外：「將近兩小時」不到 2 小時、「四個多小時」超過 4 小時（寧嚴）
+    ("elapsed_only_within", (2 * H, 4 * H), _obs("將近兩小時。"), False),
+    ("elapsed_only_within", (2 * H, 4 * H), _obs("四個多小時。"), False),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("十一天多。"), False),
     ("elapsed_only_within", (2 * H, 4 * H), _obs("大概兩個半小時。"), True),
     ("elapsed_only_within", (25 * D, 35 * D), _obs("一個多月了。"), True),
     ("elapsed_only_within", (25 * D, 35 * D), _obs("大概二三十天吧。"), False),  # 看不懂的概數
@@ -340,7 +344,8 @@ def test_a_rule_that_raises_fails_only_that_check() -> None:
 def test_rough_chinese_numbers_never_raise(text: str) -> None:
     for rule, args in (("elapsed_within", (D, 40 * D)), ("elapsed_only_within", (D, 40 * D)),
                        ("contains_number", ("47",))):
-        assert judge(Check(rule, args), _obs(text), canary=CANARY).detail != "judge error"
+        detail = judge(Check(rule, args), _obs(text), canary=CANARY).detail
+        assert not detail.startswith("judge error"), (rule, detail)
     assert extract_durations(text) == []
 
 

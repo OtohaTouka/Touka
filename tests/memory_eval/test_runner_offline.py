@@ -1107,3 +1107,41 @@ async def test_a_failed_store_read_after_the_turn_is_recorded_as_that_turns_erro
 
     assert report["stopped_reason"].startswith(f"{runner.STATE_READ_FAILED}: _StoreDown")
     assert [r["scenario"] for r in report["results"]] == ["memory_conflict"]
+
+
+def _started(call_id: str, name: str, args: dict[str, Any]) -> list[str]:
+    return [_sse({"type": TOOL_START, "id": call_id, "tool": name, "args": args}),
+            _sse({"type": TOOL_RESULT, "id": call_id, "status": "success", "result": "ok"})]
+
+
+@pytest.mark.parametrize(
+    ("query_id", "forget_id"), [("call_0", "call_0"), ("call_17000", "call_17001")]
+)
+def test_an_allowed_call_does_not_steal_the_record_of_a_refused_one(
+    query_id: str, forget_id: str
+) -> None:
+    """先放行 query、再擋下 forget：同一個 id 被重用，或後端不給 id（執行器自己產生）都要對得上."""
+    query = ("memory_tools", {"action": "query", "query": "咖啡"})
+    forget = ("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"})
+    key = "call_0" if query_id == forget_id else ""
+    requested = {key: [query, forget]}
+    chunks = [*_started(query_id, *query), _refused(forget_id), *_text_chunks("好")]
+
+    calls = runner.parse_sse(chunks, requested).tool_calls
+
+    seen = [(c.args.get("action"), c.status) for c in calls]
+    assert seen == [("query", "ok"), ("forget", "denied")]
+    assert calls[1].args == forget[1]
+
+
+def test_a_refused_result_before_an_allowed_start_is_still_matched() -> None:
+    """被擋下的結果可能比同一輪被放行的 tool_start 先到：等整段讀完才補."""
+    query = ("memory_tools", {"action": "query", "query": "咖啡"})
+    forget = ("memory_tools", {"action": "forget", "fact_id_to_archive": "f1"})
+    requested = {"": [query, forget]}
+    chunks = [_refused("call_9"), *_started("call_8", *query), *_text_chunks("好")]
+
+    calls = runner.parse_sse(chunks, requested).tool_calls
+
+    seen = [(c.args.get("action"), c.status) for c in calls]
+    assert seen == [("forget", "denied"), ("query", "ok")]

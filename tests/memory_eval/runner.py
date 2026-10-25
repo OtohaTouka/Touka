@@ -204,6 +204,23 @@ def _requested_call(
     return None
 
 
+def _discard_started(
+    requested: Mapping[str, list[tuple[str, dict[str, Any]]]],
+    call_id: str, name: str, args: dict[str, Any],
+) -> None:
+    """有 tool_start 的呼叫（被放行）不必補：把它在紀錄裡的那一筆拿掉，免得被擋下的呼叫取錯。
+
+    先找同一個 id（沒有就找沒有 id 的）裡名稱與參數都相同的；找不到就拿掉第一筆同名的。
+    """
+    for key in (call_id, ""):
+        entries = requested.get(key) or []
+        for match_args in (True, False):
+            for index, (entry_name, entry_args) in enumerate(entries):
+                if entry_name == name and (entry_args == args or not match_args):
+                    del entries[index]
+                    return
+
+
 def parse_sse(
     chunks: Iterable[str],
     requested: Mapping[str, list[tuple[str, dict[str, Any]]]] | None = None,
@@ -211,12 +228,13 @@ def parse_sse(
     """SSE → 最後文字＋工具軌跡（tool_start／tool_result 以 id 配對）；認出 provider 錯誤。
 
     被擋下的呼叫沒有 tool_start：名稱與參數改從 ``requested``（``record_tool_requests``）補上。
+    被放行的呼叫先從紀錄裡拿掉；被擋下的結果可能比同一輪放行的 tool_start 先到，整段讀完才補。
     """
     requested = {key: list(entries) for key, entries in (requested or {}).items()}
     texts: list[str] = []
     provider_error = ""
     pending: dict[str, tuple[str, dict[str, Any]]] = {}
-    calls: list[ToolCallRecord] = []
+    calls: list[ToolCallRecord | tuple[str, str, str]] = []  # 被擋下的先放（id, 工具名稱, 狀態）
     cost = 0.0
     stream_error = ""
     for data in _payloads(chunks):
@@ -226,16 +244,17 @@ def parse_sse(
         elif kind == "touka_progress" and data.get("kind") == "token_usage":
             cost += float(data.get("cost") or 0.0)
         elif kind == TOOL_START:
-            pending[str(data.get("id", ""))] = (str(data.get("tool", "")), data.get("args") or {})
+            call_id = str(data.get("id", ""))
+            pending[call_id] = (str(data.get("tool", "")), data.get("args") or {})
+            _discard_started(requested, call_id, *pending[call_id])
         elif kind == TOOL_RESULT:
             call_id = str(data.get("id", ""))
+            status = _tool_status(str(data.get("status", "")), data.get("error_class"))
             if call_id in pending:
                 name, args = pending.pop(call_id)
+                calls.append(ToolCallRecord(name=name, args=args, status=status))
             else:
-                name, args = (_requested_call(requested, call_id)
-                              or (str(data.get("tool", "")), {}))
-            status = _tool_status(str(data.get("status", "")), data.get("error_class"))
-            calls.append(ToolCallRecord(name=name, args=args, status=status))
+                calls.append((call_id, str(data.get("tool", "")), status))
         elif kind == "content_block_delta":
             texts.append((data.get("delta") or {}).get("text") or "")
         elif isinstance(data.get("choices"), list) and data["choices"]:
@@ -243,11 +262,19 @@ def parse_sse(
         if texts and not provider_error:
             found = PROVIDER_ERROR_START.match(texts[-1].lstrip())
             provider_error = found.group(0) if found else ""
+    records: list[ToolCallRecord] = []
+    for call in calls:
+        if isinstance(call, ToolCallRecord):
+            records.append(call)
+            continue
+        call_id, tool, status = call
+        name, args = _requested_call(requested, call_id) or (tool, {})
+        records.append(ToolCallRecord(name=name, args=args, status=status))
     text = "".join(texts).strip()
     error = stream_error or provider_error
-    if not error and not text and not calls:
+    if not error and not text and not records:
         error = NO_REPLY
-    return TurnObservation(text=text, tool_calls=tuple(calls),
+    return TurnObservation(text=text, tool_calls=tuple(records),
                            error=error and f"{error} {text}"[:300], cost_usd=cost)
 
 

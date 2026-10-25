@@ -437,8 +437,8 @@ def _fuzzy_or_range(
     if kind == "half":  # 「一週半」：一個精確的時長
         return number + unit // 2, number + unit // 2, "exact", number + unit // 2
     if kind == "more":
-        return number, number + unit, "fuzzy", number
-    return int(0.75 * number), number, "fuzzy", number
+        return number, number + unit, "more", number
+    return int(0.75 * number), number, "nearly", number
 
 
 def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
@@ -476,6 +476,19 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
     return items
 
 
+_FUZZY_KINDS = frozenset({"more", "nearly"})
+
+
+def _is_answer_in_range(lo: int, hi: int, kind: str, said: int, low: int, high: int) -> bool:
+    """精確時長與區間要整個在範圍內；「N 多」要 N 不到上限、「將近 N」要 N 超過下限（端點上的
+    「四個多小時」「將近兩小時」其實已經在範圍外），寧嚴。"""
+    if kind == "more":
+        return low <= said < high
+    if kind == "nearly":
+        return low < said <= high
+    return low <= lo and hi <= high
+
+
 def _elapsed_only_within(obs: TurnObservation, low: int, high: int) -> tuple[bool, str]:
     """較嚴的經過時間：至少一個答案在範圍內，而且被當成答案的時長全都在範圍內。
 
@@ -484,12 +497,10 @@ def _elapsed_only_within(obs: TurnObservation, low: int, high: int) -> tuple[boo
     """
     items = [item for clause, _end in _DURATION_CLAUSE.findall(obs.text)
              for item in _answered_durations(clause)]
-    # 答案：精確時長與區間要整個在範圍內；「三個多小時」「將近兩週」看說出的那個時長
-    inside = any((low <= lo and hi <= high) if kind != "fuzzy" else low <= said <= high
-                 for lo, hi, kind, said in items)
+    inside = any(_is_answer_in_range(lo, hi, kind, said, low, high) for lo, hi, kind, said in items)
     conflicts = [(lo, hi) for lo, hi, kind, _said in items
-                 if (kind != "fuzzy" and not low <= lo <= hi <= high)
-                 or (kind == "fuzzy" and (hi < low or lo > high))]
+                 if (kind not in _FUZZY_KINDS and not low <= lo <= hi <= high)
+                 or (kind in _FUZZY_KINDS and (hi < low or lo > high))]
     return inside and not conflicts, f"items={items} conflicts={conflicts}"
 
 
