@@ -142,11 +142,13 @@ async def _execute_reset(
         session = None
         if scrub:
             identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
-            session = memory_scrub.begin(target)
         # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳開不了。
+        # 放在設清除旗標之前：旗標要靠下面 try 的 finally 才清得掉。
         stopped = destructive_ops.stop_heartbeats(target)
         if stopped:
             logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
+        if scrub:
+            session = memory_scrub.begin(target)
         try:
             await _reset_stores(report, normalized, guard, do_backup=do_backup)
             if session is not None:

@@ -635,8 +635,6 @@ async def _process_heartbeat_loop(
                 )
             # P5c：背景迴圈結束（正常或例外），清除 in-flight 標記（不再算「未完成」）
             autonomy_service.clear_heartbeat_in_flight(identity)
-            # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
-            activity_registry.clear(final_session_id)
             # PostHeartbeat hook：僅家對話觸發滑動視窗（子對話排除）
             # hook 失敗不影響 heartbeat 整體結果
             if is_home_mode and end != "error" and not blocked:
@@ -648,7 +646,9 @@ async def _process_heartbeat_loop(
                         final_session_id,
                     )
         finally:
-            # 剪裁做完才拿掉登記（丙-4）：剪裁期間刪除仍看得到這次心跳在跑。
+            # 剪裁做完才拿掉（丙-4）：剪裁期間畫面仍顯示「背景跑中」，刪除也看得到這次心跳在跑。
+            # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
+            activity_registry.clear(final_session_id)
             destructive_ops.end_heartbeat(identity, final_session_id)
 
 

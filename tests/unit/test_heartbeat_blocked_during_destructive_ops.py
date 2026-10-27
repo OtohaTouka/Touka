@@ -192,10 +192,15 @@ async def test_a_stop_during_startup_is_not_cleared(loop_env, monkeypatch):
     loop_env.finished.assert_called_once()
 
 
-def test_each_hold_moves_the_generation_on():
+def test_only_a_stop_moves_the_generation_on():
+    """沒做成的操作（只標記、沒叫停）不動代數；叫停一次就加一，沒有心跳在跑也一樣。"""
     before = destructive_ops.generation(_who("Alice"))
     assert before is not None
     destructive_ops.hold(_who("alice"))
+    destructive_ops.release(_who("alice"))
+    assert not destructive_ops.disturbed(_who("Alice"), before)
+    destructive_ops.hold(_who("alice"))
+    assert destructive_ops.stop_heartbeats(_who("ALICE")) == []
     destructive_ops.release(_who("alice"))
     assert destructive_ops.disturbed(_who("Alice"), before)
     after = destructive_ops.generation(_who("Alice"))
@@ -302,3 +307,14 @@ async def test_the_registration_is_removed_on_every_exit(loop_env, monkeypatch, 
         with pytest.raises(RuntimeError):
             await _run("hb-exit")
     assert destructive_ops.running_heartbeats(_who(AGENT)) == []
+
+
+async def test_the_activity_stays_visible_until_trimming_ends(loop_env):
+    """剪裁期間畫面仍顯示「背景跑中」，和刪除說「心跳還在跑」一致。"""
+    seen: list[bool] = []
+    loop_env.trim.side_effect = lambda *_a: seen.append(
+        "hb-visible" in hb.activity_registry.snapshot()
+    )
+    await _run("hb-visible")
+    assert seen == [True]
+    assert "hb-visible" not in hb.activity_registry.snapshot()

@@ -170,12 +170,15 @@ async def test_a_refused_reset_does_not_stop_heartbeats(monkeypatch):
 
     monkeypatch.setattr(O, "_prepare_scrub", refuse)
     try:
-        assert destructive_ops.start_heartbeat(_who("Jin"), "hb-keep") is not None
+        before = destructive_ops.start_heartbeat(_who("Jin"), "hb-keep")
+        assert before is not None
         with pytest.raises(ToukaException):
             await O._execute_reset("Jin", lambda c: c, do_backup=False, scrub=True, actor_label="x")
         stopped = rhythm_service.is_interrupted("hb-keep")
+        disturbed = destructive_ops.disturbed(_who("Jin"), before)
     finally:
         destructive_ops.end_heartbeat(_who("Jin"), "hb-keep")
         rhythm_service.clear_interrupt("hb-keep")
     assert stopped is False
+    assert disturbed is False  # 下一個脈衝前也不會停
     assert not O.reset_in_progress()

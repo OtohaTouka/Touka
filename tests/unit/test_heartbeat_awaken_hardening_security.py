@@ -164,6 +164,7 @@ def test_awaken_is_refused_when_a_reset_starts_while_the_session_is_opened(
 
     async def open_during_a_reset(*_args: object, **_kwargs: object) -> str:
         destructive_ops.hold(_who("DebugAgent"))
+        destructive_ops.stop_heartbeats(_who("DebugAgent"))
         destructive_ops.release(_who("DebugAgent"))
         return "sess-x"
 

@@ -1,9 +1,10 @@
 """刪除、重置、記憶清除期間擋住這個靈魂的心跳（舊審查報告丙-4，ADR-0287）.
 
-破壞性操作把目標登記在這裡（``hold``／``release``），每次 ``hold`` 也讓這個靈魂的代數加一。
-心跳迴圈開跑時登記自己並記下代數（``start_heartbeat``），每個脈衝前與結束時看 ``disturbed``：
-正在進行、或開跑之後發生過（代數變了）就停。重置先結束、或中斷旗標被別的流程清掉，都照樣停。
-刪除靠登記判斷這個靈魂還有沒有心跳在跑（``stop_heartbeats``）。看標記和登記在同一把鎖裡。
+破壞性操作把目標登記在這裡（``hold``／``release``）；真的要動手時叫停（``stop_heartbeats``：
+重置在預檢通過後、刪除在查心跳時），叫停也讓這個靈魂的代數加一。心跳迴圈開跑時登記自己並記下
+代數（``start_heartbeat``），每個脈衝前與結束時看 ``disturbed``：標記還在、或開跑之後被叫停過
+（代數變了）就停。重置先結束、或中斷旗標被別的流程清掉，都照樣在下一個脈衝前停。沒做成的操作
+（預檢沒過、備份失敗）不叫停，正在跑的心跳照常跑完。看標記和登記在同一把鎖裡。
 
 記憶清除在工作執行緒裡結束，所以用執行緒鎖。ID 不分大小寫比對（寧可多擋）。
 """
@@ -32,9 +33,7 @@ def _key(identity: AgentIdentity) -> str:
 def hold(identity: AgentIdentity) -> None:
     """登記一個進行中的破壞性操作（可重疊：重置和它後面的清除各算一次）."""
     with _lock:
-        key = _key(identity)
-        _held[key] += 1
-        _generation[key] += 1
+        _held[_key(identity)] += 1
 
 
 def release(identity: AgentIdentity) -> None:
@@ -60,7 +59,7 @@ def generation(identity: AgentIdentity) -> int | None:
 
 
 def disturbed(identity: AgentIdentity, since: int) -> bool:
-    """從代數 ``since`` 之後，這個靈魂是否正在或曾經刪除、重置、清除."""
+    """這個靈魂是否正在刪除、重置、清除，或從代數 ``since`` 之後被叫停過."""
     with _lock:
         key = _key(identity)
         return _held[key] > 0 or _generation[key] != since
@@ -71,7 +70,7 @@ def start_heartbeat(
 ) -> int | None:
     """心跳開跑：沒被擋就登記並回開跑當下的代數；被擋就回 None、什麼都不登記.
 
-    ``since`` 是入口檢查時的代數：之後發生過破壞性操作也不開跑。
+    ``since`` 是入口檢查時的代數：之後被叫停過也不開跑。
     """
     with _lock:
         key = _key(identity)
@@ -102,8 +101,14 @@ def running_heartbeats(identity: AgentIdentity) -> list[str]:
 
 
 def stop_heartbeats(identity: AgentIdentity) -> list[str]:
-    """叫這個靈魂正在跑的心跳停下，回傳它們的對話 ID（沒有就是空的）."""
-    sessions = running_heartbeats(identity)
+    """叫這個靈魂正在跑的心跳停下並讓代數加一，回傳它們的對話 ID（沒有就是空的）.
+
+    代數一律加一：入口已檢查過、還沒開跑的心跳也不會開跑。
+    """
+    with _lock:
+        key = _key(identity)
+        _generation[key] += 1
+        sessions = sorted(_running.get(key, ()))
     for session_id in sessions:
         rhythm_service.interrupt_session(session_id)
     return sessions
