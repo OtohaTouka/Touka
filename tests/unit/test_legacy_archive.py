@@ -135,6 +135,49 @@ def test_each_different_content_is_its_own_version(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("batch", "outcome", "versions"),
+    [
+        ([{**_HELLO, "session_id": "s"}, {**_HELLO, "session_id": "s"}], (2, 0), {}),
+        ([{**_HELLO, "session_id": "s"}, {**_HELLO, "content": "b", "session_id": "s"}],
+         (2, 1), {"m1": ["b"]}),
+    ],
+    ids=["same-content", "different-content"],
+)
+def test_the_same_id_twice_in_one_batch(
+    tmp_path: Path, batch: list[dict], outcome: tuple[int, int], versions: dict
+) -> None:
+    """同一批裡同 id 出現兩次：內容相同不另存；不同的第二則另存成版本，重跑結果一樣。"""
+    store = LegacyStore(str(tmp_path / "legacy_history.db"))
+    for _ in range(2):
+        result = store.archive(IDENTITY, [_SESSION], batch)
+        assert (result.confirmed, result.versions) == outcome
+    assert _originals(tmp_path) == {"m1": "hello"}
+    assert _versions(tmp_path) == versions
+
+
+def test_same_content_in_several_sessions_gets_one_version_each(tmp_path: Path) -> None:
+    """同 id、同內容出現在三個 session：版本 id 也看 session，各存一份、不互相擋。"""
+    db = tmp_path / "legacy_history.db"
+    store = LegacyStore(str(db))
+    for session_id in ("s", "other", "third"):
+        store.archive(IDENTITY, [{**_SESSION, "id": session_id}],
+                      [{**_HELLO, "session_id": session_id}])
+    rows = _rows(db, "SELECT session_id, content FROM messages ORDER BY session_id")
+    assert rows == [("other", "hello"), ("s", "hello"), ("third", "hello")]
+
+
+def test_numeric_ids_are_compared_as_text(tmp_path: Path) -> None:
+    """匯入檔的 session 或訊息 id 是數字：SQLite 存成文字，比對也用文字，不當成衝突（乙-1 審查）."""
+    data = {"id": 7, "title": "t", "messages": [{"id": 5, "role": "user", "content": "a"}]}
+    _write(tmp_path, data, "a.json")
+    _write(tmp_path, data, "b.json")
+    result = _service(tmp_path).sync_all_json_to_db(IDENTITY)
+    assert (result["synced"], result["errors"], result["conflicts"]) == (2, 0, 0)
+    rows = _rows(tmp_path / "legacy_history.db", "SELECT id, session_id, content FROM messages")
+    assert rows == [("5", "7", "a")]
+
+
+@pytest.mark.parametrize(
     "change", [{"session_id": "other"}, {"role": "assistant"}], ids=["session", "role"]
 )
 def test_same_id_in_another_session_or_role_is_also_a_version(
@@ -404,6 +447,6 @@ def test_no_tool_can_reach_the_archive_entry_points() -> None:
         for directory in tool_dirs
         for path in directory.rglob("*.py")
         if any(name in path.read_text(encoding="utf-8")
-               for name in ("archive_payload", "sync_all_json_to_db", ".archive("))
+               for name in ("archive_payload", "sync_all_json_to_db", ".archive(", "_archive("))
     ]
     assert offenders == []

@@ -115,7 +115,11 @@ def _content_text(content: Any) -> str:
 
 
 def _message_row(msg: dict[str, Any]) -> tuple[Any, ...]:
-    """訊息轉成資料列：其餘欄位存成 metadata JSON；時間一律毫秒，沒有才用寫入當下."""
+    """訊息轉成資料列：其餘欄位存成 metadata JSON；時間一律毫秒，沒有才用寫入當下.
+
+    id 與 session id 先換成文字：欄位是 TEXT，SQLite 本來就把數字存成文字，讀回比對時型別才一致
+    （匯入檔的 id 可能是數字；舊審查報告乙-1 審查）。
+    """
     metadata = {k: v for k, v in msg.items() if k not in _RESERVED_KEYS}
     ts = (
         to_epoch_ms(msg.get("timestamp"))
@@ -123,8 +127,8 @@ def _message_row(msg: dict[str, Any]) -> tuple[Any, ...]:
         or int(get_current_epoch() * 1000)
     )
     return (
-        msg["id"],
-        msg["session_id"],
+        str(msg["id"]),
+        str(msg["session_id"]),
         msg.get("parentId"),
         msg["role"],
         _content_text(msg["content"]),
