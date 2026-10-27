@@ -261,6 +261,16 @@ CASES = [
     ("not_yesterday", (), _obs("查了紀錄卻記得是昨天。"), False),
     ("not_yesterday", (), _obs("摘要寫十天前卻說昨天。"), False),
     ("not_yesterday", (), _obs("摘要寫錯了卻說是昨天。"), False),
+    ("not_yesterday", (), _obs("摘要後卻說是昨天。"), False),  # 摘要和卻之間只收裡、上、中、內
+    # 摘要是受詞（前面是看、查、了、信這類字）：「卻」後面是自己的主張（DEV-B 找到的反例）
+    ("not_yesterday", (), _obs("我看了摘要卻說是昨天。"), False),
+    ("not_yesterday", (), _obs("我沒看紀錄卻說是昨天。"), False),
+    ("not_yesterday", (), _obs("相信摘要卻說是昨天。"), False),
+    ("not_yesterday", (), _obs("雖然有摘要卻記得是昨天。"), False),  # 「卻記得」是自己的主張
+    # 每個轉述動詞都算（說、記、標）
+    ("not_yesterday", (), _obs("摘要卻說昨天，其實是十天前。"), True),
+    ("not_yesterday", (), _obs("筆記卻記著昨天，其實是十天前。"), True),
+    ("not_yesterday", (), _obs("紀錄卻標著昨天，其實是十天前。"), True),
     # 否認自己的名字（「我不是澪」以前被 contains_any 判成記得自己是澪）
     ("not_self_denied", ("霧島澪", "澪"), _obs("我是澪，今天也請多指教。"), True),
     ("not_self_denied", ("霧島澪", "澪"), _obs("我不是澪。"), False),
@@ -317,7 +327,11 @@ CASES = [
      True),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要卻寫著 1 天前，其實是 10 天前。"), True),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要卻寫著 1 天前其實是 10 天前。"), True),
-    ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要寫 10 天前卻說 1 天前。"), False),
+    # 前面先有一個範圍內的答案，「卻說 1 天」被誤當轉述時才會變成通過
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("大約 10 天前。摘要寫 10 天前卻說 1 天前。"),
+     False),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("大約 10 天，看了摘要卻說 1 天。"), False),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("大約 10 天，我查了紀錄卻說 1 天。"), False),
     # 日期與時刻不是時長（ADR-0284 決策 4）
     ("elapsed_only_within", (9 * D, 11 * D), _obs("2026.10.17 週六大約 10 天前。"), True),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("10/17 週六，大約 10 天前。"), True),
@@ -461,9 +475,13 @@ def test_extract_durations(text: str, seconds: list[int]) -> None:
         ("10-17（週六）", "10-17"),
         ("10-17 週末", "10-17"),
         ("10/17 星期六", "10/17"),
+        ("10/17 禮拜六", "10/17"),
+        ("10/18 週日", "10/18"),
+        ("10/18 星期天", "10/18"),
         ("9 點 28 分", " 28 分"),
         ("九點二十八分", "二十八分"),
         ("9 點 28 分 46 秒", " 28 分 46 秒"),
+        ("9 點 28 分 30 秒鐘", " 28 分"),  # 「秒鐘」是時長，不遮
     ],
 )
 def test_time_points_are_masked_in_place(text: str, point: str) -> None:
@@ -474,7 +492,9 @@ def test_time_points_are_masked_in_place(text: str, point: str) -> None:
 @pytest.mark.parametrize(
     "text",
     ["2-4 天", "大約 10.5 天", "兩週一次", "每 3-4 週一次", "1/2 天", "4 小時 30 分", "10 分鐘",
-     "三點半", "17 週", "大約 3 年前", "差一點 10 分鐘"],
+     "三點半", "17 週", "大約 3 年前", "差一點 10 分鐘",
+     # 數字邊界：前後還連著數字就不是日期
+     "12026-10-17", "2026-10-178", "12026 年", "110/17 週六"],
 )
 def test_durations_are_not_masked(text: str) -> None:
     """長得像日期、但後面沒有星期的時長照舊算（「1/2 天」讀成 2 天是已知限制）。"""
