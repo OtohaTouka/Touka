@@ -49,8 +49,8 @@
    - `VectorStore` 每個公開方法整段持有一把整個行程共用的 `RLock`（Qdrant client 依路徑共用）：「先查再建 collection」與延遲載入模型不會被別的執行緒插進來。
    - `get_vector_store` 建單例與 `reset_singletons` 共用一把鎖：只建一個，換嵌入模型重置之後也不會留下舊模型的那個。
 5. **寫 `.env` 共用一把鎖**（`config.ENV_FILE_LOCK`，`RLock`）：切換嵌入模型改在工作者上寫 `.env`；設定頁（`POST /v1/config/env`）、首裝精靈在主迴圈上寫；密鑰持久化（`persist_generated_secret(s)`）多在主迴圈上，MCP OAuth 金鑰的初次產生與輪替經 `asyncio.to_thread` 在預設執行緒池上。設定頁是先清空再寫，沒有互斥時後寫的可能讀到清空到一半的檔、蓋掉前一個，密鑰會不見。五個寫入的地方都在讀改寫整段持鎖；鎖只包住讀寫檔，持鎖時不等別的執行緒。
-   - 持鎖時不得 `await`：`RLock` 依執行緒重入，主迴圈上別的協程會直接再進來，互斥就失效，還會卡住主迴圈。
-   - `update_env` 要留在主迴圈上：讀 `.env` 的地方沒拿鎖（MCP OAuth 金鑰重新載入、`GET /v1/config/env`），它們讀不到清空到一半的檔，是因為唯一不是原子置換的寫入也在主迴圈上。要移到別的執行緒，先改成暫存檔置換。
+   - 持鎖時不得 `await`：`RLock` 依執行緒重入，主迴圈上別的協程會直接再進來，互斥就失效；別的執行緒（記憶工作者、執行緒池）要等到 `await` 結束，等的若正好是記憶工作者就會互相卡死。
+   - `update_env` 要留在主迴圈上：讀 `.env` 的地方沒拿鎖（例如 MCP OAuth 金鑰重新載入、`GET /v1/config/env`、`POST /v1/models/refresh` 的金鑰稽核、啟動時的 `verify_env_persistence_integrity`），它們讀不到清空到一半的檔，是因為唯一不是原子置換的寫入也在主迴圈上。要移到別的執行緒，先改成暫存檔置換。
 6. **測試沙盒**：刪沙盒前多一步「等記憶工作者做完」（`drain_memory_worker`，在關 SQLite、Qdrant 之前）；人工記憶評估探針也一樣。
 7. **不變的**：
    - 工具回覆、端點、參數、錯誤碼與 OpenAPI 都不變。
