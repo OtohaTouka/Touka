@@ -29,21 +29,28 @@ def _anthropic_input_schema(schema: object) -> dict[str, Any]:
     """另建一份 Anthropic 收得下的 input_schema；不改輸入（模組層 schema 以參考進請求）。
 
     剝掉根層 oneOf／anyOf／allOf，其他根層鍵（含 ``$defs``）照留、內層不動。各分支的
-    properties 先併進根層 properties（同名以根層為準，分支之間先出現者為準），欄位才不會
-    跟著消失；required 只留根層原有的。根層 type 一律 object。非 dict → 空 object schema。
-    條件必填因此只剩說明文字；執行前仍照正本檢查。
+    properties 先併進根層 properties（同名以根層為準），欄位才不會跟著消失；分支之間同名
+    欄位的定義依出現順序收集、相同的只留一份，只有一種照用，多種合成 ``{"anyOf": [...]}``
+    （例如只寫在分支裡的判別欄位，每個值都還選得到）。required 只留根層原有的。根層 type
+    一律 object。非 dict → 空 object schema。條件必填因此只剩說明文字；執行前仍照正本檢查。
     """
     if not isinstance(schema, dict):
         return {"type": "object", "properties": {}}
     out = {k: v for k, v in schema.items() if k not in _ROOT_COMBINATORS}
-    branch_props: dict[str, Any] = {}
+    variants: dict[str, list[Any]] = {}
     for key in _ROOT_COMBINATORS:
         branches = schema.get(key)
         for branch in branches if isinstance(branches, list) else []:
             props = branch.get("properties") if isinstance(branch, dict) else None
             for name, prop in (props if isinstance(props, dict) else {}).items():
-                branch_props.setdefault(name, prop)
-    if branch_props:
+                seen = variants.setdefault(name, [])
+                if prop not in seen:
+                    seen.append(prop)
+    if variants:
+        branch_props = {
+            name: seen[0] if len(seen) == 1 else {"anyOf": list(seen)}
+            for name, seen in variants.items()
+        }
         root_props = schema.get("properties")
         out["properties"] = {**branch_props, **(root_props if isinstance(root_props, dict) else {})}
     out["type"] = "object"
