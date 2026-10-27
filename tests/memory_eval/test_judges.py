@@ -520,6 +520,8 @@ def test_no_leak_checks_this_runs_canary() -> None:
         ("前一天", [D]),
         ("中間隔了一個週末", []),
         ("兩個週末前", []),
+        ("兩週一次", [14 * D]),
+        ("17 週", [119 * D]),
     ],
 )
 def test_extract_durations(text: str, seconds: list[int]) -> None:
@@ -561,6 +563,8 @@ def test_extract_durations(text: str, seconds: list[int]) -> None:
         ("某一年", "一年"),
         ("那一天半夜", "一天"),  # 「半夜」不是「一天半」
         ("那一分鐘", "一分鐘"),
+        ("那一週天氣很好", "一週"),  # 「週」後面接「天」不是週天
+        ("那一週一定很忙", "一週"),
     ],
 )
 def test_time_points_are_masked_in_place(text: str, point: str) -> None:
