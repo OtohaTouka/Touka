@@ -128,7 +128,7 @@ async def run_memory_smoke_test():
         identity=identity,
     )
     print(f"[OK] Memory Forget Result: {forget_result}")
-    if "archived" not in str(forget_result).lower():
+    if "has been archived" not in str(forget_result).lower():
         print("[!] Saved fact was not archived by forget.")
         sys.exit(1)
     after_forget = await memory_tool(
