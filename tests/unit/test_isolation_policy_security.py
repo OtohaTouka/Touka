@@ -285,6 +285,7 @@ def _executor(monkeypatch: pytest.MonkeyPatch, name: str, handler: Any) -> ToolE
         tool_registry={name: handler},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
 
 
@@ -379,6 +380,7 @@ async def test_reviewer_sees_none_for_mcp_tools(monkeypatch, name):
     executor = ToolExecutor(
         protocol_manager=_McpManager(), tool_registry={}, memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     await _run(executor, name, {"command": "id"}, dict(_AUTO_CTX))
     assert [r.isolation for r in reviewer.requests] == ["none"]
@@ -447,6 +449,7 @@ async def test_mcp_tool_named_like_an_isolation_action_skips_the_ledger(monkeypa
     executor = ToolExecutor(
         protocol_manager=_McpManager(), tool_registry={}, memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     await _run(executor, name, {"command": "id", "skill_id": "x"}, dict(_AUTO_CTX))
     assert (seen[0].environment["isolation"], asked, len(consent_ledger)) == ("landlock", [], 0)

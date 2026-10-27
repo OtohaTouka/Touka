@@ -67,6 +67,7 @@ def _executor(
         tool_registry=registry or {},
         memory_tool_registry=memory_registry or {},
         plugin_registry={},
+        enforce_advertised=False,
     )
 
 

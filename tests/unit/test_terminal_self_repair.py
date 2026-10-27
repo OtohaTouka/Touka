@@ -67,7 +67,7 @@ def _executor(monkeypatch: pytest.MonkeyPatch, name: str, handler: Any) -> ToolE
         bindings = dict(executor_module.BUILTIN_EXECUTION_BINDINGS)
         bindings[name] = replace(bindings[name], handler=handler)
         monkeypatch.setattr(executor_module, "BUILTIN_EXECUTION_BINDINGS", bindings)
-    return ToolExecutor(None, {name: handler}, {}, {})
+    return ToolExecutor(None, {name: handler}, {}, {}, enforce_advertised=False)
 
 
 async def _call(

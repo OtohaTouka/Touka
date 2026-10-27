@@ -171,6 +171,7 @@ async def test_tool_executor_emits_repair_progress(monkeypatch):
         tool_registry={"bash": fake_bash},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="Charlie", role="Owner", capabilities=["*"]),
@@ -343,6 +344,7 @@ async def test_tool_executor_passes_emit_channel(monkeypatch):
         tool_registry={"mytool": fake_tool},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="Charlie", role="Owner", capabilities=["*"]),

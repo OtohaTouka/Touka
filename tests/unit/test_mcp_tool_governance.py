@@ -241,7 +241,8 @@ async def test_executor_reports_disabled_tool_as_permission_denied(tmp_path, mon
         permission_service, "evaluate_policy", lambda _c: _Allow()
     )
     executor = ToolExecutor(
-        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue = asyncio.Queue()
     result = await executor.execute_to_queue(
@@ -356,7 +357,8 @@ async def test_axis_b_blocks_unadvertised_tool_at_execution(tmp_path, monkeypatc
     mgr, session = _manager(tmp_path)
     monkeypatch.setattr(permission_service, "evaluate_policy", lambda _c: _Allow())
     executor = ToolExecutor(
-        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue = asyncio.Queue()
     result = await executor.execute_to_queue(
@@ -378,7 +380,8 @@ async def test_axis_b_allows_granted_tool_at_execution(tmp_path, monkeypatch, _r
     mgr, session = _manager(tmp_path)
     monkeypatch.setattr(permission_service, "evaluate_policy", lambda _c: _Allow())
     executor = ToolExecutor(
-        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=mgr, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue = asyncio.Queue()
     await executor.execute_to_queue(

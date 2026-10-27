@@ -226,7 +226,7 @@ async def _execute(
     monkeypatch.setattr(
         "src.services.tool_executor.session_service.get_session_by_id", AsyncMock(return_value=None)
     )
-    executor = ToolExecutor(None, {name: handler}, {}, {})
+    executor = ToolExecutor(None, {name: handler}, {}, {}, enforce_advertised=False)
     return await executor.execute_to_queue(
         name,
         args,

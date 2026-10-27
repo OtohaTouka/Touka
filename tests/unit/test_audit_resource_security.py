@@ -342,6 +342,7 @@ async def test_tool_executor_gate2_ledger_row_has_only_the_summary(
         tool_registry={"execute_command": recorder},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     command = f"OPENAI_API_KEY={_KEY} echo {_PW} && rm -rf /"
     ctx = {"identity": _ACTOR, "auth_level": "YOLO", "session_id": "s-audit-gate2"}

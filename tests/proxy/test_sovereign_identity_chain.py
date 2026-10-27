@@ -31,7 +31,9 @@ async def test_sovereign_identity_elevation_and_isolation():
     mock_plugin_reg = {}
 
     # 2. 建立 ToolExecutor
-    executor = ToolExecutor(mock_pm, mock_tool_reg, mock_mem_reg, mock_plugin_reg)
+    executor = ToolExecutor(
+        mock_pm, mock_tool_reg, mock_mem_reg, mock_plugin_reg, enforce_advertised=False
+    )
 
     def mock_identify(agent_id_str):
         if agent_id_str == "Alice":

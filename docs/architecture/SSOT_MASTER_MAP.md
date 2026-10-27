@@ -117,7 +117,7 @@
 | 這一輪實際列給模型的工具（原生工具名；MCP 的（伺服器, 裸工具名）；不可變、不做 I/O） | `ToukaProxy/src/models/advertised_tools.py` `AdvertisedTools`（`from_schemas`、`permits_native`、`permits_mcp`、`has_server`）；存在 `PipelineContext.advertised_tools`（`models/context.py`，`InstanceOf[AdvertisedTools] \| None`） | `services/tool_executor.py` `ToolExecutor._offer_denial`（只讀） |
 | 誰能寫這份清單（結構測試 C3 釘住） | 正式程式只有兩處：`middleware/layers/tool.py` `ToolLayer`（由 `_inject_tools` 回傳的實際注入、去重後 schema 算，一律覆寫）、`tools/subagent_tools.py` `_run_subagent`（子代理自己組裝的 `request.tools`）；測試例外只有 `tests/tool_eval/live_episode.py` | 所有經 `run_react_loop` 的模型迴圈 |
 | 舊名工具 → 後繼正式工具（後繼全部列出才放行；鍵＝Guard #45 基準的 `legacy_tools`） | `ToukaProxy/src/tools/builtin/__init__.py` `LEGACY_ADVERTISED_SUCCESSORS`（`MappingProxyType`） | `AdvertisedTools.permits_native` ← `ToolExecutor._offer_denial` |
-| 執行器要不要核對清單（只能用名稱指定、建立後唯讀；正式程式只有兩個建立點、各一次，結構測試 C2 逐一比對建立點，並限定只有這兩個檔能匯入 `tool_executor` 模組） | `ToolExecutor(..., *, enforce_advertised)`：`handlers/react_core.py` `run_react_loop` 寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈；人按的 `/debug/execute` |
+| 執行器要不要核對清單（只能用名稱指定、建立後唯讀；預設開，ADR-0285 甲-3；結構測試 C2 只准 `debug_execute_tool` 用字面 `False` 關） | `ToolExecutor(..., *, enforce_advertised=True)`：`handlers/react_core.py` `run_react_loop` 明寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈與其他建立點；人按的 `/debug/execute` |
 | 子代理一定拿掉的工具（請求與清單同步） | `tools/subagent_tools.py` `_SUBAGENT_STRIPPED_TOOLS`（`dispatch_subagent`、`dispatch_subagent_group`） | `_assemble_subagent_request`、`_run_subagent` |
 
 ## ADR-0269 的後續：工具使用分三種、使用者授權的 MCP、工具清單比對（2026-10-24，ADR-0281 T3、T1、T2）

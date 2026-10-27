@@ -30,7 +30,7 @@ async def test_ungranted_native_never_reaches_handler_even_when_pac_allows(
     monkeypatch.setattr("src.services.tool_executor.permission_service", gate)
     monkeypatch.setattr("src.services.tool_executor.soul_service.is_toukasoul", lambda _: False)
     handler = AsyncMock(return_value="unexpected backend call")
-    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {})
+    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {}, enforce_advertised=False)
     result = await executor.execute_to_queue(
         "memory_tools",
         {"action": "query"},
@@ -71,7 +71,7 @@ async def test_native_owner_grants_aliases_and_duplicate_precedence(
         AsyncMock(return_value="wrong duplicate"),
     )
     protocol = MagicMock()
-    executor = ToolExecutor(protocol, {name: builtin}, {name: memory}, {})
+    executor = ToolExecutor(protocol, {name: builtin}, {name: memory}, {}, enforce_advertised=False)
     args = (
         {"action": "query"} if name == "memory_tools" else {"action": "list", "vault": "personal"}
     )
@@ -105,7 +105,13 @@ async def test_non_native_keeps_existing_authorization_path(
     protocol = MagicMock()
     protocol.resolve_tool.return_value = ("server", "remote")
     handler = AsyncMock()
-    executor = ToolExecutor(protocol, {}, {}, {"remote": handler} if branch == "plugin" else {})
+    executor = ToolExecutor(
+        protocol,
+        {},
+        {},
+        {"remote": handler} if branch == "plugin" else {},
+        enforce_advertised=False,
+    )
     result = await executor.execute_to_queue(
         "remote",
         {},
@@ -138,7 +144,7 @@ async def test_invalid_action_stays_safe_with_real_pac_model(
     gate.evaluate_policy.side_effect = policy.evaluate
     monkeypatch.setattr("src.services.tool_executor.permission_service", gate)
     handler = AsyncMock()
-    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {})
+    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {}, enforce_advertised=False)
     result = await executor.execute_to_queue(
         "memory_tools",
         {"action": action},

@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import inspect
 import json
-from collections import Counter
 from dataclasses import FrozenInstanceError, dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -806,17 +806,33 @@ def _plain_ctx(value: Any) -> PipelineContext:
 _MISSING = object()
 
 
+def _assigned_ctx(value: Any) -> PipelineContext:
+    """建好之後才用屬性指派：Pydantic 不驗證事後指派，由執行器的 isinstance 擋下。"""
+    ctx = _plain_ctx(_MISSING)
+    ctx.advertised_tools = value
+    return ctx
+
+
 @pytest.mark.parametrize(
     "ctx_factory",
     [
         lambda: _plain_ctx({"native": ["write"], "mcp": []}),
+        lambda: _assigned_ctx({"native": ["write"], "mcp": []}),
         lambda: _plain_ctx(frozenset({"write"})),
         lambda: _plain_ctx(None),
         lambda: _plain_ctx(_MISSING),
         lambda: {"identity": _OWNER, "auth_level": "YOLO", "advertised_tools": ["write"]},
         lambda: {"identity": _OWNER, "auth_level": "YOLO"},
     ],
-    ids=["dict", "frozenset", "none", "missing", "sns-dict-list", "sns-dict-missing"],
+    ids=[
+        "dict",
+        "assigned-dict",
+        "frozenset",
+        "none",
+        "missing",
+        "sns-dict-list",
+        "sns-dict-missing",
+    ],
 )
 async def test_b11_unusable_list_blocks_with_internal_error(gates, ctx_factory):
     handler = AsyncMock(return_value="ran")
@@ -1126,7 +1142,7 @@ async def test_live_episode_hands_its_assembled_list_to_the_loop(monkeypatch):
     assert captured["context"]["advertised_tools"] == AdvertisedTools(native=frozenset({"read"}))
 
 
-# --- 7. 結構測試（C2：執行器建立點；C3：清單欄位的讀寫者） ---------------------
+# --- 7. 開關預設開與結構測試（C2：誰能關開關；C3：清單欄位的讀寫者） ----------
 
 _SCAN_ROOTS = ("ToukaProxy", "ToukaMemory", "ToukaHeartbeat", "ToukaDispatch", "scripts")
 # 不進去的資料夾：測試、虛擬環境、產生物、快取；data／soul 一律不走（DATA_PROTECTION）
@@ -1150,9 +1166,8 @@ _SKIP_PARTS = frozenset(
 _REACT_CORE = "ToukaProxy/src/handlers/react_core.py"
 _DEBUG = "ToukaProxy/src/routers/debug.py"
 _EXECUTOR_MODULE = "ToukaProxy/src/services/tool_executor.py"
-_EXECUTOR_WIRING = {(_REACT_CORE, "run_react_loop", True), (_DEBUG, "debug_execute_tool", False)}
-_EXECUTOR_STRINGS = frozenset({"ToolExecutor", "src.services.tool_executor", "tool_executor"})
-_SWITCH_STRINGS = frozenset({"enforce_advertised", "_enforce_advertised"})
+_SWITCH = "enforce_advertised"
+_PRIVATE_SWITCH = "_enforce_advertised"
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
 _FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
@@ -1210,333 +1225,166 @@ def _function_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
     return "<module>"
 
 
-def _switch_value(call: ast.Call) -> Any:
-    if any(keyword.arg is None for keyword in call.keywords):
-        return "NON_LITERAL"
-    keyword = next((k for k in call.keywords if k.arg == "enforce_advertised"), None)
-    if keyword is None:
-        return "MISSING"
-    value = keyword.value
-    if isinstance(value, ast.Constant) and isinstance(value.value, bool):
-        return value.value
-    return "NON_LITERAL"
+def test_c2_switch_defaults_on_and_is_keyword_only():
+    """甲-3：開關預設開、只能用名稱指定；新入口忘了設定也照樣核對清單。"""
+    param = inspect.signature(ToolExecutor.__init__).parameters[_SWITCH]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is True
+    assert ToolExecutor(None, {}, {}, {}).enforce_advertised is True
 
 
-def _scan_executor(sources: dict[str, str]) -> tuple[list[tuple[str, str, Any]], list[str]]:
-    """回傳 (建立點, 其他違規)。建立點＝(相對路徑, 外層函式, enforce_advertised 字面值)。"""
-    points: list[tuple[str, str, Any]] = []
-    problems: list[str] = []
-    for rel, source in sources.items():
-        tree = ast.parse(source)
-        parents = _parents(tree)
-        imports = [
-            (node.module, alias.asname)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            for alias in node.names
-            if alias.name == "ToolExecutor"
-        ]
-        names = {"ToolExecutor"} | {asname for _module, asname in imports if asname}
-        stray: list[str] = []
-        for node in ast.walk(tree):
-            parent = parents.get(node)
-            if isinstance(node, ast.Call) and (
-                (isinstance(node.func, ast.Name) and node.func.id in names)
-                or (isinstance(node.func, ast.Attribute) and node.func.attr == "ToolExecutor")
-            ):
-                points.append((rel, _function_of(node, parents), _switch_value(node)))
-            elif isinstance(node, ast.Name) and node.id in names:
-                if not (isinstance(parent, ast.Call) and parent.func is node):
-                    stray.append(f"name {node.id}")
-            elif isinstance(node, ast.Attribute) and node.attr == "ToolExecutor":
-                stray.append("attribute .ToolExecutor")
-            elif isinstance(node, ast.Attribute) and node.attr == "tool_executor":
-                # 經上層套件的屬性取得模組（例如 src.services.tool_executor）
-                if rel != _EXECUTOR_MODULE:
-                    stray.append("attribute .tool_executor")
-            elif isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
-                if (node.module or "").endswith("tool_executor"):
-                    stray.append("star import")
-            elif isinstance(node, ast.ClassDef) and node.name == "ToolExecutor":
-                if rel != _EXECUTOR_MODULE:
-                    stray.append("class ToolExecutor")
-            elif isinstance(node, ast.Constant) and node.value in _EXECUTOR_STRINGS:
-                stray.append(f"string {node.value!r}")
-            if rel != _EXECUTOR_MODULE:
-                stray.extend(_switch_uses(node, parent, rel))
-        modules = _executor_module_imports(tree)
-        if rel in {_REACT_CORE, _DEBUG}:
-            if imports != [("src.services.tool_executor", None)]:
-                stray.append(f"imports {imports}")
-            if modules != [_CANONICAL_EXECUTOR_IMPORT]:
-                stray.append(f"module imports {modules}")
-        else:
-            if imports:
-                stray.append(f"imports {imports}")
-            if modules:
-                stray.append(f"module imports {modules}")
-        problems.extend(f"{rel}: {item}" for item in stray)
-    return points, problems
+async def test_c2_an_executor_built_without_the_switch_blocks_unlisted_tools(gates):
+    handler = AsyncMock(return_value="ran")
+    executor = ToolExecutor(None, {"write": handler}, {}, {})
+    result, events = await _call(executor, "write", _listed_ctx())
+    _blocked(result, events, "permission_denied", "not_advertised")
+    handler.assert_not_awaited()
 
 
-_CANONICAL_EXECUTOR_IMPORT = "from src.services.tool_executor import ToolExecutor"
-_IMPORT_CALLS = frozenset({"import_module", "__import__"})
-
-
-def _is_executor_module(dotted: str) -> bool:
-    return dotted.rsplit(".", 1)[-1] == "tool_executor"
-
-
-def _executor_module_imports(tree: ast.AST) -> list[str]:
-    """匯入棘輪：tool_executor 模組的每一種字面匯入（絕對、相對、as、importlib 字面字串）。"""
-    found: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found += [f"import {a.name}" for a in node.names if _is_executor_module(a.name)]
-        elif isinstance(node, ast.ImportFrom):
-            module = "." * node.level + (node.module or "")
-            found += [
-                f"from {module} import {alias.name}"
-                for alias in node.names
-                if _is_executor_module(module) or alias.name == "tool_executor"
-            ]
-        elif isinstance(node, ast.Call) and node.args:
-            func = node.func
-            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            target = node.args[0]
-            if (
-                called in _IMPORT_CALLS
-                and isinstance(target, ast.Constant)
-                and isinstance(target.value, str)
-                and _is_executor_module(target.value)
-            ):
-                found.append(f"{called}({target.value!r})")
-    return found
-
-
-def _switch_uses(node: ast.AST, parent: ast.AST | None, rel: str) -> list[str]:
-    """tool_executor.py 以外：開關只能在建立時以字面值給，react_core 只能讀屬性。"""
-    if isinstance(node, ast.Constant) and node.value in _SWITCH_STRINGS:
-        return [f"string {node.value!r}"]
-    if isinstance(node, ast.Name) and node.id == "_enforce_advertised":
-        return ["name _enforce_advertised"]
-    if isinstance(node, ast.Attribute) and node.attr in _SWITCH_STRINGS:
-        if node.attr == "_enforce_advertised" or not isinstance(node.ctx, ast.Load):
-            return [f"attribute {node.attr} ({type(node.ctx).__name__})"]
-        if rel != _REACT_CORE:
-            return [f"attribute read {node.attr}"]
-    if isinstance(node, ast.keyword) and node.arg in _SWITCH_STRINGS:
-        call = parent if isinstance(parent, ast.Call) else None
-        is_build = call is not None and (
-            (isinstance(call.func, ast.Name) and call.func.id == "ToolExecutor")
-            or (isinstance(call.func, ast.Attribute) and call.func.attr == "ToolExecutor")
-        )
-        if not is_build:
-            return [f"keyword {node.arg} outside construction"]
+def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    """tool_executor.py 以外：只有 debug_execute_tool 能用字面 False 關開關，其他寫法一律算違規."""
+    if isinstance(node, ast.Constant) and node.value in {_SWITCH, _PRIVATE_SWITCH}:
+        return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、vars()[...]
+    if isinstance(node, ast.Name) and node.id == _PRIVATE_SWITCH:
+        return [f"name {_PRIVATE_SWITCH}"]
+    if isinstance(node, ast.Attribute):
+        if node.attr == _PRIVATE_SWITCH:
+            return [f"attribute {_PRIVATE_SWITCH}"]
+        if node.attr == _SWITCH and not isinstance(node.ctx, ast.Load):
+            return [f"attribute {_SWITCH} ({type(node.ctx).__name__})"]
+    if isinstance(node, ast.keyword) and node.arg == _SWITCH:
+        value = node.value
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, bool)):
+            return [f"keyword {_SWITCH} with a non-literal value"]
+        where = (rel, _function_of(node, parents))
+        if value.value is False and where != (_DEBUG, "debug_execute_tool"):
+            return [f"keyword {_SWITCH}=False in {where[1]}"]
     return []
 
 
-def _executor_findings(sources: dict[str, str]) -> list[str]:
-    points, problems = _scan_executor(sources)
-    counts = Counter(points)
-    return problems + [
-        f"construction {point} x{count}"
-        for point, count in sorted(counts.items(), key=str)
-        if point not in _EXECUTOR_WIRING or count > 1
-    ]
+def _switch_findings(sources: dict[str, str]) -> list[str]:
+    problems: list[str] = []
+    for rel, source in sources.items():
+        if rel == _EXECUTOR_MODULE:
+            continue
+        tree = ast.parse(source)
+        parents = _parents(tree)
+        for node in ast.walk(tree):
+            problems.extend(f"{rel}: {item}" for item in _switch_uses(node, rel, parents))
+    return problems
 
 
-def test_c2_executor_is_built_only_at_the_two_wired_points(production_sources):
-    points, problems = _scan_executor(production_sources)
-    # 用 list 比對：同一個允許點重複建立（字面值相同）也要轉紅
-    assert sorted(points, key=str) == sorted(_EXECUTOR_WIRING, key=str), (
-        f"建立點（全部）：{sorted(points, key=str)}"
-    )
-    assert problems == []
+def test_c2_only_debug_execute_turns_the_switch_off(production_sources):
+    """預設開以後，要守的只剩「誰能把它關掉」：只有人按的 /debug/execute，而且寫成字面 False."""
+    assert _switch_findings(production_sources) == []
 
 
+_IMPORT = "from src.services.tool_executor import ToolExecutor\n"
+_C2_ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
 _CANONICAL_REACT_CORE = (
-    "from src.services.tool_executor import ToolExecutor\n"
-    "async def run_react_loop():\n"
+    _IMPORT + "async def run_react_loop():\n"
     "    ex = ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n"
     "    if not ex.enforce_advertised:\n"
     "        raise RuntimeError\n"
 )
-_IMPORT = "from src.services.tool_executor import ToolExecutor\n"
+_CANONICAL_DEBUG = (
+    _IMPORT + "async def debug_execute_tool():\n"
+    "    return ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n"
+)
 
 
 @pytest.mark.parametrize(
     ("rel", "source"),
     [
         (
-            "ToukaProxy/src/services/elsewhere.py",
-            "from src.services.tool_executor import ToolExecutor as Runner\n"
-            "def build():\n    return Runner(1, 2, 3, 4, enforce_advertised=True)\n",
-        ),
-        (
-            _REACT_CORE,
-            "from src.services.tool_executor import ToolExecutor as Runner\n"
-            "async def run_react_loop():\n    Runner(1, 2, 3, 4, enforce_advertised=True)\n",
-        ),
-        (
-            _REACT_CORE,
+            _C2_ELSEWHERE,
             _IMPORT + "from functools import partial\n"
-            "async def run_react_loop():\n"
-            "    return partial(ToolExecutor, enforce_advertised=True)(1, 2, 3, 4)\n",
+            "build = partial(ToolExecutor, enforce_advertised=False)\n",
         ),
-        (_REACT_CORE, _IMPORT + "class Loose(ToolExecutor):\n    pass\n"),
-        (_REACT_CORE, _IMPORT + "def hand_over(f):\n    return f(ToolExecutor)\n"),
         (
-            "ToukaProxy/src/services/elsewhere.py",
-            "import importlib\nmod = importlib.import_module('src.services.tool_executor')\n",
+            _C2_ELSEWHERE,
+            _IMPORT + "class Loose(ToolExecutor):\n"
+            "    def __init__(self, *args):\n"
+            "        super().__init__(*args, enforce_advertised=False)\n",
         ),
-        ("ToukaProxy/src/services/elsewhere.py", "ex = getattr(mod, 'ToolExecutor')(1, 2, 3, 4)\n"),
-        (
-            "ToukaProxy/src/services/elsewhere.py",
-            "from src.services import tool_executor\n"
-            "ex = tool_executor.ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n",
-        ),
-        ("ToukaProxy/src/services/elsewhere.py", "from src.services.tool_executor import *\n"),
-        (_REACT_CORE, _IMPORT + "async def run_react_loop():\n    ToolExecutor(1, 2, 3, 4)\n"),
         (
             _REACT_CORE,
             _IMPORT + "async def run_react_loop(flag):\n"
             "    ToolExecutor(1, 2, 3, 4, enforce_advertised=flag)\n",
         ),
         (
-            _DEBUG,
-            _IMPORT + "async def debug_execute_tool():\n"
-            "    ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n",
-        ),
-        (_DEBUG, _IMPORT + "async def debug_execute_tool():\n    ToolExecutor(1, 2, 3, 4)\n"),
-        (_REACT_CORE, _CANONICAL_REACT_CORE + "def other():\n    ToolExecutor(1, 2, 3, 4)\n"),
-        (
             _REACT_CORE,
-            _CANONICAL_REACT_CORE + "    ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n",
-        ),
-        (
-            _DEBUG,
-            _IMPORT + "async def debug_execute_tool():\n"
-            "    ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n"
+            _IMPORT + "async def run_react_loop():\n"
             "    ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n",
         ),
-        ("ToukaProxy/src/services/elsewhere.py", "ex._enforce_advertised = False\n"),
-        ("ToukaProxy/src/services/elsewhere.py", "ex.enforce_advertised = False\n"),
-        ("ToukaProxy/src/services/elsewhere.py", "setattr(ex, 'enforce_advertised', False)\n"),
-        ("ToukaProxy/src/services/elsewhere.py", "vars(ex)['_enforce_advertised'] = False\n"),
-        ("ToukaProxy/src/services/elsewhere.py", "flag = ex._enforce_advertised\n"),
-        ("ToukaProxy/src/services/elsewhere.py", "flag = ex.enforce_advertised\n"),
+        (
+            _DEBUG,
+            _CANONICAL_DEBUG + "def other():\n"
+            "    return ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n",
+        ),
+        (_C2_ELSEWHERE, "opts = dict(enforce_advertised=False)\n"),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "ex = ToolExecutor(1, 2, 3, 4, **{'enforce_advertised': False})\n",
+        ),
+        (_C2_ELSEWHERE, "setattr(ex, '_enforce_advertised', False)\n"),
+        (_C2_ELSEWHERE, "vars(ex)['_enforce_advertised'] = False\n"),
+        (_C2_ELSEWHERE, "ex._enforce_advertised = False\n"),
+        (_C2_ELSEWHERE, "flag = ex._enforce_advertised\n"),
+        (_C2_ELSEWHERE, "ex.enforce_advertised = False\n"),
+        (_C2_ELSEWHERE, "del ex.enforce_advertised\n"),
+        (_C2_ELSEWHERE, "class Loose:\n    _enforce_advertised = False\n"),
     ],
     ids=[
-        "renamed-import",
-        "renamed-import-in-react-core",
-        "partial",
-        "subclass",
-        "passed-as-argument",
-        "importlib",
-        "getattr",
-        "module-attribute",
-        "star-import",
-        "react-core-missing-switch",
-        "react-core-variable-switch",
-        "debug-true",
-        "debug-missing-switch",
-        "second-construction",
-        "duplicate-construction-react-core",
-        "duplicate-construction-debug",
-        "private-attribute-write",
-        "property-write",
+        "partial-false",
+        "subclass-super-false",
+        "react-core-variable",
+        "react-core-false",
+        "debug-other-function-false",
+        "dict-keyword-false",
+        "dict-unpack-string",
         "setattr-string",
         "vars-string",
+        "private-attribute-write",
         "private-attribute-read",
-        "property-read-outside-react-core",
+        "property-write",
+        "property-delete",
+        "class-attribute",
     ],
 )
-def test_c2_scanner_catches_every_bypass(rel, source):
-    assert _executor_findings({rel: source}) != []
+def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
+    assert _switch_findings({rel: source}) != []
 
 
 @pytest.mark.parametrize(
     ("rel", "source"),
     [
         (
-            "ToukaProxy/src/services/elsewhere.py",
-            '"""Docs mention ToolExecutor and src.services.tool_executor."""\n'
+            _C2_ELSEWHERE,
+            '"""Docs mention ToolExecutor and enforce_advertised=False."""\n'
             'REASON = "advertised_tools_unavailable"\n',
         ),
         (_REACT_CORE, _CANONICAL_REACT_CORE),
-        (
-            "scripts/guard_like.py",
-            'TARGET = SRC / "services" / "tool_executor.py"\n'
-            "tool_executor = build()\n"
-            "tool_executor.execute_to_queue()\n",
-        ),
-    ],
-    ids=["docstring-and-reason-code", "canonical-react-core", "path-and-local-variable"],
-)
-def test_c2_scanner_accepts_exact_strings_and_the_canonical_wiring(rel, source):
-    assert _executor_findings({rel: source}) == []
-
-
-_C2_ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
-
-
-@pytest.mark.parametrize(
-    ("rel", "source"),
-    [
-        (_C2_ELSEWHERE, "from src.services import tool_executor\n"),
-        (_C2_ELSEWHERE, "from src.services import tool_executor as te\n"),
-        (_C2_ELSEWHERE, "import src.services.tool_executor\n"),
-        (_C2_ELSEWHERE, "import src.services.tool_executor as te\n"),
-        (_C2_ELSEWHERE, "from . import tool_executor\n"),
-        (_C2_ELSEWHERE, "from .tool_executor import record_tool_usage\n"),
-        (_C2_ELSEWHERE, "from src.services.tool_executor import record_tool_usage\n"),
-        (_C2_ELSEWHERE, "import importlib\nte = importlib.import_module('.tool_executor', 'x')\n"),
-        (_C2_ELSEWHERE, "te = __import__('src.services.tool_executor', fromlist=['x'])\n"),
+        (_DEBUG, _CANONICAL_DEBUG),
+        (_C2_ELSEWHERE, _IMPORT + "def build():\n    return ToolExecutor(1, 2, 3, 4)\n"),
         (
             _C2_ELSEWHERE,
-            "from src.services import tool_executor as te\n"
-            "def build(pm, tr, mr, pr):\n"
-            "    return getattr(te, 'Tool' + 'Executor')(pm, tr, mr, pr)\n",
+            _IMPORT + "def build():\n"
+            "    return ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n",
         ),
-        (_REACT_CORE, "from src.services import tool_executor as te\n" + _CANONICAL_REACT_CORE),
-        (_DEBUG, _IMPORT + "from src.services.tool_executor import record_tool_usage\n"),
-        (
-            _C2_ELSEWHERE,
-            "import src.services\n"
-            "def build(pm, tr, mr, pr):\n"
-            "    factory = getattr(src.services.tool_executor, 'Tool' + 'Executor')\n"
-            "    return factory(pm, tr, mr, pr)\n",
-        ),
-        (_C2_ELSEWHERE, "from src import services\nte = services.tool_executor\n"),
-        (
-            _REACT_CORE,
-            _CANONICAL_REACT_CORE + "import src.services\nte = src.services.tool_executor\n",
-        ),
-        (_C2_ELSEWHERE, "import src.services\nte = getattr(src.services, 'tool_executor')\n"),
+        (_C2_ELSEWHERE, "def check(ex):\n    return ex.enforce_advertised\n"),
     ],
     ids=[
-        "from-package-import-module",
-        "from-package-import-module-as",
-        "import-module",
-        "import-module-as",
-        "relative-package-import",
-        "relative-module-import",
-        "from-module-import-other-name",
-        "importlib-literal",
-        "dunder-import-literal",
-        "computed-getattr-after-module-import",
-        "react-core-extra-module-import",
-        "debug-extra-module-import",
-        "package-attribute-computed-getattr",
-        "package-attribute-from-parent",
-        "package-attribute-in-react-core",
-        "package-getattr-literal-name",
+        "docstring-and-reason-code",
+        "canonical-react-core",
+        "canonical-debug",
+        "default-construction-elsewhere",
+        "explicit-true-elsewhere",
+        "property-read-elsewhere",
     ],
 )
-def test_c2_only_the_two_wired_files_may_import_the_executor_module(rel, source):
-    """匯入棘輪：tool_executor 模組只有 react_core、debug 能匯入，各種寫法都算。"""
-    assert _executor_findings({rel: source}) != []
+def test_c2_scanner_accepts_the_default_and_the_two_explicit_switches(rel, source):
+    assert _switch_findings({rel: source}) == []
 
 
 def _ctx_kind(context: ast.expr_context) -> str:

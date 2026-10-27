@@ -84,7 +84,7 @@ async def test_nonterminal_command_cannot_change_policy_or_headless_approval(
     extra_command: bool,
 ) -> None:
     target, writer = write_probe
-    executor = ToolExecutor(None, tool_registry, {}, {})
+    executor = ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False)
     queue: asyncio.Queue = asyncio.Queue()
     result = await executor.execute_to_queue(
         name, _args(name, extra_command), "classification", _ctx(level), queue
@@ -109,7 +109,7 @@ async def test_real_write_waits_for_one_human_decision(
     target, writer = write_probe
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(
             name, _args(name, extra_command), "classification", _ctx("Manual", True), queue
         )
     )
@@ -150,7 +150,9 @@ async def test_privileged_name_with_unknown_handler_fails_closed(
     policy: AuthPoliciesConfig, name: str
 ) -> None:
     handler = AsyncMock(return_value="unexpected execution")
-    result = await ToolExecutor(None, {name: handler}, {}, {}).execute_to_queue(
+    result = await ToolExecutor(
+        None, {name: handler}, {}, {}, enforce_advertised=False
+    ).execute_to_queue(
         name,
         {"command": "echo harmless", "skill_id": "synthetic"},
         "classification-drift",
@@ -169,7 +171,9 @@ async def test_real_terminal_alias_keeps_its_internal_approval(
     core = AsyncMock(return_value=(0, "synthetic output", 1))
     monkeypatch.setattr(terminal_module, "_execute_core", core)
     monkeypatch.setattr(terminal_module, "_get_agent_drive_path", lambda _: tmp_path)
-    result = await ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+    result = await ToolExecutor(
+        None, tool_registry, {}, {}, enforce_advertised=False
+    ).execute_to_queue(
         name, {"command": "echo harmless"}, "true-terminal", _ctx("Manual"), asyncio.Queue()
     )
     core.assert_not_called()
@@ -190,6 +194,7 @@ async def test_external_command_parameter_has_no_terminal_exception(
         {},
         {},
         {"remote-write": handler} if branch == "plugin" else {},
+        enforce_advertised=False,
     )
     result = await executor.execute_to_queue(
         "remote-write", {"command": "echo harmless"}, "external", _ctx("SafeAuto"), asyncio.Queue()
@@ -208,7 +213,7 @@ async def test_approved_invocation_keeps_the_resolved_handler(
     replacement = AsyncMock(return_value="unapproved replacement")
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, registry, {}, {}, enforce_advertised=False).execute_to_queue(
             "write", _args("write", False), "stable-handler", _ctx("Manual", True), queue
         )
     )
@@ -241,7 +246,7 @@ async def test_true_terminal_broker_approval_executes_once(
     monkeypatch.setattr(terminal_module, "_get_agent_drive_path", lambda _: tmp_path)
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(
             name, {"command": "echo harmless"}, "terminal-approve", _ctx("Manual", True), queue
         )
     )
@@ -277,7 +282,9 @@ async def test_terminal_denial_precedes_approval_and_execution(
     context = _ctx("FullYOLO", True)
     if reason == "grant":
         context["identity"] = AgentIdentity.for_role(agent_id="SubagentProbe", role="Subagent")
-    result = await ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+    result = await ToolExecutor(
+        None, tool_registry, {}, {}, enforce_advertised=False
+    ).execute_to_queue(
         name, {"command": "echo blocked-fixture"}, "terminal-deny", context, asyncio.Queue()
     )
     core.assert_not_called()
@@ -334,7 +341,7 @@ async def test_actual_self_approving_handler_retains_its_own_human_gate(
         args.update(code="pass", test_tool_name="probe", test_arguments={}, submit_for_deploy=True)
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(
             name, args, "self-approval", _ctx("Manual", interactive), queue
         )
     )

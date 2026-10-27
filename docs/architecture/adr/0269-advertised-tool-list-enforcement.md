@@ -1,6 +1,6 @@
 # ADR-0269：模型只能執行這一輪列給它的工具（執行前核對清單）
 
-- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190）
+- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190；[ADR-0285](0285-prompt-boundaries-for-model-written-text.md) 甲-3 修訂：開關改成預設開（維護者 2026-10-25 選甲），結構測試 C2 縮小，決策 2 補「事後指派由執行器擋下」）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
@@ -23,12 +23,12 @@
 ## 決策
 
 1. **清單物件**：新純模組 `models/advertised_tools.py` 的 `AdvertisedTools`（frozen dataclass，不做 I/O）：`native` 是原生工具名的 frozenset，`mcp` 是（伺服器, 裸工具名）的 frozenset；`__post_init__` 一律轉成不可變集合（呼叫端事後改自己的 list 影響不到）。`from_schemas` 由注入的 schema 算清單（帶 `server` 的是 MCP，沒有裸名時用廣告名）；`permits_native`、`permits_mcp`、`has_server` 三個查詢。
-2. **只有系統能寫**：`PipelineContext.advertised_tools`，型別 `InstanceOf[AdvertisedTools] | None`（dict、frozenset 一律拒絕，不會被轉型成物件）。寫入者：
+2. **只有系統能寫**：`PipelineContext.advertised_tools`，型別 `InstanceOf[AdvertisedTools] | None`（建立時 dict、frozenset 一律拒絕，不會被轉型成物件；〔ADR-0285 甲-3 更正：建好之後用屬性指派不驗證，由執行器的 `isinstance` 擋下〕）。寫入者：
    - ToolLayer：`_inject_tools` 改成回傳實際放進請求、去重之後的 schema，清單由它算；一律覆寫（心跳與子代理組裝共用 ctx，舊清單不得沿用）。被客戶端同名 schema 蓋掉的伺服器端工具不算列出（模型看到的是客戶端的版本）。
    - `_run_subagent`：用子代理自己組裝出的 `request.tools` 算，不沿用父代理。
    - `tests/tool_eval/live_episode.py`：唯一列名的測試例外（見決策 7）。
    不加進 `EXECUTION_CONTEXT_KWARG_NAMES`（那是交給 handler 的 kwargs）；核對不讀模型參數，執行器再用 `isinstance` 把一次關，不是 `AdvertisedTools` 就當成「清單不可用」。
-3. **執行器開關**：`ToolExecutor(..., *, enforce_advertised: bool = False)`，只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
+3. **執行器開關**〔ADR-0285 甲-3 修訂：改成預設 `True`，C2 縮小成「只有 `debug_execute_tool` 能用字面 False 關」〕：`ToolExecutor(..., *, enforce_advertised: bool = False)`，只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
 4. **核對位置與結果**：開關打開時，順序是身分 → 原生角色權限（ADR-0228，保留 `native_tool_rbac` 原因碼）→ MCP 名稱解析 → **清單核對** → 軸 B → 分類＋PaC → 審查員／審批卡 → 參數驗證 → 執行。
 
    | 情況 | 判定 | 錯誤類別 | reason |
@@ -44,6 +44,8 @@
 8. **子代理**：常數 `_SUBAGENT_STRIPPED_TOOLS = {dispatch_subagent, dispatch_subagent_group}`，請求與清單同步拿掉；就算角色權限允許，子代理也不能再派子代理或子代理群組。
 
 ## 執行器開關預設關，靠結構測試＋執行期檢查守住
+
+〔2026-10-27 ADR-0285 甲-3 修訂：舊審查報告指出 T1 之後同一個開關還管使用者授權 MCP 的在場檢查，忘了開代價變成兩道一起失效；維護者選改成預設開（原本的方案 (c)），C2 只留「誰能關」的規則，建立點清單與匯入棘輪拿掉。以下保留原決定與理由。〕
 
 **決定**：開關預設關、只能用名稱指定、私有屬性加唯讀 property；正式程式只允許兩個建立點，各自寫出字面值；react_core 建好執行器後再做一次執行期檢查。
 

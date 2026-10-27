@@ -96,6 +96,7 @@ def _native_executor(
         tool_registry={name: handler},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
 
 
@@ -235,7 +236,7 @@ async def _approve_ide_call(monkeypatch, args: dict[str, Any]) -> _FakeProtocolM
     monkeypatch.setattr(permission_service, "evaluate_policy", _policy().evaluate)
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: True)
     pm = _FakeProtocolManager()
-    executor = ToolExecutor(pm, {}, {}, {})
+    executor = ToolExecutor(pm, {}, {}, {}, enforce_advertised=False)
     ctx = {
         "identity": _SOUL,
         "auth_level": "Manual",
