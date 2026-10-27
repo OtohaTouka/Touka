@@ -1168,6 +1168,9 @@ _DEBUG = "ToukaProxy/src/routers/debug.py"
 _EXECUTOR_MODULE = "ToukaProxy/src/services/tool_executor.py"
 _SWITCH = "enforce_advertised"
 _PRIVATE_SWITCH = "_enforce_advertised"
+# 執行器裡負責核對的兩個方法：被覆寫或換掉，開關還是 True 但清單與在場檢查都沒了
+_CHECK_METHODS = frozenset({"_offer_denial", "_user_scope_denial"})
+_PRIVATE_NAMES = _CHECK_METHODS | {_PRIVATE_SWITCH}
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
 _FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
@@ -1241,32 +1244,84 @@ async def test_c2_an_executor_built_without_the_switch_blocks_unlisted_tools(gat
     handler.assert_not_awaited()
 
 
-def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
-    """tool_executor.py 以外：只有 debug_execute_tool 能用字面 False 關開關，其他寫法一律算違規."""
-    if isinstance(node, ast.Constant) and node.value in {_SWITCH, _PRIVATE_SWITCH}:
-        return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、vars()[...]
-    if isinstance(node, ast.Name) and node.id == _PRIVATE_SWITCH:
-        return [f"name {_PRIVATE_SWITCH}"]
-    if isinstance(node, ast.Attribute):
-        if node.attr == _PRIVATE_SWITCH:
-            return [f"attribute {_PRIVATE_SWITCH}"]
-        if node.attr == _SWITCH and not isinstance(node.ctx, ast.Load):
-            return [f"attribute {_SWITCH} ({type(node.ctx).__name__})"]
-    if isinstance(node, ast.keyword) and node.arg == _SWITCH:
-        value = node.value
-        if not (isinstance(value, ast.Constant) and isinstance(value.value, bool)):
-            return [f"keyword {_SWITCH} with a non-literal value"]
-        where = (rel, _function_of(node, parents))
-        if value.value is False and where != (_DEBUG, "debug_execute_tool"):
-            return [f"keyword {_SWITCH}=False in {where[1]}"]
+def _is_executor_call(node: ast.Call) -> bool:
+    func = node.func
+    return (isinstance(func, ast.Name) and func.id == "ToolExecutor") or (
+        isinstance(func, ast.Attribute) and func.attr == "ToolExecutor"
+    )
+
+
+def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    if node.arg in _PRIVATE_NAMES:
+        return [f"keyword {node.arg}"]  # 擋 vars(ex).update(_enforce_advertised=False)
+    if node.arg != _SWITCH:
+        return []
+    value = node.value
+    if not (isinstance(value, ast.Constant) and isinstance(value.value, bool)):
+        return [f"keyword {_SWITCH} with a non-literal value"]
+    where = (rel, _function_of(node, parents))
+    if value.value is False and where != (_DEBUG, "debug_execute_tool"):
+        return [f"keyword {_SWITCH}=False in {where[1]}"]
     return []
+
+
+def _attribute_uses(node: ast.Attribute, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    in_executor = rel == _EXECUTOR_MODULE
+    if node.attr == "__kwdefaults__":
+        return ["attribute __kwdefaults__"]  # 擋執行時把預設值翻成 False
+    if node.attr == _PRIVATE_SWITCH:
+        if not in_executor:
+            return [f"attribute {_PRIVATE_SWITCH}"]
+        if not isinstance(node.ctx, ast.Load) and _function_of(node, parents) != "__init__":
+            return [f"{_PRIVATE_SWITCH} written outside __init__"]
+    if node.attr in _CHECK_METHODS and not in_executor:
+        return [f"attribute {node.attr}"]
+    if node.attr == _SWITCH and not isinstance(node.ctx, ast.Load):
+        return [f"attribute {_SWITCH} ({type(node.ctx).__name__})"]
+    return []
+
+
+def _name_uses(node: ast.AST) -> list[str]:
+    """執行器以外：私有名稱不得以任何形式出現；ToolExecutor 不得改名匯入."""
+    if isinstance(node, ast.Name) and node.id in _PRIVATE_NAMES:
+        return [f"name {node.id}"]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and (
+        node.name in _PRIVATE_NAMES
+    ):
+        return [f"definition {node.name}"]  # 子類別覆寫核對方法
+    if isinstance(node, ast.arg) and node.arg in _PRIVATE_NAMES:
+        return [f"parameter {node.arg}"]
+    if isinstance(node, ast.alias):
+        if {node.name, node.asname} & _PRIVATE_NAMES:
+            return [f"import {node.name}"]
+        if node.name == "ToolExecutor" and node.asname:
+            return [f"import ToolExecutor as {node.asname}"]  # 改名後 ** 展開就看不出來
+    return []
+
+
+def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    """只有 debug_execute_tool 能用字面 False 關開關；開關與兩個核對方法不得被改寫或繞過.
+
+    執行器檔本身也掃：私有屬性只准在 ``__init__`` 寫入，關開關的 keyword 一樣只准在除錯入口。
+    """
+    if isinstance(node, ast.Constant) and node.value in _PRIVATE_NAMES | {_SWITCH}:
+        return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、vars()[...]
+    if isinstance(node, ast.keyword):
+        return _keyword_uses(node, rel, parents)
+    if (
+        isinstance(node, ast.Call)
+        and _is_executor_call(node)
+        and any(keyword.arg is None for keyword in node.keywords)
+    ):
+        return ["** unpacking into ToolExecutor"]  # 值可能來自設定或 JSON
+    if isinstance(node, ast.Attribute):
+        return _attribute_uses(node, rel, parents)
+    return [] if rel == _EXECUTOR_MODULE else _name_uses(node)
 
 
 def _switch_findings(sources: dict[str, str]) -> list[str]:
     problems: list[str] = []
     for rel, source in sources.items():
-        if rel == _EXECUTOR_MODULE:
-            continue
         tree = ast.parse(source)
         parents = _parents(tree)
         for node in ast.walk(tree):
@@ -1334,6 +1389,55 @@ _CANONICAL_DEBUG = (
         (_C2_ELSEWHERE, "ex.enforce_advertised = False\n"),
         (_C2_ELSEWHERE, "del ex.enforce_advertised\n"),
         (_C2_ELSEWHERE, "class Loose:\n    _enforce_advertised = False\n"),
+        (_C2_ELSEWHERE, "vars(ex).update(_enforce_advertised=False)\n"),
+        (_C2_ELSEWHERE, "ex.__dict__.update(_enforce_advertised=False)\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    @classmethod\n"
+            "    def unchecked(cls, *registries):\n"
+            "        return cls(*registries, enforce_advertised=False)\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "def unchecked(*registries):\n"
+            "    return ToolExecutor(*registries, enforce_advertised=False)\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    def loosen(self):\n"
+            "        self._enforce_advertised = False\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "class Lenient(ToolExecutor):\n"
+            "    def _offer_denial(self, *args, **kwargs):\n"
+            "        return None\n",
+        ),
+        (_C2_ELSEWHERE, _IMPORT + "ToolExecutor._user_scope_denial = lambda *a, **k: None\n"),
+        (_C2_ELSEWHERE, _IMPORT + "setattr(ToolExecutor, '_offer_denial', lambda *a, **k: None)\n"),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "def build(raw, *r):\n    return ToolExecutor(*r, **json.loads(raw))\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            "from src.services import tool_executor\n"
+            "def build(opts, *r):\n    return tool_executor.ToolExecutor(*r, **opts)\n",
+        ),
+        (_C2_ELSEWHERE, "from src.services.tool_executor import ToolExecutor as Runner\n"),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "make = ToolExecutor\n"
+            "ex = make(1, 2, 3, 4, **{'enforce_advertised': False})\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "d = ToolExecutor.__init__.__kwdefaults__\n"
+            "d.update(dict.fromkeys(d, False))\n",
+        ),
+        (_C2_ELSEWHERE, "def build(_enforce_advertised=False):\n    return None\n"),
     ],
     ids=[
         "partial-false",
@@ -1350,6 +1454,20 @@ _CANONICAL_DEBUG = (
         "property-write",
         "property-delete",
         "class-attribute",
+        "vars-update-keyword",
+        "dict-update-keyword",
+        "executor-classmethod-factory",
+        "executor-module-factory",
+        "executor-other-method-writes",
+        "subclass-overrides-check",
+        "monkeypatched-check",
+        "setattr-check-string",
+        "json-unpacked-into-executor",
+        "options-unpacked-into-module-attribute",
+        "renamed-import",
+        "variable-call-unpack-string",
+        "kwdefaults",
+        "private-parameter",
     ],
 )
 def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
@@ -1373,6 +1491,19 @@ def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
             "    return ToolExecutor(1, 2, 3, 4, enforce_advertised=True)\n",
         ),
         (_C2_ELSEWHERE, "def check(ex):\n    return ex.enforce_advertised\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    def __init__(self, *, enforce_advertised=True):\n"
+            "        self._enforce_advertised = enforce_advertised\n"
+            "    @property\n"
+            "    def enforce_advertised(self):\n"
+            "        return self._enforce_advertised\n"
+            "    def _offer_denial(self, name):\n"
+            "        return None\n"
+            "    def run(self, name):\n"
+            "        return self._offer_denial(name) if self._enforce_advertised else None\n",
+        ),
     ],
     ids=[
         "docstring-and-reason-code",
@@ -1381,6 +1512,7 @@ def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
         "default-construction-elsewhere",
         "explicit-true-elsewhere",
         "property-read-elsewhere",
+        "canonical-executor",
     ],
 )
 def test_c2_scanner_accepts_the_default_and_the_two_explicit_switches(rel, source):

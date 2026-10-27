@@ -146,7 +146,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 | 弱點 | 修正與驗證 |
 |------|------|
-| 執行器開關 `enforce_advertised` 預設關（ADR-0269），靠結構測試確保正式程式只有兩個建立點。T1 之後同一個開關還管使用者各自授權的 MCP 要人在場（ADR-0281），以後新增入口忘了開，兩道會一起失效。現在兩個正式入口都設對，沒有可利用的漏洞。 | 開關改成預設開，只有人按的 `/debug/execute` 明寫關；結構測試 C2 只留「誰能關」：字面 `False` 只准在 `debug_execute_tool`、開關名字串與私有屬性在執行器以外一律禁止；`inspect.signature` 釘住預設。ADR-0285 甲-3；`tests/unit/test_advertised_tool_list_security.py`。 |
+| 執行器開關 `enforce_advertised` 預設關（ADR-0269），靠結構測試確保正式程式只有兩個建立點。T1 之後同一個開關還管使用者各自授權的 MCP 要人在場（ADR-0281），以後新增入口忘了開，兩道會一起失效。現在兩個正式入口都設對，沒有可利用的漏洞。 | 開關改成預設開，只有人按的 `/debug/execute` 明寫關；結構測試 C2 改成守「誰能關、誰能改寫核對」：字面 `False` 只准在 `debug_execute_tool`；建立呼叫不得 `**` 展開或改名匯入；私有屬性在執行器以外不得出現、在執行器裡只准在 `__init__` 寫入；兩個核對方法在執行器以外不得被覆寫或換掉；`inspect.signature` 釘住預設。用算出來的字串仍繞得過（結構測試的極限，ADR-0285 已知限制）。ADR-0285 甲-3；`tests/unit/test_advertised_tool_list_security.py`。 |
 
 ### 模型寫的任務與舊紀錄能偽造可信區塊（2026-10-25）
 

@@ -47,7 +47,7 @@ ADR-0269 讓模型只能執行這一輪列給它的工具，另開三件事：
      替身）照舊看那個集合。
    - 放在 `utils/` 而不是執行器模組：ADR-0269 的匯入棘輪只准 `react_core` 與 `routers/debug.py` 從 `tool_executor`
      匯入 `ToolExecutor`，守衛與其他模組不能匯入執行器。`tool_executor` 從這裡匯入 `record_tool_usage`，原本的
-     匯入路徑照常可用。
+     匯入路徑照常可用。〔ADR-0285 甲-3 起已拿掉匯入棘輪，檔案位置不變。〕
 2. 執行器（`ToolExecutor.execute_to_queue`）：
    - 「試過」照舊在最前面記（幻覺偵測用）。
    - 「執行過」在真正交給 handler（原生、外掛或 MCP）之前記；在那之前的所有提前返回（找不到、沒列出、角色權限、PaC、
