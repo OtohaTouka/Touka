@@ -25,7 +25,7 @@
 重置完全成功（`clean=True`）後，在重置鎖、清除旗標與備份執行鎖之下，依序處理四個類別，逐項回報：
 
 1. **leftovers**：快照目錄裡上次中斷留下的暫存——自家的 `.memscrub-` 暫存，以及快照腳本的 `.partial`、`.snapshot-<8 個隨機字元>/` 工作資料夾。只刪完全符合形狀的；快照腳本的暫存一組判斷，其中任何一個（含工作資料夾裡的檔）比 10 分鐘新，這一輪全部不碰（命令列快照不經 Proxy 的鎖，可能正在寫）。不符的不碰，記 `unknown_file`。逐項交出，中途出錯已刪的照樣在報告裡。
-2. **live**：線上 `core_memory.db` 做 VACUUM，清掉以前刪除留下的殘片。重置後又寫入目標的記憶時不整理（`rewritten_after_reset`）。另外核對磁碟：`_qdrant_db/collection/` 底下若還有和目標同名（含不分大小寫）的資料夾、或這個資料夾本身是連結，記 `live_verify_failed`（Windows 上被占用時 rmtree 會安靜失敗，下次存記憶會把舊點載回）。
+2. **live**：線上 `core_memory.db` 做 VACUUM，清掉以前刪除留下的殘片。重置後又寫入目標的記憶時不整理（`rewritten_after_reset`；2026-10-27 補記起整理完才發現又有列也報這個代碼）。另外核對磁碟：`_qdrant_db/collection/` 底下若還有和目標同名（含不分大小寫）的資料夾、或這個資料夾本身是連結，記 `live_verify_failed`（Windows 上被占用時 rmtree 會安靜失敗，下次存記憶會把舊點載回）。
 3. **upgrade_backups**：`vault/core_memory_backups/` 的每一份升級備份只刪目標的列（所有靈魂共用這個資料夾）。v0、v1、v2 任一版的內容都處理；v2 的列（`status`、`superseded_by`、`safety_flags`、取代鏈、forget 的）一樣整列刪除。
 4. **snapshots**：設定頁備份清單上的每一份系統快照（含這次重置前剛做的那份），只改記憶相關的成員：主記憶庫與 zip 裡的升級備份只刪目標的列、拿掉目標的 Qdrant collection（含目錄項目）並同步改 `meta.json`、拿掉中斷暫存成員。其他成員原樣串流照抄。
 
@@ -46,7 +46,7 @@
 
 - **資料庫副本**：輸出檔用唯讀連線重開，逐項核對 integrity、結構、`user_version`、目標 0 筆、空閒頁 0，以及**非目標列的多重集合**（在 Python 端依 agent_id 位元組精確分組、逐列雜湊）不變。多刪了別人的列只有多重集合比得出來。
 - **zip**：重寫後的驗證只用常數與原始成員資訊重算，不呼叫分類器與 `meta.json` 轉換函式、不看清除時的對照表：成員順序、只少了允許拿掉的成員、目標 collection 不在、其他 collection 目錄集合不變；依常數版面自己找出記憶庫成員（主庫與升級備份資料夾的 `*.db`），每一份在新 zip 裡目標都是 0 筆，內容有變的，非目標列的多重集合要和原本同名成員相同；其他有變的成員只能是 `meta.json`（用常數路徑找），而且要等於「原本拿掉目標」；沒變的成員 CRC、大小、時間、壓縮方式、屬性都要相同。
-- **線上庫**：VACUUM 後核對 integrity、結構與 `user_version` 不變、目標 0 筆；不過就是 `live_verify_failed`（檔案已整理過，畫面請先別再存記憶並找團隊）。
+- **線上庫**：VACUUM 後核對 integrity、結構與 `user_version` 不變、目標 0 筆；不過就是 `live_verify_failed`〔2026-10-27 補記：結構或 integrity 不符才是 `live_verify_failed`；只有目標又有列時是 `rewritten_after_reset`〕（檔案已整理過，畫面請先別再存記憶並找團隊）。
 
 ### 5. Qdrant `meta.json`
 
@@ -192,3 +192,22 @@
 - **伺服器不回傳路徑或份數**：位置是寫死在畫面上的固定文字（決策 8 拿掉 `output` 的理由不變）。要讓伺服器回傳快照份數或升級備份份數，會改到 API，另開 ADR。
 - 不寫成備份的：執行器裡的代理人家目錄（ADR-0272，不是備份）；ADR-0256 附錄「受 WORKSPACE_ROOT 影響」的位置說法已過時，提醒以 ADR-0262 決策 6 為準。
 - 測試（Vitest）：`BackupRetentionNotice.test.tsx` 6（兩語每句都有、位置字樣、不提過時位置與執行器；四種版本各列哪些句子）、重置卡 +2、清除連備份 V11（完整完成與沒完成兩種結果）、SoulStudio +2、計分卡 +1；先紅後綠，25 條突變全部變紅。
+
+## 補記：清除的小修（2026-10-27，舊審查報告丙-3）
+
+- **線上庫驗證拆開（修訂 §4 線上庫那一條）**：VACUUM 之後結構或 integrity 不符才報 `live_verify_failed`；只有目標又有列時報 `rewritten_after_reset`。兩者同時發生時報比較嚴重的 `live_verify_failed`。查過「目標 0 筆」之後、VACUUM 之前別的連線可能寫進來（SQLite 不能在交易裡 VACUUM，報告建議的 `BEGIN IMMEDIATE` 做不到）；VACUUM 不會多出資料列，多出來的只可能是重置後的新寫入，原本把它說成「驗證失敗、請找團隊」太嚴重。
+  - `rewritten_after_reset` 從此有兩種情況：整理前就發現（沒有整理，§2 原本的意思）與整理完才發現。畫面不再說「線上記憶庫沒有整理」，改成新句 `live_rewritten`（重置之後又寫入了這個靈魂的記憶，線上記憶庫裡又有它的記憶）。
+- **中斷暫存在清的時候消失**：快照腳本的 `.partial` 在列出之後才被發布（改名成正式快照）時，原本判斷「有沒有太新」的 `lstat`、或檢查內容時開檔丟 FileNotFoundError，整個 leftovers 類別失敗（`list_failed`）；刪工作資料夾時才不見則記成刪不掉（`in_use`）。刪單一檔本來就是 `missing_ok`，不見照樣算刪掉。現在：
+  - 判斷新舊時，消失的部分（含工作資料夾裡的檔）不算；
+  - 每一項處理前已經不在就跳過；檢查內容或刪除時才丟 FileNotFoundError，這一項真的不在了才跳過，新的正式快照會在同一個清除工作稍後的快照類別被清到；
+  - 這一項還在（例如工作資料夾刪到一半、裡面的檔被別人先刪掉）就記成刪不掉（`in_use`）：裡面可能還有記憶庫副本，內容不明的不能當成沒事。
+- **畫面**：清除完成、但有備份還留著不在範圍的舊格式或舊前綴資料（`out_of_scope` 資訊項，每份備份一項）時：
+  - 總結句改用 `summary_complete_out_of_scope`：每一份快照與升級備份都已清除範圍內的記憶；其中 N 份還留著舊格式或舊前綴的記憶，見下方清單。數字是備份份數，筆數在清單裡（同一份資料在幾份快照裡就各算一份）。
+  - 完成畫面的「還有備份」提醒改用新版 `reset_scrubbed_partial`：照實說留在備份裡，列快照與升級備份的位置與刪法、還原的副作用，不叫人再勾選（再清一次也清不到）。
+  - 原本會說「每一份都已清除」「記憶已從備份清掉」。兩語都加鍵。
+- **後果補一句（不改）**：短 ID 用子字串比對抓頁內殘片（§3 的刻意設計），所以快照每次清除都會重寫；安全但慢，也會讓「結果不明」更常出現。
+- 測試：
+  - `tests/unit/test_memory_scrub_store.py` F08c（查過之後別的連線寫進一筆 → `rewritten_after_reset`）、F08d（integrity 不過又有新寫入 → `live_verify_failed`）。
+  - `tests/unit/test_memory_scrub_snapshots.py` S18d（列出後被發布 → 跳過，另一個夠舊的照清）、S18e（檢查內容時才不見 → 跳過；刪工作資料夾丟 FileNotFoundError：資料夾真的不見才跳過，還在記 `in_use`）、S18f（工作資料夾裡的檔在判斷新舊時被搬走 → 那個檔不算）。
+  - `BackupRetentionNotice.test.tsx` B05b 與兩語新鍵；`AgentDataResetCard.scrub.test.tsx` V05b（完成但有不在範圍的資料：總結句寫份數、提示換版）、V05c（又有新寫入：不說有沒有整理）。
+- 變異檢查第 1 輪 9 個全部變紅（線上庫報錯、leftovers 四處、`_mtime`、總結句、筆數、提示版本）；審查後補的測試另外擋住：兩個檢查順序對調、消失時當成「太新」、資料夾還在卻跳過、提示不列升級備份的刪法。

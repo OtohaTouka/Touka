@@ -351,6 +351,62 @@ def test_f08_rewritten_after_reset_skips_vacuum(tmp_path: Path) -> None:
     assert pragma(store.db_path, "freelist_count") == free_before
 
 
+def test_f08c_a_write_after_the_check_is_reported_as_rewritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """查過沒有這個身分的列、VACUUM 之前別的連線寫進一筆：報重置後又有新寫入，不是驗證失敗（丙-3）.
+
+    SQLite 不能在交易裡 VACUUM，這段鎖不住；VACUUM 不會多出資料列，多出來的只可能是新寫入。
+    """
+    store = fm.FactualStore(base_dir=tmp_path / "vault")
+    real_check = fm._require_no_target
+
+    def check_then_write(*args: object) -> None:
+        real_check(*args)
+        other = sqlite.connect(store.db_path)
+        try:
+            other.execute(
+                "INSERT INTO facts (id, agent_id, content, tags)"
+                " VALUES ('fact_late', ?, 'late', '[]')",
+                (TARGET,),
+            )
+            other.commit()
+        finally:
+            other.close()
+
+    monkeypatch.setattr(fm, "_require_no_target", check_then_write)
+    with pytest.raises(fm.MemoryScrubError) as exc:
+        store.compact_after_reset(IDENT)
+    assert _reason(exc) == "rewritten_after_reset"
+
+
+def test_f08d_a_broken_store_wins_over_a_late_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """integrity 不過、同時又有新寫入：報比較嚴重的 live_verify_failed（先查結構與 integrity）。"""
+    store = fm.FactualStore(base_dir=tmp_path / "vault")
+    real_check = fm._require_no_target
+
+    def check_then_write(*args: object) -> None:
+        real_check(*args)
+        other = sqlite.connect(store.db_path)
+        try:
+            other.execute(
+                "INSERT INTO facts (id, agent_id, content, tags)"
+                " VALUES ('fact_late', ?, 'late', '[]')",
+                (TARGET,),
+            )
+            other.commit()
+        finally:
+            other.close()
+
+    monkeypatch.setattr(fm, "_require_no_target", check_then_write)
+    monkeypatch.setattr(fm, "_integrity_ok", lambda _conn: False)
+    with pytest.raises(fm.MemoryScrubError) as exc:
+        store.compact_after_reset(IDENT)
+    assert _reason(exc) == "live_verify_failed"
+
+
 def test_f08_unknown_schema_on_live_store(tmp_path: Path) -> None:
     store = fm.FactualStore(base_dir=tmp_path / "vault")
     with store._connection(store.db_path) as conn:

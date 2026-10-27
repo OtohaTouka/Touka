@@ -513,6 +513,105 @@ def test_s18b_leftover_removal_failure_is_reported(
     assert partial.exists()
 
 
+def test_s18d_a_leftover_published_right_after_listing_is_skipped(
+    backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """列出之後才被發布（改名成正式快照）的暫存：跳過、不記失敗，其他照清（丙-3）.
+
+    新的正式快照會在同一個清除工作稍後的快照類別被清到。
+    """
+    own = backups / ".Touka_Backup_x.zip.memscrub-ab12cd34.tmp"
+    own.write_bytes(b"x")
+    partial = backups / f".Touka_Backup_1.ab12cd34{leftovers.P1_PARTIAL_SUFFIX}"
+    partial.write_bytes(b"")
+    _old(partial)
+    # 另一個夠舊的暫存：消失的那個若被當成「太新」，這一組就全部不碰，這個也不會被清
+    stale = backups / f".Touka_Backup_2.ef56gh78{leftovers.P1_PARTIAL_SUFFIX}"
+    stale.write_bytes(b"")
+    _old(stale)
+    real_iterdir = Path.iterdir
+
+    def list_then_publish(self: Path) -> Iterator[Path]:
+        entries = list(real_iterdir(self))
+        if self == backups:
+            partial.unlink(missing_ok=True)
+        return iter(entries)
+
+    monkeypatch.setattr(Path, "iterdir", list_then_publish)
+    items = leftovers.sweep_snapshot_leftovers(backups, get_current_epoch())
+    assert [(i.name, i.status) for i in items] == [(stale.name, "removed"), (own.name, "removed")]
+    assert not stale.exists()
+
+
+def test_s18f_a_file_leaving_a_workdir_during_the_age_check_is_ignored(
+    backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """工作資料夾裡的檔在判斷新舊時剛好被搬走：那個檔不算，資料夾照常判斷與清掉（丙-3）。"""
+    workdir = backups / f"{leftovers.P1_WORKDIR_PREFIX}ab12cd34"
+    workdir.mkdir()
+    work_file = workdir / "tmpabcdefgh.sqlite"
+    work_file.write_bytes(b"x")
+    _old(work_file)
+    _old(workdir)
+    real_iterdir = Path.iterdir
+
+    def list_then_move(self: Path) -> Iterator[Path]:
+        entries = list(real_iterdir(self))
+        if self == workdir:
+            work_file.unlink(missing_ok=True)
+        return iter(entries)
+
+    monkeypatch.setattr(Path, "iterdir", list_then_move)
+    items = leftovers.sweep_snapshot_leftovers(backups, get_current_epoch())
+    assert [(i.name, i.status) for i in items] == [(workdir.name, "removed")]
+    assert not workdir.exists()
+
+
+def test_s18e_a_partial_that_vanishes_during_the_check_is_skipped(
+    backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """檢查內容時才發現 .partial 已經不見（剛發布）：跳過、不記失敗（丙-3）。"""
+    partial = backups / f".Touka_Backup_1.ab12cd34{leftovers.P1_PARTIAL_SUFFIX}"
+    partial.write_bytes(b"")
+    _old(partial)
+
+    def vanish(*_a: object, **_k: object) -> None:
+        partial.unlink()
+        raise FileNotFoundError(2, "gone")
+
+    monkeypatch.setattr(resource_manager, "read_file_prefix", vanish)
+    assert leftovers.sweep_snapshot_leftovers(backups, get_current_epoch()) == []
+
+
+@pytest.mark.parametrize("gone", [True, False], ids=["folder-gone", "folder-still-there"])
+def test_s18e_a_workdir_removal_that_hits_a_missing_file(
+    backups: Path, monkeypatch: pytest.MonkeyPatch, gone: bool
+) -> None:
+    """刪工作資料夾時丟 FileNotFoundError：資料夾真的不見才跳過；還在（裡面的檔被別人先刪掉、
+    資料夾刪到一半）就記成刪不掉，裡面可能還有記憶庫副本，不能當成沒事（丙-3 審查）。"""
+    workdir = backups / f"{leftovers.P1_WORKDIR_PREFIX}ab12cd34"
+    workdir.mkdir()
+    work_file = workdir / "tmpabcdefgh.sqlite"
+    work_file.write_bytes(b"x")
+    _old(work_file)
+    _old(workdir)
+
+    def half_removed(path: Path) -> None:
+        if gone:
+            shutil.rmtree(path)
+        raise FileNotFoundError(2, "gone")
+
+    monkeypatch.setattr(resource_manager, "remove_dir", half_removed)
+    items = leftovers.sweep_snapshot_leftovers(backups, get_current_epoch())
+    if gone:
+        assert items == []
+    else:
+        assert [(i.name, i.status, i.reason) for i in items] == [
+            (workdir.name, "failed", "in_use")
+        ]
+        assert workdir.exists()
+
+
 def test_s19_prune_order_is_unchanged(tmp_path: Path, backups: Path) -> None:
     for i in range(3):
         path = _snapshot(
