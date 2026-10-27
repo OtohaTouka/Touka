@@ -136,7 +136,9 @@ def test_awaken_is_refused_while_the_soul_is_reset_or_deleted(
     """舊審查報告丙-4：重置、清除或刪除這個靈魂期間 /awaken 回 409，也不寫初始提示。"""
     _setup_awaken_gates(monkeypatch, mock_identity)
     append = AsyncMock(return_value=True)
+    opened = AsyncMock(return_value="sess-x")
     monkeypatch.setattr("src.routers.heartbeat.session_service.append_message_to_session", append)
+    monkeypatch.setattr("src.routers.heartbeat.session_service.open_channel_session", opened)
 
     destructive_ops.hold(_who("DebugAgent"))
     try:
@@ -149,4 +151,57 @@ def test_awaken_is_refused_while_the_soul_is_reset_or_deleted(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    opened.assert_not_called()  # 連對話都不建
     append.assert_not_called()
+
+
+def test_awaken_is_refused_when_a_reset_starts_while_the_session_is_opened(
+    auth_client, mock_identity, monkeypatch
+):
+    """找或建對話時有 await；這段期間開始（甚至做完）的重置，初始提示也不寫。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    append = AsyncMock(return_value=True)
+
+    async def open_during_a_reset(*_args: object, **_kwargs: object) -> str:
+        destructive_ops.hold(_who("DebugAgent"))
+        destructive_ops.release(_who("DebugAgent"))
+        return "sess-x"
+
+    monkeypatch.setattr("src.routers.heartbeat.session_service.append_message_to_session", append)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session", open_during_a_reset
+    )
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    append.assert_not_called()
+
+
+def test_awaken_hands_the_entry_generation_to_the_loop(auth_client, mock_identity, monkeypatch):
+    """入口檢查時的代數交給背景迴圈：202 之後、開跑之前做完的重置也擋得住。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    loop = AsyncMock(return_value=None)
+    monkeypatch.setattr("src.routers.heartbeat._process_heartbeat_loop", loop)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.append_message_to_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session",
+        AsyncMock(return_value="sess-x"),
+    )
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 202, resp.text
+    since = loop.await_args.kwargs["not_disturbed_since"]
+    assert since is not None
+    assert since == destructive_ops.generation(_who("DebugAgent"))

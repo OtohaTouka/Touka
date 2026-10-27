@@ -119,10 +119,11 @@ class _HeldProbe:
     name = "probe"
 
     def __init__(self) -> None:
-        self.seen: list[bool] = []
+        self.seen: list[tuple[bool, bool]] = []
 
     async def purge(self, normalized: str, _guard: object) -> int:
-        self.seen.append(destructive_ops.is_held(_who(normalized)))
+        held = destructive_ops.is_held(_who(normalized))
+        self.seen.append((held, rhythm_service.is_interrupted("hb-reset")))
         return 0
 
     async def remaining(self, _normalized: str, _guard: object) -> int:
@@ -133,9 +134,9 @@ async def test_reset_holds_its_target_and_stops_its_heartbeats(monkeypatch):
     """舊審查報告丙-4：重置期間標記目標，並叫這個靈魂正在跑的心跳停下（別的靈魂不動）。"""
     probe = _HeldProbe()
     monkeypatch.setattr(O, "ALL_STORES", [probe])
-    assert destructive_ops.start_heartbeat(_who("DebugAgent"), "hb-reset")
-    assert destructive_ops.start_heartbeat(_who("Jin"), "hb-jin")
     try:
+        assert destructive_ops.start_heartbeat(_who("DebugAgent"), "hb-reset") is not None
+        assert destructive_ops.start_heartbeat(_who("Jin"), "hb-jin") is not None
         report = await O.reset_debug_agent_data(do_backup=False)
         stopped = rhythm_service.is_interrupted("hb-reset")
         other = rhythm_service.is_interrupted("hb-jin")
@@ -144,7 +145,7 @@ async def test_reset_holds_its_target_and_stops_its_heartbeats(monkeypatch):
             destructive_ops.end_heartbeat(_who(agent), sid)
             rhythm_service.clear_interrupt(sid)
     assert report.clean is True
-    assert probe.seen == [True]
+    assert probe.seen == [(True, True)]  # 清除時已經標記、已經叫停
     assert (stopped, other) == (True, False)
     assert not destructive_ops.is_held(_who("DebugAgent"))
 
@@ -158,4 +159,23 @@ async def test_a_failed_reset_releases_its_target(monkeypatch):
     with pytest.raises(ToukaException):
         await O.reset_debug_agent_data()
     assert not destructive_ops.is_held(_who("DebugAgent"))
+    assert not O.reset_in_progress()
+
+
+async def test_a_refused_reset_does_not_stop_heartbeats(monkeypatch):
+    """勾了清除、預檢沒過：什麼都沒做就回錯誤，也不叫停這個靈魂的心跳。"""
+
+    async def refuse(*_args: object) -> None:
+        raise ToukaException(ErrorCode.MEMORY_SCRUB_UNAVAILABLE)
+
+    monkeypatch.setattr(O, "_prepare_scrub", refuse)
+    try:
+        assert destructive_ops.start_heartbeat(_who("Jin"), "hb-keep") is not None
+        with pytest.raises(ToukaException):
+            await O._execute_reset("Jin", lambda c: c, do_backup=False, scrub=True, actor_label="x")
+        stopped = rhythm_service.is_interrupted("hb-keep")
+    finally:
+        destructive_ops.end_heartbeat(_who("Jin"), "hb-keep")
+        rhythm_service.clear_interrupt("hb-keep")
+    assert stopped is False
     assert not O.reset_in_progress()

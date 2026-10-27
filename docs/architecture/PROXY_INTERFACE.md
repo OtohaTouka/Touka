@@ -13,8 +13,8 @@
 - 取消註冊五步每步都做；有失敗時回 500 `SOUL_UNREGISTER_INCOMPLETE`（1420），`detail.failed_steps` 是步驟名稱（`models`、`agents_registry`、`brain`、`owners`、`identity_override`），不帶例外原文。資料已刪，再刪一次會補清。成功回應不變。
 - `POST /v1/admin/agents/{target}/reset` 與 DebugAgent 重置：刪除靈魂進行中也回 409 `AGENT_RESET_IN_PROGRESS`。重置時叫這個靈魂正在跑的心跳停下（照常重置）；`AGENT_RESET_IN_PROGRESS` 的訊息改成「另一個重置、記憶清除或刪除靈魂正在進行」。
 - `POST /v1/system/restore/run`：刪除靈魂進行中同樣回 409 `AGENT_RESET_IN_PROGRESS`。
-- `POST /v1/heartbeat/awaken`、`POST /v1/heartbeat/retrigger`：這個靈魂正在刪除、重置或清除時回 409 `AGENT_RESET_IN_PROGRESS`；細節見 HEARTBEAT_INTERFACE。
-- OpenAPI 不變；錯誤碼多 1419、1420，兩語 i18n 各兩個鍵。
+- `POST /v1/heartbeat/awaken`、`POST /v1/heartbeat/retrigger`：這個靈魂正在刪除、重置或清除時回 409 `AGENT_RESET_IN_PROGRESS`；`/awaken` 在寫初始提示前再看一次；細節見 HEARTBEAT_INTERFACE。
+- 參數與回應形狀不變；OpenAPI 只有刪除端點的說明文字更新。錯誤碼多 1419、1420，兩語 i18n 各兩個鍵。
 
 ## 刪除靈魂清隔離家目錄、密碼重輸錯誤碼（2026-10-21）
 

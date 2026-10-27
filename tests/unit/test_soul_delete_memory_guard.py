@@ -310,7 +310,7 @@ async def test_delete_stops_a_running_heartbeat_and_deletes_nothing(stores, admi
     wiped = AsyncMock()
     monkeypatch.setattr(souls, "wipe_agent_homes", wiped)
     await _activity("BusySoul")  # 心跳開跑時寫的 heartbeat_started
-    assert destructive_ops.start_heartbeat(_who("BusySoul"), "hb-busy")
+    assert destructive_ops.start_heartbeat(_who("BusySoul"), "hb-busy") is not None
     try:
         resp = _delete(client, "BusySoul")
         interrupted = rhythm_service.is_interrupted("hb-busy")
@@ -399,3 +399,20 @@ def test_a_failed_unregister_step_is_reported(stores, admin, monkeypatch):
     assert not soul.exists()  # 資料已刪；再刪一次會補清登記
     monkeypatch.setattr(souls, "_update_agents_registry", original)
     assert _delete(client, "HalfGone").status_code == 200
+
+
+def test_delete_marks_the_soul_before_looking_for_heartbeats(stores, admin, monkeypatch):
+    """設標記和查心跳之間不能有空檔：查的時候標記已經在了。"""
+    client, _identity = admin
+    _soul_dir("MarkFirst")
+    seen: list[bool] = []
+    real = destructive_ops.stop_heartbeats
+
+    def spy(identity: AgentIdentity) -> list[str]:
+        seen.append(destructive_ops.is_held(identity))
+        return real(identity)
+
+    monkeypatch.setattr(destructive_ops, "stop_heartbeats", spy)
+
+    assert _delete(client, "MarkFirst").status_code == 200
+    assert seen == [True]

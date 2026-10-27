@@ -2202,7 +2202,7 @@
       "memory_not_reset": "This soul still has memory. Reset it under Settings › \"Agent Data Reset\" first, then delete it. Nothing was deleted.",
       "memory_check_failed": "Could not confirm this soul's memory is empty (the memory system is unavailable), so it was not deleted. Try again later.",
       "sandbox_home_not_cleared": "Could not clear this soul's home folders in the sandbox (the executor is not serving, or the cleanup failed), so it was not deleted. Try again once the executor is back.",
-      "heartbeat_running": "This soul's heartbeat is running and has been asked to stop, so it was not deleted. The heartbeat left activity records when it started; once it stops, reset the soul first, then delete it.",
+      "heartbeat_running": "This soul's heartbeat is running and has been asked to stop, so it was not deleted. The heartbeat left activity records when it started; once it stops, reset the soul first, then delete it. Pausing this soul's heartbeat schedule first keeps it from running again between the reset and the delete.",
       "unregister_incomplete": "The soul's data was deleted, but a few registrations (such as the model list or the owner list) were not removed. Delete it again to finish."
     },
     "config": {

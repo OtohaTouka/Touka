@@ -121,6 +121,7 @@ from src import config as runtime_config  # noqa: E402
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.main import app, protocol_manager  # noqa: E402
 from src.models.identity import AgentIdentity  # noqa: E402
+from src.services import destructive_ops  # noqa: E402
 from src.services.audit_service import PolicyAuditService  # noqa: E402
 from src.services.autonomy import autonomy_service  # noqa: E402
 from src.services.identity_router import get_verified_identity  # noqa: E402
@@ -428,6 +429,7 @@ def setup_test_environment(global_test_sandbox):
     model_manager.reset_for_test()
     rhythm_service.reload_all()
     autonomy_service.reload_all()
+    destructive_ops.reload_all()
 
     # 5. 還原依賴覆寫狀態，防止 Mock 洩漏且不影響其他隔離 Mock (SSOT)
     app.dependency_overrides.clear()

@@ -52,10 +52,13 @@ async def destructive_op(target: AgentIdentity) -> AsyncIterator[None]:
 
     重置、清除或刪除已經在跑就回 409 `AGENT_RESET_IN_PROGRESS`。標記期間這個靈魂的心跳
     不開跑、在下一個脈衝前停下。檢查、取鎖、標記之間沒有讓出事件迴圈的地方。
+
+    前提：產品程式只在這裡取 `_reset_lock`，所以鎖沒被持有時也不會有人在等，`acquire()`
+    立刻拿到、不讓出。別處若改成會等的 `async with _reset_lock`，這裡就可能變成排隊。
     """
     if reset_in_progress():
         raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
-    await _reset_lock.acquire()  # 沒人持有也沒人在等：立刻拿到、不讓出
+    await _reset_lock.acquire()
     destructive_ops.hold(target)
     try:
         yield
@@ -135,14 +138,15 @@ async def _execute_reset(
 
     target = AgentIdentity(agent_id=normalized)
     async with destructive_op(target):
-        stopped = destructive_ops.stop_heartbeats(target)
-        if stopped:
-            logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
         report = ResetReport(agent=normalized)
         session = None
         if scrub:
             identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
             session = memory_scrub.begin(target)
+        # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳開不了。
+        stopped = destructive_ops.stop_heartbeats(target)
+        if stopped:
+            logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
         try:
             await _reset_stores(report, normalized, guard, do_backup=do_backup)
             if session is not None:
