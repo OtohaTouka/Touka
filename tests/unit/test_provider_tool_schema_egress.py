@@ -293,6 +293,7 @@ _MCP_DISCRIMINATED = {
                         "cc": {"type": "string"},
                     },
                 },
+                {"properties": {"kind": {"const": "sms", "description": "send a text message"}}},
             ],
         },
     },
@@ -324,10 +325,48 @@ def test_branch_variants_never_mutate_the_input():
     assert tool == snapshot
 
 
-async def test_native_tools_have_no_conflicting_branch_fields(listed):
-    """Touka 自己的工具：分支裡根層沒有的同名欄位定義都一樣，送給 Claude 的形狀不受合併方式影響。"""
+def test_same_field_across_combinators_keeps_combinator_order():
+    tool = {
+        "name": "pick",
+        "input_schema": {
+            "oneOf": [{"properties": {"k": {"const": "a"}}}],
+            "anyOf": [{"properties": {"k": {"const": "b"}}}],
+            "allOf": [{"properties": {"k": {"const": "c"}}}, {"properties": {"k": {"const": "a"}}}],
+        },
+    }
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    assert schema["properties"] == {
+        "k": {"anyOf": [{"const": "a"}, {"const": "b"}, {"const": "c"}]}
+    }
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"oneOf": "x"},
+        {"anyOf": {"properties": {"v": {"type": "string"}}}},
+        {"oneOf": [1, None, "s", {"properties": [1]}, {"properties": None}]},
+        {"oneOf": [{"properties": {"v": v}} for v in (True, None, 1)]},
+        {"allOf": [{"properties": {"v": {"enum": e}}} for e in ([[1], [2]], [[1]])]},
+    ],
+    ids=["string", "dict", "junk-branches", "non-dict-definitions", "nested-lists"],
+)
+def test_odd_branches_never_raise(parameters):
+    tool = {"type": "function", "function": {"name": "odd", "parameters": parameters}}
+    snapshot = copy.deepcopy(tool)
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    assert schema["type"] == "object"
+    assert not _ROOT_COMBINATORS & set(schema)
+    assert tool == snapshot
+
+
+async def test_native_tools_reach_claude_with_their_root_properties(listed):
+    """Touka 自己的工具：送給 Claude 的欄位就是正本根層的欄位，合併方式改了也不變。"""
+    canonical = _canonical(listed)
+    wire = await _anthropic_wire(listed)
     for name in _ROOT_ONEOF_NATIVE:
-        schema = _canonical(listed)[name]
+        assert wire[name]["properties"] == canonical[name]["properties"], name
+    for name, schema in canonical.items():  # 以後新增帶根層組合子的原生工具也要過這關
         root = set(schema.get("properties") or {})
         seen: dict[str, Any] = {}
         for key in _ROOT_COMBINATORS:

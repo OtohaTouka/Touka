@@ -8,7 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
-| 2026-10-27 | **送給 Claude 的外部工具不再只留第一個欄位定義**：外部 MCP 工具把同一個欄位寫在幾個分支裡、定義各不相同時（例如每個分支的「種類」各是一個固定值），以前送給 Claude 只留第一個，模型選不到其他種；現在每種都保留。Touka 自己的工具、其他廠商不受影響。舊審查報告甲組第 2 批 | [ADR-0285](architecture/adr/0285-prompt-boundaries-for-model-written-text.md) |
+| 2026-10-27 | **送給 Claude 的外部工具不再只留第一個欄位定義**：外部工具（MCP 工具，或請求自己帶來的工具）把同一個欄位寫在幾個分支裡、定義各不相同時（例如每個分支的「種類」各是一個固定值），以前送給 Claude 只留第一個，模型選不到其他種；現在每種都保留。Touka 自己的工具、其他廠商不受影響。舊審查報告甲組第 2 批 | [ADR-0285](architecture/adr/0285-prompt-boundaries-for-model-written-text.md) |
 | 2026-10-27 | **10/27 依賴批**：certifi 2026.10.19（CA 憑證包，critical：內附根憑證的中繼私鑰外洩）、filelock 3.29.4 → 4.2.4（跨大版本，三則 ReadWriteLock／SoftFileLock 的問題，一則 high；Touka 只用 `AsyncFileLock`，不受影響、程式不用改）、setuptools 84.2.0（torch 執行期依賴）、fast-uri 3.1.9（Chat 與 IDE，五則 moderate／low）。都等滿 7 天冷卻期才升，Python 加上安全下限測試；Guard #22 轉綠 | [SECURITY](../SECURITY.md) |
 | 2026-10-27 | **記憶清除的小修**：重置後才寫進來的記憶不再被說成「驗證失敗、請找團隊」，改報「重置後又有新寫入」；清除時快照腳本剛好發布快照，不再讓中斷暫存那一類失敗；清除完成但還有不在範圍的舊格式資料時，畫面照實說還留在備份裡，不再說每一份都清了。舊審查報告丙組第 3 批 | [ADR-0270](architecture/adr/0270-memory-scrub-with-backups.md) 補記 |
 | 2026-10-27 | **舊對話歸檔照實**：同一則訊息再歸檔時內容不同，原本新內容會被靜默丟掉、滑動視窗照樣剪掉；現在另存成這則訊息的版本，原內容不變。歸檔回報的是確認在庫的筆數，重剪時不會卡住；節點內容不是字串也能歸檔；設定頁統計遇到不是 UTF-8 的檔不再出錯。舊審查報告乙組第 1 批 | [ADR-0286](architecture/adr/0286-memory-data-reported-as-stored.md) |
