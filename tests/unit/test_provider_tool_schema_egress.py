@@ -340,24 +340,36 @@ def test_same_field_across_combinators_keeps_combinator_order():
     }
 
 
+_NESTED_ENUMS = ([[1], [2]], [[1]])
+
+
 @pytest.mark.parametrize(
-    "parameters",
+    ("parameters", "expected_properties"),
     [
-        {"oneOf": "x"},
-        {"oneOf": 1, "allOf": True},
-        {"anyOf": {"properties": {"v": {"type": "string"}}}},
-        {"oneOf": [1, None, "s", {"properties": [1]}, {"properties": None}]},
-        {"oneOf": [{"properties": {"v": v}} for v in (True, None, 1)]},
-        {"allOf": [{"properties": {"v": {"enum": e}}} for e in ([[1], [2]], [[1]])]},
+        ({"oneOf": "x"}, None),
+        ({"oneOf": 1, "allOf": True}, None),
+        ({"anyOf": {"properties": {"v": {"type": "string"}}}}, None),
+        ({"oneOf": [1, None, "s", {"properties": [1]}, {"properties": None}]}, None),
+        # Python 的 True == 1，後面的 1 被當成重複（ADR-0285 已知限制）
+        (
+            {"oneOf": [{"properties": {"v": v}} for v in (True, None, 1)]},
+            {"v": {"anyOf": [True, None]}},
+        ),
+        (
+            {"allOf": [{"properties": {"v": {"enum": e}}} for e in _NESTED_ENUMS]},
+            {"v": {"anyOf": [{"enum": e} for e in _NESTED_ENUMS]}},
+        ),
     ],
     ids=["string", "non-iterable", "dict", "junk-branches", "non-dict-definitions", "nested-lists"],
 )
-def test_odd_branches_never_raise(parameters):
+def test_odd_branches_never_raise(parameters, expected_properties):
     tool = {"type": "function", "function": {"name": "odd", "parameters": parameters}}
     snapshot = copy.deepcopy(tool)
     schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
-    assert schema["type"] == "object"
-    assert not _ROOT_COMBINATORS & set(schema)
+    expected = {"type": "object"}
+    if expected_properties is not None:
+        expected["properties"] = expected_properties
+    assert schema == expected
     assert tool == snapshot
 
 
