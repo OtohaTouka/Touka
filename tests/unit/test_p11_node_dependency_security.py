@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SECURITY_FLOORS = {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.9",
     "nanoid": "3.3.18",
     "browserslist": "4.28.7",
     "ip-address": "10.7.4",

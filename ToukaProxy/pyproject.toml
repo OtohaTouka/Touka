@@ -36,7 +36,7 @@ dependencies = [
     "bcrypt~=3.2.2",
     "PyYAML~=6.0.2",
     # ADR-0082：dispatch 跑在 proxy 環境（單一映像）——filelock 升格直接依賴防 re-lock 漂移。
-    "filelock~=3.29.0",
+    "filelock~=4.2.4",
     # ADR-0108：備份下載即時加密（WinZip-AES-256）。
     "pyzipper~=0.4.0",
     # torch：經 root [tool.uv.sources] 綁 pytorch-cpu index 納入鎖檔

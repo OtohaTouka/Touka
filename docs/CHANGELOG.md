@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-27 | **10/27 依賴批**：certifi 2026.10.19（CA 憑證包，PYSEC-2026-4320）、filelock 3.29.4 → 4.2.4（跨大版本，三則 Windows 上的鎖問題；Touka 只用 `AsyncFileLock`，程式不用改）、setuptools 84.2.0（只被 torch 用到）、fast-uri 3.1.9（Chat 與 IDE，兩則 moderate）。都等滿 7 天冷卻期才升；Guard #22 轉綠 | [SECURITY](../SECURITY.md) |
 | 2026-10-27 | **舊對話歸檔照實**：同一則訊息再歸檔時內容不同，原本新內容會被靜默丟掉、滑動視窗照樣剪掉；現在另存成這則訊息的版本，原內容不變。歸檔回報的是確認在庫的筆數，重剪時不會卡住；節點內容不是字串也能歸檔；設定頁統計遇到不是 UTF-8 的檔不再出錯。舊審查報告乙組第 1 批 | [ADR-0286](architecture/adr/0286-memory-data-reported-as-stored.md) |
 | 2026-10-26 | **記憶評估可以重跑、算範圍、比較兩次結果**（只改評估工具與測試，產品程式不變）：實測腳本加 `--repeats`（1～5 輪，先跑完一輪再跑下一輪，每一次都是新的合成靈魂；輪數進核准範圍，1 輪的同意不能跑更多輪），報告印每題 k/n、整批通過率與 95% Wilson 範圍、評估程式雜湊；新的比較工具 `python -m tests.memory_eval.stats` 印兩次差距的 95% 範圍（Newcombe），評估程式、套件或題目不同就不比；價目表查不到的型號拒跑，靠家族名稱估價時核准範圍標出；請求硬上限 40 → 200。順手修一個偶爾失敗的測試。這次不跑實測 | [ADR-0284](architecture/adr/0284-memory-eval-measures-memory.md) |
 | 2026-10-25 | **模型寫的任務與舊紀錄不能再偽造可信區塊**：時間線區塊裡看板那一行的任務 id 改用過濾過的參照；任務看板區塊保留原文、只把換行與區塊標籤跳脫；前情摘要與家對話也中和所有 prompt 區塊標籤。舊審查報告甲組第 1 批 | [ADR-0285](architecture/adr/0285-prompt-boundaries-for-model-written-text.md)、[SECURITY](../SECURITY.md) |
