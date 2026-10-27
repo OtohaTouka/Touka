@@ -889,6 +889,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
   - 已知限制：檔案都已寫入、但最後讀統計失敗時，整次仍回 `SYNC_FAILED`。
 - **同步不搬檔（ADR-0264）**：`legacy/` 受保護，以前搬到 `backup/` 一律被擋（每次都回 `SYNC_FAILED`）。現在檔案留在原地，以（檔名, 內容 SHA-256）記為已處理，重跑跳過；`GET` 的 `archived_files` 改成已處理紀錄數、`pending_files` 是還沒處理的 JSON 數。
 - **切分存入舊對話 `POST /v1/ui/sessions/legacy/export`（ADR-0264）**：存取檢查不變（要能存取該 agent）；`json_content` 直接歸檔進該 agent 的舊對話庫，不寫檔；`filename` 只當標籤。回 `{"status": "success", "archived": n}`，不再回實體路徑；沒有可歸檔的訊息回 `VALIDATION_ERROR`，寫入失敗回 `SYSTEM_ERROR`。以前寫檔被保護擋下，一定回 `SYSTEM_ERROR`。
+- **歸檔照實（ADR-0286，2026-10-27）**：匯出端點的 `archived` 與滑動視窗剪裁的判斷，改成確認在庫的筆數：之前就存著同樣內容的訊息也算；同 id 但內容不同的另存成這則訊息的版本、也算在內，不再靜默丟掉新內容。`GET /v1/stats/legacy/{agent_id}` 遇到不是 UTF-8 的 JSON 檔算待處理，不再回 500。節點內容不是字串時改成存文字，不再讓歸檔失敗。錯誤碼不變；回應只有 `POST …/sync` 的 `result` 多一個 `conflicts`（另存成版本的筆數）。
 
 ---
 

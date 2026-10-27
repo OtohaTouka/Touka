@@ -14,7 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from memory_server.config_utils import get_current_epoch, get_resource_proxy
-from memory_server.services.legacy_store import LegacyStore
+from memory_server.services.legacy_store import ArchiveOutcome, LegacyStore
 from memory_server.utils.legacy_time import to_epoch_ms
 
 if TYPE_CHECKING:
@@ -76,16 +76,26 @@ class LegacySyncService:
         filename: str,
         source: tuple[str, str] | None = None,
     ) -> int:
-        """把一份對話資料（各種匯出格式）直接歸檔進舊對話庫，回寫入的訊息數.
+        """把一份對話資料（各種匯出格式）直接歸檔進舊對話庫，回確認在庫的訊息數.
 
         滑動視窗剪裁、前端「切分存入舊對話」與手動同步共用；不寫任何檔案。``filename`` 只是
-        資料庫裡的標籤（不當路徑）。失敗往上拋（交易已 rollback），由呼叫端決定：
+        資料庫裡的標籤（不當路徑）。已經在庫的訊息也算確認在庫，同 id 但內容不同的另存成版本、
+        也算在內（舊審查報告乙-1）。失敗往上拋（交易已 rollback），由呼叫端決定：
         剪裁不剪、同步記錯。
         """
+        return self._archive(identity, data, filename, source).confirmed
+
+    def _archive(
+        self,
+        identity: AgentIdentity,
+        data: Any,
+        filename: str,
+        source: tuple[str, str] | None,
+    ) -> ArchiveOutcome:
         default_id = filename.removesuffix(".json")
         messages = self._extract_messages(data, default_id)
         if not messages and source is None:
-            return 0
+            return ArchiveOutcome(confirmed=0, versions=0)
         now_ms = int(get_current_epoch() * 1000)
         sessions: dict[str, dict[str, Any]] = {}
         for msg in messages:
@@ -99,8 +109,9 @@ class LegacySyncService:
                     "updated_at": now_ms,
                 }
         get_resource_proxy().make_dir(str(self._legacy_dir(identity)))
-        self.get_store(identity).archive(identity, list(sessions.values()), messages, source)
-        return len(messages)
+        return self.get_store(identity).archive(
+            identity, list(sessions.values()), messages, source
+        )
 
     @staticmethod
     def _session_title(data: Any, session_id: str, default: str) -> str:
@@ -130,14 +141,14 @@ class LegacySyncService:
         """把 legacy 目錄裡還沒處理過的 JSON 檔歸檔進舊對話庫.
 
         不搬檔：以 (檔名, 內容 SHA-256) 記已處理，重跑跳過；歸檔失敗的檔不留紀錄、計入 errors，
-        下次重跑重做。
+        下次重跑重做。同 id 但內容不同、另存成版本的筆數記在 conflicts（舊審查報告乙-1）。
 
         Returns:
-            dict[str, Any]: synced／skipped／errors 與資料庫統計。
+            dict[str, Any]: synced／skipped／errors／conflicts 與資料庫統計。
         """
         store = self.get_store(identity)
         done = store.processed_keys()
-        synced = skipped = errors = 0
+        synced = skipped = errors = conflicts = 0
         for file_path in self._json_files(identity):
             f_name = file_path.name
             try:
@@ -145,14 +156,15 @@ class LegacySyncService:
                 if (f_name, digest) in done:
                     skipped += 1
                     continue
-                count = self.archive_payload(
+                outcome = self._archive(
                     identity, json.loads(content), f_name, source=(f_name, digest)
                 )
             except Exception:
                 logger.exception("❌ [LegacySync] Failed to sync %s", f_name)
                 errors += 1
                 continue
-            if count:
+            conflicts += outcome.versions
+            if outcome.confirmed:
                 synced += 1
             else:
                 logger.warning("No valid messages found in %s", f_name)
@@ -161,6 +173,7 @@ class LegacySyncService:
             "synced": synced,
             "skipped": skipped,
             "errors": errors,
+            "conflicts": conflicts,
             "total_in_db": store.get_stats(),
         }
 
@@ -171,7 +184,7 @@ class LegacySyncService:
         for file_path in self._json_files(identity):
             try:
                 _, digest = self._read_with_digest(file_path)
-            except OSError:
+            except (OSError, ValueError):  # 讀不到或不是 UTF-8：算待處理，不讓統計失敗
                 pending += 1
                 continue
             pending += (file_path.name, digest) not in done
