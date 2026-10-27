@@ -1,6 +1,6 @@
 # ADR-0262：系統快照一致且不互蓋、快照路徑單一來源；刪除靈魂前要先清記憶
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂決策 9：刪除整段持有破壞性操作鎖、還有心跳在跑回 409、清完家目錄再查一次、取消註冊照實回報）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（`scripts/manage_backup.py`、`services/system_backup.py`、`services/backup_scheduler_service.py`、`services/dispatch_supervisor.py`、`routers/system.py`、`routers/souls.py`、新 `services/agent_reset/delete_guard.py`、新 `utils/child_env.py`、`config/errors.json.example`）＋ ToukaMemory（`factual.py`、`vector.py`）＋ ToukaChat（`AgentDataResetCard.tsx`、`lib/error_handler.ts`、i18n、`lib/error_codes.ts` 產生檔）
@@ -28,7 +28,7 @@
 6. **快照目錄＝`.env` 所在資料夾的 `backups`（不動 compose）**：容器裡是 `/app/host_root/backups`，也就是宿主 compose 目錄的 `./backups`，容器重建不消失；本機整合模式是 repo 根的 `backups`，和以前相同。
 7. **子程序 PYTHONPATH 一個來源**：新 `src/utils/child_env.child_python_env()` 回傳 `settings.get_full_env()` 的複本，PYTHONPATH 依序是 PROXY_ROOT、`ToukaMemory/src`、原本的值（去重保序）。dispatch 子程序、快照、還原三處共用；dispatch 原本那段寫法換成呼叫，行為不變。理由：子程序已經是同一個直譯器（`sys.executable`），但 memory_server 不是安裝的套件（`ToukaMemory/pyproject.toml` 的 `package = false`），只能靠 PYTHONPATH 找到，改用 `-m` 也解決不了；先例是 `DispatchSupervisor.build_child_env` 原本的同一段寫法，Docker 映像的 `ENV PYTHONPATH` 與 `ToukaProxy/run_proxy.ps1` 本來也這樣設。
 8. **快照失敗不回腳本輸出**：`SYSTEM_BACKUP_FAILED` 只帶錯誤碼；stderr 先經 `utils/secrets.redact_secrets_from_content` 消毒，再只寫伺服器 log（禁令 23）。還原失敗本來就只記狀態與錯誤碼（ADR-0254）。
-9. **刪除靈魂前檢查記憶**：步升、不可刪名單、路徑監獄之後，事實庫該 ID 任何狀態的列（含已封存、待補索引）、向量點、或向量 collection 還在（空的也算）就回 409 `SOUL_MEMORY_NOT_RESET`（1408，附 `facts`、`vectors`、`vector_collection`），什麼都不刪；記憶系統不可用、無法確認時回 503 `SOUL_MEMORY_CHECK_FAILED`（1409），不刪。用 `MemoryManager.count_agent_memory` 與新的 `VectorStore.has_agent_collection`，Guard #45 基準不變。
+9. **刪除靈魂前檢查記憶**：步升、不可刪名單、路徑監獄之後，事實庫該 ID 任何狀態的列（含已封存、待補索引）、向量點、或向量 collection 還在（空的也算）就回 409 `SOUL_MEMORY_NOT_RESET`（1408，附 `facts`、`vectors`、`vector_collection`），什麼都不刪；記憶系統不可用、無法確認時回 503 `SOUL_MEMORY_CHECK_FAILED`（1409），不刪。用 `MemoryManager.count_agent_memory` 與新的 `VectorStore.has_agent_collection`，Guard #45 基準不變。〔ADR-0287 修訂：整段持有破壞性操作鎖並標記目標，和重置、清除互斥；還有心跳在跑就叫它停下、回 409 `SOUL_HEARTBEAT_RUNNING`；清完隔離家目錄後再查一次記憶與活動紀錄；取消註冊有一步失敗回 500 `SOUL_UNREGISTER_INCOMPLETE`。〕
 10. **畫面講清楚**：刪除被擋時顯示「這個靈魂還有記憶，請先到『代理人資料重置』重置它，再刪除」；重置因快照失敗中止時，重置卡顯示「系統快照沒有做成，所以這次重置沒有執行，什麼都沒刪。你的操作沒有錯」（前端依錯誤碼 `SYSTEM_BACKUP_FAILED` 選文字，後端錯誤碼不變）。
 
 ## 後果

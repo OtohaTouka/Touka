@@ -1,6 +1,6 @@
 # ADR-0270：記憶系統第二批段 7：重置時一併清除靈魂在備份裡的記憶（清除連備份）
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂 §6：重置鎖改成不等待的破壞性操作鎖並標記目標，清除旗標也標記目標，刪除靈魂加入互斥）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/memory_scrub/`（`__init__`、`orchestrator`、`leftovers`、`swap`、`qdrant_meta`、`upgrade_backups`、`snapshots`、`ports`）、新 `services/memory_collection_guard.py`、新 `models/memory_scrub.py`、新 `models/agent_reset.py`、`services/agent_reset/orchestrator.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`services/system_backup.py`、`services/resource_manager.py`、`services/backup_scheduler_service.py`、`services/agent_service.py`、`utils/config_utils.py`、`routers/admin.py`、`routers/system.py`、`routers/debug.py`、`routers/souls.py`、`routers/custom_models.py`、`scripts/manage_backup.py`、`config/errors.json.example`）；ToukaMemory（`factual.py`、`vector.py`、新 `utils/collection_names.py`）；ToukaChat（重置卡、新 `useAgentDataReset`、`AgentResetScrubOption`、`AgentResetScrubResult`、`error_handler`、SoulStudio、ModelStudio、兩語翻譯）；`nginx/nginx.conf.example`；openapi／api.ts／錯誤常數重產；NOQA_REGISTRY `BLE001` +3
@@ -54,10 +54,10 @@
 
 ### 6. 鎖、旗標與並行
 
-- 取得順序固定：重置鎖 → 清除旗標（`memory_scrub.begin()`）→ 備份執行鎖（`run_backup_job`，shield 保護）→ 升級備份鎖（只在升級備份類別）。
+- 取得順序固定：重置鎖 → 清除旗標（`memory_scrub.begin()`）→ 備份執行鎖（`run_backup_job`，shield 保護）→ 升級備份鎖（只在升級備份類別）。〔ADR-0287 修訂：重置鎖改由 `destructive_op(target)` 不等待地取，同時標記目標；`memory_scrub.begin(target)` 也標記目標、工作結束時放行；標記期間這個靈魂的心跳不開跑、在下一個脈衝前停下。〕
 - 事實庫與已知 ID 在拿任何鎖之前、在工作執行緒裡取得（不卡事件迴圈，也避免在鎖內建構觸發升級而死結）。
 - 升級（備份＋輪替）全程持有升級備份鎖；清除等不到記 `lock_timeout`，升級等不到就延後（`LOCKED`，記憶庫不動）。
-- 互斥：清除進行中，還原回 409 `MEMORY_SCRUB_IN_PROGRESS`；重置或清除進行中，另一個重置與還原回 409 `AGENT_RESET_IN_PROGRESS`；還原進行中，任何重置（勾不勾清除、含 DebugAgent 重置）回 409 `SYSTEM_RESTORE_IN_PROGRESS`。
+- 互斥：清除進行中，還原回 409 `MEMORY_SCRUB_IN_PROGRESS`；重置或清除進行中，另一個重置與還原回 409 `AGENT_RESET_IN_PROGRESS`〔ADR-0287：刪除靈魂也加入，三者互斥〕；還原進行中，任何重置（勾不勾清除、含 DebugAgent 重置）回 409 `SYSTEM_RESTORE_IN_PROGRESS`。
 - 刪除快照經備份執行鎖：清除進行中刪除快照要等清除跑完；刪除的稽核寫在工作裡，等待中斷線也不會遺失。
 - 請求被取消或斷線：清除在 shield 裡照樣跑完；重查、報告與結果稽核都在工作執行緒的 `finally` 裡寫，不靠 await 之後的程式。
 

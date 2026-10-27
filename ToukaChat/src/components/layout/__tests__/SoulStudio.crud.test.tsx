@@ -145,6 +145,25 @@ describe('SoulStudio — edit/delete with admin step-up', () => {
     expect(screen.getByRole('heading', { name: /MySoul/i })).toBeInTheDocument();
   });
 
+  it('心跳還在跑時刪除被擋：說明已叫它停下、要先重置，靈魂留在畫面上', async () => {
+    const error = vi.spyOn(toast, 'error');
+    mockFetchTouka.mockImplementation((proxy: string, path: string, opts?: RequestInit) =>
+      opts?.method === 'DELETE'
+        ? Promise.resolve(Response.json(
+          { detail: { code: 'SOUL_HEARTBEAT_RUNNING', id: ERRORS.SOUL_HEARTBEAT_RUNNING.id } },
+          { status: 409 },
+        ))
+        : baseImpl(proxy, path, opts));
+    await renderDetail();
+    fireEvent.click(screen.getByTitle('刪除靈魂'));
+    fireEvent.change(await screen.findByPlaceholderText(/管理員密碼|admin password/i), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: /確認刪除|confirm delete/i }));
+
+    await waitFor(() => expect(error).toHaveBeenCalledWith(i18n.t('error.soul.heartbeat_running')));
+    expect(i18n.t('error.soul.heartbeat_running')).toMatch(/心跳.*停下.*重置/);
+    expect(screen.getByRole('heading', { name: /MySoul/i })).toBeInTheDocument();
+  });
+
   it('does NOT call DELETE if password modal is cancelled', async () => {
     await renderDetail();
     fireEvent.click(screen.getByTitle('刪除靈魂'));

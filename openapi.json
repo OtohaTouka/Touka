@@ -592,7 +592,7 @@
           "souls"
         ],
         "summary": "Delete Soul",
-        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。",
+        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。\n\n舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、\n清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。",
         "operationId": "delete_soul_v1_souls__soul_id__delete",
         "security": [
           {
@@ -796,7 +796,7 @@
           "souls"
         ],
         "summary": "Delete Soul",
-        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。",
+        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。\n\n舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、\n清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。",
         "operationId": "delete_soul_souls__soul_id__delete",
         "security": [
           {
