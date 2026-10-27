@@ -46,10 +46,11 @@
 10. **靠舊預設的測試明寫關**：32 個測試檔共 65 處建構補 `enforce_advertised=False`，語意不變（`smoke_tool_coverage.py` 在內）。
 11. **結構測試 C2 縮小**：預設開以後，要守的只剩「誰能把它關掉」。拿掉「正式程式只能兩個建立點、沒帶參數就紅」與 `tool_executor` 模組的匯入棘輪；加上 `inspect.signature` 釘住「只能用名稱指定、預設 True」。保留與補上的規則（掃全部正式 .py，執行器檔本身也掃）：
     - 任何呼叫裡的 `enforce_advertised=` 都必須是字面布林值；字面 `False` 只准在 debug.py 的 `debug_execute_tool`（`partial`、子類別的 `super().__init__`、`dict(...)`、執行器裡的工廠方法都算）。
-    - 建立呼叫（`ToolExecutor(...)` 或 `.ToolExecutor(...)`）不得有 `**` 展開（值可能來自設定或 JSON）；`ToolExecutor` 不得改名匯入。
-    - 整串等於 `"enforce_advertised"`、`"_enforce_advertised"` 或兩個核對方法名（`_offer_denial`、`_user_scope_denial`）的字串一律禁止（擋 `**{...}`、`setattr`、`vars()[...]`）。
-    - 私有屬性 `_enforce_advertised`：執行器以外不得以任何形式出現（名稱、屬性、keyword 名稱如 `vars(ex).update(_enforce_advertised=False)`、參數名、定義名、匯入名）；執行器裡只准在 `__init__` 寫入、其他地方只能讀。
-    - 兩個核對方法在執行器以外不得出現（子類別覆寫、monkeypatch、屬性存取都算）：它們被換掉時開關還是 True，清單與在場檢查卻都沒了。
+    - 建立呼叫（`ToolExecutor(...)`、`.ToolExecutor(...)`，或把 `ToolExecutor` 交給別的呼叫，例如 `partial`）不得有 `**` 展開（值可能來自設定或 JSON）；`ToolExecutor` 不得改名匯入。
+    - 正式程式（含執行器檔）不得繼承 `ToolExecutor`：子類別能在自己的 `__init__` 寫私有屬性、覆寫核對方法，或把 `**` 轉手給 `super().__init__`。
+    - 整串等於 `"enforce_advertised"`、`"_enforce_advertised"`、兩個核對方法名（`_offer_denial`、`_user_scope_denial`）或 `"__kwdefaults__"` 的字串一律禁止（擋 `**{...}`、`setattr`、`getattr`、`vars()[...]`）。
+    - 私有屬性 `_enforce_advertised`：執行器以外不得以任何形式出現（名稱、屬性、keyword 名稱如 `vars(ex).update(_enforce_advertised=False)`、參數名、定義名、匯入名）；執行器裡只准在 `ToolExecutor.__init__` 寫入、其他地方只能讀。
+    - 兩個核對方法在執行器以外不得出現（子類別覆寫、monkeypatch、屬性存取都算），執行器檔裡也不得指派：它們被換掉時開關還是 True，清單與在場檢查卻都沒了。
     - 不得寫入或刪除 `.enforce_advertised`；不得碰 `__kwdefaults__`（擋執行時把預設值翻成 False）。
     C3（清單欄位的讀寫者）不動。
 12. **事後指派的寫法更正**：ADR-0269 決策 2 說清單欄位「dict、frozenset 一律拒絕」，那是建立時。建好之後不論用 `ctx["advertised_tools"] = …`（`PipelineContext.__setitem__` 對宣告過的欄位就是 `setattr`，正式寫入點 ToolLayer 用的就是這個）還是屬性指派都不驗證（沒開 `validate_assignment`，開了會牽動 26 處正式程式與 56 處測試），由執行器的 `isinstance` 擋下、當成清單不可用。既有的 B11 dict、frozenset 案例本來就在測這條；這次另加一個屬性指派的案例當說明。
@@ -70,7 +71,7 @@
   - 甲-2：只差在說明文字（`description`、`title`、`examples`）的定義也算不同，會合成 `anyOf`；Anthropic 收，兩種說明模型都看得到，所以不另外合併說明（grok 審查的建議，判斷不需要）。
   - 範圍外的觀察（審查時發現、不是這次造成）：`<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 用 `find` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，影響的是快取命中、不是安全（ADR-0139 起就有），記在 HANDOVER §3。
 - 甲-2：外部工具（MCP 工具，或請求自己帶來的工具）把欄位直接寫在分支的 `properties` 裡時，Claude 看得到每一種定義；只有一種定義的欄位形狀不變。Claude 仍看不到「哪個值要配哪些欄位」（條件必填只剩說明文字，ADR-0266 已知限制），送錯組合時靠執行前檢查擋下。
-- 甲-3：使用者感覺不到差別。新寫的執行器建立點不寫開關也會核對清單；正式程式裡用寫得出來的字面寫法關開關，只有人按的除錯執行過得了 C2。
+- 甲-3：使用者感覺不到差別。新寫的執行器建立點不寫開關也會核對清單；常見的關開關與換掉核對的寫法（自我測試列了 34 種）都會被 C2 抓到，要關只該在人按的除錯執行。
   - 已知限制（甲-3）：C2 是只讀原始碼的結構測試，有心要繞還是繞得過，例如：
     - 用算出來的字串（`"_enforce" + "_advertised"`、`"Tool" + "Executor"`）經 `setattr`／`getattr` 改私有屬性或拿到類別（ADR-0269 起就這樣）；
     - 先把類別交給變數（或在執行器裡用 classmethod 的 `cls`），再把鍵名是算出來的 dict 用 `**` 展開；
@@ -92,3 +93,7 @@
   - LOW：拿掉「`ToolExecutor` 只能出現在三個檔」之後，子類別或 monkeypatch 能換掉兩個核對方法；建立呼叫的 `**` 展開與 `__kwdefaults__`；B11 新案例和既有的 dict 案例是同一條路（文件說法更正）；ADR-0285 說得太滿、已知限制沒列全；ADR-0281 還拿已拿掉的匯入棘輪當理由。
   - 處理：執行器檔也掃（私有屬性只准在 `__init__` 寫）；私有名稱與兩個核對方法在執行器以外不得以任何形式出現；建立呼叫不得 `**`、不得改名匯入；不得碰 `__kwdefaults__`；文件照實改寫，已知限制列出算出來的字串與經變數轉手。審查者建議的 6 個繞法（執行器裡兩種工廠、debug 用 `vars().update`、新檔子類別覆寫核對方法、新檔 `**` 展開、新檔改 `__kwdefaults__`）真的寫進正式程式後都被 C2 抓到。
   - 掃描器的 19 條規則各拿掉或放寬一次（含預設改回關、debug 不寫關、執行器檔不掃），全部變紅；其中「不擋開關名字串」第一次存活（原本的案例改被 `**` 規則先抓到），補了「類別交給變數再 `**` 展開字面 dict」的案例後也變紅。
+- 甲-3 內部程式審查第 2 輪（只看差異；需修改，沒有 BLOCKING、HIGH）：
+  - MEDIUM：私有屬性的寫入只看最內層函式是不是 `__init__`，執行器檔又不套用定義名規則：在執行器檔裡另寫一個子類別，在它的 `__init__` 寫 `False` 或覆寫核對方法，再從別的檔匯入使用，C2 抓不到。
+  - LOW：`partial(ToolExecutor, **…)` 與子類別轉手的 `**`；用字串寫的 `__kwdefaults__`（`getattr(..., "__kwdefaults__")`）。
+  - 處理：正式程式（含執行器檔）不得繼承 `ToolExecutor`；私有屬性只准在 `ToolExecutor.__init__` 寫；執行器檔裡也不得指派核對方法；把 `ToolExecutor` 交給別的呼叫時也不得帶 `**`；`"__kwdefaults__"` 加進禁止的字串；收回「字面寫法只有除錯執行過得了」的說法。審查者建議的 5 個繞法真的寫進正式程式後都被抓到，新的 5 條規則各拿掉一次都變紅。

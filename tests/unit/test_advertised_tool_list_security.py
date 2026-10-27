@@ -1171,6 +1171,7 @@ _PRIVATE_SWITCH = "_enforce_advertised"
 # 執行器裡負責核對的兩個方法：被覆寫或換掉，開關還是 True 但清單與在場檢查都沒了
 _CHECK_METHODS = frozenset({"_offer_denial", "_user_scope_denial"})
 _PRIVATE_NAMES = _CHECK_METHODS | {_PRIVATE_SWITCH}
+_PROTECTED_STRINGS = _PRIVATE_NAMES | {_SWITCH, "__kwdefaults__"}
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
 _FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
@@ -1244,11 +1245,23 @@ async def test_c2_an_executor_built_without_the_switch_blocks_unlisted_tools(gat
     handler.assert_not_awaited()
 
 
-def _is_executor_call(node: ast.Call) -> bool:
-    func = node.func
-    return (isinstance(func, ast.Name) and func.id == "ToolExecutor") or (
-        isinstance(func, ast.Attribute) and func.attr == "ToolExecutor"
+def _mentions_executor(node: ast.expr) -> bool:
+    return (isinstance(node, ast.Name) and node.id == "ToolExecutor") or (
+        isinstance(node, ast.Attribute) and node.attr == "ToolExecutor"
     )
+
+
+def _is_executor_call(node: ast.Call) -> bool:
+    """建立呼叫，或把 ToolExecutor 交給別的呼叫（例如 ``partial``）."""
+    return _mentions_executor(node.func) or any(_mentions_executor(arg) for arg in node.args)
+
+
+def _class_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
+    while node in parents:
+        node = parents[node]
+        if isinstance(node, ast.ClassDef):
+            return node.name
+    return "<module>"
 
 
 def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
@@ -1272,10 +1285,11 @@ def _attribute_uses(node: ast.Attribute, rel: str, parents: dict[ast.AST, ast.AS
     if node.attr == _PRIVATE_SWITCH:
         if not in_executor:
             return [f"attribute {_PRIVATE_SWITCH}"]
-        if not isinstance(node.ctx, ast.Load) and _function_of(node, parents) != "__init__":
-            return [f"{_PRIVATE_SWITCH} written outside __init__"]
-    if node.attr in _CHECK_METHODS and not in_executor:
-        return [f"attribute {node.attr}"]
+        where = (_class_of(node, parents), _function_of(node, parents))
+        if not isinstance(node.ctx, ast.Load) and where != ("ToolExecutor", "__init__"):
+            return [f"{_PRIVATE_SWITCH} written outside ToolExecutor.__init__"]
+    if node.attr in _CHECK_METHODS and (not in_executor or not isinstance(node.ctx, ast.Load)):
+        return [f"attribute {node.attr} ({type(node.ctx).__name__})"]  # 換掉核對方法
     if node.attr == _SWITCH and not isinstance(node.ctx, ast.Load):
         return [f"attribute {_SWITCH} ({type(node.ctx).__name__})"]
     return []
@@ -1302,10 +1316,13 @@ def _name_uses(node: ast.AST) -> list[str]:
 def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
     """只有 debug_execute_tool 能用字面 False 關開關；開關與兩個核對方法不得被改寫或繞過.
 
-    執行器檔本身也掃：私有屬性只准在 ``__init__`` 寫入，關開關的 keyword 一樣只准在除錯入口。
+    執行器檔本身也掃：私有屬性只准在 ``ToolExecutor.__init__`` 寫入，關開關的 keyword 一樣只准在
+    除錯入口；正式程式（含執行器檔）不得繼承 ToolExecutor。
     """
-    if isinstance(node, ast.Constant) and node.value in _PRIVATE_NAMES | {_SWITCH}:
+    if isinstance(node, ast.Constant) and node.value in _PROTECTED_STRINGS:
         return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、vars()[...]
+    if isinstance(node, ast.ClassDef) and any(_mentions_executor(base) for base in node.bases):
+        return [f"subclass {node.name} of ToolExecutor"]  # 子類別能寫私有屬性、換掉核對方法
     if isinstance(node, ast.keyword):
         return _keyword_uses(node, rel, parents)
     if (
@@ -1313,7 +1330,7 @@ def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> li
         and _is_executor_call(node)
         and any(keyword.arg is None for keyword in node.keywords)
     ):
-        return ["** unpacking into ToolExecutor"]  # 值可能來自設定或 JSON
+        return ["** unpacking into ToolExecutor"]  # 值可能來自設定或 JSON；含 partial
     if isinstance(node, ast.Attribute):
         return _attribute_uses(node, rel, parents)
     return [] if rel == _EXECUTOR_MODULE else _name_uses(node)
@@ -1438,6 +1455,39 @@ _CANONICAL_DEBUG = (
             "d.update(dict.fromkeys(d, False))\n",
         ),
         (_C2_ELSEWHERE, "def build(_enforce_advertised=False):\n    return None\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "class UncheckedToolExecutor(ToolExecutor):\n"
+            "    def _offer_denial(self, *args, **kwargs):\n"
+            "        return None\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class Loosener:\n"
+            "    def __init__(self, ex):\n"
+            "        ex._enforce_advertised = False\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "ToolExecutor._offer_denial = lambda *a, **k: None\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "import functools\n"
+            "def build(raw):\n    return functools.partial(ToolExecutor, **json.loads(raw))\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "class Passthrough(ToolExecutor):\n"
+            "    def __init__(self, *a, **k):\n"
+            "        super().__init__(*a, **k)\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "d = getattr(ToolExecutor.__init__, '__kwdefaults__')\n",
+        ),
     ],
     ids=[
         "partial-false",
@@ -1468,6 +1518,12 @@ _CANONICAL_DEBUG = (
         "variable-call-unpack-string",
         "kwdefaults",
         "private-parameter",
+        "executor-file-subclass",
+        "executor-file-other-class-writes",
+        "executor-file-monkeypatch",
+        "partial-unpack",
+        "passthrough-subclass",
+        "kwdefaults-string",
     ],
 )
 def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
