@@ -589,7 +589,18 @@
       "store_line": "已清 {{purged}}、殘留 {{remaining}}",
       "preserved_line": "刻意保留（未清除）：{{items}}",
       "done": "完成",
-      "result_unknown": "結果不明：伺服器可能仍在執行，重置與清除可能已經完成，請稍後重新整理查看",
+      "result_unknown": "結果不明：伺服器可能仍在執行，重置與清除可能已經完成。請稍後按「查看結果」",
+      "view_result": "查看結果",
+      "last": {
+        "heading_running": "上次重置：{{id}}（{{time}} 開始）",
+        "heading_finished": "上次重置：{{id}}（{{time}} 結束）",
+        "running": "還在執行中，請稍後再按「查看結果」",
+        "done": "已結束，按「查看結果」看明細",
+        "failed": "沒有完成：{{reason}}",
+        "interrupted": "請求中途中斷，可能只清了一部分，請再重置一次",
+        "none": "查不到這次的結果：伺服器可能重新啟動過，或請求沒有送到。請查看這個代理人的資料，必要時再重置一次",
+        "done_header": "以下是「{{id}}」在 {{time}} 結束的那次重置"
+      },
       "scrub": {
         "option_label": "一併清除備份裡這個靈魂的記憶（預設不勾）",
         "will_clear_title": "會清掉（全部成功時）：",

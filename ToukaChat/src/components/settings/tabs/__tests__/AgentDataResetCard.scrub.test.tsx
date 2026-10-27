@@ -16,6 +16,7 @@ const mockFetch = vi.fn((...[_u, path]: Parameters<typeof fetchTouka>) => {
     if (path === '/v1/models') {
         return Promise.resolve(Response.json({ data: [{ id: 'jin-soul', name: 'Jin', is_agent: true }] }));
     }
+    if (path === '/v1/admin/agents/reset/last') return Promise.resolve(Response.json({ state: 'idle' }));
     if (path.startsWith('/v1/admin/agents/')) return resetReply();
     return Promise.resolve(new Response(null, { status: 404 }));
 });
@@ -78,7 +79,7 @@ function confirmButton(): HTMLButtonElement {
 async function sentBody(): Promise<Record<string, unknown>> {
     let body: Record<string, unknown> = {};
     await waitFor(() => {
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).startsWith('/v1/admin/agents/'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]).endsWith('/reset'));
         if (!call || typeof call[2]?.body !== 'string') throw new Error('no reset request yet');
         body = JSON.parse(call[2].body);
     });
@@ -260,7 +261,7 @@ describe('AgentDataResetCard：清除連備份', () => {
         const view = await openDialog();
         fillAndSubmit();
         await sentBody();
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).startsWith('/v1/admin/agents/'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]).endsWith('/reset'));
         const signal = call?.[2]?.signal;
         expect(signal).toBeInstanceOf(AbortSignal);
         expect(call?.[2]).not.toHaveProperty('requestScope');

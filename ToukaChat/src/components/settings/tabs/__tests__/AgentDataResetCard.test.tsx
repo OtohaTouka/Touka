@@ -15,6 +15,7 @@ const mockFetch = vi.fn((...[_u, path]: Parameters<typeof fetchTouka>) => {
             { id: 'DebugAgent', name: 'DebugAgent', is_agent: true },
         ] }) });
     }
+    if (path === '/v1/admin/agents/reset/last') return Promise.resolve({ ok: true, json: () => Promise.resolve({ state: 'idle' }) });
     if (path.startsWith('/v1/admin/agents/')) {
         if (resetFailure) return Promise.resolve(resetFailure);
         return Promise.resolve({ ok: true, json: () => Promise.resolve({
@@ -89,7 +90,7 @@ describe('AgentDataResetCard（ADR-0113）', () => {
 
         fireEvent.click(confirmBtn);
         await waitFor(() => {
-            const call = mockFetch.mock.calls.find(c => String(c[1]).startsWith('/v1/admin/agents/'));
+            const call = mockFetch.mock.calls.find(c => String(c[1]).endsWith('/reset'));
             expect(call).toBeTruthy();
             if (!call) throw new Error('Expected an agent reset request');
             expect(String(call[1])).toContain('jin-soul');

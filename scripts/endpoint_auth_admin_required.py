@@ -56,6 +56,7 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "patch", "path": "/admin/users/{user_id}"},
     {"method": "delete", "path": "/admin/users/{user_id}"},
     {"method": "post", "path": "/admin/agents/{target}/reset"},
+    {"method": "get", "path": "/admin/agents/reset/last"},  # 人類 admin（ADR-0289）
 
     # ── 身分映射／權限矩陣（identity.py／permissions.py）───────────────────
     {"method": "post", "path": "/identity"},

@@ -12,6 +12,7 @@ export type Interjection = components['schemas']['Interjection'];
 export type RestoreStatus = components['schemas']['RestoreStatus'];
 export type AgentResetRequest = components['schemas']['AgentResetRequest'];
 export type AgentResetResponse = components['schemas']['AgentResetResponse'];
+export type LastResetStatus = components['schemas']['LastResetStatus'];
 export type MemoryScrubReport = components['schemas']['MemoryScrubReport'];
 export type ScrubItemResult = components['schemas']['ScrubItemResult'];
 

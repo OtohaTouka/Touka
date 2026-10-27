@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchTouka, getActiveProxyUrl } from "@/lib/connections";
 import { getErrorMessage, getResponseDetailString, getResponseErrorCode, logSSOTError } from "@/lib/error_handler";
 import type { ErrorCode } from "@/lib/error_codes";
-import type { AgentResetRequest, AgentResetResponse } from "@/lib/types";
+import type { AgentResetRequest, AgentResetResponse, LastResetStatus } from "@/lib/types";
 
 /** 可以重置的代理人（`/v1/models` 裡的靈魂，DebugAgent 除外）. */
 export interface ResettableAgent {
@@ -25,11 +25,13 @@ const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 504, 524]);
  *
  * 重置請求自帶 signal，`fetchTouka` 對自帶 signal 的請求不套連線逾時（勾選清除連備份時可能要幾分鐘）。
  * 元件卸載時不中止請求，伺服器照樣跑完，只是不再更新畫面。斷線或回應讀不完時結果是「不知道」，不是失敗。
+ * 「不知道」時可以向伺服器查最後一次重置的結果（`last`；掛載時也查一次，舊審查報告丙-5）。
  */
 export function useAgentDataReset() {
     const proxyUrl = getActiveProxyUrl();
     const [agents, setAgents] = useState<ResettableAgent[]>([]);
     const [busy, setBusy] = useState(false);
+    const [last, setLast] = useState<LastResetStatus | null>(null);
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -57,6 +59,24 @@ export function useAgentDataReset() {
         const timer = setTimeout(loadAgents, 0);
         return () => clearTimeout(timer);
     }, [loadAgents]);
+
+    /** 伺服器記著的最後一次重置（只在記憶體，重啟後是 idle）；查不到時是 null. */
+    const refreshLast = useCallback(async (): Promise<LastResetStatus | null> => {
+        let status: LastResetStatus | null = null;
+        try {
+            const res = await fetchTouka(proxyUrl, "/v1/admin/agents/reset/last");
+            if (res.ok) status = (await res.json()) as LastResetStatus;
+        } catch (e) {
+            logSSOTError(e, "useAgentDataReset:refreshLast");
+        }
+        if (mounted.current) setLast(status);
+        return status;
+    }, [proxyUrl]);
+
+    useEffect(() => {
+        const timer = setTimeout(refreshLast, 0);
+        return () => clearTimeout(timer);
+    }, [refreshLast]);
 
     const reset = useCallback(
         async (agentId: string, body: AgentResetRequest): Promise<AgentResetOutcome> => {
@@ -90,5 +110,5 @@ export function useAgentDataReset() {
         [proxyUrl],
     );
 
-    return { agents, loadAgents, busy, reset };
+    return { agents, loadAgents, busy, reset, last, refreshLast };
 }

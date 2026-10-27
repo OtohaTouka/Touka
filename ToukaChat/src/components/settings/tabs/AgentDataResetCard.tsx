@@ -12,12 +12,27 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog";
 import { useAgentDataReset, type AgentResetOutcome, type ResettableAgent } from "@/hooks/useAgentDataReset";
-import type { AgentResetResponse } from "@/lib/types";
+import type { AgentResetResponse, LastResetStatus } from "@/lib/types";
 import { AgentResetScrubOption, NO_SCRUB, type ScrubChoice } from "./AgentResetScrubOption";
 import { AgentResetScrubResult, outOfScopeCount } from "./AgentResetScrubResult";
 import { BackupRetentionNotice } from "@/components/common/BackupRetentionNotice";
+import {
+    AgentResetLastResult,
+    formatResetTime,
+    isShownLastResult,
+    lastResultHeading,
+    lastResultLine,
+} from "./AgentResetLastResult";
 
-type ResetView = { kind: "unknown" } | { kind: "done"; report: AgentResetResponse; scrubRequested: boolean };
+/** 結果不明時 `lookup` 是按「查看結果」查到的；從伺服器紀錄打開的報告帶結束時間. */
+type ResetView =
+    | { kind: "unknown"; lookup?: { status: LastResetStatus | null } }
+    | { kind: "done"; report: AgentResetResponse; scrubRequested: boolean; finishedAt?: number | null };
+
+/** 伺服器記著的那次重置換成結果畫面（有 scrub 就是那次有勾清除）. */
+function doneFromLast(report: AgentResetResponse, finishedAt: number | null | undefined): ResetView {
+    return { kind: "done", report, scrubRequested: report.scrub != null, finishedAt };
+}
 
 /** 清除完成才換成「記憶已從備份清掉」那版；還有不在範圍的舊資料時用另一版（舊審查報告丙-3）. */
 function noticeVariant(scrub: AgentResetResponse["scrub"]): "reset" | "reset_scrubbed" | "reset_scrubbed_partial" {
@@ -32,7 +47,7 @@ function noticeVariant(scrub: AgentResetResponse["scrub"]): "reset" | "reset_scr
  */
 export function AgentDataResetCard() {
     const { t } = useTranslation();
-    const { agents, loadAgents, busy, reset } = useAgentDataReset();
+    const { agents, loadAgents, busy, reset, last, refreshLast } = useAgentDataReset();
     const [target, setTarget] = useState<ResettableAgent | null>(null);
     const [typed, setTyped] = useState("");
     const [password, setPassword] = useState("");
@@ -45,6 +60,28 @@ export function AgentDataResetCard() {
         setPassword("");
         setScrub(NO_SCRUB);
         setView(null);
+    };
+
+    /** 卡上的「查看結果」：打開伺服器記著的那份報告. */
+    const showLast = (status: LastResetStatus) => {
+        if (!status.report || !status.agent_id) return;
+        const { agent_id: id } = status;
+        setTarget(agents.find((a) => a.id === id) ?? { id });
+        setTyped("");
+        setPassword("");
+        setScrub(NO_SCRUB);
+        setView(doneFromLast(status.report, status.finished_at));
+    };
+
+    /** 「結果不明」的查看結果：同一個靈魂已結束就換成那份報告，否則說查到什麼. */
+    const checkResult = async () => {
+        if (!target) return;
+        const status = await refreshLast();
+        if (status?.state === "done" && status.report && status.agent_id === target.id) {
+            setView(doneFromLast(status.report, status.finished_at));
+            return;
+        }
+        setView({ kind: "unknown", lookup: { status } });
     };
 
     const close = () => {
@@ -97,29 +134,53 @@ export function AgentDataResetCard() {
     const finish = () => {
         close();
         loadAgents();
+        refreshLast();
     };
 
-    const doneButton = (
-        <div className="flex justify-end">
-            <button onClick={finish} className="rounded-xl bg-primary-button px-4 py-2 text-xs font-black uppercase tracking-widest text-primary-foreground hover:opacity-90">
-                {t("settings.agent_reset.done")}
-            </button>
-        </div>
+    const finishButton = (
+        <button onClick={finish} className="rounded-xl bg-primary-button px-4 py-2 text-xs font-black uppercase tracking-widest text-primary-foreground hover:opacity-90">
+            {t("settings.agent_reset.done")}
+        </button>
     );
+    const doneButton = <div className="flex justify-end">{finishButton}</div>;
+
+    const renderLookup = (status: LastResetStatus | null) => {
+        // 別的靈魂的、或伺服器沒有紀錄（重啟過）：不是這次的結果
+        if (!isShownLastResult(status) || status.agent_id !== target?.id) {
+            return <p className="text-muted-foreground">{t("settings.agent_reset.last.none")}</p>;
+        }
+        return (
+            <div className="space-y-0.5">
+                <p className="font-bold text-foreground">{lastResultHeading(t, status)}</p>
+                <p className="text-muted-foreground">{lastResultLine(t, status)}</p>
+            </div>
+        );
+    };
 
     const renderResult = (current: ResetView) => {
         if (current.kind === "unknown") {
             return (
                 <div className="mt-2 space-y-2 text-xs">
                     <p className="font-bold text-status-warning">{t("settings.agent_reset.result_unknown")}</p>
-                    {doneButton}
+                    {current.lookup && renderLookup(current.lookup.status)}
+                    <div className="flex justify-end gap-2">
+                        <button onClick={checkResult} className="rounded-xl px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground">
+                            {t("settings.agent_reset.view_result")}
+                        </button>
+                        {finishButton}
+                    </div>
                 </div>
             );
         }
-        const { report, scrubRequested } = current;
+        const { report, scrubRequested, finishedAt } = current;
         const scrubRan = report.scrub?.ran === true;
         return (
             <div className="mt-2 space-y-2 text-xs">
+                {finishedAt != null && (
+                    <p className="text-muted-foreground">
+                        {t("settings.agent_reset.last.done_header", { id: report.agent_id, time: formatResetTime(finishedAt) })}
+                    </p>
+                )}
                 <p className={cn("font-bold", report.clean ? "text-status-success" : "text-status-warning")}>
                     {!report.clean
                         ? t("settings.agent_reset.result_partial")
@@ -161,6 +222,7 @@ export function AgentDataResetCard() {
             <p className="text-xs text-muted-foreground leading-relaxed">
                 {t("settings.agent_reset.intro")}
             </p>
+            {isShownLastResult(last) && <AgentResetLastResult last={last} onView={() => showLast(last)} />}
 
             {agents.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-border p-6 text-center text-xs italic text-muted-foreground">
