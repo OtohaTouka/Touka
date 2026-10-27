@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -28,18 +29,44 @@ from tests.live_api_policy import PROVIDER_CREDENTIAL_ENV_VARS
 
 _Q48_FACTORY_CHILD = r"""import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import sys
 
-source = Path(sys.argv[1]).resolve()
-owned = Path(sys.argv[2]).resolve()
-protected = Path(sys.prefix).resolve().parent
+VERBATIM = '\\\\?\\'
+def final(name):
+    # Windows may report one file as both C:\... and \\?\C:\...; compare a single spelling.
+    text = str(Path(os.fsdecode(name)).resolve())
+    if text.startswith(VERBATIM) and text[5:7] == ':\\':
+        text = text[len(VERBATIM):]
+    return Path(text)
+source = final(sys.argv[1])
+owned = final(sys.argv[2])
+protected_roots = [final(sys.prefix).parent]
+if sys.argv[4]:
+    assert final(sys.argv[4]).is_relative_to(owned)
+    protected_roots.append(final(sys.argv[4]))
+probes = json.loads(sys.argv[5])
 assert 'src' not in sys.modules and 'src.services.resource_manager' not in sys.modules
-assert Path.cwd().resolve() == source / 'ToukaDispatch'
-allowed_reads = [source, owned, Path(sys.prefix), Path(sys.base_prefix)]
+assert final(Path.cwd()) == source / 'ToukaDispatch'
+base = final(sys.base_prefix)
+allowed_reads = [source, owned, final(sys.prefix), base]
 if sys.argv[3]:
-    allowed_reads.append(Path(sys.argv[3]))
-allowed_reads = [path.resolve() for path in allowed_reads]
+    allowed_reads.append(final(sys.argv[3]))
+# A packaged host (Claude desktop is MSIX) can keep the interpreter's files somewhere other
+# than where its folder reports; also allow the folder that really holds the stdlib.
+try:
+    tail = PurePath(os.__file__).relative_to(sys.base_prefix).parts
+except ValueError:
+    tail = ()
+physical = final(os.__file__).parts
+if tail and PurePath(*physical[-len(tail):]) == PurePath(*tail):
+    stdlib_root = Path(*physical[:-len(tail)])
+    if stdlib_root != base:
+        assert stdlib_root.name == base.name
+        assert not any(
+            root.is_relative_to(stdlib_root) for root in (*protected_roots, source, owned)
+        )
+        allowed_reads.append(stdlib_root)
 def audit(event, args):
     if event in {'socket.connect', 'socket.bind', 'subprocess.Popen', 'os.system'}:
         raise RuntimeError('FACTORY_CHILD_FORBIDDEN_OPERATION')
@@ -47,8 +74,10 @@ def audit(event, args):
         name = args[0]
         if isinstance(name, int):
             return
-        path = Path(name).resolve()
-        if path == protected / '.env' or path.is_relative_to(protected / 'data'):
+        path = final(name)
+        if any(
+            path == root / '.env' or path.is_relative_to(root / 'data') for root in protected_roots
+        ):
             raise RuntimeError('FACTORY_CHILD_PROTECTED_PATH')
         mode, flags = args[1:3]
         writing = (
@@ -64,11 +93,21 @@ def audit(event, args):
         for name in args[:2] if event == 'os.rename' else args[:1]:
             if not isinstance(name, (str, bytes, os.PathLike)):
                 continue
-            if not Path(name).resolve().is_relative_to(owned):
+            if not final(name).is_relative_to(owned):
                 raise RuntimeError('FACTORY_CHILD_WRITE_SCOPE')
 sys.addaudithook(audit)
+if probes:
+    reasons = []
+    for probe in probes:
+        try:
+            with open(probe, 'rb'):
+                pass
+        except RuntimeError as error:
+            reasons.append(str(error))
+    print(json.dumps({'status': 'PROBE_BLOCKED', 'reasons': reasons}))
+    raise SystemExit(0)
 from memory_server import config_utils
-assert Path(config_utils.__file__).resolve() == (
+assert final(config_utils.__file__) == (
     source / 'ToukaMemory/src/memory_server/config_utils.py'
 )
 try:
@@ -81,12 +120,12 @@ except ModuleNotFoundError as error:
 else:
     from src import config
     module = sys.modules['src.services.resource_manager']
-    assert Path(module.__file__).resolve() == (
+    assert final(module.__file__) == (
         source / 'ToukaProxy/src/services/resource_manager.py'
     )
-    assert Path(config.__file__).resolve() == source / 'ToukaProxy/src/config.py'
+    assert final(config.__file__) == source / 'ToukaProxy/src/config.py'
     assert manager is module.resource_manager
-    assert Path(config.get_app_data_dir()).resolve().is_relative_to(owned)
+    assert final(config.get_app_data_dir()).is_relative_to(owned)
     result = {'status': 'FACTORY_OK', 'origins': 'SOURCE_EXACT', 'sandbox_ssot': True}
 print(json.dumps(result))
 """
@@ -113,16 +152,39 @@ def test_q48_child_import_roots_keep_proxy_and_memory_first(monkeypatch, inherit
     assert environment["DISPATCH_TOKEN"] == "q48-synthetic-token"
 
 
-@pytest.mark.parametrize("remove_proxy", [False, True])
-def test_q48_fresh_child_resource_proxy_from_supervisor(monkeypatch, tmp_path, remove_proxy):
-    """Exercise the original factory without parent module cache or path assistance."""
-    source = PROXY_ROOT.parent.resolve()
+def _q48_owned(tmp_path: Path) -> Path:
+    """Create the owned sandbox root the fresh child may read and write."""
     owned = tmp_path / "fresh-child"
     owned.mkdir()
     for name in ("config", "data", "workspace"):
         (owned / name).mkdir()
+    (owned / ".env").write_text("# owned empty factory regression environment\n", encoding="utf-8")
+    return owned
+
+
+def _q48_systemroot(environment: dict[str, str]) -> str:
+    return next((value for key, value in environment.items() if key.upper() == "SYSTEMROOT"), "")
+
+
+def _q48_outside_probes(token: str) -> list[Path]:
+    """Missing paths beside the interpreter install and beside where its stdlib really lives."""
+    stdlib = Path(os.__file__)
+    depth = len(stdlib.relative_to(sys.base_prefix).parts)
+    roots = (Path(sys.base_prefix).resolve(), stdlib.resolve().parents[depth - 1])
+    return [root.parent / f"q48-outside-{index}-{token}" for index, root in enumerate(roots)]
+
+
+def _run_q48_child(
+    monkeypatch: pytest.MonkeyPatch,
+    owned: Path,
+    *,
+    remove_proxy: bool = False,
+    extra_protected: str = "",
+    probes: list[Path] | None = None,
+) -> dict:
+    """Run the factory child with the supervisor's environment and return its last JSON line."""
+    source = PROXY_ROOT.parent.resolve()
     env_file = owned / ".env"
-    env_file.write_text("# owned empty factory regression environment\n", encoding="utf-8")
     allowed = {
         "SYSTEMROOT",
         "WINDIR",
@@ -185,10 +247,17 @@ def test_q48_fresh_child_resource_proxy_from_supervisor(monkeypatch, tmp_path, r
             for path in child_env["PYTHONPATH"].split(os.pathsep)
             if path != str(PROXY_ROOT)
         )
-    systemroot = next(
-        (value for key, value in child_env.items() if key.upper() == "SYSTEMROOT"), ""
-    )
-    argv = [sys.executable, "-B", "-c", _Q48_FACTORY_CHILD, str(source), str(owned), systemroot]
+    argv = [
+        sys.executable,
+        "-B",
+        "-c",
+        _Q48_FACTORY_CHILD,
+        str(source),
+        str(owned),
+        _q48_systemroot(child_env),
+        extra_protected,
+        json.dumps([str(probe) for probe in probes or ()]),
+    ]
     result = subprocess.run(  # noqa: S603
         argv,
         cwd=cwd,
@@ -200,11 +269,41 @@ def test_q48_fresh_child_resource_proxy_from_supervisor(monkeypatch, tmp_path, r
     )
     assert len(result.stdout) <= 1024**2 and len(result.stderr) <= 1024**2
     assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
-    observed = json.loads(result.stdout.splitlines()[-1])
+    return json.loads(result.stdout.splitlines()[-1])
+
+
+@pytest.mark.parametrize("remove_proxy", [False, True])
+def test_q48_fresh_child_resource_proxy_from_supervisor(monkeypatch, tmp_path, remove_proxy):
+    """Exercise the original factory without parent module cache or path assistance."""
+    observed = _run_q48_child(monkeypatch, _q48_owned(tmp_path), remove_proxy=remove_proxy)
     if remove_proxy:
         assert observed == {"status": "IMPORT_ERROR", "missing": "src.services"}
     else:
         assert observed == {"status": "FACTORY_OK", "origins": "SOURCE_EXACT", "sandbox_ssot": True}
+
+
+@pytest.mark.parametrize("kind", ["outside", "protected"])
+def test_q48_fresh_child_audit_blocks_probe_reads(monkeypatch, tmp_path, kind):
+    """Reads beside the interpreter stay out of scope; data/ and .env stay blocked when readable."""
+    owned = _q48_owned(tmp_path)
+    token = uuid.uuid4().hex
+    if kind == "outside":
+        probes = _q48_outside_probes(token)
+        extra_protected = ""
+        expected = "FACTORY_CHILD_READ_SCOPE"
+        readable = [PROXY_ROOT.parent.resolve(), owned.resolve(), Path(sys.prefix).resolve()]
+        systemroot = _q48_systemroot(settings.get_full_env())
+        if systemroot:
+            readable.append(Path(systemroot).resolve())
+        assert not any(probe.is_relative_to(root) for probe in probes for root in readable)
+    else:
+        fake_root = owned / "fake-root"
+        probes = [fake_root / ".env", fake_root / "data" / f"q48-{token}"]
+        extra_protected = str(fake_root)
+        expected = "FACTORY_CHILD_PROTECTED_PATH"
+    assert not any(probe.exists() for probe in probes)
+    observed = _run_q48_child(monkeypatch, owned, extra_protected=extra_protected, probes=probes)
+    assert observed == {"status": "PROBE_BLOCKED", "reasons": [expected] * len(probes)}
 
 
 class FakeProc:
