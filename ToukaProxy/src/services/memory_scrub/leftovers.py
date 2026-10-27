@@ -60,7 +60,13 @@ def iter_snapshot_leftovers(directory: Path, started_at: float) -> Iterator[Scru
         try:
             result = _sweep_one(entry, busy=busy)
         except FileNotFoundError:
-            continue
+            if swap.missing(entry):
+                continue
+            # 這一項還在（例如工作資料夾刪到一半、裡面的檔被別人先刪掉）：裡面可能還有記憶庫副本，
+            # 不能當成沒事，記成刪不掉
+            result = ScrubItemResult(
+                kind="leftover", name=entry.name, status="failed", reason="in_use"
+            )
         if result is not None:
             yield result
 

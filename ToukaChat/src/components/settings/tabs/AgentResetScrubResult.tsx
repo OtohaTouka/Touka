@@ -18,10 +18,14 @@ function reasonText(t: Translate, reason: ScrubReason | null | undefined): strin
 function liveNotes(t: Translate, report: MemoryScrubReport): string[] {
     const notes = new Set<string>();
     for (const live of (report.items ?? []).filter((item) => item.kind === "live_store" && item.status === "failed")) {
+        // rewritten_after_reset 可能是整理前就發現（沒有整理），也可能是整理完才發現（舊審查報告丙-3），
+        // 所以不說有沒有整理
         notes.add(
             live.reason === "live_verify_failed"
                 ? t("settings.agent_reset.scrub.live_verify_failed")
-                : t("settings.agent_reset.scrub.live_not_compacted", { reason: reasonText(t, live.reason) }),
+                : live.reason === "rewritten_after_reset"
+                  ? t("settings.agent_reset.scrub.live_rewritten")
+                  : t("settings.agent_reset.scrub.live_not_compacted", { reason: reasonText(t, live.reason) }),
         );
     }
     if (report.ran && (report.memory_remaining ?? null) === null) notes.add(t("settings.agent_reset.scrub.remaining_unknown"));
@@ -29,11 +33,11 @@ function liveNotes(t: Translate, report: MemoryScrubReport): string[] {
     return [...notes];
 }
 
-/** 不在清除範圍（舊格式、舊前綴）、留在備份裡的筆數. */
+/** 還留著不在清除範圍（舊格式、舊前綴）資料的備份份數：每份備份一個資訊項，筆數在下方清單. */
 export function outOfScopeCount(report: MemoryScrubReport | null | undefined): number {
-    return (report?.items ?? [])
-        .filter((item) => item.kind === "info" && item.reason === "out_of_scope")
-        .reduce((sum, item) => sum + (item.count ?? 0), 0);
+    return (report?.items ?? []).filter(
+        (item) => item.kind === "info" && item.reason === "out_of_scope" && (item.count ?? 0) > 0,
+    ).length;
 }
 
 /** 總結句：沒完成時一律寫「沒有完成」加原因，不拿檔數下結論（類別沒跑完時檔數是錯的）.

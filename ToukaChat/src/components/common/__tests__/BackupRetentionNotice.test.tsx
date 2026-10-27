@@ -55,6 +55,9 @@ describe('BackupRetentionNotice', () => {
         expect(screen.queryByText(/^記憶已從備份清掉/)).toBeNull();
         expect(screen.getByText(/vault\/core_memory_backups/)).toBeDefined();
         expect(screen.getByText(/刪整份快照/)).toBeDefined();
+        // 升級備份裡不在範圍的資料只能手動刪；還原的副作用照講
+        expect(screen.getByText(/所有靈魂共用.*手動刪/)).toBeDefined();
+        expect(screen.getByText(/所有靈魂的記憶都退回/)).toBeDefined();
         expect(screen.queryByText(/建議：重置時勾選/)).toBeNull();
     });
 
