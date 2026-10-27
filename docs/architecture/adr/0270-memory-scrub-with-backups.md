@@ -217,7 +217,7 @@
 - **問題**：Windows 檔案總管會在資料夾裡放 `Thumbs.db`（縮圖快取）、`desktop.ini`（資料夾設定），macOS 放 `.DS_Store`。升級備份資料夾（`vault/core_memory_backups/`）裡不認得的檔原本一律記 `unknown_file`，快照裡同一個位置的成員記 `unknown_member`（fail closed），所以只要有人用檔案總管打開過這個資料夾，清除就永遠不會「完成」。另外 `Thumbs.db` 結尾是 `.db`，獨立驗證會把它當記憶庫打開，得到 `verify_failed`。快照目錄本身（leftovers）不受影響：名字不符任何暫存樣式的檔本來就不列。
 - **決定**：
   - 一份名單 `services/memory_scrub/os_metadata.py` 的 `OS_METADATA_NAMES`：`thumbs.db`、`desktop.ini`、`.ds_store`。比對不分大小寫，但名字必須全是 ASCII（克耳文符號 `K` 這類非 ASCII 字元轉小寫後才相同的不算）。
-  - 名字相符**而且**是一般檔、不超過 4 MiB、開頭不是 SQLite 檔頭、內容找不到目標 ID（UTF-8、UTF-16LE、UTF-16BE 三種寫法；`desktop.ini` 常是 UTF-16LE，`.DS_Store` 的檔名是 UTF-16BE），才當雜檔。先看大小（檔案大小、zip 宣告的大小），太大的不讀；驗證時每個成員最多讀上限加 1 個位元組。
+  - 名字相符**而且**是一般檔、不超過 4 MiB、開頭不是 SQLite 檔頭、內容找不到目標 ID（UTF-8、UTF-16LE、UTF-16BE 三種寫法；`desktop.ini` 常是 UTF-16LE，`.DS_Store` 的檔名是 UTF-16BE），才當雜檔。先看大小（檔案大小、zip 宣告的大小；zipfile 讀出的不會超過宣告的大小），太大的不讀。
   - 升級備份資料夾裡的雜檔：原樣不動，記成資訊項 `info`／`os_metadata_file`（不附數量）。不影響「完成」，也不算沒清掉的檔；畫面在「其他資訊」列一行，不寫數量（新鍵 `info_line_plain`）。
   - 快照裡升級備份資料夾的雜檔成員：照抄。獨立驗證認得同一份名單，不當記憶庫打開；成員不能有變，大小、SQLite 檔頭、目標 ID 都自己重算一次，不呼叫分類那邊的內容判斷。
   - 其他情況照舊 fail closed：名字相符但是資料夾、太大、是 SQLite、含目標 ID，或名字只是相近（例如 `Thumbs.db.old`）。這不放寬 §2 的範圍：雜檔不是記憶，含目標 ID 的仍然擋下。

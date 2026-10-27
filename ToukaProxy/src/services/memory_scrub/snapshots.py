@@ -178,12 +178,6 @@ def _check_os_members(path: Path, sizes: dict[str, int], identity: AgentIdentity
             raise swap.ScrubItemFailure("unknown_member")
 
 
-def _read_member_head(path: Path, name: str, limit: int) -> bytes:
-    """最多讀成員的前 limit 個位元組（驗證不經分類，自己設上限）."""
-    with zipfile.ZipFile(path) as zf, zf.open(name) as member:
-        return member.read(limit)
-
-
 def _rewrite(
     path: Path, output: Path, drop: frozenset[str], replace: dict[str, Path | bytes]
 ) -> None:
@@ -412,7 +406,7 @@ def _verify_rewrite(
         if _is_os_member(info.filename):
             if changed:
                 raise swap.ScrubItemFailure("verify_failed")
-            _verify_os_member(new_zip, info.filename, identity)
+            _verify_os_member(new_zip, info, identity)
         elif _is_store_member(info.filename):
             _verify_store_member(original_zip, new_zip, info.filename, identity, changed=changed)
         elif info.filename == META_MEMBER:
@@ -441,14 +435,14 @@ def _is_os_member(name: str) -> bool:
     )
 
 
-def _verify_os_member(new_zip: Path, name: str, identity: AgentIdentity) -> None:
-    """只用 os_metadata 的常數重算，不呼叫它的內容判斷."""
-    content = _read_member_head(new_zip, name, os_metadata.MAX_OS_FILE_BYTES + 1)
+def _verify_os_member(new_zip: Path, info: zipfile.ZipInfo, identity: AgentIdentity) -> None:
+    """只用 os_metadata 的常數重算，不呼叫它的內容判斷；先看新 zip 宣告的大小，太大的不讀."""
+    if info.file_size > os_metadata.MAX_OS_FILE_BYTES:
+        raise swap.ScrubItemFailure("verify_failed")
+    content = _read_member(new_zip, info.filename)
     needles = [identity.agent_id.encode(enc, "surrogatepass") for enc in os_metadata.ID_ENCODINGS]
-    if (
-        len(content) > os_metadata.MAX_OS_FILE_BYTES
-        or content.startswith(os_metadata.SQLITE_HEADER)
-        or any(needle in content for needle in needles)
+    if content.startswith(os_metadata.SQLITE_HEADER) or any(
+        needle in content for needle in needles
     ):
         raise swap.ScrubItemFailure("verify_failed")
 
