@@ -379,6 +379,7 @@ def _verify_rewrite(
     依常數版面自己找出記憶庫成員與 meta.json，不看分類器與清除時的對照表：
     - 每一份記憶庫成員在新 zip 裡目標都是 0 筆；內容有變的，非目標列的多重集合要和原本同名成員相同；
     - 升級備份資料夾裡名字像雜檔的成員不能有變，內容自己重驗（不是 SQLite、不含目標 ID）；
+      這個資料夾裡留下來的成員只能是記憶庫或雜檔；
     - 其他內容有變的成員只能是 meta.json，而且要等於「原本拿掉目標」。
     """
     with zipfile.ZipFile(new_zip) as zf:
@@ -412,7 +413,7 @@ def _verify_rewrite(
         elif info.filename == META_MEMBER:
             if changed:
                 _verify_meta(original_zip, new_zip, target)
-        elif changed:
+        elif _in_backup_folder(info.filename) or changed:  # 資料夾裡的其他名字、或有變的其他成員
             raise swap.ScrubItemFailure("verify_failed")
     if META_MEMBER in by_name and META_MEMBER not in kept:
         raise swap.ScrubItemFailure("verify_failed")
@@ -422,6 +423,16 @@ def _verify_meta(original_zip: Path, new_zip: Path, target: str) -> None:
     expected = _expected_meta(_read_member(original_zip, META_MEMBER), target)
     if json.loads(_read_member(new_zip, META_MEMBER)) != expected:
         raise swap.ScrubItemFailure("verify_failed")
+
+
+def _in_backup_folder(name: str) -> bool:
+    """升級備份資料夾底下的成員（不含資料夾項目本身）."""
+    parts = PurePosixPath(name).parts
+    return len(parts) > 3 and parts[:3] == (
+        SNAPSHOT_DATA_DIR,
+        SNAPSHOT_VAULT_DIR,
+        factual.FACTS_BACKUP_DIR_NAME,
+    )
 
 
 def _is_os_member(name: str) -> bool:

@@ -768,7 +768,7 @@ async def test_o22b_linked_collection_folder_fails_the_live_check(
 
 
 async def test_o28_os_metadata_in_the_upgrade_folder_does_not_stop_completion(
-    env: SimpleNamespace,
+    env: SimpleNamespace, caplog: pytest.LogCaptureFixture
 ) -> None:
     thumbs = env.upgrade.parent / "Thumbs.db"
     thumbs.write_bytes(b"\xd0\xcf\x11\xe0 thumbnail cache")
@@ -777,3 +777,7 @@ async def test_o28_os_metadata_in_the_upgrade_folder_does_not_stop_completion(
     infos = [i for i in report.scrub.items if i.kind == "info"]
     assert [(i.name, i.reason) for i in infos] == [("Thumbs.db", "os_metadata_file")]
     assert thumbs.read_bytes() == b"\xd0\xcf\x11\xe0 thumbnail cache"
+    line = next(
+        r.getMessage() for r in caplog.records if "AUDIT: memory-scrub result" in r.getMessage()
+    )
+    assert "info=['Thumbs.db'=os_metadata_file]" in line  # 不附數量時不寫 :None

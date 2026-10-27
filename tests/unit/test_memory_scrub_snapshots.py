@@ -1063,21 +1063,27 @@ def test_s34c_folder_entry_with_an_os_metadata_name_fails_closed(
 
 
 @pytest.mark.parametrize(
-    "content",
+    ("name", "content"),
     [
-        b"cache " + TARGET.encode() + b" cache",
-        b"[x]" + TARGET.encode("utf-16-le"),
-        b"Bud1" + TARGET.encode("utf-16-be"),
-        b"SQLite format 3\x00" + bytes(84),
+        ("Thumbs.db", b"cache " + TARGET.encode() + b" cache"),
+        ("desktop.ini", b"[x]" + TARGET.encode("utf-16-le")),
+        (".DS_Store", b"Bud1" + TARGET.encode("utf-16-be")),
+        ("DESKTOP.INI", b"cache " + TARGET.encode() + b" cache"),
+        ("Thumbs.db", b"SQLite format 3\x00" + bytes(84)),
     ],
-    ids=["utf-8-id", "utf-16-le-id", "utf-16-be-id", "sqlite-header"],
+    ids=[
+        "thumbs-utf-8-id",
+        "desktop-utf-16-le-id",
+        "ds-store-utf-16-be-id",
+        "upper-case",
+        "sqlite-header",
+    ],
 )
 def test_s35_verifier_checks_os_metadata_on_its_own(
-    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch, content: bytes
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch, name: str, content: bytes
 ) -> None:
-    path = zip_tree(
-        _data_root(tmp_path), backups / "Touka_Backup_os.zip", extra={BACKUP_OS: content}
-    )
+    member = "data/vault/core_memory_backups/" + name
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra={member: content})
     digest = sha256(path)
     monkeypatch.setattr(os_metadata, "is_os_metadata_content", lambda *_a: True)  # 分類那邊的錯
     item = _main(_items(path))
@@ -1093,6 +1099,18 @@ def test_s35c_verifier_checks_os_metadata_size_on_its_own(
     digest = sha256(path)
     monkeypatch.setattr(snapshots, "_check_os_members", lambda *_a: None)  # 分類那邊漏查
     monkeypatch.setattr(os_metadata, "MAX_OS_FILE_BYTES", len(OS_HARMLESS) - 1)
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "verify_failed")
+    assert sha256(path) == digest
+
+
+def test_s35d_verifier_keeps_only_stores_and_os_metadata_in_the_backup_folder(
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extra = {"data/vault/core_memory_backups/notes.txt": OS_HARMLESS}
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=extra)
+    digest = sha256(path)
+    monkeypatch.setattr(os_metadata, "is_os_metadata_name", lambda _n: True)  # 分類那邊放太寬
     item = _main(_items(path))
     assert (item.status, item.reason) == ("failed", "verify_failed")
     assert sha256(path) == digest
