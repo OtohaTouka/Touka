@@ -72,7 +72,7 @@ async def test_tool_executor_error_includes_detail(monkeypatch):
         "src.services.tool_executor.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
-    te = ToolExecutor(None, {"boom": boom_tool}, {}, {})
+    te = ToolExecutor(None, {"boom": boom_tool}, {}, {}, enforce_advertised=False)
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="Charlie", role="Owner", capabilities=["*"]),
         "session_id": "s",

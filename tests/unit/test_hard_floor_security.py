@@ -281,7 +281,8 @@ def _executor(
         lambda _ctx: PolicyDecision(effect=effect, reason="Hard floor F2"),
     )
     return ToolExecutor(
-        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
 
 

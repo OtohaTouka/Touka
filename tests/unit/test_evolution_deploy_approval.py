@@ -136,6 +136,7 @@ def _executor(registry: dict[str, Any]) -> ToolExecutor:
         tool_registry=registry,
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
 
 

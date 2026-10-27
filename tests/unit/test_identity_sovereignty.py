@@ -136,6 +136,7 @@ async def test_executor_server_identity_overrides_model_forged_args(monkeypatch)
         tool_registry={"probe_tool": _probe},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue = asyncio.Queue()
     await executor.execute_to_queue(
