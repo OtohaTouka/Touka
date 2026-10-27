@@ -465,6 +465,26 @@ async def test_forget_records_only_a_real_archive(store: fm.FactualStore, vector
     assert [(e["kind"], e["subject"]) for e in events] == [("memory_archived", fact_id)]
 
 
+async def test_forget_records_only_what_changed(store: fm.FactualStore, vector: Any) -> None:
+    soul = _soul()
+    plain = store.save_fact(soul, "forgotten once")["id"]
+    old = store.save_fact(soul, "an old version")["id"]
+    store.supersede_fact(soul, old, "the new version")
+
+    await _memory("forget", soul, fact_id_to_archive=plain)
+    again = await _memory("forget", soul, fact_id_to_archive=plain)
+    detached = await _memory("forget", soul, fact_id_to_archive=old)
+
+    assert "already archived" in again
+    assert "version history" in detached
+    events = await _events(soul)
+    assert [(e["kind"], e["subject"]) for e in events] == [
+        ("memory_archived", plain),
+        ("memory_archived", old),
+    ]
+    assert vector.archive_vector_by_fact_id.call_count == 2
+
+
 async def test_supersede_records_one_event_with_the_new_id(
     store: fm.FactualStore, vector: Any
 ) -> None:

@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 from memory_server import config_utils
 from memory_server import vector as memory_vector
+from memory_server.factual import ArchiveResult
 from memory_server.services import event_recorder as memory_events
 from memory_server.tools import get_manager
 from memory_server.tools.legacy_vault import search_conversations
@@ -829,7 +830,7 @@ def test_active_facts_come_from_the_product_store(global_test_sandbox: str) -> N
     kept = store.save_fact(soul, "使用者最喜歡的咖啡是美式。")["record"]["id"]
     gone = store.save_fact(soul, "使用者最喜歡的咖啡是拿鐵。")["record"]["id"]
     try:
-        assert store.archive_fact(soul, gone)
+        assert store.archive_fact(soul, gone) is ArchiveResult.ARCHIVED
 
         facts = asyncio.run(runner.memory_active_facts(soul))
 

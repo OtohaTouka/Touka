@@ -177,6 +177,15 @@ class FactStatus(StrEnum):
     SUPERSEDED = "superseded"  # 被新記憶取代：同時 archived=1，superseded_by 指向新的那筆
 
 
+class ArchiveResult(StrEnum):
+    """封存（forget／resolve）這次做了什麼；只有前兩種有改動，要記事件、同步索引."""
+
+    ARCHIVED = "archived"  # 原本有效，這次封存
+    DETACHED = "detached"  # 原本就是封存的舊版本，這次從歷史拿掉
+    ALREADY_ARCHIVED = "already_archived"  # 原本就封存、也不在歷史裡：沒有改動
+    NOT_FOUND = "not_found"  # 這個身分沒有這筆
+
+
 class SupersedeTargetError(Exception):
     """要被取代的不是這個身分仍有效的記憶；不存在、別人的、已封存、已被取代都是同一個錯."""
 
@@ -1119,46 +1128,53 @@ class FactualStore:
         params.append(limit)
         return self._fetch_facts(sql, params)
 
-    def archive_fact(self, identity: AgentIdentity, fact_id: str) -> bool:
-        """邏輯封存事實記憶.
+    def archive_fact(self, identity: AgentIdentity, fact_id: str) -> ArchiveResult:
+        """邏輯封存事實記憶；同一個交易分三步，照實回這次做了什麼（見 ``ArchiveResult``）.
 
-        Args:
-            identity (AgentIdentity): 代理人身分對象。
-            fact_id (str): 事實 ID。
-
-        Returns:
-            bool: 若成功更新回傳 True。
+        先封存仍有效的；再（只在目前版）把已被取代的舊版本從歷史拿掉；兩步都沒改到才查
+        這筆在不在。資料庫失敗丟 ``FactWriteError``（原文只進日誌），不說成查無。
         """
         now = int(get_current_epoch())
         # 只在目前版把被 forget 的舊版本從歷史拿掉；失敗狀態照常封存（只動 v0 欄）
         detach = self.current_schema_status() is FactsSchemaStatus.CURRENT
         try:
             with self._connection(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE facts SET archived = 1, updated_at = ? WHERE id = ? AND agent_id = ?",
+                archived = conn.execute(
+                    "UPDATE facts SET archived = 1, updated_at = ?"
+                    " WHERE id = ? AND agent_id = ? AND archived = 0",
                     (now, fact_id, identity.agent_id),
-                )
-                rowcount = cursor.rowcount
-                if rowcount and detach:
-                    self._detach_from_history(conn, identity, fact_id)
+                ).rowcount
+                detached = detach and self._detach_from_history(conn, identity, fact_id, now)
+                exists = bool(archived or detached) or conn.execute(
+                    "SELECT 1 FROM facts WHERE id = ? AND agent_id = ?",
+                    (fact_id, identity.agent_id),
+                ).fetchone() is not None
                 conn.commit()
-        except Exception:
+        except FactsSchemaNotReadyError:
+            raise
+        except Exception as exc:
             logger.exception(f"❌ [Factual] Failed to archive fact {fact_id}")
-            return False
-        else:
-            return rowcount > 0
+            raise FactWriteError from exc
+        if archived:
+            return ArchiveResult.ARCHIVED
+        if detached:
+            return ArchiveResult.DETACHED
+        return ArchiveResult.ALREADY_ARCHIVED if exists else ArchiveResult.NOT_FOUND
 
     def _detach_from_history(
-        self, conn: sqlite3.Connection, identity: AgentIdentity, fact_id: str
-    ) -> None:
-        """被 forget 的舊版本從歷史拿掉：清掉它的 superseded_by，它與更早的版本都不再查得到."""
+        self, conn: sqlite3.Connection, identity: AgentIdentity, fact_id: str, now: int
+    ) -> bool:
+        """被 forget 的舊版本從歷史拿掉：清掉它的 superseded_by，它與更早的版本都不再查得到.
+
+        回這次有沒有拿掉（本來就不在歷史裡是 False）。
+        """
         self._require_schema(write=True)
-        conn.execute(
-            "UPDATE facts SET superseded_by = NULL"
+        cursor = conn.execute(
+            "UPDATE facts SET superseded_by = NULL, updated_at = ?"
             " WHERE id = ? AND agent_id = ? AND superseded_by IS NOT NULL",
-            (fact_id, identity.agent_id),
+            (now, fact_id, identity.agent_id),
         )
+        return cursor.rowcount > 0
 
     # --- 清除連備份與撞名判定（只有重置與建立時的檢查會用；不是工具） ---
 

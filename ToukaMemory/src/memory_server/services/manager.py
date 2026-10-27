@@ -16,7 +16,7 @@ from memory_server.config_utils import (
     get_embedding_model_name,
     get_workspace_root,
 )
-from memory_server.factual import FactualStore
+from memory_server.factual import ArchiveResult, FactualStore
 from memory_server.models.source_ref import describe_sources
 from memory_server.services.event_recorder import record_memory_event
 from memory_server.services.index_state import (
@@ -37,7 +37,7 @@ from memory_server.services.lifecycle import (
 )
 from memory_server.utils.historical_data import wrap_historical_data
 from memory_server.utils.legacy_time import format_taipei, taipei_day_start
-from memory_server.vector import VectorStore
+from memory_server.vector import SemanticSearchUnavailableError, VectorStore
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -270,7 +270,7 @@ class MemoryManager:
 
         fact_id = fact_res["id"]
         record_memory_event(identity, "memory_saved", fact_id)  # 事實已提交（可信活動事件）
-        note = SAVED_FLAGGED_NOTE if checked.safety_flags else ""
+        note = (SAVED_FLAGGED_NOTE if checked.safety_flags else "") + checked.dedup_note
         if index_new_fact(factual, checked.vector, identity, fact_res["record"]):
             return f"Memory successfully saved (ID: {fact_id}).{note}"
 
@@ -406,11 +406,20 @@ class MemoryManager:
         return wrap_historical_data("memory_query", "\n".join(output)) + down_note
 
     def find_duplicates(self, identity: AgentIdentity) -> list[dict[str, Any]]:
-        """掃描最近的事實，列出向量相似度達門檻的重複候選（每對只列一次）."""
+        """掃描最近的事實，列出向量相似度達門檻的重複候選（每對只列一次）.
+
+        取不到向量庫或查詢失敗丟 ``SemanticSearchUnavailableError``：沒掃成不能說成沒有重複。
+        """
         factual_facts = self.get_factual_store().query_facts(identity=identity)
         active = {fact["id"]: fact for fact in factual_facts}  # 候選回查事實庫用
         facts = factual_facts[:MAX_DUPLICATE_SCAN_FACTS]
-        vector = self.get_vector_store()
+        if not facts:
+            return []
+        try:
+            vector = self.get_vector_store()
+        except Exception as exc:
+            logger.exception("Vector store unavailable; the duplicate scan cannot run")
+            raise SemanticSearchUnavailableError from exc
         duplicates: list[dict[str, Any]] = []
         seen_pairs: set[tuple[str, str]] = set()
 
@@ -445,10 +454,17 @@ class MemoryManager:
         return duplicates
 
     def resolve_duplicate(self, identity: AgentIdentity, fact_id_to_archive: str) -> str:
-        """解決重複記憶：封存其中一項（已被取代的舊版本會一併從歷史拿掉）."""
+        """解決重複記憶：封存其中一項（已被取代的舊版本會一併從歷史拿掉）.
+
+        資料庫寫入失敗丟 ``FactWriteError``（閘道回結構化錯誤），不說成查無。本來就封存、
+        也不在歷史裡的回資訊性的成功：沒有改動，不記事件、不動索引。
+        """
         factual = self.get_factual_store()
-        if not factual.archive_fact(identity, fact_id_to_archive):
+        result = factual.archive_fact(identity, fact_id_to_archive)
+        if result is ArchiveResult.NOT_FOUND:
             return f"❌ Fact ID '{fact_id_to_archive}' not found."
+        if result is ArchiveResult.ALREADY_ARCHIVED:
+            return f"Memory {fact_id_to_archive} was already archived; nothing changed."
         record_memory_event(identity, "memory_archived", fact_id_to_archive)  # 封存已提交
 
         try:
@@ -457,4 +473,9 @@ class MemoryManager:
             logger.exception("Vector store unavailable; %s waits for reindex", fact_id_to_archive)
             vector = None
         archive_in_index(factual, vector, identity, fact_id_to_archive)  # 沒封存到就等 reindex
+        if result is ArchiveResult.DETACHED:
+            return (
+                f"✅ Memory {fact_id_to_archive} was an archived older version; it has been"
+                " removed from the version history."
+            )
         return f"✅ Memory {fact_id_to_archive} has been archived."
