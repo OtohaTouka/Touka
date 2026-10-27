@@ -14,11 +14,17 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from src.models.identity import AgentIdentity
 from src.models.user import User
 from src.routers.heartbeat import _resolve_auth_level, identity_service, permission_service
+from src.services import destructive_ops
 from src.services.auth_service import AuthService
 
 _HEARTBEAT_SERVICE_VALUE = "test_heartbeat_token_for_ci"
+
+
+def _who(name: str) -> AgentIdentity:
+    return AgentIdentity(agent_id=name)
 
 
 class TestSecurityLevelMapping:
@@ -122,3 +128,25 @@ def test_awaken_sanitizes_init_prompt(auth_client, mock_identity, monkeypatch):
     assert "content" in captured
     # the 9000-char prompt must have been truncated to <= 8000 (+ a short time prefix)
     assert len(captured["content"]) <= 8100
+
+
+def test_awaken_is_refused_while_the_soul_is_reset_or_deleted(
+    auth_client, mock_identity, monkeypatch
+):
+    """舊審查報告丙-4：重置、清除或刪除這個靈魂期間 /awaken 回 409，也不寫初始提示。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    append = AsyncMock(return_value=True)
+    monkeypatch.setattr("src.routers.heartbeat.session_service.append_message_to_session", append)
+
+    destructive_ops.hold(_who("DebugAgent"))
+    try:
+        resp = auth_client.post(
+            "/v1/heartbeat/awaken",
+            json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+        )
+    finally:
+        destructive_ops.release(_who("DebugAgent"))
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    append.assert_not_called()

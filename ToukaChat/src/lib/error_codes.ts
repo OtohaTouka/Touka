@@ -116,6 +116,18 @@ export const ERRORS = {
     msg: "Could not clear this soul's sandbox home folders; the soul was not deleted",
     i18n: "error.soul.sandbox_home_not_cleared"
   },
+  SOUL_HEARTBEAT_RUNNING: {
+    id: 1419,
+    status: 409,
+    msg: "This soul's heartbeat is running and has been asked to stop; reset the soul after it stops, then delete it",
+    i18n: "error.soul.heartbeat_running"
+  },
+  SOUL_UNREGISTER_INCOMPLETE: {
+    id: 1420,
+    status: 500,
+    msg: "The soul's data was deleted but some registrations were not removed; delete it again to finish",
+    i18n: "error.soul.unregister_incomplete"
+  },
   MEMORY_SCRUB_NOT_ACKNOWLEDGED: {
     id: 1410,
     status: 422,
@@ -149,7 +161,7 @@ export const ERRORS = {
   AGENT_RESET_IN_PROGRESS: {
     id: 1415,
     status: 409,
-    msg: "Another reset is running; try again when it finishes",
+    msg: "Another reset, memory scrub or soul deletion is running; try again when it finishes",
     i18n: "error.agent_reset.in_progress"
   },
   AGENT_ID_COLLECTION_COLLISION: {

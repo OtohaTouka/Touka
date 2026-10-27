@@ -38,6 +38,7 @@ from src.models.session_persistence import SavedResult, SessionChanges
 from src.models.user import User  # noqa: TC001
 from src.routers.auth import get_auth_service, get_current_user
 from src.routers.ui_sessions import _can_access_session
+from src.services import destructive_ops
 from src.services.activity_registry import activity_registry
 from src.services.auth_service import AuthService  # noqa: TC001
 from src.services.autonomy import autonomy_service
@@ -480,6 +481,18 @@ async def _process_heartbeat_loop(
     end: HeartbeatEnd = "cancelled"
     pulses_done = total_turns = 0
 
+    # 中斷旗標：每個新背景 run 起點清除殘留（只影響本次 run 期間按下的 stop）。要在登記之前清，
+    # 登記之後刪除或重置叫它停才不會被這裡清掉（丙-4）。
+    rhythm_service.clear_interrupt(final_session_id)
+    # 丙-4（ADR-0287）：這個靈魂正在刪除、重置或清除就不開跑、什麼都不寫；看標記和登記
+    # 之間沒有 await。登記到 finally 剪裁做完才拿掉，刪除據此判斷「還有心跳在跑」。
+    if not destructive_ops.start_heartbeat(identity, final_session_id):
+        logger.warning(
+            "[Heartbeat-BG] %s is being reset, scrubbed or deleted; heartbeat not started.",
+            agent_id,
+        )
+        return
+
     try:
         # P5c：落盤 in-flight 標記——當機/被強制關閉時殘留，供啟動掃描偵測未跑完的背景迴圈
         autonomy_service.mark_heartbeat_in_flight(
@@ -501,10 +514,15 @@ async def _process_heartbeat_loop(
         except Exception as e:
             logger.warning(f"⚠️ [Heartbeat-BG] Health check failed: {e}")
 
-        # 中斷旗標：每個新背景 run 起點清除殘留（只影響本次 run 期間按下的 stop）
-        rhythm_service.clear_interrupt(final_session_id)
-
         for i in range(pulse_count):
+            if destructive_ops.is_held(identity):
+                logger.info(
+                    "🛑 [Heartbeat-BG] %s is being reset or deleted before pulse %d; stopping.",
+                    agent_id,
+                    i + 1,
+                )
+                end = "interrupted"
+                break
             if rhythm_service.is_interrupted(final_session_id):
                 logger.info(
                     f"🛑 [Heartbeat-BG] Interrupted before pulse {i + 1}; "
@@ -590,30 +608,36 @@ async def _process_heartbeat_loop(
             logger.warning("%s", exc.code.name)
 
     finally:
-        if run_started:  # 同步排程寫入、不 await（被取消時也安全）
-            record_heartbeat_finished(
-                identity,
-                final_session_id,
-                run_key,
-                pulses_total=pulse_count,
-                pulses_done=pulses_done,
-                turns=total_turns,
-                end=end,
-            )
-        # P5c：背景迴圈結束（正常或例外），清除 in-flight 標記（不再算「未完成」）
-        autonomy_service.clear_heartbeat_in_flight(identity)
-        # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
-        activity_registry.clear(final_session_id)
-        # PostHeartbeat hook：僅家對話觸發滑動視窗（子對話排除）
-        # hook 失敗不影響 heartbeat 整體結果
-        if is_home_mode and end != "error":
-            try:
-                await sliding_window_service.check_and_trim(identity, final_session_id)
-            except Exception:
-                logger.exception(
-                    "[SlidingWindow] PostHeartbeat hook 失敗，略過。 Session: %s",
+        # 丙-4：正在重置或刪除時，結束事件不寫、也不剪裁（剪裁會寫舊對話庫）。
+        blocked = destructive_ops.is_held(identity)
+        try:
+            if run_started and not blocked:  # 同步排程寫入、不 await（被取消時也安全）
+                record_heartbeat_finished(
+                    identity,
                     final_session_id,
+                    run_key,
+                    pulses_total=pulse_count,
+                    pulses_done=pulses_done,
+                    turns=total_turns,
+                    end=end,
                 )
+            # PostHeartbeat hook：僅家對話觸發滑動視窗（子對話排除）
+            # hook 失敗不影響 heartbeat 整體結果
+            if is_home_mode and end != "error" and not blocked:
+                try:
+                    await sliding_window_service.check_and_trim(identity, final_session_id)
+                except Exception:
+                    logger.exception(
+                        "[SlidingWindow] PostHeartbeat hook 失敗，略過。 Session: %s",
+                        final_session_id,
+                    )
+        finally:
+            # 剪裁做完才清（丙-4）：剪裁期間刪除仍看得到這次心跳在跑。
+            # P5c：背景迴圈結束（正常或例外），清除 in-flight 標記（不再算「未完成」）
+            autonomy_service.clear_heartbeat_in_flight(identity)
+            # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
+            activity_registry.clear(final_session_id)
+            destructive_ops.end_heartbeat(identity, final_session_id)
 
 
 @router.post("/awaken", status_code=202)
@@ -663,6 +687,10 @@ async def awaken_agent(
             f"🚫 [Heartbeat] Agent '{agent_id}' 未獲得心跳喚醒授權 (Capability Denied)。"
         )
         raise ToukaException(ErrorCode.HEARTBEAT_UNAUTHORIZED_AGENT, agent_id=agent_id)
+    # 丙-4：正在重置、清除或刪除這個靈魂時不喚醒，也不寫初始提示；讓排程端知道（409）
+    if destructive_ops.is_held(identity):
+        logger.warning("💓 [Heartbeat] %s is being reset or deleted; not awakened.", agent_id)
+        raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
 
     logger.debug("Heartbeat checks passed for %s", req.agent_id)
 
@@ -847,6 +875,9 @@ async def retrigger_heartbeat(
     target_identity = identity_service.get_identity(agent_id)
     if not permission_service.can_awaken(target_identity):
         raise ToukaException(ErrorCode.HEARTBEAT_UNAUTHORIZED_AGENT, agent_id=agent_id)
+    # 丙-4：正在重置、清除或刪除這個靈魂時不重跑，「上次未完成」照留
+    if destructive_ops.is_held(target_identity):
+        raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
 
     # 會話須存在（重新觸發的是「既有」中斷會話，非新建）
     snapshot = await session_service.read_execution_snapshot(req.session_id, target_identity)

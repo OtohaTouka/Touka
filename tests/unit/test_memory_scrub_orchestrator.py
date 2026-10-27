@@ -29,7 +29,7 @@ from src.models.memory_scrub import MemoryScrubReport, ScrubCategoryResult, Scru
 from src.models.system_restore import RestoreStatus
 from src.routers import system as system_router
 from src.routers.auth import get_auth_service, get_current_user
-from src.services import memory_collection_guard, memory_scrub, system_backup
+from src.services import destructive_ops, memory_collection_guard, memory_scrub, system_backup
 from src.services.agent_reset import orchestrator as O
 from src.services.agent_reset import primitives as P
 from src.services.identity_router import get_verified_identity
@@ -367,6 +367,8 @@ async def test_o09_cancelled_request_still_finishes_and_audits(
         await task
     assert system_backup.backup_execution_lock.locked()
     assert memory_scrub.in_progress()
+    # 丙-4：請求取消了，清除還在跑，心跳照樣擋
+    assert destructive_ops.is_held(AgentIdentity(agent_id=TARGET))
     with pytest.raises(ToukaException) as exc:
         await asyncio.wait_for(O.reset_agent_data(TARGET, ADMIN), REPLY_TIMEOUT_S)
     assert exc.value.code is ErrorCode.AGENT_RESET_IN_PROGRESS
@@ -376,6 +378,7 @@ async def test_o09_cancelled_request_still_finishes_and_audits(
             break
         await asyncio.sleep(0.02)
     assert not memory_scrub.in_progress()
+    assert not destructive_ops.is_held(AgentIdentity(agent_id=TARGET))  # 工作結束時自己放行
     assert "AUDIT: memory-scrub result" in caplog.text
     assert [p.name for p in env.backups.iterdir() if ".memscrub-" in p.name] == []
 

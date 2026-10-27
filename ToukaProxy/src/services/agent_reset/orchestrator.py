@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -18,9 +19,9 @@ from memory_server import factual
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
 
 from src.core.exceptions import ErrorCode, ToukaException
-from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.identity import AgentIdentity
 from src.models.memory_scrub import MemoryScrubReport
-from src.services import memory_collection_guard, memory_scrub, system_backup
+from src.services import destructive_ops, memory_collection_guard, memory_scrub, system_backup
 from src.services.agent_reset import primitives
 from src.services.agent_reset.guard import assert_agent_resettable, assert_resettable
 from src.services.agent_reset.primitives import ALL_STORES, RETAINED_STORES
@@ -28,7 +29,7 @@ from src.services.authorization_gateway import require_admin_human
 from src.services.memory_scrub import orchestrator as scrub_orchestrator
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from src.models.memory_scrub import ScrubReason
     from src.services.memory_scrub.ports import ScrubFactStore
@@ -41,8 +42,26 @@ _reset_lock = asyncio.Lock()
 
 
 def reset_in_progress() -> bool:
-    """重置或清除是否正在進行（還原端點據此擋下；重置被取消後清除可能還在跑）."""
+    """重置、清除或刪除靈魂是否正在進行（還原端點據此擋下；重置被取消後清除可能還在跑）."""
     return _reset_lock.locked() or memory_scrub.in_progress()
+
+
+@asynccontextmanager
+async def destructive_op(target: AgentIdentity) -> AsyncIterator[None]:
+    """不等待地拿全系統一把的破壞性操作鎖，並標記目標（舊審查報告丙-4，ADR-0287）.
+
+    重置、清除或刪除已經在跑就回 409 `AGENT_RESET_IN_PROGRESS`。標記期間這個靈魂的心跳
+    不開跑、在下一個脈衝前停下。檢查、取鎖、標記之間沒有讓出事件迴圈的地方。
+    """
+    if reset_in_progress():
+        raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
+    await _reset_lock.acquire()  # 沒人持有也沒人在等：立刻拿到、不讓出
+    destructive_ops.hold(target)
+    try:
+        yield
+    finally:
+        destructive_ops.release(target)
+        _reset_lock.release()
 
 
 def scrub_rejected(actor_label: str, target: str, reason: str) -> None:
@@ -114,12 +133,16 @@ async def _execute_reset(
             scrub_orchestrator.audit_rejected(actor_label, normalized, "reset_in_progress")
         raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
 
-    async with _reset_lock:
+    target = AgentIdentity(agent_id=normalized)
+    async with destructive_op(target):
+        stopped = destructive_ops.stop_heartbeats(target)
+        if stopped:
+            logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
         report = ResetReport(agent=normalized)
         session = None
         if scrub:
             identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
-            session = memory_scrub.begin()
+            session = memory_scrub.begin(target)
         try:
             await _reset_stores(report, normalized, guard, do_backup=do_backup)
             if session is not None:

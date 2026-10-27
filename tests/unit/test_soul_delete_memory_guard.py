@@ -18,15 +18,18 @@ from memory_server.factual import ArchiveResult, FactualStore
 from memory_server.services.manager import MemoryManager
 from memory_server.vector import VectorStore
 from qdrant_client.models import Distance, PointStruct, VectorParams
+from src.core.exceptions import ToukaException
 from src.main import app
 from src.models.identity import AgentIdentity
-from src.services import system_backup
+from src.routers import souls
+from src.services import destructive_ops, system_backup
 from src.services.agent_reset import delete_guard
 from src.services.agent_reset import orchestrator as O
 from src.services.agent_reset.primitives import MEMORY_STORES
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
+from src.services.rhythm_service import rhythm_service
 from src.utils.async_db import init_db_async
 from src.utils.continuity_events_db import EventRow, count_agent_events, insert_event
 
@@ -35,6 +38,10 @@ if TYPE_CHECKING:
 
 ADMIN_PW = "GuardPass123!"
 _FAKE_BACKUP = {"status": "success", "message": "ok", "output": "backups/x.zip"}
+
+
+def _who(name: str) -> AgentIdentity:
+    return AgentIdentity(agent_id=name)
 
 
 def _soul_dir(name: str) -> Path:
@@ -267,3 +274,128 @@ def test_non_admin_is_denied_before_the_memory_check(stores):
     assert resp.status_code == 403
     assert resp.json()["detail"]["code"] == "AUTH_ADMIN_REQUIRED"
     assert soul.exists()
+
+
+# ── 舊審查報告丙-4：刪除期間擋心跳、和重置互斥、清完家目錄再查、取消註冊照實回報 ──────
+
+
+@pytest.mark.parametrize("late", ["fact", "activity"])
+async def test_memory_written_while_homes_are_wiped_blocks_delete(late, stores, admin, monkeypatch):
+    """清家目錄要好幾秒；這段期間寫進來的記憶或活動紀錄，再查一次會擋下。"""
+    factual, _vector = stores
+    client, _identity = admin
+    name = f"Late{late.title()}"
+    soul = _soul_dir(name)
+
+    async def wipe_then_write(_identity: AgentIdentity) -> None:
+        if late == "fact":
+            factual.save_fact(AgentIdentity(agent_id=name), "written during the wipe")
+        else:
+            await _activity(name)
+
+    monkeypatch.setattr(souls, "wipe_agent_homes", wipe_then_write)
+
+    resp = _delete(client, name)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "SOUL_MEMORY_NOT_RESET"
+    assert soul.exists()
+    assert factual.count_agent_facts(AgentIdentity(agent_id=name)) == (1 if late == "fact" else 0)
+
+
+async def test_delete_stops_a_running_heartbeat_and_deletes_nothing(stores, admin, monkeypatch):
+    """還有心跳在跑：叫它停下、回 409、什麼都不清；它留下的活動紀錄要先重置才能刪。"""
+    client, identity = admin
+    soul = _soul_dir("BusySoul")
+    wiped = AsyncMock()
+    monkeypatch.setattr(souls, "wipe_agent_homes", wiped)
+    await _activity("BusySoul")  # 心跳開跑時寫的 heartbeat_started
+    assert destructive_ops.start_heartbeat(_who("BusySoul"), "hb-busy")
+    try:
+        resp = _delete(client, "BusySoul")
+        interrupted = rhythm_service.is_interrupted("hb-busy")
+    finally:
+        destructive_ops.end_heartbeat(_who("BusySoul"), "hb-busy")
+        rhythm_service.clear_interrupt("hb-busy")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "SOUL_HEARTBEAT_RUNNING"
+    assert interrupted
+    wiped.assert_not_called()
+    assert soul.exists()
+
+    # 心跳停下後：留下的活動紀錄照舊擋刪除；重置後就能刪
+    assert _delete(client, "BusySoul").json()["detail"]["code"] == "SOUL_MEMORY_NOT_RESET"
+    monkeypatch.setattr(system_backup, "create_backup", lambda: _FAKE_BACKUP)
+    monkeypatch.setattr(O, "ALL_STORES", MEMORY_STORES[:2])
+    assert (await O.reset_agent_data("BusySoul", identity)).clean is True
+    resp = _delete(client, "BusySoul")
+    assert resp.status_code == 200, resp.text
+    assert not soul.exists()
+    assert await count_agent_events(AgentIdentity(agent_id="BusySoul")) == 0
+
+
+async def test_delete_is_refused_while_a_reset_runs(stores, admin):
+    client, _identity = admin
+    soul = _soul_dir("WaitForReset")
+    async with O._reset_lock:
+        resp = _delete(client, "WaitForReset")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    assert soul.exists()
+
+
+def test_a_reset_is_refused_while_a_delete_runs(stores, admin, monkeypatch):
+    """刪除整段持有破壞性操作鎖並標記目標；期間的重置（任何靈魂）回 409。"""
+    client, identity = admin
+    soul = _soul_dir("Deleting")
+    _soul_dir("SomeoneElse")
+    monkeypatch.setattr(system_backup, "create_backup", lambda: _FAKE_BACKUP)
+    monkeypatch.setattr(O, "ALL_STORES", MEMORY_STORES[:1])
+    seen: dict[str, object] = {}
+
+    async def wipe(_identity: AgentIdentity) -> None:
+        seen["held"] = destructive_ops.is_held(_who("Deleting"))
+        seen["other_held"] = destructive_ops.is_held(_who("SomeoneElse"))
+        try:
+            await O.reset_agent_data("SomeoneElse", identity)
+        except ToukaException as exc:
+            seen["reset"] = exc.code.name
+
+    monkeypatch.setattr(souls, "wipe_agent_homes", wipe)
+
+    resp = _delete(client, "Deleting")
+
+    assert resp.status_code == 200, resp.text
+    assert seen == {"held": True, "other_held": False, "reset": "AGENT_RESET_IN_PROGRESS"}
+    assert not soul.exists()
+    assert not destructive_ops.is_held(_who("Deleting"))
+
+
+def test_a_failed_unregister_step_is_reported(stores, admin, monkeypatch):
+    """取消註冊有一步失敗：其餘照做、回 500 並列出哪一步，不再說成功；不外洩原始例外。"""
+    client, _identity = admin
+    soul = _soul_dir("HalfGone")
+    later_steps: list[str] = []
+    original = souls._update_agents_registry
+
+    raw_error = "registry locked at C:/secret/path"
+
+    def broken_registry(_soul_id: str, aliases: object = None, action: str = "add") -> None:
+        raise OSError(raw_error)
+
+    monkeypatch.setattr(souls, "_update_agents_registry", broken_registry)
+    monkeypatch.setattr(souls, "_remove_identity_override", later_steps.append)
+
+    resp = _delete(client, "HalfGone")
+
+    assert resp.status_code == 500, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "SOUL_UNREGISTER_INCOMPLETE"
+    assert detail["failed_steps"] == ["agents_registry"]
+    assert "secret" not in resp.text
+    assert later_steps == ["HalfGone"]  # 後面的步驟照做
+    assert not soul.exists()  # 資料已刪；再刪一次會補清登記
+    monkeypatch.setattr(souls, "_update_agents_registry", original)
+    assert _delete(client, "HalfGone").status_code == 200
