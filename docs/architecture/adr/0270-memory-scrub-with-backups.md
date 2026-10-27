@@ -220,9 +220,10 @@
   - 名字相符**而且**是一般檔、不超過 4 MiB、開頭不是 SQLite 檔頭、內容找不到目標 ID（UTF-8、UTF-16LE、UTF-16BE 三種寫法；`desktop.ini` 常是 UTF-16LE，`.DS_Store` 的檔名是 UTF-16BE），才當雜檔。先看大小（檔案大小、zip 宣告的大小；zipfile 讀出的不會超過宣告的大小），太大的不讀。
   - 升級備份資料夾裡的雜檔：原樣不動，記成資訊項 `info`／`os_metadata_file`（不附數量）。不影響「完成」，也不算沒清掉的檔；畫面在「其他資訊」列一行，不寫數量（新鍵 `info_line_plain`）。
   - 快照裡升級備份資料夾的雜檔成員：照抄。獨立驗證認得同一份名單，不當記憶庫打開；成員不能有變，大小、SQLite 檔頭、目標 ID 都自己重算一次，不呼叫分類那邊的內容判斷。升級備份資料夾裡留下來的成員只能是記憶庫或雜檔，其他名字驗證失敗。
+  - 順帶收緊（DEV-B 查到、原本就有）：快照裡和升級備份資料夾同名的**檔案**成員（沒有結尾斜線），原本被當成資料夾項目略過、照抄；現在記 `unknown_member`。真的資料夾項目照常略過。
   - 其他情況照舊 fail closed：名字相符但是資料夾、太大、是 SQLite、含目標 ID，或名字只是相近（例如 `Thumbs.db.old`）。這不放寬 §2 的範圍：雜檔不是記憶，含目標 ID 的仍然擋下。
 - **限制**：目標 ID 很短（例如 `Al`）時，雜檔內容可能剛好含那幾個位元組，那時照舊記失敗、清除不會完成（安全的方向）。現場的雜檔刪掉再清一次就好；但已經打包進快照的（例如重置前剛做的那份），那份快照每次都會算沒清掉，要另外處理那份快照（刪掉，或確認裡面沒有要清的記憶後接受「沒有完成」）。
 - **測試**：
   - `tests/unit/test_memory_scrub_upgrade_backups.py` U19（三種雜檔記成資訊、原樣保留）、U20（SQLite 檔頭、含目標 ID 的三種寫法、非 ASCII 的相近名字、`Thumbs.db.old` → `unknown_file`）、U21（同名資料夾、太大的不讀 → `unknown_file`）、U22（內容判斷的大小上限）、U23（讀雜檔出錯只記那一檔失敗）。
-  - `tests/unit/test_memory_scrub_snapshots.py` S33（雜檔成員照抄、快照照清）、S34（SQLite 檔頭、含目標 ID 的三種寫法 → `unknown_member`）、S34b（太大的不讀 → `unknown_member`）、S34c（同名的資料夾項目 → `unknown_member`）、S35（分類那邊放過含目標 ID 或 SQLite 的雜檔，三個名字與大小寫都測，驗證抓到）、S35c（分類那邊漏查大小，驗證抓到）、S35d（分類那邊把別的名字當雜檔，驗證只放行記憶庫與雜檔）、S35b（重寫時雜檔被改，驗證抓到）。
+  - `tests/unit/test_memory_scrub_snapshots.py` S33（雜檔成員照抄、快照照清）、S34（SQLite 檔頭、含目標 ID 的三種寫法 → `unknown_member`）、S34b（太大的不讀 → `unknown_member`）、S34c（同名的資料夾項目 → `unknown_member`）、S35（分類那邊放過含目標 ID 或 SQLite 的雜檔，三個名字與大小寫都測，驗證抓到）、S35c（分類那邊漏查大小，驗證抓到）、S35d（分類那邊把別的名字當雜檔，驗證只放行記憶庫與雜檔）、S35b（重寫時雜檔被改，驗證抓到）、S36（資料夾項目照常清除；和資料夾同名的檔案 → `unknown_member`）。
   - `tests/unit/test_memory_scrub_orchestrator.py` O28（升級備份資料夾有 `Thumbs.db` 時，連同重置前的快照一起清除完成；稽核行的資訊項不附數量時不寫 `:None`）；`AgentDataResetCard.scrub.test.tsx` V05e（資訊行不寫數量、總結照樣是完成）。

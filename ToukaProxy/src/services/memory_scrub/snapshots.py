@@ -294,7 +294,9 @@ def _classify_backup_member(
     temp_members: set[str],
     os_files: set[str],
 ) -> None:
-    if len(rest) == 1:  # 資料夾項目本身
+    if len(rest) == 1:  # 資料夾項目本身；和資料夾同名的檔案不認得
+        if not info.is_dir():
+            raise swap.ScrubItemFailure("unknown_member")
         return
     if len(rest) != 2:
         raise swap.ScrubItemFailure("unknown_member")

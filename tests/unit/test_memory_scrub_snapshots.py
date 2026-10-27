@@ -1116,6 +1116,24 @@ def test_s35d_verifier_keeps_only_stores_and_os_metadata_in_the_backup_folder(
     assert sha256(path) == digest
 
 
+def test_s36_backup_folder_entry_is_kept_and_a_file_with_its_name_fails_closed(
+    tmp_path: Path, backups: Path
+) -> None:
+    folder = "data/vault/core_memory_backups"
+    root = _data_root(tmp_path)
+    path = zip_tree(root, backups / "Touka_Backup_dir.zip", extra={folder + "/": b""})
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("scrubbed", None)  # 別的打包工具會寫資料夾項目
+    assert folder + "/" in [m[0] for m in zip_members(path)]
+
+    sneaky = b"SQLite format 3\x00" + TARGET.encode()
+    other = zip_tree(root, backups / "Touka_Backup_file.zip", extra={folder: sneaky})
+    digest = sha256(other)
+    item = _main(_items(other))
+    assert (item.status, item.reason) == ("failed", "unknown_member")
+    assert sha256(other) == digest
+
+
 def test_s35b_rewrite_that_changes_os_metadata_is_caught(
     tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
