@@ -142,6 +142,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 刪除靈魂與重置期間心跳照跑（2026-10-27）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 刪除靈魂從檢查到清除整段沒有鎖，也不和重置、記憶清除互斥（檢查與清除之間的 TOCTOU）。清隔離家目錄要好幾秒，這段期間寫進來的記憶會變成孤兒；刪除前就在跑的心跳刪完照樣跑完，結束時寫活動紀錄、剪裁時把舊對話庫資料夾重新建出來；重置時心跳也照寫。`/awaken`、`/retrigger` 都不知道這個靈魂正在刪除或重置。取消註冊五步的失敗全被吞掉，照樣回成功（ADR-0262、ADR-0270）。 | 刪除、重置共用不等待的破壞性操作鎖並標記目標，記憶清除也標記到工作結束；心跳開跑前、每個脈衝前看標記，看到就停、不寫結束事件、不剪裁，剪裁做完才拿掉登記；`/awaken`、`/retrigger` 回 409。刪除時還有心跳在跑就叫它停下、回 409 `SOUL_HEARTBEAT_RUNNING`，清完家目錄後再查一次記憶與活動紀錄；取消註冊失敗回 500 `SOUL_UNREGISTER_INCOMPLETE`（只列步驟名稱）。仍擋不住這段期間人自己的前景聊天、SNS、群聊寫入（刪除靠再查擋下）。ADR-0287；`tests/unit/test_heartbeat_blocked_during_destructive_ops.py`、`test_soul_delete_memory_guard.py`、`test_heartbeat_awaken_hardening_security.py`、`test_reset_orchestrator.py`。 |
+
 ### 模型寫的任務與舊紀錄能偽造可信區塊（2026-10-25）
 
 | 弱點 | 修正與驗證 |

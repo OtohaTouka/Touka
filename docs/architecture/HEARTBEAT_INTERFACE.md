@@ -32,6 +32,16 @@
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - ToukaHeartbeat 服務本身不變。
 
+## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
+
+- 刪除靈魂、重置、記憶清除期間，這個靈魂被標記（`services/destructive_ops.py`）。
+- `/awaken` 在擁有者與能力檢查之後回 409 `AGENT_RESET_IN_PROGRESS`（1415），不寫初始提示。心跳端把它當成這次喚醒沒做，下一次排程照常。
+- `/retrigger` 同樣回 409、不派發，「上次未完成」照留。
+- 背景迴圈起點先清上一次殘留的中斷旗標，再登記自己。已標記就不開跑、什麼都不寫（不寫進行中標記、`heartbeat_started`）。
+- 每個脈衝前看到標記就停（結束原因 `interrupted`）。
+- `finally` 看到標記就不寫 `heartbeat_finished`、不剪裁；剪裁做完才清進行中標記、背景活動與登記。
+- 刪除時這個靈魂還有心跳在跑：叫它停下（同一個對話的中斷旗標），回 409 `SOUL_HEARTBEAT_RUNNING`（1419），什麼都不清；那次心跳留下的活動紀錄要先重置。重置時也叫它停下，但照常重置。
+
 ## 發布前來源契約：排程交易與憑證（ADR-0230）
 
 此節為已實作來源候選，B2／B3 階段接受；最終 B6 見 ADR-0230；發布／live 狀態當時記在 HANDOVER，現在只留在開源前的私人歷史。
@@ -235,6 +245,7 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 - **認證**：以**人類擁有者**身分驗證（`get_verified_identity` + `resource_manager.is_owner`），**非** service token——供登入使用者從 UI 直接重跑自己擁有的 agent。
 - **守衛**：擁有權守衛（`is_owner`）＋ 能力守衛（`can_awaken`，須具 `heartbeat_awakening`）＋ 會話須存在（404）。重跑一律以 Auto 執行，所以再過 session 寫入同一個模式授權：只有 admin 或人類擁有者（Debugger 旁路與代理身分都 403）；會話的 `agent_id` 必須是這個靈魂、呼叫者要能存取它，否則 403（R-2c，ADR-0246）。
 - **安全**：**強制 `Auto`**（UI 重新觸發永不升級 `YOLO`；無人在場不跑終端、不叫審查員）；`pulse_count` 夾在 `1..5`；仍受每日配額約束。
+- **刪除、重置、清除期間**：回 409 `AGENT_RESET_IN_PROGRESS`、不派發，「上次未完成」照留（ADR-0287）。
 - **語意**：不新建會話、不重寫 init prompt——對既有（中斷）會話派發延續脈衝，沿用既有歷史（`_execute_single_pulse` 於上一則為 assistant 時自動補 user nudge 續跑）。成功後自 `interrupted_runs` 移除（`clear_interrupted_run`），免下次輪詢復現。
 - **輸入**:
   ```json

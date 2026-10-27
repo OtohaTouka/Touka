@@ -2,6 +2,20 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 刪除、重置、記憶清除期間擋住心跳（2026-10-27，ADR-0287）
+
+- `DELETE /v1/souls/{soul_id}`：步升、不可刪名單、路徑監獄之後，整段持有破壞性操作鎖並標記目標。順序是：
+  1. 重置、清除或另一個刪除進行中：409 `AGENT_RESET_IN_PROGRESS`（1415）。
+  2. 這個靈魂還有心跳在跑：叫它停下，409 `SOUL_HEARTBEAT_RUNNING`（1419），什麼都不清。那次心跳留下的活動紀錄要先重置。
+  3. 記憶、活動紀錄檢查，清隔離家目錄。
+  4. 再查一次記憶與活動紀錄：清家目錄期間寫進來的照樣 409 `SOUL_MEMORY_NOT_RESET`。
+  5. 清三個資料夾與取消註冊。
+- 取消註冊五步每步都做；有失敗時回 500 `SOUL_UNREGISTER_INCOMPLETE`（1420），`detail.failed_steps` 是步驟名稱（`models`、`agents_registry`、`brain`、`owners`、`identity_override`），不帶例外原文。資料已刪，再刪一次會補清。成功回應不變。
+- `POST /v1/admin/agents/{target}/reset` 與 DebugAgent 重置：刪除靈魂進行中也回 409 `AGENT_RESET_IN_PROGRESS`。重置時叫這個靈魂正在跑的心跳停下（照常重置）；`AGENT_RESET_IN_PROGRESS` 的訊息改成「另一個重置、記憶清除或刪除靈魂正在進行」。
+- `POST /v1/system/restore/run`：刪除靈魂進行中同樣回 409 `AGENT_RESET_IN_PROGRESS`。
+- `POST /v1/heartbeat/awaken`、`POST /v1/heartbeat/retrigger`：這個靈魂正在刪除、重置或清除時回 409 `AGENT_RESET_IN_PROGRESS`；細節見 HEARTBEAT_INTERFACE。
+- OpenAPI 不變；錯誤碼多 1419、1420，兩語 i18n 各兩個鍵。
+
 ## 刪除靈魂清隔離家目錄、密碼重輸錯誤碼（2026-10-21）
 
 - `DELETE /v1/souls/{soul_id}`：記憶與活動檢查之後、刪任何東西之前，清這個 ID 在隔離暫存區的 HOME／TMP（proxy 的 `ST/proxy/agents/<id>`；預期是執行器時另經既有 START 清 `<state_root>/agents/<id>/{home,tmp}`，ADR-0272 限制 26 補記）。清不掉回 503 `SOUL_SANDBOX_HOME_NOT_CLEARED`（1418），什麼都不刪，不帶原因與路徑。
