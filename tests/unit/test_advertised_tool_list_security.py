@@ -1256,14 +1256,6 @@ def _is_executor_call(node: ast.Call) -> bool:
     return _mentions_executor(node.func) or any(_mentions_executor(arg) for arg in node.args)
 
 
-def _class_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
-    while node in parents:
-        node = parents[node]
-        if isinstance(node, ast.ClassDef):
-            return node.name
-    return "<module>"
-
-
 def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
     if node.arg in _PRIVATE_NAMES:
         return [f"keyword {node.arg}"]  # 擋 vars(ex).update(_enforce_advertised=False)
@@ -1278,15 +1270,30 @@ def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) 
     return []
 
 
+def _in_executor_init(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """最內層函式就是 ``class ToolExecutor`` 直接定義的 ``__init__``（巢狀的同名函式不算）."""
+    while node in parents:
+        node = parents[node]
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner = parents.get(node)
+            return (
+                node.name == "__init__"
+                and isinstance(owner, ast.ClassDef)
+                and owner.name == "ToolExecutor"
+            )
+    return False
+
+
 def _attribute_uses(node: ast.Attribute, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
     in_executor = rel == _EXECUTOR_MODULE
     if node.attr == "__kwdefaults__":
         return ["attribute __kwdefaults__"]  # 擋執行時把預設值翻成 False
+    if not in_executor and _mentions_executor(node.value) and not isinstance(node.ctx, ast.Load):
+        return [f"ToolExecutor.{node.attr} replaced"]  # 例如換掉 __init__
     if node.attr == _PRIVATE_SWITCH:
         if not in_executor:
             return [f"attribute {_PRIVATE_SWITCH}"]
-        where = (_class_of(node, parents), _function_of(node, parents))
-        if not isinstance(node.ctx, ast.Load) and where != ("ToolExecutor", "__init__"):
+        if not isinstance(node.ctx, ast.Load) and not _in_executor_init(node, parents):
             return [f"{_PRIVATE_SWITCH} written outside ToolExecutor.__init__"]
     if node.attr in _CHECK_METHODS and (not in_executor or not isinstance(node.ctx, ast.Load)):
         return [f"attribute {node.attr} ({type(node.ctx).__name__})"]  # 換掉核對方法
@@ -1331,6 +1338,15 @@ def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> li
         and any(keyword.arg is None for keyword in node.keywords)
     ):
         return ["** unpacking into ToolExecutor"]  # 值可能來自設定或 JSON；含 partial
+    if (
+        rel != _EXECUTOR_MODULE
+        and isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"setattr", "delattr"}
+        and node.args
+        and _mentions_executor(node.args[0])
+    ):
+        return [f"{node.func.id} on ToolExecutor"]  # 換掉類別上的任何屬性
     if isinstance(node, ast.Attribute):
         return _attribute_uses(node, rel, parents)
     return [] if rel == _EXECUTOR_MODULE else _name_uses(node)
@@ -1488,6 +1504,24 @@ _CANONICAL_DEBUG = (
             _C2_ELSEWHERE,
             _IMPORT + "d = getattr(ToolExecutor.__init__, '__kwdefaults__')\n",
         ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "import functools\n"
+            "def loosen(raw):\n"
+            "    ToolExecutor.__init__ = functools.partialmethod(\n"
+            "        ToolExecutor.__init__, **json.loads(raw)\n"
+            "    )\n",
+        ),
+        (_C2_ELSEWHERE, _IMPORT + "setattr(ToolExecutor, '__init__', lambda *a, **k: None)\n"),
+        (_C2_ELSEWHERE, _IMPORT + "delattr(ToolExecutor, 'execute_to_queue')\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    def loosen(self):\n"
+            "        def __init__():\n"
+            "            self._enforce_advertised = False\n"
+            "        __init__()\n",
+        ),
     ],
     ids=[
         "partial-false",
@@ -1524,6 +1558,10 @@ _CANONICAL_DEBUG = (
         "partial-unpack",
         "passthrough-subclass",
         "kwdefaults-string",
+        "init-replaced-with-partialmethod",
+        "setattr-on-class",
+        "delattr-on-class",
+        "nested-init-in-another-method",
     ],
 )
 def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
