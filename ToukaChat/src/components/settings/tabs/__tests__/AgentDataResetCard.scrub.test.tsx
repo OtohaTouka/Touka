@@ -151,6 +151,26 @@ describe('AgentDataResetCard：清除連備份', () => {
         expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.acknowledged'))).toBeNull();
     });
 
+    it('V05b 完成、但有不在範圍的舊格式資料：總結句與保留提示都照實說，不說每一份都清了（丙-3）', async () => {
+        const withLegacy: MemoryScrubReport = {
+            ...SCRUB_DONE,
+            items: [
+                ...(SCRUB_DONE.items ?? []),
+                { ...item('info', 'facts.jsonl', 'info', 'out_of_scope'), count: 4 },
+                { ...item('info', 'core_memory.v0-to-v1.1.db', 'info', 'out_of_scope'), count: 2 },
+            ],
+        };
+        replyWith(report({ scrub: withLegacy }));
+        await openDialog();
+        fireEvent.click(screen.getByRole('checkbox'));
+        fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.agent_reset.scrub.acknowledge') }));
+        fillAndSubmit();
+        expect(await screen.findByText(i18n.t('settings.agent_reset.scrub.summary_complete_out_of_scope', { n: 6 }))).toBeDefined();
+        expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeNull();
+        expect(screen.getByText(i18n.t('backup_notice.still_there_scrubbed_partial', { id: 'jin-soul' }))).toBeDefined();
+        expect(screen.queryByText(i18n.t('backup_notice.still_there_scrubbed', { id: 'jin-soul' }))).toBeNull();
+    });
+
     it('V05 結果分類別列出、有總結句（從真實可能出現的報告）', async () => {
         const failedList: MemoryScrubReport = {
             ...SCRUB_DONE, complete: false, reason: 'list_failed',

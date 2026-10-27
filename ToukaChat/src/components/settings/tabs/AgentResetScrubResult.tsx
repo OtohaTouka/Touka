@@ -29,10 +29,23 @@ function liveNotes(t: Translate, report: MemoryScrubReport): string[] {
     return [...notes];
 }
 
-/** 總結句：沒完成時一律寫「沒有完成」加原因，不拿檔數下結論（類別沒跑完時檔數是錯的）. */
+/** 不在清除範圍（舊格式、舊前綴）、留在備份裡的筆數. */
+export function outOfScopeCount(report: MemoryScrubReport | null | undefined): number {
+    return (report?.items ?? [])
+        .filter((item) => item.kind === "info" && item.reason === "out_of_scope")
+        .reduce((sum, item) => sum + (item.count ?? 0), 0);
+}
+
+/** 總結句：沒完成時一律寫「沒有完成」加原因，不拿檔數下結論（類別沒跑完時檔數是錯的）.
+ * 完成了但還有不在範圍的舊資料時，不說「每一份都已清除」（舊審查報告丙-3）。 */
 function summary(t: Translate, report: MemoryScrubReport): string {
     if (!report.ran) return t("settings.agent_reset.scrub.summary_not_ran", { reason: reasonText(t, report.reason) });
-    if (report.complete) return t("settings.agent_reset.scrub.summary_complete");
+    if (report.complete) {
+        const left = outOfScopeCount(report);
+        return left > 0
+            ? t("settings.agent_reset.scrub.summary_complete_out_of_scope", { n: left })
+            : t("settings.agent_reset.scrub.summary_complete");
+    }
     const reason = report.reason ? reasonText(t, report.reason) : t("settings.agent_reset.scrub.reason_see_details");
     return t("settings.agent_reset.scrub.summary_unfinished", { reason });
 }

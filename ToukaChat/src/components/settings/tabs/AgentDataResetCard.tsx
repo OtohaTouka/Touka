@@ -14,10 +14,16 @@ import {
 import { useAgentDataReset, type AgentResetOutcome, type ResettableAgent } from "@/hooks/useAgentDataReset";
 import type { AgentResetResponse } from "@/lib/types";
 import { AgentResetScrubOption, NO_SCRUB, type ScrubChoice } from "./AgentResetScrubOption";
-import { AgentResetScrubResult } from "./AgentResetScrubResult";
+import { AgentResetScrubResult, outOfScopeCount } from "./AgentResetScrubResult";
 import { BackupRetentionNotice } from "@/components/common/BackupRetentionNotice";
 
 type ResetView = { kind: "unknown" } | { kind: "done"; report: AgentResetResponse; scrubRequested: boolean };
+
+/** 清除完成才換成「記憶已從備份清掉」那版；還有不在範圍的舊資料時用另一版（舊審查報告丙-3）. */
+function noticeVariant(scrub: AgentResetResponse["scrub"]): "reset" | "reset_scrubbed" | "reset_scrubbed_partial" {
+    if (scrub?.complete !== true) return "reset";
+    return outOfScopeCount(scrub) > 0 ? "reset_scrubbed_partial" : "reset_scrubbed";
+}
 
 /**
  * ADR-0113：Per-Agent 資料重置卡（admin only）。清除單一代理人累積的執行期資料
@@ -138,7 +144,7 @@ export function AgentDataResetCard() {
                     ) : (
                         <p className="font-bold text-status-warning">{t("settings.agent_reset.scrub.not_run")}</p>
                     ))}
-                <BackupRetentionNotice variant={report.scrub?.complete === true ? "reset_scrubbed" : "reset"} agentId={target?.id ?? ""} />
+                <BackupRetentionNotice variant={noticeVariant(report.scrub)} agentId={target?.id ?? ""} />
                 {doneButton}
             </div>
         );

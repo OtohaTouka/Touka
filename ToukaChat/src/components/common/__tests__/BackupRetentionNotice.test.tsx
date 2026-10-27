@@ -6,7 +6,8 @@ import { BackupRetentionNotice } from '../BackupRetentionNotice';
 
 // ADR-0270 補記（hist-bak a）：刪除與重置畫面的「還有備份」提醒。位置是固定文字，伺服器不回傳路徑。
 const KEYS = [
-    'summary', 'still_there', 'still_there_delete', 'still_there_scrubbed', 'where_snapshots', 'where_upgrade', 'purge_title',
+    'summary', 'still_there', 'still_there_delete', 'still_there_scrubbed', 'still_there_scrubbed_partial',
+    'where_snapshots', 'where_upgrade', 'purge_title',
     'purge_scrub', 'purge_scrub_delete', 'purge_snapshot', 'purge_upgrade', 'no_auto_snapshot',
     'restore_effect', 'not_context_snapshot',
 ] as const;
@@ -20,7 +21,7 @@ describe('BackupRetentionNotice', () => {
         expect(notice.where_snapshots).toMatch(/Touka_Backup_/);
         expect(notice.where_snapshots).toMatch(/Touka_AutoBackup_/);
         expect(notice.where_upgrade).toMatch(/vault\/core_memory_backups/);
-        for (const key of ['still_there', 'still_there_delete', 'still_there_scrubbed', 'restore_effect']) expect(notice[key]).toContain('{{id}}');
+        for (const key of ['still_there', 'still_there_delete', 'still_there_scrubbed', 'still_there_scrubbed_partial', 'restore_effect']) expect(notice[key]).toContain('{{id}}');
         const all = Object.values(notice).join('\n');
         expect(all).not.toMatch(/WORKSPACE_ROOT|執行器|executor|家目錄|home dir/i);
     });
@@ -44,6 +45,16 @@ describe('BackupRetentionNotice', () => {
         expect(screen.getByText(/刪整份快照/)).toBeDefined();
         expect(screen.getByText(/刪除前不會自動存快照/)).toBeDefined();
         expect(screen.getByText(/所有靈魂的記憶都退回/)).toBeDefined();
+        expect(screen.queryByText(/建議：重置時勾選/)).toBeNull();
+    });
+
+    it('B05b 清除完成、但還有不在範圍的舊資料：照實說留在備份裡，列快照與升級備份，不叫人再勾選（丙-3）', () => {
+        render(<BackupRetentionNotice variant="reset_scrubbed_partial" agentId="Jin" />);
+        expect(screen.getByText(/範圍內的記憶已從備份清掉，但還有舊格式或舊前綴的記憶不在清除範圍/)).toBeDefined();
+        expect(screen.getByText(/「Jin」的對話與其他資料也還留在系統快照裡/)).toBeDefined();
+        expect(screen.queryByText(/^記憶已從備份清掉/)).toBeNull();
+        expect(screen.getByText(/vault\/core_memory_backups/)).toBeDefined();
+        expect(screen.getByText(/刪整份快照/)).toBeDefined();
         expect(screen.queryByText(/建議：重置時勾選/)).toBeNull();
     });
 

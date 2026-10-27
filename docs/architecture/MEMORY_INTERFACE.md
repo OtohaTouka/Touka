@@ -134,7 +134,7 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 ## 清除連備份（記憶系統第二批段 7，ADR-0270）
 
 - `FactualStore`：每條連線 `PRAGMA secure_delete = ON`（刪除與搬動釋出的空間寫成 0）；升級（備份＋輪替）全程持有升級備份鎖 `_UPGRADE_BACKUP_LOCK`，被清除佔用時回 `LOCKED`、記憶庫不動。`delete_agent_facts`、`count_agent_facts` 用 `agent_id = ? COLLATE BINARY`。
-- 新方法（只給重置與清除用，不是工具）：`compact_after_reset(identity)`（重置後整理線上庫、驗證不過是 `live_verify_failed`）、`list_agent_ids()`、`agent_fact_ids(identity)`、`upgrade_backup_dir`。
+- 新方法（只給重置與清除用，不是工具）：`compact_after_reset(identity)`（重置後整理線上庫、結構或 integrity 不符是 `live_verify_failed`、目標又有列（查過之後才寫進來的）是 `rewritten_after_reset`（ADR-0270 2026-10-27 補記））、`list_agent_ids()`、`agent_fact_ids(identity)`、`upgrade_backup_dir`。
 - 模組函式（只給 Proxy 的 `services/memory_scrub/` 用，E10 掃描釘住）：`inspect_store_image`、`scrub_store_image`（記憶體副本刪列再 `VACUUM INTO`、獨立驗證）、`upgrade_backup_lock`、`classify_upgrade_backup_name`、`memory_scrub_supported`；登記表 `MEMORY_SCRUB_TABLES`（只有 `facts`；不認得的表、trigger、view 一律 `unknown_schema`）；原因代碼 `ScrubFailure`；`StoreInspection.others_digest`（非目標列多重集合的雜湊）。v0、v1、v2 的列都整列處理（v2 的 `status`、`superseded_by`、`safety_flags` 照原樣留給別的靈魂）。
 - 向量：collection 名稱與點 ID 的純函式搬到 `memory_server/utils/collection_names.py`（`collection_name_for`、`fact_point_id`、`names_fold_equal`、Qdrant 本機版面常數）；`vector.py` 保留 `fact_point_id` 的匯入（舊呼叫端不用改）。`VectorStore.delete_points(identity, point_ids)`、`count_points_outside(identity, keep_point_ids)` 給撞名時的一般重置用。
 - 撞名：`a-b` 與 `a_b`、只差大小寫的 ID 共用 collection；重置只刪自己的點、建立時擋撞名（ADR-0270 決策 10）。命名不變。

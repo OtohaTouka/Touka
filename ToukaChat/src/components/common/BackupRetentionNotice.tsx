@@ -3,26 +3,32 @@
 import { useTranslation } from "react-i18next";
 import { Archive } from "lucide-react";
 
-/** 「還有備份」提醒用在哪個畫面：重置卡（清除連備份完成後另一版）、刪除靈魂、DebugAgent 重置。 */
-type BackupNoticeVariant = "reset" | "reset_scrubbed" | "delete" | "debug";
+/** 「還有備份」提醒用在哪個畫面：重置卡（清除連備份完成後另一版；完成但還有不在範圍的舊資料時再一版）、
+ * 刪除靈魂、DebugAgent 重置。 */
+type BackupNoticeVariant = "reset" | "reset_scrubbed" | "reset_scrubbed_partial" | "delete" | "debug";
 
 // 各畫面要列的句子（`backup_notice.*`）；新畫面只加一列，不改元件。
 const LEAD_KEY: Record<BackupNoticeVariant, string> = {
-    reset: "still_there", reset_scrubbed: "still_there_scrubbed", delete: "still_there_delete", debug: "still_there",
+    reset: "still_there", reset_scrubbed: "still_there_scrubbed",
+    reset_scrubbed_partial: "still_there_scrubbed_partial", delete: "still_there_delete", debug: "still_there",
 };
 const BOTH_WHERE = ["where_snapshots", "where_upgrade"] as const;
 const WHERE_KEYS: Record<BackupNoticeVariant, readonly string[]> = {
-    reset: BOTH_WHERE, reset_scrubbed: ["where_snapshots"], delete: BOTH_WHERE, debug: BOTH_WHERE,
+    reset: BOTH_WHERE, reset_scrubbed: ["where_snapshots"], reset_scrubbed_partial: BOTH_WHERE,
+    delete: BOTH_WHERE, debug: BOTH_WHERE,
 };
 const PURGE_KEYS: Record<BackupNoticeVariant, readonly string[]> = {
     reset: ["purge_scrub", "purge_snapshot", "purge_upgrade"],
     reset_scrubbed: ["purge_snapshot"],
+    // 不在範圍的舊資料再清一次也清不到，只能刪整份快照或升級備份
+    reset_scrubbed_partial: ["purge_snapshot", "purge_upgrade"],
     delete: ["purge_scrub_delete", "purge_snapshot", "purge_upgrade"],
     debug: ["purge_snapshot", "purge_upgrade"],
 };
 const NOTE_KEYS: Record<BackupNoticeVariant, readonly string[]> = {
     reset: ["restore_effect", "not_context_snapshot"],
     reset_scrubbed: ["restore_effect"],
+    reset_scrubbed_partial: ["restore_effect"],
     delete: ["no_auto_snapshot", "restore_effect"],
     debug: ["restore_effect", "not_context_snapshot"],
 };

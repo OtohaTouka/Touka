@@ -80,6 +80,11 @@ def regular_dir(path: Path) -> bool:
     return system_backup.path_kind(path) == "dir"
 
 
+def missing(path: Path) -> bool:
+    """不跟連結：這個名字已經不存在."""
+    return system_backup.path_kind(path) == "missing"
+
+
 def folder_problem(kind: ScrubKind, directory: Path) -> ScrubItemResult | None:
     """要處理的資料夾本身存在、卻不是真的資料夾（連結、junction）：記失敗，不能當成沒東西."""
     if system_backup.path_kind(directory) in ("missing", "dir"):

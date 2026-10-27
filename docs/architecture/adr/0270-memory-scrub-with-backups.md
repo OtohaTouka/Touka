@@ -46,7 +46,7 @@
 
 - **資料庫副本**：輸出檔用唯讀連線重開，逐項核對 integrity、結構、`user_version`、目標 0 筆、空閒頁 0，以及**非目標列的多重集合**（在 Python 端依 agent_id 位元組精確分組、逐列雜湊）不變。多刪了別人的列只有多重集合比得出來。
 - **zip**：重寫後的驗證只用常數與原始成員資訊重算，不呼叫分類器與 `meta.json` 轉換函式、不看清除時的對照表：成員順序、只少了允許拿掉的成員、目標 collection 不在、其他 collection 目錄集合不變；依常數版面自己找出記憶庫成員（主庫與升級備份資料夾的 `*.db`），每一份在新 zip 裡目標都是 0 筆，內容有變的，非目標列的多重集合要和原本同名成員相同；其他有變的成員只能是 `meta.json`（用常數路徑找），而且要等於「原本拿掉目標」；沒變的成員 CRC、大小、時間、壓縮方式、屬性都要相同。
-- **線上庫**：VACUUM 後核對 integrity、結構與 `user_version` 不變、目標 0 筆；不過就是 `live_verify_failed`（檔案已整理過，畫面請先別再存記憶並找團隊）。
+- **線上庫**：VACUUM 後核對 integrity、結構與 `user_version` 不變、目標 0 筆；不過就是 `live_verify_failed`〔2026-10-27 補記：結構或 integrity 不符才是 `live_verify_failed`；只有目標又有列時是 `rewritten_after_reset`〕（檔案已整理過，畫面請先別再存記憶並找團隊）。
 
 ### 5. Qdrant `meta.json`
 
@@ -192,3 +192,11 @@
 - **伺服器不回傳路徑或份數**：位置是寫死在畫面上的固定文字（決策 8 拿掉 `output` 的理由不變）。要讓伺服器回傳快照份數或升級備份份數，會改到 API，另開 ADR。
 - 不寫成備份的：執行器裡的代理人家目錄（ADR-0272，不是備份）；ADR-0256 附錄「受 WORKSPACE_ROOT 影響」的位置說法已過時，提醒以 ADR-0262 決策 6 為準。
 - 測試（Vitest）：`BackupRetentionNotice.test.tsx` 6（兩語每句都有、位置字樣、不提過時位置與執行器；四種版本各列哪些句子）、重置卡 +2、清除連備份 V11（完整完成與沒完成兩種結果）、SoulStudio +2、計分卡 +1；先紅後綠，25 條突變全部變紅。
+
+## 補記：清除的小修（2026-10-27，舊審查報告丙-3）
+
+- **線上庫驗證拆開（修訂 §4 線上庫那一條）**：VACUUM 之後結構或 integrity 不符才報 `live_verify_failed`；只有目標又有列時報 `rewritten_after_reset`。查過「目標 0 筆」之後、VACUUM 之前別的連線可能寫進來（SQLite 不能在交易裡 VACUUM，報告建議的 `BEGIN IMMEDIATE` 做不到）；VACUUM 不會多出資料列，多出來的只可能是重置後的新寫入，原本把它說成「驗證失敗、請找團隊」太嚴重。
+- **中斷暫存在清的時候消失**：快照腳本的 `.partial` 在列出之後才被發布（改名成正式快照）時，原本 `_too_new` 的 `lstat` 丟 FileNotFoundError、整個 leftovers 類別失敗；檢查內容或刪除時才發現不見，則記成刪不掉（`in_use`）。現在：判斷「有沒有太新」時消失的部分不算；每一項處理前已經不在就跳過；檢查內容、刪除時才不見也跳過，不記失敗。新的正式快照會在同一個清除工作稍後的快照類別被清到。
+- **畫面**：清除完成、但有不在範圍的舊格式或舊前綴資料（`out_of_scope` 資訊項的筆數加總大於 0）時，總結句改用 `summary_complete_out_of_scope`（範圍內都已清除；還有 N 筆不在範圍、留在備份裡），完成畫面的「還有備份」提醒改用新版 `reset_scrubbed_partial`（照實說留在備份裡，列快照與升級備份的位置與刪法，不叫人再勾選，因為再清一次也清不到）。原本會說「每一份都已清除」「記憶已從備份清掉」。兩語都加鍵。
+- **後果補一句（不改）**：短 ID 用子字串比對抓頁內殘片（§2、§4 的刻意設計），所以快照每次清除都會重寫；安全但慢，也會讓「結果不明」更常出現。
+- 測試：`tests/unit/test_memory_scrub_store.py` F08c（查過之後別的連線寫進一筆 → `rewritten_after_reset`）；`tests/unit/test_memory_scrub_snapshots.py` S18d（列出後被發布 → 跳過、其他照清）、S18e（檢查內容或刪除時才不見 → 跳過）、S18f（工作資料夾裡的檔在判斷新舊時被搬走 → 那個檔不算）；`BackupRetentionNotice.test.tsx` B05b 與兩語新鍵；`AgentDataResetCard.scrub.test.tsx` V05b（完成但有不在範圍的資料：總結句與提示都換版）。變異檢查 9 個全部變紅（線上庫報錯、leftovers 四處、`_mtime`、總結句、筆數、提示版本）。
