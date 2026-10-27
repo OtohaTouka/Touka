@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -39,6 +40,7 @@ async def memory_diagnostics(
     agent_id = normalize_agent_id(identity, manager)
     parts = [f"=== Memory & Storage Diagnostics for [ {agent_id} ] ==="]
 
+    # 下面幾個走資料夾或讀檔，用 asyncio.to_thread 跑，不卡主迴圈（ADR-0288）
     def get_dir_size(path: Path) -> float:
         """計算目錄總大小 (MB)。"""
         if not path.exists():
@@ -48,11 +50,45 @@ async def memory_diagnostics(
         )
         return total_size / (1024 * 1024)  # MB
 
-    app_data = Path(get_app_data_dir())
-    parts.append(f"Legacy Vault Size: {get_dir_size(app_data / 'legacy' / agent_id):.2f} MB")
-    parts.append(
-        f"Personal Drive Size: {get_dir_size(app_data / 'personal_drive' / agent_id):.2f} MB"
-    )
+    def storage_lines() -> list[str]:
+        """舊對話庫與個人空間的大小."""
+        app_data = Path(get_app_data_dir())
+        return [
+            f"Legacy Vault Size: {get_dir_size(app_data / 'legacy' / agent_id):.2f} MB",
+            f"Personal Drive Size: {get_dir_size(app_data / 'personal_drive' / agent_id):.2f} MB",
+        ]
+
+    def has_unmigrated_jsonl() -> bool:
+        """還留著舊版 facts.jsonl 嗎."""
+        return bool({identity.agent_id, agent_id} & set(find_unmigrated_jsonl_agents()))
+
+    def search_history_lines() -> list[str]:
+        """搜尋紀錄裡最常查的五個詞."""
+        history_file = Path(get_app_data_dir()) / "stats" / f"{agent_id}_search_history.jsonl"
+        if not history_file.exists():
+            return ["\n[Search] Search History: No search records found yet."]
+        lines: list[str] = []
+        query_counts: dict[str, int] = {}
+        try:
+            content = get_resource_proxy().read_file_text(str(history_file))
+            if content:
+                for line in content.splitlines():
+                    if line.strip():
+                        q = json.loads(line).get("query", "").strip().lower()
+                        if q:
+                            query_counts[q] = query_counts.get(q, 0) + 1
+            if query_counts:
+                lines.append("\n[Search] Search History Analysis:")
+                top_queries = sorted(
+                    query_counts.items(), key=lambda x: x[1], reverse=True
+                )[:5]
+                for idx, (word, count) in enumerate(top_queries, 1):
+                    lines.append(f"  {idx}. '{word}' (Searched {count} times)")
+        except Exception as e:
+            lines.append(f"\n[Search] Search History: Error analyzing logs ({e})")
+        return lines
+
+    parts.extend(await asyncio.to_thread(storage_lines))
 
     try:
         count = await run_memory_job(
@@ -100,34 +136,13 @@ async def memory_diagnostics(
                 "[Safety] Queries list them last with a note; random recall skips them."
             )
 
-    if {identity.agent_id, agent_id} & set(find_unmigrated_jsonl_agents()):
+    if await asyncio.to_thread(has_unmigrated_jsonl):
         parts.append(
             "[Legacy Facts] An old fact/facts.jsonl was never moved into the memory "
             "database; the file is left untouched."
         )
 
-    history_file = app_data / "stats" / f"{agent_id}_search_history.jsonl"
-    if history_file.exists():
-        query_counts: dict[str, int] = {}
-        try:
-            content = get_resource_proxy().read_file_text(str(history_file))
-            if content:
-                for line in content.splitlines():
-                    if line.strip():
-                        q = json.loads(line).get("query", "").strip().lower()
-                        if q:
-                            query_counts[q] = query_counts.get(q, 0) + 1
-            if query_counts:
-                parts.append("\n[Search] Search History Analysis:")
-                top_queries = sorted(
-                    query_counts.items(), key=lambda x: x[1], reverse=True
-                )[:5]
-                for idx, (word, count) in enumerate(top_queries, 1):
-                    parts.append(f"  {idx}. '{word}' (Searched {count} times)")
-        except Exception as e:
-            parts.append(f"\n[Search] Search History: Error analyzing logs ({e})")
-    else:
-        parts.append("\n[Search] Search History: No search records found yet.")
+    parts.extend(await asyncio.to_thread(search_history_lines))
 
     return "\n".join(parts)
 

@@ -16,19 +16,25 @@ contextvars 不會傳回呼叫端。
 3. 持有工作者可能需要的鎖（例如事實庫的升級備份鎖）時，不得同步等工作者。
 
 工作者自己呼叫時直接執行、不排隊（避免自己等自己）。``await`` 中途被取消時，還沒開始的
-工作不會跑；已經在跑的會跑完（執行緒無法中途打斷），結果丟掉。
+工作不會跑；已經在跑的會跑完（執行緒無法中途打斷），結果丟掉，之後才失敗的記到 log。
+持鎖做破壞性操作的呼叫端改用 ``run_memory_job_to_end``：已經在跑的做完才把取消往外丟。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from concurrent.futures import Future
+
+logger = logging.getLogger(__name__)
 
 MEMORY_WORKER_THREAD_NAME = "touka-memory"
 
@@ -60,12 +66,49 @@ def in_memory_worker() -> bool:
     return threading.get_ident() == _Worker.thread_ident
 
 
+def _submit[T](fn: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Future[T]:
+    """排給工作者；工作在呼叫端 contextvars 的複本裡跑."""
+    context = contextvars.copy_context()
+    return _executor.submit(context.run, fn, *args, **kwargs)
+
+
+def _log_unseen_failure(future: Future[Any] | asyncio.Future[Any]) -> None:
+    """呼叫端不等了之後工作才失敗：沒有人會看到這個例外，記到 log."""
+    if not future.cancelled() and (error := future.exception()) is not None:
+        logger.warning("[MemoryWorker] 記憶工作在呼叫端不等之後失敗", exc_info=error)
+
+
 async def run_memory_job[T](fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
     """主迴圈上用：把 ``fn(*args, **kwargs)`` 排給工作者，等它做完再拿結果."""
     if in_memory_worker():
         return fn(*args, **kwargs)
-    context = contextvars.copy_context()
-    return await asyncio.wrap_future(_executor.submit(context.run, fn, *args, **kwargs))
+    future = _submit(fn, args, kwargs)
+    try:
+        return await asyncio.wrap_future(future)
+    except asyncio.CancelledError:
+        future.add_done_callback(_log_unseen_failure)
+        raise
+
+
+async def run_memory_job_to_end[T](fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
+    """和 ``run_memory_job`` 一樣，但等待被取消時，已經開始的工作做完才把取消往外丟.
+
+    給持著鎖做破壞性操作的呼叫端（重置的清記憶）：鎖不會在工作做到一半時就放掉。
+    還沒開始的工作照樣不跑；等的時候再被取消也繼續等。
+    """
+    if in_memory_worker():
+        return fn(*args, **kwargs)
+    future = _submit(fn, args, kwargs)
+    waiter = asyncio.wrap_future(future)
+    try:
+        return await asyncio.shield(waiter)
+    except asyncio.CancelledError:
+        future.cancel()  # 還沒開始的就不跑；已經在跑的不受影響
+        while not waiter.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait([waiter])
+        _log_unseen_failure(waiter)
+        raise
 
 
 def run_memory_job_blocking[T](fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
@@ -78,5 +121,4 @@ def run_memory_job_blocking[T](fn: Callable[..., T], /, *args: Any, **kwargs: An
         pass
     else:
         raise MemoryWorkerMisuseError
-    context = contextvars.copy_context()
-    return _executor.submit(context.run, fn, *args, **kwargs).result()
+    return _submit(fn, args, kwargs).result()

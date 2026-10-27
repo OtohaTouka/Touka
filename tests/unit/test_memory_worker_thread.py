@@ -2,9 +2,10 @@
 
 做法：假的向量庫、舊對話庫（與只讀事實庫的那幾個呼叫）被呼叫時記下所在的執行緒，並等主迴圈
 放行（``call_later``）。在主迴圈上跑的話主迴圈被它卡住、放行排不到，等待逾時（記成沒放行）；
-放行之後才在主迴圈上跑的，由執行緒不只一條抓到。所有等待都有逾時，
-退化時變紅而不是卡住（ADR-0103）。後半段測工作者本身（巢狀呼叫、誤用、contextvars、取消）
-與向量庫的鎖（兩條執行緒同時第一次用，只建一次）。
+放行之後才在主迴圈上跑的，由執行緒不只一條抓到；跑在一般執行緒池的，由執行緒名稱抓到。
+所有等待都有逾時，退化時變紅而不是卡住（ADR-0103）。後半段測工作者本身（巢狀呼叫、誤用、
+contextvars、取消與取消後的失敗記錄、重置清記憶做完才放手）與向量庫的鎖（兩條執行緒同時第一次用，
+只建一次）。
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import json
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
@@ -24,10 +27,14 @@ from memory_server import vector as vector_module
 from memory_server.models.conversation_search import ConversationPage
 from memory_server.services import manager as manager_module
 from memory_server.services.manager import MemoryManager
+from memory_server.tools import diag as diag_module
 from memory_server.utils import memory_worker
 from memory_server.vector import VectorStore
 from src.models.identity import AgentIdentity
+from src.routers import observability as observability_router
+from src.routers import setup as setup_router
 from src.routers import stats as stats_router
+from src.services import embedding_service
 from src.services.agent_reset import delete_guard, primitives
 from src.tools.builtin import memory as proxy_memory_gateway
 
@@ -40,6 +47,7 @@ RELEASE_AFTER_S = 0.05  # 主迴圈多久後放行
 MEET_TIMEOUT_S = 0.5  # 兩條執行緒互等多久；有鎖時第二條進不來，等完各走各的
 JOB_TIMEOUT_S = 5.0
 SOUL = AgentIdentity(agent_id="WorkerSoul")
+OWNER = AgentIdentity.for_role(agent_id="WorkerSoul", role="Owner")  # 記憶列表、切換模型要特權
 _MARK: contextvars.ContextVar[str] = contextvars.ContextVar("memory_worker_mark", default="unset")
 
 
@@ -155,11 +163,22 @@ async def _memory(action: str, **arguments: Any) -> str:
     return await proxy_memory_gateway.memory_tools(action=action, identity=SOUL, **arguments)
 
 
+def _on_worker(thread: threading.Thread) -> bool:
+    return thread.name.startswith(memory_worker.MEMORY_WORKER_THREAD_NAME)
+
+
 def _assert_off_loop_on_one_thread(gate: _Gate) -> None:
     assert gate.events, "the fake store was never called"
     assert all(gate.released), "the memory call blocked the event loop"
     (thread,) = gate.threads()
-    assert thread is not threading.main_thread()
+    assert _on_worker(thread), thread.name  # 排在記憶工作者上，不是一般的執行緒池
+
+
+def _assert_off_loop(gate: _Gate) -> None:
+    """不在主迴圈上跑就好（走資料夾、讀檔，用一般的執行緒）."""
+    assert gate.events, "the fake call was never made"
+    assert all(gate.released), "the call blocked the event loop"
+    assert threading.main_thread() not in gate.threads()
 
 
 # 每個記憶動作都要碰到被 gate 的那個方法；setup 放好需要的事實並把 gate 接上
@@ -309,8 +328,7 @@ async def test_scrub_recount_from_its_own_thread_runs_on_the_memory_thread(
     caller.join(timeout=10)
     assert not caller.is_alive()
     (thread,) = gate.threads()
-    assert thread is not caller
-    assert thread is not threading.main_thread()
+    assert _on_worker(thread), thread.name
 
 
 async def test_legacy_stats_endpoint_runs_off_the_event_loop(
@@ -336,11 +354,57 @@ async def test_legacy_sync_endpoint_runs_off_the_event_loop(
     _assert_off_loop_on_one_thread(gate)
 
 
+async def test_memory_list_endpoint_runs_off_the_event_loop(store: Any, gate: _Gate) -> None:
+    store.save_fact(SOUL, "a fact to list")
+    store.query_all_facts = _gated(gate, "list", store.query_all_facts)
+    gate.arm()
+    result = await asyncio.wait_for(observability_router.get_memory_list(OWNER), timeout=10)
+    assert [memory["content"] for memory in result["memories"]] == ["a fact to list"]
+    _assert_off_loop_on_one_thread(gate)
+
+
+async def test_memory_export_runs_off_the_event_loop(store: Any, gate: _Gate) -> None:
+    store.save_fact(SOUL, "a fact to export")
+    store.query_facts = _gated(gate, "export", store.query_facts)
+    gate.arm()
+    exported = json.loads(await asyncio.wait_for(memory_gateway.export_facts(SOUL), timeout=10))
+    assert exported["count"] == 1
+    _assert_off_loop_on_one_thread(gate)
+
+
+async def test_embedding_switch_runs_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, gate: _Gate
+) -> None:
+    """偵測讀事實庫、重置等向量庫的鎖（工作者載入模型時可能拿著），都不在主迴圈上等."""
+    evaluation = {"requires_confirmation": False}
+    monkeypatch.setattr(
+        embedding_service, "evaluate_switch", _through(gate, "evaluate", evaluation)
+    )
+    monkeypatch.setattr(embedding_service, "apply_switch", _through(gate, "apply", None))
+    gate.arm()
+    request = setup_router.EmbeddingSwitchRequest(model="another-model")
+    result = await asyncio.wait_for(setup_router.switch_embedding_model(request, OWNER), timeout=10)
+    assert result["status"] == "ok"
+    assert {label for _, label, _ in gate.events} == {"evaluate", "apply"}
+    _assert_off_loop_on_one_thread(gate)
+
+
+async def test_diagnostics_file_scans_run_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, store: Any, vector: Any, gate: _Gate
+) -> None:
+    """資料夾大小、舊版 facts.jsonl 與搜尋紀錄要走資料夾或讀檔，不在主迴圈上跑."""
+    # 資料夾大小與搜尋紀錄都先取資料目錄；舊版 facts.jsonl 要掃整個事實庫目錄
+    for name in ("get_app_data_dir", "find_unmigrated_jsonl_agents"):
+        monkeypatch.setattr(diag_module, name, _gated(gate, name, getattr(diag_module, name)))
+    gate.arm()
+    reply = await asyncio.wait_for(_memory("diagnostics"), timeout=10)
+    assert "Legacy Vault Size" in reply, reply
+    started = sorted(label for kind, label, _ in gate.events if kind == "start")
+    assert started == ["find_unmigrated_jsonl_agents", "get_app_data_dir", "get_app_data_dir"]
+    _assert_off_loop(gate)
+
+
 # --- 記憶工作者本身 ---
-
-
-def _on_worker(thread: threading.Thread) -> bool:
-    return thread.name.startswith(memory_worker.MEMORY_WORKER_THREAD_NAME)
 
 
 async def test_only_the_worker_thread_counts_as_inside() -> None:
@@ -350,29 +414,48 @@ async def test_only_the_worker_thread_counts_as_inside() -> None:
     )
 
 
-async def test_a_blocking_call_from_inside_a_job_runs_in_place() -> None:
+def _as_the_worker(
+    monkeypatch: pytest.MonkeyPatch, call: Callable[[], Any]
+) -> tuple[threading.Thread, Any]:
+    """在一條暫時當作工作者的 daemon 執行緒上呼叫 ``call``.
+
+    不在真的工作者上試：捷徑壞掉時巢狀呼叫排到自己後面，真的工作者會永遠卡住，連 pytest
+    結束都等不到。這裡捷徑壞掉時呼叫會改排到真的工作者上，拿回來的執行緒不同而變紅。
+    """
+    monkeypatch.setattr(memory_worker._Worker, "thread_ident", memory_worker._Worker.thread_ident)
+    seen: list[Any] = []
+
+    def run() -> None:
+        memory_worker._Worker.mark()
+        seen.append((threading.current_thread(), call()))
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(JOB_TIMEOUT_S)
+    assert not thread.is_alive()
+    (caller_and_result,) = seen
+    return caller_and_result
+
+
+def test_a_blocking_call_from_inside_the_worker_runs_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """工作裡再同步叫工作者（例如重算）直接在原地跑；排到自己後面會永遠等不到."""
-
-    def outer() -> tuple[threading.Thread, threading.Thread]:
-        inner = memory_worker.run_memory_job_blocking(threading.current_thread)
-        return threading.current_thread(), inner
-
-    outer_thread, inner_thread = await asyncio.wait_for(
-        memory_worker.run_memory_job(outer), timeout=JOB_TIMEOUT_S
+    caller, ran_on = _as_the_worker(
+        monkeypatch, lambda: memory_worker.run_memory_job_blocking(threading.current_thread)
     )
-    assert inner_thread is outer_thread
-    assert _on_worker(outer_thread)
+    assert ran_on is caller
 
 
-async def test_an_awaited_call_from_inside_a_job_runs_in_place() -> None:
-    def outer() -> tuple[threading.Thread, threading.Thread]:
-        inner = asyncio.run(memory_worker.run_memory_job(threading.current_thread))
-        return threading.current_thread(), inner
-
-    outer_thread, inner_thread = await asyncio.wait_for(
-        memory_worker.run_memory_job(outer), timeout=JOB_TIMEOUT_S
+@pytest.mark.parametrize("run", ["run_memory_job", "run_memory_job_to_end"])
+def test_an_awaited_call_from_inside_the_worker_runs_in_place(
+    run: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caller, ran_on = _as_the_worker(
+        monkeypatch,
+        lambda: asyncio.run(getattr(memory_worker, run)(threading.current_thread)),
     )
-    assert inner_thread is outer_thread
+    assert ran_on is caller
 
 
 async def test_blocking_on_the_worker_from_the_event_loop_is_refused() -> None:
@@ -425,12 +508,93 @@ async def test_a_cancelled_wait_skips_a_queued_job_but_the_running_one_finishes(
     assert await asyncio.to_thread(started.wait, GATE_TIMEOUT_S)
     first.cancel()
     queued.cancel()
+    # 取消要到下一輪迴圈才傳到工作者：等排隊的那個確定取消了，才讓正在跑的做完
+    with pytest.raises(asyncio.CancelledError):
+        await queued
     release.set()
-    for task in (first, queued):
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    with pytest.raises(asyncio.CancelledError):
+        await first
     await asyncio.wait_for(memory_worker.run_memory_job(lambda: None), timeout=JOB_TIMEOUT_S)
     assert done == ["running"]
+
+
+async def test_a_job_run_to_the_end_is_waited_for_when_the_wait_is_cancelled() -> None:
+    started, release = threading.Event(), threading.Event()
+    done: list[str] = []
+
+    def running() -> None:
+        started.set()
+        release.wait(GATE_TIMEOUT_S)
+        done.append("running")
+
+    first = asyncio.ensure_future(memory_worker.run_memory_job_to_end(running))
+    queued = asyncio.ensure_future(memory_worker.run_memory_job_to_end(done.append, "queued"))
+    assert await asyncio.to_thread(started.wait, GATE_TIMEOUT_S)
+    queued.cancel()
+    with pytest.raises(asyncio.CancelledError):  # 還沒開始的：不等、不跑
+        await asyncio.wait_for(queued, timeout=JOB_TIMEOUT_S)
+    for _ in range(2):  # 已經開始的：取消幾次都等它做完
+        first.cancel()
+        await asyncio.sleep(RELEASE_AFTER_S)
+        assert not first.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(first, timeout=JOB_TIMEOUT_S)
+    assert done == ["running"]
+
+
+@pytest.mark.parametrize("run", ["run_memory_job", "run_memory_job_to_end"])
+async def test_a_job_that_fails_after_its_wait_was_cancelled_is_logged(
+    run: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    started, release = threading.Event(), threading.Event()
+
+    def failing() -> None:
+        started.set()
+        release.wait(GATE_TIMEOUT_S)
+        raise LookupError(run)
+
+    caplog.set_level(logging.WARNING, logger=memory_worker.logger.name)
+    task = asyncio.ensure_future(getattr(memory_worker, run)(failing))
+    assert await asyncio.to_thread(started.wait, GATE_TIMEOUT_S)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=JOB_TIMEOUT_S)
+    # 記錄在工作做完時寫；下一個工作跑完代表上一個的記錄已經寫了
+    await asyncio.wait_for(memory_worker.run_memory_job(lambda: None), timeout=JOB_TIMEOUT_S)
+    # 只認工作者自己記的（asyncio 回收沒人取的 future 時也會記一筆，不能靠它）
+    logged = [
+        record.exc_info[1]
+        for record in caplog.records
+        if record.name == memory_worker.logger.name and record.exc_info
+    ]
+    assert [type(error) for error in logged] == [LookupError]
+
+
+async def test_a_cancelled_reset_purge_waits_for_the_purge_to_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重置被取消時，清記憶做完才放手：重置鎖不會在清到一半時就放掉."""
+    started, release = threading.Event(), threading.Event()
+    done: list[str] = []
+
+    def purge_now(_identity: AgentIdentity) -> int:
+        started.set()
+        release.wait(GATE_TIMEOUT_S)
+        done.append("purged")
+        return 0
+
+    monkeypatch.setattr(primitives, "_purge_memory_now", purge_now)
+    task = asyncio.ensure_future(primitives.purge_memory(SOUL.agent_id, lambda name: name))
+    assert await asyncio.to_thread(started.wait, GATE_TIMEOUT_S)
+    task.cancel()
+    await asyncio.sleep(RELEASE_AFTER_S)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=JOB_TIMEOUT_S)
+    assert done == ["purged"]
 
 
 # --- 向量庫的鎖（保險：平常只有工作者在用） ---

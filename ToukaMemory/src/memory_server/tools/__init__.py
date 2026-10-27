@@ -79,7 +79,9 @@ async def export_facts(identity: AgentIdentity, **kwargs: Any) -> str:
     僅能取得該 agent 自身的事實，不會跨 agent 洩漏。不寫入、不修改任何既有資料。
     """
     manager = kwargs.pop("manager", get_manager())
-    facts = manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    facts = await run_memory_job(
+        lambda: manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    )
     return json.dumps(
         {"agent_id": identity.agent_id, "count": len(facts), "facts": facts},
         ensure_ascii=False,
