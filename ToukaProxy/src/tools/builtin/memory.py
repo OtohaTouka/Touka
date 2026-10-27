@@ -11,12 +11,14 @@ from typing import Any
 
 from memory_server.factual import SupersedeTargetError
 from memory_server.models.conversation_search import ConversationSearchError
+from memory_server.vector import SemanticSearchUnavailableError
 from src.services.continuity_events import events_scope
 from src.services.memory_source_resolver import MemorySourceResolver
 from src.services.tool_errors import (
     INTERNAL_ERROR,
     PERMISSION_DENIED,
     RESOURCE_NOT_FOUND,
+    UPSTREAM_ERROR,
     build_tool_error,
 )
 from src.tools.execution_context import EXECUTION_CONTEXT_KWARG_NAMES
@@ -105,6 +107,13 @@ async def memory_tools(action: str, **kwargs: Any) -> str:
         return build_tool_error(
             exc.reason,
             "Conversation search could not be completed.",
+            action=action,
+        )
+    except SemanticSearchUnavailableError:  # 重複掃描沒掃成：不能說成沒有重複
+        return build_tool_error(
+            UPSTREAM_ERROR,
+            "Semantic search is unavailable, so the duplicate scan could not run.",
+            suggestion="Do not treat this as finding no duplicates; tell the user it failed.",
             action=action,
         )
     except Exception:

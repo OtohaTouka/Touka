@@ -328,7 +328,6 @@
   - `tests/unit/test_soul_primary_model_choice.py` 在 Windows 本機時好時壞：建立靈魂時 `invalidate_agent_sessions` 偶爾回 `SESSION_SAVE_FAILED`（例外被吞掉，沒有記下原因）。10/25 在 dev `4e5c85c5` 的乾淨複本上單獨跑 4 次，3 次各有 1～4 個失敗；整套 pytest 時常常剛好過。還沒查原因，CI 上是否也會發生未知。
   - Guard #45 基準檔裡 `ToukaProxy/src/tools/mission_tools.py` 的 `mission_tools`（typed）讀取快照和程式不一致，是早期改動留下的、不在 ADR-0256 範圍；守衛不比對這部分所以不會變紅，但這份快照不能拿來當現況參考。
   - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
-  - `query_vectors` 自己吞錯回空清單時（例如嵌入模型載入失敗），記憶工具的 `query` 不知道語意半失效、不會註明（ADR-0263）。
   - Guard #45 基準裡 5 條記憶相關的有型別快照（`MemoryManager.save_memory`／`query_memory`／`resolve_duplicate`、`diag.manage_duplicate_memories`、Proxy 閘道 `memory_tools`）比程式舊；守衛不比對這部分，不會變紅（ADR-0263）。
   - 記憶的安全標記只有英文樣式；要不要加中文樣式、要不要回填舊記憶另排（ADR-0263）。
   - 重置時沒勾「一併清除備份裡的記憶」，升級備份與系統快照照舊保有這個靈魂的記憶（ADR-0256）；勾選後的限制：已下載與命令列另存的備份不在範圍內、Linux 上下載中的那份是舊內容、撞名的靈魂不能勾選、本功能上線前命令列做的舊快照可能留有溢出頁殘片、線上庫 VACUUM 超過 5 秒時同時存記憶可能失敗、多位管理員時任何 admin 都能清任何靈魂的備份記憶（ADR-0270）。

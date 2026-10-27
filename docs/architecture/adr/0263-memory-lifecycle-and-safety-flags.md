@@ -1,6 +1,6 @@
 # ADR-0263：記憶系統第二批段 L：記憶會演變（一步取代）與安全標記
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 3 段的 PR，照一般驗收）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫；本 ADR 是第 3 段的 PR，照一般驗收）〔ADR-0286 修訂決策 7 與已知限制第 2 條：語意查詢失敗改丟錯、照實回報；forget 回四種結果〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaMemory（`factual.py`、新 `services/lifecycle.py`、`services/index_state.py`、`services/manager.py`、`tools/diag.py`、`tools/recall.py`、`tools/contracts.py`、`utils/content_guard.py`）；ToukaProxy 記憶閘道（`tools/builtin/memory.py`）；Guard #45 基準（`scripts/native_tool_contract_baseline.json`，1 行）；SECURITY.md
@@ -59,7 +59,7 @@
 
 ### 7. 掃重複
 
-`find_duplicates` 不改：被取代的是封存列，本來就不在掃描的回查集合；測試釘住。
+`find_duplicates` 不改：被取代的是封存列，本來就不在掃描的回查集合；測試釘住。〔ADR-0286 乙-2：取不到向量庫或查詢失敗時丟錯，閘道回 `upstream_error`，不再說沒有重複〕
 
 ## Guard #45 的兩種 consumer
 
@@ -98,7 +98,7 @@
 ## 已知限制
 
 - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）。
-- `query_vectors` 自己吞錯回空清單時（例如嵌入模型載入失敗），query 不知道語意半失效、不會註明。
+- `query_vectors` 自己吞錯回空清單時（例如嵌入模型載入失敗），query 不知道語意半失效、不會註明。〔ADR-0286 已解決：改丟 `SemanticSearchUnavailableError`〕
 - 安全標記只有英文樣式；舊記憶不回填；較新版本的結構與換回舊版期間不讀不寫旗標、不做取代。標記只影響排序與附註，擋不住模型自己決定照做（界線見 ADR-0257）。
 - 封存前已是 ready、當時向量封存靜默失敗的舊事實，`reindex` 不會修（語意結果回查事實庫，不會冒出來）。
 - 歷史往回找的深度條件和輸出的 LIMIT 重疊：深度條件只限制查詢的工作量（突變測試倖存，屬等價）。
