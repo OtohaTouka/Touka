@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from memory_server import tools as memory_gateway
-from memory_server.factual import FactualStore
+from memory_server.factual import ArchiveResult, FactualStore
 from memory_server.services.manager import MemoryManager
 from memory_server.vector import VectorStore
 from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -108,7 +108,7 @@ def _seed(kind: str, name: str, factual: FactualStore, vector: VectorStore) -> N
     if kind in {"fact", "archived_fact"}:
         saved = factual.save_fact(identity, f"{name} likes tea")
         if kind == "archived_fact":
-            assert factual.archive_fact(identity, saved["id"])
+            assert factual.archive_fact(identity, saved["id"]) is ArchiveResult.ARCHIVED
     elif kind == "vectors":
         _collection(vector, name, points=2)
     elif kind == "empty_collection":

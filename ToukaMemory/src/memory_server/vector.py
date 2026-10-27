@@ -35,6 +35,13 @@ DEFAULT_QUERY_SCORE_FLOOR = 0.3
 QUERY_SCORE_FLOORS: dict[str | None, float] = {"e5": 0.65}
 
 
+class SemanticSearchUnavailableError(Exception):
+    """語意查詢沒做成（向量庫讀不到、嵌入模型或查詢失敗）；不能當成「沒有相似的記憶」."""
+
+    def __init__(self) -> None:
+        super().__init__("Semantic search is unavailable")
+
+
 def embedding_family(model_name: str | None) -> str | None:
     """嵌入模型的家族：e5 系列回 "e5"，其他回 None；加不加前綴、用哪組門檻都看這個."""
     return "e5" if "e5" in (model_name or "").lower() else None
@@ -311,13 +318,15 @@ class VectorStore:
             date_end (int | None): 時間範圍結束。
 
         Returns:
-            list[dict[str, Any]]: 檢索結果列表。
+            list[dict[str, Any]]: 檢索結果列表；這個身分還沒有向量庫時是空的。
+
+        Raises:
+            SemanticSearchUnavailableError: 查詢沒做成（原例外在 ``__cause__``）。
         """
         name = self.get_collection_name(identity)
-        if not self.client.collection_exists(name):
-            return []
-
         try:
+            if not self.client.collection_exists(name):
+                return []
             query_vector = self.get_embedding(
                 _format_for_embedding(self.model_name, query, is_query=True)
             )
@@ -367,9 +376,9 @@ class VectorStore:
             return [
                 hit.payload | {"_score": hit.score} for hit in search_results.points
             ]
-        except Exception:
+        except Exception as exc:
             logger.exception(f"❌ [Vector] Error querying vectors for {identity.agent_id}")
-            return []
+            raise SemanticSearchUnavailableError from exc
 
     def archive_vector_by_fact_id(self, identity: AgentIdentity, fact_id: str) -> bool:
         """封存指定的向量記憶.

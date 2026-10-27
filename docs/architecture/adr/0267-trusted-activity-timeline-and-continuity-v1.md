@@ -1,6 +1,6 @@
 # ADR-0267：記憶系統第二批段 4：可信活動時間軸與時間感（continuity v1）
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，心跳也注入；本 ADR 是第 4 段的 PR，照一般驗收）〔ADR-0285 修訂已知限制最後一條：看板那一行的任務 id 也改用 `safe_ref`〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，心跳也注入；本 ADR 是第 4 段的 PR，照一般驗收）〔ADR-0285 修訂已知限制最後一條：看板那一行的任務 id 也改用 `safe_ref`〕〔ADR-0286 修訂記憶事件的時機：封存只在 `archive_fact` 回 archived 或 detached 時記〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（`utils/async_db.py` 的 `init_db_async`、新 `utils/continuity_events_db.py`、新 `services/continuity_events.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`routers/heartbeat.py`、`tools/mission_tools.py`、`tools/builtin/memory.py`、`main.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`routers/souls.py`、`services/gdpr_export_service.py`）；ToukaMemory（`protocols.py`、新 `services/event_recorder.py`、`services/manager.py`、`services/lifecycle.py`）
@@ -47,7 +47,7 @@
 - user_turn：SoulLayer 在 `<continuity>` 組好之後記（它看不到自己這一輪）。條件：`source_message_id`（router 用 CAS 確認已存才設）、不是心跳（`heartbeat_run`；心跳的 ctx 也帶 `source_message_id`）、不是無痕／子代理／派工、`session_bound`（對話屬於這個靈魂）、送訊息的是人類（`ui_requester.is_human`）。
 - 心跳：in-flight 標記寫入之後記開始；`finally` 記結束（同步排程、不 await，被取消時也安全），標記沒寫進去的 run 兩筆都不記。禁令 28 的 finally 觸發點與順序不變。
 - 任務：`mission_tools` 在 `await manager.…` 成功之後記；非法轉換、BLOCKED 沒填細節、跨看板被拒、`MissionPersistenceError`（結果不明，ADR-0231）都在 await 就丟出，不記，也不另寫 failed。
-- 記憶：`save_fact` 回 id 之後（兩種索引結果都算）、`archive_fact` 回 True 之後、`supersede_fact` 成功之後。被擋、`save_fact` 回 error、目標錯都不記。
+- 記憶：`save_fact` 回 id 之後（兩種索引結果都算）、`archive_fact` 回 True 之後（ADR-0286 起：回 archived 或 detached 之後；本來就封存、查無都不記）、`supersede_fact` 成功之後。被擋、`save_fact` 回 error、目標錯都不記。
 - 不記：`request_review`（審查結果不是狀態轉換）、`get_board`、`await_dispatch_result`；GDPR 匯出、重置、P2 清除、觀測與統計路徑（不是「靈魂存／忘／取代了一筆記憶」）。Memory 的同名 `mission_tools` 被 Proxy 的蓋掉，不掛。
 
 ### 4. recorder：同步、不阻塞、執行緒安全、絕不外丟

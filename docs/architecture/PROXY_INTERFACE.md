@@ -694,7 +694,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
   - **邏輯下沉**：工具實作邏輯已完全下沉至 ToukaMemory。Proxy 扮演「薄橋接器」，負責身份錨定與權限透傳，不重複實作業務邏輯。
   - **依賴反轉接縫（ADR-0116：整合模式單一部署）**：`get_resource_proxy()` 只回傳 Proxy 注入的真實 `ResourceManager`；取不到即 fail-loud。ToukaMemory 獨立 MCP 模式與 `_FallbackResourceProxy` 已退役，不得靜默降級至無身分隔離或路徑保護的 I/O。
   - **記憶來源（記憶系統第一批段 4，ADR-0256）**：記憶閘道（`tools/builtin/memory.py`）持有 `services/memory_source_resolver.MemorySourceResolver` 單例，不在 `main.py` 注入。存記憶時只用執行器注入的 `session_id`／`request_id` 與 `PipelineContext.source_message_id` 組來源；`source_message_id` 只有兩處寫：`routers/proxy._authorize_ui_persistence`（明示 UI 持久模式、revision 驗過後的 `user_parent_id`，無痕不寫）與 `routers/heartbeat._execute_single_pulse`（每次脈衝的觸發 user 節點）。`query` 帶 `include_sources` 時才把查回器交給記憶系統。外面帶進來的 `source_context`／`source_resolver` 一律剝掉。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶來源」。
-  - **一步取代與查舊版本（記憶系統第二批段 L，ADR-0263）**：`manage_dups` 的 `operation="supersede"` 存的新記憶，閘道同樣組 `source_context`（和 `save` 同一條）。`memory_server.factual.SupersedeTargetError`（被取代的不是自己仍有效的記憶）轉成 `resource_not_found`，訊息固定、不回顯 id；其他例外照舊是 `internal_error`。`query` 公開欄位多 `include_history`。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶會演變與安全標記」。
+  - **一步取代與查舊版本（記憶系統第二批段 L，ADR-0263）**：`manage_dups` 的 `operation="supersede"` 存的新記憶，閘道同樣組 `source_context`（和 `save` 同一條）。`memory_server.factual.SupersedeTargetError`（被取代的不是自己仍有效的記憶）轉成 `resource_not_found`，訊息固定、不回顯 id；其他例外照舊是 `internal_error`。〔ADR-0286 乙-2：`memory_server.vector.SemanticSearchUnavailableError`（語意查詢沒做成；目前只有重複掃描會帶到閘道）轉成 `upstream_error`；forget 遇到資料庫錯誤（`FactWriteError`）走 `internal_error`，不再回「not found」〕`query` 公開欄位多 `include_history`。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶會演變與安全標記」。
 
 ---
 

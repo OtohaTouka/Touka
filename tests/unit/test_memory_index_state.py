@@ -41,6 +41,8 @@ POLICY_EXAMPLE = PROJECT_ROOT / "ToukaProxy" / "config" / "auth_policies.json.ex
 POLICY_TRACKED = PROJECT_ROOT / "ToukaProxy" / "config" / "auth_policies.json"
 SMOKE_FACT_ID = re.compile(r"ID:\s*([^)]+)")  # same parser as tests/smoke/smoke_memory_tools.py
 INDEX_LATER = "語意索引稍後補上"
+SEMANTIC_DOWN = "語意搜尋暫時無法使用"  # the query note (lifecycle.SEMANTIC_DOWN_NOTE)
+DEDUP_SKIPPED = "語意查重暫時無法使用"  # the save / supersede note
 OLD_CREATE = (
     "CREATE TABLE facts (id TEXT PRIMARY KEY, agent_id TEXT, content TEXT, tags TEXT,"
     " importance TEXT DEFAULT NULL, emotions TEXT DEFAULT NULL, created_at INTEGER,"
@@ -256,6 +258,7 @@ async def test_fact_survives_when_the_vector_store_cannot_open(
 
     fact_id = _fact_id(reply)
     assert INDEX_LATER in reply
+    assert DEDUP_SKIPPED in reply  # the semantic duplicate check could not run either
     assert _state(store, fact_id) == "failed"
 
 
@@ -414,6 +417,258 @@ async def test_duplicate_scan_skips_archived_candidates(
 
     assert "No significant duplicates" in result
     assert archived not in result
+
+
+# --- semantic search down: said, never passed off as "nothing found" ---------
+
+
+def _break_semantic_search(monkeypatch: pytest.MonkeyPatch, vector: VectorStore) -> None:
+    def broken(*_args: Any, **_kwargs: Any) -> None:
+        raise _SyntheticVectorFailure
+
+    monkeypatch.setattr(vector.client, "query_points", broken)
+
+
+@pytest.mark.asyncio
+async def test_query_vectors_raises_when_the_search_fails(
+    store: fm.FactualStore, vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    await _memory("save", identity, content="the spare key is under the mat")
+    _break_semantic_search(monkeypatch, vector)
+
+    with pytest.raises(vector_module.SemanticSearchUnavailableError) as raised:
+        vector.query_vectors(identity, "where is the spare key")
+
+    assert isinstance(raised.value.__cause__, _SyntheticVectorFailure)
+
+
+def test_query_vectors_raises_when_the_index_cannot_be_read(
+    vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_args: Any, **_kwargs: Any) -> bool:
+        raise _SyntheticVectorFailure
+
+    monkeypatch.setattr(vector.client, "collection_exists", broken)
+
+    with pytest.raises(vector_module.SemanticSearchUnavailableError):
+        vector.query_vectors(_identity(), "anything at all")
+
+
+def test_query_vectors_without_a_collection_is_still_empty(vector: VectorStore) -> None:
+    assert vector.query_vectors(_identity(), "nothing was saved yet") == []
+
+
+@pytest.mark.asyncio
+async def test_query_says_so_when_the_semantic_search_fails(
+    store: fm.FactualStore, vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    await _memory("save", identity, content="the spare key is under the mat")
+    _break_semantic_search(monkeypatch, vector)
+
+    found = await _memory("query", identity, query="where is the spare key")
+
+    assert SEMANTIC_DOWN in found
+
+
+@pytest.mark.asyncio
+async def test_save_keeps_the_fact_and_says_the_semantic_check_was_skipped(
+    store: fm.FactualStore, vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    first = await _memory("save", identity, content="the spare key is under the mat")
+    _break_semantic_search(monkeypatch, vector)
+
+    reply = await _memory("save", identity, content="the spare key moved to the drawer")
+
+    fact_id = _fact_id(reply)
+    assert DEDUP_SKIPPED not in first
+    assert reply.startswith("Memory successfully saved (ID: ")
+    assert DEDUP_SKIPPED in reply
+    assert _state(store, fact_id) == "ready"  # only the search broke; indexing still works
+
+
+@pytest.mark.asyncio
+async def test_supersede_says_the_semantic_check_was_skipped(
+    store: fm.FactualStore, vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    old = _fact_id(await _memory("save", identity, content="I live in Taipei"))
+    _break_semantic_search(monkeypatch, vector)
+
+    reply = await _memory(
+        "manage_dups", identity, operation="supersede", target_id=old, content="I moved to Tainan"
+    )
+
+    assert "已用新記憶取代" in reply
+    assert DEDUP_SKIPPED in reply
+
+
+@pytest.mark.asyncio
+async def test_duplicate_scan_reports_a_broken_semantic_search(
+    store: fm.FactualStore, vector: VectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    await _memory("save", identity, content="I like green tea")
+    _break_semantic_search(monkeypatch, vector)
+
+    result = await proxy_memory_gateway.memory_tools(action="manage_dups", identity=identity)
+
+    assert json.loads(result)["error_class"] == "upstream_error"
+    assert "No significant duplicates" not in result
+
+
+@pytest.mark.asyncio
+async def test_duplicate_scan_reports_an_unavailable_vector_store(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    store.save_fact(identity, "I like green tea")
+    monkeypatch.setattr(MemoryManager, "get_vector_store", _vector_unavailable)
+
+    result = await proxy_memory_gateway.memory_tools(action="manage_dups", identity=identity)
+
+    assert json.loads(result)["error_class"] == "upstream_error"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_scan_with_nothing_saved_needs_no_vector_store(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(MemoryManager, "get_vector_store", _vector_unavailable)
+
+    result = await proxy_memory_gateway.memory_tools(action="manage_dups", identity=_identity())
+
+    assert "No significant duplicates" in result
+
+
+# --- forget: what happened, said as it is -----------------------------------
+
+
+def _clock(monkeypatch: pytest.MonkeyPatch, epoch: int) -> None:
+    monkeypatch.setattr(fm, "get_current_epoch", lambda: epoch)
+
+
+def test_archive_fact_reports_what_happened(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity, other = _identity(), _identity("Other")
+    live = store.save_fact(identity, "a live memory")["id"]
+
+    assert store.archive_fact(other, live) is fm.ArchiveResult.NOT_FOUND
+    _clock(monkeypatch, 3_000_000_000)
+    assert store.archive_fact(identity, live) is fm.ArchiveResult.ARCHIVED
+    _clock(monkeypatch, 3_000_000_100)
+    assert store.archive_fact(identity, live) is fm.ArchiveResult.ALREADY_ARCHIVED
+    assert store.archive_fact(identity, "fact_missing") is fm.ArchiveResult.NOT_FOUND
+    assert _row(store, live)["archived"] == 1
+    assert _row(store, live)["updated_at"] == 3_000_000_000  # nothing changed the second time
+
+
+def test_archive_fact_takes_a_superseded_version_out_of_the_history(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    old = store.save_fact(identity, "I live in Taipei")["id"]
+    store.supersede_fact(identity, old, "I moved to Tainan")
+    _clock(monkeypatch, 3_000_000_000)
+
+    assert store.archive_fact(identity, old) is fm.ArchiveResult.DETACHED
+    assert _row(store, old)["superseded_by"] is None
+    assert _row(store, old)["updated_at"] == 3_000_000_000
+    _clock(monkeypatch, 3_000_000_100)
+    assert store.archive_fact(identity, old) is fm.ArchiveResult.ALREADY_ARCHIVED
+    assert _row(store, old)["updated_at"] == 3_000_000_000
+
+
+@pytest.mark.asyncio
+async def test_another_identity_cannot_take_my_old_version_out_of_the_history(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _vector_stub(monkeypatch)
+    owner, other = _identity(), _identity("Other")
+    old = store.save_fact(owner, "I live in Taipei")["id"]
+    new = store.supersede_fact(owner, old, "I moved to Tainan")["id"]
+    before = _row(store, old)
+    _clock(monkeypatch, 3_000_000_000)
+
+    assert store.archive_fact(other, old) is fm.ArchiveResult.NOT_FOUND
+    reply = await proxy_memory_gateway.memory_tools(
+        action="forget", identity=other, fact_id_to_archive=old
+    )
+
+    assert "not found" in reply
+    assert _row(store, old)["superseded_by"] == new
+    assert _row(store, old)["updated_at"] == before["updated_at"]
+    stub.archive_vector_by_fact_id.assert_not_called()
+
+
+class _SyntheticStoreFailure(Exception):
+    """A fact store failure raised by the doubles below."""
+
+
+@pytest.mark.asyncio
+async def test_save_is_not_written_when_the_fact_store_fails_during_the_check(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _vector_stub(monkeypatch)
+    identity = _identity()
+    stub.query_vectors.return_value = [{"fact_id": "fact_000000000000", "_score": 0.99}]
+
+    def broken(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise _SyntheticStoreFailure
+
+    monkeypatch.setattr(store, "get_active_facts", broken)
+
+    reply = await proxy_memory_gateway.memory_tools(
+        action="save", identity=identity, content="a memory checked against a broken store"
+    )
+
+    assert json.loads(reply)["error_class"] == "internal_error"
+    assert store.query_facts(identity) == []
+
+
+@pytest.mark.asyncio
+async def test_forgetting_twice_is_a_success_that_changes_nothing(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _vector_stub(monkeypatch)
+    stub.archive_vector_by_fact_id.return_value = True
+    identity = _identity()
+    fact_id = store.save_fact(identity, "a memory to forget")["id"]
+
+    first = await _memory("forget", identity, fact_id_to_archive=fact_id)
+    second = await _memory("forget", identity, fact_id_to_archive=fact_id)
+
+    assert first == f"✅ Memory {fact_id} has been archived."
+    assert "already archived" in second
+    assert "❌" not in second  # the executor counts a reply with these as a failure
+    assert "Error:" not in second
+    assert stub.archive_vector_by_fact_id.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_forget_reports_a_database_error_instead_of_not_found(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _vector_stub(monkeypatch)
+    identity = _identity()
+    fact_id = store.save_fact(identity, "a memory")["id"]
+    _write(
+        store.db_path,
+        "CREATE TRIGGER broken_disk BEFORE UPDATE OF archived ON facts"
+        " BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    )
+
+    reply = await proxy_memory_gateway.memory_tools(
+        action="forget", identity=identity, fact_id_to_archive=fact_id
+    )
+
+    assert json.loads(reply)["error_class"] == "internal_error"
+    assert "not found" not in reply
+    assert "disk I/O" not in reply
+    assert _row(store, fact_id)["archived"] == 0
 
 
 # --- manual repair: reindex --------------------------------------------------
