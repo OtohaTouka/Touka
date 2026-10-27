@@ -18,6 +18,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -41,7 +42,8 @@ def final(name):
     return Path(text)
 source = final(sys.argv[1])
 owned = final(sys.argv[2])
-protected_roots = [final(sys.prefix).parent]
+# The repo root stays protected even when the venv lives outside the repo.
+protected_roots = [source, final(sys.prefix).parent]
 if sys.argv[4]:
     assert final(sys.argv[4]).is_relative_to(owned)
     protected_roots.append(final(sys.argv[4]))
@@ -64,7 +66,7 @@ if tail and PurePath(*physical[-len(tail):]) == PurePath(*tail):
     if stdlib_root != base:
         assert stdlib_root.name == base.name
         assert not any(
-            root.is_relative_to(stdlib_root) for root in (*protected_roots, source, owned)
+            root.is_relative_to(stdlib_root) for root in (*protected_roots, owned)
         )
         allowed_reads.append(stdlib_root)
 def audit(event, args):
@@ -104,7 +106,11 @@ if probes:
                 pass
         except RuntimeError as error:
             reasons.append(str(error))
-    print(json.dumps({'status': 'PROBE_BLOCKED', 'reasons': reasons}))
+    print(json.dumps({
+        'status': 'PROBE_BLOCKED',
+        'reasons': reasons,
+        'protected_roots': [str(root) for root in protected_roots],
+    }))
     raise SystemExit(0)
 from memory_server import config_utils
 assert final(config_utils.__file__) == (
@@ -166,6 +172,12 @@ def _q48_systemroot(environment: dict[str, str]) -> str:
     return next((value for key, value in environment.items() if key.upper() == "SYSTEMROOT"), "")
 
 
+def _q48_plain(path: Path) -> Path:
+    """Drop the verbatim prefix Windows may add on resolve, as the child's final() does."""
+    text = str(path)
+    return Path(text[4:]) if text.startswith("\\\\?\\") and text[5:7] == ":\\" else path
+
+
 def _q48_outside_probes(token: str) -> list[Path]:
     """Missing paths beside the interpreter install and beside where its stdlib really lives."""
     stdlib = Path(os.__file__)
@@ -181,7 +193,7 @@ def _run_q48_child(
     remove_proxy: bool = False,
     extra_protected: str = "",
     probes: list[Path] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Run the factory child with the supervisor's environment and return its last JSON line."""
     source = PROXY_ROOT.parent.resolve()
     env_file = owned / ".env"
@@ -295,7 +307,9 @@ def test_q48_fresh_child_audit_blocks_probe_reads(monkeypatch, tmp_path, kind):
         systemroot = _q48_systemroot(settings.get_full_env())
         if systemroot:
             readable.append(Path(systemroot).resolve())
-        assert not any(probe.is_relative_to(root) for probe in probes for root in readable)
+        assert not any(
+            _q48_plain(probe).is_relative_to(root) for probe in probes for root in readable
+        )
     else:
         fake_root = owned / "fake-root"
         probes = [fake_root / ".env", fake_root / "data" / f"q48-{token}"]
@@ -303,6 +317,8 @@ def test_q48_fresh_child_audit_blocks_probe_reads(monkeypatch, tmp_path, kind):
         expected = "FACTORY_CHILD_PROTECTED_PATH"
     assert not any(probe.exists() for probe in probes)
     observed = _run_q48_child(monkeypatch, owned, extra_protected=extra_protected, probes=probes)
+    protected_roots = [Path(root) for root in observed.pop("protected_roots")]
+    assert PROXY_ROOT.parent.resolve() in protected_roots
     assert observed == {"status": "PROBE_BLOCKED", "reasons": [expected] * len(probes)}
 
 
