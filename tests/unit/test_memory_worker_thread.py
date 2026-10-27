@@ -389,6 +389,31 @@ async def test_embedding_switch_runs_off_the_event_loop(
     _assert_off_loop_on_one_thread(gate)
 
 
+async def test_embedding_switch_detects_and_applies_in_one_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """偵測和套用之間不會插進別的記憶操作（例如用舊模型做的第一次存記憶）."""
+    order: list[str] = []
+    evaluating, other_queued = threading.Event(), threading.Event()
+
+    def evaluate(_model: str) -> dict[str, bool]:
+        order.append("evaluate")
+        evaluating.set()
+        other_queued.wait(JOB_TIMEOUT_S)
+        return {"requires_confirmation": False}
+
+    monkeypatch.setattr(embedding_service, "evaluate_switch", evaluate)
+    monkeypatch.setattr(embedding_service, "apply_switch", lambda _model: order.append("apply"))
+    request = setup_router.EmbeddingSwitchRequest(model="another-model")
+    switch = asyncio.ensure_future(setup_router.switch_embedding_model(request, OWNER))
+    assert await asyncio.to_thread(evaluating.wait, JOB_TIMEOUT_S)
+    other = asyncio.ensure_future(memory_worker.run_memory_job(order.append, "other"))
+    await asyncio.sleep(0)  # 讓它排進工作者（排隊在等待之前就做完）
+    other_queued.set()
+    await asyncio.wait_for(asyncio.gather(switch, other), timeout=JOB_TIMEOUT_S)
+    assert order == ["evaluate", "apply", "other"]
+
+
 async def test_diagnostics_file_scans_run_off_the_event_loop(
     monkeypatch: pytest.MonkeyPatch, store: Any, vector: Any, gate: _Gate
 ) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.config import apply_runtime_env, resolve_env_file_path
+from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.authorization_gateway import require_admin_authority
@@ -80,35 +80,37 @@ async def update_env(update: EnvUpdate, _identity: AgentIdentity = Depends(_requ
     """更新 .env 檔案內容。注意：這不會立即重啟服務。"""
     env_path, _ = _env_file_paths()
     try:
-        lines = []
-        if env_path.exists():
-            with env_path.open(encoding="utf-8") as f:
-                lines = f.readlines()
+        # 讀改寫整段持共用鎖：切換嵌入模型在記憶工作者上同時寫 .env（ADR-0288）
+        with ENV_FILE_LOCK:
+            lines = []
+            if env_path.exists():
+                with env_path.open(encoding="utf-8") as f:
+                    lines = f.readlines()
 
-        new_lines = []
-        updated_keys = set()
-        
-        for line in lines:
-            if "=" in line and not line.strip().startswith("#"):
-                key = line.split("=", 1)[0]
-                if key in update.settings:
-                    # 縱深防禦：遮罩值（GET 回傳的佔位）被原樣送回時，保留既有真值不覆寫。
-                    if update.settings[key] == _MASK:
-                        new_lines.append(line)
+            new_lines = []
+            updated_keys = set()
+
+            for line in lines:
+                if "=" in line and not line.strip().startswith("#"):
+                    key = line.split("=", 1)[0]
+                    if key in update.settings:
+                        # 縱深防禦：遮罩值（GET 回傳的佔位）被原樣送回時，保留既有真值不覆寫。
+                        if update.settings[key] == _MASK:
+                            new_lines.append(line)
+                            updated_keys.add(key)
+                            continue
+                        new_lines.append(f"{key}={update.settings[key]}\n")
                         updated_keys.add(key)
                         continue
-                    new_lines.append(f"{key}={update.settings[key]}\n")
-                    updated_keys.add(key)
-                    continue
-            new_lines.append(line)
+                new_lines.append(line)
 
-        # 加入原本 .env 裡面沒有的 key（遮罩值不落盤）
-        for key, val in update.settings.items():
-            if key not in updated_keys and val != _MASK:
-                new_lines.append(f"{key}={val}\n")
-                
-        with env_path.open("w", encoding="utf-8") as f:
-            f.writelines(new_lines)
+            # 加入原本 .env 裡面沒有的 key（遮罩值不落盤）
+            for key, val in update.settings.items():
+                if key not in updated_keys and val != _MASK:
+                    new_lines.append(f"{key}={val}\n")
+
+            with env_path.open("w", encoding="utf-8") as f:
+                f.writelines(new_lines)
 
         logger.info(
             f"⚙️ .env file updated via UI ({env_path}). {len(update.settings)} keys modified."

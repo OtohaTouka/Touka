@@ -4,6 +4,7 @@ import logging
 import os
 import secrets
 import tempfile
+import threading
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, Literal
@@ -27,6 +28,12 @@ def get_workspace_root() -> Path:
 def is_container_runtime() -> bool:
     """是否在 Docker 容器內執行（`/.dockerenv`；Podman 不認得，當成原生）。"""
     return Path("/.dockerenv").exists()
+
+
+# 行程裡所有寫 .env 的地方共用（ADR-0288）：設定頁、首裝精靈、密鑰持久化、切換嵌入模型。
+# 切換模型在記憶工作者上寫，其他多在主迴圈上；讀改寫整段互斥，後寫的才不會用清空到一半的
+# 檔蓋掉前一個（密鑰會不見）。只包住讀寫檔本身，持鎖時不等別的執行緒。只管這個行程。
+ENV_FILE_LOCK = threading.RLock()
 
 
 def resolve_env_file_path() -> Path:
@@ -541,7 +548,8 @@ def persist_generated_secret(key: str, value: str) -> bool:
     if not is_bootstrap_enabled():
         return False
     try:
-        set_key(str(resolve_env_file_path()), key, value, quote_mode="never")
+        with ENV_FILE_LOCK:
+            set_key(str(resolve_env_file_path()), key, value, quote_mode="never")
     except OSError:
         logger.exception("Failed to persist generated secret %s to .env", key)
         return False
@@ -562,38 +570,39 @@ def persist_generated_secrets(updates: dict[str, str]) -> bool:
     env_path = resolve_env_file_path()
     temporary_path: Path | None = None
     try:
-        existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
-        output: list[str] = []
-        written: set[str] = set()
-        for line in existing.splitlines():
-            stripped = line.lstrip()
-            candidate = stripped.removeprefix("export ")
-            key = candidate.split("=", 1)[0].strip() if "=" in candidate else None
-            if key not in updates:
-                output.append(line)
-                continue
-            if key not in written:
-                output.append(f"{key}={updates[key]}")
-                written.add(key)
-        output.extend(f"{key}={value}" for key, value in updates.items() if key not in written)
-        content = "\n".join(output) + "\n"
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="",
-            dir=env_path.parent,
-            prefix=f".{env_path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary.write(content)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        if env_path.exists():
-            temporary_path.chmod(env_path.stat().st_mode)
-        temporary_path.replace(env_path)
-        temporary_path = None
+        with ENV_FILE_LOCK:
+            existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+            output: list[str] = []
+            written: set[str] = set()
+            for line in existing.splitlines():
+                stripped = line.lstrip()
+                candidate = stripped.removeprefix("export ")
+                key = candidate.split("=", 1)[0].strip() if "=" in candidate else None
+                if key not in updates:
+                    output.append(line)
+                    continue
+                if key not in written:
+                    output.append(f"{key}={updates[key]}")
+                    written.add(key)
+            output.extend(f"{key}={value}" for key, value in updates.items() if key not in written)
+            content = "\n".join(output) + "\n"
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=env_path.parent,
+                prefix=f".{env_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary.write(content)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                temporary_path = Path(temporary.name)
+            if env_path.exists():
+                temporary_path.chmod(env_path.stat().st_mode)
+            temporary_path.replace(env_path)
+            temporary_path = None
     except OSError:
         logger.exception("Failed to atomically persist generated secret set")
         return False

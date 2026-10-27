@@ -4,7 +4,7 @@
 - 日期：2026-10-27
 - 決策者：維護者
 - 相關：ADR-0103（測試等待一律有逾時）、ADR-0116（整合模式）、ADR-0207（Proxy 單一行程）、ADR-0251（測試沙盒釋放步驟）、ADR-0256（記憶庫是正本）、ADR-0267（無痕不記活動事件）、ADR-0270（清除與升級備份鎖）、ADR-0286（乙-1、乙-2）、ADR-0287（丙-4 刪除靈魂）。決策都不變。
-- 影響範圍：ToukaMemory 新 `utils/memory_worker.py`；`services/manager.py`、`vector.py`、`tools/__init__.py`、`tools/diag.py`、`tools/recall.py`、`tools/legacy_vault.py`；ToukaProxy `services/agent_reset/delete_guard.py`、`services/agent_reset/primitives.py`、`routers/souls.py`、`routers/stats.py`、`routers/setup.py`、`routers/observability.py`；`scripts/native_tool_contract_baseline.json`；tests 新 `test_memory_worker_thread.py`，以及 `conftest.py`、`test_session_sandbox_cleanup.py`、`smoke/manual/memory_eval_probe.py`、`memory_eval/test_probe_bounds.py`、`test_memory_collection_collision_security.py`、`test_soul_delete_sandbox_home_security.py`、`test_soul_session_reuse_security.py`；MEMORY_INTERFACE、tests/README、HANDOVER。
+- 影響範圍：ToukaMemory 新 `utils/memory_worker.py`；`services/manager.py`、`vector.py`、`tools/__init__.py`、`tools/diag.py`、`tools/recall.py`、`tools/legacy_vault.py`；ToukaProxy `services/agent_reset/delete_guard.py`、`services/agent_reset/primitives.py`、`routers/souls.py`、`routers/stats.py`、`routers/setup.py`、`routers/observability.py`、`routers/config.py`、`config.py`、`services/embedding_service.py`、`services/setup_service.py`；`scripts/native_tool_contract_baseline.json`；tests 新 `test_memory_worker_thread.py`、`test_env_file_lock.py`，以及 `conftest.py`、`test_session_sandbox_cleanup.py`、`smoke/manual/memory_eval_probe.py`、`memory_eval/test_probe_bounds.py`、`test_memory_collection_collision_security.py`、`test_soul_delete_sandbox_home_security.py`、`test_soul_session_reuse_security.py`；MEMORY_INTERFACE、tests/README、HANDOVER。
 
 ## 背景
 
@@ -39,7 +39,7 @@
      - 匯出（`export_facts`，全部事實、不設上限）。
    - Proxy：
      - `GET /v1/memory/list`（最多 5000 筆事實）。
-     - 切換嵌入模型：偵測有沒有記憶（讀事實庫）與寫設定、重置單例（`reset_singletons` 要等向量庫單例的鎖，工作者第一次建向量庫、載入模型時拿著它）。
+     - 切換嵌入模型：偵測有沒有記憶（讀事實庫）與寫設定、重置單例（`reset_singletons` 要等向量庫單例的鎖，工作者第一次建向量庫、載入模型時拿著它）。偵測和可以時的套用是同一個工作（`embedding_service.switch_model`）：中間不會插進別的記憶操作，例如用舊模型做的第一次存記憶。
      - 刪除靈魂前的記憶檢查：`assert_memory_cleared` 改成 async，兩個呼叫點都 await。
      - 重置的清記憶（`purge_memory`，用 `run_memory_job_to_end`）與重算（`remaining_memory`）；清除工作在自己的執行緒裡重算（`count_remaining_memory`）時同步等工作者。
      - 舊對話統計與手動同步端點（讀資料庫、算檔案雜湊、同步）。
@@ -48,8 +48,9 @@
 4. **保險**（平常只有工作者在用）：
    - `VectorStore` 每個公開方法整段持有一把整個行程共用的 `RLock`（Qdrant client 依路徑共用）：「先查再建 collection」與延遲載入模型不會被別的執行緒插進來。
    - `get_vector_store` 建單例與 `reset_singletons` 共用一把鎖：只建一個，換嵌入模型重置之後也不會留下舊模型的那個。
-5. **測試沙盒**：刪沙盒前多一步「等記憶工作者做完」（`drain_memory_worker`，在關 SQLite、Qdrant 之前）；人工記憶評估探針也一樣。
-6. **不變的**：
+5. **寫 `.env` 共用一把鎖**（`config.ENV_FILE_LOCK`，`RLock`）：切換嵌入模型改在工作者上寫 `.env`，設定頁（`POST /v1/config/env`）、首裝精靈、密鑰持久化（`persist_generated_secret(s)`）在主迴圈上寫。設定頁是先清空再寫，沒有互斥時後寫的可能讀到清空到一半的檔、蓋掉前一個，密鑰會不見。五個寫入的地方都在讀改寫整段持鎖；鎖只包住讀寫檔，持鎖時不等別的執行緒。
+6. **測試沙盒**：刪沙盒前多一步「等記憶工作者做完」（`drain_memory_worker`，在關 SQLite、Qdrant 之前）；人工記憶評估探針也一樣。
+7. **不變的**：
    - 工具回覆、端點、參數、錯誤碼與 OpenAPI 都不變。
    - 管理器碰儲存的方法（`resolve_duplicate`、`find_duplicates` 等）仍是同步的，呼叫端經工作者呼叫，不直接 await。只建物件或正規化 ID 的（`get_legacy_sync_service`、`normalize_agent_id`）照舊直接呼叫。
    - Guard #45 基準只多 `tools/__init__.py` 的一行匯入。`manager.py` 的 `save_memory`、`query_memory` 裡多了巢狀的 `save()`、`find()`；`diag.py` 的 `memory_diagnostics` 裡多了三個巢狀函式（資料夾大小、舊版 `facts.jsonl`、搜尋紀錄；原本就有巢狀的 `get_dir_size`）。Guard #45 不看巢狀定義；這些都不是工具入口，不收工具參數。
@@ -65,6 +66,7 @@
   - 測試沙盒、記憶評估探針結束前等工作者做完；若工作者真的卡死（例如有人違反第 1 條規矩），行程結束時會等不到它（工作者不是 daemon 執行緒，`ThreadPoolExecutor` 結束時會等它）。所有測試的等待都有逾時，會先變紅。
   - 沒加 `force_disable_check_same_thread`：它只在 THREADSAFE=2（macOS 這類）有作用；Windows、Debian 上 qdrant 本機模式本來就不檢查執行緒。
   - 計畫提到的 tokenizer 多執行緒問題是推測，沒有驗證；現在嵌入只在工作者上做（另有鎖），不會同時被兩條執行緒用。
+  - `.env` 的鎖只管這個行程：其他行程或手動編輯同時寫，不在保護內。設定頁仍是清空再寫（不是原子置換），寫到一半當機一樣會壞；本次只加鎖，沒改寫法。
 - 撤回：revert 即恢復原樣；不改任何資料。本 ADR 檔保留，在狀態註記撤回。
 
 ## 驗證
@@ -73,12 +75,15 @@
   - 先寫的 15 個測試在修正前 14 個紅；「同時存四筆一樣的只存一筆」修正前後都綠（主迴圈上本來就不會交錯），是防回歸用。
   - 之後補的：resolve 與手動同步端點兩個呼叫點；工作者本身（巢狀呼叫在原地跑、主迴圈上同步等被拒、contextvars 帶過去且不外流、等待取消時排隊的不跑）；向量庫的鎖（兩條執行緒同時第一次用時 collection、模型、單例都只建一次，用 barrier 讓兩條真的同時到）。所有等待都有逾時。
   - DEV-B 第 1 輪之後補的：記憶列表、匯出、切換嵌入模型三個呼叫點；診斷的資料夾掃描與讀檔不在主迴圈上；「在工作者上」改成核對執行緒名稱（原本只核對不是主執行緒、只有一條，改用一般執行緒池也會過）；取消測試先確定排隊的取消了才放行正在跑的（原本偶發變紅）；巢狀呼叫改在暫時當作工作者的 daemon 執行緒上測（原本捷徑壞掉時真的工作者卡死，pytest 結束時等不到）；取消後才失敗的記到 log；`run_memory_job_to_end` 與重置的清記憶被取消（兩次）時等做完。
+  - DEV-B 第 2 輪之後補的：切換嵌入模型時，偵測正在跑時排進來的記憶工作要等套用做完才跑；新檔 `test_env_file_lock.py`：測試拿著 `.env` 的鎖時，五個寫入的地方都等到放開才寫，放開後寫進去、原本的值還在。
   - `test_session_sandbox_cleanup.py` 釘住第五個釋放步驟與順序；`test_probe_bounds.py` 釘住探針的清理順序。
 - `assert_memory_cleared` 改成 async 後，3 個測試檔的替身與呼叫改成 await／`AsyncMock`；用 `-W error::RuntimeWarning` 跑過，沒有沒被 await 的 coroutine（改之前其中一個測試是空過的）。
 - 相關測試（88 個檔）2623 個通過；新測試檔與沙盒清理、活動事件測試用 `pytest-randomly` 亂序連跑三次都綠。
 - 全量：pytest 15664 個通過、8 個環境跳過，失敗只有已知的本機 8 個（compose 6 個、q48 2 個）和 ruff 基準（`purge_memory` 補了說明文字，D103 少一個，已更新基準）；vitest 2059 個通過；guard_all 只剩 #22（msgpack 1.2.1 新公布的弱點，只在測試工具 pip-audit 的依賴裡，和本變更無關，另批升級）與已知的 #23。
 - DEV-B 第 1 輪之後的全量：pytest 15673 個通過、8 個環境跳過；失敗是已知的本機 8 個，加上 `test_run_usage_tiers.py` 的一個（測試替換的 `resource_manager` 和程式取到的不是同一個，看執行順序；本變更沒碰它，單獨跑與接在本檔之後跑都過，同一輪的前一次全量也沒出現）；vitest 2059 個通過；guard_all 只剩已知的 #22、#23。相關 6 個測試檔亂序連跑三次都綠。
-- 變異檢查 43 個全部變紅，每個都由對應的測試抓到，捷徑壞掉的也不再卡住：
+- DEV-B 第 2 輪之後的全量：pytest 15679 個通過、8 個環境跳過，失敗只有已知的本機 8 個（另一個是新測試檔還沒加進 git，`test_tests_readme_listing` 只認追蹤的檔，加了就過）；vitest 2059 個通過；guard_all 只剩 #22（msgpack 之外又新公布 dnspython 2.8.0 的弱點，都和本變更無關，另批升級）與已知的 #23。
+- 變異檢查 51 個全部變紅，每個都由對應的測試抓到，捷徑壞掉的也不再卡住：
   - 工作者：不複製 contextvars、兩條工作執行緒、拿掉主迴圈誤用檢查、拿掉工作者內的捷徑（await、做完才放手、同步等各一）、拿掉取消後的失敗記錄（兩種各一）；`run_memory_job_to_end` 不 shield、會跑排隊的、第二次取消就放手。
   - 保險：拿掉向量庫的鎖、拿掉單例的鎖。
-  - 呼叫點：25 個包進工作者的呼叫點逐一改回直接呼叫（存、查、forget、匯出、診斷三處、reindex、supersede、scan、resolve、對話搜尋、隨機回想兩處、統計三處、同步、記憶列表、切換模型兩處、刪除前檢查、重算、清記憶，以及清除執行緒的同步重算）；清記憶改回一般的 `run_memory_job`；診斷的一處改用一般執行緒池；診斷的 3 個讀檔改回在主迴圈上跑。
+  - 呼叫點：24 個包進工作者的呼叫點逐一改回直接呼叫（存、查、forget、匯出、診斷三處、reindex、supersede、scan、resolve、對話搜尋、隨機回想兩處、統計三處、同步、記憶列表、切換模型、刪除前檢查、重算、清記憶，以及清除執行緒的同步重算）；清記憶改回一般的 `run_memory_job`；診斷的一處改用一般執行緒池；診斷的 3 個讀檔改回在主迴圈上跑。
+  - DEV-B 第 2 輪之後：五個寫 `.env` 的地方逐一拿掉鎖、鎖換成不互斥的假鎖；切換模型改回偵測、套用兩個工作；`switch_model` 不看 `force`、永遠不要求確認。
