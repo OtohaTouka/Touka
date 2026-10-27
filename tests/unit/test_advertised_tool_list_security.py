@@ -1171,7 +1171,14 @@ _PRIVATE_SWITCH = "_enforce_advertised"
 # 執行器裡負責核對的兩個方法：被覆寫或換掉，開關還是 True 但清單與在場檢查都沒了
 _CHECK_METHODS = frozenset({"_offer_denial", "_user_scope_denial"})
 _PRIVATE_NAMES = _CHECK_METHODS | {_PRIVATE_SWITCH}
-_PROTECTED_STRINGS = _PRIVATE_NAMES | {_SWITCH, "__kwdefaults__", "ToolExecutor"}
+_PROTECTED_STRINGS = _PRIVATE_NAMES | {
+    _SWITCH,
+    "__kwdefaults__",
+    "ToolExecutor",
+    "execute_to_queue",
+}
+# 換掉這兩個就能讓核對不跑：type(ex).execute_to_queue = f、ex.__class__.__init__ = g
+_REPLACEABLE_METHODS = frozenset({"execute_to_queue", "__init__"})
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
 _FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
@@ -1341,6 +1348,9 @@ def _executor_shape_uses(
             return [f"{_PRIVATE_SWITCH} written outside ToolExecutor.__init__"]
         if node.attr in _CHECK_METHODS and not isinstance(node.ctx, ast.Load):
             return [f"attribute {node.attr} ({type(node.ctx).__name__})"]
+    name_written = isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load)
+    if name_written and node.id in _CHECK_METHODS:
+        return [f"name {node.id} assigned"]  # 類別本體裡 _offer_denial = lambda ...
     return []
 
 
@@ -1376,6 +1386,17 @@ def _switch_uses(
     found = _executor_reference_uses(node, parents)
     if isinstance(node, ast.Attribute) and node.attr == "__kwdefaults__":
         found.append("attribute __kwdefaults__")  # 擋執行時把預設值翻成 False
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr in _REPLACEABLE_METHODS
+        and not isinstance(node.ctx, ast.Load)
+    ):
+        found.append(f"attribute {node.attr} replaced")  # 擋從實例取得類別再換掉
+    renamed_in = isinstance(node, ast.alias) and node.asname == "ToolExecutor"
+    if renamed_in and node.name != "ToolExecutor":
+        found.append(f"import {node.name} as ToolExecutor")  # 擋把別的類別改名成執行器
+    if isinstance(node, ast.arg) and node.arg == "ToolExecutor":
+        found.append("parameter named ToolExecutor")
     attr_written = isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)
     if attr_written and node.attr == _SWITCH:
         found.append(f"attribute {_SWITCH} ({type(node.ctx).__name__})")
@@ -1660,6 +1681,22 @@ _CANONICAL_DEBUG = (
             "        return ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n"
             "    return debug_execute_tool\n",
         ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "async def _run(self, *args, **kwargs):\n    return None\n"
+            "type(ToolExecutor(None, {}, {}, {})).execute_to_queue = _run\n",
+        ),
+        (_C2_ELSEWHERE, "def loosen(ex, f):\n    ex.__class__.__init__ = f\n"),
+        (_C2_ELSEWHERE, "def loosen(ex):\n    return getattr(type(ex), 'execute_to_queue')\n"),
+        (_C2_ELSEWHERE, "from src.services.lenient import Open as ToolExecutor\n"),
+        (_C2_ELSEWHERE, "def build(ToolExecutor):\n    pass\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    def _user_scope_denial(self):\n"
+            "        return 'blocked'\n"
+            "    _user_scope_denial = lambda self, *a, **k: None\n",
+        ),
     ],
     ids=[
         "partial-false",
@@ -1727,6 +1764,12 @@ _CANONICAL_DEBUG = (
         "debug-lambda-false",
         "debug-class-body-false",
         "debug-nested-function-false",
+        "execute-replaced-via-instance-type",
+        "init-replaced-via-instance-class",
+        "execute-name-string",
+        "other-class-imported-as-executor",
+        "parameter-named-executor",
+        "executor-file-check-name-assigned",
     ],
 )
 def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):
