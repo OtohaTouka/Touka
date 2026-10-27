@@ -125,6 +125,15 @@ def test_archive_keeps_a_changed_message_as_another_version(tmp_path: Path) -> N
     assert _rows(db, "SELECT title FROM sessions") == [("new",)]
 
 
+def test_each_different_content_is_its_own_version(tmp_path: Path) -> None:
+    """同一則訊息改過兩次：兩個內容各存一個版本，不互相蓋掉。"""
+    store = LegacyStore(str(tmp_path / "legacy_history.db"))
+    for content in ("hello", "first edit", "second edit", "first edit"):
+        store.archive(IDENTITY, [_SESSION], [{**_HELLO, "content": content, "session_id": "s"}])
+    assert _originals(tmp_path) == {"m1": "hello"}
+    assert _versions(tmp_path) == {"m1": ["first edit", "second edit"]}
+
+
 @pytest.mark.parametrize(
     "change", [{"session_id": "other"}, {"role": "assistant"}], ids=["session", "role"]
 )
