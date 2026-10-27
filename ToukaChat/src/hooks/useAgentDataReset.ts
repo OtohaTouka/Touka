@@ -60,7 +60,7 @@ export function useAgentDataReset() {
         return () => clearTimeout(timer);
     }, [loadAgents]);
 
-    /** 伺服器記著的最後一次重置（只在記憶體，重啟後是 idle）；查詢本身失敗時是 null. */
+    /** 伺服器記著的最後一次重置（只在記憶體，重啟後是 idle）；查詢本身失敗時回 null，卡上保留上一次查到的. */
     const refreshLast = useCallback(async (): Promise<LastResetStatus | null> => {
         let status: LastResetStatus | null = null;
         try {
@@ -69,7 +69,7 @@ export function useAgentDataReset() {
         } catch (e) {
             logSSOTError(e, "useAgentDataReset:refreshLast");
         }
-        if (mounted.current) setLast(status);
+        if (status !== null && mounted.current) setLast(status);
         return status;
     }, [proxyUrl]);
 

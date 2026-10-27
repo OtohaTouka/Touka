@@ -4,7 +4,7 @@
 
 ## 重置卡查最後一次重置的結果（ADR-0289）
 
-- `hooks/useAgentDataReset.ts` 多 `last` 與 `refreshLast()`：經 `fetchTouka` 讀 `GET /v1/admin/agents/reset/last`；掛載時查一次，按「完成」後再查；查詢本身失敗（連不上、403）時是 `null`，伺服器沒有紀錄時是 `idle`。
+- `hooks/useAgentDataReset.ts` 多 `last` 與 `refreshLast()`：經 `fetchTouka` 讀 `GET /v1/admin/agents/reset/last`；掛載時查一次，按「完成」後再查；查詢本身失敗（連不上、403）時回 `null`、卡上保留上一次查到的，伺服器沒有紀錄時是 `idle`。
 - `components/settings/tabs/AgentResetLastResult.tsx`：卡上方寫明是哪個靈魂、什麼時候（還在跑寫開始時間，其餘寫結束時間，經 `formatToTaipeiTime`）和結果一句話；結束的那次可以按「查看結果」打開報告，還在跑時按同一個按鈕再查一次。`idle` 與看不懂的狀態不顯示。
 - 「結果不明」畫面多「查看結果」：同一個靈魂已結束就換成那份報告（上面寫明靈魂與結束時間，不跳通知）；還在跑、沒有完成（錯誤碼經 `errorMsg`，看不懂的當 `SYSTEM_ERROR`）、中途中斷照實說；沒有紀錄或是別的靈魂的，說查不到這次的結果；查詢本身失敗另說「現在查不到」。不輪詢。
 - 對話框顯示結果時，標題與說明換成 `settings.agent_reset.result_title`／`result_body`（只看結果、不叫人輸入密碼）。

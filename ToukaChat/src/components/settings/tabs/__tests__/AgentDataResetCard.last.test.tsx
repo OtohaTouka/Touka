@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import i18n from '@/lib/i18n';
 import type { fetchTouka } from '@/lib/connections';
 import type { AgentResetResponse, LastResetStatus } from '@/lib/types';
@@ -209,6 +209,17 @@ describe('AgentDataResetCard：最後一次重置的結果（丙-5）', () => {
         await screen.findByText(finishedHeading());
         viewResult();
         expect(await screen.findByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeDefined();
+    });
+
+    it('V21 卡上重新查詢失敗：保留上一次查到的，卡片不消失', async () => {
+        lastIs(status({ state: 'running', finished_at: null, report: null }));
+        render(<AgentDataResetCard />);
+        expect(await screen.findByText(i18n.t('settings.agent_reset.last.running'))).toBeDefined();
+        lastReply = () => Promise.reject(new TypeError('Failed to fetch'));
+        viewResult();
+        await waitFor(() => expect(lastCalls()).toBe(2));
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); // 等失敗處理完
+        expect(screen.getByText(i18n.t('settings.agent_reset.last.running'))).toBeDefined();
     });
 
     it('V19 重置完成按「完成」後重新查一次', async () => {
