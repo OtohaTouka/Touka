@@ -10395,6 +10395,33 @@
         }
       }
     },
+    "/v1/admin/agents/reset/last": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Last Agent Reset",
+        "description": "最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.\n\n只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。",
+        "operationId": "last_agent_reset_v1_admin_agents_reset_last_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastResetStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/admin/users": {
       "get": {
         "tags": [
@@ -10682,6 +10709,33 @@
             }
           }
         }
+      }
+    },
+    "/admin/agents/reset/last": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Last Agent Reset",
+        "description": "最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.\n\n只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。",
+        "operationId": "last_agent_reset_admin_agents_reset_last_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastResetStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/v1/heartbeat/schedules": {
@@ -18949,6 +19003,88 @@
         ],
         "title": "IsolationStatusResponse",
         "description": "``GET /isolation``：monitor 的判定結果，只有層級與原因代碼（給側欄橫幅用）。\n\n``local_issue``：讓降級只能「未隔離」的本機原因；``block_ports_issue``：封鎖埠擋不全；\n``repairs``：自癒沒有在跑（不是 Linux）或 snapshot 還沒接上時是 null。"
+      },
+      "LastResetStatus": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "done",
+              "failed",
+              "interrupted"
+            ],
+            "title": "State",
+            "description": "idle＝本次啟動後沒有重置紀錄；running＝進行中（請求斷線後清除還在跑也算）；done＝已結束，附報告；failed＝沒有完成，附錯誤碼；interrupted＝請求中途取消，可能只清了一部分"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "重置的靈魂"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "開始時間（UNIX 秒）"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "結束時間（UNIX 秒）"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "失敗時的錯誤碼（errors.json 的鍵）"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentResetResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "done 時的重置報告"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "LastResetStatus",
+        "description": "最後一次重置的結果，只存在行程記憶體（舊審查報告丙-5，ADR-0289）.\n\n伺服器重啟後回 ``idle``。失敗只記錯誤碼，不放路徑或例外原文（禁令 23）。"
       },
       "LegacyExportRequest": {
         "properties": {

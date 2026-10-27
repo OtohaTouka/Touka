@@ -109,6 +109,7 @@
 | 清除進行中旗標 | `ToukaProxy/src/services/memory_scrub/__init__.py` `begin`、`in_progress`、`ScrubSession` | 重置協調器（`reset_in_progress`）、還原端點 |
 | 重置、清除或刪除靈魂進行中（全系統一把） | `services/agent_reset/orchestrator.py` `reset_in_progress()`、`destructive_op()`（不等待取鎖並標記目標，ADR-0287） | 還原端點、重置、刪除靈魂 |
 | 這個靈魂正在刪除、重置或清除；這個靈魂還有心跳在跑 | `services/destructive_ops.py`（`hold`／`release`／`is_held`、`start_heartbeat`／`end_heartbeat`、`stop_heartbeats`；ADR-0287） | 心跳迴圈、`/awaken`、`/retrigger`、刪除靈魂、重置、清除 |
+| 最後一次重置的結果（只在記憶體，重啟後 idle；放鎖、清旗標前記好） | `services/agent_reset/last_result.py`（`start`、`ResetRun`、`recording`、`last_reset`；ADR-0289） | 重置協調器、清除工作的 `on_report`、`GET /v1/admin/agents/reset/last`、ToukaChat 重置卡 |
 | 清除的原因代碼與完成判定 | `ToukaProxy/src/models/memory_scrub.py` `ScrubReason`、`MemoryScrubReport.build`；Memory 端 `factual.ScrubFailure`（值都在 `ScrubReason` 裡） | 重置回應、結果稽核、ToukaChat 結果畫面 |
 | 清除稽核的格式（一份） | `services/memory_scrub/orchestrator.py` `audit_result`、`audit_rejected`（路由經 `agent_reset.orchestrator.scrub_rejected`） | 路由、重置協調器 |
 | 換檔順序、戳記、連結判斷、改名重試 | `services/memory_scrub/swap.py`（`replace_verified`、`stamp`、`folder_problem`、`RENAME_ATTEMPTS`） | 升級備份與快照清除 |
