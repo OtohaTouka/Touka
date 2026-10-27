@@ -344,12 +344,13 @@ def test_same_field_across_combinators_keeps_combinator_order():
     "parameters",
     [
         {"oneOf": "x"},
+        {"oneOf": 1, "allOf": True},
         {"anyOf": {"properties": {"v": {"type": "string"}}}},
         {"oneOf": [1, None, "s", {"properties": [1]}, {"properties": None}]},
         {"oneOf": [{"properties": {"v": v}} for v in (True, None, 1)]},
         {"allOf": [{"properties": {"v": {"enum": e}}} for e in ([[1], [2]], [[1]])]},
     ],
-    ids=["string", "dict", "junk-branches", "non-dict-definitions", "nested-lists"],
+    ids=["string", "non-iterable", "dict", "junk-branches", "non-dict-definitions", "nested-lists"],
 )
 def test_odd_branches_never_raise(parameters):
     tool = {"type": "function", "function": {"name": "odd", "parameters": parameters}}
