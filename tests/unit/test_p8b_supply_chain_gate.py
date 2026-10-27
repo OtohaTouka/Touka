@@ -42,7 +42,7 @@ AUDIT_SAFE_DIRECT_DEPENDENCIES = {
     "mermaid": "11.16.1",
 }
 AUDIT_SAFE_OVERRIDES = {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.9",
     "nanoid": "3.3.18",
     "socket.io-parser": "4.2.7",
     "undici": "7.30.1",
