@@ -62,5 +62,5 @@
 - 先寫的測試在實作前全紅（新模組不存在）：
   - 後端 `test_agent_reset_last_result.py`：結束後記住同一份報告與時間、進行中是 running、出錯只留錯誤碼（不放例外原文）、取消是 interrupted、被 409 與被守衛擋下的不改紀錄、報告不合格式不弄壞重置、放鎖時已經記好、端點只給人類 admin。
   - `test_memory_scrub_orchestrator.py` o23～o27：請求取消後清除跑完才記 done（期間是 running）、清旗標之前就記好、正常清除記的報告和回應相同、交出前取消是 interrupted、安全網那份報告就是記下的那份、預檢拒絕記成 failed 與錯誤碼。
-  - Chat `AgentDataResetCard.last.test.tsx` V12～V20：掛載查一次並寫明靈魂與時間、idle 或查詢失敗不顯示、「結果不明」按查看結果換成報告且不跳通知、running／failed／interrupted 照實說、重啟過或別的靈魂說查不到、查詢本身失敗另一句、卡上的按鈕打開報告（標題與說明是看結果的版本）、卡上還在跑時同一個按鈕再查一次、卡上重新查詢失敗時保留上一次查到的（V21）、完成後重新查。
+  - Chat `AgentDataResetCard.last.test.tsx` V12～V21：掛載查一次並寫明靈魂與時間、idle 或查詢失敗不顯示、「結果不明」按查看結果換成報告且不跳通知、running／failed／interrupted 照實說、重啟過或別的靈魂說查不到、查詢本身失敗另一句、卡上的按鈕打開報告（標題與說明是看結果的版本）、卡上還在跑時同一個按鈕再查一次、卡上重新查詢失敗時保留上一次查到的（V21）、完成後重新查。
 - 突變檢查：後端與前端各個突變都讓測試變紅（數字見 PR）。
