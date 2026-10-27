@@ -58,6 +58,19 @@ async def _reset(target: str = TARGET, **kwargs: object) -> O.ResetReport:
     return await asyncio.wait_for(O.reset_agent_data(target, ADMIN, **kwargs), REPLY_TIMEOUT_S)
 
 
+def _states_at_release(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """每次放破壞性操作鎖時，最後結果是什麼狀態（放鎖前就要記好，下一次重置才蓋不掉）."""
+    seen: list[str] = []
+    real = destructive_ops.release
+
+    def release(target: AgentIdentity) -> None:
+        seen.append(L.last_reset().state)
+        real(target)
+
+    monkeypatch.setattr(destructive_ops, "release", release)
+    return seen
+
+
 def _blocking(state: SimpleNamespace) -> tuple[asyncio.Event, asyncio.Event]:
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -112,8 +125,10 @@ async def test_l03_failed_reset_keeps_only_the_error_code(
         raise error
 
     monkeypatch.setattr(system_backup, "create_backup", failing)
+    seen = _states_at_release(monkeypatch)
     with pytest.raises(type(error)):
         await _reset()
+    assert seen == ["failed"]
     last = L.last_reset()
     assert (last.state, last.agent_id, last.error_code, last.report) == (
         "failed",
@@ -125,7 +140,10 @@ async def test_l03_failed_reset_keeps_only_the_error_code(
     assert "secret" not in last.model_dump_json()  # 禁令 23：不放例外原文
 
 
-async def test_l04_cancelled_reset_is_interrupted(env: SimpleNamespace) -> None:
+async def test_l04_cancelled_reset_is_interrupted(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _states_at_release(monkeypatch)
     entered, _release = _blocking(env)
     task = asyncio.create_task(_reset())
     await asyncio.wait_for(entered.wait(), REPLY_TIMEOUT_S)
@@ -135,6 +153,7 @@ async def test_l04_cancelled_reset_is_interrupted(env: SimpleNamespace) -> None:
     last = L.last_reset()
     assert (last.state, last.agent_id, last.report) == ("interrupted", TARGET, None)
     assert last.finished_at is not None
+    assert seen == ["interrupted"]
 
 
 async def test_l05_rejected_requests_do_not_replace_the_last_result(
@@ -176,14 +195,7 @@ async def test_l06_a_report_that_cannot_be_kept_does_not_break_the_reset(
 async def test_l09_result_is_kept_before_the_lock_is_released(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: list[str] = []
-    real = destructive_ops.release
-
-    def release(target: AgentIdentity) -> None:
-        seen.append(L.last_reset().state)  # 放鎖時已經記好：下一次重置蓋不掉
-        real(target)
-
-    monkeypatch.setattr(destructive_ops, "release", release)
+    seen = _states_at_release(monkeypatch)
     await _reset()
     assert seen == ["done"]
 

@@ -847,6 +847,27 @@ async def test_o25_cancel_before_handover_is_interrupted(
     assert (last.state, last.agent_id, last.report) == ("interrupted", TARGET, None)
 
 
+async def test_o27_preflight_refusal_is_a_failed_result_with_its_code(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(soul_io, "list_soul_ids", lambda: [TARGET, TARGET.replace("-", "_")])
+    with pytest.raises(ToukaException):
+        await _reset()
+    last = L.last_reset()
+    assert (last.state, last.agent_id, last.error_code, last.report) == (
+        "failed",
+        TARGET,
+        "MEMORY_SCRUB_COLLECTION_SHARED",
+        None,
+    )
+    monkeypatch.setattr(soul_io, "list_soul_ids", lambda: [TARGET])
+    monkeypatch.setattr(fm, "memory_scrub_supported", lambda: False)
+    with pytest.raises(ToukaException):
+        await _reset()
+    last = L.last_reset()
+    assert (last.state, last.error_code) == ("failed", "MEMORY_SCRUB_UNAVAILABLE")
+
+
 async def test_o26_scrub_safety_net_report_is_the_kept_report(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

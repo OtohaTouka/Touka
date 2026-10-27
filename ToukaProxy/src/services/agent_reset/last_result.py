@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from src.models.agent_reset import ResetState
+    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def _record(status: LastResetStatus) -> None:
 class ResetRun:
     """一次重置：開始時記 running，結束時由記結果的那一方記最終狀態."""
 
-    agent: str  # 已正規化目標 id；命名同 ResetReport.agent，避 IDENTITY_SSOT 欄位禁則
+    target: AgentIdentity
     started_at: float
 
     def _finish(
@@ -58,7 +59,7 @@ class ResetRun:
         _record(
             LastResetStatus(
                 state=state,
-                agent_id=self.agent,
+                agent_id=self.target.agent_id,
                 started_at=self.started_at,
                 finished_at=get_current_epoch(),
                 error_code=error_code,
@@ -67,7 +68,7 @@ class ResetRun:
         )
 
     def done(self, report: dict[str, Any]) -> None:
-        """重置結束（清除也結束）；報告不合回應格式時記成失敗，不讓記錄弄壞重置."""
+        """重置結束（清除也結束）；報告不合回應格式時記成失敗（端點回應同樣會失敗）."""
         try:
             parsed = AgentResetResponse.model_validate(report)
         except ValidationError:  # 端點回應同樣會失敗：照實記成沒有完成
@@ -86,10 +87,10 @@ class ResetRun:
         self._finish("interrupted")
 
 
-def start(agent: str) -> ResetRun:
+def start(target: AgentIdentity) -> ResetRun:
     """拿到破壞性操作鎖之後呼叫：記 running（被 409 擋下的請求不算一次重置）."""
-    run = ResetRun(agent=agent, started_at=get_current_epoch())
-    _record(LastResetStatus(state="running", agent_id=agent, started_at=run.started_at))
+    run = ResetRun(target=target, started_at=get_current_epoch())
+    _record(LastResetStatus(state="running", agent_id=target.agent_id, started_at=run.started_at))
     return run
 
 

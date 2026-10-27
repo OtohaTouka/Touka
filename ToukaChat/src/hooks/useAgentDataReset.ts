@@ -60,7 +60,7 @@ export function useAgentDataReset() {
         return () => clearTimeout(timer);
     }, [loadAgents]);
 
-    /** 伺服器記著的最後一次重置（只在記憶體，重啟後是 idle）；查不到時是 null. */
+    /** 伺服器記著的最後一次重置（只在記憶體，重啟後是 idle）；查詢本身失敗時是 null. */
     const refreshLast = useCallback(async (): Promise<LastResetStatus | null> => {
         let status: LastResetStatus | null = null;
         try {

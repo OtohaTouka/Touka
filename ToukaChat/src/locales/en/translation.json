@@ -575,6 +575,8 @@
       "reset_button": "Reset Data",
       "confirm_title": "Reset data for agent \"{{id}}\"",
       "confirm_body": "This is irreversible. Review the scope below, type the agent ID, and re-enter your password to proceed.",
+      "result_title": "Reset result for agent \"{{id}}\"",
+      "result_body": "This only shows the result; nothing else will be deleted.",
       "wipe_label": "Will wipe",
       "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots",
       "keep_label": "Will keep",
@@ -601,7 +603,8 @@
         "failed": "Did not complete: {{reason}}",
         "interrupted": "The request stopped partway, so only part of the data may have been cleared. Please reset again.",
         "none": "No result for this request: the server may have restarted, or the request never arrived. Check this agent's data and reset again if needed.",
-        "done_header": "This is the reset of “{{id}}” that finished at {{time}}"
+        "done_header": "This is the reset of “{{id}}” that finished at {{time}}",
+        "lookup_failed": "Could not reach the server's record right now (connection or permission problem). This does not mean the reset did not run. Press “View result” again later."
       },
       "scrub": {
         "option_label": "Also clear this soul's memory from backups (off by default)",

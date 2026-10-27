@@ -4,7 +4,7 @@
 
 ## 查最後一次重置的結果（2026-10-28，ADR-0289）
 
-- 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與其他人回 403 `AUTH_ADMIN_REQUIRED`。唯讀。
+- 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與一般使用者回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401。唯讀。
 - `state`：
   - `idle`：本次啟動後沒有紀錄（伺服器重啟後也是）。
   - `running`：拿到破壞性操作鎖之後；請求斷線、清除還在跑時也是。

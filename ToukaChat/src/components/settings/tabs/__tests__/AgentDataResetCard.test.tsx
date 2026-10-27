@@ -90,7 +90,7 @@ describe('AgentDataResetCard（ADR-0113）', () => {
 
         fireEvent.click(confirmBtn);
         await waitFor(() => {
-            const call = mockFetch.mock.calls.find(c => String(c[1]).endsWith('/reset'));
+            const call = mockFetch.mock.calls.find(c => String(c[1]) === '/v1/admin/agents/jin-soul/reset');
             expect(call).toBeTruthy();
             if (!call) throw new Error('Expected an agent reset request');
             expect(String(call[1])).toContain('jin-soul');

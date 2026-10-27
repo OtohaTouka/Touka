@@ -9,6 +9,8 @@ import openapi from '../../../../../../openapi.json';
 import zhTW from '@/locales/zh-TW/translation.json';
 import en from '@/locales/en/translation.json';
 
+const RESET_PATH = '/v1/admin/agents/jin-soul/reset';
+
 type Reply = () => Promise<Response>;
 let resetReply: Reply;
 
@@ -79,7 +81,7 @@ function confirmButton(): HTMLButtonElement {
 async function sentBody(): Promise<Record<string, unknown>> {
     let body: Record<string, unknown> = {};
     await waitFor(() => {
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).endsWith('/reset'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]) === RESET_PATH);
         if (!call || typeof call[2]?.body !== 'string') throw new Error('no reset request yet');
         body = JSON.parse(call[2].body);
     });
@@ -261,7 +263,7 @@ describe('AgentDataResetCard：清除連備份', () => {
         const view = await openDialog();
         fillAndSubmit();
         await sentBody();
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).endsWith('/reset'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]) === RESET_PATH);
         const signal = call?.[2]?.signal;
         expect(signal).toBeInstanceOf(AbortSignal);
         expect(call?.[2]).not.toHaveProperty('requestScope');

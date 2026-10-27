@@ -145,6 +145,10 @@ export function AgentDataResetCard() {
     const doneButton = <div className="flex justify-end">{finishButton}</div>;
 
     const renderLookup = (status: LastResetStatus | null) => {
+        // 查詢本身失敗：伺服器可能還記著，不能說查不到
+        if (status === null) {
+            return <p className="text-muted-foreground">{t("settings.agent_reset.last.lookup_failed")}</p>;
+        }
         // 別的靈魂的、或伺服器沒有紀錄（重啟過）：不是這次的結果
         if (!isShownLastResult(status) || status.agent_id !== target?.id) {
             return <p className="text-muted-foreground">{t("settings.agent_reset.last.none")}</p>;
@@ -222,7 +226,15 @@ export function AgentDataResetCard() {
             <p className="text-xs text-muted-foreground leading-relaxed">
                 {t("settings.agent_reset.intro")}
             </p>
-            {isShownLastResult(last) && <AgentResetLastResult last={last} onView={() => showLast(last)} />}
+            {isShownLastResult(last) && (
+                <AgentResetLastResult
+                    last={last}
+                    onView={() => showLast(last)}
+                    onRefresh={() => {
+                        refreshLast();
+                    }}
+                />
+            )}
 
             {agents.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-border p-6 text-center text-xs italic text-muted-foreground">
@@ -253,10 +265,12 @@ export function AgentDataResetCard() {
                 <DialogContent className="max-w-md">
                     <DialogTitle className="flex items-center gap-2 text-base font-black text-status-error">
                         <ShieldAlert className="w-5 h-5" />
-                        {t("settings.agent_reset.confirm_title", { id: target?.id ?? "" })}
+                        {t(view ? "settings.agent_reset.result_title" : "settings.agent_reset.confirm_title", {
+                            id: target?.id ?? "",
+                        })}
                     </DialogTitle>
                     <DialogDescription className="text-xs leading-relaxed">
-                        {t("settings.agent_reset.confirm_body")}
+                        {t(view ? "settings.agent_reset.result_body" : "settings.agent_reset.confirm_body")}
                     </DialogDescription>
 
                     {!view ? (

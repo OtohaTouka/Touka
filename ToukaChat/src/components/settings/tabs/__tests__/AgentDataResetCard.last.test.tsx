@@ -147,13 +147,23 @@ describe('AgentDataResetCard：最後一次重置的結果（丙-5）', () => {
     it.each([
         ['伺服器重啟過（idle）', () => lastIs({ state: 'idle', agent_id: null, started_at: null, finished_at: null, error_code: null, report: null })],
         ['是別的靈魂的結果', () => lastIs(status({ agent_id: 'other-soul', report: report({ agent_id: 'other-soul' }) }))],
-        ['查詢失敗', () => { lastReply = () => Promise.reject(new TypeError('Failed to fetch')); }],
     ])('V17 查不到這次的結果（%s）', async (_name, arrange) => {
         await reachUnknown();
         arrange();
         viewResult();
         expect(await screen.findByText(i18n.t('settings.agent_reset.last.none'))).toBeDefined();
         expect(screen.queryByText(/上次重置：jin-soul/)).toBeNull();
+    });
+
+    it.each([
+        ['連不上', () => { lastReply = () => Promise.reject(new TypeError('Failed to fetch')); }],
+        ['403', () => { lastReply = () => Promise.resolve(Response.json({ detail: 'x' }, { status: 403 })); }],
+    ])('V17b 查詢本身失敗（%s）：說現在查不到，不說伺服器沒有紀錄', async (_name, arrange) => {
+        await reachUnknown();
+        arrange();
+        viewResult();
+        expect(await screen.findByText(i18n.t('settings.agent_reset.last.lookup_failed'))).toBeDefined();
+        expect(screen.queryByText(i18n.t('settings.agent_reset.last.none'))).toBeNull();
     });
 
     it('V18 卡上的查看結果打開那份報告', async () => {
@@ -166,6 +176,25 @@ describe('AgentDataResetCard：最後一次重置的結果（丙-5）', () => {
         )).toBeDefined();
         expect(screen.getByText(i18n.t('settings.agent_reset.result_partial'))).toBeDefined();
         expect(screen.queryByRole('button', { name: /確認重置/ })).toBeNull();
+        // 只是看結果：標題與說明不叫人輸入密碼
+        expect(screen.getByText(i18n.t('settings.agent_reset.result_title', { id: 'jin-soul' }))).toBeDefined();
+        expect(screen.getByText(i18n.t('settings.agent_reset.result_body'))).toBeDefined();
+        expect(screen.queryByText(i18n.t('settings.agent_reset.confirm_body'))).toBeNull();
+    });
+
+    it('V20 卡上還在跑：同一個按鈕再查一次，結束後換成可以打開的結果', async () => {
+        lastIs(status({ state: 'running', finished_at: null, report: null }));
+        render(<AgentDataResetCard />);
+        expect(await screen.findByText(i18n.t('settings.agent_reset.last.running'))).toBeDefined();
+        lastIs(status());
+        viewResult();
+        expect(await screen.findByText(finishedHeading())).toBeDefined();
+        expect(lastCalls()).toBe(2);
+        expect(screen.queryByRole('dialog')).toBeNull();
+        viewResult();
+        expect(await screen.findByText(
+            i18n.t('settings.agent_reset.last.done_header', { id: 'jin-soul', time: time(FINISHED) }),
+        )).toBeDefined();
     });
 
     it('V18b 那次有勾清除：打開的報告照樣列出清除結果', async () => {

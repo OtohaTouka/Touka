@@ -138,7 +138,7 @@ async def _execute_reset(
 
     target = AgentIdentity(agent_id=normalized)
     async with destructive_op(target):
-        run = last_result.start(normalized)
+        run = last_result.start(target)
         report = ResetReport(agent=normalized)
         session: memory_scrub.ScrubSession | None = None
         # 交給清除工作之後，最後結果由清除工作在清旗標前記（請求斷線也一樣）。
