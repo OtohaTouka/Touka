@@ -1,6 +1,6 @@
 # ADR-0270：記憶系統第二批段 7：重置時一併清除靈魂在備份裡的記憶（清除連備份）
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂 §6：重置鎖改成不等待的破壞性操作鎖並標記目標，清除旗標也標記目標，刪除靈魂加入互斥）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂 §6：重置鎖改成不等待的破壞性操作鎖並標記目標，清除旗標也標記目標，刪除靈魂加入互斥；[ADR-0289](0289-last-agent-reset-result.md) 修訂「替代方案」的背景工作加輪詢一條：改成伺服器在記憶體留最後一次重置的結果，「結果不明」時畫面查詢）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/memory_scrub/`（`__init__`、`orchestrator`、`leftovers`、`swap`、`qdrant_meta`、`upgrade_backups`、`snapshots`、`ports`）、新 `services/memory_collection_guard.py`、新 `models/memory_scrub.py`、新 `models/agent_reset.py`、`services/agent_reset/orchestrator.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`services/system_backup.py`、`services/resource_manager.py`、`services/backup_scheduler_service.py`、`services/agent_service.py`、`utils/config_utils.py`、`routers/admin.py`、`routers/system.py`、`routers/debug.py`、`routers/souls.py`、`routers/custom_models.py`、`scripts/manage_backup.py`、`config/errors.json.example`）；ToukaMemory（`factual.py`、`vector.py`、新 `utils/collection_names.py`）；ToukaChat（重置卡、新 `useAgentDataReset`、`AgentResetScrubOption`、`AgentResetScrubResult`、`error_handler`、SoulStudio、ModelStudio、兩語翻譯）；`nginx/nginx.conf.example`；openapi／api.ts／錯誤常數重產；NOQA_REGISTRY `BLE001` +3
@@ -123,7 +123,7 @@
 - 改 collection 的命名方式：會牽動所有既有資料；不採，改用兩道撞名防護。
 - 在快照裡只刪目標的點：要在產品端操作 Qdrant 的儲存格式；撞名的靈魂改成不能勾選清除。
 - 依 payload 內容判斷撞名：payload 不一定可信、也要載入向量庫；改用已知 ID 的聯集。
-- 背景工作加輪詢：多一套狀態與端點；改成請求內完成、斷線也留稽核。
+- 背景工作加輪詢：多一套狀態與端點；改成請求內完成、斷線也留稽核。（[ADR-0289](0289-last-agent-reset-result.md) 修訂：仍不做背景工作與輪詢，但加一個只在記憶體的「最後一次重置結果」與查詢端點，「結果不明」時查得到。）
 - 擁有者限制（只有靈魂的擁有者能清）：見下方限制最後一點。
 - 不認得的中斷暫存只算資訊、不算失敗（成果審異議）：不採，維持 fail closed——`.partial` 可能是完整的重置前 zip，`.snapshot-` 工作資料夾裡可能有記憶庫副本，內容不明的不能當成沒事；改成在畫面逐項列出檔名與原因，由人判斷要不要刪。
 

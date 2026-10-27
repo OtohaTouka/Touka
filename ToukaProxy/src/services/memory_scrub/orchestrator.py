@@ -55,6 +55,8 @@ class ScrubContext:
     own_snapshot: str | None
     started_at: float
     reset_removed: int = 0  # 這次重置清掉的記憶筆數（>0 時自己那份快照一定要真的清掉東西）
+    # 稽核寫完、清旗標之前交出最終報告（重置記最後一次結果，ADR-0289）
+    on_report: Callable[[MemoryScrubReport], None] | None = None
 
 
 @dataclass
@@ -189,6 +191,8 @@ def run_memory_scrub(ctx: ScrubContext, progress: ScrubProgress) -> MemoryScrubR
         report = progress.build(ctx.own_snapshot, ctx.reset_removed)
         audit_result(report, ctx.actor_label, ctx.identity.agent_id)
         progress.audited = True
+        if ctx.on_report is not None:
+            ctx.on_report(report)
     return report
 
 
@@ -201,8 +205,12 @@ async def run_after_reset(
     own_snapshot: str | None,
     session: ScrubSession,
     reset_removed: int = 0,
+    on_report: Callable[[MemoryScrubReport], None] | None = None,
 ) -> MemoryScrubReport:
-    """重置成功後清除；任何一般意外都改成 ran=True、complete=False 的報告，不往外丟."""
+    """重置成功後清除；任何一般意外都改成 ran=True、complete=False 的報告，不往外丟.
+
+    ``on_report`` 在清旗標之前拿到最終報告（請求被取消時也一樣，由工作自己交出）。
+    """
     progress = ScrubProgress()
     try:  # 準備清除（例如解析快照目錄）出錯也在安全網裡：重置已經成功，照常回報告
         ctx = ScrubContext(
@@ -214,6 +222,7 @@ async def run_after_reset(
             own_snapshot=own_snapshot,
             started_at=get_current_epoch(),
             reset_removed=reset_removed,
+            on_report=on_report,
         )
 
         def job() -> MemoryScrubReport:
@@ -232,6 +241,8 @@ async def run_after_reset(
         report = progress.build(own_snapshot, reset_removed)
         if not progress.audited:  # 工作沒走到寫稽核那一步才補
             audit_result(report, actor_label, identity.agent_id)
+        if on_report is not None:  # 回給端點的是這一份，最後結果也記這一份
+            on_report(report)
         session.end()
         return report
 

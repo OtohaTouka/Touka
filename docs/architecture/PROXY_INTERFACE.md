@@ -2,6 +2,19 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 查最後一次重置的結果（2026-10-28，ADR-0289）
+
+- 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與一般使用者回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401。唯讀。
+- `state`：
+  - `idle`：本次啟動後沒有紀錄（伺服器重啟後也是）。
+  - `running`：拿到破壞性操作鎖之後；請求斷線、清除還在跑時也是。
+  - `done`：`report` 和 `POST /v1/admin/agents/{target}/reset` 回的是同一份 `AgentResetResponse`（含 `scrub`）。
+  - `failed`：`error_code` 是 errors.json 的鍵（例如 `SYSTEM_BACKUP_FAILED`），不放例外原文；不是 Touka 錯誤的一律 `SYSTEM_ERROR`。
+  - `interrupted`：請求中途取消、還沒交給清除工作，可能只清了一部分。
+  - 另有 `agent_id`、`started_at`、`finished_at`（UNIX 秒）。
+- 只記最後一次、只在記憶體。被 409 擋下、或還沒拿到鎖就被拒絕的請求不改紀錄；DebugAgent 重置也記。結果在放鎖、清旗標之前記好，下一次重置蓋不掉。
+- 重置端點的參數與回應不變。
+
 ## 刪除、重置、記憶清除期間擋住心跳（2026-10-27，ADR-0287）
 
 - `DELETE /v1/souls/{soul_id}`：步升、不可刪名單、路徑監獄之後，整段持有破壞性操作鎖並標記目標。順序是：

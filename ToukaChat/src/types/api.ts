@@ -4402,6 +4402,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/agents/reset/last": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Last Agent Reset
+         * @description 最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.
+         *
+         *     只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。
+         */
+        get: operations["last_agent_reset_v1_admin_agents_reset_last_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -4473,6 +4495,28 @@ export interface paths {
          *     `is_protected_path` 物理保護、custom config 由清除原語範圍排除——永不被觸及。
          */
         post: operations["reset_agent_admin_agents__target__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/agents/reset/last": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Last Agent Reset
+         * @description 最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.
+         *
+         *     只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。
+         */
+        get: operations["last_agent_reset_admin_agents_reset_last_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8002,6 +8046,42 @@ export interface components {
             block_ports_issue: string | null;
             repairs: components["schemas"]["IsolationRepairs"] | null;
             mcp: components["schemas"]["IsolationMcpStatus"];
+        };
+        /**
+         * LastResetStatus
+         * @description 最後一次重置的結果，只存在行程記憶體（舊審查報告丙-5，ADR-0289）.
+         *
+         *     伺服器重啟後回 ``idle``。失敗只記錯誤碼，不放路徑或例外原文（禁令 23）。
+         */
+        LastResetStatus: {
+            /**
+             * State
+             * @description idle＝本次啟動後沒有重置紀錄；running＝進行中（請求斷線後清除還在跑也算）；done＝已結束，附報告；failed＝沒有完成，附錯誤碼；interrupted＝請求中途取消，可能只清了一部分
+             * @enum {string}
+             */
+            state: "idle" | "running" | "done" | "failed" | "interrupted";
+            /**
+             * Agent Id
+             * @description 重置的靈魂
+             */
+            agent_id?: string | null;
+            /**
+             * Started At
+             * @description 開始時間（UNIX 秒）
+             */
+            started_at?: number | null;
+            /**
+             * Finished At
+             * @description 結束時間（UNIX 秒）
+             */
+            finished_at?: number | null;
+            /**
+             * Error Code
+             * @description 失敗時的錯誤碼（errors.json 的鍵）
+             */
+            error_code?: string | null;
+            /** @description done 時的重置報告 */
+            report?: components["schemas"]["AgentResetResponse"] | null;
         };
         /**
          * LegacyExportRequest
@@ -17867,6 +17947,26 @@ export interface operations {
             };
         };
     };
+    last_agent_reset_v1_admin_agents_reset_last_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastResetStatus"];
+                };
+            };
+        };
+    };
     list_users_admin_users_get: {
         parameters: {
             query?: never;
@@ -18050,6 +18150,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    last_agent_reset_admin_agents_reset_last_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastResetStatus"];
                 };
             };
         };

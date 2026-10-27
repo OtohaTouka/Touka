@@ -22,7 +22,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.models.memory_scrub import MemoryScrubReport
 from src.services import destructive_ops, memory_collection_guard, memory_scrub, system_backup
-from src.services.agent_reset import primitives
+from src.services.agent_reset import last_result, primitives
 from src.services.agent_reset.guard import assert_agent_resettable, assert_resettable
 from src.services.agent_reset.primitives import ALL_STORES, RETAINED_STORES
 from src.services.authorization_gateway import require_admin_human
@@ -138,35 +138,39 @@ async def _execute_reset(
 
     target = AgentIdentity(agent_id=normalized)
     async with destructive_op(target):
+        run = last_result.start(target)
         report = ResetReport(agent=normalized)
-        session = None
-        if scrub:
-            identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
-        # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳開不了。
-        # 放在設清除旗標之前：旗標要靠下面 try 的 finally 才清得掉。
-        stopped = destructive_ops.stop_heartbeats(target)
-        if stopped:
-            logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
-        if scrub:
-            session = memory_scrub.begin(target)
-        try:
-            await _reset_stores(report, normalized, guard, do_backup=do_backup)
-            if session is not None:
-                report.scrub = await _scrub_after(
-                    report, identity, actor_label, store, known, session
-                )
-        except asyncio.CancelledError:
-            if session is not None and not session.handed_over:
-                _audit_not_run(actor_label, normalized, "cancelled")
-            raise
-        except Exception as exc:
-            # 還沒交給清除工作就結束（備份失敗等）：照樣留一行結果稽核再往外丟
-            if session is not None and not session.handed_over:
-                _audit_not_run(actor_label, normalized, _not_run_reason(exc))
-            raise
-        finally:
-            if session is not None and not session.handed_over:
-                session.end()
+        session: memory_scrub.ScrubSession | None = None
+        # 交給清除工作之後，最後結果由清除工作在清旗標前記（請求斷線也一樣）。
+        with last_result.recording(run, lambda: session is not None and session.handed_over):
+            if scrub:
+                identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
+            # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳開不了。
+            # 放在設清除旗標之前：旗標要靠下面 try 的 finally 才清得掉。
+            stopped = destructive_ops.stop_heartbeats(target)
+            if stopped:
+                logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
+            if scrub:
+                session = memory_scrub.begin(target)
+            try:
+                await _reset_stores(report, normalized, guard, do_backup=do_backup)
+                if session is not None:
+                    report.scrub = await _scrub_after(
+                        report, identity, actor_label, store, known, session, run
+                    )
+            except asyncio.CancelledError:
+                if session is not None and not session.handed_over:
+                    _audit_not_run(actor_label, normalized, "cancelled")
+                raise
+            except Exception as exc:
+                # 還沒交給清除工作就結束（備份失敗等）：照樣留一行結果稽核再往外丟
+                if session is not None and not session.handed_over:
+                    _audit_not_run(actor_label, normalized, _not_run_reason(exc))
+                raise
+            finally:
+                if session is not None and not session.handed_over:
+                    session.end()
+        run.done(report.to_dict())  # 還持有破壞性操作鎖：下一次重置蓋不掉
         return report
 
 
@@ -265,6 +269,7 @@ async def _scrub_after(
     store: ScrubFactStore,
     known: set[str],
     session: memory_scrub.ScrubSession,
+    run: last_result.ResetRun,
 ) -> MemoryScrubReport:
     """重置完全成功才清除；沒成功就記成「沒有執行」並寫稽核."""
     if not report.clean:
@@ -273,6 +278,12 @@ async def _scrub_after(
         return skipped
     own = (report.backup or {}).get("filename")
     removed = sum(s.purged for s in report.stores if s.name == primitives.MEMORY_STORE_NAME)
+
+    def finished(result: MemoryScrubReport) -> None:
+        """清除工作寫完稽核、清旗標之前呼叫：記下含清除結果的最後一次重置."""
+        report.scrub = result
+        run.done(report.to_dict())
+
     return await scrub_orchestrator.run_after_reset(
         identity,
         actor_label=actor_label,
@@ -281,6 +292,7 @@ async def _scrub_after(
         own_snapshot=own if isinstance(own, str) else None,
         session=session,
         reset_removed=removed,
+        on_report=finished,
     )
 
 
