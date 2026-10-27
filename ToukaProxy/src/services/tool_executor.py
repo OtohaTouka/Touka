@@ -206,7 +206,7 @@ class ToolExecutor:
         memory_tool_registry: dict[str, Any],
         plugin_registry: dict[str, Any],
         *,
-        enforce_advertised: bool = False,
+        enforce_advertised: bool = True,
     ) -> None:
         """初始化執行器並掛載工具註冊表.
 
@@ -215,8 +215,8 @@ class ToolExecutor:
             tool_registry: 核心工具註冊表.
             memory_tool_registry: 記憶工具註冊表.
             plugin_registry: 外掛工具註冊表.
-            enforce_advertised: 只執行這一輪列給模型的工具（模型迴圈必開；人按的
-                ``/debug/execute`` 關）；建立後不能改.
+            enforce_advertised: 只執行這一輪列給模型的工具；預設開（舊審查報告甲-3），
+                只有人按的 ``/debug/execute`` 明寫關；建立後不能改.
         """
         self.protocol_manager = protocol_manager
         self.tool_registry = tool_registry

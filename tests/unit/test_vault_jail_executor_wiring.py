@@ -78,6 +78,7 @@ async def _dispatch(pm: _FakeProtocolManager, args: dict[str, Any]) -> str:
         tool_registry={},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue = asyncio.Queue()
     return await executor.execute_to_queue(

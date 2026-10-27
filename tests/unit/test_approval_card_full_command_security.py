@@ -50,6 +50,7 @@ async def _approval_card(monkeypatch, name: str, args: dict[str, Any]) -> dict[s
         tool_registry={name: _never_called},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     ctx = {
         "identity": _IDENTITY,

@@ -211,7 +211,7 @@ async def _run(
     mode: str, args: dict[str, Any], *, approve: bool | None = None
 ) -> _FakeProtocolManager:
     pm = _FakeProtocolManager()
-    executor = ToolExecutor(pm, {}, {}, {})
+    executor = ToolExecutor(pm, {}, {}, {}, enforce_advertised=False)
     ctx = {
         "identity": _SOUL,
         "auth_level": mode,

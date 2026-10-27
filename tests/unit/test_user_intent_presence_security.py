@@ -433,7 +433,7 @@ async def test_subagent_needing_human_is_denied_at_once_without_card(monkeypatch
     monkeypatch.setattr(
         permission_service, "evaluate_policy", lambda _c: PolicyDecision(effect=effect, reason="t")
     )
-    executor = ToolExecutor(None, {"write": recorder}, {}, {})
+    executor = ToolExecutor(None, {"write": recorder}, {}, {}, enforce_advertised=False)
 
     ctx = _subagent_ctx(_OWNER, "Manual")
     result, events = await _run(executor, "write", {"scope": "vault"}, ctx)
@@ -451,7 +451,7 @@ async def test_subagent_tools_see_headless_interactive_flag(monkeypatch):
     monkeypatch.setattr(
         permission_service, "evaluate_policy", lambda _c: PolicyDecision(effect="ALLOW", reason="t")
     )
-    executor = ToolExecutor(None, {"write": recorder}, {}, {})
+    executor = ToolExecutor(None, {"write": recorder}, {}, {}, enforce_advertised=False)
     await _run(executor, "write", {"scope": "vault"}, _subagent_ctx(_OWNER, "YOLO"))
     assert recorder.calls[0]["_interactive"] is False
 
@@ -468,7 +468,13 @@ async def test_subagent_inheriting_yolo_still_cannot_run_floor_command(monkeypat
         return 0, "ok", 1.0
 
     monkeypatch.setattr(terminal_tool, "_execute_core", _fake_core)
-    executor = ToolExecutor(None, {"execute_command": tool_registry["execute_command"]}, {}, {})
+    executor = ToolExecutor(
+        None,
+        {"execute_command": tool_registry["execute_command"]},
+        {},
+        {},
+        enforce_advertised=False,
+    )
     ctx = _subagent_ctx(_OWNER, "YOLO")
 
     result, events = await _run(executor, "execute_command", {"command": "cat .env"}, ctx)
@@ -516,7 +522,7 @@ async def test_mcp_request_context_follows_run_flags(monkeypatch, flags, kind, s
     )
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: True)
     pm = _FakeProtocolManager()
-    executor = ToolExecutor(pm, {}, {}, {})
+    executor = ToolExecutor(pm, {}, {}, {}, enforce_advertised=False)
     ctx = {"identity": _OWNER, "auth_level": "YOLO", "session_id": None, **flags}
     await _run(executor, "probe_tool", {"q": 1}, ctx)
     request_context, sink = pm.seen[0]
@@ -580,7 +586,7 @@ async def test_heartbeat_run_mcp_call_never_uses_workload_oauth(monkeypatch):
         permission_service, "evaluate_policy", lambda _c: PolicyDecision(effect="ALLOW", reason="t")
     )
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: True)
-    executor = ToolExecutor(_workload_manager(spy), {}, {}, {})
+    executor = ToolExecutor(_workload_manager(spy), {}, {}, {}, enforce_advertised=False)
     ctx = {"identity": _OWNER, "auth_level": "YOLO", "session_id": None, "heartbeat_run": True}
     result, _events = await _run(executor, "calendar__calendar.read", {"day": 1}, ctx)
     assert spy.calls == []

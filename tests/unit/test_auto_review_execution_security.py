@@ -110,7 +110,8 @@ def _executor(monkeypatch: pytest.MonkeyPatch, registry: dict[str, Any]) -> Tool
     monkeypatch.setattr(executor_module, "BUILTIN_EXECUTION_BINDINGS", bindings)
     monkeypatch.setattr(permission_service, "evaluate_policy", _POLICY.evaluate)
     return ToolExecutor(
-        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
 
 

@@ -392,6 +392,7 @@ async def test_executor_builds_request_context_and_is_error_is_not_success(
         tool_registry={},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
