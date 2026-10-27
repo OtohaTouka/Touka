@@ -1,6 +1,6 @@
 # ADR-0261：記憶長期穩定性評估（不花錢的框架＋人工實測）
 
-- 狀態：✅ 已實作（評估框架與人工 probe；真模型實測每批另經人類同意，已執行過（M1 與 10/15 的實測見 ADR-0268、ADR-0280 背景；E1／E2 見 `docs/proxy/live-check-backlog.md`））
+- 狀態：✅ 已實作（評估框架與人工 probe；真模型實測每批另經人類同意，已執行過（M1 與 10/15 的實測見 ADR-0268、ADR-0280、ADR-0284 背景；E1／E2 見 `docs/proxy/live-check-backlog.md`））
 - 日期：2026-10-15
 - 決策者：維護者（2026-10-15 核准記憶系統第二批計畫，段 E1）
 - 影響範圍：`tests/memory_eval/`、`tests/smoke/manual/memory_eval_probe.py`、`tests/live_api_policy.py`、
