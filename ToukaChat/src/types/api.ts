@@ -290,6 +290,9 @@ export interface paths {
          *     brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
          *     零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
          *     記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+         *
+         *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
+         *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
          */
         delete: operations["delete_soul_v1_souls__soul_id__delete"];
         options?: never;
@@ -346,6 +349,9 @@ export interface paths {
          *     brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
          *     零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
          *     記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+         *
+         *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
+         *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
          */
         delete: operations["delete_soul_souls__soul_id__delete"];
         options?: never;
