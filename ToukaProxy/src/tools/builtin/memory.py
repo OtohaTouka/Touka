@@ -109,11 +109,14 @@ async def memory_tools(action: str, **kwargs: Any) -> str:
             "Conversation search could not be completed.",
             action=action,
         )
-    except SemanticSearchUnavailableError:  # 重複掃描沒掃成：不能說成沒有重複
+    except SemanticSearchUnavailableError:  # 語意查詢沒做成（目前只有重複掃描會到這裡）
         return build_tool_error(
             UPSTREAM_ERROR,
-            "Semantic search is unavailable, so the duplicate scan could not run.",
-            suggestion="Do not treat this as finding no duplicates; tell the user it failed.",
+            "Semantic search is unavailable, so this action could not finish.",
+            suggestion=(
+                "Do not treat this as finding nothing (for a duplicate scan: not as no "
+                "duplicates); tell the user it failed."
+            ),
             action=action,
         )
     except Exception:

@@ -583,6 +583,53 @@ def test_archive_fact_takes_a_superseded_version_out_of_the_history(
 
 
 @pytest.mark.asyncio
+async def test_another_identity_cannot_take_my_old_version_out_of_the_history(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _vector_stub(monkeypatch)
+    owner, other = _identity(), _identity("Other")
+    old = store.save_fact(owner, "I live in Taipei")["id"]
+    new = store.supersede_fact(owner, old, "I moved to Tainan")["id"]
+    before = _row(store, old)
+    _clock(monkeypatch, 3_000_000_000)
+
+    assert store.archive_fact(other, old) is fm.ArchiveResult.NOT_FOUND
+    reply = await proxy_memory_gateway.memory_tools(
+        action="forget", identity=other, fact_id_to_archive=old
+    )
+
+    assert "not found" in reply
+    assert _row(store, old)["superseded_by"] == new
+    assert _row(store, old)["updated_at"] == before["updated_at"]
+    stub.archive_vector_by_fact_id.assert_not_called()
+
+
+class _SyntheticStoreFailure(Exception):
+    """A fact store failure raised by the doubles below."""
+
+
+@pytest.mark.asyncio
+async def test_save_is_not_written_when_the_fact_store_fails_during_the_check(
+    store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _vector_stub(monkeypatch)
+    identity = _identity()
+    stub.query_vectors.return_value = [{"fact_id": "fact_000000000000", "_score": 0.99}]
+
+    def broken(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise _SyntheticStoreFailure
+
+    monkeypatch.setattr(store, "get_active_facts", broken)
+
+    reply = await proxy_memory_gateway.memory_tools(
+        action="save", identity=identity, content="a memory checked against a broken store"
+    )
+
+    assert json.loads(reply)["error_class"] == "internal_error"
+    assert store.query_facts(identity) == []
+
+
+@pytest.mark.asyncio
 async def test_forgetting_twice_is_a_success_that_changes_nothing(
     store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -596,7 +643,8 @@ async def test_forgetting_twice_is_a_success_that_changes_nothing(
 
     assert first == f"✅ Memory {fact_id} has been archived."
     assert "already archived" in second
-    assert not second.startswith("❌")
+    assert "❌" not in second  # the executor counts a reply with these as a failure
+    assert "Error:" not in second
     assert stub.archive_vector_by_fact_id.call_count == 1
 
 
