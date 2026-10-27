@@ -30,7 +30,7 @@ import { AgentDataResetCard } from '../AgentDataResetCard';
 import { AgentResetScrubResult } from '../AgentResetScrubResult';
 
 type Item = NonNullable<MemoryScrubReport['items']>[number];
-const REASON_COUNT = 29;
+const REASON_COUNT = 30;
 
 function item(kind: Item['kind'], name: string, status: Item['status'], reason: Item['reason'] = null): Item {
     return { kind, name, status, reason, facts_removed: 0, collection_removed: false, members_dropped: 0, count: null };
@@ -170,6 +170,10 @@ describe('AgentDataResetCard：清除連備份', () => {
         expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeNull();
         expect(screen.getByText(i18n.t('backup_notice.still_there_scrubbed_partial', { id: 'jin-soul' }))).toBeDefined();
         expect(screen.queryByText(i18n.t('backup_notice.still_there_scrubbed', { id: 'jin-soul' }))).toBeNull();
+        // 有數量的資訊行照舊寫數量（丙-3b 只有不附數量的才換句）
+        expect(screen.getByText(i18n.t('settings.agent_reset.scrub.info_line', {
+            name: 'facts.jsonl', reason: i18n.t('settings.agent_reset.scrub.reasons.out_of_scope'), count: 4,
+        }))).toBeDefined();
     });
 
     it('V05c 線上庫又有新寫入：說又有記憶，不說有沒有整理（整理前或整理後都可能發現，丙-3）', () => {
@@ -243,6 +247,17 @@ describe('AgentDataResetCard：清除連備份', () => {
             reason: i18n.t('settings.agent_reset.scrub.reason_see_details'),
         }))).toBeDefined();
         expect(screen.getByText(i18n.t('settings.agent_reset.scrub.files_left', { failed: 1, done: 1 }))).toBeDefined();
+    });
+
+    it('V05e 升級備份資料夾裡的系統雜檔：列在其他資訊、不寫數量，不算沒清掉的檔（丙-3b）', () => {
+        render(<AgentResetScrubResult report={{
+            ...SCRUB_DONE,
+            items: [...(SCRUB_DONE.items ?? []), item('info', 'Thumbs.db', 'info', 'os_metadata_file')],
+        }} />);
+        expect(screen.getByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeDefined();
+        // 整句直接比對（測試固定 zh-TW；原因本身有括號，所以比整句）：只有名字與原因，沒有數量
+        const reason = i18n.t('settings.agent_reset.scrub.reasons.os_metadata_file');
+        expect(screen.getByText(`Thumbs.db：${reason}`)).toBeDefined();
     });
 
     it('V05 每個原因代碼兩語都有翻譯鍵', () => {

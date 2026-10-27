@@ -24,7 +24,7 @@ from qdrant_client.local import qdrant_local
 from src.models.identity import AgentIdentity
 from src.services import backup_scheduler_service as scheduler
 from src.services import system_backup
-from src.services.memory_scrub import leftovers, qdrant_meta, snapshots, swap
+from src.services.memory_scrub import leftovers, os_metadata, qdrant_meta, snapshots, swap
 from src.services.memory_scrub import orchestrator as SO
 from src.services.resource_manager import resource_manager
 from src.utils.time_utils import get_current_epoch
@@ -606,9 +606,7 @@ def test_s18e_a_workdir_removal_that_hits_a_missing_file(
     if gone:
         assert items == []
     else:
-        assert [(i.name, i.status, i.reason) for i in items] == [
-            (workdir.name, "failed", "in_use")
-        ]
+        assert [(i.name, i.status, i.reason) for i in items] == [(workdir.name, "failed", "in_use")]
         assert workdir.exists()
 
 
@@ -990,3 +988,125 @@ def test_s18d_leftovers_already_removed_stay_in_the_report_when_the_sweep_fails(
         ("category", "leftovers", "failed"),
     ]
     assert progress.build(None).leftovers_removed == 1
+
+
+# --- 丙-3b：升級備份資料夾裡作業系統自己放的雜檔（ADR-0270 補記 2026-10-28）------
+
+BACKUP_OS = "data/vault/core_memory_backups/Thumbs.db"
+OS_HARMLESS = b"\xd0\xcf\x11\xe0 thumbnail cache"
+OS_EXTRA = {
+    BACKUP_OS: OS_HARMLESS,
+    "data/vault/core_memory_backups/desktop.ini": b"[.ShellClassInfo]",
+    "data/vault/core_memory_backups/.DS_Store": b"\x00\x00\x00\x01Bud1",
+}
+
+
+def test_s33_os_metadata_in_the_backup_folder_is_copied_as_it_is(
+    tmp_path: Path, backups: Path
+) -> None:
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=OS_EXTRA)
+    before = {m[0]: m for m in zip_members(path)}
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("scrubbed", None)
+    after = {m[0]: m for m in zip_members(path)}
+    for name, content in OS_EXTRA.items():
+        assert after[name] == before[name]
+        assert zip_read(path, name) == content
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"SQLite format 3\x00" + bytes(84),
+        b"cache " + TARGET.encode() + b" cache",
+        b"[x]" + TARGET.encode("utf-16-le"),
+        b"Bud1" + TARGET.encode("utf-16-be"),
+    ],
+    ids=["sqlite-header", "contains-target-id", "utf-16-le-id", "utf-16-be-id"],
+)
+def test_s34_os_metadata_lookalikes_still_fail_closed(
+    tmp_path: Path, backups: Path, content: bytes
+) -> None:
+    path = zip_tree(
+        _data_root(tmp_path), backups / "Touka_Backup_os.zip", extra={BACKUP_OS: content}
+    )
+    digest = sha256(path)
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "unknown_member")
+    assert sha256(path) == digest
+
+
+def test_s34b_oversized_os_metadata_fails_closed(
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=OS_EXTRA)
+    digest = sha256(path)
+    monkeypatch.setattr(os_metadata, "MAX_OS_FILE_BYTES", len(OS_HARMLESS) - 1)
+    read = []
+    real_read = snapshots._read_member
+    monkeypatch.setattr(snapshots, "_read_member", lambda *a: read.append(a[1]) or real_read(*a))
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "unknown_member")
+    assert sha256(path) == digest
+    assert BACKUP_OS not in read  # 先看宣告的大小，太大的不讀
+
+
+def test_s34c_folder_entry_with_an_os_metadata_name_fails_closed(
+    tmp_path: Path, backups: Path
+) -> None:
+    extra = {BACKUP_OS + "/": b""}
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=extra)
+    digest = sha256(path)
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "unknown_member")
+    assert sha256(path) == digest
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"cache " + TARGET.encode() + b" cache",
+        b"[x]" + TARGET.encode("utf-16-le"),
+        b"Bud1" + TARGET.encode("utf-16-be"),
+        b"SQLite format 3\x00" + bytes(84),
+    ],
+    ids=["utf-8-id", "utf-16-le-id", "utf-16-be-id", "sqlite-header"],
+)
+def test_s35_verifier_checks_os_metadata_on_its_own(
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch, content: bytes
+) -> None:
+    path = zip_tree(
+        _data_root(tmp_path), backups / "Touka_Backup_os.zip", extra={BACKUP_OS: content}
+    )
+    digest = sha256(path)
+    monkeypatch.setattr(os_metadata, "is_os_metadata_content", lambda *_a: True)  # 分類那邊的錯
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "verify_failed")
+    assert sha256(path) == digest
+    assert _temps(backups) == []
+
+
+def test_s35c_verifier_checks_os_metadata_size_on_its_own(
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=OS_EXTRA)
+    digest = sha256(path)
+    monkeypatch.setattr(snapshots, "_check_os_members", lambda *_a: None)  # 分類那邊漏查
+    monkeypatch.setattr(os_metadata, "MAX_OS_FILE_BYTES", len(OS_HARMLESS) - 1)
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "verify_failed")
+    assert sha256(path) == digest
+
+
+def test_s35b_rewrite_that_changes_os_metadata_is_caught(
+    tmp_path: Path, backups: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = zip_tree(_data_root(tmp_path), backups / "Touka_Backup_os.zip", extra=OS_EXTRA)
+    digest = sha256(path)
+    _inject(
+        monkeypatch,
+        lambda members: [(i, b"changed" if i.filename == BACKUP_OS else d) for i, d in members],
+    )
+    item = _main(_items(path))
+    assert (item.status, item.reason) == ("failed", "verify_failed")
+    assert sha256(path) == digest

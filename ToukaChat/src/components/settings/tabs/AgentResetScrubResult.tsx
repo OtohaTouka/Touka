@@ -122,11 +122,16 @@ export function AgentResetScrubResult({ report }: { report: MemoryScrubReport })
                     <ul className="space-y-0.5">
                         {infos.map((item) => (
                             <li key={`${item.name}:${item.reason}`}>
-                                {t("settings.agent_reset.scrub.info_line", {
-                                    name: item.name,
-                                    reason: reasonText(t, item.reason),
-                                    count: item.count ?? 0,
-                                })}
+                                {item.count == null
+                                    ? t("settings.agent_reset.scrub.info_line_plain", {
+                                          name: item.name,
+                                          reason: reasonText(t, item.reason),
+                                      })
+                                    : t("settings.agent_reset.scrub.info_line", {
+                                          name: item.name,
+                                          reason: reasonText(t, item.reason),
+                                          count: item.count,
+                                      })}
                             </li>
                         ))}
                     </ul>

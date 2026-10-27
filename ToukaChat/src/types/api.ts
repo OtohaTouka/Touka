@@ -8974,7 +8974,7 @@ export interface components {
              */
             complete: boolean;
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
             /** Categories */
             categories?: components["schemas"]["ScrubCategoryResult"][];
             /** Items */
@@ -9664,7 +9664,7 @@ export interface components {
              */
             state: "done" | "failed" | "not_started";
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
         };
         /**
          * ScrubItemResult
@@ -9684,7 +9684,7 @@ export interface components {
              */
             status: "scrubbed" | "not_needed" | "removed" | "failed" | "info";
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
             /**
              * Facts Removed
              * @default 0

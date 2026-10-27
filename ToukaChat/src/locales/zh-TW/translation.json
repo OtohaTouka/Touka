@@ -622,6 +622,7 @@
         "item_line_reason": "{{name}}：{{status}}（{{reason}}）",
         "info_title": "其他資訊",
         "info_line": "{{name}}：{{reason}}（{{count}}）",
+        "info_line_plain": "{{name}}：{{reason}}",
         "collection_shared": "這個靈魂和 {{id}} 共用語意索引，可以做一般重置，但無法清除備份。",
         "categories": {
           "leftovers": "上次中斷留下的暫存",
@@ -665,7 +666,8 @@
           "write_failed": "寫不進暫存檔，原檔沒動",
           "own_snapshot_unverified": "這次重置前做的快照沒有清掉任何記憶，無法確認已清乾淨",
           "backup_failed": "重置前的快照沒有做成，所以沒有清除",
-          "cancelled": "請求在清除開始前就中止了"
+          "cancelled": "請求在清除開始前就中止了",
+          "os_metadata_file": "作業系統放的雜檔（縮圖快取或資料夾設定），裡面沒有記憶，原樣留著"
         }
       }
     },

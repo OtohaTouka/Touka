@@ -624,6 +624,7 @@
         "item_line_reason": "{{name}}: {{status}} ({{reason}})",
         "info_title": "Other information",
         "info_line": "{{name}}: {{reason}} ({{count}})",
+        "info_line_plain": "{{name}}: {{reason}}",
         "collection_shared": "This soul shares its semantic index with {{id}}. A normal reset works, but backups cannot be cleared.",
         "categories": {
           "leftovers": "Leftovers from an interrupted run",
@@ -667,7 +668,8 @@
           "write_failed": "could not write the temporary file; the original was kept",
           "own_snapshot_unverified": "the snapshot made before this reset did not lose any memory, so it could not be confirmed as cleared",
           "backup_failed": "the snapshot before the reset could not be made, so nothing was cleared",
-          "cancelled": "the request was cancelled before clearing started"
+          "cancelled": "the request was cancelled before clearing started",
+          "os_metadata_file": "a file the operating system put there (thumbnail cache or folder settings); it holds no memory and was left as it is"
         }
       }
     },

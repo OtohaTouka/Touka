@@ -762,3 +762,18 @@ async def test_o22b_linked_collection_folder_fails_the_live_check(
         for i in report.scrub.items
         if i.kind == "live_store" and i.status == "failed"
     ] == [(cn.QDRANT_COLLECTION_DIR, "live_verify_failed")]
+
+
+# --- 丙-3b：升級備份資料夾裡的系統雜檔不擋住完成（ADR-0270 補記 2026-10-28）------
+
+
+async def test_o28_os_metadata_in_the_upgrade_folder_does_not_stop_completion(
+    env: SimpleNamespace,
+) -> None:
+    thumbs = env.upgrade.parent / "Thumbs.db"
+    thumbs.write_bytes(b"\xd0\xcf\x11\xe0 thumbnail cache")
+    report = await _reset()
+    assert report.scrub.complete is True, report.scrub
+    infos = [i for i in report.scrub.items if i.kind == "info"]
+    assert [(i.name, i.reason) for i in infos] == [("Thumbs.db", "os_metadata_file")]
+    assert thumbs.read_bytes() == b"\xd0\xcf\x11\xe0 thumbnail cache"
