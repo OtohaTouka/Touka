@@ -1203,7 +1203,8 @@ class FactualStore:
         """重置清完列之後整理線上庫（VACUUM），清掉以前刪除留下的殘片；只整理、不刪任何列.
 
         庫不存在回 False（不建檔）；做了回 True。這個身分又有列（重置後才寫入）就不整理。
-        失敗丟 MemoryScrubError；VACUUM 之後驗證不過是 LIVE_VERIFY_FAILED（檔案已整理過）。
+        失敗丟 MemoryScrubError；VACUUM 之後結構或 integrity 不符是 LIVE_VERIFY_FAILED
+        （檔案已整理過），又有這個身分的列是 REWRITTEN_AFTER_RESET。
         """
         if not get_resource_proxy().exists(str(self.db_path)):
             return False
@@ -1236,8 +1237,12 @@ class FactualStore:
             raise
         except sqlite3.Error as exc:
             raise _scrub_error(exc) from exc
-        if not (healthy and same) or leftover:
+        if not (healthy and same):
             raise MemoryScrubError(ScrubFailure.LIVE_VERIFY_FAILED)
+        # 查過之後、VACUUM 之前別的連線寫進來（SQLite 不能在交易裡 VACUUM，這段鎖不住）；
+        # VACUUM 不會多出資料列，多出來的只可能是重置後的新寫入（舊審查報告丙-3）
+        if leftover:
+            raise MemoryScrubError(ScrubFailure.REWRITTEN_AFTER_RESET)
         return True
 
 
