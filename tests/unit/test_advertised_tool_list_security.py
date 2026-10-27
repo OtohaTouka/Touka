@@ -1171,7 +1171,7 @@ _PRIVATE_SWITCH = "_enforce_advertised"
 # 執行器裡負責核對的兩個方法：被覆寫或換掉，開關還是 True 但清單與在場檢查都沒了
 _CHECK_METHODS = frozenset({"_offer_denial", "_user_scope_denial"})
 _PRIVATE_NAMES = _CHECK_METHODS | {_PRIVATE_SWITCH}
-_PROTECTED_STRINGS = _PRIVATE_NAMES | {_SWITCH, "__kwdefaults__"}
+_PROTECTED_STRINGS = _PRIVATE_NAMES | {_SWITCH, "__kwdefaults__", "ToolExecutor"}
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
 _FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
@@ -1245,15 +1245,13 @@ async def test_c2_an_executor_built_without_the_switch_blocks_unlisted_tools(gat
     handler.assert_not_awaited()
 
 
-def _mentions_executor(node: ast.expr) -> bool:
-    return (isinstance(node, ast.Name) and node.id == "ToolExecutor") or (
-        isinstance(node, ast.Attribute) and node.attr == "ToolExecutor"
-    )
-
-
-def _is_executor_call(node: ast.Call) -> bool:
-    """建立呼叫，或把 ToolExecutor 交給別的呼叫（例如 ``partial``）."""
-    return _mentions_executor(node.func) or any(_mentions_executor(arg) for arg in node.args)
+def _scope_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST | None:
+    """最近的一層函式、lambda 或類別本體（keyword 寫在 lambda、類別本體裡不算在外層函式裡）."""
+    while node in parents:
+        node = parents[node]
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            return node
+    return None
 
 
 def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
@@ -1264,92 +1262,126 @@ def _keyword_uses(node: ast.keyword, rel: str, parents: dict[ast.AST, ast.AST]) 
     value = node.value
     if not (isinstance(value, ast.Constant) and isinstance(value.value, bool)):
         return [f"keyword {_SWITCH} with a non-literal value"]
-    where = (rel, _function_of(node, parents))
-    if value.value is False and where != (_DEBUG, "debug_execute_tool"):
-        return [f"keyword {_SWITCH}=False in {where[1]}"]
+    scope = _scope_of(node, parents)
+    in_debug_execute = (
+        rel == _DEBUG
+        and isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and scope.name == "debug_execute_tool"
+        and isinstance(parents.get(scope), ast.Module)
+    )
+    if value.value is False and not in_debug_execute:
+        return [f"keyword {_SWITCH}=False outside debug_execute_tool"]
     return []
 
 
-def _in_executor_init(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
-    """最內層函式就是 ``class ToolExecutor`` 直接定義的 ``__init__``（巢狀的同名函式不算）."""
+def _executor_reference_uses(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    """``ToolExecutor`` 只能被直接呼叫：當參數、基底類別、指派對象、取屬性都算違規.
+
+    擋 partial、子類別（含 ``*[ToolExecutor]``）、``setattr``／``type.__setattr__``、換掉類別屬性、
+    改綁名稱、交給變數。直接呼叫時不得 ``**`` 展開（值可能來自設定或 JSON）。
+    """
+    is_ref = (isinstance(node, ast.Name) and node.id == "ToolExecutor") or (
+        isinstance(node, ast.Attribute) and node.attr == "ToolExecutor"
+    )
+    if not is_ref:
+        return []
+    parent = parents.get(node)
+    called = isinstance(parent, ast.Call) and parent.func is node
+    if not (called and isinstance(node.ctx, ast.Load)):
+        return [f"ToolExecutor used as {type(parent).__name__}, not called"]
+    if any(keyword.arg is None for keyword in parent.keywords):
+        return ["** unpacking into ToolExecutor"]
+    return []
+
+
+def _executor_class(tree: ast.Module) -> ast.ClassDef | None:
+    classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ToolExecutor"]
+    return classes[0] if len(classes) == 1 else None
+
+
+def _in_executor_init(
+    node: ast.AST, parents: dict[ast.AST, ast.AST], cls: ast.ClassDef | None
+) -> bool:
+    """最內層函式就是模組層 ``class ToolExecutor`` 直接定義的 ``__init__``."""
     while node in parents:
         node = parents[node]
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            owner = parents.get(node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             return (
-                node.name == "__init__"
-                and isinstance(owner, ast.ClassDef)
-                and owner.name == "ToolExecutor"
+                cls is not None
+                and isinstance(node, ast.FunctionDef)
+                and node.name == "__init__"
+                and parents.get(node) is cls
             )
     return False
 
 
-def _attribute_uses(node: ast.Attribute, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
-    in_executor = rel == _EXECUTOR_MODULE
-    if node.attr == "__kwdefaults__":
-        return ["attribute __kwdefaults__"]  # 擋執行時把預設值翻成 False
-    if not in_executor and _mentions_executor(node.value) and not isinstance(node.ctx, ast.Load):
-        return [f"ToolExecutor.{node.attr} replaced"]  # 例如換掉 __init__
-    if node.attr == _PRIVATE_SWITCH:
-        if not in_executor:
-            return [f"attribute {_PRIVATE_SWITCH}"]
-        if not isinstance(node.ctx, ast.Load) and not _in_executor_init(node, parents):
+_GUARDED_METHODS = _CHECK_METHODS | {"__init__", "execute_to_queue"}
+
+
+def _executor_shape_uses(
+    node: ast.AST, parents: dict[ast.AST, ast.AST], cls: ast.ClassDef | None
+) -> list[str]:
+    """執行器檔：只有一個模組層的 ToolExecutor；核對方法只定義在它身上；關鍵方法與類別不加裝飾器."""
+    if isinstance(node, ast.ClassDef) and node.name == "ToolExecutor":
+        if node is not cls:
+            return ["second or nested class ToolExecutor"]
+        if node.decorator_list:
+            return ["decorated class ToolExecutor"]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "ToolExecutor":
+        return ["function named ToolExecutor"]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        owned = cls is not None and parents.get(node) is cls
+        if node.name in _CHECK_METHODS and not owned:
+            return [f"{node.name} defined outside ToolExecutor"]
+        if owned and node.name in _GUARDED_METHODS and node.decorator_list:
+            return [f"decorated ToolExecutor.{node.name}"]
+    if isinstance(node, ast.Attribute):
+        written = not isinstance(node.ctx, ast.Load)
+        if node.attr == _PRIVATE_SWITCH and written and not _in_executor_init(node, parents, cls):
             return [f"{_PRIVATE_SWITCH} written outside ToolExecutor.__init__"]
-    if node.attr in _CHECK_METHODS and (not in_executor or not isinstance(node.ctx, ast.Load)):
-        return [f"attribute {node.attr} ({type(node.ctx).__name__})"]  # 換掉核對方法
-    if node.attr == _SWITCH and not isinstance(node.ctx, ast.Load):
-        return [f"attribute {_SWITCH} ({type(node.ctx).__name__})"]
+        if node.attr in _CHECK_METHODS and not isinstance(node.ctx, ast.Load):
+            return [f"attribute {node.attr} ({type(node.ctx).__name__})"]
     return []
 
 
-def _name_uses(node: ast.AST) -> list[str]:
-    """執行器以外：私有名稱不得以任何形式出現；ToolExecutor 不得改名匯入."""
+def _outside_executor_uses(node: ast.AST) -> list[str]:
+    """執行器以外：私有名稱、核對方法不得以任何形式出現；不得另寫名為 ToolExecutor 的類別或函式."""
     if isinstance(node, ast.Name) and node.id in _PRIVATE_NAMES:
         return [f"name {node.id}"]
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and (
-        node.name in _PRIVATE_NAMES
-    ):
-        return [f"definition {node.name}"]  # 子類別覆寫核對方法
+    if isinstance(node, ast.Attribute) and node.attr in _PRIVATE_NAMES:
+        return [f"attribute {node.attr}"]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if node.name in _PRIVATE_NAMES:
+            return [f"definition {node.name}"]
+        if node.name == "ToolExecutor":
+            return ["stand-in named ToolExecutor"]
     if isinstance(node, ast.arg) and node.arg in _PRIVATE_NAMES:
         return [f"parameter {node.arg}"]
     if isinstance(node, ast.alias):
         if {node.name, node.asname} & _PRIVATE_NAMES:
             return [f"import {node.name}"]
         if node.name == "ToolExecutor" and node.asname:
-            return [f"import ToolExecutor as {node.asname}"]  # 改名後 ** 展開就看不出來
+            return [f"import ToolExecutor as {node.asname}"]
     return []
 
 
-def _switch_uses(node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST]) -> list[str]:
-    """只有 debug_execute_tool 能用字面 False 關開關；開關與兩個核對方法不得被改寫或繞過.
-
-    執行器檔本身也掃：私有屬性只准在 ``ToolExecutor.__init__`` 寫入，關開關的 keyword 一樣只准在
-    除錯入口；正式程式（含執行器檔）不得繼承 ToolExecutor。
-    """
+def _switch_uses(
+    node: ast.AST, rel: str, parents: dict[ast.AST, ast.AST], cls: ast.ClassDef | None
+) -> list[str]:
+    """只有 debug_execute_tool 能用字面 False 關開關；開關與核對方法不得被改寫、換掉或繞過."""
     if isinstance(node, ast.Constant) and node.value in _PROTECTED_STRINGS:
-        return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、vars()[...]
-    if isinstance(node, ast.ClassDef) and any(_mentions_executor(base) for base in node.bases):
-        return [f"subclass {node.name} of ToolExecutor"]  # 子類別能寫私有屬性、換掉核對方法
+        return [f"string {node.value!r}"]  # 擋 **{...}、setattr、getattr、globals()[...]
     if isinstance(node, ast.keyword):
         return _keyword_uses(node, rel, parents)
-    if (
-        isinstance(node, ast.Call)
-        and _is_executor_call(node)
-        and any(keyword.arg is None for keyword in node.keywords)
-    ):
-        return ["** unpacking into ToolExecutor"]  # 值可能來自設定或 JSON；含 partial
-    if (
-        rel != _EXECUTOR_MODULE
-        and isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id in {"setattr", "delattr"}
-        and node.args
-        and _mentions_executor(node.args[0])
-    ):
-        return [f"{node.func.id} on ToolExecutor"]  # 換掉類別上的任何屬性
-    if isinstance(node, ast.Attribute):
-        return _attribute_uses(node, rel, parents)
-    return [] if rel == _EXECUTOR_MODULE else _name_uses(node)
+    found = _executor_reference_uses(node, parents)
+    if isinstance(node, ast.Attribute) and node.attr == "__kwdefaults__":
+        found.append("attribute __kwdefaults__")  # 擋執行時把預設值翻成 False
+    attr_written = isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)
+    if attr_written and node.attr == _SWITCH:
+        found.append(f"attribute {_SWITCH} ({type(node.ctx).__name__})")
+    if rel == _EXECUTOR_MODULE:
+        return found + _executor_shape_uses(node, parents, cls)
+    return found + _outside_executor_uses(node)
 
 
 def _switch_findings(sources: dict[str, str]) -> list[str]:
@@ -1357,8 +1389,9 @@ def _switch_findings(sources: dict[str, str]) -> list[str]:
     for rel, source in sources.items():
         tree = ast.parse(source)
         parents = _parents(tree)
+        cls = _executor_class(tree) if rel == _EXECUTOR_MODULE else None
         for node in ast.walk(tree):
-            problems.extend(f"{rel}: {item}" for item in _switch_uses(node, rel, parents))
+            problems.extend(f"{rel}: {item}" for item in _switch_uses(node, rel, parents, cls))
     return problems
 
 
@@ -1522,6 +1555,111 @@ _CANONICAL_DEBUG = (
             "            self._enforce_advertised = False\n"
             "        __init__()\n",
         ),
+        (_C2_ELSEWHERE, "opts = {'enforce_advertised': False}\n"),
+        (
+            _C2_ELSEWHERE,
+            "def loosen(executor_cls):\n    return executor_cls.__init__.__kwdefaults__\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "import builtins\n"
+            "builtins.setattr(ToolExecutor, 'execute_to_queue', lambda *a, **k: None)\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "type.__setattr__(ToolExecutor, 'execute_to_queue', lambda *a, **k: None)\n",
+        ),
+        (
+            _C2_ELSEWHERE,
+            _IMPORT + "object.__setattr__("
+            "ToolExecutor, 'execute_to_queue', lambda *a, **k: None)\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "ToolExecutor.execute_to_queue = lambda *a, **k: None\n",
+        ),
+        (_C2_ELSEWHERE, _IMPORT + "class Unchecked(*[ToolExecutor]):\n    pass\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "class Unchecked(*[ToolExecutor]):\n    pass\n",
+        ),
+        (_C2_ELSEWHERE, _IMPORT + "_Base = ToolExecutor\n"),
+        (_C2_ELSEWHERE, _IMPORT + "class Open(ToolExecutor if True else object):\n    pass\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "def unchecked_executor():\n"
+            "    class ToolExecutor:\n"
+            "        pass\n"
+            "    return ToolExecutor\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "def unchecked_executor():\n"
+            "    class Stand:\n"
+            "        def __init__(self):\n"
+            "            self._enforce_advertised = False\n"
+            "    return Stand\n",
+        ),
+        (_EXECUTOR_MODULE, "class ToolExecutor:\n    pass\nclass ToolExecutor:\n    pass\n"),
+        (_EXECUTOR_MODULE, "def ToolExecutor(*args):\n    return None\n"),
+        (
+            _EXECUTOR_MODULE,
+            "def _mute(fn):\n    return fn\n"
+            "class ToolExecutor:\n"
+            "    @_mute\n"
+            "    def _offer_denial(self):\n"
+            "        return 'blocked'\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    @staticmethod\n"
+            "    async def execute_to_queue(*args):\n"
+            "        return None\n",
+        ),
+        (_EXECUTOR_MODULE, "@decorate\nclass ToolExecutor:\n    pass\n"),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n    pass\n"
+            "class Helper:\n"
+            "    def _user_scope_denial(self):\n"
+            "        return None\n",
+        ),
+        (
+            _EXECUTOR_MODULE,
+            "class ToolExecutor:\n"
+            "    def __init__(self):\n"
+            "        self._offer_denial = lambda *a: None\n",
+        ),
+        (_C2_ELSEWHERE, "class Helper:\n    def _offer_denial(self):\n        return None\n"),
+        (_C2_ELSEWHERE, "class _Open:\n    pass\nToolExecutor = _Open\n"),
+        (_C2_ELSEWHERE, "globals()['ToolExecutor'] = object\n"),
+        (_C2_ELSEWHERE, "import src.services.tool_executor as te\nte.ToolExecutor = object\n"),
+        (_C2_ELSEWHERE, "class ToolExecutor:\n    enforce_advertised = True\n"),
+        (
+            _DEBUG,
+            _IMPORT + "async def debug_execute_tool():\n"
+            "    make = lambda *a: ToolExecutor(*a, enforce_advertised=False)\n"
+            "    return make\n",
+        ),
+        (
+            _DEBUG,
+            _IMPORT + "async def debug_execute_tool():\n"
+            "    class Box:\n"
+            "        ex = ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n"
+            "    return Box\n",
+        ),
+        (
+            _DEBUG,
+            _IMPORT + "def wrapper():\n"
+            "    async def debug_execute_tool():\n"
+            "        return ToolExecutor(1, 2, 3, 4, enforce_advertised=False)\n"
+            "    return debug_execute_tool\n",
+        ),
     ],
     ids=[
         "partial-false",
@@ -1562,6 +1700,33 @@ _CANONICAL_DEBUG = (
         "setattr-on-class",
         "delattr-on-class",
         "nested-init-in-another-method",
+        "switch-name-in-dict-literal",
+        "kwdefaults-via-variable",
+        "builtins-setattr",
+        "type-setattr",
+        "object-setattr",
+        "executor-file-class-attribute",
+        "starred-base",
+        "executor-file-starred-base",
+        "class-handed-to-variable",
+        "conditional-base",
+        "executor-file-nested-class",
+        "executor-file-stand-in-init",
+        "executor-file-second-class",
+        "executor-file-function-named-executor",
+        "decorated-check",
+        "decorated-execute",
+        "decorated-class",
+        "executor-file-check-elsewhere",
+        "executor-file-instance-check-replaced",
+        "check-defined-elsewhere",
+        "name-rebound",
+        "globals-rebound",
+        "module-attribute-rebound",
+        "stand-in-class",
+        "debug-lambda-false",
+        "debug-class-body-false",
+        "debug-nested-function-false",
     ],
 )
 def test_c2_scanner_catches_every_way_to_turn_the_switch_off(rel, source):

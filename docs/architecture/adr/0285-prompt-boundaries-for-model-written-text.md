@@ -44,14 +44,12 @@
 
 9. **開關預設開**：`ToolExecutor(..., *, enforce_advertised: bool = True)`，仍只能用名稱指定、存成私有屬性、對外唯讀。`run_react_loop` 的字面 `True` 與建好後的執行期檢查保留；`/debug/execute` 照舊明寫 `False`。新的入口忘了設定，也照樣核對清單與使用者授權 MCP 的在場條件。
 10. **靠舊預設的測試明寫關**：32 個測試檔共 65 處建構補 `enforce_advertised=False`，語意不變（`smoke_tool_coverage.py` 在內）。
-11. **結構測試 C2 縮小**：預設開以後，要守的只剩「誰能把它關掉」。拿掉「正式程式只能兩個建立點、沒帶參數就紅」與 `tool_executor` 模組的匯入棘輪；加上 `inspect.signature` 釘住「只能用名稱指定、預設 True」。保留與補上的規則（掃全部正式 .py，執行器檔本身也掃）：
-    - 任何呼叫裡的 `enforce_advertised=` 都必須是字面布林值；字面 `False` 只准在 debug.py 的 `debug_execute_tool`（`partial`、子類別的 `super().__init__`、`dict(...)`、執行器裡的工廠方法都算）。
-    - 建立呼叫（`ToolExecutor(...)`、`.ToolExecutor(...)`，或把 `ToolExecutor` 交給別的呼叫，例如 `partial`）不得有 `**` 展開（值可能來自設定或 JSON）；`ToolExecutor` 不得改名匯入。
-    - 正式程式（含執行器檔）不得繼承 `ToolExecutor`：子類別能在自己的 `__init__` 寫私有屬性、覆寫核對方法，或把 `**` 轉手給 `super().__init__`。
-    - 執行器以外不得替換或刪除 `ToolExecutor` 的類別屬性（`ToolExecutor.__init__ = functools.partialmethod(...)`、`setattr`／`delattr` 第一個參數是 `ToolExecutor` 都算）。
-    - 整串等於 `"enforce_advertised"`、`"_enforce_advertised"`、兩個核對方法名（`_offer_denial`、`_user_scope_denial`）或 `"__kwdefaults__"` 的字串一律禁止（擋 `**{...}`、`setattr`、`getattr`、`vars()[...]`）。
-    - 私有屬性 `_enforce_advertised`：執行器以外不得以任何形式出現（名稱、屬性、keyword 名稱如 `vars(ex).update(_enforce_advertised=False)`、參數名、定義名、匯入名）；執行器裡只准在 `class ToolExecutor` 直接定義的 `__init__` 寫入（別的方法裡巢狀的同名函式不算），其他地方只能讀。
-    - 兩個核對方法在執行器以外不得出現（子類別覆寫、monkeypatch、屬性存取都算），執行器檔裡也不得指派：它們被換掉時開關還是 True，清單與在場檢查卻都沒了。
+11. **結構測試 C2 改寫**：預設開以後，要守的是「誰能把它關掉、誰能換掉核對」。拿掉「正式程式只能兩個建立點、沒帶參數就紅」與 `tool_executor` 模組的匯入棘輪；加上 `inspect.signature` 釘住「只能用名稱指定、預設 True」。規則（掃全部正式 .py，執行器檔本身也掃）：
+    - **`ToolExecutor` 只能被直接呼叫**（`ToolExecutor(...)`、`.ToolExecutor(...)`）：當成參數（`partial`、`setattr`、`builtins.setattr`、`type.__setattr__`、`object.__setattr__`）、基底類別（含 `*[ToolExecutor]`、條件運算式）、指派對象（改綁名稱或模組屬性）、取屬性（換掉 `__init__` 等類別屬性）、交給變數，全都算違規；直接呼叫不得有 `**` 展開（值可能來自設定或 JSON）；不得改名匯入；執行器以外不得另寫名為 `ToolExecutor` 的類別或函式。
+    - 任何呼叫裡的 `enforce_advertised=` 都必須是字面布林值；字面 `False` 只准直接寫在 debug.py 模組層的 `debug_execute_tool` 裡（包在 lambda、類別本體或巢狀函式裡都不算）。
+    - 整串等於 `"enforce_advertised"`、`"_enforce_advertised"`、兩個核對方法名（`_offer_denial`、`_user_scope_denial`）、`"__kwdefaults__"` 或 `"ToolExecutor"` 的字串一律禁止（擋 `**{...}`、`getattr`、`vars()[...]`、`globals()[...]`）。
+    - 執行器檔的形狀：只能有一個模組層的 `class ToolExecutor`，不得巢狀或重複、不得加裝飾器；兩個核對方法只能直接定義在它身上；`__init__`、兩個核對方法與 `execute_to_queue` 不得加裝飾器；私有屬性只准在它直接定義的 `__init__` 寫入；不得指派核對方法。
+    - 執行器以外：私有屬性與兩個核對方法不得以任何形式出現（名稱、屬性、keyword 名稱如 `vars(ex).update(_enforce_advertised=False)`、參數名、定義名、匯入名）。
     - 不得寫入或刪除 `.enforce_advertised`；不得碰 `__kwdefaults__`（擋執行時把預設值翻成 False）。
     C3（清單欄位的讀寫者）不動。
 12. **事後指派的寫法更正**：ADR-0269 決策 2 說清單欄位「dict、frozenset 一律拒絕」，那是建立時。建好之後不論用 `ctx["advertised_tools"] = …`（`PipelineContext.__setitem__` 對宣告過的欄位就是 `setattr`，正式寫入點 ToolLayer 用的就是這個）還是屬性指派都不驗證（沒開 `validate_assignment`，開了會牽動 26 處正式程式與 56 處測試），由執行器的 `isinstance` 擋下、當成清單不可用。既有的 B11 dict、frozenset 案例本來就在測這條；這次另加一個屬性指派的案例當說明。
@@ -72,7 +70,7 @@
   - 甲-2：只差在說明文字（`description`、`title`、`examples`）的定義也算不同，會合成 `anyOf`；Anthropic 收，兩種說明模型都看得到，所以不另外合併說明（grok 審查的建議，判斷不需要）。
   - 範圍外的觀察（審查時發現、不是這次造成）：`<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 用 `find` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，影響的是快取命中、不是安全（ADR-0139 起就有），記在 HANDOVER §3。
 - 甲-2：外部工具（MCP 工具，或請求自己帶來的工具）把欄位直接寫在分支的 `properties` 裡時，Claude 看得到每一種定義；只有一種定義的欄位形狀不變。Claude 仍看不到「哪個值要配哪些欄位」（條件必填只剩說明文字，ADR-0266 已知限制），送錯組合時靠執行前檢查擋下。
-- 甲-3：使用者感覺不到差別。新寫的執行器建立點不寫開關也會核對清單；常見的關開關與換掉核對的寫法（自我測試列了 38 種）都會被 C2 抓到，要關只該在人按的除錯執行。
+- 甲-3：使用者感覺不到差別。新寫的執行器建立點不寫開關也會核對清單；常見的關開關與換掉核對的寫法（自我測試列了 65 種）都會被 C2 抓到，要關只該在人按的除錯執行。
   - 已知限制（甲-3）：C2 是只讀原始碼的結構測試，有心要繞還是繞得過，例如：
     - 用算出來的字串（`"_enforce" + "_advertised"`、`"Tool" + "Executor"`）經 `setattr`／`getattr` 改私有屬性或拿到類別（ADR-0269 起就這樣）；
     - 先把類別交給變數（或在執行器裡用 classmethod 的 `cls`），再把鍵名是算出來的 dict 用 `**` 展開。
@@ -102,3 +100,12 @@
   - 建議：在別的方法裡寫巢狀的 `__init__` 能寫私有屬性。改成只認 `class ToolExecutor` 直接定義的 `__init__`。
   - 建議：已知限制裡「子類別覆寫 property」那一則在禁止繼承後已經沒有作用，拿掉。
   - 審查者建議的 2 個繞法真的寫進正式程式後都被抓到，新的 3 條規則各拿掉一次都變紅。
+- 甲-3 另送 xAI `grok-4.7` 審查（經 pi，只能讀檔；維護者同意送出那一次，送 7 個公開 repo 的檔加審查說明，內部審查三輪通過後的版本 `d57629d4`，花費 US$0.52），需修改，5 個 MEDIUM、2 個 LOW，都是字面寫得出來的繞法：
+  - `builtins.setattr`／`type.__setattr__`／`object.__setattr__(ToolExecutor, "execute_to_queue", f)` 換掉執行方法；執行器檔裡 `ToolExecutor.execute_to_queue = …`。
+  - 基底寫成 `*[ToolExecutor]` 或條件運算式的子類別，覆寫核對方法。
+  - 執行器檔裡工廠函式內另一個同名的 `class ToolExecutor` 寫私有屬性。
+  - 在核對方法上加裝飾器把它變成空的。
+  - 改綁名稱 `ToolExecutor = _Open`、`te.ToolExecutor = _Open`、`globals()["ToolExecutor"]`。
+  - LOW：`debug_execute_tool` 裡的 lambda 或類別本體帶字面 `False`；ADR-0269 決策 3 的簽名還寫 `= False`。
+  - 處理：不再逐種補洞，改成「`ToolExecutor` 只能被直接呼叫」一條規則涵蓋所有轉手、改綁與換掉類別屬性的寫法（舊 C2 也有類似規則）；執行器檔的形狀定死（唯一的模組層類別、核對方法只定義在它身上、關鍵方法不加裝飾器）；`False` 只准直接寫在模組層 `debug_execute_tool`；`"ToolExecutor"` 加進禁止字串；ADR-0269 簽名改正。正式程式掃描乾淨（正式程式只有 react_core 與 debug 匯入並直接呼叫 `ToolExecutor`）。
+  - grok 的 7 個繞法真的寫進正式程式後，只跑正式程式掃描那一個測試就都被抓到；改寫後的 26 條規則各拿掉或放寬一次全部變紅（其中 2 條第一次存活，因為既有案例先被新規則抓到，各補一個只有那條規則抓得到的案例後也變紅）。自我測試 65 種要抓到、7 個反例。

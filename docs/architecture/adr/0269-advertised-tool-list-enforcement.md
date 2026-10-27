@@ -28,7 +28,7 @@
    - `_run_subagent`：用子代理自己組裝出的 `request.tools` 算，不沿用父代理。
    - `tests/tool_eval/live_episode.py`：唯一列名的測試例外（見決策 7）。
    不加進 `EXECUTION_CONTEXT_KWARG_NAMES`（那是交給 handler 的 kwargs）；核對不讀模型參數，執行器再用 `isinstance` 把一次關，不是 `AdvertisedTools` 就當成「清單不可用」。
-3. **執行器開關**〔ADR-0285 甲-3 修訂：改成預設 `True`，C2 改成「只有 `debug_execute_tool` 能用字面 False 關、私有屬性與核對方法不得被改寫」〕：`ToolExecutor(..., *, enforce_advertised: bool = False)`，只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
+3. **執行器開關**〔ADR-0285 甲-3 修訂：改成預設 `True`，C2 改成「`ToolExecutor` 只能被直接呼叫、只有 `debug_execute_tool` 能用字面 False 關、私有屬性與核對方法不得被改寫」〕：`ToolExecutor(..., *, enforce_advertised: bool = True)`（原本是 `= False`），只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
 4. **核對位置與結果**：開關打開時，順序是身分 → 原生角色權限（ADR-0228，保留 `native_tool_rbac` 原因碼）→ MCP 名稱解析 → **清單核對** → 軸 B → 分類＋PaC → 審查員／審批卡 → 參數驗證 → 執行。
 
    | 情況 | 判定 | 錯誤類別 | reason |
