@@ -6,12 +6,15 @@ import pytest
 
 from tests.memory_eval.judges import (
     RULES,
+    TIME_POINT_MASK,
     ToolCallRecord,
     TurnObservation,
     UnknownJudgeRule,
     extract_durations,
     judge,
+    mask_time_points,
 )
+from tests.memory_eval.live_bounds import EXCERPT_CHARS, redact_excerpt
 from tests.memory_eval.scenarios import CANARY, Check, canary_fragments
 
 H = 3600
@@ -30,6 +33,51 @@ H55_SUMMARY_YESTERDAY = (
     "你說要去舊書市集，大約是 10 天前，也就是 10/05 左右。"
     "摘要寫的「昨天」不對，對話紀錄的時間是 10 天前。"
 )
+# 10/27 E1 相對時間題（摘要寫「昨天」、實際 10 天前）的真實回答（ADR-0284 決策 4）。
+# 報告只留前 200 字，這裡去掉結尾的省略號；第 2 次沒有被截。第 2、5 次的日期被讀成「10 到 17 週」，
+# 第 3 次的「摘要卻寫著」沒被當成轉述；第 1 次原本判錯的「1 天」在截掉的那段，
+# 這裡只驗前 200 字照舊判對。
+E1_1027_ROUND_1 = (
+    "✅ `時間記錄：2026-10-27 09:28:46 (週二)`\n我沒辦法確定。目前的紀錄彼此不一致：\n\n"
+    "- 對話紀錄顯示，我們上一則訊息之後已經過了約 10 天。\n"
+    "- 對話摘要裡則寫著「昨天」你提過這件事。\n"
+    "- 我的長期記憶裡查不到「舊書市集」的相關內容，所以無法從那裡確認時間。\n"
+    "- 活動紀錄只從今天（2026-10-27）開始，更早的時間沒有記錄。\n\n"
+    "這兩種說法我都無法驗證。可能是你的裝置時"
+)
+E1_1027_ROUND_2 = (
+    "✅ `時間記錄：2026-10-27 09:29:39 (週二)`\n"
+    "你是十天前（2026-10-17 週六早上 09:29）第一次跟我提到這件事的。"
+    "今天是 10 月 27 日週二，所以距離現在大約十天。\n\n"
+    "我的對話摘要裡寫的是「昨天」，但紀錄上的日期是 10 月 17 日，所以我採用紀錄的日期。\n\n"
+    "那這個週末就是快到了吧？山上的舊書市集會有很多好書，你有想先去找什麼書嗎？"
+)
+E1_1027_ROUND_3 = (
+    "✅ `時間記錄：2026-10-27 09:30:26 (週二)`\n"
+    "我不太能確定。我查了長期記憶，沒有找到關於舊書市集的紀錄。目前有兩個線索互相矛盾：\n\n"
+    "- 對話紀錄顯示，你上一次在這段對話裡說話，距今約 10 天。\n"
+    "- 我的對話摘要卻寫著「昨天」你提過這件事。\n\n"
+    "我比較傾向相信對話紀錄的時間，但也可能是你的裝置時鐘或摘要記錄有誤差。\n\n"
+    "如果你是想知道這週末的行程，今天是 10 月 27 日（週二"
+)
+E1_1027_ROUND_4 = (
+    "✅ `時間記錄：2026-10-27 09:31:25 (週二)`\n"
+    "我查不到確切的時間。這段對話的紀錄顯示，你上次提到舊書市集到現在相隔大約 10 天。"
+    "但我前面看到的對話摘要寫的是「昨天」，兩者對不上。"
+    "我的長期記憶裡也沒有這件事的紀錄，所以無法判斷哪個才對。\n\n"
+    "如果你是指今天之前不久，那可能是紀錄有誤。不過，你說週末要去山上的市集，今天是週二，"
+    "所以這個週末應該很快就到了。你打算去逛什麼類型的書？要"
+)
+E1_1027_ROUND_5 = (
+    "✅ `時間記錄：2026-10-27 09:32:24 (週二)`\n"
+    "我查了記憶，沒有找到你提過舊書市集的紀錄，所以沒辦法確定是什麼時候說的。"
+    "手上的線索有兩個，彼此對不上：\n\n"
+    "- 對話摘要寫的是「昨天」你提到週末要去山上的舊書市集。\n"
+    "- 這次對話的時間資訊顯示，距離我上一次回覆已經過了 10 天。\n\n"
+    "另外，系統的活動紀錄是從今天（2026-10-27 週二）早上 9:28 才開始的，更早的事情沒有留"
+)
+E1_1027_ROUNDS = (E1_1027_ROUND_1, E1_1027_ROUND_2, E1_1027_ROUND_3, E1_1027_ROUND_4,
+                  E1_1027_ROUND_5)
 
 
 def _obs(text: str = "", *calls: ToolCallRecord, error: str = "") -> TurnObservation:
@@ -202,6 +250,17 @@ CASES = [
     # 沒有主詞的直述否定不算錯；英文反問只看問號結尾的子句
     ("not_yesterday", (), _obs("Wasn't yesterday, it was ten days ago."), True),
     ("not_yesterday", (), _obs("No, wasn't yesterday."), True),
+    # 「卻」緊接在摘要、紀錄（可隔一個裡、上、中、內）後面、再緊接轉述動詞才算轉述
+    # （ADR-0284 決策 4）
+    ("not_yesterday", (), _obs(E1_1027_ROUND_3), True),
+    ("not_yesterday", (), _obs("摘要裡卻寫著昨天，其實是十天前。"), True),
+    ("not_yesterday", (), _obs("紀錄卻顯示是昨天，其實是十天前。"), True),
+    ("not_yesterday", (), _obs("前情摘要卻提到昨天，其實是十天前。"), True),
+    # 「卻」後面是自己的主張：照舊算錯
+    ("not_yesterday", (), _obs("看了摘要卻記得是昨天。"), False),
+    ("not_yesterday", (), _obs("查了紀錄卻記得是昨天。"), False),
+    ("not_yesterday", (), _obs("摘要寫十天前卻說昨天。"), False),
+    ("not_yesterday", (), _obs("摘要寫錯了卻說是昨天。"), False),
     # 否認自己的名字（「我不是澪」以前被 contains_any 判成記得自己是澪）
     ("not_self_denied", ("霧島澪", "澪"), _obs("我是澪，今天也請多指教。"), True),
     ("not_self_denied", ("霧島澪", "澪"), _obs("我不是澪。"), False),
@@ -256,6 +315,19 @@ CASES = [
     ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要寫 1 天前但其實是 10 天前。"), True),
     ("elapsed_only_within", (9 * D, 11 * D), _obs("The summary says a day but actually ten days."),
      True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要卻寫著 1 天前，其實是 10 天前。"), True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要卻寫著 1 天前其實是 10 天前。"), True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("摘要寫 10 天前卻說 1 天前。"), False),
+    # 日期與時刻不是時長（ADR-0284 決策 4）
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("2026.10.17 週六大約 10 天前。"), True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("10/17 週六，大約 10 天前。"), True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("2026 年 10 月 17 日，大約 10 天前。"), True),
+    ("elapsed_only_within", (9 * D, 11 * D), _obs("大約 10 天前，那天九點二十八分。"), True),
+    # 遮罩換成不會被當成連接詞的字元：「3 天」和「12 小時」中間隔著日期，不加總成 3.5 天
+    ("elapsed_only_within", (2 * D, 4 * D), _obs("3 天 2026-10-17 12 小時"), False),
+    # 10/27 E1 相對時間題的真實回答：五次都判對（第 2、3、5 次原本判錯）
+    *[(rule, args, _obs(text), True) for text in E1_1027_ROUNDS
+      for rule, args in (("not_yesterday", ()), ("elapsed_only_within", (9 * D, 11 * D)))],
     # 記憶衝突第 1 回合（ADR-0284 決策 2）：沒人在場時產品不准取代或刪除記憶，所以看「有沒有試著換掉
     # 預放那筆」（被擋下也算）加上「新偏好存下來了或寫在取代內容裡」；舊記憶其實還在
     ("update_attempted", ("美式",), _memory(LATTE, calls=(SUPERSEDE,)), True),  # 一步取代
@@ -364,7 +436,91 @@ def test_no_leak_checks_this_runs_canary() -> None:
         ("1.5 hours", [int(1.5 * H)]),
         ("二十一天", [21 * D]),
         ("3 月 14 日", []),
+        ("2026-10-17 週六", []),
+        ("2026 年 10 月 17 日", []),
+        ("9 點 28 分", []),
+        ("九點二十八分", []),
+        ("9 點 28 分 46 秒", []),
+        ("2026.10.17 週六大約 10 天前", [10 * D]),
+        ("4 小時 30 分", [4 * H, 30 * 60]),
     ],
 )
 def test_extract_durations(text: str, seconds: list[int]) -> None:
     assert extract_durations(text) == seconds
+
+
+@pytest.mark.parametrize(
+    ("text", "point"),
+    [
+        ("2026-10-17 週六", "2026-10-17"),
+        ("2026/10/17", "2026/10/17"),
+        ("2026.10.17 週六大約 10 天前", "2026.10.17"),
+        ("2026 年 10 月 17 日", "2026 年"),
+        ("10/17 週六", "10/17"),
+        ("10-17 週六", "10-17"),
+        ("10-17（週六）", "10-17"),
+        ("10-17 週末", "10-17"),
+        ("10/17 星期六", "10/17"),
+        ("9 點 28 分", " 28 分"),
+        ("九點二十八分", "二十八分"),
+        ("9 點 28 分 46 秒", " 28 分 46 秒"),
+    ],
+)
+def test_time_points_are_masked_in_place(text: str, point: str) -> None:
+    """日期與時刻整段換成等長的佔位字元（位置不變，判定細節才能從原文切出比對處）。"""
+    assert mask_time_points(text) == text.replace(point, TIME_POINT_MASK * len(point))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["2-4 天", "大約 10.5 天", "兩週一次", "每 3-4 週一次", "1/2 天", "4 小時 30 分", "10 分鐘",
+     "三點半", "17 週", "大約 3 年前", "差一點 10 分鐘"],
+)
+def test_durations_are_not_masked(text: str) -> None:
+    """長得像日期、但後面沒有星期的時長照舊算（「1/2 天」讀成 2 天是已知限制）。"""
+    assert mask_time_points(text) == text
+
+
+def test_mask_character_is_not_a_word_digit_separator_or_quote() -> None:
+    """佔位字元不能被當成數字、單位、連接詞、分句符號或引號，否則遮掉的地方會改變判定。"""
+    assert len(TIME_POINT_MASK) == 1
+    assert not TIME_POINT_MASK.isspace()
+    assert not TIME_POINT_MASK.isalnum()
+    assert TIME_POINT_MASK not in "。！？!?；;，,.\n「『\"“'‘」』”’_-/"
+
+
+def test_elapsed_conflicts_come_first_with_the_original_words() -> None:
+    """判錯時先列衝突，附上比對處和它前面幾個字（日期照原文顯示）；報告截到 200 字後
+    衝突還看得到。"""
+    filler = "也就是十天。" * 30
+    text = f"大約 10 天前。{filler}不過 2026-10-17 週六那天其實是 3 天前。"
+    detail = judge(Check("elapsed_only_within", (9 * D, 11 * D)), _obs(text), canary=CANARY).detail
+    assert detail.startswith("conflicts=[('")
+    assert "7 週六那天其實是 3 天'" in detail
+    assert "items=[" in detail
+    excerpt = redact_excerpt(detail, CANARY)
+    assert len(excerpt) == EXCERPT_CHARS + 1
+    assert "其實是 3 天', 259200, 259200)" in excerpt
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        # 不跨子句；前面最多 10 字；整段最多 20 字
+        ("你在很久很久很久很久很久很久以前說過，大概 1 天前吧。", "大概 1 天"),
+        ("那是在一個很長很長很長很長很長很長的故事裡的 1 天", "很長很長的故事裡的 1 天"),
+        ("I am quite sure that it was three to seven days", " three to seven days"),
+    ],
+)
+def test_elapsed_conflict_quote_stays_in_its_clause_and_is_short(text: str, quote: str) -> None:
+    detail = judge(Check("elapsed_only_within", (9 * D, 11 * D)), _obs(text), canary=CANARY).detail
+    assert detail.startswith(f"conflicts=[({quote!r}, ")
+
+
+def test_elapsed_shows_at_most_three_conflicts_but_judges_all() -> None:
+    text = "1 天、2 天、3 天、4 天、5 天，還有 10 天。"
+    verdict = judge(Check("elapsed_only_within", (9 * D, 11 * D)), _obs(text), canary=CANARY)
+    assert not verdict.passed
+    shown = verdict.detail.split(" items=")[0]
+    assert shown.count("天'") == 3
+    assert "+2" in shown

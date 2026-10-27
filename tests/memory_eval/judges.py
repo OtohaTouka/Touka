@@ -43,6 +43,18 @@ _EN_DURATION = re.compile(
     r"(second|minute|min|hour|hr|day|week|month|year)s?\b",
     re.IGNORECASE,
 )
+_ZH_NUM = r"\d+(?:\.\d+)?|[零一二兩三四五六七八九十]+"
+# 時間點（ADR-0284 決策 4）：有年份的日期、後面接星期或週末的月日、「9 點 28 分（46 秒）」的分和秒。
+# 依序套；沒有星期的月日（「1/2 天」「2-4 天」）照舊當成時長。
+_TIME_POINTS = (
+    re.compile(r"(?<!\d)(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}(?!\d)"),
+    re.compile(r"(?<!\d)(?:19|20)\d{2}\s*年"),
+    re.compile(r"(?<!\d)\d{1,2}[-/.]\d{1,2}(?!\d)"
+               r"(?=\s*[（(]?\s*(?:週|星期|禮拜)[一二三四五六日天末](?!次))"),
+    re.compile(rf"(?<=點)\s*(?:{_ZH_NUM})\s*分(?!鐘)(?:\s*(?:{_ZH_NUM})\s*秒(?!鐘))?"),
+)
+# 佔位字元：不是空白、文字、數字、分句符號或引號，遮掉的地方不會被當成連接詞或另一個時長。
+TIME_POINT_MASK = "□"
 
 
 class UnknownJudgeRule(ValueError):
@@ -118,9 +130,17 @@ def _duration_spans(text: str) -> list[tuple[int, int, int, int]]:
     return found
 
 
+def mask_time_points(text: str) -> str:
+    """把日期與時刻換成等長的佔位字元；找時長前先套，「2026-10-17 週六」才不會被讀成
+    10 到 17 週。"""
+    for pattern in _TIME_POINTS:
+        text = pattern.sub(lambda match: TIME_POINT_MASK * len(match.group(0)), text)
+    return text
+
+
 def extract_durations(text: str) -> list[int]:
-    """抽出文字裡的時間長度（秒）；中文與英文、阿拉伯數字與中文數字都收。"""
-    return [seconds for _start, _end, seconds, _unit in _duration_spans(text)]
+    """抽出文字裡的時間長度（秒）；中文與英文、阿拉伯數字與中文數字都收，日期與時刻不算。"""
+    return [seconds for _start, _end, seconds, _unit in _duration_spans(mask_time_points(text))]
 
 
 def _rename_pattern(alias: str) -> re.Pattern[str]:
@@ -190,9 +210,16 @@ _NEGATED_YESTERDAY = re.compile(
 # 轉述詞和「昨天」之間不能夾代名詞、轉折、否定或附和（「摘要寫十天前但我說昨天」「摘要說得對是昨天」
 # 是模型自己的主張）；「摘要說是昨天」照樣算轉述
 _GAP_ZH = r"(?:(?!可是|得對|沒錯)[^，,。！？!?；;\n我你他她但卻而不])"
+# 轉述的開頭（「昨天」與時長共用）：「卻」只在緊接摘要、紀錄（可隔一個裡、上、中、內）、
+# 再緊接轉述動詞時算轉述（「摘要卻寫著昨天」）；「看了摘要卻記得是昨天」「摘要寫十天前卻說昨天」
+# 是自己的主張（ADR-0284 決策 4）
+_SOURCE_ZH = r"(?:摘要|紀錄|記錄|前情|筆記)"
+_REPORTING_ZH = (
+    rf"(?:{_SOURCE_ZH}{_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示)"
+    rf"|{_SOURCE_ZH}(?:裡|上|中|內)?卻(?:寫|說|記(?!得)|提到|標|顯示))"
+)
 _REPORTED_YESTERDAY = re.compile(
-    rf"(?:摘要|紀錄|記錄|前情|筆記){_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示)"
-    rf"{_GAP_ZH}{{0,3}}?{_Q}(?:昨天|昨日)"
+    rf"{_REPORTING_ZH}{_GAP_ZH}{{0,3}}?{_Q}(?:昨天|昨日)"
     rf"|(?:記成|寫成|寫作|記為|寫為){_Q}(?:昨天|昨日)"
     r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
     r"\b(?:says?|said|writes?|wrote|shows?|lists?|records?)\b[^.,;!?\n]{0,5}?[\"“']?yesterday",
@@ -201,7 +228,6 @@ _REPORTED_YESTERDAY = re.compile(
 _LEAK_SEPARATORS = re.compile(r"[\s\-_‐‑–—・·.]+")
 # 較嚴的經過時間：子句不在數字中間的小數點切開；區間、「N 單位多」、「將近 N」；相鄰單位的連接詞。
 _DURATION_CLAUSE = re.compile(r"((?:[^。！？!?；;，,.\n]|(?<=\d)\.(?=\d))+)([。！？!?；;，,.\n]?)")
-_ZH_NUM = r"\d+(?:\.\d+)?|[零一二兩三四五六七八九十]+"
 _ZH_UNIT = r"秒鐘|秒|分鐘|分|小時|鐘頭|天|週|星期|禮拜|個月|年"
 _EN_NUM = r"\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten"
 _EN_UNIT = r"second|minute|min|hour|hr|day|week|month|year"
@@ -225,7 +251,7 @@ _UNIT_JOIN = re.compile(r"\s*(?:又|零|and)?\s*", re.IGNORECASE)
 _DENIED_BEFORE = re.compile(r"(?:不是|並非|而非|\bnot|n't)\s*(?:在\s*)?$", re.IGNORECASE)
 # 轉述詞要緊挨著時長，中間不能夾代名詞、轉折或否定（「摘要寫 1 天前但其實是 10 天前」的 10 天算）。
 _REPORTED_BEFORE = re.compile(
-    rf"(?:摘要|紀錄|記錄|前情|筆記){_GAP_ZH}{{0,10}}?(?:寫|說|記|提到|標|顯示){_GAP_ZH}{{0,6}}$"
+    rf"{_REPORTING_ZH}{_GAP_ZH}{{0,6}}$"
     r"|\b(?:summary|record|notes?|log)\b(?:(?!\b(?:but|actually|i|i'd|i'm|we|you)\b)[^.,;!?\n]){0,30}?"
     r"\b(?:says?|said|writes?|wrote|shows?)\b(?:(?!\b(?:but|actually)\b)[^.,;!?\n]){0,10}$",
     re.IGNORECASE,
@@ -441,11 +467,11 @@ def _fuzzy_or_range(
     return int(0.75 * number), number, "nearly", number
 
 
-def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
-    """一個子句裡當成答案的時長（下限、上限、種類、說出的時長，秒）；直接被否定或轉述的不算，
-    相鄰單位先加總。"""
+def _answered_durations(clause: str) -> list[tuple[int, int, int, int, str, int]]:
+    """一個子句裡當成答案的時長（在子句裡的開始、結束；下限、上限、種類、說出的時長，秒）；
+    直接被否定或轉述的不算，相鄰單位先加總。"""
     taken: list[tuple[int, int]] = []
-    items: list[tuple[int, int, str, int]] = []
+    items: list[tuple[int, int, int, int, str, int]] = []
 
     def free(start: int, end: int) -> bool:
         return not any(start < t_end and t_start < end for t_start, t_end in taken)
@@ -460,7 +486,7 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
                 taken.append((match.start(), match.end()))
                 item = _fuzzy_or_range(match, kind, english)
                 if item is not None and counted(match.start()):
-                    items.append(item)
+                    items.append((match.start(), match.end(), *item))
     merged: list[tuple[int, int, int, int]] = []  # 開始、結束、秒、最後一段的單位
     for start, end, seconds, unit in sorted(
         s for s in _duration_spans(clause) if free(s[0], s[1])
@@ -471,12 +497,17 @@ def _answered_durations(clause: str) -> list[tuple[int, int, str, int]]:
             merged[-1] = (first_start, end, total + seconds, unit)
         else:
             merged.append((start, end, seconds, unit))
-    items += [(seconds, seconds, "exact", seconds) for start, _end, seconds, _unit in merged
-              if counted(start)]
+    items += [(start, end, seconds, seconds, "exact", seconds)
+              for start, end, seconds, _unit in merged if counted(start)]
     return items
 
 
 _FUZZY_KINDS = frozenset({"more", "nearly"})
+# 判定細節裡每個衝突附上的原文：比對處前面最多 10 字到比對結尾，不跨子句、整段最多 20 字；
+# 細節最多列 3 個衝突（判定照樣看全部），報告截到 200 字後才看得到是哪一句。
+_QUOTE_BEFORE = 10
+_QUOTE_MAX = 20
+_SHOWN_CONFLICTS = 3
 
 
 def _is_answer_in_range(lo: int, hi: int, kind: str, said: int, low: int, high: int) -> bool:
@@ -494,14 +525,24 @@ def _elapsed_only_within(obs: TurnObservation, low: int, high: int) -> tuple[boo
 
     「大概 1 天或 10 天」失敗；否定或轉述的子句、同一時長的換算、和範圍重疊的「一週多」「將近兩週」
     放過；區間兩端都要在範圍內。只用在 smoke 的經過時間題（時間軸的回答本來就會提到好幾個時間）。
+    日期與時刻先遮掉；細節先列衝突（附原文）、再列全部答案。
     """
-    items = [item for clause, _end in _DURATION_CLAUSE.findall(obs.text)
-             for item in _answered_durations(clause)]
+    masked = mask_time_points(obs.text)
+    items: list[tuple[int, int, str, int]] = []
+    conflicts: list[tuple[str, int, int]] = []
+    for clause in _DURATION_CLAUSE.finditer(masked):
+        offset = clause.start(1)
+        for start, end, lo, hi, kind, said in _answered_durations(clause.group(1)):
+            items.append((lo, hi, kind, said))
+            if (kind not in _FUZZY_KINDS and not low <= lo <= hi <= high) or (
+                kind in _FUZZY_KINDS and (hi < low or lo > high)
+            ):
+                quote_start = offset + max(0, start - _QUOTE_BEFORE, end - _QUOTE_MAX)
+                conflicts.append((obs.text[quote_start:offset + end], lo, hi))
     inside = any(_is_answer_in_range(lo, hi, kind, said, low, high) for lo, hi, kind, said in items)
-    conflicts = [(lo, hi) for lo, hi, kind, _said in items
-                 if (kind not in _FUZZY_KINDS and not low <= lo <= hi <= high)
-                 or (kind in _FUZZY_KINDS and (hi < low or lo > high))]
-    return inside and not conflicts, f"items={items} conflicts={conflicts}"
+    hidden = len(conflicts) - _SHOWN_CONFLICTS
+    shown = f"conflicts={conflicts[:_SHOWN_CONFLICTS]}" + (f" (+{hidden})" if hidden > 0 else "")
+    return inside and not conflicts, f"{shown} items={items}"
 
 
 def _asserts_yesterday(clause: str, end: str) -> bool:
