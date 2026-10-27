@@ -509,6 +509,33 @@ def test_mask_character_is_not_a_word_digit_separator_or_quote() -> None:
     assert TIME_POINT_MASK not in "。！？!?；;，,.\n「『\"“'‘」』”’_-/"
 
 
+@pytest.mark.parametrize(
+    "before",
+    ["我看", "我查", "讀", "翻", "按照", "按", "依", "看了", "看完", "根據", "依據", "相信", "看過",
+     "讀過", "翻過", "查過", "看到", "讀到", "查到", "收到"],
+)
+def test_summary_as_object_before_que_is_a_claim(before: str) -> None:
+    """摘要是受詞時（「看了摘要卻說」）「卻」後面是自己的主張，兩條規則都不當成轉述。"""
+    yesterday = judge(Check("not_yesterday"), _obs(f"{before}摘要卻說是昨天。"), canary=CANARY)
+    assert not yesterday.passed
+    elapsed = judge(Check("elapsed_only_within", (9 * D, 11 * D)),
+                    _obs(f"大約 10 天，{before}紀錄卻說 1 天。"), canary=CANARY)
+    assert not elapsed.passed
+
+
+@pytest.mark.parametrize(
+    "before",
+    ["不過", "沒想到", "想不到", "通信", "數據", "對話", "前情", "我的"],
+)
+def test_summary_as_subject_before_que_is_reported(before: str) -> None:
+    """摘要是主詞時（「不過摘要卻寫著」「沒想到紀錄卻顯示」）照樣算轉述。"""
+    text = f"{before}摘要卻寫著「昨天」，其實是十天前。"
+    assert judge(Check("not_yesterday"), _obs(text), canary=CANARY).passed
+    elapsed = judge(Check("elapsed_only_within", (9 * D, 11 * D)),
+                    _obs(f"大約 10 天，{before}紀錄卻顯示 1 天前。"), canary=CANARY)
+    assert elapsed.passed, elapsed.detail
+
+
 def test_elapsed_conflicts_come_first_with_the_original_words() -> None:
     """判錯時先列衝突，附上比對處和它前面幾個字（日期照原文顯示）；報告截到 200 字後
     衝突還看得到。"""
