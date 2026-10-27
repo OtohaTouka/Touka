@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
 from memory_server.services.personal_catalog import CATALOG_DIR_NAME, CATALOG_FILE_NAME
 from memory_server.utils.collection_names import fact_point_id
+from memory_server.utils.memory_worker import run_memory_job, run_memory_job_blocking
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
@@ -168,7 +169,11 @@ def _colliding(identity: AgentIdentity, manager: Any) -> set[str]:
 
 
 async def purge_memory(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    identity = _identity(candidate, guard)
+    """清掉目標的記憶（在記憶工作者上做，ADR-0288）."""
+    return await run_memory_job(_purge_memory_now, _identity(candidate, guard))
+
+
+def _purge_memory_now(identity: AgentIdentity) -> int:
     manager = _memory_manager()
     if not _colliding(identity, manager):
         result = manager.purge_agent(identity)
@@ -181,7 +186,12 @@ async def purge_memory(candidate: str, guard: GuardFn = assert_resettable) -> in
 
 
 def count_remaining_memory(identity: AgentIdentity) -> int:
-    """記憶殘留（事實＋向量）；撞名時只數不屬於別人任何事實的點（只會偏向「沒清乾淨」）."""
+    """記憶殘留（事實＋向量）；給清除工作自己的執行緒用：同步等記憶工作者（ADR-0288）."""
+    return run_memory_job_blocking(_count_remaining_now, identity)
+
+
+def _count_remaining_now(identity: AgentIdentity) -> int:
+    """撞名時只數不屬於別人任何事實的點（只會偏向「沒清乾淨」）."""
     manager = _memory_manager()
     others = _colliding(identity, manager)
     if not others:
@@ -193,7 +203,7 @@ def count_remaining_memory(identity: AgentIdentity) -> int:
 
 
 async def remaining_memory(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    return count_remaining_memory(_identity(candidate, guard))
+    return await run_memory_job(_count_remaining_now, _identity(candidate, guard))
 
 
 # ── mission（personal vault /missions/current_mission.json）──────────

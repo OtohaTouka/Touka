@@ -15,6 +15,7 @@ from memory_server.config_utils import get_resource_proxy
 from memory_server.factual import EmbeddingState, find_unmigrated_jsonl_agents
 from memory_server.services.index_state import reindex_facts
 from memory_server.services.lifecycle import supersede_memory
+from memory_server.utils.memory_worker import run_memory_job
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -54,14 +55,18 @@ async def memory_diagnostics(
     )
 
     try:
-        count = manager.get_vector_store().agent_point_count(identity)
+        count = await run_memory_job(
+            lambda: manager.get_vector_store().agent_point_count(identity)
+        )
         parts.append(f"[Brain] Active Memory Nodes (Vector Count): {count}")
     except Exception as e:
         parts.append(f"[Brain] Active Memory Nodes: (Check Failed: {e})")
 
     # 只列事實庫記的各狀態筆數，不抽查向量庫
     try:
-        counts = manager.get_factual_store().count_embedding_states(identity)
+        counts = await run_memory_job(
+            lambda: manager.get_factual_store().count_embedding_states(identity)
+        )
     except Exception:
         logger.warning("[Diag] cannot count semantic index states", exc_info=True)
         parts.append("[Index] Semantic index state: unavailable (memory store not readable)")
@@ -77,7 +82,9 @@ async def memory_diagnostics(
 
     # 安全標記：只列有效記憶的筆數（查詢排後並附註、隨機回想略過）
     try:
-        flagged = manager.get_factual_store().count_flagged_facts(identity)
+        flagged = await run_memory_job(
+            lambda: manager.get_factual_store().count_flagged_facts(identity)
+        )
     except Exception:
         logger.warning("[Diag] cannot count flagged memories", exc_info=True)
         parts.append(
@@ -130,7 +137,9 @@ async def reindex_memories(
 ) -> str:
     """手動補語意索引：只處理您自己、還沒確認在索引裡的記憶。"""
     _ = kwargs
-    report = reindex_facts(manager.get_factual_store(), manager.get_vector_store(), identity)
+    report = await run_memory_job(
+        lambda: reindex_facts(manager.get_factual_store(), manager.get_vector_store(), identity)
+    )
     reply = (
         f"Reindex checked {report.checked} fact(s): {report.already_indexed} already indexed, "
         f"{report.embedded} re-embedded, {report.failed} could not be indexed; "
@@ -165,7 +174,8 @@ async def manage_duplicate_memories(
     if action == "supersede":
         if not target_id or not content:
             return "Error: supersede needs 'target_id' and 'content'."
-        return supersede_memory(
+        return await run_memory_job(
+            supersede_memory,
             manager,
             identity,
             target_id,
@@ -177,7 +187,7 @@ async def manage_duplicate_memories(
         )
 
     if action == "scan":
-        dups = manager.find_duplicates(identity)
+        dups = await run_memory_job(manager.find_duplicates, identity)
         if not dups:
             return "Scan complete: No significant duplicates found."
 
@@ -206,6 +216,6 @@ async def manage_duplicate_memories(
     if action == "resolve":
         if not target_id:
             return "Error: You must provide a 'target_id'."
-        return manager.resolve_duplicate(identity, target_id)
+        return await run_memory_job(manager.resolve_duplicate, identity, target_id)
 
     return f"Error: Unknown action '{action}'."

@@ -97,7 +97,8 @@
         "ImportFrom(module='memory_server.tools.legacy_vault', names=[alias(name='search_conversations')], level=0)",
         "ImportFrom(module='memory_server.tools.mission_tools', names=[alias(name='mission_tools')], level=0)",
         "ImportFrom(module='memory_server.tools.recall', names=[alias(name='random_recall')], level=0)",
-        "ImportFrom(module='memory_server.tools.schemas', names=[alias(name='MEMORY_TOOLS_SCHEMA_LIST')], level=0)"
+        "ImportFrom(module='memory_server.tools.schemas', names=[alias(name='MEMORY_TOOLS_SCHEMA_LIST')], level=0)",
+        "ImportFrom(module='memory_server.utils.memory_worker', names=[alias(name='run_memory_job')], level=0)"
       ]
     }
   },

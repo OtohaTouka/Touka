@@ -145,12 +145,18 @@ def test_conftest_release_steps_cover_every_known_handle():
         "close_log_handlers",
         "close_qdrant_clients",
         "close_sqlite_connections",
+        "drain_memory_worker",
         "drain_policy_audit_writes",
     }
     assert steps["close_log_handlers"].func is close_sandbox_log_handlers
     assert steps["close_log_handlers"].args == (session_conftest.SESSION_TMP_DATA_ROOT,)
     assert steps["close_sqlite_connections"] == FactualStore.close_all_connections
     assert steps["drain_policy_audit_writes"] is session_conftest._drain_policy_audit_writes
+    assert steps["drain_memory_worker"] is session_conftest._drain_memory_worker
+    # 先等背景工作做完，才關它們可能還開著的 SQLite／Qdrant
+    order = [name for name, _ in session_conftest.SANDBOX_RELEASE_STEPS]
+    assert order.index("drain_memory_worker") < order.index("close_qdrant_clients")
+    assert order.index("drain_memory_worker") < order.index("close_sqlite_connections")
 
 
 def test_qdrant_step_closes_clients_of_a_loaded_vector_module(monkeypatch):
@@ -189,6 +195,23 @@ def test_policy_audit_drain_waits_for_queued_writes(tmp_path, monkeypatch):
     try:
         executor.submit(slow_write)
         session_conftest._drain_policy_audit_writes()
+        assert written.exists()
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_memory_worker_drain_waits_for_the_running_job(tmp_path, monkeypatch):
+    executor = ThreadPoolExecutor(max_workers=1)
+    monkeypatch.setattr(session_conftest.memory_worker, "_executor", executor)
+    written = tmp_path / "late_fact.txt"
+
+    def slow_job():
+        time.sleep(0.3)
+        written.write_text("fact", encoding="utf-8")
+
+    try:
+        executor.submit(slow_job)
+        session_conftest._drain_memory_worker()
         assert written.exists()
     finally:
         executor.shutdown(wait=True)
