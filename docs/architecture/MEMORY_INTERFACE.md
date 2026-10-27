@@ -42,7 +42,8 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 - **舊對話歸檔直接寫資料庫（ADR-0264）**：`legacy/` 受 `is_protected_path` 保護，系統不在裡面寫檔或搬檔。
   - 唯一入口 `LegacySyncService.archive_payload(identity, data, filename, source=None)`：滑動視窗剪裁、前端「切分存入舊對話」、手動同步共用；`filename` 只是資料庫裡的標籤。
   - `LegacyStore.archive` 一個交易寫 sessions（標題等 upsert）、訊息（只新增，同 id 已歸檔就不覆寫；其他限制照樣失敗並整筆 rollback）與已處理紀錄。既有 `upsert_messages` 給其他呼叫端，行為不變。
-  - 手動同步 `sync_all_json_to_db` 不搬檔：以（檔名, 內容 SHA-256）記在 `processed_files`，重跑跳過，回 `synced`／`skipped`／`errors`；歸檔失敗不留紀錄、下次重做。沒有 id 的訊息用決定性 id。`file_status` 回已處理紀錄數與待處理 JSON 數（設定頁統計用）。
+  - 歸檔照實（ADR-0286）：同一個交易裡讀回這批 id 比對 session、角色與內容。相同算確認在庫（之前就存著的也算）；不同的另存成版本列（id 是原 id＋`~v`＋雜湊，metadata 記 `version_of`，重跑不重複），也讀回確認，對不上丟 `LegacyArchiveMismatchError`、整筆 rollback。回 `ArchiveOutcome(confirmed, versions)`；`archive_payload` 仍回 int，是確認在庫的筆數（含版本列）。內容不是字串時存成文字（`None` 是空字串、其他存 JSON），決定性 id 仍用原始內容算。已知限制：用原 id 呼叫 `get_message` 拿到的是第一版。
+  - 手動同步 `sync_all_json_to_db` 不搬檔：以（檔名, 內容 SHA-256）記在 `processed_files`，重跑跳過，回 `synced`／`skipped`／`errors`／`conflicts`（另存成版本的筆數，ADR-0286）；歸檔失敗不留紀錄、下次重做。沒有 id 的訊息用決定性 id。`file_status` 回已處理紀錄數與待處理 JSON 數（設定頁統計用；讀不到或不是 UTF-8 的檔算待處理）。
   - 模型工具碰不到這些寫入口（兩個 tools 目錄不得引用，測試釘住）。
 - **Guard #45 的內部 action**：守衛從 `memory_server/tools/contracts.py` 的 AST 讀 `MEMORY_INTERNAL_ACTIONS`，只接受唯一一次、`frozenset({…字串常數…})` 的宣告。確切清單由 `tests/unit/test_native_contract_invariants.py::test_memory_internal_actions_exact` 釘住：新增模型看不到的 action 一定要改這個測試。
 - **直接名收掉**：`random_recall`、`memory_diagnostics` 不再在 `memory_tool_registry` 裡；入口是 `memory_tools(action="random"|"diagnostics")`。

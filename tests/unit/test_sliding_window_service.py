@@ -9,9 +9,15 @@ All tests use DebugAgent as identity; no real session/file I/O is performed.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+import contextlib
+import json
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
+from memory_server.services import legacy_store as legacy_store_module
+from memory_server.services.legacy_store import LegacyStore
+from memory_server.services.legacy_sync import LegacySyncService
+from memory_server.services.manager import MemoryManager
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult, UnknownResult
 from src.models.sliding_window import SlidingWindowConfig
@@ -22,6 +28,7 @@ from src.utils.async_db import SessionSnapshot
 # ── helpers ────────────────────────────────────────────────────────────────
 
 DEBUG_IDENTITY = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger", is_human=False)
+_sqlite3 = legacy_store_module.sqlite3  # 只讀 tmp_path 的舊對話庫（同 test_legacy_archive）
 
 
 def _msgs(*roles: str) -> list[dict]:
@@ -733,3 +740,75 @@ async def test_trim_archives_into_legacy_store_before_cutting(
     assert label.startswith("DebugAgent_sw_") and label.endswith(".json")
     assert mock_ss.conditional_save_session.await_count == (1 if saved else 0)
     assert mock_sum.await_count == (1 if saved else 0)
+
+
+# ── 真的舊對話庫（tmp_path）：歸檔照實（舊審查報告乙-1） ─────────────────────────
+
+
+@pytest.fixture
+def real_archive(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """剪裁改用真的 LegacySyncService，舊對話庫寫在 tmp_path（不碰沙盒的舊對話庫）。"""
+    memory = create_autospec(MemoryManager, instance=True)
+    memory.get_legacy_dir.return_value = tmp_path
+    service = LegacySyncService(memory)
+    manager = MagicMock()
+    manager.get_legacy_sync_service.return_value = service
+    monkeypatch.setattr(sliding, "get_manager", lambda: manager)
+    return tmp_path
+
+
+def _legacy_rows(directory) -> list[tuple[str, str, dict]]:
+    with contextlib.closing(_sqlite3.connect(directory / "legacy_history.db")) as conn:
+        rows = conn.execute("SELECT id, content, metadata FROM messages").fetchall()
+    return [(msg_id, content, json.loads(meta or "{}")) for msg_id, content, meta in rows]
+
+
+async def _trim(svc: SlidingWindowService, session: dict, *results) -> list[bool]:
+    cfg = SlidingWindowConfig(enabled=True, keep_rounds=2, upper_limit_rounds=3)
+    outcomes = []
+    with (
+        patch.object(svc, "load_config", return_value=cfg),
+        patch("src.services.sliding_window_service.session_service") as mock_ss,
+        patch("src.services.sliding_window_service.get_context_window", return_value=10),
+    ):
+        mock_ss.read_persistence_snapshot = AsyncMock(
+            return_value=SessionSnapshot(session, "before")
+        )
+        mock_ss.conditional_save_session = AsyncMock(side_effect=list(results))
+        for _ in results:
+            outcomes.append(await svc.check_and_trim(DEBUG_IDENTITY, "sess-1"))
+    return outcomes
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_an_unknown_save_still_trims(real_archive) -> None:
+    """存 session 結果不明後重剪：這批訊息已經在庫，仍算確認在庫，第二輪照常剪成.
+
+    「回這次實際插入的筆數」的改法會讓第二輪拿到 0、永遠不剪；這裡釘住。
+    """
+    session = _make_session(_msgs(*(["user", "assistant"] * 4)))
+
+    assert await _trim(SlidingWindowService(), session, _UNKNOWN, _SAVED) == [False, True]
+
+    rows = _legacy_rows(real_archive)
+    ids = [msg_id for msg_id, _, _ in rows]
+    assert len(ids) == len(set(ids)) > 0
+    assert not [meta for _, _, meta in rows if "version_of" in meta]
+
+
+@pytest.mark.asyncio
+async def test_an_archived_message_with_other_content_is_kept_as_a_version(real_archive) -> None:
+    """庫裡已有同 id、不同內容的訊息：舊的不變，剪下的這則另存成版本，照常剪（乙-1 甲案）."""
+    LegacyStore(str(real_archive / "legacy_history.db")).archive(
+        DEBUG_IDENTITY,
+        [{"id": "sess-1", "filename": "f", "title": "t", "created_at": 1, "updated_at": 1}],
+        [{"id": "m0", "session_id": "sess-1", "role": "user", "content": "earlier text"}],
+    )
+    session = _make_session(_msgs(*(["user", "assistant"] * 4)))
+
+    assert await _trim(SlidingWindowService(), session, _SAVED) == [True]
+
+    rows = _legacy_rows(real_archive)
+    assert ("m0", "earlier text") in [(msg_id, content) for msg_id, content, _ in rows]
+    versions = [content for _, content, meta in rows if meta.get("version_of") == "m0"]
+    assert versions == ["content_0"]
