@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request  # noqa: TC002
+from memory_server.utils.memory_worker import run_memory_job
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
@@ -152,10 +153,11 @@ async def get_legacy_sync_stats(
         manager = MemoryManager()
 
         sync_service = manager.get_legacy_sync_service()
-        store = sync_service.get_store(target)
-        stats = store.get_stats()
+        # 讀資料庫與檔案雜湊都在記憶工作者上做，不卡住主迴圈（ADR-0288）
+        store = await run_memory_job(sync_service.get_store, target)
+        stats = await run_memory_job(store.get_stats)
         # 已處理的同步來源數、目錄裡還沒處理的 JSON 數（同步不搬檔，不再數 backup/）
-        files = sync_service.file_status(target)
+        files = await run_memory_job(sync_service.file_status, target)
 
         return {
             "status": "success",
@@ -189,7 +191,7 @@ async def trigger_legacy_sync(
         manager = MemoryManager()
 
         sync_service = manager.get_legacy_sync_service()
-        result = sync_service.sync_all_json_to_db(target)
+        result = await run_memory_job(sync_service.sync_all_json_to_db, target)
     except ToukaException:
         raise
     except Exception:

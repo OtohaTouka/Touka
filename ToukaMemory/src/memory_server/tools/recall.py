@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from memory_server.utils.historical_data import wrap_historical_data
 from memory_server.utils.legacy_time import format_taipei
+from memory_server.utils.memory_worker import run_memory_job
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -36,8 +37,11 @@ async def random_recall(
     legacy_messages: list[dict[str, Any]] = []
     legacy_failed = False
     try:
-        store = manager.get_legacy_sync_service().get_store(identity)
-        legacy_messages = store.get_random_messages(limit=RECALL_SAMPLE_SIZE)
+        legacy_messages = await run_memory_job(
+            lambda: manager.get_legacy_sync_service()
+            .get_store(identity)
+            .get_random_messages(limit=RECALL_SAMPLE_SIZE)
+        )
     except Exception:
         legacy_failed = True
         logger.exception("Error drawing random legacy messages for %s", identity.agent_id)
@@ -47,8 +51,8 @@ async def random_recall(
     facts_failed = False
     try:
         # 有安全標記的事實在事實庫層就排除（只當資料查得到，不主動抽出來）
-        all_facts = manager.get_factual_store().query_facts(
-            identity=identity, exclude_flagged=True
+        all_facts = await run_memory_job(
+            lambda: manager.get_factual_store().query_facts(identity=identity, exclude_flagged=True)
         )
         fact_results = random.sample(all_facts, min(RECALL_SAMPLE_SIZE, len(all_facts)))
     except Exception:

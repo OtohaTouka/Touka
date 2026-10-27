@@ -399,7 +399,7 @@ async def delete_soul(
             logger.warning("Soul %s not deleted: heartbeat running (asked to stop)", soul_id)
             raise ToukaException(ErrorCode.SOUL_HEARTBEAT_RUNNING)
         # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
-        assert_memory_cleared(identity)
+        await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
         # 隔離暫存區的 HOME／TMP 也要清（同名新靈魂不沿用舊檔案）；清不掉就 503、什麼都不刪。
         # Owner 身分：soul/ 已不在的孤兒也要解析到 personal_drive（不是 custom 的 drive）。
@@ -411,7 +411,7 @@ async def delete_soul(
             )
             raise ToukaException(ErrorCode.SOUL_SANDBOX_HOME_NOT_CLEARED) from exc
         # 清家目錄要好幾秒；這段期間寫進來的（例如前景聊天）再查一次。
-        assert_memory_cleared(identity)
+        await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)
 
         storage = soul_io.purge_soul_storage(soul_id)

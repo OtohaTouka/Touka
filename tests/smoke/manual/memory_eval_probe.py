@@ -110,6 +110,7 @@ from memory_server import vector as memory_vector  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
 from memory_server.services.lifecycle import duplicate_similarity_threshold  # noqa: E402
 from memory_server.services.manager import MemoryManager  # noqa: E402
+from memory_server.utils import memory_worker  # noqa: E402
 from src.config import (  # noqa: E402
     ANTHROPIC_API_BASE_URL,
     apply_runtime_env,
@@ -557,10 +558,19 @@ def _drain_policy_audit_writes() -> None:
     PolicyAuditService._executor.submit(int).result(timeout=_AUDIT_DRAIN_TIMEOUT_S)
 
 
+def _drain_memory_worker() -> None:
+    """記憶工作者還在跑的工作（等待被取消時已開始的那種）也會寫沙盒：等它做完（ADR-0288）。"""
+    memory_worker._executor.submit(int).result(timeout=_AUDIT_DRAIN_TIMEOUT_S)
+
+
 def _sandbox_release_steps(root: Path) -> list[ReleaseStep]:
-    """刪沙盒前依序放開握住它的東西：稽核寫入、紀錄檔 handler、記憶庫 SQLite、向量庫 Qdrant。"""
+    """刪沙盒前依序放開握住它的東西.
+
+    稽核寫入、記憶工作者、紀錄檔 handler、記憶庫 SQLite、向量庫 Qdrant。
+    """
     return [
         ("drain_policy_audit_writes", _drain_policy_audit_writes),
+        ("drain_memory_worker", _drain_memory_worker),
         ("close_log_handlers", partial(close_sandbox_log_handlers, str(root))),
         ("close_sqlite_connections", FactualStore.close_all_connections),
         ("close_qdrant_clients", memory_vector.VectorStore.close_all_clients),

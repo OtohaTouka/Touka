@@ -30,6 +30,7 @@ from memory_server.tools.recall import random_recall
 
 # 匯入底層實作
 from memory_server.tools.schemas import MEMORY_TOOLS_SCHEMA_LIST
+from memory_server.utils.memory_worker import run_memory_job
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -66,9 +67,9 @@ async def query_memory(identity: AgentIdentity, **kwargs: Any) -> str:
 
 
 async def forget_memory(identity: AgentIdentity, **kwargs: Any) -> str:
-    """封存記憶實作。"""
+    """封存記憶實作（在記憶工作者上做，ADR-0288）。"""
     manager = kwargs.pop("manager", get_manager())
-    return manager.resolve_duplicate(identity=identity, **kwargs)
+    return await run_memory_job(manager.resolve_duplicate, identity=identity, **kwargs)
 
 
 async def export_facts(identity: AgentIdentity, **kwargs: Any) -> str:
@@ -78,7 +79,9 @@ async def export_facts(identity: AgentIdentity, **kwargs: Any) -> str:
     僅能取得該 agent 自身的事實，不會跨 agent 洩漏。不寫入、不修改任何既有資料。
     """
     manager = kwargs.pop("manager", get_manager())
-    facts = manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    facts = await run_memory_job(
+        lambda: manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    )
     return json.dumps(
         {"agent_id": identity.agent_id, "count": len(facts), "facts": facts},
         ensure_ascii=False,

@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import tempfile
+from concurrent.futures import Executor
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
@@ -117,6 +118,7 @@ import copy  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
 from memory_server.services.mission_lock import _reset_mission_lock_cache  # noqa: E402
+from memory_server.utils import memory_worker  # noqa: E402
 from src import config as runtime_config  # noqa: E402
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.main import app, protocol_manager  # noqa: E402
@@ -152,17 +154,27 @@ def _enforce_pytest_runtime_baseline() -> None:
 AUDIT_DRAIN_TIMEOUT_SECONDS = 30
 
 
-def _drain_policy_audit_writes() -> None:
-    """等稽核背景寫入做完，免得它在刪除後把 stats/ 建回來。
+def _drain_executor(executor: Executor) -> None:
+    """等 executor 佇列裡的工作做完。
 
     直譯器結束時 concurrent.futures 已先收掉 worker（佇列已清空），submit 會丟
     RuntimeError；這時當成已清空，不算釋放失敗。
     """
     try:
-        PolicyAuditService._executor.submit(int).result(timeout=AUDIT_DRAIN_TIMEOUT_SECONDS)
+        executor.submit(int).result(timeout=AUDIT_DRAIN_TIMEOUT_SECONDS)
     except RuntimeError as exc:
         if "interpreter shutdown" not in str(exc):
             raise
+
+
+def _drain_policy_audit_writes() -> None:
+    """等稽核背景寫入做完，免得它在刪除後把 stats/ 建回來。"""
+    _drain_executor(PolicyAuditService._executor)
+
+
+def _drain_memory_worker() -> None:
+    """等記憶工作者做完手上的工作：等待被取消或逾時時，已開始的工作還在跑（ADR-0288）。"""
+    _drain_executor(memory_worker._executor)
 
 
 def _close_qdrant_clients() -> None:
@@ -175,10 +187,11 @@ def _close_qdrant_clients() -> None:
         vector_module.VectorStore.close_all_clients()
 
 
-# 刪沙盒前依序釋放握住它的東西；新的 handle 來源加在這裡（單元測試釘住這四步）。
+# 刪沙盒前依序釋放握住它的東西；新的 handle 來源加在這裡（單元測試釘住這五步）。
 SANDBOX_RELEASE_STEPS.extend(
     [
         ("drain_policy_audit_writes", _drain_policy_audit_writes),
+        ("drain_memory_worker", _drain_memory_worker),
         ("close_qdrant_clients", _close_qdrant_clients),
         ("close_sqlite_connections", FactualStore.close_all_connections),
         ("close_log_handlers", partial(close_sandbox_log_handlers, SESSION_TMP_DATA_ROOT)),

@@ -821,6 +821,8 @@ def test_release_closes_logs_and_stores_before_deleting_the_sandbox(
     monkeypatch.setattr(probe, "close_sandbox_log_handlers", _close_logs)
     monkeypatch.setattr(probe, "_drain_policy_audit_writes",
                         lambda: seen.append(("audit", root.exists())))
+    monkeypatch.setattr(probe, "_drain_memory_worker",
+                        lambda: seen.append(("memory", root.exists())))
     monkeypatch.setattr(FactualStore, "close_all_connections",
                         lambda: seen.append(("sqlite", root.exists())))
     monkeypatch.setattr(memory_vector.VectorStore, "close_all_clients",
@@ -832,7 +834,9 @@ def test_release_closes_logs_and_stores_before_deleting_the_sandbox(
         holder.removeHandler(handler)
         handler.close()
 
-    assert seen == [("audit", True), ("logs", True), ("sqlite", True), ("qdrant", True)]
+    assert seen == [
+        ("audit", True), ("memory", True), ("logs", True), ("sqlite", True), ("qdrant", True)
+    ]
     assert not root.exists()
 
 
@@ -841,6 +845,15 @@ def test_policy_audit_drain_waits_for_queued_writes() -> None:
     PolicyAuditService._executor.submit(lambda: (time.sleep(0.05), done.append("write")))
 
     probe._drain_policy_audit_writes()
+
+    assert done == ["write"]
+
+
+def test_memory_worker_drain_waits_for_the_running_job() -> None:
+    done: list[str] = []
+    probe.memory_worker._executor.submit(lambda: (time.sleep(0.05), done.append("write")))
+
+    probe._drain_memory_worker()
 
     assert done == ["write"]
 

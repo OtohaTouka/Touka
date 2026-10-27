@@ -2,6 +2,15 @@
 
 > **TL;DR** — 整合模式單一部署（Proxy 同行程掛載，ADR-0116 退役獨立 MCP 模式）；工廠函數 `get_resource_proxy()` 是 I/O 唯一入口，回傳 ToukaProxy 真實 `ResourceManager`（取不到即 fail-loud，不再降級）；`sanitize_memory_content()` 防 Prompt Injection；來回計算 SSOT：`count_rounds_from_linear()`。
 
+## 記憶讀寫在哪條執行緒上跑（舊審查報告乙-3，ADR-0288）
+
+- 記憶的讀寫（事實庫、向量庫、嵌入模型、舊對話庫）排在整個行程一條單執行緒的工作者上（`memory_server/utils/memory_worker.py`，執行緒名稱 `touka-memory`），一次只跑一個；不在 Proxy 的事件迴圈上跑。例外：舊對話歸檔 `archive_payload`（滑動視窗與 UI 對話）仍用預設執行緒池；只讀事實庫、本來就用 `asyncio.to_thread` 的（`_scrub_dependencies`、`assert_id_free`）沒改。
+- 主迴圈用 `await run_memory_job(fn, ...)`；不在事件迴圈上的執行緒（記憶清除的工作執行緒）用 `run_memory_job_blocking(fn, ...)` 同步等；在工作者裡呼叫都直接執行。每個工作在呼叫端 contextvars 的複本裡跑（無痕不記事件照樣有效）。
+- 規矩：工作者裡的工作不得同步等主迴圈；主迴圈不得同步等工作者（`run_memory_job_blocking` 在事件迴圈上丟 `MemoryWorkerMisuseError`）；持有工作者裡的工作可能要的鎖（例如 `_UPGRADE_BACKUP_LOCK`）時不得同步等工作者。
+- 包進工作者的：存（查重到寫入一個工作）、查（來源行要 await，留在主迴圈）、forget、`manage_dups`、reindex、診斷、隨機回想、對話搜尋的舊對話庫、匯出；Proxy 的 `GET /v1/memory/list`、切換嵌入模型（偵測與套用是同一個工作 `embedding_service.switch_model`，中間不插進別的記憶操作；寫 `.env` 持 `config.ENV_FILE_LOCK`）、刪除靈魂前記憶檢查（`assert_memory_cleared` 是 async）、重置的清記憶與重算、舊對話統計與同步端點。診斷的資料夾大小、舊版 `facts.jsonl` 與搜尋紀錄用 `asyncio.to_thread`（不碰記憶庫，不佔工作者）。
+- `MemoryManager` 碰儲存的方法（`save_memory`、`query_memory` 以外）仍是同步的；在主迴圈上要經 `run_memory_job` 呼叫，不能直接呼叫或 await。只建物件或正規化 ID 的（`get_legacy_sync_service`、`normalize_agent_id`）照舊直接呼叫。
+- 等待被取消時，還在排隊的工作不跑，已經開始的會跑完，之後才失敗的記到 log。持鎖做破壞性操作的（重置的清記憶）用 `run_memory_job_to_end`：已經開始的做完才把取消往外丟，鎖不會在做到一半時就放掉。
+
 ## 任務持久化失敗（可靠性 R2 B1，來源階段）
 
 `MissionManager` 的共用保存閘只在受管寫入成功後更新呼叫端 `updated_at`；送出 bytes 來自待提交副本。
@@ -282,7 +291,7 @@ index／cache／lock 都算**寫入**。
   錯誤，供明確 cleanup 重試；它不宣稱 production 跨執行緒排空。`VectorStore` 則維持 clear-first
   cache 語意，失敗 client 不保留成可重試 cache entry，兩者不可混稱。
 - `MemoryManager.resolve_duplicate()` 是同步契約；`forget_memory()` 與 duplicate diagnostics 的
-  resolve path 不得再對其使用 `await`。
+  resolve path 不得再對其使用 `await`，改經 `run_memory_job` 在記憶工作者上呼叫（ADR-0288）。
 - `ToukaProxy/src/tools/execution_context.py` 是 ToolExecutor execution metadata key／builder SSOT。
   Memory gateway 依該集合剝除 `_ctx`、`_interactive`、`_hitl_preapproved` 等中繼資料與
   `resource_proxy`，但必須保留 `identity` 及真正的 Memory 領域參數。

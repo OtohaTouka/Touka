@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import psutil
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from memory_server.factual import FactsSchemaStatus, FactualStore, find_unmigrated_jsonl_agents
+from memory_server.utils.memory_worker import run_memory_job
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
@@ -281,8 +282,9 @@ async def get_memory_list(
             get_manager,  # noqa: LOCAL_IMPORT_BAN — 整合層延遲匯入，ToukaProxy 獨立運作時 ImportError
         )
         manager = get_manager()
-        factual = manager.get_factual_store()
-        all_facts = factual.query_all_facts(limit=MEMORY_LIST_LIMIT)
+        all_facts = await run_memory_job(  # 在記憶工作者上讀（ADR-0288）
+            lambda: manager.get_factual_store().query_all_facts(limit=MEMORY_LIST_LIMIT)
+        )
         memories = [_fact_to_memory_dto(f) for f in all_facts]
         return {"memories": memories}
     except ImportError:

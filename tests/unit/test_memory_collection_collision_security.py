@@ -318,9 +318,9 @@ async def test_g09_collided_soul_can_be_deleted_after_reset() -> None:
     _seed(target, ["mine"])
     _seed(other, ["theirs"])
     await P.purge_memory(target, _open)
-    delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
+    await delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
     with pytest.raises(ToukaException):
-        delete_guard.assert_memory_cleared(AgentIdentity(agent_id=other))
+        await delete_guard.assert_memory_cleared(AgentIdentity(agent_id=other))
 
 
 async def test_g09b_delete_check_counts_points_nobody_owns() -> None:
@@ -337,7 +337,7 @@ async def test_g09b_delete_check_counts_points_nobody_owns() -> None:
         ],
     )
     with pytest.raises(ToukaException) as exc:
-        delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
+        await delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
     assert exc.value.code is ErrorCode.SOUL_MEMORY_NOT_RESET
 
 
@@ -355,7 +355,7 @@ async def test_g09c_superseded_versions_are_reset_and_the_other_chain_is_kept() 
     await P.purge_memory(target, _open)
     assert store.count_agent_facts(AgentIdentity(agent_id=target)) == 0
     assert not _points(target) & {cn.fact_point_id(f) for f in chains[target]}
-    delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
+    await delete_guard.assert_memory_cleared(AgentIdentity(agent_id=target))
     assert store.query_facts(AgentIdentity(agent_id=other), include_archived=True) == other_before
     assert {cn.fact_point_id(f) for f in chains[other]} <= _points(other)
 

@@ -1,5 +1,13 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）
+
+| 責任 | 唯一來源 | 使用者 |
+|---|---|---|
+| 記憶讀寫排在哪裡跑（整個行程一條單執行緒工作者 `touka-memory`；主迴圈 await、別的執行緒同步等、工作者裡直接跑；帶呼叫端 contextvars；等待被取消後才失敗的記到 log；持鎖做破壞性操作的做完才放手） | `ToukaMemory/src/memory_server/utils/memory_worker.py`（`run_memory_job`、`run_memory_job_to_end`、`run_memory_job_blocking`、`in_memory_worker`、`MemoryWorkerMisuseError`） | 記憶工具（存、查、forget、manage_dups、reindex、診斷、隨機回想、對話搜尋、匯出）、記憶列表與切換嵌入模型端點（偵測與套用一個工作，`embedding_service.switch_model`）、刪除靈魂前的記憶檢查、重置的清記憶（做完才放手）與重算、舊對話統計與同步端點、測試沙盒釋放步驟 |
+| 向量庫的執行緒保險（公開方法整段持鎖；建單例與重置互斥） | `ToukaMemory/src/memory_server/vector.py` `_STORE_LOCK`；`services/manager.py` `_VECTOR_STORE_LOCK` | `VectorStore` 的公開方法、`MemoryManager.get_vector_store`、`reset_singletons` |
+| 寫 `.env` 的互斥（讀改寫整段持鎖；只管這個行程） | `ToukaProxy/src/config.py` `ENV_FILE_LOCK` | 設定頁 `POST /v1/config/env`（`routers/config.py`）、首裝精靈 `SetupService.apply`、`persist_generated_secret`、`persist_generated_secrets`、切換嵌入模型 `embedding_service.apply_switch` |
+
 ## MCP 伺服器與創建試跑的隔離（C2-3）
 
 決策見 ADR-0275。來源與額外資料夾不放入 `server_config.json`；設定、判定、傳輸各有自己的來源，不由 UI 推導權限。

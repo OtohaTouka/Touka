@@ -336,7 +336,7 @@ def admin(
     slug = "".join(c for c in request.node.name if c.isalnum())
     user = AuthService().create_user(f"wipe-{slug}@test.com", ADMIN_PW, role="admin")
     identity = AgentIdentity.for_role(user.id, "admin", is_human=True, owned_agents=[])
-    monkeypatch.setattr(souls, "assert_memory_cleared", Mock())
+    monkeypatch.setattr(souls, "assert_memory_cleared", AsyncMock())
     monkeypatch.setattr(souls, "assert_timeline_cleared", AsyncMock())
     app.dependency_overrides[get_verified_identity] = lambda: identity
     yield TestClient(app, raise_server_exceptions=False)

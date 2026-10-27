@@ -851,6 +851,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **自癒能力**: 支援 `.env` 自動發現與缺失配置自動復原。
 - **環境感知互斥載入 (ADR-0052)** ⭐：系統支援整合與解耦分開運行。當以大一統整合模式執行時，系統強制載入並統一讀取根目錄 `.env`；當分開獨立運行某個子專案時，強制載入並讀取子專案目錄下的 `.env`，不得混載或相互覆蓋。
 - **`.env` 寫入路徑 SSOT 與 `TOUKA_ENV_FILE` 覆寫（2026-07-02，ADR-0118，延伸 ADR-0052／禁令 38）** ⭐：`routers/config.py` 的 `POST /v1/config/env` 讀寫 `.env` 一律經 `src.config.resolve_env_file_path()`（SSOT），移除裸相對 `".env"`。`resolve_env_file_path()` 新增最高優先權環境覆寫 `TOUKA_ENV_FILE`（高於整合／獨立模式自動偵測）；`docker-compose.yml` 設 `TOUKA_ENV_FILE=/app/host_root/.env`（**ADR-0151**：`./:/app/host_root` 恆掛 compose 目錄＝compose `env_file` 讀取的同一 .env，與 `WORKSPACE_ROOT` **解耦**；舊制 `/app/workspace/.env` 綁 `WORKSPACE_ROOT`，指向 repo 以外即寫幽靈 .env）→ 精靈與自動生成的金鑰**跨容器重建持久化**並於重啟重新注入。寫入後 `apply_runtime_env()` 同步 `os.environ` ＋ settings ＋ 模組層 `src.config` 常數（免重啟即時生效）。
+- **寫 `.env` 共用一把鎖（2026-10-28，ADR-0288）**：`POST /v1/config/env`、首裝精靈、密鑰持久化與切換嵌入模型（在記憶工作者上）寫 `.env` 時，讀改寫整段持 `src.config.ENV_FILE_LOCK`，同時寫不會互相蓋掉；只管 Proxy 這個行程。回應不變。
 - **`POST /v1/config/env` 寫入失敗錯誤消毒（2026-07-02，E#21 security）** ⭐：`update_env` 的 500 回應不再夾帶原始例外字串（移除 `error_output=str(e)`）；統一回乾淨的 `SYSTEM_ERROR`，詳情僅寫入 `logger.exception`。雖為 admin-only 端點，仍避免洩漏檔案系統路徑。
 
 ## 📦 部署主權 (Deployment Sovereignty) ⭐
