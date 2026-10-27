@@ -251,13 +251,91 @@ async def test_mcp_branch_only_fields_survive_stripping():
     assert not _ROOT_COMBINATORS & set(schema)
     assert schema["type"] == "object"
     assert schema["properties"] == {
-        "email": {"type": "string"},  # 分支之間先出現者為準
+        "email": {"anyOf": [{"type": "string"}, {"type": "integer"}]},  # 分支各自的定義都留
         "target": {"$ref": "#/$defs/Target"},
         "phone": {"type": "string"},
         "note": {"type": "string"},
     }
     assert schema["$defs"] == _MCP_BRANCH_ONLY["function"]["parameters"]["$defs"]  # $ref 還指得到
     assert "required" not in schema  # 分支的必填不升到根層
+
+
+# 判別欄位只寫在分支裡：每個分支的 kind 只收一個值，只留第一個的話另一種永遠送不出來
+_MCP_DISCRIMINATED = {
+    "server": "ext",
+    "tool": "notify",
+    "type": "function",
+    "function": {
+        "name": "ext__notify",
+        "description": "a discriminator that lives only in the branches",
+        "parameters": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "properties": {
+                        "kind": {"const": "email", "description": "send an email"},
+                        "address": {"type": "string"},
+                        "subject": {"type": "string"},
+                    },
+                    "required": ["kind", "address"],
+                },
+                {
+                    "properties": {
+                        "kind": {"const": "sms", "description": "send a text message"},
+                        "number": {"type": "string"},
+                        "subject": {"type": "string"},
+                    },
+                    "required": ["kind", "number"],
+                },
+                {
+                    "properties": {
+                        "kind": {"const": "email", "description": "send an email"},
+                        "cc": {"type": "string"},
+                    },
+                },
+            ],
+        },
+    },
+}
+
+
+async def test_mcp_discriminator_only_in_branches_keeps_every_choice():
+    tools = await _listed_tools([copy.deepcopy(_MCP_DISCRIMINATED)])
+    schema = (await _anthropic_wire(tools))["ext__notify"]
+    assert not _ROOT_COMBINATORS & set(schema)
+    assert schema["properties"]["kind"] == {  # 依出現順序、相同的只留一份
+        "anyOf": [
+            {"const": "email", "description": "send an email"},
+            {"const": "sms", "description": "send a text message"},
+        ]
+    }
+    assert schema["properties"]["subject"] == {"type": "string"}  # 每個分支都一樣：不包 anyOf
+    assert set(schema["properties"]) == {"kind", "address", "subject", "number", "cc"}
+    assert "required" not in schema
+
+
+def test_branch_variants_never_mutate_the_input():
+    tool = copy.deepcopy(_MCP_DISCRIMINATED)
+    snapshot = copy.deepcopy(tool)
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    assert tool == snapshot
+    schema["properties"]["kind"]["anyOf"].append({"const": "fax"})  # 合成的 anyOf 是新建的
+    schema["properties"]["kind"]["description"] = "changed"
+    assert tool == snapshot
+
+
+async def test_native_tools_have_no_conflicting_branch_fields(listed):
+    """Touka 自己的工具：分支裡根層沒有的同名欄位定義都一樣，送給 Claude 的形狀不受合併方式影響。"""
+    for name in _ROOT_ONEOF_NATIVE:
+        schema = _canonical(listed)[name]
+        root = set(schema.get("properties") or {})
+        seen: dict[str, Any] = {}
+        for key in _ROOT_COMBINATORS:
+            for branch in schema.get(key) or []:
+                for field, definition in (branch.get("properties") or {}).items():
+                    if field in root:
+                        continue
+                    assert seen.setdefault(field, definition) == definition, (name, field)
 
 
 async def test_anthropic_shaped_passthrough_is_stripped_on_native_ingress():

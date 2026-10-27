@@ -222,7 +222,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 
 ## Claude 工具定義：根層組合子（ADR-0266）
 
-- 送給 Claude 的每個工具 `input_schema`：根層不帶 `oneOf`／`anyOf`／`allOf`（各分支的 `properties` 併進根層，同名以根層為準；`required` 只留根層原有的；其他根層鍵如 `$defs` 照留；根層 `type` 一律 `object`），內層照留。OpenAI 形狀與 Anthropic 形狀（含 `/v1/messages` 帶來的工具、外部 MCP 工具）都一樣；沒有 `input_schema` 的伺服器工具原樣送出。Gemini、OpenAI 相容、Responses 送出的工具定義不變；執行前的參數檢查不變。端點與 OpenAPI 不變。
+- 送給 Claude 的每個工具 `input_schema`：根層不帶 `oneOf`／`anyOf`／`allOf`（各分支的 `properties` 併進根層，同名以根層為準；分支之間同名欄位的定義依出現順序收集、相同的只留一份，多種合成 `anyOf`（ADR-0285 甲-2）；`required` 只留根層原有的；其他根層鍵如 `$defs` 照留；根層 `type` 一律 `object`），內層照留。OpenAI 形狀與 Anthropic 形狀（含 `/v1/messages` 帶來的工具、外部 MCP 工具）都一樣；沒有 `input_schema` 的伺服器工具原樣送出。Gemini、OpenAI 相容、Responses 送出的工具定義不變；執行前的參數檢查不變。端點與 OpenAPI 不變。
 
 ## 記憶系統第二批段 4：可信活動時間軸與時間感（ADR-0267）
 

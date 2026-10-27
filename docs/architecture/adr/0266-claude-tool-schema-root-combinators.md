@@ -1,6 +1,6 @@
 # ADR-0266：Claude 出場剝除工具定義根層組合子
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准計畫）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准計畫）〔ADR-0285 修訂決策 1 與已知限制第 4 條：分支之間同名欄位的定義都保留，多種合成 `anyOf`〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（`adapters/tool_schema.py` 的 `openai_to_anthropic_tools`；`tools/project_tools.py` 只改註解）；tests（`tests/unit/test_tool_schema_hygiene.py` 改寫 1 個、新增 `tests/unit/test_provider_tool_schema_egress.py`）
@@ -28,7 +28,7 @@
 
 1. **只修出場最後一步**：`openai_to_anthropic_tools` 的兩個分支都改用 `_anthropic_input_schema` 另建一份 input_schema：
    - 剝掉根層 `oneOf`／`anyOf`／`allOf`，其他根層鍵（含 `$defs`）照留，內層不動；
-   - 剝之前把各分支的 `properties` 併進根層 `properties`（同名以根層為準，分支之間先出現者為準）：外部 MCP 工具只把欄位寫在分支裡時，欄位不會跟著消失，`$ref` 也還指得到；
+   - 剝之前把各分支的 `properties` 併進根層 `properties`（同名以根層為準，分支之間先出現者為準〔ADR-0285 甲-2 起：定義都保留，多種合成 `anyOf`〕）：外部 MCP 工具只把欄位寫在分支裡時，欄位不會跟著消失，`$ref` 也還指得到；
    - `required` 只留根層原有的；
    - 根層 `type` 一律 `object`；參數不是 dict 時給空的 object schema。
 2. **一律建新 dict、絕不就地修改輸入**：ToolLayer 把模組層 schema 以參考放進請求，就地改會連帶改到 Gemini、OpenAI 與我們自己的檢查。Anthropic 形狀分支也改成複製後再放出去，順帶修好一個既有問題：`openai_to_claude` 之後在輸出末項寫 `cache_control`，以前會寫到呼叫端傳進來的那個工具物件上。沒有 `input_schema` 的 Anthropic 伺服器工具原樣複製、不補欄位。
@@ -49,7 +49,7 @@
 - 條件必填對 Claude 只剩說明文字，模型送錯欄位組合時要靠執行前檢查擋下、多一輪修正。
 - 只處理根層的三個組合子；根層 `not`、`if`／`then`／`else` 等其他關鍵字不處理（目前沒有工具使用）。
 - 分支的 `required` 不升到根層（照設計），所以 MCP 工具「各分支各自必填」的資訊對 Claude 也只剩描述文字。
-- 分支之間同名欄位定義不同時，只取第一個出現的定義。
+- 分支之間同名欄位定義不同時，只取第一個出現的定義。〔ADR-0285 已解決〕
 - 【推測】Gemini 出場對外部 MCP 工具的 `$ref`／`$defs` 不處理，欄位只寫在分支裡的也會在剝分支時消失；這類 MCP 工具在 Gemini 可能被拒收或變成沒有欄位。本 ADR 範圍外，未修（見 HANDOVER §3）。
 - 不涵蓋：SNS 走 Claude 時 ctx 缺連線物件的問題、OpenAI 相容轉送服務後端是 Claude 時的同類限制（另案）。
 
