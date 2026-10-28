@@ -21348,7 +21348,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {
@@ -22934,7 +22935,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {
@@ -23013,7 +23015,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {

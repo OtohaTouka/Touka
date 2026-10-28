@@ -266,7 +266,11 @@ def audit_result(report: MemoryScrubReport, actor_label: str, target: str) -> No
     snap_ok, snap_total = _counts(report.items, "snapshot")
     # 檔名一律 repr：含換行或引號的檔名不能偽造出另一行稽核
     failed = ",".join(f"{i.name!r}={i.reason}" for i in report.items if i.status == "failed")
-    info = ",".join(f"{i.name!r}={i.reason}:{i.count}" for i in report.items if i.kind == "info")
+    info = ",".join(
+        f"{i.name!r}={i.reason}" + ("" if i.count is None else f":{i.count}")
+        for i in report.items
+        if i.kind == "info"
+    )
     logger.warning(
         "AUDIT: memory-scrub result actor=%r target=%r requested=%s ran=%s complete=%s reason=%s"
         " memory_remaining=%s own_snapshot=%r live=%s upgrade=%d/%d snapshots=%d/%d"
