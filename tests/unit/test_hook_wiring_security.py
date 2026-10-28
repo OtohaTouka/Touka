@@ -46,9 +46,10 @@ from src.services.completion import CompletionResult
 from src.services.hooks import stop_hooks, tool_hooks
 from src.services.hooks.events import HOOK_DATA_NOTE, attach_to_tool_result, legacy_aliases
 from src.services.hooks.runners import RunResult
-from src.services.hooks.service import HookService
+from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookService
 from src.services.permission_service import permission_service
 from src.services.review.budget import _reset_review_ledger
+from src.services.stream_buffer_service import StreamBufferService
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
 from src.utils.user_intent import chat_intent
@@ -212,11 +213,16 @@ async def test_a_block_wins_over_a_stop_so_a_connected_client_drops_the_turn(hoo
     with pytest.raises(ToukaException) as raised:
         await HookLayer().process(_Request("hello"), _prompt_ctx())
     assert raised.value.code == ErrorCode.HOOK_PROMPT_BLOCKED
-    assert len(raised.value.detail["reason"]) == layer_module.MAX_REASON_CHARS
+    assert len(raised.value.detail["reason"]) == MAX_BLOCK_REASON_CHARS
 
 
-async def test_a_stop_flag_changes_nothing_without_prompt_hooks(hooks, monkeypatch):
-    hooks.configure({"PreToolUse": [_group()]})
+@pytest.mark.parametrize("configured", ["other_event", "disabled_hook"])
+async def test_a_stop_flag_changes_nothing_when_no_prompt_hook_runs(hooks, monkeypatch, configured):
+    if configured == "other_event":
+        hooks.configure({"PreToolUse": [_group()]})
+    else:
+        # 有 UserPromptSubmit 群組、但 hook 全部停用：沒有 hook 真的跑，旗標交給之後的檢查
+        hooks.configure({"UserPromptSubmit": [_group([{**_HTTP_HOOK, "enabled": False}])]})
     _stopped(monkeypatch, layer_module, "s-hook")
     request = _Request("hello")
     await HookLayer().process(request, _prompt_ctx())
@@ -246,6 +252,63 @@ async def test_only_process_proxy_request_turns_prompt_hooks_on(monkeypatch):
     assert PipelineContext().run_hooks is False
     source = inspect.getsource(context_snapshot_service.get_context_snapshot)
     assert "ctx.run_hooks = False" in source
+
+
+class _UiRequest(_Request):
+    def __init__(self, text: str, session_id: str | None) -> None:
+        super().__init__(text)
+        self.session_id = session_id
+
+
+_REQUESTER = AgentIdentity.for_role(agent_id="human-owner", role="normal", is_human=True)
+
+
+@pytest.mark.parametrize("ending", ["stream_started", "failed"])
+async def test_a_ui_request_counts_as_waiting_until_its_stream_exists(monkeypatch, ending):
+    """停止端點靠這筆登記認出 hook 執行中、還沒有串流的請求（ADR-0292）。"""
+    buffer = StreamBufferService()
+    monkeypatch.setattr(proxy_service, "stream_buffer_service", buffer)
+    seen: list[bool] = []
+
+    async def fake_execute(_request: Any, _ctx: PipelineContext) -> None:
+        seen.append(buffer.has_pending_request("s-ui", _REQUESTER))
+
+    async def fake_dispatch(*_args: Any, **_kwargs: Any) -> str:
+        seen.append(buffer.has_pending_request("s-ui", _REQUESTER))
+        if ending == "failed":
+            raise ValueError
+        return "response"
+
+    monkeypatch.setattr(proxy_service.pipeline, "execute", fake_execute)
+    monkeypatch.setattr(proxy_service, "dispatch_request", fake_dispatch)
+    monkeypatch.setattr(proxy_service, "log_payload", lambda *_args: None)
+    ctx = PipelineContext(ui_requester=_REQUESTER)
+    if ending == "failed":
+        with pytest.raises(ToukaException):
+            await proxy_service.process_proxy_request(_UiRequest("hi", "s-ui"), ctx)
+    else:
+        response = await proxy_service.process_proxy_request(_UiRequest("hi", "s-ui"), ctx)
+        assert response == "response"
+    assert seen == [True, True]
+    assert not buffer.has_pending_request("s-ui", _REQUESTER)
+
+
+@pytest.mark.parametrize("session_id", [None, "s-ui"])
+async def test_only_ui_requests_with_a_conversation_count_as_waiting(monkeypatch, session_id):
+    buffer = StreamBufferService()
+    monkeypatch.setattr(proxy_service, "stream_buffer_service", buffer)
+    seen: list[bool] = []
+
+    async def fake_execute(_request: Any, _ctx: PipelineContext) -> None:
+        seen.append(bool(buffer._pending))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(proxy_service.pipeline, "execute", fake_execute)
+    # 沒有對話的 UI 請求、或不是 UI 的請求（心跳、SNS）都不登記
+    ctx = PipelineContext(ui_requester=_REQUESTER if session_id is None else None)
+    with pytest.raises(asyncio.CancelledError):
+        await proxy_service.process_proxy_request(_UiRequest("hi", session_id), ctx)
+    assert seen == [False]
 
 
 # ── PreToolUse／PostToolUse（執行器） ───────────────────────────────────────────────

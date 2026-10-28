@@ -32,8 +32,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PROMPT_EVENT = "UserPromptSubmit"
-# 擋下理由放進 403 回應時的上限（多個 hook 的理由合併後可能很長）
-MAX_REASON_CHARS = 4_000
 
 
 class HookLayer(ProxyLayer):
@@ -51,7 +49,7 @@ class HookLayer(ProxyLayer):
                 "UserPromptSubmit hook blocked a prompt (session=%s)", ctx.get("session_id")
             )
             raise ToukaException(
-                ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.reason[:MAX_REASON_CHARS]
+                ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.block_reason
             )
         session_id = ctx.get("session_id")
         if decision.ran and session_id and rhythm_service.is_interrupted(session_id):

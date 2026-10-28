@@ -7,6 +7,8 @@
   並以 ``asyncio.Event`` 跟流，與 producer（生成）完全解耦——client 斷線只
   取消訂閱者，生成續跑（Vercel resumable-stream 藍圖的 Touka 對應）。
 - 同 session 開新串流時取消舊串流（防接到過期串流的競態，對應 activeStreamId 守則）。
+- 記下還沒開始串流的 UI 請求是誰送的（UserPromptSubmit hook 執行中、組上下文中），讓停止端點
+  在還沒有串流、無痕查不到對話時也認得請求者（ADR-0292）。
 
 誠實限制：in-memory——server 重啟＝生成本就隨進程死亡，緩衝同滅；完成後保留
 ``STREAM_BUFFER_TTL_SECONDS``，過期只能重新讀取已確認持久化的歷史；未保存草稿
@@ -17,7 +19,8 @@ import asyncio
 import json
 import logging
 import uuid
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -79,6 +82,8 @@ class StreamBufferService:
 
     def __init__(self, interjections: InterjectionQueue = interjection_queue) -> None:
         self._streams: dict[str, StreamEntry] = {}
+        # 還沒開始串流的 UI 請求：session → {這次請求的記號: 請求者}
+        self._pending: dict[str, dict[object, AgentIdentity]] = {}
         # 插話佇列（ADR-0249）：串流結束或同 session 開新串流時清空
         self._interjections = interjections
 
@@ -243,11 +248,33 @@ class StreamBufferService:
         self._sweep()
         entry = self._streams.get(session_id)
         return bool(
-            entry
-            and entry.admission
-            and entry.owner
-            and entry.owner.agent_id == identity.agent_id
-            and entry.owner.is_human == identity.is_human
+            entry and entry.admission and entry.owner and _same_requester(entry.owner, identity)
+        )
+
+    @contextmanager
+    def pending_request(self, session_id: str, requester: AgentIdentity) -> Iterator[None]:
+        """登記一則還沒開始串流的 UI 請求，離開時移除（只移除自己這一筆）。"""
+        token = object()
+        self._pending.setdefault(session_id, {})[token] = requester
+        try:
+            yield
+        finally:
+            waiting = self._pending.get(session_id, {})
+            waiting.pop(token, None)
+            if not waiting:
+                self._pending.pop(session_id, None)
+
+    def has_pending_request(self, session_id: str, identity: AgentIdentity) -> bool:
+        """``identity`` 在這個對話有還沒開始串流的請求，而且沒有進行中的串流。
+
+        有進行中的串流時回 False：停止要指名那一代（不能用沒指名的停止停到它）。
+        """
+        self._sweep()
+        entry = self._streams.get(session_id)
+        if entry is not None and entry.status == "active":
+            return False
+        return any(
+            _same_requester(owner, identity) for owner in self._pending.get(session_id, {}).values()
         )
 
     def persistence_mode(
@@ -362,6 +389,10 @@ class StreamBufferService:
                 self._terminate(entry, "error")
         for sid in stale:
             del self._streams[sid]
+
+
+def _same_requester(owner: AgentIdentity, identity: AgentIdentity) -> bool:
+    return owner.agent_id == identity.agent_id and owner.is_human == identity.is_human
 
 
 # 模組級單例（SSOT）

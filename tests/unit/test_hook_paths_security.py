@@ -181,6 +181,20 @@ def test_paths_glued_to_a_short_option_or_an_at_sign_are_checked(layout):
     assert command_path_problems(plain, _zones(layout)) == []
 
 
+def test_paths_after_a_colon_or_at_sign_inside_a_word_are_checked(layout):
+    """``-javaagent:<路徑>`` 會載入那個檔；Windows 的 ``:`` 是磁碟代號、不整個拆，也要查得到。"""
+    evil = str(layout["data"] / "evil.py")
+    rooted = evil[len(Path(evil).drive) :]  # Windows：同一個磁碟的根目錄起算
+    for arg in (f"-javaagent:{evil}", f"-agentpath:{evil}", f"--rcfile:{evil}",
+                f"-Xbootclasspath/a:{evil}", f"pkg@{evil}", f"--opt:{rooted}"):
+        hook = _hook(layout["outside"] / "tool.exe", arg)
+        assert "outside_hooks_dir" in _reasons(command_path_problems(hook, _zones(layout))), arg
+    inside = str(layout["config"] / "hooks" / "guard.py")
+    plain = _hook(layout["outside"] / "tool.exe", f"-javaagent:{inside}", "--url=https://example.com/x",
+                  "--profile:dev", "user@example.com")
+    assert command_path_problems(plain, _zones(layout)) == []
+
+
 def test_unc_and_drive_relative_paths_are_rejected(layout):
     if sys.platform != "win32":
         assert command_path_problems(_hook("//server/share/tool"), _zones(layout))

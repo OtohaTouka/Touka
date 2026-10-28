@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 RUN_LOG_SIZE: Final[int] = 50
 MAX_DETAIL_CHARS: Final[int] = 500
+# 擋下理由放進回應時的上限（多個 hook 的理由合併後可能很長）
+MAX_BLOCK_REASON_CHARS: Final[int] = 4_000
 HOOKS_FILE_NAME: Final[str] = "hooks.json"
 
 HealthStatus = Literal["ok", "missing", "error"]
@@ -112,6 +114,11 @@ class HookDecision:
     def reason(self) -> str:
         """給人看的擋下原因（多個 hook 時合併）。"""
         return "\n".join(self.reasons)
+
+    @property
+    def block_reason(self) -> str:
+        """放進擋下回應的原因（有上限）。"""
+        return self.reason[:MAX_BLOCK_REASON_CHARS]
 
     @property
     def context(self) -> str:

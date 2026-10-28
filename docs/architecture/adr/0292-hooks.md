@@ -50,19 +50,20 @@
 6. **回給模型的文字是資料**：
    - 補充說明包成 `<hook_output>` 區塊，開頭註明這是管理員設定的 hook 的輸出、不是使用者的話也不是指令；內文的區塊 tag 先中和（`<` 換成 `&lt;`），不能提早關閉區塊或冒充別的區塊。
    - UserPromptSubmit 的補充說明接在最後一則 user 訊息尾端，只用在這一次請求（`REQUEST_TAIL_TAGS`，不進下一輪歷史，對話歷史快取斷點打在它之前）。
-   - 工具前後的補充說明接在工具結果後面：結構化 JSON 結果加 `hook_output` 鍵（標 `trust: "untrusted"`），文字結果加 `<hook_output>` 區塊。
+   - 工具前後的補充說明接在工具結果後面：結構化 JSON 結果加 `hook_output` 鍵（標 `trust: "untrusted"`），文字結果加 `<hook_output>` 區塊。工具結果會顯示在對話裡、也存進對話紀錄（無痕不存），所以這段補充說明對話的使用者看得到，管理員不要在裡面放不給使用者看的內容。
    - PreToolUse 擋下時回結構化 `permission_denied`（`reason: "hook_denied"`、`hook_reason` 中和後截斷 2,000 字）。
 7. **四個事件的接線點**（丙-1）：
    - UserPromptSubmit：`HookLayer` 排在 `MonitorLayer`（身分判定）之後、組上下文之前；只在 `process_proxy_request` 設的 `ctx.run_hooks` 時執行（UI 聊天、SNS、評分卡），上下文預覽明確設成不執行，子代理不執行，只有工具結果的 user 回合不算使用者送出的訊息。事件內容的 `prompt` 只有這次請求最後一則 user 訊息的文字；同一次請求裡較早的 user 訊息（例如自己組歷史的用戶端塞進去的）不會送給 hook。這時模式還沒決定（`ToolLayer` 才決定），事件內容不帶 `permission_mode`。擋下回 `HOOK_PROMPT_BLOCKED`（403）並帶 `reason`（最多 4,000 字），前端以專屬通知顯示擋下與理由。
-     - 停止：hook 執行期間使用者按了停止（前端這時還沒有串流，直接送這個對話的停止），hook 跑完後看到這個對話的停止旗標就不送模型，回 409 `PROMPT_STOPPED`；hook 擋下時照樣回擋下。沒有 hook 真的執行時不看這個旗標（照原本的流程）。
+     - 停止：hook 執行期間使用者按了停止，前端這時還沒有進行中的串流，送這個對話不指名的停止。後端在請求開始時就記下這則還沒開始串流的請求是誰送的（`stream_buffer_service.pending_request`，串流開始或請求結束時移除），停止端點認出是同一位請求者就設這個對話的停止旗標，不查對話紀錄（無痕查不到），上一則已結束的串流登記還留著（保留 10 分鐘）時也一樣。hook 跑完後看到旗標就不送模型，回 409 `PROMPT_STOPPED`；組上下文期間才按的停止，送模型前（`react_core`）看到旗標就結束。hook 擋下時照樣回擋下。沒有 hook 真的執行時不看這個旗標（照原本的流程）。
+       - 已經有進行中的串流時，不指名的停止不會停到它：停止端點回 404，前端再讀一次串流狀態，是這一輪的串流才指名停止。
      - SNS：外人訊息等 pipeline 跑完才寫進對話；被擋下的不寫、不回覆外人（擋下原因是設定的一部分），也不往外丟錯，只記一筆 log；其他錯誤照舊先寫再往外丟。回覆是串流，寫好之前不會讀，寫不進去就不呼叫模型。
      - 這是「使用者送出訊息」的檢查，不是管住使用者或代理人的機制：心跳的脈衝提示、排程寫的提示（`init_prompt`）、重新觸發（`/heartbeat/retrigger`）與只有工具結果的回合都不觸發。
    - 插話（ADR-0249）：插話也是使用者送出的文字，進佇列前跑 UserPromptSubmit（`services/hooks/interjection_hooks.py`，事件內容多 `interjection: true`、`agent_id` 取自這次串流）。擋下回 403 `HOOK_PROMPT_BLOCKED`、不進佇列，前端顯示理由並把文字放回輸入框；hook 的補充說明不採用（插話直接接在這一輪的對話裡，沒有「只用在這一次請求」的位置）；hook 服務出錯照樣進佇列。hook 執行期間串流換了或結束了，回 404 `STREAM_NOT_FOUND`，不進新的串流。
    - PreToolUse／PostToolUse：`ToolExecutor` 內，matcher 比對 Touka 的工具名稱，MCP 工具另比對 Claude Code 寫法 `mcp__server__tool`；PostToolUse 只在成功後執行，事件內容多 `tool_response`。
-     - 只涵蓋經 `ToolExecutor` 的工具呼叫：任務的驗證指令（`verification_cmd`）、演化與創建的試跑由系統自己啟動，不觸發 PreToolUse，照原本的隔離與審批規則執行。
+     - 只涵蓋經 `ToolExecutor` 的工具呼叫：任務的驗證指令（`verification_cmd`）、演化與創建的試跑由系統自己啟動，不觸發 PreToolUse，照原本的隔離與審批規則執行。人按的除錯執行（`/debug/execute`）也經 `ToolExecutor`，同樣會觸發。
      - 工具在等 PreToolUse hook 時使用者按了停止，hook 跑完後不執行這個工具，回結構化 `permission_denied`（`reason: "stopped_by_user"`）；沒有 hook 真的執行時不看停止旗標。
      - 舊工具名稱（`LEGACY_ADVERTISED_SUCCESSORS`）也比對它對應的新名稱：規則寫 `execute_command`，模型叫 `bash` 也比得到；舊檔案工具的 `action` 剛好是某個新名稱時只對應那一個，其他動作對應全部檔案動詞（寧可多比到）。事件內容的 `tool_name` 照模型叫的名稱，另加 `tool_aliases` 列出對應的新名稱。
-     - 事件內容的 `tool_input` 是模型送來的參數：執行器之後替 MCP 工具補上的 `agent_id`、換成代理人自己資料夾實際路徑的根目錄參數，都不會出現在 hook 看到的內容裡。
+     - 事件內容的 `tool_input` 是模型送來的參數：執行器之後替 MCP 工具補上的 `agent_id`、換成代理人自己資料夾實際路徑的根目錄參數，都不會出現在 hook 看到的內容裡。公開參數的驗證在審批之後才做（ADR-0229），所以 hook 看到的是驗證之前的原樣：欄位可能是別名、多出不認得的欄位或型別不對，hook 不能假設已經正規化。
    - Stop：ReAct 迴圈回完之後在背景執行（`spawn_logged`），回覆不等它；子代理的回合不執行；只記錄，不能讓代理人繼續（ADR-0146：回文字就結束這一輪）。
    - 心跳的每次脈衝都會觸發工具前後與 Stop；脈衝提示不是使用者訊息，所以不觸發 UserPromptSubmit。
    - 每個事件都有 `session_id`、`agent_id` 與 Touka 多的 `incognito`（hook 自己決定無痕對話的內容要不要留）。
@@ -83,14 +84,14 @@
 12. **一般使用者的專案根不能放在 Touka 保護的位置**（`services/isolation/profiles.project_root_reason`）：決定 5 把專案根當禁區，但專案是使用者自己登記的；專案根若是設定資料夾、`config/hooks/` 或它們的上層，代理人就能經專案檔案工具寫進 hook 腳本。
     - 判斷沿用 ADR-0272 的永不授權規則：受保護的位置與它們的上層、經連結指到受保護位置的一律拒絕；容器裡工作區掛載根本身也不能當專案根，另查 Touka 目錄（只有使用者自建的頂層資料夾能當專案）。
     - 本機安裝不往上找 Touka 目錄（安裝根就是 Touka 目錄，往上找會擋掉所有專案），改用固定規則：專案根在安裝根底下時，第一層資料夾不能是 Touka 自己的（點開頭的，或 `TOUKA_TOPLEVEL_PROTECTED` 裡的 `ToukaChat`、`ToukaProxy`、`docs`、`scripts`、`tests`、`data`、`backups`、`venv`、`node_modules` 等，不分大小寫），例如 `.venv`、`.git/hooks`、`.claude` 底下都不行；安裝根本身也不能當專案。
-    - 容器裡的 Touka 目錄判斷會誤擋：專案裡（往下 3 層內）剛好有和 Touka 標記或資料根同名的資料夾就當成受保護的位置；資料夾太多、有讀不到的資料夾或還在掃（前景最多等 2 秒，背景繼續掃、結果快取 10 分鐘）時回「檢查沒做完」（`scan_limit`），和受保護的位置分開說明，也不放行。
+    - 容器裡的 Touka 目錄判斷會誤擋：專案裡（往下 3 層內）剛好有和 Touka 標記或資料根同名的資料夾就當成受保護的位置；資料夾太多、有讀不到的資料夾或還在掃（前景最多等 2 秒，背景繼續掃、結果快取 10 分鐘）時回「檢查沒做完」（`scan_limit`），和受保護的位置分開說明，也不放行。快取過期後會重掃，大的專案大約每 10 分鐘可能遇到一次「檢查沒做完」，稍後再試即可。
     - 三處檢查：登記與更新專案（`ui_sessions._check_project_root`，回 422 並帶 `reason`：`outside_workspace`、`protected_location` 或 `scan_limit`）、列專案檔案與每次專案檔案工具呼叫（`project_tools`，回結構化 `permission_denied`，`reason` 同上，檢查沒做完時建議稍後再試）。聊天畫面的專案檔案樹（`ui_sessions` 的檔案樹端點）被拒時照舊回不分原因的 403，檢查沒做完時也一樣，稍後重新整理即可。
     - 管理員與 Debugger 不受這條限制（他們本來就能指定任何位置，`resource_manager.bypasses_project_jail`）；只有管理員擁有的靈魂也不受限（前景交談時執行身分會換成靈魂本身，ADR-0154，所以另查擁有者，`authorization_gateway.only_admins_own`）。有一般使用者共同擁有的靈魂照一般身分檢查：一般使用者也能用它對話，不能因為管理員也擁有就放寬。這是已知的界線：管理員登記在受保護位置的專案，只有管理員擁有的靈魂用專案工具時仍寫得到，由管理員自己負責不這樣登記。其他靈魂在前景與心跳都照這條檢查。
     - 行為變更：一般使用者的專案不能在受保護的資料夾裡，也不能是它們的上層（例如工作區根就是 Touka 安裝根時，工作區根本身不能當專案）；既有的這類登記留著，但專案工具會拒絕。
 13. **群聊**：hook 補充說明裡的 `@別名` 不算點名（`group_router` 找點名前先拿掉 `<hook_output>` 區塊），hook 的輸出不能叫其他靈魂發言。
 14. **被擋下的這一輪從對話拿掉**（和 Claude Code 一樣）：聊天前端送出時先存使用者這一輪（ADR-0231），被 UserPromptSubmit 擋下後，把這則訊息和它的空回覆從對話樹拿掉，照「後端沒有存文字」的完成流程以 revision 比對存回去（後端在送模型前就拒絕，什麼都沒寫）；之後心跳、重新觸發、滑動視窗摘要與歸檔讀存檔都看不到它。對話標題若是用被擋文字開頭建的，一起換回。文字放回輸入框（還在這個對話、而且輸入框還空著時），顯示擋下的理由。
     - 已知的空窗：這一輪在 hook 執行前已經存了；hook 執行期間剛好跑心跳，或存回時 revision 對不上（別的分頁改過），被擋的訊息會留在存檔裡，要使用者自己刪。hook 執行期間使用者按了停止、重新整理、關掉分頁，或請求先被 nginx 逾時切斷，前端已經不在等這次回應，hook 之後擋下時也一樣留在存檔裡（停止時不會送模型，決定 7）。
-    - 放回輸入框的只有文字：附件不放回；編輯舊訊息後重送被擋時，文字也不放回（編輯框已經關掉）。
+    - 放回輸入框的只有文字：附件不放回；編輯舊訊息後重送被擋時，文字也不放回（編輯框已經關掉），畫面跳到被編輯那則訊息的上一層（原本的分支還在，切換分支就看得到）。
     - 自己組歷史的用戶端（IDE、自訂 client）不在這個範圍：被擋下的訊息若被它們放進之後的請求，hook 只看最後一則 user 訊息（決定 7），較早的那則會送到模型。
 15. **失敗不擋（fail-open）**：hook 自己失敗（結束碼、逾時、連不上、路徑被拒、輸出壞掉）和 hook 服務本身出錯都不擋動作；前者記在執行紀錄與 log，後者只記 log。例外內容不回給模型或用戶端，只記類型。所以 hook 不能當成唯一的安全防線：模型可以故意讓 hook 失敗（例如送很大的參數讓 hook 逾時、送讓 hook 腳本出錯的內容），hook 失敗時動作照常執行。「失敗就擋」列為下一批，讓每個 hook 自己選。
 
@@ -120,6 +121,7 @@
   - 事件內容的 `session_id` 是請求帶來的對話 id，hook 不能把它當成已驗證的身分。
   - PreToolUse 的「要人確認」跳的是一般的人類審批卡，誰能按和其他審批卡相同（ADR-0246）；hook 不能指定由誰核准。
   - 備份還原會寫回 `hooks.json`（照原樣、不經存檔的路徑檢查）；還原後下一次執行前仍會檢查路徑（決定 5），不合規則的 hook 不執行。
+  - hook 執行中按停止的時間窗：請求剛進來、身分判定清掉上一則的停止旗標之前就送到的停止會被清掉（大約幾毫秒）；不指名的停止若晚到、同一個人已經在同一個對話送出下一則，可能停到下一則；同一個對話在另一個分頁有進行中的串流時，這個分頁的不指名停止不會停到任何東西。
   - UserPromptSubmit 在回應開始之前執行；用附的 nginx 範本時，一般路徑的讀取逾時是 nginx 預設的 60 秒，hook 超過約 60 秒請求就會失敗。UserPromptSubmit 的逾時請設在 60 秒以內。
 - **丙-2 接線**：工具失敗與被拒、跳出審批卡、通知、上游錯誤結束、子代理開始與結束、滑動視窗剪裁前後（不能拖住對話）、任務建立與完成、MCP 向使用者要資料（只能拒絕）、設定變更（不能擋關閉 hook），以及 Touka 自己的心跳開始與結束。
 
@@ -128,7 +130,7 @@
 - 沒有設定時行為不變：接線點先問 `has_hooks`，不組事件內容、不改任何結果（golden 不變）。
 - 設定了 PreToolUse 的工具，每次呼叫多等 hook 執行完（最多到逾時）；Stop 不影響回覆。
 - 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間被停止時回 409 `PROMPT_STOPPED`。
-- 聊天前端按停止時，若這個對話還沒有串流，改送這個對話的停止（原本什麼都不送）；和有串流時的停止一樣，這個對話正在跑的其他工作（例如心跳）也會停下。
+- 聊天前端按停止時，若這個對話還沒有進行中的串流（含無痕查不到、上一則的結束登記還留著），改送這個對話不指名的停止（原本什麼都不送）；和有串流時的停止一樣，這個對話正在跑的其他工作（例如心跳）也會停下。
 - 新增三個管理端點（決定 10）；`openapi.json` 與 `api.ts` 隨之更新。
 - 撤回：把 `enabled` 設成 false 或清空 `hooks` 立即停用；revert 即可整個移除，`hooks.json` 留著無害。
 
@@ -142,15 +144,16 @@
 ## 驗證
 
 - `tests/unit/test_hooks_config.py`：設定模型（只收已接線事件、handler 型別、標頭環境變數、標頭名稱與 Touka 自己送的標頭、上限）。
-- `tests/unit/test_hook_paths_security.py`：參數必須在 `config/hooks/`（含 `:` 串起來的路徑清單、黏在單字母選項或 `@` 後面的路徑）、`file:` 網址拒收（含字詞中間的）、專案清單變動不影響 `config/hooks/` 裡的腳本、禁區（工作區根、專案根與翻譯後路徑、MCP 可寫資料夾、容器鏡像路徑）、讀不到 MCP 隔離設定檔、以檔案識別碼擋別名、連結（含 `config/hooks/` 本身是連結）、硬連結、相對參數、UNC 與磁碟機相對路徑、讀不到狀態。
+- `tests/unit/test_hook_paths_security.py`：參數必須在 `config/hooks/`（含 `:` 串起來的路徑清單、黏在單字母選項或 `@` 後面的路徑）、`file:` 網址拒收（含字詞中間的）、字詞中間 `:`／`@` 後面的絕對路徑（`-javaagent:<路徑>`，Windows 也查得到）、專案清單變動不影響 `config/hooks/` 裡的腳本、禁區（工作區根、專案根與翻譯後路徑、MCP 可寫資料夾、容器鏡像路徑）、讀不到 MCP 隔離設定檔、以檔案識別碼擋別名、連結（含 `config/hooks/` 本身是連結）、硬連結、相對參數、UNC 與磁碟機相對路徑、讀不到狀態。
 - `tests/unit/test_project_root_protected_security.py`：受保護的位置與上層、本機安裝根底下 Touka 自己的第一層資料夾、經連結指到設定資料夾、容器裡的 Touka 目錄、使用者資料夾照常可用、專案工具對一般身分拒絕受保護的專案根並回結構化錯誤、檢查沒做完時分開說明也不放行、管理員與只有管理員擁有的靈魂不受限、有一般使用者共同擁有的照一般身分檢查、登記時說明被拒的原因。
 - `tests/unit/test_sns_gateway.py`：被擋下的外人訊息不寫進對話、不回覆也不往外丟錯，其他錯誤照舊寫入、通過時先寫訊息再讀回覆。
-- `tests/unit/test_interjection_endpoint_security.py`：插話被擋回 403 且不進佇列、事件內容（含 `interjection` 與無痕）、補充說明不採用、hook 服務出錯照樣進佇列、陌生人碰不到 hook、hook 執行期間串流換了回 404。
-- `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時真的結束程式、輸出上限、http 不跟隨轉址、整次請求的逾時與讀到上限就停。
+- `tests/unit/test_interjection_endpoint_security.py`：插話被擋回 403 且不進佇列、擋下理由有上限、事件內容（含 `interjection` 與無痕）、補充說明不採用、hook 服務出錯照樣進佇列、陌生人碰不到 hook、hook 執行期間串流換了回 404。
+- `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時真的結束程式、逾時或被取消時在執行緒裡結束程式（不卡住事件迴圈）、輸出上限、http 不跟隨轉址、整次請求的逾時與讀到上限就停。
 - `tests/unit/test_hook_service.py`：解讀規則（含 `continue: false`）、同時執行、只擋不放行、執行紀錄與無痕、壞檔／讀不到／被刪掉時沿用上一份、服務出錯不外洩例外、存檔 CAS 與路徑檢查、寫不進檔案時回存檔錯誤並沿用上一版、落單的 surrogate 不讓 hook 停擺。
-- `tests/unit/test_hook_wiring_security.py`：四個事件的接線（只在真的請求執行、擋下帶理由、補充說明是資料、UserPromptSubmit 不帶模式、PreToolUse 擋下不送審不跳卡、政策已拒絕的不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher、舊工具名稱比對新名稱、hook 看到的是模型送來的參數、PostToolUse 只在成功後、太深的 JSON 結果改接資料區塊、Stop 在背景、hook 服務出錯不影響結果、沒有設定時結果不變；hook 執行期間停止時不送模型也不執行工具、擋下優先於停止、沒有 hook 執行或沒比到時不看停止旗標）。
+- `tests/unit/test_hook_wiring_security.py`：四個事件的接線（只在真的請求執行、擋下帶理由、補充說明是資料、UserPromptSubmit 不帶模式、PreToolUse 擋下不送審不跳卡、政策已拒絕的不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher、舊工具名稱比對新名稱、hook 看到的是模型送來的參數、PostToolUse 只在成功後、太深的 JSON 結果改接資料區塊、Stop 在背景、hook 服務出錯不影響結果、沒有設定時結果不變；hook 執行期間停止時不送模型也不執行工具、擋下優先於停止、沒有 hook 執行（含 hook 全部停用）或沒比到時不看停止旗標、UI 請求在串流開始前登記為等待中且結束時移除）。
+- `tests/unit/test_stream_resume_endpoints.py`：還沒開始串流的請求，請求者本人不指名停止就設旗標、不查對話紀錄（含無痕、上一則的結束登記還留著）；別人不能用它停；有進行中的串流時不指名的停止照樣回 404。
 - `tests/unit/test_group_soul_only.py`：hook 補充說明裡的 `@別名` 不算點名。
 - `tests/unit/test_hard_floor_security.py`：讀寫 `hooks.json` 屬 F2，寫 `hooks.json.example` 與 `config/hooks/` 屬 F3。
 - `tests/unit/test_public_repo_hygiene.py`：`config/hooks/` 不進版控。
 - `tests/unit/test_hooks_router_security.py`：只有人類管理員能讀寫（admin 代打、一般使用者、靈魂、DebugAgent、DispatchAgent、子代理、沒帶憑證與壞掉的權杖都被拒）、存檔寫檔並回 revision、作者由伺服器填、舊 revision 拒絕且不動檔、路徑被拒不寫檔、不可信的 Origin 拒絕、格式不對拒收、執行紀錄與無痕、壞檔時的 revision、`/v1` 前綴、設定匯出不含 `hooks.json`。
-- ToukaChat：還沒有串流時按停止會送這個對話的停止；審批卡的 hook 理由、串流事件解析、被擋訊息的通知與理由；被擋下的這一輪從對話樹拿掉（其他分支保留）、照完成流程存回並換回標題、文字放回輸入框；插話被擋時不進佇列、顯示理由並放回文字；設定頁的草稿函式、資料層（revision、錯誤分類、存好後重新讀取失敗）、分頁（事件區塊、編輯後送出的設定、存檔被拒的原因、壞檔提醒）與執行紀錄清單（類型、結束碼、HTTP 狀態）。
+- ToukaChat：還沒有進行中的串流時按停止會送這個對話的停止（含讀不到對話與只剩上一則的結束登記），停止回 404 時再讀一次、是這一輪才指名停止；審批卡的 hook 理由、串流事件解析、被擋訊息的通知與理由；被擋下的這一輪從對話樹拿掉（其他分支保留）、照完成流程存回並換回標題、文字放回輸入框；插話被擋時不進佇列、顯示理由並放回文字；設定頁的草稿函式、資料層（revision、錯誤分類、存好後重新讀取失敗）、分頁（事件區塊、編輯後送出的設定、存檔被拒的原因、壞檔提醒）與執行紀錄清單（類型、結束碼、HTTP 狀態）。

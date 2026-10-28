@@ -5,8 +5,8 @@ command：
   ``|``、``;`` 只是文字。
 - 事件內容只從標準輸入給；工作目錄是設定資料夾的 ``hooks/``。
 - 子程序環境只有啟動白名單（``LaunchEnvironmentPolicy.launcher_base``），Touka 與廠商金鑰不帶。
-- 新行程群組啟動，逾時用 ``terminate_process_tree`` 結束整棵樹；stdout／stderr 各留前
-  ``MAX_HOOK_OUTPUT_BYTES``，之後的照讀照丟（不讓子程序卡在寫滿的管線上）。
+- 新行程群組啟動，逾時或被取消時在執行緒裡用 ``terminate_process_tree`` 結束整棵樹；
+  stdout／stderr 各留前 ``MAX_HOOK_OUTPUT_BYTES``，之後的照讀照丟（不讓子程序卡在寫滿的管線上）。
 
 http：
 - POST 事件內容（``application/json``）；不跟隨轉址、不讀環境的代理與 .netrc。
@@ -28,7 +28,11 @@ import httpx
 
 from src.protocols.mcp.environment import LaunchEnvironmentPolicy
 from src.services.execution_broker import spawn_exec
-from src.services.process_registry import terminate_process_tree
+from src.services.process_registry import (
+    reap_cancelled_process,
+    reap_process_tree,
+    terminate_process_tree,
+)
 from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
@@ -40,7 +44,6 @@ logger = logging.getLogger(__name__)
 
 MAX_HOOK_OUTPUT_BYTES: Final[int] = 64 * 1024
 _READ_CHUNK: Final[int] = 16 * 1024
-_KILL_WAIT_SECONDS: Final[float] = 5.0
 
 RunStatus = Literal["ok", "timeout", "error", "rejected"]
 
@@ -131,9 +134,8 @@ async def run_command(hook: CommandHook, payload: bytes, *, cwd: Path) -> RunRes
     try:
         await asyncio.wait_for(work, timeout=hook.timeout)
     except TimeoutError:
-        terminate_process_tree(proc)
-        with contextlib.suppress(TimeoutError, ProcessLookupError):
-            await asyncio.wait_for(proc.wait(), timeout=_KILL_WAIT_SECONDS)
+        # 在執行緒裡結束（Windows 的 taskkill 是同步的，不能卡住其他請求），再有界等待回收
+        await reap_process_tree(proc, terminate_process_tree)
         return RunResult(
             status="timeout",
             duration_ms=_elapsed(started),
@@ -144,7 +146,7 @@ async def run_command(hook: CommandHook, payload: bytes, *, cwd: Path) -> RunRes
         )
     except BaseException:
         # 被取消或寫標準輸入時出錯：先結束程式再往上丟，不讓它不受逾時限制一直跑
-        terminate_process_tree(proc)
+        await reap_cancelled_process(proc, terminate_process_tree)
         raise
     return RunResult(
         status="ok",

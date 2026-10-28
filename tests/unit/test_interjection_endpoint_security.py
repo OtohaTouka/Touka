@@ -22,7 +22,7 @@ from src.routers import ui_interjections as interjection_mod
 from src.routers import ui_sessions as ui_mod
 from src.services.authorization_gateway import require_human_requester
 from src.services.hooks import interjection_hooks
-from src.services.hooks.service import HookDecision
+from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookDecision
 from src.services.identity_router import get_verified_identity
 from src.services.interjection_queue import InMemoryInterjectionQueue
 from src.services.stream_buffer_service import StreamBufferService
@@ -441,6 +441,14 @@ async def test_blocked_interjections_are_not_queued(buffer, queue, monkeypatch):
         "event": "UserPromptSubmit", "incognito_arg": True, "session_id": entry.session_id,
         "agent_id": "Alice", "incognito": True, "prompt": "pw is 123", "interjection": True,
     }
+
+
+async def test_a_long_block_reason_is_capped_like_a_blocked_prompt(buffer, queue, monkeypatch):
+    _prompt_hooks(monkeypatch, decision=HookDecision(blocked=True, reasons=["x" * 9_000]))
+    entry = await _stream(buffer, _OWNER, agent_id="Alice")
+    response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id, body={"text": "hi"})
+    assert _code(response) == (403, "HOOK_PROMPT_BLOCKED")
+    assert len(response.json()["detail"]["reason"]) == MAX_BLOCK_REASON_CHARS
 
 
 async def test_persistent_interjections_say_they_are_not_incognito(buffer, queue, monkeypatch):

@@ -45,5 +45,5 @@ async def check_interjection(
         return True
     if decision.blocked:
         logger.info("UserPromptSubmit hook blocked an interjection (session=%s)", session_id)
-        raise ToukaException(ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.reason)
+        raise ToukaException(ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.block_reason)
     return True

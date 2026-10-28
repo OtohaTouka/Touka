@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 from itertools import count
 
 import httpx
@@ -75,6 +76,30 @@ async def test_timeout_ends_the_process(tmp_path):
     assert result.duration_ms < 3_000
     await asyncio.sleep(3.5)
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("ending", ["timeout", "cancelled"])
+async def test_ending_the_process_does_not_block_other_requests(tmp_path, monkeypatch, ending):
+    """Windows 的 taskkill 是同步的：結束程式要在執行緒裡做，不能卡住事件迴圈。"""
+    loop_thread = threading.get_ident()
+    threads: list[int] = []
+    real_kill = runners.terminate_process_tree
+
+    def kill(proc) -> None:
+        threads.append(threading.get_ident())
+        real_kill(proc)
+
+    monkeypatch.setattr(runners, "terminate_process_tree", kill)
+    hook = _python("import time\ntime.sleep(30)\n", timeout=1 if ending == "timeout" else 30)
+    if ending == "timeout":
+        assert (await run_command(hook, b"{}", cwd=tmp_path)).status == "timeout"
+    else:
+        task = asyncio.create_task(run_command(hook, b"{}", cwd=tmp_path))
+        await asyncio.sleep(0.5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert threads and loop_thread not in threads
 
 
 async def test_output_beyond_the_cap_is_dropped(tmp_path):

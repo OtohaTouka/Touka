@@ -5,6 +5,7 @@
 - POST /sessions/{id}/stop：擴充後同時取消緩衝 producer
 """
 
+import contextlib
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -236,19 +237,76 @@ async def test_ui_stream_other_principal_cannot_read_or_interrupt(buffer, monkey
     terminate.assert_not_called()
 
 
+@pytest.mark.parametrize("waiting", [False, True])
 @pytest.mark.parametrize("stream_id", [None, "old-generation"])
 @pytest.mark.asyncio
 async def test_ui_stop_without_exact_generation_cannot_stop_new_producer(
-    buffer, monkeypatch, stream_id
+    buffer, monkeypatch, stream_id, waiting
 ):
     entry = await _owned_entry(buffer, incognito=True)
     interrupt = Mock()
     monkeypatch.setattr(ui_mod.rhythm_service, "interrupt_session", interrupt)
-    with pytest.raises(ToukaException) as exc:
+    # 同一人另一則還在等 hook 的請求也不能讓沒指名的停止停到進行中的那一代
+    other = (
+        buffer.pending_request(entry.session_id, _UI_OWNER) if waiting else contextlib.nullcontext()
+    )
+    with other, pytest.raises(ToukaException) as exc:
         await ui_mod.stop_session_tasks(entry.session_id, identity=_UI_OWNER, stream_id=stream_id)
     assert exc.value.code == ErrorCode.STREAM_NOT_FOUND
     assert entry.status == "active"
     interrupt.assert_not_called()
+
+
+def _stop_spies(monkeypatch) -> tuple[Mock, AsyncMock]:
+    interrupt = Mock()
+    database = AsyncMock(side_effect=AssertionError("a waiting request is stopped without the DB"))
+    monkeypatch.setattr(ui_mod.rhythm_service, "interrupt_session", interrupt)
+    monkeypatch.setattr(ui_mod.process_registry, "pop_session", Mock(return_value=[]))
+    monkeypatch.setattr(ui_mod, "terminate_processes", Mock(return_value=0))
+    monkeypatch.setattr(session_service, "get_session_by_id", database)
+    monkeypatch.setattr(session_service, "read_persistence_snapshot", database)
+    return interrupt, database
+
+
+@pytest.mark.parametrize("earlier", ["none", "finished_incognito", "finished_persistent"])
+@pytest.mark.asyncio
+async def test_ui_stop_reaches_a_request_whose_stream_has_not_started(buffer, monkeypatch, earlier):
+    """ADR-0292：hook 執行中按停止。無痕查不到對話、上一則的結束登記還留著也要停得下來。"""
+    previous = None
+    if earlier != "none":
+        previous = await _owned_entry(buffer, incognito=earlier == "finished_incognito")
+        assert await buffer.cancel(previous.session_id, stream_id=previous.stream_id)
+    interrupt, database = _stop_spies(monkeypatch)
+    with buffer.pending_request("private-ui", _UI_OWNER):
+        result = await ui_mod.stop_session_tasks("private-ui", identity=_UI_OWNER, stream_id=None)
+    assert result["status"] == "success"
+    interrupt.assert_called_once_with("private-ui")
+    database.assert_not_awaited()
+    if previous is not None:
+        assert previous.status == "cancelled" and buffer.get_state("private-ui") is not None
+
+
+@pytest.mark.asyncio
+async def test_ui_stop_does_not_take_over_another_persons_waiting_request(buffer, monkeypatch):
+    interrupt, _database = _stop_spies(monkeypatch)
+    monkeypatch.setattr(session_service, "get_session_by_id", AsyncMock(return_value=None))
+    with buffer.pending_request("private-ui", _UI_OWNER), pytest.raises(ToukaException) as exc:
+        await ui_mod.stop_session_tasks("private-ui", identity=_ADMIN, stream_id=None)
+    assert exc.value.code == ErrorCode.AUTH_PERMISSION_DENIED
+    interrupt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_waiting_requests_are_tracked_per_request_and_cleared_on_errors(buffer):
+    with buffer.pending_request("private-ui", _UI_OWNER):
+        with pytest.raises(RuntimeError), buffer.pending_request("private-ui", _UI_OWNER):
+            raise RuntimeError
+        # 同一對話的另一則還在等：先結束的那則只移除自己
+        assert buffer.has_pending_request("private-ui", _UI_OWNER)
+        assert not buffer.has_pending_request("private-ui", _ADMIN)
+        assert not buffer.has_pending_request("other-session", _UI_OWNER)
+    assert not buffer.has_pending_request("private-ui", _UI_OWNER)
+    assert buffer._pending == {}
 
 
 @pytest.fixture

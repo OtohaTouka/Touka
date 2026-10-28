@@ -93,6 +93,24 @@ interface StreamRegistryContextType {
 
 const StreamRegistryContext = createContext<StreamRegistryContextType | undefined>(undefined);
 
+/**
+ * 停止用：讀這個對話進行中串流的開始座標。
+ * 回 `null`＝沒有進行中的串流（查不到、沒有、或只剩已結束的登記）；`undefined`＝不要再動
+ * （帳號或連線已切換，或後端回的狀態看不懂）。
+ */
+async function readActiveStart(scope: RequestScope, sessionId: string): Promise<StreamStartedEvent | null | undefined> {
+  const response = await fetchTouka(scope.proxyOrigin,
+    `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stream/state`, { requestScope: scope });
+  const body: unknown = response.ok ? await response.json() : null;
+  if (!isRequestScopeCurrent(scope)) return undefined;
+  if (!response.ok) return null;
+  if (!body || typeof body !== 'object' || !('state' in body)) return undefined;
+  if (body.state === null) return null;
+  const state = parseBufferedStreamState(body.state, sessionId);
+  if (!state) return undefined;
+  return state.status === 'active' ? state.started : null;
+}
+
 export function StreamRegistryProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const { sessions, getSession, updateSession, beginProducer, completeProducer, prepareResume, getPersistence } = useSessionList();
@@ -423,20 +441,22 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       return;
     }
     void (async () => {
+      const scope = s.requestScope!;
       let started = s.started;
       if (!started) {
-        const response = await fetchTouka(s.requestScope!.proxyOrigin,
-          `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stream/state`, { requestScope: s.requestScope });
-        const body: unknown = response.ok ? await response.json() : null;
-        if (!isRequestScopeCurrent(s.requestScope) || !body || typeof body !== 'object' || !('state' in body)) return;
-        if (body.state === null) {
-          // 還沒有登記的串流（例如 UserPromptSubmit hook 還在跑）：只設這個對話的中斷旗標，
-          // hook 回來後後端看到就不送模型（ADR-0292）；這時已經有開始的串流，後端回 404、不動它
-          await fetchTouka(s.requestScope!.proxyOrigin,
-            `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', requestScope: s.requestScope });
-          return;
+        const active = await readActiveStart(scope, sessionId);
+        if (active === undefined) return;
+        if (active === null) {
+          // 還沒有進行中的串流（例如 UserPromptSubmit hook 還在跑；無痕查不到對話、上一則的
+          // 結束登記還留著也一樣）：送不指名的停止，後端認這個人還沒開始的請求（ADR-0292）。
+          // 回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪才指名停止。
+          const response = await fetchTouka(scope.proxyOrigin,
+            `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', requestScope: scope });
+          if (response.status !== 404 || !isRequestScopeCurrent(scope)) return;
+          started = (await readActiveStart(scope, sessionId)) ?? undefined;
+        } else {
+          started = active;
         }
-        started = parseBufferedStreamState(body.state, sessionId)?.started ?? undefined;
       }
       if (!started || started.assistant_node_id !== s.assistantMsgId ||
           started.user_parent_id !== s.tree.messages[s.assistantMsgId]?.parentId || !isRequestScopeCurrent(s.requestScope)) return;

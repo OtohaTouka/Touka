@@ -598,6 +598,17 @@ async def stop_session_tasks(
     identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
 ) -> dict[str, Any]:
     """Mark a session to stop all autonomous ReAct tasks."""
+    if stream_id is None and stream_buffer_service.has_pending_request(session_id, identity):
+        # ADR-0292：這個人在這個對話的請求還沒開始串流（hook 執行中、組上下文中）。認請求者，
+        # 不查對話（無痕查不到），也不碰串流緩衝（不能停到之後開始的那一代）。
+        rhythm_service.interrupt_session(session_id)
+        procs = process_registry.pop_session(session_id)
+        killed = await asyncio.to_thread(terminate_processes, procs, session_id)
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "message": f"Interruption signal sent; terminated {killed} running process(es).",
+        }
     state = await _authorized_stream_state(session_id, identity)
     if state is not None and state.get("started") is not None and state["stream_id"] != stream_id:
         raise ToukaException(ErrorCode.STREAM_NOT_FOUND)

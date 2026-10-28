@@ -69,6 +69,11 @@ _FILE_URL = re.compile(r"(?<![a-z0-9])file:", re.IGNORECASE)
 # 黏在單字母選項後面的絕對路徑（``-I/data/lib``、``-oD:\data\x``），以及 ``@`` 後面的參數檔
 # （``@/data/args.txt``）。只認單字母選項，``-Ilib/sub`` 這種相對路徑不拆。
 _GLUED_PATH = re.compile(r"^(?:-[A-Za-z](?=(?:[A-Za-z]:)?[\\/])|@)(?P<path>.+)$")
+# 字詞中間 ``:``／``@`` 後面接著的絕對路徑（``-javaagent:D:/x.jar``、``--rcfile:/x``、``pkg@/x``）：
+# Windows 的 ``:`` 是磁碟代號、上面不拆，所以另外取出來。磁碟代號開頭、UNC 與單一斜線算；
+# ``://`` 網址不算。
+_ABSOLUTE_START = re.compile(r"[A-Za-z]:[\\/]|\\|/(?!/)")
+_DRIVE_LETTER = re.compile(r"[A-Za-z]")
 _SEPARATORS = re.compile(r"[\\/]")
 _VERBATIM_PREFIX = "\\\\?\\"
 _VERBATIM_UNC_PREFIX = "\\\\?\\UNC\\"
@@ -289,9 +294,31 @@ def _command_problems(checker: _ZoneChecker, command: str) -> list[PathProblem]:
     return []
 
 
+def _is_drive_colon(word: str, index: int) -> bool:
+    """``word[index]`` 是磁碟代號的 ``:``（``D:`` 在字詞開頭，或緊接在 ``:``／``@`` 後面）。"""
+    return (
+        word[index] == ":"
+        and index >= 1
+        and _DRIVE_LETTER.fullmatch(word[index - 1]) is not None
+        and (index == 1 or word[index - 2] in ":@")
+    )
+
+
+def _embedded_paths(word: str) -> list[str]:
+    found: list[str] = []
+    for index, char in enumerate(word):
+        if char not in ":@" or _is_drive_colon(word, index):
+            continue
+        rest = word[index + 1 :]
+        if _ABSOLUTE_START.match(rest):
+            found.append(rest)
+    return found
+
+
 def _argument_tokens(arg: str) -> list[str]:
     words = [word for word in _TOKEN_SPLIT.split(arg) if word]
     glued = [match["path"] for word in words if (match := _GLUED_PATH.match(word))]
+    glued += [path for word in words for path in _embedded_paths(word)]
     words += [path for path in glued if path not in words]
     parts = [part for word in words for part in word.split(_PATH_LIST_SEPARATOR) if part]
     return words + [part for part in parts if part not in words]

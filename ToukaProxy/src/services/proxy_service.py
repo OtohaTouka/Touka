@@ -2,6 +2,7 @@
 
 import json
 import logging
+from contextlib import nullcontext
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from src.middleware.layers.hooks import HookLayer
 from src.models.identity import AgentIdentity
 from src.services.dispatchers.route_family import same_route_family
 from src.services.resource_manager import resource_manager
+from src.services.stream_buffer_service import stream_buffer_service
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
@@ -72,6 +74,19 @@ async def process_proxy_request(
     request: Any, ctx: PipelineContext, is_anthropic: bool = True
 ) -> Any:
     """處理請求管道：採用中介軟體式架構 (SOLID)。"""
+    # UI 請求在開始串流前先登記請求者，hook 執行中也停得下來（ADR-0292）
+    requester = ctx.get("ui_requester")
+    session_id = getattr(request, "session_id", None)
+    waiting = (
+        stream_buffer_service.pending_request(session_id, requester)
+        if isinstance(requester, AgentIdentity) and isinstance(session_id, str) and session_id
+        else nullcontext()
+    )
+    with waiting:
+        return await _run_request(request, ctx, is_anthropic)
+
+
+async def _run_request(request: Any, ctx: PipelineContext, is_anthropic: bool) -> Any:
     # 真的請求才跑 UserPromptSubmit hook（上下文預覽直接呼叫 pipeline，不經這裡；ADR-0292）
     ctx["run_hooks"] = True
     # 執行處理管道 (Pipeline執行所有的 Middleware Layers)
