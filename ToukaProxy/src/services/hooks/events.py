@@ -81,10 +81,16 @@ def legacy_aliases(
 def tool_match_names(
     name: str, mcp_server: str | None, mcp_tool: str | None, aliases: Sequence[str] = ()
 ) -> list[str]:
-    """比對用的工具名稱：Touka 名稱與舊名稱對應的新名稱，MCP 工具另加 ``mcp__server__tool``。"""
+    """比對用的工具名稱：Touka 名稱與舊名稱對應的新名稱。
+
+    MCP 工具另加工具清單上的正式名稱 ``server__tool`` 與 Claude Code 的 ``mcp__server__tool``
+    （模型用裸名稱叫，也比對得到這兩種寫法）。
+    """
     names = [name, *aliases]
     if mcp_server and mcp_tool:
-        names.append(f"mcp__{mcp_server}__{mcp_tool}")
+        for full in (f"{mcp_server}__{mcp_tool}", f"mcp__{mcp_server}__{mcp_tool}"):
+            if full not in names:
+                names.append(full)
     return names
 
 

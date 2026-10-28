@@ -120,6 +120,8 @@ async def _run_request(request: Any, ctx: PipelineContext, is_anthropic: bool) -
     except ValueError as ve:
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(ve)) from ve
     except Exception as e:
+        if isinstance(e, ToukaException) and e.code is ErrorCode.PROMPT_STOPPED:
+            raise  # 使用者按了停止，不是模型失敗：不記錯誤、不換備援（ADR-0292）
         logger.exception(f"⚠️ Primary brain ({model_name}) failed")
         if is_toukasoul and identity:
             fallback_model = get_last_working_brain(identity)

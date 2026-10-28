@@ -50,6 +50,19 @@ def test_schema_violation_fails_fast(tmp_path):
     assert "autonomy.json" in str(ei.value)
 
 
+def test_the_fix_hint_says_which_broken_files_are_rebuilt_from_the_example(tmp_path):
+    """只有缺檔時會從 .example 重建的檔才說可以刪掉重來；hooks.json 刪掉不會重建，是關掉所有
+    hook（ADR-0292）。"""
+    _write(tmp_path, "autonomy.json", "{ broken ")
+    _write(tmp_path, "hooks.json", {"hooks": "not-a-mapping"})
+    with pytest.raises(ConfigValidationError) as ei:
+        validate_live_configs(config_dir=tmp_path)
+    message = str(ei.value)
+    assert "autonomy.json 也可以刪除後重啟，系統會從 .example 範本重建" in message
+    assert "hooks.json 刪除後不會重建" in message
+    assert "所有 hook 都不執行" in message
+
+
 def test_missing_modeled_file_skipped(tmp_path):
     """缺的 modeled 檔（交由 ensure_configs 還原）不報錯——只驗存在的檔。"""
     _write(tmp_path, "bots.json", {"ok": True})  # 無 autonomy.json

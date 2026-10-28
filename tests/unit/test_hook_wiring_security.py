@@ -30,6 +30,7 @@ import pytest
 from src.core.exceptions import ErrorCode, ToukaException
 from src.handlers import react_core
 from src.middleware.layers import hooks as layer_module
+from src.middleware.layers import monitor as monitor_module
 from src.middleware.layers.hooks import HookLayer
 from src.middleware.layers.monitor import MonitorLayer
 from src.models.context import PipelineContext
@@ -44,12 +45,13 @@ from src.services import tool_executor as executor_module
 from src.services.approval_service import approval_service
 from src.services.auto_reviewer import AutoReviewer
 from src.services.completion import CompletionResult
-from src.services.hooks import stop_hooks, tool_hooks
+from src.services.hooks import stop_hooks, stopping, tool_hooks
 from src.services.hooks.events import HOOK_DATA_NOTE, attach_to_tool_result, legacy_aliases
 from src.services.hooks.runners import RunResult
 from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookService
 from src.services.permission_service import permission_service
 from src.services.review.budget import _reset_review_ledger
+from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
@@ -188,17 +190,22 @@ async def test_prompt_context_is_appended_as_data_with_tags_neutralized(hooks):
     assert "<persona>" not in content
 
 
-def _stopped(monkeypatch: pytest.MonkeyPatch, module: Any, *sessions: str) -> None:
-    """讓 ``module`` 看到的中斷旗標只在 ``sessions`` 上成立（不動全域的 rhythm_service）。"""
-    monkeypatch.setattr(
-        module, "rhythm_service", SimpleNamespace(is_interrupted=lambda sid: sid in sessions)
-    )
+def _stopped(
+    monkeypatch: pytest.MonkeyPatch, *sessions: str, counts: dict[str, int] | None = None
+) -> None:
+    """停止檢查看到的中斷旗標只在 ``sessions`` 上成立、停止次數照 ``counts``（不動全域的
+    rhythm_service）。"""
+    stop_counts = counts or {}
+    monkeypatch.setattr(stopping, "rhythm_service", SimpleNamespace(
+        is_interrupted=lambda sid: sid in sessions,
+        stop_count=lambda sid: stop_counts.get(sid, 0),
+    ))
 
 
 async def test_stopping_while_prompt_hooks_run_keeps_the_prompt_from_the_model(hooks, monkeypatch):
     hooks.configure({"UserPromptSubmit": [_group()]})
     hooks.http.bodies["UserPromptSubmit"] = "extra note"
-    _stopped(monkeypatch, layer_module, "s-hook")
+    _stopped(monkeypatch, "s-hook")
     request = _Request("hello")
     with pytest.raises(ToukaException) as raised:
         await HookLayer().process(request, _prompt_ctx())
@@ -210,7 +217,7 @@ async def test_stopping_while_prompt_hooks_run_keeps_the_prompt_from_the_model(h
 async def test_a_block_wins_over_a_stop_so_a_connected_client_drops_the_turn(hooks, monkeypatch):
     hooks.configure({"UserPromptSubmit": [_group()]})
     hooks.http.bodies["UserPromptSubmit"] = json.dumps({"decision": "block", "reason": "x" * 9_000})
-    _stopped(monkeypatch, layer_module, "s-hook")
+    _stopped(monkeypatch, "s-hook")
     with pytest.raises(ToukaException) as raised:
         await HookLayer().process(_Request("hello"), _prompt_ctx())
     assert raised.value.code == ErrorCode.HOOK_PROMPT_BLOCKED
@@ -222,7 +229,7 @@ async def test_a_stopped_request_stays_stopped_after_a_later_request_clears_the_
 ):
     """無痕對話停止後馬上送下一則：下一則清掉對話的旗標，這一則仍不送模型。"""
     hooks.configure({"UserPromptSubmit": [_group()]})
-    _stopped(monkeypatch, layer_module)  # 對話的旗標已被下一則清掉
+    _stopped(monkeypatch)  # 對話的旗標已被下一則清掉
     request = _Request("hello")
     ctx = _prompt_ctx(ui_pending=PendingRequest(_REQUESTER, stopped=True))
     with pytest.raises(ToukaException) as raised:
@@ -232,6 +239,20 @@ async def test_a_stopped_request_stays_stopped_after_a_later_request_clears_the_
     await HookLayer().process(request, ctx)
 
 
+async def test_a_stop_during_prompt_hooks_counts_even_after_the_flag_is_cleared(
+    hooks, monkeypatch
+):
+    """停止後同一個對話又開始另一次執行（清掉旗標）：停止次數比這次執行開始時多，仍不送模型。"""
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    _stopped(monkeypatch, counts={"s-hook": 3})
+    ctx = _prompt_ctx(stop_baseline=2)
+    with pytest.raises(ToukaException) as raised:
+        await HookLayer().process(_Request("hello"), ctx)
+    assert raised.value.code == ErrorCode.PROMPT_STOPPED
+    ctx["stop_baseline"] = 3  # 這次執行開始之後沒有再停止：照常
+    await HookLayer().process(_Request("hello"), ctx)
+
+
 @pytest.mark.parametrize("configured", ["other_event", "disabled_hook"])
 async def test_a_stop_flag_changes_nothing_when_no_prompt_hook_runs(hooks, monkeypatch, configured):
     if configured == "other_event":
@@ -239,11 +260,48 @@ async def test_a_stop_flag_changes_nothing_when_no_prompt_hook_runs(hooks, monke
     else:
         # 有 UserPromptSubmit 群組、但 hook 全部停用：沒有 hook 真的跑，旗標交給之後的檢查
         hooks.configure({"UserPromptSubmit": [_group([{**_HTTP_HOOK, "enabled": False}])]})
-    _stopped(monkeypatch, layer_module, "s-hook")
+    _stopped(monkeypatch, "s-hook")
     request = _Request("hello")
     await HookLayer().process(request, _prompt_ctx())
     assert hooks.http.calls == []
     assert request.messages[-1]["content"] == "hello"
+
+
+async def test_each_foreground_request_records_its_stop_baseline_after_clearing_the_flag(
+    monkeypatch,
+):
+    """前景請求清掉殘留的中斷旗標之後才記下停止起點：之前的停止不算這一則的；之後的停止即使
+    旗標又被下一則清掉也算。"""
+    monkeypatch.setattr(monitor_module.agent_service, "identify_agent", lambda agent_id: (
+        {"is_toukasoul": True, "is_custom": False, "agent_id": "Alice"}
+        if agent_id == "Alice" else None
+    ))
+    monkeypatch.setattr(
+        monitor_module.agent_service, "resolve_role_and_caps", lambda _agent_id: ("Owner", [])
+    )
+    owner = AgentIdentity.for_role("human-owner", "normal", is_human=True, owned_agents=["Alice"])
+    session_id = "s-baseline"
+    rhythm_service.interrupt_session(session_id)  # 上一則的停止
+    ctx = PipelineContext(identity=owner, headers={"x-touka-soul-id": "Alice"})
+    request = SimpleNamespace(model="unknown-model-x", session_id=session_id, messages=[])
+    await MonitorLayer().process(request, ctx)
+    assert not stopping.request_stopped(ctx)
+    rhythm_service.interrupt_session(session_id)
+    rhythm_service.clear_interrupt(session_id)  # 下一則請求清掉旗標
+    assert stopping.request_stopped(ctx)
+
+
+def test_before_streaming_only_this_runs_own_stop_marks_count(monkeypatch):
+    """開始串流前（dispatcher）只看這次執行自己的記號；只剩對話旗標時交給 ReAct 迴圈回「已中斷」，
+    hook 跑完時的檢查照樣看旗標。"""
+    _stopped(monkeypatch, "s-flag", counts={"s-flag": 3})
+    flag_only = {"session_id": "s-flag", stopping.STOP_BASELINE_KEY: 3}
+    assert stopping.request_stopped(flag_only)
+    assert not stopping.stopped_since_start(flag_only)
+    assert stopping.stopped_since_start({**flag_only, stopping.STOP_BASELINE_KEY: 2})
+    assert stopping.stopped_since_start(
+        {"session_id": "s-other", "ui_pending": PendingRequest(_REQUESTER, stopped=True)}
+    )
 
 
 def test_pipeline_runs_the_hook_layer_right_after_identity():
@@ -394,11 +452,13 @@ def _executor(monkeypatch: pytest.MonkeyPatch, registry: dict[str, Any]) -> Tool
 async def _run(
     executor: ToolExecutor, name: str, args: dict[str, Any], *,
     present: bool = True, mode: str = "Auto", approve: bool | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """跑一次；``approve`` 不是 None 時必須跳卡並以該決定解算。"""
     ctx: dict[str, Any] = {
         "identity": _SOUL, "auth_level": mode, "session_id": "s-hook",
         "user_intent": chat_intent([{"role": "user", "content": "跑一下測試"}]),
+        **(extra or {}),
     }
     if present:
         ctx["resumable_stream"] = True
@@ -457,7 +517,7 @@ async def test_pre_tool_deny_blocks_before_review_card_and_handler(monkeypatch, 
 
 async def test_a_tool_waiting_on_pre_tool_hooks_does_not_run_after_a_stop(monkeypatch, hooks):
     hooks.configure({"PreToolUse": [_group(matcher="execute_command")]})
-    _stopped(monkeypatch, tool_hooks, "s-hook")
+    _stopped(monkeypatch, "s-hook")
     completer = _reviewer(monkeypatch)
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"execute_command": recorder})
@@ -471,9 +531,26 @@ async def test_a_tool_waiting_on_pre_tool_hooks_does_not_run_after_a_stop(monkey
     assert len(hooks.http.calls) == 1
 
 
+async def test_a_stop_during_pre_tool_hooks_counts_even_after_the_flag_is_cleared(
+    monkeypatch, hooks
+):
+    """工具在等 PreToolUse hook 時按了停止、接著同一個對話的下一則清掉旗標：停止次數比這次
+    執行開始時多，工具不跑；開始之後沒有再停止的執行照常。"""
+    hooks.configure({"PreToolUse": [_group(matcher="execute_command")]})
+    _stopped(monkeypatch, counts={"s-hook": 1})
+    _reviewer(monkeypatch)
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"execute_command": recorder})
+    result, _ = await _run(executor, "execute_command", dict(_COMMAND), extra={"stop_baseline": 0})
+    assert json.loads(result)["reason"] == "stopped_by_user"
+    assert recorder.calls == []
+    await _run(executor, "execute_command", dict(_COMMAND), extra={"stop_baseline": 1})
+    assert len(recorder.calls) == 1
+
+
 async def test_a_stop_flag_does_not_touch_tools_no_hook_matches(monkeypatch, hooks):
     hooks.configure({"PreToolUse": [_group(matcher="read")]})
-    _stopped(monkeypatch, tool_hooks, "s-hook")
+    _stopped(monkeypatch, "s-hook")
     _reviewer(monkeypatch)
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"execute_command": recorder})
@@ -660,14 +737,15 @@ def test_hook_output_on_a_json_result_too_deep_to_load_is_a_data_block():
 class _VaultJailedMcp:
     """假的 MCP：``docgen_read`` 在受管伺服器上，根目錄參數會被換成 agent 自己的資料夾。"""
 
-    def __init__(self) -> None:
+    def __init__(self, server: str = "mcp-docgen") -> None:
         self.registry = SimpleNamespace(
             get_server=lambda _name: SimpleNamespace(vault_jail_arg="base_dir")
         )
         self.calls: list[dict[str, Any]] = []
+        self._server = server
 
     def resolve_tool(self, name: str) -> tuple[str | None, str]:
-        return "mcp-docgen", name
+        return self._server, name
 
     async def call_tool_on_server(self, _server: str, _tool: str, args: dict[str, Any],
                                   **_kwargs: Any) -> McpCompleteOutcome:
@@ -699,6 +777,29 @@ async def test_tool_hooks_see_the_arguments_the_model_sent(monkeypatch, hooks):
     assert sent["base_dir"] != "/etc"
     assert hooks.http.events() == ["PreToolUse", "PostToolUse"]
     assert [call["tool_input"] for call in hooks.http.calls] == [{"base_dir": "/etc"}] * 2
+
+
+@pytest.mark.parametrize(
+    "matcher", ["docs__docgen_read", "^docs__", "mcp__docs__docgen_read", "docgen_read"]
+)
+async def test_an_mcp_tool_called_by_its_bare_name_matches_its_full_names(
+    monkeypatch, hooks, matcher
+):
+    """模型用裸名稱叫 MCP 工具：工具清單上的 ``server__tool``、``mcp__server__tool`` 與裸名稱
+    寫的比對規則都比對得到。"""
+    hooks.configure({"PreToolUse": [_group(matcher=matcher)]})
+    monkeypatch.setattr(
+        permission_service, "evaluate_policy",
+        lambda _ctx: PolicyDecision(effect="ALLOW", reason="test-allow"),
+    )
+    executor = ToolExecutor(
+        protocol_manager=_VaultJailedMcp("docs"), tool_registry={}, memory_tool_registry={},
+        plugin_registry={}, enforce_advertised=False,
+    )
+    ctx = {"identity": _SOUL, "auth_level": "Manual", "session_id": None}
+    async with asyncio.timeout(_WAIT_S):
+        await executor.execute_to_queue("docgen_read", {}, "req-hook", ctx, asyncio.Queue())
+    assert hooks.http.events() == ["PreToolUse"]
 
 
 @pytest.mark.parametrize("event", ["PreToolUse", "PostToolUse"])

@@ -36,6 +36,19 @@ _LIVE_MODELED: dict[str, type] = {
 class ConfigValidationError(RuntimeError):
     """live 設定檔啟動驗證失敗（malformed JSON 或不符 schema）。"""
 
+
+def _delete_hint(broken: list[str]) -> str:
+    """只有缺檔時會從 .example 重建的檔才說可以刪掉重來；其他檔刪掉就是少了那份設定。"""
+    rebuilt = [name for name in broken if name in ESSENTIAL_CONFIGS]
+    kept = [name for name in broken if name not in ESSENTIAL_CONFIGS]
+    hint = ""
+    if rebuilt:
+        hint += f"{'、'.join(rebuilt)} 也可以刪除後重啟，系統會從 .example 範本重建。"
+    if kept:
+        hint += f"{'、'.join(kept)} 刪除後不會重建，等於沒有那份設定"
+        hint += "（hooks.json：所有 hook 都不執行）。" if "hooks.json" in kept else "。"
+    return hint
+
 # --- SSOT: 定義必需的設定檔清單 ---
 # 這些檔案若遺失，系統將嘗試從 .example 恢復或建立預設值
 ESSENTIAL_CONFIGS = [
@@ -142,6 +155,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
         return []
 
     problems: list[str] = []
+    broken: list[str] = []
     checked: list[str] = []
 
     # glob 在資料夾列不出來時靜默回空，健檢會空過；先列一次，列不出來就中止
@@ -157,9 +171,11 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             problems.append(f"  • {name}：JSON 格式錯誤（{e}）")
+            broken.append(name)
             continue
         except Exception as e:  # 讀檔層失敗（權限/編碼等）
             problems.append(f"  • {name}：無法讀取（{type(e).__name__}: {e}）")
+            broken.append(name)
             continue
 
         # 2. schema 驗證（僅有模型者）
@@ -169,6 +185,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
                 model.model_validate(data)
             except Exception as e:
                 problems.append(f"  • {name}：不符 schema（{type(e).__name__}）— {e}")
+                broken.append(name)
                 continue
 
         checked.append(name)
@@ -178,8 +195,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
         msg = (
             "啟動中止：偵測到 live 設定檔錯誤——\n"
             f"{detail}\n"
-            "請修正上列檔案內容；若該檔有對應的 .example 範本，亦可刪除後重啟，"
-            "系統會自動從範本重建。"
+            f"請修正上列檔案內容。{_delete_hint(broken)}"
         )
         logger.critical("🛑 %s", msg)
         raise ConfigValidationError(msg)

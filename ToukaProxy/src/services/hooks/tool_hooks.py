@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Final
 from src.services import tool_errors
 from src.services.hooks.events import base_payload, neutralize_hook_text, tool_match_names
 from src.services.hooks.service import hook_service
-from src.services.rhythm_service import rhythm_service
+from src.services.hooks.stopping import request_stopped
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -140,8 +140,8 @@ async def run_pre_tool_hooks(ctx: Mapping[str, Any], call: ToolCall) -> PreToolO
     outputs = [(PRE_TOOL_EVENT, decision.context)] if decision.context else []
     if decision.blocked:
         return PreToolOutcome(denied_text=hook_denied_error(call.name, decision.reason))
-    session_id = ctx.get("session_id")
-    if decision.ran and session_id and rhythm_service.is_interrupted(session_id):
+    # 看這次執行自己的停止記號：停止之後、hook 跑完之前送出的下一則會清掉對話旗標
+    if decision.ran and request_stopped(ctx):
         return PreToolOutcome(denied_text=hook_stopped_error(call.name))
     return PreToolOutcome(
         ask=decision.ask,

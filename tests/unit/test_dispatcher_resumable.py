@@ -573,10 +573,12 @@ async def test_ui_admission_rejects_stale_or_wrong_base_before_model(
 async def test_a_request_stopped_before_its_stream_never_reaches_the_model(
     sandbox_db, fresh_buffer, monkeypatch, incognito
 ):
-    """ADR-0292：還沒開始串流時按了停止（標在這一則請求上），不建立串流、不送模型。"""
+    """ADR-0292：還沒開始串流時按了停止（標在這一則請求上），不換綁對話、不建立串流、不送模型。"""
     if not incognito:
         await _ui_seed("ui")
     request = await _ui_request("ui", incognito=incognito)
+    admit = AsyncMock(wraps=session_service.admit_ui_stream)
+    monkeypatch.setattr(session_service, "admit_ui_stream", admit)
     calls = Mock()
 
     async def generate():
@@ -586,6 +588,37 @@ async def test_a_request_stopped_before_its_stream_never_reaches_the_model(
     _patch_generator(monkeypatch, generate)
     with pytest.raises(ToukaException) as raised:
         await _ui_dispatch(request, PendingRequest(UI_OWNER, stopped=True))
+    assert raised.value.code == ErrorCode.PROMPT_STOPPED
+    admit.assert_not_called()
+    calls.assert_not_called()
+    assert fresh_buffer.get_state("ui") is None
+
+
+@pytest.mark.asyncio
+async def test_a_stop_while_the_conversation_is_rebound_still_stops_the_request(
+    sandbox_db, fresh_buffer, monkeypatch
+):
+    """ADR-0292：換綁對話（寫入）的期間按了停止，開始串流前再看一次：不建立串流、不送模型。"""
+    await _ui_seed("ui")
+    request = await _ui_request("ui")
+    pending = PendingRequest(UI_OWNER)
+    real_admit = session_service.admit_ui_stream
+
+    async def admit_then_stop(*args, **kwargs):
+        result = await real_admit(*args, **kwargs)
+        pending.stopped = True
+        return result
+
+    monkeypatch.setattr(session_service, "admit_ui_stream", admit_then_stop)
+    calls = Mock()
+
+    async def generate():
+        calls()
+        yield _sse("must-not-run")
+
+    _patch_generator(monkeypatch, generate)
+    with pytest.raises(ToukaException) as raised:
+        await _ui_dispatch(request, pending)
     assert raised.value.code == ErrorCode.PROMPT_STOPPED
     calls.assert_not_called()
     assert fresh_buffer.get_state("ui") is None

@@ -19,7 +19,7 @@ from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.services import continuity_service as cs
-from src.services.prompt_blocks import CONTINUITY, IDE_CONTEXT, wrap_block
+from src.services.prompt_blocks import CONTINUITY, HOOK_OUTPUT, IDE_CONTEXT, wrap_block
 
 if TYPE_CHECKING:
     from src.adapters.schemas import AnthropicRequest
@@ -78,6 +78,19 @@ async def test_breakpoint_skips_continuity_part_after_image(clock: dict[str, flo
     assert blocks[1]["cache_control"] == {"type": "ephemeral"}
     assert OPEN in blocks[2]["text"] and "cache_control" not in blocks[2]
     assert "cache_control" not in blocks[0]
+
+
+async def test_breakpoint_skips_hook_output_and_continuity_parts_after_image(
+    clock: dict[str, float],
+) -> None:
+    """多模態再加 hook 輸出（ADR-0292）：hook 輸出與 continuity 各是一塊，斷點仍打在圖片。"""
+    hook_part = {"type": "text", "text": "\n\n" + wrap_block(HOOK_OUTPUT, "note")}
+    last = json.dumps([{"type": "text", "text": "look"}, IMAGE, hook_part])
+    blocks = _last_user_blocks(convert_openai_to_anthropic(await _request(last=last)))
+    assert [b["type"] for b in blocks] == ["text", "image", "text", "text"]
+    assert blocks[1]["cache_control"] == {"type": "ephemeral"}
+    assert [("cache_control" in b) for b in blocks] == [False, True, False, False]
+    assert f"<{HOOK_OUTPUT}>" in blocks[2]["text"] and OPEN in blocks[3]["text"]
 
 
 async def test_ide_context_and_continuity_both_stay_after_breakpoint(

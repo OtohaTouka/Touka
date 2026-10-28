@@ -9,6 +9,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_soul_access
+from src.services.hooks.stopping import stop_baseline
 from src.services.rhythm_service import rhythm_service
 from src.utils.time_utils import get_current_epoch
 from src.utils.user_intent import chat_intent
@@ -128,6 +129,8 @@ class MonitorLayer(ProxyLayer):
         # 的請求不再清旗標；heartbeat 自設 session_id、不經此層）。
         if session_id:
             rhythm_service.clear_interrupt(session_id)
+            # 這次執行的停止起點：之後的請求清掉旗標，hook 跑完時仍認得這次被停止過（ADR-0292）
+            ctx.update(stop_baseline(session_id))
 
         # 4. 寫入護照 (Context)
         ctx["is_toukasoul"] = is_toukasoul

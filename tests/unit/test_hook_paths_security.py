@@ -195,6 +195,21 @@ def test_paths_after_a_colon_or_at_sign_inside_a_word_are_checked(layout):
     assert command_path_problems(plain, _zones(layout)) == []
 
 
+def test_double_slash_after_a_colon_or_at_sign_is_checked_unless_it_is_a_url(layout):
+    """``-javaagent://host/share/x.jar``、``pkg@//host/x`` 在 Windows 是 UNC；只有 ``:`` 前面整段
+    是網址 scheme 時才當網址略過（POSIX 的 ``:`` 另外會拆成路徑清單）。"""
+    tool = layout["outside"] / "tool.exe"
+    for arg in ("-javaagent://host/share/x.jar", "pkg@//host/share/x"):
+        problems = command_path_problems(_hook(tool, arg), _zones(layout))
+        if sys.platform == "win32":
+            assert _reasons(problems) == {"unc_path"}, arg
+        else:
+            assert problems, arg
+    for arg in ("--url=https://example.com/x", "jdbc:postgresql://db.example/app"):
+        problems = command_path_problems(_hook(tool, arg), _zones(layout))
+        assert (problems == []) if sys.platform == "win32" else bool(problems), arg
+
+
 def test_drive_relative_paths_inside_a_word_are_rejected_on_windows(layout):
     """Windows 的 ``D:x`` 相對於那個磁碟的目前目錄，看不出指哪裡；夾在字詞中間或黏在選項後面
     也一樣。POSIX 沒有磁碟代號，這些是 ``hooks/`` 底下的相對名稱。"""
@@ -261,6 +276,14 @@ def test_hooks_folder_that_is_itself_a_link_is_rejected(layout, tmp_path):
     assert "linked_path" in _reasons(command_path_problems(hook, zones))
 
 
+def test_command_reaching_hooks_through_a_link_is_rejected(layout):
+    """程式字面在外面、經連結指進 ``hooks/``：照 ``hooks/`` 的規則查（要照字面寫），所以拒收；
+    不然 ``hooks/`` 裡那個檔另有硬連結在代理人資料夾也查不到。"""
+    _make_dir_link(layout["outside"] / "hooks_alias", layout["config"] / "hooks")
+    hook = _hook(layout["outside"] / "hooks_alias" / "guard.py")
+    assert _reasons(command_path_problems(hook, _zones(layout))) == {"outside_hooks_dir"}
+
+
 def test_link_located_in_agent_writable_place_is_rejected(layout):
     _make_dir_link(layout["data"] / "bin_link", layout["outside"])
     hook = _hook(layout["data"] / "bin_link" / "tool.exe")
@@ -309,7 +332,9 @@ def test_alias_of_an_agent_folder_is_rejected_by_file_identity(layout, monkeypat
     assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout)))
 
 
-def test_alias_of_the_config_folder_only_allows_hooks(layout, monkeypatch):
+def test_alias_of_the_config_folder_is_rejected(layout, monkeypatch):
+    """設定資料夾的別名：``hooks/`` 以外是代理人寫得到的地方；指進 ``hooks/`` 的也要照字面寫
+    （不然查不到硬連結），所以都拒收。"""
     alias = layout["outside"] / "cfg"
     for sub, name in (("skills", "skill.py"), ("hooks", "guard.py")):
         (alias / sub).mkdir(parents=True)
@@ -323,7 +348,9 @@ def test_alias_of_the_config_folder_only_allows_hooks(layout, monkeypatch):
     assert "agent_writable" in _reasons(
         command_path_problems(_hook(alias / "skills" / "skill.py"), zones)
     )
-    assert command_path_problems(_hook(alias / "hooks" / "guard.py"), zones) == []
+    assert _reasons(command_path_problems(_hook(alias / "hooks" / "guard.py"), zones)) == {
+        "outside_hooks_dir"
+    }
 
 
 def test_a_path_that_cannot_be_read_is_unverifiable(layout, monkeypatch):

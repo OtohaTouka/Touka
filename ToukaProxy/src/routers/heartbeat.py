@@ -50,6 +50,7 @@ from src.services.continuity_events import (
 from src.services.continuity_service import inject_continuity
 from src.services.dispatcher import dispatch_request
 from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
+from src.services.hooks.stopping import request_stopped, stop_baseline
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
 from src.services.model_manager import model_manager
@@ -502,6 +503,11 @@ async def _process_heartbeat_loop(
     # （中間沒有 await）：被擋下的不會清掉同一個對話裡另一次心跳收到的停止，登記之後才叫停的也
     # 不會被這裡清掉。
     rhythm_service.clear_interrupt(final_session_id)
+    # 整次心跳的停止起點（ADR-0292）：之後同一個對話的請求會清掉旗標，脈衝之間與工具 hook 跑完時
+    # 仍認得這次心跳被停止過（ctx 由每個脈衝共用）
+    baseline = stop_baseline(final_session_id)
+    ctx.update(baseline)
+    run_stop = {"session_id": final_session_id, **baseline}
 
     try:
         # P5c：落盤 in-flight 標記——當機/被強制關閉時殘留，供啟動掃描偵測未跑完的背景迴圈
@@ -533,7 +539,7 @@ async def _process_heartbeat_loop(
                 )
                 end = "interrupted"
                 break
-            if rhythm_service.is_interrupted(final_session_id):
+            if request_stopped(run_stop):
                 logger.info(
                     f"🛑 [Heartbeat-BG] Interrupted before pulse {i + 1}; "
                     "stopping remaining pulses."

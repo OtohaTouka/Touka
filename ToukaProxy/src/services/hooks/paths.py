@@ -71,8 +71,11 @@ _FILE_URL = re.compile(r"(?<![a-z0-9])file:", re.IGNORECASE)
 _GLUED_PATH = re.compile(r"^(?:-[A-Za-z](?=[A-Za-z]:|[\\/])|@)(?P<path>.+)$")
 # 字詞中間 ``:``／``@`` 後面接著的路徑（``-javaagent:D:/x.jar``、``--rcfile:/x``、``pkg@/x``）：
 # Windows 的 ``:`` 是磁碟代號、上面不拆，所以另外取出來。磁碟代號開頭（含 ``D:x`` 這種相對於
-# 磁碟目前目錄、之後判成看不出指哪裡的寫法）、UNC 與單一斜線算；``://`` 網址不算。
-_ABSOLUTE_START = re.compile(r"[A-Za-z]:|\\|/(?!/)")
+# 磁碟目前目錄、之後判成看不出指哪裡的寫法）、反斜線與斜線開頭都算。
+_ABSOLUTE_START = re.compile(r"[A-Za-z]:|[\\/]")
+# 網址的 scheme（可以串接：``jdbc:postgresql://``）。``:`` 前面整段是 scheme、後面接 ``//`` 才當
+# 網址略過；``-javaagent://host/share/x``、``pkg@//host/x`` 照路徑檢查（Windows 上是 UNC）。
+_URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*(?::[A-Za-z][A-Za-z0-9+.\-]*)*")
 _DRIVE_LETTER = re.compile(r"[A-Za-z]")
 _SEPARATORS = re.compile(r"[\\/]")
 _VERBATIM_PREFIX = "\\\\?\\"
@@ -241,6 +244,19 @@ class _ZoneChecker:
         """字面上在 ``hooks/`` 裡（大小寫依平台）。"""
         return _within(_norm(path), self._hooks_dir)
 
+    def resolves_into_hooks(self, path: Path) -> bool:
+        """其實在 ``hooks/`` 裡（字面不在時用的是別名）。
+
+        解析後在裡面（連結、短檔名、結尾的點），或上層有一層的檔案識別碼就是 ``hooks/``
+        （bind mount 這類解析不出來的別名）。
+        """
+        lexical = path.absolute()
+        if self.in_hooks(lexical.resolve()):
+            return True
+        if self._hooks_id is None:
+            return False
+        return any(_identity(_stat(ancestor)) == self._hooks_id for ancestor in lexical.parents)
+
     def hooks_reason(self, path: Path) -> PathReason | None:
         """``path`` 必須在 ``hooks/`` 裡：字面與解析後都在、一路沒有連結、沒有其他硬連結。"""
         lexical = path.absolute()
@@ -281,7 +297,13 @@ def _command_problems(checker: _ZoneChecker, command: str) -> list[PathProblem]:
     path = Path(command)
     if not path.is_absolute():
         return problem("not_absolute")
-    if (reason := _safe_reason(checker, path, hooks_only=checker.in_hooks(path))) is not None:
+    try:
+        # hooks/ 裡的程式要照字面寫 hooks/ 裡的路徑：用別名指進去的也走 hooks/ 的檢查（會被拒），
+        # 才查得到硬連結
+        hooks_only = checker.in_hooks(path) or checker.resolves_into_hooks(path)
+    except OSError:
+        return problem("unverifiable")
+    if (reason := _safe_reason(checker, path, hooks_only=hooks_only)) is not None:
         return problem(reason)
     try:
         info = _stat(path)
@@ -310,8 +332,11 @@ def _embedded_paths(word: str) -> list[str]:
         if char not in ":@" or _is_drive_colon(word, index):
             continue
         rest = word[index + 1 :]
-        if _ABSOLUTE_START.match(rest):
-            found.append(rest)
+        if not _ABSOLUTE_START.match(rest):
+            continue
+        if char == ":" and rest.startswith("//") and _URL_SCHEME.fullmatch(word[:index]):
+            continue  # 網址
+        found.append(rest)
     return found
 
 

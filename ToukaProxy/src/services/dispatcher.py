@@ -30,14 +30,11 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.dispatchers import dispatch_group_stream, get_stream_generator
 from src.services.hooks import events as hook_events
+from src.services.hooks.stopping import stopped_since_start
 from src.services.identity_service import identity_service
 from src.services.interjection_queue import InterjectionQueue, interjection_queue
 from src.services.sliding_window_service import sliding_window_service
-from src.services.stream_buffer_service import (
-    PendingRequest,
-    StreamOwnershipError,
-    stream_buffer_service,
-)
+from src.services.stream_buffer_service import StreamOwnershipError, stream_buffer_service
 from src.utils.async_db import SessionSnapshot, session_service
 from src.utils.brain_persistence import record_working_brain
 from src.utils.history_manager import TreeMessageManager
@@ -58,6 +55,15 @@ def _reject_ui_save() -> FailedResult:
     return FailedResult(
         status="failed", error_code=ToukaException(ErrorCode.SESSION_SAVE_FAILED).error_id
     )
+
+
+def _refuse_if_stopped(context: dict[str, Any]) -> None:
+    """還沒開始串流時按了停止就不往下做（ADR-0292）：換綁對話之前、開始串流之前各看一次。
+
+    只看這次執行自己的記號；對話旗標還在時交給 ReAct 迴圈在第一輪前結束。
+    """
+    if stopped_since_start(context):
+        raise ToukaException(ErrorCode.PROMPT_STOPPED)
 
 
 def _valid_ui_base(snapshot: SessionSnapshot, admission: PersistedStreamAdmission) -> bool:
@@ -451,6 +457,7 @@ async def dispatch_request(
             or not session_id
         ):
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+        _refuse_if_stopped(context)
         if admission.mode == "persistent":
             if not requester.is_human:
                 raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
@@ -478,10 +485,8 @@ async def dispatch_request(
             admission = admission.model_copy(update={"revision": snapshot.revision})
         else:
             execution = None
-        pending = context.get("ui_pending")
-        if isinstance(pending, PendingRequest) and pending.stopped:
-            # ADR-0292：還沒開始串流時按了停止（標在這一則請求上，同一對話之後的請求清不掉）
-            raise ToukaException(ErrorCode.PROMPT_STOPPED)
+        # 換綁對話的交易期間按的停止在這裡擋下（同一對話之後的請求清不掉，見 hooks.stopping）
+        _refuse_if_stopped(context)
         try:
             entry = await stream_buffer_service.create(
                 session_id, identity=requester, admission=admission,

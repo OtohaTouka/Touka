@@ -9,9 +9,9 @@
 有值也不是這次對話的模式）。
 
 hook 執行時串流還沒登記，使用者按停止會把這一則請求標成已停止（``ctx.ui_pending``，同一對話
-之後的請求清不掉）；對話已存在而且停止的人有權限時，也設這個對話的中斷旗標（``rhythm_service``）。
-hook 回來後看到任一個就回 ``PROMPT_STOPPED``、不送模型。擋下優先：還連著的用戶端要靠它把那一輪
-拿掉。
+之後的請求清不掉）；對話已存在而且停止的人有權限時，也停這個對話。hook 回來後看
+``hooks.stopping.request_stopped``，成立就回 ``PROMPT_STOPPED``、不送模型。擋下優先：還連著的
+用戶端要靠它把那一輪拿掉。
 """
 
 from __future__ import annotations
@@ -24,8 +24,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.middleware.base import ProxyLayer
 from src.services.hooks.events import base_payload, last_user_prompt, wrap_hook_output
 from src.services.hooks.service import hook_service
-from src.services.rhythm_service import rhythm_service
-from src.services.stream_buffer_service import PendingRequest
+from src.services.hooks.stopping import request_stopped
 from src.utils.auth_mode import request_is_incognito
 
 if TYPE_CHECKING:
@@ -55,7 +54,7 @@ class HookLayer(ProxyLayer):
                 ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.block_reason
             )
         session_id = ctx.get("session_id")
-        if decision.ran and _stopped(ctx):
+        if decision.ran and request_stopped(ctx):
             logger.info("Prompt stopped by the user while hooks ran (session=%s)", session_id)
             raise ToukaException(ErrorCode.PROMPT_STOPPED)
         if decision.context:
@@ -78,11 +77,3 @@ class HookLayer(ProxyLayer):
             logger.exception("UserPromptSubmit hooks failed; continuing without them")
             return None
 
-
-def _stopped(ctx: PipelineContext) -> bool:
-    """這一則請求被停止，或這個對話被停止。"""
-    pending = ctx.get("ui_pending")
-    if isinstance(pending, PendingRequest) and pending.stopped:
-        return True
-    session_id = ctx.get("session_id")
-    return bool(session_id) and rhythm_service.is_interrupted(session_id)

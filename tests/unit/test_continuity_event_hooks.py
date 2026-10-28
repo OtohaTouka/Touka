@@ -31,6 +31,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.routers import heartbeat as hb
 from src.services import continuity_events as ce
+from src.services.hooks import stopping
 from src.tools.builtin import memory as proxy_memory_gateway
 from src.tools.mission_tools import mission_tools
 from src.utils import task_utils
@@ -162,6 +163,7 @@ async def _run_loop(
     autonomy: MagicMock | None = None,
     pulse_count: int = 1,
     interrupted: bool = False,
+    stop_counts: list[int] | None = None,
 ) -> str:
     sid = f"t23-hb-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(hb, "_execute_single_pulse", pulse)
@@ -170,7 +172,11 @@ async def _run_loop(
     monkeypatch.setattr(hb, "session_service", MagicMock(append_message_to_session=AsyncMock()))
     rhythm = MagicMock()
     rhythm.is_interrupted.return_value = interrupted
+    rhythm.stop_count.return_value = 0
+    if stop_counts is not None:
+        rhythm.stop_count.side_effect = stop_counts
     monkeypatch.setattr(hb, "rhythm_service", rhythm)
+    monkeypatch.setattr(stopping, "rhythm_service", rhythm)  # 脈衝之間的停止檢查（ADR-0292）
     await hb._process_heartbeat_loop(
         final_session_id=sid,
         identity=soul,
@@ -242,6 +248,17 @@ async def test_heartbeat_run_records_start_and_end(
         "turns": turns,
         "end": end,
     }
+
+
+async def test_a_stop_cleared_by_another_request_still_ends_the_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """心跳開始之後被停止、旗標又被同一個對話的下一則請求清掉：停止次數比開始時多，脈衝不跑
+    （ADR-0292）。"""
+    soul = _soul()
+    await _run_loop(monkeypatch, soul, _pulse_ok, interrupted=False, stop_counts=[0, 1])
+    (finished,) = [e for e in await _events(soul) if e["kind"] == "heartbeat_finished"]
+    assert (finished["metadata"]["end"], finished["metadata"]["pulses_done"]) == ("interrupted", 0)
 
 
 async def test_cancelled_heartbeat_still_records_its_end(monkeypatch: pytest.MonkeyPatch) -> None:
