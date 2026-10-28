@@ -1,12 +1,14 @@
 """Hook 接線（ADR-0292）：UserPromptSubmit、PreToolUse、PostToolUse、Stop 四個事件.
 
 - UserPromptSubmit：只在真的請求執行（``process_proxy_request`` 設 ``run_hooks``；上下文預覽與
-  子代理不執行）；擋下回 ``HOOK_PROMPT_BLOCKED`` 帶理由；補充說明當資料接在最後一則 user 訊息。
+  子代理不執行；只有工具結果的 user 訊息不執行）；擋下回 ``HOOK_PROMPT_BLOCKED`` 帶理由；補充說明
+  當資料接在最後一則 user 訊息。模式這時還沒決定，事件內容不帶 ``permission_mode``。
 - PreToolUse：只能擋下或要求人核准。擋下不跳卡、不送審、不執行；要求人核准跳同一張人類卡、
   卡上的理由標成 hook 的（不是審查員的）、不送審查員，無人在場直接拒絕；``allow`` 不放行。
 - PostToolUse：只在成功後執行；補充說明接在結果後面（JSON 結果加鍵、文字結果加資料區塊）。
 - Stop：在背景執行，子代理與沒有設定時不執行、不讀回覆文字。
-- 沒有設定 hook 時結果不變、不呼叫 hook。
+- 沒有設定 hook 時結果不變、不呼叫 hook；hook 服務自己出錯時當成沒有 hook 結果（請求不失敗、
+  工具照常執行並完成、回覆不受影響）。
 
 全部 sandbox：設定檔在 tmp_path，hook 一律用假的 http runner，不連網路、不讀 data/。
 """
@@ -128,7 +130,40 @@ async def test_prompt_block_stops_the_request_with_the_hook_reason(hooks):
     (call,) = hooks.http.calls
     assert call["prompt"] == "my token is abc"
     assert call["session_id"] == "s-hook"
-    assert call["permission_mode"] == "Auto"
+    assert call["incognito"] is False
+    assert "permission_mode" not in call  # 這時模式還沒決定，ctx 裡的值不可信
+
+
+async def test_prompt_hooks_skip_tool_result_turns(hooks):
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    request = _Request("")
+    request.messages[-1]["content"] = [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "3 passed"}
+    ]
+    await HookLayer().process(request, _prompt_ctx())
+    assert hooks.http.calls == []
+
+
+async def test_prompt_hooks_mark_incognito_requests(hooks):
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    request = _Request("hello")
+    request.incognito = True
+    await HookLayer().process(request, _prompt_ctx())
+    assert hooks.http.calls[0]["incognito"] is True
+    (record,) = hooks.service.runs()
+    assert (record.incognito, record.hook, record.detail) == (True, "", None)
+
+
+async def test_prompt_hook_service_errors_do_not_fail_the_request(hooks, monkeypatch):
+    hooks.configure({"UserPromptSubmit": [_group()]})
+
+    async def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(hooks.service, "dispatch", broken)
+    request = _Request("hello")
+    await HookLayer().process(request, _prompt_ctx())
+    assert request.messages[-1]["content"] == "hello"
 
 
 async def test_prompt_context_is_appended_as_data_with_tags_neutralized(hooks):
@@ -290,6 +325,19 @@ async def test_pre_tool_deny_blocks_before_review_card_and_handler(monkeypatch, 
     assert call["tool_input"] == _COMMAND
 
 
+async def test_tools_the_policy_denies_never_reach_the_hook(monkeypatch, hooks):
+    """政策（黑名單）先拒絕：hook 收不到這次呼叫，也不能把它變成要人確認。"""
+    hooks.configure({"PreToolUse": [_group()]})
+    hooks.http.bodies["PreToolUse"] = _pre("ask", "let a person decide")
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"execute_command": recorder})
+    result, events = await _run(executor, "execute_command", {"command": "sudo rm x"})
+    assert json.loads(result)["error_class"] == tool_errors.PERMISSION_DENIED
+    assert hooks.http.calls == []
+    assert recorder.calls == []
+    assert _cards(events) == []
+
+
 async def test_pre_tool_ask_shows_a_hook_labelled_card_and_skips_the_reviewer(monkeypatch, hooks):
     hooks.configure({"PreToolUse": [_group()]})
     hooks.http.bodies["PreToolUse"] = _pre("ask", "touches the release folder")
@@ -412,6 +460,24 @@ async def test_post_tool_hooks_skip_failed_tools(monkeypatch, hooks):
     assert result == failure
 
 
+@pytest.mark.parametrize("event", ["PreToolUse", "PostToolUse"])
+async def test_tool_hook_service_errors_do_not_hang_or_fail_the_tool(monkeypatch, hooks, event):
+    hooks.configure({event: [_group()]})
+
+    async def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(hooks.service, "dispatch", broken)
+    _reviewer(monkeypatch)
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"execute_command": recorder})
+    result, events = await _run(executor, "execute_command", dict(_COMMAND))
+    assert result == recorder.result
+    assert len(recorder.calls) == 1
+    (done,) = [e for e in events if e.get("type") == "tool_result"]
+    assert done["status"] == "success"
+
+
 async def test_without_hooks_nothing_runs_and_results_are_unchanged(monkeypatch, hooks):
     _reviewer(monkeypatch)
     recorder = _Recorder()
@@ -462,6 +528,16 @@ async def test_stop_hook_still_runs_when_the_reply_cannot_be_read(hooks):
     stop_hooks.schedule_stop_hooks({"session_id": "s-hook"}, broken)
     await _until(lambda: hooks.http.calls)
     assert "last_assistant_message" not in hooks.http.calls[0]
+
+
+async def test_stop_hook_service_errors_do_not_reach_the_reply(hooks, monkeypatch):
+    def broken(_event: str) -> bool:
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(hooks.service, "has_hooks", broken)
+    stop_hooks.schedule_stop_hooks({"session_id": "s-hook"}, lambda: "done")
+    await asyncio.sleep(0.01)
+    assert hooks.http.calls == []
 
 
 def test_react_loop_schedules_stop_hooks_after_the_reply():

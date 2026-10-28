@@ -44,6 +44,7 @@ from src.services.authorization_gateway import (
 from src.services.handover_service import handover_service
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
+from src.services.isolation import profiles
 from src.services.process_registry import process_registry, terminate_processes
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
@@ -181,10 +182,16 @@ async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) ->
 
     admin/Debugger 放行 (受信任，且 workspace_root 設定本就由其掌控)——與
     `_can_access_project` / `_can_modify_project` 的 admin/Debugger bypass 一致。
+
+    其他人另外不能用 Touka 保護的地方（設定與 hooks、資料、程式碼；ADR-0292），
+    判定與專案檔案工具相同（``profiles.project_root_reason``）。
     """
     if caller.is_admin_or_debugger():
         return True
-    return await resource_manager.is_within_workspace(root_path or "")
+    if not await resource_manager.is_within_workspace(root_path or ""):
+        return False
+    target = Path(await resource_manager.translate_path(root_path or ""))
+    return await profiles.project_root_reason(target, profiles.current_layout()) is None
 
 
 class LegacyExportRequest(BaseModel):
@@ -715,7 +722,10 @@ async def save_project(
     if not await _project_root_allowed(identity, project.root_path):
         raise ToukaException(
             ErrorCode.VALIDATION_ERROR,
-            detail_override="Project root_path must be inside the workspace root.",
+            detail_override=(
+                "Project root_path must be inside the workspace root"
+                " and outside the folders Touka protects."
+            ),
         )
     try:
         async with get_async_db() as db:

@@ -46,7 +46,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 | **終端機執行** | 同上統一 HITL；終端一律算 dangerous（`safe_whitelist` 已拿掉），Auto 下先交審查員；黑名單攔截（恆拒、凌駕 YOLO）；headless 保留遺留 ToukaUI 通道語意 |
 | **隔離執行環境** | 代理人撰寫或指定的程式（終端、互審驗證指令、演化）在執行器容器（`touka-executor`）裡經 Landlock 啟動器執行，看不到金鑰、設定、原始碼與其他代理人資料（但書：`/proc/*/cmdline` 讀得到，token 不要放在 MCP 的 args；同 uid 檔案的權限位元仍改得到，代理人工作區由自癒補回，見 ADR），連不到也搶不到 Touka 內部埠、Docker 遠端控制埠與從設定推得的本機上游埠；執行器的控制通道用檔案權杖加 `SO_PEERCRED` 認證；層級只由 `services/isolation` 判定，`none` 時 Auto／YOLO 只有人能核准、無人在場拒絕，卡片如實標示「在執行器裡／隔離降級／未隔離」並綁定核准；有隔離不放寬任何規則。C2-3 已涵蓋 stdio MCP 與創建試跑：自建依層級選 runner，第三方與 scaffold 看本機 Landlock；穩定的不可用原因仍容許第三方未隔離啟動，自建 none 只接受一次人類同意。完整邊界見下方 MCP 已知限制及 ADR-0275 |
 | **底線與 Auto 審查員** | 程式常數底線 F1–F7 在 `evaluate` 最前面判斷、設定檔關不掉：刪改資料、讀金鑰、改權限設定、改原始碼、系統破壞三種模式都只有人能核准，F5、F6 在 Auto 下只有人能核准；Auto 審查員只收型別化判決、失敗一律不放行、不能推翻底線、無人在場不送審（禁令 64，ADR-0246） |
-| **Hook（管理員設定的程式與 HTTP）** | 預設關閉；`hooks.json` 只經 `PUT /v1/hooks`（人類 admin、revision 比對、CSRF Origin）改，代理人寫入屬底線 F3，不在設定匯出／匯入裡。hook 只能擋下或要人確認，不能放行、不能改寫參數、不能推翻底線或代替人核准；command 不經 shell、環境不含金鑰，程式與參數不能指到代理人寫得到的地方（存檔與每次執行前都查）；http 不跟隨轉址、有逾時與大小上限、標頭不替換環境變數；回給模型的輸出當資料（禁令 67，ADR-0292） |
+| **Hook（管理員設定的程式與 HTTP）** | 預設關閉；`hooks.json` 只經 `PUT /v1/hooks`（人類 admin、revision 比對、CSRF Origin）改，代理人讀寫都屬底線 F2，不在設定匯出／匯入裡。hook 只能擋下或要人確認，不能放行、不能改寫參數、不能推翻底線或代替人核准；command 不經 shell、環境不含金鑰，參數裡的路徑必須在 `config/hooks/`，程式不能指到代理人寫得到的地方（存檔與每次執行前都查）；一般使用者的專案根不能放在受保護的位置；http 不跟隨轉址、整次請求有逾時、有大小上限、標頭不替換環境變數；回給模型的輸出當資料，群聊不當點名；hook 失敗不擋（禁令 67，ADR-0292） |
 | **模式授權** | 只有 admin 或該靈魂的擁有者能把對話存成 Auto／YOLO，在 session 寫入時判定；請求參數不是模式來源（ADR-0246） |
 | **檔案存取** | ResourceManager 路徑主權隔離（`is_relative_to()` + `validate_no_symlink_escape()` 雙重檢查）；**原子寫入**（temp+fsync+`os.replace`）防寫到一半損毀（ADR-0078） |
 | **心跳重新觸發（UI）** | `POST /v1/heartbeat/retrigger` 限 admin 或人類擁有者（Debugger 不旁路）、對話須屬於該靈魂 + 能力閘（`can_awaken`）+ **強制 Auto**（無人在場不跑終端、不叫審查員），永不升級 YOLO（ADR-0078、ADR-0246） |
@@ -101,6 +101,11 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **http hook 會把事件內容送出去**：包含使用者的訊息、工具名稱與參數、工具結果；送到哪裡由管理員決定，Touka 不檢查目的地。無痕對話也照跑 hook。
 - **路徑檢查只看路徑**：參數裡看起來像路徑的片段才檢查；直譯器執行的程式內容（例如 `python -c` 的程式碼、腳本自己 import 或讀的檔案）不在檢查範圍。
 - **PreToolUse 會拖慢工具**：每次符合的工具呼叫都要等 hook 執行完（最多到逾時，上限 300 秒）。
+- **hook 失敗不擋**：hook 逾時、當掉、連不上或路徑被拒時動作照常進行，只記在執行紀錄。不要把 hook 當成唯一的安全防線。
+- **Windows 的 `.bat`／`.cmd`**：系統會經 `cmd.exe` 啟動，參數會被 `cmd.exe` 重新解讀。
+- **管理員與 Debugger 的專案**：不受「專案根不能放在受保護位置」的限制；管理員把專案登記在設定資料夾一類的地方時，代理人以管理員身分使用專案工具就寫得到 hook 腳本。
+- **IDE 與未隔離的 MCP 伺服器**：Touka 不知道它們能寫哪裡，不要把 hook 程式放在那些地方。
+- **自己組歷史的用戶端**：被擋下的訊息不再送給模型只在 ToukaChat 做到；IDE 或自訂用戶端把它放進歷史時仍會送到模型。
 
 ### 代理人指令隔離的其他已知限制
 
@@ -149,6 +154,18 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 ## Known Resolved Vulnerabilities
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
+
+### Hook 對抗式複審找到的缺口（2026-10-29，合併前修正）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 一般使用者能把專案根登記在設定資料夾、`config/hooks/` 或它們的上層。決定 5 只把專案根當禁區，代理人卻能經專案檔案工具寫進 hook 腳本，下一次 hook 就以 Touka 自己的權限執行它。 | 一般使用者的專案根沿用 ADR-0272 的永不授權規則（`isolation/profiles.project_root_reason`）：受保護的位置與上層、經連結指到受保護位置的一律拒絕，容器裡另查 Touka 目錄。登記與更新專案回 422，列專案檔案與每次專案檔案工具呼叫也拒絕。管理員與 Debugger 不受限（已知界線，見 ADR-0292 決定 12）。`tests/unit/test_project_root_protected_security.py`。 |
+| hook 參數只要不在禁區就放行；工作區根與 MCP 伺服器的可寫資料夾不在禁區裡（使用者之後能在工作區根底下登記專案），`config/hooks/` 本身是連結時也沒擋。 | 參數裡看起來像路徑的字詞一律要在 `config/hooks/` 裡（`outside_hooks_dir`），`config/hooks/` 與經過的每一層不能是連結（`linked_path`）；指令放在別處時禁區加上工作區根與 MCP 可寫資料夾，讀不到 MCP 隔離設定檔就不執行。`tests/unit/test_hook_paths_security.py`。 |
+| hook 服務自己出錯（解讀、記錄、組事件內容）時例外往上丟：聊天請求或工具呼叫跟著失敗，例外原文可能進回應。 | 三個接線點與服務內部都接住例外，記 log、當成沒有 hook 結果；執行紀錄只記例外類型。`tests/unit/test_hook_service.py`、`test_hook_wiring_security.py`。 |
+| 被 UserPromptSubmit 擋下的訊息留在對話樹裡，下一輪組歷史時照樣送給模型。 | 前端把它標成 `hookBlocked`、顯示說明，組歷史時略過它與它底下的分支；自己組歷史的用戶端不在範圍（ADR-0292 決定 14）。`ToukaChat` 的 `stream_tree.hookBlocked`、`StreamRegistryProvider.hookBlocked`、`buildApiMessage` 測試。 |
+| http hook 的逾時只管連線與每次讀取，伺服器慢慢回可以拖過上限；`hooks.json` 存著 http 標頭（可能有權杖），代理人讀它不算底線。 | 逾時改成整次請求的上限、讀到 64 KiB 就停止並關閉連線；讀寫 `hooks.json` 都屬底線 F2。`tests/unit/test_hook_runners_security.py`、`test_hard_floor_security.py`。 |
+| 群聊時 hook 補充說明裡的 `@別名` 會被當成點名，hook 的輸出能叫其他靈魂發言。 | `group_router` 找點名前先拿掉 `<hook_output>` 區塊。`tests/unit/test_group_soul_only.py`。 |
+| 其他：`config/hooks/` 沒有排除在版控與映像外；設定檔讀不到或被刪掉時變成沒有 hook；只有工具結果的 user 回合也觸發 UserPromptSubmit；`continue: false` 被忽略。 | `.gitignore`、`.dockerignore` 排除 `config/hooks/`（`test_public_repo_hygiene.py`）；讀不到或被刪掉時沿用上一份好的設定；工具結果回合不觸發；`continue: false` 在能擋的事件擋下。ADR-0292。 |
 
 ### 新的執行器入口忘了開「只用這一輪列出的工具」（2026-10-27）
 

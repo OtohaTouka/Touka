@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from ..config import get_config_dir
+from .prompt_blocks import HOOK_OUTPUT
 from .resource_manager import resource_manager
 from .soul_service import soul_service
 
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # ADR-0245：白名單只認這一區；舊 Native／Custom 等其他區讀到就略過並記警告，不改檔。
 SOUL_SECTION = "ToukaSoul"
+# ADR-0292：hook 的補充說明接在最後一則 user 訊息尾端，是資料，裡面的 @ 不算點名。
+# 區塊內容先中和過 tag，所以第一個結尾 tag 就是區塊結尾。
+_HOOK_OUTPUT_BLOCK = re.compile(rf"<{HOOK_OUTPUT}>\n.*?\n</{HOOK_OUTPUT}>", re.DOTALL)
 
 
 def drop_legacy_sections(data: dict) -> dict:
@@ -84,7 +88,7 @@ def parse_group_roster(messages: list[Any], registry: dict) -> Any:
             elif isinstance(content, dict):
                 text = content.get("text", "")
 
-            mentions = mention_pattern.findall(text)
+            mentions = mention_pattern.findall(_HOOK_OUTPUT_BLOCK.sub(" ", text))
 
             is_latest = i == len(messages) - 1
 

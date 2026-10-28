@@ -71,6 +71,16 @@ def _unlock_and_retry(
         shutil.rmtree(target, onexc=partial(_unlock_and_retry, root, unlocked))
 
 
+def bypasses_project_jail(identity: AgentIdentity) -> bool:
+    """人類 admin 或 agent Debugger 可以越工作區 jail 存取專案根（ADR-0141 P6-c）.
+
+    admin 代打（``is_human=False``）不算：代打＝管理閘權、非資源監獄旁路。
+    """
+    return (identity.is_human and identity.human_role == "admin") or (
+        not identity.is_human and identity.agent_role == "Debugger"
+    )
+
+
 class ResourceManager:
     """資源路徑與主權邊界管理中心.
 
@@ -130,6 +140,10 @@ class ResourceManager:
         root_str = await get_system_setting("workspace_root", HOST_WORKSPACE_ROOT)
         self._workspace_root_cached = Path(root_str)
         return self._workspace_root_cached
+
+    async def get_workspace_jail_root(self) -> Path:
+        """設定的工作區根（主機路徑；Docker 裡用 ``translate_path`` 換成容器路徑）。"""
+        return await self._get_workspace_root()
 
     def invalidate_cache(self) -> None:
         """清除工作區根目錄快取 (workspace_root 變更時呼叫)。"""
@@ -584,14 +598,9 @@ class ResourceManager:
         # project_tools 經任意 project_id 讀寫工作區外目錄 (與 ui_sessions.
         # _project_root_allowed 同政策)。每次呼叫即驗新鮮 root，不被快取短路——
         # 否則 admin 先快取越界路徑、root 改回界內後，非 admin 仍可取到陳舊越界路徑。
-        # ADR-0141 P6-c：拆顯式雙面判定（對齊 get_vault_root/is_owner 的 is_human 分支）——
-        # 人類 admin（is_human ∧ human_role）或 agent Debugger（¬is_human ∧ agent_role）方可
-        # 越工作區 jail；admin 代打（is_human=False）不再經此旁路（與其在 get_vault_root/
-        # is_owner 已無旁路一致，符 P5 Option A：代打＝管理閘權、非資源監獄旁路）。
-        is_privileged_bypass = (identity.is_human and identity.human_role == "admin") or (
-            not identity.is_human and identity.agent_role == "Debugger"
-        )
-        if not is_privileged_bypass and not await self.is_within_workspace(root_path):
+        # ADR-0141 P6-c：拆顯式雙面判定（對齊 get_vault_root/is_owner 的 is_human 分支），
+        # 見 bypasses_project_jail。
+        if not bypasses_project_jail(identity) and not await self.is_within_workspace(root_path):
             logger.warning(
                 "Project %s root_path outside workspace; denied for %s.",
                 project_id,

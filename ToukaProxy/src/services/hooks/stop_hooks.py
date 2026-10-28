@@ -22,10 +22,14 @@ STOP_EVENT: Final[str] = "Stop"
 
 
 def schedule_stop_hooks(ctx: Mapping[str, Any], final_text: Callable[[], str]) -> None:
-    """有設定 Stop hook 時在背景執行；``final_text`` 只在要執行時才呼叫。"""
-    if ctx.get("subagent_run") or not hook_service.has_hooks(STOP_EVENT):
+    """有設定 Stop hook 時在背景執行；``final_text`` 只在要執行時才呼叫。出錯只記 log。"""
+    try:
+        if ctx.get("subagent_run") or not hook_service.has_hooks(STOP_EVENT):
+            return
+        payload: dict[str, Any] = {**base_payload(ctx), "stop_hook_active": False}
+    except Exception:
+        logger.exception("Stop hooks failed; the reply is not affected")
         return
-    payload: dict[str, Any] = {**base_payload(ctx), "stop_hook_active": False}
     try:
         payload["last_assistant_message"] = final_text()
     except Exception:

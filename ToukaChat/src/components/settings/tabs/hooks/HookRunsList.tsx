@@ -35,7 +35,9 @@ export function HookRunsList({ runs, onRefresh }: HookRunsListProps) {
                                 {run.incognito ? t("settings.hooks_tab.runs.incognito") : run.hook}
                             </span>
                             <span>{t(`settings.hooks_tab.outcomes.${run.outcome}`)}</span>
-                            <span className="text-muted-foreground">{run.duration_ms} ms</span>
+                            <span className="text-muted-foreground">
+                                {t("settings.hooks_tab.runs.duration", { ms: run.duration_ms })}
+                            </span>
                             {run.detail && <span className="w-full break-all text-muted-foreground">{run.detail}</span>}
                         </li>
                     ))}

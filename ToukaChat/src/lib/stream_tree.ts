@@ -102,6 +102,14 @@ export function stampNodeTime(tree: TreeHistory, nodeId: string, at: number): Tr
   return { ...tree, messages: { ...tree.messages, [nodeId]: { ...node, timestamp: at } } };
 }
 
+/** ADR-0292：hook 擋下了這一輪，標記送出的 user 訊息（assistant 的上一則）；找不到就回原樹。 */
+export function markHookBlocked(tree: TreeHistory, assistantMsgId: string): TreeHistory {
+  const userId = tree.messages[assistantMsgId]?.parentId;
+  const user = userId ? tree.messages[userId] : undefined;
+  if (!userId || user?.role !== 'user') return tree;
+  return { ...tree, messages: { ...tree.messages, [userId]: { ...user, hookBlocked: true } } };
+}
+
 /** 重播只接回已授權的固定節點，不能把舊生成接到新的分支。 */
 export function restoreAssistantNode(tree: TreeHistory, parentId: string, assistantId: string): TreeHistory {
   const parent = tree.messages[parentId];

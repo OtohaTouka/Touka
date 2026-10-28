@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from memory_server.utils.historical_data import neutralize_historical_tags, neutralize_tags
 
-from src.adapters.content_normalize import message_text
+from src.adapters.content_normalize import message_text, normalize_message_content
 from src.services import tool_errors
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, HOOK_OUTPUT, wrap_block
 
@@ -69,19 +69,32 @@ def tool_match_names(name: str, mcp_server: str | None, mcp_tool: str | None) ->
 
 
 def base_payload(ctx: Mapping[str, Any]) -> dict[str, Any]:
-    """每個事件都有的欄位：對話、代理人與這個對話的模式。"""
+    """每個事件都有的欄位：對話、代理人、是不是無痕與這個對話的模式。
+
+    ``incognito`` 是 Touka 多的欄位：hook 自己決定無痕對話的內容要不要留。
+    """
     identity = ctx.get("identity")
     payload: dict[str, Any] = {
         "session_id": ctx.get("session_id"),
         "agent_id": ctx.get("agent_id") or getattr(identity, "agent_id", None),
+        "incognito": bool(ctx.get("incognito")),
     }
     if ctx.get("auth_level"):
         payload["permission_mode"] = ctx.get("auth_level")
     return payload
 
 
+def _only_tool_results(content: Any) -> bool:
+    """User 訊息裡只有工具結果（Anthropic 格式的工具回合），不是使用者送出的訊息。"""
+    return (
+        isinstance(content, list)
+        and bool(content)
+        and all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
+    )
+
+
 def last_user_prompt(request: Any) -> str | None:
-    """請求最後一則訊息是 user 時回它的文字；不是就回 None。"""
+    """請求最後一則訊息是使用者送出的訊息時回它的文字；不是（含只有工具結果）就回 None。"""
     messages = getattr(request, "messages", None)
     if not messages:
         return None
@@ -89,4 +102,9 @@ def last_user_prompt(request: Any) -> str | None:
     is_dict = isinstance(last, dict)
     if (last.get("role") if is_dict else getattr(last, "role", None)) != "user":
         return None
-    return message_text(last.get("content") if is_dict else getattr(last, "content", None))
+    content = normalize_message_content(
+        last.get("content") if is_dict else getattr(last, "content", None)
+    )
+    if _only_tool_results(content):
+        return None
+    return message_text(content)

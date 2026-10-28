@@ -1,12 +1,13 @@
 """Hook 指令的路徑界線（ADR-0292）。
 
 hook 以 Touka 自己的權限、不經隔離執行；代理人改得到的程式或腳本若能被 hook 執行，
-就等於不經審批跑程式。
-所以指令與參數裡的路徑只要落在代理人寫得到的地方就拒收：
+就等於不經審批跑程式。所以：
 
-- 資料根（各代理人的個人空間、產出物、自建 MCP）、隔離暫存區、所有已登記的專案根目錄；
-- 設定資料夾裡只有 ``hooks/`` 可以放（``skills``、``mcp_servers``、``evals`` 由創建與演化寫入）；
-- 連結的所在位置與最後指向都要檢查，中間經過的每一個連結也算；
+- 參數裡的路徑一律要在設定資料夾的 ``hooks/`` 裡（不看專案清單一類會變動的資料）；
+- ``hooks/`` 裡的指令與參數：一路不能經過連結（``hooks/`` 本身也算），不能有其他硬連結；
+- ``hooks/`` 以外的指令不能落在代理人可能寫得到的地方：資料根、隔離暫存區、工作區根、
+  專案根、MCP 伺服器的可寫資料夾；設定資料夾裡只有 ``hooks/`` 可以放；連結的所在位置與
+  最後指向都要檢查，中間經過的每一個連結也算；
 - 指令必須是存在的絕對路徑一般檔；任何參數出現 ``..`` 一律拒收。
 """
 
@@ -18,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from src.core.exceptions import ToukaException
 from src.models.hooks import CommandHook
 from src.services.hooks import paths as paths_module
 from src.services.hooks.paths import HookZones, command_path_problems, current_zones
@@ -108,13 +110,26 @@ def test_command_in_agent_writable_place_is_rejected(layout, tmp_path, relative)
 
 @pytest.mark.parametrize(
     "relative",
-    ["data/evil.py", "projects/alpha/proj.py", "config/skills/skill.py", "data/not_yet_there.py"],
+    ["data/evil.py", "projects/alpha/proj.py", "config/skills/skill.py", "data/not_yet_there.py",
+     "bin/tool.exe"],
 )
-def test_script_argument_in_agent_writable_place_is_rejected(layout, tmp_path, relative):
+def test_script_argument_outside_hooks_is_rejected(layout, tmp_path, relative):
+    """參數只看 ``hooks/``：不在禁區清單裡的地方（``bin/``）也不行，清單漏列也不會放行。"""
     target = str(tmp_path / relative)
     for args in ([target], ["--script", target], [f"--script={target}"]):
         hook = _hook(layout["outside"] / "tool.exe", *args)
-        assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout))), args
+        assert "outside_hooks_dir" in _reasons(command_path_problems(hook, _zones(layout))), args
+
+
+def test_project_list_does_not_change_scripts_in_hooks(layout):
+    """專案根蓋住 ``hooks/`` 時，``hooks/`` 裡的腳本照樣可以跑：登記專案不能讓 hook 停擺。"""
+    zones = HookZones(
+        config_dir=layout["config"],
+        forbidden=(*_zones(layout).forbidden, layout["config"] / "hooks", layout["config"]),
+    )
+    hook = _hook(layout["outside"] / "tool.exe", str(layout["config"] / "hooks" / "guard.py"))
+    assert command_path_problems(hook, zones) == []
+    assert command_path_problems(_hook(layout["config"] / "hooks" / "guard.py"), zones) == []
 
 
 def test_parent_segments_are_rejected(layout):
@@ -125,11 +140,11 @@ def test_parent_segments_are_rejected(layout):
 
 
 def test_relative_argument_is_read_from_the_hooks_folder(layout):
-    """工作目錄是 ``hooks/``；相對參數經過那裡的連結指到代理人資料夾也擋，檔案還沒建也一樣。"""
+    """工作目錄是 ``hooks/``；相對參數經過那裡的連結也擋，檔案還沒建也一樣。"""
     _make_dir_link(layout["config"] / "hooks" / "drop", layout["data"])
     for relative in ("drop/evil.py", "drop/later.py", "-c import x; run('drop/evil.py')"):
         hook = _hook(layout["outside"] / "tool.exe", relative)
-        assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout))), relative
+        assert "linked_path" in _reasons(command_path_problems(hook, _zones(layout))), relative
     plain = _hook(layout["outside"] / "tool.exe", "guard.py", "-v", "--name=demo")
     assert command_path_problems(plain, _zones(layout)) == []
 
@@ -151,10 +166,31 @@ def test_hard_linked_script_in_hooks_is_rejected(layout):
     assert "hard_link" in _reasons(command_path_problems(hook, _zones(layout)))
 
 
-def test_link_pointing_into_agent_writable_place_is_rejected(layout):
-    _make_dir_link(layout["config"] / "hooks" / "linked", layout["data"])
-    hook = _hook(layout["config"] / "hooks" / "linked" / "evil.py")
-    assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout)))
+@pytest.mark.parametrize("target", ["data", "outside"])
+def test_link_inside_hooks_is_rejected(layout, target):
+    """``hooks/`` 裡的連結不論指到哪裡都擋（指向的地方之後可能變成代理人寫得到的）。"""
+    _make_dir_link(layout["config"] / "hooks" / "linked", layout[target])
+    name = "evil.py" if target == "data" else "tool.exe"
+    script = layout["config"] / "hooks" / "linked" / name
+    as_command = command_path_problems(_hook(script), _zones(layout))
+    as_argument = command_path_problems(_hook(layout["outside"] / "tool.exe", str(script)),
+                                        _zones(layout))
+    assert "linked_path" in _reasons(as_command)
+    assert "linked_path" in _reasons(as_argument)
+
+
+def test_hooks_folder_that_is_itself_a_link_is_rejected(layout, tmp_path):
+    real = tmp_path / "real_hooks"
+    real.mkdir()
+    (real / "guard.py").write_text("", encoding="utf-8")
+    config = tmp_path / "config2"
+    config.mkdir()
+    _make_dir_link(config / "hooks", real)
+    zones = HookZones(config_dir=config, forbidden=_zones(layout).forbidden)
+    script = config / "hooks" / "guard.py"
+    assert "linked_path" in _reasons(command_path_problems(_hook(script), zones))
+    hook = _hook(layout["outside"] / "tool.exe", str(script))
+    assert "linked_path" in _reasons(command_path_problems(hook, zones))
 
 
 def test_link_located_in_agent_writable_place_is_rejected(layout):
@@ -231,10 +267,22 @@ def test_a_path_that_cannot_be_read_is_unverifiable(layout, monkeypatch):
     assert _reasons(command_path_problems(hook, _zones(layout))) == {"unverifiable"}
 
 
-@pytest.mark.parametrize("in_container", [True, False])
-async def test_zones_cover_agent_folders_projects_and_container_mirrors(
-    tmp_path, monkeypatch, in_container
-):
+def _fake_mcp_store(monkeypatch: pytest.MonkeyPatch, state: str, grants: tuple = ()) -> None:
+    record = SimpleNamespace(sandbox_paths=tuple(
+        SimpleNamespace(path=str(path), access=access) for path, access in grants
+    ))
+
+    class _Store:
+        def __init__(self, config_dir: Path) -> None:
+            self.config_dir = config_dir
+
+        def load(self) -> SimpleNamespace:
+            return SimpleNamespace(state=state, records={"srv": record} if grants else {})
+
+    monkeypatch.setattr(paths_module, "McpIsolationStore", _Store)
+
+
+def _fake_zone_sources(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, in_container: bool):
     def under(name: str) -> Path:
         return tmp_path / name
 
@@ -249,11 +297,35 @@ async def test_zones_cover_agent_folders_projects_and_container_mirrors(
     async def translate(path: str) -> str:
         return str(under("host") / Path(path).name) if Path(path).is_absolute() else path
 
+    async def workspace() -> Path:
+        return under("ws")
+
     monkeypatch.setattr(paths_module, "list_project_root_paths", projects)
     monkeypatch.setattr(resource_manager, "translate_path", translate)
+    monkeypatch.setattr(resource_manager, "get_workspace_jail_root", workspace)
+    return under
+
+
+@pytest.mark.parametrize("in_container", [True, False])
+async def test_zones_cover_agent_folders_workspace_projects_mcp_and_container_mirrors(
+    tmp_path, monkeypatch, in_container
+):
+    under = _fake_zone_sources(monkeypatch, tmp_path, in_container)
+    _fake_mcp_store(monkeypatch, "ok", ((under("mcp_rw"), "rw"), (under("mcp_ro"), "ro")))
     zones = await current_zones()
-    expected = {under("data"), under("state"), under("proj"), under("host") / "proj"}
+    expected = {
+        under("data"), under("state"), under("ws"), under("host") / "ws", under("proj"),
+        under("host") / "proj", under("mcp_rw"),
+    }
     if in_container:
         expected.add(under("mirror"))
     assert set(zones.forbidden) == expected
     assert zones.config_dir == under("config")
+
+
+async def test_zones_fail_when_the_mcp_isolation_file_cannot_be_read(tmp_path, monkeypatch):
+    """讀不到 MCP 隔離設定就不知道哪些資料夾可寫：丟例外，呼叫端當成不能執行。"""
+    _fake_zone_sources(monkeypatch, tmp_path, in_container=False)
+    _fake_mcp_store(monkeypatch, "unreadable")
+    with pytest.raises(ToukaException):
+        await current_zones()

@@ -3,12 +3,14 @@
 - 結束碼 2：UserPromptSubmit、PreToolUse 擋下，原因取 stderr；PostToolUse（工具已經跑完）把
   stderr 當回饋給模型；Stop 只觀察。結束碼 2 時不讀 stdout 的 JSON。
 - 結束碼 0：stdout 是 JSON 物件就讀欄位；不是 JSON 的文字只在 UserPromptSubmit 當補充說明。
-  看起來是 JSON 卻解析失敗算 hook 自己失敗。
+  看起來是 JSON 卻解析失敗（含數字太長、巢狀太深）算 hook 自己失敗。
+- ``continue: false``：UserPromptSubmit、PreToolUse 擋下，原因取 ``stopReason``（比其他欄位優先）；
+  PostToolUse 與 Stop 不採用（工具已經跑完、回合已經結束，hook 不能讓代理人停下或繼續）。
 - 其他結束碼、逾時、連不上、路徑被拒：hook 自己失敗，不擋、記下來。
 - http：2xx 的回應內容當成結束碼 0 的 stdout；其他情況都是失敗。
 
 hook 只能擋不能放行：``permissionDecision`` 的 ``allow``／``defer``、``updatedInput``、
-``updatedToolOutput``、``continue``、``systemMessage`` 一律不採用，只記一筆說明。
+``updatedToolOutput``、``systemMessage`` 一律不採用，只記一筆說明。
 """
 
 from __future__ import annotations
@@ -22,8 +24,10 @@ if TYPE_CHECKING:
 
 BLOCK_EXIT_CODE: Final[int] = 2
 MAX_TEXT_CHARS: Final[int] = 10_000
+# 結束碼 2、decision、continue 能擋下的事件；其他事件的工具已經跑完或回合已經結束
+BLOCKING_EVENTS: Final[frozenset[str]] = frozenset({"UserPromptSubmit", "PreToolUse"})
 
-_IGNORED_TOP_LEVEL: Final[tuple[str, ...]] = ("continue", "stopReason", "systemMessage")
+_IGNORED_TOP_LEVEL: Final[tuple[str, ...]] = ("systemMessage",)
 _IGNORED_SPECIFIC: Final[tuple[str, ...]] = (
     "updatedInput",
     "updatedToolOutput",
@@ -56,7 +60,7 @@ def _text(value: Any) -> str | None:
 
 def _from_exit_2(event: str, stderr: str) -> HookVerdict:
     reason = _clip(stderr) or "blocked by hook"
-    if event in ("UserPromptSubmit", "PreToolUse"):
+    if event in BLOCKING_EVENTS:
         return HookVerdict(blocked=True, reason=reason)
     if event == "PostToolUse":
         return HookVerdict(context=reason)
@@ -93,9 +97,16 @@ def _from_json(event: str, body: dict[str, Any]) -> HookVerdict:
     specific = _from_specific(event, body.get("hookSpecificOutput"), notes)
     blocked, ask = specific.blocked, specific.ask
     reason, context = specific.reason, specific.context
+    if body.get("continue") is False:
+        if event in BLOCKING_EVENTS:
+            stop_reason = _text(body.get("stopReason")) or "stopped by hook"
+            return HookVerdict(
+                blocked=True, reason=stop_reason, context=context, notes=tuple(notes)
+            )
+        notes.append("continue: false only blocks prompts and tool calls; ignored")
     if body.get("decision") == "block":
         top_reason = _text(body.get("reason")) or "blocked by hook"
-        if event in ("UserPromptSubmit", "PreToolUse"):
+        if event in BLOCKING_EVENTS:
             blocked, reason = True, reason or top_reason
         elif event == "PostToolUse":
             context = "\n".join(part for part in (top_reason, context) if part)
@@ -113,7 +124,7 @@ def _from_stdout(event: str, stdout: str) -> HookVerdict:
     if text.startswith("{"):
         try:
             body = json.loads(text)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):  # 含數字太長、巢狀太深
             return HookVerdict(failed=True, notes=("output is not valid JSON",))
         if isinstance(body, dict):
             return _from_json(event, body)

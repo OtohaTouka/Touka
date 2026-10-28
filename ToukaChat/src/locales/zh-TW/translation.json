@@ -449,7 +449,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；指令不經 shell，程式與腳本要放在設定資料夾的 hooks/ 裡，放在代理人寫得到的地方會被拒收。",
+      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收。",
       "enable_label": "啟用 Hooks",
       "enable_hint": "關閉時所有 hook 都不執行。",
       "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
@@ -478,6 +478,7 @@
         "args": "參數",
         "args_placeholder": "參數，一行一個（原樣交給程式，不經 shell）",
         "url": "網址",
+        "url_placeholder": "https://",
         "headers": "標頭",
         "headers_placeholder": "標頭，一行一個「名稱: 值」（照字面送出，不替換環境變數）",
         "timeout": "逾時（秒）",
@@ -489,7 +490,8 @@
         "hint": "只保留在伺服器記憶體裡最新的 50 筆，重啟後清空。無痕對話只記時間、事件與結果。",
         "refresh": "重新整理",
         "empty": "還沒有執行紀錄。",
-        "incognito": "（無痕）"
+        "incognito": "（無痕）",
+        "duration": "{{ms}} 毫秒"
       },
       "outcomes": {
         "blocked": "擋下",
@@ -505,6 +507,8 @@
         "parent_segment": "含有「..」",
         "unc_path": "不接受網路路徑或磁碟機相對路徑",
         "agent_writable": "在代理人寫得到的地方",
+        "outside_hooks_dir": "不在設定資料夾的 hooks/ 裡",
+        "linked_path": "路徑經過符號連結或 junction",
         "hard_link": "有其他硬連結",
         "link_loop": "符號連結太多層或繞圈",
         "unverifiable": "無法確認位置"
@@ -1375,6 +1379,7 @@
       "copy_code": "複製代碼",
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
+      "hook_blocked": "這則訊息被 hook 擋下，之後不會送給模型。",
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",

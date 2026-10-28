@@ -44,15 +44,32 @@ export function buildApiMessage<R extends string>(input: {
   return { role, content };
 }
 
-/** 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249）。 */
+interface HistoryNode<R extends string> {
+  id: string;
+  parentId?: string | null;
+  role: R;
+  content: string;
+  attachment?: ChatAttachment;
+  interjections?: Interjection[];
+  hookBlocked?: boolean;
+}
+
+/**
+ * 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249）。
+ * 被 hook 擋下的 user 訊息和接在它後面的回覆不送（ADR-0292；Claude Code 也會把擋下的訊息
+ * 從上下文拿掉）。
+ */
 export function buildApiHistory<R extends string>(
-  linear: { id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[] }[],
+  linear: HistoryNode<R>[],
   userMsgId: string,
   resolvedInput: string,
 ): { role: R; content: string }[] {
-  return linear.map(m => buildApiMessage({
-    role: m.role,
-    content: m.id === userMsgId ? resolvedInput : withInterjectionNotes(m.content, m.interjections),
-    attachment: m.attachment,
-  }));
+  const blocked = new Set(linear.filter(m => m.hookBlocked && m.id !== userMsgId).map(m => m.id));
+  return linear
+    .filter(m => !blocked.has(m.id) && !(m.parentId && blocked.has(m.parentId)))
+    .map(m => buildApiMessage({
+      role: m.role,
+      content: m.id === userMsgId ? resolvedInput : withInterjectionNotes(m.content, m.interjections),
+      attachment: m.attachment,
+    }));
 }

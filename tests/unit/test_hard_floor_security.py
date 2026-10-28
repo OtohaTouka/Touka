@@ -57,14 +57,17 @@ _SHELL_CASES: dict[str, list[str]] = {
         "cat /proc/1/environ",
         "cp users.json leak.txt",
         f"grep KEY {_APP}/host_root/.env",
+        # ADR-0292：http hook 的標頭可能有權杖，讀寫 hooks.json 都算金鑰
+        f"cat {_APP}/config/hooks.json",
+        "echo {} > hooks.json",
     ],
     "F3": [
         "echo {} > auth_policies.json",
         f"cp evil.json {_APP}/config/permissions.json",
         "sed -i s/Manual/FullYOLO/ identity_map.json",
         "Set-Content autonomy.json '{}'",
-        "echo {} > hooks.json",  # ADR-0292
-        "cp evil.py ToukaProxy/config/hooks/guard.py",
+        "cp evil.py ToukaProxy/config/hooks/guard.py",  # ADR-0292
+        "cp evil.json hooks.json.example",
     ],
     "F4": [
         "sed -i s/a/b/ ToukaProxy/src/models/safety.py",

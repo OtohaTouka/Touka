@@ -10,6 +10,7 @@
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
+- 被擋下的那則 user 訊息：`StreamRegistryProvider` 存回的樹用 `stream_tree.markHookBlocked` 在該節點標 `hookBlocked: true`（`MessageNode` 的選填欄位，後端照 `extra: allow` 保留）；`MessageItem` 在訊息下方顯示 `chat.message_item.hook_blocked`；`buildApiHistory` 組歷史時略過有標記的節點與它底下的分支（這一輪正要送的訊息除外）。只有 hook 擋下才標，取消與其他錯誤不標。
 
 ## 重置卡查最後一次重置的結果（ADR-0289）
 

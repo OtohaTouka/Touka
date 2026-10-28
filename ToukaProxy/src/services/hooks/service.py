@@ -1,8 +1,10 @@
 """Hook 服務（ADR-0292）：載入設定、比對、執行、合併結果、執行紀錄與存檔.
 
-- 設定檔 ``config/hooks.json``：每次使用前看內容有沒有變（sha256）；壞掉時沿用上一份好的設定、
-  健康狀態標 ``error``（啟動時壞掉由 bootstrap 直接擋下）。沒有檔案＝關閉。
-- 同一事件符合的 hook 同時執行；任一個擋下就擋下，補充說明全部保留。hook 自己失敗不擋。
+- 設定檔 ``config/hooks.json``：每次使用前看內容有沒有變（sha256）；壞掉、讀不到或載入過之後
+  被刪掉時沿用上一份好的設定、健康狀態標 ``error``（啟動時壞掉由 bootstrap 直接擋下）。從來沒有
+  檔案＝關閉。
+- 同一事件符合的 hook 同時執行；任一個擋下就擋下，補充說明全部保留。hook 自己失敗不擋；解讀或
+  記錄一個 hook 的結果時出錯，只算那個 hook 失敗。
 - command hook 每次執行前重查路徑界線；路徑界線查不了（例如專案清單讀不到）就不執行。
 - 執行紀錄只在記憶體、留最新 ``RUN_LOG_SIZE`` 筆；無痕對話只記時間、事件與結果。
 - 存檔：比對版本（revision）避免蓋掉別人的修改；存檔前查所有 command hook 的路徑（含停用的）。
@@ -19,15 +21,15 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
+from urllib.parse import urlsplit
 
-import httpx
 from pydantic import ValidationError
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.hooks import MATCHER_EVENTS, CommandHook, HooksConfig, HttpHook
 from src.services.hooks.matcher import matcher_matches
-from src.services.hooks.outcome import interpret
+from src.services.hooks.outcome import HookVerdict, interpret
 from src.services.hooks.paths import HOOKS_DIR_NAME, HookZones, command_path_problems, current_zones
 from src.services.hooks.runners import RunResult, run_command, run_http
 from src.services.resource_manager import resource_manager
@@ -37,7 +39,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from src.models.hooks import HookHandler
-    from src.services.hooks.outcome import HookVerdict
     from src.services.hooks.paths import PathProblem
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,10 @@ def _label(hook: HookHandler) -> str:
         return hook.name
     if isinstance(hook, CommandHook):
         return Path(hook.command).name
-    return httpx.URL(hook.url).host
+    try:
+        return urlsplit(hook.url).hostname or hook.type
+    except ValueError:
+        return hook.type
 
 
 def _identity(hook: HookHandler) -> tuple[Any, ...]:
@@ -182,6 +186,7 @@ class HookService:
     def reset_for_test(self) -> None:
         """清掉快取的設定與執行紀錄。"""
         self._config = HooksConfig()
+        self._loaded = False  # 載入過一份好的設定之後，檔案不見也不會變成沒有 hook
         self._health = HookHealth(status="missing")
         self._runs: deque[HookRunRecord] = deque(maxlen=RUN_LOG_SIZE)
 
@@ -193,14 +198,23 @@ class HookService:
             return None
         return resource_manager.read_file_binary(path)
 
+    def _keep_last_good(self, reason: str) -> None:
+        """讀不到設定檔：沿用上一份設定；revision 清掉，檔案回來時重新載入。"""
+        if self._health.status != "error" or self._health.detail != reason:
+            logger.warning("hooks.json could not be read; keeping the last hook config (%s)",
+                           reason)
+        self._health = HookHealth(status="error", detail=reason)
+
     def _refresh(self) -> None:
         try:
             raw = self._read_raw()
         except OSError as exc:
-            self._health = HookHealth(status="error", revision=self._health.revision,
-                                      detail=type(exc).__name__)
+            self._keep_last_good(type(exc).__name__)
             return
         if raw is None:
+            if self._loaded:
+                self._keep_last_good("FileNotFoundError")
+                return
             self._config = HooksConfig()
             self._health = HookHealth(status="missing")
             return
@@ -209,13 +223,14 @@ class HookService:
             return
         try:
             config = HooksConfig.model_validate(json.loads(raw.decode("utf-8")))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
+        except (ValueError, RecursionError, ValidationError) as exc:
             logger.warning("hooks.json is invalid; keeping the last good hook config (%s)",
                            type(exc).__name__)
             self._health = HookHealth(status="error", revision=revision,
                                       detail=type(exc).__name__)
             return
         self._config = config
+        self._loaded = True
         self._health = HookHealth(status="ok", revision=revision)
 
     def current(self) -> HooksConfig:
@@ -298,6 +313,14 @@ class HookService:
             )
         self._runs.append(record)
 
+    @staticmethod
+    def _interpret(event: str, result: RunResult) -> HookVerdict:
+        try:
+            return interpret(event, result)
+        except Exception:
+            logger.exception("hook result could not be read")
+            return HookVerdict(failed=True, notes=("output could not be read",))
+
     async def dispatch(
         self,
         event: str,
@@ -317,8 +340,11 @@ class HookService:
         zones = await self._zones() if any(isinstance(h, CommandHook) for h in hooks) else None
         results = await asyncio.gather(*(self._run_one(h, body, zones) for h in hooks))
         for hook, result in zip(hooks, results, strict=True):
-            verdict = interpret(event, result)
-            self._record(event, hook, result, verdict, incognito=incognito)
+            verdict = self._interpret(event, result)
+            try:
+                self._record(event, hook, result, verdict, incognito=incognito)
+            except Exception:
+                logger.exception("hook run could not be recorded")
             if verdict.blocked:
                 decision.blocked = True
                 decision.reasons.append(verdict.reason or "blocked by hook")

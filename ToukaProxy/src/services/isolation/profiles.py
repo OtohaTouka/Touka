@@ -200,6 +200,22 @@ def _denied_by_fixed_rules(path: Path, layout: SandboxLayout) -> bool:
     return False
 
 
+async def project_root_reason(path: Path, layout: SandboxLayout) -> str | None:
+    """一般使用者的專案根（登記、列檔、專案檔案工具）；可用回 None，否則回拒絕原因.
+
+    固定受保護集合 P 與鏡像根一律檢查（解析連結後比對，P 的上層也算）。容器裡工作區掛載
+    可能是 Touka 目錄的另一個路徑，另做 Touka 目錄偵測（往上、往下）。原生安裝不做：
+    E 就是 INSTALL_ROOT，往上檢查會擋掉工作區根底下所有專案；原生路徑沒有掛載別名，
+    解析後比對已足夠。不拒絕連結：檔案工具本身不讓路徑越出專案根。（ADR-0292）
+    """
+    target = _resolve(path)
+    if _denied_by_fixed_rules(target, layout):
+        return PROTECTED_LOCATION
+    if layout.in_container:
+        return await touka_directory_verdict(target, layout)
+    return None
+
+
 async def touka_directory_verdict(path: Path, layout: SandboxLayout) -> str | None:
     """Touka 目錄偵測與上下檢查（往上到鏡像根、往下 3 層），見 ``project_scan``。"""
     return await project_scanner.verdict(path, layout)

@@ -6,11 +6,13 @@
 - PostToolUse：工具成功之後執行；回饋與補充說明當成資料接在工具結果後面。
 - 補充說明（含 PreToolUse 的）都接在工具結果後面給模型。
 
-沒有設定 hook 時不組事件內容、不改任何結果。
+沒有設定 hook 時不組事件內容、不改任何結果。hook 服務自己出錯時記 log、當成沒有 hook 結果
+（不擋、不讓這次工具卡住或變成失敗）。
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
@@ -20,6 +22,10 @@ from src.services.hooks.service import hook_service
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from src.services.hooks.service import HookDecision
+
+logger = logging.getLogger(__name__)
 
 PRE_TOOL_EVENT: Final[str] = "PreToolUse"
 POST_TOOL_EVENT: Final[str] = "PostToolUse"
@@ -92,16 +98,29 @@ def hook_ask_unavailable_error(name: str, reason: str | None) -> str:
     )
 
 
+async def _dispatch(
+    event: str, ctx: Mapping[str, Any], call: ToolCall, extra: Mapping[str, Any]
+) -> HookDecision | None:
+    """有設定 hook 時執行；沒有 hook 或 hook 服務出錯時回 None。"""
+    try:
+        if not hook_service.has_hooks(event):
+            return None
+        return await hook_service.dispatch(
+            event,
+            {**_payload(ctx, call), **extra},
+            match=tool_match_names(call.name, call.mcp_server, call.mcp_tool),
+            incognito=bool(ctx.get("incognito")),
+        )
+    except Exception:
+        logger.exception("%s hooks failed; continuing without them", event)
+        return None
+
+
 async def run_pre_tool_hooks(ctx: Mapping[str, Any], call: ToolCall) -> PreToolOutcome:
     """執行 PreToolUse hook。"""
-    if not hook_service.has_hooks(PRE_TOOL_EVENT):
+    decision = await _dispatch(PRE_TOOL_EVENT, ctx, call, {})
+    if decision is None:
         return PreToolOutcome()
-    decision = await hook_service.dispatch(
-        PRE_TOOL_EVENT,
-        _payload(ctx, call),
-        match=tool_match_names(call.name, call.mcp_server, call.mcp_tool),
-        incognito=bool(ctx.get("incognito")),
-    )
     outputs = [(PRE_TOOL_EVENT, decision.context)] if decision.context else []
     if decision.blocked:
         return PreToolOutcome(denied_text=hook_denied_error(call.name, decision.reason))
@@ -116,12 +135,7 @@ async def run_post_tool_hooks(
     ctx: Mapping[str, Any], call: ToolCall, result_text: str
 ) -> list[tuple[str, str]]:
     """執行 PostToolUse hook，回傳要接在結果後面的輸出。"""
-    if not hook_service.has_hooks(POST_TOOL_EVENT):
+    decision = await _dispatch(POST_TOOL_EVENT, ctx, call, {"tool_response": result_text})
+    if decision is None or not decision.context:
         return []
-    decision = await hook_service.dispatch(
-        POST_TOOL_EVENT,
-        {**_payload(ctx, call), "tool_response": result_text},
-        match=tool_match_names(call.name, call.mcp_server, call.mcp_tool),
-        incognito=bool(ctx.get("incognito")),
-    )
-    return [(POST_TOOL_EVENT, decision.context)] if decision.context else []
+    return [(POST_TOOL_EVENT, decision.context)]

@@ -6,9 +6,11 @@
 """
 
 import logging
+from pathlib import Path
 from typing import Any
 
-from src.services.resource_manager import resource_manager
+from src.services.isolation import profiles
+from src.services.resource_manager import bypasses_project_jail, resource_manager
 from src.utils.async_db import add_project_event
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,13 @@ async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> 
     root_bound = await resource_manager.get_project_path(project_id, identity)
     if not root_bound:
         return f"Error: Project root for '{project_id}' not found."
+    # 一般使用者的專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經專案
+    # 寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
+    if not (identity and bypasses_project_jail(identity)) and (
+        await profiles.project_root_reason(Path(root_bound), profiles.current_layout())
+    ):
+        logger.warning("Project %s root is in a protected location; denied.", project_id)
+        return f"Error: Project root for '{project_id}' is in a location Touka protects."
 
     try:
         # --- [分發邏輯：Core Ops Mapping] ---

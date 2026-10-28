@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.hooks import HooksConfig
+from src.services.hooks import service as service_module
 from src.services.hooks.outcome import interpret
 from src.services.hooks.paths import HookZones
 from src.services.hooks.runners import RunResult
@@ -170,6 +171,33 @@ def test_hook_failures_do_not_block(result):
     assert (verdict.blocked, verdict.failed) == (False, True)
 
 
+_DEEP_JSON = '{"a": ' * 100_000 + '1' + '}' * 100_000
+_HUGE_NUMBER = '{"n": ' + "9" * 5_000 + "}"
+
+
+@pytest.mark.parametrize("stdout", [_DEEP_JSON, _HUGE_NUMBER], ids=["deep", "huge_number"])
+def test_json_that_python_can_not_load_is_a_hook_failure(stdout):
+    verdict = interpret("PreToolUse", _ok(stdout=stdout))
+    assert (verdict.blocked, verdict.failed) == (False, True)
+
+
+@pytest.mark.parametrize("event", ["UserPromptSubmit", "PreToolUse"])
+def test_continue_false_blocks_with_the_stop_reason_first(event):
+    body = {
+        "continue": False, "stopReason": "stop here", "decision": "block", "reason": "other",
+        "hookSpecificOutput": {"hookEventName": event, "permissionDecision": "ask"},
+    }
+    verdict = interpret(event, _ok(stdout=json.dumps(body)))
+    assert (verdict.blocked, verdict.ask, verdict.reason) == (True, False, "stop here")
+
+
+@pytest.mark.parametrize("event", ["PostToolUse", "Stop"])
+def test_continue_false_after_the_tool_or_turn_is_only_noted(event):
+    verdict = interpret(event, _ok(stdout=json.dumps({"continue": False, "stopReason": "x"})))
+    assert (verdict.blocked, verdict.failed) == (False, False)
+    assert any("continue" in note for note in verdict.notes)
+
+
 def test_plain_stdout_is_context_only_for_prompts():
     assert interpret("UserPromptSubmit", _ok(stdout="today is a holiday\n")).context == (
         "today is a holiday"
@@ -280,7 +308,7 @@ async def test_path_check_runs_again_before_each_command(config_dir):
     assert decision.blocked is False
     (record,) = service.runs()
     assert record.status == "rejected"
-    assert "agent_writable" in record.detail
+    assert "outside_hooks_dir" in record.detail
 
 
 async def test_zone_lookup_failure_means_commands_do_not_run(config_dir):
@@ -293,6 +321,75 @@ async def test_zone_lookup_failure_means_commands_do_not_run(config_dir):
     await service.dispatch("PreToolUse", {}, match=["x"])
     assert runner.calls == []
     assert service.runs()[0].status == "rejected"
+
+
+async def test_unreadable_result_counts_as_that_hook_failing(config_dir, monkeypatch):
+    def broken(*_args):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(service_module, "interpret", broken)
+    _write(config_dir, _enabled("PreToolUse", {"hooks": [_command(name="guard")]}))
+    service = _service(config_dir)
+    decision = await service.dispatch("PreToolUse", {}, match=["x"])
+    assert decision.blocked is False
+    (record,) = service.runs()
+    assert (record.hook, record.outcome) == ("guard", "failed")
+
+
+async def test_run_log_errors_do_not_lose_the_decision(config_dir, monkeypatch):
+    _write(config_dir, _enabled("PreToolUse", {"hooks": [_command()]}))
+    service = _service(config_dir, command=_FakeRunner(_ok(exit_code=2, stderr="nope")))
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(service, "_record", broken)
+    assert (await service.dispatch("PreToolUse", {}, match=["x"])).blocked is True
+
+
+async def test_unnamed_http_hooks_are_labelled_by_host(config_dir):
+    _write(config_dir, _enabled("Stop", {"hooks": [
+        {"type": "http", "url": "https://hooks.example.test:8443/x"}]}))
+    service = _service(config_dir)
+    await service.dispatch("Stop", {})
+    assert service.runs()[0].hook == "hooks.example.test"
+
+
+async def test_deleted_config_keeps_the_last_good_one_until_it_is_back(config_dir):
+    _write(config_dir, _enabled("Stop", {"hooks": [_command()]}))
+    service = _service(config_dir)
+    assert service.has_hooks("Stop") is True
+    (config_dir / "hooks.json").unlink()
+    assert service.has_hooks("Stop") is True
+    assert (service.health().status, service.health().detail) == ("error", "FileNotFoundError")
+    _write(config_dir, _enabled("Stop", {"hooks": [_command()]}))
+    assert service.health().status == "ok"
+
+
+async def test_read_errors_keep_the_last_good_one_and_recover(config_dir, monkeypatch):
+    _write(config_dir, _enabled("Stop", {"hooks": [_command()]}))
+    service = _service(config_dir)
+    good = service.health().revision
+    read = service._read_raw
+
+    def broken():
+        raise PermissionError
+
+    monkeypatch.setattr(service, "_read_raw", broken)
+    assert service.has_hooks("Stop") is True
+    assert service.health().status == "error"
+    monkeypatch.setattr(service, "_read_raw", read)
+    assert (service.health().status, service.health().revision) == ("ok", good)
+
+
+@pytest.mark.parametrize("raw", [_DEEP_JSON, _HUGE_NUMBER], ids=["deep", "huge_number"])
+async def test_config_python_can_not_load_keeps_the_last_good_one(config_dir, raw):
+    _write(config_dir, _enabled("Stop", {"hooks": [_command()]}))
+    service = _service(config_dir)
+    assert service.has_hooks("Stop") is True
+    (config_dir / "hooks.json").write_text(raw, encoding="utf-8")
+    assert service.has_hooks("Stop") is True
+    assert service.health().status == "error"
 
 
 async def test_broken_config_at_runtime_keeps_the_last_good_one(config_dir):

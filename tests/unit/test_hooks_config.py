@@ -64,6 +64,10 @@ def test_command_and_http_hooks_validate():
         ("PreToolUse", {**_COMMAND, "timeout": 301}),
         ("PreToolUse", {"type": "http", "url": "file:///etc/passwd"}),
         ("PreToolUse", {"type": "http", "url": "ftp://example.test/x"}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test:99999/x"}),  # 埠號超出範圍
+        ("PreToolUse", {"type": "http", "url": "https://example.test:abc/x"}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test:0/x"}),
+        ("PreToolUse", {"type": "http", "url": "https://[::1/x"}),
         ("PreToolUse", {"type": "http", "url": "https://example.test",
                         "headers": {"Authorization": "Bearer $TOKEN"}}),
         ("PreToolUse", {"type": "http", "url": "https://example.test",

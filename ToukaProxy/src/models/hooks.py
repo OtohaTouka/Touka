@@ -76,7 +76,8 @@ class HttpHook(_HandlerBase):
     @classmethod
     def _http_only(cls, value: str) -> str:
         parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
+        # 埠號不是 1–65535 時，讀 parts.port 會丟 ValueError（存檔時回驗證錯誤，不會留到執行時）
+        if parts.scheme not in ("http", "https") or not parts.hostname or parts.port == 0:
             msg = "hook url must be http or https with a host"
             raise HookConfigError(msg)
         return value

@@ -10,7 +10,8 @@ command：
 
 http：
 - POST 事件內容（``application/json``）；不跟隨轉址、不讀環境的代理與 .netrc。
-- 3xx、非 2xx、連不上、逾時都算失敗；回應只留前 ``MAX_HOOK_OUTPUT_BYTES``。
+- 3xx、非 2xx、連不上、逾時都算失敗；``timeout`` 是整次請求（含讀回應）的上限。
+- 回應讀到 ``MAX_HOOK_OUTPUT_BYTES`` 就停止讀取並關閉連線。
 
 這裡只負責執行與收結果；結果代表什麼（擋下、補充說明）由 ``outcome`` 解讀。
 """
@@ -163,6 +164,7 @@ async def run_http(
     body = _CappedReader(MAX_HOOK_OUTPUT_BYTES)
     try:
         async with (
+            asyncio.timeout(hook.timeout),
             # trust_env=False：不讀 .netrc 與代理設定，hook 網址拿不到其他地方的帳密。
             httpx.AsyncClient(
                 follow_redirects=False, trust_env=False, timeout=hook.timeout, transport=transport
@@ -171,11 +173,13 @@ async def run_http(
         ):
             async for chunk in response.aiter_bytes():
                 body.feed(chunk)
-    except httpx.TimeoutException:
+                if body.truncated:
+                    break
+    except (TimeoutError, httpx.TimeoutException):
         return RunResult(
             status="timeout", duration_ms=_elapsed(started), detail=f"timeout after {hook.timeout}s"
         )
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         return RunResult(status="error", duration_ms=_elapsed(started), detail=type(exc).__name__)
     if not response.is_success:
         return RunResult(

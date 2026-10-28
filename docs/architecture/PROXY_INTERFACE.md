@@ -7,8 +7,13 @@
 - 管理端點（根路徑與 `/v1` 對等），三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
   - `GET /v1/hooks` → `HooksConfigResponse`：`config`（目前生效的設定；`hooks.json` 壞掉時是上一份好的）、`health`（`status` 為 `ok`／`missing`／`error`，`revision` 是目前檔案內容的 SHA-256、沒有檔案時 `null`，`detail` 是錯誤類型）、`wired_events`、`matcher_events`。
   - `PUT /v1/hooks`：body `HooksSaveRequest` `{config, revision}`，`revision` 必填（沒有檔案時送 `null`），多的欄位 422。先查 CSRF Origin（不可信回 403）；revision 和目前檔案不同回 409 `HOOK_CONFIG_CONFLICT`（`detail.revision` 帶目前的值）；command hook 的程式或參數指到代理人寫得到的地方、或無法確認時回 422 `HOOK_PATH_REJECTED`（`detail.problems[]`：`event`、`where`、`reason`、`value`），都不寫檔。成功回 `{revision}`；`author`、`updated_at` 由伺服器填。
-  - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。
-- 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由。
+    - `reason` 的值：`not_absolute`、`missing`、`not_file`、`parent_segment`、`unc_path`、`agent_writable`、`outside_hooks_dir`（參數的路徑不在 `config/hooks/`）、`linked_path`（`config/hooks/` 本身或經過的一層是連結）、`hard_link`、`link_loop`、`unverifiable`。
+  - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。`detail` 是擋下或要求確認的理由、失敗原因（例外只有類型）與不採用的欄位，不含 stdout。
+- 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由。hook 服務自己出錯時照常回覆（當成沒有 hook 結果）。
+- 專案根（ADR-0292 決定 12）：一般使用者（非 admin、非 Debugger）的專案根不能在 Touka 保護的位置或它們的上層。
+  - `POST /v1/ui/projects/save`（存專案）不合規則回 422，訊息改成「Project root_path must be inside the workspace root and outside the folders Touka protects.」。
+  - `GET /v1/ui/projects/{project_id}/files`（專案檔案樹）遇到這種專案根回 403 `AUTH_PERMISSION_DENIED`。
+  - 專案檔案工具（列檔與讀寫）遇到這種專案根回錯誤文字 `Error: Project root for '<id>' is in a location Touka protects.`，不執行。
 - 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
 - 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。

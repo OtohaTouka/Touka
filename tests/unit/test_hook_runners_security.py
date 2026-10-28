@@ -7,14 +7,17 @@ command：
 - 逾時就整棵行程樹結束；stdout／stderr 各有上限，超過的部分丟掉、標成截斷。
 
 http：
-- POST 事件內容；不跟隨轉址（3xx 算失敗）、非 2xx 算失敗、回應有大小上限與逾時。
+- POST 事件內容；不跟隨轉址（3xx 算失敗）、非 2xx 算失敗。
+- 逾時是整次請求的上限（伺服器一點一點送也會到時）；回應讀到上限就停止讀取。
 - 標頭照字面送出，不替換環境變數。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+from itertools import count
 
 import httpx
 import pytest
@@ -86,7 +89,7 @@ async def test_program_that_cannot_start_is_an_error(tmp_path):
 
 
 def _http(**kw) -> HttpHook:
-    return HttpHook(type="http", url="https://hooks.example.test/run", timeout=5, **kw)
+    return HttpHook(**{"type": "http", "url": "https://hooks.example.test/run", "timeout": 5, **kw})
 
 
 async def test_http_posts_payload_with_literal_headers():
@@ -141,6 +144,37 @@ async def test_http_timeout_is_reported():
 
     result = await run_http(_http(), b"{}", transport=httpx.MockTransport(handler))
     assert result.status == "timeout"
+
+
+class _EndlessBody(httpx.AsyncByteStream):
+    """一直送的回應：``delay`` 秒送一塊，記下送了幾塊。"""
+
+    def __init__(self, chunk: bytes, delay: float = 0.0) -> None:
+        self.chunk = chunk
+        self.delay = delay
+        self.sent = 0
+
+    async def __aiter__(self):
+        for self.sent in count(1):
+            await asyncio.sleep(self.delay)
+            yield self.chunk
+
+
+async def test_http_timeout_covers_a_server_that_keeps_trickling():
+    body = _EndlessBody(b"x", delay=0.05)
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, stream=body))
+    result = await asyncio.wait_for(
+        run_http(_http(timeout=1), b"{}", transport=transport), timeout=10
+    )
+    assert result.status == "timeout"
+
+
+async def test_http_stops_reading_at_the_cap():
+    body = _EndlessBody(b"y" * 16_384)
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, stream=body))
+    result = await asyncio.wait_for(run_http(_http(), b"{}", transport=transport), timeout=10)
+    assert (result.status, result.truncated) == ("ok", True)
+    assert body.sent <= MAX_HOOK_OUTPUT_BYTES // 16_384 + 1
 
 
 async def test_http_client_ignores_environment_credentials(monkeypatch):

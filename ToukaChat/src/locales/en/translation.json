@@ -532,7 +532,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. Commands do not go through a shell, and programs and scripts must live in the hooks/ folder of the config folder; anything in a place agents can write to is refused.",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused.",
       "enable_label": "Enable hooks",
       "enable_hint": "When off, no hook runs.",
       "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
@@ -561,6 +561,7 @@
         "args": "Arguments",
         "args_placeholder": "Arguments, one per line (passed as-is, no shell)",
         "url": "URL",
+        "url_placeholder": "https://",
         "headers": "Headers",
         "headers_placeholder": "Headers, one \"Name: value\" per line (sent literally, no environment variables)",
         "timeout": "Timeout (seconds)",
@@ -572,7 +573,8 @@
         "hint": "Only the latest 50 are kept in server memory and cleared on restart. Incognito chats record only the time, event and result.",
         "refresh": "Refresh",
         "empty": "No runs yet.",
-        "incognito": "(incognito)"
+        "incognito": "(incognito)",
+        "duration": "{{ms}} ms"
       },
       "outcomes": {
         "blocked": "Blocked",
@@ -588,6 +590,8 @@
         "parent_segment": "contains \"..\"",
         "unc_path": "network paths and drive-relative paths are not accepted",
         "agent_writable": "in a place agents can write to",
+        "outside_hooks_dir": "not in the config folder's hooks/",
+        "linked_path": "the path goes through a symbolic link or junction",
         "hard_link": "has other hard links",
         "link_loop": "too many or looping symbolic links",
         "unverifiable": "location cannot be verified"
@@ -1381,6 +1385,7 @@
       "copy_code": "Copy Code",
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
+      "hook_blocked": "A hook blocked this message; it will not be sent to the model.",
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",

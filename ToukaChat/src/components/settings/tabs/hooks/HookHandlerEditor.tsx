@@ -70,7 +70,7 @@ export function HookHandlerEditor({ hook, onChange, onRemove }: HookHandlerEdito
                         value={hook.url}
                         onChange={(e) => onChange({ ...hook, url: e.target.value })}
                         aria-label={field("url")}
-                        placeholder="https://"
+                        placeholder={field("url_placeholder")}
                         spellCheck={false}
                         className="h-8 font-mono text-xs"
                     />

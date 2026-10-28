@@ -20,7 +20,7 @@ import type { RequestScope } from '../connections';
 import { useSessionList } from "./SessionListProvider";
 import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
-import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, recordInterjection, stampNodeTime } from "../stream_tree";
+import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, recordInterjection, stampNodeTime, markHookBlocked } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
 import { getLinearMessages, migrateFlatToTree, TreeHistory } from "../tree_history";
@@ -223,16 +223,21 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     const onError = async (err: unknown) => {
-      const s = streamsRef.current[sessionId];
-      if (!s || !ownsStream() || s.settling) return;
+      const current = streamsRef.current[sessionId];
+      if (!current || !ownsStream() || current.settling) return;
+      const aborted = (err as { name?: string })?.name === "AbortError";
+      // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）。
+      // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤。
+      const brainNotice = !aborted && notifyBrainNotSet(err);
+      const hookBlocked = !aborted && !brainNotice && notifyHookBlocked(err);
+      // hook 擋下的訊息標起來一起存：之後組歷史時不送給模型（ADR-0292）
+      const s = hookBlocked ? { ...current, tree: markHookBlocked(current.tree, current.assistantMsgId) } : current;
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'error' } }));
-      // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）
-      if ((err as { name?: string })?.name !== "AbortError") {
+      if (!aborted) {
         logSSOTError(new Error('Stream delivery failed'), `StreamRegistry:onError:${sessionId}`);
-        // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤
-        if (!notifyBrainNotSet(err) && !notifyHookBlocked(err)) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
+        if (!brainNotice && !hookBlocked) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
       }
-      const generation = (err as { name?: string })?.name === 'AbortError' ? 'cancelled' : 'error';
+      const generation = aborted ? 'cancelled' : 'error';
       const result = await persistDone(s, unknownSave(), generation);
       if (ownsStream()) commit(prev => {
         if (s.incognito && isSaved(result)) { const next = { ...prev }; delete next[sessionId]; return next; }
