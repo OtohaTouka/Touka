@@ -76,10 +76,6 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 
 ## Known Open Vulnerabilities
 
-### 統計端點的 token 用量（2026-10-28 發現）
-
-一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。不帶 `X-Agent-ID` 的一般使用者拿到的是空的。外流的是用量數字，以及從鍵看得出別人有哪些靈魂（`stats/` 底下所有代理人的 id），不含對話內容。人類 admin 與 Debugger 本來就看全部（admin 代打拿到的是空的，和背景紀錄的規則不同）。
-
 ### MCP 隔離的邊界與已知限制（C2-3）
 
 - 第三方／scaffold 在本機 Landlock 穩定不可用時仍直接啟動（包含原生 Windows、舊 kernel 映像）；它們仍有 Touka 的檔案權限。檢查中或暫時故障時等待，不先放行。自建在層級 `none` 不自動啟動，人類確認後的 direct 同樣沒有隔離。
@@ -146,11 +142,17 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 統計端點的 token 用量看得到別的靈魂（2026-10-29）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。外流的是用量數字，以及從鍵看得出別人有哪些靈魂（`stats/` 底下所有代理人的 id），不含對話內容。 | 列出的每個代理人先用和背景紀錄同一個判斷（`authorization_gateway.can_access_session`，同一次請求每個靈魂只判斷一次）過濾，看不到的不讀檔、也不出現在回應裡：Owner 代理只看自己。人類 admin 與 Debugger 照舊看全部；一般使用者（不帶 `X-Agent-ID`）與 admin 代打照舊拿到空的，這次只收窄、不放寬。回應的鍵與型別不變，openapi 不變。`tests/proxy/test_stats_scope_security.py`。 |
+
 ### 統計端點的背景工作與用量沒有依身分過濾（2026-10-28）
 
 | 弱點 | 修正與驗證 |
 |------|------|
-| `GET /v1/stats` 只要登入就回所有靈魂的 `background_activity`（正在跑的心跳）與 `interrupted_runs`（上次沒跑完的背景工作，含會話 id），也回全域 `stats/usage_audit.csv` 的最後 50 筆與總數，以及派工伺服器的程序編號（pid）。一般使用者看得到別人的靈魂在做什麼、系統用了多少。 | 背景紀錄逐筆用 `authorization_gateway.can_access_session` 判斷（和會話存取同一套規則）：admin（含代打）與 Debugger 看全部，人類看自己擁有的靈魂，代理只看自己，對不到靈魂的紀錄只給 admin 與 Debugger；同一次請求每個靈魂只判斷一次。用量紀錄只有 admin（`is_admin_authority`，含代打）才讀檔，其他人回 `[]`／`0`；派工伺服器的 `pid` 對 admin 以外回 `null`，`status`、`restarts` 照舊。回應的鍵與型別不變，openapi 不變。`token_usage` 的外流這次沒修，見 Known Open Vulnerabilities。`tests/proxy/test_stats_scope_security.py`。 |
+| `GET /v1/stats` 只要登入就回所有靈魂的 `background_activity`（正在跑的心跳）與 `interrupted_runs`（上次沒跑完的背景工作，含會話 id），也回全域 `stats/usage_audit.csv` 的最後 50 筆與總數，以及派工伺服器的程序編號（pid）。一般使用者看得到別人的靈魂在做什麼、系統用了多少。 | 背景紀錄逐筆用 `authorization_gateway.can_access_session` 判斷（和會話存取同一套規則）：admin（含代打）與 Debugger 看全部，人類看自己擁有的靈魂，代理只看自己，對不到靈魂的紀錄只給 admin 與 Debugger；同一次請求每個靈魂只判斷一次。用量紀錄只有 admin（`is_admin_authority`，含代打）才讀檔，其他人回 `[]`／`0`；派工伺服器的 `pid` 對 admin 以外回 `null`，`status`、`restarts` 照舊。回應的鍵與型別不變，openapi 不變。`token_usage` 的外流隔天另修，見上一節。`tests/proxy/test_stats_scope_security.py`。 |
 
 ### 新的執行器入口忘了開「只用這一輪列出的工具」（2026-10-27）
 
