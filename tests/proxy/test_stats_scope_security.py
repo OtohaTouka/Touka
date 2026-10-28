@@ -105,8 +105,12 @@ def _stats(client: TestClient, identity: AgentIdentity) -> dict[str, Any]:
 
 
 def _seen(body: dict[str, Any]) -> tuple[set[str], set[str]]:
-    """回傳（background_activity 的 session id、interrupted_runs 的 session id）。"""
-    return set(body["background_activity"]), {r.get("session_id") for r in body["interrupted_runs"]}
+    """回傳（background_activity 的 session id、interrupted_runs 的 session id）。
+
+    interrupted_runs 裡不是 dict 的項目原樣放進集合。
+    """
+    runs = {r.get("session_id") if isinstance(r, dict) else r for r in body["interrupted_runs"]}
+    return set(body["background_activity"]), runs
 
 
 def test_normal_user_sees_only_own_soul(client: TestClient) -> None:
@@ -149,13 +153,20 @@ def test_records_without_agent_only_for_admin_and_debugger(client: TestClient) -
         "sess-number": {"kind": "heartbeat", "agent": 42},
         "sess-not-dict": "heartbeat",
     }
-    runs = [{"session_id": "run-no-agent"}, {"session_id": "run-none", "agent": None}]
+    runs = [
+        {"session_id": "run-no-agent"},
+        {"session_id": "run-none", "agent": None},
+        "run-not-dict",
+    ]
     _seed(activity, runs)
 
     assert _seen(_stats(client, _human("user-a"))) == (set(), set())
     assert _seen(_stats(client, OWNER_AGENT)) == (set(), set())
     for identity in (HUMAN_ADMIN, DEBUGGER):
-        assert _seen(_stats(client, identity)) == (set(activity), {"run-no-agent", "run-none"})
+        assert _seen(_stats(client, identity)) == (
+            set(activity),
+            {"run-no-agent", "run-none", "run-not-dict"},
+        )
 
 
 def test_filtering_does_not_change_shared_state(client: TestClient) -> None:

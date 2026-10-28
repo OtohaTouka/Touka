@@ -78,7 +78,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 
 ### 統計端點的 token 用量（2026-10-28 發現）
 
-一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。不帶 `X-Agent-ID` 的一般使用者拿到的是空的。外流的只有用量數字，不含對話內容。
+一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。不帶 `X-Agent-ID` 的一般使用者拿到的是空的。外流的是用量數字，以及從鍵看得出別人有哪些靈魂（`stats/` 底下所有代理人的 id），不含對話內容。admin 與 Debugger 本來就看全部，和背景紀錄的規則一致。
 
 ### MCP 隔離的邊界與已知限制（C2-3）
 
