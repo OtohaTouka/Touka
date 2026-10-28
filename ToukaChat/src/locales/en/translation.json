@@ -1410,6 +1410,8 @@
       "reject": "Reject",
       "countdown": "Auto-rejects in {{seconds}}s",
       "review_reason": "Why the reviewer sent this to you: {{reason}}",
+      "hook_ask": "A hook set by the administrator asks you to confirm this action.",
+      "hook_reason": "A hook set by the administrator asks you to confirm: {{reason}}",
       "human_only": "Only you can approve",
       "human_only_desc": "Neither the reviewer nor YOLO can approve this kind of action for you.",
       "risk": {
@@ -2312,6 +2314,11 @@
       "collection_collision": "This ID would share a semantic index with an existing ID; choose another ID",
       "check_failed": "Could not confirm this ID will not share memory with an existing one; nothing was created",
       "collection_collision_with": "This ID would share a semantic index with \"{{id}}\"; choose another ID"
+    },
+    "hooks": {
+      "prompt_blocked": "A hook set by the administrator blocked this message; it was not sent to the model.",
+      "config_conflict": "The hook settings were changed elsewhere. Reload, then save again.",
+      "path_rejected": "A hook command or argument points to a place agents can write to, or its safety cannot be confirmed, so it cannot be saved."
     }
   }
 }

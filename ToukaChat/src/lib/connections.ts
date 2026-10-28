@@ -567,7 +567,8 @@ export async function fetchChatStream(
             const errData = await response.json().catch(() => ({}));
             // ToukaException 形狀 {"detail":{"code",...}}：保留錯誤碼給聊天畫面判斷（如 AGENT_BRAIN_NOT_SET）
             const code = typeof errData?.detail?.code === 'string' ? errData.detail.code : undefined;
-            throw new ToukaApiError(errData?.error?.message || `HTTP Error ${response.status}`, response.status, code);
+            const reason = typeof errData?.detail?.reason === 'string' ? errData.detail.reason : undefined;
+            throw new ToukaApiError(errData?.error?.message || `HTTP Error ${response.status}`, response.status, code, reason);
         }
         
         await consumeChatStream(response, onChunk, onDone, onEvent, onThinking,

@@ -271,6 +271,7 @@ export function applyEventToTree(
         timeout: event.timeout as number | undefined,
         // ADR-0246：只在有值時帶；非預期型別一律不顯示
         ...(typeof event.review_reason === 'string' ? { reviewReason: event.review_reason } : {}),
+        ...(typeof event.hook_reason === 'string' ? { hookReason: event.hook_reason } : {}),
         ...(event.human_only === true ? { humanOnly: true } : {}),
         ...(isolation ? { isolation } : {}),
       },

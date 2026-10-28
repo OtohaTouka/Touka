@@ -28,6 +28,7 @@ import { getSystemEpoch } from "../time_utils";
 import { BackendProtocol, SkillInstallRequest, AskUserRequest, SaveResult, StreamTerminalEvent, StreamStartedEvent } from "../types";
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useAgentBrainNotice } from "@/hooks/useAgentBrainNotice";
+import { useHookBlockNotice } from "@/hooks/useHookBlockNotice";
 import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
@@ -95,6 +96,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
   const { sessions, getSession, updateSession, beginProducer, completeProducer, prepareResume, getPersistence } = useSessionList();
   const { registerSimHandlers } = useDebug();
   const notifyBrainNotSet = useAgentBrainNotice();
+  const notifyHookBlocked = useHookBlockNotice();
 
   const [streams, setStreams] = useState<Record<string, StreamState>>({});
   // ref 鏡像：讓 onDone/stopStream 能讀到最新 controller/tree，而不在 setState updater 內做副作用
@@ -227,8 +229,8 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）
       if ((err as { name?: string })?.name !== "AbortError") {
         logSSOTError(new Error('Stream delivery failed'), `StreamRegistry:onError:${sessionId}`);
-        // 沒設主要模型由專屬通知處理（model-p0 U7），其餘照舊顯示連線錯誤
-        if (!notifyBrainNotSet(err)) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
+        // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤
+        if (!notifyBrainNotSet(err) && !notifyHookBlocked(err)) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
       }
       const generation = (err as { name?: string })?.name === 'AbortError' ? 'cancelled' : 'error';
       const result = await persistDone(s, unknownSave(), generation);
@@ -239,7 +241,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     return { onChunk, onThinking, onEvent, onDone, onError };
-  }, [commit, persistDone, notifyBrainNotSet]);
+  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked]);
 
   const startStream = useCallback(async (params: StartStreamParams): Promise<boolean> => {
     const { sessionId, baseTree, userText, resolvedInput, attachment, parentId,

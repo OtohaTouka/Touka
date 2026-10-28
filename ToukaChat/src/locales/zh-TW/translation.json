@@ -1404,6 +1404,8 @@
       "reject": "拒絕",
       "countdown": "{{seconds}} 秒後自動拒絕",
       "review_reason": "審查員轉給你的理由：{{reason}}",
+      "hook_ask": "管理員設定的 hook 要你確認這個動作。",
+      "hook_reason": "管理員設定的 hook 要你確認：{{reason}}",
       "human_only": "只有你能核准",
       "human_only_desc": "這類動作審查員和 YOLO 都不能代為放行。",
       "risk": {
@@ -2304,6 +2306,11 @@
       "collection_collision": "這個 ID 會和既有的 ID 共用語意索引，請換一個 ID",
       "check_failed": "無法確認這個 ID 不會和既有的記憶共用，什麼都沒建立",
       "collection_collision_with": "這個 ID 會和「{{id}}」共用語意索引，請換一個 ID"
+    },
+    "hooks": {
+      "prompt_blocked": "管理員設定的 hook 擋下了這則訊息，沒有送給模型。",
+      "config_conflict": "hook 設定已被別人改過，請重新載入後再存。",
+      "path_rejected": "hook 指令或參數指到代理人可以寫入的位置，或無法確認安全，不能存檔。"
     }
   }
 }

@@ -13,6 +13,7 @@ from src.services.resource_manager import resource_manager
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
+from ..middleware.layers.hooks import HookLayer
 from ..middleware.layers.monitor import MonitorLayer
 from ..middleware.layers.native_model_layer import NativeModelLayer
 from ..middleware.layers.skill import SkillLayer
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Initialize Global Pipeline
 pipeline = ProxyPipeline([
     MonitorLayer(),
+    HookLayer(),        # ADR-0292：UserPromptSubmit hook（只在 ctx.run_hooks 時）
     ContextLayer(),
     NativeModelLayer(),  # ADR-0111：原生模型預設參數（在 custom/soul 之前→被其覆蓋）
     CustomModelLayer(), # Level 2 自定義模型注入
@@ -70,6 +72,8 @@ async def process_proxy_request(
     request: Any, ctx: PipelineContext, is_anthropic: bool = True
 ) -> Any:
     """處理請求管道：採用中介軟體式架構 (SOLID)。"""
+    # 真的請求才跑 UserPromptSubmit hook（上下文預覽直接呼叫 pipeline，不經這裡；ADR-0292）
+    ctx["run_hooks"] = True
     # 執行處理管道 (Pipeline執行所有的 Middleware Layers)
     await pipeline.execute(request, ctx)
     

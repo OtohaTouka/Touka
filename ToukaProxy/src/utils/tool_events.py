@@ -67,6 +67,7 @@ def tool_approval_request_event(
     risk: str,
     timeout_s: float,
     review_reason: str | None = None,
+    hook_reason: str | None = None,
     human_only: bool = False,
     isolation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -74,7 +75,8 @@ def tool_approval_request_event(
 
     ``id``＝exec_id（approve/reject 端點的解算鍵）；``call_id`` 供前端把卡片對到
     同一工具步驟；``args`` 為截斷後預覽（非全量）。有值才帶（ADR-0246）：
-    ``review_reason``＝Auto 審查員轉人的理由；``human_only``＝只有人能核准（硬地板）；
+    ``review_reason``＝Auto 審查員轉人的理由；``hook_reason``＝管理員設定的 hook 要求人核准
+    （hook 沒給理由時是空字串，ADR-0292）；``human_only``＝只有人能核准（硬地板）；
     ``isolation``＝隔離標示 ``{level, fallback?, features, reason, reason_detail}``。
     """
     event: dict[str, Any] = {
@@ -89,6 +91,8 @@ def tool_approval_request_event(
     }
     if review_reason is not None:
         event["review_reason"] = review_reason
+    if hook_reason is not None:
+        event["hook_reason"] = hook_reason
     if human_only:
         event["human_only"] = True
     if isolation is not None:

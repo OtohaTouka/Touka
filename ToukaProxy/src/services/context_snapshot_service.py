@@ -28,6 +28,7 @@ from src.services.prompt_blocks import (
     CONTINUITY,
     CONVERSATION_SUMMARY,
     HARNESS_CONTEXT,
+    HOOK_OUTPUT,
     IDE_CONTEXT,
     MCP_UNAVAILABLE,
     MISSION_AWARENESS,
@@ -125,6 +126,13 @@ BLOCK_META: dict[str, dict[str, str]] = {
         "source": "continuity_service（系統時鐘、可信活動事件、MissionManager 唯讀）",
         "kind": "per_request",
         "mock": "<continuity>現在時間（台北）／距上一輪多久／任務看板更新時間</continuity>",
+    },
+    HOOK_OUTPUT: {
+        "name": "Hook Output",
+        "layer": "HookLayer（附在最後一則 user 訊息尾端，非 system）",
+        "source": "管理員設定的 UserPromptSubmit hook（ADR-0292；資料，不是指令）",
+        "kind": "per_request",
+        "mock": "（有 hook 回補充說明時才注入；預覽不執行 hook）",
     },
 }
 
@@ -351,6 +359,7 @@ async def get_context_snapshot(
     ctx.agent_id = identity.agent_id
     ctx.auth_level = base_ctx.get("auth_level") or "Manual"
     ctx.request_id = "context-snapshot"
+    ctx.run_hooks = False  # 預覽不執行 hook（ADR-0292）
     # 刻意不設 session_id：避免 clear_interrupt / session 連動（純唯讀快照）。
 
     model = identity.agent_id

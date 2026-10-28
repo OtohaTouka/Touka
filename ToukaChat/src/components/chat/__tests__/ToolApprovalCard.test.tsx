@@ -154,6 +154,22 @@ describe('ToolApprovalCard × Auto reviewer (ADR-0246 U2c-6)', () => {
     render(<ToolApprovalCard step={awaitingStep} />);
     expect(screen.queryByText(/審查員轉給你的理由/)).toBeNull();
     expect(screen.queryByText('只有你能核准')).toBeNull();
+    expect(screen.queryByText(/管理員設定的 hook/)).toBeNull();
+  });
+});
+
+describe('ToolApprovalCard × hook ask (ADR-0292)', () => {
+  it('labels the hook reason as the hook\'s, not the reviewer\'s', () => {
+    render(
+      <ToolApprovalCard step={{ ...awaitingStep, approval: { ...awaitingStep.approval!, hookReason: '會動到發行資料夾' } }} />,
+    );
+    expect(screen.getByText('管理員設定的 hook 要你確認：會動到發行資料夾')).toBeInTheDocument();
+    expect(screen.queryByText(/審查員轉給你的理由/)).toBeNull();
+  });
+
+  it('still says a hook asked when it gave no reason', () => {
+    render(<ToolApprovalCard step={{ ...awaitingStep, approval: { ...awaitingStep.approval!, hookReason: '' } }} />);
+    expect(screen.getByText('管理員設定的 hook 要你確認這個動作。')).toBeInTheDocument();
   });
 });
 
