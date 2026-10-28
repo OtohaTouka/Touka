@@ -62,3 +62,24 @@ describe('NavigationArea — 登出按鈕', () => {
         expect(mockLogoutTouka).not.toHaveBeenCalled();
     });
 });
+
+// 上導覽列拿掉後（2026-10-28），側欄是唯一的分頁入口：接手上導覽列的「目前分頁」標示與只有整合模式才有的分頁。
+describe('NavigationArea — 分頁入口', () => {
+    it('目前分頁標 aria-current="page"，其他分頁不標', () => {
+        render(React.createElement(NavigationArea, { ...defaultProps, activeMode: 'settings' }));
+        expect(screen.getByRole('button', { name: '設定' })).toHaveAttribute('aria-current', 'page');
+        expect(screen.getByRole('button', { name: '聊天大廳' })).not.toHaveAttribute('aria-current');
+        expect(screen.getByRole('button', { name: '登出' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('整合模式才有靈魂核心、系統脈搏、記憶寶庫', () => {
+        const hybridOnly = ['靈魂核心', '系統脈搏', '記憶寶庫'];
+        const always = ['聊天大廳', '專案管理', '模型工坊', '設定'];
+        const { unmount } = render(React.createElement(NavigationArea, { ...defaultProps, isHybrid: true }));
+        for (const name of [...always, ...hybridOnly]) expect(screen.getByRole('button', { name })).toBeTruthy();
+        unmount();
+        render(React.createElement(NavigationArea, { ...defaultProps, isHybrid: false }));
+        for (const name of always) expect(screen.getByRole('button', { name })).toBeTruthy();
+        for (const name of hybridOnly) expect(screen.queryByRole('button', { name })).toBeNull();
+    });
+});

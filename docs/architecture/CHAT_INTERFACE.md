@@ -126,7 +126,7 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 ## 首次設定警告（ADR-0053，2026-10-23 補記）
 
 - 管理員密碼還是臨時的、初次設定還沒完成這兩個警告，畫在左側邊欄最上面（`SidebarSetupNotices`）。狀態、「稍後」與設定精靈都在 `app/layout.tsx` 的 `SetupNoticesProvider`（在 `AuthGuard` 裡，只呼叫一次 `useSetupStatus`）；這個提供者不能畫任何佔版面的元素，因為 body 是左右排列。
-- 有警告時桌面側欄收合鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
+- 有警告時，桌面版左側邊欄收起後主區左上角的展開鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告（2026-10-28 起；以前在上導覽列的收合鈕）。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
 - 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部導覽與登出仍點得到。
 - 精靈第 2 步改完密碼（後端撤銷所有舊卡，ADR-0144）後不前進：`SetupWizard` 改畫 `ReloginNotice`（隱藏上一步與 ×，焦點移到「前往登入」，按下呼叫 `useAuth().logout()`），並由提供者經 `useSetupResume.saveSetupResume` 記下接續點（localStorage `touka_setup_resume`：`{ userId, stepId, savedAt }`，`SETUP_RESUME_TTL_MS`＝1 小時；三欄型別、步驟名稱、時間不在未來都驗過才算有效，能解析但格式不對或過期的整筆刪；`me.id` 由第 2 步傳上來，畫面已卸載也照寫）。登出時 `AuthGuard` 先卸載整棵樹（含 Toaster），到 `/login` 重新掛上；登入後到首頁不重掛，所以 `useSetupResumeAfterLogin` 在管理員的 user.id 出現或改變時取一次（登入、帶有效 session 重新整理都算；別人的不取不刪），提供者等狀態讀到、`hasSetupIssues` 為真才打開精靈。登入頁用 `peekSetupResume`（只看不取）顯示說明。管理員密碼已不是臨時密碼時第 2 步有「保留目前密碼」；前進到第 7 步時呼叫 `onStatusRefresh` 重讀狀態（在 `next()` 裡觸發，不用 effect）。
 
@@ -277,6 +277,10 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 *   **模式**: **Flattened PanelGroup**。
 *   **結構**: `[Left Panel] | [Center Panel] | [Right Panel]` 處於同一層級。
 *   **優點**: 調整左側寬度時不會影響右側寬度，徹底解決巢狀連動問題。
+*   **沒有上導覽列（2026-10-28）**: 分頁切換與設定只在左側邊欄（`NavigationArea`）。主區最上面是 `components/layout/MainAreaControls.tsx` 的一條 `h-10` 細列（沒有框線、沒有標題），只放角落按鈕：
+    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。按這兩顆鈕收起或展開後焦點掉了，就交給另一顆鈕（`setLeftSidebarOpen()` 記下這次是按鈕要求的，兩邊在狀態改變後各問一次 `takeFocusRequest`；面板掛上時依版面記錄自己同步狀態的那一次不移焦點，載入時才不搶焦點）；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。左側邊欄底部的分頁鈕是唯一的分頁入口，目前分頁標 `aria-current="page"`。
+    *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
+    *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
 
 ---

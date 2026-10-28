@@ -1289,7 +1289,7 @@
       "setup_now": "Set up now",
       "later": "Later",
       "dismiss_aria": "Later: dismiss the setup notice",
-      "toggle_sidebar_aria": "Toggle Sidebar (setup warnings in the sidebar)",
+      "expand_sidebar_aria": "Expand sidebar (setup warnings in the sidebar)",
       "open_menu_aria": "Open menu (setup warnings in the sidebar)"
     },
     "isolation_banner": {
@@ -1850,19 +1850,10 @@
         }
       }
     },
-    "main_header": {
-      "toggle_sidebar": "Toggle Sidebar",
-      "views": {
-        "chat": "Chat Lobby",
-        "soul": "Soul Core",
-        "studio": "Model Studio",
-        "pulse": "System Pulse",
-        "vault": "Memory Vault",
-        "projects": "Projects",
-        "settings": "Settings"
-      },
-      "settings_button_title": "Settings",
-      "right_sidebar_title": "View analytics and assets"
+    "main_area_controls": {
+      "expand_sidebar": "Expand sidebar",
+      "right_sidebar": "Tool panel",
+      "settings": "Settings"
     },
     "left_sidebar": {
       "nav_aria_label": "Conversation navigation",
@@ -1870,7 +1861,8 @@
       "new_chat_button": "New Chat",
       "incognito_chat_button_tooltip": "Start a conversation that leaves no trace: not saved, and the AI doesn't read or write memory",
       "incognito_chat_button": "Incognito Chat",
-      "session_history_heading": "Conversation History"
+      "session_history_heading": "Conversation History",
+      "collapse_sidebar": "Collapse sidebar"
     },
     "right_sidebar": {
       "aria_system_panel": "System panel",

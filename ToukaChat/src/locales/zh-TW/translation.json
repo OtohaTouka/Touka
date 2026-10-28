@@ -1283,7 +1283,7 @@
       "setup_now": "立即設定",
       "later": "稍後",
       "dismiss_aria": "稍後：先關閉初次設定提示",
-      "toggle_sidebar_aria": "切換側邊欄（側邊欄裡有設定警告）",
+      "expand_sidebar_aria": "展開側邊欄（側邊欄裡有設定警告）",
       "open_menu_aria": "開啟選單（側邊欄裡有設定警告）"
     },
     "isolation_banner": {
@@ -1842,19 +1842,10 @@
         }
       }
     },
-    "main_header": {
-      "toggle_sidebar": "切換側邊欄",
-      "views": {
-        "chat": "聊天大廳",
-        "soul": "靈魂核心",
-        "studio": "模型工坊",
-        "pulse": "系統脈搏",
-        "vault": "記憶寶庫",
-        "projects": "專案管理",
-        "settings": "設定"
-      },
-      "settings_button_title": "系統設定",
-      "right_sidebar_title": "查看分析與資產"
+    "main_area_controls": {
+      "expand_sidebar": "展開側邊欄",
+      "right_sidebar": "工具面板",
+      "settings": "設定"
     },
     "left_sidebar": {
       "nav_aria_label": "會話導覽",
@@ -1862,7 +1853,8 @@
       "new_chat_button": "新增對話",
       "incognito_chat_button_tooltip": "開一個不留痕跡的對話：不存檔、AI 不讀寫記憶",
       "incognito_chat_button": "無痕對話",
-      "session_history_heading": "對話歷史"
+      "session_history_heading": "對話歷史",
+      "collapse_sidebar": "收合側邊欄"
     },
     "right_sidebar": {
       "aria_system_panel": "系統面板",
