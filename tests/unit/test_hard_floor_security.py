@@ -63,6 +63,8 @@ _SHELL_CASES: dict[str, list[str]] = {
         f"cp evil.json {_APP}/config/permissions.json",
         "sed -i s/Manual/FullYOLO/ identity_map.json",
         "Set-Content autonomy.json '{}'",
+        "echo {} > hooks.json",  # ADR-0292
+        "cp evil.py ToukaProxy/config/hooks/guard.py",
     ],
     "F4": [
         "sed -i s/a/b/ ToukaProxy/src/models/safety.py",

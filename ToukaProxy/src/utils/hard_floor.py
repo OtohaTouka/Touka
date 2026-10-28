@@ -73,7 +73,7 @@ _NUMERIC_RE: Final = re.compile(r"\+?\d+(?:\.\d+)?[smhd]?|0x[0-9a-f]+|\d+(?:[-,]
 _ENV_FILE_RE: Final = re.compile(r"\.env(?:\.(?!(?:example|sample|template)$)[\w.-]+)?")
 _POLICY_FILE_RE: Final = re.compile(
     r"(?:auth_policies|identity_map|autonomy|dispatch_hooks|server_config|group_whitelist"
-    r"|permissions)\.json(?:\.example)?|auth_policies|identity_map"
+    r"|permissions|hooks)\.json(?:\.example)?|auth_policies|identity_map"
 )
 _RECURSIVE_FLAG_RE: Final = re.compile(r"-[a-z]*r[a-z]*|--recursive|/s")
 _UNIX_RECURSE_RE: Final = re.compile(r"-[A-Za-z]*[rRa][A-Za-z]*|--recursive|--archive")

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src.config import CONFIG_DIR, get_config_dir
 from src.models.autonomy import AutonomyConfigModel
+from src.models.hooks import HooksConfig
 from src.models.identity import IdentityMapConfig
 from src.models.permissions import PermissionsConfig
 from src.models.safety import AuthPoliciesConfig
@@ -27,6 +28,8 @@ _LIVE_MODELED: dict[str, type] = {
     "identity_map.json": IdentityMapConfig,
     "auth_policies.json": AuthPoliciesConfig,
     "sliding_window.json": SlidingWindowConfig,
+    # ADR-0292：壞掉的 hook 設定在啟動時就擋下（執行中壞掉則沿用上一份好的）。
+    "hooks.json": HooksConfig,
 }
 
 
