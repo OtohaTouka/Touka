@@ -67,7 +67,13 @@ class SoulLayer(ProxyLayer):
             )
             # ADR-0086：無痕模式完全失憶——不注入家對話（記憶錨點），但保留人格。
             if not ctx.get("incognito"):
-                await soul_service.inject_home_messages(request, agent_id)
+                await soul_service.inject_home_messages(
+                    request,
+                    agent_id,
+                    current_session_id=ctx.get("session_id")
+                    if self._sends_own_history(request, ctx)
+                    else None,
+                )
                 # ADR-0092 Phase D：注入被剪舊對話的摘要（固定前置；無痕不注入）；
                 # 只給綁在這個靈魂的 session（ADR-0245 修補）
                 if ctx["session_bound"]:
@@ -81,6 +87,20 @@ class SoulLayer(ProxyLayer):
         else:
             if not is_anthropic:
                 sanitize_history(request.messages)
+
+    @staticmethod
+    def _sends_own_history(request: Any, ctx: PipelineContext) -> bool:
+        """網頁版一般聊天：送的是這個對話自己的完整紀錄（前端存檔時持有整棵樹、revision 已核對）。
+
+        在家對話本身就不再插一份家對話。只看 ctx 旗標不夠：子代理會繼承父 ctx 的
+        ``ui_authorized``；SNS、IDE 只送最新一句，沒有存檔核准欄位。
+        """
+        admission = getattr(request, "ui_persistence", None)
+        return (
+            admission is not None
+            and admission.mode == "persistent"
+            and ctx.get("ui_authorized") is True
+        )
 
     async def _session_bound(self, ctx: PipelineContext, soul: AgentIdentity) -> bool:
         """這個 session 綁的 agent（正式 ID）是要注入的靈魂、呼叫者也能驅動它（ADR-0245 修補）。
