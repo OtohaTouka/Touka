@@ -1,6 +1,6 @@
 """統計與指標路由 (Stats Router).
 
-提供系統使用率、湧現指標 (E-Index) 以及舊對話資料庫 (Legacy Vault) 的統計與同步介面。
+提供系統使用率與舊對話資料庫 (Legacy Vault) 的統計與同步介面。
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from src.services.activity_registry import activity_registry
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
-from src.utils.time_utils import get_current_taipei_iso
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -84,57 +83,6 @@ async def get_touka_stats(
     )
 
     return stats_data
-
-
-@router.get("/emergence")
-async def get_emergence_index(
-    identity: Annotated[AgentIdentity, Depends(get_verified_identity)],
-) -> dict[str, Any]:
-    """讀取 usage_audit.csv 並回傳最新的湧現指標"""
-    _ = identity
-    stats_path = Path(resource_manager.get_base_path()) / "stats" / "usage_audit.csv"
-    default_data = {
-        "e_index": 0.0,
-        "complexity": "Low",
-        "trend": "Stable",
-        "timestamp": get_current_taipei_iso(),
-    }
-
-    if not stats_path.exists():
-        return default_data
-
-    try:
-        content = resource_manager.read_file_text(stats_path)
-        if not content:
-            return default_data
-        import io
-        reader = csv.DictReader(io.StringIO(content))
-        rows = list(reader)
-        if not rows:
-            return default_data
-
-        last_row = rows[-1]
-        e_index = float(last_row.get("e_index", 0.0))
-
-        complexity = "High" if e_index > 0.5 else "Medium" if e_index > 0.2 else "Low"
-
-        trend = "Stable"
-        if len(rows) >= 2:
-            prev_e = float(rows[-2].get("e_index", 0.0))
-            if e_index > prev_e:
-                trend = "Up"
-            elif e_index < prev_e:
-                trend = "Down"
-
-        return {
-            "e_index": e_index,
-            "complexity": complexity,
-            "trend": trend,
-            "timestamp": last_row.get("timestamp", get_current_taipei_iso()),
-        }
-    except Exception:
-        logger.exception("Error reading emergence data")
-        return default_data
 
 
 @router.get("/legacy/{agent_id}")

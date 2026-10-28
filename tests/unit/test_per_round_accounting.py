@@ -1,8 +1,8 @@
 """每輪記帳（ADR-0244；model-p1b U2）。
 
 - react_core 每輪 parse 後就把該輪用量寫進 token_usage.json，成本閘因此看得到本次 run 的花費；
-- E-Index 歷史整次 run 只記一筆；
-- 稽核 CSV 每次 run 一列、欄位不變，``cost_usd`` 含快取；
+- 不再記 E-Index（ADR-0291）：沒有 E-Index 歷史，遙測也沒有 ``e_index``；
+- 稽核 CSV 每次 run 一列，``cost_usd`` 含快取；
 - 畫面 token_usage 事件＝整次 run 加總（含快取），``usage_pct`` 用最後一輪的總輸入；
 - 原生 Anthropic 出口照常記帳，但不送 token_usage 事件。
 
@@ -44,7 +44,7 @@ _PRICING = {
 _AUDIT_HEADERS = [
     "timestamp", "request_id", "agent_id", "provider",
     "total_ms", "local_ms", "network_ms", "pure_gen_ms",
-    "e_index", "input_tokens", "output_tokens", "cost_usd", "rate_source",
+    "input_tokens", "output_tokens", "cost_usd", "rate_source",
 ]
 
 
@@ -224,8 +224,8 @@ async def test_cost_cap_sees_spend_of_the_current_run(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_e_index_history_gets_one_entry_per_run():
-    """三輪的 run：用量三輪都入帳，E-Index 歷史只多一筆，值＝本次 run 遙測的 e_index。"""
+async def test_run_records_no_e_index():
+    """三輪的 run（含記憶查詢）：用量三輪都入帳，但不再記 E-Index（ADR-0291）。"""
     run = await _run_openai("AcctEIndex", [
         _openai_round(100, 0, 10, tool="memory_tools", args='{"action": "query"}'),
         _openai_round(100, 0, 10, tool="vault_tools"),
@@ -233,17 +233,16 @@ async def test_e_index_history_gets_one_entry_per_run():
     ])
     stats = _token_usage(run.identity)["OpenAI"]
     assert stats["prompt_tokens"] == 300
-    history = stats["e_index_history"]
-    assert len(history) == 1
+    assert "e_index_history" not in stats
     telemetry = next(o["telemetry"] for o in _sse_objects(run.chunks)
                      if o.get("type") == "touka_status" and "telemetry" in o)
-    assert history[0]["e_index"] == telemetry["e_index"]
-    assert history[0]["e_index"] > 0  # 有 memory_tools.query＝非零，證明不是預設值
+    assert "e_index" not in telemetry
+    assert set(telemetry) == {"request_id", "total_ms", "local_ms", "pure_gen_ms"}
 
 
 @pytest.mark.asyncio
-async def test_audit_csv_one_row_per_run_same_columns_and_cost_with_cache():
-    """兩輪的 run：CSV 只有一列、欄位不變；token 數為兩輪加總，cost_usd 含快取讀。"""
+async def test_audit_csv_one_row_per_run_and_cost_with_cache():
+    """兩輪的 run：CSV 只有一列；token 數為兩輪加總，cost_usd 含快取讀。"""
     run = await _run_openai("AcctAudit", [
         _openai_round(1200, 200, 50, tool="vault_tools"),
         _openai_round(1500, 1000, 30),

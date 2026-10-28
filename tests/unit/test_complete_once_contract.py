@@ -222,9 +222,7 @@ async def test_claude_success_shape_wire_and_ledger(wire, budget, ledger):
     assert _SYSTEM in str(sent["system"])
     assert sent["messages"] == [{"role": "user", "content": [{"type": "text", "text": _USER}]}]
     assert budget.checked == [_IDENTITY]
-    # e_index=None：旁路呼叫不寫 E-Index 歷史（ADR-0244，U2 起 e_index 選填）
-    assert ledger["usage"] == [((_IDENTITY, "reviewer", _USAGE4),
-                                {"e_index": None, "model": _CLAUDE})]
+    assert ledger["usage"] == [((_IDENTITY, "reviewer", _USAGE4), {"model": _CLAUDE})]
     ((audit_args, audit_kwargs),) = ledger["audit"]
     assert audit_args[0] == _IDENTITY and audit_args[2] == "reviewer"
     assert audit_args[4] == _USAGE4 and audit_kwargs == {"model": _CLAUDE}
@@ -244,7 +242,7 @@ async def test_openai_compatible_success(wire, budget, ledger):
                                         {"role": "user", "content": _USER}]
     assert "tools" not in call["json"]
     assert ledger["usage"] == [((_IDENTITY, "summarizer", _USAGE4_INCLUDED),
-                                {"e_index": None, "model": _OPENAI})]
+                                {"model": _OPENAI})]
     assert wire.claude == []
 
 

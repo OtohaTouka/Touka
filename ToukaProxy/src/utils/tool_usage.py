@@ -3,7 +3,7 @@
 執行器記，守衛與檢索訊號讀：
 - 集合本身＝「試過」：模型發起的每個呼叫，被擋下也算。幻覺偵測看它，被擋的呼叫不算幻覺
   （禁令 59(c)）。
-- ``executed``：真正開始執行（送出工具開始事件）才記；查證守衛與 e_index 看它。
+- ``executed``：真正開始執行（送出工具開始事件）才記；查證守衛看它。
 - ``succeeded``：執行結果判定成功才記；記憶守衛只看它。
 
 每筆都記工具名本身；聚合工具帶 ``action`` 時另記限定名 ``name.action``（如 ``memory_tools.save``）。
@@ -56,7 +56,7 @@ def record_tool_succeeded(
 
 
 def executed_tools(actually_used_tools: set[str]) -> set[str]:
-    """查證守衛與 e_index 讀的集合。"""
+    """查證守衛讀的集合。"""
     if isinstance(actually_used_tools, ToolUsage):
         return actually_used_tools.executed
     return actually_used_tools

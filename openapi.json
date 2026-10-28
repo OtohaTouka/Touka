@@ -879,35 +879,6 @@
         ]
       }
     },
-    "/v1/stats/emergence": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "Get Emergence Index",
-        "description": "讀取 usage_audit.csv 並回傳最新的湧現指標",
-        "operationId": "get_emergence_index_v1_stats_emergence_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Emergence Index V1 Stats Emergence Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
     "/v1/stats/legacy/{agent_id}": {
       "get": {
         "tags": [
@@ -1025,35 +996,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Touka Stats Stats Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/stats/emergence": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "Get Emergence Index",
-        "description": "讀取 usage_audit.csv 並回傳最新的湧現指標",
-        "operationId": "get_emergence_index_stats_emergence_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Emergence Index Stats Emergence Get"
                 }
               }
             }

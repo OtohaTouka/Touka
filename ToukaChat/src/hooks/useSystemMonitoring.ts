@@ -44,7 +44,6 @@ export interface SystemStats {
   activeModels: Array<{ id: string; owned_by: string }>;
   healthStats: { cpu_usage: number; memory_usage: number } | null;
   vaultHealth: Record<string, boolean> | null;
-  emergence: { e_index: number; trend: string } | null;
   tokenUsage: TokenUsageMap;
   dailyQuota: DailyQuotaStats | null;
   backgroundActivity: BackgroundActivityMap;
@@ -59,7 +58,6 @@ export function useSystemMonitoring(isActive: boolean) {
     activeModels: [],
     healthStats: null,
     vaultHealth: null,
-    emergence: null,
     tokenUsage: {},
     dailyQuota: null,
     backgroundActivity: {},
@@ -77,7 +75,6 @@ export function useSystemMonitoring(isActive: boolean) {
         fetchTouka(proxyUrl, "/v1/models"),
         fetchTouka(proxyUrl, "/v1/system_health"),
         fetchTouka(proxyUrl, "/v1/memory/health"),
-        fetchTouka(proxyUrl, "/v1/stats/emergence"),
         fetchTouka(proxyUrl, "/v1/stats"),
         fetchTouka(proxyUrl, "/v1/memory/list"),
       ]);
@@ -110,23 +107,18 @@ export function useSystemMonitoring(isActive: boolean) {
         newStats.vaultHealth = await results[3].value.json();
       }
 
-      // 5. Emergence
+      // 5. Token Stats
       if (results[4].status === "fulfilled" && results[4].value.ok) {
-        newStats.emergence = await results[4].value.json();
-      }
-
-      // 6. Token Stats
-      if (results[5].status === "fulfilled" && results[5].value.ok) {
-        const data = await results[5].value.json();
+        const data = await results[4].value.json();
         newStats.tokenUsage = data.token_usage || {};
         newStats.dailyQuota = data.daily_quota || null;
         newStats.backgroundActivity = data.background_activity || {};
         newStats.interruptedRuns = data.interrupted_runs || [];
       }
 
-      // 7. Memory List (for count)
-      if (results[6].status === "fulfilled" && results[6].value.ok) {
-        const data = await results[6].value.json();
+      // 6. Memory List (for count)
+      if (results[5].status === "fulfilled" && results[5].value.ok) {
+        const data = await results[5].value.json();
         newStats.memStats = {
           memory_load: data.memories?.length || 0,
           status: "Connected",

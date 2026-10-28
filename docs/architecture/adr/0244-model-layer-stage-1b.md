@@ -6,6 +6,7 @@
 - 影響範圍：三個 provider adapter 與 `handlers/adapters/usage.py`（新）、`react_core`、`telemetry`、`providers/pricing.py`、`services/completion.py`（新）、`dispatchers/route_family.py`／`factory.py`、`dialogue_summarizer`／`sliding_window_service`、`review/review_loop`／`tools/mission_tools`、`creation`（`model_judge`／`evaluation`／`engine`／`api`／`routers/creation.py`）、`main.py`、14 份 characterization golden、對應測試與文件
 - 修訂 [ADR-0156](0156-react-core-extraction.md)（原生 `/v1/messages` 出口不記帳的凍結舊制，見決策 2）
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：`_shape_claude` 把 schema 併進 adapter 已放的 `output_config`（不覆寫 effort）；`complete_once` 在送出前多一道最壞花費估算（`cost_guard`＋`would_exceed`，超過回 `over_budget`、不送不記帳）；畫面 `token_usage` 與稽核 CSV 的整次 run 金額改為每輪分檔相加。「契約測試原封不動」是 3a／3b 的要求：`test_complete_once_contract.py` 等三個檔與 `test_side_caller_billing.py` 的假預算物件只補 `would_exceed`（回 False），斷言不改
+- 2026-10-28 由 [ADR-0291](0291-emergence-index-removed.md) 修訂：刪除湧現指數。「E-Index 歷史每次 run 只記一筆」整條刪除（run 結束不再有空用量入帳）；「稽核 CSV 欄位不變」改成新檔沒有 `e_index` 欄、舊檔沿用自己的表頭並在這欄補空值。逐輪入帳與稽核 CSV 每次 run 一列照舊
 - 剩餘風險中的 Gemini 思考 token 未計入、DeepSeek 快取命中未讀，已由 [ADR-0250](0250-touka-leftovers.md) A6、A7 修正（2026-10-14：Gemini 輸出＝`candidatesTokenCount`＋`thoughtsTokenCount`；快取讀先取 `prompt_tokens_details.cached_tokens`，沒有才用頂層 `prompt_cache_hit_tokens`）
 
 ## 背景

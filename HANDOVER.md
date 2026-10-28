@@ -5,6 +5,7 @@
 ## 1. 現況
 
 - **ToukaChat 拿掉上導覽列（2026-10-28）**：桌面版分頁與設定只在左側邊欄；左側邊欄頂端收合、收起後對話區左上角展開（首次設定紅點在展開鈕上）；右上角「工具面板」鈕開關右側邊欄，預設收起、新產出物照舊自動打開；IDE 只有設定鈕，再按一次回對話；手機版不變。細節見 `CHAT_INTERFACE.md` 版面一節。
+- **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
 
 - **兩個調度員技能檔不進版控（2026-10-28，ADR-0290）**：`system-mcp-dispatcher`、`system-skill-dispatcher` 的 SKILL.md 改成 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）產生，內容沒變不重寫；載入程式時不再寫。用 git 更新到這一版之前，先 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時 git 會拒絕更新），更新後重啟一次。
 
@@ -79,11 +80,11 @@
   - 新禁令 63：臨時查驗不得在沙盒外載入專案程式（載入時的初始化也算寫入），需要時寫成沙盒內的測試。
   - 已知限制：Guard #20 的 knip 在 `.toukadev/worktrees/` 底下的工作資料夾會假紅（gitignore 濾掉入口檔），守衛未改，見 ADR-0243。
 - **模型溝通層第 1b 段（2026-10-12，ADR-0244）**：
-  - 計費：三家用量正規化成四欄（未快取輸入、快取讀、快取寫、輸出），價格表沒填快取費率時照 input 價；ReAct 每輪記帳，成本上限在同一次 run 中途就看得到花費；E-Index 每次 run 一筆；稽核 CSV 欄位不變、金額含快取。
+  - 計費：三家用量正規化成四欄（未快取輸入、快取讀、快取寫、輸出），價格表沒填快取費率時照 input 價；ReAct 每輪記帳，成本上限在同一次 run 中途就看得到花費；稽核 CSV 金額含快取。湧現指數（E-Index）已刪除（ADR-0291）：新的稽核檔沒有 `e_index` 欄，舊檔沿用自己的表頭、這欄補空值。
   - 畫面 `token_usage` 事件改為整次 run 加總（含快取），多輪對話的數字會變大；`usage_pct` 仍看最後一輪。原生 `/v1/messages` 改為記帳但不送事件（修訂 ADR-0156 的凍結）。14 份 golden 刻意重錄，經獨立審查逐份核對。
   - 新增 `complete_once`（`services/completion.py`）：單次、不帶工具、先過成本上限、只記用量、不跨廠商、不重試、`timeout_s` 是總時間、非成功一律結構化；Claude 用 `output_config.format`。契約測試在 3a／3b 必須原封不動通過。
   - 摘要、互審 critic、創建評分改走 `complete_once`，都會記帳、受成本上限約束。critic 改依模型路由（非 Claude 也可能 APPROVE），critic 逾時 120 秒、評分 30 秒。
-  - 剩餘風險見 ADR-0244：中途結束的 run 沒有 CSV 列與 E-Index、`_SHAPERS` 留給 3a、OpenAI 推理模型的 `max_completion_tokens` 留給 3b、Gemini 思考 token 與 DeepSeek 快取命中未讀；新記帳只用 mock 驗證。
+  - 剩餘風險見 ADR-0244：中途結束的 run 沒有 CSV 列、`_SHAPERS` 留給 3a、OpenAI 推理模型的 `max_completion_tokens` 留給 3b、Gemini 思考 token 與 DeepSeek 快取命中未讀；新記帳只用 mock 驗證。
 - **模型溝通層第 2a 段：只留靈魂（2026-10-12，ADR-0245）**：
   - 聊天要登入：`/messages`、`/chat/completions`（含 `/v1`）沒有已驗證身分回 401，修掉「沒登入也能叫出靈魂人設與家對話、花伺服器金鑰」的既有漏洞（SECURITY.md 一列）；首裝前本機領卡照舊。
   - 非擁有者指定別人的靈魂：2a 本身只擋了「未登入」，已由後續修補（U2-SOUL，見下一項）修好。

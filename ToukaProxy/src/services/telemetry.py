@@ -1,50 +1,33 @@
 """Touka 遙測與效能監控服務 (Telemetry & Monitoring).
 
-本模組負責追蹤系統效能、Token 消耗、計算湧現指標 (E-Index) 並進行稽核紀錄。
+本模組負責追蹤系統效能、Token 消耗並進行稽核紀錄。
 所有的數據持久化均遵循 MEMORY_APP_DATA_DIR 導航之 SSOT 原則。
 """
 
+import csv
 import logging
-import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.config import get_app_data_dir  # noqa: TID251 - Whitelisted for legacy background tasks.
 from src.models.identity import AgentIdentity
 from src.services.providers import pricing
+from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
-from ..utils.time_utils import (
-    format_epoch_to_taipei,
-    get_current_epoch,
-    get_current_taipei_iso,
-)
+if TYPE_CHECKING:
+    from src.services.resource_manager import ResourceManager
 
 logger = logging.getLogger(__name__)
 
-
-def calculate_shannon_entropy(text: str) -> float:
-    """計算輸入文本的香農熵 (Shannon Entropy)。"""
-    if not text:
-        return 0.0
-    probabilities = [text.count(c) / len(text) for c in set(text)]
-    entropy = -sum(p * math.log2(p) for p in probabilities)
-    return entropy
-
-
-def calculate_emergence_index(
-    memory_count: int, avg_memory_score: float, gen_time: float, input_text: str
-) -> float:
-    """計算湧現指標 (E-Index)。
-    公式: E = ((Memory_Load * Score) * Pure_Gen_Time) / Input_Entropy
-    """
-    input_entropy = calculate_shannon_entropy(input_text)
-    if input_entropy == 0:
-        input_entropy = 1.0  # 避免除以零
-
-    # 防止 gen_time 過小導致指數失效
-    effective_gen_time = max(gen_time, 0.1)
-
-    e_index = ((memory_count * avg_memory_score) * effective_gen_time) / input_entropy
-    return round(e_index, 4)
+# 稽核 CSV 的現行欄位（ADR-0291 拿掉 e_index）。既有檔沿用自己的表頭：表頭還有 e_index 時，
+# 新列在那一欄補空值，後面的欄才對得上。
+_AUDIT_HEADERS = [
+    "timestamp", "request_id", "agent_id", "provider",
+    "total_ms", "local_ms", "network_ms", "pure_gen_ms",
+    "input_tokens", "output_tokens", "cost_usd", "rate_source",
+]
+_LEGACY_E_INDEX_COLUMN = "e_index"
+_HEADER_PROBE_BYTES = 4096
 
 
 def estimate_cost_usd(
@@ -118,14 +101,12 @@ def accumulate_token_usage(
     identity: AgentIdentity | str,
     provider: str,
     usage_dict: dict,
-    e_index: float | None = None,
     *,
     model: str | None = None,
-):
+) -> None:
     """累計並持久化 Token 消耗數據 (Identity SSOT).
 
-    ``e_index`` 有值時才記一筆 E-Index 歷史：react_core 每輪入帳不帶，整次 run 結束時
-    以空用量帶一次（ADR-0244）。
+    不再記 E-Index（ADR-0291）；舊檔裡已有的 ``e_index_history`` 原樣留著。
     """
     agent_id = identity.agent_id if isinstance(identity, AgentIdentity) else identity
     try:
@@ -154,7 +135,6 @@ def accumulate_token_usage(
                 "cache_read_input_tokens": 0,
                 "cache_creation_input_tokens": 0,
                 "total_cost_usd": 0.0,
-                "e_index_history": [],
             }
 
         p_stats = current_stats[provider]
@@ -194,14 +174,6 @@ def accumulate_token_usage(
             float(p_stats.get("total_cost_usd", 0.0)) + turn_cost, 6
         )
 
-        # 記錄 E-Index 歷史 (保留最近 50 筆)
-        if "e_index_history" not in p_stats:
-            p_stats["e_index_history"] = []
-        if e_index is not None:
-            history_entry = {"timestamp": get_current_taipei_iso(), "e_index": e_index}
-            p_stats["e_index_history"].append(history_entry)
-            p_stats["e_index_history"] = p_stats["e_index_history"][-50:]
-
         resource_manager.make_dir(Path(file_path).parent)
         resource_manager.write_json(file_path, current_stats, indent=2)
     except Exception as e:
@@ -217,7 +189,7 @@ def log_usage_audit(
     *,
     model: str | None = None,
     cost_usd: float | None = None,
-):
+) -> None:
     """將效能與成本數據寫入 CSV 稽核日誌 (Identity SSOT).
 
     ``cost_usd`` 有值就照寫（整次 run 由呼叫端按檔算好，r55）；None 照舊由用量算。
@@ -233,17 +205,11 @@ def log_usage_audit(
 
         csv_file = Path(stats_dir) / "usage_audit.csv"
 
-        headers = [
-            "timestamp", "request_id", "agent_id", "provider",
-            "total_ms", "local_ms", "network_ms", "pure_gen_ms",
-            "e_index", "input_tokens", "output_tokens", "cost_usd", "rate_source",
-        ]
-
         in_tokens = usage_dict.get("prompt_tokens", usage_dict.get("input_tokens", 0))
         out_tokens = usage_dict.get("completion_tokens", usage_dict.get("output_tokens", 0))
         # 殺重複硬編碼（ssot-4）：一律走 estimate_cost_usd（SSOT）。model 預設 None，
         # 故簽章變更原子化——絕不會因 model 未定義而拋例外、靜默漏記稽核列。
-        # cost_usd 含快取讀寫；欄位不變（ADR-0244 決定 A5、P20）。
+        # cost_usd 含快取讀寫（ADR-0244 決定 A5、P20）。
         cost = usage_cost_usd(usage_dict, model=model) if cost_usd is None else cost_usd
         # rate_source（security-3）：標記成本來源（override/builtin 或 fallback 粗估），
         # 讓 append-only 稽核帳本事後可分辨哪些成本可信。
@@ -254,9 +220,21 @@ def log_usage_audit(
             request_id, agent_id, provider,
             latency_info.get("total_ms", 0), latency_info.get("local_ms", 0),
             latency_info.get("network_ms", 0), latency_info.get("pure_gen_ms", 0),
-            latency_info.get("e_index", 0.0), in_tokens, out_tokens, f"{cost:.6f}", rate_source,
+            in_tokens, out_tokens, f"{cost:.6f}", rate_source,
         ]
-        
-        resource_manager.append_csv_row(csv_file, row, headers=headers)
+        existing_header = _existing_audit_header(resource_manager, csv_file)
+        if _LEGACY_E_INDEX_COLUMN in existing_header:
+            row.insert(existing_header.index(_LEGACY_E_INDEX_COLUMN), "")
+
+        resource_manager.append_csv_row(csv_file, row, headers=_AUDIT_HEADERS)
     except Exception as e:
         logger.error(f"Failed to write usage audit: {e}")
+
+
+def _existing_audit_header(resource_manager: "ResourceManager", csv_file: Path) -> list[str]:
+    """既有稽核檔的表頭，只讀開頭幾 KB；檔案不存在或沒有表頭時回空清單。"""
+    if not resource_manager.exists(csv_file):
+        return []
+    head = resource_manager.read_file_prefix(csv_file, _HEADER_PROBE_BYTES)
+    lines = head.decode("utf-8-sig", errors="replace").splitlines()
+    return next(csv.reader(lines[:1]), [])

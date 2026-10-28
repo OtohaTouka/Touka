@@ -17,7 +17,6 @@
 - `POST /v1/auth/refresh` - Token 刷新
 - `POST /v1/auth/change-password` - 自助修改密碼（驗當前密碼→清臨時旗標→撤銷 refresh token，DA25）⭐
 - `GET /stats` - 統計數據
-- `GET /emergence` - 湧現指標
 - `GET /v1/outputs/{agent_id}/{filename}` - 主權資產服務 ⭐
 
 ### 靈魂管理

@@ -201,19 +201,6 @@ def test_get_stats_returns_200(auth_client):
     assert resp.status_code == 200
 
 
-def test_get_stats_emergence_not_500(auth_client):
-    """GET /v1/stats/emergence 不應回傳 500（smoke test）"""
-    resp = auth_client.get("/v1/stats/emergence")
-    assert resp.status_code != 500
-
-
-def test_get_stats_emergence_has_e_index(auth_client):
-    """GET /v1/stats/emergence 應包含 e_index 欄位"""
-    resp = auth_client.get("/v1/stats/emergence")
-    assert resp.status_code == 200
-    assert "e_index" in resp.json()
-
-
 # --- system/sliding_window ---
 
 def test_get_system_sliding_window_not_500(auth_client):
