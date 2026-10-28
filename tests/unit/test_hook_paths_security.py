@@ -149,6 +149,25 @@ def test_relative_argument_is_read_from_the_hooks_folder(layout):
     assert command_path_problems(plain, _zones(layout)) == []
 
 
+def test_each_entry_of_a_path_list_argument_is_checked(layout, monkeypatch):
+    """POSIX 的路徑清單用 ``:`` 串（``-cp a.jar:/data/x.jar``）：每一段都要在 ``hooks/``。"""
+    monkeypatch.setattr(paths_module, "_PATH_LIST_SEPARATOR", ":")
+    evil = str(layout["data"] / "evil.py")
+    for arg in (f"guard.py:{evil}", f"--cp=guard.py:{evil}"):
+        hook = _hook(layout["outside"] / "tool.exe", arg)
+        assert "outside_hooks_dir" in _reasons(command_path_problems(hook, _zones(layout))), arg
+    plain = _hook(layout["outside"] / "tool.exe", "guard.py:other.py")
+    assert command_path_problems(plain, _zones(layout)) == []
+
+
+def test_file_urls_in_arguments_are_rejected(layout):
+    """``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）。"""
+    evil = (layout["data"] / "evil.py").as_posix()
+    for arg in (f"file:///{evil}", f"--script=FILE://localhost/{evil}", "File:guard.py"):
+        hook = _hook(layout["outside"] / "tool.exe", arg)
+        assert "file_url" in _reasons(command_path_problems(hook, _zones(layout))), arg
+
+
 def test_unc_and_drive_relative_paths_are_rejected(layout):
     if sys.platform != "win32":
         assert command_path_problems(_hook("//server/share/tool"), _zones(layout))

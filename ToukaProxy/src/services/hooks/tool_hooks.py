@@ -51,6 +51,7 @@ class ToolCall:
     call_id: str
     mcp_server: str | None = None
     mcp_tool: str | None = None
+    aliases: tuple[str, ...] = ()
 
 
 def _payload(ctx: Mapping[str, Any], call: ToolCall) -> dict[str, Any]:
@@ -62,6 +63,8 @@ def _payload(ctx: Mapping[str, Any], call: ToolCall) -> dict[str, Any]:
     }
     if call.mcp_server and call.mcp_tool:
         payload["mcp_tool_name"] = f"mcp__{call.mcp_server}__{call.mcp_tool}"
+    if call.aliases:
+        payload["tool_aliases"] = list(call.aliases)
     return payload
 
 
@@ -108,7 +111,7 @@ async def _dispatch(
         return await hook_service.dispatch(
             event,
             {**_payload(ctx, call), **extra},
-            match=tool_match_names(call.name, call.mcp_server, call.mcp_tool),
+            match=tool_match_names(call.name, call.mcp_server, call.mcp_tool, call.aliases),
             incognito=bool(ctx.get("incognito")),
         )
     except Exception:

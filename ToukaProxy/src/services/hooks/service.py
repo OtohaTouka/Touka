@@ -387,14 +387,25 @@ class HookService:
     async def save(self, config: HooksConfig, expected_revision: str | None) -> str:
         """存檔並回傳新的 revision；``expected_revision`` 要等於目前檔案的 revision。"""
         async with self._save_lock:
-            raw = self._read_raw()
+            try:
+                raw = self._read_raw()
+            except OSError:
+                # 讀不到目前的檔案（沒有權限、被鎖住）：比對不了 revision，不寫
+                logger.exception("Reading the hook config before saving failed")
+                raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED) from None
             current = _revision(raw) if raw is not None else None
             if current != expected_revision:
                 raise ToukaException(ErrorCode.HOOK_CONFIG_CONFLICT, revision=current)
             await self._check_paths(config)
-            resource_manager.write_json(
-                self._config_path(), config.model_dump(mode="json", exclude_none=True), indent=2
-            )
+            try:
+                resource_manager.write_json(
+                    self._config_path(), config.model_dump(mode="json", exclude_none=True),
+                    indent=2,
+                )
+            except OSError:
+                # 寫不進去（磁碟滿、沒有權限）：回明確的存檔錯誤，執行中的仍是上一版
+                logger.exception("Saving the hook config failed")
+                raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED) from None
             self._refresh()
             written = self._health.revision
             if written is None:

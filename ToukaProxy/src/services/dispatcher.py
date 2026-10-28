@@ -29,6 +29,7 @@ from src.models.session_persistence import (
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.dispatchers import dispatch_group_stream, get_stream_generator
+from src.services.hooks import events as hook_events
 from src.services.identity_service import identity_service
 from src.services.interjection_queue import InterjectionQueue, interjection_queue
 from src.services.sliding_window_service import sliding_window_service
@@ -475,7 +476,8 @@ async def dispatch_request(
             execution = None
         try:
             entry = await stream_buffer_service.create(
-                session_id, identity=requester, admission=admission
+                session_id, identity=requester, admission=admission,
+                hook_fields=hook_events.base_payload(context),
             )
         except StreamOwnershipError:
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED) from None

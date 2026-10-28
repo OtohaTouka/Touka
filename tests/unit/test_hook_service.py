@@ -452,6 +452,41 @@ async def test_save_writes_the_file_and_checks_the_revision(config_dir):
     assert service.health().revision == second
 
 
+async def test_a_failed_write_is_a_save_error_and_keeps_the_old_config(config_dir, monkeypatch):
+    service = _service(config_dir)
+    first = await service.save(_config(_enabled("Stop", {"hooks": [_command()]})), None)
+
+    def disk_full(*_args: object, **_kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(service_module.resource_manager, "write_json", disk_full)
+    with pytest.raises(ToukaException) as failed:
+        await service.save(_config({"enabled": False}), first)
+    assert failed.value.code == ErrorCode.CONFIG_SAVE_FAILED
+    assert service.has_hooks("Stop") is True
+    assert service.health().revision == first
+
+
+async def test_a_config_that_cannot_be_read_before_saving_is_a_save_error(config_dir, monkeypatch):
+    service = _service(config_dir)
+    first = await service.save(_config(_enabled("Stop", {"hooks": [_command()]})), None)
+    before = (config_dir / "hooks.json").read_bytes()
+    written: list[object] = []
+
+    def locked(*_args: object, **_kwargs: object) -> bytes:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(service_module.resource_manager, "read_file_binary", locked)
+    monkeypatch.setattr(service_module.resource_manager, "write_json",
+                        lambda *args, **kwargs: written.append(args))
+    with pytest.raises(ToukaException) as failed:
+        await service.save(_config({"enabled": False}), first)
+    assert failed.value.code == ErrorCode.CONFIG_SAVE_FAILED
+    assert written == []
+    assert (config_dir / "hooks.json").read_bytes() == before
+    assert service.has_hooks("Stop") is True
+
+
 async def test_save_rejects_programs_in_agent_writable_places(config_dir):
     service = _service(config_dir)
     bad = _enabled("PreToolUse", {"hooks": [

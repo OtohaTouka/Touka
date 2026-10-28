@@ -449,7 +449,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收。",
+      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收。無痕對話照樣執行 hook，訊息與工具內容也會送給 hook（事件內容標示 incognito，由 hook 自己決定要不要留）。",
       "enable_label": "啟用 Hooks",
       "enable_hint": "關閉時所有 hook 都不執行。",
       "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
@@ -491,7 +491,9 @@
         "refresh": "重新整理",
         "empty": "還沒有執行紀錄。",
         "incognito": "（無痕）",
-        "duration": "{{ms}} 毫秒"
+        "duration": "{{ms}} 毫秒",
+        "exit_code": "結束碼 {{code}}",
+        "http_status": "HTTP {{status}}"
       },
       "outcomes": {
         "blocked": "擋下",
@@ -505,6 +507,7 @@
         "missing": "檔案不存在",
         "not_file": "不是檔案",
         "parent_segment": "含有「..」",
+        "file_url": "不接受 file: 網址",
         "unc_path": "不接受網路路徑或磁碟機相對路徑",
         "agent_writable": "在代理人寫得到的地方",
         "outside_hooks_dir": "不在設定資料夾的 hooks/ 裡",
@@ -1379,7 +1382,6 @@
       "copy_code": "複製代碼",
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
-      "hook_blocked": "這則訊息被 hook 擋下，之後不會送給模型。",
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",
@@ -2378,7 +2380,7 @@
       "collection_collision_with": "這個 ID 會和「{{id}}」共用語意索引，請換一個 ID"
     },
     "hooks": {
-      "prompt_blocked": "管理員設定的 hook 擋下了這則訊息，沒有送給模型。",
+      "prompt_blocked": "管理員設定的 hook 擋下了這則訊息：沒有送給模型，也已從對話拿掉。",
       "config_conflict": "hook 設定已被別人改過，請重新載入後再存。",
       "path_rejected": "hook 指令或參數指到代理人可以寫入的位置，或無法確認安全，不能存檔。"
     }

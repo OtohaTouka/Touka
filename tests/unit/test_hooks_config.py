@@ -72,6 +72,19 @@ def test_command_and_http_hooks_validate():
                         "headers": {"Authorization": "Bearer $TOKEN"}}),
         ("PreToolUse", {"type": "http", "url": "https://example.test",
                         "headers": {"X-Key": "${API_KEY}"}}),
+        # 標頭名稱要是 HTTP 的 token；Touka 自己送的標頭不能改（不分大小寫）
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"X-Key: injected": "v"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"X Key": "v"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"content-type": "text/plain"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"Content-Length": "1"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"HOST": "evil.test"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"Transfer-Encoding": "chunked"}}),
     ],
 )
 def test_rejects_unsupported_or_unsafe_entries(event, handler):

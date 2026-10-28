@@ -31,6 +31,9 @@ ADMIN = AgentIdentity.for_role(agent_id="zz-hook-admin", role="admin", is_human=
 ASSUMED_ADMIN = AgentIdentity.for_role(agent_id="zz-hook-assumed", role="admin")  # X-Agent-ID 代打
 USER = AgentIdentity.for_role(agent_id="zz-hook-user", role="normal", is_human=True)
 SOUL = AgentIdentity.for_role(agent_id="zz-hook-soul", role="Owner")
+DEBUGGER = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger")
+DISPATCHER = AgentIdentity.for_role(agent_id="DispatchAgent", role="Base")
+SUBAGENT = AgentIdentity.for_role(agent_id="zz-hook-sub", role="Subagent")
 TRUSTED_ORIGIN = "http://localhost:3001"
 ENDPOINTS = (("get", "/v1/hooks"), ("put", "/v1/hooks"), ("get", "/v1/hooks/runs"))
 
@@ -104,19 +107,25 @@ def test_r01_admin_reads_the_empty_config_and_the_wired_events(
     assert body["matcher_events"] == ["PreToolUse", "PostToolUse"]
 
 
-@pytest.mark.parametrize("identity", [ASSUMED_ADMIN, USER, SOUL, None],
-                         ids=["assumed-admin", "user", "soul", "anonymous"])
+@pytest.mark.parametrize(
+    "identity", [ASSUMED_ADMIN, USER, SOUL, DEBUGGER, DISPATCHER, SUBAGENT, None, "bad-token"],
+    ids=["assumed-admin", "user", "soul", "debugger", "dispatcher", "subagent", "anonymous",
+         "bad-token"],
+)
 @pytest.mark.parametrize(("method", "path"), ENDPOINTS)
 def test_r02_everyone_but_a_human_admin_is_refused(
     service: HookService, config_dir: Path, as_identity: list[AgentIdentity | None],
-    identity: AgentIdentity | None, method: str, path: str,
+    identity: AgentIdentity | str | None, method: str, path: str,
 ) -> None:
-    as_identity[0] = identity
-    if identity is None:  # 沒帶憑證：走真的身分驗證
+    headers = {"Origin": TRUSTED_ORIGIN}
+    if isinstance(identity, AgentIdentity):
+        as_identity[0] = identity
+    else:  # 沒帶憑證或權杖壞掉：走真的身分驗證
         app.dependency_overrides.pop(get_verified_identity, None)
+        if identity == "bad-token":
+            headers["Authorization"] = "Bearer not-a-real-token"
     response = _client().request(
-        method, path, json={"config": _config(_http_hook()), "revision": None},
-        headers={"Origin": TRUSTED_ORIGIN},
+        method, path, json={"config": _config(_http_hook()), "revision": None}, headers=headers,
     )
     assert response.status_code in (401, 403), response.text
     assert not (config_dir / HOOKS_FILE_NAME).exists()

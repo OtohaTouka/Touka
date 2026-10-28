@@ -78,6 +78,23 @@ describe('useHooksSettings（ADR-0292）', () => {
         expect(reads.length).toBe(2);
     });
 
+    it('存好了但重新讀取失敗 → 留著剛存的內容和新的 revision，不當成讀取失敗', async () => {
+        let saved = false;
+        mockFetch.mockImplementation((_u: string, path: string, init?: RequestInit) => {
+            if (init?.method === 'PUT') { saved = true; return reply({ revision: 'r2' }); }
+            if (path === '/v1/hooks/runs') return reply({ runs: [] });
+            return saved ? Promise.reject(new Error('network')) : reply(LOADED);
+        });
+        const { result } = await loaded();
+        const config = { enabled: false, hooks: {} };
+        let outcome: unknown;
+        await act(async () => { outcome = await result.current.saveConfig(config); });
+        expect(outcome).toEqual({ kind: 'saved' });
+        expect(result.current.loadFailed).toBe(false);
+        expect(result.current.data?.config).toEqual(config);
+        expect(result.current.data?.health.revision).toBe('r2');
+    });
+
     it('沒有設定檔時 revision 明確送 null', async () => {
         const missing = { ...LOADED, health: { status: 'missing', revision: null, detail: null } };
         mockFetch.mockImplementation((_u: string, path: string, init?: RequestInit) =>

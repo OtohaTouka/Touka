@@ -236,9 +236,6 @@ export const MessageItem = React.memo(({
               {msg.role === 'assistant' && (msg.interjections?.length || msg.interruptions?.length) ? (
                 <InterjectionMarker interjections={msg.interjections ?? []} interruptions={msg.interruptions} />
               ) : null}
-              {msg.role === 'user' && msg.hookBlocked ? (
-                <p className="text-xs text-muted-foreground">{t('chat.message_item.hook_blocked')}</p>
-              ) : null}
             </div>
           )}
         </div>

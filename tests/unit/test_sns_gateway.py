@@ -6,6 +6,7 @@ Tests:
 3. Session ID for 'independent' mode (per-soul channel)
 4. Session ID for 'home' mode (gets home session from session_service)
 5. SSE response aggregation (multi-chunk → correct full text)
+6. UserPromptSubmit hook 擋下的外人訊息不寫進對話（ADR-0292）
 """
 
 import json
@@ -14,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.models.sns import SNSIncomingEvent
 from src.protocols.sns_base import BaseSNSAdapter
@@ -392,3 +394,92 @@ async def test_sns_message_is_stored_and_sent_with_the_external_prefix(mode: str
     sent = mock_proxy.call_args[0][0].messages
     assert [m.content for m in sent] == [expected]
     assert chat_intent([{"role": "user", "content": expected}]).messages == ()
+
+
+# ── ADR-0292：UserPromptSubmit hook 擋下的訊息不寫進對話 ─────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["home", "independent"])
+async def test_hook_blocked_sns_message_is_not_stored(mode: str) -> None:
+    """hook 擋下：不寫進對話、不回覆，錯誤照樣往外丟。"""
+    blocked = ToukaException(ErrorCode.HOOK_PROMPT_BLOCKED, reason="no secrets")
+    proxy = AsyncMock(side_effect=blocked)
+    gateway = SNSGatewayService()
+    adapter = MockAdapter(agent_id="Alice")
+    mock_identity_svc, mock_session_svc = _make_mocks()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request", proxy),
+        pytest.raises(ToukaException) as raised,
+    ):
+        await gateway.on_event(adapter, make_event(content="secret"), session_mode=mode)
+    assert raised.value.code == ErrorCode.HOOK_PROMPT_BLOCKED
+    mock_session_svc.append_message_to_session.assert_not_awaited()
+    assert adapter.sent_messages == []
+
+
+@pytest.mark.asyncio
+async def test_other_pipeline_errors_still_store_the_sns_message() -> None:
+    """其他錯誤照舊：外人訊息留在對話裡，錯誤往外丟。"""
+    proxy = AsyncMock(side_effect=ToukaException(ErrorCode.SYSTEM_ERROR))
+    gateway = SNSGatewayService()
+    mock_identity_svc, mock_session_svc = _make_mocks()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request", proxy),
+        pytest.raises(ToukaException) as raised,
+    ):
+        await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"))
+    assert raised.value.code == ErrorCode.SYSTEM_ERROR
+    stored = [call.args[1:3] for call in mock_session_svc.append_message_to_session.await_args_list]
+    assert stored == [("user", "【SNS 外部訊息】" + chr(10) + "hi")]
+
+
+@pytest.mark.asyncio
+async def test_sns_message_is_stored_before_the_reply_is_read() -> None:
+    """通過時先存外人訊息、再讀模型回覆；存不進去就不讀回覆（模型不會被呼叫）。"""
+    order: list[str] = []
+
+    async def _body():
+        order.append("reply read")
+        yield b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\n'
+
+    response = MagicMock()
+    response.body_iterator = _body()
+    gateway = SNSGatewayService()
+    mock_identity_svc, mock_session_svc = _make_mocks()
+
+    async def _append(_sid: str, role: str, *_args: Any, **_kwargs: Any) -> bool:
+        order.append(f"save {role}")
+        return True
+
+    mock_session_svc.append_message_to_session = AsyncMock(side_effect=_append)
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request",
+              new_callable=AsyncMock, return_value=response),
+    ):
+        await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"))
+    assert order == ["save user", "reply read", "save assistant"]
+
+    order.clear()
+    mock_session_svc.append_message_to_session = AsyncMock(return_value=False)
+    response.body_iterator = _body()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request",
+              new_callable=AsyncMock, return_value=response),
+        pytest.raises(ToukaException) as raised,
+    ):
+        await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"))
+    assert raised.value.code == ErrorCode.SESSION_SAVE_FAILED
+    assert order == []

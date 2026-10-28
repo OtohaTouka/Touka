@@ -2873,6 +2873,15 @@
       }
     },
     "ToukaProxy/src/tools/project_tools.py": {
+      "_root_refused": {
+        "parameters": [
+          "project_id",
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "project_tools": {
         "parameters": [
           "action",

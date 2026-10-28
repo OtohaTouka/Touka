@@ -4,11 +4,12 @@
 
 - 設定唯一來源：`config/hooks.json`（`models/hooks.py` 的 `HooksConfig`；種子 `hooks.json.example`，預設關閉）。只經 `PUT /v1/hooks`（人類 admin）改；代理人讀寫屬底線 F2（標頭可能有權杖）。不在設定匯出／匯入裡。
 - hook 腳本：設定資料夾的 `hooks/`（`services/hooks/paths.py` 的 `HOOKS_DIR_NAME`），也是 command hook 的工作目錄；參數裡的路徑必須在這裡，程式在別處時不能指到代理人寫得到的地方（資料根、sandbox state、執行器、工作區根、專案根、MCP 可寫資料夾與它們的對映路徑）。不進版控也不進映像。
-- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行）。
+- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行管理員的靈魂：`authorization_gateway.owned_by_admin`）。
 - 執行與合併結果的唯一入口：`services/hooks/service.py` 的 `hook_service`；解讀規則 `outcome.py`，比對規則 `matcher.py`，執行 `runners.py`（command 經 `execution_broker.spawn_exec`、不經 shell）。
-- 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
+- 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
 - 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
 - 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。
+- 被擋下的一輪在前端怎麼處理：`ToukaChat/src/lib/stream_tree.ts` 的 `dropBlockedTurn`（`StreamRegistryProvider` 存回、`ChatProvider` 放回輸入框）。
 
 ## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）
 

@@ -100,7 +100,13 @@ export function useHooksSettings() {
                 body: JSON.stringify({ config, revision: data.health.revision ?? null }),
             });
             if (!res.ok) return await readSaveError(res);
-            await fetchConfig();
+            const saved = await res.json().catch(() => null);
+            const fresh = await requestConfig();
+            if (fresh) applyConfig(fresh);
+            else if (typeof saved?.revision === 'string') {
+                // 存好了但重新讀取失敗：留著剛存的內容和新的 revision，下一次存檔才不會誤判成衝突
+                setData(prev => prev && { ...prev, config, health: { ...prev.health, revision: saved.revision } });
+            }
             return { kind: 'saved' };
         } catch (err) {
             logSSOTError(err, 'useHooksSettings:save');
@@ -108,7 +114,7 @@ export function useHooksSettings() {
         } finally {
             setSaving(false);
         }
-    }, [data, fetchConfig]);
+    }, [data, applyConfig]);
 
     useEffect(() => {
         let alive = true;

@@ -3,9 +3,9 @@
 hook 以 Touka 自己的權限、不經隔離執行。代理人改得到的程式或腳本若能被 hook 執行，就等於
 不經審批跑程式，所以存檔與每次執行前都查指令與參數裡的路徑：
 
-- 參數：拆成字詞逐一檢查（``--script=x``、``-c "… /path …"`` 也算），每個看起來像路徑的字詞都
-  必須在設定資料夾的 ``hooks/`` 裡（相對路徑以 ``hooks/`` 為準，那是 hook 的工作目錄）。這個判斷
-  只看 ``hooks/`` 本身，不看專案清單一類會變動的資料。
+- 參數：拆成字詞逐一檢查（``--script=x``、``-c "… /path …"``、POSIX 用 ``:`` 串的路徑清單也算），
+  每個看起來像路徑的字詞都必須在設定資料夾的 ``hooks/`` 裡（相對路徑以 ``hooks/`` 為準，那是 hook
+  的工作目錄）；``file:`` 網址一律拒收。這個判斷只看 ``hooks/`` 本身，不看專案清單一類會變動的資料。
 - 指令：在 ``hooks/`` 裡時照參數的規則；在別處（例如系統的直譯器）時不能落在代理人可能寫得到
   的地方：資料根、隔離暫存區、執行器資料夾、工作區根（使用者能在底下自己登記專案）、每個專案根、
   MCP 伺服器的可寫資料夾，容器裡另加鏡像掛載根（同一批檔案的另一個路徑）；設定資料夾裡
@@ -48,6 +48,7 @@ PathReason = Literal[
     "missing",
     "not_file",
     "parent_segment",
+    "file_url",
     "unc_path",
     "agent_writable",
     "outside_hooks_dir",
@@ -59,6 +60,11 @@ PathReason = Literal[
 
 # 參數拆字詞：空白、引號與 shell／程式碼常見的分隔符號（``=`` 讓 ``--opt=/abs`` 也拆得開）。
 _TOKEN_SPLIT = re.compile(r"[\s\"'`;&|()<>,=\[\]{}]+")
+# 路徑清單的分隔符號：POSIX 是 ``:``（``-cp a.jar:/data/x.jar``）；Windows 是 ``;``，上面已經拆了，
+# 而 Windows 的 ``:`` 是磁碟代號，不能拆。
+_PATH_LIST_SEPARATOR: Final[str] = os.pathsep
+# ``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）。
+_FILE_URL = re.compile(r"file:", re.IGNORECASE)
 _SEPARATORS = re.compile(r"[\\/]")
 _VERBATIM_PREFIX = "\\\\?\\"
 _VERBATIM_UNC_PREFIX = "\\\\?\\UNC\\"
@@ -280,7 +286,9 @@ def _command_problems(checker: _ZoneChecker, command: str) -> list[PathProblem]:
 
 
 def _argument_tokens(arg: str) -> list[str]:
-    return [token for token in _TOKEN_SPLIT.split(arg) if token]
+    words = [word for word in _TOKEN_SPLIT.split(arg) if word]
+    parts = [part for word in words for part in word.split(_PATH_LIST_SEPARATOR) if part]
+    return words + [part for part in parts if part not in words]
 
 
 def _argument_problems(
@@ -289,7 +297,10 @@ def _argument_problems(
     def problem(reason: PathReason) -> list[PathProblem]:
         return [PathProblem(reason=reason, where=where, value=arg)]
 
-    for token in (arg, *_argument_tokens(arg)):
+    tokens = (arg, *_argument_tokens(arg))
+    if any(_FILE_URL.match(token) for token in tokens):
+        return problem("file_url")
+    for token in tokens:
         if _has_parent_segment(token):
             return problem("parent_segment")
         if _is_unc(token):

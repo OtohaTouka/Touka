@@ -34,7 +34,16 @@ export function HookRunsList({ runs, onRefresh }: HookRunsListProps) {
                             <span className="font-medium">
                                 {run.incognito ? t("settings.hooks_tab.runs.incognito") : run.hook}
                             </span>
+                            {!run.incognito && (run.hook_type === "command" || run.hook_type === "http") && (
+                                <span className="text-muted-foreground">{t(`settings.hooks_tab.types.${run.hook_type}`)}</span>
+                            )}
                             <span>{t(`settings.hooks_tab.outcomes.${run.outcome}`)}</span>
+                            {run.exit_code != null && (
+                                <span className="font-mono">{t("settings.hooks_tab.runs.exit_code", { code: run.exit_code })}</span>
+                            )}
+                            {run.http_status != null && (
+                                <span className="font-mono">{t("settings.hooks_tab.runs.http_status", { status: run.http_status })}</span>
+                            )}
                             <span className="text-muted-foreground">
                                 {t("settings.hooks_tab.runs.duration", { ms: run.duration_ms })}
                             </span>

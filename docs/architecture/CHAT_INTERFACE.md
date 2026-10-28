@@ -10,7 +10,9 @@
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
-- 被擋下的那則 user 訊息：`StreamRegistryProvider` 存回的樹用 `stream_tree.markHookBlocked` 在該節點標 `hookBlocked: true`（`MessageNode` 的選填欄位，後端照 `extra: allow` 保留）；`MessageItem` 在訊息下方顯示 `chat.message_item.hook_blocked`；`buildApiHistory` 組歷史時略過有標記的節點與它底下的分支（這一輪正要送的訊息除外）。只有 hook 擋下才標，取消與其他錯誤不標。
+- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。
+- 插話被擋：`useInterjectionQueue.enqueue` 收到 403 `HOOK_PROMPT_BLOCKED` 時以 `useHookBlockNotice` 顯示理由並回 `null`（不進佇列）；`useInterjectionComposer` 在還是同一個對話時把文字接回輸入框。
+- Hook 設定頁的「最近執行」另顯示 hook 類型、結束碼與 HTTP 狀態（無痕的紀錄不顯示）；存好後重新讀取失敗時保留剛存的內容與新的 revision。
 
 ## 重置卡查最後一次重置的結果（ADR-0289）
 

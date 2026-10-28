@@ -32,7 +32,7 @@ from src.protocols.mcp.mrtr import McpMrtrAuthorizationError
 from src.services import approval_flow, mcp_vault_jail, tool_errors
 from src.services.auto_reviewer import CODE_HEADLESS_TERMINAL, ReviewRequest, auto_reviewer
 from src.services.autonomy import autonomy_service
-from src.services.hooks.events import attach_to_tool_result
+from src.services.hooks.events import attach_to_tool_result, legacy_aliases
 from src.services.hooks.tool_hooks import (
     ToolCall,
     hook_ask_unavailable_error,
@@ -580,9 +580,14 @@ class ToolExecutor:
             return result_text
 
         # ADR-0292：PreToolUse hook——政策沒拒絕之後、審查員與審批卡之前。只能擋下或要求人
-        # 核准（跳下面同一張人類卡，無人在場拒絕）；不能放行、不能改參數。
+        # 核准（跳下面同一張人類卡，無人在場拒絕）；不能放行、不能改參數。舊工具名稱也比對
+        # 它對應的新名稱（規則寫 execute_command，模型叫 bash 也要比得到）。
+        # 參數先複製一份：之後 MCP 分支會在 args 補上 agent_id、把根目錄換成實際路徑，
+        # hook 只看模型送來的參數（ADR-0292）
         hook_call = ToolCall(
-            name=name, args=args, call_id=call_id, mcp_server=mcp_server, mcp_tool=mcp_tool_name
+            name=name, args=dict(args), call_id=call_id, mcp_server=mcp_server,
+            mcp_tool=mcp_tool_name,
+            aliases=() if mcp_server else legacy_aliases(name, args, LEGACY_ADVERTISED_SUCCESSORS),
         )
         pre_hooks = await run_pre_tool_hooks(ctx, hook_call)
         if pre_hooks.denied_text is not None:

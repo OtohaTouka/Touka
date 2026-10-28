@@ -44,25 +44,45 @@ def attach_to_tool_result(result_text: str, outputs: Sequence[tuple[str, str]]) 
     if tool_errors.is_structured_payload(result_text):
         try:
             data = json.loads(result_text)
-        except json.JSONDecodeError:
-            data = None
-        if isinstance(data, dict):
-            data["hook_output"] = [
-                {
-                    "event": event,
-                    "trust": "untrusted",
-                    "note": HOOK_DATA_NOTE.format(event=event),
-                    "text": neutralize_hook_text(text),
-                }
-                for event, text in outputs
-            ]
-            return json.dumps(data, ensure_ascii=False)
+            if isinstance(data, dict):
+                data["hook_output"] = [
+                    {
+                        "event": event,
+                        "trust": "untrusted",
+                        "note": HOOK_DATA_NOTE.format(event=event),
+                        "text": neutralize_hook_text(text),
+                    }
+                    for event, text in outputs
+                ]
+                return json.dumps(data, ensure_ascii=False)
+        except (ValueError, RecursionError):
+            # 讀不進來（格式壞、巢狀太深）就照文字結果處理
+            pass
     return result_text + "".join("\n\n" + wrap_hook_output(event, text) for event, text in outputs)
 
 
-def tool_match_names(name: str, mcp_server: str | None, mcp_tool: str | None) -> list[str]:
-    """比對用的工具名稱：Touka 名稱，MCP 工具另加 Claude Code 寫法 ``mcp__server__tool``。"""
-    names = [name]
+def legacy_aliases(
+    name: str, args: Mapping[str, Any], successors: Mapping[str, frozenset[str]]
+) -> tuple[str, ...]:
+    """舊工具名稱對應的新名稱：規則寫新名稱時，模型叫舊名稱也要比得到。
+
+    舊檔案工具的 ``action`` 剛好是某個新名稱時只對應那一個；其他動作（例如 ``append``）
+    對應全部新名稱，寧可多比到也不漏。
+    """
+    names = successors.get(name)
+    if not names:
+        return ()
+    action = args.get("action")
+    if isinstance(action, str) and action in names:
+        return (action,)
+    return tuple(sorted(names))
+
+
+def tool_match_names(
+    name: str, mcp_server: str | None, mcp_tool: str | None, aliases: Sequence[str] = ()
+) -> list[str]:
+    """比對用的工具名稱：Touka 名稱與舊名稱對應的新名稱，MCP 工具另加 ``mcp__server__tool``。"""
+    names = [name, *aliases]
     if mcp_server and mcp_tool:
         names.append(f"mcp__{mcp_server}__{mcp_tool}")
     return names

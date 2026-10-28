@@ -46,6 +46,11 @@ export function useInterjectionComposer(params: ComposerParams) {
     if (!text || disabled) return;
     setInputValue('');
     void queue.enqueue(text, urgent).then(item => {
+      // hook 擋下（ADR-0292，沒有加入佇列）：放回還在這個對話的輸入框。
+      if (!item) {
+        if (latest.current.sessionId === sessionId) latest.current.setInputValue(appendText(latest.current.inputValue, text));
+        return;
+      }
       // 回應到時這個對話已不在生成中（404，或 201 晚於回合結束）：放回輸入框，不留在佇列等下一輪。
       // 已切到別的對話：留在原對話的佇列，不放進別的對話的輸入框。
       if (latest.current.sessionId !== sessionId || latest.current.sending) return;

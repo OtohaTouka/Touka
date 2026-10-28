@@ -1,16 +1,14 @@
 /**
- * ADR-0292：UserPromptSubmit hook 擋下的訊息標記在 user 節點上，之後組歷史時它和後面的回覆
- * 都不送給模型（Claude Code 也會把擋下的訊息從上下文拿掉）。
+ * ADR-0292：UserPromptSubmit hook 擋下的訊息和它的空回覆從對話樹拿掉，存回去的對話裡就沒有它，
+ * 之後心跳、重新觸發、滑動視窗摘要與歸檔都讀不到（Claude Code 也會把擋下的訊息從上下文拿掉）。
  */
 import { describe, it, expect } from "vitest";
-import { appendAssistantNode, buildUserTurnTree, markHookBlocked } from "../stream_tree";
-import { buildApiHistory } from "../chat/buildApiMessage";
+import { appendAssistantNode, buildUserTurnTree, dropBlockedTurn } from "../stream_tree";
 import { getLinearMessages, type TreeHistory } from "../tree_history";
 
 const empty: TreeHistory = { messages: {}, currentId: null };
 
-function turn(tree: TreeHistory, text: string, reply?: string) {
-  const parentId = tree.currentId;
+function turn(tree: TreeHistory, text: string, reply?: string, parentId = tree.currentId) {
   const { tree: withUser, userMsgId } = buildUserTurnTree(tree, { userText: text, attachment: null, parentId, timestamp: 1 });
   const { tree: withReply, assistantMsgId } = appendAssistantNode(withUser);
   const filled = reply === undefined ? withReply : {
@@ -20,41 +18,40 @@ function turn(tree: TreeHistory, text: string, reply?: string) {
   return { tree: filled, userMsgId, assistantMsgId };
 }
 
-describe("markHookBlocked", () => {
-  it("marks the user message the reply belongs to", () => {
-    const { tree, userMsgId, assistantMsgId } = turn(empty, "secret");
-    const marked = markHookBlocked(tree, assistantMsgId);
-    expect(marked.messages[userMsgId].hookBlocked).toBe(true);
-    expect(marked.messages[assistantMsgId].hookBlocked).toBeUndefined();
-    expect(tree.messages[userMsgId].hookBlocked).toBeUndefined();
-  });
-
-  it("returns the same tree when the reply or its user message is missing", () => {
-    const { tree } = turn(empty, "x");
-    expect(markHookBlocked(tree, "nope")).toBe(tree);
-    const orphan = appendAssistantNode(empty).tree;
-    expect(markHookBlocked(orphan, orphan.currentId!)).toBe(orphan);
-  });
-});
-
-describe("buildApiHistory leaves blocked messages out", () => {
-  it("drops the blocked message and the empty reply after it", () => {
+describe("dropBlockedTurn", () => {
+  it("removes the blocked message and its empty reply", () => {
     const first = turn(empty, "hello", "hi");
     const blocked = turn(first.tree, "secret");
-    const marked = markHookBlocked(blocked.tree, blocked.assistantMsgId);
-    const next = turn(marked, "next");
-    const linear = getLinearMessages(next.tree).slice(0, -1);
-    expect(buildApiHistory(linear, next.userMsgId, "next")).toEqual([
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "hi" },
-      { role: "user", content: "next" },
-    ]);
+    const dropped = dropBlockedTurn(blocked.tree, blocked.assistantMsgId);
+    expect(dropped.messages[blocked.userMsgId]).toBeUndefined();
+    expect(dropped.messages[blocked.assistantMsgId]).toBeUndefined();
+    expect(dropped.messages[first.assistantMsgId].childrenIds).toEqual([]);
+    expect(dropped.currentId).toBe(first.assistantMsgId);
+    expect(getLinearMessages(dropped).map(m => m.content)).toEqual(["hello", "hi"]);
+    expect(blocked.tree.messages[blocked.userMsgId]).toBeDefined();
   });
 
-  it("still sends the message being sent now", () => {
-    const { tree, userMsgId, assistantMsgId } = turn(empty, "again");
-    const marked = markHookBlocked(tree, assistantMsgId);
-    const linear = getLinearMessages(marked).slice(0, -1);
-    expect(buildApiHistory(linear, userMsgId, "again")).toEqual([{ role: "user", content: "again" }]);
+  it("empties a conversation whose first message was blocked", () => {
+    const { tree, assistantMsgId } = turn(empty, "secret");
+    expect(dropBlockedTurn(tree, assistantMsgId)).toEqual({ messages: {}, currentId: null });
+  });
+
+  it("keeps the other branches under the same message", () => {
+    const first = turn(empty, "hello", "hi");
+    const kept = turn(first.tree, "a", "b");
+    const blocked = turn(kept.tree, "secret", undefined, first.assistantMsgId);
+    const dropped = dropBlockedTurn(blocked.tree, blocked.assistantMsgId);
+    expect(dropped.messages[first.assistantMsgId].childrenIds).toEqual([kept.userMsgId]);
+    expect(dropped.currentId).toBe(first.assistantMsgId);
+    expect(getLinearMessages(dropped).map(m => m.content)).toEqual(["hello", "hi", "a", "b"]);
+  });
+
+  it("returns the same tree when the reply is not a fresh reply to a user message", () => {
+    const { tree, assistantMsgId } = turn(empty, "x");
+    expect(dropBlockedTurn(tree, "nope")).toBe(tree);
+    const orphan = appendAssistantNode(empty).tree;
+    expect(dropBlockedTurn(orphan, orphan.currentId!)).toBe(orphan);
+    const answered = turn(tree, "y");
+    expect(dropBlockedTurn(answered.tree, assistantMsgId)).toBe(answered.tree);
   });
 });

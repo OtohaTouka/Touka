@@ -102,12 +102,23 @@ export function stampNodeTime(tree: TreeHistory, nodeId: string, at: number): Tr
   return { ...tree, messages: { ...tree.messages, [nodeId]: { ...node, timestamp: at } } };
 }
 
-/** ADR-0292：hook 擋下了這一輪，標記送出的 user 訊息（assistant 的上一則）；找不到就回原樹。 */
-export function markHookBlocked(tree: TreeHistory, assistantMsgId: string): TreeHistory {
-  const userId = tree.messages[assistantMsgId]?.parentId;
+/**
+ * ADR-0292：hook 擋下了這一輪，拿掉送出的 user 訊息和它的空回覆，目前位置回到 user 訊息的上一則。
+ * 不是「剛送出、還沒接任何東西」的一輪就回原樹。
+ */
+export function dropBlockedTurn(tree: TreeHistory, assistantMsgId: string): TreeHistory {
+  const assistant = tree.messages[assistantMsgId];
+  const userId = assistant?.parentId;
   const user = userId ? tree.messages[userId] : undefined;
-  if (!userId || user?.role !== 'user') return tree;
-  return { ...tree, messages: { ...tree.messages, [userId]: { ...user, hookBlocked: true } } };
+  if (!userId || user?.role !== 'user' || assistant.childrenIds.length > 0 ||
+      user.childrenIds.some(id => id !== assistantMsgId)) return tree;
+  const messages = { ...tree.messages };
+  delete messages[assistantMsgId];
+  delete messages[userId];
+  const parentId = user.parentId ?? null;
+  const parent = parentId ? messages[parentId] : undefined;
+  if (parentId && parent) messages[parentId] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== userId) };
+  return { ...tree, messages, currentId: parent ? parentId : null };
 }
 
 /** 重播只接回已授權的固定節點，不能把舊生成接到新的分支。 */

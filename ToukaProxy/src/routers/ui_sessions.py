@@ -62,6 +62,7 @@ from src.utils.history_manager import count_rounds_from_linear, get_linear_messa
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
+from src.utils.touka_dirs import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["UI Sessions"])
@@ -173,8 +174,18 @@ async def _can_modify_project(caller: AgentIdentity, project_id: str | None) -> 
     return not await session_service.project_exists(project_id)
 
 
-async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) -> bool:
-    """[A-fix] 專案 root_path 必須位於工作區 jail 之內 (path-disclosure 防護).
+_OUTSIDE_WORKSPACE = "outside_workspace"
+_ROOT_REFUSED = (
+    "Project root_path must be inside the workspace root and outside the folders Touka protects."
+)
+_ROOT_CHECK_UNFINISHED = (
+    "Touka could not finish checking this project root (too many folders, a folder it cannot "
+    "read, or the check is still running). Try again shortly, or choose a smaller folder."
+)
+
+
+async def _project_root_problem(caller: AgentIdentity, root_path: str | None) -> str | None:
+    """[A-fix] 專案 root_path 必須位於工作區 jail 之內 (path-disclosure 防護)；回不能用的原因.
 
     save_project 原樣存任意 root_path、get_project_files 直接掃描之，使非 admin 可
     把專案指向主機任一目錄再枚舉其檔案樹。本述詞把專案根目錄收斂在設定的
@@ -184,14 +195,30 @@ async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) ->
     `_can_access_project` / `_can_modify_project` 的 admin/Debugger bypass 一致。
 
     其他人另外不能用 Touka 保護的地方（設定與 hooks、資料、程式碼；ADR-0292），
-    判定與專案檔案工具相同（``profiles.project_root_reason``）。
+    判定與專案檔案工具相同（``profiles.project_root_reason``：受保護的位置，或檢查沒做完）。
     """
     if caller.is_admin_or_debugger():
-        return True
+        return None
     if not await resource_manager.is_within_workspace(root_path or ""):
-        return False
+        return _OUTSIDE_WORKSPACE
     target = Path(await resource_manager.translate_path(root_path or ""))
-    return await profiles.project_root_reason(target, profiles.current_layout()) is None
+    return await profiles.project_root_reason(target, profiles.current_layout())
+
+
+async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) -> bool:
+    """``_project_root_problem`` 沒有原因時才可以."""
+    return await _project_root_problem(caller, root_path) is None
+
+
+async def _check_project_root(caller: AgentIdentity, root_path: str | None) -> None:
+    """登記專案時檢查根目錄；不行就回 422 並說明原因（檢查沒做完和受保護的位置分開說）."""
+    problem = await _project_root_problem(caller, root_path)
+    if problem is not None:
+        raise ToukaException(
+            ErrorCode.VALIDATION_ERROR,
+            detail_override=_ROOT_CHECK_UNFINISHED if problem == SCAN_LIMIT else _ROOT_REFUSED,
+            reason=problem,
+        )
 
 
 class LegacyExportRequest(BaseModel):
@@ -719,14 +746,7 @@ async def save_project(
     if not await _can_modify_project(identity, project.id):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # A-fix: 非 admin 不得把專案根目錄指向工作區 jail 之外 (path disclosure 防護)。
-    if not await _project_root_allowed(identity, project.root_path):
-        raise ToukaException(
-            ErrorCode.VALIDATION_ERROR,
-            detail_override=(
-                "Project root_path must be inside the workspace root"
-                " and outside the folders Touka protects."
-            ),
-        )
+    await _check_project_root(identity, project.root_path)
     try:
         async with get_async_db() as db:
             updated_at = project.updatedAt or int(get_current_epoch() * 1000)

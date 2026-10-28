@@ -22,12 +22,16 @@
 
 另有 ``can_drive_soul``／``require_soul_access``（ADR-0245 修補）：不是 Depends，由 pipeline
 在解析出靈魂目標後呼叫，判斷呼叫者能不能以該靈魂為對話目標。
+
+``owned_by_admin``（ADR-0292）：某個代理人是不是人類管理員擁有的（專案根的限制只套用在一般
+使用者的靈魂）。
 """
 
 from fastapi import Depends
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
+from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 
@@ -101,6 +105,14 @@ def can_drive_soul(identity: AgentIdentity, soul: AgentIdentity) -> bool:
     if identity.is_human:
         return soul.agent_id in identity.owned_agents
     return identity.agent_id in (soul.agent_id, "DebugAgent")
+
+
+def owned_by_admin(identity: AgentIdentity) -> bool:
+    """這個代理人是不是人類管理員擁有的（照 ``users.json`` 的 ``owned_agents``）。"""
+    return any(
+        user.role == "admin" and identity.agent_id in user.owned_agents
+        for user in AuthService().get_all_users()
+    )
 
 
 def require_soul_access(identity: AgentIdentity, soul: AgentIdentity) -> None:

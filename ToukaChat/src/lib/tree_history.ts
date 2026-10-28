@@ -102,8 +102,6 @@ export interface MessageNode {
   interjections?: Interjection[];
   /** ADR-0249 第 4b 段：這一回合被 Ctrl+Enter 打斷的那幾輪（第 N 步）。 */
   interruptions?: RoundInterruption[];
-  /** ADR-0292：這則 user 訊息被 UserPromptSubmit hook 擋下；之後組歷史時它和後面的回覆都不送。 */
-  hookBlocked?: boolean;
 }
 
 export interface TreeHistory {

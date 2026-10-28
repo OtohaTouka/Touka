@@ -532,7 +532,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused.",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused. Hooks also run in incognito chats, and the message and tool content is sent to them (the event is marked incognito; the hook decides whether to keep it).",
       "enable_label": "Enable hooks",
       "enable_hint": "When off, no hook runs.",
       "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
@@ -574,7 +574,9 @@
         "refresh": "Refresh",
         "empty": "No runs yet.",
         "incognito": "(incognito)",
-        "duration": "{{ms}} ms"
+        "duration": "{{ms}} ms",
+        "exit_code": "exit code {{code}}",
+        "http_status": "HTTP {{status}}"
       },
       "outcomes": {
         "blocked": "Blocked",
@@ -588,6 +590,7 @@
         "missing": "file does not exist",
         "not_file": "not a file",
         "parent_segment": "contains \"..\"",
+        "file_url": "file: URLs are not accepted",
         "unc_path": "network paths and drive-relative paths are not accepted",
         "agent_writable": "in a place agents can write to",
         "outside_hooks_dir": "not in the config folder's hooks/",
@@ -1385,7 +1388,6 @@
       "copy_code": "Copy Code",
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
-      "hook_blocked": "A hook blocked this message; it will not be sent to the model.",
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",
@@ -2386,7 +2388,7 @@
       "collection_collision_with": "This ID would share a semantic index with \"{{id}}\"; choose another ID"
     },
     "hooks": {
-      "prompt_blocked": "A hook set by the administrator blocked this message; it was not sent to the model.",
+      "prompt_blocked": "A hook set by the administrator blocked this message. It was not sent to the model and was taken out of the conversation.",
       "config_conflict": "The hook settings were changed elsewhere. Reload, then save again.",
       "path_rejected": "A hook command or argument points to a place agents can write to, or its safety cannot be confirmed, so it cannot be saved."
     }

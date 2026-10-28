@@ -71,15 +71,6 @@ describe('MessageItem', () => {
     expect(screen.getByText('You')).toBeInTheDocument();
   });
 
-  it('ADR-0292：hook 擋下的 user 訊息顯示不會送給模型的說明', () => {
-    translation.current = (key: string) => key;
-    const msg = { ...mockHistory.messages['1'], hookBlocked: true } as any;
-    const { rerender } = render(<MessageItem {...defaultProps} msg={msg} />);
-    expect(screen.getByText('chat.message_item.hook_blocked')).toBeInTheDocument();
-    rerender(<MessageItem {...defaultProps} msg={{ ...msg, hookBlocked: undefined }} />);
-    expect(screen.queryByText('chat.message_item.hook_blocked')).not.toBeInTheDocument();
-  });
-
   it('renders assistant message with markdown', () => {
     const msg = { ...mockHistory.messages['2'], content: '# Head\n**bold**' } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);

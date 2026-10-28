@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -60,6 +60,9 @@ class StreamEntry:
     changed: asyncio.Event = field(default_factory=asyncio.Event)
     owner: AgentIdentity | None = None
     admission: UiPersistence | None = None
+    # 這一輪的 hook 共用欄位（`hooks.events.base_payload`：對話、代理人等；
+    # 插話的 hook 用，ADR-0292）
+    hook_fields: Mapping[str, Any] = field(default_factory=dict)
     started: StreamStartedEvent | None = None
     terminal: StreamTerminalEvent | None = None
 
@@ -89,6 +92,7 @@ class StreamBufferService:
         *,
         identity: AgentIdentity | None = None,
         admission: UiPersistence | None = None,
+        hook_fields: Mapping[str, Any] | None = None,
     ) -> StreamEntry:
         """單 event-loop 無 await 的替換；不留舊／新 entry 交錯建立窗口。"""
         if admission is not None and identity is None:
@@ -122,6 +126,7 @@ class StreamBufferService:
             started_at=float(get_current_epoch()),
             owner=identity,
             admission=admission,
+            hook_fields=dict(hook_fields or {}),
         )
         if admission is not None:
             entry.started = StreamStartedEvent(
@@ -251,6 +256,11 @@ class StreamBufferService:
         """僅查指定代的模式；不把 admission revision 或 requester 暴露到公開 state。"""
         entry = self._entry_for(session_id, stream_id)
         return entry.admission.mode if entry and entry.admission else None
+
+    def hook_fields_of(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        """指定代的串流建立時記下的 hook 共用欄位；沒有這一代時是空的。"""
+        entry = self._entry_for(session_id, stream_id)
+        return dict(entry.hook_fields) if entry else {}
 
     def retire_persistent(self, session_id: str, stream_id: str) -> bool:
         """已確認刪除後退休原代；無 await，不得清除後來建立的新代或無痕 entry。"""

@@ -20,6 +20,7 @@ import inspect
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,7 +31,10 @@ from src.middleware.layers.hooks import HookLayer
 from src.middleware.layers.monitor import MonitorLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
+from src.models.policy import PolicyDecision
 from src.models.safety import AuthPoliciesConfig
+from src.protocols.mcp.canonical import McpCompleteOutcome
+from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.services import auto_reviewer as reviewer_module
 from src.services import context_snapshot_service, proxy_service, tool_errors
 from src.services import tool_executor as executor_module
@@ -38,12 +42,13 @@ from src.services.approval_service import approval_service
 from src.services.auto_reviewer import AutoReviewer
 from src.services.completion import CompletionResult
 from src.services.hooks import stop_hooks, tool_hooks
-from src.services.hooks.events import HOOK_DATA_NOTE
+from src.services.hooks.events import HOOK_DATA_NOTE, attach_to_tool_result, legacy_aliases
 from src.services.hooks.runners import RunResult
 from src.services.hooks.service import HookService
 from src.services.permission_service import permission_service
 from src.services.review.budget import _reset_review_ledger
 from src.services.tool_executor import ToolExecutor
+from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
 from src.utils.user_intent import chat_intent
 
 _SOUL = AgentIdentity.for_role(agent_id="HookWiringProbe", role="Owner", is_human=False)
@@ -303,6 +308,7 @@ def _pre(decision: str, reason: str | None = None) -> str:
 
 
 _COMMAND = {"command": "pytest -q"}
+_ALL_FILE_VERBS = sorted(LEGACY_ADVERTISED_SUCCESSORS["vault_tools"])
 
 
 async def test_pre_tool_deny_blocks_before_review_card_and_handler(monkeypatch, hooks):
@@ -416,6 +422,38 @@ async def test_matcher_limits_hooks_to_the_named_tools(monkeypatch, hooks):
     assert len(recorder.calls) == 1
 
 
+async def test_old_tool_names_match_hooks_written_for_the_new_names(monkeypatch, hooks):
+    """叫舊名稱（bash）也比得到寫新名稱的規則；事件內容寫實際叫的名稱，另列對應的新名稱。"""
+    hooks.configure({"PreToolUse": [_group(matcher="execute_command")]})
+    hooks.http.bodies["PreToolUse"] = _pre("deny", "no shell today")
+    _reviewer(monkeypatch)
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"bash": recorder})
+    result, _events = await _run(executor, "bash", dict(_COMMAND))
+    assert json.loads(result)["reason"] == "hook_denied"
+    assert recorder.calls == []
+    (call,) = hooks.http.calls
+    assert call["tool_name"] == "bash"
+    assert call["tool_aliases"] == ["execute_command"]
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "expected"),
+    [
+        ("bash", {"command": "ls"}, ["execute_command"]),
+        ("vault_tools", {"vault": "drive", "action": "read"}, ["read"]),
+        ("project_tools", {"action": "delete"}, ["delete"]),
+        ("vault_tools", {"vault": "drive", "action": "append"}, _ALL_FILE_VERBS),
+        ("project_tools", {"action": ["write"]}, _ALL_FILE_VERBS),
+        ("update_my_soul", {}, ["edit_soul", "list", "read"]),
+        ("execute_command", {"command": "ls"}, []),
+    ],
+)
+def test_old_tool_names_list_the_new_names_they_may_mean(name, args, expected):
+    """舊檔案工具的動作剛好是某個新名稱時只列那一個；其他動作列全部，寧可多比到也不漏。"""
+    assert list(legacy_aliases(name, args, LEGACY_ADVERTISED_SUCCESSORS)) == expected
+
+
 async def test_post_tool_context_is_attached_to_a_json_result(monkeypatch, hooks):
     hooks.configure({"PreToolUse": [_group()], "PostToolUse": [_group()]})
     hooks.http.bodies["PreToolUse"] = json.dumps(
@@ -458,6 +496,58 @@ async def test_post_tool_hooks_skip_failed_tools(monkeypatch, hooks):
     result, _events = await _run(executor, "execute_command", dict(_COMMAND))
     assert hooks.http.calls == []
     assert result == failure
+
+
+def test_hook_output_on_a_json_result_too_deep_to_load_is_a_data_block():
+    """結構化結果深到讀不進來時照文字結果處理（接資料區塊），不讓工具失敗。"""
+    deep = '{"ok": true, "x": ' + "[" * 100_000 + "]" * 100_000 + "}"
+    attached = attach_to_tool_result(deep, [("PostToolUse", "lint failed")])
+    assert attached.startswith(deep)
+    assert "lint failed" in attached[len(deep):]
+
+
+class _VaultJailedMcp:
+    """假的 MCP：``docgen_read`` 在受管伺服器上，根目錄參數會被換成 agent 自己的資料夾。"""
+
+    def __init__(self) -> None:
+        self.registry = SimpleNamespace(
+            get_server=lambda _name: SimpleNamespace(vault_jail_arg="base_dir")
+        )
+        self.calls: list[dict[str, Any]] = []
+
+    def resolve_tool(self, name: str) -> tuple[str | None, str]:
+        return "mcp-docgen", name
+
+    async def call_tool_on_server(self, _server: str, _tool: str, args: dict[str, Any],
+                                  **_kwargs: Any) -> McpCompleteOutcome:
+        self.calls.append(dict(args))
+        return McpCompleteOutcome(
+            source_protocol_version=UNKNOWN_PROTOCOL_VERSION,
+            content=[{"type": "text", "text": "ok"}],
+        )
+
+
+async def test_tool_hooks_see_the_arguments_the_model_sent(monkeypatch, hooks):
+    """執行器替 MCP 工具換掉的根目錄（agent 自己資料夾的實際路徑）不會出現在 hook 的事件內容。"""
+    hooks.configure({"PreToolUse": [_group()], "PostToolUse": [_group()]})
+    monkeypatch.setattr(
+        permission_service, "evaluate_policy",
+        lambda _ctx: PolicyDecision(effect="ALLOW", reason="test-allow"),
+    )
+    mcp = _VaultJailedMcp()
+    executor = ToolExecutor(
+        protocol_manager=mcp, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
+    )
+    ctx = {"identity": _SOUL, "auth_level": "Manual", "session_id": None}
+    async with asyncio.timeout(_WAIT_S):
+        await executor.execute_to_queue(
+            "docgen_read", {"base_dir": "/etc"}, "req-hook", ctx, asyncio.Queue()
+        )
+    (sent,) = mcp.calls
+    assert sent["base_dir"] != "/etc"
+    assert hooks.http.events() == ["PreToolUse", "PostToolUse"]
+    assert [call["tool_input"] for call in hooks.http.calls] == [{"base_dir": "/etc"}] * 2
 
 
 @pytest.mark.parametrize("event", ["PreToolUse", "PostToolUse"])

@@ -20,18 +20,29 @@ const run = (extra: Partial<HookRun>): HookRun => ({
 });
 
 describe('HookRunsList（ADR-0292）', () => {
-    it('顯示 hook 名稱、結果、耗時與說明', () => {
+    it('顯示 hook 名稱、類型、結果、結束碼、耗時與說明', () => {
         render(<HookRunsList runs={[run({})]} onRefresh={vi.fn()} />);
         expect(screen.getByText('guard')).toBeInTheDocument();
+        expect(screen.getByText('settings.hooks_tab.types.command')).toBeInTheDocument();
         expect(screen.getByText('settings.hooks_tab.outcomes.blocked')).toBeInTheDocument();
+        expect(screen.getByText('settings.hooks_tab.runs.exit_code:{"code":2}')).toBeInTheDocument();
         expect(screen.getByText('settings.hooks_tab.runs.duration:{"ms":42}')).toBeInTheDocument();
         expect(screen.getByText('no tests on Fridays')).toBeInTheDocument();
     });
 
-    it('無痕的紀錄不顯示 hook 名稱與說明', () => {
-        render(<HookRunsList runs={[run({ incognito: true, hook: '', detail: null })]} onRefresh={vi.fn()} />);
+    it('http hook 顯示 HTTP 狀態', () => {
+        render(<HookRunsList runs={[run({ hook_type: 'http', exit_code: null, http_status: 503 })]} onRefresh={vi.fn()} />);
+        expect(screen.getByText('settings.hooks_tab.types.http')).toBeInTheDocument();
+        expect(screen.getByText('settings.hooks_tab.runs.http_status:{"status":503}')).toBeInTheDocument();
+        expect(screen.queryByText(/runs\.exit_code/)).not.toBeInTheDocument();
+    });
+
+    it('無痕的紀錄不顯示 hook 名稱、類型與說明', () => {
+        render(<HookRunsList runs={[run({ incognito: true, hook: '', hook_type: '', exit_code: null, detail: null })]}
+            onRefresh={vi.fn()} />);
         expect(screen.getByText('settings.hooks_tab.runs.incognito')).toBeInTheDocument();
         expect(screen.queryByText('guard')).not.toBeInTheDocument();
+        expect(screen.queryByText(/hooks_tab\.types\./)).not.toBeInTheDocument();
     });
 
     it('沒有紀錄時顯示空狀態；按重新整理會呼叫 onRefresh', () => {

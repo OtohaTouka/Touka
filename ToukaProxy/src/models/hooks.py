@@ -32,6 +32,11 @@ MAX_HOOK_ARGS: Final[int] = 64
 HookEvent = Literal["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
 
 _ENV_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
+# HTTP 標頭名稱（RFC 9110 的 token）；Touka 自己送的標頭不讓設定改（比對不分大小寫）
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+_RESERVED_HEADERS: Final[frozenset[str]] = frozenset(
+    {"content-type", "content-length", "host", "transfer-encoding"}
+)
 
 
 class HookConfigError(ValueError):
@@ -88,6 +93,12 @@ class HttpHook(_HandlerBase):
         for name, header in value.items():
             if any(ch in name + header for ch in "\r\n\x00") or not name.strip():
                 msg = "hook header names and values must be single-line text"
+                raise HookConfigError(msg)
+            if not _HEADER_NAME.fullmatch(name):
+                msg = "hook header names may not contain spaces, colons or other separators"
+                raise HookConfigError(msg)
+            if name.lower() in _RESERVED_HEADERS:
+                msg = f"hook header {name} is set by Touka and can not be changed"
                 raise HookConfigError(msg)
             if _ENV_REFERENCE.search(header):
                 msg = "hook headers are sent literally; environment references are not supported"

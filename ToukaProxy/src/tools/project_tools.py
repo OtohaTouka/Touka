@@ -9,9 +9,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.services import tool_errors
+from src.services.authorization_gateway import owned_by_admin
 from src.services.isolation import profiles
 from src.services.resource_manager import bypasses_project_jail, resource_manager
 from src.utils.async_db import add_project_event
+from src.utils.touka_dirs import PROTECTED_LOCATION
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,22 @@ except ImportError:
     # 避免單行賦值過長
     core_delete = core_find = core_grep = None
     core_list = core_read = core_str_replace = core_write = None
+
+
+def _root_refused(project_id: str, reason: str) -> str:
+    """專案根不能用時給模型的結構化錯誤：受保護，或（容器裡）還沒查完。"""
+    if reason == PROTECTED_LOCATION:
+        message = f"Project root for '{project_id}' is in a location Touka protects."
+        suggestion = "Ask the user to choose a project folder outside Touka's own folders."
+    else:
+        message = (
+            f"Touka could not finish checking the project root for '{project_id}' "
+            "(too many folders, a folder it cannot read, or the check is still running)."
+        )
+        suggestion = "Try again shortly; if it keeps failing, ask the user for a smaller folder."
+    return tool_errors.build_tool_error(
+        tool_errors.PERMISSION_DENIED, message, suggestion=suggestion, reason=reason
+    )
 
 
 async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> Any:
@@ -62,13 +81,13 @@ async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> 
     root_bound = await resource_manager.get_project_path(project_id, identity)
     if not root_bound:
         return f"Error: Project root for '{project_id}' not found."
-    # 一般使用者的專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經專案
-    # 寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
-    if not (identity and bypasses_project_jail(identity)) and (
-        await profiles.project_root_reason(Path(root_bound), profiles.current_layout())
-    ):
-        logger.warning("Project %s root is in a protected location; denied.", project_id)
-        return f"Error: Project root for '{project_id}' is in a location Touka protects."
+    # 一般使用者的靈魂，專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經
+    # 專案寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
+    if not (identity and (bypasses_project_jail(identity) or owned_by_admin(identity))):
+        reason = await profiles.project_root_reason(Path(root_bound), profiles.current_layout())
+        if reason:
+            logger.warning("Project %s root refused (%s).", project_id, reason)
+            return _root_refused(project_id, reason)
 
     try:
         # --- [分發邏輯：Core Ops Mapping] ---

@@ -55,6 +55,7 @@ export function useChatStream({
     attachment: ChatAttachment | null,
     parentIdOverride?: string | null,
     onSuccessResetInput?: () => void,
+    onHookBlocked?: (sessionId: string) => void,
   ) => {
     const scope = captureRequestScope();
     let sessionId = activeSessionId;
@@ -114,10 +115,12 @@ export function useChatStream({
       }
     };
 
+    const sentSessionId = sessionId;
     const started = await startStream({
       sessionId, baseTree, userText: textToSend, resolvedInput, attachment, parentId: finalParentId,
       model: selectedModel, protocol, proxyUrl, projectId: projectId ?? undefined, authLevel, activeSkills,
       onBeforeSend, onSkillInstallRequest: setPendingInstall, onAskUser: setPendingAsk, incognito, deepResearch, mcpDispatcher,
+      onHookBlocked: onHookBlocked ? () => onHookBlocked(sentSessionId) : undefined,
     });
 
     if (!isRequestScopeCurrent(scope)) return;

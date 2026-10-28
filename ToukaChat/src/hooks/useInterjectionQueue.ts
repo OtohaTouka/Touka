@@ -2,13 +2,17 @@
  * ADR-0249 第 4a 段：插話資料層——經 fetchTouka 打 U4a-1 的端點（一律帶 stream_id）。
  *
  * 還沒拿到 stream_id、API 被拒或連不上時，文字留在前端（local），回合結束後當成下一則送出，
- * 不會遺失；被拒時另外顯示錯誤。
+ * 不會遺失；被拒時另外顯示錯誤。被管理員設定的 hook 擋下（ADR-0292）時不留，回傳 null 由
+ * 呼叫端放回輸入框。
  */
 import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { fetchTouka, isRequestScopeCurrent } from '@/lib/connections';
 import type { RequestScope } from '@/lib/connections';
-import { errorMsg, getErrorMessage, logSSOTError } from '@/lib/error_handler';
+import {
+  errorMsg, getErrorMessage, getResponseDetailString, getResponseErrorCode, logSSOTError, ToukaApiError,
+} from '@/lib/error_handler';
+import { useHookBlockNotice } from '@/hooks/useHookBlockNotice';
 import { getSystemEpoch } from '@/lib/time_utils';
 import { useInterjectionStore, type QueuedInterjection } from '@/lib/chat/interjectionStore';
 import type { Interjection } from '@/lib/types';
@@ -32,8 +36,9 @@ export function useInterjectionQueue({ sessionId, streamId, requestScope }: Inte
     ? `/v1/ui/sessions/${encodeURIComponent(sessionId)}/interjections` : null;
   const query = streamId ? `?stream_id=${encodeURIComponent(streamId)}` : '';
   const usable = !!base && isRequestScopeCurrent(requestScope);
+  const notifyHookBlocked = useHookBlockNotice();
 
-  const enqueue = useCallback(async (text: string, urgent: boolean): Promise<QueuedInterjection> => {
+  const enqueue = useCallback(async (text: string, urgent: boolean): Promise<QueuedInterjection | null> => {
     const { add } = useInterjectionStore.getState();
     if (usable && base && requestScope) {
       try {
@@ -46,6 +51,11 @@ export function useInterjectionQueue({ sessionId, streamId, requestScope }: Inte
           add(sessionId, accepted);
           return accepted;
         }
+        const code = await getResponseErrorCode(res);
+        if (code === 'HOOK_PROMPT_BLOCKED') {
+          notifyHookBlocked(new ToukaApiError('', res.status, code, await getResponseDetailString(res, 'reason')));
+          return null;
+        }
         toast.error(await getErrorMessage(res));
       } catch (e) {
         logSSOTError(e, 'useInterjectionQueue:enqueue');
@@ -54,7 +64,7 @@ export function useInterjectionQueue({ sessionId, streamId, requestScope }: Inte
     const item = localItem(text, urgent);
     add(sessionId, item);
     return item;
-  }, [usable, base, query, requestScope, sessionId]);
+  }, [usable, base, query, requestScope, sessionId, notifyHookBlocked]);
 
   const retract = useCallback(async (item: QueuedInterjection): Promise<boolean> => {
     const { remove } = useInterjectionStore.getState();
