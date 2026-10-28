@@ -107,7 +107,7 @@ class AbsentSessionSnapshot(PersistenceModel):
 type SessionSnapshotResponse = PresentSessionSnapshot | AbsentSessionSnapshot
 
 
-# 帶這個欄位的客戶端送的是這個對話完整的線性路徑；SoulLayer 據此在家對話本身不再插家對話
+# 帶這個欄位的客戶端必須送這個對話完整的線性路徑；SoulLayer 據此在家對話本身不再插家對話
 class PersistedStreamAdmission(PersistenceModel):
     """UI 已確認的 user 全樹版本；不是模型供應商參數或授權憑證。"""
 

@@ -53,10 +53,10 @@ USER_TREE = {
 @pytest.fixture
 def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """SOUL 被認成靈魂；上游換成假串流，記錄送出的請求與 pipeline context。"""
-    seen: dict[str, Any] = {"requests": [], "contexts": []}
+    seen: dict[str, Any] = {"requests": [], "contexts": [], "home_current_session": []}
 
-    async def _no_home(*_args: Any, **_kwargs: Any) -> None:
-        return None
+    async def _no_home(*_args: Any, current_session_id: str | None = None) -> None:
+        seen["home_current_session"].append(current_session_id)
 
     async def _fake_stream(_model: str, request: Any, *args: Any, **_kwargs: Any) -> Any:
         seen["requests"].append(json.loads(request.model_dump_json()))
@@ -154,6 +154,8 @@ async def test_continuity_not_persisted(
     assert resp.status_code == 200, resp.text
     sent = _sent_last_user_text(probe)
     assert sent.startswith("hi") and OPEN in sent
+    # 沒有存檔核准欄位：不算送了完整紀錄，家對話照舊插入
+    assert probe["home_current_session"] == [None]
     await _assert_nothing_saved_has_continuity(sid, monkeypatch)
 
 
@@ -173,6 +175,8 @@ async def test_ui_persisted_turn_excludes_continuity(
     resp = _chat(client, "/v1/chat/completions", sid, ui_persistence=admission)
     assert resp.status_code == 200, resp.text
     assert OPEN in _sent_last_user_text(probe)
+    # 路由核准後，SoulLayer 把目前對話交給家對話注入（是家對話就不再插一份）
+    assert probe["home_current_session"] == [sid]
     await _assert_nothing_saved_has_continuity(sid, monkeypatch)
 
 

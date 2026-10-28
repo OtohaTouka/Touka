@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections import OrderedDict
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -221,6 +222,14 @@ async def test_ui_authorized_flag_alone_still_injects(sessions: dict) -> None:
     joined = _joined(request)
     assert joined.count(HOME_BOUNDARY) == 1
     assert joined.count(HOME_EARLIER) == 1
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("persistent", True), ("incognito", False)])
+def test_only_persistent_admission_counts_as_full_history(mode: str, expected: bool) -> None:
+    """無痕在更早的閘就跳過注入，經 SoulLayer 測不到；直接釘住判斷只認 persistent。"""
+    request = SimpleNamespace(ui_persistence=SimpleNamespace(mode=mode))
+    ctx = PipelineContext(ui_authorized=True)
+    assert soul_mod.SoulLayer._sends_own_history(request, ctx) is expected
 
 
 async def test_incognito_still_skips_home(sessions: dict) -> None:
