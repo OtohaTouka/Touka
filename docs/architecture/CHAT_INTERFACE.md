@@ -278,7 +278,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 *   **結構**: `[Left Panel] | [Center Panel] | [Right Panel]` 處於同一層級。
 *   **優點**: 調整左側寬度時不會影響右側寬度，徹底解決巢狀連動問題。
 *   **沒有上導覽列（2026-10-28）**: 分頁切換與設定只在左側邊欄（`NavigationArea`）。主區最上面是 `components/layout/MainAreaControls.tsx` 的一條 `h-10` 細列（沒有框線、沒有標題），只放角落按鈕：
-    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。收起或展開後焦點掉了，就交給另一顆鈕。
+    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。收起或展開後焦點掉了，就交給另一顆鈕；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。
     *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
     *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。

@@ -1007,7 +1007,7 @@ python scripts/guard_all.py
 | `unit/hooks/useChatStream.test.ts` | ADR-0080／P11 useChatStream委派：既有session／新建session／stop／上限提示，以及固定provider與options後切換翻譯函式，限流提示使用新語言。 |
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
 | `unit/ChatProvider.backgroundStream.test.tsx` | ADR-0080 背景續跑端到端：切走不中止、per-session isSending、背景 chunk 不污染、切回看到累積、完成寫回 session；兩對話同時背景生成互不污染 |
-| `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕 |
+| `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕（交不到就下一個畫面再試，有上限；焦點已到別處不搶） |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
