@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from src.core.exceptions import ErrorCode, ToukaException
+from src.middleware.layers.hooks import HookLayer
 from src.models.identity import AgentIdentity
 from src.services.dispatchers.route_family import same_route_family
 from src.services.resource_manager import resource_manager
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
-from ..middleware.layers.hooks import HookLayer
 from ..middleware.layers.monitor import MonitorLayer
 from ..middleware.layers.native_model_layer import NativeModelLayer
 from ..middleware.layers.skill import SkillLayer

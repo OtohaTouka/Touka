@@ -21,7 +21,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import httpx
 
@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 MAX_HOOK_OUTPUT_BYTES: Final[int] = 64 * 1024
 _READ_CHUNK: Final[int] = 16 * 1024
 _KILL_WAIT_SECONDS: Final[float] = 5.0
-HTTP_CLIENT_OPTIONS: Final[dict[str, bool]] = {"follow_redirects": False, "trust_env": False}
 
 RunStatus = Literal["ok", "timeout", "error", "rejected"]
 
@@ -161,13 +160,13 @@ async def run_http(
     """執行 http hook；``transport`` 只供測試替換。"""
     started = get_monotonic_ms()
     headers = {**hook.headers, "Content-Type": "application/json"}
-    client_options: dict[str, Any] = {**HTTP_CLIENT_OPTIONS, "timeout": hook.timeout}
-    if transport is not None:
-        client_options["transport"] = transport
     body = _CappedReader(MAX_HOOK_OUTPUT_BYTES)
     try:
         async with (
-            httpx.AsyncClient(**client_options) as client,
+            # trust_env=False：不讀 .netrc 與代理設定，hook 網址拿不到其他地方的帳密。
+            httpx.AsyncClient(
+                follow_redirects=False, trust_env=False, timeout=hook.timeout, transport=transport
+            ) as client,
             client.stream("POST", hook.url, content=payload, headers=headers) as response,
         ):
             async for chunk in response.aiter_bytes():

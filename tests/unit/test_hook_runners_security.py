@@ -143,6 +143,17 @@ async def test_http_timeout_is_reported():
     assert result.status == "timeout"
 
 
-def test_http_client_ignores_environment_credentials():
-    """``trust_env=False``：不讀 .netrc 與代理設定，hook 網址拿不到其他地方的帳密。"""
-    assert runners.HTTP_CLIENT_OPTIONS == {"follow_redirects": False, "trust_env": False}
+async def test_http_client_ignores_environment_credentials(monkeypatch):
+    """不跟重定向、``trust_env=False``：不讀 .netrc 與代理設定，hook 網址拿不到其他地方的帳密。"""
+    seen: dict[str, object] = {}
+    real_client = httpx.AsyncClient
+
+    def spy(**kwargs):
+        seen.update(kwargs)
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(runners.httpx, "AsyncClient", spy)
+    transport = httpx.MockTransport(lambda request: httpx.Response(204))
+    await run_http(_http(), b"{}", transport=transport)
+    assert seen["follow_redirects"] is False
+    assert seen["trust_env"] is False

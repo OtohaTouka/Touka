@@ -58,7 +58,7 @@
 
 | 任務類型 | 必讀文件 |
 |---------|---------|
-| **所有任務** | 本檔 **§18 開發禁令**（禁令 1–66，全系統鐵則）＋ `HANDOVER.md`（當前交班現況） |
+| **所有任務** | 本檔 **§18 開發禁令**（禁令 1–67，全系統鐵則）＋ `HANDOVER.md`（當前交班現況） |
 | 新增/修改端點或認證 | `docs/architecture/PROXY_INTERFACE.md` TL;DR 區塊 |
 | 安全弱點修復 | `SECURITY.md`、`docs/architecture/LEGAL_ARCH.md` |
 | 記憶/工具/I/O | `docs/architecture/MEMORY_INTERFACE.md` TL;DR |
