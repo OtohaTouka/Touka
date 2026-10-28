@@ -1,4 +1,6 @@
-"""/stats 依身分過濾（2026-10-28 安全修復，SECURITY.md「統計端點的背景工作與用量沒有依身分過濾」）。
+"""/stats 依身分過濾（2026-10-28、10-29 安全修復）。
+
+SECURITY.md「統計端點的背景工作與用量沒有依身分過濾」「統計端點的 token 用量看得到別的靈魂」。
 
 背景紀錄（background_activity、interrupted_runs）只列呼叫者看得到的靈魂，規則是
 ``authorization_gateway.can_access_session``：admin（含代打）與 Debugger 全看、人類看自己擁有的、
@@ -11,6 +13,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -263,19 +266,33 @@ def test_dispatch_supervisor_pid_only_for_admin(
 
 @pytest.fixture
 def token_usage_files() -> Iterator[dict[str, Path]]:
-    """沙箱裡三個代理的 token_usage.json（Alice、Bob、DebugAgent）。"""
+    """沙箱裡三個代理的 token_usage.json；結束後還原原本的內容。
+
+    第三個用專屬名稱，不碰沙箱裡常用的 DebugAgent。
+    """
     stats_root = Path(resource_manager.get_base_path()) / "stats"
     paths: dict[str, Path] = {}
-    for agent in ("Alice", "Bob", "DebugAgent"):
+    originals: dict[Path, bytes | None] = {}
+    created_dirs: list[Path] = []
+    for agent in ("Alice", "Bob", "StatsScopeOther"):
         path = stats_root / agent / "token_usage.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        originals[path] = path.read_bytes() if path.exists() else None
+        if not path.parent.exists():
+            path.parent.mkdir(parents=True)
+            created_dirs.append(path.parent)
         path.write_text(f'{{"total_tokens": {len(agent)}}}', encoding="utf-8")
         paths[agent] = path
     try:
         yield paths
     finally:
-        for path in paths.values():
-            path.unlink(missing_ok=True)
+        for path, original in originals.items():
+            if original is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(original)
+        for directory in created_dirs:
+            with contextlib.suppress(OSError):
+                directory.rmdir()
 
 
 @pytest.mark.parametrize("identity", [HUMAN_ADMIN, DEBUGGER], ids=["admin", "debugger"])
@@ -294,7 +311,11 @@ def test_token_usage_owner_agent_sees_only_itself(
     token_usage_files: dict[str, Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Owner 代理只看自己的用量；別的靈魂的檔案不讀，名字也不出現在回應裡。"""
+    """Owner 代理只看自己的用量；別的靈魂的檔案不讀，名字也不出現在回應裡。
+
+    同一次請求也有背景紀錄，確認兩邊共用的判斷結果互不影響。
+    """
+    _seed()
     read_paths: list[str] = []
     real_read = resource_manager.read_json
 
@@ -303,8 +324,9 @@ def test_token_usage_owner_agent_sees_only_itself(
         return real_read(path, *args, **kwargs)
 
     monkeypatch.setattr(resource_manager, "read_json", _recording_read)
-    usage = _stats(client, OWNER_AGENT)["token_usage"]
-    assert usage == {"Alice": {"total_tokens": 5}}
+    body = _stats(client, OWNER_AGENT)
+    assert body["token_usage"] == {"Alice": {"total_tokens": 5}}
+    assert _seen(body) == ({"sess-alice"}, {"sess-alice-old"})
     usage_reads = [p for p in read_paths if p.endswith("token_usage.json")]
     assert usage_reads == [str(token_usage_files["Alice"])]
 

@@ -146,7 +146,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 | 弱點 | 修正與驗證 |
 |------|------|
-| 一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。外流的是用量數字，以及從鍵看得出別人有哪些靈魂（`stats/` 底下所有代理人的 id），不含對話內容。 | 列出的每個代理人先用和背景紀錄同一個判斷（`authorization_gateway.can_access_session`，同一次請求每個靈魂只判斷一次）過濾，看不到的不讀檔、也不出現在回應裡：Owner 代理只看自己。人類 admin 與 Debugger 照舊看全部；一般使用者（不帶 `X-Agent-ID`）與 admin 代打照舊拿到空的，這次只收窄、不放寬。回應的鍵與型別不變，openapi 不變。`tests/proxy/test_stats_scope_security.py`。 |
+| 一般使用者帶 `X-Agent-ID` 切到自己的靈魂時，身分會變成那個靈魂的 Owner 代理；這時 `GET /v1/stats` 的 `token_usage` 經 `resource_manager.list_all_agent_stats` 列出所有代理人的 token 用量，不只自己的。外流的是用量數字，以及從鍵看得出別人有哪些靈魂（`stats/` 底下所有代理人的 id），不含對話內容。 | 列出的每個代理人先用和背景紀錄同一個判斷（`authorization_gateway.can_access_session`，同一次請求每個靈魂只判斷一次）過濾，看不到的不讀檔、也不出現在回應裡：Owner 代理只看自己。人類 admin 與 Debugger 照舊看全部；其他身分（一般使用者不帶 `X-Agent-ID`、admin 代打、其他代理角色）照舊拿到空的，這次只收窄、不放寬。回應的鍵與型別不變，openapi 不變。`tests/proxy/test_stats_scope_security.py`。 |
 
 ### 統計端點的背景工作與用量沒有依身分過濾（2026-10-28）
 

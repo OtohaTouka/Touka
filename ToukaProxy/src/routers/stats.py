@@ -39,7 +39,7 @@ async def get_touka_stats(
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
-    # 依身分過濾（2026-10-28）：背景紀錄與 token 用量只列 can_access_session 放行的靈魂，
+    # 依身分過濾（2026-10-28、10-29）：背景紀錄與 token 用量只列 can_access_session 放行的靈魂，
     # 全域用量紀錄與派工伺服器的 pid 只給 admin（含代打）。
     # 這次請求內每個靈魂只判斷一次；對不到靈魂的紀錄只給 admin／Debugger
     visible: dict[str, bool] = {}
