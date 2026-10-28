@@ -4,6 +4,7 @@
 
 ## 1. 現況
 
+- **`/stats` 依身分過濾（2026-10-28）**：`background_activity`、`interrupted_runs` 逐筆用 `can_access_session` 判斷，一般使用者只看自己的靈魂；`usage_history`／`total_usage` 與派工伺服器 `pid` 只給 admin。鍵與型別不變、前端不用改。仍未修：Owner 代理讀 `token_usage` 看得到全部（SECURITY.md Known Open）。
 - **ToukaChat 拿掉上導覽列（2026-10-28）**：桌面版分頁與設定只在左側邊欄；左側邊欄頂端收合、收起後對話區左上角展開（首次設定紅點在展開鈕上）；右上角「工具面板」鈕開關右側邊欄，預設收起、新產出物照舊自動打開；IDE 只有設定鈕，再按一次回對話；手機版不變。細節見 `CHAT_INTERFACE.md` 版面一節。
 - **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
 
