@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-10-28 | **統計端點依身分過濾**：右側欄每 8 秒讀的 `/stats`，以前只要登入就看得到所有靈魂正在跑的心跳、上次沒跑完的背景工作、全系統的用量紀錄與派工伺服器的程序編號。現在一般使用者只看到自己靈魂的背景工作，admin 與除錯身分的背景工作照舊看全部；用量紀錄與程序編號只給 admin，除錯身分也拿不到了。畫面不用改。Owner 代理看得到所有 token 用量這一項還沒修 | [SECURITY](../SECURITY.md) |
 | 2026-10-28 | **拿掉上導覽列，右側邊欄改用右上角按鈕叫出**：桌面版上導覽列的標題與分頁切換和左側邊欄重複，整條拿掉；分頁與設定只在左側邊欄。收合鈕移到左側邊欄頂端，收起後對話區左上角有展開鈕（首次設定警告的紅點跟著搬）；右側邊欄改由對話區右上角的「工具面板」鈕開關，預設收起，有新產出物時照舊自動打開。IDE 只留設定鈕，在設定頁再按一次回對話（以前進了設定就回不去）。手機版不變。順手刪掉 git 裡的舊版 page 殘檔。只改 ToukaChat | [CHAT_INTERFACE](architecture/CHAT_INTERFACE.md) |
 | 2026-10-28 | **刪除湧現指數（E-Index）**：右側邊欄「系統監控」裡的湧現指數條、統計端點 `/stats/emergence`（含 `/v1`）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔沒有 `e_index` 欄，舊檔沿用自己的表頭、這欄補空值。原本寫和讀的不是同一個檔，畫面大多只顯示 0。 | ADR-0291 |
 | 2026-10-28 | **重啟後兩個調度員技能檔不再顯示被改**：`system-mcp-dispatcher`、`system-skill-dispatcher` 兩個 SKILL.md 以前一載入程式就整份重寫、又被 git 追蹤；Docker 寫出的檔在 Windows 上會被 git 誤判成改過，本機加的 MCP 伺服器名與技能清單也可能被帶進 commit。現在改成 Proxy 啟動時（設定自癒與 MCP 名稱遷移之後）產生、內容沒變不重寫、不進版控。**更新前先執行** `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時，不先還原 git 會拒絕更新），更新後重啟一次 Touka。 | ADR-0290 |

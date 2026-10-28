@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import logging
 from pathlib import Path
 from typing import Annotated, Any
@@ -16,6 +17,7 @@ from memory_server.utils.memory_worker import run_memory_job
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.activity_registry import activity_registry
+from src.services.authorization_gateway import can_access_session
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
@@ -36,13 +38,26 @@ async def get_touka_stats(
     """
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+
+    # 依身分過濾（2026-10-28）：背景紀錄只列 can_access_session 放行的靈魂，
+    # 全域用量紀錄與派工伺服器的 pid 只給 admin（含代打）。
+    # 這次請求內每個靈魂只判斷一次；對不到靈魂的紀錄只給 admin／Debugger
+    visible: dict[str, bool] = {}
+
+    def _can_see(agent: object) -> bool:
+        if not isinstance(agent, str) or not agent:
+            return can_access_session(identity, None)
+        if agent not in visible:
+            visible[agent] = can_access_session(identity, agent)
+        return visible[agent]
+
+    is_admin = identity.is_admin_authority()
     stats_data = {"total_usage": 0, "usage_history": []}
     stats_path = Path(resource_manager.get_base_path()) / "stats" / "usage_audit.csv"
-    if stats_path.exists():
+    if is_admin and stats_path.exists():
         try:
             content = resource_manager.read_file_text(stats_path)
             if content:
-                import io
                 reader = csv.DictReader(io.StringIO(content))
                 rows = list(reader)
                 total_rows = len(rows)
@@ -69,18 +84,29 @@ async def get_touka_stats(
     stats_data["daily_quota"] = autonomy_service.get_daily_quota(identity)
 
     # P4：背景活動（背景心跳脈衝進度等），供 UI「背景跑中」顯示
-    stats_data["background_activity"] = activity_registry.snapshot()
+    stats_data["background_activity"] = {
+        session_id: record
+        for session_id, record in activity_registry.snapshot().items()
+        if _can_see(record.get("agent") if isinstance(record, dict) else None)
+    }
 
     # P5c：上次未完成的背景任務（當機復原可見化），供 UI「⚠️ 上次有 N 個未完成」通知
-    stats_data["interrupted_runs"] = autonomy_service.get_interrupted_runs()
+    stats_data["interrupted_runs"] = [
+        run
+        for run in autonomy_service.get_interrupted_runs()
+        if _can_see(run.get("agent") if isinstance(run, dict) else None)
+    ]
 
     # ADR-0082：dispatch supervisor 觀測（status/pid/restarts）——dict-fold 免動 openapi
     supervisor = getattr(request.app.state, "dispatch_supervisor", None)
-    stats_data["dispatch_supervisor"] = (
+    supervisor_status = (
         supervisor.status()
         if supervisor is not None
         else {"status": "unavailable", "pid": None, "restarts": 0}
     )
+    if not is_admin:
+        supervisor_status = {**supervisor_status, "pid": None}
+    stats_data["dispatch_supervisor"] = supervisor_status
 
     return stats_data
 
