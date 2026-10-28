@@ -82,6 +82,7 @@ from .routers.editor import router as editor_router
 from .routers.feedback import router as feedback_router
 from .routers.group_settings import router as group_settings_router
 from .routers.heartbeat import router as heartbeat_router
+from .routers.hooks import router as hooks_router
 from .routers.identity import router as identity_router
 from .routers.mcp import MCP_MANUAL_START_STARTER
 from .routers.mcp import router as mcp_router
@@ -736,6 +737,7 @@ CORE_ROUTERS = [
     skills_router,
     creation_router,
     autonomy_router,
+    hooks_router,
     auth_router,
     admin_router,
     heartbeat_router,

@@ -17,7 +17,7 @@ describe('visibleSettingsTabs (C1 role-gating SSOT)', () => {
     const byId = Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, t]));
     expect(byId.general.adminOnly).toBeFalsy();
     expect(byId.theme.adminOnly).toBeFalsy();
-    for (const id of ['users', 'security', 'env', 'sns_bots', 'provider_keys', 'group', 'mcp']) {
+    for (const id of ['users', 'security', 'hooks', 'env', 'sns_bots', 'provider_keys', 'group', 'mcp']) {
       expect(byId[id].adminOnly).toBe(true);
     }
   });

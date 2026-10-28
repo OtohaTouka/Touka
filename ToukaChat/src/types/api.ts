@@ -3829,6 +3829,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hooks Config
+         * @description 目前生效的 hook 設定、設定檔狀態與可用的事件。
+         */
+        get: operations["get_hooks_config_v1_hooks_get"];
+        /**
+         * Save Hooks Config
+         * @description 存整份設定；``author``／``updated_at`` 由伺服器填。
+         */
+        put: operations["save_hooks_config_v1_hooks_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Hook Runs
+         * @description 最近的執行紀錄，新的在前。
+         */
+        get: operations["list_hook_runs_v1_hooks_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hooks Config
+         * @description 目前生效的 hook 設定、設定檔狀態與可用的事件。
+         */
+        get: operations["get_hooks_config_hooks_get"];
+        /**
+         * Save Hooks Config
+         * @description 存整份設定；``author``／``updated_at`` 由伺服器填。
+         */
+        put: operations["save_hooks_config_hooks_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Hook Runs
+         * @description 最近的執行紀錄，新的在前。
+         */
+        get: operations["list_hook_runs_hooks_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/register": {
         parameters: {
             query?: never;
@@ -7314,6 +7402,37 @@ export interface components {
             current_password: string;
         };
         /**
+         * CommandHook
+         * @description 執行一個程式：``command`` 是絕對路徑，``args`` 原樣交給作業系統，事件內容從標準輸入給。
+         */
+        CommandHook: {
+            /**
+             * Name
+             * @description 設定頁顯示的名稱
+             */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Timeout
+             * @description 秒
+             * @default 30
+             */
+            timeout: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "command";
+            /** Command */
+            command: string;
+            /** Args */
+            args?: string[];
+        };
+        /**
          * ConnectionItem
          * @description 單一外部 API 連線設定模型。
          */
@@ -7719,6 +7838,218 @@ export interface components {
             session_id: string;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * HookHealthOut
+         * @description 設定檔狀態：``revision`` 是目前檔案內容的 sha256，存檔時原樣送回（沒有檔案時 null）。
+         */
+        HookHealthOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "missing" | "error";
+            /** Revision */
+            revision?: string | null;
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
+         * HookMatcherGroup
+         * @description 一組比對規則與它的 handler；比對規則見 ``services/hooks/matcher``。
+         */
+        HookMatcherGroup: {
+            /**
+             * Matcher
+             * @default
+             */
+            matcher: string;
+            /** Hooks */
+            hooks: (components["schemas"]["CommandHook"] | components["schemas"]["HttpHook"])[];
+        };
+        /**
+         * HookRunOut
+         * @description 一筆執行紀錄；無痕對話只有時間、事件與結果。
+         */
+        HookRunOut: {
+            /** At */
+            at: number;
+            /** Event */
+            event: string;
+            /** Hook */
+            hook: string;
+            /** Hook Type */
+            hook_type: string;
+            /** Status */
+            status: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "blocked" | "ask" | "context" | "none" | "failed";
+            /** Duration Ms */
+            duration_ms: number;
+            /** Exit Code */
+            exit_code?: number | null;
+            /** Http Status */
+            http_status?: number | null;
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Incognito
+             * @default false
+             */
+            incognito: boolean;
+        };
+        /**
+         * HookRunsResponse
+         * @description 最近的執行紀錄，新的在前（只在記憶體，重啟後清空）。
+         */
+        HookRunsResponse: {
+            /** Runs */
+            runs: components["schemas"]["HookRunOut"][];
+        };
+        /**
+         * HooksConfig
+         * @description 整份 hook 設定；預設關閉，打開後依事件執行。
+         */
+        "HooksConfig-Input": {
+            /**
+             * Version
+             * @description 策略版本 (e.g. 1.0.0)
+             */
+            version?: string | null;
+            /**
+             * Author
+             * @description 策略建立者
+             */
+            author?: string | null;
+            /**
+             * Created At
+             * @description 建立時間 (UNIX Epoch)
+             */
+            created_at?: number | null;
+            /**
+             * Updated At
+             * @description 更新時間 (UNIX Epoch)
+             */
+            updated_at?: number | null;
+            /**
+             * Description
+             * @description 策略描述
+             */
+            description?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Hooks */
+            hooks?: {
+                [key: string]: components["schemas"]["HookMatcherGroup"][];
+            };
+        };
+        /**
+         * HooksConfig
+         * @description 整份 hook 設定；預設關閉，打開後依事件執行。
+         */
+        "HooksConfig-Output": {
+            /**
+             * Version
+             * @description 策略版本 (e.g. 1.0.0)
+             */
+            version?: string | null;
+            /**
+             * Author
+             * @description 策略建立者
+             */
+            author?: string | null;
+            /**
+             * Created At
+             * @description 建立時間 (UNIX Epoch)
+             */
+            created_at?: number | null;
+            /**
+             * Updated At
+             * @description 更新時間 (UNIX Epoch)
+             */
+            updated_at?: number | null;
+            /**
+             * Description
+             * @description 策略描述
+             */
+            description?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Hooks */
+            hooks?: {
+                [key: string]: components["schemas"]["HookMatcherGroup"][];
+            };
+        };
+        /**
+         * HooksConfigResponse
+         * @description 目前生效的設定（設定檔壞掉時是上一份好的）與設定檔狀態。
+         */
+        HooksConfigResponse: {
+            config: components["schemas"]["HooksConfig-Output"];
+            health: components["schemas"]["HookHealthOut"];
+            /** Wired Events */
+            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+            /** Matcher Events */
+            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+        };
+        /**
+         * HooksSaveRequest
+         * @description 整份設定與載入時的 ``health.revision``；revision 必填（沒有檔案時明確送 null）。
+         */
+        HooksSaveRequest: {
+            config: components["schemas"]["HooksConfig-Input"];
+            /** Revision */
+            revision: string | null;
+        };
+        /**
+         * HooksSaveResponse
+         * @description 存檔後的新 revision。
+         */
+        HooksSaveResponse: {
+            /** Revision */
+            revision: string;
+        };
+        /**
+         * HttpHook
+         * @description POST 事件內容到 ``url``；不跟隨轉址，標頭照字面送出。
+         */
+        HttpHook: {
+            /**
+             * Name
+             * @description 設定頁顯示的名稱
+             */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Timeout
+             * @description 秒
+             * @default 30
+             */
+            timeout: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "http";
+            /** Url */
+            url: string;
+            /** Headers */
+            headers?: {
+                [key: string]: string;
+            };
         };
         /**
          * IdentityMapConfig
@@ -17008,6 +17339,152 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewerModelsResponse"];
+                };
+            };
+        };
+    };
+    get_hooks_config_v1_hooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksConfigResponse"];
+                };
+            };
+        };
+    };
+    save_hooks_config_v1_hooks_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HooksSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_hook_runs_v1_hooks_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookRunsResponse"];
+                };
+            };
+        };
+    };
+    get_hooks_config_hooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksConfigResponse"];
+                };
+            };
+        };
+    };
+    save_hooks_config_hooks_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HooksSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_hook_runs_hooks_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookRunsResponse"];
                 };
             };
         };

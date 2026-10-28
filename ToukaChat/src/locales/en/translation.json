@@ -301,6 +301,7 @@
         "rbac": "Permission Matrix (RBAC)",
         "identity_map": "Identity Mapping",
         "autonomy": "Autonomy Budget",
+        "hooks": "Hooks (programs and HTTP calls run on events)",
         "users": "User Management",
         "agent_reset": "Agent Data Reset",
         "backup": "System Backup/Restore",
@@ -367,6 +368,10 @@
       "security": {
         "label": "Security",
         "title": "Security & Privacy"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook settings"
       },
       "sliding_window": {
         "label": "Sliding Window",
@@ -524,6 +529,74 @@
       "save_success": "Sliding window settings saved",
       "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
       "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
+    },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. Commands do not go through a shell, and programs and scripts must live in the hooks/ folder of the config folder; anything in a place agents can write to is refused.",
+      "enable_label": "Enable hooks",
+      "enable_hint": "When off, no hook runs.",
+      "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
+      "add_group": "Add a group",
+      "remove_group": "Remove this group",
+      "remove_hook": "Remove this hook",
+      "reload": "Reload",
+      "save_button": "Save",
+      "save_success": "Hook settings saved",
+      "path_problem": "{{event}} {{where}}: {{reason}} ({{value}})",
+      "types": {
+        "command": "Program",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "After a user sends a message, before it reaches the model. Can block the message or add context for the model. Heartbeats do not trigger it.",
+        "PreToolUse": "Before a tool runs. Can block it or ask a person to confirm on the approval card. The matcher checks the tool name.",
+        "PostToolUse": "After a tool succeeds. Can add context for the model. The matcher checks the tool name.",
+        "Stop": "After a reply ends; runs in the background and does not affect the reply."
+      },
+      "fields": {
+        "name": "Name (optional)",
+        "enabled": "Enable this hook",
+        "command": "Absolute path of the program",
+        "command_placeholder": "Absolute path of the program (for example an interpreter); keep scripts in the config folder's hooks/",
+        "args": "Arguments",
+        "args_placeholder": "Arguments, one per line (passed as-is, no shell)",
+        "url": "URL",
+        "headers": "Headers",
+        "headers_placeholder": "Headers, one \"Name: value\" per line (sent literally, no environment variables)",
+        "timeout": "Timeout (seconds)",
+        "matcher": "Matcher",
+        "matcher_placeholder": "Tool name; separate several with |, or use a regular expression; empty or * matches all"
+      },
+      "runs": {
+        "title": "Recent runs",
+        "hint": "Only the latest 50 are kept in server memory and cleared on restart. Incognito chats record only the time, event and result.",
+        "refresh": "Refresh",
+        "empty": "No runs yet.",
+        "incognito": "(incognito)"
+      },
+      "outcomes": {
+        "blocked": "Blocked",
+        "ask": "Asked to confirm",
+        "context": "Added context",
+        "none": "No action",
+        "failed": "Hook failed (not blocking)"
+      },
+      "path_reasons": {
+        "not_absolute": "not an absolute path",
+        "missing": "file does not exist",
+        "not_file": "not a file",
+        "parent_segment": "contains \"..\"",
+        "unc_path": "network paths and drive-relative paths are not accepted",
+        "agent_writable": "in a place agents can write to",
+        "hard_link": "has other hard links",
+        "link_loop": "too many or looping symbolic links",
+        "unverifiable": "location cannot be verified"
+      },
+      "errors": {
+        "load_failed": "Could not load the hook settings.",
+        "save_failed": "Saving failed. Please try again later.",
+        "invalid_field": "Invalid field: {{where}}: {{message}}"
+      }
     },
     "models_tab": {
       "search_placeholder": "Search models...",

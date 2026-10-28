@@ -137,3 +137,60 @@ class HooksConfig(BasePolicyModel):
         if not self.enabled:
             return []
         return list(self.hooks.get(event, []))
+
+
+# --- 管理 API（/hooks）的請求與回應 -------------------------------------------------------
+
+
+class HookHealthOut(BaseModel):
+    """設定檔狀態：``revision`` 是目前檔案內容的 sha256，存檔時原樣送回（沒有檔案時 null）。"""
+
+    status: Literal["ok", "missing", "error"]
+    revision: str | None = None
+    detail: str | None = None
+
+
+class HooksConfigResponse(BaseModel):
+    """目前生效的設定（設定檔壞掉時是上一份好的）與設定檔狀態。"""
+
+    config: HooksConfig
+    health: HookHealthOut
+    wired_events: list[HookEvent]
+    matcher_events: list[HookEvent]
+
+
+class HooksSaveRequest(BaseModel):
+    """整份設定與載入時的 ``health.revision``；revision 必填（沒有檔案時明確送 null）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    config: HooksConfig
+    revision: str | None = Field(..., max_length=64)
+
+
+class HooksSaveResponse(BaseModel):
+    """存檔後的新 revision。"""
+
+    revision: str
+
+
+class HookRunOut(BaseModel):
+    """一筆執行紀錄；無痕對話只有時間、事件與結果。"""
+
+    at: float
+    event: str
+    hook: str
+    hook_type: str
+    status: str
+    outcome: Literal["blocked", "ask", "context", "none", "failed"]
+    duration_ms: int
+    exit_code: int | None = None
+    http_status: int | None = None
+    detail: str | None = None
+    incognito: bool = False
+
+
+class HookRunsResponse(BaseModel):
+    """最近的執行紀錄，新的在前（只在記憶體，重啟後清空）。"""
+
+    runs: list[HookRunOut]

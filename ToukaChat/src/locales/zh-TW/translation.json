@@ -301,6 +301,7 @@
         "rbac": "權限矩陣（RBAC）",
         "identity_map": "身分映射",
         "autonomy": "自主預算",
+        "hooks": "Hook（事件觸發的程式與 HTTP）",
         "users": "使用者管理",
         "agent_reset": "代理人資料重置",
         "backup": "系統備份／還原",
@@ -367,6 +368,10 @@
       "security": {
         "label": "安全設定",
         "title": "安全與隱私"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook 設定"
       },
       "sliding_window": {
         "label": "滑動視窗",
@@ -441,6 +446,74 @@
       "save_success": "滑動視窗設定已儲存",
       "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
       "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+    },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；指令不經 shell，程式與腳本要放在設定資料夾的 hooks/ 裡，放在代理人寫得到的地方會被拒收。",
+      "enable_label": "啟用 Hooks",
+      "enable_hint": "關閉時所有 hook 都不執行。",
+      "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
+      "add_group": "新增一組",
+      "remove_group": "刪除這組",
+      "remove_hook": "刪除這個 hook",
+      "reload": "重新載入",
+      "save_button": "儲存",
+      "save_success": "Hook 設定已儲存",
+      "path_problem": "{{event}} 的 {{where}}：{{reason}}（{{value}}）",
+      "types": {
+        "command": "程式",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "使用者送出訊息後、交給模型前。可以擋下訊息，或補充說明給模型。心跳不觸發。",
+        "PreToolUse": "工具執行前。可以擋下，或要人在審批卡上確認。比對規則看工具名稱。",
+        "PostToolUse": "工具成功執行後。可以補充說明給模型。比對規則看工具名稱。",
+        "Stop": "一輪回覆結束後在背景執行，不影響回覆。"
+      },
+      "fields": {
+        "name": "名稱（選填）",
+        "enabled": "啟用這個 hook",
+        "command": "程式的絕對路徑",
+        "command_placeholder": "程式的絕對路徑（例如直譯器），腳本放在設定資料夾的 hooks/",
+        "args": "參數",
+        "args_placeholder": "參數，一行一個（原樣交給程式，不經 shell）",
+        "url": "網址",
+        "headers": "標頭",
+        "headers_placeholder": "標頭，一行一個「名稱: 值」（照字面送出，不替換環境變數）",
+        "timeout": "逾時（秒）",
+        "matcher": "比對規則",
+        "matcher_placeholder": "工具名稱；可用 | 分隔多個，或寫正規表示式；空白或 * 表示全部"
+      },
+      "runs": {
+        "title": "最近執行",
+        "hint": "只保留在伺服器記憶體裡最新的 50 筆，重啟後清空。無痕對話只記時間、事件與結果。",
+        "refresh": "重新整理",
+        "empty": "還沒有執行紀錄。",
+        "incognito": "（無痕）"
+      },
+      "outcomes": {
+        "blocked": "擋下",
+        "ask": "要人確認",
+        "context": "補充說明",
+        "none": "沒有動作",
+        "failed": "hook 失敗（不擋）"
+      },
+      "path_reasons": {
+        "not_absolute": "不是絕對路徑",
+        "missing": "檔案不存在",
+        "not_file": "不是檔案",
+        "parent_segment": "含有「..」",
+        "unc_path": "不接受網路路徑或磁碟機相對路徑",
+        "agent_writable": "在代理人寫得到的地方",
+        "hard_link": "有其他硬連結",
+        "link_loop": "符號連結太多層或繞圈",
+        "unverifiable": "無法確認位置"
+      },
+      "errors": {
+        "load_failed": "讀不到 Hook 設定。",
+        "save_failed": "儲存失敗，請稍後再試。",
+        "invalid_field": "欄位不合規則：{{where}}：{{message}}"
+      }
     },
     "general_tab": {
       "profile_heading": "個人檔案",
