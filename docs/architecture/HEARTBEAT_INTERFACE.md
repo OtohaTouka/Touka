@@ -240,7 +240,7 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 
 ## 🔁 UI 一鍵重新觸發 (Retrigger) — ADR-0078 ⭐
 
-當機/被誤關時，進行中的背景多脈衝迴圈會在 `autonomy_log.json` 留下 in-flight 標記（`AutonomyService.mark_heartbeat_in_flight`，`_process_heartbeat_loop` 起點落盤、`finally` 清除）。ToukaProxy 啟動時 `scan_and_clear_interrupted()` 掃描各 agent 殘留標記，折進 `GET /v1/stats` 的 `interrupted_runs`，前端顯示「⚠️ 上次有 N 個未完成的背景任務」並提供「重新觸發」按鈕。
+當機/被誤關時，進行中的背景多脈衝迴圈會在 `autonomy_log.json` 留下 in-flight 標記（`AutonomyService.mark_heartbeat_in_flight`，`_process_heartbeat_loop` 起點落盤、`finally` 清除）。ToukaProxy 啟動時 `scan_and_clear_interrupted()` 掃描各 agent 殘留標記，折進 `GET /v1/stats` 的 `interrupted_runs`，前端顯示「⚠️ 上次有 N 個未完成的背景任務」並提供「重新觸發」按鈕。`interrupted_runs` 與 `background_activity` 只列呼叫者能存取的靈魂（規則同 `can_access_session`），一般使用者看不到別人靈魂的紀錄（2026-10-28）。
 
 - **端點**: `POST /v1/heartbeat/retrigger`
 - **認證**：以**人類擁有者**身分驗證（`get_verified_identity` + `resource_manager.is_owner`），**非** service token——供登入使用者從 UI 直接重跑自己擁有的 agent。
