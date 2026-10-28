@@ -20,6 +20,8 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app, protocol_manager
+from src.services.model_manager import model_manager
+from src.services.skill_service import skill_service
 from src.utils.bootstrap import ConfigValidationError
 
 # --------------------------------------------------------------------------- #
@@ -99,3 +101,66 @@ def test_lifespan_warns_on_skill_mcp_wiring_gaps(monkeypatch, caplog):
     assert any("⚠️ [Skill-MCP]" in m and "mcp-docgen" in m for m in msgs)
     # 以「已註冊 server 集合」呼叫（真實 registry 狀態，非空殼參數）
     assert isinstance(captured["registered"], set)
+
+
+# --------------------------------------------------------------------------- #
+# ADR-0290：兩個調度員技能檔在 lifespan 產生（不進版控）
+# --------------------------------------------------------------------------- #
+
+
+def test_lifespan_syncs_dispatchers_after_mcp_key_migration(monkeypatch):
+    """MCP 名稱遷移之後依序產生兩個調度員檔，列出的才是整理後的 server 名。
+
+    變異刪 lifespan 的兩個 sync 呼叫 → 紅（檔不進版控，全新安裝會缺 MCP 調度員）。
+    """
+    order: list[str] = []
+    monkeypatch.setattr(
+        "src.utils.skill_mcp_wiring.migrate_stale_server_keys",
+        lambda **_kw: (order.append("migrate"), [])[1],
+    )
+    monkeypatch.setattr(
+        skill_service, "sync_system_dispatcher", lambda: order.append("sync_system")
+    )
+    monkeypatch.setattr(skill_service, "sync_skill_dispatcher", lambda: order.append("sync_skill"))
+
+    with TestClient(app):
+        pass
+
+    assert order == ["migrate", "sync_system", "sync_skill"]
+
+
+class _StopAfterDispatcherSync(Exception):
+    """第二個 sync 後立刻結束啟動，不跑後段（OAuth、背景服務）。"""
+
+
+def test_bootstrap_enabled_syncs_dispatchers_after_config_self_heal(tmp_path, monkeypatch):
+    """bootstrap 開啟時，設定自癒（ensure_configs）先跑完，才產生調度員檔。
+
+    設定目錄與 .env 都導向 tmp，bootstrap 段的四個步驟換成替身（只記順序）。
+    變異刪 lifespan 的兩個 sync 呼叫 → 沒有哨兵例外 → 紅。
+    """
+    monkeypatch.setenv("TOUKA_BOOTSTRAP_ENABLED", "true")
+    monkeypatch.setenv("TOUKA_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("TOUKA_ENV_FILE", str(tmp_path / ".env"))
+    monkeypatch.setattr("src.utils.bootstrap.CONFIG_DIR", str(tmp_path))
+    order: list[str] = []
+    monkeypatch.setattr(
+        "src.utils.bootstrap.ensure_configs", lambda: order.append("ensure_configs")
+    )
+    monkeypatch.setattr("src.utils.bootstrap.validate_live_configs", lambda: None)
+    monkeypatch.setattr("src.config.verify_env_persistence_integrity", lambda: None)
+    monkeypatch.setattr(model_manager, "reload_connections", lambda: None)
+    monkeypatch.setattr(
+        skill_service, "sync_system_dispatcher", lambda: order.append("sync_system")
+    )
+
+    def _stop() -> None:
+        order.append("sync_skill")
+        raise _StopAfterDispatcherSync
+
+    monkeypatch.setattr(skill_service, "sync_skill_dispatcher", _stop)
+
+    with pytest.raises(_StopAfterDispatcherSync), TestClient(app):
+        pass  # pragma: no cover — 啟動在 yield 前中止
+
+    assert order == ["ensure_configs", "sync_system", "sync_skill"]

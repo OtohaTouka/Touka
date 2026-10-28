@@ -92,6 +92,22 @@ def _content_version(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 
 
+def _write_if_changed(path: Path, content: str) -> bool:
+    """內容和現有檔相同就不寫，回傳有沒有寫（ADR-0290）。
+
+    調度員檔每次啟動都重算；整份重寫的檔會被 Windows 的 git 誤判成改過。讀檔用通用
+    換行，只差 CRLF 的舊檔也算相同；讀不到（權限、不是 UTF-8）就照寫，壞檔才修得回來。
+    """
+    if resource_manager.exists(path):
+        try:
+            if resource_manager.read_file_text(path) == content:
+                return False
+        except (OSError, UnicodeDecodeError):
+            logger.warning("Dispatcher file %s is unreadable; rewriting it.", path)
+    resource_manager.write_file_text(path, content, make_parents=True)
+    return True
+
+
 def _render_dispatcher_body(skill_list_xml: str) -> str:
     """技能調度員 system prompt 本體（SSOT；靜態 sync 與 per-request 過濾共用）。"""
     return f"""你具備「依需求動態啟用技能」的能力。
@@ -441,13 +457,15 @@ class SkillService:
 
     def sync_system_dispatcher(self) -> None:
         """根據 MCP 設定動態產出調度員技能，寫入 SKILL.md (SSOT Sync)。"""
-        config_path = get_config_dir() / "server_config.json"
-        data = resource_manager.read_json(config_path)
-        if not data:
-            logger.warning("MCP config not found at %s, skipping dispatcher sync.", config_path)
-            return
-
         try:
+            config_path = get_config_dir() / "server_config.json"
+            data = resource_manager.read_json(config_path)
+            if not data:
+                logger.warning(
+                    "MCP config not found at %s, skipping dispatcher sync.", config_path
+                )
+                return
+
             mcp_servers = data.get("mcpServers", {})
 
             mcp_items = []
@@ -485,9 +503,10 @@ class SkillService:
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
             md_path = self._skills_dir / "system-mcp-dispatcher" / _SKILL_FILE
-            resource_manager.write_file_text(md_path, content, make_parents=True)
+            written = _write_if_changed(md_path, content)
             self._metadata["system-mcp-dispatcher"] = frontmatter
-            logger.info("✅ System MCP Dispatcher skill synchronized with SSOT.")
+            if written:
+                logger.info("✅ System MCP Dispatcher skill synchronized with SSOT.")
         except Exception:
             logger.exception("Failed to sync system dispatcher")
 
@@ -522,9 +541,10 @@ class SkillService:
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
             md_path = self._skills_dir / "system-skill-dispatcher" / _SKILL_FILE
-            resource_manager.write_file_text(md_path, content, make_parents=True)
+            written = _write_if_changed(md_path, content)
             self._metadata["system-skill-dispatcher"] = frontmatter
-            logger.info("✅ System Skill Dispatcher synchronized with SSOT.")
+            if written:
+                logger.info("✅ System Skill Dispatcher synchronized with SSOT.")
         except Exception:
             logger.exception("Failed to sync skill dispatcher")
 
@@ -684,6 +704,4 @@ class SkillService:
 
 
 skill_service = SkillService()
-# 啟動時即同步系統調度員（MCP + Skill）
-skill_service.sync_system_dispatcher()
-skill_service.sync_skill_dispatcher()
+# 兩個調度員檔由 main.py 的 lifespan 產生（設定自癒與 MCP 名稱遷移之後），載入時不寫（ADR-0290）

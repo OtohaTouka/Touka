@@ -353,3 +353,39 @@ def test_sync_dispatcher_version_is_content_hash(svc, tmp_path):
     assert md1 == md2  # 同 registry 重生 → 位元組相同
     assert md1 != md3  # registry 變 → version 雜湊與內容變
     assert "version:" in md1
+
+
+def _mcp_dispatcher_writes(svc, tmp_path, cfg):
+    """以 cfg 再 sync 一次，回傳寫到 MCP 調度員檔的次數。"""
+    target = tmp_path / "skills" / "system-mcp-dispatcher" / "SKILL.md"
+    real_write = resource_manager.write_file_text
+    with (
+        patch.object(resource_manager, "read_json", return_value=cfg),
+        patch.object(resource_manager, "write_file_text", wraps=real_write) as spy,
+    ):
+        svc.sync_system_dispatcher()
+    return sum(1 for call in spy.call_args_list if call.args[0] == target)
+
+
+def test_sync_dispatcher_resync_unchanged_skips_write(svc, tmp_path):
+    """registry 沒變再 sync 不重寫（ADR-0290：重寫的檔會被 Windows 的 git 誤判成改過）。"""
+    cfg = {"mcpServers": {"fetch": {"command": "uvx"}}}
+    assert _mcp_dispatcher_writes(svc, tmp_path, cfg) == 1
+    assert _mcp_dispatcher_writes(svc, tmp_path, cfg) == 0
+
+
+def test_sync_dispatcher_skip_still_refreshes_metadata(svc, tmp_path):
+    """沒重寫時，記憶體裡的技能清單照樣有 MCP 調度員。"""
+    cfg = {"mcpServers": {"fetch": {"command": "uvx"}}}
+    _mcp_dispatcher_writes(svc, tmp_path, cfg)
+    svc._metadata.pop("system-mcp-dispatcher")
+    assert _mcp_dispatcher_writes(svc, tmp_path, cfg) == 0
+    assert "system-mcp-dispatcher" in svc._metadata
+
+
+def test_sync_dispatcher_read_error_is_logged_not_raised(svc, tmp_path, caplog):
+    """讀 MCP 設定拋錯只記錄、不往外丟：sync 在 lifespan 裡跑，拋出會讓 Proxy 起不來。"""
+    with patch.object(resource_manager, "read_json", side_effect=PermissionError("denied")):
+        svc.sync_system_dispatcher()
+    assert not resource_manager.exists(tmp_path / "skills" / "system-mcp-dispatcher")
+    assert "Failed to sync system dispatcher" in caplog.text
