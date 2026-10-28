@@ -1,6 +1,7 @@
 /**
  * model-p0 U7：聊天送出的 onError 交給 useAgentBrainNotice；它處理了（沒設主要模型）
- * 就不再疊一個「網路連線錯誤」，其他錯誤照舊顯示。
+ * 就不再疊一個「網路連線錯誤」，其他錯誤照舊顯示。被 hook 擋下的訊息（ADR-0292）同樣交給
+ * useHookBlockNotice，處理了就不顯示網路錯誤。
  */
 import React from 'react';
 import { act, renderHook } from '@testing-library/react';
@@ -10,7 +11,7 @@ import type { Session } from '@/lib/types';
 import type { StartStreamParams } from '../StreamRegistryProvider';
 
 const h = vi.hoisted(() => ({
-  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(),
+  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(), hookNotice: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
@@ -28,6 +29,7 @@ vi.mock('../../connections', () => ({
 }));
 vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } }));
 vi.mock('@/hooks/useAgentBrainNotice', () => ({ useAgentBrainNotice: () => h.notice }));
+vi.mock('@/hooks/useHookBlockNotice', () => ({ useHookBlockNotice: () => h.hookNotice }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
@@ -51,6 +53,7 @@ describe('聊天 onError → useAgentBrainNotice（model-p0 U7）', () => {
     vi.clearAllMocks();
     h.sessions = [{ id: 's1', title: 't', messages: [], updatedAt: 1 }];
     h.wire.mockResolvedValue(undefined);
+    h.hookNotice.mockReturnValue(false);
   });
 
   it('通知處理了（沒設主要模型）→ 不再顯示網路錯誤', async () => {
@@ -65,12 +68,23 @@ describe('聊天 onError → useAgentBrainNotice（model-p0 U7）', () => {
     h.notice.mockReturnValue(false);
     await failStream(new Error('other'));
     expect(h.notice).toHaveBeenCalledTimes(1);
+    expect(h.hookNotice).toHaveBeenCalledTimes(1);
     expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('被 hook 擋下（ADR-0292）→ 交給 hook 通知，不再顯示網路錯誤', async () => {
+    h.notice.mockReturnValue(false);
+    h.hookNotice.mockReturnValue(true);
+    const err = new Error('blocked');
+    await failStream(err);
+    expect(h.hookNotice).toHaveBeenCalledWith(err);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('使用者中止 → 兩者都不顯示', async () => {
     await failStream({ name: 'AbortError' });
     expect(h.notice).not.toHaveBeenCalled();
+    expect(h.hookNotice).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
