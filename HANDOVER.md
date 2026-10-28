@@ -5,6 +5,7 @@
 ## 1. 現況
 
 - **ToukaChat 拿掉上導覽列（2026-10-28）**：桌面版分頁與設定只在左側邊欄；左側邊欄頂端收合、收起後對話區左上角展開（首次設定紅點在展開鈕上）；右上角「工具面板」鈕開關右側邊欄，預設收起、新產出物照舊自動打開；IDE 只有設定鈕，再按一次回對話；手機版不變。細節見 `CHAT_INTERFACE.md` 版面一節。
+- **Hook（2026-10-28，ADR-0292，丙-1）**：管理員可以在設定畫面「Hooks」分頁（只有人類管理員看得到）設定使用者送出訊息、工具執行前後、一輪回覆結束時執行的程式（不經 shell）或 HTTP。預設關閉；設定檔 `config/hooks.json`，腳本放同資料夾的 `hooks/`，指到代理人寫得到的地方會被拒收。hook 只能擋下或要人確認（審批卡另標「hook 要你確認」，不送審查員），不能放行；被擋下的訊息前端顯示理由。心跳的脈衝提示不觸發「使用者送出訊息」。其餘事件在丙-2。規則見禁令 67。
 - **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
 
 - **兩個調度員技能檔不進版控（2026-10-28，ADR-0290）**：`system-mcp-dispatcher`、`system-skill-dispatcher` 的 SKILL.md 改成 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）產生，內容沒變不重寫；載入程式時不再寫。用 git 更新到這一版之前，先 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時 git 會拒絕更新），更新後重啟一次。

@@ -1,10 +1,10 @@
-# ADR-0292：Hook（丙-1：引擎、安全界線與四個事件）
+# ADR-0292：Hook（丙-1：引擎、安全界線、四個事件與設定頁）
 
-- 狀態：🚧 實作中。維護者 2026-10-28 要求前後端加上 hook 與設定介面、行為盡量和 Claude Code 相同、對不上的先列表；一頁計畫由維護者核准，丙-1 加做對抗式複審。
+- 狀態：✅ 已實作（丙-1；其餘事件在丙-2）。維護者 2026-10-28 要求前後端加上 hook 與設定介面、行為盡量和 Claude Code 相同、對不上的先列表；一頁計畫由維護者核准，丙-1 加做對抗式複審。
 - 日期：2026-10-28
 - 決策者：維護者
 - 相關：ADR-0146（回合結束的約定）、ADR-0228／0229（工具執行順序與可信 context）、ADR-0239（`execution_broker`）、ADR-0246（模式、審查員與底線）、ADR-0257（歷史資料界線）、ADR-0269（只執行這一輪列出的工具）、ADR-0272（隔離層級；hook 程式不是代理人撰寫的程式，不經 runner，見決定 4）。
-- 影響範圍：ToukaProxy 新增 `models/hooks.py`、`services/hooks/`、`middleware/layers/hooks.py`；修改 `services/tool_executor.py`、`handlers/react_core.py`、`services/proxy_service.py`、`services/approval_flow.py`、`utils/tool_events.py`、`services/prompt_blocks.py`、`adapters/content_normalize.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`utils/bootstrap.py`、`utils/hard_floor.py`、`utils/async_db.py`；設定 `config/hooks.json.example`、`errors.json.example`（6001～6003）。ToukaChat：審批卡、串流錯誤通知、`error_codes.ts`、翻譯。
+- 影響範圍：ToukaProxy 新增 `models/hooks.py`、`services/hooks/`、`middleware/layers/hooks.py`；修改 `services/tool_executor.py`、`handlers/react_core.py`、`services/proxy_service.py`、`services/approval_flow.py`、`utils/tool_events.py`、`services/prompt_blocks.py`、`adapters/content_normalize.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`utils/bootstrap.py`、`utils/hard_floor.py`、`utils/async_db.py`；新增 `routers/hooks.py`（掛在 `main.py` 的 `CORE_ROUTERS`）；設定 `config/hooks.json.example`、`errors.json.example`（6001～6003）；`openapi.json`。ToukaChat：設定畫面「Hooks」分頁（`components/settings/tabs/HooksTab.tsx`、`tabs/hooks/`、`hooks/settings/useHooksSettings.ts`、設定註冊表與搜尋索引）、審批卡、串流錯誤通知、`error_codes.ts`、`api.ts`、`lib/types.ts`、翻譯。
 
 ## 背景
 
@@ -51,7 +51,18 @@
    - Stop：ReAct 迴圈回完之後在背景執行（`spawn_logged`），回覆不等它；子代理的回合不執行；只記錄，不能讓代理人繼續（ADR-0146：回文字就結束這一輪）。
    - 心跳的每次脈衝都會觸發工具前後與 Stop；脈衝提示不是使用者訊息，所以不觸發 UserPromptSubmit。
 8. **執行紀錄**：最近 50 筆存在記憶體（重啟清空），記時間、事件、hook 名稱與類型、結果、耗時、結束碼或 HTTP 狀態、失敗原因（不含輸出內容）。無痕對話照跑 hook，但紀錄只留時間、事件、結果與耗時。
-9. **存檔**：只經管理 API，以 revision（內容 SHA-256）做 CAS，對不上回 `HOOK_CONFIG_CONFLICT`（409）；存檔前跑決定 5 的檢查。（管理 API 與設定頁見下一節，實作後補。）
+9. **存檔**：只經管理 API，以 revision（內容 SHA-256）做 CAS，對不上回 `HOOK_CONFIG_CONFLICT`（409）；存檔前跑決定 5 的檢查。
+10. **管理 API**（`routers/hooks.py`，`/hooks` 與 `/v1/hooks`）：
+    - 三個端點都只給人類管理員（`require_admin_human`；admin 代打、靈魂、DebugAgent 都不行）。
+    - `GET /hooks`：目前生效的設定（壞檔時是上一份好的）、`health`（`ok`／`missing`／`error`、目前檔案的 revision、錯誤類型）、已接線的事件與看工具名稱的事件。
+    - `PUT /hooks`：送 `{config, revision}`，revision 必填（沒有檔案時明確送 `null`），多的欄位拒收；先查 CSRF Origin；`author` 與 `updated_at` 由伺服器填，用戶端送的不採用；回新的 revision。
+    - `GET /hooks/runs`：決定 8 的執行紀錄，新的在前。
+    - `hooks.json` 不在設定匯出／匯入（`settings_snapshot_service.SECTIONS`）裡：匯入不經存檔的路徑檢查。
+11. **設定頁**：設定畫面「系統」組的「Hooks」分頁（`adminOnly`，不加左側欄入口）。
+    - 依伺服器回的事件逐區顯示；比對規則只在看工具名稱的事件出現；每組可加 command 或 http hook。
+    - command 填程式的絕對路徑、參數一行一個（原樣交給程式）；http 填網址、標頭一行一個「名稱: 值」。
+    - 存檔被拒時列出原因：路徑問題逐項列事件、位置、原因與值；衝突提示重新載入；欄位不合規則顯示第一個錯誤的位置。設定檔壞掉時提醒目前用的是上一份好的設定、存檔會取代它。
+    - 下方列最近的執行紀錄，無痕的只顯示時間、事件與結果。
 
 ## 和 Claude Code 對不上的部分
 
@@ -72,6 +83,7 @@
 - 沒有設定時行為不變：接線點先問 `has_hooks`，不組事件內容、不改任何結果（golden 不變）。
 - 設定了 PreToolUse 的工具，每次呼叫多等 hook 執行完（最多到逾時）；Stop 不影響回覆。
 - 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`。
+- 新增三個管理端點（決定 10）；`openapi.json` 與 `api.ts` 隨之更新。
 - 撤回：把 `enabled` 設成 false 或清空 `hooks` 立即停用；revert 即可整個移除，`hooks.json` 留著無害。
 
 ## 替代方案
@@ -88,4 +100,5 @@
 - `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時結束行程樹、輸出上限、http 不跟隨轉址與大小上限。
 - `tests/unit/test_hook_service.py`：解讀規則、同時執行、只擋不放行、執行紀錄與無痕、壞檔沿用上一份、存檔 CAS 與路徑檢查。
 - `tests/unit/test_hook_wiring_security.py`：四個事件的接線（只在真的請求執行、擋下帶理由、補充說明是資料、PreToolUse 擋下不送審不跳卡、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher、PostToolUse 只在成功後、Stop 在背景、沒有設定時結果不變）。
-- ToukaChat：審批卡的 hook 理由、串流事件解析、被擋訊息的通知。
+- `tests/unit/test_hooks_router_security.py`：只有人類管理員能讀寫、存檔寫檔並回 revision、作者由伺服器填、舊 revision 拒絕且不動檔、路徑被拒不寫檔、不可信的 Origin 拒絕、格式不對拒收、執行紀錄與無痕、壞檔時的 revision、`/v1` 前綴、設定匯出不含 `hooks.json`。
+- ToukaChat：審批卡的 hook 理由、串流事件解析、被擋訊息的通知；設定頁的草稿函式、資料層（revision、錯誤分類）與分頁（事件區塊、編輯後送出的設定、存檔被拒的原因、壞檔提醒）。

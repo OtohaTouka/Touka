@@ -2,6 +2,15 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；ToukaChat 跑在 port 3001。
 
+## Hook 設定頁、hook 的審批卡與被擋的訊息（ADR-0292）
+
+- 設定畫面「系統」組新增「Hooks」分頁（`config.ts` 的 `hooks`，`adminOnly`；搜尋索引一筆）。不加左側欄入口。
+  - 資料層 `hooks/settings/useHooksSettings.ts`：經 `fetchTouka` 讀 `GET /v1/hooks` 與 `GET /v1/hooks/runs`；存檔 `PUT /v1/hooks` 送整份設定和載入時的 `health.revision`（沒有檔案時送 `null`）。存檔結果分成 `saved`、`conflict`（409）、`path_rejected`（422，帶 `problems`）、`invalid`（422 欄位驗證，取第一個錯誤的位置與訊息）、`failed`。讀不到（含 403）當讀取失敗。
+  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示，比對規則只在 `matcher_events` 出現；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
+  - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
+- 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
+- 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
+
 ## 重置卡查最後一次重置的結果（ADR-0289）
 
 - `hooks/useAgentDataReset.ts` 多 `last` 與 `refreshLast()`：經 `fetchTouka` 讀 `GET /v1/admin/agents/reset/last`；掛載時查一次，按「完成」後再查；查詢本身失敗（連不上、403）時回 `null`、卡上保留上一次查到的，伺服器沒有紀錄時是 `idle`。

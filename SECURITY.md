@@ -46,6 +46,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 | **終端機執行** | 同上統一 HITL；終端一律算 dangerous（`safe_whitelist` 已拿掉），Auto 下先交審查員；黑名單攔截（恆拒、凌駕 YOLO）；headless 保留遺留 ToukaUI 通道語意 |
 | **隔離執行環境** | 代理人撰寫或指定的程式（終端、互審驗證指令、演化）在執行器容器（`touka-executor`）裡經 Landlock 啟動器執行，看不到金鑰、設定、原始碼與其他代理人資料（但書：`/proc/*/cmdline` 讀得到，token 不要放在 MCP 的 args；同 uid 檔案的權限位元仍改得到，代理人工作區由自癒補回，見 ADR），連不到也搶不到 Touka 內部埠、Docker 遠端控制埠與從設定推得的本機上游埠；執行器的控制通道用檔案權杖加 `SO_PEERCRED` 認證；層級只由 `services/isolation` 判定，`none` 時 Auto／YOLO 只有人能核准、無人在場拒絕，卡片如實標示「在執行器裡／隔離降級／未隔離」並綁定核准；有隔離不放寬任何規則。C2-3 已涵蓋 stdio MCP 與創建試跑：自建依層級選 runner，第三方與 scaffold 看本機 Landlock；穩定的不可用原因仍容許第三方未隔離啟動，自建 none 只接受一次人類同意。完整邊界見下方 MCP 已知限制及 ADR-0275 |
 | **底線與 Auto 審查員** | 程式常數底線 F1–F7 在 `evaluate` 最前面判斷、設定檔關不掉：刪改資料、讀金鑰、改權限設定、改原始碼、系統破壞三種模式都只有人能核准，F5、F6 在 Auto 下只有人能核准；Auto 審查員只收型別化判決、失敗一律不放行、不能推翻底線、無人在場不送審（禁令 64，ADR-0246） |
+| **Hook（管理員設定的程式與 HTTP）** | 預設關閉；`hooks.json` 只經 `PUT /v1/hooks`（人類 admin、revision 比對、CSRF Origin）改，代理人寫入屬底線 F3，不在設定匯出／匯入裡。hook 只能擋下或要人確認，不能放行、不能改寫參數、不能推翻底線或代替人核准；command 不經 shell、環境不含金鑰，程式與參數不能指到代理人寫得到的地方（存檔與每次執行前都查）；http 不跟隨轉址、有逾時與大小上限、標頭不替換環境變數；回給模型的輸出當資料（禁令 67，ADR-0292） |
 | **模式授權** | 只有 admin 或該靈魂的擁有者能把對話存成 Auto／YOLO，在 session 寫入時判定；請求參數不是模式來源（ADR-0246） |
 | **檔案存取** | ResourceManager 路徑主權隔離（`is_relative_to()` + `validate_no_symlink_escape()` 雙重檢查）；**原子寫入**（temp+fsync+`os.replace`）防寫到一半損毀（ADR-0078） |
 | **心跳重新觸發（UI）** | `POST /v1/heartbeat/retrigger` 限 admin 或人類擁有者（Debugger 不旁路）、對話須屬於該靈魂 + 能力閘（`can_awaken`）+ **強制 Auto**（無人在場不跑終端、不叫審查員），永不升級 YOLO（ADR-0078、ADR-0246） |
@@ -93,6 +94,13 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - `exec_env_stripped` 以不分大小寫的子字串比對 `PYTHON`、`NODE_`、`JAVA_`、`GEM_`、`PERL`、`LD_`、`DYLD_`，不限前綴或用途；`NODE_ENV`、`MY_PYTHON_TOKEN`、`NODE_EXTRA_CA_CERTS` 也會移除。伺服器若支援，改用不衝突的名稱；必須使用原名時，只能走既有規則允許的直接啟動路徑，不因此自動降級。
 - 經過濾後仍留下、但不符合 `[A-Za-z_][A-Za-z0-9_]{0,127}` 的 env 名稱，才由 kernel 回 `spec_invalid`、不啟動；需改用英數與底線、首字不能是數字。格式錯誤與上述只記 log 的名稱移除是兩種不同處理。
 - `temp/docgen_output` 不在權限自癒白名單；權限被改壞時 docgen 可能寫不出檔。遠端 URL MCP、IDE 終端與 Dispatch 自動召喚不在這套子程序隔離範圍。
+
+### Hook 的已知限制（ADR-0292）
+
+- **hook 程式以 Touka 自己的權限執行**：不經隔離 runner（hook 是管理員設定的程式，不是代理人撰寫的），讀得到 `.env`、設定與 data。環境變數裡不給金鑰，但程式自己去讀檔案就讀得到。只把你信任的程式設成 hook。
+- **http hook 會把事件內容送出去**：包含使用者的訊息、工具名稱與參數、工具結果；送到哪裡由管理員決定，Touka 不檢查目的地。無痕對話也照跑 hook。
+- **路徑檢查只看路徑**：參數裡看起來像路徑的片段才檢查；直譯器執行的程式內容（例如 `python -c` 的程式碼、腳本自己 import 或讀的檔案）不在檢查範圍。
+- **PreToolUse 會拖慢工具**：每次符合的工具呼叫都要等 hook 執行完（最多到逾時，上限 300 秒）。
 
 ### 代理人指令隔離的其他已知限制
 

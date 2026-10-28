@@ -2,6 +2,17 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## Hook 設定與事件（2026-10-28，ADR-0292）
+
+- 管理端點（根路徑與 `/v1` 對等），三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
+  - `GET /v1/hooks` → `HooksConfigResponse`：`config`（目前生效的設定；`hooks.json` 壞掉時是上一份好的）、`health`（`status` 為 `ok`／`missing`／`error`，`revision` 是目前檔案內容的 SHA-256、沒有檔案時 `null`，`detail` 是錯誤類型）、`wired_events`、`matcher_events`。
+  - `PUT /v1/hooks`：body `HooksSaveRequest` `{config, revision}`，`revision` 必填（沒有檔案時送 `null`），多的欄位 422。先查 CSRF Origin（不可信回 403）；revision 和目前檔案不同回 409 `HOOK_CONFIG_CONFLICT`（`detail.revision` 帶目前的值）；command hook 的程式或參數指到代理人寫得到的地方、或無法確認時回 422 `HOOK_PATH_REJECTED`（`detail.problems[]`：`event`、`where`、`reason`、`value`），都不寫檔。成功回 `{revision}`；`author`、`updated_at` 由伺服器填。
+  - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。
+- 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由。
+- 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
+- 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
+- `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。
+
 ## 查最後一次重置的結果（2026-10-28，ADR-0289）
 
 - 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與一般使用者回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401。唯讀。

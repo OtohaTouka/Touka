@@ -122,7 +122,7 @@
 |---|---|---|---|
 | F1 | 刪改 Touka 資料 | 寫入動詞（rm、mv、cp、Remove-Item、Set-Content、sed、直譯器、`>` 重新導向…）＋絕對路徑含 data、soul、legacy，或相對路徑含 soul、往上跳出工作目錄（`..`） | 只有人能核准 |
 | F2 | 讀金鑰 | 不看動詞：`.env`、`.env.*`（.example 等範本除外）、`users.json`、`connections.json`、`/proc/*/environ` | 只有人能核准 |
-| F3 | 改權限設定 | 寫入動詞＋`auth_policies`、`permissions.json`、`identity_map`、`autonomy.json`、`dispatch_hooks.json`、`server_config.json`、`group_whitelist.json`，或 `app/config`、`ToukaProxy/config` 目錄 | 只有人能核准 |
+| F3 | 改權限設定 | 寫入動詞＋`auth_policies`、`permissions.json`、`identity_map`、`autonomy.json`、`dispatch_hooks.json`、`server_config.json`、`group_whitelist.json`、`hooks.json`（ADR-0292，含設定資料夾裡的 `hooks/` 腳本），或 `app/config`、`ToukaProxy/config` 目錄 | 只有人能核准 |
 | F4 | 改原始碼 | 寫入動詞＋`ToukaProxy/src`、ToukaMemory、ToukaDispatch、ToukaHeartbeat、ToukaChat、ToukaIDE、`host_root` | 只有人能核准 |
 | F5 | 能力擴張與身分 | 原生工具名：裝技能、建或接 MCP、演化部署、改靈魂；`agent_control` 的 `switch_brain` | CONFIRM／只有人能核准／放行 |
 | F6 | 對外發言 | `send_message`、`sns_control` | CONFIRM／只有人能核准／放行 |

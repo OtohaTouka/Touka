@@ -84,7 +84,7 @@ tests/
 
 ### Hook（ADR-0292）
 
-以下五個測試檔使用 conftest 沙盒與 tmp_path 的設定檔；hook 一律用假的 runner 或 tmp_path 裡的腳本，不連網路、不讀 data/。
+以下六個測試檔使用 conftest 沙盒與 tmp_path 的設定檔；hook 一律用假的 runner 或 tmp_path 裡的腳本，不連網路、不讀 data/。
 
 | 檔案 | 說明 |
 |---|---|
@@ -93,6 +93,7 @@ tests/
 | `unit/test_hook_runners_security.py` | 執行方式：事件內容只從標準輸入、參數不經 shell、子程序環境不含金鑰、結束碼與 stderr、逾時結束程式、超過上限的輸出丟掉、啟動不了算失敗；http 送出事件內容且標頭照字面、不跟隨轉址、非 2xx 算失敗、回應大小上限、逾時、不讀環境裡的憑證與代理設定。 |
 | `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔沿用上一份、存檔 CAS 與路徑檢查（含停用的 hook）。 |
 | `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽與子代理不執行）、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；沒有設定時結果不變。 |
+| `unit/test_hooks_router_security.py` | 管理 API：三個端點只給人類管理員（admin 代打、一般使用者、靈魂、沒登入都拒絕且不寫檔）；存檔寫檔並回 revision、作者與時間由伺服器填；舊 revision 回 409 且不動檔；路徑被拒回 422 且不寫檔（含停用的 hook）；不可信的 Origin 拒絕；沒帶 revision、多的欄位、未接線事件、`shell` 欄位、標頭環境變數拒收；執行紀錄新的在前、無痕只留結果；壞檔時給上一份好的設定與壞檔的 revision、帶它存檔可修好；`/v1` 與根路徑都掛上；設定匯出不含 `hooks.json`。 |
 
 ### 心跳、SNS 與對話歸屬（ADR-0276）
 
