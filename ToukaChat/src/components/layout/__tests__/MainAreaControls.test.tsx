@@ -29,6 +29,7 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     onToggleRightSidebar: vi.fn(),
     isSettingsOpen: false,
     onToggleSettings: vi.fn(),
+    takeFocusRequest: vi.fn().mockReturnValue(true),
     ...overrides,
   };
 }
@@ -174,6 +175,16 @@ describe('MainAreaControls — 鍵盤焦點', () => {
   it('一開始就收起時不搶焦點', () => {
     (document.activeElement as HTMLElement | null)?.blur();
     render(<MainAreaControls {...makeProps({ isLeftSidebarCollapsed: true })} />);
+    expect(screen.getByRole('button', { name: '展開側邊欄' })).not.toHaveFocus();
+  });
+
+  it('這次收起不是按鈕要求的（面板掛上時自己同步狀態）就不搶焦點', () => {
+    // 載入時焦點在 body，若照樣交給展開鈕，「第一下 Tab 跳過側欄」就失效，螢幕閱讀器也會先唸這顆鈕。
+    const takeFocusRequest = vi.fn().mockReturnValue(false);
+    const { rerender } = render(<MainAreaControls {...makeProps({ takeFocusRequest })} />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    rerender(<MainAreaControls {...makeProps({ isLeftSidebarCollapsed: true, takeFocusRequest })} />);
+    expect(takeFocusRequest).toHaveBeenCalledWith(false);
     expect(screen.getByRole('button', { name: '展開側邊欄' })).not.toHaveFocus();
   });
 });

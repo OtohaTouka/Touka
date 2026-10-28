@@ -21,6 +21,8 @@ function NavItem({ icon, label, active, onClick, visible = true }: NavItemProps)
   return (
     <button
       onClick={onClick}
+      // 上導覽列拿掉後側欄是唯一的分頁入口，由這裡告訴螢幕閱讀器目前在哪個分頁
+      aria-current={active ? 'page' : undefined}
       // WCAG 1.4.3（A5 axe 實測）：primary 字 on primary/10 wash 為 4.44:1 差一線
       // → wash 降為 /5（4.9:1 ✓），品牌色文字不動
       className={cn(

@@ -69,12 +69,16 @@ describe('LeftSidebar — 頂端的收合鈕（上導覽列拿掉後）', () => 
     expect(screen.queryByRole('button', { name: '收合側邊欄' })).toBeNull();
   });
 
+  // 桌面版的 page.tsx 會傳 takeFocusRequest：這次展開是按鈕要求的才回 true。
+  const requested = () => true;
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve(null)));
+
   it('側欄剛展開、焦點掉在 body 時，等下一個畫面把焦點交給收合鈕', async () => {
     // 側欄的 visibility 有過場：剛換成展開的那一刻瀏覽器仍當它看不見，當下 focus() 會失效（jsdom 沒有 CSS 測不到），
     // 所以要等下一個畫面再交；這裡確認不是當下同步交。
-    const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} />);
+    const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} takeFocusRequest={requested} />);
     (document.activeElement as HTMLElement | null)?.blur();
-    rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
+    rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={requested} />);
     const button = screen.getByRole('button', { name: '收合側邊欄' });
     expect(button).not.toHaveFocus();
     await waitFor(() => expect(button).toHaveFocus());
@@ -89,9 +93,9 @@ describe('LeftSidebar — 頂端的收合鈕（上導覽列拿掉後）', () => 
       realFocus.call(this, options);
     });
     try {
-      const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} />);
+      const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} takeFocusRequest={requested} />);
       (document.activeElement as HTMLElement | null)?.blur();
-      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
+      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={requested} />);
       const button = screen.getByRole('button', { name: '收合側邊欄' });
       await waitFor(() => expect(button).toHaveFocus());
       expect(calls).toBe(2);
@@ -100,22 +104,21 @@ describe('LeftSidebar — 頂端的收合鈕（上導覽列拿掉後）', () => 
     }
   });
 
-  it('一直交不到焦點時，試到過場早該結束就停，不會一直跑下去', async () => {
+  it('一直交不到焦點時，最多試 30 個畫面就停', () => {
+    // 用假的畫面計時，不靠真實等待（整套平行跑、CPU 忙時才不會偶發失敗）；30 是 EXPAND_FOCUS_MAX_FRAMES。
     let calls = 0;
     const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
       if (this.getAttribute('aria-label') === '收合側邊欄') calls += 1;
     });
-    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} takeFocusRequest={requested} />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
     try {
-      const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} />);
-      (document.activeElement as HTMLElement | null)?.blur();
-      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
-      await waitFor(() => expect(calls).toBeGreaterThan(1));
-      await sleep(1000);
-      const settled = calls;
-      await sleep(200);
-      expect(calls).toBe(settled);
+      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={requested} />);
+      vi.advanceTimersByTime(16 * 100);
+      expect(calls).toBe(30);
     } finally {
+      vi.useRealTimers();
       spy.mockRestore();
     }
   });
@@ -124,21 +127,41 @@ describe('LeftSidebar — 頂端的收合鈕（上導覽列拿掉後）', () => 
     const input = document.createElement('input');
     document.body.appendChild(input);
     try {
-      const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} />);
+      const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} takeFocusRequest={requested} />);
       (document.activeElement as HTMLElement | null)?.blur();
-      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
+      rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={requested} />);
       input.focus();
-      await new Promise(resolve => requestAnimationFrame(() => resolve(null)));
-      await new Promise(resolve => requestAnimationFrame(() => resolve(null)));
+      await nextFrame();
+      await nextFrame();
       expect(input).toHaveFocus();
     } finally {
       input.remove();
     }
   });
 
+  it('這次展開不是按鈕要求的（面板掛上時自己同步狀態）就不搶焦點', async () => {
+    const takeFocusRequest = vi.fn().mockReturnValue(false);
+    const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} takeFocusRequest={takeFocusRequest} />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={takeFocusRequest} />);
+    expect(takeFocusRequest).toHaveBeenCalledWith(true);
+    await nextFrame();
+    await nextFrame();
+    expect(screen.getByRole('button', { name: '收合側邊欄' })).not.toHaveFocus();
+  });
+
+  it('沒傳 takeFocusRequest（手機版 Sheet）就不移焦點', async () => {
+    const { rerender } = render(<LeftSidebar isCollapsed={true} onCollapse={vi.fn()} />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    rerender(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
+    await nextFrame();
+    await nextFrame();
+    expect(screen.getByRole('button', { name: '收合側邊欄' })).not.toHaveFocus();
+  });
+
   it('一開始就展開時不搶焦點', () => {
     (document.activeElement as HTMLElement | null)?.blur();
-    render(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} />);
+    render(<LeftSidebar isCollapsed={false} onCollapse={vi.fn()} takeFocusRequest={requested} />);
     expect(screen.getByRole('button', { name: '收合側邊欄' })).not.toHaveFocus();
   });
 });

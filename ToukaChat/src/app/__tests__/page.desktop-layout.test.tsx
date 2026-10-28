@@ -7,7 +7,10 @@
  * 3. 右上角工具面板鈕：預設收起；按了打開右側邊欄；有新產出物、模擬模式照舊自動打開。
  * 4. IDE：設定鈕進設定頁，再按一次回對話。
  *
- * react-resizable-panels 換成假的 Panel：記下 collapse／expand，並像真的一樣呼叫 onCollapse／onExpand。
+ * 5. 只有按鈕要求的收起／展開才移焦點；面板掛上時依版面記錄自己同步狀態的那一次不移（WCAG 2.4.3，載入時不搶焦點）。
+ *
+ * react-resizable-panels 換成假的 Panel：記下 collapse／expand，並像真的一樣呼叫 onCollapse／onExpand
+ * （含掛上時依目前狀態呼叫一次，見套件的 callPanelCallbacks）。
  * useLocalStorage 與 useArtifacts 用真的（jsdom localStorage、zustand store），狀態變化才是真的。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -16,11 +19,12 @@ import React from 'react';
 
 type PanelEntry = { collapsed: boolean; collapse: ReturnType<typeof vi.fn>; expand: ReturnType<typeof vi.fn> };
 
-const { panels, leftSidebarProps, ideMode, simulationMode } = vi.hoisted(() => ({
+const { panels, leftSidebarProps, ideMode, simulationMode, panelMountSync } = vi.hoisted(() => ({
     panels: {} as Record<string, PanelEntry>,
     leftSidebarProps: { current: null as null | Record<string, unknown> },
     ideMode: { current: false },
     simulationMode: { current: false },
+    panelMountSync: { current: true },
 }));
 
 vi.mock('react-resizable-panels', async () => {
@@ -44,6 +48,13 @@ vi.mock('react-resizable-panels', async () => {
             },
             isCollapsed: () => panels[id].collapsed,
         }));
+        // 和真的套件一樣：掛上時依版面記錄呼叫一次 onCollapse 或 onExpand（記住的狀態可能因此翻轉）。
+        R.useLayoutEffect(() => {
+            if (!panelMountSync.current || !panels[id]) return;
+            if (panels[id].collapsed) onCollapse?.();
+            else onExpand?.();
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []);
         return <div id={id}>{children}</div>;
     });
     return {
@@ -99,6 +110,7 @@ beforeEach(() => {
     leftSidebarProps.current = null;
     ideMode.current = false;
     simulationMode.current = false;
+    panelMountSync.current = true;
     useArtifacts.setState({ artifacts: [], isOpen: false, isManuallyClosed: false, activeTab: 'system' });
 });
 
@@ -134,12 +146,45 @@ describe('page.tsx 桌面版 — 左側邊欄收合與展開', () => {
     });
 
     it('面板已經展開、但記住的狀態是收起時，按展開鈕直接把狀態改回展開', () => {
+        // 防禦路徑：真的套件掛上時會同步一次，這裡假設那次同步沒發生，兩邊才會不一致。
+        panelMountSync.current = false;
         renderPage({ storedCollapsed: true, panelCollapsed: false });
         fireEvent.click(screen.getByRole('button', { name: '展開側邊欄' }));
         expect(panels[LEFT].expand).not.toHaveBeenCalled();
         expect(screen.queryByRole('button', { name: '展開側邊欄' })).toBeNull();
         expect(leftSidebarProps.current?.isCollapsed).toBe(false);
         expect(window.localStorage.getItem('touka_sidebar_collapsed')).toBe('false');
+    });
+});
+
+describe('page.tsx 桌面版 — 收起／展開後的焦點', () => {
+    it('按左側邊欄的收合鈕收起，焦點交給主區的展開鈕', () => {
+        renderPage();
+        (document.activeElement as HTMLElement | null)?.blur();
+        act(() => (leftSidebarProps.current?.onCollapse as () => void)());
+        expect(screen.getByRole('button', { name: '展開側邊欄' })).toHaveFocus();
+    });
+
+    it('按展開鈕展開，左側邊欄問得到「這次是按鈕要求的」（只回一次）', () => {
+        renderPage({ storedCollapsed: true });
+        fireEvent.click(screen.getByRole('button', { name: '展開側邊欄' }));
+        const take = leftSidebarProps.current?.takeFocusRequest as (open: boolean) => boolean;
+        expect(take(true)).toBe(true);
+        expect(take(true)).toBe(false);
+    });
+
+    it('記住展開、面板掛上時是收起：狀態跟著面板變收起，但焦點不移到展開鈕', () => {
+        renderPage({ storedCollapsed: false, panelCollapsed: true });
+        const expand = screen.getByRole('button', { name: '展開側邊欄' });
+        expect(expand).not.toHaveFocus();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('記住收起、面板掛上時是展開：狀態跟著面板變展開，左側邊欄問到的是「不是按鈕要求的」', () => {
+        renderPage({ storedCollapsed: true, panelCollapsed: false });
+        expect(leftSidebarProps.current?.isCollapsed).toBe(false);
+        const take = leftSidebarProps.current?.takeFocusRequest as (open: boolean) => boolean;
+        expect(take(true)).toBe(false);
     });
 });
 
@@ -157,6 +202,9 @@ describe('page.tsx 桌面版 — 右上角工具面板鈕', () => {
     it('有新產出物時照舊自動打開，按鈕跟著顯示打開', () => {
         renderPage();
         act(() => {
+            // 面板掛上時的同步會把右側邊欄記成「手動關掉」；實際上產出物在送出訊息後才出現，
+            // 而送出時 ChatProvider.handleSend 會清掉這個記號，這裡照做一次（ChatProvider 在本測試是假的）。
+            useArtifacts.getState().setManuallyClosed(false);
             useArtifacts.getState().addArtifact({ title: 'a', type: 'markdown', content: '# a' });
         });
         expect(panels[RIGHT].expand).toHaveBeenCalled();

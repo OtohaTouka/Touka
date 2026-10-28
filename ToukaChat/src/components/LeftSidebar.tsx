@@ -22,7 +22,7 @@ import { SidebarSetupNotices } from './sidebar/left/SidebarSetupNotices';
 import { NavigationArea } from './sidebar/left/NavigationArea';
 import { SessionItem } from './sidebar/left/SessionItem';
 
-/** 展開後交焦點最多試幾個畫面（60Hz 約 0.5 秒，比 300ms 的過場長）。 */
+/** 展開後交焦點最多試幾個畫面。過場開始後通常下一個畫面就看得見，上限只是保險（60Hz 約 0.5 秒）。 */
 const EXPAND_FOCUS_MAX_FRAMES = 30;
 
 interface LeftSidebarProps {
@@ -39,10 +39,15 @@ interface LeftSidebarProps {
     onSetupAction?: () => void;
     /** 桌面版才傳：在頂端畫收合鈕（手機版的 Sheet 有自己的關閉）。 */
     onCollapse?: () => void;
+    /**
+     * 桌面版才傳：這次展開是不是按鈕要求的（問一次就清掉）；面板掛上時自己同步的那次回 false，不搶焦點。
+     * 要傳固定不變的函式（useCallback），否則每次重畫都會取消還在等下一個畫面的交焦點。
+     */
+    takeFocusRequest?: (open: boolean) => boolean;
 }
 
 function LeftSidebar({ 
-    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick, onSetupAction, onCollapse,
+    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick, onSetupAction, onCollapse, takeFocusRequest,
     activeMode = "chat",
     isCollapsed = false
 }: LeftSidebarProps) {
@@ -77,7 +82,7 @@ function LeftSidebar({
         setMounted(true);
     }, []);
 
-    // WCAG 2.4.3：側欄剛展開、焦點跟著主區的展開鈕消失（掉到 body）時，交給收合鈕。
+    // WCAG 2.4.3：按展開鈕把側欄展開、焦點跟著展開鈕消失（掉到 body）時，交給收合鈕。
     // 外層的 visibility 有 300ms 過場：過場剛開始的那一刻瀏覽器仍當它看不見、focus() 會失效，
     // 所以每個畫面試一次，交到為止；焦點已被移到別處，或試到過場早該結束時就停。
     const collapseRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +90,7 @@ function LeftSidebar({
     useEffect(() => {
         const justExpanded = !isCollapsed && wasCollapsed.current;
         wasCollapsed.current = isCollapsed;
-        if (!justExpanded) return;
+        if (!justExpanded || !takeFocusRequest?.(true)) return;
         let frame = 0;
         let tries = 0;
         const tryFocus = () => {
@@ -99,7 +104,7 @@ function LeftSidebar({
         };
         frame = requestAnimationFrame(tryFocus);
         return () => cancelAnimationFrame(frame);
-    }, [isCollapsed]);
+    }, [isCollapsed, takeFocusRequest]);
 
     const toggleGroup = (group: string) => {
         setCollapsedGroups(prev => ({ ...prev, [group]: !prev[group] }));

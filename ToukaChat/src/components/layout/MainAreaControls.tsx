@@ -16,6 +16,8 @@ interface MainAreaControlsProps {
   /** IDE 沒有左側邊欄，設定鈕是唯一入口；設定頁開著時再按一次回對話。 */
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
+  /** 這次收起是不是按鈕要求的（問一次就清掉）；面板掛上時自己同步的那次回 false，不搶焦點。 */
+  takeFocusRequest: (open: boolean) => boolean;
 }
 
 const ICON_BUTTON =
@@ -33,22 +35,23 @@ export function MainAreaControls({
   onToggleRightSidebar,
   isSettingsOpen,
   onToggleSettings,
+  takeFocusRequest,
 }: MainAreaControlsProps) {
   const { t } = useTranslation();
   const hasSetupNotice = useHasSetupNotice();
   const expandRef = useRef<HTMLButtonElement>(null);
   const wasCollapsed = useRef(isLeftSidebarCollapsed);
 
-  // WCAG 2.4.3：側欄剛收起時，焦點原本在側欄裡（收合鈕已看不見）或掉到 body，就交給展開鈕。
+  // WCAG 2.4.3：按收合鈕把側欄收起時，焦點原本在側欄裡（收合鈕已看不見）或掉到 body，就交給展開鈕。
   useEffect(() => {
     const justCollapsed = isLeftSidebarCollapsed && !wasCollapsed.current;
     wasCollapsed.current = isLeftSidebarCollapsed;
-    if (!justCollapsed) return;
+    if (!justCollapsed || !takeFocusRequest(false)) return;
     const active = document.activeElement;
     if (!active || active === document.body || active.closest("#left-sidebar-panel")) {
       expandRef.current?.focus();
     }
-  }, [isLeftSidebarCollapsed]);
+  }, [isLeftSidebarCollapsed, takeFocusRequest]);
 
   const expandLabel = t("layout.main_area_controls.expand_sidebar");
   const rightLabel = t("layout.main_area_controls.right_sidebar");
