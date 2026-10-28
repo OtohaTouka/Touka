@@ -27,3 +27,10 @@
 - 文件與程式一致：不再宣稱會自動刪除。
 - 日後若要回到「定期清理」，必須另開決策並先轉存，不能只修單位、不轉存；`test_no_automatic_session_cleanup` 會擋下沒有經過決策的清除 SQL。
 - 這個決定只是不再自動刪除，既有對話不受影響。
+
+## 補記：P28 段的測試只看行為（2026-10-28，舊審查報告丙-6）
+
+- 決策 5 列的測試裡有三項是在原始碼裡找字：async_db 原始碼裡有 `last_activity_at`、`main.py` 原始碼裡沒有 `cleanup_expired_sessions`、async_db 與 main 的 SQL 字面量裡沒有「依 `last_activity_at` 刪 `user_sessions`」。這三項拿掉。
+- 留下的：Settings 與 config 模組沒有 TTL 設定；async_db 沒有 `cleanup_expired_sessions`；啟動的資料庫初始化跑完後，很舊的非家對話仍在。最後這條也確認 `last_activity_at` 欄位存在（沒有欄位就寫不進測試資料）；啟動時刪對話，不管 SQL 寫成什麼樣子都會紅。
+- 因此上面後果段「`test_no_automatic_session_cleanup` 會擋下沒有經過決策的清除 SQL」改成：啟動時的清除由 `test_startup_db_init_keeps_old_conversations` 擋下；寫在啟動以外的地方（例如排程）的清除，測試測不到，要靠審查。原本的字面量掃描也只認得特定寫法，換個寫法就測不到。
+- 同檔的 P26（擁有者 refresh token 30 秒容差）、P29（「checks passed」記在 DEBUG）改成行為測試，移到 `tests/unit/test_heartbeat_awaken_hardening_security.py`。
