@@ -4,6 +4,7 @@
 
 ## 1. 現況
 
+- **網頁版家對話不再重複送給模型（2026-10-29）**：網頁版一般（非無痕）聊天、目前對話就是家對話時，SoulLayer 不再插家對話（前端送的就是這個對話完整的線性路徑）；條件是請求帶 persistent `ui_persistence` 且路由核准 `ui_authorized`，兩者都要。子對話、SNS 家對話模式、IDE 與沒帶 `ui_persistence` 的請求照舊插入。約定寫在 PROXY／CHAT／MEMORY_INTERFACE：前端改成只送最近幾輪之前要先改後端。
 - **`/stats` 依身分過濾（2026-10-28）**：`background_activity`、`interrupted_runs` 逐筆用 `can_access_session` 判斷，一般使用者只看自己的靈魂；`usage_history`／`total_usage` 與派工伺服器 `pid` 只給 admin。鍵與型別不變、前端不用改。`token_usage` 也照同一個判斷過濾（2026-10-29），Owner 代理只看自己的。
 - **ToukaChat 拿掉上導覽列（2026-10-28）**：桌面版分頁與設定只在左側邊欄；左側邊欄頂端收合、收起後對話區左上角展開（首次設定紅點在展開鈕上）；右上角「工具面板」鈕開關右側邊欄，預設收起、新產出物照舊自動打開；IDE 只有設定鈕，再按一次回對話；手機版不變。細節見 `CHAT_INTERFACE.md` 版面一節。
 - **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
@@ -306,6 +307,8 @@
 - 指令安全修正任務已結案（2026-10-14），由模型層第 2b、2c 段取代；隔離執行環境歸模型層第 5 段（iso-c2）：代理人指令的隔離（含先寫檔再執行、shell 變數與萬用字元繞過）由 ADR-0272（iso-c2 C2-1＋C2-2）處理；C2-3 已接上 MCP 檔案隔離，但直接啟動例外仍無此保護（見 SECURITY.md）。其餘列在下面的待排小項。
 - **待排小項**（2026-10-14 起，正本在這裡；做完一項就從這裡刪掉）：
   - `/mcp/list` 尚無 Pydantic 回應模型，前端 `McpServerStatus` 仍為手寫型別；後端補上回應模型後，前端應改用生成型別。
+  - SNS 家對話模式的最新一句會送兩次：SNS 先把這句寫進家對話、再只送這一句，後端插入的家對話已經含它，所以它在歷史資料界線最後又出現一次（2026-10-29 修網頁版家對話重複時發現，成因不同）。修法要動 SNS 流程，或插入時去掉和請求最後一則相同的尾端；另寫計畫。外部 OpenAI／Anthropic 相容客戶端帶家對話 session id、自己送完整歷史、沒有 `ui_persistence` 時也會重複，後端分辨不出來。
+  - 上下文快照（`context_snapshot_service.py`）沒有 session，在家對話本身照樣列出 Home Messages 一欄，沒反映 2026-10-29 起網頁版在家對話本身不插家對話。
   - `<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，只影響快取命中（ADR-0139 起就有；ADR-0285 審查時發現）。
   - 查記憶、隨機回想與舊對話查詢（`manager.py`、`recall.py`、`legacy_vault.py`）只中和歷史資料界線 tag，沒有中和其他 prompt 區塊 tag；零寬字元、全形括號、HTML 實體寫的 tag 也沒有折疊（ADR-0285 已知限制）。
   - 審查員的準確率、拒答率、解析失敗率與延遲沒有實測（ADR-0246；要照禁令 61 逐批揭露與同意）。
