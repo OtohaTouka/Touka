@@ -36,7 +36,7 @@
 - 對外回應：telemetry 少了 `e_index`，`/stats/emergence` 回 404。前端沒讀這些欄位；外部客戶端若有依賴，要自己拿掉。
 - `/stats` 的 `usage_history` 照原樣回傳 CSV 列：舊檔的新列 `e_index` 是空字串，新檔沒有這個鍵。
 - 更早的稽核檔（2026-06 加 `rate_source` 之前建立）表頭本來就比資料列少一欄，這次不處理；這類檔也有 `e_index` 欄，新列一樣補空字串，錯位情況和以前相同，不會更糟。
-- 記憶查詢訊號 `memory_tools.query`（`MEMORY_QUERY_SIGNAL`）查證守衛還在用，保留。
+- `memory_tools.query` 仍在查證守衛的 `VERIFICATION_TOOLS` 裡，照常使用。常數 `MEMORY_QUERY_SIGNAL` 保留：產品碼本來就沒有用它（舊的 E-Index 計算寫的是字串），只有合約不變量測試引用。
 - 撤回：revert 即可，舊的 CSV 列與 `e_index_history` 都還在。注意：這一版建立的新稽核檔是 12 欄表頭，revert 後舊程式會寫進 13 欄的列；撤回前先把這些檔改名，讓舊程式重建。本 ADR 檔保留，在狀態註記撤回。
 
 ## 替代方案
@@ -51,6 +51,7 @@
 - 先寫的測試在實作前全紅：
   - `tests/unit/test_emergence_index_removed.py`：兩個端點回 404；計算函式、`utils/metrics.py`、`e_index` 參數都不在；舊 `e_index_history` 原樣、新供應商項目沒有這個鍵；新稽核檔 12 欄；舊稽核檔表頭與舊列不變，新列 `e_index` 是空字串、其他欄對得上。
   - `tests/unit/test_per_round_accounting.py`：三輪含記憶查詢的 run 沒有 `e_index_history`、telemetry 只剩 `request_id`／`total_ms`／`local_ms`／`pure_gen_ms`；稽核 CSV 改用 12 欄表頭。
+  - `tests/unit/test_run_usage_tiers.py`：原本用固定格數讀 `cost_usd`，改成依欄名取格。
   - ToukaChat：`useSystemMonitoring` 不再請求 `/v1/stats/emergence`、結果索引前移後 token 用量與記憶數量仍對；`MemoryStatus` 不再顯示指數。
 - 34 份 golden 依 harness 規則刪檔重錄；逐檔核對和舊版相比只少了 `e_index`（68 段）。
 - 刪掉的舊測試：`/stats/emergence` 兩個 smoke、記憶偵測裡「較早回合查記憶 → e_index > 0」、記憶訊號 SSOT 裡 e_index 檢索訊號的靜態檢查。
