@@ -1007,7 +1007,7 @@ python scripts/guard_all.py
 | `unit/hooks/useChatStream.test.ts` | ADR-0080／P11 useChatStream委派：既有session／新建session／stop／上限提示，以及固定provider與options後切換翻譯函式，限流提示使用新語言。 |
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
 | `unit/ChatProvider.backgroundStream.test.tsx` | ADR-0080 背景續跑端到端：切走不中止、per-session isSending、背景 chunk 不污染、切回看到累積、完成寫回 session；兩對話同時背景生成互不污染 |
-| `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏 |
+| `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕 |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
@@ -1022,8 +1022,9 @@ python scripts/guard_all.py
 | `auth/LoginSetupResumeNotice.test.tsx` ⭐ | ADR-0053 補記：登入頁有有效接續點時用 `role="status"` 說明「管理員密碼已更新」且不取走紀錄；沒有或過期時不顯示 |
 | `src/components/sidebar/left/__tests__/SidebarSetupNotices.test.tsx` ⭐ | ADR-0053 補記（2026-10-23）左側邊欄的首次設定警告：出現條件對照表（只給管理員；臨時密碼兩張都出現；其他三種只出現設定警告；狀態沒讀到或全設好時不出現）；沒有警告或沒有提供者時完全不畫；密碼警告只有「變更密碼」、不能關；「變更密碼」打開精靈到管理員密碼步驟、「立即設定」從第一步，兩者都呼叫 `onAction`；「稍後」只隱藏設定警告，側欄重新掛上後仍隱藏；關掉精靈會重讀、問題處理好時警告消失；重讀中或重讀失敗保留上次的警告；提供者在有警告時也不在頁面上多畫東西（舊橫幅在最外層排成直欄的回歸） |
 | `unit/LeftSidebar.setupNotices.test.tsx` ⭐ | ADR-0053 補記：兩個警告在左側邊欄裡、「新對話」按鈕上面；按警告的按鈕會呼叫 `onSetupAction`；側欄整欄可上下捲動、不橫向捲動，對話紀錄區有最小高度 |
-| `src/components/layout/__tests__/MainHeader.setupWarning.test.tsx` ⭐ | ADR-0053 補記：有首次設定警告時，桌面側欄收合鈕上有紅點、按鈕名稱說明側欄裡有設定警告；沒有警告時沒有紅點、名稱照舊 |
-| `src/app/__tests__/page.setup-notices.test.tsx` ⭐ | ADR-0053 補記（手機版）：左側欄在 Sheet 裡時，按警告按鈕會把選單收起來（精靈才不會被 Sheet 擋住）；選單沒打開且有警告時選單鈕上有紅點與說明名稱，沒有警告時都沒有；`app/layout.tsx` 在 `AuthGuard` 裡用 `SetupNoticesProvider` 包住頁面（源碼檢查） |
+| `src/components/layout/__tests__/MainAreaControls.test.tsx` ⭐ | 上導覽列拿掉後的主區角落按鈕（2026-10-28）：左側邊欄收起才有展開鈕；ADR-0053 補記：有首次設定警告時展開鈕上有紅點、名稱說明有設定警告，沒有時沒有紅點、名稱照舊；工具面板鈕的 `aria-expanded`／`aria-controls`；IDE 只有設定鈕（`aria-pressed`）；側欄剛收起而焦點掉在 body 或左面板裡時交給展開鈕，焦點在別處或一開始就收起時不搶 |
+| `src/app/__tests__/page.desktop-layout.test.tsx` ⭐ | 桌面版版面接線（2026-10-28）：主區沒有 header、h1；左側邊欄收到 `onCollapse`、收合與展開呼叫面板，面板與記住的狀態不同步時按展開鈕直接校正；工具面板鈕預設收起、按了打開，新產出物與模擬模式照舊自動打開；IDE 的設定鈕進設定頁、再按一次回對話 |
+| `src/app/__tests__/page.setup-notices.test.tsx` ⭐ | ADR-0053 補記（手機版）：左側欄在 Sheet 裡時，按警告按鈕會把選單收起來（精靈才不會被 Sheet 擋住）；選單沒打開且有警告時選單鈕上有紅點與說明名稱，沒有警告時都沒有；手機版左側欄沒有收合鈕、畫面沒有桌面版的展開鈕（2026-10-28）；`app/layout.tsx` 在 `AuthGuard` 裡用 `SetupNoticesProvider` 包住頁面（源碼檢查） |
 | `components/setup/steps/__tests__/Step1SystemHealth.test.tsx` ⭐ | ADR-0118 嵌入模型下載＋切換防呆（fail-loud）：模型未變更不打端點直接 `onNext`；變更→下載完成→切換成功→前進；既有記憶需確認顯示警告且不前進，按「仍要切換」以 `force` 切換；下載失敗（status error）顯示錯誤且不前進 |
 | `components/setup/steps/__tests__/Step3ApiKeys.test.tsx` ⭐ | ADR-0118 精靈金鑰輸入（永不回填＋不吞失敗，配合 fetchTouka 不 throw）：輸入框一律留空（含已設 anthropic）、有輸入成功→`POST /v1/config/env` 後 `onNext`、套用失敗（`res.ok=false`）不前進並顯示 detail、網路錯誤不前進並記 SSOT 錯誤、無輸入直接 `onNext` 不 POST |
 | `components/setup/__tests__/Step5DataPath.test.tsx` ⭐ | ADR-0118 雙欄位主機路徑（bug②）：資料目錄＋工作區根目錄兩欄位；皆空直接 `onNext` 不 POST、皆填成功→POST 帶 `data_path`＋`workspace_root`、僅填工作區則只帶 `workspace_root`、失敗（ToukaException 物件 detail）顯示 message 且不前進 |

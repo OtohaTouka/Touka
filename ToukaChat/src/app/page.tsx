@@ -9,13 +9,12 @@ import { VaultDashboard } from "@/components/dashboard/VaultDashboard";
 import { SoulStudio } from "@/components/layout/SoulStudio";
 import { ModelStudio } from "@/components/layout/ModelStudio";
 import { ProjectsView } from "@/components/projects/ProjectsView";
-import { useSystemStatus } from '@/lib/SystemStatusContext';
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ChatArea } from '@/components/chat/ChatArea';
-import { MainHeader } from '@/components/layout/MainHeader';
+import { MainAreaControls } from '@/components/layout/MainAreaControls';
 import { SetupNoticeDot } from '@/components/setup/SetupNoticeDot';
 import { useHasSetupNotice } from '@/components/setup/SetupNoticesProvider';
 import {
@@ -63,7 +62,6 @@ export default function ChatPage() {
 function ChatLobby() {
   const { t } = useTranslation();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { status: sysStatus } = useSystemStatus();
   const { activeSessionId, setAttachment, handleNewSession } = useChat();
   const { selectedModel } = useModels();
 
@@ -193,6 +191,16 @@ function ChatLobby() {
     }
   };
 
+
+  // 桌面版左側邊欄展開／收合：以面板實際狀態為準；面板已是目標狀態（記住的狀態沒同步到）時只校正狀態，
+  // 免得按了沒反應。
+  const setLeftSidebarOpen = (open: boolean) => {
+    const panel = leftPanelRef.current;
+    if (!panel) return;
+    if (open && panel.isCollapsed()) panel.expand();
+    else if (!open && !panel.isCollapsed()) panel.collapse();
+    else setIsSidebarCollapsed(!open);
+  };
 
   const handleToggleRightSidebar = () => {
     const next = !isRightSidebarOpen;
@@ -335,6 +343,7 @@ function ChatLobby() {
                   onVaultClick={() => setViewMode('vault')}
                   onSettingsClick={() => setViewMode('settings')}
                   onProjectsClick={() => setViewMode('projects')}
+                  onCollapse={() => setLeftSidebarOpen(false)}
                   isCollapsed={isSidebarCollapsed}
                 />
               </Panel>
@@ -344,22 +353,15 @@ function ChatLobby() {
 
           <Panel id="main-content" order={2} minSize={30} className="flex flex-col min-w-0 relative overflow-hidden">
             <main className="flex-1 flex flex-col min-w-0 relative h-full">
-              <MainHeader
-                viewMode={viewMode}
-                setViewMode={setViewMode}
+              <MainAreaControls
                 isIDE={isIDE()}
-                isMobile={isMobile}
-                onToggleSidebar={() => {
-                    if (leftPanelRef.current) {
-                        if (leftPanelRef.current.isCollapsed()) leftPanelRef.current.expand();
-                        else leftPanelRef.current.collapse();
-                    }
-                }}
+                isLeftSidebarCollapsed={isSidebarCollapsed}
+                onExpandLeftSidebar={() => setLeftSidebarOpen(true)}
                 isRightSidebarOpen={isRightSidebarOpen}
                 onToggleRightSidebar={handleToggleRightSidebar}
-                sysStatus={sysStatus}
+                isSettingsOpen={viewMode === "settings"}
+                onToggleSettings={() => setViewMode(viewMode === "settings" ? "chat" : "settings")}
               />
-
 
               <div className="flex-1 overflow-hidden relative">
                 {viewMode === "chat" ? (

@@ -4,6 +4,8 @@
 
 ## 1. 現況
 
+- **ToukaChat 拿掉上導覽列（2026-10-28）**：桌面版分頁與設定只在左側邊欄；左側邊欄頂端收合、收起後對話區左上角展開（首次設定紅點在展開鈕上）；右上角「工具面板」鈕開關右側邊欄，預設收起、新產出物照舊自動打開；IDE 只有設定鈕，再按一次回對話；手機版不變。細節見 `CHAT_INTERFACE.md` 版面一節。
+
 - **兩個調度員技能檔不進版控（2026-10-28，ADR-0290）**：`system-mcp-dispatcher`、`system-skill-dispatcher` 的 SKILL.md 改成 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）產生，內容沒變不重寫；載入程式時不再寫。用 git 更新到這一版之前，先 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時 git 會拒絕更新），更新後重啟一次。
 
 - **GHCR 的 `touka-init` 遇到特殊項目改成略過（2026-10-23，ADR-0279）**：以前資料裡只要有一個符號連結（Hugging Face 模型快取一定有）、FIFO、socket、多連結檔、setid、延伸屬性就整個拒絕，用過記憶的 GHCR 部署下一次 `up` 起不來。現在這些項目不開啟、不跟進、不修改，結果多一個 `skipped` 計數；四個掛載根目錄與兩個代理人工作區根目錄照舊嚴格；最後驗證連略過的一起比對，中途被換掉仍失敗；代理人或伺服器資料夾底下 `SCAN_SKIP_NAMES` 那些工具資料夾不往下走（init 裡的副本由測試釘住）；還要補擁有者權限位元的 setgid 資料夾在盤點時就拒絕、什麼都不改（補位元會被核心清掉 setgid）。手動跑 init 前先停 executor、heartbeat 與 proxy。CI 容器 job 用建好的 Proxy 映像在真核心上跑 `tests/docker/permission_init_real.py`；觸發路徑加 `permission_init.py`。原始碼版 compose 不受影響。

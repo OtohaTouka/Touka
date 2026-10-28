@@ -1,7 +1,7 @@
 // src/components/LeftSidebar.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from "react-i18next";
 import { Button } from '@/components/ui/button';
 import { useSystemStatus } from '@/lib/SystemStatusContext';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { useChat } from '@/lib/providers/ChatProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { useProjects } from '@/lib/providers/ProjectProvider';
-import { PlusCircle, VenetianMask } from "lucide-react";
+import { PanelLeftClose, PlusCircle, VenetianMask } from "lucide-react";
 
 // Hooks
 import { useSessionGroups } from '@/hooks/useSessionGroups';
@@ -34,10 +34,12 @@ interface LeftSidebarProps {
     isCollapsed?: boolean;
     /** 按下首次設定警告的按鈕後呼叫（手機版用來關掉選單，讓精靈不被擋住）。 */
     onSetupAction?: () => void;
+    /** 桌面版才傳：在頂端畫收合鈕（手機版的 Sheet 有自己的關閉）。 */
+    onCollapse?: () => void;
 }
 
 function LeftSidebar({ 
-    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick, onSetupAction,
+    onSoulClick, onStudioClick, onChatClick, onPulseClick, onVaultClick, onSettingsClick, onProjectsClick, onSetupAction, onCollapse,
     activeMode = "chat",
     isCollapsed = false
 }: LeftSidebarProps) {
@@ -72,6 +74,17 @@ function LeftSidebar({
         setMounted(true);
     }, []);
 
+    // WCAG 2.4.3：側欄剛展開、焦點跟著主區的展開鈕消失（掉到 body）時，交給收合鈕。
+    const collapseRef = useRef<HTMLButtonElement>(null);
+    const wasCollapsed = useRef(isCollapsed);
+    useEffect(() => {
+        const justExpanded = !isCollapsed && wasCollapsed.current;
+        wasCollapsed.current = isCollapsed;
+        if (justExpanded && (!document.activeElement || document.activeElement === document.body)) {
+            collapseRef.current?.focus();
+        }
+    }, [isCollapsed]);
+
     const toggleGroup = (group: string) => {
         setCollapsedGroups(prev => ({ ...prev, [group]: !prev[group] }));
     };
@@ -86,10 +99,26 @@ function LeftSidebar({
                 {/* 側欄太矮（例如首次設定警告佔了位置）時整欄捲動，底部導覽與登出一定點得到 */}
                 <div className="py-4 flex flex-col gap-6 h-full relative transition-all duration-300 w-full min-w-0 px-4 overflow-y-auto overflow-x-hidden custom-scrollbar">
                     
-                    {/* Identity (SRP: SidebarIdentity) */}
-                    <SidebarIdentity mode={sysStatus.mode} checkState={sysStatus.checkState}
-                        memoryWarning={hasMemoryWarning(sysStatus.memoryNotices)}
-                        systemWarning={hasMemoryWarning(sysStatus.systemNotices)} />
+                    {/* Identity (SRP: SidebarIdentity)＋桌面版收合鈕 */}
+                    <div className="flex items-center gap-1 w-full min-w-0">
+                        <div className="flex-1 min-w-0">
+                            <SidebarIdentity mode={sysStatus.mode} checkState={sysStatus.checkState}
+                                memoryWarning={hasMemoryWarning(sysStatus.memoryNotices)}
+                                systemWarning={hasMemoryWarning(sysStatus.systemNotices)} />
+                        </div>
+                        {onCollapse && (
+                            <button
+                                ref={collapseRef}
+                                type="button"
+                                onClick={onCollapse}
+                                aria-label={t('layout.left_sidebar.collapse_sidebar')}
+                                title={t('layout.left_sidebar.collapse_sidebar')}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                            >
+                                <PanelLeftClose size={18} />
+                            </button>
+                        )}
+                    </div>
 
                     {/* 首次設定警告（管理員密碼還是臨時的、初次設定還沒完成；ADR-0053） */}
                     <SidebarSetupNotices onAction={onSetupAction} />
