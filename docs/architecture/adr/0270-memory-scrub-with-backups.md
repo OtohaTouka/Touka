@@ -3,7 +3,7 @@
 - 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，清除連備份只清記憶、預估上限約 +3,100 行、保護全做；本 ADR 是第 7 段的 PR，設計與成果都經對抗式審查；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 補註：第 7 段的 6 個 ResourceManager 方法列為權限自癒豁免，快照與記憶庫備份在自癒白名單外；2026-10-16 hist-bak a 補記：刪除與重置畫面加上「還有備份」提醒，見文末「補記：還有備份的提醒」；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂 §6：重置鎖改成不等待的破壞性操作鎖並標記目標，清除旗標也標記目標，刪除靈魂加入互斥；[ADR-0289](0289-last-agent-reset-result.md) 修訂「替代方案」的背景工作加輪詢一條：改成伺服器在記憶體留最後一次重置的結果，「結果不明」時畫面查詢）
 - 日期：2026-10-15
 - 決策者：維護者
-- 影響範圍：ToukaProxy（新 `services/memory_scrub/`（`__init__`、`orchestrator`、`leftovers`、`swap`、`qdrant_meta`、`upgrade_backups`、`snapshots`、`ports`）、新 `services/memory_collection_guard.py`、新 `models/memory_scrub.py`、新 `models/agent_reset.py`、`services/agent_reset/orchestrator.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`services/system_backup.py`、`services/resource_manager.py`、`services/backup_scheduler_service.py`、`services/agent_service.py`、`utils/config_utils.py`、`routers/admin.py`、`routers/system.py`、`routers/debug.py`、`routers/souls.py`、`routers/custom_models.py`、`scripts/manage_backup.py`、`config/errors.json.example`）；ToukaMemory（`factual.py`、`vector.py`、新 `utils/collection_names.py`）；ToukaChat（重置卡、新 `useAgentDataReset`、`AgentResetScrubOption`、`AgentResetScrubResult`、`error_handler`、SoulStudio、ModelStudio、兩語翻譯）；`nginx/nginx.conf.example`；openapi／api.ts／錯誤常數重產；NOQA_REGISTRY `BLE001` +3
+- 影響範圍：ToukaProxy（新 `services/memory_scrub/`（`__init__`、`orchestrator`、`leftovers`、`swap`、`qdrant_meta`、`upgrade_backups`、`snapshots`、`ports`；2026-10-28 補記加 `os_metadata`）、新 `services/memory_collection_guard.py`、新 `models/memory_scrub.py`、新 `models/agent_reset.py`、`services/agent_reset/orchestrator.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`services/system_backup.py`、`services/resource_manager.py`、`services/backup_scheduler_service.py`、`services/agent_service.py`、`utils/config_utils.py`、`routers/admin.py`、`routers/system.py`、`routers/debug.py`、`routers/souls.py`、`routers/custom_models.py`、`scripts/manage_backup.py`、`config/errors.json.example`）；ToukaMemory（`factual.py`、`vector.py`、新 `utils/collection_names.py`）；ToukaChat（重置卡、新 `useAgentDataReset`、`AgentResetScrubOption`、`AgentResetScrubResult`、`error_handler`、SoulStudio、ModelStudio、兩語翻譯）；`nginx/nginx.conf.example`；openapi／api.ts／錯誤常數重產；NOQA_REGISTRY `BLE001` +3
 - 相關：ADR-0104／0113（重置的備份優先與保留清單）、ADR-0214（測試沙盒）、ADR-0228（Guard #45）、ADR-0030（sqlite3 白名單，照舊）、ADR-0231（結果不明不寫失敗）、ADR-0262（系統快照的單一來源、刪除靈魂前檢查）、ADR-0263（記憶庫 v2）、ADR-0267（活動時間軸）。ADR-0256 留下的「重置時升級備份與系統快照不會一起清」由本 ADR 補上選項（ADR-0256 狀態區已加反向註記）；預設不勾時 ADR-0256 的說法不變。其他 ADR 的決策都不變。
 
 ## 背景
@@ -211,3 +211,19 @@
   - `tests/unit/test_memory_scrub_snapshots.py` S18d（列出後被發布 → 跳過，另一個夠舊的照清）、S18e（檢查內容時才不見 → 跳過；刪工作資料夾丟 FileNotFoundError：資料夾真的不見才跳過，還在記 `in_use`）、S18f（工作資料夾裡的檔在判斷新舊時被搬走 → 那個檔不算）。
   - `BackupRetentionNotice.test.tsx` B05b 與兩語新鍵；`AgentDataResetCard.scrub.test.tsx` V05b（完成但有不在範圍的資料：總結句寫份數、提示換版）、V05c（又有新寫入：不說有沒有整理）。
 - 變異檢查第 1 輪 9 個全部變紅（線上庫報錯、leftovers 四處、`_mtime`、總結句、筆數、提示版本）；審查後補的測試另外擋住：兩個檢查順序對調、消失時當成「太新」、資料夾還在卻跳過、提示不列升級備份的刪法。
+
+## 補記：作業系統放的雜檔（2026-10-28，舊審查報告丙-3b）
+
+- **問題**：Windows 檔案總管會在資料夾裡放 `Thumbs.db`（縮圖快取）、`desktop.ini`（資料夾設定），macOS 放 `.DS_Store`。升級備份資料夾（`vault/core_memory_backups/`）裡不認得的檔原本一律記 `unknown_file`，快照裡同一個位置的成員記 `unknown_member`（fail closed），所以只要有人用檔案總管打開過這個資料夾，清除就永遠不會「完成」。另外 `Thumbs.db` 結尾是 `.db`，獨立驗證會把它當記憶庫打開，得到 `verify_failed`。快照目錄本身（leftovers）不受影響：名字不符任何暫存樣式的檔本來就不列。
+- **決定**：
+  - 一份名單 `services/memory_scrub/os_metadata.py` 的 `OS_METADATA_NAMES`：`thumbs.db`、`desktop.ini`、`.ds_store`。比對不分大小寫，但名字必須全是 ASCII（克耳文符號 `K` 這類非 ASCII 字元轉小寫後才相同的不算）。
+  - 名字相符**而且**是一般檔、不超過 4 MiB、開頭不是 SQLite 檔頭、內容找不到目標 ID（UTF-8、UTF-16LE、UTF-16BE 三種寫法；`desktop.ini` 常是 UTF-16LE，`.DS_Store` 的檔名是 UTF-16BE），才當雜檔。先看大小（檔案大小、zip 宣告的大小；zipfile 讀出的不會超過宣告的大小），太大的不讀。
+  - 升級備份資料夾裡的雜檔：原樣不動，記成資訊項 `info`／`os_metadata_file`（不附數量）。不影響「完成」，也不算沒清掉的檔；畫面在「其他資訊」列一行，不寫數量（新鍵 `info_line_plain`）。
+  - 快照裡升級備份資料夾的雜檔成員：照抄。獨立驗證認得同一份名單，不當記憶庫打開；成員不能有變，大小、SQLite 檔頭、目標 ID 都自己重算一次，不呼叫分類那邊的內容判斷。升級備份資料夾裡留下來的成員只能是記憶庫或雜檔，其他名字驗證失敗。
+  - 順帶收緊（DEV-B 查到、原本就有）：快照裡和升級備份資料夾同名的**檔案**成員（沒有結尾斜線），原本被當成資料夾項目略過、照抄；現在記 `unknown_member`。真的資料夾項目照常略過。
+  - 其他情況照舊 fail closed：名字相符但是資料夾、太大、是 SQLite、含目標 ID，或名字只是相近（例如 `Thumbs.db.old`）。這不放寬 §2 的範圍：雜檔不是記憶，含目標 ID 的仍然擋下。
+- **限制**：目標 ID 很短（例如 `Al`）時，雜檔內容可能剛好含那幾個位元組，那時照舊記失敗、清除不會完成（安全的方向）。現場的雜檔刪掉再清一次就好；但已經打包進快照的（例如重置前剛做的那份），那份快照每次都會算沒清掉，要另外處理那份快照（刪掉，或確認裡面沒有要清的記憶後接受「沒有完成」）。
+- **測試**：
+  - `tests/unit/test_memory_scrub_upgrade_backups.py` U19（三種雜檔記成資訊、原樣保留）、U20（SQLite 檔頭、含目標 ID 的三種寫法、非 ASCII 的相近名字、`Thumbs.db.old` → `unknown_file`）、U21（同名資料夾、太大的不讀 → `unknown_file`）、U22（內容判斷的大小上限）、U23（讀雜檔出錯只記那一檔失敗）。
+  - `tests/unit/test_memory_scrub_snapshots.py` S33（雜檔成員照抄、快照照清）、S34（SQLite 檔頭、含目標 ID 的三種寫法 → `unknown_member`）、S34b（太大的不讀 → `unknown_member`）、S34c（同名的資料夾項目 → `unknown_member`）、S35（分類那邊放過含目標 ID 或 SQLite 的雜檔，三個名字與大小寫都測，驗證抓到）、S35c（分類那邊漏查大小，驗證抓到）、S35d（分類那邊把別的名字當雜檔，驗證只放行記憶庫與雜檔）、S35b（重寫時雜檔被改，驗證抓到）、S36（資料夾項目照常清除；和資料夾同名的檔案 → `unknown_member`）。
+  - `tests/unit/test_memory_scrub_orchestrator.py` O28（升級備份資料夾有 `Thumbs.db` 時，連同重置前的快照一起清除完成；稽核行的資訊項不附數量時不寫 `:None`）；`AgentDataResetCard.scrub.test.tsx` V05e（資訊行不寫數量、總結照樣是完成）。

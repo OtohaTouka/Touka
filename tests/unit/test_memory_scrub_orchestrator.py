@@ -881,3 +881,22 @@ async def test_o26_scrub_safety_net_report_is_the_kept_report(
     last = L.last_reset()
     assert last.report == AgentResetResponse.model_validate(report.to_dict())
     assert last.report.scrub.reason == "internal_error"
+
+
+# --- 丙-3b：升級備份資料夾裡的系統雜檔不擋住完成（ADR-0270 補記 2026-10-28）------
+
+
+async def test_o28_os_metadata_in_the_upgrade_folder_does_not_stop_completion(
+    env: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    thumbs = env.upgrade.parent / "Thumbs.db"
+    thumbs.write_bytes(b"\xd0\xcf\x11\xe0 thumbnail cache")
+    report = await _reset()
+    assert report.scrub.complete is True, report.scrub
+    infos = [i for i in report.scrub.items if i.kind == "info"]
+    assert [(i.name, i.reason) for i in infos] == [("Thumbs.db", "os_metadata_file")]
+    assert thumbs.read_bytes() == b"\xd0\xcf\x11\xe0 thumbnail cache"
+    line = next(
+        r.getMessage() for r in caplog.records if "AUDIT: memory-scrub result" in r.getMessage()
+    )
+    assert "info=['Thumbs.db'=os_metadata_file]" in line  # 不附數量時不寫 :None

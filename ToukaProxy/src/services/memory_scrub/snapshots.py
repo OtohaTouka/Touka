@@ -1,8 +1,9 @@
 """清除連備份：系統快照 zip 只改記憶相關的成員.
 
 處理：主記憶庫與 zip 裡的升級備份只刪目標的列；拿掉目標的 Qdrant collection（含目錄項目）並同步
-改 meta.json；拿掉中斷暫存成員。其他成員原樣串流照抄。重寫後的驗證（_verify_rewrite）只用常數與
-原始 bytes 獨立重算，不呼叫這裡的分類器或 meta 轉換函式。任一步失敗原檔不動、逐檔回報。
+改 meta.json；拿掉中斷暫存成員。其他成員原樣串流照抄（升級備份資料夾裡作業系統放的雜檔先檢查內容，
+見 os_metadata）。重寫後的驗證（_verify_rewrite）只用常數與原始 bytes 獨立重算，不呼叫這裡的分類器
+或 meta 轉換函式。任一步失敗原檔不動、逐檔回報。
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from memory_server.utils.collection_names import (
 from src.models.identity import AgentIdentity
 from src.models.memory_scrub import ScrubItemResult
 from src.services import system_backup
-from src.services.memory_scrub import qdrant_meta, swap
+from src.services.memory_scrub import os_metadata, qdrant_meta, swap
 from src.services.resource_manager import resource_manager
 
 if TYPE_CHECKING:
@@ -52,6 +53,7 @@ class _Plan(NamedTuple):
     meta: str | None
     dir_ids: frozenset[str]
     legacy_jsonl: int
+    os_files: frozenset[str]
 
 
 def scrub_snapshots(
@@ -104,7 +106,9 @@ def _scrub_zip(path: Path, identity: AgentIdentity, known_ids: set[str]) -> list
         infos = zf.infolist()
         plan = _classify(infos, identity)
         sizes = {name: zf.getinfo(name).file_size for name in plan.databases}
+        os_sizes = {name: zf.getinfo(name).file_size for name in plan.os_files}
         meta = zf.read(plan.meta) if plan.meta else None
+    _check_os_members(path, os_sizes, identity)
     if (
         any(size > factual.MEMORY_SCRUB_MAX_IMAGE_BYTES for size in sizes.values())
         or sum(sizes.values()) > MAX_SNAPSHOT_DB_BYTES
@@ -162,6 +166,18 @@ def _scrub_zip(path: Path, identity: AgentIdentity, known_ids: set[str]) -> list
     return [item, *info]
 
 
+def _check_os_members(path: Path, sizes: dict[str, int], identity: AgentIdentity) -> None:
+    """名字像雜檔的成員：太大、是 SQLite 或含目標 ID 就當不認得的成員.
+
+    先看宣告的大小，太大的不讀；zipfile 讀出的不會超過宣告的大小（超過就是 CRC 錯）。一次讀一份。
+    """
+    for name in sorted(sizes):
+        if sizes[name] > os_metadata.MAX_OS_FILE_BYTES:
+            raise swap.ScrubItemFailure("unknown_member")
+        if not os_metadata.is_os_metadata_content(_read_member(path, name), identity):
+            raise swap.ScrubItemFailure("unknown_member")
+
+
 def _rewrite(
     path: Path, output: Path, drop: frozenset[str], replace: dict[str, Path | bytes]
 ) -> None:
@@ -217,6 +233,7 @@ def _classify(infos: list[zipfile.ZipInfo], identity: AgentIdentity) -> _Plan:
     temp_members: set[str] = set()
     collection_dirs: set[str] = set()
     dir_ids: set[str] = set()
+    os_files: set[str] = set()
     meta: str | None = None
     legacy_jsonl = 0
     for info in infos:
@@ -244,7 +261,7 @@ def _classify(infos: list[zipfile.ZipInfo], identity: AgentIdentity) -> _Plan:
         ):
             raise swap.ScrubItemFailure("has_journal")
         if _exact(rest[0], factual.FACTS_BACKUP_DIR_NAME):
-            _classify_backup_member(info, rest, databases, temp_members)
+            _classify_backup_member(info, rest, databases, temp_members, os_files)
             continue
         if _exact(rest[0], QDRANT_DIR_NAME):
             meta = (
@@ -266,13 +283,20 @@ def _classify(infos: list[zipfile.ZipInfo], identity: AgentIdentity) -> _Plan:
         meta=meta,
         dir_ids=frozenset(dir_ids),
         legacy_jsonl=legacy_jsonl,
+        os_files=frozenset(os_files),
     )
 
 
 def _classify_backup_member(
-    info: zipfile.ZipInfo, rest: tuple[str, ...], databases: list[str], temp_members: set[str]
+    info: zipfile.ZipInfo,
+    rest: tuple[str, ...],
+    databases: list[str],
+    temp_members: set[str],
+    os_files: set[str],
 ) -> None:
-    if len(rest) == 1:  # 資料夾項目本身
+    if len(rest) == 1:  # 資料夾項目本身；和資料夾同名的檔案不認得
+        if not info.is_dir():
+            raise swap.ScrubItemFailure("unknown_member")
         return
     if len(rest) != 2:
         raise swap.ScrubItemFailure("unknown_member")
@@ -281,6 +305,8 @@ def _classify_backup_member(
         databases.append(info.filename)
     elif kind in ("upgrade_tmp", "scrub_tmp"):
         temp_members.add(info.filename)
+    elif os_metadata.is_os_metadata_name(rest[1]) and not info.is_dir():
+        os_files.add(info.filename)  # 內容由 _check_os_members 檢查
     else:
         raise swap.ScrubItemFailure("unknown_member")
 
@@ -354,6 +380,8 @@ def _verify_rewrite(
 
     依常數版面自己找出記憶庫成員與 meta.json，不看分類器與清除時的對照表：
     - 每一份記憶庫成員在新 zip 裡目標都是 0 筆；內容有變的，非目標列的多重集合要和原本同名成員相同；
+    - 升級備份資料夾裡名字像雜檔的成員不能有變，內容自己重驗（不是 SQLite、不含目標 ID）；
+      這個資料夾裡留下來的成員只能是記憶庫或雜檔；
     - 其他內容有變的成員只能是 meta.json，而且要等於「原本拿掉目標」。
     """
     with zipfile.ZipFile(new_zip) as zf:
@@ -378,12 +406,16 @@ def _verify_rewrite(
     by_name = {info.filename: info for info in original_infos}
     for info in new_infos:
         changed = _member_key(info) != _member_key(by_name[info.filename])
-        if _is_store_member(info.filename):
+        if _is_os_member(info.filename):
+            if changed:
+                raise swap.ScrubItemFailure("verify_failed")
+            _verify_os_member(new_zip, info, identity)
+        elif _is_store_member(info.filename):
             _verify_store_member(original_zip, new_zip, info.filename, identity, changed=changed)
         elif info.filename == META_MEMBER:
             if changed:
                 _verify_meta(original_zip, new_zip, target)
-        elif changed:
+        elif _in_backup_folder(info.filename) or changed:  # 資料夾裡的其他名字、或有變的其他成員
             raise swap.ScrubItemFailure("verify_failed")
     if META_MEMBER in by_name and META_MEMBER not in kept:
         raise swap.ScrubItemFailure("verify_failed")
@@ -392,6 +424,39 @@ def _verify_rewrite(
 def _verify_meta(original_zip: Path, new_zip: Path, target: str) -> None:
     expected = _expected_meta(_read_member(original_zip, META_MEMBER), target)
     if json.loads(_read_member(new_zip, META_MEMBER)) != expected:
+        raise swap.ScrubItemFailure("verify_failed")
+
+
+def _in_backup_folder(name: str) -> bool:
+    """升級備份資料夾底下的成員（不含資料夾項目本身）."""
+    parts = PurePosixPath(name).parts
+    return len(parts) > 3 and parts[:3] == (
+        SNAPSHOT_DATA_DIR,
+        SNAPSHOT_VAULT_DIR,
+        factual.FACTS_BACKUP_DIR_NAME,
+    )
+
+
+def _is_os_member(name: str) -> bool:
+    """依常數版面認升級備份資料夾裡名字像雜檔的成員（不經分類器）."""
+    parts = PurePosixPath(name).parts
+    return (
+        len(parts) == 4
+        and parts[:3] == (SNAPSHOT_DATA_DIR, SNAPSHOT_VAULT_DIR, factual.FACTS_BACKUP_DIR_NAME)
+        and parts[3].isascii()
+        and parts[3].lower() in os_metadata.OS_METADATA_NAMES
+    )
+
+
+def _verify_os_member(new_zip: Path, info: zipfile.ZipInfo, identity: AgentIdentity) -> None:
+    """只用 os_metadata 的常數重算，不呼叫它的內容判斷；先看新 zip 宣告的大小，太大的不讀."""
+    if info.file_size > os_metadata.MAX_OS_FILE_BYTES:
+        raise swap.ScrubItemFailure("verify_failed")
+    content = _read_member(new_zip, info.filename)
+    needles = [identity.agent_id.encode(enc, "surrogatepass") for enc in os_metadata.ID_ENCODINGS]
+    if content.startswith(os_metadata.SQLITE_HEADER) or any(
+        needle in content for needle in needles
+    ):
         raise swap.ScrubItemFailure("verify_failed")
 
 

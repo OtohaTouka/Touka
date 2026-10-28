@@ -41,6 +41,7 @@ ScrubReason = Literal[
     "internal_error",
     "empty_file",
     "out_of_scope",
+    "os_metadata_file",
 ]
 SCRUB_CATEGORIES: tuple[ScrubCategoryName, ...] = (
     "leftovers",
