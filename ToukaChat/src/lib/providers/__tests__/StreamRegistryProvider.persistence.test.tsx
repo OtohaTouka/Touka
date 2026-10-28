@@ -224,4 +224,17 @@ describe('actual registry user-turn persistence barrier', () => {
     expect(state.controller.signal.aborted).toBe(true);
     expect(result.current.activeCount).toBe(0);
   });
+  it('stop before any stream is registered still tells the server to stop this conversation', async () => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    h.fetch.mockClear().mockResolvedValue({ ok: true, status: 200, json: async () => ({ state: null }) });
+    await act(async () => { result.current.stopStream('s1'); });
+    const stops = h.fetch.mock.calls.filter(([, , options]) => options?.method === 'POST');
+    expect(stops).toHaveLength(1);
+    expect(stops[0][1]).toBe('/v1/ui/sessions/s1/stop');
+    expect(stops[0][2]).toMatchObject({ requestScope: h.scope, method: 'POST' });
+    expect(state.controller.signal.aborted).toBe(true);
+    expect(result.current.activeCount).toBe(0);
+  });
 });

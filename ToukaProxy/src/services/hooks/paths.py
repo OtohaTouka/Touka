@@ -63,8 +63,12 @@ _TOKEN_SPLIT = re.compile(r"[\s\"'`;&|()<>,=\[\]{}]+")
 # 路徑清單的分隔符號：POSIX 是 ``:``（``-cp a.jar:/data/x.jar``）；Windows 是 ``;``，上面已經拆了，
 # 而 Windows 的 ``:`` 是磁碟代號，不能拆。
 _PATH_LIST_SEPARATOR: Final[str] = os.pathsep
-# ``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）。
-_FILE_URL = re.compile(r"file:", re.IGNORECASE)
+# ``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）；字詞中間的也算（``jar:file:/x``），
+# 前面緊接英數字的不算（``--profile:dev``）。
+_FILE_URL = re.compile(r"(?<![a-z0-9])file:", re.IGNORECASE)
+# 黏在單字母選項後面的絕對路徑（``-I/data/lib``、``-oD:\data\x``），以及 ``@`` 後面的參數檔
+# （``@/data/args.txt``）。只認單字母選項，``-Ilib/sub`` 這種相對路徑不拆。
+_GLUED_PATH = re.compile(r"^(?:-[A-Za-z](?=(?:[A-Za-z]:)?[\\/])|@)(?P<path>.+)$")
 _SEPARATORS = re.compile(r"[\\/]")
 _VERBATIM_PREFIX = "\\\\?\\"
 _VERBATIM_UNC_PREFIX = "\\\\?\\UNC\\"
@@ -287,6 +291,8 @@ def _command_problems(checker: _ZoneChecker, command: str) -> list[PathProblem]:
 
 def _argument_tokens(arg: str) -> list[str]:
     words = [word for word in _TOKEN_SPLIT.split(arg) if word]
+    glued = [match["path"] for word in words if (match := _GLUED_PATH.match(word))]
+    words += [path for path in glued if path not in words]
     parts = [part for word in words for part in word.split(_PATH_LIST_SEPARATOR) if part]
     return words + [part for part in parts if part not in words]
 
@@ -298,7 +304,7 @@ def _argument_problems(
         return [PathProblem(reason=reason, where=where, value=arg)]
 
     tokens = (arg, *_argument_tokens(arg))
-    if any(_FILE_URL.match(token) for token in tokens):
+    if any(_FILE_URL.search(token) for token in tokens):
         return problem("file_url")
     for token in tokens:
         if _has_parent_segment(token):

@@ -4,7 +4,7 @@
 
 - 設定唯一來源：`config/hooks.json`（`models/hooks.py` 的 `HooksConfig`；種子 `hooks.json.example`，預設關閉）。只經 `PUT /v1/hooks`（人類 admin）改；代理人讀寫屬底線 F2（標頭可能有權杖）。不在設定匯出／匯入裡。
 - hook 腳本：設定資料夾的 `hooks/`（`services/hooks/paths.py` 的 `HOOKS_DIR_NAME`），也是 command hook 的工作目錄；參數裡的路徑必須在這裡，程式在別處時不能指到代理人寫得到的地方（資料根、sandbox state、執行器、工作區根、專案根、MCP 可寫資料夾與它們的對映路徑）。不進版控也不進映像。
-- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行管理員的靈魂：`authorization_gateway.owned_by_admin`）。
+- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行只有管理員擁有的靈魂：`authorization_gateway.only_admins_own`）。
 - 執行與合併結果的唯一入口：`services/hooks/service.py` 的 `hook_service`；解讀規則 `outcome.py`，比對規則 `matcher.py`，執行 `runners.py`（command 經 `execution_broker.spawn_exec`、不經 shell）。
 - 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
 - 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
@@ -173,7 +173,7 @@
 | 系統把對話歸檔進舊對話庫（`legacy/` 不寫檔、不搬檔；訊息只新增） | `ToukaMemory/src/memory_server/services/legacy_sync.py` `LegacySyncService.archive_payload` → `legacy_store.py` `LegacyStore.archive`（一個交易） | 滑動視窗剪裁 ACID-A、`POST /v1/ui/sessions/legacy/export`、`sync_all_json_to_db`；兩個 tools 目錄不得引用（`test_legacy_archive.py` 釘住） |
 | 手動同步的已處理紀錄（檔名, 內容 SHA-256） | 舊對話庫表 `processed_files`（`LegacyStore.processed_keys`、`LegacySyncService.file_status`） | `sync_all_json_to_db`（重跑跳過）、`GET /v1/stats/legacy/{agent_id}`（`archived_files`／`pending_files`） |
 | 聊天側剪裁的身分（家對話所屬的靈魂，不用請求者） | `ToukaProxy/src/services/dispatcher.py` `_home_soul_identity`（`home_for_agent`；判定與設家相同，身分建法與心跳相同） | `_maybe_trim_after_chat` |
-| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `continuity_service._append_to_last_user`、`ContextLayer._append_context`（`<ide_context>`） |
+| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `content_normalize.append_to_last_user`（`continuity_service`、`HookLayer` 共用）、`ContextLayer._append_context`（`<ide_context>`） |
 
 ## 記憶系統第二批：段 L 記憶會演變與安全標記（2026-10-15，ADR-0263）
 

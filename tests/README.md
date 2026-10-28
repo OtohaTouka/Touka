@@ -89,11 +89,11 @@ tests/
 | 檔案 | 說明 |
 |---|---|
 | `unit/test_hooks_config.py` | 設定模型：預設關閉且範本有效、只收已接線的四個事件（名稱區分大小寫）、command／http 兩種 handler；拒收其他 hook 類型、`shell`／`if`／`async` 欄位、空指令、逾時超出範圍、非 http(s) 網址、標頭寫 `$VAR`／`${VAR}`、標頭名稱不是 HTTP token、設定 Touka 自己送的四個標頭（`content-type` 等，不分大小寫）、未知的頂層欄位與壞的 matcher、單一事件 handler 過多；matcher 規則照 Claude Code。 |
-| `unit/test_hook_paths_security.py` | 指令與參數的路徑界線：外部程式與 `hooks/` 裡的腳本可用；指令必須是存在的檔案的絕對路徑；參數的路徑不在 `hooks/` 就拒絕（`outside_hooks_dir`），專案清單變動不影響 `hooks/` 裡的腳本；指令在代理人寫得到的地方拒絕；`..`、UNC、磁碟機相對路徑拒絕；相對參數從 `hooks/` 讀；`hooks/` 裡的硬連結拒絕；`hooks/` 裡經過連結（含 `hooks/` 本身是連結）拒絕（`linked_path`）；符號連結指進禁區、本身放在禁區、中途經過禁區都拒絕；同一個資料夾的別名靠檔案識別碼擋（設定資料夾的別名只放行 `hooks/`）；讀不到狀態當成無法確認；大小寫照平台規則；禁區包含資料根、state、工作區根、專案根與翻譯後的路徑、MCP 伺服器的可寫資料夾（唯讀的不算），容器裡另加對映路徑；讀不到 MCP 隔離設定檔時不能執行；參數裡用路徑分隔字元串起來的路徑清單逐段檢查，`file:` 網址拒絕（`file_url`）。 |
-| `unit/test_project_root_protected_security.py` | 一般使用者的專案根（ADR-0292 決定 12）：設定資料夾、`config/hooks/`、資料根與它們的上層拒絕；使用者資料夾可用；經連結指到設定資料夾拒絕；本機安裝不做 Touka 目錄偵測，容器裡工作區掛載根本身與 Touka 目錄拒絕；專案檔案工具對靈魂與沒有身分拒絕受保護的專案根、使用者資料夾照常可用、管理員與管理員的靈魂不受限（`owned_by_admin` 照擁有者角色判斷）；本機安裝根底下只有使用者自建的第一層資料夾能用；檢查沒做完時說明且不放行；登記受保護的專案根被拒，管理員照舊可以；登記被拒時回原因（`outside_workspace`／`protected_location`／`scan_limit`）。 |
-| `unit/test_hook_runners_security.py` | 執行方式：事件內容只從標準輸入、參數不經 shell、子程序環境不含金鑰、結束碼與 stderr、逾時結束程式、超過上限的輸出丟掉、啟動不了算失敗；http 送出事件內容且標頭照字面、不跟隨轉址、非 2xx 算失敗、回應讀到上限就停止並關閉連線、慢慢回的伺服器在整次請求的逾時內被切斷、不讀環境裡的憑證與代理設定。 |
-| `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON、`continue: false` 只在能擋的事件擋下）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔／讀不到／載入後被刪掉都沿用上一份、解讀或記錄出錯只算那個 hook 失敗、存檔 CAS 與路徑檢查（含停用的 hook）；存檔前讀不到檔案或寫不進去都回存檔錯誤、不寫檔、保留原本的設定。 |
-| `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加。 |
+| `unit/test_hook_paths_security.py` | 指令與參數的路徑界線：外部程式與 `hooks/` 裡的腳本可用；指令必須是存在的檔案的絕對路徑；參數的路徑不在 `hooks/` 就拒絕（`outside_hooks_dir`），專案清單變動不影響 `hooks/` 裡的腳本；指令在代理人寫得到的地方拒絕；`..`、UNC、磁碟機相對路徑拒絕；相對參數從 `hooks/` 讀；`hooks/` 裡的硬連結拒絕；`hooks/` 裡經過連結（含 `hooks/` 本身是連結）拒絕（`linked_path`）；符號連結指進禁區、本身放在禁區、中途經過禁區都拒絕；同一個資料夾的別名靠檔案識別碼擋（設定資料夾的別名只放行 `hooks/`）；讀不到狀態當成無法確認；大小寫照平台規則；禁區包含資料根、state、工作區根、專案根與翻譯後的路徑、MCP 伺服器的可寫資料夾（唯讀的不算），容器裡另加對映路徑；讀不到 MCP 隔離設定檔時不能執行；參數裡用路徑分隔字元串起來的路徑清單逐段檢查，黏在單字母選項或 `@` 後面的路徑也檢查，`file:` 網址拒絕（`file_url`，含字詞中間的）。 |
+| `unit/test_project_root_protected_security.py` | 一般使用者的專案根（ADR-0292 決定 12）：設定資料夾、`config/hooks/`、資料根與它們的上層拒絕；使用者資料夾可用；經連結指到設定資料夾拒絕；本機安裝不做 Touka 目錄偵測，容器裡工作區掛載根本身與 Touka 目錄拒絕；專案檔案工具對靈魂與沒有身分拒絕受保護的專案根、使用者資料夾照常可用、管理員與只有管理員擁有的靈魂不受限（`only_admins_own` 照每位擁有者的角色判斷，有一般使用者共同擁有時不放行）；本機安裝根底下只有使用者自建的第一層資料夾能用；檢查沒做完時說明且不放行；登記受保護的專案根被拒，管理員照舊可以；登記被拒時回原因（`outside_workspace`／`protected_location`／`scan_limit`）。 |
+| `unit/test_hook_runners_security.py` | 執行方式：事件內容只從標準輸入、參數不經 shell、子程序環境不含金鑰、結束碼與 stderr、逾時真的結束程式（之後不會再寫檔）、超過上限的輸出丟掉、啟動不了算失敗；http 送出事件內容且標頭照字面、不跟隨轉址、非 2xx 算失敗、回應讀到上限就停止並關閉連線、慢慢回的伺服器在整次請求的逾時內被切斷、不讀環境裡的憑證與代理設定。 |
+| `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON、`continue: false` 只在能擋的事件擋下）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔／讀不到／載入後被刪掉都沿用上一份、解讀或記錄出錯只算那個 hook 失敗、存檔 CAS 與路徑檢查（含停用的 hook）；存檔前讀不到檔案或寫不進去都回存檔錯誤、不寫檔、保留原本的設定；事件內容有落單的 surrogate 時照樣執行。 |
+| `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加；hook 執行期間停止時不送模型（`PROMPT_STOPPED`）、不執行工具（`stopped_by_user`），擋下優先於停止，沒有 hook 執行或沒比到的工具不看停止旗標。 |
 | `unit/test_hooks_router_security.py` | 管理 API：三個端點只給人類管理員（admin 代打、一般使用者、靈魂、Debugger、DispatchAgent、子代理、沒登入與壞的 token 都拒絕且不寫檔）；存檔寫檔並回 revision、作者與時間由伺服器填；舊 revision 回 409 且不動檔；路徑被拒回 422 且不寫檔（含停用的 hook）；不可信的 Origin 拒絕；沒帶 revision、多的欄位、未接線事件、`shell` 欄位、標頭環境變數拒收；執行紀錄新的在前、無痕只留結果；壞檔時給上一份好的設定與壞檔的 revision、帶它存檔可修好；`/v1` 與根路徑都掛上；設定匯出不含 `hooks.json`。 |
 
 ### 心跳、SNS 與對話歸屬（ADR-0276）
@@ -120,7 +120,7 @@ tests/
 | `unit/test_session_binding_security.py` | 退休 SNS 列只由沙盒 SQL 模擬舊資料；正常 SNS 改用受管每靈魂頻道並驗保存回覆。 |
 | `unit/test_session_owner_attribution.py` | 既有代理對話 seed／update 明帶相同 agent identity，驗 owner 不被後寫者改動，不再藉匿名寫入建立測試前提。 |
 | `unit/test_session_persistence_ordering.py` | 家對話經 set_home 建立，剪裁用綁定靈魂，保留 stale revision、公開 null 與 rich-save 競態斷言。 |
-| `unit/test_sns_gateway.py` | 替身提供正式靈魂與同擁有者關係、嚴格家快照及成功 append，頻道 ID 期望改為每靈魂完整座標雜湊；被 UserPromptSubmit hook 擋下的外人訊息不寫進對話（家對話與獨立對話）、其他錯誤照舊寫、外人訊息寫好才讀回覆（寫不進去就不讀）（ADR-0292）。 |
+| `unit/test_sns_gateway.py` | 替身提供正式靈魂與同擁有者關係、嚴格家快照及成功 append，頻道 ID 期望改為每靈魂完整座標雜湊；被 UserPromptSubmit hook 擋下的外人訊息不寫進對話、不回覆也不往外丟錯（家對話與獨立對話）、其他錯誤照舊寫、外人訊息寫好才讀回覆（寫不進去就不讀）（ADR-0292）。 |
 
 其餘受快照／條件提交影響的回歸檔，測試數量不變，逐檔分類如下：
 

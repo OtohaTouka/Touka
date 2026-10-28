@@ -137,7 +137,7 @@ def _project_tools_at(monkeypatch, root: Path, writes: list) -> None:
     monkeypatch.setattr(pt.resource_manager, "get_project_path", project_path)
     monkeypatch.setattr(pt, "core_write", write)
     monkeypatch.setattr(pt, "add_project_event", no_event)
-    monkeypatch.setattr(pt, "owned_by_admin", lambda _identity: False)
+    monkeypatch.setattr(pt, "only_admins_own", lambda _identity: False)
 
 
 @pytest.mark.parametrize("identity", [SOUL, None])
@@ -178,10 +178,10 @@ async def test_an_unfinished_check_says_so_and_does_not_allow(tmp_path, monkeypa
     assert writes == []
 
 
-async def test_souls_an_admin_owns_are_not_limited(native, tmp_path, monkeypatch):
+async def test_souls_only_admins_own_are_not_limited(native, tmp_path, monkeypatch):
     writes: list = []
     _project_tools_at(monkeypatch, tmp_path / "config" / "hooks", writes)
-    monkeypatch.setattr(pt, "owned_by_admin", lambda identity: identity.agent_id == "Alice")
+    monkeypatch.setattr(pt, "only_admins_own", lambda identity: identity.agent_id == "Alice")
     result = await pt.project_tools(
         "write", path="guard.py", content="x", project_id="p1", identity=SOUL
     )
@@ -198,14 +198,17 @@ def _user(role: str, owned: list[str]) -> User:
     ("users", "expected"),
     [
         ([_user("admin", ["Alice"])], True),
+        ([_user("admin", ["Alice"]), _user("admin", ["Alice", "Bob"])], True),
         ([_user("normal", ["Alice"])], False),
+        # 管理員和一般使用者共同擁有：一般使用者也能用這個靈魂，照樣限制
+        ([_user("admin", ["Alice"]), _user("normal", ["Alice"])], False),
         ([_user("admin", ["Bob"])], False),
         ([], False),
     ],
 )
-def test_owned_by_admin_reads_the_owner_role(monkeypatch, users, expected):
+def test_only_admins_own_reads_every_owner_role(monkeypatch, users, expected):
     monkeypatch.setattr(authorization_gateway.AuthService, "get_all_users", lambda _self: users)
-    assert authorization_gateway.owned_by_admin(AgentIdentity(agent_id="Alice")) is expected
+    assert authorization_gateway.only_admins_own(AgentIdentity(agent_id="Alice")) is expected
 
 
 async def test_project_tools_still_work_in_a_user_folder(native, tmp_path, monkeypatch):

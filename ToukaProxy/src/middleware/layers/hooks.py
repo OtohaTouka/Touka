@@ -7,6 +7,9 @@
 
 這時對話的模式還沒決定（``ToolLayer`` 才決定），事件內容不帶 ``permission_mode``（ctx 裡就算
 有值也不是這次對話的模式）。
+
+hook 執行時串流還沒登記，使用者按停止只會設這個對話的中斷旗標（``rhythm_service``）；hook 回來
+後看到旗標就回 ``PROMPT_STOPPED``、不送模型。擋下優先：還連著的用戶端要靠它把那一輪拿掉。
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.middleware.base import ProxyLayer
 from src.services.hooks.events import base_payload, last_user_prompt, wrap_hook_output
 from src.services.hooks.service import hook_service
+from src.services.rhythm_service import rhythm_service
 from src.utils.auth_mode import request_is_incognito
 
 if TYPE_CHECKING:
@@ -28,6 +32,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PROMPT_EVENT = "UserPromptSubmit"
+# 擋下理由放進 403 回應時的上限（多個 hook 的理由合併後可能很長）
+MAX_REASON_CHARS = 4_000
 
 
 class HookLayer(ProxyLayer):
@@ -44,7 +50,13 @@ class HookLayer(ProxyLayer):
             logger.info(
                 "UserPromptSubmit hook blocked a prompt (session=%s)", ctx.get("session_id")
             )
-            raise ToukaException(ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.reason)
+            raise ToukaException(
+                ErrorCode.HOOK_PROMPT_BLOCKED, reason=decision.reason[:MAX_REASON_CHARS]
+            )
+        session_id = ctx.get("session_id")
+        if decision.ran and session_id and rhythm_service.is_interrupted(session_id):
+            logger.info("Prompt stopped by the user while hooks ran (session=%s)", session_id)
+            raise ToukaException(ErrorCode.PROMPT_STOPPED)
         if decision.context:
             append_to_last_user(request, "\n\n" + wrap_hook_output(PROMPT_EVENT, decision.context))
 

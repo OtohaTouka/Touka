@@ -142,7 +142,8 @@ async def run_command(hook: CommandHook, payload: bytes, *, cwd: Path) -> RunRes
             truncated=out.truncated or err.truncated,
             detail=f"timeout after {hook.timeout}s",
         )
-    except asyncio.CancelledError:
+    except BaseException:
+        # 被取消或寫標準輸入時出錯：先結束程式再往上丟，不讓它不受逾時限制一直跑
         terminate_process_tree(proc)
         raise
     return RunResult(

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.services import tool_errors
-from src.services.authorization_gateway import owned_by_admin
+from src.services.authorization_gateway import only_admins_own
 from src.services.isolation import profiles
 from src.services.resource_manager import bypasses_project_jail, resource_manager
 from src.utils.async_db import add_project_event
@@ -83,7 +83,7 @@ async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> 
         return f"Error: Project root for '{project_id}' not found."
     # 一般使用者的靈魂，專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經
     # 專案寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
-    if not (identity and (bypasses_project_jail(identity) or owned_by_admin(identity))):
+    if not (identity and (bypasses_project_jail(identity) or only_admins_own(identity))):
         reason = await profiles.project_root_reason(Path(root_bound), profiles.current_layout())
         if reason:
             logger.warning("Project %s root refused (%s).", project_id, reason)

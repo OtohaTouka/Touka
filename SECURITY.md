@@ -103,8 +103,10 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **PreToolUse 會拖慢工具**：每次符合的工具呼叫都要等 hook 執行完（最多到逾時，上限 300 秒）。
 - **hook 失敗不擋**：hook 逾時、當掉、連不上或路徑被拒時動作照常進行，只記在執行紀錄。不要把 hook 當成唯一的安全防線。
 - **Windows 的 `.bat`／`.cmd`**：系統會經 `cmd.exe` 啟動，參數會被 `cmd.exe` 重新解讀。
-- **管理員與 Debugger 的專案**：不受「專案根不能放在受保護位置」的限制；管理員把專案登記在設定資料夾一類的地方時，代理人以管理員身分使用專案工具就寫得到 hook 腳本。
-- **IDE 與未隔離的 MCP 伺服器**：Touka 不知道它們能寫哪裡，不要把 hook 程式放在那些地方。
+- **管理員、Debugger 與只有管理員擁有的靈魂的專案**：不受「專案根不能放在受保護位置」的限制；管理員把專案登記在設定資料夾一類的地方時，代理人用專案工具或檔案動詞就讀寫得到 hook 腳本與 `hooks.json`（底線 F2 只管終端指令）。有一般使用者共同擁有的靈魂照一般身分檢查。
+- **IDE 與 MCP 伺服器**：IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道；包在 Landlock 裡的第三方伺服器所引用的資料夾也不在禁區。不要把 hook 程式放在那些地方。
+- **啟動器**：`env`、`npx`、`py` 這類程式會自己找要執行的程式，找到哪裡 Touka 不檢查；hook 請寫成直譯器＋`config/hooks/` 裡的腳本。
+- **涵蓋範圍**：「使用者送出訊息」只檢查聊天、SNS、評分卡送出的文字，心跳、排程提示與重新觸發都不觸發，不能當成管住使用者的機制；「工具執行前」只涵蓋代理人經工具執行器的呼叫，任務的驗證指令與演化、創建的試跑不觸發。
 - **自己組歷史的用戶端**：被擋下的訊息不再送給模型只在 ToukaChat 做到；IDE 或自訂用戶端把它放進歷史時仍會送到模型。
 
 ### 代理人指令隔離的其他已知限制
@@ -168,6 +170,9 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 第二輪：事件內容的工具參數和執行器共用同一個物件，MCP 分支之後補上的 `agent_id` 與換成實際路徑的根目錄會出現在 PostToolUse 的事件內容。 | 建事件時先複製參數。`tests/unit/test_hook_wiring_security.py`。 |
 | 第二輪：管理員的靈魂在前景交談時執行身分是靈魂（ADR-0154），被當成一般身分擋下管理員自己登記的專案；本機安裝時安裝根底下 Touka 自己的第一層資料夾（`.venv`、`.git`、`ToukaChat` 等）能當一般使用者的專案根；檢查沒做完時說成「受保護的位置」。 | 管理員擁有的靈魂不受限；本機安裝根底下第一層是 Touka 自己的資料夾時拒絕；檢查沒做完時回 `scan_limit`、另外說明，也不放行。`tests/unit/test_project_root_protected_security.py`。 |
 | 第二輪：hook 參數裡 POSIX 用 `:` 串起來的路徑清單與 `file:` 網址沒有逐一檢查；http 標頭名稱能帶冒號或空白，也能另設 `content-type` 蓋掉 JSON 型別。 | 路徑清單逐段檢查、`file:` 網址拒收（`file_url`）；標頭名稱必須是 HTTP token，Touka 自己送的四個標頭不能設定。`tests/unit/test_hook_paths_security.py`、`test_hooks_config.py`。 |
+| 第三輪：「只要有一位管理員擁有」就讓靈魂的專案工具不受專案根限制，管理員與一般使用者共同擁有的靈魂整個不檢查。 | 改成所有擁有者都是管理員才放行（`authorization_gateway.only_admins_own`）。`tests/unit/test_project_root_protected_security.py`。 |
+| 第三輪：UserPromptSubmit 或 PreToolUse hook 執行期間按停止擋不住：hook 放行後照常送模型、照常執行工具。 | hook 跑完後查這個對話的停止旗標，送模型前回 409 `PROMPT_STOPPED`、工具回 `stopped_by_user`；前端還沒有串流時也送這個對話的停止。`tests/unit/test_hook_wiring_security.py`、`StreamRegistryProvider.persistence.test.tsx`。 |
+| 第三輪：參數裡黏在單字母選項或 `@` 後面的絕對路徑（`-I/data/lib`）與字詞中間的 `file:` 沒檢查；事件內容有落單的 surrogate 時整批 hook 不跑；hook 等待被取消時子程式沒被結束；SNS 外人訊息被擋時平台回「內部錯誤」。 | 這幾種寫法照路徑檢查；surrogate 換成 `?`；任何例外都結束行程樹；SNS 被擋時不回覆、不丟錯。`tests/unit/test_hook_paths_security.py`、`test_hook_service.py`、`test_hook_runners_security.py`、`test_sns_gateway.py`。 |
 | http hook 的逾時只管連線與每次讀取，伺服器慢慢回可以拖過上限；`hooks.json` 存著 http 標頭（可能有權杖），代理人讀它不算底線。 | 逾時改成整次請求的上限、讀到 64 KiB 就停止並關閉連線；讀寫 `hooks.json` 都屬底線 F2。`tests/unit/test_hook_runners_security.py`、`test_hard_floor_security.py`。 |
 | 群聊時 hook 補充說明裡的 `@別名` 會被當成點名，hook 的輸出能叫其他靈魂發言。 | `group_router` 找點名前先拿掉 `<hook_output>` 區塊。`tests/unit/test_group_soul_only.py`。 |
 | 其他：`config/hooks/` 沒有排除在版控與映像外；設定檔讀不到或被刪掉時變成沒有 hook；只有工具結果的 user 回合也觸發 UserPromptSubmit；`continue: false` 被忽略。 | `.gitignore`、`.dockerignore` 排除 `config/hooks/`（`test_public_repo_hygiene.py`）；讀不到或被刪掉時沿用上一份好的設定；工具結果回合不觸發；`continue: false` 在能擋的事件擋下。ADR-0292。 |

@@ -23,8 +23,8 @@
 另有 ``can_drive_soul``／``require_soul_access``（ADR-0245 修補）：不是 Depends，由 pipeline
 在解析出靈魂目標後呼叫，判斷呼叫者能不能以該靈魂為對話目標。
 
-``owned_by_admin``（ADR-0292）：某個代理人是不是人類管理員擁有的（專案根的限制只套用在一般
-使用者的靈魂）。
+``only_admins_own``（ADR-0292）：某個代理人是不是只有人類管理員擁有（專案根的限制只套用在
+一般使用者能用的靈魂）。
 """
 
 from fastapi import Depends
@@ -107,12 +107,17 @@ def can_drive_soul(identity: AgentIdentity, soul: AgentIdentity) -> bool:
     return identity.agent_id in (soul.agent_id, "DebugAgent")
 
 
-def owned_by_admin(identity: AgentIdentity) -> bool:
-    """這個代理人是不是人類管理員擁有的（照 ``users.json`` 的 ``owned_agents``）。"""
-    return any(
-        user.role == "admin" and identity.agent_id in user.owned_agents
+def only_admins_own(identity: AgentIdentity) -> bool:
+    """這個代理人有擁有者，而且全是人類管理員（照 ``users.json`` 的 ``owned_agents``）。
+
+    有一般使用者共同擁有時回 False：一般使用者也能用它對話，不能因為管理員也擁有就放寬。
+    """
+    roles = [
+        user.role
         for user in AuthService().get_all_users()
-    )
+        if identity.agent_id in user.owned_agents
+    ]
+    return bool(roles) and all(role == "admin" for role in roles)
 
 
 def require_soul_access(identity: AgentIdentity, soul: AgentIdentity) -> None:

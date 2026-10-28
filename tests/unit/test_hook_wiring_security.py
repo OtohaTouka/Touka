@@ -1,10 +1,12 @@
 """Hook 接線（ADR-0292）：UserPromptSubmit、PreToolUse、PostToolUse、Stop 四個事件.
 
 - UserPromptSubmit：只在真的請求執行（``process_proxy_request`` 設 ``run_hooks``；上下文預覽與
-  子代理不執行；只有工具結果的 user 訊息不執行）；擋下回 ``HOOK_PROMPT_BLOCKED`` 帶理由；補充說明
-  當資料接在最後一則 user 訊息。模式這時還沒決定，事件內容不帶 ``permission_mode``。
+  子代理不執行；只有工具結果的 user 訊息不執行）；擋下回 ``HOOK_PROMPT_BLOCKED`` 帶理由（有上限）；
+  補充說明當資料接在最後一則 user 訊息。模式這時還沒決定，事件內容不帶 ``permission_mode``。
+  hook 執行期間使用者按了停止，回 ``PROMPT_STOPPED``、不送模型（擋下優先）。
 - PreToolUse：只能擋下或要求人核准。擋下不跳卡、不送審、不執行；要求人核准跳同一張人類卡、
   卡上的理由標成 hook 的（不是審查員的）、不送審查員，無人在場直接拒絕；``allow`` 不放行。
+  等 hook 的期間使用者按了停止，工具不執行。
 - PostToolUse：只在成功後執行；補充說明接在結果後面（JSON 結果加鍵、文字結果加資料區塊）。
 - Stop：在背景執行，子代理與沒有設定時不執行、不讀回覆文字。
 - 沒有設定 hook 時結果不變、不呼叫 hook；hook 服務自己出錯時當成沒有 hook 結果（請求不失敗、
@@ -184,6 +186,44 @@ async def test_prompt_context_is_appended_as_data_with_tags_neutralized(hooks):
     assert "<persona>" not in content
 
 
+def _stopped(monkeypatch: pytest.MonkeyPatch, module: Any, *sessions: str) -> None:
+    """讓 ``module`` 看到的中斷旗標只在 ``sessions`` 上成立（不動全域的 rhythm_service）。"""
+    monkeypatch.setattr(
+        module, "rhythm_service", SimpleNamespace(is_interrupted=lambda sid: sid in sessions)
+    )
+
+
+async def test_stopping_while_prompt_hooks_run_keeps_the_prompt_from_the_model(hooks, monkeypatch):
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    hooks.http.bodies["UserPromptSubmit"] = "extra note"
+    _stopped(monkeypatch, layer_module, "s-hook")
+    request = _Request("hello")
+    with pytest.raises(ToukaException) as raised:
+        await HookLayer().process(request, _prompt_ctx())
+    assert raised.value.code == ErrorCode.PROMPT_STOPPED
+    assert len(hooks.http.calls) == 1
+    assert request.messages[-1]["content"] == "hello"
+
+
+async def test_a_block_wins_over_a_stop_so_a_connected_client_drops_the_turn(hooks, monkeypatch):
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    hooks.http.bodies["UserPromptSubmit"] = json.dumps({"decision": "block", "reason": "x" * 9_000})
+    _stopped(monkeypatch, layer_module, "s-hook")
+    with pytest.raises(ToukaException) as raised:
+        await HookLayer().process(_Request("hello"), _prompt_ctx())
+    assert raised.value.code == ErrorCode.HOOK_PROMPT_BLOCKED
+    assert len(raised.value.detail["reason"]) == layer_module.MAX_REASON_CHARS
+
+
+async def test_a_stop_flag_changes_nothing_without_prompt_hooks(hooks, monkeypatch):
+    hooks.configure({"PreToolUse": [_group()]})
+    _stopped(monkeypatch, layer_module, "s-hook")
+    request = _Request("hello")
+    await HookLayer().process(request, _prompt_ctx())
+    assert hooks.http.calls == []
+    assert request.messages[-1]["content"] == "hello"
+
+
 def test_pipeline_runs_the_hook_layer_right_after_identity():
     layers = [type(layer) for layer in proxy_service.pipeline.layers]
     assert layers.index(HookLayer) == layers.index(MonitorLayer) + 1
@@ -329,6 +369,33 @@ async def test_pre_tool_deny_blocks_before_review_card_and_handler(monkeypatch, 
     (call,) = hooks.http.calls
     assert call["tool_name"] == "execute_command"
     assert call["tool_input"] == _COMMAND
+
+
+async def test_a_tool_waiting_on_pre_tool_hooks_does_not_run_after_a_stop(monkeypatch, hooks):
+    hooks.configure({"PreToolUse": [_group(matcher="execute_command")]})
+    _stopped(monkeypatch, tool_hooks, "s-hook")
+    completer = _reviewer(monkeypatch)
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"execute_command": recorder})
+    result, events = await _run(executor, "execute_command", dict(_COMMAND))
+    payload = json.loads(result)
+    assert payload["error_class"] == tool_errors.PERMISSION_DENIED
+    assert payload["reason"] == "stopped_by_user"
+    assert recorder.calls == []
+    assert completer.calls == 0
+    assert _cards(events) == []
+    assert len(hooks.http.calls) == 1
+
+
+async def test_a_stop_flag_does_not_touch_tools_no_hook_matches(monkeypatch, hooks):
+    hooks.configure({"PreToolUse": [_group(matcher="read")]})
+    _stopped(monkeypatch, tool_hooks, "s-hook")
+    _reviewer(monkeypatch)
+    recorder = _Recorder()
+    executor = _executor(monkeypatch, {"execute_command": recorder})
+    await _run(executor, "execute_command", dict(_COMMAND))
+    assert len(recorder.calls) == 1
+    assert hooks.http.calls == []
 
 
 async def test_tools_the_policy_denies_never_reach_the_hook(monkeypatch, hooks):

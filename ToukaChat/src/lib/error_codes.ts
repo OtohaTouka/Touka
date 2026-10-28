@@ -296,6 +296,12 @@ export const ERRORS = {
     msg: "This conversation cannot be used for the requested target",
     i18n: "error.session.scope_mismatch"
   },
+  PROMPT_STOPPED: {
+    id: 1222,
+    status: 409,
+    msg: "The user stopped this reply before it started",
+    i18n: "error.session.prompt_stopped"
+  },
   TERMINAL_APPROVAL_NOT_FOUND: {
     id: 1208,
     status: 404,

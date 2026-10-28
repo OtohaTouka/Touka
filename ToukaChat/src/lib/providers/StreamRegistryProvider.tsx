@@ -429,6 +429,13 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
           `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stream/state`, { requestScope: s.requestScope });
         const body: unknown = response.ok ? await response.json() : null;
         if (!isRequestScopeCurrent(s.requestScope) || !body || typeof body !== 'object' || !('state' in body)) return;
+        if (body.state === null) {
+          // 還沒有登記的串流（例如 UserPromptSubmit hook 還在跑）：只設這個對話的中斷旗標，
+          // hook 回來後後端看到就不送模型（ADR-0292）；這時已經有開始的串流，後端回 404、不動它
+          await fetchTouka(s.requestScope!.proxyOrigin,
+            `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', requestScope: s.requestScope });
+          return;
+        }
         started = parseBufferedStreamState(body.state, sessionId)?.started ?? undefined;
       }
       if (!started || started.assistant_node_id !== s.assistantMsgId ||

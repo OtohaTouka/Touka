@@ -127,7 +127,7 @@
 
 ## 更新歷史
 
-| 2026-10-28 | 1.0.0 | **Hook（ADR-0292）**: 新增 `GET`／`PUT /v1/hooks` 與 `GET /v1/hooks/runs`（人類 admin）；聊天請求被 UserPromptSubmit hook 擋下回 403 `HOOK_PROMPT_BLOCKED`。 |
+| 2026-10-28 | 1.0.0 | **Hook（ADR-0292）**: 新增 `GET`／`PUT /v1/hooks` 與 `GET /v1/hooks/runs`（人類 admin）；聊天請求被 UserPromptSubmit hook 擋下回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間被停止回 409 `PROMPT_STOPPED`。 |
 | 2026-06-06 | 1.0.0 | **深度對抗式審計修復（DA1–DA28）**: 新增 `POST /v1/auth/change-password`（DA25）；`/v1/admin/users*` 四端點改 `response_model=UserOut`（DA22，移除 bcrypt 雜湊＋refresh JTI）；帳號停權強制（DA23）、心跳 `/awaken` 加固（DA24）、debug/souls 跨用戶 IDOR（DA17）、演化沙箱 OS 級資源限制（DA28/ADR-0076）等。詳見 [SECURITY.md](../../SECURITY.md)。 |
 | 2026-06-01 | 1.0.0 | **創建引擎對外開放（ADR-0069）**: 新增 `POST /v1/creation/{skill,mcp,scaffold}`（Owner/admin，`_require_creation_role`）。route 與 agent 工具共用薄門面 `services/creation/api.py`；走 VALIDATE→SMOKE→COMMIT→EVAL 流水線；驗證/SMOKE 失敗回 200+errors（不報 500）。新增 Creation Sovereignty Guard #29。 |
 | 2026-05-31 | 1.0.0 | **Skill Anthropic 標準化 + Dispatch 自動召喚**: 技能遷移至目錄式 `SKILL.md` + `.mcp.json`（Progressive Disclosure、Pull auto-trigger、`.skill` 打包）。新增 `GET /v1/skills/{id}/export`、`POST /v1/skills/install`。`dispatch_initialize_mission` 加 `auto_invoke` 依 `dispatch_hooks.json` 白名單自動召喚外部 AI（ADR-0066 + ADR-0067）。 |

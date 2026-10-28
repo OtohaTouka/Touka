@@ -402,7 +402,7 @@ async def test_sns_message_is_stored_and_sent_with_the_external_prefix(mode: str
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["home", "independent"])
 async def test_hook_blocked_sns_message_is_not_stored(mode: str) -> None:
-    """hook 擋下：不寫進對話、不回覆，錯誤照樣往外丟。"""
+    """hook 擋下：不寫進對話、不回覆外人，也不往外丟錯（平台那邊才不會回「內部錯誤」）。"""
     blocked = ToukaException(ErrorCode.HOOK_PROMPT_BLOCKED, reason="no secrets")
     proxy = AsyncMock(side_effect=blocked)
     gateway = SNSGatewayService()
@@ -413,10 +413,9 @@ async def test_hook_blocked_sns_message_is_not_stored(mode: str) -> None:
         patch("src.services.sns_gateway.identity_service", mock_identity_svc),
         patch("src.services.sns_gateway.session_service", mock_session_svc),
         patch("src.services.sns_gateway.process_proxy_request", proxy),
-        pytest.raises(ToukaException) as raised,
     ):
-        await gateway.on_event(adapter, make_event(content="secret"), session_mode=mode)
-    assert raised.value.code == ErrorCode.HOOK_PROMPT_BLOCKED
+        reply = await gateway.on_event(adapter, make_event(content="secret"), session_mode=mode)
+    assert reply == ""
     mock_session_svc.append_message_to_session.assert_not_awaited()
     assert adapter.sent_messages == []
 

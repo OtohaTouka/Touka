@@ -532,7 +532,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused. Hooks also run in incognito chats, and the message and tool content is sent to them (the event is marked incognito; the hook decides whether to keep it).",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused. Do not use launchers such as env, npx or py, which look up the program to run on their own. Every user's conversations trigger hooks, incognito chats included, and the message and tool content is sent to them (the event is marked incognito; the hook decides whether to keep it). \"When a user sends a message\" only checks text sent in a chat; heartbeats, scheduled prompts and re-triggered runs do not trigger it, so it cannot be used to restrict users. \"Before a tool runs\" only covers the agent's tool calls.",
       "enable_label": "Enable hooks",
       "enable_hint": "When off, no hook runs.",
       "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
@@ -2318,6 +2318,7 @@
       "id_mismatch": "Session ID mismatch",
       "save_failed": "Failed to save the session",
       "scope_mismatch": "This conversation cannot be used for the requested target",
+      "prompt_stopped": "This reply was stopped before it started",
       "interjection_queue_full": "Too many messages added to this reply",
       "interjection_too_long": "The message is too long",
       "interjection_not_found": "Message not found for this reply",

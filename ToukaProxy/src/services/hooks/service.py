@@ -100,6 +100,8 @@ class HookRunRecord:
 class HookDecision:
     """同一事件所有 hook 合併後的結果。"""
 
+    # 有沒有 hook 真的執行（沒有符合的 hook 時是 False）
+    ran: bool = False
     blocked: bool = False
     ask: bool = False
     reasons: list[str] = field(default_factory=list)
@@ -334,9 +336,11 @@ class HookService:
         hooks = self._select(event, match)
         if not hooks:
             return decision
+        decision.ran = True
+        # 落單的 surrogate（JSON 的 ``\ud800`` 解出來的）編不成 UTF-8：換成 ``?``，hook 照樣執行
         body = json.dumps(
             {"hook_event_name": event, **payload}, ensure_ascii=False, default=str
-        ).encode("utf-8")
+        ).encode("utf-8", errors="replace")
         zones = await self._zones() if any(isinstance(h, CommandHook) for h in hooks) else None
         results = await asyncio.gather(*(self._run_one(h, body, zones) for h in hooks))
         for hook, result in zip(hooks, results, strict=True):

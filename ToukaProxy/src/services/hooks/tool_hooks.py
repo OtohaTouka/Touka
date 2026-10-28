@@ -7,7 +7,8 @@
 - 補充說明（含 PreToolUse 的）都接在工具結果後面給模型。
 
 沒有設定 hook 時不組事件內容、不改任何結果。hook 服務自己出錯時記 log、當成沒有 hook 結果
-（不擋、不讓這次工具卡住或變成失敗）。
+（不擋、不讓這次工具卡住或變成失敗）。等 PreToolUse 的期間使用者按了停止，hook 回來後不執行
+這個工具（停止端點只結束已經在跑的程式，還沒開始的工具要在這裡擋）。
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Final
 from src.services import tool_errors
 from src.services.hooks.events import base_payload, neutralize_hook_text, tool_match_names
 from src.services.hooks.service import hook_service
+from src.services.rhythm_service import rhythm_service
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -88,6 +90,17 @@ def hook_denied_error(name: str, reason: str) -> str:
     )
 
 
+def hook_stopped_error(name: str) -> str:
+    """等 PreToolUse hook 的期間使用者按了停止：不執行這個工具。"""
+    return tool_errors.build_tool_error(
+        tool_errors.PERMISSION_DENIED,
+        f"The user stopped this run while a hook was checking '{name}'; it was not run.",
+        suggestion="Do not retry; wait for the user's next message.",
+        denied_tool=name,
+        reason="stopped_by_user",
+    )
+
+
 def hook_ask_unavailable_error(name: str, reason: str | None) -> str:
     """PreToolUse hook 要求人核准、但沒有人在場時的結構化錯誤。"""
     fields: dict[str, Any] = {"denied_tool": name, "reason": "hook_requires_human"}
@@ -127,6 +140,9 @@ async def run_pre_tool_hooks(ctx: Mapping[str, Any], call: ToolCall) -> PreToolO
     outputs = [(PRE_TOOL_EVENT, decision.context)] if decision.context else []
     if decision.blocked:
         return PreToolOutcome(denied_text=hook_denied_error(call.name, decision.reason))
+    session_id = ctx.get("session_id")
+    if decision.ran and session_id and rhythm_service.is_interrupted(session_id):
+        return PreToolOutcome(denied_text=hook_stopped_error(call.name))
     return PreToolOutcome(
         ask=decision.ask,
         ask_reason="\n".join(decision.ask_reasons) or None,

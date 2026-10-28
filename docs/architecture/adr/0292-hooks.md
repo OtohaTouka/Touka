@@ -4,7 +4,7 @@
 - 日期：2026-10-28
 - 決策者：維護者
 - 相關：ADR-0146（回合結束的約定）、ADR-0228／0229（工具執行順序與可信 context）、ADR-0239（`execution_broker`）、ADR-0246（模式、審查員與底線）、ADR-0257（歷史資料界線）、ADR-0269（只執行這一輪列出的工具）、ADR-0272（隔離層級；hook 程式不是代理人撰寫的程式，不經 runner，見決定 4）。
-- 影響範圍：ToukaProxy 新增 `models/hooks.py`、`services/hooks/`、`middleware/layers/hooks.py`；修改 `services/tool_executor.py`、`handlers/react_core.py`、`services/proxy_service.py`、`services/approval_flow.py`、`utils/tool_events.py`、`services/prompt_blocks.py`、`adapters/content_normalize.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`utils/bootstrap.py`、`utils/hard_floor.py`、`utils/async_db.py`、`services/group_router.py`、`tools/project_tools.py`、`routers/ui_sessions.py`、`routers/ui_interjections.py`、`services/stream_buffer_service.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`services/authorization_gateway.py`、`services/isolation/profiles.py`、`services/resource_manager.py`、`.gitignore`、`.dockerignore`；新增 `routers/hooks.py`（掛在 `main.py` 的 `CORE_ROUTERS`）、`services/hooks/interjection_hooks.py`；設定 `config/hooks.json.example`、`errors.json.example`（6001～6003）；`openapi.json`。ToukaChat：設定畫面「Hooks」分頁（`components/settings/tabs/HooksTab.tsx`、`tabs/hooks/`、`hooks/settings/useHooksSettings.ts`、設定註冊表與搜尋索引）、審批卡、串流錯誤通知、被擋下的這一輪從對話拿掉並放回輸入框（`lib/stream_tree.ts`、`lib/providers/StreamRegistryProvider.tsx`、`hooks/useChatStream.ts`、`lib/providers/ChatProvider.tsx`）、插話被擋（`hooks/useInterjectionQueue.ts`、`hooks/useInterjectionComposer.ts`）、`lib/tree_history.ts`、`error_codes.ts`、`api.ts`、`lib/types.ts`、翻譯。
+- 影響範圍：ToukaProxy 新增 `models/hooks.py`、`services/hooks/`、`middleware/layers/hooks.py`；修改 `services/tool_executor.py`、`handlers/react_core.py`、`services/proxy_service.py`、`services/approval_flow.py`、`utils/tool_events.py`、`services/prompt_blocks.py`、`adapters/content_normalize.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`utils/bootstrap.py`、`utils/hard_floor.py`、`utils/async_db.py`、`services/group_router.py`、`tools/project_tools.py`、`routers/ui_sessions.py`、`routers/ui_interjections.py`、`services/stream_buffer_service.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`services/authorization_gateway.py`、`services/isolation/profiles.py`、`services/resource_manager.py`、`.gitignore`、`.dockerignore`；新增 `routers/hooks.py`（掛在 `main.py` 的 `CORE_ROUTERS`）、`services/hooks/interjection_hooks.py`；設定 `config/hooks.json.example`、`errors.json.example`（6001～6003、1222 `PROMPT_STOPPED`）；`openapi.json`。ToukaChat：設定畫面「Hooks」分頁（`components/settings/tabs/HooksTab.tsx`、`tabs/hooks/`、`hooks/settings/useHooksSettings.ts`、設定註冊表與搜尋索引）、審批卡、串流錯誤通知、被擋下的這一輪從對話拿掉並放回輸入框（`lib/stream_tree.ts`、`lib/providers/StreamRegistryProvider.tsx`、`hooks/useChatStream.ts`、`lib/providers/ChatProvider.tsx`）、插話被擋（`hooks/useInterjectionQueue.ts`、`hooks/useInterjectionComposer.ts`）、`lib/tree_history.ts`、`error_codes.ts`、`api.ts`、`lib/types.ts`、翻譯。
 
 ## 背景
 
@@ -18,10 +18,13 @@
    - 預設關閉（`enabled: false`、`hooks: {}`），沒有設定就什麼都不跑、接線點不組事件內容。
    - 只收已接線的事件（`WIRED_EVENTS`），拼錯或還沒接的事件拒收；每個事件最多 20 個 handler。
    - 啟動時壞檔照 `_LIVE_MODELED` 規則停下並指出檔名；執行中讀到壞檔、讀不到或檔案被刪掉，都沿用上一份好的，健康狀態標 `error`（從來沒讀成功過才當成沒有設定）。
-   - `hooks.json` 列入底線 F2 的金鑰檔（`hard_floor._SECRET_FILES`）：http hook 的標頭照字面存、可能有權杖，代理人讀和寫都只有人能核准、無人在場直接拒絕。和 `users.json`、`connections.json` 一樣只看檔名，所以專案裡剛好叫 `hooks.json` 的檔案也要人核准（寧可多擋，不靠路徑判斷）。`hooks.json.example` 與 `config/hooks/` 底下的腳本屬 F3 的政策與設定。
+   - `hooks.json` 列入底線 F2 的金鑰檔（`hard_floor._SECRET_FILES`）：http hook 的標頭照字面存、可能有權杖，代理人用終端指令讀和寫都只有人能核准、無人在場直接拒絕。和 `users.json`、`connections.json` 一樣只看檔名，所以專案裡剛好叫 `hooks.json` 的檔案（例如其他工具的 `hooks/hooks.json`、`.cursor/hooks.json`）在終端裡碰到也要人核准（寧可多擋，不靠路徑判斷）。
+   - 檔案動詞與 MCP 工具不經這條底線。一般身分的檔案動詞到不了設定資料夾（決定 12）；不受專案限制的身分（管理員、Debugger、只有管理員擁有的靈魂）若把專案登記在涵蓋設定資料夾的位置，代理人就能用檔案動詞讀到標頭裡的權杖、改寫 `hooks.json`，由管理員自己負責不這樣登記（和決定 12 的界線相同）。
+   - `hooks.json.example` 與 `config/hooks/` 底下的腳本屬 F3 的政策與設定。
    - `config/hooks/` 只放管理員自己的腳本，不進版控也不進映像（`.gitignore`、`.dockerignore`）。
 2. **兩種 handler**：
-   - `command`：`command` 是程式的絕對路徑，`args` 是參數清單，**不經 shell**；事件內容只從標準輸入給。經 `execution_broker.spawn_exec` 啟動，環境只給 `LaunchEnvironmentPolicy.launcher_base()`（不含金鑰），工作目錄是 `config/hooks/`，`close_fds`、獨立行程群組；逾時結束整個行程樹；標準輸出與錯誤各只留前 64 KiB。
+   - 事件內容是 UTF-8 的 JSON；無法編碼的字元（落單的 surrogate）換成 `?`，hook 照樣執行。
+   - `command`：`command` 是程式的絕對路徑，`args` 是參數清單，**不經 shell**；事件內容只從標準輸入給。經 `execution_broker.spawn_exec` 啟動，環境只給 `LaunchEnvironmentPolicy.launcher_base()`（不含金鑰），工作目錄是 `config/hooks/`，`close_fds`、獨立行程群組；逾時、等待被取消或出錯時結束整個行程樹；標準輸出與錯誤各只留前 64 KiB。
    - `http`：POST 事件內容，`follow_redirects=False`、`trust_env=False`；逾時是整次請求（含讀回應）的上限，回應讀到 64 KiB 就停止讀取並關閉連線；3xx 與非 2xx 都算失敗。標頭照字面送出，寫成 `$VAR`／`${VAR}` 拒收（不替換環境變數，避免以為有效或洩金鑰）；標頭名稱必須是 HTTP 的 token（不能有空白、冒號等分隔字元），Touka 自己送的 `Content-Type`、`Content-Length`、`Host`、`Transfer-Encoding` 不能設定（不分大小寫）。
    - 逾時預設 30 秒、上限 300 秒。
 3. **結果解讀照 Claude Code**（`services/hooks/outcome.py`）：
@@ -38,7 +41,7 @@
    - hook 不能改寫工具參數，工具照原本的參數與審批流程走。
    - hook 程式不是代理人撰寫或指定的程式（只有人能設定、腳本放在受保護的位置），所以不經 ADR-0272 的隔離 runner，以 Touka 自己的權限執行；靠決定 5 保證代理人改不到它。
 5. **指令與腳本必須在代理人寫不到的地方**（`services/hooks/paths.py`；存檔時檢查全部 command hook、含停用的，每次執行前再檢查一次）：
-   - 參數：拆成字詞逐一檢查（`--script=x`、`-c "… /path …"`、POSIX 用 `:` 串起來的路徑清單如 `-cp a.jar:/data/x.jar` 也算），看起來像路徑的字詞都必須在 `config/hooks/` 裡（相對路徑以 `config/hooks/` 為起點），在外面回 `outside_hooks_dir`；`file:` 網址看不出最後讀哪個檔，一律拒收（`file_url`，不分大小寫）。這個判斷只看 `config/hooks/` 本身，不看專案清單一類會變動的資料。
+   - 參數：拆成字詞逐一檢查（`--script=x`、`-c "… /path …"`、POSIX 用 `:` 串起來的路徑清單如 `-cp a.jar:/data/x.jar`、黏在單字母選項後面的絕對路徑如 `-I/data/lib`、`@` 後面的參數檔也算），看起來像路徑的字詞都必須在 `config/hooks/` 裡（相對路徑以 `config/hooks/` 為起點），在外面回 `outside_hooks_dir`；`file:` 網址看不出最後讀哪個檔，一律拒收（`file_url`，不分大小寫，字詞中間的如 `jar:file:` 也算）。這個判斷只看 `config/hooks/` 本身，不看專案清單一類會變動的資料。
    - 指令在 `config/hooks/` 裡時照參數的規則：字面與解析後都在裡面；`config/hooks/` 本身與底下經過的每一層都不能是連結（symlink、junction），否則回 `linked_path`；檔案不能有其他硬連結（`nlink>1`，回 `hard_link`），另一個名字可能在代理人的資料夾裡。
    - 指令在別處（例如系統的直譯器）時不能落在禁區：資料根、sandbox state、執行器資料夾、工作區根（使用者能在底下自己登記專案）、每個專案根（原路徑與翻譯後的路徑）、MCP 伺服器的可寫資料夾，容器裡另加鏡像掛載根；設定資料夾裡 `config/hooks/` 以外的地方也不行（`skills`、`mcp_servers`、`evals` 由創建與演化寫入）。讀不到 MCP 隔離設定檔時當成無法確認，不執行。
    - 檢查方式：字面比對（不分大小寫）、解析後的路徑、每一層上層資料夾以 `(st_dev, st_ino)` 比對（抓大小寫、8.3 短名與 bind mount 別名）、路徑上每一個連結的位置與它直接指向的地方都查（最多 40 跳）；`..` 一律拒收，拒絕 UNC 與磁碟機相對路徑；指令必須是存在的絕對路徑一般檔；讀不到狀態一律當成無法確認而拒絕。
@@ -50,10 +53,14 @@
    - 工具前後的補充說明接在工具結果後面：結構化 JSON 結果加 `hook_output` 鍵（標 `trust: "untrusted"`），文字結果加 `<hook_output>` 區塊。
    - PreToolUse 擋下時回結構化 `permission_denied`（`reason: "hook_denied"`、`hook_reason` 中和後截斷 2,000 字）。
 7. **四個事件的接線點**（丙-1）：
-   - UserPromptSubmit：`HookLayer` 排在 `MonitorLayer`（身分判定）之後、組上下文之前；只在 `process_proxy_request` 設的 `ctx.run_hooks` 時執行（UI 聊天、SNS、評分卡），上下文預覽明確設成不執行，子代理不執行，只有工具結果的 user 回合不算使用者送出的訊息。事件內容的 `prompt` 只有這次請求最後一則 user 訊息的文字；同一次請求裡較早的 user 訊息（例如自己組歷史的用戶端塞進去的）不會送給 hook。這時模式還沒決定（`ToolLayer` 才決定），事件內容不帶 `permission_mode`。擋下回 `HOOK_PROMPT_BLOCKED`（403）並帶 `reason`，前端以專屬通知顯示擋下與理由。
-     - SNS：外人訊息等 pipeline 跑完才寫進對話，被擋下的不寫；其他錯誤照舊先寫再往外丟。回覆是串流，寫好之前不會讀，寫不進去就不呼叫模型。
+   - UserPromptSubmit：`HookLayer` 排在 `MonitorLayer`（身分判定）之後、組上下文之前；只在 `process_proxy_request` 設的 `ctx.run_hooks` 時執行（UI 聊天、SNS、評分卡），上下文預覽明確設成不執行，子代理不執行，只有工具結果的 user 回合不算使用者送出的訊息。事件內容的 `prompt` 只有這次請求最後一則 user 訊息的文字；同一次請求裡較早的 user 訊息（例如自己組歷史的用戶端塞進去的）不會送給 hook。這時模式還沒決定（`ToolLayer` 才決定），事件內容不帶 `permission_mode`。擋下回 `HOOK_PROMPT_BLOCKED`（403）並帶 `reason`（最多 4,000 字），前端以專屬通知顯示擋下與理由。
+     - 停止：hook 執行期間使用者按了停止（前端這時還沒有串流，直接送這個對話的停止），hook 跑完後看到這個對話的停止旗標就不送模型，回 409 `PROMPT_STOPPED`；hook 擋下時照樣回擋下。沒有 hook 真的執行時不看這個旗標（照原本的流程）。
+     - SNS：外人訊息等 pipeline 跑完才寫進對話；被擋下的不寫、不回覆外人（擋下原因是設定的一部分），也不往外丟錯，只記一筆 log；其他錯誤照舊先寫再往外丟。回覆是串流，寫好之前不會讀，寫不進去就不呼叫模型。
+     - 這是「使用者送出訊息」的檢查，不是管住使用者或代理人的機制：心跳的脈衝提示、排程寫的提示（`init_prompt`）、重新觸發（`/heartbeat/retrigger`）與只有工具結果的回合都不觸發。
    - 插話（ADR-0249）：插話也是使用者送出的文字，進佇列前跑 UserPromptSubmit（`services/hooks/interjection_hooks.py`，事件內容多 `interjection: true`、`agent_id` 取自這次串流）。擋下回 403 `HOOK_PROMPT_BLOCKED`、不進佇列，前端顯示理由並把文字放回輸入框；hook 的補充說明不採用（插話直接接在這一輪的對話裡，沒有「只用在這一次請求」的位置）；hook 服務出錯照樣進佇列。hook 執行期間串流換了或結束了，回 404 `STREAM_NOT_FOUND`，不進新的串流。
    - PreToolUse／PostToolUse：`ToolExecutor` 內，matcher 比對 Touka 的工具名稱，MCP 工具另比對 Claude Code 寫法 `mcp__server__tool`；PostToolUse 只在成功後執行，事件內容多 `tool_response`。
+     - 只涵蓋經 `ToolExecutor` 的工具呼叫：任務的驗證指令（`verification_cmd`）、演化與創建的試跑由系統自己啟動，不觸發 PreToolUse，照原本的隔離與審批規則執行。
+     - 工具在等 PreToolUse hook 時使用者按了停止，hook 跑完後不執行這個工具，回結構化 `permission_denied`（`reason: "stopped_by_user"`）；沒有 hook 真的執行時不看停止旗標。
      - 舊工具名稱（`LEGACY_ADVERTISED_SUCCESSORS`）也比對它對應的新名稱：規則寫 `execute_command`，模型叫 `bash` 也比得到；舊檔案工具的 `action` 剛好是某個新名稱時只對應那一個，其他動作對應全部檔案動詞（寧可多比到）。事件內容的 `tool_name` 照模型叫的名稱，另加 `tool_aliases` 列出對應的新名稱。
      - 事件內容的 `tool_input` 是模型送來的參數：執行器之後替 MCP 工具補上的 `agent_id`、換成代理人自己資料夾實際路徑的根目錄參數，都不會出現在 hook 看到的內容裡。
    - Stop：ReAct 迴圈回完之後在背景執行（`spawn_logged`），回覆不等它；子代理的回合不執行；只記錄，不能讓代理人繼續（ADR-0146：回文字就結束這一輪）。
@@ -72,19 +79,20 @@
     - command 填程式的絕對路徑、參數一行一個（原樣交給程式）；http 填網址、標頭一行一個「名稱: 值」。
     - 存檔被拒時列出原因：路徑問題逐項列事件、位置、原因與值；衝突提示重新載入；欄位不合規則顯示第一個錯誤的位置。設定檔壞掉時提醒目前用的是上一份好的設定、存檔會取代它。
     - 下方列最近的執行紀錄（hook 名稱與類型、結果、結束碼或 HTTP 狀態、耗時與說明），無痕的只顯示時間、事件與結果。
-    - 說明寫明 hook 失敗時不擋動作，不能當成唯一的安全防線；腳本與參數裡的路徑要放在 `config/hooks/`，程式要放在 `config/hooks/` 或代理人寫不到的地方。
+    - 說明寫明 hook 失敗時不擋動作，不能當成唯一的安全防線；所有使用者的對話（含無痕）都會觸發；「使用者送出訊息」只檢查聊天送出的文字，不是管住使用者的機制，「工具執行前」只涵蓋代理人的工具呼叫；腳本與參數裡的路徑要放在 `config/hooks/`，程式要放在 `config/hooks/` 或代理人寫不到的地方，不要用 `env`、`npx`、`py` 這類啟動器。
 12. **一般使用者的專案根不能放在 Touka 保護的位置**（`services/isolation/profiles.project_root_reason`）：決定 5 把專案根當禁區，但專案是使用者自己登記的；專案根若是設定資料夾、`config/hooks/` 或它們的上層，代理人就能經專案檔案工具寫進 hook 腳本。
     - 判斷沿用 ADR-0272 的永不授權規則：受保護的位置與它們的上層、經連結指到受保護位置的一律拒絕；容器裡工作區掛載根本身也不能當專案根，另查 Touka 目錄（只有使用者自建的頂層資料夾能當專案）。
     - 本機安裝不往上找 Touka 目錄（安裝根就是 Touka 目錄，往上找會擋掉所有專案），改用固定規則：專案根在安裝根底下時，第一層資料夾不能是 Touka 自己的（點開頭的，或 `TOUKA_TOPLEVEL_PROTECTED` 裡的 `ToukaChat`、`ToukaProxy`、`docs`、`scripts`、`tests`、`data`、`backups`、`venv`、`node_modules` 等，不分大小寫），例如 `.venv`、`.git/hooks`、`.claude` 底下都不行；安裝根本身也不能當專案。
     - 容器裡的 Touka 目錄判斷會誤擋：專案裡（往下 3 層內）剛好有和 Touka 標記或資料根同名的資料夾就當成受保護的位置；資料夾太多、有讀不到的資料夾或還在掃（前景最多等 2 秒，背景繼續掃、結果快取 10 分鐘）時回「檢查沒做完」（`scan_limit`），和受保護的位置分開說明，也不放行。
-    - 三處檢查：登記與更新專案（`ui_sessions._check_project_root`，回 422 並帶 `reason`：`outside_workspace`、`protected_location` 或 `scan_limit`）、列專案檔案與每次專案檔案工具呼叫（`project_tools`，回結構化 `permission_denied`，`reason` 同上，檢查沒做完時建議稍後再試）。
-    - 管理員與 Debugger 不受這條限制（他們本來就能指定任何位置，`resource_manager.bypasses_project_jail`）；管理員擁有的靈魂也不受限（前景交談時執行身分會換成靈魂本身，ADR-0154，所以另查擁有者，`authorization_gateway.owned_by_admin`）。這是已知的界線：管理員登記在受保護位置的專案，管理員的靈魂用專案工具時仍寫得到，由管理員自己負責不這樣登記。一般使用者的靈魂在前景與心跳都照這條檢查。
+    - 三處檢查：登記與更新專案（`ui_sessions._check_project_root`，回 422 並帶 `reason`：`outside_workspace`、`protected_location` 或 `scan_limit`）、列專案檔案與每次專案檔案工具呼叫（`project_tools`，回結構化 `permission_denied`，`reason` 同上，檢查沒做完時建議稍後再試）。聊天畫面的專案檔案樹（`ui_sessions` 的檔案樹端點）被拒時照舊回不分原因的 403，檢查沒做完時也一樣，稍後重新整理即可。
+    - 管理員與 Debugger 不受這條限制（他們本來就能指定任何位置，`resource_manager.bypasses_project_jail`）；只有管理員擁有的靈魂也不受限（前景交談時執行身分會換成靈魂本身，ADR-0154，所以另查擁有者，`authorization_gateway.only_admins_own`）。有一般使用者共同擁有的靈魂照一般身分檢查：一般使用者也能用它對話，不能因為管理員也擁有就放寬。這是已知的界線：管理員登記在受保護位置的專案，只有管理員擁有的靈魂用專案工具時仍寫得到，由管理員自己負責不這樣登記。其他靈魂在前景與心跳都照這條檢查。
     - 行為變更：一般使用者的專案不能在受保護的資料夾裡，也不能是它們的上層（例如工作區根就是 Touka 安裝根時，工作區根本身不能當專案）；既有的這類登記留著，但專案工具會拒絕。
 13. **群聊**：hook 補充說明裡的 `@別名` 不算點名（`group_router` 找點名前先拿掉 `<hook_output>` 區塊），hook 的輸出不能叫其他靈魂發言。
 14. **被擋下的這一輪從對話拿掉**（和 Claude Code 一樣）：聊天前端送出時先存使用者這一輪（ADR-0231），被 UserPromptSubmit 擋下後，把這則訊息和它的空回覆從對話樹拿掉，照「後端沒有存文字」的完成流程以 revision 比對存回去（後端在送模型前就拒絕，什麼都沒寫）；之後心跳、重新觸發、滑動視窗摘要與歸檔讀存檔都看不到它。對話標題若是用被擋文字開頭建的，一起換回。文字放回輸入框（還在這個對話、而且輸入框還空著時），顯示擋下的理由。
-    - 已知的空窗：這一輪在 hook 執行前已經存了；hook 執行期間剛好跑心跳，或存回時 revision 對不上（別的分頁改過），被擋的訊息會留在存檔裡，要使用者自己刪。
+    - 已知的空窗：這一輪在 hook 執行前已經存了；hook 執行期間剛好跑心跳，或存回時 revision 對不上（別的分頁改過），被擋的訊息會留在存檔裡，要使用者自己刪。hook 執行期間使用者按了停止、重新整理、關掉分頁，或請求先被 nginx 逾時切斷，前端已經不在等這次回應，hook 之後擋下時也一樣留在存檔裡（停止時不會送模型，決定 7）。
+    - 放回輸入框的只有文字：附件不放回；編輯舊訊息後重送被擋時，文字也不放回（編輯框已經關掉）。
     - 自己組歷史的用戶端（IDE、自訂 client）不在這個範圍：被擋下的訊息若被它們放進之後的請求，hook 只看最後一則 user 訊息（決定 7），較早的那則會送到模型。
-15. **失敗不擋（fail-open）**：hook 自己失敗（結束碼、逾時、連不上、路徑被拒、輸出壞掉）和 hook 服務本身出錯都不擋動作，記在執行紀錄與 log；例外內容不回給模型或用戶端，只記類型。所以 hook 不能當成唯一的安全防線：模型可以故意讓 hook 失敗（例如送很大的參數讓 hook 逾時、送讓 hook 腳本出錯的內容），hook 失敗時動作照常執行。「失敗就擋」列為下一批，讓每個 hook 自己選。
+15. **失敗不擋（fail-open）**：hook 自己失敗（結束碼、逾時、連不上、路徑被拒、輸出壞掉）和 hook 服務本身出錯都不擋動作；前者記在執行紀錄與 log，後者只記 log。例外內容不回給模型或用戶端，只記類型。所以 hook 不能當成唯一的安全防線：模型可以故意讓 hook 失敗（例如送很大的參數讓 hook 逾時、送讓 hook 腳本出錯的內容），hook 失敗時動作照常執行。「失敗就擋」列為下一批，讓每個 hook 自己選。
 
 ## 和 Claude Code 對不上的部分
 
@@ -103,7 +111,8 @@
 - **已知的界線**：
   - Windows 上 `.bat`／`.cmd` 由系統經 `cmd.exe` 啟動，參數會被 `cmd.exe` 重新解讀；要避開 shell 就用其他程式寫 hook。
   - 參數只檢查看起來像路徑的字詞：直譯器的 `-c`／`-m` 給的程式碼或模組名稱不是路徑，hook 實際執行哪些程式碼由管理員負責。
-  - MCP 可寫資料夾只來自 `mcp_server_isolation.json`；IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道，管理員不要把 hook 程式放在那些地方，也不要讓 IDE 或 MCP 伺服器寫得到 `config/hooks/`。
+  - MCP 可寫資料夾只來自 `mcp_server_isolation.json` 的 `sandbox_paths`：包在 Landlock 裡的第三方與 scaffold 伺服器所引用的資料夾（啟動時才算出來、可寫）不在禁區；IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道。管理員不要把 hook 程式放在這些地方，也不要讓 IDE 或 MCP 伺服器寫得到 `config/hooks/`。
+  - 只檢查設定寫得出來的程式：`env`、`npx`、`py` 這類啟動器會自己找要執行的程式（依 PATH、上層的 `node_modules` 或自己的設定），找到的程式在哪裡 Touka 不檢查。請寫成直譯器＋`config/hooks/` 裡的腳本，不要用啟動器當 hook 的程式。
   - hook 程式本身可以讀寫任何 Touka 權限能到的地方（決定 5 最後一點）。像「工具執行後跑 lint」這類 hook，會以 Touka 的權限處理代理人剛寫的檔案；lint 工具若會執行檔案裡的設定或外掛，就等於以 Touka 的權限跑代理人寫的東西，管理員要選不會執行專案內容的工具。
   - 本機安裝時，安裝資料夾裡的 Python（例如 `.venv` 底下的直譯器）在工作區根裡，不能當 hook 的程式（`agent_writable`）；請用系統安裝的直譯器，腳本放 `config/hooks/`。
   - 腳本被刪掉或改名時，直譯器自己會以結束碼 2 結束（例如 Python 找不到檔案），照 Claude Code 的規則就是擋下，而且 stderr（含路徑）會當成理由顯示；這時所有符合的動作都會被擋，直到修好設定。
@@ -118,7 +127,8 @@
 
 - 沒有設定時行為不變：接線點先問 `has_hooks`，不組事件內容、不改任何結果（golden 不變）。
 - 設定了 PreToolUse 的工具，每次呼叫多等 hook 執行完（最多到逾時）；Stop 不影響回覆。
-- 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`。
+- 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間被停止時回 409 `PROMPT_STOPPED`。
+- 聊天前端按停止時，若這個對話還沒有串流，改送這個對話的停止（原本什麼都不送）；和有串流時的停止一樣，這個對話正在跑的其他工作（例如心跳）也會停下。
 - 新增三個管理端點（決定 10）；`openapi.json` 與 `api.ts` 隨之更新。
 - 撤回：把 `enabled` 設成 false 或清空 `hooks` 立即停用；revert 即可整個移除，`hooks.json` 留著無害。
 
@@ -132,15 +142,15 @@
 ## 驗證
 
 - `tests/unit/test_hooks_config.py`：設定模型（只收已接線事件、handler 型別、標頭環境變數、標頭名稱與 Touka 自己送的標頭、上限）。
-- `tests/unit/test_hook_paths_security.py`：參數必須在 `config/hooks/`（含 `:` 串起來的路徑清單）、`file:` 網址拒收、專案清單變動不影響 `config/hooks/` 裡的腳本、禁區（工作區根、專案根與翻譯後路徑、MCP 可寫資料夾、容器鏡像路徑）、讀不到 MCP 隔離設定檔、以檔案識別碼擋別名、連結（含 `config/hooks/` 本身是連結）、硬連結、相對參數、UNC 與磁碟機相對路徑、讀不到狀態。
-- `tests/unit/test_project_root_protected_security.py`：受保護的位置與上層、本機安裝根底下 Touka 自己的第一層資料夾、經連結指到設定資料夾、容器裡的 Touka 目錄、使用者資料夾照常可用、專案工具對一般身分拒絕受保護的專案根並回結構化錯誤、檢查沒做完時分開說明也不放行、管理員與管理員擁有的靈魂不受限、登記時說明被拒的原因。
-- `tests/unit/test_sns_gateway.py`：被擋下的外人訊息不寫進對話、其他錯誤照舊寫入、通過時先寫訊息再讀回覆。
+- `tests/unit/test_hook_paths_security.py`：參數必須在 `config/hooks/`（含 `:` 串起來的路徑清單、黏在單字母選項或 `@` 後面的路徑）、`file:` 網址拒收（含字詞中間的）、專案清單變動不影響 `config/hooks/` 裡的腳本、禁區（工作區根、專案根與翻譯後路徑、MCP 可寫資料夾、容器鏡像路徑）、讀不到 MCP 隔離設定檔、以檔案識別碼擋別名、連結（含 `config/hooks/` 本身是連結）、硬連結、相對參數、UNC 與磁碟機相對路徑、讀不到狀態。
+- `tests/unit/test_project_root_protected_security.py`：受保護的位置與上層、本機安裝根底下 Touka 自己的第一層資料夾、經連結指到設定資料夾、容器裡的 Touka 目錄、使用者資料夾照常可用、專案工具對一般身分拒絕受保護的專案根並回結構化錯誤、檢查沒做完時分開說明也不放行、管理員與只有管理員擁有的靈魂不受限、有一般使用者共同擁有的照一般身分檢查、登記時說明被拒的原因。
+- `tests/unit/test_sns_gateway.py`：被擋下的外人訊息不寫進對話、不回覆也不往外丟錯，其他錯誤照舊寫入、通過時先寫訊息再讀回覆。
 - `tests/unit/test_interjection_endpoint_security.py`：插話被擋回 403 且不進佇列、事件內容（含 `interjection` 與無痕）、補充說明不採用、hook 服務出錯照樣進佇列、陌生人碰不到 hook、hook 執行期間串流換了回 404。
-- `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時結束行程樹、輸出上限、http 不跟隨轉址、整次請求的逾時與讀到上限就停。
-- `tests/unit/test_hook_service.py`：解讀規則（含 `continue: false`）、同時執行、只擋不放行、執行紀錄與無痕、壞檔／讀不到／被刪掉時沿用上一份、服務出錯不外洩例外、存檔 CAS 與路徑檢查、寫不進檔案時回存檔錯誤並沿用上一版。
-- `tests/unit/test_hook_wiring_security.py`：四個事件的接線（只在真的請求執行、擋下帶理由、補充說明是資料、UserPromptSubmit 不帶模式、PreToolUse 擋下不送審不跳卡、政策已拒絕的不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher、舊工具名稱比對新名稱、hook 看到的是模型送來的參數、PostToolUse 只在成功後、太深的 JSON 結果改接資料區塊、Stop 在背景、hook 服務出錯不影響結果、沒有設定時結果不變）。
+- `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時真的結束程式、輸出上限、http 不跟隨轉址、整次請求的逾時與讀到上限就停。
+- `tests/unit/test_hook_service.py`：解讀規則（含 `continue: false`）、同時執行、只擋不放行、執行紀錄與無痕、壞檔／讀不到／被刪掉時沿用上一份、服務出錯不外洩例外、存檔 CAS 與路徑檢查、寫不進檔案時回存檔錯誤並沿用上一版、落單的 surrogate 不讓 hook 停擺。
+- `tests/unit/test_hook_wiring_security.py`：四個事件的接線（只在真的請求執行、擋下帶理由、補充說明是資料、UserPromptSubmit 不帶模式、PreToolUse 擋下不送審不跳卡、政策已拒絕的不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher、舊工具名稱比對新名稱、hook 看到的是模型送來的參數、PostToolUse 只在成功後、太深的 JSON 結果改接資料區塊、Stop 在背景、hook 服務出錯不影響結果、沒有設定時結果不變；hook 執行期間停止時不送模型也不執行工具、擋下優先於停止、沒有 hook 執行或沒比到時不看停止旗標）。
 - `tests/unit/test_group_soul_only.py`：hook 補充說明裡的 `@別名` 不算點名。
 - `tests/unit/test_hard_floor_security.py`：讀寫 `hooks.json` 屬 F2，寫 `hooks.json.example` 與 `config/hooks/` 屬 F3。
 - `tests/unit/test_public_repo_hygiene.py`：`config/hooks/` 不進版控。
 - `tests/unit/test_hooks_router_security.py`：只有人類管理員能讀寫（admin 代打、一般使用者、靈魂、DebugAgent、DispatchAgent、子代理、沒帶憑證與壞掉的權杖都被拒）、存檔寫檔並回 revision、作者由伺服器填、舊 revision 拒絕且不動檔、路徑被拒不寫檔、不可信的 Origin 拒絕、格式不對拒收、執行紀錄與無痕、壞檔時的 revision、`/v1` 前綴、設定匯出不含 `hooks.json`。
-- ToukaChat：審批卡的 hook 理由、串流事件解析、被擋訊息的通知與理由；被擋下的這一輪從對話樹拿掉（其他分支保留）、照完成流程存回並換回標題、文字放回輸入框；插話被擋時不進佇列、顯示理由並放回文字；設定頁的草稿函式、資料層（revision、錯誤分類、存好後重新讀取失敗）、分頁（事件區塊、編輯後送出的設定、存檔被拒的原因、壞檔提醒）與執行紀錄清單（類型、結束碼、HTTP 狀態）。
+- ToukaChat：還沒有串流時按停止會送這個對話的停止；審批卡的 hook 理由、串流事件解析、被擋訊息的通知與理由；被擋下的這一輪從對話樹拿掉（其他分支保留）、照完成流程存回並換回標題、文字放回輸入框；插話被擋時不進佇列、顯示理由並放回文字；設定頁的草稿函式、資料層（revision、錯誤分類、存好後重新讀取失敗）、分頁（事件區塊、編輯後送出的設定、存檔被拒的原因、壞檔提醒）與執行紀錄清單（類型、結束碼、HTTP 狀態）。

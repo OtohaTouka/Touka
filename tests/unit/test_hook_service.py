@@ -255,6 +255,17 @@ async def test_payload_has_the_event_name_and_goes_to_the_runner(config_dir):
     assert json.loads(payload) == {"hook_event_name": "UserPromptSubmit", "prompt": "hi"}
 
 
+async def test_a_lone_surrogate_in_the_payload_still_runs_the_hooks(config_dir):
+    """模型可以送出落單的 surrogate；編不成 UTF-8 時不能讓整批 hook 都不跑。"""
+    runner = _FakeRunner()
+    _write(config_dir, _enabled("UserPromptSubmit", {"hooks": [_command()]}))
+    service = _service(config_dir, command=runner)
+    await service.dispatch("UserPromptSubmit", {"prompt": "a" + chr(0xD800) + "b"})
+    (_, payload), = runner.calls
+    assert json.loads(payload)["prompt"] == "a?b"
+    assert [record.status for record in service.runs()] == ["ok"]
+
+
 async def test_identical_hooks_run_once_and_disabled_hooks_not_at_all(config_dir):
     runner = _FakeRunner()
     off = {**_command("x"), "enabled": False}

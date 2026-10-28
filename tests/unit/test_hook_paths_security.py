@@ -163,9 +163,22 @@ def test_each_entry_of_a_path_list_argument_is_checked(layout, monkeypatch):
 def test_file_urls_in_arguments_are_rejected(layout):
     """``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）。"""
     evil = (layout["data"] / "evil.py").as_posix()
-    for arg in (f"file:///{evil}", f"--script=FILE://localhost/{evil}", "File:guard.py"):
+    for arg in (f"file:///{evil}", f"--script=FILE://localhost/{evil}", "File:guard.py",
+                f"jar:file:/{evil}"):
         hook = _hook(layout["outside"] / "tool.exe", arg)
         assert "file_url" in _reasons(command_path_problems(hook, _zones(layout))), arg
+    plain = _hook(layout["outside"] / "tool.exe", "--profile:dev")
+    assert command_path_problems(plain, _zones(layout)) == []
+
+
+def test_paths_glued_to_a_short_option_or_an_at_sign_are_checked(layout):
+    """``-I/data/lib`` 會從那裡載入模組；``@/data/args`` 會讀那個參數檔。"""
+    data, evil = str(layout["data"]), str(layout["data"] / "evil.py")
+    for arg in (f"-I{data}", f"@{evil}", f"--include=-I{data}"):
+        hook = _hook(layout["outside"] / "tool.exe", arg)
+        assert "outside_hooks_dir" in _reasons(command_path_problems(hook, _zones(layout))), arg
+    plain = _hook(layout["outside"] / "tool.exe", "-Ilib/sub", "@scope/pkg", "-v", "@guard.py")
+    assert command_path_problems(plain, _zones(layout)) == []
 
 
 def test_unc_and_drive_relative_paths_are_rejected(layout):

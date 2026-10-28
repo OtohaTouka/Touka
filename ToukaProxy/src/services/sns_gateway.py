@@ -198,14 +198,20 @@ class SNSGatewayService:
         # 顯示正在輸入中
         await adapter.show_typing(event.channel_id)
 
-        # 4b. 紀錄 User 訊息：pipeline 跑完才存，UserPromptSubmit hook 擋下的不寫進對話
-        #     （ADR-0292）；其他錯誤照舊先存再往外丟。回覆是串流，存好之前不會讀，
-        #     存不進去就不呼叫模型。
+        # 4b. 紀錄 User 訊息：pipeline 跑完才存，UserPromptSubmit hook 擋下的不寫進對話、
+        #     也不回覆外人（擋下原因是設定的一部分，不給外人看；ADR-0292），只記一筆 log；
+        #     其他錯誤照舊先存再往外丟。回覆是串流，存好之前不會讀，存不進去就不呼叫模型。
         try:
             response = await process_proxy_request(request, ctx, is_anthropic=False)
         except ToukaException as exc:
-            if exc.code != ErrorCode.HOOK_PROMPT_BLOCKED:
-                await self._save_user_message(session_id, content, identity)
+            if exc.code == ErrorCode.HOOK_PROMPT_BLOCKED:
+                logger.info(
+                    "SNS message from platform=%s channel=%s was blocked by a hook",
+                    event.platform,
+                    event.channel_id,
+                )
+                return ""
+            await self._save_user_message(session_id, content, identity)
             raise
         except Exception:
             await self._save_user_message(session_id, content, identity)

@@ -67,10 +67,14 @@ async def test_exit_code_and_stderr_are_reported(tmp_path):
 
 
 async def test_timeout_ends_the_process(tmp_path):
-    code = "import time\ntime.sleep(30)\n"
-    result = await run_command(_python(code, timeout=1), b"{}", cwd=tmp_path)
+    """逾時要真的結束程式：沒結束的話它 3 秒後會留下記號檔。"""
+    marker = tmp_path / "still_running"
+    code = "import pathlib, sys, time\ntime.sleep(3)\npathlib.Path(sys.argv[1]).write_text('x')\n"
+    result = await run_command(_python(code, str(marker), timeout=1), b"{}", cwd=tmp_path)
     assert result.status == "timeout"
-    assert result.duration_ms < 15_000
+    assert result.duration_ms < 3_000
+    await asyncio.sleep(3.5)
+    assert not marker.exists()
 
 
 async def test_output_beyond_the_cap_is_dropped(tmp_path):
