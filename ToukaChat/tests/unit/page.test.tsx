@@ -8,17 +8,12 @@ import ChatPage from '@/app/page';
 // 當 ChatPage 渲染時，由於 React.lazy 或是 Suspense 機制，在 Mock 子組件載入期間，
 // Suspense fallback 會被顯示。
 
-vi.mock('@/lib/SystemStatusContext', () => ({
-  useSystemStatus: () => {
+// ChatLobby 直接呼叫 useChat：在這裡拋出永遠不完成的 Promise，ChatLobby 一開始就停住，
+// 顯示 Suspense 載入畫面（不靠子元件裡剛好有誰停住）。
+vi.mock('@/lib/providers/ChatProvider', () => ({
+  useChat: () => {
     throw new Promise(() => {});
   }
-}));
-
-vi.mock('@/lib/providers/ChatProvider', () => ({
-  useChat: () => ({
-    activeSessionId: null,
-    setAttachment: vi.fn()
-  })
 }));
 
 vi.mock('@/lib/providers/ModelProvider', () => ({

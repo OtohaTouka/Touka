@@ -60,7 +60,6 @@ vi.mock('@/components/LeftSidebar', () => ({
 }));
 vi.mock('@/components/RightSidebar', () => ({ default: () => <div data-testid="right-sidebar" /> }));
 vi.mock('@/components/chat/ChatArea', () => ({ ChatArea: () => <div data-testid="chat-area" /> }));
-vi.mock('@/components/layout/MainHeader', () => ({ MainHeader: () => <div data-testid="main-header" /> }));
 vi.mock('@/components/layout/SoulStudio', () => ({ SoulStudio: () => <div /> }));
 vi.mock('@/components/layout/ModelStudio', () => ({ ModelStudio: () => <div /> }));
 vi.mock('@/components/dashboard/PulseDashboard', () => ({ PulseDashboard: () => <div /> }));
@@ -131,6 +130,12 @@ describe('page.tsx — 左側邊欄首次設定警告（手機版）', () => {
         renderPage({ collapsed: true, warning: true });
         const menuButton = screen.getByRole('button', { name: /設定警告/ });
         expect(menuButton.querySelector('[data-testid="setup-notice-dot"]')).not.toBeNull();
+    });
+
+    it('手機版左側欄沒有收合鈕（Sheet 有自己的關閉），也沒有桌面版的展開鈕', () => {
+        renderPage({ collapsed: false, warning: false });
+        expect(leftSidebarProps.current?.onCollapse).toBeUndefined();
+        expect(screen.queryByRole('button', { name: '展開側邊欄' })).toBeNull();
     });
 
     it('沒有警告時選單按鈕沒有紅點', () => {
