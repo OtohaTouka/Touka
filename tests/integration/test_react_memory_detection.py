@@ -10,7 +10,8 @@
 `record_tool_usage`，使測試持續追蹤生產訊號機制：
 
 - save 在較早回合 → 最終宣稱存檔不得誤發「記憶幻覺警告」。
-- query 在較早回合 → 湧現指標 e_index 必須 > 0。
+
+湧現指標已刪除（ADR-0291），原本「query 在較早回合 → e_index > 0」的案例一併刪除。
 """
 
 from __future__ import annotations
@@ -103,25 +104,6 @@ def _decode_texts(chunks: list[str]) -> str:
         if delta:
             out.append(delta)
     return "".join(out)
-
-
-def _e_index_values(chunks: list[str]) -> list[float]:
-    """蒐集 telemetry 裡出現過的 e_index（湧現指標）。"""
-    vals = []
-    for c in chunks:
-        if not c.startswith("data: "):
-            continue
-        payload = c[len("data: "):].strip()
-        if not payload or payload == "[DONE]":
-            continue
-        try:
-            obj = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        tele = obj.get("telemetry")
-        if isinstance(tele, dict) and "e_index" in tele:
-            vals.append(tele["e_index"])
-    return vals
 
 
 async def _drive(request, context) -> list[str]:
@@ -239,49 +221,6 @@ async def test_blocked_save_still_warns(monkeypatch, isolate_rhythm):
     texts = _decode_texts(chunks)
     assert "已經存檔" in texts
     assert "記憶幻覺警告" in texts, "存記憶被擋下卻說已存檔，沒有提醒"
-
-
-@pytest.mark.asyncio
-async def test_query_in_earlier_round_keeps_emergence_index(monkeypatch, isolate_rhythm):
-    """第 1 輪 memory_tools query、最後一輪純文字 → 湧現指標 e_index 應 > 0。
-
-    舊碼從最後一輪空的 tool_use_blocks 推導 has_queried=False，使 e_index 被算成 0。
-    """
-    sid, rid = "sess-mem-query-1", "req-mem-query-1"
-    rhythm_service.clear_session(sid)
-
-    query_block = _block(
-        "tool_use", cid="c1", name="memory_tools", inp={"action": "query", "query": "x"}
-    )
-    round1 = _response(
-        [_block("text", text="我先查一下記憶。"), query_block],
-        [
-            {"type": "text", "text": "我先查一下記憶。"},
-            {"type": "tool_use", "id": "c1", "name": "memory_tools", "input": {"action": "query"}},
-        ],
-    )
-    round2 = _response(
-        [_block("text", text="我查到了相關的記憶，任務結束。")],
-        [{"type": "text", "text": "我查到了相關的記憶，任務結束。"}],
-    )
-
-    context = _ctx(sid, rid)
-    client = MagicMock()
-    client.messages.create = AsyncMock(side_effect=[round1, round2])
-    context["anthropic_client"] = delegate_stream_to_create(client)  # 3b-U1：走 stream()
-
-    p = _mock_executor(monkeypatch)
-    try:
-        chunks = await _drive(_request(), context)
-    finally:
-        p.stop()
-        rhythm_service.clear_session(sid)
-
-    e_vals = _e_index_values(chunks)
-    assert e_vals, "未取得任何 telemetry e_index"
-    assert max(e_vals) > 0, (
-        "query 發生在較早回合，has_queried 偵測遺漏導致 e_index=0（跨輪偵測遺漏）"
-    )
 
 
 @pytest.mark.asyncio

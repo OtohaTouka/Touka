@@ -708,7 +708,7 @@ async def root_identity():
         "service": "ToukaProxy",
         "version": "0.4.1",
         "status": "DEGRADED" if SYSTEM_DEGRADED else "HEALTHY",
-        "features": ["soul", "memory", "telemetry", "emergence", "stats", "mcp", "connections"],
+        "features": ["soul", "memory", "telemetry", "stats", "mcp", "connections"],
         "identity": "🛡️ Touka Core Engine",
         "system_degraded": SYSTEM_DEGRADED,
         "degraded_reason": DEGRADED_REASON,

@@ -382,26 +382,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/stats/emergence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Emergence Index
-         * @description 讀取 usage_audit.csv 並回傳最新的湧現指標
-         */
-        get: operations["get_emergence_index_v1_stats_emergence_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/stats/legacy/{agent_id}": {
         parameters: {
             query?: never;
@@ -457,26 +437,6 @@ export interface paths {
          *     Previously had Depends but did not check if identity is None.
          */
         get: operations["get_touka_stats_stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stats/emergence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Emergence Index
-         * @description 讀取 usage_audit.csv 並回傳最新的湧現指標
-         */
-        get: operations["get_emergence_index_stats_emergence_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11408,28 +11368,6 @@ export interface operations {
             };
         };
     };
-    get_emergence_index_v1_stats_emergence_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     get_legacy_sync_stats_v1_stats_legacy__agent_id__get: {
         parameters: {
             query?: never;
@@ -11497,28 +11435,6 @@ export interface operations {
         };
     };
     get_touka_stats_stats_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    get_emergence_index_stats_emergence_get: {
         parameters: {
             query?: never;
             header?: never;

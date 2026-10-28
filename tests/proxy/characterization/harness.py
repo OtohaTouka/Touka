@@ -26,7 +26,7 @@ _GOLDEN_DIR = Path(__file__).parent / "goldens"
 _CI_TRUE_VALUES = frozenset({"1", "true", "yes"})
 
 # 假時鐘步進：上游呼叫 +7s、工具執行 +5s（其餘站點 0）——與 ADR-0155 C4 紅測同款，
-# 使 telemetry（pure_gen_ms/total_ms/e_index 的 gen_time 分量）決定性且語意可讀。
+# 使 telemetry（pure_gen_ms/total_ms）決定性且語意可讀。
 UPSTREAM_S = 7.0
 TOOL_S = 5.0
 CLOCK_START = 1_700_000_000.0

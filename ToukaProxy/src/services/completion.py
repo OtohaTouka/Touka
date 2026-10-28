@@ -258,7 +258,7 @@ def _record_usage(
     identity: AgentIdentity, purpose: str, usage: dict[str, int], model: str, started: float
 ) -> None:
     elapsed_ms = int((get_current_epoch() - started) * 1000)
-    accumulate_token_usage(identity, purpose, usage, e_index=None, model=model)  # 不寫 E-Index
+    accumulate_token_usage(identity, purpose, usage, model=model)
     log_usage_audit(
         identity,
         f"{purpose}-{uuid.uuid4().hex[:12]}",

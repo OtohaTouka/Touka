@@ -24,7 +24,7 @@ VERIFICATION_TOOLS = frozenset({
 # 記憶儲存訊號（記憶承諾閘）：memory_tools(action=save) 的限定名。
 MEMORY_SAVE_SIGNAL = "memory_tools.save"
 
-# 記憶查詢訊號（e_index 檢索分量等消費）：memory_tools(action=query) 的限定名。
+# 記憶查詢訊號：memory_tools(action=query) 的限定名。
 MEMORY_QUERY_SIGNAL = "memory_tools.query"
 
 
