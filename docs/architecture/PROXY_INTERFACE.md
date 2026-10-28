@@ -413,6 +413,8 @@ revision涵蓋完整14欄readset、owner、absence、process epoch與generation�
 只有已授權明示 `ui_persistence` 使用 `_pump_ui_stream`／`_persist_ui_assistant_turn`。pipeline前同一snapshot
 綁owner＋client revision，dispatcher admission再驗user節點；原requester不隨soul執行身分切換。
 UI envelope不送上游provider。無UI契約的已認證OpenAI／Anthropic及內部舊路徑不取得新保證。
+persistent 客戶端必須送這個對話完整的線性路徑：SoulLayer 據此在家對話本身不再插家對話（請求帶 persistent
+`ui_persistence` 且路由核准 `ui_authorized`，兩者都要）；子對話、SNS、IDE 與沒帶 `ui_persistence` 的請求照舊插入（2026-10-29）。
 fatal RoundError／rhythm中止分別為error／cancelled，不自動保存部分內容；只有確認保存才排非阻塞trim，
 trim以strict原基底CAS，不能覆蓋UI新樹。詳 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)。
 

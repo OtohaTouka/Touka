@@ -63,7 +63,7 @@ def soul_probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     def _apply_persona(_request: Any, agent_id: Any) -> None:
         seen["persona"].append(agent_id)
 
-    async def _inject_home(_request: Any, agent_id: Any) -> None:
+    async def _inject_home(_request: Any, agent_id: Any, **_kwargs: Any) -> None:
         seen["home"].append(agent_id)
 
     async def _no_summary(*_args: Any) -> None:
