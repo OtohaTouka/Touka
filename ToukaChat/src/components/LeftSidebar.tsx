@@ -22,6 +22,9 @@ import { SidebarSetupNotices } from './sidebar/left/SidebarSetupNotices';
 import { NavigationArea } from './sidebar/left/NavigationArea';
 import { SessionItem } from './sidebar/left/SessionItem';
 
+/** 展開後交焦點最多試幾個畫面（60Hz 約 0.5 秒，比 300ms 的過場長）。 */
+const EXPAND_FOCUS_MAX_FRAMES = 30;
+
 interface LeftSidebarProps {
     onStudioClick?: () => void;
     onChatClick?: () => void;
@@ -75,14 +78,27 @@ function LeftSidebar({
     }, []);
 
     // WCAG 2.4.3：側欄剛展開、焦點跟著主區的展開鈕消失（掉到 body）時，交給收合鈕。
+    // 外層的 visibility 有 300ms 過場：過場剛開始的那一刻瀏覽器仍當它看不見、focus() 會失效，
+    // 所以每個畫面試一次，交到為止；焦點已被移到別處，或試到過場早該結束時就停。
     const collapseRef = useRef<HTMLButtonElement>(null);
     const wasCollapsed = useRef(isCollapsed);
     useEffect(() => {
         const justExpanded = !isCollapsed && wasCollapsed.current;
         wasCollapsed.current = isCollapsed;
-        if (justExpanded && (!document.activeElement || document.activeElement === document.body)) {
+        if (!justExpanded) return;
+        let frame = 0;
+        let tries = 0;
+        const tryFocus = () => {
+            const active = document.activeElement;
+            if (active && active !== document.body) return;
             collapseRef.current?.focus();
-        }
+            tries += 1;
+            if (document.activeElement !== collapseRef.current && tries < EXPAND_FOCUS_MAX_FRAMES) {
+                frame = requestAnimationFrame(tryFocus);
+            }
+        };
+        frame = requestAnimationFrame(tryFocus);
+        return () => cancelAnimationFrame(frame);
     }, [isCollapsed]);
 
     const toggleGroup = (group: string) => {
@@ -99,9 +115,9 @@ function LeftSidebar({
                 {/* 側欄太矮（例如首次設定警告佔了位置）時整欄捲動，底部導覽與登出一定點得到 */}
                 <div className="py-4 flex flex-col gap-6 h-full relative transition-all duration-300 w-full min-w-0 px-4 overflow-y-auto overflow-x-hidden custom-scrollbar">
                     
-                    {/* Identity (SRP: SidebarIdentity)＋桌面版收合鈕 */}
-                    <div className="flex items-center gap-1 w-full min-w-0">
-                        <div className="flex-1 min-w-0">
+                    {/* Identity (SRP: SidebarIdentity)＋桌面版收合鈕；側欄拖窄到擺不下時，收合鈕換到下一行靠右，不蓋住身分與警告標記 */}
+                    <div className="flex flex-wrap items-center gap-1 w-full min-w-0">
+                        <div className="flex-1">
                             <SidebarIdentity mode={sysStatus.mode} checkState={sysStatus.checkState}
                                 memoryWarning={hasMemoryWarning(sysStatus.memoryNotices)}
                                 systemWarning={hasMemoryWarning(sysStatus.systemNotices)} />
@@ -113,7 +129,7 @@ function LeftSidebar({
                                 onClick={onCollapse}
                                 aria-label={t('layout.left_sidebar.collapse_sidebar')}
                                 title={t('layout.left_sidebar.collapse_sidebar')}
-                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                             >
                                 <PanelLeftClose size={18} />
                             </button>
