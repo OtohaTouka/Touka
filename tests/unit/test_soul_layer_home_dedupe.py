@@ -196,7 +196,8 @@ async def test_web_sub_conversation_still_sees_home(sessions: dict) -> None:
 async def test_latest_only_client_in_home_still_gets_context(sessions: dict) -> None:
     """SNS 家對話模式與 IDE：只送最新一句、沒有存檔核准欄位，靠後端補前文。
 
-    最新那句在 SNS 會多出現一次是已知的另一個問題（HANDOVER 待辦），這裡不驗次數。
+    SNS 等 pipeline 跑完才把這句寫進家對話（ADR-0292），所以不會多出現一次，由
+    ``test_sns_gateway.py`` 驗寫入順序；這裡只驗後端補了前文。
     """
     request = await _run(_openai(sessions["home"], HOME_LATEST), _ctx(sessions["home"],
                                                                       ui_authorized=False))

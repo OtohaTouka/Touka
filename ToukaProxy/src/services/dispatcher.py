@@ -33,7 +33,11 @@ from src.services.hooks import events as hook_events
 from src.services.identity_service import identity_service
 from src.services.interjection_queue import InterjectionQueue, interjection_queue
 from src.services.sliding_window_service import sliding_window_service
-from src.services.stream_buffer_service import StreamOwnershipError, stream_buffer_service
+from src.services.stream_buffer_service import (
+    PendingRequest,
+    StreamOwnershipError,
+    stream_buffer_service,
+)
 from src.utils.async_db import SessionSnapshot, session_service
 from src.utils.brain_persistence import record_working_brain
 from src.utils.history_manager import TreeMessageManager
@@ -474,6 +478,10 @@ async def dispatch_request(
             admission = admission.model_copy(update={"revision": snapshot.revision})
         else:
             execution = None
+        pending = context.get("ui_pending")
+        if isinstance(pending, PendingRequest) and pending.stopped:
+            # ADR-0292：還沒開始串流時按了停止（標在這一則請求上，同一對話之後的請求清不掉）
+            raise ToukaException(ErrorCode.PROMPT_STOPPED)
         try:
             entry = await stream_buffer_service.create(
                 session_id, identity=requester, admission=admission,

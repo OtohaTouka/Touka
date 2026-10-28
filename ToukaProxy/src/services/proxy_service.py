@@ -74,7 +74,8 @@ async def process_proxy_request(
     request: Any, ctx: PipelineContext, is_anthropic: bool = True
 ) -> Any:
     """處理請求管道：採用中介軟體式架構 (SOLID)。"""
-    # UI 請求在開始串流前先登記請求者，hook 執行中也停得下來（ADR-0292）
+    # UI 請求在開始串流前先登記請求者，hook 執行中也停得下來；停止標在這一則請求上，
+    # HookLayer 與開始串流前各看一次（ADR-0292）
     requester = ctx.get("ui_requester")
     session_id = getattr(request, "session_id", None)
     waiting = (
@@ -82,7 +83,8 @@ async def process_proxy_request(
         if isinstance(requester, AgentIdentity) and isinstance(session_id, str) and session_id
         else nullcontext()
     )
-    with waiting:
+    with waiting as pending:
+        ctx["ui_pending"] = pending
         return await _run_request(request, ctx, is_anthropic)
 
 

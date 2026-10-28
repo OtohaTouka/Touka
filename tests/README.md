@@ -89,11 +89,11 @@ tests/
 | 檔案 | 說明 |
 |---|---|
 | `unit/test_hooks_config.py` | 設定模型：預設關閉且範本有效、只收已接線的四個事件（名稱區分大小寫）、command／http 兩種 handler；拒收其他 hook 類型、`shell`／`if`／`async` 欄位、空指令、逾時超出範圍、非 http(s) 網址、標頭寫 `$VAR`／`${VAR}`、標頭名稱不是 HTTP token、設定 Touka 自己送的四個標頭（`content-type` 等，不分大小寫）、未知的頂層欄位與壞的 matcher、單一事件 handler 過多；matcher 規則照 Claude Code。 |
-| `unit/test_hook_paths_security.py` | 指令與參數的路徑界線：外部程式與 `hooks/` 裡的腳本可用；指令必須是存在的檔案的絕對路徑；參數的路徑不在 `hooks/` 就拒絕（`outside_hooks_dir`），專案清單變動不影響 `hooks/` 裡的腳本；指令在代理人寫得到的地方拒絕；`..`、UNC、磁碟機相對路徑拒絕；相對參數從 `hooks/` 讀；`hooks/` 裡的硬連結拒絕；`hooks/` 裡經過連結（含 `hooks/` 本身是連結）拒絕（`linked_path`）；符號連結指進禁區、本身放在禁區、中途經過禁區都拒絕；同一個資料夾的別名靠檔案識別碼擋（設定資料夾的別名只放行 `hooks/`）；讀不到狀態當成無法確認；大小寫照平台規則；禁區包含資料根、state、工作區根、專案根與翻譯後的路徑、MCP 伺服器的可寫資料夾（唯讀的不算），容器裡另加對映路徑；讀不到 MCP 隔離設定檔時不能執行；參數裡用路徑分隔字元串起來的路徑清單逐段檢查，黏在單字母選項或 `@` 後面的路徑、字詞中間 `:`／`@` 後面的絕對路徑（`-javaagent:<路徑>`）也檢查，`file:` 網址拒絕（`file_url`，含字詞中間的）。 |
+| `unit/test_hook_paths_security.py` | 指令與參數的路徑界線：外部程式與 `hooks/` 裡的腳本可用；指令必須是存在的檔案的絕對路徑；參數的路徑不在 `hooks/` 就拒絕（`outside_hooks_dir`），專案清單變動不影響 `hooks/` 裡的腳本；指令在代理人寫得到的地方拒絕；`..`、UNC、磁碟機相對路徑拒絕；相對參數從 `hooks/` 讀；`hooks/` 裡的硬連結拒絕；`hooks/` 裡經過連結（含 `hooks/` 本身是連結）拒絕（`linked_path`）；符號連結指進禁區、本身放在禁區、中途經過禁區都拒絕；同一個資料夾的別名靠檔案識別碼擋（設定資料夾的別名只放行 `hooks/`）；讀不到狀態當成無法確認；大小寫照平台規則；禁區包含資料根、state、工作區根、專案根與翻譯後的路徑、MCP 伺服器的可寫資料夾（唯讀的不算），容器裡另加對映路徑；讀不到 MCP 隔離設定檔時不能執行；參數裡用路徑分隔字元串起來的路徑清單逐段檢查，黏在單字母選項或 `@` 後面的路徑、字詞中間 `:`／`@` 後面的絕對路徑（`-javaagent:<路徑>`）也檢查，`file:` 網址拒絕（`file_url`，含字詞中間的）；Windows 上字詞中間只有磁碟代號的路徑（`-javaagent:C:x.jar`）拒絕；參數裡的網址照平台的路徑清單分隔符（Windows 不拆、POSIX 拆開後被拒絕）。 |
 | `unit/test_project_root_protected_security.py` | 一般使用者的專案根（ADR-0292 決定 12）：設定資料夾、`config/hooks/`、資料根與它們的上層拒絕；使用者資料夾可用；經連結指到設定資料夾拒絕；本機安裝不做 Touka 目錄偵測，容器裡工作區掛載根本身與 Touka 目錄拒絕；專案檔案工具對靈魂與沒有身分拒絕受保護的專案根、使用者資料夾照常可用、管理員與只有管理員擁有的靈魂不受限（`only_admins_own` 照每位擁有者的角色判斷，有一般使用者共同擁有時不放行）；本機安裝根底下只有使用者自建的第一層資料夾能用；檢查沒做完時說明且不放行；登記受保護的專案根被拒，管理員照舊可以；登記被拒時回原因（`outside_workspace`／`protected_location`／`scan_limit`）。 |
 | `unit/test_hook_runners_security.py` | 執行方式：事件內容只從標準輸入、參數不經 shell、子程序環境不含金鑰、結束碼與 stderr、逾時真的結束程式（之後不會再寫檔）、逾時或被取消時在執行緒裡結束程式、超過上限的輸出丟掉、啟動不了算失敗；http 送出事件內容且標頭照字面、不跟隨轉址、非 2xx 算失敗、回應讀到上限就停止並關閉連線、慢慢回的伺服器在整次請求的逾時內被切斷、不讀環境裡的憑證與代理設定。 |
 | `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON、`continue: false` 只在能擋的事件擋下）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔／讀不到／載入後被刪掉都沿用上一份、解讀或記錄出錯只算那個 hook 失敗、存檔 CAS 與路徑檢查（含停用的 hook）；存檔前讀不到檔案或寫不進去都回存檔錯誤、不寫檔、保留原本的設定；事件內容有落單的 surrogate 時照樣執行。 |
-| `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加；hook 執行期間停止時不送模型（`PROMPT_STOPPED`）、不執行工具（`stopped_by_user`），擋下優先於停止，沒有 hook 執行（含 hook 全部停用）或沒比到的工具不看停止旗標；UI 請求在串流開始前登記為等待中、結束或出錯時移除。 |
+| `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加；hook 執行期間停止時不送模型（`PROMPT_STOPPED`）、不執行工具（`stopped_by_user`），擋下優先於停止，沒有 hook 執行（含 hook 全部停用）或沒比到的工具不看停止旗標；UI 請求在串流開始前登記為等待中、結束或出錯時移除；停止標在這一則請求上，同一對話的下一則請求清掉旗標後仍停著。 |
 | `unit/test_hooks_router_security.py` | 管理 API：三個端點只給人類管理員（admin 代打、一般使用者、靈魂、Debugger、DispatchAgent、子代理、沒登入與壞的 token 都拒絕且不寫檔）；存檔寫檔並回 revision、作者與時間由伺服器填；舊 revision 回 409 且不動檔；路徑被拒回 422 且不寫檔（含停用的 hook）；不可信的 Origin 拒絕；沒帶 revision、多的欄位、未接線事件、`shell` 欄位、標頭環境變數拒收；執行紀錄新的在前、無痕只留結果；壞檔時給上一份好的設定與壞檔的 revision、帶它存檔可修好；`/v1` 與根路徑都掛上；設定匯出不含 `hooks.json`。 |
 
 ### 心跳、SNS 與對話歸屬（ADR-0276）
@@ -114,13 +114,13 @@ tests/
 | 檔案 | 調整原因 |
 |---|---|
 | `integration/test_heartbeat_retrigger.py` | 改提供 strict snapshot 與完整家欄，讓真正執行歸屬閘驗證外靈魂拒絕；原人類授權與 Auto 斷言保留。 |
-| `unit/test_dispatcher_resumable.py` | 擁有者競態改在真沙盒 DB 變更，驗證交易內准入會看到新列，不能只替換舊讀取入口。 |
+| `unit/test_dispatcher_resumable.py` | 擁有者競態改在真沙盒 DB 變更，驗證交易內准入會看到新列，不能只替換舊讀取入口；串流開始前已停止的請求回 `PROMPT_STOPPED`、不建串流、不送模型（含無痕，ADR-0292）。 |
 | `unit/test_heartbeat_awaken_hardening_security.py` | 初始提示 append 替身明確回保存成功，避免新失敗檢查提前中斷消毒案例；合成憑證常數更名。 |
 | `unit/test_heartbeat_modes_security.py` | 脈衝讀取替身提供 execution snapshot 與 revision，維持模式／工具政策測試的範圍。 |
 | `unit/test_session_binding_security.py` | 退休 SNS 列只由沙盒 SQL 模擬舊資料；正常 SNS 改用受管每靈魂頻道並驗保存回覆。 |
 | `unit/test_session_owner_attribution.py` | 既有代理對話 seed／update 明帶相同 agent identity，驗 owner 不被後寫者改動，不再藉匿名寫入建立測試前提。 |
 | `unit/test_session_persistence_ordering.py` | 家對話經 set_home 建立，剪裁用綁定靈魂，保留 stale revision、公開 null 與 rich-save 競態斷言。 |
-| `unit/test_sns_gateway.py` | 替身提供正式靈魂與同擁有者關係、嚴格家快照及成功 append，頻道 ID 期望改為每靈魂完整座標雜湊；被 UserPromptSubmit hook 擋下的外人訊息不寫進對話、不回覆也不往外丟錯（家對話與獨立對話）、其他錯誤照舊寫、外人訊息寫好才讀回覆（寫不進去就不讀）（ADR-0292）。 |
+| `unit/test_sns_gateway.py` | 替身提供正式靈魂與同擁有者關係、嚴格家快照及成功 append，頻道 ID 期望改為每靈魂完整座標雜湊；被 UserPromptSubmit hook 擋下的外人訊息不寫進對話、不回覆也不往外丟錯（家對話與獨立對話）、其他錯誤照舊寫、外人訊息寫好才讀回覆（寫不進去就不讀）、家對話模式在 pipeline 之後才寫（家對話不重複）（ADR-0292）。 |
 
 其餘受快照／條件提交影響的回歸檔，測試數量不變，逐檔分類如下：
 
@@ -647,7 +647,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_mission_filelock.py` ⭐ | MissionLock 跨平台 FileLock 行為 TDD 測試（ADR-0049）：async context manager、asyncio.Lock 取得/釋放、FileLock `.json.lock` 路徑驗證、exception safety（FileLock 失敗時 asyncio.Lock 必須釋放）、concurrent coroutine 序列化、cache reset |
 | `test_stream_buffer_service.py` ⭐ | ADR-0081 串流緩衝 SSOT：create/append seq、subscribe 重播（從 0/從 N）與 Condition 跟流、雙訂閱者一致、cancel 連坐 producer、同 session 新建取代舊、TTL 清掃、MAX_CHUNKS 超限終結 error、終態 append no-op |
 | `test_dispatcher_resumable.py` ⭐ | ADR-0081／0231 dispatcher 解耦與 UI 持久化：resumable_stream 旗標+session_id → producer 入緩衝、回應改訂閱者；不消費/中途斷線 producer 仍跑完並伺服器端持久化 assistant（驗 sandbox DB 樹）；無旗標原路徑零緩衝零雙寫；無身分跳過持久化不崩潰 |
-| `test_stream_resume_endpoints.py` ⭐ | ADR-0081 resume 端點：starting_after 切片重播、無緩衝 STREAM_NOT_FOUND、非擁有者 IDOR 拒絕、active 清單擁有權過濾、stop 擴充取消緩衝串流；還沒開始串流的請求（hook 執行中）由請求者本人不指名停止（ADR-0292） |
+| `test_stream_resume_endpoints.py` ⭐ | ADR-0081 resume 端點：starting_after 切片重播、無緩衝 STREAM_NOT_FOUND、非擁有者 IDOR 拒絕、active 清單擁有權過濾、stop 擴充取消緩衝串流；還沒開始串流的請求（hook 執行中）由請求者本人不指名停止，只停自己的請求、對話存在時要有存取權才停整個對話（沒有回 403）、查詢期間串流開始了仍要指名（ADR-0292） |
 | `test_code_review_fixes.py` ⭐ | 2026-06-11 code review 修復 TDD：AgentIdentity 欄位 `validate_default`（heartbeat/debug 請求模型）、`_extract_response_text` content=None 安全、三家 handler System 豁免一致（結構性）、Gemini finish_reason 對映（length/content_filter/tool_calls/fallback + model 透傳）、`ModelHealthResponse.model_id` 為 str、`reset_quota` 持鎖、`_reassemble_final_json` 空 choices 防禦、MCP Hub 缺鍵條目跳過/拒絕、`get_secret` double-checked locking（結構性＋16 執行緒並行）、custom_models per-model-id 鎖 TOCTOU 串行化（update/delete/rename 雙鎖排序取得）、npm 下載量誠實化（`fetch_npm_downloads` None=未知／真 0 保留／hub 不偽造 downloads、排序退回 popularity；前端對應 `formatHubDownloads` 測試在 `mcp_version.test.ts`） |
 | `test_factory_live_keys.py` ⭐ | **ADR-0118（extends ADR-0099）供應商金鑰免重啟即時生效**：dispatcher `factory.py` gemini 分支改讀即時 `src.config.GEMINI_API_KEY`（非 from-import 快照）、claude 分支以 `with_options(api_key=…)` 每請求套即時金鑰（回副本、不污染啟動快照 client）；無即時金鑰時不以空值覆寫既有 client（monkeypatch 模擬 `apply_runtime_env` 執行期改鍵）；ADR-0247：換金鑰後沿用注入的 no-redirect http client |
 | `test_embedding_service.py` ⭐ | **ADR-0118（extends ADR-0070）嵌入模型生命週期**：`embedding_service` 三動作嚴格分離——DOWNLOAD（repo id 解析、已快取/下載中防重、逐檔進度、additive 絕不 `force_download`、失敗轉 error 狀態）、SWITCH（`evaluate_switch` 偵測既有記憶＋換模型才要求確認）、APPLY（寫 `EMBEDDING_MODEL` 走 SSOT resolve＋重置向量單例免重啟）；全程 mock huggingface_hub 與記憶系統，不下真模型、不碰真 `data/` |

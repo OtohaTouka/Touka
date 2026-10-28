@@ -66,13 +66,13 @@ _PATH_LIST_SEPARATOR: Final[str] = os.pathsep
 # ``file:`` 網址看不出最後讀哪個檔，一律拒收（不分大小寫）；字詞中間的也算（``jar:file:/x``），
 # 前面緊接英數字的不算（``--profile:dev``）。
 _FILE_URL = re.compile(r"(?<![a-z0-9])file:", re.IGNORECASE)
-# 黏在單字母選項後面的絕對路徑（``-I/data/lib``、``-oD:\data\x``），以及 ``@`` 後面的參數檔
-# （``@/data/args.txt``）。只認單字母選項，``-Ilib/sub`` 這種相對路徑不拆。
-_GLUED_PATH = re.compile(r"^(?:-[A-Za-z](?=(?:[A-Za-z]:)?[\\/])|@)(?P<path>.+)$")
-# 字詞中間 ``:``／``@`` 後面接著的絕對路徑（``-javaagent:D:/x.jar``、``--rcfile:/x``、``pkg@/x``）：
-# Windows 的 ``:`` 是磁碟代號、上面不拆，所以另外取出來。磁碟代號開頭、UNC 與單一斜線算；
-# ``://`` 網址不算。
-_ABSOLUTE_START = re.compile(r"[A-Za-z]:[\\/]|\\|/(?!/)")
+# 黏在單字母選項後面的路徑（``-I/data/lib``、``-oD:\data\x``、``-oD:x``），以及 ``@`` 後面的
+# 參數檔（``@/data/args.txt``）。只認單字母選項，``-Ilib/sub`` 這種相對路徑不拆。
+_GLUED_PATH = re.compile(r"^(?:-[A-Za-z](?=[A-Za-z]:|[\\/])|@)(?P<path>.+)$")
+# 字詞中間 ``:``／``@`` 後面接著的路徑（``-javaagent:D:/x.jar``、``--rcfile:/x``、``pkg@/x``）：
+# Windows 的 ``:`` 是磁碟代號、上面不拆，所以另外取出來。磁碟代號開頭（含 ``D:x`` 這種相對於
+# 磁碟目前目錄、之後判成看不出指哪裡的寫法）、UNC 與單一斜線算；``://`` 網址不算。
+_ABSOLUTE_START = re.compile(r"[A-Za-z]:|\\|/(?!/)")
 _DRIVE_LETTER = re.compile(r"[A-Za-z]")
 _SEPARATORS = re.compile(r"[\\/]")
 _VERBATIM_PREFIX = "\\\\?\\"

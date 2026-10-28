@@ -190,9 +190,31 @@ def test_paths_after_a_colon_or_at_sign_inside_a_word_are_checked(layout):
         hook = _hook(layout["outside"] / "tool.exe", arg)
         assert "outside_hooks_dir" in _reasons(command_path_problems(hook, _zones(layout))), arg
     inside = str(layout["config"] / "hooks" / "guard.py")
-    plain = _hook(layout["outside"] / "tool.exe", f"-javaagent:{inside}", "--url=https://example.com/x",
-                  "--profile:dev", "user@example.com")
+    plain = _hook(layout["outside"] / "tool.exe", f"-javaagent:{inside}", "--profile:dev",
+                  "user@example.com")
     assert command_path_problems(plain, _zones(layout)) == []
+
+
+def test_drive_relative_paths_inside_a_word_are_rejected_on_windows(layout):
+    """Windows 的 ``D:x`` 相對於那個磁碟的目前目錄，看不出指哪裡；夾在字詞中間或黏在選項後面
+    也一樣。POSIX 沒有磁碟代號，這些是 ``hooks/`` 底下的相對名稱。"""
+    for arg in ("-javaagent:C:evil.jar", r"x@C:proj\a.txt", "--rcfile:E:x", r"-oD:proj\x"):
+        reasons = _reasons(command_path_problems(_hook(layout["outside"] / "tool.exe", arg),
+                                                 _zones(layout)))
+        assert reasons == ({"not_absolute"} if sys.platform == "win32" else set()), arg
+
+
+def test_url_arguments_follow_the_platform_path_list_separator(layout, monkeypatch):
+    """POSIX 的 ``:`` 也是路徑清單分隔（``-cp https://x/data/evil.jar`` 會讀 ``//x/data/...``），
+    網址會被拆出 ``//host/x`` 而拒收；Windows 的 ``:`` 不拆，網址照常（ADR-0292 已知的界線）。"""
+    url = _hook(layout["outside"] / "tool.exe", "--url=https://example.com/x")
+    problems = command_path_problems(url, _zones(layout))
+    if sys.platform == "win32":
+        assert problems == []
+    else:
+        assert problems
+    monkeypatch.setattr(paths_module, "_PATH_LIST_SEPARATOR", ":")
+    assert command_path_problems(url, _zones(layout))
 
 
 def test_unc_and_drive_relative_paths_are_rejected(layout):

@@ -3,7 +3,8 @@
 - UserPromptSubmit：只在真的請求執行（``process_proxy_request`` 設 ``run_hooks``；上下文預覽與
   子代理不執行；只有工具結果的 user 訊息不執行）；擋下回 ``HOOK_PROMPT_BLOCKED`` 帶理由（有上限）；
   補充說明當資料接在最後一則 user 訊息。模式這時還沒決定，事件內容不帶 ``permission_mode``。
-  hook 執行期間使用者按了停止，回 ``PROMPT_STOPPED``、不送模型（擋下優先）。
+  hook 執行期間使用者按了停止，回 ``PROMPT_STOPPED``、不送模型（擋下優先）；停止標在這一則請求
+  上，同一對話之後的請求清掉對話的旗標也一樣。
 - PreToolUse：只能擋下或要求人核准。擋下不跳卡、不送審、不執行；要求人核准跳同一張人類卡、
   卡上的理由標成 hook 的（不是審查員的）、不送審查員，無人在場直接拒絕；``allow`` 不放行。
   等 hook 的期間使用者按了停止，工具不執行。
@@ -49,7 +50,7 @@ from src.services.hooks.runners import RunResult
 from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookService
 from src.services.permission_service import permission_service
 from src.services.review.budget import _reset_review_ledger
-from src.services.stream_buffer_service import StreamBufferService
+from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
 from src.utils.user_intent import chat_intent
@@ -216,6 +217,21 @@ async def test_a_block_wins_over_a_stop_so_a_connected_client_drops_the_turn(hoo
     assert len(raised.value.detail["reason"]) == MAX_BLOCK_REASON_CHARS
 
 
+async def test_a_stopped_request_stays_stopped_after_a_later_request_clears_the_flag(
+    hooks, monkeypatch
+):
+    """無痕對話停止後馬上送下一則：下一則清掉對話的旗標，這一則仍不送模型。"""
+    hooks.configure({"UserPromptSubmit": [_group()]})
+    _stopped(monkeypatch, layer_module)  # 對話的旗標已被下一則清掉
+    request = _Request("hello")
+    ctx = _prompt_ctx(ui_pending=PendingRequest(_REQUESTER, stopped=True))
+    with pytest.raises(ToukaException) as raised:
+        await HookLayer().process(request, ctx)
+    assert raised.value.code == ErrorCode.PROMPT_STOPPED
+    ctx["ui_pending"] = PendingRequest(_REQUESTER)  # 沒停止的請求照常
+    await HookLayer().process(request, ctx)
+
+
 @pytest.mark.parametrize("configured", ["other_event", "disabled_hook"])
 async def test_a_stop_flag_changes_nothing_when_no_prompt_hook_runs(hooks, monkeypatch, configured):
     if configured == "other_event":
@@ -269,9 +285,11 @@ async def test_a_ui_request_counts_as_waiting_until_its_stream_exists(monkeypatc
     buffer = StreamBufferService()
     monkeypatch.setattr(proxy_service, "stream_buffer_service", buffer)
     seen: list[bool] = []
+    handles: list[Any] = []
 
-    async def fake_execute(_request: Any, _ctx: PipelineContext) -> None:
+    async def fake_execute(_request: Any, ctx: PipelineContext) -> None:
         seen.append(buffer.has_pending_request("s-ui", _REQUESTER))
+        handles.append(ctx.get("ui_pending"))
 
     async def fake_dispatch(*_args: Any, **_kwargs: Any) -> str:
         seen.append(buffer.has_pending_request("s-ui", _REQUESTER))
@@ -291,6 +309,9 @@ async def test_a_ui_request_counts_as_waiting_until_its_stream_exists(monkeypatc
         assert response == "response"
     assert seen == [True, True]
     assert not buffer.has_pending_request("s-ui", _REQUESTER)
+    # HookLayer 與開始串流前看的就是這一則請求的登記
+    [handle] = handles
+    assert isinstance(handle, PendingRequest) and handle.requester == _REQUESTER
 
 
 @pytest.mark.parametrize("session_id", [None, "s-ui"])
@@ -299,8 +320,8 @@ async def test_only_ui_requests_with_a_conversation_count_as_waiting(monkeypatch
     monkeypatch.setattr(proxy_service, "stream_buffer_service", buffer)
     seen: list[bool] = []
 
-    async def fake_execute(_request: Any, _ctx: PipelineContext) -> None:
-        seen.append(bool(buffer._pending))
+    async def fake_execute(_request: Any, ctx: PipelineContext) -> None:
+        seen.append(bool(buffer._pending) or ctx.get("ui_pending") is not None)
         raise asyncio.CancelledError
 
     monkeypatch.setattr(proxy_service.pipeline, "execute", fake_execute)

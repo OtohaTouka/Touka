@@ -17,6 +17,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, MockTransport, Response
 from src.adapters.schemas import OpenAIChatRequest
+from src.core.exceptions import ErrorCode, ToukaException
 from src.handlers import react_core
 from src.handlers.adapters import openai_adapter
 from src.models.context import PipelineContext
@@ -28,7 +29,7 @@ from src.services import proxy_service
 from src.services.dispatchers import factory
 from src.services.identity_router import get_verified_identity
 from src.services.models.routes import CustomRouteDisposition
-from src.services.stream_buffer_service import StreamBufferService
+from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.utils.async_db import SessionSnapshot, get_async_db, init_db_async, session_service
 from src.utils.history_manager import TreeMessageManager
 
@@ -429,13 +430,14 @@ async def _ui_seed(sid):
     )
 
 
-async def _ui_dispatch(request):
+async def _ui_dispatch(request, pending=None):
     ctx = PipelineContext(
         session_id=request.session_id, identity=UI_OWNER, incognito=request.incognito
     )
     ctx["resumable_stream"] = True
     ctx["ui_requester"] = UI_OWNER
     ctx["ui_authorized"] = True
+    ctx["ui_pending"] = pending
     return await dispatcher_mod.dispatch_request(
         "test-model", request, UI_OWNER, "ui-request", 0.0, ctx
     )
@@ -564,6 +566,29 @@ async def test_ui_admission_rejects_stale_or_wrong_base_before_model(
     await _response_events(response)
     calls.assert_not_called()
     assert response.status_code == 409 and fresh_buffer.get_state("ui") is None
+
+
+@pytest.mark.parametrize("incognito", [False, True])
+@pytest.mark.asyncio
+async def test_a_request_stopped_before_its_stream_never_reaches_the_model(
+    sandbox_db, fresh_buffer, monkeypatch, incognito
+):
+    """ADR-0292：還沒開始串流時按了停止（標在這一則請求上），不建立串流、不送模型。"""
+    if not incognito:
+        await _ui_seed("ui")
+    request = await _ui_request("ui", incognito=incognito)
+    calls = Mock()
+
+    async def generate():
+        calls()
+        yield _sse("must-not-run")
+
+    _patch_generator(monkeypatch, generate)
+    with pytest.raises(ToukaException) as raised:
+        await _ui_dispatch(request, PendingRequest(UI_OWNER, stopped=True))
+    assert raised.value.code == ErrorCode.PROMPT_STOPPED
+    calls.assert_not_called()
+    assert fresh_buffer.get_state("ui") is None
 
 
 @pytest.mark.parametrize("incognito", [False, True])

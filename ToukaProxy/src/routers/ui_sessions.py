@@ -599,16 +599,25 @@ async def stop_session_tasks(
 ) -> dict[str, Any]:
     """Mark a session to stop all autonomous ReAct tasks."""
     if stream_id is None and stream_buffer_service.has_pending_request(session_id, identity):
-        # ADR-0292：這個人在這個對話的請求還沒開始串流（hook 執行中、組上下文中）。認請求者，
-        # 不查對話（無痕查不到），也不碰串流緩衝（不能停到之後開始的那一代）。
-        rhythm_service.interrupt_session(session_id)
-        procs = process_registry.pop_session(session_id)
-        killed = await asyncio.to_thread(terminate_processes, procs, session_id)
-        return {
-            "status": "success",
-            "session_id": session_id,
-            "message": f"Interruption signal sent; terminated {killed} running process(es).",
-        }
+        # ADR-0292：這個人在這個對話的請求還沒開始串流（hook 執行中、組上下文中）。只停這個人
+        # 在等的請求，不碰串流緩衝（不能停到之後開始的那一代）。對話已存在時要有權限，這時也和
+        # 有串流時一樣停整個對話；查不到對話（無痕、還沒存過）時對話 id 是請求自己帶的，不能拿來
+        # 停整個對話（可能是別人的）。
+        session = await session_service.get_session_by_id(session_id)
+        allowed = session is None or _can_access_session(
+            identity, session.get("agent_id"), session.get("owner_user_id")
+        )
+        if allowed and stream_buffer_service.stop_pending_requests(session_id, identity):
+            killed = 0
+            if session is not None:
+                rhythm_service.interrupt_session(session_id)
+                procs = process_registry.pop_session(session_id)
+                killed = await asyncio.to_thread(terminate_processes, procs, session_id)
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "message": f"Interruption signal sent; terminated {killed} running process(es).",
+            }
     state = await _authorized_stream_state(session_id, identity)
     if state is not None and state.get("started") is not None and state["stream_id"] != stream_id:
         raise ToukaException(ErrorCode.STREAM_NOT_FOUND)
