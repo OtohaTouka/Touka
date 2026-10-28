@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 from src.services.resource_manager import resource_manager
-from src.services.skill_service import skill_service
+from src.services.skill_service import SkillService, skill_service
 
 _DISPATCHER_MD = ("system-skill-dispatcher", "SKILL.md")
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "src"
@@ -153,7 +153,11 @@ class _ImportTimeSyncCalls(ast.NodeVisitor):
 
 
 def test_no_module_syncs_dispatchers_at_import():
-    """載入任何模組都不寫兩個調度員檔：產生只在 lifespan（設定自癒與 MCP 名稱遷移之後）。"""
+    """載入時直接執行的地方（模組層、class 本體、裝飾器與預設值）都不呼叫兩個 sync。
+
+    產生只在 lifespan（設定自癒與 MCP 名稱遷移之後）；藏在建立服務時跑的函式裡，
+    由下一個測試抓。
+    """
     paths = sorted(_SRC_ROOT.rglob("*.py"))
     assert paths
     offenders: list[str] = []
@@ -163,6 +167,18 @@ def test_no_module_syncs_dispatchers_at_import():
         rel = path.relative_to(_SRC_ROOT).as_posix()
         offenders += [f"{rel}:{line}" for line in visitor.lines]
     assert offenders == []
+
+
+def test_building_service_writes_no_dispatcher(tmp_path):
+    """建立服務（模組層的 SkillService()）與重新載入技能都不寫兩個調度員檔。"""
+    resource_manager.make_dir(tmp_path / "skills")
+    resource_manager.write_file_text(tmp_path / "server_config.json", '{"mcpServers": {}}')
+    with patch("src.services.skill_service.get_config_dir", return_value=tmp_path):
+        skill_service._initialized = False
+        assert SkillService() is skill_service
+        skill_service.reset_for_test()
+    for sid in ("system-mcp-dispatcher", "system-skill-dispatcher"):
+        assert not resource_manager.exists(tmp_path / "skills" / sid)
 
 
 def _dispatcher_path(skills_dir):
@@ -213,6 +229,20 @@ def test_dispatcher_rewrites_unreadable_file(svc, synced):
     resource_manager.write_file_binary(_dispatcher_path(synced), b"\xff\xfe broken")
     assert _sync_watching_writes(svc, synced) == 1
     assert 'id="biz"' in _read_dispatcher(synced)
+
+
+def test_dispatcher_rewrites_when_read_is_denied(svc, synced):
+    """讀舊檔遇到權限錯誤也照寫。"""
+    target = _dispatcher_path(synced)
+    real_read = resource_manager.read_file_text
+
+    def read(path, *args, **kwargs):
+        if Path(path) == target:
+            raise PermissionError("denied")
+        return real_read(path, *args, **kwargs)
+
+    with patch.object(resource_manager, "read_file_text", side_effect=read):
+        assert _sync_watching_writes(svc, synced) == 1
 
 
 def test_dispatcher_skip_still_refreshes_metadata(svc, synced):

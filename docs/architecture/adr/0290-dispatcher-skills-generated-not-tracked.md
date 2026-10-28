@@ -33,6 +33,8 @@
   git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md
   ```
 
+  已經更新過的資料夾不用再跑；跑了只會顯示 `pathspec ... did not match`，沒有影響。
+
 - 更新後到重啟前：只有很久以前在技能選單勾過 `system-mcp-dispatcher` 的舊對話暫時少了它；輸入列的 MCP 開關（`ctx.mcp_dispatcher`）只加 `connect_mcp_server`，不讀這個檔，不受影響。重啟一次就恢復。
 - GHCR：新映像不含這兩個檔；舊的設定 volume 留著舊檔，內容不同時才改寫；新 volume 由 lifespan 產生。
 - 撤回：revert 即恢復原樣；資料夾裡被忽略的兩個檔會被版控內容蓋過（git 把被忽略的檔當成可覆蓋），下次啟動再依本機設定重寫。本 ADR 檔保留，在狀態註記撤回。
@@ -52,3 +54,4 @@
   - `test_lifespan_bootstrap_wiring.py`：lifespan 在 MCP 名稱遷移之後依序呼叫兩個 sync；bootstrap 開啟時 `ensure_configs` 在 sync 之前（設定目錄與 `.env` 導向 tmp，第二個 sync 丟哨兵例外結束啟動）。
 - 守門案（實作前就綠）：舊檔內容不同照寫、舊檔不是 UTF-8 照寫；檔不存在照寫由既有測試涵蓋。
 - 突變檢查：10 個突變（拿掉忽略規則、加回載入時寫檔、拿掉 lifespan 呼叫、拿掉內容比對、逐位元組比較、讀檔失敗就不寫、檔不存在就不寫、檔存在一律不寫、兩個 sync 各自沒寫時跳過技能清單）都讓測試變紅。
+- DEV-B 後補兩案：建立服務與重新載入技能都不寫調度員檔（設定目錄導向 tmp，放一份空的 MCP 設定）；讀舊檔遇到權限錯誤也照寫。對應的三個突變（建立服務時呼叫兩個 sync、重新載入技能時呼叫、讀檔權限錯誤就不寫）都讓測試變紅。

@@ -642,7 +642,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_skill_parser.py` ⭐ | `skill_parser` 純函式：`split_frontmatter`/`parse_frontmatter`(yaml)/`serialize_skill_md`/`map_to_contract`/`read_touka_field`（metadata 優先、top-level fallback）/`build_frontmatter` |
 | `test_skill_service_dir.py` ⭐ | `SkillService` 目錄式載入：掃描 `config/skills/<id>/SKILL.md`、9-key 契約、`_derive_mcp_servers` 由 `.mcp.json` keys 推導（含 exists 檢查）；`sync_system_dispatcher()` 的 registry 沒變不重寫、讀 MCP 設定拋錯只記錄（ADR-0290） |
 | `test_skill_progressive.py` ⭐ | Progressive Disclosure 三層：metadata 常駐 / body 觸發 / `get_skill_resource`/`list_skill_resources` 按需（目錄逃逸防護） |
-| `test_skill_dispatcher.py` ⭐ | `sync_skill_dispatcher()` 動態生成 `system-skill-dispatcher`（列非系統 skill 的 name+description），update/delete 後 re-sync；內容沒變不重寫（只差 CRLF 也算沒變）、舊檔讀不到照寫；`ToukaProxy/src` 沒有模組在載入時呼叫兩個 sync（ADR-0290） |
+| `test_skill_dispatcher.py` ⭐ | `sync_skill_dispatcher()` 動態生成 `system-skill-dispatcher`（列非系統 skill 的 name+description），update/delete 後 re-sync；內容沒變不重寫（只差 CRLF 也算沒變）、舊檔讀不到（不是 UTF-8、權限錯誤）照寫；`ToukaProxy/src` 沒有模組在載入時直接呼叫兩個 sync，建立服務與重新載入技能也不寫調度員檔（ADR-0290） |
 | `test_activate_skill.py` ⭐ | `activate_skill` 工具（仿 `connect_mcp_server`）：RBAC `can_use_skill` 檢查、寫 `session.active_skills`、下一輪生效 |
 | `test_skill_layer_autotrigger.py` ⭐ | `SkillLayer` Pull auto-trigger：skill_ids = `header ∪ session.active_skills`，常駐注入 dispatcher（修正 pulse 場景無 header 不注入問題） |
 | `test_skill_layer_mcp.py` ⭐ | `SkillLayer` 只從已授權 skill 收集 `required_tools`/`mcp_servers` |
@@ -780,6 +780,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_upsert_concurrency.py` ⭐ | ADR-0078 P5d：`upsert_session` 併發鎖——兩路併發設不同欄位皆存活（未修前 stale-read 丟欄位） |
 | `test_task_utils.py` ⭐ | ADR-0078 P5d：`spawn_logged` fire-and-forget 例外被記錄、成功不報、回傳 Task |
 | `test_terminate_process_tree.py` ⭐ | ADR-0078 P5d：行程群組連坐殺（POSIX killpg／Windows taskkill／taskkill 非零回退 kill／無 pid 回退／已結束吞例外） |
+| `test_lifespan_bootstrap_wiring.py` | `main.py` lifespan 的啟動接線：bootstrap 開啟時壞的 live 設定中止啟動（ADR-0096）；MCP 名稱有改就在初始化前重載、技能與 MCP 接線缺口逐筆告警（ADR-0102）；兩個調度員檔在 MCP 名稱遷移與設定自癒之後才產生（ADR-0290） |
 | `test_session_sandbox_no_residue.py` ⭐ | （ADR-0251）：子程序跑 pytest（`TMP`／`TEMP` 指到 `tmp_path`、乾淨環境、有逾時），`--collect-only`、在 repo 裡指定 `--basetemp` 被拒、探針開一個 Qdrant client 三種情況結束後都不留下 `touka_test_session_*`；探針 `sandbox_child_probe.py` 不符合 `test_*.py`，平常不收集 |
 
 ### 其他

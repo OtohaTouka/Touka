@@ -2,7 +2,6 @@
   "integration/test_ask_user_router.py",
   "integration/test_feedback_router.py",
   "integration/test_incognito_no_residue.py",
-  "integration/test_lifespan_bootstrap_wiring.py",
   "integration/test_memory_list_endpoint.py",
   "integration/test_mission_filelock_crossproc.py",
   "integration/test_react_memory_detection.py",

@@ -84,10 +84,10 @@ def _xml_skill_entry(skill_id: str, display: str, description: str) -> str:
 
 
 def _content_version(body: str) -> str:
-    """以 body 內容雜湊作為穩定版本：內容沒變→版本不變→git 不被弄髒。
+    """以 body 內容雜湊作為穩定版本：內容沒變→版本不變。
 
-    dispatcher SKILL.md 每次 sync 重生；改用內容雜湊取代 epoch 時間戳，使
-    registry 未變時重生產出位元組相同的檔，消除每次 import/啟動的無意義 git diff。
+    改用內容雜湊取代 epoch 時間戳，registry 未變時重算出的調度員檔內容相同，
+    `_write_if_changed` 才能略過寫檔（ADR-0290）。
     """
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 
