@@ -103,7 +103,7 @@ _NOW = 2_000_000_000
     ("expired_ago", "code"),
     [(29, "HEARTBEAT_UNAUTHORIZED_AGENT"), (30, "HEARTBEAT_ORPHAN_AGENT")],
 )
-def test_awaken_allows_the_owner_token_30_seconds_past_expiry(
+def test_awaken_owner_token_grace_ends_at_30_seconds(
     auth_client, monkeypatch, expired_ago, code
 ):
     """P26（舊審查報告丙-6 改成行為測試）：擁有者的 refresh token 過期後 29 秒仍放行

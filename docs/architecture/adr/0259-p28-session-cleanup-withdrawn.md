@@ -30,7 +30,7 @@
 
 ## 補記：P28 段的測試只看行為（2026-10-28，舊審查報告丙-6）
 
-- 決策 5 列的測試裡有三項是在原始碼裡找字：async_db 原始碼裡有 `last_activity_at`、`main.py` 原始碼裡沒有 `cleanup_expired_sessions`、async_db 與 main 的 SQL 字面量裡沒有「依 `last_activity_at` 刪 `user_sessions`」。這三項拿掉。
-- 留下的：Settings 與 config 模組沒有 TTL 設定；async_db 沒有 `cleanup_expired_sessions`；啟動的資料庫初始化跑完後，很舊的非家對話仍在。最後這條也確認 `last_activity_at` 欄位存在（沒有欄位就寫不進測試資料）；啟動時刪對話，不管 SQL 寫成什麼樣子都會紅。
-- 因此上面後果段「`test_no_automatic_session_cleanup` 會擋下沒有經過決策的清除 SQL」改成：啟動時的清除由 `test_startup_db_init_keeps_old_conversations` 擋下；寫在啟動以外的地方（例如排程）的清除，測試測不到，要靠審查。原本的字面量掃描也只認得特定寫法，換個寫法就測不到。
-- 同檔的 P26（擁有者 refresh token 30 秒容差）、P29（「checks passed」記在 DEBUG）改成行為測試，移到 `tests/unit/test_heartbeat_awaken_hardening_security.py`。
+- P28 段的測試裡有三項是在原始碼裡找字：async_db 原始碼裡有 `last_activity_at`、`main.py` 原始碼裡沒有 `cleanup_expired_sessions`、async_db 與 main 的 SQL 字面量裡沒有「依 `last_activity_at` 刪 `user_sessions`」（後兩項是決策 5 列的）。這三項拿掉。
+- 留下的：Settings 與 config 模組沒有 TTL 設定；async_db 沒有 `cleanup_expired_sessions`；資料庫初始化（`init_db_async`）跑完後，很舊的非家對話仍在。最後這條也確認 `last_activity_at` 欄位存在（沒有欄位就寫不進測試資料）；在 `init_db_async` 裡刪對話，不管 SQL 寫成什麼樣子都會紅。
+- 因此上面後果段「`test_no_automatic_session_cleanup` 會擋下沒有經過決策的清除 SQL」改成：`init_db_async` 裡的清除由 `test_startup_db_init_keeps_old_conversations` 擋下；寫在 `init_db_async` 以外的清除（包括 `main.py` 啟動流程的其他步驟、排程），測試測不到，要靠審查。被拿掉的 `main.py` 檢查原本擋的就是啟動流程這一段，但它只認得 `cleanup_expired_sessions` 這個名字和特定的 SQL 寫法，換個名字或寫法就測不到。
+- 同檔的 P26（擁有者 refresh token 30 秒容差）、P29（「checks passed」記在 DEBUG）改成行為測試，移到 `tests/unit/test_heartbeat_awaken_hardening_security.py`。P29 原本掃整個 `heartbeat.py` 有沒有帶 `DEBUG:` 前綴的 `logger.info`；現在只看一次成功喚醒在入口留下的紀錄，背景迴圈（測試裡換成替身）不在範圍內。
