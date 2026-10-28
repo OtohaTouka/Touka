@@ -174,6 +174,8 @@ scope 綁 proxy origin、實際 credential principal／epoch；明確登入／cl
 history、input、attachment、Debug payload 與 artifacts，舊 callback 不得回填。這不取代 server auth。
 
 user full 成功才送模型。只有同 generation typed terminal 能證生成結果；EOF／DONE不是保存成功。
+一般聊天（persistent）送的是這個對話完整的線性路徑（`StreamRegistryProvider` 的 `buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput)`：去掉待填的 assistant，這一句用 resolvedInput），後端據此在家對話本身不再插家對話；
+改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
 確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。

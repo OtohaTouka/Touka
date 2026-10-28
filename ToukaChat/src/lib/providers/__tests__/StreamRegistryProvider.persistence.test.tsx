@@ -139,6 +139,24 @@ describe('actual registry user-turn persistence barrier', () => {
     expect(final.messages[userId].timestamp).toBe(sentAt);
     expect(final.messages.hb).toEqual({ ...node, childrenIds: [userId] });
   });
+  it('persistent request sends the whole linear path (backend skips home injection on it)', async () => {
+    // 後端在家對話本身不再插一份家對話（2026-10-29），靠的就是這裡送整條線性路徑；
+    // 改成只送最近幾輪前要先改後端 SoulLayer
+    const node = (id: string, role: 'user' | 'assistant', parentId: string | null, child: string | null) =>
+      ({ id, role, content: `${id}-text`, parentId, childrenIds: child ? [child] : [] });
+    h.sessions[0].messages = { currentId: 'a2', messages: {
+      u1: node('u1', 'user', null, 'a1'), a1: node('a1', 'assistant', 'u1', 'u2'),
+      u2: node('u2', 'user', 'a1', 'a2'), a2: node('a2', 'assistant', 'u2', null),
+    } };
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream({ ...params(), parentId: 'a2', resolvedInput: 'latest' }); });
+    expect(h.wire.mock.calls[0][0]).toEqual([
+      { role: 'user', content: 'u1-text' }, { role: 'assistant', content: 'a1-text' },
+      { role: 'user', content: 'u2-text' }, { role: 'assistant', content: 'a2-text' },
+      { role: 'user', content: 'latest' },
+    ]);
+    expect(h.wire.mock.calls[0][1].ui_persistence.mode).toBe('persistent');
+  });
   it('actual request carries the confirmed revision and fixed user/assistant ids', async () => {
     const { result } = renderHook(() => useStreamRegistry(), { wrapper });
     await act(async () => { await result.current.startStream(params()); });

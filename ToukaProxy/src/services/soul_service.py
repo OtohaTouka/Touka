@@ -287,12 +287,20 @@ class SoulService:
 
         logger.info(f"🛡️ Soul Sanctuary ACTIVE for {agent_id}: System Prompt & Config Overridden.")
 
-    async def inject_home_messages(self, request: Any, identity: str | AgentIdentity) -> None:
+    async def inject_home_messages(
+        self,
+        request: Any,
+        identity: str | AgentIdentity,
+        *,
+        current_session_id: str | None = None,
+    ) -> None:
         """為請求注入家園訊息（記憶錨點） (Identity SSOT).
-        
+
         Args:
             request (Any): 模型請求對象.
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
+            current_session_id (str | None): 請求已帶著這個對話的完整紀錄時傳入；
+                它就是家對話時不再插入（避免同一份紀錄送兩次）.
         """
         from src.utils.async_db import get_home_messages  # noqa: LOCAL_IMPORT_BAN
 
@@ -300,7 +308,7 @@ class SoulService:
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        home_msgs = await get_home_messages(identity)
+        home_msgs = await get_home_messages(identity, current_session_id)
         if not home_msgs:
             return
         home_msgs = _mark_home_history(home_msgs)  # 歷史資料界線，不是指令

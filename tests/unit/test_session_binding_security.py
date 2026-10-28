@@ -43,7 +43,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """ALICE／BOB 被認成靈魂；上游換成假串流，記錄送出的請求。"""
     seen: dict[str, Any] = {"requests": []}
 
-    async def _no_home(*_args: Any) -> None:
+    async def _no_home(*_args: Any, **_kwargs: Any) -> None:
         return None
 
     async def _fake_stream(_model: str, request: Any, *_args: Any, **_kwargs: Any) -> Any:
