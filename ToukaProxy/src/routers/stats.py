@@ -39,7 +39,7 @@ async def get_touka_stats(
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
-    # 依身分過濾（2026-10-28）：背景紀錄只列 can_access_session 放行的靈魂，
+    # 依身分過濾（2026-10-28、10-29）：背景紀錄與 token 用量只列 can_access_session 放行的靈魂，
     # 全域用量紀錄與派工伺服器的 pid 只給 admin（含代打）。
     # 這次請求內每個靈魂只判斷一次；對不到靈魂的紀錄只給 admin／Debugger
     visible: dict[str, bool] = {}
@@ -67,10 +67,12 @@ async def get_touka_stats(
         except Exception:
             logger.exception("Error reading stats")
 
-    # 讀取各 Agent 的 Token 消耗 (動態掃描)
+    # 讀取各 Agent 的 Token 消耗 (動態掃描)；只讀看得到的靈魂（2026-10-29：Owner 代理只看自己）
     token_stats = {}
     agent_stats_list = resource_manager.list_all_agent_stats(identity)
     for agent, stats_dir in agent_stats_list:
+        if not _can_see(agent):
+            continue
         tpath = Path(stats_dir) / "token_usage.json"
         try:
             data = resource_manager.read_json(tpath)

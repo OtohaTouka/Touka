@@ -1,15 +1,19 @@
-"""/stats 依身分過濾（2026-10-28 安全修復，SECURITY.md「統計端點的背景工作與用量沒有依身分過濾」）。
+"""/stats 依身分過濾（2026-10-28、10-29 安全修復）。
+
+SECURITY.md「統計端點的背景工作與用量沒有依身分過濾」「統計端點的 token 用量看得到別的靈魂」。
 
 背景紀錄（background_activity、interrupted_runs）只列呼叫者看得到的靈魂，規則是
 ``authorization_gateway.can_access_session``：admin（含代打）與 Debugger 全看、人類看自己擁有的、
 代理只看自己、對不到靈魂的紀錄只給 admin／Debugger。早期用量紀錄（usage_history、total_usage）
-與派工伺服器的 pid 只給 admin。
+與派工伺服器的 pid 只給 admin。token_usage（2026-10-29）在 ``list_all_agent_stats`` 給的範圍內
+再用同一個判斷過濾：Owner 代理只看自己。
 
 擁有權判斷全用真的；沙箱沒有 users.json，只替換 ``AuthService.get_user_by_id``。
 """
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -258,3 +262,82 @@ def test_dispatch_supervisor_pid_only_for_admin(
     finally:
         client.app.state.dispatch_supervisor = original
     assert field == {"status": "running", "pid": pid, "restarts": 2}
+
+
+@pytest.fixture
+def token_usage_files() -> Iterator[dict[str, Path]]:
+    """沙箱裡三個代理的 token_usage.json；結束後還原原本的內容。
+
+    第三個用專屬名稱，不碰沙箱裡常用的 DebugAgent。
+    """
+    stats_root = Path(resource_manager.get_base_path()) / "stats"
+    paths: dict[str, Path] = {}
+    originals: dict[Path, bytes | None] = {}
+    created_dirs: list[Path] = []
+    for agent in ("Alice", "Bob", "StatsScopeOther"):
+        path = stats_root / agent / "token_usage.json"
+        originals[path] = path.read_bytes() if path.exists() else None
+        if not path.parent.exists():
+            path.parent.mkdir(parents=True)
+            created_dirs.append(path.parent)
+        path.write_text(f'{{"total_tokens": {len(agent)}}}', encoding="utf-8")
+        paths[agent] = path
+    try:
+        yield paths
+    finally:
+        for path, original in originals.items():
+            if original is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(original)
+        for directory in created_dirs:
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+
+
+@pytest.mark.parametrize("identity", [HUMAN_ADMIN, DEBUGGER], ids=["admin", "debugger"])
+def test_token_usage_all_for_admin_and_debugger(
+    client: TestClient, token_usage_files: dict[str, Path], identity: AgentIdentity
+) -> None:
+    usage = _stats(client, identity)["token_usage"]
+    # 沙箱可能還有別的測試留下的用量檔，只核對這三個
+    assert {agent: usage.get(agent) for agent in token_usage_files} == {
+        agent: {"total_tokens": len(agent)} for agent in token_usage_files
+    }
+
+
+def test_token_usage_owner_agent_sees_only_itself(
+    client: TestClient,
+    token_usage_files: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Owner 代理只看自己的用量；別的靈魂的檔案不讀，名字也不出現在回應裡。
+
+    同一次請求也有背景紀錄，確認兩邊共用的判斷結果互不影響。
+    """
+    _seed()
+    read_paths: list[str] = []
+    real_read = resource_manager.read_json
+
+    def _recording_read(path: Any, *args: Any, **kwargs: Any) -> Any:
+        read_paths.append(str(path))
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(resource_manager, "read_json", _recording_read)
+    body = _stats(client, OWNER_AGENT)
+    assert body["token_usage"] == {"Alice": {"total_tokens": 5}}
+    assert _seen(body) == ({"sess-alice"}, {"sess-alice-old"})
+    usage_reads = [p for p in read_paths if p.endswith("token_usage.json")]
+    assert usage_reads == [str(token_usage_files["Alice"])]
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [_human("user-a"), ADMIN_ASSUMING],
+    ids=["user", "admin-assuming"],
+)
+def test_token_usage_not_widened(
+    client: TestClient, token_usage_files: dict[str, Path], identity: AgentIdentity
+) -> None:
+    """這次只收窄：原本拿不到用量的身分（一般使用者、admin 代打）仍然是空的。"""
+    assert _stats(client, identity)["token_usage"] == {}
