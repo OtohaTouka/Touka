@@ -51,7 +51,7 @@
 - 先寫的測試在實作前全紅：
   - `tests/unit/test_emergence_index_removed.py`：兩個端點回 404；計算函式、`utils/metrics.py`、`e_index` 參數都不在；舊 `e_index_history` 原樣、新供應商項目沒有這個鍵；新稽核檔 12 欄；舊稽核檔表頭與舊列不變，新列 `e_index` 是空字串、其他欄對得上。
   - `tests/unit/test_per_round_accounting.py`：三輪含記憶查詢的 run 沒有 `e_index_history`、telemetry 只剩 `request_id`／`total_ms`／`local_ms`／`pure_gen_ms`；稽核 CSV 改用 12 欄表頭。
-  - `tests/unit/test_run_usage_tiers.py`：原本用固定格數讀 `cost_usd`，改成依欄名取格。
   - ToukaChat：`useSystemMonitoring` 不再請求 `/v1/stats/emergence`、結果索引前移後 token 用量與記憶數量仍對；`MemoryStatus` 不再顯示指數。
+- 審查後另修：`tests/unit/test_run_usage_tiers.py` 原本用固定格數讀 `cost_usd`，欄位前移後讀錯欄，改成依欄名取格。
 - 34 份 golden 依 harness 規則刪檔重錄；逐檔核對和舊版相比只少了 `e_index`（68 段）。
 - 刪掉的舊測試：`/stats/emergence` 兩個 smoke、記憶偵測裡「較早回合查記憶 → e_index > 0」、記憶訊號 SSOT 裡 e_index 檢索訊號的靜態檢查。
