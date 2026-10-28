@@ -53,11 +53,10 @@ config/INITIAL_ADMIN_PASSWORD.txt
 config/mcp_servers/
 
 # 代理人在執行期建立的技能與評測：只追蹤 repo 自帶的，新建的不進版控
+# 兩個調度員（system-mcp-dispatcher、system-skill-dispatcher）由 Proxy 啟動時依本機設定產生，也不進版控（ADR-0290）
 config/skills/*
 !config/skills/deep-research-coordinator/
 !config/skills/document-generator/
-!config/skills/system-mcp-dispatcher/
-!config/skills/system-skill-dispatcher/
 config/evals/*
 !config/evals/mcp/
 config/evals/mcp/*

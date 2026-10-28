@@ -118,6 +118,7 @@ from .services.isolation.status import isolation_monitor
 from .services.model_manager import model_manager
 from .services.permission_service import permission_service
 from .services.resource_manager import resource_manager
+from .services.skill_service import skill_service
 from .services.sns_gateway import sns_gateway
 from .tools.builtin import builtin_tools_schema, tool_registry
 from .tools.plugin_loader import load_plugins
@@ -382,6 +383,11 @@ async def _lifespan_runtime(
             protocol_manager.registry.load_config()
     except Exception as e:
         logger.error(f"⚠️ MCP server key 遷移失敗（略過，不影響啟動）：{e}", exc_info=True)
+
+    # ADR-0290：兩個調度員技能檔不進版控，在設定自癒與 MCP 名稱遷移之後產生（不看 bootstrap
+    # 開關）。兩個 sync 自己吞錯並記錄，失敗不影響啟動。
+    skill_service.sync_system_dispatcher()
+    skill_service.sync_skill_dispatcher()
 
     try:
         oauth_bundle = await build_mcp_oauth_runtime_bundle(

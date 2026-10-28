@@ -7,13 +7,17 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from src.services.resource_manager import resource_manager
-from src.services.skill_service import skill_service
+from src.services.skill_service import SkillService, skill_service
 
 _DISPATCHER_MD = ("system-skill-dispatcher", "SKILL.md")
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "src"
+_SYNC_NAMES = frozenset({"sync_system_dispatcher", "sync_skill_dispatcher"})
 
 
 def _write_skill(skills_dir, sid, fm_lines, body):
@@ -112,3 +116,137 @@ def test_dispatcher_idempotent_reflects_current_skills(svc, tmp_path):
     svc._metadata.pop("skill-a", None)
     svc.sync_skill_dispatcher()
     assert 'id="skill-a"' not in _read_dispatcher(skills_dir)
+
+
+# --- 產生時機與「沒變不寫」（ADR-0290）---
+
+
+class _ImportTimeSyncCalls(ast.NodeVisitor):
+    """收集 import 時就會執行的兩個 sync 呼叫：模組層與 class 本體算，函式本體不算。"""
+
+    def __init__(self) -> None:
+        self.lines: list[int] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_definition_time(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_definition_time(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+
+    def _visit_definition_time(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        # 裝飾器與預設值在定義時就執行
+        for child in [*node.decorator_list, *node.args.defaults, *node.args.kw_defaults]:
+            if child is not None:
+                self.visit(child)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        if name in _SYNC_NAMES:
+            self.lines.append(node.lineno)
+        self.generic_visit(node)
+
+
+def test_no_module_syncs_dispatchers_at_import():
+    """載入時直接執行的地方（模組層、class 本體、裝飾器與預設值）都不呼叫兩個 sync。
+
+    產生只在 lifespan（設定自癒與 MCP 名稱遷移之後）；藏在建立服務時跑的函式裡，
+    由下一個測試抓。
+    """
+    paths = sorted(_SRC_ROOT.rglob("*.py"))
+    assert paths
+    offenders: list[str] = []
+    for path in paths:
+        visitor = _ImportTimeSyncCalls()
+        visitor.visit(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        rel = path.relative_to(_SRC_ROOT).as_posix()
+        offenders += [f"{rel}:{line}" for line in visitor.lines]
+    assert offenders == []
+
+
+def test_building_service_writes_no_dispatcher(tmp_path):
+    """建立服務（模組層的 SkillService()）與重新載入技能都不寫兩個調度員檔。"""
+    resource_manager.make_dir(tmp_path / "skills")
+    resource_manager.write_file_text(tmp_path / "server_config.json", '{"mcpServers": {}}')
+    with patch("src.services.skill_service.get_config_dir", return_value=tmp_path):
+        skill_service._initialized = False
+        assert SkillService() is skill_service
+        skill_service.reset_for_test()
+    for sid in ("system-mcp-dispatcher", "system-skill-dispatcher"):
+        assert not resource_manager.exists(tmp_path / "skills" / sid)
+
+
+def _dispatcher_path(skills_dir):
+    return skills_dir / _DISPATCHER_MD[0] / _DISPATCHER_MD[1]
+
+
+def _sync_watching_writes(svc, skills_dir):
+    """再 sync 一次，回傳寫到調度員檔的次數。"""
+    real_write = resource_manager.write_file_text
+    with patch.object(resource_manager, "write_file_text", wraps=real_write) as spy:
+        svc.sync_skill_dispatcher()
+    target = _dispatcher_path(skills_dir)
+    return sum(1 for call in spy.call_args_list if Path(call.args[0]) == target)
+
+
+@pytest.fixture
+def synced(svc, tmp_path):
+    """有一個業務技能、已 sync 過一次的 skills 目錄。"""
+    skills_dir = tmp_path / "skills"
+    _write_skill(skills_dir, "biz", ["name: biz", "description: 業務"], "body")
+    svc.load_config()
+    svc.sync_skill_dispatcher()
+    return skills_dir
+
+
+def test_dispatcher_resync_unchanged_skips_write(svc, synced):
+    """清單沒變再 sync 不重寫（重寫的檔會被 Windows 的 git 誤判成改過）。"""
+    assert _sync_watching_writes(svc, synced) == 0
+
+
+def test_dispatcher_crlf_copy_counts_as_unchanged(svc, synced):
+    """舊檔只差換行（Windows 原生寫出 CRLF）也算沒變；逐位元組比較會每次重寫。"""
+    path = _dispatcher_path(synced)
+    lf = resource_manager.read_file_binary(path).replace(b"\r\n", b"\n")
+    resource_manager.write_file_binary(path, lf.replace(b"\n", b"\r\n"))
+    assert _sync_watching_writes(svc, synced) == 0
+
+
+def test_dispatcher_rewrites_stale_content(svc, synced):
+    """舊檔內容不同就重寫。"""
+    resource_manager.write_file_text(_dispatcher_path(synced), "stale")
+    assert _sync_watching_writes(svc, synced) == 1
+    assert 'id="biz"' in _read_dispatcher(synced)
+
+
+def test_dispatcher_rewrites_unreadable_file(svc, synced):
+    """舊檔讀不到（不是 UTF-8）時照寫，壞掉的檔才修得回來。"""
+    resource_manager.write_file_binary(_dispatcher_path(synced), b"\xff\xfe broken")
+    assert _sync_watching_writes(svc, synced) == 1
+    assert 'id="biz"' in _read_dispatcher(synced)
+
+
+def test_dispatcher_rewrites_when_read_is_denied(svc, synced):
+    """讀舊檔遇到權限錯誤也照寫。"""
+    target = _dispatcher_path(synced)
+    real_read = resource_manager.read_file_text
+
+    def read(path, *args, **kwargs):
+        if Path(path) == target:
+            raise PermissionError("denied")
+        return real_read(path, *args, **kwargs)
+
+    with patch.object(resource_manager, "read_file_text", side_effect=read):
+        assert _sync_watching_writes(svc, synced) == 1
+
+
+def test_dispatcher_skip_still_refreshes_metadata(svc, synced):
+    """沒重寫時，記憶體裡的技能清單照樣有調度員（list_skills 靠它）。"""
+    svc._metadata.pop("system-skill-dispatcher")
+    assert _sync_watching_writes(svc, synced) == 0
+    assert "system-skill-dispatcher" in svc._metadata
