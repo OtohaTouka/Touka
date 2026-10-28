@@ -12,8 +12,10 @@ The ownership + `heartbeat_awakening` capability gates already existed, but:
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock
 
+import pytest
 from src.models.identity import AgentIdentity
 from src.models.user import User
 from src.routers.heartbeat import _resolve_auth_level, identity_service, permission_service
@@ -92,6 +94,68 @@ def test_awaken_orphan_denied_until_attributed(auth_client, monkeypatch):
     monkeypatch.setattr(permission_service, "can_awaken", lambda x: False)  # 停在下一閘
     r2 = auth_client.post("/v1/heartbeat/awaken", json=payload)
     assert r2.json()["detail"]["code"] == "HEARTBEAT_UNAUTHORIZED_AGENT"
+
+
+_NOW = 2_000_000_000
+
+
+@pytest.mark.parametrize(
+    ("expired_ago", "code"),
+    [(29, "HEARTBEAT_UNAUTHORIZED_AGENT"), (30, "HEARTBEAT_ORPHAN_AGENT")],
+)
+def test_awaken_owner_token_grace_ends_at_30_seconds(
+    auth_client, monkeypatch, expired_ago, code
+):
+    """P26（舊審查報告丙-6 改成行為測試）：擁有者的 refresh token 過期後 29 秒仍放行
+    （停在下一道能力閘），滿 30 秒就拒絕。"""
+    monkeypatch.setattr("src.routers.heartbeat.HEARTBEAT_TOKEN", _HEARTBEAT_SERVICE_VALUE)
+    monkeypatch.setattr("src.routers.heartbeat.get_current_epoch", lambda: float(_NOW))
+    owner = User(
+        id="owner_id",
+        email="owner@test.com",
+        hashed_password="...",
+        owned_agents=["GraceSoulX"],
+        refresh_token_exp=_NOW - expired_ago,
+    )
+    monkeypatch.setattr(AuthService, "get_all_users", lambda self: [owner])
+    monkeypatch.setattr(permission_service, "can_awaken", lambda x: False)
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "GraceSoulX", "pulse_count": 1},
+    )
+
+    assert resp.json()["detail"]["code"] == code
+
+
+def test_awaken_logs_checks_passed_at_debug_level(
+    auth_client, mock_identity, monkeypatch, caplog
+):
+    """P29（舊審查報告丙-6 改成行為測試）：「Heartbeat checks passed」只記在 DEBUG，
+    這次喚醒也沒有 INFO 以上、開頭寫著 DEBUG: 的紀錄。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.append_message_to_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session",
+        AsyncMock(return_value="sess-x"),
+    )
+    caplog.set_level(logging.DEBUG, logger="src.routers.heartbeat")
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 202, resp.text
+    passed = [r for r in caplog.records if r.getMessage().startswith("Heartbeat checks passed")]
+    assert [r.levelno for r in passed] == [logging.DEBUG]
+    assert not [
+        r for r in caplog.records
+        if r.levelno >= logging.INFO and r.getMessage().startswith("DEBUG:")
+    ]
 
 
 def test_awaken_sanitizes_init_prompt(auth_client, mock_identity, monkeypatch):
