@@ -82,6 +82,18 @@ tests/
 | `unit/test_conversations_resource_seam.py` | 真 reader 綁定／未綁定、原 identity 與完整參數透傳、只見 SELECT 與普通交易、缺庫空頁與無效資料庫錯誤分開。 |
 | `support/conversation_search.py` | 合成樹、真雙庫 fixture、Proxy 閘道與結果斷言、SQL／legacy 查詢觀察；無獨立測試。 |
 
+### Hook（ADR-0292）
+
+以下五個測試檔使用 conftest 沙盒與 tmp_path 的設定檔；hook 一律用假的 runner 或 tmp_path 裡的腳本，不連網路、不讀 data/。
+
+| 檔案 | 說明 |
+|---|---|
+| `unit/test_hooks_config.py` | 設定模型：預設關閉且範本有效、只收已接線的四個事件（名稱區分大小寫）、command／http 兩種 handler；拒收其他 hook 類型、`shell`／`if`／`async` 欄位、空指令、逾時超出範圍、非 http(s) 網址、標頭寫 `$VAR`／`${VAR}`、未知的頂層欄位與壞的 matcher、單一事件 handler 過多；matcher 規則照 Claude Code。 |
+| `unit/test_hook_paths_security.py` | 指令與參數的路徑界線：外部程式與 `hooks/` 裡的腳本可用；指令必須是存在的檔案的絕對路徑；指令或腳本參數在代理人寫得到的地方拒絕；`..`、UNC、磁碟機相對路徑拒絕；相對參數從 `hooks/` 讀；`hooks/` 裡的硬連結拒絕；符號連結指進禁區、本身放在禁區、中途經過禁區都拒絕；同一個資料夾的別名靠檔案識別碼擋（設定資料夾的別名只放行 `hooks/`）；讀不到狀態當成無法確認；大小寫照平台規則；禁區包含資料根、state、專案根與翻譯後的路徑，容器裡另加對映路徑。 |
+| `unit/test_hook_runners_security.py` | 執行方式：事件內容只從標準輸入、參數不經 shell、子程序環境不含金鑰、結束碼與 stderr、逾時結束程式、超過上限的輸出丟掉、啟動不了算失敗；http 送出事件內容且標頭照字面、不跟隨轉址、非 2xx 算失敗、回應大小上限、逾時、不讀環境裡的憑證與代理設定。 |
+| `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔沿用上一份、存檔 CAS 與路徑檢查（含停用的 hook）。 |
+| `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽與子代理不執行）、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；沒有設定時結果不變。 |
+
 ### 心跳、SNS 與對話歸屬（ADR-0276）
 
 以下五個新安全檔的所有資料都在 conftest 沙盒，使用真 SQLite／SessionService 與合成身分，provider 與平台傳輸為替身。

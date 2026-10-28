@@ -15,10 +15,13 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from src.models.hooks import CommandHook
-from src.services.hooks.paths import HookZones, command_path_problems
+from src.services.hooks import paths as paths_module
+from src.services.hooks.paths import HookZones, command_path_problems, current_zones
+from src.services.resource_manager import resource_manager
 
 if sys.platform == "win32":
     import _winapi
@@ -177,3 +180,80 @@ def test_path_case_follows_the_platform(layout):
     upper = Path(str(layout["data"] / "evil.py").upper())
     reasons = _reasons(command_path_problems(_hook(upper), _zones(layout)))
     assert ("agent_writable" in reasons) is (sys.platform == "win32")
+
+
+def _stat_alias(monkeypatch: pytest.MonkeyPatch, aliases: dict[Path, Path]) -> None:
+    """讓 ``aliases`` 的鍵回報值的檔案識別碼。
+
+    模擬同一個資料夾的另一個寫法（8.3 短名、bind mount）：字面與解析後都不在禁區。
+    """
+    real_stat = paths_module._stat
+
+    def fake(path: Path):
+        target = aliases.get(Path(path))
+        return real_stat(target if target is not None else path)
+
+    monkeypatch.setattr(paths_module, "_stat", fake)
+
+
+def test_alias_of_an_agent_folder_is_rejected_by_file_identity(layout, monkeypatch):
+    alias = layout["outside"] / "alias"
+    alias.mkdir()
+    (alias / "evil.py").write_text("", encoding="utf-8")
+    _stat_alias(monkeypatch, {alias: layout["data"]})
+    hook = _hook(alias / "evil.py")
+    assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout)))
+
+
+def test_alias_of_the_config_folder_only_allows_hooks(layout, monkeypatch):
+    alias = layout["outside"] / "cfg"
+    for sub, name in (("skills", "skill.py"), ("hooks", "guard.py")):
+        (alias / sub).mkdir(parents=True)
+        (alias / sub / name).write_text("", encoding="utf-8")
+    _stat_alias(monkeypatch, {
+        alias: layout["config"],
+        alias / "hooks": layout["config"] / "hooks",
+        alias / "skills": layout["config"] / "skills",
+    })
+    zones = _zones(layout)
+    assert "agent_writable" in _reasons(
+        command_path_problems(_hook(alias / "skills" / "skill.py"), zones)
+    )
+    assert command_path_problems(_hook(alias / "hooks" / "guard.py"), zones) == []
+
+
+def test_a_path_that_cannot_be_read_is_unverifiable(layout, monkeypatch):
+    def denied(_path: Path):
+        raise PermissionError
+
+    monkeypatch.setattr(paths_module, "_lstat", denied)
+    hook = _hook(layout["outside"] / "tool.exe")
+    assert _reasons(command_path_problems(hook, _zones(layout))) == {"unverifiable"}
+
+
+@pytest.mark.parametrize("in_container", [True, False])
+async def test_zones_cover_agent_folders_projects_and_container_mirrors(
+    tmp_path, monkeypatch, in_container
+):
+    def under(name: str) -> Path:
+        return tmp_path / name
+
+    monkeypatch.setattr(paths_module.profiles, "current_layout", lambda: SimpleNamespace(
+        data_root=under("data"), config_dir=under("config"), state_root=under("state"),
+        executor_dir=None, in_container=in_container, mirror_roots=(under("mirror"),),
+    ))
+
+    async def projects() -> list[str]:
+        return [str(under("proj")), "relative/proj"]
+
+    async def translate(path: str) -> str:
+        return str(under("host") / Path(path).name) if Path(path).is_absolute() else path
+
+    monkeypatch.setattr(paths_module, "list_project_root_paths", projects)
+    monkeypatch.setattr(resource_manager, "translate_path", translate)
+    zones = await current_zones()
+    expected = {under("data"), under("state"), under("proj"), under("host") / "proj"}
+    if in_container:
+        expected.add(under("mirror"))
+    assert set(zones.forbidden) == expected
+    assert zones.config_dir == under("config")
