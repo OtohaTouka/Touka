@@ -38,7 +38,6 @@ from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import stream_buffer_service
 from src.services.telemetry import (
     accumulate_token_usage,
-    calculate_emergence_index,
     is_long_prompt,
     log_usage_audit,
     run_cost_usd,
@@ -258,7 +257,6 @@ async def run_react_loop(  # noqa: PLR0915
         if restore_tool_choice is None and any(item.urgent for item in items):
             restore_tool_choice = adapter.hold_tool_choice(state, "none")
 
-    all_thinking_and_tool_logs = ""
     actually_used_tools = ToolUsage()  # 試過／執行過／存成功由執行器記（T3）
     final_raw: Any = {}
     turn = Turn()
@@ -504,7 +502,6 @@ async def run_react_loop(  # noqa: PLR0915
                     completed_count += 1
                     continue
                 if event["type"] == "log":
-                    all_thinking_and_tool_logs += event["content"]
                     yield yield_delta(event["content"])
                 else:
                     yield sse_line(event)
@@ -558,28 +555,17 @@ async def run_react_loop(  # noqa: PLR0915
             yield yield_delta(guard_service.get_memory_warning_message())
 
     t3 = get_current_epoch()
-    gen_time = upstream_gen_s  # C4：Σ上游耗時（e_index 與 pure_gen_ms 同源）
-    last_msg = request.messages[-1].content if request.messages else ""
-    # 檢索訊號讀執行器記的限定名（ADR-0155 C2）；T3 起只看「執行過」，被擋下的 query 不算。
-    e_index = calculate_emergence_index(
-        5 if "memory_tools.query" in actually_used_tools.executed else 0,
-        0.7,
-        gen_time,
-        str(last_msg),
-    )
+    gen_time = upstream_gen_s  # C4：Σ上游耗時
 
     latency_info = {
         "request_id": request_id,
         "total_ms": int((t3 - t0) * 1000),
         "local_ms": int((t1 - t0) * 1000),
         "pure_gen_ms": int(gen_time * 1000),
-        "e_index": e_index,
     }
 
     if run_usage.totals:
-        # 用量已逐輪入帳；E-Index 歷史整次 run 只記一筆（空用量＝不重複累計）。
-        accumulate_token_usage(identity, provider, {}, e_index, model=usage_model)
-        # 稽核 CSV 每次 run 一列、欄位不變；token 與 cost_usd 為整次 run 加總（含快取，A5）。
+        # 用量已逐輪入帳。稽核 CSV 每次 run 一列；token 與 cost_usd 為整次 run 加總（含快取，A5）。
         log_usage_audit(identity, request_id, provider, latency_info, run_usage.totals,
                         model=usage_model, cost_usd=run_usage.cost_usd)
         if adapter.emits_usage_event(state):

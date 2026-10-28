@@ -2,7 +2,7 @@
  "data: {\"id\": \"chatcmpl-req-go-memory_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"好的，我幫你記下來了！\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
  "data: {\"id\": \"chatcmpl-req-go-memory_warning\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"gpt-4\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n⚠️ **[記憶幻覺警告]** 您承諾記錄，但這一輪沒有成功用 `memory_tools` 存下記憶。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
  "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 7, \"cost\": 0.00027, \"usage_pct\": 0.1}\n\n",
- "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
- "data: {\"choices\": [{\"delta\": {\"content\": \"\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2}, \"id\": \"chatcmpl-req-go-memory_warning\", \"telemetry\": {\"request_id\": \"req-go-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}, \"object\": \"chat.completion.chunk\"}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-go-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000}}\n\n",
+ "data: {\"choices\": [{\"delta\": {\"content\": \"\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2}, \"id\": \"chatcmpl-req-go-memory_warning\", \"telemetry\": {\"request_id\": \"req-go-memory_warning\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000}, \"object\": \"chat.completion.chunk\"}\n\n",
  "data: [DONE]\n\n"
 ]

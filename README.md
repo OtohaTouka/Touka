@@ -58,7 +58,6 @@ Touka 由四個獨立子系統組成：
 - **滑動視窗歷史管理**：自動歸檔長對話，維持 context 效能
 - **43 道靜態守衛**：`guard_all.py` 自動檢查架構規範、CVE、API 合約一致性
 - **原生創建引擎 (Creation Engine)**：MCP 與 Skill 共用的創建流水線（VALIDATE → SMOKE 沙箱試跑 → COMMIT → EVAL 後置評測），支援從零 scaffold 決定性生成 Python SDK v2 `MCPServer`。Owner/admin 可經 `/v1/creation/*` 路由或 agent 對話創建產物；CREATE 不覆寫既有 id，受 Creation Sovereignty Guard #29 保護（ADR-0069／0199）。
-- **湧現指標 (E-Index)**：計算意識成長與人格穩定性。
 - **終端機修復**：自動生成與執行 Exit Code 修復腳本。
 - **背景任務**：非同步執行長時間多脈衝 ReAct 循環。
 - **動態 MCP 調度**：會話級別的工具按需掛載。本機啟動的 MCP 伺服器依隔離層級執行：代理人建立的在執行器或 Landlock 裡跑，沒有隔離時要人確認才啟動；第三方與 scaffold 產生的在 Landlock 可用時包住，還在檢查或暫時故障時等待，確定不可用時才直接啟動並標示「未隔離」（ADR-0275；限制見 SECURITY.md）。

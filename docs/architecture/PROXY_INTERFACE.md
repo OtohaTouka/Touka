@@ -127,8 +127,8 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 
 ## 模型溝通層第 1b 段：計費與 complete_once（ADR-0244）
 
-- 用量：三家 adapter 回同一組四欄，`prompt_tokens` 只含未快取輸入，快取讀（`cache_read_input_tokens`）、快取寫（`cache_creation_input_tokens`）另列，加上 `completion_tokens`。`token_usage.json` 鍵名與稽核 CSV 欄位都不變；價格表沒填快取費率的模型，快取 token 照 input 價計。
-- 每輪記帳：ReAct 迴圈每一輪解析後就寫進 `token_usage.json`，成本上限在同一次 run 中途就看得到已花的錢。E-Index 歷史每次 run 一筆；稽核 CSV 每次 run 一列，`cost_usd` 為整次加總、含快取。
+- 用量：三家 adapter 回同一組四欄，`prompt_tokens` 只含未快取輸入，快取讀（`cache_read_input_tokens`）、快取寫（`cache_creation_input_tokens`）另列，加上 `completion_tokens`。`token_usage.json` 鍵名不變；稽核 CSV 的欄位只在 ADR-0291 拿掉 `e_index`；價格表沒填快取費率的模型，快取 token 照 input 價計。
+- 每輪記帳：ReAct 迴圈每一輪解析後就寫進 `token_usage.json`，成本上限在同一次 run 中途就看得到已花的錢。稽核 CSV 每次 run 一列（不再有 `e_index` 欄，ADR-0291），`cost_usd` 為整次加總、含快取。
 - SSE `token_usage` 進度事件（前端「本回合用量」）：位置與欄位不變，`total` 改為整次 run 所有模型呼叫的四欄加總，`cost` 改為整次加總且含快取（以前只算最後一次回覆、不含快取）；`usage_pct` 與 Claude 的 `context_breakdown` 仍看最後一輪。只呼叫一次模型的回合數字不變，多輪的回合數字會變大。
 - 原生 `POST /v1/messages`：照常記帳並寫 CSV（以前完全不記），但串流不送 Touka 的 `token_usage` 事件，回應 wire 不變。
 - 摘要、互審 critic、創建評分改走 `complete_once`，記帳到對應身分（provider 標籤 `summarizer`／`critic`／`judge`）並受成本上限約束。超過上限時，摘要略過、只做純無損剪裁；critic 視同傳輸失敗＝REJECT；評分回 0.0。critic 依 critic 模型路由；`/v1/creation/*` 帶 `eval_scoring=true` 時，評分記到發起建立的身分。

@@ -7,8 +7,8 @@ guard_service 仍以已退役的工具名（save_memory/query_memory/access_pers
 handler 私有 block-walking 旗標另行實作＝三份拷貝的漂移。
 
 修法（訊號生產單點＝SSOT）：tool_executor 於記名時對帶 `action` 參數的聚合工具
-同時記入限定名 `name.action`（如 memory_tools.save）；guard_service 判定與
-e_index 檢索訊號一律改讀該 SSOT；九裸動詞（read/list/find/grep…）無 action、
+同時記入限定名 `name.action`（如 memory_tools.save）；guard_service 判定一律
+改讀該 SSOT（e_index 已於 ADR-0291 刪除）；九裸動詞（read/list/find/grep…）無 action、
 依工具名本身計（其內部委派 vault_tools 為 Python 呼叫、不經 tool_executor，
 故查證集顯式列裸動詞）。
 """
@@ -22,7 +22,7 @@ from src.handlers import react_core
 from src.services.guard_service import guard_service
 from src.services.tool_executor import record_tool_usage
 
-# react-core-extraction E4：三 handler 的 e_index 訊號站已單源於 react_core
+# react-core-extraction E4：三 handler 的記憶訊號站已單源於 react_core
 # （薄殼零邏輯由 test_react_core_ssot.py 守衛錨把關）。
 _HANDLER_MODULES = {
     "react_core.py": react_core,
@@ -123,14 +123,6 @@ def test_warning_messages_reference_only_real_tools():
 
 
 # ── handler 接線（靜態確認，比照禁令 26 範式）─────────────────────────────
-
-
-@pytest.mark.parametrize("handler_file", ["react_core.py"])
-def test_e_index_retrieval_signal_reads_ssot(handler_file: str):
-    src = _src(handler_file)
-    # T3：檢索訊號看「執行過」，被擋下的 query 不算有查
-    assert '"memory_tools.query" in actually_used_tools.executed' in src
-    assert '"query_memory" in all_thinking_and_tool_logs' not in src
 
 
 def test_claude_private_memory_flags_retired():
