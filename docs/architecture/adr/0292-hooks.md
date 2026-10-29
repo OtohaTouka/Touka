@@ -66,7 +66,7 @@
      - 這是「使用者送出訊息」的檢查，不是管住使用者或代理人的機制：心跳的脈衝提示、排程寫的提示（`init_prompt`）、重新觸發（`/heartbeat/retrigger`）與只有工具結果的回合都不觸發。
    - 插話（ADR-0249）：插話也是使用者送出的文字，進佇列前跑 UserPromptSubmit（`services/hooks/interjection_hooks.py`，事件內容多 `interjection: true`、`agent_id` 取自這次串流）。擋下回 403 `HOOK_PROMPT_BLOCKED`、不進佇列，前端顯示理由並把文字放回輸入框；hook 的補充說明不採用（插話直接接在這一輪的對話裡，沒有「只用在這一次請求」的位置）；hook 服務出錯照樣進佇列。hook 執行期間串流換了或結束了，回 404 `STREAM_NOT_FOUND`，不進新的串流。
    - PreToolUse／PostToolUse：`ToolExecutor` 內，matcher 比對 Touka 的工具名稱，MCP 工具另比對工具清單上的正式名稱 `server__tool` 與 Claude Code 寫法 `mcp__server__tool`（模型用裸名稱叫也比對得到這兩種）；PostToolUse 只在成功後執行，事件內容多 `tool_response`。
-     - 只涵蓋經 `ToolExecutor` 的工具呼叫：任務的驗證指令（`verification_cmd`）、演化與創建的試跑由系統自己啟動，不觸發 PreToolUse，照原本的隔離與審批規則執行。人按的除錯執行（`/debug/execute`）也經 `ToolExecutor`，同樣會觸發。
+     - 只涵蓋經 `ToolExecutor` 的工具呼叫：任務的驗證指令（`verification_cmd`）、演化與創建的試跑由系統自己啟動，不觸發 PreToolUse，照原本的隔離與審批規則執行。人按的除錯執行（`/debug/execute`）也經 `ToolExecutor`，同樣會觸發；事件內容的 `agent_id` 是請求指定的除錯目標（字串，例如 `DebugAgent`），不是按的人。
      - 工具在等 PreToolUse hook 時使用者按了停止，hook 跑完後不執行這個工具，回結構化 `permission_denied`（`reason: "stopped_by_user"`）；和 UserPromptSubmit 一樣看這次執行開始之後有沒有被停止過，下一則請求清掉旗標也照樣不執行。沒有 hook 真的執行時不看停止。
      - 舊工具名稱（`LEGACY_ADVERTISED_SUCCESSORS`）也比對它對應的新名稱：規則寫 `execute_command`，模型叫 `bash` 也比得到；舊檔案工具的 `action` 剛好是某個新名稱時只對應那一個，其他動作對應全部檔案動詞（寧可多比到）。事件內容的 `tool_name` 照模型叫的名稱，另加 `tool_aliases` 列出對應的新名稱。
      - 事件內容的 `tool_input` 是模型送來的參數：執行器之後替 MCP 工具補上的 `agent_id`、換成代理人自己資料夾實際路徑的根目錄參數，都不會出現在 hook 看到的內容裡。公開參數的驗證在審批之後才做（ADR-0229），所以 hook 看到的是驗證之前的原樣：欄位可能是別名、多出不認得的欄位或型別不對，hook 不能假設已經正規化。
@@ -154,13 +154,13 @@
 
 ## 後果
 
-- 沒有設定時行為不變：接線點先問 `has_hooks`，不組事件內容、不改任何結果（golden 不變）。
+- 沒有設定時 hook 的接線點不改任何結果：接線點先問 `has_hooks`，不組事件內容（golden 不變）。下面幾項和 hook 設定無關、一律生效：決定 12（專案根的限制、檔案動詞不跟隨連結）、停止（等待中的登記、停止次數、`PROMPT_STOPPED`）、SNS 存外人訊息的時機。
 - 設定了 PreToolUse 的工具，每次呼叫多等 hook 執行完（最多到逾時）；PostToolUse 也一樣，工具結果要等 hook 跑完才回到模型；Stop 不影響回覆。
 - 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間或開始串流前被停止時回 409 `PROMPT_STOPPED`（停止可能來自另一個分頁、裝置或重置靈魂；前端當成中止，只提示一次已停止）。
 - 聊天前端按停止時，若這個對話還沒有進行中的串流（含無痕查不到、上一則的結束登記還留著），改送這個對話不指名的停止（原本什麼都不送）。對話已存在時，和有串流時的停止一樣，這個對話正在跑的其他工作（例如心跳）也會停下；無痕與還沒存過的對話只停自己還在等的那一則。
 - 新增三個管理端點（決定 10）；`openapi.json` 與 `api.ts` 隨之更新。
 - 代理人的檔案動詞不跟隨連結（決定 12）：list 把連結列成名稱、find 與 grep 略過連結，路上有連結時讀寫刪回錯誤；指回根裡面的連結照常可用。
-- 撤回：把 `enabled` 設成 false 或清空 `hooks` 立即停用；revert 即可整個移除（專案根的限制與檔案動詞不跟隨連結也一起拿掉），`hooks.json` 留著無害。
+- 撤回：把 `enabled` 設成 false 或清空 `hooks` 只停用 hook；決定 12、停止與 SNS 的改動不看 `enabled`，要撤回只能 revert（整個移除，`hooks.json` 留著無害）。
 
 ## 替代方案
 

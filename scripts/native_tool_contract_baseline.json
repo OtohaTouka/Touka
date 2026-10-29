@@ -1220,6 +1220,25 @@
         "reads": [],
         "dynamic": []
       },
+      "_regular_files": {
+        "parameters": [
+          "root",
+          "skipped",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_glob_match": {
+        "parameters": [
+          "rel",
+          "pattern"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "core_read": {
         "parameters": [
           "path",
