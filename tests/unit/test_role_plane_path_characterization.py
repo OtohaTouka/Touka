@@ -66,13 +66,13 @@ _VAULT_ROOT_DENIED = {
 @pytest.mark.parametrize("key", sorted(_VAULT_ROOT_ALLOWED))
 def test_get_vault_root_allows(key: str):
     """放行形態拿得到非 None 根路徑（在測試沙盒內建目錄）。"""
-    assert resource_manager.get_vault_root("personal", _VAULT_ROOT_ALLOWED[key]) is not None
+    assert resource_manager.get_vault_root("stats", _VAULT_ROOT_ALLOWED[key]) is not None
 
 
 @pytest.mark.parametrize("key", sorted(_VAULT_ROOT_DENIED))
 def test_get_vault_root_denies(key: str):
     """拒絕形態回 None（在 mkdir 前於 :235 早退）——含 assumed_admin 被乾淨碼擋下。"""
-    assert resource_manager.get_vault_root("personal", _VAULT_ROOT_DENIED[key]) is None
+    assert resource_manager.get_vault_root("stats", _VAULT_ROOT_DENIED[key]) is None
 
 
 def test_clean_template_resists_the_conflation_artifact():
@@ -83,4 +83,4 @@ def test_clean_template_resists_the_conflation_artifact():
     """
     artifact = _shape("admin", is_human=False)
     assert resource_manager.is_owner(_TARGET, artifact) is False
-    assert resource_manager.get_vault_root("personal", artifact) is None
+    assert resource_manager.get_vault_root("stats", artifact) is None

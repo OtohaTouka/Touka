@@ -550,38 +550,6 @@ class ResourceManager:
 
         return path_str
 
-    async def get_physical_path(
-        self, virtual_uri: str, identity: AgentIdentity, project_id: str | None = None
-    ) -> str | None:
-        """將 touka:// 虛擬 URI 轉譯為實體目錄路徑 (Identity SSOT).
-
-        Args:
-            virtual_uri: 虛擬資源標識符 (如 touka://project/, touka://vault/personal/)。
-            identity: 經驗證的身分對象.
-            project_id: 可選的專案 ID.
-
-        Returns:
-            str | None: 轉譯後的實體絕對路徑。
-        """
-        if not virtual_uri.startswith("touka://"):
-            logger.error("Invalid virtual URI: %s", virtual_uri)
-            return None
-
-        parts = virtual_uri.replace("touka://", "").strip("/").split("/")
-        if not parts:
-            return None
-
-        res_type = parts[0]
-
-        if res_type == "project":
-            return await self._resolve_project_path(identity, project_id)
-
-        if res_type == "vault" and len(parts) > 1:
-            return self.get_vault_path(parts[1], identity)
-
-        logger.warning("Unsupported resource type in URI: %s", virtual_uri)
-        return None
-
     async def get_project_path(
         self, project_id: str, identity: AgentIdentity | None = None
     ) -> str | None:

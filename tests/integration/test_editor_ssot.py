@@ -1,7 +1,6 @@
-"""Unit tests for Editor SSOT compliance and ResourceManager I/O Proxy.
+"""Unit tests for the ResourceManager I/O Proxy and its Soul Protection architecture.
 
-Verifies that the text_editor tool properly uses the ResourceManager for all I/O
-operations and correctly enforces the Soul Protection architecture.
+（原本也測 ``text_editor``；那個工具沒有呼叫端，ADR-0293 刪除。）
 """
 
 import tempfile
@@ -9,14 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from src.models.identity import AgentIdentity
 from src.services.resource_manager import ResourceManager
-from src.tools.editor import text_editor
-
-
-@pytest.fixture
-def mock_identity():
-    return AgentIdentity(agent_id="test_agent")
 
 
 @pytest.fixture
@@ -78,54 +70,3 @@ class TestResourceManagerIOProxy:
         resource_manager_mock.move_file(backup_path, normal_path)
         assert resource_manager_mock.read_file_text(normal_path) == "hello"
 
-
-@pytest.mark.asyncio
-class TestEditorSSOTCompliance:
-    """測試 editor.py 是否正確服從 SSOT 與保護機制."""
-
-    async def test_text_editor_soul_protection(self, mock_identity, temp_workspace):
-        # 模擬 _get_safe_path 回傳一個 legacy 路徑
-        legacy_path = temp_workspace / "legacy" / "test_agent" / "sys.txt"
-        
-        with patch("src.tools.editor._get_safe_path", return_value=legacy_path), \
-             patch("src.tools.editor.resource_manager.is_protected_path", return_value=True):
-            
-            # 嘗試寫入操作
-            result = await text_editor(
-                command="create",
-                path="sys.txt",
-                identity=mock_identity,
-                file_text="hack"
-            )
-            assert "Soul Protection Error" in result
-            assert "prohibited" in result
-
-    async def test_text_editor_normal_workflow(self, mock_identity, temp_workspace):
-        normal_path = temp_workspace / "personal_drive" / "test_agent" / "code.py"
-        
-        with patch("src.tools.editor._get_safe_path", return_value=normal_path), \
-             patch("src.tools.editor.resource_manager") as mock_rm:
-            
-            mock_rm.is_protected_path.return_value = False
-            mock_rm.exists.return_value = False
-            
-            # 1. Test create
-            result = await text_editor(
-                command="create",
-                path="code.py",
-                identity=mock_identity,
-                file_text="print('hello')"
-            )
-            assert "Success" in result
-            mock_rm.write_file_text.assert_called_once_with(normal_path, "print('hello')")
-            
-            # 2. Test view
-            mock_rm.exists.return_value = True
-            mock_rm.read_file_text.return_value = "print('hello')"
-            
-            result = await text_editor(
-                command="view",
-                path="code.py",
-                identity=mock_identity
-            )
-            assert "1: print('hello')" in result

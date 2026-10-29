@@ -1378,6 +1378,15 @@
       }
     },
     "ToukaMemory/src/memory_server/tools/diag.py": {
+      "personal_drive_bytes": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "normalize_agent_id": {
         "parameters": [
           "identity",
@@ -2470,15 +2479,6 @@
       }
     },
     "ToukaProxy/src/tools/editor.py": {
-      "_get_safe_path": {
-        "parameters": [
-          "path",
-          "identity"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "_get_ide_config": {
         "parameters": [],
         "kwargs": null,
@@ -2493,21 +2493,6 @@
           "session_id"
         ],
         "kwargs": "kwargs",
-        "reads": [],
-        "dynamic": []
-      },
-      "text_editor": {
-        "parameters": [
-          "command",
-          "path",
-          "identity",
-          "file_text",
-          "old_str",
-          "new_str",
-          "view_range",
-          "insert_line"
-        ],
-        "kwargs": "_kwargs",
         "reads": [],
         "dynamic": []
       }

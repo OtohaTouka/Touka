@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from memory_server.utils.zone_paths import Anchor
 from src.config import settings
 from src.models.identity import AgentIdentity
 from src.services.auth_service import AuthService
@@ -52,28 +53,31 @@ def mock_app_data(tmp_path):
 
 
 def test_vault_path_isolation(resource_mgr, mock_app_data):
-    """Different identities are locked to their own sub-directories."""
+    """Different identities are locked to their own sub-directories.
+
+    個人空間改由 ``agent_drive`` 給 ``ZonePath``（ADR-0293；``get_vault_path("personal")``
+    不再交出字串）。
+    """
     with patch("src.services.resource_manager.get_app_data_dir", return_value=str(mock_app_data)):
         alice = AgentIdentity.for_role(agent_id="Alice", role="Owner")
         stranger = AgentIdentity.for_role(agent_id="Stranger", role="Base")
 
-        alice_path = resource_mgr.get_vault_path("personal", alice)
-        assert "personal_drive" in alice_path
-        assert "Alice" in alice_path
-        assert "Stranger" not in alice_path
+        alice_drive = resource_mgr.agent_drive(alice)
+        assert alice_drive.anchor is Anchor.PERSONAL_DRIVE
+        assert alice_drive.parts == ("Alice",)
 
-        stranger_path = resource_mgr.get_vault_path("personal", stranger)
-        assert "Stranger" in stranger_path
-        assert "Alice" not in stranger_path
+        stranger_drive = resource_mgr.agent_drive(stranger)
+        assert stranger_drive.parts[0] == "Stranger"
+        assert "Alice" not in stranger_drive.parts
 
 
 def test_path_traversal_defence(resource_mgr, mock_app_data):
-    """Returned vault path must remain anchored inside the agent sub-directory."""
+    """The drive stays at the agent's own segment; an id that is not a segment gets none."""
     with patch("src.services.resource_manager.get_app_data_dir", return_value=str(mock_app_data)):
         identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-        path = resource_mgr.get_vault_path("personal", identity)
-        assert path.endswith("Alice")
-        assert "etc" not in path
+        assert resource_mgr.agent_drive(identity).parts == ("Alice",)
+        escaping = AgentIdentity.for_role(agent_id="..", role="Owner")
+        assert resource_mgr.agent_drive(escaping) is None
 
 
 def test_vault_root_access_control(resource_mgr, mock_app_data):
