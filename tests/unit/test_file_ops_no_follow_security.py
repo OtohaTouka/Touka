@@ -210,6 +210,73 @@ def test_helpers_refuse_a_link_on_any_segment(tmp_path):
     assert sorted(p.name for p in real.iterdir()) == ["f.txt"]
 
 
+class _LinkWhileOpening:
+    """``no_follow`` 看到的 ``os``.
+
+    每次開檔那一刻把 ``directory`` 換成指向 ``target`` 的連結，開好就換回來。
+    """
+
+    def __init__(self, directory: Path, target: Path) -> None:
+        self._directory = directory
+        self._target = target
+        self._kept = directory.with_name(directory.name + "_kept")
+
+    def __getattr__(self, name: str):
+        return getattr(os, name)
+
+    def open(self, path, flags, mode=0o777, *, dir_fd=None):
+        self._directory.rename(self._kept)
+        _make_dir_link(self._directory, self._target)
+        try:
+            return os.open(path, flags, mode, dir_fd=dir_fd)
+        finally:
+            os.unlink(self._directory)
+            self._kept.rename(self._directory)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        read_text_no_follow,
+        read_bytes_no_follow,
+        lambda p: write_text_no_follow(p, "PWNED"),
+        lambda p: write_text_no_follow(p, "PWNED", append=True),
+        lambda p: replace_text_no_follow(p, "PWNED"),
+    ],
+    ids=["read", "read_bytes", "write", "append", "replace"],
+)
+def test_helpers_refuse_a_link_that_exists_only_while_opening(layout, monkeypatch, call):
+    """開檔那一刻是連結、檢查時已換回來：照樣拒絕，不讀寫根外面的檔案（Windows 比對識別碼）。"""
+    root, outside = layout
+    inside = root / "sub" / "guard.py"
+    inside.write_text("INSIDE\n", encoding="utf-8")
+    monkeypatch.setattr(no_follow, "os", _LinkWhileOpening(root / "sub", outside))
+    with pytest.raises(OSError):
+        call(inside)
+    monkeypatch.undo()
+    assert (outside / "guard.py").read_text(encoding="utf-8") == GUARD_SOURCE
+    assert inside.read_text(encoding="utf-8") == "INSIDE\n"
+    # 新建的暫存檔可能留在另一端（空檔，見 ADR-0292 已知的界線），內容不會寫進去
+    assert all(p.stat().st_size == 0 for p in outside.iterdir() if p.name != "guard.py")
+
+
+def test_walk_skips_folders_whose_status_cannot_be_read(tmp_path, monkeypatch):
+    """資料夾讀不到狀態（例如上層有讀取、沒有執行權限）時不進入，其他照常列出."""
+    base = tmp_path.resolve()
+    for rel in ("a/x.txt", "a/locked/y.txt", "b/z.txt"):
+        (base / rel).parent.mkdir(parents=True, exist_ok=True)
+        (base / rel).write_text("x", encoding="utf-8")
+    original = no_follow.is_link
+
+    def denied(path: Path) -> bool:
+        if path == base / "a" / "locked":
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original(path)
+
+    monkeypatch.setattr(no_follow, "is_link", denied)
+    assert [rel for rel, _path in iter_regular_files(base)] == ["a/x.txt", "b/z.txt"]
+
+
 def test_is_link_sees_symlinks_and_junctions(tmp_path):
     base = tmp_path.resolve()
     (base / "real").mkdir()

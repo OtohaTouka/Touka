@@ -10,9 +10,10 @@
   上一層資料夾裡做。開檔帶 ``O_NONBLOCK``，換成 FIFO 時不會卡住，之後也只認一般檔案。
   失敗時例外的 ``filename`` 換成那一段的絕對路徑（``dir_fd`` 呼叫原本只帶相對名稱），
   ResourceManager 的權限自癒才認得要修哪一條路（ADR-0272 U2n）。
-- Windows 沒有 ``dir_fd``：開檔後檢查一次路上有沒有 symlink 或 junction（OneDrive 之類的
-  雲端檔案不算）；會建立或寫入檔案時開檔前也先檢查。開檔前後之間仍有很短的時間差（見
-  ADR-0292「已知的界線」）。Windows 本機的代理人終端不經隔離、每條指令都要人核准。
+- Windows 沒有 ``dir_fd``：開檔後檢查路上沒有 symlink 或 junction（OneDrive 之類的雲端
+  檔案不算），而且開到的就是路徑現在指的那個檔案（比對檔案識別碼：開檔那一刻是連結、檢查前
+  又換回來時擋下）；會建立或寫入檔案時開檔前也先檢查。檢查和開檔不是同一個動作，仍有很短的
+  時間差（見 ADR-0292「已知的界線」）。Windows 本機的代理人終端不經隔離、每條指令都要人核准。
 
 只用標準函式庫；ToukaProxy 的 ResourceManager 也用這裡的函式。
 """
@@ -76,20 +77,37 @@ def _refused(path: Path) -> LinkRefusedError:
     return LinkRefusedError(errno.ELOOP, "Path goes through a symbolic link or junction", str(path))
 
 
+def _walk_no_links(p: Path) -> os.stat_result | None:
+    """從根往下逐段 lstat，是連結就拒絕；回最後一段的狀態（有一段不存在時回 None、不再往下）。"""
+    current = Path(p.anchor)
+    info = None
+    for name in p.parts[1:]:
+        current = current / name
+        info = _lstat(current)
+        if info is None:
+            return None
+        if _is_link_stat(info):
+            raise _refused(current)
+    return info
+
+
 def ensure_no_links(path: Path | str) -> None:
     """從根往下，現存的每一段都不能是 symlink 或 junction（Windows 開檔前後與走訪前用）。
 
     每段一次 lstat；遇到不存在的那一段就停（更下層也不存在）。
     """
-    p = Path(path)
-    current = Path(p.anchor)
-    for name in p.parts[1:]:
-        current = current / name
-        info = _lstat(current)
-        if info is None:
-            return
-        if _is_link_stat(info):
-            raise _refused(current)
+    _walk_no_links(Path(path))
+
+
+def _check_opened(fd: int, path: Path) -> None:
+    """Windows 開檔後：路上沒有連結，而且 ``fd`` 就是路徑現在指的那個檔案（呼叫端負責關閉）。
+
+    開檔那一刻路上是連結、檢查前又換回來時，路上看不到連結，``fd`` 卻開在連結另一端：
+    比對檔案識別碼擋下。
+    """
+    info = _walk_no_links(path)
+    if info is None or not os.path.samestat(os.fstat(fd), info):
+        raise _refused(path)
 
 
 def _with_paths(exc: OSError, path: Path, path2: Path | None = None) -> OSError:
@@ -169,7 +187,7 @@ def open_no_follow(
         ensure_no_links(p)
         raise
     try:
-        ensure_no_links(p)
+        _check_opened(fd, p)
     except BaseException:
         os.close(fd)
         raise
@@ -244,9 +262,9 @@ def replace_text_no_follow(path: Path | str, text: str, encoding: str = "utf-8")
         return
     ensure_no_links(p)
     p.parent.mkdir(parents=True, exist_ok=True)
-    ensure_no_links(p.parent)
     tmp = p.parent / tmp_name
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY, 0o600)
+    # 暫存檔開檔前後都查：開在連結另一端時寫入內容前就擋下
+    fd = open_no_follow(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         _write_synced(fd, text, encoding)
         ensure_no_links(p)
@@ -280,18 +298,26 @@ def remove_no_follow(path: Path | str) -> None:
     p.unlink()
 
 
+def _enterable(path: Path) -> bool:
+    """走訪時進不進這個資料夾：不是連結才進；讀不到狀態（例如上層沒有執行權限）時不進。"""
+    try:
+        return not is_link(path)
+    except OSError:
+        return False
+
+
 def iter_regular_files(
     root: Path, exclude_names: frozenset[str] = frozenset()
 ) -> Iterator[tuple[str, Path]]:
     """遞迴列出 ``root`` 底下的一般檔案（相對 POSIX 路徑, 路徑），同層依名稱排序。
 
-    不進入、也不列出 symlink 與 junction（只收 lstat 為一般檔案者）；``exclude_names`` 依
-    資料夾名稱在任何深度剪除。
+    不進入、也不列出 symlink 與 junction（只收 lstat 為一般檔案者），讀不到狀態的資料夾也
+    不進入；``exclude_names`` 依資料夾名稱在任何深度剪除。
     """
     for current, dirnames, filenames in root.walk(follow_symlinks=False):
         rel_dir = current.relative_to(root)
         dirnames[:] = sorted(
-            d for d in dirnames if d not in exclude_names and not is_link(current / d)
+            d for d in dirnames if d not in exclude_names and _enterable(current / d)
         )
         for name in sorted(filenames):
             try:
