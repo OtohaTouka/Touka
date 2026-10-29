@@ -184,7 +184,8 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 第六輪：字詞中間 `:`／`@` 後面接 `//` 的路徑（`-javaagent://host/share/x.jar`，Windows 上是 UNC）沒檢查；hook 程式用連結指進 `config/hooks/` 時改走一般的禁區檢查，不查硬連結；MCP 工具用裸名稱叫時，寫成工具清單上正式名稱 `server__tool` 的比對規則比對不到。 | 只有 `:` 前面整段是網址的 scheme 時才當成網址略過，其他照路徑檢查（Windows 回 `unc_path`）；解析後在 `config/hooks/` 裡的指令照 `config/hooks/` 的規則查（要照字面寫，用連結或 bind mount 這類別名指進去的拒收）；比對名稱加上 `server__tool`。`tests/unit/test_hook_paths_security.py`、`test_hook_wiring_security.py`。 |
 | 第七輪：代理人把自己的專案根弄成連結迴圈（或讓某個禁區根讀不到狀態），建立路徑檢查時整個丟出例外，所有 command hook 都不執行，存檔也回 500。 | 每個禁區根各自處理：解析不出來或讀不到識別碼的只略過那一項（字面照禁）；指令本身查不了時回 `unverifiable`（拒收）；設定資料夾或 `config/hooks/` 讀不到時每個 hook 都回 `unverifiable`。`tests/unit/test_hook_paths_security.py`。 |
 | 第八輪：http hook 的回應有壓縮時，64 KiB 上限算在解開之後，幾百位元組的回應會先解成幾百 MiB（壓縮炸彈）。 | 送 `Accept-Encoding: identity`，回應有壓縮就算失敗、不解開，上限算的是收到的位元組；設定裡不能改 `Accept-Encoding`。`tests/unit/test_hook_runners_security.py`、`test_hooks_config.py`。 |
-| 第八輪：代理人在上層專案裡把下層專案根換成指向直譯器資料夾或 `/` 的連結，那裡就變成禁區，所有程式不在 `config/hooks/` 的 command hook 都被拒（失敗不擋，等於沒設）。 | 使用者登記的根（專案根、MCP 可寫資料夾）路上有連結時只禁字面：隔離層不授權這種根，連結指到的地方代理人的終端寫不到；Touka 自己的資料夾照舊跟著解析。Debugger 的專案檔案工具會跟著連結寫，寫在 ADR-0292 已知的界線、另案處理。`tests/unit/test_hook_paths_security.py`。 |
+| 第八輪：代理人在上層專案裡把下層專案根換成指向直譯器資料夾或 `/` 的連結，那裡就變成禁區，所有程式不在 `config/hooks/` 的 command hook 都被拒（失敗不擋，等於沒設）。 | 使用者登記的根（專案根、MCP 可寫資料夾）路上有連結時只禁字面：隔離層不授權這種根，連結指到的地方代理人的終端寫不到（專案檔案工具見第九輪）；Touka 自己的資料夾照舊跟著解析。`tests/unit/test_hook_paths_security.py`。 |
+| 第九輪：只有管理員擁有的靈魂與 Debugger 用專案檔案工具時不檢查專案根，檔案工具又會跟著連結寫：代理人在上層專案裡把下層專案根換成指向 `config/hooks/` 的連結，就能改寫不經隔離執行的 hook 程式（容器裡一般身分的工作區檢查看的是宿主路徑，也看不到容器裡的連結）。 | 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（解析前後不同）時，專案檔案工具一律拒絕（`profiles.has_link`，`reason: "linked_root"`），查翻譯後的路徑；和隔離層的永不授權規則一樣。人類照舊。`tests/unit/test_project_root_protected_security.py`。 |
 
 ### 統計端點的 token 用量看得到別的靈魂（2026-10-29）
 

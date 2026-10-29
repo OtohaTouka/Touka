@@ -178,6 +178,14 @@ async def run_http(
             ) as client,
             client.stream("POST", hook.url, content=payload, headers=headers) as response,
         ):
+            # 先看狀態：失敗的回應不讀內容，說明照 HTTP 狀態寫（有壓縮也一樣）
+            if not response.is_success:
+                return RunResult(
+                    status="error",
+                    duration_ms=_elapsed(started),
+                    http_status=response.status_code,
+                    detail=f"HTTP {response.status_code}",
+                )
             if response.headers.get("content-encoding", "").strip().lower() not in _PLAIN_ENCODINGS:
                 return RunResult(
                     status="error",
@@ -196,13 +204,6 @@ async def run_http(
         )
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         return RunResult(status="error", duration_ms=_elapsed(started), detail=type(exc).__name__)
-    if not response.is_success:
-        return RunResult(
-            status="error",
-            duration_ms=_elapsed(started),
-            http_status=response.status_code,
-            detail=f"HTTP {response.status_code}",
-        )
     return RunResult(
         status="ok",
         duration_ms=_elapsed(started),

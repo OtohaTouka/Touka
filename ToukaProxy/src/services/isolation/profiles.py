@@ -131,6 +131,14 @@ def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
 
+def has_link(path: Path | str) -> bool:
+    """路徑任何一段是符號連結或 junction：解析前後不同（Windows 不分大小寫）。
+
+    8.3 短檔名、subst 與對應的網路磁碟機解析後也會不同，一樣算有連結。
+    """
+    return os.path.normcase(Path(path).absolute()) != os.path.normcase(_resolve(path))
+
+
 def current_layout() -> SandboxLayout:
     """依目前設定組出版面；容器內 ST／kernel 未設定時保留 None（由狀態判定原因）。"""
     in_container = is_container_runtime()
@@ -207,8 +215,8 @@ async def project_root_reason(path: Path, layout: SandboxLayout) -> str | None:
     底下只有使用者自建的頂層資料夾可以用（點開頭與清單內的名稱不行，同禁令 66 ③）。容器裡
     工作區掛載可能是 Touka 目錄的另一個路徑，另做 Touka 目錄偵測（往上、往下）；沒查完回
     ``SCAN_LIMIT``（呼叫端照樣不放行）。原生安裝不做偵測：E 就是 INSTALL_ROOT，往上檢查會擋掉
-    工作區根底下所有專案；原生路徑沒有掛載別名，解析後比對已足夠。不拒絕連結：檔案工具本身
-    不讓路徑越出專案根。（ADR-0292）
+    工作區根底下所有專案；原生路徑沒有掛載別名，解析後比對已足夠。這裡不拒絕連結；代理人的
+    專案檔案工具另外拒絕路上有連結的根（``has_link``）。（ADR-0292）
     """
     target = _resolve(path)
     if _denied_by_fixed_rules(target, layout):
@@ -237,7 +245,7 @@ async def authorize_derived_path(
     路徑任何一段是符號連結或 junction（resolve 前後不同）一律拒絕：連結可以被改寫成指向別處。
     """
     target = _resolve(path)
-    if os.path.normcase(Path(path).absolute()) != os.path.normcase(target):
+    if has_link(path):
         return PROTECTED_LOCATION
     if any(_within(target, root) for root in grantable_roots(layout, owner)):
         return None

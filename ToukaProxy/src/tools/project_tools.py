@@ -14,7 +14,7 @@ from src.services.authorization_gateway import only_admins_own
 from src.services.isolation import profiles
 from src.services.resource_manager import bypasses_project_jail, resource_manager
 from src.utils.async_db import add_project_event
-from src.utils.touka_dirs import PROTECTED_LOCATION
+from src.utils.touka_dirs import LINKED_ROOT, PROTECTED_LOCATION
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +36,16 @@ except ImportError:
 
 
 def _root_refused(project_id: str, reason: str) -> str:
-    """專案根不能用時給模型的結構化錯誤：受保護，或（容器裡）還沒查完。"""
+    """專案根不能用時給模型的結構化錯誤：受保護、路上有連結，或（容器裡）還沒查完。"""
     if reason == PROTECTED_LOCATION:
         message = f"Project root for '{project_id}' is in a location Touka protects."
         suggestion = "Ask the user to choose a project folder outside Touka's own folders."
+    elif reason == LINKED_ROOT:
+        message = (
+            f"Project root for '{project_id}' goes through a symbolic link or junction; "
+            "agents cannot use it because the link can be changed to point elsewhere."
+        )
+        suggestion = "Ask the user to register the folder's real path, without links."
     else:
         message = (
             f"Touka could not finish checking the project root for '{project_id}' "
@@ -81,6 +87,12 @@ async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> 
     root_bound = await resource_manager.get_project_path(project_id, identity)
     if not root_bound:
         return f"Error: Project root for '{project_id}' not found."
+    # 代理人的專案根路上不能有連結（和隔離層一樣，禁令 66 ③）：檔案工具會跟著連結寫，代理人
+    # 在上層專案裡把下層專案根換成指向 ``config/hooks/`` 的連結，就能改寫不經隔離執行的 hook
+    # 程式。管理員擁有的靈魂與 Debugger 也查；查的是翻譯後的路徑（容器裡的連結也看得到）。
+    if not (identity and identity.is_human) and profiles.has_link(Path(root_bound)):
+        logger.warning("Project %s root goes through a link; refused for an agent.", project_id)
+        return _root_refused(project_id, LINKED_ROOT)
     # 一般使用者的靈魂，專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經
     # 專案寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
     if not (identity and (bypasses_project_jail(identity) or only_admins_own(identity))):

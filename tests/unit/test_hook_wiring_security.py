@@ -55,6 +55,7 @@ from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
+from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 from src.utils.user_intent import chat_intent
 
 _SOUL = AgentIdentity.for_role(agent_id="HookWiringProbe", role="Owner", is_human=False)
@@ -848,6 +849,24 @@ async def test_stop_hook_runs_in_the_background_with_the_final_reply(hooks):
     assert call["last_assistant_message"] == "done"
     assert call["stop_hook_active"] is False
     assert hooks.service.runs()[0].event == "Stop"
+
+
+async def test_group_members_each_trigger_stop_with_their_own_agent_id(hooks):
+    """群聊每位發言的成員各觸發一次；事件內容是這位成員，不是整個群聊。"""
+    hooks.configure({"Stop": [_group()]})
+    for member in ("Alice", "Bob"):
+        ctx = {"session_id": "s-group", "agent_id": "ToukaGroup", GROUP_MEMBER_FLAG: True,
+               "identity": AgentIdentity(agent_id=member)}
+        stop_hooks.schedule_stop_hooks(ctx, lambda m=member: f"{m} done")
+    await _until(lambda: len(hooks.http.calls) == 2)
+    assert sorted((c["agent_id"], c["session_id"]) for c in hooks.http.calls) == [
+        ("Alice", "s-group"), ("Bob", "s-group")]
+    # 不是群聊時照舊用這次請求的代理人
+    stop_hooks.schedule_stop_hooks(
+        {"session_id": "s-1", "agent_id": "Alice", "identity": AgentIdentity(agent_id="X")},
+        lambda: "x")
+    await _until(lambda: len(hooks.http.calls) == 3)
+    assert hooks.http.calls[2]["agent_id"] == "Alice"
 
 
 async def test_stop_hook_skips_subagents_and_unconfigured_events(hooks):

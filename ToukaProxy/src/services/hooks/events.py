@@ -15,6 +15,7 @@ from memory_server.utils.historical_data import neutralize_historical_tags, neut
 from src.adapters.content_normalize import message_text, normalize_message_content
 from src.services import tool_errors
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, HOOK_OUTPUT, wrap_block
+from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -97,12 +98,14 @@ def tool_match_names(
 def base_payload(ctx: Mapping[str, Any]) -> dict[str, Any]:
     """每個事件都有的欄位：對話、代理人、是不是無痕與這個對話的模式。
 
-    ``incognito`` 是 Touka 多的欄位：hook 自己決定無痕對話的內容要不要留。
+    ``incognito`` 是 Touka 多的欄位：hook 自己決定無痕對話的內容要不要留。群聊的成員各自執行，
+    ``agent_id`` 是正在發言的成員（整個群聊的 ``agent_id`` 不是任何一位成員）。
     """
     identity = ctx.get("identity")
+    member = getattr(identity, "agent_id", None) if ctx.get(GROUP_MEMBER_FLAG) else None
     payload: dict[str, Any] = {
         "session_id": ctx.get("session_id"),
-        "agent_id": ctx.get("agent_id") or getattr(identity, "agent_id", None),
+        "agent_id": member or ctx.get("agent_id") or getattr(identity, "agent_id", None),
         "incognito": bool(ctx.get("incognito")),
     }
     if ctx.get("auth_level"):

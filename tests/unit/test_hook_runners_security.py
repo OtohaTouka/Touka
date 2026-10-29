@@ -153,10 +153,18 @@ async def test_http_does_not_follow_redirects():
 
 
 @pytest.mark.parametrize("status", [400, 500, 503])
-async def test_http_non_2xx_is_an_error(status):
-    transport = httpx.MockTransport(lambda _r: httpx.Response(status, text="bad"))
+@pytest.mark.parametrize("encoding", [None, "gzip"])
+async def test_http_non_2xx_is_an_error(status, encoding):
+    """失敗的回應照 HTTP 狀態說明，有壓縮也一樣（不說成壓縮），也不讀內容。"""
+    headers = {"Content-Encoding": encoding} if encoding else {}
+    content = gzip.compress(b"bad") if encoding else b"bad"
+    transport = httpx.MockTransport(
+        lambda _r: httpx.Response(status, content=content, headers=headers)
+    )
     result = await run_http(_http(), b"{}", transport=transport)
-    assert result.status == "error"
+    assert (result.status, result.http_status) == ("error", status)
+    assert result.detail == f"HTTP {status}"
+    assert result.stdout == ""
 
 
 async def test_http_body_beyond_the_cap_is_dropped():

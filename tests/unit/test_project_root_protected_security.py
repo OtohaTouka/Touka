@@ -9,7 +9,10 @@
   可以用（點開頭與程式、文件等名稱不行，同禁令 66 ③）；容器裡另做 Touka 目錄偵測（工作區
   掛載可能是同一批檔案的另一個路徑），沒查完也不放行，但回不同的原因；
 - 專案檔案工具每次呼叫都查，登記後才改的也擋；拒絕時回結構化錯誤；
-- admin、Debugger 與管理員擁有的靈魂不受限。
+- admin、Debugger 與管理員擁有的靈魂不受限；
+- 但代理人（含 Debugger 與管理員擁有的靈魂）的專案根路上有連結一律拒絕：檔案工具會跟著連結
+  寫，代理人在上層專案裡把下層專案根換成指向 ``config/hooks/`` 的連結，就能改寫 hook 程式。
+  人類照舊。
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from src.services.isolation import profiles
 from src.services.isolation.profiles import SandboxLayout
 from src.services.resource_manager import resource_manager
 from src.tools import project_tools as pt
-from src.utils.touka_dirs import PROTECTED_LOCATION, SCAN_LIMIT
+from src.utils.touka_dirs import LINKED_ROOT, PROTECTED_LOCATION, SCAN_LIMIT
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,6 +42,9 @@ if sys.platform == "win32":
 
 ADMIN = AgentIdentity.for_role(agent_id="AdminUser", role="admin", is_human=True, capabilities=[])
 SOUL = AgentIdentity.for_role(agent_id="Alice", role="Owner", is_human=False, capabilities=[])
+DEBUGGER = AgentIdentity.for_role(
+    agent_id="DebugAgent", role="Debugger", is_human=False, capabilities=[]
+)
 
 
 def _make_dir_link(link: Path, target: Path) -> None:
@@ -219,6 +225,80 @@ async def test_project_tools_still_work_in_a_user_folder(native, tmp_path, monke
     )
     assert result.startswith("Success")
     assert writes == [("a.py", str(tmp_path / "myproj"))]
+
+
+def test_has_link_sees_a_link_anywhere_on_the_path(tmp_path):
+    (tmp_path / "real" / "sub").mkdir(parents=True)
+    _make_dir_link(tmp_path / "linked", tmp_path / "real")
+    assert profiles.has_link(tmp_path / "linked") is True
+    assert profiles.has_link(tmp_path / "linked" / "sub") is True
+    assert profiles.has_link(tmp_path / "linked" / "not-yet") is True
+    assert profiles.has_link(tmp_path / "real" / "sub") is False
+    assert profiles.has_link(tmp_path / "real" / "not-yet") is False
+
+
+@pytest.mark.parametrize(
+    ("who", "target"),
+    [
+        ("admin_only_soul", "config/hooks"),
+        ("debugger", "config/hooks"),
+        ("soul", "config/hooks"),
+        ("soul", "elsewhere"),
+        ("none", "elsewhere"),
+    ],
+)
+async def test_agents_cannot_use_a_project_root_through_a_link(
+    native, tmp_path, monkeypatch, who, target
+):
+    """下層專案根被換成連結：不受專案限制的代理人也拒絕，連結指到哪裡都一樣，不寫入。
+
+    查的是 ``get_project_path`` 回的路徑（容器裡是翻譯後的路徑），所以容器裡的連結也看得到。
+    """
+    (tmp_path / "elsewhere").mkdir()
+    link = tmp_path / "myproj" / "app"
+    _make_dir_link(link, tmp_path / target)
+    writes: list = []
+    _project_tools_at(monkeypatch, link, writes)
+    identity = {"admin_only_soul": SOUL, "debugger": DEBUGGER, "soul": SOUL, "none": None}[who]
+    if who == "admin_only_soul":
+        monkeypatch.setattr(pt, "only_admins_own", lambda ident: ident.agent_id == "Alice")
+    result = await pt.project_tools(
+        "write", path="guard.py", content="x", project_id="p1", identity=identity
+    )
+    payload = json.loads(result)
+    assert payload["error_class"] == tool_errors.PERMISSION_DENIED
+    assert payload["reason"] == LINKED_ROOT
+    assert "link" in payload["message"]
+    assert "real path" in payload["suggestion"]
+    assert writes == []
+
+
+async def test_debugger_and_admin_only_souls_still_use_roots_without_links(
+    native, tmp_path, monkeypatch
+):
+    writes: list = []
+    _project_tools_at(monkeypatch, tmp_path / "myproj", writes)
+    monkeypatch.setattr(pt, "only_admins_own", lambda ident: ident.agent_id == "Alice")
+    for identity in (DEBUGGER, SOUL):
+        result = await pt.project_tools(
+            "write", path="a.py", content="x", project_id="p1", identity=identity
+        )
+        assert result.startswith("Success")
+    assert len(writes) == 2
+
+
+async def test_a_human_admin_may_still_use_a_linked_root(native, tmp_path, monkeypatch):
+    """人類自己操作照舊：連結是人登記或建立的，不是代理人改的。"""
+    (tmp_path / "elsewhere").mkdir()
+    link = tmp_path / "myproj" / "app"
+    _make_dir_link(link, tmp_path / "elsewhere")
+    writes: list = []
+    _project_tools_at(monkeypatch, link, writes)
+    result = await pt.project_tools(
+        "write", path="a.py", content="x", project_id="p1", identity=ADMIN
+    )
+    assert result.startswith("Success")
+    assert writes == [("a.py", str(link))]
 
 
 async def test_admin_is_not_limited(native, tmp_path, monkeypatch):
