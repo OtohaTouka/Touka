@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import errno
 import os
+import stat
 import sys
 import time
 from pathlib import Path
 
 import pytest
 from memory_server.tools import core_file_ops as cfo
+from memory_server.utils import no_follow
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
     LINK_REFUSED_MESSAGE,
     LinkRefusedError,
+    ensure_no_links,
     is_link,
     iter_regular_files,
     read_bytes_no_follow,
@@ -214,6 +217,18 @@ def test_is_link_sees_symlinks_and_junctions(tmp_path):
     assert is_link(base / "link")
     assert not is_link(base / "real")
     assert not is_link(base / "missing")
+
+
+def test_link_checks_work_without_junctions(tmp_path, monkeypatch):
+    """沒有 junction 的系統（Linux：``stat`` 沒有 reparse tag 常數）照常判斷，不丟例外."""
+    monkeypatch.delattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", raising=False)
+    monkeypatch.setattr(no_follow, "_JUNCTION_TAG", None)
+    base = tmp_path.resolve()
+    (base / "real").mkdir()
+    (base / "real" / "f.txt").write_text("x", encoding="utf-8")
+    assert not is_link(base / "real")
+    ensure_no_links(base / "real" / "f.txt")
+    assert [rel for rel, _path in iter_regular_files(base)] == ["real/f.txt"]
 
 
 def test_iter_regular_files_skips_links_and_excluded_names(tmp_path):

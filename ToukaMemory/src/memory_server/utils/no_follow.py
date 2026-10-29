@@ -39,6 +39,8 @@ _NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 _DIR_FLAGS = getattr(os, "O_PATH", os.O_RDONLY) | _DIRECTORY | _NOFOLLOW | _CLOEXEC
 # 開到連結時各系統回的錯誤：Linux 的 ELOOP（加 O_DIRECTORY 時是 ENOTDIR）、FreeBSD 的 EMLINK
 _LINK_ERRNOS = frozenset({errno.ELOOP, errno.ENOTDIR, errno.EMLINK})
+# junction 的 reparse tag：只有 Windows 有（其他系統的 stat 沒有這個常數）
+_JUNCTION_TAG = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None)
 
 
 # 回給代理人的說明（不含絕對路徑）
@@ -59,9 +61,9 @@ def _lstat(path: Path) -> os.stat_result | None:
 
 
 def _is_link_stat(info: os.stat_result) -> bool:
-    return stat.S_ISLNK(info.st_mode) or (
-        getattr(info, "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT
-    )
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    return _JUNCTION_TAG is not None and getattr(info, "st_reparse_tag", 0) == _JUNCTION_TAG
 
 
 def is_link(path: Path) -> bool:
