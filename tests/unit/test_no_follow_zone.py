@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import errno
+import io
 import os
 import stat
 import sys
@@ -35,6 +36,7 @@ from memory_server.utils.no_follow import (
     walk_open_no_follow,
     walk_pruned,
     write_bytes_no_follow,
+    write_stream_no_follow,
     zip_open_file,
     zone_errors,
 )
@@ -137,6 +139,17 @@ def test_write_bytes_creates_truncates_and_refuses_links(base, outside):
     make_dir_link(base / "link", outside)
     with pytest.raises(LinkRefusedError):
         write_bytes_no_follow(base / "link" / "hooks.json", b"x")
+    assert _untouched(outside)
+
+
+def test_write_stream_copies_truncates_and_refuses_links(base, outside):
+    target = base / "new" / "f.bin"
+    write_stream_no_follow(target, io.BytesIO(b"longer content"))
+    write_stream_no_follow(target, io.BytesIO(b"short"))
+    assert target.read_bytes() == b"short"
+    make_dir_link(base / "link", outside)
+    with pytest.raises(LinkRefusedError):
+        write_stream_no_follow(base / "link" / "hooks.json", io.BytesIO(b"x"))
     assert _untouched(outside)
 
 

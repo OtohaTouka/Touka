@@ -7,9 +7,11 @@ env-aware 多-.env（ADR-0052）：選真正含 SANCTUARY_DATA_PATH 的那份 .e
 遇到的子專案 .env。Proxy 呼叫時改由參數給路徑（資料根、.env、設定目錄、輸出目錄），不猜。
 
 執行中可能被寫入的 SQLite（記憶庫、Qdrant 各 collection）用 SQLite backup API 取一致複本；
-快照先寫暫存檔再以新檔名發布，絕不覆蓋既有快照。
+快照先寫暫存檔再以新檔名發布，絕不覆蓋既有快照。代理人資料夾（個人空間與自訂模型）備份與
+還原都不跟隨連結（ADR-0293），略過的連結與名稱印出計數。
 """
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -22,10 +24,33 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from memory_server.factual import FactualStore
+from memory_server.utils.no_follow import (
+    LinkRefusedError,
+    WalkReport,
+    open_read_no_follow,
+    walk_open_no_follow,
+    walk_pruned,
+    write_stream_no_follow,
+    zip_open_file,
+)
+from memory_server.utils.zone_paths import (
+    Anchor,
+    ZoneRoots,
+    anchor_dirname,
+    ensure_anchor,
+    is_zone_segment,
+)
 
+# 代理人資料夾（ADR-0293）：個人空間與自訂模型，另外不跟隨連結地備份與還原
+PERSONAL_DIR = anchor_dirname(Anchor.PERSONAL_DRIVE)
+CUSTOM_DIR = anchor_dirname(Anchor.CUSTOM_DRIVE)
+_AGENT_FOLDERS = {
+    os.path.normcase(PERSONAL_DIR): Anchor.PERSONAL_DRIVE,
+    os.path.normcase(CUSTOM_DIR): Anchor.CUSTOM_DRIVE,
+}
 # 備份涵蓋的 Sanctuary 資料子目錄（SSOT）。legacy 為舊版 agent 資料，亦需備份。
 # avatars（ADR-0106）：使用者頭像上傳檔，須納入備份否則還原時遺失。
-SANCTUARY_FOLDERS = ["soul", "custom", "vault", "personal_drive", "stats", "legacy", "avatars"]
+SANCTUARY_FOLDERS = ["soul", CUSTOM_DIR, "vault", PERSONAL_DIR, "stats", "legacy", "avatars"]
 OAUTH_RUNTIME_FILENAMES = (
     "mcp_oauth.sqlite3",
     "mcp_oauth.sqlite3-wal",
@@ -222,6 +247,8 @@ class BackupEngine:
         data_path = self.resolver.get_sanctuary_path()
         if Path(data_path).exists():
             for folder in SANCTUARY_FOLDERS:
+                if os.path.normcase(folder) in _AGENT_FOLDERS:
+                    continue  # 寫 zip 時才走訪（_write_agent_folders）
                 folder_path = Path(data_path) / folder
                 if not folder_path.exists():
                     continue
@@ -257,12 +284,14 @@ class BackupEngine:
             ):
                 with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as zipf:
                     _write_items(zipf, items, Path(work))
+                    report = _write_agent_folders(zipf, self.resolver.get_sanctuary_path())
                 raw.flush()
                 os.fsync(raw.fileno())
             output = _publish_new(tmp, backup_dir, stem)
         except BaseException:
             _discard_partial(tmp)
             raise
+        _print_skipped(report)
         print(f"Backup completed: {output}")
         return output
 
@@ -287,6 +316,62 @@ def _write_items(zipf: zipfile.ZipFile, items: list[tuple], work: Path) -> None:
         zipf.writestr(str(QDRANT_ARC / QDRANT_META), meta)
         for collection, copy in copies.items():
             zipf.write(copy, str(QDRANT_ARC / "collection" / collection / QDRANT_STORAGE))
+
+
+def _write_agent_folders(zipf: zipfile.ZipFile, data_path: str) -> WalkReport:
+    """個人空間與自訂模型：走訪時不跟隨連結、一次開一個檔案寫進 zip（ADR-0293）.
+
+    個人空間與每個 ``custom/<id>/drive`` 用區內走訪；``custom`` 其他地方（設定、人格）用
+    ``walk_pruned``，每個檔案不跟隨地開。略過的連結、名稱與讀不到的記在回傳的統計。
+    """
+    report = WalkReport()
+    roots = ZoneRoots(Path(data_path).absolute(), None)
+    arc = PurePosixPath("data")
+    _zip_zone(zipf, Path(roots.resolved(Anchor.PERSONAL_DRIVE)), arc / PERSONAL_DIR, report)
+    custom = Path(roots.resolved(Anchor.CUSTOM_DRIVE))
+    try:
+        with contextlib.closing(walk_pruned(custom, roots, report)) as walk:
+            for entry in walk:
+                if entry.kind == "file":
+                    name = str(arc.joinpath(CUSTOM_DIR, *entry.parts))
+                    _zip_one(zipf, custom.joinpath(*entry.parts), name, report)
+    except LinkRefusedError:
+        report.links += 1  # custom 本身路上被換成連結：走訪開始時就拒絕
+    for anchor, parts in list(report.pruned):
+        if anchor is Anchor.CUSTOM_DRIVE and parts:
+            _zip_zone(zipf, custom.joinpath(*parts), arc.joinpath(CUSTOM_DIR, *parts), report)
+    return report
+
+
+def _zip_zone(zipf: zipfile.ZipFile, root: Path, arc: PurePosixPath, report: WalkReport) -> None:
+    """一個區（個人空間或 ``custom/<id>/drive``）：區內走訪開好的檔案寫進 zip。"""
+    try:
+        with contextlib.closing(walk_open_no_follow(root, report)) as walk:
+            for parts, handle, info in walk:
+                zip_open_file(zipf, str(arc.joinpath(*parts)), handle, info)
+    except LinkRefusedError:
+        report.links += 1  # 區根路上被換成連結：走訪開始時就拒絕，還沒寫任何東西
+
+
+def _zip_one(zipf: zipfile.ZipFile, path: Path, arcname: str, report: WalkReport) -> None:
+    """``custom/<id>`` 裡區外的一個檔案：不跟隨連結地開，寫進 zip。"""
+    try:
+        handle, info = open_read_no_follow(path)
+    except LinkRefusedError:
+        report.links += 1
+        return
+    except OSError as exc:
+        report.errors.append((arcname, exc.errno or 0))
+        return
+    with handle:
+        zip_open_file(zipf, arcname, handle, info)
+
+
+def _print_skipped(report: WalkReport) -> None:
+    print(
+        f"Agent folders: skipped {report.links} links, {report.bad_names} bad names, "
+        f"{len(report.errors)} unreadable"
+    )
 
 
 def _sqlite_copy(source: Path, work: Path) -> Path:
@@ -440,6 +525,7 @@ class RestoreEngine:
                             f.write(line)
 
             # 3. Restore Configs
+            report = WalkReport()
             for member in zipf.namelist():
                 if member.startswith("config/proxy/"):
                     arcname = member.replace("config/proxy/", "")
@@ -457,7 +543,10 @@ class RestoreEngine:
                     if Path(src).exists():
                         shutil.move(src, dst)
                 elif member.startswith("data/"):
-                    arcname = member.replace("data/", "")
+                    target = Path(target_data_path).absolute()
+                    if _restore_agent_member(zipf, member, target, report):
+                        continue
+                    arcname = member.removeprefix("data/")
                     # Extract to the TARGET data path
                     Path(target_data_path).mkdir(parents=True, exist_ok=True)
                     zipf.extract(member, target_data_path)
@@ -485,7 +574,35 @@ class RestoreEngine:
             if Path(hb_tmp).exists():
                 shutil.rmtree(hb_tmp)
 
+        _print_skipped(report)
         print(f"Restore completed from: {zip_path}")
+
+
+def _restore_agent_member(
+    zipf: zipfile.ZipFile, member: str, target: Path, report: WalkReport
+) -> bool:
+    """代理人資料夾的成員不跟隨連結地寫回（ADR-0293）；不是代理人資料夾的回 False.
+
+    名稱只用 ``/`` 拆、每段都要能當區裡的一段（不合格的略過並計數）；資料夾項目略過（寫檔時建）。
+    ``custom/<id>`` 的設定與人格也一樣：寫入時從根檢查整條路徑。
+    """
+    head, _, rest = member.removeprefix("data/").partition("/")
+    anchor = _AGENT_FOLDERS.get(os.path.normcase(head))
+    if anchor is None:
+        return False
+    if not rest or member.endswith("/"):
+        return True
+    segments = rest.split("/")
+    if not all(is_zone_segment(segment) for segment in segments):
+        report.bad_names += 1
+        return True
+    base = Path(ensure_anchor(ZoneRoots(target, None), anchor))
+    try:
+        with zipf.open(member) as source:
+            write_stream_no_follow(base.joinpath(*segments), source)
+    except LinkRefusedError:
+        report.links += 1
+    return True
 
 
 def _env_contains_key(env_path: Path, key: str) -> bool:

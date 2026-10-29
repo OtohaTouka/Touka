@@ -29,6 +29,7 @@ import errno
 import functools
 import os
 import secrets
+import shutil
 import stat
 import sys
 import zipfile
@@ -347,6 +348,15 @@ def write_bytes_no_follow(path: Path | str, data: bytes) -> None:
         _require_regular(f.fileno(), path)
         f.truncate(0)
         f.write(data)
+
+
+def write_stream_no_follow(path: Path | str, source: IO[bytes]) -> None:
+    """同 ``write_bytes_no_follow``，內容從 ``source`` 串流複製（還原備份用，不整份讀進記憶體）。"""
+    fd = open_no_follow(path, os.O_WRONLY | os.O_CREAT | _NONBLOCK, make_parents=True)
+    with os.fdopen(fd, "wb") as f:
+        _require_regular(f.fileno(), path)
+        f.truncate(0)
+        shutil.copyfileobj(source, f)
 
 
 def make_dirs_no_follow(path: Path | str) -> None:
