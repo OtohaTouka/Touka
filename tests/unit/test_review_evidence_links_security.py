@@ -19,6 +19,7 @@ from src.models.identity import AgentIdentity
 from src.tools.mission_tools import mission_tools
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,9 +49,10 @@ async def test_evidence_behind_a_linked_folder_is_refused(zone_data_root: Path, 
     await manager.update_task(identity=ALICE, task_id="t1", status=TaskStatus.DOING)
     make_dir_link(drive / "out", fake)
 
-    out = str(
-        await mission_tools(action="request_review", task_id="t1", identity=ALICE, _ctx=None)
-    )
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        out = str(
+            await mission_tools(action="request_review", task_id="t1", identity=ALICE, _ctx=None)
+        )
     assert "out/report.md✓" not in out, LINK_FOLLOWED
     assert "BLOCKED_FOR_HUMAN" in out
     assert "連結" in out

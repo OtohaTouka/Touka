@@ -17,6 +17,8 @@ import pytest
 from src.models.identity import AgentIdentity
 from src.utils import custom_io
 
+from tests.support.zone_records import expect_zone_refusal
+
 IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
 
 
@@ -41,7 +43,8 @@ class TestDeleteCustomDir:
     def test_returns_false_when_the_id_is_not_one_segment(self, zone_data_root):
         (zone_data_root / "custom" / "agentX").mkdir(parents=True)
         escaping = AgentIdentity(agent_id="../custom")
-        assert custom_io.delete_custom_dir(escaping) is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.delete_custom_dir(escaping) is False
         assert (zone_data_root / "custom" / "agentX").exists()
 
 
@@ -165,10 +168,12 @@ class TestMoveCustomDir:
         assert (base / "modelX" / "config.json").exists()
 
     def test_sandbox_escape_new_id_traversal_blocked(self, base, tmp_path):
-        assert custom_io.move_custom_dir("modelX", "../../escape") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "../../escape") is False
         assert (base / "modelX" / "config.json").exists()
         assert not (tmp_path / "escape").exists()
 
     def test_sandbox_escape_old_id_traversal_blocked(self, base):
-        assert custom_io.move_custom_dir("../../etc", "modelY") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("../../etc", "modelY") is False
         assert not (base / "modelY").exists()

@@ -13,6 +13,7 @@ from memory_server.tools.diag import personal_drive_bytes
 from src.models.identity import AgentIdentity
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -41,7 +42,8 @@ def test_a_linked_drive_root_has_no_size(zone_data_root: Path, tmp_path: Path) -
     (zone_data_root / "custom" / "M1").mkdir(parents=True)
     make_dir_link(zone_data_root / "custom" / "M1" / "drive", _outside(tmp_path))
 
-    assert personal_drive_bytes(MODEL, MemoryManager()) is None, LINK_FOLLOWED
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        assert personal_drive_bytes(MODEL, MemoryManager()) is None, LINK_FOLLOWED
 
 
 def test_a_missing_drive_is_empty(zone_data_root: Path) -> None:

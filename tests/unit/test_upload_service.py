@@ -15,6 +15,7 @@ from src.services import upload_service as U
 from src.services.resource_manager import resource_manager
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,7 +130,7 @@ def test_save_upload_refuses_a_linked_folder(zone_data_root: Path, tmp_path: Pat
     fake.mkdir()
     (fake / "hooks.json").write_text("{}", encoding="utf-8")
     make_dir_link(folders[swapped], fake)
-    with pytest.raises(ToukaException) as exc:
+    with expect_zone_refusal("ZoneLinkRefusedError"), pytest.raises(ToukaException) as exc:
         U.save_upload(ALICE, "s1", "notes.md", _TEXT)
     assert exc.value.code is ErrorCode.UPLOAD_FAILED
     assert sorted(p.name for p in fake.rglob("*")) == ["hooks.json"], LINK_FOLLOWED
@@ -140,6 +141,6 @@ def test_save_upload_name_that_cannot_be_a_segment_is_upload_failed():
     if sys.platform != "win32":
         assert U.save_upload(DEBUG, "s1", "CON.md", _TEXT)["filename"] == "CON.md"
         return
-    with pytest.raises(ToukaException) as exc:
+    with expect_zone_refusal("ZoneSegmentError"), pytest.raises(ToukaException) as exc:
         U.save_upload(DEBUG, "s1", "CON.md", _TEXT)
     assert exc.value.code is ErrorCode.UPLOAD_FAILED

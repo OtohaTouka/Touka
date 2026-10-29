@@ -40,6 +40,7 @@ from memory_server.utils.zone_paths import (
 )
 
 from tests.support.links import make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 WINDOWS = sys.platform == "win32"
 PD, CD = Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE
@@ -47,9 +48,11 @@ PD, CD = Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE
 
 @pytest.fixture
 def events() -> list[zp.ZoneEvent]:
+    """這個測試的觀察者紀錄；測試自己斷言內容，R13 的紀錄由這裡宣告掉."""
     seen: list[zp.ZoneEvent] = []
     add_observer(seen.append)
-    yield seen
+    with expect_zone_refusal(BaseException, at_least=0):
+        yield seen
     remove_observer(seen.append)
 
 
@@ -513,7 +516,7 @@ def test_observer_errors_do_not_reach_the_caller(events: list) -> None:
 
 def test_default_observer_writes_one_warning(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger=zp.__name__)
-    with pytest.raises(ZonePathRequiredError):
+    with expect_zone_refusal(ZonePathRequiredError), pytest.raises(ZonePathRequiredError):
         os.fspath(_z())
     lines = [r.getMessage() for r in caplog.records if r.name == zp.__name__]
     assert len(lines) == 1

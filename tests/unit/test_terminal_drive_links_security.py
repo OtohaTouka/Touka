@@ -18,6 +18,7 @@ from src.tools import terminal
 from src.utils.async_db import session_service
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,10 +54,11 @@ async def test_a_command_in_a_linked_drive_is_not_run(
 
     monkeypatch.setattr(terminal, "spawn_exec", _spawn)
     monkeypatch.setattr(session_service, "get_session_by_id", AsyncMock(return_value=None))
-    out = await terminal.execute_command(
-        "ls", ALICE, auth_level="Manual", _hitl_preapproved=True, session_id="s1",
-        _call_id="c1", _ctx={"identity": ALICE},
-    )
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        out = await terminal.execute_command(
+            "ls", ALICE, auth_level="Manual", _hitl_preapproved=True, session_id="s1",
+            _call_id="c1", _ctx={"identity": ALICE},
+        )
     assert cwds == [], LINK_FOLLOWED
     assert json.loads(out)["error_class"] == "permission_denied"
     assert str(fake) not in out

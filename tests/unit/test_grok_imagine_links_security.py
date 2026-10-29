@@ -14,6 +14,7 @@ from src.models.identity import AgentIdentity
 from src.tools import grok_imagine_server as grok
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,7 +75,8 @@ async def test_a_linked_outputs_folder_is_not_written(
     _outputs(zone_data_root).parent.mkdir(parents=True)
     make_dir_link(_outputs(zone_data_root), fake)
 
-    result = await grok.grok_imagine("a cat", AgentIdentity(agent_id=MODEL))
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        result = await grok.grok_imagine("a cat", AgentIdentity(agent_id=MODEL))
 
     assert sorted(p.name for p in fake.iterdir()) == ["users.json"], LINK_FOLLOWED
     assert result.startswith("❌")

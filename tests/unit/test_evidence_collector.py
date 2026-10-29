@@ -30,6 +30,7 @@ from src.services.review.evidence import (
 )
 
 from tests.support.links import make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 _PY = sys.executable
 
@@ -189,7 +190,8 @@ async def test_refs_outside_the_drive_or_not_a_file_are_not_present(zone_drive, 
     (zone_data_root / "personal_drive" / "x.md").write_text("外面", encoding="utf-8")
     resource_manager.zone_make_dir(zone_drive.child("sub"))
     refs = ["../x.md", "a/../../x.md", "/etc/passwd", "sub"]
-    bundle = await _collect(zone_drive, refs=refs)
+    with expect_zone_refusal("ZoneSegmentError"):
+        bundle = await _collect(zone_drive, refs=refs)
     assert bundle.artifacts_present == dict.fromkeys(refs, False)
 
 
@@ -199,7 +201,7 @@ async def test_a_linked_evidence_path_is_refused(zone_drive, zone_data_root, tmp
     fake.mkdir()
     (fake / "report.md").write_text("假的", encoding="utf-8")
     make_dir_link(zone_data_root / "personal_drive" / "Alice" / "out", fake)
-    with pytest.raises(LinkRefusedError):
+    with expect_zone_refusal("ZoneLinkRefusedError"), pytest.raises(LinkRefusedError):
         await _collect(zone_drive, refs=[ref])
 
 
@@ -212,7 +214,7 @@ async def test_a_linked_drive_does_not_start_the_command(
     fake.mkdir()
     make_dir_link(folder, fake)
     calls = _recording_spawn(monkeypatch)
-    with pytest.raises(LinkRefusedError):
+    with expect_zone_refusal("ZoneLinkRefusedError"), pytest.raises(LinkRefusedError):
         await _collect(zone_drive, cmd=f'"{_PY}" -c "print(1)"', identity=ALICE)
     assert calls == []
 

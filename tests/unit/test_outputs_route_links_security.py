@@ -24,6 +24,7 @@ from starlette.responses import FileResponse
 from starlette.routing import Route
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -105,7 +106,9 @@ def test_a_link_is_not_found(
     else:
         (outputs / "x.txt").unlink()
         make_dir_link(outputs / "x.txt", fake)
-    resp = client.get("/v1/outputs/Alice/x.txt")
+    # 檔名本身是連結時看種類就知道，不丟例外
+    with expect_zone_refusal("ZoneLinkRefusedError", at_least=int(swapped == "outputs")):
+        resp = client.get("/v1/outputs/Alice/x.txt")
     assert CANARY not in resp.text, LINK_FOLLOWED
     assert resp.status_code == 404, resp.text
     assert str(fake) not in resp.text

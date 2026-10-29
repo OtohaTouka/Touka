@@ -34,6 +34,8 @@ from src.tools import file_verbs
 from src.tools import vault_tools as vault_bridge
 from src.utils.async_db import init_db_async
 
+from tests.support.zone_records import expect_zone_refusal
+
 if sys.platform == "win32":
     import _winapi
 
@@ -230,7 +232,8 @@ async def test_catalog_read_when_touka_turns_into_a_link(
         return original(proxy, root)
 
     monkeypatch.setattr(pc, "_rebuild", swapped_then_rebuilt)
-    read = await _vault(drive, "read", path=".touka/catalog.json")
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        read = await _vault(drive, "read", path=".touka/catalog.json")
     assert read == f"Error reading file '.touka/catalog.json': {LINK_REFUSED_MESSAGE}"
     assert {p.name: p.read_bytes() for p in moved.iterdir()} == before
 

@@ -23,6 +23,7 @@ from src.services.agent_reset import primitives as P
 from src.tools import terminal
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -131,7 +132,8 @@ async def test_a_linked_catalog_folder_is_not_followed(
     drive.mkdir(parents=True)
     make_dir_link(drive / ".touka", fake / ".touka")
 
-    report = await O.reset_agent_data(AGENT, ADMIN, do_backup=False)
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        report = await O.reset_agent_data(AGENT, ADMIN, do_backup=False)
 
     assert _snapshot(fake) == before, LINK_FOLLOWED
     catalog = next(s for s in report.stores if s.name == "catalog")

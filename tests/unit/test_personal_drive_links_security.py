@@ -19,6 +19,7 @@ from src.models.identity import AgentIdentity
 from src.tools import file_verbs
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -144,7 +145,8 @@ async def test_a_drive_root_swapped_to_a_link_is_refused(world, case, verb):
     before = _snapshot(target)
 
     calls = {**_verbs(identity, ""), **_whole_drive_verbs(identity)}
-    result = await calls[verb]()
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        result = await calls[verb]()
 
     _assert_not_followed(result, target, before, listing=verb in LISTING_VERBS)
     assert not (target / ".touka").exists(), LINK_FOLLOWED  # 目錄只建在個人空間自己裡面
@@ -159,7 +161,8 @@ async def test_a_link_in_the_middle_of_the_path_is_refused(world, target_key, ve
     make_dir_link(world["alice"] / "sub", target)
     before = _snapshot(target)
 
-    result = await _verbs(ALICE, "sub/")[verb]()
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        result = await _verbs(ALICE, "sub/")[verb]()
 
     _assert_not_followed(result, target, before, listing=verb == "list")
     assert LINK_REFUSED_MESSAGE in str(result)
@@ -180,7 +183,8 @@ async def test_a_link_as_the_last_segment_is_refused(world, target_key, verb):
     make_dir_link(world["alice"] / "peek", target)
     before = _snapshot(target)
 
-    result = await LAST_SEGMENT[verb]({"scope": "personal", "identity": ALICE})
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        result = await LAST_SEGMENT[verb]({"scope": "personal", "identity": ALICE})
 
     _assert_not_followed(result, target, before, listing=verb == "list")
     assert "Error" in str(result)
@@ -243,8 +247,9 @@ async def test_escaping_to_another_drive_keeps_the_old_message(world, path):
     before = _snapshot(world["bob"])
     kw: dict[str, Any] = {"scope": "personal", "identity": ALICE}
 
-    read = await file_verbs.verb_read(path=path, **kw)
-    write = await file_verbs.verb_write(path=path, content="PWNED", **kw)
+    with expect_zone_refusal("ZoneSegmentError", at_least=2):
+        read = await file_verbs.verb_read(path=path, **kw)
+        write = await file_verbs.verb_write(path=path, content="PWNED", **kw)
 
     assert _snapshot(world["bob"]) == before
     assert CANARY not in read

@@ -23,6 +23,7 @@ from src.tools import subagent_tools as st
 from src.tools.mission_tools import mission_tools
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -242,7 +243,10 @@ def test_a_linked_results_folder_is_not_followed(
     else:
         make_dir_link(drive / "dispatch_results", fake)
 
-    with caplog.at_level(logging.WARNING, logger=sr.__name__):
+    with (
+        caplog.at_level(logging.WARNING, logger=sr.__name__),
+        expect_zone_refusal("ZoneLinkRefusedError", at_least=2),
+    ):
         assert read_result(identity, "tok") is None, LINK_FOLLOWED
         persist_result(identity, "new", {"x": 1})
     assert sorted(p.name for p in planted.iterdir()) == before, LINK_FOLLOWED

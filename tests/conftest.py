@@ -49,6 +49,8 @@ if str(DISPATCH_DIR) not in sys.path:
 SANDBOX_RELEASE_STEPS: list[ReleaseStep] = []
 SANDBOX_RESIDUE_MESSAGE = "測試沙盒沒刪乾淨："
 _sandbox_residue: list[Path] = []
+ZONE_LATE_MESSAGE = "測試結束後才到的區例外紀錄（ADR-0293 R13）：\n"
+_zone_late_records: list = []
 _SANDBOX_OWNER_PID = os.getpid()
 
 
@@ -142,6 +144,11 @@ permission_repair = importlib.import_module("src.utils.permission_repair")
 # 區內路徑與換 data 根（ADR-0293）：``zone_data_root``、``zone_drive`` 用。
 zone_paths = importlib.import_module("memory_server.utils.zone_paths")
 zone_roots = importlib.import_module("tests.support.zone_roots")
+# 區例外紀錄（R13）：測試期間每一筆都記下，測試結束時有沒宣告的就失敗。
+zone_records = importlib.import_module("tests.support.zone_records")
+zone_paths.add_observer(zone_records.observe)
+# 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
+ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
 logger = logging.getLogger(__name__)
 
@@ -203,14 +210,23 @@ SANDBOX_RELEASE_STEPS.extend(
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish() -> None:
-    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。"""
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。
+
+    測試結束後才到的區例外紀錄（R13）在這裡報出，整個 session 失敗。
+    """
     _cleanup_session_sandbox()
+    late = zone_records.remaining()
+    if late:
+        _zone_late_records.extend(late)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     for residue in _sandbox_residue:
         terminalreporter.write_line(f"{SANDBOX_RESIDUE_MESSAGE}{residue}")
+    if _zone_late_records:
+        terminalreporter.write_line(ZONE_LATE_MESSAGE + zone_records.describe(_zone_late_records))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -339,6 +355,36 @@ def _reset_permission_repair():
     permission_repair.set_permission_repair(None)
     yield
     permission_repair.set_permission_repair(None)
+
+
+class _FormatOnly(logging.Handler):
+    """只格式化、不輸出：``logger.debug("%s", zp)`` 這類延遲格式化也會呼叫 ``__str__``（R13）."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with suppress(Exception):  # 誤用已由觀察者記下
+            record.getMessage()
+
+
+@pytest.fixture(autouse=True)
+def _zone_refusal_records(request):
+    """測試期間的區例外紀錄（R13）：結束時有沒宣告的就失敗（產品接住了也一樣）."""
+    handler = _FormatOnly(logging.DEBUG)
+    saved = []
+    for name in ZONE_FORMAT_LOGGERS:
+        target = logging.getLogger(name)
+        saved.append((target, target.level))
+        target.setLevel(logging.DEBUG)
+        target.addHandler(handler)
+    token = zone_records.begin(request.node.nodeid)
+    try:
+        yield
+    finally:
+        mine = zone_records.end(request.node.nodeid, token)
+        for target, level in saved:
+            target.removeHandler(handler)
+            target.setLevel(level)
+    if mine:
+        pytest.fail("未宣告的區例外（ADR-0293 R13）：\n" + zone_records.describe(mine))
 
 
 @pytest.fixture

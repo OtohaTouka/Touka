@@ -27,6 +27,7 @@ from src.tools import terminal
 from src.utils.async_db import session_service
 
 from tests.support.links import make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -197,7 +198,8 @@ async def test_a_drive_linked_after_the_start_is_not_used(procs, zone_data_root,
     fake.mkdir()
     make_dir_link(folder, fake)
     record = terminal._ASYNC_RESULTS[running["execution_id"]]
-    await _until(lambda: record["status"] != "running")
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        await _until(lambda: record["status"] != "running")
     assert procs["spawned"] == []
     payload = json.loads(record["result"])
     assert payload["error_class"] == "permission_denied"

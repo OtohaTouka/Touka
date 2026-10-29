@@ -28,6 +28,8 @@ from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.utils import custom_io, soul_io
 
+from tests.support.zone_records import expect_zone_refusal
+
 OWNER = AgentIdentity.for_role(agent_id="ownerAgent", role="Owner", is_human=False, owned_agents=[])
 ADMIN = AgentIdentity.for_role(agent_id="AdminUser", role="admin", is_human=True)
 
@@ -233,19 +235,22 @@ class TestCustomIoMoveSandbox:
         return b
 
     def test_move_blocks_traversal(self, base, tmp_path):
-        assert custom_io.move_custom_dir("modelX", "../../escape") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "../../escape") is False
         # Source untouched; nothing materialised outside the sandbox.
         assert (base / "modelX" / "config.json").exists()
         assert not (tmp_path / "escape").exists()
 
     def test_move_blocks_dotdot_single_level(self, base, tmp_path):
         # ".." passes the new_id char-pattern but must be caught by the path guard.
-        assert custom_io.move_custom_dir("modelX", "..") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "..") is False
         assert (base / "modelX").exists()
 
     def test_move_blocks_traversal_old_id(self, base):
         # An escaping OLD id is rejected too (defense on both sides).
-        assert custom_io.move_custom_dir("../../etc", "modelY") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("../../etc", "modelY") is False
         assert not (base / "modelY").exists()
 
     def test_legitimate_rename_works(self, base):

@@ -25,6 +25,7 @@ from src.routers.ui_sessions import _require_authenticated
 from src.tools.mission_tools import mission_tools
 
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 from ToukaDispatch import server as dispatch_server
 
 ALICE = AgentIdentity.for_role(agent_id="Alice", role="Owner")
@@ -108,7 +109,8 @@ async def test_a_board_folder_swapped_to_a_link_is_refused(
     identity, key, target_key = case
     target = _swap(world, key, target_key)
     before = _snapshot(target)
-    output = await mission_tools(action, identity=identity, **ACTIONS[action])
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        output = await mission_tools(action, identity=identity, **ACTIONS[action])
     assert _snapshot(target) == before, LINK_FOLLOWED
     assert CANARY not in output, LINK_FOLLOWED
     result = json.loads(output)
@@ -139,7 +141,8 @@ async def test_dispatch_returns_a_fixed_message_for_a_linked_board(
     monkeypatch.setattr(session_manager, "rotate_mission_token", rotate)
     target = _swap(world, "dispatch_drive", "fake_config")
     before = _snapshot(target)
-    output = await dispatch_server.dispatch_initialize_mission(session_token, "dispatch goal")
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        output = await dispatch_server.dispatch_initialize_mission(session_token, "dispatch goal")
     assert _snapshot(target) == before, LINK_FOLLOWED
     assert output == f"Error: {dispatch_server.BOARD_UNAVAILABLE}"
     rotate.assert_not_called()
@@ -151,7 +154,8 @@ def test_the_board_endpoint_treats_a_linked_board_as_no_mission(world: dict[str,
     before = _snapshot(target)
     app.dependency_overrides[_require_authenticated] = lambda: ALICE
     try:
-        resp = TestClient(app, raise_server_exceptions=False).get("/v1/ui/mission")
+        with expect_zone_refusal("ZoneLinkRefusedError"):
+            resp = TestClient(app, raise_server_exceptions=False).get("/v1/ui/mission")
     finally:
         app.dependency_overrides.clear()
     assert _snapshot(target) == before, LINK_FOLLOWED

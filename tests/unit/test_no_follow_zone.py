@@ -43,6 +43,7 @@ from memory_server.utils.no_follow import (
 from memory_server.utils.zone_paths import Anchor, ZoneRoots, ZoneSegmentError
 
 from tests.support.links import make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -83,9 +84,11 @@ def outside(base: Path) -> Path:
 
 @pytest.fixture
 def events() -> list[zp.ZoneEvent]:
+    """這個測試的觀察者紀錄；測試自己斷言內容，R13 的紀錄由這裡宣告掉."""
     seen: list[zp.ZoneEvent] = []
     zp.add_observer(seen.append)
-    yield seen
+    with expect_zone_refusal(BaseException, at_least=0):
+        yield seen
     zp.remove_observer(seen.append)
 
 
@@ -177,7 +180,7 @@ def test_rename_entry(base, outside):
     with pytest.raises(LinkRefusedError):
         rename_entry_no_follow(base, "link", "renamed")
     for bad in ("..", "a/b", "", " x"):
-        with pytest.raises(ZoneSegmentError):
+        with expect_zone_refusal("ZoneSegmentError"), pytest.raises(ZoneSegmentError):
             rename_entry_no_follow(base, "alice", bad)
     assert (base / "alice" / "notes.txt").is_file()
     assert (base / "link").exists()

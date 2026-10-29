@@ -32,6 +32,7 @@ from src.utils import permission_repair as pr
 from src.utils.permission_repair import set_permission_repair
 
 from tests.support.links import make_dir_link
+from tests.support.zone_records import expect_zone_refusal, raises_zone
 
 PD, CD = Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE
 ALICE = AgentIdentity(agent_id="Alice", agent_role="Owner")
@@ -56,9 +57,11 @@ def outside(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def events() -> list[zp.ZoneEvent]:
+    """這個測試的觀察者紀錄；測試自己斷言內容，R13 的紀錄由這裡宣告掉."""
     seen: list[zp.ZoneEvent] = []
     zp.add_observer(seen.append)
-    yield seen
+    with expect_zone_refusal(BaseException, at_least=0):
+        yield seen
     zp.remove_observer(seen.append)
 
 
@@ -103,7 +106,7 @@ STRING_CALLS = {
 @pytest.mark.parametrize("as_path", [False, True], ids=["str", "Path"])
 def test_zone_methods_refuse_anything_but_a_zone_path(data, events, call, as_path):
     text = str(_drive(data) / "a.txt")
-    with pytest.raises(ZonePathRequiredError):
+    with raises_zone(ZonePathRequiredError):
         call(Path(text) if as_path else text)
     assert [e.error for e in events] == [ZonePathRequiredError]
     assert sorted(p.name for p in _drive(data).iterdir()) == []
@@ -153,7 +156,7 @@ def test_read_json_gives_none_only_for_missing_or_corrupt(data, outside, caplog)
     assert "zone://personal_drive/Alice/bad.json" in caplog.text
     assert str(data) not in caplog.text
     make_dir_link(_drive(data) / "peek", outside)
-    with pytest.raises(ZoneLinkRefusedError):  # 連結不塌縮成 None
+    with raises_zone(ZoneLinkRefusedError):  # 連結不塌縮成 None
         rm.zone_read_json(alice("peek", "secret.txt"))
 
 
@@ -207,7 +210,7 @@ THROUGH_LINK = {
 def test_a_link_in_the_middle_is_refused(data, outside, events, call):
     make_dir_link(_drive(data) / "peek", outside)
     target = alice("peek", "secret.txt")
-    with pytest.raises(ZoneLinkRefusedError) as caught:
+    with raises_zone(ZoneLinkRefusedError) as caught:
         call(target)
     exc = caught.value
     assert exc.filename == target.display()
@@ -235,7 +238,7 @@ LAST_SEGMENT = {
 @pytest.mark.parametrize("call", LAST_SEGMENT.values(), ids=LAST_SEGMENT.keys())
 def test_a_link_as_the_last_segment_is_refused(data, outside, call):
     make_dir_link(_drive(data) / "peek", outside)
-    with pytest.raises(ZoneLinkRefusedError) as caught:
+    with raises_zone(ZoneLinkRefusedError) as caught:
         call(alice("peek"))
     assert caught.value.filename == alice("peek").display()
     assert _untouched(outside)
@@ -439,11 +442,11 @@ def test_rename_agent_container(data, outside):
         "new"
     ]
     make_dir_link(data / "personal_drive" / "Peek", outside)
-    with pytest.raises(ZoneLinkRefusedError) as caught:
+    with raises_zone(ZoneLinkRefusedError) as caught:
         rm.rename_agent_container(PD, "Peek", "Mine")
     assert caught.value.filename == "zone://personal_drive/Peek"
     assert _untouched(outside)
-    with pytest.raises(ZoneSegmentError):
+    with raises_zone(ZoneSegmentError):
         rm.rename_agent_container(PD, "new", "../x")
 
 
@@ -459,11 +462,11 @@ def test_remove_custom_model_dir(data, outside):
     assert not (data / "custom" / "M1").exists()
     assert rm.remove_custom_model_dir(M1) is False
     make_dir_link(data / "custom" / "M2", outside)
-    with pytest.raises(ZoneLinkRefusedError) as caught:
+    with raises_zone(ZoneLinkRefusedError) as caught:
         rm.remove_custom_model_dir(AgentIdentity(agent_id="M2", agent_role="Base"))
     assert caught.value.filename == "zone://custom_drive/M2"
     assert _untouched(outside)
-    with pytest.raises(ZoneSegmentError):
+    with raises_zone(ZoneSegmentError):
         rm.remove_custom_model_dir(AgentIdentity(agent_id="..", agent_role="Base"))
 
 
@@ -511,7 +514,7 @@ def test_agent_drive_for_looks_up_the_registered_identity(data, monkeypatch):
 
 
 def test_get_vault_path_no_longer_gives_the_personal_drive(data, events):
-    with pytest.raises(ZonePathRequiredError):
+    with raises_zone(ZonePathRequiredError):
         rm.get_vault_path("personal", ALICE)
     assert [e.error for e in events] == [ZonePathRequiredError]
     assert not hasattr(rm, "get_vault_path_for_agent")
