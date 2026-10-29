@@ -35,7 +35,7 @@ _ENV_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 # HTTP 標頭名稱（RFC 9110 的 token）；Touka 自己送的標頭不讓設定改（比對不分大小寫）
 _HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 _RESERVED_HEADERS: Final[frozenset[str]] = frozenset(
-    {"content-type", "content-length", "host", "transfer-encoding"}
+    {"content-type", "content-length", "host", "transfer-encoding", "accept-encoding"}
 )
 
 

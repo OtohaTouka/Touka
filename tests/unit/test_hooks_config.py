@@ -85,6 +85,8 @@ def test_command_and_http_hooks_validate():
                         "headers": {"HOST": "evil.test"}}),
         ("PreToolUse", {"type": "http", "url": "https://example.test",
                         "headers": {"Transfer-Encoding": "chunked"}}),
+        ("PreToolUse", {"type": "http", "url": "https://example.test",
+                        "headers": {"Accept-Encoding": "gzip"}}),
     ],
 )
 def test_rejects_unsupported_or_unsafe_entries(event, handler):

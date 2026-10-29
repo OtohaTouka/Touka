@@ -8,6 +8,8 @@ hook 以 Touka 自己的權限、不經隔離執行；代理人改得到的程�
 - ``hooks/`` 以外的指令不能落在代理人可能寫得到的地方：資料根、隔離暫存區、工作區根、
   專案根、MCP 伺服器的可寫資料夾；設定資料夾裡只有 ``hooks/`` 可以放；連結的所在位置與
   最後指向都要檢查，中間經過的每一個連結也算；
+- 使用者登記的根（專案根、MCP 可寫資料夾）路上有連結時只禁字面：隔離層不授權這種根，
+  代理人把它換成指向直譯器資料夾的連結，不能讓所有 hook 被拒；
 - 指令必須是存在的絕對路徑一般檔；任何參數出現 ``..`` 一律拒收。
 """
 
@@ -389,6 +391,41 @@ def test_alias_of_an_agent_folder_is_rejected_by_file_identity(layout, monkeypat
     assert "agent_writable" in _reasons(command_path_problems(hook, _zones(layout)))
 
 
+def _granted_zones(layout: dict[str, Path], *granted: Path) -> HookZones:
+    """Touka 自己的資料夾放 ``forbidden``，使用者登記的根放 ``granted``（同 ``current_zones``）。"""
+    return HookZones(
+        config_dir=layout["config"], forbidden=(layout["data"], layout["state"]), granted=granted
+    )
+
+
+@pytest.mark.parametrize("target", ["outside", "everything"])
+def test_a_registered_root_that_is_a_link_only_forbids_its_literal_path(layout, tmp_path, target):
+    """代理人在上層專案裡把下層專案根換成指向直譯器資料夾（或所有東西的上層）的連結：
+    hook 照常檢查，不會全部被拒；連結的字面路徑與其他禁區照樣拒收。"""
+    pointed = layout["outside"] if target == "outside" else tmp_path
+    linked = layout["project"] / "nested"
+    _make_dir_link(linked, pointed)
+    through_link = linked / "tool.exe" if target == "outside" else linked / "bin" / "tool.exe"
+    good = _hook(layout["outside"] / "tool.exe", str(layout["config"] / "hooks" / "guard.py"))
+    zones = _granted_zones(layout, layout["project"], linked)
+    assert command_path_problems(good, zones) == []
+    for command in (through_link, layout["data"] / "evil.py", layout["project"] / "proj.py"):
+        assert "agent_writable" in _reasons(command_path_problems(_hook(command), zones)), command
+    # Touka 自己的資料夾是連結時照舊跟著解析：指到的地方一起禁
+    own = HookZones(config_dir=layout["config"], forbidden=(*zones.forbidden, linked))
+    assert "agent_writable" in _reasons(command_path_problems(good, own))
+
+
+def test_a_registered_root_without_links_is_matched_by_file_identity(layout, monkeypatch):
+    """沒有連結的登記根照舊比對識別碼：同一個資料夾的另一個寫法（8.3 短名、bind mount）也拒收。"""
+    alias = layout["outside"] / "alias"
+    alias.mkdir()
+    (alias / "proj.py").write_text("", encoding="utf-8")
+    _stat_alias(monkeypatch, {alias: layout["project"]})
+    zones = _granted_zones(layout, layout["project"])
+    assert "agent_writable" in _reasons(command_path_problems(_hook(alias / "proj.py"), zones))
+
+
 def test_alias_of_the_config_folder_is_rejected(layout, monkeypatch):
     """設定資料夾的別名：``hooks/`` 以外是代理人寫得到的地方；指進 ``hooks/`` 的也要照字面寫
     （不然查不到硬連結），所以都拒收。"""
@@ -465,13 +502,12 @@ async def test_zones_cover_agent_folders_workspace_projects_mcp_and_container_mi
     under = _fake_zone_sources(monkeypatch, tmp_path, in_container)
     _fake_mcp_store(monkeypatch, "ok", ((under("mcp_rw"), "rw"), (under("mcp_ro"), "ro")))
     zones = await current_zones()
-    expected = {
-        under("data"), under("state"), under("ws"), under("host") / "ws", under("proj"),
-        under("host") / "proj", under("mcp_rw"),
-    }
+    expected = {under("data"), under("state"), under("ws"), under("host") / "ws"}
     if in_container:
         expected.add(under("mirror"))
     assert set(zones.forbidden) == expected
+    # 使用者登記的根另外放：路上有連結時只禁字面
+    assert set(zones.granted) == {under("proj"), under("host") / "proj", under("mcp_rw")}
     assert zones.config_dir == under("config")
 
 

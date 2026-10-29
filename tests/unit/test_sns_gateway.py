@@ -440,6 +440,27 @@ async def test_other_pipeline_errors_still_store_the_sns_message() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["home", "independent"])
+async def test_stopped_sns_message_is_stored_without_a_reply(mode: str) -> None:
+    """擁有者在 hook 執行期間按停止：外人訊息照存，不回覆外人，也不往外丟錯（不回「內部錯誤」）。"""
+    proxy = AsyncMock(side_effect=ToukaException(ErrorCode.PROMPT_STOPPED))
+    gateway = SNSGatewayService()
+    adapter = MockAdapter(agent_id="Alice")
+    mock_identity_svc, mock_session_svc = _make_mocks()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request", proxy),
+    ):
+        reply = await gateway.on_event(adapter, make_event(content="hi"), session_mode=mode)
+    assert reply == ""
+    assert adapter.sent_messages == []
+    stored = [call.args[1:3] for call in mock_session_svc.append_message_to_session.await_args_list]
+    assert stored == [("user", "【SNS 外部訊息】" + chr(10) + "hi")]
+
+
+@pytest.mark.asyncio
 async def test_home_mode_stores_the_sns_message_after_the_pipeline_reads_the_home() -> None:
     """家對話模式：SoulLayer 在 pipeline 裡讀家對話，那時這一句還沒寫進去，送給模型的家對話
     裡就不會多出現一次（ADR-0292 把寫入移到 pipeline 之後）。"""

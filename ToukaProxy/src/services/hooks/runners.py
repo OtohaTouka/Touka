@@ -11,7 +11,9 @@ command：
 http：
 - POST 事件內容（``application/json``）；不跟隨轉址、不讀環境的代理與 .netrc。
 - 3xx、非 2xx、連不上、逾時都算失敗；``timeout`` 是整次請求（含讀回應）的上限。
-- 回應讀到 ``MAX_HOOK_OUTPUT_BYTES`` 就停止讀取並關閉連線。
+- 回應讀到 ``MAX_HOOK_OUTPUT_BYTES`` 就停止讀取並關閉連線。只收沒有壓縮的回應（送
+  ``Accept-Encoding: identity``，回應有壓縮就算失敗、不解開），上限算的就是收到的位元組：
+  壓縮過的回應解開前看不出多大，幾百位元組可以解成幾百 MiB。
 
 這裡只負責執行與收結果；結果代表什麼（擋下、補充說明）由 ``outcome`` 解讀。
 """
@@ -44,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 MAX_HOOK_OUTPUT_BYTES: Final[int] = 64 * 1024
 _READ_CHUNK: Final[int] = 16 * 1024
+# http 回應只收沒有壓縮的（``Content-Encoding`` 沒寫或是 identity）
+_PLAIN_ENCODINGS: Final[frozenset[str]] = frozenset({"", "identity"})
 
 RunStatus = Literal["ok", "timeout", "error", "rejected"]
 
@@ -163,7 +167,7 @@ async def run_http(
 ) -> RunResult:
     """執行 http hook；``transport`` 只供測試替換。"""
     started = get_monotonic_ms()
-    headers = {**hook.headers, "Content-Type": "application/json"}
+    headers = {**hook.headers, "Content-Type": "application/json", "Accept-Encoding": "identity"}
     body = _CappedReader(MAX_HOOK_OUTPUT_BYTES)
     try:
         async with (
@@ -174,6 +178,14 @@ async def run_http(
             ) as client,
             client.stream("POST", hook.url, content=payload, headers=headers) as response,
         ):
+            if response.headers.get("content-encoding", "").strip().lower() not in _PLAIN_ENCODINGS:
+                return RunResult(
+                    status="error",
+                    duration_ms=_elapsed(started),
+                    http_status=response.status_code,
+                    detail="compressed response",
+                )
+            # 已確認沒有壓縮：讀到的就是收到的位元組，不會先解開一大塊
             async for chunk in response.aiter_bytes():
                 body.feed(chunk)
                 if body.truncated:

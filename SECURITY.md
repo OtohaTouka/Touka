@@ -182,6 +182,9 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 第五輪：Windows 上字詞中間的 `C:evil.jar` 這種只有磁碟代號、沒有斜線的路徑（以該磁碟的目前資料夾為準）沒檢查。 | 字詞中間 `:`／`@` 後面接磁碟代號就照路徑檢查並拒絕（不是絕對路徑）；Linux／Docker 上參數裡的網址照路徑清單分隔符拆開、會被拒絕，寫在文件與測試裡。`tests/unit/test_hook_paths_security.py`。 |
 | 第六輪：工具在等 PreToolUse hook 時按停止，同一個對話的下一則請求（或下一次心跳）開始時清掉旗標，hook 跑完後工具照常執行；心跳的脈衝之間同樣認不出被清掉的停止；換綁對話的交易進行中按的停止要等換綁寫完才擋下；串流開始前按停止時，靈魂會被記成主要模型失敗、可能改用備援模型再送一次。 | 對話每被停止一次記一次（只增不減）；每次執行開始時記下次數（前景請求在清掉殘留旗標之後、心跳在整次執行開始時），hook 跑完時與心跳的脈衝之間次數變多就當成被停止。換綁對話之前也先看一次。使用者停止不記成模型失敗、不換備援模型。`tests/unit/test_hook_wiring_security.py`、`test_continuity_event_hooks.py`、`test_dispatcher_resumable.py`、`test_proxy_fallback_family.py`、`test_rhythm_interrupt.py`。 |
 | 第六輪：字詞中間 `:`／`@` 後面接 `//` 的路徑（`-javaagent://host/share/x.jar`，Windows 上是 UNC）沒檢查；hook 程式用連結指進 `config/hooks/` 時改走一般的禁區檢查，不查硬連結；MCP 工具用裸名稱叫時，寫成工具清單上正式名稱 `server__tool` 的比對規則比對不到。 | 只有 `:` 前面整段是網址的 scheme 時才當成網址略過，其他照路徑檢查（Windows 回 `unc_path`）；解析後在 `config/hooks/` 裡的指令照 `config/hooks/` 的規則查（要照字面寫，用連結或 bind mount 這類別名指進去的拒收）；比對名稱加上 `server__tool`。`tests/unit/test_hook_paths_security.py`、`test_hook_wiring_security.py`。 |
+| 第七輪：代理人把自己的專案根弄成連結迴圈（或讓某個禁區根讀不到狀態），建立路徑檢查時整個丟出例外，所有 command hook 都不執行，存檔也回 500。 | 每個禁區根各自處理：解析不出來或讀不到識別碼的只略過那一項（字面照禁）；指令本身查不了時回 `unverifiable`（拒收）；設定資料夾或 `config/hooks/` 讀不到時每個 hook 都回 `unverifiable`。`tests/unit/test_hook_paths_security.py`。 |
+| 第八輪：http hook 的回應有壓縮時，64 KiB 上限算在解開之後，幾百位元組的回應會先解成幾百 MiB（壓縮炸彈）。 | 送 `Accept-Encoding: identity`，回應有壓縮就算失敗、不解開，上限算的是收到的位元組；設定裡不能改 `Accept-Encoding`。`tests/unit/test_hook_runners_security.py`、`test_hooks_config.py`。 |
+| 第八輪：代理人在上層專案裡把下層專案根換成指向直譯器資料夾或 `/` 的連結，那裡就變成禁區，所有程式不在 `config/hooks/` 的 command hook 都被拒（失敗不擋，等於沒設）。 | 使用者登記的根（專案根、MCP 可寫資料夾）路上有連結時只禁字面：隔離層不授權這種根，連結指到的地方代理人的終端寫不到；Touka 自己的資料夾照舊跟著解析。Debugger 的專案檔案工具會跟著連結寫，寫在 ADR-0292 已知的界線、另案處理。`tests/unit/test_hook_paths_security.py`。 |
 
 ### 統計端點的 token 用量看得到別的靈魂（2026-10-29）
 

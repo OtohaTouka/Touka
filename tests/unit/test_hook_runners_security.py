@@ -15,6 +15,7 @@ http：
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import sys
 import threading
@@ -204,6 +205,58 @@ async def test_http_stops_reading_at_the_cap():
     result = await asyncio.wait_for(run_http(_http(), b"{}", transport=transport), timeout=10)
     assert (result.status, result.truncated) == ("ok", True)
     assert body.sent <= MAX_HOOK_OUTPUT_BYTES // 16_384 + 1
+
+
+def _gzip_bomb(layers: int) -> tuple[bytes, int]:
+    """壓縮 ``layers`` 層的一大塊零；回傳送出的位元組與解開後的大小。"""
+    size = MAX_HOOK_OUTPUT_BYTES * 64
+    data = b"\x00" * size
+    for _ in range(layers):
+        data = gzip.compress(data)
+    return data, size
+
+
+async def test_http_asks_for_an_uncompressed_reply():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    await run_http(_http(), b"{}", transport=httpx.MockTransport(handler))
+    assert seen[0].headers["accept-encoding"] == "identity"
+
+
+@pytest.mark.parametrize("layers", [1, 2])
+async def test_http_compressed_reply_is_an_error_and_is_not_expanded(layers, monkeypatch):
+    """壓縮過的回應解開前看不出多大：直接算失敗，不解壓（上限算在收到的位元組上）。"""
+    wire, size = _gzip_bomb(layers)
+    encoding = ", ".join(["gzip"] * layers)
+    fed: list[int] = []
+    real_feed = runners._CappedReader.feed
+
+    def spy(self, chunk: bytes) -> None:
+        fed.append(len(chunk))
+        real_feed(self, chunk)
+
+    monkeypatch.setattr(runners._CappedReader, "feed", spy)
+    transport = httpx.MockTransport(
+        lambda _r: httpx.Response(200, content=wire, headers={"Content-Encoding": encoding})
+    )
+    result = await run_http(_http(), b"{}", transport=transport)
+    assert len(wire) < MAX_HOOK_OUTPUT_BYTES < size
+    assert (result.status, result.detail) == ("error", "compressed response")
+    assert result.stdout == ""
+    assert sum(fed) == 0
+
+
+@pytest.mark.parametrize("encoding", ["identity", "Identity "])
+async def test_http_identity_encoding_is_read_as_is(encoding):
+    transport = httpx.MockTransport(
+        lambda _r: httpx.Response(200, content=b'{"ok": 1}', headers={"Content-Encoding": encoding})
+    )
+    result = await run_http(_http(), b"{}", transport=transport)
+    assert (result.status, result.stdout) == ("ok", '{"ok": 1}')
 
 
 async def test_http_client_ignores_environment_credentials(monkeypatch):

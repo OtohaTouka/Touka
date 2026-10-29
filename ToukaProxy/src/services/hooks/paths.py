@@ -15,6 +15,9 @@ hook 以 Touka 自己的權限、不經隔離執行。代理人改得到的程�
 - ``hooks/`` 以外：比對原樣的絕對路徑、解析連結後的路徑、以及每一層上層資料夾的檔案識別碼
   （``st_dev``＋``st_ino``，抓大小寫、8.3 短名與 bind mount 別名）；路徑上每一個連結的所在位置
   與它直接指向的地方都要查。
+- 專案根與 MCP 可寫資料夾是使用者登記的：路上有連結（解析前後不同）時只禁字面那一個。隔離層
+  不授權這種根，連結指到的地方代理人寫不到；若照解析結果禁，代理人在上層專案裡把下層專案根換成
+  指向直譯器資料夾或 ``/`` 的連結，就能讓所有 hook 被拒。Touka 自己的資料夾照舊解析。
 - 任何 ``..`` 一律拒收；指令必須是存在的絕對路徑一般檔。
 
 hook 程式自己執行時再去讀哪裡，Touka 管不到；這裡只擋設定裡寫得出來的路徑。
@@ -86,10 +89,15 @@ _NONEXISTENT_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EINVAL, errn
 
 @dataclass(frozen=True)
 class HookZones:
-    """路徑界線需要的資料夾：設定資料夾與 ``hooks/`` 以外的指令不能落在的地方。"""
+    """路徑界線需要的資料夾：設定資料夾與 ``hooks/`` 以外的指令不能落在的地方。
+
+    ``forbidden`` 是 Touka 自己的資料夾（字面、解析後與識別碼都禁）；``granted`` 是使用者登記、
+    會授權給代理人的根（專案根、MCP 可寫資料夾），路上有連結時只禁字面。
+    """
 
     config_dir: Path
     forbidden: tuple[Path, ...]
+    granted: tuple[Path, ...] = ()
 
     @property
     def hooks_dir(self) -> Path:
@@ -194,6 +202,19 @@ class _ZoneChecker:
                 lexical.add(_norm(resolved))
             try:
                 ident = _identity(_stat(Path(root)))
+            except OSError:
+                ident = None
+            if ident is not None:
+                identities.add(ident)
+        # 使用者登記的根：路上有連結（解析前後不同，同隔離層的判斷）時只禁字面，連結指到的地方
+        # 不跟著禁；沒有連結時解析結果就是字面，另加識別碼（lstat：最後一段之後才換成連結也不跟）
+        for root in zones.granted:
+            lexical.add(_norm(root))
+            resolved = _resolved_or_none(Path(root))
+            if resolved is None or _norm(resolved) != _norm(root):
+                continue
+            try:
+                ident = _identity(_lstat(Path(root)))
             except OSError:
                 ident = None
             if ident is not None:
@@ -422,25 +443,31 @@ def _mcp_writable_folders(config_dir: Path) -> list[Path]:
     ]
 
 
+async def _with_translation(root: str) -> list[Path]:
+    """``root`` 與它在另一邊（容器／主機）的路徑。"""
+    translated = Path(await resource_manager.translate_path(root))
+    return [Path(root)] if translated == Path(root) else [Path(root), translated]
+
+
 async def current_zones() -> HookZones:
     """依目前設定組出 ``hooks/`` 以外的指令不能落在的地方；讀不到就丟例外（呼叫端當成不能執行）。
 
     專案根只影響 ``hooks/`` 以外的指令；一般使用者只能把專案登記在工作區根底下，工作區根整個
-    已在禁區裡，所以他們登記或撤掉專案都不會改變結果。
+    已在禁區裡，所以他們登記或撤掉專案都不會改變結果。專案根與 MCP 可寫資料夾放 ``granted``
+    （路上有連結時只禁字面），工作區根和 Touka 自己的資料夾放 ``forbidden``。
     """
     layout = profiles.current_layout()
     forbidden: list[Path] = [layout.data_root]
     forbidden.extend(p for p in (layout.state_root, layout.executor_dir) if p is not None)
     if layout.in_container:
         forbidden.extend(layout.mirror_roots)
-    workspace = await resource_manager.get_workspace_jail_root()
-    for root in (str(workspace), *await list_project_root_paths()):
-        forbidden.append(Path(root))
-        translated = Path(await resource_manager.translate_path(root))
-        if translated != Path(root):
-            forbidden.append(translated)
-    forbidden.extend(_mcp_writable_folders(layout.config_dir))
+    forbidden.extend(await _with_translation(str(await resource_manager.get_workspace_jail_root())))
+    granted: list[Path] = []
+    for root in await list_project_root_paths():
+        granted.extend(await _with_translation(root))
+    granted.extend(_mcp_writable_folders(layout.config_dir))
     return HookZones(
         config_dir=layout.config_dir,
         forbidden=tuple(p for p in forbidden if p.is_absolute()),
+        granted=tuple(p for p in granted if p.is_absolute()),
     )

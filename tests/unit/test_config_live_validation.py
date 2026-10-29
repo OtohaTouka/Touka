@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from src.models.autonomy import AutonomyConfigModel
@@ -64,6 +65,25 @@ def test_the_fix_hint_says_which_broken_files_are_rebuilt_from_the_example(tmp_p
     assert "autonomy.json、hooks.json 也可以刪除後重啟，系統會從 .example 範本重建" in message
     assert "hooks.json 的範本是關閉的：所有 hook 都不執行" in message
     assert "custom.json 沒有範本，刪除後不會重建" in message
+
+
+def test_the_fix_hint_does_not_guess_when_the_example_cannot_be_read(tmp_path, monkeypatch):
+    """讀不到 .example（權限一類）：提示說看不出來，照樣回報原本的壞檔錯誤，不另外丟例外。"""
+    _write(tmp_path, "autonomy.json.example", {})
+    _write(tmp_path, "autonomy.json", "{ broken ")
+    real_is_file = Path.is_file
+
+    def is_file(path: Path) -> bool:
+        if path.name == "autonomy.json.example":
+            raise PermissionError(13, "denied", str(path))
+        return real_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    with pytest.raises(ConfigValidationError) as ei:
+        validate_live_configs(config_dir=tmp_path)
+    message = str(ei.value)
+    assert "autonomy.json 看不出有沒有 .example 範本" in message
+    assert "重建" not in message
 
 
 def test_missing_modeled_file_skipped(tmp_path):
