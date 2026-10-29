@@ -27,6 +27,7 @@ from memory_server.utils.zone_paths import (
     ZoneRootsUnavailableError,
     ZoneSegmentError,
     add_observer,
+    anchor_at,
     anchor_dirname,
     contains_zone,
     current_roots,
@@ -201,6 +202,59 @@ def test_zone_of_custom_by_identity_folds_case(
     _same_identity(monkeypatch, alias, data / "custom")
     assert zone_of(alias / "M1" / "DRIVE" / "x", roots) == (CD, ("M1", "DRIVE", "x"))
     assert zone_of(alias / "M1" / "config.json", roots) is None
+
+
+def test_zone_of_without_following_looks_only_at_the_literal_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: Path, roots: ZoneRoots
+) -> None:
+    """``follow=False``：路徑與錨點都不解析、不比身分（權限自癒自己比對解析前後）."""
+    base = tmp_path.resolve()
+    make_dir_link(base / "to_alice", data / "personal_drive" / "Alice")
+    assert zone_of(base / "to_alice" / "x", roots, follow=False) is None
+    assert zone_of(data / "personal_drive" / "Alice" / "x", roots, follow=False) == (
+        PD, ("Alice", "x")
+    )
+    assert zone_of(data / "custom" / "M1" / "drive", roots, follow=False) == (
+        CD, ("M1", "drive")
+    )
+    make_dir_link(base / "data_link", data)
+    via_link = ZoneRoots(base / "data_link", None)
+    assert zone_of(data / "personal_drive" / "Alice", via_link, follow=False) is None
+    alias = base / "mounted_pd"
+    (alias / "Alice").mkdir(parents=True)
+    _same_identity(monkeypatch, alias, data / "personal_drive")
+    assert zone_of(alias / "Alice" / "x", roots, follow=False) is None
+
+
+@pytest.mark.parametrize(
+    ("rel", "expected"),
+    [
+        ("personal_drive", PD),
+        ("custom", CD),
+        ("mcp_servers/managed", Anchor.MCP_SERVERS),
+        ("temp/docgen_output", Anchor.DOCGEN_OUTPUT),
+        ("", None),
+        ("mcp_servers", None),
+        ("personal_drive/Alice", None),
+        ("custom/M1", None),
+        ("custom/M1/drive", None),
+    ],
+)
+def test_anchor_at(data: Path, roots: ZoneRoots, rel: str, expected: object) -> None:
+    path = os.path.join(str(data), rel) if rel else str(data)
+    assert anchor_at(path, roots, anchors=ALL_ANCHORS) is expected
+
+
+def test_anchor_at_state_and_the_given_anchors(data: Path, roots: ZoneRoots) -> None:
+    assert anchor_at(data.parent / "state", roots, anchors=ALL_ANCHORS) is Anchor.SANDBOX_STATE
+    assert anchor_at(data / "mcp_servers" / "managed", roots) is None  # 預設只看個人空間
+    assert anchor_at(data / "personal_drive", roots, anchors={CD}) is None
+
+
+def test_anchor_at_through_a_link(tmp_path: Path, data: Path, roots: ZoneRoots) -> None:
+    base = tmp_path.resolve()
+    make_dir_link(base / "to_pd", data / "personal_drive")
+    assert anchor_at(base / "to_pd", roots) is PD
 
 
 def test_identity_is_unknown_without_inode_numbers() -> None:

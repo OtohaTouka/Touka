@@ -469,8 +469,9 @@ def _under(parts: tuple[str, ...], base: tuple[str, ...]) -> tuple[str, ...] | N
     return parts[n:]
 
 
-def _bases(roots: ZoneRoots, anchor: Anchor) -> list[tuple[str, ...]]:
-    literal, resolved = roots.literal(anchor), roots.resolved(anchor)
+def _bases(roots: ZoneRoots, anchor: Anchor, *, follow: bool = True) -> list[tuple[str, ...]]:
+    literal = roots.literal(anchor)
+    resolved = roots.resolved(anchor) if follow else None
     return [_parts_of(p) for p in {literal, resolved} if p is not None]
 
 
@@ -480,24 +481,39 @@ def zone_of(
     *,
     anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
     use_identity: bool = True,
+    follow: bool = True,
 ) -> tuple[Anchor, tuple[str, ...]] | None:
     """``path`` 在某個區裡時回（錨點, 段落），否則 None；錨點本身不算區內。
 
     三項任一成立：字面在錨點的字面或解析後路徑底下；解析後在錨點解析後的路徑底下；
     從根往下某個存在的前綴，檔案身分等於某錨點，後面還有段落（``use_identity``，只有測試
-    絆線關掉）。自訂模型三項都要再對上 ``<id>/drive``。
+    絆線關掉）。自訂模型三項都要再對上 ``<id>/drive``。``follow=False`` 只看字面：路徑與
+    錨點都不解析、不比身分（權限自癒自己比對解析前後）。
     """
     chosen = [a for a in Anchor if a in set(anchors)]
     literal = _parts_of(_absolute(path))
-    real = _parts_of(_real(_absolute(path)))
-    for candidate in (literal, real):
+    candidates = [literal, _parts_of(_real(_absolute(path)))] if follow else [literal]
+    for candidate in candidates:
         for anchor in chosen:
-            for base in _bases(roots, anchor):
+            for base in _bases(roots, anchor, follow=follow):
                 rest = _under(candidate, base)
                 if rest is not None and _shape(anchor, rest, _norm):
                     return anchor, rest
-    if use_identity:
+    if use_identity and follow:
         return _zone_by_identity(literal, roots, chosen)
+    return None
+
+
+def anchor_at(
+    path: str | os.PathLike[str], roots: ZoneRoots, *, anchors: Iterable[Anchor] = ENFORCED_ANCHORS
+) -> Anchor | None:
+    """``path``（字面或解析後）恰好是某個錨點本身時回那個錨點，否則 None。"""
+    chosen = [a for a in Anchor if a in set(anchors)]
+    text = _absolute(path)
+    for candidate in (_parts_of(text), _parts_of(_real(text))):
+        for anchor in chosen:
+            if any(_key(candidate) == _key(base) for base in _bases(roots, anchor)):
+                return anchor
     return None
 
 
