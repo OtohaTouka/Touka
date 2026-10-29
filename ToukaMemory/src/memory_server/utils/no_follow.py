@@ -8,9 +8,11 @@
 - POSIX：從檔案系統的根起逐段以 ``O_NOFOLLOW`` 開啟（``dir_fd``；Linux 用 ``O_PATH``，只能
   通過、不能列的資料夾也開得了），開檔時換成連結的那一段打不開；寫入、改名與刪除都在開好的
   上一層資料夾裡做。開檔帶 ``O_NONBLOCK``，換成 FIFO 時不會卡住，之後也只認一般檔案。
-- Windows 沒有 ``dir_fd``：開檔前後各檢查一次路上有沒有 symlink 或 junction（OneDrive 之類的
-  雲端檔案不算），兩次檢查之間仍有很短的時間差。Windows 本機的代理人終端不經隔離、每條指令
-  都要人核准，代理人要建連結也得先經人核准。
+  失敗時例外的 ``filename`` 換成那一段的絕對路徑（``dir_fd`` 呼叫原本只帶相對名稱），
+  ResourceManager 的權限自癒才認得要修哪一條路（ADR-0272 U2n）。
+- Windows 沒有 ``dir_fd``：開檔後檢查一次路上有沒有 symlink 或 junction（OneDrive 之類的
+  雲端檔案不算）；會建立或寫入檔案時開檔前也先檢查。開檔前後之間仍有很短的時間差（見
+  ADR-0292「已知的界線」）。Windows 本機的代理人終端不經隔離、每條指令都要人核准。
 
 只用標準函式庫；ToukaProxy 的 ResourceManager 也用這裡的函式。
 """
@@ -48,9 +50,24 @@ class LinkRefusedError(OSError):
     """路上有 symlink 或 junction：不跟隨，拒絕這次操作。"""
 
 
+def _lstat(path: Path) -> os.stat_result | None:
+    """不跟隨的 stat；不存在回 None（讀不到狀態照原樣丟，``filename`` 是絕對路徑）。"""
+    try:
+        return os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def _is_link_stat(info: os.stat_result) -> bool:
+    return stat.S_ISLNK(info.st_mode) or (
+        getattr(info, "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT
+    )
+
+
 def is_link(path: Path) -> bool:
     """這一段本身是 symlink 或 junction（不跟隨；不存在時回 False）。"""
-    return path.is_symlink() or path.is_junction()
+    info = _lstat(path)
+    return info is not None and _is_link_stat(info)
 
 
 def _refused(path: Path) -> LinkRefusedError:
@@ -58,22 +75,35 @@ def _refused(path: Path) -> LinkRefusedError:
 
 
 def ensure_no_links(path: Path | str) -> None:
-    """從根往下，現存的每一段都不能是 symlink 或 junction（Windows 開檔前後與走訪前用）。"""
+    """從根往下，現存的每一段都不能是 symlink 或 junction（Windows 開檔前後與走訪前用）。
+
+    每段一次 lstat；遇到不存在的那一段就停（更下層也不存在）。
+    """
     p = Path(path)
     current = Path(p.anchor)
     for name in p.parts[1:]:
         current = current / name
-        if is_link(current):
+        info = _lstat(current)
+        if info is None:
+            return
+        if _is_link_stat(info):
             raise _refused(current)
 
 
+def _with_paths(exc: OSError, path: Path, path2: Path | None = None) -> OSError:
+    """POSIX 的 ``dir_fd`` 呼叫失敗時例外只帶相對名稱：換成絕對路徑（權限自癒靠它）。"""
+    exc.filename = str(path)
+    exc.filename2 = None if path2 is None else str(path2)
+    return exc
+
+
 def _link_error(exc: OSError, name: str, parent: int, shown: Path) -> OSError:
-    """POSIX 開不起來時：那一段是連結就換成 ``LinkRefusedError``，其餘照原樣。"""
+    """POSIX 開不起來時：那一段是連結就換成 ``LinkRefusedError``，其餘改帶絕對路徑照原樣丟。"""
     if exc.errno in _LINK_ERRNOS:
         with contextlib.suppress(OSError):
             if stat.S_ISLNK(os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode):
                 return _refused(shown)
-    return exc
+    return _with_paths(exc, shown)
 
 
 def _open_parent(path: Path, *, make_parents: bool) -> int:
@@ -84,16 +114,7 @@ def _open_parent(path: Path, *, make_parents: bool) -> int:
         for name in path.parts[1:-1]:
             shown = shown / name
             try:
-                child = os.open(name, _DIR_FLAGS, dir_fd=fd)
-            except FileNotFoundError:
-                if not make_parents:
-                    raise
-                with contextlib.suppress(FileExistsError):
-                    os.mkdir(name, 0o777, dir_fd=fd)
-                try:
-                    child = os.open(name, _DIR_FLAGS, dir_fd=fd)
-                except OSError as exc:
-                    raise _link_error(exc, name, fd, shown) from None
+                child = _open_dir(name, fd, make_parents=make_parents)
             except OSError as exc:
                 raise _link_error(exc, name, fd, shown) from None
             os.close(fd)
@@ -102,6 +123,18 @@ def _open_parent(path: Path, *, make_parents: bool) -> int:
         os.close(fd)
         raise
     return fd
+
+
+def _open_dir(name: str, parent: int, *, make_parents: bool) -> int:
+    """POSIX：在 ``parent`` 裡不跟隨地開一層資料夾；不存在且 ``make_parents`` 時先建。"""
+    try:
+        return os.open(name, _DIR_FLAGS, dir_fd=parent)
+    except FileNotFoundError:
+        if not make_parents:
+            raise
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(name, 0o777, dir_fd=parent)
+    return os.open(name, _DIR_FLAGS, dir_fd=parent)
 
 
 def open_no_follow(
@@ -121,11 +154,18 @@ def open_no_follow(
             raise _link_error(exc, p.name, parent, p) from None
         finally:
             os.close(parent)
-    ensure_no_links(p)
+    # 只讀時開檔不改任何東西，開檔後的檢查就夠；會建立或寫入時開檔前也先擋掉現成的連結
+    if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT):
+        ensure_no_links(p)
     if make_parents:
         p.parent.mkdir(parents=True, exist_ok=True)
         ensure_no_links(p)
-    fd = os.open(p, flags | _BINARY, mode)
+    try:
+        fd = os.open(p, flags | _BINARY, mode)
+    except OSError:
+        # 開到指向資料夾的 junction 等也會失敗：是連結時報連結
+        ensure_no_links(p)
+        raise
     try:
         ensure_no_links(p)
     except BaseException:
@@ -176,16 +216,26 @@ def replace_text_no_follow(path: Path | str, text: str, encoding: str = "utf-8")
     p = Path(path)
     tmp_name = f".{p.name}.{secrets.token_hex(6)}.tmp"
     if _POSIX_DIR_FD:
+        tmp = p.parent / tmp_name
         parent = _open_parent(p, make_parents=True)
         try:
-            fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
-                         0o600, dir_fd=parent)
+            try:
+                fd = os.open(
+                    tmp_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                    0o600,
+                    dir_fd=parent,
+                )
+            except OSError as exc:
+                raise _with_paths(exc, tmp) from None
             try:
                 _write_synced(fd, text, encoding)
                 os.replace(tmp_name, p.name, src_dir_fd=parent, dst_dir_fd=parent)
-            except BaseException:
+            except BaseException as exc:
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_name, dir_fd=parent)
+                if isinstance(exc, OSError):
+                    raise _with_paths(exc, tmp, p) from None
                 raise
         finally:
             os.close(parent)
@@ -219,6 +269,8 @@ def remove_no_follow(path: Path | str) -> None:
         parent = _open_parent(p, make_parents=False)
         try:
             os.unlink(p.name, dir_fd=parent)
+        except OSError as exc:
+            raise _with_paths(exc, p) from None
         finally:
             os.close(parent)
         return

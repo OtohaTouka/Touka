@@ -97,8 +97,8 @@
     - 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（symlink、junction，解析前後不同）時，專案檔案工具一律拒絕（`profiles.has_link`，回結構化 `permission_denied`、`reason: "linked_root"`），和隔離層的永不授權規則一樣：檔案工具會跟著連結寫，代理人在上層專案裡把下層專案根換成指向 `config/hooks/` 的連結，就能改寫不經隔離執行的 hook 程式。查的是翻譯後的路徑，容器裡的連結也看得到。人類自己操作照舊。
     - 代理人的檔案動詞（專案、個人空間、靈魂與舊對話的 read、write、append、str_replace、delete、list、find、grep）不跟隨連結（ToukaMemory `utils/no_follow.py`；經 `ResourceManager` 的用它的 `*_no_follow` 方法）。路徑只在開檔之前檢查一次，代理人可以趁這中間用背景指令把路上一段換成指向 `config/hooks/` 的連結；根裡代理人自己建的連結也會讓 list、find、grep 讀到根外面（例如 `.env`、`hooks.json`）。
       - 路徑先解析、確認在根底下；開檔時路上任何一段（含最後一段）是 symlink 或 junction 就拒絕，回「the path goes through a symbolic link or junction; links are not followed.」。
-      - Linux（容器）從檔案系統的根起逐段以 `O_NOFOLLOW` 開（`dir_fd`、`O_PATH`），換成連結的那一段開不起來；寫入、改名、刪除都在開好的上一層資料夾裡做；開檔帶 `O_NONBLOCK`，只認一般檔案。Windows 沒有 `dir_fd`，開檔前後各查一次（見已知的界線）。
-      - list 把連結列成「名稱 (link, not followed)」、不進入；find、grep 不進入也不列出連結，走訪前先查一次根。find 的比對方式不變（同 `rglob`）。
+      - Linux（容器）從檔案系統的根起逐段以 `O_NOFOLLOW` 開（`dir_fd`、`O_PATH`），換成連結的那一段開不起來；寫入、改名、刪除都在開好的上一層資料夾裡做；開檔帶 `O_NONBLOCK`，只認一般檔案；失敗時例外帶絕對路徑，被鎖住的資料夾或檔案照常權限自癒（ADR-0272）。讀不到狀態時不先回「找不到」，交給開檔（經 `ResourceManager` 的會先自癒）。Windows 沒有 `dir_fd`：建立或寫入時開檔前後各查一次，只讀時開檔後查（開檔失敗時也查，是連結就報連結；見已知的界線）。
+      - list 把連結列成「名稱 (link, not followed)」、不進入；find、grep 不進入也不列出連結，走訪前先查一次根。find 的比對大致同 `rglob`（只列一般檔案；`src/**` 這類結尾是 `**` 的寫法也會列出檔案）。find、grep 找到 50 筆就停（專案邊走邊比；經 `ResourceManager` 的先列出再比）。
       - 指回根裡面的連結照常可用（路徑先解析，解析後沒有連結）。專案檔案照舊就地寫入；經 `ResourceManager` 的照舊原子寫入、權限 0600、受保護路徑（靈魂、舊對話）拒絕。個人空間目錄（ADR-0255）讀檔算雜湊、讀寫目錄檔也不跟隨連結，個人空間路徑先解析。
     - 行為變更：一般使用者的專案不能在受保護的資料夾裡，也不能是它們的上層（例如工作區根就是 Touka 安裝根時，工作區根本身不能當專案）；既有的這類登記留著，但專案工具會拒絕。專案根路上有連結時（8.3 短檔名、subst 與對應的網路磁碟機解析後也不同，一樣算），代理人不能用專案檔案工具（終端本來就不能用這種根），要改登記真實路徑。代理人的檔案動詞遇到連結不再跟隨：list、find、grep 不進入，路上有連結時讀寫刪回錯誤。
 13. **群聊**：hook 補充說明裡的 `@別名` 不算點名（`group_router` 找點名前先拿掉 `<hook_output>` 區塊），hook 的輸出不能叫其他靈魂發言。
@@ -145,7 +145,8 @@
   - 能讓路徑檢查拒收的人就能讓那個 hook 不執行，例如對 `config/hooks/` 裡的腳本建一個硬連結（檢查回 `hard_link`）：被拒算失敗，不擋（決定 15），執行紀錄看得到。代理人在 Landlock 裡做不到（不能跨資料夾建連結，設定資料夾也寫不進去）；未隔離、經人核准的指令，以及 IDE、未隔離的 MCP 伺服器做得到。
   - `config/hooks/` 裡裝的套件（例如 `node_modules`、虛擬環境）若是用硬連結裝的（uv、pnpm 可能如此），檔案可能和代理人專案裡的同一份共用，代理人在 Landlock 裡就地改自己那份，hook 用的那份也跟著變。路徑檢查只看指令與參數本身有沒有硬連結，不逐一檢查套件裡的檔案；請用複製的方式裝（uv 的 `UV_LINK_MODE=copy`、pnpm 的 `--package-import-method=copy`，npm 本來就是複製），設定頁說明有寫。
   - 專案根路上有連結時 hook 這邊只禁字面（決定 5），因為代理人的終端與專案檔案工具都不用這種根（決定 12）。8.3 短檔名、subst 與對應的網路磁碟機解析後和字面不同，也照這條處理。檢查之後、開檔之前路上被換成連結，由決定 12 的不跟隨連結擋下。
-  - Windows 本機的檔案動詞開檔前後各查一次連結，兩次檢查之間仍有很短的空窗；Windows 本機的代理人終端不經隔離、每條指令都要人核准，代理人要建連結得先經人核准。list、find 在走訪前查一次根，之後才把根或路上的資料夾換成連結時，可能列出根外面的名稱（grep 讀檔不跟隨連結，讀不到內容）。
+  - Windows 本機的檔案動詞建立或寫入時開檔前後各查一次連結，兩次檢查之間仍有很短的空窗：這時換成連結，建立新檔可能在連結另一端留下空檔（內容不會寫進去，既有檔案不會被截斷）；刪除只在刪之前查一次，可能刪到另一端的檔。Windows 本機的代理人終端不經隔離、每條指令都要人核准，代理人要建連結得先經人核准；未隔離的第三方 MCP 伺服器的工具不在這個前提裡（依模式執行）。list、find 在走訪前查一次根，之後才把根或路上的資料夾換成連結時，可能列出根外面的名稱（grep 讀檔不跟隨連結，讀不到內容）。
+  - 決定 12 只涵蓋上面列的代理人檔案動詞；Touka 自己的其他檔案讀寫不在這次範圍。
   - 停止次數（`rhythm_service.stop_count`）只增不減、記在記憶體，每個被停止過的對話留一筆（幾十位元組），重啟才清掉；停止起點要靠次數只增不減，所以不在中途刪。
   - 子代理的工具在等 PreToolUse hook 時按停止，子代理不會停（子代理本來就不看對話的停止旗標，這次之前就是這樣）；hook 跑完後工具照常執行。
   - 選靈魂的後備路徑（MonitorLayer 沒認出靈魂時，`SoulLayer` 用最後一則 user 文字比對關鍵字）看得到 UserPromptSubmit 接上的 `<hook_output>` 區塊，可能因此選到另一個靈魂；選出的靈魂仍要通過 `require_soul_access`，不會越權。UI 請求很少走到這條路。
@@ -174,7 +175,7 @@
 - `tests/unit/test_hooks_config.py`：設定模型（只收已接線事件、handler 型別、標頭環境變數、標頭名稱與 Touka 自己送的標頭、上限）。
 - `tests/unit/test_hook_paths_security.py`：參數必須在 `config/hooks/`（含 `:` 串起來的路徑清單、黏在單字母選項或 `@` 後面的路徑）、`file:` 網址拒收（含字詞中間的）、字詞中間 `:`／`@` 後面的絕對路徑（`-javaagent:<路徑>`，Windows 也查得到）、Windows 上夾在字詞中間或黏在選項後面的 `D:x`、網址參數依平台的路徑清單分隔（POSIX 拒收）、字詞中間 `:`／`@` 後面接 `//` 的路徑（`:` 前面是網址的 scheme 才略過）、經連結或別名指進 `config/hooks/` 的指令、專案清單變動不影響 `config/hooks/` 裡的腳本、禁區（工作區根、專案根與翻譯後路徑、MCP 可寫資料夾、容器鏡像路徑）、讀不到 MCP 隔離設定檔、以檔案識別碼擋別名、連結（含 `config/hooks/` 本身是連結）、硬連結、相對參數、UNC 與磁碟機相對路徑、讀不到狀態、使用者登記的根路上有連結時只禁字面（Touka 自己的資料夾照舊跟著解析）、沒有連結的登記根照舊比對識別碼。
 - `tests/unit/test_project_root_protected_security.py`：受保護的位置與上層、本機安裝根底下 Touka 自己的第一層資料夾、經連結指到設定資料夾、容器裡的 Touka 目錄、使用者資料夾照常可用、專案工具對一般身分拒絕受保護的專案根並回結構化錯誤、檢查沒做完時分開說明也不放行、管理員與只有管理員擁有的靈魂不受限、有一般使用者共同擁有的照一般身分檢查、代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結就拒絕且不寫入（人類照舊）、登記時說明被拒的原因。
-- `tests/unit/test_file_ops_no_follow_security.py`：檢查之後才把路上一段換成連結時，write、append、新檔、read、str_replace、delete 都拒絕且不碰根外面的檔案，list、find、grep 遇到換成連結的根拒絕（直接 I/O 與經 `ResourceManager` 兩條路）；list 只列連結名稱、find 與 grep 不進入；指回根裡面的連結照常可用；沒有連結時編輯、追加、建上層資料夾、刪除照常；輔助函式對任何一段（含最後一段與還不存在的上層）的連結拒絕；走訪略過連結與排除的名稱；原子寫入權限 0600；FIFO 不卡住；`ResourceManager` 的不跟隨連結寫入照舊保護靈魂；find 的比對同 `rglob` 且很多 `**` 也很快。`tests/lint/test_resource_manager_permission_repair.py` 登記新方法與不跟隨連結的讀寫輔助函式。
+- `tests/unit/test_file_ops_no_follow_security.py`：檢查之後才把路上一段換成連結時，write、append、新檔、read、str_replace、delete 都拒絕且不碰根外面的檔案，list、find、grep 遇到換成連結的根拒絕（直接 I/O 與經 `ResourceManager` 兩條路）；list 只列連結名稱、find 與 grep 不進入；指回根裡面的連結照常可用；沒有連結時編輯、追加、建上層資料夾、刪除照常；輔助函式對任何一段（含最後一段與還不存在的上層）的連結拒絕；走訪略過連結與排除的名稱；原子寫入權限 0600；FIFO 不卡住；`ResourceManager` 的不跟隨連結寫入照舊保護靈魂；find 的比對（大致同 `rglob`）且很多 `**` 也很快；find、grep 找到 50 筆就停；`is_link` 認得 symlink 與 junction；讀不到狀態時交給 `ResourceManager`，走訪前的連結檢查也經它；POSIX 被鎖住時例外帶絕對路徑（上層某一段、建上層、檔案本身、刪除、暫存檔）。`tests/unit/test_personal_catalog.py`：讀目錄時 `.touka` 被換成連結不丟例外。`tests/integration/test_isolation_linux.py`：個人空間、子資料夾或檔案被鎖住時，檔案動詞經 `ResourceManager` 權限自癒（讀、編輯、列出當次成功，寫入、刪除下一次成功，不記成白名單外）。`tests/lint/test_resource_manager_permission_repair.py` 登記新方法與不跟隨連結的讀寫輔助函式。
 - `tests/unit/test_sns_gateway.py`：被擋下的外人訊息不寫進對話、不回覆也不往外丟錯，被停止的照寫、不回覆也不往外丟錯，其他錯誤照舊寫入、通過時先寫訊息再讀回覆。
 - `tests/unit/test_interjection_endpoint_security.py`：插話被擋回 403 且不進佇列、擋下理由有上限、事件內容（含 `interjection` 與無痕）、補充說明不採用、hook 服務出錯照樣進佇列、陌生人碰不到 hook、hook 執行期間串流換了回 404。
 - `tests/unit/test_hook_runners_security.py`：不經 shell、環境不含金鑰、逾時真的結束程式、逾時或被取消時在執行緒裡結束程式（不卡住事件迴圈）、輸出上限、http 不跟隨轉址、整次請求的逾時與讀到上限就停、要求不壓縮的回應、壓縮過的回應算失敗且不解開（一層與兩層 gzip）、失敗的回應照 HTTP 狀態說明（有壓縮也一樣）且不讀內容（回應內容被讀就記下）。

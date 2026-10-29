@@ -8,6 +8,7 @@ pytest ``tmp_path`` 裡，不碰 ``data/``。
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 import time
@@ -19,6 +20,7 @@ from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
     LINK_REFUSED_MESSAGE,
     LinkRefusedError,
+    is_link,
     iter_regular_files,
     read_bytes_no_follow,
     read_text_no_follow,
@@ -159,10 +161,12 @@ async def test_links_that_stay_inside_the_root_still_work(layout, proxy):
 async def test_edit_append_delete_still_work_without_links(layout, proxy):
     root, _outside = layout
     notes = str(root)
-    assert (await cfo.core_write("sub/notes.txt", notes, "more\n", mode="a", resource_proxy=proxy)
-            ).startswith("Success")
-    assert (await cfo.core_str_replace("sub/notes.txt", notes, "more", "less", resource_proxy=proxy)
-            ).startswith("Success")
+    assert (
+        await cfo.core_write("sub/notes.txt", notes, "more\n", mode="a", resource_proxy=proxy)
+    ).startswith("Success")
+    assert (
+        await cfo.core_str_replace("sub/notes.txt", notes, "more", "less", resource_proxy=proxy)
+    ).startswith("Success")
     assert (root / "sub" / "notes.txt").read_text(encoding="utf-8") == "inside\nless\n"
     assert (await cfo.core_write("deep/a/b.txt", notes, "x", resource_proxy=proxy)).startswith(
         "Success"
@@ -203,6 +207,15 @@ def test_helpers_refuse_a_link_on_any_segment(tmp_path):
     assert sorted(p.name for p in real.iterdir()) == ["f.txt"]
 
 
+def test_is_link_sees_symlinks_and_junctions(tmp_path):
+    base = tmp_path.resolve()
+    (base / "real").mkdir()
+    _make_dir_link(base / "link", base / "real")
+    assert is_link(base / "link")
+    assert not is_link(base / "real")
+    assert not is_link(base / "missing")
+
+
 def test_iter_regular_files_skips_links_and_excluded_names(tmp_path):
     base = tmp_path.resolve()
     (base / "a" / "skip").mkdir(parents=True)
@@ -237,6 +250,41 @@ def test_reading_a_fifo_does_not_block(tmp_path):
         read_text_no_follow(fifo)
     assert time.monotonic() - started < 5
     assert [rel for rel, _path in iter_regular_files(tmp_path.resolve())] == []
+
+
+def test_permission_errors_name_the_absolute_path(tmp_path):
+    """POSIX 被鎖住時例外帶絕對路徑，權限自癒才知道要修哪裡（ADR-0272；Windows 沒有權限自癒）."""
+    if sys.platform == "win32" or os.geteuid() == 0:  # root 不受權限位元限制
+        return
+    base = tmp_path.resolve()
+    locked, shut, file = base / "locked", base / "shut", base / "file.txt"
+    (locked / "inner").mkdir(parents=True)
+    (locked / "inner" / "f.txt").write_text("x", encoding="utf-8")
+    shut.mkdir()
+    (shut / "f.txt").write_text("x", encoding="utf-8")
+    file.write_text("x", encoding="utf-8")
+    locked.chmod(0)
+    shut.chmod(0o500)
+    file.chmod(0)
+    cases = (
+        (lambda: read_text_no_follow(locked / "inner" / "f.txt"), locked / "inner"),  # 上層某一段
+        (lambda: write_text_no_follow(locked / "new" / "g.txt", "y"), locked / "new"),  # 建上層
+        (lambda: read_text_no_follow(file), file),  # 檔案本身
+        (lambda: remove_no_follow(shut / "f.txt"), shut / "f.txt"),
+    )
+    try:
+        for call, expected in cases:
+            with pytest.raises(PermissionError) as caught:
+                call()
+            assert caught.value.filename == str(expected)
+        with pytest.raises(PermissionError) as caught:
+            replace_text_no_follow(shut / "f.txt", "y")  # 建暫存檔
+        assert Path(caught.value.filename).parent == shut
+        assert caught.value.filename2 == str(shut / "f.txt")
+    finally:
+        locked.chmod(0o700)
+        shut.chmod(0o700)
+        file.chmod(0o600)
 
 
 def test_resource_manager_no_follow_writes_keep_soul_protection():
@@ -277,3 +325,95 @@ def test_find_pattern_with_many_double_stars_stays_fast():
     assert cfo._glob_match(rel, "/".join(["**"] * 40) + "/y.py") is False
     assert cfo._glob_match(rel, "/".join(["**/d"] * 20) + "/**/x.py") is True
     assert time.monotonic() - started < 1
+
+
+class _HealingProxy:
+    """假的 proxy：記下收到的呼叫；讀得到內容（像 Linux 上權限自癒之後）."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def ensure_no_links(self, path: str) -> None:
+        self.calls.append(("ensure_no_links", path))
+
+    def read_file_text_no_follow(self, path: str) -> str:
+        self.calls.append(("read", path))
+        return "healed\n"
+
+    def write_file_text_no_follow(self, path: str, _content: str) -> None:
+        self.calls.append(("write", path))
+
+    def remove_file_no_follow(self, path: str) -> None:
+        self.calls.append(("remove", path))
+
+    def list_directory(self, path: str, _max_depth: int, exclude: frozenset[str]) -> list[str]:
+        self.calls.append(("list", path))
+        return ["listed"]
+
+    def stat_files(self, path: str, exclude_names: frozenset[str]) -> list[tuple[str, int, float]]:
+        self.calls.append(("stat_files", path))
+        return [("sub/notes.txt", 7, 0.0)]
+
+
+async def test_unreadable_status_is_left_to_the_proxy(layout, monkeypatch):
+    """讀不到狀態（EACCES）時不先回「找不到」，交給 proxy 開檔；Linux 上它會先權限自癒."""
+    root, _outside = layout
+    target = str(root / "sub" / "notes.txt")
+
+    def denied(self: Path) -> bool:
+        raise PermissionError(errno.EACCES, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_file", denied)
+    proxy = _HealingProxy()
+    assert "healed" in await cfo.core_read("sub/notes.txt", str(root), resource_proxy=proxy)
+    edited = await cfo.core_str_replace(
+        "sub/notes.txt", str(root), old_str="healed", new_str="x", resource_proxy=proxy
+    )
+    assert edited.startswith("Success")
+    assert (await cfo.core_delete("sub/notes.txt", str(root), resource_proxy=proxy)).startswith(
+        "Success"
+    )
+    assert proxy.calls == [
+        ("read", target),
+        ("read", target),
+        ("write", target),
+        ("remove", target),
+    ]
+
+
+WALKS_WITH_PROXY = {
+    "list": lambda root, proxy: cfo.core_list("sub", root, resource_proxy=proxy),
+    "find": lambda root, proxy: cfo.core_find("*.txt", root, resource_proxy=proxy),
+    "grep": lambda root, proxy: cfo.core_grep("healed", root, resource_proxy=proxy),
+}
+
+
+@pytest.mark.parametrize("walk", sorted(WALKS_WITH_PROXY))
+async def test_walks_check_links_through_the_proxy(layout, walk):
+    """經 proxy 時走訪前的連結檢查也經 proxy（Linux 上讀不到狀態會先權限自癒）."""
+    root, _outside = layout
+    proxy = _HealingProxy()
+    result = await WALKS_WITH_PROXY[walk](str(root), proxy)
+    assert not result.startswith("Error"), result
+    checked = root / "sub" if walk == "list" else root
+    assert proxy.calls[0] == ("ensure_no_links", str(checked))
+
+
+@pytest.mark.parametrize("walk", ["find", "grep"])
+async def test_find_and_grep_stop_walking_at_the_limit(layout, monkeypatch, walk):
+    """找到 50 筆就停，不先走完整棵樹."""
+    root, _outside = layout
+    hit = root / "hit.txt"
+    hit.write_text("needle\n", encoding="utf-8")
+
+    def endless(_root: Path, _skipped: frozenset[str]):
+        for _ in range(51):
+            yield "hit.txt", hit
+        pytest.fail("walked past the limit")
+
+    monkeypatch.setattr(cfo, "iter_regular_files", endless)
+    if walk == "find":
+        result = await cfo.core_find("*.txt", str(root))
+    else:
+        result = await cfo.core_grep("needle", str(root))
+    assert result.startswith("Found 50+"), result

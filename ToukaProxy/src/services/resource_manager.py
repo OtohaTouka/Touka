@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from memory_server.models.conversation_search import ConversationSearchError
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
+    ensure_no_links,
     is_link,
     read_bytes_no_follow,
     read_text_no_follow,
@@ -653,6 +654,12 @@ class ResourceManager:
         return Path(path).read_bytes()
 
     # --- 不跟隨連結（代理人的檔案動詞用；路徑要先解析，ADR-0292 決定 12）---
+    # 失敗時例外帶絕對路徑（``no_follow`` 換好），EACCES 交給權限自癒
+
+    @permission_repair(retry=True)
+    def ensure_no_links(self, path: Path | str) -> None:
+        """路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        ensure_no_links(path)
 
     @permission_repair(retry=True)
     def read_file_text_no_follow(self, path: Path | str, encoding: str = "utf-8") -> str:

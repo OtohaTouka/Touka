@@ -1220,6 +1220,23 @@
         "reads": [],
         "dynamic": []
       },
+      "_check_no_links": {
+        "parameters": [
+          "path",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_not_a_file": {
+        "parameters": [
+          "path"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "_regular_files": {
         "parameters": [
           "root",

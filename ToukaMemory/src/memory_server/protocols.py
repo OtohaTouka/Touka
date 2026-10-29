@@ -110,6 +110,10 @@ class IResourceProxy(IConversationReader, Protocol):
         ...
 
     # 不跟隨連結（代理人的檔案動詞用）：路上任何一段是 symlink 或 junction 就丟 LinkRefusedError
+    def ensure_no_links(self, path: Any) -> None:
+        """路上不能有連結（讀不到狀態時先權限自癒）."""
+        ...
+
     def read_file_text_no_follow(self, path: Any, encoding: str = "utf-8") -> str:
         """讀文字檔，不跟隨連結."""
         ...

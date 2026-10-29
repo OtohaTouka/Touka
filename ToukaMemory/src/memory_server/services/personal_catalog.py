@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from memory_server.config_utils import get_resource_proxy
+from memory_server.utils.no_follow import LinkRefusedError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -264,7 +265,11 @@ async def run_vault_action(
         kwargs["exclude"] = CATALOG_HIDDEN_NAMES
     if action == "read" and target == base / CATALOG_DIR_NAME / CATALOG_FILE_NAME:
         async with _lock_for(_root_key(root_path)):
-            await asyncio.to_thread(_rebuild, proxy, root_path)
+            try:
+                await asyncio.to_thread(_rebuild, proxy, root_path)
+            except LinkRefusedError:
+                # `.touka` 在上面的判斷之後被換成連結：不重建，讀檔交給 core ops 回固定的連結訊息
+                logger.warning("Personal catalog not rebuilt: its folder went through a link")
             return await handler(root_bound=root, **kwargs)
 
     result = await handler(root_bound=root, **kwargs)

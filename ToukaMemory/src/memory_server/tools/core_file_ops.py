@@ -11,7 +11,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from pathlib import Path, PurePath, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
@@ -24,6 +24,9 @@ from memory_server.utils.no_follow import (
     remove_no_follow,
     write_text_no_follow,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +78,39 @@ def _enforce_root_bound(target_path_str: str, root_bound_str: str) -> Path:
     return target
 
 
-def _regular_files(root: Path, skipped: frozenset[str], resource_proxy: Any) -> list[str]:
-    """``root`` 底下一般檔案的相對 POSIX 路徑.
+def _check_no_links(path: Path, resource_proxy: Any) -> None:
+    """路上不能有連結；經 proxy 時讀不到狀態（EACCES）會先權限自癒再查一次."""
+    if resource_proxy:
+        resource_proxy.ensure_no_links(str(path))
+    else:
+        ensure_no_links(path)
+
+
+def _not_a_file(path: Path) -> bool:
+    """明顯不是一般檔案（不存在或是資料夾）.
+
+    讀不到狀態時回 False，交給之後的開檔報錯（經 proxy 的開檔會權限自癒）。
+    """
+    try:
+        return not path.is_file()
+    except PermissionError:
+        return False
+
+
+def _regular_files(root: Path, skipped: frozenset[str], resource_proxy: Any) -> Iterator[str]:
+    """``root`` 底下一般檔案的相對 POSIX 路徑（直接 I/O 時邊走邊給，呼叫端夠了就停）.
 
     不進入、不列出連結；路徑任一段在 ``skipped`` 就略過。
     """
-    ensure_no_links(root)
+    _check_no_links(root, resource_proxy)
     if resource_proxy:
         rows = resource_proxy.stat_files(str(root), exclude_names=skipped)
-        rels = [rel for rel, _size, _mtime in rows]
+        rels: Iterator[str] = (rel for rel, _size, _mtime in rows)
     else:
-        rels = [rel for rel, _path in iter_regular_files(root, skipped)]
-    return [rel for rel in rels if not skipped.intersection(PurePosixPath(rel).parts)]
+        rels = (rel for rel, _path in iter_regular_files(root, skipped))
+    for rel in rels:
+        if not skipped.intersection(PurePosixPath(rel).parts):
+            yield rel
 
 
 def _glob_match(rel: str, pattern: str) -> bool:
@@ -145,7 +169,7 @@ async def core_read(
     """
     try:
         safe_path = _enforce_root_bound(path, root_bound)
-        if not safe_path.is_file():
+        if _not_a_file(safe_path):
             return f"Error: File not found or is a directory: {path}"
         if resource_proxy:
             content_str = resource_proxy.read_file_text_no_follow(str(safe_path))
@@ -233,7 +257,7 @@ async def core_str_replace(
     """
     try:
         safe_path = _enforce_root_bound(path, root_bound)
-        if not safe_path.is_file():
+        if _not_a_file(safe_path):
             return f"Error: File not found: {path}"
         if resource_proxy:
             content = resource_proxy.read_file_text_no_follow(str(safe_path)) or ""
@@ -265,7 +289,7 @@ async def core_delete(
     """安全刪除檔案."""
     try:
         safe_path = _enforce_root_bound(path, root_bound)
-        if not safe_path.is_file():
+        if _not_a_file(safe_path):
             return f"Error: File not found: {path}"
         if resource_proxy:
             resource_proxy.remove_file_no_follow(str(safe_path))
@@ -292,7 +316,7 @@ async def core_list(
     """以 Tree 結構列出目錄內容（exclude：額外隱藏的名稱，預設不額外隱藏；連結只列名稱、不進入）."""
     try:
         safe_path = _enforce_root_bound(path, root_bound)
-        ensure_no_links(safe_path)
+        _check_no_links(safe_path, resource_proxy)
 
         if resource_proxy and hasattr(resource_proxy, "list_directory"):
             lines = resource_proxy.list_directory(str(safe_path), max_depth, exclude=exclude)

@@ -37,6 +37,7 @@ EXPECTED_RETRY = {
     "list_all_agent_stats": True,
     "read_file_text": True,
     "read_file_binary": True,
+    "ensure_no_links": True,
     "read_file_text_no_follow": True,
     "read_file_binary_no_follow": True,
     "exists": True,
@@ -95,7 +96,7 @@ WRITE_ATTRS = frozenset(
      "lchmod", "chown", "symlink_to", "hardlink_to"}
 )
 IO_HELPERS = frozenset(
-    {"validate_no_symlink_escape", "read_text_no_follow", "read_bytes_no_follow"}
+    {"validate_no_symlink_escape", "ensure_no_links", "read_text_no_follow", "read_bytes_no_follow"}
 )
 WRITE_IO_HELPERS = frozenset(
     {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow"}

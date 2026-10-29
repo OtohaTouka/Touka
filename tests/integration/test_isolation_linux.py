@@ -34,6 +34,7 @@ import pytest
 import yaml
 from mcp import types as mcp_types
 from mcp.shared.exceptions import MCPError
+from memory_server.tools import core_file_ops as cfo
 from src.config import is_container_runtime
 from src.core.retry import with_retry
 from src.models.identity import AgentIdentity
@@ -2515,6 +2516,65 @@ async def test_ensure_ready_installs_the_hook_that_heals_an_agent_folder(tmp_pat
     finally:
         drive.chmod(0o700)
     assert monitor.snapshot().repairs["repaired"] == 1
+
+
+# 代理人的檔案動詞（ADR-0292 決定 12：不跟隨連結）讀不到時一樣自癒。寫入與刪除不重試（不是冪等）：
+# 這次修好但照樣失敗，下一次就成功。
+HEALING_VERBS = {
+    "read": lambda root: cfo.core_read("sub/notes.txt", root, resource_proxy=resource_manager),
+    "edit": lambda root: cfo.core_str_replace(
+        "sub/notes.txt", root, old_str="hi", new_str="yo", resource_proxy=resource_manager
+    ),
+    "list": lambda root: cfo.core_list("sub", root, resource_proxy=resource_manager),
+    "write": lambda root: cfo.core_write(
+        "sub/notes.txt", root, "new", resource_proxy=resource_manager
+    ),
+    "delete": lambda root: cfo.core_delete("sub/notes.txt", root, resource_proxy=resource_manager),
+}
+SECOND_TRY_VERBS = frozenset({"write", "delete"})
+
+
+@pytest.mark.parametrize(
+    ("locked", "verb"),
+    [
+        ("drive", "read"),
+        ("folder", "read"),
+        ("file", "read"),
+        ("drive", "edit"),
+        ("file", "edit"),
+        ("drive", "list"),
+        ("drive", "write"),
+        ("folder", "write"),
+        ("drive", "delete"),
+        ("folder", "delete"),
+    ],
+)
+async def test_file_verbs_heal_a_locked_agent_folder(tmp_path, locked, verb):
+    if os.geteuid() == 0:
+        pytest.skip("[skip:root] root 不受權限位元限制")
+    layout = _layout(tmp_path)
+    monitor = IsolationMonitor(
+        layout_provider=lambda: layout, selftest=_available_selftest, start_background=False
+    )
+    await monitor.ensure_ready()
+    drive = layout.data_root / "personal_drive" / "Alice"
+    (drive / "sub").mkdir()
+    (drive / "sub" / "notes.txt").write_text("hi", encoding="utf-8")
+    modes = {drive: 0o700, drive / "sub": 0o700, drive / "sub" / "notes.txt": 0o600}
+    targets = dict(zip(("drive", "folder", "file"), modes, strict=True))
+    targets[locked].chmod(0)
+    try:
+        result = await HEALING_VERBS[verb](str(drive))
+        if verb in SECOND_TRY_VERBS and result.startswith("Error"):
+            result = await HEALING_VERBS[verb](str(drive))
+    finally:
+        for path, mode in modes.items():
+            with contextlib.suppress(FileNotFoundError):
+                path.chmod(mode)
+    assert not result.startswith("Error"), result
+    repairs = monitor.snapshot().repairs
+    assert repairs["repaired"] >= 1
+    assert repairs["refused_outside"] == 0
 
 
 # ── U2f：compose 的 healthcheck 要 socket 加上新鮮的 alive（真 sh、find、unix socket）────────
