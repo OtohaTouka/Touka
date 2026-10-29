@@ -188,6 +188,7 @@ async def test_external_command_parameter_has_no_terminal_exception(
     handler = AsyncMock(return_value="unexpected external effect")
     protocol = MagicMock()
     protocol.resolve_tool.return_value = ("synthetic-server", "remote-write")
+    protocol.registry.get_server.return_value = None  # 不是 vault-jailed（ADR-0293 提早拒絕）
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_: True)
     executor = ToolExecutor(
         protocol if branch == "mcp" else None,
