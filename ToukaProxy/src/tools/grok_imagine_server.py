@@ -3,17 +3,14 @@
 import logging
 import sys
 import uuid
-from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
 from mcp.server import MCPServer
 from src.config import GROK_API_KEY, TOOL_BASE_URL
 from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 
-# 載入環境變數（支援整合與獨立模式）
-load_dotenv()
+# 環境變數由 src.config 經 resolve_env_file_path() 讀（禁令 38）；這裡不另外找 .env
 
 # 設定日誌：重要！必須輸出至 stderr，否則會干擾 MCP STDOUT 通訊
 logging.basicConfig(  # noqa: BASICCONFIG_BAN — MCP 伺服器必須將日誌導向 stderr 以保護 stdout 作為 JSON-RPC 通訊通道
@@ -43,18 +40,16 @@ async def grok_imagine(prompt: str, identity: AgentIdentity, aspect_ratio: str =
     if not GROK_API_KEY:
         return "❌ 錯誤：找不到 GROK_API_KEY 環境變數。請在 .env 中設定。"
 
-    # --- SSOT: 透過 ResourceManager 取得隔離的輸出目錄 ---
+    # --- SSOT: 透過 ResourceManager 取得隔離的輸出目錄（區內路徑，不跟隨連結；ADR-0293）---
     agent_id = identity.agent_id
+    target_dir = resource_manager.outputs_dir(identity)
+    if target_dir is None:
+        return f"❌ 錯誤：無法獲取 Agent '{agent_id}' 的主權存儲空間。"
     try:
-        sov_output_dir = resource_manager.get_outputs_path(identity)
-        if not sov_output_dir:
-            return f"❌ 錯誤：無法獲取 Agent '{agent_id}' 的主權存儲空間。"
-        target_dir = Path(sov_output_dir)
+        resource_manager.zone_make_dir(target_dir)
     except Exception as e:
         logger.error(f"ResourceManager 載入失敗，生圖終止以保護路徑主權: {e}")
         return f"❌ 錯誤：系統路徑服務異常，無法安全儲存圖片。({e})"
-    
-    resource_manager.make_dir(target_dir)
 
     logger.info(f"🎨 [Agent: {agent_id}] Generating image with prompt: {prompt}")
 
@@ -84,13 +79,13 @@ async def grok_imagine(prompt: str, identity: AgentIdentity, aspect_ratio: str =
 
             # 下載圖片
             filename = f"grok_{uuid.uuid4().hex[:8]}.png"
-            filepath = target_dir / filename
-            
-            logger.info(f"💾 Downloading to sovereign path: {filepath}")
+            filepath = target_dir.child(filename)
+
+            logger.info("💾 Downloading to sovereign path: %s", filepath.display())
             image_resp = await client.get(image_url)
             image_resp.raise_for_status()
-            
-            resource_manager.write_file_binary(filepath, image_resp.content)
+
+            resource_manager.zone_write_binary(filepath, image_resp.content)
             
             # --- SSOT: 回傳符合主權隔離路由的 URL ---
             # 取得基礎 URL (優先讀取配置中心，否則預設 localhost:8000)

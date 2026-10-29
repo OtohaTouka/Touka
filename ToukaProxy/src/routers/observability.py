@@ -12,6 +12,7 @@ import psutil
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from memory_server.factual import FactsSchemaStatus, FactualStore, find_unmigrated_jsonl_agents
 from memory_server.utils.memory_worker import run_memory_job
+from memory_server.utils.zone_paths import Anchor
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
@@ -309,7 +310,9 @@ async def get_memory_health(
         "facts": check_exists(["vault", "core_memory.db"]),
         "vector": check_exists(["vault", "_qdrant_db"]),
         "legacy": Path(Path(base_dir) / "legacy").is_dir(),
-        "personal": Path(Path(base_dir) / "personal_drive").is_dir(),
+        # 個人空間的錨點經區內方法看（ADR-0293）
+        "personal": resource_manager.zone_kind(resource_manager.anchor_root(Anchor.PERSONAL_DRIVE))
+        == "dir",
     }
 
 
