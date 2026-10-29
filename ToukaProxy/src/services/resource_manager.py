@@ -862,7 +862,7 @@ class ResourceManager:
         exclude_globs: tuple[str, ...] = (),
         max_files: int | None = None,
     ) -> list[tuple[str, int, int]]:
-        """同 ``stat_files``：一般檔案的（相對 POSIX 路徑, 位元組數, mtime_ns），不跟隨連結."""
+        """同 ``stat_files``：一般檔案的（相對 POSIX 路徑, 位元組數, mtime_ns）；根是連結就拒絕."""
         target = self._zone_target(zp, "zone_stat_files")
         rows: list[tuple[str, int, int]] = []
 
@@ -870,7 +870,10 @@ class ResourceManager:
             return parts[-1] in exclude_names or "/".join(parts) in exclude_paths
 
         with zone_errors(zp.display()):
-            if kind_no_follow(target) != "dir":
+            kind = kind_no_follow(target)
+            if kind == "link":  # 找檔與搜尋不能把「根被換成連結」當成沒有檔案
+                raise ZoneLinkRefusedError(zp.display(), str(target))
+            if kind != "dir":
                 return rows
             walk = walk_no_follow(target, WalkReport(), skip_dir=skip)
             with contextlib.closing(walk):

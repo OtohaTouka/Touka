@@ -1,7 +1,7 @@
 """ResourceManager 的區內方法與產生函式（ADR-0293 Z3、Z5、R5、R7、R9、R10、R12）。
 
-用真的 ResourceManager；區的根換成 pytest ``tmp_path`` 裡的假 data（暫時換掉 ``zone_paths`` 的根
-來源），不碰 ``data/``。連結另一端是測試自己建的 ``outside`` 資料夾，每個案例都核對它沒被動到。
+用真的 ResourceManager；data 根是 ``zone_data_root`` 給的 ``tmp_path``，不碰 ``data/``。連結另一端
+是測試自己建的 ``outside`` 資料夾，每個案例都核對它沒被動到。
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from memory_server.utils.zone_paths import (
     HandoffKind,
     ZonePath,
     ZonePathRequiredError,
-    ZoneRoots,
     ZoneSegmentError,
     is_handed_off,
 )
@@ -40,14 +39,11 @@ M1 = AgentIdentity(agent_id="M1", agent_role="Base")
 
 
 @pytest.fixture
-def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path.resolve() / "data"
-    (root / "personal_drive" / "Alice").mkdir(parents=True)
-    (root / "custom" / "M1" / "drive").mkdir(parents=True)
-    (root / "custom" / "M1" / "config.json").write_text("{}", encoding="utf-8")
-    roots = ZoneRoots(root, tmp_path.resolve() / "state")
-    monkeypatch.setattr(zp, "_roots_provider", lambda: roots)
-    return root
+def data(zone_data_root: Path) -> Path:
+    (zone_data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    (zone_data_root / "custom" / "M1" / "drive").mkdir(parents=True)
+    (zone_data_root / "custom" / "M1" / "config.json").write_text("{}", encoding="utf-8")
+    return zone_data_root
 
 
 @pytest.fixture
@@ -201,6 +197,7 @@ THROUGH_LINK = {
     "zone_remove_dir": lambda z: rm.zone_remove_dir(z),
     "zone_kind": lambda z: rm.zone_kind(z),
     "zone_list": lambda z: rm.zone_list(z),
+    "zone_stat_files": lambda z: rm.zone_stat_files(z),
     "zone_walk": lambda z: list(rm.zone_walk(z, WalkReport())),
     "zone_handoff": lambda z: rm.zone_handoff(z, HandoffKind.SUBPROCESS_CWD).__enter__(),
 }
@@ -229,6 +226,7 @@ LAST_SEGMENT = {
     "zone_append_text": lambda z: rm.zone_append_text(z, "pwned"),
     "zone_make_dir": lambda z: rm.zone_make_dir(z),
     "zone_list": lambda z: rm.zone_list(z),
+    "zone_stat_files": lambda z: rm.zone_stat_files(z),
     "zone_walk": lambda z: list(rm.zone_walk(z, WalkReport())),
     "zone_handoff": lambda z: rm.zone_handoff(z, HandoffKind.SUBPROCESS_CWD).__enter__(),
 }
@@ -247,7 +245,6 @@ def test_a_link_as_the_last_segment_is_refused(data, outside, call):
 def test_a_link_as_the_last_segment_is_seen_or_removed_not_entered(data, outside):
     make_dir_link(_drive(data) / "peek", outside)
     assert rm.zone_kind(alice("peek")) == "link"
-    assert rm.zone_stat_files(alice("peek")) == []
     rm.zone_remove_file(alice("peek"))  # 刪連結本身
     assert not (_drive(data) / "peek").exists()
     make_dir_link(_drive(data) / "peek", outside)
@@ -393,17 +390,16 @@ def test_rel_from_abs_ignores_case_on_windows(data):
     assert rm.zone_rel_from_abs(alice(), text) == alice("NOTES.TXT")
 
 
-def test_rel_from_abs_by_resolved_place(tmp_path, monkeypatch):
-    real = tmp_path.resolve() / "real_data"
-    (real / "personal_drive" / "Alice").mkdir(parents=True)
-    alias = tmp_path.resolve() / "alias_data"
-    make_dir_link(alias, real)
-    roots = ZoneRoots(alias, None)
-    monkeypatch.setattr(zp, "_roots_provider", lambda: roots)
-    by_alias = alias / "personal_drive" / "Alice" / "a.txt"
-    by_real = real / "personal_drive" / "Alice" / "a.txt"
-    assert rm.zone_rel_from_abs(alice(), str(by_alias)) == alice("a.txt")
-    assert rm.zone_rel_from_abs(alice(), str(by_real)) == alice("a.txt")
+def test_rel_from_abs_by_resolved_place(tmp_path, zone_data_root):
+    """錨點本身是人做的連結（R9）：字面與解析後的位置都認."""
+    real = tmp_path.resolve() / "elsewhere"
+    (real / "Alice").mkdir(parents=True)
+    make_dir_link(zone_data_root / "personal_drive", real)
+    by_literal = zone_data_root / "personal_drive" / "Alice" / "a.txt"
+    assert rm.zone_rel_from_abs(alice(), str(by_literal)) == alice("a.txt")
+    assert rm.zone_rel_from_abs(alice(), str(real / "Alice" / "a.txt")) == alice("a.txt")
+    rm.zone_write_text(alice("a.txt"), "x")  # 經過人做的錨點連結照常讀寫
+    assert (real / "Alice" / "a.txt").read_text("utf-8") == "x"
 
 
 # --- 交出字串 ----------------------------------------------------------------

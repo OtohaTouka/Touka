@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 if sys.platform == "win32":
     import _winapi
 
+# 連結測試「跟隨了連結」那幾條斷言的失敗訊息（ADR-0293 R15：在舊版上跑時用它確認紅的原因）
+LINK_FOLLOWED = "LINK_FOLLOWED"
+
 
 def make_dir_link(link: Path, target: Path) -> None:
     """在 ``link`` 建一個指向資料夾 ``target`` 的連結（``link`` 不能已存在）。"""

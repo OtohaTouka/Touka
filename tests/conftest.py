@@ -338,6 +338,22 @@ def _reset_permission_repair():
     permission_repair.set_permission_repair(None)
 
 
+@pytest.fixture
+def zone_data_root(tmp_path, monkeypatch) -> Path:
+    """這個測試自己的 data 根（ADR-0293）：設定、環境變數與 sandbox state 根都換到 ``tmp_path``.
+
+    ResourceManager 的區內方法經它註冊的根來源讀這兩個值，所以區的根跟著換；測試要換 data 根
+    只能用這個 fixture（T3）。
+    """
+    data = tmp_path.resolve() / "zone_data"
+    data.mkdir()
+    monkeypatch.setattr(runtime_config.settings, "MEMORY_APP_DATA_DIR", str(data))
+    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(data))
+    state = tmp_path.resolve() / "zone_state"
+    monkeypatch.setattr(runtime_config.settings, "TOUKA_SANDBOX_STATE_DIR", str(state))
+    return data
+
+
 @pytest.fixture(autouse=True)
 def setup_test_environment(global_test_sandbox):
     """確保每個測試都在乾淨的環境下執行，且單例狀態已重置 (SSOT & SOLID)。"""
