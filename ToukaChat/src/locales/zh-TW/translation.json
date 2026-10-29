@@ -1628,6 +1628,15 @@
       "failed": "對話尚未保存，或內容已發生衝突。草稿仍保留。",
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
+    },
+    "message_nav": {
+      "label": "訊息導覽",
+      "jump_to": "跳到第 {{n}} 則：{{preview}}",
+      "jump_to_range": "跳到第 {{first}}～{{last}} 則：{{preview}}",
+      "image": "圖片",
+      "attachment": "附件：{{name}}",
+      "file": "檔案",
+      "empty": "（沒有文字）"
     }
   },
   "dashboard": {

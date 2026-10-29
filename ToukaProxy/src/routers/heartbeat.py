@@ -319,7 +319,7 @@ async def _execute_single_pulse(
 
             # 重要：更新 tree_history 物件本身
             tree_history = TreeMessageManager.append_node(
-                tree_history, "user", nudge_content, name="System"
+                tree_history, "user", nudge_content, name=user_intent.SYSTEM_SPEAKER
             )
             # 同步到 DB 以便前端觀察
             await save_pulse()
@@ -440,7 +440,7 @@ async def _execute_single_pulse(
                                 tree_history,
                                 "user",
                                 f"{user_intent.SYSTEM_NUDGE_PREFIX}自主行動階段完成，請繼續。",
-                                name="System",
+                                name=user_intent.SYSTEM_SPEAKER,
                             )
                             await save_pulse()
                             current_turn_text = current_turn_text[end_idx:].strip()

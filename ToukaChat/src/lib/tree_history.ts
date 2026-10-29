@@ -86,6 +86,8 @@ export interface MessageNode {
   childrenIds: string[];
   role: "user" | "assistant" | "system";
   content: string;
+  /** 後端寫入的發言者名稱；心跳補的「請繼續」是 user 角色、name 為 SYSTEM_SPEAKER（lib/chat/messageNavigation.ts）。 */
+  name?: string;
   model?: string;
   createdAt?: number;
   /** 訊息實際時間（毫秒）：使用者訊息在送出時、助理回覆在完成時由前端蓋；

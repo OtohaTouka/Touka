@@ -263,6 +263,9 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 - **`agent_id`**: 指定要喚醒的代理人。
 - **`pulse_count`**: 該次喚醒允許執行的最大連鎖反應次數。
 - **`session_id`**: 指定對話發生的頻道（通常為 `home`）。
+
+**多脈衝之間的 nudge**：兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
+
 ## 📦 部署與執行規範 (Deployment) ⭐
 為了確保容器環境的穩定性，ToukaHeartbeat 遵循以下規則：
 1. **絕對匯入**：嚴禁使用相對匯入（如 `from .config import ...`）。
