@@ -92,6 +92,24 @@ describe('MessageNavigator', () => {
     expect(document.activeElement).toBe(second);
   });
 
+  it('預覽開著時 Esc 只收預覽，不傳到輸入框；下一次 Esc 才給輸入框（生成中 Esc＝停止）', () => {
+    const composerKeyDown = vi.fn();
+    render(
+      <>
+        <textarea aria-label="composer" onKeyDown={composerKeyDown} />
+        <MessageNavigator ticks={THREE} currentIndex={null} onJump={vi.fn()} />
+      </>,
+    );
+    const composer = screen.getByRole('textbox', { name: 'composer' });
+    act(() => composer.focus());
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '跳到第 2 則：第二句' }));
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(screen.queryByText('第二句')).toBeNull();
+    expect(composerKeyDown).not.toHaveBeenCalled();
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(composerKeyDown).toHaveBeenCalledTimes(1);
+  });
+
   it('失焦時收起預覽', () => {
     renderNav();
     const [first, second] = screen.getAllByRole('button');

@@ -54,9 +54,9 @@ describe('useMessageNavigation', () => {
   it('收到捲動範圍後算出目前那則', () => {
     const { result } = renderHook(() => useMessageNavigation(FIRST, true, NO_CONTAINER));
     expect(result.current.currentIndex).toBeNull();
-    act(() => result.current.onRangeChanged?.({ startIndex: 3, endIndex: 3 }));
+    act(() => result.current.onRangeChanged({ startIndex: 3, endIndex: 3 }));
     expect(result.current.currentIndex).toBe(2);
-    act(() => result.current.onRangeChanged?.({ startIndex: 0, endIndex: 3 }));
+    act(() => result.current.onRangeChanged({ startIndex: 0, endIndex: 3 }));
     expect(result.current.currentIndex).toBe(0);
   });
 
@@ -88,11 +88,11 @@ describe('useMessageNavigation', () => {
     expect(result.current.currentIndex).toBe(3);
   });
 
-  it('停用時沒有目前那則；重新啟用時立刻用停用期間收到的範圍（手機版拉回桌面）', () => {
+  it('停用時沒有目前那則；重新啟用時立刻用停用期間收到的範圍', () => {
     const { result, rerender } = renderHook(({ enabled }) => useMessageNavigation(FIRST, enabled, NO_CONTAINER), {
       initialProps: { enabled: false },
     });
-    act(() => result.current.onRangeChanged?.({ startIndex: 3, endIndex: 3 }));
+    act(() => result.current.onRangeChanged({ startIndex: 3, endIndex: 3 }));
     expect(result.current.currentIndex).toBeNull();
     rerender({ enabled: true });
     expect(result.current.currentIndex).toBe(2);

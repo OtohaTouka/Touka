@@ -1007,10 +1007,10 @@ python scripts/guard_all.py
 | `unit/connections.resume.test.ts` | ADR-0081 `resumeChatStream`：starting_after URL、chunk/event/done 分發（與 fetchChatStream 共用 dispatchSseLine）、非 2xx onError、跨 chunk 斷行重組 |
 | `unit/StreamRegistry.resume.test.tsx` | ADR-0081 重整接回：startStream 先 syncSession user 回合（順序斷言）、resumeActiveStreams 依 active 清單重建 entry＋重播重建樹＋onDone 持久化、已有 entry 不重複接回 |
 | `unit/StreamRegistry.test.tsx` | ADR-0080 進行中串流 SSOT：startStream 建 entry、onChunk per-session 隔離不污染他 session、並發上限 5、stopStream abort+清除、onDone 寫回 session、onError toast（非 AbortError）/不 toast（AbortError） |
-| `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯；訊息導覽列至少兩條才顯示、IDE 與手機版不顯示、點擊以 `align: 'start'` 捲到那則、捲動範圍決定目前那條、依訊息捲動區的高度決定線數。 |
+| `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯；訊息導覽列至少兩條才顯示、IDE 與手機版不顯示但照樣交出捲動範圍、點擊以 `align: 'start'` 捲到那則、捲動範圍決定目前那條、依訊息捲動區的高度決定線數。 |
 | `src/components/chat/__tests__/MessageItem.test.tsx` | MessageItem：既有訊息渲染回歸＋P11切換語言後Markdown程式碼複製按鈕使用新翻譯。 |
 | `src/lib/chat/__tests__/messageNavigation.test.ts` | 訊息導覽列純函式：只收 user 訊息、排除 `SYSTEM_SPEAKER` 的「請繼續」（開場提示、SNS 與其他名字照收）；預覽去頭尾空白與截斷；圖片／檔案附件；超過上限時分段（含不整除）；依導覽區高度算線數上限（沒量到用 120、每 8px 一條、最少 2 條）；目前那則取範圍內第一則、否則取範圍前最近一則；分段時段內任一則都算目前。 |
-| `src/components/chat/__tests__/MessageNavigator.test.tsx` | 訊息導覽列元件：每則一條、名稱帶第幾則（分段帶範圍）與預覽、附件與沒有文字的說法；滑鼠移入浮出預覽、移開與點擊收起、按 Esc 收起（滑鼠浮出與鍵盤浮出兩種）、失焦收起；預覽是純文字不解讀 HTML／Markdown；`aria-current`；整排一個 Tab 停留點、上下鍵／Home／End 移動，線變少後仍只有一個停留點。 |
+| `src/components/chat/__tests__/MessageNavigator.test.tsx` | 訊息導覽列元件：每則一條、名稱帶第幾則（分段帶範圍）與預覽、附件與沒有文字的說法；滑鼠移入浮出預覽、移開與點擊收起、按 Esc 收起（滑鼠浮出與鍵盤浮出兩種；預覽開著時那一下 Esc 不傳到輸入框，下一次才傳）、失焦收起；預覽是純文字不解讀 HTML／Markdown；`aria-current`；整排一個 Tab 停留點、上下鍵／Home／End 移動，線變少後仍只有一個停留點。 |
 | `src/hooks/__tests__/useMessageNavigation.test.ts` | 訊息導覽列 hook：訊息變動時重算線、捲動範圍決定目前那則、範圍變了但目前那則沒變時不重繪、換路徑時用最新範圍重算、停用時沒有目前那則且重新啟用時立刻用停用期間的範圍；量到導覽區高度後線數跟著調整、卸載時停止觀察、停用時不觀察、沒有 `ResizeObserver` 時照上限畫線。 |
 | `unit/hooks/useChatStream.test.ts` | ADR-0080／P11 useChatStream委派：既有session／新建session／stop／上限提示，以及固定provider與options後切換翻譯函式，限流提示使用新語言。 |
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
