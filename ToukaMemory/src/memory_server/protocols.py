@@ -9,11 +9,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    import os
+    from collections.abc import Callable, Iterator, Mapping
     from pathlib import Path
+    from typing import IO
 
     from memory_server.models.conversation_search import ConversationPage
     from memory_server.models.source_ref import SourceRef, SourceStatus
+    from memory_server.utils.no_follow import WalkEntry, WalkReport
+    from memory_server.utils.zone_paths import ZonePath
 
 
 class ISourceResolver(Protocol):
@@ -159,6 +163,96 @@ class IResourceProxy(IConversationReader, Protocol):
         """取得指定代理人的 Vault 實體絕對路徑."""
         ...
 
-    def get_vault_path_for_agent(self, vault: str, agent_id: str) -> str | None:  # noqa: IDENTITY_SSOT
-        """依 agent_id 解析 Vault 實體路徑（跨身分決定論定址，不臆測角色）."""
+    # 代理人資料夾（區）：只收 ZonePath，路上或最後一段有連結丟 ZoneLinkRefusedError（ADR-0293）
+    def agent_drive(self, identity: Any) -> ZonePath | None:
+        """代理人的個人空間；``agent_id`` 不能當一段時回 None."""
+        ...
+
+    def agent_drive_for(self, agent_id: str) -> ZonePath | None:  # noqa: IDENTITY_SSOT
+        """依 agent_id 找出真實註冊身分後的個人空間（跨身分決定論定址，不臆測角色）."""
+        ...
+
+    def outputs_dir(self, identity: Any) -> ZonePath | None:
+        """代理人的輸出資料夾."""
+        ...
+
+    def zone_rel_from_abs(self, base: ZonePath, text: str) -> ZonePath | None:
+        """絕對路徑照字面在 ``base`` 底下時回區內路徑，否則 None."""
+        ...
+
+    def zone_kind(self, zp: ZonePath) -> str:
+        """最後一段是什麼：``missing``／``file``／``dir``／``link``／``other``."""
+        ...
+
+    def zone_read_text(self, zp: ZonePath, encoding: str = "utf-8", errors: str = "strict") -> str:
+        """讀文字檔."""
+        ...
+
+    def zone_read_binary(self, zp: ZonePath, size: int = -1) -> bytes:
+        """讀二進位檔（``size`` 給了只讀開頭）."""
+        ...
+
+    def zone_read_json(self, zp: ZonePath, encoding: str = "utf-8") -> Any | None:
+        """讀 JSON；不存在或壞檔回 None."""
+        ...
+
+    def zone_write_text(self, zp: ZonePath, content: str, encoding: str = "utf-8") -> None:
+        """原子寫入文字檔."""
+        ...
+
+    def zone_write_json(self, zp: ZonePath, data: Any, indent: int = 4) -> None:
+        """寫成 JSON."""
+        ...
+
+    def zone_write_binary(self, zp: ZonePath, content: bytes) -> None:
+        """就地寫入二進位檔."""
+        ...
+
+    def zone_append_text(self, zp: ZonePath, content: str, encoding: str = "utf-8") -> None:
+        """追加文字."""
+        ...
+
+    def zone_make_dir(self, zp: ZonePath) -> None:
+        """建資料夾（含上層）."""
+        ...
+
+    def zone_remove_file(self, zp: ZonePath, missing_ok: bool = True) -> None:
+        """刪檔（最後一段是連結時刪連結本身）."""
+        ...
+
+    def zone_remove_dir(self, zp: ZonePath, missing_ok: bool = True) -> None:
+        """刪整棵樹（連結只刪本身）."""
+        ...
+
+    def zone_list(
+        self, zp: ZonePath, max_depth: int = 2, exclude: frozenset[str] = frozenset()
+    ) -> list[str]:
+        """同 ``list_directory`` 的樹狀格式."""
+        ...
+
+    def zone_stat_files(
+        self,
+        zp: ZonePath,
+        exclude_names: frozenset[str] = frozenset(),
+        exclude_paths: frozenset[str] = frozenset(),
+        exclude_globs: tuple[str, ...] = (),
+        max_files: int | None = None,
+    ) -> list[tuple[str, int, int]]:
+        """同 ``stat_files``."""
+        ...
+
+    def zone_walk(
+        self,
+        zp: ZonePath,
+        report: WalkReport,
+        *,
+        skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+    ) -> Iterator[WalkEntry]:
+        """走訪一棵樹（不進入連結）."""
+        ...
+
+    def zone_walk_open(
+        self, zp: ZonePath, report: WalkReport
+    ) -> Iterator[tuple[tuple[str, ...], IO[bytes], os.stat_result]]:
+        """走訪並給開好的一般檔案."""
         ...

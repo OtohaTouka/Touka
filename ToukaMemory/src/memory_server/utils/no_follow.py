@@ -774,7 +774,7 @@ class WalkReport:
 
 
 class WalkEntry(NamedTuple):
-    """走訪到的一項：相對根的段落、種類（``file``／``dir``／``other``）、lstat。"""
+    """走訪到的一項：相對根的段落、種類（``file``／``dir``／``other``；要求時 ``link``）、lstat。"""
 
     parts: tuple[str, ...]
     kind: str
@@ -788,6 +788,8 @@ class _WalkSettings:
     same_device: bool
     skip_dir: Callable[[tuple[str, ...]], bool] | None = None
     markers: ZoneMarkers | None = None
+    show_links: bool = False
+    list_depth: int | None = None
     root_dev: int = 0
 
 
@@ -853,6 +855,8 @@ def _walk_dir[H](
             continue
         if _is_link_stat(info):
             found.links += 1
+            if settings.show_links:
+                yield WalkEntry((*parts, name), "link", info), None
         elif stat.S_ISDIR(info.st_mode):
             dirs.append((name, info))
         elif stat.S_ISREG(info.st_mode):
@@ -862,6 +866,11 @@ def _walk_dir[H](
             yield WalkEntry((*parts, name), "other", info), None
     for name, info in dirs:
         child_parts = (*parts, name)
+        if settings.skip_dir is not None and settings.skip_dir(child_parts):
+            continue
+        if settings.list_depth is not None and len(child_parts) >= settings.list_depth:
+            yield WalkEntry(child_parts, "dir", info), None  # 列出、不進入
+            continue
         opened = _open_child(ops, holder, shown / name, child_parts, info, state, settings)
         if opened is None:
             continue
@@ -884,8 +893,6 @@ def _open_child[H](
 ) -> tuple[H, MarkerState | None] | None:
     """要不要進這個子資料夾：不進的原因記進統計；要進就回（開好的容器, 位置）。"""
     found, rel = settings.report, "/".join(parts)
-    if settings.skip_dir is not None and settings.skip_dir(parts):
-        return None
     child_state = None
     if settings.markers is not None:
         child_state = settings.markers.child(state, str(shown), parts[-1], info)
@@ -909,12 +916,28 @@ def _open_child[H](
     return child, child_state
 
 
-def walk_no_follow(root: Path | str, report: WalkReport) -> Iterator[WalkEntry]:
-    """走訪代理人資料夾（區）裡的一棵樹：不進入、不列出連結（計數），名稱不合格的略過並計數。
+def walk_no_follow(
+    root: Path | str,
+    report: WalkReport,
+    *,
+    skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+    show_links: bool = False,
+    list_depth: int | None = None,
+) -> Iterator[WalkEntry]:
+    """走訪代理人資料夾（區）裡的一棵樹：不進入連結（計數），名稱不合格的略過並計數。
 
-    根不存在時什麼都不給；根或上層路上有連結就拒絕。不跨檔案系統（記成錯誤）。
+    根不存在時什麼都不給；根或上層路上有連結就拒絕。不跨檔案系統（記成錯誤）。``skip_dir``
+    收子資料夾的相對段落，回真就不列也不進入；``show_links`` 時連結也列出（種類 ``link``）；
+    ``list_depth`` 給了時，段落數到這麼多的資料夾只列出、不進入。
     """
-    settings = _WalkSettings(report, check_names=True, same_device=True)
+    settings = _WalkSettings(
+        report,
+        check_names=True,
+        same_device=True,
+        skip_dir=skip_dir,
+        show_links=show_links,
+        list_depth=list_depth,
+    )
     for entry, _opener in _walk(Path(root), settings):
         yield entry
 

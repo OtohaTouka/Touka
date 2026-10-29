@@ -8,7 +8,8 @@
 3. 被偵測到的公開方法恰好一個裝飾器：``permission_repair(retry=<字面 bool>)`` 或
    ``permission_repair_exempt(category=…, reason=<非空字串>)``，並和下面兩份釘選清單完全相等。
 4. 豁免不能誤用；``retry=True`` 只能呼叫 retry=True、``path_only`` 或不碰檔案的 self 方法；
-   ``permission_repair`` 只能裝在同步方法上。
+   ``permission_repair`` 只能裝在同步方法上；``generator``（ADR-0293 的走訪與交出路徑）只能用在
+   有 ``yield`` 的方法。
 5. 棘輪：不得從 os／os.path／shutil／tempfile／zipfile／io from-import 或取別名；
    ``PermissionError(...)`` 恰好一個位置參數；``OSError``／``IOError``／``EnvironmentError`` 不得帶
    2 個以上參數（帶 errno 的會建出 PermissionError，保護拒絕的 errno 就不再是 None）。
@@ -31,8 +32,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RM_FILE = ROOT / "ToukaProxy" / "src" / "services" / "resource_manager.py"
 
 EXPECTED_RETRY = {
-    "get_outputs_path": True,
-    "get_uploads_path": True,
     "get_vault_root": True,
     "list_all_agent_stats": True,
     "read_file_text": True,
@@ -57,6 +56,21 @@ EXPECTED_RETRY = {
     "append_file_text_no_follow": False,
     "remove_file_no_follow": False,
     "append_csv_row": False,
+    # 區內方法（ADR-0293 Z3）：和對應的字串方法同一個旗標
+    "zone_kind": True,
+    "zone_read_text": True,
+    "zone_read_binary": True,
+    "zone_open_read": True,
+    "zone_write_binary": True,
+    "zone_make_dir": True,
+    "zone_stat_files": True,
+    "zone_list": True,
+    "zone_write_text": False,
+    "zone_append_text": False,
+    "zone_remove_file": False,
+    "zone_remove_dir": False,
+    "rename_agent_container": False,
+    "remove_custom_model_dir": False,
 }
 # 方法 → (類別, 理由裡必須出現的摘要)
 EXPECTED_EXEMPT = {
@@ -74,7 +88,14 @@ EXPECTED_EXEMPT = {
     "read_json": ("delegates", "read_file_text"),
     "write_json": ("delegates", "write_file_text"),
     "query_ui_conversations": ("delegates", "query_ui_conversations"),
+    "zone_read_json": ("delegates", "zone_read_text"),
+    "zone_write_json": ("delegates", "zone_write_text"),
+    "zone_walk": ("generator", "走訪"),
+    "zone_walk_open": ("generator", "開檔"),
+    "zone_handoff": ("generator", "交出"),
 }
+# 有標記的私有方法（retry=True 的區內方法要呼叫它，所以它自己也要 retry=True）
+EXPECTED_PRIVATE_RETRY = {"_zone_target": True}
 
 IO_MODULES = ("os", "shutil", "tempfile", "zipfile", "io")
 RATCHET_MODULES = frozenset({*IO_MODULES, "os.path"})
@@ -96,13 +117,15 @@ WRITE_ATTRS = frozenset(
      "lchmod", "chown", "symlink_to", "hardlink_to"}
 )
 IO_HELPERS = frozenset(
-    {"validate_no_symlink_escape", "ensure_no_links", "read_text_no_follow", "read_bytes_no_follow"}
+    {"validate_no_symlink_escape", "ensure_no_links", "read_text_no_follow", "read_bytes_no_follow",
+     "kind_no_follow", "open_read_no_follow", "walk_no_follow", "walk_open_no_follow"}
 )
 WRITE_IO_HELPERS = frozenset(
-    {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow"}
+    {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow", "write_bytes_no_follow",
+     "make_dirs_no_follow", "remove_tree_no_follow", "rename_entry_no_follow", "ensure_anchor"}
 )
 EXTERNAL_READ_DELEGATES = frozenset({"self._ui_conversation_reader.query_ui_conversations"})
-CATEGORIES = frozenset({"swap_semantics", "path_only", "delegates"})
+CATEGORIES = frozenset({"swap_semantics", "path_only", "delegates", "generator"})
 OSERROR_NAMES = frozenset({"OSError", "IOError", "EnvironmentError"})
 
 
@@ -306,6 +329,9 @@ def analyze(source: str) -> Analysis:
             violations.append(f"async permission_repair: {name}")
         if current[:2] == ("exempt", "path_only") and "write" in io[name]:
             violations.append(f"path_only writes: {name}")
+        yields = any(isinstance(sub, (ast.Yield, ast.YieldFrom)) for sub in ast.walk(unit.node))
+        if current[:2] == ("exempt", "generator") and not yields:
+            violations.append(f"generator without yield: {name}")
         if current[:2] == ("exempt", "delegates"):
             calls_ok = all((mark(c) or ("",))[0] == "repair" for c in unit.self_calls)
             if unit.io or unit.func_calls or not calls_ok:
@@ -329,8 +355,11 @@ def test_resource_manager_follows_every_rule(resource_manager_analysis):
 def test_detected_methods_match_the_pinned_lists(resource_manager_analysis):
     analysis = resource_manager_analysis
     assert analysis.detected == set(EXPECTED_RETRY) | set(EXPECTED_EXEMPT)
-    assert set(analysis.marks) == analysis.detected
-    retry = {n: m[1] for n, m in analysis.marks.items() if m[0] == "repair"}
+    public = {n for n in analysis.marks if not n.startswith("_")}
+    assert public == analysis.detected
+    private = {n: m for n, m in analysis.marks.items() if n.startswith("_")}
+    assert private == {n: ("repair", r) for n, r in EXPECTED_PRIVATE_RETRY.items()}
+    retry = {n: m[1] for n, m in analysis.marks.items() if m[0] == "repair" and n in public}
     assert retry == EXPECTED_RETRY
     exempt = {n: m[1] for n, m in analysis.marks.items() if m[0] == "exempt"}
     assert exempt == {n: cat for n, (cat, _) in EXPECTED_EXEMPT.items()}
@@ -419,6 +448,12 @@ def _src(body: str) -> str:
             "    @permission_repair_exempt(category=\"delegates\", reason=\"r\")\n"
             "    def load(self, p):\n        return open(p).read()\n",
             "delegates misuse: load",
+        ),
+        (
+            "class R:\n"
+            "    @permission_repair_exempt(category=\"generator\", reason=\"r\")\n"
+            "    def load(self, p):\n        return open(p).read()\n",
+            "generator without yield: load",
         ),
         (
             "class R:\n"
@@ -515,6 +550,11 @@ def test_self_test_catches_the_reverse_cases(body, expected):
             "    def plain(self, p):\n        return self.where(p)\n"
         ),
         "class R:\n    def deny(self):\n        raise PermissionError(\"Soul Protection Error\")\n",
+        (
+            "class R:\n"
+            "    @permission_repair_exempt(category=\"generator\", reason=\"walk\")\n"
+            "    def walk(self, p):\n        yield from Path(p).iterdir()\n"
+        ),
     ],
 )
 def test_self_test_accepts_the_positive_cases(body):

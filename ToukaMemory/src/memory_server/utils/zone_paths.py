@@ -345,6 +345,16 @@ class ZonePath:
         raise AttributeError(name)
 
 
+def agent_root(anchor: Anchor, folder: str) -> ZonePath:
+    """代理人在錨點裡的根：``folder`` 是代理人的資料夾名稱（一段），自訂模型再接 ``drive``。
+
+    名稱不合格丟 ``ZoneSegmentError``。
+    """
+    if anchor is Anchor.CUSTOM_DRIVE:
+        return ZonePath(anchor, (folder, _CUSTOM_DRIVE_DIR))
+    return ZonePath(anchor, (folder,))
+
+
 # --- 根（R9、R14） -------------------------------------------------------
 
 
