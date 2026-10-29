@@ -25,8 +25,9 @@ import secrets
 import stat
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
+
+from memory_server.utils.zone_paths import ZoneRootsUnavailableError, anchor_dirname
 
 from src.config import is_container_runtime
 from src.sandbox_kernel.framing import block_ports_digest
@@ -83,6 +84,7 @@ from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
+    from pathlib import Path
 
     from src.models.identity import AgentIdentity
     from src.services.isolation.executor_client import ExecutorReady
@@ -614,15 +616,30 @@ class IsolationMonitor:
 
         這批不掛工作區，所以綁了專案的一律不在執行器範圍。
         """
-        drive = resource_manager.get_vault_path("personal", identity)
-        writable = [
-            Path(root.path)
-            for root in expected_executor_roots(self._current_layout())
-            if root.access == "rw"
-        ]
-        if drive is None or not any(Path(drive).resolve().is_relative_to(r) for r in writable):
+        if not self._agent_drive_in_executor(identity):
             return AGENT_DIR_NOT_IN_EXECUTOR
         return PROJECT_NOT_IN_EXECUTOR if project_root is not None else None
+
+    def _agent_drive_in_executor(self, identity: AgentIdentity) -> bool:
+        """個人空間所在的錨點被執行器掛成可寫，而且它是資料夾或還沒建（ADR-0293 R7）.
+
+        只看區的分類、不解析路徑：是連結、不是資料夾或讀不到都不在範圍。
+        """
+        drive = resource_manager.agent_drive(identity)
+        dirname = None if drive is None else anchor_dirname(drive.anchor)
+        if drive is None or dirname is None:
+            return False
+        layout = self._current_layout()
+        mounted = str(layout.data_root.joinpath(*dirname.split("/")))
+        if not any(
+            root.access == "rw" and root.path == mounted
+            for root in expected_executor_roots(layout)
+        ):
+            return False
+        try:
+            return resource_manager.zone_kind(drive) in ("dir", "missing")
+        except (OSError, ZoneRootsUnavailableError):
+            return False
 
     def fallback_for(
         self, *, profile_complete: bool, executor_eligible: bool = False
