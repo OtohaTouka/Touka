@@ -67,13 +67,13 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
   };
 
   // WCAG 1.4.13：預覽蓋住訊息時，不用移開滑鼠或焦點也能按 Esc 收起。
-  // 在 window 的 capture 階段先攔下：這次 Esc 只收預覽，不會傳到輸入框變成「停止生成」（浮層先關，同 @ 選單）
-  const previewShown = preview !== null;
+  // 在 window 的 capture 階段先攔下：這次 Esc 只收預覽，不會傳到輸入框變成「停止生成」（浮層先關，同 @ 選單）。
+  // 看的是畫面上真的有預覽：那條因重新分段不見了就不攔，免得 Esc 被無聲吞掉
+  const previewShown = previewTick !== undefined;
   React.useEffect(() => {
     if (!previewShown) return;
     const dismiss = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      event.preventDefault();
       event.stopPropagation();
       setPreview(null);
     };

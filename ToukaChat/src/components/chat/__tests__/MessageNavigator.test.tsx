@@ -110,6 +110,23 @@ describe('MessageNavigator', () => {
     expect(composerKeyDown).toHaveBeenCalledTimes(1);
   });
 
+  it('預覽那條因重新分段消失後，Esc 照常傳到輸入框', () => {
+    const composerKeyDown = vi.fn();
+    const view = (ticks: typeof THREE) => (
+      <>
+        <textarea aria-label="composer" onKeyDown={composerKeyDown} />
+        <MessageNavigator ticks={ticks} currentIndex={null} onJump={vi.fn()} />
+      </>
+    );
+    const { rerender } = render(view(THREE));
+    const composer = screen.getByRole('textbox', { name: 'composer' });
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '跳到第 2 則：第二句' }));
+    rerender(view(ticksOf([user('x1', '甲'), user('x2', '乙')])));
+    expect(screen.queryByText('第二句')).toBeNull();
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(composerKeyDown).toHaveBeenCalledTimes(1);
+  });
+
   it('失焦時收起預覽', () => {
     renderNav();
     const [first, second] = screen.getAllByRole('button');
