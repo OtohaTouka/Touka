@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import errno
-import fnmatch
 import logging
 import re
 from pathlib import Path, PurePath, PurePosixPath
@@ -25,6 +24,7 @@ from memory_server.utils.no_follow import (
     iter_regular_files,
     read_text_no_follow,
     remove_no_follow,
+    rglob_match,
     write_text_no_follow,
 )
 from memory_server.utils.zone_paths import ZonePath, ZoneSegmentError
@@ -194,39 +194,6 @@ def _regular_files(
     for rel in rels:
         if not skipped.intersection(PurePosixPath(rel).parts):
             yield rel
-
-
-def _glob_match(rel: str, pattern: str) -> bool:
-    """``rel`` 是否符合 ``root.rglob(pattern)``：``**`` 比對零到多段，其餘逐段用 fnmatch.
-
-    逐段推進「比到模式第幾段」的集合，時間和段數成正比（模式寫很多 ``**`` 也不會爆量）。
-    """
-    pattern_parts = ("**", *PurePath(pattern).parts)
-    if len(pattern_parts) == 1:
-        return False
-
-    def widen(states: set[int]) -> set[int]:
-        # ``**`` 可以比對零段：跳過它
-        for j in sorted(states):
-            while j < len(pattern_parts) and pattern_parts[j] == "**":
-                j += 1
-                states.add(j)
-        return states
-
-    states = widen({0})
-    for part in PurePosixPath(rel).parts:
-        advanced: set[int] = set()
-        for j in states:
-            if j == len(pattern_parts):
-                continue
-            if pattern_parts[j] == "**":
-                advanced.add(j)
-            elif fnmatch.fnmatch(part, pattern_parts[j]):
-                advanced.add(j + 1)
-        states = widen(advanced)
-        if not states:
-            return False
-    return len(pattern_parts) in states
 
 
 async def core_read(
@@ -460,7 +427,7 @@ async def core_find(
         skipped = frozenset({'.git', 'node_modules', '__pycache__'}) | exclude
         matches = []
         for rel in _regular_files(root, skipped, resource_proxy):
-            if _glob_match(rel, pattern):
+            if rglob_match(rel, pattern):
                 matches.append(rel)
                 if len(matches) >= 50:
                     break

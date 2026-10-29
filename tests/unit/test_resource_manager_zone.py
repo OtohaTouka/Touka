@@ -303,23 +303,41 @@ def test_permission_repair_gets_the_absolute_path(data, monkeypatch):
 # --- 列樹與統計 --------------------------------------------------------------
 
 
+def _fill(root: Path, outside: Path) -> Path:
+    for rel in ("a.txt", "Bee/c.txt", "Bee/deep/d/e.txt", "zed.md", ".git/x", "node_modules/m"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(rel, encoding="utf-8")
+    (root / "empty").mkdir()
+    (root / "Bee" / "deep" / "skip").mkdir()
+    make_dir_link(root / "peek", outside)
+    return root
+
+
 @pytest.fixture
 def tree(data: Path, outside: Path) -> Path:
-    drive = _drive(data)
-    for rel in ("a.txt", "Bee/c.txt", "Bee/deep/d/e.txt", "zed.md", ".git/x", "node_modules/m"):
-        (drive / rel).parent.mkdir(parents=True, exist_ok=True)
-        (drive / rel).write_text(rel, encoding="utf-8")
-    (drive / "empty").mkdir()
-    (drive / "Bee" / "deep" / "skip").mkdir()
-    make_dir_link(drive / "peek", outside)
-    return drive
+    return _fill(_drive(data), outside)
+
+
+@pytest.fixture
+def twin(tree: Path, tmp_path: Path, outside: Path) -> Path:
+    """``tree`` 的複本放在 data 根以外：字串方法對它的結果就是區內方法該有的.
+
+    Z2 拒絕區裡的字串路徑，所以不能直接拿 ``tree`` 比。
+    """
+    return _fill(tmp_path.resolve() / "twin", outside)
+
+
+def _as_tree(lines: list[str], twin: Path, tree: Path) -> list[str]:
+    return [line.replace(str(twin), str(tree)) for line in lines]
 
 
 @pytest.mark.parametrize("depth", [0, 1, 2, 3, 5])
-def test_zone_list_matches_list_directory(tree, outside, depth):
-    assert rm.zone_list(alice(), max_depth=depth) == rm.list_directory(str(tree), max_depth=depth)
+def test_zone_list_matches_list_directory(tree, twin, outside, depth):
+    listed = rm.list_directory(str(twin), max_depth=depth)
+    assert rm.zone_list(alice(), max_depth=depth) == _as_tree(listed, twin, tree)
     hide = frozenset({"deep"})
-    assert rm.zone_list(alice(), depth, hide) == rm.list_directory(str(tree), depth, hide)
+    listed = rm.list_directory(str(twin), depth, hide)
+    assert rm.zone_list(alice(), depth, hide) == _as_tree(listed, twin, tree)
     assert _untouched(outside)
 
 
@@ -330,9 +348,10 @@ def test_zone_list_shows_links_without_entering_them(tree):
     assert not any(".git" in line or "node_modules" in line for line in lines)
 
 
-def test_zone_list_of_a_file_or_nothing(tree):
-    assert rm.zone_list(alice("a.txt")) == rm.list_directory(str(tree / "a.txt"))
-    assert rm.zone_list(alice("nope")) == rm.list_directory(str(tree / "nope"))
+def test_zone_list_of_a_file_or_nothing(tree, twin):
+    for name in ("a.txt", "nope"):
+        listed = rm.list_directory(str(twin / name))
+        assert rm.zone_list(alice(name)) == _as_tree(listed, twin, tree)
 
 
 @pytest.mark.parametrize(
@@ -345,8 +364,9 @@ def test_zone_list_of_a_file_or_nothing(tree):
         {"max_files": 2},
     ],
 )
-def test_zone_stat_files_matches_stat_files(tree, outside, options):
-    assert rm.zone_stat_files(alice(), **options) == rm.stat_files(tree, **options)
+def test_zone_stat_files_matches_stat_files(tree, twin, outside, options):
+    rows = rm.zone_stat_files(alice(), **options)
+    assert [row[:2] for row in rows] == [row[:2] for row in rm.stat_files(twin, **options)]
     assert _untouched(outside)
 
 

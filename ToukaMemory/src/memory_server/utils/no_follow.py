@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fnmatch
 import functools
 import os
 import secrets
@@ -35,7 +36,7 @@ import sys
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 from typing import IO, TYPE_CHECKING, NamedTuple, Protocol, override
 
 from memory_server.utils.zone_paths import (
@@ -963,7 +964,13 @@ def walk_open_no_follow(
     ``links``，被換成別的東西的記成 ``WALK_CHANGED``。
     """
     settings = _WalkSettings(report, check_names=True, same_device=True)
-    for entry, opener in _walk(Path(root), settings):
+    yield from _opened(_walk(Path(root), settings), report)
+
+
+def _opened(
+    walk: Iterator[tuple[WalkEntry, Callable[[], int] | None]], report: WalkReport
+) -> Iterator[tuple[tuple[str, ...], IO[bytes], os.stat_result]]:
+    for entry, opener in walk:
         if opener is None:
             continue
         try:
@@ -1007,22 +1014,78 @@ def walk_pruned(
     *,
     anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
     skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+    show_links: bool = False,
+    list_depth: int | None = None,
 ) -> Iterator[WalkEntry]:
     """走訪代理人資料夾以外的一棵樹（專案根、備份的 data 根）：不跟隨連結，遇到區根剪掉（R5）。
 
     剪掉的區根記在 ``report.pruned``，由呼叫端決定略過並計數（列、找、統計）或整個拒絕（刪、
-    複製、打包）。名稱不檢查、可以跨檔案系統（專案的 find、grep 行為不變）。``skip_dir`` 收
-    子資料夾的相對段落，回真就不進入。
+    複製、打包）。名稱不檢查、可以跨檔案系統（專案的 find、grep 行為不變）。``skip_dir``、
+    ``show_links``、``list_depth`` 同 ``walk_no_follow``。
     """
-    settings = _WalkSettings(
+    settings = _pruned_settings(roots, report, anchors, skip_dir)
+    settings.show_links, settings.list_depth = show_links, list_depth
+    for entry, _opener in _walk(Path(root), settings):
+        yield entry
+
+
+def walk_open_pruned(
+    root: Path | str,
+    roots: ZoneRoots,
+    report: WalkReport,
+    *,
+    anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
+) -> Iterator[tuple[tuple[str, ...], IO[bytes], os.stat_result]]:
+    """同 ``walk_pruned``，但只給不跟隨地開好的一般檔案（打包用，R4）；拿下一個前關掉上一個。"""
+    yield from _opened(_walk(Path(root), _pruned_settings(roots, report, anchors, None)), report)
+
+
+def _pruned_settings(
+    roots: ZoneRoots,
+    report: WalkReport,
+    anchors: Iterable[Anchor],
+    skip_dir: Callable[[tuple[str, ...]], bool] | None,
+) -> _WalkSettings:
+    return _WalkSettings(
         report,
         check_names=False,
         same_device=False,
         skip_dir=skip_dir,
         markers=ZoneMarkers(roots, anchors),
     )
-    for entry, _opener in _walk(Path(root), settings):
-        yield entry
+
+
+def rglob_match(rel: str, pattern: str) -> bool:
+    """相對 POSIX 路徑 ``rel`` 是否符合 ``root.rglob(pattern)``：``**`` 比對零到多段，其餘 fnmatch.
+
+    逐段推進「比到模式第幾段」的集合，時間和段數成正比（模式寫很多 ``**`` 也不會爆量）。
+    """
+    pattern_parts = ("**", *PurePath(pattern).parts)
+    if len(pattern_parts) == 1:
+        return False
+
+    def widen(states: set[int]) -> set[int]:
+        # ``**`` 可以比對零段：跳過它
+        for j in sorted(states):
+            while j < len(pattern_parts) and pattern_parts[j] == "**":
+                j += 1
+                states.add(j)
+        return states
+
+    states = widen({0})
+    for part in PurePosixPath(rel).parts:
+        advanced: set[int] = set()
+        for j in states:
+            if j == len(pattern_parts):
+                continue
+            if pattern_parts[j] == "**":
+                advanced.add(j)
+            elif fnmatch.fnmatch(part, pattern_parts[j]):
+                advanced.add(j + 1)
+        states = widen(advanced)
+        if not states:
+            return False
+    return len(pattern_parts) in states
 
 
 def iter_regular_files(

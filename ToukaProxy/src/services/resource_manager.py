@@ -26,7 +26,6 @@ from memory_server.utils.no_follow import (
     WalkReport,
     ZoneLinkRefusedError,
     ensure_no_links,
-    is_link,
     kind_no_follow,
     make_dirs_no_follow,
     open_read_no_follow,
@@ -36,13 +35,18 @@ from memory_server.utils.no_follow import (
     remove_tree_no_follow,
     rename_entry_no_follow,
     replace_text_no_follow,
+    rglob_match,
     walk_no_follow,
     walk_open_no_follow,
+    walk_open_pruned,
+    walk_pruned,
     write_bytes_no_follow,
     write_text_no_follow,
+    zip_open_file,
     zone_errors,
 )
 from memory_server.utils.zone_paths import (
+    ENFORCED_ANCHORS,
     Anchor,
     ZonePath,
     ZonePathRequiredError,
@@ -51,11 +55,15 @@ from memory_server.utils.zone_paths import (
     ZoneSegmentError,
     _register_handoff,
     _release_handoff,
+    absolute_text,
     agent_root,
+    contains_zone,
     current_roots,
     ensure_anchor,
     is_zone_segment,
     set_roots_provider,
+    zone_display,
+    zone_of,
 )
 
 # 使用絕對匯入避免 TID251 警告，並確保環境變數獲取一致
@@ -140,6 +148,64 @@ def _render_tree(
         return lines
 
     return build((), 1, "")
+
+
+def _plain(path: Path | str, method: str) -> str:
+    """字串方法收到的路徑：正規化一次，判斷與 I/O 用同一個字串（ADR-0293 R4）.
+
+    在代理人資料夾裡（含經 ``..`` 或連結進去的）丟 ``ZonePathRequiredError``；錨點本身不算.
+    """
+    text = absolute_text(path)
+    found = zone_of(text, current_roots(), anchors=ENFORCED_ANCHORS)
+    if found is not None:
+        raise ZonePathRequiredError(zone_display(*found), method)
+    return text
+
+
+def _plain_tree(path: Path | str, method: str) -> str:
+    """同 ``_plain``，另外拒絕包含區的路徑（錨點本身、它的上層、``custom/<id>``；R4）."""
+    text = _plain(path, method)
+    if contains_zone(text, current_roots(), anchors=ENFORCED_ANCHORS):
+        raise ZonePathRequiredError(None, method)
+    return text
+
+
+def _walk_plain(resolved: Path, report: WalkReport, **options: Any) -> Iterator[WalkEntry]:
+    """字串根的列、找、統計（R4）：根由呼叫端解析一次（人做的連結照舊跟隨），之後不跟隨連結、剪掉區.
+
+    解析留在呼叫端：那是方法自己的 I/O，權限自癒重試時跟著方法重做。
+    """
+    yield from walk_pruned(resolved, current_roots(), report, anchors=ENFORCED_ANCHORS, **options)
+
+
+def _refuse_pruned(report: WalkReport, method: str) -> None:
+    """刪、打包的走訪途中遇到區根（例如經別的掛載路徑進到 data）：整個拒絕（R4）."""
+    if report.pruned:
+        raise ZonePathRequiredError(zone_display(*report.pruned[0]), method)
+
+
+def _skip_excluded(
+    exclude_names: frozenset[str], exclude_paths: frozenset[str]
+) -> Callable[[tuple[str, ...]], bool]:
+    """``stat_files`` 的剪除：資料夾名稱在任何深度、相對路徑精確比對."""
+    return lambda parts: parts[-1] in exclude_names or "/".join(parts) in exclude_paths
+
+
+def _stat_rows(
+    walk: Iterator[WalkEntry], exclude_globs: tuple[str, ...], max_files: int | None
+) -> list[tuple[str, int, int]]:
+    """一般檔案的（相對 POSIX 路徑, 位元組數, mtime_ns）；檔名符合 ``exclude_globs`` 的略過."""
+    rows: list[tuple[str, int, int]] = []
+    with contextlib.closing(walk):
+        for entry in walk:
+            if entry.kind != "file" or any(
+                fnmatch.fnmatch(entry.parts[-1], pattern) for pattern in exclude_globs
+            ):
+                continue
+            rows.append(("/".join(entry.parts), entry.info.st_size, entry.info.st_mtime_ns))
+            if max_files is not None and len(rows) >= max_files:
+                break
+    return rows
 
 
 def _unlock_and_retry(
@@ -629,58 +695,61 @@ class ResourceManager:
     @permission_repair(retry=True)
     def read_file_text(self, path: Path | str, encoding: str = "utf-8") -> str:
         """安全地讀取檔案內容."""
-        return Path(path).read_text(encoding=encoding)
+        return Path(_plain(path, "read_file_text")).read_text(encoding=encoding)
 
     @permission_repair(retry=True)
     def read_file_binary(self, path: Path | str) -> bytes:
         """安全地讀取二進位檔案內容."""
-        return Path(path).read_bytes()
+        return Path(_plain(path, "read_file_binary")).read_bytes()
 
     # --- 不跟隨連結（代理人的檔案動詞用；路徑要先解析，ADR-0292 決定 12）---
-    # 失敗時例外帶絕對路徑（``no_follow`` 換好），EACCES 交給權限自癒
+    # 失敗時例外帶絕對路徑（``no_follow`` 換好），EACCES 交給權限自癒；在區裡照 Z2 拒絕
 
     @permission_repair(retry=True)
     def ensure_no_links(self, path: Path | str) -> None:
         """路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
-        ensure_no_links(path)
+        ensure_no_links(_plain(path, "ensure_no_links"))
 
     @permission_repair(retry=True)
     def read_file_text_no_follow(self, path: Path | str, encoding: str = "utf-8") -> str:
         """讀文字檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
-        return read_text_no_follow(path, encoding=encoding)
+        return read_text_no_follow(_plain(path, "read_file_text_no_follow"), encoding=encoding)
 
     @permission_repair(retry=True)
     def read_file_binary_no_follow(self, path: Path | str) -> bytes:
         """讀二進位檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
-        return read_bytes_no_follow(path)
+        return read_bytes_no_follow(_plain(path, "read_file_binary_no_follow"))
 
     @permission_repair(retry=False)
     def write_file_text_no_follow(
         self, path: Path | str, content: str, encoding: str = "utf-8"
     ) -> None:
         """同 ``write_file_text``（受保護路徑拒絕、原子寫入、0600），路上有連結就拒絕."""
-        if self.is_protected_path(path):
+        text = _plain(path, "write_file_text_no_follow")
+        if self.is_protected_path(text):
             msg = "Soul Protection Error: Automated modification of protected files is prohibited."
             raise PermissionError(msg)
-        replace_text_no_follow(path, content, encoding=encoding)
+        replace_text_no_follow(text, content, encoding=encoding)
 
     @permission_repair(retry=False)
     def append_file_text_no_follow(
         self, path: Path | str, content: str, encoding: str = "utf-8"
     ) -> None:
         """同 ``append_file_text``，路上有連結就拒絕."""
-        if self.is_protected_path(path):
+        text = _plain(path, "append_file_text_no_follow")
+        if self.is_protected_path(text):
             msg = "Soul Protection Error: Cannot append to a protected path."
             raise PermissionError(msg)
-        write_text_no_follow(path, content, encoding=encoding, append=True)
+        write_text_no_follow(text, content, encoding=encoding, append=True)
 
     @permission_repair(retry=False)
     def remove_file_no_follow(self, path: Path | str) -> None:
         """同 ``remove_file``（不存在時丟 FileNotFoundError），上層路上有連結就拒絕."""
-        if self.is_protected_path(path):
+        text = _plain(path, "remove_file_no_follow")
+        if self.is_protected_path(text):
             msg = "Soul Protection Error: Cannot delete a protected path."
             raise PermissionError(msg)
-        remove_no_follow(path)
+        remove_no_follow(text)
 
     # --- 代理人資料夾（區）：只收 ZonePath（ADR-0293 Z3）---
     # 不是 ZonePath 就丟 ZonePathRequiredError；路上有連結丟 ZoneLinkRefusedError。例外的 filename
@@ -836,28 +905,15 @@ class ResourceManager:
     ) -> list[tuple[str, int, int]]:
         """同 ``stat_files``：一般檔案的（相對 POSIX 路徑, 位元組數, mtime_ns）；根是連結就拒絕."""
         target = self._zone_target(zp, "zone_stat_files")
-        rows: list[tuple[str, int, int]] = []
-
-        def skip(parts: tuple[str, ...]) -> bool:
-            return parts[-1] in exclude_names or "/".join(parts) in exclude_paths
-
         with zone_errors(zp.display()):
             kind = kind_no_follow(target)
             if kind == "link":  # 找檔與搜尋不能把「根被換成連結」當成沒有檔案
                 raise ZoneLinkRefusedError(zp.display(), str(target))
             if kind != "dir":
-                return rows
+                return []
+            skip = _skip_excluded(exclude_names, exclude_paths)
             walk = walk_no_follow(target, WalkReport(), skip_dir=skip)
-            with contextlib.closing(walk):
-                for entry in walk:
-                    if entry.kind != "file" or any(
-                        fnmatch.fnmatch(entry.parts[-1], pattern) for pattern in exclude_globs
-                    ):
-                        continue
-                    rows.append(("/".join(entry.parts), entry.info.st_size, entry.info.st_mtime_ns))
-                    if max_files is not None and len(rows) >= max_files:
-                        break
-        return rows
+            return _stat_rows(walk, exclude_globs, max_files)
 
     @permission_repair(retry=True)
     def zone_list(
@@ -1010,7 +1066,7 @@ class ResourceManager:
         make_parents: bool = True,
     ) -> None:
         """安全地寫入檔案內容，強制保護核心目錄（原子寫入：temp + os.replace）。"""
-        p = Path(path)
+        p = Path(_plain(path, "write_file_text"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Automated modification of protected files is prohibited."
             raise PermissionError(msg)
@@ -1033,41 +1089,43 @@ class ResourceManager:
     @permission_repair(retry=False)
     def copy_file(self, src: Path | str, dst: Path | str) -> None:
         """安全地複製檔案."""
-        d = Path(dst)
+        s = _plain_tree(src, "copy_file")
+        d = Path(_plain_tree(dst, "copy_file"))
         if self.is_protected_path(d):
             msg = "Soul Protection Error: Cannot copy to a protected path."
             raise PermissionError(msg)
         d.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(d))
+        shutil.copy2(s, str(d))
 
     @permission_repair_exempt(
         category="swap_semantics", reason="swap：被占用要原樣報 in_use、原檔不動"
     )
     def move_file(self, src: Path | str, dst: Path | str) -> None:
         """安全地移動/重新命名檔案."""
-        d = Path(dst)
+        s = _plain_tree(src, "move_file")
+        d = Path(_plain_tree(dst, "move_file"))
         if self.is_protected_path(d):
             msg = "Soul Protection Error: Cannot move to a protected path."
             raise PermissionError(msg)
         d.parent.mkdir(parents=True, exist_ok=True)
-        Path(src).replace(d)
+        Path(s).replace(d)
 
     @permission_repair(retry=True)
     def exists(self, path: Path | str) -> bool:
         """檢查路徑是否存在."""
-        return Path(path).exists()
+        return Path(_plain(path, "exists")).exists()
 
     @permission_repair(retry=True)
     def make_dir(self, path: Path | str, parents: bool = True, exist_ok: bool = True) -> None:
         """建立目錄."""
-        Path(path).mkdir(parents=parents, exist_ok=exist_ok)
+        Path(_plain(path, "make_dir")).mkdir(parents=parents, exist_ok=exist_ok)
 
     @permission_repair_exempt(
         category="swap_semantics", reason="刪暫存與快照：權限錯誤要原樣往上丟"
     )
     def remove_file(self, path: Path | str, missing_ok: bool = True) -> None:
         """安全地刪除檔案."""
-        p = Path(path)
+        p = Path(_plain(path, "remove_file"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot delete a protected path."
             raise PermissionError(msg)
@@ -1083,8 +1141,10 @@ class ResourceManager:
             path: 要刪除的目錄路徑.
             missing_ok: 目錄不存在時是否靜默略過.
             unlock: 樹裡有唯讀或被拿掉權限的項目時補回擁有者權限再刪（不跟連結）.
+
+        包含代理人資料夾的就拒絕：根是區的上層，或先走一次整棵樹時途中遇到區根（R4）.
         """
-        p = Path(path)
+        p = Path(_plain_tree(path, "remove_dir"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot delete a protected directory."
             raise PermissionError(msg)
@@ -1093,14 +1153,24 @@ class ResourceManager:
                 return
             msg = f"Directory not found: {p}"
             raise FileNotFoundError(msg)
+        # 上層照舊可以是人做的連結；根本身是連結時走訪拒絕（rmtree 本來也拒絕）
+        report = WalkReport()
+        walk = walk_pruned(p.parent.resolve() / p.name, current_roots(), report)
+        with contextlib.closing(walk):
+            for _entry in walk:
+                if report.pruned:
+                    break
+        _refuse_pruned(report, "remove_dir")
         shutil.rmtree(p, onexc=partial(_unlock_and_retry, p, set()) if unlock else None)
 
     # --- Archive (skill 打包/解壓) ---
 
     @permission_repair(retry=True)
     def iter_files(self, path: Path | str) -> list[Path]:
-        """遞迴列出 path 下所有檔案的絕對 Path (無數量上限，打包用)."""
-        return [p for p in Path(path).rglob("*") if p.is_file()]
+        """遞迴列出 path 下所有一般檔案的 Path（無數量上限）；不跟隨連結、代理人資料夾剪掉."""
+        text = _plain(path, "iter_files")
+        walk = _walk_plain(Path(text).resolve(), WalkReport())
+        return [Path(text, *entry.parts) for entry in walk if entry.kind == "file"]
 
     @permission_repair(retry=True)
     def stat_files(
@@ -1113,36 +1183,16 @@ class ResourceManager:
     ) -> list[tuple[str, int, int]]:
         """遞迴列出一般檔案的（相對 POSIX 路徑, 位元組數, mtime_ns），同層依名稱排序.
 
-        不跟隨也不列出 symlink 與 junction（只收 lstat 為一般檔案者）。
+        不跟隨也不列出 symlink 與 junction（只收 lstat 為一般檔案者），代理人資料夾剪掉（R4）。
         ``exclude_names`` 依目錄名在任何深度剪除；``exclude_paths`` 依相對路徑剪除；
         ``exclude_globs`` 依檔名略過；``max_files`` 為筆數上限。路徑不存在時回空清單。
         """
-        root = Path(path)
-        rows: list[tuple[str, int, int]] = []
-        if not root.is_dir():
-            return rows
-        for current, dirnames, filenames in root.walk(follow_symlinks=False):
-            rel_dir = current.relative_to(root)
-            dirnames[:] = sorted(
-                d
-                for d in dirnames
-                if d not in exclude_names
-                and (rel_dir / d).as_posix() not in exclude_paths
-                and not (current / d).is_junction()
-            )
-            for name in sorted(filenames):
-                if any(fnmatch.fnmatch(name, pattern) for pattern in exclude_globs):
-                    continue
-                try:
-                    info = (current / name).lstat()
-                except OSError:
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue
-                rows.append(((rel_dir / name).as_posix(), info.st_size, info.st_mtime_ns))
-                if max_files is not None and len(rows) >= max_files:
-                    return rows
-        return rows
+        text = _plain(path, "stat_files")
+        if not Path(text).is_dir():
+            return []
+        skip = _skip_excluded(exclude_names, exclude_paths)
+        walk = _walk_plain(Path(text).resolve(), WalkReport(), skip_dir=skip)
+        return _stat_rows(walk, exclude_globs, max_files)
 
     def _archive_should_exclude(self, rel: Path) -> bool:
         """判斷打包時是否排除此相對路徑 (建置產物/系統雜訊)."""
@@ -1163,22 +1213,27 @@ class ResourceManager:
 
         arcname = file.relative_to(arc_base or src_dir.parent)，預設保留
         ``<dir_name>/`` 前綴。套用排除規則 (__pycache__/node_modules/*.pyc/.DS_Store).
+        不跟隨連結（略過）；包含代理人資料夾就拒絕、不留下做一半的 archive（R4）.
         """
-        src = Path(src_dir)
-        base = Path(arc_base) if arc_base else src.parent
-        out = Path(output_path)
+        src = Path(_plain_tree(src_dir, "create_archive"))
+        base = Path(absolute_text(arc_base)) if arc_base else src.parent
+        out = Path(_plain_tree(output_path, "create_archive"))
         if self.is_protected_path(out):
             msg = "Soul Protection Error: Cannot write archive to a protected path."
             raise PermissionError(msg)
         out.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-            for fp in src.rglob("*"):
-                if not fp.is_file():
-                    continue
-                rel = fp.relative_to(base)
-                if self._archive_should_exclude(rel):
-                    continue
-                zf.write(fp, rel.as_posix())
+        report = WalkReport()
+        try:
+            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+                for parts, handle, info in walk_open_pruned(src.resolve(), current_roots(), report):
+                    _refuse_pruned(report, "create_archive")
+                    rel = src.joinpath(*parts).relative_to(base)
+                    if not self._archive_should_exclude(rel):
+                        zip_open_file(zf, rel.as_posix(), handle, info)
+                _refuse_pruned(report, "create_archive")
+        except ZonePathRequiredError:
+            out.unlink(missing_ok=True)
+            raise
         return out
 
     @permission_repair(retry=False)
@@ -1194,9 +1249,10 @@ class ResourceManager:
         防護：entry 數上限 + header 宣告總量否決 + 實際累計二次確認 (防 header
         造假) + 逐 entry resolve 後須在 dest_dir 內 (path traversal).
         """
-        dest_root = Path(dest_dir).resolve()
+        archive = _plain_tree(archive_path, "extract_archive")
+        dest_root = Path(_plain_tree(dest_dir, "extract_archive")).resolve()
         dest_root.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(Path(archive_path), "r") as zf:
+        with zipfile.ZipFile(archive, "r") as zf:
             infos = zf.infolist()
             if len(infos) > max_entries:
                 raise ToukaException(ErrorCode.REQUEST_TOO_LARGE)
@@ -1232,11 +1288,16 @@ class ResourceManager:
         每個成員沿用原本的檔名、時間、壓縮方式與屬性（extra 不抄，避免過期的 zip64 欄位）；
         整份 zip 的 comment 照抄。驗證由呼叫端另外做。
         """
-        out = Path(output_path)
+        source_text = _plain_tree(source_path, "rewrite_archive")
+        out = Path(_plain_tree(output_path, "rewrite_archive"))
         if self.is_protected_path(out):
             msg = "Soul Protection Error: Cannot write archive to a protected path."
             raise PermissionError(msg)
-        with zipfile.ZipFile(Path(source_path), "r") as source, zipfile.ZipFile(out, "w") as target:
+        contents = {
+            name: Path(_plain(content, "rewrite_archive")) if isinstance(content, Path) else content
+            for name, content in replace.items()
+        }
+        with zipfile.ZipFile(source_text, "r") as source, zipfile.ZipFile(out, "w") as target:
             target.comment = source.comment
             for info in source.infolist():
                 if info.filename in drop:
@@ -1246,7 +1307,7 @@ class ResourceManager:
                 clone.external_attr = info.external_attr
                 clone.create_system = info.create_system
                 clone.comment = info.comment
-                content = replace.get(info.filename)
+                content = contents.get(info.filename)
                 if isinstance(content, bytes) or info.is_dir():
                     target.writestr(clone, content or b"")
                     continue
@@ -1262,20 +1323,23 @@ class ResourceManager:
     )
     def copy_file_metadata(self, src: Path | str, dst: Path | str) -> None:
         """把 src 的修改時間與權限複製到 dst（換上清除後的檔之前用；dst 不得是受保護路徑）."""
-        if self.is_protected_path(Path(dst)):
+        s = _plain_tree(src, "copy_file_metadata")
+        d = _plain_tree(dst, "copy_file_metadata")
+        if self.is_protected_path(d):
             msg = "Soul Protection Error: Cannot change a protected path."
             raise PermissionError(msg)
-        shutil.copystat(str(src), str(dst))
+        shutil.copystat(s, d)
 
     @permission_repair_exempt(
         category="swap_semantics", reason="swap 置換前把暫存檔落盤，錯誤原樣往上丟"
     )
     def fsync_file(self, path: Path | str) -> None:
         """把檔案內容確實寫到磁碟（原子置換前用；以讀寫開檔，受保護路徑不碰）."""
-        if self.is_protected_path(Path(path)):
+        text = _plain(path, "fsync_file")
+        if self.is_protected_path(text):
             msg = "Soul Protection Error: Cannot open a protected path for writing."
             raise PermissionError(msg)
-        fd = os.open(str(path), os.O_RDWR | getattr(os, "O_BINARY", 0))
+        fd = os.open(text, os.O_RDWR | getattr(os, "O_BINARY", 0))
         try:
             os.fsync(fd)
         finally:
@@ -1286,9 +1350,10 @@ class ResourceManager:
     )
     def fsync_dir(self, path: Path | str) -> None:
         """改名後把資料夾項目寫到磁碟；Windows 不支援對資料夾 fsync，略過."""
+        text = _plain(path, "fsync_dir")
         if os.name == "nt":
             return
-        fd = os.open(str(path), os.O_RDONLY)
+        fd = os.open(text, os.O_RDONLY)
         try:
             os.fsync(fd)
         finally:
@@ -1299,7 +1364,7 @@ class ResourceManager:
     )
     def read_file_prefix(self, path: Path | str, size: int) -> bytes:
         """只讀檔案開頭的 size 個位元組（判斷格式用，不整個讀進記憶體）."""
-        with Path(path).open("rb") as handle:
+        with Path(_plain(path, "read_file_prefix")).open("rb") as handle:
             return handle.read(size)
 
     @permission_repair_exempt(
@@ -1307,7 +1372,7 @@ class ResourceManager:
     )
     def make_writable(self, path: Path | str) -> None:
         """清掉唯讀位元（清除暫存檔前用；受保護路徑不動）."""
-        p = Path(path)
+        p = Path(_plain(path, "make_writable"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot change a protected path."
             raise PermissionError(msg)
@@ -1325,41 +1390,28 @@ class ResourceManager:
             exclude: 額外要隱藏的名稱（任何深度；預設不額外隱藏）。
 
         Returns:
-            list[str]: 格式化後的樹狀結構字串清單；symlink 與 junction 只列名稱、不進入。
+            list[str]: 格式化後的樹狀結構字串清單；symlink 與 junction 只列名稱、不進入，
+            代理人資料夾不列（R4）。
         """
-        p = Path(path)
-        if not p.is_dir():
+        text = _plain(path, "list_directory")
+        if not Path(text).is_dir():
             return [f"Error: Directory not found: {path}"]
         hidden = _LIST_HIDDEN | exclude
-
-        def build_tree(current: Path, depth: int, prefix: str = "") -> list[str]:
-            """遞迴遍歷目錄以建構樹狀結構字串。"""
-            if depth > max_depth:
-                return [f"{prefix}... (max depth {max_depth} reached)"]
-
-            lines = []
-            try:
-                items = sorted([item for item in current.iterdir() if item.name not in hidden])
-
-                for i, item in enumerate(items):
-                    is_last = i == len(items) - 1
-                    connector = "└── " if is_last else "├── "
-
-                    if is_link(item):
-                        lines.append(f"{prefix}{connector}{item.name} {LINK_NOT_FOLLOWED}")
-                    elif item.is_dir():
-                        lines.append(f"{prefix}{connector}{item.name}/")
-                        new_prefix = prefix + ("    " if is_last else "│   ")
-                        lines.extend(build_tree(item, depth + 1, new_prefix))
-                    else:
-                        lines.append(f"{prefix}{connector}{item.name}")
-                if not items:
-                    lines.append(f"{prefix}└── (empty)")
-            except PermissionError:
-                lines.append(f"{prefix}└── [Permission Denied]")
-            return lines
-
-        return [f"📁 {path or '/'}:"] + build_tree(p, 1)
+        report = WalkReport()
+        entries = (
+            list(
+                _walk_plain(
+                    Path(text).resolve(),
+                    report,
+                    skip_dir=lambda parts: parts[-1] in hidden,
+                    show_links=True,
+                    list_depth=max_depth,
+                )
+            )
+            if max_depth >= 1
+            else []
+        )
+        return [f"📁 {path or '/'}:", *_render_tree(entries, report, hidden, max_depth)]
 
     @permission_repair(retry=True)
     def glob_search(
@@ -1373,19 +1425,24 @@ class ResourceManager:
             exclude: 額外要略過的路徑段名稱（預設不額外略過）。
 
         Returns:
-            list[str]: 找到的相對路徑清單 (字串)。
+            list[str]: 找到的相對路徑清單 (字串)；比對同 ``rglob``，不跟隨連結、代理人資料夾剪掉。
         """
-        root = Path(path)
-        matches = []
+        text = _plain(path, "glob_search")
+        matches: list[str] = []
         skipped = {".git", "node_modules", "__pycache__"} | exclude
         try:
-            for p in root.rglob(pattern):
-                if any(part in p.parts for part in skipped):
-                    continue
-                if p.is_file():
-                    matches.append(str(p.relative_to(root).as_posix()))
-                    if len(matches) >= 50:
-                        break
+            walk = _walk_plain(
+                Path(text).resolve(), WalkReport(), skip_dir=lambda parts: parts[-1] in skipped
+            )
+            with contextlib.closing(walk):
+                for entry in walk:
+                    rel = "/".join(entry.parts)
+                    if entry.kind != "file" or skipped.intersection(entry.parts):
+                        continue
+                    if rglob_match(rel, pattern):
+                        matches.append(rel)
+                        if len(matches) >= 50:
+                            break
         except Exception:
             logger.exception("Error in glob_search for %s", path)
 
@@ -1423,7 +1480,7 @@ class ResourceManager:
     @permission_repair(retry=True)
     def write_file_binary(self, path: Path | str, content: bytes) -> None:
         """安全地將二進位資料寫入檔案."""
-        p = Path(path)
+        p = Path(_plain(path, "write_file_binary"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot write to a protected path."
             raise PermissionError(msg)
@@ -1433,7 +1490,7 @@ class ResourceManager:
     @permission_repair(retry=False)
     def append_file_text(self, path: Path | str, content: str, encoding: str = "utf-8") -> None:
         """安全地附加文字到檔案末尾."""
-        p = Path(path)
+        p = Path(_plain(path, "append_file_text"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot append to a protected path."
             raise PermissionError(msg)
@@ -1450,7 +1507,7 @@ class ResourceManager:
         encoding: str = "utf-8-sig",
     ) -> None:
         """安全地附加單行資料至 CSV 檔案."""
-        p = Path(path)
+        p = Path(_plain(path, "append_csv_row"))
         if self.is_protected_path(p):
             msg = "Soul Protection Error: Cannot append CSV to a protected path."
             raise PermissionError(msg)

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -294,11 +294,8 @@ class ZonePath:
         )
 
     def display(self) -> str:
-        """給 log 與例外的形式。
-
-        ``zone://`` 拼回路徑一定失敗：POSIX 上沒有這個資料夾，Windows 上 ``:`` 不合法。
-        """
-        return "/".join(("zone:/", self._anchor.value, *self._parts))
+        """給 log 與例外的形式（``zone_display``）。"""
+        return zone_display(self._anchor, self._parts)
 
     def __repr__(self) -> str:
         return self.display()
@@ -355,11 +352,19 @@ def agent_root(anchor: Anchor, folder: str) -> ZonePath:
     return ZonePath(anchor, (folder,))
 
 
+def zone_display(anchor: Anchor, parts: Iterable[str]) -> str:
+    """區內位置給 log 與例外的形式（``ZonePath.display`` 與字串方法的拒絕共用）。
+
+    ``zone://`` 拼回路徑一定失敗：POSIX 上沒有這個資料夾，Windows 上 ``:`` 不合法。
+    """
+    return "/".join(("zone:/", anchor.value, *parts))
+
+
 # --- 根（R9、R14） -------------------------------------------------------
 
 
-def _absolute(path: str | os.PathLike[str]) -> str:
-    """絕對路徑並以字面消掉 ``..``（判斷與真正的 I/O 用同一個字串，R4）。"""
+def absolute_text(path: str | os.PathLike[str]) -> str:
+    """絕對路徑並以字面消掉 ``..``：判斷與真正的 I/O 用同一個字串（R4；RM 的字串方法也用它）。"""
     return os.path.normpath(Path(os.fspath(path)).absolute())
 
 
@@ -403,10 +408,10 @@ class ZoneRoots:
         self, data_root: str | os.PathLike[str], state_root: str | os.PathLike[str] | None
     ) -> None:
         """``state_root`` 沒設定時，``SANDBOX_STATE`` 不參與判斷。"""
-        data = Path(_absolute(data_root))
+        data = Path(absolute_text(data_root))
         literals = {anchor: str(data.joinpath(*parts)) for anchor, parts in _DATA_DIRS.items()}
         if state_root is not None and os.fspath(state_root):
-            literals[Anchor.SANDBOX_STATE] = _absolute(state_root)
+            literals[Anchor.SANDBOX_STATE] = absolute_text(state_root)
         self._literals = literals
 
     def literal(self, anchor: Anchor) -> str | None:
@@ -454,6 +459,20 @@ def _parts_of(path: str) -> tuple[str, ...]:
     return Path(path).parts
 
 
+_SEPS = tuple(s for s in (os.sep, os.altsep) if s)
+
+
+def _prefixes(parts: tuple[str, ...]) -> Iterator[str]:
+    """``str(Path(*parts[:1]))``、``str(Path(*parts[:2]))`` …（不每段重建 Path）。"""
+    current = ""
+    for part in parts:
+        if not current or current.endswith(_SEPS):
+            current += part
+        else:
+            current = current + os.sep + part
+        yield current
+
+
 def _shape(anchor: Anchor, rest: tuple[str, ...], fold: Callable[[str], str]) -> bool:
     """錨點底下的段落是不是區：自訂模型要對上 ``<id>/drive``，其他至少一段。"""
     if anchor is Anchor.CUSTOM_DRIVE:
@@ -461,18 +480,36 @@ def _shape(anchor: Anchor, rest: tuple[str, ...], fold: Callable[[str], str]) ->
     return len(rest) >= 1
 
 
-def _under(parts: tuple[str, ...], base: tuple[str, ...]) -> tuple[str, ...] | None:
-    """``parts`` 在 ``base`` 底下時回剩下的段落（等於 ``base`` 時是空的）。"""
-    n = len(base)
-    if len(parts) < n or _key(parts[:n]) != _key(base):
-        return None
-    return parts[n:]
+@dataclass(frozen=True)
+class _Base:
+    anchor: Anchor
+    parts: tuple[str, ...]
+    key: tuple[str, ...]
 
 
-def _bases(roots: ZoneRoots, anchor: Anchor, *, follow: bool = True) -> list[tuple[str, ...]]:
-    literal = roots.literal(anchor)
-    resolved = roots.resolved(anchor) if follow else None
-    return [_parts_of(p) for p in {literal, resolved} if p is not None]
+def _anchor_bases(
+    roots: ZoneRoots, anchors: Iterable[Anchor], *, follow: bool = True
+) -> tuple[list[_Base], dict[Anchor, str]]:
+    """這次判斷用的錨點：字面與解析後的段落（錨點順序、字面在前），和解析後的路徑。
+
+    每次呼叫重算、不快取（錨點之後才建、之後才換成連結都認得）；同一次呼叫裡每個錨點只解析一次。
+    """
+    wanted = set(anchors)
+    bases: list[_Base] = []
+    resolved: dict[Anchor, str] = {}
+    for anchor in Anchor:
+        literal = roots.literal(anchor) if anchor in wanted else None
+        if literal is None:
+            continue
+        texts = [literal]
+        if follow:
+            resolved[anchor] = _real(literal)
+            if resolved[anchor] != literal:
+                texts.append(resolved[anchor])
+        for anchor_text in texts:
+            parts = _parts_of(anchor_text)
+            bases.append(_Base(anchor, parts, _key(parts)))
+    return bases, resolved
 
 
 def zone_of(
@@ -490,17 +527,18 @@ def zone_of(
     絆線關掉）。自訂模型三項都要再對上 ``<id>/drive``。``follow=False`` 只看字面：路徑與
     錨點都不解析、不比身分（權限自癒自己比對解析前後）。
     """
-    chosen = [a for a in Anchor if a in set(anchors)]
-    literal = _parts_of(_absolute(path))
-    candidates = [literal, _parts_of(_real(_absolute(path)))] if follow else [literal]
+    text = absolute_text(path)
+    literal = _parts_of(text)
+    candidates = [literal, _parts_of(_real(text))] if follow else [literal]
+    bases, resolved = _anchor_bases(roots, anchors, follow=follow)
     for candidate in candidates:
-        for anchor in chosen:
-            for base in _bases(roots, anchor, follow=follow):
-                rest = _under(candidate, base)
-                if rest is not None and _shape(anchor, rest, _norm):
-                    return anchor, rest
+        key = _key(candidate)
+        for base in bases:
+            n = len(base.key)
+            if key[:n] == base.key and _shape(base.anchor, candidate[n:], _norm):
+                return base.anchor, candidate[n:]
     if use_identity and follow:
-        return _zone_by_identity(literal, roots, chosen)
+        return _zone_by_identity(literal, resolved)
     return None
 
 
@@ -508,28 +546,28 @@ def anchor_at(
     path: str | os.PathLike[str], roots: ZoneRoots, *, anchors: Iterable[Anchor] = ENFORCED_ANCHORS
 ) -> Anchor | None:
     """``path``（字面或解析後）恰好是某個錨點本身時回那個錨點，否則 None。"""
-    chosen = [a for a in Anchor if a in set(anchors)]
-    text = _absolute(path)
+    text = absolute_text(path)
+    bases, _resolved = _anchor_bases(roots, anchors)
     for candidate in (_parts_of(text), _parts_of(_real(text))):
-        for anchor in chosen:
-            if any(_key(candidate) == _key(base) for base in _bases(roots, anchor)):
-                return anchor
+        key = _key(candidate)
+        for base in bases:
+            if key == base.key:
+                return base.anchor
     return None
 
 
 def _zone_by_identity(
-    parts: tuple[str, ...], roots: ZoneRoots, anchors: list[Anchor]
+    parts: tuple[str, ...], resolved: dict[Anchor, str]
 ) -> tuple[Anchor, tuple[str, ...]] | None:
     ids = {}
-    for anchor in anchors:
-        resolved = roots.resolved(anchor)
-        ident = None if resolved is None else _identity(resolved)
+    for anchor, anchor_path in resolved.items():
+        ident = _identity(anchor_path)
         if ident is not None:
             ids[anchor] = ident
     if not ids:
         return None
-    for i in range(1, len(parts)):
-        ident = _identity(Path(*parts[:i]))
+    for i, prefix in enumerate(_prefixes(parts[:-1]), start=1):
+        ident = _identity(prefix)
         if ident is None:
             return None
         for anchor, anchor_id in ids.items():
@@ -545,33 +583,38 @@ def contains_zone(
 
     身分只比對錨點自己的上層鏈；不在這條鏈上的別名上層靠逐層走訪補上（R4、R5）。
     """
-    chosen = [a for a in Anchor if a in set(anchors)]
-    text = _absolute(path)
+    text = absolute_text(path)
+    bases, resolved = _anchor_bases(roots, anchors)
     for candidate in (_parts_of(text), _parts_of(_real(text))):
-        for anchor in chosen:
-            for base in _bases(roots, anchor):
-                if _under(base, candidate) is not None:
-                    return True
-                custom_id_dir = anchor is Anchor.CUSTOM_DRIVE and len(candidate) == len(base) + 1
-                if custom_id_dir and _under(candidate, base) is not None:
-                    return True
-    return _contains_by_identity(text, roots, chosen)
+        key = _key(candidate)
+        m = len(key)
+        for base in bases:
+            if base.key[:m] == key:
+                return True
+            n = len(base.key)
+            if base.anchor is Anchor.CUSTOM_DRIVE and m == n + 1 and key[:n] == base.key:
+                return True
+    return _contains_by_identity(text, resolved)
 
 
-def _contains_by_identity(text: str, roots: ZoneRoots, anchors: list[Anchor]) -> bool:
+def _contains_by_identity(text: str, resolved: dict[Anchor, str]) -> bool:
+    known: dict[str, tuple[int, int] | None] = {}
+
+    def identity(prefix: str) -> tuple[int, int] | None:
+        # 兩個錨點的上層鏈大多相同：同一次呼叫裡每個前綴只 stat 一次
+        if prefix not in known:
+            known[prefix] = _identity(prefix)
+        return known[prefix]
+
     ident = _identity(text)
     if ident is None:
         return False
     parent_id = _identity(Path(text).parent)
-    for anchor in anchors:
-        resolved = roots.resolved(anchor)
-        if resolved is None:
-            continue
-        chain = _parts_of(resolved)
-        if any(_identity(Path(*chain[:i])) == ident for i in range(1, len(chain) + 1)):
+    for anchor, anchor_path in resolved.items():
+        if any(identity(prefix) == ident for prefix in _prefixes(_parts_of(anchor_path))):
             return True
         custom = anchor is Anchor.CUSTOM_DRIVE and parent_id is not None
-        if custom and parent_id == _identity(resolved):
+        if custom and parent_id == identity(anchor_path):
             return True
     return False
 
@@ -605,11 +648,11 @@ class ZoneMarkers:
         self._anchors = [a for a in Anchor if a in set(anchors)]
         self._by_id: dict[tuple[int, int], Anchor] = {}
         self._by_path: dict[tuple[str, ...], Anchor] = {}
-        for anchor in self._anchors:
-            for base in _bases(roots, anchor):
-                self._by_path[_key(base)] = anchor
-            resolved = roots.resolved(anchor)
-            ident = None if resolved is None else _identity(resolved)
+        bases, resolved = _anchor_bases(roots, self._anchors)
+        for base in bases:
+            self._by_path[base.key] = base.anchor
+        for anchor, anchor_path in resolved.items():
+            ident = _identity(anchor_path)
             if ident is not None:
                 self._by_id[ident] = anchor
 
@@ -631,7 +674,7 @@ class ZoneMarkers:
         found = zone_of(path, self._roots, anchors=self._anchors)
         if found is not None:
             return MarkerState("zone", *found)
-        text = _absolute(path)
+        text = absolute_text(path)
         anchor = self._anchor_at(text, _stat_or_none(text))
         if anchor is not None:
             return self._as_anchor(anchor)
@@ -691,7 +734,7 @@ _handoffs_lock = threading.Lock()
 
 
 def _handoff_key(text: str, kind: HandoffKind) -> tuple[str, HandoffKind]:
-    return os.path.normcase(_absolute(text)), kind
+    return os.path.normcase(absolute_text(text)), kind
 
 
 def _register_handoff(text: str, kind: HandoffKind) -> _HandoffToken:

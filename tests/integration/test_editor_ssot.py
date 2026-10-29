@@ -44,7 +44,7 @@ class TestResourceManagerIOProxy:
             resource_manager_mock.write_file_text(legacy_path, "test content")
 
     def test_copy_file_protection(self, resource_manager_mock, temp_workspace):
-        normal_path = temp_workspace / "personal_drive" / "test_agent" / "file.txt"
+        normal_path = temp_workspace / "notes" / "test_agent" / "file.txt"
         legacy_path = temp_workspace / "legacy" / "test_agent" / "file.txt"
         
         resource_manager_mock.write_file_text(normal_path, "test")
@@ -53,8 +53,8 @@ class TestResourceManagerIOProxy:
             resource_manager_mock.copy_file(normal_path, legacy_path)
 
     def test_normal_io_operations(self, resource_manager_mock, temp_workspace):
-        normal_path = temp_workspace / "personal_drive" / "test_agent" / "file.txt"
-        backup_path = temp_workspace / "personal_drive" / "test_agent" / "file.txt.bak"
+        normal_path = temp_workspace / "notes" / "test_agent" / "file.txt"
+        backup_path = temp_workspace / "notes" / "test_agent" / "file.txt.bak"
         
         # Test write and read
         resource_manager_mock.write_file_text(normal_path, "hello")

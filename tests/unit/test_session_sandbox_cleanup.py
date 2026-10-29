@@ -267,8 +267,10 @@ def test_terminal_summary_lists_sandbox_residue(tmp_path, monkeypatch, residue):
     monkeypatch.setattr(session_conftest, "remove_session_sandbox", lambda _root, _steps: leftover)
     monkeypatch.setattr(session_conftest, "_sandbox_residue", [])
     lines: list[str] = []
+    session = SimpleNamespace(exitstatus=pytest.ExitCode.OK)
 
-    session_conftest.pytest_sessionfinish()
+    session_conftest.pytest_sessionfinish(session)
     session_conftest.pytest_terminal_summary(SimpleNamespace(write_line=lines.append))
 
     assert lines == ([] if leftover is None else [f"測試沙盒沒刪乾淨：{leftover}"])
+    assert session.exitstatus == pytest.ExitCode.OK  # 沙盒殘留只在摘要列出，不讓整個 session 失敗

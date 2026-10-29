@@ -451,14 +451,14 @@ def test_resource_manager_no_follow_writes_keep_soul_protection():
     ],
 )
 def test_find_pattern_matches_like_rglob(rel, pattern, expected):
-    assert cfo._glob_match(rel, pattern) is expected
+    assert no_follow.rglob_match(rel, pattern) is expected
 
 
 def test_find_pattern_with_many_double_stars_stays_fast():
     rel = "/".join(["d"] * 40) + "/x.py"
     started = time.monotonic()
-    assert cfo._glob_match(rel, "/".join(["**"] * 40) + "/y.py") is False
-    assert cfo._glob_match(rel, "/".join(["**/d"] * 20) + "/**/x.py") is True
+    assert no_follow.rglob_match(rel, "/".join(["**"] * 40) + "/y.py") is False
+    assert no_follow.rglob_match(rel, "/".join(["**/d"] * 20) + "/**/x.py") is True
     assert time.monotonic() - started < 1
 
 

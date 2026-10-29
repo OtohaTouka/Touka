@@ -1280,15 +1280,6 @@
         "reads": [],
         "dynamic": []
       },
-      "_glob_match": {
-        "parameters": [
-          "rel",
-          "pattern"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "core_read": {
         "parameters": [
           "path",
