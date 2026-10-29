@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from memory_server.services.mission_manager import MissionPersistenceError
+from memory_server.utils.no_follow import LINK_REFUSED_MESSAGE, LinkRefusedError
+from memory_server.utils.zone_paths import ZoneSegmentError
 from src.core.exceptions import ErrorCode
 from src.models.identity import AgentIdentity
 from src.services import continuity_events
@@ -23,7 +25,12 @@ from src.services.autonomy import autonomy_service
 from src.services.dispatch_callback_store import get_callback_store
 from src.services.isolation.policy import session_project_root
 from src.services.resource_manager import resource_manager
-from src.services.tool_errors import INTERNAL_ERROR, PERMISSION_DENIED, build_tool_error
+from src.services.tool_errors import (
+    INTERNAL_ERROR,
+    PERMISSION_DENIED,
+    VALIDATION_ERROR,
+    build_tool_error,
+)
 from src.tools.contracts import native_parameters
 
 logger = logging.getLogger(__name__)
@@ -419,6 +426,10 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
             outcome="unknown",
             suggestion="Read the current mission before deciding whether to save again.",
         )
+    except LinkRefusedError:  # 看板的資料夾被換成連結（ADR-0293）
+        return build_tool_error(PERMISSION_DENIED, f"Mission board: {LINK_REFUSED_MESSAGE}")
+    except ZoneSegmentError:
+        return build_tool_error(VALIDATION_ERROR, f"Mission board: {ZoneSegmentError.MESSAGE}")
     except Exception as e:
         logger.exception("🔥 Error in mission_tools logic execution")
         return f"Error executing mission operation: {str(e)}"

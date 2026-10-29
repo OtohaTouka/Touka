@@ -36,6 +36,8 @@ from mcp.shared.exceptions import MCPError
 from memory_server.models.mission import TaskStatus
 from memory_server.services.mission_manager import MissionManager
 from memory_server.utils.content_guard import sanitize_memory_content
+from memory_server.utils.no_follow import LinkRefusedError
+from memory_server.utils.zone_paths import ZoneSegmentError
 from session_manager import SessionManager
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -67,6 +69,8 @@ def _bind_host() -> str:
 
 _session_mgr = SessionManager()
 _telemetry = DispatchTelemetry()
+# 看板的資料夾被換成連結或名稱不能用（ADR-0293）：固定訊息，不帶路徑或例外原文
+BOARD_UNAVAILABLE = "The mission board cannot be used: its folder is a link or has an invalid name."
 
 
 @dataclass(frozen=True)
@@ -403,6 +407,8 @@ async def dispatch_initialize_mission(
             f"Mission ID: {mission.mission_id}\n"
             f"Mission Token: {mission_token}{invoke_note}"
         )
+    except (LinkRefusedError, ZoneSegmentError):
+        return f"Error: {BOARD_UNAVAILABLE}"
     except PermissionError as e:
         return f"Error: {e}"
     except Exception as e:
@@ -455,7 +461,10 @@ async def dispatch_update_task(
     # mission，與 dispatch_get_board 對齊——防止陳舊外部 session（clear_mission_tokens
     # 不清 _sessions，故 session 仍在 TTL 內有效）變更已被替換掉的 mission 的 FSM。
     if session.is_external and session.bound_mission_id:
-        current = await manager.get_current_mission(identity)
+        try:
+            current = await manager.get_current_mission(identity)
+        except (LinkRefusedError, ZoneSegmentError):
+            return f"Error: {BOARD_UNAVAILABLE}"
         if current is None or current.mission_id != session.bound_mission_id:
             return (
                 "Error: Your assigned mission is no longer active."
@@ -486,6 +495,8 @@ async def dispatch_update_task(
             test_log=test_log,
             blocker_detail=blocker_detail,
         )
+    except (LinkRefusedError, ZoneSegmentError):
+        return f"Error: {BOARD_UNAVAILABLE}"
     except PermissionError as e:
         return f"Error: {e}"
     except ValueError as e:
@@ -579,6 +590,8 @@ async def dispatch_get_board(
                 f"{icon} **{t.id}**: {t.description}{dep}{art_str}{verification}{t_log}{b_detail}"
             )
         return "\n".join(res)
+    except (LinkRefusedError, ZoneSegmentError):
+        return f"Error: {BOARD_UNAVAILABLE}"
     except PermissionError as e:
         return f"Error: {e}"
     except Exception as e:

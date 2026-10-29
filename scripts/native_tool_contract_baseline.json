@@ -91,8 +91,9 @@
         "Import(names=[alias(name='json')])",
         "Import(names=[alias(name='logging')])",
         "ImportFrom(module='typing', names=[alias(name='TYPE_CHECKING'), alias(name='Any')], level=0)",
+        "ImportFrom(module='memory_server.config_utils', names=[alias(name='get_resource_proxy')], level=0)",
         "ImportFrom(module='memory_server.services.personal_catalog', names=[alias(name='run_vault_action')], level=0)",
-        "ImportFrom(module='memory_server.tools.core_file_ops', names=[alias(name='core_delete'), alias(name='core_find'), alias(name='core_grep'), alias(name='core_list'), alias(name='core_read'), alias(name='core_str_replace'), alias(name='core_write')], level=0)",
+        "ImportFrom(module='memory_server.tools.core_file_ops', names=[alias(name='PathGuardError'), alias(name='core_delete'), alias(name='core_find'), alias(name='core_grep'), alias(name='core_list'), alias(name='core_read'), alias(name='core_str_replace'), alias(name='core_write'), alias(name='drive_target')], level=0)",
         "ImportFrom(module='memory_server.tools.diag', names=[alias(name='manage_duplicate_memories'), alias(name='memory_diagnostics'), alias(name='reindex_memories')], level=0)",
         "ImportFrom(module='memory_server.tools.legacy_vault', names=[alias(name='search_conversations')], level=0)",
         "ImportFrom(module='memory_server.tools.mission_tools', names=[alias(name='mission_tools')], level=0)",
@@ -1057,28 +1058,16 @@
         "reads": [],
         "dynamic": []
       },
-      "_resolve_inside": {
-        "parameters": [
-          "path",
-          "root"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "run_vault_action": {
         "parameters": [
           "handler",
           "action",
           "root",
+          "target",
           "kwargs"
         ],
         "kwargs": null,
         "reads": [
-          [
-            "kwargs",
-            "path"
-          ],
           [
             "kwargs",
             "resource_proxy"
@@ -1221,6 +1210,27 @@
         "reads": [],
         "dynamic": []
       },
+      "drive_target": {
+        "parameters": [
+          "path",
+          "root",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_place": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "root_is_real",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "_check_no_links": {
         "parameters": [
           "path",
@@ -1232,7 +1242,29 @@
       },
       "_not_a_file": {
         "parameters": [
-          "path"
+          "path",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_read": {
+        "parameters": [
+          "target",
+          "resource_proxy",
+          "errors"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_write": {
+        "parameters": [
+          "target",
+          "content",
+          "resource_proxy",
+          "append"
         ],
         "kwargs": null,
         "reads": [],
@@ -1463,21 +1495,6 @@
             "tasks"
           ]
         ],
-        "dynamic": []
-      }
-    },
-    "ToukaMemory/src/memory_server/tools/personal_drive.py": {
-      "access_personal_drive": {
-        "parameters": [
-          "identity",
-          "manager",
-          "filename",
-          "action",
-          "write_content",
-          "read_image"
-        ],
-        "kwargs": "kwargs",
-        "reads": [],
         "dynamic": []
       }
     },

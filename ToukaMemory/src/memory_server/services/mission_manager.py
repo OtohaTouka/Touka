@@ -25,8 +25,11 @@ from memory_server.models.mission import (
     review_passing,
 )
 from memory_server.services.mission_lock import MissionLock
+from memory_server.utils.no_follow import LinkRefusedError
+from memory_server.utils.zone_paths import ZoneSegmentError, is_zone_segment
 
 if TYPE_CHECKING:
+    from memory_server.utils.zone_paths import ZonePath
     from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
@@ -46,10 +49,15 @@ class MissionManager:
     """
 
     def _get_lock(self, agent_id: str) -> MissionLock:  # noqa: IDENTITY_SSOT
-        """獲取指定代理人任務看板的排他鎖（asyncio.Lock + FileLock，ADR-0049）."""
-        lock_dir = Path(_get_app_data_dir()) / "personal_drive" / agent_id / "missions"
-        lock_dir.mkdir(parents=True, exist_ok=True)  # noqa: IO_PRISON_VIOLATION
-        return MissionLock(agent_id, lock_dir / "current_mission.json")
+        """獲取指定代理人任務看板的排他鎖（asyncio.Lock + FileLock，ADR-0049）.
+
+        鎖檔是 ``<data>/temp/locks/missions/<id>.lock``，不在代理人寫得到的資料夾（ADR-0293）。
+        """
+        if not is_zone_segment(agent_id):
+            raise ZoneSegmentError
+        lock_dir = Path(_get_app_data_dir()) / "temp" / "locks" / "missions"
+        get_resource_proxy().make_dir(str(lock_dir))
+        return MissionLock(agent_id, lock_dir / agent_id)
 
     def _resolve_target_agent_id(
         self, identity: AgentIdentity, target_agent_id: str | None = None
@@ -67,8 +75,8 @@ class MissionManager:
 
     def _get_mission_path(
         self, identity: AgentIdentity, target_agent_id: str | None = None
-    ) -> Path:
-        """獲取該代理人任務看板的物理路徑 (SSOT).
+    ) -> ZonePath:
+        """獲取該代理人任務看板的區內路徑 (SSOT；ADR-0293 起不建資料夾、不跟隨連結).
 
         C2 修復：不再獨立校驗權限，由呼叫方的 _resolve_target_agent_id 集中負責。
         本方法僅依據 target_agent_id 解析正確的存儲路徑。
@@ -84,33 +92,31 @@ class MissionManager:
 
         if target_agent_id and target_agent_id != identity.agent_id:
             # 跨身分：依真實註冊身分（role/capabilities）決定論定址，不臆測角色。
-            base_dir_str = proxy.get_vault_path_for_agent("personal", target_agent_id)
-            resolved_agent_id = target_agent_id
+            drive = proxy.agent_drive_for(target_agent_id)
         else:
-            base_dir_str = proxy.get_vault_path("personal", identity)
-            resolved_agent_id = identity.agent_id
-
-        if base_dir_str:
-            base_dir = Path(base_dir_str) / "missions"
-        else:
-            base_dir = Path(_get_app_data_dir()) / "personal_drive" / resolved_agent_id / "missions"
-        proxy.make_dir(str(base_dir))
-        return base_dir / "current_mission.json"
+            drive = proxy.agent_drive(identity)
+        if drive is None:  # agent_id 不能當成資料夾名稱
+            raise ZoneSegmentError
+        return drive.child("missions", "current_mission.json")
 
     async def _get_current_mission_unlocked(
         self, identity: AgentIdentity, target_agent_id: str | None = None
     ) -> MissionState | None:
-        """載入目前代理人進行中的任務看板（無鎖內部方法）."""
-        path = self._get_mission_path(identity, target_agent_id)
-        if not path.exists():
-            return None
+        """載入目前代理人進行中的任務看板（無鎖內部方法）.
 
+        經過連結時往外丟 ``LinkRefusedError``（ADR-0293），其他讀取失敗當作沒有看板。
+        """
+        path = self._get_mission_path(identity, target_agent_id)
         try:
-            content = get_resource_proxy().read_file_text(str(path))
+            content = get_resource_proxy().zone_read_text(path)
             if not content:
                 return None
             data = json.loads(content)
             return MissionState.model_validate(data)
+        except FileNotFoundError:
+            return None
+        except LinkRefusedError:
+            raise
         except Exception:
             resolved_agent_id = target_agent_id if target_agent_id else identity.agent_id
             logger.exception("❌ [MissionManager] Failed to load mission for %s", resolved_agent_id)
@@ -139,14 +145,18 @@ class MissionManager:
         pending = state.model_copy(deep=True)
         pending.updated_at = get_current_epoch()
 
+        path = self._get_mission_path(identity, target_agent_id)
         try:
-            path = self._get_mission_path(identity, target_agent_id)
-            get_resource_proxy().write_file_text(str(path), pending.model_dump_json(indent=4))
+            get_resource_proxy().zone_write_text(path, pending.model_dump_json(indent=4))
+        except LinkRefusedError:  # 訊息固定、沒有寫入，不包成「結果未知」（ADR-0293）
+            raise
         except Exception as exc:
             logger.exception("❌ [MissionManager] Failed to save mission for %s", state.agent_id)
             raise MissionPersistenceError from exc
         state.updated_at = pending.updated_at
-        logger.info("✅ [MissionManager] Mission saved for %s at %s", state.agent_id, path)
+        logger.info(
+            "✅ [MissionManager] Mission saved for %s at %s", state.agent_id, path.display()
+        )
 
     async def initialize_mission(
         self,
