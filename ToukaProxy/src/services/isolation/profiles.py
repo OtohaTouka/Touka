@@ -131,12 +131,14 @@ def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
 
-def has_link(path: Path | str) -> bool:
+def has_link(path: Path | str, resolved: Path | None = None) -> bool:
     """路徑任何一段是符號連結或 junction：解析前後不同（Windows 不分大小寫）。
 
-    8.3 短檔名、subst 與對應的網路磁碟機解析後也會不同，一樣算有連結。
+    8.3 短檔名、subst、對應的網路磁碟機、``..`` 與 Windows 結尾的空白或句點解析後也會不同，
+    一樣算有連結。``resolved`` 是呼叫端已解析的結果：判斷和後續使用同一次解析。
     """
-    return os.path.normcase(Path(path).absolute()) != os.path.normcase(_resolve(path))
+    real = _resolve(path) if resolved is None else resolved
+    return os.path.normcase(Path(path).absolute()) != os.path.normcase(real)
 
 
 def current_layout() -> SandboxLayout:
@@ -245,7 +247,7 @@ async def authorize_derived_path(
     路徑任何一段是符號連結或 junction（resolve 前後不同）一律拒絕：連結可以被改寫成指向別處。
     """
     target = _resolve(path)
-    if has_link(path):
+    if has_link(path, target):
         return PROTECTED_LOCATION
     if any(_within(target, root) for root in grantable_roots(layout, owner)):
         return None

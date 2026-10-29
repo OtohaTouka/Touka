@@ -146,7 +146,7 @@ def _describe(
     sha256 = title = None
     if size <= CATALOG_READ_MAX_BYTES:
         try:
-            data = proxy.read_file_binary(str(root / rel))
+            data = proxy.read_file_binary_no_follow(str(root / rel))
         except OSError:
             logger.warning("Personal catalog could not read a file; hash skipped")
         else:
@@ -164,7 +164,7 @@ def _load_trusted(
     if not proxy.exists(str(catalog_path)):
         return None, {}
     try:
-        text = proxy.read_file_text(str(catalog_path))
+        text = proxy.read_file_text_no_follow(str(catalog_path))
     except (OSError, UnicodeDecodeError):
         return None, {}
     if hashlib.sha256(text.encode("utf-8")).hexdigest() != _trusted_digests.get(key):
@@ -177,9 +177,13 @@ def _load_trusted(
 
 
 def _rebuild(proxy: IResourceProxy, root: Path) -> PersonalCatalog:
-    """掃實際檔案、比對快取、內容有變才原子寫回（同步；呼叫端持鎖）。"""
+    """掃實際檔案、比對快取、內容有變才原子寫回（同步；呼叫端持鎖）.
+
+    讀寫都不跟隨連結，個人空間路徑先解析（安裝位置本身經過連結也照常運作）。
+    """
     if not proxy.exists(str(root)):
         return PersonalCatalog()
+    root = root.resolve()
     key = _root_key(root)
     catalog_path = root / CATALOG_DIR_NAME / CATALOG_FILE_NAME
     old_text, trusted = _load_trusted(proxy, catalog_path, key)
@@ -203,7 +207,7 @@ def _rebuild(proxy: IResourceProxy, root: Path) -> PersonalCatalog:
     )
     text = json.dumps(catalog.model_dump(), ensure_ascii=False, indent=2)
     if text != old_text:
-        proxy.write_file_text(str(catalog_path), text)
+        proxy.write_file_text_no_follow(str(catalog_path), text)
     _trusted_digests[key] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return catalog
 

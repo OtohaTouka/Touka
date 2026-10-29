@@ -39,6 +39,7 @@ from src.models.policy import PolicyDecision
 from src.models.safety import AuthPoliciesConfig
 from src.protocols.mcp.canonical import McpCompleteOutcome
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
+from src.routers import debug as debug_router
 from src.services import auto_reviewer as reviewer_module
 from src.services import context_snapshot_service, proxy_service, tool_errors
 from src.services import tool_executor as executor_module
@@ -867,6 +868,19 @@ async def test_group_members_each_trigger_stop_with_their_own_agent_id(hooks):
         lambda: "x")
     await _until(lambda: len(hooks.http.calls) == 3)
     assert hooks.http.calls[2]["agent_id"] == "Alice"
+
+
+async def test_debug_execute_context_sends_agent_id_as_text(hooks):
+    """除錯執行的 ``ctx["agent_id"]`` 是 AgentIdentity（ToolExecuteRequest）：事件內容仍是字串。"""
+    hooks.configure({"Stop": [_group()]})
+    agent = debug_router.ToolExecuteRequest(tool_name="read").agent_id
+    assert isinstance(agent, AgentIdentity)
+    admin = AgentIdentity(agent_id="AdminUser")
+    stop_hooks.schedule_stop_hooks(
+        {"session_id": "s-debug", "agent_id": agent, "identity": admin}, lambda: "x"
+    )
+    await _until(lambda: hooks.http.calls)
+    assert hooks.http.calls[0]["agent_id"] == "DebugAgent"
 
 
 async def test_stop_hook_skips_subagents_and_unconfigured_events(hooks):

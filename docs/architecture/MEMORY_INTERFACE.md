@@ -238,7 +238,8 @@ proxy.write_file_text(path, content)
     - **更新時機**：personal 的 write／append／str_replace／delete 成功後；根目錄 `list` 時（並附一行「目錄可用：N 個檔，read .touka/catalog.json」）；`read .touka/catalog.json` 時先重建再讀。每個個人空間一把鎖、原子寫入。重置（`agent_reset`）時整個刪掉，下次讀時重建。
     - **範圍**：不列任何深度的 `.touka`／`.git`／`node_modules`／`__pycache__`，根目錄的 `missions`／`dispatch_results`，以及 `.*.tmp`、`*.lock`；不跟隨 symlink／junction；上限 2000 筆（超過標 `truncated`）。上傳檔（`outputs/uploads/`）照列並標類型。
     - **權限**：personal 的寫入類動作只要解析後路徑有一段是 `.touka`（不分大小寫）就拋 `CatalogPathDeniedError`，不寫入；Proxy vault 橋接層把它對應成 `build_tool_error(permission_denied)`（只記一行 warning）；`list`／`find`／`grep` 由系統強制隱藏 `.touka`（呼叫端帶的 `exclude` 一律丟棄）。終端機仍寫得進去，所以只靠「讀時以實際檔案為準」防假目錄。
-    - **I/O**：全部經 `IResourceProxy`（`stat_files`、`read_file_binary`、`read_file_text`、`write_file_text`、`exists`）。`list_directory`／`glob_search` 的 `exclude` 為選填，預設行為不變。
+    - **I/O**：全部經 `IResourceProxy`（`stat_files`、`read_file_binary_no_follow`、`read_file_text_no_follow`、`write_file_text_no_follow`、`exists`）；個人空間路徑先解析。`list_directory`／`glob_search` 的 `exclude` 為選填，預設行為不變。
+- **不跟隨連結（ADR-0292 決定 12）**：core ops（`tools/core_file_ops.py`）先解析路徑、確認在根底下，開檔與走訪都不跟隨連結（`utils/no_follow.py`；經 proxy 時用 `IResourceProxy` 的 `read_file_text_no_follow`、`read_file_binary_no_follow`、`write_file_text_no_follow`、`append_file_text_no_follow`、`remove_file_no_follow` 與 `stat_files`）。路上任何一段是 symlink 或 junction 時丟 `LinkRefusedError`（`OSError`），工具回「the path goes through a symbolic link or junction; links are not followed.」；`list_directory` 把連結列成「名稱 (link, not followed)」、不進入；find、grep 只看一般檔案。Linux 用 `dir_fd` 加 `O_NOFOLLOW`，Windows 開檔前後各查一次。
 ### C. 代理人大腦控制中心 (`agent_control`)
 - **說明**: 雖屬系統內建工具，但其核心功能在於管理 Agent 的腦部 (模型) 狀態與切換。
 - **輸入參數**:

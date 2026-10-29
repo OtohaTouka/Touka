@@ -152,19 +152,32 @@ async def test_http_does_not_follow_redirects():
     assert seen == ["https://hooks.example.test/run"]
 
 
+class _WatchedBody(httpx.AsyncByteStream):
+    """回應內容：被讀了就記下來。"""
+
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+        self.was_read = False
+
+    async def __aiter__(self):
+        self.was_read = True
+        yield self.content
+
+
 @pytest.mark.parametrize("status", [400, 500, 503])
 @pytest.mark.parametrize("encoding", [None, "gzip"])
 async def test_http_non_2xx_is_an_error(status, encoding):
     """失敗的回應照 HTTP 狀態說明，有壓縮也一樣（不說成壓縮），也不讀內容。"""
     headers = {"Content-Encoding": encoding} if encoding else {}
-    content = gzip.compress(b"bad") if encoding else b"bad"
+    body = _WatchedBody(gzip.compress(b"bad") if encoding else b"bad")
     transport = httpx.MockTransport(
-        lambda _r: httpx.Response(status, content=content, headers=headers)
+        lambda _r: httpx.Response(status, stream=body, headers=headers)
     )
     result = await run_http(_http(), b"{}", transport=transport)
     assert (result.status, result.http_status) == ("error", status)
     assert result.detail == f"HTTP {status}"
     assert result.stdout == ""
+    assert body.was_read is False
 
 
 async def test_http_body_beyond_the_cap_is_dropped():

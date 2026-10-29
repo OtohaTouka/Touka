@@ -21,6 +21,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from memory_server.models.conversation_search import ConversationSearchError
+from memory_server.utils.no_follow import (
+    LINK_NOT_FOLLOWED,
+    is_link,
+    read_bytes_no_follow,
+    read_text_no_follow,
+    remove_no_follow,
+    replace_text_no_follow,
+    write_text_no_follow,
+)
 
 # 使用絕對匯入避免 TID251 警告，並確保環境變數獲取一致
 from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir
@@ -643,6 +652,46 @@ class ResourceManager:
         """安全地讀取二進位檔案內容."""
         return Path(path).read_bytes()
 
+    # --- 不跟隨連結（代理人的檔案動詞用；路徑要先解析，ADR-0292 決定 12）---
+
+    @permission_repair(retry=True)
+    def read_file_text_no_follow(self, path: Path | str, encoding: str = "utf-8") -> str:
+        """讀文字檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        return read_text_no_follow(path, encoding=encoding)
+
+    @permission_repair(retry=True)
+    def read_file_binary_no_follow(self, path: Path | str) -> bytes:
+        """讀二進位檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        return read_bytes_no_follow(path)
+
+    @permission_repair(retry=False)
+    def write_file_text_no_follow(
+        self, path: Path | str, content: str, encoding: str = "utf-8"
+    ) -> None:
+        """同 ``write_file_text``（受保護路徑拒絕、原子寫入、0600），路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Automated modification of protected files is prohibited."
+            raise PermissionError(msg)
+        replace_text_no_follow(path, content, encoding=encoding)
+
+    @permission_repair(retry=False)
+    def append_file_text_no_follow(
+        self, path: Path | str, content: str, encoding: str = "utf-8"
+    ) -> None:
+        """同 ``append_file_text``，路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Cannot append to a protected path."
+            raise PermissionError(msg)
+        write_text_no_follow(path, content, encoding=encoding, append=True)
+
+    @permission_repair(retry=False)
+    def remove_file_no_follow(self, path: Path | str) -> None:
+        """同 ``remove_file``（不存在時丟 FileNotFoundError），上層路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Cannot delete a protected path."
+            raise PermissionError(msg)
+        remove_no_follow(path)
+
     @permission_repair(retry=False)
     def write_file_text(
         self,
@@ -967,7 +1016,7 @@ class ResourceManager:
             exclude: 額外要隱藏的名稱（任何深度；預設不額外隱藏）。
 
         Returns:
-            list[str]: 格式化後的樹狀結構字串清單。
+            list[str]: 格式化後的樹狀結構字串清單；symlink 與 junction 只列名稱、不進入。
         """
         p = Path(path)
         if not p.is_dir():
@@ -987,7 +1036,9 @@ class ResourceManager:
                     is_last = i == len(items) - 1
                     connector = "└── " if is_last else "├── "
 
-                    if item.is_dir():
+                    if is_link(item):
+                        lines.append(f"{prefix}{connector}{item.name} {LINK_NOT_FOLLOWED}")
+                    elif item.is_dir():
                         lines.append(f"{prefix}{connector}{item.name}/")
                         new_prefix = prefix + ("    " if is_last else "│   ")
                         lines.extend(build_tree(item, depth + 1, new_prefix))

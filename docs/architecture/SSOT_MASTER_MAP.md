@@ -9,6 +9,7 @@
 - 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
 - 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
 - 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。
+- 代理人檔案動詞不跟隨連結的 I/O：ToukaMemory `utils/no_follow.py`（`core_file_ops` 直接用；ToukaProxy 的 `ResourceManager` 以 `*_no_follow` 方法包一層，`IResourceProxy` 有對應方法）。和 `core_file_ops.py`、`resource_manager.py` 一樣列在 `lint_ssot.py` 的 I/O 白名單。
 - 被擋下的一輪在前端怎麼處理：`ToukaChat/src/lib/stream_tree.ts` 的 `dropBlockedTurn`（`StreamRegistryProvider` 存回、`ChatProvider` 放回輸入框）。
 
 ## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）

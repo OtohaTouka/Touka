@@ -17,6 +17,8 @@
   - `POST /v1/ui/projects/save`（存專案）不合規則回 422 `VALIDATION_ERROR`，`detail.reason` 是 `outside_workspace`、`protected_location` 或 `scan_limit`（檢查沒做完：資料夾太多、讀不到或還在查，訊息另外說明）。
   - `GET /v1/ui/projects/{project_id}/files`（專案檔案樹）遇到這種專案根回 403 `AUTH_PERMISSION_DENIED`，不分原因（檢查沒做完時也一樣）。
   - 專案檔案工具（列檔與讀寫）遇到這種專案根回結構化的 `permission_denied`（`reason` 同上），不執行；只有管理員擁有的靈魂不受限，有一般使用者共同擁有的照一般身分檢查。
+  - 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（解析前後不同，含 `..`、Windows 結尾的空白或句點、8.3 短檔名）時，專案檔案工具回 `permission_denied`、`reason: "linked_root"`；人類照舊。
+- 代理人的檔案動詞（各 scope）不跟隨連結：路上有 symlink 或 junction 時讀寫刪回錯誤「the path goes through a symbolic link or junction; links are not followed.」；list 把連結列成「名稱 (link, not followed)」，find、grep 不進入也不列出連結。
 - 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
 - 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。

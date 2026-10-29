@@ -95,6 +95,12 @@ def tool_match_names(
     return names
 
 
+def _agent_id_text(value: Any) -> str | None:
+    """``ctx["agent_id"]`` 可能是字串或 ``AgentIdentity``（除錯執行）；一律取字串。"""
+    text = getattr(value, "agent_id", value)
+    return text if isinstance(text, str) else None
+
+
 def base_payload(ctx: Mapping[str, Any]) -> dict[str, Any]:
     """每個事件都有的欄位：對話、代理人、是不是無痕與這個對話的模式。
 
@@ -102,10 +108,10 @@ def base_payload(ctx: Mapping[str, Any]) -> dict[str, Any]:
     ``agent_id`` 是正在發言的成員（整個群聊的 ``agent_id`` 不是任何一位成員）。
     """
     identity = ctx.get("identity")
-    member = getattr(identity, "agent_id", None) if ctx.get(GROUP_MEMBER_FLAG) else None
+    member = _agent_id_text(identity) if ctx.get(GROUP_MEMBER_FLAG) else None
     payload: dict[str, Any] = {
         "session_id": ctx.get("session_id"),
-        "agent_id": member or ctx.get("agent_id") or getattr(identity, "agent_id", None),
+        "agent_id": member or _agent_id_text(ctx.get("agent_id")) or _agent_id_text(identity),
         "incognito": bool(ctx.get("incognito")),
     }
     if ctx.get("auth_level"):

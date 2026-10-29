@@ -42,10 +42,12 @@ def _root_refused(project_id: str, reason: str) -> str:
         suggestion = "Ask the user to choose a project folder outside Touka's own folders."
     elif reason == LINKED_ROOT:
         message = (
-            f"Project root for '{project_id}' goes through a symbolic link or junction; "
-            "agents cannot use it because the link can be changed to point elsewhere."
+            f"Project root for '{project_id}' is not its real path: it goes through a symbolic "
+            "link or junction, or is written another way (for example with '..', a trailing "
+            "space or dot, or a short 8.3 name). Agents cannot use it because a link can be "
+            "changed to point elsewhere."
         )
-        suggestion = "Ask the user to register the folder's real path, without links."
+        suggestion = "Ask the user to register the folder's full real path, without links."
     else:
         message = (
             f"Touka could not finish checking the project root for '{project_id}' "
