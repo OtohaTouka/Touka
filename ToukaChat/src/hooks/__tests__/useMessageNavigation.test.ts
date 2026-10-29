@@ -121,10 +121,61 @@ describe('useMessageNavigation', () => {
     expect(FakeResizeObserver.instances).toHaveLength(0);
   });
 
-  it('沒有 ResizeObserver 時照上限畫線', () => {
+  it('沒有 ResizeObserver、量不到高度時照上限畫線', () => {
     vi.stubGlobal('ResizeObserver', undefined);
     const container = { current: document.createElement('div') };
     const { result } = renderHook(() => useMessageNavigation(FIFTY, true, container));
     expect(result.current.ticks).toHaveLength(50);
+  });
+
+  function containerWithHeight(height: number) {
+    const element = document.createElement('div');
+    Object.defineProperty(element, 'clientHeight', { value: height, configurable: true });
+    return { current: element };
+  }
+
+  // 修正前會失敗：初值是上限，要等 ResizeObserver 回報才換（這裡從不回報，所以停在 50 條）。
+  // jsdom 沒有繪製：這例只驗「開始觀察前先同步量一次」，不驗「在繪製前」。
+  // 後半擋「量到高度就不建 ResizeObserver」：量完之後仍要開始觀察、跟著高度變
+  it('開始觀察前先同步量一次高度，ResizeObserver 還沒回報就已是依高度的條數', () => {
+    stubResizeObserver();
+    const container = containerWithHeight(200); // 每 8px 一條：25 條
+    const { result } = renderHook(() => useMessageNavigation(FIFTY, true, container));
+    expect(result.current.ticks).toHaveLength(25);
+    const [observer] = FakeResizeObserver.instances;
+    expect(observer.observed).toEqual([container.current]);
+    act(() => observer.resize(800));
+    expect(result.current.ticks).toHaveLength(50);
+  });
+
+  // 修正前會失敗：沒有 ResizeObserver 時直接維持上限，沒量高度
+  it('沒有 ResizeObserver 時仍先量一次高度', () => {
+    vi.stubGlobal('ResizeObserver', undefined);
+    const container = containerWithHeight(200);
+    const { result } = renderHook(() => useMessageNavigation(FIFTY, true, container));
+    expect(result.current.ticks).toHaveLength(25);
+  });
+
+  // 修正前會失敗：從 React 外面呼叫的 setMaxTicks 只是排程，回報當下 ticks 還是 50 條。
+  // 真瀏覽器裡這讓第一個畫面先畫舊條數、下一個畫面才換（layout effect 量的那一刻下方輸入區還沒定下來，高度和最後不同）。
+  // 要關掉 act 環境：在 act 裡（或 act 離開時）React 會把排程的更新全部做完，看不出是不是同步。
+  // jsdom 沒有繪製：這例只驗「回報當下就重繪完」，不驗真的繪製時機。
+  it('ResizeObserver 回報後同步更新線數，不等到之後的排程', () => {
+    stubResizeObserver();
+    const container = { current: document.createElement('div') }; // jsdom 量到 0：上限 50 條
+    const { result, unmount } = renderHook(() => useMessageNavigation(FIFTY, true, container));
+    expect(result.current.ticks).toHaveLength(50);
+    const [observer] = FakeResizeObserver.instances;
+    const reactGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const previous = reactGlobal.IS_REACT_ACT_ENVIRONMENT;
+    reactGlobal.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      observer.resize(200); // 不包 act、不 await
+      expect(result.current.ticks).toHaveLength(25);
+    } finally {
+      // 先還原旗標再卸載：卸載走 act，修正前留下的排程工作不會漏到下一例
+      reactGlobal.IS_REACT_ACT_ENVIRONMENT = previous;
+      unmount();
+    }
   });
 });

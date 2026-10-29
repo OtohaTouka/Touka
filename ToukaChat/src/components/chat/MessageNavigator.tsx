@@ -37,6 +37,8 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState<PreviewState | null>(null);
   const buttons = React.useRef(new Map<string, HTMLButtonElement>());
+  // 焦點所在的按鈕解除 ref 時記下那個元素與它涵蓋的第一則位置，畫完後由下方的 layout effect 決定要不要交接焦點
+  const lostFocus = React.useRef<{ element: HTMLButtonElement; startIndex: number } | null>(null);
 
   const currentKey = ticks.find(tick => isTickCurrent(tick, currentIndex))?.key ?? null;
   // 記住的焦點不在了（線變少、換分支）就退回目前那條，再退回第一條：永遠恰好一個 Tab 停留點
@@ -83,6 +85,23 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
     return () => window.removeEventListener('keydown', dismiss, true);
   }, [previewShown]);
 
+  // WCAG 2.4.3：焦點那條因重新分段被移除時，焦點會掉到 body；改交給涵蓋原位置的那條，找不到就給 Tab 停留點。
+  // React 先解除 ref（此時舊按鈕還在 DOM、還是 activeElement）再移除 DOM，所以記錄在 ref 回呼裡做，交接在這裡做。
+  // 看 isConnected：inline ref 每次重繪都會先收到 null 再收到元素，那條其實還在，不能當成被移除。
+  // 只在焦點掉到 body 時才接手（同 MainAreaControls）：使用者已經把焦點移到別處就不搶。
+  // 不帶依賴陣列：每次畫完都清掉記錄，舊的記錄不會在之後誤用。focus() 會觸發 onFocus，由它設 focusKey
+  React.useLayoutEffect(() => {
+    const lost = lostFocus.current;
+    lostFocus.current = null;
+    if (!lost || lost.element.isConnected) return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    const covering = ticks.find(tick => tick.startIndex <= lost.startIndex && lost.startIndex <= tick.endIndex);
+    const key = covering?.key ?? tabKey;
+    if (key === null) return;
+    buttons.current.get(key)?.focus({ preventScroll: true });
+  });
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!MOVE_KEYS.has(event.key)) return;
     const position = ticks.findIndex(tick => buttons.current.get(tick.key) === event.target);
@@ -119,8 +138,16 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
               key={tick.key}
               type="button"
               ref={element => {
-                if (element) buttons.current.set(tick.key, element);
-                else buttons.current.delete(tick.key);
+                if (element) {
+                  buttons.current.set(tick.key, element);
+                  return;
+                }
+                // 收到 null 時拿不到元素：刪掉之前先從 map 取出，比對是不是焦點所在
+                const previous = buttons.current.get(tick.key);
+                if (previous && previous === document.activeElement) {
+                  lostFocus.current = { element: previous, startIndex: tick.startIndex };
+                }
+                buttons.current.delete(tick.key);
               }}
               tabIndex={tick.key === tabKey ? 0 : -1}
               aria-label={labelOf(tick)}
