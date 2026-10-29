@@ -2382,7 +2382,8 @@
       "in_progress": "正在清除備份裡的記憶，請等清除結束再試"
     },
     "agent_reset": {
-      "in_progress": "另一個重置、記憶清除或刪除靈魂正在進行，請等它結束再試"
+      "in_progress": "另一個重置、記憶清除或刪除靈魂正在進行，請等它結束再試",
+      "drive_linked": "這個代理人的個人空間被換成了連結，Touka 不跟著連結走；什麼都沒動"
     },
     "agent_id": {
       "collection_collision": "這個 ID 會和既有的 ID 共用語意索引，請換一個 ID",

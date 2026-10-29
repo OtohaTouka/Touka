@@ -6,13 +6,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
+from memory_server.tools import get_manager
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.agent_reset import primitives as P
 from src.services.feedback_store import FeedbackStore
 from src.services.resource_manager import resource_manager
-from memory_server.tools import get_manager
 from src.utils import brain_persistence
 from src.utils.async_db import get_system_setting, init_db_async, session_service
 from src.utils.continuity_events_db import (
@@ -21,6 +20,8 @@ from src.utils.continuity_events_db import (
     count_agent_events,
     insert_event,
 )
+
+from tests.support.links import make_dir_link
 
 DEBUG = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger")
 JIN = AgentIdentity.for_role(agent_id="Jin", role="Owner")  # 代表真實 agent，必須不受影響
@@ -63,30 +64,43 @@ async def test_stats_isolation():
 
 async def test_outputs_isolation():
     for ident in (DEBUG, JIN):
-        p = resource_manager.get_outputs_path(ident)
-        if p:
-            (Path(p) / "report.xlsx").write_text("x", encoding="utf-8")
+        report = resource_manager.outputs_dir(ident).child("report.xlsx")
+        resource_manager.zone_write_text(report, "x")
     await P.purge_outputs("DebugAgent")
     assert await P.remaining_outputs("DebugAgent") == 0
-    pj = resource_manager.get_outputs_path(JIN)
-    if pj:  # 真實 agent 的產出不受影響
-        assert (Path(pj) / "report.xlsx").exists()
+    jin_report = resource_manager.outputs_dir(JIN).child("report.xlsx")
+    assert resource_manager.zone_kind(jin_report) == "file"  # 真實 agent 的產出不受影響
 
 
 async def test_outputs_purge_preserves_user_uploads():
     """E65（ADR-0175）：outputs/uploads 是使用者上傳檔（非 agent 產出）——purge 不刪、
     remaining 不計（否則自檢 false-nonclean）；其餘 outputs 內容照清。"""
-    p = resource_manager.get_outputs_path(DEBUG)
-    assert p
-    (Path(p) / "report.xlsx").write_text("x", encoding="utf-8")
-    up = resource_manager.get_uploads_path(DEBUG)
-    assert up
-    (Path(up) / "photo.png").write_text("img", encoding="utf-8")
+    outputs, uploads = resource_manager.outputs_dir(DEBUG), resource_manager.uploads_dir(DEBUG)
+    resource_manager.zone_write_text(outputs.child("report.xlsx"), "x")
+    resource_manager.zone_write_text(uploads.child("photo.png"), "img")
 
     assert await P.purge_outputs("DebugAgent") == 1  # 只計 agent 產出（uploads 不入帳）
     assert await P.remaining_outputs("DebugAgent") == 0  # uploads 不算殘留
-    assert (Path(up) / "photo.png").exists()  # 使用者上傳存活
-    assert not (Path(p) / "report.xlsx").exists()
+    assert resource_manager.zone_read_text(uploads.child("photo.png")) == "img"  # 使用者上傳存活
+    assert resource_manager.zone_kind(outputs.child("report.xlsx")) == "missing"
+
+
+async def test_a_link_inside_outputs_is_removed_and_uploads_kept(zone_data_root, tmp_path):
+    """ADR-0293：outputs 裡的連結只刪本身、不進入；uploads 照舊保留。"""
+    fake = tmp_path.resolve() / "fake_config"
+    fake.mkdir()
+    (fake / "users.json").write_text("{}", encoding="utf-8")
+    outputs = zone_data_root / "custom" / "DebugAgent" / "drive" / "outputs"
+    (outputs / "uploads").mkdir(parents=True)
+    (outputs / "uploads" / "photo.png").write_text("img", encoding="utf-8")
+    (outputs / "report.xlsx").write_text("x", encoding="utf-8")
+    make_dir_link(outputs / "linked", fake)
+
+    assert await P.purge_outputs("DebugAgent") == 2  # report.xlsx 與連結本身
+    assert await P.remaining_outputs("DebugAgent") == 0
+    assert sorted(child.name for child in outputs.iterdir()) == ["uploads"]
+    assert (outputs / "uploads" / "photo.png").read_text(encoding="utf-8") == "img"
+    assert (fake / "users.json").read_text(encoding="utf-8") == "{}"
 
 
 async def test_memory_isolation():
@@ -99,18 +113,16 @@ async def test_memory_isolation():
     assert fs.count_agent_facts(JIN) >= 1  # 真實 agent 記憶不受影響
 
 
+def _mission_file(ident: AgentIdentity):
+    return resource_manager.agent_drive(ident).child("missions", "current_mission.json")
+
+
 async def test_mission_isolation():
     for ident in (DEBUG, JIN):
-        base = resource_manager.get_vault_path("personal", ident)
-        if base:
-            mdir = Path(base) / "missions"
-            mdir.mkdir(parents=True, exist_ok=True)
-            (mdir / "current_mission.json").write_text("{}", encoding="utf-8")
+        resource_manager.zone_write_text(_mission_file(ident), "{}")
     await P.purge_mission("DebugAgent")
     assert await P.remaining_mission("DebugAgent") == 0
-    bj = resource_manager.get_vault_path("personal", JIN)
-    if bj:
-        assert (Path(bj) / "missions" / "current_mission.json").exists()
+    assert resource_manager.zone_kind(_mission_file(JIN)) == "file"
 
 
 async def test_snapshot_isolation():

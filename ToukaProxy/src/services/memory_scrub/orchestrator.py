@@ -300,8 +300,8 @@ def audit_rejected(actor_label: str, target: str, reason: str) -> None:
     """勾選清除、還沒開始重置就被擋下的稽核（格式只有這一份；路由也經這裡寫）.
 
     reason：not_human、not_acknowledged、not_confirmed、bad_origin、bad_password、
-    restore_in_progress、reset_in_progress、not_resettable、collection_shared、unavailable、
-    internal_error。重置開始之後的結局（含取消、備份失敗）一律寫結果行。
+    restore_in_progress、reset_in_progress、not_resettable、drive_linked、collection_shared、
+    unavailable、internal_error。重置開始之後的結局（含取消、備份失敗）一律寫結果行。
     """
     logger.warning(
         "AUDIT: memory-scrub rejected actor=%r target=%r reason=%s", actor_label, target, reason

@@ -2390,7 +2390,8 @@
       "in_progress": "Memory is being cleared from backups; try again when it finishes"
     },
     "agent_reset": {
-      "in_progress": "Another reset, memory scrub or soul deletion is running; try again when it finishes"
+      "in_progress": "Another reset, memory scrub or soul deletion is running; try again when it finishes",
+      "drive_linked": "This agent's personal folder is a link, and Touka does not follow links; nothing was changed"
     },
     "agent_id": {
       "collection_collision": "This ID would share a semantic index with an existing ID; choose another ID",

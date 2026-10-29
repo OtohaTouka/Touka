@@ -6,9 +6,10 @@ scoped 刪除（DB 刪除留在 owning module 以遵守 SQLITE3_IMPORT_BAN；檔
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,7 @@ from memory_server.utils.memory_worker import (
     run_memory_job_blocking,
     run_memory_job_to_end,
 )
+from memory_server.utils.no_follow import WalkReport
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
@@ -34,6 +36,8 @@ from src.utils.time_utils import get_current_epoch_ms
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from memory_server.utils.zone_paths import ZonePath
 
     GuardFn = Callable[[str], str]
 
@@ -95,49 +99,71 @@ async def remaining_stats(candidate: str, guard: GuardFn = assert_resettable) ->
 
 
 # ── outputs（agent 主權產出區：含 docgen 產出）──────────────────────
-# 注意：get_outputs_path 會 mkdir，故以「檔案數」而非「目錄是否存在」判定（否則永遠為真）。
-# 掃描缺口 E65（ADR-0175）：outputs/uploads 是「使用者」聊天上傳檔（get_uploads_path
-# 刻意巢狀於 outputs 下供相對路徑存取）＝使用者資產、非 agent 產出——purge 與 remaining
-# 一致排除（只清不計；不一致會使 remaining 自檢把保留的上傳誤判為漏清）。
+# 掃描缺口 E65（ADR-0175）：outputs/uploads 是「使用者」聊天上傳檔（刻意巢狀於 outputs 下供
+# 相對路徑存取）＝使用者資產、非 agent 產出——purge 與 remaining 一致排除（只清不計；不一致會使
+# remaining 自檢把保留的上傳誤判為漏清）。
+# ADR-0293：個人空間裡的東西都不跟隨連結。outputs／missions 本身是連結只刪連結；裡面的連結也只刪
+# 本身、不進入。
 _PRESERVED_OUTPUT_DIRS = ("uploads",)
+_MISSIONS_DIR = "missions"
 
 
-def _outputs_file_count(identity: AgentIdentity) -> int:
-    p = resource_manager.get_outputs_path(identity)
-    if not p:
-        return 0
-    root = Path(p)
-    preserved = tuple(root / name for name in _PRESERVED_OUTPUT_DIRS)
-    return sum(
-        1
-        for f in root.rglob("*")
-        if f.is_file() and not any(d in f.parents for d in preserved)
+@dataclass
+class _Scan:
+    kind: str  # 資料夾本身：missing／file／dir／link／other
+    count: int = 0
+    names: set[str] = field(default_factory=set)  # 要刪的第一層名稱
+
+
+def _scan(zp: ZonePath, keep: tuple[str, ...] = ()) -> _Scan:
+    """看資料夾裡（``keep`` 那幾項除外）有什麼，不跟隨連結.
+
+    ``count`` 算檔案、連結、名稱不合格與讀不到的項（讀不到的也算，自檢只會偏向「沒清乾淨」）；
+    不存在是 0，本身不是資料夾（連結等）是 1。
+    """
+    kind = resource_manager.zone_kind(zp)
+    if kind != "dir":
+        return _Scan(kind, 0 if kind == "missing" else 1)
+    scan, report = _Scan(kind), WalkReport()
+    walk = resource_manager.zone_walk(
+        zp, report, skip_dir=lambda parts: parts[0] in keep, show_links=True
     )
+    with contextlib.closing(walk):
+        for entry in walk:
+            if entry.parts[0] in keep:
+                continue
+            scan.names.add(entry.parts[0])
+            scan.count += entry.kind != "dir"
+    scan.count += report.bad_names + len(report.errors)
+    return scan
+
+
+def _purge_folder(zp: ZonePath, keep: tuple[str, ...] = ()) -> int:
+    """刪掉資料夾裡 ``keep`` 以外的每一項，回刪掉幾項；沒有要留的就連資料夾一起刪.
+
+    本身是連結（或不是資料夾）只刪本身；整棵樹都不跟隨連結（R11）。
+    """
+    scan = _scan(zp, keep)
+    if scan.kind == "missing":
+        return 0
+    if scan.kind != "dir" or all(
+        resource_manager.zone_kind(zp.child(name)) == "missing" for name in keep
+    ):
+        resource_manager.zone_remove_dir(zp)  # 沒有保留項：連空殼一併移除（既有「目錄消失」契約）
+        return scan.count
+    for name in sorted(scan.names):
+        resource_manager.zone_remove_dir(zp.child(name))
+    return scan.count
 
 
 async def purge_outputs(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    identity = _identity(candidate, guard)
-    n = _outputs_file_count(identity)
-    p = resource_manager.get_outputs_path(identity)
-    if p:
-        root = Path(p)
-        has_preserved = False
-        for child in list(root.iterdir()):
-            if child.name in _PRESERVED_OUTPUT_DIRS:
-                has_preserved = True
-                continue
-            if child.is_dir():
-                resource_manager.remove_dir(child, missing_ok=True)
-            else:
-                resource_manager.remove_file(child, missing_ok=True)
-        if not has_preserved:
-            # 無保留項（無使用者上傳）→ 連空殼一併移除，維持既有「目錄消失」契約。
-            resource_manager.remove_dir(root, missing_ok=True)
-    return n
+    outputs = resource_manager.outputs_dir(_identity(candidate, guard))
+    return 0 if outputs is None else _purge_folder(outputs, _PRESERVED_OUTPUT_DIRS)
 
 
 async def remaining_outputs(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    return _outputs_file_count(_identity(candidate, guard))
+    outputs = resource_manager.outputs_dir(_identity(candidate, guard))
+    return 0 if outputs is None else _scan(outputs, _PRESERVED_OUTPUT_DIRS).count
 
 
 # ── memory（ToukaMemory：事實 core_memory.db ＋ 向量 Qdrant）──────────
@@ -215,48 +241,43 @@ async def remaining_memory(candidate: str, guard: GuardFn = assert_resettable) -
 
 
 # ── mission（personal vault /missions/current_mission.json）──────────
-def _mission_dir(identity: AgentIdentity) -> Path | None:
-    base = resource_manager.get_vault_path("personal", identity)
-    return Path(base) / "missions" if base else None
+def _mission_dir(identity: AgentIdentity) -> ZonePath | None:
+    drive = resource_manager.agent_drive(identity)
+    return None if drive is None else drive.child(_MISSIONS_DIR)
 
 
 async def purge_mission(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    d = _mission_dir(_identity(candidate, guard))
-    if d is None:
-        return 0
-    n = sum(1 for f in d.rglob("*") if f.is_file()) if d.exists() else 0
-    resource_manager.remove_dir(d, missing_ok=True)
-    return n
+    missions = _mission_dir(_identity(candidate, guard))
+    return 0 if missions is None else _purge_folder(missions)
 
 
 async def remaining_mission(candidate: str, guard: GuardFn = assert_resettable) -> int:
-    d = _mission_dir(_identity(candidate, guard))
-    if d is None or not d.exists():
-        return 0
-    return sum(1 for f in d.rglob("*") if f.is_file())
+    missions = _mission_dir(_identity(candidate, guard))
+    return 0 if missions is None else _scan(missions).count
 
 
 # ── catalog（personal vault /.touka/catalog.json：個人空間目錄）──────────
 # outputs 在個人空間裡，目錄會記下其中的檔名、hash 與 Markdown 標題；重置時一併刪掉。
-# 它是快取：下次讀時由實際檔案整份重建（刪掉後不在信任紀錄裡）。
-def _catalog_path(identity: AgentIdentity) -> Path | None:
-    base = resource_manager.get_vault_path("personal", identity)
-    return Path(base) / CATALOG_DIR_NAME / CATALOG_FILE_NAME if base else None
+# 它是快取：下次讀時由實際檔案整份重建（刪掉後不在信任紀錄裡）。``.touka`` 是連結時這一項
+# 失敗、不刪另一端（ADR-0293）。
+def _catalog_path(identity: AgentIdentity) -> ZonePath | None:
+    drive = resource_manager.agent_drive(identity)
+    return None if drive is None else drive.child(CATALOG_DIR_NAME, CATALOG_FILE_NAME)
 
 
 async def purge_catalog(candidate: str, guard: GuardFn = assert_resettable) -> int:
     """刪掉個人空間的目錄檔；不存在回 0（不算錯）。"""
     path = _catalog_path(_identity(candidate, guard))
-    if path is None or not resource_manager.exists(path):
+    if path is None or resource_manager.zone_kind(path) == "missing":
         return 0
-    resource_manager.remove_file(path, missing_ok=True)
+    resource_manager.zone_remove_file(path)
     return 1
 
 
 async def remaining_catalog(candidate: str, guard: GuardFn = assert_resettable) -> int:
     """目錄檔還在回 1，否則 0（重置報告的完整性自檢）。"""
     path = _catalog_path(_identity(candidate, guard))
-    return 1 if path is not None and resource_manager.exists(path) else 0
+    return 0 if path is None or resource_manager.zone_kind(path) == "missing" else 1
 
 
 # ── context snapshot（data/snapshots/<id>.md：debug 匯出的情境快照）──────

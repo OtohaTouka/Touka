@@ -838,11 +838,15 @@ class ResourceManager:
         report: WalkReport,
         *,
         skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+        show_links: bool = False,
     ) -> Iterator[WalkEntry]:
-        """走訪一棵樹（不進入連結、計數；名稱不合格的略過並計數）；根是連結就拒絕、不存在就空."""
+        """走訪一棵樹（不進入連結、計數；名稱不合格的略過並計數）；根是連結就拒絕、不存在就空.
+
+        ``show_links`` 時連結也列出（種類 ``link``，不進入）。
+        """
         target = self._zone_target(zp, "zone_walk")
         with zone_errors(zp.display()):
-            yield from walk_no_follow(target, report, skip_dir=skip_dir)
+            yield from walk_no_follow(target, report, skip_dir=skip_dir, show_links=show_links)
 
     @permission_repair_exempt(category="generator", reason="走訪時才開檔，開不了的記進統計")
     def zone_walk_open(

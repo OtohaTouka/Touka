@@ -51,20 +51,27 @@ def _zone(root: Path) -> ZonePath:
 class _Manager:
     """只提供個人空間根目錄的假 MemoryManager（vault 分發器只用到這個方法）。"""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, zone: ZonePath | None = None) -> None:
         self.root = root
+        self.zone = zone
 
     def get_personal_drive_dir(self, identity: Any, resource_proxy: Any = None) -> ZonePath:
         _ = identity, resource_proxy
-        return _zone(self.root)
+        return self.zone or _zone(self.root)
 
 
-async def _vault(root: Path, action: str, proxy: Any = resource_manager, **kwargs: Any) -> Any:
+async def _vault(
+    root: Path,
+    action: str,
+    proxy: Any = resource_manager,
+    zone: ZonePath | None = None,
+    **kwargs: Any,
+) -> Any:
     return await memory_vault_tools(
         vault="personal",
         action=action,
         identity=IDENTITY,
-        manager=_Manager(root),
+        manager=_Manager(root, zone),
         resource_proxy=proxy,
         **kwargs,
     )
@@ -462,13 +469,15 @@ async def test_catalog_excludes_and_caps(drive: Path, monkeypatch: pytest.Monkey
 
 async def test_agent_reset_removes_catalog_and_rebuilds_from_files() -> None:
     """重置清 outputs 時一併刪目錄檔；之後讀目錄從實際檔案重建，不含被清掉的檔。"""
-    root = Path(get_app_data_dir()) / "personal_drive" / "DebugAgent"
+    # 沙盒裡的 DebugAgent 不是靈魂：個人空間是 custom/DebugAgent/drive
+    zone = resource_manager.agent_drive(AgentIdentity.for_role("DebugAgent", "Debugger"))
+    root = Path(get_app_data_dir()) / "custom" / "DebugAgent" / "drive"
     outputs = root / "outputs"
     _put(outputs, "report.md", "# Secret Report\n")
     _put(root, "keep.txt", "kept")
     await init_db_async()  # 重置會清 sessions：沙盒 DB 需先建表
     try:
-        await _vault(root, "list")
+        await _vault(root, "list", zone=zone)
         assert "outputs/report.md" in _entries(_catalog(root))
 
         report = await reset_orchestrator.reset_debug_agent_data(do_backup=False)
@@ -478,7 +487,7 @@ async def test_agent_reset_removes_catalog_and_rebuilds_from_files() -> None:
         assert (catalog_store["purged"], catalog_store["remaining"]) == (1, 0)
         assert not catalog_store["error"]
         assert not _catalog_path(root).exists()
-        read = await _vault(root, "read", path=".touka/catalog.json")
+        read = await _vault(root, "read", zone=zone, path=".touka/catalog.json")
         rebuilt = set(_entries(json.loads(_body(read))))
         # 沙盒裡的 DebugAgent 可能留有別的測試放的上傳檔（重置刻意保留）；只核對清掉的不在、
         # 留下的都在，且每一項都真的存在於磁碟。

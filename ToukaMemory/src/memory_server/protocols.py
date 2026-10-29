@@ -247,8 +247,9 @@ class IResourceProxy(IConversationReader, Protocol):
         report: WalkReport,
         *,
         skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
+        show_links: bool = False,
     ) -> Iterator[WalkEntry]:
-        """走訪一棵樹（不進入連結）."""
+        """走訪一棵樹（不進入連結；``show_links`` 時列出連結）."""
         ...
 
     def zone_walk_open(

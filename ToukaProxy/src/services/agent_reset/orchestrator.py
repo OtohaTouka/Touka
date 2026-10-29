@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from memory_server import factual
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
+from memory_server.utils.no_follow import LinkRefusedError
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
@@ -27,9 +28,13 @@ from src.services.agent_reset.guard import assert_agent_resettable, assert_reset
 from src.services.agent_reset.primitives import ALL_STORES, RETAINED_STORES
 from src.services.authorization_gateway import require_admin_human
 from src.services.memory_scrub import orchestrator as scrub_orchestrator
+from src.services.resource_manager import resource_manager
+from src.tools import terminal
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.memory_scrub import ScrubReason
     from src.services.memory_scrub.ports import ScrubFactStore
@@ -65,6 +70,19 @@ async def destructive_op(target: AgentIdentity) -> AsyncIterator[None]:
     finally:
         destructive_ops.release(target)
         _reset_lock.release()
+
+
+def refuse_linked_drive(drive: ZonePath | None) -> None:
+    """破壞性操作的前置檢查（ADR-0293 R11）：個人空間根是連結就丟 ``AGENT_DRIVE_LINKED``.
+
+    上層（``custom/<id>``）本身是連結時 ``zone_kind`` 丟連結拒絕，轉成同一個錯誤。
+    """
+    try:
+        linked = drive is not None and resource_manager.zone_kind(drive) == "link"
+    except LinkRefusedError as exc:
+        raise ToukaException(ErrorCode.AGENT_DRIVE_LINKED) from exc
+    if linked:
+        raise ToukaException(ErrorCode.AGENT_DRIVE_LINKED)
 
 
 def scrub_rejected(actor_label: str, target: str, reason: str) -> None:
@@ -143,13 +161,17 @@ async def _execute_reset(
         session: memory_scrub.ScrubSession | None = None
         # 交給清除工作之後，最後結果由清除工作在清旗標前記（請求斷線也一樣）。
         with last_result.recording(run, lambda: session is not None and session.handed_over):
+            identity = _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)
             if scrub:
                 identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
-            # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳開不了。
+            # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳與指令開不了。
             # 放在設清除旗標之前：旗標要靠下面 try 的 finally 才清得掉。
             stopped = destructive_ops.stop_heartbeats(target)
             if stopped:
                 logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
+            killed = await terminal.stop_agent_commands(identity)  # R11：個人空間裡沒有在跑的指令
+            if killed:
+                logger.info("[reset] stopped %d command(s) of %s", killed, normalized)
             if scrub:
                 session = memory_scrub.begin(target)
             try:
@@ -172,6 +194,26 @@ async def _execute_reset(
                     session.end()
         run.done(report.to_dict())  # 還持有破壞性操作鎖：下一次重置蓋不掉
         return report
+
+
+def _checked_identity(
+    normalized: str, guard: Callable[[str], str], *, scrub: bool, actor_label: str
+) -> AgentIdentity:
+    """過閘並查個人空間根（R11，任何副作用之前）；勾選清除時被擋下先寫一行稽核."""
+    try:
+        identity = primitives.identity_for(normalized, guard)
+        refuse_linked_drive(resource_manager.agent_drive(identity))
+    except ToukaException as exc:
+        if scrub:
+            linked = exc.code is ErrorCode.AGENT_DRIVE_LINKED
+            reason = "drive_linked" if linked else "not_resettable"
+            scrub_orchestrator.audit_rejected(actor_label, normalized, reason)
+        raise
+    except Exception:
+        if scrub:
+            scrub_orchestrator.audit_rejected(actor_label, normalized, "internal_error")
+        raise
+    return identity
 
 
 def _audit_not_run(actor_label: str, target: str, reason: ScrubReason) -> None:

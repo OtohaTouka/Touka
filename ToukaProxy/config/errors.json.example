@@ -161,6 +161,12 @@
     "msg": "Another reset, memory scrub or soul deletion is running; try again when it finishes",
     "i18n": "error.agent_reset.in_progress"
   },
+  "AGENT_DRIVE_LINKED": {
+    "id": 1421,
+    "status": 409,
+    "msg": "This agent's personal folder is a link, and links are not followed; nothing was changed",
+    "i18n": "error.agent_reset.drive_linked"
+  },
   "AGENT_ID_COLLECTION_COLLISION": {
     "id": 1416,
     "status": 409,
