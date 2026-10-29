@@ -1552,6 +1552,15 @@
       "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
       "recheck": "Check save status",
       "retry": "Retry save only"
+    },
+    "message_nav": {
+      "label": "Message navigation",
+      "jump_to": "Jump to message {{n}}: {{preview}}",
+      "jump_to_range": "Jump to messages {{first}}–{{last}}: {{preview}}",
+      "image": "Image",
+      "attachment": "Attachment: {{name}}",
+      "file": "File",
+      "empty": "(no text)"
     }
   },
   "dashboard": {

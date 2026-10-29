@@ -22,8 +22,12 @@ import { ChatWelcome } from "./ChatWelcome";
 import { FeedbackReasonDialog } from "./FeedbackReasonDialog";
 import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { QueuedMessageList } from "./QueuedMessageList";
+import { MessageNavigator } from "./MessageNavigator";
 import { useInterjectionComposer } from "@/hooks/useInterjectionComposer";
 import { useFeedback } from "@/hooks/useFeedback";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMessageNavigation } from "@/hooks/useMessageNavigation";
+import { MIN_NAV_TICKS } from "@/lib/chat/messageNavigation";
 import { cn } from "@/lib/utils";
 import {
   Paperclip, Camera, X, Folder, Activity, StopCircle, ArrowDown, Microscope, FileText, Plug
@@ -96,6 +100,11 @@ export function ChatArea({
   const currentProject = projects.find(p => p.id === currentSession?.project_id);
 
   const linearMessages = React.useMemo(() => getLinearMessages(history), [history]);
+  // 對話左側的訊息導覽列：手機版與 IDE 不顯示，也不訂閱捲動範圍
+  const isMobile = useIsMobile();
+  const navEnabled = !isIDE && !isMobile;
+  const messageAreaRef = React.useRef<HTMLDivElement>(null);
+  const messageNav = useMessageNavigation(linearMessages, navEnabled, messageAreaRef);
 
   const handleCopy = React.useCallback((text: string) => { navigator.clipboard.writeText(text); }, []);
 
@@ -231,6 +240,10 @@ export function ChatArea({
     });
   };
 
+  const jumpToMessage = (index: number) => {
+    virtuosoRef.current?.scrollToIndex({ index, align: 'start', behavior: 'smooth' });
+  };
+
   const selectedModelInfo = availableModels.find(m => m.id === selectedModel);
   const isModelOffline = selectedModelInfo?.status === 'offline';
   // ADR-0249：生成中 Enter＝排隊、Ctrl+Enter＝優先、Esc＝停止；回合結束時未送達的自動送出。
@@ -274,16 +287,19 @@ export function ChatArea({
   return (
     <div className={cn("h-full flex flex-col mx-auto w-full relative", isIDE ? "max-w-none" : "max-w-[95%] 2xl:max-w-[85%]")}>
       <SessionPersistenceNotice key={activeSessionId} sessionId={activeSessionId} />
+      {/* 訊息捲動區：導覽列以它為定位基準，不會壓到下方輸入區 */}
+      <div ref={messageAreaRef} className="relative flex-1 min-h-0">
       <Virtuoso
         ref={virtuosoRef}
         data={linearMessages}
         atBottomStateChange={handleScroll}
+        rangeChanged={messageNav.onRangeChanged}
         initialTopMostItemIndex={Math.max(0, linearMessages.length - 1)}
         followOutput={(isAtBottom) => {
           return isAtBottom ? 'auto' : false;
         }}
         className={cn(
-          "flex-1 custom-scrollbar relative overflow-x-hidden",
+          "h-full custom-scrollbar relative overflow-x-hidden",
           isIDE ? "p-3" : "py-4"
         )}
         components={{
@@ -356,6 +372,14 @@ export function ChatArea({
           </div>
         )}
       />
+      {navEnabled && messageNav.ticks.length >= MIN_NAV_TICKS && (
+        <MessageNavigator
+          ticks={messageNav.ticks}
+          currentIndex={messageNav.currentIndex}
+          onJump={jumpToMessage}
+        />
+      )}
+      </div>
 
       {/* 回到最底按鈕 */}
       {showScrollBottom && (

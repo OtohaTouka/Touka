@@ -7,10 +7,11 @@
  *   mock 的 useSessionList 刻意不提供 syncSession，若 ChatArea 還呼叫即 crash）。
  * - MCP 動態掛載 toggle（ADR-0161 新增）翻轉 mcpDispatcher。
  * - 截圖鈕呼叫 handleScreenshot prop；模型選單/上傳鈕渲染。
+ * - 對話左側的訊息導覽列：顯示條件、點擊跳轉、捲動範圍標亮。
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 const translation = vi.hoisted(() => ({ current: (key: string) => key }));
 vi.mock('react-i18next', async (importOriginal) => ({
@@ -18,12 +19,24 @@ vi.mock('react-i18next', async (importOriginal) => ({
   useTranslation: () => ({ t: translation.current }),
   Trans: ({ children }: { children?: React.ReactNode }) => children ?? null,
 }));
+// Virtuoso 替身：不畫訊息，只記下 props 並提供 scrollToIndex
+const virtuoso = vi.hoisted(() => ({
+  props: {} as { rangeChanged?: (range: { startIndex: number; endIndex: number }) => void },
+  scrollToIndex: vi.fn(),
+}));
 vi.mock('react-virtuoso', async () => {
   const react = await import('react');
-  const Virtuoso = react.forwardRef(() => null);
+  const Virtuoso = react.forwardRef((props: typeof virtuoso.props, ref) => {
+    react.useImperativeHandle(ref, () => ({ scrollToIndex: virtuoso.scrollToIndex }));
+    virtuoso.props = props;
+    return null;
+  });
   Virtuoso.displayName = 'Virtuoso';
   return { Virtuoso };
 });
+const chat = vi.hoisted(() => ({ history: [] as unknown }));
+const media = vi.hoisted(() => ({ mobile: false }));
+vi.mock('@/hooks/useMediaQuery', () => ({ useMediaQuery: () => media.mobile }));
 
 const setSessions = vi.fn();
 const setSelectedModel = vi.fn();
@@ -32,7 +45,7 @@ const availableModels = [{ id: 'm1', name: 'M1', status: 'online' }];
 vi.mock('@/lib/ThemeContext', () => ({ useTheme: () => ({ density: 'comfortable' }) }));
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
-    history: [], inputValue: '', setInputValue: vi.fn(),
+    history: chat.history, inputValue: '', setInputValue: vi.fn(),
     attachment: null, setAttachment: vi.fn(), isSending: false,
     handleSend: vi.fn(), handleStopGeneration: vi.fn(),
     handleDeleteMessage: vi.fn(), handleSwitchMessage: vi.fn(),
@@ -84,7 +97,7 @@ import { ChatArea } from '../ChatArea';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { toast } from 'sonner';
 
-function renderChatArea(overrides: Partial<Record<string, unknown>> = {}) {
+function renderChatArea(overrides: Partial<Record<string, unknown>> = {}, { isIDE = false } = {}) {
   vi.mocked(useSessionList).mockReturnValue({
     sessions: [{ id: 's1', deepResearch: false, mcpDispatcher: false, ...overrides }],
     setSessions,
@@ -93,7 +106,7 @@ function renderChatArea(overrides: Partial<Record<string, unknown>> = {}) {
   const fileInputRef = React.createRef<HTMLInputElement>();
   const view = () => (
     <ChatArea
-      isIDE={false}
+      isIDE={isIDE}
       fileInputRef={fileInputRef}
       handleScreenshot={handleScreenshot}
       editingMessageId={null}
@@ -106,10 +119,23 @@ function renderChatArea(overrides: Partial<Record<string, unknown>> = {}) {
   return { handleScreenshot, rerender: () => rerender(view()) };
 }
 
+/** 線性路徑 u1 → a1 → u2 → a2 …（userCount 則使用者訊息，各接一則回覆）。 */
+function linearHistory(userCount: number) {
+  const ids = Array.from({ length: userCount * 2 }, (_, i) => (i % 2 === 0 ? `u${i / 2 + 1}` : `a${(i + 1) / 2}`));
+  const messages = Object.fromEntries(ids.map((id, i) => [id, {
+    id, role: i % 2 === 0 ? 'user' : 'assistant', content: id,
+    parentId: i === 0 ? null : ids[i - 1], childrenIds: i + 1 < ids.length ? [ids[i + 1]] : [],
+  }]));
+  return { messages, currentId: ids[ids.length - 1] };
+}
+
 describe('ChatArea 輸入列六控制項（P4/ADR-0161）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     translation.current = (key: string) => key;
+    chat.history = [];
+    media.mobile = false;
+    virtuoso.props = {};
   });
 
   it('P11 切換語言後，模型切換提示使用新翻譯', () => {
@@ -163,5 +189,77 @@ describe('ChatArea 輸入列六控制項（P4/ADR-0161）', () => {
     const { handleScreenshot } = renderChatArea();
     fireEvent.click(screen.getByTitle('chat.chat_area.screenshot'));
     expect(handleScreenshot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ChatArea 對話左側的訊息導覽列', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    translation.current = (key: string) => key;
+    media.mobile = false;
+    virtuoso.props = {};
+  });
+
+  const navButtons = () => screen.getAllByRole('button', { name: 'chat.message_nav.jump_to' });
+
+  it('兩條以上才顯示，一條時不顯示但照收捲動範圍', () => {
+    chat.history = linearHistory(2);
+    const { rerender } = renderChatArea();
+    expect(screen.getByRole('navigation', { name: 'chat.message_nav.label' })).toBeDefined();
+    expect(navButtons()).toHaveLength(2);
+
+    chat.history = linearHistory(1);
+    rerender();
+    expect(screen.queryByRole('navigation', { name: 'chat.message_nav.label' })).toBeNull();
+    expect(virtuoso.props.rangeChanged).toBeTypeOf('function');
+  });
+
+  it.each([
+    ['IDE', { isIDE: true }, false],
+    ['手機版', { isIDE: false }, true],
+  ])('%s 不顯示，也不收捲動範圍', (_name, options, mobile) => {
+    media.mobile = mobile;
+    chat.history = linearHistory(3);
+    renderChatArea({}, options);
+    expect(screen.queryByRole('navigation', { name: 'chat.message_nav.label' })).toBeNull();
+    expect(virtuoso.props.rangeChanged).toBeUndefined();
+  });
+
+  it('點一條就捲到那則訊息的開頭', () => {
+    chat.history = linearHistory(3);
+    renderChatArea();
+    fireEvent.click(navButtons()[1]);
+    expect(virtuoso.scrollToIndex).toHaveBeenCalledWith(expect.objectContaining({ index: 2, align: 'start' }));
+  });
+
+  it('捲動範圍改變時標亮目前那則', () => {
+    chat.history = linearHistory(3);
+    renderChatArea();
+    act(() => virtuoso.props.rangeChanged?.({ startIndex: 3, endIndex: 4 }));
+    expect(navButtons().map(b => b.getAttribute('aria-current'))).toEqual([null, null, 'true']);
+  });
+
+  it('依訊息捲動區的高度決定線數', () => {
+    // jsdom 沒有 ResizeObserver：記下觀察對象，由測試觸發高度
+    const observed: { target: Element; resize: (height: number) => void }[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        observed.push({ target, resize: height => this.callback(
+          [{ contentRect: { height } } as ResizeObserverEntry], this as unknown as ResizeObserver) });
+      }
+      unobserve() {}
+      disconnect() {}
+    });
+    try {
+      chat.history = linearHistory(5);
+      renderChatArea();
+      const nav = screen.getByRole('navigation', { name: 'chat.message_nav.label' });
+      expect(observed.map(o => o.target)).toEqual([nav.parentElement]);
+      act(() => observed[0].resize(16)); // 只排得下最少的 2 條
+      expect(screen.getAllByRole('button', { name: /^chat\.message_nav\.jump_to/ })).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
