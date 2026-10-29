@@ -217,12 +217,11 @@ describe('ChatArea 對話左側的訊息導覽列', () => {
   it.each([
     ['IDE', { isIDE: true }, false],
     ['手機版', { isIDE: false }, true],
-  ])('%s 不顯示，也不收捲動範圍', (_name, options, mobile) => {
+  ])('%s 不顯示', (_name, options, mobile) => {
     media.mobile = mobile;
     chat.history = linearHistory(3);
     renderChatArea({}, options);
     expect(screen.queryByRole('navigation', { name: 'chat.message_nav.label' })).toBeNull();
-    expect(virtuoso.props.rangeChanged).toBeUndefined();
   });
 
   it('點一條就捲到那則訊息的開頭', () => {

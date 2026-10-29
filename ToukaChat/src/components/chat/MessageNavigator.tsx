@@ -66,6 +66,17 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
     setPreview(prev => (prev?.key === key ? null : prev));
   };
 
+  // WCAG 1.4.13：預覽蓋住訊息時，不用移開滑鼠或焦點也能按 Esc 收起
+  const previewShown = preview !== null;
+  React.useEffect(() => {
+    if (!previewShown) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreview(null);
+    };
+    document.addEventListener('keydown', dismiss);
+    return () => document.removeEventListener('keydown', dismiss);
+  }, [previewShown]);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!MOVE_KEYS.has(event.key)) return;
     const position = ticks.findIndex(tick => buttons.current.get(tick.key) === event.target);

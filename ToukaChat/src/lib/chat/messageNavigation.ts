@@ -14,7 +14,7 @@ export const SYSTEM_SPEAKER = "System";
 export const MIN_NAV_TICKS = 2;
 /** 線多於這個數目時平均分段（導覽區夠高時的上限）。 */
 const MAX_NAV_TICKS = 120;
-/** 每條線至少佔的高度（px，含間隔）；導覽區排不下時減少條數、改成分段。 */
+/** 每條線大約佔的高度（px，含間隔；工具列內距沒扣，實際略小）；導覽區排不下時減少條數、改成分段。 */
 const MIN_TICK_PITCH_PX = 8;
 /** 預覽最多取幾個字（畫面上另由 line-clamp 限 3 行）。 */
 const NAV_PREVIEW_MAX_CHARS = 200;

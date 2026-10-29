@@ -73,6 +73,35 @@ describe('MessageNavigator', () => {
     expect(screen.queryByText('第二句')).toBeNull();
   });
 
+  it('按 Esc 收起滑鼠浮出的預覽，焦點不在導覽列也一樣', () => {
+    renderNav();
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '跳到第 2 則：第二句' }));
+    expect(screen.getByText('第二句')).toBeDefined();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByText('第二句')).toBeNull();
+  });
+
+  it('按 Esc 收起鍵盤浮出的預覽，焦點留在原處', () => {
+    renderNav();
+    const [first, second] = screen.getAllByRole('button');
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(screen.getByText('第二句')).toBeDefined();
+    fireEvent.keyDown(second, { key: 'Escape' });
+    expect(screen.queryByText('第二句')).toBeNull();
+    expect(document.activeElement).toBe(second);
+  });
+
+  it('失焦時收起預覽', () => {
+    renderNav();
+    const [first, second] = screen.getAllByRole('button');
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(screen.getByText('第二句')).toBeDefined();
+    act(() => second.blur());
+    expect(screen.queryByText('第二句')).toBeNull();
+  });
+
   it('點擊跳到那則並收起預覽', () => {
     const { onJump } = renderNav();
     const third = screen.getByRole('button', { name: '跳到第 3 則：第三句' });

@@ -31,7 +31,6 @@
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - ToukaHeartbeat 服務本身不變。
-- 兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
 
 ## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
 
@@ -264,6 +263,9 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 - **`agent_id`**: 指定要喚醒的代理人。
 - **`pulse_count`**: 該次喚醒允許執行的最大連鎖反應次數。
 - **`session_id`**: 指定對話發生的頻道（通常為 `home`）。
+
+**多脈衝之間的 nudge**：兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
+
 ## 📦 部署與執行規範 (Deployment) ⭐
 為了確保容器環境的穩定性，ToukaHeartbeat 遵循以下規則：
 1. **絕對匯入**：嚴禁使用相對匯入（如 `from .config import ...`）。

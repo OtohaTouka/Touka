@@ -100,7 +100,7 @@ export function ChatArea({
   const currentProject = projects.find(p => p.id === currentSession?.project_id);
 
   const linearMessages = React.useMemo(() => getLinearMessages(history), [history]);
-  // 對話左側的訊息導覽列：手機版與 IDE 不顯示，也不訂閱捲動範圍
+  // 對話左側的訊息導覽列：手機版與 IDE 不顯示（捲動範圍照收、不重繪）
   const isMobile = useIsMobile();
   const navEnabled = !isIDE && !isMobile;
   const messageAreaRef = React.useRef<HTMLDivElement>(null);
