@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import errno
 import fnmatch
 import logging
 from pathlib import Path, PurePath, PurePosixPath
@@ -36,7 +37,9 @@ class PathGuardError(Exception):
     pass
 
 
-def _enforce_root_bound(target_path_str: str, root_bound_str: str) -> Path:
+def _enforce_root_bound(
+    target_path_str: str, root_bound_str: str, root_is_real: bool = False
+) -> Path:
     """強制路徑主權邊界校驗 (SSOT 安全機制).
 
     確保 target_path 絕對不會逃逸出 root_bound 的範圍。
@@ -44,19 +47,27 @@ def _enforce_root_bound(target_path_str: str, root_bound_str: str) -> Path:
     Args:
         target_path_str (str): 欲存取的目標路徑（相對或絕對）。
         root_bound_str (str): 獲授權的根目錄邊界（絕對路徑）。
+        root_is_real (bool): 呼叫端已查過根本身沒有連結、傳的是解析後的真實路徑（代理人的
+            專案）；這裡再解析不同，就是查過之後才換成連結。
 
     Returns:
         Path: 解析後安全且位於邊界內的實體絕對路徑。
 
     Raises:
         PathGuardError: 當偵測到路徑逃逸或路徑無效時。
+        LinkRefusedError: ``root_is_real`` 時根已經變成連結。
     """
     if not root_bound_str:
         msg = "Empty root bound."
         raise PathGuardError(msg)
 
     root = Path(root_bound_str).resolve()
-    
+    # 查過之後根被換成連結時，解析結果是連結另一端：和呼叫端查過的真實路徑比對（ADR-0292 決定 12）
+    if root_is_real and root != Path(root_bound_str).absolute():
+        raise LinkRefusedError(
+            errno.ELOOP, "Root became a symbolic link or junction", root_bound_str
+        )
+
     if not target_path_str or target_path_str.strip() in [".", "/"]:
         return root
 
@@ -152,6 +163,7 @@ async def core_read(
     offset: int = 0, 
     limit: int = -1, 
     resource_proxy: Any = None,
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """安全讀取檔案內容.
@@ -162,13 +174,14 @@ async def core_read(
         offset (int): 起始行數 (0-indexed)。
         limit (int): 讀取行數限制。
         resource_proxy (Any): 注入的 IResourceProxy。
+        root_is_real (bool): 見 ``_enforce_root_bound``。
         **_kwargs (Any): 其他參數。
 
     Returns:
         str: 檔案內容或錯誤訊息。
     """
     try:
-        safe_path = _enforce_root_bound(path, root_bound)
+        safe_path = _enforce_root_bound(path, root_bound, root_is_real)
         if _not_a_file(safe_path):
             return f"Error: File not found or is a directory: {path}"
         if resource_proxy:
@@ -199,6 +212,7 @@ async def core_write(
     content: str, 
     mode: str = 'w', 
     resource_proxy: Any = None,
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """安全寫入檔案 (支援新建與追加).
@@ -209,13 +223,14 @@ async def core_write(
         content (str): 內容。
         mode (str): 'w' (複寫) 或 'a' (追加)。
         resource_proxy (Any): 注入的 IResourceProxy。
+        root_is_real (bool): 見 ``_enforce_root_bound``。
         **_kwargs (Any): 其他參數。
 
     Returns:
         str: 執行結果。
     """
     try:
-        safe_path = _enforce_root_bound(path, root_bound)
+        safe_path = _enforce_root_bound(path, root_bound, root_is_real)
         if resource_proxy and mode == 'a':
             resource_proxy.append_file_text_no_follow(str(safe_path), content)
         elif resource_proxy:
@@ -240,6 +255,7 @@ async def core_str_replace(
     old_str: str, 
     new_str: str, 
     resource_proxy: Any = None,
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """精確尋找並替換檔案中的首個匹配字串.
@@ -250,13 +266,14 @@ async def core_str_replace(
         old_str (str): 舊字串。
         new_str (str): 新字串。
         resource_proxy (Any): 注入的 IResourceProxy。
+        root_is_real (bool): 見 ``_enforce_root_bound``。
         **_kwargs (Any): 其他參數。
 
     Returns:
         str: 執行結果。
     """
     try:
-        safe_path = _enforce_root_bound(path, root_bound)
+        safe_path = _enforce_root_bound(path, root_bound, root_is_real)
         if _not_a_file(safe_path):
             return f"Error: File not found: {path}"
         if resource_proxy:
@@ -284,11 +301,12 @@ async def core_delete(
     path: str, 
     root_bound: str, 
     resource_proxy: Any = None, 
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """安全刪除檔案."""
     try:
-        safe_path = _enforce_root_bound(path, root_bound)
+        safe_path = _enforce_root_bound(path, root_bound, root_is_real)
         if _not_a_file(safe_path):
             return f"Error: File not found: {path}"
         if resource_proxy:
@@ -311,11 +329,12 @@ async def core_list(
     max_depth: int = 2, 
     resource_proxy: Any = None, 
     exclude: frozenset[str] = frozenset(),
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """以 Tree 結構列出目錄內容（exclude：額外隱藏的名稱，預設不額外隱藏；連結只列名稱、不進入）."""
     try:
-        safe_path = _enforce_root_bound(path, root_bound)
+        safe_path = _enforce_root_bound(path, root_bound, root_is_real)
         _check_no_links(safe_path, resource_proxy)
 
         if resource_proxy and hasattr(resource_proxy, "list_directory"):
@@ -368,6 +387,7 @@ async def core_find(
     root_bound: str, 
     resource_proxy: Any = None, 
     exclude: frozenset[str] = frozenset(),
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """按檔名模式在邊界內搜尋檔案（exclude：額外略過的名稱）.
@@ -375,7 +395,7 @@ async def core_find(
     比對方式同 ``root.rglob(pattern)``；不進入、也不列出連結。
     """
     try:
-        root = _enforce_root_bound("", root_bound)
+        root = _enforce_root_bound("", root_bound, root_is_real)
         skipped = frozenset({'.git', 'node_modules', '__pycache__'}) | exclude
         matches = []
         for rel in _regular_files(root, skipped, resource_proxy):
@@ -402,11 +422,12 @@ async def core_grep(
     root_bound: str, 
     resource_proxy: Any = None, 
     exclude: frozenset[str] = frozenset(),
+    root_is_real: bool = False,
     **_kwargs: Any
 ) -> str:
     """在所有文本檔案中搜尋關鍵字（exclude：額外略過的名稱；不進入、不讀連結）."""
     try:
-        root = _enforce_root_bound("", root_bound)
+        root = _enforce_root_bound("", root_bound, root_is_real)
         matches = []
         limit = 50
         

@@ -1214,7 +1214,8 @@
       "_enforce_root_bound": {
         "parameters": [
           "target_path_str",
-          "root_bound_str"
+          "root_bound_str",
+          "root_is_real"
         ],
         "kwargs": null,
         "reads": [],
@@ -1262,7 +1263,8 @@
           "root_bound",
           "offset",
           "limit",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1274,7 +1276,8 @@
           "root_bound",
           "content",
           "mode",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1286,7 +1289,8 @@
           "root_bound",
           "old_str",
           "new_str",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1296,7 +1300,8 @@
         "parameters": [
           "path",
           "root_bound",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1308,7 +1313,8 @@
           "root_bound",
           "max_depth",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1319,7 +1325,8 @@
           "pattern",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1330,7 +1337,8 @@
           "query",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],

@@ -108,6 +108,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **啟動器**：`env`、`npx`、`py` 這類程式會自己找要執行的程式，找到哪裡 Touka 不檢查；hook 請寫成直譯器＋`config/hooks/` 裡的腳本。
 - **涵蓋範圍**：「使用者送出訊息」只檢查聊天、SNS、評分卡送出的文字，心跳、排程提示與重新觸發都不觸發，不能當成管住使用者的機制；「工具執行前」只涵蓋代理人經工具執行器的呼叫，任務的驗證指令與演化、創建的試跑不觸發。
 - **自己組歷史的用戶端**：被擋下的訊息不再送給模型只在 ToukaChat 做到；IDE 或自訂用戶端把它放進歷史時仍會送到模型。
+- **Touka 自己的其他檔案讀寫還會跟隨連結**：代理人的檔案動詞已經不跟隨連結，Touka 自己的其他讀寫還沒改，預定在下一次發行前完成。在那之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
 
 ### 代理人指令隔離的其他已知限制
 
@@ -186,8 +187,9 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 第八輪：http hook 的回應有壓縮時，64 KiB 上限算在解開之後，幾百位元組的回應會先解成幾百 MiB（壓縮炸彈）。 | 送 `Accept-Encoding: identity`，回應有壓縮就算失敗、不解開，上限算的是收到的位元組；設定裡不能改 `Accept-Encoding`。`tests/unit/test_hook_runners_security.py`、`test_hooks_config.py`。 |
 | 第八輪：代理人在上層專案裡把下層專案根換成指向直譯器資料夾或 `/` 的連結，那裡就變成禁區，所有程式不在 `config/hooks/` 的 command hook 都被拒（失敗不擋，等於沒設）。 | 使用者登記的根（專案根、MCP 可寫資料夾）路上有連結時只禁字面：隔離層不授權這種根，連結指到的地方代理人的終端寫不到（專案檔案工具見第九輪）；Touka 自己的資料夾照舊跟著解析。`tests/unit/test_hook_paths_security.py`。 |
 | 第九輪：只有管理員擁有的靈魂與 Debugger 用專案檔案工具時不檢查專案根，檔案工具又會跟著連結寫：代理人在上層專案裡把下層專案根換成指向 `config/hooks/` 的連結，就能改寫不經隔離執行的 hook 程式（容器裡一般身分的工作區檢查看的是宿主路徑，也看不到容器裡的連結）。 | 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（解析前後不同）時，專案檔案工具一律拒絕（`profiles.has_link`，`reason: "linked_root"`），查翻譯後的路徑；和隔離層的永不授權規則一樣。人類照舊。`tests/unit/test_project_root_protected_security.py`。 |
-| 第十輪：代理人的檔案動詞先解析路徑、確認在根底下才開檔，這中間路上任何一段（個人空間或專案）都可能被換成連結：同一個對話裡用背景執行的終端指令不斷把資料夾換成指向 `config/hooks/` 的連結，寫入就會落到根外面，改寫不經隔離執行的 hook 程式。 | 檔案動詞開檔不跟隨連結（`memory_server/utils/no_follow.py`、`ResourceManager` 的 `*_no_follow` 方法）：Linux 從檔案系統的根起逐段以 `O_NOFOLLOW` 開，寫入、改名、刪除都在開好的上一層資料夾裡做；Windows 開檔後查連結並比對檔案識別碼、建立或寫入時開檔前也查（Windows 本機的代理人終端每條指令都要人核准）。list、find 走訪中途才換成連結時仍可能列出根外面的檔名（不含內容），見 ADR-0292「已知的界線」。`tests/unit/test_file_ops_no_follow_security.py`。 |
+| 第十輪：代理人的檔案動詞先解析路徑、確認在根底下才開檔，這中間路上任何一段（個人空間或專案）都可能被換成連結：同一個對話裡用背景執行的終端指令不斷把資料夾換成指向 `config/hooks/` 的連結，寫入就會落到根外面，改寫不經隔離執行的 hook 程式。 | 檔案動詞開檔不跟隨連結（`memory_server/utils/no_follow.py`、`ResourceManager` 的 `*_no_follow` 方法）：Linux 從檔案系統的根起逐段以 `O_NOFOLLOW` 開，寫入、改名、刪除都在開好的上一層資料夾裡做；Windows 開檔後查連結並比對檔案識別碼、建立或寫入時開檔前也查（Windows 本機的代理人終端每條指令都要人核准）。list、find 與個人空間目錄走訪中途才換成連結時，仍可能列出根外面的檔名（個人空間目錄還會記下大小與修改時間；不含內容），見 ADR-0292「已知的界線」。`tests/unit/test_file_ops_no_follow_security.py`。 |
 | 第十輪：檔案動詞的 list、find、grep 會跟著代理人在根裡自己建的連結走，讀到根外面的檔案（例如 `hooks.json` 標頭裡的權杖、`.env`）。 | list 只列連結名稱、不進入；find、grep 不進入也不列出連結，讀檔也不跟隨連結；個人空間目錄讀檔算雜湊時同樣不跟隨。`tests/unit/test_file_ops_no_follow_security.py`。 |
+| 第十四輪：專案檔案工具查過專案根沒有連結之後，讀寫時又重新解析一次根；這中間把根本身換成連結，讀寫就落在連結另一端（可以是 `config/hooks/` 或設定資料夾），第九輪的檢查擋不住。 | 查有沒有連結與是不是受保護的位置用同一次解析的結果；讀寫時再解析的根和查過的真實路徑不同就拒絕（core ops 的 `root_is_real`）。`tests/unit/test_project_root_protected_security.py`、`test_file_ops_no_follow_security.py`。 |
 
 ### 統計端點的 token 用量看得到別的靈魂（2026-10-29）
 

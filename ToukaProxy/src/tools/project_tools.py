@@ -89,59 +89,67 @@ async def project_tools(action: str, path: str | None = None, **kwargs: Any) -> 
     root_bound = await resource_manager.get_project_path(project_id, identity)
     if not root_bound:
         return f"Error: Project root for '{project_id}' not found."
+    # 只解析一次：有沒有連結和是不是受保護的地方，看的是同一次的結果
+    real = Path(root_bound).resolve()
+    agent = not (identity and identity.is_human)
     # 代理人的專案根路上不能有連結（和隔離層一樣，禁令 66 ③）：檔案工具會跟著連結寫，代理人
     # 在上層專案裡把下層專案根換成指向 ``config/hooks/`` 的連結，就能改寫不經隔離執行的 hook
     # 程式。管理員擁有的靈魂與 Debugger 也查；查的是翻譯後的路徑（容器裡的連結也看得到）。
-    if not (identity and identity.is_human) and profiles.has_link(Path(root_bound)):
+    if agent and profiles.has_link(Path(root_bound), real):
         logger.warning("Project %s root goes through a link; refused for an agent.", project_id)
         return _root_refused(project_id, LINKED_ROOT)
     # 一般使用者的靈魂，專案根不能是 Touka 保護的地方（設定與 hooks、資料、程式碼），否則經
     # 專案寫入就能改到不經隔離執行的 hook 程式（ADR-0292）。每次呼叫都查，登記後才改的也擋。
     if not (identity and (bypasses_project_jail(identity) or only_admins_own(identity))):
-        reason = await profiles.project_root_reason(Path(root_bound), profiles.current_layout())
+        reason = await profiles.project_root_reason(real, profiles.current_layout())
         if reason:
             logger.warning("Project %s root refused (%s).", project_id, reason)
             return _root_refused(project_id, reason)
-
+    # 代理人的根上面查過就是真實路徑：core ops 再解析時變成別的地方，就是查過之後才換成連結，
+    # 拒絕（root_is_real，ADR-0292 決定 12）
     try:
         # --- [分發邏輯：Core Ops Mapping] ---
         res: Any = None
 
         if action == "read":
-            return await core_read(path, root_bound, **kwargs)
+            return await core_read(path, root_bound, root_is_real=agent, **kwargs)
 
         if action == "write":
             content = kwargs.get("content")
-            res = await core_write(path, root_bound, content=content, mode="w")
+            res = await core_write(path, root_bound, content=content, mode="w", root_is_real=agent)
             if res.startswith("Success") and identity:
                 await add_project_event(project_id, identity, "write", f"Wrote to {path}")
 
         elif action == "append":
             content = kwargs.get("content")
-            res = await core_write(path, root_bound, content=content, mode="a")
+            res = await core_write(path, root_bound, content=content, mode="a", root_is_real=agent)
             if res.startswith("Success") and identity:
                 await add_project_event(project_id, identity, "append", f"Appended to {path}")
 
         elif action == "str_replace":
             old_str = kwargs.get("old_str")
             new_str = kwargs.get("new_str")
-            res = await core_str_replace(path, root_bound, old_str=old_str, new_str=new_str)
+            res = await core_str_replace(
+                path, root_bound, old_str=old_str, new_str=new_str, root_is_real=agent
+            )
             if res.startswith("Success") and identity:
                 await add_project_event(
                     project_id, identity, "replace", f"Replaced content in {path}"
                 )
 
         elif action == "list":
-            return await core_list(path or ".", root_bound, max_depth=kwargs.get("max_depth", 2))
+            return await core_list(
+                path or ".", root_bound, max_depth=kwargs.get("max_depth", 2), root_is_real=agent
+            )
 
         elif action == "find":
-            return await core_find(kwargs.get("pattern", "*"), root_bound)
+            return await core_find(kwargs.get("pattern", "*"), root_bound, root_is_real=agent)
 
         elif action == "grep":
-            return await core_grep(kwargs.get("query", ""), root_bound)
+            return await core_grep(kwargs.get("query", ""), root_bound, root_is_real=agent)
 
         elif action == "delete":
-            res = await core_delete(path, root_bound)
+            res = await core_delete(path, root_bound, root_is_real=agent)
             if res.startswith("Success") and identity:
                 await add_project_event(project_id, identity, "delete", f"Deleted {path}")
 

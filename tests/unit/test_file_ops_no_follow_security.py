@@ -66,8 +66,8 @@ def _swap_after_check(monkeypatch: pytest.MonkeyPatch, directory: Path, target: 
     """路徑檢查通過之後，把 ``directory`` 換成指向 ``target`` 的連結（代理人另一個指令做的）。"""
     original = cfo._enforce_root_bound
 
-    def checked_then_swapped(path: str, root_bound: str) -> Path:
-        safe = original(path, root_bound)
+    def checked_then_swapped(path: str, root_bound: str, root_is_real: bool = False) -> Path:
+        safe = original(path, root_bound, root_is_real)
         if not directory.is_symlink() and not directory.is_junction():
             directory.rename(directory.with_name(directory.name + "_old"))
             _make_dir_link(directory, target)
@@ -76,7 +76,8 @@ def _swap_after_check(monkeypatch: pytest.MonkeyPatch, directory: Path, target: 
     monkeypatch.setattr(cfo, "_enforce_root_bound", checked_then_swapped)
 
 
-# 每一案只換一次：換過之後再呼叫，檢查本身就會因為解析到根外面而擋下（不是這裡要測的）
+# 每一案只換一次：根底下那一段換過之後再呼叫，檢查本身就會因為解析到根外面而擋下（不是這裡要測的）。
+# 根本身被換成連結時解析不會越界，由 CHECKED_ROOT_OPS 那組測
 FILE_OPS = {
     "write": lambda root, proxy: cfo.core_write(
         "sub/guard.py", root, "PWNED", resource_proxy=proxy
@@ -146,6 +147,57 @@ async def test_walks_refuse_a_root_swapped_to_a_link_after_the_check(
     result = await WALKS[op](str(root / "sub"), proxy)
     assert result.endswith(LINK_REFUSED_MESSAGE), result
     assert "guard.py" not in result
+
+
+# 代理人的專案根：呼叫端已查過根沒有連結，傳查過的真實路徑與 root_is_real=True
+CHECKED_ROOT_OPS = {
+    "write": lambda root, proxy: cfo.core_write(
+        "sub/guard.py", root, "PWNED", resource_proxy=proxy, root_is_real=True
+    ),
+    "read": lambda root, proxy: cfo.core_read(
+        "sub/guard.py", root, resource_proxy=proxy, root_is_real=True
+    ),
+    "edit": lambda root, proxy: cfo.core_str_replace(
+        "sub/guard.py", root, "SECRET", "PWNED", resource_proxy=proxy, root_is_real=True
+    ),
+    "delete": lambda root, proxy: cfo.core_delete(
+        "sub/guard.py", root, resource_proxy=proxy, root_is_real=True
+    ),
+    "list": lambda root, proxy: cfo.core_list("sub", root, resource_proxy=proxy, root_is_real=True),
+    "find": lambda root, proxy: cfo.core_find(
+        "*.py", root, resource_proxy=proxy, root_is_real=True
+    ),
+    "grep": lambda root, proxy: cfo.core_grep(
+        "SECRET", root, resource_proxy=proxy, root_is_real=True
+    ),
+}
+
+
+@PROXIES
+@pytest.mark.parametrize("op", sorted(CHECKED_ROOT_OPS))
+async def test_a_checked_root_swapped_to_a_link_before_the_op_is_refused(layout, proxy, op):
+    """呼叫端查過根之後、core ops 再解析之前，根本身被換成連結：不讀寫、不列連結另一端。"""
+    root, outside = layout
+    (outside / "sub").mkdir()
+    (outside / "sub" / "guard.py").write_text(GUARD_SOURCE, encoding="utf-8")
+    root.rename(root.with_name("project_old"))
+    _make_dir_link(root, outside)
+    result = await CHECKED_ROOT_OPS[op](str(root), proxy)
+    assert result.endswith(LINK_REFUSED_MESSAGE), result
+    assert "SECRET" not in result
+    assert (outside / "sub" / "guard.py").read_text(encoding="utf-8") == GUARD_SOURCE
+    assert sorted(p.name for p in (outside / "sub").iterdir()) == ["guard.py"]
+
+
+@PROXIES
+async def test_a_checked_root_without_links_still_works(layout, proxy):
+    root, _outside = layout
+    written = await cfo.core_write(
+        "sub/new.txt", str(root), "x", resource_proxy=proxy, root_is_real=True
+    )
+    found = await cfo.core_find("*.txt", str(root), resource_proxy=proxy, root_is_real=True)
+    assert written == "Success: Wrote to sub/new.txt"
+    assert "- sub/notes.txt" in found
 
 
 @PROXIES

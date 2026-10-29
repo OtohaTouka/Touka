@@ -301,6 +301,56 @@ async def test_a_human_admin_may_still_use_a_linked_root(native, tmp_path, monke
     assert writes == [("a.py", str(link))]
 
 
+SWAPPED_ROOT_CALLS = {
+    "write": {"path": "guard.py", "content": "PWNED"},
+    "append": {"path": "guard.py", "content": "PWNED"},
+    "str_replace": {"path": "guard.py", "old_str": "SAFE", "new_str": "PWNED"},
+    "delete": {"path": "guard.py"},
+    "read": {"path": "guard.py"},
+    "list": {"path": "."},
+    "find": {"pattern": "*.py"},
+    "grep": {"query": "SAFE"},
+}
+
+
+@pytest.mark.parametrize("action", sorted(SWAPPED_ROOT_CALLS))
+async def test_a_root_swapped_to_a_link_after_the_checks_is_not_followed(
+    native, tmp_path, monkeypatch, action
+):
+    """查過專案根之後（例如等容器裡的檢查時）才換成連結：讀寫都不跟著連結進 hook 資料夾。"""
+    hooks = tmp_path / "config" / "hooks"
+    (hooks / "guard.py").write_text("SAFE\n", encoding="utf-8")
+    root = tmp_path / "myproj" / "app"
+    root.mkdir()
+    original = profiles.project_root_reason
+
+    async def checked_then_swapped(path, layout):
+        reason = await original(path, layout)
+        root.rename(root.with_name("app_old"))
+        _make_dir_link(root, hooks)
+        return reason
+
+    async def project_path(_project_id, _identity=None):
+        return str(root)
+
+    async def no_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pt.resource_manager, "get_project_path", project_path)
+    monkeypatch.setattr(pt, "add_project_event", no_event)
+    monkeypatch.setattr(pt, "only_admins_own", lambda _identity: False)
+    monkeypatch.setattr(profiles, "project_root_reason", checked_then_swapped)
+    result = await pt.project_tools(
+        action, project_id="p1", identity=SOUL, **SWAPPED_ROOT_CALLS[action]
+    )
+    assert "link" in result
+    assert "SAFE" not in result
+    if action in ("list", "find", "grep"):
+        assert "guard.py" not in result
+    assert (hooks / "guard.py").read_text(encoding="utf-8") == "SAFE\n"
+    assert sorted(p.name for p in hooks.iterdir()) == ["guard.py"]
+
+
 async def test_admin_is_not_limited(native, tmp_path, monkeypatch):
     writes: list = []
     _project_tools_at(monkeypatch, tmp_path / "config" / "hooks", writes)
