@@ -37,16 +37,21 @@ class ConfigValidationError(RuntimeError):
     """live 設定檔啟動驗證失敗（malformed JSON 或不符 schema）。"""
 
 
-def _delete_hint(broken: list[str]) -> str:
-    """只有缺檔時會從 .example 重建的檔才說可以刪掉重來；其他檔刪掉就是少了那份設定。"""
-    rebuilt = [name for name in broken if name in ESSENTIAL_CONFIGS]
-    kept = [name for name in broken if name not in ESSENTIAL_CONFIGS]
+def _delete_hint(cfg: Path, broken: list[str]) -> str:
+    """刪掉壞檔會不會重建：看同資料夾有沒有 .example。
+
+    有範本的檔，下次啟動會照範本補回（``hydrate_config_examples``）；沒有範本的刪掉就是少了
+    那份設定。
+    """
+    rebuilt = [name for name in broken if (cfg / f"{name}.example").is_file()]
+    kept = [name for name in broken if name not in rebuilt]
     hint = ""
     if rebuilt:
-        hint += f"{'、'.join(rebuilt)} 也可以刪除後重啟，系統會從 .example 範本重建。"
+        hint += f"{'、'.join(rebuilt)} 也可以刪除後重啟，系統會從 .example 範本重建"
+        hooks_off = "（hooks.json 的範本是關閉的：所有 hook 都不執行）。"
+        hint += hooks_off if "hooks.json" in rebuilt else "。"
     if kept:
-        hint += f"{'、'.join(kept)} 刪除後不會重建，等於沒有那份設定"
-        hint += "（hooks.json：所有 hook 都不執行）。" if "hooks.json" in kept else "。"
+        hint += f"{'、'.join(kept)} 沒有範本，刪除後不會重建，等於沒有那份設定。"
     return hint
 
 # --- SSOT: 定義必需的設定檔清單 ---
@@ -195,7 +200,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
         msg = (
             "啟動中止：偵測到 live 設定檔錯誤——\n"
             f"{detail}\n"
-            f"請修正上列檔案內容。{_delete_hint(broken)}"
+            f"請修正上列檔案內容。{_delete_hint(cfg, broken)}"
         )
         logger.critical("🛑 %s", msg)
         raise ConfigValidationError(msg)

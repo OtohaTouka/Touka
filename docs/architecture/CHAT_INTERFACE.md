@@ -12,6 +12,7 @@
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
 - 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。
 - 停止：`StreamRegistryProvider.stopStream` 查 `/stream/state` 沒有進行中的串流時（`state: null`、讀不到（例如無痕還沒有串流時回 403），或只剩上一則已結束的登記；例如 UserPromptSubmit hook 還在跑），改送不帶 `stream_id` 的 `POST /v1/ui/sessions/{id}/stop`，讓後端在 hook 跑完後不送模型（409 `PROMPT_STOPPED`；後端停的是這個人還在等的請求，對話已存在時也停整個對話）。這次停止回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪的串流才帶 `stream_id` 停止。有進行中的串流但不是這一輪時什麼都不送。
+- 別處停止：聊天送出收到 409 `PROMPT_STOPPED`（這一則在開始串流前被另一個分頁或裝置、或重置靈魂停止）時，`usePromptStoppedNotice` 顯示一次「這次回覆在開始前就被停止了」，`StreamRegistryProvider` 當成中止（generation 存成 `cancelled`、訊息留著），不顯示網路錯誤。自己按停止時前端先當成中止，不會走到這裡。
 - 插話被擋：`useInterjectionQueue.enqueue` 收到 403 `HOOK_PROMPT_BLOCKED` 時以 `useHookBlockNotice` 顯示理由並回 `null`（不進佇列）；`useInterjectionComposer` 在還是同一個對話時把文字接回輸入框。
 - Hook 設定頁的「最近執行」另顯示 hook 類型、結束碼與 HTTP 狀態（無痕的紀錄不顯示）；存好後重新讀取失敗時保留剛存的內容與新的 revision。
 

@@ -131,7 +131,7 @@
   - 備份還原會寫回 `hooks.json`（照原樣、不經存檔的路徑檢查）；還原後下一次執行前仍會檢查路徑（決定 5），不合規則的 hook 不執行。
   - hook 執行中按停止的時間窗：請求剛進來、還沒登記成等待中之前就送到的停止停不到它（大約幾毫秒）；不指名的停止若晚到、同一個人已經在同一個對話送出下一則，可能停到下一則；同一個對話在另一個分頁有進行中的串流時，這個分頁的不指名停止不會停到任何東西。
   - 無痕請求自己帶對話 id，Touka 不核對那個 id 是不是別人的對話（這次之前就是這樣，另案處理）；所以等待中的停止查不到對話時只標自己的請求，不停整個對話。
-  - 等待中的請求「是不是同一位請求者」用執行身分判斷：兩位人類代打同一個靈魂時（管理員的 X-Agent-ID 代打與擁有者的前景交談），彼此的不指名停止都停得到對方在等的那一則。兩人本來都能操作這個靈魂的對話；之後改成登記時記下人類身分。
+  - 等待中的請求「是不是同一位請求者」用執行身分判斷：兩個人用 X-Agent-ID 代打同一個靈魂時（管理員與擁有者，或兩位管理員；擁有者自己在前景交談時登記的是人類身分，不會和代打的人撞在一起），彼此的不指名停止都停得到對方在等的那一則。兩人本來都能操作這個靈魂的對話；之後改成登記時記下人類身分。
   - 黏在多字母選項後面、沒有 `=` 或 `:` 隔開的絕對路徑（POSIX 的 `-isystem/data/x`）認不出來：分不出選項名稱到哪裡為止，照單字母的規則拆會誤擋 `-Ilib/sub` 這類 `config/hooks/` 底下的相對路徑。請寫成 `--opt=/x` 或分成兩個參數。
   - 每次檢查有沒有 hook 都同步讀一次 `hooks.json`、算雜湊比對有沒有變（檔案很小；沒有這個檔時只多一次存在檢查）；這樣手動改檔也會在下一次執行時生效。
   - UserPromptSubmit 在回應開始之前執行；用附的 nginx 範本時，一般路徑的讀取逾時是 nginx 預設的 60 秒，hook 超過約 60 秒請求就會失敗。UserPromptSubmit 的逾時請設在 60 秒以內。
@@ -141,7 +141,7 @@
 
 - 沒有設定時行為不變：接線點先問 `has_hooks`，不組事件內容、不改任何結果（golden 不變）。
 - 設定了 PreToolUse 的工具，每次呼叫多等 hook 執行完（最多到逾時）；PostToolUse 也一樣，工具結果要等 hook 跑完才回到模型；Stop 不影響回覆。
-- 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間被停止時回 409 `PROMPT_STOPPED`。
+- 審批卡事件多一個選填欄位 `hook_reason`；聊天請求被擋下時回 403 `HOOK_PROMPT_BLOCKED`，hook 執行期間或開始串流前被停止時回 409 `PROMPT_STOPPED`（停止可能來自另一個分頁、裝置或重置靈魂；前端當成中止，只提示一次已停止）。
 - 聊天前端按停止時，若這個對話還沒有進行中的串流（含無痕查不到、上一則的結束登記還留著），改送這個對話不指名的停止（原本什麼都不送）。對話已存在時，和有串流時的停止一樣，這個對話正在跑的其他工作（例如心跳）也會停下；無痕與還沒存過的對話只停自己還在等的那一則。
 - 新增三個管理端點（決定 10）；`openapi.json` 與 `api.ts` 隨之更新。
 - 撤回：把 `enabled` 設成 false 或清空 `hooks` 立即停用；revert 即可整個移除，`hooks.json` 留著無害。
@@ -168,7 +168,7 @@
 - `tests/unit/test_continuity_event_hooks.py`：心跳開始之後被停止、旗標又被清掉時，脈衝不跑。
 - `tests/unit/test_rhythm_interrupt.py`：停止次數只增不減，清掉旗標或會話都不動它。
 - `tests/unit/test_proxy_fallback_family.py`：使用者停止不記成主要模型失敗、不改用備援模型。
-- `tests/unit/test_config_live_validation.py`：啟動時壞掉的設定檔，提示只對會從 `.example` 重建的檔說可以刪掉重來，`hooks.json` 刪掉等於關掉所有 hook。
+- `tests/unit/test_config_live_validation.py`：啟動時壞掉的設定檔，提示照同資料夾有沒有 `.example` 說刪掉會不會重建（下次啟動照範本補回），`hooks.json` 的範本是關閉的（所有 hook 都不執行），沒有範本的檔說刪掉就少了那份設定。
 - `tests/unit/test_request_tail_cache_breakpoint.py`：多模態訊息加上 hook 輸出時，Claude 的快取斷點仍打在 hook 輸出與 continuity 之前。
 - `tests/unit/test_group_soul_only.py`：hook 補充說明裡的 `@別名` 不算點名。
 - `tests/unit/test_hard_floor_security.py`：讀寫 `hooks.json` 屬 F2，寫 `hooks.json.example` 與 `config/hooks/` 屬 F3。

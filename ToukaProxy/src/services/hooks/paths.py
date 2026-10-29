@@ -153,6 +153,17 @@ def _stat(path: Path) -> os.stat_result | None:
     return _stat_or_none(path, follow=True)
 
 
+# 查不了路徑時丟的錯誤：權限、I/O 錯誤，以及連結迴圈（``Path.resolve()`` 丟 ``RuntimeError``）
+_UNCHECKABLE_ERRORS: Final = (OSError, RuntimeError)
+
+
+def _resolved_or_none(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except _UNCHECKABLE_ERRORS:
+        return None
+
+
 def _identity(info: os.stat_result | None) -> tuple[int, int] | None:
     if info is None or info.st_ino == 0:
         return None  # 檔案系統不給識別碼時不比對（另外兩種比對照做）
@@ -174,15 +185,29 @@ class _ZoneChecker:
         self._config_dir = _norm(zones.config_dir)
         lexical: set[Path] = set()
         identities: set[tuple[int, int]] = set()
+        # 禁區根各自處理：代理人可以把自己的資料夾弄成連結迴圈或改權限，不能因此讓所有 hook
+        # 的檢查一起失敗。字面的那一項一定留著；解析不出來、讀不到識別碼的只略過那一項
+        # （迴圈裡沒有檔案；讀不到的資料夾 Touka 也執行不到裡面的程式）。
         for root in zones.forbidden:
             lexical.add(_norm(root))
-            lexical.add(_norm(Path(root).resolve()))
-            if (ident := _identity(_stat(Path(root)))) is not None:
+            if (resolved := _resolved_or_none(Path(root))) is not None:
+                lexical.add(_norm(resolved))
+            try:
+                ident = _identity(_stat(Path(root)))
+            except OSError:
+                ident = None
+            if ident is not None:
                 identities.add(ident)
         self._forbidden = tuple(lexical)
         self._forbidden_ids = frozenset(identities)
-        self._config_id = _identity(_stat(Path(zones.config_dir)))
-        self._hooks_id = _identity(_stat(Path(zones.hooks_dir)))
+        # 設定資料夾與 hooks/ 不是代理人寫得到的地方；讀不到時每個 hook 都回「無法確認」
+        try:
+            self._config_id = _identity(_stat(Path(zones.config_dir)))
+            self._hooks_id = _identity(_stat(Path(zones.hooks_dir)))
+            self.usable = True
+        except OSError:
+            self._config_id = self._hooks_id = None
+            self.usable = False
 
     def _lexically_forbidden(self, path: Path) -> bool:
         norm = _norm(path)
@@ -280,9 +305,11 @@ class _ZoneChecker:
 
 
 def _safe_reason(checker: _ZoneChecker, path: Path, *, hooks_only: bool) -> PathReason | None:
+    if not checker.usable:
+        return "unverifiable"
     try:
         return checker.hooks_reason(path) if hooks_only else checker.reason(path)
-    except OSError:
+    except _UNCHECKABLE_ERRORS:
         return "unverifiable"
 
 
@@ -301,7 +328,7 @@ def _command_problems(checker: _ZoneChecker, command: str) -> list[PathProblem]:
         # hooks/ 裡的程式要照字面寫 hooks/ 裡的路徑：用別名指進去的也走 hooks/ 的檢查（會被拒），
         # 才查得到硬連結
         hooks_only = checker.in_hooks(path) or checker.resolves_into_hooks(path)
-    except OSError:
+    except _UNCHECKABLE_ERRORS:
         return problem("unverifiable")
     if (reason := _safe_reason(checker, path, hooks_only=hooks_only)) is not None:
         return problem(reason)

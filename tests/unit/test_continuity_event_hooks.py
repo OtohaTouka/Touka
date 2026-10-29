@@ -261,6 +261,19 @@ async def test_a_stop_cleared_by_another_request_still_ends_the_heartbeat(
     assert (finished["metadata"]["end"], finished["metadata"]["pulses_done"]) == ("interrupted", 0)
 
 
+async def test_every_pulse_gets_the_runs_stop_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """每個脈衝的 ctx 都帶這次心跳開始時的停止起點：脈衝裡的工具在等 PreToolUse hook 時被停止、
+    旗標又被下一則請求清掉，hook 跑完時仍認得（ADR-0292）。"""
+    seen: list[Any] = []
+
+    async def pulse(_sid: str, _identity: Any, _model: Any, ctx: Any, *_args: Any, **_kw: Any):
+        seen.append(ctx.get(stopping.STOP_BASELINE_KEY))
+        return 2
+
+    await _run_loop(monkeypatch, _soul(), pulse, pulse_count=2, stop_counts=[3] * 10)
+    assert seen == [3, 3]
+
+
 async def test_cancelled_heartbeat_still_records_its_end(monkeypatch: pytest.MonkeyPatch) -> None:
     soul = _soul()
     entered = asyncio.Event()

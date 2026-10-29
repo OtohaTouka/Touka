@@ -13,7 +13,7 @@ import type { StartStreamParams } from '../StreamRegistryProvider';
 type Updater = (current: Session) => Session;
 
 const h = vi.hoisted(() => ({
-  sessions: [] as Session[], wire: vi.fn(), hookNotice: vi.fn(), complete: vi.fn(), onHookBlocked: vi.fn(),
+  sessions: [] as Session[], wire: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(), complete: vi.fn(), onHookBlocked: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
@@ -38,6 +38,7 @@ vi.mock('../../connections', () => ({
 vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } }));
 vi.mock('@/hooks/useAgentBrainNotice', () => ({ useAgentBrainNotice: () => () => false }));
 vi.mock('@/hooks/useHookBlockNotice', () => ({ useHookBlockNotice: () => h.hookNotice }));
+vi.mock('@/hooks/usePromptStoppedNotice', () => ({ usePromptStoppedNotice: () => h.stopNotice }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
@@ -68,6 +69,7 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     vi.clearAllMocks();
     h.sessions = [{ id: 's1', title: 't', messages: [], updatedAt: 1 }];
     h.wire.mockResolvedValue(undefined);
+    h.stopNotice.mockReturnValue(false);
   });
 
   it('擋下 → 照「後端沒存文字」的完成流程存回沒有這則訊息的樹，並通知放回文字', async () => {
@@ -85,9 +87,19 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     expect((await savedAfterError(new Error('blocked'))).title).toBe('新對話');
     vi.clearAllMocks();
     h.wire.mockResolvedValue(undefined);
+    h.stopNotice.mockReturnValue(false);
     h.hookNotice.mockReturnValue(true);
     h.sessions = [{ id: 's1', title: '我的對話', messages: [], updatedAt: 1 }];
     expect((await savedAfterError(new Error('blocked'))).title).toBe('我的對話');
+  });
+
+  it('別處停止了這個對話（PROMPT_STOPPED）→ 訊息留著、當成中止，不問 hook 通知', async () => {
+    h.stopNotice.mockReturnValue(true);
+    const saved = await savedAfterError(new Error('stopped'));
+    expect(userNode(saved.tree)?.content).toBe('secret');
+    expect(saved.generation).toBe('cancelled');
+    expect(h.hookNotice).not.toHaveBeenCalled();
+    expect(h.onHookBlocked).not.toHaveBeenCalled();
   });
 
   it('其他錯誤 → 訊息照舊留著、不當成完成，不通知', async () => {

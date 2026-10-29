@@ -1,7 +1,7 @@
 /**
  * model-p0 U7：聊天送出的 onError 交給 useAgentBrainNotice；它處理了（沒設主要模型）
  * 就不再疊一個「網路連線錯誤」，其他錯誤照舊顯示。被 hook 擋下的訊息（ADR-0292）同樣交給
- * useHookBlockNotice，處理了就不顯示網路錯誤。
+ * useHookBlockNotice，處理了就不顯示網路錯誤；別處停止（PROMPT_STOPPED）交給 usePromptStoppedNotice，當成中止。
  */
 import React from 'react';
 import { act, renderHook } from '@testing-library/react';
@@ -11,7 +11,7 @@ import type { Session } from '@/lib/types';
 import type { StartStreamParams } from '../StreamRegistryProvider';
 
 const h = vi.hoisted(() => ({
-  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(), hookNotice: vi.fn(),
+  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
@@ -30,6 +30,7 @@ vi.mock('../../connections', () => ({
 vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } }));
 vi.mock('@/hooks/useAgentBrainNotice', () => ({ useAgentBrainNotice: () => h.notice }));
 vi.mock('@/hooks/useHookBlockNotice', () => ({ useHookBlockNotice: () => h.hookNotice }));
+vi.mock('@/hooks/usePromptStoppedNotice', () => ({ usePromptStoppedNotice: () => h.stopNotice }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
@@ -54,6 +55,7 @@ describe('聊天 onError → useAgentBrainNotice（model-p0 U7）', () => {
     h.sessions = [{ id: 's1', title: 't', messages: [], updatedAt: 1 }];
     h.wire.mockResolvedValue(undefined);
     h.hookNotice.mockReturnValue(false);
+    h.stopNotice.mockReturnValue(false);
   });
 
   it('通知處理了（沒設主要模型）→ 不再顯示網路錯誤', async () => {
@@ -78,6 +80,16 @@ describe('聊天 onError → useAgentBrainNotice（model-p0 U7）', () => {
     const err = new Error('blocked');
     await failStream(err);
     expect(h.hookNotice).toHaveBeenCalledWith(err);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('別處停止了這個對話（PROMPT_STOPPED）→ 交給停止通知，其他通知與網路錯誤都不顯示', async () => {
+    h.stopNotice.mockReturnValue(true);
+    const err = new Error('stopped');
+    await failStream(err);
+    expect(h.stopNotice).toHaveBeenCalledWith(err);
+    expect(h.notice).not.toHaveBeenCalled();
+    expect(h.hookNotice).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
 

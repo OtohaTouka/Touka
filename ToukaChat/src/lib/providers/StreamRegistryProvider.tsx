@@ -29,6 +29,7 @@ import { BackendProtocol, SkillInstallRequest, AskUserRequest, SaveResult, Strea
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useAgentBrainNotice } from "@/hooks/useAgentBrainNotice";
 import { useHookBlockNotice } from "@/hooks/useHookBlockNotice";
+import { usePromptStoppedNotice } from "@/hooks/usePromptStoppedNotice";
 import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
@@ -117,6 +118,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
   const { registerSimHandlers } = useDebug();
   const notifyBrainNotSet = useAgentBrainNotice();
   const notifyHookBlocked = useHookBlockNotice();
+  const notifyPromptStopped = usePromptStoppedNotice();
 
   const [streams, setStreams] = useState<Record<string, StreamState>>({});
   // ref 鏡像：讓 onDone/stopStream 能讀到最新 controller/tree，而不在 setState updater 內做副作用
@@ -250,16 +252,19 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       const current = streamsRef.current[sessionId];
       if (!current || !ownsStream() || current.settling) return;
       const aborted = (err as { name?: string })?.name === "AbortError";
+      // 別處停止了這個對話、這一則還沒開始串流（PROMPT_STOPPED，ADR-0292）：和自己按停止一樣
+      // 當成中止，只顯示一次停止的提示。
+      const cancelled = aborted || notifyPromptStopped(err);
       // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）。
       // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤。
-      const brainNotice = !aborted && notifyBrainNotSet(err);
-      const hookBlocked = !aborted && !brainNotice && notifyHookBlocked(err);
+      const brainNotice = !cancelled && notifyBrainNotSet(err);
+      const hookBlocked = !cancelled && !brainNotice && notifyHookBlocked(err);
       // hook 擋下的這一輪從樹裡拿掉再存回去：之後心跳、摘要等讀存檔的地方都看不到它（ADR-0292）
       const blockedText = hookBlocked ? current.tree.messages[current.tree.messages[current.assistantMsgId]?.parentId ?? '']?.content : undefined;
       const s = hookBlocked ? { ...current, tree: dropBlockedTurn(current.tree, current.assistantMsgId) } : current;
       if (hookBlocked) onHookBlocked?.();
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'error' } }));
-      if (!aborted) {
+      if (!cancelled) {
         logSSOTError(new Error('Stream delivery failed'), `StreamRegistry:onError:${sessionId}`);
         if (!brainNotice && !hookBlocked) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
       }
@@ -267,7 +272,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       // 這一輪的樹照 revision 存回去；其他錯誤照舊不存，等人核對後再明示重試。
       const result = hookBlocked
         ? await persistDone(s, { status: 'skipped', reason: 'no_text' }, 'completed', blockedText ?? '')
-        : await persistDone(s, unknownSave(), aborted ? 'cancelled' : 'error');
+        : await persistDone(s, unknownSave(), cancelled ? 'cancelled' : 'error');
       if (ownsStream()) commit(prev => {
         if (s.incognito && isSaved(result)) { const next = { ...prev }; delete next[sessionId]; return next; }
         return { ...prev, [sessionId]: { ...s, settling: true, status: 'error', persistence: result } };
@@ -275,7 +280,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     return { onChunk, onThinking, onEvent, onDone, onError };
-  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked]);
+  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked, notifyPromptStopped]);
 
   const startStream = useCallback(async (params: StartStreamParams): Promise<boolean> => {
     const { sessionId, baseTree, userText, resolvedInput, attachment, parentId,

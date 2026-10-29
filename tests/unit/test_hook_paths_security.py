@@ -284,6 +284,63 @@ def test_command_reaching_hooks_through_a_link_is_rejected(layout):
     assert _reasons(command_path_problems(hook, _zones(layout))) == {"outside_hooks_dir"}
 
 
+def _make_link_loop(first: Path, second: Path) -> None:
+    """``first`` 與 ``second`` 互相指向的目錄連結（解析時是連結迴圈）。"""
+    second.mkdir()
+    _make_dir_link(first, second)
+    second.rmdir()
+    _make_dir_link(second, first)
+
+
+def _stat_denied(monkeypatch: pytest.MonkeyPatch, denied: Path) -> None:
+    """讀 ``denied`` 的狀態時沒有權限（其他路徑照常）。"""
+    original = paths_module._stat
+
+    def stat_or_deny(path: Path):
+        if path == denied:
+            raise PermissionError(13, "denied", str(path))
+        return original(path)
+
+    monkeypatch.setattr(paths_module, "_stat", stat_or_deny)
+
+
+def test_a_link_loop_in_a_forbidden_root_leaves_the_other_checks_as_usual(layout, tmp_path):
+    """代理人把自己的專案根弄成連結迴圈：其他 hook 照常檢查（之前建立檢查器時整個丟出例外，
+    所有 command hook 都不執行、存檔回 500）；指進迴圈的程式照樣拒收。"""
+    loop = tmp_path / "projects" / "loop"
+    _make_link_loop(loop, tmp_path / "projects" / "loop_back")
+    zones = HookZones(config_dir=layout["config"], forbidden=(*_zones(layout).forbidden, loop))
+    good = _hook(layout["outside"] / "tool.exe", str(layout["config"] / "hooks" / "guard.py"))
+    assert command_path_problems(good, zones) == []
+    evil = _hook(layout["data"] / "evil.py")
+    assert "agent_writable" in _reasons(command_path_problems(evil, zones))
+    assert command_path_problems(_hook(loop / "tool.exe"), zones)
+
+
+def test_a_forbidden_root_whose_state_cannot_be_read_leaves_the_other_checks_as_usual(
+    layout, monkeypatch
+):
+    _stat_denied(monkeypatch, layout["project"])
+    good = _hook(layout["outside"] / "tool.exe", str(layout["config"] / "hooks" / "guard.py"))
+    assert command_path_problems(good, _zones(layout)) == []
+    # 讀不到的那個禁區裡的程式照樣拒收
+    assert _reasons(
+        command_path_problems(_hook(layout["project"] / "proj.py"), _zones(layout))
+    ) == {"unverifiable"}
+
+
+def test_every_hook_is_unverifiable_when_the_config_folder_cannot_be_read(layout, monkeypatch):
+    _stat_denied(monkeypatch, layout["config"])
+    hook = _hook(layout["outside"] / "tool.exe", str(layout["config"] / "hooks" / "guard.py"))
+    assert _reasons(command_path_problems(hook, _zones(layout))) == {"unverifiable"}
+
+
+def test_a_command_through_a_link_loop_is_rejected(layout):
+    _make_link_loop(layout["outside"] / "loop", layout["outside"] / "loop_back")
+    hook = _hook(layout["outside"] / "loop" / "tool.exe")
+    assert _reasons(command_path_problems(hook, _zones(layout))) == {"unverifiable"}
+
+
 def test_link_located_in_agent_writable_place_is_rejected(layout):
     _make_dir_link(layout["data"] / "bin_link", layout["outside"])
     hook = _hook(layout["data"] / "bin_link" / "tool.exe")
