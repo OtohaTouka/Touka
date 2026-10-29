@@ -205,3 +205,104 @@ describe('MessageNavigator', () => {
     expect(tabStops()).toHaveLength(1);
   });
 });
+
+describe('MessageNavigator 重新分段時的焦點交接', () => {
+  const FOUR = ['a', 'b', 'c', 'd'].map(id => user(id, id));
+  const nav = (ticks: typeof THREE, currentIndex: number | null = null) => (
+    <MessageNavigator ticks={ticks} currentIndex={currentIndex} onJump={vi.fn()} />
+  );
+  const button = (name: string) => screen.getByRole('button', { name });
+
+  // 修正前會失敗：d 的按鈕被移除，jsdom 把焦點清回 body。
+  // 聚焦 d（位置 3）：涵蓋它的是 c，不是預設的 Tab 停留點 a，
+  // 擋「永遠移到 Tab 停留點」與「focus() 沒經 onFocus 更新停留點」的寫法
+  it('焦點那條因重新分段消失時，焦點移到涵蓋原位置的那條、不捲動，且它是唯一的 Tab 停留點', () => {
+    const { rerender } = render(nav(ticksOf(FOUR)));
+    act(() => button('跳到第 4 則：d').focus());
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      rerender(nav(ticksOf(FOUR, 2)));
+      const covering = button('跳到第 3～4 則：c');
+      expect(document.activeElement).toBe(covering);
+      expect(tabStops()).toEqual([covering]);
+      expect(focusSpy.mock.calls.some(([options]) => options?.preventScroll === true)).toBe(true);
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  // 修正前會失敗：焦點掉到 body。目前那條指向第二條，擋「永遠移到第一條」的寫法
+  it('原位置在新的線裡找不到時，焦點移到新的 Tab 停留點（目前那條）', () => {
+    const { rerender } = render(nav(THREE));
+    act(() => button('跳到第 3 則：第三句').focus()); // 位置 4
+    rerender(nav(ticksOf([user('y1', '甲'), user('y2', '乙'), user('y3', '丙')]), 1)); // 位置 0～2
+    const second = button('跳到第 2 則：乙');
+    expect(document.activeElement).toBe(second);
+    expect(tabStops()).toEqual([second]);
+  });
+
+  // 防退步
+  it('焦點在導覽列外的元素時重新分段，焦點留在那個元素', () => {
+    const view = (ticks: typeof THREE) => (
+      <>
+        <input aria-label="outside" />
+        {nav(ticks)}
+      </>
+    );
+    const { rerender } = render(view(ticksOf(FOUR)));
+    const outside = screen.getByRole('textbox', { name: 'outside' });
+    act(() => outside.focus());
+    rerender(view(ticksOf(FOUR, 2)));
+    expect(document.activeElement).toBe(outside);
+  });
+
+  // 防退步：擋拿掉「activeElement 不是 body 也不是 null 就不移」的條件。
+  // React 在 layout 階段處理 autoFocus；輸入框排在導覽列前面，它先拿到焦點，導覽列的 layout effect 才跑。
+  // late 為 false 時 `false` 佔住第一個位置，導覽列兩次 render 都是第二個子節點，不會重新掛載
+  it('焦點那條消失的同一次重繪裡別的元素已拿到焦點，焦點留在那個元素、不被導覽列搶回', () => {
+    const view = (ticks: typeof THREE, late: boolean) => (
+      <>
+        {late && <input aria-label="late" autoFocus />}
+        {nav(ticks)}
+      </>
+    );
+    const { rerender } = render(view(ticksOf(FOUR), false));
+    act(() => button('跳到第 2 則：b').focus());
+    rerender(view(ticksOf(FOUR, 2), true));
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'late' }));
+  });
+
+  // 防退步
+  it('焦點那條在重新分段後還在時，焦點不動', () => {
+    const { rerender } = render(nav(ticksOf(FOUR)));
+    const first = button('跳到第 1 則：a');
+    act(() => first.focus());
+    rerender(nav(ticksOf(FOUR, 2)));
+    expect(document.activeElement).toBe(first);
+    expect(first.getAttribute('aria-label')).toBe('跳到第 1～2 則：a');
+  });
+
+  // 防退步
+  it('聚焦後離開到 body，再重新分段使那條消失，焦點仍在 body', () => {
+    const { rerender } = render(nav(ticksOf(FOUR)));
+    const second = button('跳到第 2 則：b');
+    act(() => second.focus());
+    act(() => second.blur());
+    expect(document.activeElement).toBe(document.body);
+    rerender(nav(ticksOf(FOUR, 2)));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  // 防退步：擋「記錄沒清掉」；重繪必須傳同一個 ticks 陣列參考
+  it('聚焦後用相同的 ticks 重繪、再離開到 body，之後重新分段，焦點仍在 body', () => {
+    const ticks = ticksOf(FOUR);
+    const { rerender } = render(nav(ticks));
+    const second = button('跳到第 2 則：b');
+    act(() => second.focus());
+    rerender(nav(ticks));
+    act(() => second.blur());
+    expect(document.activeElement).toBe(document.body);
+    rerender(nav(ticksOf(FOUR, 2)));
+    expect(document.activeElement).toBe(document.body);
+  });
+});
