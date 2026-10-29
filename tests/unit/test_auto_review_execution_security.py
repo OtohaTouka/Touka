@@ -603,9 +603,15 @@ def _marker_cmd() -> str:
     return f'"{sys.executable}" -c "open(\'ran.txt\', \'w\').write(\'x\')"'
 
 
-async def test_request_review_in_auto_runs_reviewer_approved_command(monkeypatch, tmp_path):
+def _ran() -> bool:
+    """驗證指令在個人空間（cwd）寫的標記檔是否存在（ADR-0293：個人空間在 zone_data_root）。"""
+    drive = mt.resource_manager.agent_drive(_SOUL)
+    return mt.resource_manager.zone_kind(drive.child("ran.txt")) == "file"
+
+
+@pytest.mark.usefixtures("zone_data_root")
+async def test_request_review_in_auto_runs_reviewer_approved_command(monkeypatch):
     completer = _reviewer(monkeypatch, _ALLOW)
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: tmp_path)
     await _board(_marker_cmd())
     events: list[dict[str, Any]] = []
 
@@ -625,20 +631,20 @@ async def test_request_review_in_auto_runs_reviewer_approved_command(monkeypatch
             _call_id="call-r1",
             _ctx={"user_intent": intent},
         )
-    assert (tmp_path / "ran.txt").exists()
+    assert _ran()
     assert approval_service.pending_count() == 0
     assert "請驗證任務 t1" in completer.calls[0]["user"]
 
 
-async def test_request_review_in_auto_headless_never_calls_reviewer(monkeypatch, tmp_path):
+@pytest.mark.usefixtures("zone_data_root")
+async def test_request_review_in_auto_headless_never_calls_reviewer(monkeypatch):
     completer = _reviewer(monkeypatch, _ALLOW)
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: tmp_path)
     await _board(_marker_cmd())
     async with asyncio.timeout(_WAIT_S):
         result = await mt.mission_tools(
             action="request_review", task_id="t1", identity=_SOUL, auth_level="Auto", _ctx=None
         )
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran()
     assert completer.calls == []
     assert json.loads(str(result))["reason"] == "human_approval_required"
 

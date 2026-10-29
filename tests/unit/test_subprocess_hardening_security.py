@@ -97,7 +97,7 @@ def _fresh_review_ledger():
 # --------------------------------------------------------------------------- #
 
 
-async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
+async def test_review_cmd_child_does_not_inherit_secrets(zone_drive, monkeypatch):
     monkeypatch.setenv("TOUKA_AUTH_SECRET", "leak-me-auth")
     monkeypatch.setenv("OPENAI_API_KEY", "leak-me-key")
     cmd = (
@@ -108,7 +108,7 @@ async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
         artifact_refs=[],
         verification_cmd=cmd,
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         command_gate=_allow_all,
     )
     output = bundle.cmd_results[0].output_snippet
@@ -116,7 +116,7 @@ async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
     assert "none none" in output
 
 
-async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatch):
+async def test_review_cmd_timeout_kills_whole_process_group(zone_drive, monkeypatch):
     proc = _HangingProc()
     seen: dict = {}
     killed: list = []
@@ -132,7 +132,7 @@ async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatc
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         timeout_seconds=0.05,
         command_gate=_allow_all,
     )
@@ -142,7 +142,7 @@ async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatc
     assert "timeout" in (bundle.cmd_results[0].rejected_reason or "")
 
 
-async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
+async def test_review_cmd_cancellation_kills_child(zone_drive, monkeypatch):
     proc = _HangingProc()
     spawned = asyncio.Event()
     killed: list = []
@@ -159,7 +159,7 @@ async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
             artifact_refs=[],
             verification_cmd="pytest -q",
             test_log=None,
-            artifact_root=tmp_path,
+            artifact_root=zone_drive,
             command_gate=_allow_all,
         )
     )
@@ -171,7 +171,7 @@ async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
     assert killed == [proc]
 
 
-async def test_review_cmd_rejected_by_gate_is_never_spawned(tmp_path, monkeypatch):
+async def test_review_cmd_rejected_by_gate_is_never_spawned(zone_drive, monkeypatch):
     spawned: list = []
 
     async def _fake_exec(*args, **_kwargs):
@@ -187,7 +187,7 @@ async def test_review_cmd_rejected_by_gate_is_never_spawned(tmp_path, monkeypatc
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         command_gate=_needs_approval,
     )
 
@@ -272,10 +272,10 @@ async def _board_with_verification_cmd(identity: AgentIdentity, cmd: str):
     return manager
 
 
-async def test_review_round_applies_command_policy_fail_closed(tmp_path):
+async def test_review_round_applies_command_policy_fail_closed(zone_drive):
     """未帶 auth_level（預設 Manual）且無人在場（沒有 approver）→ verification_cmd 不得執行。"""
     identity = AgentIdentity.for_role(agent_id="SubprocSecReview", role="Owner")
-    marker = tmp_path / "ran.txt"
+    marker = zone_drive.child("ran.txt")  # 指令的 cwd 是個人空間
     cmd = f'"{_PY}" -c "open(\'ran.txt\', \'w\').write(\'x\')"'
     manager = await _board_with_verification_cmd(identity, cmd)
     state = await manager.get_current_mission(identity)
@@ -284,7 +284,7 @@ async def test_review_round_applies_command_policy_fail_closed(tmp_path):
         task=state.tasks[0],
         goal=state.goal,
         producer_claims="done",
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         parent_identity=identity,
         mission_id=state.mission_id,
         manager=manager,
@@ -293,7 +293,7 @@ async def test_review_round_applies_command_policy_fail_closed(tmp_path):
         producer_model="producer",
     )
 
-    assert not marker.exists()
+    assert mt.resource_manager.zone_kind(marker) == "missing"
     assert "REJECTED" in outcome.evidence_digest
     assert outcome.review_status != "APPROVED"
 
@@ -342,7 +342,7 @@ async def test_mission_tool_forwards_auth_context_to_review(monkeypatch):
 
 
 def test_artifact_root_does_not_fall_back_to_process_cwd(monkeypatch):
-    monkeypatch.setattr(mt.resource_manager, "get_vault_path", lambda *_a, **_k: None)
+    monkeypatch.setattr(mt.resource_manager, "agent_drive", lambda *_a, **_k: None)
     assert mt._agent_artifact_root(_OWNER) is None
 
 

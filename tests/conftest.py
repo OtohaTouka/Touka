@@ -139,6 +139,9 @@ from src.utils.async_db import session_service  # noqa: E402
 isolation_support = importlib.import_module("tests.support.isolation")
 # 權限自癒的全域掛鉤（iso-c2 U2n）：autouse fixture 每個測試前後重設。
 permission_repair = importlib.import_module("src.utils.permission_repair")
+# 區內路徑與換 data 根（ADR-0293）：``zone_data_root``、``zone_drive`` 用。
+zone_paths = importlib.import_module("memory_server.utils.zone_paths")
+zone_roots = importlib.import_module("tests.support.zone_roots")
 
 logger = logging.getLogger(__name__)
 
@@ -342,16 +345,24 @@ def _reset_permission_repair():
 def zone_data_root(tmp_path, monkeypatch) -> Path:
     """這個測試自己的 data 根（ADR-0293）：設定、環境變數與 sandbox state 根都換到 ``tmp_path``.
 
-    ResourceManager 的區內方法經它註冊的根來源讀這兩個值，所以區的根跟著換；測試要換 data 根
-    只能用這個 fixture（T3）。
+    ResourceManager 的區內方法經它註冊的根來源讀這些值，所以區的根跟著換；測試要換 data 根
+    只能用這個 fixture 或 ``tests.support.zone_roots``（T3）。
     """
     data = tmp_path.resolve() / "zone_data"
     data.mkdir()
-    monkeypatch.setattr(runtime_config.settings, "MEMORY_APP_DATA_DIR", str(data))
-    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(data))
-    state = tmp_path.resolve() / "zone_state"
-    monkeypatch.setattr(runtime_config.settings, "TOUKA_SANDBOX_STATE_DIR", str(state))
+    zone_roots.point_zone_roots(monkeypatch, data, tmp_path.resolve() / "zone_state")
     return data
+
+
+@pytest.fixture
+def zone_drive(zone_data_root):
+    """``zone_data_root`` 底下 Alice 的個人空間（``personal_drive/Alice``，資料夾已建好）.
+
+    回 ``ZonePath``；測試經 ResourceManager 的區內方法放檔案，真的資料夾是
+    ``zone_data_root / "personal_drive" / "Alice"``。
+    """
+    (zone_data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    return zone_paths.agent_root(zone_paths.Anchor.PERSONAL_DRIVE, "Alice")
 
 
 @pytest.fixture(autouse=True)

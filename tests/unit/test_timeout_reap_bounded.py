@@ -74,12 +74,12 @@ def _run_terminal():
     return terminal._execute_core("sleep 100", "powershell", ".", "c2-timeout", timeout=0.05)
 
 
-def _run_evidence(tmp_path):
+def _run_evidence(zone_drive):
     return collect_evidence(
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         timeout_seconds=0.05,
         command_gate=_allow_all,
     )
@@ -106,12 +106,12 @@ async def test_terminal_timeout_reap_is_bounded(monkeypatch, short_reap):
     assert proc.events == ["kill", "wait"]
 
 
-async def test_evidence_timeout_reap_is_bounded(tmp_path, monkeypatch, short_reap):
+async def test_evidence_timeout_reap_is_bounded(zone_drive, monkeypatch, short_reap):
     proc = _Proc(wait_forever=True)
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", lambda p: p.events.append("kill"))
     async with asyncio.timeout(2):
-        bundle = await _run_evidence(tmp_path)
+        bundle = await _run_evidence(zone_drive)
     assert "timeout" in (bundle.cmd_results[0].rejected_reason or "")
     assert proc.events == ["kill", "wait"]
 
@@ -135,12 +135,12 @@ async def test_terminal_cancel_during_timeout_cleanup_propagates_and_still_reaps
 
 
 async def test_evidence_cancel_during_timeout_cleanup_propagates_and_still_reaps(
-    tmp_path, monkeypatch, short_reap
+    zone_drive, monkeypatch, short_reap
 ):
     proc, started, release = _Proc(wait_forever=False), threading.Event(), threading.Event()
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", _gated_kill(started, release))
-    task = asyncio.create_task(_run_evidence(tmp_path))
+    task = asyncio.create_task(_run_evidence(zone_drive))
     try:
         await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=5)
         task.cancel()

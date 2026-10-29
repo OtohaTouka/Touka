@@ -58,6 +58,7 @@ from src.services.isolation.runners import (
     RunnerBroker,
     executor_max_seconds,
 )
+from src.services.resource_manager import resource_manager
 from src.services.review import evidence
 from src.tools import terminal
 
@@ -497,8 +498,12 @@ class _DoneProc:
         return self._output, None
 
 
-def _terminal_in_the_executor(monkeypatch, tmp_path: Path) -> tuple[PinnedMonitor, _Spawned]:
+def _terminal_in_the_executor(
+    monkeypatch, tmp_path: Path, data_root: Path | None = None
+) -> tuple[PinnedMonitor, _Spawned]:
     layout = replace(_layout(tmp_path), in_container=False)
+    if data_root is not None:  # 蒐證的個人空間是區內路徑：和 zone_data_root 同一個 data 根
+        layout = replace(layout, data_root=data_root)
     drive = layout.data_root / "personal_drive" / "Alice"
     drive.mkdir(parents=True)
     snap = replace(pinned_snapshot("executor"), executor=_ready(), features=ALL)
@@ -544,8 +549,10 @@ async def test_terminal_out_of_executor_scope_is_refused_not_downgraded(monkeypa
 # --- 執行器那邊的時限：本機逾時＋30 秒（設計 §2.2） -------------------------------------------
 
 
-async def test_terminal_and_verification_tell_the_executor_their_timeout(monkeypatch, tmp_path):
-    _monitor_double, spawned = _terminal_in_the_executor(monkeypatch, tmp_path)
+async def test_terminal_and_verification_tell_the_executor_their_timeout(
+    monkeypatch, tmp_path, zone_data_root
+):
+    _monitor_double, spawned = _terminal_in_the_executor(monkeypatch, tmp_path, zone_data_root)
     await _execute()  # 前景 30 秒
 
     async def _allow(_cmd: str) -> None:
@@ -553,7 +560,7 @@ async def test_terminal_and_verification_tell_the_executor_their_timeout(monkeyp
 
     await evidence.collect_evidence(
         artifact_refs=[], verification_cmd="pytest -q", test_log=None,
-        artifact_root=tmp_path / "data" / "personal_drive" / "Alice", command_gate=_allow,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow,
         identity=ALICE, timeout_seconds=45,
     )
     assert [request["start"]["max_seconds"] for _argv, request in spawned.calls] == [60, 75]

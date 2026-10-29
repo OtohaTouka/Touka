@@ -46,6 +46,8 @@ from tests.support.isolation import fake_kernel_layout, install_real_broker, pin
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from memory_server.utils.zone_paths import ZonePath
+
     from tests.support.isolation import PinnedMonitor
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
@@ -432,24 +434,28 @@ async def _allow(_cmd: str) -> str | None:
     return None
 
 
-async def _collect(tmp_path: Path, gate=_allow, consent=None):
+async def _collect(drive: ZonePath, gate=_allow, consent=None):
     return await evidence.collect_evidence(
-        artifact_refs=[], verification_cmd=VERIFY, test_log=None, artifact_root=tmp_path,
+        artifact_refs=[], verification_cmd=VERIFY, test_log=None, artifact_root=drive,
         command_gate=gate, identity=ALICE, consent=consent,
     )
 
 
-async def test_verify_none_without_consent_never_spawns(monkeypatch, tmp_path, verify_spawned):
+async def test_verify_none_without_consent_never_spawns(
+    zone_drive, monkeypatch, tmp_path, verify_spawned
+):
     _isolation(monkeypatch, tmp_path, NONE)
-    bundle = await _collect(tmp_path)
+    bundle = await _collect(zone_drive)
     assert bundle.cmd_results[0].rejected_reason == evidence.NO_ISOLATED_ENVIRONMENT
     assert review_loop._HUMAN_GATE[evidence.NO_ISOLATED_ENVIRONMENT] == "isolation_unavailable"
     assert verify_spawned == []
 
 
-async def test_verify_runs_through_the_launcher_at_landlock(monkeypatch, tmp_path, verify_spawned):
+async def test_verify_runs_through_the_launcher_at_landlock(
+    zone_drive, monkeypatch, tmp_path, verify_spawned
+):
     _isolation(monkeypatch, tmp_path, pinned_snapshot("landlock"))
-    bundle = await _collect(tmp_path)
+    bundle = await _collect(zone_drive)
     assert bundle.cmd_results[0].exit_code == 0
     (argv, kwargs), = verify_spawned
     assert argv[3].endswith("launcher.py") and argv[-2:] == ("pytest", "-q")
@@ -457,7 +463,7 @@ async def test_verify_runs_through_the_launcher_at_landlock(monkeypatch, tmp_pat
     assert kwargs["pass_fds"] == (int(argv[separator - 3]), int(argv[separator - 1]))
 
 
-async def _verify_with_card(monkeypatch, tmp_path, ack: dict[str, Any] | None):
+async def _verify_with_card(monkeypatch, tmp_path, drive: ZonePath, ack: dict[str, Any] | None):
     _isolation(monkeypatch, tmp_path, NONE_WITHOUT_LANDLOCK)
     events: list[dict[str, Any]] = []
 
@@ -469,7 +475,7 @@ async def _verify_with_card(monkeypatch, tmp_path, ack: dict[str, Any] | None):
         identity=ALICE, ctx={"identity": ALICE},
     )
     gate = evidence.policy_command_gate(ALICE, auth_level="Manual", approver=approver)
-    task = asyncio.create_task(_collect(tmp_path, gate, approver.take_consent))
+    task = asyncio.create_task(_collect(drive, gate, approver.take_consent))
     async with asyncio.timeout(5):
         while not any(e["type"] == "tool_approval_request" for e in events):
             await asyncio.sleep(0.005)
@@ -479,16 +485,21 @@ async def _verify_with_card(monkeypatch, tmp_path, ack: dict[str, Any] | None):
     return await task, approver
 
 
-async def test_verify_card_with_ack_runs_direct_once(monkeypatch, tmp_path, verify_spawned):
-    bundle, approver = await _verify_with_card(monkeypatch, tmp_path, {"isolation_ack": "direct"})
+async def test_verify_card_with_ack_runs_direct_once(
+    monkeypatch, tmp_path, zone_drive, verify_spawned
+):
+    ack = {"isolation_ack": "direct"}
+    bundle, approver = await _verify_with_card(monkeypatch, tmp_path, zone_drive, ack)
     assert bundle.cmd_results[0].exit_code == 0
     (argv, _kwargs), = verify_spawned
     assert argv == ("pytest", "-q")
     assert approver.take_consent(VERIFY) is None  # 同意已用掉
 
 
-async def test_verify_card_without_ack_never_spawns(monkeypatch, tmp_path, verify_spawned):
-    bundle, _ = await _verify_with_card(monkeypatch, tmp_path, None)
+async def test_verify_card_without_ack_never_spawns(
+    monkeypatch, tmp_path, zone_drive, verify_spawned
+):
+    bundle, _ = await _verify_with_card(monkeypatch, tmp_path, zone_drive, None)
     assert bundle.cmd_results[0].rejected_reason == evidence.NO_HUMAN_DECISION
     assert verify_spawned == []
 
@@ -585,7 +596,9 @@ class _StopReview(Exception):
     pass
 
 
-async def test_review_round_hands_consent_identity_and_project_to_evidence(monkeypatch, tmp_path):
+async def test_review_round_hands_consent_identity_and_project_to_evidence(
+    zone_drive, monkeypatch, tmp_path
+):
     seen: dict[str, Any] = {}
 
     async def _collect(**kwargs: Any) -> None:
@@ -608,7 +621,7 @@ async def test_review_round_hands_consent_identity_and_project_to_evidence(monke
     )
     with pytest.raises(_StopReview):
         await review_loop.run_review_round(
-            task=task, goal="g", producer_claims="", artifact_root=tmp_path,
+            task=task, goal="g", producer_claims="", artifact_root=zone_drive,
             parent_identity=ALICE, mission_id="m1", manager=manager, completer=None,
             critic_model=None, producer_model=None, approver=approver,
             project_root=tmp_path / "proj",

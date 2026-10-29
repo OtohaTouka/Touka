@@ -67,13 +67,13 @@ async def _allow_all(_cmd: str) -> str | None:
     return None
 
 
-def _evidence_task(tmp_path, timeout: float = 60):
+def _evidence_task(zone_drive, timeout: float = 60):
     return asyncio.create_task(
         collect_evidence(
             artifact_refs=[],
             verification_cmd="pytest -q",
             test_log=None,
-            artifact_root=tmp_path,
+            artifact_root=zone_drive,
             timeout_seconds=timeout,
             command_gate=_allow_all,
         )
@@ -144,11 +144,11 @@ async def test_stop_command_result_not_overwritten_while_killing(monkeypatch):
     assert record["status"] == "stopped"
 
 
-async def test_evidence_cancel_kills_off_loop_then_reaps(tmp_path, monkeypatch):
+async def test_evidence_cancel_kills_off_loop_then_reaps(zone_drive, monkeypatch):
     loop_thread, threads, proc = threading.get_ident(), [], _Proc()
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", _kill_recorder(threads))
-    task = _evidence_task(tmp_path)
+    task = _evidence_task(zone_drive)
     await asyncio.wait_for(proc.reading.wait(), timeout=5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -157,21 +157,21 @@ async def test_evidence_cancel_kills_off_loop_then_reaps(tmp_path, monkeypatch):
     assert proc.events == ["kill", "wait"]
 
 
-async def test_evidence_timeout_kills_off_loop(tmp_path, monkeypatch):
+async def test_evidence_timeout_kills_off_loop(zone_drive, monkeypatch):
     loop_thread, threads, proc = threading.get_ident(), [], _Proc()
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", _kill_recorder(threads))
-    bundle = await _evidence_task(tmp_path, timeout=0.05)
+    bundle = await _evidence_task(zone_drive, timeout=0.05)
     assert "timeout" in (bundle.cmd_results[0].rejected_reason or "")
     assert threads and threads[0] != loop_thread
 
 
-async def test_second_cancel_does_not_interrupt_cleanup(tmp_path, monkeypatch):
+async def test_second_cancel_does_not_interrupt_cleanup(zone_drive, monkeypatch):
     """清理途中再取消一次：呼叫端立即收到取消，但殺行程與回收仍會做完。"""
     threads, proc, gate = [], _Proc(), threading.Event()
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", _kill_recorder(threads, gate))
-    task = _evidence_task(tmp_path)
+    task = _evidence_task(zone_drive)
     await asyncio.wait_for(proc.reading.wait(), timeout=5)
     task.cancel()
     await asyncio.sleep(0.05)
@@ -196,7 +196,7 @@ async def test_reap_gives_up_after_timeout(monkeypatch):
     assert loop.time() - start < 1
 
 
-async def test_failing_kill_keeps_cancellation(tmp_path, monkeypatch):
+async def test_failing_kill_keeps_cancellation(zone_drive, monkeypatch):
     """殺行程函式拋錯時，清理仍等待回收，呼叫端收到的仍是取消而不是該錯誤。"""
     proc = _Proc()
 
@@ -205,7 +205,7 @@ async def test_failing_kill_keeps_cancellation(tmp_path, monkeypatch):
 
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(evidence, "terminate_process_tree", _broken_kill)
-    task = _evidence_task(tmp_path)
+    task = _evidence_task(zone_drive)
     await asyncio.wait_for(proc.reading.wait(), timeout=5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -242,7 +242,7 @@ async def test_stop_endpoint_unauthorized_leaves_processes(monkeypatch):
     registry_mod.process_registry.unregister("b5-denied", proc)
 
 
-async def test_cancelled_real_process_is_reaped(tmp_path, monkeypatch):
+async def test_cancelled_real_process_is_reaped(zone_drive, monkeypatch):
     """整合：真的子程序被取消後，回傳前已被回收（returncode 不是 None）。"""
     spawned: list = []
     real_spawn = evidence.spawn_exec
@@ -257,7 +257,7 @@ async def test_cancelled_real_process_is_reaped(tmp_path, monkeypatch):
             artifact_refs=[],
             verification_cmd=f'"{sys.executable}" -c "import time; time.sleep(30)"',
             test_log=None,
-            artifact_root=tmp_path,
+            artifact_root=zone_drive,
             command_gate=_allow_all,
         )
     )

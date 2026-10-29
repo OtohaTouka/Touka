@@ -85,6 +85,7 @@ from src.utils.touka_dirs import scan_below
 
 from tests.helpers import mcp_asgi_peers
 from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
+from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
     from src.services.isolation.profiles import SandboxLayout
@@ -926,6 +927,7 @@ async def _isolated_terminal(monkeypatch, layout: SandboxLayout, required: bool)
     monkeypatch.setattr(agent_command, "isolation_monitor", monitor)
     monkeypatch.setattr(agent_command, "runner_broker", broker)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 蒐證的個人空間（ADR-0293）
     agent_dir = layout.data_root / "personal_drive" / "Alice"
     monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: agent_dir)
     terminal.reset_async_state_for_test()
@@ -1018,7 +1020,7 @@ async def test_verification_command_is_isolated(tmp_path, monkeypatch, touka_lan
     )
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd=f"{sys.executable} probe.py {secret}", test_log=None,
-        artifact_root=agent_dir, command_gate=_allow, identity=ALICE,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow, identity=ALICE,
     )
     (result,) = bundle.cmd_results
     assert result.exit_code == 0 and result.output_snippet == "denied", result
@@ -1063,7 +1065,8 @@ async def test_verification_command_reads_the_repo_pytest_ini_in_isolation(
 
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd=f"{sys.executable} -m pytest -q test_ok.py",
-        test_log=None, artifact_root=agent_dir, command_gate=_allow, identity=ALICE,
+        test_log=None, artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow,
+        identity=ALICE,
     )
     (result,) = bundle.cmd_results
     assert result.exit_code == 0, result
@@ -2674,6 +2677,7 @@ async def _executor_wiring(monkeypatch, executor, tmp_path: Path) -> SimpleNames
         kernel_dir=EXEC_KERNEL, executor_dir=dirs.ipc, mirror_roots=(), in_container=False,
     )
     layout.state_root.mkdir()
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 蒐證的個人空間（ADR-0293）
     monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
     snap = await monitor.ensure_ready()
     assert snap.executor is not None, (snap.level, snap.reason)  # READY 全部相符
@@ -2765,7 +2769,7 @@ async def test_verification_command_runs_inside_the_executor(tmp_path, monkeypat
 
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd="cat ../Bob/secret.txt", test_log=None,
-        artifact_root=wiring.drive, command_gate=_allow, identity=ALICE,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow, identity=ALICE,
         consent=lambda _cmd: wiring.grant,
     )
     (result,) = bundle.cmd_results
