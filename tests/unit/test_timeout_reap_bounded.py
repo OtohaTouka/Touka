@@ -70,8 +70,8 @@ async def _allow_all(_cmd: str) -> str | None:
     return None
 
 
-def _run_terminal():
-    return terminal._execute_core("sleep 100", "powershell", ".", "c2-timeout", timeout=0.05)
+def _run_terminal(zone_drive):
+    return terminal._execute_core("sleep 100", "powershell", zone_drive, "c2-timeout", timeout=0.05)
 
 
 def _run_evidence(zone_drive):
@@ -96,12 +96,12 @@ def short_reap(monkeypatch):
     monkeypatch.setattr(registry_mod, "CANCEL_REAP_TIMEOUT_SECONDS", _REAP_LIMIT)
 
 
-async def test_terminal_timeout_reap_is_bounded(monkeypatch, short_reap):
+async def test_terminal_timeout_reap_is_bounded(zone_drive, monkeypatch, short_reap):
     proc = _Proc(wait_forever=True)
     monkeypatch.setattr(terminal, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(terminal, "terminate_process_tree", lambda p: p.events.append("kill"))
     async with asyncio.timeout(2):
-        exit_code, output, _ = await _run_terminal()
+        exit_code, output, _ = await _run_terminal(zone_drive)
     assert exit_code == -1 and "timed out" in output
     assert proc.events == ["kill", "wait"]
 
@@ -117,12 +117,12 @@ async def test_evidence_timeout_reap_is_bounded(zone_drive, monkeypatch, short_r
 
 
 async def test_terminal_cancel_during_timeout_cleanup_propagates_and_still_reaps(
-    monkeypatch, short_reap
+    zone_drive, monkeypatch, short_reap
 ):
     proc, started, release = _Proc(wait_forever=False), threading.Event(), threading.Event()
     monkeypatch.setattr(terminal, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(terminal, "terminate_process_tree", _gated_kill(started, release))
-    task = asyncio.create_task(_run_terminal())
+    task = asyncio.create_task(_run_terminal(zone_drive))
     try:
         await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=5)
         task.cancel()

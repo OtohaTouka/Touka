@@ -42,6 +42,7 @@ from src.utils.async_db import session_service
 from src.utils.isolation_policy import landlock_features
 
 from tests.support.isolation import fake_kernel_layout, install_real_broker, pinned_snapshot
+from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -213,13 +214,12 @@ async def test_unisolated_consent_runs_direct_exactly_once(monkeypatch, tmp_path
 def _sandbox_state_unset(monkeypatch, tmp_path: Path, *, landlock_usable: bool) -> None:
     """還沒重建（ST 沒設）：真的 profile 組不出來；monitor 是否認為 Landlock 降級可用由參數決定。"""
     layout = replace(fake_kernel_layout(tmp_path), state_root=None)
-    drive = layout.data_root / "personal_drive" / "Alice"
-    drive.mkdir(parents=True)
+    point_zone_roots(monkeypatch, layout.data_root, tmp_path / "zone_state")  # 個人空間（ADR-0293）
+    (layout.data_root / "personal_drive" / "Alice").mkdir(parents=True)
     snap = pinned_snapshot("none", reason="sandbox_state_unconfigured")
     install_real_broker(monkeypatch, snap, layout).state_ok = landlock_usable
     monkeypatch.setattr(agent_command, "build_command_profile", REAL_COMMAND_PROFILE)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
 
 
 @pytest.mark.parametrize("landlock_usable", [False, True])

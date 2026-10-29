@@ -22,9 +22,11 @@ from src.services.isolation import agent_command
 from src.services.isolation.agent_command import CommandScope
 from src.services.isolation.consent import ExecutionGrant
 from src.services.isolation.executor_client import ExecutorReady
+from src.services.resource_manager import resource_manager
 from src.tools import terminal
 
 from tests.support.isolation import fake_kernel_layout, install_real_broker, pinned_snapshot
+from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 LANDLOCK = CommandScope(ALICE, ExecutionGrant("landlock"))
@@ -109,18 +111,18 @@ async def test_background_command_is_stopped_through_the_launcher_process(harnes
     assert harness["killed"] == [proc]
 
 
-async def test_timeout_kills_the_launcher_process_group(harness):
+async def test_timeout_kills_the_launcher_process_group(zone_drive, harness):
     exit_code, output, _ms = await terminal._execute_core(
-        "sleep 100", "powershell", ".", "s1", timeout=0.05, scope=LANDLOCK
+        "sleep 100", "powershell", zone_drive, "s1", timeout=0.05, scope=LANDLOCK
     )
     (proc,) = harness["procs"]
     assert exit_code == -1 and "timed out" in output
     assert _launched(proc, harness["launcher"]) and harness["killed"] == [proc]
 
 
-async def test_cancel_kills_and_reaps_the_launcher_process(harness):
+async def test_cancel_kills_and_reaps_the_launcher_process(zone_drive, harness):
     task = asyncio.create_task(
-        terminal._execute_core("sleep 100", "powershell", ".", "s1", scope=LANDLOCK)
+        terminal._execute_core("sleep 100", "powershell", zone_drive, "s1", scope=LANDLOCK)
     )
     proc = await _first_proc(harness)
     task.cancel()
@@ -142,16 +144,18 @@ def _open_fds() -> set[int]:
 
 
 @pytest.mark.parametrize("ending", ["timeout", "cancel"])
-async def test_status_fd_is_closed_when_the_command_times_out_or_is_cancelled(harness, ending):
+async def test_status_fd_is_closed_when_the_command_times_out_or_is_cancelled(
+    zone_drive, harness, ending
+):
     """逾時與取消時，啟動器的狀態 fd（讀端與寫端）也不留在 proxy."""
     before = _open_fds()
     if ending == "timeout":
         await terminal._execute_core(
-            "sleep 100", "powershell", ".", "s1", timeout=0.05, scope=LANDLOCK
+            "sleep 100", "powershell", zone_drive, "s1", timeout=0.05, scope=LANDLOCK
         )
     else:
         task = asyncio.create_task(
-            terminal._execute_core("sleep 100", "powershell", ".", "s1", scope=LANDLOCK)
+            terminal._execute_core("sleep 100", "powershell", zone_drive, "s1", scope=LANDLOCK)
         )
         await _first_proc(harness)
         task.cancel()
@@ -190,8 +194,9 @@ def relay_harness(monkeypatch, tmp_path) -> dict[str, Any]:
         fake_kernel_layout(tmp_path), executor_dir=tmp_path / "ipc", in_container=False
     )
     (layout.kernel_dir / "relay.py").write_text("# kernel\n", encoding="utf-8")
-    drive = layout.data_root / "personal_drive" / "Alice"
-    drive.mkdir(parents=True)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 個人空間（ADR-0293）
+    (layout.data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    drive = resource_manager.agent_drive(ALICE)
     snap = replace(
         pinned_snapshot("executor"), executor=READY, features=frozenset({"fs", "tcp"})
     )
@@ -199,7 +204,6 @@ def relay_harness(monkeypatch, tmp_path) -> dict[str, Any]:
     monitor.checked_kernel_digest = kernel_digest(layout.kernel_dir)
     monkeypatch.setattr(agent_command, "build_command_profile", REAL_COMMAND_PROFILE)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
     monkeypatch.setattr(EvolutionPathGuard, "get_clean_env", lambda: {"PATH": "/usr/bin"})
     state: dict[str, Any] = {"procs": [], "killed": [], "drive": drive}
 

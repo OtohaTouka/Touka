@@ -389,7 +389,7 @@ async def test_execute_command_never_runs_non_allow_confirm_strategy(monkeypatch
     assert json.loads(result)["error_class"] == "permission_denied"
 
 
-async def test_execute_core_cancellation_kills_process_tree(tmp_path, monkeypatch):
+async def test_execute_core_cancellation_kills_process_tree(zone_drive, monkeypatch):
     reading = asyncio.Event()
 
     class _HangingStdout:
@@ -408,7 +408,7 @@ async def test_execute_core_cancellation_kills_process_tree(tmp_path, monkeypatc
     monkeypatch.setattr(terminal, "terminate_process_tree", killed.append)
 
     task = asyncio.create_task(
-        terminal._execute_core("sleep 100", "powershell", tmp_path, "sp2-session")
+        terminal._execute_core("sleep 100", "powershell", zone_drive, "sp2-session")
     )
     await asyncio.wait_for(reading.wait(), timeout=5)
     task.cancel()

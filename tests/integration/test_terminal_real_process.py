@@ -20,7 +20,7 @@ _SLEEPER = "sleep 30"
 _ECHO_THEN_HANG = "echo L1; sleep 30"
 
 
-async def test_execute_core_timeout_triggers_process_tree_kill(tmp_path, monkeypatch):
+async def test_execute_core_timeout_triggers_process_tree_kill(zone_drive, monkeypatch):
     """E70：逾時 → terminate_process_tree(proc) 真的被接上（連坐殺孫進程防孤兒）。
 
     變異刪 :332-336 殺樹分支（只留 timed-out 訊息）→ killed 從未捕獲 → 紅。
@@ -35,7 +35,7 @@ async def test_execute_core_timeout_triggers_process_tree_kill(tmp_path, monkeyp
     monkeypatch.setattr(terminal, "terminate_process_tree", _spy_kill)
 
     exit_code, output, _ms = await terminal._execute_core(
-        _SLEEPER, "powershell", tmp_path, None, timeout=1
+        _SLEEPER, "powershell", zone_drive, None, timeout=1
     )
 
     assert exit_code == -1
@@ -43,7 +43,7 @@ async def test_execute_core_timeout_triggers_process_tree_kill(tmp_path, monkeyp
     assert killed.get("proc") is not None  # 逾時偵測→殺樹接線真的走過
 
 
-async def test_execute_core_streams_output_incrementally_before_timeout(tmp_path):
+async def test_execute_core_streams_output_incrementally_before_timeout(zone_drive):
     """E71：逐行增量寫入 record——輸出在進程「完成前」就被捕獲（訊號活資料源）。
 
     子進程印一行後長眠、從未正常結束（逾時殺掉）——L1 仍在 output 與 record 中
@@ -52,7 +52,7 @@ async def test_execute_core_streams_output_incrementally_before_timeout(tmp_path
     record: dict[str, object] = {}
 
     exit_code, output, _ms = await terminal._execute_core(
-        _ECHO_THEN_HANG, "powershell", tmp_path, None, timeout=5, record=record
+        _ECHO_THEN_HANG, "powershell", zone_drive, None, timeout=5, record=record
     )
 
     assert exit_code == -1

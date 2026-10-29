@@ -87,12 +87,12 @@ def _spawner(proc: _Proc):
     return _spawn
 
 
-async def test_terminal_cancel_kills_off_loop_then_reaps(tmp_path, monkeypatch):
+async def test_terminal_cancel_kills_off_loop_then_reaps(zone_drive, monkeypatch):
     loop_thread, threads, proc = threading.get_ident(), [], _Proc()
     monkeypatch.setattr(terminal, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(terminal, "terminate_process_tree", _kill_recorder(threads))
     task = asyncio.create_task(
-        terminal._execute_core("sleep 100", "powershell", tmp_path, "b6-terminal")
+        terminal._execute_core("sleep 100", "powershell", zone_drive, "b6-terminal")
     )
     await asyncio.wait_for(proc.reading.wait(), timeout=5)
     task.cancel()
@@ -102,12 +102,12 @@ async def test_terminal_cancel_kills_off_loop_then_reaps(tmp_path, monkeypatch):
     assert proc.events == ["kill", "wait"]
 
 
-async def test_terminal_timeout_kills_off_loop(tmp_path, monkeypatch):
+async def test_terminal_timeout_kills_off_loop(zone_drive, monkeypatch):
     loop_thread, threads, proc = threading.get_ident(), [], _Proc()
     monkeypatch.setattr(terminal, "spawn_exec", _spawner(proc))
     monkeypatch.setattr(terminal, "terminate_process_tree", _kill_recorder(threads))
     exit_code, output, _ = await terminal._execute_core(
-        "sleep 100", "powershell", tmp_path, "b5-timeout", timeout=0.05
+        "sleep 100", "powershell", zone_drive, "b5-timeout", timeout=0.05
     )
     assert exit_code == -1 and "timed out" in output
     assert threads and threads[0] != loop_thread

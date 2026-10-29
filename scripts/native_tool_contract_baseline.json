@@ -3246,6 +3246,32 @@
         ],
         "dynamic": []
       },
+      "_track_task": {
+        "parameters": [
+          "identity",
+          "task"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "stop_agent_commands": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "agent_id"
+          ],
+          [
+            "record",
+            "command"
+          ]
+        ],
+        "dynamic": []
+      },
       "_remember_result": {
         "parameters": [
           "exec_id",
@@ -3278,6 +3304,15 @@
         "parameters": [
           "command",
           "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_not_run": {
+        "parameters": [
+          "command",
+          "exc"
         ],
         "kwargs": null,
         "reads": [],
@@ -3334,7 +3369,7 @@
         "parameters": [
           "command",
           "env",
-          "drive_path",
+          "drive",
           "session_id",
           "emit",
           "call_id",
@@ -3365,7 +3400,7 @@
           "command",
           "env",
           "identity",
-          "drive_path",
+          "drive",
           "session_id",
           "scope"
         ],
@@ -3379,7 +3414,7 @@
           "command",
           "env",
           "identity",
-          "drive_path",
+          "drive",
           "session_id",
           "dangerous",
           "scope"

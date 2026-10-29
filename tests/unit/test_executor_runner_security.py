@@ -68,6 +68,7 @@ from tests.support.isolation import (
     install_real_broker,
     pinned_snapshot,
 )
+from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 REAL_COMMAND_PROFILE = agent_command.build_command_profile
@@ -498,12 +499,9 @@ class _DoneProc:
         return self._output, None
 
 
-def _terminal_in_the_executor(
-    monkeypatch, tmp_path: Path, data_root: Path | None = None
-) -> tuple[PinnedMonitor, _Spawned]:
+def _terminal_in_the_executor(monkeypatch, tmp_path: Path) -> tuple[PinnedMonitor, _Spawned]:
     layout = replace(_layout(tmp_path), in_container=False)
-    if data_root is not None:  # 蒐證的個人空間是區內路徑：和 zone_data_root 同一個 data 根
-        layout = replace(layout, data_root=data_root)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 個人空間（ADR-0293）
     drive = layout.data_root / "personal_drive" / "Alice"
     drive.mkdir(parents=True)
     snap = replace(pinned_snapshot("executor"), executor=_ready(), features=ALL)
@@ -511,7 +509,6 @@ def _terminal_in_the_executor(
     monitor.checked_kernel_digest = kernel_digest(layout.kernel_dir)
     monkeypatch.setattr(agent_command, "build_command_profile", REAL_COMMAND_PROFILE)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
     monkeypatch.setattr(EvolutionPathGuard, "get_clean_env", lambda: {"PATH": "/usr/bin"})
     spawned = _Spawned()
     monkeypatch.setattr(terminal, "spawn_exec", spawned)
@@ -549,10 +546,8 @@ async def test_terminal_out_of_executor_scope_is_refused_not_downgraded(monkeypa
 # --- 執行器那邊的時限：本機逾時＋30 秒（設計 §2.2） -------------------------------------------
 
 
-async def test_terminal_and_verification_tell_the_executor_their_timeout(
-    monkeypatch, tmp_path, zone_data_root
-):
-    _monitor_double, spawned = _terminal_in_the_executor(monkeypatch, tmp_path, zone_data_root)
+async def test_terminal_and_verification_tell_the_executor_their_timeout(monkeypatch, tmp_path):
+    _monitor_double, spawned = _terminal_in_the_executor(monkeypatch, tmp_path)
     await _execute()  # 前景 30 秒
 
     async def _allow(_cmd: str) -> None:

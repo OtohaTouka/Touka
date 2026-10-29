@@ -928,10 +928,8 @@ async def _isolated_terminal(monkeypatch, layout: SandboxLayout, required: bool)
     monkeypatch.setattr(agent_command, "runner_broker", broker)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
     point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 蒐證的個人空間（ADR-0293）
-    agent_dir = layout.data_root / "personal_drive" / "Alice"
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: agent_dir)
     terminal.reset_async_state_for_test()
-    return agent_dir
+    return layout.data_root / "personal_drive" / "Alice"
 
 
 async def _run(command: str, **extra) -> str:
@@ -966,8 +964,8 @@ async def test_terminal_timeout_kills_the_isolated_group(
     agent_dir = await _isolated_terminal(monkeypatch, layout, touka_landlock_requirement)
     scope = await agent_command.command_scope(ALICE, None, None)
     exit_code, output, _ms = await terminal._execute_core(
-        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", agent_dir, None,
-        timeout=3, scope=scope,
+        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl",
+        resource_manager.agent_drive(ALICE), None, timeout=3, scope=scope,
     )
     assert exit_code == -1 and "L1" in output and "timed out after 3 seconds" in output
     child = int((agent_dir / "child.pid").read_text(encoding="utf-8"))
@@ -2698,10 +2696,9 @@ async def _executor_wiring(monkeypatch, executor, tmp_path: Path) -> SimpleNames
         assert snap.reason in NET_SYSCTL_CODES, snap.reason
         consent = Consent("linux", "executor", frozenset({"fs"}))
         grant = ExecutionGrant("none", consent, executor_eligible=True)
-    drive = dirs.pd / "Alice"
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
     terminal.reset_async_state_for_test()
-    return SimpleNamespace(dirs=dirs, grant=grant, drive=drive, snap=snap)
+    zone = resource_manager.agent_drive(ALICE)  # 終端的個人空間（ADR-0293）
+    return SimpleNamespace(dirs=dirs, grant=grant, drive=dirs.pd / "Alice", zone=zone, snap=snap)
 
 
 _EXEC_SHELL = (
@@ -2716,7 +2713,7 @@ async def test_terminal_command_runs_inside_the_executor(tmp_path, monkeypatch, 
     (wiring.dirs.pd.parent.parent / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     scope = CommandScope(ALICE, wiring.grant)
     exit_code, output, _ms = await terminal._execute_core(
-        _EXEC_SHELL, "wsl", wiring.drive, None, timeout=60, scope=scope
+        _EXEC_SHELL, "wsl", wiring.zone, None, timeout=60, scope=scope
     )
     assert exit_code == 0, output
     home = wiring.dirs.state / "agents" / "Alice" / "home"
@@ -2731,7 +2728,7 @@ async def test_executor_timeout_kills_the_remote_command(tmp_path, monkeypatch, 
     wiring = await _executor_wiring(monkeypatch, executor, tmp_path)
     scope = CommandScope(ALICE, wiring.grant)
     exit_code, output, _ms = await terminal._execute_core(
-        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", wiring.drive, None,
+        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", wiring.zone, None,
         timeout=3, scope=scope,
     )
     assert exit_code == -1 and "timed out after 3 seconds" in output
@@ -2748,7 +2745,7 @@ async def test_soul_delete_wipe_empties_its_executor_home(tmp_path, monkeypatch,
         f'chmod 000 "$HOME/locked"; ln -s {wiring.dirs.outside} "$HOME/out"; echo z > "$TMPDIR/t"'
     )
     exit_code, output, _ms = await terminal._execute_core(
-        seed, "wsl", wiring.drive, None, timeout=60, scope=CommandScope(ALICE, wiring.grant)
+        seed, "wsl", wiring.zone, None, timeout=60, scope=CommandScope(ALICE, wiring.grant)
     )
     assert exit_code == 0, output
     home = wiring.dirs.state / "agents" / "Alice" / "home"
