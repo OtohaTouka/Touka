@@ -482,6 +482,34 @@ class ToolExecutor:
             await queue.put(None)
             return offer_denial
 
+        # vault-jailed MCP（如 docgen）：不再交出任何根，工具在這裡就以固定原因拒絕、不送出；
+        # 放在審批卡與 hook 之前，人不會核准一個不會執行的呼叫（ADR-0293）
+        if mcp_server:
+            try:
+                mcp_vault_jail.apply(self.protocol_manager.registry, mcp_server)
+            except mcp_vault_jail.VaultJailedToolUnavailableError as refused:
+                result_text = tool_errors.build_tool_error(
+                    tool_errors.PERMISSION_DENIED,
+                    str(refused),
+                    suggestion="Do not retry this tool; tell the user it is switched off "
+                    "for now. Plain-text files can be read with the personal_drive tool.",
+                    denied_tool=name,
+                    reason=refused.reason,
+                )
+                logger.warning("🛡️ Vault-jailed MCP tool refused: %s -> %s", agent_id, name)
+                await queue.put(
+                    ToolCallEvent(
+                        call_id=call_id,
+                        tool_name=name,
+                        arguments={},
+                        status="error",
+                        error_class=tool_errors.PERMISSION_DENIED,
+                        result_text=result_text,
+                    ).to_result_sse()
+                )
+                await queue.put(None)
+                return result_text
+
         # Gate 2a（ADR-0195 軸 B）：MCP 工具面 RBAC。模型迴圈裡廣告面（這一輪的清單）也是
         # 執行條件（上面的核對），但列出不等於有權限：角色授權仍在這裡獨立核對，執行面
         # 才是執法。
@@ -843,11 +871,6 @@ class ToolExecutor:
                     server_id, actual_tool = mcp_server, mcp_tool_name
                     if server_id:
                         args["agent_id"] = identity.agent_id
-                        # vault-jailed 伺服器（如 mcp-docgen）：依身分把其根目錄參數覆寫成當下
-                        # agent 自己的 vault（per-agent 隔離；模型給的根目錄被蓋掉）。
-                        mcp_vault_jail.apply(
-                            self.protocol_manager.registry, server_id, args, identity
-                        )
                         human_present = is_human_present(ctx)
                         mcp_request_context = build_mcp_request_context(
                             ctx,
