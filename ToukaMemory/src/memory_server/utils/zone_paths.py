@@ -107,16 +107,13 @@ def report(event: ZoneEvent) -> None:
     with _observers_lock:
         callbacks = list(_observers)
     for callback in callbacks:
-        try:
+        # 觀察者只負責記錄，不能讓產品失敗
+        with contextlib.suppress(Exception):
             callback(event)
-        except Exception:  # noqa: S112 - 觀察者只負責記錄，不能讓產品失敗
-            continue
 
 
 def _log_observer(event: ZoneEvent) -> None:
-    logger.warning(
-        "Zone path refused: %s %s %s", event.error.__name__, event.display, event.detail
-    )
+    logger.warning("Zone path refused: %s %s %s", event.error.__name__, event.display, event.detail)
 
 
 add_observer(_log_observer)
@@ -551,6 +548,97 @@ def _contains_by_identity(text: str, roots: ZoneRoots, anchors: list[Anchor]) ->
         if custom and parent_id == _identity(resolved):
             return True
     return False
+
+
+@dataclass(frozen=True)
+class MarkerState:
+    """走訪時一個資料夾的位置（一般資料夾用 None 表示）。
+
+    ``kind``：``anchor``（自訂模型的錨點本身，繼續往下）、``custom_id``（``custom/<id>``，
+    ``parts`` 是 ``(<id>,)``）、``zone``（區根或整個其他錨點，呼叫端剪掉；``parts`` 是錨點底下
+    的段落，整個錨點時是空的）。
+    """
+
+    kind: str
+    anchor: Anchor
+    parts: tuple[str, ...] = ()
+
+
+class ZoneMarkers:
+    """走訪時逐層判斷子資料夾是不是區根（R5）；和 ``zone_of`` 同一套形狀規則。
+
+    身分用走訪時已有的 lstat 結果比對錨點，不另外 stat，所以別名路徑（例如另一個掛載路徑底下
+    的同一個 data）也認得；身分未知（``st_ino == 0``）時只比對字面與解析後的錨點路徑。
+    """
+
+    __slots__ = ("_anchors", "_by_id", "_by_path", "_roots")
+
+    def __init__(self, roots: ZoneRoots, anchors: Iterable[Anchor] = ENFORCED_ANCHORS) -> None:
+        """錨點的身分在這裡算一次（走訪期間錨點本身由 Touka 管，不會被換）。"""
+        self._roots = roots
+        self._anchors = [a for a in Anchor if a in set(anchors)]
+        self._by_id: dict[tuple[int, int], Anchor] = {}
+        self._by_path: dict[tuple[str, ...], Anchor] = {}
+        for anchor in self._anchors:
+            for base in _bases(roots, anchor):
+                self._by_path[_key(base)] = anchor
+            resolved = roots.resolved(anchor)
+            ident = None if resolved is None else _identity(resolved)
+            if ident is not None:
+                self._by_id[ident] = anchor
+
+    def _anchor_at(self, path: str, info: object) -> Anchor | None:
+        ident = _identity_of(info)
+        if ident is not None and ident in self._by_id:
+            return self._by_id[ident]
+        return self._by_path.get(_key(_parts_of(path)))
+
+    @staticmethod
+    def _as_anchor(anchor: Anchor) -> MarkerState:
+        # 自訂模型的錨點底下 custom/<id> 不是區，要繼續往下；其他錨點整個都是區
+        if anchor is Anchor.CUSTOM_DRIVE:
+            return MarkerState("anchor", anchor)
+        return MarkerState("zone", anchor)
+
+    def start(self, path: str) -> MarkerState | None:
+        """走訪起點的位置。"""
+        found = zone_of(path, self._roots, anchors=self._anchors)
+        if found is not None:
+            return MarkerState("zone", *found)
+        text = _absolute(path)
+        anchor = self._anchor_at(text, _stat_or_none(text))
+        if anchor is not None:
+            return self._as_anchor(anchor)
+        parent = str(Path(text).parent)
+        if self._anchor_at(parent, _stat_or_none(parent)) is Anchor.CUSTOM_DRIVE:
+            return MarkerState("custom_id", Anchor.CUSTOM_DRIVE, (Path(text).name,))
+        return None
+
+    def child(
+        self, parent: MarkerState | None, path: str, name: str, info: object
+    ) -> MarkerState | None:
+        """``parent`` 位置底下名為 ``name`` 的子資料夾的位置.
+
+        ``path`` 是它的字面路徑、``info`` 是走訪時的 lstat。
+        """
+        anchor = self._anchor_at(path, info)
+        if anchor is not None:
+            return self._as_anchor(anchor)
+        if parent is None:
+            return None
+        if parent.kind == "anchor":
+            return MarkerState("custom_id", parent.anchor, (name,))
+        rest = (*parent.parts, name)
+        if parent.kind == "custom_id" and _shape(parent.anchor, rest, str.casefold):
+            return MarkerState("zone", parent.anchor, rest)
+        return None
+
+
+def _stat_or_none(path: str) -> os.stat_result | None:
+    try:
+        return Path(path).stat()
+    except (OSError, ValueError):
+        return None
 
 
 # --- 交接登記表（R7） ----------------------------------------------------

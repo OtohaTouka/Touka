@@ -31,9 +31,10 @@ from memory_server.utils.no_follow import (
     replace_text_no_follow,
     write_text_no_follow,
 )
+from memory_server.utils.zone_paths import ZoneRoots, set_roots_provider
 
 # 使用絕對匯入避免 TID251 警告，並確保環境變數獲取一致
-from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir
+from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir, settings
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.soul_service import soul_service
@@ -1164,3 +1165,12 @@ class ResourceManager:
 
 # Global instance
 resource_manager = ResourceManager()
+
+
+def _zone_roots() -> ZoneRoots:
+    """目前的 data 根與 sandbox state 根：判斷代理人資料夾的唯一來源（ADR-0293 R14）。"""
+    state = settings.TOUKA_SANDBOX_STATE_DIR or resource_manager.get_temp_path("sandbox_state")
+    return ZoneRoots(get_app_data_dir(), state)
+
+
+set_roots_provider(_zone_roots)
