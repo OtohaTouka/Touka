@@ -21,9 +21,11 @@ from pathlib import Path
 
 import pytest
 from memory_server.services.personal_catalog import CatalogPathDeniedError
+from memory_server.utils.zone_paths import Anchor, agent_root
 from src.sandbox_kernel import owner_repair
 from src.sandbox_kernel.owner_repair import RepairOutcome
 from src.sandbox_kernel.spec import SelfTestResult
+from src.services import resource_manager as rm_module
 from src.services.isolation import repair, status
 from src.services.isolation.profiles import SandboxLayout
 from src.services.isolation.repair import PermissionRepairService
@@ -778,21 +780,24 @@ def test_the_real_soul_protection_refusal_never_reaches_the_hook(on_linux):
     assert hook.calls == [] and not soul_file.exists()
 
 
-# --- 6：真的巢狀（get_uploads_path 包著 get_outputs_path）---
+# --- 6：真的巢狀（zone_write_json 交給 zone_write_text，ADR-0293）---
 
 
-def test_get_uploads_path_is_repaired_once_by_the_outermost_call(
-    monkeypatch, on_linux, mock_identity
-):
-    """內層 get_outputs_path 不各自修、不各自重試：mkdir 失敗兩次就照實往上丟。"""
-    mkdir = Raiser(Path.mkdir, _eacces(), failures=2)
-    monkeypatch.setattr(Path, "mkdir", mkdir)
+def test_zone_write_json_is_repaired_only_by_the_inner_write(zone_data_root, monkeypatch, on_linux):
+    """``zone_write_json`` 是 delegates 豁免：內層 ``zone_write_text`` 是最外層，修一次、不重試。"""
+    denied: list[object] = []
+
+    def deny(*args: object, **_kwargs: object) -> None:
+        denied.append(args[0])
+        raise _eacces()
+
+    monkeypatch.setattr(rm_module, "replace_text_no_follow", deny)
     hook = FakeHook()
     set_permission_repair(hook)
     with pytest.raises(PermissionError):
-        resource_manager.get_uploads_path(mock_identity())
-    assert [method for method, _ in hook.calls] == ["get_uploads_path"]
-    assert mkdir.calls == 2 and hook.retries == [("get_uploads_path", False)]
+        resource_manager.zone_write_json(agent_root(Anchor.PERSONAL_DRIVE, "A").child("x.json"), {})
+    assert [method for method, _ in hook.calls] == ["zone_write_text"]
+    assert len(denied) == 1 and hook.retry_flags == [False] and hook.retries == []
 
 
 def test_read_json_inner_calls_are_each_repaired_once(tmp_path, monkeypatch, on_linux):

@@ -19,6 +19,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from memory_server.factual import FactualStore
+from memory_server.utils.zone_paths import is_zone_segment
 
 from src.core.exceptions import ErrorCode, ToukaException
 
@@ -121,6 +122,7 @@ from .services.permission_service import permission_service
 from .services.resource_manager import resource_manager
 from .services.skill_service import skill_service
 from .services.sns_gateway import sns_gateway
+from .services.zone_file_response import zone_file_response
 from .tools.builtin import builtin_tools_schema, tool_registry
 from .tools.plugin_loader import load_plugins
 from .utils.async_db import init_db_async, session_service
@@ -631,24 +633,16 @@ async def get_sovereign_output(
         logger.warning(f"🚨 Output Violation! Req: {agent_id}, Identity: {identity.agent_id}")
         raise ToukaException(ErrorCode.AUTH_UNAUTHORIZED_ACCESS)
 
-    # 取得 Agent 專屬輸出路徑
-    output_dir = resource_manager.get_outputs_path(identity)
-    if not output_dir:
-        raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND)
-
-    file_path = Path(output_dir) / filename
-
-    # 安全檢查：防止路徑穿越 (Path Traversal)
-    abs_file_path = file_path.resolve()
-    abs_output_dir = Path(output_dir).resolve()
-
-    if not abs_file_path.is_relative_to(abs_output_dir):
+    # 檔名只能是一段（防路徑穿越；Windows 另拒 ``C:x``、保留裝置名）
+    if not is_zone_segment(filename):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
-
-    if not abs_file_path.exists():
+    output_dir = resource_manager.outputs_dir(identity)
+    if output_dir is None:
         raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND)
-
-    return FileResponse(abs_file_path)
+    try:
+        return zone_file_response(output_dir.child(filename), filename)
+    except OSError as e:  # 連結（ADR-0293）、不存在或不是檔案：一律和不存在一樣
+        raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND) from e
 
 
 @app.get("/v1/users/{user_id}/avatar")

@@ -10,10 +10,10 @@ subagent 層（分離：callback store 不耦合 identity/drive）。
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from memory_server.utils.zone_paths import is_zone_segment
 from src.models.identity import AgentIdentity
 from src.services import subagent_results as sr
 from src.services.dispatch_callback_store import _reset_callback_store, get_callback_store
@@ -186,7 +186,7 @@ def test_token_path_never_escapes_dispatch_results(token):
     path = sr._token_path(identity, token)
     assert path is not None
     assert path.parent == sr._results_dir(identity)  # 就在該層、非往上逃逸
-    assert is_zone_segment(path.name)
+    assert re.fullmatch(r"[A-Za-z0-9_-]+\.json", path.name)
 
 
 def test_read_traversal_token_cannot_exfil_decoy():

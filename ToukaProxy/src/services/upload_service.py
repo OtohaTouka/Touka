@@ -5,9 +5,10 @@
 
 安全：
 - 不信任 client Content-Type；以 magic-byte 家族 + 副檔名白名單判定（pdf / office-zip / text）。
-- 一切實體 I/O 走 ResourceManager（IOPrison）；session/filename 為使用者影響值，逐段 sanitize
-  並以 ``is_relative_to`` 防穿越——不可逃出該 agent 的 uploads 目錄（→ 永不碰別的 agent 資料）。
-- 路徑由 ``identity`` 衍生（``get_uploads_path``）→ 物理上只寫該 agent 自己 vault（無 IDOR）。
+- 一切實體 I/O 走 ResourceManager 的區內方法（ADR-0293）；session/filename 為使用者影響值，
+  逐段 sanitize 後當成區內路徑的一段——不可逃出該 agent 的 uploads 目錄（→ 永不碰別的 agent
+  資料），路上任何一段是連結就拒絕（UPLOAD_FAILED）。
+- 路徑由 ``identity`` 衍生（``uploads_dir``）→ 物理上只寫該 agent 自己 vault（無 IDOR）。
 - 檔案僅存放、不在伺服器解析；由該 agent 的 bash/python 或 personal_drive read 工具讀取。
 """
 from __future__ import annotations
@@ -16,11 +17,16 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from memory_server.utils.no_follow import WalkReport
+from memory_server.utils.zone_paths import ZoneSegmentError
+
 from src.config import UPLOAD_AGENT_QUOTA_BYTES, UPLOAD_MAX_BYTES
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services.resource_manager import resource_manager
 
 if TYPE_CHECKING:
+    from memory_server.utils.zone_paths import ZonePath
+
     from src.models.identity import AgentIdentity
 
 # 副檔名 → media type 白名單（zip-based office 以 PK magic + 副檔名雙重判定）。
@@ -102,11 +108,10 @@ def _safe_filename(raw: str, ext: str) -> str:
     return base or f"upload.{ext}"
 
 
-def _uploads_dir_bytes(base: Path) -> int:
-    """該 agent uploads 目錄現有總位元組（per-agent 配額用）。"""
-    if not base.exists():
-        return 0
-    return sum(f.stat().st_size for f in base.rglob("*") if f.is_file())
+def _uploads_dir_bytes(base: ZonePath) -> int:
+    """該 agent uploads 目錄現有總位元組（per-agent 配額用；不進入連結）。"""
+    entries = resource_manager.zone_walk(base, WalkReport())
+    return sum(entry.info.st_size for entry in entries if entry.kind == "file")
 
 
 def save_upload(
@@ -119,21 +124,19 @@ def save_upload(
     """
     _assert_safe_agent_segment(identity.agent_id)  # ① agent_id 須為安全單段（防跨 agent 穿越）
     ext, media = validate_upload_bytes(data, filename)
-    base = resource_manager.get_uploads_path(identity)
-    if not base:
+    base = resource_manager.uploads_dir(identity)
+    if base is None:
         raise ToukaException(ErrorCode.UPLOAD_FAILED)
-    base_path = Path(base).resolve()
-    # ② per-agent 配額：現有 + 本次超過上限即拒（防已驗證者塞爆磁碟）。
-    if _uploads_dir_bytes(base_path) + len(data) > UPLOAD_AGENT_QUOTA_BYTES:
-        raise ToukaException(ErrorCode.UPLOAD_TOO_LARGE)
     seg = _safe_seg(session_id)
     name = _safe_filename(filename, ext)
-    target = (base_path / seg / name).resolve()
-    if not target.is_relative_to(base_path):  # ③ 穿越雙重保險（sanitize 後再驗）
-        raise ToukaException(ErrorCode.UPLOAD_FAILED)
     try:
-        resource_manager.write_file_binary(target, data)
-    except (OSError, PermissionError) as e:
+        # ③ 區內路徑：每段只能是一段名稱（Windows 的 ``CON.md`` 這類也拒絕）
+        target = base.child(seg, name)
+        # ② per-agent 配額：現有 + 本次超過上限即拒（防已驗證者塞爆磁碟）。
+        if _uploads_dir_bytes(base) + len(data) > UPLOAD_AGENT_QUOTA_BYTES:
+            raise ToukaException(ErrorCode.UPLOAD_TOO_LARGE)
+        resource_manager.zone_write_binary(target, data)
+    except (OSError, ZoneSegmentError) as e:  # 含連結（LinkRefusedError 是 OSError）
         raise ToukaException(ErrorCode.UPLOAD_FAILED) from e
     return {
         "filename": name,
