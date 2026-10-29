@@ -92,9 +92,10 @@ def _walk_no_links(p: Path) -> os.stat_result | None:
 
 
 def ensure_no_links(path: Path | str) -> None:
-    """從根往下，現存的每一段都不能是 symlink 或 junction（Windows 開檔前後與走訪前用）。
+    """從根往下，現存的每一段都不能是 symlink 或 junction（走訪前、Windows 開檔前與開檔失敗時用）。
 
-    每段一次 lstat；遇到不存在的那一段就停（更下層也不存在）。
+    每段一次 lstat；遇到不存在的那一段就停（更下層也不存在）。Windows 開檔後由
+    ``_check_opened`` 再查一次並比對檔案識別碼。
     """
     _walk_no_links(Path(path))
 
