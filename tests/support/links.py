@@ -16,6 +16,8 @@ if sys.platform == "win32":
 
 # 連結測試「跟隨了連結」那幾條斷言的失敗訊息（ADR-0293 R15：在舊版上跑時用它確認紅的原因）
 LINK_FOLLOWED = "LINK_FOLLOWED"
+# 個人空間根是連結時，舊版不跟隨、但照樣刪掉其他部分（R11 改成整個失敗）
+REST_DELETED = "REST_DELETED"
 
 
 def make_dir_link(link: Path, target: Path) -> None:

@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from memory_server.utils.zone_paths import Anchor
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.routers import souls
@@ -36,6 +37,9 @@ from src.services.isolation import home_wipe
 from src.services.isolation.profiles import current_layout, state_dirs
 from src.services.isolation.runners import Acquired, IsolationUnavailableError
 from src.services.resource_manager import resource_manager
+from src.tools import terminal
+
+from tests.support.links import LINK_FOLLOWED, REST_DELETED, make_dir_link
 
 if sys.platform == "win32":
     import _winapi
@@ -357,17 +361,23 @@ def test_delete_clears_the_homes_before_deleting_the_soul(admin, monkeypatch) ->
     soul_dir = _soul_dir()
     seen: list[tuple[str, bool]] = []
 
+    async def stop(identity: AgentIdentity) -> int:
+        seen.append((f"stop:{identity.agent_id}", soul_dir.exists()))
+        return 0
+
     async def wipe(identity: AgentIdentity) -> None:
         seen.append((identity.agent_id, soul_dir.exists()))
         # 執行器範圍看 personal vault：沒有角色時 soul/ 不在就會解析到 custom 的 drive
-        drive = resource_manager.get_vault_path("personal", identity)
-        assert drive is not None and Path(drive).parent.name == "personal_drive"
+        drive = resource_manager.agent_drive(identity)
+        assert drive is not None and drive.anchor is Anchor.PERSONAL_DRIVE
 
+    monkeypatch.setattr(terminal, "stop_agent_commands", stop)
     monkeypatch.setattr(souls, "wipe_agent_homes", wipe)
     resp = _delete(admin)
 
     assert resp.status_code == 200, resp.text
-    assert seen == [(SOUL, True)]  # 先清家目錄，那時靈魂資料還在
+    # 先停這個靈魂的指令（R11），再清家目錄，那時靈魂資料都還在
+    assert seen == [(f"stop:{SOUL}", True), (SOUL, True)]
     assert not soul_dir.exists()
 
 
@@ -376,12 +386,37 @@ def test_deleting_an_orphan_still_clears_its_personal_drive_home(admin, monkeypa
     seen: list[str] = []
 
     async def wipe(identity: AgentIdentity) -> None:
-        drive = resource_manager.get_vault_path("personal", identity)
-        seen.append(Path(drive).parent.name if drive else "")
+        drive = resource_manager.agent_drive(identity)
+        seen.append(drive.anchor.name if drive else "")
 
     monkeypatch.setattr(souls, "wipe_agent_homes", wipe)
     assert _delete(admin).status_code == 200
-    assert seen == ["personal_drive"]
+    assert seen == [Anchor.PERSONAL_DRIVE.name]
+
+
+def test_a_linked_personal_drive_refuses_the_delete(
+    zone_data_root: Path, admin, monkeypatch, tmp_path: Path
+) -> None:
+    """個人空間根是連結：整個刪除失敗、什麼都不刪，連結另一端也沒動（ADR-0293 R11）."""
+    fake = tmp_path.resolve() / "fake_config"
+    fake.mkdir()
+    (fake / "users.json").write_text("{}", encoding="utf-8")
+    soul_dir = _soul_dir()
+    (zone_data_root / "personal_drive").mkdir()
+    make_dir_link(zone_data_root / "personal_drive" / SOUL, fake)
+    wipe, stop = AsyncMock(), AsyncMock(return_value=0)
+    monkeypatch.setattr(souls, "wipe_agent_homes", wipe)
+    monkeypatch.setattr(terminal, "stop_agent_commands", stop, raising=False)
+
+    resp = _delete(admin)
+
+    assert (fake / "users.json").read_text(encoding="utf-8") == "{}", LINK_FOLLOWED
+    assert soul_dir.exists(), REST_DELETED
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "AGENT_DRIVE_LINKED"
+    wipe.assert_not_awaited()
+    stop.assert_not_awaited()
+    assert os.path.lexists(zone_data_root / "personal_drive" / SOUL)
 
 
 def test_delete_is_refused_when_the_homes_cannot_be_cleared(admin, monkeypatch) -> None:
