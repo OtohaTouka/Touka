@@ -2,6 +2,27 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## Hook 設定與事件（2026-10-28，ADR-0292）
+
+- 管理端點（根路徑與 `/v1` 對等），三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
+  - `GET /v1/hooks` → `HooksConfigResponse`：`config`（目前生效的設定；`hooks.json` 壞掉時是上一份好的）、`health`（`status` 為 `ok`／`missing`／`error`，`revision` 是目前檔案內容的 SHA-256、沒有檔案時 `null`，`detail` 是錯誤類型）、`wired_events`、`matcher_events`。
+  - `PUT /v1/hooks`：body `HooksSaveRequest` `{config, revision}`，`revision` 必填（沒有檔案時送 `null`），多的欄位 422。先查 CSRF Origin（不可信回 403）；revision 和目前檔案不同回 409 `HOOK_CONFIG_CONFLICT`（`detail.revision` 帶目前的值）；command hook 的程式或參數指到代理人寫得到的地方、或無法確認時回 422 `HOOK_PATH_REJECTED`（`detail.problems[]`：`event`、`where`、`reason`、`value`），都不寫檔；讀不到目前的檔案或寫不進去時回 500 `CONFIG_SAVE_FAILED`，執行中的仍是上一版。成功回 `{revision}`；`author`、`updated_at` 由伺服器填。
+    - `reason` 的值：`not_absolute`、`missing`、`not_file`、`parent_segment`、`unc_path`、`file_url`（參數是 `file:` 網址）、`agent_writable`、`outside_hooks_dir`（參數的路徑不在 `config/hooks/`）、`linked_path`（`config/hooks/` 本身或經過的一層是連結）、`hard_link`、`link_loop`、`unverifiable`。
+  - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。`detail` 是擋下或要求確認的理由、失敗原因（例外只有類型）與不採用的欄位，不含 stdout。
+- 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由；`detail.reason` 最多 4,000 字；這時後端沒有寫任何東西（請求在送模型前就被拒）。hook 執行期間這個對話被停止（`POST /v1/ui/sessions/{id}/stop`）時，hook 跑完後不送模型，回 409 `PROMPT_STOPPED`（hook 擋下時仍回 403）。停止端點不帶 `stream_id` 時，若呼叫者本人在這個對話有還沒開始串流的請求、而且沒有進行中的串流，就把這個人還在等的請求標成已停止、回 200（不讀這一輪的對話內容，無痕也停得下來；同一對話之後的請求清不掉）。對話已存在時要有權限（沒有就回 403），這時也設這個對話的停止旗標、結束這個對話的子程序；查不到對話時只停自己的請求。這個停止之後同一個對話的下一則請求清掉旗標也一樣停（看這次執行開始之後被停止過幾次）。組上下文期間才停的，換綁對話之前與開始串流前回同樣的 409、不換綁、不建立串流。這個 409 不算模型失敗，不改用備援模型。有進行中的串流時照舊回 404 `STREAM_NOT_FOUND`，要帶 `stream_id` 才停得到。hook 服務自己出錯時照常回覆（當成沒有 hook 結果）。
+- 插話（ADR-0249 的 `POST …/interjections`）：進佇列前跑 UserPromptSubmit，擋下回 403 `HOOK_PROMPT_BLOCKED`（`detail.reason`），不進佇列；hook 執行期間串流換代或結束時回 404 `STREAM_NOT_FOUND`。
+- SNS：外人訊息等 hook 跑過、pipeline 開始回覆後才寫進對話（回覆是串流，寫好之前不讀）；被 UserPromptSubmit 擋下的不寫、不回覆外人，也不往外丟錯（只記 log），其他錯誤照舊寫。寫入失敗回 `SESSION_SAVE_FAILED`，不讀回覆、不呼叫模型。
+- 事件內容：PreToolUse／PostToolUse 的 `tool_input` 是模型送來的參數（不含執行器之後補上的欄位）；模型叫舊工具名稱時另帶 `tool_aliases`（對應的新名稱），matcher 兩者都比對；MCP 工具另比對 `server__tool` 與 `mcp__server__tool`（模型用裸名稱叫也一樣）。
+- 專案根（ADR-0292 決定 12）：一般使用者（非 admin、非 Debugger）的專案根不能在 Touka 保護的位置或它們的上層；本機安裝時安裝根底下 Touka 自己的第一層資料夾也不行。
+  - `POST /v1/ui/projects/save`（存專案）不合規則回 422 `VALIDATION_ERROR`，`detail.reason` 是 `outside_workspace`、`protected_location` 或 `scan_limit`（檢查沒做完：資料夾太多、讀不到或還在查，訊息另外說明）。
+  - `GET /v1/ui/projects/{project_id}/files`（專案檔案樹）遇到這種專案根回 403 `AUTH_PERMISSION_DENIED`，不分原因（檢查沒做完時也一樣）。
+  - 專案檔案工具（列檔與讀寫）遇到這種專案根回結構化的 `permission_denied`（`reason` 同上），不執行；只有管理員擁有的靈魂不受限，有一般使用者共同擁有的照一般身分檢查。
+  - 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（解析前後不同，含 `..`、Windows 結尾的空白或句點、8.3 短檔名）時，專案檔案工具回 `permission_denied`、`reason: "linked_root"`；人類照舊。
+- 代理人的檔案動詞（各 scope）不跟隨連結：路上有 symlink 或 junction 時讀寫刪回錯誤「the path goes through a symbolic link or junction; links are not followed.」；list 把連結列成「名稱 (link, not followed)」，find、grep 不進入也不列出連結。
+- 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
+- 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
+- `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。
+
 ## 查最後一次重置的結果（2026-10-28，ADR-0289）
 
 - 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與一般使用者回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401。唯讀。

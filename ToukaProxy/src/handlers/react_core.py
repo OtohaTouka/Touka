@@ -29,6 +29,7 @@ from src.models.session_persistence import UiGenerationStopped
 from src.services.autonomy import autonomy_service
 from src.services.context_breakdown import compute_context_breakdown
 from src.services.guard_service import guard_service
+from src.services.hooks.stop_hooks import schedule_stop_hooks
 from src.services.interjection_queue import (
     interjection_queue,
     round_interrupted_by_user_event,
@@ -553,6 +554,9 @@ async def run_react_loop(  # noqa: PLR0915
             )
         if guard_service.check_memory_hallucination(response_text, actually_used_tools):
             yield yield_delta(guard_service.get_memory_warning_message())
+
+    # ADR-0292：Stop hook 在背景執行，回覆不等它
+    schedule_stop_hooks(context, lambda: adapter.extract_final_text(state, final_raw))
 
     t3 = get_current_epoch()
     gen_time = upstream_gen_s  # C4：Σ上游耗時

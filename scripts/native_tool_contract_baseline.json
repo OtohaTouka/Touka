@@ -1214,7 +1214,44 @@
       "_enforce_root_bound": {
         "parameters": [
           "target_path_str",
-          "root_bound_str"
+          "root_bound_str",
+          "root_is_real"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_check_no_links": {
+        "parameters": [
+          "path",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_not_a_file": {
+        "parameters": [
+          "path"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_regular_files": {
+        "parameters": [
+          "root",
+          "skipped",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_glob_match": {
+        "parameters": [
+          "rel",
+          "pattern"
         ],
         "kwargs": null,
         "reads": [],
@@ -1226,7 +1263,8 @@
           "root_bound",
           "offset",
           "limit",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1238,7 +1276,8 @@
           "root_bound",
           "content",
           "mode",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1250,7 +1289,8 @@
           "root_bound",
           "old_str",
           "new_str",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1260,7 +1300,8 @@
         "parameters": [
           "path",
           "root_bound",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1272,7 +1313,8 @@
           "root_bound",
           "max_depth",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1283,7 +1325,8 @@
           "pattern",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1294,7 +1337,8 @@
           "query",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -2873,6 +2917,15 @@
       }
     },
     "ToukaProxy/src/tools/project_tools.py": {
+      "_root_refused": {
+        "parameters": [
+          "project_id",
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "project_tools": {
         "parameters": [
           "action",

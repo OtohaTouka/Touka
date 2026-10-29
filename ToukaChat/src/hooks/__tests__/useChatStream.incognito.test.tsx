@@ -127,6 +127,14 @@ describe('useChatStream 無痕旗標來源（HAX G17 wipe 競態防護）', () =
     expect(h.startStream).toHaveBeenCalledTimes(1);
     expect(reset).toHaveBeenCalledTimes(1);
   });
+  it('hook 擋下時把送出的對話 id 交給呼叫端（ADR-0292）', async () => {
+    h.sessions = [{ id: 's1', title: 's1', messages: [], updatedAt: 1, agent_id: 'agent' }];
+    const { result } = renderStream('s1');
+    const blocked = vi.fn();
+    await act(async () => { await result.current.handleSendStream('draft', null, undefined, vi.fn(), blocked); });
+    h.startStream.mock.calls[0][0].onHookBlocked?.();
+    expect(blocked).toHaveBeenCalledWith('s1');
+  });
   it('registry 回報未啟動時保留輸入', async () => {
     h.sessions = [{ id: 's1', title: 's1', messages: [], updatedAt: 1, agent_id: 'agent' }];
     h.startStream.mockResolvedValue(false);

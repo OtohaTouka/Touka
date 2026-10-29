@@ -1,5 +1,17 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## Hook（2026-10-28，ADR-0292）
+
+- 設定唯一來源：`config/hooks.json`（`models/hooks.py` 的 `HooksConfig`；種子 `hooks.json.example`，預設關閉）。只經 `PUT /v1/hooks`（人類 admin）改；代理人用終端讀寫屬底線 F2（標頭可能有權杖；檔案動詞與 MCP 不經底線，靠專案根限制）。不在設定匯出／匯入裡。
+- hook 腳本：設定資料夾的 `hooks/`（`services/hooks/paths.py` 的 `HOOKS_DIR_NAME`），也是 command hook 的工作目錄；參數裡的路徑必須在這裡，程式在別處時不能指到代理人寫得到的地方（資料根、sandbox state、執行器、工作區根、專案根、MCP 可寫資料夾與它們的對映路徑）。不進版控也不進映像。
+- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行只有管理員擁有的靈魂：`authorization_gateway.only_admins_own`）。
+- 執行與合併結果的唯一入口：`services/hooks/service.py` 的 `hook_service`；解讀規則 `outcome.py`，比對規則 `matcher.py`，執行 `runners.py`（command 經 `execution_broker.spawn_exec`、不經 shell）。
+- 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
+- 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
+- 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。
+- 代理人檔案動詞不跟隨連結的 I/O：ToukaMemory `utils/no_follow.py`（`core_file_ops` 直接用；ToukaProxy 的 `ResourceManager` 以 `*_no_follow` 方法包一層，`IResourceProxy` 有對應方法）。和 `core_file_ops.py`、`resource_manager.py` 一樣列在 `lint_ssot.py` 的 I/O 白名單。
+- 被擋下的一輪在前端怎麼處理：`ToukaChat/src/lib/stream_tree.ts` 的 `dropBlockedTurn`（`StreamRegistryProvider` 存回、`ChatProvider` 放回輸入框）。
+
 ## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）
 
 | 責任 | 唯一來源 | 使用者 |
@@ -162,7 +174,7 @@
 | 系統把對話歸檔進舊對話庫（`legacy/` 不寫檔、不搬檔；訊息只新增） | `ToukaMemory/src/memory_server/services/legacy_sync.py` `LegacySyncService.archive_payload` → `legacy_store.py` `LegacyStore.archive`（一個交易） | 滑動視窗剪裁 ACID-A、`POST /v1/ui/sessions/legacy/export`、`sync_all_json_to_db`；兩個 tools 目錄不得引用（`test_legacy_archive.py` 釘住） |
 | 手動同步的已處理紀錄（檔名, 內容 SHA-256） | 舊對話庫表 `processed_files`（`LegacyStore.processed_keys`、`LegacySyncService.file_status`） | `sync_all_json_to_db`（重跑跳過）、`GET /v1/stats/legacy/{agent_id}`（`archived_files`／`pending_files`） |
 | 聊天側剪裁的身分（家對話所屬的靈魂，不用請求者） | `ToukaProxy/src/services/dispatcher.py` `_home_soul_identity`（`home_for_agent`；判定與設家相同，身分建法與心跳相同） | `_maybe_trim_after_chat` |
-| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `continuity_service._append_to_last_user`、`ContextLayer._append_context`（`<ide_context>`） |
+| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `content_normalize.append_to_last_user`（`continuity_service`、`HookLayer` 共用）、`ContextLayer._append_context`（`<ide_context>`） |
 
 ## 記憶系統第二批：段 L 記憶會演變與安全標記（2026-10-15，ADR-0263）
 
@@ -502,6 +514,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **錯誤碼定義** | `errors.json` | `${TOUKA_CONFIG_DIR}/errors.json` | **Error SSOT**: 跨端唯一錯誤代碼、狀態碼與 i18n 映射來源。由 `sync_errors.py` 同步至前端。 |
 | **翻譯目錄 (i18n)** | `locales/<lng>/translation.json` ＋ `locales/index.ts`（語言註冊表） | `ToukaChat/src/locales/` | **Translation Catalog SSOT**（ADR-0093）：react-i18next 翻譯目錄，一語言一檔；`zh-TW` 為來源語言、`en` 為國際參考、其餘社群語言。`index.ts` barrel export `SOURCE_LNG`/`SUPPORTED_LNGS`/`i18nResources`（新增語言＝放檔＋加一行）。由 **Guard #33**（`guard_i18n.ts`）以 zh-TW 為基準驗證跨語言 key 同步（多餘/拼錯＝錯誤、`en` 不完整＝錯誤、社群語言缺 key＝警告、複數 `*_one/_other` 允許）。錯誤訊息 `error.*` 橋接 `errors.json` 的 `i18n` key（ADR-0014），由 `errorMsg()` 在地化。`fallbackLng='en'`；語言記憶由 `i18next-browser-languagedetector` 寫 localStorage `touka_lang`。⚠️ 勿開 `nonExplicitSupportedLngs`（會壞 zh-TW 解析）。 |
 | **滑動視窗設定** | `sliding_window.json` | `${TOUKA_CONFIG_DIR}/sliding_window.json` | **SlidingWindow SSOT**（ADR-0035 amended by ADR-0092）：家對話滑動視窗的啟用狀態與 **token 百分比規則**（`trigger_pct` 觸發／`target_floor_pct` 地板／`summary_budget_pct` 摘要上限／`min_keep_pairs`／`summary_model`）。由 `SlidingWindowService.load_config()` 讀取，`POST /v1/system/sliding_window` 更新（admin only）。觸發點兩處（heartbeat finally ＋ dispatcher turn 落盤後、經 per-session 鎖；禁令 28/57）。舊 `keep_rounds`/`upper_limit_rounds` 為 deprecated 相容欄位（則數計算 SSOT `count_rounds_from_linear` 保留供 session 列表/ContextMeter 顯示）。 |
+| **Hook 設定** | `hooks.json` | `${TOUKA_CONFIG_DIR}/hooks.json` | **Hook SSOT**（ADR-0292）：`enabled` 與 `{事件: [{matcher, hooks: [command／http]}]}`，預設關閉。由 `hook_service` 每次使用前比對內容 SHA-256 重讀，壞檔、讀不到或被刪掉時沿用上一份好的；只經 `PUT /v1/hooks`（人類 admin、revision CAS、存檔前查路徑）更新；代理人用終端讀寫屬底線 F2。腳本與參數裡的路徑放同資料夾的 `hooks/`。 |
 | **Context Token 量測** | `context_window_registry._BUILTIN_WINDOWS` ＋ `config/model_context_windows.json` | code 表＋JSON 覆蓋 | **Context Window SSOT**（ADR-0092）：模型 context window（token）分母。`get_context_window(model)` 內建表為主、JSON `windows`/`_default` 覆蓋、未知回 128K。`token_estimator.estimate_tokens/estimate_messages_tokens`（CJK 感知、fail-safe、永不拋例外）為 token 估算唯一入口；`context_breakdown.compute_context_breakdown` 以 authoritative `input_tokens` 校正分類別用量（供 ContextMeter）。 |
 | **Prompt 區塊邊界** | `prompt_blocks.py`（tag 常數＋`wrap_block`） | `ToukaProxy/src/services/prompt_blocks.py` | **Prompt Delimiter SSOT**（ADR-0092 B0）：各 context 區塊以一致 XML tag 包覆（`<persona>`/`<project_context>`/`<ide_context>`/`<mission_awareness>`/`<capabilities>`/`<conversation_summary>`），供 breakdown 單一 parser 切段；`ALL_BLOCK_TAGS` 為列舉來源。soul 外層 `<persona>` 內文逐字不變（不碰 `data/soul`）。 |
 | **對話摘要欄位** | `user_sessions.context_summary` | `ui_sessions.db` | **Context Summary SSOT**（ADR-0092 D）：session 級「被剪舊對話的摘要」（替換式、不進對話訊息樹故不被再剪/再算/再摘要）。`sliding_window` 剪裁時經 `dialogue_summarizer`（haiku、fail-safe）寫入；`SoulLayer.inject_context_summary` 前置注入為 `<conversation_summary>`（無痕不注入）。文字第一行是系統寫的時間範圍（ADR-0264）。 |

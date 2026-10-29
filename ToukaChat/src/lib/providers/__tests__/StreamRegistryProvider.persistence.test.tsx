@@ -242,4 +242,56 @@ describe('actual registry user-turn persistence barrier', () => {
     expect(state.controller.signal.aborted).toBe(true);
     expect(result.current.activeCount).toBe(0);
   });
+  it('stop before any stream is registered still tells the server to stop this conversation', async () => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    h.fetch.mockClear().mockResolvedValue({ ok: true, status: 200, json: async () => ({ state: null }) });
+    await act(async () => { result.current.stopStream('s1'); });
+    const stops = h.fetch.mock.calls.filter(([, , options]) => options?.method === 'POST');
+    expect(stops).toHaveLength(1);
+    expect(stops[0][1]).toBe('/v1/ui/sessions/s1/stop');
+    expect(stops[0][2]).toMatchObject({ requestScope: h.scope, method: 'POST' });
+    expect(state.controller.signal.aborted).toBe(true);
+    expect(result.current.activeCount).toBe(0);
+  });
+  it.each([
+    ['the conversation cannot be read yet (incognito)', () => ({ ok: false, status: 403, json: async () => ({}) })],
+    ['only the previous turn\'s finished stream is left', () => ({ ok: true, status: 200, json: async () => ({ state: {
+      session_id: 's1', stream_id: 'old', status: 'done', last_seq: 3, started_at: 1, terminal: null,
+      started: { type: 'touka_stream_started', session_id: 's1', stream_id: 'old', user_parent_id: 'old-user', assistant_node_id: 'old-reply' },
+    } }) })],
+  ])('stop with no running stream still sends the conversation stop when %s', async (_case, stateResponse) => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    h.fetch.mockClear().mockImplementation(async (_origin: string, path: string) =>
+      path.endsWith('/stream/state') ? stateResponse() : { ok: true, status: 200, json: async () => ({ status: 'success' }) });
+    await act(async () => { result.current.stopStream('s1'); });
+    const stops = h.fetch.mock.calls.filter(([, , options]) => options?.method === 'POST');
+    expect(stops.map(([, path]) => path)).toEqual(['/v1/ui/sessions/s1/stop']);
+  });
+  it.each([true, false])('a stream that starts between reading and stopping is stopped by name only if it is this turn; matching=%s', async matching => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    const started = { type: 'touka_stream_started', session_id: 's1', stream_id: 'stream',
+      user_parent_id: state.tree.messages[state.assistantMsgId].parentId,
+      assistant_node_id: matching ? state.assistantMsgId : 'different-turn' };
+    let reads = 0;
+    h.fetch.mockClear().mockImplementation(async (_origin: string, path: string) => {
+      if (path.endsWith('/stream/state')) {
+        reads += 1;
+        return { ok: true, status: 200, json: async () => ({ state: reads === 1 ? null : {
+          session_id: 's1', stream_id: 'stream', status: 'active', last_seq: 0, started_at: 1, started, terminal: null,
+        } }) };
+      }
+      return path.endsWith('/stop') ? { ok: false, status: 404, json: async () => ({}) }
+        : { ok: true, status: 200, json: async () => ({ status: 'success' }) };
+    });
+    await act(async () => { result.current.stopStream('s1'); });
+    const stops = h.fetch.mock.calls.filter(([, , options]) => options?.method === 'POST');
+    expect(stops.map(([, path]) => path)).toEqual(matching
+      ? ['/v1/ui/sessions/s1/stop', '/v1/ui/sessions/s1/stop?stream_id=stream']
+      : ['/v1/ui/sessions/s1/stop']);
+  });
 });

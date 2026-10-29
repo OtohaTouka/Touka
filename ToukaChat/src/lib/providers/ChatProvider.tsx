@@ -166,6 +166,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeStream, activeSessionId, sessions, processStreamChunk, finalizeStream]);
 
+  const activeIdRef = useRef(activeSessionId);
+  useEffect(() => { activeIdRef.current = activeSessionId; }, [activeSessionId]);
+
   const handleSend = useCallback(async (customText?: string, parentIdOverride?: string | null) => {
     const textToSend = customText ?? inputValueRef.current;
     if ((!textToSend.trim() && !attachment) || isSending) return;
@@ -183,14 +186,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     return handleSendStream(textToSend, attachment, parentIdOverride, () => {
         if (!customText) setInputValue("");
         setAttachment(null);
+    }, sessionId => {
+        // hook 擋下（ADR-0292）：文字放回還在這個對話、而且還空著的輸入框
+        if (!customText && activeIdRef.current === sessionId && !inputValueRef.current) setInputValue(textToSend);
     });
   }, [isSending, attachment, sessions, activeSessionId, selectedModel, isIncognito, updateSession,
       refreshSessions, setAuthLevel, handleSendStream, setInputValue]);
 
   // 後端只讓 admin 或靈魂擁有者存成 Auto／YOLO，其他人會被存成 Manual（ADR-0246）。
   // 存檔後重讀清單，顯示後端實際存下的模式，不等重新載入。
-  const activeIdRef = useRef(activeSessionId);
-  useEffect(() => { activeIdRef.current = activeSessionId; }, [activeSessionId]);
   const authRequestRef = useRef(0);
   const handleSetAuthLevel = useCallback((level: string) => {
     if (isIncognito && level !== 'Manual') { // 無痕無法追溯，後端一律 Manual（U2c-9）

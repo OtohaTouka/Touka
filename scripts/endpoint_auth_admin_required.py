@@ -82,6 +82,11 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "post", "path": "/system/settings/export"},
     {"method": "post", "path": "/system/sliding_window"},
 
+    # ── Hook 設定與執行紀錄（hooks.py，人類 admin，ADR-0292）──────────────────
+    {"method": "get", "path": "/hooks"},
+    {"method": "put", "path": "/hooks"},
+    {"method": "get", "path": "/hooks/runs"},
+
     # ── 工作區設定（ui_sessions.py）─────────────────────────────────────────
     {"method": "post", "path": "/ui/settings/workspace"},
 ]

@@ -301,6 +301,7 @@
         "rbac": "Permission Matrix (RBAC)",
         "identity_map": "Identity Mapping",
         "autonomy": "Autonomy Budget",
+        "hooks": "Hooks (programs and HTTP calls run on events)",
         "users": "User Management",
         "agent_reset": "Agent Data Reset",
         "backup": "System Backup/Restore",
@@ -367,6 +368,10 @@
       "security": {
         "label": "Security",
         "title": "Security & Privacy"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook settings"
       },
       "sliding_window": {
         "label": "Sliding Window",
@@ -524,6 +529,81 @@
       "save_success": "Sliding window settings saved",
       "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
       "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
+    },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, and when a reply ends. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Hook programs run with Touka's own permissions and no isolation, so only use programs you trust. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused. Do not use launchers such as env, npx or py, which look up the program to run on their own, and install the packages your scripts use inside hooks/ (for example hooks/node_modules) by copying them (for example set UV_LINK_MODE=copy for uv, or pass --package-import-method=copy to pnpm; npm copies already): uv and pnpm may share one copy of a file through hard links, so an agent changing the copy in its own project would also change the one your hook uses. On Linux and Docker, arguments cannot contain URLs (\":\" is treated as a path list separator); put URLs in a settings file inside hooks/ and have the script read it. Every user's conversations trigger hooks, incognito chats included, and the message and tool content is sent to them (the event is marked incognito; the hook decides whether to keep it). \"When a user sends a message\" only checks text sent in a chat; heartbeats, scheduled prompts and re-triggered runs do not trigger it, so it cannot be used to restrict users. \"Before a tool runs\" only covers calls made through the tool executor (the agent's tools and debug runs); task verification commands and trial runs do not trigger it. Extra context from tool hooks is added to the tool result, so the conversation's user can see it and it is saved with the conversation. When a program blocks with exit code 2, its standard error is shown to the conversation's user as the reason, so do not put secrets in it. HTTP hook replies must not be compressed; a compressed reply counts as a failure.",
+      "enable_label": "Enable hooks",
+      "enable_hint": "When off, no hook runs.",
+      "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
+      "add_group": "Add a group",
+      "remove_group": "Remove this group",
+      "remove_hook": "Remove this hook",
+      "reload": "Reload",
+      "save_button": "Save",
+      "save_success": "Hook settings saved",
+      "path_problem": "{{event}} {{where}}: {{reason}} ({{value}})",
+      "types": {
+        "command": "Program",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "After a user sends a message, before it reaches the model. Can block the message or add context for the model. Heartbeats do not trigger it.",
+        "PreToolUse": "Before a tool runs. Can block it or ask a person to confirm on the approval card. The matcher checks the tool name.",
+        "PostToolUse": "After a tool succeeds. Can add context for the model. The matcher checks the tool name.",
+        "Stop": "After a reply ends; runs in the background and does not affect the reply."
+      },
+      "fields": {
+        "name": "Name (optional)",
+        "enabled": "Enable this hook",
+        "command": "Absolute path of the program",
+        "command_placeholder": "Absolute path of the program (for example an interpreter); keep scripts in the config folder's hooks/",
+        "args": "Arguments",
+        "args_placeholder": "Arguments, one per line (passed as-is, no shell)",
+        "url": "URL",
+        "url_placeholder": "https://",
+        "headers": "Headers",
+        "headers_placeholder": "Headers, one \"Name: value\" per line (sent literally, no environment variables)",
+        "timeout": "Timeout (seconds)",
+        "matcher": "Matcher",
+        "matcher_placeholder": "Tool name; separate several with |, or use a regular expression; empty or * matches all"
+      },
+      "runs": {
+        "title": "Recent runs",
+        "hint": "Only the latest 50 are kept in server memory and cleared on restart. Incognito chats record only the time, event and result.",
+        "refresh": "Refresh",
+        "empty": "No runs yet.",
+        "incognito": "(incognito)",
+        "duration": "{{ms}} ms",
+        "exit_code": "exit code {{code}}",
+        "http_status": "HTTP {{status}}"
+      },
+      "outcomes": {
+        "blocked": "Blocked",
+        "ask": "Asked to confirm",
+        "context": "Added context",
+        "none": "No action",
+        "failed": "Hook failed (not blocking)"
+      },
+      "path_reasons": {
+        "not_absolute": "not an absolute path",
+        "missing": "file does not exist",
+        "not_file": "not a file",
+        "parent_segment": "contains \"..\"",
+        "file_url": "file: URLs are not accepted",
+        "unc_path": "network paths and drive-relative paths are not accepted",
+        "agent_writable": "in a place agents can write to",
+        "outside_hooks_dir": "not in the config folder's hooks/",
+        "linked_path": "the path goes through a symbolic link or junction",
+        "hard_link": "has other hard links",
+        "link_loop": "too many or looping symbolic links",
+        "unverifiable": "location cannot be verified"
+      },
+      "errors": {
+        "load_failed": "Could not load the hook settings.",
+        "save_failed": "Saving failed. Please try again later.",
+        "invalid_field": "Invalid field: {{where}}: {{message}}"
+      }
     },
     "models_tab": {
       "search_placeholder": "Search models...",
@@ -1410,6 +1490,8 @@
       "reject": "Reject",
       "countdown": "Auto-rejects in {{seconds}}s",
       "review_reason": "Why the reviewer sent this to you: {{reason}}",
+      "hook_ask": "A hook set by the administrator asks you to confirm this action.",
+      "hook_reason": "A hook set by the administrator asks you to confirm: {{reason}}",
       "human_only": "Only you can approve",
       "human_only_desc": "Neither the reviewer nor YOLO can approve this kind of action for you.",
       "risk": {
@@ -2245,6 +2327,7 @@
       "id_mismatch": "Session ID mismatch",
       "save_failed": "Failed to save the session",
       "scope_mismatch": "This conversation cannot be used for the requested target",
+      "prompt_stopped": "This reply was stopped before it started",
       "interjection_queue_full": "Too many messages added to this reply",
       "interjection_too_long": "The message is too long",
       "interjection_not_found": "Message not found for this reply",
@@ -2313,6 +2396,11 @@
       "collection_collision": "This ID would share a semantic index with an existing ID; choose another ID",
       "check_failed": "Could not confirm this ID will not share memory with an existing one; nothing was created",
       "collection_collision_with": "This ID would share a semantic index with \"{{id}}\"; choose another ID"
+    },
+    "hooks": {
+      "prompt_blocked": "A hook set by the administrator blocked this message. It was not sent to the model and was taken out of the conversation.",
+      "config_conflict": "The hook settings were changed elsewhere. Reload, then save again.",
+      "path_rejected": "A hook command or argument points to a place agents can write to, or its safety cannot be confirmed, so it cannot be saved."
     }
   }
 }

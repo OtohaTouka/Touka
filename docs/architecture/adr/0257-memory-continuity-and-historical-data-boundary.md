@@ -143,7 +143,7 @@ S1：
 | 決策 | 檔案 | 位置 | 測試／守衛 |
 |---|---|---|---|
 | 1 新區塊與內容 | `ToukaProxy/src/services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py` | `build_continuity_block`、`HEADER`、`_mission_line`、`_board_identity`、`format_elapsed`；`CONTINUITY`、`ALL_BLOCK_TAGS`；`BLOCK_META` | `test_continuity_block.py` |
-| 2 位置與多模態 | `continuity_service.py` | `inject_continuity`、`_append_to_last_user` | `test_continuity_block.py`（`test_continuity_after_cache_breakpoint`、`test_multimodal_json_string_keeps_image_and_adds_part`） |
+| 2 位置與多模態 | `continuity_service.py` | `inject_continuity`（附加文字經 `content_normalize.append_to_last_user`） | `test_continuity_block.py`（`test_continuity_after_cache_breakpoint`、`test_multimodal_json_string_keeps_image_and_adds_part`） |
 | 2 Claude 歷史快取斷點 | `ToukaProxy/src/adapters/openai_to_claude.py`、`services/prompt_blocks.py` | `convert_openai_to_anthropic` 斷點 2、`_mark_history_breakpoint`、`_split_request_tail`；`REQUEST_TAIL_TAGS` | `test_request_tail_cache_breakpoint.py` |
 | 3 距上一輪多久 | `continuity_service.py` | `_previous_turn_line`、`_swap_last_request`、`last_backend_timestamp_ms`、`elapsed_seconds`、`MAX_TRACKED_SESSIONS` | `test_continuity_block.py` |
 | 4 閘門 | `ToukaProxy/src/middleware/layers/soul.py` | `SoulLayer.process`（`session_bound` 或無痕） | `test_continuity_block.py`、`test_continuity_not_persisted.py`（心跳） |

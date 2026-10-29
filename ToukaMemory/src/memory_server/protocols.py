@@ -106,7 +106,32 @@ class IResourceProxy(IConversationReader, Protocol):
     def list_directory(
         self, path: Any, max_depth: int = 2, exclude: frozenset[str] = frozenset()
     ) -> list[str]:
-        """列出目錄結構樹（exclude：額外隱藏的名稱）."""
+        """列出目錄結構樹（exclude：額外隱藏的名稱；連結只列名稱、不進入）."""
+        ...
+
+    # 不跟隨連結（代理人的檔案動詞用）：路上任何一段是 symlink 或 junction 就丟 LinkRefusedError
+    def ensure_no_links(self, path: Any) -> None:
+        """路上不能有連結（讀不到狀態時先權限自癒）."""
+        ...
+
+    def read_file_text_no_follow(self, path: Any, encoding: str = "utf-8") -> str:
+        """讀文字檔，不跟隨連結."""
+        ...
+
+    def read_file_binary_no_follow(self, path: Any) -> bytes:
+        """讀二進位檔，不跟隨連結."""
+        ...
+
+    def write_file_text_no_follow(self, path: Any, content: str, encoding: str = "utf-8") -> None:
+        """原子寫入文字檔（受保護路徑拒絕），不跟隨連結."""
+        ...
+
+    def append_file_text_no_follow(self, path: Any, content: str, encoding: str = "utf-8") -> None:
+        """追加文字（受保護路徑拒絕），不跟隨連結."""
+        ...
+
+    def remove_file_no_follow(self, path: Any) -> None:
+        """刪除檔案（受保護路徑拒絕），不跟隨連結."""
         ...
 
     def glob_search(

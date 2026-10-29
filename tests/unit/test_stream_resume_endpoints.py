@@ -5,6 +5,7 @@
 - POST /sessions/{id}/stop：擴充後同時取消緩衝 producer
 """
 
+import contextlib
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -236,19 +237,138 @@ async def test_ui_stream_other_principal_cannot_read_or_interrupt(buffer, monkey
     terminate.assert_not_called()
 
 
+@pytest.mark.parametrize("waiting", [False, True])
 @pytest.mark.parametrize("stream_id", [None, "old-generation"])
 @pytest.mark.asyncio
 async def test_ui_stop_without_exact_generation_cannot_stop_new_producer(
-    buffer, monkeypatch, stream_id
+    buffer, monkeypatch, stream_id, waiting
 ):
     entry = await _owned_entry(buffer, incognito=True)
     interrupt = Mock()
     monkeypatch.setattr(ui_mod.rhythm_service, "interrupt_session", interrupt)
-    with pytest.raises(ToukaException) as exc:
+    # 同一人另一則還在等 hook 的請求也不能讓沒指名的停止停到進行中的那一代
+    other = (
+        buffer.pending_request(entry.session_id, _UI_OWNER) if waiting else contextlib.nullcontext()
+    )
+    with other, pytest.raises(ToukaException) as exc:
         await ui_mod.stop_session_tasks(entry.session_id, identity=_UI_OWNER, stream_id=stream_id)
     assert exc.value.code == ErrorCode.STREAM_NOT_FOUND
     assert entry.status == "active"
     interrupt.assert_not_called()
+
+
+_OWNED_SESSION = {"agent_id": "StopProbeSoul", "owner_user_id": _UI_OWNER.agent_id}
+_OTHER_SESSION = {"agent_id": None, "owner_user_id": "someone-else"}
+
+
+def _stop_spies(monkeypatch, stored: dict | None = None) -> tuple[Mock, Mock]:
+    """停止會用到的地方換成假的；``stored`` 是查對話時回的列（None＝查不到）。"""
+    interrupt, pop = Mock(), Mock(return_value=[])
+    turn = AsyncMock(side_effect=AssertionError("a waiting request is stopped without the turn"))
+    monkeypatch.setattr(ui_mod.rhythm_service, "interrupt_session", interrupt)
+    monkeypatch.setattr(ui_mod.process_registry, "pop_session", pop)
+    monkeypatch.setattr(ui_mod, "terminate_processes", Mock(return_value=0))
+    monkeypatch.setattr(session_service, "get_session_by_id", AsyncMock(return_value=stored))
+    monkeypatch.setattr(session_service, "read_persistence_snapshot", turn)
+    return interrupt, pop
+
+
+@pytest.mark.parametrize("earlier", ["none", "finished_incognito", "finished_persistent"])
+@pytest.mark.asyncio
+async def test_ui_stop_reaches_a_request_whose_stream_has_not_started(buffer, monkeypatch, earlier):
+    """ADR-0292：hook 執行中按停止。無痕查不到對話、上一則的結束登記還留著也要停得下來。
+
+    停的是這一則請求；查不到對話時對話 id 是請求自己帶的，不停整個對話、不結束子程序。
+    """
+    previous = None
+    if earlier != "none":
+        previous = await _owned_entry(buffer, incognito=earlier == "finished_incognito")
+        assert await buffer.cancel(previous.session_id, stream_id=previous.stream_id)
+    stored = _OWNED_SESSION if earlier == "finished_persistent" else None
+    interrupt, pop = _stop_spies(monkeypatch, stored)
+    with buffer.pending_request("private-ui", _UI_OWNER) as waiting:
+        result = await ui_mod.stop_session_tasks("private-ui", identity=_UI_OWNER, stream_id=None)
+    assert result["status"] == "success" and waiting.stopped
+    if stored is None:
+        interrupt.assert_not_called()
+        pop.assert_not_called()
+    else:
+        interrupt.assert_called_once_with("private-ui")
+        pop.assert_called_once_with("private-ui")
+    if previous is not None:
+        assert previous.status == "cancelled" and buffer.get_state("private-ui") is not None
+
+
+@pytest.mark.asyncio
+async def test_ui_stop_does_not_take_over_another_persons_waiting_request(buffer, monkeypatch):
+    interrupt, _pop = _stop_spies(monkeypatch)
+    with buffer.pending_request("private-ui", _UI_OWNER) as waiting, pytest.raises(
+        ToukaException
+    ) as exc:
+        await ui_mod.stop_session_tasks("private-ui", identity=_ADMIN, stream_id=None)
+    assert exc.value.code == ErrorCode.AUTH_PERMISSION_DENIED
+    assert not waiting.stopped
+    interrupt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_request_cannot_stop_a_conversation_it_cannot_open(buffer, monkeypatch):
+    """無痕請求自己帶對話 id：借別人的對話 id（例如心跳的對話）登記等待中，也停不了那個對話。"""
+    interrupt, pop = _stop_spies(monkeypatch, _OTHER_SESSION)
+    with buffer.pending_request("private-ui", _UI_OWNER) as waiting, pytest.raises(
+        ToukaException
+    ) as exc:
+        await ui_mod.stop_session_tasks("private-ui", identity=_UI_OWNER, stream_id=None)
+    assert exc.value.code == ErrorCode.AUTH_PERMISSION_DENIED
+    assert not waiting.stopped
+    interrupt.assert_not_called()
+    pop.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_stream_started_during_the_lookup_still_needs_its_id(buffer, monkeypatch):
+    interrupt, _pop = _stop_spies(monkeypatch)
+
+    async def stream_starts(_session_id: str) -> None:
+        await _owned_entry(buffer, incognito=True)
+
+    monkeypatch.setattr(session_service, "get_session_by_id", stream_starts)
+    with buffer.pending_request("private-ui", _UI_OWNER) as waiting, pytest.raises(
+        ToukaException
+    ) as exc:
+        await ui_mod.stop_session_tasks("private-ui", identity=_UI_OWNER, stream_id=None)
+    assert exc.value.code == ErrorCode.STREAM_NOT_FOUND
+    assert not waiting.stopped
+    interrupt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_stop_marks_only_this_persons_waiting_requests(buffer):
+    with (
+        buffer.pending_request("private-ui", _UI_OWNER) as mine,
+        buffer.pending_request("private-ui", _ADMIN) as theirs,
+        buffer.pending_request("other-session", _UI_OWNER) as elsewhere,
+    ):
+        assert not buffer.stop_pending_requests("private-ui", _STRANGER)
+        assert buffer.stop_pending_requests("private-ui", _UI_OWNER)
+        assert mine.stopped and not theirs.stopped and not elsewhere.stopped
+        await _owned_entry(buffer, incognito=True)
+        # 已經有進行中的串流：要指名那一代
+        assert not buffer.stop_pending_requests("private-ui", _ADMIN)
+        assert not theirs.stopped
+
+
+@pytest.mark.asyncio
+async def test_waiting_requests_are_tracked_per_request_and_cleared_on_errors(buffer):
+    with buffer.pending_request("private-ui", _UI_OWNER):
+        with pytest.raises(RuntimeError), buffer.pending_request("private-ui", _UI_OWNER):
+            raise RuntimeError
+        # 同一對話的另一則還在等：先結束的那則只移除自己
+        assert buffer.has_pending_request("private-ui", _UI_OWNER)
+        assert not buffer.has_pending_request("private-ui", _ADMIN)
+        assert not buffer.has_pending_request("other-session", _UI_OWNER)
+    assert not buffer.has_pending_request("private-ui", _UI_OWNER)
+    assert buffer._pending == {}
 
 
 @pytest.fixture

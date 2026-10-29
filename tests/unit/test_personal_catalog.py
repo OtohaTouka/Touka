@@ -191,6 +191,30 @@ async def test_catalog_read_time_reconcile_external_write(drive: Path) -> None:
     assert entries["a.txt"]["sha256"] == hashlib.sha256(changed.read_bytes()).hexdigest()
 
 
+async def test_catalog_read_when_touka_turns_into_a_link(
+    drive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """讀目錄的檢查之後 `.touka` 被換成連結：重建寫不進去，讀取照常回結果、不丟出例外。
+
+    連結指到個人空間裡面時，core ops 解析後照常讀；指到外面時由 core ops 回錯誤訊息。
+    """
+    await _vault(drive, "write", path="a.txt", content="x")
+    touka, moved = drive / pc.CATALOG_DIR_NAME, drive / ".touka_moved"
+    original = pc._rebuild
+
+    def swapped_then_rebuilt(proxy: Any, root: Path) -> Any:
+        if not touka.is_symlink() and not touka.is_junction():
+            touka.rename(moved)
+            _make_dir_link(touka, moved)
+        return original(proxy, root)
+
+    monkeypatch.setattr(pc, "_rebuild", swapped_then_rebuilt)
+    read = await _vault(drive, "read", path=".touka/catalog.json")
+    assert read.startswith("--- Read .touka/catalog.json")
+    assert "a.txt" in _entries(json.loads(_body(read)))
+    assert str(drive.resolve()) not in read
+
+
 async def test_catalog_hidden_from_list_find_grep(drive: Path) -> None:
     """list／find／grep 看不到 `.touka/`；ResourceManager 不帶 exclude 時行為不變。"""
     _put(drive, "a.md", "# Alpha\n")

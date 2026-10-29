@@ -29,6 +29,8 @@ GIT = shutil.which("git")
 MUST_BE_IGNORED = (
     "ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt",
     "ToukaProxy/config/mcp_servers/example_server/server.py",
+    # The administrator's own hook programs and scripts (ADR-0292).
+    "ToukaProxy/config/hooks/guard.py",
     # Skills and evals an agent creates at runtime; only the ones the repo ships stay tracked.
     "ToukaProxy/config/skills/agent-made-skill/SKILL.md",
     "ToukaProxy/config/evals/mcp/agent_made_server.eval.md",

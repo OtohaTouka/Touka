@@ -2,7 +2,8 @@
 
 1. 直接 I/O：類別所有方法（含私有、async、巢狀函式）與同檔模組函式，呼叫 ``open``／``io.open``、
    ``os.*``、``shutil.*``、``tempfile.*``、``zipfile.*``、``os.path`` 的查詢、Path 類的檔案方法
-   （``replace``／只有 1 個位置參數才算）或 ``IO_HELPERS``。別名與 from-import 先對回原模組。
+   （``replace``／只有 1 個位置參數才算）或 ``IO_HELPERS``／``WRITE_IO_HELPERS``（不跟隨連結的
+   讀寫）。別名與 from-import 先對回原模組。
 2. 遞移：沿 ``self.<方法>`` 與同檔模組函式傳遞；呼叫 ``path_only`` 豁免方法不傳遞。
 3. 被偵測到的公開方法恰好一個裝飾器：``permission_repair(retry=<字面 bool>)`` 或
    ``permission_repair_exempt(category=…, reason=<非空字串>)``，並和下面兩份釘選清單完全相等。
@@ -36,6 +37,9 @@ EXPECTED_RETRY = {
     "list_all_agent_stats": True,
     "read_file_text": True,
     "read_file_binary": True,
+    "ensure_no_links": True,
+    "read_file_text_no_follow": True,
+    "read_file_binary_no_follow": True,
     "exists": True,
     "make_dir": True,
     "iter_files": True,
@@ -49,6 +53,9 @@ EXPECTED_RETRY = {
     "create_archive": False,
     "extract_archive": False,
     "append_file_text": False,
+    "write_file_text_no_follow": False,
+    "append_file_text_no_follow": False,
+    "remove_file_no_follow": False,
     "append_csv_row": False,
 }
 # 方法 → (類別, 理由裡必須出現的摘要)
@@ -88,7 +95,12 @@ WRITE_ATTRS = frozenset(
     {"write_text", "write_bytes", "mkdir", "rmdir", "unlink", "rename", "touch", "chmod",
      "lchmod", "chown", "symlink_to", "hardlink_to"}
 )
-IO_HELPERS = frozenset({"validate_no_symlink_escape"})
+IO_HELPERS = frozenset(
+    {"validate_no_symlink_escape", "ensure_no_links", "read_text_no_follow", "read_bytes_no_follow"}
+)
+WRITE_IO_HELPERS = frozenset(
+    {"write_text_no_follow", "replace_text_no_follow", "remove_no_follow"}
+)
 EXTERNAL_READ_DELEGATES = frozenset({"self._ui_conversation_reader.query_ui_conversations"})
 CATEGORIES = frozenset({"swap_semantics", "path_only", "delegates"})
 OSERROR_NAMES = frozenset({"OSError", "IOError", "EnvironmentError"})
@@ -159,8 +171,11 @@ def _call_io(call: ast.Call, aliases: dict[str, str], module_funcs: set[str]) ->
         if root == "os" and full.split(".")[1] in OS_READ_ONLY:
             return "read"
         return "write"
-    if full.rsplit(".", 1)[-1] in IO_HELPERS and (isinstance(func, ast.Name) or "." in full):
+    helper = full.rsplit(".", 1)[-1] if isinstance(func, ast.Name) or "." in full else ""
+    if helper in IO_HELPERS:
         return "read"
+    if helper in WRITE_IO_HELPERS:
+        return "write"
     if not isinstance(func, ast.Attribute) or (root in aliases.values() or root in module_funcs):
         return None
     if isinstance(func.value, ast.Name) and func.value.id == "self":

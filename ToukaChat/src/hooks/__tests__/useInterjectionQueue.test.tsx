@@ -62,6 +62,16 @@ describe('useInterjectionQueue', () => {
     expect(result.current.items.map(i => [i.text, i.local])).toEqual([['第 11 則', true]]);
   });
 
+  it('hook 擋下（ADR-0292）：顯示 hook 的理由，不留在佇列（免得回合結束後被自動送出）', async () => {
+    mockFetch.mockResolvedValue(json({ detail: { code: 'HOOK_PROMPT_BLOCKED', id: 6001, reason: 'no secrets' } }, 403));
+    const { result } = renderHook(() => useInterjectionQueue(target));
+    let item: unknown;
+    await act(async () => { item = await result.current.enqueue('pw is 123', false); });
+    expect(item).toBeNull();
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('hook'), { description: 'no secrets' });
+    expect(result.current.items).toEqual([]);
+  });
+
   it('收回走 DELETE 並帶 stream_id；前端暫存的直接移除', async () => {
     mockFetch.mockResolvedValueOnce(json(serverItem('i/1', 'x'), 201));
     const { result } = renderHook(() => useInterjectionQueue(target));
@@ -188,6 +198,18 @@ describe('useInterjectionComposer', () => {
     await act(async () => { resolvePost(json({ detail: { code: 'STREAM_NOT_FOUND', id: 1212 } }, 404)); });
     expect(setInputValue).toHaveBeenLastCalledWith('晚了一步');
     expect(useInterjectionStore.getState().bySession.s1).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('插話被 hook 擋下：生成中也把文字放回輸入框（ADR-0292）', async () => {
+    let resolvePost!: (response: Response) => void;
+    mockFetch.mockReturnValue(new Promise<Response>(resolve => { resolvePost = resolve; }));
+    const hook = setup({ sessionId: 's1', isSending: true, inputValue: 'pw is 123' });
+    act(() => { hook.result.current.onKeyDown(keyEvent('Enter')); });
+    hook.rerender({ sessionId: 's1', isSending: true, inputValue: '' });
+    await act(async () => { resolvePost(json({ detail: { code: 'HOOK_PROMPT_BLOCKED', id: 6001 } }, 403)); });
+    expect(setInputValue).toHaveBeenLastCalledWith('pw is 123');
+    expect(useInterjectionStore.getState().bySession.s1 ?? []).toEqual([]);
     expect(send).not.toHaveBeenCalled();
   });
 

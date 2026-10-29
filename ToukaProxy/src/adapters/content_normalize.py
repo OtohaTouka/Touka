@@ -56,3 +56,42 @@ def append_text_part(content: Any, text: str) -> Any:
     if isinstance(content, list):
         return [*content, {"type": "text", "text": text}]
     return None
+
+
+def append_to_last_user(request: Any, text: str) -> bool:
+    """接在請求最後一則訊息（須是 user）的尾端；不是 user 就不附（不改動歷史訊息）。
+
+    ``<continuity>`` 與 hook 輸出共用；回傳有沒有附上。
+    """
+    messages = getattr(request, "messages", None)
+    if not messages:
+        return False
+    last = messages[-1]
+    is_dict = isinstance(last, dict)
+    if (last.get("role") if is_dict else getattr(last, "role", None)) != "user":
+        return False
+    updated = append_text_part(
+        last.get("content") if is_dict else getattr(last, "content", None), text
+    )
+    if updated is None:
+        return False
+    if is_dict:
+        last["content"] = updated
+    else:
+        last.content = updated
+    return True
+
+
+def message_text(content: Any) -> str:
+    """訊息內容裡的文字（多模態 JSON 字串先還原；圖片等非文字區塊略過）。"""
+    content = normalize_message_content(content)
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = [
+        block.get("text")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    return "\n".join(part for part in parts if isinstance(part, str))

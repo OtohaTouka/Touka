@@ -20,7 +20,7 @@ import type { RequestScope } from '../connections';
 import { useSessionList } from "./SessionListProvider";
 import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
-import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, recordInterjection, stampNodeTime } from "../stream_tree";
+import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, recordInterjection, stampNodeTime, dropBlockedTurn } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
 import { getLinearMessages, migrateFlatToTree, TreeHistory } from "../tree_history";
@@ -28,6 +28,8 @@ import { getSystemEpoch } from "../time_utils";
 import { BackendProtocol, SkillInstallRequest, AskUserRequest, SaveResult, StreamTerminalEvent, StreamStartedEvent } from "../types";
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useAgentBrainNotice } from "@/hooks/useAgentBrainNotice";
+import { useHookBlockNotice } from "@/hooks/useHookBlockNotice";
+import { usePromptStoppedNotice } from "@/hooks/usePromptStoppedNotice";
 import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
@@ -74,6 +76,8 @@ export interface StartStreamParams {
   onBeforeSend?: (payload: Record<string, unknown>) => Promise<boolean | void>;
   onSkillInstallRequest?: (req: SkillInstallRequest) => void;
   onAskUser?: (req: AskUserRequest) => void;
+  /** ADR-0292：UserPromptSubmit hook 擋下這則訊息（這一輪已從對話拿掉）。 */
+  onHookBlocked?: () => void;
   incognito?: boolean;
   deepResearch?: boolean;
   mcpDispatcher?: boolean;
@@ -90,11 +94,31 @@ interface StreamRegistryContextType {
 
 const StreamRegistryContext = createContext<StreamRegistryContextType | undefined>(undefined);
 
+/**
+ * 停止用：讀這個對話進行中串流的開始座標。
+ * 回 `null`＝沒有進行中的串流（查不到、沒有、或只剩已結束的登記）；`undefined`＝不要再動
+ * （帳號或連線已切換，或後端回的狀態看不懂）。
+ */
+async function readActiveStart(scope: RequestScope, sessionId: string): Promise<StreamStartedEvent | null | undefined> {
+  const response = await fetchTouka(scope.proxyOrigin,
+    `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stream/state`, { requestScope: scope });
+  const body: unknown = response.ok ? await response.json() : null;
+  if (!isRequestScopeCurrent(scope)) return undefined;
+  if (!response.ok) return null;
+  if (!body || typeof body !== 'object' || !('state' in body)) return undefined;
+  if (body.state === null) return null;
+  const state = parseBufferedStreamState(body.state, sessionId);
+  if (!state) return undefined;
+  return state.status === 'active' ? state.started : null;
+}
+
 export function StreamRegistryProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const { sessions, getSession, updateSession, beginProducer, completeProducer, prepareResume, getPersistence } = useSessionList();
   const { registerSimHandlers } = useDebug();
   const notifyBrainNotSet = useAgentBrainNotice();
+  const notifyHookBlocked = useHookBlockNotice();
+  const notifyPromptStopped = usePromptStoppedNotice();
 
   const [streams, setStreams] = useState<Record<string, StreamState>>({});
   // ref 鏡像：讓 onDone/stopStream 能讀到最新 controller/tree，而不在 setState updater 內做副作用
@@ -114,16 +138,19 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
   }, [streams, getPersistence]);
 
   // 完成時把最終樹寫回 session（沿用既有 useChatStream onDone 的寫回模式）
+  // blockedText：hook 擋下的訊息（ADR-0292）；對話標題是用它開頭建的就一起換掉。
   const persistDone = useCallback(async (s: StreamState, terminal: SaveResult,
-    generation: StreamTerminalEvent['generation']) => {
+    generation: StreamTerminalEvent['generation'], blockedText?: string) => {
     const updatedAt = getSystemEpoch();
     // 助理回覆的完成時間；已有時間（例如重整後接回的節點）就保留。
     const treeMessages = stampNodeTime(s.tree, s.assistantMsgId, updatedAt);
     const linear = getLinearMessages(treeMessages);
     const firstUserTitle = linear.find(m => m.role === "user")?.content.slice(0, 20) || "新對話";
+    const retitle = (title: string) => title === '新對話' ||
+      (blockedText !== undefined && title === blockedText.slice(0, 20));
     if (!s.producer) return unknownSave();
     return completeProducer(s.producer, current => ({ ...current, messages: treeMessages,
-      title: current.title === '新對話' ? firstUserTitle : current.title, agent_id: s.model, updatedAt }), terminal, generation);
+      title: retitle(current.title) ? firstUserTitle : current.title, agent_id: s.model, updatedAt }), terminal, generation);
   }, [completeProducer]);
 
   // 共用回調（一般串流與 ADR-0081 resume 接回都走同一套，解析語意一致）
@@ -132,6 +159,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     controller: AbortController,
     onSkillInstallRequest?: (req: SkillInstallRequest) => void,
     onAskUser?: (req: AskUserRequest) => void,
+    onHookBlocked?: () => void,
   ) => {
     const ownsStream = () => streamsRef.current[sessionId]?.controller === controller &&
       isRequestScopeCurrent(streamsRef.current[sessionId]?.requestScope);
@@ -221,17 +249,30 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     const onError = async (err: unknown) => {
-      const s = streamsRef.current[sessionId];
-      if (!s || !ownsStream() || s.settling) return;
+      const current = streamsRef.current[sessionId];
+      if (!current || !ownsStream() || current.settling) return;
+      const aborted = (err as { name?: string })?.name === "AbortError";
+      // 別處停止了這個對話、這一則還沒開始串流（PROMPT_STOPPED，ADR-0292）：和自己按停止一樣
+      // 當成中止，只顯示一次停止的提示。
+      const cancelled = aborted || notifyPromptStopped(err);
+      // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）。
+      // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤。
+      const brainNotice = !cancelled && notifyBrainNotSet(err);
+      const hookBlocked = !cancelled && !brainNotice && notifyHookBlocked(err);
+      // hook 擋下的這一輪從樹裡拿掉再存回去：之後心跳、摘要等讀存檔的地方都看不到它（ADR-0292）
+      const blockedText = hookBlocked ? current.tree.messages[current.tree.messages[current.assistantMsgId]?.parentId ?? '']?.content : undefined;
+      const s = hookBlocked ? { ...current, tree: dropBlockedTurn(current.tree, current.assistantMsgId) } : current;
+      if (hookBlocked) onHookBlocked?.();
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'error' } }));
-      // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）
-      if ((err as { name?: string })?.name !== "AbortError") {
+      if (!cancelled) {
         logSSOTError(new Error('Stream delivery failed'), `StreamRegistry:onError:${sessionId}`);
-        // 沒設主要模型由專屬通知處理（model-p0 U7），其餘照舊顯示連線錯誤
-        if (!notifyBrainNotSet(err)) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
+        if (!brainNotice && !hookBlocked) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
       }
-      const generation = (err as { name?: string })?.name === 'AbortError' ? 'cancelled' : 'error';
-      const result = await persistDone(s, unknownSave(), generation);
+      // hook 擋下時後端什麼都沒存（請求在送模型前就被拒）：和沒有文字的完成一樣，由這裡把拿掉
+      // 這一輪的樹照 revision 存回去；其他錯誤照舊不存，等人核對後再明示重試。
+      const result = hookBlocked
+        ? await persistDone(s, { status: 'skipped', reason: 'no_text' }, 'completed', blockedText ?? '')
+        : await persistDone(s, unknownSave(), cancelled ? 'cancelled' : 'error');
       if (ownsStream()) commit(prev => {
         if (s.incognito && isSaved(result)) { const next = { ...prev }; delete next[sessionId]; return next; }
         return { ...prev, [sessionId]: { ...s, settling: true, status: 'error', persistence: result } };
@@ -239,12 +280,12 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     return { onChunk, onThinking, onEvent, onDone, onError };
-  }, [commit, persistDone, notifyBrainNotSet]);
+  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked, notifyPromptStopped]);
 
   const startStream = useCallback(async (params: StartStreamParams): Promise<boolean> => {
     const { sessionId, baseTree, userText, resolvedInput, attachment, parentId,
       model, protocol, proxyUrl, projectId, authLevel, activeSkills,
-      onBeforeSend, onSkillInstallRequest, onAskUser, incognito, deepResearch, mcpDispatcher } = params;
+      onBeforeSend, onSkillInstallRequest, onAskUser, onHookBlocked, incognito, deepResearch, mcpDispatcher } = params;
 
     const existing = streamsRef.current;
     // 同 session 已在進行中 → 不重入；達並發上限且為新 session → 拒絕
@@ -300,7 +341,8 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     // 訊息組裝與插話標註（ADR-0249）集中於 buildApiHistory（SSOT、純函式）。
     const messagesForStream: ChatMessage[] = buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput);
 
-    const { onChunk, onThinking, onEvent, onDone, onError } = createStreamCallbacks(sessionId, controller, onSkillInstallRequest, onAskUser);
+    const { onChunk, onThinking, onEvent, onDone, onError } = createStreamCallbacks(sessionId, controller, onSkillInstallRequest, onAskUser,
+      onHookBlocked);
 
     // debug 模擬模式：sim handlers 餵資料給本串流的回調（需在 fetchChatStream 之前註冊）
     registerSimHandlers({ onChunk, onEvent, onDone });
@@ -404,13 +446,22 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       return;
     }
     void (async () => {
+      const scope = s.requestScope!;
       let started = s.started;
       if (!started) {
-        const response = await fetchTouka(s.requestScope!.proxyOrigin,
-          `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stream/state`, { requestScope: s.requestScope });
-        const body: unknown = response.ok ? await response.json() : null;
-        if (!isRequestScopeCurrent(s.requestScope) || !body || typeof body !== 'object' || !('state' in body)) return;
-        started = parseBufferedStreamState(body.state, sessionId)?.started ?? undefined;
+        const active = await readActiveStart(scope, sessionId);
+        if (active === undefined) return;
+        if (active === null) {
+          // 還沒有進行中的串流（例如 UserPromptSubmit hook 還在跑；無痕查不到對話、上一則的
+          // 結束登記還留著也一樣）：送不指名的停止，後端認這個人還沒開始的請求（ADR-0292）。
+          // 回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪才指名停止。
+          const response = await fetchTouka(scope.proxyOrigin,
+            `/v1/ui/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', requestScope: scope });
+          if (response.status !== 404 || !isRequestScopeCurrent(scope)) return;
+          started = (await readActiveStart(scope, sessionId)) ?? undefined;
+        } else {
+          started = active;
+        }
       }
       if (!started || started.assistant_node_id !== s.assistantMsgId ||
           started.user_parent_id !== s.tree.messages[s.assistantMsgId]?.parentId || !isRequestScopeCurrent(s.requestScope)) return;

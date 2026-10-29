@@ -297,12 +297,14 @@ async def await_human_approval(
     risk: str,
     emit: EventSink,
     review_reason: str | None = None,
+    hook_reason: str | None = None,
     human_only: bool = False,
 ) -> str:
     """回 "approved"|"rejected"|"timeout"|"queue_full"。
 
     先登記後推卡（避免極速 approve 撞 404）；解算事件一律回推（含逾時），卡片狀態可收斂。
-    卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）。
+    卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）；hook 要求人核准時
+    另帶 hook 的理由（可為空字串，ADR-0292）。
     """
     exec_id = f"appr_{uuid.uuid4().hex[:10]}"
     key = ConsentKey(agent_id, session_id or "", call_id)
@@ -332,6 +334,7 @@ async def await_human_approval(
             risk=risk,
             timeout_s=DEFAULT_TIMEOUT_S,
             review_reason=review_reason,
+            hook_reason=hook_reason,
             human_only=human_only,
             isolation=isolation.event_field() if isolation else None,
         )

@@ -160,9 +160,19 @@ describe('stream_tree — Auto reviewer fields (ADR-0246 U2c-6)', () => {
     });
   });
 
+  it('keeps hook_reason (ADR-0292), including an empty one, apart from review_reason', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    let t = applyEventToTree(tree, aid, { ...approvalEvent('ex7', 'c7'), hook_reason: 'Touches the release folder.' });
+    expect(t.messages[aid].steps![0].approval).toEqual({
+      execId: 'ex7', risk: 'safe', timeout: 180, hookReason: 'Touches the release folder.',
+    });
+    t = applyEventToTree(tree, aid, { ...approvalEvent('ex6', 'c6'), hook_reason: '' });
+    expect(t.messages[aid].steps![0].approval).toEqual({ execId: 'ex6', risk: 'safe', timeout: 180, hookReason: '' });
+  });
+
   it('ignores the fields when absent or of the wrong type', () => {
     const { tree, aid } = baseTreeWithAssistant();
-    const t = applyEventToTree(tree, aid, { ...approvalEvent('ex8', 'c8'), review_reason: 7, human_only: 'yes' });
+    const t = applyEventToTree(tree, aid, { ...approvalEvent('ex8', 'c8'), review_reason: 7, human_only: 'yes', hook_reason: 3 });
     expect(t.messages[aid].steps![0].approval).toEqual({ execId: 'ex8', risk: 'safe', timeout: 180 });
   });
 });

@@ -42,7 +42,7 @@ from src.sandbox_kernel.spec import (
 from src.services.isolation.project_scan import project_scanner
 from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
-from src.utils.touka_dirs import PROTECTED_LOCATION
+from src.utils.touka_dirs import PROTECTED_LOCATION, is_toplevel_protected
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -131,6 +131,16 @@ def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
 
+def has_link(path: Path | str, resolved: Path | None = None) -> bool:
+    """路徑任何一段是符號連結或 junction：解析前後不同（Windows 不分大小寫）。
+
+    8.3 短檔名、subst、對應的網路磁碟機、``..`` 與 Windows 結尾的空白或句點解析後也會不同，
+    一樣算有連結。``resolved`` 是呼叫端已解析的結果：判斷和後續使用同一次解析。
+    """
+    real = _resolve(path) if resolved is None else resolved
+    return os.path.normcase(Path(path).absolute()) != os.path.normcase(real)
+
+
 def current_layout() -> SandboxLayout:
     """依目前設定組出版面；容器內 ST／kernel 未設定時保留 None（由狀態判定原因）。"""
     in_container = is_container_runtime()
@@ -200,6 +210,29 @@ def _denied_by_fixed_rules(path: Path, layout: SandboxLayout) -> bool:
     return False
 
 
+async def project_root_reason(path: Path, layout: SandboxLayout) -> str | None:
+    """一般使用者的專案根（登記、列檔、專案檔案工具）；可用回 None，否則回拒絕原因.
+
+    固定受保護集合 P 與鏡像根一律檢查（解析連結後比對，P 的上層也算）。原生安裝時安裝資料夾
+    底下只有使用者自建的頂層資料夾可以用（點開頭與清單內的名稱不行，同禁令 66 ③）。容器裡
+    工作區掛載可能是 Touka 目錄的另一個路徑，另做 Touka 目錄偵測（往上、往下）；沒查完回
+    ``SCAN_LIMIT``（呼叫端照樣不放行）。原生安裝不做偵測：E 就是 INSTALL_ROOT，往上檢查會擋掉
+    工作區根底下所有專案；原生路徑沒有掛載別名，解析後比對已足夠。這裡不拒絕連結；代理人的
+    專案檔案工具另外拒絕路上有連結的根（``has_link``）。（ADR-0292）
+    """
+    target = _resolve(path)
+    if _denied_by_fixed_rules(target, layout):
+        return PROTECTED_LOCATION
+    if layout.in_container:
+        return await touka_directory_verdict(target, layout)
+    install = _resolve(layout.install_root)
+    if target != install and target.is_relative_to(install):
+        top = target.relative_to(install).parts[0]
+        if is_toplevel_protected(top):
+            return PROTECTED_LOCATION
+    return None
+
+
 async def touka_directory_verdict(path: Path, layout: SandboxLayout) -> str | None:
     """Touka 目錄偵測與上下檢查（往上到鏡像根、往下 3 層），見 ``project_scan``。"""
     return await project_scanner.verdict(path, layout)
@@ -214,7 +247,7 @@ async def authorize_derived_path(
     路徑任何一段是符號連結或 junction（resolve 前後不同）一律拒絕：連結可以被改寫成指向別處。
     """
     target = _resolve(path)
-    if os.path.normcase(Path(path).absolute()) != os.path.normcase(target):
+    if has_link(path, target):
         return PROTECTED_LOCATION
     if any(_within(target, root) for root in grantable_roots(layout, owner)):
         return None

@@ -44,6 +44,7 @@ from src.services.authorization_gateway import (
 from src.services.handover_service import handover_service
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
+from src.services.isolation import profiles
 from src.services.process_registry import process_registry, terminate_processes
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
@@ -61,6 +62,7 @@ from src.utils.history_manager import count_rounds_from_linear, get_linear_messa
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
+from src.utils.touka_dirs import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["UI Sessions"])
@@ -172,8 +174,18 @@ async def _can_modify_project(caller: AgentIdentity, project_id: str | None) -> 
     return not await session_service.project_exists(project_id)
 
 
-async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) -> bool:
-    """[A-fix] 專案 root_path 必須位於工作區 jail 之內 (path-disclosure 防護).
+_OUTSIDE_WORKSPACE = "outside_workspace"
+_ROOT_REFUSED = (
+    "Project root_path must be inside the workspace root and outside the folders Touka protects."
+)
+_ROOT_CHECK_UNFINISHED = (
+    "Touka could not finish checking this project root (too many folders, a folder it cannot "
+    "read, or the check is still running). Try again shortly, or choose a smaller folder."
+)
+
+
+async def _project_root_problem(caller: AgentIdentity, root_path: str | None) -> str | None:
+    """[A-fix] 專案 root_path 必須位於工作區 jail 之內 (path-disclosure 防護)；回不能用的原因.
 
     save_project 原樣存任意 root_path、get_project_files 直接掃描之，使非 admin 可
     把專案指向主機任一目錄再枚舉其檔案樹。本述詞把專案根目錄收斂在設定的
@@ -181,10 +193,32 @@ async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) ->
 
     admin/Debugger 放行 (受信任，且 workspace_root 設定本就由其掌控)——與
     `_can_access_project` / `_can_modify_project` 的 admin/Debugger bypass 一致。
+
+    其他人另外不能用 Touka 保護的地方（設定與 hooks、資料、程式碼；ADR-0292），
+    判定與專案檔案工具相同（``profiles.project_root_reason``：受保護的位置，或檢查沒做完）。
     """
     if caller.is_admin_or_debugger():
-        return True
-    return await resource_manager.is_within_workspace(root_path or "")
+        return None
+    if not await resource_manager.is_within_workspace(root_path or ""):
+        return _OUTSIDE_WORKSPACE
+    target = Path(await resource_manager.translate_path(root_path or ""))
+    return await profiles.project_root_reason(target, profiles.current_layout())
+
+
+async def _project_root_allowed(caller: AgentIdentity, root_path: str | None) -> bool:
+    """``_project_root_problem`` 沒有原因時才可以."""
+    return await _project_root_problem(caller, root_path) is None
+
+
+async def _check_project_root(caller: AgentIdentity, root_path: str | None) -> None:
+    """登記專案時檢查根目錄；不行就回 422 並說明原因（檢查沒做完和受保護的位置分開說）."""
+    problem = await _project_root_problem(caller, root_path)
+    if problem is not None:
+        raise ToukaException(
+            ErrorCode.VALIDATION_ERROR,
+            detail_override=_ROOT_CHECK_UNFINISHED if problem == SCAN_LIMIT else _ROOT_REFUSED,
+            reason=problem,
+        )
 
 
 class LegacyExportRequest(BaseModel):
@@ -564,6 +598,26 @@ async def stop_session_tasks(
     identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
 ) -> dict[str, Any]:
     """Mark a session to stop all autonomous ReAct tasks."""
+    if stream_id is None and stream_buffer_service.has_pending_request(session_id, identity):
+        # ADR-0292：這個人在這個對話的請求還沒開始串流（hook 執行中、組上下文中）。只停這個人
+        # 在等的請求，不碰串流緩衝（不能停到之後開始的那一代）。對話已存在時要有權限，這時也和
+        # 有串流時一樣停整個對話；查不到對話（無痕、還沒存過）時對話 id 是請求自己帶的，不能拿來
+        # 停整個對話（可能是別人的）。
+        session = await session_service.get_session_by_id(session_id)
+        allowed = session is None or _can_access_session(
+            identity, session.get("agent_id"), session.get("owner_user_id")
+        )
+        if allowed and stream_buffer_service.stop_pending_requests(session_id, identity):
+            killed = 0
+            if session is not None:
+                rhythm_service.interrupt_session(session_id)
+                procs = process_registry.pop_session(session_id)
+                killed = await asyncio.to_thread(terminate_processes, procs, session_id)
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "message": f"Interruption signal sent; terminated {killed} running process(es).",
+            }
     state = await _authorized_stream_state(session_id, identity)
     if state is not None and state.get("started") is not None and state["stream_id"] != stream_id:
         raise ToukaException(ErrorCode.STREAM_NOT_FOUND)
@@ -712,11 +766,7 @@ async def save_project(
     if not await _can_modify_project(identity, project.id):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # A-fix: 非 admin 不得把專案根目錄指向工作區 jail 之外 (path disclosure 防護)。
-    if not await _project_root_allowed(identity, project.root_path):
-        raise ToukaException(
-            ErrorCode.VALIDATION_ERROR,
-            detail_override="Project root_path must be inside the workspace root.",
-        )
+    await _check_project_root(identity, project.root_path)
     try:
         async with get_async_db() as db:
             updated_at = project.updatedAt or int(get_current_epoch() * 1000)

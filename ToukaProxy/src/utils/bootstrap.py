@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src.config import CONFIG_DIR, get_config_dir
 from src.models.autonomy import AutonomyConfigModel
+from src.models.hooks import HooksConfig
 from src.models.identity import IdentityMapConfig
 from src.models.permissions import PermissionsConfig
 from src.models.safety import AuthPoliciesConfig
@@ -27,11 +28,43 @@ _LIVE_MODELED: dict[str, type] = {
     "identity_map.json": IdentityMapConfig,
     "auth_policies.json": AuthPoliciesConfig,
     "sliding_window.json": SlidingWindowConfig,
+    # ADR-0292：壞掉的 hook 設定在啟動時就擋下（執行中壞掉則沿用上一份好的）。
+    "hooks.json": HooksConfig,
 }
 
 
 class ConfigValidationError(RuntimeError):
     """live 設定檔啟動驗證失敗（malformed JSON 或不符 schema）。"""
+
+
+def _has_template(cfg: Path, name: str) -> bool | None:
+    """同資料夾有沒有 ``name`` 的 .example；讀不到（權限一類）回 None。"""
+    try:
+        return (cfg / f"{name}.example").is_file()
+    except OSError:
+        return None
+
+
+def _delete_hint(cfg: Path, broken: list[str]) -> str:
+    """刪掉壞檔會不會重建：看同資料夾有沒有 .example。
+
+    有範本的檔，下次啟動會照範本補回（``hydrate_config_examples``）；沒有範本的刪掉就是少了
+    那份設定。看不出有沒有範本時不猜，請人先確認（這裡是錯誤訊息，不能自己再丟例外）。
+    """
+    templates = {name: _has_template(cfg, name) for name in broken}
+    rebuilt = [name for name in broken if templates[name] is True]
+    kept = [name for name in broken if templates[name] is False]
+    unknown = [name for name in broken if templates[name] is None]
+    hint = ""
+    if rebuilt:
+        hint += f"{'、'.join(rebuilt)} 也可以刪除後重啟，系統會從 .example 範本重建"
+        hooks_off = "（hooks.json 的範本是關閉的：所有 hook 都不執行）。"
+        hint += hooks_off if "hooks.json" in rebuilt else "。"
+    if kept:
+        hint += f"{'、'.join(kept)} 沒有範本，刪除後不會重建，等於沒有那份設定。"
+    if unknown:
+        hint += f"{'、'.join(unknown)} 看不出有沒有 .example 範本，刪除前先確認同資料夾有沒有範本。"
+    return hint
 
 # --- SSOT: 定義必需的設定檔清單 ---
 # 這些檔案若遺失，系統將嘗試從 .example 恢復或建立預設值
@@ -139,6 +172,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
         return []
 
     problems: list[str] = []
+    broken: list[str] = []
     checked: list[str] = []
 
     # glob 在資料夾列不出來時靜默回空，健檢會空過；先列一次，列不出來就中止
@@ -154,9 +188,11 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             problems.append(f"  • {name}：JSON 格式錯誤（{e}）")
+            broken.append(name)
             continue
         except Exception as e:  # 讀檔層失敗（權限/編碼等）
             problems.append(f"  • {name}：無法讀取（{type(e).__name__}: {e}）")
+            broken.append(name)
             continue
 
         # 2. schema 驗證（僅有模型者）
@@ -166,6 +202,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
                 model.model_validate(data)
             except Exception as e:
                 problems.append(f"  • {name}：不符 schema（{type(e).__name__}）— {e}")
+                broken.append(name)
                 continue
 
         checked.append(name)
@@ -175,8 +212,7 @@ def validate_live_configs(config_dir: Path | str | None = None) -> list[str]:
         msg = (
             "啟動中止：偵測到 live 設定檔錯誤——\n"
             f"{detail}\n"
-            "請修正上列檔案內容；若該檔有對應的 .example 範本，亦可刪除後重啟，"
-            "系統會自動從範本重建。"
+            f"請修正上列檔案內容。{_delete_hint(cfg, broken)}"
         )
         logger.critical("🛑 %s", msg)
         raise ConfigValidationError(msg)

@@ -185,14 +185,28 @@ def _split_request_tail(text: Any) -> tuple[str, str]:
         cut = max(starts)
 
 
+def _is_request_tail(block: dict[str, Any]) -> bool:
+    """整塊都是請求時尾端區塊（多模態內容裡 hook 輸出、continuity 各自是一塊）。"""
+    if block.get("type") != "text":
+        return False
+    head, tail = _split_request_tail(block.get("text"))
+    return bool(tail) and not head
+
+
 def _mark_history_breakpoint(blocks: list[dict[str, Any]]) -> None:
-    """斷點打在請求時尾端區塊之前的最後一塊：文字尾端的先拆成獨立區塊；前面沒有別塊就不打。"""
+    """斷點打在請求時尾端區塊之前的最後一塊；前面沒有別塊就不打。
+
+    文字尾端的請求時區塊先拆成獨立區塊；整塊都是尾端的（多模態內容裡的 hook 輸出、continuity）
+    往前跳過。
+    """
     last = blocks[-1]
     head, tail = _split_request_tail(last.get("text")) if last.get("type") == "text" else ("", "")
     if tail and head:
         last["text"] = head
         blocks.append({"type": "text", "text": tail})
-    target = len(blocks) - (2 if tail else 1)
+    target = len(blocks) - 1
+    while target >= 0 and _is_request_tail(blocks[target]):
+        target -= 1
     if target >= 0:
         blocks[target]["cache_control"] = {"type": "ephemeral"}
 

@@ -293,6 +293,12 @@
     "msg": "This conversation cannot be used for the requested target",
     "i18n": "error.session.scope_mismatch"
   },
+  "PROMPT_STOPPED": {
+    "id": 1222,
+    "status": 409,
+    "msg": "The user stopped this reply before it started",
+    "i18n": "error.session.prompt_stopped"
+  },
   "TERMINAL_APPROVAL_NOT_FOUND": {
     "id": 1208,
     "status": 404,
@@ -664,5 +670,23 @@
     "status": 503,
     "msg": "心跳共享憑證尚未就緒；請完成設定並重啟",
     "i18n": "error.heartbeat.shared_credential_not_ready"
+  },
+  "HOOK_PROMPT_BLOCKED": {
+    "id": 6001,
+    "status": 403,
+    "msg": "這則訊息被管理員設定的 hook 擋下",
+    "i18n": "error.hooks.prompt_blocked"
+  },
+  "HOOK_CONFIG_CONFLICT": {
+    "id": 6002,
+    "status": 409,
+    "msg": "Hook 設定已被別人改過，請重新載入後再存",
+    "i18n": "error.hooks.config_conflict"
+  },
+  "HOOK_PATH_REJECTED": {
+    "id": 6003,
+    "status": 422,
+    "msg": "Hook 的程式或腳本放在代理人寫得到的地方，或路徑不合規則",
+    "i18n": "error.hooks.path_rejected"
   }
 }

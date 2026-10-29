@@ -1095,6 +1095,18 @@ async def get_project_root_path(project_id: str) -> str | None:
         return None
 
 
+async def list_project_root_paths() -> list[str]:
+    """所有專案的根目錄（ADR-0292 hook 路徑界線）；讀不到時丟例外，不回空清單（fail-closed）。"""
+    if not get_db_path().exists():
+        return []
+    async with (
+        get_async_db() as db,
+        db.execute("SELECT root_path FROM projects") as cursor,
+    ):
+        rows = await cursor.fetchall()
+    return [row["root_path"] for row in rows if row["root_path"]]
+
+
 async def add_project_event(
     project_id: str, identity: AgentIdentity, action: str, summary: str
 ) -> None:

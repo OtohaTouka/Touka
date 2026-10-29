@@ -20,6 +20,7 @@ VALIDATION_PROTOCOL = "validation_protocol"  # P2a：改動後自我驗證慣例
 HARNESS_CONTEXT = "harness_context"  # ADR-0139：OS 環境事實宣告（穩定層、與人格零重疊）
 CONTINUITY = "continuity"  # 現在時間／距上一輪多久／任務看板時間（附在最後一則 user 訊息尾端）
 MCP_UNAVAILABLE = "mcp_unavailable"  # ADR-0281 T1：設定好但現在沒連上的共用 MCP（每輪會變）
+HOOK_OUTPUT = "hook_output"  # ADR-0292：管理員設定的 hook 給模型的補充說明（資料，不是指令）
 
 # 全部已知的 system-prompt 區塊 tag（供 Phase B breakdown parser 列舉）。
 ALL_BLOCK_TAGS: tuple[str, ...] = (
@@ -34,6 +35,7 @@ ALL_BLOCK_TAGS: tuple[str, ...] = (
     HARNESS_CONTEXT,
     CONTINUITY,
     MCP_UNAVAILABLE,
+    HOOK_OUTPUT,
 )
 
 # 每回合會變動的區塊（P4c 穩定前綴細分用）：只有排在「最早一個波動區塊」**之前**的
@@ -43,7 +45,7 @@ VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (MISSION_AWARENESS, CONVERSATION_SUMMARY
 
 # 只在這一次請求附在最後一則 user 訊息尾端（"\n\n<tag>…</tag>"）、不進下一輪歷史的區塊：
 # Claude 的對話歷史快取斷點要打在它們之前，下一輪的前綴才對得上。
-REQUEST_TAIL_TAGS: tuple[str, ...] = (IDE_CONTEXT, CONTINUITY)
+REQUEST_TAIL_TAGS: tuple[str, ...] = (IDE_CONTEXT, CONTINUITY, HOOK_OUTPUT)
 
 
 def wrap_block(tag: str, content: str) -> str:

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 PROTECTED_LOCATION = "protected_location"
 SCAN_LIMIT = "scan_limit"
+LINKED_ROOT = "linked_root"
 
 # 往下掃描不進去的資料夾（依實際名稱完全比對；大小寫不同的照樣掃，寧可慢也不漏）
 SCAN_SKIP_NAMES = frozenset(

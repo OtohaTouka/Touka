@@ -21,6 +21,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from memory_server.models.conversation_search import ConversationSearchError
+from memory_server.utils.no_follow import (
+    LINK_NOT_FOLLOWED,
+    ensure_no_links,
+    is_link,
+    read_bytes_no_follow,
+    read_text_no_follow,
+    remove_no_follow,
+    replace_text_no_follow,
+    write_text_no_follow,
+)
 
 # 使用絕對匯入避免 TID251 警告，並確保環境變數獲取一致
 from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir
@@ -69,6 +79,16 @@ def _unlock_and_retry(
         func(failed)  # 刪除本身失敗：補權限後重試一次
     else:  # 資料夾讀不到（open、scandir、lstat）：補權限後整個重刪
         shutil.rmtree(target, onexc=partial(_unlock_and_retry, root, unlocked))
+
+
+def bypasses_project_jail(identity: AgentIdentity) -> bool:
+    """人類 admin 或 agent Debugger 可以越工作區 jail 存取專案根（ADR-0141 P6-c）.
+
+    admin 代打（``is_human=False``）不算：代打＝管理閘權、非資源監獄旁路。
+    """
+    return (identity.is_human and identity.human_role == "admin") or (
+        not identity.is_human and identity.agent_role == "Debugger"
+    )
 
 
 class ResourceManager:
@@ -130,6 +150,10 @@ class ResourceManager:
         root_str = await get_system_setting("workspace_root", HOST_WORKSPACE_ROOT)
         self._workspace_root_cached = Path(root_str)
         return self._workspace_root_cached
+
+    async def get_workspace_jail_root(self) -> Path:
+        """設定的工作區根（主機路徑；Docker 裡用 ``translate_path`` 換成容器路徑）。"""
+        return await self._get_workspace_root()
 
     def invalidate_cache(self) -> None:
         """清除工作區根目錄快取 (workspace_root 變更時呼叫)。"""
@@ -584,14 +608,9 @@ class ResourceManager:
         # project_tools 經任意 project_id 讀寫工作區外目錄 (與 ui_sessions.
         # _project_root_allowed 同政策)。每次呼叫即驗新鮮 root，不被快取短路——
         # 否則 admin 先快取越界路徑、root 改回界內後，非 admin 仍可取到陳舊越界路徑。
-        # ADR-0141 P6-c：拆顯式雙面判定（對齊 get_vault_root/is_owner 的 is_human 分支）——
-        # 人類 admin（is_human ∧ human_role）或 agent Debugger（¬is_human ∧ agent_role）方可
-        # 越工作區 jail；admin 代打（is_human=False）不再經此旁路（與其在 get_vault_root/
-        # is_owner 已無旁路一致，符 P5 Option A：代打＝管理閘權、非資源監獄旁路）。
-        is_privileged_bypass = (identity.is_human and identity.human_role == "admin") or (
-            not identity.is_human and identity.agent_role == "Debugger"
-        )
-        if not is_privileged_bypass and not await self.is_within_workspace(root_path):
+        # ADR-0141 P6-c：拆顯式雙面判定（對齊 get_vault_root/is_owner 的 is_human 分支），
+        # 見 bypasses_project_jail。
+        if not bypasses_project_jail(identity) and not await self.is_within_workspace(root_path):
             logger.warning(
                 "Project %s root_path outside workspace; denied for %s.",
                 project_id,
@@ -633,6 +652,52 @@ class ResourceManager:
     def read_file_binary(self, path: Path | str) -> bytes:
         """安全地讀取二進位檔案內容."""
         return Path(path).read_bytes()
+
+    # --- 不跟隨連結（代理人的檔案動詞用；路徑要先解析，ADR-0292 決定 12）---
+    # 失敗時例外帶絕對路徑（``no_follow`` 換好），EACCES 交給權限自癒
+
+    @permission_repair(retry=True)
+    def ensure_no_links(self, path: Path | str) -> None:
+        """路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        ensure_no_links(path)
+
+    @permission_repair(retry=True)
+    def read_file_text_no_follow(self, path: Path | str, encoding: str = "utf-8") -> str:
+        """讀文字檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        return read_text_no_follow(path, encoding=encoding)
+
+    @permission_repair(retry=True)
+    def read_file_binary_no_follow(self, path: Path | str) -> bytes:
+        """讀二進位檔；路上任何一段是 symlink 或 junction 就丟 ``LinkRefusedError``."""
+        return read_bytes_no_follow(path)
+
+    @permission_repair(retry=False)
+    def write_file_text_no_follow(
+        self, path: Path | str, content: str, encoding: str = "utf-8"
+    ) -> None:
+        """同 ``write_file_text``（受保護路徑拒絕、原子寫入、0600），路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Automated modification of protected files is prohibited."
+            raise PermissionError(msg)
+        replace_text_no_follow(path, content, encoding=encoding)
+
+    @permission_repair(retry=False)
+    def append_file_text_no_follow(
+        self, path: Path | str, content: str, encoding: str = "utf-8"
+    ) -> None:
+        """同 ``append_file_text``，路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Cannot append to a protected path."
+            raise PermissionError(msg)
+        write_text_no_follow(path, content, encoding=encoding, append=True)
+
+    @permission_repair(retry=False)
+    def remove_file_no_follow(self, path: Path | str) -> None:
+        """同 ``remove_file``（不存在時丟 FileNotFoundError），上層路上有連結就拒絕."""
+        if self.is_protected_path(path):
+            msg = "Soul Protection Error: Cannot delete a protected path."
+            raise PermissionError(msg)
+        remove_no_follow(path)
 
     @permission_repair(retry=False)
     def write_file_text(
@@ -958,7 +1023,7 @@ class ResourceManager:
             exclude: 額外要隱藏的名稱（任何深度；預設不額外隱藏）。
 
         Returns:
-            list[str]: 格式化後的樹狀結構字串清單。
+            list[str]: 格式化後的樹狀結構字串清單；symlink 與 junction 只列名稱、不進入。
         """
         p = Path(path)
         if not p.is_dir():
@@ -978,7 +1043,9 @@ class ResourceManager:
                     is_last = i == len(items) - 1
                     connector = "└── " if is_last else "├── "
 
-                    if item.is_dir():
+                    if is_link(item):
+                        lines.append(f"{prefix}{connector}{item.name} {LINK_NOT_FOLLOWED}")
+                    elif item.is_dir():
                         lines.append(f"{prefix}{connector}{item.name}/")
                         new_prefix = prefix + ("    " if is_last else "│   ")
                         lines.extend(build_tree(item, depth + 1, new_prefix))

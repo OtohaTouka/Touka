@@ -102,6 +102,40 @@ export function stampNodeTime(tree: TreeHistory, nodeId: string, at: number): Tr
   return { ...tree, messages: { ...tree.messages, [nodeId]: { ...node, timestamp: at } } };
 }
 
+/**
+ * ADR-0292：hook 擋下了這一輪，拿掉送出的 user 訊息和它的空回覆，目前位置回到 user 訊息的上一則。
+ * 擋下的是第一則（編輯第一則後重送）時沒有上一則：接到剩下最新的第一則那條分支的末端，
+ * 沒有其他分支才清空。不是「剛送出、還沒接任何東西」的一輪就回原樹。
+ */
+export function dropBlockedTurn(tree: TreeHistory, assistantMsgId: string): TreeHistory {
+  const assistant = tree.messages[assistantMsgId];
+  const userId = assistant?.parentId;
+  const user = userId ? tree.messages[userId] : undefined;
+  if (!userId || user?.role !== 'user' || assistant.childrenIds.length > 0 ||
+      user.childrenIds.some(id => id !== assistantMsgId)) return tree;
+  const messages = { ...tree.messages };
+  delete messages[assistantMsgId];
+  delete messages[userId];
+  const parentId = user.parentId ?? null;
+  const parent = parentId ? messages[parentId] : undefined;
+  if (parentId && parent) messages[parentId] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== userId) };
+  const currentId = parentId ? (parent ? parentId : null) : latestRootLeaf(messages);
+  return { ...tree, messages, currentId };
+}
+
+/** 最新的第一則（和切換分支列出的順序一樣）沿第一個子節點走到底；沒有第一則回 null。 */
+function latestRootLeaf(messages: Record<string, MessageNode>): string | null {
+  const roots = Object.keys(messages).filter(id => !messages[id].parentId && messages[id].role === 'user');
+  let id = roots[roots.length - 1];
+  if (!id) return null;
+  const seen = new Set<string>([id]);
+  for (let next = messages[id].childrenIds[0]; next && messages[next] && !seen.has(next); next = messages[id].childrenIds[0]) {
+    seen.add(next);
+    id = next;
+  }
+  return id;
+}
+
 /** 重播只接回已授權的固定節點，不能把舊生成接到新的分支。 */
 export function restoreAssistantNode(tree: TreeHistory, parentId: string, assistantId: string): TreeHistory {
   const parent = tree.messages[parentId];
@@ -271,6 +305,7 @@ export function applyEventToTree(
         timeout: event.timeout as number | undefined,
         // ADR-0246：只在有值時帶；非預期型別一律不顯示
         ...(typeof event.review_reason === 'string' ? { reviewReason: event.review_reason } : {}),
+        ...(typeof event.hook_reason === 'string' ? { hookReason: event.hook_reason } : {}),
         ...(event.human_only === true ? { humanOnly: true } : {}),
         ...(isolation ? { isolation } : {}),
       },

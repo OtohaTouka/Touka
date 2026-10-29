@@ -73,7 +73,7 @@ _NUMERIC_RE: Final = re.compile(r"\+?\d+(?:\.\d+)?[smhd]?|0x[0-9a-f]+|\d+(?:[-,]
 _ENV_FILE_RE: Final = re.compile(r"\.env(?:\.(?!(?:example|sample|template)$)[\w.-]+)?")
 _POLICY_FILE_RE: Final = re.compile(
     r"(?:auth_policies|identity_map|autonomy|dispatch_hooks|server_config|group_whitelist"
-    r"|permissions)\.json(?:\.example)?|auth_policies|identity_map"
+    r"|permissions|hooks)\.json(?:\.example)?|auth_policies|identity_map"
 )
 _RECURSIVE_FLAG_RE: Final = re.compile(r"-[a-z]*r[a-z]*|--recursive|/s")
 _UNIX_RECURSE_RE: Final = re.compile(r"-[A-Za-z]*[rRa][A-Za-z]*|--recursive|--archive")
@@ -138,7 +138,8 @@ _CMD_RECURSIVE: Final = frozenset({"findstr", "xcopy", "robocopy"})
 _COPY_WORDS: Final = frozenset({"cp", "scp", "rsync", "copy-item", "cpi", "xcopy", "robocopy"})
 # 路徑元件（小寫）：資料、金鑰、政策目錄、原始碼
 _DATA_PARTS: Final = frozenset({"data", "soul", "legacy"})
-_SECRET_FILES: Final = frozenset({"users.json", "connections.json"})
+# hooks.json：http hook 的標頭照字面存，可能有權杖（ADR-0292），讀和寫都算金鑰
+_SECRET_FILES: Final = frozenset({"users.json", "connections.json", "hooks.json"})
 # 心跳存 heartbeat_token 的 config.json：awaken._resolve_config_file 的預設位置
 # ToukaHeartbeat/config.json，與 compose 掛進心跳容器的 ToukaHeartbeat/config/
 _HB: Final = "toukaheartbeat"

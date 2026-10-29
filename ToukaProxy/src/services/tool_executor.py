@@ -32,6 +32,13 @@ from src.protocols.mcp.mrtr import McpMrtrAuthorizationError
 from src.services import approval_flow, mcp_vault_jail, tool_errors
 from src.services.auto_reviewer import CODE_HEADLESS_TERMINAL, ReviewRequest, auto_reviewer
 from src.services.autonomy import autonomy_service
+from src.services.hooks.events import attach_to_tool_result, legacy_aliases
+from src.services.hooks.tool_hooks import (
+    ToolCall,
+    hook_ask_unavailable_error,
+    run_post_tool_hooks,
+    run_pre_tool_hooks,
+)
 from src.services.isolation.policy import policy_level, reviewer_level
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
@@ -291,6 +298,7 @@ class ToolExecutor:
         tool_action: str | None,
         queue: asyncio.Queue[dict[str, Any] | None],
         review_reason: str | None = None,
+        hook_reason: str | None = None,
         human_only: bool = False,
     ) -> str:
         """統一審批 broker（H2）：委派 ``approval_flow.await_human_approval``。
@@ -309,6 +317,7 @@ class ToolExecutor:
             risk=risk,
             emit=queue.put,
             review_reason=review_reason,
+            hook_reason=hook_reason,
             human_only=human_only,
         )
 
@@ -570,6 +579,32 @@ class ToolExecutor:
             await queue.put(None)
             return result_text
 
+        # ADR-0292：PreToolUse hook——政策沒拒絕之後、審查員與審批卡之前。只能擋下或要求人
+        # 核准（跳下面同一張人類卡，無人在場拒絕）；不能放行、不能改參數。舊工具名稱也比對
+        # 它對應的新名稱（規則寫 execute_command，模型叫 bash 也要比得到）。
+        # 參數先複製一份：之後 MCP 分支會在 args 補上 agent_id、把根目錄換成實際路徑，
+        # hook 只看模型送來的參數（ADR-0292）
+        hook_call = ToolCall(
+            name=name, args=dict(args), call_id=call_id, mcp_server=mcp_server,
+            mcp_tool=mcp_tool_name,
+            aliases=() if mcp_server else legacy_aliases(name, args, LEGACY_ADVERTISED_SUCCESSORS),
+        )
+        pre_hooks = await run_pre_tool_hooks(ctx, hook_call)
+        if pre_hooks.denied_text is not None:
+            logger.warning("🪝 PreToolUse hook blocked: %s -> %s", agent_id, name)
+            await queue.put(
+                ToolCallEvent(
+                    call_id=call_id,
+                    tool_name=name,
+                    arguments=args,
+                    status="error",
+                    error_class=tool_errors.PERMISSION_DENIED,
+                    result_text=pre_hooks.denied_text,
+                ).to_result_sse()
+            )
+            await queue.put(None)
+            return pre_hooks.denied_text
+
         # H2（hitl-unification）：CONFIRM 的統一 HITL 處置。
         # - 互動會話（resumable_stream＝UI 聊天）：審批卡走**當前聊天 SSE**（統一
         #   broker），人類 approve/reject 後才續行——「未決不執行」的 H1 錨永遠成立。
@@ -587,13 +622,18 @@ class ToolExecutor:
         card_complete = False  # 審批卡沒截斷任何參數（IDE「由人核准」標記的前提）
         approved_by: str | None = None
         human_only = decision.effect == "HUMAN_ONLY"
-        needs_human = human_only or (
-            decision.effect == "CONFIRM" and execution_class != ToolExecutionClass.SELF_APPROVING
+        needs_human = (
+            human_only
+            or pre_hooks.ask
+            or (
+                decision.effect == "CONFIRM"
+                and execution_class != ToolExecutionClass.SELF_APPROVING
+            )
         )
         interactive = is_human_present(ctx)
         review: ReviewOutcome | None = None
         denied_text: str | None = None
-        if decision.effect == "REVIEW":
+        if decision.effect == "REVIEW" and not pre_hooks.ask:
             review = await auto_reviewer.review(
                 identity,
                 ReviewRequest(
@@ -626,6 +666,7 @@ class ToolExecutor:
                     tool_action=policy_context.environment.get("tool_action"),
                     queue=queue,
                     review_reason=review.reason if review is not None else None,
+                    hook_reason=(pre_hooks.ask_reason or "") if pre_hooks.ask else None,
                     human_only=human_only,
                 )
                 if verdict != "approved":
@@ -648,6 +689,9 @@ class ToolExecutor:
             elif human_only:
                 # H1 錨（headless fail-closed）：HUMAN_ONLY 連終端也直接拒絕
                 denied_text = approval_flow.human_only_unavailable_error(name, decision.reason)
+            elif pre_hooks.ask:
+                # hook 要求人核准：無人在場一律拒絕，終端也不落到遺留通道（ADR-0292）
+                denied_text = hook_ask_unavailable_error(name, pre_hooks.ask_reason)
             elif review is not None:
                 denied_text = approval_flow.auto_review_no_human_error(
                     name, review.reason, headless_terminal=review.code == CODE_HEADLESS_TERMINAL
@@ -951,6 +995,13 @@ class ToolExecutor:
                             )
                     elif exit_code == 0 and session_id:
                         autonomy_service.reset_repair_attempts(session_id)
+
+            # ADR-0292：PostToolUse hook 只在成功後執行；hook 的補充說明（含 PreToolUse 的）
+            # 當成資料接在結果後面，成功與否照上面的判定不變。
+            hook_outputs = list(pre_hooks.outputs)
+            if is_success:
+                hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
+            result_text = attach_to_tool_result(result_text, hook_outputs)
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
             #    duration_ms／error_class；失敗才抬 error_class、成功不帶）

@@ -2,7 +2,7 @@
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.core.exceptions import ErrorCode, ToukaException
@@ -16,6 +16,9 @@ from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.utils.async_db import session_service
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
+
+if TYPE_CHECKING:
+    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,16 @@ class SNSGatewayService:
             )
             return content[:MAX_SNS_CONTENT_LENGTH]
         return content
+
+    @staticmethod
+    async def _save_user_message(
+        session_id: str | None, content: str, identity: "AgentIdentity"
+    ) -> None:
+        """有對話時把外人訊息寫進去；寫不進去回 ``SESSION_SAVE_FAILED``."""
+        if session_id and not await session_service.append_message_to_session(
+            session_id, "user", content, identity=identity
+        ):
+            raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
 
     def _warn_if_unverified(self, event: SNSIncomingEvent) -> None:
         """Log a warning when processing an SNS event that has not been signature-verified.
@@ -155,13 +168,9 @@ class SNSGatewayService:
             )
         self.last_session_id = session_id
 
-        # 3. 紀錄 User 訊息：外人訊息加固定開頭（存檔與送出一致），Auto 審查員的使用者原意
-        #    不會把它當成人類原話（R-2c ① #3）
+        # 3. 外人訊息加固定開頭（存檔與送出一致），Auto 審查員的使用者原意不會把它當成人類原話
+        #    （R-2c ① #3）
         content = f"{SNS_MESSAGE_PREFIX}\n{event.content}"
-        if session_id and not await session_service.append_message_to_session(
-            session_id, "user", content, identity=identity
-        ):
-            raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
 
         # 4. 呼叫 Proxy 執行層
         # 外人訊息不帶靈魂身分進 pipeline：技能與特權維持零，只固定目標靈魂與對話。
@@ -189,7 +198,33 @@ class SNSGatewayService:
         # 顯示正在輸入中
         await adapter.show_typing(event.channel_id)
 
-        response = await process_proxy_request(request, ctx, is_anthropic=False)
+        # 4b. 紀錄 User 訊息：pipeline 跑完才存，UserPromptSubmit hook 擋下的不寫進對話、
+        #     也不回覆外人（擋下原因是設定的一部分，不給外人看；ADR-0292），只記一筆 log；
+        #     擁有者按停止時訊息照存、不回覆外人，也不往外丟（平台那邊才不會回「內部錯誤」）；
+        #     其他錯誤照舊先存再往外丟。回覆是串流，存好之前不會讀，存不進去就不呼叫模型。
+        try:
+            response = await process_proxy_request(request, ctx, is_anthropic=False)
+        except ToukaException as exc:
+            if exc.code == ErrorCode.HOOK_PROMPT_BLOCKED:
+                logger.info(
+                    "SNS message from platform=%s channel=%s was blocked by a hook",
+                    event.platform,
+                    event.channel_id,
+                )
+                return ""
+            await self._save_user_message(session_id, content, identity)
+            if exc.code == ErrorCode.PROMPT_STOPPED:
+                logger.info(
+                    "SNS message from platform=%s channel=%s was stopped before a reply",
+                    event.platform,
+                    event.channel_id,
+                )
+                return ""
+            raise
+        except Exception:
+            await self._save_user_message(session_id, content, identity)
+            raise
+        await self._save_user_message(session_id, content, identity)
 
         # 5. 聚合回應內容 (Aggregator)
         full_text = ""

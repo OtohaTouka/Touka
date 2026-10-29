@@ -51,6 +51,8 @@ config/*.json
 # 執行期寫進 config/、不是 JSON 的檔：首裝管理員密碼（src/config.py）、代理人建立的 MCP 伺服器
 config/INITIAL_ADMIN_PASSWORD.txt
 config/mcp_servers/
+# 管理員自己放的 hook 程式與腳本（ADR-0292）：本機設定，不進版控
+config/hooks/
 
 # 代理人在執行期建立的技能與評測：只追蹤 repo 自帶的，新建的不進版控
 # 兩個調度員（system-mcp-dispatcher、system-skill-dispatcher）由 Proxy 啟動時依本機設定產生，也不進版控（ADR-0290）

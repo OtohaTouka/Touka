@@ -301,6 +301,7 @@
         "rbac": "權限矩陣（RBAC）",
         "identity_map": "身分映射",
         "autonomy": "自主預算",
+        "hooks": "Hook（事件觸發的程式與 HTTP）",
         "users": "使用者管理",
         "agent_reset": "代理人資料重置",
         "backup": "系統備份／還原",
@@ -367,6 +368,10 @@
       "security": {
         "label": "安全設定",
         "title": "安全與隱私"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook 設定"
       },
       "sliding_window": {
         "label": "滑動視窗",
@@ -441,6 +446,81 @@
       "save_success": "滑動視窗設定已儲存",
       "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
       "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+    },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "在使用者送出訊息、工具執行前後與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。Hook 程式以 Touka 自己的權限執行、不經隔離，只放信得過的程式。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收；不要用 env、npx、py 這類會自己找程式的啟動器，腳本用到的套件請裝在 hooks/ 裡（例如 hooks/node_modules），而且用複製的方式裝（例如 uv 設 UV_LINK_MODE=copy、pnpm 加 --package-import-method=copy；npm 本來就是複製）：uv、pnpm 可能用硬連結共用同一份檔案，代理人改自己專案裡的那份，hook 用的那份也會跟著變。Linux／Docker 上參數不能放網址（: 會被當成路徑清單的分隔），網址請寫在 hooks/ 裡的設定檔，由腳本讀取。所有使用者的對話都會觸發 hook，無痕對話也一樣，訊息與工具內容會送給 hook（事件內容標示 incognito，由 hook 自己決定要不要留）。「使用者送出訊息」只檢查聊天送出的文字，心跳、排程提示與重新觸發不觸發，不能拿來管住使用者；「工具執行前」只涵蓋經工具執行器的呼叫（代理人的工具與除錯執行），任務驗證指令與試跑不觸發。工具前後 hook 的補充說明會接在工具結果裡，對話的使用者看得到，也會存進對話紀錄。程式以結束碼 2 擋下時，標準錯誤輸出會當成擋下原因顯示給對話的使用者，不要在裡面放秘密。HTTP hook 的回應不能壓縮，伺服器回壓縮過的內容算失敗。",
+      "enable_label": "啟用 Hooks",
+      "enable_hint": "關閉時所有 hook 都不執行。",
+      "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
+      "add_group": "新增一組",
+      "remove_group": "刪除這組",
+      "remove_hook": "刪除這個 hook",
+      "reload": "重新載入",
+      "save_button": "儲存",
+      "save_success": "Hook 設定已儲存",
+      "path_problem": "{{event}} 的 {{where}}：{{reason}}（{{value}}）",
+      "types": {
+        "command": "程式",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "使用者送出訊息後、交給模型前。可以擋下訊息，或補充說明給模型。心跳不觸發。",
+        "PreToolUse": "工具執行前。可以擋下，或要人在審批卡上確認。比對規則看工具名稱。",
+        "PostToolUse": "工具成功執行後。可以補充說明給模型。比對規則看工具名稱。",
+        "Stop": "一輪回覆結束後在背景執行，不影響回覆。"
+      },
+      "fields": {
+        "name": "名稱（選填）",
+        "enabled": "啟用這個 hook",
+        "command": "程式的絕對路徑",
+        "command_placeholder": "程式的絕對路徑（例如直譯器），腳本放在設定資料夾的 hooks/",
+        "args": "參數",
+        "args_placeholder": "參數，一行一個（原樣交給程式，不經 shell）",
+        "url": "網址",
+        "url_placeholder": "https://",
+        "headers": "標頭",
+        "headers_placeholder": "標頭，一行一個「名稱: 值」（照字面送出，不替換環境變數）",
+        "timeout": "逾時（秒）",
+        "matcher": "比對規則",
+        "matcher_placeholder": "工具名稱；可用 | 分隔多個，或寫正規表示式；空白或 * 表示全部"
+      },
+      "runs": {
+        "title": "最近執行",
+        "hint": "只保留在伺服器記憶體裡最新的 50 筆，重啟後清空。無痕對話只記時間、事件與結果。",
+        "refresh": "重新整理",
+        "empty": "還沒有執行紀錄。",
+        "incognito": "（無痕）",
+        "duration": "{{ms}} 毫秒",
+        "exit_code": "結束碼 {{code}}",
+        "http_status": "HTTP {{status}}"
+      },
+      "outcomes": {
+        "blocked": "擋下",
+        "ask": "要人確認",
+        "context": "補充說明",
+        "none": "沒有動作",
+        "failed": "hook 失敗（不擋）"
+      },
+      "path_reasons": {
+        "not_absolute": "不是絕對路徑",
+        "missing": "檔案不存在",
+        "not_file": "不是檔案",
+        "parent_segment": "含有「..」",
+        "file_url": "不接受 file: 網址",
+        "unc_path": "不接受網路路徑或磁碟機相對路徑",
+        "agent_writable": "在代理人寫得到的地方",
+        "outside_hooks_dir": "不在設定資料夾的 hooks/ 裡",
+        "linked_path": "路徑經過符號連結或 junction",
+        "hard_link": "有其他硬連結",
+        "link_loop": "符號連結太多層或繞圈",
+        "unverifiable": "無法確認位置"
+      },
+      "errors": {
+        "load_failed": "讀不到 Hook 設定。",
+        "save_failed": "儲存失敗，請稍後再試。",
+        "invalid_field": "欄位不合規則：{{where}}：{{message}}"
+      }
     },
     "general_tab": {
       "profile_heading": "個人檔案",
@@ -1404,6 +1484,8 @@
       "reject": "拒絕",
       "countdown": "{{seconds}} 秒後自動拒絕",
       "review_reason": "審查員轉給你的理由：{{reason}}",
+      "hook_ask": "管理員設定的 hook 要你確認這個動作。",
+      "hook_reason": "管理員設定的 hook 要你確認：{{reason}}",
       "human_only": "只有你能核准",
       "human_only_desc": "這類動作審查員和 YOLO 都不能代為放行。",
       "risk": {
@@ -2237,6 +2319,7 @@
       "id_mismatch": "工作階段 ID 不符",
       "save_failed": "儲存工作階段失敗",
       "scope_mismatch": "此對話無法用於指定的對象",
+      "prompt_stopped": "這次回覆在開始前就被停止了",
       "interjection_queue_full": "這一則回覆的補充太多了",
       "interjection_too_long": "補充的文字太長",
       "interjection_not_found": "找不到這則補充",
@@ -2305,6 +2388,11 @@
       "collection_collision": "這個 ID 會和既有的 ID 共用語意索引，請換一個 ID",
       "check_failed": "無法確認這個 ID 不會和既有的記憶共用，什麼都沒建立",
       "collection_collision_with": "這個 ID 會和「{{id}}」共用語意索引，請換一個 ID"
+    },
+    "hooks": {
+      "prompt_blocked": "管理員設定的 hook 擋下了這則訊息：沒有送給模型，也已從對話拿掉。",
+      "config_conflict": "hook 設定已被別人改過，請重新載入後再存。",
+      "path_rejected": "hook 指令或參數指到代理人可以寫入的位置，或無法確認安全，不能存檔。"
     }
   }
 }

@@ -51,6 +51,9 @@ class PipelineContext(BaseModel):
     # 無痕模式（HAX G17，ADR-0086）：零殘留對話旗標
     incognito: bool = Field(default=False, description="無痕模式：零殘留對話")
 
+    # Hook（ADR-0292）：只有真的請求執行 UserPromptSubmit hook；上下文預覽不設
+    run_hooks: bool = Field(default=False, description="這次請求要不要執行 UserPromptSubmit hook")
+
     # 深入研究模式（ADR-0087）：旗標啟用時注入研究協調 Skill、引導多步搜尋＋引用報告
     deep_research: bool = Field(default=False, description="深入研究模式")
 
