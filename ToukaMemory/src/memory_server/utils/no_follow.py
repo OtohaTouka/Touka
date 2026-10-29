@@ -31,7 +31,9 @@ import os
 import secrets
 import stat
 import sys
+import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, NamedTuple, Protocol, override
 
@@ -964,6 +966,28 @@ def walk_open_no_follow(
             continue
         with os.fdopen(fd, "rb") as handle:
             yield entry.parts, handle, os.fstat(handle.fileno())
+
+
+_ZIP_CHUNK = 1024 * 8  # 和 ZipFile.write 一樣
+
+
+def zip_open_file(
+    zf: zipfile.ZipFile, arcname: str, handle: IO[bytes], info: os.stat_result
+) -> None:
+    """把走訪開好的檔案寫進 zip：照 ``ZipFile.write`` 由 ``fstat`` 建 ``ZipInfo``（ADR-0293）.
+
+    時間（本機時間，和 ``ZipFile.write`` 相同）、權限、大小與壓縮方式都和 ``ZipFile.write`` 一樣；
+    最多寫 ``info.st_size`` 位元組，檔案在寫的時候變大也不多讀（大小上限照 ``fstat`` 算）。
+    """
+    zinfo = zipfile.ZipInfo(arcname, datetime.fromtimestamp(info.st_mtime).timetuple()[:6])
+    zinfo.external_attr = (info.st_mode & 0xFFFF) << 16
+    zinfo.file_size = info.st_size
+    zinfo.compress_type = zf.compression
+    remaining = info.st_size
+    with zf.open(zinfo, "w") as dest:
+        while remaining > 0 and (chunk := handle.read(min(_ZIP_CHUNK, remaining))):
+            dest.write(chunk)
+            remaining -= len(chunk)
 
 
 def walk_pruned(

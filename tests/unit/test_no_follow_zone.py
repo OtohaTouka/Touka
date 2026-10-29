@@ -11,6 +11,7 @@ import errno
 import os
 import stat
 import sys
+import zipfile
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,6 +35,7 @@ from memory_server.utils.no_follow import (
     walk_open_no_follow,
     walk_pruned,
     write_bytes_no_follow,
+    zip_open_file,
     zone_errors,
 )
 from memory_server.utils.zone_paths import Anchor, ZoneRoots, ZoneSegmentError
@@ -284,6 +286,34 @@ def test_walk_open_gives_open_files_and_closes_them(base, monkeypatch):
     assert seen == [("a.txt", "a.txt", 5), ("b.txt", "b.txt", 5), ("sub/c.txt", "sub/c.txt", 9)]
     assert all(h.closed for h in handles)
     assert found.links == 1
+
+
+def test_zip_open_file_matches_zipfile_write(base):
+    """走訪開好的檔案寫進 zip：大小、時間、權限、壓縮方式和 ``ZipFile.write`` 一樣."""
+    source = base / "note.txt"
+    source.write_bytes(b"hello zone")
+    os.utime(source, (1_700_000_000, 1_700_000_000))
+    with zipfile.ZipFile(base / "a.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(source, "by_write.txt")
+        with source.open("rb") as handle:
+            zip_open_file(zf, "by_fd.txt", handle, os.fstat(handle.fileno()))
+    with zipfile.ZipFile(base / "a.zip") as zf:
+        expected, got = zf.getinfo("by_write.txt"), zf.getinfo("by_fd.txt")
+        assert zf.read("by_fd.txt") == b"hello zone"
+    for name in ("file_size", "date_time", "external_attr", "compress_type", "CRC"):
+        assert getattr(got, name) == getattr(expected, name), name
+
+
+def test_zip_open_file_writes_no_more_than_fstat_said(base):
+    """檔案在寫進 zip 的時候變大，也只寫 ``fstat`` 當時的大小（上限照 ``fstat`` 算才有意義）."""
+    source = base / "growing.bin"
+    source.write_bytes(b"x" * 10)
+    with zipfile.ZipFile(base / "b.zip", "w") as zf, source.open("rb") as handle:
+        info = os.fstat(handle.fileno())
+        source.write_bytes(b"x" * 50)  # 同一個 inode 變大
+        zip_open_file(zf, "growing.bin", handle, info)
+    with zipfile.ZipFile(base / "b.zip") as zf:
+        assert zf.read("growing.bin") == b"x" * 10
 
 
 # --- 剪枝走訪（R5） ------------------------------------------------------------
