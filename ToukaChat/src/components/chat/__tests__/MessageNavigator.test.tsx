@@ -121,10 +121,20 @@ describe('MessageNavigator', () => {
     const { rerender } = render(view(THREE));
     const composer = screen.getByRole('textbox', { name: 'composer' });
     fireEvent.mouseEnter(screen.getByRole('button', { name: '跳到第 2 則：第二句' }));
+    expect(screen.getByText('第二句')).toBeDefined();
     rerender(view(ticksOf([user('x1', '甲'), user('x2', '乙')])));
     expect(screen.queryByText('第二句')).toBeNull();
     fireEvent.keyDown(composer, { key: 'Escape' });
     expect(composerKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('預覽那條消失後又回來（分段變回原狀），預覽不會自己再出現', () => {
+    const { rerender } = renderNav();
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '跳到第 2 則：第二句' }));
+    expect(screen.getByText('第二句')).toBeDefined();
+    rerender(<MessageNavigator ticks={ticksOf([user('x1', '甲'), user('x2', '乙')])} currentIndex={null} onJump={vi.fn()} />);
+    rerender(<MessageNavigator ticks={THREE} currentIndex={null} onJump={vi.fn()} />);
+    expect(screen.queryByText('第二句')).toBeNull();
   });
 
   it('失焦時收起預覽', () => {

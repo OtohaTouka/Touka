@@ -42,6 +42,8 @@ export function MessageNavigator({ ticks, currentIndex, onJump }: MessageNavigat
   // 記住的焦點不在了（線變少、換分支）就退回目前那條，再退回第一條：永遠恰好一個 Tab 停留點
   const tabKey = ticks.some(tick => tick.key === focusKey) ? focusKey : (currentKey ?? ticks[0]?.key ?? null);
   const previewTick = preview ? ticks.find(tick => tick.key === preview.key) : undefined;
+  // 那條因重新分段不見了就忘掉預覽：分段變回原狀時才不會在滑鼠早已離開的地方自己冒出來
+  if (preview !== null && previewTick === undefined) setPreview(null);
 
   const previewText = (tick: NavTick): string => {
     const { preview: text, attachment } = tick.entry;
