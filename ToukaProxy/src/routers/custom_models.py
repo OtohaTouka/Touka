@@ -16,11 +16,13 @@ from src.models.custom_models import (  # noqa: TC001
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
 from src.services import memory_collection_guard
+from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
 from src.services.custom_model_service import custom_model_service
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
+from src.tools import terminal
 from src.utils import custom_io, soul_io
 
 logger = logging.getLogger(__name__)
@@ -237,6 +239,8 @@ async def rename_custom_model(
         new_identity = AgentIdentity(agent_id=new_id, agent_role="Owner")
         _validate_new_model_id(new_identity, renaming=model_id)
         await _assert_collection_free(new_identity, renaming=model_id)
+        # R11（ADR-0293）：個人空間根是連結就 409、兩邊都不動；改名不刪東西，不停指令
+        refuse_linked_drive(resource_manager.custom_drive(old_identity))
 
         try:
             custom_model_service.rename_model(old_identity, new_id)
@@ -277,7 +281,16 @@ async def delete_custom_model(
         _validate_model_access(identity, _identity)
         _assert_is_model(identity)
 
-        success = custom_model_service.delete_model(identity)
+        # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個模型的全部指令，
+        # 標記期間也不會開新的。
+        async with destructive_op(identity):
+            refuse_linked_drive(resource_manager.custom_drive(identity))
+            killed = await terminal.stop_agent_commands(identity)
+            if killed:
+                logger.info(
+                    "Custom model %s: stopped %d command(s) before deleting", model_id, killed
+                )
+            success = custom_model_service.delete_model(identity)
         if not success:
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)
 

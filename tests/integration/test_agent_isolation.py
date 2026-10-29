@@ -64,7 +64,7 @@ def test_vault_path_isolation(isolation_env, mock_identity):
     
     alice_path = rm.get_vault_path("soul", alice)
     bob_path = rm.get_vault_path("soul", bob)
-    girlg_personal = rm.get_vault_path("personal", girlg)
+    girlg_personal = rm.agent_drive(girlg)  # 個人空間是區內路徑（ADR-0293）
     
     # 獲取目前的 app_data
     app_data = get_app_data_dir()
@@ -77,8 +77,7 @@ def test_vault_path_isolation(isolation_env, mock_identity):
     assert rm.get_vault_path("soul", girlg) is None
     
     # 自定義模型的 personal vault 應在 custom/ 下
-    assert "custom" in str(girlg_personal).replace("\\", "/")
-    assert "GirlG" in str(girlg_personal).replace("\\", "/")
+    assert girlg_personal.display() == "zone://custom_drive/GirlG/drive"
 
 def test_physical_path_ban_compliance(isolation_env, mock_identity):
     """驗證 ResourceManager 是否符合物理路徑禁令 (回傳路徑而非硬編碼字串)"""

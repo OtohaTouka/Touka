@@ -6,7 +6,9 @@ HAPPY paths and exact return STRUCTURES so a one-line logic change in the
 production source flips a result.
 
 All filesystem access is redirected to ``tmp_path`` via monkeypatch of
-``get_custom_dir`` / ``_get_base_dir`` — the real ``data/`` dir is NEVER touched.
+``get_custom_dir`` / ``_get_base_dir``, or the ``zone_data_root`` fixture for the delete
+and move paths that go through ResourceManager (ADR-0293) — the real ``data/`` dir is
+NEVER touched.
 """
 
 from __future__ import annotations
@@ -24,27 +26,23 @@ IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
 
 
 class TestDeleteCustomDir:
-    def test_returns_false_when_dir_missing(self, tmp_path, monkeypatch):
-        missing = tmp_path / "custom" / "nope"
-        monkeypatch.setattr(
-            "src.utils.custom_io.get_custom_dir", lambda identity: missing
-        )
+    def test_returns_false_when_dir_missing(self, zone_data_root):
+        (zone_data_root / "custom").mkdir()
         assert custom_io.delete_custom_dir(IDENT) is False
 
-    def test_returns_true_and_dir_gone_when_exists(self, tmp_path, monkeypatch):
-        d = tmp_path / "custom" / "modelX"
+    def test_returns_true_and_dir_gone_when_exists(self, zone_data_root):
+        d = zone_data_root / "custom" / "agentX"
         d.mkdir(parents=True)
         (d / "weights.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io.get_custom_dir", lambda identity: d)
 
         assert custom_io.delete_custom_dir(IDENT) is True
         assert not d.exists()
 
-    def test_returns_false_when_get_custom_dir_none(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.utils.custom_io.get_custom_dir", lambda identity: None
-        )
-        assert custom_io.delete_custom_dir(IDENT) is False
+    def test_returns_false_when_the_id_is_not_one_segment(self, zone_data_root):
+        (zone_data_root / "custom" / "agentX").mkdir(parents=True)
+        escaping = AgentIdentity(agent_id="../custom")
+        assert custom_io.delete_custom_dir(escaping) is False
+        assert (zone_data_root / "custom" / "agentX").exists()
 
 
 # ===========================================================================
@@ -142,14 +140,13 @@ class TestWriteReadRoundtrip:
 
 class TestMoveCustomDir:
     @pytest.fixture
-    def base(self, tmp_path, monkeypatch):
+    def base(self, zone_data_root):
         # Nested so an escaping target would still land inside tmp_path for assertions.
-        b = tmp_path / "app" / "custom"
-        b.mkdir(parents=True)
+        b = zone_data_root / "custom"
+        b.mkdir()
         old = b / "modelX"
         old.mkdir()
         (old / "config.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io._get_base_dir", lambda: b)
         return b
 
     def test_success_moves_dir(self, base):

@@ -223,14 +223,13 @@ class TestCustomIoMoveSandbox:
     paths must now stay inside the custom base (is_relative_to)."""
 
     @pytest.fixture
-    def base(self, tmp_path, monkeypatch):
+    def base(self, zone_data_root):
         # Nested so a "../../escape" target still lands inside tmp_path for assertions.
-        b = tmp_path / "app" / "custom"
-        b.mkdir(parents=True)
+        b = zone_data_root / "custom"
+        b.mkdir()
         old = b / "modelX"
         old.mkdir()
         (old / "config.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io._get_base_dir", lambda: b)
         return b
 
     def test_move_blocks_traversal(self, base, tmp_path):

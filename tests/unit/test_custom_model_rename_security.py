@@ -192,7 +192,7 @@ def test_a_failed_move_is_an_error_and_moves_no_ownership(
     def _locked(*_args: object) -> None:
         raise PermissionError
 
-    monkeypatch.setattr(custom_io.shutil, "move", _locked)
+    monkeypatch.setattr(resource_manager, "rename_agent_container", _locked)
 
     response = _rename(OLD, NEW)
 

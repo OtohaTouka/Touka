@@ -39,7 +39,7 @@ from src.services.isolation.runners import Acquired, IsolationUnavailableError
 from src.services.resource_manager import resource_manager
 from src.tools import terminal
 
-from tests.support.links import LINK_FOLLOWED, REST_DELETED, make_dir_link
+from tests.support.links import CHANGED_ANYWAY, LINK_FOLLOWED, make_dir_link
 
 if sys.platform == "win32":
     import _winapi
@@ -411,7 +411,7 @@ def test_a_linked_personal_drive_refuses_the_delete(
     resp = _delete(admin)
 
     assert (fake / "users.json").read_text(encoding="utf-8") == "{}", LINK_FOLLOWED
-    assert soul_dir.exists(), REST_DELETED
+    assert soul_dir.exists(), CHANGED_ANYWAY
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "AGENT_DRIVE_LINKED"
     wipe.assert_not_awaited()
