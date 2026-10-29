@@ -295,7 +295,7 @@ def test_permission_errors_name_the_absolute_path(tmp_path):
         with pytest.raises(PermissionError) as caught:
             replace_text_no_follow(shut / "f.txt", "y")  # 建暫存檔
         assert Path(caught.value.filename).parent == shut
-        assert caught.value.filename2 == str(shut / "f.txt")
+        assert caught.value.filename2 is None
     finally:
         locked.chmod(0o700)
         shut.chmod(0o700)
