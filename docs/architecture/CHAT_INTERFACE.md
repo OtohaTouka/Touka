@@ -284,6 +284,15 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
     *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
+*   **手機版判斷**: `hooks/useIsMobile.ts`（`(max-width: 768px)`），`page.tsx` 的版面切換與 ChatArea 的訊息導覽列共用。
+
+### 3. 對話左側的訊息導覽列（2026-10-29）
+*   **畫線規則**（`lib/chat/messageNavigation.ts`，純函式）：ChatArea 同一份 `linearMessages` 裡，`role === 'user'` 且 `name` 不是 `SYSTEM_SPEAKER` 的節點一則一條；index 就是 Virtuoso 的 data index。心跳補的「請繼續」以 `name=SYSTEM_SPEAKER` 寫入，不畫；心跳初始提示、SNS 外人訊息照畫。`SYSTEM_SPEAKER` 是雙端常數（後端 `utils/user_intent.py`，`test_system_speaker_contract.py` 核對）。
+*   **顯示條件**: 桌面網頁版、至少 `MIN_NAV_TICKS`（2）條線；手機版與 IDE 不顯示，也不把 `rangeChanged` 交給 Virtuoso。線數不是對話回合數（回合數見 `countRounds`）。
+*   **版面**: Virtuoso 包在 `relative flex-1 min-h-0` 的容器裡，導覽列（`components/chat/MessageNavigator.tsx`）以它定位在左側 `w-6` 留白、垂直置中，不壓到輸入區；「回到最底」按鈕在容器外。每條固定 `h-4`、排不下時等比例壓縮。線數上限依容器高度（`ResizeObserver`，每條至少 8px，最少 2 條、最多 120 條，`maxTicksFor`）；則數超過上限時平均分段，一條代表一段、點擊跳到段內第一則。沒有 `ResizeObserver` 時用 120 條。
+*   **互動**: 滑鼠移上去浮出預覽（純文字、最多 3 行，不經 Markdown），移開或點擊後收起；點擊呼叫 `scrollToIndex({ index, align: 'start', behavior: 'smooth' })`。鍵盤用 roving tabindex：整排一個 Tab 停留點（記住的那條不在了就退回目前那條、再退回第一條），上下鍵、Home、End 換條並浮出預覽，Enter／Space 是原生 button。
+*   **目前那則**（`hooks/useMessageNavigation.ts`）: 依 Virtuoso 的 `rangeChanged` 取範圍內最上面的使用者訊息，範圍內沒有就取之前最近的那則；分段時落在段內整段標亮（`aria-current`）。
+*   **無障礙**: 線用 `bg-muted-foreground`／`bg-primary`，不加透明度（WCAG 1.4.11）；線被壓到低於 24px 時，2.5.8 依「有等效操作」例外（直接捲動對話一樣能到）。按鈕的 `aria-label` 帶第幾則與預覽，浮出的預覽 `aria-hidden`。
 
 ---
 

@@ -290,6 +290,7 @@
 | 三模式決策表（含 Auto 的 `REVIEW` 與動態 shell `HUMAN_ONLY`） | `AuthPoliciesConfig._evaluate_rules`（`models/safety.py`）；動態 shell 偵測 `command_safety.has_dynamic_shell_syntax` | Gate 1、Gate 2、`classify_command`、MCP MRTR |
 | 有沒有人在場 | `src/utils/presence.py`（`is_human_present`，只看伺服器設的 `heartbeat_run`／`subagent_run`／`dispatch_run`） | ToolExecutor、ToolLayer、MCP 互動出口 |
 | 使用者原意（審查員的資料） | `src/utils/user_intent.py`（`UserIntent`） | MonitorLayer、心跳、UI 重跑、子代理 → 審查員 |
+| 系統寫進對話的 user 訊息標記（雙端） | 後端 `src/utils/user_intent.py` 的 `SYSTEM_SPEAKER`＋前端 `lib/chat/messageNavigation.ts`（同名常數），跨端測試 `test_system_speaker_contract.py`（也核對心跳寫入端） | 心跳 nudge 寫入（`routers/heartbeat.py`）、審查員原意過濾、前端訊息導覽列 |
 | Auto 審查員（輸入格式、判決解析、P7 計數） | `services/auto_reviewer.py`；設定 `AutoReviewConfig`（`autonomy.json` 的 `auto_review`） | ToolExecutor、互審 `policy_command_gate` |
 | 審查員核准的可信欄位 | `tools/execution_context.py` 的 `_approved_by`＝`APPROVED_BY_AUTO_REVIEWER` | ToolExecutor → terminal（只滿足 `REVIEW`） |
 | 心跳 `security_level` → 模式 | `routers/heartbeat._SECURITY_LEVEL_TO_AUTH` | `/awaken`、`/retrigger`；前端 `heartbeat_mode.ts` 只做顯示對照 |

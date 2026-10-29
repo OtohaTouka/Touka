@@ -31,6 +31,7 @@
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - ToukaHeartbeat 服務本身不變。
+- 兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
 
 ## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
 
