@@ -236,6 +236,7 @@ tests/
 | `test_reviewer_models_endpoint.py` | **審查員模型清單**（ADR-0246 U2c-6，假金鑰）：`GET /v1/autonomy/reviewer-models` 只列供應商金鑰已設定、啟用中的一般模型（排除沒金鑰的供應商、靈魂、停用、自訂模型、不用金鑰的端點型供應商），依 id 排序；根路徑對等；非 Owner／Debugger／admin 回 403 |
 | `test_autonomy_reviewer_authority_security.py` ⭐ | **審查員設定只有人類 admin 能改**（ADR-0246 R-2c，假金鑰、tmp_path 設定檔）：`auto_review` 有變更時（模型或 `headless_terminal`）非 admin 擁有者經 X-Agent-ID、靈魂本身、Debugger、admin 代打都 403 `AUTH_ADMIN_REQUIRED`、設定不變；一般人類擁有者連 POST 都 403；人類 admin 可改；清單外的模型（沒金鑰、靈魂、停用、不存在）422 `VALIDATION_ERROR`；沒動 `auto_review` 時預算欄位照舊 Owner／Debugger 能改；舊模型沒金鑰時不擋沒改模型的存檔與只改開關 |
 | `test_user_intent_presence_security.py` ⭐ | **使用者原意與在場判斷**（ADR-0246 U2c-2）：對話原意只取最後 3 則人類訊息（排除 `name="System"` nudge、系統寫入的 user 訊息、tool_result）、逐則截到 1,000 字、標成資料且不可變；MonitorLayer 產生、子代理不覆寫、無痕不寫 log 不碰資料庫；心跳用消毒後的 init_prompt、UI 重跑用最後一則人類節點，兩者都設 `heartbeat_run`；子代理設 `subagent_run`＋`dispatch_run`、原意只帶父原意（R-2c：派工目標是代理人轉述、不收）；SNS 外人訊息（`【SNS 外部訊息】` 開頭）不算原意，對話與 UI 重跑都排除；前端內嵌的附件從第一個標記起排除（含偽造結束標記、只有附件、已上傳檔案提示）；ToolLayer 只對子代理沿用父模式；子代理遇到 CONFIRM／HUMAN_ONLY 立刻拒絕、不跳卡（`asyncio.timeout` 防卡死）、`_interactive=False`；繼承 YOLO 仍擋底線指令；MCP `execution_kind`／origin／互動出口依標記；心跳的 MCP 呼叫不使用 workload OAuth（`HEARTBEAT_WORKLOAD_OAUTH_ENABLED` 維持關閉） |
+| `test_system_speaker_contract.py` | **訊息導覽列・系統發言者常數**：前端 `SYSTEM_SPEAKER`（`lib/chat/messageNavigation.ts`）與後端 `user_intent.SYSTEM_SPEAKER` 相同；心跳寫的兩則 user 角色「請繼續」都以 `name=user_intent.SYSTEM_SPEAKER` 寫入（AST 檢查，改回字面值或拿掉會失敗）。 |
 | `test_security_policies.py` | PermissionService 安全政策讀取、`auth_level` 三模式矩陣判定（退役的 ReadOnly 當 Manual） |
 | `test_cloud_mode.py` | `CLOUD_MODE` 旗標：雲端部署時 LDH 不對私有 IP 自動發卡、`X-Real-IP` 識別、`ALLOWED_ORIGINS` CORS 合併 |
 | `test_config_env_selection.py` | `.env` 檔案環境感知與互斥載入邏輯驗證，支援整合/解耦模式切換 |
@@ -1006,8 +1007,11 @@ python scripts/guard_all.py
 | `unit/connections.resume.test.ts` | ADR-0081 `resumeChatStream`：starting_after URL、chunk/event/done 分發（與 fetchChatStream 共用 dispatchSseLine）、非 2xx onError、跨 chunk 斷行重組 |
 | `unit/StreamRegistry.resume.test.tsx` | ADR-0081 重整接回：startStream 先 syncSession user 回合（順序斷言）、resumeActiveStreams 依 active 清單重建 entry＋重播重建樹＋onDone 持久化、已有 entry 不重複接回 |
 | `unit/StreamRegistry.test.tsx` | ADR-0080 進行中串流 SSOT：startStream 建 entry、onChunk per-session 隔離不污染他 session、並發上限 5、stopStream abort+清除、onDone 寫回 session、onError toast（非 AbortError）/不 toast（AbortError） |
-| `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯。 |
+| `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯；訊息導覽列至少兩條才顯示、IDE 與手機版不顯示但照樣交出捲動範圍、點擊以 `align: 'start'` 捲到那則、捲動範圍決定目前那條、依訊息捲動區的高度決定線數。 |
 | `src/components/chat/__tests__/MessageItem.test.tsx` | MessageItem：既有訊息渲染回歸＋P11切換語言後Markdown程式碼複製按鈕使用新翻譯。 |
+| `src/lib/chat/__tests__/messageNavigation.test.ts` | 訊息導覽列純函式：只收 user 訊息、排除 `SYSTEM_SPEAKER` 的「請繼續」（開場提示、SNS 與其他名字照收）；預覽去頭尾空白與截斷；圖片／檔案附件；超過上限時分段（含不整除）；依導覽區高度算線數上限（沒量到用 120、每 8px 一條、最少 2 條）；目前那則取範圍內第一則、否則取範圍前最近一則；分段時段內任一則都算目前。 |
+| `src/components/chat/__tests__/MessageNavigator.test.tsx` | 訊息導覽列元件：每則一條、名稱帶第幾則（分段帶範圍）與預覽、附件與沒有文字的說法；滑鼠移入浮出預覽、移開與點擊收起、按 Esc 收起（滑鼠浮出與鍵盤浮出兩種；預覽開著時那一下 Esc 不傳到輸入框，下一次才傳；預覽那條因重新分段消失後 Esc 照常傳）、預覽那條消失後又回來時預覽不會自己再出現、失焦收起；預覽是純文字不解讀 HTML／Markdown；`aria-current`；整排一個 Tab 停留點、上下鍵／Home／End 移動，線變少後仍只有一個停留點。 |
+| `src/hooks/__tests__/useMessageNavigation.test.ts` | 訊息導覽列 hook：訊息變動時重算線、捲動範圍決定目前那則、範圍變了但目前那則沒變時不重繪、換路徑時用最新範圍重算、停用時沒有目前那則且重新啟用時立刻用停用期間的範圍；量到導覽區高度後線數跟著調整、卸載時停止觀察、停用時不觀察、沒有 `ResizeObserver` 時照上限畫線。 |
 | `unit/hooks/useChatStream.test.ts` | ADR-0080／P11 useChatStream委派：既有session／新建session／stop／上限提示，以及固定provider與options後切換翻譯函式，限流提示使用新語言。 |
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
 | `unit/ChatProvider.backgroundStream.test.tsx` | ADR-0080 背景續跑端到端：切走不中止、per-session isSending、背景 chunk 不污染、切回看到累積、完成寫回 session；兩對話同時背景生成互不污染 |

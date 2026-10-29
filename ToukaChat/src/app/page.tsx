@@ -10,7 +10,7 @@ import { SoulStudio } from "@/components/layout/SoulStudio";
 import { ModelStudio } from "@/components/layout/ModelStudio";
 import { ProjectsView } from "@/components/projects/ProjectsView";
 import { useArtifacts } from "@/hooks/useArtifacts";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ChatArea } from '@/components/chat/ChatArea';
@@ -61,7 +61,7 @@ export default function ChatPage() {
 
 function ChatLobby() {
   const { t } = useTranslation();
-  const isMobile = useMediaQuery("(max-width: 768px)");
+  const isMobile = useIsMobile();
   const { activeSessionId, setAttachment, handleNewSession } = useChat();
   const { selectedModel } = useModels();
 

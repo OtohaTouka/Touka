@@ -18,6 +18,8 @@ vi.mock('react-virtuoso', async () => {
   Virtuoso.displayName = 'Virtuoso';
   return { Virtuoso };
 });
+// jsdom 沒有 matchMedia（ChatArea 用它判斷手機版）
+vi.mock('@/hooks/useMediaQuery', () => ({ useMediaQuery: () => false }));
 
 const chat = vi.hoisted(() => ({
   state: {} as Record<string, unknown>,
