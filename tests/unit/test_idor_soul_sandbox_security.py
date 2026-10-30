@@ -29,6 +29,7 @@ from src.services.resource_manager import resource_manager
 from src.utils import custom_io, soul_io
 
 from tests.support.zone_records import expect_zone_refusal
+from tests.support.zone_roots import point_zone_roots
 
 OWNER = AgentIdentity.for_role(agent_id="ownerAgent", role="Owner", is_human=False, owned_agents=[])
 ADMIN = AgentIdentity.for_role(agent_id="AdminUser", role="admin", is_human=True)
@@ -104,7 +105,7 @@ class TestContextSnapshotIDOR:
             "src.services.context_snapshot_service.render_snapshot_markdown",
             lambda snap: "MARKDOWN",
         )
-        monkeypatch.setattr(resource_manager, "get_base_path", lambda: str(tmp_path))
+        point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
         monkeypatch.setattr(resource_manager, "write_file_text", lambda *a, **k: None)
         r = owner_client.get("/debug/context-snapshot/export?agent_id=ownerAgent")
         assert r.status_code == 200

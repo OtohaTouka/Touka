@@ -102,11 +102,10 @@ def _call_gateway(action: str, **kwargs: Any) -> str:
 
 
 @pytest.fixture
-def startup_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
+def startup_vault(zone_data_root: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     MemoryManager.reset_singletons()
     app.dependency_overrides[get_verified_identity] = lambda: OWNER
-    yield tmp_path / "vault"
+    yield zone_data_root / "vault"
     MemoryManager.reset_singletons()
 
 

@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.config import settings
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.tool_executor import ToolExecutor
@@ -59,17 +58,7 @@ async def test_sovereign_identity_elevation_and_isolation():
         "auth_level": "YOLO",
     }
 
-    sandbox_dir = settings.MEMORY_APP_DATA_DIR
-
-    with (
-        patch.object(
-            agent_service, "identify_agent", side_effect=mock_identify
-        ),
-        patch(
-            "src.services.resource_manager.get_app_data_dir",
-            return_value=sandbox_dir,
-        ),
-    ):
+    with patch.object(agent_service, "identify_agent", side_effect=mock_identify):
         # 執行 A: 驗證權限提升
         results = []
         async for event in executor.execute(

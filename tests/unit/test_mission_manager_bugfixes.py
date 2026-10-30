@@ -42,9 +42,8 @@ PRIVILEGED = _FakeIdentity("DebugAgent", "Debugger", ["can_supervise_dispatch"])
 NORMAL = _FakeIdentity("NormalAgent", "Base", [])
 
 
-def _reset(monkeypatch, tmp_path):
-    """設置沙盒資料目錄並重置 resource proxy。"""
-    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
+def _reset():
+    """重置 resource proxy（data 根由 ``zone_data_root`` 換，ADR-0293 T3）。"""
     from memory_server import config_utils
     config_utils._reset_resource_proxy_cache()
 
@@ -58,9 +57,9 @@ class TestH1BlockedRequiresBlockerDetail:
     """H1: 轉入 BLOCKED 狀態時，必須提供非空的 blocker_detail。"""
 
     @pytest.mark.asyncio
-    async def test_blocked_without_detail_raises(self, tmp_path, monkeypatch):
+    async def test_blocked_without_detail_raises(self, zone_data_root, monkeypatch):
         """無 blocker_detail 轉入 BLOCKED → ValueError。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -76,9 +75,9 @@ class TestH1BlockedRequiresBlockerDetail:
             )
 
     @pytest.mark.asyncio
-    async def test_blocked_with_empty_string_detail_raises(self, tmp_path, monkeypatch):
+    async def test_blocked_with_empty_string_detail_raises(self, zone_data_root, monkeypatch):
         """空字串 blocker_detail 轉入 BLOCKED → ValueError。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -94,9 +93,9 @@ class TestH1BlockedRequiresBlockerDetail:
             )
 
     @pytest.mark.asyncio
-    async def test_blocked_with_detail_succeeds(self, tmp_path, monkeypatch):
+    async def test_blocked_with_detail_succeeds(self, zone_data_root, monkeypatch):
         """有 blocker_detail 轉入 BLOCKED → 成功，狀態正確更新。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -124,10 +123,10 @@ class TestH2ArtifactValidationOnUpdate:
 
     @pytest.mark.asyncio
     async def test_artifact_ref_path_traversal_blocked_on_update(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """artifact_ref 含 '..' → update_task 應拋出 ValidationError 或 ValueError。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -147,10 +146,10 @@ class TestH2ArtifactValidationOnUpdate:
 
     @pytest.mark.asyncio
     async def test_artifact_refs_path_traversal_blocked_on_update(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """artifact_refs 含 '..' → update_task 應拋出 ValidationError 或 ValueError。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -170,10 +169,10 @@ class TestH2ArtifactValidationOnUpdate:
 
     @pytest.mark.asyncio
     async def test_artifact_refs_absolute_path_blocked_on_update(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """artifact_refs 含絕對路徑 → update_task 應拋出 ValidationError 或 ValueError。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -192,9 +191,9 @@ class TestH2ArtifactValidationOnUpdate:
             )
 
     @pytest.mark.asyncio
-    async def test_valid_artifact_refs_pass_on_update(self, tmp_path, monkeypatch):
+    async def test_valid_artifact_refs_pass_on_update(self, zone_data_root, monkeypatch):
         """合法的相對路徑 artifact_refs → update_task 應成功。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         await manager.initialize_mission(
             identity=PRIVILEGED,
@@ -236,9 +235,9 @@ class TestC2NoDuplicatePermissionCheck:
             "權限檢查由 _resolve_target_agent_id 集中處理"
         )
 
-    def test_resolve_target_agent_id_still_enforces_permission(self, tmp_path, monkeypatch):
+    def test_resolve_target_agent_id_still_enforces_permission(self, zone_data_root, monkeypatch):
         """_resolve_target_agent_id 仍應拒絕無權限的跨身分存取（權限檢查未丟失）。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         manager = MissionManager()
         no_cap_identity = _FakeIdentity("RegularAgent", "Base", [])
         with pytest.raises(PermissionError):

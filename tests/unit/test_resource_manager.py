@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from memory_server.utils.zone_paths import Anchor
-from src.config import settings
 from src.models.identity import AgentIdentity
 from src.services.auth_service import AuthService
 from src.services.resource_manager import ResourceManager
@@ -41,12 +40,12 @@ def resource_mgr():
 
 
 @pytest.fixture
-def mock_app_data(tmp_path):
-    """Minimal app_data directory tree for path tests."""
-    (tmp_path / "soul" / "Alice").mkdir(parents=True)
-    (tmp_path / "personal_drive" / "Alice").mkdir(parents=True)
-    (tmp_path / "personal_drive" / "Stranger").mkdir(parents=True)
-    return tmp_path
+def mock_app_data(zone_data_root):
+    """Minimal app_data directory tree for path tests (ADR-0293 T3)."""
+    (zone_data_root / "soul" / "Alice").mkdir(parents=True)
+    (zone_data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    (zone_data_root / "personal_drive" / "Stranger").mkdir(parents=True)
+    return zone_data_root
 
 
 # ── Path isolation & traversal defence ─────────────────────────────────────
@@ -58,36 +57,33 @@ def test_vault_path_isolation(resource_mgr, mock_app_data):
     個人空間改由 ``agent_drive`` 給 ``ZonePath``（ADR-0293；``get_vault_path("personal")``
     不再交出字串）。
     """
-    with patch("src.services.resource_manager.get_app_data_dir", return_value=str(mock_app_data)):
-        alice = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-        stranger = AgentIdentity.for_role(agent_id="Stranger", role="Base")
+    alice = AgentIdentity.for_role(agent_id="Alice", role="Owner")
+    stranger = AgentIdentity.for_role(agent_id="Stranger", role="Base")
 
-        alice_drive = resource_mgr.agent_drive(alice)
-        assert alice_drive.anchor is Anchor.PERSONAL_DRIVE
-        assert alice_drive.parts == ("Alice",)
+    alice_drive = resource_mgr.agent_drive(alice)
+    assert alice_drive.anchor is Anchor.PERSONAL_DRIVE
+    assert alice_drive.parts == ("Alice",)
 
-        stranger_drive = resource_mgr.agent_drive(stranger)
-        assert stranger_drive.parts[0] == "Stranger"
-        assert "Alice" not in stranger_drive.parts
+    stranger_drive = resource_mgr.agent_drive(stranger)
+    assert stranger_drive.parts[0] == "Stranger"
+    assert "Alice" not in stranger_drive.parts
 
 
 def test_path_traversal_defence(resource_mgr, mock_app_data):
     """The drive stays at the agent's own segment; an id that is not a segment gets none."""
-    with patch("src.services.resource_manager.get_app_data_dir", return_value=str(mock_app_data)):
-        identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-        assert resource_mgr.agent_drive(identity).parts == ("Alice",)
-        escaping = AgentIdentity.for_role(agent_id="..", role="Owner")
-        assert resource_mgr.agent_drive(escaping) is None
+    identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
+    assert resource_mgr.agent_drive(identity).parts == ("Alice",)
+    escaping = AgentIdentity.for_role(agent_id="..", role="Owner")
+    assert resource_mgr.agent_drive(escaping) is None
 
 
 def test_vault_root_access_control(resource_mgr, mock_app_data):
     """Owner can access stats root; Base role cannot."""
-    with patch("src.services.resource_manager.get_app_data_dir", return_value=str(mock_app_data)):
-        owner = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-        base_user = AgentIdentity.for_role(agent_id="UserA", role="Base")
+    owner = AgentIdentity.for_role(agent_id="Alice", role="Owner")
+    base_user = AgentIdentity.for_role(agent_id="UserA", role="Base")
 
-        assert resource_mgr.get_vault_root("stats", owner) is not None
-        assert resource_mgr.get_vault_root("stats", base_user) is None
+    assert resource_mgr.get_vault_root("stats", owner) is not None
+    assert resource_mgr.get_vault_root("stats", base_user) is None
 
 
 # ── is_owner layered permissions ────────────────────────────────────────────
@@ -109,8 +105,6 @@ def test_is_owner_system_bypass(resource_mgr):
 
 def test_is_owner_self_sovereignty(resource_mgr, monkeypatch):
     """An agent has sovereignty over itself."""
-    monkeypatch.setattr(settings, "MEMORY_APP_DATA_DIR", SESSION_TMP_DATA_ROOT)
-
     agent = AgentIdentity.for_role(agent_id="Alice", role="Owner", is_human=False)
     target = AgentIdentity.for_role(agent_id="Alice", role="base", is_human=False)
     with patch("src.services.auth_service.AuthService.get_all_users", return_value=[]):

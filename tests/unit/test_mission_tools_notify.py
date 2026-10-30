@@ -26,9 +26,8 @@ def _make_identity(name: str = "Alice", role: str = "Owner") -> AgentIdentity:
     )
 
 
-def _reset(monkeypatch, tmp_path):
-    """沙盒初始化：設置 MEMORY_APP_DATA_DIR 並重置相關快取。"""
-    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
+def _reset():
+    """重置相關快取（data 根由 ``zone_data_root`` 換，ADR-0293 T3）。"""
     config_utils._reset_resource_proxy_cache()
     _reset_callback_store()
 
@@ -37,9 +36,9 @@ class TestMissionToolsNotify:
     """mission_tools 新增 notify_on_complete / await_dispatch_result 行為驗證。"""
 
     @pytest.mark.asyncio
-    async def test_initialize_with_notify_returns_callback_token(self, tmp_path, monkeypatch):
+    async def test_initialize_with_notify_returns_callback_token(self, zone_data_root, monkeypatch):
         """notify_on_complete=True 時，回傳訊息應包含各 task 的 callback_token。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         identity = _make_identity()
 
         result = await mission_tools(
@@ -67,9 +66,9 @@ class TestMissionToolsNotify:
         ) or store._pending, "callback store 應有已注冊的 pending token"
 
     @pytest.mark.asyncio
-    async def test_await_dispatch_result_action_returns_result(self, tmp_path, monkeypatch):
+    async def test_await_dispatch_result_action_returns_result(self, zone_data_root, monkeypatch):
         """await_dispatch_result action 在 deliver_result 後應解除阻擋並回傳結果。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         identity = _make_identity()
 
         store = get_callback_store()
@@ -98,9 +97,9 @@ class TestMissionToolsNotify:
         assert "t1" in result, f"應包含 task_id，實際：{result}"
 
     @pytest.mark.asyncio
-    async def test_notify_false_does_not_register_token(self, tmp_path, monkeypatch):
+    async def test_notify_false_does_not_register_token(self, zone_data_root, monkeypatch):
         """notify_on_complete=False（預設）時，callback store 不應有任何新 token。"""
-        _reset(monkeypatch, tmp_path)
+        _reset()
         identity = _make_identity()
 
         store = get_callback_store()

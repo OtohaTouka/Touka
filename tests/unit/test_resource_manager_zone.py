@@ -538,5 +538,4 @@ def test_get_vault_path_no_longer_gives_the_personal_drive(data, events):
         rm.get_vault_path("personal", ALICE)
     assert [e.error for e in events] == [ZonePathRequiredError]
     assert not hasattr(rm, "get_vault_path_for_agent")
-    assert not hasattr(rm, "get_outputs_path")
-    assert not hasattr(rm, "get_uploads_path")
+    # 舊的輸出、上傳路徑函式不能再出現，由 Z8 的 T1 檢查（tests/lint/test_zone_path_guard.py）

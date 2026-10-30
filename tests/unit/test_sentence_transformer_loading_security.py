@@ -94,7 +94,6 @@ def test_cve_2026_68770_local_custom_module_is_denied_before_import(
 
 
 def _sandbox_store(monkeypatch: pytest.MonkeyPatch, root: Path, model: Path) -> vector.VectorStore:
-    monkeypatch.setattr(vector, "get_resource_proxy", lambda: MagicMock())
     monkeypatch.setattr(vector, "QdrantClient", MagicMock())
     monkeypatch.setattr(vector.VectorStore, "_client_cache", {})
     return vector.VectorStore(base_dir=root, model_name=str(model))

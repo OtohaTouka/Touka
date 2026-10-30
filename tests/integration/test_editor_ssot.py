@@ -3,26 +3,21 @@
 （原本也測 ``text_editor``；那個工具沒有呼叫端，ADR-0293 刪除。）
 """
 
-import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from src.services.resource_manager import ResourceManager
 
 
 @pytest.fixture
-def temp_workspace():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
+def temp_workspace(zone_data_root: Path) -> Path:
+    """這個測試的 data 根（ADR-0293 T3）."""
+    return zone_data_root
 
 
 @pytest.fixture
 def resource_manager_mock(temp_workspace):
-    rm = ResourceManager()
-    # Mock get_app_data_dir to return our temp workspace
-    with patch("src.services.resource_manager.get_app_data_dir", return_value=str(temp_workspace)):
-        yield rm
+    return ResourceManager()
 
 
 class TestResourceManagerIOProxy:

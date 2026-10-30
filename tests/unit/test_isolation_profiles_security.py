@@ -28,10 +28,10 @@ from src.services.isolation.profiles import (
     blocked_ports,
     build_agent_command_profile,
 )
-from src.services.resource_manager import resource_manager
 from src.utils.async_db import init_db_async
 
 from tests.support.isolation import fake_kernel_layout, install_real_broker, pinned_snapshot
+from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 _winapi = importlib.import_module("_winapi") if os.name == "nt" else None
@@ -195,7 +195,7 @@ async def test_freshly_started_data_root_is_protected_through_a_workspace_alias(
     workspace = tmp_path / "drive"  # WORKSPACE_ROOT 是整個磁碟
     fresh = workspace / "stuff" / "ToukaData"  # SANCTUARY_DATA_PATH 改名、放在工作區底下
     fresh.mkdir(parents=True)
-    monkeypatch.setattr(resource_manager, "get_base_path", lambda: str(fresh))
+    point_zone_roots(monkeypatch, fresh, tmp_path / "zone_state")
     await init_db_async()  # 啟動流程一定會跑的那一步（lifespan）
     (fresh / "notes").mkdir()
     project = _user_project(workspace / "proj")

@@ -341,14 +341,23 @@ async def test_mission_tool_forwards_auth_context_to_review(monkeypatch):
     assert callable(seen["approver"])
 
 
-def test_artifact_root_does_not_fall_back_to_process_cwd(monkeypatch):
-    monkeypatch.setattr(mt.resource_manager, "agent_drive", lambda *_a, **_k: None)
-    assert mt._agent_artifact_root(_OWNER) is None
+# id 不能當一段時解析不到個人空間（真的 agent_drive，ADR-0293 T3 不替換它）
+_NO_DRIVE = AgentIdentity.for_role(agent_id="..", role="Owner")
+
+
+def test_artifact_root_does_not_fall_back_to_process_cwd():
+    assert mt._agent_artifact_root(_NO_DRIVE) is None
 
 
 async def test_request_review_fails_closed_without_vault(monkeypatch):
-    identity = AgentIdentity.for_role(agent_id="SubprocSecNoVault", role="Owner")
-    await _board_with_verification_cmd(identity, "pytest -q")
+    """看板上有這個 task、個人空間解析不到時不跑互審（看板用替身，個人空間用真的）。"""
+    identity = _NO_DRIVE
+    board = types.SimpleNamespace(tasks=[types.SimpleNamespace(id="t1")])
+
+    async def _board(*_args, **_kwargs):
+        return board
+
+    monkeypatch.setattr(MissionManager, "get_current_mission", _board)
     called: list = []
 
     async def _fake_round(**kwargs):
@@ -356,7 +365,6 @@ async def test_request_review_fails_closed_without_vault(monkeypatch):
         return ReviewOutcome("APPROVED", None, "", "ok")
 
     monkeypatch.setattr("src.services.review.review_loop.run_review_round", _fake_round)
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: None)
 
     out = str(
         await mt.mission_tools(action="request_review", task_id="t1", identity=identity, _ctx=None)

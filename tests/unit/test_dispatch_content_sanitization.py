@@ -41,10 +41,9 @@ class TestDispatchCallbackSanitization:
 
 class TestDispatchUpdateTaskSanitization:
     @pytest.mark.asyncio
-    async def test_update_task_truncates_long_test_log(self, tmp_path, monkeypatch):
+    async def test_update_task_truncates_long_test_log(self, zone_data_root, monkeypatch):
         """dispatch_update_task must sanitise test_log before it is stored/rendered."""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
         from ToukaDispatch import server as ds
 

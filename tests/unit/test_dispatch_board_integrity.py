@@ -16,10 +16,9 @@ import pytest
 
 class TestUpdateTaskBoardIntegrity:
     @pytest.mark.asyncio
-    async def test_update_task_rejects_stale_external_session(self, tmp_path, monkeypatch):
+    async def test_update_task_rejects_stale_external_session(self, zone_data_root, monkeypatch):
         """An external session bound to a replaced mission must NOT write (the fix)."""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
         from ToukaDispatch import server as ds
 
@@ -47,11 +46,10 @@ class TestUpdateTaskBoardIntegrity:
 
     @pytest.mark.asyncio
     async def test_update_task_allows_external_session_on_current_mission(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """An external session bound to the CURRENT mission passes the gate."""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
         from ToukaDispatch import server as ds
 
@@ -76,10 +74,9 @@ class TestUpdateTaskBoardIntegrity:
         assert "no longer active" not in result, result
 
     @pytest.mark.asyncio
-    async def test_update_task_internal_session_not_gated(self, tmp_path, monkeypatch):
+    async def test_update_task_internal_session_not_gated(self, zone_data_root, monkeypatch):
         """Internal (non-external) sessions are not subject to the gate."""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
         from ToukaDispatch import server as ds
 

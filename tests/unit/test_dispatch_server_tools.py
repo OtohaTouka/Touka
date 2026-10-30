@@ -82,9 +82,8 @@ class TestDispatchToolAuth:
     """dispatch tool 的 session token 驗證測試。"""
 
     @pytest.mark.asyncio
-    async def test_invalid_session_token_returns_unauthorized(self, tmp_path, monkeypatch):
+    async def test_invalid_session_token_returns_unauthorized(self, zone_data_root, monkeypatch):
         """無效 session token 直接呼叫操作工具應回傳 Unauthorized。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "correct-secret-token")
 
         from ToukaDispatch import server as ds
@@ -93,9 +92,8 @@ class TestDispatchToolAuth:
         assert "Unauthorized" in result or "Error" in result
 
     @pytest.mark.asyncio
-    async def test_empty_dispatch_token_env_rejects_handshake(self, tmp_path, monkeypatch):
+    async def test_empty_dispatch_token_env_rejects_handshake(self, zone_data_root, monkeypatch):
         """DISPATCH_TOKEN 環境變數為空時，handshake 應拒絕所有請求。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "")
 
         from ToukaDispatch import server as ds
@@ -128,9 +126,8 @@ class TestDispatchToolOperations:
     """操作工具透過 session token 正常存取 DispatchAgent 看板。"""
 
     @pytest.mark.asyncio
-    async def test_initialize_mission_with_session_token(self, tmp_path, monkeypatch):
+    async def test_initialize_mission_with_session_token(self, zone_data_root, monkeypatch):
         """有效 session token 應能初始化 DispatchAgent 看板。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-test-token")
 
         from memory_server import config_utils
@@ -148,9 +145,8 @@ class TestDispatchToolOperations:
         assert "Mission Initialized" in result
 
     @pytest.mark.asyncio
-    async def test_get_board_returns_mission_after_init(self, tmp_path, monkeypatch):
+    async def test_get_board_returns_mission_after_init(self, zone_data_root, monkeypatch):
         """初始化後 dispatch_get_board 應回傳看板內容。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-test-token")
 
         from memory_server import config_utils
@@ -171,9 +167,8 @@ class TestDispatchToolOperations:
         assert "Board read test goal" in result
 
     @pytest.mark.asyncio
-    async def test_update_task_blocked_without_blocker_detail(self, tmp_path, monkeypatch):
+    async def test_update_task_blocked_without_blocker_detail(self, zone_data_root, monkeypatch):
         """更新任務為 BLOCKED 時若無 blocker_detail 應回傳錯誤。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-test-token")
 
         from memory_server import config_utils
@@ -199,9 +194,8 @@ class TestDispatchToolOperations:
         assert "Error" in result or "blocker_detail" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_identity_is_always_dispatch_agent_not_caller(self, tmp_path, monkeypatch):
+    async def test_identity_is_always_dispatch_agent_not_caller(self, zone_data_root, monkeypatch):
         """無論 handshake 的 caller_name 為何，看板存取路徑均為 DispatchAgent（Vuln 1 驗證）。"""
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-test-token")
 
         from memory_server import config_utils

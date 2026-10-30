@@ -323,7 +323,6 @@ async def _mission_observation(
         )
     )
     monkeypatch.setattr("src.services.review.review_loop.run_review_round", review)
-    monkeypatch.setattr(mission_tools, "_agent_artifact_root", lambda _: "sandbox-artifacts")
     result = await _execute(monkeypatch, "mission_tools", mission_tools.mission_tools, args)
     assert "error_class" not in result and "Error:" not in result
     action = args["action"]

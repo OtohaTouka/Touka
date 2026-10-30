@@ -26,6 +26,8 @@ from src.services import gdpr_export_service
 from src.services.resource_manager import resource_manager
 from src.tools.builtin import memory as proxy_memory_gateway
 
+from tests.support.zone_roots import point_zone_roots
+
 
 class _SyntheticStoreFailure(Exception):
     """A storage failure raised by the test doubles below."""
@@ -192,7 +194,7 @@ async def test_diag_lists_unmigrated_jsonl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manager: MemoryManager
 ) -> None:
     identity = _identity()
-    monkeypatch.setattr(factual_module, "_get_app_data_dir", lambda: str(tmp_path))
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     _plant_jsonl(tmp_path / "vault", identity.agent_id)
 
     result = await memory_gateway.memory_tools(action="diagnostics", identity=identity)
@@ -205,7 +207,7 @@ async def test_diag_without_unmigrated_jsonl_has_no_legacy_facts_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manager: MemoryManager
 ) -> None:
     identity = _identity()
-    monkeypatch.setattr(factual_module, "_get_app_data_dir", lambda: str(tmp_path))
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     _plant_jsonl(tmp_path / "vault", identity.agent_id, "facts.jsonl.bak")
 
     result = await memory_gateway.memory_tools(action="diagnostics", identity=identity)

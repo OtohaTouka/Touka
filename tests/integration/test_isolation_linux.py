@@ -1723,9 +1723,7 @@ def repairing(tmp_path, monkeypatch):
     for folder in (layout.data_root / "vault" / "core_memory_backups", tmp_path / "host_root"):
         folder.mkdir(parents=True, exist_ok=True)
     # ResourceManager 的受保護判斷（soul、legacy）也指向這個版面的 data 根
-    monkeypatch.setattr(
-        "src.services.resource_manager.get_app_data_dir", lambda: str(layout.data_root)
-    )
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)
     env = _Repairing(layout)
     env.backups.mkdir()
     set_permission_repair(env.hook)

@@ -20,6 +20,8 @@ from src.models.identity import AgentIdentity
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 
+from tests.support.zone_roots import point_zone_roots
+
 ADMIN = AgentIdentity.for_role(agent_id="AdminUser", role="admin", is_human=True)
 BASE = AgentIdentity.for_role(agent_id="BaseUser", role="Base", is_human=True)
 
@@ -81,7 +83,7 @@ class TestContextSnapshotRoleGate:
             "src.services.context_snapshot_service.render_snapshot_markdown",
             lambda snap: "MARKDOWN",
         )
-        monkeypatch.setattr(resource_manager, "get_base_path", lambda: str(tmp_path))
+        point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
         monkeypatch.setattr(resource_manager, "write_file_text", lambda *a, **k: None)
         r = admin_client.get("/v1/debug/context-snapshot/export?agent_id=DebugAgent")
         assert r.status_code == 200

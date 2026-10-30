@@ -25,6 +25,8 @@ from src.services import resource_manager as rm_module
 from src.utils import hard_floor
 from src.utils.hard_floor import classify_hard_floor, mounts_separate
 
+from tests.support.zone_roots import point_zone_roots
+
 _REPO = Path(__file__).resolve().parents[2]
 _EXAMPLE = _REPO / "ToukaProxy" / "config" / "auth_policies.json.example"
 _CONFIG = AuthPoliciesConfig.model_validate(json.loads(_EXAMPLE.read_text(encoding="utf-8")))
@@ -57,7 +59,7 @@ def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Layout:
     monkeypatch.setattr(hard_floor, "_REPO_ROOT", app)
     monkeypatch.setattr(hard_floor.resource_manager, "get_workspace_mount", lambda: lay.workspace)
     monkeypatch.setattr(hard_floor.resource_manager, "get_container_mount", lambda: None)
-    monkeypatch.setattr(hard_floor.resource_manager, "get_base_path", lambda: str(lay.data))
+    point_zone_roots(monkeypatch, lay.data, tmp_path / "zone_state")
     monkeypatch.setattr(hard_floor, "get_config_dir", lambda: app / "ToukaProxy" / "config")
     monkeypatch.setattr(hard_floor, "resolve_env_file_path", lambda: lay.host_root / ".env")
     return lay
@@ -123,7 +125,7 @@ def test_ancestors_of_protected_roots_are_floor(layout, template, category):
 
 def test_data_root_outside_repo_is_f1_inside_and_above(layout, monkeypatch):
     sanctuary = layout.base / "outer" / "sanctuary"
-    monkeypatch.setattr(hard_floor.resource_manager, "get_base_path", lambda: str(sanctuary))
+    point_zone_roots(monkeypatch, sanctuary, layout.base / "zone_state")
     assert _floor(f"cp evil.db {sanctuary}/memory.db") == "F1"
     assert _floor(f"mv {sanctuary} {layout.base}/stolen") == "F1"
     assert _floor(f"rm -rf {layout.base / 'outer'}") == "F1"
@@ -637,7 +639,7 @@ def _matrix_row(setting: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     for folder in (data, env, config):
         folder.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(hard_floor, "_REPO_ROOT", repo)
-    monkeypatch.setattr(manager, "get_base_path", lambda: str(data))
+    point_zone_roots(monkeypatch, data, tmp_path / "zone_state")
     monkeypatch.setattr(hard_floor, "get_config_dir", lambda: config)
     monkeypatch.setattr(hard_floor, "resolve_env_file_path", lambda: env / ".env")
     monkeypatch.setattr(manager, "_workspace_root_cached", None)
