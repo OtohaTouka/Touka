@@ -109,6 +109,34 @@ def test_a_subprocess_argument_is_data_not_a_path(probe, drive):
     assert _taken() == []
 
 
+def test_the_mode_of_open_is_not_a_path(probe, zone_data_root, drive, monkeypatch):
+    """工作目錄在區裡時，``open`` 的 mode 字串不會被當成相對路徑；路徑本身照舊看."""
+    config = zone_data_root / "custom" / "M1" / "config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(drive)
+    assert probe.read(config) == b"{}"
+    probe.emit("open", str(config), "r", 0)
+    assert _taken() == []
+    probe.emit("open", "notes.txt", "r", 0)
+    assert [(event, display) for event, display, _detail in _taken()] == [("open", "notes.txt")]
+
+
+def test_a_network_address_is_not_a_path(probe, drive, monkeypatch):
+    """工作目錄在區裡時，socket 的 (host, port) 與名稱查詢不算路徑；AF_UNIX 的字串位址照舊看."""
+    monkeypatch.chdir(drive)
+    probe.emit("socket.bind", object(), ("127.0.0.1", 0))
+    probe.emit("socket.connect", object(), ("localhost", 8000))
+    probe.emit("socket.sendto", object(), ("::1", 8000, 0, 0))
+    probe.emit("socket.getaddrinfo", "localhost", 8000, 0, 0, 0)
+    probe.emit("socket.gethostbyname", "localhost")
+    assert _taken() == []
+    probe.emit("socket.bind", object(), "notes.sock")
+    assert [(event, display) for event, display, _detail in _taken()] == [
+        ("socket.bind", "notes.sock")
+    ]
+
+
 def test_a_directory_fd_is_followed_on_linux(probe, drive, tmp_path):
     if sys.platform != "linux":  # 沒有 /proc/self/fd：dir_fd 還原不了，也不猜
         assert zone_tripwire._fd_path(0) is None
@@ -150,6 +178,11 @@ def test_an_error_in_the_hook_is_recorded(probe, drive, monkeypatch):
 def test_allowed_entries_that_were_never_hit_are_listed(monkeypatch):
     monkeypatch.setitem(zone_tripwire.ALLOWED, "nowhere.module:never", "測試")
     assert "nowhere.module:never" in zone_tripwire.missing_hits()
+
+
+def test_the_full_run_flag_is_not_inherited_by_child_runs():
+    """全量檢查只給最外層的 session：測試再開的 pytest 只跑一部分，環境裡不能還有這個旗標."""
+    assert zone_tripwire.FULL_RUN_ENV not in os.environ
 
 
 def test_an_allowed_caller_counts_as_hit_only_inside_a_zone(probe, drive, tmp_path, monkeypatch):

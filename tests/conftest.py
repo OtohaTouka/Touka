@@ -153,6 +153,8 @@ zone_paths.add_observer(zone_records.observe)
 zone_tripwire = importlib.import_module("tests.support.zone_tripwire")
 zone_tripwire.add_roots(zone_paths.current_roots())
 zone_tripwire.install()
+# 全量檢查（Z9）的旗標只給這一個 session：讀一次就從環境拿掉，測試再開的 pytest 只跑一部分，不繼承
+_ZONE_FULL_RUN = os.environ.pop(zone_tripwire.FULL_RUN_ENV, None) == "1"
 # 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
 ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
@@ -227,7 +229,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     if late:
         _zone_late_records.extend(late)
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
-    if os.environ.get(zone_tripwire.FULL_RUN_ENV) == "1":
+    if _ZONE_FULL_RUN:
         _zone_unused_allowances[:] = zone_tripwire.missing_hits()
         if _zone_unused_allowances:
             session.exitstatus = pytest.ExitCode.TESTS_FAILED

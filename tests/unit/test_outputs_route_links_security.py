@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from typing import TYPE_CHECKING
 
@@ -61,9 +62,16 @@ def client():
         app.dependency_overrides.clear()
 
 
-def _reference(path: Path) -> TestClient:
-    """直接用 Starlette 的 ``FileResponse`` 送同一個檔案（今天的行為）。"""
-    return TestClient(Starlette(routes=[Route("/f", lambda _request: FileResponse(path))]))
+def _reference(path: Path, tmp_path: Path) -> TestClient:
+    """直接用 Starlette 的 ``FileResponse`` 送同一個檔案（今天的行為）.
+
+    送的是區外的複本（同內容、同 mtime，所以 ETag 與 Last-Modified 相同）：測試自己不在區裡開檔，
+    Starlette 在工作執行緒開檔時絆線找不到測試這個呼叫者。
+    """
+    copy = tmp_path / "reference" / path.name
+    copy.parent.mkdir()
+    shutil.copy2(path, copy)
+    return TestClient(Starlette(routes=[Route("/f", lambda _request: FileResponse(copy))]))
 
 
 REQUESTS: dict[str, dict[str, str]] = {
@@ -78,10 +86,10 @@ HEADERS = ("content-type", "content-length", "etag", "last-modified", "accept-ra
 
 @pytest.mark.parametrize("request_headers", REQUESTS.values(), ids=REQUESTS.keys())
 def test_a_regular_file_is_sent_like_a_plain_file_response(
-    client: TestClient, outputs: Path, request_headers: dict[str, str]
+    client: TestClient, outputs: Path, tmp_path: Path, request_headers: dict[str, str]
 ) -> None:
     got = client.get("/v1/outputs/Alice/x.txt", headers=request_headers)
-    want = _reference(outputs / "x.txt").get("/f", headers=request_headers)
+    want = _reference(outputs / "x.txt", tmp_path).get("/f", headers=request_headers)
     assert (got.status_code, got.content) == (want.status_code, want.content)
     for name in (*HEADERS, "content-range"):
         assert got.headers.get(name) == want.headers.get(name), name
@@ -96,9 +104,7 @@ def test_if_range_follows_the_etag(client: TestClient, outputs: Path) -> None:
 
 
 @pytest.mark.parametrize("swapped", ["outputs", "file"])
-def test_a_link_is_not_found(
-    client: TestClient, outputs: Path, fake: Path, swapped: str
-) -> None:
+def test_a_link_is_not_found(client: TestClient, outputs: Path, fake: Path, swapped: str) -> None:
     """``outputs`` 或檔名本身換成連結：404，另一端的內容沒送出。"""
     if swapped == "outputs":
         outputs.rename(outputs.with_name("outputs_old"))

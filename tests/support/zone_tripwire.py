@@ -5,7 +5,9 @@
 - 路徑：不按事件名稱篩選，每個事件的 str、bytes、PathLike 參數（含 tuple、list 裡一層）都當路徑，
   相對的以 cwd 補成絕對路徑。Linux 上 fd 經 ``/proc/self/fd`` 還原：帶 ``dir_fd`` 的事件照
   ``_DIR_FDS`` 把相對名稱接在它後面，第一個參數可以是 fd 的事件照 ``_FD_FIRST``；其他 int 是
-  mode、flags 一類，不看。子行程的事件只看執行檔與 cwd（參數與 env 是交給子行程的資料）。
+  mode、flags 一類，不看。子行程的事件只看執行檔與 cwd（參數與 env 是交給子行程的資料）；
+  ``open`` 只看第一個參數（之後是 mode、flags）；socket 事件只看 AF_UNIX 的字串位址（網路位址是
+  tuple，名稱查詢的參數是主機名稱與連接埠）。工作目錄在區裡時，這些字串不會被補成區內路徑。
 - 呼叫者：往上第一個不是標準函式庫、也不是 site-packages 的 frame（「模組:函式」）。檔案在
   ``tests/`` 底下的放行（測試自己建資料），不必再判斷區；``ALLOWED`` 明列的放行。
 - 判定：``zone_of`` 不是 None；遞迴的 shutil 事件與 ``os.fwalk`` 另外看 ``contains_zone``。只用
@@ -76,6 +78,11 @@ _SPAWN_PATHS: dict[str, tuple[int, ...]] = {
     # Windows 的 subprocess.Popen 之後還有一個：（程式, 命令列, 工作目錄）
     "_winapi.CreateProcess": (0, 2),
 }
+# 只有這個位置是路徑的事件：{事件: 位置}（之後的參數是 mode、flags）
+_PATH_ONLY_AT: dict[str, int] = {"open": 0}
+# 會帶 AF_UNIX 路徑的 socket 事件（位址是第 2 個參數）；其他 socket 事件不帶路徑
+_SOCKET_PREFIX = "socket."
+_SOCKET_ADDRESS_EVENTS = frozenset({"socket.bind", "socket.connect", "socket.sendto"})
 # 帶 dir_fd 的事件：{名稱的位置: dir_fd 的位置}
 _DIR_FDS: dict[str, dict[int, int]] = {
     "os.mkdir": {0: 2},
@@ -236,11 +243,14 @@ def _paths(event: str, args: tuple[object, ...]) -> list[str]:
     positions = _SPAWN_PATHS.get(event)
     if positions is not None:
         return [text for i in positions if i < len(args) for text in _texts(args[i])]
+    if event.startswith(_SOCKET_PREFIX):
+        return _socket_paths(event, args)
+    only = _PATH_ONLY_AT.get(event)
     dir_fds = _DIR_FDS.get(event, {})
     skip = set(dir_fds.values())
     found: list[str] = []
     for i, value in enumerate(args):
-        if i in skip:
+        if i in skip or (only is not None and i != only):
             continue
         if i == 0 and event in _FD_FIRST and _is_fd(value):
             base = _fd_path(value)  # type: ignore[arg-type]
@@ -252,6 +262,13 @@ def _paths(event: str, args: tuple[object, ...]) -> list[str]:
         for text in _texts(value):
             found.append(text if base is None or os.path.isabs(text) else os.path.join(base, text))
     return found
+
+
+def _socket_paths(event: str, args: tuple[object, ...]) -> list[str]:
+    """AF_UNIX 的位址是字串路徑；網路位址是 tuple，不是路徑."""
+    if event not in _SOCKET_ADDRESS_EVENTS or len(args) < 2 or isinstance(args[1], (tuple, list)):
+        return []
+    return _texts(args[1])
 
 
 def _is_fd(value: object) -> bool:
