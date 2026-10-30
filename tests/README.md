@@ -131,6 +131,15 @@ tests/
 
 改壞清單的執行器 `zone_mutations.py` 只用標準函式庫，每個 PR 的驗證步驟手動跑：`python tests/zone_mutations.py --out <結果資料夾>`；`posix_only` 的項目到 Linux 容器跑，`windows_only` 的在 Windows 跑（在另一個平台記成 `skipped_platform`）。
 
+### 模型輸出的外部資源（ADR-0294）
+
+只讀 ToukaChat 的文字檔；元件、沙箱框與消毒的行為由 ToukaChat Vitest 測（`markdownImagePolicy.security.test.ts`、`SafeMarkdown.test.tsx`、`mermaidSandbox.security.test.ts`、`sanitizeMermaidSvg.security.test.ts` 等）。
+
+| 檔案 | 說明 |
+|------|------|
+| `lint/test_chat_dev_terminal_security.py` | `npm run dev` 只啟動 `next dev`、不啟動其他伺服器；`terminal_server.mjs` 不存在；`src/` 沒有程式開 socket 伺服器或 pty |
+| `lint/test_chat_markdown_render_security.py` | `src/` 裡只有 `SafeMarkdown.tsx` 能匯入 `react-markdown`（`from`、`import()`、`require()` 都算）、它不收 rehype 外掛；`package.json` 與 `src/` 沒有 `rehype-raw`；產品程式不匯入 `mermaid`（型別除外），mermaid 執行檔只由沙箱框的模組載入；直接塞 HTML 只有流程圖一處，而且經 `sanitizeMermaidSvg` |
+
 ### 心跳、SNS 與對話歸屬（ADR-0276）
 
 以下五個新安全檔的所有資料都在 conftest 沙盒，使用真 SQLite／SessionService 與合成身分，provider 與平台傳輸為替身。

@@ -1,6 +1,12 @@
 # ToukaChat 對話介面文件 (Standardized Chat Interface)
 
-> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；ToukaChat 跑在 port 3001。
+> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
+
+## 模型輸出的 Markdown 與流程圖（ADR-0294）
+
+- 聊天訊息（`MessageItem` 兩處）與 artifact 的 Markdown（`ArtifactView` 的 `MarkdownRenderer`）一律用 `components/markdown/SafeMarkdown.tsx`；呼叫端可以加自己的元件，`img` 換不掉；不收 rehype 外掛，原始 HTML 不顯示。新的顯示處也要用它（`src/` 裡只有它能匯入 `react-markdown`）。
+- 圖片：`lib/markdownImagePolicy.ts` 解析網址後比來源。前端頁面同來源、目前連線的後端同來源、後端是本機時同協定同埠號的另一種本機寫法照常顯示，加 `referrerPolicy="no-referrer"`；其他顯示「外部圖片（未載入）＋網站名稱」（`markdown.external_image_blocked`），是在新分頁開的連結（`noopener noreferrer`）；帶帳號密碼的網址與其他協定只有文字、沒有連結。
+- 流程圖：`lib/artifacts/mermaidSandbox.ts` 的 `renderMermaidInSandbox(id, text)` 在一個隱藏的沙箱框裡畫（`ARTIFACT_SANDBOX`＋`ARTIFACT_CSP`，畫圖當下載不到任何外部資源），回傳 SVG 字串；框只建一次、各圖共用（載入失敗或某張圖逾時就重建），第一次畫圖時才載入 mermaid（產品程式不要匯入 `mermaid`，型別除外）。框裡套用 `MERMAID_CONFIG`（`lib/artifacts/mermaidConfig.ts`，圖裡的設定指令改不了 `secure` 列的欄位，含三個樣式欄位）。回傳的 SVG 經 `lib/artifacts/sanitizeMermaidSvg.ts` 再放進頁面：外部網址的屬性與樣式片段移除，文字標籤（`foreignObject`）與 `click` 連結保留，連結在新分頁開。
 
 ## Hook 設定頁、hook 的審批卡與被擋的訊息（ADR-0292）
 

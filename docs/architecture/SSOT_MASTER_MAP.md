@@ -1,5 +1,11 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 模型輸出的外部資源不自動載入（2026-10-30，ADR-0294）
+
+- Markdown 圖片載不載入：ToukaChat `src/lib/markdownImagePolicy.ts` 的 `decideMarkdownImage`（純函式，解析後比來源；後端來源由呼叫端傳 `getActiveProxyUrl()`）。
+- 顯示模型輸出的 Markdown：只用 `src/components/markdown/SafeMarkdown.tsx`（`img` 固定交給 `MarkdownImage`、不收 rehype 外掛）；`tests/lint/test_chat_markdown_render_security.py` 釘住只有它能匯入 `react-markdown`。
+- 流程圖：畫圖只經 `src/lib/artifacts/mermaidSandbox.ts` 的 `renderMermaidInSandbox`（隱藏沙箱框，沿用 `sandbox.ts` 的 `ARTIFACT_SANDBOX`／`ARTIFACT_CSP`；框裡的 mermaid 瀏覽器版由 `gen:artifact-runtime` 產生成 `src/generated/mermaidRuntime.ts`，產品程式不匯入 `mermaid`）；設定只有 `src/lib/artifacts/mermaidConfig.ts` 的 `MERMAID_CONFIG`（`secure` 的預設項目與三個樣式欄位），輸出消毒只有 `src/lib/artifacts/sanitizeMermaidSvg.ts`（專屬 DOMPurify 實例）。
+
 ## 代理人資料夾不跟隨連結（2026-10-30，ADR-0293）
 
 - 區與錨點的唯一定義：ToukaMemory `utils/zone_paths.py`（`Anchor`、`ENFORCED_ANCHORS`、`ALL_ANCHORS`、`anchor_dirname`；判斷只有 `zone_of`、`contains_zone`、`anchor_at`，呼叫端明確傳錨點集合）。目前的 data 根由 `resource_manager` 載入時以 `set_roots_provider` 登記，讀取一律 `current_roots()`；隔離層用 `services/isolation/profiles.layout_zone_roots(layout)`。

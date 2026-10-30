@@ -44,8 +44,6 @@ const config: KnipConfig = {
     "**/*.test.tsx",
     "**/*.spec.ts",
     "**/*.spec.tsx",
-    // Node.js scripts（非 React 環境）
-    "src/lib/terminal_server.mjs",
     // Shadcn UI 組件庫（所有 export 均為刻意的可組合 API）
     "src/components/ui/**",
   ],

@@ -6,7 +6,7 @@
 #   2. runner stage：以 serve 服務 out/ 目錄（無 Next.js server 需求）
 #
 # Node／npm 取自官方 node 映像（v24.22.1，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
-# 注意：terminal_server.mjs 屬於 ToukaIDE（本機 PTY 橋接），不包含在此映像中。
+# 注意：這個映像不含終端伺服器（ToukaChat 的開發終端伺服器已於 ADR-0294 移除）。
 
 FROM node@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node-runtime
 

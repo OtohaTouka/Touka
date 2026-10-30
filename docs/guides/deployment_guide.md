@@ -8,7 +8,7 @@
 | ToukaMemory | Proxy 同行程函式庫，不獨立開埠 | root uv workspace／sandbox tests |
 | ToukaDispatch | Proxy 映像內部進程，loopback 8083 `/mcp` | 已存在的 server.py；不新增安裝器 |
 | ToukaHeartbeat | 排程服務，loopback 8082 | root venv＋awaken.py |
-| ToukaChat | Web UI，loopback 3001 | 受鎖 Node/npm＋npm run dev |
+| ToukaChat | Web UI，loopback 3001 | 受鎖 Node/npm＋npm run dev（只開網頁） |
 | ToukaIDE | VS Code 擴充，非 runtime image | npm tests/typecheck/compile/package，後兩者串行 |
 
 ## 已發行產品
