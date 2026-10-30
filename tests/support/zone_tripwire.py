@@ -16,7 +16,8 @@
 - 交接（R7）：交接登記表裡還沒取消的字串，只在該種類允許的事件放行。
 
 紀錄經 ``zone_records``（種類 ``tripwire``）在測試結束時讓測試紅；``expect_zone_refusal`` 收不掉。
-CI 的全量測試（``TOUKA_Z9_FULL_RUN=1``）另外要求 ``ALLOWED`` 每項都命中過（用不到的放行要刪）。
+CI 的全量測試（``TOUKA_Z9_FULL_RUN=1``）另外要求 ``ALLOWED`` 每項都命中過（用不到的放行要刪；
+``LINUX_ONLY_ALLOWED`` 只在 Linux 要求）。
 """
 
 from __future__ import annotations
@@ -49,6 +50,20 @@ FULL_RUN_ENV = "TOUKA_Z9_FULL_RUN"
 # 放行的「模組:函式」（``*`` 是整個模組）：每項的理由
 ALLOWED: dict[str, str] = {
     "memory_server.utils.no_follow:*": "不跟隨連結的原語（R2、Z4）",
+    "src.sandbox_kernel.owner_repair:_LinuxOps.chmod": (
+        "權限自癒（禁令 66 ⑨）：逐段以 O_PATH|O_NOFOLLOW 開、核對後經 /proc/self/fd 改同一個 inode"
+    ),
+}
+# 只在 Linux 跑得到的放行：其他平台的全量檢查不要求命中
+LINUX_ONLY_ALLOWED = frozenset({"src.sandbox_kernel.owner_repair:_LinuxOps.chmod"})
+_ON_LINUX = sys.platform == "linux"
+# 正式環境在別的行程裡跑、不載入 RM 的模組：Linux 測試在同一個行程裡起它，堆疊裡有它的 I/O 不是
+# proxy 的，不記（不是放行，全量檢查不要求命中）。proxy 只從它匯入什麼由 test_zone_tripwire 釘住
+OTHER_PROCESS_MODULES: dict[str, str] = {
+    "src.services.isolation.executor_server": (
+        "執行器伺服器（ADR-0272 C2-2）：正式環境在 touka-executor 容器，"
+        "規則路徑由 kernel 逐段不跟隨地開"
+    ),
 }
 # 參數確定不是檔案系統路徑的事件（其他事件照舊全部檢查）：每項的理由
 NOT_PATH_EVENTS: dict[str, str] = {
@@ -171,7 +186,10 @@ def _roots() -> list[ZoneRoots]:
 def missing_hits() -> list[str]:
     """沒命中過的放行項目（CI 全量測試時要是空的）。"""
     with _lock:
-        return sorted(set(ALLOWED) - _hits)
+        unused = set(ALLOWED) - _hits
+    if not _ON_LINUX:
+        unused -= LINUX_ONLY_ALLOWED
+    return sorted(unused)
 
 
 def take_records_for_self_test() -> list[zone_records.Record]:
@@ -211,6 +229,8 @@ def _check(event: str, args: tuple[object, ...]) -> None:
         if allowed is not None:
             with _lock:
                 _hits.add(allowed)
+            return
+        if _from_another_process():
             return
         zone_records.add(KIND, event, path, caller or "(no product caller)")
 
@@ -327,6 +347,16 @@ def _caller() -> tuple[str, str] | None:
             return f"{module}:{frame.f_code.co_qualname}", filename
         frame = frame.f_back
     return None
+
+
+def _from_another_process() -> bool:
+    """堆疊裡有 ``OTHER_PROCESS_MODULES`` 的 frame（只在要記一筆之前才走整個堆疊）."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_globals.get("__name__") in OTHER_PROCESS_MODULES:
+            return True
+        frame = frame.f_back
+    return False
 
 
 def _allowed_key(caller: str) -> str | None:

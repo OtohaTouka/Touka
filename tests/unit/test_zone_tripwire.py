@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import os
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -20,9 +22,9 @@ from tests.support import zone_tripwire
 from tests.support.links import make_dir_link
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from types import ModuleType
 
+ROOT = Path(__file__).resolve().parents[2]
 PROBE = """
 import sys
 
@@ -178,6 +180,63 @@ def test_an_error_in_the_hook_is_recorded(probe, drive, monkeypatch):
 def test_allowed_entries_that_were_never_hit_are_listed(monkeypatch):
     monkeypatch.setitem(zone_tripwire.ALLOWED, "nowhere.module:never", "測試")
     assert "nowhere.module:never" in zone_tripwire.missing_hits()
+
+
+def test_a_linux_only_allowance_is_required_only_on_linux(monkeypatch):
+    """權限自癒只在 Linux 經 ``/proc/self/fd`` 改權限：別的平台全量檢查不要求它命中."""
+    monkeypatch.setattr(zone_tripwire, "_hits", set())
+    [key] = zone_tripwire.LINUX_ONLY_ALLOWED
+    monkeypatch.setattr(zone_tripwire, "_ON_LINUX", True)
+    assert key in zone_tripwire.missing_hits()
+    monkeypatch.setattr(zone_tripwire, "_ON_LINUX", False)
+    assert key not in zone_tripwire.missing_hits()
+    assert "memory_server.utils.no_follow:*" in zone_tripwire.missing_hits()
+
+
+def test_every_allowance_names_code_that_exists():
+    """放行的「模組:函式」改名或搬走時這裡先紅，不會留下對不到程式的放行."""
+    assert zone_tripwire.LINUX_ONLY_ALLOWED.issubset(zone_tripwire.ALLOWED)
+    for key in zone_tripwire.ALLOWED:
+        module_name, _, qualname = key.partition(":")
+        target: object = importlib.import_module(module_name)
+        if qualname != "*":
+            for part in qualname.split("."):
+                target = getattr(target, part)
+        assert target is not None, key
+
+
+def test_code_that_runs_in_another_process_in_production_is_left_alone(probe, drive, monkeypatch):
+    """堆疊裡有明列的「正式環境在別的行程跑」的模組（執行器伺服器）就不記；其他照記."""
+    monkeypatch.setitem(zone_tripwire.OTHER_PROCESS_MODULES, probe.__name__, "測試")
+    assert probe.read(drive / "notes.txt") == b"notes"
+    assert _taken() == []
+    monkeypatch.delitem(zone_tripwire.OTHER_PROCESS_MODULES, probe.__name__)
+    assert probe.read(drive / "notes.txt") == b"notes"
+    assert [event for event, _display, _detail in _taken()] == ["open"]
+
+
+def test_the_proxy_only_takes_the_digest_from_other_process_modules():
+    """proxy 只從執行器伺服器拿程式雜湊，不在自己的行程裡跑它：絆線不看它，不會漏掉 proxy 的 I/O."""
+    others = zone_tripwire.OTHER_PROCESS_MODULES
+    used: dict[str, set[str]] = {}
+    for path in (ROOT / "ToukaProxy" / "src").rglob("*.py"):
+        module = ".".join(path.relative_to(ROOT / "ToukaProxy").with_suffix("").parts)
+        if module in others:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names if a.name in others]
+                used.setdefault(module, set()).update(f"import {name}" for name in names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                if node.module in others:
+                    used.setdefault(module, set()).update(a.name for a in node.names)
+                parent = node.module + "."
+                for alias in node.names:
+                    if parent + alias.name in others:
+                        used.setdefault(module, set()).add(f"module {alias.name}")
+    assert {module: names for module, names in used.items() if names} == {
+        "src.services.isolation.status": {"executor_code_digest"}
+    }
 
 
 def test_the_full_run_flag_is_not_inherited_by_child_runs():

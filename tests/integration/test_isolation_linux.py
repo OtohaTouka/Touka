@@ -35,6 +35,8 @@ import yaml
 from mcp import types as mcp_types
 from mcp.shared.exceptions import MCPError
 from memory_server.tools import core_file_ops as cfo
+from memory_server.utils.no_follow import ZoneLinkRefusedError
+from memory_server.utils.zone_paths import Anchor, ZonePath
 from src.config import is_container_runtime
 from src.core.retry import with_retry
 from src.models.identity import AgentIdentity
@@ -85,6 +87,7 @@ from src.utils.touka_dirs import scan_below
 
 from tests.helpers import mcp_asgi_peers
 from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
+from tests.support.zone_records import raises_zone
 from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
@@ -1715,6 +1718,11 @@ class _Repairing:
                 path.chmod(0o700 if path.is_dir() else 0o600)
 
 
+def _drive(*parts: str) -> ZonePath:
+    """``personal_drive`` 底下的區內路徑：個人空間只經 RM 的區內方法讀寫（ADR-0293）."""
+    return ZonePath(Anchor.PERSONAL_DRIVE, parts)
+
+
 @pytest.fixture
 def repairing(tmp_path, monkeypatch):
     if os.geteuid() == 0:
@@ -1735,7 +1743,7 @@ def test_repair_restores_a_locked_agent_folder_with_owner_bits_only(repairing):
     notes = repairing.drive / "notes.txt"
     notes.write_text("hi", encoding="utf-8")
     repairing.lock(repairing.drive, 0o005)
-    assert resource_manager.read_file_text(notes) == "hi"
+    assert resource_manager.zone_read_text(_drive("Alice", "notes.txt")) == "hi"
     assert _mode(repairing.drive) == 0o705  # 只多了擁有者位元，其他人的 r-x 不動
     counts = repairing.counts()
     assert (counts["repaired"], counts["retried"]) == (1, 1)
@@ -1746,10 +1754,10 @@ def test_repair_of_a_locked_file_does_not_retry_an_append(repairing):
     log.write_text("a\n", encoding="utf-8")
     repairing.lock(log)
     with pytest.raises(PermissionError):
-        resource_manager.append_file_text(log, "b\n")
+        resource_manager.zone_append_text(_drive("Alice", "log.txt"), "b\n")
     assert _mode(log) == 0o600
     assert log.read_text(encoding="utf-8") == "a\n"  # 修了，但這一次照實失敗、沒寫進去
-    resource_manager.append_file_text(log, "b\n")
+    resource_manager.zone_append_text(_drive("Alice", "log.txt"), "b\n")
     assert log.read_text(encoding="utf-8") == "a\nb\n"
 
 
@@ -1757,10 +1765,11 @@ def test_repair_heals_a_locked_folder_before_a_new_file_is_written(repairing):
     folder = repairing.drive / "sub"
     folder.mkdir()
     repairing.lock(folder, 0o500)
+    new = _drive("Alice", "sub", "new.txt")
     with pytest.raises(PermissionError):
-        resource_manager.write_file_text(folder / "new.txt", "x")  # retry=False：這次照實失敗
+        resource_manager.zone_write_text(new, "x")  # retry=False：這次照實失敗
     assert _mode(folder) == 0o700
-    resource_manager.write_file_text(folder / "new.txt", "x")
+    resource_manager.zone_write_text(new, "x")
     assert (folder / "new.txt").read_text(encoding="utf-8") == "x"
 
 
@@ -1768,7 +1777,7 @@ def test_repair_heals_a_locked_parent_so_make_dir_succeeds(repairing):
     locked = repairing.drive / "locked"
     locked.mkdir()
     repairing.lock(locked)
-    resource_manager.make_dir(locked / "a" / "b")
+    resource_manager.zone_make_dir(_drive("Alice", "locked", "a", "b"))
     assert (locked / "a" / "b").is_dir() and _mode(locked) == 0o700
 
 
@@ -1818,12 +1827,12 @@ def test_a_link_to_another_agent_is_refused_and_does_not_spend_its_budget(repair
     (bob / "x").write_text("bob", encoding="utf-8")
     (repairing.drive / "link").symlink_to("../Bob", target_is_directory=True)
     repairing.lock(bob)
-    with pytest.raises(PermissionError):
-        resource_manager.read_file_text(repairing.drive / "link" / "x")
-    assert _mode(bob) == 0
+    with raises_zone(ZoneLinkRefusedError):  # 連結先被拒，自癒根本沒被叫到
+        resource_manager.zone_read_text(_drive("Alice", "link", "x"))
+    assert _mode(bob) == 0 and repairing.hook.calls == 0
+    assert resource_manager.zone_read_text(_drive("Bob", "x")) == "bob"  # B 自己的路徑仍修得回來
     counts = repairing.counts()
-    assert (counts["refused_outside"], counts["repaired"], counts["throttled"]) == (1, 0, 0)
-    assert resource_manager.read_file_text(bob / "x") == "bob"  # B 自己的路徑仍修得回來
+    assert (counts["refused_outside"], counts["repaired"], counts["throttled"]) == (0, 1, 0)
 
 
 def test_a_symlink_in_the_middle_of_the_path_is_not_followed(repairing):
@@ -1832,10 +1841,9 @@ def test_a_symlink_in_the_middle_of_the_path_is_not_followed(repairing):
     (real / "x").write_text("x", encoding="utf-8")
     (repairing.drive / "link").symlink_to("real", target_is_directory=True)
     repairing.lock(real)
-    with pytest.raises(PermissionError):
-        resource_manager.read_file_text(repairing.drive / "link" / "x")
-    assert _mode(real) == 0  # 只走原路徑，停在連結；連結指向的資料夾不動
-    assert repairing.counts()["nothing_changed"] == 1
+    with raises_zone(ZoneLinkRefusedError):  # 停在連結、自癒沒被叫到
+        resource_manager.zone_read_text(_drive("Alice", "link", "x"))
+    assert _mode(real) == 0 and repairing.hook.calls == 0  # 連結指向的資料夾不動
 
 
 def test_a_hard_linked_file_is_not_repaired(repairing):
@@ -1844,7 +1852,7 @@ def test_a_hard_linked_file_is_not_repaired(repairing):
     os.link(first, repairing.drive / "b.txt")
     repairing.lock(first)
     with pytest.raises(PermissionError):
-        resource_manager.read_file_text(first)
+        resource_manager.zone_read_text(_drive("Alice", "a.txt"))
     assert _mode(first) == 0 and repairing.counts()["nothing_changed"] == 1
 
 
