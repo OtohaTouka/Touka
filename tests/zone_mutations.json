@@ -1113,8 +1113,8 @@
       "R8"
     ],
     "file": "ToukaProxy/scripts/manage_backup.py",
-    "old": "                    if not _plain_relative(arcname):",
-    "new": "                    if False:",
+    "old": "                    # 略過（ADR-0293）\n                    if not _plain_relative(arcname):",
+    "new": "                    # 略過（ADR-0293）\n                    if False:",
     "tests": [
       "tests/unit/test_manage_backup_links_security.py::test_restore_skips_names_that_leave_the_data_path"
     ],
@@ -1155,7 +1155,74 @@
     "old": "    if any(soul_id.casefold() == folded for soul_id in soul_io.list_soul_ids()):",
     "new": "    if False:",
     "tests": [
-      "tests/unit/test_custom_model_links_security.py::test_a_legacy_folder_named_like_a_soul_leaves_the_soul_commands"
+      "tests/unit/test_custom_model_links_security.py::test_a_legacy_folder_named_like_a_soul_leaves_the_soul_commands",
+      "tests/unit/test_custom_model_links_security.py::test_a_legacy_folder_named_like_a_soul_but_for_case_is_renamed_without_stopping"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r8_restore_config_name_not_plain",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "以外，略過（ADR-0293）\n                    if not _plain_relative(arcname):",
+    "new": "以外，略過（ADR-0293）\n                    if False:",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_config_names_that_leave_the_config_folder"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r8_restore_name_anchor_ignored",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "    return not Path(name).anchor and all(part not in (\"\", \".\", \"..\") for part in parts)",
+    "new": "    return all(part not in (\"\", \".\", \"..\") for part in parts)",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_names_that_leave_the_data_path"
+    ],
+    "posix_only": false,
+    "note": "磁碟代號只有 Windows 當成根；POSIX 上這條判斷本來就多餘"
+  },
+  {
+    "id": "r8_restore_folder_entry_not_contained",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "                    if zone_of(target / arcname, roots) or contains_zone(target / arcname, roots):",
+    "new": "                    if zone_of(target / arcname, roots):",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_a_folder_entry_that_is_an_agent_anchor"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_delete_skips_global_lock",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "    async with _mark_only(model) if rollback else destructive_op(model):",
+    "new": "    async with _mark_only(model):",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_another_agents_reset_refuses_the_delete"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_rename_skips_global_lock",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "            async with destructive_op(old_identity):",
+    "new": "            async with _mark_only(old_identity):",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_another_agents_reset_refuses_the_rename"
     ],
     "posix_only": false
   }

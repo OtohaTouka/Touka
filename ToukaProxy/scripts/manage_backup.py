@@ -371,7 +371,7 @@ def _zip_one(zipf: zipfile.ZipFile, path: Path, arcname: str, report: WalkReport
 
 def _print_skipped(report: WalkReport) -> None:
     print(
-        f"Agent folders: skipped {report.links} links, {len(report.bad_names)} bad names, "
+        f"Skipped {report.links} links, {len(report.bad_names)} bad names, "
         f"{len(report.errors)} unreadable"
     )
     for name in report.bad_names:
@@ -533,6 +533,10 @@ class RestoreEngine:
             for member in zipf.namelist():
                 if member.startswith("config/proxy/"):
                     arcname = member.replace("config/proxy/", "")
+                    # 和 data 一樣：不是一般相對路徑的會搬到設定資料夾以外，略過（ADR-0293）
+                    if not _plain_relative(arcname):
+                        report.bad_names.append(member)
+                        continue
                     zipf.extract(member, self.resolver.get_proxy_config_dir())
                     # Move to correct location if needed (Zip preserves structure)
                     src = Path(self.resolver.get_proxy_config_dir()) / member

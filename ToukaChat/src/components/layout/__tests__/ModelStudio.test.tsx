@@ -177,6 +177,35 @@ describe('ModelStudio：改名失敗就停下（舊審查報告丙-2）', () => 
     expect(saves).toHaveLength(0);
     expect(toast.success).not.toHaveBeenCalled();
   });
+
+  // 撞名以外的 409（個人空間是連結、別的代理人正在重置，ADR-0293）依錯誤碼說原因，不說 ID 已存在
+  it.each([
+    ['AGENT_DRIVE_LINKED', 1421, '個人空間被換成了連結'],
+    ['AGENT_RESET_IN_PROGRESS', 1415, '正在進行'],
+  ])('改名回 409 %s 時說明原因', async (code, id, expected) => {
+    const { toast } = await import('sonner');
+    customModels = [{
+      id: 'mine', name: 'mine', description: '', systemPrompt: '', config: { base_model: 'm-first' },
+    }];
+    mockFetchTouka.mockImplementation((_url: string, path: string) => {
+      if (path === '/v1/models') return ok({ data: MODEL_LIST });
+      if (path === '/v1/ui/custom_models') return ok({ models: customModels });
+      if (path === '/v1/tools_stats') return ok({ tools: [] });
+      if (String(path).endsWith('/rename')) {
+        return Promise.resolve(Response.json({ detail: { code, id } }, { status: 409 }));
+      }
+      return ok({});
+    });
+    render(<ModelStudio />);
+    await waitForLoaded();
+    const nameInput = screen.getAllByDisplayValue('mine').find((el) => el.tagName === 'INPUT')!;
+    fireEvent.change(nameInput, { target: { value: 'renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Config/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(expected)));
+    const saves = mockFetchTouka.mock.calls.filter(([, path, opts]) =>
+      /^\/v1\/ui\/custom_models\/[^/]+$/.test(String(path)) && opts?.method === 'POST');
+    expect(saves).toHaveLength(0);
+  });
 });
 
 /** 自訂模型的改名與存檔請求，依送出順序。 */

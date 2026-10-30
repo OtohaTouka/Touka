@@ -3,8 +3,9 @@
 代理人的指令可以把 ``custom/<id>/drive`` 換成連結，指到假的設定資料夾。以前刪除照樣刪掉設定
 與人格（刪樹不跟隨連結）、改名照樣搬走；現在兩者都回 409 ``AGENT_DRIVE_LINKED``、什麼都不動，
 也不叫停指令。一般刪除與改名在動手前先停這個模型的指令（停的時候已經標記，不開新的指令）；
-和靈魂同名的舊資料夾不停（指令是靈魂的）。設定頁「模型」分頁的刪除（``/v1/models/{id}``）走同一條
-路、一樣查擁有權；不是自訂模型的 ID（例如只有個人空間的人類）不動資料夾。
+和靈魂同名的舊資料夾不停（指令是靈魂的）。刪除與改名都拿全系統一把的鎖：別的代理人正在重置時
+409、什麼都不動。設定頁「模型」分頁的刪除（``/v1/models/{id}``）走同一條路、一樣查擁有權；
+不是自訂模型的 ID（例如只有個人空間的人類）不動資料夾。
 
 用真的路由與 ``ResourceManager``，只把擁有清單換成 MagicMock、停指令換成記錄者。data 根換到
 ``zone_data_root``（``tmp_path``），不碰 ``data/``。
@@ -21,6 +22,7 @@ from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.services import destructive_ops
+from src.services.agent_reset import orchestrator
 from src.services.identity_router import get_verified_identity
 from src.tools import terminal
 
@@ -142,6 +144,55 @@ def test_a_legacy_folder_named_like_a_soul_leaves_the_soul_commands(
 
     assert resp.status_code == 200, resp.text
     assert not folder.exists()
+    stop.assert_not_awaited()
+
+
+def test_a_legacy_folder_named_like_a_soul_but_for_case_is_renamed_without_stopping(
+    zone_data_root: Path, stop: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """只差大小寫的舊資料夾可以改名（擁有清單逐字比對，ADR-0254）；指令和靈魂共用同一個 ID，不停."""
+    folder = _model(zone_data_root)
+    monkeypatch.setattr(
+        "src.routers.custom_models.soul_io.list_soul_ids", lambda: [MODEL.lower()]
+    )
+
+    resp = _send("POST", f"/v1/ui/custom_models/{MODEL}/rename", {"new_id": "M2"})
+
+    assert resp.status_code == 200, resp.text
+    assert not folder.exists()
+    assert (zone_data_root / "custom" / "M2" / "config.json").exists()
+    stop.assert_not_awaited()
+
+
+@pytest.mark.parametrize("url", DELETE_URLS)
+def test_another_agents_reset_refuses_the_delete(
+    url: str, zone_data_root: Path, stop: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """別的代理人正在重置、清除或刪除：刪除拿不到全系統的鎖，409、資料夾不動、不停指令."""
+    folder = _model(zone_data_root)
+    monkeypatch.setattr(orchestrator, "reset_in_progress", lambda: True)
+
+    resp = _send("DELETE", url)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    assert (folder / "config.json").exists(), CHANGED_ANYWAY
+    stop.assert_not_awaited()
+
+
+def test_another_agents_reset_refuses_the_rename(
+    zone_data_root: Path, stop: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """改名也一樣拿全系統的鎖：別的代理人正在重置時 409，兩邊都不動."""
+    folder = _model(zone_data_root)
+    monkeypatch.setattr(orchestrator, "reset_in_progress", lambda: True)
+
+    resp = _send("POST", f"/v1/ui/custom_models/{MODEL}/rename", {"new_id": "M2"})
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    assert (folder / "config.json").exists(), CHANGED_ANYWAY
+    assert not (zone_data_root / "custom" / "M2").exists()
     stop.assert_not_awaited()
 
 

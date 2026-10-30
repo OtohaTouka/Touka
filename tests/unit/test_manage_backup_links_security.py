@@ -90,7 +90,7 @@ def test_backup_does_not_follow_links_in_agent_folders(zone_data_root, tmp_path,
     contents = _contents(output)
     assert all(_SECRET not in content for content in contents.values()), LINK_FOLLOWED
     assert contents["data/custom/M1/config.json"] == _FILES["custom/M1/config.json"]
-    assert "skipped 3 links" in capsys.readouterr().out
+    assert "Skipped 3 links" in capsys.readouterr().out
 
 
 def test_backup_does_not_follow_a_folder_swapped_after_collection(
@@ -181,6 +181,8 @@ def test_restore_skips_names_that_leave_the_data_path(
     monkeypatch.setattr(shutil, "move", _only_inside(shutil.move, 1))
     source = tmp_path / "escape.zip"
     names = ["data//personal_drive/Alice/x.txt", "data/./soul/x.txt", "data/../outside.txt"]
+    if os.name == "nt":  # 磁碟代號開頭的只有 Windows 會當成根
+        names += ["data/C:/escape/x.txt", "data/C:x.txt"]
     with zipfile.ZipFile(source, "w") as zf:
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
         for name in names:
@@ -190,6 +192,54 @@ def test_restore_skips_names_that_leave_the_data_path(
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
     assert not (inside / "outside.txt").exists()
+    out = capsys.readouterr().out
+    assert all(f"'{name}'" in out for name in names), out
+
+
+def test_restore_skips_a_folder_entry_that_is_an_agent_anchor(zone_data_root, tmp_path, capsys):
+    """資料夾項目的落點是錨點本身（這裡用 data 根的連結當別名）：略過，不清掉整個個人空間."""
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    source = tmp_path / "folder.zip"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        zf.writestr("data/pd_alias/", b"")
+    fresh = tmp_path.resolve() / "fresh_data"
+    (fresh / "personal_drive" / "Alice").mkdir(parents=True)
+    (fresh / "personal_drive" / "Alice" / "keep.txt").write_bytes(b"keep")
+    make_dir_link(fresh / "pd_alias", fresh / "personal_drive")
+    mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
+    assert (fresh / "personal_drive" / "Alice" / "keep.txt").read_bytes() == b"keep"
+    assert "'data/pd_alias/'" in capsys.readouterr().out
+
+
+def test_restore_skips_config_names_that_leave_the_config_folder(
+    zone_data_root, tmp_path, capsys, monkeypatch
+):
+    """``config/proxy/`` 底下的名稱也要是一般相對路徑：雙斜線、``..`` 的略過並列出，不搬設定."""
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    inside = tmp_path.resolve() / "project"
+
+    def _only_inside(*args, **kwargs):
+        where = Path(os.path.abspath(args[1]))
+        assert where.is_relative_to(inside), f"moved outside the project: {where}"
+        return real_move(*args, **kwargs)
+
+    real_move = shutil.move
+    monkeypatch.setattr(shutil, "move", _only_inside)
+    config = Path(resolver.get_proxy_config_dir())
+    (config / "kept.json").write_bytes(b"kept")
+    source = tmp_path / "config.zip"
+    names = ["config/proxy//escape.json", "config/proxy/../../kept.json"]
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        for name in names:
+            zf.writestr(name, b"bad")
+        zf.writestr("config/proxy/restored.json", b"ok")
+    mod.RestoreEngine(resolver).run_restore(str(source), str(tmp_path.resolve() / "fresh_data"))
+    assert (config / "kept.json").read_bytes() == b"kept"
+    assert (config / "restored.json").read_bytes() == b"ok"
     out = capsys.readouterr().out
     assert all(f"'{name}'" in out for name in names), out
 
@@ -212,6 +262,6 @@ def test_restore_skips_member_names_that_are_not_a_segment(zone_data_root, tmp_p
     written = sorted(p.name for p in fresh.rglob("*") if p.is_file())
     assert written == [" lead.txt", "ok.txt"]
     out = capsys.readouterr().out
-    assert "skipped 0 links, 2 bad names" in out
+    assert "Skipped 0 links, 2 bad names" in out
     assert "'data/custom/M1/drive/./x.txt'" in out
     assert "'data/personal_drive/Alice/../../soul/x.txt'" in out

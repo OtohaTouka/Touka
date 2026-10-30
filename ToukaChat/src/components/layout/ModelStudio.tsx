@@ -15,7 +15,7 @@ import { Model } from "@/lib/types";
 import { isSelectableBaseModel } from "@/lib/default_model";
 import { SafetySettingsGrid } from "@/components/studio/SafetySettingsGrid";
 import { SystemPromptEditor } from "@/components/studio/SystemPromptEditor";
-import { logSSOTError, getErrorMessage, getCollisionMessage, errorMsg } from "@/lib/error_handler";
+import { logSSOTError, getErrorMessage, getCollisionMessage } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useTranslation } from "react-i18next";
@@ -166,7 +166,8 @@ export function ModelStudio() {
                 });
                 if (!renameRes.ok) {
                     if (renameRes.status === 409) {
-                        toast.error((await getCollisionMessage(renameRes)) ?? errorMsg("MODEL_CONFLICT"));
+                        // 撞名以外的 409（個人空間是連結、別的代理人正在重置）依錯誤碼說原因（ADR-0293）
+                        toast.error((await getCollisionMessage(renameRes)) ?? (await getErrorMessage(renameRes, "MODEL_CONFLICT")));
                         return;
                     }
                     // 改名失敗就停下：再對新 ID 存檔會多出第二個模型（舊審查報告丙-2）

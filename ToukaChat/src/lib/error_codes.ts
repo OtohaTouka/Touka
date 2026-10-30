@@ -161,7 +161,7 @@ export const ERRORS = {
   AGENT_RESET_IN_PROGRESS: {
     id: 1415,
     status: 409,
-    msg: "Another reset, memory scrub or soul deletion is running; try again when it finishes",
+    msg: "Another reset, memory scrub, or deletion or rename of an agent is running; try again when it finishes",
     i18n: "error.agent_reset.in_progress"
   },
   AGENT_DRIVE_LINKED: {

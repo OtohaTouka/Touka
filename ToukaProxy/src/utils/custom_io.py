@@ -99,7 +99,8 @@ def read_custom_file(identity: AgentIdentity, filename: str) -> str | None:
 def delete_custom_dir(identity: AgentIdentity) -> bool:
     """刪除整個自定義模型資料夾（不跟隨連結，ADR-0293 R5）；沒有或刪不掉回 False。
 
-    只有走 R11 的刪除（``destructive_op`` 標記期間）能呼叫，其他入口直接丟例外。
+    只有這個 ID 有標記時能呼叫（R11 的刪除在 ``destructive_op`` 裡，建立失敗的回滾只標記），
+    其他入口直接丟例外。
     """
     if not destructive_ops.is_held(identity):
         raise ToukaException(ErrorCode.SYSTEM_ERROR)

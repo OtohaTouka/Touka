@@ -1156,10 +1156,10 @@ def _is_environ(node: ast.expr) -> bool:
     return ast.unparse(node) in ("os.environ", "environ")
 
 
-def _target_name(node: ast.expr) -> str | None:
-    """被替換或被改內容的對象名稱：點分字串取最後一段，其他取最後一個名稱."""
+def _target_name(node: ast.expr, aliases: dict[str, str]) -> str | None:
+    """被替換或被改內容的對象名稱：點分字串取最後一段，其他取最後一個名稱（別名對回原名）."""
     text = _literal(node)
-    return text.rsplit(".", 1)[-1] if text is not None else _last_name(node)
+    return text.rsplit(".", 1)[-1] if text is not None else called_name(node, aliases)
 
 
 def _patched_names(call: ast.Call) -> list[str]:
@@ -1199,11 +1199,11 @@ def _patched_names(call: ast.Call) -> list[str]:
     return found
 
 
-def _changed_containers(node: ast.AST) -> list[str]:
-    """直接改內容的容器（``os.environ`` 另算）.
+def _changed_containers(node: ast.AST, aliases: dict[str, str]) -> list[str]:
+    """直接改內容的容器（``os.environ`` 另算；別名對回原名）.
 
     ``setitem(zp._handoffs, …)``、``patch.dict(zp._handoffs, …)``、``zp._handoffs.clear()``、
-    ``zp._handoffs[k] = …``、``_observers[:] = []``。
+    ``zp._handoffs[k] = …``、``_observers[:] = []``、``_observers += […]``。
     """
     found: list[str | None] = []
     if isinstance(node, ast.Call) and node.args:
@@ -1211,33 +1211,38 @@ def _changed_containers(node: ast.AST) -> list[str]:
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
         patching = name == "dict" and "patch" in ast.unparse(func)
         if (name in ("setitem", "delitem") or patching) and not _is_environ(first):
-            found.append(_target_name(first))
+            found.append(_target_name(first, aliases))
     func = node.func if isinstance(node, ast.Call) else None
     if isinstance(func, ast.Attribute) and func.attr in _MUTATORS and not _is_environ(func.value):
-        found.append(_last_name(func.value))
+        found.append(called_name(func.value, aliases))
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
         targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
         found.extend(
-            _last_name(target.value)
+            called_name(target.value, aliases)
             for target in targets
             if isinstance(target, ast.Subscript) and not _is_environ(target.value)
         )
+    if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+        found.append(called_name(node.target, aliases))  # 串列的 += 是原地修改
     return [name for name in found if name]
 
 
-def _patched_owner(call: ast.Call) -> str | None:
-    """被替換屬性的擁有者：``setattr(ZoneRoots, "resolved", f)``、``patch("….ZoneRoots.x")``."""
+def _patched_owner(call: ast.Call, aliases: dict[str, str]) -> str | None:
+    """被替換屬性的擁有者：``setattr(ZoneRoots, "resolved", f)``、``patch("….ZoneRoots.x")``、
+    ``patch.multiple(ZoneRoots, …)``（別名對回原名）."""
     func, args = call.func, call.args
     name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-    if not args or name not in ("setattr", "delattr", "patch", "object"):
+    if not args or name not in ("setattr", "delattr", "patch", "object", "multiple"):
         return None
-    if name in ("patch", "object") and "patch" not in ast.unparse(func):
+    if name in ("patch", "object", "multiple") and "patch" not in ast.unparse(func):
         return None
     text = _literal(args[0])
     if text is not None:
         parts = text.split(".")
+        if name == "multiple":
+            return parts[-1]
         return parts[-2] if len(parts) >= 2 else None
-    return _last_name(args[0]) if name != "patch" else None
+    return called_name(args[0], aliases) if name != "patch" else None
 
 
 def _assigned_names(node: ast.AST) -> list[str]:
@@ -1260,15 +1265,15 @@ def _assigned_names(node: ast.AST) -> list[str]:
     return found
 
 
-def _assigned_owners(node: ast.AST) -> list[str]:
-    """``ZoneRoots.resolved = f`` 一類：被指定屬性的擁有者."""
+def _assigned_owners(node: ast.AST, aliases: dict[str, str]) -> list[str]:
+    """``ZoneRoots.resolved = f`` 一類：被指定屬性的擁有者（別名對回原名）."""
     if not isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
         return []
     targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
     return [
         owner
         for target in targets
-        if isinstance(target, ast.Attribute) and (owner := _last_name(target.value))
+        if isinstance(target, ast.Attribute) and (owner := called_name(target.value, aliases))
     ]
 
 
@@ -1333,12 +1338,13 @@ def t3_sites(
                 if isinstance(node, ast.Call):
                     called = called_name(node.func, aliases)
                     names += [called] if called in T3_DIRECT_CALLS else []
-                    owner = _patched_owner(node)
+                    owner = _patched_owner(node, aliases)
                     names += [owner] if owner in owners else []
                 names += _assigned_names(node)
-                names += [o for o in _assigned_owners(node) if o in owners]
+                names += [o for o in _assigned_owners(node, aliases) if o in owners]
                 found[key] += sum(1 for name in names if name in watched)
-                found[key] += sum(1 for name in _changed_containers(node) if name in containers)
+                changed = _changed_containers(node, aliases)
+                found[key] += sum(1 for name in changed if name in containers)
     return {key: n for key, n in found.items() if n}
 
 
@@ -1397,6 +1403,24 @@ def test_t3_covers_the_producers_and_the_data_root():
         ('def t():\n    patch.dict("memory_server.utils.zone_paths._handoffs", {})\n', "_handoffs"),
         ('def t():\n    os.environ.pop("MEMORY_APP_DATA_DIR", None)\n', "MEMORY_APP_DATA_DIR"),
         ('def t():\n    os.environ.update({"MEMORY_APP_DATA_DIR": x})\n', "MEMORY_APP_DATA_DIR"),
+        (
+            "from memory_server.utils.zone_paths import _handoffs as H\ndef t():\n    H.clear()\n",
+            "_handoffs",
+        ),
+        (
+            "from memory_server.utils.zone_paths import _handoffs as H\n"
+            "def t(m):\n    m.setitem(H, k, v)\n",
+            "_handoffs",
+        ),
+        (
+            "from memory_server.utils.zone_paths import _handoffs as H\ndef t():\n    H[k] = v\n",
+            "_handoffs",
+        ),
+        (
+            "from memory_server.utils.zone_paths import _observers\n"
+            "def t():\n    global _observers\n    _observers += [cb]\n",
+            "_observers",
+        ),
     ],
 )
 def test_t3_finds_every_way_of_replacing_a_name(text, name):
@@ -1412,6 +1436,12 @@ def test_t3_finds_every_way_of_replacing_a_name(text, name):
         'def t():\n    with patch("memory_server.utils.zone_paths.ZoneRoots.resolved"):\n'
         "        pass\n",
         "def t():\n    ZoneRoots.resolved = f\n",
+        "from memory_server.utils.zone_paths import ZoneRoots as ZR\n"
+        'def t(m):\n    m.setattr(ZR, "resolved", f)\n',
+        "from memory_server.utils.zone_paths import ZoneRoots as ZR\n"
+        "def t():\n    ZR.resolved = f\n",
+        "def t():\n    with patch.multiple(zp.ZoneRoots, resolved=f):\n        pass\n",
+        'def t():\n    patch.multiple("memory_server.utils.zone_paths.ZoneRoots", resolved=f)\n',
     ],
 )
 def test_t3_finds_replaced_methods_of_zone_classes(text):
@@ -1433,6 +1463,9 @@ def test_t3_owners_are_the_zone_paths_classes():
         "def t():\n    value = zp._handoffs[k]\n",
         "def t():\n    value = zp._handoffs.get(k)\n",
         'def t():\n    os.environ.pop("TOUKA_ENV_FILE", None)\n',
+        "from memory_server.utils.zone_paths import _handoffs as H\n"
+        "def t():\n    value = H.get(k)\n",
+        "def t():\n    count = 0\n    count += 1\n",
     ],
 )
 def test_t3_leaves_other_names_and_plain_reads_alone(text):
