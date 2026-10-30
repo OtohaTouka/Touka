@@ -1,9 +1,10 @@
 # Touka 目前交班
 
-更新：2026-10-23。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
+更新：2026-10-30。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## 1. 現況
 
+- **代理人資料夾的讀寫不跟隨連結（2026-10-30，ADR-0293，PR 1）**：個人空間（`personal_drive/<id>`、`custom/<id>/drive`）裡的讀寫、列出、刪除、備份、GDPR 匯出、診斷統計與 `/v1/outputs` 一律經 ResourceManager 的區內方法，路上有連結就拒絕或略過；Linux 從開好的資料夾往下走，Windows 本機仍有時間差（ADR-0293「已知的界線」）。人自己把個人空間做成連結時，那個代理人的檔案功能拒絕，重置、刪除靈魂、刪除與改名自訂模型回 409 `AGENT_DRIVE_LINKED`、什麼都不改；上層資料夾（錨點）本身是連結照常可用。重置、刪除靈魂與刪除自訂模型會先停掉那個代理人的全部指令。docgen 這類 vault-jailed MCP 的工具暫時不能用（任何平台，`vault_jailed_tool_unavailable`），上傳 PDF、Office 檔時給模型的提示不再叫它用這類工具讀。`/v1/outputs` 的檔名只能是一段（不合格回 403），`outputs` 或檔案是連結時回 404。測試多了絆線（Z9，CI 全量開 `TOUKA_Z9_FULL_RUN`）與改壞清單（`tests/zone_mutations.json`，每個 PR 手動跑一次），見 tests/README。PR 2 合併之前仍不要啟用 command hook。
 - **對話左側的訊息導覽列（2026-10-29）**：桌面網頁版對話區左側有一排短橫線，一條代表一則使用者訊息（心跳補的「請繼續」不算，判斷用雙端常數 `SYSTEM_SPEAKER`）；滑鼠移上去浮出那則訊息、點了捲過去，目前看到的那則較亮；線數依對話區高度決定（每條約 8px、最多 120 條），則數超過時每條代表一段。至少兩條才顯示，手機版與 IDE 不顯示。純前端，不改後端 API；心跳兩處「請繼續」改用同一個常數寫入，寫出的值不變。規則見 CHAT_INTERFACE「對話左側的訊息導覽列」。
 - **網頁版家對話不再重複送給模型（2026-10-29）**：網頁版一般（非無痕）聊天、目前對話就是家對話時，SoulLayer 不再插家對話（前端送的就是這個對話完整的線性路徑）；條件是請求帶 persistent `ui_persistence` 且路由核准 `ui_authorized`，兩者都要。子對話、SNS 家對話模式、IDE 與沒帶 `ui_persistence` 的請求照舊插入。約定寫在 PROXY／CHAT／MEMORY_INTERFACE：前端改成只送最近幾輪之前要先改後端。
 - **`/stats` 依身分過濾（2026-10-28）**：`background_activity`、`interrupted_runs` 逐筆用 `can_access_session` 判斷，一般使用者只看自己的靈魂；`usage_history`／`total_usage` 與派工伺服器 `pid` 只給 admin。鍵與型別不變、前端不用改。`token_usage` 也照同一個判斷過濾（2026-10-29），Owner 代理只看自己的。
@@ -308,7 +309,9 @@
 - 依賴：liblzma 與其他 Debian 套件改跟 `apt-get upgrade` 的官方更新；Python／Node CVE 由 Guard #22／#23 檢查。
 - 指令安全修正任務已結案（2026-10-14），由模型層第 2b、2c 段取代；隔離執行環境歸模型層第 5 段（iso-c2）：代理人指令的隔離（含先寫檔再執行、shell 變數與萬用字元繞過）由 ADR-0272（iso-c2 C2-1＋C2-2）處理；C2-3 已接上 MCP 檔案隔離，但直接啟動例外仍無此保護（見 SECURITY.md）。其餘列在下面的待排小項。
 - **待排小項**（2026-10-14 起，正本在這裡；做完一項就從這裡刪掉）：
-  - ADR-0292「已知的界線」最後兩條（list、find 與個人空間目錄改成從開好的資料夾往下走；Touka 自己的其他檔案讀寫不跟隨連結）：合併後第一個處理，下一次 dev 進 main 之前完成；完成之前不要啟用 command hook。
+  - ADR-0293 PR 2：`mcp_servers`、docgen 輸出、sandbox state 改成同樣不跟隨連結，執行器的 `data/mcp_servers` 掛載一併縮小；下一次 dev 進 main 之前合併。PR 1、PR 2 都合併之前不要啟用 command hook。
+  - Docker Desktop（Windows 主機資料夾掛進容器）上還沒手動驗證 ADR-0293。部署後用 DebugAgent 在個人空間依序寫一個檔、讀回、列出、改名、刪除，上傳一個檔，再從 `/v1/outputs` 取一個產出的檔；每一步都應該成功。實際沒有連結卻出現「連結被拒」或 `AGENT_DRIVE_LINKED`，表示這種掛載上檔案身分比對不可用，記下錯誤後回報。
+  - 讓 docgen 一類的工具安全讀寫代理人檔案（每次呼叫一個新的暫存資料夾、只複製需要的檔案進去、產出以區內寫入搬回；或每個代理人一個程序）：要權限邊界審查，另開任務；完成前 `document-generator` 技能的工具一律被拒。
   - `/mcp/list` 尚無 Pydantic 回應模型，前端 `McpServerStatus` 仍為手寫型別；後端補上回應模型後，前端應改用生成型別。
   - 外部 OpenAI／Anthropic 相容客戶端帶家對話 session id、自己送完整歷史、沒有 `ui_persistence` 時，家對話會重複，後端分辨不出來（2026-10-29 修網頁版家對話重複時發現）。SNS 家對話模式原本也會讓最新一句送兩次（先寫進家對話、再只送這一句）；ADR-0292 把 SNS 外人訊息改成 pipeline 跑完才寫，已一併修好（`test_sns_gateway.py` 驗順序）。
   - 上下文快照（`context_snapshot_service.py`）沒有 session，在家對話本身照樣列出 Home Messages 一欄，沒反映 2026-10-29 起網頁版在家對話本身不插家對話。

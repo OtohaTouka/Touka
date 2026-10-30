@@ -1,5 +1,14 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 代理人資料夾不跟隨連結（2026-10-30，ADR-0293）
+
+- 區與錨點的唯一定義：ToukaMemory `utils/zone_paths.py`（`Anchor`、`ENFORCED_ANCHORS`、`ALL_ANCHORS`、`anchor_dirname`；判斷只有 `zone_of`、`contains_zone`、`anchor_at`，呼叫端明確傳錨點集合）。目前的 data 根由 `resource_manager` 載入時以 `set_roots_provider` 登記，讀取一律 `current_roots()`；隔離層用 `services/isolation/profiles.layout_zone_roots(layout)`。
+- 區裡的路徑：`ZonePath`，只由 `ResourceManager` 的 `agent_drive`、`agent_drive_for`、`soul_drive`、`custom_drive`、`outputs_dir`、`uploads_dir`、`anchor_root`（只限明列的呼叫點）與 `zone_rel_from_abs` 交出；I/O 只經 RM 的 `zone_*` 方法（`IResourceProxy` 有對應方法）。字串方法碰區丟 `ZonePathRequiredError`（`resource_manager._plain`／`_plain_tree`；遞迴走訪用 `walk_pruned` 剪掉區）。
+- 交給子行程或回檔：`ResourceManager.zone_handoff`（登記表在 `zone_paths`，`HandoffKind`、`is_handed_off`）；檔案下載 `services/zone_file_response.py` 的 `ZoneFileResponse`。
+- 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`。
+- 設了 `vault_jail_arg` 的 MCP 伺服器：`services/mcp_vault_jail.apply` 以固定原因拒絕（`tool_executor` 在審批卡與 hook 之前呼叫）。
+- 例外被產品程式接住也看得到：`zone_paths.add_observer`／`report`（`ZoneEvent`）；測試期間的絆線與紀錄在 `tests/support/`，換 data 根只經 `zone_data_root` fixture 與 `tests/support/zone_roots.point_zone_roots`。
+
 ## Hook（2026-10-28，ADR-0292）
 
 - 設定唯一來源：`config/hooks.json`（`models/hooks.py` 的 `HooksConfig`；種子 `hooks.json.example`，預設關閉）。只經 `PUT /v1/hooks`（人類 admin）改；代理人用終端讀寫屬底線 F2（標頭可能有權杖；檔案動詞與 MCP 不經底線，靠專案根限制）。不在設定匯出／匯入裡。
@@ -9,7 +18,7 @@
 - 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
 - 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
 - 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。
-- 代理人檔案動詞不跟隨連結的 I/O：ToukaMemory `utils/no_follow.py`（`core_file_ops` 直接用；ToukaProxy 的 `ResourceManager` 以 `*_no_follow` 方法包一層，`IResourceProxy` 有對應方法）。和 `core_file_ops.py`、`resource_manager.py` 一樣列在 `lint_ssot.py` 的 I/O 白名單。
+- 代理人檔案動詞不跟隨連結的 I/O：ToukaMemory `utils/no_follow.py`（`core_file_ops` 直接用；ToukaProxy 的 `ResourceManager` 以 `*_no_follow` 方法包一層，`IResourceProxy` 有對應方法）。根是代理人資料夾時改走區內方法（ADR-0293，見「代理人資料夾不跟隨連結」一節）。和 `core_file_ops.py`、`zone_paths.py`、`resource_manager.py` 一樣列在 `lint_ssot.py` 的 I/O 白名單。
 - 被擋下的一輪在前端怎麼處理：`ToukaChat/src/lib/stream_tree.ts` 的 `dropBlockedTurn`（`StreamRegistryProvider` 存回、`ChatProvider` 放回輸入框）。
 
 ## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）
@@ -85,7 +94,7 @@
 | 政策當下的層級與專案根（只來自 ctx／session，不讀模型參數；只看內建工具）、審查員看的層級 | `services/isolation/policy.py`（`policy_level`、`session_project_root`、`reviewer_level`） | `tool_executor`、`tools/terminal.py`、`approval_flow.CommandApprover` |
 | 未隔離同意（subject、一次性、10 分鐘、上限 4,096） | `services/isolation/consent.py` `consent_ledger`（`consent_subject`、`ConsentKey.of`） | `policy`、`approval_flow`、`agent_command`、`evolution_command` |
 | 選 runner 與「降級要先經人核准」 | `services/isolation/runners.py` `runner_broker`（`RunnerBroker.acquire`、`LaunchPlan.release`；固定維護指令用的 `acquire_maintenance`） | `agent_command`、`evolution_command`、`home_wipe`（刪除靈魂時清家目錄） |
-| profile、永不授權、封鎖埠、環境變數改寫（含 `PYTEST_ADDOPTS`） | `services/isolation/profiles.py`（`build_agent_command_profile`、`build_evolution_profile`、`authorize_derived_path`、`grantable_roots`（依身分）、`fixed_protected`、`blocked_ports`、`sandbox_env`） | `agent_command`、`evolution_command`、`status`、`approval_flow` |
+| profile、永不授權、封鎖埠、環境變數改寫（含 `PYTEST_ADDOPTS`） | `services/isolation/profiles.py`（`build_agent_command_profile`、`build_evolution_profile`、`authorize_derived_path`、`_in_own_drive`（依身分）、`layout_zone_roots`、`fixed_protected`、`blocked_ports`、`sandbox_env`） | `agent_command`、`evolution_command`、`status`、`approval_flow` |
 | Touka 目錄偵測（往上到鏡像根、往下 3 層、資料根名稱、快取與背景續掃） | 標記與資料根名稱在 `sandbox_kernel/spec.py`（`TOUKA_MARKERS`、`DATA_ROOT_NAMES`、`fold_name`、`listing_kind`，C2-2 搬入、執行器伺服器共用）；`utils/touka_dirs.py`＋`services/isolation/project_scan.py` `project_scanner` | `profiles.touka_directory_verdict`、執行器伺服器的 roots 檢查 |
 | 代理人指令與演化接上 runner | `services/isolation/agent_command.py`（`take_grant`、`command_scope`、`command_level`、`prepare_command`）、`services/isolation/evolution_command.py` | `tools/terminal.py`、`services/review/evidence.py`；`tools/builtin/evolution.py`、`evolution_security.py` |
 | 審批卡的隔離標示與 `isolation_ack` | `services/approval_flow.py`（`CardIsolation`、`card_isolation`、`ISOLATION_ACK_FIELD`）；事件欄位 `utils/tool_events.py` | `ToukaChat` `stream_tree.ts`、`ToolApprovalCard.tsx`（翻譯 `chat.tool_approval_card.isolation.*`） |

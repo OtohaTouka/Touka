@@ -3,8 +3,8 @@
 - 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE` 在 PR 2）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審。
 - 日期：2026-10-30
 - 決策者：維護者
-- 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 修訂 D2 的交出根）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。
-- 影響範圍：ToukaMemory 新增 `utils/zone_paths.py`，擴充 `utils/no_follow.py`；修改 `protocols.py`（`IResourceProxy`）、`tools/core_file_ops.py`、`tools/diag.py`、`tools/__init__.py`、`services/personal_catalog.py`、`services/mission_manager.py`、`services/manager.py`，刪 `tools/personal_drive.py`。ToukaProxy 修改 `services/resource_manager.py`、`tools/terminal.py`、`tools/mission_tools.py`、`tools/editor.py`（刪 `text_editor`）、`tools/grok_imagine_server.py`、`services/upload_service.py`、`services/gdpr_export_service.py`、`services/agent_reset/`、`services/memory_scrub/orchestrator.py`、`services/review/`、`services/subagent_results.py`、`services/process_registry.py`、`services/tool_executor.py`、`services/mcp_vault_jail.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`、`repair.py`、`status.py`、`home_wipe.py`）、`utils/mcp_origin.py`、`utils/permission_repair.py`、`utils/soul_io.py`、`utils/custom_io.py`、`routers/souls.py`、`routers/custom_models.py`、`routers/ui_sessions.py`、`routers/observability.py`、`main.py`、`scripts/manage_backup.py`，新增 `services/zone_file_response.py`；`errors.json.example`（1421 `AGENT_DRIVE_LINKED`）；ToukaDispatch `server.py`；ToukaChat `uploadClassify.ts`、`error_codes.ts`、翻譯；`scripts/lint_ssot.py`。
+- 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 起這類伺服器的工具呼叫一律拒絕，D1 的注入不再使用）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。
+- 影響範圍：ToukaMemory 新增 `utils/zone_paths.py`，擴充 `utils/no_follow.py`；修改 `protocols.py`（`IResourceProxy`）、`tools/core_file_ops.py`、`tools/diag.py`、`tools/__init__.py`、`services/personal_catalog.py`、`services/mission_manager.py`、`services/manager.py`，刪 `tools/personal_drive.py`。ToukaProxy 修改 `services/resource_manager.py`、`tools/terminal.py`、`tools/mission_tools.py`、`tools/editor.py`（刪 `text_editor`）、`tools/grok_imagine_server.py`、`services/upload_service.py`、`services/gdpr_export_service.py`、`services/agent_reset/`、`services/memory_scrub/orchestrator.py`、`services/review/`、`services/subagent_results.py`、`services/process_registry.py`、`services/tool_executor.py`、`services/mcp_vault_jail.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`、`repair.py`、`status.py`、`home_wipe.py`）、`utils/mcp_origin.py`、`utils/permission_repair.py`、`utils/soul_io.py`、`utils/custom_io.py`、`routers/souls.py`、`routers/custom_models.py`、`routers/ui_sessions.py`、`routers/observability.py`、`main.py`、`scripts/manage_backup.py`，新增 `services/zone_file_response.py`；`errors.json.example`（1421 `AGENT_DRIVE_LINKED`）；ToukaDispatch `server.py`；ToukaChat `uploadClassify.ts`、`error_codes.ts`、翻譯；`scripts/lint_ssot.py`、`scripts/native_tool_contract_baseline.json`（刪 `text_editor`）；CI `native-tool-contracts.yml`（全量 pytest 開 `TOUKA_Z9_FULL_RUN`）。
 
 ## 背景
 
@@ -56,8 +56,8 @@
 
 ## 已知的界線
 
-- **Windows 本機**：標準函式庫沒有 `dir_fd`。遞迴刪除、建資料夾、改名、補權限、走訪仍有時間差，開檔後比對身分只補一部分；`/v1/outputs` 依路徑重開檔案，檢查與開檔之間有時間差。能利用的只有本來就有 Touka 權限的程式（Windows 本機沒有沙盒程序會寫區）。8.3 短檔名可以寫進自己的 `.touka`，屬於下面「代理人自己的 JSON」那一項。
-- **不經 RM 的程式**：hook 程式（ADR-0292）以 Touka 的權限執行，可以讀寫任何 Touka 權限到得了的地方；像「工具執行後跑 lint」這類 hook，lint 工具若會執行檔案裡的設定或外掛，就等於以 Touka 的權限跑代理人寫的東西，管理員要選不會執行專案內容的工具。hook 的 MCP 可寫資料夾禁區只來自 `mcp_server_isolation.json` 的 `sandbox_paths`：包在 Landlock 裡的第三方與 scaffold 伺服器引用的資料夾不在禁區，IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道；不要讓它們寫得到 `config/hooks/`。執行器不載入 RM（規則路徑由 kernel 逐段不跟隨地開），以後在執行器加 I/O 不受這條規則保護。dispatch 自動啟動的外部 AI 與 IDE 在主機上，照它們自己的權限。
+- **Windows 本機**：標準函式庫沒有 `dir_fd`，檔案動詞查連結和開檔不是同一個動作。只換一次連結的會被擋下（開檔後比對檔案識別碼）；不停來回換連結、剛好開檔時是連結、檢查時不是、比對時又是，仍可能讀寫到連結另一端的檔案（含截斷後寫入、追加、原子寫入蓋過去）。建立新檔、原子寫入的暫存檔與建上層資料夾可能在另一端留下空檔或空資料夾；刪除只在刪之前查一次；只讀時開檔前不查，路上現成的連結會先開到再拒絕（內容不讀出，但指向網路位置的連結可能先連上那台主機）。遞迴刪除、建資料夾、改名、補權限、走訪同樣有時間差；`/v1/outputs` 依路徑重開檔案，檢查與開檔之間有時間差。能利用的只有本來就有 Touka 權限的程式（Windows 本機沒有沙盒程序會寫區；代理人終端不經隔離、每條指令都要人核准；未隔離的第三方 MCP 伺服器的工具依模式執行）。8.3 短檔名可以寫進自己的 `.touka`，屬於下面「代理人自己的 JSON」那一項。
+- **不經 RM 的程式**：hook 程式（ADR-0292）以 Touka 的權限執行，可以讀寫任何 Touka 權限到得了的地方；像「工具執行後跑 lint」這類 hook，lint 工具若會執行檔案裡的設定或外掛，就等於以 Touka 的權限跑代理人寫的東西，管理員要選不會執行專案內容的工具。hook 的 MCP 可寫資料夾禁區只來自 `mcp_server_isolation.json` 的 `sandbox_paths`：包在 Landlock 裡的第三方與 scaffold 伺服器引用的資料夾不在禁區，IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道；管理員不要把 hook 程式放在這些地方，也不要讓它們寫得到 `config/hooks/`。執行器不載入 RM（規則路徑由 kernel 逐段不跟隨地開），以後在執行器加 I/O 不受這條規則保護。dispatch 自動啟動的外部 AI 與 IDE 在主機上，照它們自己的權限。
 - **代理人自己留下的常駐行程**：proxy 本機（Landlock）用 `setsid` 留下的行程不在任何登記裡，停不到，可以讓重置或刪除一直以固定原因失敗，直到重啟 proxy（資料留著、不會刪到別處）。執行器裡的由 subreaper 收（最多約 30 秒）。proxy 本機的 subreaper 另排。
 - **被入侵的第三方 MCP**：經 APPDATA 對映寫得到 `personal_drive` 底下，同樣能讓重置或刪除以固定原因失敗。
 - **別名上層**：`contains_zone` 只認得錨點自己的上層鏈；從另一個掛載路徑進到 data 的遞迴動作靠逐層判斷。`st_ino == 0` 的檔案系統上身分比對不可用，只剩字面與解析後兩項。錨點底下另外掛的檔案系統，走訪與刪樹不跨過去（備份、GDPR、診斷不收，刪除失敗並說明）。
@@ -74,7 +74,7 @@
 - 專案根在某個代理人的個人空間底下時，專案的檔案功能拒絕；專案根在 data 根上層時，list、find、grep 照常但看不到代理人資料夾，遞迴刪除、複製、打包拒絕；專案裡指向代理人資料夾的檔案連結，打包與複製略過。
 - docgen 一類的工具在 PR 1 不能用（任何平台）；今天經隔離啟動時本來就讀寫不到代理人資料夾，主要影響 Windows 本機經人同意直接啟動的。
 - 重置、刪除靈魂、刪除自訂模型會先停掉那個代理人的全部指令。
-- Linux 上檔名含 `\` 的既有檔案，檔案動詞碰不到，走訪時略過並計數；`/v1/outputs` 的檔名在 Windows 上不收 `\`、`:` 與保留名（403）。
+- Linux 上檔名含 `\` 的既有檔案，檔案動詞與 `/v1/outputs` 都碰不到（`/v1/outputs` 回 403），走訪時略過並計數；`/v1/outputs` 的檔名在 Windows 上另外不收 `:`、結尾的點與保留名（403）。
 - 個人空間裡另外掛的資料夾（例如自己掛的 NAS），備份、GDPR、診斷統計不收，刪除時失敗並說明。
 - 每次字串方法多一次區內判斷（解析每個錨點一次、每段一次 `stat`）。
 - 不改 `openapi.json`。撤回只能 revert。

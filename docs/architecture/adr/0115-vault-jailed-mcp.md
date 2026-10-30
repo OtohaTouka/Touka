@@ -5,6 +5,8 @@
 - **影響範圍**：ToukaProxy（`services/mcp_vault_jail.py` SSOT／`services/tool_executor.py` 派發注入／`protocols/registry.py` `vault_jail_arg` 欄／`utils/mcp_sentinels.py` env backstop＋`protocols/mcp/client.py` 連線期解析／`services/mcp_hub_service.py` install 傳遞／`services/settings_snapshot_service.py` 快照重蓋／`routers/mcp.py` API round-trip／config）＋ ToukaChat（`buildFileRefHint` 指向 vault-scoped read 工具）＋ **外部 mcp-docgen v0.6**（全 17 工具 `base_dir`，同管 input+output）
 - **關鍵字**：vault-jailed MCP, per-agent isolation, dispatcher injection, base_dir, MCP path jail, identity-derived root, fail-closed, env backstop, sentinel, config drift fail-safe, cooperative vs enforced isolation, 聊天上傳多格式讀取
 
+> **修訂註（[ADR-0293](0293-agent-folders-no-follow.md)）**：這類伺服器的 I/O 不經 ResourceManager，所有代理人共用同一個程序，交出任何根都無法保證不跟隨連結。ADR-0293 起設了 `vault_jail_arg` 的伺服器，工具呼叫在執行器前段一律拒絕、不送出（`permission_denied`，`reason: "vault_jailed_tool_unavailable"`），D1 的注入不再使用；上傳提示也不再叫模型用這類工具讀檔。安全的讀寫做法另開任務。
+
 ## 背景（Context）
 
 聊天上傳改進需要「讓 AI 讀取上傳的 docx/xlsx/pptx/pdf」。決策是**複用 [[ADR-0079]] 的 mcp-docgen**（不重做一套解析），但 docgen 的檔案存取必須**鎖進當下 agent 自己的 vault**——一個 agent 永遠不能讀到另一個 agent 的檔案。

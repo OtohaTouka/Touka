@@ -97,6 +97,40 @@ tests/
 | `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加；hook 執行期間停止時不送模型（`PROMPT_STOPPED`）、不執行工具（`stopped_by_user`），擋下優先於停止，沒有 hook 執行（含 hook 全部停用）或沒比到的工具不看停止旗標；UI 請求在串流開始前登記為等待中、結束或出錯時移除；停止標在這一則請求上，同一對話的下一則請求清掉旗標後仍停著；UserPromptSubmit 與 PreToolUse 都看這次執行開始之後的停止次數，旗標被清掉也停；前景請求清掉殘留旗標之後才記停止起點；開始串流前只看這次執行自己的記號（只剩對話旗標時交給 ReAct 迴圈）；MCP 工具用裸名稱叫時也比對 `server__tool` 與 `mcp__server__tool`；群聊成員各自觸發 Stop、事件內容是這位成員；除錯執行時事件內容的 `agent_id` 是字串。 |
 | `unit/test_hooks_router_security.py` | 管理 API：三個端點只給人類管理員（admin 代打、一般使用者、靈魂、Debugger、DispatchAgent、子代理、沒登入與壞的 token 都拒絕且不寫檔）；存檔寫檔並回 revision、作者與時間由伺服器填；舊 revision 回 409 且不動檔；路徑被拒回 422 且不寫檔（含停用的 hook）；不可信的 Origin 拒絕；沒帶 revision、多的欄位、未接線事件、`shell` 欄位、標頭環境變數拒收；執行紀錄新的在前、無痕只留結果；壞檔時給上一份好的設定與壞檔的 revision、帶它存檔可修好；`/v1` 與根路徑都掛上；設定匯出不含 `hooks.json`。 |
 
+### 代理人資料夾不跟隨連結（ADR-0293）
+
+以下測試把 data 根換到 `zone_data_root`（`tmp_path`），連結另一端是測試自己建的假設定，不碰 `data/`；這台 Windows 不能建 symlink 時改建 junction（`support/links.py`）。標 R15 的連結測試只用改之前就有的邊界，在改之前的程式上以 `LINK_FOLLOWED` 失敗。
+
+| 檔案 | 說明 |
+|------|------|
+| `unit/test_zone_paths.py` | 區內判斷與路徑物件：錨點、`zone_of`／`contains_zone`／`anchor_at`（字面、解析後與檔案身分）、`ZonePath` 的每種誤用都通知觀察者再丟錯、不可信名稱（`child`／`join_rel`）、例外訊息固定、交接登記表、`current_roots`、`ensure_anchor`。 |
+| `unit/test_no_follow_zone.py` | 區內的單項原語、走訪、剪枝走訪與刪樹：不進入也不列出連結、遇到代理人資料夾剪掉、刪樹遇到連結只刪本身、不因深度失敗；Linux 補權限改的是核對過的那個資料夾，核對後換進來的連結不跟隨；中途被換掉、跨檔案系統與權限用 seam 模擬。 |
+| `unit/test_resource_manager_zone.py` | ResourceManager 的區內方法與產生函式：讀寫、追加、建刪、列與走訪都不跟隨連結，每個案例核對連結另一端沒被動到；`zone_handoff`、改名與刪自訂模型資料夾。 |
+| `unit/test_resource_manager_string_zone.py` | 字串方法碰到代理人資料夾：單一路徑丟 `ZonePathRequiredError`（含 `..` 與經連結進去的），錨點本身與 `custom/<id>/config.json` 照常；兩個路徑任一邊在區裡就拒絕；遞迴的列、找、統計剪掉區；刪、打包、解壓整個拒絕。 |
+| `unit/test_zone_file_response.py` | `/v1/outputs` 的回應物件：Linux 版持有開好的檔案，送完、出錯、中斷或沒被呼叫都關檔並取消登記；沒有 `/proc` 的系統只在送出期間登記。 |
+| `unit/test_outputs_route_links_security.py` | R15：`/v1/outputs` 的 `outputs` 或檔名換成連結時回 404、不送出另一端的內容；標頭、Range、If-Range 和直接送出一樣；不能當一段的檔名回 403。 |
+| `unit/test_personal_drive_links_security.py` | 個人空間的檔案動詞（read、write、append、edit、delete、list、find、grep 與目錄重建）在根、中間或最後一段換成連結時都不讀寫、不列出另一端。 |
+| `unit/test_terminal_drive_links_security.py` | R15：個人空間換成連結時終端不執行，回固定原因的 `permission_denied`、不帶路徑。 |
+| `unit/test_terminal_agent_stop.py` | 重置與刪除停掉代理人的全部終端指令：行程帶 agent_id 登記、cwd 經 `zone_handoff` 交出；進行中不啟動（`agent_busy`）；`stop_agent_commands` 取消背景與待審批工作並殺掉登記的行程，別的代理人不受影響。spawn 用替身。 |
+| `unit/test_agent_reset_links_security.py` | R15：重置時個人空間根是連結就整個失敗、什麼都不動；`outputs`／`missions` 是連結只刪連結本身；`.touka` 是連結時目錄檔那一項失敗；勾選清除時連結在準備清除之前就被擋、稽核記 `drive_linked`。 |
+| `unit/test_custom_model_links_security.py` | 刪除與改名自訂模型時 `custom/<id>/drive` 是連結就回 409 `AGENT_DRIVE_LINKED`、什麼都不動也不停指令；一般刪除先停這個模型的指令。 |
+| `unit/test_mission_board_links_security.py` | 任務看板不經過連結讀寫（Proxy 工具、ToukaDispatch、`/v1/ui/mission` 三條路），鎖檔放在代理人寫不到的 `<data>/temp/locks/missions/`。 |
+| `unit/test_review_evidence_links_security.py` | R15：證據檔所在的資料夾換成連結時這一輪以固定原因轉人，證據摘要不列另一端的檔案。 |
+| `unit/test_grok_imagine_links_security.py` | 生圖工具的 `outputs` 換成連結時整個不存、回錯誤；連 xAI 的請求用假的 client，不連外（禁令 61）。 |
+| `unit/test_manage_backup_links_security.py` | 備份腳本：個人空間與自訂模型備份時不跟隨連結、一次開一個檔案寫進 zip；還原時不跟隨連結寫回。 |
+| `unit/test_diag_personal_drive.py` | 記憶診斷的個人空間大小用區內走訪加總，連結另一端不算；根本身是連結時顯示不可用。 |
+| `unit/test_memory_health_zone.py` | `/v1/memory/health` 的個人空間一項：只有 `personal_drive` 是資料夾才算正常。 |
+| `unit/test_mcp_vault_jail.py` | 設了 `vault_jail_arg` 的 MCP 伺服器：工具呼叫以固定原因拒絕、不送出（結構化 `permission_denied`）。 |
+| `unit/test_isolation_zone_shapes.py` | 隔離層的形狀判斷改呼叫 `zone_of` 後結果不變（逐列寫明以前的結果；只有標明的 Windows 大小寫一列是刻意改的）。 |
+| `unit/test_isolation_writable_roots.py` | Z10：每個接上 runner 的動作與 MCP 種類實際建出 profile，每條可寫規則都在代理人資料夾裡或是錨點本身（兩種 state 位置、四種身分、有無專案、執行器）；`SandboxProfile`／`PathRule` 的建構點以 AST 釘住；執行器掛載、權限自癒白名單與 heartbeat 的資料根名稱對得上錨點。 |
+| `unit/test_zone_records.py` | 區例外紀錄的自我測試：宣告的範圍、類別比對、沒宣告的留到測試結束。 |
+| `unit/test_zone_tripwire.py` | Z9 絆線的自我測試：產品程式的呼叫者用 `tmp_path` 裡臨時匯入的模組模擬，事件用 `sys.audit` 發；哪些參數算路徑（`open` 的 mode、網路位址不算）、Linux 上沒登記的 `/proc/self/fd` 照記、放行清單對得到程式、全量檢查的旗標不傳給子 pytest。 |
+| `unit/test_zone_mutations_manifest.py` | 改壞清單 `zone_mutations.json` 沒有漂移：每條的 `old` 片段在目標檔裡剛好出現一次、列出的測試都存在、R1～R14 每條至少一項、執行器只用標準函式庫、判定讀 junitxml。 |
+| `lint/test_zone_path_guard.py` | Z8 靜態檢查：舊產生函式不再出現（T1）、回傳區內路徑的函式標註 `ZonePath`（T2）、測試不替換產生函式與 data 根（T3）、轉出與錨點存取只在明列的地方（G1）、錨點資料夾名稱只在明列的地方（G2）。 |
+| `support/zone_records.py`、`support/zone_tripwire.py`、`support/zone_roots.py`、`support/links.py` | 區例外紀錄（conftest 登記成觀察者，測試結束時有紀錄就失敗）、Z9 絆線（audit hook）、換 data 根（`point_zone_roots`）、建連結；測試共用的輔助程式（前兩個的自我測試見 `unit/test_zone_records.py`、`unit/test_zone_tripwire.py`）。 |
+
+改壞清單的執行器 `zone_mutations.py` 只用標準函式庫，每個 PR 的驗證步驟手動跑：`python tests/zone_mutations.py --out <結果資料夾>`；`posix_only` 的項目到 Linux 容器跑。
+
 ### 心跳、SNS 與對話歸屬（ADR-0276）
 
 以下五個新安全檔的所有資料都在 conftest 沙盒，使用真 SQLite／SessionService 與合成身分，provider 與平台傳輸為替身。
@@ -205,7 +239,7 @@ tests/
 | `test_jwt_type_confusion_security.py` ⭐ | **DA7**：JWT type 混淆——`verify_token`/`get_current_user` 拒絕非 access 型 token（refresh/service 當 Bearer→拒；access 與無 type 的 agent token→放） |
 | `test_dispatch_board_integrity.py` ⭐ | **DA8**：`dispatch_update_task` 補 ADR-0064 A3 看板完整性檢查；陳舊外部 session 寫入已替換的 mission→拒、綁當前 mission／內部 session→放行 |
 | `test_dispatch_content_sanitization.py` ⭐ | **DA9**：外部 AI 派發文字（test_log/result_summary）在 `dispatch_update_task` 與 `dispatch_callback` 接上 H3 `content_guard`；驗證 8000 字截斷在兩個邊界皆生效 |
-| `test_low_findings_security.py` ⭐ | **DA11–DA16**（Low/Info 群一檔）：DA11 heartbeat token 改 `secrets.compare_digest`（常數時間）；DA12 `is_owner` Owner-agent 跨用戶存取→拒（同擁有者／自身／System 不受影響）；DA13 agent-tool `_get_safe_path` 改 `is_relative_to` 擋 sibling-prefix 繞過；DA14 演化沙箱配額 `_clamp_quota`（model override 只能更嚴、不可超 SSOT）；DA15 skill/MCP metadata 進系統提示前 XML 跳脫——派發器 sync（`_xml_*_entry`）＋ 每請求 `apply_skills_to_request` 的 name 屬性；DA16 移除死碼 `verify_ownership`。（含對抗複審補強：DA12 無主 agent 回歸測試、DA15 apply_skills 跳脫測試）|
+| `test_low_findings_security.py` ⭐ | **DA11–DA16**（Low/Info 群一檔）：DA11 heartbeat token 改 `secrets.compare_digest`（常數時間）；DA12 `is_owner` Owner-agent 跨用戶存取→拒（同擁有者／自身／System 不受影響）；DA13 agent-tool `text_editor`（含 `_get_safe_path`）沒有呼叫者，ADR-0293 刪除，測試改成斷言它不在；DA14 演化沙箱配額 `_clamp_quota`（model override 只能更嚴、不可超 SSOT）；DA15 skill/MCP metadata 進系統提示前 XML 跳脫——派發器 sync（`_xml_*_entry`）＋ 每請求 `apply_skills_to_request` 的 name 屬性；DA16 移除死碼 `verify_ownership`。（含對抗複審補強：DA12 無主 agent 回歸測試、DA15 apply_skills 跳脫測試）|
 | `test_idor_soul_sandbox_security.py` ⭐ | **DA17–DA18**（DA11–16 對抗複審補抓）：DA17 debug context-snapshot 讀/匯出＋souls `update_soul` 跨用戶 IDOR → 加 `is_owner`（跨擁有者 read→空、export/update→403、admin/Debugger 旁路、owned→放行）；DA18 `soul_io`/`custom_io` 共 9 個檔案操作的 sibling-prefix 沙箱繞過/缺檢查 → 全改 `validate_no_symlink_escape`（traversal→拒、合法往返→放行）|
 | `test_functional_bugs_security.py` ⭐ | **DA19–DA20**（DA11–16 對抗複審補抓，🐛 功能 bug）：DA19 `request_mcp_creation` 改傳 `identity=`（驗證 `request_approval` 收到 AgentIdentity、回 `Rejected` 而非吞掉的 TypeError）；DA20 P14 Debugger 白名單改用 `get_allowed_tools`/`is_tool_allowed`（禁用工具→403、允許工具→200，皆不再 AttributeError 500）。另更新 `test_sec_batch_gamma.py` P14 測試為實測限制（配置 allowlist→403，不再寬鬆接受 500 崩潰）|
 | `test_user_temp_password.py` ⭐ | **DA21**（DA11–16 對抗複審補抓）：bootstrap admin 密碼移出持久日誌——驗證首裝寫一次性檔 `INITIAL_ADMIN_PASSWORD.txt`（含可驗證密碼）、WARNING log **不含**明文只記路徑、首次改密自動刪檔。（原 `test_ensure_admin_user_logs_password` 改寫為新行為）|

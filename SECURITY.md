@@ -108,7 +108,16 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **啟動器**：`env`、`npx`、`py` 這類程式會自己找要執行的程式，找到哪裡 Touka 不檢查；hook 請寫成直譯器＋`config/hooks/` 裡的腳本。
 - **涵蓋範圍**：「使用者送出訊息」只檢查聊天、SNS、評分卡送出的文字，心跳、排程提示與重新觸發都不觸發，不能當成管住使用者的機制；「工具執行前」只涵蓋代理人經工具執行器的呼叫，任務的驗證指令與演化、創建的試跑不觸發。
 - **自己組歷史的用戶端**：被擋下的訊息不再送給模型只在 ToukaChat 做到；IDE 或自訂用戶端把它放進歷史時仍會送到模型。
-- **Touka 自己的其他檔案讀寫還會跟隨連結**：代理人的檔案動詞已經不跟隨連結，Touka 自己的其他讀寫還沒改，預定在下一次發行前完成。在那之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
+- **Touka 自己的其他檔案讀寫還有一部分會跟隨連結**：代理人的檔案動詞（ADR-0292）與代理人個人空間裡 Touka 自己的讀寫（ADR-0293）已經不跟隨連結；其餘代理人寫得到的資料夾還沒改，預定在下一次發行前完成。在那之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
+
+### 代理人資料夾不跟隨連結的已知限制（ADR-0293）
+
+- **Windows 本機**：沒有 `dir_fd`，遞迴刪除、建資料夾、改名、補權限與走訪仍有檢查與動作之間的時間差，`/v1/outputs` 依路徑重開檔案。Windows 本機沒有沙盒程序寫得到個人空間，能利用的只有本來就有 Touka 權限的程式。
+- **不經 ResourceManager 的程式**：hook 程式、IDE、未隔離的 MCP 伺服器、dispatch 自動啟動的外部 AI 照它們自己的權限讀寫，不受這套規則保護。
+- **停不到的背景行程**：代理人在 proxy 本機留下脫離登記的行程時，重置或刪除可能一直以固定原因失敗，直到重啟 Touka（資料留著，不會刪到別處）。
+- **設了 `vault_jail_arg` 的 MCP 伺服器（docgen 一類）暫時不能用**：工具呼叫一律以固定原因拒絕、不送出；安全的讀寫做法另排。
+- **代理人自己的 JSON**：任務板、派工結果與 `.touka` 目錄在代理人寫得到的地方，代理人直接改內容就能偽造狀態；不跟隨連結擋不住這件事，另排。
+- **改版前的備份**可能含連結另一端的內容。
 
 ### 代理人指令隔離的其他已知限制
 
@@ -157,6 +166,16 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 ## Known Resolved Vulnerabilities
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
+
+### 代理人個人空間裡的連結（2026-10-30，ADR-0293）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 代理人的終端可以在自己的個人空間（`personal_drive/<id>`、`custom/<id>/drive`）裡建符號連結或 junction；Touka 自己以 Touka 的權限讀寫這些資料夾時（個人空間目錄、任務板、派工結果、互審蒐證、上傳、回檔、生圖、GDPR 匯出、診斷、備份與還原等）會跟隨連結，代理人因此能讓 Touka 替它讀寫 Touka 自己的設定（例如 `config/hooks.json`、`users.json`）。ADR-0292 只改了代理人的檔案動詞。 | 個人空間裡的路徑只用 `ZonePath` 表示、只經 ResourceManager 的區內方法讀寫，從錨點逐段不跟隨連結（`memory_server/utils/zone_paths.py`）；字串方法碰到個人空間丟 `ZonePathRequiredError`，遞迴的列、找把個人空間剪掉，刪、複製、打包整個拒絕。各功能的 `*_links_security.py`、`tests/unit/test_resource_manager_zone.py`、`test_resource_manager_string_zone.py`、`test_no_follow_zone.py`；靜態檢查 `tests/lint/test_zone_path_guard.py`；測試期間的絆線 `test_zone_tripwire.py`；改壞清單 `tests/zone_mutations.json`。 |
+| 重置、刪除靈魂、刪除與改名自訂模型時，個人空間的根或裡面的資料夾是連結，刪除或搬移會落到連結另一端。 | 任何副作用之前先查個人空間根，是連結就整個失敗、什麼都不做（409 `AGENT_DRIVE_LINKED`）；之後停掉這個代理人的全部指令、操作結束前不開新指令；刪樹不跟隨連結，改名只改名不複製（`rename_agent_container`）。`tests/unit/test_agent_reset_links_security.py`、`test_custom_model_links_security.py`、`test_terminal_agent_stop.py`。 |
+| `/v1/outputs` 回檔依路徑開檔，檔案換成連結時回的是連結另一端的內容。 | Linux 不跟隨地開好檔案再交出（`ZoneFileResponse`）；Windows 本機的時間差見已知限制。`tests/unit/test_zone_file_response.py`。 |
+| 設了 `vault_jail_arg` 的 MCP 伺服器拿到代理人個人空間的根，伺服器自己的讀寫不經 ResourceManager、會跟隨連結。 | 這類伺服器的工具呼叫一律以固定原因拒絕、不送出，在審批卡與 hook 之前（`services/mcp_vault_jail.py`）。`tests/unit/test_mcp_vault_jail.py`。 |
+| 隔離層的可寫規則是各處自己判斷「在不在代理人資料夾裡」。 | 改由 `zone_of`／`contains_zone`／`anchor_at` 判斷；每個接上 runner 的動作與 MCP 種類實際建出 profile，每條可寫規則都在代理人資料夾裡或是錨點本身。`tests/unit/test_isolation_writable_roots.py`、`test_isolation_zone_shapes.py`。 |
 
 ### Hook 對抗式複審找到的缺口（2026-10-29，合併前修正）
 
@@ -563,7 +582,7 @@ A1–A3 依 ADR-0064（Token 隔離）、A4–A6 依 ADR-0067（自動召喚進�
 | **DA10** | `ToukaChat/src/components/artifacts/ArtifactView.tsx`（`WebRenderer`） | Web 產出物 iframe 可被用於釣魚/下載/beacon 外洩 | 🟡 Medium | sandbox 收緊為僅 `allow-scripts`；`srcdoc` 注入 CSP `default-src 'none'; script-src/style-src 'unsafe-inline'; img/font/media-src data: https:; connect-src 'none'; form-action 'none'; base-uri 'none'`。取捨：預覽中的產出物不會發出網路請求 |
 | **DA11** | `ToukaProxy/src/routers/heartbeat.py` | 心跳 token 以 `==` 比對（非常數時間） | 🟢 Low | 改 `secrets.compare_digest(service_token.encode(), HEARTBEAT_TOKEN.encode())` |
 | **DA12** | `ToukaProxy/src/services/resource_manager.py`（`is_owner`） | 多用戶下 Owner-agent 跨用戶資源主權誤判 | 🟢 Low | `Owner` 角色存取非自身 target 時，target 有明確且不共享的人類擁有者即拒；無主／公共 agent、自身存取與 `System` 角色不受影響 |
-| **DA13** | `ToukaProxy/src/tools/editor.py`（`_get_safe_path`） | agent-tool 沙箱以 `startswith()` 判邊界 | 🟢 Low | 改用 `target_path.is_relative_to(drive_path)`（兩者皆已 resolve） |
+| **DA13** | `ToukaProxy/src/tools/editor.py`（`_get_safe_path`） | agent-tool 沙箱以 `startswith()` 判邊界 | 🟢 Low | 改用 `target_path.is_relative_to(drive_path)`（兩者皆已 resolve）；`text_editor` 與 `_get_safe_path` 已於 ADR-0293 刪除 |
 | **DA14** | `ToukaProxy/src/tools/builtin/evolution.py`（`verify_mcp_locally`） | model 可用 override 超出 SSOT 沙箱配額 | 🟢 Low | `_clamp_quota`：override 僅在「正數且嚴格小於 SSOT ceiling」時採用，否則回退 ceiling |
 | **DA15** | `ToukaProxy/src/services/skill_service.py` | skill/MCP metadata 無跳脫進系統提示 XML | 🟢 Low | dispatcher sync 與每請求注入路徑 `apply_skills_to_request` 以 `quoteattr`／`escape` 跳脫；只封結構越界，殘留純文字提詞注入仍需於安裝時權衡 |
 | **DA16** | `ToukaProxy/src/services/evolution_security.py` | `verify_ownership` 死碼 | ⚪ Info | 移除零呼叫的安全劇場方法；演化授權由工具派發層 RBAC／ability 把關 |

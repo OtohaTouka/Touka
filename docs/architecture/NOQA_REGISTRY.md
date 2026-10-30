@@ -16,17 +16,19 @@
 
 ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25），以及家查詢改固定 SQL 後的 `S608`（其他合計 326 → 325）；未新增豁免。
 
+ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir` 與 `MissionManager._get_lock` 建資料夾的 `IO_PRISON_VIOLATION`（13 → 11），以及終端工具 `_get_agent_drive_path` 延遲匯入 ResourceManager 的 `LOCAL_IMPORT_BAN`（25 → 24）；未新增豁免。
+
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
 | `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
 | `B008` | 228 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
-| `LOCAL_IMPORT_BAN` | 25 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）。其餘位置見下方明細。 |
+| `LOCAL_IMPORT_BAN` | 24 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）；終端工具改用頂層匯入的區內方法，不再列入（ADR-0293）。其餘位置見下方明細。 |
 | `S603` | 29 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集；+1 ADR-0278 tests/README 列表核對的 git ls-files）。 |
 | `SLF001` | 70 | 跨類別私有成員存取（-2 ADR-0253 `services/legacy_sync.py` 改用公開的 `MemoryManager.get_legacy_dir`；P2 -3：刪除 `_get_effective_permissions` 私有測試接點；P5 +1：`PermissionService.reset_singleton()` 重設不可變 `_permission_config_health` 快照；+1 ADR-0195 tests/unit/test_mcp_server_tools_endpoint.py 注入 `_active_sessions` 建立「已連線」態以做 HTTP 級端點測試；+4 ADR-0195 tests/unit/test_mcp_tool_governance.py 直接注入 ProtocolManager 的 `_active_sessions`／`_circuit_breakers` 以建立不含真實子進程的受控連線態；-1 ADR-0146 test_mission_stop_gate 隨 nudge 退役刪除；+4 ADR-0148 test_skill_registry_rbac 注入/還原 skill_service._metadata 測試 seed；+5 P3 認證縫 test_auth_seam_hardening_p3 顯式建立/毒化沙箱 users.json（_atomic_users_write 清空／注入毒化／改水位／改密碼快照）＋user_service.create_user 單閉包呼叫 _atomic_users_write；+1 G03 test_ldh_cardless_no_type_flag 清空沙箱 users.json 設「未認領」LDH 前提；+1 G05 test_soul_stepup_audit 清空沙箱 users.json 建 admin 驗步升 AUDIT；+4 G07 test_soul_model_registration_cache 存取 model_manager._models_cache／_save_config 與 souls._update_models_config 源碼驗快取權威；+1 G13 test_env_persistence_anchor 讀 config._ENV_PERSISTENCE_PROBE_KEYS 驗 compose environment parity；+3 G20/G22 test_soul_model_registration_cache 讀 model_manager._models_cache 驗冪等/裸條目；-1 ADR-0208 connections status 改用 public diagnostics getter；+1 演化 MCP 驗證沿用 `EvolutionPathGuard._build_rlimit_preexec`，保持直接執行與啟動器的配額同源；+2 ADR-0254 H12 補記：`UserService.rename_owned_agent` 用一次 `_atomic_users_write` 把所有人清單裡的舊 ID 換成新 ID、`claim_owned_agent` 新建時一次換掉這個 ID 的擁有權） |
 | `PTH121` | 1 | 演化技能的實體別名判斷使用 `os.path.samefile`，可對不分大小寫的掛載注入一致的測試接點。 |
 | `ARG002` | 5 | 介面協議規定的未使用參數（+4 ADR-0137 NoopReviewer.review 實作 Reviewer Protocol 對稱簽名，哨兵無條件放行不使用參數） |
 | `TID251` | 3 | 物理路徑禁令 (Path Ban)／受控 `subprocess` 匯入／隔離啟動器組目標環境：僅限明細表所列的基礎建設與測試咽喉（+1 ADR-0275 `sandbox_kernel/launcher.py` `_exec`）。 |
-| `IO_PRISON_VIOLATION` | 13 | I/O 監獄違規（備援實作、引導邏輯或獨立容器存取）；明細見下表（+3 ADR-0272 執行器伺服器）。 |
+| `IO_PRISON_VIOLATION` | 11 | I/O 監獄違規（備援實作、引導邏輯或獨立容器存取）；明細見下表（+3 ADR-0272 執行器伺服器；−2 ADR-0293 個人空間與任務鎖的備援建資料夾）。 |
 | `IDENTITY_SSOT` | 39 | 身分物件化違規（獨立容器協約、路由層 URL 參數、回應模型欄位、鎖原語 key 或誤判；含 debug.py `_read_last_payload(agent_id)` 依 payload log 的 agent_id 字串比對；跨身分看板定址修復淨 +1：-1 mission_manager 移除硬編 role="Base" 的 `_PathIdentity`，+2 `resource_manager`/`protocols` 的 `get_vault_path_for_agent(agent_id: str)`——跨身分定址入口以 agent_id 字串為鍵，於函式內查真實註冊身分後才物件化；ADR-0142 soul CRUD 修復 +3：`routers/souls.py` 的 `delete_soul(soul_id)` 端點＋`_remove_from_all_owned_agents(soul_id)`／`_remove_identity_override(soul_id)` 清除輔助，soul_id 為攻擊者可控的 URL path 字串、於函式內過路徑監獄後才操作，同既有 `update_soul(soul_id)` 慣例；hitl-unification H2 +1：`services/approval_service.py` 的 `PendingApproval.agent_id`——待批快照的顯示／owned_agents 比對用字串，授權判定主體是解算端點的已驗證 `AgentIdentity`；ADR-0214 +1：execution context 的 legacy `agent_id` kwargs 是已驗證 identity 的字串投影，不是授權 principal） |
 | `TRY003` | 23 | 例外訊息過長或直接寫在 raise 中 (基礎建設底層 + Pydantic 模型驗證器 + setup_service.py 輸入驗證 + embedding_service.py apply_switch 空值檢查；+1 ADR-0137 test_reviewer 測試替身模擬傳輸失敗) |
 | `FETCH_SSOT` | 6 | 前端直接 fetch() 合法豁免（fetchTouka 核心定義、多供應商 SSE 串流、外部 URL 入參、認證續期直呼 refresh 避免遞迴） |
@@ -80,7 +82,7 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 
 | 行號 | 規則 | 狀態 | 原因 |
 |------|------|------|------|
-| L73 | `IO_PRISON_VIOLATION` | 🔴 不可修復 | `MemoryManager.get_personal_drive_dir()` 備援路徑：在 MCP 模式下 `resource_proxy` 不可用時，必須直接呼叫 `path.mkdir()` 建立目錄 |
+| (已刪除) | `IO_PRISON_VIOLATION` | 🟢 已修復 | ADR-0293：`get_personal_drive_dir` 改成回 ResourceManager 的區內路徑（`ZonePath`），不建資料夾、沒有備援路徑 |
 | L95 | `IO_PRISON_VIOLATION` | 🔴 不可修復 | `MemoryManager.get_legacy_dir()` 同上，MCP 模式備援 I/O |
 | L149 | `IO_PRISON_VIOLATION` | 🔴 不可修復 | `MemoryManager._load_registry()` 備援讀取：在 `resource_proxy` 不可用時，需直接讀取 registry JSON；此為 ToukaMemory 的底層引導邏輯 |
 
@@ -104,7 +106,7 @@ ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25
 | (已刪除) | `LOCAL_IMPORT_BAN` | 🟢 已修復 | C2 修復：以模組頂層 `_PathIdentity` 替換 `_get_mission_path` 內的 FallbackIdentity，消除延遲匯入 |
 | (已刪除) | `IDENTITY_SSOT` | 🟢 已修復 | 跨身分定址修復：刪除硬編 role="Base" 的 `_PathIdentity`，`_get_mission_path` 跨身分改由 `proxy.get_vault_path_for_agent(agent_id)` 依真實註冊身分決定論定址（ADR-0116 已退役獨立 MCP 模式，原「無 AgentIdentity 可用」前提消失） |
 | L47 | `IDENTITY_SSOT` | 🔴 不可修復 | ADR-0049：`_get_lock(agent_id: str)` 內部輔助方法，`agent_id` 已由呼叫鏈的 `_resolve_target_agent_id` 驗證後傳入 |
-| L50 | `IO_PRISON_VIOLATION` | 🔴 不可修復 | ADR-0049：FileLock 鎖定目錄的自癒引導，確保鎖定檔父目錄存在；等同 server.py 的引導邏輯豁免 |
+| (已刪除) | `IO_PRISON_VIOLATION` | 🟢 已修復 | ADR-0293：鎖定目錄改在 `temp/locks/missions`、經 `get_resource_proxy().make_dir` 建立 |
 | L138, L155, L232, L240, L244, L252 | `RAISE_STRING_BAN` | 🔴 不可修復 | 獨立 MCP 服務之任務看板依賴、狀態機流轉、特權重置校驗；L244 為 H1 修復新增（BLOCKED 轉換需 blocker_detail）。ADR-0049 移除 `import asyncio` + `_mission_locks` global 後行號 -3 偏移 |
 | `finalize_mission` (×3) | `RAISE_STRING_BAN` | 🔴 不可修復 | ADR-0135 finalize 原語：空 verdict／無 mission／未全 DONE 三重校驗，沿用同檔既有 raise 慣例（TRY003 檔案級豁免） |
 
