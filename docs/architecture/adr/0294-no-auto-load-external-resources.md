@@ -25,7 +25,8 @@
    - 隱藏的 iframe，沿用 artifact 預覽的 `ARTIFACT_SANDBOX`（`allow-scripts`，沒有 `allow-same-origin`，和 Touka 不同來源）與 `ARTIFACT_CSP`（圖片只准 `data:`／`blob:`、不准連線，ADR-0114）。畫圖當下的外部載入都被 CSP 擋下。
    - 框裡執行的是 mermaid 自己的瀏覽器版（`mermaid/dist/mermaid.min.js`），由 `gen:artifact-runtime` 原樣複製成 `src/generated/mermaidRuntime.ts`（不進版控），經 `escapeForScript` 放進框裡。頁面只在第一次畫圖時以動態匯入載入它；產品程式不匯入 `mermaid`（型別除外）。設計 token 檢查（Guard #4）和 ESLint、knip 一樣不掃 `src/generated`（第三方程式裡有寫死的顏色）。
    - 框只建一次、各圖共用。頁面只收這個框送來、請求編號對得上的回覆；框裡只收父頁面送來的請求。畫好的 SVG 字串交給 `sanitizeMermaidSvg`（決定 6）後才放進頁面。
-   - 框載入最多等 60 秒（第一次可能很慢，實測無頭 Edge 偶爾要二十多秒），每張圖最多等 15 秒；載入失敗或某張圖逾時就移除框，下次畫圖重建；當時已經在等這個框的其他圖不會提早結束，仍各自等到 15 秒。
+   - 同一張圖（同一個 `id`）一次只送一個請求進框：前一個還沒回來時，新的內容先等著、只留最新的一份，被取代的呼叫者和它拿同一個結果。串流時內容一直變，不這樣框裡會排隊排到逾時（PR A2 實測：120 行的圖每 20 毫秒長一截，最後的完整圖逾時沒畫成）。
+   - 框載入最多等 60 秒（第一次可能很慢，實測無頭 Edge 偶爾要二十多秒）；每張圖最多等 15 秒，從送進框才開始算。載入失敗或某張圖逾時就移除框，下次畫圖重建；移除時其他還在等這個框的圖立刻結束，在新框重送一次（每個請求最多換一次框，載入失敗不重試）。
 5. **流程圖的設定**（`mermaidConfig.MERMAID_CONFIG`，送進框裡套用）：`secure` 寫成「mermaid 預設 6 項（`secure`、`securityLevel`、`startOnLoad`、`maxTextSize`、`suppressErrorRendering`、`maxEdges`）＋`themeCSS`、`fontFamily`、`altFontFamily`」，框裡再併上執行中版本的預設。傳入的 `secure` 會整份取代預設清單，所以預設項目要一起寫；檢查會往下層遞迴，同名的巢狀欄位一起擋。其餘設定照舊（`securityLevel: "strict"` 等）。
 6. **流程圖輸出的消毒**（`sanitizeMermaidSvg`）：專屬的 DOMPurify 實例（掛鉤不影響全域），設定 `svg`、`svgFilters`、`html` 三個 profile，加 `foreignObject` 並設為 HTML 整合點，所以標籤裡的 HTML 照 HTML 解析、文字留著。規則套用在所有元素與屬性上：
    - 會載入網址的屬性（名稱完全相符，`data-id` 這類不受影響）：`href`、`xlink:href`、`src`、`poster`、`background`、`action`、`formaction`、`data`、`cite`、`longdesc`、`usemap`、`codebase`、`archive`、`manifest`、`icon`、`profile`、`lowsrc`、`dynsrc` 只留 `#` 開頭的內部參照，其他值整個屬性移除。例外：`<a>` 的 http(s) `href`／`xlink:href` 保留（mermaid 的 `click` 連結，點了才導覽），並加 `target="_blank"`、`rel="noopener noreferrer"`。
@@ -42,7 +43,6 @@
 - 流程圖有被判定可疑的樣式時，只拿掉那一條宣告或那個選擇器；那條規則管的顏色或字型可能變回預設。任何含反斜線的樣式片段也會被拿掉。
 - 圖裡的外部圖片（標籤 `<img>`、圖片節點、角色圖示）畫不出來：框裡載入被擋，輸出也拿掉。用外部圖片當圖片節點時，mermaid 會因為圖片載入失敗而整張圖畫不出來。
 - 第一次顯示流程圖要先載入約 3.6 MB 的 mermaid 瀏覽器版並啟動框，通常一兩秒；實測無頭 Edge 偶爾要二十多秒才開始執行框裡的程式，所以最多等 60 秒，超過就算這次沒畫成（畫面留著上一張畫好的圖，沒有就顯示等待語法的提示）、下次畫圖重建框。某張圖 15 秒沒畫完也會重建框。
-- 內容每變一次就送一次畫圖請求，框裡依序畫，排隊時間也算在 15 秒裡。實測無頭 Edge：40 行的流程圖每 30 毫秒長一截，最後的完整圖約 0.4 秒畫好；120 行、每 20 毫秒長一截時，最後的完整圖排隊超過 15 秒而沒畫成，畫面停在較早畫好的半成品，要切到別的 artifact 再切回來才會重畫。「同一張圖的舊請求由新的取代」列為之後的修正。
 - 框整頁共用。如果哪天找到能在 mermaid 的 `strict` 模式裡執行程式的寫法，那段程式會留在框裡，看得到之後每張圖的文字，還能讓框自己導向外部網址把內容帶出去（CSP 擋不了框自己導覽）。前提是 mermaid 本身有漏洞；artifact 預覽框本來就執行模型寫的程式，有同樣的導覽問題。「每次對話重建框」與「artifact 預覽框自己導覽」都列為之後的候選。
 - 這次不加整個 ToukaChat 的內容安全政策（CSP）；流程圖框與 artifact 預覽框用的是 ADR-0114 的 CSP。
 
@@ -69,15 +69,17 @@
 - ToukaChat Vitest：
   - `src/lib/__tests__/markdownImagePolicy.security.test.ts`（外部、`//evil`、`/\evil`、tab／換行、大寫協定、帳密、`javascript:`、`data:text/html`、不同埠的本機、別處的 `blob:` 不載入；相對路徑、`data:image/png`、同來源、後端、本機另一種寫法載入）。
   - `src/components/markdown/__tests__/SafeMarkdown.test.tsx`、`components/chat/__tests__/MessageItem.test.tsx`、`components/artifacts/__tests__/ArtifactView.markdown.test.tsx`（標籤與連結、`no-referrer`、帳密與非 http(s) 不給連結、呼叫端換不掉 `img`）。
-  - `src/lib/artifacts/__tests__/mermaidSandbox.security.test.ts`：框的 sandbox 與 CSP（寫死要求的值，共用的 `ARTIFACT_CSP` 放寬或指令重複時會紅）、執行檔轉義、框裡只收父頁面的請求並併上執行中版本的保護清單、頁面只收這個框且請求編號對得上的回覆、共用一個框、錯誤與逾時、載入失敗或逾時後重建。
+  - `src/lib/artifacts/__tests__/mermaidSandbox.security.test.ts`：框的 sandbox 與 CSP（寫死要求的值，共用的 `ARTIFACT_CSP` 放寬或指令重複時會紅）、執行檔轉義、框裡只收父頁面的請求並併上執行中版本的保護清單、頁面只收這個框且請求編號對得上的回覆、共用一個框、錯誤與逾時、載入失敗或逾時後重建；同一張圖一次一個請求、新內容取代等著的舊內容且每個呼叫者都有結果（成功或錯誤）、15 秒從送出才算、失敗後不卡住、框被移除時其他圖立刻在新框重送且新框上的請求不受影響、每個請求最多換一次框、等到的框已被移除就改用新框、計時器與監聽器都清掉。
   - `src/lib/artifacts/__tests__/sanitizeMermaidSvg.security.test.ts`；`tests/unit/ArtifactView.security.test.tsx`（畫圖經沙箱框，框回傳的外部網址不會進頁面）。
 - 流程圖測試資料（`fixtures/mermaid/`）是 mermaid 11.16.1 在無頭 Edge 以 `MERMAID_CONFIG` 渲染的真實輸出（網路請求全部擋掉）：
   - 流程圖、sequence、class、gantt、狀態圖、ER、心智圖七種正常輸出，消毒前後樣式完全相同、文字與標籤數都在。
   - 兩份用沒有加保護欄位的設定、以 frontmatter 的 `themeCSS`／`fontFamily` 實際帶進外部網址，消毒後只少了外部網址。
   - 三份同樣的注入（frontmatter 與 `%%{init}%%`）改用 `MERMAID_CONFIG`，輸出沒有外部網址。
 - 以產品程式（`mermaidSandbox.ts`＋`sanitizeMermaidSvg.ts`＋產生的 mermaid 瀏覽器版）在無頭 Edge 實測 16 種圖、連跑 5 次：外部網址寫在標籤、圖片節點、角色圖示、設定指令與樣式裡，一個外部請求都沒有、消毒後沒有外部網址；正常的五種圖文字都在。
+- 串流實測（產品程式，無頭 Edge，先畫一張讓框載入好，再讓內容一截一截變長、每次變化都畫）：PR A 的做法下，120 行每 20 毫秒、200 行每 15 毫秒兩種情況最後的完整圖都逾時；PR A2 之後三種情況（另有 40 行每 30 毫秒）都沒有逾時，最後的完整圖分別在 0.06、0.22、0.6 秒內畫好。
 - Guard #4：不排除 `src/generated` 時掃到產生的 mermaid 瀏覽器版而變紅；排除後通過，在 `src/lib` 放一個寫死顏色的檔案仍會擋。
-- 故意改壞 31 項各自讓指定的測試因對的原因變紅，改回後全綠：
+- 故意改壞 41 項各自讓指定的測試因對的原因變紅，改回後全綠：
   - 第 1 批 12 項：`dev` 加回伺服器、改成字串開頭判斷、拿掉 `referrerPolicy`、`MessageItem` 改回 `ReactMarkdown`、`secure` 少三個欄位或只寫三個欄位、拿掉樣式規則、整段拿掉 `<style>`、`data` 改開頭比對、只看 `href`／`src`、比對分大小寫、擋 `foreignObject`。
   - 第 2 批 13 項：框拿掉 CSP、框加 `allow-same-origin`、框裡或頁面不檢查來源、不比對請求編號、執行檔不轉義、每張圖改用載入的時限、載入改用每張圖的時限、框裡不併預設保護清單、載入失敗不重建、`secure` 拿掉樣式欄位、`ArtifactView` 加回 `mermaid`、`ArtifactView` 不消毒。
   - 第 3 批 6 項：逾時不移除框、逾時移除但不重建、共用 CSP 的圖片放行 `https:`、共用 CSP 多一條指令、共用 sandbox 加 `allow-same-origin`、共用 CSP 開頭多一條放行 `https:` 的重複圖片指令。
+  - 第 4 批 10 項（PR A2）：不分線、被取代的請求拿不到結果、移除框不結束其他等待、拿到已移除的框不換新框、失敗後不清線、換框沒有上限、框被移除時不重送、結束等待時不拿掉監聽器、失敗時只通知最後一個呼叫者、載入失敗也重試。
