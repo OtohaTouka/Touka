@@ -8,7 +8,7 @@
 
 1. 確認 Docker Engine 26.0 以上、Docker Compose 2.26 以上能執行 Linux amd64 容器，本機 8000、8082、8083、3001 沒被其他服務占用。
 2. 從要安裝的版本取得 `docker-compose.ghcr.yml` 與 `.env.example`，放進一個全新的安裝目錄。
-3. 在安裝目錄建立 `data`、`data/personal_drive`、`data/mcp_servers`、`heartbeat-config` 四個資料夾，把 `.env.example` 複製成 `.env`，設定 `TOUKA_VERSION`（第 2 節）。
+3. 在安裝目錄建立 `data`、`data/personal_drive`、`data/mcp_servers`、`data/mcp_servers/managed`、`heartbeat-config` 五個資料夾，把 `.env.example` 複製成 `.env`，設定 `TOUKA_VERSION`（第 2 節）。
 4. 分三段啟動：先 `touka-proxy`，等它 healthy 後再 `touka-heartbeat touka-chat`，最後 `touka-executor`（第 3 節）。
 5. 讀出初始管理員密碼，開 <http://localhost:3001> 登入並變更密碼（第 3 節）。
 
@@ -61,7 +61,7 @@
 
 ## 2. 準備持久化位置
 
-由使用者手動建立安裝目錄內的 `data`、`data/personal_drive`、`data/mcp_servers` 與 `heartbeat-config` **目錄**（執行器只掛 data 底下那兩個），不要建成檔案或連結。Compose 的 `create_host_path: false` 會拒絕缺席目錄；`touka-init` 只做權限初始化，不替你建立、搬移或覆寫資料。
+由使用者手動建立安裝目錄內的 `data`、`data/personal_drive`、`data/mcp_servers`、`data/mcp_servers/managed` 與 `heartbeat-config` **目錄**（執行器只掛 `data/personal_drive` 與 `data/mcp_servers/managed`；擁有者與 `data` 相同），不要建成檔案或連結。Compose 的 `create_host_path: false` 會拒絕缺席目錄；`touka-init` 只做權限初始化，不替你建立、搬移或覆寫資料。
 
 只在 `.env` 不存在時複製範本。PowerShell：
 
@@ -131,7 +131,7 @@ docker compose -f docker-compose.ghcr.yml up -d --no-deps touka-executor
 docker compose -f docker-compose.ghcr.yml ps -a
 ```
 
-`touka-executor` 剛起來的一分多鐘是 starting（要先做兩次自我檢查），之後要變成 healthy。一直不是 healthy 時，`docker compose -f docker-compose.ghcr.yml logs touka-executor` 會有一行 `Executor is not serving: <原因>`：`root_path` 是 `data/personal_drive` 或 `data/mcp_servers` 不存在；`touka_root` 是掛進去的資料夾第一層有 Touka 資料根或標記的名稱（例如 `soul`、`ui_sessions.db`），或那個資料夾本身讀不到（權限被改掉也算）：名稱衝突就把那一項改名或移走；讀不到時，`data/personal_drive`、`data/mcp_servers` 只是權限位元被改的話 Touka 約 60 秒內會修好，其他情況（技能資料夾、擁有者不對）照第 4 節「權限被改壞時」跑 `touka-init`；修好後執行 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（執行器啟動檢查沒過就一直不服務，不會自己重試）；`private_dir` 是執行器自己的兩個 volume（`touka-executor-state`、`touka-exec-ipc`）的根不是 uid 1001 擁有（例如舊映像先建過的 `0:0 755`、有人用 root 容器 chown 過）、是連結或不存在——只是權限位元被改（例如 777、000）時，執行器每 5 秒與重啟時都會自己收回，不會停。擁有者不對時先用 `docker volume ls` 確認名稱（例如 `touka_touka-executor-state`；名稱打錯時 Docker 會另建一個空的 volume，什麼都沒改），對有問題的那個執行 `docker run --rm -v <volume 名稱>:/s alpine:3.20 chown 1001:1001 /s`，再 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（權限位元由執行器自己收回）；ipc 那個 volume 擁有者不對時，`docker compose ps` 可能先顯示 healthy 約一分鐘（舊的 socket 還在），要以這行 log 或 Touka 側欄的橫幅為準；`interpreter_untrusted` 是映像裡的 Python 被改過（重新拉映像）。執行器沒起來時 Touka 照常運作，只是 Auto／YOLO 的代理人指令每條都要人核准，也不能刪除靈魂。
+`touka-executor` 剛起來的一分多鐘是 starting（要先做兩次自我檢查），之後要變成 healthy。一直不是 healthy 時，`docker compose -f docker-compose.ghcr.yml logs touka-executor` 會有一行 `Executor is not serving: <原因>`：`root_path` 是 `data/personal_drive` 或 `data/mcp_servers/managed` 不存在；`data_root` 是 compose 還是舊版（掛的是整個 `data/mcp_servers`，換成和映像同一個 commit 的 compose 檔）；`touka_root` 是掛進去的資料夾第一層有 Touka 資料根或標記的名稱（例如 `soul`、`ui_sessions.db`；演化的技能名稱從 ADR-0293 PR 2 起不能再用這些名字），或那個資料夾本身讀不到（權限被改掉也算）：名稱衝突就把那一項改名或移走；讀不到時，`data/personal_drive`、`data/mcp_servers/managed` 只是權限位元被改的話 Touka 約 60 秒內會修好，其他情況（技能資料夾、擁有者不對）照第 4 節「權限被改壞時」跑 `touka-init`；修好後執行 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（執行器啟動檢查沒過就一直不服務，不會自己重試）；`private_dir` 是執行器自己的兩個 volume（`touka-executor-state`、`touka-exec-ipc`）的根不是 uid 1001 擁有（例如舊映像先建過的 `0:0 755`、有人用 root 容器 chown 過）、是連結或不存在——只是權限位元被改（例如 777、000）時，執行器每 5 秒與重啟時都會自己收回，不會停。擁有者不對時先用 `docker volume ls` 確認名稱（例如 `touka_touka-executor-state`；名稱打錯時 Docker 會另建一個空的 volume，什麼都沒改），對有問題的那個執行 `docker run --rm -v <volume 名稱>:/s alpine:3.20 chown 1001:1001 /s`，再 `docker compose -f docker-compose.ghcr.yml restart touka-executor`（權限位元由執行器自己收回）；ipc 那個 volume 擁有者不對時，`docker compose ps` 可能先顯示 healthy 約一分鐘（舊的 socket 還在），要以這行 log 或 Touka 側欄的橫幅為準；`interpreter_untrusted` 是映像裡的 Python 被改過（重新拉映像）。執行器沒起來時 Touka 照常運作，只是 Auto／YOLO 的代理人指令每條都要人核准，也不能刪除靈魂。
 
 在本機讀取初始管理員憑證（不要把輸出分享出去）：
 
@@ -174,7 +174,7 @@ C2-3 已把 MCP 伺服器與創建試跑接上隔離；決策見 ADR-0275。從�
 
 ## 4. 升級與備份
 
-升級前先備份 `data`、`.env`、`heartbeat-config` 與 `proxy-config` volume。之後在 `.env` 改 `TOUKA_VERSION`，**同時換成和映像同一個 commit 的 `docker-compose.ghcr.yml`**，依第 3 節分段重新 `up`（執行器最後）。只改版本號、沿用舊 compose 時，新映像找不到隔離暫存區與執行器、Fast Open 也沒關（原因 `sandbox_state_unconfigured` 或 `net_tcp_fastopen`）：卡片寫「未隔離」，Manual 與人核准後照常執行，Auto／YOLO 每條都要人核准，心跳裡的指令被拒（從原始碼跑、沒有 `--build` 時也一樣；那時聊天頁還是舊版，核准任何有隔離標示的卡〔「未隔離」或「隔離降級」〕都會回 422、不執行）。審批卡寫「暫存區權限不對」時照卡上的步驟處理；之後卡片如果寫 `net_mptcp`（Docker Desktop 更新核心後可能會變），照卡片在覆寫檔的兩個服務都加那一行（見第 1 節「網路設定」，GHCR 每段指令都要帶那個 `-f`）。升級後先重新整理聊天分頁，再請代理人跑 `id -u; echo $HOME`：看到 `1001` 和 `/app/executor_state/agents/…` 才算在執行器裡（卡上沒有標示不能當證據）。不要用 `down -v` 來「重裝」，那會刪掉設定與模型快取。回復時先 `docker rm -f touka-executor`（不要用 `--remove-orphans`），再把 `TOUKA_VERSION` 與 compose 檔一起換回舊版、還原備份；留下的 `touka-exec-ipc`、`touka-executor-state`、`touka-sandbox-state` volume 與 `touka-exec-net` 網路由你決定要不要刪（先用 `docker volume ls`、`docker network ls` 確認名稱）。從原始碼跑時升級是 `docker compose up -d --build`，回復同樣先 `docker rm -f touka-executor`。
+升級前先備份 `data`、`.env`、`heartbeat-config` 與 `proxy-config` volume。從 ADR-0293 PR 2 之前的版本升級時，先建好 `data/mcp_servers/managed`（擁有者與 `data` 相同；沒用過演化的安裝沒有這個資料夾，執行器會以 `root_path` 起不來）；技能名稱是 `soul`、`personal_drive`、`toukaproxy`、`toukamemory`、`toukaheartbeat`、`toukadispatch`、`heartbeat-config`（不分大小寫）的，執行器會以 `touka_root` 不服務，先在 MCP 設定頁移除引用它的伺服器，再改名或移走 `data/mcp_servers/managed/<那個名字>`；舊版留下的 `.touka-selftest-*`（sandbox state 的 `proxy/` 底下）與 `data/mcp_servers/.touka-executor-selftest-*` 可以手動刪除。之後在 `.env` 改 `TOUKA_VERSION`，**同時換成和映像同一個 commit 的 `docker-compose.ghcr.yml`**，依第 3 節分段重新 `up`（執行器最後）。只改版本號、沿用舊 compose 時，新映像找不到隔離暫存區與執行器、Fast Open 也沒關（原因 `sandbox_state_unconfigured` 或 `net_tcp_fastopen`）：卡片寫「未隔離」，Manual 與人核准後照常執行，Auto／YOLO 每條都要人核准，心跳裡的指令被拒（從原始碼跑、沒有 `--build` 時也一樣；那時聊天頁還是舊版，核准任何有隔離標示的卡〔「未隔離」或「隔離降級」〕都會回 422、不執行）。審批卡寫「暫存區權限不對」時照卡上的步驟處理；之後卡片如果寫 `net_mptcp`（Docker Desktop 更新核心後可能會變），照卡片在覆寫檔的兩個服務都加那一行（見第 1 節「網路設定」，GHCR 每段指令都要帶那個 `-f`）。升級後先重新整理聊天分頁，再請代理人跑 `id -u; echo $HOME`：看到 `1001` 和 `/app/executor_state/agents/…` 才算在執行器裡（卡上沒有標示不能當證據）。不要用 `down -v` 來「重裝」，那會刪掉設定與模型快取。回復時先 `docker rm -f touka-executor`（不要用 `--remove-orphans`），再把 `TOUKA_VERSION` 與 compose 檔一起換回舊版、還原備份；留下的 `touka-exec-ipc`、`touka-executor-state`、`touka-sandbox-state` volume 與 `touka-exec-net` 網路由你決定要不要刪（先用 `docker volume ls`、`docker network ls` 確認名稱）。從原始碼跑時升級是 `docker compose up -d --build`，回復同樣先 `docker rm -f touka-executor`。
 
 從原始碼跑、用 git 更新到含 ADR-0290 的版本時，先執行 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md` 再更新。這兩個檔改成 Proxy 啟動時產生、不進版控（ADR-0290）；本機內容和版控不同時（加過 MCP 伺服器、裝過技能），不先還原 git 會拒絕更新。更新後重啟一次，兩個檔會依本機設定產生回來。已經更新過的資料夾不用再跑；跑了只會顯示 `pathspec ... did not match`，沒有影響。
 

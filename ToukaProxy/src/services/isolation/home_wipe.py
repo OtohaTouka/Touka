@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from memory_server.utils.no_follow import ZoneLinkRefusedError
-from memory_server.utils.zone_paths import HandoffKind
+from memory_server.utils.zone_paths import HandoffKind, is_zone_segment
 
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.profiles import (
@@ -69,8 +69,8 @@ class HomeWipeError(Exception):
 
 async def wipe_agent_homes(identity: AgentIdentity) -> None:
     """先清執行器那一層（可能拒絕），再清 proxy 那一層；任何一處清不掉就拋 ``HomeWipeError``."""
-    if not is_safe_segment(identity.agent_id):
-        return  # profile 一律拒絕這種名稱，不會有家目錄
+    if not (is_safe_segment(identity.agent_id) and is_zone_segment(identity.agent_id)):
+        return  # profile 一律拒絕這種名稱（含這個系統不能當資料夾的），不會有家目錄
     snapshot = await isolation_monitor.ensure_ready()
     if snapshot.expected == "executor":
         await _wipe_in_executor(identity)

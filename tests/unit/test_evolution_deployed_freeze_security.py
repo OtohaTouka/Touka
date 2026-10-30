@@ -16,7 +16,7 @@ from src.protocols.registry import ProtocolRegistry
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.isolation import evolution_command
 from src.services.isolation.mcp_launch import McpLaunch, McpLaunchInfo
-from src.services.isolation.mcp_profiles import mcp_state_dirs
+from src.services.isolation.mcp_profiles import mcp_classification_bases, mcp_state_dirs
 from src.services.isolation.profiles import ProfileError
 from src.services.isolation.runners import IsolationUnavailableError
 from src.tools.builtin import evolution
@@ -447,6 +447,16 @@ def test_nonexistent_path_aliases_overlap(tmp_path, alias):
     assert not evolution_command._overlapping_roots(root, tmp_path / "sample-other")
 
 
+def test_a_link_loop_counts_as_overlapping(tmp_path, monkeypatch):
+    """連結迴圈時 ``Path.resolve`` 丟 ``RuntimeError``（不是 ``OSError``），也當重疊."""
+
+    def loop(self, strict=False):  # noqa: ANN001, ANN202, ARG001
+        raise RuntimeError
+
+    monkeypatch.setattr(Path, "resolve", loop)
+    assert evolution_command._overlapping_roots(tmp_path / "sample", tmp_path / "other")
+
+
 async def test_deployment_without_context_keeps_verified_identity(workspace, monkeypatch):
     identity = AgentIdentity.for_role("Alice", "Owner")
     card = AsyncMock(return_value=(True, {}))
@@ -507,7 +517,8 @@ def test_bad_deployed_names_do_not_stop_other_skills(empty_config, monkeypatch):
 
 
 def test_bad_skill_id_is_refused_first(empty_config, monkeypatch):
-    _deployed(monkeypatch, DeployedSkills(frozenset()))
+    """第 0 步：全部算已部署時，名稱不合格仍先回 ``invalid_skill_id``（不是 ``skill_deployed``）."""
+    _deployed(monkeypatch, ALL_SKILLS_DEPLOYED)
     with pytest.raises(evolution_command.EvolutionRefused, match="invalid_skill_id"):
         evolution_command.refuse_deployed("soul")
 
@@ -522,15 +533,19 @@ def test_overlapping_deployed_folder_refuses(empty_config, monkeypatch, tmp_path
 
 
 def test_classification_profile_error_is_config_unreadable(empty_config, monkeypatch, tmp_path):
+    """版面與 RM 的 ST 不同（P7）：真的 ``mcp_classification_bases`` 丟 ``ProfileError``."""
     (tmp_path / "server_config.json").write_text(
         json.dumps({"mcpServers": {"renamed": {"command": "python", "args": ["x.py"]}}}),
         encoding="utf-8",
     )
-
-    def unconfigured(*_args, **_kwargs):
-        raise ProfileError("state", "sandbox_state_unconfigured")
-
-    monkeypatch.setattr(evolution_command, "mcp_classification_bases", unconfigured)
+    layout = replace(
+        evolution_command.current_layout(),
+        data_root=empty_config,
+        state_root=tmp_path / "another_state",
+    )
+    monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
+    with pytest.raises(ProfileError):
+        mcp_classification_bases("renamed", layout=layout, base_dir=tmp_path)
     with pytest.raises(evolution_command.EvolutionRefused, match="config_unreadable"):
         evolution_command.refuse_deployed("sample")
 

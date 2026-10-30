@@ -499,23 +499,27 @@ async def test_agent_profile_roots_pytest_at_the_project_or_cwd(
 
 @pytest.mark.parametrize("upper", ["none", "cwd_only"])
 async def test_agent_profile_leaves_pytest_alone_without_an_upper_public_config(
-    layout, allow_touka_check, monkeypatch, upper
+    layout, allow_touka_check, tmp_path, upper
 ):
-    """上層沒有授權到公開設定檔（Docker 的代理人資料夾）：不注入，子專案自己的 testpaths 照常。"""
+    """上層沒有授權到公開設定檔（Docker 的代理人資料夾）：不注入，子專案自己的 testpaths 照常。
+
+    ``cwd_only``：安裝根的 pytest.ini 只在 cwd 的上層（真的 ``public_config_rules`` 給了它），
+    專案在安裝根外面。
+    """
     agent_dir = layout.data_root / "personal_drive" / "Alice"
     project = layout.install_root / "workspace" / "myproj"
-    project.mkdir()
-    above_cwd = profiles.PathRule(agent_dir.resolve().parent / "pytest.ini", "ro", optional=True)
-
-    def _rules_for(_anchors, _layout):
-        return (above_cwd,) if upper == "cwd_only" else ()
-
-    monkeypatch.setattr(profiles, "public_config_rules", _rules_for)
+    above_cwd = (layout.install_root / "pytest.ini").resolve()
+    if upper == "cwd_only":
+        project = tmp_path / "elsewhere" / "myproj"
+        above_cwd.write_text("[pytest]\n", encoding="utf-8")
+    project.mkdir(parents=True)
     for project_root in ((None, project) if upper == "none" else (project,)):
         profile = await build_agent_command_profile(
             ALICE, agent_dir, layout=layout, project_root=project_root
         )
         assert "PYTEST_ADDOPTS" not in profile.env_set, project_root
+        assert (above_cwd in {rule.path for rule in profile.rules}) is (upper == "cwd_only")
+        assert profile.project_root == (None if project_root is None else project.resolve())
 
 
 # --- 封鎖埠集合 B ----------------------------------------------------------------------
@@ -947,6 +951,14 @@ async def test_executor_profile_needs_the_ready_state_root(layout):
             ALICE, layout.data_root / "personal_drive" / "Alice", layout=layout,
             location="executor",
         )
+
+
+@pytest.mark.parametrize("owner", ["..", "a/b", ""])
+def test_executor_state_refuses_an_unsafe_owner(layout, owner):
+    """直接打 ``_state``：執行器的 home／tmp 由名稱拼出，名稱不安全就拒絕（決定 14）."""
+    state = str(layout.install_root / "exec_state")
+    with pytest.raises(ProfileError):
+        profiles._state(layout, "executor", "agents", owner, state)
 
 
 def test_executor_evolution_profile_writes_only_its_skill_and_executor_state(layout):

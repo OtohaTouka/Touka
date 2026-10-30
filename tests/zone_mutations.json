@@ -1225,5 +1225,1477 @@
       "tests/unit/test_custom_model_links_security.py::test_another_agents_reset_refuses_the_rename"
     ],
     "posix_only": false
+  },
+  {
+    "id": "p1_enforced_anchors_back_to_two",
+    "rule": [
+      "P1"
+    ],
+    "target": "memory_server.utils.zone_paths:ENFORCED_ANCHORS",
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "ENFORCED_ANCHORS = ALL_ANCHORS",
+    "new": "ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE})",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_string_methods_refuse_the_three_new_anchors"
+    ],
+    "posix_only": false,
+    "note": "#1：執法範圍改回 PR 1 的兩個錨點"
+  },
+  {
+    "id": "r2_write_tool_file_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.write_tool_file",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "            resource_manager.zone_write_text(tool.child(filename), content)",
+    "new": "            with open(os.path.join(cls.get_tool_root(skill_id), filename), \"w\", encoding=\"utf-8\") as fh:\n                fh.write(content)",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#2：中間段 <skill> 是連結"
+  },
+  {
+    "id": "r2_write_tool_file_follows_a_file_link",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.write_tool_file",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "            resource_manager.zone_write_text(tool.child(filename), content)",
+    "new": "            with open(os.path.join(cls.get_tool_root(skill_id), filename), \"w\", encoding=\"utf-8\") as fh:\n                fh.write(content)",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_write_refuses_a_linked_file"
+    ],
+    "posix_only": true,
+    "note": "#2b：最後一段是檔案連結（舊程式靜態就拒絕；漏洞是檢查與寫入之間的時間差）"
+  },
+  {
+    "id": "r2_deployment_files_follow",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.tools.builtin.evolution:_deployment_files",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "            resource_manager.zone_read_binary(tool.child(name))",
+    "new": "            open(os.path.join(EvolutionPathGuard.get_tool_root(skill_id), name), \"rb\").read()",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#3：部署快照跟隨連結讀"
+  },
+  {
+    "id": "r2_delete_tool_file_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.delete_tool_file",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "            if resource_manager.zone_kind(target) == \"missing\":\n                return False\n            resource_manager.zone_remove_file(target)",
+    "new": "            path = os.path.join(cls.get_tool_root(skill_id), filename)\n            if not os.path.lexists(path):\n                return False\n            os.unlink(path)",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#4"
+  },
+  {
+    "id": "r2_read_tool_file_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.read_tool_file",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "                return resource_manager.zone_read_text(tool.child(filename))",
+    "new": "                with open(os.path.join(cls.get_tool_root(skill_id), filename), encoding=\"utf-8\") as fh:\n                    return fh.read()",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#5a"
+  },
+  {
+    "id": "r2_mkdir_tool_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.mkdir_tool",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "            resource_manager.zone_make_dir(tool)",
+    "new": "            os.makedirs(cls.get_tool_root(skill_id), exist_ok=True)",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#5b：標準函式庫遇到既有資料夾（連結）靜默返回，外面沒有變化；斷言「拒絕」"
+  },
+  {
+    "id": "r2_tool_file_exists_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.tool_file_exists",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "            return resource_manager.zone_kind(tool.child(filename)) != \"missing\"",
+    "new": "            return os.path.lexists(os.path.join(cls.get_tool_root(skill_id), filename))",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#5c"
+  },
+  {
+    "id": "p4_get_tool_root_resolves",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.get_tool_root",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "        return resource_manager.zone_text(cls.tool_zone(skill_id))",
+    "new": "        return os.path.realpath(resource_manager.zone_text(cls.tool_zone(skill_id)))",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_get_tool_root_is_the_literal_zone_text"
+    ],
+    "posix_only": false,
+    "note": "#6"
+  },
+  {
+    "id": "r2_scorecard_reads_the_whole_trace",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.scorecard.artifact_verify:extract_artifact_path",
+    "file": "ToukaProxy/src/services/scorecard/artifact_verify.py",
+    "old": "    return _find([e for e in tool_trace if create in str(e.get(\"name\", \"\"))])",
+    "new": "    named = [e for e in tool_trace if create in str(e.get(\"name\", \"\"))]\n    return _find(named) or _find(list(tool_trace))",
+    "tests": [
+      "tests/unit/test_scorecard_artifact.py::test_extract_path_only_from_create_items"
+    ],
+    "posix_only": false,
+    "note": "#7：加回整份軌跡的退路"
+  },
+  {
+    "id": "r2_scorecard_open_follows",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.scorecard.artifact_verify:verify_artifact",
+    "file": "ToukaProxy/src/services/scorecard/artifact_verify.py",
+    "old": "        handle, _ = resource_manager.zone_open_read(zp)",
+    "new": "        handle = open(path, \"rb\")",
+    "tests": [
+      "tests/unit/test_scorecard_artifact.py::test_a_linked_folder_in_the_output_zone_is_not_read"
+    ],
+    "posix_only": false,
+    "marker": "LINK_FOLLOWED",
+    "note": "#8"
+  },
+  {
+    "id": "r8_scorecard_reads_outside_the_zone",
+    "rule": [
+      "R8"
+    ],
+    "target": "src.services.scorecard.artifact_verify:verify_artifact",
+    "file": "ToukaProxy/src/services/scorecard/artifact_verify.py",
+    "old": "    if zp is None:\n        return False, \"產出檔不在文件輸出區\"\n    try:\n        handle, _ = resource_manager.zone_open_read(zp)",
+    "new": "    try:\n        handle = open(path, \"rb\") if zp is None else resource_manager.zone_open_read(zp)[0]",
+    "tests": [
+      "tests/unit/test_scorecard_artifact.py::test_a_file_outside_the_output_zone_is_not_read"
+    ],
+    "posix_only": false,
+    "marker": "LINK_FOLLOWED",
+    "note": "#9"
+  },
+  {
+    "id": "p5_home_wipe_string_remove",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.home_wipe:_remove_proxy_state",
+    "file": "ToukaProxy/src/services/isolation/home_wipe.py",
+    "old": "        if resource_manager.zone_kind(owner) != \"missing\":\n            resource_manager.zone_remove_dir(owner)",
+    "new": "        resource_manager.remove_dir(Path(resource_manager.zone_text(owner)), unlock=True)",
+    "tests": [
+      "tests/unit/test_sandbox_state_links_security.py::test_wipe_removes_links_in_home_and_tmp_but_not_their_targets"
+    ],
+    "posix_only": false,
+    "note": "#10：R13（字串方法丟 ZonePathRequiredError）"
+  },
+  {
+    "id": "p5_zone_rename_follows",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.zone_rename",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            rename_entry_no_follow(target.parent, zp.name, new_name)",
+    "new": "            os.rename(target, target.parent / new_name)",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_zone_rename_refuses_a_link_in_the_middle"
+    ],
+    "posix_only": false,
+    "note": "#11：中間段 <kind> 是連結"
+  },
+  {
+    "id": "p5_zone_rename_allows_the_agent",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.zone_rename",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        if len(zp.parts) <= agent_depth(zp.anchor) or not is_zone_segment(new_name):",
+    "new": "        if len(zp.parts) < agent_depth(zp.anchor) or not is_zone_segment(new_name):",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_zone_rename_needs_a_path_below_the_agent"
+    ],
+    "posix_only": false,
+    "note": "#11b：深度改成「不短於」"
+  },
+  {
+    "id": "p5_zone_access_follows",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.zone_access",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                if kind_no_follow(target) in {\"missing\", \"link\"}:\n                    return False",
+    "new": "                if not os.path.exists(target):\n                    return False",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_zone_access_refuses_a_link_in_the_middle"
+    ],
+    "posix_only": false,
+    "note": "#12：改成跟隨；中間段連結兩個平台都判得出"
+  },
+  {
+    "id": "p5_zone_walk_ignores_list_depth",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.zone_walk",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                target, report, skip_dir=skip_dir, show_links=show_links, list_depth=list_depth",
+    "new": "                target, report, skip_dir=skip_dir, show_links=show_links",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_zone_walk_list_depth"
+    ],
+    "posix_only": false,
+    "note": "#13"
+  },
+  {
+    "id": "p5_rename_proxy_tmp_string_list",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.status:_rename_proxy_tmp",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "            owners = _child_dirs(proxy.child(kind))",
+    "new": "            owners = [(p.name, \"dir\") for p in resource_manager.iter_files(resource_manager.zone_text(proxy.child(kind)))]",
+    "tests": [
+      "tests/unit/test_sandbox_state_links_security.py::test_boot_cleanup_removes_links_in_tmp_but_not_their_targets"
+    ],
+    "posix_only": false,
+    "note": "#14：R13"
+  },
+  {
+    "id": "p5_remove_trash_string_remove",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.status:_remove_trash",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "            resource_manager.zone_remove_dir(path)",
+    "new": "            resource_manager.remove_dir(resource_manager.zone_text(path))",
+    "tests": [
+      "tests/unit/test_sandbox_state_links_security.py::test_boot_cleanup_removes_links_in_tmp_but_not_their_targets"
+    ],
+    "posix_only": false,
+    "note": "#14：R13"
+  },
+  {
+    "id": "p5_state_selftest_string_make_dir",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.status:IsolationMonitor._selftest_in_state",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "            resource_manager.zone_make_dir(base)",
+    "new": "            resource_manager.make_dir(resource_manager.zone_text(base))",
+    "tests": [
+      "tests/unit/test_sandbox_state_links_security.py::test_state_selftest_runs_in_its_own_folder_and_removes_it"
+    ],
+    "posix_only": false,
+    "note": "#14 的 _probe：例外被 _probe 接住，R13 照樣紅"
+  },
+  {
+    "id": "p5_state_issue_string_make_dir",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.status:_state_issue",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "        resource_manager.zone_make_dir(proxy)",
+    "new": "        resource_manager.make_dir(resource_manager.zone_text(proxy))",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_state_issue_creates_the_proxy_folder"
+    ],
+    "posix_only": false,
+    "note": "#14：R13"
+  },
+  {
+    "id": "p5_state_dirs_string_make_dir",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.isolation.profiles:state_dirs",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "                resource_manager.zone_make_dir(directory)",
+    "new": "                resource_manager.make_dir(resource_manager.zone_text(directory))",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_state_dirs_creates_home_and_tmp_and_gives_zone_text"
+    ],
+    "posix_only": false,
+    "note": "#14：R13"
+  },
+  {
+    "id": "p7_state_zone_skips_the_same_check",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:proxy_state_zone",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    _same_state(layout, \"state\")\n    return resource_manager.sandbox_state_proxy()",
+    "new": "    return resource_manager.sandbox_state_proxy()",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_different_roots_raise"
+    ],
+    "posix_only": false,
+    "note": "#15"
+  },
+  {
+    "id": "p7_state_owner_skips_the_same_check",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:proxy_state_owner",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    _same_state(layout, owner)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_different_roots_raise"
+    ],
+    "posix_only": false,
+    "note": "#15"
+  },
+  {
+    "id": "p7_one_side_set_is_unset",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:_same_state",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if state is None or layout.state_root is None or os.path.normcase(",
+    "new": "    if state is None:\n        return\n    if layout.state_root is None or os.path.normcase(",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_rm_unset_while_the_layout_is_set_raises",
+      "tests/unit/test_sandbox_state_access.py::test_state_issue_rm_unset_is_not_writable"
+    ],
+    "posix_only": false,
+    "note": "#16a：只有一邊設當成沒設（回 None）"
+  },
+  {
+    "id": "p7_state_dir_bad_name_is_none",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.sandbox_state_dir",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR, kind, owner))",
+    "new": "        if not (is_zone_segment(kind) and is_zone_segment(owner)):\n            return None\n        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR, kind, owner))",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_sandbox_state_dir_raises_for_a_bad_name"
+    ],
+    "posix_only": false,
+    "note": "#16b：N1"
+  },
+  {
+    "id": "p7_state_proxy_ignores_unset",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.sandbox_state_proxy",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        if self.sandbox_state_root() is None:\n            return None\n        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR,))",
+    "new": "        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR,))",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_sandbox_state_generators_give_none_only_when_unset"
+    ],
+    "posix_only": false,
+    "note": "N1：ST 沒設也給路徑"
+  },
+  {
+    "id": "p7_state_root_unset_outside_containers",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.sandbox_state_root",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        if app_config.is_container_runtime() and not settings.TOUKA_SANDBOX_STATE_DIR:",
+    "new": "        if not settings.TOUKA_SANDBOX_STATE_DIR:",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_sandbox_state_root"
+    ],
+    "posix_only": false,
+    "note": "容器外沒設也回 None（預設位置不再是區）"
+  },
+  {
+    "id": "p6_mcp_spawn_skips_handoff",
+    "rule": [
+      "P6"
+    ],
+    "target": "src.protocols.mcp.isolated_stdio:isolated_stdio_client",
+    "file": "ToukaProxy/src/protocols/mcp/isolated_stdio.py",
+    "old": "        with resource_manager.handoff_cwd(str(plan.cwd)) as cwd:",
+    "new": "        with contextlib.nullcontext(str(plan.cwd)) as cwd:",
+    "tests": [
+      "tests/unit/test_mcp_isolated_transport_security.py::test_a_cwd_in_the_sandbox_state_is_handed_off_while_spawning"
+    ],
+    "posix_only": false,
+    "note": "#17：Linux 另有 Z9"
+  },
+  {
+    "id": "p6_evolution_spawn_skips_handoff",
+    "rule": [
+      "P6"
+    ],
+    "target": "src.services.evolution_security:EvolutionPathGuard.run_sandbox_command",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "        handoff = resource_manager.zone_handoff(tool, HandoffKind.SUBPROCESS_CWD)",
+    "new": "        handoff = __import__(\"contextlib\").nullcontext(cls.get_tool_root(skill_id))",
+    "tests": [
+      "tests/unit/test_evolution_security.py::test_run_sandbox_command_hands_off_the_skill_folder_and_cleans_env"
+    ],
+    "posix_only": false,
+    "note": "#18"
+  },
+  {
+    "id": "p6_handoff_cwd_skips_the_same_text_check",
+    "rule": [
+      "P6"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.handoff_cwd",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            if os.path.normcase(handed) != os.path.normcase(absolute_text(text)):\n                raise ZonePathRequiredError(None, \"handoff_cwd\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_the_literal_form_of_a_linked_anchor"
+    ],
+    "posix_only": false,
+    "note": "#19a"
+  },
+  {
+    "id": "p6_handoff_cwd_gives_a_zone_path_as_is",
+    "rule": [
+      "P6"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.handoff_cwd",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                yield text\n                return\n            raise ZonePathRequiredError(None, \"handoff_cwd\")",
+    "new": "                yield text\n                return\n            yield text\n            return",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_a_path_that_is_in_a_zone_only_through_a_link",
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_an_anchor_or_a_folder_holding_zones"
+    ],
+    "posix_only": false,
+    "note": "#19b：第 3 種原樣交出"
+  },
+  {
+    "id": "p6_literal_zone_sees_only_the_literal_anchor",
+    "rule": [
+      "P6"
+    ],
+    "target": "memory_server.utils.zone_paths:zone_of",
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "    bases, resolved = _anchor_bases(roots, anchors, follow=follow)",
+    "new": "    bases, resolved = _anchor_bases(roots, anchors, follow=follow and not literal_path)",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_through_a_linked_state_root"
+    ],
+    "posix_only": false,
+    "note": "#19c：ST 根經過連結"
+  },
+  {
+    "id": "p6_handoff_cwd_gives_an_anchor_as_is",
+    "rule": [
+      "P6"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.handoff_cwd",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            if (\n                zone_of(text, roots) is None\n                and anchor_at(text, roots) is None\n                and not contains_zone(text, roots)\n            ):",
+    "new": "            if zone_of(text, roots) is None:",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_an_anchor_or_a_folder_holding_zones"
+    ],
+    "posix_only": false,
+    "note": "#45：第 1 種拿掉「不是錨點本身、不含區」"
+  },
+  {
+    "id": "p3_anchor_root_gives_every_anchor",
+    "rule": [
+      "P3"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.anchor_root",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        if anchor not in _WHOLE_ANCHORS:\n            raise ZoneSegmentError(zone_display(anchor, ()))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_anchor_root_refuses_the_others"
+    ],
+    "posix_only": false,
+    "note": "#20"
+  },
+  {
+    "id": "p5_removes_skip_the_depth_check",
+    "rule": [
+      "P5"
+    ],
+    "target": "src.services.resource_manager:_removable",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "    if zp.anchor in _REMOVE_DEPTH_ANCHORS and len(zp.parts) < agent_depth(zp.anchor):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_removes_refuse_paths_above_the_agent"
+    ],
+    "posix_only": false,
+    "note": "#21"
+  },
+  {
+    "id": "p9_skill_names_allow_touka_names",
+    "rule": [
+      "P9"
+    ],
+    "target": "src.utils.isolation_policy:is_skill_segment",
+    "file": "ToukaProxy/src/utils/isolation_policy.py",
+    "old": "        and listing_kind({fold_name(name)}) is None\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_skill_names_security.py::test_kernel_names_are_not_skill_ids"
+    ],
+    "posix_only": false,
+    "note": "#22：7 個名字"
+  },
+  {
+    "id": "p9_tool_root_uses_the_zone_segment_check",
+    "rule": [
+      "P9"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.tool_root",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return ZonePath(Anchor.MCP_SERVERS, (skill_id,)) if is_skill_segment(skill_id) else None",
+    "new": "        return ZonePath(Anchor.MCP_SERVERS, (skill_id,)) if is_zone_segment(skill_id) else None",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_tool_root_gives_none_only_for_a_bad_name"
+    ],
+    "posix_only": false,
+    "note": "技能名稱不經唯一的判斷"
+  },
+  {
+    "id": "p2_state_agent_is_one_segment",
+    "rule": [
+      "P2"
+    ],
+    "target": "memory_server.utils.zone_paths:agent_depth",
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "_AGENT_DEPTH = {Anchor.CUSTOM_DRIVE: 2, Anchor.SANDBOX_STATE: 3}",
+    "new": "_AGENT_DEPTH = {Anchor.CUSTOM_DRIVE: 2}",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_sandbox_state_agent_is_three_segments"
+    ],
+    "posix_only": false,
+    "note": "#23"
+  },
+  {
+    "id": "p1_executor_mounts_mcp_servers",
+    "rule": [
+      "P1"
+    ],
+    "target": "src.services.isolation.executor_session:KIND_LAYOUT",
+    "file": "ToukaProxy/src/services/isolation/executor_session.py",
+    "old": "    \"evolution\": (MANAGED_ROOT, ()),",
+    "new": "    \"evolution\": (\"mcp_servers\", (\"managed\",)),",
+    "tests": [
+      "tests/unit/test_executor_server.py::test_layout_targets_follow_the_kind_table",
+      "tests/unit/test_executor_server.py::test_valid_evolution_start_uses_managed_skill_folder"
+    ],
+    "posix_only": false,
+    "note": "#24a：執行器又掛整個 mcp_servers（Q7）"
+  },
+  {
+    "id": "p1_executor_data_root_falls_back",
+    "rule": [
+      "P1"
+    ],
+    "target": "src.services.isolation.executor_server:data_root",
+    "file": "ToukaProxy/src/services/isolation/executor_server.py",
+    "old": "    return next((p for p in rw if PurePosixPath(p).name == es.MANAGED_ROOT), None)",
+    "new": "    return next((p for p in rw if PurePosixPath(p).name == es.MANAGED_ROOT), next(iter(rw), None))",
+    "tests": [
+      "tests/unit/test_executor_server.py::test_without_the_managed_root_the_executor_does_not_serve"
+    ],
+    "posix_only": false,
+    "note": "#24b"
+  },
+  {
+    "id": "p1_expected_roots_mount_mcp_servers",
+    "rule": [
+      "P1"
+    ],
+    "target": "src.services.isolation.status:expected_executor_roots",
+    "file": "ToukaProxy/src/services/isolation/status.py",
+    "old": "            ExecutorRoot(str(data / \"mcp_servers\" / \"managed\"), \"rw\"),",
+    "new": "            ExecutorRoot(str(data / \"mcp_servers\"), \"rw\"),",
+    "tests": [
+      "tests/unit/test_isolation_status.py::test_executor_level_when_the_ready_matches_everything"
+    ],
+    "posix_only": false,
+    "note": "#24c"
+  },
+  {
+    "id": "q10_soul_file_name_not_single",
+    "rule": [
+      "Q10"
+    ],
+    "target": "src.utils.soul_io:_safe_target",
+    "file": "ToukaProxy/src/utils/soul_io.py",
+    "old": "    if not is_zone_segment(filename):\n        logger.warning(\"🚫 Soul file name is not a single level: %r\", filename)\n        return None\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_soul_io_zone_security.py::test_only_single_level_names_are_soul_files",
+      "tests/unit/test_soul_io_zone_security.py::test_writing_a_nested_soul_file_is_refused"
+    ],
+    "posix_only": false,
+    "note": "#25a：sub/x 不在區裡，只有單層檢查擋"
+  },
+  {
+    "id": "q10_soul_file_in_a_zone",
+    "rule": [
+      "Q10"
+    ],
+    "target": "src.utils.soul_io:_safe_target",
+    "file": "ToukaProxy/src/utils/soul_io.py",
+    "old": "    if in_zone or contains_zone(target, roots, anchors=ALL_ANCHORS):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_soul_io_zone_security.py::test_the_drive_of_a_custom_model_is_not_a_soul_file"
+    ],
+    "posix_only": false,
+    "note": "#25b：drive 是單層、但是區的根"
+  },
+  {
+    "id": "q11_restore_without_the_allowlist",
+    "rule": [
+      "Q11"
+    ],
+    "target": "scripts.manage_backup:RestoreEngine.run_restore",
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "                    if not _restorable(arcname):\n                        report.bad_names.append(member)\n                        continue\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_members_the_backup_never_writes"
+    ],
+    "posix_only": false,
+    "marker": "LINK_FOLLOWED",
+    "note": "#26a：ST 的成員只有允許清單擋得到"
+  },
+  {
+    "id": "q11_restore_allowlist_casefold",
+    "rule": [
+      "Q11"
+    ],
+    "target": "scripts.manage_backup:_restorable",
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "        return os.path.normcase(head) in _RESTORABLE_FOLDERS",
+    "new": "        return head.casefold() in {folder.casefold() for folder in SANCTUARY_FOLDERS}",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_compares_folder_names_exactly"
+    ],
+    "posix_only": true,
+    "note": "#26b：寬鍵"
+  },
+  {
+    "id": "p9_refuse_deployed_ignores_every",
+    "rule": [
+      "P9"
+    ],
+    "target": "src.services.isolation.evolution_command:refuse_deployed",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    if deployed.every:\n        raise EvolutionRefused(\"skill_deployed\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_every_deployed_refuses"
+    ],
+    "posix_only": false,
+    "note": "#27：N3「全部」"
+  },
+  {
+    "id": "p9_refuse_deployed_skips_the_name_check",
+    "rule": [
+      "P9"
+    ],
+    "target": "src.services.isolation.evolution_command:refuse_deployed",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    validate_skill_id(skill_id)\n    layout, base_dir = current_layout(), proxy_base_dir()",
+    "new": "    layout, base_dir = current_layout(), proxy_base_dir()",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_bad_skill_id_is_refused_first"
+    ],
+    "posix_only": false,
+    "note": "#27b：第 0 步"
+  },
+  {
+    "id": "p10_deployment_files_let_link_errors_out",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.tools.builtin.evolution:_deployment_files",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    except OSError as exc:\n        raise EvolutionRefused(\"skill_changed\") from exc",
+    "new": "    except FileNotFoundError as exc:\n        raise EvolutionRefused(\"skill_changed\") from exc",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#29"
+  },
+  {
+    "id": "p10_refuse_deployed_lets_profile_errors_out",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.evolution_command:refuse_deployed",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    except ProfileError as exc:\n        raise EvolutionRefused(\"config_unreadable\") from exc",
+    "new": "    except KeyError as exc:\n        raise EvolutionRefused(\"config_unreadable\") from exc",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_classification_profile_error_is_config_unreadable"
+    ],
+    "posix_only": false,
+    "note": "#36"
+  },
+  {
+    "id": "r2_overlap_skips_the_resolved_compare",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.isolation.evolution_command:_overlapping_roots",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    return _nested(_name_key(first), _name_key(second)) or _nested(\n        _name_key(resolved[0]), _name_key(resolved[1])\n    )",
+    "new": "    return _nested(_name_key(first), _name_key(second))",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_overlap_sees_a_link_to_a_sibling_subfolder",
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_overlapping_deployed_folder_refuses"
+    ],
+    "posix_only": false,
+    "note": "#37：managed/B 是指到 managed/A/sub 的連結"
+  },
+  {
+    "id": "p10_overlap_error_is_not_overlap",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.evolution_command:_overlapping_roots",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    except (OSError, RuntimeError):  # 連結迴圈時 resolve 丟 RuntimeError\n        return True\n    return _nested(",
+    "new": "    except (OSError, RuntimeError):  # 連結迴圈時 resolve 丟 RuntimeError\n        return False\n    return _nested(",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_overlap_counts_an_os_error_as_overlap"
+    ],
+    "posix_only": false,
+    "note": "#38"
+  },
+  {
+    "id": "p10_guard_methods_let_link_errors_out",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.evolution_security:_skill_changed",
+    "file": "ToukaProxy/src/services/evolution_security.py",
+    "old": "    except (ZoneLinkRefusedError, ZoneSegmentError) as exc:",
+    "new": "    except ZoneSegmentError as exc:",
+    "tests": [
+      "tests/unit/test_evolution_links_security.py::test_methods_refuse_a_linked_skill"
+    ],
+    "posix_only": false,
+    "note": "#41"
+  },
+  {
+    "id": "p10_home_wipe_link_is_remove_failed",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.home_wipe:_remove_proxy_state",
+    "file": "ToukaProxy/src/services/isolation/home_wipe.py",
+    "old": "    except ZoneLinkRefusedError as exc:\n        logger.warning(\"Sandbox state of %s is under a link; not following it\", identity.agent_id)\n        raise HomeWipeError(\"proxy_state_link\") from exc\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_sandbox_state_links_security.py::test_wipe_refuses_a_linked_kind_folder"
+    ],
+    "posix_only": false,
+    "note": "#42：ST/proxy/agents 是連結"
+  },
+  {
+    "id": "p7_state_zone_none_only_when_both_unset",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:proxy_state_zone",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if layout.state_root is None:\n        return None\n    _same_state(layout, \"state\")",
+    "new": "    if layout.state_root is None and resource_manager.sandbox_state_root() is None:\n        return None\n    _same_state(layout, \"state\")",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_layout_unset_is_none_whatever_rm_says",
+      "tests/unit/test_sandbox_state_access.py::test_state_issue_unset_layout_is_unset"
+    ],
+    "posix_only": false,
+    "note": "#43：順序 1"
+  },
+  {
+    "id": "p7_state_roots_compared_unresolved",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:_same_state",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        _resolve(layout.state_root)\n    ) != os.path.normcase(_resolve(state)):",
+    "new": "        str(layout.state_root)\n    ) != os.path.normcase(str(state)):",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_roots_are_compared_after_resolving"
+    ],
+    "posix_only": false,
+    "note": "#44：ST 根經過連結"
+  },
+  {
+    "id": "p4_zone_text_resolves_segments",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.zone_text",
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return str(Path(base).joinpath(*zp.parts))",
+    "new": "        return os.path.realpath(Path(base).joinpath(*zp.parts))",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_zone_text_does_not_resolve_the_segments"
+    ],
+    "posix_only": false,
+    "marker": "LINK_FOLLOWED",
+    "note": "區字串解析了段落"
+  },
+  {
+    "id": "p10_mcp_classification_lets_profile_errors_out",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.mcp_launch:McpLauncher._classify_with",
+    "file": "ToukaProxy/src/services/isolation/mcp_launch.py",
+    "old": "            except ProfileError as exc:\n                raise profile_unavailable(exc) from exc\n            for home in bases[1:]:",
+    "new": "            except KeyError as exc:\n                raise profile_unavailable(exc) from exc\n            for home in bases[1:]:",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_mcp_classification_with_a_state_mismatch_is_isolation_unavailable"
+    ],
+    "posix_only": false,
+    "note": "版面與 RM 的 ST 不同"
+  },
+  {
+    "id": "g2_drops_docgen_output",
+    "rule": [
+      "P8",
+      "G2"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "G2_NAMES = (PERSONAL_NAME, DRIVE_NAME, DOCGEN_NAME, STATE_NAME, MANAGED_NAME)",
+    "new": "G2_NAMES = (PERSONAL_NAME, DRIVE_NAME, STATE_NAME, MANAGED_NAME)",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g2_finds_anchor_names_in_every_kind_of_literal",
+      "tests/lint/test_zone_path_guard.py::test_anchor_folder_names_appear_only_where_listed"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g2_finds_anchor_names_in_every_kind_of_literal",
+    "posix_only": false,
+    "note": "#28：G2 的名單拿掉 docgen_output"
+  },
+  {
+    "id": "g3_counts_only_calls",
+    "rule": [
+      "G3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        refs = [n for n in nodes if isinstance(n, (ast.Name, ast.Attribute))]",
+    "new": "        refs = [n.func for n in nodes if isinstance(n, ast.Call)]",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g3_finds_every_reference"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g3_finds_every_reference",
+    "posix_only": false,
+    "note": "#30：G3 不數區域別名（make = ZonePath），只看呼叫"
+  },
+  {
+    "id": "g4_unlisted_calls_pass",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        return [*exits, label]",
+    "new": "        return exits",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "#31：沒列名的呼叫當成不紅（zipfile、getattr 等不再是出口）"
+  },
+  {
+    "id": "tf_drops_div",
+    "rule": [
+      "TF"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "(ast.Div, ast.Add, ast.Mod)",
+    "new": "(ast.Add, ast.Mod)",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_tf_follows_every_listed_form"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_tf_follows_every_listed_form",
+    "posix_only": false,
+    "note": "#32：TF 拿掉 / 的遞移"
+  },
+  {
+    "id": "t3_drops_text_producers",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    names |= _short_names(ZONE_TEXT_PRODUCERS)\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_t3_covers_the_producers_and_the_data_root"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_t3_covers_the_producers_and_the_data_root",
+    "posix_only": false,
+    "note": "#33：T3 拿掉 ZONE_TEXT_PRODUCERS"
+  },
+  {
+    "id": "link_scan_drops_zone_paths",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/unit/test_zone_mutations_manifest.py",
+    "old": "        \"zone_paths\",\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense",
+      "tests/unit/test_zone_mutations_manifest.py::test_link_tests_do_not_replace_the_defenses"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "#34：連結測試的替換掃描拿掉 zone_paths（守衛標 T3：同一類「測試不換防線」）"
+  },
+  {
+    "id": "g1_misses_get_tool_root",
+    "rule": [
+      "G1"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "G1_TF_FUNCTIONS = frozenset(ZONE_TEXT_PRODUCERS) | frozenset(ZONE_TEXT_RECEIVERS)",
+    "new": "G1_TF_FUNCTIONS = (frozenset(ZONE_TEXT_PRODUCERS) | frozenset(ZONE_TEXT_RECEIVERS)) - {_GET_TOOL_ROOT}",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_handoffs_whole_anchors_and_anchor_names_are_used_only_where_listed"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_handoffs_whole_anchors_and_anchor_names_are_used_only_where_listed",
+    "posix_only": false,
+    "note": "#35：G1 漏掉 get_tool_root 的鍵"
+  },
+  {
+    "id": "tf_skips_receiver_params",
+    "rule": [
+      "TF"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                local = self._locals(scope, closure | params)",
+    "new": "                local = self._locals(scope, closure)",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_tf_finds_receivers_and_follows_into_them",
+      "tests/lint/test_zone_path_guard.py::test_zone_text_receivers_are_pinned"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_tf_finds_receivers_and_follows_into_them",
+    "posix_only": false,
+    "note": "#39：TF 不追進接收函式的參數"
+  },
+  {
+    "id": "g4_spawn_exec_allows_cwd",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    \"src.services.execution_broker.spawn_exec\": (\n        frozenset({ANY_POSITIONAL}),\n",
+    "new": "    \"src.services.execution_broker.spawn_exec\": (\n        frozenset({ANY_POSITIONAL, \"cwd\"}),\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "#40：G4 的子行程去處不再排除 cwd="
+  },
+  {
+    "id": "p10_unbound_accepts_a_degraded_card",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.agent_command:unbound_or_refuse",
+    "file": "ToukaProxy/src/services/isolation/agent_command.py",
+    "old": "    if grant.consent is None or grant.consent.fallback != \"direct\":\n        raise error",
+    "new": "    if grant.consent is None:\n        raise error",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_degraded_consent_without_sandbox_state_refuses_evolution_with_the_reason",
+      "tests/unit/test_isolation_unavailable_fail_closed_security.py::test_degraded_consent_without_sandbox_state_is_refused_with_the_reason"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：「隔離降級」卡也改用不需要 ST 的 profile"
+  },
+  {
+    "id": "r2_overlap_key_not_folded",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.isolation.evolution_command:_name_key",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    return PurePath(*(os.path.normcase(part.rstrip(\". \")).casefold() for part in parts))",
+    "new": "    return PurePath(*parts)",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_deployed_name_with_the_same_key_refuses",
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_nonexistent_path_aliases_overlap"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：字面比對鍵不做 normcase／去結尾點空白／casefold"
+  },
+  {
+    "id": "r2_overlap_only_equal",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.isolation.evolution_command:_nested",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    return first.is_relative_to(second) or second.is_relative_to(first)",
+    "new": "    return first == second",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_nonexistent_path_aliases_overlap",
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_overlapping_deployed_folder_refuses"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：上下層不算重疊"
+  },
+  {
+    "id": "p10_profile_for_never_unbound",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.evolution_command:_profile_for",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "        return unbound_or_refuse(grant, cwd, exc)  # 「未隔離」卡核准過才改直接執行",
+    "new": "        raise",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_unisolated_consent_runs_evolution_without_sandbox_state"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：「未隔離」卡核准過也不改用不需要 ST 的 profile"
+  },
+  {
+    "id": "p7_classification_bases_only_self",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.mcp_profiles:mcp_classification_bases",
+    "file": "ToukaProxy/src/services/isolation/mcp_profiles.py",
+    "old": "        for category in (\"third\", \"self\")",
+    "new": "        for category in (\"self\",)",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_classification_bases_give_both_homes_without_creating",
+      "tests/unit/test_mcp_launch_isolation_security.py::test_third_party_checks_references_at_the_actual_launch_cwd"
+    ],
+    "posix_only": false,
+    "note": "TF 產生函式：分類基準少了第三方的 ST home"
+  },
+  {
+    "id": "p7_mcp_state_dirs_share_a_parent",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.mcp_profiles:mcp_state_dirs",
+    "file": "ToukaProxy/src/services/isolation/mcp_profiles.py",
+    "old": "        return state_dirs(layout, location, MCP_PROXY_STATE_KINDS[category], seg, create=create)",
+    "new": "        return state_dirs(layout, location, MCP_PROXY_STATE_KINDS[\"self\"], seg, create=create)",
+    "tests": [
+      "tests/unit/test_mcp_profiles_security.py::test_self_and_third_state_never_share_a_folder",
+      "tests/unit/test_mcp_profiles_security.py::test_third_party_state_cwd_and_name"
+    ],
+    "posix_only": false,
+    "note": "TF 產生函式：第三方與自建的 ST 放同一個父資料夾"
+  },
+  {
+    "id": "p4_profiles_resolve_absolute",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.isolation.profiles:_resolve",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "def _resolve(path: Path | str) -> Path:\n    return Path(path).resolve()",
+    "new": "def _resolve(path: Path | str) -> Path:\n    return Path(path).absolute()",
+    "tests": [
+      "tests/unit/test_sandbox_state_access.py::test_roots_are_compared_after_resolving",
+      "tests/unit/test_isolation_zone_shapes.py::test_the_agent_profile_refuses_a_linked_drive"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：只取絕對路徑、不解析連結"
+  },
+  {
+    "id": "p7_state_kind_is_agents",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:_state",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if location == \"proxy\":\n        return state_dirs(layout, location, kind, owner)",
+    "new": "    if location == \"proxy\":\n        return state_dirs(layout, location, \"agents\", owner)",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_evolution_profile_grants_only_its_own_sandbox_and_state"
+    ],
+    "posix_only": false,
+    "note": "TF 產生函式：演化的 home／tmp 落到 agents"
+  },
+  {
+    "id": "p4_evolution_profile_any_root",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.isolation.profiles:build_evolution_profile",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if not is_safe_segment(skill_id) or root != managed / skill_id:",
+    "new": "    if not is_safe_segment(skill_id):",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_evolution_profile_rejects_a_root_that_is_not_the_skill_sandbox"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：不核對根是 managed/<skill>"
+  },
+  {
+    "id": "p4_public_config_in_blocked_roots",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.isolation.profiles:public_config_rules",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "                if any(_within(candidate, _resolve(b)) for b in blocked):\n                    continue\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_isolation_profiles_security.py::test_public_config_under_data_root_denied",
+      "tests/unit/test_isolation_profiles_security.py::test_public_config_under_state_root_or_protected_env_dir_denied"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：data 根、ST 底下的公開設定檔也給"
+  },
+  {
+    "id": "p4_sandbox_env_no_git_ceiling",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.isolation.profiles:sandbox_env",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        \"GIT_CEILING_DIRECTORIES\": os.pathsep.join(dict.fromkeys(str(p) for p in ceilings)),",
+    "new": "        \"GIT_CEILING_DIRECTORIES\": \"\",",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_evolution_profile_redirects_home_tmp_and_git_ceiling_into_state",
+      "tests/unit/test_isolation_profiles_security.py::test_agent_profile_env_redirects_and_git_ceiling"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：GIT_CEILING_DIRECTORIES 空白"
+  },
+  {
+    "id": "p4_bound_ignores_args",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.services.mcp_isolation_store:bound_of",
+    "file": "ToukaProxy/src/services/mcp_isolation_store.py",
+    "old": "        \"args\": list(entry.get(\"args\") or []),",
+    "new": "        \"args\": [],",
+    "tests": [
+      "tests/unit/test_mcp_isolation_store_security.py::test_bound_ignores_env_but_binds_command_args_and_url",
+      "tests/unit/test_mcp_origin_sandbox_paths_security.py::test_put_isolation_requires_the_current_bound"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：程式身分不含 args"
+  },
+  {
+    "id": "p4_jail_target_unescaped",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.tools.builtin.evolution:_build_jail_code",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    safe_target_dir = json.dumps(str(target_dir))",
+    "new": "    safe_target_dir = '\"' + str(target_dir) + '\"'",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_jail_runs_main_and_preserves_nonrecursive_listdir"
+    ],
+    "posix_only": false,
+    "windows_only": true,
+    "note": "TF 接收函式：技能資料夾不經 JSON 編碼就嵌進程式碼（POSIX 的路徑沒有反斜線，照樣跑得動）"
+  },
+  {
+    "id": "p4_save_skips_the_digest",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.tools.builtin.evolution:_save_deployment",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    if not digest or digest != _approval_digest(_deployment_files(skill_id)):",
+    "new": "    if not digest:",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_changed_approval_content_is_not_deployed",
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_approval_hash_preserves_line_endings"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：寫部署條目前不核對核准時的內容"
+  },
+  {
+    "id": "p4_venv_python_wrong_folder",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.tools.builtin.evolution:_venv_python",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    folder, name = (\"Scripts\", \"python.exe\") if windows else (\"bin\", \"python\")",
+    "new": "    folder, name = (\"bin\", \"python.exe\") if windows else (\"Scripts\", \"python\")",
+    "tests": [
+      "tests/unit/test_evolution_venv_python.py::test_deploy_command_is_the_python_the_build_step_created",
+      "tests/unit/test_evolution_venv_python.py::test_pip_install_uses_the_absolute_venv_python"
+    ],
+    "posix_only": false,
+    "note": "TF 產生函式：venv 的 python 在錯的資料夾"
+  },
+  {
+    "id": "p4_venv_python_resolved",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.tools.builtin.evolution:_venv_python",
+    "file": "ToukaProxy/src/tools/builtin/evolution.py",
+    "old": "    return resource_manager.zone_text(venv.child(folder).child(name))",
+    "new": "    return os.path.realpath(resource_manager.zone_text(venv.child(folder).child(name)))",
+    "tests": [
+      "tests/unit/test_evolution_verify_protocol_security.py::test_real_protocol_requires_running_server"
+    ],
+    "posix_only": true,
+    "note": "TF 產生函式：解析了區字串；POSIX 上 venv 的 python 是連結，解析後是基底直譯器、沒有 venv 的套件"
+  },
+  {
+    "id": "p4_candidates_lexical_only",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:_candidates",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    return (lexical, resolved) if resolved != lexical else (lexical,)",
+    "new": "    return (lexical,)",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_a_link_into_a_managed_skill_marks_it_deployed"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：只看字面位置，連結指進 managed/<skill> 不凍結"
+  },
+  {
+    "id": "p4_missing_reference_is_never_a_file",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:is_file_reference",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    except (OSError, ValueError):\n        return bool(lexical.suffix)",
+    "new": "    except (OSError, ValueError):\n        return False",
+    "tests": [
+      "tests/unit/test_mcp_profiles_security.py::test_file_at_the_filesystem_root_is_not_granted",
+      "tests/unit/test_mcp_profiles_security.py::test_relative_launch_paths_are_only_resolved_for_profile_rules"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：不存在的路徑不看副檔名、一律當資料夾"
+  },
+  {
+    "id": "p4_relative_paths_not_joined",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:_item_paths",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "              or (code and path.suffix)):\n            yield base_dir / path",
+    "new": "              or (code and path.suffix)):\n            yield path",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_relative_paths_with_a_separator_resolve_against_the_proxy_cwd",
+      "tests/unit/test_mcp_launch_isolation_security.py::test_third_party_checks_references_at_the_actual_launch_cwd"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：相對路徑不接到基準（proxy cwd、ST home）"
+  },
+  {
+    "id": "p4_option_values_skipped",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:_token_paths",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "        if \"=\" in word:\n            value = word.split(\"=\", 1)[1].strip(\"\\\"'\")",
+    "new": "        if False:\n            value = word.split(\"=\", 1)[1].strip(\"\\\"'\")",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_node_options_require_is_split_on_whitespace",
+      "tests/unit/test_mcp_origin_classification_security.py::test_package_source_flags_count_folders"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：不看 = 後面的路徑"
+  },
+  {
+    "id": "p4_env_values_skipped",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:referenced_paths",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    for name, raw in (entry.env or {}).items():",
+    "new": "    for name, raw in {}.items():",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_agent_folder_under_a_plain_env_name_is_self",
+      "tests/unit/test_mcp_origin_classification_security.py::test_code_loading_env_at_an_ancestor_of_an_agent_root_is_self"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：不看 env 的值"
+  },
+  {
+    "id": "p4_scaffold_nested_script",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:scaffold_dir_for",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "            if lexical.parent == folder and is_file_reference(lexical) and _candidates(",
+    "new": "            if lexical.parent.is_relative_to(folder) and is_file_reference(lexical) and _candidates(",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_scaffold_origin_whose_script_is_in_another_folder_is_self"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：子資料夾裡的程式也算 scaffold 的形狀"
+  },
+  {
+    "id": "p4_classify_skips_the_heuristic",
+    "rule": [
+      "P4"
+    ],
+    "target": "src.utils.mcp_origin:classify",
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    if heuristic_hit(refs, layout):\n        return McpClassification(\"self\", origin, \"agent_reference\", skills)",
+    "new": "    if False:\n        return McpClassification(\"self\", origin, \"agent_reference\", skills)",
+    "tests": [
+      "tests/unit/test_mcp_origin_classification_security.py::test_a_file_in_an_agent_root_makes_any_entry_self",
+      "tests/unit/test_mcp_launch_isolation_security.py::test_appdata_program_reference_uses_the_self_built_launch"
+    ],
+    "posix_only": false,
+    "note": "TF 接收函式：不看引用的路徑"
+  },
+  {
+    "id": "r14_z9_any_anchor_program_is_data",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "        if found is not None and found[0] in EXEC_DATA_ANCHORS:\n",
+    "new": "        if found is not None:\n",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_a_skill_venv_python_as_the_program_is_data"
+    ],
+    "target": "tests.support.zone_tripwire:_program_as_data",
+    "posix_only": false,
+    "note": "Z9 把任何錨點裡的執行檔都當成資料（決定 28 只放行 MCP_SERVERS）"
+  },
+  {
+    "id": "r14_z9_cwd_counts_as_program",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "    if positions is None or positions[0] >= len(args) or path not in _texts(args[positions[0]]):\n",
+    "new": "    if positions is None:\n",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_a_skill_venv_python_as_the_program_is_data"
+    ],
+    "target": "tests.support.zone_tripwire:_program_as_data",
+    "posix_only": false,
+    "note": "Z9 不分執行檔與 cwd：MCP_SERVERS 裡的 cwd 也不用交接"
+  },
+  {
+    "id": "p10_executor_falls_back_to_unbound",
+    "rule": [
+      "P10"
+    ],
+    "target": "src.services.isolation.evolution_command:_profile_for",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "        if location != \"proxy\":\n            raise\n        return unbound_or_refuse(grant, cwd, exc)",
+    "new": "        return unbound_or_refuse(grant, cwd, exc)",
+    "tests": [
+      "tests/unit/test_evolution_isolation_security.py::test_the_executor_location_never_falls_back_to_the_unbound_profile"
+    ],
+    "posix_only": false,
+    "note": "執行器位置組不出 profile 時也改用不需要 ST 的 profile（正常流程到不了，直接打這一層）"
+  },
+  {
+    "id": "p7_executor_state_owner_unchecked",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.profiles:_state",
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    if executor_state is None or not is_safe_segment(owner):\n        raise ProfileError(owner)\n    base = Path(executor_state) / kind / owner",
+    "new": "    if executor_state is None:\n        raise ProfileError(owner)\n    base = Path(executor_state) / kind / owner",
+    "tests": [
+      "tests/unit/test_isolation_profiles_security.py::test_executor_state_refuses_an_unsafe_owner"
+    ],
+    "posix_only": false,
+    "note": "執行器的 home／tmp 不檢查名稱（呼叫端已先驗過，直接打這一層）"
+  },
+  {
+    "id": "p7_home_wipe_skips_zone_check",
+    "rule": [
+      "P7"
+    ],
+    "target": "src.services.isolation.home_wipe:wipe_agent_homes",
+    "file": "ToukaProxy/src/services/isolation/home_wipe.py",
+    "old": "    if not (is_safe_segment(identity.agent_id) and is_zone_segment(identity.agent_id)):",
+    "new": "    if not is_safe_segment(identity.agent_id):",
+    "tests": [
+      "tests/unit/test_soul_delete_sandbox_home_security.py::test_an_id_that_cannot_be_a_folder_here_has_nothing_to_wipe"
+    ],
+    "posix_only": false,
+    "windows_only": true,
+    "note": "刪除靈魂時只看安全名稱：Windows 不能當資料夾的名稱（結尾點、冒號、裝置名）回 unsafe_owner、刪不掉；其他系統這些是普通名稱"
+  },
+  {
+    "id": "r2_overlap_loop_escapes",
+    "rule": [
+      "R2"
+    ],
+    "target": "src.services.isolation.evolution_command:_overlapping_roots",
+    "file": "ToukaProxy/src/services/isolation/evolution_command.py",
+    "old": "    except (OSError, RuntimeError):  # 連結迴圈時 resolve 丟 RuntimeError",
+    "new": "    except OSError:",
+    "tests": [
+      "tests/unit/test_evolution_deployed_freeze_security.py::test_a_link_loop_counts_as_overlapping"
+    ],
+    "posix_only": false,
+    "note": "連結迴圈的 RuntimeError 不當重疊，往外變成籠統錯誤"
   }
 ]

@@ -86,8 +86,9 @@ from src.utils.time_utils import get_monotonic_ms
 from src.utils.touka_dirs import scan_below
 
 from tests.helpers import mcp_asgi_peers
-from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
-from tests.support.zone_records import raises_zone
+from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE, build_skill_venv
+from tests.support.isolation import match_state_root
+from tests.support.zone_records import expect_zone_refusal, raises_zone
 from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
@@ -111,6 +112,16 @@ SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib64", sys.prefix, sys.base_prefix
 def _uses_real_isolation(real_isolation):
     """整個模組退出 conftest 的替身。"""
     return real_isolation
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_follows_the_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指到 ``_layout`` 的（ADR-0293 P7：ST 只有一個來源，版面不同就拒絕）.
+
+    data 根不換：這裡的測試直接在版面的個人空間裡 spawn 與讀寫，不經區內方法。自己組版面的
+    測試（執行器路線等）另外指到自己的 ST。
+    """
+    match_state_root(monkeypatch, tmp_path / "state")
 
 
 @pytest.fixture(scope="module")
@@ -1910,7 +1921,10 @@ def test_exempt_remove_file_never_reaches_the_hook(repairing):
 
 
 async def test_proxy_tmp_cleanup_does_not_follow_symlinks(tmp_path):
-    """開機清 ST/proxy 的 tmp：tmp 本身是連結就不碰；tmp 裡的連結只刪連結、不刪目標."""
+    """開機清 ST/proxy 的 tmp：tmp 本身是連結只刪連結；tmp 裡的連結只刪連結、不刪目標.
+
+    kind 資料夾（``evolution``）是連結時記 log、略過（區內方法拒絕，ADR-0293 PR 2 決定 21）。
+    """
     layout = _layout(tmp_path)
     proxy = layout.state_root / "proxy"
     outside, elsewhere = tmp_path / "outside", tmp_path / "elsewhere"
@@ -1927,12 +1941,14 @@ async def test_proxy_tmp_cleanup_does_not_follow_symlinks(tmp_path):
     monitor = IsolationMonitor(
         layout_provider=lambda: layout, selftest=_available_selftest, start_background=False
     )
-    await monitor.ensure_ready()
+    with expect_zone_refusal(ZoneLinkRefusedError, display_prefix="zone://sandbox_state/proxy/evolution"):
+        await monitor.ensure_ready()
     for _ in range(50):
         if not any(p.name.startswith("tmp.trash-") for p in (bob_tmp.parent).iterdir()):
             break
         await asyncio.sleep(0.02)
-    assert (alice / "tmp").is_symlink() and (outside / "keep.txt").is_file()
+    assert not (alice / "tmp").is_symlink() and not (alice / "tmp").exists()
+    assert (outside / "keep.txt").is_file()
     assert not bob_tmp.exists() and sorted(p.name for p in bob_tmp.parent.iterdir()) == []
     assert (elsewhere / "x" / "tmp" / "keep.txt").is_file()
 
@@ -2935,10 +2951,12 @@ async def _run_in_mcp_profile(
         ExecRequest(argv=("sh", "-c", script), env={"PATH": "/usr/bin:/bin"}, profile=profile)
     )
     try:
-        proc = await spawn_exec(
-            *plan.argv, cwd=plan.cwd, env=plan.env, pass_fds=plan.pass_fds,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        )
+        # cwd 是 ST 裡的 home：和 isolated_stdio 一樣在 spawn 當下交接（ADR-0293 P6）
+        with resource_manager.handoff_cwd(str(plan.cwd)) as cwd:
+            proc = await spawn_exec(
+                *plan.argv, cwd=cwd, env=plan.env, pass_fds=plan.pass_fds,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
     finally:
         plan.release()
     output, _ = await asyncio.wait_for(proc.communicate(), 60)
@@ -3249,6 +3267,7 @@ async def mcp_stdio_peer(
             kernel_dir=EXEC_KERNEL, executor_dir=dirs.ipc, mirror_roots=(), in_container=False,
         )
         layout.state_root.mkdir()
+        match_state_root(monkeypatch, layout.state_root)
         monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
         snap = await monitor.ensure_ready()
         assert snap.executor is not None, (snap.level, snap.reason)
@@ -3611,7 +3630,7 @@ if __name__ == "__main__":
     return "quota escaped"''')
     (peer.code / "server.py").write_text(code, encoding="utf-8")
     point_zone_roots(monkeypatch, peer.layout.data_root, peer.layout.state_root)
-    monkeypatch.setattr(evolution, "_venv_python", lambda _skill: sys.executable)
+    build_skill_venv(evolution._venv_python(skill))  # 技能資料夾裡真的 venv python（T3）
     monkeypatch.setattr(evolution_command, "current_layout", lambda: peer.layout)
     monkeypatch.setattr(evolution_command, "isolation_monitor", peer.monitor)
     monkeypatch.setattr(evolution_command, "runner_broker", peer.broker)

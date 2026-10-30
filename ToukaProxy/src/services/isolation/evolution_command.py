@@ -86,13 +86,14 @@ def _overlapping_roots(first: str, second: str) -> bool:
     """兩個技能資料夾是否重疊；三種比對任一成立就算，只會多判（ADR-0293 Q3）.
 
     字面的比對鍵互為上下層；兩邊都存在時 ``samefile``；解析後互為上下層（``managed/B``
-    是指到 ``managed/A/sub`` 的連結時仍判重疊）。過程中任何 ``OSError`` 一律當重疊。
+    是指到 ``managed/A/sub`` 的連結時仍判重疊）。過程中任何 ``OSError`` 一律當重疊，連結迴圈的
+    ``RuntimeError`` 也是。
     """
     try:
         if os.path.exists(first) and os.path.exists(second) and os.path.samefile(first, second):  # noqa: PTH110, PTH121
             return True
         resolved = (str(Path(first).resolve()), str(Path(second).resolve()))
-    except OSError:
+    except (OSError, RuntimeError):  # 連結迴圈時 resolve 丟 RuntimeError
         return True
     return _nested(_name_key(first), _name_key(second)) or _nested(
         _name_key(resolved[0]), _name_key(resolved[1])

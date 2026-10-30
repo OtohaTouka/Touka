@@ -254,6 +254,20 @@ async def test_an_id_that_is_not_a_safe_segment_has_nothing_to_wipe(wiring) -> N
     wiring.spawn.assert_not_awaited()
 
 
+@pytest.mark.parametrize("agent_id", ["Jin.", "Jin:x", "CON", "nul.txt"])
+async def test_an_id_that_cannot_be_a_folder_here_has_nothing_to_wipe(wiring, agent_id) -> None:
+    """Windows 不能拿這些名稱當資料夾（結尾點、``:``、裝置名），profile 不會為它建 ST.
+
+    刪除照常進行、不回 ``unsafe_owner``，也不碰別名（``Jin.`` 在 Windows 是 ``Jin``）；其他
+    系統上是普通名稱，同樣沒有東西可清。
+    """
+    alias = _proxy_owner(SOUL)
+
+    await home_wipe.wipe_agent_homes(AgentIdentity(agent_id=agent_id))
+
+    assert (alias / "home" / "token").read_text(encoding="utf-8") == "old soul secret"
+
+
 async def test_cancelled_request_also_stops_the_relay(wiring, monkeypatch) -> None:
     async def cancelled() -> int:
         raise asyncio.CancelledError

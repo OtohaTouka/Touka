@@ -32,7 +32,7 @@ from src.sandbox_kernel import spec as kernel_spec
 from src.services import evolution_security, tool_errors
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.isolation import evolution_command
-from src.services.isolation.consent import ConsentKey, consent_ledger
+from src.services.isolation.consent import Consent, ConsentKey, ExecutionGrant, consent_ledger
 from src.services.isolation.executor_client import ExecutorReady
 from src.services.isolation.policy import policy_level
 from src.services.isolation.profiles import (
@@ -42,6 +42,7 @@ from src.services.isolation.profiles import (
     build_evolution_profile,
     launcher_spec_fields,
 )
+from src.services.isolation.runners import IsolationUnavailableError
 from src.tools.builtin import evolution
 
 from tests.support.isolation import (
@@ -571,6 +572,23 @@ async def test_degraded_consent_without_sandbox_state_refuses_evolution_with_the
     payload = _assert_isolation_error(await _merged())
     assert payload["isolation_reason"] == "sandbox_state_unconfigured"
     assert spawned.calls == []
+
+
+async def test_the_executor_location_never_falls_back_to_the_unbound_profile(monkeypatch, tmp_path):
+    """直接打 ``_profile_for``：執行器位置組不出 profile 一律拒絕，「未隔離」卡也一樣（P10）.
+
+    執行器路線的 ST 一定有值、技能 id 也先驗過，走正常流程到不了這裡（ADR-0293 決定 14）。
+    """
+
+    def unavailable(*_args: Any, **_kwargs: Any) -> None:
+        raise IsolationUnavailableError("sandbox_state_unconfigured")
+
+    monkeypatch.setattr(evolution_command, "evolution_profile", unavailable)
+    grant = ExecutionGrant("none", Consent("subject", "direct"))
+    with pytest.raises(IsolationUnavailableError):
+        await evolution_command._profile_for(grant, SKILL, tmp_path, "executor", "/x/state")
+    profile = await evolution_command._profile_for(grant, SKILL, tmp_path, "proxy", None)
+    assert profile.ungranted == ("sandbox_state_unconfigured",)
 
 
 def test_sandbox_command_requires_a_launch():

@@ -29,6 +29,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
+from memory_server.utils.zone_paths import Anchor, HandoffKind, ZonePath, is_handed_off
 from src.config import settings
 from src.models.identity import AgentIdentity
 from src.protocols import manager as manager_mod
@@ -55,6 +56,7 @@ from src.services.isolation.runners import (
     IsolationUnavailableError,
     SandboxFailure,
 )
+from src.services.resource_manager import resource_manager
 
 from tests.helpers import mcp_asgi_peers as peers
 from tests.support.isolation import PinnedMonitor, fake_kernel_layout, match_state_root
@@ -301,6 +303,27 @@ async def test_spawn_gets_only_the_plans_fds_a_new_group_pipes_and_the_line_limi
         "limit": 16 * 1024 * 1024,
     }
     assert CANARY not in json.dumps(kwargs["env"])  # exec_env 只在 spec，不在啟動器的環境
+
+
+async def test_a_cwd_in_the_sandbox_state_is_handed_off_while_spawning(zone_data_root):
+    """cwd 在 ST 裡（自建 MCP 的 home）：spawn 當下以子行程的工作資料夾交接、結束後收回（P6）."""
+    home = ZonePath(Anchor.SANDBOX_STATE, ("proxy", "mcp_self", "tool", "home"))
+    (zone_data_root.parent / "zone_state" / "proxy" / "mcp_self" / "tool" / "home").mkdir(
+        parents=True
+    )
+    text = resource_manager.zone_text(home)
+    handed: list[bool] = []
+
+    class _Recording(_Spawner):
+        async def __call__(self, *argv: Any, **kwargs: Any) -> _Proc:
+            handed.append(is_handed_off(kwargs["cwd"], HandoffKind.SUBPROCESS_CWD))
+            return await super().__call__(*argv, **kwargs)
+
+    spawner, runner = _Recording(), _Runner(_Plan(cwd=Path(text)))
+    async with _client(runner, spawner):
+        pass
+    assert handed == [True]
+    assert not is_handed_off(text, HandoffKind.SUBPROCESS_CWD)
 
 
 async def test_plan_happens_on_enter_once_per_entry():

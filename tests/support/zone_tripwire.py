@@ -93,6 +93,14 @@ _SPAWN_PATHS: dict[str, tuple[int, ...]] = {
     # Windows 的 subprocess.Popen 之後還有一個：（程式, 命令列, 工作目錄）
     "_winapi.CreateProcess": (0, 2),
 }
+# 子行程的執行檔（上表第一個位置）在這些錨點裡時是交給子行程的資料，不是 Touka 的 I/O：每項的理由
+EXEC_DATA_ANCHORS: dict[Anchor, str] = {
+    Anchor.MCP_SERVERS: (
+        "技能 venv 的 python（``_venv_python``，ADR-0293 P4 的區字串）：只當子行程 argv 與"
+        "部署條目；"
+        "POSIX 上它本身就是連結、無法交接。隔離時執行檔是啟動器，未隔離要人逐次核准"
+    ),
+}
 # 只有這個位置是路徑的事件：{事件: 位置}（之後的參數是 mode、flags）
 _PATH_ONLY_AT: dict[str, int] = {"open": 0}
 # 會帶 AF_UNIX 路徑的 socket 事件（位址是第 2 個參數）；其他 socket 事件不帶路徑
@@ -226,6 +234,8 @@ def _check(event: str, args: tuple[object, ...]) -> None:
     for path in paths:
         if not _in_zone(event, path, roots) or _handed_off(event, path, args):
             continue
+        if _program_as_data(event, path, args, roots):
+            continue
         if allowed is not None:
             with _lock:
                 _hits.add(allowed)
@@ -233,6 +243,20 @@ def _check(event: str, args: tuple[object, ...]) -> None:
         if _from_another_process():
             return
         zone_records.add(KIND, event, path, caller or "(no product caller)")
+
+
+def _program_as_data(
+    event: str, path: str, args: tuple[object, ...], roots: list[ZoneRoots]
+) -> bool:
+    """子行程的執行檔在 ``EXEC_DATA_ANCHORS`` 的錨點裡（cwd 照舊要交接）."""
+    positions = _SPAWN_PATHS.get(event)
+    if positions is None or positions[0] >= len(args) or path not in _texts(args[positions[0]]):
+        return False
+    for zone_roots in roots:
+        found = zone_of(path, zone_roots, use_identity=False)
+        if found is not None and found[0] in EXEC_DATA_ANCHORS:
+            return True
+    return False
 
 
 def _in_zone(event: str, path: str, roots: list[ZoneRoots]) -> bool:

@@ -26,7 +26,7 @@ from src.services.isolation.profiles import SandboxProfile
 from src.services.isolation.runners import DirectRunner
 from src.tools.builtin import evolution
 
-from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
+from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE, build_skill_venv
 
 
 @pytest.fixture
@@ -292,8 +292,9 @@ async def test_windows_sdk_drains_and_masks_stderr(monkeypatch):
 
 
 @pytest.mark.parametrize("behavior", ["ok", "error", "marker", "no_run"])
-async def test_real_protocol_requires_running_server(monkeypatch, zone_data_root, behavior):
-    monkeypatch.setattr(evolution, "_venv_python", lambda _skill: sys.executable)
+async def test_real_protocol_requires_running_server(zone_data_root, behavior):
+    """技能資料夾裡真的 venv python 跑伺服器（不替換 ``_venv_python``）."""
+    build_skill_venv(evolution._venv_python("real"))
     code = """from mcp.server import MCPServer
 mcp = MCPServer("verification-test")
 @mcp.tool()

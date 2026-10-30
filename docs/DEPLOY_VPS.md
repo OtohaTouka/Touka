@@ -94,6 +94,8 @@ sudo mkdir -p /opt/touka/data
 sudo chown -R $USER:$USER /opt/touka/data
 ```
 
+執行器掛的 `data/personal_drive`、`data/mcp_servers/managed` 由 `touka-init` 建好。從 ADR-0293 PR 2 之前的版本升級時，技能名稱與舊自測資料夾的處理見 README_QUICKSTART 第 4 節。
+
 ---
 
 ## 步驟三：啟動服務

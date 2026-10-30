@@ -79,10 +79,13 @@ def test_iso_exec_mirrors_the_production_executor():
 
 
 def test_iso_exec_data_comes_from_the_fake_data_folder():
+    """資料根底下的掛載照相對路徑（``mcp_servers/managed``），其他照最後一段名稱."""
+    data = _proxy_data(PRODUCTION)
     for mount in _mounts(_service(EXEC)):
         if mount.kind == "bind":
-            name = PurePosixPath(mount.target).name
-            assert mount.source == f"{DATA}/{name}"
+            target = PurePosixPath(mount.target)
+            rel = target.relative_to(data) if target.is_relative_to(data) else target.name
+            assert mount.source == f"{DATA}/{rel}"
 
 
 def test_every_service_uses_the_given_image_and_never_restarts():

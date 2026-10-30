@@ -465,9 +465,10 @@ async def _verify_mcp(
             exc = exc.exceptions[0]
         payload = {"status": "error", "message": type(exc).__name__}
     finally:
+        # 刪不掉只記 log，不蓋掉驗證結果；路上有連結的 EvolutionRefused 照樣往外（ADR-0293 Q3）
         try:
             EvolutionPathGuard.delete_tool_file(skill_id, "test_wrapper.py")
-        except OSError:  # 刪不掉只記 log，不蓋掉驗證結果（ADR-0293 Q3）
+        except OSError:
             logger.warning("⚠️ Could not remove test_wrapper.py of '%s'", skill_id, exc_info=True)
     return VerifyOutcome(
         passed,

@@ -3,8 +3,11 @@
 ## 代理人資料夾不跟隨連結（2026-10-30，ADR-0293）
 
 - 區與錨點的唯一定義：ToukaMemory `utils/zone_paths.py`（`Anchor`、`ENFORCED_ANCHORS`、`ALL_ANCHORS`、`anchor_dirname`；判斷只有 `zone_of`、`contains_zone`、`anchor_at`，呼叫端明確傳錨點集合）。目前的 data 根由 `resource_manager` 載入時以 `set_roots_provider` 登記，讀取一律 `current_roots()`；隔離層用 `services/isolation/profiles.layout_zone_roots(layout)`。
-- 區裡的路徑：`ZonePath`，只由 `ResourceManager` 的 `agent_drive`、`agent_drive_for`、`soul_drive`、`custom_drive`、`outputs_dir`、`uploads_dir`、`anchor_root`（只限明列的呼叫點）與 `zone_rel_from_abs` 交出；I/O 只經 RM 的 `zone_*` 方法（`IResourceProxy` 有對應方法）。字串方法碰區丟 `ZonePathRequiredError`（`resource_manager._plain`／`_plain_tree`；遞迴走訪用 `walk_pruned` 剪掉區）。
-- 交給子行程或回檔：`ResourceManager.zone_handoff`（登記表在 `zone_paths`，`HandoffKind`、`is_handed_off`）；檔案下載 `services/zone_file_response.py` 的 `ZoneFileResponse`。
+- 區裡的路徑：`ZonePath`，只由 `ResourceManager` 的 `agent_drive`、`agent_drive_for`、`soul_drive`、`custom_drive`、`outputs_dir`、`uploads_dir`、`tool_root`、`sandbox_state_proxy`／`sandbox_state_dir`、`anchor_root`（只限明列的呼叫點）與 `zone_rel_from_abs` 交出；I/O 只經 RM 的 `zone_*` 方法（`IResourceProxy` 有對應方法）。字串方法碰區丟 `ZonePathRequiredError`（`resource_manager._plain`／`_plain_tree`；遞迴走訪用 `walk_pruned` 剪掉區）。
+- 交給子行程或回檔：`ResourceManager.zone_handoff`（登記表在 `zone_paths`，`HandoffKind`、`is_handed_off`）；包住的 MCP 的 cwd `ResourceManager.handoff_cwd`；檔案下載 `services/zone_file_response.py` 的 `ZoneFileResponse`。
+- 區字串（交給沙盒規則、argv、部署條目的資料）：`ResourceManager.zone_text`；回傳或收區字串的函式由 `tests/lint/test_zone_path_guard.py` 的 TF 算出，釘在 `ZONE_TEXT_PRODUCERS`／`ZONE_TEXT_RECEIVERS`，去處只准 `G4_DESTINATIONS`／`G4_ALLOWED`（ADR-0293 PR 2）。
+- sandbox state 根（ST）：RM 的 `_state_setting_or_default`（`_zone_roots` 用）與 `sandbox_state_root`；Touka 要在 ST 讀寫的路徑只經 `services/isolation/profiles.proxy_state_zone`／`proxy_state_owner`（版面與 RM 不一致時在建資料夾前丟 `ProfileError`）。
+- 技能名稱：`utils/isolation_policy.is_skill_segment`（`validate_skill_id` 與 `tool_root` 都只經它；執行器保留名單引用 `sandbox_kernel/spec.listing_kind`）。演化技能資料夾的 `ZonePath` 由 `EvolutionPathGuard.tool_zone` 交出。
 - 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`；刪除自訂模型資料夾只經 `routers/custom_models._remove_model_dir`（刪除路由、`/v1/models` 的刪除與建立失敗的回滾都經它）。
 - 設了 `vault_jail_arg` 的 MCP 伺服器：`services/mcp_vault_jail.apply` 以固定原因拒絕（`tool_executor` 在審批卡與 hook 之前呼叫）。
 - 例外被產品程式接住也看得到：`zone_paths.add_observer`／`report`（`ZoneEvent`）；測試期間的絆線與紀錄在 `tests/support/`，換 data 根只經 `zone_data_root` fixture 與 `tests/support/zone_roots.point_zone_roots`。

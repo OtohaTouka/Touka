@@ -45,7 +45,10 @@ def extract_artifact_path(tool_trace: tuple[dict, ...], kind: str) -> str:
 
 
 def verify_artifact(path: str, kind: str, must_contain: tuple[str, ...]) -> tuple[bool, str]:
-    """打開產出檔驗「格式合法 ＋ 含指定內容」。回 (是否有效, 說明)；不丟例外（runner 不接）。"""
+    """打開產出檔驗「格式合法 ＋ 含指定內容」。回 (是否有效, 說明).
+
+    區外、連結、開檔失敗、不是 zip 都判失敗；其他 zip 解析錯誤照舊往外丟（runner 不接）。
+    """
     if not path:
         return False, "未擷取到產出檔路徑（工具或許未回傳路徑）"
     spec = _OOXML_SPECS.get(kind)
