@@ -266,6 +266,15 @@ def test_errors_carry_only_the_display(data):
     assert str(data) not in str(exc)
 
 
+def test_an_anchor_that_cannot_be_made_carries_only_the_display(zone_data_root):
+    """錨點建不起來（同名的是檔案）時，例外也只帶顯示路徑（部署錯誤時會回給模型）."""
+    (zone_data_root / "personal_drive").write_text("not a folder", encoding="utf-8")
+    with pytest.raises(NotADirectoryError) as caught:
+        rm.zone_write_text(alice("a.txt"), "x")
+    assert caught.value.filename == "zone://personal_drive/Alice/a.txt"
+    assert str(zone_data_root) not in str(caught.value)
+
+
 def test_permission_repair_gets_the_absolute_path(data, monkeypatch):
     rm.zone_write_text(alice("a.txt"), "ok")
     target = str(_drive(data) / "a.txt")

@@ -2,7 +2,8 @@
 
 代理人的指令可以把 ``custom/<id>/drive`` 換成連結，指到假的設定資料夾。以前刪除照樣刪掉設定
 與人格（刪樹不跟隨連結）、改名照樣搬走；現在兩者都回 409 ``AGENT_DRIVE_LINKED``、什麼都不動，
-也不叫停指令。一般刪除在動手前先停這個模型的指令。
+也不叫停指令。一般刪除與改名在動手前先停這個模型的指令。設定頁「模型」分頁的刪除
+（``/v1/models/{id}``）走同一條路；不是自訂模型的 ID（例如只有個人空間的人類）不動資料夾。
 
 用真的路由與 ``ResourceManager``，只把擁有清單換成 MagicMock、停指令換成記錄者。data 根換到
 ``zone_data_root``（``tmp_path``），不碰 ``data/``。
@@ -61,12 +62,16 @@ def _linked_model(zone_data_root: Path, tmp_path: Path) -> tuple[Path, Path]:
     return folder, fake
 
 
+DELETE_URLS = [f"/v1/ui/custom_models/{MODEL}", f"/v1/models/{MODEL}"]
+
+
+@pytest.mark.parametrize("url", DELETE_URLS)
 def test_a_linked_drive_refuses_the_delete(
-    zone_data_root: Path, tmp_path: Path, stop: AsyncMock
+    url: str, zone_data_root: Path, tmp_path: Path, stop: AsyncMock
 ) -> None:
     folder, fake = _linked_model(zone_data_root, tmp_path)
 
-    resp = _send("DELETE", f"/v1/ui/custom_models/{MODEL}")
+    resp = _send("DELETE", url)
 
     assert (fake / "users.json").read_text(encoding="utf-8") == "{}", LINK_FOLLOWED
     assert (folder / "config.json").exists(), CHANGED_ANYWAY
@@ -90,7 +95,10 @@ def test_a_linked_drive_refuses_the_rename(
     assert resp.json()["detail"]["code"] == "AGENT_DRIVE_LINKED"
 
 
-def test_delete_stops_the_model_commands_first(zone_data_root: Path, stop: AsyncMock) -> None:
+@pytest.mark.parametrize("url", DELETE_URLS)
+def test_delete_stops_the_model_commands_first(
+    url: str, zone_data_root: Path, stop: AsyncMock
+) -> None:
     folder = _model(zone_data_root)
     seen: list[bool] = []
 
@@ -100,8 +108,41 @@ def test_delete_stops_the_model_commands_first(zone_data_root: Path, stop: Async
         return 0
 
     stop.side_effect = _record
-    resp = _send("DELETE", f"/v1/ui/custom_models/{MODEL}")
+    resp = _send("DELETE", url)
 
     assert resp.status_code == 200, resp.text
     assert seen == [True]  # 先停指令，那時模型資料還在
     assert not folder.exists()
+
+
+def test_the_models_tab_does_not_delete_a_personal_space(
+    zone_data_root: Path, stop: AsyncMock
+) -> None:
+    """沒有 config.json 的是別的身分的個人空間，不是模型：名冊裡也沒有就 404，資料夾不動."""
+    drive = zone_data_root / "custom" / "someone" / "drive"
+    drive.mkdir(parents=True)
+    (drive / "note.md").write_text("keep", encoding="utf-8")
+
+    resp = _send("DELETE", "/v1/models/someone")
+
+    assert resp.status_code == 404, resp.text
+    assert (drive / "note.md").read_text(encoding="utf-8") == "keep"
+    stop.assert_not_awaited()
+
+
+def test_rename_stops_the_old_model_commands_first(zone_data_root: Path, stop: AsyncMock) -> None:
+    """改名後用新 ID 停不到舊 ID 登記的指令，所以搬之前先停."""
+    folder = _model(zone_data_root)
+    seen: list[bool] = []
+
+    async def _record(identity: AgentIdentity) -> int:
+        seen.append(folder.exists())
+        assert identity.agent_id == MODEL
+        return 0
+
+    stop.side_effect = _record
+    resp = _send("POST", f"/v1/ui/custom_models/{MODEL}/rename", {"new_id": "M2"})
+
+    assert resp.status_code == 200, resp.text
+    assert seen == [True]
+    assert (zone_data_root / "custom" / "M2" / "config.json").exists()

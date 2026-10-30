@@ -4,7 +4,7 @@
 - 日期：2026-10-30
 - 決策者：維護者
 - 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 起這類伺服器的工具呼叫一律拒絕，D1 的注入不再使用）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。
-- 影響範圍：ToukaMemory 新增 `utils/zone_paths.py`，擴充 `utils/no_follow.py`；修改 `protocols.py`（`IResourceProxy`）、`tools/core_file_ops.py`、`tools/diag.py`、`tools/__init__.py`、`services/personal_catalog.py`、`services/mission_manager.py`、`services/manager.py`，刪 `tools/personal_drive.py`。ToukaProxy 修改 `services/resource_manager.py`、`tools/terminal.py`、`tools/mission_tools.py`、`tools/editor.py`（刪 `text_editor`）、`tools/grok_imagine_server.py`、`services/upload_service.py`、`services/gdpr_export_service.py`、`services/agent_reset/`、`services/memory_scrub/orchestrator.py`、`services/review/`、`services/subagent_results.py`、`services/process_registry.py`、`services/tool_executor.py`、`services/mcp_vault_jail.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`、`repair.py`、`status.py`、`home_wipe.py`）、`utils/mcp_origin.py`、`utils/permission_repair.py`、`utils/soul_io.py`、`utils/custom_io.py`、`routers/souls.py`、`routers/custom_models.py`、`routers/ui_sessions.py`、`routers/observability.py`、`main.py`、`scripts/manage_backup.py`，新增 `services/zone_file_response.py`；`errors.json.example`（1421 `AGENT_DRIVE_LINKED`）；ToukaDispatch `server.py`；ToukaChat `uploadClassify.ts`、`error_codes.ts`、翻譯；`scripts/lint_ssot.py`、`scripts/native_tool_contract_baseline.json`（刪 `text_editor`）；CI `native-tool-contracts.yml`（全量 pytest 開 `TOUKA_Z9_FULL_RUN`）。
+- 影響範圍：ToukaMemory 新增 `utils/zone_paths.py`，擴充 `utils/no_follow.py`；修改 `protocols.py`（`IResourceProxy`）、`tools/core_file_ops.py`、`tools/diag.py`、`tools/__init__.py`、`services/personal_catalog.py`、`services/mission_manager.py`、`services/manager.py`，刪 `tools/personal_drive.py`。ToukaProxy 修改 `services/resource_manager.py`、`tools/terminal.py`、`tools/mission_tools.py`、`tools/editor.py`（刪 `text_editor`）、`tools/grok_imagine_server.py`、`services/upload_service.py`、`services/gdpr_export_service.py`、`services/agent_reset/`、`services/memory_scrub/orchestrator.py`、`services/review/`、`services/subagent_results.py`、`services/process_registry.py`、`services/tool_executor.py`、`services/mcp_vault_jail.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`、`repair.py`、`status.py`、`home_wipe.py`）、`utils/mcp_origin.py`、`utils/permission_repair.py`、`utils/soul_io.py`、`utils/custom_io.py`、`routers/souls.py`、`routers/custom_models.py`、`routers/models.py`、`services/models/manager.py`、`routers/ui_sessions.py`、`routers/mcp.py`、`protocols/registry.py`（說明）、`routers/observability.py`、`main.py`、`scripts/manage_backup.py`，新增 `services/zone_file_response.py`；`errors.json.example`（1421 `AGENT_DRIVE_LINKED`）；ToukaDispatch `server.py`；ToukaChat `uploadClassify.ts`、`error_codes.ts`、翻譯；`scripts/lint_ssot.py`、`scripts/native_tool_contract_baseline.json`（刪 `text_editor`）；CI `native-tool-contracts.yml`（全量 pytest 開 `TOUKA_Z9_FULL_RUN`）。
 
 ## 背景
 
@@ -35,8 +35,9 @@
 6. **例外**：`ZonePathRequiredError(TypeError)`（程式錯誤，`except OSError` 接不到）、`ZoneSegmentError(ValueError)`、`ZoneLinkRefusedError(LinkRefusedError)`（區裡有連結；ADR-0292 的 `LinkRefusedError` 照舊給專案根）。區內方法丟出的所有例外，`filename` 都是 `display()`、訊息固定不帶路徑；絕對路徑只放在 `zone_abs`，只有權限自癒讀。三種例外與 `ZonePath` 的誤用會通知觀察者：正式環境記一行警告，測試期間記下來（決定 12）。
 7. **破壞性操作**（重置、刪除靈魂、刪除與改名自訂模型）：
    - 任何副作用之前先查個人空間根；是連結（或 `custom/<id>` 本身是連結）就整個失敗、什麼都不刪，UI 回 `AGENT_DRIVE_LINKED`（1421，HTTP 409）。
-   - 查完後停掉這個代理人的全部指令：`process_registry` 登記時帶 `agent_id`（沒有 session 的也登記），`terminate_agent` 跨 session 停；終端另外保留還沒 spawn 的與待審批的工作一起取消。停完到操作結束之間，終端與互審驗證指令啟動前查 `destructive_ops.is_held`，被持有就以 `agent_busy` 拒絕。刪除自訂模型也進 `destructive_op`。
+   - 查完後停掉這個代理人的全部指令：`process_registry` 登記時帶 `agent_id`（沒有 session 的也登記），`terminate_agent` 跨 session 停；終端另外保留還沒 spawn 的與待審批的工作一起取消。停完到操作結束之間，終端與互審驗證指令啟動前查 `destructive_ops.is_held`，被持有就以 `agent_busy` 拒絕。刪除與改名自訂模型也進 `destructive_op`；設定頁的 `DELETE /v1/models/{id}` 遇到自訂模型時改呼叫同一條刪除路徑（`ModelManager` 只刪登記與快取）；最底層的 `custom_io.delete_custom_dir` 沒有 `destructive_op` 的標記就拒絕。
    - 刪樹不跟隨連結、不因深度失敗；同一項被來回換的重試有上限，到上限以固定原因失敗（「可能有這個代理人留下的背景程式還在改檔案；請稍後再試，仍失敗請重啟 Touka」）。
+   - 新的自訂模型 ID 要能當成區裡的一段（`is_zone_segment`），不然回 422。
    - 自訂模型改名只用 `rename_agent_container`：只做 `renameat`、不複製（跨磁碟失敗），舊名是連結、新名已存在都拒絕。刪除用 `remove_custom_model_dir`。
 8. **改用區內方法的功能**：檔案動詞、個人空間目錄（`.touka`）、任務板（鎖檔搬到 `data/temp/locks/missions/<id>.lock`，代理人寫不到）、派工結果、互審蒐證、重置、刪除靈魂與自訂模型、改名、上傳（含配額走訪）、`/v1/outputs`、生圖、GDPR 匯出、診斷統計、終端的個人空間根、隔離狀態顯示、建立靈魂、儲存狀態檢查、ToukaMemory `manager`、ToukaDispatch 的看板、備份與還原（`manage_backup.py`：走訪不跟隨、寫回用 `write_stream_no_follow` 從根檢查整條路徑、成員名稱逐段檢查）。舊的字串產生函式（`get_vault_path("personal")` 一類）與 `text_editor`、`get_physical_path` 刪除。
 9. **vault-jailed MCP**（docgen 一類，ADR-0115）：這類伺服器的 I/O 不經 RM，而且所有代理人共用同一個程序，交出任何根都無法保證不跟隨連結；`base_dir` 同時是讀與寫的根，交別的資料夾會讓產出落錯地方。所以設了 `vault_jail_arg` 的伺服器，工具呼叫在執行器前段（這一輪清單核對之後、政策與審批卡之前）一律以 `VaultJailedToolUnavailableError` 拒絕、不送出，給模型的是結構化 `permission_denied`（`reason: "vault_jailed_tool_unavailable"`）。上傳 PDF、Office 檔時給模型的提示不再叫它用這類工具讀檔。安全的讀寫做法另開任務。
@@ -65,6 +66,7 @@
 - **硬連結不處理**：跨 bind mount 回 EXDEV、Landlock 的 REFER 有 no-gain 限制、執行器沒有掛設定資料夾。
 - **代理人自己的 JSON**：任務板、派工結果、`.touka` 在代理人可寫的空間，代理人直接改 JSON 就能偽造狀態；不跟隨連結擋不住，另排。
 - **改版前的備份**可能含連結另一端的內容。
+- **改名失敗的原因**：`custom/<id>` 新舊其中一個是掛載點（跨檔案系統）或 Windows 上檔案還開著時，改名回 `SYSTEM_ERROR`，不另外說明原因。
 - **絆線**看不到子行程裡的 I/O 與 `stat` 類呼叫；`os.open` 的 audit 事件不帶 `dir_fd`，以 `dir_fd` 開的相對名稱也看不到（產品程式裡這樣開的只有 `no_follow` 與隔離 kernel）。
 - **PR 2 之前**：`mcp_servers`、`docgen_output`、`sandbox_state` 維持今天的行為；演化的工具檔寫入仍有檢查與寫入之間的時間差。PR 2 必須在下一次 dev 進 main 前合併；兩個都合併之前，ADR-0292「暫時不要啟用 command hook」仍然有效。
 
@@ -73,10 +75,10 @@
 - 人類自己把 `personal_drive/<id>`、`custom/<id>`、`custom/<id>/drive` 做成連結時，那個代理人的檔案功能一律拒絕，重置、刪除與改名失敗並說明原因。錨點本身是人做的連結照常可用。
 - 專案根在某個代理人的個人空間底下時，專案的檔案功能拒絕；專案根在 data 根上層時，list、find、grep 照常但看不到代理人資料夾，遞迴刪除、複製、打包拒絕；專案裡指向代理人資料夾的檔案連結，打包與複製略過。
 - docgen 一類的工具在 PR 1 不能用（任何平台）；今天經隔離啟動時本來就讀寫不到代理人資料夾，主要影響 Windows 本機經人同意直接啟動的。
-- 重置、刪除靈魂、刪除自訂模型會先停掉那個代理人的全部指令。
-- Linux 上檔名含 `\` 的既有檔案，檔案動詞與 `/v1/outputs` 都碰不到（`/v1/outputs` 回 403），走訪時略過並計數；`/v1/outputs` 的檔名在 Windows 上另外不收 `:`、結尾的點與保留名（403）。
+- 重置、刪除靈魂、刪除與改名自訂模型會先停掉那個代理人的全部指令（設定頁模型分頁的刪除也一樣）。
+- 不能當成一段的名稱：兩個平台都是含 `/`、`\`、NUL 與 `.`、`..`；Windows 另外是含 `:`、保留裝置名、結尾的點或半形空白（系統會去掉，變成別的名稱的別名）。開頭的空白、全形空白這類名稱照常可用。Linux 上檔名含 `\` 的既有檔案，檔案動詞與 `/v1/outputs` 都碰不到（`/v1/outputs` 回 403）；走訪時略過並記下相對路徑（備份與還原逐筆印出，GDPR 與重置只記數量）；不合格的資料夾整個不進入、只記資料夾本身。上傳的檔名是 Windows 保留名時加前綴 `_`。
 - 個人空間裡另外掛的資料夾（例如自己掛的 NAS），備份、GDPR、診斷統計不收，刪除時失敗並說明。
-- 每次字串方法多一次區內判斷（解析每個錨點一次、每段一次 `stat`）。
+- 每次字串方法多一次區內判斷（解析每個錨點一次、每段一次 `stat`）。5,000 個檔案的專案 grep 量起來和改之前相同（1.87 秒對 1.88 秒）；測試裡的絆線另外讓同一個 grep 變成約 4 秒，只在測試。
 - 不改 `openapi.json`。撤回只能 revert。
 
 ## 替代方案

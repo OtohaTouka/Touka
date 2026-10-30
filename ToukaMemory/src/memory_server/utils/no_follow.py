@@ -774,14 +774,15 @@ def _rename_entry[H](ops: _TreeOps[H], base: Path, old: str, new: str) -> None:
 class WalkReport:
     """走訪結束後的統計（略過的不算錯誤）。
 
-    ``links``：略過的連結；``bad_names``：不能當區裡一段的名稱（只有區內走訪檢查）；
+    ``links``：略過的連結；``bad_names``：不能當區裡一段的名稱的相對 POSIX 路徑（只有區內
+    走訪檢查；資料夾略過時底下整個不進去）；
     ``errors``：（相對 POSIX 路徑, errno）——讀不到、太深（``WALK_TOO_DEEP``）、
     走訪途中被換掉（``WALK_CHANGED``）、換了檔案系統（``EXDEV``）；
     ``pruned``：``walk_pruned`` 剪掉的區根（錨點, 段落；整個錨點時段落是空的）。
     """
 
     links: int = 0
-    bad_names: int = 0
+    bad_names: list[str] = field(default_factory=list)
     errors: list[tuple[str, int]] = field(default_factory=list)
     pruned: list[tuple[Anchor, tuple[str, ...]]] = field(default_factory=list)
 
@@ -857,7 +858,7 @@ def _walk_dir[H](
     dirs: list[tuple[str, os.stat_result]] = []
     for name in names:
         if settings.check_names and not is_zone_segment(name):
-            found.bad_names += 1
+            found.bad_names.append("/".join((*parts, name)))
             continue
         try:
             info = ops.lstat(holder, name, shown / name)
@@ -1035,9 +1036,11 @@ def walk_open_pruned(
     report: WalkReport,
     *,
     anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
+    skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
 ) -> Iterator[tuple[tuple[str, ...], IO[bytes], os.stat_result]]:
     """同 ``walk_pruned``，但只給不跟隨地開好的一般檔案（打包用，R4）；拿下一個前關掉上一個。"""
-    yield from _opened(_walk(Path(root), _pruned_settings(roots, report, anchors, None)), report)
+    settings = _pruned_settings(roots, report, anchors, skip_dir)
+    yield from _opened(_walk(Path(root), settings), report)
 
 
 def _pruned_settings(

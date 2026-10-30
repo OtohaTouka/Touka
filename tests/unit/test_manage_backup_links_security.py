@@ -132,8 +132,31 @@ def test_restore_does_not_write_through_links(zone_data_root, tmp_path):
     assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
 
 
+def test_restore_skips_an_alias_of_an_agent_folder(zone_data_root, tmp_path, capsys):
+    """``data/./personal_drive`` 比不到代理人資料夾的名稱，走一般還原.
+
+    落點以身分判斷在區內就略過。
+    """
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    source = tmp_path / "alias.zip"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        zf.writestr("data/./personal_drive/Alice/x.txt", b"bad")
+        zf.writestr("data/soul/Alice/core.json", b"{}")
+    fresh = tmp_path.resolve() / "fresh_data"
+    fake = tmp_path.resolve() / "fake_drive"
+    for folder in (fresh / "personal_drive", fake):
+        folder.mkdir(parents=True)
+    make_dir_link(fresh / "personal_drive" / "Alice", fake)
+    mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
+    assert list(fake.iterdir()) == [], LINK_FOLLOWED
+    assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
+    assert "'data/./personal_drive/Alice/x.txt'" in capsys.readouterr().out
+
+
 def test_restore_skips_member_names_that_are_not_a_segment(zone_data_root, tmp_path, capsys):
-    """成員名稱只用 ``/`` 拆，每段都要合格；不合格的略過並計數."""
+    """成員名稱只用 ``/`` 拆，每段都要合格；不合格的略過並列出；開頭空白的名稱照常寫回."""
     mod = _load()
     resolver = _resolver(mod, tmp_path, zone_data_root)
     source = tmp_path / "crafted.zip"
@@ -141,10 +164,15 @@ def test_restore_skips_member_names_that_are_not_a_segment(zone_data_root, tmp_p
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
         zf.writestr("data/personal_drive/Alice/ok.txt", b"ok")
         zf.writestr("data/personal_drive/Alice/../../soul/x.txt", b"bad")
-        zf.writestr("data/custom/M1/drive/ x.txt", b"bad")
+        zf.writestr("data/custom/M1/drive/./x.txt", b"bad")
+        zf.writestr("data/custom/M1/drive/ lead.txt", b"keep")
     fresh = tmp_path.resolve() / "fresh_data"
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert (fresh / "personal_drive" / "Alice" / "ok.txt").read_bytes() == b"ok"
-    written = [p.name for p in fresh.rglob("*") if p.is_file()]
-    assert written == ["ok.txt"]
-    assert "skipped 0 links, 2 bad names" in capsys.readouterr().out
+    assert (fresh / "custom" / "M1" / "drive" / " lead.txt").read_bytes() == b"keep"
+    written = sorted(p.name for p in fresh.rglob("*") if p.is_file())
+    assert written == [" lead.txt", "ok.txt"]
+    out = capsys.readouterr().out
+    assert "skipped 0 links, 2 bad names" in out
+    assert "'data/custom/M1/drive/./x.txt'" in out
+    assert "'data/personal_drive/Alice/../../soul/x.txt'" in out

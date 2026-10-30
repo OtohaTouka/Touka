@@ -154,18 +154,19 @@ class ZoneRootsUnavailableError(RuntimeError):
 
 
 def is_zone_segment(name: object) -> bool:
-    r"""能不能當成區裡的一段：拒 ``..``、``.``、空、前後空白、``/``、``\``、NUL。
+    r"""能不能當成區裡的一段：拒 ``..``、``.``、空、``/``、``\``、NUL。
 
-    Windows 另拒 ``:``、保留裝置名（含副檔名，例如 ``con.txt``）、結尾的點。
+    Windows 另拒 ``:``、保留裝置名（含副檔名，例如 ``con.txt``）、結尾的點與半形空白（系統會
+    去掉，變成另一個名稱的別名）。其他空白（開頭的、全形的）是合法而不同的名稱，照收。
     """
     if not isinstance(name, str):
         return False
-    if not name or name.strip() != name or name in {".", ".."}:
+    if not name or name in {".", ".."}:
         return False
     if any(ch in name for ch in ("/", "\\", "\x00")):
         return False
     if _WINDOWS:
-        if ":" in name or name.endswith("."):
+        if ":" in name or name.endswith((".", " ")):
             return False
         if name.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_RESERVED:
             return False

@@ -97,7 +97,7 @@ export function buildFileRefHint(name: string, relpath: string): string {
   const safe = sanitizeDisplayName(name); // 伺服器已淨化，仍縱深防禦
   return (
     `\n\n[Uploaded file: ${safe} (saved at: ${relpath} in your own vault). ` +
-    `Plain-text files can be read with the personal_drive read tool.]\n`
+    `Plain-text files can be read with the read tool (scope "personal").]\n`
   );
 }
 

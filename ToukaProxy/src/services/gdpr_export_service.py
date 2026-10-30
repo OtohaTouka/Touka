@@ -175,7 +175,7 @@ def _add_drive_files(
         _skip_drive(seg, "root_escapes_app_data", state)
     for reason, count in (
         ("symlink_escape", report.links),
-        ("bad_name", report.bad_names),
+        ("bad_name", len(report.bad_names)),
         ("unreadable", len(report.errors)),
     ):
         if count:

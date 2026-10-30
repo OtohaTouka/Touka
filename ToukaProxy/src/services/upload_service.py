@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from memory_server.utils.no_follow import WalkReport
-from memory_server.utils.zone_paths import ZoneSegmentError
+from memory_server.utils.zone_paths import ZoneSegmentError, is_zone_segment
 
 from src.config import UPLOAD_AGENT_QUOTA_BYTES, UPLOAD_MAX_BYTES
 from src.core.exceptions import ErrorCode, ToukaException
@@ -103,8 +103,13 @@ def _safe_seg(raw: str) -> str:
 
 
 def _safe_filename(raw: str, ext: str) -> str:
-    """取檔名 basename 並淨化；空則以 ext 保底命名（限長 128，複審 Info）。"""
-    base = re.sub(r"[^A-Za-z0-9._-]", "_", Path(raw or "").name).lstrip(".")[:128]
+    """取檔名 basename 並淨化；空則以 ext 保底命名（限長 128，複審 Info）.
+
+    前後的點拿掉；Windows 保留名（``con.pdf``）加前綴，不然存不進去（ADR-0293）。
+    """
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", Path(raw or "").name)[:128].strip(".")
+    if base and not is_zone_segment(base):
+        base = f"_{base}"
     return base or f"upload.{ext}"
 
 

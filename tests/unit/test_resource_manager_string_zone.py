@@ -11,6 +11,7 @@ data 根是 ``zone_data_root`` 給的 ``tmp_path``；「專案」是它的上層
 
 from __future__ import annotations
 
+import sys
 import zipfile
 from typing import TYPE_CHECKING, Any
 
@@ -219,6 +220,27 @@ def test_a_link_in_a_project_is_skipped_when_packing_and_only_unlinked_when_dele
     rm.remove_dir(proj)
     assert not proj.exists()
     assert (bob / "x.txt").read_text("utf-8") == CANARY, LINK_FOLLOWED
+
+
+def test_a_file_link_in_a_project_is_skipped_when_packing_and_only_unlinked_when_deleting(
+    data: Path, tmp_path_factory: pytest.TempPathFactory
+):
+    """檔案的符號連結也一樣（R4）；這台 Windows 建不了符號連結，只在 POSIX 跑（CI 的 Linux）."""
+    if sys.platform == "win32":
+        return
+    secret = data / "personal_drive" / "Bob" / "x.txt"
+    secret.parent.mkdir()
+    secret.write_text(CANARY, encoding="utf-8")
+    proj = tmp_path_factory.mktemp("proj")
+    (proj / "a.txt").write_text("a", encoding="utf-8")
+    (proj / "peek.txt").symlink_to(secret)
+    out = tmp_path_factory.mktemp("out") / "p.zip"
+    rm.create_archive(proj, out)
+    with zipfile.ZipFile(out) as zf:
+        assert zf.namelist() == [f"{proj.name}/a.txt"], LINK_FOLLOWED
+    rm.remove_dir(proj)
+    assert not proj.exists()
+    assert secret.read_text("utf-8") == CANARY, LINK_FOLLOWED
 
 
 def test_a_plain_project_lists_and_finds_as_before(tmp_path_factory: pytest.TempPathFactory):

@@ -126,8 +126,8 @@ def test_a_missing_file_or_folder_is_not_found(client: TestClient, outputs: Path
     assert client.get("/v1/outputs/Alice/sub").status_code == 404
 
 
-NOT_A_SEGMENT = ["..", ".", "..\\..\\.env", " x"]
-WINDOWS_ONLY = ["C:x", "CON.png", "x."]  # 只有 Windows 不能當一段
+NOT_A_SEGMENT = ["..", ".", "..\\..\\.env", "a\x00b"]
+WINDOWS_ONLY = ["C:x", "CON.png", "x.", "x "]  # 只有 Windows 不能當一段
 
 
 @pytest.mark.parametrize("name", [*NOT_A_SEGMENT, *WINDOWS_ONLY])

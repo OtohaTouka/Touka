@@ -93,6 +93,12 @@ ARCHIVE_MAX_ENTRIES = 2_000
 ARCHIVE_MAX_TOTAL_BYTES = 50 * 1024 * 1024  # 50 MiB
 _ARCHIVE_COPY_CHUNK = 1024 * 1024  # rewrite_archive 串流照抄時每次搬的位元組數
 
+
+def _archive_skips_dir(parts: tuple[str, ...]) -> bool:
+    """打包時整個不進去的資料夾（建置產物）."""
+    return parts[-1] in _ARCHIVE_EXCLUDE_DIRS
+
+
 # list_directory／zone_list 一律隱藏的名稱（任何深度）
 _LIST_HIDDEN = frozenset({".git", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache"})
 # 個人空間裡的輸出與上傳資料夾（/v1/outputs 服務的就是這裡）
@@ -761,7 +767,8 @@ class ResourceManager:
         if not isinstance(zp, ZonePath):
             raise ZonePathRequiredError(None, method)
         roots = current_roots()
-        base = ensure_anchor(roots, zp.anchor) if create else roots.resolved(zp.anchor)
+        with zone_errors(zp.display()):  # 建錨點失敗也只帶顯示路徑（R12）
+            base = ensure_anchor(roots, zp.anchor) if create else roots.resolved(zp.anchor)
         if base is None:
             raise ZoneRootsUnavailableError
         return Path(base).joinpath(*zp.parts)
@@ -1225,7 +1232,11 @@ class ResourceManager:
         report = WalkReport()
         try:
             with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-                for parts, handle, info in walk_open_pruned(src.resolve(), current_roots(), report):
+                # 排除的資料夾（node_modules 等）不進去、不開裡面的檔
+                walk = walk_open_pruned(
+                    src.resolve(), current_roots(), report, skip_dir=_archive_skips_dir
+                )
+                for parts, handle, info in walk:
                     _refuse_pruned(report, "create_archive")
                     rel = src.joinpath(*parts).relative_to(base)
                     if not self._archive_should_exclude(rel):

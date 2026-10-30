@@ -13,7 +13,7 @@ import os
 import stat
 import sys
 import zipfile
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from memory_server.utils import no_follow
@@ -45,9 +45,6 @@ from memory_server.utils.zone_paths import Anchor, ZoneRoots, ZoneSegmentError
 from tests.support.links import LINK_FOLLOWED, make_dir_link
 from tests.support.zone_records import expect_zone_refusal
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 # 這個平台實際用的容器操作（seam 換它的方法）
 OPS = no_follow._FdTree if no_follow._POSIX_DIR_FD else no_follow._PathTree
 PD, CD = Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE
@@ -62,6 +59,16 @@ def _tree(base: Path, *rels: str) -> None:
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(rel, encoding="utf-8")
+
+
+def _bad_name(folder: Path) -> tuple[str, Path]:
+    r"""磁碟上有、卻不能當一段的名稱：POSIX 用反斜線；Windows 用 ``\\?\`` 建結尾是點的檔名."""
+    if os.name == "nt":
+        raw = Path("\\\\?\\" + str(folder.resolve() / "trail."))
+        raw.write_text("x", encoding="utf-8")
+        return "trail.", raw
+    (folder / "back\\slash.txt").write_text("x", encoding="utf-8")
+    return "back\\slash.txt", folder / "back\\slash.txt"
 
 
 def _other_device(info: os.stat_result) -> os.stat_result:
@@ -179,7 +186,7 @@ def test_rename_entry(base, outside):
     make_dir_link(base / "link", outside)
     with pytest.raises(LinkRefusedError):
         rename_entry_no_follow(base, "link", "renamed")
-    for bad in ("..", "a/b", "", " x"):
+    for bad in ("..", "a/b", "", "a\x00b"):
         with expect_zone_refusal("ZoneSegmentError"), pytest.raises(ZoneSegmentError):
             rename_entry_no_follow(base, "alice", bad)
     assert (base / "alice" / "notes.txt").is_file()
@@ -226,8 +233,14 @@ def _walked(root: Path, found: WalkReport | None = None) -> list[tuple[str, str]
 def test_walk_order_links_and_bad_names(base, outside):
     _tree(base / "z", "b.txt", "a.txt", "sub/c.txt", "sub/deeper/d.txt", "other/", " lead.txt")
     make_dir_link(base / "z" / "peek", outside)
+    bad, raw = _bad_name(base / "z" / "sub")
     found = WalkReport()
-    assert _walked(base / "z", found) == [
+    try:
+        walked = _walked(base / "z", found)
+    finally:
+        raw.unlink()
+    assert walked == [
+        (" lead.txt", "file"),  # 開頭空白是合法而不同的名稱
         ("a.txt", "file"),
         ("b.txt", "file"),
         ("other", "dir"),
@@ -236,7 +249,8 @@ def test_walk_order_links_and_bad_names(base, outside):
         ("sub/deeper", "dir"),
         ("sub/deeper/d.txt", "file"),
     ]
-    assert (found.links, found.bad_names, found.errors, found.pruned) == (1, 1, [], [])
+    assert (found.links, found.errors, found.pruned) == (1, [], [])
+    assert found.bad_names == [f"sub/{bad}"]  # 略過的名稱記相對路徑
     assert _walked(base / "missing") == []
     with pytest.raises(LinkRefusedError):
         _walked(base / "z" / "peek")

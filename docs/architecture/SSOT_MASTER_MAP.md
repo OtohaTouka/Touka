@@ -5,7 +5,7 @@
 - 區與錨點的唯一定義：ToukaMemory `utils/zone_paths.py`（`Anchor`、`ENFORCED_ANCHORS`、`ALL_ANCHORS`、`anchor_dirname`；判斷只有 `zone_of`、`contains_zone`、`anchor_at`，呼叫端明確傳錨點集合）。目前的 data 根由 `resource_manager` 載入時以 `set_roots_provider` 登記，讀取一律 `current_roots()`；隔離層用 `services/isolation/profiles.layout_zone_roots(layout)`。
 - 區裡的路徑：`ZonePath`，只由 `ResourceManager` 的 `agent_drive`、`agent_drive_for`、`soul_drive`、`custom_drive`、`outputs_dir`、`uploads_dir`、`anchor_root`（只限明列的呼叫點）與 `zone_rel_from_abs` 交出；I/O 只經 RM 的 `zone_*` 方法（`IResourceProxy` 有對應方法）。字串方法碰區丟 `ZonePathRequiredError`（`resource_manager._plain`／`_plain_tree`；遞迴走訪用 `walk_pruned` 剪掉區）。
 - 交給子行程或回檔：`ResourceManager.zone_handoff`（登記表在 `zone_paths`，`HandoffKind`、`is_handed_off`）；檔案下載 `services/zone_file_response.py` 的 `ZoneFileResponse`。
-- 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`。
+- 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`；刪除自訂模型的流程只有 `routers/custom_models.delete_custom_model`（`/v1/models` 的刪除也呼叫它）。
 - 設了 `vault_jail_arg` 的 MCP 伺服器：`services/mcp_vault_jail.apply` 以固定原因拒絕（`tool_executor` 在審批卡與 hook 之前呼叫）。
 - 例外被產品程式接住也看得到：`zone_paths.add_observer`／`report`（`ZoneEvent`）；測試期間的絆線與紀錄在 `tests/support/`，換 data 根只經 `zone_data_root` fixture 與 `tests/support/zone_roots.point_zone_roots`。
 

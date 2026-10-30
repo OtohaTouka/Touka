@@ -134,7 +134,7 @@ def _scan(zp: ZonePath, keep: tuple[str, ...] = ()) -> _Scan:
                 continue
             scan.names.add(entry.parts[0])
             scan.count += entry.kind != "dir"
-    scan.count += report.bad_names + len(report.errors)
+    scan.count += len(report.bad_names) + len(report.errors)
     return scan
 
 

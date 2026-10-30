@@ -249,7 +249,7 @@
       "R4"
     ],
     "file": "ToukaProxy/src/services/resource_manager.py",
-    "old": "                for parts, handle, info in walk_open_pruned(src.resolve(), current_roots(), report):",
+    "old": "                for parts, handle, info in walk:",
     "new": "                for parts, handle, info in (\n                    (Path(d, f).relative_to(src.resolve()).parts, open(Path(d, f), \"rb\"), os.stat(Path(d, f)))\n                    for d, _dirs, files in os.walk(src.resolve(), followlinks=True)\n                    for f in files\n                ):",
     "tests": [
       "tests/unit/test_resource_manager_string_zone.py::test_a_link_in_a_project_is_skipped_when_packing_and_only_unlinked_when_deleting"
@@ -577,8 +577,8 @@
       "R11"
     ],
     "file": "ToukaProxy/src/routers/custom_models.py",
-    "old": "            refuse_linked_drive(resource_manager.custom_drive(identity))",
-    "new": "            refuse_linked_drive(resource_manager.agent_drive(identity))",
+    "old": "    refuse_linked_drive(resource_manager.custom_drive(model))",
+    "new": "    refuse_linked_drive(resource_manager.agent_drive(model))",
     "tests": [
       "tests/unit/test_custom_model_links_security.py::test_a_linked_drive_refuses_the_delete"
     ],
@@ -1038,5 +1038,73 @@
     ],
     "posix_only": true,
     "note": "Z9 放行整段 /proc/self/fd/；只有 Linux 有這種路徑"
+  },
+  {
+    "id": "r11_custom_dir_skips_hold_check",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/utils/custom_io.py",
+    "old": "    if not destructive_ops.is_held(identity):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_custom_io.py::TestDeleteCustomDir::test_refuses_unless_a_destructive_op_holds_the_model"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_models_tab_skips_custom_delete",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/models.py",
+    "old": "    if custom_models.is_custom_model(identity):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_a_linked_drive_refuses_the_delete",
+      "tests/unit/test_custom_model_links_security.py::test_delete_stops_the_model_commands_first"
+    ],
+    "posix_only": false,
+    "note": "名冊刪除不再碰資料夾，所以只會回 404、資料夾留著"
+  },
+  {
+    "id": "r11_rename_skips_stop",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "                await _stop_before_moving(old_identity)",
+    "new": "                refuse_linked_drive(resource_manager.custom_drive(old_identity))",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_rename_stops_the_old_model_commands_first"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r7_g1_site_hidden_in_lambda",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/utils/custom_io.py",
+    "old": "logger = logging.getLogger(__name__)",
+    "new": "logger = logging.getLogger(__name__)\n_move = lambda i, n: resource_manager.rename_agent_container(i, n)  # noqa: E731",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_handoffs_whole_anchors_and_anchor_names_are_used_only_where_listed"
+    ],
+    "posix_only": false,
+    "note": "寫成模組層 lambda 也要算進 G1 名單"
+  },
+  {
+    "id": "r8_restore_alias_not_checked",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "                    if zone_of(target / arcname, roots) or contains_zone(target / arcname, roots):",
+    "new": "                    if False:",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_an_alias_of_an_agent_folder"
+    ],
+    "posix_only": false
   }
 ]

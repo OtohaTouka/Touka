@@ -13,13 +13,27 @@ NEVER touched.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
+from src.core.exceptions import ToukaException
 from src.models.identity import AgentIdentity
+from src.services import destructive_ops
 from src.utils import custom_io
 
 from tests.support.zone_records import expect_zone_refusal
 
 IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
+
+
+@contextmanager
+def _held(identity):
+    """刪除路由的 ``destructive_op`` 會做的標記（R11）."""
+    destructive_ops.hold(identity)
+    try:
+        yield
+    finally:
+        destructive_ops.release(identity)
 
 
 # ===========================================================================
@@ -30,20 +44,30 @@ IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
 class TestDeleteCustomDir:
     def test_returns_false_when_dir_missing(self, zone_data_root):
         (zone_data_root / "custom").mkdir()
-        assert custom_io.delete_custom_dir(IDENT) is False
+        with _held(IDENT):
+            assert custom_io.delete_custom_dir(IDENT) is False
 
     def test_returns_true_and_dir_gone_when_exists(self, zone_data_root):
         d = zone_data_root / "custom" / "agentX"
         d.mkdir(parents=True)
         (d / "weights.json").write_text("{}", encoding="utf-8")
 
-        assert custom_io.delete_custom_dir(IDENT) is True
+        with _held(IDENT):
+            assert custom_io.delete_custom_dir(IDENT) is True
         assert not d.exists()
+
+    def test_refuses_unless_a_destructive_op_holds_the_model(self, zone_data_root):
+        """只有走 R11 的刪除（停指令、拒絕連結）能刪；別的入口直接呼叫就丟例外."""
+        d = zone_data_root / "custom" / "agentX"
+        d.mkdir(parents=True)
+        with pytest.raises(ToukaException):
+            custom_io.delete_custom_dir(IDENT)
+        assert d.exists()
 
     def test_returns_false_when_the_id_is_not_one_segment(self, zone_data_root):
         (zone_data_root / "custom" / "agentX").mkdir(parents=True)
         escaping = AgentIdentity(agent_id="../custom")
-        with expect_zone_refusal("ZoneSegmentError"):
+        with expect_zone_refusal("ZoneSegmentError"), _held(escaping):
             assert custom_io.delete_custom_dir(escaping) is False
         assert (zone_data_root / "custom" / "agentX").exists()
 

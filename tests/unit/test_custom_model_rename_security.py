@@ -28,9 +28,11 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -350,6 +352,21 @@ def test_system_agent_ids_cannot_be_used_for_a_model(owners: MagicMock, reserved
     _assert_ownership_untouched(owners)
     # 實際環境裡 custom/DebugAgent 是它的個人空間、本來就在；只確認沒有變成模型
     assert not (_custom_base() / reserved / "config.json").exists()
+
+
+_WINDOWS_ONLY_IDS = ["CON", "x.", "x "] if sys.platform == "win32" else []
+
+
+@pytest.mark.parametrize("bad", ["a\x00b", *_WINDOWS_ONLY_IDS])
+def test_an_id_that_cannot_be_one_folder_name_is_rejected(owners: MagicMock, bad: str) -> None:
+    """不能當成區裡一段的 ID 不收（ADR-0293）：之後找不到它的個人空間，也刪不掉。"""
+    created = _post(f"/v1/ui/custom_models/{quote(bad, safe='')}", _BODY)
+    _create(owners, OLD)
+    renamed = _rename(OLD, bad)
+
+    for response in (created, renamed):
+        assert response.status_code == 422, response.text
+    _assert_ownership_untouched(owners)
 
 
 # ── 後續步驟失敗：搬回原狀（ADR-0254 H12 補記，舊審查報告丙-2） ────────────────────

@@ -491,8 +491,8 @@ class ToolExecutor:
                 result_text = tool_errors.build_tool_error(
                     tool_errors.PERMISSION_DENIED,
                     str(refused),
-                    suggestion="Do not retry this tool; tell the user it is switched off "
-                    "for now. Plain-text files can be read with the personal_drive tool.",
+                    suggestion="Do not retry this tool; tell the user it is switched off for now. "
+                    'Plain-text files can be read with the read tool (scope "personal").',
                     denied_tool=name,
                     reason=refused.reason,
                 )

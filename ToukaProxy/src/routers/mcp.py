@@ -143,8 +143,9 @@ class MCPServerItem(BaseModel):
     url: str | None = None
     headers: dict[str, str] | None = None
     enabled: bool = True
-    # per-agent vault 隔離政策（mcp_vault_jail）。納入契約以便 GET 不被 extra='forbid' 整份拒、
-    # 且 POST 來回不丟失；前端未回傳時由 _preserve_masked_env 自磁碟還原（不可被前端清掉）。
+    # vault 隔離設定（mcp_vault_jail；ADR-0293 之後設了這個的工具一律拒絕）。納入契約以便 GET
+    # 不被 extra='forbid' 整份拒、且 POST 來回不丟失；前端未回傳時由 _preserve_masked_env
+    # 自磁碟還原（不可被前端清掉）。
     vault_jail_arg: str | None = None
     # per-installation 工具治理（ADR-0195 軸 A）。同樣納入契約——extra='forbid' 下漏宣告
     # 一個磁碟既存欄位，整份 GET 會被 ValidationError 打成空設定頁。

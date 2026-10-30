@@ -37,8 +37,10 @@ from memory_server.utils.zone_paths import (
     Anchor,
     ZoneRoots,
     anchor_dirname,
+    contains_zone,
     ensure_anchor,
     is_zone_segment,
+    zone_of,
 )
 
 # 代理人資料夾（ADR-0293）：個人空間與自訂模型，另外不跟隨連結地備份與還原
@@ -369,9 +371,11 @@ def _zip_one(zipf: zipfile.ZipFile, path: Path, arcname: str, report: WalkReport
 
 def _print_skipped(report: WalkReport) -> None:
     print(
-        f"Agent folders: skipped {report.links} links, {report.bad_names} bad names, "
+        f"Agent folders: skipped {report.links} links, {len(report.bad_names)} bad names, "
         f"{len(report.errors)} unreadable"
     )
+    for name in report.bad_names:
+        print(f"  skipped name: {name!r}")
 
 
 def _sqlite_copy(source: Path, work: Path) -> Path:
@@ -547,6 +551,12 @@ class RestoreEngine:
                     if _restore_agent_member(zipf, member, target, report):
                         continue
                     arcname = member.removeprefix("data/")
+                    # 別名（``./``、短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱：落點以身分
+                    # 判斷在它裡面或包含它就略過，不走會跟隨連結的舊路（ADR-0293）
+                    roots = ZoneRoots(target, None)
+                    if zone_of(target / arcname, roots) or contains_zone(target / arcname, roots):
+                        report.bad_names.append(member)
+                        continue
                     # Extract to the TARGET data path
                     Path(target_data_path).mkdir(parents=True, exist_ok=True)
                     zipf.extract(member, target_data_path)
@@ -594,7 +604,7 @@ def _restore_agent_member(
         return True
     segments = rest.split("/")
     if not all(is_zone_segment(segment) for segment in segments):
-        report.bad_names += 1
+        report.bad_names.append(member)
         return True
     base = Path(ensure_anchor(ZoneRoots(target, None), anchor))
     try:

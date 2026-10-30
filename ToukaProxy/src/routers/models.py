@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from src.config import ANTHROPIC_API_BASE_URL, get_config_dir, get_full_env, resolve_env_file_path
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
+from src.routers import custom_models
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
 from src.services.models import model_manager as _model_manager
@@ -308,10 +309,14 @@ async def delete_model(
     model_id: str,  # noqa: IDENTITY_SSOT
     _identity: AgentIdentity = Depends(_require_models_mgmt),  # noqa: B008
 ) -> dict:
-    """從名冊中刪除特定的模型紀錄。"""
+    """從名冊中刪除特定的模型紀錄；自訂模型的資料夾走自訂模型的刪除（擁有權、R11）。"""
+    identity = AgentIdentity(agent_id=model_id)
+    removed_dir = False
+    if custom_models.is_custom_model(identity):
+        await custom_models.delete_custom_model(model_id, _identity)
+        removed_dir = True
     try:
-        identity = AgentIdentity(agent_id=model_id)
-        success = _model_manager.delete_model(identity)
+        success = _model_manager.delete_model(identity) or removed_dir
         if not success:
             raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model_id)  # noqa: TRY301
     except HTTPException:

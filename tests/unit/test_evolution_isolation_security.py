@@ -149,7 +149,7 @@ def test_evolution_profile_rejects_a_root_that_is_not_the_skill_sandbox(layout, 
         build_evolution_profile(SKILL, layout.data_root / relative, layout=layout)
 
 
-@pytest.mark.parametrize("skill", ["..", "a/b", "a\\b", " x", ""])
+@pytest.mark.parametrize("skill", ["..", "a/b", "a\\b", ".", ""])
 def test_evolution_profile_rejects_unsafe_skill_ids(layout, skill):
     with pytest.raises(ProfileError):
         build_evolution_profile(skill, _skill_root(layout) / ".." / skill, layout=layout)

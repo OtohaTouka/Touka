@@ -87,11 +87,11 @@ describe("classifyUpload", () => {
 });
 
 describe("buildFileRefHint", () => {
-  it("includes the filename and vault path, and only points at the personal_drive tool", () => {
+  it("includes the filename and vault path, and only points at the personal read tool", () => {
     const out = buildFileRefHint("report.pdf", "outputs/uploads/s1/report.pdf");
     expect(out).toContain("report.pdf");
     expect(out).toContain("outputs/uploads/s1/report.pdf");
-    expect(out).toContain("personal_drive read"); // 純文字檔用個人空間的讀取
+    expect(out).toContain('read tool (scope "personal")'); // 純文字檔用個人空間的讀取
     // ADR-0293：docgen 這類 vault-jailed 工具目前不能用，提示不再叫模型用它讀檔
     expect(out).not.toMatch(/read_(pdf|docx|xlsx|pptx)/);
   });

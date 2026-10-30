@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from memory_server.utils.zone_paths import is_zone_segment
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.custom_models import (  # noqa: TC001
@@ -53,7 +54,7 @@ def _validate_model_access(model_identity: AgentIdentity, identity: AgentIdentit
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
 
-def _is_model(model: AgentIdentity) -> bool:
+def is_custom_model(model: AgentIdentity) -> bool:
     """custom/ 底下名稱完全相同、而且有 config.json 的資料夾才是自訂模型（舊審查報告丙-2）.
 
     - 只認實際的資料夾名稱：不分大小寫的磁碟上 mine 也找得到 Mine，擁有清單卻是精確比對，
@@ -67,9 +68,27 @@ def _is_model(model: AgentIdentity) -> bool:
 
 
 def _assert_is_model(model: AgentIdentity) -> None:
-    """不是自訂模型就 404（見 ``_is_model``）。"""
-    if not _is_model(model):
+    """不是自訂模型就 404（見 ``is_custom_model``）。"""
+    if not is_custom_model(model):
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model.agent_id)
+
+
+async def _stop_before_moving(model: AgentIdentity) -> None:
+    """R11（ADR-0293）：個人空間根是連結就 409、什麼都不動；動手前停這個模型的全部指令.
+
+    呼叫端已在 ``destructive_op(model)`` 裡：標記期間不會開新的指令。
+    """
+    refuse_linked_drive(resource_manager.custom_drive(model))
+    killed = await terminal.stop_agent_commands(model)
+    if killed:
+        logger.info("Custom model %s: stopped %d command(s)", model.agent_id, killed)
+
+
+async def _remove_model_dir(model: AgentIdentity) -> bool:
+    """刪除自訂模型資料夾的唯一路徑；``custom_io.delete_custom_dir`` 沒有標記就拒絕."""
+    async with destructive_op(model):
+        await _stop_before_moving(model)
+        return custom_model_service.delete_model(model)
 
 
 def _names_a_soul(name: str, soul_ids: list[str]) -> bool:
@@ -83,13 +102,14 @@ def _names_a_soul(name: str, soul_ids: list[str]) -> bool:
 
 
 def _validate_new_model_id(model: AgentIdentity, *, renaming: str | None = None) -> None:
-    """新 ID（建立、改名）不能含路徑字元，也不能和靈魂撞名（ADR-0245 修補）。
+    """新 ID（建立、改名）不能含路徑字元、要能當成區裡的一段，也不能和靈魂撞名.
 
+    路徑字元與靈魂撞名是 ADR-0245 修補；能當一段見 ADR-0293（不然之後找不到它的個人空間）。
     ADR-0250 A5：和靈魂 ID、其他自訂模型 ID 只差大小寫也算撞名（Windows 與 Linux 一樣）；
     改名時排除被改名的自己，只改大小寫的自我改名不擋。已存在的資料不動。
     DebugAgent、DispatchAgent 也不能用：擁有清單和它們共用 ID（舊審查報告丙-2）。
     """
-    if not custom_io.is_plain_custom_name(model.agent_id):
+    if not (custom_io.is_plain_custom_name(model.agent_id) and is_zone_segment(model.agent_id)):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     # 和 MonitorLayer 同樣解析模型名（@名稱、toukasoul 前綴）
     passport = agent_service.identify_model_target(model.agent_id)
@@ -177,7 +197,7 @@ async def update_custom_model(
     async with _get_model_lock(model_id):
         # 只認實際的資料夾名稱：只差大小寫的 ID 在 Windows 上也找得到 config.json，
         # 改走新建的撞名檢查回 409，和 Linux 一樣（舊審查報告丙-2）
-        exists = _is_model(temp_id)
+        exists = is_custom_model(temp_id)
 
         # IDOR fix: if the custom model already exists, verify that the caller owns it
         if exists:
@@ -203,8 +223,13 @@ async def update_custom_model(
         if not saved:
             # 寫不進去就不回成功、不認領。新建時把寫了一半的資料夾清掉：沒有 config.json 的
             # 資料夾不算模型，之後查看、刪除都找不到它（舊審查報告丙-2）
-            if not exists and not custom_model_service.delete_model(temp_id):
-                logger.warning("Could not remove half-written custom model %s", model_id)
+            if not exists:
+                try:
+                    removed = await _remove_model_dir(temp_id)
+                except ToukaException:
+                    removed = False
+                if not removed:
+                    logger.warning("Could not remove half-written custom model %s", model_id)
             raise ToukaException(ErrorCode.SYSTEM_ERROR)
         return {"status": "success", "model_id": model_id}
 
@@ -239,11 +264,13 @@ async def rename_custom_model(
         new_identity = AgentIdentity(agent_id=new_id, agent_role="Owner")
         _validate_new_model_id(new_identity, renaming=model_id)
         await _assert_collection_free(new_identity, renaming=model_id)
-        # R11（ADR-0293）：個人空間根是連結就 409、兩邊都不動；改名不刪東西，不停指令
-        refuse_linked_drive(resource_manager.custom_drive(old_identity))
-
+        # R11：兩邊都不動；改名後用新 ID 停不到舊 ID 登記的指令，所以搬之前先停，也和重置互斥
         try:
-            custom_model_service.rename_model(old_identity, new_id)
+            async with destructive_op(old_identity):
+                await _stop_before_moving(old_identity)
+                custom_model_service.rename_model(old_identity, new_id)
+        except ToukaException:
+            raise
         except FileNotFoundError as e:
             raise ToukaException(ErrorCode.MODEL_NOT_FOUND, model_id=model_id) from e
         except FileExistsError as e:
@@ -274,24 +301,14 @@ async def delete_custom_model(
     model_id: str,  # noqa: IDENTITY_SSOT
     _identity: AgentIdentity = Depends(_require_models_role),  # noqa: B008
 ) -> dict[str, Any]:
-    """刪除自定義模型"""
+    """刪除自定義模型（設定頁「模型」分頁的 ``DELETE /v1/models/{id}`` 也轉到這裡）"""
     identity = AgentIdentity(agent_id=model_id, agent_role="Owner")
     async with _get_model_lock(model_id):
         # IDOR fix: verify ownership before deletion
         _validate_model_access(identity, _identity)
         _assert_is_model(identity)
 
-        # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個模型的全部指令，
-        # 標記期間也不會開新的。
-        async with destructive_op(identity):
-            refuse_linked_drive(resource_manager.custom_drive(identity))
-            killed = await terminal.stop_agent_commands(identity)
-            if killed:
-                logger.info(
-                    "Custom model %s: stopped %d command(s) before deleting", model_id, killed
-                )
-            success = custom_model_service.delete_model(identity)
-        if not success:
+        if not await _remove_model_dir(identity):
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)
 
         # IDOR fix：所有人的清單都拿掉這個 ID，不只呼叫者的，免得留下殘留（舊審查報告丙-2）。

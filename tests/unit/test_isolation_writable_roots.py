@@ -220,22 +220,23 @@ def test_every_wired_action_builds_a_listed_profile():
     assert set(ACTION_PROFILES) == set(ISOLATION_WIRED_ACTIONS)
 
 
+def _builds(node: ast.AST, name: str) -> bool:
+    """``name(...)`` 或 ``模組.name(...)``（例如 ``spec.PathRule(...)``）."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)) == name
+
+
 def _calls(name: str) -> dict[str, list[ast.Call]]:
     found: dict[str, list[ast.Call]] = {}
     for path in sorted(SOURCE.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module_calls = 0
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name:
-                module_calls += 1
+        module_calls = sum(_builds(node, name) for node in ast.walk(tree))
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            calls = [
-                node
-                for node in ast.walk(fn)
-                if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name
-            ]
+            calls = [node for node in ast.walk(fn) if _builds(node, name)]
             if calls:
                 key = f"{path.relative_to(SOURCE).as_posix()}:{fn.name}"
                 found.setdefault(key, []).extend(calls)
@@ -247,6 +248,26 @@ def _calls(name: str) -> dict[str, list[ast.Call]]:
 @pytest.mark.parametrize("name", sorted(CONSTRUCTIONS))
 def test_profile_and_rule_constructions_are_listed(name):
     assert {key: len(calls) for key, calls in _calls(name).items()} == CONSTRUCTIONS[name]
+
+
+def test_no_profile_gets_its_rules_replaced():
+    """``dataclasses.replace(profile, rules=...)`` 會繞過建構點名單：產品程式不准這樣換規則."""
+    replaced = [
+        f"{path.relative_to(SOURCE).as_posix()}:{node.lineno}"
+        for path in sorted(SOURCE.rglob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if _builds(node, "replace") and any(k.arg == "rules" for k in node.keywords)
+    ]
+    assert replaced == []
+
+
+@pytest.mark.parametrize(
+    ("text", "count"),
+    [("PathRule(p, a)\n", 1), ("spec.PathRule(p, a)\n", 1), ("x.other(p)\n", 0)],
+)
+def test_constructions_are_found_in_both_spellings(text, count):
+    tree = ast.parse(text)
+    assert sum(_builds(node, "PathRule") for node in ast.walk(tree)) == count
 
 
 def test_profiles_built_outside_the_builders_have_no_rules():

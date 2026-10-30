@@ -80,6 +80,19 @@ def test_save_upload_sanitizes_traversal_filename_and_session():
     assert res["filename"] == "passwd.pdf"  # 取 basename
 
 
+@pytest.mark.parametrize(
+    ("raw", "on_windows", "elsewhere"),
+    [
+        ("con.pdf", "_con.pdf", "con.pdf"),
+        ("NUL", "_NUL", "NUL"),
+        ("report.pdf.", "report.pdf", "report.pdf"),
+    ],
+)
+def test_a_name_that_cannot_be_one_segment_is_renamed(raw, on_windows, elsewhere):
+    """結尾的點拿掉；Windows 保留名加前綴，不然存不進去（其他平台是合法名稱，照存）."""
+    assert U._safe_filename(raw, "pdf") == (on_windows if sys.platform == "win32" else elsewhere)
+
+
 def test_safe_seg_neutralizes_dot_dot():
     assert U._safe_seg("..") == "_misc"  # 純 .. → 退為固定桶（不再 mint uuid）
     assert "/" not in U._safe_seg("a/b/c")
@@ -137,10 +150,13 @@ def test_save_upload_refuses_a_linked_folder(zone_data_root: Path, tmp_path: Pat
 
 
 def test_save_upload_name_that_cannot_be_a_segment_is_upload_failed():
-    """名稱在這個系統不能當一段（Windows 的 ``CON.md``）：既有的 UPLOAD_FAILED，不是 500。"""
+    """session 在這個系統不能當一段（Windows 的 ``CON``）：既有的 UPLOAD_FAILED，不是 500。
+
+    檔名不會走到這裡：保留名加前綴（見上面）。
+    """
     if sys.platform != "win32":
-        assert U.save_upload(DEBUG, "s1", "CON.md", _TEXT)["filename"] == "CON.md"
+        assert U.save_upload(DEBUG, "CON", "a.md", _TEXT)["relpath"] == "outputs/uploads/CON/a.md"
         return
     with expect_zone_refusal("ZoneSegmentError"), pytest.raises(ToukaException) as exc:
-        U.save_upload(DEBUG, "s1", "CON.md", _TEXT)
+        U.save_upload(DEBUG, "CON", "a.md", _TEXT)
     assert exc.value.code is ErrorCode.UPLOAD_FAILED

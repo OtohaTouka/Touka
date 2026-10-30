@@ -266,8 +266,12 @@ def test_terminal_summary_lists_sandbox_residue(tmp_path, monkeypatch, residue):
     leftover = None if residue is None else tmp_path / "touka_test_session_leftover"
     monkeypatch.setattr(session_conftest, "remove_session_sandbox", lambda _root, _steps: leftover)
     monkeypatch.setattr(session_conftest, "_sandbox_residue", [])
-    # CI 的全量測試設了 Z9 的環境變數；跑到一半時放行清單本來就還沒全部用到
-    monkeypatch.delenv(session_conftest.zone_tripwire.FULL_RUN_ENV, raising=False)
+    # 真的 session hook 也判區的紀錄與 Z9 全量檢查：旗標在匯入 conftest 時就讀進常數（CI 全量是
+    # True，跑到一半時放行清單本來就還沒全部用到）；別的測試還沒結算的紀錄也不能被這裡取走
+    monkeypatch.setattr(session_conftest, "_ZONE_FULL_RUN", False)
+    monkeypatch.setattr(session_conftest, "_zone_late_records", [])
+    monkeypatch.setattr(session_conftest, "_zone_unused_allowances", [])
+    monkeypatch.setattr(session_conftest.zone_records, "remaining", list)
     lines: list[str] = []
     session = SimpleNamespace(exitstatus=pytest.ExitCode.OK)
 

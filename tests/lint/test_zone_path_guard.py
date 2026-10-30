@@ -9,7 +9,8 @@
   walrus、拆解、``or``／``and``、條件運算式、``child``／``join_rel``／``parent`` 的鏈、``self.``
   屬性、容器與 dataclass 建構參數），跨函式以名稱遞移（``from x import f as g`` 照別名；同名的
   保守地當成同一個）。
-- T3：測試不能替換區內產生函式與 data 根；只有明列的 fixture 與明列的例外。
+- T3：測試不能替換區內產生函式、data 根與 ``zone_paths`` 的任何模組層名稱（直接呼叫
+  改根、交接登記與觀察者的函式也算）；只有明列的 fixture 與明列的例外。
 - G1：轉出、整個錨點、錨點名稱、交接登記與 ``zone_abs`` 的呼叫點只在明列的「模組:函式」，雙向相等。
 - G2：錨點的資料夾名稱只在 ``zone_paths`` 與明列的「模組:函式:名稱」，次數也釘住。
 - 其他：產品不用 ``os.PathLike`` 判斷；測試的區例外紀錄與絆線的內部只有明列的測試檔能碰；
@@ -53,7 +54,8 @@ CANARIES = frozenset(
         "ToukaDispatch/server.py",
     }
 )
-_NESTED = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# lambda 不另成一個 scope：本體算在外層（寫成 lambda 就看不到的話，任何規則都能這樣繞過）
+_NESTED = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
 # --- 讀原始碼 -------------------------------------------------------------
@@ -140,7 +142,7 @@ def functions(module: str, tree: ast.Module) -> Iterator[Function]:
 
 
 def own_nodes(node: ast.AST) -> Iterator[ast.AST]:
-    """``node`` 自己的節點（不進巢狀函式與 lambda；類別本體算外層的，方法不算）."""
+    """``node`` 自己的節點（不進巢狀函式；lambda 與類別本體算外層的，方法不算）."""
     pending = list(ast.iter_child_nodes(node))
     while pending:
         child = pending.pop()
@@ -212,9 +214,11 @@ def _vault_argument(call: ast.Call) -> ast.expr | None:
     return next((k.value for k in call.keywords if k.arg == "vault"), None)
 
 
-def test_old_getters_no_longer_give_the_personal_space():
-    constant_personal, dynamic = [], set()
-    for source in product_sources():
+def t1_findings(sources: Iterable[Source]) -> tuple[list[str], set[str]]:
+    """（第一個參數是 ``"personal"`` 的呼叫位置, 第一個參數不是常數的「模組:函式」）."""
+    constant_personal: list[str] = []
+    dynamic: set[str] = set()
+    for source in sources:
         aliases = module_aliases(source.tree)
         for key, nodes in scopes(source):
             for node in nodes:
@@ -227,8 +231,25 @@ def test_old_getters_no_longer_give_the_personal_space():
                     dynamic.add(key)
                 elif vault.value == PERSONAL_VAULT:
                     constant_personal.append(f"{source.rel}:{node.lineno}")
+    return constant_personal, dynamic
+
+
+def test_old_getters_no_longer_give_the_personal_space():
+    constant_personal, dynamic = t1_findings(product_sources())
     assert constant_personal == []
     assert dynamic == OLD_VAULT_DYNAMIC_CALLERS
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('def f(rm, i):\n    return rm.get_vault_path("personal", i)\n', (["m.py:2"], set())),
+        ('cb = lambda rm: rm.get_vault_path("personal")\n', (["m.py:1"], set())),
+        ("def f(rm, v):\n    g = lambda: rm.get_vault_path(v)\n", ([], {"m:f"})),
+    ],
+)
+def test_t1_finds_the_old_getter_in_functions_and_lambdas(text, expected):
+    assert t1_findings([Source("m.py", "m", ast.parse(text))]) == expected
 
 
 def test_removed_getters_do_not_come_back():
@@ -653,6 +674,15 @@ def test_every_g1_site_says_why():
         ("def f(exc):\n    return getattr(exc, 'zone_abs')\n", {"m:f": {"getattr:zone_abs": 1}}),
         ("def f(roots, a):\n    return roots.resolved(a)\n", {"m:f": {"resolved": 1}}),
         ("x = anchor_dirname(A)\n", {"m:<module>": {"anchor_dirname": 1}}),
+        # lambda 本體算在外層
+        (
+            "opener = lambda p: zp._register_handoff(p, k)\n",
+            {"m:<module>": {"_register_handoff": 1}},
+        ),
+        (
+            "def f(rm):\n    return lambda zp: rm.zone_handoff(zp, k)\n",
+            {"m:f": {"zone_handoff": 1}},
+        ),
         # 叫 resolved 的變數不算
         ("def f(p):\n    resolved = p\n    return resolved\n", {}),
     ],
@@ -749,6 +779,10 @@ def test_anchor_folder_names_appear_only_where_listed():
             {"m:f:drive": 1, f"m:f:{CUSTOM_AND_DRIVE}": 1},
         ),
         ("def f(x):\n    return x == b'personal_drive'\n", {"m:f:personal_drive": 1}),
+        (
+            "key = lambda a: os.path.join(d, 'personal_drive', a)\n",
+            {"m:<module>:personal_drive": 1},
+        ),
         ("def f():\n    '''personal_drive/x'''\n", {}),
     ],
 )
@@ -786,14 +820,19 @@ def test_product_code_does_not_decide_by_pathlike():
 # 區例外紀錄（R13）與絆線（Z9）的內部：只有這些測試檔能碰，不然就是讓測試不紅的開關
 RECORDS_PUBLIC = frozenset({"expect_zone_refusal", "raises_zone"})
 RECORDS_INTERNAL_USERS = frozenset(
-    {"tests/conftest.py", "tests/support/zone_tripwire.py", "tests/unit/test_zone_records.py"}
+    {
+        "tests/conftest.py",
+        "tests/support/zone_tripwire.py",
+        "tests/unit/test_zone_records.py",
+        # 直接呼叫 conftest 的 session hook：換掉 remaining，不取走別的測試還沒結算的紀錄
+        "tests/unit/test_session_sandbox_cleanup.py",
+    }
 )
 TRIPWIRE_USERS = frozenset(
     {
         "tests/conftest.py",
         "tests/unit/test_zone_tripwire.py",
         "tests/lint/test_ci_pr_checks.py",  # 只讀 FULL_RUN_ENV
-        "tests/unit/test_session_sandbox_cleanup.py",  # 只讀 FULL_RUN_ENV
     }
 )
 SELF_TEST_TAKER = "tests/unit/test_zone_tripwire.py"
@@ -826,7 +865,20 @@ def _mentions(source: Source, module: str) -> set[str]:
                 found.add(node.attr)
         if isinstance(node, ast.Constant) and node.value == dotted:
             found.add("*")  # importlib.import_module("tests.support.…")
+        if (
+            isinstance(node, ast.Call)
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and _last_name(node.args[0]) == module
+        ):
+            found.add(str(node.args[1].value))  # monkeypatch.setattr(x.<module>, "名稱", …)
     return found
+
+
+def _last_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    return node.attr if isinstance(node, ast.Attribute) else None
 
 
 def test_only_listed_tests_reach_into_the_zone_records_and_the_tripwire():
@@ -941,13 +993,31 @@ DATA_ROOT_NAMES = frozenset(
         "_RESOURCE_PROXY_CACHE",
     }
 )
+# zone_paths 的模組層名稱裡和別的模組撞名、替換也不影響區判斷的
+ZONE_PATHS_GENERIC_NAMES = frozenset({"logger"})
+# 直接呼叫就會改區判斷、交接或觀察者的函式（不必經 monkeypatch）
+T3_DIRECT_CALLS = frozenset(
+    {
+        "set_roots_provider",
+        "_register_handoff",
+        "_release_handoff",
+        "add_observer",
+        "remove_observer",
+    }
+)
 _PATCHERS = frozenset({"patch", "object", "dict", "multiple"})
 _ENV_SELECTION = "測 Memory 選哪個 .env：data 根的環境變數有沒有設是這個測試的輸入"
 _DATA_ROOT_PARSING = "測 Memory 解析 data 根的環境變數本身（Docker 下的絕對與相對值）"
 # 「測試模組:函式」→（次數, 理由）；其他測試換 data 根一律用 ``zone_data_root`` 或
 # ``tests.support.zone_roots.point_zone_roots``
+_ZONE_SELF_TEST = "測 zone_paths 自己：根的來源、交接登記表或觀察者本身就是被測的東西"
+_OBSERVE = "測試期間加上、結束時拿掉的觀察者，只記下區的事件，不改判斷"
+_ALIAS = "模擬另一個掛載路徑（同一個檔案身分）：這台機器不能做 bind mount"
 T3_ALLOWED: dict[str, tuple[int, str]] = {
-    "tests.conftest:<module>": (1, "session 沙盒的 data 根（匯入任何產品程式之前）"),
+    "tests.conftest:<module>": (
+        2,
+        "session 沙盒的 data 根（匯入任何產品程式之前）；R13 的區例外紀錄掛成觀察者",
+    ),
     "tests.conftest:setup_test_environment": (1, "每個測試開始前把 data 根還原成 session 沙盒"),
     "tests.support.zone_roots:point_zone_roots": (
         3,
@@ -968,6 +1038,43 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
     "test_memory_app_data_dir_preserves_explicit_absolute_override_in_docker": (
         1,
         _DATA_ROOT_PARSING,
+    ),
+    # 下面是 zone_paths 的模組層名稱與直接呼叫（ADR-0293 DEV-B 第一輪）
+    "tests.unit.test_memory_scrub_endpoint_security:"
+    "test_e15_another_reset_is_refused_while_a_scrub_or_reset_runs": (
+        1,
+        "重置 primitives 自己的 ``_identity``（查註冊身分），和 zone_paths 的同名、不是區判斷",
+    ),
+    "tests.unit.test_no_follow_zone:events": (2, _OBSERVE),
+    "tests.unit.test_no_follow_zone:test_iter_regular_files_uses_the_registered_roots": (
+        2,
+        "測走訪用的是登記的根：換成這個測試的根，再拿掉看它拒絕",
+    ),
+    "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (1, _ALIAS),
+    "tests.unit.test_resource_manager_string_zone:"
+    "test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive": (
+        1,
+        "關掉事前的包含判斷，證明走訪途中遇到區根仍整個拒絕（第二道檢查）",
+    ),
+    "tests.unit.test_resource_manager_zone:events": (2, _OBSERVE),
+    "tests.unit.test_zone_paths:_same_identity": (1, _ALIAS),
+    "tests.unit.test_zone_paths:events": (2, _OBSERVE),
+    "tests.unit.test_zone_paths:test_current_roots_comes_only_from_the_provider": (
+        2,
+        _ZONE_SELF_TEST,
+    ),
+    "tests.unit.test_zone_paths:test_handoff_registry_compares_normalized_paths": (
+        2,
+        _ZONE_SELF_TEST,
+    ),
+    "tests.unit.test_zone_paths:test_handoff_registry_counts_and_releases": (5, _ZONE_SELF_TEST),
+    "tests.unit.test_zone_paths:test_observer_errors_do_not_reach_the_caller": (
+        2,
+        _ZONE_SELF_TEST,
+    ),
+    "tests.unit.test_zone_tripwire:test_an_error_in_the_hook_is_recorded": (
+        1,
+        "絆線自己匯入的 ``current_roots`` 換成會丟例外的，測 hook 出錯也記一筆",
     ),
 }
 
@@ -1032,10 +1139,24 @@ def _assigned_names(node: ast.AST) -> list[str]:
     return found
 
 
+def zone_paths_module_names() -> frozenset[str]:
+    """``zone_paths.py`` 模組層定義的所有名稱（含私有的根、身分、交接與觀察者狀態）."""
+    tree = next(s.tree for s in product_sources() if s.rel == ZONE_PATHS)
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names.update(n.id for n in targets if isinstance(n, ast.Name))
+    return frozenset(names - ZONE_PATHS_GENERIC_NAMES)
+
+
 @cache
 def t3_protected() -> frozenset[str]:
-    """區內產生函式（T2 的集合）、回傳標註有 ``ZonePath`` 的、呼叫過 Z5 方法的，加上 data 根."""
-    names = set(product_flow().names) | DATA_ROOT_NAMES
+    """區內產生函式（T2 的集合）、回傳標註有 ``ZonePath`` 的、呼叫過 Z5 方法的、data 根，加上
+    ``zone_paths`` 的模組層名稱."""
+    names = set(product_flow().names) | DATA_ROOT_NAMES | zone_paths_module_names()
     for source in product_sources():
         aliases = module_aliases(source.tree)
         for fn in functions(source.module, source.tree):
@@ -1053,6 +1174,9 @@ def t3_sites(sources: Iterable[Source], protected: frozenset[str]) -> dict[str, 
         for key, nodes in scopes(source):
             for node in nodes:
                 names = _patched_names(node) if isinstance(node, ast.Call) else []
+                if isinstance(node, ast.Call):
+                    called = called_name(node.func, {})
+                    names += [called] if called in T3_DIRECT_CALLS else []
                 names += _assigned_names(node)
                 found[key] += sum(1 for name in names if name in protected)
     return {key: n for key, n in found.items() if n}
@@ -1065,8 +1189,11 @@ def test_tests_do_not_replace_zone_producers_or_the_data_root():
 
 def test_t3_covers_the_producers_and_the_data_root():
     protected = t3_protected()
-    assert protected >= Z5_METHODS | DATA_ROOT_NAMES
+    assert protected >= Z5_METHODS | DATA_ROOT_NAMES | T3_DIRECT_CALLS
     assert {"_agent_artifact_root", "_get_mission_path", "_own_drive"} <= protected
+    state = {"_roots_provider", "_identity", "_handoffs", "_observers", "zone_of", "contains_zone"}
+    assert state | {"current_roots", "is_handed_off"} <= protected
+    assert "logger" not in protected
 
 
 @pytest.mark.parametrize(
@@ -1092,6 +1219,9 @@ def test_t3_covers_the_producers_and_the_data_root():
         ('def t():\n    del os.environ["MEMORY_APP_DATA_DIR"]\n', "MEMORY_APP_DATA_DIR"),
         ("def t():\n    settings.MEMORY_APP_DATA_DIR = x\n", "MEMORY_APP_DATA_DIR"),
         ("def t():\n    module.resource_manager = fake\n", "resource_manager"),
+        ("def t():\n    set_roots_provider(lambda: roots)\n", "set_roots_provider"),
+        ("def t():\n    zp._register_handoff(p, k)\n", "_register_handoff"),
+        ("def t(m):\n    f = lambda: m.setattr(zp, \"_identity\", g)\n", "_identity"),
     ],
 )
 def test_t3_finds_every_way_of_replacing_a_name(text, name):

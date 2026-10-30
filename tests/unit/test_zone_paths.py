@@ -305,8 +305,9 @@ def test_contains_zone_through_links_and_identity(
 # --- 段落與 ZonePath ------------------------------------------------------
 
 
-BAD_EVERYWHERE = ["", ".", "..", " a", "a ", "a/b", "a\\b", "a\x00b"]
-BAD_ON_WINDOWS = ["a:b", "CON", "con.txt", "COM1", "LPT9.log", "NUL", "a."]
+BAD_EVERYWHERE = ["", ".", "..", "a/b", "a\\b", "a\x00b"]
+# 結尾的點與半形空白：Windows 會去掉，變成另一個名稱的別名
+BAD_ON_WINDOWS = ["a:b", "CON", "con.txt", "COM1", "LPT9.log", "NUL", "a.", "a "]
 
 
 @pytest.mark.parametrize("name", BAD_EVERYWHERE)
@@ -319,7 +320,12 @@ def test_windows_only_segments(name: str) -> None:
     assert is_zone_segment(name) is (not WINDOWS)
 
 
-@pytest.mark.parametrize("name", ["notes.txt", "資料", "a b", ".touka", "con-tract", "COM10"])
+# 開頭空白、全形與不換行空白都是合法而不同的名稱（備份、還原、重置不能略過）
+@pytest.mark.parametrize(
+    "name",
+    ["notes.txt", "資料", "a b", ".touka", "con-tract", "COM10"]
+    + [" a", "\u3000a", "a\u3000", "a\u00a0"],
+)
 def test_safe_segments(name: str) -> None:
     assert is_zone_segment(name)
 

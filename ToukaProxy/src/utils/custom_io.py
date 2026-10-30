@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 from memory_server.utils.zone_paths import Anchor, ZoneSegmentError
 
 from src.config import get_app_data_dir  # noqa: TID251
+from src.core.exceptions import ErrorCode, ToukaException
+from src.services import destructive_ops
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
 
@@ -95,7 +97,12 @@ def read_custom_file(identity: AgentIdentity, filename: str) -> str | None:
 
 
 def delete_custom_dir(identity: AgentIdentity) -> bool:
-    """刪除整個自定義模型資料夾（不跟隨連結，ADR-0293 R5）；沒有或刪不掉回 False。"""
+    """刪除整個自定義模型資料夾（不跟隨連結，ADR-0293 R5）；沒有或刪不掉回 False。
+
+    只有走 R11 的刪除（``destructive_op`` 標記期間）能呼叫，其他入口直接丟例外。
+    """
+    if not destructive_ops.is_held(identity):
+        raise ToukaException(ErrorCode.SYSTEM_ERROR)
     try:
         return resource_manager.remove_custom_model_dir(identity)
     except Exception:

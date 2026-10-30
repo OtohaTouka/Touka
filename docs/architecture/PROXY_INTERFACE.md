@@ -773,6 +773,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
 - **身份識別**: 依據認證 Token 判定操作主權。路由層會自動將 URL 中的 `model_id` 字串轉化為經認證的 `AgentIdentity` 物件傳遞至 Service 層。
+- **刪除與改名（ADR-0293）**: `DELETE /v1/ui/custom_models/{model_id}`、`POST /v1/ui/custom_models/{model_id}/rename` 與設定頁的 `DELETE /v1/models/{model_id}`（遇到自訂模型時）走同一條路：個人空間是連結回 409 `AGENT_DRIVE_LINKED`、什麼都不改；先停掉這個模型的全部指令再刪或改名。新的 ID 不能當成一段資料夾名稱（例如 Windows 上結尾是點或空白）時 422。
 
 ---
 

@@ -245,7 +245,7 @@ proxy.write_file_text(path, content)
     - **I/O**：`zone_kind`、`zone_read_text`／`zone_read_binary`／`zone_read_json`、`zone_write_text`／`zone_write_json`／`zone_write_binary`、`zone_append_text`、`zone_make_dir`、`zone_remove_file`／`zone_remove_dir`、`zone_list`、`zone_stat_files`、`zone_walk`／`zone_walk_open`。從錨點逐段不跟隨連結；路上或最後一段是連結丟 `ZoneLinkRefusedError`（訊息固定、`filename` 是區內顯示形式），刪除時最後一段是連結只刪連結本身。
     - **字串路徑碰區**：RM 的字串方法（`read_file_text`、`list_directory`、`stat_files` 等）收到區裡的路徑丟 `ZonePathRequiredError`（`TypeError`，`except OSError` 接不到）；遞迴的列、找把區剪掉，刪、複製、打包整棵包含區的樹整個拒絕。名稱不能當一段時丟 `ZoneSegmentError`；data 根還沒登記時丟 `ZoneRootsUnavailableError`。
     - **交給子行程或回檔**：只能經 `zone_handoff(zp, kind)`（context manager，交出字串路徑並登記到結束）；檔案下載用 `ZoneFileResponse`。
-    - **破壞性操作**：重置、刪除靈魂、刪除與改名自訂模型在任何副作用前先查個人空間根，是連結就回 409 `AGENT_DRIVE_LINKED`、什麼都不做；改名用 `rename_agent_container(anchor, old, new)`（只改名、不複製），刪自訂模型資料夾用 `remove_custom_model_dir(identity)`。
+    - **破壞性操作**：重置、刪除靈魂、刪除與改名自訂模型在任何副作用前先查個人空間根，是連結就回 409 `AGENT_DRIVE_LINKED`、什麼都不做；改名用 `rename_agent_container(anchor, old, new)`（只改名、不複製），刪自訂模型資料夾用 `remove_custom_model_dir(identity)`；`/v1/models` 的刪除遇到自訂模型時改呼叫自訂模型路由的刪除，`custom_io.delete_custom_dir` 沒有 `destructive_ops` 的標記就拒絕。
     - **測試**：換 data 根只經 `zone_data_root` fixture（`tests/conftest.py`）／`point_zone_roots`（`tests/support/zone_roots.py`），產品接住的區例外照樣讓測試紅（觀察者紀錄）；`current_roots()` 是目前登記的 `ZoneRoots`。
 ### C. 代理人大腦控制中心 (`agent_control`)
 - **說明**: 雖屬系統內建工具，但其核心功能在於管理 Agent 的腦部 (模型) 狀態與切換。
