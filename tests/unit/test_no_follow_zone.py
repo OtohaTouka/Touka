@@ -42,7 +42,7 @@ from memory_server.utils.no_follow import (
 )
 from memory_server.utils.zone_paths import Anchor, ZoneRoots, ZoneSegmentError
 
-from tests.support.links import make_dir_link
+from tests.support.links import LINK_FOLLOWED, make_dir_link
 from tests.support.zone_records import expect_zone_refusal
 
 if TYPE_CHECKING:
@@ -487,6 +487,36 @@ def test_remove_tree_repairs_its_own_locked_folders(base):
         remove_tree_no_follow(base / "t")
     (base / "t" / "locked").chmod(0o700)
     (base / "t" / "shut").chmod(0o700)
+
+
+def test_repair_changes_the_checked_folder_not_a_link_swapped_in_after(base, monkeypatch):
+    """Linux：核對之後名字被換成連結，補權限改的仍是核對過的那個資料夾，連結指的地方不動."""
+    if sys.platform != "linux" or os.geteuid() == 0:  # 只有 Linux 補權限；root 不受權限位元限制
+        return
+    _tree(base / "t", "locked/f.txt", "outside/g.txt")
+    tree = base / "t"
+    (tree / "locked").chmod(0)
+    (tree / "outside").chmod(0o500)
+    fstat = os.fstat
+
+    def swap_after_check(fd):
+        info = fstat(fd)
+        (tree / "locked").rename(tree / "moved")
+        (tree / "locked").symlink_to(tree / "outside", target_is_directory=True)
+        return info
+
+    holder = os.open(tree, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "fstat", swap_after_check)
+            repaired = no_follow._FdTree().repair_dir(holder, "locked")
+    finally:
+        os.close(holder)
+    outside_mode = stat.S_IMODE((tree / "outside").stat().st_mode)
+    (tree / "outside").chmod(0o700)
+    assert outside_mode == 0o500, LINK_FOLLOWED
+    assert repaired
+    assert stat.S_IMODE((tree / "moved").stat().st_mode) == 0o700
 
 
 def test_remove_tree_retries_an_entry_that_was_swapped(base, monkeypatch):

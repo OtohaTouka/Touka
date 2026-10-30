@@ -1,0 +1,1042 @@
+[
+  {
+    "id": "r1_fspath_returns_display",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__fspath__\")",
+    "new": "        return self.display()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_truediv_returns_self",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__truediv__\")",
+    "new": "        return self",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_rtruediv_returns_self",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__rtruediv__\")",
+    "new": "        return self",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_add_returns_display",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__add__\")",
+    "new": "        return self.display()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_radd_returns_display",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__radd__\")",
+    "new": "        return self.display()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_str_returns_display",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__str__\")",
+    "new": "        return self.display()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_format_returns_display",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__format__\")",
+    "new": "        return self.display()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_bytes_returns_bytes",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        raise self._misuse(\"__bytes__\")",
+    "new": "        return self.display().encode()",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_each_misuse_notifies_then_raises"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r1_pathlib_name_does_not_notify",
+    "rule": [
+      "R1"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "            report(ZoneEvent(AttributeError, self.display(), name))",
+    "new": "            pass",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_pathlib_names_notify_then_raise_attribute_error"
+    ],
+    "posix_only": false,
+    "note": "AttributeError 照丟，只是不通知觀察者"
+  },
+  {
+    "id": "r1_plain_link_refusal_is_reported",
+    "rule": [
+      "R1",
+      "R12"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "    return LinkRefusedError(errno.ELOOP, \"Path goes through a symbolic link or junction\", str(path))",
+    "new": "    report(ZoneEvent(LinkRefusedError, str(path)))\n    return LinkRefusedError(errno.ELOOP, \"Path goes through a symbolic link or junction\", str(path))",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_kind_tells_what_the_last_segment_is",
+      "tests/unit/test_no_follow_zone.py::test_make_dirs_refuses_a_link_anywhere"
+    ],
+    "posix_only": false,
+    "note": "觀察者也收到區外的 LinkRefusedError；這兩個測試的 pytest.raises(LinkRefusedError) 沒宣告，R13 在 teardown 判失敗。ADR 上歸 R12（觀察者只收區的例外），任務說明列在 R1"
+  },
+  {
+    "id": "r2_zone_target_resolves_agent_folder",
+    "rule": [
+      "R2"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return Path(base).joinpath(*zp.parts)",
+    "new": "        return Path(base, *zp.parts[:1]).resolve().joinpath(*zp.parts[1:])",
+    "tests": [
+      "tests/unit/test_personal_drive_links_security.py::test_a_drive_root_swapped_to_a_link_is_refused",
+      "tests/unit/test_upload_service.py::test_save_upload_refuses_a_linked_folder"
+    ],
+    "posix_only": false,
+    "note": "從 resolve(anchor/<id>) 起算；custom_drive 的 drive 那一段是連結的參數照樣被擋，其他參數紅"
+  },
+  {
+    "id": "r2_zone_kind_follows",
+    "rule": [
+      "R2"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        target = self._zone_target(zp, \"zone_kind\")\n        with zone_errors(zp.display()):\n            return kind_no_follow(target)",
+    "new": "        target = self._zone_target(zp, \"zone_kind\")\n        return \"dir\" if target.is_dir() else \"file\" if target.is_file() else \"missing\"",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_a_link_as_the_last_segment_is_seen_or_removed_not_entered"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r3_zone_of_ignores_drive_segment",
+    "rule": [
+      "R3"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        return len(rest) >= 2 and fold(rest[1]) == fold(_CUSTOM_DRIVE_DIR)",
+    "new": "        return len(rest) >= 2",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_zone_of_literal",
+      "tests/unit/test_resource_manager_string_zone.py::test_the_anchor_itself_and_files_beside_the_drive_stay_plain"
+    ],
+    "posix_only": false,
+    "note": "custom/<id>/ 底下任何一段都被當成區（不看 drive）"
+  },
+  {
+    "id": "r3_contains_zone_always_false",
+    "rule": [
+      "R3"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "    bases, resolved = _anchor_bases(roots, anchors)\n    for candidate in (_parts_of(text), _parts_of(_real(text))):",
+    "new": "    return False\n    bases, resolved = _anchor_bases(roots, anchors)\n    for candidate in (_parts_of(text), _parts_of(_real(text))):",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_contains_zone",
+      "tests/unit/test_resource_manager_string_zone.py::test_moving_a_folder_that_holds_a_drive_is_refused"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r4_plain_never_refuses",
+    "rule": [
+      "R4"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "    if found is not None:\n        raise ZonePathRequiredError(zone_display(*found), method)",
+    "new": "    if found is not None:\n        pass",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_a_string_path_inside_a_drive_is_refused"
+    ],
+    "posix_only": false,
+    "note": "整個 Z2：所有字串方法都不再拒絕區內路徑"
+  },
+  {
+    "id": "r4_read_file_text_skips_check",
+    "rule": [
+      "R4"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return Path(_plain(path, \"read_file_text\")).read_text(encoding=encoding)",
+    "new": "        return Path(path).read_text(encoding=encoding)",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_a_string_path_inside_a_drive_is_refused"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r4_exists_skips_check",
+    "rule": [
+      "R4"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return Path(_plain(path, \"exists\")).exists()",
+    "new": "        return Path(path).exists()",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_a_string_path_inside_a_drive_is_refused"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r4_plain_tree_skips_contains_zone",
+    "rule": [
+      "R4"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "    if contains_zone(text, current_roots(), anchors=ENFORCED_ANCHORS):\n        raise ZonePathRequiredError(None, method)",
+    "new": "    if contains_zone(text, current_roots(), anchors=ENFORCED_ANCHORS):\n        pass",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_moving_a_folder_that_holds_a_drive_is_refused"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r4_create_archive_follows",
+    "rule": [
+      "R4"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                for parts, handle, info in walk_open_pruned(src.resolve(), current_roots(), report):",
+    "new": "                for parts, handle, info in (\n                    (Path(d, f).relative_to(src.resolve()).parts, open(Path(d, f), \"rb\"), os.stat(Path(d, f)))\n                    for d, _dirs, files in os.walk(src.resolve(), followlinks=True)\n                    for f in files\n                ):",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_a_link_in_a_project_is_skipped_when_packing_and_only_unlinked_when_deleting"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "打包跟隨連結也不剪區；teardown 另有 Z9 紀錄（RM 直接開了區內檔案）"
+  },
+  {
+    "id": "r4_walk_pruned_ignores_anchor_identity",
+    "rule": [
+      "R4",
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        if ident is not None and ident in self._by_id:",
+    "new": "        if False and ident in self._by_id:",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_walk_pruned_knows_an_anchor_by_identity"
+    ],
+    "posix_only": false,
+    "note": "剪枝只比對路徑字串（認不出別名路徑底下的錨點）；任務說明的「改用 contains_zone 剪枝」字面版做不到，見 notes"
+  },
+  {
+    "id": "r5_walk_enters_links",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "        if _is_link_stat(info):\n            found.links += 1\n            if settings.show_links:",
+    "new": "        if _is_link_stat(info):\n            found.links += 1\n            for d, _ds, fs in os.walk(shown / name, followlinks=True):\n                for f in fs:\n                    rel = Path(d, f).relative_to(shown)\n                    yield WalkEntry((*parts, *rel.parts), \"file\", os.stat(Path(d, f))), functools.partial(os.open, str(Path(d, f)), os.O_RDONLY | _BINARY)\n            if settings.show_links:",
+    "tests": [
+      "tests/unit/test_resource_manager_string_zone.py::test_a_link_in_a_project_is_skipped_when_packing_and_only_unlinked_when_deleting",
+      "tests/unit/test_personal_drive_links_security.py::test_list_find_grep_and_catalog_do_not_enter_an_inner_link"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "_walk_dir 是 _FdTree 與 _PathTree 共用的，兩個平台都走到"
+  },
+  {
+    "id": "r5_remove_tree_follows_links",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "    if _is_link_stat(info) or not stat.S_ISDIR(info.st_mode):\n        try:\n            _repairing(",
+    "new": "    if _is_link_stat(info) and os.path.isdir(shown):\n        for d, _ds, fs in os.walk(shown, followlinks=True):\n            for f in fs:\n                os.remove(os.path.join(d, f))\n    if _is_link_stat(info) or not stat.S_ISDIR(info.st_mode):\n        try:\n            _repairing(",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_remove_tree_deletes_links_not_their_targets",
+      "tests/unit/test_resource_manager_zone.py::test_remove_custom_model_dir_does_not_follow_links_inside"
+    ],
+    "posix_only": false,
+    "note": "刪樹先清掉連結另一端的檔案再刪連結本身；這兩個測試的斷言沒帶 LINK_FOLLOWED"
+  },
+  {
+    "id": "r5_remove_tree_fails_at_depth_limit",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "    if len(frames) >= MAX_REMOVE_OPEN_DIRS:\n        _move_to_root(ops, frames, name)\n        return",
+    "new": "    if len(frames) >= MAX_REMOVE_OPEN_DIRS:\n        raise OSError(errno.ENAMETOOLONG, os.strerror(errno.ENAMETOOLONG), str(shown))",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_remove_tree_moves_deep_folders_instead_of_failing"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r5_remove_tree_fixed_temp_name",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "        new = f\".touka-remove-{secrets.token_hex(16)}\"",
+    "new": "        new = \".touka-remove-\" + \"0\" * 32",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_remove_tree_moves_deep_folders_instead_of_failing"
+    ],
+    "posix_only": false,
+    "note": "前綴與長度仍對；第二次搬移撞名，重試到上限後 _busy"
+  },
+  {
+    "id": "r6_read_file_text_no_follow_follows",
+    "rule": [
+      "R6"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        return read_text_no_follow(_plain(path, \"read_file_text_no_follow\"), encoding=encoding)",
+    "new": "        return Path(_plain(path, \"read_file_text_no_follow\")).read_text(encoding=encoding)",
+    "tests": [
+      "tests/unit/test_file_ops_no_follow_security.py::test_file_ops_refuse_a_directory_swapped_to_a_link_after_the_check"
+    ],
+    "posix_only": false,
+    "note": "proxy 參數的 read 紅；ADR 歸 R6（*_no_follow 一律不跟隨），任務說明列在 R9"
+  },
+  {
+    "id": "r6_posix_dir_flags_follow",
+    "rule": [
+      "R6"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "_DIR_FLAGS = getattr(os, \"O_PATH\", os.O_RDONLY) | _DIRECTORY | _NOFOLLOW | _CLOEXEC",
+    "new": "_DIR_FLAGS = getattr(os, \"O_PATH\", os.O_RDONLY) | _DIRECTORY | _CLOEXEC",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_kind_tells_what_the_last_segment_is",
+      "tests/unit/test_file_ops_no_follow_security.py::test_file_ops_refuse_a_directory_swapped_to_a_link_after_the_check"
+    ],
+    "posix_only": true,
+    "note": "POSIX 逐段 dir_fd 開上層時跟隨連結；Windows 上 O_NOFOLLOW 本來就是 0，沒有差別"
+  },
+  {
+    "id": "r6_posix_list_flags_follow",
+    "rule": [
+      "R6"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "_LIST_FLAGS = os.O_RDONLY | _DIRECTORY | _NOFOLLOW | _CLOEXEC",
+    "new": "_LIST_FLAGS = os.O_RDONLY | _DIRECTORY | _CLOEXEC",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_iter_regular_files_uses_the_registered_roots"
+    ],
+    "posix_only": true,
+    "note": "走訪的根本身是連結時（_FdTree.open_root）跟隨進去；Windows 走 _PathTree，不受影響"
+  },
+  {
+    "id": "r7_register_handoff_public_alias",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "def is_handed_off(text: str, kind: HandoffKind) -> bool:",
+    "new": "register_handoff = _register_handoff\n\n\ndef is_handed_off(text: str, kind: HandoffKind) -> bool:",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_handoffs_whole_anchors_and_anchor_names_are_used_only_where_listed"
+    ],
+    "posix_only": false,
+    "note": "G1 抓到 memory_server.utils.zone_paths:<module> 多了 _register_handoff"
+  },
+  {
+    "id": "r7_proc_fd_without_finalizer",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/zone_file_response.py",
+    "old": "        self._finalizer = weakref.finalize(self, _close, handle, token)",
+    "new": "        self._finalizer = lambda: _close(handle, token)",
+    "tests": [
+      "tests/unit/test_zone_file_response.py::test_a_response_dropped_without_being_called_closes_the_file"
+    ],
+    "posix_only": false,
+    "note": "測試直接建 ZoneFileResponse，Windows 上也跑"
+  },
+  {
+    "id": "r7_windows_response_sent_outside_handoff",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/zone_file_response.py",
+    "old": "            self.path = path\n            await super().__call__(scope, receive, send)",
+    "new": "            self.path = path\n        await super().__call__(scope, receive, send)",
+    "tests": [
+      "tests/unit/test_zone_file_response.py::test_the_path_response_is_handed_off_only_while_it_is_sent"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r7_proc_fd_registers_another_string",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/zone_file_response.py",
+    "old": "        token = _register_handoff(path, HandoffKind.PROC_FD)",
+    "new": "        token = _register_handoff(f\"{path}.unregistered\", HandoffKind.PROC_FD)",
+    "tests": [
+      "tests/unit/test_zone_file_response.py::test_error_responses_close_the_file_and_release"
+    ],
+    "posix_only": false,
+    "note": "交出去的 /proc/self/fd/N 沒登記"
+  },
+  {
+    "id": "r7_proc_fd_never_closed",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/zone_file_response.py",
+    "old": "        try:\n            await super().__call__(scope, receive, send)\n        finally:\n            self._finalizer()",
+    "new": "        await super().__call__(scope, receive, send)",
+    "tests": [
+      "tests/unit/test_zone_file_response.py::test_error_responses_close_the_file_and_release",
+      "tests/unit/test_zone_file_response.py::test_an_interrupted_response_closes_the_file"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r7_zone_handoff_allows_last_segment_link",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            if kind_no_follow(target) == \"link\":\n                raise ZoneLinkRefusedError(zp.display(), str(target))\n        token = _register_handoff(str(target), kind)",
+    "new": "            if kind_no_follow(target) == \"link\" and False:\n                raise ZoneLinkRefusedError(zp.display(), str(target))\n        token = _register_handoff(str(target), kind)",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_a_link_as_the_last_segment_is_refused",
+      "tests/unit/test_terminal_agent_stop.py::test_a_drive_linked_after_the_start_is_not_used"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r7_vault_jail_apply_does_not_refuse",
+    "rule": [
+      "R7"
+    ],
+    "file": "ToukaProxy/src/services/mcp_vault_jail.py",
+    "old": "        raise VaultJailedToolUnavailableError",
+    "new": "        pass",
+    "tests": [
+      "tests/unit/test_mcp_vault_jail.py::test_apply_refuses_every_vault_jailed_server",
+      "tests/unit/test_vault_jail_executor_wiring.py::test_a_vault_jailed_tool_is_refused_and_never_sent"
+    ],
+    "posix_only": false,
+    "note": "任務說明的「其他」項；歸 R7（不把區內路徑字串交給 MCP 伺服器）"
+  },
+  {
+    "id": "r8_join_rel_climbs_above_receiver",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        stack: list[str] = []\n        for segment in text.split(\"/\"):\n            if segment in {\"\", \".\"}:\n                continue\n            if segment == \"..\":\n                if not stack:\n                    raise ZoneSegmentError(self.display())\n                stack.pop()\n                continue\n            stack.append(segment)\n        return self.child(*stack)",
+    "new": "        stack: list[str] = list(self._parts)\n        for segment in text.split(\"/\"):\n            if segment in {\"\", \".\"}:\n                continue\n            if segment == \"..\":\n                if not stack:\n                    raise ZoneSegmentError(self.display())\n                stack.pop()\n                continue\n            stack.append(segment)\n        return ZonePath(self._anchor, stack)",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_join_rel_cannot_leave_the_receiver"
+    ],
+    "posix_only": false,
+    "note": "`..` 可以退到錨點底下的其他代理人（Alice 的 ../Bob/x 變成 Bob/x）；正常的 join_rel 結果不變"
+  },
+  {
+    "id": "r8_rel_from_abs_string_prefix",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            prefix = Path(anchor_dir).joinpath(*base.parts).parts\n            if _norm_parts(parts[: len(prefix)]) == _norm_parts(prefix):\n                return base.join_rel(\"/\".join(parts[len(prefix) :]))",
+    "new": "            prefix_text = str(Path(anchor_dir).joinpath(*base.parts))\n            if os.path.normpath(text).startswith(prefix_text):\n                return base.join_rel(os.path.normpath(text)[len(prefix_text) :].replace(\"\\\\\", \"/\").lstrip(\"/\"))",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_rel_from_abs_by_literal_place"
+    ],
+    "posix_only": false,
+    "note": "Alice2/x 被當成 Alice 底下的 2/x"
+  },
+  {
+    "id": "r8_outputs_route_skips_filename_check",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/src/main.py",
+    "old": "    if not is_zone_segment(filename):\n        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)",
+    "new": "    if False:\n        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)",
+    "tests": [
+      "tests/unit/test_outputs_route_links_security.py::test_a_name_that_cannot_be_a_segment_is_forbidden"
+    ],
+    "posix_only": false,
+    "note": "檔案回應那一組的「拿掉檔名檢查」"
+  },
+  {
+    "id": "r8_restore_skips_segment_check",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "    if not all(is_zone_segment(segment) for segment in segments):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_member_names_that_are_not_a_segment"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r9_enforced_anchors_drop_custom",
+    "rule": [
+      "R9"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE})",
+    "new": "ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE})",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_anchor_sets",
+      "tests/unit/test_zone_paths.py::test_zone_of_literal"
+    ],
+    "posix_only": false,
+    "note": "拿掉一個錨點（自訂模型的個人空間不再受保護）"
+  },
+  {
+    "id": "r9_rel_from_abs_literal_only",
+    "rule": [
+      "R9"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        for anchor_dir in (roots.literal(base.anchor), roots.resolved(base.anchor)):",
+    "new": "        for anchor_dir in (roots.literal(base.anchor),):",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_rel_from_abs_by_resolved_place"
+    ],
+    "posix_only": false,
+    "note": "人做成連結的錨點只認字面位置、不認解析後位置"
+  },
+  {
+    "id": "r10_rename_agent_container_copies",
+    "rule": [
+      "R10"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "            rename_entry_no_follow(base, old_name, new_name)",
+    "new": "            shutil.copytree(Path(base) / old_name, Path(base) / new_name)",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_rename_agent_container"
+    ],
+    "posix_only": false,
+    "note": "任務說明的「其他」項；改名變成複製（舊資料夾留著，連結也被複製過去）"
+  },
+  {
+    "id": "r10_custom_model_delete_uses_agent_drive",
+    "rule": [
+      "R10",
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "            refuse_linked_drive(resource_manager.custom_drive(identity))",
+    "new": "            refuse_linked_drive(resource_manager.agent_drive(identity))",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_a_linked_drive_refuses_the_delete"
+    ],
+    "posix_only": false,
+    "note": "Owner 身分被 agent_drive 當成靈魂，查的是 personal_drive/M1，漏看 custom/M1/drive 的連結；第一個紅的是 CHANGED_ANYWAY"
+  },
+  {
+    "id": "r11_reset_stops_commands_before_check",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/services/agent_reset/orchestrator.py",
+    "old": "            identity = _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)\n            if scrub:",
+    "new": "            identity = primitives.identity_for(normalized, guard)\n            await terminal.stop_agent_commands(identity)\n            _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)\n            if scrub:",
+    "tests": [
+      "tests/unit/test_agent_reset_links_security.py::test_a_linked_drive_fails_the_reset_and_changes_nothing"
+    ],
+    "posix_only": false,
+    "note": "預檢前先停指令（副作用早於預檢）；任務說明的「移到 _prepare_scrub 之後」沒有測試，見 notes"
+  },
+  {
+    "id": "r11_stop_skips_registered_processes",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/tools/terminal.py",
+    "old": "    return await asyncio.to_thread(process_registry.terminate_agent, identity.agent_id)",
+    "new": "    return 0",
+    "tests": [
+      "tests/unit/test_terminal_agent_stop.py::test_a_foreground_command_is_handed_off_registered_and_stopped"
+    ],
+    "posix_only": false,
+    "note": "只停背景與待審批，不殺前景行程"
+  },
+  {
+    "id": "r11_spawn_ignores_hold_after_register",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/tools/terminal.py",
+    "old": "                if identity is not None and destructive_ops.is_held(identity):",
+    "new": "                if False:",
+    "tests": [
+      "tests/unit/test_terminal_agent_stop.py::test_a_reset_that_starts_during_spawn_stops_the_command"
+    ],
+    "posix_only": false,
+    "note": "old 帶 16 格縮排，只對到登記後那一處（4 格縮排的另一處不算）"
+  },
+  {
+    "id": "r11_entry_ignores_hold",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/tools/terminal.py",
+    "old": "    if destructive_ops.is_held(identity):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_terminal_agent_stop.py::test_a_held_agent_does_not_start_a_command"
+    ],
+    "posix_only": false,
+    "note": "背景那一次回 running handle 而不是 agent_busy"
+  },
+  {
+    "id": "r11_registry_skips_sessionless",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/services/process_registry.py",
+    "old": "        if proc is None:\n            return\n        if session_id:",
+    "new": "        if proc is None or not session_id:\n            return\n        if session_id:",
+    "tests": [
+      "tests/unit/test_process_registry.py::test_terminate_agent_kills_its_procs_across_sessions",
+      "tests/unit/test_terminal_agent_stop.py::test_a_foreground_command_is_handed_off_registered_and_stopped"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_soul_delete_stops_before_refusal",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/souls.py",
+    "old": "        refuse_linked_drive(resource_manager.soul_drive(identity))\n        killed = await terminal.stop_agent_commands(identity)",
+    "new": "        killed = await terminal.stop_agent_commands(identity)\n        refuse_linked_drive(resource_manager.soul_drive(identity))",
+    "tests": [
+      "tests/unit/test_soul_delete_sandbox_home_security.py::test_a_linked_personal_drive_refuses_the_delete"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r12_zone_error_keeps_absolute_filename",
+    "rule": [
+      "R12"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "        raise ZoneLinkRefusedError(display, exc.filename) from None",
+    "new": "        raise ZoneLinkRefusedError(exc.filename, exc.filename) from None",
+    "tests": [
+      "tests/unit/test_resource_manager_zone.py::test_rename_agent_container",
+      "tests/unit/test_no_follow_zone.py::test_link_refusals_become_zone_refusals_and_notify"
+    ],
+    "posix_only": false,
+    "note": "例外的 filename 變成絕對路徑而不是 display()"
+  },
+  {
+    "id": "r13_observer_records_nothing",
+    "rule": [
+      "R13"
+    ],
+    "file": "tests/support/zone_records.py",
+    "old": "    error = event.error  # type: ignore[attr-defined]\n    add(\"refusal\", error.__name__, event.display, event.detail)  # type: ignore[attr-defined]",
+    "new": "    return",
+    "tests": [
+      "tests/unit/test_zone_records.py::test_a_declared_refusal_is_consumed",
+      "tests/unit/test_zone_records.py::test_a_parent_class_covers_its_subclasses"
+    ],
+    "posix_only": false,
+    "note": "改的是測試支援檔；所有 expect_zone_refusal 都會變成 got 0"
+  },
+  {
+    "id": "r14_g1_product_reads_whole_anchor",
+    "rule": [
+      "R14"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "        target = self._zone_target(zp, \"zone_kind\")\n        with zone_errors(zp.display()):\n            return kind_no_follow(target)",
+    "new": "        target = self._zone_target(zp, \"zone_kind\")\n        _ = current_roots().resolved\n        with zone_errors(zp.display()):\n            return kind_no_follow(target)",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_handoffs_whole_anchors_and_anchor_names_are_used_only_where_listed"
+    ],
+    "posix_only": false,
+    "note": "G1：ResourceManager.zone_kind 不在 G1_SITES，行為不變"
+  },
+  {
+    "id": "r14_g2_product_anchor_name",
+    "rule": [
+      "R14"
+    ],
+    "file": "ToukaProxy/src/services/subagent_results.py",
+    "old": "_SUBDIR = \"dispatch_results\"",
+    "new": "_SUBDIR = \"dispatch_results\"\n_LEGACY_DIR = \"personal_drive/dispatch_results\"",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_anchor_folder_names_appear_only_where_listed"
+    ],
+    "posix_only": false,
+    "note": "G2：src.services.subagent_results:<module>:personal_drive 不在 G2_SITES"
+  },
+  {
+    "id": "r14_t1_old_getter_gives_personal",
+    "rule": [
+      "R14"
+    ],
+    "file": "ToukaMemory/src/memory_server/services/manager.py",
+    "old": "            path_str = resource_proxy.get_vault_path(\"legacy\", identity)",
+    "new": "            path_str = resource_proxy.get_vault_path(\"personal\", identity)",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_old_getters_no_longer_give_the_personal_space"
+    ],
+    "posix_only": false,
+    "note": "這個檔案是 CRLF，old 以 LF 比對"
+  },
+  {
+    "id": "r14_t2_unannotated_zone_return",
+    "rule": [
+      "R14"
+    ],
+    "file": "ToukaProxy/src/services/subagent_results.py",
+    "old": "def _results_dir(identity: AgentIdentity) -> ZonePath | None:",
+    "new": "def _results_dir(identity: AgentIdentity) -> object:",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_functions_returning_a_zone_path_say_so"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r14_t3_patched_function_becomes_producer",
+    "rule": [
+      "R14"
+    ],
+    "file": "ToukaProxy/src/tools/terminal.py",
+    "old": "    key = identity.agent_id.casefold()\n    for record in _ASYNC_RESULTS.values():",
+    "new": "    resource_manager.agent_drive(identity)\n    key = identity.agent_id.casefold()\n    for record in _ASYNC_RESULTS.values():",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_tests_do_not_replace_zone_producers_or_the_data_root"
+    ],
+    "posix_only": false,
+    "note": "T3 間接版：stop_agent_commands 本體呼叫 Z5 方法後變成受保護名稱，既有測試 monkeypatch 它就違規（例如 test_agent_reset_links_security 的 calls fixture）"
+  },
+  {
+    "id": "r14_t2_guard_one_level_only",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                    if fn.node.name not in _CHAIN_CALLS | _CHAIN_ATTRS:\n                        self.names.add(fn.node.name)",
+    "new": "                    if fn.node.name not in _CHAIN_CALLS | _CHAIN_ATTRS:\n                        pass",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_each_way_of_passing_a_zone_value_along_is_caught",
+      "tests/lint/test_zone_path_guard.py::test_names_follow_imports_across_modules"
+    ],
+    "posix_only": false,
+    "note": "改的是守衛本身：T2 只算一層，不跨函式遞移"
+  },
+  {
+    "id": "r14_z9_tripwire_disabled",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "    if getattr(_local, \"busy\", False):\n        return",
+    "new": "    if True:\n        return",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_a_product_read_inside_a_drive_is_recorded"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r14_observer_not_registered",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/conftest.py",
+    "old": "zone_paths.add_observer(zone_records.observe)",
+    "new": "zone_paths.add_observer(lambda _event: None)",
+    "tests": [
+      "tests/unit/test_zone_records.py::test_a_declared_refusal_is_consumed"
+    ],
+    "posix_only": false,
+    "note": "拿掉觀察者（換成不記錄的）；和 r13_observer_records_nothing 效果相近，改的位置不同"
+  },
+  {
+    "id": "z6_file_verbs_delete_follows",
+    "rule": [
+      "R5",
+      "Z6"
+    ],
+    "file": "ToukaMemory/src/memory_server/tools/core_file_ops.py",
+    "old": "            resource_proxy.zone_remove_file(safe_path, missing_ok=False)",
+    "new": "            for _p in sorted(Path(resource_proxy._zone_target(safe_path, \"zone_remove_file\")).rglob(\"*\"), reverse=True):\n                _p.unlink() if _p.is_file() else _p.rmdir()",
+    "tests": [
+      "tests/unit/test_personal_drive_links_security.py::test_deleting_a_link_removes_only_the_link"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 檔案動詞：刪連結時清掉另一端的內容"
+  },
+  {
+    "id": "z6_mission_board_read_follows",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaMemory/src/memory_server/services/mission_manager.py",
+    "old": "            content = get_resource_proxy().zone_read_text(path)",
+    "new": "            content = get_resource_proxy()._zone_target(path, \"zone_read_text\").read_text(encoding=\"utf-8\")",
+    "tests": [
+      "tests/unit/test_mission_board_links_security.py::test_a_board_folder_swapped_to_a_link_is_refused",
+      "tests/unit/test_mission_board_links_security.py::test_the_board_endpoint_treats_a_linked_board_as_no_mission"
+    ],
+    "posix_only": false,
+    "note": "Z6 任務看板；先紅在 expect_zone_refusal（got 0）"
+  },
+  {
+    "id": "z6_dispatch_results_read_follows",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/services/subagent_results.py",
+    "old": "        data = None if path is None else resource_manager.zone_read_json(path)",
+    "new": "        data = None if path is None else __import__(\"json\").loads(resource_manager._zone_target(path, \"zone_read_json\").read_text(\"utf-8\"))",
+    "tests": [
+      "tests/unit/test_subagent_results.py::test_a_linked_results_folder_is_not_followed"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 派工結果；斷言在 expect_zone_refusal 裡面，先丟出帶 LINK_FOLLOWED 的 AssertionError"
+  },
+  {
+    "id": "z6_review_evidence_follows",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/services/review/evidence.py",
+    "old": "    kind = resource_manager.zone_kind(target)",
+    "new": "    kind = \"file\" if resource_manager._zone_target(target, \"zone_kind\").is_file() else \"missing\"",
+    "tests": [
+      "tests/unit/test_review_evidence_links_security.py::test_evidence_behind_a_linked_folder_is_refused"
+    ],
+    "posix_only": false,
+    "note": "Z6 互審證據"
+  },
+  {
+    "id": "z6_upload_write_follows",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/services/upload_service.py",
+    "old": "        resource_manager.zone_write_binary(target, data)",
+    "new": "        resource_manager._zone_target(target, \"zone_write_binary\", create=True).write_bytes(data)",
+    "tests": [
+      "tests/unit/test_upload_service.py::test_save_upload_refuses_a_linked_folder"
+    ],
+    "posix_only": false,
+    "note": "Z6 上傳；只有 session 參數紅（DID NOT RAISE），其他參數在配額走訪就被擋"
+  },
+  {
+    "id": "z6_grok_imagine_follows",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/tools/grok_imagine_server.py",
+    "old": "@mcp.tool()\nasync def grok_imagine(",
+    "new": "class _FollowRM:\n    def __getattr__(self, name):\n        return getattr(_rm, name)\n\n    def zone_make_dir(self, zp):\n        _rm._zone_target(zp, \"zone_make_dir\", create=True).mkdir(parents=True, exist_ok=True)\n\n    def zone_write_binary(self, zp, data):\n        _rm._zone_target(zp, \"zone_write_binary\", create=True).write_bytes(data)\n\n\n_rm = resource_manager\nresource_manager = _FollowRM()\n\n\n@mcp.tool()\nasync def grok_imagine(",
+    "tests": [
+      "tests/unit/test_grok_imagine_links_security.py::test_a_linked_outputs_folder_is_not_written"
+    ],
+    "posix_only": false,
+    "note": "Z6 生圖；建資料夾與寫檔兩層都會擋，只改一行會存活，所以在模組層換成跟隨連結的替身"
+  },
+  {
+    "id": "z6_gdpr_export_walk_follows",
+    "rule": [
+      "R5",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/services/gdpr_export_service.py",
+    "old": "        with contextlib.closing(resource_manager.zone_walk_open(drive, report)) as walk:",
+    "new": "        _root = resource_manager._zone_target(drive, \"zone_walk_open\")\n        with contextlib.closing(\n            (Path(d, f).relative_to(_root).parts, open(Path(d, f), \"rb\"), os.stat(Path(d, f)))\n            for d, _dirs, files in os.walk(_root, followlinks=True)\n            for f in files\n        ) as walk:",
+    "tests": [
+      "tests/unit/test_gdpr_export.py::test_export_skips_symlink_escape"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 GDPR 匯出"
+  },
+  {
+    "id": "z6_diag_size_follows",
+    "rule": [
+      "R5",
+      "Z6"
+    ],
+    "file": "ToukaMemory/src/memory_server/tools/diag.py",
+    "old": "            return sum(entry.info.st_size for entry in walk if entry.kind == \"file\")",
+    "new": "            root = get_resource_proxy()._zone_target(drive, \"zone_walk\")\n            return sum((d / f).stat().st_size for d, _dirs, files in root.walk(follow_symlinks=True) for f in files)",
+    "tests": [
+      "tests/unit/test_diag_personal_drive.py::test_the_size_counts_only_files_inside_the_drive"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 診斷（個人空間大小）"
+  },
+  {
+    "id": "z6_terminal_drive_follows",
+    "rule": [
+      "R7",
+      "Z6"
+    ],
+    "file": "ToukaProxy/src/tools/terminal.py",
+    "old": "def _has_chaining_metacharacters(command: str) -> bool:",
+    "new": "class _FollowRM:\n    def __getattr__(self, name):\n        return getattr(_rm, name)\n\n    def zone_make_dir(self, zp):\n        _rm._zone_target(zp, \"zone_make_dir\", create=True).mkdir(parents=True, exist_ok=True)\n\n    @contextlib.contextmanager\n    def zone_handoff(self, zp, kind):\n        yield str(_rm._zone_target(zp, \"zone_handoff\").resolve())\n\n\n_rm = resource_manager\nresource_manager = _FollowRM()\n\n\ndef _has_chaining_metacharacters(command: str) -> bool:",
+    "tests": [
+      "tests/unit/test_terminal_drive_links_security.py::test_a_command_in_a_linked_drive_is_not_run"
+    ],
+    "posix_only": false,
+    "note": "Z6 終端的個人空間根；入口的 zone_make_dir 與 spawn 前的 zone_handoff 兩層都會擋，所以換成跟隨連結的替身；先紅在 expect_zone_refusal（got 0）"
+  },
+  {
+    "id": "z6_backup_walk_follows",
+    "rule": [
+      "R5",
+      "Z6"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "        with contextlib.closing(walk_open_no_follow(root, report)) as walk:",
+    "new": "        with contextlib.closing(\n            (Path(d, f).relative_to(root).parts, open(Path(d, f), \"rb\"), os.stat(Path(d, f)))\n            for d, _dirs, files in os.walk(root, followlinks=True)\n            for f in files\n        ) as walk:",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_backup_does_not_follow_links_in_agent_folders",
+      "tests/unit/test_manage_backup_links_security.py::test_backup_does_not_follow_a_folder_swapped_after_collection"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 備份（_zip_zone）"
+  },
+  {
+    "id": "z6_restore_writes_through_links",
+    "rule": [
+      "R2",
+      "Z6"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "            write_stream_no_follow(base.joinpath(*segments), source)",
+    "new": "            dest = base.joinpath(*segments)\n            dest.parent.mkdir(parents=True, exist_ok=True)\n            dest.write_bytes(source.read())",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_does_not_write_through_links"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "Z6 還原"
+  },
+  {
+    "id": "r5_walk_pruned_cuts_whole_custom",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "            return MarkerState(\"anchor\", anchor)",
+    "new": "            return MarkerState(\"zone\", anchor)",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_walk_pruned_cuts_agent_folders",
+      "tests/unit/test_manage_backup_links_security.py::test_backup_and_restore_round_trip_the_agent_folders"
+    ],
+    "posix_only": false,
+    "note": "剪枝把整個 custom 當成區（等同用 contains_zone 剪枝）：自訂模型的設定與人格不進備份"
+  },
+  {
+    "id": "r11_reset_check_after_prepare_scrub",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/services/agent_reset/orchestrator.py",
+    "old": "            identity = _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)\n            if scrub:\n                identity, store, known = await _prepare_scrub(normalized, guard, actor_label)\n",
+    "new": "            if scrub:\n                identity, store, known = await _prepare_scrub(normalized, guard, actor_label)\n            identity = _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)\n",
+    "tests": [
+      "tests/unit/test_agent_reset_links_security.py::test_a_linked_drive_is_refused_before_the_scrub_is_prepared"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r5_repair_by_name_follows",
+    "rule": [
+      "R5"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/no_follow.py",
+    "old": "            Path(f\"/proc/self/fd/{fd}\").chmod(wanted)",
+    "new": "            os.chmod(name, wanted, dir_fd=holder)",
+    "tests": [
+      "tests/unit/test_no_follow_zone.py::test_repair_changes_the_checked_folder_not_a_link_swapped_in_after"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": true,
+    "note": "補權限改用名稱：核對後換成的連結被跟隨；只有 Linux 補權限"
+  },
+  {
+    "id": "r14_z9_allows_all_proc_fd",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "def _handed_off(event: str, path: str, args: tuple[object, ...]) -> bool:\n    if event in _SPAWN_PATHS:\n",
+    "new": "def _handed_off(event: str, path: str, args: tuple[object, ...]) -> bool:\n    if path.startswith(\"/proc/self/fd/\"):\n        return True\n    if event in _SPAWN_PATHS:\n",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_an_unregistered_proc_fd_path_inside_a_drive_is_recorded"
+    ],
+    "posix_only": true,
+    "note": "Z9 放行整段 /proc/self/fd/；只有 Linux 有這種路徑"
+  }
+]

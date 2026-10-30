@@ -16,7 +16,7 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
-from src.core.exceptions import ToukaException
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.agent_reset import orchestrator as O
 from src.services.agent_reset import primitives as P
@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 ADMIN = AgentIdentity.for_role(agent_id="admin1", role="admin")
+# 勾選清除只給人類 admin
+HUMAN_ADMIN = AgentIdentity.for_role(agent_id="admin1", role="admin", is_human=True)
 AGENT = "M1"  # 自訂模型：個人空間是 custom/M1/drive
 _DRIVE_STORES = {"outputs", "mission", "catalog"}
 
@@ -102,6 +104,35 @@ async def test_a_linked_drive_fails_the_reset_and_changes_nothing(
     assert refused is not None and refused.code.name == "AGENT_DRIVE_LINKED"
     assert calls == []  # 沒叫停心跳與指令，也沒清任何 store
     assert os.path.lexists(_drive(zone_data_root))  # 連結本身也留著
+
+
+async def test_a_linked_drive_is_refused_before_the_scrub_is_prepared(
+    zone_data_root: Path, tmp_path: Path, calls: list[str], monkeypatch
+):
+    """勾選清除時也一樣：連結先被擋下、稽核記 ``drive_linked``，清除的準備（讀事實庫）不做."""
+    fake = _fake_config(tmp_path)
+    before = _snapshot(fake)
+    _drive(zone_data_root).parent.mkdir(parents=True)
+    make_dir_link(_drive(zone_data_root), fake)
+    reasons: list[str] = []
+
+    async def _prepare(*_args) -> None:
+        calls.append("prepare_scrub")
+        raise ToukaException(ErrorCode.MEMORY_SCRUB_UNAVAILABLE)
+
+    def _audit(_actor: str, _target: str, reason: str) -> None:
+        reasons.append(reason)
+
+    monkeypatch.setattr(O, "_prepare_scrub", _prepare)
+    monkeypatch.setattr(O.scrub_orchestrator, "audit_rejected", _audit)
+
+    with pytest.raises(ToukaException) as refused:
+        await O.reset_agent_data(AGENT, HUMAN_ADMIN, do_backup=False, scrub=True)
+
+    assert refused.value.code is ErrorCode.AGENT_DRIVE_LINKED
+    assert reasons == ["drive_linked"]
+    assert calls == []  # 沒準備清除、沒叫停心跳與指令，也沒清任何 store
+    assert _snapshot(fake) == before
 
 
 async def test_linked_outputs_and_missions_are_removed_as_links(

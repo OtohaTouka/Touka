@@ -158,6 +158,20 @@ def test_a_directory_fd_is_followed_on_linux(probe, drive, tmp_path):
         os.close(fd)
 
 
+def test_an_unregistered_proc_fd_path_inside_a_drive_is_recorded(probe, drive):
+    """Linux：只有回檔登記過的 ``/proc/self/fd`` 字串放行；沒登記的照樣記."""
+    if sys.platform != "linux":  # 沒有 /proc/self/fd
+        return
+    fd = os.open(drive / "notes.txt", os.O_RDONLY)
+    try:
+        assert probe.read(f"/proc/self/fd/{fd}") == b"notes"
+    finally:
+        os.close(fd)
+    assert [(event, display) for event, display, _detail in _taken()] == [
+        ("open", f"/proc/self/fd/{fd}")
+    ]
+
+
 def test_a_zone_path_argument_is_left_alone(probe, drive):
     """``ZonePath`` 轉字串會通知觀察者；絆線不碰它，不留下任何紀錄."""
     probe.emit("open", ZonePath(Anchor.PERSONAL_DRIVE, ("Alice", "notes.txt")), "r", 0)
