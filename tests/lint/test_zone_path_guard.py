@@ -543,6 +543,10 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
         {"anchor_root": 1},
         "整個錨點：健康檢查只看個人空間的根存不存在",
     ),
+    "src.services.evolution_security:EvolutionPathGuard.run_sandbox_command": (
+        {"zone_handoff": 1},
+        "SUBPROCESS_CWD：演化指令（venv、pip）的 cwd 是技能資料夾，行程結束時釋放（P6）",
+    ),
     "src.services.isolation.home_wipe:_wipe_in_executor": (
         {"zone_handoff": 1},
         "SUBPROCESS_CWD：執行器裡清空家目錄的行程，行程結束時釋放",
@@ -562,6 +566,14 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
     "src.services.resource_manager:ResourceManager.zone_handoff": (
         {"_register_handoff": 1, "_release_handoff": 1},
         "交接登記表的登記點（R7）：離開時取消",
+    ),
+    "src.services.resource_manager:ResourceManager.handoff_cwd": (
+        {"zone_handoff": 1},
+        "SUBPROCESS_CWD：被包住的 MCP 的 cwd 字面在區裡時經 zone_handoff 交出（P6）",
+    ),
+    "src.services.resource_manager:ResourceManager.zone_text": (
+        {"resolved": 1},
+        "區字串（P4）：解析後的錨點接上字面段落，只交給別人或拿來比對",
     ),
     "src.services.resource_manager:ResourceManager.rename_agent_container": (
         {"resolved": 1},
@@ -975,7 +987,6 @@ LINT_SSOT_WHITELIST = frozenset(
         "config_utils.py",
         "terminal.py",
         "soul_io.py",
-        "evolution_security.py",
         "custom_io.py",
         "core_file_ops.py",
         "no_follow.py",
@@ -1071,6 +1082,7 @@ _MUTATORS = frozenset(
 )
 _ENV_SELECTION = "測 Memory 選哪個 .env：data 根的環境變數有沒有設是這個測試的輸入"
 _DATA_ROOT_PARSING = "測 Memory 解析 data 根的環境變數本身（Docker 下的絕對與相對值）"
+_STATE_ROOT_PARSING = "測 ST 根的解析本身：沒設、容器裡、經過人做的連結（ADR-0293 PR 2）"
 # 「測試模組:函式」→（次數, 理由）；其他測試換 data 根一律用 ``zone_data_root`` 或
 # ``tests.support.zone_roots.point_zone_roots``
 _ZONE_SELF_TEST = "測 zone_paths 自己：根的來源、交接登記表或觀察者本身就是被測的東西"
@@ -1118,6 +1130,16 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
         "測走訪用的是登記的根：換成這個測試的根，再拿掉看它拒絕",
     ),
     "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (1, _ALIAS),
+    # 下面四個測的是 ST 根的解析本身（ADR-0293 PR 2 P6、P7）：沒設、容器裡、經過人做的連結
+    "tests.unit.test_resource_manager_anchors:"
+    "test_handoff_cwd_refuses_the_literal_form_of_a_linked_anchor": (1, _STATE_ROOT_PARSING),
+    "tests.unit.test_resource_manager_anchors:test_handoff_cwd_through_a_linked_state_root": (
+        1,
+        _STATE_ROOT_PARSING,
+    ),
+    "tests.unit.test_resource_manager_anchors:"
+    "test_sandbox_state_generators_give_none_only_when_unset": (1, _STATE_ROOT_PARSING),
+    "tests.unit.test_resource_manager_anchors:test_sandbox_state_root": (2, _STATE_ROOT_PARSING),
     "tests.unit.test_resource_manager_string_zone:"
     "test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive": (
         1,

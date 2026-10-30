@@ -69,19 +69,19 @@ async def test_missing_interactive_flag_treated_as_headless(mock_approval):
 
 
 @pytest.mark.asyncio
-@patch("src.tools.builtin.evolution.EvolutionPathGuard")
 @patch("src.tools.builtin.evolution.request_approval")
-async def test_interactive_calls_own_creation_approval(mock_approval, mock_guard, monkeypatch):
+async def test_interactive_calls_own_creation_approval(mock_approval, zone_data_root):
     """互動（_interactive=True）→ 呼叫自帶 request_approval，型別
     skill_creation_approval_request 且帶 source_code（前端據此渲染審批卡）。
 
     使用者拒絕 → 回 Rejected、不部署（此處只驗『有走自帶審批卡＋型別/載荷』這一環）。
+    檔案用真的技能資料夾（ADR-0293 PR 2：演化的檔案經 RM 區方法讀寫）。
     """
-    mock_guard.tool_file_exists.return_value = True
-    monkeypatch.setattr(evolution.resource_manager, "read_file_binary", lambda *_: b"print('hi')")
-    mock_guard.read_tool_file.side_effect = lambda _sid, fname: (
-        "print('hi')" if fname == "server.py" else '{"name": "X", "description": "d"}'
-    )
+    guard = evolution.EvolutionPathGuard
+    guard.mkdir_tool("some-skill")
+    guard.write_tool_file("some-skill", "server.py", "print('hi')")
+    guard.write_tool_file("some-skill", "requirements.txt", "")
+    guard.write_tool_file("some-skill", "spec.json", '{"name": "X", "description": "d"}')
     mock_approval.return_value = (False, {})  # 拒絕 → 不部署
 
     result = await request_mcp_creation(

@@ -6,8 +6,8 @@ Windows 找執行檔不看子程序的 ``cwd``；而且 venv 建在沙盒的 ``.
 部署寫進 ``server_config.json`` 的 ``command`` 同理（原本是 ``<沙盒>/Scripts/python.exe``，少了
 ``.venv``，部署後的伺服器指向不存在的直譯器）。
 
-子程序一律換成記錄器，不建 venv、不連網；沙盒根目錄指到 pytest 的 tmp；部署卡與設定寫入
-換成替身，不寫真的設定檔、不熱掛載。
+子程序一律換成記錄器，不建 venv、不連網；data 根換到 ``zone_data_root``（pytest 的 tmp）；
+部署卡與設定寫入換成替身，不寫真的設定檔、不熱掛載。
 """
 
 from __future__ import annotations
@@ -28,7 +28,15 @@ _VENV_PYTHON = {True: Path(".venv/Scripts/python.exe"), False: Path(".venv/bin/p
 
 
 @pytest.fixture
-def commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[dict[str, Any]]:
+def skill_root(zone_data_root: Path) -> Path:
+    """技能資料夾（``zone_data_root`` 底下，已建好）."""
+    root = zone_data_root / "mcp_servers" / "managed" / "skill_h3"
+    root.mkdir(parents=True)
+    return root
+
+
+@pytest.fixture
+def commands(monkeypatch: pytest.MonkeyPatch, skill_root: Path) -> list[dict[str, Any]]:
     seen: list[dict[str, Any]] = []
 
     def _run(_skill_id: str, cmd_list: list[str], **kwargs: Any) -> SimpleNamespace:
@@ -36,7 +44,6 @@ def commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[dict[str, 
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     guard = evolution.EvolutionPathGuard
-    monkeypatch.setattr(guard, "get_tool_root", lambda _skill_id: tmp_path)
     monkeypatch.setattr(guard, "tool_file_exists", lambda *_a: False)
     monkeypatch.setattr(guard, "write_tool_file", lambda *_a: None)
     monkeypatch.setattr(guard, "delete_tool_file", lambda *_a: True)
@@ -61,20 +68,22 @@ def verification(monkeypatch):
 
 
 @pytest.mark.parametrize("windows", [True, False])
-async def test_pip_install_uses_the_absolute_venv_python(monkeypatch, tmp_path, commands, windows):
+async def test_pip_install_uses_the_absolute_venv_python(
+    monkeypatch, skill_root, commands, windows
+):
     monkeypatch.setattr(evolution.EvolutionPathGuard, "is_windows", lambda: windows)
     out = await evolution.write_mcp_implementation("skill_h3", "pass", ["example-package"])
     assert out.startswith("Development Success")
     venv_create, pip_install = (entry["cmd"] for entry in commands)
     assert venv_create == [sys.executable, "-m", "venv", ".venv"]
-    assert Path(pip_install[0]) == tmp_path / _VENV_PYTHON[windows]
+    assert Path(pip_install[0]) == skill_root / _VENV_PYTHON[windows]
     assert Path(pip_install[0]).is_absolute()
     assert pip_install[1:] == ["-m", "pip", "install", "-r", "requirements.txt"]
 
 
 @pytest.mark.parametrize("windows", [True, False])
 async def test_local_verification_uses_the_absolute_venv_python(
-    monkeypatch, tmp_path, commands, verification, windows
+    monkeypatch, skill_root, commands, verification, windows
 ):
     monkeypatch.setattr(evolution.EvolutionPathGuard, "is_windows", lambda: windows)
     outcome = await evolution._verify_mcp("skill_h3", "probe", {})
@@ -83,9 +92,9 @@ async def test_local_verification_uses_the_absolute_venv_python(
     connect.assert_awaited_once()
     config = connect.call_args.args[0]
     verify = [config.command, *config.args]
-    assert Path(verify[0]) == tmp_path / _VENV_PYTHON[windows]
+    assert Path(verify[0]) == skill_root / _VENV_PYTHON[windows]
     assert Path(verify[0]).is_absolute()
-    assert verify[1:] == [str(tmp_path / "test_wrapper.py")]
+    assert verify[1:] == [str(skill_root / "test_wrapper.py")]
     if not windows:
         assert connect.call_args.kwargs["isolated"].launch.argv == tuple(verify)
     call_tool.assert_awaited_once_with("probe", {})
@@ -94,13 +103,13 @@ async def test_local_verification_uses_the_absolute_venv_python(
 
 @pytest.mark.parametrize("windows", [True, False])
 async def test_deploy_command_is_the_python_the_build_step_created(
-    monkeypatch, tmp_path, commands, verification, windows
+    monkeypatch, skill_root, commands, verification, windows
 ):
     guard = evolution.EvolutionPathGuard
     monkeypatch.setattr(guard, "is_windows", lambda: windows)
     await evolution.write_mcp_implementation("skill_h3", "pass", ["example-package"])
     venv_create, pip_install = (entry["cmd"] for entry in commands)
-    built_python = tmp_path / venv_create[-1] / _VENV_PYTHON[windows].relative_to(".venv")
+    built_python = skill_root / venv_create[-1] / _VENV_PYTHON[windows].relative_to(".venv")
     outcome = await evolution._verify_mcp("skill_h3", "probe", {})
     assert outcome.passed
     connect, _ = verification
@@ -116,8 +125,8 @@ async def test_deploy_command_is_the_python_the_build_step_created(
     monkeypatch.setattr(
         guard, "read_tool_file", lambda _s, name: '{"name": "H3"}' if name == "spec.json" else ""
     )
-    (tmp_path / "server.py").write_bytes(b"pass")
-    (tmp_path / "requirements.txt").write_bytes(b"")
+    (skill_root / "server.py").write_bytes(b"pass")
+    (skill_root / "requirements.txt").write_bytes(b"")
     monkeypatch.setattr(app.state, "context", {}, raising=False)  # 不熱掛載
 
     out = await evolution.request_mcp_creation("skill_h3", _interactive=True)
@@ -126,4 +135,4 @@ async def test_deploy_command_is_the_python_the_build_step_created(
     entry = saved["mcpServers"]["skill_h3"]
     assert Path(entry["command"]) == built_python
     assert entry["command"] == pip_install[0]  # 與建置、驗證用的是同一支
-    assert entry["args"] == [str(tmp_path / "server.py")]
+    assert entry["args"] == [str(skill_root / "server.py")]

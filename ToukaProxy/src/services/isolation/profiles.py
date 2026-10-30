@@ -501,7 +501,7 @@ async def build_agent_command_profile(
 
 def build_evolution_profile(
     skill_id: str,
-    tool_root: Path,
+    tool_root: Path | str,
     *,
     layout: SandboxLayout,
     location: Location = "proxy",

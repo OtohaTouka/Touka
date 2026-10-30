@@ -30,6 +30,8 @@ from src.tools.terminal import (
     execute_command,
 )
 
+from tests.support.zone_roots import point_zone_roots
+
 # ---------------------------------------------------------------------------
 # C4 — Path Traversal: is_relative_to vs startsWith
 # ---------------------------------------------------------------------------
@@ -202,7 +204,8 @@ def test_metachar_command_not_auto_approved_in_any_mode():
 
 async def _assert_tool_name_only_in_protocol(monkeypatch, tmp_path, tool_name, arguments):
     guard = evolution.EvolutionPathGuard
-    monkeypatch.setattr(guard, "get_tool_root", lambda _: tmp_path)
+    (tmp_path / "zone_data").mkdir()
+    point_zone_roots(monkeypatch, tmp_path / "zone_data", tmp_path / "zone_state")
     monkeypatch.setattr(guard, "is_windows", lambda: False)
     write = MagicMock()
     monkeypatch.setattr(guard, "write_tool_file", write)
@@ -225,7 +228,8 @@ async def _assert_tool_name_only_in_protocol(monkeypatch, tmp_path, tool_name, a
     connect.assert_awaited_once()
     config = connect.call_args.args[0]
     argv = (config.command, *config.args)
-    assert argv == (evolution._venv_python("sample"), str(tmp_path / "test_wrapper.py"))
+    wrapper = str(Path(guard.get_tool_root("sample")) / "test_wrapper.py")
+    assert argv == (evolution._venv_python("sample"), wrapper)
     assert connect.call_args.kwargs["isolated"].launch.argv == argv
 
 

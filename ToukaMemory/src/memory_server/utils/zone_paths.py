@@ -46,8 +46,8 @@ class Anchor(enum.Enum):
 
 
 ALL_ANCHORS = frozenset(Anchor)
-# PR 1 只對個人空間執法；其他三個錨點在 PR 2 加進來（Z10 與隔離層已用 ALL_ANCHORS）
-ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE})
+# 全部錨點都執法（PR 2 起；名稱保留給呼叫端表明「預設的執法範圍」）
+ENFORCED_ANCHORS = ALL_ANCHORS
 
 # 錨點相對 data 根的資料夾；SANDBOX_STATE 不在 data 根底下（由 ZoneRoots 的 state_root 給）
 _DATA_DIRS: dict[Anchor, tuple[str, ...]] = {
@@ -183,8 +183,9 @@ def _key(parts: Iterable[str]) -> tuple[str, ...]:
 
 # --- ZonePath（R1、R2、R8） ----------------------------------------------
 
-# 每個錨點裡「代理人」佔幾段：parent 最多回到這裡，same_agent 比這幾段
-_AGENT_DEPTH = {Anchor.CUSTOM_DRIVE: 2}
+# 每個錨點裡「代理人」佔幾段：parent 最多回到這裡，same_agent 比這幾段；其他錨點是 1 段
+# （ST 是 proxy/<kind>/<owner>，P2）
+_AGENT_DEPTH = {Anchor.CUSTOM_DRIVE: 2, Anchor.SANDBOX_STATE: 3}
 # Pathlib 的方法名稱：ZonePath 被當成 Path 用時先通知再丟 AttributeError
 _PATHLIB_NAMES = frozenset(n for n in dir(Path) if not n.startswith("_"))
 
@@ -232,7 +233,7 @@ class ZonePath:
         return self._parts[-1] if self._parts else ""
 
     def _agent_depth(self) -> int:
-        return min(len(self._parts), _AGENT_DEPTH.get(self._anchor, 1))
+        return min(len(self._parts), agent_depth(self._anchor))
 
     @property
     def parent(self) -> ZonePath:
@@ -285,8 +286,11 @@ class ZonePath:
         return self._parts[len(base._parts) :]
 
     def same_agent(self, other: ZonePath) -> bool:
-        """同一個錨點的同一個代理人（自訂模型比 ``<id>/drive``）。"""
-        n = _AGENT_DEPTH.get(self._anchor, 1)
+        """同一個錨點的同一個代理人.
+
+        自訂模型比 ``<id>/drive``，ST 比 ``proxy/<kind>/<owner>``。
+        """
+        n = agent_depth(self._anchor)
         return (
             self._anchor is other._anchor
             and len(self._parts) >= n
@@ -341,6 +345,11 @@ class ZonePath:
         if name in _PATHLIB_NAMES:
             report(ZoneEvent(AttributeError, self.display(), name))
         raise AttributeError(name)
+
+
+def agent_depth(anchor: Anchor) -> int:
+    """錨點裡「代理人」佔幾段（RM 的刪除與改名用它擋代理人那一層以上，P5）。"""
+    return _AGENT_DEPTH.get(anchor, 1)
 
 
 def agent_root(anchor: Anchor, folder: str) -> ZonePath:
@@ -520,17 +529,19 @@ def zone_of(
     anchors: Iterable[Anchor] = ENFORCED_ANCHORS,
     use_identity: bool = True,
     follow: bool = True,
+    literal_path: bool = False,
 ) -> tuple[Anchor, tuple[str, ...]] | None:
     """``path`` 在某個區裡時回（錨點, 段落），否則 None；錨點本身不算區內。
 
     三項任一成立：字面在錨點的字面或解析後路徑底下；解析後在錨點解析後的路徑底下；
     從根往下某個存在的前綴，檔案身分等於某錨點，後面還有段落（``use_identity``，只有測試
     絆線關掉）。自訂模型三項都要再對上 ``<id>/drive``。``follow=False`` 只看字面：路徑與
-    錨點都不解析、不比身分（權限自癒自己比對解析前後）。
+    錨點都不解析、不比身分（權限自癒自己比對解析前後）。``literal_path`` 只看第一項：路徑
+    不解析、不比身分，錨點的字面與解析後寫法都認（交出子行程的 cwd 用，P6）。
     """
     text = absolute_text(path)
     literal = _parts_of(text)
-    candidates = [literal, _parts_of(_real(text))] if follow else [literal]
+    candidates = [literal, _parts_of(_real(text))] if follow and not literal_path else [literal]
     bases, resolved = _anchor_bases(roots, anchors, follow=follow)
     for candidate in candidates:
         key = _key(candidate)
@@ -538,7 +549,7 @@ def zone_of(
             n = len(base.key)
             if key[:n] == base.key and _shape(base.anchor, candidate[n:], _norm):
                 return base.anchor, candidate[n:]
-    if use_identity and follow:
+    if use_identity and follow and not literal_path:
         return _zone_by_identity(literal, resolved)
     return None
 
@@ -717,7 +728,7 @@ def _stat_or_none(path: str) -> os.stat_result | None:
 class HandoffKind(enum.Enum):
     """區內路徑轉成字串交出去的種類；測試絆線只放行該種類允許的事件。"""
 
-    SUBPROCESS_CWD = "subprocess_cwd"
+    SUBPROCESS_CWD = "subprocess_cwd"  # 子行程的工作資料夾，或交給子行程當工作資料夾用的參數
     PROC_FD = "proc_fd"
     WINDOWS_FILE_RESPONSE = "windows_file_response"
 

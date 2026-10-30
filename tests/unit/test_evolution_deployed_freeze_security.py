@@ -17,20 +17,21 @@ from src.services.evolution_security import EvolutionPathGuard
 from src.services.isolation import evolution_command
 from src.services.isolation.mcp_launch import McpLaunch, McpLaunchInfo
 from src.services.isolation.mcp_profiles import mcp_state_dirs
+from src.services.isolation.profiles import ProfileError
 from src.services.isolation.runners import IsolationUnavailableError
 from src.tools.builtin import evolution
 from src.utils import config_utils
+from src.utils.mcp_origin import ALL_SKILLS_DEPLOYED, DeployedSkills
+
+from tests.support.links import make_dir_link
 
 
 @pytest.fixture
-def workspace(monkeypatch, tmp_path):
-    layout = replace(evolution_command.current_layout(), data_root=tmp_path / "owned")
+def workspace(monkeypatch, tmp_path, zone_data_root):
+    layout = replace(evolution_command.current_layout(), data_root=zone_data_root)
     monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(
-        EvolutionPathGuard, "MANAGED_BASE_DIR", layout.data_root / "mcp_servers" / "managed"
-    )
     monkeypatch.setattr(config_utils, "CONFIG_DIR", tmp_path)
-    root = EvolutionPathGuard.get_tool_root("sample")
+    root = Path(EvolutionPathGuard.get_tool_root("sample"))
     for name, value in {"server.py": "pass", "requirements.txt": "", "spec.json": "{}"}.items():
         EvolutionPathGuard.write_tool_file("sample", name, value)
     return root, tmp_path / "server_config.json"
@@ -174,11 +175,12 @@ async def test_nested_ids_refused_before_lock_and_write(workspace, monkeypatch, 
 @pytest.mark.parametrize("alias", ["SAMPLE", "physical-alias"])
 async def test_physical_alias_freeze_and_lock(workspace, monkeypatch, alias):
     root, config = workspace
-    other = EvolutionPathGuard.get_tool_root(alias)
+    other = Path(EvolutionPathGuard.get_tool_root(alias))
     other.mkdir(exist_ok=True)
     original = os.path.samefile
+    pair = {os.path.normcase(str(root)), os.path.normcase(str(other))}
     monkeypatch.setattr(os.path, "samefile", lambda a, b: (
-        True if {a, b} == {root, other} else original(a, b)
+        True if {os.path.normcase(str(a)), os.path.normcase(str(b))} == pair else original(a, b)
     ))
     async with evolution_command.skill_lock("sample"):
         result = await evolution.propose_new_capability(alias, "N", "D", {})
@@ -197,7 +199,9 @@ async def test_ancestor_and_descendant_roots_are_frozen(workspace, deployed_chil
     config.write_text(json.dumps({"mcpServers": {"nested": {
         "command": "python", "args": [str(deployed / "server.py")],
     }}}))
-    with pytest.raises(evolution_command.EvolutionRefused, match="skill_deployed"):
+    # 子資料夾當技能 id 在第 0 步就不合格（P9），仍是拒絕
+    reason = "skill_deployed" if deployed_child else "invalid_skill_id"
+    with pytest.raises(evolution_command.EvolutionRefused, match=reason):
         evolution_command.refuse_deployed("sample" if deployed_child else "sample/x")
 
 
@@ -467,3 +471,85 @@ async def test_missing_binary_snapshot_cannot_deploy(workspace, monkeypatch):
     assert json.loads(await invoke("deploy"))["reason"] == "skill_changed"
     store.assert_not_called()
     assert not config.exists()
+
+
+# ── refuse_deployed 的特殊值與名稱比對（ADR-0293 PR 2，Q3、N3）──────────────────
+
+
+@pytest.fixture
+def empty_config(monkeypatch, tmp_path, zone_data_root):
+    monkeypatch.setattr(config_utils, "CONFIG_DIR", tmp_path)
+    return zone_data_root
+
+
+def _deployed(monkeypatch, value):
+    monkeypatch.setattr(evolution_command, "deployed_skills", lambda *_a, **_k: value)
+
+
+def test_every_deployed_refuses(empty_config, monkeypatch):
+    _deployed(monkeypatch, ALL_SKILLS_DEPLOYED)
+    with pytest.raises(evolution_command.EvolutionRefused, match="skill_deployed"):
+        evolution_command.refuse_deployed("sample")
+
+
+@pytest.mark.parametrize("name", ["sample", "SAMPLE", "sample.", "Sample. ", "sample "])
+def test_deployed_name_with_the_same_key_refuses(empty_config, monkeypatch, name):
+    _deployed(monkeypatch, DeployedSkills(frozenset({name})))
+    with pytest.raises(evolution_command.EvolutionRefused, match="skill_deployed"):
+        evolution_command.refuse_deployed("sample")
+
+
+def test_bad_deployed_names_do_not_stop_other_skills(empty_config, monkeypatch):
+    _deployed(monkeypatch, DeployedSkills(frozenset({"soul", "a:b", "a/b", "..", "", "x" * 80})))
+    evolution_command.refuse_deployed("sample")
+
+
+def test_bad_skill_id_is_refused_first(empty_config, monkeypatch):
+    _deployed(monkeypatch, DeployedSkills(frozenset()))
+    with pytest.raises(evolution_command.EvolutionRefused, match="invalid_skill_id"):
+        evolution_command.refuse_deployed("soul")
+
+
+def test_overlapping_deployed_folder_refuses(empty_config, monkeypatch, tmp_path):
+    managed = empty_config / "mcp_servers" / "managed"
+    (managed / "sample" / "sub").mkdir(parents=True)
+    make_dir_link(managed / "other", managed / "sample" / "sub")
+    _deployed(monkeypatch, DeployedSkills(frozenset({"other"})))
+    with pytest.raises(evolution_command.EvolutionRefused, match="skill_deployed"):
+        evolution_command.refuse_deployed("sample")
+
+
+def test_classification_profile_error_is_config_unreadable(empty_config, monkeypatch, tmp_path):
+    (tmp_path / "server_config.json").write_text(
+        json.dumps({"mcpServers": {"renamed": {"command": "python", "args": ["x.py"]}}}),
+        encoding="utf-8",
+    )
+
+    def unconfigured(*_args, **_kwargs):
+        raise ProfileError("state", "sandbox_state_unconfigured")
+
+    monkeypatch.setattr(evolution_command, "mcp_classification_bases", unconfigured)
+    with pytest.raises(evolution_command.EvolutionRefused, match="config_unreadable"):
+        evolution_command.refuse_deployed("sample")
+
+
+def test_overlap_sees_a_link_to_a_sibling_subfolder(tmp_path):
+    first = tmp_path / "A"
+    (first / "sub").mkdir(parents=True)
+    make_dir_link(tmp_path / "B", first / "sub")
+    assert evolution_command._overlapping_roots(str(first), str(tmp_path / "B"))
+    assert evolution_command._overlapping_roots(str(tmp_path / "B"), str(first))
+    assert not evolution_command._overlapping_roots(str(first), str(tmp_path / "C"))
+
+
+def test_overlap_counts_an_os_error_as_overlap(tmp_path, monkeypatch):
+    first, second = str(tmp_path / "x"), str(tmp_path / "y")
+    original = os.path.realpath
+
+    def broken(path, *args, **kwargs):  # 只對這兩條路徑失敗，測試的絆線照常
+        if os.fspath(path) in {first, second}:
+            raise OSError("unreadable")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(evolution_command.os.path, "realpath", broken)
+    assert evolution_command._overlapping_roots(first, second)

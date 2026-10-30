@@ -147,8 +147,7 @@ async def test_verification_command_stdin_is_devnull(zone_drive, monkeypatch):
     assert seen["stdin"] == asyncio.subprocess.DEVNULL
 
 
-def test_evolution_command_stdin_is_devnull(tmp_path, monkeypatch):
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path)
+def test_evolution_command_stdin_is_devnull(zone_data_root, monkeypatch):
     EvolutionPathGuard.mkdir_tool("skill_alpha")
     seen: dict[str, Any] = {}
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.services import mcp_isolation_store
@@ -50,8 +51,6 @@ from src.utils.isolation_policy import (
 REAL_EVOLUTION_PROFILE = evolution_command.evolution_profile
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pytest
     from src.services.isolation.agent_command import CommandScope
     from src.services.isolation.consent import ExecutionGrant
@@ -212,7 +211,7 @@ def passthrough_evolution_profile(
     skill_id: str, _location: str = "proxy", _executor_state: str | None = None
 ) -> SandboxProfile:
     """測試替身的演化 profile：cwd 是工具沙盒（既有測試常把沙盒根目錄換成 tmp_path）。"""
-    cwd = EvolutionPathGuard.get_tool_root(skill_id)
+    cwd = Path(EvolutionPathGuard.get_tool_root(skill_id))
     return SandboxProfile(name="evolution", cwd=cwd, rules=(), block_ports=())
 
 

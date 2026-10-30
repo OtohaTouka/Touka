@@ -107,6 +107,9 @@ tests/
 | `unit/test_no_follow_zone.py` | 區內的單項原語、走訪、剪枝走訪與刪樹：不進入也不列出連結、遇到代理人資料夾剪掉、刪樹遇到連結只刪本身、不因深度失敗；Linux 補權限改的是核對過的那個資料夾，核對後換進來的連結不跟隨；中途被換掉、跨檔案系統與權限用 seam 模擬。 |
 | `unit/test_resource_manager_zone.py` | ResourceManager 的區內方法與產生函式：讀寫、追加、建刪、列與走訪都不跟隨連結，每個案例核對連結另一端沒被動到；`zone_handoff`、改名與刪自訂模型資料夾。 |
 | `unit/test_resource_manager_string_zone.py` | 字串方法碰到代理人資料夾：單一路徑丟 `ZonePathRequiredError`（含 `..` 與經連結進去的），錨點本身與 `custom/<id>/config.json` 照常；兩個路徑任一邊在區裡就拒絕；遞迴的列、找、統計剪掉區；刪、打包、解壓整個拒絕。 |
+| `unit/test_resource_manager_anchors.py` | ADR-0293 PR 2 的三個錨點（演化工具、文件輸出、sandbox state）：字串方法碰到這三個錨點就拒絕；產生函式（`tool_root`、ST 的幾個）只對不合格名稱給 None、ST 沒設時給 None；`anchor_root`；`zone_text` 是解析後的錨點加字面段落、不解析段落；`zone_rename`／`zone_access` 不跟隨連結；刪除類的深度檢查；`zone_walk` 的深度；`handoff_cwd` 在區外照給、在區裡交接，各種連結與不合格段落拒絕。 |
+| `unit/test_evolution_links_security.py` | R15：演化的提案、實作與部署在技能資料夾換成連結時不寫入、不讀取另一端（用真的流程）；`mkdir_tool`、四個檔案方法與部署讀檔遇到連結回 `skill_changed`，不合格技能名稱回 `invalid_skill_id`；POSIX 的檔案連結：寫、讀與部署讀檔拒絕，刪除只刪連結本身。 |
+| `unit/test_skill_names_security.py` | 技能名稱不能是 Touka 資料根或標記的 9 個名稱（不分大小寫、尾點與空白）與 Windows 保留名稱；相近的名稱照常可用；提案用這些名稱時什麼都不建立。 |
 | `unit/test_zone_file_response.py` | `/v1/outputs` 的回應物件：Linux 版持有開好的檔案，送完、出錯、中斷或沒被呼叫都關檔並取消登記；沒有 `/proc` 的系統只在送出期間登記。 |
 | `unit/test_outputs_route_links_security.py` | R15：`/v1/outputs` 的 `outputs` 或檔名換成連結時回 404、不送出另一端的內容；標頭、Range、If-Range 和直接送出一樣；不能當一段的檔名回 403。 |
 | `unit/test_personal_drive_links_security.py` | 個人空間的檔案動詞（read、write、append、edit、delete、list、find、grep 與目錄重建）在根、中間或最後一段換成連結時都不讀寫、不列出另一端。 |

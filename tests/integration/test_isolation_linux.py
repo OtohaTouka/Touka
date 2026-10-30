@@ -1341,12 +1341,12 @@ async def _isolated_evolution(monkeypatch, layout: SandboxLayout, required: bool
     monkeypatch.setattr(evolution_command, "isolation_monitor", monitor)
     monkeypatch.setattr(evolution_command, "runner_broker", broker)
     monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
-    managed = layout.data_root / "mcp_servers" / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    state = layout.state_root or layout.data_root.parent / "zone_state"
+    point_zone_roots(monkeypatch, layout.data_root, state)  # 技能資料夾（ADR-0293 PR 2）
     limits = {"execution_timeout_sec": 60, "max_storage_mb": 50, "max_memory_mb": 1024}
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": limits})
     EvolutionPathGuard.write_tool_file(EVO_SKILL, "spec.json", "{}")
-    return EvolutionPathGuard.get_tool_root(EVO_SKILL)
+    return Path(EvolutionPathGuard.get_tool_root(EVO_SKILL))
 
 
 def _verify_data(result: str) -> dict:
@@ -2782,13 +2782,11 @@ async def test_verification_command_runs_inside_the_executor(tmp_path, monkeypat
 
 async def test_evolution_verify_runs_inside_the_executor(tmp_path, monkeypatch, executor):
     """venv 先建好（建置要連網的 pip 不在這裡驗）；驗證在執行器裡跑、HOME 在執行器的 state."""
-    wiring = await _executor_wiring(monkeypatch, executor, tmp_path)
-    managed = wiring.dirs.mcp / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    wiring = await _executor_wiring(monkeypatch, executor, tmp_path)  # 已讓 data 根指到執行器的
     limits = {"execution_timeout_sec": 60, "max_storage_mb": 50, "max_memory_mb": 1024}
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": limits})
     EvolutionPathGuard.write_tool_file(EVO_SKILL, "spec.json", "{}")
-    root = EvolutionPathGuard.get_tool_root(EVO_SKILL)
+    root = Path(EvolutionPathGuard.get_tool_root(EVO_SKILL))
     venv = [sys.executable, "-m", "venv", "--without-pip", str(root / ".venv")]
     run_sync(venv, check=True, capture_output=True, timeout=120)
     secret = wiring.dirs.pd / "Bob" / "secret.txt"
@@ -3612,7 +3610,7 @@ if __name__ == "__main__":
             stream.write("x" * (700 * 1024))
     return "quota escaped"''')
     (peer.code / "server.py").write_text(code, encoding="utf-8")
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", peer.code.parent)
+    point_zone_roots(monkeypatch, peer.layout.data_root, peer.layout.state_root)
     monkeypatch.setattr(evolution, "_venv_python", lambda _skill: sys.executable)
     monkeypatch.setattr(evolution_command, "current_layout", lambda: peer.layout)
     monkeypatch.setattr(evolution_command, "isolation_monitor", peer.monitor)

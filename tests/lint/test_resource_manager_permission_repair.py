@@ -69,6 +69,9 @@ EXPECTED_RETRY = {
     "zone_append_text": False,
     "zone_remove_file": False,
     "zone_remove_dir": False,
+    # ADR-0293 PR 2（P5）：改名不重試；可寫判斷只讀
+    "zone_rename": False,
+    "zone_access": True,
     "rename_agent_container": False,
     "remove_custom_model_dir": False,
 }
@@ -93,6 +96,7 @@ EXPECTED_EXEMPT = {
     "zone_walk": ("generator", "走訪"),
     "zone_walk_open": ("generator", "開檔"),
     "zone_handoff": ("generator", "交出"),
+    "handoff_cwd": ("generator", "交出"),
 }
 # 有標記的私有方法（retry=True 的區內方法要呼叫它，所以它自己也要 retry=True）
 EXPECTED_PRIVATE_RETRY = {"_zone_target": True}

@@ -20,9 +20,9 @@ import sys
 import threading
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -50,9 +50,7 @@ from tests.support.isolation import (
     install_real_broker,
     pinned_snapshot,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from tests.support.zone_roots import point_zone_roots
 
 SKILL = "probe_skill"
 MB = 1024 * 1024
@@ -259,13 +257,11 @@ class _Recorder:
 
 
 @pytest.fixture
-def evolution_env(monkeypatch, tmp_path) -> Path:
-    """沙盒根目錄指到 tmp；已提案（有 spec.json）；配額固定；回傳 managed 根目錄。"""
-    managed = tmp_path / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+def evolution_env(monkeypatch, zone_data_root) -> Path:
+    """data 根換到 ``zone_data_root``；已提案（有 spec.json）；配額固定；回傳 managed 根目錄。"""
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
-    return managed
+    return zone_data_root / "mcp_servers" / "managed"
 
 
 @pytest.fixture
@@ -346,9 +342,9 @@ async def test_build_and_verify_spawn_through_the_launcher(
     assert [spawned.original(i) for i in range(3)] == [
         [sys.executable, "-m", "venv", ".venv"],
         [_venv_python(), "-m", "pip", "install", "-r", "requirements.txt"],
-        [_venv_python(), str(EvolutionPathGuard.get_tool_root(SKILL) / "test_wrapper.py")],
+        [_venv_python(), str(Path(EvolutionPathGuard.get_tool_root(SKILL)) / "test_wrapper.py")],
     ]
-    root = str(EvolutionPathGuard.get_tool_root(SKILL))
+    root = EvolutionPathGuard.get_tool_root(SKILL)
     loop_thread = threading.get_ident()
     for call in spawned.calls:
         assert call.argv[:4] == [sys.executable, "-I", "-S", launcher]
@@ -542,9 +538,7 @@ def _evolution_without_sandbox_state(monkeypatch, tmp_path: Path, *, card: str) 
     layout = replace(_layout(tmp_path), state_root=None)
     snap = pinned_snapshot("none", reason="sandbox_state_unconfigured")
     install_real_broker(monkeypatch, snap, layout).state_ok = card == "landlock"
-    monkeypatch.setattr(
-        EvolutionPathGuard, "MANAGED_BASE_DIR", layout.data_root / "mcp_servers" / "managed"
-    )
+    point_zone_roots(monkeypatch, layout.data_root, tmp_path / "zone_state")
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
     monkeypatch.setattr(evolution_command, "evolution_profile", REAL_EVOLUTION_PROFILE)
@@ -595,8 +589,7 @@ def _evolution_in_the_executor(monkeypatch, tmp_path: Path) -> Any:
         pinned_snapshot("executor"), executor=EXEC_READY, features=frozenset({"fs"})
     )
     monitor = install_real_broker(monkeypatch, snap, layout)
-    managed = layout.data_root / "mcp_servers" / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
     monkeypatch.setattr(evolution_command, "evolution_profile", REAL_EVOLUTION_PROFILE)
@@ -618,7 +611,7 @@ async def test_evolution_runs_through_the_relay_at_the_executor_level(
         assert call.argv[3].endswith("relay.py") and "--spec-fd" not in call.argv
         start = call.spec["start"]
         assert (start["kind"], start["owner"]) == ("evolution", SKILL)
-        assert start["cwd"] == str(EvolutionPathGuard.get_tool_root(SKILL).resolve())
+        assert start["cwd"] == EvolutionPathGuard.get_tool_root(SKILL)
         home = start["env"]["HOME"].replace("\\", "/")
         assert home.endswith(f"executor_state/evolution/{SKILL}/home")
 

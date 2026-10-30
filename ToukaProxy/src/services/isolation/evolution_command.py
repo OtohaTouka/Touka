@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
-from src.services.evolution_security import EvolutionPathGuard
+from src.services.evolution_security import EvolutionPathGuard, EvolutionRefused
 from src.services.isolation.agent_command import (
     UNBOUND_PROFILE,
     command_scope,
@@ -49,6 +48,7 @@ from src.services.isolation.runners import (
 from src.services.isolation.status import AGENT_DIR_NOT_IN_EXECUTOR, isolation_monitor
 from src.utils import config_utils
 from src.utils.config_utils import MCP_CONFIG_FILENAME
+from src.utils.isolation_policy import is_skill_segment
 from src.utils.mcp_origin import deployed_skills, proxy_base_dir
 
 if TYPE_CHECKING:
@@ -62,45 +62,47 @@ if TYPE_CHECKING:
 
 
 MAX_SKILL_LOCKS = 4096
-SKILL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-WINDOWS_RESERVED_NAMES = frozenset({"con", "prn", "aux", "nul"}) | {
-    f"{prefix}{number}" for prefix in ("com", "lpt") for number in range(1, 10)
-}
-_skill_locks: dict[Path, tuple[asyncio.Lock, asyncio.Task | None]] = {}
-
-
-class EvolutionRefused(Exception):
-    """演化的驗證拒絕，與隔離環境不可用分開。"""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
+# 鍵是技能資料夾區字串的 normcase（只當鎖的身分，ADR-0293 Q3）
+_skill_locks: dict[str, tuple[asyncio.Lock, asyncio.Task | None]] = {}
 
 
 def validate_skill_id(skill_id: str) -> None:
-    """寫檔與取得 runner 之前，只接受單層技能名稱。"""
-    if (
-        not isinstance(skill_id, str)
-        or not SKILL_ID_PATTERN.fullmatch(skill_id)
-        or skill_id.casefold() in WINDOWS_RESERVED_NAMES
-    ):
+    """寫檔與取得 runner 之前，只接受單層技能名稱（ADR-0293 P9：只經 ``is_skill_segment``）。"""
+    if not is_skill_segment(skill_id):
         raise EvolutionRefused("invalid_skill_id")
 
 
-def _overlapping_roots(first: Path, second: Path) -> bool:
-    if first.exists() and second.exists() and os.path.samefile(first, second):  # noqa: PTH121
-        return True
-    first, second = (
-        Path(*(os.path.normcase(part.rstrip(". ")).casefold() for part in path.parts))
-        for path in (first, second)
-    )
+def _name_key(text: str) -> PurePath:
+    """字面的比對鍵：每段 ``normcase``、去掉結尾的點與空白、``casefold``。"""
+    parts = PurePath(text).parts
+    return PurePath(*(os.path.normcase(part.rstrip(". ")).casefold() for part in parts))
+
+
+def _nested(first: PurePath, second: PurePath) -> bool:
     return first.is_relative_to(second) or second.is_relative_to(first)
+
+
+def _overlapping_roots(first: str, second: str) -> bool:
+    """兩個技能資料夾是否重疊；三種比對任一成立就算，只會多判（ADR-0293 Q3）.
+
+    字面的比對鍵互為上下層；兩邊都存在時 ``samefile``；解析後互為上下層（``managed/B``
+    是指到 ``managed/A/sub`` 的連結時仍判重疊）。過程中任何 ``OSError`` 一律當重疊。
+    """
+    try:
+        if os.path.exists(first) and os.path.exists(second) and os.path.samefile(first, second):  # noqa: PTH110, PTH121
+            return True
+        resolved = (str(Path(first).resolve()), str(Path(second).resolve()))
+    except OSError:
+        return True
+    return _nested(_name_key(first), _name_key(second)) or _nested(
+        _name_key(resolved[0]), _name_key(resolved[1])
+    )
 
 
 @asynccontextmanager
 async def skill_lock(skill_id: str, inherited: object = None) -> AsyncIterator[asyncio.Lock]:
     """同技能不排隊；只有同一 task 持有的實體憑證能重入，閒置鎖立即淘汰。"""
-    key = EvolutionPathGuard.get_tool_root(skill_id)
+    key = os.path.normcase(EvolutionPathGuard.get_tool_root(skill_id))
     key = next((held for held in _skill_locks if _overlapping_roots(key, held)), key)
     held = _skill_locks.get(key)
     if held is not None:
@@ -135,18 +137,31 @@ def evolution_config() -> dict[str, Any]:
 
 
 def refuse_deployed(skill_id: str) -> None:
-    """工具入口與取得 runner 共用同一份凍結判定。"""
+    """工具入口與取得 runner 共用同一份凍結判定（ADR-0293 Q3）.
+
+    0. 技能 id 不合格丟 ``invalid_skill_id``；1. 全部算已部署；2. 部署清單的名稱（來自設定裡的
+    路徑，可能是任何字串）和這次的比對鍵相同；3. 兩邊名稱都合格時另比兩個技能資料夾是否重疊；
+    不合格的部署名稱只比鍵，不讓整個演化停擺。取部署清單時 ST 不能用是 ``config_unreadable``。
+    """
+    validate_skill_id(skill_id)
     layout, base_dir = current_layout(), proxy_base_dir()
-    deployed = deployed_skills(
-        evolution_config(), layout, base_dir=base_dir,
-        bases_for=partial(mcp_classification_bases, layout=layout, base_dir=base_dir),
-    )
-    root = EvolutionPathGuard.get_tool_root(skill_id)
-    same_path = any(
-        _overlapping_roots(root, EvolutionPathGuard.get_tool_root(name)) for name in deployed.skills
-    )
-    if deployed.covers(skill_id) or same_path:
+    try:
+        deployed = deployed_skills(
+            evolution_config(), layout, base_dir=base_dir,
+            bases_for=partial(mcp_classification_bases, layout=layout, base_dir=base_dir),
+        )
+    except ProfileError as exc:
+        raise EvolutionRefused("config_unreadable") from exc
+    if deployed.every:
         raise EvolutionRefused("skill_deployed")
+    key = _name_key(skill_id)
+    root = EvolutionPathGuard.get_tool_root(skill_id)
+    for name in deployed.skills:
+        if _name_key(name) == key or (
+            is_skill_segment(name)
+            and _overlapping_roots(root, EvolutionPathGuard.get_tool_root(name))
+        ):
+            raise EvolutionRefused("skill_deployed")
 
 
 @dataclass(frozen=True)
@@ -266,7 +281,7 @@ async def acquire_evolution_launch(grant: ExecutionGrant | None, skill_id: str) 
     """每條指令在 spawn 前才呼叫；拿不到 runner 就拋 ``IsolationUnavailableError``."""
     validate_skill_id(skill_id)
     await asyncio.to_thread(refuse_deployed, skill_id)
-    cwd = EvolutionPathGuard.get_tool_root(skill_id)
+    cwd = Path(EvolutionPathGuard.get_tool_root(skill_id))
     if grant is None:
         unbound = SandboxProfile(name=UNBOUND_PROFILE, cwd=cwd, rules=(), block_ports=())
         grant, source = ExecutionGrant("none"), ProfileSource.fixed(unbound)

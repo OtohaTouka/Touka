@@ -371,7 +371,7 @@
   {
     "id": "g_deployed_name_only",
     "file": "ToukaProxy/src/services/isolation/evolution_command.py",
-    "old": "    if deployed.covers(skill_id) or same_path:",
+    "old": "    for name in deployed.skills:\n        if _name_key(name) == key or (\n            is_skill_segment(name)\n            and _overlapping_roots(root, EvolutionPathGuard.get_tool_root(name))\n        ):",
     "new": "    if skill_id in evolution_config().get(\"mcpServers\", {}):",
     "tests": [
       "tests/unit/test_evolution_deployed_freeze_security.py::test_deployed_entries_refuse_before_any_write"

@@ -25,6 +25,8 @@ from src.tools import editor, mission_tools, subagent_tools
 from src.tools.builtin import creation, evolution, memory, system
 from src.tools.contracts import PUBLIC_TOOL_CONTRACTS
 
+from tests.support.zone_roots import point_zone_roots
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
@@ -603,7 +605,8 @@ async def test_real_verifier_clamps_raw_quota_once_only(
         "config",
         {"sandbox_limits": {"execution_timeout_sec": 17, "max_storage_mb": 17}},
     )
-    monkeypatch.setattr(evolution.EvolutionPathGuard, "get_tool_root", lambda _: tmp_path)
+    (tmp_path / "zone_data").mkdir()
+    point_zone_roots(monkeypatch, tmp_path / "zone_data", tmp_path / "zone_state")
     monkeypatch.setattr(evolution.EvolutionPathGuard, "tool_file_exists", lambda *_: True)
     monkeypatch.setattr(evolution.EvolutionPathGuard, "write_tool_file", MagicMock())
     monkeypatch.setattr(evolution.EvolutionPathGuard, "delete_tool_file", MagicMock())

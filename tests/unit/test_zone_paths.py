@@ -97,7 +97,7 @@ def _same_identity(monkeypatch: pytest.MonkeyPatch, alias: Path, real: Path) -> 
 
 def test_anchor_sets() -> None:
     assert frozenset(Anchor) == ALL_ANCHORS and len(ALL_ANCHORS) == 5
-    assert {PD, CD} == ENFORCED_ANCHORS
+    assert ENFORCED_ANCHORS == ALL_ANCHORS  # PR 2 起全部錨點都執法
 
 
 def test_roots_give_literal_anchor_paths(data: Path, roots: ZoneRoots) -> None:
@@ -143,7 +143,9 @@ def test_roots_are_resolved_each_time(tmp_path: Path) -> None:
         ("custom/M1/drive/a/b.txt", (CD, ("M1", "drive", "a", "b.txt"))),
         ("custom/M1/driver/a", None),
         ("soul/Alice", None),
-        ("mcp_servers/managed/tool", None),
+        ("mcp_servers/managed/tool", (Anchor.MCP_SERVERS, ("tool",))),
+        ("mcp_servers/managed", None),
+        ("temp/docgen_output/a.docx", (Anchor.DOCGEN_OUTPUT, ("a.docx",))),
         ("personal_drive/../soul/Alice", None),
         ("soul/../personal_drive/Alice/x", (PD, ("Alice", "x"))),
     ],
@@ -154,10 +156,10 @@ def test_zone_of_literal(data: Path, roots: ZoneRoots, rel: str, expected: objec
 
 def test_zone_of_only_looks_at_the_given_anchors(data: Path, roots: ZoneRoots) -> None:
     tool = data / "mcp_servers" / "managed" / "tool" / "main.py"
-    assert zone_of(tool, roots) is None
-    assert zone_of(tool, roots, anchors=ALL_ANCHORS) == (Anchor.MCP_SERVERS, ("tool", "main.py"))
+    assert zone_of(tool, roots, anchors={PD, CD}) is None
+    assert zone_of(tool, roots) == (Anchor.MCP_SERVERS, ("tool", "main.py"))
     state = data.parent / "state" / "home" / "Alice"
-    assert zone_of(state, roots, anchors=ALL_ANCHORS) == (Anchor.SANDBOX_STATE, ("home", "Alice"))
+    assert zone_of(state, roots) == (Anchor.SANDBOX_STATE, ("home", "Alice"))
     assert zone_of(data / "personal_drive" / "Alice", roots, anchors={CD}) is None
 
 
@@ -251,7 +253,8 @@ def test_anchor_at(data: Path, roots: ZoneRoots, rel: str, expected: object) -> 
 
 def test_anchor_at_state_and_the_given_anchors(data: Path, roots: ZoneRoots) -> None:
     assert anchor_at(data.parent / "state", roots, anchors=ALL_ANCHORS) is Anchor.SANDBOX_STATE
-    assert anchor_at(data / "mcp_servers" / "managed", roots) is None  # 預設只看個人空間
+    assert anchor_at(data / "mcp_servers" / "managed", roots) is Anchor.MCP_SERVERS  # 預設全部
+    assert anchor_at(data / "mcp_servers" / "managed", roots, anchors={PD, CD}) is None
     assert anchor_at(data / "personal_drive", roots, anchors={CD}) is None
 
 
@@ -396,6 +399,11 @@ def test_parent_stops_at_the_agent() -> None:
     assert ZonePath(PD, ()).parent == ZonePath(PD, ())
     assert ZonePath(CD, ("M1", "drive", "x")).parent == ZonePath(CD, ("M1", "drive"))
     assert ZonePath(CD, ("M1", "drive")).parent == ZonePath(CD, ("M1", "drive"))
+    st = Anchor.SANDBOX_STATE  # 代理人是 proxy/<kind>/<owner>（P2）
+    agent = ZonePath(st, ("proxy", "agents", "A"))
+    assert ZonePath(st, ("proxy", "agents", "A", "home")).parent == agent
+    assert ZonePath(st, ("proxy", "agents", "A")).parent == ZonePath(st, ("proxy", "agents", "A"))
+    assert ZonePath(st, ("proxy", "agents")).parent == ZonePath(st, ("proxy", "agents"))
 
 
 def test_relative_parts_is_under_and_same_agent(events: list) -> None:
