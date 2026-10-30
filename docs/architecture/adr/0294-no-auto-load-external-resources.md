@@ -1,10 +1,10 @@
-# ADR-0294：模型輸出的外部資源不自動載入、本機連線資訊只給自己（PR A：ToukaChat）
+# ADR-0294：模型輸出的外部資源不自動載入、本機連線資訊只給自己
 
-- 狀態：✅ 已實作（PR A：ToukaChat 的開發終端伺服器、Markdown 圖片、流程圖；IDE 寫檔與連線資訊檔在 PR B 補一節）。對外存取盤點的後續；一頁計畫由維護者核准（外部圖片選甲），計畫經 3 輪審查。成果審查第 1 輪發現流程圖在畫圖當下就會載入外部圖片，改成在沙箱框裡畫（決定 4）。
+- 狀態：✅ 已實作（PR A：ToukaChat 的開發終端伺服器、Markdown 圖片、流程圖；PR B：IDE 寫檔與連線資訊檔，決定 8、9）。對外存取盤點的後續；一頁計畫由維護者核准（外部圖片選甲），計畫經 3 輪審查。成果審查第 1 輪發現流程圖在畫圖當下就會載入外部圖片，改成在沙箱框裡畫（決定 4）。
 - 日期：2026-10-30
 - 決策者：維護者
-- 相關：ADR-0014（錯誤碼）、ADR-0093（i18n）、ADR-0114（artifact 預覽的 sandbox 與 CSP）、ADR-0214（測試沙盒）、ADR-0250（ToukaChat 的 runtime 產生與 knip）、ADR-0293（不跟隨連結）。
-- 影響範圍：ToukaChat 新增 `src/lib/markdownImagePolicy.ts`、`src/components/markdown/SafeMarkdown.tsx`、`src/lib/artifacts/mermaidConfig.ts`、`src/lib/artifacts/mermaidSandbox.ts`、`src/lib/artifacts/sanitizeMermaidSvg.ts`；修改 `components/chat/MessageItem.tsx`、`components/artifacts/ArtifactView.tsx`、`scripts/build-artifact-runtime.mjs`（多產生 `src/generated/mermaidRuntime.ts`）、`scripts/guard_design.ts`（不掃 `src/generated`）、`package.json`（`dev`）、`knip.config.ts`、`Dockerfile`、`Dockerfile.prod`（註解）、`README.md`、翻譯（`markdown.*`）；刪 `src/lib/terminal_server.mjs`；`docs/guides/deployment_guide.md`。
+- 相關：ADR-0014（錯誤碼）、ADR-0093（i18n）、ADR-0114（artifact 預覽的 sandbox 與 CSP）、ADR-0214（測試沙盒）、ADR-0250（ToukaChat 的 runtime 產生與 knip）、ADR-0293（不跟隨連結）、ADR-0202（IDE 的 MCP 與 discovery）。
+- 影響範圍：ToukaChat 新增 `src/lib/markdownImagePolicy.ts`、`src/components/markdown/SafeMarkdown.tsx`、`src/lib/artifacts/mermaidConfig.ts`、`src/lib/artifacts/mermaidSandbox.ts`、`src/lib/artifacts/sanitizeMermaidSvg.ts`；修改 `components/chat/MessageItem.tsx`、`components/artifacts/ArtifactView.tsx`、`scripts/build-artifact-runtime.mjs`（多產生 `src/generated/mermaidRuntime.ts`）、`scripts/guard_design.ts`（不掃 `src/generated`）、`package.json`（`dev`）、`knip.config.ts`、`Dockerfile`、`Dockerfile.prod`（註解）、`README.md`、翻譯（`markdown.*`）；刪 `src/lib/terminal_server.mjs`；`docs/guides/deployment_guide.md`。ToukaIDE 新增 `src/mcp/noFollowFile.ts`、`src/mcp/discoveryFile.ts`，修改 `src/mcp/workspacePath.ts`、`src/mcp/diffManager.ts`、`src/mcp/handlers/FileHandlers.ts`、`src/extension.ts`、`README.md`；ToukaProxy 修改 `src/protocols/ide/discovery.py`。
 
 ## 背景
 
@@ -12,6 +12,8 @@
 - 聊天訊息與 artifact 的 Markdown 用 `react-markdown` 顯示，`![](https://…)` 會直接載入外部圖片。模型（或被模型讀進來的網頁、檔案）可以把對話內容放進網址，瀏覽器一載入就送出去，還帶著 Referer。
 - 流程圖（mermaid）的圖裡可以寫設定指令改 `themeCSS`、`fontFamily`、`altFontFamily`；mermaid 11.16.1 只檢查大括號成對，`@import url(https://…)` 進得去。原本的 DOMPurify 設定擋不到樣式裡的網址，還把 `foreignObject` 整個拿掉，流程圖的文字標籤本來就顯示不出來。
 - mermaid 畫圖時會先把圖放進頁面量尺寸。圖裡的外部圖片在這時就會載入：文字標籤裡的 `<img>`（流程圖、心智圖、狀態圖、類別圖都可以寫）、圖片節點（`@{ img: … }`）、sequence 角色圖示。這發生在拿到輸出之前，消毒輸出擋不到（在無頭 Edge 記錄網路請求實測確認）。
+- ToukaIDE 寫檔前確認路徑在工作區裡，找「最近存在的上層」用的是會跟隨連結的 `existsSync`：指向不存在位置的連結（懸空連結）被當成不存在而略過，寫檔時就跟著連結寫到工作區外面。按「接受」寫差異時沒有再檢查，寫檔也跟隨連結；差異預覽的暫存檔直接放在系統暫存區。讀檔（`read_file` 與差異預覽讀原檔）也跟隨連結，遇到 FIFO 會一直卡住。
+- ToukaIDE 的連線資訊檔（含權杖）寫在系統暫存區的 `gemini/ide/`。Linux 的暫存區大家共用：檔案別人讀得到，資料夾也可能是別人先建的或是連結；Touka 讀的時候不看擁有者，別人放一個假的就能把 Touka 導去別處。
 
 ## 決定
 
@@ -35,6 +37,15 @@
    - `<style>` 與 `style` 屬性以 `;`、`{`、`}` 切段，只拿掉命中上一條的那一段，分隔符號與其他樣式照常（mermaid 的樣式全放在同一個 `<style>`，整段拿掉圖會變黑）。只刪不加，剩下的片段拼不出新的網址。
    - 比對不分大小寫；`url(` 後面先去掉空白與引號再看是不是 `#`。反斜線一律算命中，因為 CSS 跳脫可以把 `u\72l(` 讀成 `url(`。
 7. **新文字**走 i18n：`markdown.external_image_blocked`、`markdown.external_image_open`（`zh-TW`、`en`）。
+8. **IDE 讀寫檔不跟隨連結**：
+   - `resolveWorkspacePath` 找最近存在的上層改用 `lstat`（不跟隨），懸空連結算存在，之後 `realpath` 解不開就拒絕；連到工作區裡現有資料夾的連結照常可用。
+   - 讀寫只經 `noFollowFile.ts` 的 `readFileNoFollow`、`writeFileNoFollow`（`read_file`、`FileHandlers` 直接寫、`diffManager` 讀原檔與按接受都用）：POSIX 以 `O_NOFOLLOW|O_NONBLOCK` 開檔，開好後只讀寫一般檔案（FIFO、裝置拒絕）；Linux 開好後再從 `/proc/self/fd` 看檔案實際在哪裡，和解析好的路徑不同（中間的資料夾被換成連結）就不讀寫；寫入不在開檔時清空，確認之後才清空再寫。Windows 沒有 `O_NOFOLLOW`，讀寫之前確認最後一段不是連結。
+   - `diffManager` 的暫存檔放在 `mkdtemp` 建的私人資料夾（0700），用完或中途出錯都整個刪掉；按接受時重新走一次 `resolveWorkspacePath`，結果和提出時相同才寫，否則不寫並回報原因。
+9. **連線資訊檔只給自己**：
+   - IDE 寫（`discoveryFile.writeDiscoveryFile`；判斷是純函式 `isSafeTempRoot`、`privateDirVerdict`）：POSIX 上，上層暫存資料夾（`realpath(os.tmpdir())`）的擁有者要是 root 或自己，而且有 sticky 位元或別人不能寫；`gemini`、`ide` 兩層不存在就以 0700 建立，存在就不跟隨連結開啟，要是自己的資料夾，別人能寫就先拿掉群組與其他人的寫入權。檔案先刪舊的，再以 0600、`O_EXCL|O_NOFOLLOW` 建新的；開兩個視窗時被另一個先建，就再刪一次、再試一次。不符合就不寫，跳警告寫明是哪個資料夾。
+   - 為什麼檢查後不會被換掉：上層有 sticky 位元（或別人不能寫），別人不能改名或刪除屬於自己的 `gemini`；先收緊 `gemini` 再看 `ide`，`ide` 就在別人不能動的資料夾裡。檢查與收緊都在開好的資料夾上做（`fstat`／`fchmod`），沒有先查再改的時間差。macOS 的暫存資料夾本來就是每人一份。
+   - Touka 讀（`protocols/ide/discovery.py`）：POSIX 上從解析過連結的暫存資料夾起，`gemini`、`ide` 兩層要是自己的、別人不能寫、不是連結，否則整個略過；每個檔案以 `open_read_no_follow` 開（路上不跟隨連結、遇到 FIFO 不卡住），用開好的檔案的 `fstat` 確認是自己的、別人不能寫的一般檔案，否則略過。資料夾進不去（例如別人先建了只有他能進的 `gemini`）也是略過，不讓搜尋 IDE 失敗。都只記一行警告。上層不查 sticky：就算 `gemini` 被換掉，開到的檔案擁有者也不會是自己。
+   - Windows 的暫存區每人一份，兩邊都照舊（同一個使用者的程式本來就讀得到，跟隨 junction 不會多給它什麼）。Docker 部署不受影響：proxy 容器沒有掛主機的 `/tmp` 或 `gemini/ide`，本來就看不到 IDE 的連線資訊檔。
 
 ## 已知的界線
 
@@ -45,6 +56,9 @@
 - 第一次顯示流程圖要先載入約 3.6 MB 的 mermaid 瀏覽器版並啟動框，通常一兩秒；實測無頭 Edge 偶爾要二十多秒才開始執行框裡的程式，所以最多等 60 秒，超過就算這次沒畫成（畫面留著上一張畫好的圖，沒有就顯示等待語法的提示）、下次畫圖重建框。某張圖 15 秒沒畫完也會重建框。
 - 框整頁共用。如果哪天找到能在 mermaid 的 `strict` 模式裡執行程式的寫法，那段程式會留在框裡，看得到之後每張圖的文字，還能讓框自己導向外部網址把內容帶出去（CSP 擋不了框自己導覽）。前提是 mermaid 本身有漏洞；artifact 預覽框本來就執行模型寫的程式，有同樣的導覽問題。「每次對話重建框」與「artifact 預覽框自己導覽」都列為之後的候選。
 - 這次不加整個 ToukaChat 的內容安全政策（CSP）；流程圖框與 artifact 預覽框用的是 ADR-0114 的 CSP。
+- IDE 讀寫：路徑檢查到開檔之間，中間的資料夾可能被換成連結；一個在背景不停對調資料夾與連結的程式可以一再贏得這個時間差。Linux 開檔後核對實際位置，不符就不讀寫、也不清空；但要建新檔時，檔案可能已經在外面建好（空的）才被發現，建立缺少的上層資料夾（`mkdir` 會跟隨連結）也可能在外面建出空資料夾。macOS 沒有 `/proc`，這個時間差仍在；Windows 連最後一段也只能先查再讀寫。硬連結擋不了（工作區裡指向外面同一個磁碟上檔案的硬連結，寫進去就改到外面那個檔案）。能利用的都是本來就能在工作區裡建連結、執行程式的程式，和 ADR-0293 的界線同類。
+- 同一台 Linux 上，`/tmp/gemini` 已經被別的使用者建了，IDE 會拒絕寫連線資訊檔，Touka 就找不到 IDE；警告寫明是哪個資料夾，要請那位使用者或管理員刪掉。
+- 後端的 `ide_open_diff` 工具（`tools/editor.py`）讀的是 Touka 自己的 `data/temp/ide`，沒有程式寫那裡，不在這次範圍。
 
 ## 後果
 
@@ -52,7 +66,9 @@
 - 模型回覆與 artifact Markdown 裡的外部圖片變成一個小標籤（圖示＋「外部圖片（未載入）」＋網站名稱）。Touka 自己的圖片（生圖結果、上傳的檔案）照常顯示。
 - 流程圖的文字標籤現在看得到了（以前被 DOMPurify 拿掉）；圖裡的 `click` 連結在新分頁開。
 - mermaid 不再跟著頁面載入，第一次顯示流程圖時才載入。
-- 不改後端、不改 `openapi.json`。撤回只能 revert。
+- IDE 不會再寫到工作區外面的懸空連結；按「接受」時路徑變了就不寫並回報原因。
+- Linux／macOS 上連線資訊檔只有自己讀得到；資料夾有問題時 IDE 跳警告、Touka 找不到 IDE，不會去讀別人的檔案。
+- 不改 API、不改 `openapi.json`。撤回只能 revert。
 
 ## 替代方案
 
@@ -78,8 +94,16 @@
 - 以產品程式（`mermaidSandbox.ts`＋`sanitizeMermaidSvg.ts`＋產生的 mermaid 瀏覽器版）在無頭 Edge 實測 16 種圖、連跑 5 次：外部網址寫在標籤、圖片節點、角色圖示、設定指令與樣式裡，一個外部請求都沒有、消毒後沒有外部網址；正常的五種圖文字都在。
 - 串流實測（產品程式，無頭 Edge，先畫一張讓框載入好，再讓內容一截一截變長、每次變化都畫）：PR A 的做法下，120 行每 20 毫秒、200 行每 15 毫秒兩種情況最後的完整圖都逾時；PR A2 之後三種情況（另有 40 行每 30 毫秒）都沒有逾時，最後的完整圖分別在 0.06、0.22、0.6 秒內畫好。
 - Guard #4：不排除 `src/generated` 時掃到產生的 mermaid 瀏覽器版而變紅；排除後通過，在 `src/lib` 放一個寫死顏色的檔案仍會擋。
-- 故意改壞 41 項各自讓指定的測試因對的原因變紅，改回後全綠：
+- ToukaIDE Vitest（junction 在 Windows 與 Linux 都建得了；建檔權限、檔案連結、裝置與 FIFO 只在 POSIX 跑，GitHub CI 的 `toukaide` 工作在 Linux 跑；Linux 容器裡 153 個全過）：
+  - `workspacePathSecurity.test.ts`：最後一段或路上是懸空連結（指向外面或工作區裡）都拒絕；連到工作區裡現有資料夾的連結、還沒建立的資料夾照常可用。
+  - `noFollowFile.test.ts`：讀檔與新建、覆寫；最後一段是連結或懸空連結時明確拒絕、目標不變也不被建立；資料夾與開得了但不是一般檔案的裝置（`/dev/null`）拒絕；讀寫 FIFO 都不卡住；Linux 上中間的資料夾是連結時不讀不寫、開到的檔案也沒被清空；讀不到 `/proc` 時明確拒絕，不回「檔案不存在」。
+  - `diffManagerSecurity.test.ts`：暫存檔在私人資料夾（POSIX 為 0700）、用完或打不開差異畫面時都刪掉；原檔是連結時不顯示連結另一端的內容、是 FIFO 時不卡住；接受時重新檢查一次，失敗或路徑變了就不寫；接受前被換成連結時不寫。
+  - `fileHandlersWrite.test.ts`：`read_file` 經不跟隨讀檔、直接寫經不跟隨寫檔；交給差異預覽的重新檢查是真的重新解析（之後被換成懸空連結就拒絕）。
+  - `discoveryFile.test.ts`：純函式（上層的 sticky、擁有者、別人能寫，資料夾是連結、不是資料夾、別人的、要收緊）全平台跑；POSIX 實檔：檔案 0600、新建資料夾 0700、自己的 0775／0777 資料夾被收緊、上層別人能寫又沒有 sticky 就不寫、資料夾是連結就不寫、舊檔是連結時不跟隨、EEXIST 再試一次、一直 EEXIST 就放棄。
+- pytest `tests/unit/test_ide_discovery_security.py`：純函式；流程測試替換目前使用者與 stat 結果（跟隨與不跟隨連結看到的分開給，程式改成跟隨連結就會放行而變紅），略過連結、別人的、別人能寫的資料夾與檔案、經連結開到的檔案，進不去的資料夾略過而不是失敗，正常的檔案照常被發現；Windows 不查擁有者。`tests/unit/test_ide_discovery.py` 的資料夾與檔案改成明確的權限，在 Linux CI 上走真的檢查。
+- 故意改壞 82 項各自讓指定的測試因對的原因變紅，改回後全綠：
   - 第 1 批 12 項：`dev` 加回伺服器、改成字串開頭判斷、拿掉 `referrerPolicy`、`MessageItem` 改回 `ReactMarkdown`、`secure` 少三個欄位或只寫三個欄位、拿掉樣式規則、整段拿掉 `<style>`、`data` 改開頭比對、只看 `href`／`src`、比對分大小寫、擋 `foreignObject`。
   - 第 2 批 13 項：框拿掉 CSP、框加 `allow-same-origin`、框裡或頁面不檢查來源、不比對請求編號、執行檔不轉義、每張圖改用載入的時限、載入改用每張圖的時限、框裡不併預設保護清單、載入失敗不重建、`secure` 拿掉樣式欄位、`ArtifactView` 加回 `mermaid`、`ArtifactView` 不消毒。
   - 第 3 批 6 項：逾時不移除框、逾時移除但不重建、共用 CSP 的圖片放行 `https:`、共用 CSP 多一條指令、共用 sandbox 加 `allow-same-origin`、共用 CSP 開頭多一條放行 `https:` 的重複圖片指令。
   - 第 4 批 10 項（PR A2）：不分線、被取代的請求拿不到結果、移除框不結束其他等待、拿到已移除的框不換新框、失敗後不清線、換框沒有上限、框被移除時不重送、結束等待時不拿掉監聽器、失敗時只通知最後一個呼叫者、載入失敗也重試。
+  - 第 5 批 41 項（PR B；ToukaIDE 項目在 Windows 與 Linux 容器各跑一次，只有一個平台有的分支只在那個平台跑）：找上層改回跟隨連結、Windows 讀寫前不查連結、POSIX 開檔拿掉 `O_NOFOLLOW` 或 `O_NONBLOCK`、開好後不查一般檔案、Linux 不核對實際位置、讀不到 `/proc` 時不另外拒絕或丟原本的錯誤、開檔時就清空、接受時不重新檢查、不刪暫存資料夾（用完時、打不開差異畫面時）、暫存資料夾別人能寫、差異預覽讀原檔或 `read_file` 跟隨連結、直接寫不經不跟隨寫檔、重新檢查只回原路徑；上層暫存資料夾不查擁有者、不查 sticky 與別人能寫、不認 sticky、不查是不是資料夾、寫檔時不查上層；兩層資料夾不查擁有者、不收緊（判斷與實際收緊各一）、不查連結、開資料夾跟隨連結、新建不是 0700；檔案不是 0600、EEXIST 不再試；後端不查擁有者、別人能寫、種類、`gemini` 那層、檔案、資料夾，開檔或查資料夾跟隨連結，預設資料夾不先解析連結，先用會丟例外的 `exists()`、進不去的資料夾讓搜尋失敗。

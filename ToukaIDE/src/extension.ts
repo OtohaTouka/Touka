@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
-import * as path from 'path';
+import { writeDiscoveryFile } from './mcp/discoveryFile';
 import { ToukaMcpServer, AuthLevel } from './mcp/server';
 import { ToukaCodeLensProvider } from './providers/CodeLensProvider';
 import { ToukaInlineCompletionProvider } from './providers/InlineCompletionProvider';
@@ -24,19 +24,17 @@ let discoveryFilePath: string | undefined;
 /**
  * Writes the IDE discovery file so that ToukaProxy can locate this server.
  * Discovery format follows the Gemini CLI Companion specification.
- * Includes the authToken so ToukaProxy can authenticate to the MCP server.
+ * Includes the authToken, so only the user may read it (ADR-0294).
  */
-function writeDiscoveryFile(port: number, authToken: string): void {
+function announceDiscoveryFile(port: number, authToken: string): void {
     try {
-        const ideDir = path.join(os.tmpdir(), 'gemini', 'ide');
-        fs.mkdirSync(ideDir, { recursive: true });
-        discoveryFilePath = path.join(ideDir, DISCOVERY_FILENAME);
         const payload = buildDiscoveryPayload(port, authToken);
-        fs.writeFileSync(discoveryFilePath, JSON.stringify(payload, null, 2), 'utf8');
+        discoveryFilePath = writeDiscoveryFile(os.tmpdir(), DISCOVERY_FILENAME, JSON.stringify(payload, null, 2));
         console.log(`[ToukaIDE] Discovery file written: ${discoveryFilePath}`);
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[ToukaIDE] Failed to write discovery file:', msg);
+        vscode.window.showWarningMessage(`Touka 找不到這個 IDE：連線資訊檔沒有寫入（${msg}）`);
     }
 }
 
@@ -76,7 +74,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
         await mcpServer.start(MCP_PORT, mcpAuthToken);
         // Announce presence to ToukaProxy via discovery file (includes authToken for P3-2)
-        writeDiscoveryFile(MCP_PORT, mcpAuthToken);
+        announceDiscoveryFile(MCP_PORT, mcpAuthToken);
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[ToukaIDE] Failed to start MCP Server:', err);
