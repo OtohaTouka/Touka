@@ -255,7 +255,7 @@ def test_the_proxy_only_takes_the_digest_from_other_process_modules():
 
 def test_the_full_run_flag_is_not_inherited_by_child_runs():
     """全量檢查只給最外層的 session：測試再開的 pytest 只跑一部分，環境裡不能還有這個旗標."""
-    assert zone_tripwire.FULL_RUN_ENV not in os.environ
+    assert zone_tripwire.FULL_RUN_ENV not in os.environ  # noqa: ENV_SSOT_VIOLATION - 驗 conftest 已移除
 
 
 def test_an_allowed_caller_counts_as_hit_only_inside_a_zone(probe, drive, tmp_path, monkeypatch):

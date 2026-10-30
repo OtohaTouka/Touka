@@ -8,6 +8,8 @@ bash 工具於執行期登記、結束時註銷；`/stop` 呼叫 ``terminate_ses
 停掉這個代理人的全部子行程（ADR-0293 R11）。
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import logging
@@ -15,10 +17,14 @@ import os
 import signal
 import subprocess
 import sys
-from collections.abc import Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.utils.task_utils import spawn_logged
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -187,16 +193,19 @@ class ProcessRegistry:
         """
         return terminate_processes(self.pop_session(session_id), session_id)
 
-    def terminate_agent(self, agent_id: str) -> int:
+    def terminate_agent(self, identity: AgentIdentity) -> int:
         """強制終止某代理人所有登記中的子進程（跨 session；同步，可在執行緒裡呼叫）。
 
         session 的登記照舊由行程結束時的 ``unregister`` 移除。
 
+        Args:
+            identity (AgentIdentity): 要停掉指令的代理人（ID 不分大小寫）。
+
         Returns:
             int: 實際送出終止訊號的子進程數量。
         """
-        procs = list(self._agent_processes.pop(agent_id.casefold(), None) or ())
-        return terminate_processes(procs, f"agent {agent_id}")
+        procs = list(self._agent_processes.pop(identity.agent_id.casefold(), None) or ())
+        return terminate_processes(procs, f"agent {identity.agent_id}")
 
     def count(self, session_id: str) -> int:
         """回傳某會話目前登記中的子進程數量。"""

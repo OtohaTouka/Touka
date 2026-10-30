@@ -16,7 +16,7 @@
 
 ADR-0276 移除 SNS gateway 延遲匯入 main 的 `LOCAL_IMPORT_BAN`（26 → 25），以及家查詢改固定 SQL 後的 `S608`（其他合計 326 → 325）；未新增豁免。
 
-ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir` 與 `MissionManager._get_lock` 建資料夾的 `IO_PRISON_VIOLATION`（13 → 11），以及終端工具 `_get_agent_drive_path` 延遲匯入 ResourceManager 的 `LOCAL_IMPORT_BAN`（25 → 24）；未新增豁免。
+ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir` 與 `MissionManager._get_lock` 建資料夾的 `IO_PRISON_VIOLATION`（13 → 11），以及終端工具 `_get_agent_drive_path` 延遲匯入 ResourceManager 的 `LOCAL_IMPORT_BAN`（25 → 24）；新增 3 處測試豁免：`PATH_LITERAL_SSOT`（5 → 6）與 `ENV_SSOT_VIOLATION`（36 → 38），明細見「測試與驗證」。
 
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
@@ -38,11 +38,11 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `BCRYPT_IMPORT_SSOT` | 0 | 目前無豁免（auth_service.py 為白名單，不需 noqa） |
 | `SQLITE3_IMPORT_BAN` | 0 | 目前無豁免（原 container-security runtime smoke 已隨 ADR-0238 移除）。 |
 | `FILELOCK_ASYNC_SSOT` | 5 | 服務層必須使用 AsyncFileLock；mission_lock.py 為既有定義點（ADR-0049）；ADR-0206 keyring atomic writer 與 OAuth profile fence；ADR-0207 workload profile/delegation JSON generation CAS 各一個定義點 |
-| `PATH_LITERAL_SSOT` | 5 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑。 |
+| `PATH_LITERAL_SSOT` | 6 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑。 |
 | `CONSOLE_BAN` | 1 | 前端直接 console.log/warn/error 合法豁免：`error_handler.ts` L76 是 `logSSOTError()` 的 SSOT 封裝層 |
 | `ERROR_SSOT_VIOLATION` | 1 | 明示 UI admission 的固定 typed precommit 衝突結果須 HTTP 409；不反射原輸入。 |
 | `PAC_MANUAL_LEVEL_CHECK` | 5 | 安全測試合法豁免：`test_native_tool_payload_contracts.py`（1）、`test_session_persistence_ordering.py`（2）、`test_auth_mode_authority_security.py`（2）讀回被保護的 auth_level 驗證既有安全級或舊值對照，非生產中介層手刻策略判定（ADR-0246 U2c-4：E01 測試改用屬性斷言 -5，舊值讀取對照斷言 +2） |
-| `ENV_SSOT_VIOLATION` | 36 | 測試與開發基礎建設中的環境變數存取限制豁免：setup_service.py os.environ 直讀（ADR-0053）、隔離啟動器組交給目標的環境（ADR-0275，+1）、ToukaDispatch `_build_child_env`（ADR-0067）與 `_bind_host`（ADR-0082）、offline npm gate CLI 邊界、ADR-0214 manual CLI／sandbox policy 測試、ADR-0218 Marketplace release CLI 子環境、characterization harness 的 CI 缺檔閘（model-p1a）等；明細見下表。 |
+| `ENV_SSOT_VIOLATION` | 38 | 測試與開發基礎建設中的環境變數存取限制豁免：setup_service.py os.environ 直讀（ADR-0053）、隔離啟動器組交給目標的環境（ADR-0275，+1）、ToukaDispatch `_build_child_env`（ADR-0067）與 `_bind_host`（ADR-0082）、offline npm gate CLI 邊界、ADR-0214 manual CLI／sandbox policy 測試、ADR-0218 Marketplace release CLI 子環境、characterization harness 的 CI 缺檔閘（model-p1a）等；明細見下表。 |
 | `PLW0603` | 6 | Singleton 模組級變數 global 宣告（dispatch_callback_store.py、ask_user_store.py get/reset；+2 ADR-0137 review/budget.py ReviewBudgetLedger get/reset 單例） |
 | `BLE001` | 17 | 靜默失敗的非同步回呼（ADR-0051：回呼失敗不應中斷主流程）；+2 ADR-0138 subagent_tools 耐久落盤 best-effort（_persist_durable 失敗不得沉掉已交付結果）＋fan-out 隔離（run_subagent_group 一子失敗不沉全組）；+4 軌B Batch 6 DebugAgent 重置 best-effort 容錯（agent_reset：guard.py 列舉失敗保守拒絕、primitives.py 記憶系統不可用降級、orchestrator.py 單 store 失敗收進報告不中斷 ×2）；+1 ADR-0113 guard.py `_is_real_persona_strict` 列舉失敗 fail-closed；+4 bug① embedding_service.py 防禦式降級（下載背景任務落狀態、記憶存在性偵測、目前模型查詢、向量單例重置——記憶系統未載入/異常皆不得逸出）；-1 ADR-0146 mission_stop_gate 隨 nudge 續圈退役刪除（原 board_allows_stop 看板查詢 fail-open 豁免）；+1 ADR-0137 GroundedReviewer completer 傳輸失敗 fail-closed REJECT（審查傳輸壞掉必須擋而非放行）；+3 ADR-0270 清除連備份的三層邊界（`memory_scrub/swap.py` 每一檔、`memory_scrub/orchestrator.py` 每一類別與重查、`run_after_reset` 整個清除的安全網：意外只記日誌、回報原因代碼，不中斷其他檔、端點照常回報告） |
 | 其他 (`S102`, `S104`, `S105`, `S108`, `S602`, `S607`, `TC001/TC002/TC003`, `T201` 等) | 325 | 安全、工具或基礎建設類架構豁免（2026-10-14 實際清點，ADR-0251 重新清點：用 Guard #19 同一掃描法（tokenize 只算行內 noqa、同一組略過資料夾），統計表沒有獨立列、也不是格式類 `E402`／`E501` 的規則合計 325，其中括號列出的 11 個代號共 269（`T201` 144、`TC001` 61、`TC002` 23、`S105` 18、`S607` 8、`TC003` 5、`S104` 4、`S602` 3、`S102` 1、`S108` 1、`S314` 1）；ADR-0251 刪掉讀真 `.env` 的測試時少 1 個 `S105`（19 → 18、合計 327 → 326）；刪掉沒掛載的排程 CRUD `routers/scheduler.py` 時少 1 個 `TC001`（62 → 61、合計 326 → 325）；ADR-0272 的 CI junit 核對腳本 `scripts/ci/isolation_junit_check.py` 只在 CI、只讀同一個 job 剛由 pytest 產生的 junit（輸入可信；腳本不在映像裡），多 1 個 `S314`（合計 325 → 326）；舊值 39 不是掃描數，ADR-0250 已照實更正。這一列不受 Guard #19 檢查。B4 刪 Proxy 排程引擎時 `scheduler_service.py` 的 `S501` 隨 `verify=False` 一起移除；ADR-0082 ToukaDispatch；routers/stats.py runtime `Request`；routers/system.py runtime DI types；ADR-0207 workload models的 Pydantic runtime schema＋workload router 的 FastAPI runtime Request/identity/body models） |
@@ -304,6 +304,9 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | `unit/test_permission_service_sandbox_isolation.py` | L34-L83 | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | 測試動態切換 TOUKA_CONFIG_DIR 環境變數與路徑重置。 |
 | `unit/test_live_api_consent.py` | process environment oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須驗證 pytest 在任何產品 import 前停用計量功能、清空 provider credential 並錨定 sandbox env file。 |
 | `unit/test_smoke_sandbox_governance.py` | process environment mutation oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須對 sandbox helper 的 process environment mutation 做完整斷言，並在 `finally` 還原原始 mapping。 |
+| `unit/test_isolation_zone_shapes.py` | `test_whitelist_by_shape` 的 `st/proxy/home/x` | `PATH_LITERAL_SSOT` | 🔴 不可修復 | ADR-0293：相對於假 state 根的版面路徑，`home` 是 sandbox state 真實的資料夾名（`isolation/profiles.py`），不是實體路徑；換成別的名字就不是真實版面。 |
+| `unit/test_zone_tripwire.py` | `test_the_full_run_flag_is_not_inherited_by_child_runs` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0293 Z9：確認 conftest 已從行程環境移除全量檢查旗標（`TOUKA_Z9_FULL_RUN`），測試再開的 pytest 不會繼承。 |
+| `zone_mutations.py` | `_env` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0293：改壞清單執行器只用標準函式庫，複製目前環境給子 pytest，去掉全量檢查旗標、補上複本的 `PYTHONPATH`。 |
 | `proxy/characterization/harness.py` | `_is_ci` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | model-p1a U4：讀 `CI`（GitHub Actions 預設 `CI=true`），CI 上缺 golden 改為失敗、本機維持錄製＋skip；測試基建門檻，非產品設定。 |
 | `integration/test_server_lifecycle.py` | L37 | `S603` | 🔴 不可修復 | 啟動與中斷 ToukaProxy 伺服器整合測試，需要呼叫 subprocess.Popen |
 

@@ -239,7 +239,7 @@ async def test_the_command_runs_in_the_handed_off_drive_and_is_registered(
     assert [call["handed"] for call in calls] == [True]
     assert not is_handed_off(calls[0]["cwd"], HandoffKind.SUBPROCESS_CWD)
     assert registered == [(None, "Alice")]
-    assert process_registry.terminate_agent("Alice") == 0  # 跑完已取消登記
+    assert process_registry.terminate_agent(ALICE) == 0  # 跑完已取消登記
 
 
 async def test_a_held_agent_does_not_start_the_command(zone_drive, monkeypatch):
@@ -262,4 +262,4 @@ async def test_a_reset_that_starts_during_spawn_stops_the_command(zone_drive, mo
     finally:
         destructive_ops.release(ALICE)
     assert bundle.cmd_results[0].rejected_reason == AGENT_BUSY
-    assert process_registry.terminate_agent("Alice") == 0
+    assert process_registry.terminate_agent(ALICE) == 0

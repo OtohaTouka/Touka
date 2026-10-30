@@ -605,7 +605,7 @@
       "R11"
     ],
     "file": "ToukaProxy/src/tools/terminal.py",
-    "old": "    return await asyncio.to_thread(process_registry.terminate_agent, identity.agent_id)",
+    "old": "    return await asyncio.to_thread(process_registry.terminate_agent, identity)",
     "new": "    return 0",
     "tests": [
       "tests/unit/test_terminal_agent_stop.py::test_a_foreground_command_is_handed_off_registered_and_stopped"

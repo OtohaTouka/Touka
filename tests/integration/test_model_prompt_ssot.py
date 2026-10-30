@@ -3,6 +3,10 @@
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from src.models.identity import AgentIdentity
+from src.services.soul_service import SoulService
+from src.utils.brain_persistence import record_working_brain
+
 from tests.helpers.claude_stream import delegate_stream_to_create
 
 
@@ -12,8 +16,6 @@ def test_system_prompt_injection_consistency(mock_identity, global_test_sandbox)
     soul_dir = Path(global_test_sandbox) / "soul" / agent_id
     soul_dir.mkdir(parents=True, exist_ok=True)
     (soul_dir / "soul.md").write_text(f"Identity: {agent_id}", encoding="utf-8")
-
-    from src.services.soul_service import SoulService
 
     svc = SoulService()
     identity = mock_identity(agent_id=agent_id)
@@ -37,9 +39,6 @@ def test_soul_layer_middleware_injection(
     )
 
     # 設置活躍大腦，防止 SoulLayer 降級到 Gemini (SSOT: Brain Routing)
-    from src.models.identity import AgentIdentity
-    from src.utils.brain_persistence import record_working_brain
-
     record_working_brain(
         AgentIdentity(agent_id=agent_id), "claude-3-5-sonnet"
     )

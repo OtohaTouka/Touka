@@ -196,7 +196,7 @@ async def stop_agent_commands(identity: AgentIdentity) -> int:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
-    return await asyncio.to_thread(process_registry.terminate_agent, identity.agent_id)
+    return await asyncio.to_thread(process_registry.terminate_agent, identity)
 
 
 def _remember_result(exec_id: str, record: dict[str, Any]) -> None:

@@ -125,7 +125,7 @@ async def test_a_foreground_command_is_handed_off_registered_and_stopped(procs, 
     assert await terminal.stop_agent_commands(ALICE) == 1
     await task
     assert procs["killed"] == [spawned["proc"]]
-    assert process_registry.terminate_agent("Alice") == 0  # 跑完已取消登記
+    assert process_registry.terminate_agent(ALICE) == 0  # 跑完已取消登記
 
 
 async def test_background_and_pending_commands_are_cancelled_and_marked(procs, monkeypatch):
@@ -186,7 +186,7 @@ async def test_a_reset_that_starts_during_spawn_stops_the_command(procs):
     procs["after_spawn"] = lambda: destructive_ops.hold(ALICE)
     _assert_busy(await _execute())
     assert procs["killed"] == [procs["spawned"][0]["proc"]]
-    assert process_registry.terminate_agent("Alice") == 0
+    assert process_registry.terminate_agent(ALICE) == 0
 
 
 async def test_a_drive_linked_after_the_start_is_not_used(procs, zone_data_root, tmp_path: Path):

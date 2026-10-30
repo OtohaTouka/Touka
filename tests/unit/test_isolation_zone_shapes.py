@@ -194,7 +194,7 @@ def _match(layout: SandboxLayout, root: str, scope: str, kind: str, reserved: bo
         ("data", None),
         ("st", ("st", "st", _STATE, True)),
         ("st/proxy", ("st", "st/proxy", _STATE, True)),
-        ("st/proxy/home/x", ("st", "st/proxy", _STATE, False)),
+        ("st/proxy/home/x", ("st", "st/proxy", _STATE, False)),  # noqa: PATH_LITERAL_SSOT
         ("st/other/x", None),
     ],
 )

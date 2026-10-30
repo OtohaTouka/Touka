@@ -5,7 +5,10 @@ ADR-0293 R11：登記時可帶 ``agent_id``，重置與刪除以 ``terminate_age
 """
 from __future__ import annotations
 
+from src.models.identity import AgentIdentity
 from src.services.process_registry import ProcessRegistry
+
+ALICE = AgentIdentity.from_str("Alice")
 
 
 class _FakeProc:
@@ -74,7 +77,7 @@ def test_reload_all_clears():
     reg.register(None, _FakeProc(), agent_id="Alice")
     reg.reload_all()
     assert reg.count("s1") == 0
-    assert reg.terminate_agent("Alice") == 0
+    assert reg.terminate_agent(ALICE) == 0
 
 
 def test_terminate_agent_kills_its_procs_across_sessions():
@@ -84,9 +87,9 @@ def test_terminate_agent_kills_its_procs_across_sessions():
     reg.register("s1", a, agent_id="Alice")
     reg.register(None, b, agent_id="alice")
     reg.register("s1", other, agent_id="Bob")
-    assert reg.terminate_agent("ALICE") == 2
+    assert reg.terminate_agent(AgentIdentity.from_str("ALICE")) == 2
     assert a.killed and b.killed and not other.killed
-    assert reg.terminate_agent("Alice") == 0  # 已取出
+    assert reg.terminate_agent(ALICE) == 0  # 已取出
     assert reg.count("s1") == 2  # session 的登記照舊由行程結束時註銷
 
 
@@ -97,4 +100,4 @@ def test_unregister_with_agent_id_removes_both():
     reg.unregister("s1", p, agent_id="Alice")
     assert reg.count("s1") == 0
     assert reg._agent_processes == {}
-    assert reg.terminate_agent("Alice") == 0 and not p.killed
+    assert reg.terminate_agent(ALICE) == 0 and not p.killed

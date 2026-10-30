@@ -56,7 +56,7 @@ def _copy_tree(dest: Path) -> None:
 def _env(work: Path) -> dict[str, str]:
     proxy, memory = work / "ToukaProxy", work / "ToukaMemory"
     paths = (proxy, memory, memory / "src", work / "ToukaDispatch", work / "ToukaHeartbeat")
-    env = {k: v for k, v in os.environ.items() if k != "TOUKA_Z9_FULL_RUN"}
+    env = {k: v for k, v in os.environ.items() if k != "TOUKA_Z9_FULL_RUN"}  # noqa: ENV_SSOT_VIOLATION
     env["PYTHONPATH"] = os.pathsep.join(str(p) for p in paths)
     env["TOUKA_SANDBOX_KERNEL_DIR"] = str(proxy / "src" / "sandbox_kernel")
     return env

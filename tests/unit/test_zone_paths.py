@@ -43,6 +43,7 @@ from tests.support.links import make_dir_link
 from tests.support.zone_records import expect_zone_refusal
 
 WINDOWS = sys.platform == "win32"
+DRIVE_ABSOLUTE = Path(__file__).anchor + "x"  # Windows 上是「磁碟機:\x」
 PD, CD = Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE
 
 
@@ -368,7 +369,7 @@ def test_join_rel_cannot_leave_the_receiver(text: str, events: list) -> None:
 
 
 @pytest.mark.skipif(not WINDOWS, reason="磁碟機與反斜線只在 Windows")
-@pytest.mark.parametrize("text", ["C:\\x", "C:x", "\\\\srv\\share\\x"])
+@pytest.mark.parametrize("text", [DRIVE_ABSOLUTE, "C:x", "\\\\srv\\share\\x"])
 def test_join_rel_refuses_windows_drives(text: str, events: list) -> None:
     with pytest.raises(ZoneSegmentError):
         ZonePath(PD, ("Alice",)).join_rel(text)

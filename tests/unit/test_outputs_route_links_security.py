@@ -126,7 +126,7 @@ def test_a_missing_file_or_folder_is_not_found(client: TestClient, outputs: Path
     assert client.get("/v1/outputs/Alice/sub").status_code == 404
 
 
-NOT_A_SEGMENT = ["..", ".", "..\\..\\.env", "D:\\Touka\\.env", " x"]
+NOT_A_SEGMENT = ["..", ".", "..\\..\\.env", " x"]
 WINDOWS_ONLY = ["C:x", "CON.png", "x."]  # 只有 Windows 不能當一段
 
 
@@ -137,6 +137,13 @@ async def test_a_name_that_cannot_be_a_segment_is_forbidden(outputs: Path, name:
     with pytest.raises(ToukaException) as exc:
         await get_sovereign_output("Alice", name, identity=ALICE)
     assert exc.value.status_code == (403 if forbidden else 404)
+
+
+async def test_an_absolute_path_is_forbidden(outputs: Path) -> None:
+    """指到 outputs 以外的絕對路徑不能當檔名（403、不送出內容）。"""
+    with pytest.raises(ToukaException) as exc:
+        await get_sovereign_output("Alice", str(outputs.parent / ".env"), identity=ALICE)
+    assert exc.value.status_code == 403
 
 
 async def test_another_agents_outputs_are_refused(outputs: Path) -> None:
