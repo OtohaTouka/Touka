@@ -521,7 +521,11 @@ def test_generators(data):
     assert list((data / "personal_drive").iterdir()) == [_drive(data)]  # 產生函式不建資料夾
 
 
-@pytest.mark.parametrize("bad", ["..", ".", "a/b", "a\\b", "", "CON"])
+# 保留名與結尾的點、空白只在 Windows 不能當一段（其他平台是合法而不同的名稱）
+_BAD_ON_WINDOWS = ["CON", "x.", "x "] if sys.platform == "win32" else []
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "a/b", "a\\b", "", *_BAD_ON_WINDOWS])
 def test_generators_give_none_for_a_bad_id(data, events, bad):
     shaky = AgentIdentity(agent_id=bad, agent_role="Owner")
     for make in (rm.agent_drive, rm.soul_drive, rm.custom_drive, rm.outputs_dir, rm.uploads_dir):

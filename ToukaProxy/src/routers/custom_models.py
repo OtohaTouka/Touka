@@ -301,7 +301,8 @@ async def delete_custom_model(
     model_id: str,  # noqa: IDENTITY_SSOT
     _identity: AgentIdentity = Depends(_require_models_role),  # noqa: B008
 ) -> dict[str, Any]:
-    """刪除自定義模型（設定頁「模型」分頁的 ``DELETE /v1/models/{id}`` 也轉到這裡）"""
+    """刪除自定義模型"""
+    # 設定頁「模型」分頁的 DELETE /v1/models/{id} 也轉到這裡（ADR-0293）
     identity = AgentIdentity(agent_id=model_id, agent_role="Owner")
     async with _get_model_lock(model_id):
         # IDOR fix: verify ownership before deletion

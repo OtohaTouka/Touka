@@ -309,7 +309,8 @@ async def delete_model(
     model_id: str,  # noqa: IDENTITY_SSOT
     _identity: AgentIdentity = Depends(_require_models_mgmt),  # noqa: B008
 ) -> dict:
-    """從名冊中刪除特定的模型紀錄；自訂模型的資料夾走自訂模型的刪除（擁有權、R11）。"""
+    """從名冊中刪除特定的模型紀錄。"""
+    # 自訂模型的資料夾走自訂模型的刪除（擁有權、R11，ADR-0293）
     identity = AgentIdentity(agent_id=model_id)
     removed_dir = False
     if custom_models.is_custom_model(identity):
