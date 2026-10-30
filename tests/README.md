@@ -129,7 +129,7 @@ tests/
 | `lint/test_zone_path_guard.py` | Z8 靜態檢查：舊產生函式不再出現（T1）、回傳區內路徑的函式標註 `ZonePath`（T2）、測試不替換產生函式與 data 根（T3）、轉出與錨點存取只在明列的地方（G1）、錨點資料夾名稱只在明列的地方（G2）。 |
 | `support/zone_records.py`、`support/zone_tripwire.py`、`support/zone_roots.py`、`support/links.py` | 區例外紀錄（conftest 登記成觀察者，測試結束時有紀錄就失敗）、Z9 絆線（audit hook）、換 data 根（`point_zone_roots`）、建連結；測試共用的輔助程式（前兩個的自我測試見 `unit/test_zone_records.py`、`unit/test_zone_tripwire.py`）。 |
 
-改壞清單的執行器 `zone_mutations.py` 只用標準函式庫，每個 PR 的驗證步驟手動跑：`python tests/zone_mutations.py --out <結果資料夾>`；`posix_only` 的項目到 Linux 容器跑。
+改壞清單的執行器 `zone_mutations.py` 只用標準函式庫，每個 PR 的驗證步驟手動跑：`python tests/zone_mutations.py --out <結果資料夾>`；`posix_only` 的項目到 Linux 容器跑，`windows_only` 的在 Windows 跑（在另一個平台記成 `skipped_platform`）。
 
 ### 心跳、SNS 與對話歸屬（ADR-0276）
 

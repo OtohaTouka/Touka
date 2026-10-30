@@ -1184,8 +1184,8 @@
     "tests": [
       "tests/unit/test_manage_backup_links_security.py::test_restore_skips_names_that_leave_the_data_path"
     ],
-    "posix_only": false,
-    "note": "磁碟代號只有 Windows 當成根；POSIX 上這條判斷本來就多餘"
+    "windows_only": true,
+    "note": "磁碟代號只有 Windows 當成根；POSIX 上這條判斷本來就多餘，只在 Windows 判得出"
   },
   {
     "id": "r8_restore_folder_entry_not_contained",

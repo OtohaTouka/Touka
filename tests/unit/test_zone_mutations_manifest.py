@@ -31,7 +31,9 @@ MUTABLE_PREFIXES = (
     "tests/conftest.py",
     "tests/lint/test_zone_path_guard.py",
 )
-FIELDS = {"id", "rule", "file", "old", "new", "tests", "marker", "posix_only", "note"}
+FIELDS = {
+    "id", "rule", "file", "old", "new", "tests", "marker", "posix_only", "windows_only", "note"
+}
 
 _SPEC = importlib.util.spec_from_file_location("touka_zone_mutations", RUNNER_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
@@ -56,6 +58,7 @@ def test_every_rule_is_covered():
 @pytest.mark.parametrize("item", MANIFEST, ids=lambda item: item["id"])
 def test_each_mutation_still_matches_the_code_once(item):
     assert set(item) <= FIELDS and {"id", "rule", "file", "old", "new", "tests"} <= set(item)
+    assert not (item.get("posix_only") and item.get("windows_only"))
     assert item["file"].startswith(MUTABLE_PREFIXES)
     assert item["old"] != item["new"]
     assert _lf(ROOT / item["file"]).count(item["old"]) == 1

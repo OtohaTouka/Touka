@@ -8,8 +8,9 @@
 ``zone_mutations.json`` 逐項把一段程式改壞、只跑那一項列出的測試、還原。判定看 junitxml，不只看
 結束碼：列出的每個測試都要失敗（failure 或 error），項目有 ``marker`` 時失敗訊息還要含它（連結
 測試的 ``LINK_FOLLOWED``，R15；只看 failure／error 的 ``message``）。``posix_only`` 的項目在
-Windows 上記成 ``skipped_platform``，到 Linux 容器跑。子行程的 ``PYTHONPATH`` 指向暫存區的複本，
-所以測到的是改壞的那份。結果每項一行 JSON 寫到 ``<out>/zone_mutations.jsonl``。
+Windows 上、``windows_only`` 的項目在 POSIX 上記成 ``skipped_platform``，各到判得出的平台跑。
+子行程的 ``PYTHONPATH`` 指向暫存區的複本，所以測到的是改壞的那份。結果每項一行 JSON 寫到
+``<out>/zone_mutations.jsonl``。
 """
 
 from __future__ import annotations
@@ -51,6 +52,11 @@ def _copy_tree(dest: Path) -> None:
             shutil.copytree(source, dest / name, ignore=IGNORE)
         else:
             shutil.copy2(source, dest / name)
+
+
+def _other_platform(item: dict) -> bool:
+    """這一項只在另一個平台判得出（``posix_only``／``windows_only``）."""
+    return bool(item.get("posix_only" if WINDOWS else "windows_only"))
 
 
 def _env(work: Path) -> dict[str, str]:
@@ -152,13 +158,13 @@ def main() -> int:
     scratch = Path(tempfile.mkdtemp(prefix="touka-zone-mut-"))
     work = scratch / "wt"
     _copy_tree(work)
-    runnable = [item for item in manifest if not (WINDOWS and item.get("posix_only"))]
+    runnable = [item for item in manifest if not _other_platform(item)]
     every_test = sorted({test for item in runnable for test in item["tests"]})
     records = []
     code, tail = _run_pytest(work, scratch / "pt-000", scratch / "j-000.xml", every_test)
     records.append({"id": "baseline", "exit": code, "green": code == 0, "tail": tail})
     for run, item in enumerate(manifest, start=1):
-        if WINDOWS and item.get("posix_only"):
+        if _other_platform(item):
             records.append({"id": item["id"], "skipped_platform": True})
             continue
         target = work / item["file"]
