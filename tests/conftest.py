@@ -50,6 +50,8 @@ SANDBOX_RELEASE_STEPS: list[ReleaseStep] = []
 SANDBOX_RESIDUE_MESSAGE = "測試沙盒沒刪乾淨："
 _sandbox_residue: list[Path] = []
 ZONE_LATE_MESSAGE = "測試結束後才到的區例外紀錄（ADR-0293 R13）：\n"
+ZONE_UNUSED_ALLOWANCE_MESSAGE = "絆線放行清單有項目整個全量測試都沒用到（ADR-0293 Z9）："
+_zone_unused_allowances: list[str] = []
 _zone_late_records: list = []
 _SANDBOX_OWNER_PID = os.getpid()
 
@@ -147,6 +149,10 @@ zone_roots = importlib.import_module("tests.support.zone_roots")
 # 區例外紀錄（R13）：測試期間每一筆都記下，測試結束時有沒宣告的就失敗。
 zone_records = importlib.import_module("tests.support.zone_records")
 zone_paths.add_observer(zone_records.observe)
+# 執行期絆線（Z9）：產品程式對代理人資料夾直接做 I/O 就記一筆；session 沙盒的根之後換掉也照判斷。
+zone_tripwire = importlib.import_module("tests.support.zone_tripwire")
+zone_tripwire.add_roots(zone_paths.current_roots())
+zone_tripwire.install()
 # 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
 ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
@@ -213,13 +219,18 @@ SANDBOX_RELEASE_STEPS.extend(
 def pytest_sessionfinish(session: pytest.Session) -> None:
     """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。
 
-    測試結束後才到的區例外紀錄（R13）在這裡報出，整個 session 失敗。
+    測試結束後才到的區例外紀錄（R13）在這裡報出，整個 session 失敗。CI 的全量測試另外要求
+    絆線（Z9）的放行清單每項都用到過。
     """
     _cleanup_session_sandbox()
     late = zone_records.remaining()
     if late:
         _zone_late_records.extend(late)
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if os.environ.get(zone_tripwire.FULL_RUN_ENV) == "1":
+        _zone_unused_allowances[:] = zone_tripwire.missing_hits()
+        if _zone_unused_allowances:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
@@ -227,6 +238,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         terminalreporter.write_line(f"{SANDBOX_RESIDUE_MESSAGE}{residue}")
     if _zone_late_records:
         terminalreporter.write_line(ZONE_LATE_MESSAGE + zone_records.describe(_zone_late_records))
+    if _zone_unused_allowances:
+        unused = ", ".join(_zone_unused_allowances)
+        terminalreporter.write_line(ZONE_UNUSED_ALLOWANCE_MESSAGE + unused)
 
 
 @pytest.fixture(scope="session", autouse=True)

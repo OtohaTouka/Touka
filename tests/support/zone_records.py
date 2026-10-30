@@ -84,6 +84,15 @@ def end(test_id: str, token: contextvars.Token[str | None]) -> list[Record]:
     return mine
 
 
+def take(kind: str) -> list[Record]:
+    """取走目前測試的 ``kind`` 紀錄（只有 Z9 的自我測試經 ``zone_tripwire`` 用；Z8 限定呼叫者）."""
+    test_id = _test_id()
+    with _lock:
+        mine = [r for r in _records if r.kind == kind and r.test_id == test_id]
+        _records[:] = [r for r in _records if r not in mine]
+    return mine
+
+
 def remaining() -> list[Record]:
     """session 結束時還留著的紀錄（測試結束後才到的、或不屬於任何測試的）."""
     with _lock:

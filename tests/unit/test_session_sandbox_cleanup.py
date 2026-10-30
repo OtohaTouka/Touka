@@ -266,6 +266,8 @@ def test_terminal_summary_lists_sandbox_residue(tmp_path, monkeypatch, residue):
     leftover = None if residue is None else tmp_path / "touka_test_session_leftover"
     monkeypatch.setattr(session_conftest, "remove_session_sandbox", lambda _root, _steps: leftover)
     monkeypatch.setattr(session_conftest, "_sandbox_residue", [])
+    # CI 的全量測試設了 Z9 的環境變數；跑到一半時放行清單本來就還沒全部用到
+    monkeypatch.delenv(session_conftest.zone_tripwire.FULL_RUN_ENV, raising=False)
     lines: list[str] = []
     session = SimpleNamespace(exitstatus=pytest.ExitCode.OK)
 

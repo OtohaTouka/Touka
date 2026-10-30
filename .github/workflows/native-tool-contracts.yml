@@ -37,6 +37,9 @@ jobs:
       - run: npm run install:controlled
         working-directory: ToukaIDE
       - run: uv run --no-sync python -m pytest tests/ -q
+        # 測試絆線（ADR-0293 Z9）的放行清單每項都要用到；只在這個全量步驟判定
+        env:
+          TOUKA_Z9_FULL_RUN: "1"
 
   frontend:
     runs-on: ubuntu-24.04

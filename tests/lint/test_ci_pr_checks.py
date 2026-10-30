@@ -17,6 +17,8 @@ from typing import Any
 
 import yaml
 
+from tests.support.zone_tripwire import FULL_RUN_ENV
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/native-tool-contracts.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
@@ -215,6 +217,17 @@ def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
     ]
     assert len(found) == 1, "one CI job runs the whole pytest suite"
     _assert_blocking(*found[0])
+
+
+def test_ci_full_pytest_asks_the_zone_tripwire_to_check_its_allowances() -> None:
+    """全量 pytest 那一步設 Z9 的環境變數：放行清單每項都要用到（ADR-0293 Z9）."""
+    steps = [
+        step
+        for job in _jobs().values()
+        for step in job["steps"]
+        if " ".join(step.get("run", "").split()).endswith("python -m pytest tests/ -q")
+    ]
+    assert [step.get("env") for step in steps] == [{FULL_RUN_ENV: "1"}]
 
 
 def test_contributing_ci_labels_match_what_ci_runs() -> None:
