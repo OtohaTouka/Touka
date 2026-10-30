@@ -29,9 +29,11 @@
 from __future__ import annotations
 
 import ast
+import itertools
 import re
 from collections import Counter
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -192,6 +194,286 @@ def called_name(func: ast.expr, aliases: dict[str, str]) -> str | None:
     if isinstance(func, ast.Attribute):
         return func.attr
     return None
+
+
+# --- 名稱解析（T3、連結掃描、G3、G4 共用；ADR-0293 PR 2 決定 26） ------------------
+
+UNKNOWN = "<?>"  # 認不出的值：取下標、拆不開的指定、走訪不是字面的序列等
+_MODULE_LOADERS = frozenset({"import_module", "__import__"})
+
+
+def import_aliases(tree: ast.Module) -> dict[str, str]:
+    """``from x import y as z`` 與 ``import a.b as z``：``z`` 對回 ``y``、``b``."""
+    aliases = module_aliases(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases.update({a.asname: a.name.rsplit(".", 1)[-1] for a in node.names if a.asname})
+    return aliases
+
+
+def _import_sources(tree: ast.Module) -> dict[str, str]:
+    """import 綁定的名稱 → 來源模組（``import a.b`` 綁 ``a``；相對 import 以 ``.`` 開頭）."""
+    found: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update({a.asname or a.name.split(".")[0]: a.name for a in node.names})
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            found.update({a.asname or a.name: module for a in node.names})
+    return found
+
+
+def _pairs(target: ast.AST, value: ast.expr | None) -> list[tuple[str, ast.expr | None]]:
+    """指定的目標逐一配上值；拆不開的（``a, b = f()``）值是 None（認不出）."""
+    if isinstance(target, ast.Name):
+        return [(target.id, value)]
+    if isinstance(target, ast.Starred):
+        return _pairs(target.value, None)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        elts = value.elts if isinstance(value, (ast.Tuple, ast.List)) else None
+        starred = any(isinstance(e, ast.Starred) for e in (*(elts or ()), *target.elts))
+        if elts is not None and len(elts) == len(target.elts) and not starred:
+            return [p for t, v in zip(target.elts, elts, strict=True) for p in _pairs(t, v)]
+        return [p for t in target.elts for p in _pairs(t, None)]
+    return []
+
+
+def _parametrized(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[str, ast.expr | None]]:
+    """``@pytest.mark.parametrize("a, b", [(x, y), pytest.param(z, w)])``：參數逐一配上值."""
+    found: list[tuple[str, ast.expr | None]] = []
+    for deco in fn.decorator_list:
+        if not (
+            isinstance(deco, ast.Call)
+            and isinstance(deco.func, ast.Attribute)
+            and deco.func.attr == "parametrize"
+            and len(deco.args) >= 2
+        ):
+            continue
+        first, rows = deco.args[0], deco.args[1]
+        if isinstance(first, (ast.Tuple, ast.List)):
+            params = [_literal(e) or UNKNOWN for e in first.elts]
+        else:
+            params = [p.strip() for p in (_literal(first) or UNKNOWN).split(",")]
+        many = len(params) > 1
+        target = ast.Tuple([ast.Name(p) for p in params]) if many else ast.Name(params[0])
+        if not isinstance(rows, (ast.Tuple, ast.List)):
+            found += _pairs(target, None)
+            continue
+        for row in rows.elts:
+            if isinstance(row, ast.Call) and called_name(row.func, {}) == "param":
+                row = ast.Tuple(row.args) if many else (row.args[0] if row.args else None)
+            found += _pairs(target, row)
+    return found
+
+
+def _is_fixture(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any("fixture" in ast.unparse(d) for d in fn.decorator_list)
+
+
+def _values(nodes: Iterable[ast.AST]) -> dict[str, list[ast.expr | None]]:
+    """一個範圍裡的指定：名稱 → 指定過的值（拆不開的是 None）."""
+    pairs: list[tuple[str, ast.expr | None]] = []
+    for node in nodes:
+        if isinstance(node, ast.Assign):
+            pairs += [p for target in node.targets for p in _pairs(target, node.value)]
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            pairs += _pairs(node.target, node.value)
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            literal = isinstance(node.iter, (ast.Tuple, ast.List, ast.Set))
+            values = node.iter.elts if literal else [None]  # type: ignore[attr-defined]
+            pairs += [p for value in values for p in _pairs(node.target, value)]
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    pairs += _pairs(item.optional_vars, item.context_expr)
+        elif isinstance(node, ast.ClassDef):  # 類別是它自己，也是它的父類別
+            pairs += [(node.name, ast.Name(node.name)), *((node.name, b) for b in node.bases)]
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            pairs.append((node.name, ast.Name(node.name)))
+    found: dict[str, list[ast.expr | None]] = {}
+    for name, value in pairs:
+        found.setdefault(name, []).append(value)
+    return found
+
+
+class Names:
+    """一個式子可能代表哪些名稱（守衛判斷「是誰」時共用）.
+
+    照範圍解析（函式自己的指定、外層函式、模組層）：import 別名；``x = A``、``x = a.B``、
+    ``x: T = A``、``(x := A)``、``x, y = A, B``、``for x in (A, B)``、``with f() as x``、
+    ``class X(A)``；模組裡函式的回傳值（``f()``）、pytest fixture 的回傳值（參數名稱就是
+    fixture 名稱；``shared`` 收別的檔案的）與 parametrize 的值；``getattr(m, "A")``、``type(x)``、
+    ``import_module("a.b")``、
+    ``sys.modules["a.b"]``、``a if c else b``、``await``。同一個名稱在同一個範圍的每種指定都算
+    （只會多認），``y = x`` 接著解析。外部函式的結果記成「名稱()」，其他寫法是 ``UNKNOWN``。
+
+    認不出的也記 ``UNKNOWN``：參數（呼叫的人傳什麼都可以；fixture 另加它的回傳值）、沒在這個
+    模組指定也不是從產品或標準函式庫 import 的名稱（lambda 參數、內建、從測試檔 import 的），以及
+    這些東西的屬性（``self.x``、``ns.g``）。從產品或標準函式庫 import 的模組與類別，屬性照名稱。
+    """
+
+    def __init__(self, tree: ast.Module, shared: dict[str, frozenset[str]] | None = None) -> None:
+        self.aliases = import_aliases(tree)
+        self.imported = _import_sources(tree)
+        self.shared = dict(shared or {})
+        self.parent: dict[str, str | None] = {}
+        self.params: dict[str, frozenset[str]] = {}
+        self.values: dict[str | None, dict[str, list[ast.expr | None]]] = {}
+        top = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        self.values[None] = _values([*next(scopes(Source("", "", tree)))[1], *top])
+        returns: list[tuple[str, str, ast.expr]] = []
+        for fn in functions("", tree):
+            qualname = fn.qualname
+            nested = ".<locals>." in qualname
+            self.parent[qualname] = qualname.rsplit(".<locals>.", 1)[0] if nested else None
+            nodes = list(own_nodes(fn.node))
+            values = _values(nodes)
+            args = fn.node.args
+            every = (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg)
+            self.params[qualname] = frozenset(a.arg for a in every if a is not None)
+            for name in self.params[qualname]:
+                values.setdefault(name, []).append(None)
+            for name, value in _parametrized(fn.node):
+                values.setdefault(name, []).append(value)
+            self.values[qualname] = values
+            keys = [f"{fn.node.name}()", *([fn.node.name] if _is_fixture(fn.node) else [])]
+            returns += [
+                (key, qualname, n.value)
+                for n in nodes
+                if isinstance(n, (ast.Return, ast.Yield)) and n.value is not None
+                for key in keys
+            ]
+        self.bound: dict[tuple[str | None, str], frozenset[str]] = {}
+        self.returned: dict[str, frozenset[str]] = {}
+        changed = True
+        while changed:  # 只增不減，一定會停
+            changed = False
+            for scope, values in self.values.items():
+                at = self.at(scope)
+                for name, exprs in values.items():
+                    old = self.bound.get((scope, name), frozenset())
+                    if (new := old.union(*(at.of(e) for e in exprs))) != old:
+                        self.bound[(scope, name)], changed = new, True
+            for key, scope, expr in returns:
+                old = self.returned.get(key, frozenset())
+                if (new := old | self.at(scope).of(expr)) != old:
+                    self.returned[key], changed = new, True
+
+    def at(self, scope: str | None) -> ScopeNames:
+        """``scope`` 是函式的 qualname，模組層是 None（``scopes()`` 的鍵用 ``scope_of`` 換）."""
+        return ScopeNames(self, scope)
+
+    def defined(self, name: str, scope: str | None) -> tuple[str | None] | None:
+        """``name`` 在哪個範圍被指定（往外層找）；都沒有是 None."""
+        while True:
+            if name in self.values.get(scope, {}):
+                return (scope,)
+            if scope is None:
+                return None
+            scope = self.parent.get(scope)
+
+
+def scope_of(key: str) -> str | None:
+    """``scopes()`` 的鍵（「模組:qualname」或「模組:<module>」）→ ``Names.at`` 的範圍."""
+    qualname = key.split(":", 1)[1]
+    return None if qualname == "<module>" else qualname
+
+
+@dataclass(frozen=True)
+class ScopeNames:
+    names: Names
+    scope: str | None
+
+    def _call(self, key: str) -> frozenset[str]:
+        known = self.names.returned.get(key, frozenset()) | self.names.shared.get(key, frozenset())
+        return frozenset({key}) | known
+
+    def _bound(self, name: str) -> frozenset[str]:
+        names = self.names
+        shared = names.shared.get(name, frozenset())
+        where = names.defined(name, self.scope)
+        if where is None:
+            return shared if self._imported(name) else shared | {UNKNOWN}
+        bound = names.bound.get((where[0], name), frozenset())
+        return bound | shared if name in names.params.get(where[0] or "", ()) else bound
+
+    def _imported(self, name: str) -> bool:
+        """從產品或標準函式庫 import（不是測試檔、不是相對 import）."""
+        module = self.names.imported.get(name, "")
+        return bool(module) and not module.startswith(("tests", ".", "conftest"))
+
+    def _static(self, expr: ast.expr) -> bool:
+        """``expr`` 是 import 進來、這個範圍沒有再指定的模組或類別（屬性可以照名稱認）."""
+        if isinstance(expr, ast.Attribute):
+            return self._static(expr.value)
+        if not isinstance(expr, ast.Name):
+            return False
+        return self.names.defined(expr.id, self.scope) is None and self._imported(expr.id)
+
+    def of(self, expr: ast.expr | None) -> frozenset[str]:
+        names = self.names
+        if isinstance(expr, ast.Name):
+            return frozenset({names.aliases.get(expr.id, expr.id)}) | self._bound(expr.id)
+        if isinstance(expr, ast.Attribute):
+            unknown = frozenset() if self._static(expr.value) else frozenset({UNKNOWN})
+            return frozenset({expr.attr}) | unknown
+        if isinstance(expr, (ast.Await, ast.NamedExpr)):
+            return self.of(expr.value)
+        if isinstance(expr, ast.IfExp):
+            return self.of(expr.body) | self.of(expr.orelse)
+        if isinstance(expr, ast.BoolOp):
+            return frozenset().union(*(self.of(v) for v in expr.values))
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return frozenset({expr.value.rsplit(".", 1)[-1]})  # 點分字串取最後一段
+        if isinstance(expr, ast.Subscript) and ast.unparse(expr.value).endswith("modules"):
+            return self._last_segments(expr.slice)  # ``sys.modules["a.b"]``
+        if isinstance(expr, ast.Call):
+            if not isinstance(expr.func, (ast.Name, ast.Attribute)):
+                return frozenset(f"{name}()" for name in self.of(expr.func))  # ``type(x)()``
+            name = called_name(expr.func, names.aliases)
+            if name == "getattr" and len(expr.args) >= 2:
+                return self._last_segments(expr.args[1])
+            if name in _MODULE_LOADERS and expr.args:
+                return self._last_segments(expr.args[0])
+            if name == "type" and len(expr.args) == 1:
+                return self.of(expr.args[0]) | {"type()"}
+            return self._call(f"{name}()")
+        return frozenset({UNKNOWN})
+
+    def texts(self, expr: ast.expr | None, seen: frozenset[str] = frozenset()) -> frozenset[str]:
+        """字串值的所有可能（字面、指定過的名稱、f-string、``+``）；認不出的部分寫成 ``UNKNOWN``."""
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return frozenset({expr.value})
+        if isinstance(expr, ast.Name) and expr.id not in seen:
+            where = self.names.defined(expr.id, self.scope)
+            if where is not None:
+                at = self.names.at(where[0])
+                exprs = self.names.values[where[0]][expr.id]
+                return frozenset().union(*(at.texts(v, seen | {expr.id}) for v in exprs))
+        if isinstance(expr, ast.JoinedStr):
+            parts = [
+                self.texts(v.value if isinstance(v, ast.FormattedValue) else v, seen)
+                for v in expr.values
+            ]
+            return frozenset("".join(combo) for combo in itertools.product(*parts))
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+            left, right = self.texts(expr.left, seen), self.texts(expr.right, seen)
+            return frozenset(a + b for a in left for b in right)
+        if isinstance(expr, ast.IfExp):
+            return self.texts(expr.body, seen) | self.texts(expr.orelse, seen)
+        return frozenset({UNKNOWN})
+
+    def _last_segments(self, expr: ast.expr) -> frozenset[str]:
+        return frozenset(text.rsplit(".", 1)[-1] for text in self.texts(expr))
+
+
+def shared_names(sources: Iterable[Source]) -> dict[str, frozenset[str]]:
+    """各檔案的 fixture 與函式回傳值（別的檔案用參數名稱或呼叫拿到它們）."""
+    found: dict[str, frozenset[str]] = {}
+    for source in sources:
+        for key, value in Names(source.tree).returned.items():
+            found[key] = found.get(key, frozenset()) | value
+    return found
 
 
 def docstring_nodes(tree: ast.Module) -> set[int]:
@@ -1010,8 +1292,16 @@ def test_g2_finds_anchor_names_in_every_kind_of_literal(text, expected):
 ZONE_TEXT = "zone_text"  # RM 交出區字串的方法（種子）
 _PATH_TYPES = ("Path", "PurePath", "PurePosixPath", "PureWindowsPath")
 _PURE_OS_PATH = (
-    "join", "normcase", "normpath", "basename", "dirname", "split", "splitext", "splitdrive",
-    "isabs", "commonpath",
+    "join",
+    "normcase",
+    "normpath",
+    "basename",
+    "dirname",
+    "split",
+    "splitext",
+    "splitdrive",
+    "isabs",
+    "commonpath",
 )
 # 往下追：參數裡有區字串時，結果也是區字串（純字串、PurePath 與函式內容器的操作，不做 I/O）
 TF_CALLS = frozenset(
@@ -1130,7 +1420,7 @@ G4_DESTINATIONS: Destinations = {
         "子行程的 argv；cwd= 不在內",
     ),
     "src.protocols.registry.ProtocolServerConfig": (
-        frozenset({"command", "args", "**"}),
+        frozenset({"command", "args"}),
         "MCP 伺服器的啟動 argv（venv 的 python、server.py 或 test_wrapper.py 的位置）",
     ),
     f"{_EVO}.EvolutionStdioLaunch": (
@@ -1147,52 +1437,94 @@ G4_DESTINATIONS: Destinations = {
     ),
     "logger.*": (frozenset({ANY_POSITIONAL}), "記錄"),
 }
-_CLASSIFY_STRICTER = (
-    "MCP 分類以 ST home 為基準時只讀中繼資料；結果只採用變嚴的方向（kind 只會換成 self、"
-    "部署凍結多算引用）；managed 技能取聯集，但條目本來就能直接引用同一個 managed/<skill>"
+# 去處的名稱是區域或模組層變數時，它必須只綁定過這些呼叫的結果（經 ``Names`` 解析）
+G4_BOUND_ROOTS: dict[str, frozenset[str]] = {
+    "launch": frozenset({"acquire_evolution_launch()"}),
+    "logger": frozenset({"getLogger()"}),
+}
+
+
+class G4Kind(StrEnum):
+    """``G4_ALLOWED`` 每項的類別（ADR-0293 決定 26）：跟隨連結的結果只准用來拒絕、不准用來授與."""
+
+    STRICTER = "只會更嚴：結果只用來拒絕"
+    KERNEL = "交給逐段不跟隨的 kernel 原語"
+    NO_IO = "只當字串用（鍵、雜湊、嵌進程式碼），不做 I/O"
+    KNOWN_BOUNDARY = "已知界線：會放寬，ADR-0293「已知的界線（PR 2）」有列"
+
+
+_CLASSIFY_BOUNDARY = (
+    "MCP 分類以 ST home 為基準時跟隨連結；算出的 managed 技能會成為 self profile 的讀與執行"
+    "授與（ADR-0293 已知的界線「MCP 來源分類」，修掉後改成只會更嚴）"
 )
-# G4 列名的例外（P4 第 5 種）：「模組:函式」→（{出口: 次數}, 理由）
-G4_ALLOWED: dict[str, tuple[dict[str, int], str]] = {
+# G4 列名的例外（P4 第 5 種）：「模組:函式」→（{出口: 次數}, 類別, 理由）
+G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     f"{_EVO}:_overlapping_roots": (
         {"os.path.exists": 2, "os.path.samefile": 1, "<text>.resolve": 2},
+        G4Kind.STRICTER,
         "三種比對任一成立就算重疊，只會多判（多拒絕）；任何 OSError 一律當重疊（Q3）",
     ),
     f"{_EVO}:skill_lock": (
         {"key:_skill_locks[]": 2, "_skill_locks.get": 1, "next": 1},
+        G4Kind.NO_IO,
         "normcase(區字串) 只當技能鎖的身分（存、取、刪，與找重疊的已持有鍵）",
     ),
     f"{_EVO}:refuse_deployed": (
         {f"ref:{_MCP_PROFILES}:mcp_classification_bases": 1},
+        G4Kind.STRICTER,
         "partial 交給 deployed_skills 的 bases_for：多一份基準只會多算引用（多凍結、多拒絕）",
     ),
     f"{_PROFILES}:_resolve": (
         {"<text>.resolve": 1},
+        G4Kind.STRICTER,
         "build_evolution_profile 先解析再核對 root == managed/<skill>（不符丟 ProfileError）；"
         "規則、cwd 與公開設定檔都用核對過的值，連結只會讓核對失敗",
     ),
     "src.services.isolation.status:_repair_state_dir": (
         {"repair.repair": 1},
+        G4Kind.KERNEL,
         "權限自癒逐段不跟隨地開（kernel，禁令 66 ⑨），只補自己擁有的 inode 的擁有者位元",
     ),
     "src.services.mcp_isolation_store:bound_of": (
         {"json.dumps": 1},
+        G4Kind.NO_IO,
         "只算條目程式身分的雜湊（字串），不做 I/O",
     ),
     f"{_EVOLUTION}:_build_jail_code": (
         {"json.dumps": 1},
+        G4Kind.NO_IO,
         "技能資料夾以 JSON 編碼嵌進驗證包裝的程式碼，給沙盒裡的子行程；Touka 不拿它做 I/O",
     ),
-    f"{_ORIGIN}:_item_paths": ({"<text>.exists": 1}, _CLASSIFY_STRICTER),
+    f"{_ORIGIN}:_item_paths": (
+        {"<text>.exists": 1},
+        G4Kind.KNOWN_BOUNDARY,
+        _CLASSIFY_BOUNDARY,
+    ),
     f"{_ORIGIN}:referenced_paths": (
         {f"{_ORIGIN}.PathReference": 3, "<text>.exists": 1},
-        _CLASSIFY_STRICTER,
+        G4Kind.KNOWN_BOUNDARY,
+        _CLASSIFY_BOUNDARY,
     ),
-    f"{_ORIGIN}:_candidates": ({"<text>.resolve": 1}, _CLASSIFY_STRICTER),
+    f"{_ORIGIN}:_candidates": (
+        {"<text>.resolve": 1},
+        G4Kind.KNOWN_BOUNDARY,
+        _CLASSIFY_BOUNDARY,
+    ),
     f"{_ORIGIN}:is_file_reference": (
         {"os.lstat": 1, "<text>.is_junction": 1},
-        _CLASSIFY_STRICTER,
+        G4Kind.KNOWN_BOUNDARY,
+        _CLASSIFY_BOUNDARY,
     ),
 }
+# 會放寬的項目釘住：新增一項就紅（要先寫進 ADR-0293 的已知界線）
+G4_KNOWN_BOUNDARIES = frozenset(
+    {
+        f"{_ORIGIN}:_item_paths",
+        f"{_ORIGIN}:referenced_paths",
+        f"{_ORIGIN}:_candidates",
+        f"{_ORIGIN}:is_file_reference",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -1334,7 +1666,10 @@ class TextFlow:
         self.destinations = destinations or {}
         self.scopes: list[TextScope] = []
         self.index: dict[str, Function] = {}
+        self.trees: dict[str, ast.Module] = {}
+        self._names: dict[str, Names] = {}
         for module, tree in sources:
+            self.trees[module] = tree
             imports = import_names(module, tree)
             kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
             top = frozenset(node.name for node in tree.body if isinstance(node, kinds))
@@ -1400,9 +1735,27 @@ class TextFlow:
         found = self.resolve(call.func, scope)
         return None if found is None else CallTarget(*found, call.args, call.keywords, False)
 
+    def names(self, scope: TextScope) -> ScopeNames:
+        if scope.module not in self._names:
+            self._names[scope.module] = Names(self.trees[scope.module])
+        return self._names[scope.module].at(scope_of(scope.key))
+
+    def _bound_to(self, func: ast.expr, scope: TextScope, allowed: frozenset[str]) -> bool:
+        """``func`` 最左邊的名稱只綁定過 ``allowed`` 裡的呼叫結果."""
+        root = func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name) or root.id in scope.imports:
+            return False
+        bound = self.names(scope).of(root) - {root.id}
+        return bool(bound) and bound <= allowed
+
     def destination(self, call: ast.Call, scope: TextScope) -> tuple[str, frozenset | None]:
         """（呼叫的名稱, 列名去處准收的參數；沒列名是 None）."""
         label = qualify(call.func, scope) or ast.unparse(call.func)
+        root = label.split(".", 1)[0]
+        if root in G4_BOUND_ROOTS and not self._bound_to(call.func, scope, G4_BOUND_ROOTS[root]):
+            return label, None
         if label in self.destinations:
             return label, self.destinations[label][0]
         prefix = label.rsplit(".", 1)[0] + ".*"
@@ -1425,8 +1778,10 @@ class TextFlow:
                 return True
             owner = scope.fn.owner if scope.fn is not None else None
             is_self = isinstance(node.value, ast.Name) and node.value.id == "self"
-            return is_self and owner is not None and node.attr in self.self_attrs.get(
-                (scope.module, owner), set()
+            return (
+                is_self
+                and owner is not None
+                and node.attr in self.self_attrs.get((scope.module, owner), set())
             )
         if isinstance(node, ast.BinOp):
             arithmetic = isinstance(node.op, (ast.Div, ast.Add, ast.Mod))
@@ -1682,7 +2037,8 @@ class TextFlow:
         if receiver_text and method not in TF_METHODS | TF_CONTAINER_READS:
             exits.append(f"<text>.{method}")
         slots: list[tuple[int | str, ast.expr]] = [*enumerate(call.args)]
-        slots += [(k.arg or "**", k.value) for k in call.keywords]
+        for k in call.keywords:
+            slots += [(k.arg, k.value)] if k.arg else self._spread(k.value, scope)
         tainted = [slot for slot, value in slots if text(value)]
         if not tainted or receiver_text:
             return exits
@@ -1697,6 +2053,22 @@ class TextFlow:
             return exits  # 接收函式：本體照同一套規則檢查
         return [*exits, label]
 
+    def _spread(self, value: ast.expr, scope: TextScope) -> list[tuple[int | str, ast.expr]]:
+        """``**value`` 的每個欄位：字面字典，或這個函式裡只指定過一次字面字典、之後沒改過的名稱；
+        其他寫法整個算 ``**``（沒有去處准收它）."""
+        literal = value if isinstance(value, ast.Dict) else _literal_dict(value, scope)
+        if literal is None:
+            return [("**", value)]
+        found: list[tuple[int | str, ast.expr]] = []
+        for key, item in zip(literal.keys, literal.values, strict=True):
+            if key is None:
+                found += self._spread(item, scope)
+            elif isinstance(key, ast.Constant) and isinstance(key.value, str):
+                found.append((key.value, item))
+            else:
+                found.append(("**", item))
+        return found
+
     def _key_exits(
         self, target: ast.AST, scope: TextScope, local: set[str], assigned: set[str]
     ) -> list[str]:
@@ -1708,10 +2080,36 @@ class TextFlow:
         return [f"key:{ast.unparse(target.value)}[]"]
 
 
+def _literal_dict(value: ast.expr, scope: TextScope) -> ast.Dict | None:
+    """``value`` 是這個函式只指定過一次字面字典、之後沒改過（沒有改內容、呼叫方法、``global``）
+    的名稱時，回那個字面字典."""
+    if not isinstance(value, ast.Name) or scope.fn is None:
+        return None
+    name, spec = value.id, scope.fn.node.args
+    params = {a.arg for a in (*spec.posonlyargs, *spec.args, *spec.kwonlyargs)}
+    found = _values(scope.nodes).get(name, [])
+    if name in params or len(found) != 1 or not isinstance(found[0], ast.Dict):
+        return None
+    for node in scope.nodes:
+        if isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
+            return None
+        method = node.func if isinstance(node, ast.Call) else None
+        if isinstance(method, ast.Attribute) and _root_name(method.value) == name:
+            return None
+        if isinstance(node, (ast.Assign, ast.Delete, ast.AugAssign)):
+            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+            changed = isinstance(node, ast.AugAssign) or any(
+                isinstance(t, ast.Subscript) for t in targets
+            )
+            if changed and any(_root_name(t) == name for t in targets):
+                return None
+    return found[0]
+
+
 def _store_exits(
     target: ast.AST, scope: TextScope, assigned: set[str], declared: set[str]
 ) -> list[str]:
-    """區字串存到函式外：模組層、``global``、非 ``self`` 物件的屬性、不是函式內的容器."""
+    """區字串存到函式外：模組層、``global``、任何物件的屬性（含 ``self``）、不是函式內的容器."""
     if isinstance(target, (ast.Tuple, ast.List)):
         return [e for elt in target.elts for e in _store_exits(elt, scope, assigned, declared)]
     if isinstance(target, ast.Starred):
@@ -1719,8 +2117,7 @@ def _store_exits(
     if isinstance(target, ast.Name):
         return [f"store:{target.id}"] if scope.fn is None or target.id in declared else []
     if isinstance(target, ast.Attribute):
-        is_self = isinstance(target.value, ast.Name) and target.value.id == "self"
-        return [] if is_self else [f"store:{ast.unparse(target)}"]
+        return [f"store:{ast.unparse(target)}"]
     if isinstance(target, ast.Subscript):
         root = _root_name(target.value)
         if scope.fn is not None and root in assigned and root not in declared:
@@ -2022,8 +2419,19 @@ def test_unresolved_calls_with_a_zone_text_name_are_listed():
 
 def test_zone_text_goes_only_to_listed_places():
     """G4：沒列名的呼叫、方法、屬性與存到函式外一律紅；例外照「模組:函式」與次數釘住."""
-    expected = {key: exits for key, (exits, _why) in G4_ALLOWED.items()}
+    expected = {key: exits for key, (exits, _kind, _why) in G4_ALLOWED.items()}
     assert product_text_flow().exits() == expected
+
+
+def test_every_g4_exception_has_a_kind():
+    """每項標固定類別；會放寬的（已知界線）只准釘住的那幾項（DEV-B 第 1 輪 L1）."""
+    assert {
+        key for key, (_e, kind, _w) in G4_ALLOWED.items() if not isinstance(kind, G4Kind)
+    } == set()
+    boundaries = {
+        key for key, (_e, kind, _w) in G4_ALLOWED.items() if kind is G4Kind.KNOWN_BOUNDARY
+    }
+    assert boundaries == G4_KNOWN_BOUNDARIES
 
 
 def test_every_tf_and_g4_item_says_why():
@@ -2032,7 +2440,7 @@ def test_every_tf_and_g4_item_says_why():
         *(why for _params, why in ZONE_TEXT_RECEIVERS.values()),
         *ZONE_TEXT_HOMONYMS.values(),
         *(why for _slots, why in G4_DESTINATIONS.values()),
-        *(why for _exits, why in G4_ALLOWED.values()),
+        *(why for _exits, _kind, why in G4_ALLOWED.values()),
     ]
     assert [why for why in reasons if not why.strip()] == []
 
@@ -2067,8 +2475,7 @@ _FOLLOW_FORMS = {
     "append": f"def f(rm, zp):\n{_SEED}    out = []\n    out.append(t)\n    return out\n",
     "update": f"def f(rm, zp):\n{_SEED}    env = {{}}\n    env.update(HOME=t)\n    return env\n",
     "子容器": (
-        f"def f(rm, zp):\n{_SEED}    d = {{}}\n"
-        "    d.setdefault('k', {})['x'] = t\n    return d\n"
+        f"def f(rm, zp):\n{_SEED}    d = {{}}\n    d.setdefault('k', {{}})['x'] = t\n    return d\n"
     ),
     "容器讀取": f"def f(rm, zp):\n{_SEED}    d = {{'k': t}}\n    return d.get('k')\n",
     "生成式": f"def f(rm, zp):\n{_SEED}    return [x for x in (t,)]\n",
@@ -2083,8 +2490,7 @@ _FOLLOW_FORMS = {
         "    def f(self):\n        return self.root\n"
     ),
     "產生函式": (
-        "def g(rm, zp):\n    return rm.zone_text(zp)\n"
-        "def f(rm, zp):\n    return g(rm, zp)\n"
+        "def g(rm, zp):\n    return rm.zone_text(zp)\ndef f(rm, zp):\n    return g(rm, zp)\n"
     ),
     "傳過接收函式": (
         "def g(p):\n    return p.lower()\ndef f(rm, zp):\n    return g(rm.zone_text(zp))\n"
@@ -2212,6 +2618,27 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
         ("    x = t.stat\n", "<text>.stat"),
         ("    cb = lambda: open(t)\n", "open"),
         ("    other.path = t\n", "store:other.path"),
+        ("    self.root = t\n", "store:self.root"),  # 屬性一律算（DEV-B 第 1 輪 LOW-3）
+        # ``**`` 只展開字面字典；去處的名稱要核對綁定（DEV-B 第 1 輪 LOW-1、LOW-2）
+        (
+            "    from src.protocols.registry import ProtocolServerConfig\n"
+            "    ProtocolServerConfig(**{'command': 'py', 'env': {'X': t}})\n",
+            "src.protocols.registry.ProtocolServerConfig(env)",
+        ),
+        (
+            "    from src.protocols.registry import ProtocolServerConfig\n"
+            "    entry = {'command': t}\n    entry['env'] = {'X': t}\n"
+            "    ProtocolServerConfig(**entry)\n",
+            "src.protocols.registry.ProtocolServerConfig(**)",
+        ),
+        (
+            "    from src.protocols.registry import ProtocolServerConfig\n"
+            "    entry = {'command': t}\n    entry.update(other)\n"
+            "    ProtocolServerConfig(**entry)\n",
+            "src.protocols.registry.ProtocolServerConfig(**)",
+        ),
+        ("    launch = other\n    launch.run(1, t)\n", "launch.run"),
+        ("    logger = other\n    logger.info(t)\n", "logger.info"),
         ("    other[t] = 1\n", "key:other[]"),
         (
             "    from src.services.execution_broker import spawn_exec\n"
@@ -2257,7 +2684,12 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         # 列名的去處
         "    from src.services.isolation.profiles import PathRule\n    PathRule(t, 'rwx')\n",
         "    from src.services.execution_broker import spawn_exec\n    spawn_exec('python', t)\n",
-        "    logger.info('root %s', t)\n",
+        "    import logging\n    logger = logging.getLogger(__name__)\n"
+        "    logger.info('r %s', t)\n",
+        "    launch = await acquire_evolution_launch(g, s)\n    await launch.run(s, [t])\n",
+        "    from src.protocols.registry import ProtocolServerConfig\n"
+        "    entry = {'command': t, 'args': [t], 'enabled': True}\n"
+        "    ProtocolServerConfig(**entry)\n",
         # 比較、len、isinstance
         "    return t == other\n",
         "    return t in other\n",
@@ -2266,8 +2698,6 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         "    env = {}\n    env['HOME'] = t\n    out = []\n    out.append(t)\n    return env, out\n",
         "    return t.rstrip('/').lower()\n",
         "    from pathlib import PurePath\n    return PurePath(t).is_relative_to(other)\n",
-        # self 的屬性
-        "    self.root = t\n",
     ],
 )
 def test_g4_listed_places_comparisons_and_follow_forms_are_not_red(body):
@@ -2288,6 +2718,7 @@ G3_NAMES = frozenset({"ZonePath", "agent_root"})
 G3_HOMES = frozenset({ZONE_PATHS, "ToukaProxy/src/services/resource_manager.py"})
 _TYPE_CHECKS = frozenset({"isinstance", "issubclass"})
 _CLASS_ATTR = "__class__"
+_SETATTR = "__setattr__"  # ``object.__setattr__`` 能改不可變的區內值
 _TYPE_CALL = "type(…)(…)"
 _PIPELINE_FIELDS = "讀 Pydantic 類別的 model_fields 判斷鍵（不建物件）"
 _GRANT_COPY = "權限授予物件的不可變更新（_GrantBase 的子類別，和區內值無關）"
@@ -2300,7 +2731,18 @@ G3_CLASS_TRICKS: dict[str, tuple[dict[str, int], str]] = {
     "src.middleware.pipeline:ProxyPipeline.execute": ({_CLASS_ATTR: 1}, "記錄中介層的類別名稱"),
     "src.models.context:PipelineContext.__contains__": ({_CLASS_ATTR: 1}, _PIPELINE_FIELDS),
     "src.models.context:PipelineContext.__getitem__": ({_CLASS_ATTR: 1}, _PIPELINE_FIELDS),
-    "src.models.context:PipelineContext.__setitem__": ({_CLASS_ATTR: 1}, _PIPELINE_FIELDS),
+    "src.models.context:PipelineContext.__setitem__": (
+        {_CLASS_ATTR: 1, _SETATTR: 1},
+        _PIPELINE_FIELDS + "；第一次放額外的鍵時建 Pydantic 的 extra 字典",
+    ),
+    "memory_server.utils.zone_paths:ZonePath.__init__": (
+        {_SETATTR: 2},
+        "ZonePath 自己建構：``__slots__`` 唯讀屬性只能這樣設定（G3 的家）",
+    ),
+    "src.models.advertised_tools:AdvertisedTools.__post_init__": (
+        {_SETATTR: 2},
+        "凍結的 dataclass 建構時把清單轉成不可變集合（和區內值無關）",
+    ),
     "src.utils.permission_grants:_GrantBase.extend": ({_TYPE_CALL: 1}, _GRANT_COPY),
     "src.utils.permission_grants:_GrantBase.with_floor": ({_TYPE_CALL: 1}, _GRANT_COPY),
 }
@@ -2348,19 +2790,20 @@ def g3_refs(sources: Iterable[Source]) -> list[str]:
 
 
 def g3_class_tricks(sources: Iterable[Source]) -> dict[str, dict[str, int]]:
+    """``__class__``、``__setattr__``（屬性或字串，如 ``getattr(x, "__class__")``）與呼叫
+    ``type(x)`` 的結果（含存成變數或經函式回傳，經 ``Names`` 解析）."""
     found = {}
     for source in sources:
+        module_names = Names(source.tree)
         for key, nodes in scopes(source):
+            names = module_names.at(scope_of(key))
             tricks: Counter[str] = Counter()
             for node in nodes:
-                if isinstance(node, ast.Attribute) and node.attr == _CLASS_ATTR:
-                    tricks[_CLASS_ATTR] += 1
-                elif (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Call)
-                    and isinstance(node.func.func, ast.Name)
-                    and node.func.func.id == "type"
-                ):
+                if isinstance(node, ast.Attribute) and node.attr in (_CLASS_ATTR, _SETATTR):
+                    tricks[node.attr] += 1
+                elif isinstance(node, ast.Constant) and node.value in (_CLASS_ATTR, _SETATTR):
+                    tricks[node.value] += 1
+                elif isinstance(node, ast.Call) and "type()" in names.of(node.func):
                     tricks[_TYPE_CALL] += 1
             if tricks:
                 found[key] = dict(tricks)
@@ -2405,6 +2848,18 @@ def test_g3_finds_every_reference(text, expected):
         ("def f(zp):\n    k = zp.__class__\n", {"m:f": {_CLASS_ATTR: 1}}),
         ("def f(zp):\n    return type(zp)(a, p)\n", {"m:f": {_TYPE_CALL: 1}}),
         ("def f(zp):\n    return type(zp) is str\n", {}),
+        # 經 ``Names`` 解析（DEV-B 第 1 輪 LOW-5）
+        ("def f(zp):\n    k = type(zp)\n    return k(a, p)\n", {"m:f": {_TYPE_CALL: 1}}),
+        (
+            "def g(x):\n    return type(x)\ndef f(zp):\n    return g(zp)(a, p)\n",
+            {"m:f": {_TYPE_CALL: 1}},
+        ),
+        ("def f(zp):\n    return getattr(zp, '__class__')\n", {"m:f": {_CLASS_ATTR: 1}}),
+        (
+            "def f(zp):\n    object.__setattr__(zp, '_parts', ())\n",
+            {"m:f": {_SETATTR: 1}},
+        ),
+        ("def f(zp):\n    setattr(zp, '__setattr__', g)\n", {"m:f": {_SETATTR: 1}}),
     ],
 )
 def test_g3_finds_class_tricks(text, expected):
@@ -2819,6 +3274,10 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
         1,
         _ENV_SELECTION,
     ),
+    "tests.unit.test_memory_worker_thread:test_diagnostics_file_scans_run_off_the_event_loop": (
+        1,
+        "包一層記下在哪個執行緒跑，原函式照樣執行（data 根不變）",
+    ),
     "tests.unit.test_heartbeat_env_selection:run_restart_audit_child": (
         1,
         "另開的子行程在匯入產品程式之前，把 data 根指到這個測試自己的資料夾（測重啟後讀回設定）",
@@ -2891,93 +3350,107 @@ def _is_environ(node: ast.expr) -> bool:
     return ast.unparse(node) in ("os.environ", "environ")
 
 
-def _target_name(node: ast.expr, aliases: dict[str, str]) -> str | None:
-    """被替換或被改內容的對象名稱：點分字串取最後一段，其他取最後一個名稱（別名對回原名）."""
-    text = _literal(node)
-    return text.rsplit(".", 1)[-1] if text is not None else called_name(node, aliases)
+Slot = frozenset[str]  # 一個位置可能是哪些名稱（``Names`` 解析的結果）
 
 
-def _patched_names(call: ast.Call) -> list[str]:
-    """這個呼叫替換的名稱（monkeypatch、mock.patch 與 mocker 的各種寫法）."""
+def _last(texts: Iterable[str]) -> Slot:
+    return frozenset(text.rsplit(".", 1)[-1] for text in texts)
+
+
+def _strings(node: ast.expr | None, names: ScopeNames) -> Slot:
+    """``node`` 是字串時的所有可能值；不是字串（或完全認不出）時是空集合."""
+    return frozenset(text for text in names.texts(node) if text != UNKNOWN)
+
+
+def _target_name(node: ast.expr, names: ScopeNames) -> Slot:
+    """被替換或被改內容的對象：點分字串取最後一段，其他照名稱解析."""
+    strings = _strings(node, names)
+    return _last(strings) if strings else names.of(node)
+
+
+def _patched_names(call: ast.Call, names: ScopeNames) -> list[Slot]:
+    """這個呼叫替換的名稱（monkeypatch、mock.patch 與 mocker 的各種寫法），每個位置一組."""
     func, args = call.func, call.args
     name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
     chain = ast.unparse(func)
-    found: list[str] = []
+    found: list[Slot] = []
+
+    def keys(value: ast.expr) -> list[Slot]:
+        return [_last(names.texts(k)) for k in value.keys] if isinstance(value, ast.Dict) else []
+
     if name in ("setattr", "delattr") and args:
-        text = _literal(args[0])
-        if text is not None and "." in text:
-            found.append(text.rsplit(".", 1)[-1])  # 點分路徑
-        elif len(args) >= 2 and _literal(args[1]) is not None:
-            found.append(_literal(args[1]))  # type: ignore[arg-type]
-    elif name in ("setenv", "delenv") and args and _literal(args[0]) is not None:
-        found.append(_literal(args[0]))  # type: ignore[arg-type]
+        dotted = frozenset(t for t in _strings(args[0], names) if "." in t)
+        if dotted:
+            found.append(_last(dotted))  # 點分路徑
+        elif len(args) >= 2:
+            found.append(names.texts(args[1]))
+    elif name in ("setenv", "delenv") and args:
+        found.append(names.texts(args[0]))
     elif name in ("setitem", "delitem") and len(args) >= 2 and _is_environ(args[0]):
-        if _literal(args[1]) is not None:
-            found.append(_literal(args[1]))  # type: ignore[arg-type]
+        found.append(names.texts(args[1]))
     elif name in _PATCHERS and "patch" in chain:
-        if name == "patch" and args and _literal(args[0]) is not None:
-            found.append(_literal(args[0]).rsplit(".", 1)[-1])  # type: ignore[union-attr]
-        elif name == "object" and len(args) >= 2 and _literal(args[1]) is not None:
-            found.append(_literal(args[1]))  # type: ignore[arg-type]
+        if name == "patch" and args:
+            found.append(_last(names.texts(args[0])))
+        elif name == "object" and len(args) >= 2:
+            found.append(names.texts(args[1]))
         elif name in ("dict", "multiple"):
             for value in args[1:]:
-                if isinstance(value, ast.Dict):
-                    found.extend(t for k in value.keys if (t := _literal(k)) is not None)
-            found.extend(k.arg for k in call.keywords if k.arg and k.arg not in ("clear", "new"))
+                found += keys(value)
+            skip = ("clear", "new")
+            found += [frozenset({k.arg}) for k in call.keywords if k.arg and k.arg not in skip]
     elif name in _MUTATORS and isinstance(func, ast.Attribute) and _is_environ(func.value):
-        if args and _literal(args[0]) is not None:
-            found.append(_literal(args[0]))  # type: ignore[arg-type]  # pop、setdefault
+        if args and not isinstance(args[0], ast.Dict):
+            found.append(names.texts(args[0]))  # pop、setdefault
         for value in args:
-            if isinstance(value, ast.Dict):
-                found.extend(t for k in value.keys if (t := _literal(k)) is not None)
-        found.extend(k.arg for k in call.keywords if k.arg)
+            found += keys(value)
+        found += [frozenset({k.arg}) for k in call.keywords if k.arg]
     return found
 
 
-def _changed_containers(node: ast.AST, aliases: dict[str, str]) -> list[str]:
-    """直接改內容的容器（``os.environ`` 另算；別名對回原名）.
+def _changed_containers(node: ast.AST, names: ScopeNames) -> list[Slot]:
+    """直接改內容的容器（``os.environ`` 另算）.
 
     ``setitem(zp._handoffs, …)``、``patch.dict(zp._handoffs, …)``、``zp._handoffs.clear()``、
     ``zp._handoffs[k] = …``、``_observers[:] = []``、``_observers += […]``。
     """
-    found: list[str | None] = []
+    found: list[Slot] = []
     if isinstance(node, ast.Call) and node.args:
         func, first = node.func, node.args[0]
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
         patching = name == "dict" and "patch" in ast.unparse(func)
         if (name in ("setitem", "delitem") or patching) and not _is_environ(first):
-            found.append(_target_name(first, aliases))
+            found.append(_target_name(first, names))
     func = node.func if isinstance(node, ast.Call) else None
     if isinstance(func, ast.Attribute) and func.attr in _MUTATORS and not _is_environ(func.value):
-        found.append(called_name(func.value, aliases))
+        found.append(names.of(func.value))
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
         targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
         found.extend(
-            called_name(target.value, aliases)
+            names.of(target.value)
             for target in targets
             if isinstance(target, ast.Subscript) and not _is_environ(target.value)
         )
     if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
-        found.append(called_name(node.target, aliases))  # 串列的 += 是原地修改
-    return [name for name in found if name]
+        found.append(names.of(node.target))  # 串列的 += 是原地修改
+    return found
 
 
-def _patched_owner(call: ast.Call, aliases: dict[str, str]) -> str | None:
+def _patched_owner(call: ast.Call, names: ScopeNames) -> Slot:
     """被替換屬性的擁有者：``setattr(ZoneRoots, "resolved", f)``、``patch("….ZoneRoots.x")``、
-    ``patch.multiple(ZoneRoots, …)``（別名對回原名）."""
+    ``patch.multiple(ZoneRoots, …)``；不是替換的呼叫是空集合."""
     func, args = call.func, call.args
     name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
     if not args or name not in ("setattr", "delattr", "patch", "object", "multiple"):
-        return None
+        return frozenset()
     if name in ("patch", "object", "multiple") and "patch" not in ast.unparse(func):
-        return None
-    text = _literal(args[0])
-    if text is not None:
-        parts = text.split(".")
+        return frozenset()
+    strings = _strings(args[0], names)
+    if strings:
+        parts = [text.split(".") for text in strings]
         if name == "multiple":
-            return parts[-1]
-        return parts[-2] if len(parts) >= 2 else None
-    return called_name(args[0], aliases) if name != "patch" else None
+            return frozenset(p[-1] for p in parts)
+        return frozenset(p[-2] for p in parts if len(p) >= 2)
+    return names.of(args[0]) if name != "patch" else frozenset({UNKNOWN})
 
 
 def _assigned_names(node: ast.AST) -> list[str]:
@@ -3000,16 +3473,31 @@ def _assigned_names(node: ast.AST) -> list[str]:
     return found
 
 
-def _assigned_owners(node: ast.AST, aliases: dict[str, str]) -> list[str]:
-    """``ZoneRoots.resolved = f`` 一類：被指定屬性的擁有者（別名對回原名）."""
+def _assigned_owners(node: ast.AST, names: ScopeNames) -> list[tuple[Slot, str]]:
+    """``ZoneRoots.resolved = f`` 一類：（被指定屬性的擁有者, 屬性名稱）；``self.x`` 不算."""
     if not isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
         return []
     targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
     return [
-        owner
+        (names.of(target.value), target.attr)
         for target in targets
-        if isinstance(target, ast.Attribute) and (owner := called_name(target.value, aliases))
+        if isinstance(target, ast.Attribute)
+        and not (isinstance(target.value, ast.Name) and target.value.id == "self")
     ]
+
+
+def _patched_value(call: ast.Call) -> ast.expr | None:
+    """替換進去的值：``setattr(o, "n", v)``、``setattr("a.b", v)``、``patch(…, new=v)``."""
+    func, args = call.func, call.args
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+    new = next((k.value for k in call.keywords if k.arg in ("new", "value")), None)
+    if name == "setattr" and args:
+        position = 1 if isinstance(args[0], (ast.Constant, ast.JoinedStr, ast.BinOp)) else 2
+    elif name in ("patch", "object") and "patch" in ast.unparse(func):
+        position = 1 if name == "patch" else 2
+    else:
+        return None
+    return args[position] if len(args) > position else new
 
 
 def _zone_paths_body() -> list[ast.stmt]:
@@ -3073,21 +3561,22 @@ def t3_sites(
     found: Counter[str] = Counter()
     watched = protected | owners
     containers = protected if containers is None else containers
+    sources = list(sources)
+    shared = shared_names(sources)
     for source in sources:
-        aliases = module_aliases(source.tree)
+        module_names = Names(source.tree, shared)
         for key, nodes in scopes(source):
+            names = module_names.at(scope_of(key))
             for node in nodes:
-                names = _patched_names(node) if isinstance(node, ast.Call) else []
+                slots = _patched_names(node, names) if isinstance(node, ast.Call) else []
                 if isinstance(node, ast.Call):
-                    called = called_name(node.func, aliases)
-                    names += [called] if called in T3_DIRECT_CALLS else []
-                    owner = _patched_owner(node, aliases)
-                    names += [owner] if owner in owners else []
-                names += _assigned_names(node)
-                names += [o for o in _assigned_owners(node, aliases) if o in owners]
-                found[key] += sum(1 for name in names if name in watched)
-                changed = _changed_containers(node, aliases)
-                found[key] += sum(1 for name in changed if name in containers)
+                    slots.append(names.of(node.func) & T3_DIRECT_CALLS)
+                    slots.append(_patched_owner(node, names) & owners)
+                slots += [frozenset({name}) for name in _assigned_names(node)]
+                slots += [owner & owners for owner, _attr in _assigned_owners(node, names)]
+                found[key] += sum(1 for slot in slots if slot & watched)
+                changed = _changed_containers(node, names)
+                found[key] += sum(1 for slot in changed if slot & containers)
     return {key: n for key, n in found.items() if n}
 
 
@@ -3143,7 +3632,7 @@ def test_t3_covers_the_producers_and_the_data_root():
         ("def t():\n    module.resource_manager = fake\n", "resource_manager"),
         ("def t():\n    set_roots_provider(lambda: roots)\n", "set_roots_provider"),
         ("def t():\n    zp._register_handoff(p, k)\n", "_register_handoff"),
-        ("def t(m):\n    f = lambda: m.setattr(zp, \"_identity\", g)\n", "_identity"),
+        ('def t(m):\n    f = lambda: m.setattr(zp, "_identity", g)\n', "_identity"),
         (
             "from memory_server.utils.zone_paths import _register_handoff as reg\n"
             "def t():\n    reg(p, k)\n",
@@ -3176,6 +3665,10 @@ def test_t3_covers_the_producers_and_the_data_root():
             "def t():\n    global _observers\n    _observers += [cb]\n",
             "_observers",
         ),
+        # 名稱與擁有者經 ``Names`` 解析（DEV-B 第 1 輪）
+        ('def t(m, obj):\n    name = "agent_drive"\n    m.setattr(obj, name, f)\n', "agent_drive"),
+        ("def t():\n    reg = zp._register_handoff\n    reg(p, k)\n", "_register_handoff"),
+        ("def t():\n    h = zp._handoffs\n    h.clear()\n", "_handoffs"),
     ],
 )
 def test_t3_finds_every_way_of_replacing_a_name(text, name):
@@ -3197,6 +3690,10 @@ def test_t3_finds_every_way_of_replacing_a_name(text, name):
         "def t():\n    ZR.resolved = f\n",
         "def t():\n    with patch.multiple(zp.ZoneRoots, resolved=f):\n        pass\n",
         'def t():\n    patch.multiple("memory_server.utils.zone_paths.ZoneRoots", resolved=f)\n',
+        'def t(m):\n    g = ZoneRoots\n    m.setattr(g, "resolved", f)\n',
+        "def t():\n    g = zp.ZoneRoots\n    g.resolved = f\n",
+        "@pytest.fixture\ndef roots():\n    return ZoneRoots\n"
+        'def t(m, roots):\n    m.setattr(roots, "resolved", f)\n',
     ],
 )
 def test_t3_finds_replaced_methods_of_zone_classes(text):

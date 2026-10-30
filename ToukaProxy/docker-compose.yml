@@ -42,6 +42,9 @@ services:
 
   # iso-c2：執行器（設定說明見根目錄 compose）。用上面建的 touka-proxy:latest，不 build、不拉；
   # proxy 留在 default 網路，執行器只接 touka-exec-net。
+  # 這份 compose 沒有 touka-init：Linux 上升級到 ADR-0293 PR 2 前先建好
+  # data/mcp_servers/managed（擁有者 1001），否則 Docker 以 root 建出它，
+  # 演化與執行器自測會因權限失敗（執行器判 none）。
   touka-executor:
     image: touka-proxy:latest
     pull_policy: never

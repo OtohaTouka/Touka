@@ -292,7 +292,7 @@ def test_repair_is_not_asked_without_a_usable_state(layout, tmp_path, which):
 
 
 def test_selftest_is_not_a_state_kind():
-    assert "selftest" not in status.STATE_KINDS
+    assert status.SELFTEST_STATE_DIR not in status.STATE_KINDS
 
 
 def test_the_proxy_folder_is_not_writable_through_os_access_alone(layout, tmp_path):

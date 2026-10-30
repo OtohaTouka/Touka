@@ -319,6 +319,18 @@ def test_handoff_cwd_outside_any_zone_is_given_as_is(tmp_path, zone_data_root):
         assert not is_handed_off(cwd, HandoffKind.SUBPROCESS_CWD)
 
 
+def test_handoff_cwd_gives_the_text_it_judged(tmp_path, state):
+    """區外交出的是判斷用的字串（絕對、以字面消掉 ``..``）：``連結/..`` 實際走進區裡也不算（P6）."""
+    base = tmp_path.resolve() / "base"
+    (base / "b").mkdir(parents=True)
+    deep = state / "proxy" / "deep"
+    deep.mkdir(parents=True)
+    make_dir_link(base / "b" / "link", deep)
+    with rm.handoff_cwd(os.path.join(base, "b", "link", "..", "..")) as cwd:
+        assert cwd == str(base)
+        assert not is_handed_off(cwd, HandoffKind.SUBPROCESS_CWD)
+
+
 def test_handoff_cwd_inside_a_zone_is_handed_off(zone_data_root, state):
     home = state / "proxy" / "mcp_self" / "tool" / "home"
     home.mkdir(parents=True)

@@ -1020,7 +1020,8 @@ class ResourceManager:
     def handoff_cwd(self, text: str) -> Iterator[str]:
         """被包住的子行程的工作資料夾（P6；只在 G1 明列處）.
 
-        不在任何區裡、不是錨點本身、也不包含區時原樣交出；字面在區裡（錨點的字面或解析後寫法）
+        不在任何區裡、不是錨點本身、也不包含區時，交出判斷用的字串（``absolute_text``：絕對、
+        以字面消掉 ``..``，``連結/..`` 實際走到哪裡都不算）；字面在區裡（錨點的字面或解析後寫法）
         就經 ``zone_handoff`` 交出，交出的字串必須和 ``text`` 相同；其他一律丟
         ``ZonePathRequiredError``（不改用別的 cwd、不原樣交出）。
         """
@@ -1032,7 +1033,7 @@ class ResourceManager:
                 and anchor_at(text, roots) is None
                 and not contains_zone(text, roots)
             ):
-                yield text
+                yield absolute_text(text)
                 return
             raise ZonePathRequiredError(None, "handoff_cwd")
         anchor, parts = found

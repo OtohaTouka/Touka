@@ -202,7 +202,8 @@ class _Spawner:
 @dataclass
 class _Plan:
     argv: tuple[str, ...] = ("python3", "-I", "-S", "launcher.py", "--spec-fd", "7", "--", "srv")
-    cwd: Path = Path("st") / "home"
+    # 正式的 cwd 是 profile 給的絕對路徑（handoff_cwd 交出絕對路徑）
+    cwd: Path = Path(__file__).absolute().parent / "st" / "home"
     env: dict[str, str] = field(default_factory=lambda: {"PATH": "/usr/bin", "HOME": "st/home"})
     preexec_fn: Any = None
     pass_fds: tuple[int, ...] = _PASS_FDS

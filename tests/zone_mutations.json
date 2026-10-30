@@ -528,7 +528,7 @@
     "posix_only": false
   },
   {
-    "id": "r9_enforced_anchors_drop_custom",
+    "id": "r9_enforced_anchors_drop_mcp_servers",
     "rule": [
       "R9"
     ],
@@ -1701,14 +1701,29 @@
     ],
     "target": "src.services.resource_manager:ResourceManager.handoff_cwd",
     "file": "ToukaProxy/src/services/resource_manager.py",
-    "old": "                yield text\n                return\n            raise ZonePathRequiredError(None, \"handoff_cwd\")",
-    "new": "                yield text\n                return\n            yield text\n            return",
+    "old": "                yield absolute_text(text)\n                return\n            raise ZonePathRequiredError(None, \"handoff_cwd\")",
+    "new": "                yield absolute_text(text)\n                return\n            yield text\n            return",
     "tests": [
       "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_a_path_that_is_in_a_zone_only_through_a_link",
       "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_an_anchor_or_a_folder_holding_zones"
     ],
     "posix_only": false,
     "note": "#19b：第 3 種原樣交出"
+  },
+  {
+    "id": "p6_handoff_cwd_gives_the_raw_text",
+    "rule": [
+      "P6"
+    ],
+    "file": "ToukaProxy/src/services/resource_manager.py",
+    "old": "                yield absolute_text(text)\n",
+    "new": "                yield text\n",
+    "tests": [
+      "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_gives_the_text_it_judged"
+    ],
+    "target": "src.services.resource_manager:ResourceManager.handoff_cwd",
+    "posix_only": false,
+    "note": "區外的 cwd 原樣交出（含 ``..``），判斷用的卻是消掉 ``..`` 的字面（DEV-B 第 1 輪 L2）"
   },
   {
     "id": "p6_literal_zone_sees_only_the_literal_anchor",
@@ -2620,7 +2635,22 @@
     ],
     "target": "tests.support.zone_tripwire:_program_as_data",
     "posix_only": false,
-    "note": "Z9 把任何錨點裡的執行檔都當成資料（決定 28 只放行 MCP_SERVERS）"
+    "note": "Z9 把任何錨點裡的執行檔都當成資料（決定 28 只放行 MCP_SERVERS 的技能 .venv）"
+  },
+  {
+    "id": "r14_z9_whole_skill_folder_program_is_data",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "            if len(found[1]) > 2 and found[1][1] == folder:\n",
+    "new": "            if folder:\n",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_a_skill_venv_python_as_the_program_is_data"
+    ],
+    "target": "tests.support.zone_tripwire:_program_as_data",
+    "posix_only": false,
+    "note": "Z9 把整個 MCP_SERVERS 錨點裡的執行檔都當成資料，不只技能的 .venv（DEV-B 第 1 輪 LOW-6）"
   },
   {
     "id": "r14_z9_cwd_counts_as_program",
