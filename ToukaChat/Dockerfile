@@ -17,8 +17,9 @@ WORKDIR /app
 COPY package*.json ./
 COPY .npmrc ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
-# Dev terminal runtime needs the lockfile-bound node-pty native binary. Keep
-# global lifecycle disabled and explicitly allow only this package's build.
+# node-pty is still a locked dependency (its dev terminal server was removed in
+# ADR-0294; the package goes with the next dependency batch). Keep global
+# lifecycle disabled and explicitly allow only this package's build.
 RUN npm rebuild node-pty --ignore-scripts=false --foreground-scripts --no-audit --no-fund
 
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -2234,6 +2234,10 @@
       "runtime_unavailable": "React runtime failed to load; cannot render."
     }
   },
+  "markdown": {
+    "external_image_blocked": "External image (not loaded)",
+    "external_image_open": "Open the external image in a new tab"
+  },
   "theme": {
     "names": {
       "touka": "Touka Classic",

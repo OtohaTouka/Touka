@@ -167,6 +167,14 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 模型輸出的外部資源與開發終端伺服器（2026-10-30，ADR-0294）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| ToukaChat 的 `npm run dev` 會一起啟動一個不用登入的終端伺服器（`terminal_server.mjs`），任何網頁都能叫它執行指令。正式映像不含它。 | 刪掉伺服器，`dev` 只開網頁。`tests/lint/test_chat_dev_terminal_security.py`。 |
+| 聊天訊息與 artifact 的 Markdown 直接載入外部圖片，模型可以把對話內容放進圖片網址，瀏覽器一載入就送出去（還帶 Referer）。 | 圖片一律經 `markdownImagePolicy.decideMarkdownImage` 判斷（解析後比來源），只載入前端與 Touka 後端自己的來源，並加 `referrerPolicy="no-referrer"`；外部圖片改成「外部圖片（未載入）＋網站名稱」，點了才在新分頁開。模型輸出的 Markdown 只經 `SafeMarkdown` 顯示。ToukaChat `markdownImagePolicy.security.test.ts`、`SafeMarkdown.test.tsx`；`tests/lint/test_chat_markdown_render_security.py`。 |
+| 流程圖（mermaid）畫圖時會先把圖放進頁面，圖裡的外部圖片（標籤裡的 `<img>`、圖片節點、角色圖示）在這時就載入；設定指令還可以改 `themeCSS`、`fontFamily`、`altFontFamily`，把載入外部網址的樣式帶進輸出；消毒也沒擋屬性與樣式裡的外部網址。 | mermaid 只在隱藏的沙箱框裡畫（`mermaidSandbox.ts`，沿用 artifact 預覽的 `allow-scripts` sandbox 與不准外部載入的 CSP），頁面本身不載入 mermaid；`secure` 加上這三個欄位並保留預設項目（`mermaidConfig.ts`）；框傳回的 SVG 再經 `sanitizeMermaidSvg`，移除會載入外部網址的屬性與樣式片段，圖的樣式與文字照常。`mermaidSandbox.security.test.ts`、`sanitizeMermaidSvg.security.test.ts`（真實 mermaid 11.16.1 輸出）；`tests/lint/test_chat_markdown_render_security.py`。 |
+
 ### 代理人個人空間裡的連結（2026-10-30，ADR-0293）
 
 | 弱點 | 修正與驗證 |
