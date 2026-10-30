@@ -348,8 +348,17 @@ async def test_reviewer_gets_the_policy_level(monkeypatch):
 # --- 審查員只在真的經 runner 時看到政策層級（對抗式第 2 輪 MEDIUM-4）------------------------
 
 
+class _NoJailedServers:
+    """註冊表：沒有 vault-jailed 伺服器（ADR-0293 的固定拒絕不會攔下這裡的工具）。"""
+
+    def get_server(self, _name: str) -> None:
+        return None
+
+
 class _McpManager:
     """任何名稱都解析成第三方 MCP 工具（審查員拒絕後就停，不會真的呼叫）。"""
+
+    registry = _NoJailedServers()
 
     def resolve_tool(self, name: str) -> tuple[str, str]:
         server, _, tool = name.rpartition("__")

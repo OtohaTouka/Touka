@@ -318,14 +318,15 @@ def test_walk_skips_folders_whose_status_cannot_be_read(tmp_path, monkeypatch):
     for rel in ("a/x.txt", "a/locked/y.txt", "b/z.txt"):
         (base / rel).parent.mkdir(parents=True, exist_ok=True)
         (base / rel).write_text("x", encoding="utf-8")
-    original = no_follow.is_link
+    ops = no_follow._FdTree if no_follow._POSIX_DIR_FD else no_follow._PathTree
+    original = ops.lstat
 
-    def denied(path: Path) -> bool:
-        if path == base / "a" / "locked":
-            raise PermissionError(errno.EACCES, "Permission denied", str(path))
-        return original(path)
+    def denied(self, holder, name: str, shown: Path):
+        if shown == base / "a" / "locked":
+            raise PermissionError(errno.EACCES, "Permission denied", str(shown))
+        return original(self, holder, name, shown)
 
-    monkeypatch.setattr(no_follow, "is_link", denied)
+    monkeypatch.setattr(ops, "lstat", denied)
     assert [rel for rel, _path in iter_regular_files(base)] == ["a/x.txt", "b/z.txt"]
 
 
@@ -450,14 +451,14 @@ def test_resource_manager_no_follow_writes_keep_soul_protection():
     ],
 )
 def test_find_pattern_matches_like_rglob(rel, pattern, expected):
-    assert cfo._glob_match(rel, pattern) is expected
+    assert no_follow.rglob_match(rel, pattern) is expected
 
 
 def test_find_pattern_with_many_double_stars_stays_fast():
     rel = "/".join(["d"] * 40) + "/x.py"
     started = time.monotonic()
-    assert cfo._glob_match(rel, "/".join(["**"] * 40) + "/y.py") is False
-    assert cfo._glob_match(rel, "/".join(["**/d"] * 20) + "/**/x.py") is True
+    assert no_follow.rglob_match(rel, "/".join(["**"] * 40) + "/y.py") is False
+    assert no_follow.rglob_match(rel, "/".join(["**/d"] * 20) + "/**/x.py") is True
     assert time.monotonic() - started < 1
 
 

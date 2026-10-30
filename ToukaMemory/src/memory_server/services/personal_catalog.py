@@ -9,7 +9,8 @@
 - 信任時，大小與修改時間都對得上的項目才沿用 hash 與標題，其餘重算；實際不存在的
   項目丟掉；不認得的欄位忽略。
 
-檔案動詞的寫入類動作不能碰 `.touka/`；list／find／grep 看不到它。所有 I/O 經 resource proxy。
+檔案動詞的寫入類動作不能碰 `.touka/`；list／find／grep 看不到它。所有 I/O 經 resource proxy
+的區內方法（個人空間的根是 ``ZonePath``，不跟隨連結；ADR-0293）。
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import json
 import logging
 import re
 import weakref
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from memory_server.protocols import IResourceProxy
+    from memory_server.utils.zone_paths import ZonePath
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +120,8 @@ class PersonalCatalog(BaseModel):
     files: list[CatalogEntry] = Field(default_factory=list)
 
 
-def _root_key(root: Path) -> str:
-    return str(root.resolve())
+def _root_key(root: ZonePath) -> str:
+    return root.display()
 
 
 def _lock_for(key: str) -> asyncio.Lock:
@@ -140,14 +142,17 @@ def _markdown_title(data: bytes) -> str | None:
 
 
 def _describe(
-    proxy: IResourceProxy, root: Path, rel: str, size: int, mtime_ns: int
+    proxy: IResourceProxy, root: ZonePath, rel: str, size: int, mtime_ns: int
 ) -> CatalogEntry:
-    """由實際檔案算出一個項目；超過讀取上限或讀不到時不填 hash 與標題。"""
+    """由實際檔案算出一個項目；超過讀取上限或讀不到時不填 hash 與標題.
+
+    ``rel`` 來自區內走訪，名稱不合格的項目走訪時已略過。
+    """
     file_type = _TYPE_BY_SUFFIX.get(PurePosixPath(rel).suffix.lower(), "other")
     sha256 = title = None
     if size <= CATALOG_READ_MAX_BYTES:
         try:
-            data = proxy.read_file_binary_no_follow(str(root / rel))
+            data = proxy.zone_read_binary(root.child(*rel.split("/")), CATALOG_READ_MAX_BYTES)
         except OSError:
             logger.warning("Personal catalog could not read a file; hash skipped")
         else:
@@ -159,13 +164,14 @@ def _describe(
 
 
 def _load_trusted(
-    proxy: IResourceProxy, catalog_path: Path, key: str
+    proxy: IResourceProxy, catalog_path: ZonePath, key: str
 ) -> tuple[str | None, dict[str, CatalogEntry]]:
-    """回（目前目錄檔文字, 可沿用的項目）；只沿用本行程自己寫出、格式正確的內容。"""
-    if not proxy.exists(str(catalog_path)):
-        return None, {}
+    """回（目前目錄檔文字, 可沿用的項目）；只沿用本行程自己寫出、格式正確的內容.
+
+    讀不到（不存在、壞掉、路上有連結）都當沒有；連結由之後的寫回拒絕。
+    """
     try:
-        text = proxy.read_file_text_no_follow(str(catalog_path))
+        text = proxy.zone_read_text(catalog_path)
     except (OSError, UnicodeDecodeError):
         return None, {}
     if hashlib.sha256(text.encode("utf-8")).hexdigest() != _trusted_digests.get(key):
@@ -177,19 +183,18 @@ def _load_trusted(
     return text, {entry.path: entry for entry in cached.files}
 
 
-def _rebuild(proxy: IResourceProxy, root: Path) -> PersonalCatalog:
+def _rebuild(proxy: IResourceProxy, root: ZonePath) -> PersonalCatalog:
     """掃實際檔案、比對快取、內容有變才原子寫回（同步；呼叫端持鎖）.
 
-    讀寫都不跟隨連結，個人空間路徑先解析（安裝位置本身經過連結也照常運作）。
+    讀寫都不跟隨連結；根本身是連結就拒絕（``ZoneLinkRefusedError``）。
     """
-    if not proxy.exists(str(root)):
+    if proxy.zone_kind(root) == "missing":
         return PersonalCatalog()
-    root = root.resolve()
     key = _root_key(root)
-    catalog_path = root / CATALOG_DIR_NAME / CATALOG_FILE_NAME
+    catalog_path = root.child(CATALOG_DIR_NAME, CATALOG_FILE_NAME)
     old_text, trusted = _load_trusted(proxy, catalog_path, key)
-    rows = proxy.stat_files(
-        str(root),
+    rows = proxy.zone_stat_files(
+        root,
         exclude_names=CATALOG_SKIP_DIR_NAMES,
         exclude_paths=CATALOG_SKIP_ROOT_DIRS,
         exclude_globs=CATALOG_SKIP_FILE_GLOBS,
@@ -208,20 +213,19 @@ def _rebuild(proxy: IResourceProxy, root: Path) -> PersonalCatalog:
     )
     text = json.dumps(catalog.model_dump(), ensure_ascii=False, indent=2)
     if text != old_text:
-        proxy.write_file_text_no_follow(str(catalog_path), text)
+        proxy.zone_write_text(catalog_path, text)
     _trusted_digests[key] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return catalog
 
 
-async def refresh(root: str | Path, proxy: IResourceProxy | None = None) -> PersonalCatalog:
+async def refresh(root: ZonePath, proxy: IResourceProxy | None = None) -> PersonalCatalog:
     """以實際檔案重建並回傳個人空間目錄；同一個個人空間一次只跑一個。"""
-    root_path = Path(root)
     io = proxy or get_resource_proxy()
-    async with _lock_for(_root_key(root_path)):
-        return await asyncio.to_thread(_rebuild, io, root_path)
+    async with _lock_for(_root_key(root)):
+        return await asyncio.to_thread(_rebuild, io, root)
 
 
-async def _refresh_logged(root: Path, proxy: IResourceProxy) -> PersonalCatalog | None:
+async def _refresh_logged(root: ZonePath, proxy: IResourceProxy) -> PersonalCatalog | None:
     """更新目錄；失敗只記 log（檔案動作本身已完成，下次讀目錄時會再比對）。"""
     try:
         return await refresh(root, proxy)
@@ -230,53 +234,45 @@ async def _refresh_logged(root: Path, proxy: IResourceProxy) -> PersonalCatalog 
         return None
 
 
-def _resolve_inside(path: str, root: Path) -> Path | None:
-    """照 core ops 的規則把路徑解析到個人空間內；越界或無效回 None（交給 core ops 報錯）。"""
-    base = root.resolve()
-    try:
-        if not path or path.strip() in (".", "/"):
-            return base
-        candidate = Path(path)
-        resolved = candidate.resolve() if candidate.is_absolute() else (base / candidate).resolve()
-    except (OSError, ValueError, RuntimeError):
-        return None
-    return resolved if resolved.is_relative_to(base) else None
-
-
 async def run_vault_action(
-    handler: Callable[..., Awaitable[Any]], action: str, root: str, kwargs: dict[str, Any]
+    handler: Callable[..., Awaitable[Any]],
+    action: str,
+    root: ZonePath,
+    target: ZonePath | None,
+    kwargs: dict[str, Any],
 ) -> Any:
     """個人空間的檔案動作：拒寫 `.touka/`、隱藏 `.touka/`、寫入後更新並在讀時比對目錄。
+
+    ``target`` 是檔案動詞放好的目標（``core_file_ops.drive_target``）；越界或無效時是 None，
+    交給檔案動詞報錯。
 
     Raises:
         CatalogPathDeniedError: 寫入類動作的目標落在 `.touka/` 底下（不分大小寫）。
     """
-    root_path = Path(root)
-    base = root_path.resolve()
     proxy = kwargs.get("resource_proxy") or get_resource_proxy()
-    target = _resolve_inside(str(kwargs.get("path") or ""), root_path)
+    kwargs["resource_proxy"] = proxy
     if (
         action in _WRITE_ACTIONS
         and target is not None
-        and any(part.casefold() == CATALOG_DIR_NAME for part in target.relative_to(base).parts)
+        and any(part.casefold() == CATALOG_DIR_NAME for part in target.relative_parts(root))
     ):
         raise CatalogPathDeniedError
     if action in _SEARCH_ACTIONS:
         kwargs["exclude"] = CATALOG_HIDDEN_NAMES
-    if action == "read" and target == base / CATALOG_DIR_NAME / CATALOG_FILE_NAME:
-        async with _lock_for(_root_key(root_path)):
+    if action == "read" and target == root.child(CATALOG_DIR_NAME, CATALOG_FILE_NAME):
+        async with _lock_for(_root_key(root)):
             try:
-                await asyncio.to_thread(_rebuild, proxy, root_path)
+                await asyncio.to_thread(_rebuild, proxy, root)
             except LinkRefusedError:
-                # `.touka` 在上面的判斷之後被換成連結：不重建，讀檔交給 core ops 回固定的連結訊息
+                # 個人空間或 `.touka` 是連結：不重建，讀檔交給 core ops 回固定的連結訊息
                 logger.warning("Personal catalog not rebuilt: its folder went through a link")
             return await handler(root_bound=root, **kwargs)
 
     result = await handler(root_bound=root, **kwargs)
     if action in _WRITE_ACTIONS and str(result).startswith("Success"):
-        await _refresh_logged(root_path, proxy)
-    elif action == "list" and target == base and not str(result).startswith("Error"):
-        catalog = await _refresh_logged(root_path, proxy)
+        await _refresh_logged(root, proxy)
+    elif action == "list" and target == root and not str(result).startswith("Error"):
+        catalog = await _refresh_logged(root, proxy)
         if catalog is not None:
             result = f"{result}\n{CATALOG_HINT.format(count=catalog.file_count)}"
     return result

@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
+from memory_server.utils.zone_paths import ALL_ANCHORS, Anchor, ZoneRoots, zone_of
+
 from src.config import (
     HOST_WORKSPACE_ROOT,
     PROXY_ROOT,
@@ -46,6 +48,8 @@ from src.utils.touka_dirs import PROTECTED_LOCATION, is_toplevel_protected
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.identity import AgentIdentity
     from src.sandbox_kernel.spec import AccessName, RlimitName
@@ -189,11 +193,28 @@ def fixed_protected(layout: SandboxLayout) -> tuple[Path, ...]:
     return tuple(_resolve(p) for p in items)
 
 
-def grantable_roots(layout: SandboxLayout, owner: str | None) -> tuple[Path, ...]:
-    """可給根目錄 G：只有代理人自己的 ``personal_drive/<id>``（共用的 docgen_output 不給）。"""
+def layout_zone_roots(layout: SandboxLayout) -> ZoneRoots:
+    """版面的區根：隔離層把路徑分到代理人資料夾，一律經 ``zone_of``（ADR-0293 R3）。"""
+    return ZoneRoots(layout.data_root, layout.state_root)
+
+
+def _is_zone(found: tuple[Anchor, tuple[str, ...]] | None, own: ZonePath | None) -> bool:
+    """``zone_of`` 的結果恰好是 ``own``（大小寫照平台）。"""
+    if found is None or own is None:
+        return False
+    anchor, rest = found
+    fold = [os.path.normcase(p) for p in rest]
+    return anchor is own.anchor and fold == [os.path.normcase(p) for p in own.parts]
+
+
+def _in_own_drive(target: Path, layout: SandboxLayout, owner: str | None) -> bool:
+    """可給根目錄 G：只有自己的 ``personal_drive/<id>`` 和它底下（共用的 docgen_output 不給）."""
     if owner is None or not is_safe_segment(owner):
-        return ()
-    return (_resolve(layout.data_root) / "personal_drive" / owner,)
+        return False
+    found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS)
+    if found is None or found[0] is not Anchor.PERSONAL_DRIVE:
+        return False
+    return os.path.normcase(found[1][0]) == os.path.normcase(owner)
 
 
 def _denied_by_fixed_rules(path: Path, layout: SandboxLayout) -> bool:
@@ -249,7 +270,7 @@ async def authorize_derived_path(
     target = _resolve(path)
     if has_link(path, target):
         return PROTECTED_LOCATION
-    if any(_within(target, root) for root in grantable_roots(layout, owner)):
+    if _in_own_drive(target, layout, owner):
         return None
     if _denied_by_fixed_rules(target, layout):
         return PROTECTED_LOCATION
@@ -372,11 +393,18 @@ def _state(
 
 
 def _own_drive(identity: AgentIdentity, agent_dir: Path, layout: SandboxLayout) -> Path:
+    """代理人自己的個人空間（呼叫端 ``zone_handoff`` 交出的字串），也是 Landlock 的規則路徑.
+
+    形狀用 ``zone_of`` 判斷（ADR-0293 R3）：只收自己的 ``PERSONAL_DRIVE/<id>`` 或
+    ``CUSTOM_DRIVE/<id>/drive``。路上有連結就拒絕；交出的字串只消掉 ``..``、不再解析（R7）。
+    """
     agent_id = identity.agent_id
-    data = _resolve(layout.data_root)
-    target = _resolve(agent_dir)
-    shapes = (data / "personal_drive" / agent_id, data / "custom" / agent_id / "drive")
-    if not is_safe_segment(agent_id) or target not in shapes:
+    target = Path(os.path.normpath(Path(agent_dir).absolute()))
+    found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS)
+    own = (resource_manager.soul_drive(identity), resource_manager.custom_drive(identity))
+    if not is_safe_segment(agent_id) or has_link(target):
+        raise ProfileError(agent_id)
+    if not any(_is_zone(found, zp) for zp in own):
         raise ProfileError(agent_id)
     return target
 

@@ -266,9 +266,17 @@ def test_terminal_summary_lists_sandbox_residue(tmp_path, monkeypatch, residue):
     leftover = None if residue is None else tmp_path / "touka_test_session_leftover"
     monkeypatch.setattr(session_conftest, "remove_session_sandbox", lambda _root, _steps: leftover)
     monkeypatch.setattr(session_conftest, "_sandbox_residue", [])
+    # 真的 session hook 也判區的紀錄與 Z9 全量檢查：旗標在匯入 conftest 時就讀進常數（CI 全量是
+    # True，跑到一半時放行清單本來就還沒全部用到）；別的測試還沒結算的紀錄也不能被這裡取走
+    monkeypatch.setattr(session_conftest, "_ZONE_FULL_RUN", False)
+    monkeypatch.setattr(session_conftest, "_zone_late_records", [])
+    monkeypatch.setattr(session_conftest, "_zone_unused_allowances", [])
+    monkeypatch.setattr(session_conftest.zone_records, "remaining", list)
     lines: list[str] = []
+    session = SimpleNamespace(exitstatus=pytest.ExitCode.OK)
 
-    session_conftest.pytest_sessionfinish()
+    session_conftest.pytest_sessionfinish(session)
     session_conftest.pytest_terminal_summary(SimpleNamespace(write_line=lines.append))
 
     assert lines == ([] if leftover is None else [f"測試沙盒沒刪乾淨：{leftover}"])
+    assert session.exitstatus == pytest.ExitCode.OK  # 沙盒殘留只在摘要列出，不讓整個 session 失敗

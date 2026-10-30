@@ -10,13 +10,13 @@ from src.models.identity import AgentIdentity
 from src.services.autonomy import AutonomyService
 from src.services.resource_manager import resource_manager
 
+from tests.support.zone_roots import point_zone_roots
+
 
 @pytest.fixture
 def patched_data_dir(tmp_path, monkeypatch):
     """將 app data dir 導向 tmp，使 stats 路徑落在隔離沙箱（不碰真實資料）。"""
-    monkeypatch.setattr(
-        "src.services.resource_manager.get_app_data_dir", lambda: str(tmp_path)
-    )
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     return tmp_path
 
 

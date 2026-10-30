@@ -49,6 +49,10 @@ if str(DISPATCH_DIR) not in sys.path:
 SANDBOX_RELEASE_STEPS: list[ReleaseStep] = []
 SANDBOX_RESIDUE_MESSAGE = "測試沙盒沒刪乾淨："
 _sandbox_residue: list[Path] = []
+ZONE_LATE_MESSAGE = "測試結束後才到的區例外紀錄（ADR-0293 R13）：\n"
+ZONE_UNUSED_ALLOWANCE_MESSAGE = "絆線放行清單有項目整個全量測試都沒用到（ADR-0293 Z9）："
+_zone_unused_allowances: list[str] = []
+_zone_late_records: list = []
 _SANDBOX_OWNER_PID = os.getpid()
 
 
@@ -139,6 +143,20 @@ from src.utils.async_db import session_service  # noqa: E402
 isolation_support = importlib.import_module("tests.support.isolation")
 # 權限自癒的全域掛鉤（iso-c2 U2n）：autouse fixture 每個測試前後重設。
 permission_repair = importlib.import_module("src.utils.permission_repair")
+# 區內路徑與換 data 根（ADR-0293）：``zone_data_root``、``zone_drive`` 用。
+zone_paths = importlib.import_module("memory_server.utils.zone_paths")
+zone_roots = importlib.import_module("tests.support.zone_roots")
+# 區例外紀錄（R13）：測試期間每一筆都記下，測試結束時有沒宣告的就失敗。
+zone_records = importlib.import_module("tests.support.zone_records")
+zone_paths.add_observer(zone_records.observe)
+# 執行期絆線（Z9）：產品程式對代理人資料夾直接做 I/O 就記一筆；session 沙盒的根之後換掉也照判斷。
+zone_tripwire = importlib.import_module("tests.support.zone_tripwire")
+zone_tripwire.add_roots(zone_paths.current_roots())
+zone_tripwire.install()
+# 全量檢查（Z9）的旗標只給這一個 session：讀一次就從環境拿掉，測試再開的 pytest 只跑一部分，不繼承
+_ZONE_FULL_RUN = os.environ.pop(zone_tripwire.FULL_RUN_ENV, None) == "1"
+# 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
+ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
 logger = logging.getLogger(__name__)
 
@@ -200,14 +218,31 @@ SANDBOX_RELEASE_STEPS.extend(
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish() -> None:
-    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。"""
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。
+
+    測試結束後才到的區例外紀錄（R13）在這裡報出，整個 session 失敗。CI 的全量測試另外要求
+    絆線（Z9）的放行清單每項都用到過。
+    """
     _cleanup_session_sandbox()
+    late = zone_records.remaining()
+    if late:
+        _zone_late_records.extend(late)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if _ZONE_FULL_RUN:
+        _zone_unused_allowances[:] = zone_tripwire.missing_hits()
+        if _zone_unused_allowances:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     for residue in _sandbox_residue:
         terminalreporter.write_line(f"{SANDBOX_RESIDUE_MESSAGE}{residue}")
+    if _zone_late_records:
+        terminalreporter.write_line(ZONE_LATE_MESSAGE + zone_records.describe(_zone_late_records))
+    if _zone_unused_allowances:
+        unused = ", ".join(_zone_unused_allowances)
+        terminalreporter.write_line(ZONE_UNUSED_ALLOWANCE_MESSAGE + unused)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -336,6 +371,60 @@ def _reset_permission_repair():
     permission_repair.set_permission_repair(None)
     yield
     permission_repair.set_permission_repair(None)
+
+
+class _FormatOnly(logging.Handler):
+    """只格式化、不輸出：``logger.debug("%s", zp)`` 這類延遲格式化也會呼叫 ``__str__``（R13）."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with suppress(Exception):  # 誤用已由觀察者記下
+            record.getMessage()
+
+
+@pytest.fixture(autouse=True)
+def _zone_refusal_records(request):
+    """測試期間的區例外紀錄（R13）：結束時有沒宣告的就失敗（產品接住了也一樣）."""
+    handler = _FormatOnly(logging.DEBUG)
+    saved = []
+    for name in ZONE_FORMAT_LOGGERS:
+        target = logging.getLogger(name)
+        saved.append((target, target.level))
+        target.setLevel(logging.DEBUG)
+        target.addHandler(handler)
+    token = zone_records.begin(request.node.nodeid)
+    try:
+        yield
+    finally:
+        mine = zone_records.end(request.node.nodeid, token)
+        for target, level in saved:
+            target.removeHandler(handler)
+            target.setLevel(level)
+    if mine:
+        pytest.fail("未宣告的區例外（ADR-0293 R13）：\n" + zone_records.describe(mine))
+
+
+@pytest.fixture
+def zone_data_root(tmp_path, monkeypatch) -> Path:
+    """這個測試自己的 data 根（ADR-0293）：設定、環境變數與 sandbox state 根都換到 ``tmp_path``.
+
+    ResourceManager 的區內方法經它註冊的根來源讀這些值，所以區的根跟著換；測試要換 data 根
+    只能用這個 fixture 或 ``tests.support.zone_roots``（T3）。
+    """
+    data = tmp_path.resolve() / "zone_data"
+    data.mkdir()
+    zone_roots.point_zone_roots(monkeypatch, data, tmp_path.resolve() / "zone_state")
+    return data
+
+
+@pytest.fixture
+def zone_drive(zone_data_root):
+    """``zone_data_root`` 底下 Alice 的個人空間（``personal_drive/Alice``，資料夾已建好）.
+
+    回 ``ZonePath``；測試經 ResourceManager 的區內方法放檔案，真的資料夾是
+    ``zone_data_root / "personal_drive" / "Alice"``。
+    """
+    (zone_data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    return zone_paths.agent_root(zone_paths.Anchor.PERSONAL_DRIVE, "Alice")
 
 
 @pytest.fixture(autouse=True)

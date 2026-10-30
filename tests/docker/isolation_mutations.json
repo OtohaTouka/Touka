@@ -120,8 +120,8 @@
   {
     "id": "grantable_root_not_per_identity",
     "file": "ToukaProxy/src/services/isolation/profiles.py",
-    "old": "    return (_resolve(layout.data_root) / \"personal_drive\" / owner,)",
-    "new": "    return (_resolve(layout.data_root) / \"personal_drive\",)",
+    "old": "    return os.path.normcase(found[1][0]) == os.path.normcase(owner)",
+    "new": "    return True",
     "tests": [
       "tests/integration/test_isolation_linux.py::test_project_root_swapped_for_a_symlink_is_refused_and_does_not_reach_bob"
     ]

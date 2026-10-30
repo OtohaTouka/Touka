@@ -35,6 +35,8 @@ import yaml
 from mcp import types as mcp_types
 from mcp.shared.exceptions import MCPError
 from memory_server.tools import core_file_ops as cfo
+from memory_server.utils.no_follow import ZoneLinkRefusedError
+from memory_server.utils.zone_paths import Anchor, ZonePath
 from src.config import is_container_runtime
 from src.core.retry import with_retry
 from src.models.identity import AgentIdentity
@@ -85,6 +87,8 @@ from src.utils.touka_dirs import scan_below
 
 from tests.helpers import mcp_asgi_peers
 from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
+from tests.support.zone_records import raises_zone
+from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
     from src.services.isolation.profiles import SandboxLayout
@@ -926,10 +930,9 @@ async def _isolated_terminal(monkeypatch, layout: SandboxLayout, required: bool)
     monkeypatch.setattr(agent_command, "isolation_monitor", monitor)
     monkeypatch.setattr(agent_command, "runner_broker", broker)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
-    agent_dir = layout.data_root / "personal_drive" / "Alice"
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: agent_dir)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 蒐證的個人空間（ADR-0293）
     terminal.reset_async_state_for_test()
-    return agent_dir
+    return layout.data_root / "personal_drive" / "Alice"
 
 
 async def _run(command: str, **extra) -> str:
@@ -964,8 +967,8 @@ async def test_terminal_timeout_kills_the_isolated_group(
     agent_dir = await _isolated_terminal(monkeypatch, layout, touka_landlock_requirement)
     scope = await agent_command.command_scope(ALICE, None, None)
     exit_code, output, _ms = await terminal._execute_core(
-        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", agent_dir, None,
-        timeout=3, scope=scope,
+        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl",
+        resource_manager.agent_drive(ALICE), None, timeout=3, scope=scope,
     )
     assert exit_code == -1 and "L1" in output and "timed out after 3 seconds" in output
     child = int((agent_dir / "child.pid").read_text(encoding="utf-8"))
@@ -1018,7 +1021,7 @@ async def test_verification_command_is_isolated(tmp_path, monkeypatch, touka_lan
     )
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd=f"{sys.executable} probe.py {secret}", test_log=None,
-        artifact_root=agent_dir, command_gate=_allow, identity=ALICE,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow, identity=ALICE,
     )
     (result,) = bundle.cmd_results
     assert result.exit_code == 0 and result.output_snippet == "denied", result
@@ -1063,7 +1066,8 @@ async def test_verification_command_reads_the_repo_pytest_ini_in_isolation(
 
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd=f"{sys.executable} -m pytest -q test_ok.py",
-        test_log=None, artifact_root=agent_dir, command_gate=_allow, identity=ALICE,
+        test_log=None, artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow,
+        identity=ALICE,
     )
     (result,) = bundle.cmd_results
     assert result.exit_code == 0, result
@@ -1714,6 +1718,11 @@ class _Repairing:
                 path.chmod(0o700 if path.is_dir() else 0o600)
 
 
+def _drive(*parts: str) -> ZonePath:
+    """``personal_drive`` 底下的區內路徑：個人空間只經 RM 的區內方法讀寫（ADR-0293）."""
+    return ZonePath(Anchor.PERSONAL_DRIVE, parts)
+
+
 @pytest.fixture
 def repairing(tmp_path, monkeypatch):
     if os.geteuid() == 0:
@@ -1722,9 +1731,7 @@ def repairing(tmp_path, monkeypatch):
     for folder in (layout.data_root / "vault" / "core_memory_backups", tmp_path / "host_root"):
         folder.mkdir(parents=True, exist_ok=True)
     # ResourceManager 的受保護判斷（soul、legacy）也指向這個版面的 data 根
-    monkeypatch.setattr(
-        "src.services.resource_manager.get_app_data_dir", lambda: str(layout.data_root)
-    )
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)
     env = _Repairing(layout)
     env.backups.mkdir()
     set_permission_repair(env.hook)
@@ -1736,7 +1743,7 @@ def test_repair_restores_a_locked_agent_folder_with_owner_bits_only(repairing):
     notes = repairing.drive / "notes.txt"
     notes.write_text("hi", encoding="utf-8")
     repairing.lock(repairing.drive, 0o005)
-    assert resource_manager.read_file_text(notes) == "hi"
+    assert resource_manager.zone_read_text(_drive("Alice", "notes.txt")) == "hi"
     assert _mode(repairing.drive) == 0o705  # 只多了擁有者位元，其他人的 r-x 不動
     counts = repairing.counts()
     assert (counts["repaired"], counts["retried"]) == (1, 1)
@@ -1747,10 +1754,10 @@ def test_repair_of_a_locked_file_does_not_retry_an_append(repairing):
     log.write_text("a\n", encoding="utf-8")
     repairing.lock(log)
     with pytest.raises(PermissionError):
-        resource_manager.append_file_text(log, "b\n")
+        resource_manager.zone_append_text(_drive("Alice", "log.txt"), "b\n")
     assert _mode(log) == 0o600
     assert log.read_text(encoding="utf-8") == "a\n"  # 修了，但這一次照實失敗、沒寫進去
-    resource_manager.append_file_text(log, "b\n")
+    resource_manager.zone_append_text(_drive("Alice", "log.txt"), "b\n")
     assert log.read_text(encoding="utf-8") == "a\nb\n"
 
 
@@ -1758,10 +1765,11 @@ def test_repair_heals_a_locked_folder_before_a_new_file_is_written(repairing):
     folder = repairing.drive / "sub"
     folder.mkdir()
     repairing.lock(folder, 0o500)
+    new = _drive("Alice", "sub", "new.txt")
     with pytest.raises(PermissionError):
-        resource_manager.write_file_text(folder / "new.txt", "x")  # retry=False：這次照實失敗
+        resource_manager.zone_write_text(new, "x")  # retry=False：這次照實失敗
     assert _mode(folder) == 0o700
-    resource_manager.write_file_text(folder / "new.txt", "x")
+    resource_manager.zone_write_text(new, "x")
     assert (folder / "new.txt").read_text(encoding="utf-8") == "x"
 
 
@@ -1769,7 +1777,7 @@ def test_repair_heals_a_locked_parent_so_make_dir_succeeds(repairing):
     locked = repairing.drive / "locked"
     locked.mkdir()
     repairing.lock(locked)
-    resource_manager.make_dir(locked / "a" / "b")
+    resource_manager.zone_make_dir(_drive("Alice", "locked", "a", "b"))
     assert (locked / "a" / "b").is_dir() and _mode(locked) == 0o700
 
 
@@ -1819,12 +1827,12 @@ def test_a_link_to_another_agent_is_refused_and_does_not_spend_its_budget(repair
     (bob / "x").write_text("bob", encoding="utf-8")
     (repairing.drive / "link").symlink_to("../Bob", target_is_directory=True)
     repairing.lock(bob)
-    with pytest.raises(PermissionError):
-        resource_manager.read_file_text(repairing.drive / "link" / "x")
-    assert _mode(bob) == 0
+    with raises_zone(ZoneLinkRefusedError):  # 連結先被拒，自癒根本沒被叫到
+        resource_manager.zone_read_text(_drive("Alice", "link", "x"))
+    assert _mode(bob) == 0 and repairing.hook.calls == 0
+    assert resource_manager.zone_read_text(_drive("Bob", "x")) == "bob"  # B 自己的路徑仍修得回來
     counts = repairing.counts()
-    assert (counts["refused_outside"], counts["repaired"], counts["throttled"]) == (1, 0, 0)
-    assert resource_manager.read_file_text(bob / "x") == "bob"  # B 自己的路徑仍修得回來
+    assert (counts["refused_outside"], counts["repaired"], counts["throttled"]) == (0, 1, 0)
 
 
 def test_a_symlink_in_the_middle_of_the_path_is_not_followed(repairing):
@@ -1833,10 +1841,9 @@ def test_a_symlink_in_the_middle_of_the_path_is_not_followed(repairing):
     (real / "x").write_text("x", encoding="utf-8")
     (repairing.drive / "link").symlink_to("real", target_is_directory=True)
     repairing.lock(real)
-    with pytest.raises(PermissionError):
-        resource_manager.read_file_text(repairing.drive / "link" / "x")
-    assert _mode(real) == 0  # 只走原路徑，停在連結；連結指向的資料夾不動
-    assert repairing.counts()["nothing_changed"] == 1
+    with raises_zone(ZoneLinkRefusedError):  # 停在連結、自癒沒被叫到
+        resource_manager.zone_read_text(_drive("Alice", "link", "x"))
+    assert _mode(real) == 0 and repairing.hook.calls == 0  # 連結指向的資料夾不動
 
 
 def test_a_hard_linked_file_is_not_repaired(repairing):
@@ -1845,7 +1852,7 @@ def test_a_hard_linked_file_is_not_repaired(repairing):
     os.link(first, repairing.drive / "b.txt")
     repairing.lock(first)
     with pytest.raises(PermissionError):
-        resource_manager.read_file_text(first)
+        resource_manager.zone_read_text(_drive("Alice", "a.txt"))
     assert _mode(first) == 0 and repairing.counts()["nothing_changed"] == 1
 
 
@@ -2674,6 +2681,7 @@ async def _executor_wiring(monkeypatch, executor, tmp_path: Path) -> SimpleNames
         kernel_dir=EXEC_KERNEL, executor_dir=dirs.ipc, mirror_roots=(), in_container=False,
     )
     layout.state_root.mkdir()
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 蒐證的個人空間（ADR-0293）
     monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
     snap = await monitor.ensure_ready()
     assert snap.executor is not None, (snap.level, snap.reason)  # READY 全部相符
@@ -2694,10 +2702,9 @@ async def _executor_wiring(monkeypatch, executor, tmp_path: Path) -> SimpleNames
         assert snap.reason in NET_SYSCTL_CODES, snap.reason
         consent = Consent("linux", "executor", frozenset({"fs"}))
         grant = ExecutionGrant("none", consent, executor_eligible=True)
-    drive = dirs.pd / "Alice"
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
     terminal.reset_async_state_for_test()
-    return SimpleNamespace(dirs=dirs, grant=grant, drive=drive, snap=snap)
+    zone = resource_manager.agent_drive(ALICE)  # 終端的個人空間（ADR-0293）
+    return SimpleNamespace(dirs=dirs, grant=grant, drive=dirs.pd / "Alice", zone=zone, snap=snap)
 
 
 _EXEC_SHELL = (
@@ -2712,7 +2719,7 @@ async def test_terminal_command_runs_inside_the_executor(tmp_path, monkeypatch, 
     (wiring.dirs.pd.parent.parent / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     scope = CommandScope(ALICE, wiring.grant)
     exit_code, output, _ms = await terminal._execute_core(
-        _EXEC_SHELL, "wsl", wiring.drive, None, timeout=60, scope=scope
+        _EXEC_SHELL, "wsl", wiring.zone, None, timeout=60, scope=scope
     )
     assert exit_code == 0, output
     home = wiring.dirs.state / "agents" / "Alice" / "home"
@@ -2727,7 +2734,7 @@ async def test_executor_timeout_kills_the_remote_command(tmp_path, monkeypatch, 
     wiring = await _executor_wiring(monkeypatch, executor, tmp_path)
     scope = CommandScope(ALICE, wiring.grant)
     exit_code, output, _ms = await terminal._execute_core(
-        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", wiring.drive, None,
+        "sleep 60 & echo $! > child.pid; echo L1; wait", "wsl", wiring.zone, None,
         timeout=3, scope=scope,
     )
     assert exit_code == -1 and "timed out after 3 seconds" in output
@@ -2744,7 +2751,7 @@ async def test_soul_delete_wipe_empties_its_executor_home(tmp_path, monkeypatch,
         f'chmod 000 "$HOME/locked"; ln -s {wiring.dirs.outside} "$HOME/out"; echo z > "$TMPDIR/t"'
     )
     exit_code, output, _ms = await terminal._execute_core(
-        seed, "wsl", wiring.drive, None, timeout=60, scope=CommandScope(ALICE, wiring.grant)
+        seed, "wsl", wiring.zone, None, timeout=60, scope=CommandScope(ALICE, wiring.grant)
     )
     assert exit_code == 0, output
     home = wiring.dirs.state / "agents" / "Alice" / "home"
@@ -2765,7 +2772,7 @@ async def test_verification_command_runs_inside_the_executor(tmp_path, monkeypat
 
     bundle = await evidence.collect_evidence(
         artifact_refs=[], verification_cmd="cat ../Bob/secret.txt", test_log=None,
-        artifact_root=wiring.drive, command_gate=_allow, identity=ALICE,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow, identity=ALICE,
         consent=lambda _cmd: wiring.grant,
     )
     (result,) = bundle.cmd_results

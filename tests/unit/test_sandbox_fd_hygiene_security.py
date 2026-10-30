@@ -78,12 +78,12 @@ async def _terminal() -> str:
     )
 
 
-async def _verify(tmp_path) -> Any:
+async def _verify(zone_drive) -> Any:
     async def _allow(_cmd: str) -> None:
         return None
 
     return await evidence.collect_evidence(
-        artifact_refs=[], verification_cmd="pytest -q", test_log=None, artifact_root=tmp_path,
+        artifact_refs=[], verification_cmd="pytest -q", test_log=None, artifact_root=zone_drive,
         command_gate=_allow, identity=ALICE,
     )
 
@@ -122,12 +122,12 @@ async def test_terminal_passes_only_the_spec_and_status_fds_and_closes_them(
 
 @pytest.mark.parametrize("fail", [False, True], ids=["spawned", "spawn-failed"])
 async def test_verification_passes_only_the_spec_and_status_fds_and_closes_them(
-    monkeypatch, tmp_path, landlock, fail
+    monkeypatch, zone_drive, landlock, fail
 ):
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(evidence, "spawn_exec", _spawner(calls, fail=fail))
     before = _open_fds()
-    bundle = await _verify(tmp_path)
+    bundle = await _verify(zone_drive)
     (call,) = calls
     assert call["open_at_spawn"] is True
     assert call["kwargs"]["pass_fds"] == _child_fds(call)
@@ -137,14 +137,16 @@ async def test_verification_passes_only_the_spec_and_status_fds_and_closes_them(
 
 
 @pytest.mark.parametrize("entry", ["terminal", "verification"])
-async def test_launcher_code_from_the_status_fd_is_reported(monkeypatch, tmp_path, entry):
+async def test_launcher_code_from_the_status_fd_is_reported(
+    zone_drive, monkeypatch, tmp_path, entry
+):
     """狀態 fd 的代碼（只有啟動器寫得到）交給 monitor 重探；跑完讀端就關."""
     layout = fake_kernel_layout(tmp_path)
     monitor = install_real_broker(monkeypatch, pinned_snapshot("landlock"), layout)
     module = terminal if entry == "terminal" else evidence
     monkeypatch.setattr(module, "spawn_exec", _spawner([], status=b"path_open\n"))
     before = _open_fds()
-    await (_terminal() if entry == "terminal" else _verify(tmp_path))
+    await (_terminal() if entry == "terminal" else _verify(zone_drive))
     assert monitor.failures == ["path_open"]
     assert _open_fds() <= before
 
@@ -165,7 +167,7 @@ class _ForgingProc(_DoneProc):
         return b"TOUKA_SANDBOX_ERROR:path_open\n", None
 
 
-async def test_markers_printed_by_the_command_are_not_reported(monkeypatch, tmp_path):
+async def test_markers_printed_by_the_command_are_not_reported(zone_drive, monkeypatch, tmp_path):
     monitor = install_real_broker(
         monkeypatch, pinned_snapshot("landlock"), fake_kernel_layout(tmp_path)
     )
@@ -176,7 +178,7 @@ async def test_markers_printed_by_the_command_are_not_reported(monkeypatch, tmp_
     monkeypatch.setattr(terminal, "spawn_exec", _spawn)
     monkeypatch.setattr(evidence, "spawn_exec", _spawn)
     await _terminal()
-    await _verify(tmp_path)
+    await _verify(zone_drive)
     assert monitor.failures == []
 
 

@@ -9,8 +9,9 @@ subagent 層（分離：callback store 不耦合 identity/drive）。
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import logging
+import re
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from src.models.identity import AgentIdentity
@@ -20,6 +21,12 @@ from src.services.resource_manager import resource_manager
 from src.services.subagent_results import persist_result, read_result
 from src.tools import subagent_tools as st
 from src.tools.mission_tools import mission_tools
+
+from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -154,8 +161,8 @@ async def test_await_unknown_token_without_durable_still_reports():
 # 4. E77（ADR-0178）：callback_token 路徑穿越 sanitize 回歸
 #
 # callback_token 是 mission_tools(await_dispatch_result) 的模型可控輸入；
-# _token_path 的 _TOKEN_SAFE_RE.sub 是唯一防護（下游 resource_manager.read_json／
-# write_json 無 resolve()/is_relative_to backstop，is_protected_path 只護 legacy/soul）。
+# _token_path 的 _TOKEN_SAFE_RE.sub 把它變成一段名稱，區內路徑（ADR-0293）的 child 再拒絕
+# 不能當一段的名稱。
 # 既有 8 測只餵安全字元 token，移 sanitize／窄化 regex 全綠＝arbitrary-file-read
 # 原語靜默出貨。以下敵意 token 釘死監獄邊界。
 # --------------------------------------------------------------------------- #
@@ -170,24 +177,17 @@ _TRAVERSAL_TOKENS = [
 ]
 
 
-def _results_dir(identity: AgentIdentity) -> Path:
-    return Path(resource_manager.get_vault_path("personal", identity)) / "dispatch_results"
-
-
 @pytest.mark.parametrize("token", _TRAVERSAL_TOKENS)
 def test_token_path_never_escapes_dispatch_results(token):
     """任何敵意 token 解析後都必須是 dispatch_results/ 的**直接子檔**（監獄邊界）。
 
-    移 sanitize（safe=token[:128]）或窄化 regex 讓分隔符倖存 → resolve 後逃出該層
-    → parent 不等於 results_dir → 紅。
+    移 sanitize（safe=token[:128]）或窄化 regex 讓分隔符倖存 → child 拒絕這一段 → 紅。
     """
     identity = _debug_identity()
-    results_dir = _results_dir(identity).resolve()
     path = sr._token_path(identity, token)
     assert path is not None
-    resolved = path.resolve()
-    assert resolved.is_relative_to(results_dir)   # 落在監獄樹內
-    assert resolved.parent == results_dir         # 就在該層、非往上逃逸
+    assert path.parent == sr._results_dir(identity)  # 就在該層、非往上逃逸
+    assert re.fullmatch(r"[A-Za-z0-9_-]+\.json", path.name)
 
 
 def test_read_traversal_token_cannot_exfil_decoy():
@@ -195,11 +195,9 @@ def test_read_traversal_token_cannot_exfil_decoy():
     （模擬他人 vault／秘密檔）。sanitize 在位 → 讀不到（read 端會把結果渲染回模型
     ＝跨 vault 外洩，故這是最危險的一半）。移 sanitize → 讀出誘餌 → 紅。"""
     identity = _debug_identity()
-    results_dir = _results_dir(identity)
-    results_dir.mkdir(parents=True, exist_ok=True)
     # 監獄外一層（<vault>/decoy.json）＝ dispatch_results/../decoy.json 的逃逸目標
-    decoy = results_dir.parent / "decoy.json"
-    decoy.write_text('{"secret": "cross-vault-data"}', encoding="utf-8")
+    decoy = sr._results_dir(identity).parent.child("decoy.json")
+    resource_manager.zone_write_text(decoy, '{"secret": "cross-vault-data"}')
 
     assert read_result(identity, "../decoy") is None  # 清洗後指向監獄內不存在檔
 
@@ -208,14 +206,48 @@ def test_persist_traversal_token_cannot_overwrite_outside():
     """persist 側對稱：敵意 token 的落盤（原子寫入）不得逃出 dispatch_results/
     覆寫外部 .json。清洗後就地寫成扁平檔名；移 sanitize → 逃逸目標被建立 → 紅。"""
     identity = _debug_identity()
-    results_dir = _results_dir(identity)
-    escape_target = results_dir.parent / "pwned.json"
-    escape_target.unlink(missing_ok=True)
+    results_dir = sr._results_dir(identity)
+    escape_target = results_dir.parent.child("pwned.json")
+    resource_manager.zone_remove_file(escape_target)
 
     persist_result(identity, "../pwned", {"x": 1})
 
-    assert not escape_target.exists()  # 監獄外未被寫入
+    assert resource_manager.zone_kind(escape_target) == "missing"  # 監獄外未被寫入
     # 精確定位清洗後的落點（不依賴目錄為空——pytest-randomly 下同模組他測可能留檔）
     landed = sr._token_path(identity, "../pwned")
-    assert landed.resolve().parent == results_dir.resolve()  # 就地扁平落檔
-    assert landed.exists()
+    assert landed.parent == results_dir  # 就地扁平落檔
+    assert resource_manager.zone_kind(landed) == "file"
+
+
+# --------------------------------------------------------------------------- #
+# 5. ADR-0293：dispatch_results/ 或個人空間被換成連結時不跟隨（best-effort：記警告）
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("swapped", ["drive", "results"])
+def test_a_linked_results_folder_is_not_followed(
+    zone_data_root: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture, swapped: str
+):
+    """連結另一端的結果讀不到、也不會被寫；兩邊都只記警告，不丟出例外。"""
+    identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
+    drive = zone_data_root / "personal_drive" / "Alice"
+    drive.mkdir(parents=True)
+    fake = tmp_path.resolve() / "fake"
+    planted = fake / "dispatch_results" if swapped == "drive" else fake
+    planted.mkdir(parents=True)
+    (planted / "tok.json").write_text('{"status": "DONE", "result_summary": "CANARY"}', "utf-8")
+    before = sorted(p.name for p in planted.iterdir())
+    if swapped == "drive":
+        drive.rename(drive.with_name("Alice_old"))
+        make_dir_link(drive, fake)
+    else:
+        make_dir_link(drive / "dispatch_results", fake)
+
+    with (
+        caplog.at_level(logging.WARNING, logger=sr.__name__),
+        expect_zone_refusal("ZoneLinkRefusedError", at_least=2),
+    ):
+        assert read_result(identity, "tok") is None, LINK_FOLLOWED
+        persist_result(identity, "new", {"x": 1})
+    assert sorted(p.name for p in planted.iterdir()) == before, LINK_FOLLOWED
+    assert sum(r.name == sr.__name__ for r in caplog.records) == 2

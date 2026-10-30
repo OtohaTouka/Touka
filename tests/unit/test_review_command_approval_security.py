@@ -9,8 +9,8 @@
 無人在場與子代理不跳卡、不執行（BLOCKED_FOR_HUMAN 收尾留給 U2b-2）；核准後審查中途失敗，
 該步驟以 internal_error 收尾。
 
-全部 sandbox：看板走 conftest 沙盒的 MissionManager，指令只用 ``sys.executable`` 在 tmp_path
-寫標記檔，審批由測試直接解算行程內 broker。
+全部 sandbox：data 根換到 ``zone_data_root``，看板與個人空間都在 tmp_path 底下；指令只用
+``sys.executable`` 在個人空間（cwd）寫標記檔，審批由測試直接解算行程內 broker。
 """
 
 from __future__ import annotations
@@ -30,6 +30,17 @@ from src.tools import mission_tools as mt
 
 _PY = sys.executable
 _VERIFY_ID = "call-r1:verify:1"
+
+
+@pytest.fixture(autouse=True)
+def _drive_in_tmp(zone_data_root):
+    """看板與蒐證的個人空間都在這個測試自己的 data 根（ADR-0293）。"""
+
+
+def _ran(identity: AgentIdentity) -> bool:
+    """驗證指令在個人空間（cwd）寫的標記檔是否存在。"""
+    drive = mt.resource_manager.agent_drive(identity)
+    return mt.resource_manager.zone_kind(drive.child("ran.txt")) == "file"
 
 
 @pytest.fixture(autouse=True)
@@ -72,8 +83,7 @@ def _collector() -> tuple[list[dict[str, Any]], Any]:
     return events, _emit
 
 
-async def _review(identity: AgentIdentity, tmp_path, monkeypatch, **extra: Any) -> str:
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: tmp_path)
+async def _review(identity: AgentIdentity, **extra: Any) -> str:
     call = {"_ctx": None, **extra}
     return str(
         await mt.mission_tools(action="request_review", task_id="t1", identity=identity, **call)
@@ -81,9 +91,9 @@ async def _review(identity: AgentIdentity, tmp_path, monkeypatch, **extra: Any) 
 
 
 async def _review_and_resolve(
-    identity: AgentIdentity, tmp_path, monkeypatch, *, approved: bool, **extra: Any
+    identity: AgentIdentity, *, approved: bool, **extra: Any
 ) -> str:
-    task = asyncio.create_task(_review(identity, tmp_path, monkeypatch, **extra))
+    task = asyncio.create_task(_review(identity, **extra))
     exec_id = None
     for _ in range(600):  # 等審批登記（避免 sleep 競態）
         if task.done():
@@ -119,23 +129,23 @@ async def _resolve_next(*, approved: bool) -> None:
     raise AssertionError(approval_service._pending)  # 審批從未登記
 
 
-async def test_legacy_preapproval_flag_no_longer_runs_confirm_command(tmp_path, monkeypatch):
+async def test_legacy_preapproval_flag_no_longer_runs_confirm_command():
     """B2 核心：request_review 卡已核准（舊 _hitl_preapproved=True）不得放行卡上沒顯示的指令."""
     identity = AgentIdentity.for_role(agent_id="B2Legacy", role="Owner")
     await _board(identity, _marker_cmd())
 
     result = await _review(
-        identity, tmp_path, monkeypatch, auth_level="Manual", _hitl_preapproved=True
+        identity, auth_level="Manual", _hitl_preapproved=True
     )
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     assert "REJECTED" in result
     assert approval_service.pending_count() == 0
 
 
 @pytest.mark.parametrize("auth_level", ["Manual", "SafeAuto"])
 async def test_interactive_review_asks_for_the_full_command_then_runs(
-    tmp_path, monkeypatch, auth_level
+    auth_level
 ):
     """有人在場：該指令自己一張卡（完整指令、獨立 call_id），核准後才執行。
 
@@ -148,8 +158,6 @@ async def test_interactive_review_asks_for_the_full_command_then_runs(
 
     result = await _review_and_resolve(
         identity,
-        tmp_path,
-        monkeypatch,
         approved=True,
         auth_level=auth_level,
         session_id="sess-b2",
@@ -158,7 +166,7 @@ async def test_interactive_review_asks_for_the_full_command_then_runs(
         _call_id="call-r1",
     )
 
-    assert (tmp_path / "ran.txt").exists()
+    assert _ran(identity)
     assert "REJECTED" not in result
     card = next(e for e in events if e["type"] == "tool_approval_request")
     assert card["call_id"] == _VERIFY_ID
@@ -171,15 +179,13 @@ async def test_interactive_review_asks_for_the_full_command_then_runs(
     ]
 
 
-async def test_rejected_verification_card_never_runs(tmp_path, monkeypatch):
+async def test_rejected_verification_card_never_runs():
     identity = AgentIdentity.for_role(agent_id="B2Reject", role="Owner")
     await _board(identity, _marker_cmd())
     events, emit = _collector()
 
     result = await _review_and_resolve(
         identity,
-        tmp_path,
-        monkeypatch,
         approved=False,
         auth_level="Manual",
         session_id="sess-b2",
@@ -188,7 +194,7 @@ async def test_rejected_verification_card_never_runs(tmp_path, monkeypatch):
         _call_id="call-r1",
     )
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     assert "REJECTED" in result
     assert _verify_trail(events) == [
         ("tool_approval_request", None),
@@ -197,7 +203,7 @@ async def test_rejected_verification_card_never_runs(tmp_path, monkeypatch):
     ]
 
 
-async def test_headless_review_never_asks_and_never_runs(tmp_path, monkeypatch):
+async def test_headless_review_never_asks_and_never_runs():
     """無人在場：不推任何審批事件、不登記 broker、不執行（維持 fail-closed）."""
     identity = AgentIdentity.for_role(agent_id="B2Headless", role="Owner")
     await _board(identity, _marker_cmd())
@@ -205,15 +211,13 @@ async def test_headless_review_never_asks_and_never_runs(tmp_path, monkeypatch):
 
     result = await _review(
         identity,
-        tmp_path,
-        monkeypatch,
         auth_level="SafeAuto",
         _interactive=False,
         _emit_event=emit,
         _call_id="call-h",
     )
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     assert "REJECTED" in result
     assert events == []
     assert approval_service.pending_count() == 0
@@ -252,7 +256,7 @@ async def test_two_commands_get_separate_steps_one_approved_one_rejected():
     ]
 
 
-async def test_subagent_review_never_asks_even_in_interactive_run(tmp_path, monkeypatch):
+async def test_subagent_review_never_asks_even_in_interactive_run():
     """子代理的子 loop 只收文字、卡送不到人：不建 approver，立刻 fail-closed（不等 180 秒）."""
     identity = AgentIdentity.for_role(agent_id="B2Subagent", role="Owner")
     await _board(identity, _marker_cmd())
@@ -261,8 +265,6 @@ async def test_subagent_review_never_asks_even_in_interactive_run(tmp_path, monk
     result = await asyncio.wait_for(
         _review(
             identity,
-            tmp_path,
-            monkeypatch,
             auth_level="SafeAuto",
             _interactive=True,
             _emit_event=emit,
@@ -272,13 +274,13 @@ async def test_subagent_review_never_asks_even_in_interactive_run(tmp_path, monk
         timeout=10,
     )
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     assert "REJECTED" in result
     assert events == []
     assert approval_service.pending_count() == 0
 
 
-async def test_review_failure_after_approval_closes_the_verify_step(tmp_path, monkeypatch):
+async def test_review_failure_after_approval_closes_the_verify_step(monkeypatch):
     """核准後審查拋例外：該步驟以 internal_error 收尾（不停在執行中），例外照常往上."""
     identity = AgentIdentity.for_role(agent_id="B2Crash", role="Owner")
     await _board(identity, _marker_cmd())
@@ -292,8 +294,6 @@ async def test_review_failure_after_approval_closes_the_verify_step(tmp_path, mo
 
     result = await _review_and_resolve(
         identity,
-        tmp_path,
-        monkeypatch,
         approved=True,
         auth_level="Manual",
         session_id="sess-b2",

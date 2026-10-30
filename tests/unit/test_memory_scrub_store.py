@@ -672,7 +672,8 @@ def test_f16_live_store_stat_failure_is_unreadable(
     store = fm.FactualStore(base_dir=tmp_path / "vault")
     store.save_fact(IDENT, "x")
     store.db_path = tmp_path / "vault" / "gone.db"  # 存在檢查之後檔案就不見了
-    monkeypatch.setattr(fm, "get_resource_proxy", lambda: SimpleNamespace(exists=lambda _p: True))
+    # 只讓真的 resource proxy 的存在檢查說「在」（ADR-0293 T3 不替換 get_resource_proxy）
+    monkeypatch.setattr(fm.get_resource_proxy(), "exists", lambda _p: True)
     with pytest.raises(fm.MemoryScrubError) as exc:
         store.compact_after_reset(IDENT)
     assert _reason(exc) == "unreadable"

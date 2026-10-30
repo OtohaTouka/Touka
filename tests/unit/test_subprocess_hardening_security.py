@@ -97,7 +97,7 @@ def _fresh_review_ledger():
 # --------------------------------------------------------------------------- #
 
 
-async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
+async def test_review_cmd_child_does_not_inherit_secrets(zone_drive, monkeypatch):
     monkeypatch.setenv("TOUKA_AUTH_SECRET", "leak-me-auth")
     monkeypatch.setenv("OPENAI_API_KEY", "leak-me-key")
     cmd = (
@@ -108,7 +108,7 @@ async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
         artifact_refs=[],
         verification_cmd=cmd,
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         command_gate=_allow_all,
     )
     output = bundle.cmd_results[0].output_snippet
@@ -116,7 +116,7 @@ async def test_review_cmd_child_does_not_inherit_secrets(tmp_path, monkeypatch):
     assert "none none" in output
 
 
-async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatch):
+async def test_review_cmd_timeout_kills_whole_process_group(zone_drive, monkeypatch):
     proc = _HangingProc()
     seen: dict = {}
     killed: list = []
@@ -132,7 +132,7 @@ async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatc
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         timeout_seconds=0.05,
         command_gate=_allow_all,
     )
@@ -142,7 +142,7 @@ async def test_review_cmd_timeout_kills_whole_process_group(tmp_path, monkeypatc
     assert "timeout" in (bundle.cmd_results[0].rejected_reason or "")
 
 
-async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
+async def test_review_cmd_cancellation_kills_child(zone_drive, monkeypatch):
     proc = _HangingProc()
     spawned = asyncio.Event()
     killed: list = []
@@ -159,7 +159,7 @@ async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
             artifact_refs=[],
             verification_cmd="pytest -q",
             test_log=None,
-            artifact_root=tmp_path,
+            artifact_root=zone_drive,
             command_gate=_allow_all,
         )
     )
@@ -171,7 +171,7 @@ async def test_review_cmd_cancellation_kills_child(tmp_path, monkeypatch):
     assert killed == [proc]
 
 
-async def test_review_cmd_rejected_by_gate_is_never_spawned(tmp_path, monkeypatch):
+async def test_review_cmd_rejected_by_gate_is_never_spawned(zone_drive, monkeypatch):
     spawned: list = []
 
     async def _fake_exec(*args, **_kwargs):
@@ -187,7 +187,7 @@ async def test_review_cmd_rejected_by_gate_is_never_spawned(tmp_path, monkeypatc
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         command_gate=_needs_approval,
     )
 
@@ -272,10 +272,10 @@ async def _board_with_verification_cmd(identity: AgentIdentity, cmd: str):
     return manager
 
 
-async def test_review_round_applies_command_policy_fail_closed(tmp_path):
+async def test_review_round_applies_command_policy_fail_closed(zone_drive):
     """未帶 auth_level（預設 Manual）且無人在場（沒有 approver）→ verification_cmd 不得執行。"""
     identity = AgentIdentity.for_role(agent_id="SubprocSecReview", role="Owner")
-    marker = tmp_path / "ran.txt"
+    marker = zone_drive.child("ran.txt")  # 指令的 cwd 是個人空間
     cmd = f'"{_PY}" -c "open(\'ran.txt\', \'w\').write(\'x\')"'
     manager = await _board_with_verification_cmd(identity, cmd)
     state = await manager.get_current_mission(identity)
@@ -284,7 +284,7 @@ async def test_review_round_applies_command_policy_fail_closed(tmp_path):
         task=state.tasks[0],
         goal=state.goal,
         producer_claims="done",
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         parent_identity=identity,
         mission_id=state.mission_id,
         manager=manager,
@@ -293,7 +293,7 @@ async def test_review_round_applies_command_policy_fail_closed(tmp_path):
         producer_model="producer",
     )
 
-    assert not marker.exists()
+    assert mt.resource_manager.zone_kind(marker) == "missing"
     assert "REJECTED" in outcome.evidence_digest
     assert outcome.review_status != "APPROVED"
 
@@ -341,14 +341,23 @@ async def test_mission_tool_forwards_auth_context_to_review(monkeypatch):
     assert callable(seen["approver"])
 
 
-def test_artifact_root_does_not_fall_back_to_process_cwd(monkeypatch):
-    monkeypatch.setattr(mt.resource_manager, "get_vault_path", lambda *_a, **_k: None)
-    assert mt._agent_artifact_root(_OWNER) is None
+# id 不能當一段時解析不到個人空間（真的 agent_drive，ADR-0293 T3 不替換它）
+_NO_DRIVE = AgentIdentity.for_role(agent_id="..", role="Owner")
+
+
+def test_artifact_root_does_not_fall_back_to_process_cwd():
+    assert mt._agent_artifact_root(_NO_DRIVE) is None
 
 
 async def test_request_review_fails_closed_without_vault(monkeypatch):
-    identity = AgentIdentity.for_role(agent_id="SubprocSecNoVault", role="Owner")
-    await _board_with_verification_cmd(identity, "pytest -q")
+    """看板上有這個 task、個人空間解析不到時不跑互審（看板用替身，個人空間用真的）。"""
+    identity = _NO_DRIVE
+    board = types.SimpleNamespace(tasks=[types.SimpleNamespace(id="t1")])
+
+    async def _board(*_args, **_kwargs):
+        return board
+
+    monkeypatch.setattr(MissionManager, "get_current_mission", _board)
     called: list = []
 
     async def _fake_round(**kwargs):
@@ -356,7 +365,6 @@ async def test_request_review_fails_closed_without_vault(monkeypatch):
         return ReviewOutcome("APPROVED", None, "", "ok")
 
     monkeypatch.setattr("src.services.review.review_loop.run_review_round", _fake_round)
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: None)
 
     out = str(
         await mt.mission_tools(action="request_review", task_id="t1", identity=identity, _ctx=None)
@@ -389,7 +397,7 @@ async def test_execute_command_never_runs_non_allow_confirm_strategy(monkeypatch
     assert json.loads(result)["error_class"] == "permission_denied"
 
 
-async def test_execute_core_cancellation_kills_process_tree(tmp_path, monkeypatch):
+async def test_execute_core_cancellation_kills_process_tree(zone_drive, monkeypatch):
     reading = asyncio.Event()
 
     class _HangingStdout:
@@ -408,7 +416,7 @@ async def test_execute_core_cancellation_kills_process_tree(tmp_path, monkeypatc
     monkeypatch.setattr(terminal, "terminate_process_tree", killed.append)
 
     task = asyncio.create_task(
-        terminal._execute_core("sleep 100", "powershell", tmp_path, "sp2-session")
+        terminal._execute_core("sleep 100", "powershell", zone_drive, "sp2-session")
     )
     await asyncio.wait_for(reading.wait(), timeout=5)
     task.cancel()

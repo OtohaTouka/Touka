@@ -736,12 +736,12 @@ def test_hook_output_on_a_json_result_too_deep_to_load_is_a_data_block():
     assert "lint failed" in attached[len(deep):]
 
 
-class _VaultJailedMcp:
-    """假的 MCP：``docgen_read`` 在受管伺服器上，根目錄參數會被換成 agent 自己的資料夾。"""
+class _FakeMcp:
+    """假的 MCP：``docgen_read`` 在 ``server`` 上；``vault_jail_arg`` 給了就是受管伺服器。"""
 
-    def __init__(self, server: str = "mcp-docgen") -> None:
+    def __init__(self, server: str = "mcp-docgen", vault_jail_arg: str | None = None) -> None:
         self.registry = SimpleNamespace(
-            get_server=lambda _name: SimpleNamespace(vault_jail_arg="base_dir")
+            get_server=lambda _name: SimpleNamespace(vault_jail_arg=vault_jail_arg)
         )
         self.calls: list[dict[str, Any]] = []
         self._server = server
@@ -759,13 +759,13 @@ class _VaultJailedMcp:
 
 
 async def test_tool_hooks_see_the_arguments_the_model_sent(monkeypatch, hooks):
-    """執行器替 MCP 工具換掉的根目錄（agent 自己資料夾的實際路徑）不會出現在 hook 的事件內容。"""
+    """執行器替 MCP 工具加上的參數（``agent_id``）不會出現在 hook 的事件內容。"""
     hooks.configure({"PreToolUse": [_group()], "PostToolUse": [_group()]})
     monkeypatch.setattr(
         permission_service, "evaluate_policy",
         lambda _ctx: PolicyDecision(effect="ALLOW", reason="test-allow"),
     )
-    mcp = _VaultJailedMcp()
+    mcp = _FakeMcp()
     executor = ToolExecutor(
         protocol_manager=mcp, tool_registry={}, memory_tool_registry={}, plugin_registry={},
         enforce_advertised=False,
@@ -776,9 +776,30 @@ async def test_tool_hooks_see_the_arguments_the_model_sent(monkeypatch, hooks):
             "docgen_read", {"base_dir": "/etc"}, "req-hook", ctx, asyncio.Queue()
         )
     (sent,) = mcp.calls
-    assert sent["base_dir"] != "/etc"
+    assert sent["agent_id"] == _SOUL.agent_id
     assert hooks.http.events() == ["PreToolUse", "PostToolUse"]
     assert [call["tool_input"] for call in hooks.http.calls] == [{"base_dir": "/etc"}] * 2
+
+
+async def test_a_vault_jailed_tool_is_refused_before_any_hook_runs(monkeypatch, hooks):
+    """受管伺服器的工具在 hook 之前就被拒絕（ADR-0293）：沒有 hook 事件、沒有送出."""
+    hooks.configure({"PreToolUse": [_group()], "PostToolUse": [_group()]})
+    monkeypatch.setattr(
+        permission_service, "evaluate_policy",
+        lambda _ctx: PolicyDecision(effect="ALLOW", reason="test-allow"),
+    )
+    mcp = _FakeMcp(vault_jail_arg="base_dir")
+    executor = ToolExecutor(
+        protocol_manager=mcp, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
+    )
+    ctx = {"identity": _SOUL, "auth_level": "Manual", "session_id": None}
+    async with asyncio.timeout(_WAIT_S):
+        await executor.execute_to_queue(
+            "docgen_read", {"base_dir": "/etc"}, "req-hook", ctx, asyncio.Queue()
+        )
+    assert mcp.calls == []
+    assert hooks.http.calls == []
 
 
 @pytest.mark.parametrize(
@@ -795,7 +816,7 @@ async def test_an_mcp_tool_called_by_its_bare_name_matches_its_full_names(
         lambda _ctx: PolicyDecision(effect="ALLOW", reason="test-allow"),
     )
     executor = ToolExecutor(
-        protocol_manager=_VaultJailedMcp("docs"), tool_registry={}, memory_tool_registry={},
+        protocol_manager=_FakeMcp("docs"), tool_registry={}, memory_tool_registry={},
         plugin_registry={}, enforce_advertised=False,
     )
     ctx = {"identity": _SOUL, "auth_level": "Manual", "session_id": None}

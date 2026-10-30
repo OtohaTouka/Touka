@@ -1,7 +1,8 @@
 """個人空間目錄（`.touka/catalog.json`）回歸測試.
 
 目錄只當快取：每次讀都以實際檔案為準；檔案動詞不能改 `.touka/`；list／find／grep
-看不到它；同回合並行寫入不損毀。全部在 pytest 的 tmp_path 裡用真的 ResourceManager 跑。
+看不到它；同回合並行寫入不損毀。全部用真的 ResourceManager 跑；個人空間在
+``zone_data_root``（pytest 的 tmp_path）裡。
 """
 
 from __future__ import annotations
@@ -15,13 +16,16 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from memory_server.protocols import IResourceProxy
 from memory_server.services import personal_catalog as pc
 from memory_server.tools import vault_tools as memory_vault_tools
+from memory_server.utils.no_follow import LINK_REFUSED_MESSAGE
+from memory_server.utils.zone_paths import Anchor, agent_root
 from pydantic import ValidationError
+from src.config import get_app_data_dir
 from src.models.identity import AgentIdentity
 from src.services import tool_errors
 from src.services.agent_reset import orchestrator as reset_orchestrator
@@ -30,29 +34,46 @@ from src.tools import file_verbs
 from src.tools import vault_tools as vault_bridge
 from src.utils.async_db import init_db_async
 
+from tests.support.zone_records import expect_zone_refusal
+
 if sys.platform == "win32":
     import _winapi
 
+if TYPE_CHECKING:
+    from memory_server.utils.zone_paths import ZonePath
+
 IDENTITY =AgentIdentity.for_role(agent_id="CatalogAgent", role="Owner")
+
+
+def _zone(root: Path) -> ZonePath:
+    """``personal_drive/<名稱>`` 這個資料夾對應的區內路徑。"""
+    return agent_root(Anchor.PERSONAL_DRIVE, root.name)
 
 
 class _Manager:
     """只提供個人空間根目錄的假 MemoryManager（vault 分發器只用到這個方法）。"""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, zone: ZonePath | None = None) -> None:
         self.root = root
+        self.zone = zone
 
-    def get_personal_drive_dir(self, identity: Any, resource_proxy: Any = None) -> Path:
+    def get_personal_drive_dir(self, identity: Any, resource_proxy: Any = None) -> ZonePath:
         _ = identity, resource_proxy
-        return self.root
+        return self.zone or _zone(self.root)
 
 
-async def _vault(root: Path, action: str, proxy: Any = resource_manager, **kwargs: Any) -> Any:
+async def _vault(
+    root: Path,
+    action: str,
+    proxy: Any = resource_manager,
+    zone: ZonePath | None = None,
+    **kwargs: Any,
+) -> Any:
     return await memory_vault_tools(
         vault="personal",
         action=action,
         identity=IDENTITY,
-        manager=_Manager(root),
+        manager=_Manager(root, zone),
         resource_proxy=proxy,
         **kwargs,
     )
@@ -95,13 +116,13 @@ def _make_dir_link(link: Path, target: Path) -> None:
 
 
 @pytest.fixture
-def drive(tmp_path: Path) -> Path:
-    root = tmp_path / "drive"
-    root.mkdir()
+def drive(zone_data_root: Path) -> Path:
+    root = zone_data_root / "personal_drive" / "CatalogAgent"
+    root.mkdir(parents=True)
     return root
 
 
-async def test_catalog_created_automatically(drive: Path, tmp_path: Path) -> None:
+async def test_catalog_created_automatically(drive: Path) -> None:
     """第一次 list 個人空間根目錄就建出目錄，並附一行提示；子目錄不附。"""
     note = _put(drive, "notes/a.md", b"intro\n# Alpha\nbody\n")
     _put(drive, "b.txt", "hello")
@@ -126,7 +147,7 @@ async def test_catalog_created_automatically(drive: Path, tmp_path: Path) -> Non
     sub = await _vault(drive, "list", path="notes")
     assert pc.CATALOG_HINT.format(count=2) not in sub
 
-    missing = tmp_path / "never-created"
+    missing = drive.parent / "NeverCreated"
     result = await _vault(missing, "list")
     assert result.startswith("Error")
     assert not missing.exists()
@@ -194,25 +215,27 @@ async def test_catalog_read_time_reconcile_external_write(drive: Path) -> None:
 async def test_catalog_read_when_touka_turns_into_a_link(
     drive: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """讀目錄的檢查之後 `.touka` 被換成連結：重建寫不進去，讀取照常回結果、不丟出例外。
+    """讀目錄的檢查之後 `.touka` 被換成連結：重建寫不進去，讀取回固定的連結訊息、不丟出例外。
 
-    連結指到個人空間裡面時，core ops 解析後照常讀；指到外面時由 core ops 回錯誤訊息。
+    連結指到個人空間裡面也一樣（區裡不跟隨任何連結，ADR-0293）。
     """
     await _vault(drive, "write", path="a.txt", content="x")
     touka, moved = drive / pc.CATALOG_DIR_NAME, drive / ".touka_moved"
     original = pc._rebuild
+    before: dict[str, bytes] = {}
 
-    def swapped_then_rebuilt(proxy: Any, root: Path) -> Any:
+    def swapped_then_rebuilt(proxy: Any, root: ZonePath) -> Any:
         if not touka.is_symlink() and not touka.is_junction():
             touka.rename(moved)
             _make_dir_link(touka, moved)
+            before.update({p.name: p.read_bytes() for p in moved.iterdir()})
         return original(proxy, root)
 
     monkeypatch.setattr(pc, "_rebuild", swapped_then_rebuilt)
-    read = await _vault(drive, "read", path=".touka/catalog.json")
-    assert read.startswith("--- Read .touka/catalog.json")
-    assert "a.txt" in _entries(json.loads(_body(read)))
-    assert str(drive.resolve()) not in read
+    with expect_zone_refusal("ZoneLinkRefusedError"):
+        read = await _vault(drive, "read", path=".touka/catalog.json")
+    assert read == f"Error reading file '.touka/catalog.json': {LINK_REFUSED_MESSAGE}"
+    assert {p.name: p.read_bytes() for p in moved.iterdir()} == before
 
 
 async def test_catalog_hidden_from_list_find_grep(drive: Path) -> None:
@@ -235,8 +258,9 @@ async def test_catalog_hidden_from_list_find_grep(drive: Path) -> None:
     assert "a.md:1" in grep
     assert pc.CATALOG_FILE_NAME not in grep
 
-    assert any(".touka/" in line for line in resource_manager.list_directory(drive, 5))
-    assert ".touka/catalog.json" in resource_manager.glob_search(drive, "*.json")
+    assert any(".touka/" in line for line in resource_manager.zone_list(_zone(drive), 5))
+    rows = resource_manager.zone_stat_files(_zone(drive))
+    assert ".touka/catalog.json" in [rel for rel, _size, _mtime in rows]
 
 
 @pytest.mark.parametrize(
@@ -342,12 +366,12 @@ async def test_forged_catalog_corrected_on_read(drive: Path) -> None:
     assert _catalog(drive) == catalog
 
 
-async def test_catalog_path_sandbox(tmp_path: Path) -> None:
+async def test_catalog_path_sandbox(zone_data_root: Path, tmp_path: Path) -> None:
     """目錄只寫在自己的個人空間；假目錄的越界路徑不留；不跟隨指向外面的連結。"""
-    drive_a = tmp_path / "a"
-    drive_b = tmp_path / "b"
-    drive_a.mkdir()
-    drive_b.mkdir()
+    drive_a = zone_data_root / "personal_drive" / "A"
+    drive_b = zone_data_root / "personal_drive" / "B"
+    drive_a.mkdir(parents=True)
+    drive_b.mkdir(parents=True)
     outside = tmp_path / "outside"
     _put(outside, "secret.txt", "top secret")
     _make_dir_link(drive_a / "linked", outside)
@@ -391,13 +415,13 @@ class _ConcurrencyProbe:
     def __getattr__(self, name: str) -> Any:
         return getattr(resource_manager, name)
 
-    def stat_files(self, *args: Any, **kwargs: Any) -> Any:
+    def zone_stat_files(self, *args: Any, **kwargs: Any) -> Any:
         with self._guard:
             self.active += 1
             self.peak = max(self.peak, self.active)
         try:
             time.sleep(0.05)
-            return resource_manager.stat_files(*args, **kwargs)
+            return resource_manager.zone_stat_files(*args, **kwargs)
         finally:
             with self._guard:
                 self.active -= 1
@@ -448,14 +472,15 @@ async def test_catalog_excludes_and_caps(drive: Path, monkeypatch: pytest.Monkey
 
 async def test_agent_reset_removes_catalog_and_rebuilds_from_files() -> None:
     """重置清 outputs 時一併刪目錄檔；之後讀目錄從實際檔案重建，不含被清掉的檔。"""
-    debug = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger")
-    root = Path(resource_manager.get_vault_path("personal", debug))
-    outputs = Path(resource_manager.get_outputs_path(debug))
+    # 沙盒裡的 DebugAgent 不是靈魂：個人空間是 custom/DebugAgent/drive
+    zone = resource_manager.agent_drive(AgentIdentity.for_role("DebugAgent", "Debugger"))
+    root = Path(get_app_data_dir()) / "custom" / "DebugAgent" / "drive"
+    outputs = root / "outputs"
     _put(outputs, "report.md", "# Secret Report\n")
     _put(root, "keep.txt", "kept")
     await init_db_async()  # 重置會清 sessions：沙盒 DB 需先建表
     try:
-        await _vault(root, "list")
+        await _vault(root, "list", zone=zone)
         assert "outputs/report.md" in _entries(_catalog(root))
 
         report = await reset_orchestrator.reset_debug_agent_data(do_backup=False)
@@ -465,7 +490,7 @@ async def test_agent_reset_removes_catalog_and_rebuilds_from_files() -> None:
         assert (catalog_store["purged"], catalog_store["remaining"]) == (1, 0)
         assert not catalog_store["error"]
         assert not _catalog_path(root).exists()
-        read = await _vault(root, "read", path=".touka/catalog.json")
+        read = await _vault(root, "read", zone=zone, path=".touka/catalog.json")
         rebuilt = set(_entries(json.loads(_body(read))))
         # 沙盒裡的 DebugAgent 可能留有別的測試放的上傳檔（重置刻意保留）；只核對清掉的不在、
         # 留下的都在，且每一項都真的存在於磁碟。
@@ -478,17 +503,19 @@ async def test_agent_reset_removes_catalog_and_rebuilds_from_files() -> None:
 
 
 def test_resource_proxy_contract_for_catalog(drive: Path) -> None:
-    """IResourceProxy 宣告目錄要用的方法，ResourceManager 都有實作；stat_files 不列連結。"""
-    for method in ("read_file_binary", "stat_files", "list_directory", "glob_search"):
+    """IResourceProxy 宣告目錄要用的區內方法，RM 都有實作；zone_stat_files 不列連結。"""
+    methods = ("zone_kind", "zone_read_text", "zone_read_binary", "zone_write_text")
+    for method in (*methods, "zone_stat_files", "zone_list", "zone_rel_from_abs"):
         assert callable(getattr(IResourceProxy, method))
         assert callable(getattr(resource_manager, method))
 
     target = _put(drive, "d/x.txt", "12345")
     _put(drive, "skip/y.txt", "y")
-    rows = resource_manager.stat_files(drive, exclude_names=frozenset({"skip"}))
+    zp = _zone(drive)
+    rows = resource_manager.zone_stat_files(zp, exclude_names=frozenset({"skip"}))
     assert rows == [("d/x.txt", 5, target.stat().st_mtime_ns)]
-    assert resource_manager.stat_files(drive, exclude_paths=frozenset({"d"}), max_files=5) == [
+    assert resource_manager.zone_stat_files(zp, exclude_paths=frozenset({"d"}), max_files=5) == [
         ("skip/y.txt", 1, (drive / "skip" / "y.txt").stat().st_mtime_ns)
     ]
-    assert len(resource_manager.stat_files(drive, max_files=1)) == 1
-    assert resource_manager.stat_files(str(drive / "missing")) == []
+    assert len(resource_manager.zone_stat_files(zp, max_files=1)) == 1
+    assert resource_manager.zone_stat_files(zp.child("missing")) == []

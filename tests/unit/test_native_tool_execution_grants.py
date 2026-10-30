@@ -104,6 +104,7 @@ async def test_non_native_keeps_existing_authorization_path(
     monkeypatch.setattr("src.services.tool_executor.permission_service", gate)
     protocol = MagicMock()
     protocol.resolve_tool.return_value = ("server", "remote")
+    protocol.registry.get_server.return_value = None  # 不是 vault-jailed（ADR-0293 提早拒絕）
     handler = AsyncMock()
     executor = ToolExecutor(
         protocol,

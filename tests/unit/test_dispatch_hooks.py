@@ -197,15 +197,14 @@ class TestInitializeMissionAutoInvoke:
         return handshake.split("Session token:")[-1].strip()
 
     @pytest.mark.asyncio
-    async def test_auto_invoke_triggers_popen(self, tmp_path, monkeypatch):
+    async def test_auto_invoke_triggers_popen(self, zone_data_root, monkeypatch):
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
 
         from ToukaDispatch import server as ds
 
         config_utils._reset_resource_proxy_cache()
-        f = _write_hooks(tmp_path, '{"on_mission_created": {"claude-code": {"command": ["claude", "-p", ""]}}}')
+        f = _write_hooks(zone_data_root, '{"on_mission_created": {"claude-code": {"command": ["claude", "-p", ""]}}}')
         monkeypatch.setattr(ds, "_HOOKS_PATH", f)
         popen_calls = []
         monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: popen_calls.append((a, k)) or object())
@@ -218,9 +217,8 @@ class TestInitializeMissionAutoInvoke:
         assert len(popen_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_no_auto_invoke_no_popen(self, tmp_path, monkeypatch):
+    async def test_no_auto_invoke_no_popen(self, zone_data_root, monkeypatch):
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
 
         from ToukaDispatch import server as ds
@@ -235,9 +233,8 @@ class TestInitializeMissionAutoInvoke:
         assert not called
 
     @pytest.mark.asyncio
-    async def test_external_session_auto_invoke_blocked(self, tmp_path, monkeypatch):
+    async def test_external_session_auto_invoke_blocked(self, zone_data_root, monkeypatch):
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
         from memory_server import config_utils
 
         from ToukaDispatch import server as ds

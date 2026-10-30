@@ -206,7 +206,7 @@ async def test_terminal_uses_the_session_project_not_the_project_id_kwarg(
 
 
 async def test_verification_command_uses_the_session_project_not_the_kwarg(
-    projects, level_calls, profile_roots, monkeypatch, tmp_path
+    projects, level_calls, profile_roots, monkeypatch, zone_data_root
 ):
     roots, _ = projects
 
@@ -227,7 +227,6 @@ async def test_verification_command_uses_the_session_project_not_the_kwarg(
         ],
     )
     await manager.update_task(identity=ALICE, task_id="t1", status=TaskStatus.DOING)
-    monkeypatch.setattr(mission_tools, "_agent_artifact_root", lambda _identity: tmp_path)
     await mission_tools.mission_tools(
         action="request_review", task_id="t1", identity=ALICE, auth_level="YOLO",
         session_id="s1", _ctx={"identity": ALICE}, project_id="attacker-project",

@@ -17,6 +17,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from memory_server.services.mission_manager import MissionManager
 from memory_server.tools import get_manager
+from memory_server.utils.no_follow import LinkRefusedError
+from memory_server.utils.zone_paths import ZoneSegmentError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.config import DEFAULT_WORKSPACE_ROOT
@@ -1017,7 +1019,11 @@ async def get_current_mission(
         target_identity = identity_service.get_identity(target_agent_id)
 
     manager = MissionManager()
-    mission = await manager.get_current_mission(target_identity)
+    try:
+        mission = await manager.get_current_mission(target_identity)
+    except (LinkRefusedError, ZoneSegmentError):  # 看板的資料夾被換成連結（ADR-0293）
+        logger.warning("Mission board for %s refused; shown as no mission", target_agent_id)
+        mission = None
     if not mission:
         msg = "No active mission"
         raise ToukaException(ErrorCode.SESSION_NOT_FOUND, detail_msg=msg)

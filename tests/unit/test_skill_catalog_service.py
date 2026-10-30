@@ -1,7 +1,7 @@
 """ADR-0074：SkillCatalogService 讀取鏈 ＋ entry schema 測試。"""
 from __future__ import annotations
 
-from unittest.mock import patch
+import json
 
 import pytest
 from pydantic import ValidationError
@@ -21,28 +21,25 @@ _VALID_ENTRY: dict = {
 }
 
 
-def test_get_catalog_reads_from_json():
-    with patch("src.services.skill_catalog_service.resource_manager") as mock_rm:
-        mock_rm.read_json.return_value = {"catalog": [_VALID_ENTRY]}
-        svc = SkillCatalogService(catalog_path="/fake/skill_catalog.json")
-        assert svc.get_catalog() == [_VALID_ENTRY]
+# 目錄檔放在測試自己的資料夾，經真的 ResourceManager 讀（ADR-0293 T3：不換掉 resource_manager）
+def test_get_catalog_reads_from_json(tmp_path):
+    catalog = tmp_path / "skill_catalog.json"
+    catalog.write_text(json.dumps({"catalog": [_VALID_ENTRY]}), encoding="utf-8")
+    svc = SkillCatalogService(catalog_path=str(catalog))
+    assert svc.get_catalog() == [_VALID_ENTRY]
 
 
-def test_get_catalog_falls_back_to_example():
-    def _read(path):
-        return {"catalog": [_VALID_ENTRY]} if str(path).endswith(".example") else None
-
-    with patch("src.services.skill_catalog_service.resource_manager") as mock_rm:
-        mock_rm.read_json.side_effect = _read
-        svc = SkillCatalogService(catalog_path="/fake/skill_catalog.json")
-        assert svc.get_catalog() == [_VALID_ENTRY]
+def test_get_catalog_falls_back_to_example(tmp_path):
+    catalog = tmp_path / "skill_catalog.json"
+    seed = tmp_path / "skill_catalog.json.example"
+    seed.write_text(json.dumps({"catalog": [_VALID_ENTRY]}), encoding="utf-8")
+    svc = SkillCatalogService(catalog_path=str(catalog))
+    assert svc.get_catalog() == [_VALID_ENTRY]
 
 
-def test_get_catalog_empty_when_both_missing():
-    with patch("src.services.skill_catalog_service.resource_manager") as mock_rm:
-        mock_rm.read_json.return_value = None
-        svc = SkillCatalogService(catalog_path="/fake/skill_catalog.json")
-        assert svc.get_catalog() == []
+def test_get_catalog_empty_when_both_missing(tmp_path):
+    svc = SkillCatalogService(catalog_path=str(tmp_path / "skill_catalog.json"))
+    assert svc.get_catalog() == []
 
 
 def test_entry_validates_minimal_fields():

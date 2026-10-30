@@ -33,18 +33,10 @@ from src.services.auth_service import AuthService
 from src.services.dispatch_supervisor import DispatchSupervisor
 from src.services.identity_router import get_verified_identity
 
+from tests.support.zone_roots import point_zone_roots
+
 _REPO = Path(__file__).resolve().parents[2]
 _ADMIN = AgentIdentity.for_role(agent_id="Admin", role="admin", is_human=True)
-
-
-class _DataRoot:
-    """只換資料根（resource_manager.get_base_path），其他 Proxy 路徑照 SSOT。"""
-
-    def __init__(self, root: Path) -> None:
-        self._root = root
-
-    def get_base_path(self) -> str:
-        return str(self._root)
 
 
 @pytest.fixture
@@ -58,7 +50,7 @@ def proxy_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Pa
     env.write_text("NORMAL_SETTING=kept\n", encoding="utf-8")
     config = tmp_path / "config"
     config.mkdir()
-    monkeypatch.setattr(system_backup, "resource_manager", _DataRoot(data))
+    point_zone_roots(monkeypatch, data, tmp_path / "zone_state")  # 只換資料根（ADR-0293 T3）
     monkeypatch.setattr(system_backup, "resolve_env_file_path", lambda: env)
     monkeypatch.setattr(system_backup, "get_config_dir", lambda: config)
     return {"data": data, "env": env, "config": config, "out": env.parent / "backups"}
@@ -220,7 +212,7 @@ async def test_missing_data_root_fails_snapshot_and_aborts_reset(
     """資料根不存在（例如沒掛上）就直接失敗，不能產出不含資料的空快照；重置因此什麼都不刪。"""
     script = _docker_like_script(tmp_path)
     monkeypatch.setattr(system_backup, "backup_script", lambda: script)
-    monkeypatch.setattr(system_backup, "resource_manager", _DataRoot(tmp_path / "not-mounted"))
+    point_zone_roots(monkeypatch, tmp_path / "not-mounted", tmp_path / "zone_state")
     purged: list[str] = []
     monkeypatch.setattr(O, "assert_agent_resettable", lambda c, _a: c)
     monkeypatch.setattr(O, "ALL_STORES", (_fake_store(purged),))

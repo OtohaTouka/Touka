@@ -43,9 +43,9 @@ class ProtocolServerConfig(BaseModel):
     **remote**（streamable HTTP，ADR-0192）：``url`` ＋ ``headers``；header 內以
     ``${VAR}`` 引用 ``env`` 的憑證，讓 remote 條目沿用既有的 env 遮罩保護。
 
-    ``vault_jail_arg``（選配）：若設，代表此伺服器的某個工具參數是「輸入根目錄」，派發前由
-    ``mcp_vault_jail`` 依當下身分覆寫成該 agent 自己的 vault 根（per-agent 隔離；如 mcp-docgen
-    的 ``base_dir``）。未設＝不受 vault 隔離（一般伺服器）。
+    ``vault_jail_arg``（選配）：若設，代表此伺服器的某個工具參數是「輸入根目錄」（如 mcp-docgen
+    的 ``base_dir``）。ADR-0293 之後這類工具在批准前就拒絕、不給任何根（``mcp_vault_jail``），
+    要等安全的讀寫方式做好。未設＝一般伺服器。
 
     ``enabled``（預設 True）：使用者停用開關（前端設定頁 toggle）。``False`` 者於
     ``load_config`` 即被排除、不進 runtime registry（ADR-0188 咽喉執法；remote 條目

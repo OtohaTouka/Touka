@@ -76,10 +76,9 @@ class TestMissionToken:
 
 class TestHandshakeMissionToken:
     @pytest.mark.asyncio
-    async def test_handshake_accepts_mission_token(self, tmp_path, monkeypatch):
+    async def test_handshake_accepts_mission_token(self, zone_data_root, monkeypatch):
         """dispatch_handshake 可接受 mission_token，回傳成功並建立外部 session。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -100,10 +99,9 @@ class TestHandshakeMissionToken:
         assert info.bound_mission_id == mission_id
 
     @pytest.mark.asyncio
-    async def test_handshake_rejects_fake_mission_token(self, tmp_path, monkeypatch):
+    async def test_handshake_rejects_fake_mission_token(self, zone_data_root, monkeypatch):
         """偽造的 mission_token 應被拒絕。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -121,10 +119,9 @@ class TestHandshakeMissionToken:
 
 class TestInitializeMissionRestrictions:
     @pytest.mark.asyncio
-    async def test_external_session_cannot_initialize_mission(self, tmp_path, monkeypatch):
+    async def test_external_session_cannot_initialize_mission(self, zone_data_root, monkeypatch):
         """外部 session 不得呼叫 dispatch_initialize_mission，應回傳錯誤。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from memory_server import config_utils
 
@@ -146,11 +143,10 @@ class TestInitializeMissionRestrictions:
 
     @pytest.mark.asyncio
     async def test_initialize_mission_returns_mission_id_and_token(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """dispatch_initialize_mission 回傳中應包含 Mission ID 和 Mission Token。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "internal-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from memory_server import config_utils
 

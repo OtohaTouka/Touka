@@ -182,7 +182,7 @@ async def test_reviewer_is_told_the_shell_that_actually_runs(monkeypatch, platfo
 
 
 @pytest.mark.asyncio
-async def test_execute_core_uses_the_shared_shell_decision(monkeypatch, tmp_path):
+async def test_execute_core_uses_the_shared_shell_decision(monkeypatch, zone_drive):
     spawned: list[tuple[Any, ...]] = []
 
     async def _spawn(*argv: Any, **_kwargs: Any):
@@ -191,7 +191,7 @@ async def test_execute_core_uses_the_shared_shell_decision(monkeypatch, tmp_path
 
     monkeypatch.setattr(terminal_tool, "spawn_exec", _spawn)
     monkeypatch.setattr(terminal_tool, "effective_shell", lambda _env: "no-such-shell")
-    exit_code, output, _ms = await terminal_tool._execute_core("ls", "powershell", tmp_path, None)
+    exit_code, output, _ms = await terminal_tool._execute_core("ls", "powershell", zone_drive, None)
     assert exit_code == -1
     assert "Unknown environment" in output
     assert spawned == []

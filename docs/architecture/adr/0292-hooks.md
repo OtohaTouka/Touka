@@ -3,7 +3,7 @@
 - 狀態：✅ 已實作（丙-1；其餘事件在丙-2）。維護者 2026-10-28 要求前後端加上 hook 與設定介面、行為盡量和 Claude Code 相同、對不上的先列表；一頁計畫由維護者核准，丙-1 加做對抗式複審。
 - 日期：2026-10-28
 - 決策者：維護者
-- 相關：ADR-0146（回合結束的約定）、ADR-0228／0229（工具執行順序與可信 context）、ADR-0239（`execution_broker`）、ADR-0246（模式、審查員與底線）、ADR-0257（歷史資料界線）、ADR-0269（只執行這一輪列出的工具）、ADR-0272（隔離層級；hook 程式不是代理人撰寫的程式，不經 runner，見決定 4）。
+- 相關：ADR-0146（回合結束的約定）、ADR-0228／0229（工具執行順序與可信 context）、ADR-0239（`execution_broker`）、ADR-0246（模式、審查員與底線）、ADR-0257（歷史資料界線）、ADR-0269（只執行這一輪列出的工具）、ADR-0272（隔離層級；hook 程式不是代理人撰寫的程式，不經 runner，見決定 4）、ADR-0293（代理人資料夾不跟隨連結；接手本 ADR 已知界線裡和連結有關的幾條）。
 - 影響範圍：ToukaProxy 新增 `models/hooks.py`、`services/hooks/`、`middleware/layers/hooks.py`；修改 `services/tool_executor.py`、`handlers/react_core.py`、`services/proxy_service.py`、`services/approval_flow.py`、`utils/tool_events.py`、`services/prompt_blocks.py`、`adapters/content_normalize.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`utils/bootstrap.py`、`utils/hard_floor.py`、`utils/touka_dirs.py`、`utils/async_db.py`、`services/group_router.py`、`tools/project_tools.py`、`routers/ui_sessions.py`、`routers/ui_interjections.py`、`services/stream_buffer_service.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`services/authorization_gateway.py`、`services/isolation/profiles.py`、`services/resource_manager.py`、`.gitignore`、`.dockerignore`；新增 `routers/hooks.py`（掛在 `main.py` 的 `CORE_ROUTERS`）、`services/hooks/interjection_hooks.py`。ToukaMemory 新增 `utils/no_follow.py`（`scripts/lint_ssot.py` 的 I/O 白名單加上它，和 `core_file_ops.py` 一樣），修改 `tools/core_file_ops.py`、`protocols.py`、`services/personal_catalog.py`；設定 `config/hooks.json.example`、`errors.json.example`（6001～6003、1222 `PROMPT_STOPPED`）；`openapi.json`。ToukaChat：設定畫面「Hooks」分頁（`components/settings/tabs/HooksTab.tsx`、`tabs/hooks/`、`hooks/settings/useHooksSettings.ts`、設定註冊表與搜尋索引）、審批卡、串流錯誤通知、被擋下的這一輪從對話拿掉並放回輸入框（`lib/stream_tree.ts`、`lib/providers/StreamRegistryProvider.tsx`、`hooks/useChatStream.ts`、`lib/providers/ChatProvider.tsx`）、插話被擋（`hooks/useInterjectionQueue.ts`、`hooks/useInterjectionComposer.ts`）、`lib/tree_history.ts`、`error_codes.ts`、`api.ts`、`lib/types.ts`、翻譯。
 
 ## 背景
@@ -126,11 +126,11 @@
 - **已知的界線**：
   - Windows 上 `.bat`／`.cmd` 由系統經 `cmd.exe` 啟動，參數會被 `cmd.exe` 重新解讀；要避開 shell 就用其他程式寫 hook。
   - 參數只檢查看起來像路徑的字詞：直譯器的 `-c`／`-m` 給的程式碼或模組名稱不是路徑，hook 實際執行哪些程式碼由管理員負責。
-  - MCP 可寫資料夾只來自 `mcp_server_isolation.json` 的 `sandbox_paths`：包在 Landlock 裡的第三方與 scaffold 伺服器所引用的資料夾（啟動時才算出來、可寫）不在禁區；IDE 與未隔離的 MCP 伺服器能寫哪裡 Touka 不知道。管理員不要把 hook 程式放在這些地方，也不要讓 IDE 或 MCP 伺服器寫得到 `config/hooks/`。
+  - MCP 可寫資料夾禁區的界線移到 ADR-0293「已知的界線」的「不經 RM 的程式」。
   - 只檢查設定寫得出來的程式：`env`、`npx`、`py` 這類啟動器會自己找要執行的程式（依 PATH、上層的 `node_modules` 或自己的設定），找到的程式在哪裡 Touka 不檢查。請寫成直譯器＋`config/hooks/` 裡的腳本，不要用啟動器當 hook 的程式。直譯器自己也會找模組：Node 的 `require` 會一路往上層資料夾找 `node_modules`，Python 依 `sys.path` 找；腳本用到的套件請裝在 `config/hooks/` 裡（例如 `config/hooks/node_modules`），不要依賴上層資料夾的套件。
   - Linux／Docker 上參數不能放網址：POSIX 的 `:` 也是路徑清單的分隔（`-cp a.jar:/x.jar`），`https://host/x` 會被拆出 `//host/x`，當成 `config/hooks/` 以外的絕對路徑拒收。網址不另外放行，因為 `-cp https://x/data/evil.jar` 這種寫法 Java 會讀 `//x/data/evil.jar`。要傳網址請寫在 `config/hooks/` 裡的設定檔，由腳本讀取；Windows 的 `:` 不拆，網址照常可用。
   - PreToolUse 與 PostToolUse 只涵蓋 Touka 代理人經工具執行器的工具呼叫；ToukaDispatch 給外部 AI 的派工工具不經工具執行器，不會觸發。
-  - hook 程式本身可以讀寫任何 Touka 權限能到的地方（決定 5 最後一點）。像「工具執行後跑 lint」這類 hook，會以 Touka 的權限處理代理人剛寫的檔案；lint 工具若會執行檔案裡的設定或外掛，就等於以 Touka 的權限跑代理人寫的東西，管理員要選不會執行專案內容的工具。
+  - hook 程式本身以 Touka 的權限讀寫（決定 5 最後一點）：移到 ADR-0293「已知的界線」的「不經 RM 的程式」。
   - 本機安裝時，安裝資料夾裡的 Python（例如 `.venv` 底下的直譯器）在工作區根裡，不能當 hook 的程式（`agent_writable`）；請用系統安裝的直譯器，腳本放 `config/hooks/`。
   - 腳本被刪掉或改名時，直譯器自己會以結束碼 2 結束（例如 Python 找不到檔案），照 Claude Code 的規則就是擋下，而且 stderr（含路徑）會當成理由顯示；這時所有符合的動作都會被擋，直到修好設定。
   - 事件內容一律送給 hook，無痕對話也一樣（決定 7 的 `incognito` 讓 hook 自己決定要不要留）；設定頁說明會寫明。之後在丙-2 讓使用者在無痕對話裡看得到「有 hook 在執行」。
@@ -144,11 +144,11 @@
   - 每次檢查有沒有 hook 都同步讀一次 `hooks.json`、算雜湊比對有沒有變（檔案很小；沒有這個檔時只多一次存在檢查）；這樣手動改檔也會在下一次執行時生效。
   - 能讓路徑檢查拒收的人就能讓那個 hook 不執行，例如對 `config/hooks/` 裡的腳本建一個硬連結（檢查回 `hard_link`）：被拒算失敗，不擋（決定 15），執行紀錄看得到。代理人在 Landlock 裡做不到（不能跨資料夾建連結，設定資料夾也寫不進去）；未隔離、經人核准的指令，以及 IDE、未隔離的 MCP 伺服器做得到。
   - `config/hooks/` 裡裝的套件（例如 `node_modules`、虛擬環境）若是用硬連結裝的（uv、pnpm 可能如此），檔案可能和代理人專案裡的同一份共用，代理人在 Landlock 裡就地改自己那份，hook 用的那份也跟著變。路徑檢查只看指令與參數本身有沒有硬連結，不逐一檢查套件裡的檔案；請用複製的方式裝（uv 的 `UV_LINK_MODE=copy`、pnpm 的 `--package-import-method=copy`，npm 本來就是複製），設定頁說明有寫。
-  - 專案根路上有連結時 hook 這邊只禁字面（決定 5），因為代理人的終端與專案檔案工具都不用這種根（決定 12）。8.3 短檔名、subst 與對應的網路磁碟機解析後和字面不同，也照這條處理。查過之後才把專案根本身或它上面的一段換成連結，讀寫時再解析的根和查過的不同，拒絕；根底下的路徑在開檔前被換成連結，由不跟隨連結擋下（決定 12；Windows 見下一條，list、find 見後面的走訪）。
-  - Windows 本機的檔案動詞查連結和開檔不是同一個動作。只換一次連結的會被擋下（開檔後比對檔案識別碼）；不停來回換連結、剛好開檔時是連結、檢查時不是、比對時又是，仍可能讀寫到連結另一端的檔案（含截斷後寫入、追加、原子寫入蓋過去）。建立新檔、原子寫入的暫存檔與建上層資料夾可能在另一端留下空檔或空資料夾；刪除只在刪之前查一次，可能刪到另一端的檔；只讀時開檔前不查，路上現成的連結會先開到再拒絕（內容不讀出，但指向網路位置的連結可能先連上那台主機）。能這樣做的是已經有 Touka 權限的程式：Windows 本機的代理人終端不經隔離、每條指令都要人核准，代理人要建連結得先經人核准；未隔離的第三方 MCP 伺服器的工具不在這個前提裡（依模式執行）。這些程式本來就能直接讀寫這些位置。
+  - 專案根路上有連結時 hook 這邊只禁字面（決定 5），因為代理人的終端與專案檔案工具都不用這種根（決定 12）。8.3 短檔名、subst 與對應的網路磁碟機解析後和字面不同，也照這條處理。查過之後才把專案根本身或它上面的一段換成連結，讀寫時再解析的根和查過的不同，拒絕；根底下的路徑在開檔前被換成連結，由不跟隨連結擋下（決定 12；Windows 見 ADR-0293「已知的界線」，list、find 見後面的走訪）。
+  - Windows 本機的檔案動詞查連結和開檔不是同一個動作：時間差的細節移到 ADR-0293「已知的界線」的「Windows 本機」。
   - Windows 本機的 Touka 安裝位置、工作區或專案的路上有掛在資料夾上的磁碟區（沒有磁碟機代號）時，那個資料夾和 junction 是同一種：代理人的檔案動詞可能一律回連結錯誤，專案也可能被當成路上有連結（依程式推得，沒有實機驗證；登記專案時不一定先被擋下）。請改用有磁碟機代號的路徑。
-  - list、find 在走訪前查一次根，個人空間目錄的重建（`stat_files`）先解析根；之後每進一層資料夾都用路徑重新列出。走訪中途把根、它上面的一段或任何一層資料夾換成連結，兩個平台都可能列出連結另一端的檔名，個人空間目錄還會把那些檔案的大小與修改時間寫進目錄檔。grep 讀檔不跟隨連結，讀不到內容。Linux 上隔離中的代理人用背景執行的指令就換得了，Auto、YOLO 下不需要人核准。後續在 POSIX 改成從開好的資料夾往下走（`os.fwalk`），和下一條一起處理；Windows 沒有 `dir_fd`，改完仍有這個時間窗。
-  - 決定 12 只涵蓋上面列的代理人檔案動詞；Touka 自己的其他檔案讀寫不在這次範圍，合併後第一個處理，下一次 dev 進 main 之前完成。處理完成之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
+  - list、find 在走訪前查一次根，個人空間目錄的重建（`stat_files`）先解析根。Linux 上 ADR-0293 起改成從開好的資料夾不跟隨地往下走，走訪中途換進來的連結不進入。Windows 沒有 `dir_fd`，每進一層資料夾仍用路徑重新列出：走訪中途把根、它上面的一段或任何一層資料夾換成連結，可能列出連結另一端的檔名，個人空間目錄還會把那些檔案的大小與修改時間寫進目錄檔。grep 讀檔不跟隨連結，讀不到內容。
+  - 決定 12 只涵蓋上面列的代理人檔案動詞；Touka 自己的其他檔案讀寫由 ADR-0293 處理，分兩個 PR（PR 1：個人空間；PR 2：`mcp_servers`、docgen 輸出、sandbox state），兩個都要在下一次 dev 進 main 之前合併。兩個都合併之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
   - 停止次數（`rhythm_service.stop_count`）只增不減、記在記憶體，每個被停止過的對話留一筆（幾十位元組），重啟才清掉；停止起點要靠次數只增不減，所以不在中途刪。
   - 子代理的工具在等 PreToolUse hook 時按停止，子代理不會停（子代理本來就不看對話的停止旗標，這次之前就是這樣）；hook 跑完後工具照常執行。
   - 選靈魂的後備路徑（MonitorLayer 沒認出靈魂時，`SoulLayer` 用最後一則 user 文字比對關鍵字）看得到 UserPromptSubmit 接上的 `<hook_output>` 區塊，可能因此選到另一個靈魂；選出的靈魂仍要通過 `require_soul_access`，不會越權。UI 請求很少走到這條路。

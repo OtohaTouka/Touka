@@ -28,6 +28,7 @@ from src.services.auth_service import AuthService
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
 
+from tests.support.zone_roots import point_zone_roots
 
 # ===========================================================================
 # DA25 — self-service change password
@@ -115,9 +116,7 @@ class TestDA26RefreshJtiConstantTime:
 class TestDA27IsProtectedPath:
     @pytest.fixture(autouse=True)
     def _base(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "src.services.resource_manager.get_app_data_dir", lambda: str(tmp_path)
-        )
+        point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
         self.base = tmp_path
 
     def test_soul_and_legacy_subpaths_are_protected(self):

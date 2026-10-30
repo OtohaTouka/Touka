@@ -13,12 +13,12 @@ import pytest_asyncio
 from memory_server import tools as memory_gateway
 from memory_server.services.legacy_store import LegacyStore
 from memory_server.services.manager import MemoryManager
-from src.services import resource_manager as resource_module
 from src.services.resource_manager import resource_manager
 from src.tools.builtin import memory as gateway
 from src.utils import async_db
 
 from tests.support.session_scope import A
+from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -150,7 +150,7 @@ async def conversation_db(
     scope_db: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[ConversationDB]:
     """Only relocate storage and bind real implementations; no reader substitute."""
-    monkeypatch.setattr(resource_module, "get_app_data_dir", lambda: str(tmp_path))
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     manager = MemoryManager()
     monkeypatch.setattr(memory_gateway, "_global_manager", manager)
     fixture = ConversationDB(scope_db.path, manager)

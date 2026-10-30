@@ -19,6 +19,15 @@ from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from urllib.parse import unquote, urlsplit
 
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    Anchor,
+    ZoneRoots,
+    anchor_at,
+    contains_zone,
+    zone_of,
+)
+
 from src.services.isolation.project_scan import layout_anchors
 from src.utils.isolation_policy import (
     MCP_ORIGINS,
@@ -307,12 +316,25 @@ def is_file_reference(path: Path) -> bool:
     return not stat.S_ISDIR(info.st_mode) or lexical.is_junction()
 
 
-def _custom_drive_hit(path: Path, custom: Path, *, code_dir: bool) -> bool:
-    """``custom/*/drive``：在某個 drive 底下；載入程式碼的位置另算 ``custom/<x>`` 本身。"""
-    if not path.is_relative_to(custom) or path == custom:
-        return code_dir and _under(custom, path)
-    parts = path.relative_to(custom).parts
-    return (len(parts) >= 2 and parts[1] == "drive") or (code_dir and len(parts) == 1)
+def _zone_roots(layout: SandboxLayout) -> ZoneRoots:
+    """版面的區根；大小寫比較同 ``_comparison_path``（macOS 不分大小寫）."""
+    state = layout.state_root
+    return ZoneRoots(
+        _comparison_path(_resolve(layout.data_root)),
+        None if state is None else _comparison_path(_resolve(state)),
+    )
+
+
+def _in_agent_zone(path: Path, zones: ZoneRoots, *, code_dir: bool) -> bool:
+    """在某個區裡，或就是某個錨點（``custom`` 本身除外）；形狀經 ``zone_of``（ADR-0293 R3）.
+
+    ``code_dir`` 另算錨點的上層與 ``custom/<x>``（``contains_zone``）。
+    """
+    if zone_of(path, zones, anchors=ALL_ANCHORS) is not None:
+        return True
+    if code_dir:
+        return contains_zone(path, zones, anchors=ALL_ANCHORS)
+    return anchor_at(path, zones, anchors=ALL_ANCHORS) not in (None, Anchor.CUSTOM_DRIVE)
 
 
 def _mirror_hit(path: Path, layout: SandboxLayout, *, code_dir: bool) -> bool:
@@ -337,18 +359,10 @@ def agent_influenced(path: Path, layout: SandboxLayout, *, code_dir: bool) -> bo
 
     ``code_dir``（載入程式碼的位置）另算這些根的上層（namespace package 也能 import 進去）。
     """
-    roots = [personal_drive_root(layout), managed_root(layout), docgen_output_root(layout)]
-    roots += [_resolve(layout.state_root)] if layout.state_root else []
-    roots = [_comparison_path(root) for root in roots]
-    custom = _comparison_path(_resolve(layout.data_root) / "custom")
+    zones = _zone_roots(layout)
     for candidate in _candidates(path):
         candidate = _comparison_path(candidate)
-        for root in roots:
-            if _under(candidate, root) or (
-                code_dir and _under(root, candidate)
-            ):
-                return True
-        if _custom_drive_hit(candidate, custom, code_dir=code_dir):
+        if _in_agent_zone(candidate, zones, code_dir=code_dir):
             return True
         if _mirror_hit(candidate, layout, code_dir=code_dir):
             return True

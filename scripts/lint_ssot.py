@@ -804,7 +804,7 @@ class SSOTGuard(ast.NodeVisitor):
         "conftest.py", "update_docs.py", "export_schema.py",
         "resource_manager.py", "config_utils.py", "terminal.py",
         "soul_io.py", "evolution_security.py", "custom_io.py",
-        "core_file_ops.py", "no_follow.py", "test_ssot_guard_path.py",
+        "core_file_ops.py", "no_follow.py", "zone_paths.py", "test_ssot_guard_path.py",
         "test_ssot_guard_io.py", "test_ssot_guard_local_import.py", "smoke_mcp_lifecycle.py",
         "smoke_io_prison.py", "smoke_ldh_handshake.py",
         "smoke_mission_awareness.py", "smoke_group_dispatcher.py",

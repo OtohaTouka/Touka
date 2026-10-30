@@ -8,8 +8,9 @@
 子 loop 名額；回結構化 permission_denied（``reason=human_approval_required``），請代理人等人回來
 後在對話裡重跑。人回來重跑時走逐條跳卡；attempts 達上限的永鎖仍是另一種回傳。
 
-全部 sandbox：看板走 conftest 沙盒的 MissionManager，critic 的 ``complete_once`` 換成假函式，
-指令只用 ``sys.executable`` 在 tmp_path 寫標記檔，審批由測試直接解算行程內 broker。
+全部 sandbox：data 根換到 ``zone_data_root``，看板與個人空間都在 tmp_path 底下；critic 的
+``complete_once`` 換成假函式，指令只用 ``sys.executable`` 在個人空間（cwd）寫標記檔，審批由測試
+直接解算行程內 broker。
 """
 
 from __future__ import annotations
@@ -38,6 +39,17 @@ _APPROVE = (
     ' "confidence": 0.9}\n```'
 )
 _CMD = f"\"{_PY}\" -c \"open('ran.txt', 'w').write('x')\""
+
+
+@pytest.fixture(autouse=True)
+def _drive_in_tmp(zone_data_root):
+    """看板與蒐證的個人空間都在這個測試自己的 data 根（ADR-0293）。"""
+
+
+def _ran(identity: AgentIdentity) -> bool:
+    """驗證指令在個人空間（cwd）寫的標記檔是否存在。"""
+    drive = mt.resource_manager.agent_drive(identity)
+    return mt.resource_manager.zone_kind(drive.child("ran.txt")) == "file"
 
 
 @pytest.fixture(autouse=True)
@@ -76,8 +88,7 @@ async def _board(identity: AgentIdentity) -> MissionManager:
     return manager
 
 
-async def _review(identity: AgentIdentity, tmp_path, monkeypatch, **extra: Any) -> str:
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: tmp_path)
+async def _review(identity: AgentIdentity, **extra: Any) -> str:
     call = {"_ctx": None, "model": "producer-brain", "critic_model": "critic-brain", **extra}
     return str(
         await mt.mission_tools(action="request_review", task_id="t1", identity=identity, **call)
@@ -147,15 +158,15 @@ async def _assert_round_cost_nothing(manager, identity, critic_calls) -> None:
     ids=["heartbeat", "subagent"],
 )
 async def test_no_human_present_waits_without_critic_attempts_or_lock(
-    tmp_path, monkeypatch, critic_calls, headless
+    critic_calls, headless
 ):
     identity = AgentIdentity.for_role(agent_id="B1Wait", role="Owner")
     manager = await _board(identity)
 
     # 跑到超過往返上限（3）：修補前第 3 輪就永鎖
-    results = [await _review(identity, tmp_path, monkeypatch, **headless) for _ in range(4)]
+    results = [await _review(identity, **headless) for _ in range(4)]
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     assert critic_calls == []
     task = await _task(manager, identity)
     assert task.review_status == "BLOCKED_FOR_HUMAN"
@@ -177,18 +188,18 @@ async def test_no_human_present_waits_without_critic_attempts_or_lock(
         assert "execute_command" not in result
 
 
-async def test_human_returns_and_reruns_in_chat_with_a_card(tmp_path, monkeypatch, critic_calls):
+async def test_human_returns_and_reruns_in_chat_with_a_card(critic_calls):
     """等人確認之後，人回來在對話裡重跑：那一條跳卡、核准才跑，送審放行，任務能 DONE."""
     identity = AgentIdentity.for_role(agent_id="B1Return", role="Owner")
     manager = await _board(identity)
-    await _review(identity, tmp_path, monkeypatch, auth_level="Manual")
+    await _review(identity, auth_level="Manual")
     events, chat = _chat()
 
-    rerun = asyncio.create_task(_review(identity, tmp_path, monkeypatch, **chat))
+    rerun = asyncio.create_task(_review(identity, **chat))
     await _resolve_next(approved=True)
     result = await rerun
 
-    assert (tmp_path / "ran.txt").exists()
+    assert _ran(identity)
     card = next(e for e in events if e["type"] == "tool_approval_request")
     assert (card["call_id"], card["args"]) == ("call-r1:verify:1", {"command": _CMD})
     assert len(critic_calls) == 1
@@ -200,7 +211,7 @@ async def test_human_returns_and_reruns_in_chat_with_a_card(tmp_path, monkeypatc
 
 
 async def test_unanswered_card_waits_without_critic_attempts_or_lock(
-    tmp_path, monkeypatch, critic_calls
+    monkeypatch, critic_calls
 ):
     """有人在場但卡片逾時：和無人在場同一條路（等人確認），訊息說人沒有回應."""
     monkeypatch.setattr("src.services.approval_service.DEFAULT_TIMEOUT_S", 0.05)
@@ -208,9 +219,9 @@ async def test_unanswered_card_waits_without_critic_attempts_or_lock(
     manager = await _board(identity)
     events, chat = _chat()
 
-    result = await _review(identity, tmp_path, monkeypatch, **chat)
+    result = await _review(identity, **chat)
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     await _assert_round_cost_nothing(manager, identity, critic_calls)
     payload = json.loads(result)
     assert (payload["error_class"], payload["reason"]) == (
@@ -223,17 +234,17 @@ async def test_unanswered_card_waits_without_critic_attempts_or_lock(
     assert ("tool_approval_resolved", "timeout") in _trail(events)
 
 
-async def test_rejected_card_skips_critic_attempts_and_lock(tmp_path, monkeypatch, critic_calls):
+async def test_rejected_card_skips_critic_attempts_and_lock(critic_calls):
     """人類拒絕這條指令：不送審、不計次數、不上鎖；請代理人先問人，不提 execute_command."""
     identity = AgentIdentity.for_role(agent_id="B1Reject", role="Owner")
     manager = await _board(identity)
     _events, chat = _chat()
 
-    pending = asyncio.create_task(_review(identity, tmp_path, monkeypatch, **chat))
+    pending = asyncio.create_task(_review(identity, **chat))
     await _resolve_next(approved=False)
     result = await pending
 
-    assert not (tmp_path / "ran.txt").exists()
+    assert not _ran(identity)
     await _assert_round_cost_nothing(manager, identity, critic_calls)
     payload = json.loads(result)
     assert (payload["error_class"], payload["reason"]) == (
@@ -246,7 +257,7 @@ async def test_rejected_card_skips_critic_attempts_and_lock(tmp_path, monkeypatc
     assert "execute_command" not in result
 
 
-async def test_approved_then_rejected_commands_skip_critic(tmp_path, monkeypatch, critic_calls):
+async def test_approved_then_rejected_commands_skip_critic(monkeypatch, critic_calls):
     """兩條指令先准後拒：不送審；核准那條的步驟照常收尾、被拒那條以錯誤結束."""
     identity = AgentIdentity.for_role(agent_id="B1Two", role="Owner")
     manager = await _board(identity)
@@ -261,7 +272,7 @@ async def test_approved_then_rejected_commands_skip_critic(tmp_path, monkeypatch
         return EvidenceBundle(cmd_results=results)
 
     monkeypatch.setattr("src.services.review.review_loop.collect_evidence", _two_commands)
-    pending = asyncio.create_task(_review(identity, tmp_path, monkeypatch, **chat))
+    pending = asyncio.create_task(_review(identity, **chat))
     await _resolve_next(approved=True)
     await _resolve_next(approved=False)
     result = await pending
@@ -281,7 +292,7 @@ async def test_approved_then_rejected_commands_skip_critic(tmp_path, monkeypatch
     ]
 
 
-async def test_attempt_cap_lock_reads_differently(tmp_path, monkeypatch, critic_calls):
+async def test_attempt_cap_lock_reads_differently(critic_calls):
     """永鎖（往返達上限）不是「等人確認」：回一般審查結果、不帶 human_approval_required."""
     identity = AgentIdentity.for_role(agent_id="B1Locked", role="Owner")
     manager = await _board(identity)
@@ -294,7 +305,7 @@ async def test_attempt_cap_lock_reads_differently(tmp_path, monkeypatch, critic_
         review_locked=True,
     )
 
-    result = await _review(identity, tmp_path, monkeypatch, auth_level="Manual")
+    result = await _review(identity, auth_level="Manual")
 
     assert result.startswith("🔎 Review [t1] → BLOCKED_FOR_HUMAN\nreview_locked")
     assert "human_approval_required" not in result

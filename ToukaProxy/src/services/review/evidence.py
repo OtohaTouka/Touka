@@ -13,6 +13,11 @@ verdict 的權威來源：critic 無法以幻覺竄改的**客觀證據**——
 安全邊界：``shlex.split`` 後以 ``shell=False`` 執行（無 shell 注入面）、
 ``cwd=artifact_root``（agent 沙盒）、硬 timeout；蒐證對檔案**唯讀**。
 
+ADR-0293：``artifact_root`` 是個人空間的 ``ZonePath``。證據檔以區內方式查（不跟隨連結；名稱不能
+當成區內路徑時算不存在），路上或最後一段是連結就丟 ``LinkRefusedError``，由 review_loop 以固定
+原因轉人。cwd 經 ``zone_handoff`` 交出到 spawn 回來；行程帶 ``agent_id`` 登記，重置、刪除時一併
+停掉，這個代理人正在重置或刪除時不啟動（``AGENT_BUSY``）。
+
 指令由 agent 撰寫、可能不經 HITL 執行，故與 ``execute_command`` 同等對待：
 先過 ``command_gate``（終端指令政策）、子程序只拿淨化環境（無 Touka 密鑰）、
 以新行程群組啟動，逾時或取消時連坐殺整棵行程樹。spawn 前才經隔離 runner 改寫啟動參數
@@ -25,23 +30,31 @@ import asyncio
 import logging
 import re
 import shlex
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from memory_server.utils.no_follow import ZoneLinkRefusedError
+from memory_server.utils.zone_paths import HandoffKind, ZoneSegmentError
+
+from src.services import destructive_ops
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.agent_command import command_level, command_scope, prepare_command
 from src.services.isolation.runners import IsolationUnavailableError, executor_max_seconds
 from src.services.permission_service import permission_service
 from src.services.process_registry import (
+    process_registry,
     reap_cancelled_process,
     reap_process_tree,
     terminate_process_tree,
 )
+from src.services.resource_manager import resource_manager
 from src.services.review.reviewer import CmdResult, EvidenceBundle
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from pathlib import Path
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.identity import AgentIdentity
     from src.services.auto_reviewer import ReviewOutcome as ReviewerOutcome
@@ -81,6 +94,7 @@ NO_HUMAN_DECISION = "requires human approval, but no human decision arrived"  # 
 REJECTED_BY_HUMAN = "rejected by the human"
 DENIED_BY_REVIEWER = "denied by the Auto reviewer"
 NO_ISOLATED_ENVIRONMENT = "requires an isolated execution environment, but none is available"
+AGENT_BUSY = "not run: this agent is being reset or deleted"  # ADR-0293 R11
 
 # no-op 假考卷：整條等於／或以這些前綴開頭（正規化小寫後比對）。
 _NOOP_EXACT = frozenset({"true", ":", "exit 0"})
@@ -161,7 +175,7 @@ def policy_command_gate(
 async def _run_cmd(
     cmd: str,
     *,
-    artifact_root: Path,
+    artifact_root: ZonePath,
     timeout_seconds: float,
     command_gate: CommandGate,
     identity: AgentIdentity | None = None,
@@ -184,40 +198,53 @@ async def _run_cmd(
     if not args:
         return CmdResult(cmd=cmd, rejected_reason="empty command")
 
+    # 重置、刪除這個代理人期間不啟動（也不為它跳審批卡）
+    if identity is not None and destructive_ops.is_held(identity):
+        return CmdResult(cmd=cmd, rejected_reason=AGENT_BUSY)
+
     # 解析得出才過政策閘：不為跑不起來的指令跳審批卡。
     denied = await command_gate(cmd)
     if denied:
         return CmdResult(cmd=cmd, rejected_reason=denied)
 
-    try:
-        grant = consent(cmd) if consent is not None else None
-        scope = None if identity is None else await command_scope(identity, project_root, grant)
-        clean_env = EvolutionPathGuard.get_clean_env()
-        prepared = await prepare_command(
-            scope, args, clean_env, artifact_root, max_seconds=executor_max_seconds(timeout_seconds)
-        )
-    except IsolationUnavailableError as exc:
-        logger.warning("Verification command not run: isolation unavailable (%s)", exc.reason)
-        return CmdResult(cmd=cmd, rejected_reason=NO_ISOLATED_ENVIRONMENT)
-    plan = prepared.plan
-    try:
-        proc = await spawn_exec(
-            *plan.argv,
-            new_process_group=True,
-            cwd=str(plan.cwd),
-            env=plan.env,
-            pass_fds=plan.pass_fds,
-            stdin=asyncio.subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        prepared.report()  # 沒啟動：狀態 fd 的讀端照樣關掉
-        return CmdResult(cmd=cmd, rejected_reason=f"command not runnable: {exc}")
-    finally:
-        plan.release()  # spawn 成功或失敗都關掉 runner 為這次開的 fd
+    # 個人空間是連結就丟 LinkRefusedError（review_loop 轉人）；交出的字串到 spawn 回來才取消
+    kind = HandoffKind.SUBPROCESS_CWD
+    with resource_manager.zone_handoff(artifact_root, kind) as cwd:
+        try:
+            grant = consent(cmd) if consent is not None else None
+            scope = None if identity is None else await command_scope(identity, project_root, grant)
+            clean_env = EvolutionPathGuard.get_clean_env()
+            prepared = await prepare_command(
+                scope, args, clean_env, Path(cwd), max_seconds=executor_max_seconds(timeout_seconds)
+            )
+        except IsolationUnavailableError as exc:
+            logger.warning("Verification command not run: isolation unavailable (%s)", exc.reason)
+            return CmdResult(cmd=cmd, rejected_reason=NO_ISOLATED_ENVIRONMENT)
+        plan = prepared.plan
+        try:
+            proc = await spawn_exec(
+                *plan.argv,
+                new_process_group=True,
+                cwd=str(plan.cwd),
+                env=plan.env,
+                pass_fds=plan.pass_fds,
+                stdin=asyncio.subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            prepared.report()  # 沒啟動：狀態 fd 的讀端照樣關掉
+            return CmdResult(cmd=cmd, rejected_reason=f"command not runnable: {exc}")
+        finally:
+            plan.release()  # spawn 成功或失敗都關掉 runner 為這次開的 fd
 
+    agent_id = identity.agent_id if identity is not None else None
+    process_registry.register(None, proc, agent_id=agent_id)
     try:
+        # 登記之後再看一次：檢查之後才開始的重置或刪除，停指令時一定看得到這個行程
+        if identity is not None and destructive_ops.is_held(identity):
+            await reap_process_tree(proc, terminate_process_tree)
+            return CmdResult(cmd=cmd, rejected_reason=AGENT_BUSY)
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
     except TimeoutError:
         await reap_process_tree(proc, terminate_process_tree)  # 執行緒裡殺＋有界回收
@@ -227,6 +254,7 @@ async def _run_cmd(
         raise
     finally:
         prepared.report()  # 跑完（含逾時、取消）讀狀態 fd：只認啟動器寫的代碼
+        process_registry.unregister(None, proc, agent_id=agent_id)
 
     output = (stdout or b"").decode("utf-8", errors="replace").strip()
     snippet = output[:_OUTPUT_SNIPPET_LIMIT]
@@ -249,7 +277,7 @@ async def collect_evidence(
     artifact_refs: list[str],
     verification_cmd: str | None,
     test_log: str | None,
-    artifact_root: Path,
+    artifact_root: ZonePath,
     command_gate: CommandGate,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     identity: AgentIdentity | None = None,
@@ -259,7 +287,8 @@ async def collect_evidence(
     """對一個 task 做全部客觀蒐證，回 EvidenceBundle（非阻塞、確定性）.
 
     ``command_gate`` 必填：呼叫端必須明示 verification_cmd 的執行政策。沒有 ``identity``
-    時隔離層級當 none、沒有同意（真的 runner broker 一律拒絕執行）。
+    時隔離層級當 none、沒有同意（真的 runner broker 一律拒絕執行）。個人空間或證據檔的路上
+    有連結時丟 ``LinkRefusedError``。
     """
     cmd_results: list[CmdResult] = []
     if verification_cmd and verification_cmd.strip():
@@ -275,9 +304,7 @@ async def collect_evidence(
             )
         )
 
-    artifacts_present = {
-        ref: (artifact_root / ref).is_file() for ref in (artifact_refs or [])
-    }
+    artifacts_present = {ref: _artifact_present(artifact_root, ref) for ref in artifact_refs or []}
 
     excerpt = (test_log or "").strip()[:_TEST_LOG_EXCERPT_LIMIT] or None
     return EvidenceBundle(
@@ -285,6 +312,18 @@ async def collect_evidence(
         artifacts_present=artifacts_present,
         test_log_excerpt=excerpt,
     )
+
+
+def _artifact_present(root: ZonePath, ref: str) -> bool:
+    """證據檔是個人空間裡的一般檔案（不跟隨）；名稱不能當成區內路徑時算不存在."""
+    try:
+        target = root.join_rel(ref)
+    except ZoneSegmentError:
+        return False
+    kind = resource_manager.zone_kind(target)  # 路上有連結丟 ZoneLinkRefusedError
+    if kind == "link":
+        raise ZoneLinkRefusedError(target.display())
+    return kind == "file"
 
 
 def bundle_digest(bundle: EvidenceBundle) -> str:

@@ -15,6 +15,7 @@ from memory_server import get_app_data_dir
 from memory_server.config_utils import (
     get_current_epoch,
     get_embedding_model_name,
+    get_resource_proxy,
     get_workspace_root,
 )
 from memory_server.factual import ArchiveResult, FactualStore
@@ -45,7 +46,8 @@ if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
 
     from memory_server.models.source_ref import SourceRef
-    from memory_server.protocols import ISourceResolver
+    from memory_server.protocols import IResourceProxy, ISourceResolver
+    from memory_server.utils.zone_paths import ZonePath
 
 logger = logging.getLogger(__name__)
 
@@ -96,27 +98,11 @@ class MemoryManager:
             path.mkdir(parents=True, exist_ok=True)  # noqa: IO_PRISON_VIOLATION
         return path
 
-    def get_personal_drive_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path:
-        """獲取指定代理人的個人硬碟目錄路徑 (SSOT)."""
-        if resource_proxy and hasattr(resource_proxy, "get_vault_path"):
-            path_str = resource_proxy.get_vault_path("personal", identity)
-            if path_str:
-                return Path(path_str)
-
-        app_data = Path(get_app_data_dir())
-        agent_id = identity.agent_id
-
-        # 根據物理目錄存在性判定 (Path SSOT 備援邏輯)
-        if (app_data / "soul" / agent_id).exists():
-            path = app_data / "personal_drive" / agent_id
-        else:
-            path = app_data / "custom" / agent_id / "drive"
-
-        if resource_proxy and hasattr(resource_proxy, "make_dir"):
-            resource_proxy.make_dir(str(path))
-        else:
-            path.mkdir(parents=True, exist_ok=True)  # noqa: IO_PRISON_VIOLATION
-        return path
+    def get_personal_drive_dir(
+        self, identity: AgentIdentity, resource_proxy: IResourceProxy | None = None
+    ) -> ZonePath | None:
+        """代理人的個人空間（``ZonePath``，ADR-0293；不建資料夾）；id 不能當一段時回 None."""
+        return (resource_proxy or get_resource_proxy()).agent_drive(identity)
 
     def get_soul_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path | None:
         """獲取指定代理人的靈魂腳本目錄路徑 (SSOT)."""

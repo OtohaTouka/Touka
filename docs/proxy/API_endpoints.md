@@ -17,7 +17,7 @@
 - `POST /v1/auth/refresh` - Token 刷新
 - `POST /v1/auth/change-password` - 自助修改密碼（驗當前密碼→清臨時旗標→撤銷 refresh token，DA25）⭐
 - `GET /stats` - 統計數據
-- `GET /v1/outputs/{agent_id}/{filename}` - 主權資產服務 ⭐
+- `GET /v1/outputs/{agent_id}/{filename}` - 主權資產服務 ⭐（ADR-0293：`outputs` 或檔案是連結時回 404，不送出連結另一端的內容；檔名只能是一段，含 `/`、`\`、NUL、前後空白或是 `.`、`..` 時回 403，Windows 另外不收 `:`、結尾的點與保留名）
 
 ### 靈魂管理
 - `POST /souls` - 建立靈魂

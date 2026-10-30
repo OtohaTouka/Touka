@@ -22,7 +22,7 @@ from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
     assert_timeline_cleared,
 )
-from src.services.agent_reset.orchestrator import destructive_op
+from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.auth_service import AuthService
 from src.services.dispatchers.route_family import is_selectable_brain
 from src.services.identity_router import get_verified_identity
@@ -31,6 +31,7 @@ from src.services.models import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
+from src.tools import terminal
 from src.utils import custom_io, soul_io
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import (
@@ -137,20 +138,22 @@ async def create_soul(
         logger.warning("Soul %s create rejected: model %r is not selectable", agent_id, base_model)
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND)
 
+    drive = resource_manager.soul_drive(new_identity)  # 個人空間走區內方法（ADR-0293）
+    if drive is None:
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     await session_service.invalidate_agent_sessions(new_identity)
     app_data_dir = Path(resource_manager.get_base_path())
-    dir_specs = {
-        "soul": soul_path,
-        "personal_drive": app_data_dir / "personal_drive" / agent_id,
-        "legacy": app_data_dir / "legacy" / agent_id,
-    }
+    dir_specs = {"soul": soul_path, "legacy": app_data_dir / "legacy" / agent_id}
     # D6 回滾範圍＝本次「新建」的目錄；personal_drive/legacy 可能先於本次即存在
     # （舊資料），失敗回滾絕不誤刪既有資料。
     newly_created = [name for name, d in dir_specs.items() if not d.exists()]
+    if resource_manager.zone_kind(drive) == "missing":
+        newly_created.append("personal_drive")
 
     try:
         for d in dir_specs.values():
             resource_manager.make_dir(d)
+        resource_manager.zone_make_dir(drive)
 
         # 寫入人格＋設定：走 soul_io 受認可通道（_safe_target 監獄＋原子寫＋自動備份）。
         # 不弱化 resource_manager 的 Soul Protection 原語——它照擋其他一切呼叫者。
@@ -401,6 +404,12 @@ async def delete_soul(
         # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
+        # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個靈魂的全部指令，
+        # 標記期間也不會開新的。
+        refuse_linked_drive(resource_manager.soul_drive(identity))
+        killed = await terminal.stop_agent_commands(identity)
+        if killed:
+            logger.info("Soul %s: stopped %d command(s) before deleting", soul_id, killed)
         # 隔離暫存區的 HOME／TMP 也要清（同名新靈魂不沿用舊檔案）；清不掉就 503、什麼都不刪。
         # Owner 身分：soul/ 已不在的孤兒也要解析到 personal_drive（不是 custom 的 drive）。
         try:

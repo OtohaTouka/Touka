@@ -9,18 +9,25 @@ ADR-0119 遞延項落地：``bash`` → ``execute_command`` **非同步審批**�
 execution_id），審批等待與核准後執行移入背景任務；``get_command_result`` 取回結果
 （依 agent 隔離）。``bash`` 保留為 shim（可執行、不再廣告、同享非同步語義）。
 審批端點／SSE／前端（/terminal/approve、bash_approval_request 事件）完全不變。
+
+ADR-0293：個人空間是 ``ZonePath``；cwd 經 ``zone_handoff`` 交出到 spawn 回來，路上有連結就不執行。
+行程帶 ``agent_id`` 登記，背景與待審批工作以代理人為鍵保留，重置與刪除時由 ``stop_agent_commands``
+全部停掉；代理人正在重置或刪除時不開新指令（R11）。
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
 from pathlib import Path
 from typing import Any
 
-from src.config import UI_DEFAULT_URL, get_app_data_dir
+from memory_server.utils.no_follow import LINK_REFUSED_MESSAGE, LinkRefusedError
+from memory_server.utils.zone_paths import HandoffKind, ZonePath, ZoneSegmentError
+from src.config import UI_DEFAULT_URL
 from src.models.identity import AgentIdentity  # noqa: TC001, TC002
-from src.services import tool_errors
+from src.services import destructive_ops, tool_errors
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.agent_command import (
@@ -42,6 +49,7 @@ from src.services.process_registry import (
     reap_process_tree,
     terminate_process_tree,
 )
+from src.services.resource_manager import resource_manager
 from src.tools.execution_context import APPROVED_BY_AUTO_REVIEWER
 from src.utils.command_safety import (
     RUNNABLE_STRATEGIES,
@@ -73,26 +81,16 @@ def _classify_command_strategy(
     return permission_service.classify_command(command, identity, auth_level, isolation=isolation)
 
 
-def _get_agent_drive_path(identity: AgentIdentity) -> Path:
-    """獲取 Agent 的專屬硬碟物理路徑.
+class AgentBusyError(Exception):
+    """這個代理人正在重置或刪除：不開新指令（ADR-0293 R11）."""
 
-    Args:
-        identity: 經驗證的身分對象.
 
-    Returns:
-        Path: 解析後的絕對路徑實體.
-    """
-    try:
-        from src.services.resource_manager import resource_manager  # noqa: LOCAL_IMPORT_BAN
-        path_str = resource_manager.get_vault_path("personal", identity)
-        if path_str:
-            return Path(path_str).resolve()
-    except (ImportError, Exception):  # noqa: S110
-        logger.debug("resource_manager unavailable, using fallback drive path")
-    
-    # Fallback to default structure
-    base_data_dir = get_app_data_dir()
-    return (Path(base_data_dir) / "personal_drive" / identity.agent_id).resolve()
+def _get_agent_drive_path(identity: AgentIdentity) -> ZonePath:
+    """代理人的個人空間（指令的 cwd；ADR-0293）；ID 不能當成一段時丟 ``ZoneSegmentError``."""
+    drive = resource_manager.agent_drive(identity)
+    if drive is None:
+        raise ZoneSegmentError
+    return drive
 
 
 def win_to_wsl_path(win_path: str) -> str:
@@ -132,6 +130,9 @@ def _is_touka_ui_available() -> bool:
 # status: approval_pending → running → done | rejected | error
 _ASYNC_RESULTS: dict[str, dict[str, Any]] = {}
 _MAX_ASYNC_RESULTS = 100
+# 代理人（不分大小寫）還沒結束的背景與待審批工作，含被擠出結果存放區的（R11：重置時全部取消）
+_AGENT_TASKS: dict[str, set[asyncio.Task[None]]] = {}
+_UNFINISHED = ("approval_pending", "running")
 _RESULT_POLL_INTERVAL = 0.05
 _MAX_WAIT_SECONDS = 60
 
@@ -157,6 +158,45 @@ def reset_async_state_for_test() -> None:
         if task is not None and not task.done():
             task.cancel()
     _ASYNC_RESULTS.clear()
+    for tasks in _AGENT_TASKS.values():
+        for task in tasks:
+            task.cancel()
+    _AGENT_TASKS.clear()
+
+
+def _track_task(identity: AgentIdentity, task: asyncio.Task[None]) -> asyncio.Task[None]:
+    """以代理人為鍵保留背景工作到它結束（R11）."""
+    key = identity.agent_id.casefold()
+    tasks = _AGENT_TASKS.setdefault(key, set())
+    tasks.add(task)
+
+    def _forget(done: asyncio.Task[None]) -> None:
+        tasks.discard(done)
+        if not tasks and _AGENT_TASKS.get(key) is tasks:
+            del _AGENT_TASKS[key]
+
+    task.add_done_callback(_forget)
+    return task
+
+
+async def stop_agent_commands(identity: AgentIdentity) -> int:
+    """停掉這個代理人的全部指令（ADR-0293 R11；重置、刪除靈魂與自訂模型在動手前呼叫）.
+
+    結果存放區裡還沒結束的紀錄改成 ``stopped``；取消還沒結束的背景與待審批工作（含被擠出存放區
+    的）並等它們收掉自己的行程；再殺掉其他登記的行程（前景指令、互審驗證指令）。之後到操作結束
+    之間，新指令由 ``destructive_ops.is_held`` 擋下。回傳送出終止訊號的行程數。
+    """
+    key = identity.agent_id.casefold()
+    for record in _ASYNC_RESULTS.values():
+        if str(record.get("agent_id", "")).casefold() == key and record["status"] in _UNFINISHED:
+            record["status"] = "stopped"
+            record["result"] = _not_run(record.get("command", ""), AgentBusyError())
+    tasks = _AGENT_TASKS.pop(key, set())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return await asyncio.to_thread(process_registry.terminate_agent, identity)
 
 
 def _remember_result(exec_id: str, record: dict[str, Any]) -> None:
@@ -216,6 +256,35 @@ def _isolation_unavailable(command: str, reason: str) -> str:
     )
 
 
+# 指令沒有執行的原因（spawn 前拋出；由呼叫端轉成結構化回覆）
+_NOT_RUN = (IsolationUnavailableError, LinkRefusedError, AgentBusyError, ZoneSegmentError)
+
+
+def _not_run(command: str, exc: Exception) -> str:
+    """指令沒有執行的結構化回覆：隔離不可用、個人空間路上有連結、代理人正在重置或刪除."""
+    if isinstance(exc, IsolationUnavailableError):
+        return _isolation_unavailable(command, exc.reason)
+    if isinstance(exc, AgentBusyError):
+        return tool_errors.build_tool_error(
+            tool_errors.PERMISSION_DENIED,
+            f"Command was stopped or not run: this agent is being reset or deleted: {command}",
+            suggestion="Run it again after the reset or deletion ends.",
+            reason="agent_busy",
+        )
+    if isinstance(exc, ZoneSegmentError):
+        return tool_errors.build_tool_error(
+            tool_errors.VALIDATION_ERROR,
+            f"Command was not run: this agent's ID cannot be used as a folder name: {command}",
+            suggestion="Tell the user; the agent's personal drive cannot be located.",
+        )
+    return tool_errors.build_tool_error(
+        tool_errors.PERMISSION_DENIED,
+        f"Command was not run in the personal drive: {LINK_REFUSED_MESSAGE} Command: {command}",
+        suggestion="Do not run it another way; tell the user the personal drive needs checking.",
+        reason="drive_link_refused",
+    )
+
+
 def _running_signals(record: dict[str, Any]) -> list[str]:
     """由 record 計算諮詢訊號（P2b）——**僅供模型判斷、絕不自動 kill**。
 
@@ -260,7 +329,7 @@ def _running_status_payload(execution_id: str, record: dict[str, Any]) -> str:
 async def _execute_core(
     command: str,
     env: str,
-    drive_path: Path,
+    drive: ZonePath,
     session_id: str | None,
     emit: Any = None,
     call_id: str | None = None,
@@ -276,6 +345,10 @@ async def _execute_core(
     get_command_result 回部分輸出＋停滯偵測、stop_command 硬終止。
     spawn 前才依 ``scope`` 選隔離 runner（沒有 scope＝層級 none、沒有同意）；拿不到就拋
     ``IsolationUnavailableError``，不執行。回傳 ``(exit_code, output, duration_ms)``。
+
+    ``drive`` 是個人空間（ADR-0293）：cwd 經 ``zone_handoff`` 交出到 spawn 回來，路上有連結就拋
+    ``LinkRefusedError``、不執行。行程帶 scope 的代理人登記；代理人正在重置或刪除時拋
+    ``AgentBusyError``（spawn 前查一次；登記後再查一次，被持有就停掉這個行程）。
     """
     t_start = get_current_epoch()
     # Secret-leakage fix: child shells must NOT inherit Touka credentials
@@ -283,88 +356,104 @@ async def _execute_core(
     # Reuse the sandbox SSOT clean-env (strips secret-named + runtime-control vars).
     clean_env = EvolutionPathGuard.get_clean_env()
 
-    # 依平台/環境決定實際命令（三分支收斂為單一 async exec 呼叫）
     shell = effective_shell(env)
-    if shell == "bash":
-        cmd_args = ["/bin/bash", "-c", command]
-    elif shell == "powershell":
-        cmd_args = [
-            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command,
-        ]
-    elif shell == "wsl":
-        cmd_args = ["wsl", "--cd", win_to_wsl_path(str(drive_path)), "bash", "-c", command]
-    else:
+    if shell not in ("bash", "powershell", "wsl"):
         return (-1, f"Error: Unknown environment '{env}'. Supported: 'powershell', 'wsl'.", 0)
-    prepared = await prepare_command(
-        scope, cmd_args, clean_env, drive_path, max_seconds=executor_max_seconds(timeout)
-    )
-    plan = prepared.plan
+    identity = scope.identity if scope is not None else None
+    agent_id = identity.agent_id if identity is not None else None
+    if identity is not None and destructive_ops.is_held(identity):
+        raise AgentBusyError
 
     output_parts: list[str] = []
     exit_code = 0
     proc = None
-    try:
-        # P5d：以新行程群組啟動，讓逾時／`/stop` 能連坐殺掉衍生的孫進程（避免殘留孤兒）。
-        # 群組 kwargs 由 ExecutionBroker 單一入口提供（ADR-0239）。
-        try:
-            proc = await spawn_exec(
-                *plan.argv,
-                new_process_group=True,
-                cwd=None if shell == "wsl" else str(plan.cwd),  # wsl 以 --cd 指定工作目錄
-                env=plan.env,
-                pass_fds=plan.pass_fds,
-                stdin=asyncio.subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-        finally:
-            plan.release()  # spawn 成功或失敗都關掉 runner 為這次開的 fd
-        # 登記到「執行中子進程登記表」，讓 /stop 能硬終止這個正在跑的指令
-        process_registry.register(session_id, proc)
-        # P2b：背景模式把 proc 存進 record，讓 stop_command 能硬終止「這一筆」執行
-        if record is not None:
-            record["_proc"] = proc
 
-        async def _run() -> None:
-            """逐行讀取 stdout（含合併的 stderr），即時 live 串流並收集完整輸出。"""
-            assert proc is not None and proc.stdout is not None
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace")
-                output_parts.append(text)
-                # P2b：逐行 emit tool_stream，前端 ToolStepTracker 即時 append
-                if emit and call_id:
-                    await emit(tool_stream_event(call_id=call_id, chunk=text))
-                # P2b：背景模式逐行更新 record，供 get_command_result 回部分輸出＋停滯偵測
+    async def _run() -> None:
+        """逐行讀取 stdout（含合併的 stderr），即時 live 串流並收集完整輸出。"""
+        assert proc is not None and proc.stdout is not None
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", errors="replace")
+            output_parts.append(text)
+            # P2b：逐行 emit tool_stream，前端 ToolStepTracker 即時 append
+            if emit and call_id:
+                await emit(tool_stream_event(call_id=call_id, chunk=text))
+            # P2b：背景模式逐行更新 record，供 get_command_result 回部分輸出＋停滯偵測
+            if record is not None:
+                record["output"] = "".join(output_parts)
+                record["last_output_at"] = get_current_epoch()
+        await proc.wait()
+
+    with contextlib.ExitStack() as handoff:
+        cwd = handoff.enter_context(
+            resource_manager.zone_handoff(drive, HandoffKind.SUBPROCESS_CWD)
+        )
+        # 依平台/環境決定實際命令（三分支收斂為單一 async exec 呼叫）
+        if shell == "bash":
+            cmd_args = ["/bin/bash", "-c", command]
+        elif shell == "powershell":
+            cmd_args = [
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command,
+            ]
+        else:
+            cmd_args = ["wsl", "--cd", win_to_wsl_path(cwd), "bash", "-c", command]
+        prepared = await prepare_command(
+            scope, cmd_args, clean_env, Path(cwd), max_seconds=executor_max_seconds(timeout)
+        )
+        plan = prepared.plan
+        try:
+            # P5d：以新行程群組啟動，讓逾時／`/stop` 能連坐殺掉衍生的孫進程（避免殘留孤兒）。
+            # 群組 kwargs 由 ExecutionBroker 單一入口提供（ADR-0239）。
+            try:
+                proc = await spawn_exec(
+                    *plan.argv,
+                    new_process_group=True,
+                    cwd=None if shell == "wsl" else str(plan.cwd),  # wsl 以 --cd 指定工作目錄
+                    env=plan.env,
+                    pass_fds=plan.pass_fds,
+                    stdin=asyncio.subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+            finally:
+                plan.release()  # spawn 成功或失敗都關掉 runner 為這次開的 fd
+                handoff.close()  # 個人空間的 cwd 只交出到 spawn 回來（R7）
+            # 登記到「執行中子進程登記表」：/stop 依 session、重置與刪除依代理人硬終止
+            process_registry.register(session_id, proc, agent_id=agent_id)
+            try:
+                if identity is not None and destructive_ops.is_held(identity):
+                    # 檢查之後、登記之前開始的重置沒看到這個行程：自己停掉
+                    await reap_process_tree(proc, terminate_process_tree)
+                    raise AgentBusyError
+                # P2b：背景模式把 proc 存進 record，讓 stop_command 能硬終止「這一筆」執行
                 if record is not None:
-                    record["output"] = "".join(output_parts)
-                    record["last_output_at"] = get_current_epoch()
-            await proc.wait()
-
-        try:
-            await asyncio.wait_for(_run(), timeout=timeout)
-        finally:
-            process_registry.unregister(session_id, proc)
-        exit_code = proc.returncode if proc.returncode is not None else -1
-    except asyncio.CancelledError:
-        # 呼叫端取消（/stop、背景任務收束）時子進程不能被遺棄：在執行緒裡連坐殺整個行程
-        # 群組並有界等待回收（Windows taskkill 是同步的，不能卡事件迴圈）。
-        if proc is not None and proc.returncode is None:
-            await reap_cancelled_process(proc, terminate_process_tree)
-        prepared.report()  # 狀態 fd 的讀端照樣讀完關掉
-        raise
-    except TimeoutError:
-        if proc is not None:
-            # P5d：連坐殺整個行程群組（含孫進程）；在執行緒裡殺、有界等待回收，被取消時照樣拋出
-            await reap_process_tree(proc, terminate_process_tree)
-        output_parts.append(f"\nError: Command timed out after {timeout} seconds.")
-        exit_code = -1
-    except Exception as e:
-        logger.exception("🔥 Terminal execution exception")
-        output_parts.append(f"Unexpected Error: {str(e)}")
-        exit_code = -1
+                    record["_proc"] = proc
+                await asyncio.wait_for(_run(), timeout=timeout)
+            finally:
+                process_registry.unregister(session_id, proc, agent_id=agent_id)
+            exit_code = proc.returncode if proc.returncode is not None else -1
+        except AgentBusyError:
+            prepared.report()
+            raise
+        except asyncio.CancelledError:
+            # 呼叫端取消（/stop、背景任務收束、重置）時子進程不能被遺棄：在執行緒裡連坐殺整個
+            # 行程群組並有界等待回收（Windows taskkill 是同步的，不能卡事件迴圈）。
+            if proc is not None and proc.returncode is None:
+                await reap_cancelled_process(proc, terminate_process_tree)
+            prepared.report()  # 狀態 fd 的讀端照樣讀完關掉
+            raise
+        except TimeoutError:
+            if proc is not None:
+                # P5d：連坐殺整個行程群組（含孫進程）；在執行緒裡殺、有界等待回收，被取消時照樣拋出
+                await reap_process_tree(proc, terminate_process_tree)
+            output_parts.append(f"\nError: Command timed out after {timeout} seconds.")
+            exit_code = -1
+        except Exception as e:
+            logger.exception("🔥 Terminal execution exception")
+            output_parts.append(f"Unexpected Error: {str(e)}")
+            exit_code = -1
 
     output = "".join(output_parts)
     prepared.report()
@@ -396,7 +485,7 @@ async def _approve_then_execute(
     command: str,
     env: str,
     identity: AgentIdentity,
-    drive_path: Path,
+    drive: ZonePath,
     session_id: str | None,
     scope: CommandScope,
 ) -> None:
@@ -425,7 +514,7 @@ async def _approve_then_execute(
 
         record["status"] = "running"
         exit_code, output, duration_ms = await _execute_core(
-            command, env, drive_path, session_id, scope=scope
+            command, env, drive, session_id, scope=scope
         )
         _push_result_safely(exec_id, identity, command, exit_code, output, duration_ms)
         header = f"[EXIT_CODE: {exit_code}]\n"
@@ -440,9 +529,9 @@ async def _approve_then_execute(
         )
     except asyncio.CancelledError:
         raise
-    except IsolationUnavailableError as exc:
+    except _NOT_RUN as exc:
         record["status"] = "error"
-        record["result"] = _isolation_unavailable(command, exc.reason)
+        record["result"] = _not_run(command, exc)
     except Exception as exc:
         logger.exception("🔥 Async approval/execution failed for %s", exec_id)
         record["status"] = "error"
@@ -454,7 +543,7 @@ async def _run_background(
     command: str,
     env: str,
     identity: AgentIdentity,
-    drive_path: Path,
+    drive: ZonePath,
     session_id: str | None,
     dangerous: bool = False,
     scope: CommandScope | None = None,
@@ -472,7 +561,7 @@ async def _run_background(
         exit_code, output, duration_ms = await _execute_core(
             command,
             env,
-            drive_path,
+            drive,
             session_id,
             timeout=_BACKGROUND_TIMEOUT,
             record=record,
@@ -493,9 +582,9 @@ async def _run_background(
         )
     except asyncio.CancelledError:
         raise
-    except IsolationUnavailableError as exc:
+    except _NOT_RUN as exc:
         record["status"] = "error"
-        record["result"] = _isolation_unavailable(command, exc.reason)
+        record["result"] = _not_run(command, exc)
     except Exception as exc:
         logger.exception("🔥 Background execution failed for %s", exec_id)
         if record.get("status") != "stopped":
@@ -526,8 +615,13 @@ async def execute_command(
     Returns:
         str: 執行結果 Markdown、approval_pending JSON 或結構化錯誤.
     """
-    drive_path = _get_agent_drive_path(identity)
-    drive_path.mkdir(parents=True, exist_ok=True)
+    if destructive_ops.is_held(identity):  # 正在重置或刪除：不開新指令（R11）
+        return _not_run(command, AgentBusyError())
+    try:
+        drive = _get_agent_drive_path(identity)
+        resource_manager.zone_make_dir(drive)  # 個人空間路上有連結就拒絕
+    except (LinkRefusedError, ZoneSegmentError) as exc:
+        return _not_run(command, exc)
 
     # --- 隔離：grant 用 call_id 與正規化 subject 取回；專案根只來自 session（不讀 project_id）---
     session_id = kwargs.get("session_id")
@@ -604,8 +698,11 @@ async def execute_command(
             "result": None,
         }
         _remember_result(exec_id, record)
-        record["_task"] = asyncio.create_task(
-            _approve_then_execute(exec_id, command, env, identity, drive_path, session_id, scope)
+        record["_task"] = _track_task(
+            identity,
+            asyncio.create_task(
+                _approve_then_execute(exec_id, command, env, identity, drive, session_id, scope)
+            ),
         )
         return _pending_payload(
             exec_id,
@@ -628,10 +725,13 @@ async def execute_command(
             "_proc": None,
         }
         _remember_result(exec_id, bg_record)
-        bg_record["_task"] = asyncio.create_task(
-            _run_background(
-                exec_id, command, env, identity, drive_path, session_id, dangerous, scope
-            )
+        bg_record["_task"] = _track_task(
+            identity,
+            asyncio.create_task(
+                _run_background(
+                    exec_id, command, env, identity, drive, session_id, dangerous, scope
+                )
+            ),
         )
         return _running_handle_payload(exec_id, command)
 
@@ -640,14 +740,14 @@ async def execute_command(
         exit_code, output, duration_ms = await _execute_core(
             command,
             env,
-            drive_path,
+            drive,
             session_id,
             emit=kwargs.get("_emit_event"),
             call_id=kwargs.get("_call_id"),
             scope=scope,
         )
-    except IsolationUnavailableError as exc:
-        return _isolation_unavailable(command, exc.reason)
+    except _NOT_RUN as exc:
+        return _not_run(command, exc)
     _push_result_safely(exec_id, identity, command, exit_code, output, duration_ms)
     header = f"[EXIT_CODE: {exit_code}]\n"
     return _wrap_output(

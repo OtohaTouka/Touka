@@ -50,6 +50,7 @@ from tests.support.isolation import (
     fixed_interpreter,
     pinned_snapshot,
 )
+from tests.support.links import LINK_FOLLOWED, make_dir_link
 
 # --- 純函式：isolation_policy ---------------------------------------------------------
 
@@ -1577,6 +1578,56 @@ async def test_level_for_on_the_executor_layer(tmp_path):
     )
     assert monitor.executor_scope_issue(soul, None) is None
     assert monitor.executor_scope_issue(custom, project) == "agent_dir_not_in_executor"
+
+
+@pytest.mark.parametrize(
+    ("kind", "issue"),
+    [
+        ("dir", None),
+        ("missing", None),
+        ("link", "agent_dir_not_in_executor"),
+        ("file", "agent_dir_not_in_executor"),
+        ("other", "agent_dir_not_in_executor"),
+    ],
+)
+async def test_executor_scope_classifies_the_drive_without_resolving_it(
+    tmp_path, monkeypatch, kind, issue
+):
+    """範圍看個人空間區的分類（``zone_kind``，不跟隨），不解析路徑（ADR-0293 R7）."""
+    data = Path(resource_manager.get_base_path()).resolve()
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=data)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+    seen: list[object] = []
+
+    def _kind(zp):
+        seen.append(zp)
+        return kind
+
+    monkeypatch.setattr(resource_manager, "zone_kind", _kind)
+    assert monitor.executor_scope_issue(soul, None) == issue
+    assert seen == [resource_manager.agent_drive(soul)]
+
+
+async def test_executor_scope_is_out_when_the_drive_cannot_be_read(tmp_path, monkeypatch):
+    data = Path(resource_manager.get_base_path()).resolve()
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=data)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+
+    def _refuse(_zp):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(resource_manager, "zone_kind", _refuse)
+    assert monitor.executor_scope_issue(soul, None) == "agent_dir_not_in_executor"
+
+
+async def test_a_linked_soul_drive_is_not_in_the_executor(tmp_path, zone_data_root):
+    """靈魂的個人空間是連結（即使指到 personal_drive 裡別的資料夾）：不在執行器範圍."""
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=zone_data_root)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+    drives = zone_data_root / "personal_drive"
+    (drives / "Bob").mkdir(parents=True)
+    make_dir_link(drives / "Alice", drives / "Bob")
+    assert monitor.executor_scope_issue(soul, None) == "agent_dir_not_in_executor", LINK_FOLLOWED
 
 
 @pytest.mark.parametrize("local_ok", [True, False], ids=["local-landlock", "local-broken"])

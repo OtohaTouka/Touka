@@ -8,20 +8,24 @@
 
 IOPrison：僅用 ``tempfile.mkstemp`` / ``os.close`` / ``zipfile``（非禁令清單），明文暫存
 清理走 ResourceManager（SSOT）。時間走 ``get_current_epoch``（TIME_SSOT），非 datetime.now。
+個人硬碟走區內方法、不跟隨連結（ADR-0293）：走訪與寫入在同一個迴圈，一次開一個檔案。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import re
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from memory_server.utils.no_follow import LinkRefusedError, WalkReport, zip_open_file
 from starlette.concurrency import run_in_threadpool
 
 from src.models.identity import AgentIdentity
@@ -32,11 +36,12 @@ from src.services.tool_errors import is_tool_error
 from src.tools.builtin.memory import memory_tools
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import list_agent_events
-from src.utils.path_security import validate_no_symlink_escape
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.user import User
 
@@ -105,52 +110,78 @@ async def _fetch_agent_timeline(identity: AgentIdentity) -> list[dict[str, Any]]
         return None
 
 
-def _add_vault_files(
-    file_entries: list[tuple[str, Path]],
-    identity: AgentIdentity,
-    vault: str,
-    label: str,
-    *,
-    state: dict[str, Any],
+_DRIVE_LABEL = "files"
+
+
+@dataclass
+class _Export:
+    """收集到的匯出內容；個人硬碟寫 zip 時才走訪，manifest 最後才寫（含略過數）。"""
+
+    text_entries: dict[str, str]
+    file_entries: list[tuple[str, Path]]  # 頭像（不在代理人資料夾裡）
+    drives: list[tuple[str, ZonePath]]  # (zip 裡的 agent 片段, 個人硬碟)
+    manifest: dict[str, Any]
+    state: dict[str, Any]  # 大小上限的累計與略過清單（manifest 的 skipped 是同一個 list）
+
+
+def _skip_drive(seg: str, reason: str, state: dict[str, Any]) -> None:
+    logger.warning("GDPR export: personal drive skipped (%s)", reason)
+    state["skipped"].append({"agent": seg, "vault": _DRIVE_LABEL, "reason": reason})
+
+
+def _drive_to_export(identity: AgentIdentity, state: dict[str, Any]) -> ZonePath | None:
+    """自有 agent 的個人硬碟；不在回 None.
+
+    根是連結（含上層是連結）照舊記 ``root_escapes_app_data``。
+    """
+    drive = resource_manager.agent_drive(identity)
+    if drive is None:
+        return None
+    try:
+        kind = resource_manager.zone_kind(drive)
+    except LinkRefusedError:
+        kind = "link"
+    if kind == "link":
+        _skip_drive(_safe_seg(identity.agent_id), "root_escapes_app_data", state)
+        return None
+    return drive if kind == "dir" else None
+
+
+def _add_drive_files(
+    zf: zipfile.ZipFile, seg: str, drive: ZonePath, state: dict[str, Any]
 ) -> None:
-    """把某 vault 目錄下所有檔案加入 file_entries（缺路徑/缺目錄則略過；不讀入記憶體）。
+    """把個人硬碟的檔案一次一個寫進 zip（不跟隨連結；ADR-0293）。
 
     複審加固（防越權外洩 / DoS）：
-    - **根目錄圍堵**：vault 根須解析後仍在 app_data 內（防 agent_id 路徑穿越的 over-read）。
-    - **逐檔 symlink/junction 逃逸檢查**：解析後須仍在 vault 根內（防指向 .env 等外部機密）。
-    - **單檔 + 累計大小上限**：超限者略過，記入 ``state['skipped']``（不靜默丟棄）。
+    - **連結不打包**：走訪不進入、不開連結，略過數記入 ``state['skipped']``。
+    - **單檔 + 累計大小上限**：依開好的檔案的 ``fstat``；超限者略過並記入（不靜默丟棄）。
     """
-    root = resource_manager.get_vault_path(vault, identity)
-    if not root or not resource_manager.exists(root):
-        return
-    root_path = Path(root)
-    app_data = Path(resource_manager.get_base_path())
-    if not validate_no_symlink_escape(root_path, app_data):
-        logger.warning("GDPR export: vault root escapes app_data; skipped (%s)", label)
-        state["skipped"].append({
-            "agent": _safe_seg(identity.agent_id),
-            "vault": label,
-            "reason": "root_escapes_app_data",
-        })
-        return
-    seg = _safe_seg(identity.agent_id)
-    for fp in resource_manager.iter_files(root_path):
-        if not validate_no_symlink_escape(fp, root_path):
-            state["skipped"].append({"file": fp.name, "reason": "symlink_escape"})
-            continue
-        try:
-            size = fp.stat().st_size
-        except OSError:
-            continue
-        if size > _MAX_FILE_BYTES:
-            state["skipped"].append({"file": fp.name, "reason": "file_too_large", "bytes": size})
-            continue
-        if state["total"] + size > _MAX_TOTAL_FILE_BYTES:
-            state["skipped"].append({"file": fp.name, "reason": "total_budget_exceeded"})
-            continue
-        state["total"] += size
-        rel = fp.relative_to(root_path)
-        file_entries.append((f"agents/{seg}/{label}/{rel.as_posix()}", fp))
+    report = WalkReport()
+    try:
+        with contextlib.closing(resource_manager.zone_walk_open(drive, report)) as walk:
+            for parts, handle, info in walk:
+                name, size = parts[-1], info.st_size
+                if size > _MAX_FILE_BYTES:
+                    state["skipped"].append(
+                        {"file": name, "reason": "file_too_large", "bytes": size}
+                    )
+                    continue
+                if state["total"] + size > _MAX_TOTAL_FILE_BYTES:
+                    state["skipped"].append({"file": name, "reason": "total_budget_exceeded"})
+                    continue
+                state["total"] += size
+                zip_open_file(zf, f"agents/{seg}/{_DRIVE_LABEL}/{'/'.join(parts)}", handle, info)
+    except LinkRefusedError:  # 收集之後根被換成連結
+        _skip_drive(seg, "root_escapes_app_data", state)
+    for reason, count in (
+        ("symlink_escape", report.links),
+        ("bad_name", len(report.bad_names)),
+        ("unreadable", len(report.errors)),
+    ):
+        if count:
+            state["skipped"].append(
+                {"agent": seg, "vault": _DRIVE_LABEL, "reason": reason, "count": count}
+            )
 
 
 def _readme(user: User, taipei_time: str) -> str:
@@ -180,12 +211,13 @@ async def _collect(
     user: User,
     *,
     facts_fn: Callable[[AgentIdentity], Awaitable[dict[str, Any] | None]],
-) -> tuple[dict[str, str], list[tuple[str, Path]]]:
-    """收集匯出內容：回 (text_entries, file_entries)。純讀取，不修改任何資料。"""
+) -> _Export:
+    """收集匯出內容（個人硬碟只記下要走訪哪些）。純讀取，不修改任何資料。"""
     owned = list(user.owned_agents)
     owned_set = set(owned)
     text_entries: dict[str, str] = {}
     file_entries: list[tuple[str, Path]] = []
+    drives: list[tuple[str, ZonePath]] = []
     state: dict[str, Any] = {"total": 0, "skipped": []}  # 大小/逃逸略過追蹤（複審）
 
     # 1) profile（脫敏白名單）
@@ -244,7 +276,9 @@ async def _collect(
                 indent=2,
             )
             events_count += len(timeline)
-        _add_vault_files(file_entries, identity, "personal", "files", state=state)
+        drive = _drive_to_export(identity, state)
+        if drive is not None:
+            drives.append((_safe_seg(agent_id), drive))
 
     # 6) manifest + README
     epoch = get_current_epoch()
@@ -279,27 +313,27 @@ async def _collect(
             "agent_persona_soul_config (system configuration)",
             "global_system_settings (not personal data)",
         ],
-        # 略過的個人硬碟檔案（symlink 逃逸／過大／超總量）——明確揭露，不靜默丟棄。
+        # 略過的個人硬碟檔案（連結／過大／超總量）——明確揭露，不靜默丟棄；寫 zip 時才補齊。
         "skipped": state["skipped"],
     }
-    text_entries["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=2)
     text_entries["README.txt"] = _readme(user, taipei_time)
-    return text_entries, file_entries
+    return _Export(text_entries, file_entries, drives, manifest, state)
 
 
-def _write_plaintext_zip(
-    out_path: Path, text_entries: dict[str, str], file_entries: list[tuple[str, Path]]
-) -> None:
+def _write_plaintext_zip(out_path: Path, export: _Export) -> None:
     """把收集到的條目寫入「已知路徑」``out_path``（清理由呼叫端 finally 統一處理）。
 
-    檔案條目以 ``zf.write`` 由磁碟串流寫入（不整檔讀入記憶體）。
+    檔案條目由磁碟串流寫入（不整檔讀入記憶體）；個人硬碟一次開一個檔案寫入，manifest 最後寫。
     """
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for arcname, text in text_entries.items():
+        for arcname, text in export.text_entries.items():
             zf.writestr(arcname, text)
-        for arcname, src in file_entries:
+        for arcname, src in export.file_entries:
             if Path(src).is_file():
                 zf.write(src, arcname)
+        for seg, drive in export.drives:
+            _add_drive_files(zf, seg, drive, export.state)
+        zf.writestr("manifest.json", json.dumps(export.manifest, ensure_ascii=False, indent=2))
 
 
 async def create_encrypted_export(
@@ -320,8 +354,8 @@ async def create_encrypted_export(
     plain = Path(name)
     try:
         async with EXPORT_ENCRYPT_SEMAPHORE:
-            text_entries, file_entries = await _collect(user, facts_fn=fn)
-            await run_in_threadpool(_write_plaintext_zip, plain, text_entries, file_entries)
+            export = await _collect(user, facts_fn=fn)
+            await run_in_threadpool(_write_plaintext_zip, plain, export)
             return await run_in_threadpool(encrypt_backup_zip, plain, passphrase)
     finally:
         resource_manager.remove_file(plain)  # 明文暫存即刪（成功/失敗/取消皆然）

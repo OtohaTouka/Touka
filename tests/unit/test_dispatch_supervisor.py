@@ -27,6 +27,7 @@ from src.services import dispatch_supervisor as supervisor_module
 from src.services.dispatch_supervisor import DispatchSupervisor
 
 from tests.live_api_policy import PROVIDER_CREDENTIAL_ENV_VARS
+from tests.support.zone_roots import point_zone_roots
 
 _Q48_FACTORY_CHILD = r"""import json
 import os
@@ -237,7 +238,7 @@ def _run_q48_child(
     )
     parent_env.update(dict.fromkeys(PROVIDER_CREDENTIAL_ENV_VARS, ""))
     monkeypatch.setattr(type(settings), "get_full_env", lambda _self: dict(parent_env))
-    monkeypatch.setattr(settings, "MEMORY_APP_DATA_DIR", str(owned))
+    point_zone_roots(monkeypatch, owned, owned.parent / "zone_state")
     monkeypatch.setattr(settings, "DISPATCH_TOKEN", "q48-synthetic-token")
     monkeypatch.setattr(settings, "DISPATCH_SERVER_PATH", "")
     instance = DispatchSupervisor()

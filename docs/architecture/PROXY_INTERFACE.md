@@ -45,7 +45,7 @@
   4. 再查一次記憶與活動紀錄：清家目錄期間寫進來的照樣 409 `SOUL_MEMORY_NOT_RESET`。
   5. 清三個資料夾與取消註冊。
 - 取消註冊五步每步都做；有失敗時回 500 `SOUL_UNREGISTER_INCOMPLETE`（1420），`detail.failed_steps` 是步驟名稱（`models`、`agents_registry`、`brain`、`owners`、`identity_override`），不帶例外原文。資料已刪，再刪一次會補清。成功回應不變。
-- `POST /v1/admin/agents/{target}/reset` 與 DebugAgent 重置：刪除靈魂進行中也回 409 `AGENT_RESET_IN_PROGRESS`。重置時叫這個靈魂正在跑的心跳停下（照常重置）；`AGENT_RESET_IN_PROGRESS` 的訊息改成「另一個重置、記憶清除或刪除靈魂正在進行」。
+- `POST /v1/admin/agents/{target}/reset` 與 DebugAgent 重置：刪除靈魂進行中也回 409 `AGENT_RESET_IN_PROGRESS`。重置時叫這個靈魂正在跑的心跳停下（照常重置）；`AGENT_RESET_IN_PROGRESS` 的訊息改成「另一個重置、記憶清除或刪除靈魂正在進行」（ADR-0293 起是「另一個重置、記憶清除，或刪除、改名代理人的操作正在進行」）。
 - `POST /v1/system/restore/run`：刪除靈魂進行中同樣回 409 `AGENT_RESET_IN_PROGRESS`。
 - `POST /v1/heartbeat/awaken`、`POST /v1/heartbeat/retrigger`：這個靈魂正在刪除、重置或清除時回 409 `AGENT_RESET_IN_PROGRESS`；`/awaken` 在寫初始提示前再看一次；細節見 HEARTBEAT_INTERFACE。
 - 參數與回應形狀不變；OpenAPI 只有刪除端點的說明文字更新。錯誤碼多 1419、1420，兩語 i18n 各兩個鍵。
@@ -773,6 +773,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
 - **身份識別**: 依據認證 Token 判定操作主權。路由層會自動將 URL 中的 `model_id` 字串轉化為經認證的 `AgentIdentity` 物件傳遞至 Service 層。
+- **刪除與改名（ADR-0293）**: `DELETE /v1/ui/custom_models/{model_id}`、`POST /v1/ui/custom_models/{model_id}/rename` 與設定頁的 `DELETE /v1/models/{model_id}`（遇到自訂模型時）走同一條路：個人空間是連結回 409 `AGENT_DRIVE_LINKED`、什麼都不改；先停掉這個模型的全部指令再刪或改名（和靈魂同名的舊資料夾不停，但期間靈魂的新指令與心跳一樣被擋）。別的代理人正在重置、清除或刪除時回 409 `AGENT_RESET_IN_PROGRESS`。`DELETE /v1/models/{model_id}` 刪自訂模型時也查擁有權，不是擁有者回 403。新的 ID 不能當成一段資料夾名稱（例如 Windows 上結尾是點或空白）時 422。
 
 ---
 

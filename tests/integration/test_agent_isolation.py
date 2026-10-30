@@ -1,24 +1,20 @@
 import json
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-from src.config import get_app_data_dir, settings
+from src.config import get_app_data_dir
 from src.services.agent_service import agent_service
 from src.services.resource_manager import resource_manager
 
 
 @pytest.fixture
-def isolation_env(tmp_path, monkeypatch):
-    """建立隔離測試環境 (SSOT)"""
-    # 設置 settings 屬性，讓 get_app_data_dir 指向 tmp_path
-    monkeypatch.setattr(settings, "MEMORY_APP_DATA_DIR", str(tmp_path))
+def isolation_env(zone_data_root):
+    """建立隔離測試環境 (SSOT)：data 根由 ``zone_data_root`` 換（ADR-0293 T3）"""
     # 重置 resource_manager 快取，確保它讀取新的 MEMORY_APP_DATA_DIR
     resource_manager.reset_for_test()
 
-    # 建立目錄結構（在 tmp_path 下）
-    soul_dir = tmp_path / "soul"
-    custom_dir = tmp_path / "custom"
+    # 建立目錄結構（在 zone_data_root 下）
+    soul_dir = zone_data_root / "soul"
+    custom_dir = zone_data_root / "custom"
 
     (soul_dir / "Alice").mkdir(parents=True, exist_ok=True)
     (soul_dir / "Alice" / "config.json").write_text(
@@ -33,10 +29,8 @@ def isolation_env(tmp_path, monkeypatch):
     girlg_dir.mkdir(parents=True, exist_ok=True)
     (girlg_dir / "config.json").write_text(json.dumps({"name": "GirlG", "is_custom": True}), encoding="utf-8")
     
-    # soul_service 使用 memory_server.config_utils.get_app_data_dir（獨立路徑）
-    # 透過 mock 讓它也指向 tmp_path
-    with patch("src.services.soul_service.config_utils.get_app_data_dir", return_value=str(tmp_path)):
-        yield agent_service, resource_manager
+    # soul_service 讀 memory_server 的 get_app_data_dir（環境變數），zone_data_root 也一起換
+    yield agent_service, resource_manager
 
 def test_soul_identification(isolation_env):
     """Level 1 靈魂應被識別為 is_toukasoul=True, is_custom=False"""
@@ -64,7 +58,7 @@ def test_vault_path_isolation(isolation_env, mock_identity):
     
     alice_path = rm.get_vault_path("soul", alice)
     bob_path = rm.get_vault_path("soul", bob)
-    girlg_personal = rm.get_vault_path("personal", girlg)
+    girlg_personal = rm.agent_drive(girlg)  # 個人空間是區內路徑（ADR-0293）
     
     # 獲取目前的 app_data
     app_data = get_app_data_dir()
@@ -77,8 +71,7 @@ def test_vault_path_isolation(isolation_env, mock_identity):
     assert rm.get_vault_path("soul", girlg) is None
     
     # 自定義模型的 personal vault 應在 custom/ 下
-    assert "custom" in str(girlg_personal).replace("\\", "/")
-    assert "GirlG" in str(girlg_personal).replace("\\", "/")
+    assert girlg_personal.display() == "zone://custom_drive/GirlG/drive"
 
 def test_physical_path_ban_compliance(isolation_env, mock_identity):
     """驗證 ResourceManager 是否符合物理路徑禁令 (回傳路徑而非硬編碼字串)"""

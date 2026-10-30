@@ -122,14 +122,14 @@ def _spawn_recorder(seen: dict[str, Any]):
     return _spawn
 
 
-async def test_terminal_command_stdin_is_devnull(tmp_path, monkeypatch):
+async def test_terminal_command_stdin_is_devnull(zone_drive, monkeypatch):
     seen: dict[str, Any] = {}
     monkeypatch.setattr(terminal, "spawn_exec", _spawn_recorder(seen))
-    await terminal._execute_core("echo hi", "powershell", tmp_path, "fd-stdin")
+    await terminal._execute_core("echo hi", "powershell", zone_drive, "fd-stdin")
     assert seen["stdin"] == asyncio.subprocess.DEVNULL
 
 
-async def test_verification_command_stdin_is_devnull(tmp_path, monkeypatch):
+async def test_verification_command_stdin_is_devnull(zone_drive, monkeypatch):
     seen: dict[str, Any] = {}
     monkeypatch.setattr(evidence, "spawn_exec", _spawn_recorder(seen))
 
@@ -140,7 +140,7 @@ async def test_verification_command_stdin_is_devnull(tmp_path, monkeypatch):
         artifact_refs=[],
         verification_cmd="pytest -q",
         test_log=None,
-        artifact_root=tmp_path,
+        artifact_root=zone_drive,
         timeout_seconds=30,
         command_gate=_allow_all,
     )

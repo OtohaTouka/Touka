@@ -165,12 +165,12 @@ async def test_privileged_name_with_unknown_handler_fails_closed(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["execute_command", "bash"])
+@pytest.mark.usefixtures("zone_data_root")  # 個人空間在 tmp_path（ADR-0293）
 async def test_real_terminal_alias_keeps_its_internal_approval(
-    monkeypatch: pytest.MonkeyPatch, policy: AuthPoliciesConfig, tmp_path: Path, name: str
+    monkeypatch: pytest.MonkeyPatch, policy: AuthPoliciesConfig, name: str
 ) -> None:
     core = AsyncMock(return_value=(0, "synthetic output", 1))
     monkeypatch.setattr(terminal_module, "_execute_core", core)
-    monkeypatch.setattr(terminal_module, "_get_agent_drive_path", lambda _: tmp_path)
     result = await ToolExecutor(
         None, tool_registry, {}, {}, enforce_advertised=False
     ).execute_to_queue(
@@ -188,6 +188,7 @@ async def test_external_command_parameter_has_no_terminal_exception(
     handler = AsyncMock(return_value="unexpected external effect")
     protocol = MagicMock()
     protocol.resolve_tool.return_value = ("synthetic-server", "remote-write")
+    protocol.registry.get_server.return_value = None  # 不是 vault-jailed（ADR-0293 提早拒絕）
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_: True)
     executor = ToolExecutor(
         protocol if branch == "mcp" else None,
@@ -238,12 +239,12 @@ async def test_approved_invocation_keeps_the_resolved_handler(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["execute_command", "bash"])
+@pytest.mark.usefixtures("zone_data_root")  # 個人空間在 tmp_path（ADR-0293）
 async def test_true_terminal_broker_approval_executes_once(
-    monkeypatch: pytest.MonkeyPatch, policy: AuthPoliciesConfig, tmp_path: Path, name: str
+    monkeypatch: pytest.MonkeyPatch, policy: AuthPoliciesConfig, name: str
 ) -> None:
     core = AsyncMock(return_value=(0, "synthetic output", 1))
     monkeypatch.setattr(terminal_module, "_execute_core", core)
-    monkeypatch.setattr(terminal_module, "_get_agent_drive_path", lambda _: tmp_path)
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
         ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(

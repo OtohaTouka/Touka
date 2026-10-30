@@ -11,9 +11,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from memory_server.utils.zone_paths import HandoffKind
 
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.profiles import (
@@ -39,8 +43,6 @@ from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from src.models.identity import AgentIdentity
     from src.services.isolation.profiles import Location, SandboxProfile
 
@@ -88,35 +90,42 @@ async def _profile(
 
 
 async def _wipe_in_executor(identity: AgentIdentity) -> None:
-    drive = current_layout().data_root / "personal_drive" / identity.agent_id
+    drive = resource_manager.soul_drive(identity)  # 個人空間（ADR-0293）
+    if drive is None:
+        raise HomeWipeError("unsafe_owner")
     issue = isolation_monitor.executor_scope_issue(identity, None)
-    try:
-        acquired = await runner_broker.acquire_maintenance(
-            ProfileSource(partial(_profile, identity, drive), issue)
-        )
-        resource_manager.make_dir(drive)  # START 與 relay 的 cwd；刪除靈魂接著會整個刪掉
-        env = acquired.profile.env_set
-        argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
-        request = ExecRequest(
-            argv=argv, env={}, profile=acquired.profile,
-            max_seconds=executor_max_seconds(WIPE_SECONDS),
-        )
-        plan = acquired.runner.plan(request)
-    except (IsolationUnavailableError, ProfileError) as exc:
-        raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
-    except OSError as exc:
-        raise HomeWipeError("drive_unavailable") from exc
-    try:
-        proc = await spawn_exec(
-            *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
-            pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
-        raise HomeWipeError("spawn_failed") from exc
-    finally:
-        plan.release()
+    # START 與 relay 的 cwd 交給接收端（G1）；路上有連結就拒絕，spawn 之後就收回
+    with contextlib.ExitStack() as handoff:
+        try:
+            cwd = handoff.enter_context(
+                resource_manager.zone_handoff(drive, HandoffKind.SUBPROCESS_CWD)
+            )
+            acquired = await runner_broker.acquire_maintenance(
+                ProfileSource(partial(_profile, identity, Path(cwd)), issue)
+            )
+            resource_manager.zone_make_dir(drive)  # 刪除靈魂接著會整個刪掉
+            env = acquired.profile.env_set
+            argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
+            request = ExecRequest(
+                argv=argv, env={}, profile=acquired.profile,
+                max_seconds=executor_max_seconds(WIPE_SECONDS),
+            )
+            plan = acquired.runner.plan(request)
+        except (IsolationUnavailableError, ProfileError) as exc:
+            raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
+        except OSError as exc:  # 含個人空間路上有連結
+            raise HomeWipeError("drive_unavailable") from exc
+        try:
+            proc = await spawn_exec(
+                *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
+                pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
+            raise HomeWipeError("spawn_failed") from exc
+        finally:
+            plan.release()
     try:
         code = await asyncio.wait_for(proc.wait(), WIPE_SECONDS)
     except TimeoutError as exc:

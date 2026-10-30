@@ -10,10 +10,11 @@ ADR-0051 擴充：
 """
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from memory_server.services.mission_manager import MissionPersistenceError
+from memory_server.utils.no_follow import LINK_REFUSED_MESSAGE, LinkRefusedError
+from memory_server.utils.zone_paths import ZonePath, ZoneSegmentError
 from src.core.exceptions import ErrorCode
 from src.models.identity import AgentIdentity
 from src.services import continuity_events
@@ -23,21 +24,25 @@ from src.services.autonomy import autonomy_service
 from src.services.dispatch_callback_store import get_callback_store
 from src.services.isolation.policy import session_project_root
 from src.services.resource_manager import resource_manager
-from src.services.tool_errors import INTERNAL_ERROR, PERMISSION_DENIED, build_tool_error
+from src.services.tool_errors import (
+    INTERNAL_ERROR,
+    PERMISSION_DENIED,
+    VALIDATION_ERROR,
+    build_tool_error,
+)
 from src.tools.contracts import native_parameters
 
 logger = logging.getLogger(__name__)
 
 
-def _agent_artifact_root(identity: AgentIdentity) -> Path | None:
-    """互審蒐證的 artifact 檢查根＝看板擁有者的 personal vault（相對路徑 base）.
+def _agent_artifact_root(identity: AgentIdentity) -> ZonePath | None:
+    """互審蒐證的 artifact 檢查根＝看板擁有者的個人空間（相對路徑 base；ADR-0293 區內路徑）.
 
     與檔案動詞（read/write scope=personal）同一個沙盒根，也是 verification_cmd 的 cwd。
     解析不到時回 None（呼叫端 fail-closed），**不得**退回 Proxy 行程的 cwd。
     v1：以呼叫者身分的 vault 為準（主 agent 擁看板＋產出）。
     """
-    base = resource_manager.get_vault_path("personal", identity)
-    return Path(base) if base else None
+    return resource_manager.agent_drive(identity)
 
 
 def _normalize_task_keys(task: dict[str, Any]) -> dict[str, Any]:
@@ -271,16 +276,22 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
             if outcome.human_gate:
                 # B1：卡在人類這一關——不叫代理人自己繞去跑指令；與永鎖（一般審查結果）區分
                 rejected = outcome.human_gate == "human_rejected_command"
+                if rejected:
+                    suggestion = (
+                        "Ask the human how this task should be verified (for example, a "
+                        "different verification command) before running request_review again."
+                    )
+                elif outcome.human_gate == "agent_busy":  # ADR-0293 R11
+                    suggestion = "Try request_review again after the reset or deletion ends."
+                else:
+                    suggestion = (
+                        "Wait for the human to come back, then run request_review again "
+                        "in the chat. Do not run the command another way."
+                    )
                 return build_tool_error(
                     PERMISSION_DENIED,
                     f"The verification command of task '{task_id}' was not run: {outcome.note}.",
-                    suggestion=(
-                        "Ask the human how this task should be verified (for example, a "
-                        "different verification command) before running request_review again."
-                        if rejected
-                        else "Wait for the human to come back, then run request_review again "
-                        "in the chat. Do not run the command another way."
-                    ),
+                    suggestion=suggestion,
                     reason=outcome.human_gate,
                     review_status=outcome.review_status,
                     review_locked=False,
@@ -419,6 +430,10 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
             outcome="unknown",
             suggestion="Read the current mission before deciding whether to save again.",
         )
+    except LinkRefusedError:  # 看板的資料夾被換成連結（ADR-0293）
+        return build_tool_error(PERMISSION_DENIED, f"Mission board: {LINK_REFUSED_MESSAGE}")
+    except ZoneSegmentError:
+        return build_tool_error(VALIDATION_ERROR, f"Mission board: {ZoneSegmentError.MESSAGE}")
     except Exception as e:
         logger.exception("🔥 Error in mission_tools logic execution")
         return f"Error executing mission operation: {str(e)}"

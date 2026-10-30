@@ -1,11 +1,11 @@
-"""E66（ADR-0176）：vault-jailed MCP 咽喉注入的執行器接線——行為級。
+"""vault-jailed MCP 的執行器接線——行為級（E66／ADR-0176；ADR-0293 起改成拒絕）。
 
-ADR-0115 #1 鐵則：檔案型 MCP 存取**永不跨 agent**，vault 根由驗證身分決定、模型不可指定。
-唯一咽喉＝tool_executor MCP 派發分支的 ``mcp_vault_jail.apply(...)``。既有 test_mcp_vault_jail.py
-只直呼 apply() 純函式；所有真跑 execute_to_queue 的測試 protocol_manager=None（MCP 分支永不
-進入）——刪掉咽喉三行全綠＝fails open 跨 agent vault 讀。本檔經真 ToolExecutor.execute_to_queue
-＋fake ProtocolManager 釘死：模型給的根目錄被蓋掉、agent_id 被 pop、解不出 vault 時 fail-closed
-零派發；非受管伺服器原樣通過（陽性對照）。
+ADR-0115 #1 鐵則：檔案型 MCP 存取**永不跨 agent**。ADR-0293 起設了 ``vault_jail_arg`` 的伺服器
+（docgen）不再拿到任何根：它自己的讀寫不經 ResourceManager，交出的根是連結時會跟著走，而
+``base_dir`` 同時是讀與寫的根，交別的資料夾會讓產出落錯地方。所以這類伺服器的工具在 Touka 這端
+以固定原因「目前不能用」拒絕、不送出（stdio 與 HTTP 都一樣）；安全的讀寫另開任務。本檔經真
+ToolExecutor.execute_to_queue＋fake ProtocolManager 釘死：受管伺服器零派發、回結構化
+``permission_denied``；非受管伺服器原樣通過（陽性對照）。data 根換到 ``zone_data_root``。
 """
 
 from __future__ import annotations
@@ -14,16 +14,23 @@ import asyncio
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+import pytest
+from memory_server.utils.zone_paths import anchor_dirname
 from src.models.identity import AgentIdentity
 from src.models.policy import PolicyDecision
 from src.protocols.mcp.canonical import McpCompleteOutcome
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.services import tool_errors
+from src.services.mcp_vault_jail import VAULT_JAILED_REASON
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.services.tool_executor import ToolExecutor
 
+from tests.support.links import LINK_FOLLOWED, make_dir_link
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from src.protocols.mcp.canonical import McpRequestContext
 
 _IDENTITY = AgentIdentity.for_role(agent_id="JailProbe", role="Owner", is_human=False)
@@ -90,32 +97,39 @@ async def _dispatch(pm: _FakeProtocolManager, args: dict[str, Any]) -> str:
     )
 
 
-async def test_model_supplied_root_is_overridden_to_own_vault(monkeypatch):
-    """模型供 base_dir='/etc' → 實際派發收到「當下 agent 自己的 vault 根」且 agent_id 被 pop。"""
+def _link_the_drive(zone_data_root: Path, tmp_path: Path) -> Path:
+    """把 JailProbe 的個人空間換成連結，指到假的設定資料夾（舊程式會把它交給 docgen）。"""
+    drive = resource_manager.agent_drive(_IDENTITY)
+    folder = zone_data_root.joinpath(*anchor_dirname(drive.anchor).split("/"), *drive.parts)
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path.resolve() / "fake_config"
+    fake.mkdir()
+    (fake / "users.json").write_text("{}", encoding="utf-8")
+    make_dir_link(folder, fake)
+    return fake
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        SimpleNamespace(vault_jail_arg="base_dir", command="uvx", url=None),
+        SimpleNamespace(vault_jail_arg="base_dir", command=None, url="http://127.0.0.1:9/mcp"),
+    ],
+    ids=["stdio", "http"],
+)
+async def test_a_vault_jailed_tool_is_refused_and_never_sent(
+    zone_data_root, tmp_path, monkeypatch, cfg
+):
+    """受管伺服器（stdio 與 HTTP）：不送出、沒有任何根，回固定原因的 ``permission_denied``。"""
     _allow_policy(monkeypatch)
-    pm = _FakeProtocolManager("mcp-docgen", SimpleNamespace(vault_jail_arg="base_dir"))
+    _link_the_drive(zone_data_root, tmp_path)
+    pm = _FakeProtocolManager("mcp-docgen", cfg)
 
-    await _dispatch(pm, {"base_dir": "/etc", "file_ref": "outputs/uploads/x.pdf"})
+    result = await _dispatch(pm, {"base_dir": "/etc", "file_ref": "outputs/uploads/x.pdf"})
 
-    assert len(pm.calls) == 1
-    server_id, _tool, sent = pm.calls[0]
-    assert server_id == "mcp-docgen"
-    own_vault = resource_manager.get_vault_path("personal", _IDENTITY)
-    assert sent["base_dir"] == own_vault  # 覆寫成自己 vault（模型給的 /etc 被蓋掉）
-    assert sent["base_dir"] != "/etc"
-    assert "agent_id" not in sent  # 外部 MCP 未宣告的注入引數已移除
-
-
-async def test_fail_closed_zero_dispatch_when_vault_unresolvable(monkeypatch):
-    """vault-jailed 但解不出 vault 根 → fail-closed：錯誤結果、call_tool_on_server 零呼叫。"""
-    _allow_policy(monkeypatch)
-    monkeypatch.setattr(resource_manager, "get_vault_path", lambda _v, _i: None)
-    pm = _FakeProtocolManager("mcp-docgen", SimpleNamespace(vault_jail_arg="base_dir"))
-
-    result = await _dispatch(pm, {"base_dir": "/etc"})
-
-    assert pm.calls == []  # 絕不讓模型/預設根目錄生效
-    assert tool_errors.is_tool_error(result)
+    assert pm.calls == [], LINK_FOLLOWED  # 舊程式把個人空間根（這裡是連結）交給 docgen
+    assert tool_errors.extract_error_class(result) == tool_errors.PERMISSION_DENIED
+    assert f'"reason": "{VAULT_JAILED_REASON}"' in result
 
 
 async def test_non_jailed_server_keeps_model_args(monkeypatch):

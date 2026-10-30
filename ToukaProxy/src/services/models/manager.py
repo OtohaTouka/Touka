@@ -11,7 +11,6 @@ from typing import Any
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.agent_service import agent_service
-from src.services.custom_model_service import custom_model_service
 from src.services.models.fetcher import (
     DiscoveryError,
     fetch_anthropic_models,
@@ -855,20 +854,15 @@ class ModelManager:
             self._save_config()
 
     def delete_model(self, identity: AgentIdentity) -> bool:
-        """從名冊中刪除模型 (Identity SSOT)。"""
+        """從名冊中刪除模型 (Identity SSOT)；自訂模型的資料夾由路由先刪（ADR-0293 R11）。"""
         deleted_any = False
         model_id = identity.agent_id
-        
-        # 1. 嘗試刪除自定義模型目錄 (Level 2)
-        if custom_model_service.delete_model(identity):
-            logger.info(f"🗑️ Deleted custom model directory: {model_id}")
-            deleted_any = True
-            
-        # 2. 嘗試從註冊表中移除 (Level 0)
+
+        # 1. 嘗試從註冊表中移除 (Level 0)
         if agent_service.delete_agent_registration(identity):
             deleted_any = True
             
-        # 3. 從基礎模型快取中移除
+        # 2. 從基礎模型快取中移除
         original_len = len(self._models_cache)
         self._models_cache = [m for m in self._models_cache if m["id"] != model_id]
         

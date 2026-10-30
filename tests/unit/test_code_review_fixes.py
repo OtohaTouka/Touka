@@ -15,6 +15,7 @@
       無數據省略欄位（前端顯示「精選」）、排序退回 popularity
 """
 import asyncio
+import json
 import threading
 from pathlib import Path
 
@@ -238,39 +239,25 @@ def test_reassemble_final_json_without_choices_key():
 # #8 MCPHubService 對缺鍵條目防禦
 # ---------------------------------------------------------------------------
 
-class _FakeResourceManager:
-    """路徑感知的 resource_manager 替身：以路徑字串對映 JSON 內容。"""
-
-    def __init__(self, files: dict[str, dict]) -> None:
-        self.files = files
-        self.written: dict[str, dict] = {}
-
-    def read_json(self, path: str) -> dict | None:
-        return self.files.get(str(path))
-
-    def write_json(self, path: str, data: dict) -> None:
-        self.written[str(path)] = data
-
-    def make_dir(self, _path: object) -> None:
-        return None
+def _hub_service(tmp_path, hub: dict) -> MCPHubService:
+    """hub 與設定檔放在測試自己的資料夾，經真的 resource_manager 讀寫（ADR-0293 T3）。"""
+    hub_path = tmp_path / "hub.json"
+    hub_path.write_text(json.dumps(hub), encoding="utf-8")
+    return MCPHubService(hub_path=str(hub_path), config_path=str(tmp_path / "cfg.json"))
 
 
 @pytest.mark.asyncio
-async def test_hub_sync_skips_entries_missing_name(monkeypatch):
+async def test_hub_sync_skips_entries_missing_name(monkeypatch, tmp_path):
     """sync 合併時遇到缺 name 的條目必須跳過該筆，不得 KeyError 使整批失敗。"""
-    fake_rm = _FakeResourceManager(
+    svc = _hub_service(
+        tmp_path,
         {
-            "hub.json": {
-                "hub": [
-                    {"source": "curated"},  # 缺 name 的損毀條目
-                    {"name": "Good Curated", "source": "curated"},
-                ]
-            }
-        }
+            "hub": [
+                {"source": "curated"},  # 缺 name 的損毀條目
+                {"name": "Good Curated", "source": "curated"},
+            ]
+        },
     )
-    monkeypatch.setattr("src.services.mcp_hub_service.resource_manager", fake_rm)
-
-    svc = MCPHubService(hub_path="hub.json", config_path="cfg.json")
 
     async def _official() -> list[dict]:
         return [{"name": "Official One", "source": "official"}]
@@ -284,24 +271,20 @@ async def test_hub_sync_skips_entries_missing_name(monkeypatch):
     result = await svc.sync()
 
     assert result["status"] == "success"
-    names = [s["name"] for s in fake_rm.written["hub.json"]["hub"]]
+    written = json.loads((tmp_path / "hub.json").read_text(encoding="utf-8"))
+    names = [s["name"] for s in written["hub"]]
     assert "Good Curated" in names
     assert "Official One" in names
 
 
 @pytest.mark.asyncio
-async def test_hub_install_rejects_entry_missing_command(monkeypatch):
+async def test_hub_install_rejects_entry_missing_command(tmp_path):
     """install 目標缺 command/args 時必須回傳 invalid_entry 且不寫入設定檔。"""
-    fake_rm = _FakeResourceManager(
-        {"hub.json": {"hub": [{"id": "bad-1", "name": "Broken Entry"}]}}
-    )
-    monkeypatch.setattr("src.services.mcp_hub_service.resource_manager", fake_rm)
-
-    svc = MCPHubService(hub_path="hub.json", config_path="cfg.json")
+    svc = _hub_service(tmp_path, {"hub": [{"id": "bad-1", "name": "Broken Entry"}]})
     result = await svc.install("bad-1", {})
 
     assert result["status"] == "invalid_entry"
-    assert "cfg.json" not in fake_rm.written
+    assert not (tmp_path / "cfg.json").exists()
 
 
 # ---------------------------------------------------------------------------

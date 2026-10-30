@@ -14,12 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from memory_server.utils.zone_paths import ALL_ANCHORS, Anchor, anchor_at, zone_of
+
 from src.services.isolation.profiles import (
     PathRule,
     ProfileError,
     SandboxProfile,
     authorize_derived_path,
     checked_ports,
+    layout_zone_roots,
     sandbox_env,
     state_dirs,
     system_rules,
@@ -206,14 +209,22 @@ def _covered_by_system(folder: Path) -> bool:
     )
 
 
+def _in_personal_drive(target: Path, layout: SandboxLayout) -> bool:
+    """所有個人空間的上層本身或它底下（第三方的 APPDATA 對映到這裡）；形狀經 ``zone_of``（R3）."""
+    roots = layout_zone_roots(layout)
+    found = zone_of(target, roots, anchors=ALL_ANCHORS)
+    if found is not None:
+        return found[0] is Anchor.PERSONAL_DRIVE
+    return anchor_at(target, roots, anchors=ALL_ANCHORS) is Anchor.PERSONAL_DRIVE
+
+
 async def _reference_rule(
     path: Path, layout: SandboxLayout, skip: Path | None
 ) -> tuple[PathRule | None, str | None]:
     """引用的一條路徑：資料夾讀寫、檔案的所在資料夾唯讀＋執行；先過永不授權（owner=None）."""
     target = _lexical(path)
     is_file = is_file_reference(target)
-    drive = personal_drive_root(layout)
-    if not is_file and (target == docgen_output_root(layout) or target.is_relative_to(drive)):
+    if not is_file and (target == docgen_output_root(layout) or _in_personal_drive(target, layout)):
         if target.resolve() != target or not target.is_dir():
             return None, PROTECTED_LOCATION
         return PathRule(target, "rwx"), None

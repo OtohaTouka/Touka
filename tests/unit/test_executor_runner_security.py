@@ -58,6 +58,7 @@ from src.services.isolation.runners import (
     RunnerBroker,
     executor_max_seconds,
 )
+from src.services.resource_manager import resource_manager
 from src.services.review import evidence
 from src.tools import terminal
 
@@ -67,6 +68,7 @@ from tests.support.isolation import (
     install_real_broker,
     pinned_snapshot,
 )
+from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 REAL_COMMAND_PROFILE = agent_command.build_command_profile
@@ -499,6 +501,7 @@ class _DoneProc:
 
 def _terminal_in_the_executor(monkeypatch, tmp_path: Path) -> tuple[PinnedMonitor, _Spawned]:
     layout = replace(_layout(tmp_path), in_container=False)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)  # 個人空間（ADR-0293）
     drive = layout.data_root / "personal_drive" / "Alice"
     drive.mkdir(parents=True)
     snap = replace(pinned_snapshot("executor"), executor=_ready(), features=ALL)
@@ -506,7 +509,6 @@ def _terminal_in_the_executor(monkeypatch, tmp_path: Path) -> tuple[PinnedMonito
     monitor.checked_kernel_digest = kernel_digest(layout.kernel_dir)
     monkeypatch.setattr(agent_command, "build_command_profile", REAL_COMMAND_PROFILE)
     monkeypatch.setattr(agent_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(terminal, "_get_agent_drive_path", lambda _identity: drive)
     monkeypatch.setattr(EvolutionPathGuard, "get_clean_env", lambda: {"PATH": "/usr/bin"})
     spawned = _Spawned()
     monkeypatch.setattr(terminal, "spawn_exec", spawned)
@@ -553,7 +555,7 @@ async def test_terminal_and_verification_tell_the_executor_their_timeout(monkeyp
 
     await evidence.collect_evidence(
         artifact_refs=[], verification_cmd="pytest -q", test_log=None,
-        artifact_root=tmp_path / "data" / "personal_drive" / "Alice", command_gate=_allow,
+        artifact_root=resource_manager.agent_drive(ALICE), command_gate=_allow,
         identity=ALICE, timeout_seconds=45,
     )
     assert [request["start"]["max_seconds"] for _argv, request in spawned.calls] == [60, 75]

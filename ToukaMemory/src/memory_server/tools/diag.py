@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -17,6 +18,7 @@ from memory_server.factual import EmbeddingState, find_unmigrated_jsonl_agents
 from memory_server.services.index_state import reindex_facts
 from memory_server.services.lifecycle import supersede_memory
 from memory_server.utils.memory_worker import run_memory_job
+from memory_server.utils.no_follow import LinkRefusedError, WalkReport
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -25,6 +27,21 @@ if TYPE_CHECKING:
     from memory_server.services.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
+
+_MB = 1024 * 1024
+
+
+def personal_drive_bytes(identity: AgentIdentity, manager: MemoryManager) -> int | None:
+    """個人空間裡一般檔案的總大小（不進入連結；ADR-0293）；根本身是連結時回 None."""
+    drive = manager.get_personal_drive_dir(identity)
+    if drive is None:
+        return 0
+    report = WalkReport()
+    try:
+        with contextlib.closing(get_resource_proxy().zone_walk(drive, report)) as walk:
+            return sum(entry.info.st_size for entry in walk if entry.kind == "file")
+    except LinkRefusedError:
+        return None
 
 
 def normalize_agent_id(identity: AgentIdentity, manager: MemoryManager) -> str:
@@ -48,14 +65,16 @@ async def memory_diagnostics(
         total_size = sum(
             f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink()
         )
-        return total_size / (1024 * 1024)  # MB
+        return total_size / _MB
 
     def storage_lines() -> list[str]:
         """舊對話庫與個人空間的大小."""
         app_data = Path(get_app_data_dir())
+        drive = personal_drive_bytes(identity, manager)
+        shown = "unavailable (the folder is a link)" if drive is None else f"{drive / _MB:.2f} MB"
         return [
             f"Legacy Vault Size: {get_dir_size(app_data / 'legacy' / agent_id):.2f} MB",
-            f"Personal Drive Size: {get_dir_size(app_data / 'personal_drive' / agent_id):.2f} MB",
+            f"Personal Drive Size: {shown}",
         ]
 
     def has_unmigrated_jsonl() -> bool:

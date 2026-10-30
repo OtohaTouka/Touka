@@ -16,11 +16,8 @@ def test_delete_model_triggers_agent_registration_removal(manager):
     """驗證刪除模型時，是否同步觸發了 AgentService 的註冊移除。"""
 
     # Patch where the name is used (manager module binding), not where defined.
-    with patch("src.services.models.manager.agent_service") as mock_agent_service, \
-         patch("src.services.models.manager.custom_model_service") as mock_custom_service:
-
+    with patch("src.services.models.manager.agent_service") as mock_agent_service:
         mock_agent_service.delete_agent_registration.return_value = True
-        mock_custom_service.delete_model.return_value = False
 
         result = manager.delete_model(AgentIdentity(agent_id="test-model"))
 
@@ -35,11 +32,8 @@ def test_delete_model_triggers_agent_registration_removal(manager):
 def test_delete_model_returns_true_if_only_registration_deleted(manager):
     """驗證即使快取中沒有該模型，但註冊表中有，刪除操作仍應視為成功。"""
 
-    with patch("src.services.models.manager.agent_service") as mock_agent_service, \
-         patch("src.services.models.manager.custom_model_service") as mock_custom_service:
-
+    with patch("src.services.models.manager.agent_service") as mock_agent_service:
         mock_agent_service.delete_agent_registration.return_value = True
-        mock_custom_service.delete_model.return_value = False
 
         result = manager.delete_model(AgentIdentity(agent_id="unseen-agent"))
 

@@ -105,7 +105,6 @@
   "unit/test_mcp_server_tools_endpoint.py",
   "unit/test_mcp_tool_governance_persistence.py",
   "unit/test_mcp_tool_policy.py",
-  "unit/test_mcp_vault_jail.py",
   "unit/test_memory_embedding_prefix.py",
   "unit/test_memory_env_selection.py",
   "unit/test_memory_list_dto.py",

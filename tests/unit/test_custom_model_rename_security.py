@@ -28,14 +28,17 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.services.agent_reset import orchestrator
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
@@ -192,7 +195,7 @@ def test_a_failed_move_is_an_error_and_moves_no_ownership(
     def _locked(*_args: object) -> None:
         raise PermissionError
 
-    monkeypatch.setattr(custom_io.shutil, "move", _locked)
+    monkeypatch.setattr(resource_manager, "rename_agent_container", _locked)
 
     response = _rename(OLD, NEW)
 
@@ -352,6 +355,21 @@ def test_system_agent_ids_cannot_be_used_for_a_model(owners: MagicMock, reserved
     assert not (_custom_base() / reserved / "config.json").exists()
 
 
+_WINDOWS_ONLY_IDS = ["CON", "x.", "x "] if sys.platform == "win32" else []
+
+
+@pytest.mark.parametrize("bad", ["a\x00b", *_WINDOWS_ONLY_IDS])
+def test_an_id_that_cannot_be_one_folder_name_is_rejected(owners: MagicMock, bad: str) -> None:
+    """不能當成區裡一段的 ID 不收（ADR-0293）：之後找不到它的個人空間，也刪不掉。"""
+    created = _post(f"/v1/ui/custom_models/{quote(bad, safe='')}", _BODY)
+    _create(owners, OLD)
+    renamed = _rename(OLD, bad)
+
+    for response in (created, renamed):
+        assert response.status_code == 422, response.text
+    _assert_ownership_untouched(owners)
+
+
 # ── 後續步驟失敗：搬回原狀（ADR-0254 H12 補記，舊審查報告丙-2） ────────────────────
 
 
@@ -508,6 +526,22 @@ def test_a_save_that_cannot_be_written_is_an_error(
     _assert_ownership_untouched(owners)
     assert (_custom_base() / OLD / "config.json").read_bytes() == before
     assert not (_custom_base() / NEW).exists()
+
+
+def test_a_half_written_model_is_removed_while_another_agent_is_reset(
+    owners: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """建立失敗的回滾只標記這個 ID、不拿全系統一把的鎖：別的代理人正在重置時也清掉（ADR-0293）."""
+    monkeypatch.setattr(orchestrator, "reset_in_progress", lambda: True)
+    monkeypatch.setattr(
+        custom_io, "write_custom_file", _fail_for(NEW, custom_io.write_custom_file, False)
+    )
+
+    created = _post(f"/v1/ui/custom_models/{NEW}", _BODY)
+
+    assert created.status_code == 500, created.text
+    assert not (_custom_base() / NEW).exists()
+    _assert_ownership_untouched(owners)
 
 
 def test_updating_an_existing_model_does_not_claim_it(owners: MagicMock) -> None:

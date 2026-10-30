@@ -10,13 +10,11 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
-
-if TYPE_CHECKING:
-    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +119,8 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
     """
     if base_name not in _SOUL_STORAGE_BASES:
         return "violation"
+    if base_name == "personal_drive":
+        return _remove_soul_drive(agent_id)
     base = Path(resource_manager.get_base_path()) / base_name
     target = base / agent_id
     if not validate_no_symlink_escape(target, base) or target.resolve() == base.resolve():
@@ -135,6 +135,22 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
         return "error"
     else:
         return "removed"
+
+
+def _remove_soul_drive(agent_id: str) -> str:
+    """個人空間走區內方法（ADR-0293）：本身是連結只刪連結，樹裡的連結也只刪本身."""
+    drive = resource_manager.soul_drive(AgentIdentity(agent_id=agent_id))
+    if drive is None:
+        logger.warning("🚫 Soul purge sandbox violation: personal_drive/%s", agent_id)
+        return "violation"
+    try:
+        kind = resource_manager.zone_kind(drive)
+        if kind != "missing":
+            resource_manager.zone_remove_dir(drive)
+    except Exception:
+        logger.exception("Failed to purge personal_drive/%s", agent_id)
+        return "error"
+    return "absent" if kind == "missing" else "removed"
 
 
 def purge_soul_storage(agent_id: str) -> dict[str, str]:

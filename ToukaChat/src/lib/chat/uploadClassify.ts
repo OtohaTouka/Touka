@@ -89,15 +89,15 @@ export function buildTextInlinePart(name: string, text: string): string {
 }
 
 /**
- * 已上傳文件（存於 agent vault）的「請 AI 用工具讀」提示，注入使用者訊息文字。
+ * 已上傳文件（存於 agent vault）的提示，注入使用者訊息文字：只說檔案存在哪裡。
  * relpath 為相對該 agent personal vault 的路徑（後端 upload 端點回傳）。送往模型，故用通用英文。
+ * docgen 這類文件工具目前不能用（ADR-0293），所以不叫模型用它讀 PDF／Office 檔。
  */
 export function buildFileRefHint(name: string, relpath: string): string {
   const safe = sanitizeDisplayName(name); // 伺服器已淨化，仍縱深防禦
   return (
-    `\n\n[Uploaded file: ${safe} (saved at: ${relpath}). To read PDF/Office files, use the ` +
-    `document read tool (read_pdf / read_docx / read_xlsx / read_pptx) with this path — it is ` +
-    `scoped to your own vault. Plain-text files can also be read with the personal_drive read tool.]\n`
+    `\n\n[Uploaded file: ${safe} (saved at: ${relpath} in your own vault). ` +
+    `Plain-text files can be read with the read tool (scope "personal").]\n`
   );
 }
 
