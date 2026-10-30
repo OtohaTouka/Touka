@@ -551,6 +551,10 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
         {"zone_handoff": 1},
         "SUBPROCESS_CWD：執行器裡清空家目錄的行程，行程結束時釋放",
     ),
+    "src.services.isolation.status:IsolationMonitor._selftest_in_state": (
+        {"zone_handoff": 1},
+        "SUBPROCESS_CWD：ST 的自測資料夾交給啟動器，自測結束時釋放（ADR-0293 PR 2）",
+    ),
     "src.services.isolation.status:IsolationMonitor._agent_drive_in_executor": (
         {"anchor_dirname": 1},
         "錨點名稱：對照執行器掛的資料夾（不碰檔案）",
@@ -582,6 +586,10 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
     "src.services.resource_manager:ResourceManager.remove_custom_model_dir": (
         {"resolved": 1},
         "RM：刪除整個自訂模型資料夾（R10）",
+    ),
+    "src.services.scorecard.artifact_verify:verify_artifact": (
+        {"anchor_root": 1},
+        "整個錨點：文件輸出區，只拿來把產出檔的絕對路徑換成區內路徑（ADR-0293 PR 2 Q6）",
     ),
     "src.services.review.evidence:_run_cmd": (
         {"zone_handoff": 1},
@@ -1130,7 +1138,7 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
         "測走訪用的是登記的根：換成這個測試的根，再拿掉看它拒絕",
     ),
     "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (1, _ALIAS),
-    # 下面四個測的是 ST 根的解析本身（ADR-0293 PR 2 P6、P7）：沒設、容器裡、經過人做的連結
+    # 下面五個測的是 ST 根的解析本身（ADR-0293 PR 2 P6、P7）：沒設、容器裡、經過人做的連結
     "tests.unit.test_resource_manager_anchors:"
     "test_handoff_cwd_refuses_the_literal_form_of_a_linked_anchor": (1, _STATE_ROOT_PARSING),
     "tests.unit.test_resource_manager_anchors:test_handoff_cwd_through_a_linked_state_root": (
@@ -1140,6 +1148,7 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
     "tests.unit.test_resource_manager_anchors:"
     "test_sandbox_state_generators_give_none_only_when_unset": (1, _STATE_ROOT_PARSING),
     "tests.unit.test_resource_manager_anchors:test_sandbox_state_root": (2, _STATE_ROOT_PARSING),
+    "tests.unit.test_sandbox_state_access:rm_unset": (1, _STATE_ROOT_PARSING),
     "tests.unit.test_resource_manager_string_zone:"
     "test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive": (
         1,

@@ -109,6 +109,8 @@ tests/
 | `unit/test_resource_manager_string_zone.py` | 字串方法碰到代理人資料夾：單一路徑丟 `ZonePathRequiredError`（含 `..` 與經連結進去的），錨點本身與 `custom/<id>/config.json` 照常；兩個路徑任一邊在區裡就拒絕；遞迴的列、找、統計剪掉區；刪、打包、解壓整個拒絕。 |
 | `unit/test_resource_manager_anchors.py` | ADR-0293 PR 2 的三個錨點（演化工具、文件輸出、sandbox state）：字串方法碰到這三個錨點就拒絕；產生函式（`tool_root`、ST 的幾個）只對不合格名稱給 None、ST 沒設時給 None；`anchor_root`；`zone_text` 是解析後的錨點加字面段落、不解析段落；`zone_rename`／`zone_access` 不跟隨連結；刪除類的深度檢查；`zone_walk` 的深度；`handoff_cwd` 在區外照給、在區裡交接，各種連結與不合格段落拒絕。 |
 | `unit/test_evolution_links_security.py` | R15：演化的提案、實作與部署在技能資料夾換成連結時不寫入、不讀取另一端（用真的流程）；`mkdir_tool`、四個檔案方法與部署讀檔遇到連結回 `skill_changed`，不合格技能名稱回 `invalid_skill_id`；POSIX 的檔案連結：寫、讀與部署讀檔拒絕，刪除只刪連結本身。 |
+| `unit/test_sandbox_state_access.py` | ADR-0293 PR 2 P7：ST 的兩個存取函式（`proxy_state_zone`、`proxy_state_owner`）的判斷順序：版面沒設 ST、RM 沒設、兩者解析後不同、名稱不合格；`state_dirs` 經區內方法建資料夾、交出 `zone_text`；MCP 分類基準與 `refuse_deployed` 在兩者不同時當隔離不可用；監看器的 ST 可寫判斷與補權限。 |
+| `unit/test_sandbox_state_links_security.py` | R15：ST 裡的連結：`state_dirs` 經連結的 `ST/proxy/agents` 拒絕；刪除靈魂清 proxy 那一層時連結只刪連結、上層是連結就拒絕；開機清 tmp 時連結不跟、其他種類保留、舊垃圾刪掉；ST 的自測在自己的資料夾跑、經交接交給啟動器、跑完刪掉，自測資料夾是連結就拒絕。 |
 | `unit/test_skill_names_security.py` | 技能名稱不能是 Touka 資料根或標記的 9 個名稱（不分大小寫、尾點與空白）與 Windows 保留名稱；相近的名稱照常可用；提案用這些名稱時什麼都不建立。 |
 | `unit/test_zone_file_response.py` | `/v1/outputs` 的回應物件：Linux 版持有開好的檔案，送完、出錯、中斷或沒被呼叫都關檔並取消登記；沒有 `/proc` 的系統只在送出期間登記。 |
 | `unit/test_outputs_route_links_security.py` | R15：`/v1/outputs` 的 `outputs` 或檔名換成連結時回 404、不送出另一端的內容；標頭、Range、If-Range 和直接送出一樣；不能當一段的檔名回 403。 |
@@ -120,7 +122,8 @@ tests/
 | `unit/test_mission_board_links_security.py` | 任務看板不經過連結讀寫（Proxy 工具、ToukaDispatch、`/v1/ui/mission` 三條路），鎖檔放在代理人寫不到的 `<data>/temp/locks/missions/`。 |
 | `unit/test_review_evidence_links_security.py` | R15：證據檔所在的資料夾換成連結時這一輪以固定原因轉人，證據摘要不列另一端的檔案。 |
 | `unit/test_grok_imagine_links_security.py` | 生圖工具的 `outputs` 換成連結時整個不存、回錯誤；連 xAI 的請求用假的 client，不連外（禁令 61）。 |
-| `unit/test_manage_backup_links_security.py` | 備份腳本：個人空間與自訂模型備份時不跟隨連結、一次開一個檔案寫進 zip；還原時不跟隨連結寫回。 |
+| `unit/test_manage_backup_links_security.py` | 備份腳本：個人空間與自訂模型備份時不跟隨連結、一次開一個檔案寫進 zip；還原時不跟隨連結寫回；還原只收備份會寫的成員（`SANCTUARY_FOLDERS` 與 data 根的 `*.db`），`temp`、`mcp_servers` 與其他名稱略過並列出，資料夾名稱和代理人資料夾的分流用同一個鍵比對（ADR-0293 PR 2）。 |
+| `unit/test_soul_io_zone_security.py` | 靈魂檔的檔名（來自模型）只能是單層，`base/檔名` 也不能在代理人資料夾裡或是它的根（自訂模型的 `drive`）；POSIX 上 `drive/x.tmp` 是連結時不寫到另一端；單層的靈魂檔照常讀寫、備份、還原、刪除（ADR-0293 PR 2）。 |
 | `unit/test_diag_personal_drive.py` | 記憶診斷的個人空間大小用區內走訪加總，連結另一端不算；根本身是連結時顯示不可用。 |
 | `unit/test_memory_health_zone.py` | `/v1/memory/health` 的個人空間一項：只有 `personal_drive` 是資料夾才算正常。 |
 | `unit/test_mcp_vault_jail.py` | 設了 `vault_jail_arg` 的 MCP 伺服器：工具呼叫以固定原因拒絕、不送出（結構化 `permission_denied`）。 |
@@ -352,7 +355,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_executor_server.py` ⭐ | （第 3 輪 +12：維護時自己的私有 inode 拿掉群組與其他人的位元、啟動時先收回再檢查〔設定其他項有錯時不碰〕、kernel 成員的參數名稱與種類和 Protocol 一致、背景工作遇到任何例外下一輪照常而取消會停；假 stream、假 spawn、`FsView`／`ProcessTable` 替身）：先查 peer 才算上限、HELLO 2 秒、權杖與版本、B 包含預設集合與上限、READY 欄位（和 `parse_ready`／`ready_issue` 的合約）、START 驗證矩陣（argv、env 允許清單與 `GIT_CONFIG_*`、讀寫只限目標與 state、cwd、`max_seconds`、`io`）、`parent_pid` 改寫、斷線＝STOP、規則集快取 2 份借出 dup、subreaper 判定、設定有錯時保持存活、清 tmp 不跟連結、伺服器端自癒、kernel 的 Protocol 成員核對 |
 | `test_executor_client.py` ⭐ | 健康檢查每次連線重讀權杖；READY 嚴格驗證（必要鍵、只容許 `repairs`、型別）；連不上、權杖、版本、格式各自的原因；`ready_issue` 逐項核對 |
 | `test_isolation_monitor_block_ports_security.py` ⭐ | monitor 的封鎖埠——「Touka 先開機、上游後開機，那個埠從頭到尾都在 B 裡」、只增不減、停用與探測失敗的連線也擋、三種讀取狀態（`exists()` 的例外不算不存在、執行緒失敗或取消不算讀到、結構不對算讀不到）、incomplete／overflow 判 none 且降級保留檔案隔離、溢位通知、健康檢查送實際的 B、SearXNG 不進執行器、金鑰不出現在 log／狀態／`GET /isolation`／例外訊息、新增連線（存檔、快照匯入、啟動補檔、系統還原）立刻進 B |
-| `test_soul_delete_sandbox_home_security.py` ⭐ | （ADR-0272 限制 26 補記；+3：補過權限仍刪不掉或列不出來時回清不掉、不無限重試，名稱不是安全路徑段的 ID 略過）：刪除靈魂前清隔離家目錄——執行器那一層經 START 跑固定清除指令（只清這個 ID、空環境、cwd 是它的 personal_drive）、proxy 那一層直接刪且別的 ID 不動（0555／000 資料夾與唯讀檔也刪、補權限只在樹裡且不跟連結）、沒有執行器時只清 proxy 那一層；執行器不能用（不在 data 留空資料夾）、結束碼非 0、啟動器失敗代碼、逾時與取消（收掉 relay）都拒絕；連結不跟；重置報告的保留清單列出家目錄；`acquire_maintenance` 只准 home_wipe 用（AST）；端點先清再刪（`soul/` 已不在的孤兒也解析到 personal_drive）、清不掉 503 `SOUL_SANDBOX_HOME_NOT_CLEARED` 且什麼都不刪、密碼錯不會清 |
+| `test_soul_delete_sandbox_home_security.py` ⭐ | （ADR-0272 限制 26 補記；+3：補過權限仍刪不掉或列不出來時回清不掉、不無限重試，名稱不是安全路徑段的 ID 略過）：刪除靈魂前清隔離家目錄——執行器那一層經 START 跑固定清除指令（只清這個 ID、空環境、cwd 是它的 personal_drive）、proxy 那一層直接刪且別的 ID 不動（0555／000 資料夾與唯讀檔也刪、補權限只在樹裡且不跟連結）、沒有執行器時只清 proxy 那一層；執行器不能用（不在 data 留空資料夾）、結束碼非 0、啟動器失敗代碼、逾時與取消（收掉 relay）都拒絕；連結不跟（`ST/proxy/agents/<id>` 本身是連結時只刪連結，ADR-0293 PR 2）；重置報告的保留清單列出家目錄；`acquire_maintenance` 只准 home_wipe 用（AST）；端點先清再刪（`soul/` 已不在的孤兒也解析到 personal_drive）、清不掉 503 `SOUL_SANDBOX_HOME_NOT_CLEARED` 且什麼都不刪、密碼錯不會清 |
 | `test_executor_runner_security.py` ⭐ | （+4：`acquire_maintenance` 只用執行器、不看 grant，網路設定不安全照樣在執行器、不退回 Landlock 或直接執行）：`ExecutorRunner` 的 relay argv 沒有權杖與指令、START 經 pipe、env 允許清單、`net_strict` 依 features、`max_seconds`；政策是 executor 時不在範圍或 READY 不見就拒絕（不退回 Landlock）；有同意時種類不低於卡片、features 包含卡片的；執行器降級去處與卡片的 `executor_eligible` |
 | `test_isolation_block_ports_security.py` ⭐ | profile 用呼叫端給的 B、超過上限拒絕不截斷、Touka 自己的埠不截斷、Settings 每個 `*_URL` 與每個 `route_url_attr` 都已歸類、registry 停用的遠端也擋、registry 讀不到只記型別 |
 | `test_permission_repair_security.py` ⭐ | （假掛鉤、假 EACCES，Windows 也能跑）：重試與不重試、只處理 Linux 上帶 filename 的 EACCES、巢狀只處理最外層、白名單（原路徑與 resolve 後都要過）與保護層、兩種政策拒絕（errno 是 None）、頻率限制與時間窗、`permission_relock`、`denied_burst` 與彙總告警、掛鉤出錯時原例外照丟、系統快照與記憶庫升級備份（ADR-0270）在白名單外、多執行緒計數 |

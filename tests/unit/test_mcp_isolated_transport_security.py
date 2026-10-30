@@ -57,7 +57,7 @@ from src.services.isolation.runners import (
 )
 
 from tests.helpers import mcp_asgi_peers as peers
-from tests.support.isolation import PinnedMonitor, fake_kernel_layout
+from tests.support.isolation import PinnedMonitor, fake_kernel_layout, match_state_root
 
 _WAIT = 5.0
 _PID = 4242
@@ -456,6 +456,7 @@ async def test_launch_transport_loss_and_public_diagnostics_keep_environment_pri
     monkeypatch, tmp_path, caplog, no_unretrieved
 ):
     layout = fake_kernel_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     monitor, book = PinnedMonitor(), McpLaunchBook()
     runner, spawner = _Runner(), _Spawner()
     broker = SimpleNamespace(acquire=AsyncMock(return_value=Acquired(runner, None)))

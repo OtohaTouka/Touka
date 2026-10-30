@@ -23,6 +23,7 @@ from src.services.isolation.profiles import (
     authorize_derived_path,
     checked_ports,
     layout_zone_roots,
+    proxy_state_zone,
     sandbox_env,
     state_dirs,
     system_rules,
@@ -130,8 +131,11 @@ def mcp_state_dirs(
 def mcp_classification_bases(
     name: str, *, layout: SandboxLayout, base_dir: Path,
 ) -> tuple[Path, ...]:
-    """啟動與部署凍結共用的解析基準；只算位置，不建立 state。"""
-    homes = () if layout.state_root is None else tuple(
+    """啟動與部署凍結共用的解析基準；只算位置，不建立 state.
+
+    版面沒設 ST 時只有 ``base_dir``；版面與 RM 的 ST 不同時往外丟 ``ProfileError``。
+    """
+    homes = () if proxy_state_zone(layout) is None else tuple(
         mcp_state_dirs(category, name, layout=layout, location="proxy", create=False)[0]
         for category in ("third", "self")
     )

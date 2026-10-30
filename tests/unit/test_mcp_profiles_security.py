@@ -35,6 +35,8 @@ from src.utils.isolation_policy import MAX_MCP_SANDBOX_PATHS
 from src.utils.mcp_origin import NO_RECORD, McpClassification, OriginRecord, classify
 from src.utils.touka_dirs import PROTECTED_LOCATION
 
+from tests.support.isolation import match_state_root
+
 _winapi = importlib.import_module("_winapi") if os.name == "nt" else None
 
 
@@ -76,6 +78,12 @@ def _layout(root: Path) -> SandboxLayout:
         mirror_roots=(install / "host_root", install / "workspace"),
         in_container=True,
     )
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path.resolve() / "install" / "st")
 
 
 @pytest.fixture

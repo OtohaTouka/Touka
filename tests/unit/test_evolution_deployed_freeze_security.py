@@ -23,6 +23,7 @@ from src.tools.builtin import evolution
 from src.utils import config_utils
 from src.utils.mcp_origin import ALL_SKILLS_DEPLOYED, DeployedSkills
 
+from tests.support.isolation import match_state_root
 from tests.support.links import make_dir_link
 
 
@@ -116,6 +117,7 @@ async def test_state_home_relative_deployment_refuses_before_write(
 ):
     root, config = workspace
     layout = replace(evolution_command.current_layout(), state_root=tmp_path / "state")
+    match_state_root(monkeypatch, layout.state_root)  # 版面與 RM 用同一個 ST（ADR-0293 P7）
     monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
     monkeypatch.setattr(evolution_command, "proxy_base_dir", lambda: tmp_path / "cwd")
     home, _ = mcp_state_dirs(category, "renamed", layout=layout, location="proxy", create=False)

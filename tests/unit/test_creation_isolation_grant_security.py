@@ -32,6 +32,7 @@ from tests.support.isolation import (
     PinnedMonitor,
     fake_kernel_layout,
     fixed_interpreter,
+    match_state_root,
     pinned_snapshot,
 )
 
@@ -66,6 +67,7 @@ def _connection(monkeypatch):
 
 def _launcher(monkeypatch, tmp_path, monitor):
     layout = fake_kernel_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     launcher = McpLauncher(
         monitor=monitor,
         broker=RunnerBroker(

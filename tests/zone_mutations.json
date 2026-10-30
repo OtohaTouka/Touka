@@ -533,14 +533,14 @@
       "R9"
     ],
     "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
-    "old": "ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE, Anchor.CUSTOM_DRIVE})",
-    "new": "ENFORCED_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE})",
+    "old": "ENFORCED_ANCHORS = ALL_ANCHORS",
+    "new": "ENFORCED_ANCHORS = ALL_ANCHORS - {Anchor.MCP_SERVERS}",
     "tests": [
       "tests/unit/test_zone_paths.py::test_anchor_sets",
-      "tests/unit/test_zone_paths.py::test_zone_of_literal"
+      "tests/unit/test_zone_paths.py::test_zone_of_only_looks_at_the_given_anchors"
     ],
     "posix_only": false,
-    "note": "拿掉一個錨點（自訂模型的個人空間不再受保護）"
+    "note": "拿掉一個錨點（MCP 伺服器資料夾不再受保護）"
   },
   {
     "id": "r9_rel_from_abs_literal_only",

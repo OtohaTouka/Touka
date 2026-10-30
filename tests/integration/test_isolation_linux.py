@@ -1988,10 +1988,10 @@ def _executor_dirs(tmp_path: Path) -> SimpleNamespace:
     base = tmp_path / "ex"
     data = base / "data"
     dirs = SimpleNamespace(
-        pd=data / "personal_drive", mcp=data / "mcp_servers", skills=base / "skills",
+        pd=data / "personal_drive", mcp=data / "mcp_servers" / "managed", skills=base / "skills",
         state=base / "state", ipc=base / "ipc", outside=base / "outside",
     )
-    for path in (dirs.pd / "Alice", dirs.pd / "Bob", dirs.mcp / "managed", dirs.skills):
+    for path in (dirs.pd / "Alice", dirs.pd / "Bob", dirs.mcp, dirs.skills):
         path.mkdir(parents=True)
     for path in (dirs.state, dirs.ipc, dirs.outside):
         path.mkdir(mode=0o700)
@@ -3054,7 +3054,7 @@ async def test_kind_mcp_runs_from_its_state_home_and_cannot_write_its_code(execu
     stdin 開著就收到回應；stderr 只到 relay 的 stderr；stdin 關掉後照遠端的 exit code 結束."""
     server, started = await executor.start()
     assert started, server.problem
-    code = executor.dirs.mcp / "managed" / "probe_tool"
+    code = executor.dirs.mcp / "probe_tool"
     code.mkdir()
     (code / "server.py").write_text("print('server')\n", encoding="utf-8")
     start = _mcp_exec_start(server, code, [*PY, _MCP_PROBE, str(code)])
@@ -3657,7 +3657,7 @@ async def test_mcp_stdio_relative_script_requires_an_absolute_target(mcp_stdio_p
 async def test_executor_reaps_blocked_stdin_after_relay_disconnect(executor):
     server, started = await executor.start()
     assert started, server.problem
-    code = executor.dirs.mcp / 'managed' / 'blocked_stdin'
+    code = executor.dirs.mcp / 'blocked_stdin'
     code.mkdir()
     source = (
         "import os, sys, time\nsys.stdin.readline()\nchild = os.fork()\n"

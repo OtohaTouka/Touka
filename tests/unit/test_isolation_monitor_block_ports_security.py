@@ -47,7 +47,7 @@ from src.services.resource_manager import resource_manager
 from src.utils import config_utils
 from src.utils.isolation_policy import landlock_features
 
-from tests.support.isolation import FixedBroker, fixed_interpreter
+from tests.support.isolation import FixedBroker, fixed_interpreter, match_state_root
 
 FAKE_API_KEY = "sk-test-upstream-fake-0123456789"
 ANY_V4 = ".".join("0000")  # 0.0.0.0（寫成字面值會被當成 bind 所有介面）
@@ -55,6 +55,12 @@ UPSTREAM = 4100  # 使用者自己的本機模型閘道（不在任何預設裡�
 OWNER = AgentIdentity.for_role(agent_id="OwnerUser", role="Owner", is_human=True, capabilities=[])
 
 # --- 純函式：非公網判斷、上游埠、核心 B ------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "state")
 
 
 @pytest.mark.parametrize(
@@ -187,7 +193,7 @@ class _Executor:
         data, layout = self.layout.data_root, self.layout
         roots = (
             ExecutorRoot(str(data / "personal_drive"), "rw"),
-            ExecutorRoot(str(data / "mcp_servers"), "rw"),
+            ExecutorRoot(str(data / "mcp_servers" / "managed"), "rw"),
             ExecutorRoot(str(layout.config_dir / "skills"), "ro"),
         )
         live = kernel_spec.kernel_digest(layout.proxy_root / "src" / "sandbox_kernel")

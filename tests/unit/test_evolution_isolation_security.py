@@ -48,12 +48,19 @@ from tests.support.isolation import (
     REAL_EVOLUTION_PROFILE,
     fake_kernel_layout,
     install_real_broker,
+    match_state_root,
     pinned_snapshot,
 )
 from tests.support.zone_roots import point_zone_roots
 
 SKILL = "probe_skill"
 MB = 1024 * 1024
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "install" / "st")
 
 
 def _layout(root: Path) -> SandboxLayout:

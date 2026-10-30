@@ -30,11 +30,22 @@ from src.services.isolation.profiles import (
 )
 from src.utils.async_db import init_db_async
 
-from tests.support.isolation import fake_kernel_layout, install_real_broker, pinned_snapshot
+from tests.support.isolation import (
+    fake_kernel_layout,
+    install_real_broker,
+    match_state_root,
+    pinned_snapshot,
+)
 from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 _winapi = importlib.import_module("_winapi") if os.name == "nt" else None
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "install" / "st")
 
 
 def _layout(root: Path, *, in_container: bool = False) -> SandboxLayout:
@@ -803,9 +814,10 @@ async def test_missing_project_root_is_not_granted(tmp_path):
     assert await _verdict(layout, "workspace/gone") == PROTECTED
 
 
-async def test_container_profile_rows_cwd_state_and_public_configs(tmp_path):
+async def test_container_profile_rows_cwd_state_and_public_configs(tmp_path, monkeypatch):
     """例子表的 profile 列：cwd、ST 自己的子資料夾、R 的公開檔名與 D 底下的設定檔。"""
     layout = _container_layout(tmp_path, _docker_dev_workspace)
+    match_state_root(monkeypatch, layout.state_root)
     app = layout.install_root
     (layout.data_root / "pyproject.toml").write_text("", encoding="utf-8")
     agent_dir = layout.data_root / "personal_drive" / "Alice"
@@ -828,9 +840,10 @@ async def test_container_profile_rows_cwd_state_and_public_configs(tmp_path):
     assert not profile.ungranted
 
 
-async def test_container_top_level_public_config_is_read_only_when_present(tmp_path):
+async def test_container_top_level_public_config_is_read_only_when_present(tmp_path, monkeypatch):
     """九個公開檔名是檔案級例外，優先於「容器 INSTALL_ROOT 的子項目全保護」（D、E、ST 除外）。"""
     layout = _container_layout(tmp_path, _docker_dev_workspace)
+    match_state_root(monkeypatch, layout.state_root)
     (layout.install_root / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     profile = await build_agent_command_profile(
         ALICE, layout.data_root / "personal_drive" / "Alice", layout=layout
@@ -839,8 +852,9 @@ async def test_container_top_level_public_config_is_read_only_when_present(tmp_p
     assert await _verdict(layout, "pytest.ini") == PROTECTED
 
 
-async def test_denied_project_is_ungranted_with_the_reason(tmp_path):
+async def test_denied_project_is_ungranted_with_the_reason(tmp_path, monkeypatch):
     layout = _container_layout(tmp_path, _docker_dev_workspace)
+    match_state_root(monkeypatch, layout.state_root)
     profile = await build_agent_command_profile(
         ALICE,
         layout.data_root / "personal_drive" / "Alice",

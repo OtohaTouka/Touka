@@ -49,7 +49,7 @@ services:
     command: ["python", "-m", "src.services.isolation.executor_server",
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
-              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
               "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
@@ -65,7 +65,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ${MEMORY_APP_DATA_DIR:-./data}/personal_drive:/app/data/personal_drive
-      - ${MEMORY_APP_DATA_DIR:-./data}/mcp_servers:/app/data/mcp_servers
+      - ${MEMORY_APP_DATA_DIR:-./data}/mcp_servers/managed:/app/data/mcp_servers/managed
       - ./config/skills:/app/ToukaProxy/config/skills:ro
       - touka-exec-ipc:/app/ipc/executor
       - touka-executor-state:/app/executor_state

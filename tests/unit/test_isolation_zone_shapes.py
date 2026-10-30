@@ -20,6 +20,7 @@ from src.services.isolation.profiles import (
 from src.services.isolation.repair import WhitelistMatch, match_whitelist
 from src.utils.mcp_origin import agent_influenced
 
+from tests.support.isolation import match_state_root
 from tests.support.links import make_dir_link
 
 if TYPE_CHECKING:
@@ -30,6 +31,12 @@ ALICE = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
 _AGENT, _STATE, _MOUNT = "agent_area", "state_area", "mount_root"
 _PD_ALICE, _MANAGED = "data/personal_drive/Alice", "data/mcp_servers/managed"
 _TOOL = f"{_MANAGED}/tool"
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "install" / "st")
 
 
 @pytest.fixture

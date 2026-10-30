@@ -33,6 +33,7 @@ import anyio
 from mcp import types
 from mcp.shared.message import SessionMessage
 from src.services.execution_broker import spawn_exec
+from src.services.resource_manager import resource_manager
 from src.utils.mcp_secrets import escape_log_controls, redact_values, secret_parts, secret_values
 from src.utils.time_utils import get_monotonic_ms
 
@@ -319,19 +320,21 @@ async def isolated_stdio_client(
     """
     plan = runner.plan(request)  # 拿不到就往外拋（連線失敗）
     try:
-        proc = await spawn(
-            *plan.argv,
-            new_process_group=True,
-            cwd=str(plan.cwd),
-            env=plan.env,
-            pass_fds=plan.pass_fds,
-            close_fds=True,
-            preexec_fn=plan.preexec_fn,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=MCP_STDIO_LINE_LIMIT,
-        )
+        # cwd 在代理人資料夾（區）裡時，spawn 當下經交接交出、最後一段不能是連結（ADR-0293 P6）
+        with resource_manager.handoff_cwd(str(plan.cwd)) as cwd:
+            proc = await spawn(
+                *plan.argv,
+                new_process_group=True,
+                cwd=cwd,
+                env=plan.env,
+                pass_fds=plan.pass_fds,
+                close_fds=True,
+                preexec_fn=plan.preexec_fn,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=MCP_STDIO_LINE_LIMIT,
+            )
     except BaseException:
         plan.release()
         _report(runner, plan, report_failure)

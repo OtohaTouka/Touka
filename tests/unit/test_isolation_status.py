@@ -51,6 +51,14 @@ from tests.support.isolation import (
     pinned_snapshot,
 )
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_roots import point_zone_roots
+
+
+@pytest.fixture(autouse=True)
+def _zone_roots_match_layout(tmp_path, monkeypatch):
+    """RM 的 data 與 ST 根指向 ``_status_layout`` 同一處（ADR-0293 P7：版面與 RM 的 ST 要相同）."""
+    point_zone_roots(monkeypatch, tmp_path / "data", tmp_path / "state")
+
 
 # --- 純函式：isolation_policy ---------------------------------------------------------
 
@@ -238,7 +246,8 @@ class _SelfTest:
 
     async def __call__(self, kernel_dir: Path, test_dir: Path) -> SelfTestResult:
         location = "data" if test_dir.parent.name == "mcp_servers" else "state"
-        assert location == "data" or test_dir.parent.name == "proxy"
+        # ST 的自測在 ``ST/proxy/selftest/<一次一個>``（ADR-0293 PR 2）
+        assert location == "data" or test_dir.parent.parts[-2:] == ("proxy", "selftest")
         self.calls.append(location)
         if self.gate is not None:
             await self.gate.wait()
@@ -271,6 +280,12 @@ def _status_layout(tmp_path: Path, **overrides) -> SandboxLayout:
     }
     values.update(overrides)
     return SandboxLayout(**values)
+
+
+def _pointed_layout(monkeypatch, base: Path, **overrides) -> SandboxLayout:
+    """在 ``base`` 另建一個版面，RM 的 data 與 ST 根一起指過去（一個測試裡輪流用好幾個版面時）."""
+    point_zone_roots(monkeypatch, base / "data", base / "state")
+    return _status_layout(base, **overrides)
 
 
 def _monitor(layout: SandboxLayout, selftest=None, *, clock=None, platform="linux", **kwargs):
@@ -321,7 +336,7 @@ def _ready_for(layout: SandboxLayout, ports=None, **overrides) -> ExecutorReady:
     data = layout.data_root
     roots = (
         ExecutorRoot(str(data / "personal_drive"), "rw"),
-        ExecutorRoot(str(data / "mcp_servers"), "rw"),
+        ExecutorRoot(str(data / "mcp_servers" / "managed"), "rw"),
         ExecutorRoot(str(layout.config_dir / "skills"), "ro"),
     )
     values = {
@@ -440,9 +455,10 @@ async def test_sandbox_state_unset_is_unconfigured(tmp_path):
     assert (snap.level, snap.reason, snap.detail) == ("none", "sandbox_state_unconfigured", "unset")
 
 
-async def test_sandbox_state_not_writable_is_unconfigured_without_crash(tmp_path):
+async def test_sandbox_state_not_writable_is_unconfigured_without_crash(tmp_path, monkeypatch):
     blocker = tmp_path / "state-is-a-file"
     blocker.write_text("", encoding="utf-8")
+    point_zone_roots(monkeypatch, tmp_path / "data", blocker)  # RM 的 ST 也是這個檔案
     snap = await _monitor(_status_layout(tmp_path, state_root=blocker)).ensure_ready()
     assert (snap.level, snap.reason, snap.detail) == (
         "none",
@@ -1850,18 +1866,21 @@ async def test_local_decision_is_pending_only_on_linux_before_the_first_selftest
     assert monitor.local_decision().status == "available"
 
 
-async def test_local_decision_features_drop_tcp_when_the_net_or_the_ports_are_unsafe(tmp_path):
+async def test_local_decision_features_drop_tcp_when_the_net_or_the_ports_are_unsafe(
+    tmp_path, monkeypatch
+):
     """可用時照樣包（features 不含 tcp）；ABI 3 只有檔案隔離."""
-    ok = _monitor(_status_layout(tmp_path / "ok"))
+    ok = _monitor(_pointed_layout(monkeypatch, tmp_path / "ok"))
     await ok.ensure_ready()
     assert ok.local_decision() == LocalDecision("available", features=policy.landlock_features(7))
-    net = _monitor(_status_layout(tmp_path / "net"), _SelfTest(net="net_tcp_fastopen"))
+    net_layout = _pointed_layout(monkeypatch, tmp_path / "net")
+    net = _monitor(net_layout, _SelfTest(net="net_tcp_fastopen"))
     await net.ensure_ready()
     assert net.local_decision().features == policy.landlock_features(7) - {"tcp"}
-    abi_3 = _monitor(_status_layout(tmp_path / "abi3"), _SelfTest(abi=3))
+    abi_3 = _monitor(_pointed_layout(monkeypatch, tmp_path / "abi3"), _SelfTest(abi=3))
     await abi_3.ensure_ready()
     assert abi_3.local_decision() == LocalDecision("available", features=frozenset({"fs"}))
-    layout = _status_layout(tmp_path / "ports")
+    layout = _pointed_layout(monkeypatch, tmp_path / "ports")
     layout.config_dir.mkdir(parents=True)
     (layout.config_dir / "connections.json").write_text("[]", encoding="utf-8")  # 結構不對
     ports = _monitor(layout)
@@ -1936,19 +1955,23 @@ def test_unknown_or_missing_local_reasons_are_temporary():
         assert not decision.stable, decision
 
 
-async def test_local_level_is_landlock_only_with_abi_4_a_safe_net_and_complete_ports(tmp_path):
+async def test_local_level_is_landlock_only_with_abi_4_a_safe_net_and_complete_ports(
+    tmp_path, monkeypatch
+):
     """本機層級（scaffold 的試跑）：同 landlock 層的規則，但不看部署預期（執行器部署也看本機）."""
-    executor = _monitor(_status_layout(tmp_path / "exec", executor_dir=tmp_path / "ipc"))
+    executor = _monitor(
+        _pointed_layout(monkeypatch, tmp_path / "exec", executor_dir=tmp_path / "ipc")
+    )
     snap = await executor.ensure_ready()
     assert snap.expected == "executor" and snap.level == "none"
     assert executor.local_level() == LevelDecision("landlock")
-    abi_3 = _monitor(_status_layout(tmp_path / "abi3"), _SelfTest(abi=3))
+    abi_3 = _monitor(_pointed_layout(monkeypatch, tmp_path / "abi3"), _SelfTest(abi=3))
     await abi_3.ensure_ready()
     assert abi_3.local_level() == LevelDecision("none", "landlock_abi_insufficient")
-    net = _monitor(_status_layout(tmp_path / "net"), _SelfTest(net="net_mptcp"))
+    net = _monitor(_pointed_layout(monkeypatch, tmp_path / "net"), _SelfTest(net="net_mptcp"))
     await net.ensure_ready()
     assert net.local_level() == LevelDecision("none", "net_mptcp")
-    layout = _status_layout(tmp_path / "ports")
+    layout = _pointed_layout(monkeypatch, tmp_path / "ports")
     layout.config_dir.mkdir(parents=True)
     (layout.config_dir / "connections.json").write_text("[]", encoding="utf-8")
     ports = _monitor(layout)
@@ -1987,10 +2010,11 @@ async def test_first_local_selftest_result_notifies_even_when_the_level_stays_no
     assert seen == ["fs_9p"]
 
 
-async def test_local_issue_change_notifies_under_the_executor_level(tmp_path):
+async def test_local_issue_change_notifies_under_the_executor_level(tmp_path, monkeypatch):
     """MEDIUM-R3-2：執行器部署下 ST 恢復可寫，層級與本機狀態都不變，仍要通知（第三方才會重啟）."""
     blocker = tmp_path / "state-is-a-file"
     blocker.write_text("", encoding="utf-8")
+    point_zone_roots(monkeypatch, tmp_path / "data", blocker)  # RM 的 ST 也是這個檔案
     monitor, _executor, _layout = _executor_monitor(tmp_path, state_root=blocker)
     seen: list[tuple[str, str | None]] = []
 

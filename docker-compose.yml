@@ -19,10 +19,11 @@ services:
     # 容器啟動前，up-only 的本 init 擋不住 restart/daemon 重啟路徑）。init 僅備妥目錄＋權限＋遷移
     # 舊單檔；config.json 由 heartbeat 的 StorageService 於目錄內自癒生成（不再從 .example 播種）。
     # 注意：sh -c 內嚴禁 # 註解——YAML 折疊標量會把註解折進指令列導致語法錯誤（unexpected fi）。
-    # iso-c2：執行器只掛 data 底下這兩個資料夾，先建好，Docker 才不會替 bind 建出 root 擁有的。
+    # iso-c2：執行器只掛 data 底下這兩個資料夾（mcp_servers 只掛 managed，ADR-0293 PR 2），先建好，
+    # Docker 才不會替 bind 建出 root 擁有的。
     command: >
       sh -c "
-      mkdir -p /app/data/personal_drive /app/data/mcp_servers;
+      mkdir -p /app/data/personal_drive /app/data/mcp_servers/managed;
       chown -R 1001:1001 /app/config /app/data /app/hf_cache || true;
       chmod -R 775 /app/config /app/data /app/hf_cache || true;
       chown 1001:1001 /app/sandbox_state || true;
@@ -199,7 +200,7 @@ services:
     command: ["python", "-m", "src.services.isolation.executor_server",
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
-              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
               "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
@@ -216,7 +217,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ${SANCTUARY_DATA_PATH:-./data}/personal_drive:/app/data/personal_drive
-      - ${SANCTUARY_DATA_PATH:-./data}/mcp_servers:/app/data/mcp_servers
+      - ${SANCTUARY_DATA_PATH:-./data}/mcp_servers/managed:/app/data/mcp_servers/managed
       - ./ToukaProxy/config/skills:/app/ToukaProxy/config/skills:ro
       - touka-exec-ipc:/app/ipc/executor
       - touka-executor-state:/app/executor_state

@@ -22,12 +22,17 @@ import contextlib
 import logging
 import os
 import secrets
-import stat
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from memory_server.utils.zone_paths import ZoneRootsUnavailableError, anchor_dirname
+from memory_server.utils.no_follow import WalkReport
+from memory_server.utils.zone_paths import (
+    HandoffKind,
+    ZoneRootsUnavailableError,
+    anchor_dirname,
+)
 
 from src.config import is_container_runtime
 from src.sandbox_kernel.framing import block_ports_digest
@@ -64,8 +69,10 @@ from src.services.isolation.mcp_profiles import MCP_PROXY_STATE_KINDS
 from src.services.isolation.profiles import (
     BLOCK_PORTS_OVERFLOW,
     SANDBOX_STATE_UNCONFIGURED,
+    ProfileError,
     authorize_derived_path,
     current_layout,
+    proxy_state_zone,
 )
 from src.services.isolation.repair import PermissionRepairService
 from src.services.isolation.repair import install as install_permission_repair
@@ -84,7 +91,8 @@ from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
-    from pathlib import Path
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.identity import AgentIdentity
     from src.services.isolation.executor_client import ExecutorReady
@@ -109,6 +117,8 @@ SELFTEST_TIMEOUT_SECONDS = 30.0
 ROOT_REPAIR_INTERVAL_SECONDS = 60.0  # 權限自癒的定期檢查（W1、W7、W8、ST/proxy 本身）
 LAUNCHER_NAME = "launcher.py"
 SELFTEST_DIR_PREFIX = ".touka-selftest-"  # 每次自測加隨機尾碼；自測前清掉同前綴的殘留
+# ST 那次的自測在 ``ST/proxy/selftest/<前綴+隨機>``（代理人深度，ADR-0293 P5）；不是 state 種類
+SELFTEST_STATE_DIR = "selftest"
 LANDLOCK_UNAVAILABLE = "landlock_unavailable"  # 啟動器自測的代碼，也是 monitor 的原因
 # 判定本身出錯（讀不到 kernel、monitor／專案／session 查詢拋例外）：照 none 處理（fail-closed）
 CHECK_FAILED = "isolation_check_failed"
@@ -276,12 +286,15 @@ def _no_upstream_urls() -> tuple[str, ...]:
 
 
 def expected_executor_roots(layout: SandboxLayout) -> frozenset[ExecutorRoot]:
-    """執行器應該掛的三個 root：代理人資料夾與 MCP 資料夾可寫、skills 唯讀。"""
+    """執行器應該掛的三個 root：個人空間與演化工具（``mcp_servers/managed``）可寫、skills 唯讀.
+
+    只掛 ``managed``、不掛 ``mcp_servers``（ADR-0293 PR 2 Q7）：掛載根換不掉，錨點的上層只有 Touka。
+    """
     data = layout.data_root
     return frozenset(
         {
             ExecutorRoot(str(data / "personal_drive"), "rw"),
-            ExecutorRoot(str(data / "mcp_servers"), "rw"),
+            ExecutorRoot(str(data / "mcp_servers" / "managed"), "rw"),
             ExecutorRoot(str(layout.config_dir / "skills"), "ro"),
         }
     )
@@ -802,7 +815,7 @@ class IsolationMonitor:
     async def _boot(self) -> None:
         """先清 proxy 的 tmp（在任何自測與指令之前改名，刪除放背景），再自測、健康檢查."""
         try:
-            trash = await asyncio.to_thread(_rename_proxy_tmp, self._current_layout().state_root)
+            trash = await asyncio.to_thread(_rename_proxy_tmp, self._current_layout())
         except Exception:  # 清不掉只影響磁碟空間：照常開機
             logger.exception("Could not clear the proxy sandbox tmp folders")
             trash = []
@@ -830,21 +843,21 @@ class IsolationMonitor:
         kernel = layout.kernel_dir
         if kernel is None or not resource_manager.exists(kernel / LAUNCHER_NAME):
             return LandlockState("unavailable", reason="kernel_not_installed")
-        state_base = layout.state_root / "proxy" if layout.state_root else None
-        base = layout.data_root / "mcp_servers" if location == "data" else state_base
-        if base is None:
-            return LandlockState("unavailable", reason="selftest_failed")
-        test_dir = base / f"{SELFTEST_DIR_PREFIX}{secrets.token_hex(8)}"
+        if location == "data":
+            run = self._selftest_in_data(kernel, layout.data_root / "mcp_servers")
+        else:
+            try:
+                state = proxy_state_zone(layout)
+            except ProfileError:
+                state = None
+            if state is None:
+                return LandlockState("unavailable", reason="selftest_failed")
+            run = self._selftest_in_state(kernel, state)
         try:
-            resource_manager.make_dir(base)
-            _clear_stale_selftests(base)
-            result = await self._selftest(kernel, test_dir)
+            result = await run
         except Exception:  # 自測丟出任何例外都算失敗（取消照常往外傳）
             logger.exception("Isolation self-test could not run (%s)", location)
             result = SelfTestResult(ok=False, error="selftest_error")
-        finally:
-            with contextlib.suppress(OSError):
-                resource_manager.remove_dir(test_dir)
         if result.ok and result.abi >= EXECUTOR_LAYER_MIN_ABI:
             return LandlockState("available", abi=result.abi, net=result.net)
         if 0 < result.abi < EXECUTOR_LAYER_MIN_ABI or result.error == "abi_too_old":
@@ -855,6 +868,30 @@ class IsolationMonitor:
         reason = "fs_9p" if location == "data" and result.abi else "selftest_failed"
         logger.warning("Isolation self-test failed on %s: %s", location, result.error)
         return LandlockState("unavailable", abi=result.abi, reason=reason)
+
+    async def _selftest_in_data(self, kernel: Path, base: Path) -> SelfTestResult:
+        """在 data 自測：``data/mcp_servers/<前綴+隨機>``（不在區裡）；先清上次留下的."""
+        test_dir = base / f"{SELFTEST_DIR_PREFIX}{secrets.token_hex(8)}"
+        try:
+            resource_manager.make_dir(base)
+            _clear_stale_selftests(base)
+            return await self._selftest(kernel, test_dir)
+        finally:
+            with contextlib.suppress(OSError):
+                resource_manager.remove_dir(test_dir)
+
+    async def _selftest_in_state(self, kernel: Path, state: ZonePath) -> SelfTestResult:
+        """在 ST 自測：``ST/proxy/selftest/<前綴+隨機>``，經交接交給啟動器（區內方法、不跟隨）."""
+        base = state.child(SELFTEST_STATE_DIR)
+        test_dir = base.child(f"{SELFTEST_DIR_PREFIX}{secrets.token_hex(8)}")
+        try:
+            resource_manager.zone_make_dir(base)
+            _clear_stale_state_selftests(base)
+            with resource_manager.zone_handoff(test_dir, HandoffKind.SUBPROCESS_CWD) as handed:
+                return await self._selftest(kernel, Path(handed))
+        finally:
+            with contextlib.suppress(OSError):
+                resource_manager.zone_remove_dir(test_dir)
 
     def report_failure(self, code: str) -> None:
         """執行時看到失敗標記：只請求重探（不分原因，60 秒內最多一次），不直接改層級.
@@ -961,68 +998,107 @@ def _clear_stale_selftests(base: Path) -> None:
             resource_manager.remove_dir(stale)
 
 
-def _real_dirs(parent: Path) -> list[Path]:
-    """``parent`` 底下真的資料夾（lstat：連結不算、不跟過去）；列不出來回空的."""
-    try:
-        entries = list(parent.iterdir())
-    except OSError:
-        return []
-    found = []
-    for entry in entries:
-        try:
-            if stat.S_ISDIR(os.lstat(entry).st_mode):
-                found.append(entry)
-        except OSError:
-            continue
+def _child_dirs(zp: ZonePath, *, links: bool = False) -> list[tuple[str, str]]:
+    """``zp`` 底下一層的（名稱, 種類）：資料夾（``links`` 時連 ``link`` 也列）；不跟隨連結.
+
+    ``zp`` 本身或上層是連結時往外丟 ``ZoneLinkRefusedError``；名稱不能當一段的略過並記 log。
+    """
+    report = WalkReport()
+    found = [
+        (entry.parts[-1], entry.kind)
+        for entry in resource_manager.zone_walk(zp, report, show_links=links, list_depth=1)
+        if entry.kind == "dir" or (links and entry.kind == "link")
+    ]
+    if report.bad_names:
+        logger.warning("Skipped %d unusable names under %s", len(report.bad_names), zp.display())
     return found
 
 
-def _rename_proxy_tmp(state_root: Path | None) -> list[Path]:
+def _clear_stale_state_selftests(base: ZonePath) -> None:
+    """清掉 ST 那次上次被打斷留下的自測資料夾：只看 ``base`` 底下本前綴；清不掉就留著."""
+    for name, _kind in _child_dirs(base):
+        if name.startswith(SELFTEST_DIR_PREFIX):
+            with contextlib.suppress(OSError):
+                resource_manager.zone_remove_dir(base.child(name))
+
+
+def _rename_owner_tmp(owner: ZonePath, trash: list[ZonePath]) -> None:
+    """一個 ``<owner>``：``tmp`` 是資料夾就改名成 ``tmp.trash-<隨機>``、是連結就只刪連結."""
+    for name, kind in _child_dirs(owner, links=True):
+        if kind == "dir" and name.startswith(TMP_TRASH_PREFIX):
+            trash.append(owner.child(name))
+        elif name == "tmp" and kind == "link":
+            with contextlib.suppress(OSError):
+                resource_manager.zone_remove_file(owner.child(name))
+        elif name == "tmp":
+            new_name = f"{TMP_TRASH_PREFIX}{secrets.token_hex(8)}"
+            with contextlib.suppress(OSError):
+                resource_manager.zone_rename(owner.child(name), new_name)
+                trash.append(owner.child(new_name))
+
+
+def _rename_proxy_tmp(layout: SandboxLayout) -> list[ZonePath]:
     """``ST/proxy/<kind>/<owner>/tmp`` 原子改名成同一層的 ``tmp.trash-<隨機>``；回傳要刪的.
 
-    只看這個形狀、不跟連結、不碰別的位置；上次沒刪完的 ``tmp.trash-*`` 一併刪。
+    只看 ``STATE_KINDS`` 的這個形狀、不跟連結（區內方法）、不碰別的位置；上次沒刪完的
+    ``tmp.trash-*`` 一併刪。版面與 RM 的 ST 不同時記 log、不清。
     """
-    proxy = state_root / "proxy" if state_root is not None else None
-    if proxy is None or proxy not in _real_dirs(state_root):
+    try:
+        proxy = proxy_state_zone(layout)
+    except ProfileError:
+        logger.warning("Sandbox state differs from the layout; not clearing tmp folders")
         return []
-    trash: list[Path] = []
-    kinds = [d for d in _real_dirs(proxy) if d.name in STATE_KINDS]
-    for owner in (o for kind in kinds for o in _real_dirs(kind)):
-        for entry in _real_dirs(owner):
-            if entry.name.startswith(TMP_TRASH_PREFIX):
-                trash.append(entry)
-            elif entry.name == "tmp":
-                target = owner / f"{TMP_TRASH_PREFIX}{secrets.token_hex(8)}"
-                with contextlib.suppress(OSError):
-                    resource_manager.move_file(entry, target)
-                    trash.append(target)
+    if proxy is None:
+        return []
+    trash: list[ZonePath] = []
+    for kind in STATE_KINDS:
+        try:
+            owners = _child_dirs(proxy.child(kind))
+        except OSError:
+            logger.warning("Could not list the sandbox state of %s; skipped", kind)
+            continue
+        for name, _kind in owners:
+            try:
+                _rename_owner_tmp(proxy.child(kind).child(name), trash)
+            except OSError:
+                logger.warning("Could not clear a tmp folder under %s; skipped", kind)
     return trash
 
 
-def _remove_trash(paths: list[Path]) -> None:
-    """背景刪除改名後的 tmp（rmtree 不跟連結）；刪不掉就留著，下次開機再試."""
+def _remove_trash(paths: list[ZonePath]) -> None:
+    """背景刪除改名後的 tmp（區內方法，不跟連結）；刪不掉就留著，下次開機再試."""
     for path in paths:
         with contextlib.suppress(OSError):
-            resource_manager.remove_dir(path)
+            resource_manager.zone_remove_dir(path)
 
 
 def _repair_state_dir(repair: PermissionRepairHook, layout: SandboxLayout) -> None:
-    """``ST/proxy`` 不可寫：先叫權限自癒修一次（根的保留額度）；出錯照實判 not_writable."""
-    if layout.state_root is not None:
+    """``ST/proxy`` 不可寫：先叫權限自癒修一次（根的保留額度）；出錯照實判 not_writable.
+
+    權限自癒逐段不跟隨地開（kernel，禁令 66 ⑨），交給它的是區字串；版面與 RM 不同時不修。
+    """
+    try:
+        proxy = proxy_state_zone(layout)
+    except ProfileError:
+        return
+    if proxy is not None:
         with contextlib.suppress(Exception):
-            repair.repair("state_issue", (str(layout.state_root / "proxy"),), retry=False)
+            repair.repair("state_issue", (resource_manager.zone_text(proxy),), retry=False)
 
 
 def _state_issue(layout: SandboxLayout) -> str | None:
-    """ST 未設定 → unset；建不出 proxy 子資料夾或不可寫 → not_writable（不拋例外）。"""
-    if layout.state_root is None:
-        return STATE_UNSET
-    proxy_dir = layout.state_root / "proxy"
+    """ST 未設定 → unset；版面與 RM 不同、建不出 proxy 子資料夾或不可寫 → not_writable."""
     try:
-        resource_manager.make_dir(proxy_dir)
+        proxy = proxy_state_zone(layout)
+    except ProfileError:
+        return "not_writable"
+    if proxy is None:
+        return STATE_UNSET
+    try:
+        resource_manager.zone_make_dir(proxy)
     except OSError:
         return "not_writable"
-    return None if os.access(proxy_dir, os.W_OK | os.X_OK) else "not_writable"
+    return None if resource_manager.zone_access(proxy, os.W_OK | os.X_OK) else "not_writable"
 
 
 isolation_monitor = IsolationMonitor()
