@@ -38,6 +38,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.services.agent_reset import orchestrator
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
@@ -525,6 +526,22 @@ def test_a_save_that_cannot_be_written_is_an_error(
     _assert_ownership_untouched(owners)
     assert (_custom_base() / OLD / "config.json").read_bytes() == before
     assert not (_custom_base() / NEW).exists()
+
+
+def test_a_half_written_model_is_removed_while_another_agent_is_reset(
+    owners: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """建立失敗的回滾只標記這個 ID、不拿全系統一把的鎖：別的代理人正在重置時也清掉（ADR-0293）."""
+    monkeypatch.setattr(orchestrator, "reset_in_progress", lambda: True)
+    monkeypatch.setattr(
+        custom_io, "write_custom_file", _fail_for(NEW, custom_io.write_custom_file, False)
+    )
+
+    created = _post(f"/v1/ui/custom_models/{NEW}", _BODY)
+
+    assert created.status_code == 500, created.text
+    assert not (_custom_base() / NEW).exists()
+    _assert_ownership_untouched(owners)
 
 
 def test_updating_an_existing_model_does_not_claim_it(owners: MagicMock) -> None:

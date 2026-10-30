@@ -1106,5 +1106,57 @@
       "tests/unit/test_manage_backup_links_security.py::test_restore_skips_an_alias_of_an_agent_folder"
     ],
     "posix_only": false
+  },
+  {
+    "id": "r8_restore_name_not_plain",
+    "rule": [
+      "R8"
+    ],
+    "file": "ToukaProxy/scripts/manage_backup.py",
+    "old": "                    if not _plain_relative(arcname):",
+    "new": "                    if False:",
+    "tests": [
+      "tests/unit/test_manage_backup_links_security.py::test_restore_skips_names_that_leave_the_data_path"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_rename_skips_hold",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "            async with destructive_op(old_identity):",
+    "new": "            async with contextlib.nullcontext():",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_rename_stops_the_old_model_commands_first"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_rollback_takes_the_global_lock",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "    async with _mark_only(model) if rollback else destructive_op(model):",
+    "new": "    async with destructive_op(model):",
+    "tests": [
+      "tests/unit/test_custom_model_rename_security.py::test_a_half_written_model_is_removed_while_another_agent_is_reset"
+    ],
+    "posix_only": false
+  },
+  {
+    "id": "r11_soul_named_delete_stops_the_soul",
+    "rule": [
+      "R11"
+    ],
+    "file": "ToukaProxy/src/routers/custom_models.py",
+    "old": "    if any(soul_id.casefold() == folded for soul_id in soul_io.list_soul_ids()):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/test_custom_model_links_security.py::test_a_legacy_folder_named_like_a_soul_leaves_the_soul_commands"
+    ],
+    "posix_only": false
   }
 ]

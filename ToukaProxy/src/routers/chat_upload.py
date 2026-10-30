@@ -1,7 +1,7 @@
 """聊天上傳端點（Phase 2，A1）：``POST /v1/chat/upload``。
 
 非圖片文件（pdf/docx/xlsx/pptx/大文字）上傳到**當下 agent 自己的 vault**，回相對路徑供前端
-注入「請 AI 用 personal_drive read 工具讀全文 / 用 python 終端機解析」提示。
+注入「請 AI 用 read 工具（scope personal）讀全文 / 用 python 終端機解析」提示。
 """
 from __future__ import annotations
 

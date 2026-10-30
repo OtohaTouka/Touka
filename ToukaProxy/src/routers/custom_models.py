@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends
 from memory_server.utils.zone_paths import is_zone_segment
@@ -16,7 +16,7 @@ from src.models.custom_models import (  # noqa: TC001
     CustomModelUpdateRequest,
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
-from src.services import memory_collection_guard
+from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
@@ -25,6 +25,9 @@ from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
 from src.tools import terminal
 from src.utils import custom_io, soul_io
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui/custom_models", tags=["custom_models"])
@@ -76,17 +79,35 @@ def _assert_is_model(model: AgentIdentity) -> None:
 async def _stop_before_moving(model: AgentIdentity) -> None:
     """R11（ADR-0293）：個人空間根是連結就 409、什麼都不動；動手前停這個模型的全部指令.
 
-    呼叫端已在 ``destructive_op(model)`` 裡：標記期間不會開新的指令。
+    呼叫端已標記這個 ID：標記期間不會開新的指令。和靈魂同名的舊資料夾（只差大小寫也算）不停：
+    這個 ID 登記的指令是靈魂的，在靈魂自己的個人空間跑。
     """
     refuse_linked_drive(resource_manager.custom_drive(model))
+    folded = model.agent_id.casefold()
+    if any(soul_id.casefold() == folded for soul_id in soul_io.list_soul_ids()):
+        return
     killed = await terminal.stop_agent_commands(model)
     if killed:
         logger.info("Custom model %s: stopped %d command(s)", model.agent_id, killed)
 
 
-async def _remove_model_dir(model: AgentIdentity) -> bool:
-    """刪除自訂模型資料夾的唯一路徑；``custom_io.delete_custom_dir`` 沒有標記就拒絕."""
-    async with destructive_op(model):
+@contextlib.asynccontextmanager
+async def _mark_only(model: AgentIdentity) -> AsyncIterator[None]:
+    """只標記這個 ID、不拿全系統一把的破壞性操作鎖（建立失敗的回滾用）."""
+    destructive_ops.hold(model)
+    try:
+        yield
+    finally:
+        destructive_ops.release(model)
+
+
+async def _remove_model_dir(model: AgentIdentity, *, rollback: bool = False) -> bool:
+    """刪除自訂模型資料夾的唯一路徑；``custom_io.delete_custom_dir`` 沒有標記就拒絕.
+
+    建立失敗的回滾（``rollback``）只標記：別的代理人正在重置時也要清掉寫了一半的新資料夾，
+    不然介面刪不到它、同一個 ID 也不能再建。剛建的 ID 沒有別的操作會碰。
+    """
+    async with _mark_only(model) if rollback else destructive_op(model):
         await _stop_before_moving(model)
         return custom_model_service.delete_model(model)
 
@@ -225,7 +246,7 @@ async def update_custom_model(
             # 資料夾不算模型，之後查看、刪除都找不到它（舊審查報告丙-2）
             if not exists:
                 try:
-                    removed = await _remove_model_dir(temp_id)
+                    removed = await _remove_model_dir(temp_id, rollback=True)
                 except ToukaException:
                     removed = False
                 if not removed:

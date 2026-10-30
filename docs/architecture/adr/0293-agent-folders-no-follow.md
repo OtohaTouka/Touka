@@ -35,11 +35,11 @@
 6. **例外**：`ZonePathRequiredError(TypeError)`（程式錯誤，`except OSError` 接不到）、`ZoneSegmentError(ValueError)`、`ZoneLinkRefusedError(LinkRefusedError)`（區裡有連結；ADR-0292 的 `LinkRefusedError` 照舊給專案根）。區內方法丟出的所有例外，`filename` 都是 `display()`、訊息固定不帶路徑；絕對路徑只放在 `zone_abs`，只有權限自癒讀。三種例外與 `ZonePath` 的誤用會通知觀察者：正式環境記一行警告，測試期間記下來（決定 12）。
 7. **破壞性操作**（重置、刪除靈魂、刪除與改名自訂模型）：
    - 任何副作用之前先查個人空間根；是連結（或 `custom/<id>` 本身是連結）就整個失敗、什麼都不刪，UI 回 `AGENT_DRIVE_LINKED`（1421，HTTP 409）。
-   - 查完後停掉這個代理人的全部指令：`process_registry` 登記時帶 `agent_id`（沒有 session 的也登記），`terminate_agent` 跨 session 停；終端另外保留還沒 spawn 的與待審批的工作一起取消。停完到操作結束之間，終端與互審驗證指令啟動前查 `destructive_ops.is_held`，被持有就以 `agent_busy` 拒絕。刪除與改名自訂模型也進 `destructive_op`；設定頁的 `DELETE /v1/models/{id}` 遇到自訂模型時改呼叫同一條刪除路徑（`ModelManager` 只刪登記與快取）；最底層的 `custom_io.delete_custom_dir` 沒有 `destructive_op` 的標記就拒絕。
+   - 查完後停掉這個代理人的全部指令：`process_registry` 登記時帶 `agent_id`（沒有 session 的也登記），`terminate_agent` 跨 session 停；終端另外保留還沒 spawn 的與待審批的工作一起取消。停完到操作結束之間，終端與互審驗證指令啟動前查 `destructive_ops.is_held`，被持有就以 `agent_busy` 拒絕。刪除與改名自訂模型也進 `destructive_op`（別的代理人正在重置、清除或刪除時回 409 `AGENT_RESET_IN_PROGRESS`）；建立存檔失敗的回滾只標記這個 ID、不拿全系統的鎖（剛建的 ID 沒有別的操作會碰，撞上別人的重置也要清掉寫了一半的資料夾）。和靈魂同名的舊 `custom/<id>` 刪除時不停指令：這個 ID 登記的指令是靈魂的。設定頁的 `DELETE /v1/models/{id}` 遇到自訂模型時改呼叫同一條刪除路徑，也一樣查擁有權（`ModelManager` 只刪登記與快取）；最底層的 `custom_io.delete_custom_dir` 沒有標記就拒絕。
    - 刪樹不跟隨連結、不因深度失敗；同一項被來回換的重試有上限，到上限以固定原因失敗（「可能有這個代理人留下的背景程式還在改檔案；請稍後再試，仍失敗請重啟 Touka」）。
    - 新的自訂模型 ID 要能當成區裡的一段（`is_zone_segment`），不然回 422。
    - 自訂模型改名只用 `rename_agent_container`：只做 `renameat`、不複製（跨磁碟失敗），舊名是連結、新名已存在都拒絕。刪除用 `remove_custom_model_dir`。
-8. **改用區內方法的功能**：檔案動詞、個人空間目錄（`.touka`）、任務板（鎖檔搬到 `data/temp/locks/missions/<id>.lock`，代理人寫不到）、派工結果、互審蒐證、重置、刪除靈魂與自訂模型、改名、上傳（含配額走訪）、`/v1/outputs`、生圖、GDPR 匯出、診斷統計、終端的個人空間根、隔離狀態顯示、建立靈魂、儲存狀態檢查、ToukaMemory `manager`、ToukaDispatch 的看板、備份與還原（`manage_backup.py`：走訪不跟隨、寫回用 `write_stream_no_follow` 從根檢查整條路徑、成員名稱逐段檢查）。舊的字串產生函式（`get_vault_path("personal")` 一類）與 `text_editor`、`get_physical_path` 刪除。
+8. **改用區內方法的功能**：檔案動詞、個人空間目錄（`.touka`）、任務板（鎖檔搬到 `data/temp/locks/missions/<id>.lock`，代理人寫不到）、派工結果、互審蒐證、重置、刪除靈魂與自訂模型、改名、上傳（含配額走訪）、`/v1/outputs`、生圖、GDPR 匯出、診斷統計、終端的個人空間根、隔離狀態顯示、建立靈魂、儲存狀態檢查、ToukaMemory `manager`、ToukaDispatch 的看板、備份與還原（`manage_backup.py`：走訪不跟隨、寫回用 `write_stream_no_follow` 從根檢查整條路徑、成員名稱逐段檢查；其他成員的名稱有空段、`.`、`..` 或從根、磁碟代號開始的略過並列出）。舊的字串產生函式（`get_vault_path("personal")` 一類）與 `text_editor`、`get_physical_path` 刪除。
 9. **vault-jailed MCP**（docgen 一類，ADR-0115）：這類伺服器的 I/O 不經 RM，而且所有代理人共用同一個程序，交出任何根都無法保證不跟隨連結；`base_dir` 同時是讀與寫的根，交別的資料夾會讓產出落錯地方。所以設了 `vault_jail_arg` 的伺服器，工具呼叫在執行器前段（這一輪清單核對之後、政策與審批卡之前）一律以 `VaultJailedToolUnavailableError` 拒絕、不送出，給模型的是結構化 `permission_denied`（`reason: "vault_jailed_tool_unavailable"`）。上傳 PDF、Office 檔時給模型的提示不再叫它用這類工具讀檔。安全的讀寫做法另開任務。
 10. **隔離層的形狀判斷**改呼叫 `zone_of`／`contains_zone`／`anchor_at`：`profiles._own_drive`（只收自己的 `PERSONAL_DRIVE/<id>` 或 `CUSTOM_DRIVE/<id>/drive`，路上有連結拒絕）、`_in_own_drive`（取代 `grantable_roots`）、`mcp_profiles` 的個人空間引用、`mcp_origin.agent_influenced`、`repair.match_whitelist`。結果和以前相同，只有一處變嚴：Windows 上 `custom/<id>/DRIVE` 以前因大小寫被判成代理人影響不到。隔離狀態顯示先看錨點有沒有掛進執行器，再看 `zone_kind`。
 11. **靜態檢查**（`tests/lint/test_zone_path_guard.py`）：
@@ -75,7 +75,8 @@
 - 人類自己把 `personal_drive/<id>`、`custom/<id>`、`custom/<id>/drive` 做成連結時，那個代理人的檔案功能一律拒絕，重置、刪除與改名失敗並說明原因。錨點本身是人做的連結照常可用。
 - 專案根在某個代理人的個人空間底下時，專案的檔案功能拒絕；專案根在 data 根上層時，list、find、grep 照常但看不到代理人資料夾，遞迴刪除、複製、打包拒絕；專案裡指向代理人資料夾的檔案連結，打包與複製略過。
 - docgen 一類的工具在 PR 1 不能用（任何平台）；今天經隔離啟動時本來就讀寫不到代理人資料夾，主要影響 Windows 本機經人同意直接啟動的。
-- 重置、刪除靈魂、刪除與改名自訂模型會先停掉那個代理人的全部指令（設定頁模型分頁的刪除也一樣）。
+- 重置、刪除靈魂、刪除與改名自訂模型會先停掉那個代理人的全部指令（設定頁模型分頁的刪除也一樣）；和靈魂同名的舊資料夾不停。別的代理人正在重置、清除或刪除時，刪除與改名自訂模型回 409。設定頁模型分頁刪除自訂模型時查擁有權，不是擁有者的一般使用者回 403（以前刪得掉）。
+- 還原時 `data/` 底下名稱有空段、`.`、`..` 或從根開始的成員略過並列出（以前雙斜線開頭的會寫到 data 路徑以外）。
 - 不能當成一段的名稱：兩個平台都是含 `/`、`\`、NUL 與 `.`、`..`；Windows 另外是含 `:`、保留裝置名、結尾的點或半形空白（系統會去掉，變成別的名稱的別名）。開頭的空白、全形空白這類名稱照常可用。Linux 上檔名含 `\` 的既有檔案，檔案動詞與 `/v1/outputs` 都碰不到（`/v1/outputs` 回 403）；走訪時略過並記下相對路徑（備份與還原逐筆印出，GDPR 與重置只記數量）；不合格的資料夾整個不進入、只記資料夾本身。上傳的檔名是 Windows 保留名時加前綴 `_`。
 - 個人空間裡另外掛的資料夾（例如自己掛的 NAS），備份、GDPR、診斷統計不收，刪除時失敗並說明。
 - 每次字串方法多一次區內判斷（解析每個錨點一次、每段一次 `stat`）。5,000 個檔案的專案 grep 量起來和改之前相同（1.87 秒對 1.88 秒）；測試裡的絆線另外讓同一個 grep 變成約 4 秒，只在測試。

@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -133,26 +135,63 @@ def test_restore_does_not_write_through_links(zone_data_root, tmp_path):
 
 
 def test_restore_skips_an_alias_of_an_agent_folder(zone_data_root, tmp_path, capsys):
-    """``data/./personal_drive`` 比不到代理人資料夾的名稱，走一般還原.
+    """別名（短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱，走一般還原.
 
-    落點以身分判斷在區內就略過。
+    這台機器做不出掛載，用 data 根的連結模擬同一個檔案身分；落點以身分判斷在區內就略過。
     """
     mod = _load()
     resolver = _resolver(mod, tmp_path, zone_data_root)
     source = tmp_path / "alias.zip"
     with zipfile.ZipFile(source, "w") as zf:
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
-        zf.writestr("data/./personal_drive/Alice/x.txt", b"bad")
+        zf.writestr("data/pd_alias/Alice/x.txt", b"bad")
         zf.writestr("data/soul/Alice/core.json", b"{}")
     fresh = tmp_path.resolve() / "fresh_data"
     fake = tmp_path.resolve() / "fake_drive"
     for folder in (fresh / "personal_drive", fake):
         folder.mkdir(parents=True)
     make_dir_link(fresh / "personal_drive" / "Alice", fake)
+    make_dir_link(fresh / "pd_alias", fresh / "personal_drive")
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert list(fake.iterdir()) == [], LINK_FOLLOWED
     assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
-    assert "'data/./personal_drive/Alice/x.txt'" in capsys.readouterr().out
+    assert "'data/pd_alias/Alice/x.txt'" in capsys.readouterr().out
+
+
+def test_restore_skips_names_that_leave_the_data_path(
+    zone_data_root, tmp_path, capsys, monkeypatch
+):
+    """``data//…`` 去掉 ``data/`` 後從根開始，``.``、``..`` 比不到資料夾名稱：略過並列出.
+
+    建資料夾與搬檔只准在 tmp_path 底下：改壞這條檢查時落點是檔案系統根，先擋下來、不真的寫。
+    """
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    inside = tmp_path.resolve()
+
+    def _only_inside(real, index):
+        def _call(*args, **kwargs):
+            where = Path(os.path.abspath(args[index]))
+            assert where.is_relative_to(inside), f"wrote outside the test folder: {where}"
+            return real(*args, **kwargs)
+
+        return _call
+
+    monkeypatch.setattr(Path, "mkdir", _only_inside(Path.mkdir, 0))
+    monkeypatch.setattr(shutil, "move", _only_inside(shutil.move, 1))
+    source = tmp_path / "escape.zip"
+    names = ["data//personal_drive/Alice/x.txt", "data/./soul/x.txt", "data/../outside.txt"]
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        for name in names:
+            zf.writestr(name, b"bad")
+        zf.writestr("data/soul/Alice/core.json", b"{}")
+    fresh = inside / "fresh_data"
+    mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
+    assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
+    assert not (inside / "outside.txt").exists()
+    out = capsys.readouterr().out
+    assert all(f"'{name}'" in out for name in names), out
 
 
 def test_restore_skips_member_names_that_are_not_a_segment(zone_data_root, tmp_path, capsys):

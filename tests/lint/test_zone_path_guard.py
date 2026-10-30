@@ -865,6 +865,12 @@ def _mentions(source: Source, module: str) -> set[str]:
                 found.add(node.attr)
         if isinstance(node, ast.Constant) and node.value == dotted:
             found.add("*")  # importlib.import_module("tests.support.…")
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith(f"{dotted}.")
+        ):
+            found.add(node.value[len(dotted) + 1 :].split(".")[0])  # setattr("….<module>.名稱", …)
         if (
             isinstance(node, ast.Call)
             and len(node.args) >= 2
@@ -901,6 +907,58 @@ def test_only_listed_tests_reach_into_the_zone_records_and_the_tripwire():
         if "take_records_for_self_test" in _mentions(source, "zone_tripwire")
     }
     assert takers == {SELF_TEST_TAKER}
+
+
+def test_mentions_finds_the_dotted_string_form():
+    text = 'def t(m):\n    m.setattr("tests.support.zone_records.remaining", list)\n'
+    assert _mentions(Source("m.py", "m", ast.parse(text)), "zone_records") == {"remaining"}
+
+
+# conftest 判區的紀錄與 Z9 全量檢查的開關：換掉就讓 session 不紅
+# 只有直接呼叫 session hook 的測試能碰
+CONFTEST_ZONE_SWITCHES = frozenset(
+    {"_ZONE_FULL_RUN", "_zone_late_records", "_zone_unused_allowances"}
+)
+CONFTEST_SWITCH_USERS = frozenset({"tests/unit/test_session_sandbox_cleanup.py"})
+
+
+def _conftest_switches(source: Source) -> set[str]:
+    """``source`` 用到的 conftest 開關：名稱、屬性、匯入、``setattr(x, "名稱", …)`` 與點分字串."""
+    found: set[str] = set()
+    for node in ast.walk(source.tree):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+        elif isinstance(node, ast.alias):
+            found.add(node.name.rsplit(".", 1)[-1])
+        elif isinstance(node, ast.Call) and len(node.args) >= 2 and _literal(node.args[1]):
+            found.add(_literal(node.args[1]))  # type: ignore[arg-type]
+        elif isinstance(node, ast.Constant) and str(node.value).startswith("tests.conftest."):
+            found.add(str(node.value).rsplit(".", 1)[-1])
+    return found & CONFTEST_ZONE_SWITCHES
+
+
+def test_only_listed_tests_touch_the_conftest_zone_switches():
+    users = {
+        source.rel
+        for source in suite_sources()
+        if source.rel != "tests/conftest.py" and _conftest_switches(source)
+    }
+    assert users == CONFTEST_SWITCH_USERS
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'def t(m):\n    m.setattr(session_conftest, "_ZONE_FULL_RUN", False)\n',
+        'def t(m):\n    m.setattr("tests.conftest._zone_late_records", [])\n',
+        "from tests.conftest import _zone_unused_allowances\n",
+        "def t():\n    session_conftest._ZONE_FULL_RUN = False\n",
+    ],
+)
+def test_conftest_switch_uses_are_found(text):
+    assert _conftest_switches(Source("m.py", "m", ast.parse(text)))
 
 
 LINT_SSOT = ROOT / "scripts/lint_ssot.py"
@@ -1006,6 +1064,11 @@ T3_DIRECT_CALLS = frozenset(
     }
 )
 _PATCHERS = frozenset({"patch", "object", "dict", "multiple"})
+# 改容器內容的方法：``zp._handoffs.clear()``、``os.environ.pop("名稱")``
+_MUTATORS = frozenset(
+    {"append", "extend", "insert", "pop", "popitem", "remove", "clear", "update", "setdefault"}
+    | {"add", "discard"}
+)
 _ENV_SELECTION = "測 Memory 選哪個 .env：data 根的環境變數有沒有設是這個測試的輸入"
 _DATA_ROOT_PARSING = "測 Memory 解析 data 根的環境變數本身（Docker 下的絕對與相對值）"
 # 「測試模組:函式」→（次數, 理由）；其他測試換 data 根一律用 ``zone_data_root`` 或
@@ -1031,6 +1094,10 @@ T3_ALLOWED: dict[str, tuple[int, str]] = {
     "tests.unit.test_memory_env_selection:test_no_explicit_keeps_bounded_three_level_fallback": (
         1,
         _ENV_SELECTION,
+    ),
+    "tests.unit.test_heartbeat_env_selection:run_restart_audit_child": (
+        1,
+        "另開的子行程在匯入產品程式之前，把 data 根指到這個測試自己的資料夾（測重啟後讀回設定）",
     ),
     "tests.unit.test_smoke_production_repairs:"
     "test_memory_app_data_dir_keeps_docker_default_for_relative_override": (1, _DATA_ROOT_PARSING),
@@ -1089,6 +1156,12 @@ def _is_environ(node: ast.expr) -> bool:
     return ast.unparse(node) in ("os.environ", "environ")
 
 
+def _target_name(node: ast.expr) -> str | None:
+    """被替換或被改內容的對象名稱：點分字串取最後一段，其他取最後一個名稱."""
+    text = _literal(node)
+    return text.rsplit(".", 1)[-1] if text is not None else _last_name(node)
+
+
 def _patched_names(call: ast.Call) -> list[str]:
     """這個呼叫替換的名稱（monkeypatch、mock.patch 與 mocker 的各種寫法）."""
     func, args = call.func, call.args
@@ -1116,7 +1189,55 @@ def _patched_names(call: ast.Call) -> list[str]:
                 if isinstance(value, ast.Dict):
                     found.extend(t for k in value.keys if (t := _literal(k)) is not None)
             found.extend(k.arg for k in call.keywords if k.arg and k.arg not in ("clear", "new"))
+    elif name in _MUTATORS and isinstance(func, ast.Attribute) and _is_environ(func.value):
+        if args and _literal(args[0]) is not None:
+            found.append(_literal(args[0]))  # type: ignore[arg-type]  # pop、setdefault
+        for value in args:
+            if isinstance(value, ast.Dict):
+                found.extend(t for k in value.keys if (t := _literal(k)) is not None)
+        found.extend(k.arg for k in call.keywords if k.arg)
     return found
+
+
+def _changed_containers(node: ast.AST) -> list[str]:
+    """直接改內容的容器（``os.environ`` 另算）.
+
+    ``setitem(zp._handoffs, …)``、``patch.dict(zp._handoffs, …)``、``zp._handoffs.clear()``、
+    ``zp._handoffs[k] = …``、``_observers[:] = []``。
+    """
+    found: list[str | None] = []
+    if isinstance(node, ast.Call) and node.args:
+        func, first = node.func, node.args[0]
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        patching = name == "dict" and "patch" in ast.unparse(func)
+        if (name in ("setitem", "delitem") or patching) and not _is_environ(first):
+            found.append(_target_name(first))
+    func = node.func if isinstance(node, ast.Call) else None
+    if isinstance(func, ast.Attribute) and func.attr in _MUTATORS and not _is_environ(func.value):
+        found.append(_last_name(func.value))
+    if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+        targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+        found.extend(
+            _last_name(target.value)
+            for target in targets
+            if isinstance(target, ast.Subscript) and not _is_environ(target.value)
+        )
+    return [name for name in found if name]
+
+
+def _patched_owner(call: ast.Call) -> str | None:
+    """被替換屬性的擁有者：``setattr(ZoneRoots, "resolved", f)``、``patch("….ZoneRoots.x")``."""
+    func, args = call.func, call.args
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+    if not args or name not in ("setattr", "delattr", "patch", "object"):
+        return None
+    if name in ("patch", "object") and "patch" not in ast.unparse(func):
+        return None
+    text = _literal(args[0])
+    if text is not None:
+        parts = text.split(".")
+        return parts[-2] if len(parts) >= 2 else None
+    return _last_name(args[0]) if name != "patch" else None
 
 
 def _assigned_names(node: ast.AST) -> list[str]:
@@ -1139,17 +1260,42 @@ def _assigned_names(node: ast.AST) -> list[str]:
     return found
 
 
-def zone_paths_module_names() -> frozenset[str]:
-    """``zone_paths.py`` 模組層定義的所有名稱（含私有的根、身分、交接與觀察者狀態）."""
-    tree = next(s.tree for s in product_sources() if s.rel == ZONE_PATHS)
+def _assigned_owners(node: ast.AST) -> list[str]:
+    """``ZoneRoots.resolved = f`` 一類：被指定屬性的擁有者."""
+    if not isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+        return []
+    targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+    return [
+        owner
+        for target in targets
+        if isinstance(target, ast.Attribute) and (owner := _last_name(target.value))
+    ]
+
+
+def _zone_paths_body() -> list[ast.stmt]:
+    return next(s.tree for s in product_sources() if s.rel == ZONE_PATHS).body
+
+
+def zone_paths_state_names() -> frozenset[str]:
+    """``zone_paths.py`` 模組層指定的名稱（私有的根、身分、交接與觀察者狀態）."""
     names: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+    for node in _zone_paths_body():
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             names.update(n.id for n in targets if isinstance(n, ast.Name))
     return frozenset(names - ZONE_PATHS_GENERIC_NAMES)
+
+
+def zone_paths_class_names() -> frozenset[str]:
+    """``zone_paths.py`` 定義的類別：替換它們的方法或屬性也會改區判斷."""
+    return frozenset(node.name for node in _zone_paths_body() if isinstance(node, ast.ClassDef))
+
+
+def zone_paths_module_names() -> frozenset[str]:
+    """``zone_paths.py`` 模組層定義的所有名稱（含私有的根、身分、交接與觀察者狀態）."""
+    kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    defined = {node.name for node in _zone_paths_body() if isinstance(node, kinds)}
+    return frozenset(defined - ZONE_PATHS_GENERIC_NAMES) | zone_paths_state_names()
 
 
 @cache
@@ -1168,22 +1314,37 @@ def t3_protected() -> frozenset[str]:
     return frozenset(names)
 
 
-def t3_sites(sources: Iterable[Source], protected: frozenset[str]) -> dict[str, int]:
+def t3_sites(
+    sources: Iterable[Source],
+    protected: frozenset[str],
+    owners: frozenset[str] = frozenset(),
+    containers: frozenset[str] | None = None,
+) -> dict[str, int]:
+    """每個範圍替換受保護名稱的次數；``owners`` 是方法也不能換的類別，``containers`` 是內容不能
+    直接改的容器（預設同 ``protected``）."""
     found: Counter[str] = Counter()
+    watched = protected | owners
+    containers = protected if containers is None else containers
     for source in sources:
+        aliases = module_aliases(source.tree)
         for key, nodes in scopes(source):
             for node in nodes:
                 names = _patched_names(node) if isinstance(node, ast.Call) else []
                 if isinstance(node, ast.Call):
-                    called = called_name(node.func, {})
+                    called = called_name(node.func, aliases)
                     names += [called] if called in T3_DIRECT_CALLS else []
+                    owner = _patched_owner(node)
+                    names += [owner] if owner in owners else []
                 names += _assigned_names(node)
-                found[key] += sum(1 for name in names if name in protected)
+                names += [o for o in _assigned_owners(node) if o in owners]
+                found[key] += sum(1 for name in names if name in watched)
+                found[key] += sum(1 for name in _changed_containers(node) if name in containers)
     return {key: n for key, n in found.items() if n}
 
 
 def test_tests_do_not_replace_zone_producers_or_the_data_root():
-    sites = t3_sites(suite_sources(), t3_protected())
+    containers = zone_paths_state_names() | DATA_ROOT_NAMES
+    sites = t3_sites(suite_sources(), t3_protected(), zone_paths_class_names(), containers)
     assert sites == {key: n for key, (n, _why) in T3_ALLOWED.items()}
 
 
@@ -1222,6 +1383,20 @@ def test_t3_covers_the_producers_and_the_data_root():
         ("def t():\n    set_roots_provider(lambda: roots)\n", "set_roots_provider"),
         ("def t():\n    zp._register_handoff(p, k)\n", "_register_handoff"),
         ("def t(m):\n    f = lambda: m.setattr(zp, \"_identity\", g)\n", "_identity"),
+        (
+            "from memory_server.utils.zone_paths import _register_handoff as reg\n"
+            "def t():\n    reg(p, k)\n",
+            "_register_handoff",
+        ),
+        ("def t(m):\n    m.setitem(zp._handoffs, k, v)\n", "_handoffs"),
+        ("def t():\n    zp._handoffs[k] = v\n", "_handoffs"),
+        ("def t():\n    _observers[:] = []\n", "_observers"),
+        ("def t():\n    del zp._handoffs[k]\n", "_handoffs"),
+        ("def t():\n    zp._handoffs.clear()\n", "_handoffs"),
+        ("def t():\n    patch.dict(zp._handoffs, {k: v})\n", "_handoffs"),
+        ('def t():\n    patch.dict("memory_server.utils.zone_paths._handoffs", {})\n', "_handoffs"),
+        ('def t():\n    os.environ.pop("MEMORY_APP_DATA_DIR", None)\n', "MEMORY_APP_DATA_DIR"),
+        ('def t():\n    os.environ.update({"MEMORY_APP_DATA_DIR": x})\n', "MEMORY_APP_DATA_DIR"),
     ],
 )
 def test_t3_finds_every_way_of_replacing_a_name(text, name):
@@ -1231,10 +1406,33 @@ def test_t3_finds_every_way_of_replacing_a_name(text, name):
 @pytest.mark.parametrize(
     "text",
     [
+        'def t(m):\n    m.setattr(ZoneRoots, "resolved", f)\n',
+        'def t(m):\n    m.setattr("memory_server.utils.zone_paths.ZoneRoots.resolved", f)\n',
+        'def t():\n    with patch.object(zp.ZoneRoots, "resolved"):\n        pass\n',
+        'def t():\n    with patch("memory_server.utils.zone_paths.ZoneRoots.resolved"):\n'
+        "        pass\n",
+        "def t():\n    ZoneRoots.resolved = f\n",
+    ],
+)
+def test_t3_finds_replaced_methods_of_zone_classes(text):
+    owners = frozenset({"ZoneRoots"})
+    assert t3_sites([Source("m.py", "m", ast.parse(text))], frozenset(), owners) == {"m:t": 1}
+
+
+def test_t3_owners_are_the_zone_paths_classes():
+    assert {"ZonePath", "ZoneRoots", "ZoneMarkers"} <= zone_paths_class_names()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         'def t(m):\n    m.setattr(rm, "exists", f)\n',  # 不在清單上的名稱
         'def t(m):\n    m.setenv("TOUKA_ENV_FILE", x)\n',
         "def t(self):\n    self.resource_manager = rm\n",  # 測試類別自己的屬性
         'def t():\n    value = os.environ["MEMORY_APP_DATA_DIR"]\n',  # 只是讀
+        "def t():\n    value = zp._handoffs[k]\n",
+        "def t():\n    value = zp._handoffs.get(k)\n",
+        'def t():\n    os.environ.pop("TOUKA_ENV_FILE", None)\n',
     ],
 )
 def test_t3_leaves_other_names_and_plain_reads_alone(text):

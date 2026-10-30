@@ -9,7 +9,7 @@
   逐段 sanitize 後當成區內路徑的一段——不可逃出該 agent 的 uploads 目錄（→ 永不碰別的 agent
   資料），路上任何一段是連結就拒絕（UPLOAD_FAILED）。
 - 路徑由 ``identity`` 衍生（``uploads_dir``）→ 物理上只寫該 agent 自己 vault（無 IDOR）。
-- 檔案僅存放、不在伺服器解析；由該 agent 的 bash/python 或 personal_drive read 工具讀取。
+- 檔案僅存放、不在伺服器解析；由該 agent 的 bash/python 或 read 工具（scope personal）讀取。
 """
 from __future__ import annotations
 

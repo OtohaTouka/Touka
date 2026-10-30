@@ -551,8 +551,13 @@ class RestoreEngine:
                     if _restore_agent_member(zipf, member, target, report):
                         continue
                     arcname = member.removeprefix("data/")
-                    # 別名（``./``、短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱：落點以身分
-                    # 判斷在它裡面或包含它就略過，不走會跟隨連結的舊路（ADR-0293）
+                    # 雙斜線、``.``、``..`` 或根開頭的名稱會讓落點離開 data 路徑、比不到資料夾名稱：
+                    # 略過（ADR-0293）
+                    if not _plain_relative(arcname):
+                        report.bad_names.append(member)
+                        continue
+                    # 別名（短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱：落點以身分判斷在它
+                    # 裡面或包含它就略過，不走會跟隨連結的舊路（ADR-0293）
                     roots = ZoneRoots(target, None)
                     if zone_of(target / arcname, roots) or contains_zone(target / arcname, roots):
                         report.bad_names.append(member)
@@ -586,6 +591,12 @@ class RestoreEngine:
 
         _print_skipped(report)
         print(f"Restore completed from: {zip_path}")
+
+
+def _plain_relative(name: str) -> bool:
+    """一般的相對路徑：沒有根或磁碟代號，也沒有空段、``.``、``..``."""
+    parts = name.removesuffix("/").split("/")
+    return not Path(name).anchor and all(part not in ("", ".", "..") for part in parts)
 
 
 def _restore_agent_member(
