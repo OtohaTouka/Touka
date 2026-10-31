@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.services import mcp_isolation_store
@@ -38,6 +39,7 @@ from src.services.isolation.status import (
     LocalDecision,
     isolation_monitor,
 )
+from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import (
     EXECUTOR_LAYER_MIN_ABI,
     LANDLOCK_LAYER_MIN_ABI,
@@ -46,12 +48,12 @@ from src.utils.isolation_policy import (
     landlock_features,
 )
 
+from tests.support.zone_roots import point_zone_roots
+
 # 真的演化 profile（替身裝上前取得；演化的隔離測試要換回真的時用）
 REAL_EVOLUTION_PROFILE = evolution_command.evolution_profile
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pytest
     from src.services.isolation.agent_command import CommandScope
     from src.services.isolation.consent import ExecutionGrant
@@ -212,7 +214,7 @@ def passthrough_evolution_profile(
     skill_id: str, _location: str = "proxy", _executor_state: str | None = None
 ) -> SandboxProfile:
     """測試替身的演化 profile：cwd 是工具沙盒（既有測試常把沙盒根目錄換成 tmp_path）。"""
-    cwd = EvolutionPathGuard.get_tool_root(skill_id)
+    cwd = Path(EvolutionPathGuard.get_tool_root(skill_id))
     return SandboxProfile(name="evolution", cwd=cwd, rules=(), block_ports=())
 
 
@@ -262,10 +264,23 @@ MONITOR_METHODS = (
 )
 
 
+def match_state_root(monkeypatch: pytest.MonkeyPatch, state: Path | None) -> None:
+    """RM 的 ST 換成 ``state``、data 根不變：測試自己組的版面用（ADR-0293 P7）.
+
+    版面與 RM 的 ST 不同時，profiles 的 ST 存取函式一律拒絕；``None``（版面沒設 ST）不換。
+    """
+    if state is not None:
+        point_zone_roots(monkeypatch, Path(resource_manager.get_base_path()), state)
+
+
 def install_real_broker(
     monkeypatch: pytest.MonkeyPatch, snap: IsolationSnapshot, layout: SandboxLayout
 ) -> PinnedMonitor:
-    """monitor 釘在 ``snap``，broker 換回真的 ``RunnerBroker``（降級規則照實執行）。"""
+    """monitor 釘在 ``snap``，broker 換回真的 ``RunnerBroker``（降級規則照實執行）。
+
+    RM 的 ST 跟著換成這個版面的（``match_state_root``）。
+    """
+    match_state_root(monkeypatch, layout.state_root)
     monitor = PinnedMonitor(snap=snap)
     broker = RunnerBroker(
         monitor=monitor, layout_provider=lambda: layout, interpreter=fixed_interpreter

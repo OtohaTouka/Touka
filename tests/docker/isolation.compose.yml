@@ -8,7 +8,7 @@
 # 變數：
 #   TOUKA_ISO_IMAGE  用 ToukaProxy/Dockerfile 建的映像（預設 touka-iso-test-proxy:c2；CI 是
 #                    ghcr.io/ci/touka-proxy:ci）
-#   TOUKA_ISO_DATA   假資料根（必填；先建好 personal_drive、mcp_servers、skills 三個空資料夾，
+#   TOUKA_ISO_DATA   假資料根（必填；先建好 personal_drive、mcp_servers/managed、skills 三個空資料夾，
 #                    uid 1001 要寫得進去。CI 是 $RUNNER_TEMP/compose/data）
 #   TOUKA_ISO_REPO   repo 根（預設本檔往上兩層），唯讀掛進檢查用的容器，只用它的 tests/；
 #                    受測的 src 一律是映像裡的那份
@@ -22,7 +22,7 @@ services:
     command: ["python", "-m", "src.services.isolation.executor_server",
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
-              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
               "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
@@ -38,7 +38,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/personal_drive:/app/data/personal_drive
-      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/mcp_servers:/app/data/mcp_servers
+      - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/mcp_servers/managed:/app/data/mcp_servers/managed
       - ${TOUKA_ISO_DATA:?set TOUKA_ISO_DATA to the fake data folder}/skills:/app/ToukaProxy/config/skills:ro
       - ipc:/app/ipc/executor
       - exec-state:/app/executor_state
@@ -110,6 +110,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       - PYTHONPATH=/iso:/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
+      # ST 只有一個來源（RM，ADR-0293 P7）：檢查程式照設定拿 ST，不自己組；映像裡的
+      # /app/sandbox_state 在唯讀根上，所以指到 tmpfs
+      - TOUKA_SANDBOX_STATE_DIR=/tmp/touka-iso-state
     volumes:
       - ${TOUKA_ISO_REPO:-../..}:/iso:ro
     network_mode: none

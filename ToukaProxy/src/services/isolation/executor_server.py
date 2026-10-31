@@ -181,7 +181,7 @@ class ServerConfig:
     ipc: str  # ``ctl.sock``、``token``、``alive``、``.lock`` 所在的私有資料夾
     kernel: str  # 唯讀的 sandbox kernel（依路徑載入）
     state: str  # 每個代理人的 home／tmp 在 ``<state>/<kind>/<owner>/``
-    rw: tuple[str, ...]  # 讀寫掛載根；名稱不能重複（``personal_drive``、``mcp_servers``）
+    rw: tuple[str, ...]  # 讀寫掛載根；名稱不能重複（``personal_drive``、``managed``）
     ro: tuple[str, ...]  # 唯讀掛載根（技能）
     require_foreign_peer: bool  # 只服務別的 pid namespace 來的連線（proxy 的 relay）
 
@@ -266,10 +266,16 @@ def _private_problem(view: FsView, path: str) -> str | None:
     return None if info and not stat.S_IMODE(info.st_mode) & 0o077 else "private_dir"
 
 
+def data_root(rw: Iterable[str]) -> str | None:
+    """資料所在的讀寫 root（9p、自測用）：名稱是 ``managed`` 的那個；沒有回 None（不退回別的）."""
+    return next((p for p in rw if PurePosixPath(p).name == es.MANAGED_ROOT), None)
+
+
 def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | None:
     """設定的問題代碼（沒有回 None），依檢查順序.
 
-    ``roots``：沒有讀寫 root 或名稱重複；``root_path``：root 不存在、不是資料夾或路上有連結；
+    ``roots``：沒有讀寫 root 或名稱重複；``data_root``：沒有名稱是 ``managed`` 的讀寫 root；
+    ``root_path``：root 不存在、不是資料夾或路上有連結；
     ``touka_root``：root 第一層像 Touka 資料根或帶標記（讀不到也算）；``nested``：roots、state、
     ipc 彼此巢狀；``socket_path``：socket 路徑超過 100 bytes；``private_dir``：state 或 ipc 不是
     伺服器擁有、群組與其他人沒有權限的資料夾。
@@ -278,6 +284,8 @@ def config_problem(config: ServerConfig, kernel: Kernel, view: FsView) -> str | 
     names = [PurePosixPath(p).name for p in config.rw]
     if not config.rw or len(set(names)) != len(names):
         return "roots"
+    if data_root(config.rw) is None:
+        return "data_root"
     for root in roots:
         if _canonical_dir(view, root) is None:
             return "root_path"
@@ -781,21 +789,21 @@ class ExecutorServer:
                             make_private_dir(tmp)
 
     def _clean_stale_selftests(self) -> None:
-        for base in (self._data_root(), self.config.state):
+        for base in (data_root(self.config.rw), self.config.state):
+            if base is None:  # config_problem 已擋下（data_root）
+                continue
             with contextlib.suppress(OSError), os.scandir(base) as entries:
                 for entry in entries:
                     if entry.name.startswith(SELFTEST_PREFIX) and _plain_dir(entry.path):
                         shutil.rmtree(entry.path, ignore_errors=True)
 
-    def _data_root(self) -> str:
-        """資料所在的檔案系統（9p）：``mcp_servers`` 那個讀寫 root，沒有就用第一個。"""
-        named = [p for p in self.config.rw if PurePosixPath(p).name == "mcp_servers"]
-        return (named or list(self.config.rw))[0]
-
     async def run_selftests(self, names: Iterable[str]) -> None:
         """在資料所在的 9p（data）與 state 上各做一次啟動器自測（``--pin``，同 proxy）。"""
         for name in names:
-            base = self._data_root() if name == "data" else self.config.state
+            base = data_root(self.config.rw) if name == "data" else self.config.state
+            if base is None:  # config_problem 已擋下（data_root）；萬一走到也只是失敗
+                self._tests[name] = self.spec.SelfTestResult(ok=False, error="data_root")
+                continue
             target = str(PurePosixPath(base, SELFTEST_PREFIX + secrets.token_hex(8)))
             try:
                 self._tests[name] = await (self.hooks.selftest or self._launcher_selftest)(target)
@@ -855,10 +863,10 @@ class ExecutorServer:
     def _maintain(self, *, roots: bool, alive: bool = True) -> None:
         """自我修復（W6）：沿固定的路徑鏈補擁有者位元（kernel 的 ``repair_chain``）.
 
-        白名單只有 ipc（資料夾、socket、權杖、alive）與 state_root；``roots`` 時加上讀寫掛載根與
-        ``managed``。W6 是伺服器自己的私有 inode，另外拿掉群組與其他人的位元（``repair_private``，
-        啟動檢查要它們是 0700）；掛載根不動群組與其他人的位元。不 chown；不受 START 前修復的
-        頻率限制。
+        白名單只有 ipc（資料夾、socket、權杖、alive）與 state_root；``roots`` 時加上讀寫掛載根
+        （``managed`` 本身就是掛載根）。W6 是伺服器自己的私有 inode，另外拿掉群組與其他人的
+        位元（``repair_private``，啟動檢查要它們是 0700）；掛載根不動群組與其他人的位元。
+        不 chown；不受 START 前修復的頻率限制。
         """
         ipc, state, framing = self.config.ipc, self.config.state, self.framing
         names = (framing.SOCKET_NAME, framing.TOKEN_NAME, ALIVE_NAME)
@@ -866,8 +874,6 @@ class ExecutorServer:
         chains = list(private)
         if roots:
             chains += [(root, root) for root in self.config.rw]
-            mcp = [r for r in self.config.rw if PurePosixPath(r).name == "mcp_servers"]
-            chains += [(r, str(PurePosixPath(r, "managed"))) for r in mcp]
         for root, target in chains:
             self._repair(root, target)
         close = self.hooks.repair_private or self.kernel.owner_repair.repair_private

@@ -18,7 +18,6 @@ import contextlib
 import os
 import stat
 import sys
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -40,6 +39,7 @@ from src.services.resource_manager import resource_manager
 from src.tools import terminal
 
 from tests.support.links import CHANGED_ANYWAY, LINK_FOLLOWED, make_dir_link
+from tests.support.zone_roots import point_zone_roots
 
 if sys.platform == "win32":
     import _winapi
@@ -97,7 +97,9 @@ class _Broker:
 @pytest.fixture
 def wiring(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):  # noqa: ANN201
     """預期是執行器的部署：替身 monitor、broker 與 spawn（結束碼可改）；ST 是這個測試自己的."""
-    layout = replace(current_layout(), state_root=(tmp_path / "st").resolve())
+    # ST 換成這個測試自己的；版面與 RM 用同一個（ADR-0293 P7）
+    point_zone_roots(monkeypatch, Path(resource_manager.get_base_path()), tmp_path / "st")
+    layout = current_layout()
     monkeypatch.setattr(home_wipe, "current_layout", lambda: layout)
     monitor = SimpleNamespace(
         ensure_ready=AsyncMock(return_value=SimpleNamespace(expected="executor")),
@@ -252,6 +254,20 @@ async def test_an_id_that_is_not_a_safe_segment_has_nothing_to_wipe(wiring) -> N
     wiring.spawn.assert_not_awaited()
 
 
+@pytest.mark.parametrize("agent_id", ["Jin.", "Jin:x", "CON", "nul.txt"])
+async def test_an_id_that_cannot_be_a_folder_here_has_nothing_to_wipe(wiring, agent_id) -> None:
+    """Windows 不能拿這些名稱當資料夾（結尾點、``:``、裝置名），profile 不會為它建 ST.
+
+    刪除照常進行、不回 ``unsafe_owner``，也不碰別名（``Jin.`` 在 Windows 是 ``Jin``）；其他
+    系統上是普通名稱，同樣沒有東西可清。
+    """
+    alias = _proxy_owner(SOUL)
+
+    await home_wipe.wipe_agent_homes(AgentIdentity(agent_id=agent_id))
+
+    assert (alias / "home" / "token").read_text(encoding="utf-8") == "old soul secret"
+
+
 async def test_cancelled_request_also_stops_the_relay(wiring, monkeypatch) -> None:
     async def cancelled() -> int:
         raise asyncio.CancelledError
@@ -317,16 +333,17 @@ async def test_timeout_kills_the_relay_and_refuses(wiring, monkeypatch) -> None:
     reap.assert_awaited_once()
 
 
-async def test_a_linked_proxy_state_is_refused_not_followed(wiring, tmp_path: Path) -> None:
+async def test_a_linked_proxy_owner_only_loses_the_link(wiring, tmp_path: Path) -> None:
+    """``ST/proxy/agents/Jin`` 本身是連到外面的連結：只刪連結，不跟過去（ADR-0293 PR 2）."""
     outside = tmp_path / "outside"
     (outside / "home").mkdir(parents=True)
     (outside / "home" / "keep.txt").write_text("keep", encoding="utf-8")
-    owner = _proxy_owner("Other").parent / SOUL  # ST/proxy/agents/Jin 是連到外面的連結
+    owner = _proxy_owner("Other").parent / SOUL
     _link_dir(owner, outside)
 
-    with pytest.raises(home_wipe.HomeWipeError):
-        await home_wipe.wipe_agent_homes(AgentIdentity(agent_id=SOUL))
+    await home_wipe.wipe_agent_homes(AgentIdentity(agent_id=SOUL))
 
+    assert not os.path.lexists(owner)
     assert (outside / "home" / "keep.txt").read_text(encoding="utf-8") == "keep"
 
 

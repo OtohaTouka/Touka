@@ -111,6 +111,24 @@ def test_a_subprocess_argument_is_data_not_a_path(probe, drive):
     assert _taken() == []
 
 
+def test_a_skill_venv_python_as_the_program_is_data(probe, zone_data_root, drive):
+    """執行檔在技能的 ``.venv`` 裡（技能 venv 的 python，P4）是資料；技能資料夾的其他地方、
+    別的錨點與 cwd 照舊記."""
+    skill = zone_data_root / "mcp_servers" / "managed" / "skill"
+    python = skill / ".venv" / "bin" / "python"
+    probe.emit("subprocess.Popen", str(python), ["x"], None, None)
+    probe.emit("os.posix_spawn", str(python), ["x"], {})
+    probe.emit("_winapi.CreateProcess", str(python), "x", None)
+    assert _taken() == []
+    probe.emit("subprocess.Popen", str(drive / "notes.txt"), ["x"], None, None)
+    probe.emit("subprocess.Popen", sys.executable, ["x"], str(python.parent), None)
+    probe.emit("subprocess.Popen", str(skill / "server.py"), ["x"], None, None)
+    probe.emit("subprocess.Popen", str(skill / ".venv"), ["x"], None, None)
+    # 三段、不在 .venv
+    probe.emit("subprocess.Popen", str(skill / "bin" / "tool"), ["x"], None, None)
+    assert [event for event, _display, _detail in _taken()] == ["subprocess.Popen"] * 5
+
+
 def test_the_mode_of_open_is_not_a_path(probe, zone_data_root, drive, monkeypatch):
     """工作目錄在區裡時，``open`` 的 mode 字串不會被當成相對路徑；路徑本身照舊看."""
     config = zone_data_root / "custom" / "M1" / "config.json"

@@ -86,8 +86,9 @@ from src.utils.time_utils import get_monotonic_ms
 from src.utils.touka_dirs import scan_below
 
 from tests.helpers import mcp_asgi_peers
-from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
-from tests.support.zone_records import raises_zone
+from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE, build_skill_venv
+from tests.support.isolation import match_state_root
+from tests.support.zone_records import expect_zone_refusal, raises_zone
 from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
@@ -111,6 +112,16 @@ SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib64", sys.prefix, sys.base_prefix
 def _uses_real_isolation(real_isolation):
     """整個模組退出 conftest 的替身。"""
     return real_isolation
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_follows_the_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指到 ``_layout`` 的（ADR-0293 P7：ST 只有一個來源，版面不同就拒絕）.
+
+    data 根不換：這裡的測試直接在版面的個人空間裡 spawn 與讀寫，不經區內方法。自己組版面的
+    測試（執行器路線等）另外指到自己的 ST。
+    """
+    match_state_root(monkeypatch, tmp_path / "state")
 
 
 @pytest.fixture(scope="module")
@@ -1341,12 +1352,12 @@ async def _isolated_evolution(monkeypatch, layout: SandboxLayout, required: bool
     monkeypatch.setattr(evolution_command, "isolation_monitor", monitor)
     monkeypatch.setattr(evolution_command, "runner_broker", broker)
     monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
-    managed = layout.data_root / "mcp_servers" / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    state = layout.state_root or layout.data_root.parent / "zone_state"
+    point_zone_roots(monkeypatch, layout.data_root, state)  # 技能資料夾（ADR-0293 PR 2）
     limits = {"execution_timeout_sec": 60, "max_storage_mb": 50, "max_memory_mb": 1024}
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": limits})
     EvolutionPathGuard.write_tool_file(EVO_SKILL, "spec.json", "{}")
-    return EvolutionPathGuard.get_tool_root(EVO_SKILL)
+    return Path(EvolutionPathGuard.get_tool_root(EVO_SKILL))
 
 
 def _verify_data(result: str) -> dict:
@@ -1910,7 +1921,10 @@ def test_exempt_remove_file_never_reaches_the_hook(repairing):
 
 
 async def test_proxy_tmp_cleanup_does_not_follow_symlinks(tmp_path):
-    """開機清 ST/proxy 的 tmp：tmp 本身是連結就不碰；tmp 裡的連結只刪連結、不刪目標."""
+    """開機清 ST/proxy 的 tmp：tmp 本身是連結只刪連結；tmp 裡的連結只刪連結、不刪目標.
+
+    kind 資料夾（``evolution``）是連結時記 log、略過（區內方法拒絕，ADR-0293 PR 2 決定 21）。
+    """
     layout = _layout(tmp_path)
     proxy = layout.state_root / "proxy"
     outside, elsewhere = tmp_path / "outside", tmp_path / "elsewhere"
@@ -1927,12 +1941,14 @@ async def test_proxy_tmp_cleanup_does_not_follow_symlinks(tmp_path):
     monitor = IsolationMonitor(
         layout_provider=lambda: layout, selftest=_available_selftest, start_background=False
     )
-    await monitor.ensure_ready()
+    with expect_zone_refusal(ZoneLinkRefusedError, display_prefix="zone://sandbox_state/proxy/evolution"):
+        await monitor.ensure_ready()
     for _ in range(50):
         if not any(p.name.startswith("tmp.trash-") for p in (bob_tmp.parent).iterdir()):
             break
         await asyncio.sleep(0.02)
-    assert (alice / "tmp").is_symlink() and (outside / "keep.txt").is_file()
+    assert not (alice / "tmp").is_symlink() and not (alice / "tmp").exists()
+    assert (outside / "keep.txt").is_file()
     assert not bob_tmp.exists() and sorted(p.name for p in bob_tmp.parent.iterdir()) == []
     assert (elsewhere / "x" / "tmp" / "keep.txt").is_file()
 
@@ -1988,10 +2004,10 @@ def _executor_dirs(tmp_path: Path) -> SimpleNamespace:
     base = tmp_path / "ex"
     data = base / "data"
     dirs = SimpleNamespace(
-        pd=data / "personal_drive", mcp=data / "mcp_servers", skills=base / "skills",
+        pd=data / "personal_drive", mcp=data / "mcp_servers" / "managed", skills=base / "skills",
         state=base / "state", ipc=base / "ipc", outside=base / "outside",
     )
-    for path in (dirs.pd / "Alice", dirs.pd / "Bob", dirs.mcp / "managed", dirs.skills):
+    for path in (dirs.pd / "Alice", dirs.pd / "Bob", dirs.mcp, dirs.skills):
         path.mkdir(parents=True)
     for path in (dirs.state, dirs.ipc, dirs.outside):
         path.mkdir(mode=0o700)
@@ -2782,13 +2798,11 @@ async def test_verification_command_runs_inside_the_executor(tmp_path, monkeypat
 
 async def test_evolution_verify_runs_inside_the_executor(tmp_path, monkeypatch, executor):
     """venv 先建好（建置要連網的 pip 不在這裡驗）；驗證在執行器裡跑、HOME 在執行器的 state."""
-    wiring = await _executor_wiring(monkeypatch, executor, tmp_path)
-    managed = wiring.dirs.mcp / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    wiring = await _executor_wiring(monkeypatch, executor, tmp_path)  # 已讓 data 根指到執行器的
     limits = {"execution_timeout_sec": 60, "max_storage_mb": 50, "max_memory_mb": 1024}
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": limits})
     EvolutionPathGuard.write_tool_file(EVO_SKILL, "spec.json", "{}")
-    root = EvolutionPathGuard.get_tool_root(EVO_SKILL)
+    root = Path(EvolutionPathGuard.get_tool_root(EVO_SKILL))
     venv = [sys.executable, "-m", "venv", "--without-pip", str(root / ".venv")]
     run_sync(venv, check=True, capture_output=True, timeout=120)
     secret = wiring.dirs.pd / "Bob" / "secret.txt"
@@ -2937,10 +2951,12 @@ async def _run_in_mcp_profile(
         ExecRequest(argv=("sh", "-c", script), env={"PATH": "/usr/bin:/bin"}, profile=profile)
     )
     try:
-        proc = await spawn_exec(
-            *plan.argv, cwd=plan.cwd, env=plan.env, pass_fds=plan.pass_fds,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        )
+        # cwd 是 ST 裡的 home：和 isolated_stdio 一樣在 spawn 當下交接（ADR-0293 P6）
+        with resource_manager.handoff_cwd(str(plan.cwd)) as cwd:
+            proc = await spawn_exec(
+                *plan.argv, cwd=cwd, env=plan.env, pass_fds=plan.pass_fds,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
     finally:
         plan.release()
     output, _ = await asyncio.wait_for(proc.communicate(), 60)
@@ -3056,7 +3072,7 @@ async def test_kind_mcp_runs_from_its_state_home_and_cannot_write_its_code(execu
     stdin 開著就收到回應；stderr 只到 relay 的 stderr；stdin 關掉後照遠端的 exit code 結束."""
     server, started = await executor.start()
     assert started, server.problem
-    code = executor.dirs.mcp / "managed" / "probe_tool"
+    code = executor.dirs.mcp / "probe_tool"
     code.mkdir()
     (code / "server.py").write_text("print('server')\n", encoding="utf-8")
     start = _mcp_exec_start(server, code, [*PY, _MCP_PROBE, str(code)])
@@ -3251,6 +3267,7 @@ async def mcp_stdio_peer(
             kernel_dir=EXEC_KERNEL, executor_dir=dirs.ipc, mirror_roots=(), in_container=False,
         )
         layout.state_root.mkdir()
+        match_state_root(monkeypatch, layout.state_root)
         monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
         snap = await monitor.ensure_ready()
         assert snap.executor is not None, (snap.level, snap.reason)
@@ -3612,8 +3629,8 @@ if __name__ == "__main__":
             stream.write("x" * (700 * 1024))
     return "quota escaped"''')
     (peer.code / "server.py").write_text(code, encoding="utf-8")
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", peer.code.parent)
-    monkeypatch.setattr(evolution, "_venv_python", lambda _skill: sys.executable)
+    point_zone_roots(monkeypatch, peer.layout.data_root, peer.layout.state_root)
+    build_skill_venv(evolution._venv_python(skill))  # 技能資料夾裡真的 venv python（T3）
     monkeypatch.setattr(evolution_command, "current_layout", lambda: peer.layout)
     monkeypatch.setattr(evolution_command, "isolation_monitor", peer.monitor)
     monkeypatch.setattr(evolution_command, "runner_broker", peer.broker)
@@ -3659,7 +3676,7 @@ async def test_mcp_stdio_relative_script_requires_an_absolute_target(mcp_stdio_p
 async def test_executor_reaps_blocked_stdin_after_relay_disconnect(executor):
     server, started = await executor.start()
     assert started, server.problem
-    code = executor.dirs.mcp / 'managed' / 'blocked_stdin'
+    code = executor.dirs.mcp / 'blocked_stdin'
     code.mkdir()
     source = (
         "import os, sys, time\nsys.stdin.readline()\nchild = os.fork()\n"

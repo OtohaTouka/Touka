@@ -108,7 +108,6 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **啟動器**：`env`、`npx`、`py` 這類程式會自己找要執行的程式，找到哪裡 Touka 不檢查；hook 請寫成直譯器＋`config/hooks/` 裡的腳本。
 - **涵蓋範圍**：「使用者送出訊息」只檢查聊天、SNS、評分卡送出的文字，心跳、排程提示與重新觸發都不觸發，不能當成管住使用者的機制；「工具執行前」只涵蓋代理人經工具執行器的呼叫，任務的驗證指令與演化、創建的試跑不觸發。
 - **自己組歷史的用戶端**：被擋下的訊息不再送給模型只在 ToukaChat 做到；IDE 或自訂用戶端把它放進歷史時仍會送到模型。
-- **Touka 自己的其他檔案讀寫還有一部分會跟隨連結**：代理人的檔案動詞（ADR-0292）與代理人個人空間裡 Touka 自己的讀寫（ADR-0293）已經不跟隨連結；其餘代理人寫得到的資料夾還沒改，預定在下一次發行前完成。在那之前請不要啟用 command hook；這只避免現有的 hook 程式被改寫，擋不住這類讀寫的其他後果。
 
 ### 代理人資料夾不跟隨連結的已知限制（ADR-0293）
 
@@ -118,6 +117,12 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 - **設了 `vault_jail_arg` 的 MCP 伺服器（docgen 一類）暫時不能用**：工具呼叫一律以固定原因拒絕、不送出；安全的讀寫做法另排。
 - **代理人自己的 JSON**：任務板、派工結果與 `.touka` 目錄在代理人寫得到的地方，代理人直接改內容就能偽造狀態；不跟隨連結擋不住這件事，另排。
 - **改版前的備份**可能含連結另一端的內容。
+- **Windows 本機的演化**：沒有 Landlock，演化以 Touka 的權限執行模型寫的程式；區內方法只保證 Touka 自己的讀寫不跟隨連結。
+- **未隔離程式留下的硬連結**：人核准的未隔離指令，或依禁令 66 ⑩ 直接啟動的第三方 MCP，可以在代理人資料夾裡留下指到其他檔案的硬連結，之後 Touka 就地寫入（上傳、生圖、追加）會寫進那個檔案；這和那次未隔離執行本身的能力相同，不另外處理。
+- **MCP 來源分類**（ADR-0293 PR 2）：分類以解析後的位置授與唯讀＋執行，少數寫法下自建的 MCP 可能讀到並執行另一個技能資料夾的程式（寫不到）；修正排在下一個。
+- **隔離 profile 的兩處授與**（ADR-0293 PR 2 審查找到，PR 2 以前就有）：代理人指令與演化的 profile 依解析後的位置找上層資料夾的公開設定檔、授與唯讀；代理人的專案根解析後授與讀寫執行，解析和授與之間有很短的時間差。修正和 MCP 來源分類一起排在下一個。
+- **`touka-init` 的時間差**：docker 的權限初始化遇到連結不跟隨，但檢查與動作之間有時間差；不要在代理人的程式還在跑時手動執行 init（先停 executor、heartbeat 與 proxy）。
+- **靈魂 id 與執行器保留名**：管理員建立名叫 `soul` 一類保留名的靈魂時，執行器會停止服務（之後的代理人指令都要人核准）；建立時的檢查另排。
 
 ### 代理人指令隔離的其他已知限制
 
@@ -166,6 +171,18 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 ## Known Resolved Vulnerabilities
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
+
+### 代理人寫得到的其他資料夾裡的連結（2026-10-30，ADR-0293 PR 2）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| 演化寫入、讀取、刪除工具檔時先解析判斷再動作，兩者之間把技能資料夾裡的檔案或資料夾換成連結，Touka 的讀寫會落到連結另一端（可能是 Touka 自己的設定）。 | 技能資料夾的路徑只由 `tool_root` 交出，讀寫一律經 ResourceManager 的區內方法；遇到連結以 `skill_changed` 拒絕，指令的工作資料夾經 `zone_handoff` 交出。`tests/unit/test_evolution_links_security.py`、`test_evolution_security.py`。 |
+| sandbox state 裡的建立、清除沙盒 home、開機清 `tmp` 與自測用字串路徑，會跟隨代理人在自己 `home`／`tmp` 裡放的連結。 | ST 的路徑只經 `proxy_state_zone`／`proxy_state_owner` 取得、全部走區內方法；`<owner>` 本身是連結只刪連結，上層是連結以 `proxy_state_link` 拒絕；版面與 RM 的 ST 不同時在建資料夾前拒絕。`tests/unit/test_sandbox_state_links_security.py`、`test_sandbox_state_access.py`、`test_soul_delete_sandbox_home_security.py`。 |
+| 計分卡依工具軌跡裡的路徑讀產出檔，不限位置、跟隨連結。 | 只在文件輸出區裡不跟隨地讀，其他位置與連結回固定文字；路徑只從 `create_<kind>` 的軌跡項目取。`tests/unit/test_scorecard_artifact.py`。 |
+| 靈魂檔的檔名來自模型，可以指進自訂模型底下的 `drive`（代理人資料夾），備份與暫存檔會跟隨那裡的連結。 | 只收單層名稱，目標在代理人資料夾裡或含代理人資料夾就拒絕。`tests/unit/test_soul_io_zone_security.py`。 |
+| 還原備份時，zip 裡備份不會寫的 data 成員（例如 sandbox state、`mcp_servers`）也會被寫回，可能經代理人放的連結落到別處。 | data 成員的第一段只收備份會寫的資料夾與 data 根的 `*.db`，其他略過並列出。`tests/unit/test_manage_backup_links_security.py`。 |
+| 執行器掛整個 `data/mcp_servers`，執行器裡的程式能把 `managed` 本身換掉。 | 只掛 `data/mcp_servers/managed`（掛載根不能被改名或刪除）；沒有 `managed` 的讀寫根時執行器不服務。`tests/unit/test_executor_server.py`、`test_executor_compose_security.py`。 |
+| 技能名稱可以是執行器保留的名字（例如 `soul`），在 `managed` 底下建出後執行器停止服務。 | 技能名稱只經 `is_skill_segment`，擋下這 7 個名字與 Windows 保留名。`tests/unit/test_skill_names_security.py`。 |
 
 ### 模型輸出的外部資源、開發終端伺服器與 IDE 連線資訊（2026-10-30，ADR-0294）
 

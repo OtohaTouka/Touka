@@ -42,6 +42,9 @@ services:
 
   # iso-c2：執行器（設定說明見根目錄 compose）。用上面建的 touka-proxy:latest，不 build、不拉；
   # proxy 留在 default 網路，執行器只接 touka-exec-net。
+  # 這份 compose 沒有 touka-init：Linux 上升級到 ADR-0293 PR 2 前先建好
+  # data/mcp_servers/managed（擁有者 1001），否則 Docker 以 root 建出它，
+  # 演化與執行器自測會因權限失敗（執行器判 none）。
   touka-executor:
     image: touka-proxy:latest
     pull_policy: never
@@ -49,7 +52,7 @@ services:
     command: ["python", "-m", "src.services.isolation.executor_server",
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
-              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
               "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
@@ -65,7 +68,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ${MEMORY_APP_DATA_DIR:-./data}/personal_drive:/app/data/personal_drive
-      - ${MEMORY_APP_DATA_DIR:-./data}/mcp_servers:/app/data/mcp_servers
+      - ${MEMORY_APP_DATA_DIR:-./data}/mcp_servers/managed:/app/data/mcp_servers/managed
       - ./config/skills:/app/ToukaProxy/config/skills:ro
       - touka-exec-ipc:/app/ipc/executor
       - touka-executor-state:/app/executor_state

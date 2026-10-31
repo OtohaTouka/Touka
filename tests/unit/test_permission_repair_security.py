@@ -38,6 +38,8 @@ from src.utils.permission_repair import (
     set_permission_repair,
 )
 
+from tests.support.isolation import match_state_root
+
 EACCES_PATH = "/data/personal_drive/Alice/notes.txt"
 
 
@@ -893,8 +895,9 @@ async def test_refresh_checks_the_roots_about_once_a_minute(tmp_path):
     assert monitor.snapshot().repairs["attempted"] == 0  # 沒有改動不記錄
 
 
-async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path):
+async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path, monkeypatch):
     layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     monitor = _wired_monitor(layout)
     spy = monitor._repair = SpyService(layout)
     spy.check_roots = lambda: 1 / 0
@@ -906,6 +909,7 @@ async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path
 def test_state_issue_repairs_st_proxy_once_then_judges_again(tmp_path, monkeypatch):
     """ST/proxy 不可寫（``os.access`` 失敗）：先修一次 ST/proxy、再判斷一次。"""
     layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     monitor = _wired_monitor(layout)
     hook = monitor._repair = FakeHook()
     answers = iter([False, True])
@@ -917,7 +921,9 @@ def test_state_issue_repairs_st_proxy_once_then_judges_again(tmp_path, monkeypat
 
 @pytest.mark.parametrize("hook", [None, FakeHook(result=False), FakeHook(error=RuntimeError())])
 def test_state_issue_stays_not_writable_when_the_repair_does_not_help(tmp_path, monkeypatch, hook):
-    monitor = _wired_monitor(_monitor_layout(tmp_path))
+    layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)  # 版面與 RM 相同：不可寫只來自 os.access
+    monitor = _wired_monitor(layout)
     monitor._repair = hook
     monkeypatch.setattr(status.os, "access", lambda *_args: False)
     assert monitor._check_disk(None).state_issue == "not_writable"

@@ -32,6 +32,8 @@ from src.services.isolation.profiles import (
 from src.services.isolation.status import IsolationMonitor
 from src.services.providers.registry import PROVIDER_SPECS
 
+from tests.support.isolation import match_state_root
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -44,6 +46,12 @@ EXCLUDED_URLS = {
     "HEARTBEAT_EXTERNAL_URL": "Touka 自己的埠，由 profiles.blocked_ports 處理",
     "GROK_DEFAULT_URL": "config 模組的固定公網常數（不是 Settings 欄位、不能設定）",
 }
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "install" / "st")
 
 
 def _layout(root: Path) -> SandboxLayout:

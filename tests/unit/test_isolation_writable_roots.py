@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, get_args
 
 import pytest
@@ -46,6 +46,8 @@ from src.services.isolation.repair import reserved_roots
 from src.services.isolation.status import expected_executor_roots
 from src.utils.isolation_policy import ISOLATION_WIRED_ACTIONS, TERMINAL_TOOLS, VERIFY_ACTION
 from src.utils.mcp_origin import McpClassification
+
+from tests.support.isolation import match_state_root
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -95,6 +97,19 @@ UNBOUND_PROFILES = {
 }
 
 
+def _state_root(install: Path, state: str) -> Path:
+    """state 根的兩種來源：設定指定的資料夾，或沒設定時本機的 data 根 temp/sandbox_state."""
+    return install / "st" if state == "configured" else install / "data" / "temp" / "sandbox_state"
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch, request):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    callspec = getattr(request.node, "callspec", None)
+    state = callspec.params.get("state", "configured") if callspec else "configured"
+    match_state_root(monkeypatch, _state_root(tmp_path.resolve() / "install", state))
+
+
 @dataclass(frozen=True)
 class Who:
     identity: AgentIdentity
@@ -138,8 +153,7 @@ def _layout(tmp_path: Path, state: str) -> SandboxLayout:
         (install / sub).mkdir(parents=True)
     env_file = install / "host_root" / ".env"
     env_file.write_text("", encoding="utf-8")
-    # state 根的兩種來源：設定指定的資料夾，或沒設定時本機的 data 根 temp/sandbox_state
-    state_root = install / "st" if state == "configured" else data / "temp" / "sandbox_state"
+    state_root = _state_root(install, state)
     state_root.mkdir(parents=True)
     return SandboxLayout(
         data_root=data,
@@ -461,20 +475,20 @@ def test_zones_are_not_under_soul_or_legacy(tmp_path):
             assert literal is None or not Path(literal).is_relative_to(base), (anchor, name)
 
 
-def test_the_executor_mounts_anchors_writable(tmp_path):
-    """執行器容器可寫的掛載根是錨點；``mcp_servers`` 是 MCP_SERVERS 的上一層（PR 2 收窄）.
+def test_the_executor_mounts_only_anchors_writable(tmp_path):
+    """執行器容器可寫的掛載根都是錨點本身（ADR-0293 PR 2 Q7：``mcp_servers`` 縮成 ``managed``）.
 
-    執行器裡每次 START 的 Landlock 只給 ``KIND_LAYOUT`` 的目標（``managed/<skill>``），代理人寫不到
-    ``mcp_servers`` 本身；這裡釘住這一個例外，多一個就紅。
+    掛載根本身不能被改名或刪除，所以執行器裡的程式換不掉錨點；代理人的目標就在錨點底下一層。
     """
     layout = _layout(tmp_path, "configured")
     roots = layout_zone_roots(layout)
     writable = {Path(root.path) for root in expected_executor_roots(layout) if root.access == "rw"}
     anchors = {path for path in writable if anchor_at(path, roots, anchors=ALL_ANCHORS)}
-    assert writable - anchors == {layout.data_root / "mcp_servers"}
-    names = {anchor_dirname(anchor) for anchor in ALL_ANCHORS}
+    assert writable == anchors
+    assert layout.data_root / "mcp_servers" / "managed" in writable
+    bases = {PurePosixPath(name).name for name in map(anchor_dirname, ALL_ANCHORS) if name}
     for top, middle in executor_session.KIND_LAYOUT.values():
-        assert "/".join((top, *middle)) in names
+        assert top in bases and middle == ()
 
 
 def test_one_level_repair_roots_are_anchors_or_above_them(tmp_path):

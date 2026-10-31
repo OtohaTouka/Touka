@@ -15,7 +15,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, replace
 from functools import wraps
-from pathlib import Path  # noqa: TC003
 from typing import Any
 
 from mcp import Client, StdioServerParameters, types
@@ -152,9 +151,14 @@ async def _windows_client(
 
 
 def _venv_python(skill_id: str) -> str:
-    """沙盒 venv 的 Python 絕對路徑（Windows 找執行檔不看子程序 cwd，不能給相對路徑）。"""
-    python_rel = "Scripts/python.exe" if EvolutionPathGuard.is_windows() else "bin/python"
-    return str(EvolutionPathGuard.get_tool_root(skill_id) / _VENV_DIR / python_rel)
+    """沙盒 venv 的 Python 絕對路徑（Windows 找執行檔不看子程序 cwd，不能給相對路徑）.
+
+    區字串（ADR-0293 P4）：只當子行程的 argv 與部署條目；POSIX 的 venv python 本來就是連結。
+    """
+    windows = EvolutionPathGuard.is_windows()
+    folder, name = ("Scripts", "python.exe") if windows else ("bin", "python")
+    venv = EvolutionPathGuard.tool_zone(skill_id).child(_VENV_DIR)
+    return resource_manager.zone_text(venv.child(folder).child(name))
 
 
 async def _isolation_grant(
@@ -219,7 +223,7 @@ def _build_jail_code(
     skill_id: str,  # noqa: ARG001
     tool_name: str,
     arguments: dict[str, Any],
-    target_dir: Path,
+    target_dir: str,
     max_mb: int,
 ) -> str:
     """建立正式啟動方式的驗證包裝；路徑以 JSON 編碼，工具參數不嵌入程式碼。"""
@@ -414,7 +418,8 @@ async def _verify_mcp(
     passed = False
     try:
         launch = await acquire_evolution_launch(grant, skill_id)
-        argv = (_venv_python(skill_id), str(target_dir / "test_wrapper.py"))
+        wrapper = EvolutionPathGuard.tool_zone(skill_id).child("test_wrapper.py")
+        argv = (_venv_python(skill_id), resource_manager.zone_text(wrapper))
         config = ProtocolServerConfig(command=argv[0], args=list(argv[1:]))
         isolated = None
         if not EvolutionPathGuard.is_windows():
@@ -460,7 +465,11 @@ async def _verify_mcp(
             exc = exc.exceptions[0]
         payload = {"status": "error", "message": type(exc).__name__}
     finally:
-        EvolutionPathGuard.delete_tool_file(skill_id, "test_wrapper.py")
+        # 刪不掉只記 log，不蓋掉驗證結果；路上有連結的 EvolutionRefused 照樣往外（ADR-0293 Q3）
+        try:
+            EvolutionPathGuard.delete_tool_file(skill_id, "test_wrapper.py")
+        except OSError:
+            logger.warning("⚠️ Could not remove test_wrapper.py of '%s'", skill_id, exc_info=True)
     return VerifyOutcome(
         passed,
         f"Test Result for '{tool_name}':\n{json.dumps(payload, ensure_ascii=False)}\n"
@@ -469,12 +478,13 @@ async def _verify_mcp(
 
 
 def _deployment_files(skill_id: str) -> list[bytes]:
-    root = EvolutionPathGuard.get_tool_root(skill_id)
-    names = ("server.py", "requirements.txt")
+    """部署快照：路上或檔案本身是連結、讀不到都是 ``skill_changed``（原因留在 ``__cause__``）."""
+    tool = EvolutionPathGuard.tool_zone(skill_id)
     try:
-        if not all(EvolutionPathGuard.validate_path(skill_id, str(root / name)) for name in names):
-            raise EvolutionRefused("skill_changed")
-        return [resource_manager.read_file_binary(root / name) for name in names]
+        return [
+            resource_manager.zone_read_binary(tool.child(name))
+            for name in ("server.py", "requirements.txt")
+        ]
     except OSError as exc:
         raise EvolutionRefused("skill_changed") from exc
 
@@ -571,11 +581,10 @@ async def request_mcp_creation(
             return f"Rejected: User denied the creation of capability '{skill_id}'."
             
         # 2. 熱部署 (使用 config_utils 讀寫設定)；command＝建置與驗證用的同一支 venv Python
-        root = EvolutionPathGuard.get_tool_root(skill_id)
-
+        server = EvolutionPathGuard.tool_zone(skill_id).child("server.py")
         entry = {
             "command": _venv_python(skill_id),
-            "args": [str(root / "server.py")],
+            "args": [resource_manager.zone_text(server)],
             "enabled": True
         }
         

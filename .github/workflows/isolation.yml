@@ -157,7 +157,7 @@ jobs:
           docker compose -f "$RUNNER_TEMP/compose/ToukaProxy/docker-compose.yml" config -q
       # 3. 假資料：GHCR 的兩個 bind 是 create_host_path: false，要先存在；端到端另要 skills。擁有者同執行器（1001）
       - name: Create the data folders
-        run: sudo install -d -o 1001 -g 1001 "$RUNNER_TEMP/compose/data/mcp_servers" "$RUNNER_TEMP/compose/data/personal_drive" "$RUNNER_TEMP/compose/data/skills"
+        run: sudo install -d -o 1001 -g 1001 "$RUNNER_TEMP/compose/data/mcp_servers" "$RUNNER_TEMP/compose/data/mcp_servers/managed" "$RUNNER_TEMP/compose/data/personal_drive" "$RUNNER_TEMP/compose/data/skills"
       # 核心有 MPTCP 時，之後的 compose 指令都疊上覆寫檔（同 README_QUICKSTART）；沒有時加了容器會起不來
       - name: Pick the MPTCP overrides
         run: |

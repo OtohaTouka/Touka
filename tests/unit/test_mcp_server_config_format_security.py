@@ -29,6 +29,8 @@ from src.tools.builtin import system as system_tools
 from src.utils import config_utils
 from src.utils.skill_mcp_wiring import migrate_stale_server_keys
 
+from tests.support.zone_roots import point_zone_roots
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
 
@@ -180,19 +182,18 @@ def prepare_skill_install(
 def prepare_evolution_deploy(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> Callable[[], Awaitable[str]]:
-    """演化部署 ``calc``：程式資料夾在 tmp、審批卡以 mock 核准；回傳要執行的動作。"""
+    """演化部署 ``calc``：程式資料夾在 tmp 的 data 根、審批卡以 mock 核准；回傳要執行的動作。"""
     _config_utils_dir(monkeypatch, tmp_path)
-    guard = MagicMock()
-    guard.tool_file_exists.return_value = True
-    guard.read_tool_file.side_effect = lambda _sid, name: (
-        "print('hi')" if name == "server.py" else '{"name": "Calc", "description": "d"}'
-    )
-    guard.get_tool_root.return_value = tmp_path / "managed" / "calc"
-    guard.get_tool_root.return_value.mkdir(parents=True, exist_ok=True)
-    (guard.get_tool_root.return_value / "server.py").write_bytes(b"print('hi')")
-    (guard.get_tool_root.return_value / "requirements.txt").write_bytes(b"")
-    guard.is_windows.return_value = False
-    monkeypatch.setattr(evolution_tools, "EvolutionPathGuard", guard)
+    (tmp_path / "zone_data").mkdir()
+    point_zone_roots(monkeypatch, tmp_path / "zone_data", tmp_path / "zone_state")
+    guard = evolution_tools.EvolutionPathGuard
+    for name, content in {
+        "server.py": "print('hi')",
+        "requirements.txt": "",
+        "spec.json": '{"name": "Calc", "description": "d"}',
+    }.items():
+        guard.write_tool_file("calc", name, content)
+    monkeypatch.setattr(guard, "is_windows", lambda: False)
     monkeypatch.setattr(evolution_tools, "request_approval", AsyncMock(return_value=(True, {})))
     return lambda: evolution_tools.request_mcp_creation(
         "calc", identity=_IDENTITY, _interactive=True, _emit_event=AsyncMock()

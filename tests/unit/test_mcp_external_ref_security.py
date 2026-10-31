@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import urllib.request
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
@@ -40,11 +41,10 @@ _EXTERNAL_REFS = (
 @pytest.mark.parametrize("ref", _EXTERNAL_REFS)
 @pytest.mark.parametrize("windows", [True, False])
 async def test_evolution_verification_never_fetches_external_ref(
-    fetched, ref, windows, monkeypatch, tmp_path,
+    fetched, ref, windows, monkeypatch, zone_data_root,
 ):
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path / "managed")
     monkeypatch.setattr(EvolutionPathGuard, "is_windows", lambda: windows)
-    root = EvolutionPathGuard.get_tool_root("sample")
+    root = Path(EvolutionPathGuard.get_tool_root("sample"))
     root.mkdir(parents=True, exist_ok=True)
     launch = EvolutionLaunch(DirectRunner(), SandboxProfile(
         name="evolution", cwd=root, rules=(), block_ports=(),

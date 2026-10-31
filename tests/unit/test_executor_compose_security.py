@@ -260,7 +260,7 @@ def test_data_roots_are_the_proxys_own_data_folders_and_writable(rel):
     """
     executor, data = _service(rel, EXECUTOR), _proxy_data(rel)
     proxy_data = _mount_at(_service(rel, PROXY), str(data))
-    for name in ("personal_drive", "mcp_servers"):
+    for name in ("personal_drive", "mcp_servers/managed"):  # 只掛 managed（ADR-0293 PR 2 Q7）
         mount = _mount_at(executor, str(data / name))
         assert mount.kind == "bind" and not mount.read_only
         assert mount.source == f"{proxy_data.source}/{name}"
@@ -392,7 +392,7 @@ def test_ghcr_executor_uses_existing_folders_and_the_seeded_config_subpath():
     """GHCR：資料夾不讓 Docker 代建；skills 取自 proxy 已播種的 ``proxy-config``（唯讀子路徑）."""
     executor = _service(GHCR, EXECUTOR)
     data = _proxy_data(GHCR)
-    for name in ("personal_drive", "mcp_servers"):
+    for name in ("personal_drive", "mcp_servers/managed"):  # 只掛 managed（ADR-0293 PR 2 Q7）
         assert _mount_at(executor, str(data / name)).create_host_path is False
     skills = _mount_at(executor, str(_proxy_config(GHCR) / "skills"))
     assert (skills.kind, skills.source, skills.subpath) == ("volume", "proxy-config", "skills")

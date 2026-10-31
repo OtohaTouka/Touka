@@ -79,10 +79,13 @@ def test_iso_exec_mirrors_the_production_executor():
 
 
 def test_iso_exec_data_comes_from_the_fake_data_folder():
+    """資料根底下的掛載照相對路徑（``mcp_servers/managed``），其他照最後一段名稱."""
+    data = _proxy_data(PRODUCTION)
     for mount in _mounts(_service(EXEC)):
         if mount.kind == "bind":
-            name = PurePosixPath(mount.target).name
-            assert mount.source == f"{DATA}/{name}"
+            target = PurePosixPath(mount.target)
+            rel = target.relative_to(data) if target.is_relative_to(data) else target.name
+            assert mount.source == f"{DATA}/{rel}"
 
 
 def test_every_service_uses_the_given_image_and_never_restarts():
@@ -128,6 +131,50 @@ def test_landlock_check_is_a_profile_with_fast_open_off():
     service = _service(LANDLOCK)
     assert service["profiles"] == ["landlock"]
     assert service["sysctls"] == {"net.ipv4.tcp_fastopen": 0}
+
+
+def _layout_overrides(path: Path) -> set[str]:
+    """檢查程式替換版面的欄位；``**`` 展開記成 ``**``，直接建 ``SandboxLayout`` 記成它的名字."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        if name == "SandboxLayout":
+            found.add(name)
+        if name == "replace":
+            found |= {keyword.arg or "**" for keyword in node.keywords}
+    return found
+
+
+def test_landlock_check_takes_its_sandbox_state_from_the_settings():
+    """ST 只有一個來源（RM，ADR-0293 P7）：檢查程式不自組 ST 與 data 根.
+
+    ST 由 compose 的設定指到這個服務自己的 tmpfs 底下（不是掛載點本身：那裡是 1777、smoke 沙盒
+    也在裡面）。
+    """
+    service = _service(LANDLOCK)
+    states = [
+        PurePosixPath(entry.split("=", 1)[1])
+        for entry in service["environment"]
+        if entry.startswith("TOUKA_SANDBOX_STATE_DIR=")
+    ]
+    assert len(states) == 1
+    tmpfs = [PurePosixPath(entry.split(":", 1)[0]) for entry in service["tmpfs"]]
+    assert any(states[0] != mount and states[0].is_relative_to(mount) for mount in tmpfs)
+    overrides = _layout_overrides(DOCKER / "landlock_proxy_check.py")
+    assert overrides
+    assert not overrides & {"state_root", "data_root", "**", "SandboxLayout"}
+
+
+def test_executor_check_takes_its_sandbox_state_from_the_settings():
+    """iso-client 也不自組 ST（照 RM，沒設就是 ``unset``）；data 根是已知例外（和執行器共用）."""
+    assert not any(
+        entry.startswith("TOUKA_SANDBOX_STATE_DIR=") for entry in _service(CLIENT)["environment"]
+    )
+    overrides = _layout_overrides(DOCKER / "executor_check.py")
+    assert "data_root" in overrides
+    assert not overrides & {"state_root", "**", "SandboxLayout"}
 
 
 def test_launcher_loads_no_project_code_before_the_sandbox():

@@ -48,6 +48,7 @@ from memory_server.utils.no_follow import (
 from memory_server.utils.zone_paths import (
     ENFORCED_ANCHORS,
     Anchor,
+    HandoffKind,
     ZonePath,
     ZonePathRequiredError,
     ZoneRoots,
@@ -56,7 +57,9 @@ from memory_server.utils.zone_paths import (
     _register_handoff,
     _release_handoff,
     absolute_text,
+    agent_depth,
     agent_root,
+    anchor_at,
     contains_zone,
     current_roots,
     ensure_anchor,
@@ -67,10 +70,12 @@ from memory_server.utils.zone_paths import (
 )
 
 # 使用絕對匯入避免 TID251 警告，並確保環境變數獲取一致
+from src import config as app_config
 from src.config import HOST_WORKSPACE_ROOT, get_app_data_dir, settings
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.soul_service import soul_service
+from src.utils.isolation_policy import is_skill_segment
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.permission_repair import permission_repair, permission_repair_exempt
 
@@ -81,7 +86,6 @@ if TYPE_CHECKING:
     from memory_server.models.conversation_search import ConversationPage
     from memory_server.protocols import IConversationReader
     from memory_server.utils.no_follow import WalkEntry
-    from memory_server.utils.zone_paths import HandoffKind
 
 logger = logging.getLogger(__name__)
 
@@ -104,11 +108,28 @@ _LIST_HIDDEN = frozenset({".git", "node_modules", "__pycache__", ".pytest_cache"
 # 個人空間裡的輸出與上傳資料夾（/v1/outputs 服務的就是這裡）
 _OUTPUTS_DIR = "outputs"
 _UPLOADS_DIR = "uploads"
+# ST 裡 proxy 自己的那一層（執行器的在另一個 state 根，不經這裡）
+_STATE_PROXY_DIR = "proxy"
+# anchor_root 只給這兩個整個錨點（健康檢查、計分卡讀產出檔；P3）
+_WHOLE_ANCHORS = frozenset({Anchor.PERSONAL_DRIVE, Anchor.DOCGEN_OUTPUT})
+# 刪除不能碰到代理人那一層以上（P5）；自訂模型的 ZonePath 本身至少是 <id>/drive，照 PR 1
+_REMOVE_DEPTH_ANCHORS = frozenset(
+    {Anchor.PERSONAL_DRIVE, Anchor.MCP_SERVERS, Anchor.DOCGEN_OUTPUT, Anchor.SANDBOX_STATE}
+)
 
 
 def _agent_zone(anchor: Anchor, folder: str) -> ZonePath | None:
     """代理人的根；資料夾名稱不能當一段時回 None（不丟例外、不通知觀察者）。"""
     return agent_root(anchor, folder) if is_zone_segment(folder) else None
+
+
+def _removable(zp: ZonePath) -> None:
+    """刪除類的深度檢查（P5）.
+
+    比代理人那一層淺就丟 ``ZoneSegmentError``（整個錨點、``ST/proxy``）。
+    """
+    if zp.anchor in _REMOVE_DEPTH_ANCHORS and len(zp.parts) < agent_depth(zp.anchor):
+        raise ZoneSegmentError(zp.display())
 
 
 def _norm_parts(parts: tuple[str, ...]) -> tuple[str, ...]:
@@ -852,8 +873,9 @@ class ResourceManager:
 
     @permission_repair(retry=False)
     def zone_remove_file(self, zp: ZonePath, missing_ok: bool = True) -> None:
-        """刪檔；最後一段是連結時刪連結本身，上層路上有連結就拒絕."""
+        """刪檔；最後一段是連結時刪連結本身，上層路上有連結就拒絕；比代理人淺就拒絕（P5）."""
         target = self._zone_target(zp, "zone_remove_file")
+        _removable(zp)
         with zone_errors(zp.display()):
             try:
                 if kind_no_follow(target) == "link":
@@ -866,8 +888,12 @@ class ResourceManager:
 
     @permission_repair(retry=False)
     def zone_remove_dir(self, zp: ZonePath, missing_ok: bool = True) -> None:
-        """刪掉整棵樹（Z4）：最後一段是連結刪連結本身、不進入；樹裡的連結只刪本身."""
+        """刪掉整棵樹（Z4）：最後一段是連結刪連結本身、不進入；樹裡的連結只刪本身.
+
+        比代理人那一層淺（整個錨點、``ST/proxy``、``ST/proxy/<kind>``）就拒絕（P5）。
+        """
         target = self._zone_target(zp, "zone_remove_dir")
+        _removable(zp)
         with zone_errors(zp.display()):
             try:
                 remove_tree_no_follow(target)
@@ -883,14 +909,18 @@ class ResourceManager:
         *,
         skip_dir: Callable[[tuple[str, ...]], bool] | None = None,
         show_links: bool = False,
+        list_depth: int | None = None,
     ) -> Iterator[WalkEntry]:
         """走訪一棵樹（不進入連結、計數；名稱不合格的略過並計數）；根是連結就拒絕、不存在就空.
 
-        ``show_links`` 時連結也列出（種類 ``link``，不進入）。
+        ``show_links`` 時連結也列出（種類 ``link``，不進入）；``list_depth`` 給了就只列到那一層
+        （那一層的資料夾列出、不進入）。
         """
         target = self._zone_target(zp, "zone_walk")
         with zone_errors(zp.display()):
-            yield from walk_no_follow(target, report, skip_dir=skip_dir, show_links=show_links)
+            yield from walk_no_follow(
+                target, report, skip_dir=skip_dir, show_links=show_links, list_depth=list_depth
+            )
 
     @permission_repair_exempt(category="generator", reason="走訪時才開檔，開不了的記進統計")
     def zone_walk_open(
@@ -985,6 +1015,79 @@ class ResourceManager:
         finally:
             _release_handoff(token)
 
+    @permission_repair_exempt(category="generator", reason="交出字串的期間由呼叫端決定")
+    @contextlib.contextmanager
+    def handoff_cwd(self, text: str) -> Iterator[str]:
+        """被包住的子行程的工作資料夾（P6；只在 G1 明列處）.
+
+        不在任何區裡、不是錨點本身、也不包含區時，交出判斷用的字串（``absolute_text``：絕對、
+        以字面消掉 ``..``，``連結/..`` 實際走到哪裡都不算）；字面在區裡（錨點的字面或解析後寫法）
+        就經 ``zone_handoff`` 交出，交出的字串必須和 ``text`` 相同；其他一律丟
+        ``ZonePathRequiredError``（不改用別的 cwd、不原樣交出）。
+        """
+        roots = current_roots()
+        found = zone_of(text, roots, literal_path=True)
+        if found is None:
+            if (
+                zone_of(text, roots) is None
+                and anchor_at(text, roots) is None
+                and not contains_zone(text, roots)
+            ):
+                yield absolute_text(text)
+                return
+            raise ZonePathRequiredError(None, "handoff_cwd")
+        anchor, parts = found
+        if not all(is_zone_segment(part) for part in parts):
+            raise ZonePathRequiredError(None, "handoff_cwd")
+        with self.zone_handoff(ZonePath(anchor, parts), HandoffKind.SUBPROCESS_CWD) as handed:
+            if os.path.normcase(handed) != os.path.normcase(absolute_text(text)):
+                raise ZonePathRequiredError(None, "handoff_cwd")
+            yield handed
+
+    def zone_text(self, zp: ZonePath) -> str:
+        """區字串（P4）：錨點解析後的路徑接上字面段落；不做 I/O、不查連結、不登記交接.
+
+        只能交給別人（沙盒規則與 profile、子行程的 argv、寫進設定的部署條目）或拿來比對；
+        Touka 自己的 I/O 一律用區內方法（G4 以「只准列名的去處」靜態檢查）。
+        """
+        if not isinstance(zp, ZonePath):
+            raise ZonePathRequiredError(None, "zone_text")
+        base = current_roots().resolved(zp.anchor)
+        if base is None:
+            raise ZoneRootsUnavailableError
+        return str(Path(base).joinpath(*zp.parts))
+
+    @permission_repair(retry=False)
+    def zone_rename(self, zp: ZonePath, new_name: str) -> None:
+        """同一個資料夾裡把最後一段改名成 ``new_name``（只改名、不複製；P5）.
+
+        ``zp`` 必須比代理人那一層深（容器改名只走 ``rename_agent_container``）；最後一段或路上
+        是連結就拒絕；``new_name`` 已存在丟 ``FileExistsError``。
+        """
+        target = self._zone_target(zp, "zone_rename")
+        if len(zp.parts) <= agent_depth(zp.anchor) or not is_zone_segment(new_name):
+            raise ZoneSegmentError(zp.display())
+        with zone_errors(zp.display()):
+            rename_entry_no_follow(target.parent, zp.name, new_name)
+
+    @permission_repair(retry=True)
+    def zone_access(self, zp: ZonePath, mode: int) -> bool:
+        """最後一段不是連結、存在，而且 ``os.access`` 允許（P5；只供狀態判斷）.
+
+        路上或最後一段是連結、讀不到時回 False（答錯只會判成不可寫）。支援時不跟隨連結；
+        Windows 不支援，``W_OK`` 只看唯讀屬性。
+        """
+        target = self._zone_target(zp, "zone_access")
+        try:
+            with zone_errors(zp.display()):
+                if kind_no_follow(target) in {"missing", "link"}:
+                    return False
+        except OSError:
+            return False
+        if os.access in os.supports_follow_symlinks:
+            return os.access(target, mode, follow_symlinks=False)
+        return os.access(target, mode)
+
     @permission_repair(retry=False)
     def rename_agent_container(self, anchor: Anchor, old_name: str, new_name: str) -> None:
         """把錨點底下代理人的整個資料夾改名（R10，只改名、不複製；G1 明列）.
@@ -1061,8 +1164,38 @@ class ResourceManager:
         return None if outputs is None else outputs.child(_UPLOADS_DIR)
 
     def anchor_root(self, anchor: Anchor) -> ZonePath:
-        """整個錨點（R9；呼叫點列在 G1）。``CUSTOM_DRIVE`` 沒有整個錨點的區內路徑."""
+        """整個錨點（R9；呼叫點列在 G1）：只給個人空間與文件輸出，其他丟 ``ZoneSegmentError``."""
+        if anchor not in _WHOLE_ANCHORS:
+            raise ZoneSegmentError(zone_display(anchor, ()))
         return ZonePath(anchor, ())
+
+    def tool_root(self, skill_id: str) -> ZonePath | None:
+        """演化工具的資料夾 ``MCP_SERVERS/<skill>``（P3）；``None`` 只代表名稱不合技能名稱（P9）."""
+        return ZonePath(Anchor.MCP_SERVERS, (skill_id,)) if is_skill_segment(skill_id) else None
+
+    def sandbox_state_root(self) -> Path | None:
+        """ST 的位置（P7）：容器裡沒設 ``TOUKA_SANDBOX_STATE_DIR`` 時回 None，其他照設定或預設.
+
+        只有 profiles 的 ST 存取函式與 ``current_layout`` 用（G1）；容器判斷每次經 ``config``。
+        """
+        if app_config.is_container_runtime() and not settings.TOUKA_SANDBOX_STATE_DIR:
+            return None
+        return Path(_state_setting_or_default())
+
+    def sandbox_state_proxy(self) -> ZonePath | None:
+        """ST 的 ``proxy``（P3）；``None`` 只代表 ST 沒設（``sandbox_state_root()`` 是 None）."""
+        if self.sandbox_state_root() is None:
+            return None
+        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR,))
+
+    def sandbox_state_dir(self, kind: str, owner: str) -> ZonePath | None:
+        """ST 的 ``proxy/<kind>/<owner>``（P3；只在 profiles 的 ST 存取函式呼叫）.
+
+        ``None`` 只代表 ST 沒設；``kind``、``owner`` 不能當一段時丟 ``ZoneSegmentError``。
+        """
+        if self.sandbox_state_root() is None:
+            return None
+        return ZonePath(Anchor.SANDBOX_STATE, (_STATE_PROXY_DIR, kind, owner))
 
     @permission_repair(retry=False)
     def write_file_text(
@@ -1536,10 +1669,17 @@ class ResourceManager:
 resource_manager = ResourceManager()
 
 
+def _state_setting_or_default() -> str:
+    """ST 的設定值，沒設時是 ``data/temp/sandbox_state``.
+
+    P7：容器裡沒設時預設位置也算區，只會更嚴。
+    """
+    return settings.TOUKA_SANDBOX_STATE_DIR or resource_manager.get_temp_path("sandbox_state")
+
+
 def _zone_roots() -> ZoneRoots:
     """目前的 data 根與 sandbox state 根：判斷代理人資料夾的唯一來源（ADR-0293 R14）。"""
-    state = settings.TOUKA_SANDBOX_STATE_DIR or resource_manager.get_temp_path("sandbox_state")
-    return ZoneRoots(get_app_data_dir(), state)
+    return ZoneRoots(get_app_data_dir(), _state_setting_or_default())
 
 
 set_roots_provider(_zone_roots)

@@ -13,6 +13,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from tests.support.links import LINK_FOLLOWED, make_dir_link
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "scripts" / "manage_backup.py"
@@ -138,24 +140,25 @@ def test_restore_skips_an_alias_of_an_agent_folder(zone_data_root, tmp_path, cap
     """別名（短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱，走一般還原.
 
     這台機器做不出掛載，用 data 根的連結模擬同一個檔案身分；落點以身分判斷在區內就略過。
+    名稱用備份會寫的資料夾（``stats``）：其他名稱先被允許清單略過（ADR-0293 PR 2 Q11）。
     """
     mod = _load()
     resolver = _resolver(mod, tmp_path, zone_data_root)
     source = tmp_path / "alias.zip"
     with zipfile.ZipFile(source, "w") as zf:
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
-        zf.writestr("data/pd_alias/Alice/x.txt", b"bad")
+        zf.writestr("data/stats/Alice/x.txt", b"bad")
         zf.writestr("data/soul/Alice/core.json", b"{}")
     fresh = tmp_path.resolve() / "fresh_data"
     fake = tmp_path.resolve() / "fake_drive"
     for folder in (fresh / "personal_drive", fake):
         folder.mkdir(parents=True)
     make_dir_link(fresh / "personal_drive" / "Alice", fake)
-    make_dir_link(fresh / "pd_alias", fresh / "personal_drive")
+    make_dir_link(fresh / "stats", fresh / "personal_drive")
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert list(fake.iterdir()) == [], LINK_FOLLOWED
     assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
-    assert "'data/pd_alias/Alice/x.txt'" in capsys.readouterr().out
+    assert "'data/stats/Alice/x.txt'" in capsys.readouterr().out
 
 
 def test_restore_skips_names_that_leave_the_data_path(
@@ -164,6 +167,8 @@ def test_restore_skips_names_that_leave_the_data_path(
     """``data//…`` 去掉 ``data/`` 後從根開始，``.``、``..`` 比不到資料夾名稱：略過並列出.
 
     建資料夾與搬檔只准在 tmp_path 底下：改壞這條檢查時落點是檔案系統根，先擋下來、不真的寫。
+    第一段是備份會寫的資料夾、後面才走出去的（``soul/../../..``、Windows 的 ``C:x.db``）只有這條
+    擋得到：允許清單只看第一段（ADR-0293 PR 2 Q11）。
     """
     mod = _load()
     resolver = _resolver(mod, tmp_path, zone_data_root)
@@ -180,9 +185,14 @@ def test_restore_skips_names_that_leave_the_data_path(
     monkeypatch.setattr(Path, "mkdir", _only_inside(Path.mkdir, 0))
     monkeypatch.setattr(shutil, "move", _only_inside(shutil.move, 1))
     source = tmp_path / "escape.zip"
-    names = ["data//personal_drive/Alice/x.txt", "data/./soul/x.txt", "data/../outside.txt"]
+    names = [
+        "data//personal_drive/Alice/x.txt",
+        "data/./soul/x.txt",
+        "data/../outside.txt",
+        "data/soul/../../../outside.txt",
+    ]
     if os.name == "nt":  # 磁碟代號開頭的只有 Windows 會當成根
-        names += ["data/C:/escape/x.txt", "data/C:x.txt"]
+        names += ["data/C:/escape/x.txt", "data/C:x.txt", "data/C:x.db"]
     with zipfile.ZipFile(source, "w") as zf:
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
         for name in names:
@@ -192,25 +202,29 @@ def test_restore_skips_names_that_leave_the_data_path(
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
     assert not (inside / "outside.txt").exists()
+    assert not (inside.parent / "outside.txt").exists()
     out = capsys.readouterr().out
     assert all(f"'{name}'" in out for name in names), out
 
 
 def test_restore_skips_a_folder_entry_that_is_an_agent_anchor(zone_data_root, tmp_path, capsys):
-    """資料夾項目的落點是錨點本身（這裡用 data 根的連結當別名）：略過，不清掉整個個人空間."""
+    """資料夾項目的落點是錨點本身（這裡用 data 根的連結當別名）：略過，不清掉整個個人空間.
+
+    名稱用備份會寫的資料夾（``stats``），理由同上面的別名測試。
+    """
     mod = _load()
     resolver = _resolver(mod, tmp_path, zone_data_root)
     source = tmp_path / "folder.zip"
     with zipfile.ZipFile(source, "w") as zf:
         zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
-        zf.writestr("data/pd_alias/", b"")
+        zf.writestr("data/stats/", b"")
     fresh = tmp_path.resolve() / "fresh_data"
     (fresh / "personal_drive" / "Alice").mkdir(parents=True)
     (fresh / "personal_drive" / "Alice" / "keep.txt").write_bytes(b"keep")
-    make_dir_link(fresh / "pd_alias", fresh / "personal_drive")
+    make_dir_link(fresh / "stats", fresh / "personal_drive")
     mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
     assert (fresh / "personal_drive" / "Alice" / "keep.txt").read_bytes() == b"keep"
-    assert "'data/pd_alias/'" in capsys.readouterr().out
+    assert "'data/stats/'" in capsys.readouterr().out
 
 
 def test_restore_skips_config_names_that_leave_the_config_folder(
@@ -265,3 +279,63 @@ def test_restore_skips_member_names_that_are_not_a_segment(zone_data_root, tmp_p
     assert "Skipped 0 links, 2 bad names" in out
     assert "'data/custom/M1/drive/./x.txt'" in out
     assert "'data/personal_drive/Alice/../../soul/x.txt'" in out
+
+
+def test_restore_skips_members_the_backup_never_writes(zone_data_root, tmp_path, capsys):
+    """備份只寫 ``SANCTUARY_FOLDERS`` 與 data 根的 ``*.db``；其他成員略過並列出.
+
+    ``temp/sandbox_state`` 不在任何錨點底下（還原的第二層不知道 ST 在哪），只有允許清單擋得到；
+    ``mcp_servers/managed`` 是舊程式沒有執法的錨點。兩處路上都有連結，寫過去就是跟隨了
+    （ADR-0293 PR 2 Q11）。
+    """
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    source = tmp_path / "extra.zip"
+    names = [
+        "data/temp/sandbox_state/proxy/agents/Alice/link/x.txt",
+        "data/mcp_servers/managed/tool/server.py",
+        "data/readme.txt",
+    ]
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        for name in names:
+            zf.writestr(name, b"bad")
+        zf.writestr("data/ui_sessions.db", b"db")
+        zf.writestr("data/soul/Alice/core.json", b"{}")
+    fresh = tmp_path.resolve() / "fresh_data"
+    owner = fresh / "temp" / "sandbox_state" / "proxy" / "agents" / "Alice"
+    fake_home, fake_tool = tmp_path.resolve() / "fake_home", tmp_path.resolve() / "fake_tool"
+    for folder in (owner, fresh / "mcp_servers" / "managed", fake_home, fake_tool):
+        folder.mkdir(parents=True)
+    make_dir_link(owner / "link", fake_home)
+    make_dir_link(fresh / "mcp_servers" / "managed" / "tool", fake_tool)
+    mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
+    assert list(fake_home.iterdir()) == [], LINK_FOLLOWED
+    assert list(fake_tool.iterdir()) == [], LINK_FOLLOWED
+    assert not (fresh / "readme.txt").exists()
+    assert (fresh / "ui_sessions.db").read_bytes() == b"db"
+    assert (fresh / "soul" / "Alice" / "core.json").read_bytes() == b"{}"
+    out = capsys.readouterr().out
+    assert all(f"'{name}'" in out for name in names), out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="大小寫不同的名稱只在大小寫有別的檔案系統才是另一個")
+def test_restore_compares_folder_names_exactly(zone_data_root, tmp_path, capsys):
+    """允許清單和代理人資料夾的分流用同一個鍵（``normcase`` 後完全相等）.
+
+    大小寫不同的略過並列出。
+    """
+    mod = _load()
+    resolver = _resolver(mod, tmp_path, zone_data_root)
+    source = tmp_path / "case.zip"
+    names = ["data/Personal_Drive/Alice/x.txt", "data/Soul/Alice/core.json"]
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr(".env", "SANCTUARY_DATA_PATH=x\n")
+        for name in names:
+            zf.writestr(name, b"bad")
+    fresh = tmp_path.resolve() / "fresh_data"
+    mod.RestoreEngine(resolver).run_restore(str(source), str(fresh))
+    assert not (fresh / "Personal_Drive").exists()
+    assert not (fresh / "Soul").exists()
+    out = capsys.readouterr().out
+    assert all(f"'{name}'" in out for name in names), out

@@ -24,7 +24,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
-from memory_server.utils.zone_paths import ALL_ANCHORS, Anchor, ZoneRoots, zone_of
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    Anchor,
+    ZoneRoots,
+    is_zone_segment,
+    zone_of,
+)
 
 from src.config import (
     HOST_WORKSPACE_ROOT,
@@ -149,9 +155,8 @@ def current_layout() -> SandboxLayout:
     """依目前設定組出版面；容器內 ST／kernel 未設定時保留 None（由狀態判定原因）。"""
     in_container = is_container_runtime()
     data_root = _resolve(resource_manager.get_base_path())
-    state = settings.TOUKA_SANDBOX_STATE_DIR
+    state = resource_manager.sandbox_state_root()  # ST 只有一個來源（ADR-0293 P7）
     kernel = settings.TOUKA_SANDBOX_KERNEL_DIR
-    native_state = None if in_container else resource_manager.get_temp_path("sandbox_state")
     native_kernel = None if in_container else PROXY_ROOT / "src" / "sandbox_kernel"
     env_file = _resolve(resolve_env_file_path())
     mirrors = {env_file.parent, *(m for m in (resource_manager.get_workspace_mount(),) if m)}
@@ -163,7 +168,7 @@ def current_layout() -> SandboxLayout:
         install_root=PROXY_ROOT.parent,
         proxy_root=PROXY_ROOT,
         env_file=env_file,
-        state_root=_resolve(state) if state else (_resolve(native_state) if native_state else None),
+        state_root=_resolve(state) if state is not None else None,
         kernel_dir=_resolve(kernel) if kernel else native_kernel,
         executor_dir=_resolve(settings.TOUKA_EXECUTOR_DIR) if settings.TOUKA_EXECUTOR_DIR else None,
         mirror_roots=tuple(sorted(_resolve(m) for m in mirrors)),
@@ -356,24 +361,62 @@ def checked_ports(block_ports: tuple[int, ...] | None, location: Location) -> tu
     return ports
 
 
+def _same_state(layout: SandboxLayout, subject: str) -> None:
+    """版面的 ST 和 RM 的 ST 要是同一處（解析後比）；不是就丟 ``SANDBOX_STATE_UNCONFIGURED``."""
+    state = resource_manager.sandbox_state_root()
+    if state is None or layout.state_root is None or os.path.normcase(
+        _resolve(layout.state_root)
+    ) != os.path.normcase(_resolve(state)):
+        raise ProfileError(subject, SANDBOX_STATE_UNCONFIGURED)
+
+
+def proxy_state_zone(layout: SandboxLayout) -> ZonePath | None:
+    """``ST/proxy``（P7）：Touka 在 ST 裡的讀寫只經這裡和 ``proxy_state_owner`` 拿路徑.
+
+    ``None`` 只代表版面沒設 ST（不看 RM）；版面設了、RM 沒設或兩邊不同丟 ``ProfileError``。
+    """
+    if layout.state_root is None:
+        return None
+    _same_state(layout, "state")
+    return resource_manager.sandbox_state_proxy()
+
+
+def proxy_state_owner(layout: SandboxLayout, kind: str, owner: str) -> ZonePath | None:
+    """``ST/proxy/<kind>/<owner>``（P7）；``None`` 與 ST 的例外同 ``proxy_state_zone``.
+
+    ``kind``、``owner`` 要同時是安全名稱（``is_safe_segment``）與區裡的一段，否則丟
+    ``ProfileError(owner)``。
+    """
+    if layout.state_root is None:
+        return None
+    _same_state(layout, owner)
+    if not (is_safe_segment(owner) and is_zone_segment(owner) and is_zone_segment(kind)):
+        raise ProfileError(owner)
+    return resource_manager.sandbox_state_dir(kind, owner)
+
+
 def state_dirs(
     layout: SandboxLayout, location: Location, kind: str, owner: str, *, create: bool = True
 ) -> tuple[Path, Path]:
-    """ST 的 ``{home,tmp}``；分類可只算位置，預設建立，ST 未設定或名稱不安全就拒絕。"""
-    if layout.state_root is None:
-        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED)
-    if not is_safe_segment(owner):
+    """ST 的 ``{home,tmp}``（區字串）；分類可只算位置，預設經區內方法建立.
+
+    只有 proxy 位置；ST 沒設、版面與 RM 不同或建不出來都是 ``SANDBOX_STATE_UNCONFIGURED``，
+    名稱不安全是 ``ProfileError(owner)``。
+    """
+    if location != "proxy":
         raise ProfileError(owner)
-    base = _resolve(layout.state_root) / location / kind / owner
-    dirs = (base / "home", base / "tmp")
-    if not create:
-        return dirs
-    try:
-        for directory in dirs:
-            resource_manager.make_dir(directory)
-    except OSError as exc:
-        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED) from exc
-    return dirs
+    zp = proxy_state_owner(layout, kind, owner)
+    if zp is None:
+        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED)
+    dirs = (zp.child("home"), zp.child("tmp"))
+    if create:
+        try:
+            for directory in dirs:
+                resource_manager.zone_make_dir(directory)
+        except OSError as exc:
+            raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED) from exc
+    home, tmp = (Path(resource_manager.zone_text(directory)) for directory in dirs)
+    return home, tmp
 
 
 def _state(
@@ -501,7 +544,7 @@ async def build_agent_command_profile(
 
 def build_evolution_profile(
     skill_id: str,
-    tool_root: Path,
+    tool_root: Path | str,
     *,
     layout: SandboxLayout,
     location: Location = "proxy",
@@ -510,9 +553,9 @@ def build_evolution_profile(
 ) -> SandboxProfile:
     """演化建置與驗證：讀寫只給 ``managed/<skill>`` 與自己的 state 資料夾；rlimit 由指令帶入."""
     ports = checked_ports(block_ports, location)
-    root = _resolve(tool_root)
     managed = _resolve(layout.data_root) / "mcp_servers" / "managed"
-    if not is_safe_segment(skill_id) or root != managed / skill_id:
+    root = managed / skill_id  # 授與只用字面位置；解析 tool_root 的結果只用來核對
+    if not is_safe_segment(skill_id) or _resolve(tool_root) != root:
         raise ProfileError(skill_id)
     home, tmp = _state(layout, location, "evolution", skill_id, executor_state)
     rules = system_rules()

@@ -497,8 +497,8 @@ async def test_reset_backup_holds_lock_and_leaves_event_loop(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_sandbox_caller_env_cannot_reintroduce_secrets(tmp_path, monkeypatch):
-    monkeypatch.setattr(EvolutionPathGuard, "get_tool_root", classmethod(lambda _c, _s: tmp_path))
+def test_sandbox_caller_env_cannot_reintroduce_secrets(zone_data_root, monkeypatch):
+    EvolutionPathGuard.mkdir_tool("skill_sp6")
     seen: dict = {}
 
     def _fake_run(cmd_list, **kwargs):

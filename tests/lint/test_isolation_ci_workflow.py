@@ -471,11 +471,12 @@ def test_container_job_starts_the_ghcr_executor_from_the_image_it_built() -> Non
     assert ["docker", "run", "--rm", "-v", volume, image, "true"] in commands
     # create_host_path: false 的兩個資料夾與端到端要的資料夾先建好，擁有者和執行器的 user 相同
     ghcr_data = {
-        Path(v["source"]).name
+        _data_relative(v["source"])
         for v in executor["volumes"]
         if isinstance(v, dict) and v.get("bind", {}).get("create_host_path") is False
     }
-    data = sorted(f"{COMPOSE_COPY}/data/{name}" for name in ghcr_data | _e2e_data_folders())
+    folders = _with_parents(ghcr_data | _e2e_data_folders())
+    data = sorted(f"{COMPOSE_COPY}/data/{name}" for name in folders)
     uid, gid = executor["user"].split(":")
     installs = [argv for argv in commands if argv[:2] == ["sudo", "install"]]
     assert installs == [["sudo", "install", "-d", "-o", uid, "-g", gid, *data]]
@@ -500,9 +501,27 @@ def _e2e_data_folders() -> set[str]:
     """端到端從 ``TOUKA_ISO_DATA`` 底下掛的資料夾（iso-exec 的三個）。"""
     exec_volumes = _compose_doc(E2E_COMPOSE)["services"]["iso-exec"]["volumes"]
     return {
-        PurePosixPath(volume.split("}", 1)[1].split(":")[0]).name
-        for volume in exec_volumes
-        if volume.startswith("${TOUKA_ISO_DATA")
+        _data_relative(volume) for volume in exec_volumes if volume.startswith("${TOUKA_ISO_DATA")
+    }
+
+
+def _data_relative(source: str) -> str:
+    """``${資料根}/a/b[:容器路徑]`` 在資料根底下的相對路徑 ``a/b``.
+
+    變數裡可能有冒號，先切掉變數再切容器路徑。
+    """
+    return source.split("}", 1)[1].split(":")[0].lstrip("/")
+
+
+def _with_parents(folders: set[str]) -> set[str]:
+    """連同每個資料夾在資料根底下的上層.
+
+    ``install -d`` 只把擁有者給列出的那一層，自動建的上層屬於 root，所以上層也要列。
+    """
+    return {
+        PurePosixPath(*PurePosixPath(folder).parts[:end]).as_posix()
+        for folder in folders
+        for end in range(1, len(PurePosixPath(folder).parts) + 1)
     }
 
 

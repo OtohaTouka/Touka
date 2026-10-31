@@ -8,6 +8,7 @@ import os
 import runpy
 import sys
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -25,17 +26,16 @@ from src.services.isolation.profiles import SandboxProfile
 from src.services.isolation.runners import DirectRunner
 from src.tools.builtin import evolution
 
-from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE
+from tests.helpers.evolution_stdio_peer import EVOLUTION_PROBE_SOURCE, build_skill_venv
 
 
 @pytest.fixture
-def protocol(monkeypatch, tmp_path):
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path / "managed")
+def protocol(monkeypatch, zone_data_root):
     EvolutionPathGuard.write_tool_file("sample", "spec.json", "{}")
     monkeypatch.setattr(
         evolution, "write_mcp_implementation", AsyncMock(return_value="Development Success")
     )
-    root = EvolutionPathGuard.get_tool_root("sample")
+    root = Path(EvolutionPathGuard.get_tool_root("sample"))
     launch = EvolutionLaunch(
         DirectRunner(), SandboxProfile(name="evolution", cwd=root, rules=(), block_ports=())
     )
@@ -109,6 +109,24 @@ async def test_success_uses_correlated_tool_result(protocol):
     connect.assert_awaited_once()
     deploy.assert_awaited_once()
     assert '"status": "success"' in result
+
+
+@pytest.mark.parametrize("error", [OSError("busy"), PermissionError("read-only")])
+async def test_wrapper_cleanup_failure_keeps_the_outcome(protocol, monkeypatch, caplog, error):
+    """刪不掉 ``test_wrapper.py`` 只記 log，不蓋掉驗證結果（ADR-0293 PR 2，Q3）."""
+    _client, _connect, deploy = protocol
+
+    def fail(*_args):
+        raise error
+
+    monkeypatch.setattr(EvolutionPathGuard, "delete_tool_file", fail)
+    with caplog.at_level(logging.WARNING):
+        result = await evolution.evolution_implement_and_verify(
+            "sample", "pass", "ping", {}, submit_for_deploy=True
+        )
+    assert '"status": "success"' in result
+    deploy.assert_awaited_once()
+    assert "test_wrapper.py" in caplog.text
 
 
 async def test_marker_in_failed_outcome_cannot_request_deployment(protocol, monkeypatch):
@@ -274,9 +292,9 @@ async def test_windows_sdk_drains_and_masks_stderr(monkeypatch):
 
 
 @pytest.mark.parametrize("behavior", ["ok", "error", "marker", "no_run"])
-async def test_real_protocol_requires_running_server(monkeypatch, tmp_path, behavior):
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path / "managed")
-    monkeypatch.setattr(evolution, "_venv_python", lambda _skill: sys.executable)
+async def test_real_protocol_requires_running_server(zone_data_root, behavior):
+    """技能資料夾裡真的 venv python 跑伺服器（不替換 ``_venv_python``）."""
+    build_skill_venv(evolution._venv_python("real"))
     code = """from mcp.server import MCPServer
 mcp = MCPServer("verification-test")
 @mcp.tool()

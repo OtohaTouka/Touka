@@ -20,9 +20,9 @@ import sys
 import threading
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,7 +32,7 @@ from src.sandbox_kernel import spec as kernel_spec
 from src.services import evolution_security, tool_errors
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.isolation import evolution_command
-from src.services.isolation.consent import ConsentKey, consent_ledger
+from src.services.isolation.consent import Consent, ConsentKey, ExecutionGrant, consent_ledger
 from src.services.isolation.executor_client import ExecutorReady
 from src.services.isolation.policy import policy_level
 from src.services.isolation.profiles import (
@@ -42,20 +42,26 @@ from src.services.isolation.profiles import (
     build_evolution_profile,
     launcher_spec_fields,
 )
+from src.services.isolation.runners import IsolationUnavailableError
 from src.tools.builtin import evolution
 
 from tests.support.isolation import (
     REAL_EVOLUTION_PROFILE,
     fake_kernel_layout,
     install_real_broker,
+    match_state_root,
     pinned_snapshot,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from tests.support.zone_roots import point_zone_roots
 
 SKILL = "probe_skill"
 MB = 1024 * 1024
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "install" / "st")
 
 
 def _layout(root: Path) -> SandboxLayout:
@@ -259,13 +265,11 @@ class _Recorder:
 
 
 @pytest.fixture
-def evolution_env(monkeypatch, tmp_path) -> Path:
-    """沙盒根目錄指到 tmp；已提案（有 spec.json）；配額固定；回傳 managed 根目錄。"""
-    managed = tmp_path / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+def evolution_env(monkeypatch, zone_data_root) -> Path:
+    """data 根換到 ``zone_data_root``；已提案（有 spec.json）；配額固定；回傳 managed 根目錄。"""
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
-    return managed
+    return zone_data_root / "mcp_servers" / "managed"
 
 
 @pytest.fixture
@@ -346,9 +350,9 @@ async def test_build_and_verify_spawn_through_the_launcher(
     assert [spawned.original(i) for i in range(3)] == [
         [sys.executable, "-m", "venv", ".venv"],
         [_venv_python(), "-m", "pip", "install", "-r", "requirements.txt"],
-        [_venv_python(), str(EvolutionPathGuard.get_tool_root(SKILL) / "test_wrapper.py")],
+        [_venv_python(), str(Path(EvolutionPathGuard.get_tool_root(SKILL)) / "test_wrapper.py")],
     ]
-    root = str(EvolutionPathGuard.get_tool_root(SKILL))
+    root = EvolutionPathGuard.get_tool_root(SKILL)
     loop_thread = threading.get_ident()
     for call in spawned.calls:
         assert call.argv[:4] == [sys.executable, "-I", "-S", launcher]
@@ -542,9 +546,7 @@ def _evolution_without_sandbox_state(monkeypatch, tmp_path: Path, *, card: str) 
     layout = replace(_layout(tmp_path), state_root=None)
     snap = pinned_snapshot("none", reason="sandbox_state_unconfigured")
     install_real_broker(monkeypatch, snap, layout).state_ok = card == "landlock"
-    monkeypatch.setattr(
-        EvolutionPathGuard, "MANAGED_BASE_DIR", layout.data_root / "mcp_servers" / "managed"
-    )
+    point_zone_roots(monkeypatch, layout.data_root, tmp_path / "zone_state")
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
     monkeypatch.setattr(evolution_command, "evolution_profile", REAL_EVOLUTION_PROFILE)
@@ -572,6 +574,23 @@ async def test_degraded_consent_without_sandbox_state_refuses_evolution_with_the
     assert spawned.calls == []
 
 
+async def test_the_executor_location_never_falls_back_to_the_unbound_profile(monkeypatch, tmp_path):
+    """直接打 ``_profile_for``：執行器位置組不出 profile 一律拒絕，「未隔離」卡也一樣（P10）.
+
+    執行器路線的 ST 一定有值、技能 id 也先驗過，走正常流程到不了這裡（ADR-0293 決定 14）。
+    """
+
+    def unavailable(*_args: Any, **_kwargs: Any) -> None:
+        raise IsolationUnavailableError("sandbox_state_unconfigured")
+
+    monkeypatch.setattr(evolution_command, "evolution_profile", unavailable)
+    grant = ExecutionGrant("none", Consent("subject", "direct"))
+    with pytest.raises(IsolationUnavailableError):
+        await evolution_command._profile_for(grant, SKILL, tmp_path, "executor", "/x/state")
+    profile = await evolution_command._profile_for(grant, SKILL, tmp_path, "proxy", None)
+    assert profile.ungranted == ("sandbox_state_unconfigured",)
+
+
 def test_sandbox_command_requires_a_launch():
     """直接呼叫一定要帶 spawn 前選好的 runner（沒有預設值：不會不經 runner 就執行）。"""
     signature = inspect.signature(EvolutionPathGuard.run_sandbox_command)
@@ -595,8 +614,7 @@ def _evolution_in_the_executor(monkeypatch, tmp_path: Path) -> Any:
         pinned_snapshot("executor"), executor=EXEC_READY, features=frozenset({"fs"})
     )
     monitor = install_real_broker(monkeypatch, snap, layout)
-    managed = layout.data_root / "mcp_servers" / "managed"
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", managed)
+    point_zone_roots(monkeypatch, layout.data_root, layout.state_root)
     EvolutionPathGuard.write_tool_file(SKILL, "spec.json", "{}")
     monkeypatch.setattr(evolution.autonomy_service, "config", {"sandbox_limits": LIMITS})
     monkeypatch.setattr(evolution_command, "evolution_profile", REAL_EVOLUTION_PROFILE)
@@ -618,7 +636,7 @@ async def test_evolution_runs_through_the_relay_at_the_executor_level(
         assert call.argv[3].endswith("relay.py") and "--spec-fd" not in call.argv
         start = call.spec["start"]
         assert (start["kind"], start["owner"]) == ("evolution", SKILL)
-        assert start["cwd"] == str(EvolutionPathGuard.get_tool_root(SKILL).resolve())
+        assert start["cwd"] == EvolutionPathGuard.get_tool_root(SKILL)
         home = start["env"]["HOME"].replace("\\", "/")
         assert home.endswith(f"executor_state/evolution/{SKILL}/home")
 

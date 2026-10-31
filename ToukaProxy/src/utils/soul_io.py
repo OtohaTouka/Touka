@@ -12,6 +12,14 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    contains_zone,
+    current_roots,
+    is_zone_segment,
+    zone_of,
+)
+
 from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
@@ -29,8 +37,20 @@ def _safe_target(base: Path, filename: str) -> Path | None:
     un-resolved and was defeated by a sibling-prefix dir (``/soul/AgentX-evil`` starts
     with ``/soul/AgentX``). ``validate_no_symlink_escape`` resolves BOTH sides and uses
     ``is_relative_to``, also blocking symlink/``..`` escapes. Returns None if outside.
+
+    ADR-0293 PR 2：``filename`` 來自模型，只收單層名稱（擋 ``sub/x``）；``base/filename`` 也不能
+    在代理人資料夾裡或是它的根（擋自訂模型靈魂根 ``custom/<id>`` 底下的 ``drive``）。靈魂根的
+    區外部分只有 Touka 寫得到，單層名稱與它的 ``.tmp``、``.bak`` 都在區外。
     """
+    if not is_zone_segment(filename):
+        logger.warning("🚫 Soul file name is not a single level: %r", filename)
+        return None
     target = base / filename
+    roots = current_roots()
+    in_zone = zone_of(target, roots, anchors=ALL_ANCHORS) is not None
+    if in_zone or contains_zone(target, roots, anchors=ALL_ANCHORS):
+        logger.warning("🚫 Soul file is in an agent folder: %s", filename)
+        return None
     if not validate_no_symlink_escape(target, base):
         logger.warning("🚫 Soul sandbox violation: %s", filename)
         return None

@@ -53,6 +53,10 @@ _AGENT_FOLDERS = {
 # 備份涵蓋的 Sanctuary 資料子目錄（SSOT）。legacy 為舊版 agent 資料，亦需備份。
 # avatars（ADR-0106）：使用者頭像上傳檔，須納入備份否則還原時遺失。
 SANCTUARY_FOLDERS = ["soul", CUSTOM_DIR, "vault", PERSONAL_DIR, "stats", "legacy", "avatars"]
+# 還原時 data 成員的第一段只收這些（和 _AGENT_FOLDERS 同一個鍵：normcase 後完全相等）
+_RESTORABLE_FOLDERS = frozenset(os.path.normcase(folder) for folder in SANCTUARY_FOLDERS)
+# data 根底下備份會寫的檔案（第 5 步的 glob）
+_ROOT_DB_SUFFIX = ".db"
 OAUTH_RUNTIME_FILENAMES = (
     "mcp_oauth.sqlite3",
     "mcp_oauth.sqlite3-wal",
@@ -560,6 +564,11 @@ class RestoreEngine:
                     if not _plain_relative(arcname):
                         report.bad_names.append(member)
                         continue
+                    # 備份不會寫的成員（mcp_servers、temp 與其他資料夾、data 根 .db 以外的檔案）
+                    # 略過：它們可能落進別的錨點或 sandbox state（ADR-0293 PR 2）
+                    if not _restorable(arcname):
+                        report.bad_names.append(member)
+                        continue
                     # 別名（短檔名、大小寫不分的掛載）比不到代理人資料夾的名稱：落點以身分判斷在它
                     # 裡面或包含它就略過，不走會跟隨連結的舊路（ADR-0293）
                     roots = ZoneRoots(target, None)
@@ -601,6 +610,17 @@ def _plain_relative(name: str) -> bool:
     """一般的相對路徑：沒有根或磁碟代號，也沒有空段、``.``、``..``."""
     parts = name.removesuffix("/").split("/")
     return not Path(name).anchor and all(part not in ("", ".", "..") for part in parts)
+
+
+def _restorable(arcname: str) -> bool:
+    """備份會寫的 data 成員：第一段在 ``SANCTUARY_FOLDERS``，或 data 根的 ``*.db``.
+
+    比對鍵和代理人資料夾的分流相同（``os.path.normcase`` 後完全相等，不去尾、不 ``casefold``）。
+    """
+    head, sep, _rest = arcname.partition("/")
+    if sep:
+        return os.path.normcase(head) in _RESTORABLE_FOLDERS
+    return os.path.normcase(head).endswith(_ROOT_DB_SUFFIX)
 
 
 def _restore_agent_member(
