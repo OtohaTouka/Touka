@@ -183,6 +183,16 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 執行器掛整個 `data/mcp_servers`，執行器裡的程式能把 `managed` 本身換掉。 | 只掛 `data/mcp_servers/managed`（掛載根不能被改名或刪除）；沒有 `managed` 的讀寫根時執行器不服務。`tests/unit/test_executor_server.py`、`test_executor_compose_security.py`。 |
 | 技能名稱可以是執行器保留的名字（例如 `soul`），在 `managed` 底下建出後執行器停止服務。 | 技能名稱只經 `is_skill_segment`，擋下這 7 個名字與 Windows 保留名。`tests/unit/test_skill_names_security.py`。 |
 
+### 模型輸出的外部資源、開發終端伺服器與 IDE 連線資訊（2026-10-30，ADR-0294）
+
+| 弱點 | 修正與驗證 |
+|------|------|
+| ToukaChat 的 `npm run dev` 會一起啟動一個不用登入的終端伺服器（`terminal_server.mjs`），任何網頁都能叫它執行指令。正式映像不含它。 | 刪掉伺服器，`dev` 只開網頁。`tests/lint/test_chat_dev_terminal_security.py`。 |
+| 聊天訊息與 artifact 的 Markdown 直接載入外部圖片，模型可以把對話內容放進圖片網址，瀏覽器一載入就送出去（還帶 Referer）。 | 圖片一律經 `markdownImagePolicy.decideMarkdownImage` 判斷（解析後比來源），只載入前端與 Touka 後端自己的來源，並加 `referrerPolicy="no-referrer"`；外部圖片改成「外部圖片（未載入）＋網站名稱」，點了才在新分頁開。模型輸出的 Markdown 只經 `SafeMarkdown` 顯示。ToukaChat `markdownImagePolicy.security.test.ts`、`SafeMarkdown.test.tsx`；`tests/lint/test_chat_markdown_render_security.py`。 |
+| 流程圖（mermaid）畫圖時會先把圖放進頁面，圖裡的外部圖片（標籤裡的 `<img>`、圖片節點、角色圖示）在這時就載入；設定指令還可以改 `themeCSS`、`fontFamily`、`altFontFamily`，把載入外部網址的樣式帶進輸出；消毒也沒擋屬性與樣式裡的外部網址。 | mermaid 只在隱藏的沙箱框裡畫（`mermaidSandbox.ts`，沿用 artifact 預覽的 `allow-scripts` sandbox 與不准外部載入的 CSP），頁面本身不載入 mermaid；`secure` 加上這三個欄位並保留預設項目（`mermaidConfig.ts`）；框傳回的 SVG 再經 `sanitizeMermaidSvg`，移除會載入外部網址的屬性與樣式片段，圖的樣式與文字照常。`mermaidSandbox.security.test.ts`、`sanitizeMermaidSvg.security.test.ts`（真實 mermaid 11.16.1 輸出）；`tests/lint/test_chat_markdown_render_security.py`。 |
+| ToukaIDE 寫檔時，工作區裡指向不存在位置的連結被當成不存在而通過路徑檢查，寫檔跟著連結寫到工作區外面；差異預覽按「接受」時不再檢查路徑，暫存檔放在共用的暫存區；讀檔跟隨連結，遇到 FIFO 會一直卡住。 | 路徑檢查改用不跟隨連結的 `lstat`，懸空連結解不開就拒絕；讀寫只經 `noFollowFile.ts`（POSIX `O_NOFOLLOW|O_NONBLOCK`、只認一般檔案，Linux 開檔後核對實際位置、核對後才清空；Windows 讀寫前確認不是連結）；按接受時重新檢查、路徑變了不寫；暫存檔放在 0700 的私人資料夾、用完或出錯都刪掉。ToukaIDE `workspacePathSecurity.test.ts`、`noFollowFile.test.ts`、`diffManagerSecurity.test.ts`、`fileHandlersWrite.test.ts`。 |
+| ToukaIDE 的連線資訊檔（含權杖）在 Linux 共用的 `/tmp/gemini/ide/` 用預設權限寫，別人讀得到；資料夾可能是別人先建的或是連結；Touka 讀的時候不看擁有者，別人放的假檔案會把 Touka 導去別處。 | IDE 只在自己的 0700 資料夾寫 0600 的新檔（不跟隨連結，上層暫存資料夾不安全就不寫並警告）；Touka 只讀自己的、別人不能寫的資料夾與檔案（`open_read_no_follow`＋`fstat`），進不去的資料夾略過。Windows 照舊。ToukaIDE `discoveryFile.test.ts`；`tests/unit/test_ide_discovery_security.py`。 |
+
 ### 代理人個人空間裡的連結（2026-10-30，ADR-0293）
 
 | 弱點 | 修正與驗證 |

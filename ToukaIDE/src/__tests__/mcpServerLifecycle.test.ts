@@ -128,7 +128,7 @@ describe('ToukaMcpServer lifecycle', () => {
             'utf8',
         );
         const start = extensionSource.indexOf('await mcpServer.start(');
-        const discovery = extensionSource.indexOf('writeDiscoveryFile(MCP_PORT');
+        const discovery = extensionSource.indexOf('announceDiscoveryFile(MCP_PORT');
 
         expect(extensionSource).toContain('export async function activate(');
         expect(start).toBeGreaterThan(-1);

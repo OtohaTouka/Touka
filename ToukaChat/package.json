@@ -20,7 +20,7 @@
     }
   },
   "scripts": {
-    "dev": "npm run sync-api && npm run gen:artifact-runtime && concurrently \"node src/lib/terminal_server.mjs\" \"next dev -p 3001\"",
+    "dev": "npm run sync-api && npm run gen:artifact-runtime && next dev -p 3001",
     "gen:artifact-runtime": "node scripts/build-artifact-runtime.mjs",
     "build": "next build",
     "start": "next start",

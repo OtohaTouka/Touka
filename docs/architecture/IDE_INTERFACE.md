@@ -117,6 +117,8 @@ Proxy 只接受合法 port、非空 token、exact modern mode 與本機絕對 pa
 `//host`、query 或 fragment。token 只進 discovery file 與 Proxy process memory，
 不得出現在 log 或 Webview message。
 
+權限（ADR-0294 決定 9）：Linux／macOS 上 Extension 只在自己的 `gemini`、`ide`（0700，別人能寫就先收緊）裡以 0600、不跟隨連結建新檔；上層暫存資料夾的擁有者要是 root 或自己，而且有 sticky 位元或別人不能寫，否則不寫並跳警告。Proxy 只讀自己的、別人不能寫、不是連結的兩層資料夾與檔案（`open_read_no_follow`＋`fstat`），不符合就略過並記一行警告。Windows 兩邊照舊。
+
 ### 5. Marketplace candidate boundary（ADR-0218）
 
 - Identity固定`touka-ai.toukaide`、MIT；版本與tag由`ToukaIDE/scripts/deterministic_vsix.py`固定（現行`0.3.0`／`v0.3.0`）；唯一registry是Visual Studio Marketplace。
@@ -162,7 +164,7 @@ Proxy 只接受合法 port、非空 token、exact modern mode 與本機絕對 pa
 | :--- | :--- | :--- |
 | **ToukaIDE 工作區根目錄** | VS Code Workspace API | `vscode.workspace.workspaceFolders` |
 | **ToukaIDE MCP 端點** | `MCP_ENDPOINTS` | `ToukaIDE/src/mcp/contracts.ts` |
-| **ToukaIDE discovery** | `buildDiscoveryPayload()` | OS temp `gemini/ide/` |
+| **ToukaIDE discovery** | `buildDiscoveryPayload()`；權限 `discoveryFile.ts`（寫）／`protocols/ide/discovery.py`（讀） | OS temp `gemini/ide/` |
 | **ToukaIDE AuthLevel** | `ToukaMcpServer` runtime state | Extension process memory |
 | **ToukaIDE Webview rendering policy** | ADR-0219 | `docs/architecture/adr/0219-toukaide-webview-plaintext-security-boundary.md` |
 | **ToukaIDE Webview rendering implementation** | CSP＋DOM＋CSS | `ToukaIDE/src/webview/index.html`、`main.js`、`style.css` |

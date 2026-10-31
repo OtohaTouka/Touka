@@ -71,6 +71,13 @@ describe('MessageItem', () => {
     expect(screen.getByText('You')).toBeInTheDocument();
   });
 
+  it('ADR-0294 外部圖片不自動載入，改顯示佔位連結', () => {
+    const msg = { ...mockHistory.messages['2'], content: '![x](https://evil.example/a.png?d=1)' } as any;
+    const { container } = render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(container.querySelector('img[src*="evil.example"]')).toBeNull();
+    expect(screen.getByRole('link', { name: /外部圖片（未載入）/ })).toHaveAttribute('target', '_blank');
+  });
+
   it('renders assistant message with markdown', () => {
     const msg = { ...mockHistory.messages['2'], content: '# Head\n**bold**' } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);

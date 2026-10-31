@@ -2,8 +2,6 @@
 
 import React from 'react';
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import Image from 'next/image';
 import { cn } from "@/lib/utils";
 import { Button } from '@/components/ui/button';
@@ -17,6 +15,7 @@ import { AgentActivityStrip } from "./AgentActivityStrip";
 import { ThinkingFold } from "./ThinkingFold";
 import { MessageNode, TreeHistory } from '@/lib/tree_history';
 import { useTheme } from "@/lib/ThemeContext";
+import { SafeMarkdown } from "@/components/markdown/SafeMarkdown";
 
 interface MessageItemProps {
   msg: MessageNode;
@@ -209,9 +208,9 @@ export const MessageItem = React.memo(({
                           </div>
                         )}
                         <div className="prose dark:prose-invert max-w-none break-all leading-relaxed whitespace-pre-wrap" style={{ fontSize: 'inherit' }}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                          <SafeMarkdown components={markdownComponents}>
                             {cleanContent}
-                          </ReactMarkdown>
+                          </SafeMarkdown>
                         </div>
                       </div>
                     );
@@ -219,12 +218,9 @@ export const MessageItem = React.memo(({
                 </div>
               ) : (
                 <div className="prose dark:prose-invert max-w-none break-all leading-relaxed whitespace-pre-wrap" style={{ fontSize: 'inherit' }}>
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
+                  <SafeMarkdown components={markdownComponents}>
                     {msg.content}
-                  </ReactMarkdown>
+                  </SafeMarkdown>
                 </div>
               )}
               {msg.role === 'assistant' && msg.progress && (

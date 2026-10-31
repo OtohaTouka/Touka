@@ -9,27 +9,11 @@ import { cn } from '@/lib/utils';
 import { ARTIFACT_SANDBOX, buildWebSrcDoc, buildReactSrcDoc } from '@/lib/artifacts/sandbox';
 import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
 import { bridgeApplyArtifact, isIDE } from '@/lib/bridge';
-import DOMPurify from 'dompurify';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import mermaid from 'mermaid';
+import { renderMermaidInSandbox } from '@/lib/artifacts/mermaidSandbox';
+import { sanitizeMermaidSvg } from '@/lib/artifacts/sanitizeMermaidSvg';
+import { SafeMarkdown } from '@/components/markdown/SafeMarkdown';
 import { logSSOTError, errorMsg } from '@/lib/error_handler';
 import { useTranslation } from 'react-i18next';
-
-// 初始化 Mermaid
-mermaid.initialize({
-  startOnLoad: false, // 改為 false，由渲染器手動觸發
-  theme: 'dark',
-  securityLevel: 'strict', // P2 fix: was 'loose' — XSS risk
-  fontFamily: 'monospace',
-  // @ts-expect-error - Mermaid 某些版本支援此選項隱藏氣泡錯誤
-  suppressError: true,
-  // 隱藏報錯懸浮氣泡的 CSS 注入
-  themeVariables: {
-    errorBkgColor: 'transparent',
-    errorTextColor: 'transparent'
-  }
-});
 
 export default function ArtifactView() {
   const { t } = useTranslation();
@@ -372,8 +356,8 @@ function MermaidRenderer({ content, scaleMode }: { content: string, scaleMode: '
       try {
         if (content.length < 10) return;
         
-        // 渲染前清理與重置
-        const { svg: renderedSvg } = await mermaid.render(uniqueId, content);
+        // 在沙箱框裡畫（ADR-0294）；回來的 SVG 放進頁面前再經 sanitizeMermaidSvg
+        const renderedSvg = await renderMermaidInSandbox(uniqueId, content);
         setSvg(renderedSvg);
         lastSuccessSvg.current = renderedSvg;
         setError(null);
@@ -385,10 +369,6 @@ function MermaidRenderer({ content, scaleMode }: { content: string, scaleMode: '
         } else {
           setError(t('artifacts.artifact_view.mermaid_awaiting_valid_syntax'));
         }
-        
-        // 清理 Mermaid 產生的殘留元素 (Mermaid 10+ 渲染失敗時常留下的 div)
-        const leftover = document.getElementById(`d${uniqueId}`);
-        if (leftover) leftover.remove();
       }
     };
     render();
@@ -407,7 +387,7 @@ function MermaidRenderer({ content, scaleMode }: { content: string, scaleMode: '
           scaleMode === 'fit' ? "w-full max-w-full overflow-hidden" : "w-max"
         )}
         style={scaleMode === 'fit' ? { maxWidth: '100%' } : {}}
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } }) }}
+        dangerouslySetInnerHTML={{ __html: sanitizeMermaidSvg(svg) }}
       />
     </div>
   );
@@ -416,9 +396,7 @@ function MermaidRenderer({ content, scaleMode }: { content: string, scaleMode: '
 function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div className="p-6 prose dark:prose-invert prose-sm max-w-none">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-        {content}
-      </ReactMarkdown>
+      <SafeMarkdown>{content}</SafeMarkdown>
     </div>
   );
 }
