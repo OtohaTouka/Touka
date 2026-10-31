@@ -1708,7 +1708,7 @@
       "tests/unit/test_resource_manager_anchors.py::test_handoff_cwd_refuses_an_anchor_or_a_folder_holding_zones"
     ],
     "posix_only": false,
-    "note": "#19b：第 3 種原樣交出"
+    "note": "#19b：第 3 種（該拒絕的）不拒絕，照原字串交出"
   },
   {
     "id": "p6_handoff_cwd_gives_the_raw_text",
@@ -2207,12 +2207,151 @@
     "old": "        \"zone_paths\",\n",
     "new": "",
     "tests": [
-      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense",
-      "tests/unit/test_zone_mutations_manifest.py::test_link_tests_do_not_replace_the_defenses"
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
     ],
     "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
     "posix_only": false,
     "note": "#34：連結測試的替換掃描拿掉 zone_paths（守衛標 T3：同一類「測試不換防線」）"
+  },
+  {
+    "id": "link_runtime_skips_monkeypatch",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        for container, key, old in log[before:]:\n",
+    "new": "        for container, key, old in log[before:before]:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_monkeypatch_way_is_caught"
+    ],
+    "target": "tests.support.link_defenses:_wrap_monkeypatch",
+    "posix_only": false,
+    "note": "執行期核對不看 monkeypatch 的替換（決定 26）"
+  },
+  {
+    "id": "link_runtime_skips_mock",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        _each(lambda m: m.replaced(target, name, old))\n",
+    "new": "        _each(lambda m: None)\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_mock_way_is_caught_even_when_undone_in_the_test",
+      "tests/unit/test_link_defense_runtime.py::test_a_patch_decorator_counts_as_the_decorated_function"
+    ],
+    "target": "tests.support.link_defenses:_wrap_mock",
+    "posix_only": false,
+    "note": "執行期核對不看 unittest.mock 的替換（在測試裡換回的也要抓）"
+  },
+  {
+    "id": "link_runtime_skips_audit",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "            _each(lambda m: m.function_changed(fn, name))\n",
+    "new": "            _each(lambda m: None)\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_changing_a_function_in_place_is_caught_even_when_restored"
+    ],
+    "target": "tests.support.link_defenses:_audit",
+    "posix_only": false,
+    "note": "執行期核對不看函式的 __code__／__defaults__ 被改"
+  },
+  {
+    "id": "link_runtime_skips_direct_changes",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "            if after is before:\n",
+    "new": "            if True:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_direct_changes_left_in_place_are_caught",
+      "tests/unit/test_link_defense_runtime.py::test_direct_changes_are_caught_outside_the_scope_too",
+      "tests/unit/test_link_defense_runtime.py::test_a_place_changed_through_a_listed_replacement_may_change_again"
+    ],
+    "target": "tests.support.link_defenses:Monitor._check_state",
+    "posix_only": false,
+    "note": "執行期核對不比對開始時的狀態（直接改的抓不到）"
+  },
+  {
+    "id": "link_runtime_allows_everyone",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        if checked and performer not in self.allowed:\n",
+    "new": "        if checked and performer not in self.allowed and False:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_monkeypatch_way_is_caught",
+      "tests/unit/test_link_defense_runtime.py::test_every_mock_way_is_caught_even_when_undone_in_the_test"
+    ],
+    "target": "tests.support.link_defenses:Monitor._performed",
+    "posix_only": false,
+    "note": "執行期核對放行所有做替換的程式（不看 LINK_SCAN_ALLOWED）"
+  },
+  {
+    "id": "link_runtime_drops_the_value_rule",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "            self.defenses.is_target(target) or self.defenses.is_value(old)\n",
+    "new": "            self.defenses.is_target(target)\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_monkeypatch_way_is_caught"
+    ],
+    "target": "tests.support.link_defenses:Monitor.replaced",
+    "posix_only": false,
+    "note": "執行期核對不看被換掉的值（從別處換掉對防線的參照抓不到）"
+  },
+  {
+    "id": "link_runtime_skips_instances",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        return isinstance(target, self.instance_classes)\n",
+    "new": "        return False\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_monkeypatch_way_is_caught",
+      "tests/unit/test_link_defense_runtime.py::test_every_mock_way_is_caught_even_when_undone_in_the_test"
+    ],
+    "target": "tests.support.link_defenses:Defenses.is_target",
+    "posix_only": false,
+    "note": "執行期核對不把防線類別的實例當防線"
+  },
+  {
+    "id": "link_runtime_scope_drops_imported_modules",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        pending.extend(_imported_test_modules(path))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_link_tests_do_not_replace_the_defenses"
+    ],
+    "target": "tests.support.link_defenses:link_scan_paths",
+    "posix_only": false,
+    "note": "範圍不含範圍內測試 import 的測試模組（準備函式裡的替換看不到）"
+  },
+  {
+    "id": "link_runtime_call_phase_unchecked",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "    _fail_on_link_violations(_LINK_MONITOR.take(), \"測試本體\")\n",
+    "new": "    _LINK_MONITOR.take()\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_every_phase_fails_on_a_violation"
+    ],
+    "target": "tests.conftest:pytest_runtest_call",
+    "posix_only": false,
+    "note": "conftest 在測試本體跑完後不因違規而失敗"
   },
   {
     "id": "g1_misses_get_tool_root",
@@ -2393,7 +2532,7 @@
     ],
     "target": "src.services.isolation.profiles:build_evolution_profile",
     "file": "ToukaProxy/src/services/isolation/profiles.py",
-    "old": "    if not is_safe_segment(skill_id) or root != managed / skill_id:",
+    "old": "    if not is_safe_segment(skill_id) or _resolve(tool_root) != root:",
     "new": "    if not is_safe_segment(skill_id):",
     "tests": [
       "tests/unit/test_evolution_isolation_security.py::test_evolution_profile_rejects_a_root_that_is_not_the_skill_sandbox"
@@ -2629,13 +2768,13 @@
     ],
     "file": "tests/support/zone_tripwire.py",
     "old": "        if found is not None and found[0] in EXEC_DATA_ANCHORS:\n",
-    "new": "        if found is not None:\n",
+    "new": "        if found is not None and found[0] not in EXEC_DATA_ANCHORS:\n            return True\n        if found is not None and found[0] in EXEC_DATA_ANCHORS:\n",
     "tests": [
       "tests/unit/test_zone_tripwire.py::test_a_skill_venv_python_as_the_program_is_data"
     ],
     "target": "tests.support.zone_tripwire:_program_as_data",
     "posix_only": false,
-    "note": "Z9 把任何錨點裡的執行檔都當成資料（決定 28 只放行 MCP_SERVERS 的技能 .venv）"
+    "note": "Z9 把任何錨點裡的執行檔都當成資料（決定 28 只放行 MCP_SERVERS 的技能 .venv）；測試因少記一筆而紅（DEV-B 第 2 輪 LOW-D）"
   },
   {
     "id": "r14_z9_whole_skill_folder_program_is_data",
@@ -2651,6 +2790,21 @@
     "target": "tests.support.zone_tripwire:_program_as_data",
     "posix_only": false,
     "note": "Z9 把整個 MCP_SERVERS 錨點裡的執行檔都當成資料，不只技能的 .venv（DEV-B 第 1 輪 LOW-6）"
+  },
+  {
+    "id": "r14_z9_skill_subfolder_program_is_data",
+    "rule": [
+      "R14"
+    ],
+    "file": "tests/support/zone_tripwire.py",
+    "old": "            if len(found[1]) > 2 and found[1][1] == folder:\n",
+    "new": "            if len(found[1]) > 2:\n",
+    "tests": [
+      "tests/unit/test_zone_tripwire.py::test_a_skill_venv_python_as_the_program_is_data"
+    ],
+    "target": "tests.support.zone_tripwire:_program_as_data",
+    "posix_only": false,
+    "note": "Z9 把技能資料夾底下任何三段以上的執行檔都當成資料，不只 .venv（DEV-B 第 2 輪 N4）"
   },
   {
     "id": "r14_z9_cwd_counts_as_program",
@@ -2727,5 +2881,216 @@
     ],
     "posix_only": false,
     "note": "連結迴圈的 RuntimeError 不當重疊，往外變成籠統錯誤"
+  },
+  {
+    "id": "names_call_results_are_known",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            return found | (callee & {UNKNOWN})  # 呼叫認不出的東西，結果也認不出\n",
+    "new": "            return found\n",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "名稱解析把呼叫認不出的東西（getfixturevalue、d.get）的結果當成確定（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "names_with_result_is_the_context",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                    pairs += _pairs(item.optional_vars, None)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "``with … as x`` 的 x 只當成 context 本身，不當不明（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "names_class_attr_is_plain",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if expr.attr == \"__class__\":\n                return self.of(expr.value) | {\"type()\"}\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "名稱解析不把 ``x.__class__`` 當成 ``type(x)``（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "names_drop_same_identity",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_SAME_IDENTITY = frozenset({\"__dict__\", \"__globals__\", \"__func__\", \"__wrapped__\", \"__self__\"})",
+    "new": "_SAME_IDENTITY = frozenset()",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "``__dict__``、``__globals__`` 等不保留底下物件的身分（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "patch_keywords_ignored",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    given.update({k.arg: k.value for k in call.keywords if k.arg in params})\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense",
+      "tests/lint/test_zone_path_guard.py::test_t3_finds_every_way_of_replacing_a_name"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "替換呼叫的關鍵字參數不算（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "patch_starred_args_known",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    return dict.fromkeys(params) | given if rest else given\n",
+    "new": "    return given\n",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "``*args``、``**kw`` 沒對上的參數不當不明（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "patch_setitem_key_not_a_name",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        elif \"name\" in a and kind in (\"setenv\", \"delenv\", \"setitem\", \"delitem\"):\n",
+    "new": "        elif \"name\" in a and kind in (\"setenv\", \"delenv\"):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_t3_finds_every_way_of_replacing_a_name"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_t3_finds_every_way_of_replacing_a_name",
+    "posix_only": false,
+    "note": "setitem／delitem 的鍵不算換掉的名稱（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "link_scan_skips_changed_dicts",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/unit/test_zone_mutations_manifest.py",
+    "old": "                hits += sum(1 for container in changed if container & link_forbidden())\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_mutations_manifest.py::test_the_link_scan_finds_every_way_of_replacing_a_defense"
+    ],
+    "target": "tests.unit.test_zone_mutations_manifest:test_the_link_scan_finds_every_way_of_replacing_a_defense",
+    "posix_only": false,
+    "note": "連結掃描不看經 ``__dict__``、``vars()`` 改防線的字典（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "t3_skips_members_of_unknown_owner",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "found[key] += bool(replaced & members)",
+    "new": "found[key] += 0",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_t3_compares_members_when_the_owner_is_unknown"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_t3_compares_members_when_the_owner_is_unknown",
+    "posix_only": false,
+    "note": "T3 擁有者不明時不比對 zone_paths 類別的成員（DEV-B 第 2 輪 MEDIUM）"
+  },
+  {
+    "id": "tf_skips_zone_text_alias",
+    "rule": [
+      "TF"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": " or ZONE_TEXT in self.names(scope).of(func):",
+    "new": ":",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "TF 的種子不認 ``zt = rm.zone_text`` 的區域別名（DEV-B 第 2 輪 LOW-C）"
+  },
+  {
+    "id": "tf_skips_producer_alias",
+    "rule": [
+      "TF"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            return bool(self._aliased_producers(func, scope))\n",
+    "new": "            return False\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_tf_follows_a_local_alias_of_a_producer"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_tf_follows_a_local_alias_of_a_producer",
+    "posix_only": false,
+    "note": "TF 不認產生函式的區域別名（DEV-B 第 2 輪 LOW-C）"
+  },
+  {
+    "id": "g3_drops_descriptor_tricks",
+    "rule": [
+      "G3"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_DESCRIPTOR_TRICKS = (\"__set__\", \"__delete__\")",
+    "new": "_DESCRIPTOR_TRICKS = ()",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g3_finds_class_tricks"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g3_finds_class_tricks",
+    "posix_only": false,
+    "note": "G3 不數描述器的 ``__set__``／``__delete__``（DEV-B 第 2 輪）"
+  },
+  {
+    "id": "g4_dict_alias_is_literal",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if loaded and id(node) not in plain:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "G4 的 ``**`` 不管字典的別名與容器（DEV-B 第 2 輪 N3）"
+  },
+  {
+    "id": "g4_dict_closure_is_literal",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    if any(isinstance(x, ast.Name) and x.id == name for f in inner for x in ast.walk(f)):\n        return None\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "G4 的 ``**`` 不管巢狀函式改字典（DEV-B 第 2 輪 N3）"
   }
 ]

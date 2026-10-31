@@ -311,7 +311,7 @@ def test_zone_walk_list_depth(zone_data_root, state):
 # --- P6：handoff_cwd ----------------------------------------------------------------
 
 
-def test_handoff_cwd_outside_any_zone_is_given_as_is(tmp_path, zone_data_root):
+def test_handoff_cwd_outside_any_zone_gives_the_judged_text(tmp_path, zone_data_root):
     kernel = tmp_path.resolve() / "kernel"
     kernel.mkdir()
     with rm.handoff_cwd(str(kernel)) as cwd:

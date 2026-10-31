@@ -107,7 +107,7 @@ tests/
 | `unit/test_no_follow_zone.py` | 區內的單項原語、走訪、剪枝走訪與刪樹：不進入也不列出連結、遇到代理人資料夾剪掉、刪樹遇到連結只刪本身、不因深度失敗；Linux 補權限改的是核對過的那個資料夾，核對後換進來的連結不跟隨；中途被換掉、跨檔案系統與權限用 seam 模擬。 |
 | `unit/test_resource_manager_zone.py` | ResourceManager 的區內方法與產生函式：讀寫、追加、建刪、列與走訪都不跟隨連結，每個案例核對連結另一端沒被動到；`zone_handoff`、改名與刪自訂模型資料夾。 |
 | `unit/test_resource_manager_string_zone.py` | 字串方法碰到代理人資料夾：單一路徑丟 `ZonePathRequiredError`（含 `..` 與經連結進去的），錨點本身與 `custom/<id>/config.json` 照常；兩個路徑任一邊在區裡就拒絕；遞迴的列、找、統計剪掉區；刪、打包、解壓整個拒絕。 |
-| `unit/test_resource_manager_anchors.py` | ADR-0293 PR 2 的三個錨點（演化工具、文件輸出、sandbox state）：字串方法碰到這三個錨點就拒絕；產生函式（`tool_root`、ST 的幾個）只對不合格名稱給 None、ST 沒設時給 None；`anchor_root`；`zone_text` 是解析後的錨點加字面段落、不解析段落；`zone_rename`／`zone_access` 不跟隨連結；刪除類的深度檢查；`zone_walk` 的深度；`handoff_cwd` 在區外照給、在區裡交接，各種連結與不合格段落拒絕。 |
+| `unit/test_resource_manager_anchors.py` | ADR-0293 PR 2 的三個錨點（演化工具、文件輸出、sandbox state）：字串方法碰到這三個錨點就拒絕；產生函式（`tool_root`、ST 的幾個）只對不合格名稱給 None、ST 沒設時給 None；`anchor_root`；`zone_text` 是解析後的錨點加字面段落、不解析段落；`zone_rename`／`zone_access` 不跟隨連結；刪除類的深度檢查；`zone_walk` 的深度；`handoff_cwd` 在區外交出判斷用的字串（絕對、以字面消掉 `..`）、在區裡交接，各種連結與不合格段落拒絕。 |
 | `unit/test_evolution_links_security.py` | R15：演化的提案、實作與部署在技能資料夾換成連結時不寫入、不讀取另一端（用真的流程）；`mkdir_tool`、四個檔案方法與部署讀檔遇到連結回 `skill_changed`，不合格技能名稱回 `invalid_skill_id`；POSIX 的檔案連結：寫、讀與部署讀檔拒絕，刪除只刪連結本身。 |
 | `unit/test_sandbox_state_access.py` | ADR-0293 PR 2 P7：ST 的兩個存取函式（`proxy_state_zone`、`proxy_state_owner`）的判斷順序：版面沒設 ST、RM 沒設、兩者解析後不同、名稱不合格；`state_dirs` 經區內方法建資料夾、交出 `zone_text`；MCP 分類基準與 `refuse_deployed` 在兩者不同時當隔離不可用；監看器的 ST 可寫判斷與補權限。 |
 | `unit/test_sandbox_state_links_security.py` | R15：ST 裡的連結：`state_dirs` 經連結的 `ST/proxy/agents` 拒絕；刪除靈魂清 proxy 那一層時連結只刪連結、上層是連結就拒絕；開機清 tmp 時連結不跟、其他種類保留、舊垃圾刪掉；ST 的自測在自己的資料夾跑、經交接交給啟動器、跑完刪掉，自測資料夾是連結就拒絕。 |
@@ -131,9 +131,10 @@ tests/
 | `unit/test_isolation_writable_roots.py` | Z10：每個接上 runner 的動作與 MCP 種類實際建出 profile，每條可寫規則都在代理人資料夾裡或是錨點本身（兩種 state 位置、四種身分、有無專案、執行器）；`SandboxProfile`／`PathRule` 的建構點以 AST 釘住；執行器掛載、權限自癒白名單與 heartbeat 的資料根名稱對得上錨點。 |
 | `unit/test_zone_records.py` | 區例外紀錄的自我測試：宣告的範圍、類別比對、沒宣告的留到測試結束。 |
 | `unit/test_zone_tripwire.py` | Z9 絆線的自我測試：產品程式的呼叫者用 `tmp_path` 裡臨時匯入的模組模擬，事件用 `sys.audit` 發；哪些參數算路徑（`open` 的 mode、網路位址不算）、Linux 上沒登記的 `/proc/self/fd` 照記、技能 venv 的 python 當執行檔不記（cwd 與其他錨點照記）、放行清單對得到程式、全量檢查的旗標不傳給子 pytest。 |
-| `unit/test_zone_mutations_manifest.py` | 改壞清單 `zone_mutations.json` 沒有漂移：每條的 `old` 片段在目標檔裡剛好出現一次、列出的測試都存在、R1～R14 與 PR 2 的 P1～P10、Q10、Q11、G3、G4、TF 每條至少一項、PR 2 新增的方法都被某一項的 `target` 涵蓋、連結測試與 `tests/support/` 不替換防線模組、執行器只用標準函式庫、判定讀 junitxml。 |
+| `unit/test_zone_mutations_manifest.py` | 改壞清單 `zone_mutations.json` 沒有漂移：每條的 `old` 片段在目標檔裡剛好出現一次、列出的測試都存在、R1～R14 與 PR 2 的 P1～P10、Q10、Q11、G3、G4、TF 每條至少一項、PR 2 新增的方法都被某一項的 `target` 涵蓋、連結測試與 `tests/support/` 不替換防線模組（靜態掃描：擁有者、名稱與替換函式都經名稱解析，認不出的當不明）、執行器只用標準函式庫、判定讀 junitxml。 |
+| `unit/test_link_defense_runtime.py` | 連結測試換掉防線的執行期核對（`support/link_defenses.py`，conftest 在每個測試的 setup、本體、teardown 後核對）：monkeypatch、`unittest.mock`、改函式的 `__code__`／`__defaults__` 與直接指定的每種寫法都記下；沒列名的替換與沒換回的直接改讓測試失敗；session 守的是真的四個防線模組。 |
 | `lint/test_zone_path_guard.py` | Z8 靜態檢查：舊產生函式不再出現（T1）、回傳區內路徑的函式標註 `ZonePath`（T2）、測試不替換產生函式與 data 根（T3）、轉出與錨點存取只在明列的地方（G1）、錨點資料夾名稱只在明列的地方（G2）。 |
-| `support/zone_records.py`、`support/zone_tripwire.py`、`support/zone_roots.py`、`support/links.py` | 區例外紀錄（conftest 登記成觀察者，測試結束時有紀錄就失敗）、Z9 絆線（audit hook）、換 data 根（`point_zone_roots`）、建連結；測試共用的輔助程式（前兩個的自我測試見 `unit/test_zone_records.py`、`unit/test_zone_tripwire.py`）。 |
+| `support/zone_records.py`、`support/zone_tripwire.py`、`support/zone_roots.py`、`support/links.py`、`support/link_defenses.py` | 區例外紀錄（conftest 登記成觀察者，測試結束時有紀錄就失敗）、Z9 絆線（audit hook）、換 data 根（`point_zone_roots`）、建連結、連結測試換掉防線的執行期核對與放行清單；測試共用的輔助程式（自我測試見 `unit/test_zone_records.py`、`unit/test_zone_tripwire.py`、`unit/test_link_defense_runtime.py`）。 |
 
 改壞清單的執行器 `zone_mutations.py` 只用標準函式庫，每個 PR 的驗證步驟手動跑：`python tests/zone_mutations.py --out <結果資料夾>`；`posix_only` 的項目到 Linux 容器跑，`windows_only` 的在 Windows 跑（在另一個平台記成 `skipped_platform`）。
 

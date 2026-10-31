@@ -124,7 +124,9 @@ def test_a_skill_venv_python_as_the_program_is_data(probe, zone_data_root, drive
     probe.emit("subprocess.Popen", sys.executable, ["x"], str(python.parent), None)
     probe.emit("subprocess.Popen", str(skill / "server.py"), ["x"], None, None)
     probe.emit("subprocess.Popen", str(skill / ".venv"), ["x"], None, None)
-    assert [event for event, _display, _detail in _taken()] == ["subprocess.Popen"] * 4
+    # 三段、不在 .venv
+    probe.emit("subprocess.Popen", str(skill / "bin" / "tool"), ["x"], None, None)
+    assert [event for event, _display, _detail in _taken()] == ["subprocess.Popen"] * 5
 
 
 def test_the_mode_of_open_is_not_a_path(probe, zone_data_root, drive, monkeypatch):

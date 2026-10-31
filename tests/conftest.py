@@ -2,6 +2,7 @@
 
 import atexit
 import importlib
+import inspect
 import logging
 import os
 import shutil
@@ -155,6 +156,9 @@ zone_tripwire.add_roots(zone_paths.current_roots())
 zone_tripwire.install()
 # 全量檢查（Z9）的旗標只給這一個 session：讀一次就從環境拿掉，測試再開的 pytest 只跑一部分，不繼承
 _ZONE_FULL_RUN = os.environ.pop(zone_tripwire.FULL_RUN_ENV, None) == "1"
+# 連結測試不准把防線換掉（ADR-0293 決定 26）：執行期照物件身分核對，靜態掃描只是提早提醒。
+link_defenses = importlib.import_module("tests.support.link_defenses")
+_LINK_MONITOR = link_defenses.start()
 # 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
 ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
@@ -233,6 +237,48 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         _zone_unused_allowances[:] = zone_tripwire.missing_hits()
         if _zone_unused_allowances:
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+LINK_DEFENSE_MESSAGE = "連結測試換掉了防線（ADR-0293 決定 26，{phase}）：\n"
+
+
+def _link_test_key(item: pytest.Item) -> str | None:
+    """測試函式的「模組:函式」（``@patch`` 裝飾過的取原函式）."""
+    function = getattr(item, "function", None)
+    code = getattr(inspect.unwrap(function), "__code__", None) if function else None
+    return None if code is None else link_defenses.code_key(code.co_filename, code.co_qualname)
+
+
+def _fail_on_link_violations(found: list[str], phase: str) -> None:
+    if found:
+        pytest.fail(LINK_DEFENSE_MESSAGE.format(phase=phase) + "\n".join(found), pytrace=False)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item):
+    """連結測試的執行期核對：每個階段跑完都和 session 開始時的防線比一次（setup 階段含 fixture）."""
+    _LINK_MONITOR.begin(item.path, _link_test_key(item))
+    result = yield
+    _fail_on_link_violations(_LINK_MONITOR.take(), "setup")
+    return result
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_call(item: pytest.Item):
+    result = yield
+    _fail_on_link_violations(_LINK_MONITOR.take(), "測試本體")
+    return result
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
+    try:
+        result = yield
+    finally:
+        found = _LINK_MONITOR.take()
+        _LINK_MONITOR.end()
+    _fail_on_link_violations(found, "teardown")
+    return result
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:

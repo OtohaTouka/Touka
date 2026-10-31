@@ -553,9 +553,9 @@ def build_evolution_profile(
 ) -> SandboxProfile:
     """演化建置與驗證：讀寫只給 ``managed/<skill>`` 與自己的 state 資料夾；rlimit 由指令帶入."""
     ports = checked_ports(block_ports, location)
-    root = _resolve(tool_root)
     managed = _resolve(layout.data_root) / "mcp_servers" / "managed"
-    if not is_safe_segment(skill_id) or root != managed / skill_id:
+    root = managed / skill_id  # 授與只用字面位置；解析 tool_root 的結果只用來核對
+    if not is_safe_segment(skill_id) or _resolve(tool_root) != root:
         raise ProfileError(skill_id)
     home, tmp = _state(layout, location, "evolution", skill_id, executor_state)
     rules = system_rules()

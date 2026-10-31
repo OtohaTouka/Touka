@@ -25,13 +25,20 @@ from tests.lint.test_zone_path_guard import (
     Names,
     Source,
     _assigned_owners,
+    _changed_containers,
     _parse,
     _patched_names,
     _patched_owner,
-    _patched_value,
+    _patched_values,
     scope_of,
     scopes,
     shared_names,
+)
+from tests.support.link_defenses import (
+    LINK_DEFENSE_MODULES,
+    LINK_GENERIC_NAMES,
+    LINK_SCAN_ALLOWED,
+    link_scan_paths,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -208,15 +215,6 @@ LINK_FORBIDDEN_OWNERS = frozenset(
         "get_resource_proxy()",  # Memory 拿到的 RM 實例
     }
 )
-# 防線模組：模組層定義的名稱（類別、函式、常數）在哪裡都不准換或另存，類別的實例也不准換
-LINK_DEFENSE_MODULES = (
-    "ToukaMemory/src/memory_server/utils/no_follow.py",
-    "ToukaMemory/src/memory_server/utils/zone_paths.py",
-    "ToukaProxy/src/services/resource_manager.py",
-    "ToukaProxy/src/services/evolution_security.py",
-)
-# 防線模組定義、但和防線無關的通用名稱：logger 與觀察者紀錄（``ZoneMisuse``）的欄位
-LINK_GENERIC_NAMES = frozenset({"logger", "error", "display", "detail"})
 
 
 def _defined_names(body: list[ast.stmt]) -> set[str]:
@@ -271,155 +269,9 @@ def link_members() -> frozenset[str]:
     return frozenset(m for m in members if isinstance(m, str)) - LINK_GENERIC_NAMES
 
 
-_ZONE_SELF = "測 zone_paths 自己：登記的根本身就是被測的東西（T3 也列了）"
-_ALIAS = "模擬另一個掛載路徑（同一個檔案身分）：這台機器不能做 bind mount（T3 也列了）"
-_LIMIT = "把 no_follow 的上限調小，測到了上限的行為（不放寬判斷）"
-_FAULT = "故障注入：讓 RM 的一步失敗，測失敗照實回報、不做一半（不放寬判斷）"
-_EXISTING_FAULT = "既有的故障注入：執行器範圍判斷遇到固定種類或拒絕（設計 Q8 明列不受影響）"
-_OLD_VAULT = "舊的 get_vault_path 換成這個測試的靈魂根（不是區內方法；區內方法照實執行）"
-_PLATFORM = "模擬另一個平台的分支（``is_windows``），區內方法與連結判斷照實執行"
-_SPAWN = "記下 spawn 的參數、不真的執行（``run_sync`` 替身），和區無關"
-_ENV = "子行程環境換成固定值，測 runner 收到的環境，和區無關"
-_RLIMIT = "rlimit 換成記錄用的替身（Windows 沒有 resource 模組），和區無關"
-_OPS = (
-    "故障注入：換掉 no_follow 作業系統轉接（``_FdTree``／``_PathTree``）的一步，模擬跨檔案系統、"
-    "被換掉的項目、讀不到或一直長出來，再交回原函式；測防線拒絕或照實回報（不放寬判斷）"
-)
-_VENV = (
-    "測部署與安裝用的 venv Python 路徑（P4）：EPG 的檔案動作換成不碰磁碟的替身、"
-    "``run_sandbox_command`` 只記下指令；不是連結測試（連結由 evolution 的連結測試照實測）"
-)
-# 「測試模組:函式」→（次數, 理由）；第一次跑出的命中逐一判斷後列在這裡
-LINK_SCAN_ALLOWED: dict[str, tuple[int, str]] = {
-    "tests.support.session_scope:scope_db": (
-        1,
-        "session 沙盒的擁有權判斷（RM.is_owner）換成合成的擁有關係，和區無關",
-    ),
-    "tests.unit.test_custom_model_rename_security:"
-    "test_a_failed_move_is_an_error_and_moves_no_ownership": (1, _FAULT),
-    "tests.unit.test_evolution_isolation_security:_evolution_in_the_executor": (1, _ENV),
-    "tests.unit.test_evolution_isolation_security:spawned": (2, _SPAWN + "；平台固定 POSIX"),
-    "tests.unit.test_evolution_isolation_security:"
-    "test_build_and_verify_spawn_through_the_launcher": (1, _ENV),
-    "tests.unit.test_evolution_isolation_security:test_direct_consent_keeps_the_rlimit_preexec": (
-        1,
-        _RLIMIT,
-    ),
-    "tests.unit.test_evolution_security:_patch_full_env": (1, _ENV),
-    "tests.unit.test_evolution_security:test_build_rlimit_preexec_returns_none_without_resource": (
-        1,
-        _RLIMIT,
-    ),
-    "tests.unit.test_evolution_security:test_build_rlimit_preexec_sets_expected_rlimit_tuples": (
-        1,
-        _RLIMIT,
-    ),
-    "tests.unit.test_evolution_security:"
-    "test_run_sandbox_command_hands_off_the_skill_folder_and_cleans_env": (1, _RLIMIT),
-    "tests.unit.test_evolution_venv_python:commands": (4, _VENV),
-    "tests.unit.test_evolution_venv_python:"
-    "test_deploy_command_is_the_python_the_build_step_created": (3, _VENV + "；平台照參數切換"),
-    "tests.unit.test_evolution_venv_python:test_local_verification_uses_the_absolute_venv_python": (
-        1,
-        _PLATFORM,
-    ),
-    "tests.unit.test_evolution_venv_python:test_pip_install_uses_the_absolute_venv_python": (
-        1,
-        _PLATFORM,
-    ),
-    "tests.unit.test_evolution_verify_protocol_security:"
-    "test_posix_protocol_keeps_limits_and_close_eof": (1, _PLATFORM),
-    "tests.unit.test_evolution_verify_protocol_security:test_protocol_failures_never_deploy": (
-        1,
-        _PLATFORM,
-    ),
-    "tests.unit.test_evolution_verify_protocol_security:test_windows_uses_sdk_transport": (
-        1,
-        _PLATFORM,
-    ),
-    "tests.unit.test_evolution_verify_protocol_security:"
-    "test_wrapper_cleanup_failure_keeps_the_outcome": (
-        1,
-        "故障注入：刪不掉驗證用的包裝檔，測結果照實回報（不放寬判斷）",
-    ),
-    "tests.unit.test_file_ops_no_follow_security:"
-    "test_helpers_refuse_a_link_that_exists_only_while_opening": (
-        1,
-        "換掉 no_follow 用的 os，模擬開啟途中才出現的連結，測防線拒絕",
-    ),
-    "tests.unit.test_file_ops_no_follow_security:test_link_checks_work_without_junctions": (
-        1,
-        "模擬沒有 junction 的平台，測連結檢查照樣成立",
-    ),
-    "tests.unit.test_file_ops_no_follow_security:test_find_and_grep_stop_walking_at_the_limit": (
-        1,
-        "走訪換成無限產生，測 find／grep 到上限就停（不放寬判斷）",
-    ),
-    "tests.unit.test_file_ops_no_follow_security:"
-    "test_walk_skips_folders_whose_status_cannot_be_read": (1, _OPS),
-    "tests.unit.test_isolation_status:"
-    "test_executor_scope_classifies_the_drive_without_resolving_it": (1, _EXISTING_FAULT),
-    "tests.unit.test_isolation_status:test_executor_scope_is_out_when_the_drive_cannot_be_read": (
-        1,
-        _EXISTING_FAULT,
-    ),
-    "tests.unit.test_mcp_isolation_store_security:test_writes_go_through_the_atomic_write_json": (
-        1,
-        "記下寫入經過 RM 的 ``write_json``，原函式照樣執行",
-    ),
-    "tests.unit.test_mcp_vault_jail:test_apply_refuses_every_vault_jailed_server": (
-        1,
-        "記下舊的 get_vault_path 有沒有被呼叫（斷言一次都沒有）",
-    ),
-    "tests.unit.test_no_follow_zone:test_iter_regular_files_uses_the_registered_roots": (
-        2,
-        _ZONE_SELF,
-    ),
-    "tests.unit.test_no_follow_zone:test_remove_tree_does_not_cross_file_systems": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_remove_tree_gives_up_with_a_fixed_reason": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_remove_tree_retries_an_entry_that_was_swapped": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_walk_open_gives_open_files_and_closes_them": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_walk_records_folders_it_cannot_read": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_remove_tree_moves_deep_folders_instead_of_failing": (
-        2,
-        _LIMIT + "；" + _OPS,
-    ),
-    "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (1, _ALIAS),
-    "tests.unit.test_no_follow_zone:test_walk_records_depth_device_and_swaps": (
-        3,
-        _LIMIT + "；" + _OPS,
-    ),
-    "tests.unit.test_resource_manager_string_zone:"
-    "test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive": (
-        1,
-        "關掉事前的包含判斷，證明走訪途中遇到區根仍整個拒絕（第二道檢查；T3 也列了）",
-    ),
-    "tests.unit.test_resource_manager_zone:test_permission_repair_gets_the_absolute_path": (
-        1,
-        "第一次讀被拒（PermissionError），測權限自癒拿到絕對路徑後重試（不放寬判斷）",
-    ),
-    "tests.unit.test_soul_io_zone_security:model_base": (1, _OLD_VAULT),
-    "tests.unit.test_soul_io_zone_security:soul_base": (1, _OLD_VAULT),
-    "tests.unit.test_zone_paths:_same_identity": (1, _ALIAS),
-    "tests.unit.test_zone_paths:test_current_roots_comes_only_from_the_provider": (1, _ZONE_SELF),
-    "tests.unit.test_zone_paths:test_zone_path_basics": (
-        1,
-        "斷言 ZonePath 不能改（指定會丟 AttributeError），沒有真的換掉",
-    ),
-    "tests.unit.test_zone_tripwire:test_an_error_in_the_hook_is_recorded": (
-        1,
-        "絆線自己匯入的 ``current_roots`` 換成會丟例外的，測 hook 出錯也記一筆（T3 也列了）",
-    ),
-}
-
-
 def link_scan_sources() -> list[Source]:
-    """掃描範圍：改壞清單列到的測試檔、所有 ``*_links_security.py``、``tests/conftest.py`` 與
-    ``tests/support/``."""
-    paths = {ROOT / node.split("::")[0] for item in MANIFEST for node in item["tests"]}
-    paths |= set((ROOT / "tests").rglob("*_links_security.py"))
-    paths |= {ROOT / "tests" / "conftest.py", *(ROOT / "tests" / "support").rglob("*.py")}
-    return [_parse(path) for path in sorted(paths) if "__pycache__" not in path.parts]
+    """掃描範圍（和執行期核對相同，``link_scan_paths``）."""
+    return [_parse(path) for path in sorted(link_scan_paths())]
 
 
 def _replaces_a_defense(
@@ -433,7 +285,8 @@ def _replaces_a_defense(
 
 
 def link_replacements(sources: list[Source]) -> dict[str, int]:
-    """每個範圍替換防線的次數；擁有者與名稱都經 ``Names`` 解析（別名、指定、fixture 等）."""
+    """每個範圍替換防線的次數；擁有者與名稱都經 ``Names`` 解析（別名、指定、fixture 等），
+    替換函式本身與它的參數（含關鍵字）也是."""
     found: dict[str, int] = {}
     shared = shared_names(sources)
     for source in sources:
@@ -444,8 +297,12 @@ def link_replacements(sources: list[Source]) -> dict[str, int]:
             for node in nodes:
                 if isinstance(node, ast.Call) and (owner := _patched_owner(node, names)):
                     replaced = frozenset().union(*_patched_names(node, names))
-                    value = names.of(_patched_value(node)) - {UNKNOWN}
+                    value = _patched_values(node, names) - {UNKNOWN}
                     hits += _replaces_a_defense(owner, replaced, value)
+                # 直接改防線的字典：``setitem(no_follow.__dict__, …)``、``vars(X).update(…)``、
+                # ``zone_of.__globals__[…]``
+                changed = _changed_containers(node, names)
+                hits += sum(1 for container in changed if container & link_forbidden())
                 assigned = _assigned_owners(node, names)
                 value_node = getattr(node, "value", None) if assigned else None
                 stored = names.of(value_node) - {UNKNOWN} if value_node else frozenset()
@@ -526,6 +383,40 @@ def test_the_link_scan_covers_its_scope():
         'def t():\n    with patch(f"{EVO}.EvolutionPathGuard.write_tool_file"):\n        pass\n',
         'EVO = "src.services.evolution_security"\n'
         'def t():\n    with patch(EVO + ".EvolutionPathGuard.x"):\n        pass\n',
+        # 預設不明：呼叫的結果與 with 進入的結果（DEV-B 第 2 輪 MEDIUM-A）
+        'def t(m, request):\n    g = request.getfixturevalue("guard")\n'
+        '    m.setattr(g, "write_tool_file", f)\n',
+        'def t(m):\n    guards = {"evo": EvolutionPathGuard}\n'
+        '    m.setattr(guards.get("evo"), "write_tool_file", f)\n',
+        "from contextlib import nullcontext\n"
+        "def t(m):\n    with nullcontext(EvolutionPathGuard) as g:\n"
+        '        m.setattr(g, "write_tool_file", f)\n',
+        "from tests.unit.helpers import make_guard\n"
+        'def t(m):\n    m.setattr(make_guard(), "write_tool_file", f)\n',
+        'def t(m, cls):\n    m.setattr(type(cls)(), "zone_text", f)\n',
+        # dunder 保留底下物件的身分（DEV-B 第 2 輪 LOW-B）
+        'def t(m):\n    m.setattr(resource_manager.__class__, "zone_rename", f)\n',
+        "def t():\n    resource_manager.__class__.zone_rename = f\n",
+        'def t(m):\n    m.setattr(resource_manager.__class__, "x", f)\n',
+        "def t():\n    c = resource_manager.__class__\n    c.x = f\n",
+        # 替換函式與參數也經 ``Names``（DEV-B 第 2 輪 LOW-A）
+        'def t(m):\n    m.setattr(target=EvolutionPathGuard, name="x", value=f)\n',
+        "def t(m, spec):\n    m.setattr(*spec)\n",
+        'def t():\n    with patch.object(EvolutionPathGuard, attribute="x"):\n        pass\n',
+        "from unittest.mock import patch as P\n"
+        'def t():\n    with P.object(EvolutionPathGuard, "x"):\n        pass\n',
+        "from unittest.mock import patch\n"
+        'def t():\n    po = patch.object\n    po(EvolutionPathGuard, "x")\n',
+        'def t(m):\n    ms = m.setattr\n    ms(EvolutionPathGuard, "x", f)\n',
+        'def t():\n    type.__setattr__(EvolutionPathGuard, "x", f)\n',
+        'def t():\n    resource_manager.__setattr__("zone_text", f)\n',
+        'HOLDER = "a.b.c"\ndef t(m):\n    m.setattr(HOLDER, EvolutionPathGuard)\n',
+        # 直接改防線的字典（DEV-B 第 2 輪 N1）
+        'def t(m):\n    m.setitem(no_follow.__dict__, "replace_text_no_follow", f)\n',
+        'def t():\n    with patch.dict(no_follow.__dict__, {"x": f}):\n        pass\n',
+        "def t():\n    no_follow.__dict__['x'] = f\n",
+        "def t():\n    vars(no_follow).update(x=f)\n",
+        "def t():\n    zone_of.__globals__['os'] = fake\n",
     ],
 )
 def test_the_link_scan_finds_every_way_of_replacing_a_defense(text):
@@ -559,6 +450,11 @@ def test_the_link_scan_follows_fixtures_from_other_files():
         "from src.services.isolation import profiles\n"
         "def t(m):\n    def _lstat(p):\n        pass\n"
         '    m.setattr(profiles.os, "lstat", _lstat)\n',
+        # 認不出的擁有者（呼叫的結果、with），換掉的不是防線的成員
+        'def t(m, request):\n    g = request.getfixturevalue("tmp")\n    m.setattr(g, "x", f)\n',
+        'def t(m):\n    m.setattr(target=other, name="x", value=f)\n',
+        'def t(m):\n    m.setitem(vars(other), "x", f)\n',
+        "def t():\n    d = {}\n    d['k'] = v\n    d.update(x=1)\n",
     ],
 )
 def test_the_link_scan_leaves_other_replacements_and_calls_alone(text):

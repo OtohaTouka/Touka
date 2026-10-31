@@ -39,7 +39,7 @@
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
 | 來源值、分類值、可隔離／已接線工具、額外資料夾上限 | `utils/isolation_policy.py`（`MCP_ORIGINS`、`MCP_SELF_ORIGINS`、`MCP_THIRD_PARTY_ORIGINS`、`ISOLATION_WIRED_ACTIONS`） | 來源分類、政策、模型與啟動器橋接 |
-| 來源分類、引用路徑、部署程式辨識；啟發式只會更嚴 | `utils/mcp_origin.py`（`classify`、`referenced_paths`、`deployed_skills`） | `mcp_launch`、隔離設定端點、演化凍結 |
+| 來源分類、引用路徑、部署程式辨識；啟發式只會更嚴（例外：授與用解析後的位置，ADR-0293 已知的界線） | `utils/mcp_origin.py`（`classify`、`referenced_paths`、`deployed_skills`） | `mcp_launch`、隔離設定端點、演化凍結 |
 | 隔離紀錄位置、原子寫入鎖、讀不到／過期語意與程式身分雜湊 | `services/mcp_isolation_store.py`（`McpIsolationStore`、`bound_of`）；`get_config_dir()` 下的 `mcp_server_isolation.json` | Hub、技能安裝、創建、演化、設定存檔與匯入；bootstrap 只播種 `.example` |
 | 設定與手動啟動的 API 模型 | `models/mcp_isolation.py`；`routers/mcp.py` 的 GET／PUT isolation 與 restart | `useMcpIsolation`、`useMcpSettings`、手動啟動確認框 |
 | 每台的啟動判定、啟動帳本、等待 660 秒、手動同意 | `services/isolation/mcp_launch.py`（`mcp_launcher`、`mcp_launch_book`、`McpManualStart`） | manager、`GET /mcp/list`、`GET /isolation`、創建試跑 |
