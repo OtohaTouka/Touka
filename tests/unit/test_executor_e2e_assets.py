@@ -133,6 +133,25 @@ def test_landlock_check_is_a_profile_with_fast_open_off():
     assert service["sysctls"] == {"net.ipv4.tcp_fastopen": 0}
 
 
+def test_landlock_check_takes_its_sandbox_state_from_the_settings():
+    """ST 只有一個來源（RM，ADR-0293 P7）：檢查程式不自組 ST 與 data 根.
+
+    ST 由 compose 的設定指到這個服務自己的 tmpfs。
+    """
+    service = _service(LANDLOCK)
+    states = [
+        entry.split("=", 1)[1]
+        for entry in service["environment"]
+        if entry.startswith("TOUKA_SANDBOX_STATE_DIR=")
+    ]
+    assert len(states) == 1
+    tmpfs = [PurePosixPath(entry.split(":", 1)[0]) for entry in service["tmpfs"]]
+    assert any(PurePosixPath(states[0]).is_relative_to(mount) for mount in tmpfs)
+    text = (DOCKER / "landlock_proxy_check.py").read_text(encoding="utf-8")
+    assert "state_root=" not in text
+    assert "data_root=" not in text
+
+
 def test_launcher_loads_no_project_code_before_the_sandbox():
     imports = _imports(DOCKER / "sandboxed.py")
     assert imports <= set(sys.stdlib_module_names) | {"__future__", "tests"}

@@ -110,6 +110,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       - PYTHONPATH=/iso:/app/ToukaProxy:/app/ToukaMemory:/app/ToukaMemory/src
+      # ST 只有一個來源（RM，ADR-0293 P7）：檢查程式照設定拿 ST，不自己組；映像裡的
+      # /app/sandbox_state 在唯讀根上，所以指到 tmpfs
+      - TOUKA_SANDBOX_STATE_DIR=/tmp/touka-iso-state
     volumes:
       - ${TOUKA_ISO_REPO:-../..}:/iso:ro
     network_mode: none
