@@ -233,8 +233,15 @@ def test_the_scope_survives_a_missing_or_broken_test_file(tmp_path):
     scope = link_defenses.link_scan_paths(manifest)
     assert link_defenses.TESTS / "unit" / "test_gone.py" in scope
     assert CONFTEST in scope
-    manifest.write_text("[", encoding="utf-8")
-    assert CONFTEST in link_defenses.link_scan_paths(manifest)
+    for broken_manifest in ("[", '[{"test": []}]', '{"tests": []}', "[1]"):
+        manifest.write_text(broken_manifest, encoding="utf-8")
+        assert CONFTEST in link_defenses.link_scan_paths(manifest), broken_manifest
+
+
+def test_names_that_are_not_files_are_not_test_code(monkeypatch):
+    """``exec`` 與自動產生的程式（``<string>`` 一類）不是測試程式，和目前在哪個資料夾無關."""
+    monkeypatch.chdir(link_defenses.TESTS)
+    assert link_defenses.code_key("<link-defense-selftest>", "f") is None
 
 
 def _warn_from_its_globals() -> None:

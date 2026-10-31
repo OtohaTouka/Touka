@@ -3114,14 +3114,14 @@
       "T3"
     ],
     "file": "tests/support/link_defenses.py",
-    "old": "    except (OSError, ValueError):\n        manifest = []\n",
-    "new": "    except OSError:\n        manifest = []\n",
+    "old": "    except (OSError, ValueError, LookupError, TypeError, AttributeError):\n        paths = set()\n",
+    "new": "    except OSError:\n        paths = set()\n",
     "tests": [
       "tests/unit/test_link_defense_runtime.py::test_the_scope_survives_a_missing_or_broken_test_file"
     ],
     "target": "tests.support.link_defenses:link_scan_paths",
     "posix_only": false,
-    "note": "改壞清單的 JSON 壞掉時丟例外，conftest 載入失敗（DEV-B 第 3 輪）"
+    "note": "改壞清單的 JSON 語法或結構壞掉時丟例外，conftest 載入失敗、整個 pytest 啟動不了（DEV-B 第 3 輪）"
   },
   {
     "id": "link_runtime_key_uses_the_raw_spelling",
@@ -3152,5 +3152,20 @@
     "target": "tests.support.link_defenses:Defenses.state",
     "posix_only": false,
     "note": "直譯器自己寫的快取（警告紀錄、標註、slot 名稱）被當成直接改，依執行順序誤報（DEV-B 第 3 輪）"
+  },
+  {
+    "id": "link_runtime_key_resolves_non_files",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    if filename.startswith(\"<\"):  # ``exec`` 與自動產生的程式（``<string>`` 一類）不是檔案\n        return None\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_names_that_are_not_files_are_not_test_code"
+    ],
+    "target": "tests.support.link_defenses:code_key",
+    "posix_only": false,
+    "note": "``<string>`` 一類不是檔案的名稱依目前資料夾解析，在 tests/ 底下啟動時被當成測試程式（核對第 3 輪改法）"
   }
 ]

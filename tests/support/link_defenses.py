@@ -15,8 +15,9 @@
 ``tests/support/``）在任何測試裡做的替換。做替換的程式不在 ``LINK_SCAN_ALLOWED`` 就算違規；
 直接改、到那個階段結束還沒換回的一律違規（不分範圍）。
 
-核對的對象與狀態是列舉出來的：裝飾器包住的原函式、可變容器的內容、``setitem`` 換掉別處對防線的
-參照時被換掉的值、同一個階段裡改了又換回的直接改都看不到，列在 ADR-0293「已知的界線（PR 2）」。
+核對的對象與狀態是列舉出來的：裝飾器包住的原函式、可變容器的內容、其他模組手上對防線的參照
+（直接指定或 ``setitem`` 換掉）、同一個階段裡改了又換回的直接改都看不到，列在 ADR-0293
+「已知的界線（PR 2）」。
 """
 
 from __future__ import annotations
@@ -217,14 +218,14 @@ def link_scan_paths(manifest_path: Path = MANIFEST_PATH) -> frozenset[Path]:
     """範圍：改壞清單列到的測試檔、所有 ``*_links_security.py``、``tests/conftest.py``、
     ``tests/support/``，以及它們 import 的測試模組（遞移；靜態掃描與執行期核對共用）.
 
-    conftest 一載入就算範圍：清單讀不到或壞掉時只用固定的部分（清單由
+    conftest 一載入就算範圍：清單讀不到、語法或結構壞掉時只用固定的部分（清單由
     ``test_zone_mutations_manifest`` 報紅），不讓整個 pytest 啟動不了.
     """
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        manifest = []
-    paths = {ROOT / node.split("::")[0] for item in manifest for node in item["tests"]}
+        paths = {ROOT / node.split("::")[0] for item in manifest for node in item["tests"]}
+    except (OSError, ValueError, LookupError, TypeError, AttributeError):
+        paths = set()
     paths |= set(TESTS.rglob("*_links_security.py"))
     paths |= {TESTS / "conftest.py", *(TESTS / "support").rglob("*.py")}
     pending = [p for p in paths if "__pycache__" not in p.parts]
@@ -270,6 +271,8 @@ def code_key(filename: str, qualname: str, root: Path = ROOT) -> str | None:
     和 ``root`` 同一種寫法（pytest 給的 ``co_filename`` 沒解析：經 junction、subst 或
     8.3 短檔名進 repo 時不同）。
     """
+    if filename.startswith("<"):  # ``exec`` 與自動產生的程式（``<string>`` 一類）不是檔案
+        return None
     path = _real_path(filename)
     if not path.is_relative_to(root / "tests"):
         return None
