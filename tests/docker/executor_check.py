@@ -20,7 +20,6 @@ import os
 import shutil
 import signal
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
@@ -314,11 +313,15 @@ def _prepare(session: Session) -> None:
 
 
 async def connect(args: argparse.Namespace) -> Session | None:
-    """接上執行器：版面指向容器裡的資料、設定、kernel、ipc；monitor 要判執行器層."""
-    state = Path(tempfile.mkdtemp(prefix="touka_iso_client_st_"))
+    """接上執行器：版面指向容器裡的資料、設定、kernel、ipc；monitor 要判執行器層.
+
+    ST 照 RM（只有一個來源，ADR-0293 P7）：iso-client 沒設，本機 ST 照實是 ``unset``，執行器層的
+    判定與執行器位置都不看本機 ST。data 根是已知例外：要和執行器共用 ``/app/data``，沙盒卻把 RM
+    的 data 根換到自己的資料夾，所以版面另外指定（兩者不同時沒有檢查會擋）。
+    """
     layout = replace(
         current_layout(), data_root=args.data, config_dir=args.config, kernel_dir=args.kernel,
-        executor_dir=args.ipc, state_root=state, mirror_roots=(), in_container=True,
+        executor_dir=args.ipc, mirror_roots=(), in_container=True,
     )
     monitor = IsolationMonitor(layout_provider=lambda: layout, start_background=False)
     snap = await monitor.ensure_ready()
