@@ -3092,5 +3092,65 @@
     "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
     "posix_only": false,
     "note": "G4 的 ``**`` 不管巢狀函式改字典（DEV-B 第 2 輪 N3）"
+  },
+  {
+    "id": "link_scope_breaks_on_a_broken_file",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    try:\n        tree = ast.parse(path.read_text(encoding=\"utf-8\"))\n    except (OSError, SyntaxError, ValueError):\n        return\n",
+    "new": "    tree = ast.parse(path.read_text(encoding=\"utf-8\"))\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_the_scope_survives_a_missing_or_broken_test_file"
+    ],
+    "target": "tests.support.link_defenses:_imported_test_modules",
+    "posix_only": false,
+    "note": "範圍內的測試檔讀不到或有語法錯誤時丟例外，conftest 載入失敗、整個 pytest 啟動不了（DEV-B 第 3 輪）"
+  },
+  {
+    "id": "link_scope_breaks_on_a_broken_manifest",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    except (OSError, ValueError):\n        manifest = []\n",
+    "new": "    except OSError:\n        manifest = []\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_the_scope_survives_a_missing_or_broken_test_file"
+    ],
+    "target": "tests.support.link_defenses:link_scan_paths",
+    "posix_only": false,
+    "note": "改壞清單的 JSON 壞掉時丟例外，conftest 載入失敗（DEV-B 第 3 輪）"
+  },
+  {
+    "id": "link_runtime_key_uses_the_raw_spelling",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    path = _real_path(filename)\n",
+    "new": "    path = Path(filename)\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_the_performer_key_does_not_depend_on_how_the_path_is_spelled"
+    ],
+    "target": "tests.support.link_defenses:code_key",
+    "posix_only": false,
+    "note": "做替換的程式的鍵用沒解析的 co_filename，經連結或短檔名進 repo 時放行清單全部失效（DEV-B 第 3 輪）"
+  },
+  {
+    "id": "link_runtime_flags_interpreter_caches",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "                if name in LINK_GENERIC_NAMES or name in LINK_RUNTIME_CACHES:\n",
+    "new": "                if name in LINK_GENERIC_NAMES:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_caches_the_interpreter_writes_are_not_direct_changes"
+    ],
+    "target": "tests.support.link_defenses:Defenses.state",
+    "posix_only": false,
+    "note": "直譯器自己寫的快取（警告紀錄、標註、slot 名稱）被當成直接改，依執行順序誤報（DEV-B 第 3 輪）"
   }
 ]

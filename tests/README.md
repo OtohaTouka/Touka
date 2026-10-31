@@ -132,7 +132,7 @@ tests/
 | `unit/test_zone_records.py` | 區例外紀錄的自我測試：宣告的範圍、類別比對、沒宣告的留到測試結束。 |
 | `unit/test_zone_tripwire.py` | Z9 絆線的自我測試：產品程式的呼叫者用 `tmp_path` 裡臨時匯入的模組模擬，事件用 `sys.audit` 發；哪些參數算路徑（`open` 的 mode、網路位址不算）、Linux 上沒登記的 `/proc/self/fd` 照記、技能 venv 的 python 當執行檔不記（cwd 與其他錨點照記）、放行清單對得到程式、全量檢查的旗標不傳給子 pytest。 |
 | `unit/test_zone_mutations_manifest.py` | 改壞清單 `zone_mutations.json` 沒有漂移：每條的 `old` 片段在目標檔裡剛好出現一次、列出的測試都存在、R1～R14 與 PR 2 的 P1～P10、Q10、Q11、G3、G4、TF 每條至少一項、PR 2 新增的方法都被某一項的 `target` 涵蓋、連結測試與 `tests/support/` 不替換防線模組（靜態掃描：擁有者、名稱與替換函式都經名稱解析，認不出的當不明）、執行器只用標準函式庫、判定讀 junitxml。 |
-| `unit/test_link_defense_runtime.py` | 連結測試換掉防線的執行期核對（`support/link_defenses.py`，conftest 在每個測試的 setup、本體、teardown 後核對）：monkeypatch、`unittest.mock`、改函式的 `__code__`／`__defaults__` 與直接指定的每種寫法都記下；沒列名的替換與沒換回的直接改讓測試失敗；session 守的是真的四個防線模組。 |
+| `unit/test_link_defense_runtime.py` | 連結測試換掉防線的執行期核對（`support/link_defenses.py`，conftest 在每個測試的 setup、本體、teardown 後核對）：monkeypatch、`unittest.mock`、改函式的 `__code__`／`__defaults__` 與直接指定的各種寫法都記下（核對的對象與狀態是列舉的，看不到的列在 ADR-0293 已知的界線）；沒列名的替換與沒換回的直接改讓測試失敗；session 守的是真的四個防線模組；直譯器自己寫的快取不算直接改、做替換的程式的鍵和路徑寫法無關、範圍裡的檔讀不到時 pytest 照常啟動。 |
 | `lint/test_zone_path_guard.py` | Z8 靜態檢查：舊產生函式不再出現（T1）、回傳區內路徑的函式標註 `ZonePath`（T2）、測試不替換產生函式與 data 根（T3）、轉出與錨點存取只在明列的地方（G1）、錨點資料夾名稱只在明列的地方（G2）。 |
 | `support/zone_records.py`、`support/zone_tripwire.py`、`support/zone_roots.py`、`support/links.py`、`support/link_defenses.py` | 區例外紀錄（conftest 登記成觀察者，測試結束時有紀錄就失敗）、Z9 絆線（audit hook）、換 data 根（`point_zone_roots`）、建連結、連結測試換掉防線的執行期核對與放行清單；測試共用的輔助程式（自我測試見 `unit/test_zone_records.py`、`unit/test_zone_tripwire.py`、`unit/test_link_defense_runtime.py`）。 |
 

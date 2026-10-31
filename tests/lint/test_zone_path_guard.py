@@ -1384,7 +1384,10 @@ ZONE_TEXT_RECEIVERS: dict[str, tuple[frozenset[str], str]] = {
         "兩個技能資料夾是否重疊（I/O 見 G4_ALLOWED）",
     ),
     f"{_EVO}:_profile_for": (frozenset({"cwd"}), "取得 runner 後重算 profile 的 cwd"),
-    f"{_PROFILES}:_resolve": (frozenset({"path"}), "核對 managed/<skill> 前的解析（G4_ALLOWED）"),
+    f"{_PROFILES}:_resolve": (
+        frozenset({"path"}),
+        "核對 managed/<skill> 與找公開設定檔上層的解析（G4_ALLOWED，已知界線）",
+    ),
     f"{_PROFILES}:build_evolution_profile": (frozenset({"tool_root"}), "演化 profile 的根"),
     f"{_PROFILES}:public_config_rules": (
         frozenset({"anchors"}),
@@ -1493,9 +1496,10 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     ),
     f"{_PROFILES}:_resolve": (
         {"<text>.resolve": 1},
-        G4Kind.STRICTER,
+        G4Kind.KNOWN_BOUNDARY,
         "build_evolution_profile 解析 tool_root 只用來核對它等於 managed/<skill>（不符丟 "
-        "ProfileError）；規則、cwd 與公開設定檔一律用字面的 managed/<skill>（DEV-B 第 2 輪）",
+        "ProfileError，只會更嚴；規則與 cwd 用字面，DEV-B 第 2 輪）；但 public_config_rules "
+        "用解析後的錨點找上層的公開設定檔授與唯讀（PR 2 以前就有，DEV-B 第 3 輪）",
     ),
     "src.services.isolation.status:_repair_state_dir": (
         {"repair.repair": 1},
@@ -1540,6 +1544,7 @@ G4_KNOWN_BOUNDARIES = frozenset(
         f"{_ORIGIN}:referenced_paths",
         f"{_ORIGIN}:_candidates",
         f"{_ORIGIN}:is_file_reference",
+        f"{_PROFILES}:_resolve",
     }
 )
 

@@ -7,8 +7,11 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import sys
 import types
+import warnings
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +21,7 @@ from unittest import mock
 import pytest
 
 from tests.support import link_defenses
+from tests.support.links import make_dir_link
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -201,6 +205,66 @@ def test_lambdas_and_generators_count_as_the_enclosing_function():
     )
     assert link_defenses.code_key(str(THIS), "<module>") == f"{MODULE_KEY}:<module>"
     assert link_defenses.code_key(str(THIS.parents[2] / "src" / "x.py"), "f") is None
+
+
+def test_the_performer_key_does_not_depend_on_how_the_path_is_spelled(tmp_path):
+    """``co_filename`` 是 pytest 給的寫法（沒解析）；經連結、subst 或短檔名進 repo 時鍵也要一樣."""
+    spelled = THIS.parent / ".." / THIS.parent.name / THIS.name
+    assert link_defenses.code_key(str(spelled), "f") == f"{MODULE_KEY}:f"
+    real = tmp_path / "real"
+    (real / "tests" / "unit").mkdir(parents=True)
+    (real / "tests" / "unit" / "test_x.py").write_text("", encoding="utf-8")
+    make_dir_link(tmp_path / "alias", real)
+    via_link = tmp_path / "alias" / "tests" / "unit" / "test_x.py"
+    assert link_defenses.code_key(str(via_link), "f", root=real.resolve()) == "tests.unit.test_x:f"
+
+
+def test_the_scope_survives_a_missing_or_broken_test_file(tmp_path):
+    """範圍裡的檔讀不到或有語法錯誤時仍算在範圍內，只是不追它匯入的模組；清單壞掉時退回固定範圍
+    （清單本身由 ``test_zone_mutations_manifest`` 報紅）。conftest 一載入就算範圍，不能讓整個
+    pytest 啟動不了."""
+    broken = tmp_path / "test_broken.py"
+    broken.write_text("def f(:\n", encoding="utf-8")
+    assert list(link_defenses._imported_test_modules(broken)) == []
+    assert list(link_defenses._imported_test_modules(tmp_path / "test_gone.py")) == []
+    manifest = tmp_path / "zone_mutations.json"
+    listed = [{"tests": ["tests/unit/test_gone.py::test_x"]}]
+    manifest.write_text(json.dumps(listed), encoding="utf-8")
+    scope = link_defenses.link_scan_paths(manifest)
+    assert link_defenses.TESTS / "unit" / "test_gone.py" in scope
+    assert CONFTEST in scope
+    manifest.write_text("[", encoding="utf-8")
+    assert CONFTEST in link_defenses.link_scan_paths(manifest)
+
+
+def _warn_from_its_globals() -> None:
+    warnings.warn("old", DeprecationWarning, stacklevel=1)
+
+
+def test_caches_the_interpreter_writes_are_not_direct_changes():
+    """警告紀錄、第一次讀時建立的標註、copy 的 slot 名稱是直譯器自己寫的：不算直接改；
+    別的新鍵照報."""
+    module = types.ModuleType("fake_cache_defense")
+    module.warnings = warnings
+    module.warn = types.FunctionType(_warn_from_its_globals.__code__, vars(module), "warn")
+
+    class Box:
+        pass
+
+    Box.__module__ = module.__name__
+    module.Box = Box
+    monitor = link_defenses.Monitor(link_defenses.Defenses.of([module], []), {}, frozenset())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        module.warn()
+    assert vars(Box).get("__annotations__", {}) == Box.__annotations__ == {}
+    assert vars(module).get("__annotations__", {}) == module.__annotations__ == {}
+    copy.copy(Box())
+    assert {"__warningregistry__", "__annotations__"} <= set(vars(module))
+    assert {"__annotations__", "__slotnames__"} <= set(vars(Box))
+    assert monitor.take() == []
+    module.other = _fake
+    assert "被直接改了" in monitor.take()[0]
 
 
 # --- session 的核對 ------------------------------------------------------------

@@ -1,7 +1,7 @@
 """連結測試不准把防線換掉：執行期核對（ADR-0293 PR 2 決定 26）.
 
 靜態掃描（``tests/unit/test_zone_mutations_manifest.py``）照程式碼認，是提早提醒；這裡在測試執行時
-照物件身分認，不管寫法：
+照物件身分認（經 monkeypatch／mock 的替換不管怎麼寫出來）：
 
 1. ``pytest.MonkeyPatch`` 與 ``unittest.mock`` 的每次替換都經過這裡。對象是防線（防線模組、防線類別
    或它的子類別、防線類別的實例）、被換掉的值是防線（模組、類別、函式、RM 實例），或改的是防線模組的
@@ -13,12 +13,16 @@
 
 範圍和靜態掃描相同：掃描範圍內的測試，以及範圍內的程式（``tests/conftest.py``、
 ``tests/support/``）在任何測試裡做的替換。做替換的程式不在 ``LINK_SCAN_ALLOWED`` 就算違規；
-直接改的一律違規（不分範圍）。
+直接改、到那個階段結束還沒換回的一律違規（不分範圍）。
+
+核對的對象與狀態是列舉出來的：裝飾器包住的原函式、可變容器的內容、``setitem`` 換掉別處對防線的
+參照時被換掉的值、同一個階段裡改了又換回的直接改都看不到，列在 ADR-0293「已知的界線（PR 2）」。
 """
 
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import sys
 import types
@@ -48,6 +52,9 @@ LINK_DEFENSE_MODULES: dict[str, types.ModuleType] = {
 }
 # 防線模組定義、但和防線無關的通用名稱：logger 與觀察者紀錄（``ZoneMisuse``）的欄位
 LINK_GENERIC_NAMES = frozenset({"logger", "error", "display", "detail"})
+# 直譯器與標準函式庫自己寫進模組或類別字典的快取（警告紀錄、第一次讀時建立的標註、copy／pickle 的
+# slot 名稱）：不影響防線的行為，直接改的比對略過（否則依執行順序誤報在無關的測試上）
+LINK_RUNTIME_CACHES = frozenset({"__warningregistry__", "__annotations__", "__slotnames__"})
 # 函式身上會改變行為的屬性（改它們有 audit 事件 ``object.__setattr__``）
 FUNCTION_ATTRS = ("__code__", "__defaults__", "__kwdefaults__")
 
@@ -206,10 +213,17 @@ LINK_SCAN_ALLOWED: dict[str, tuple[int, str]] = {
 }
 
 
-def link_scan_paths() -> frozenset[Path]:
+def link_scan_paths(manifest_path: Path = MANIFEST_PATH) -> frozenset[Path]:
     """範圍：改壞清單列到的測試檔、所有 ``*_links_security.py``、``tests/conftest.py``、
-    ``tests/support/``，以及它們 import 的測試模組（遞移；靜態掃描與執行期核對共用）."""
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    ``tests/support/``，以及它們 import 的測試模組（遞移；靜態掃描與執行期核對共用）.
+
+    conftest 一載入就算範圍：清單讀不到或壞掉時只用固定的部分（清單由
+    ``test_zone_mutations_manifest`` 報紅），不讓整個 pytest 啟動不了.
+    """
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = []
     paths = {ROOT / node.split("::")[0] for item in manifest for node in item["tests"]}
     paths |= set(TESTS.rglob("*_links_security.py"))
     paths |= {TESTS / "conftest.py", *(TESTS / "support").rglob("*.py")}
@@ -225,8 +239,15 @@ def link_scan_paths() -> frozenset[Path]:
 
 
 def _imported_test_modules(path: Path) -> Iterator[Path]:
-    """``path`` 用 ``from tests.… import``／``import tests.…`` 匯入的測試模組檔案."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    """``path`` 用 ``from tests.… import``／``import tests.…`` 匯入的測試模組檔案.
+
+    讀不到（改名、刪掉）或有語法錯誤的檔仍在範圍內，只是不追它匯入的模組（列出的測試檔不存在由
+    ``test_zone_mutations_manifest`` 報紅）.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names = [node.module]
@@ -242,15 +263,17 @@ def _imported_test_modules(path: Path) -> Iterator[Path]:
                         yield candidate
 
 
-def code_key(filename: str, qualname: str) -> str | None:
+def code_key(filename: str, qualname: str, root: Path = ROOT) -> str | None:
     """測試程式的「模組:函式」（和靜態掃描的鍵相同）；不在 ``tests/`` 裡是 None.
 
-    lambda 與產生式算外層函式的（靜態掃描也這樣算）。
+    lambda 與產生式算外層函式的（靜態掃描也這樣算）。``filename`` 先解析成真實路徑，
+    和 ``root`` 同一種寫法（pytest 給的 ``co_filename`` 沒解析：經 junction、subst 或
+    8.3 短檔名進 repo 時不同）。
     """
-    path = Path(filename)
-    if not path.is_relative_to(TESTS):
+    path = _real_path(filename)
+    if not path.is_relative_to(root / "tests"):
         return None
-    parts = path.relative_to(ROOT).with_suffix("").parts
+    parts = path.relative_to(root).with_suffix("").parts
     module = ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
     pieces = qualname.split(".")
     while pieces and pieces[-1].startswith("<") and pieces[-1] != "<module>":
@@ -258,6 +281,11 @@ def code_key(filename: str, qualname: str) -> str | None:
         if pieces and pieces[-1] == "<locals>":
             pieces.pop()
     return f"{module}:{'.'.join(pieces) or '<module>'}"
+
+
+@functools.cache
+def _real_path(filename: str) -> Path:
+    return Path(filename).resolve()
 
 
 _ABSENT = object()  # 屬性不存在
@@ -326,7 +354,9 @@ class Defenses:
         for container in (*self.modules, *self.classes):
             lazy = id(container) in self.lazy_inits
             for name, value in vars(container).items():
-                if name not in LINK_GENERIC_NAMES and not (lazy and name == "__init__"):
+                if name in LINK_GENERIC_NAMES or name in LINK_RUNTIME_CACHES:
+                    continue
+                if not (lazy and name == "__init__"):
                     found[(id(container), name)] = (container, value)
         for fn in self.functions:
             for name in FUNCTION_ATTRS:
