@@ -346,6 +346,15 @@ def test_zone_path_basics() -> None:
         z._parts = ("Bob",)
 
 
+def test_zone_path_cannot_be_initialized_twice(events: list) -> None:
+    """再呼叫一次 ``__init__`` 不能改掉已建立的路徑（``__setattr__`` 擋不到它）。"""
+    z = ZonePath(PD, ("Alice", "docs"))
+    with pytest.raises(ZoneSegmentError):
+        z.__init__(CD, ("M1", "drive"))
+    assert (z.anchor, z.parts) == (PD, ("Alice", "docs"))
+    assert [e.error for e in events] == [ZoneSegmentError]
+
+
 @pytest.mark.parametrize("parts", [("Alice", ".."), ("..",), ("Alice", "a/b"), ("Alice", "")])
 def test_zone_path_refuses_unsafe_parts(parts: tuple[str, ...], events: list) -> None:
     with pytest.raises(ZoneSegmentError):

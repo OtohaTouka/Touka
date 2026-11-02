@@ -200,7 +200,9 @@ class ZonePath:
     __slots__ = ("_anchor", "_parts")
 
     def __init__(self, anchor: Anchor, parts: Iterable[str]) -> None:
-        """任何一段不合格，或自訂模型的個人空間不是 ``<id>/drive`` 時丟 ``ZoneSegmentError``。"""
+        """任何一段不合格、自訂模型不是 ``<id>/drive``，或重複初始化時丟 ``ZoneSegmentError``。"""
+        if hasattr(self, "_anchor"):  # 再呼叫一次 __init__ 不能改掉已建立的路徑
+            raise ZoneSegmentError
         segments = tuple(parts)
         if not isinstance(anchor, Anchor) or not all(is_zone_segment(s) for s in segments):
             raise ZoneSegmentError

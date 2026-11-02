@@ -1386,12 +1386,12 @@ ZONE_TEXT_RECEIVERS: dict[str, tuple[frozenset[str], str]] = {
     f"{_EVO}:_profile_for": (frozenset({"cwd"}), "取得 runner 後重算 profile 的 cwd"),
     f"{_PROFILES}:_resolve": (
         frozenset({"path"}),
-        "核對 managed/<skill> 與找公開設定檔上層的解析（G4_ALLOWED，已知界線）",
+        "核對 managed/<skill> 與略過公開設定檔候選的解析（結果只用來拒絕，見 G4_ALLOWED）",
     ),
     f"{_PROFILES}:build_evolution_profile": (frozenset({"tool_root"}), "演化 profile 的根"),
     f"{_PROFILES}:public_config_rules": (
         frozenset({"anchors"}),
-        "演化根上層的公開設定檔（解析並核對過才往上找）",
+        "演化根字面上層的公開設定檔（解析後和字面不同的不給）",
     ),
     f"{_PROFILES}:sandbox_env": (
         frozenset({"home", "tmp", "ceilings"}),
@@ -1473,9 +1473,9 @@ class G4Kind(StrEnum):
     KNOWN_BOUNDARY = "已知界線：會放寬，ADR-0293「已知的界線（PR 2）」有列"
 
 
-_CLASSIFY_BOUNDARY = (
-    "MCP 分類以 ST home 為基準時跟隨連結；算出的 managed 技能會成為 self profile 的讀與執行"
-    "授與（ADR-0293 已知的界線「MCP 來源分類」，修掉後改成只會更嚴）"
+_LITERAL_REFERENCE = (
+    "只決定這段算不算引用路徑（lexists 不跟隨最後一段）：算進來只會多判自建、多凍結；"
+    "授與只用字面（literal_managed_skills、字面的 PathRule，ADR-0293 決定 16）"
 )
 # G4 列名的例外（P4 第 5 種）：「模組:函式」→（{出口: 次數}, 類別, 理由）
 G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
@@ -1496,10 +1496,16 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     ),
     f"{_PROFILES}:_resolve": (
         {"<text>.resolve": 1},
-        G4Kind.KNOWN_BOUNDARY,
+        G4Kind.STRICTER,
         "build_evolution_profile 解析 tool_root 只用來核對它等於 managed/<skill>（不符丟 "
-        "ProfileError，只會更嚴；規則與 cwd 用字面，DEV-B 第 2 輪）；但 public_config_rules "
-        "用解析後的錨點找上層的公開設定檔授與唯讀（PR 2 以前就有，DEV-B 第 3 輪）",
+        "ProfileError）；public_config_rules 解析候選檔只用來略過（和字面不同或落在保護範圍"
+        "就不給）；規則、cwd 與授與都用字面（ADR-0293 決定 16）",
+    ),
+    f"{_PROFILES}:public_config_rules": (
+        {"os.lstat": 1},
+        G4Kind.KERNEL,
+        "lstat 只決定要不要給；給的是字面位置（解析後和字面不同的先略過），由啟動器逐段不跟隨"
+        "地開，上層被換成連結就開不了（optional，略過）",
     ),
     "src.services.isolation.status:_repair_state_dir": (
         {"repair.repair": 1},
@@ -1517,36 +1523,29 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
         "技能資料夾以 JSON 編碼嵌進驗證包裝的程式碼，給沙盒裡的子行程；Touka 不拿它做 I/O",
     ),
     f"{_ORIGIN}:_item_paths": (
-        {"<text>.exists": 1},
-        G4Kind.KNOWN_BOUNDARY,
-        _CLASSIFY_BOUNDARY,
+        {"os.path.lexists": 1},
+        G4Kind.STRICTER,
+        _LITERAL_REFERENCE,
     ),
     f"{_ORIGIN}:referenced_paths": (
-        {f"{_ORIGIN}.PathReference": 3, "<text>.exists": 1},
-        G4Kind.KNOWN_BOUNDARY,
-        _CLASSIFY_BOUNDARY,
+        {f"{_ORIGIN}.PathReference": 3, "os.path.lexists": 1},
+        G4Kind.STRICTER,
+        _LITERAL_REFERENCE,
     ),
     f"{_ORIGIN}:_candidates": (
         {"<text>.resolve": 1},
-        G4Kind.KNOWN_BOUNDARY,
-        _CLASSIFY_BOUNDARY,
+        G4Kind.STRICTER,
+        "解析後的位置只用來多判自建、多凍結（agent_influenced、frozen_managed_skills）；"
+        "授與只用字面（literal_managed_skills，ADR-0293 決定 16）",
     ),
     f"{_ORIGIN}:is_file_reference": (
         {"os.lstat": 1, "<text>.is_junction": 1},
-        G4Kind.KNOWN_BOUNDARY,
-        _CLASSIFY_BOUNDARY,
+        G4Kind.KERNEL,
+        "只決定字面規則是資料夾本身還是它的上層；規則仍是字面，由啟動器逐段不跟隨地開",
     ),
 }
-# 會放寬的項目釘住：新增一項就紅（要先寫進 ADR-0293 的已知界線）
-G4_KNOWN_BOUNDARIES = frozenset(
-    {
-        f"{_ORIGIN}:_item_paths",
-        f"{_ORIGIN}:referenced_paths",
-        f"{_ORIGIN}:_candidates",
-        f"{_ORIGIN}:is_file_reference",
-        f"{_PROFILES}:_resolve",
-    }
-)
+# 會放寬的項目釘住：新增一項就紅（要先寫進 ADR-0293 的已知界線）；目前沒有
+G4_KNOWN_BOUNDARIES: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -2298,7 +2297,7 @@ G1_TEXT_SITES: dict[str, tuple[dict[str, int], str]] = {
     ),
     f"{_PROFILES}:build_agent_command_profile": (
         {
-            f"{_PROFILES}:_resolve": 2,
+            f"{_PROFILES}:_resolve": 1,
             f"{_PROFILES}:_state": 1,
             f"{_PROFILES}:public_config_rules": 1,
             f"{_PROFILES}:sandbox_env": 1,
@@ -2402,13 +2401,12 @@ G1_TEXT_SITES: dict[str, tuple[dict[str, int], str]] = {
         {f"{_ORIGIN}:_candidates": 1, f"{_ORIGIN}:referenced_paths": 1},
         _TF_CLASSIFY,
     ),
-    f"{_ORIGIN}:referenced_managed_skills": (
+    f"{_ORIGIN}:frozen_managed_skills": (
         {f"{_ORIGIN}:_candidates": 1},
         _TF_CLASSIFY,
     ),
     f"{_ORIGIN}:referenced_paths": (
         {
-            f"{_ORIGIN}:_candidates": 1,
             f"{_ORIGIN}:_item_paths": 1,
             f"{_ORIGIN}:_token_paths": 2,
         },

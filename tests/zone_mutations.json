@@ -2547,8 +2547,8 @@
     ],
     "target": "src.services.isolation.profiles:public_config_rules",
     "file": "ToukaProxy/src/services/isolation/profiles.py",
-    "old": "                if any(_within(candidate, _resolve(b)) for b in blocked):\n                    continue\n",
-    "new": "",
+    "old": "                if resolved != candidate or any(_within(resolved, _resolve(b)) for b in blocked):\n",
+    "new": "                if resolved != candidate:\n",
     "tests": [
       "tests/unit/test_isolation_profiles_security.py::test_public_config_under_data_root_denied",
       "tests/unit/test_isolation_profiles_security.py::test_public_config_under_state_root_or_protected_env_dir_denied"
@@ -3167,5 +3167,262 @@
     "target": "tests.support.link_defenses:code_key",
     "posix_only": false,
     "note": "``<string>`` 一類不是檔案的名稱依目前資料夾解析，在 tests/ 底下啟動時被當成測試程式（核對第 3 輪改法）"
+  },
+  {
+    "id": "p4_literal_skills_follow_links",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    literals = [Path(os.path.normpath(ref.path)) for ref in refs]\n",
+    "new": "    literals = [candidate for ref in refs for candidate in _candidates(ref.path)]\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_link_from_outside_into_a_skill_grants_no_program_folder",
+      "tests/unit/test_literal_grants_links_security.py::test_link_in_the_state_home_grants_no_program_folder",
+      "tests/unit/test_literal_grants_links_security.py::test_link_inside_a_skill_grants_only_the_literal_skill"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "授與改回看解析後的位置：連結指進另一個技能就給它的讀與執行"
+  },
+  {
+    "id": "p4_literal_skills_keep_dotdot",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    literals = [Path(os.path.normpath(ref.path)) for ref in refs]\n",
+    "new": "    literals = [ref.path for ref in refs]\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_dotdot_is_removed_literally_before_judging"
+    ],
+    "posix_only": false,
+    "note": "沒以字面消掉 ..：foo/../bar 被當成 foo"
+  },
+  {
+    "id": "p4_classify_grants_frozen_skills",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    skills = frozenset(literal_managed_skills(refs, layout))\n",
+    "new": "    skills = frozenset(frozen_managed_skills(refs, layout))\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_link_from_outside_into_a_skill_grants_no_program_folder",
+      "tests/unit/test_literal_grants_links_security.py::test_link_in_the_state_home_grants_no_program_folder",
+      "tests/unit/test_literal_grants_links_security.py::test_link_inside_a_skill_grants_only_the_literal_skill"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "classify 改用凍結的集合當授與"
+  },
+  {
+    "id": "p4_freeze_only_literal",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "        skills |= frozen_managed_skills(refs, layout)\n",
+    "new": "        skills |= literal_managed_skills(refs, layout)\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_link_from_outside_into_a_skill_grants_no_program_folder",
+      "tests/unit/test_literal_grants_links_security.py::test_link_inside_a_skill_grants_only_the_literal_skill"
+    ],
+    "posix_only": false,
+    "note": "凍結改成只看字面：經連結引用的技能還能再演化"
+  },
+  {
+    "id": "p4_plain_data_root_follows_links",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "plain_data_root = not option_value and Path(os.path.normpath(path)) in data_roots\n",
+    "new": "plain_data_root = not option_value and _resolve(layout.data_root) in _candidates(path)\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_data_root_argument_through_a_link_freezes_every_skill"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "經連結指到 data 根的參數被當成普通資料參數，不凍結"
+  },
+  {
+    "id": "p4_item_paths_exists_follows_links",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "or os.path.lexists(base_dir / path)\n",
+    "new": "or (base_dir / path).exists()\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_dangling_link_named_without_a_separator_counts_as_a_reference"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "exists 跟隨連結：懸空連結不算引用，自建判成第三方"
+  },
+  {
+    "id": "p4_referenced_paths_exists_follows_links",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": ") and not os.path.lexists(base_dir / argument):\n",
+    "new": ") and not (base_dir / argument).exists():\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_dangling_link_shaped_like_a_scoped_package_counts_as_a_reference"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "exists 跟隨連結：長得像 @scope/pkg 的懸空連結被當套件名稱"
+  },
+  {
+    "id": "p4_mirror_hit_ignores_links",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "        if _comparison_path(real) != folder:\n            return True  # 路上有連結：解析後的判斷不能拿來放行（ADR-0293 決定 16）\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_mirror_folder_linked_into_the_touka_directory_counts"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "鏡像根裡指進 Touka 目錄的連結被解析後的判斷放行，判成第三方"
+  },
+  {
+    "id": "p4_spellings_drop_configured",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    return tuple(dict.fromkeys((_resolve(layout.data_root), Path(os.path.normpath(configured)))))\n",
+    "new": "    return (_resolve(layout.data_root),)\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_program_folder_works_with_either_spelling_of_the_data_root",
+      "tests/unit/test_literal_grants_links_security.py::test_data_root_given_through_the_layout_field_itself_also_counts",
+      "tests/unit/test_literal_grants_links_security.py::test_plain_data_root_argument_with_either_spelling_freezes_nothing",
+      "tests/unit/test_literal_grants_links_security.py::test_appdata_maps_with_either_spelling_of_the_data_root"
+    ],
+    "posix_only": false,
+    "note": "只認解析後的 data 根：人經連結設定 data 根時，部署條目拿不到程式資料夾"
+  },
+  {
+    "id": "p4_is_data_root_resolves",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/mcp_profiles.py",
+    "old": "        return path.is_absolute() and _lexical(path) in data_root_spellings(layout)\n",
+    "new": "        return path.is_absolute() and path.resolve() in data_root_spellings(layout)\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_link_to_the_data_root_is_not_mapped_to_the_personal_drive"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "APPDATA 對映跟隨連結：指到 data 根的連結換成 personal_drive 並授與"
+  },
+  {
+    "id": "p4_project_root_granted_resolved",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "            granted_project = _literal(project_root)\n",
+    "new": "            granted_project = _resolve(project_root)\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_project_root_swapped_after_the_check_grants_the_literal_location"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "專案根授與解析後的位置：核對後才換成連結就給連結另一端"
+  },
+  {
+    "id": "p4_literal_resolves",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    return Path(os.path.normpath(Path(path).absolute()))\n",
+    "new": "    return Path(path).resolve()\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_literal_position_removes_dotdot_without_following_links"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "字面位置改成跟隨連結"
+  },
+  {
+    "id": "p4_literal_keeps_dotdot",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "    return Path(os.path.normpath(Path(path).absolute()))\n",
+    "new": "    return Path(path).absolute()\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_literal_position_removes_dotdot_without_following_links"
+    ],
+    "posix_only": false,
+    "note": "字面位置沒消掉 .."
+  },
+  {
+    "id": "p4_public_config_resolved_anchor",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        for parent in Path(os.path.normpath(anchor)).parents:\n",
+    "new": "        for parent in _resolve(anchor).parents:\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_public_config_is_searched_from_the_literal_anchor"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "公開設定檔改回從解析後的錨點往上找：連結另一端的上層也給"
+  },
+  {
+    "id": "p4_public_config_keeps_linked_parents",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "                if resolved != candidate or any(_within(resolved, _resolve(b)) for b in blocked):\n",
+    "new": "                if any(_within(resolved, _resolve(b)) for b in blocked):\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_public_config_is_searched_from_the_literal_anchor"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "解析後和字面不同的候選檔也給"
+  },
+  {
+    "id": "p4_layout_no_literal_data_root",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        data_root_literal=_literal(configured_data_root),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_current_layout_keeps_the_configured_spelling_of_the_data_root"
+    ],
+    "posix_only": false,
+    "note": "版面沒記設定裡的 data 根寫法"
+  },
+  {
+    "id": "g3_zone_path_can_be_initialized_again",
+    "rule": [
+      "G3"
+    ],
+    "file": "ToukaMemory/src/memory_server/utils/zone_paths.py",
+    "old": "        if hasattr(self, \"_anchor\"):  # 再呼叫一次 __init__ 不能改掉已建立的路徑\n            raise ZoneSegmentError\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_zone_paths.py::test_zone_path_cannot_be_initialized_twice"
+    ],
+    "posix_only": false,
+    "note": "對已建立的 ZonePath 再呼叫 __init__ 能改掉它的錨點與段落"
   }
 ]
