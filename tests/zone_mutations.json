@@ -3438,7 +3438,7 @@
     ],
     "marker": "LINK_FOLLOWED",
     "posix_only": false,
-    "note": "解析後的判斷整個拿掉：經連結指進 data 根的公開設定檔也給"
+    "note": "解析後的判斷兩個條件一起拿掉：經連結指進 data 根的公開設定檔也給（只拿掉一個時另一個仍擋，各由 p4_public_config_keeps_linked_parents、p4_public_config_in_blocked_roots 抓）"
   },
   {
     "id": "p4_public_config_keeps_dotdot",
