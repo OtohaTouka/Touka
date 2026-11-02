@@ -38,6 +38,7 @@ from src.utils.mcp_origin import (
 
 from tests.support.isolation import match_state_root
 from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_roots import point_zone_roots
 
 ALICE = AgentIdentity.for_role(agent_id="Alice", role="Owner")
 EVOLUTION = OriginRecord("present", "evolution")
@@ -221,6 +222,18 @@ def test_current_layout_keeps_the_configured_spelling_of_the_data_root():
     assert layout.data_root == configured.resolve()
 
 
+def test_current_layout_does_not_resolve_the_configured_spelling(tmp_path, monkeypatch):
+    """data 根經人做的連結設定：``data_root_literal`` 留連結本身，``data_root`` 才是解析後。"""
+    real = tmp_path.resolve() / "real_data"
+    real.mkdir()
+    link = tmp_path.resolve() / "touka_data"
+    make_dir_link(link, real)
+    point_zone_roots(monkeypatch, link, tmp_path.resolve() / "install" / "st")
+    layout = current_layout()
+    assert layout.data_root_literal == link, LINK_FOLLOWED
+    assert layout.data_root == real
+
+
 def test_program_folder_works_with_either_spelling_of_the_data_root(layout, tmp_path):
     """條目寫設定裡的寫法或解析後的寫法都給技能；規則一律是解析後的錨點＋字面段落。"""
     linked, link = _linked_data_root(layout, tmp_path)
@@ -374,6 +387,19 @@ def test_public_config_is_searched_from_the_literal_anchor(layout):
     granted = {rule.path for rule in public_config_rules((via / "sub",), layout)}
     assert other / "pytest.ini" not in granted, LINK_FOLLOWED
     assert via / "pytest.ini" not in granted, LINK_FOLLOWED
+    assert workspace / "tox.ini" in granted
+
+
+def test_public_config_anchor_removes_dotdot_literally(layout):
+    """錨點的 ``..`` 以字面消掉：``x/../myproj`` 的上層沒有 x。"""
+    workspace = layout.install_root / "workspace"
+    (workspace / "x").mkdir()
+    (workspace / "x" / "pytest.ini").write_text("", encoding="utf-8")
+    (workspace / "tox.ini").write_text("", encoding="utf-8")
+    granted = {
+        rule.path for rule in public_config_rules((workspace / "x" / ".." / "myproj",), layout)
+    }
+    assert workspace / "x" / "pytest.ini" not in granted
     assert workspace / "tox.ini" in granted
 
 

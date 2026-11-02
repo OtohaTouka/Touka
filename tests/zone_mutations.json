@@ -3424,5 +3424,63 @@
     ],
     "posix_only": false,
     "note": "對已建立的 ZonePath 再呼叫 __init__ 能改掉它的錨點與段落"
+  },
+  {
+    "id": "p4_public_config_skips_nothing",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "                if resolved != candidate or any(_within(resolved, _resolve(b)) for b in blocked):\n",
+    "new": "                if False:\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_public_config_through_a_link_into_the_data_root_is_skipped"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "解析後的判斷整個拿掉：經連結指進 data 根的公開設定檔也給"
+  },
+  {
+    "id": "p4_public_config_keeps_dotdot",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        for parent in Path(os.path.normpath(anchor)).parents:\n",
+    "new": "        for parent in Path(anchor).parents:\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_public_config_anchor_removes_dotdot_literally"
+    ],
+    "posix_only": false,
+    "note": "錨點的 .. 沒消掉：x/../myproj 的 x 也算上層，x 裡的公開設定檔也給"
+  },
+  {
+    "id": "p4_layout_literal_resolved",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/services/isolation/profiles.py",
+    "old": "        data_root_literal=_literal(configured_data_root),\n",
+    "new": "        data_root_literal=_resolve(configured_data_root),\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_current_layout_does_not_resolve_the_configured_spelling"
+    ],
+    "marker": "LINK_FOLLOWED",
+    "posix_only": false,
+    "note": "版面記的設定寫法其實是解析後：經連結設定 data 根時，條目裡設定的寫法認不得"
+  },
+  {
+    "id": "p4_managed_root_ignores_data_root",
+    "rule": [
+      "P4"
+    ],
+    "file": "ToukaProxy/src/utils/mcp_origin.py",
+    "old": "    return (data_root or _resolve(layout.data_root)) / \"mcp_servers\" / \"managed\"\n",
+    "new": "    return _resolve(layout.data_root) / \"mcp_servers\" / \"managed\"\n",
+    "tests": [
+      "tests/unit/test_literal_grants_links_security.py::test_program_folder_works_with_either_spelling_of_the_data_root"
+    ],
+    "posix_only": false,
+    "note": "managed_root 忽略傳入的 data 根寫法：條目用設定的寫法時給不到程式資料夾"
   }
 ]

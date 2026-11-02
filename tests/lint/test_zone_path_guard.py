@@ -1469,13 +1469,15 @@ class G4Kind(StrEnum):
 
     STRICTER = "只會更嚴：結果只用來拒絕"
     KERNEL = "交給逐段不跟隨的 kernel 原語"
+    LITERAL = "字面授與：結果只決定給不給、給什麼形狀；給的是字面位置，啟動器逐段不跟隨地開"
     NO_IO = "只當字串用（鍵、雜湊、嵌進程式碼），不做 I/O"
     KNOWN_BOUNDARY = "已知界線：會放寬，ADR-0293「已知的界線（PR 2）」有列"
 
 
 _LITERAL_REFERENCE = (
-    "只決定這段算不算引用路徑（lexists 不跟隨最後一段）：算進來只會多判自建、多凍結；"
-    "授與只用字面（literal_managed_skills、字面的 PathRule，ADR-0293 決定 16）"
+    "只決定這段算不算引用路徑（lexists 不跟隨最後一段）：算進來會多判自建、多凍結；第三方的 "
+    "_reference_rule 把引用照字面給（先過永不授權），自建的只給 literal_managed_skills，"
+    "解析後的位置不會變成規則（ADR-0293 決定 16）"
 )
 # G4 列名的例外（P4 第 5 種）：「模組:函式」→（{出口: 次數}, 類別, 理由）
 G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
@@ -1503,7 +1505,7 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     ),
     f"{_PROFILES}:public_config_rules": (
         {"os.lstat": 1},
-        G4Kind.KERNEL,
+        G4Kind.LITERAL,
         "lstat 只決定要不要給；給的是字面位置（解析後和字面不同的先略過），由啟動器逐段不跟隨"
         "地開，上層被換成連結就開不了（optional，略過）",
     ),
@@ -1524,12 +1526,12 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     ),
     f"{_ORIGIN}:_item_paths": (
         {"os.path.lexists": 1},
-        G4Kind.STRICTER,
+        G4Kind.LITERAL,
         _LITERAL_REFERENCE,
     ),
     f"{_ORIGIN}:referenced_paths": (
         {f"{_ORIGIN}.PathReference": 3, "os.path.lexists": 1},
-        G4Kind.STRICTER,
+        G4Kind.LITERAL,
         _LITERAL_REFERENCE,
     ),
     f"{_ORIGIN}:_candidates": (
@@ -1540,8 +1542,10 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     ),
     f"{_ORIGIN}:is_file_reference": (
         {"os.lstat": 1, "<text>.is_junction": 1},
-        G4Kind.KERNEL,
-        "只決定字面規則是資料夾本身還是它的上層；規則仍是字面，由啟動器逐段不跟隨地開",
+        G4Kind.LITERAL,
+        "只決定字面規則是資料夾本身還是它的上層（_reference_rule），規則仍是字面，由啟動器逐段不跟隨"
+        "地開；分類也用它：_mirror_hit 只選要檢查的資料夾（解析後的位置另外檢查），"
+        "scaffold_dir_for 另要求字面等於解析後",
     ),
 }
 # 會放寬的項目釘住：新增一項就紅（要先寫進 ADR-0293 的已知界線）；目前沒有
