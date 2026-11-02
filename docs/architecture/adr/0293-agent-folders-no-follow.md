@@ -214,4 +214,4 @@
 ### 驗證（後續 PR）
 
 - `tests/unit/test_literal_grants_links_security.py`（在改之前的 `9216b9bb` 上 17 個案例失敗：跟隨連結，或新欄位還不存在）、`tests/unit/test_zone_paths.py`（重複初始化）。
-- `tests/lint/test_zone_path_guard.py`（`G4_ALLOWED`、`G1_TEXT_SITES`、`G4_KNOWN_BOUNDARIES` 清空）；改壞清單新增 17 項，在 Windows 本機與 Linux 容器各跑一次，每項都被列名的測試殺死。
+- `tests/lint/test_zone_path_guard.py`（`G4_ALLOWED`、`G1_TEXT_SITES`、`G4_KNOWN_BOUNDARIES` 清空）；改壞清單新增 17 項，在 Windows 本機跑過，每項都被列名的測試殺死；Linux 容器那一輪（含只在 POSIX 判得出的 7 項，都不是這次新增的）這個 PR 還沒跑，Linux 上目前只有 CI 的全量測試。
