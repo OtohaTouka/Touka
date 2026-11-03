@@ -2887,9 +2887,16 @@ def test_g4_unlisted_uses_of_zone_text_are_red(body, exit_):
     assert exit_ in exits.get("m:f", {}), exits
 
 
-def test_g4_a_nested_function_writing_into_the_callers_container_is_red():
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    def fill():\n        d = other\n        d['k'] = t\n    fill()\n",
+        # 外層函式裡的別名：外層指定過，不是模組層的名稱，要靠外層的結果才認得
+        "    alias = other\n    def fill():\n        d = alias\n        d['k'] = t\n    fill()\n",
+    ],
+)
+def test_g4_a_nested_function_writing_into_the_callers_container_is_red(body):
     """外層函式的參數也是呼叫端的容器（閉包）；出口算在裡面的函式."""
-    body = "    def fill():\n        d = other\n        d['k'] = t\n    fill()\n"
     exits = _text_flow(_G4 + body, G4_DESTINATIONS).exits()
     assert "store:d[]" in exits.get("m:f.<locals>.fill", {}), exits
 
