@@ -3013,6 +3013,11 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
         ("    g = lambda: t\n    open((g if other else None)())\n", "open"),
         ("    g = lambda: t\n    open((other or g)())\n", "open"),
         ("    g = lambda: t\n    open((other and g)())\n", "open"),
+        # 具名函式被當成值用：出口是這個函式的參照
+        (
+            "    def g():\n        return t\n    h = {'a': g}\n    open(h['a']())\n",
+            "ref:m:f.<locals>.g",
+        ),
         ("    run(lambda: t)\n", "run"),
         # 參數的預設值存在函式物件上，函式裡看不出是區字串
         ("    def g(p=t):\n        open(p)\n", "default"),
@@ -3234,6 +3239,9 @@ def test_g4_a_constructor_imported_at_module_level_is_not_red(head, call):
         ("try:\n    dict = helper\nexcept E:\n    pass\n", "dict()"),
         ("def dict():\n    pass\n", "dict()"),
         ("class dict:\n    pass\n", "dict()"),
+        ("for dict in rows:\n    pass\n", "dict()"),
+        # 生成式的迴圈變數其實不在模組命名空間，但寧多不漏：這裡也算蓋掉
+        ("[None for dict in rows]\n", "dict()"),
     ],
 )
 def test_g4_a_constructor_shadowed_at_module_level_does_not_count(head, call):
@@ -3249,11 +3257,10 @@ def test_g4_a_constructor_shadowed_at_module_level_does_not_count(head, call):
         ("class C:\n    dict = 1\n", "dict()"),
         ("class C:\n    class list:\n        pass\n", "list()"),
         ("def helper():\n    dict = 1\n", "dict()"),
-        ("[None for dict in []]\n", "dict()"),
     ],
 )
 def test_g4_a_name_outside_the_module_namespace_does_not_shadow_a_constructor(head, call):
-    """類別成員、函式與生成式的變數不在模組命名空間：同模組有 ``set`` 方法，內建的還是內建的."""
+    """類別的成員與函式的區域變數不在模組命名空間：同模組有 ``set`` 方法，內建的還是內建的."""
     body = f"    d = {call}\n    d['k'] = t\n    return d\n"
     assert "m:f" not in _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
 
