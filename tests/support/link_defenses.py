@@ -4,20 +4,23 @@
 照物件身分認（經 monkeypatch／mock 的替換不管怎麼寫出來）：
 
 1. ``pytest.MonkeyPatch`` 與 ``unittest.mock`` 的每次替換都經過這裡。對象是防線（防線模組、防線類別
-   或它的子類別、防線類別的實例）、被換掉的值是防線（模組、類別、函式、RM 實例），或改的是防線模組的
-   ``__dict__``、``sys.modules`` 裡的防線模組，就記下做替換的測試程式（「模組:函式」）。
-2. 防線函式的 ``__code__``、``__defaults__``、``__kwdefaults__`` 被改（audit hook），同樣記下。
+   或它的子類別、防線類別的實例）、被換掉的值是防線（模組、類別、函式、RM 實例；字典裡的值也算），
+   或改的是防線模組的 ``__dict__``、``sys.modules`` 裡的防線模組，就記下做替換的測試程式
+   （「模組:函式」）。
+2. 防線函式（裝飾器包住的原函式也算）的 ``__code__``、``__defaults__``、``__kwdefaults__`` 被改或
+   被刪（audit hook），同樣記下。
 3. 每個測試的 setup、本體、teardown 跑完，各和 session 開始時的狀態比一次（模組字典、類別字典、
-   函式的程式、RM 實例沒有蓋掉類別的屬性）。有差異，而現在的值不是 1、2 記下的替換放進去的，
-   就是直接改。
+   函式的程式、RM 實例沒有蓋掉類別的屬性、``LINK_DEFENSE_CONTENTS`` 的內容）。有差異，而現在的值
+   不是 1、2 記下的替換放進去的，就是直接改。
+4. 測試結束時，記下的替換還沒換回就是外洩；module、session 範圍的 fixture 做的替換，到那個 fixture
+   結束才看。
 
 範圍和靜態掃描相同：掃描範圍內的測試，以及範圍內的程式（``tests/conftest.py``、
-``tests/support/``）在任何測試裡做的替換。做替換的程式不在 ``LINK_SCAN_ALLOWED`` 就算違規；
-直接改、到那個階段結束還沒換回的一律違規（不分範圍）。
+``tests/support/``）在任何測試裡做的替換。做替換的程式不在 ``LINK_SCAN_ALLOWED``、或換的名稱不是
+那一項列的目標就算違規；直接改、到那個階段結束還沒換回的，以及外洩的，一律違規（不分範圍）。
 
-核對的對象與狀態是列舉出來的：裝飾器包住的原函式、可變容器的內容、其他模組手上對防線的參照
-（直接指定或 ``setitem`` 換掉）、同一個階段裡改了又換回的直接改都看不到，列在 ADR-0293
-「已知的界線（PR 2）」。
+核對的對象與狀態是列舉出來的：``_observers``、``_handoffs`` 的內容、其他模組手上對防線的參照被直接
+指定換掉都看不到，列在 ADR-0293「已知的界線（PR 2）」。
 """
 
 from __future__ import annotations
@@ -51,13 +54,19 @@ LINK_DEFENSE_MODULES: dict[str, types.ModuleType] = {
     "ToukaProxy/src/services/resource_manager.py": resource_manager,
     "ToukaProxy/src/services/evolution_security.py": evolution_security,
 }
-# 防線模組定義、但和防線無關的通用名稱：logger 與觀察者紀錄（``ZoneMisuse``）的欄位
+# 防線模組定義、但和防線無關的通用名稱：logger 與觀察者紀錄（``ZoneMisuse``）的欄位。經
+# monkeypatch／mock 替換不報（位置仍算打開的），直接改照報
 LINK_GENERIC_NAMES = frozenset({"logger", "error", "display", "detail"})
 # 直譯器與標準函式庫自己寫進模組或類別字典的快取（警告紀錄、第一次讀時建立的標註、copy／pickle 的
 # slot 名稱）：不影響防線的行為，直接改的比對略過（否則依執行順序誤報在無關的測試上）
 LINK_RUNTIME_CACHES = frozenset({"__warningregistry__", "__annotations__", "__slotnames__"})
-# 函式身上會改變行為的屬性（改它們有 audit 事件 ``object.__setattr__``）
+# 函式身上會改變行為的屬性（改有 audit 事件 ``object.__setattr__``，``= None``、``del`` 是
+# ``object.__delattr__``）
 FUNCTION_ATTRS = ("__code__", "__defaults__", "__kwdefaults__")
+# 決定區判斷的可變常數：內容也比（``_observers``、``_handoffs`` 正常執行就會變，不比）
+LINK_DEFENSE_CONTENTS = ((zone_paths, "_DATA_DIRS"), (zone_paths, "_AGENT_DEPTH"))
+# ``LINK_SCAN_ALLOWED`` 的替換目標：靜態掃描認不出名稱（和 ``UNKNOWN`` 同一個值）時，什麼名稱都可以
+ANY_NAME = "<?>"
 
 _ZONE_SELF = "測 zone_paths 自己：登記的根本身就是被測的東西（T3 也列了）"
 _ALIAS = "模擬另一個掛載路徑（同一個檔案身分）：這台機器不能做 bind mount（T3 也列了）"
@@ -77,139 +86,243 @@ _VENV = (
     "測部署與安裝用的 venv Python 路徑（P4）：EPG 的檔案動作換成不碰磁碟的替身、"
     "``run_sandbox_command`` 只記下指令；不是連結測試（連結由 evolution 的連結測試照實測）"
 )
-# 「測試模組:函式」→（靜態掃描的次數, 理由）；靜態掃描比對次數，執行期核對只看做替換的程式有沒有列名
-LINK_SCAN_ALLOWED: dict[str, tuple[int, str]] = {
+# 「測試模組:函式」→（靜態掃描的次數, 理由, 替換目標）；靜態掃描比對次數與目標，執行期核對看做替換的
+# 程式有沒有列名、換的名稱在不在目標裡（綁不到哪個測試用它）
+LINK_SCAN_ALLOWED: dict[str, tuple[int, str, frozenset[str]]] = {
     "tests.support.session_scope:scope_db": (
         1,
         "session 沙盒的擁有權判斷（RM.is_owner）換成合成的擁有關係，和區無關",
+        frozenset({"is_owner"}),
     ),
     "tests.unit.test_custom_model_rename_security:"
-    "test_a_failed_move_is_an_error_and_moves_no_ownership": (1, _FAULT),
-    "tests.unit.test_evolution_isolation_security:_evolution_in_the_executor": (1, _ENV),
-    "tests.unit.test_evolution_isolation_security:spawned": (2, _SPAWN + "；平台固定 POSIX"),
+    "test_a_failed_move_is_an_error_and_moves_no_ownership": (
+        1,
+        _FAULT,
+        frozenset({"rename_agent_container"}),
+    ),
+    "tests.unit.test_evolution_isolation_security:_evolution_in_the_executor": (
+        1,
+        _ENV,
+        frozenset({"get_clean_env"}),
+    ),
+    "tests.unit.test_evolution_isolation_security:spawned": (
+        2,
+        _SPAWN + "；平台固定 POSIX",
+        frozenset({"is_windows", "run_sync"}),
+    ),
     "tests.unit.test_evolution_isolation_security:"
-    "test_build_and_verify_spawn_through_the_launcher": (1, _ENV),
+    "test_build_and_verify_spawn_through_the_launcher": (
+        1,
+        _ENV,
+        frozenset({"get_clean_env"}),
+    ),
     "tests.unit.test_evolution_isolation_security:test_direct_consent_keeps_the_rlimit_preexec": (
         1,
         _RLIMIT,
+        frozenset({"resource"}),
     ),
-    "tests.unit.test_evolution_security:_patch_full_env": (1, _ENV),
+    "tests.unit.test_evolution_security:_patch_full_env": (1, _ENV, frozenset({"settings"})),
     "tests.unit.test_evolution_security:test_build_rlimit_preexec_returns_none_without_resource": (
         1,
         _RLIMIT,
+        frozenset({"resource"}),
     ),
     "tests.unit.test_evolution_security:test_build_rlimit_preexec_sets_expected_rlimit_tuples": (
         1,
         _RLIMIT,
+        frozenset({"resource"}),
     ),
     "tests.unit.test_evolution_security:"
-    "test_run_sandbox_command_hands_off_the_skill_folder_and_cleans_env": (1, _RLIMIT),
-    "tests.unit.test_evolution_venv_python:commands": (4, _VENV),
+    "test_run_sandbox_command_hands_off_the_skill_folder_and_cleans_env": (
+        1,
+        _RLIMIT,
+        frozenset({"resource"}),
+    ),
+    "tests.unit.test_evolution_venv_python:commands": (
+        4,
+        _VENV,
+        frozenset(
+            {"delete_tool_file", "run_sandbox_command", "tool_file_exists", "write_tool_file"}
+        ),
+    ),
     "tests.unit.test_evolution_venv_python:"
-    "test_deploy_command_is_the_python_the_build_step_created": (3, _VENV + "；平台照參數切換"),
+    "test_deploy_command_is_the_python_the_build_step_created": (
+        3,
+        _VENV + "；平台照參數切換",
+        frozenset({"is_windows", "read_tool_file", "tool_file_exists"}),
+    ),
     "tests.unit.test_evolution_venv_python:test_local_verification_uses_the_absolute_venv_python": (
         1,
         _PLATFORM,
+        frozenset({"is_windows"}),
     ),
     "tests.unit.test_evolution_venv_python:test_pip_install_uses_the_absolute_venv_python": (
         1,
         _PLATFORM,
+        frozenset({"is_windows"}),
     ),
     "tests.unit.test_evolution_verify_protocol_security:"
-    "test_posix_protocol_keeps_limits_and_close_eof": (1, _PLATFORM),
+    "test_posix_protocol_keeps_limits_and_close_eof": (
+        1,
+        _PLATFORM,
+        frozenset({"is_windows"}),
+    ),
     "tests.unit.test_evolution_verify_protocol_security:test_protocol_failures_never_deploy": (
         1,
         _PLATFORM,
+        frozenset({"is_windows"}),
     ),
     "tests.unit.test_evolution_verify_protocol_security:test_windows_uses_sdk_transport": (
         1,
         _PLATFORM,
+        frozenset({"is_windows"}),
     ),
     "tests.unit.test_evolution_verify_protocol_security:"
     "test_wrapper_cleanup_failure_keeps_the_outcome": (
         1,
         "故障注入：刪不掉驗證用的包裝檔，測結果照實回報（不放寬判斷）",
+        frozenset({"delete_tool_file"}),
     ),
     "tests.unit.test_file_ops_no_follow_security:"
     "test_helpers_refuse_a_link_that_exists_only_while_opening": (
         1,
         "換掉 no_follow 用的 os，模擬開啟途中才出現的連結，測防線拒絕",
+        frozenset({"os"}),
     ),
     "tests.unit.test_file_ops_no_follow_security:test_link_checks_work_without_junctions": (
         1,
         "模擬沒有 junction 的平台，測連結檢查照樣成立",
+        frozenset({"_JUNCTION_TAG"}),
     ),
     "tests.unit.test_file_ops_no_follow_security:test_find_and_grep_stop_walking_at_the_limit": (
         1,
         "走訪換成無限產生，測 find／grep 到上限就停（不放寬判斷）",
+        frozenset({"iter_regular_files"}),
     ),
     "tests.unit.test_file_ops_no_follow_security:"
-    "test_walk_skips_folders_whose_status_cannot_be_read": (1, _OPS),
+    "test_walk_skips_folders_whose_status_cannot_be_read": (
+        1,
+        _OPS,
+        frozenset({"lstat"}),
+    ),
     "tests.unit.test_isolation_status:"
-    "test_executor_scope_classifies_the_drive_without_resolving_it": (1, _EXISTING_FAULT),
+    "test_executor_scope_classifies_the_drive_without_resolving_it": (
+        1,
+        _EXISTING_FAULT,
+        frozenset({"zone_kind"}),
+    ),
     "tests.unit.test_isolation_status:test_executor_scope_is_out_when_the_drive_cannot_be_read": (
         1,
         _EXISTING_FAULT,
+        frozenset({"zone_kind"}),
     ),
     "tests.unit.test_link_defense_runtime:<module>": (
         1,
         "執行期核對的自我測試：用 *args 換自己建的假防線（靜態掃描認不出擁有者與名稱，當成不明）",
+        frozenset({ANY_NAME}),
     ),
     "tests.unit.test_link_defense_runtime:"
     "test_changing_a_function_in_place_is_caught_even_when_restored": (
         2,
         "執行期核對的自我測試：改的是自己建的假防線函式（名稱是參數，靜態掃描認不出）",
+        frozenset({ANY_NAME, "__code__", "__defaults__"}),
     ),
     "tests.unit.test_mcp_isolation_store_security:test_writes_go_through_the_atomic_write_json": (
         1,
         "記下寫入經過 RM 的 ``write_json``，原函式照樣執行",
+        frozenset({"write_json"}),
     ),
     "tests.unit.test_mcp_server_config_format_security:prepare_evolution_deploy": (
         1,
         _PLATFORM + "（範圍內的測試 import 這個準備函式）",
+        frozenset({"is_windows"}),
     ),
     "tests.unit.test_mcp_vault_jail:test_apply_refuses_every_vault_jailed_server": (
         1,
         "記下舊的 get_vault_path 有沒有被呼叫（斷言一次都沒有）",
+        frozenset({"get_vault_path"}),
     ),
     "tests.unit.test_no_follow_zone:test_iter_regular_files_uses_the_registered_roots": (
         2,
         _ZONE_SELF,
+        frozenset({"_roots_provider"}),
     ),
-    "tests.unit.test_no_follow_zone:test_remove_tree_does_not_cross_file_systems": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_remove_tree_gives_up_with_a_fixed_reason": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_remove_tree_retries_an_entry_that_was_swapped": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_walk_open_gives_open_files_and_closes_them": (1, _OPS),
-    "tests.unit.test_no_follow_zone:test_walk_records_folders_it_cannot_read": (1, _OPS),
+    "tests.unit.test_no_follow_zone:test_remove_tree_does_not_cross_file_systems": (
+        1,
+        _OPS,
+        frozenset({"lstat"}),
+    ),
+    "tests.unit.test_no_follow_zone:test_remove_tree_gives_up_with_a_fixed_reason": (
+        1,
+        _OPS,
+        frozenset({"names"}),
+    ),
+    "tests.unit.test_no_follow_zone:test_remove_tree_retries_an_entry_that_was_swapped": (
+        1,
+        _OPS,
+        frozenset({"open_dir"}),
+    ),
+    "tests.unit.test_no_follow_zone:test_walk_open_gives_open_files_and_closes_them": (
+        1,
+        _OPS,
+        frozenset({"open_file"}),
+    ),
+    "tests.unit.test_no_follow_zone:test_walk_records_folders_it_cannot_read": (
+        1,
+        _OPS,
+        frozenset({"lstat"}),
+    ),
     "tests.unit.test_no_follow_zone:test_remove_tree_moves_deep_folders_instead_of_failing": (
         2,
         _LIMIT + "；" + _OPS,
+        frozenset({"MAX_REMOVE_OPEN_DIRS", "rename"}),
     ),
-    "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (1, _ALIAS),
+    "tests.unit.test_no_follow_zone:test_walk_pruned_knows_an_anchor_by_identity": (
+        1,
+        _ALIAS,
+        frozenset({"_identity"}),
+    ),
     "tests.unit.test_no_follow_zone:test_walk_records_depth_device_and_swaps": (
         3,
         _LIMIT + "；" + _OPS,
+        frozenset({"MAX_ZONE_WALK_DEPTH", "lstat", "open_dir"}),
     ),
     "tests.unit.test_resource_manager_string_zone:"
     "test_a_drive_met_during_the_walk_refuses_the_whole_delete_and_archive": (
         1,
         "關掉事前的包含判斷，證明走訪途中遇到區根仍整個拒絕（第二道檢查；T3 也列了）",
+        frozenset({"contains_zone"}),
     ),
     "tests.unit.test_resource_manager_zone:test_permission_repair_gets_the_absolute_path": (
         1,
         "第一次讀被拒（PermissionError），測權限自癒拿到絕對路徑後重試（不放寬判斷）",
+        frozenset({"read_text_no_follow"}),
     ),
-    "tests.unit.test_soul_io_zone_security:model_base": (1, _OLD_VAULT),
-    "tests.unit.test_soul_io_zone_security:soul_base": (1, _OLD_VAULT),
-    "tests.unit.test_zone_paths:_same_identity": (1, _ALIAS),
-    "tests.unit.test_zone_paths:test_current_roots_comes_only_from_the_provider": (1, _ZONE_SELF),
+    "tests.unit.test_soul_io_zone_security:model_base": (
+        1,
+        _OLD_VAULT,
+        frozenset({"get_vault_path"}),
+    ),
+    "tests.unit.test_soul_io_zone_security:soul_base": (
+        1,
+        _OLD_VAULT,
+        frozenset({"get_vault_path"}),
+    ),
+    "tests.unit.test_zone_paths:_same_identity": (1, _ALIAS, frozenset({"_identity"})),
+    "tests.unit.test_zone_paths:test_current_roots_comes_only_from_the_provider": (
+        1,
+        _ZONE_SELF,
+        frozenset({"_roots_provider"}),
+    ),
     "tests.unit.test_zone_paths:test_zone_path_basics": (
         1,
         "斷言 ZonePath 不能改（指定會丟 AttributeError），沒有真的換掉",
+        frozenset({"_parts"}),
     ),
     "tests.unit.test_zone_tripwire:test_an_error_in_the_hook_is_recorded": (
         1,
         "絆線自己匯入的 ``current_roots`` 換成會丟例外的，測 hook 出錯也記一筆（T3 也列了）",
+        frozenset({"current_roots"}),
     ),
 }
 
@@ -251,7 +364,7 @@ def _imported_test_modules(path: Path) -> Iterator[Path]:
         return
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names = [node.module]
+            names = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
         elif isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
         else:
@@ -293,11 +406,24 @@ def _real_path(filename: str) -> Path:
 
 _ABSENT = object()  # 屬性不存在
 _LAZY_INIT = getattr(typing, "_no_init_or_replace_init", None)
+_CONTENT_SUFFIX = "[…]"  # ``state()`` 裡可變常數內容的名稱
+
+
+@dataclass(frozen=True)
+class _Content:
+    """可變常數的內容快照：比相等，不比身分（每次比對都是新的物件）."""
+
+    items: tuple[tuple[str, str], ...]
+
+    @classmethod
+    def of(cls, value: object) -> _Content:
+        pairs = value.items() if isinstance(value, dict) else [("", value)]
+        return cls(tuple(sorted((repr(k), repr(v)) for k, v in pairs)))
 
 
 @dataclass(frozen=True)
 class Defenses:
-    """要守的東西：模組、類別（含巢狀）、函式與 RM 實例."""
+    """要守的東西：模組、類別（含巢狀）、函式、RM 實例與內容也要比的常數（模組, 名稱）."""
 
     modules: tuple[types.ModuleType, ...]
     classes: tuple[type, ...]
@@ -309,9 +435,15 @@ class Defenses:
     value_ids: frozenset[int] = frozenset()
     # ``typing`` 第一次建立實例時才換上 ``__init__`` 的 Protocol 子類別：它們的 ``__init__`` 不比
     lazy_inits: frozenset[int] = frozenset()
+    contents: tuple[tuple[types.ModuleType, str], ...] = ()
 
     @classmethod
-    def of(cls, modules: Iterable[types.ModuleType], instances: Iterable[object]) -> Defenses:
+    def of(
+        cls,
+        modules: Iterable[types.ModuleType],
+        instances: Iterable[object],
+        contents: Iterable[tuple[types.ModuleType, str]] = (),
+    ) -> Defenses:
         modules = tuple(modules)
         names = {m.__name__ for m in modules}
         classes: list[type] = []
@@ -337,6 +469,7 @@ class Defenses:
             tuple(frozenset(dir(type(i))) for i in instances),
             frozenset(map(id, (*modules, *classes, *functions, *instances))),
             frozenset(id(c) for c in classes if getattr(c, "__init__", None) is _LAZY_INIT),
+            tuple(contents),
         )
 
     def is_target(self, target: object) -> bool:
@@ -357,7 +490,7 @@ class Defenses:
         for container in (*self.modules, *self.classes):
             lazy = id(container) in self.lazy_inits
             for name, value in vars(container).items():
-                if name in LINK_GENERIC_NAMES or name in LINK_RUNTIME_CACHES:
+                if name in LINK_RUNTIME_CACHES:
                     continue
                 if not (lazy and name == "__init__"):
                     found[(id(container), name)] = (container, value)
@@ -368,18 +501,28 @@ class Defenses:
             for name, value in vars(instance).items():
                 if name in shadowable:  # 實例屬性蓋掉類別的方法或屬性
                     found[(id(instance), name)] = (instance, value)
+        for module, name in self.contents:
+            found[(id(module), name + _CONTENT_SUFFIX)] = (
+                module,
+                _Content.of(vars(module).get(name)),
+            )
         return found
 
 
 def _functions_in(value: object) -> Iterator[types.FunctionType]:
+    """``value`` 裡的函式；裝飾器包住的原函式（``__wrapped__`` 鏈）也算."""
     if isinstance(value, (staticmethod, classmethod)):
         value = value.__func__
     if isinstance(value, property):
-        accessors = (value.fget, value.fset, value.fdel)
-        yield from (f for f in accessors if isinstance(f, types.FunctionType))
+        for accessor in (value.fget, value.fset, value.fdel):
+            yield from _functions_in(accessor)
         return
-    if isinstance(value, types.FunctionType):
-        yield value
+    seen: set[int] = set()
+    while value is not None and id(value) not in seen:
+        seen.add(id(value))
+        if isinstance(value, types.FunctionType):
+            yield value
+        value = getattr(value, "__wrapped__", None)
 
 
 def _subclass(candidate: type, base: type) -> bool:
@@ -394,21 +537,34 @@ def _describe(container: object) -> str:
     return str(name) if name else type(container).__qualname__ + " 的實例"
 
 
+def _unchanged(before: object, after: object) -> bool:
+    return after is before or (isinstance(before, _Content) and before == after)
+
+
+def _mark(value: object) -> object:
+    """同一個值只報一次：內容快照比相等，其他比身分."""
+    return value if isinstance(value, _Content) else id(value)
+
+
 @dataclass
 class Monitor:
     """一個 session 的核對狀態（自我測試另建自己的，守假的防線）."""
 
     defenses: Defenses
-    allowed: Mapping[str, object]
+    allowed: Mapping[str, tuple[int, str, frozenset[str]]]
     scope: frozenset[Path]
     baseline: dict[tuple[int, str], tuple[object, object]] = field(default_factory=dict)
     # 經 monkeypatch／mock／audit 換過、還沒回到開始時的值的位置（容器的 id, 名稱）：
     # 這些位置之後的值（包括被測的產品函式再改的）都算經過記下的替換
     opened: set[tuple[int, str]] = field(default_factory=set)
     violations: list[str] = field(default_factory=list)
-    reported: set[tuple[int, str, int]] = field(default_factory=set)
+    reported: set[tuple[int, str, object]] = field(default_factory=set)
     in_scope: bool = False
     test_key: str | None = None
+    # 正在 setup 的 fixture（最裡面的在最後）；module、session 範圍的 fixture 打開的位置 → 那個
+    # fixture：到它結束才看有沒有換回
+    fixtures: list[Any] = field(default_factory=list)
+    scoped: dict[tuple[int, str], int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.baseline = self.defenses.state()
@@ -417,16 +573,15 @@ class Monitor:
     # --- 一個測試的開始與結束 ---
 
     def begin(self, path: Path | None, test_key: str | None) -> None:
+        """開始一個測試；之前留下的違規不清，留給這個測試的第一次核對."""
         self.in_scope = self.covers(path)
         self.test_key = test_key
-        self.violations.clear()
 
     def covers(self, path: Path | None) -> bool:
         return path is not None and path.resolve() in self.scope
 
     def end(self) -> None:
         self.in_scope, self.test_key = False, None
-        self.violations.clear()
 
     def take(self) -> list[str]:
         """這個階段的違規（拿走）；同時和開始時的狀態比一次."""
@@ -434,36 +589,77 @@ class Monitor:
         found, self.violations[:] = list(self.violations), []
         return found
 
+    def enter_fixture(self, fixture: Any) -> None:
+        self.fixtures.append(fixture)
+
+    def leave_fixture(self) -> None:
+        self.fixtures.pop()
+
+    def fixture_finished(self, fixture: Any) -> None:
+        for key in [key for key, owner in self.scoped.items() if owner == id(fixture)]:
+            del self.scoped[key]
+
+    def check_leaks(self) -> None:
+        """記下的替換到測試結束還沒換回（module、session 範圍的 fixture 做的除外）：報外洩，移出
+        已打開的位置，之後的直接改照報；這筆不再當成直接改重報."""
+        now = self.defenses.state()
+        for key in self.opened - self.scoped.keys():
+            container, before = self.baseline.get(key, (None, _ABSENT))
+            container, after = now.get(key, (container, _ABSENT))
+            if container is None or _unchanged(before, after):
+                continue
+            self.opened.discard(key)
+            self.reported.add((*key, _mark(after)))
+            self.violations.append(f"{_describe(container)}.{key[1]} 換掉之後沒有換回（替換外洩）")
+
     # --- 經過 monkeypatch／mock／audit 的替換 ---
 
-    def replaced(self, target: object, name: object, old: object) -> None:
-        if name in LINK_GENERIC_NAMES or not (
-            self.defenses.is_target(target) or self.defenses.is_value(old)
-        ):
-            return
-        self.opened.add((id(target), str(name)))
-        self._performed(f"{_describe(target)}.{name}")
+    def _open(self, key: tuple[int, str]) -> None:
+        self.opened.add(key)
+        if self.fixtures and self.fixtures[-1].scope != "function":
+            self.scoped[key] = id(self.fixtures[-1])
 
-    def dict_changed(self, dic: object, keys: Iterable[object], cleared: bool = False) -> None:
-        """``setitem``、``patch.dict``：防線模組的 ``__dict__`` 或 ``sys.modules`` 裡的防線模組."""
+    def replaced(self, target: object, name: object, old: object) -> None:
+        if not (self.defenses.is_target(target) or self.defenses.is_value(old)):
+            return
+        self._open((id(target), str(name)))
+        if name not in LINK_GENERIC_NAMES:
+            self._performed(f"{_describe(target)}.{name}", str(name))
+
+    def dict_changed(self, dic: object, changes: Mapping[object, object]) -> None:
+        """``setitem``、``patch.dict``（``changes``：改到的鍵 → 舊值）：防線模組的 ``__dict__``、
+        ``sys.modules`` 裡的防線模組，或別處的字典裡被換掉的值是防線."""
+        keys = [str(key) for key in changes]
         for module in self.defenses.modules:
             if dic is vars(module):
-                self.opened.update((id(module), str(key)) for key in keys)
-                self._performed(f"{module.__name__}.__dict__")
-            elif dic is sys.modules and (cleared or module.__name__ in set(map(str, keys))):
-                self._performed(f"sys.modules[{module.__name__!r}]")
+                for key in keys:
+                    self._open((id(module), key))
+                    self._performed(f"{module.__name__}.__dict__", key)
+                return
+        if dic is sys.modules:
+            for module in self.defenses.modules:
+                if module.__name__ in keys:
+                    self._performed(f"sys.modules[{module.__name__!r}]", module.__name__)
+            return
+        for key, old in changes.items():
+            if self.defenses.is_value(old):
+                self._performed(f"字典裡的 {_describe(old)}（鍵 {key}）", str(key))
 
     def function_changed(self, fn: object, name: str) -> None:
         if id(fn) in self._function_ids and name in FUNCTION_ATTRS:
-            self.opened.add((id(fn), name))
-            self._performed(f"{_describe(fn)}.{name}")
+            self._open((id(fn), name))
+            self._performed(f"{_describe(fn)}.{name}", name)
 
-    def _performed(self, what: str) -> None:
+    def _performed(self, what: str, name: str) -> None:
         performer, path = _performer(self.test_key)
-        checked = self.in_scope or self.covers(path)
-        if checked and performer not in self.allowed:
-            who = performer or "<?>"
+        if not (self.in_scope or self.covers(path)):
+            return
+        who = performer or "<?>"
+        entry = self.allowed.get(performer) if performer else None
+        if entry is None:
             self.violations.append(f"{who} 換掉了 {what}（沒有列在 LINK_SCAN_ALLOWED）")
+        elif ANY_NAME not in entry[2] and name not in entry[2]:
+            self.violations.append(f"{who} 換掉了 {what}（{name} 沒有列在這一項的替換目標）")
 
     # --- 直接改（不經 monkeypatch／mock） ---
 
@@ -472,12 +668,12 @@ class Monitor:
         for key in self.baseline.keys() | now.keys():
             container, before = self.baseline.get(key, (None, _ABSENT))
             container, after = now.get(key, (container, _ABSENT))
-            if after is before:
+            if _unchanged(before, after):
                 self.opened.discard(key)
                 continue
             if key in self.opened:
                 continue
-            mark = (*key, id(after))
+            mark = (*key, _mark(after))
             if mark not in self.reported:
                 self.reported.add(mark)
                 self.violations.append(
@@ -534,7 +730,7 @@ def _wrap_monkeypatch(name: str, records: str, item: bool) -> None:
         result = original(self, *args, **kwargs)
         for container, key, old in log[before:]:
             if item:
-                _each(lambda m, c=container, k=key: m.dict_changed(c, [k]))
+                _each(lambda m, c=container, k=key, o=old: m.dict_changed(c, {k: o}))
             else:
                 _each(lambda m, c=container, k=key, o=old: m.replaced(c, k, o))
         return result
@@ -557,7 +753,10 @@ def _wrap_mock() -> None:
 
     def dict_patched(self: Any) -> None:
         patch_dict(self)
-        _each(lambda m: m.dict_changed(self.in_dict, list(self.values), cleared=self.clear))
+        original = dict(self._original)
+        changes = dict(original) if self.clear else {}  # 清空：原本的每個鍵都算改到
+        changes.update({key: original.get(key, _ABSENT) for key in self.values})
+        _each(lambda m: m.dict_changed(self.in_dict, changes))
 
     entered.__wrapped__ = enter  # type: ignore[attr-defined]
     dict_patched.__wrapped__ = patch_dict  # type: ignore[attr-defined]
@@ -566,8 +765,8 @@ def _wrap_mock() -> None:
 
 
 def _audit(event: str, args: tuple[Any, ...]) -> None:
-    if event == "object.__setattr__" and len(args) == 3:
-        fn, name, _value = args
+    if event in ("object.__setattr__", "object.__delattr__") and len(args) >= 2:
+        fn, name = args[:2]
         if name in FUNCTION_ATTRS:
             _each(lambda m: m.function_changed(fn, name))
 
@@ -592,7 +791,9 @@ def installed() -> bool:
 def start() -> Monitor:
     """session 的核對：記下開始時的狀態，掛上全域掛勾."""
     install()
-    defenses = Defenses.of(LINK_DEFENSE_MODULES.values(), [resource_manager.resource_manager])
+    defenses = Defenses.of(
+        LINK_DEFENSE_MODULES.values(), [resource_manager.resource_manager], LINK_DEFENSE_CONTENTS
+    )
     scope = frozenset(p.resolve() for p in link_scan_paths())
     monitor = Monitor(defenses, LINK_SCAN_ALLOWED, scope)
     add(monitor)

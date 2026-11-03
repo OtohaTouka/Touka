@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import sys
 import types
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
+from _pytest.skipping import Xfail, xfailed_key
 
 from tests.support import link_defenses
 from tests.support.links import make_dir_link
@@ -89,6 +91,8 @@ MONKEYPATCH_WAYS: dict[str, Callable[[pytest.MonkeyPatch, SimpleNamespace], Any]
     "呼叫的結果": lambda m, d: m.setattr({"g": d.Guard}.get("g"), "fake_act", _fake),
     "nullcontext": lambda m, d: m.setattr(nullcontext(d.Guard).__enter__(), "fake_act", _fake),
     "__class__": lambda m, d: m.setattr(d.instance.__class__, "fake_act", _fake),
+    "別處字典裡的防線": lambda m, d: m.setitem(vars(d.consumer), "fake_check", _fake),
+    "刪掉別處字典裡的防線": lambda m, d: m.delitem(vars(d.consumer), "fake_check"),
 }
 
 
@@ -106,6 +110,8 @@ MOCK_WAYS: dict[str, Callable[[SimpleNamespace], Any]] = {
     "patch.dict": lambda d: mock.patch.dict(vars(d.module), {"fake_check": _fake}),
     "patch.dict sys.modules": lambda d: mock.patch.dict(sys.modules, {"fake_defense": None}),
     "實例": lambda d: mock.patch.object(d.instance, "fake_act"),
+    "別處字典裡的防線": lambda d: mock.patch.dict(vars(d.consumer), {"fake_check": _fake}),
+    "清空別處的字典": lambda d: mock.patch.dict(vars(d.consumer), clear=True),
 }
 
 
@@ -134,6 +140,205 @@ def test_changing_a_function_in_place_is_caught_even_when_restored(defended, nam
     setattr(defended.check, name, saved)
     found = defended.monitor.take()
     assert found and f"fake_check.{name}" in found[0]
+
+
+def _clear_defaults(fn: types.FunctionType) -> None:
+    fn.__defaults__ = None
+
+
+def _delete_defaults(fn: types.FunctionType) -> None:
+    del fn.__defaults__
+
+
+@pytest.mark.parametrize("remove", [_clear_defaults, _delete_defaults])
+def test_removing_a_function_attribute_is_recorded_when_it_happens(defended, remove):
+    """``= None`` 與 ``del`` 發出的是刪除事件（``object.__delattr__``）：當場記下誰做的."""
+    saved = defended.check.__defaults__
+    remove(defended.check)
+    found = list(defended.monitor.violations)
+    defended.check.__defaults__ = saved
+    assert found and "fake_check.__defaults__" in found[0] and "換掉了" in found[0]
+
+
+def _decorated(fn: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def _guard_with_wrapped_functions() -> SimpleNamespace:
+    module = types.ModuleType("fake_wrapped_defense")
+
+    def behind_wraps() -> str:
+        return "real"
+
+    def behind_cache() -> str:
+        return "real"
+
+    def behind_two() -> str:
+        return "real"
+
+    def behind_property(_self: object) -> str:
+        return "real"
+
+    def behind_static() -> str:
+        return "real"
+
+    class Holder:
+        value = property(_decorated(behind_property))
+        static = staticmethod(_decorated(behind_static))
+
+    originals = (behind_wraps, behind_cache, behind_two, behind_property, behind_static)
+    for obj in (*originals, Holder):
+        obj.__module__ = module.__name__
+    module.Holder = Holder
+    module.wrapped = _decorated(behind_wraps)
+    module.cached = functools.cache(behind_cache)
+    module.twice = _decorated(_decorated(behind_two))
+    return SimpleNamespace(module=module, originals=originals)
+
+
+def test_the_function_behind_a_decorator_is_guarded():
+    """裝飾器包住的原函式（``functools.wraps``、``functools.cache``，疊幾層都一樣）也是防線."""
+    fake = _guard_with_wrapped_functions()
+    defenses = link_defenses.Defenses.of([fake.module], [])
+    guarded = {id(fn) for fn in defenses.functions}
+    assert {id(fn) for fn in fake.originals} <= guarded
+    monitor = link_defenses.Monitor(defenses, {}, frozenset())
+    behind = fake.originals[0]
+    saved = behind.__code__
+    behind.__code__ = _fake.__code__
+    try:
+        assert "被直接改了" in monitor.take()[0]
+    finally:
+        behind.__code__ = saved
+
+
+def _module_with_constants() -> types.ModuleType:
+    module = types.ModuleType("fake_constant_defense")
+    module.TABLE = {"a": ("x",)}
+    module.DEPTH = {"a": 1}
+    return module
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda m: m.TABLE.update(b=("y",)),
+        lambda m: m.TABLE.__setitem__("a", ("z",)),
+        lambda m: m.DEPTH.clear(),
+    ],
+)
+def test_the_contents_of_listed_constants_are_compared(change):
+    module = _module_with_constants()
+    defenses = link_defenses.Defenses.of([module], [], [(module, "TABLE"), (module, "DEPTH")])
+    monitor = link_defenses.Monitor(defenses, {}, frozenset())
+    assert monitor.take() == []
+    change(module)
+    assert "被直接改了" in monitor.take()[0]
+
+
+def test_the_contents_of_a_constant_may_come_back():
+    """內容比相等、不比身分：換回同樣的內容就不算改了."""
+    module = _module_with_constants()
+    defenses = link_defenses.Defenses.of([module], [], [(module, "TABLE")])
+    monitor = link_defenses.Monitor(defenses, {}, frozenset())
+    module.TABLE["a"] = ("z",)
+    module.TABLE["a"] = ("x",)
+    assert monitor.take() == []
+
+
+def test_the_session_guards_the_contents_of_the_data_dirs(request):
+    _conftest, monitor = _session_monitor(request)
+    names = {name for _container, name in monitor.defenses.contents}
+    assert names == {"_DATA_DIRS", "_AGENT_DEPTH"}
+
+
+def test_generic_names_are_compared_too(monkeypatch, defended):
+    """通用名稱也要比：直接改就報；經 monkeypatch 換的不報，但位置算打開了，換回之前不算直接改."""
+    with monkeypatch.context() as m:
+        m.setattr(defended.module, "logger", object())
+        defended.module.logger = object()
+        assert defended.monitor.take() == []
+    assert defended.monitor.take() == []
+    defended.module.logger = object()
+    assert "被直接改了" in defended.monitor.take()[0]
+
+
+def test_a_replacement_left_in_place_is_a_leak(defended):
+    """測試結束還沒換回：報外洩，移出已打開的位置，之後的測試不再替它背這筆帳."""
+    key = f"{MODULE_KEY}:test_a_replacement_left_in_place_is_a_leak"
+    defended.monitor.allowed = {key: (1, "", frozenset({"fake_check"}))}
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    try:
+        assert defended.monitor.take() == []
+        defended.monitor.check_leaks()
+        found = defended.monitor.take()
+        assert found and "沒有換回" in found[0]
+        defended.monitor.check_leaks()
+        assert defended.monitor.take() == []
+    finally:
+        patcher.stop()
+    defended.monitor.check_leaks()
+    assert defended.monitor.take() == []
+
+
+def test_a_direct_change_after_a_leak_is_reported(defended):
+    """外洩報過以後，那個位置再被直接改照樣要報（不再整個 session 都算打開的）."""
+    key = f"{MODULE_KEY}:test_a_direct_change_after_a_leak_is_reported"
+    defended.monitor.allowed = {key: (1, "", frozenset({"fake_check"}))}
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    try:
+        defended.monitor.check_leaks()
+        assert "沒有換回" in defended.monitor.take()[0]
+        defended.module.fake_check = object()
+        assert "被直接改了" in defended.monitor.take()[0]
+    finally:
+        patcher.stop()
+
+
+def test_a_wider_fixture_is_checked_when_it_ends(defended):
+    """module／session 範圍的 fixture 做的替換，到那個 fixture 結束才看有沒有換回."""
+    key = f"{MODULE_KEY}:test_a_wider_fixture_is_checked_when_it_ends"
+    defended.monitor.allowed = {key: (1, "", frozenset({"fake_check"}))}
+    wider = SimpleNamespace(scope="module")
+    defended.monitor.enter_fixture(wider)
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    defended.monitor.leave_fixture()
+    try:
+        defended.monitor.check_leaks()
+        assert defended.monitor.take() == []
+        defended.monitor.fixture_finished(wider)
+        defended.monitor.check_leaks()
+        assert "沒有換回" in defended.monitor.take()[0]
+    finally:
+        patcher.stop()
+
+
+def test_a_function_fixture_is_checked_when_the_test_ends(defended):
+    key = f"{MODULE_KEY}:test_a_function_fixture_is_checked_when_the_test_ends"
+    defended.monitor.allowed = {key: (1, "", frozenset({"fake_check"}))}
+    defended.monitor.enter_fixture(SimpleNamespace(scope="function"))
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    defended.monitor.leave_fixture()
+    try:
+        defended.monitor.check_leaks()
+        assert "沒有換回" in defended.monitor.take()[0]
+    finally:
+        patcher.stop()
+
+
+def test_begin_keeps_earlier_violations(defended):
+    """兩個測試之間記下的違規留給下一次核對，不在下一個測試開始時清掉."""
+    defended.monitor.violations.append("測試之間的違規")
+    defended.monitor.begin(THIS, f"{MODULE_KEY}:test")
+    assert defended.monitor.take() == ["測試之間的違規"]
 
 
 DIRECT_WAYS: dict[str, Callable[[SimpleNamespace], None]] = {
@@ -165,7 +370,11 @@ def test_direct_changes_are_caught_outside_the_scope_too(monkeypatch, defended):
 def test_a_place_changed_through_a_listed_replacement_may_change_again(monkeypatch, defended):
     """列名的替換之後，被測的產品函式再改同一個位置不算直接改；換回之後再直接改就算."""
     defended.monitor.allowed = {
-        f"{MODULE_KEY}:test_a_place_changed_through_a_listed_replacement_may_change_again": 1
+        f"{MODULE_KEY}:test_a_place_changed_through_a_listed_replacement_may_change_again": (
+            1,
+            "",
+            frozenset({"fake_check"}),
+        )
     }
     with monkeypatch.context() as m:
         m.setattr(defended.module, "fake_check", None)
@@ -177,7 +386,38 @@ def test_a_place_changed_through_a_listed_replacement_may_change_again(monkeypat
 
 
 def test_a_listed_performer_may_replace(monkeypatch, defended):
-    defended.monitor.allowed = {f"{MODULE_KEY}:test_a_listed_performer_may_replace": 1}
+    defended.monitor.allowed = {
+        f"{MODULE_KEY}:test_a_listed_performer_may_replace": (1, "", frozenset({"fake_act"}))
+    }
+    monkeypatch.setattr(defended.Guard, "fake_act", _fake)
+    assert defended.monitor.take() == []
+
+
+@pytest.mark.parametrize(
+    "way",
+    [
+        lambda m, d: m.setattr(d.module, "fake_check", _fake),
+        lambda m, d: m.setitem(vars(d.module), "fake_check", _fake),
+        lambda m, d: m.setitem(sys.modules, "fake_defense", SimpleNamespace()),
+    ],
+)
+def test_a_listed_performer_may_replace_only_its_listed_names(monkeypatch, defended, way):
+    """放行清單也綁替換目標：同一個程式換了清單外的名稱照樣紅."""
+    # 參數化的 lambda 在模組層，算 ``<module>``
+    defended.monitor.allowed = {f"{MODULE_KEY}:<module>": (1, "", frozenset({"fake_act"}))}
+    way(monkeypatch, defended)
+    found = defended.monitor.take()
+    assert found and "替換目標" in found[0]
+
+
+def test_any_name_is_only_for_a_listed_performer_that_says_so(monkeypatch, defended):
+    defended.monitor.allowed = {
+        f"{MODULE_KEY}:test_any_name_is_only_for_a_listed_performer_that_says_so": (
+            1,
+            "",
+            frozenset({link_defenses.ANY_NAME}),
+        )
+    }
     monkeypatch.setattr(defended.Guard, "fake_act", _fake)
     assert defended.monitor.take() == []
 
@@ -236,6 +476,20 @@ def test_the_scope_survives_a_missing_or_broken_test_file(tmp_path):
     for broken_manifest in ("[", '[{"test": []}]', '{"tests": []}', "[1]"):
         manifest.write_text(broken_manifest, encoding="utf-8")
         assert CONFTEST in link_defenses.link_scan_paths(manifest), broken_manifest
+
+
+def test_the_scope_follows_a_submodule_imported_from_a_package(tmp_path):
+    """``from tests.pkg import 子模組`` 的子模組也算匯入；不是模組的名稱略過."""
+    test_file = tmp_path / "test_x.py"
+    test_file.write_text(
+        "from tests.support import links, make_dir_link_does_not_exist\n"
+        "from tests.unit import test_link_defense_runtime\n",
+        encoding="utf-8",
+    )
+    found = set(link_defenses._imported_test_modules(test_file))
+    assert link_defenses.TESTS / "support" / "links.py" in found
+    assert THIS in found
+    assert not any("make_dir_link_does_not_exist" in str(p) for p in found)
 
 
 def test_names_that_are_not_files_are_not_test_code(monkeypatch):
@@ -307,6 +561,92 @@ def test_monkeypatch_and_mock_go_through_the_check():
         mock._patch_dict._patch_dict,
     ):
         assert getattr(wrapped, "__wrapped__", None) is not None, wrapped
+
+
+PHASES = ("setup", "call", "teardown")
+
+
+def _report_through_the_real_hooks(
+    request: pytest.FixtureRequest, when: str, failure: Callable[[], None]
+) -> pytest.TestReport:
+    """走真的 hook 鏈（含 pytest 自己的 xfail wrapper）算這個測試標成 xfail 時的報告."""
+    item = request.node
+    saved = item.stash.get(xfailed_key, None)
+    item.stash[xfailed_key] = Xfail(reason="自我測試", run=True, strict=False, raises=None)
+    try:
+        call = pytest.CallInfo.from_call(failure, when)  # type: ignore[arg-type]
+        return request.config.hook.pytest_runtest_makereport(item=item, call=call)
+    finally:
+        item.stash[xfailed_key] = saved  # type: ignore[assignment]
+
+
+@pytest.mark.parametrize("when", PHASES)
+def test_xfail_does_not_swallow_a_link_violation(request, when):
+    conftest, _monitor = _session_monitor(request)
+    message = conftest.LINK_DEFENSE_MESSAGE.format(phase=when) + "自我測試放的違規"
+    report = _report_through_the_real_hooks(
+        request, when, lambda: pytest.fail(message, pytrace=False)
+    )
+    assert report.outcome == "failed"
+    assert not hasattr(report, "wasxfail")
+
+
+@pytest.mark.parametrize("when", PHASES)
+def test_xfail_still_covers_other_failures(request, when):
+    def fails() -> None:
+        raise AssertionError("和防線無關的失敗")
+
+    report = _report_through_the_real_hooks(request, when, fails)
+    assert report.outcome == "skipped"
+    assert report.wasxfail == "自我測試"
+
+
+def test_teardown_reports_a_replacement_left_in_place(monkeypatch, request, defended):
+    conftest, _monitor = _session_monitor(request)
+    monkeypatch.setattr(conftest, "_LINK_MONITOR", defended.monitor)
+    defended.monitor.allowed = {
+        f"{MODULE_KEY}:test_teardown_reports_a_replacement_left_in_place": (
+            1,
+            "",
+            frozenset({"fake_check"}),
+        )
+    }
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    try:
+        phase = conftest.pytest_runtest_teardown(request.node, None)
+        next(phase)
+        with pytest.raises(pytest.fail.Exception, match="沒有換回"):
+            phase.send(None)
+    finally:
+        patcher.stop()
+
+
+def test_the_fixture_hooks_feed_the_monitor(monkeypatch, request, defended):
+    conftest, _monitor = _session_monitor(request)
+    monkeypatch.setattr(conftest, "_LINK_MONITOR", defended.monitor)
+    wider = SimpleNamespace(scope="session")
+    defended.monitor.allowed = {
+        f"{MODULE_KEY}:test_the_fixture_hooks_feed_the_monitor": (
+            1,
+            "",
+            frozenset({"fake_check"}),
+        )
+    }
+    setup = conftest.pytest_fixture_setup(wider, request)
+    next(setup)
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    with pytest.raises(StopIteration):
+        setup.send(None)
+    try:
+        defended.monitor.check_leaks()
+        assert defended.monitor.take() == []
+        conftest.pytest_fixture_post_finalizer(wider, request)
+        defended.monitor.check_leaks()
+        assert "沒有換回" in defended.monitor.take()[0]
+    finally:
+        patcher.stop()
 
 
 def test_every_phase_fails_on_a_violation(request):

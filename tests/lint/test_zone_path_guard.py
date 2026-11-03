@@ -202,6 +202,8 @@ UNKNOWN = "<?>"  # 認不出的值：取下標、拆不開的指定、走訪不�
 _MODULE_LOADERS = frozenset({"import_module", "__import__"})
 # 屬性仍是同一個東西（或它的字典、它包住的函式）：``x.__dict__``、``f.__globals__`` 等
 _SAME_IDENTITY = frozenset({"__dict__", "__globals__", "__func__", "__wrapped__", "__self__"})
+# 回傳參數本身（或它的副本）的呼叫：函式名稱 → 第幾個參數
+_PASSTHROUGH_CALLS = {"cast": 1, "unwrap": 0, "copy": 0, "deepcopy": 0}
 
 
 def import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -309,8 +311,9 @@ class Names:
     ``import_module("a.b")``、
     ``sys.modules["a.b"]``、``a if c else b``、``await``；``x.__class__`` 是 ``type(x)``，
     ``x.__dict__``、``vars(x)``、``f.__globals__``、``f.__func__``、``f.__wrapped__`` 保留 ``x``、
-    ``f`` 的身分。同一個名稱在同一個範圍的每種指定都算（只會多認），``y = x`` 接著解析。呼叫的結果
-    記成「名稱()」（本模組函式另加它的回傳值）。
+    ``f`` 的身分（``getattr`` 取這些名稱也一樣）；``cast``、``unwrap``、``copy``、``deepcopy`` 的
+    結果另加參數的名稱。同一個名稱在同一個範圍的每種指定都算（只會多認），``y = x`` 接著解析。呼叫的
+    結果記成「名稱()」（本模組函式另加它的回傳值）。
 
     預設不明（DEV-B 第 2 輪）：只有綁定鏈的終點是產品或標準函式庫的 import、本模組的 def 或
     class、或字面時，才可以不含 ``UNKNOWN``。認不出的記 ``UNKNOWN``：參數（呼叫的人傳什麼都可以；
@@ -442,7 +445,11 @@ class ScopeNames:
         if isinstance(expr, ast.Call):
             name = called_name(expr.func, names.aliases)
             if name == "getattr" and len(expr.args) >= 2:
-                return self._last_segments(expr.args[1])
+                found = self._last_segments(expr.args[1])
+                attrs = self.texts(expr.args[1])
+                if attrs & (_SAME_IDENTITY | {"__class__"}):
+                    found |= self.of(expr.args[0])
+                return found | {"type()"} if "__class__" in attrs else found
             if name in _MODULE_LOADERS and expr.args:
                 return self._last_segments(expr.args[0])
             if name == "type" and len(expr.args) == 1:
@@ -454,7 +461,11 @@ class ScopeNames:
             if isinstance(expr.func, (ast.Name, ast.Attribute)):
                 known |= {name} if name else frozenset()
             found = frozenset().union(*(self._call(f"{n}()") for n in known))
-            return found | (callee & {UNKNOWN})  # 呼叫認不出的東西，結果也認不出
+            found |= callee & {UNKNOWN}  # 呼叫認不出的東西，結果也認不出
+            position = _PASSTHROUGH_CALLS.get(name or "")
+            if position is not None and len(expr.args) > position:
+                found |= self.of(expr.args[position])
+            return found
         return frozenset({UNKNOWN})
 
     def texts(self, expr: ast.expr | None, seen: frozenset[str] = frozenset()) -> frozenset[str]:
@@ -1665,6 +1676,27 @@ def _root_name(node: ast.expr) -> str | None:
             return node.id if isinstance(node, ast.Name) else None
 
 
+def _alias_roots(value: ast.expr) -> set[str]:
+    """``x = value`` 之後 ``x`` 可能是哪些名稱的內容：名稱、屬性、下標與子容器，``a or b`` 一類."""
+    if isinstance(value, ast.BoolOp):
+        return set().union(*(_alias_roots(v) for v in value.values))
+    if isinstance(value, ast.IfExp):
+        return _alias_roots(value.body) | _alias_roots(value.orelse)
+    if isinstance(value, (ast.NamedExpr, ast.Await)):
+        return _alias_roots(value.value)
+    while True:
+        if isinstance(value, (ast.Subscript, ast.Attribute)):
+            value = value.value
+        elif (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Attribute)
+            and value.func.attr in _SUBCONTAINER_METHODS
+        ):
+            value = value.func.value
+        else:
+            return {value.id} if isinstance(value, ast.Name) else set()
+
+
 def _call_values(call: ast.Call) -> list[ast.expr]:
     return [*call.args, *(k.value for k in call.keywords)]
 
@@ -1922,6 +1954,26 @@ class TextFlow:
         outer = self._outer(scope)
         return names | self.assigned(outer) if outer is not None else names
 
+    def caller_containers(self, scope: TextScope) -> set[str]:
+        """呼叫端的容器：參數（含 ``*args``、``**kw``；重新綁定過也算）與它們的別名，算到不動點；
+        外層函式的也算（閉包）."""
+        if scope.fn is None:
+            return set()
+        spec = scope.fn.node.args
+        every = (*spec.posonlyargs, *spec.args, *spec.kwonlyargs, spec.vararg, spec.kwarg)
+        names = {a.arg for a in every if a is not None}
+        outer = self._outer(scope)
+        if outer is not None:
+            names |= self.caller_containers(outer)
+        while True:
+            before = len(names)
+            for node in scope.nodes:
+                for target, value in _bindings(node):
+                    if _alias_roots(value) & names:
+                        names |= _target_names(target)
+            if len(names) == before:
+                return names
+
     def _solve(self) -> None:
         changed = True
         while changed:
@@ -2014,7 +2066,8 @@ class TextFlow:
             return self.is_text(child, scope, local)
 
         exits: Counter[str] = Counter()
-        assigned = self.assigned(scope)
+        callers = self.caller_containers(scope)
+        assigned = self.assigned(scope) - callers  # 函式內的容器
         declared = {n for node in scope.nodes if isinstance(node, ast.Global) for n in node.names}
         called = set()
         for node in scope.nodes:
@@ -2025,7 +2078,7 @@ class TextFlow:
                     called.add(id(node.args[position]))
         for node in scope.nodes:
             if isinstance(node, ast.Call):
-                exits.update(self._call_exits(node, scope, local, assigned))
+                exits.update(self._call_exits(node, scope, local, assigned, callers))
             elif (
                 isinstance(node, ast.Attribute)
                 and id(node) not in called
@@ -2048,13 +2101,25 @@ class TextFlow:
                     if text(node.value):
                         exits.update(_store_exits(target, scope, assigned, declared))
                     exits.update(self._key_exits(target, scope, local, assigned))
+                if (
+                    isinstance(node, ast.AugAssign)
+                    and isinstance(node.target, ast.Name)
+                    and node.target.id in callers
+                    and text(node.value)
+                ):
+                    exits[f"store:{node.target.id}"] += 1  # ``+=``、``|=`` 是原地修改
             if isinstance(node, ast.Delete):
                 for target in node.targets:
                     exits.update(self._key_exits(target, scope, local, assigned))
         return exits
 
     def _call_exits(
-        self, call: ast.Call, scope: TextScope, local: set[str], assigned: set[str]
+        self,
+        call: ast.Call,
+        scope: TextScope,
+        local: set[str],
+        assigned: set[str],
+        callers: set[str],
     ) -> list[str]:
         def text(child: ast.AST) -> bool:
             return self.is_text(child, scope, local)
@@ -2075,6 +2140,8 @@ class TextFlow:
         for k in call.keywords:
             slots += [(k.arg, k.value)] if k.arg else self._spread(k.value, scope)
         tainted = [slot for slot, value in slots if text(value)]
+        if tainted and method == "setdefault" and _alias_roots(func.value) & callers:  # type: ignore[union-attr]
+            return [*exits, ast.unparse(func)]  # 寫進呼叫端的容器
         if not tainted or receiver_text:
             return exits
         if method in TF_METHODS and _str_constant(func.value, scope):  # type: ignore[union-attr]
@@ -2733,6 +2800,23 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
             "    fill()\n    ProtocolServerConfig(**entry)\n",
             "src.protocols.registry.ProtocolServerConfig(**)",
         ),
+        # 寫進呼叫端的容器：參數與它的別名
+        ("    other += [t]\n", "store:other"),
+        ("    other |= {'k': t}\n", "store:other"),
+        ("    other.setdefault('k', t)\n", "other.setdefault"),
+        ("    other['a'] = t\n    other.setdefault('k', t)\n", "other.setdefault"),
+        ("    other = other or {}\n    other['k'] = t\n", "store:other[]"),
+        ("    other = other or []\n    other.append(t)\n", "<text>.append"),
+        ("    d = other\n    d['k'] = t\n", "store:d[]"),
+        ("    d = other or {}\n    d['k'] = t\n", "store:d[]"),
+        ("    d = other if zp else {}\n    d['k'] = t\n", "store:d[]"),
+        ("    d = other\n    d.append(t)\n", "<text>.append"),
+        ("    d = other\n    d += [t]\n", "store:d"),
+        ("    d = other\n    e = d\n    e['k'] = t\n", "store:e[]"),
+        ("    d = other.setdefault('k', {})\n    d['x'] = t\n", "store:d[]"),
+        ("    d = other['k']\n    d[t] = 1\n", "key:d[]"),
+        ("    d = other.sub\n    d['k'] = t\n", "store:d[]"),
+        ("    for d in other:\n        d['k'] = t\n", "store:d[]"),
         # 種子與產生函式經 ``Names``：區域別名（DEV-B 第 2 輪 LOW-C）
         ("    import os\n    zt = rm.zone_text\n    os.path.exists(zt(zp))\n", "os.path.exists"),
         ("    launch = other\n    launch.run(1, t)\n", "launch.run"),
@@ -2748,6 +2832,13 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
 def test_g4_unlisted_uses_of_zone_text_are_red(body, exit_):
     exits = _text_flow(_G4 + body, G4_DESTINATIONS).exits()
     assert exit_ in exits.get("m:f", {}), exits
+
+
+def test_g4_a_nested_function_writing_into_the_callers_container_is_red():
+    """外層函式的參數也是呼叫端的容器（閉包）；出口算在裡面的函式."""
+    body = "    def fill():\n        d = other\n        d['k'] = t\n    fill()\n"
+    exits = _text_flow(_G4 + body, G4_DESTINATIONS).exits()
+    assert "store:d[]" in exits.get("m:f.<locals>.fill", {}), exits
 
 
 @pytest.mark.parametrize(
@@ -2800,6 +2891,9 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         "    return len(t) + hash(t)\n",
         # 往下追、函式內容器
         "    env = {}\n    env['HOME'] = t\n    out = []\n    out.append(t)\n    return env, out\n",
+        # 函式內容器的別名與 ``+=``；只綁過字面容器的名稱不是呼叫端的
+        "    env = {}\n    alias = env\n    alias['HOME'] = t\n    return env\n",
+        "    out = []\n    out += [t]\n    return out\n",
         "    return t.rstrip('/').lower()\n",
         "    from pathlib import PurePath\n    return PurePath(t).is_relative_to(other)\n",
     ],
@@ -3367,6 +3461,9 @@ T3_DIRECT_CALLS = frozenset(
         "remove_observer",
     }
 )
+# ``zone_paths`` 類別的成員裡，和其他產品程式的函式或屬性同名的
+# （``test_the_t3_collisions_are_pinned``）
+T3_MEMBER_COLLISIONS = frozenset({"anchor", "kind", "start"})
 # 替換函式的參數（位置依序，也可以用關鍵字給）：pytest 的 monkeypatch 與 unittest.mock；
 # ``type.__setattr__(X, "n", v)`` 一類也算（DEV-B 第 2 輪）
 _PATCH_PARAMS: dict[str, tuple[str, ...]] = {
@@ -3520,9 +3617,11 @@ PatchArgs = dict[str, ast.expr | None]  # 參數名稱 → 值（None 是認不�
 
 
 def _under_patch(func: ast.expr, names: ScopeNames, seen: frozenset[str] = frozenset()) -> bool:
-    """``func`` 是 ``patch`` 的屬性：``patch.object``、``P.object``、``po = patch.object``."""
+    """``func`` 是 ``patch`` 的屬性：``patch.object``、``P.object``、``po = patch.object``；基底
+    認不出也算（參數的 ``patcher.object``）."""
     if isinstance(func, ast.Attribute):
-        return "patch" in names.of(func.value)
+        base = names.of(func.value)
+        return "patch" in base or UNKNOWN in base
     if not isinstance(func, ast.Name) or func.id in seen:
         return False
     where = names.names.defined(func.id, names.scope)
@@ -3545,14 +3644,39 @@ def _patch_args(args: list[ast.expr], call: ast.Call, params: tuple[str, ...]) -
     return dict.fromkeys(params) | given if rest else given
 
 
+def _expanded(call: ast.Call, names: ScopeNames) -> ast.Call:
+    """把 ``partial`` 的參數移進呼叫.
+
+    ``partial(m.setattr, X, "x", f)`` 與 ``s = partial(m.setattr, X); s("x", f)`` 都算
+    ``m.setattr(X, "x", f)``。
+    """
+    func = call.func
+    if "partial" in names.of(func) and call.args:
+        return ast.Call(call.args[0], call.args[1:], call.keywords)
+    if isinstance(func, ast.Name):
+        where = names.names.defined(func.id, names.scope)
+        at = names.names.at(where[0]) if where is not None else None
+        for value in names.names.values[where[0]][func.id] if where is not None else ():
+            if (
+                isinstance(value, ast.Call)
+                and at is not None
+                and "partial" in at.of(value.func)
+                and value.args
+            ):
+                args = [*value.args[1:], *call.args]
+                return ast.Call(value.args[0], args, [*value.keywords, *call.keywords])
+    return call
+
+
 def patch_calls(call: ast.Call, names: ScopeNames) -> list[tuple[str, PatchArgs]]:
     """``call`` 是替換呼叫時，它可能是的每一種（``_PATCH_PARAMS`` 的鍵）與對好的參數.
 
     被呼叫者經 ``Names`` 解析（``ms = m.setattr``、``from unittest.mock import patch as P``）；
-    ``object``、``dict``、``multiple`` 要是 ``patch`` 的屬性；``x.__setattr__("n", v)`` 的擁有者是
-    ``x``（DEV-B 第 2 輪）。
+    ``partial`` 先展開；``object``、``dict``、``multiple`` 要是 ``patch`` 的屬性（基底認不出也算）；
+    ``x.__setattr__("n", v)`` 的擁有者是 ``x``（DEV-B 第 2 輪）。
     """
     found: list[tuple[str, PatchArgs]] = []
+    call = _expanded(call, names)
     func = call.func
     for kind in sorted(names.of(func) & _PATCH_PARAMS.keys()):
         if kind in _MOCK_ATTRS and not _under_patch(func, names):
@@ -3577,6 +3701,7 @@ def _patched_names(call: ast.Call, names: ScopeNames) -> list[Slot]:
     """這個呼叫替換的名稱（monkeypatch、mock.patch 與 mocker 的各種寫法），每個位置一組；
     名稱不是字串或由 ``*args`` 給時是 ``UNKNOWN``."""
     found: list[Slot] = []
+    call = _expanded(call, names)
     for kind, a in patch_calls(call, names):
         if kind in _SET_ATTR:
             dotted = frozenset(t for t in _strings(a.get("target"), names) if "." in t)
@@ -3738,9 +3863,13 @@ def _members_elsewhere() -> set[str]:
 
 @cache
 def zone_paths_class_members() -> frozenset[str]:
-    """``zone_paths.py`` 類別的成員（本體定義的、``__slots__``、``self.x``）；dunder、錯誤訊息與
-    事件紀錄的欄位，以及和其他產品程式的函式或屬性同名的（``start``、``kind`` 一類：認不出擁有者
-    時分不出是誰的）除外。擁有者認不出時，替換這些名稱也算（DEV-B 第 2 輪 LOW-F）."""
+    """``zone_paths.py`` 類別的成員，``T3_MEMBER_COLLISIONS`` 除外（認不出擁有者時分不出是誰的）。
+    擁有者認不出時，替換這些名稱也算（DEV-B 第 2 輪 LOW-F）."""
+    return _zone_paths_own_members() - T3_MEMBER_COLLISIONS
+
+
+def _zone_paths_own_members() -> frozenset[str]:
+    """本體定義的、``__slots__``、``self.x``；dunder、錯誤訊息與事件紀錄的欄位除外."""
     members: set[str] = set()
     for cls in (node for node in _zone_paths_body() if isinstance(node, ast.ClassDef)):
         for node in ast.walk(cls):
@@ -3756,7 +3885,7 @@ def zone_paths_class_members() -> frozenset[str]:
                 elif isinstance(target, ast.Attribute) and ast.unparse(target.value) == "self":
                     members.add(target.attr)
     dunder = {m for m in members if m.startswith("__")}
-    return frozenset(members - dunder - ZONE_PATHS_CLASS_GENERIC_NAMES - _members_elsewhere())
+    return frozenset(members - dunder - ZONE_PATHS_CLASS_GENERIC_NAMES)
 
 
 def zone_paths_module_names() -> frozenset[str]:
@@ -4000,6 +4129,11 @@ def test_t3_owners_are_the_zone_paths_classes():
     assert {"resolved", "literal", "_parts", "_anchor", "_roots", "same_agent"} <= members
     # 和其他產品程式的方法或屬性同名的不算（認不出擁有者時分不出是誰的）
     assert not {"start", "kind", "anchor", "display", "__init__"} & members
+
+
+def test_the_t3_collisions_are_pinned():
+    """排除的名稱釘成常數：產品程式新增同名的函式或屬性時紅，由人決定要不要排除（不會自己變多）."""
+    assert _zone_paths_own_members() & _members_elsewhere() == T3_MEMBER_COLLISIONS
 
 
 @pytest.mark.parametrize(

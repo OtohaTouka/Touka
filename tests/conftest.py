@@ -240,6 +240,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
 
 
 LINK_DEFENSE_MESSAGE = "連結測試換掉了防線（ADR-0293 決定 26，{phase}）：\n"
+_LINK_DEFENSE_PREFIX = LINK_DEFENSE_MESSAGE.split("{", 1)[0]
 
 
 def _link_test_key(item: pytest.Item) -> str | None:
@@ -275,10 +276,41 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
     try:
         result = yield
     finally:
+        _LINK_MONITOR.check_leaks()
         found = _LINK_MONITOR.take()
         _LINK_MONITOR.end()
     _fail_on_link_violations(found, "teardown")
     return result
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
+    """xfail 不能吞掉連結核對的違規（pytest 把 xfail 的失敗改成 skipped；這個 wrapper 在它外面）."""
+    rep = yield
+    violation = call.excinfo is not None and str(call.excinfo.value).startswith(
+        _LINK_DEFENSE_PREFIX
+    )
+    if violation and rep.outcome != "failed":
+        rep.outcome = "failed"
+        if hasattr(rep, "wasxfail"):
+            del rep.wasxfail
+    return rep
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_fixture_setup(fixturedef: pytest.FixtureDef, request: pytest.FixtureRequest):
+    """連結核對要知道替換是哪個範圍的 fixture 做的：module、session 範圍的到它結束才看有沒有換回."""
+    _LINK_MONITOR.enter_fixture(fixturedef)
+    try:
+        return (yield)
+    finally:
+        _LINK_MONITOR.leave_fixture()
+
+
+def pytest_fixture_post_finalizer(
+    fixturedef: pytest.FixtureDef, request: pytest.FixtureRequest
+) -> None:
+    _LINK_MONITOR.fixture_finished(fixturedef)
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
