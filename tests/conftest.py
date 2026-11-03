@@ -271,16 +271,26 @@ def pytest_runtest_call(item: pytest.Item):
     return result
 
 
+def _end_link_checks() -> list[str]:
+    """這個測試的最後一次核對：查換回了沒有，交出還沒報的違規."""
+    _LINK_MONITOR.check_leaks()
+    found = _LINK_MONITOR.take()
+    _LINK_MONITOR.end()
+    return found
+
+
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
     try:
         result = yield
-    finally:
-        _LINK_MONITOR.check_leaks()
-        found = _LINK_MONITOR.take()
-        _LINK_MONITOR.end()
-        # 放在 finally 裡：teardown 自己也失敗時違規照報，原本的失敗留在例外鏈上
-        _fail_on_link_violations(found, "teardown")
+    except (KeyboardInterrupt, SystemExit, pytest.exit.Exception):
+        _end_link_checks()  # 中斷不能變成一般失敗：整批要停
+        raise
+    except BaseException:  # ``pytest.fail`` 不是 ``Exception``
+        # teardown 自己也失敗時違規照報，原本的失敗留在例外鏈上
+        _fail_on_link_violations(_end_link_checks(), "teardown")
+        raise
+    _fail_on_link_violations(_end_link_checks(), "teardown")
     return result
 
 

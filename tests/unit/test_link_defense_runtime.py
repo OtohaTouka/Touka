@@ -7,13 +7,16 @@
 
 from __future__ import annotations
 
-import ast
 import copy
+import enum
 import functools
+import inspect
 import json
 import sys
 import types
 import warnings
+import weakref
+from collections.abc import MutableMapping, MutableSequence, MutableSet
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -332,32 +335,44 @@ def test_a_constant_left_changed_through_monkeypatch_is_a_leak():
         m.undo()
 
 
-_MUTABLE_VALUES = (ast.Dict, ast.List, ast.Set, ast.DictComp, ast.ListComp, ast.SetComp)
-_MUTABLE_CALLS = frozenset(
-    {"dict", "list", "set", "defaultdict", "deque", "OrderedDict", "Counter"}
+# 平常就會變，或標準函式庫自己維護的：不比內容
+_UNCOMPARED_MUTABLE_CONSTANTS = (
+    ("memory_server.utils.zone_paths", "_observers"),
+    ("memory_server.utils.zone_paths", "_handoffs"),
+    ("memory_server.utils.no_follow", "WalkEntry._field_defaults"),
 )
 
 
-def _mutable_constants(body: list[ast.stmt]) -> Iterator[str]:
-    """模組與類別層綁到可變容器的名稱."""
-    for node in body:
-        if isinstance(node, ast.ClassDef):
-            yield from _mutable_constants(node.body)
-        value = node.value if isinstance(node, (ast.Assign, ast.AnnAssign)) else None
-        called = isinstance(value, ast.Call) and getattr(value.func, "id", "") in _MUTABLE_CALLS
-        if isinstance(value, _MUTABLE_VALUES) or called:
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            yield from (ast.unparse(target) for target in targets)
+def _holds_mutable(value: object) -> bool:
+    if isinstance(value, tuple):
+        return any(_holds_mutable(item) for item in value)
+    return isinstance(value, (MutableMapping, MutableSequence, MutableSet, weakref.WeakSet))
+
+
+def _mutable_constants(module: types.ModuleType) -> Iterator[tuple[str, str]]:
+    """模組與類別層綁到可變容器的（模組, 名稱）：看實際的值，不管是什麼寫法、定義在哪個區塊."""
+    for name, value in vars(module).items():
+        if name.startswith("__"):
+            continue
+        if inspect.isclass(value):
+            # ``Enum`` 的成員表是 enum 自己維護的
+            if value.__module__ == module.__name__ and not issubclass(value, enum.Enum):
+                for member, item in vars(value).items():
+                    if not member.startswith("__") and _holds_mutable(item):
+                        yield module.__name__, f"{value.__name__}.{member}"
+        elif _holds_mutable(value):
+            yield module.__name__, name
 
 
 def test_every_mutable_constant_of_the_defense_modules_is_accounted_for():
     """防線模組新增可變常數時紅，由人決定比不比內容（``_observers``、``_handoffs`` 平常就會變）."""
-    found: set[str] = set()
-    for relative in link_defenses.LINK_DEFENSE_MODULES:
-        tree = ast.parse((link_defenses.ROOT / relative).read_text(encoding="utf-8"))
-        found.update(_mutable_constants(tree.body))
-    listed = {name for _module, name in link_defenses.LINK_DEFENSE_CONTENTS}
-    assert found == listed | {"_observers", "_handoffs"}
+    found = {
+        constant
+        for module in link_defenses.LINK_DEFENSE_MODULES.values()
+        for constant in _mutable_constants(module)
+    }
+    listed = {(module.__name__, name) for module, name in link_defenses.LINK_DEFENSE_CONTENTS}
+    assert found == listed | set(_UNCOMPARED_MUTABLE_CONSTANTS)
 
 
 def test_the_session_guards_the_contents_of_the_data_dirs(request):
@@ -464,6 +479,50 @@ def test_what_monkeypatch_puts_back_counts_as_the_class_member(name):
 )
 def test_only_the_class_member_itself_counts(name, value):
     assert not link_defenses._same_as_class(_Members(), name, value)
+
+
+@pytest.mark.parametrize(
+    ("name", "wrong"),
+    [
+        # ``staticmethod`` 綁到實例：呼叫時會多塞一個 self
+        ("plain", lambda i: types.MethodType(_Members.__dict__["plain"].__func__, i)),
+        # 沒綁定的函式放進實例：呼叫時少一個 self
+        ("act", lambda _i: _Members.__dict__["act"]),
+        ("made", lambda _i: _Members.__dict__["made"].__func__),
+    ],
+    ids=["static-bound", "plain-function", "class-function"],
+)
+def test_a_wrong_binding_of_the_class_member_does_not_count(name, wrong):
+    instance = _Members()
+    assert not link_defenses._same_as_class(instance, name, wrong(instance))
+
+
+class _Computed:
+    @property
+    def value(self) -> str:
+        pytest.fail("核對不能跑 property 的程式")
+
+    @functools.cached_property
+    def cached(self) -> str:
+        pytest.fail("核對不能跑 cached_property 的程式")
+
+
+@pytest.mark.parametrize("name", ["value", "cached"])
+def test_comparing_never_runs_a_property(name):
+    assert not link_defenses._same_as_class(_Computed(), name, _fake)
+
+
+@pytest.mark.parametrize("name", ["LIMIT", "act", "made", "plain", "cached"])
+def test_a_monkeypatch_round_trip_leaves_the_state_as_it_was(name):
+    """真的走一次 monkeypatch 換掉再換回，經 ``Defenses`` 核對."""
+    instance = _Members()
+    defenses = link_defenses.Defenses.of([], [instance], [])
+    before = defenses.state()
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(instance, name, _fake)
+        assert defenses.state() != before
+    assert name in vars(instance)
+    assert defenses.state() == before
 
 
 def test_a_direct_change_after_a_leak_is_reported(defended):
@@ -819,34 +878,47 @@ def test_teardown_reports_a_replacement_left_in_place(monkeypatch, request, defe
         patcher.stop()
 
 
-def test_a_failing_teardown_does_not_lose_a_violation(request):
+def _teardown_phase(monkeypatch, request, defended) -> Any:
+    """停在 teardown 中間的 hook，核對用這個測試自己的 ``Monitor``，不碰 session 那一個."""
+    conftest, _monitor = _session_monitor(request)
+    monkeypatch.setattr(conftest, "_LINK_MONITOR", defended.monitor)
+    phase = conftest.pytest_runtest_teardown(request.node, None)
+    next(phase)
+    return phase
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("teardown 自己的失敗"), pytest.fail.Exception("teardown 自己的失敗")],
+    ids=["exception", "pytest-fail"],
+)
+def test_a_failing_teardown_does_not_lose_a_violation(monkeypatch, request, defended, failure):
     """teardown 自己也失敗時，連結核對的違規照樣報，原本的失敗留在例外鏈上."""
-    conftest, monitor = _session_monitor(request)
-    phase = conftest.pytest_runtest_teardown(request.node, None)
-    next(phase)
-    monitor.violations.append("自我測試放的違規")
-    try:
-        with pytest.raises(pytest.fail.Exception, match="自我測試放的違規") as caught:
-            phase.throw(RuntimeError("teardown 自己的失敗"))
-        assert isinstance(caught.value.__context__, RuntimeError)
-    finally:
-        monitor.begin(
-            request.node.path, f"{MODULE_KEY}:test_a_failing_teardown_does_not_lose_a_violation"
-        )
+    phase = _teardown_phase(monkeypatch, request, defended)
+    defended.monitor.violations.append("自我測試放的違規")
+    with pytest.raises(pytest.fail.Exception, match="自我測試放的違規") as caught:
+        phase.throw(failure)
+    assert caught.value.__context__ is failure
 
 
-def test_a_failing_teardown_without_a_violation_keeps_its_failure(request):
-    conftest, monitor = _session_monitor(request)
-    phase = conftest.pytest_runtest_teardown(request.node, None)
-    next(phase)
-    try:
-        with pytest.raises(RuntimeError, match="teardown 自己的失敗"):
-            phase.throw(RuntimeError("teardown 自己的失敗"))
-    finally:
-        monitor.begin(
-            request.node.path,
-            f"{MODULE_KEY}:test_a_failing_teardown_without_a_violation_keeps_its_failure",
-        )
+def test_a_failing_teardown_without_a_violation_keeps_its_failure(monkeypatch, request, defended):
+    phase = _teardown_phase(monkeypatch, request, defended)
+    with pytest.raises(RuntimeError, match="teardown 自己的失敗"):
+        phase.throw(RuntimeError("teardown 自己的失敗"))
+
+
+@pytest.mark.parametrize(
+    "interrupt",
+    [KeyboardInterrupt(), SystemExit(1), pytest.exit.Exception("停")],
+    ids=["keyboard", "system-exit", "pytest-exit"],
+)
+def test_an_interrupt_during_teardown_stays_an_interrupt(monkeypatch, request, defended, interrupt):
+    """中斷不能變成一般失敗，否則整批測試繼續跑."""
+    phase = _teardown_phase(monkeypatch, request, defended)
+    defended.monitor.violations.append("自我測試放的違規")
+    with pytest.raises(type(interrupt)):
+        phase.throw(interrupt)
+    assert defended.monitor.take() == []
 
 
 def test_the_fixture_hooks_feed_the_monitor(monkeypatch, request, defended):

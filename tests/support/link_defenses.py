@@ -517,13 +517,17 @@ class Defenses:
 
 def _same_as_class(instance: object, name: str, value: object) -> bool:
     """實例屬性就是類別的那一個：monkeypatch 換回實例的方法時留下的是綁回自己的方法，行為和沒蓋掉
-    相同。只比身分：``==`` 會呼叫值自己的 ``__eq__``（``mock.ANY`` 和什麼都相等）."""
+    相同。基準是沒蓋掉時取屬性會拿到的值，只比身分：``==`` 會呼叫值自己的 ``__eq__``（``mock.ANY``
+    和什麼都相等）。``property``、``cached_property`` 不綁定（綁定會跑它的程式），一律算蓋掉."""
     found = inspect.getattr_static(type(instance), name, _ABSENT)
-    member = found.__func__ if isinstance(found, (classmethod, staticmethod)) else found
-    if isinstance(value, types.MethodType):
-        owner = type(instance) if isinstance(found, classmethod) else instance
-        return value.__self__ is owner and value.__func__ is member
-    return value is member
+    expected = found
+    if isinstance(found, (classmethod, staticmethod)) or (
+        callable(found) and hasattr(type(found), "__get__")
+    ):
+        expected = found.__get__(instance, type(instance))
+    if isinstance(value, types.MethodType) and isinstance(expected, types.MethodType):
+        return value.__self__ is expected.__self__ and value.__func__ is expected.__func__
+    return value is expected
 
 
 def _functions_in(value: object) -> Iterator[types.FunctionType]:
