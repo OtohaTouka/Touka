@@ -128,6 +128,7 @@ tests/
 | `unit/test_memory_health_zone.py` | `/v1/memory/health` 的個人空間一項：只有 `personal_drive` 是資料夾才算正常。 |
 | `unit/test_mcp_vault_jail.py` | 設了 `vault_jail_arg` 的 MCP 伺服器：工具呼叫以固定原因拒絕、不送出（結構化 `permission_denied`）。 |
 | `unit/test_isolation_zone_shapes.py` | 隔離層的形狀判斷改呼叫 `zone_of` 後結果不變（逐列寫明以前的結果；只有標明的 Windows 大小寫一列是刻意改的）。 |
+| `unit/test_literal_grants_links_security.py` | 授與只用字面位置（ADR-0293 決定 16）：MCP 分類給的程式資料夾、data 根的兩種寫法、懸空連結與鏡像根的判斷、專案根、公開設定檔與 APPDATA 對映；連結只讓判斷更嚴，不會多給。 |
 | `unit/test_isolation_writable_roots.py` | Z10：每個接上 runner 的動作與 MCP 種類實際建出 profile，每條可寫規則都在代理人資料夾裡或是錨點本身（兩種 state 位置、四種身分、有無專案、執行器）；`SandboxProfile`／`PathRule` 的建構點以 AST 釘住；執行器掛載、權限自癒白名單與 heartbeat 的資料根名稱對得上錨點。 |
 | `unit/test_zone_records.py` | 區例外紀錄的自我測試：宣告的範圍、類別比對、沒宣告的留到測試結束。 |
 | `unit/test_zone_tripwire.py` | Z9 絆線的自我測試：產品程式的呼叫者用 `tmp_path` 裡臨時匯入的模組模擬，事件用 `sys.audit` 發；哪些參數算路徑（`open` 的 mode、網路位址不算）、Linux 上沒登記的 `/proc/self/fd` 照記、技能 venv 的 python 當執行檔不記（cwd 與其他錨點照記）、放行清單對得到程式、全量檢查的旗標不傳給子 pytest。 |

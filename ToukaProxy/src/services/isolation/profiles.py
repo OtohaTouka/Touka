@@ -104,6 +104,8 @@ class SandboxLayout:
     executor_dir: Path | None
     mirror_roots: tuple[Path, ...]
     in_container: bool
+    # 設定裡的 data 根寫法（人做的連結未解析）；字面比對同時看它和解析後的寫法（ADR-0293 決定 17）
+    data_root_literal: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,11 @@ def _resolve(path: Path | str) -> Path:
     return Path(path).resolve()
 
 
+def _literal(path: Path | str) -> Path:
+    """絕對、以字面消掉 ``..``，不跟隨連結：授與只用這個位置（ADR-0293 決定 16）。"""
+    return Path(os.path.normpath(Path(path).absolute()))
+
+
 def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
@@ -154,7 +161,8 @@ def has_link(path: Path | str, resolved: Path | None = None) -> bool:
 def current_layout() -> SandboxLayout:
     """依目前設定組出版面；容器內 ST／kernel 未設定時保留 None（由狀態判定原因）。"""
     in_container = is_container_runtime()
-    data_root = _resolve(resource_manager.get_base_path())
+    configured_data_root = resource_manager.get_base_path()
+    data_root = _resolve(configured_data_root)
     state = resource_manager.sandbox_state_root()  # ST 只有一個來源（ADR-0293 P7）
     kernel = settings.TOUKA_SANDBOX_KERNEL_DIR
     native_kernel = None if in_container else PROXY_ROOT / "src" / "sandbox_kernel"
@@ -173,6 +181,7 @@ def current_layout() -> SandboxLayout:
         executor_dir=_resolve(settings.TOUKA_EXECUTOR_DIR) if settings.TOUKA_EXECUTOR_DIR else None,
         mirror_roots=tuple(sorted(_resolve(m) for m in mirrors)),
         in_container=in_container,
+        data_root_literal=_literal(configured_data_root),
     )
 
 
@@ -283,12 +292,15 @@ async def authorize_derived_path(
 
 
 def public_config_rules(anchors: Iterable[Path], layout: SandboxLayout) -> tuple[PathRule, ...]:
-    """錨點每一層上層裡、真實存在的九個公開設定檔（一般檔、非硬連結），唯讀。"""
+    """錨點每一層字面上層裡、真實存在的九個公開設定檔（一般檔、非硬連結），唯讀.
+
+    只給字面位置（ADR-0293 決定 16）：解析結果只用來略過，上層有連結（解析後和字面不同）的不給。
+    """
     blocked = [_resolve(layout.data_root)]
     blocked += [p for p in (layout.state_root, _protected_env_dir(layout)) if p]
     found: dict[Path, PathRule] = {}
     for anchor in anchors:
-        for parent in _resolve(anchor).parents:
+        for parent in Path(os.path.normpath(anchor)).parents:
             for name in sorted(PUBLIC_CONFIG_NAMES):
                 candidate = parent / name
                 try:
@@ -298,7 +310,8 @@ def public_config_rules(anchors: Iterable[Path], layout: SandboxLayout) -> tuple
                 # lstat：符號連結不是一般檔；硬連結（st_nlink>1）也略過
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                     continue
-                if any(_within(candidate, _resolve(b)) for b in blocked):
+                resolved = _resolve(candidate)
+                if resolved != candidate or any(_within(resolved, _resolve(b)) for b in blocked):
                     continue
                 found[candidate] = PathRule(candidate, "ro", optional=True, skip_symlink=True)
     return tuple(found.values())
@@ -442,7 +455,7 @@ def _own_drive(identity: AgentIdentity, agent_dir: Path, layout: SandboxLayout) 
     ``CUSTOM_DRIVE/<id>/drive``。路上有連結就拒絕；交出的字串只消掉 ``..``、不再解析（R7）。
     """
     agent_id = identity.agent_id
-    target = Path(os.path.normpath(Path(agent_dir).absolute()))
+    target = _literal(agent_dir)
     found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS)
     own = (resource_manager.soul_drive(identity), resource_manager.custom_drive(identity))
     if not is_safe_segment(agent_id) or has_link(target):
@@ -518,7 +531,8 @@ async def build_agent_command_profile(
     if project_root is not None:
         verdict = await authorize_derived_path(project_root, layout, identity.agent_id)
         if verdict is None:
-            granted_project = _resolve(project_root)
+            # 給檢查過的字面位置：之後才換成連結的，啟動器開不了（ADR-0293 決定 16）
+            granted_project = _literal(project_root)
             rules.append(PathRule(granted_project, "rwx"))
         else:
             ungranted = (verdict,)

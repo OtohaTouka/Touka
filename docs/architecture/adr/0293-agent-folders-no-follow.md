@@ -1,11 +1,12 @@
 # ADR-0293：代理人資料夾的讀寫不跟隨連結（ZonePath；PR 1：個人空間；PR 2：其他三個錨點）
 
-- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。
+- 狀態：✅ 已實作（PR 1：`PERSONAL_DRIVE`、`CUSTOM_DRIVE`；PR 2：`MCP_SERVERS`、`DOCGEN_OUTPUT`、`SANDBOX_STATE`，見「PR 2」一節；後續 PR：授與只用字面位置，見最後一節）。ADR-0292 合併後的後續；一頁計畫與技術設計由維護者核准，設計與交件各經 4 位對抗式複審（PR 2 的設計經三輪複審後改由測試與改壞工具判定，交件仍經 4 位複審）。
 - 日期：2026-10-30
 - 決策者：維護者
 - 相關：ADR-0004（路徑 SSOT）、ADR-0013（時間）、ADR-0115（vault-jailed MCP；本 ADR 起這類伺服器的工具呼叫一律拒絕，D1 的注入不再使用）、ADR-0214（測試沙盒）、ADR-0255（個人空間目錄）、ADR-0270（重置）、ADR-0272、0275（隔離層）、ADR-0292（hook；決定 12 的不跟隨連結）。
 - 影響範圍：ToukaMemory 新增 `utils/zone_paths.py`，擴充 `utils/no_follow.py`；修改 `protocols.py`（`IResourceProxy`）、`tools/core_file_ops.py`、`tools/diag.py`、`tools/__init__.py`、`services/personal_catalog.py`、`services/mission_manager.py`、`services/manager.py`，刪 `tools/personal_drive.py`。ToukaProxy 修改 `services/resource_manager.py`、`tools/terminal.py`、`tools/mission_tools.py`、`tools/editor.py`（刪 `text_editor`）、`tools/grok_imagine_server.py`、`services/upload_service.py`、`services/gdpr_export_service.py`、`services/agent_reset/`、`services/memory_scrub/orchestrator.py`、`services/review/`、`services/subagent_results.py`、`services/process_registry.py`、`services/tool_executor.py`、`services/mcp_vault_jail.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`、`repair.py`、`status.py`、`home_wipe.py`）、`utils/mcp_origin.py`、`utils/permission_repair.py`、`utils/soul_io.py`、`utils/custom_io.py`、`routers/souls.py`、`routers/custom_models.py`、`routers/models.py`、`services/models/manager.py`、`routers/ui_sessions.py`、`routers/mcp.py`、`protocols/registry.py`（說明）、`routers/observability.py`、`main.py`、`scripts/manage_backup.py`，新增 `services/zone_file_response.py`；`errors.json.example`（1421 `AGENT_DRIVE_LINKED`）；ToukaDispatch `server.py`；ToukaChat `uploadClassify.ts`、`error_codes.ts`、翻譯；`scripts/lint_ssot.py`、`scripts/native_tool_contract_baseline.json`（刪 `text_editor`）；CI `native-tool-contracts.yml`（全量 pytest 開 `TOUKA_Z9_FULL_RUN`）。
 - 影響範圍（PR 2）：ToukaMemory `utils/zone_paths.py`；ToukaProxy `services/resource_manager.py`、`services/evolution_security.py`、`tools/builtin/evolution.py`、`services/isolation/`（`evolution_command.py`、`profiles.py`、`mcp_profiles.py`、`mcp_launch.py`、`status.py`、`home_wipe.py`、`executor_session.py`、`executor_server.py`）、`protocols/mcp/isolated_stdio.py`、`services/scorecard/artifact_verify.py`、`utils/isolation_policy.py`、`utils/soul_io.py`、`scripts/manage_backup.py`；三份 compose（執行器的掛載）、CI `isolation.yml`；`scripts/lint_ssot.py`（`evolution_security.py` 移出 I/O 白名單）。
+- 影響範圍（後續 PR）：ToukaProxy `utils/mcp_origin.py`、`services/isolation/`（`profiles.py`、`mcp_profiles.py`）；ToukaMemory `utils/zone_paths.py`；測試 `tests/lint/test_zone_path_guard.py`、`tests/zone_mutations.json`。
 
 ## 背景
 
@@ -69,7 +70,7 @@
 - **改版前的備份**可能含連結另一端的內容。
 - **改名失敗的原因**：`custom/<id>` 新舊其中一個是掛載點（跨檔案系統）或 Windows 上檔案還開著時，改名回 `SYSTEM_ERROR`，不另外說明原因。
 - **絆線**看不到子行程裡的 I/O 與 `stat` 類呼叫；`os.open` 的 audit 事件不帶 `dir_fd`，以 `dir_fd` 開的相對名稱也看不到（產品程式裡這樣開的只有 `no_follow` 與隔離 kernel）。
-- **其他三個錨點**：見最後一節「PR 2」的已知界線。
+- **其他三個錨點**：見「PR 2」一節的已知界線。
 
 ## 後果
 
@@ -111,7 +112,7 @@
 13. **執法範圍**：`ENFORCED_ANCHORS = ALL_ANCHORS`（兩個名稱保留，值相同）。字串方法的拒絕、走訪的剪枝、絆線都擴大到五個錨點。ST 底下全部算區（含只有 Touka 寫得到的 `ST/proxy`），代理人深度是 `proxy/<kind>/<owner>`（3 段）。區內的刪除方法拒絕短於代理人深度的路徑（整個錨點、`ST/proxy`、`ST/proxy/<kind>` 刪不掉；`CUSTOM_DRIVE` 照 PR 1）。
 14. **通則**：產生函式與存取函式回 `None` 只代表一件事（寫在函式說明裡），其他拒絕一律是帶原因的例外；每道檢查都有只有它擋得到的輸入，並有直接打這一層的單元測試；改寫舊判斷時逐一對應舊的特殊值（「全部」「沒設定」「讀不到」），各有測試。
 15. **產生函式**：`tool_root(skill)`（`None` 只代表名稱不合格）、`sandbox_state_proxy()`、`sandbox_state_dir(kind, owner)`（`None` 只代表 ST 沒設；名稱不能當一段時丟 `ZoneSegmentError`）。`anchor_root` 只給 `PERSONAL_DRIVE` 與 `DOCGEN_OUTPUT`。建出 `ZonePath` 只在 `zone_paths.py` 與 RM。
-16. **區字串 `zone_text(zp)`**：解析後的錨點加字面段落，不做 I/O、不登記交接。只用來交給別人：沙盒規則與 profile 的 cwd／`HOME`／`TMPDIR`、子行程的 argv、寫進設定的部署條目；也可以拿來比對，但比對結果只能讓判斷更嚴：跟隨連結算出的結果只准用來拒絕，不准用來授與（演化沙盒規則裡技能資料夾的讀、寫、執行與 cwd 只用字面位置；MCP 來源分類與隔離 profile 的兩處授與目前不符，見已知的界線）。venv 的 python 在 POSIX 本來就是連結，所以 argv 與部署條目用它，不用 `zone_handoff`。`get_tool_root` 回 `str`。
+16. **區字串 `zone_text(zp)`**：解析後的錨點加字面段落，不做 I/O、不登記交接。只用來交給別人：沙盒規則與 profile 的 cwd／`HOME`／`TMPDIR`、子行程的 argv、寫進設定的部署條目；也可以拿來比對，但比對結果只能讓判斷更嚴：跟隨連結算出的結果只准用來拒絕，不准用來授與（演化沙盒規則裡技能資料夾的讀、寫、執行與 cwd、MCP 來源分類給的程式資料夾、公開設定檔與專案根都只用字面位置，後三者見最後一節）。venv 的 python 在 POSIX 本來就是連結，所以 argv 與部署條目用它，不用 `zone_handoff`。`get_tool_root` 回 `str`。
 17. **新的區內方法**：
     - `zone_rename`：同一個資料夾裡改最後一段，路徑必須嚴格深於代理人深度（唯一用途是開機把 `<owner>/tmp` 改名後刪）。
     - `zone_access`：最後一段不是連結、存在，而且 `os.access` 成立；只供狀態判斷，答錯只會變成「不可寫」。
@@ -135,7 +136,7 @@
 25. **還原**（`scripts/manage_backup.py`）：data 成員的第一段只收備份會寫的資料夾（`SANCTUARY_FOLDERS`）與 data 根的 `*.db`，其他略過並列出；比對鍵和代理人資料夾的分流相同（`normcase` 後完全相等）。
 26. **靜態檢查**（`tests/lint/test_zone_path_guard.py`）：
     - TF：從 `zone_text` 出發，由程式算出回傳區字串的函式（產生函式）與收區字串的函式（接收函式）；兩個集合分別釘住，新增一個就紅。呼叫只認解析得到的寫法，解析不到又同名的另列名單；`zone_text` 與產生函式的區域別名（`zt = rm.zone_text`、`root_of = …get_tool_root`）經名稱解析也算。
-    - G4：區字串只准去列名的地方：純字串操作、比較、接收函式（本體照樣檢查）、`G4_DESTINATIONS`（沙盒規則與 profile、子行程的 argv、部署條目、記錄）、`G4_ALLOWED`（每項標固定類別：只會更嚴〔結果只用來拒絕〕、交給逐段不跟隨的 kernel 原語、只當字串用不做 I/O〔鍵、雜湊、嵌進程式碼〕，或已知界線〔會放寬，必須在本 ADR 的已知界線列名，名單釘住〕）。沒列名的呼叫一律紅；存到任何屬性（含 `self`）都算出口；G4 是 `stat` 類唯一的靜態防線（絆線看不到 `stat`）。`**` 只展開字面字典（或同一函式只指定一次、之後沒改過、沒有別名、沒放進容器、沒被閉包用到的字面字典；讀取與交給呼叫可以，被呼叫的函式改參數內容時在那裡另算出口），其他 `**` 算萬用槽；`launch`、`logger` 一類以變數名稱列名的去處，名稱必須只綁定過列名的呼叫結果。
+    - G4：區字串只准去列名的地方：純字串操作、比較、接收函式（本體照樣檢查）、`G4_DESTINATIONS`（沙盒規則與 profile、子行程的 argv、部署條目、記錄）、`G4_ALLOWED`（每項標固定類別：只會更嚴〔結果只用來拒絕〕、交給逐段不跟隨的 kernel 原語、字面授與〔後續 PR 新增：結果只決定給不給、給什麼形狀，給的是字面位置，啟動器逐段不跟隨地開〕、只當字串用不做 I/O〔鍵、雜湊、嵌進程式碼〕，或已知界線〔會放寬，必須在本 ADR 的已知界線列名，名單釘住；目前沒有〕）。沒列名的呼叫一律紅；存到任何屬性（含 `self`）都算出口；G4 是 `stat` 類唯一的靜態防線（絆線看不到 `stat`）。`**` 只展開字面字典（或同一函式只指定一次、之後沒改過、沒有別名、沒放進容器、沒被閉包用到的字面字典；讀取與交給呼叫可以，被呼叫的函式改參數內容時在那裡另算出口），其他 `**` 算萬用槽；`launch`、`logger` 一類以變數名稱列名的去處，名稱必須只綁定過列名的呼叫結果。
     - 名稱解析（G3、T3、連結掃描、G4 的 `launch`／`logger` 去處、TF 的種子與產生函式別名共用一個解析器）：import 別名、同一範圍的指定（含 walrus、拆解）、`class`／`def` 綁定。預設不明：只有綁定鏈的終點是產品或標準函式庫的 import、本模組的 `def`／`class` 或字面時才可以確定；參數、不是從產品或標準函式庫 import 的名稱、基底不是靜態 import 的屬性、`with … as x` 進入的結果，以及呼叫這些東西的結果（`request.getfixturevalue(…)`、`d.get(…)`、`type(x)()`）都記成「不明」。`x.__class__` 當成 `type(x)`；`__dict__`、`vars(x)`、`__globals__`、`__func__`、`__wrapped__`、`__self__` 保留底下物件的身分。替換呼叫本身也經同一個解析器認：替換函式的別名（`ms = m.setattr`、`P.object`）、關鍵字參數、`*args`／`**kw`（認不出的位置記不明）、`type.__setattr__(X, …)`，以及經 `__dict__`、`vars()`、`__globals__` 改防線的字典。連結掃描：擁有者或被換的名稱是防線，或換進去的值裝著防線就紅；擁有者不明時，換掉的是防線類別的成員名稱或名稱也不明才紅。T3：擁有者不明時，換掉 `zone_paths` 類別的成員也算（和其他產品程式的函式或屬性同名的除外，例如 `start`）。
     - 連結測試的執行期核對（`tests/support/link_defenses.py`；conftest 在每個測試的 setup、本體與 teardown 之後核對）：session 開始時記下四個防線模組、它們的類別、函式（`__code__`、`__defaults__`、`__kwdefaults__`）與 RM 實例的狀態。monkeypatch 與 `unittest.mock` 的替換照物件身分認，做替換的程式不在 `LINK_SCAN_ALLOWED` 就紅（範圍同靜態掃描：改壞清單列出的測試檔、`*_links_security.py`、conftest、`tests/support/` 與它們匯入的測試模組）；經這兩者的替換照物件身分認，不管怎麼寫出來；不經這兩者的改動（直接指定、改函式的 `__code__`），只要改的是核對的對象（四個防線模組、它們的類別與函式、RM 實例），在 setup、本體或 teardown 結束時還沒換回就不分範圍一律紅；改函式的 `__code__`、`__defaults__`、`__kwdefaults__` 另經 audit hook 記下，範圍內的測試在同一個階段換回也紅。核對的對象與狀態是列舉出來的，看不到的列在已知的界線。直譯器自己寫的快取（`__warningregistry__`、`__annotations__`、`__slotnames__`）不比對；做替換的程式依解析後的路徑認（經 junction、subst 或短檔名進 repo 時一樣）；範圍裡的檔讀不到或有語法錯誤時只是不追它匯入的模組，不讓 pytest 啟動不了（DEV-B 第 3 輪）。靜態掃描保留當提早提醒，兩者共用同一份放行清單。
     - G3：`ZonePath`、`agent_root` 兩個名稱只在 `zone_paths.py` 與 RM 出現；`__class__`、`__setattr__`、描述器的 `__set__`／`__delete__`（屬性或字串）與呼叫 `type(x)` 的結果（含存成變數或經函式回傳）逐處釘住。
@@ -150,14 +151,11 @@
 - **執行器自己的 I/O**（自測、清殘留、準備資料夾）不經 RM，照 PR 1。
 - **硬連結**：隔離中的程式只能在自己可寫的資料夾之間建，指到的檔案本來就寫得到。未隔離的程式（人核准的，或依禁令 66 ⑩ 直接啟動的第三方 MCP）留下的硬連結在結束後仍有效，之後 Touka 在區裡就地寫入（上傳、生圖、追加）會寫進那個檔案；隔離中的代理人若在自己可寫的資料夾碰到這種硬連結，也能直接寫進那個檔案。這和那次未隔離執行本身的能力等價，不另外處理，也不加 `st_nlink` 檢查（會改 PR 1 原語的語意、誤拒正常的多重連結檔）。原子替換的寫入不受影響。
 - **部署後程式內容被改**：部署雜湊只含 `server.py` 與 `requirements.txt`，之後的啟動不重核內容；部署後還在跑的程式改過的內容，下次啟動會被執行。這是內容、不是連結，列為後續。
-- **MCP 來源分類**用解析後的位置授與唯讀＋執行，少數寫法下自建條目可能拿到另一個技能資料夾的讀與執行（拿不到寫）。觸發的也可以是隔離中的 MCP 自己在 ST home 放的連結（不限條目的寫法，原本判成第三方的條目也算）。修法是授與只用字面候選（決定 16），修法小，排在下一個；`G4_ALLOWED` 裡這四項標成已知界線：`src.utils.mcp_origin:_item_paths`、`src.utils.mcp_origin:referenced_paths`、`src.utils.mcp_origin:_candidates`、`src.utils.mcp_origin:is_file_reference`（測試核對名單和這裡一致）。
 - **`layout.state_root`**（隔離版面的 ST）是另一個讀取點：只當資料用（沙盒規則的保護與封鎖清單、分類的區根、權限自癒的根），P7 存取函式在兩個來源不同時拒絕；TF／G1 不把它當 ST 來源，以後有人直接拿它組路徑做 `stat` 類 I/O，靜態檢查看不到。
 - **守衛不追的寫法**：測試替換 `os.lstat` 一類作業系統函式不算替換防線（防線本身沒被換掉，只影響那個測試）；靜態掃描不檢查測試類別繼承防線類別後對 `self` 屬性的替換，也不追從產品模組另存的別名再替換（這兩種經 monkeypatch 或 mock 時，執行期核對照物件身分抓得到）。執行期核對看不到同一個階段（setup、本體或 teardown）裡直接改了又換回的（例如類別屬性、`vars(mod)[k] = v`），這部分只靠靜態掃描；typing `Protocol` 類別第一次建立實例時才換上的 `__init__` 不比對。G3 不計對 `type(x)`、`x.__class__` 結果的其他屬性存取（不是呼叫，也不是 `__set__`／`__delete__`）。保護名單不做遞移封閉（經包裝函式碰到產生函式的公開方法不會自動列入 T3）：T3 管產生函式與 data 根，檔案方法的替換由連結掃描把關，測試因替換包裝層而變空洞由改壞清單兜底（每條防線規則都要有測試會紅）。
 - **執行期核對守的範圍是列舉的**（DEV-B 第 3 輪；多數要刻意寫才碰得到，下一個 PR 補）：裝飾器包住的原函式（經 `__wrapped__` 才拿得到，例如 `functools.wraps`、`lru_cache`）不算防線函式；防線模組或類別裡的可變容器，內容被改不比對；其他模組手上對防線的參照（例如 `core_file_ops.ensure_no_links`）不在核對的對象內：直接指定換掉，或經 `setitem`／`patch.dict` 改那個模組的字典，執行期與靜態掃描都看不到（經 monkeypatch／mock 的 `setattr` 一類會核對被換掉的值；目前沒有測試這樣寫）；`fn.__defaults__ = None` 或 `del` 發出的是刪除事件，同一個階段換回時看不到；標成 xfail 的測試，本體階段的違規會跟著被當成預期的失敗；`LINK_GENERIC_NAMES` 的名稱不比對；經記下的替換打開的位置整個 session 有效，替換外洩（測試結束沒換回）時，之後在那裡的直接改不報，每個測試開始時也會清掉之前留下的違規；放行清單只綁做替換的程式，不綁換的目標，也不綁哪個測試用它；範圍不追 `from tests.pkg import 子模組` 匯入的子模組（`tests/support/` 本來就整個在範圍內）。可能無心碰到的有兩種：範圍外的測試 `patch(...).start()` 忘了 `stop()`，替換一直留著；連結測試匯入別的模組裡已放行的 fixture。
 - **靜態掃描的殘留**（只影響提早提醒；經 monkeypatch 或 mock 時執行期照物件身分抓得到）：`cast`、`unwrap`、`copy` 一類回傳參數的呼叫結果、`getattr(X, "__dict__")`、`functools.partial(m.setattr, …)`、參數的 `patcher.object(…)` 認不出；經方法取的 `X.m.__self__`、`X.m.__globals__` 會丟掉擁有者（名稱解析那段寫這些保留身分，這兩種寫法不成立）。T3 擁有者不明時比對的成員名單排掉和其他產品程式撞名的名稱，這份排除沒有釘成常數、會自己變多；另一方面 `name`、`parent`、`parts`、`key` 這種常見屬性名可能在無關的測試誤報（會紅、看得到）。
 - **G4 不算「寫進呼叫端的容器」**：參數上的 `+=`、`|=`、重新綁定過的參數上的寫入、`setdefault` 不算出口。G4 是 `stat` 類唯一的靜態防線；根本做法是測試期間包住 `os.stat` 一類函式、對代理人資料夾的字串記一筆，讓 G4 也降成提早提醒，另排。
-- **G3 不計對已建立的 `ZonePath` 再呼叫 `__init__`**：這樣能改掉它的錨點與段落。修法是 `ZonePath.__init__` 遇到重複初始化就丟 `ZoneSegmentError`（產品程式一行），排在下一個 PR。
-- **隔離 profile 另兩處授與用了跟隨連結的結果**（PR 2 以前就有，沒有讓 PR 2 的範圍變寬）：`public_config_rules` 用解析後的錨點找上層資料夾的公開設定檔授與唯讀（G4 經 `src.services.isolation.profiles:_resolve` 看得到，列成已知界線）；代理人的專案根解析後授與讀寫執行，解析和授與之間有很短的時間差（專案根不是區，G4 不管）。下一個 PR（MCP 來源分類）照同一條規則一起修：授與只用字面計算的值，解析結果只出現在「不符就拒絕」的判斷。
 - **`touka-init`**（docker 的權限初始化）以路徑遞迴、遇到連結不跟隨，但檢查與動作之間有時間差；初始化時有代理人的程式同時在跑，可能改到初始化範圍內其他資料夾的擁有者與權限（不改內容、不改設定以外的寫入落點）。修法屬部署元件，另排。
 - **靈魂 id** 也會成為執行器掛載根的第一層，建立靈魂時沒有套用決定 19 的名單；只有管理員做得到、C2-2 起就有，另排。
 - **`lint_ssot.py` 的白名單**用檔名整檔豁免：同名的新檔也會被豁免。PR 2 釘住每個檔名在 repo 裡對到的路徑；改成逐條規則或比對 repo 相對路徑另排。
@@ -185,3 +183,40 @@
 - 執行器：`test_executor_server.py`、`test_executor_mcp_start_security.py`、`test_executor_compose_security.py`、`test_isolation_writable_roots.py`、`tests/lint/test_isolation_ci_workflow.py`。
 - `tests/lint/test_zone_path_guard.py`（TF、G3、G4 與擴大的 G1、G2、T3）、`tests/unit/test_zone_mutations_manifest.py`；改壞清單在 Windows 本機與 Linux 容器各跑一次，每項都被列名的測試殺死。
 - 連結測試在改之前的 `2529ab60` 上執行一次，失敗訊息含 `LINK_FOLLOWED`。
+
+## 後續 PR：授與只用字面位置（2026-11-03）
+
+### 背景
+
+決定 16 的規則是「跟隨連結算出的結果只准用來拒絕、不准用來授與」，PR 2 留下三處不符：MCP 來源分類給程式資料夾時看解析後的位置，公開設定檔從解析後的錨點往上找，代理人的專案根解析後才授與。這些都發生在 Touka 幫沙盒算規則的時候：隔離中的程式可以在自己寫得到的地方放連結，讓 Touka 算出另一個資料夾。這次全部改掉，G4 的已知界線清空。
+
+### 決定（接續 1–28）
+
+29. **授與的算法**：交給沙盒的路徑只用解析後的錨點加字面段落，`..` 以字面消掉（`profiles._literal`），不跟隨連結；解析結果只能讓判斷更嚴。規則交給啟動器後從 `/` 逐段不跟隨地開，之後才換成連結的，必要規則啟動失敗、選用規則略過。
+30. **MCP 的程式資料夾**：`literal_managed_skills` 算要給的技能（只看字面），`frozen_managed_skills` 算凍結的技能（字面或解析後，只會多凍結）；`classify` 用前者，`deployed_skills` 用後者。條目經連結引用技能時仍判成自建、那個技能仍凍結，但不給它的讀與執行。
+31. **data 根的兩種寫法**（決定 17 的同一想法）：人可能經連結設定 data 根，條目裡會是設定的寫法，Touka 手上是解析後的寫法。字面比對兩種都認（`mcp_origin.data_root_spellings`；`SandboxLayout.data_root_literal` 記設定的寫法，只有 `current_layout` 會填，沒填時把 `data_root` 當設定的寫法），給出去的規則一律是解析後的錨點加字面段落。代理人放的連結指到 data 根不算：不對映 APPDATA，也不算普通 data 根參數（整個 `managed` 都算已部署）。
+32. **三處放寬的判斷不再跟隨連結**：沒有分隔符號的參數與長得像 `@scope/pkg` 的參數，用 `lexists` 判斷基準資料夾裡有沒有這個名稱（懸空連結也算引用）；鏡像根裡的資料夾解析後和字面不同，就算代理人影響得到；公開設定檔解析後和字面不同就不給。
+33. **專案根**：核對用解析後的位置，授與用字面位置；核對之後才換成連結的，啟動器開不了，指令不執行。
+34. **`ZonePath` 不能重複初始化**：再呼叫一次 `__init__` 丟 `ZoneSegmentError`。這是 G3 不計的改法，改掉以後不用再靠靜態檢查。
+35. **`G4_ALLOWED`**：原本標成已知界線的五項改標「只會更嚴」或新類別「字面授與」，理由逐項重寫，`public_config_rules` 的 `os.lstat` 新列一項；`G4_KNOWN_BOUNDARIES` 清空。已知界線這個類別保留：以後要放寬仍必須先在本 ADR 的「已知的界線（PR 2）」列名（守衛只看那一節）。
+
+### 已知的界線（後續 PR）
+
+- `lexists`、`lstat` 只有最後一段不跟隨，中間段仍跟隨。它們的結果只決定「算不算引用」與「規則是資料夾還是它的上層」，給出去的仍是字面位置，由啟動器逐段不跟隨地開。
+- Windows 本機沒有啟動器與 Landlock：分類結果和 Linux 相同，但規則本身沒有執法（PR 2 已列的「Windows 本機」）。
+- `G4_ALLOWED` 的類別是寫的人自己標的：新增會放寬的項目卻標成「只會更嚴」，守衛不會紅，要靠審查抓。
+
+### 後果（後續 PR）
+
+- **升級**：MCP 條目經連結引用技能資料夾的，升級後判成自建但拿不到程式資料夾，啟動失敗（程式讀不到自己的資料夾；沒有專用代碼，顯示的是一般的啟動錯誤）；改寫成實際路徑即可。data 根的兩種寫法都照常。
+- **data 根的第三種寫法**（別的連結、Windows 8.3 短檔名、subst）以前靠解析認得，升級後不認，都是往嚴的方向，改寫成設定的寫法或實際路徑即可：
+    - 自建條目拿不到程式資料夾。
+    - 普通的 data 根參數當成一般引用：任何一筆條目（停用的也算）這樣寫，所有技能都算已部署，不能再演化。
+    - 第三方與 scaffold 條目的非程式 env 值（例如 APPDATA）不對映到 personal_drive，這個位置也不給（`PROTECTED_LOCATION` 記進 `ungranted`），伺服器照樣啟動。寫進參數的本來就判成自建，沒有變。
+- 第三方條目引用鏡像根裡路上有連結的資料夾，或基準資料夾裡有同名的懸空連結，升級後判成自建，啟動條件變嚴。
+- 專案或錨點上層有連結時，連結以下的公開設定檔不再給；程式讀不到就用自己的預設值。
+
+### 驗證（後續 PR）
+
+- `tests/unit/test_literal_grants_links_security.py`（在改之前的 `9216b9bb` 上 17 個案例失敗：跟隨連結，或新欄位還不存在；之後補的案例沒有在那一輪，由改壞清單驗證）、`tests/unit/test_zone_paths.py`（重複初始化）。
+- `tests/lint/test_zone_path_guard.py`（`G4_ALLOWED`、`G1_TEXT_SITES`、`G4_KNOWN_BOUNDARIES` 清空）；改壞清單新增 21 項，共 235 項，每項都被列名的測試殺死：Linux 容器整份跑一次（232 項殺死，3 項只在 Windows 判得出、跳過）；Windows 本機整份 231 項加後來新增的 4 項（228 項殺死，7 項只在 POSIX 判得出、跳過，都不是這次新增的）。
