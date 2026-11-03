@@ -247,3 +247,10 @@ PR 2 的「已知的界線」列了一串測試守衛看不到的寫法，多半
 - 替換防線又沒換回的測試，以前可能只有下一個測試受影響，現在在它自己的 teardown 紅。
 - 新增放行項目要寫它換的名稱；少寫或多寫，靜態掃描都紅。
 - 產品和測試的行為都沒有變，不影響升級。
+
+### 驗證（測試守衛）
+
+- `tests/unit/test_link_defense_runtime.py`（改核對程式之前新案例 27 個失敗）、`tests/unit/test_zone_mutations_manifest.py`、`tests/lint/test_zone_path_guard.py`。
+- 第一輪全量 pytest 有 802 個 teardown 錯誤：monkeypatch 換回實例方法時留下綁回自己的方法，被當成外洩。先補紅燈測試，再把「和從類別取出來的一樣」當成沒蓋掉；同一批測試也抓到換回的位置留在已打開清單、之後的直接改被蓋掉。
+- `tests/unit/test_soul_primary_model_choice.py` 原本就時好時壞（建立靈魂要更新 `user_sessions`，不跑 lifespan 時表不一定存在，看隨機順序），這次讓 fixture 先建表。
+- 改壞清單新增 33 項，共 268 項，每項都被列名的測試殺死：Linux 容器整份跑一次（265 項殺死，3 項只在 Windows 判得出、跳過）；Windows 本機整份跑一次（261 項殺死，7 項只在 POSIX 判得出、跳過）。新增的 33 項在兩個平台都有跑到。
