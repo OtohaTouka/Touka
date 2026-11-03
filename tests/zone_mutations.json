@@ -4379,14 +4379,14 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "old": "            if isinstance(node, _OTHER_BINDINGS):\n",
     "new": "            if False:\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
     "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
     "posix_only": false,
-    "note": "for 與生成式的目標不看：for other['k'] in [t] 看不到"
+    "note": "迴圈、生成式、with、walrus 的目標都不看：for other['k'] in [t] 看不到"
   },
   {
     "id": "g4_plain_for_target_ignored",
@@ -4394,8 +4394,8 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
-    "new": "            if isinstance(node, (ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "old": "    ast.NamedExpr,\n    ast.For,\n",
+    "new": "    ast.NamedExpr,\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
@@ -4409,8 +4409,8 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
-    "new": "            if isinstance(node, (ast.For, ast.comprehension)) and text(node.iter):\n",
+    "old": "    ast.For,\n    ast.AsyncFor,\n",
+    "new": "    ast.For,\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
@@ -4424,8 +4424,8 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
-    "new": "            if isinstance(node, (ast.For, ast.AsyncFor)) and text(node.iter):\n",
+    "old": "    ast.comprehension,\n    ast.With,\n",
+    "new": "    ast.With,\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
@@ -4559,7 +4559,7 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "        taken = outside | set(values) | set(_values(module.nodes))\n",
+    "old": "        taken = outside | set(values) | _namespace_bindings(self.trees[scope.module])\n",
     "new": "        taken = outside | set(values)\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_a_constructor_shadowed_at_module_level_does_not_count"
@@ -4702,5 +4702,335 @@
     "target": "tests.conftest:pytest_runtest_teardown",
     "posix_only": false,
     "note": "中斷時不收：違規和狀態留到下一次核對"
+  },
+  {
+    "id": "g4_with_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.With,\n    ast.AsyncWith,\n",
+    "new": "    ast.AsyncWith,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "with 的目標寫到函式外不看"
+  },
+  {
+    "id": "g4_async_with_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.With,\n    ast.AsyncWith,\n",
+    "new": "    ast.With,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "async with 的目標寫到函式外不看"
+  },
+  {
+    "id": "g4_walrus_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_OTHER_BINDINGS = (\n    ast.NamedExpr,\n",
+    "new": "_OTHER_BINDINGS = (\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "walrus 綁到 global、nonlocal 不看"
+  },
+  {
+    "id": "g4_other_binding_any_value",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                    if text(value):\n                        exits.update(_store_exits(target, scope, own, declared))\n",
+    "new": "                    if True:\n                        exits.update(_store_exits(target, scope, own, declared))\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_listed_places_comparisons_and_follow_forms_are_not_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
+    "posix_only": false,
+    "note": "綁的值不是區字串也算出口：寫對的程式被冤枉"
+  },
+  {
+    "id": "g4_with_not_followed",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    elif isinstance(node, (ast.With, ast.AsyncWith)):\n        for item in node.items:\n            if item.optional_vars is not None:\n                yield item.optional_vars, item.context_expr\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "with 的目標不往下追：with ctx() as p 的 p 看不到"
+  },
+  {
+    "id": "g4_with_plain_not_followed",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    elif isinstance(node, (ast.With, ast.AsyncWith)):\n        for item in node.items:\n",
+    "new": "    elif isinstance(node, ast.AsyncWith):\n        for item in node.items:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "with 的目標不往下追"
+  },
+  {
+    "id": "g4_async_with_not_followed",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    elif isinstance(node, (ast.With, ast.AsyncWith)):\n        for item in node.items:\n",
+    "new": "    elif isinstance(node, ast.With):\n        for item in node.items:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "async with 的目標不往下追"
+  },
+  {
+    "id": "g4_lambda_body_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if isinstance(node, ast.Lambda):\n            return text(node.body)\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "lambda 的本體不看：g = lambda: t 看不到"
+  },
+  {
+    "id": "g4_calling_text_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n            return True  # ``lambda`` 算區字串，呼叫它的結果也算\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "呼叫 lambda 的結果不算區字串"
+  },
+  {
+    "id": "g4_calling_named_lambda_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n",
+    "new": "        if isinstance(func, ast.Call) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "呼叫名稱綁的 lambda，結果不算區字串"
+  },
+  {
+    "id": "g4_calling_returned_lambda_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n",
+    "new": "        if isinstance(func, ast.Name) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "呼叫另一個呼叫回傳的 lambda，結果不算區字串"
+  },
+  {
+    "id": "g4_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if isinstance(node, _HAS_DEFAULTS):\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "參數的預設值不看"
+  },
+  {
+    "id": "g4_function_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_HAS_DEFAULTS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)\n",
+    "new": "_HAS_DEFAULTS = (ast.AsyncFunctionDef, ast.Lambda)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "def 的預設值不看"
+  },
+  {
+    "id": "g4_async_function_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_HAS_DEFAULTS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)\n",
+    "new": "_HAS_DEFAULTS = (ast.FunctionDef, ast.Lambda)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "async def 的預設值不看"
+  },
+  {
+    "id": "g4_lambda_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_HAS_DEFAULTS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)\n",
+    "new": "_HAS_DEFAULTS = (ast.FunctionDef, ast.AsyncFunctionDef)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "lambda 的預設值不看"
+  },
+  {
+    "id": "g4_positional_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                if any(text(d) for d in (*spec.defaults, *spec.kw_defaults) if d is not None):\n",
+    "new": "                if any(text(d) for d in spec.kw_defaults if d is not None):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "一般參數的預設值不看"
+  },
+  {
+    "id": "g4_keyword_defaults_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                if any(text(d) for d in (*spec.defaults, *spec.kw_defaults) if d is not None):\n",
+    "new": "                if any(text(d) for d in spec.defaults if d is not None):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "只限關鍵字參數的預設值不看"
+  },
+  {
+    "id": "g4_any_default_counts",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                if any(text(d) for d in (*spec.defaults, *spec.kw_defaults) if d is not None):\n",
+    "new": "                if spec.defaults or spec.kw_defaults:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_listed_places_comparisons_and_follow_forms_are_not_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
+    "posix_only": false,
+    "note": "預設值不是區字串也算出口：寫對的程式被冤枉"
+  },
+  {
+    "id": "g4_nonlocal_not_declared",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        kinds = (ast.Global, ast.Nonlocal)\n",
+    "new": "        kinds = (ast.Global,)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_nonlocal_name_is_a_store_outside_the_function"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_nonlocal_name_is_a_store_outside_the_function",
+    "posix_only": false,
+    "note": "nonlocal 的名稱拿到區字串不報"
+  },
+  {
+    "id": "g4_global_not_declared",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        kinds = (ast.Global, ast.Nonlocal)\n",
+    "new": "        kinds = (ast.Nonlocal,)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "global 的名稱拿到區字串不報"
+  },
+  {
+    "id": "g4_namespace_into_nested",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if not isinstance(node, _NESTED):\n            pending.extend(ast.iter_child_nodes(node))\n",
+    "new": "        pending.extend(ast.iter_child_nodes(node))\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_name_outside_the_module_namespace_does_not_shadow_a_constructor"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_name_outside_the_module_namespace_does_not_shadow_a_constructor",
+    "posix_only": false,
+    "note": "類別的成員與函式裡的綁定算模組層：同模組有 set 方法時，內建的 set 不算新建容器，寫對的程式被冤枉"
+  },
+  {
+    "id": "g4_namespace_top_level_only",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if not isinstance(node, _NESTED):\n            pending.extend(ast.iter_child_nodes(node))\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_constructor_shadowed_at_module_level_does_not_count"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_constructor_shadowed_at_module_level_does_not_count",
+    "posix_only": false,
+    "note": "模組層只看最外面：if、try 裡蓋掉建構式看不到"
   }
 ]

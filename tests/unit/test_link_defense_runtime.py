@@ -20,7 +20,7 @@ from collections.abc import MutableMapping, MutableSequence, MutableSet
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from unittest import mock
 
 import pytest
@@ -349,17 +349,18 @@ def _holds_mutable(value: object) -> bool:
     return isinstance(value, (MutableMapping, MutableSequence, MutableSet, weakref.WeakSet))
 
 
-def _class_constants(cls: type, module: str, prefix: str) -> Iterator[tuple[str, str]]:
+def _class_constants(cls: type, module: str) -> Iterator[tuple[str, str]]:
     # 別的模組的類別不是這裡定義的；``Enum`` 的成員表是 enum 自己維護的，整個類別不看
     if cls.__module__ != module or issubclass(cls, enum.Enum):
         return
     for member, item in vars(cls).items():
         if member.startswith("__"):
             continue
-        if inspect.isclass(item):
-            yield from _class_constants(item, module, f"{prefix}{member}.")
+        # 只進真的巢狀類別：屬性指向別的類別時，那個類別有自己的位置（也可能繞回來）
+        if inspect.isclass(item) and item.__qualname__ == f"{cls.__qualname__}.{member}":
+            yield from _class_constants(item, module)
         elif _holds_mutable(item):
-            yield module, f"{prefix}{member}"
+            yield module, f"{cls.__qualname__}.{member}"
 
 
 def _mutable_constants(module: types.ModuleType) -> Iterator[tuple[str, str]]:
@@ -369,22 +370,41 @@ def _mutable_constants(module: types.ModuleType) -> Iterator[tuple[str, str]]:
         if name.startswith("__"):
             continue
         if inspect.isclass(value):
-            yield from _class_constants(value, module.__name__, f"{name}.")
+            yield from _class_constants(value, module.__name__)
         elif _holds_mutable(value):
             yield module.__name__, name
 
 
+class _Outer:
+    class _Inner:
+        LOOKUP: ClassVar[dict[str, str]] = {}
+
+
+class _Holder:
+    other = _Outer
+
+
+class _Cycle:
+    pass
+
+
+_Cycle.me = _Cycle
+
+
 def test_the_mutable_constant_listing_goes_into_nested_classes():
-    fake = types.ModuleType("fake_defense_module")
-    fake.Outer = type(
-        "Outer",
-        (),
-        {
-            "__module__": fake.__name__,
-            "Inner": type("Inner", (), {"__module__": fake.__name__, "LOOKUP": {}}),
-        },
-    )
-    assert list(_mutable_constants(fake)) == [(fake.__name__, "Outer.Inner.LOOKUP")]
+    fake = types.ModuleType(_Outer.__module__)
+    fake.Outer = _Outer
+    assert list(_mutable_constants(fake)) == [(fake.__name__, "_Outer._Inner.LOOKUP")]
+
+
+def test_the_mutable_constant_listing_only_follows_real_nesting():
+    """類別屬性指向別的類別不算巢狀：不會走進循環，別名也不會把同一個常數列兩次."""
+    fake = types.ModuleType(_Outer.__module__)
+    fake.Holder = _Holder
+    fake.Cycle = _Cycle
+    fake.Outer = _Outer
+    fake.Alias = _Outer
+    assert set(_mutable_constants(fake)) == {(fake.__name__, "_Outer._Inner.LOOKUP")}
 
 
 def test_every_mutable_constant_of_the_defense_modules_is_accounted_for():

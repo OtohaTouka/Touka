@@ -1657,7 +1657,7 @@ def _bind(
 
 
 def _bindings(node: ast.AST) -> Iterator[tuple[ast.AST, ast.expr]]:
-    """（指定目標, 值）：指定、標註指定、``+=``、walrus、``for`` 與生成式的迴圈變數."""
+    """（指定目標, 值）：指定、標註指定、``+=``、walrus、迴圈變數、``with`` 的目標."""
     if isinstance(node, ast.Assign):
         for target in node.targets:
             yield target, node.value
@@ -1665,6 +1665,10 @@ def _bindings(node: ast.AST) -> Iterator[tuple[ast.AST, ast.expr]]:
         yield node.target, node.value
     elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
         yield node.target, node.iter
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                yield item.optional_vars, item.context_expr
 
 
 def _root_name(node: ast.expr) -> str | None:
@@ -1711,6 +1715,17 @@ def _is_own(node: ast.expr, own: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in own
 
 
+# 指定以外的綁定：目標寫到函式外時和指定一樣算出口
+_OTHER_BINDINGS = (
+    ast.NamedExpr,
+    ast.For,
+    ast.AsyncFor,
+    ast.comprehension,
+    ast.With,
+    ast.AsyncWith,
+)
+_HAS_DEFAULTS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
 # 這些範圍裡的綁定不是外層函式自己的（``_values`` 會記到外層，但外層的同名名稱指到外面的）
 _OTHER_SCOPES = (
     ast.ClassDef,
@@ -1741,6 +1756,18 @@ def _outside_bindings(nodes: Iterable[ast.AST]) -> set[str]:
             stores = (n for n in ast.walk(node) if isinstance(n, ast.Name))
             found |= {n.id for n in stores if isinstance(n.ctx, ast.Store)}
     return found
+
+
+def _namespace_bindings(tree: ast.Module) -> set[str]:
+    """模組命名空間綁的名稱：含 ``if``、``try`` 這些區塊裡的，類別的成員與函式裡的不算."""
+    nodes: list[ast.AST] = []
+    pending: list[ast.AST] = list(tree.body)
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        if not isinstance(node, _NESTED):
+            pending.extend(ast.iter_child_nodes(node))
+    return set(_values(nodes))
 
 
 def _call_values(call: ast.Call) -> list[ast.expr]:
@@ -1908,6 +1935,8 @@ class TextFlow:
             return text(node.elt)
         if isinstance(node, ast.DictComp):
             return text(node.key) or text(node.value)
+        if isinstance(node, ast.Lambda):
+            return text(node.body)
         return False
 
     def _call_is_text(self, call: ast.Call, scope: TextScope, local: set[str]) -> bool:
@@ -1918,6 +1947,8 @@ class TextFlow:
         values = _call_values(call)
         if _short_name(func, scope) == ZONE_TEXT or ZONE_TEXT in self.names(scope).of(func):
             return True  # 種子也經 ``Names``：``zt = rm.zone_text; zt(zp)``（DEV-B 第 2 輪 LOW-C）
+        if isinstance(func, (ast.Name, ast.Call)) and text(func):
+            return True  # ``lambda`` 算區字串，呼叫它的結果也算
         if isinstance(func, ast.Attribute):
             if text(func.value):
                 return func.attr in TF_METHODS or func.attr in TF_CONTAINER_READS
@@ -2004,8 +2035,7 @@ class TextFlow:
             for name, found in _values(current.nodes).items():
                 values.setdefault(name, []).extend(found)
             current = self._outer(current)
-        module = self.by_key[f"{scope.module}:<module>"]
-        taken = outside | set(values) | set(_values(module.nodes))
+        taken = outside | set(values) | _namespace_bindings(self.trees[scope.module])
         return {
             name
             for name, found in values.items()
@@ -2105,7 +2135,8 @@ class TextFlow:
 
         exits: Counter[str] = Counter()
         own = self.own_containers(scope)
-        declared = {n for node in scope.nodes if isinstance(node, ast.Global) for n in node.names}
+        kinds = (ast.Global, ast.Nonlocal)
+        declared = {n for node in scope.nodes if isinstance(node, kinds) for n in node.names}
         called = set()
         for node in scope.nodes:
             if isinstance(node, ast.Call):
@@ -2153,8 +2184,14 @@ class TextFlow:
                 ):
                     # 改的是那一格裡的容器，可能是別的容器
                     exits[f"store:{ast.unparse(node.target.value)}[]"] += 1
-            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):
-                exits.update(_store_exits(node.target, scope, own, declared))
+            if isinstance(node, _OTHER_BINDINGS):
+                for target, value in _bindings(node):
+                    if text(value):
+                        exits.update(_store_exits(target, scope, own, declared))
+            if isinstance(node, _HAS_DEFAULTS):
+                spec = node.args
+                if any(text(d) for d in (*spec.defaults, *spec.kw_defaults) if d is not None):
+                    exits["default"] += 1  # 預設值存在函式物件上，函式裡看不出是區字串
             if isinstance(node, ast.Delete):
                 for target in node.targets:
                     exits.update(self._key_exits(target, scope, local, own))
@@ -2958,11 +2995,63 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
             "    import collections\n    d = collections.OrderedDict()\n    d['k'] = t\n",
             "store:d[]",
         ),
+        # ``with`` 的目標拿到區字串：往下追，寫到函式外和指定一樣
+        ("    with t as p:\n        open(p)\n", "open"),
+        ("    async with t as p:\n        open(p)\n", "open"),
+        ("    with t as other['k']:\n        pass\n", "store:other[]"),
+        ("    async with t as other['k']:\n        pass\n", "store:other[]"),
+        ("    global LAST\n    with t as LAST:\n        pass\n", "store:LAST"),
+        # walrus 綁到 ``global``
+        ("    global LAST\n    (LAST := t)\n", "store:LAST"),
+        # ``lambda`` 包起來：呼叫的結果與交出去的函式都算區字串
+        ("    g = lambda: t\n    open(g())\n", "open"),
+        ("    g = lambda: rm.zone_text(zp)\n    open(g())\n", "open"),
+        ("    h = lambda: (lambda: t)\n    open(h()())\n", "open"),
+        ("    run(lambda: t)\n", "run"),
+        # 參數的預設值存在函式物件上，函式裡看不出是區字串
+        ("    def g(p=t):\n        open(p)\n", "default"),
+        ("    async def g(p=t):\n        open(p)\n", "default"),
+        ("    def g(*, p=t):\n        open(p)\n", "default"),
+        ("    g = lambda p=t: open(p)\n", "default"),
     ],
 )
 def test_g4_unlisted_uses_of_zone_text_are_red(body, exit_):
     exits = _text_flow(_G4 + body, G4_DESTINATIONS).exits()
     assert exit_ in exits.get("m:f", {}), exits
+
+
+_FILL = "    found = None\n    def fill():\n        nonlocal found\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "        found = t\n",
+        "        for found in [t]:\n            pass\n",
+        "        with t as found:\n            pass\n",
+        "        (found := t)\n",
+    ],
+)
+def test_g4_a_nonlocal_name_is_a_store_outside_the_function(body):
+    """外層之後怎麼用看不到（那裡的名稱沒有指定過區字串），所以寫進去就是出口."""
+    exits = _text_flow(_G4 + _FILL + body + "    fill()\n", G4_DESTINATIONS).exits()
+    assert "store:found" in exits.get("m:f.<locals>.fill", {}), exits
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "def ctx(rm, zp):\n    yield rm.zone_text(zp)\n"
+        "def f(rm, zp):\n    with ctx(rm, zp) as p:\n        open(p)\n",
+        "def make(rm, zp):\n    return lambda: rm.zone_text(zp)\n"
+        "def f(rm, zp):\n    open(make(rm, zp)())\n",
+        "def make(rm, zp):\n    return lambda: rm.zone_text(zp)\n"
+        "def f(rm, zp):\n    g = make(rm, zp)\n    open(g())\n",
+    ],
+)
+def test_g4_zone_text_through_another_function_is_followed(text):
+    exits = _text_flow(text, G4_DESTINATIONS).exits()
+    assert "open" in exits.get("m:f", {}), exits
 
 
 @pytest.mark.parametrize(
@@ -3074,6 +3163,13 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         "    return len([c for c in t])\n",
         # 生成式只是讀到函式自己的容器，沒有綁它
         "    d = {}\n    n = [len(d) for _ in other]\n    d['k'] = t\n    return d, n\n",
+        # 綁的值不是區字串：目標寫到哪裡都不算
+        "    for other['k'] in other:\n        pass\n",
+        "    with cm() as other['k']:\n        pass\n",
+        _FILL + "        found = other\n    fill()\n    return t == found\n",
+        # ``lambda`` 的結果與預設值都不是區字串
+        "    return sorted(other, key=lambda c: c == t)\n",
+        "    def g(*, p=None, q=1):\n        return q\n    return t == g()\n",
         # 複製品本身也是新的（寫進它的內層才碰得到原本的）
         "    d = dict(other)\n    d['k'] = t\n    return d\n",
         "    d = list(other)\n    d.append(t)\n    return d\n",
@@ -3106,12 +3202,31 @@ def test_g4_a_constructor_imported_at_module_level_is_not_red(head, call):
         ("from collections import deque\ndeque = helper\n", "deque()"),
         ("import collections\ncollections = helper\n", "collections.OrderedDict()"),
         ("from helpers import *\n", "dict()"),
+        ("if cond:\n    dict = helper\n", "dict()"),
+        ("try:\n    dict = helper\nexcept E:\n    pass\n", "dict()"),
+        ("def dict():\n    pass\n", "dict()"),
+        ("class dict:\n    pass\n", "dict()"),
     ],
 )
 def test_g4_a_constructor_shadowed_at_module_level_does_not_count(head, call):
     body = f"    d = {call}\n    d['k'] = t\n"
     exits = _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
     assert "store:d[]" in exits.get("m:f", {}), exits
+
+
+@pytest.mark.parametrize(
+    ("head", "call"),
+    [
+        ("class C:\n    def set(self):\n        pass\n", "set()"),
+        ("class C:\n    dict = 1\n", "dict()"),
+        ("class C:\n    class list:\n        pass\n", "list()"),
+        ("def helper():\n    dict = 1\n", "dict()"),
+    ],
+)
+def test_g4_a_name_outside_the_module_namespace_does_not_shadow_a_constructor(head, call):
+    """類別的成員與函式的區域變數不在模組命名空間：同模組有 ``set`` 方法，內建的還是內建的."""
+    body = f"    d = {call}\n    d['k'] = t\n    return d\n"
+    assert "m:f" not in _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
 
 
 def test_g4_a_receiver_that_only_compares_is_not_red():
