@@ -398,7 +398,7 @@ def test_the_mutable_constant_listing_goes_into_nested_classes():
 
 
 def test_the_mutable_constant_listing_only_follows_real_nesting():
-    """類別屬性指向別的類別不算巢狀：不會走進循環，別名也不會把同一個常數列兩次."""
+    """類別屬性指向別的類別不算巢狀：不會走進循環，別名列出來的也是本來的名稱."""
     fake = types.ModuleType(_Outer.__module__)
     fake.Holder = _Holder
     fake.Cycle = _Cycle

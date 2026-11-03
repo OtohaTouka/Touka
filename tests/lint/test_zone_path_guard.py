@@ -1947,7 +1947,7 @@ class TextFlow:
         values = _call_values(call)
         if _short_name(func, scope) == ZONE_TEXT or ZONE_TEXT in self.names(scope).of(func):
             return True  # 種子也經 ``Names``：``zt = rm.zone_text; zt(zp)``（DEV-B 第 2 輪 LOW-C）
-        if isinstance(func, (ast.Name, ast.Call)) and text(func):
+        if text(func):
             return True  # ``lambda`` 算區字串，呼叫它的結果也算
         if isinstance(func, ast.Attribute):
             if text(func.value):
@@ -3007,6 +3007,11 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
         ("    g = lambda: t\n    open(g())\n", "open"),
         ("    g = lambda: rm.zone_text(zp)\n    open(g())\n", "open"),
         ("    h = lambda: (lambda: t)\n    open(h()())\n", "open"),
+        ("    handlers = {'a': lambda: t}\n    open(handlers['a']())\n", "open"),
+        ("    d = {}\n    d['k'] = lambda: t\n    open(d['k']())\n", "open"),
+        ("    open((lambda: t)())\n", "open"),
+        ("    g = lambda: t\n    open((g if other else None)())\n", "open"),
+        ("    g = lambda: t\n    open((other or g)())\n", "open"),
         ("    run(lambda: t)\n", "run"),
         # 參數的預設值存在函式物件上，函式裡看不出是區字串
         ("    def g(p=t):\n        open(p)\n", "default"),
@@ -3166,6 +3171,7 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         # 綁的值不是區字串：目標寫到哪裡都不算
         "    for other['k'] in other:\n        pass\n",
         "    with cm() as other['k']:\n        pass\n",
+        "    with cm(len(t)) as f:\n        f.write(other)\n",
         _FILL + "        found = other\n    fill()\n    return t == found\n",
         # ``lambda`` 的結果與預設值都不是區字串
         "    return sorted(other, key=lambda c: c == t)\n",

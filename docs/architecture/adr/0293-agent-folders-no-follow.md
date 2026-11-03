@@ -231,7 +231,7 @@ PR 2 的「已知的界線」列了一串測試守衛看不到的寫法，多半
 
 36. **執行期核對多看的東西**（`tests/support/link_defenses.py`）：
     - 裝飾器包住的原函式（沿 `__wrapped__`）算防線函式。
-    - `LINK_DEFENSE_CONTENTS` 列的可變常數（`_DATA_DIRS`、`_AGENT_DEPTH`）比內容，不只比物件；同一個階段改了又換回看不到，和其他直接改一樣。經 monkeypatch、mock 整個換掉或改內容，照放行清單判，不算直接改。防線模組裡模組層與類別裡（含真的巢狀類別，屬性指向別的類別不算；`Enum` 類別整個不看）值是可變容器、或含可變容器的 tuple 的名稱在執行期列舉，不管是什麼寫法、定義在哪個區塊；不是容器的可變物件（dataclass 實例、`SimpleNamespace`）與函式的可變預設值看不到。除了這兩個只有 `_observers`、`_handoffs` 與 `WalkEntry._field_defaults`，新增時測試紅，由人決定比不比內容。
+    - `LINK_DEFENSE_CONTENTS` 列的可變常數（`_DATA_DIRS`、`_AGENT_DEPTH`）比內容，不只比物件；同一個階段改了又換回看不到，和其他直接改一樣。經 monkeypatch、mock 整個換掉或改內容，照放行清單判，不算直接改。防線模組裡模組層與類別裡（含真的巢狀類別，屬性指向別的類別不算；`Enum` 類別整個不看）值是可變容器、或含可變容器的 tuple 的名稱在執行期列舉，不管是什麼寫法、定義在哪個區塊；不是容器的可變物件（dataclass 實例、`SimpleNamespace`）、函式的可變預設值、動態建立又只掛在類別屬性上的類別（`Inner = type(…)`）看不到。除了這兩個只有 `_observers`、`_handoffs` 與 `WalkEntry._field_defaults`，新增時測試紅，由人決定比不比內容。
     - RM 實例的屬性只有就是類別的那一個才算沒蓋掉（monkeypatch 換回時綁回自己的方法、classmethod、staticmethod、同一個常數），只比身分：`==` 會呼叫值自己的 `__eq__`（`mock.ANY` 和什麼都相等）。`property`、`cached_property` 不綁定（綁定會跑它的程式），實例上有同名的值一律算蓋掉；所以防線類別的 `cached_property` 第一次取值就會被報成直接改，要用時由人決定怎麼處理。
     - `LINK_GENERIC_NAMES` 也比對：直接改照報；經 monkeypatch、mock 換的不報，但位置算打開了。
     - 別處的字典裡被 `setitem`、`patch.dict` 換掉的值是防線也報；`clear=True` 清掉的鍵都算改到。
@@ -245,11 +245,11 @@ PR 2 的「已知的界線」列了一串測試守衛看不到的寫法，多半
     - 名稱的每一次綁定都認得出是新建的容器（字面容器、生成式、`dict`、`list`、`set`、`sorted`、`collections` 的 `defaultdict`、`OrderedDict`、`Counter`、`deque`），才算函式自己的；閉包合併外層函式的綁定。其他一律算函式外，上面的寫入、`+=`、`|=`、`setdefault` 都是出口；`for`、生成式、`with` 與 walrus 的目標是下標、屬性、`global` 或 `nonlocal` 的名稱時和指定一樣。
     - 參數（含 `lambda`）、`global`、`nonlocal`、`except … as`、`match` 的擷取與 `import` 綁過的名稱，重新綁成新容器也算函式外，裡面的函式綁的也算；生成式、類別本體與 `lambda` 裡綁過的名稱也一樣，那裡的綁定不是函式自己的。
     - 建構式的名稱（含 `collections` 本身）在函式內或模組命名空間被蓋掉（含 `if`、`try` 裡綁的；類別的成員與函式裡的不算），或模組有 `import *`，就不算建構式。
-    - 區字串也往這些地方追：`with` 的目標（`ctx` 是產生函式時，`with ctx() as p` 的 `p` 算區字串）、`lambda` 的本體（呼叫它的結果算區字串，把它交出去算出口）。參數的預設值是區字串就是出口，預設值存在函式物件上，函式裡看不出來。
+    - 區字串也往這些地方追：`with` 的目標（`ctx` 是產生函式時，`with ctx() as p` 的 `p` 算區字串）、`lambda` 的本體（不管從名稱、容器或運算式取出來呼叫，結果都算區字串；把它交出去算出口）。參數的預設值是區字串就是出口，預設值存在函式物件上，函式裡看不出來。
     - 寫進函式自己的容器的內層（`d['k']['x']`、`d.setdefault(k, {})[x]`、`d['k'] += [t]`）也是出口，內層可能是別的容器。
     - 列舉哪些寫法是別名，連兩輪審查都找到列舉外的寫法，所以改成認不出就算函式外。
-    - 寧多不漏：`.copy()`、函式內容器的別名、`.values()` 迴圈與字串的 `+=` 也算，會紅、看得到；`sorted(x, key=lambda d: …)` 的參數和外層的 `d` 同名時，外層的 `d` 也算函式外；`lambda` 的參數和外層的區字串同名時，本體也算區字串。
-    - 看不到的（都要刻意才寫得出來）：`match` 的擷取、函式內類別的屬性（`class C: p = t`）、模組層用 `except … as` 或 `match` 蓋掉建構式。G4 是靜態掃描，抓沒想到的寫法，不擋刻意繞過（`exec`、`globals()` 一類）；新增產生區字串的呼叫點還要人在 G1 列一筆，那裡看得到。
+    - 寧多不漏：`.copy()`、函式內容器的別名、`.values()` 迴圈與字串的 `+=` 也算，會紅、看得到；`sorted(x, key=lambda d: …)` 的參數和外層的 `d` 同名時，外層的 `d` 也算函式外；`lambda` 的參數和外層的區字串同名時，本體也算區字串；區字串的方法一律算回傳區字串，回傳布林值的也一樣（`filter(lambda p: t.startswith(p), prefixes)` 會紅）；模組層生成式的迴圈變數和建構式同名時，建構式也算被蓋掉。
+    - 看不到的：具名函式放進容器再取出來呼叫（`handlers = {'a': g}`），一般程式也可能這樣寫，新增時靠審查。其餘都要刻意才寫得出來：`match` 的擷取；函式內類別的屬性、方法的預設值、類別參數與裝飾器（`class C: p = t`）；模組層用 `except … as`、`match` 或函式裡用 `global` 蓋掉建構式。G4 是靜態掃描，抓沒想到的寫法，不擋刻意繞過（`exec`、`globals()` 一類）。G1 只看新的產生呼叫點，要人列一筆；已經拿到的區字串再用這些寫法傳出去，G1 也看不到。
     - 產品程式沒有改。`G4_ALLOWED` 多 1 項（`_save_deployment`：這個函式只把部署條目放進這次讀出來的設定文件；寫檔與之後的啟動見 `G4_DESTINATIONS` 的 `save_config_json`）。
 
 ### 後果（測試守衛）

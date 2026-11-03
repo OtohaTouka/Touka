@@ -4829,7 +4829,7 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n            return True  # ``lambda`` 算區字串，呼叫它的結果也算\n",
+    "old": "        if text(func):\n            return True  # ``lambda`` 算區字串，呼叫它的結果也算\n",
     "new": "",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
@@ -4844,8 +4844,8 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n",
-    "new": "        if isinstance(func, ast.Call) and text(func):\n",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.Name) and text(func):\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
@@ -4859,8 +4859,8 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "        if isinstance(func, (ast.Name, ast.Call)) and text(func):\n",
-    "new": "        if isinstance(func, ast.Name) and text(func):\n",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.Call) and text(func):\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
@@ -5032,5 +5032,80 @@
     "target": "tests.lint.test_zone_path_guard:test_g4_a_constructor_shadowed_at_module_level_does_not_count",
     "posix_only": false,
     "note": "模組層只看最外面：if、try 裡蓋掉建構式看不到"
+  },
+  {
+    "id": "g4_calling_subscript_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.Subscript) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "從容器取出 lambda 再呼叫，結果不算區字串"
+  },
+  {
+    "id": "g4_calling_lambda_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.Lambda) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "直接呼叫 lambda，結果不算區字串"
+  },
+  {
+    "id": "g4_calling_ifexp_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.IfExp) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "條件運算式選出 lambda 再呼叫，結果不算區字串"
+  },
+  {
+    "id": "g4_calling_boolop_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.BoolOp) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "or、and 選出 lambda 再呼叫，結果不算區字串"
+  },
+  {
+    "id": "g4_lambda_any_body",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if isinstance(node, ast.Lambda):\n            return text(node.body)\n",
+    "new": "        if isinstance(node, ast.Lambda):\n            return True\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_listed_places_comparisons_and_follow_forms_are_not_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
+    "posix_only": false,
+    "note": "本體不是區字串的 lambda 也算區字串：寫對的程式被冤枉"
   }
 ]
