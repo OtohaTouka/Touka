@@ -3012,6 +3012,7 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
         ("    open((lambda: t)())\n", "open"),
         ("    g = lambda: t\n    open((g if other else None)())\n", "open"),
         ("    g = lambda: t\n    open((other or g)())\n", "open"),
+        ("    g = lambda: t\n    open((other and g)())\n", "open"),
         ("    run(lambda: t)\n", "run"),
         # 參數的預設值存在函式物件上，函式裡看不出是區字串
         ("    def g(p=t):\n        open(p)\n", "default"),
@@ -3057,6 +3058,27 @@ def test_g4_a_nonlocal_name_is_a_store_outside_the_function(body):
 def test_g4_zone_text_through_another_function_is_followed(text):
     exits = _text_flow(text, G4_DESTINATIONS).exits()
     assert "open" in exits.get("m:f", {}), exits
+
+
+_SELF_TEXT = (
+    "class C:\n"
+    "    def __init__(self, rm, zp):\n"
+    "        t = rm.zone_text(zp)\n"
+    "        self.fn = lambda: t\n"
+    "    def helper(self):\n"
+    "        return 1\n"
+    "    def use(self):\n"
+)
+
+
+def test_g4_a_lambda_kept_on_self_is_followed():
+    exits = _text_flow(_SELF_TEXT + "        open(self.fn())\n", G4_DESTINATIONS).exits()
+    assert "open" in exits.get("m:C.use", {}), exits
+
+
+def test_g4_a_plain_method_next_to_a_text_attribute_is_not_text():
+    exits = _text_flow(_SELF_TEXT + "        open(self.helper())\n", G4_DESTINATIONS).exits()
+    assert "open" not in exits.get("m:C.use", {}), exits
 
 
 @pytest.mark.parametrize(
@@ -3227,10 +3249,11 @@ def test_g4_a_constructor_shadowed_at_module_level_does_not_count(head, call):
         ("class C:\n    dict = 1\n", "dict()"),
         ("class C:\n    class list:\n        pass\n", "list()"),
         ("def helper():\n    dict = 1\n", "dict()"),
+        ("[None for dict in []]\n", "dict()"),
     ],
 )
 def test_g4_a_name_outside_the_module_namespace_does_not_shadow_a_constructor(head, call):
-    """類別的成員與函式的區域變數不在模組命名空間：同模組有 ``set`` 方法，內建的還是內建的."""
+    """類別成員、函式與生成式的變數不在模組命名空間：同模組有 ``set`` 方法，內建的還是內建的."""
     body = f"    d = {call}\n    d['k'] = t\n    return d\n"
     assert "m:f" not in _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
 

@@ -5107,5 +5107,35 @@
     "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
     "posix_only": false,
     "note": "本體不是區字串的 lambda 也算區字串：寫對的程式被冤枉"
+  },
+  {
+    "id": "g4_calling_attribute_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if text(func):\n",
+    "new": "        if not isinstance(func, ast.Attribute) and text(func):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_lambda_kept_on_self_is_followed"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_lambda_kept_on_self_is_followed",
+    "posix_only": false,
+    "note": "self 的屬性放著 lambda 再呼叫，結果不算區字串"
+  },
+  {
+    "id": "g4_any_self_attr_is_text",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                and node.attr in self.self_attrs.get((scope.module, owner), set())\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_plain_method_next_to_a_text_attribute_is_not_text"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_plain_method_next_to_a_text_attribute_is_not_text",
+    "posix_only": false,
+    "note": "self 的任何屬性都算區字串：一般方法的呼叫結果被冤枉"
   }
 ]
