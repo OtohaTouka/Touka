@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import functools
+import inspect
 import json
 import sys
 import types
@@ -499,7 +500,8 @@ class Defenses:
                 found[(id(fn), name)] = (fn, getattr(fn, name))
         for instance, shadowable in zip(self.instances, self.shadowable, strict=True):
             for name, value in vars(instance).items():
-                if name in shadowable:  # 實例屬性蓋掉類別的方法或屬性
+                # 實例屬性蓋掉類別的方法或屬性
+                if name in shadowable and not _same_as_class(instance, name, value):
                     found[(id(instance), name)] = (instance, value)
         for module, name in self.contents:
             found[(id(module), name + _CONTENT_SUFFIX)] = (
@@ -507,6 +509,15 @@ class Defenses:
                 _Content.of(vars(module).get(name)),
             )
         return found
+
+
+def _same_as_class(instance: object, name: str, value: object) -> bool:
+    """實例屬性和從類別取出來的一樣：monkeypatch 換回實例的方法時留下的是綁回自己的方法，行為和
+    沒蓋掉相同."""
+    found = inspect.getattr_static(type(instance), name, _ABSENT)
+    if isinstance(found, (types.FunctionType, classmethod, staticmethod)):
+        found = found.__get__(instance, type(instance))
+    return value == found
 
 
 def _functions_in(value: object) -> Iterator[types.FunctionType]:
@@ -665,7 +676,7 @@ class Monitor:
 
     def _check_state(self) -> None:
         now = self.defenses.state()
-        for key in self.baseline.keys() | now.keys():
+        for key in self.baseline.keys() | now.keys() | self.opened:
             container, before = self.baseline.get(key, (None, _ABSENT))
             container, after = now.get(key, (container, _ABSENT))
             if _unchanged(before, after):

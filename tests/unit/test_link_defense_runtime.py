@@ -286,6 +286,31 @@ def test_a_replacement_left_in_place_is_a_leak(defended):
     assert defended.monitor.take() == []
 
 
+def test_undoing_a_monkeypatch_on_an_instance_is_not_a_leak(defended):
+    """monkeypatch 換回實例的方法時，留下的是綁回自己的方法：行為和沒換過一樣，不算外洩."""
+    key = f"{MODULE_KEY}:test_undoing_a_monkeypatch_on_an_instance_is_not_a_leak"
+    defended.monitor.allowed = {key: (1, "", frozenset({"fake_act"}))}
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(defended.instance, "fake_act", _fake)
+    assert "fake_act" in vars(defended.instance)
+    defended.monitor.check_leaks()
+    assert defended.monitor.take() == []
+    defended.instance.fake_act = _fake  # 之後的直接改照報
+    assert "被直接改了" in defended.monitor.take()[0]
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        lambda d: d.Guard().fake_act,  # 綁在別的實例上
+        lambda d: types.MethodType(_fake, d.instance),  # 綁回自己，但不是類別的方法
+    ],
+)
+def test_a_different_method_on_the_instance_is_a_direct_change(defended, method):
+    defended.instance.fake_act = method(defended)
+    assert "被直接改了" in defended.monitor.take()[0]
+
+
 def test_a_direct_change_after_a_leak_is_reported(defended):
     """外洩報過以後，那個位置再被直接改照樣要報（不再整個 session 都算打開的）."""
     key = f"{MODULE_KEY}:test_a_direct_change_after_a_leak_is_reported"

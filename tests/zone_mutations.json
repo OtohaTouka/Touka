@@ -3935,5 +3935,50 @@
     "target": "tests.lint.test_zone_path_guard:test_g4_a_nested_function_writing_into_the_callers_container_is_red",
     "posix_only": false,
     "note": "巢狀函式寫進外層參數的容器不算出口"
+  },
+  {
+    "id": "link_runtime_instance_undo_is_a_leak",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "                if name in shadowable and not _same_as_class(instance, name, value):\n",
+    "new": "                if name in shadowable:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_undoing_a_monkeypatch_on_an_instance_is_not_a_leak"
+    ],
+    "target": "tests.support.link_defenses:Defenses.state",
+    "posix_only": false,
+    "note": "monkeypatch 換回實例的方法後留下綁回自己的方法，被當成外洩（全量測試抓到的誤報）"
+  },
+  {
+    "id": "link_runtime_any_method_same_as_class",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    return value == found\n",
+    "new": "    return True\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_different_method_on_the_instance_is_a_direct_change"
+    ],
+    "target": "tests.support.link_defenses:_same_as_class",
+    "posix_only": false,
+    "note": "實例上的方法不管是什麼都當成和類別一樣：蓋掉 RM 的方法抓不到"
+  },
+  {
+    "id": "link_runtime_opened_stays_after_undo",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        for key in self.baseline.keys() | now.keys() | self.opened:\n",
+    "new": "        for key in self.baseline.keys() | now.keys():\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_undoing_a_monkeypatch_on_an_instance_is_not_a_leak"
+    ],
+    "target": "tests.support.link_defenses:Monitor._check_state",
+    "posix_only": false,
+    "note": "換回之後位置不移出已打開的清單：之後在那裡的直接改看不到"
   }
 ]
