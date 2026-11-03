@@ -1538,8 +1538,8 @@ G4_ALLOWED: dict[str, tuple[dict[str, int], G4Kind, str]] = {
     f"{_EVOLUTION}:_save_deployment": (
         {"store:data.setdefault('mcpServers', {})[]": 1},
         G4Kind.NO_IO,
-        "部署條目放進這次讀出來的設定文件，接著交給 save_config_json（G4_DESTINATIONS 有列）；"
-        "Touka 不拿它做 I/O",
+        "這個函式只把部署條目放進這次讀出來的設定文件；寫檔與之後的啟動見 G4_DESTINATIONS 的 "
+        "save_config_json",
     ),
     f"{_ORIGIN}:_item_paths": (
         {"os.path.lexists": 1},
@@ -1692,12 +1692,16 @@ _NEW_CONTAINER_CALLS = frozenset(
 
 
 def _new_container(value: ast.expr | None, scope: TextScope, taken: set[str]) -> bool:
-    """``value`` 認得出是新建的容器；建構式的名稱被 ``taken`` 裡的名稱蓋掉就不算."""
+    """``value`` 認得出是新建的容器；建構式的名稱（含 ``collections`` 本身）被 ``taken`` 裡的名稱
+    蓋掉、或模組有 ``import *`` 就不算."""
     if isinstance(value, _NEW_CONTAINER_VALUES):
         return True
-    if not isinstance(value, ast.Call):
+    if not isinstance(value, ast.Call) or "*" in scope.imports:
         return False
-    if isinstance(value.func, ast.Name) and value.func.id in taken:
+    root = value.func
+    while isinstance(root, ast.Attribute):
+        root = root.value
+    if isinstance(root, ast.Name) and root.id in taken:
         return False
     return qualify(value.func, scope) in _NEW_CONTAINER_CALLS
 
@@ -1707,9 +1711,20 @@ def _is_own(node: ast.expr, own: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in own
 
 
-def _unvalued_bindings(nodes: Iterable[ast.AST]) -> set[str]:
-    """``_values`` 沒記下值的綁定：參數（含 ``lambda``）、``global``、``nonlocal``、
-    ``except … as``、``match`` 的擷取、``import``."""
+# 這些範圍裡的綁定不是外層函式自己的（``_values`` 會記到外層，但外層的同名名稱指到外面的）
+_OTHER_SCOPES = (
+    ast.ClassDef,
+    ast.Lambda,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
+def _outside_bindings(nodes: Iterable[ast.AST]) -> set[str]:
+    """綁過就算函式外的名稱：參數（含 ``lambda``）、``global``、``nonlocal``、``except … as``、
+    ``match`` 的擷取、``import``，以及 ``_OTHER_SCOPES`` 裡綁的名稱（生成式裡的 ``:=`` 也算）."""
     found: set[str] = set()
     for node in nodes:
         if isinstance(node, ast.arg):
@@ -1722,6 +1737,9 @@ def _unvalued_bindings(nodes: Iterable[ast.AST]) -> set[str]:
             found.add(node.rest)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             found |= {(a.asname or a.name).split(".")[0] for a in node.names}
+        elif isinstance(node, _OTHER_SCOPES):
+            stores = (n for n in ast.walk(node) if isinstance(n, ast.Name))
+            found |= {n.id for n in stores if isinstance(n.ctx, ast.Store)}
     return found
 
 
@@ -1975,18 +1993,19 @@ class TextFlow:
         """函式自己新建的容器：每次綁定都認得出是新建的名稱（含外層函式，閉包算同一份）。
 
         預設拒絕，其他一律算函式外：別名、迴圈變數、``with`` 的目標、呼叫的結果都認不出是不是呼叫端
-        的；``_unvalued_bindings`` 的名稱重新綁成新容器也不算（``if d is None: d = {}``），裡面的
-        函式綁的也算（``nonlocal`` 會換掉外層的）。
+        的；``_outside_bindings`` 的名稱重新綁成新容器也不算（``if d is None: d = {}``），裡面的
+        函式綁的也算（``nonlocal`` 會換掉外層的）。函式或模組層綁過的名稱不算建構式。
         """
         values: dict[str, list[ast.expr | None]] = {}
         outside: set[str] = set()
         current: TextScope | None = scope
         while current is not None and current.fn is not None:
-            outside |= _unvalued_bindings(ast.walk(current.fn.node))
+            outside |= _outside_bindings(ast.walk(current.fn.node))
             for name, found in _values(current.nodes).items():
                 values.setdefault(name, []).extend(found)
             current = self._outer(current)
-        taken = outside | set(values)
+        module = self.by_key[f"{scope.module}:<module>"]
+        taken = outside | set(values) | set(_values(module.nodes))
         return {
             name
             for name, found in values.items()
@@ -2126,6 +2145,16 @@ class TextFlow:
                     and text(node.value)
                 ):
                     exits[f"store:{node.target.id}"] += 1  # ``+=``、``|=`` 是原地修改
+                if (
+                    isinstance(node, ast.AugAssign)
+                    and isinstance(node.target, ast.Subscript)
+                    and _is_own(node.target.value, own)
+                    and text(node.value)
+                ):
+                    # 改的是那一格裡的容器，可能是別的容器
+                    exits[f"store:{ast.unparse(node.target.value)}[]"] += 1
+            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):
+                exits.update(_store_exits(node.target, scope, own, declared))
             if isinstance(node, ast.Delete):
                 for target in node.targets:
                     exits.update(self._key_exits(target, scope, local, own))
@@ -2907,6 +2936,28 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
             "    spawn_exec('python', cwd=t)\n",
             "src.services.execution_broker.spawn_exec(cwd)",
         ),
+        # ``+=``、``|=`` 改的是那一格裡的容器，可能是別的容器
+        ("    d = dict(other)\n    d['k'] += [t]\n", "store:d[]"),
+        ("    d = {'a': other}\n    d['a'] |= {t}\n", "store:d[]"),
+        ("    d = {}\n    d['a'] = other\n    d['a'] += [t]\n", "store:d[]"),
+        # 生成式、類別本體、``lambda`` 裡的綁定不是函式自己的：這裡的名稱指到外面的
+        ("    [None for c in [{}]]\n    c['k'] = t\n", "store:c[]"),
+        ("    {None for c in [{}]}\n    c['k'] = t\n", "store:c[]"),
+        ("    {None: None for c in [{}]}\n    c['k'] = t\n", "store:c[]"),
+        ("    list(None for c in [{}])\n    c['k'] = t\n", "store:c[]"),
+        ("    class Tmp:\n        c = {}\n    c['k'] = t\n", "store:c[]"),
+        ("    g = lambda: (c := {})\n    c['k'] = t\n", "store:c[]"),
+        # 迴圈與生成式的目標是下標、屬性或 ``global``：和指定一樣
+        ("    for other['k'] in [t]:\n        pass\n", "store:other[]"),
+        ("    for self.x in [t]:\n        pass\n", "store:self.x"),
+        ("    async for other['k'] in t:\n        pass\n", "store:other[]"),
+        ("    [None for other['k'] in [t]]\n", "store:other[]"),
+        ("    global LAST\n    for LAST in [t]:\n        pass\n", "store:LAST"),
+        # 名稱被 ``import`` 綁過就不算建構式（專案也不准區域匯入）
+        (
+            "    import collections\n    d = collections.OrderedDict()\n    d['k'] = t\n",
+            "store:d[]",
+        ),
     ],
 )
 def test_g4_unlisted_uses_of_zone_text_are_red(body, exit_):
@@ -3017,8 +3068,12 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         "    d = {k: 1 for k in other}\n    d['q'] = t\n    return d\n",
         "    d, e = {}, []\n    d['k'] = t\n    e.append(t)\n    return d, e\n",
         "    for d in ({}, {}):\n        d['k'] = t\n",
-        "    import collections\n    d = collections.OrderedDict()\n    d['k'] = t\n    return d\n",
         "    for i in range(3):\n        out = {}\n        out[i] = t\n    return out\n",
+        # 迴圈變數是函式自己的名稱
+        "    for c in t:\n        pass\n",
+        "    return len([c for c in t])\n",
+        # 生成式只是讀到函式自己的容器，沒有綁它
+        "    d = {}\n    n = [len(d) for _ in other]\n    d['k'] = t\n    return d, n\n",
         # 複製品本身也是新的（寫進它的內層才碰得到原本的）
         "    d = dict(other)\n    d['k'] = t\n    return d\n",
         "    d = list(other)\n    d.append(t)\n    return d\n",
@@ -3032,10 +3087,31 @@ def test_g4_listed_places_comparisons_and_follow_forms_are_not_red(body):
     assert "m:f" not in _text_flow(_G4 + body, G4_DESTINATIONS).exits()
 
 
-def test_g4_a_constructor_imported_at_module_level_is_not_red():
-    head = "from collections import defaultdict\n"
-    body = "    d = defaultdict(list)\n    d['k'] = t\n    return d\n"
+@pytest.mark.parametrize(
+    ("head", "call"),
+    [
+        ("from collections import defaultdict\n", "defaultdict(list)"),
+        ("import collections\n", "collections.OrderedDict()"),
+    ],
+)
+def test_g4_a_constructor_imported_at_module_level_is_not_red(head, call):
+    body = f"    d = {call}\n    d['k'] = t\n    return d\n"
     assert "m:f" not in _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
+
+
+@pytest.mark.parametrize(
+    ("head", "call"),
+    [
+        ("dict = helper\n", "dict()"),
+        ("from collections import deque\ndeque = helper\n", "deque()"),
+        ("import collections\ncollections = helper\n", "collections.OrderedDict()"),
+        ("from helpers import *\n", "dict()"),
+    ],
+)
+def test_g4_a_constructor_shadowed_at_module_level_does_not_count(head, call):
+    body = f"    d = {call}\n    d['k'] = t\n"
+    exits = _text_flow(head + _G4 + body, G4_DESTINATIONS).exits()
+    assert "store:d[]" in exits.get("m:f", {}), exits
 
 
 def test_g4_a_receiver_that_only_compares_is_not_red():

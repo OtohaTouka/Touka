@@ -349,19 +349,42 @@ def _holds_mutable(value: object) -> bool:
     return isinstance(value, (MutableMapping, MutableSequence, MutableSet, weakref.WeakSet))
 
 
+def _class_constants(cls: type, module: str, prefix: str) -> Iterator[tuple[str, str]]:
+    # 別的模組的類別不是這裡定義的；``Enum`` 的成員表是 enum 自己維護的，整個類別不看
+    if cls.__module__ != module or issubclass(cls, enum.Enum):
+        return
+    for member, item in vars(cls).items():
+        if member.startswith("__"):
+            continue
+        if inspect.isclass(item):
+            yield from _class_constants(item, module, f"{prefix}{member}.")
+        elif _holds_mutable(item):
+            yield module, f"{prefix}{member}"
+
+
 def _mutable_constants(module: types.ModuleType) -> Iterator[tuple[str, str]]:
-    """模組與類別層綁到可變容器的（模組, 名稱）：看實際的值，不管是什麼寫法、定義在哪個區塊."""
+    """模組層與類別裡（含巢狀類別）值是可變容器的（模組, 名稱）：看實際的值，不管是什麼寫法、定義在
+    哪個區塊."""
     for name, value in vars(module).items():
         if name.startswith("__"):
             continue
         if inspect.isclass(value):
-            # ``Enum`` 的成員表是 enum 自己維護的
-            if value.__module__ == module.__name__ and not issubclass(value, enum.Enum):
-                for member, item in vars(value).items():
-                    if not member.startswith("__") and _holds_mutable(item):
-                        yield module.__name__, f"{value.__name__}.{member}"
+            yield from _class_constants(value, module.__name__, f"{name}.")
         elif _holds_mutable(value):
             yield module.__name__, name
+
+
+def test_the_mutable_constant_listing_goes_into_nested_classes():
+    fake = types.ModuleType("fake_defense_module")
+    fake.Outer = type(
+        "Outer",
+        (),
+        {
+            "__module__": fake.__name__,
+            "Inner": type("Inner", (), {"__module__": fake.__name__, "LOOKUP": {}}),
+        },
+    )
+    assert list(_mutable_constants(fake)) == [(fake.__name__, "Outer.Inner.LOOKUP")]
 
 
 def test_every_mutable_constant_of_the_defense_modules_is_accounted_for():
@@ -882,9 +905,17 @@ def _teardown_phase(monkeypatch, request, defended) -> Any:
     """停在 teardown 中間的 hook，核對用這個測試自己的 ``Monitor``，不碰 session 那一個."""
     conftest, _monitor = _session_monitor(request)
     monkeypatch.setattr(conftest, "_LINK_MONITOR", defended.monitor)
+    defended.monitor.begin(request.node.path, "這個測試")
     phase = conftest.pytest_runtest_teardown(request.node, None)
     next(phase)
     return phase
+
+
+def test_a_clean_teardown_ends_the_test(monkeypatch, request, defended):
+    phase = _teardown_phase(monkeypatch, request, defended)
+    with pytest.raises(StopIteration):
+        phase.send(None)
+    assert defended.monitor.test_key is None
 
 
 @pytest.mark.parametrize(
@@ -899,12 +930,26 @@ def test_a_failing_teardown_does_not_lose_a_violation(monkeypatch, request, defe
     with pytest.raises(pytest.fail.Exception, match="自我測試放的違規") as caught:
         phase.throw(failure)
     assert caught.value.__context__ is failure
+    assert defended.monitor.test_key is None
 
 
 def test_a_failing_teardown_without_a_violation_keeps_its_failure(monkeypatch, request, defended):
     phase = _teardown_phase(monkeypatch, request, defended)
     with pytest.raises(RuntimeError, match="teardown 自己的失敗"):
         phase.throw(RuntimeError("teardown 自己的失敗"))
+    assert defended.monitor.test_key is None
+
+
+def _broken_check() -> None:
+    raise RuntimeError("核對自己出錯")
+
+
+def test_a_broken_check_still_ends_the_test(monkeypatch, request, defended):
+    phase = _teardown_phase(monkeypatch, request, defended)
+    monkeypatch.setattr(defended.monitor, "check_leaks", _broken_check)
+    with pytest.raises(RuntimeError, match="核對自己出錯"):
+        phase.send(None)
+    assert defended.monitor.test_key is None
 
 
 @pytest.mark.parametrize(
@@ -919,6 +964,16 @@ def test_an_interrupt_during_teardown_stays_an_interrupt(monkeypatch, request, d
     with pytest.raises(type(interrupt)):
         phase.throw(interrupt)
     assert defended.monitor.take() == []
+    assert defended.monitor.test_key is None
+
+
+def test_a_broken_check_does_not_replace_an_interrupt(monkeypatch, request, defended):
+    """核對自己出錯不能蓋掉中斷：蓋掉了就變成 teardown 錯誤，整批繼續跑."""
+    phase = _teardown_phase(monkeypatch, request, defended)
+    monkeypatch.setattr(defended.monitor, "check_leaks", _broken_check)
+    with pytest.raises(KeyboardInterrupt):
+        phase.throw(KeyboardInterrupt())
+    assert defended.monitor.test_key is None
 
 
 def test_the_fixture_hooks_feed_the_monitor(monkeypatch, request, defended):

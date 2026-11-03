@@ -4154,7 +4154,7 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "    if isinstance(value.func, ast.Name) and value.func.id in taken:\n        return False\n",
+    "old": "    if isinstance(root, ast.Name) and root.id in taken:\n        return False\n",
     "new": "",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
@@ -4274,7 +4274,7 @@
       "T3"
     ],
     "file": "tests/conftest.py",
-    "old": "    except (KeyboardInterrupt, SystemExit, pytest.exit.Exception):\n        _end_link_checks()  # 中斷不能變成一般失敗：整批要停\n        raise\n",
+    "old": "    except (KeyboardInterrupt, SystemExit, pytest.exit.Exception):\n        # 中斷不能變成一般失敗，核對自己出錯也不能蓋掉它：整批要停，這時的違規不報\n        with suppress(Exception):\n            _end_link_checks()\n        raise\n",
     "new": "",
     "tests": [
       "tests/unit/test_link_defense_runtime.py::test_an_interrupt_during_teardown_stays_an_interrupt"
@@ -4349,13 +4349,358 @@
       "G4"
     ],
     "file": "tests/lint/test_zone_path_guard.py",
-    "old": "            outside |= _unvalued_bindings(ast.walk(current.fn.node))\n",
-    "new": "            outside |= _unvalued_bindings(current.nodes)\n",
+    "old": "            outside |= _outside_bindings(ast.walk(current.fn.node))\n",
+    "new": "            outside |= _outside_bindings(current.nodes)\n",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
     ],
     "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
     "posix_only": false,
     "note": "不看裡面的函式：nonlocal 換掉外層的新容器看不到"
+  },
+  {
+    "id": "g4_aug_into_own_cell_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                    and isinstance(node.target, ast.Subscript)\n",
+    "new": "                    and False\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "d['k'] += [t] 不報：那一格裡的容器被原地改，可能是別的容器"
+  },
+  {
+    "id": "g4_for_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "for 與生成式的目標不看：for other['k'] in [t] 看不到"
+  },
+  {
+    "id": "g4_plain_for_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "new": "            if isinstance(node, (ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "for 的目標不看"
+  },
+  {
+    "id": "g4_async_for_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "new": "            if isinstance(node, (ast.For, ast.comprehension)) and text(node.iter):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "async for 的目標不看"
+  },
+  {
+    "id": "g4_comprehension_target_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and text(node.iter):\n",
+    "new": "            if isinstance(node, (ast.For, ast.AsyncFor)) and text(node.iter):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "生成式的目標不看"
+  },
+  {
+    "id": "g4_other_scopes_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        elif isinstance(node, _OTHER_SCOPES):\n",
+    "new": "        elif False:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "生成式、類別本體、lambda 裡的綁定算函式自己的：外面的同名名稱被當成新容器"
+  },
+  {
+    "id": "g4_other_scope_classdef_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.ClassDef 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scope_lambda_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.ClassDef,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.Lambda 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scope_listcomp_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.ClassDef,\n    ast.Lambda,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.ListComp 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scope_setcomp_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.SetComp 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scope_dictcomp_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.GeneratorExp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.DictComp 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scope_generatorexp_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n    ast.GeneratorExp,\n",
+    "new": "    ast.ClassDef,\n    ast.Lambda,\n    ast.ListComp,\n    ast.SetComp,\n    ast.DictComp,\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "ast.GeneratorExp 裡的綁定算函式自己的"
+  },
+  {
+    "id": "g4_other_scopes_loads_count",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            found |= {n.id for n in stores if isinstance(n.ctx, ast.Store)}\n",
+    "new": "            found |= {n.id for n in stores}\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_listed_places_comparisons_and_follow_forms_are_not_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
+    "posix_only": false,
+    "note": "生成式只是讀到函式自己的容器也算綁過：寫對的程式被冤枉"
+  },
+  {
+    "id": "g4_module_shadow_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        taken = outside | set(values) | set(_values(module.nodes))\n",
+    "new": "        taken = outside | set(values)\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_constructor_shadowed_at_module_level_does_not_count"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_constructor_shadowed_at_module_level_does_not_count",
+    "posix_only": false,
+    "note": "模組層蓋掉建構式的名稱仍算建構式"
+  },
+  {
+    "id": "g4_star_import_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    if not isinstance(value, ast.Call) or \"*\" in scope.imports:\n",
+    "new": "    if not isinstance(value, ast.Call):\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_constructor_shadowed_at_module_level_does_not_count"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_constructor_shadowed_at_module_level_does_not_count",
+    "posix_only": false,
+    "note": "import * 可能蓋掉建構式，仍算建構式"
+  },
+  {
+    "id": "g4_constructor_root_ignored",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "    while isinstance(root, ast.Attribute):\n        root = root.value\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_a_constructor_shadowed_at_module_level_does_not_count"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_a_constructor_shadowed_at_module_level_does_not_count",
+    "posix_only": false,
+    "note": "collections 本身被蓋掉仍算建構式"
+  },
+  {
+    "id": "g4_store_own_always",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if _is_own(target.value, own):\n            return []\n        return [f\"store:{ast.unparse(target.value)}[]\"]\n",
+    "new": "        return []\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "寫進任何容器的一格都算自己的"
+  },
+  {
+    "id": "g4_key_own_always",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        if _is_own(target.value, own):\n            return []\n        return [f\"key:{ast.unparse(target.value)}[]\"]\n",
+    "new": "        return []\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "區字串當任何容器的鍵都不報"
+  },
+  {
+    "id": "g4_container_method_own_always",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            and func.value.id in own  # type: ignore[union-attr]\n",
+    "new": "",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "任何名稱的 append、add 都算放進函式自己的容器"
+  },
+  {
+    "id": "link_end_checks_never_ends",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "        _LINK_MONITOR.end()\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_clean_teardown_ends_the_test"
+    ],
+    "target": "tests.conftest:pytest_runtest_teardown",
+    "posix_only": false,
+    "note": "測試結束不收：這個測試的狀態留給下一個"
+  },
+  {
+    "id": "link_end_checks_no_finally",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "    try:\n        _LINK_MONITOR.check_leaks()\n        return _LINK_MONITOR.take()\n    finally:\n        _LINK_MONITOR.end()\n",
+    "new": "    _LINK_MONITOR.check_leaks()\n    found = _LINK_MONITOR.take()\n    _LINK_MONITOR.end()\n    return found\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_broken_check_still_ends_the_test"
+    ],
+    "target": "tests.conftest:pytest_runtest_teardown",
+    "posix_only": false,
+    "note": "核對自己出錯時測試沒有收"
+  },
+  {
+    "id": "link_interrupt_broken_check_replaces_it",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "        with suppress(Exception):\n            _end_link_checks()\n        raise\n",
+    "new": "        _end_link_checks()\n        raise\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_broken_check_does_not_replace_an_interrupt"
+    ],
+    "target": "tests.conftest:pytest_runtest_teardown",
+    "posix_only": false,
+    "note": "核對自己出錯蓋掉中斷：變成 teardown 錯誤，整批繼續跑"
+  },
+  {
+    "id": "link_interrupt_skips_the_end",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "        with suppress(Exception):\n            _end_link_checks()\n        raise\n",
+    "new": "        raise\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_an_interrupt_during_teardown_stays_an_interrupt"
+    ],
+    "target": "tests.conftest:pytest_runtest_teardown",
+    "posix_only": false,
+    "note": "中斷時不收：違規和狀態留到下一次核對"
   }
 ]
