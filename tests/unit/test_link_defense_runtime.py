@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import ast
 import copy
 import functools
 import json
@@ -250,6 +251,115 @@ def test_the_contents_of_a_constant_may_come_back():
     assert monitor.take() == []
 
 
+def _monitor_of_constants(
+    module: types.ModuleType, performer: str, targets: frozenset[str] | None
+) -> Any:
+    """守 ``module.TABLE`` 的 ``Monitor``（範圍是這個檔案）；``targets`` 是 None 時沒放行誰."""
+    defenses = link_defenses.Defenses.of([module], [], [(module, "TABLE")])
+    allowed = {} if targets is None else {f"{MODULE_KEY}:{performer}": (1, "", targets)}
+    monitor = link_defenses.Monitor(defenses, allowed, frozenset({THIS}))
+    monitor.begin(THIS, f"{MODULE_KEY}:{performer}")
+    return monitor
+
+
+def test_a_listed_replacement_of_a_constant_is_not_a_direct_change():
+    """經 monkeypatch 整個換掉可變常數：照放行清單判，不是直接改；換回之後的直接改照報."""
+    module = _module_with_constants()
+    performer = "test_a_listed_replacement_of_a_constant_is_not_a_direct_change"
+    monitor = _monitor_of_constants(module, performer, frozenset({"TABLE"}))
+    link_defenses.add(monitor)
+    try:
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(module, "TABLE", {"b": ("y",)})
+            assert monitor.take() == []
+        assert monitor.take() == []
+        module.TABLE["c"] = ("z",)
+        assert "被直接改了" in monitor.take()[0]
+    finally:
+        link_defenses.remove(monitor)
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_changing_a_constant_through_monkeypatch_goes_by_the_list(delete):
+    """經 monkeypatch 改可變常數的內容：沒列名是「換掉了」，列了就放行、換回來也不報."""
+    module = _module_with_constants()
+    performer = "test_changing_a_constant_through_monkeypatch_goes_by_the_list"
+    for targets in (None, frozenset({"TABLE"})):
+        monitor = _monitor_of_constants(module, performer, targets)
+        link_defenses.add(monitor)
+        try:
+            with pytest.MonkeyPatch.context() as m:
+                if delete:
+                    m.delitem(module.TABLE, "a")
+                else:
+                    m.setitem(module.TABLE, "a", ("z",))
+                found = monitor.take()
+                if targets is None:
+                    assert len(found) == 1
+                    assert "換掉了 fake_constant_defense.TABLE" in found[0]
+                else:
+                    assert found == []
+            assert monitor.take() == []
+        finally:
+            link_defenses.remove(monitor)
+
+
+def test_patch_dict_on_a_constant_goes_by_the_list():
+    module = _module_with_constants()
+    performer = "test_patch_dict_on_a_constant_goes_by_the_list"
+    monitor = _monitor_of_constants(module, performer, frozenset({"TABLE"}))
+    link_defenses.add(monitor)
+    try:
+        with mock.patch.dict(module.TABLE, {"b": ("y",)}):
+            assert monitor.take() == []
+        assert monitor.take() == []
+    finally:
+        link_defenses.remove(monitor)
+
+
+def test_a_constant_left_changed_through_monkeypatch_is_a_leak():
+    module = _module_with_constants()
+    performer = "test_a_constant_left_changed_through_monkeypatch_is_a_leak"
+    monitor = _monitor_of_constants(module, performer, frozenset({"TABLE"}))
+    link_defenses.add(monitor)
+    m = pytest.MonkeyPatch()
+    try:
+        m.setitem(module.TABLE, "b", ("y",))
+        monitor.check_leaks()
+        assert "沒有換回" in monitor.take()[0]
+    finally:
+        link_defenses.remove(monitor)
+        m.undo()
+
+
+_MUTABLE_VALUES = (ast.Dict, ast.List, ast.Set, ast.DictComp, ast.ListComp, ast.SetComp)
+_MUTABLE_CALLS = frozenset(
+    {"dict", "list", "set", "defaultdict", "deque", "OrderedDict", "Counter"}
+)
+
+
+def _mutable_constants(body: list[ast.stmt]) -> Iterator[str]:
+    """模組與類別層綁到可變容器的名稱."""
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            yield from _mutable_constants(node.body)
+        value = node.value if isinstance(node, (ast.Assign, ast.AnnAssign)) else None
+        called = isinstance(value, ast.Call) and getattr(value.func, "id", "") in _MUTABLE_CALLS
+        if isinstance(value, _MUTABLE_VALUES) or called:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            yield from (ast.unparse(target) for target in targets)
+
+
+def test_every_mutable_constant_of_the_defense_modules_is_accounted_for():
+    """防線模組新增可變常數時紅，由人決定比不比內容（``_observers``、``_handoffs`` 平常就會變）."""
+    found: set[str] = set()
+    for relative in link_defenses.LINK_DEFENSE_MODULES:
+        tree = ast.parse((link_defenses.ROOT / relative).read_text(encoding="utf-8"))
+        found.update(_mutable_constants(tree.body))
+    listed = {name for _module, name in link_defenses.LINK_DEFENSE_CONTENTS}
+    assert found == listed | {"_observers", "_handoffs"}
+
+
 def test_the_session_guards_the_contents_of_the_data_dirs(request):
     _conftest, monitor = _session_monitor(request)
     names = {name for _container, name in monitor.defenses.contents}
@@ -304,11 +414,56 @@ def test_undoing_a_monkeypatch_on_an_instance_is_not_a_leak(defended):
     [
         lambda d: d.Guard().fake_act,  # 綁在別的實例上
         lambda d: types.MethodType(_fake, d.instance),  # 綁回自己，但不是類別的方法
+        lambda d: mock.ANY,  # 和什麼都相等
+        lambda d: types.MethodType(d.Guard.fake_act, d.Guard),  # 同一個函式，綁在類別上
     ],
 )
 def test_a_different_method_on_the_instance_is_a_direct_change(defended, method):
     defended.instance.fake_act = method(defended)
     assert "被直接改了" in defended.monitor.take()[0]
+
+
+def _cached_act(_self: object) -> str:
+    return "real"
+
+
+class _Members:
+    LIMIT = {"a": 1}
+    cached = functools.cache(_cached_act)
+
+    def act(self) -> str:
+        return "real"
+
+    @classmethod
+    def made(cls) -> str:
+        return "real"
+
+    @staticmethod
+    def plain() -> str:
+        return "real"
+
+
+@pytest.mark.parametrize("name", ["LIMIT", "act", "made", "plain", "cached"])
+def test_what_monkeypatch_puts_back_counts_as_the_class_member(name):
+    instance = _Members()
+    assert link_defenses._same_as_class(instance, name, getattr(instance, name))
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("LIMIT", {"a": 1}),  # 內容一樣，不是同一個
+        ("LIMIT", mock.ANY),
+        ("act", _Members().act),  # 綁在別的實例上
+        ("act", mock.ANY),
+        ("made", types.MethodType(_Members.__dict__["made"].__func__, object())),
+        ("plain", _fake),
+        ("plain", mock.ANY),
+        ("missing", _fake),
+    ],
+)
+def test_only_the_class_member_itself_counts(name, value):
+    assert not link_defenses._same_as_class(_Members(), name, value)
 
 
 def test_a_direct_change_after_a_leak_is_reported(defended):
@@ -339,6 +494,23 @@ def test_a_wider_fixture_is_checked_when_it_ends(defended):
         defended.monitor.check_leaks()
         assert defended.monitor.take() == []
         defended.monitor.fixture_finished(wider)
+        defended.monitor.check_leaks()
+        assert "沒有換回" in defended.monitor.take()[0]
+    finally:
+        patcher.stop()
+
+
+def test_a_wider_fixture_that_put_it_back_no_longer_shields_the_place(defended):
+    """module 範圍的 fixture 換回之後，那個位置回到一般的核對：別的測試留著不換回照報外洩."""
+    key = f"{MODULE_KEY}:test_a_wider_fixture_that_put_it_back_no_longer_shields_the_place"
+    defended.monitor.allowed = {key: (2, "", frozenset({"fake_check"}))}
+    defended.monitor.enter_fixture(SimpleNamespace(scope="module"))
+    with mock.patch.object(defended.module, "fake_check", _fake):
+        defended.monitor.leave_fixture()
+    assert defended.monitor.take() == []
+    patcher = mock.patch.object(defended.module, "fake_check", _fake)
+    patcher.start()
+    try:
         defended.monitor.check_leaks()
         assert "沒有換回" in defended.monitor.take()[0]
     finally:
@@ -645,6 +817,36 @@ def test_teardown_reports_a_replacement_left_in_place(monkeypatch, request, defe
             phase.send(None)
     finally:
         patcher.stop()
+
+
+def test_a_failing_teardown_does_not_lose_a_violation(request):
+    """teardown 自己也失敗時，連結核對的違規照樣報，原本的失敗留在例外鏈上."""
+    conftest, monitor = _session_monitor(request)
+    phase = conftest.pytest_runtest_teardown(request.node, None)
+    next(phase)
+    monitor.violations.append("自我測試放的違規")
+    try:
+        with pytest.raises(pytest.fail.Exception, match="自我測試放的違規") as caught:
+            phase.throw(RuntimeError("teardown 自己的失敗"))
+        assert isinstance(caught.value.__context__, RuntimeError)
+    finally:
+        monitor.begin(
+            request.node.path, f"{MODULE_KEY}:test_a_failing_teardown_does_not_lose_a_violation"
+        )
+
+
+def test_a_failing_teardown_without_a_violation_keeps_its_failure(request):
+    conftest, monitor = _session_monitor(request)
+    phase = conftest.pytest_runtest_teardown(request.node, None)
+    next(phase)
+    try:
+        with pytest.raises(RuntimeError, match="teardown 自己的失敗"):
+            phase.throw(RuntimeError("teardown 自己的失敗"))
+    finally:
+        monitor.begin(
+            request.node.path,
+            f"{MODULE_KEY}:test_a_failing_teardown_without_a_violation_keeps_its_failure",
+        )
 
 
 def test_the_fixture_hooks_feed_the_monitor(monkeypatch, request, defended):

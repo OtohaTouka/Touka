@@ -1661,6 +1661,13 @@ def _bindings(node: ast.AST) -> Iterator[tuple[ast.AST, ast.expr]]:
         yield node.target, node.iter
 
 
+def _alias_bindings(node: ast.AST) -> Iterator[tuple[ast.AST, ast.expr]]:
+    """``_bindings`` 加上 ``with value as target``."""
+    yield from _bindings(node)
+    if isinstance(node, ast.withitem) and node.optional_vars is not None:
+        yield node.optional_vars, node.context_expr
+
+
 def _root_name(node: ast.expr) -> str | None:
     """下標與子容器鏈最底下的名稱（``data.setdefault(k, {})[x]`` → ``data``）."""
     while True:
@@ -1676,8 +1683,23 @@ def _root_name(node: ast.expr) -> str | None:
             return node.id if isinstance(node, ast.Name) else None
 
 
+# 回傳容器本身或它的內容、不是複製品的呼叫：名稱 → 參數位置，None 是每個參數（``list(other)``、
+# ``dict(other)`` 是複製品，寫進去碰不到呼叫端）
+_ALIAS_CALLS: dict[str, int | None] = {
+    "enumerate": 0,
+    "reversed": 0,
+    "iter": 0,
+    "next": 0,
+    "getattr": 0,
+    "cast": 1,
+    "zip": None,
+}
+_ALIAS_METHODS = frozenset({"values", "items"})
+
+
 def _alias_roots(value: ast.expr) -> set[str]:
-    """``x = value`` 之後 ``x`` 可能是哪些名稱的內容：名稱、屬性、下標與子容器，``a or b`` 一類."""
+    """``x = value`` 之後 ``x`` 可能是哪些名稱的內容：名稱、屬性、下標與子容器，``a or b`` 一類，
+    以及 ``_ALIAS_CALLS``、``_ALIAS_METHODS``."""
     if isinstance(value, ast.BoolOp):
         return set().union(*(_alias_roots(v) for v in value.values))
     if isinstance(value, ast.IfExp):
@@ -1690,11 +1712,23 @@ def _alias_roots(value: ast.expr) -> set[str]:
         elif (
             isinstance(value, ast.Call)
             and isinstance(value.func, ast.Attribute)
-            and value.func.attr in _SUBCONTAINER_METHODS
+            and value.func.attr in _SUBCONTAINER_METHODS | _ALIAS_METHODS
         ):
             value = value.func.value
+        elif isinstance(value, ast.Call) and _short_call(value) in _ALIAS_CALLS:
+            position = _ALIAS_CALLS[_short_call(value)]
+            args = value.args if position is None else value.args[position : position + 1]
+            return set().union(*(_alias_roots(arg) for arg in args))
         else:
             return {value.id} if isinstance(value, ast.Name) else set()
+
+
+def _short_call(call: ast.Call) -> str:
+    """呼叫的最後一段名稱（``typing.cast`` → ``cast``）."""
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return func.id if isinstance(func, ast.Name) else ""
 
 
 def _call_values(call: ast.Call) -> list[ast.expr]:
@@ -1955,8 +1989,8 @@ class TextFlow:
         return names | self.assigned(outer) if outer is not None else names
 
     def caller_containers(self, scope: TextScope) -> set[str]:
-        """呼叫端的容器：參數（含 ``*args``、``**kw``；重新綁定過也算）與它們的別名，算到不動點；
-        外層函式的也算（閉包）."""
+        """函式外的容器：參數（含 ``*args``、``**kw``；重新綁定過也算）與它們的別名，以及指向模組層
+        名稱的別名，算到不動點；外層函式的也算（閉包）."""
         if scope.fn is None:
             return set()
         spec = scope.fn.node.args
@@ -1965,11 +1999,13 @@ class TextFlow:
         outer = self._outer(scope)
         if outer is not None:
             names |= self.caller_containers(outer)
+        local = self.assigned(scope) - names
         while True:
             before = len(names)
             for node in scope.nodes:
-                for target, value in _bindings(node):
-                    if _alias_roots(value) & names:
+                for target, value in _alias_bindings(node):
+                    roots = _alias_roots(value)
+                    if roots & names or roots - local:
                         names |= _target_names(target)
             if len(names) == before:
                 return names
@@ -2817,6 +2853,23 @@ _G4 = "def f(rm, zp, other):\n    t = rm.zone_text(zp)\n"
         ("    d = other['k']\n    d[t] = 1\n", "key:d[]"),
         ("    d = other.sub\n    d['k'] = t\n", "store:d[]"),
         ("    for d in other:\n        d['k'] = t\n", "store:d[]"),
+        ("    for v in other.values():\n        v['k'] = t\n", "store:v[]"),
+        ("    for k, v in other.items():\n        v['k'] = t\n", "store:v[]"),
+        ("    for i, d in enumerate(other):\n        d['k'] = t\n", "store:d[]"),
+        ("    for a, b in zip(zp, other):\n        b['k'] = t\n", "store:b[]"),
+        ("    for d in reversed(other):\n        d['k'] = t\n", "store:d[]"),
+        ("    d = next(iter(other))\n    d['k'] = t\n", "store:d[]"),
+        ("    d = getattr(other, 'sub')\n    d['k'] = t\n", "store:d[]"),
+        ("    seen = []\n    for a, b in zip(seen, other):\n        b['k'] = t\n", "store:b[]"),
+        ("    d = cast('dict', other)\n    d['k'] = t\n", "store:d[]"),
+        ("    d = cast(dict, other)\n    d['k'] = t\n", "store:d[]"),
+        ("    d = typing.cast(dict, other)\n    d['k'] = t\n", "store:d[]"),
+        ("    with other as d:\n        d['k'] = t\n", "store:d[]"),
+        # 指向模組層的容器：和直接寫進那個容器一樣
+        ("    _CACHE['k'] = t\n", "store:_CACHE[]"),
+        ("    d = _CACHE\n    d['k'] = t\n", "store:d[]"),
+        ("    d = _CACHE\n    d.append(t)\n", "<text>.append"),
+        ("    for d in _CACHE.values():\n        d['k'] = t\n", "store:d[]"),
         # 種子與產生函式經 ``Names``：區域別名（DEV-B 第 2 輪 LOW-C）
         ("    import os\n    zt = rm.zone_text\n    os.path.exists(zt(zp))\n", "os.path.exists"),
         ("    launch = other\n    launch.run(1, t)\n", "launch.run"),
@@ -2894,6 +2947,12 @@ def test_g4_stores_outside_the_function_and_receivers_are_checked(text, key, exi
         # 函式內容器的別名與 ``+=``；只綁過字面容器的名稱不是呼叫端的
         "    env = {}\n    alias = env\n    alias['HOME'] = t\n    return env\n",
         "    out = []\n    out += [t]\n    return out\n",
+        # 複製出來的、函式內容器的內容：碰不到呼叫端
+        "    d = dict(other)\n    d['k'] = t\n    return d\n",
+        "    d = list(other)\n    d.append(t)\n    return d\n",
+        "    d = dict(_CACHE)\n    d['k'] = t\n    return d\n",
+        "    env = {'a': {}}\n    for v in env.values():\n        v['k'] = t\n    return env\n",
+        "    for i in range(3):\n        out = {}\n        out[i] = t\n    return out\n",
         "    return t.rstrip('/').lower()\n",
         "    from pathlib import PurePath\n    return PurePath(t).is_relative_to(other)\n",
     ],

@@ -122,7 +122,11 @@ LINK_SCAN_ALLOWED: dict[str, tuple[int, str, frozenset[str]]] = {
         _RLIMIT,
         frozenset({"resource"}),
     ),
-    "tests.unit.test_evolution_security:_patch_full_env": (1, _ENV, frozenset({"settings"})),
+    "tests.unit.test_evolution_security:_patch_full_env": (
+        1,
+        _ENV + "（``settings`` 換成只有 ``get_full_env`` 的替身）",
+        frozenset({"settings"}),
+    ),
     "tests.unit.test_evolution_security:test_build_rlimit_preexec_returns_none_without_resource": (
         1,
         _RLIMIT,
@@ -512,12 +516,14 @@ class Defenses:
 
 
 def _same_as_class(instance: object, name: str, value: object) -> bool:
-    """實例屬性和從類別取出來的一樣：monkeypatch 換回實例的方法時留下的是綁回自己的方法，行為和
-    沒蓋掉相同."""
+    """實例屬性就是類別的那一個：monkeypatch 換回實例的方法時留下的是綁回自己的方法，行為和沒蓋掉
+    相同。只比身分：``==`` 會呼叫值自己的 ``__eq__``（``mock.ANY`` 和什麼都相等）."""
     found = inspect.getattr_static(type(instance), name, _ABSENT)
-    if isinstance(found, (types.FunctionType, classmethod, staticmethod)):
-        found = found.__get__(instance, type(instance))
-    return value == found
+    member = found.__func__ if isinstance(found, (classmethod, staticmethod)) else found
+    if isinstance(value, types.MethodType):
+        owner = type(instance) if isinstance(found, classmethod) else instance
+        return value.__self__ is owner and value.__func__ is member
+    return value is member
 
 
 def _functions_in(value: object) -> Iterator[types.FunctionType]:
@@ -580,6 +586,7 @@ class Monitor:
     def __post_init__(self) -> None:
         self.baseline = self.defenses.state()
         self._function_ids = {id(fn) for fn in self.defenses.functions}
+        self._content_ids = {(id(module), name) for module, name in self.defenses.contents}
 
     # --- 一個測試的開始與結束 ---
 
@@ -626,9 +633,13 @@ class Monitor:
     # --- 經過 monkeypatch／mock／audit 的替換 ---
 
     def _open(self, key: tuple[int, str]) -> None:
-        self.opened.add(key)
+        """打開一個位置；比內容的常數，內容那一格一起打開（整個換掉，內容當然也變了）."""
+        keys = [key]
+        if key in self._content_ids:
+            keys.append((key[0], key[1] + _CONTENT_SUFFIX))
+        self.opened.update(keys)
         if self.fixtures and self.fixtures[-1].scope != "function":
-            self.scoped[key] = id(self.fixtures[-1])
+            self.scoped.update(dict.fromkeys(keys, id(self.fixtures[-1])))
 
     def replaced(self, target: object, name: object, old: object) -> None:
         if not (self.defenses.is_target(target) or self.defenses.is_value(old)):
@@ -639,13 +650,18 @@ class Monitor:
 
     def dict_changed(self, dic: object, changes: Mapping[object, object]) -> None:
         """``setitem``、``patch.dict``（``changes``：改到的鍵 → 舊值）：防線模組的 ``__dict__``、
-        ``sys.modules`` 裡的防線模組，或別處的字典裡被換掉的值是防線."""
+        比內容的常數、``sys.modules`` 裡的防線模組，或別處的字典裡被換掉的值是防線."""
         keys = [str(key) for key in changes]
         for module in self.defenses.modules:
             if dic is vars(module):
                 for key in keys:
                     self._open((id(module), key))
                     self._performed(f"{module.__name__}.__dict__", key)
+                return
+        for module, name in self.defenses.contents:
+            if dic is vars(module).get(name):
+                self._open((id(module), name))
+                self._performed(f"{module.__name__}.{name}", name)
                 return
         if dic is sys.modules:
             for module in self.defenses.modules:
@@ -681,6 +697,7 @@ class Monitor:
             container, after = now.get(key, (container, _ABSENT))
             if _unchanged(before, after):
                 self.opened.discard(key)
+                self.scoped.pop(key, None)
                 continue
             if key in self.opened:
                 continue

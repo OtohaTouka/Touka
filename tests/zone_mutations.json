@@ -3957,8 +3957,8 @@
       "T3"
     ],
     "file": "tests/support/link_defenses.py",
-    "old": "    return value == found\n",
-    "new": "    return True\n",
+    "old": "        return value.__self__ is owner and value.__func__ is member\n",
+    "new": "        return True\n",
     "tests": [
       "tests/unit/test_link_defense_runtime.py::test_a_different_method_on_the_instance_is_a_direct_change"
     ],
@@ -3980,5 +3980,217 @@
     "target": "tests.support.link_defenses:Monitor._check_state",
     "posix_only": false,
     "note": "換回之後位置不移出已打開的清單：之後在那裡的直接改看不到"
+  },
+  {
+    "id": "link_runtime_same_as_class_uses_eq",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    return value is member\n",
+    "new": "    return value == member\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_different_method_on_the_instance_is_a_direct_change",
+      "tests/unit/test_link_defense_runtime.py::test_only_the_class_member_itself_counts"
+    ],
+    "target": "tests.support.link_defenses:_same_as_class",
+    "posix_only": false,
+    "note": "比相等：值自己的 __eq__ 說了算，mock.ANY 蓋掉 RM 的方法抓不到"
+  },
+  {
+    "id": "link_runtime_same_as_class_any_owner",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        return value.__self__ is owner and value.__func__ is member\n",
+    "new": "        return value.__func__ is member\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_different_method_on_the_instance_is_a_direct_change"
+    ],
+    "target": "tests.support.link_defenses:_same_as_class",
+    "posix_only": false,
+    "note": "同一個函式綁在別的實例上也當成和類別一樣"
+  },
+  {
+    "id": "link_runtime_same_as_class_wrong_owner",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "        owner = type(instance) if isinstance(found, classmethod) else instance\n",
+    "new": "        owner = instance\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_what_monkeypatch_puts_back_counts_as_the_class_member"
+    ],
+    "target": "tests.support.link_defenses:_same_as_class",
+    "posix_only": false,
+    "note": "classmethod 換回時綁的是類別：判成蓋掉，全量誤報外洩"
+  },
+  {
+    "id": "link_runtime_same_as_class_not_unwrapped",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "    member = found.__func__ if isinstance(found, (classmethod, staticmethod)) else found\n",
+    "new": "    member = found\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_what_monkeypatch_puts_back_counts_as_the_class_member"
+    ],
+    "target": "tests.support.link_defenses:_same_as_class",
+    "posix_only": false,
+    "note": "classmethod、staticmethod 不取原函式：換回也判成蓋掉"
+  },
+  {
+    "id": "link_runtime_content_slot_not_opened",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "            keys.append((key[0], key[1] + _CONTENT_SUFFIX))\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_listed_replacement_of_a_constant_is_not_a_direct_change"
+    ],
+    "target": "tests.support.link_defenses:Monitor._open",
+    "posix_only": false,
+    "note": "整個換掉比內容的常數時內容那一格沒打開：放行的替換被當成直接改"
+  },
+  {
+    "id": "link_runtime_content_edit_not_recorded",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "            if dic is vars(module).get(name):\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_changing_a_constant_through_monkeypatch_goes_by_the_list",
+      "tests/unit/test_link_defense_runtime.py::test_patch_dict_on_a_constant_goes_by_the_list"
+    ],
+    "target": "tests.support.link_defenses:Monitor.dict_changed",
+    "posix_only": false,
+    "note": "經 monkeypatch、patch.dict 改常數的內容不看放行清單：寫對的測試也被當成直接改"
+  },
+  {
+    "id": "link_runtime_scoped_stays_after_undo",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/support/link_defenses.py",
+    "old": "                self.scoped.pop(key, None)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_wider_fixture_that_put_it_back_no_longer_shields_the_place"
+    ],
+    "target": "tests.support.link_defenses:Monitor._check_state",
+    "posix_only": false,
+    "note": "module 範圍的 fixture 換回之後位置還算它的：別的測試留著不換回看不到"
+  },
+  {
+    "id": "link_teardown_loses_a_violation",
+    "rule": [
+      "T3"
+    ],
+    "file": "tests/conftest.py",
+    "old": "        _fail_on_link_violations(found, \"teardown\")\n    return result\n",
+    "new": "    _fail_on_link_violations(found, \"teardown\")\n    return result\n",
+    "tests": [
+      "tests/unit/test_link_defense_runtime.py::test_a_failing_teardown_does_not_lose_a_violation"
+    ],
+    "target": "tests.conftest:pytest_runtest_teardown",
+    "posix_only": false,
+    "note": "teardown 自己也失敗時違規不報：這筆已經從核對裡拿走，就永遠不見了"
+  },
+  {
+    "id": "g4_alias_ignores_values_items",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "_ALIAS_METHODS = frozenset({\"values\", \"items\"})\n",
+    "new": "_ALIAS_METHODS = frozenset()\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "for v in other.values() 不算別名"
+  },
+  {
+    "id": "g4_alias_ignores_view_calls",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        elif isinstance(value, ast.Call) and _short_call(value) in _ALIAS_CALLS:\n",
+    "new": "        elif False:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "enumerate、next、getattr、cast、zip 的結果不算別名"
+  },
+  {
+    "id": "g4_alias_call_first_arg_only",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "            args = value.args if position is None else value.args[position : position + 1]\n",
+    "new": "            args = value.args[:1]\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "zip 只看第一個參數、cast 看到型別：後面的容器不算別名"
+  },
+  {
+    "id": "g4_alias_ignores_module_names",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "                    if roots & names or roots - local:\n",
+    "new": "                    if roots & names:\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "d = _CACHE 不算別名：寫進模組層的容器看不到"
+  },
+  {
+    "id": "g4_alias_ignores_with",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        yield node.optional_vars, node.context_expr\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_unlisted_uses_of_zone_text_are_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_unlisted_uses_of_zone_text_are_red",
+    "posix_only": false,
+    "note": "with other as d 不算別名"
+  },
+  {
+    "id": "g4_alias_every_name_is_outside",
+    "rule": [
+      "G4"
+    ],
+    "file": "tests/lint/test_zone_path_guard.py",
+    "old": "        local = self.assigned(scope) - names\n",
+    "new": "        local = set()\n",
+    "tests": [
+      "tests/lint/test_zone_path_guard.py::test_g4_listed_places_comparisons_and_follow_forms_are_not_red"
+    ],
+    "target": "tests.lint.test_zone_path_guard:test_g4_listed_places_comparisons_and_follow_forms_are_not_red",
+    "posix_only": false,
+    "note": "函式內容器的別名也當成函式外的容器：正常的寫法變紅"
   }
 ]

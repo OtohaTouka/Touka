@@ -279,7 +279,8 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
         _LINK_MONITOR.check_leaks()
         found = _LINK_MONITOR.take()
         _LINK_MONITOR.end()
-    _fail_on_link_violations(found, "teardown")
+        # 放在 finally 裡：teardown 自己也失敗時違規照報，原本的失敗留在例外鏈上
+        _fail_on_link_violations(found, "teardown")
     return result
 
 
