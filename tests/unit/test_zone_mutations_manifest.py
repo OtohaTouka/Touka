@@ -13,8 +13,10 @@ import importlib.util
 import json
 import re
 import sys
+from collections import Counter
 from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -35,11 +37,17 @@ from tests.lint.test_zone_path_guard import (
     shared_names,
 )
 from tests.support.link_defenses import (
+    ANY_NAME,
     LINK_DEFENSE_MODULES,
     LINK_GENERIC_NAMES,
     LINK_SCAN_ALLOWED,
     link_scan_paths,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from tests.lint.test_zone_path_guard import ScopeNames
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "tests" / "zone_mutations.json"
@@ -284,41 +292,63 @@ def _replaces_a_defense(
     return UNKNOWN in owner and bool(replaced & (link_members() | {UNKNOWN}))
 
 
-def link_replacements(sources: list[Source]) -> dict[str, int]:
-    """每個範圍替換防線的次數；擁有者與名稱都經 ``Names`` 解析（別名、指定、fixture 等），
-    替換函式本身與它的參數（含關鍵字）也是."""
-    found: dict[str, int] = {}
+def _call_names(node: ast.AST, names: ScopeNames) -> frozenset[str]:
+    """改字典或替換時換掉的名稱；認不出（``.update(x)``、``d[k] = v``、沒寫名稱）是 ``UNKNOWN``."""
+    slots = _patched_names(node, names) if isinstance(node, ast.Call) else []
+    return frozenset().union(*slots) or frozenset({UNKNOWN})
+
+
+def _link_hits(sources: list[Source]) -> Iterator[tuple[str, frozenset[str]]]:
+    """每一次替換防線：（範圍, 換掉的名稱）；擁有者與名稱都經 ``Names`` 解析（別名、指定、fixture
+    等），替換函式本身與它的參數（含關鍵字）也是."""
     shared = shared_names(sources)
     for source in sources:
         module_names = Names(source.tree, shared)
         for key, nodes in scopes(source):
             names = module_names.at(scope_of(key))
-            hits = 0
             for node in nodes:
                 if isinstance(node, ast.Call) and (owner := _patched_owner(node, names)):
                     replaced = frozenset().union(*_patched_names(node, names))
                     value = _patched_values(node, names) - {UNKNOWN}
-                    hits += _replaces_a_defense(owner, replaced, value)
+                    if _replaces_a_defense(owner, replaced, value):
+                        yield key, replaced or frozenset({UNKNOWN})
                 # 直接改防線的字典：``setitem(no_follow.__dict__, …)``、``vars(X).update(…)``、
                 # ``zone_of.__globals__[…]``
-                changed = _changed_containers(node, names)
-                hits += sum(1 for container in changed if container & link_forbidden())
+                for container in _changed_containers(node, names):
+                    if container & link_forbidden():
+                        yield key, _call_names(node, names)
                 assigned = _assigned_owners(node, names)
                 value_node = getattr(node, "value", None) if assigned else None
                 stored = names.of(value_node) - {UNKNOWN} if value_node else frozenset()
-                hits += sum(
-                    _replaces_a_defense(owner, frozenset({attr}), stored)
-                    for owner, attr in assigned
-                )
-            if hits:
-                found[key] = hits
+                for owner, attr in assigned:
+                    if _replaces_a_defense(owner, frozenset({attr}), stored):
+                        yield key, frozenset({attr})
+
+
+def link_replacements(sources: list[Source]) -> dict[str, int]:
+    """每個範圍替換防線的次數."""
+    return dict(Counter(key for key, _names in _link_hits(sources)))
+
+
+def link_replaced_names(sources: list[Source]) -> dict[str, frozenset[str]]:
+    """每個範圍換掉的名稱（放行清單的替換目標）."""
+    found: dict[str, frozenset[str]] = {}
+    for key, names in _link_hits(sources):
+        found[key] = found.get(key, frozenset()) | names
     return found
 
 
 def test_link_tests_do_not_replace_the_defenses():
-    expected = {key: n for key, (n, _why) in LINK_SCAN_ALLOWED.items()}
+    expected = {key: n for key, (n, _why, _names) in LINK_SCAN_ALLOWED.items()}
     assert link_replacements(link_scan_sources()) == expected
-    assert [key for key, (_n, why) in LINK_SCAN_ALLOWED.items() if not why.strip()] == []
+    assert [key for key, (_n, why, _names) in LINK_SCAN_ALLOWED.items() if not why.strip()] == []
+
+
+def test_every_listed_replacement_names_what_it_replaces():
+    """放行清單每項的替換目標和靜態掃描算出的相同；認不出的是 ``ANY_NAME``（等於 ``UNKNOWN``）."""
+    assert ANY_NAME == UNKNOWN
+    expected = {key: names for key, (_n, _why, names) in LINK_SCAN_ALLOWED.items()}
+    assert link_replaced_names(link_scan_sources()) == expected
 
 
 def test_the_link_scan_covers_its_scope():
@@ -423,6 +453,68 @@ def test_the_link_scan_finds_every_way_of_replacing_a_defense(text):
     assert link_replacements([Source("m.py", "m", ast.parse(text))]) == {"m:t": 1}
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 回傳參數本身的呼叫
+        "from typing import cast\n"
+        'def t(m):\n    m.setattr(cast(type, EvolutionPathGuard), "x", f)\n',
+        'import inspect\ndef t(m):\n    m.setattr(inspect.unwrap(zone_of), "x", f)\n',
+        'import copy\ndef t(m):\n    g = copy.copy(EvolutionPathGuard)\n    m.setattr(g, "x", f)\n',
+        'from copy import deepcopy\ndef t(m):\n    m.setattr(deepcopy(no_follow), "x", f)\n',
+        # ``getattr`` 取保留身分的屬性
+        'def t(m):\n    m.setitem(getattr(no_follow, "__dict__"), "x", f)\n',
+        'def t(m):\n    m.setattr(getattr(resource_manager, "__class__"), "x", f)\n',
+        'def t():\n    name = "__dict__"\n    getattr(no_follow, name).update(x=f)\n',
+        # ``partial``：直接呼叫、綁到變數、關鍵字
+        "from functools import partial\n"
+        'def t(m):\n    partial(m.setattr, EvolutionPathGuard, "x", f)()\n',
+        "import functools\n"
+        'def t(m):\n    s = functools.partial(m.setattr, EvolutionPathGuard)\n    s("x", f)\n',
+        "from functools import partial\n"
+        'def t(m):\n    s = partial(m.setattr)\n    s(EvolutionPathGuard, "x", f)\n',
+        "from functools import partial\n"
+        "def t(m):\n"
+        "    s = partial(m.setattr, target=EvolutionPathGuard)\n"
+        '    s(name="x", value=f)\n',
+        "from functools import partial\n"
+        "from unittest.mock import patch\n"
+        'def t():\n    partial(patch.object, EvolutionPathGuard, "x")()\n',
+        # 基底認不出的 ``patch`` 屬性
+        'def t(patcher):\n    patcher.object(EvolutionPathGuard, "x")\n',
+        'def t(patcher):\n    patcher.dict(no_follow.__dict__, {"x": f})\n',
+        "def t(patcher):\n    patcher.multiple(EvolutionPathGuard, x=f)\n",
+    ],
+)
+def test_the_link_scan_sees_through_passthrough_calls_and_partial(text):
+    """次數不釘（``s = partial(…)`` 與 ``s(…)`` 各算一次），認得出就好."""
+    assert link_replacements([Source("m.py", "m", ast.parse(text))]).get("m:t", 0) >= 1
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        ('def t(m):\n    m.setattr(no_follow, "x", f)\n', {"x"}),
+        ('def t():\n    with patch("src.a.no_follow.x"):\n        pass\n', {"x"}),
+        ('def t():\n    with patch.object(ResourceManager, attribute="y"):\n        pass\n', {"y"}),
+        ('def t(m):\n    m.setitem(no_follow.__dict__, "z", f)\n', {"z"}),
+        ('def t():\n    with patch.dict(vars(no_follow), {"a": f}):\n        pass\n', {"a"}),
+        ("def t():\n    with patch.multiple(no_follow, b=f):\n        pass\n", {"b"}),
+        ("def t():\n    EvolutionPathGuard.c = f\n", {"c"}),
+        ("def t():\n    vars(no_follow).update(x=f)\n", {UNKNOWN}),
+        ("def t():\n    no_follow.__dict__['x'] = f\n", {UNKNOWN}),
+        ("def t(m, name):\n    m.setattr(no_follow, name, f)\n", {UNKNOWN}),
+        ("def t(m):\n    m.setattr(no_follow, *spec)\n", {UNKNOWN}),
+        (
+            'def t(m):\n    m.setattr(no_follow, "x", f)\n    m.delattr(no_follow, "y")\n',
+            {"x", "y"},
+        ),
+    ],
+)
+def test_the_link_scan_says_which_names_are_replaced(text, names):
+    assert link_replaced_names([Source("m.py", "m", ast.parse(text))]) == {"m:t": names}
+
+
 def test_the_link_scan_follows_fixtures_from_other_files():
     conftest = "@pytest.fixture\ndef guard():\n    return EvolutionPathGuard\n"
     test = 'def t(m, guard):\n    m.setattr(guard, "x", f)\n'
@@ -455,6 +547,12 @@ def test_the_link_scan_follows_fixtures_from_other_files():
         'def t(m):\n    m.setattr(target=other, name="x", value=f)\n',
         'def t(m):\n    m.setitem(vars(other), "x", f)\n',
         "def t():\n    d = {}\n    d['k'] = v\n    d.update(x=1)\n",
+        # 回傳參數的呼叫與基底認不出的 ``patch`` 屬性，對象不是防線
+        'from typing import cast\ndef t(m):\n    m.setattr(cast(int, other), "x", f)\n',
+        'def t(m):\n    m.setitem(getattr(other, "__dict__"), "x", f)\n',
+        'from functools import partial\ndef t(m):\n    partial(m.setattr, other, "x", f)()\n',
+        "from functools import partial\ndef t(m):\n    partial(print, EvolutionPathGuard)()\n",
+        'def t(client):\n    client.object(other, "y")\n',
     ],
 )
 def test_the_link_scan_leaves_other_replacements_and_calls_alone(text):

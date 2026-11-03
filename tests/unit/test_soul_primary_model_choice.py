@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import uuid
@@ -37,6 +38,7 @@ from src.services.models.routes import (
     ModelRouteSnapshotState,
 )
 from src.services.resource_manager import resource_manager
+from src.utils.async_db import init_db_async
 from src.utils.brain_persistence import (
     get_active_brain,
     set_active_brain,
@@ -353,6 +355,7 @@ CREATED = "ChoiceNewSoul"
 @pytest.fixture
 def create_sandbox() -> Any:
     """建立會寫 models.json／agents_registry.json 與三個資料夾：先記下，結束時還原。"""
+    asyncio.run(init_db_async())  # 建立靈魂會更新 session 的來源標記：不跑 lifespan 時要自己建表
     config_dir = Path(get_config_dir())
     files = [config_dir / "models.json", config_dir / "agents_registry.json"]
     original = {path: path.read_bytes() if path.exists() else None for path in files}
