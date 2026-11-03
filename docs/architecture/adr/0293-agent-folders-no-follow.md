@@ -260,4 +260,5 @@ PR 2 的「已知的界線」列了一串測試守衛看不到的寫法，多半
 - `tests/unit/test_link_defense_runtime.py`（改核對程式之前新案例 27 個失敗）、`tests/unit/test_zone_mutations_manifest.py`、`tests/lint/test_zone_path_guard.py`。
 - 第一輪全量 pytest 有 802 個 teardown 錯誤：monkeypatch 換回實例方法時留下綁回自己的方法，被當成外洩。先補紅燈測試，再把「和從類別取出來的一樣」當成沒蓋掉；同一批測試也抓到換回的位置留在已打開清單、之後的直接改被蓋掉。
 - `tests/unit/test_soul_primary_model_choice.py` 原本就時好時壞（建立靈魂要更新 `user_sessions`，不跑 lifespan 時表不一定存在，看隨機順序），這次讓 fixture 先建表。
-- 改壞清單新增 47 項，共 282 項，每項都被列名的測試殺死：Linux 容器整份跑一次（278 項殺死，3 項只在 Windows 判得出、跳過）；Windows 本機整份跑一次（274 項殺死，7 項只在 POSIX 判得出、跳過）。整份跑的兩個平台都還差一項 `g4_nested_ignores_outer_params`：擴充別名之後，原本的案例改由新規則判紅，那項改壞抓不到了；補上外層別名的案例後，這一項在兩個平台單獨重跑都殺死。新增的 47 項在兩個平台都有跑到。
+- 改壞清單新增 58 項，共 293 項，每項都被列名的測試殺死：Linux 容器整份跑一次（290 項殺死，3 項只在 Windows 判得出、跳過）；Windows 本機整份跑一次（286 項殺死，7 項只在 POSIX 判得出、跳過）。兩個平台的跳過都不是這次新增的。
+- G4 改成預設拒絕之前，新案例有 22 個失敗；改完之後全綠。
