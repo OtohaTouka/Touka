@@ -18,7 +18,8 @@ SECURITY_FLOORS = {
     "js-yaml": "4.3.1",
     "undici": "7.30.1",
     "hono": "4.13.11",
-    "qs": "6.16.0",
+    "qs": "6.16.1",
+    "body-parser": "2.4.0",
     "@humanfs/node": "0.16.8",
     "postcss-selector-parser": "7.1.6",
     "smol-toml": "1.9.0",
@@ -29,8 +30,9 @@ SECURITY_FLOORS = {
     "vitest": "4.1.11",
     "@vitest/mocker": "4.1.12",
     "@modelcontextprotocol/client": "2.3.0",
+    "@modelcontextprotocol/node": "2.1.0",
 }
-IDE_ONLY_PACKAGES = ("@modelcontextprotocol/client",)
+IDE_ONLY_PACKAGES = ("@modelcontextprotocol/client", "@modelcontextprotocol/node")
 PROJECT_PACKAGES = {
     "ToukaChat": tuple(name for name in SECURITY_FLOORS if name not in IDE_ONLY_PACKAGES),
     "ToukaIDE": (
@@ -47,6 +49,8 @@ PROJECT_PACKAGES = {
         "vitest",
         "@vitest/mocker",
         "@modelcontextprotocol/client",
+        "@modelcontextprotocol/node",
+        "body-parser",
     ),
 }
 
