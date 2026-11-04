@@ -145,7 +145,8 @@ function LeftSidebar({
                     <SidebarSetupNotices onAction={onSetupAction} />
 
                     {/* New Chat ＋ 無痕對話（HAX G17，ADR-0086） */}
-                    <div className="w-full px-2 flex flex-col gap-2">
+                    {/* 排同一列；側欄拖窄到擺不下時，無痕換到下一行 */}
+                    <div className="w-full px-2 flex flex-wrap gap-2">
                         <Button
                             variant="default"
                             onClick={() => {
@@ -153,9 +154,9 @@ function LeftSidebar({
                                 if (activeMode !== 'chat') onChatClick?.();
                             }}
                             title={t('layout.left_sidebar.new_chat_button_tooltip')}
-                            className="w-full h-12 px-3 rounded-xl bg-primary-button hover:bg-primary-button/90 text-white shadow-md shrink-0 focus:ring-2 focus:ring-primary/20"
+                            className="flex-1 min-w-fit h-10 px-2 rounded-xl bg-primary-button hover:bg-primary-button/90 text-white shadow-md shrink-0 focus:ring-2 focus:ring-primary/20"
                         >
-                            <PlusCircle className="w-5 h-5 mr-2" />
+                            <PlusCircle className="w-5 h-5" />
                             <span className="font-bold">{t('layout.left_sidebar.new_chat_button')}</span>
                         </Button>
                         <Button
@@ -165,10 +166,11 @@ function LeftSidebar({
                                 if (activeMode !== 'chat') onChatClick?.();
                             }}
                             title={t('layout.left_sidebar.incognito_chat_button_tooltip')}
-                            className="w-full h-9 px-3 rounded-xl border-border/60 bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none shrink-0 focus:ring-2 focus:ring-primary/20"
+                            aria-label={t('layout.left_sidebar.incognito_chat_button')}
+                            className="min-w-fit h-10 px-2 rounded-xl border-border/60 bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none shrink-0 focus:ring-2 focus:ring-primary/20"
                         >
-                            <VenetianMask className="w-4 h-4 mr-2" />
-                            <span className="font-bold text-sm">{t('layout.left_sidebar.incognito_chat_button')}</span>
+                            <VenetianMask className="w-4 h-4" />
+                            <span className="font-bold text-sm">{t('layout.left_sidebar.incognito_chat_button_short')}</span>
                         </Button>
                     </div>
 
@@ -223,7 +225,6 @@ function LeftSidebar({
                     <NavigationArea 
                         activeMode={activeMode}
                         isHybrid={sysStatus.mode === 'hybrid'}
-                        onChatClick={() => onChatClick?.()}
                         onProjectsClick={() => onProjectsClick?.()}
                         onSoulClick={() => onSoulClick?.()}
                         onStudioClick={() => onStudioClick?.()}
