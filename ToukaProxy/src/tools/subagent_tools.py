@@ -45,6 +45,7 @@ from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_repo
 from src.tools.contracts import MAX_SUBAGENT_GROUP, SUBAGENT_GROUP_CONCURRENCY
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
+from src.utils.secret_text import sanitize_error_text
 from src.utils.time_utils import get_current_epoch
 from src.utils.user_intent import subagent_intent
 
@@ -301,7 +302,7 @@ def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
     return {
         "task_id": label,
         "status": "FAILED",
-        "result_summary": f"{type(exc).__name__}: {exc}",
+        "result_summary": sanitize_error_text(f"{type(exc).__name__}: {exc}"),
     }
 
 

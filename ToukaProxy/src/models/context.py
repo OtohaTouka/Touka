@@ -51,6 +51,9 @@ class PipelineContext(BaseModel):
     # 無痕模式（HAX G17，ADR-0086）：零殘留對話旗標
     incognito: bool = Field(default=False, description="無痕模式：零殘留對話")
 
+    # SNS 閘道建 context 時標記；模型回合失敗時對外只留固定文字
+    sns_source: bool = Field(default=False, description="這一輪來自 SNS 頻道（系統寫入）")
+
     # Hook（ADR-0292）：只有真的請求執行 UserPromptSubmit hook；上下文預覽不設
     run_hooks: bool = Field(default=False, description="這次請求要不要執行 UserPromptSubmit hook")
 

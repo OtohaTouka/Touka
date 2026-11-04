@@ -74,6 +74,7 @@
     - **`ToukaProxy/src/routers/terminal.py`** `_approval_lock` — terminal approval asyncio.Lock 防競爭條件
     - **`ToukaProxy/src/routers/mcp.py`** `_validate_npm_package_name()` — npm package name 嚴格正則驗證防 SSRF
     - **`ToukaProxy/src/services/models/manager.py`** `_sanitize_connection_error()` — 連線錯誤 API key 消毒
+    - **`ToukaProxy/src/utils/secret_text.py`** `sanitize_error_text()` — 錯誤內容交給別人之前遮憑證與本機路徑、限長（模型回合失敗、hook）
     - **`ToukaMemory/src/memory_server/utils/content_guard.py`** `sanitize_memory_content()` — 記憶 Prompt Injection 偵測
     - **`ToukaMemory/src/memory_server/utils/historical_data.py`** `wrap_historical_data()`、`neutralize_historical_tags()` — 查記憶、隨機回想、前情摘要、家對話的歷史資料界線與界線 tag 中和（ADR-0257）
     - **`ToukaHeartbeat/storage_service.py`** `_initial_config()` — Heartbeat token 首次啟動隨機生成並持久化

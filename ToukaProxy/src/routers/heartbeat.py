@@ -66,6 +66,7 @@ from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import TreeMessageManager
 from src.utils.interjection_notes import annotate_node
+from src.utils.secret_text import sanitize_error_text
 from src.utils.session_scope import channel_session_id
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
@@ -617,7 +618,7 @@ async def _process_heartbeat_loop(
         logger.warning("%s", code)
     except Exception as e:
         end = "error"
-        error_msg = f"❌ [Heartbeat-BG] 多脈衝任務執行失敗: {str(e)}"
+        error_msg = sanitize_error_text(f"❌ [Heartbeat-BG] 多脈衝任務執行失敗: {e}")
         logger.exception(error_msg)
         try:
             # 丙-4：重置或刪除中不寫進對話（可能把清掉的對話重新建出來）
