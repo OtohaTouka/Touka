@@ -9,11 +9,11 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
+import guard_dead_code
 import lint_ratchet  # scripts/ 由 tests/conftest.py 加進 sys.path
 import pytest
 from lint_ratchet import (
     PRODUCT_SOURCE_ROOTS,
-    PROJECT_ROOT,
     VULTURE_BASELINE,
     VULTURE_WHITELIST,
     collect_vulture,
@@ -21,6 +21,7 @@ from lint_ratchet import (
     load_baseline,
 )
 
+RATCHET_COMMAND = "python scripts/lint_ratchet.py vulture"
 # 審查過的參數。門檻提高或多排除一種裝飾器都會讓數字悄悄變好看，所以釘在這裡。
 REVIEWED_ARGUMENTS = [
     "vulture",
@@ -240,18 +241,42 @@ def test_main_passes_on_fewer_items_and_fails_on_new_ones(
 
 
 def test_baseline_keys_are_repo_relative_with_forward_slashes() -> None:
+    """只看格式：檔案拿掉後舊鍵留著不算問題（少了不紅）。"""
     keys = load_baseline(VULTURE_BASELINE)
     assert keys
     for key in keys:
         path, kind, name = key.rsplit(":", 2)
-        assert "\\" not in path
-        assert (PROJECT_ROOT / path).is_file(), key
+        assert "\\" not in path and not Path(path).is_absolute()
         assert kind in lint_ratchet.VULTURE_KINDS and name
 
 
-def test_dead_code_guard_runs_the_ratchet_and_scans_dispatch() -> None:
-    """本機全套檢查也要跑這道；門檻 80 的掃描範圍要和 ratchet 一樣涵蓋四個資料夾。"""
-    guard = (PROJECT_ROOT / "scripts/guard_dead_code.py").read_text(encoding="utf-8")
-    assert "scripts/lint_ratchet.py vulture" in guard
-    command = guard.split("vulture_cmd = (", 1)[1].split(")", 1)[0]
-    assert all(root in command for root in PRODUCT_SOURCE_ROOTS)
+def _run_dead_code_guard(
+    monkeypatch: pytest.MonkeyPatch, failing_command: str = ""
+) -> tuple[list[str], int]:
+    """替換守衛跑命令的入口，回傳它要跑的命令與結束碼。"""
+    commands: list[str] = []
+
+    def fake_run(command: str, _cwd: Path, _name: str) -> tuple[bool, str]:
+        commands.append(command)
+        return command != failing_command, ""
+
+    monkeypatch.setattr(guard_dead_code, "run", fake_run)
+    with pytest.raises(SystemExit) as exited:
+        guard_dead_code.main()
+    return commands, exited.value.code
+
+
+def test_dead_code_guard_runs_the_ratchet_and_scans_all_four_folders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands, exit_code = _run_dead_code_guard(monkeypatch)
+    assert exit_code == 0
+    assert RATCHET_COMMAND in commands
+    high_confidence = [command for command in commands if "--min-confidence 80" in command]
+    assert len(high_confidence) == 1
+    assert all(root in high_confidence[0] for root in PRODUCT_SOURCE_ROOTS)
+
+
+def test_dead_code_guard_fails_when_the_ratchet_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, exit_code = _run_dead_code_guard(monkeypatch, failing_command=RATCHET_COMMAND)
+    assert exit_code == 1

@@ -10,7 +10,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from lint_ssot import FLAT_PRODUCT_DIRS, REPO_ROOT, SSOTGuard, run_guard
+from lint_ssot import FLAT_PRODUCT_DIRS, REPO_ROOT, SSOTGuard, _is_flat_product_path, run_guard
 
 
 def parse_and_check(code_str: str, filename: str = "dummy.py") -> list[dict]:
@@ -187,8 +187,6 @@ BUSINESS_LAYER_CASES = [
     ("ToukaHeartbeatOld/a.py", False),
     ("tests/ToukaHeartbeat/a.py", False),
     ("scripts/ToukaDispatch.py", False),
-    (str(REPO_ROOT / "tests" / "ToukaDispatch" / "a.py"), False),
-    (str(REPO_ROOT.parent / "ToukaHeartbeat" / "a.py"), False),
     # 含 .. 比對不了，照舊只看 /src/
     (str(Path("ToukaHeartbeat") / ".." / "tests" / "a.py"), False),
     # 命令列工具刻意不掃（禁令 7）
@@ -206,6 +204,18 @@ def test_print_ban_covers_the_business_layer(filename: str, expected: bool) -> N
 def test_raise_string_ban_covers_the_business_layer(filename: str, expected: bool) -> None:
     violations = parse_and_check('raise ValueError("oneword")', filename)
     assert any(v["rule"] == "RAISE_STRING_BAN" for v in violations) is expected
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        REPO_ROOT / "tests" / "ToukaDispatch" / "a.py",
+        REPO_ROOT.parent / "ToukaHeartbeat" / "a.py",
+    ],
+)
+def test_absolute_paths_only_count_the_folders_at_the_repo_root(path: Path) -> None:
+    """直接測這個判斷：repo 放在含 src 的資料夾底下時，完整路徑本來就會比對到 `/src/`。"""
+    assert _is_flat_product_path(str(path)) is False
 
 
 def test_flat_product_dirs_still_exist_at_the_repo_root() -> None:

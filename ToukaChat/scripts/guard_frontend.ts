@@ -1,47 +1,25 @@
-import fs from 'fs';
 import path from 'path';
-import { Project } from 'ts-morph';
-import glob from 'fast-glob';
 import { OpenApiParser, FrontendScanner, ParityEngine } from './lib/guard';
 import {
-  collectContractAliasNames,
+  CONTRACT_BASELINE_FILE,
+  collectContractTypeKeys,
   compareContractBaseline,
-  findHandwrittenContractTypes,
-  isProductionSource,
+  readContractBaseline,
+  writeContractBaseline,
 } from './lib/contract_type_guard_logic';
 
 const UPDATE_FLAG = '--update';
-const CONTRACT_BASELINE = 'scripts/contract_type_baseline.json';
-const CONTRACT_ALIASES_FILE = 'src/lib/types.ts';
 
 /** 第 2 部分（禁令 51，ADR-0297）：和後端合約同名的手寫型別必須和基準完全相等。 */
 async function checkContractTypes(projectRoot: string, schemaPath: string, update: boolean): Promise<number> {
-  const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
-  const project = new Project();
-  const aliases = collectContractAliasNames(
-    project.addSourceFileAtPath(path.resolve(projectRoot, CONTRACT_ALIASES_FILE)),
-  );
-  const contractNames = new Set([...Object.keys(schema.components?.schemas ?? {}), ...aliases]);
-  const files = await glob('src/**/*.{ts,tsx}', { cwd: projectRoot });
-
-  const current = files
-    .filter(isProductionSource)
-    .flatMap((file) =>
-      findHandwrittenContractTypes(project.addSourceFileAtPath(path.resolve(projectRoot, file)), contractNames).map(
-        (name) => `${file}:${name}`,
-      ),
-    )
-    .sort();
-  console.log(`✅ 已比對 ${contractNames.size} 個合約名稱，找到 ${current.length} 個同名手寫型別。`);
-
-  const baselinePath = path.resolve(projectRoot, CONTRACT_BASELINE);
+  const current = await collectContractTypeKeys(projectRoot, schemaPath);
+  console.log(`✅ 找到 ${current.length} 個和後端合約同名的手寫型別。`);
   if (update) {
-    fs.writeFileSync(baselinePath, `${JSON.stringify(current, null, 2)}\n`, 'utf-8');
-    console.log(`📝 已重拍 ${CONTRACT_BASELINE}。`);
+    writeContractBaseline(projectRoot, current);
+    console.log(`📝 已重拍 ${CONTRACT_BASELINE_FILE}。`);
     return 0;
   }
-  const baseline: string[] = fs.existsSync(baselinePath) ? JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) : [];
-  const problems = compareContractBaseline(current, baseline);
+  const problems = compareContractBaseline(current, readContractBaseline(projectRoot));
   for (const problem of problems) {
     console.error(`🚨 [CONTRACT_TYPE_VIOLATION] ${problem}`);
   }

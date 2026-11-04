@@ -1,7 +1,12 @@
-import { Node, SourceFile, SyntaxKind, TypeNode } from 'ts-morph';
+import fs from 'fs';
+import path from 'path';
+import glob from 'fast-glob';
+import { Node, Project, SourceFile, SyntaxKind, TypeNode } from 'ts-morph';
 
 /** 生成合約 `src/types/api.ts` 匯出的三個根型別。 */
 const CONTRACT_ROOTS = new Set(['components', 'operations', 'paths']);
+const CONTRACT_ALIASES_FILE = 'src/lib/types.ts';
+export const CONTRACT_BASELINE_FILE = 'scripts/contract_type_baseline.json';
 
 const NON_PRODUCTION_PATTERNS = [
   /\.(test|spec|stories)\.tsx?$/,
@@ -55,6 +60,36 @@ export function findHandwrittenContractTypes(
   return declarations
     .filter((node) => contractNames.has(node.getName()) && !isContractAlias(node))
     .map((node) => node.getName());
+}
+
+/** 掃整個前端，回傳排序好的「路徑:名稱」。合約名是 OpenAPI 的 schema 名加 `lib/types.ts` 的真別名。 */
+export async function collectContractTypeKeys(projectRoot: string, schemaPath: string): Promise<string[]> {
+  const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+  const project = new Project();
+  const aliases = collectContractAliasNames(
+    project.addSourceFileAtPath(path.resolve(projectRoot, CONTRACT_ALIASES_FILE)),
+  );
+  const contractNames = new Set([...Object.keys(schema.components?.schemas ?? {}), ...aliases]);
+  const files = await glob('src/**/*.{ts,tsx}', { cwd: projectRoot });
+  return files
+    .filter(isProductionSource)
+    .flatMap((file) =>
+      findHandwrittenContractTypes(project.addSourceFileAtPath(path.resolve(projectRoot, file)), contractNames).map(
+        (name) => `${file}:${name}`,
+      ),
+    )
+    .sort();
+}
+
+/** 基準不存在就是空的，既有的同名手寫都會被當成新增。 */
+export function readContractBaseline(projectRoot: string): string[] {
+  const baselinePath = path.resolve(projectRoot, CONTRACT_BASELINE_FILE);
+  return fs.existsSync(baselinePath) ? JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) : [];
+}
+
+export function writeContractBaseline(projectRoot: string, keys: readonly string[]): void {
+  const baselinePath = path.resolve(projectRoot, CONTRACT_BASELINE_FILE);
+  fs.writeFileSync(baselinePath, `${JSON.stringify(keys, null, 2)}\n`, 'utf-8');
 }
 
 function countKeys(keys: readonly string[]): Map<string, number> {

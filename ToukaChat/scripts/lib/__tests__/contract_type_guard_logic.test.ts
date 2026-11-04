@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Project } from 'ts-morph';
 import {
   collectContractAliasNames,
+  collectContractTypeKeys,
   compareContractBaseline,
   findHandwrittenContractTypes,
   isProductionSource,
+  readContractBaseline,
+  writeContractBaseline,
 } from '../contract_type_guard_logic';
 
 const CONTRACT_NAMES = new Set(['BackupInfo', 'McpHubServer', 'SessionSnapshot', 'SoulUpdateResult']);
@@ -28,6 +34,7 @@ describe('findHandwrittenContractTypes', () => {
     ['根不是生成合約', "type BackupInfo = local['schemas']['A'];"],
     ['聯集裡有手寫', "type BackupInfo = components['schemas']['A'] | { id: string };"],
     ['泛型別名', "type BackupInfo<T> = components['schemas']['A'] | T;"],
+    ['泛型別名，右側只有索引', "type BackupInfo<T> = components['schemas']['A'];"],
     ['函式裡的宣告', 'function f() { interface BackupInfo { id: string } return null; }'],
   ])('手寫同名會報：%s', (_label, text) => {
     expect(handwritten(text)).toEqual(['BackupInfo']);
@@ -97,6 +104,57 @@ describe('isProductionSource', () => {
     ['src/test/setup.ts', false],
   ])('%s → %s', (relativePath, expected) => {
     expect(isProductionSource(relativePath)).toBe(expected);
+  });
+});
+
+describe('整個前端的掃描與基準', () => {
+  let root: string;
+  const schemaPath = () => path.join(root, 'openapi.json');
+
+  function write(relativePath: string, text: string) {
+    const file = path.join(root, relativePath);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text, 'utf-8');
+  }
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'touka-contract-guard-'));
+    write('openapi.json', JSON.stringify({ components: { schemas: { BackupInfo: {}, SoulConfig: {} } } }));
+    write('src/lib/types.ts', "export type McpHubServer = components['schemas']['MCPHubServerItem'];\n");
+    write('src/hooks/zeta.ts', 'export interface SoulConfig { id: string }\n');
+    write('src/components/alpha.tsx', 'interface BackupInfo { id: string }\ninterface McpHubServer { id: string }\n');
+    write('src/hooks/useFoo.test.ts', 'interface BackupInfo { id: string }\n');
+    write('src/types/api.ts', 'export interface BackupInfo { id: string }\n');
+    write('src/generated/x.ts', 'export interface BackupInfo { id: string }\n');
+    write('src/hooks/fine.ts', "export type BackupInfo = components['schemas']['BackupInfo'];\n");
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('只收生產程式，鍵是排序好的相對路徑加名稱', async () => {
+    expect(await collectContractTypeKeys(root, schemaPath())).toEqual([
+      'src/components/alpha.tsx:BackupInfo',
+      'src/components/alpha.tsx:McpHubServer',
+      'src/hooks/zeta.ts:SoulConfig',
+    ]);
+  });
+
+  it('沒有基準時全部算新增；重拍之後才相等', async () => {
+    const current = await collectContractTypeKeys(root, schemaPath());
+    expect(readContractBaseline(root)).toEqual([]);
+    expect(compareContractBaseline(current, readContractBaseline(root))).toHaveLength(3);
+
+    fs.mkdirSync(path.join(root, 'scripts'));
+    writeContractBaseline(root, current);
+    expect(compareContractBaseline(current, readContractBaseline(root))).toEqual([]);
+  });
+
+  it('guard_frontend 真的跑這道，違規會影響結束碼', () => {
+    const guard = fs.readFileSync(path.resolve(__dirname, '../../guard_frontend.ts'), 'utf-8');
+    expect(guard).toContain('await checkContractTypes(projectRoot, schemaPath');
+    expect(guard).toContain('violations === 0 && contractViolations === 0');
   });
 });
 
