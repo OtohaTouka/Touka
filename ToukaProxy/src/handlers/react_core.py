@@ -79,7 +79,7 @@ def _read_stop_reason(adapter: ProviderAdapter, state: Any, raw: Any) -> StopRea
 def _no_reply(adapter: ProviderAdapter, state: Any, raw: Any, turn: Turn) -> bool:
     """回 200 但沒有回覆：沒有文字也沒有工具呼叫，停止原因又是 ``error``。
 
-    被安全過濾擋下、拒答、模型正常結束卻沒有字，都不算。
+    被安全過濾擋下、拒答、模型正常結束或被截斷卻沒有字，都不算。
     """
     if (turn.visible_text or "").strip() or turn.tool_calls:
         return False

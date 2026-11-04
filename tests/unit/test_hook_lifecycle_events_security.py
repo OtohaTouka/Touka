@@ -480,12 +480,19 @@ def test_no_reply_error_takes_a_code_that_looks_like_a_number(code):
     ({"choices": [{"finish_reason": "insufficient_system_resource"}]},
      "insufficient_system_resource"),
     ({"candidates": [{"finishReason": "MALFORMED_FUNCTION_CALL"}]}, "MALFORMED_FUNCTION_CALL"),
-    ({"content": [], "stop_reason": "pause_turn"}, "pause_turn"),
 ])
 def test_no_reply_error_says_why_the_reply_ended(raw, reason):
     """管理員要分得出是工具格式壞掉還是資源不足；內容本身仍然不帶。"""
     error = retry.no_reply_error("X", {**raw, "instructions": "CANARY"})
     assert reason in error.user_message
+    assert "CANARY" not in error.user_message
+
+
+def test_no_reply_error_reads_why_a_claude_reply_ended():
+    """Claude 的回應是 SDK 物件，不是 dict。"""
+    raw = SimpleNamespace(stop_reason="pause_turn", content=[], system="CANARY")
+    error = retry.no_reply_error("X", raw)
+    assert "pause_turn" in error.user_message
     assert "CANARY" not in error.user_message
 
 
@@ -512,6 +519,18 @@ async def test_an_error_body_with_usage_is_booked_and_not_retried(monkeypatch, h
     assert len(booked) == 1
     assert len(upstream.requests) == 1
     assert hooks.http.calls[0]["error"] == "overloaded"
+
+
+@pytest.mark.parametrize("usage", ["x", [1], None, {}, {"prompt_tokens": 0, "total_tokens": 0},
+                                   {"prompt_tokens": "3"}])
+async def test_an_error_body_without_real_usage_is_still_retried(monkeypatch, no_wait, usage):
+    """形狀不對或全是 0 不算已計費：照忙碌類重試，也不會在入帳時丟例外。"""
+    busy = {"error": {"type": "overloaded_error"}, "usage": usage}
+    good = {"choices": [{"message": {"content": "好"}, "finish_reason": "stop"}]}
+    upstream = FakeUpstream([json_reply(json.dumps(busy), 200), json_reply(json.dumps(good), 200)])
+    upstream.install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    assert len(upstream.requests) == 2
 
 
 async def test_an_estimated_no_reply_round_is_booked_only_once(monkeypatch, no_wait):

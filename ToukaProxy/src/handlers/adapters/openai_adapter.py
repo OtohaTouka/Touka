@@ -238,8 +238,8 @@ class OpenAIAdapter:
             )
         if not isinstance(body, dict):  # 讀得懂但不是回覆：parse_round 只收物件
             return RoundError(f"{state.provider} API Error (200)\n\n`{http_resp.text[:200]}`")
-        # 和串流一樣：忙碌類的錯誤本文會重試；帶用量的已經計費，交給 react_core 入帳、不重試
-        if "error" in body and not body.get("choices") and not body.get("usage"):
+        # 忙碌類的錯誤本文和串流一樣會重試；非串流帶非零用量的已經計費，交給 react_core 入帳、不重試
+        if "error" in body and not body.get("choices") and not retry.reports_usage(body):
             return retry.no_reply_error(state.provider, body)
         return body
 

@@ -150,16 +150,26 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
     return error
 
 
-def _finish_reason(body: dict[str, Any]) -> str | None:
-    """回應為什麼結束（OpenAI、Gemini、Claude 的寫法）；沒有就 None。"""
+def reports_usage(body: dict[str, Any]) -> bool:
+    """回應帶了非零用量：廠商已經計費。形狀不對或全是 0 都不算。"""
+    usage = body.get("usage")
+    return isinstance(usage, dict) and any(
+        isinstance(value, int | float) and value > 0 for value in usage.values()
+    )
+
+
+def _finish_reason(raw: Any) -> str | None:
+    """回應為什麼結束（OpenAI、Gemini 是 dict，Claude 是 SDK 物件）；沒有就 None。"""
+    if not isinstance(raw, dict):
+        reason = getattr(raw, "stop_reason", None)
+        return reason if isinstance(reason, str) else None
     for key, field in (("choices", "finish_reason"), ("candidates", "finishReason")):
-        items = body.get(key)
+        items = raw.get(key)
         first = items[0] if isinstance(items, list) and items else None
         reason = first.get(field) if isinstance(first, dict) else None
         if isinstance(reason, str):
             return reason
-    reason = body.get("stop_reason")
-    return reason if isinstance(reason, str) else None
+    return None
 
 
 def _code_number(code: Any) -> Any:
@@ -188,7 +198,7 @@ def no_reply_error(label: str, raw: Any) -> RoundError:
     incomplete = body.get("incomplete_details")
     if isinstance(incomplete, dict) and isinstance(incomplete.get("reason"), str):
         shown["incomplete_reason"] = incomplete["reason"]
-    finish = _finish_reason(body)
+    finish = _finish_reason(raw)
     if finish is not None:
         shown["finish_reason"] = finish
     detail = "沒有回覆內容"
