@@ -176,7 +176,8 @@ text／no_text 不是 full；completed no_text 的富內容仍補存，error／c
 列表沒有 revision；首次 strict snapshot 必核對內容或綁定明確缺席，不能替舊樹配上最新 token。
 POST 送 confirmed revision；DELETE 送 If-Match，缺席仍等待明確 DELETE 200 才移除。
 `setSessions`／ref 共用 transition，外部 ingress 不視為保存證據；pending／failed／unknown／unconfirmed
-草稿在 state、refresh returned list 與 resume 都受到保護。省略保留，取消 project 綁定送 explicit null。
+草稿在 state、refresh returned list 與 resume 都受到保護；`set_home` 成功後只有家欄位跟著存檔改（`applySavedHome`）。
+省略保留，取消 project 綁定送 explicit null。
 
 scope 綁 proxy origin、實際 credential principal／epoch；明確登入／clear 退休舊操作，同 principal
 內部 refresh 可維持 epoch。wire、refresh、body await 後重驗並 best-effort abort；清除 registry、

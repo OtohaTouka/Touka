@@ -8,7 +8,8 @@ import { getSystemEpoch } from '@/lib/time_utils';
 
 const h = vi.hoisted(() => ({
   sessions: [] as Session[], save: vi.fn(), wire: vi.fn(), fetch: vi.fn(),
-  register: vi.fn(), complete: vi.fn(), begin: vi.fn(), scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
+  register: vi.fn(), complete: vi.fn(), begin: vi.fn(), prepare: vi.fn(), resume: vi.fn(),
+  scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
   sessions: h.sessions,
@@ -24,12 +25,12 @@ vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
     h.sessions = h.sessions.map(session => session.id === id ? first : session);
     return h.save(first);
   },
-  beginProducer: h.begin, completeProducer: h.complete, scopeKey: 'scope-a',
+  beginProducer: h.begin, completeProducer: h.complete, prepareResume: h.prepare, scopeKey: 'scope-a',
   getPersistence: () => ({ status: 'unknown', error_code: 1307 }),
 }) }));
 vi.mock('../DebugProvider', () => ({ useDebug: () => ({ registerSimHandlers: h.register }) }));
 vi.mock('../../connections', () => ({
-  fetchChatStream: h.wire, fetchTouka: h.fetch, getActiveProxyUrl: () => 'http://x', resumeChatStream: vi.fn(),
+  fetchChatStream: h.wire, fetchTouka: h.fetch, getActiveProxyUrl: () => 'http://x', resumeChatStream: h.resume,
   captureRequestScope: () => h.scope, isRequestScopeCurrent: (scope: unknown) => scope === h.scope,
 }));
 vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } }));
@@ -293,5 +294,40 @@ describe('actual registry user-turn persistence barrier', () => {
     expect(stops.map(([, path]) => path)).toEqual(matching
       ? ['/v1/ui/sessions/s1/stop', '/v1/ui/sessions/s1/stop?stream_id=stream']
       : ['/v1/ui/sessions/s1/stop']);
+  });
+  describe('reload while the finished turn is still in the stream buffer', () => {
+    const started = { type: 'touka_stream_started', session_id: 's1', stream_id: 'stream', user_parent_id: 'user', assistant_node_id: 'reply' };
+    const textSaved = { status: 'saved', representation: 'text', revision: 'r1' };
+    const state = (terminal: object | null) => ({ state: { session_id: 's1', stream_id: 'stream', status: terminal ? 'done' : 'active',
+      last_seq: 3, started_at: 1, started, terminal: terminal && { ...started, type: 'touka_stream_terminal', generation: 'completed', ...terminal } } });
+    const stored = (revision: string) => ({ id: 's1', title: 'title', updatedAt: 1, revision, messages: { currentId: 'user', messages: {
+      user: { id: 'user', role: 'user', content: 'user', parentId: null, childrenIds: [] } } } });
+    async function reload(terminal: object | null, revision: string) {
+      h.fetch.mockImplementation(async (_origin: string, path: string) => ({ ok: true, status: 200, json: async () =>
+        path.endsWith('/stream/state') ? state(terminal) : { streams: [] } }));
+      h.prepare.mockResolvedValue(stored(revision));
+      const rendered = renderHook(() => useStreamRegistry(), { wrapper });
+      await act(async () => { await rendered.result.current.checkSessionStream('s1'); });
+      return rendered;
+    }
+    it('the store is already past that turn: no replay, no producer, nothing to save', async () => {
+      const { result } = await reload({ persistence: textSaved }, 'r2');
+      expect(h.prepare).toHaveBeenCalledWith('s1');
+      expect(h.resume).not.toHaveBeenCalled();
+      expect(h.begin).not.toHaveBeenCalled();
+      expect(h.complete).not.toHaveBeenCalled();
+      expect(result.current.getStream('s1')).toBeUndefined();
+      expect(result.current.activeCount).toBe(0);
+    });
+    it('the page closed before its full save (same revision): replays to restore the rich tree', async () => {
+      const { result } = await reload({ persistence: textSaved }, 'r1');
+      expect(h.begin).toHaveBeenCalledTimes(1);
+      expect(h.resume).toHaveBeenCalledTimes(1);
+      expect(result.current.getStream('s1')?.assistantMsgId).toBe('reply');
+    });
+    it('a running stream is always followed', async () => {
+      await reload(null, 'r2');
+      expect(h.resume).toHaveBeenCalledTimes(1);
+    });
   });
 });

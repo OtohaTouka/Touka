@@ -103,6 +103,8 @@ export async function awakenSoul(initPrompt: string, sessionMode: "independent" 
 
 export interface SavedMessage {
   role: string;
+  content?: string;
+  steps?: unknown[];
   generationFailed?: boolean;
 }
 
@@ -114,6 +116,22 @@ export async function savedMessages(token: string, sessionId: string): Promise<S
     token,
   );
   return Object.values(session.messages.messages);
+}
+
+export interface SavedSnapshot {
+  revision: string;
+  session: { title: string; is_home: boolean; home_for_agent: string | null };
+}
+
+/** 存檔裡這段對話的版本與欄位；畫面重新核對時讀的就是這個。 */
+export function savedSnapshot(token: string, sessionId: string): Promise<SavedSnapshot> {
+  return call("GET", `/v1/ui/sessions/${sessionId}?snapshot=true`, token);
+}
+
+/** 這個帳號最近更新的對話；清單照 updatedAt 排序，剛送過訊息的就是它。 */
+export async function latestSessionId(token: string): Promise<string> {
+  const sessions = await call<{ id: string }[]>("GET", "/v1/ui/sessions", token);
+  return sessions[0].id;
 }
 
 export async function hookRuns(token: string): Promise<HookRunRow[]> {

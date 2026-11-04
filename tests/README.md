@@ -1158,6 +1158,7 @@ python scripts/guard_all.py
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
 | `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |
+| `e2e-real/session-save.spec.ts` ⭐ | ADR-0295 實際驗證：這一頁新建的對話設家後下一則與改名、輪流換家後舊家再送、回覆後重新整理（存檔不變、沒有提示、下一則直接送出）、有工具步驟的回覆重新整理後完整、原頁沒存完整內容時重播補回、模型失敗恢復後重新整理 |
 | `src/components/chat/__tests__/IncognitoHookNotice.test.tsx` ⭐ | ADR-0292 無痕提示：有 hook 才提示、一般對話不查、中途打開下一則就提示、查不到維持上次 |
 | `e2e/mcp-oauth.spec.ts` ⭐ | ADR-0206 P8-A Playwright：callback 當前 URL 無 state/code canary、local/session storage 與 console/message surface 無秘密、exact origin/source opaque message。 |
 

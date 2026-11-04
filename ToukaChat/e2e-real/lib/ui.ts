@@ -52,6 +52,44 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await composer(page).press("Enter");
 }
 
+/** 保存狀態不確定或對不上時，人要走的路：先核對，再重試保存（ADR-0231）。 */
+export async function recoverSave(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "重新核對保存結果" }).click();
+  await page.getByRole("button", { name: "僅重試保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
+}
+
+/** 最後一則回覆有失敗標示。訊息清單是虛擬捲動，捲出畫面的不在頁面上，不能數總數。 */
+export async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
+  const lastItem = page.locator("[data-index]").last();
+  await expect(lastItem.getByRole("alert")).toHaveText(/這一輪回覆失敗/);
+}
+
+function sessionOptions(page: Page, title?: string): Locator {
+  return page.getByRole("button", { name: title ? `會話選項：${title}` : /^會話選項：/ }).first();
+}
+
+/** 沒給標題時是側欄最上面那段（剛送過訊息的對話）。 */
+export async function setChatAsHome(page: Page, title?: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "設為家對話" }).click();
+  await page.keyboard.press("Escape");
+}
+
+export async function unsetChatHome(page: Page, title: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "取消家對話" }).click();
+  await page.keyboard.press("Escape");
+}
+
+export async function renameChat(page: Page, title: string, next: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "重命名" }).click();
+  // 輸入框一打開就有焦點；用原標題找的話，填完就找不到了
+  await page.locator(`input[value="${title}"]`).fill(next);
+  await page.keyboard.press("Enter");
+}
+
 export async function openHooksTab(page: Page): Promise<void> {
   await page.getByRole("button", { name: "設定", exact: true }).click();
   await page.getByText("系統管理", { exact: true }).first().click();
