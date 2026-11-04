@@ -5,6 +5,7 @@ import {
   disableHooks,
   hookRuns,
   hooksEnabled,
+  savedMessages,
   setSlidingWindow,
 } from "./lib/api";
 import {
@@ -204,8 +205,10 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await expectLastReplyMarkedFailed(page);
   await shot(page, info, "model-no-reply");
 
-  // 標示在重試保存時才進存檔：存好之後重新載入還在
+  // 標示在重試保存時才進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
   await recoverSave(page);
+  const saved = await savedMessages(adminToken, String(noReply.payload.session_id));
+  expect(saved.filter((message) => message.generationFailed)).toHaveLength(3);
   await page.reload();
   await composer(page).waitFor();
   await expectLastReplyMarkedFailed(page);

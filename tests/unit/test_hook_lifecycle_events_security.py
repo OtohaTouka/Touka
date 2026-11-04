@@ -28,6 +28,7 @@ from src.handlers.adapters import retry
 from src.handlers.adapters.base import RoundError
 from src.handlers.adapters.gemini_adapter import GeminiAdapter
 from src.handlers.adapters.openai_adapter import OpenAIAdapter, _State
+from src.handlers.adapters.usage import PartialUsage
 from src.models.hooks import (
     MATCHER_EVENTS,
     MAX_ELICITATION_HOOK_TIMEOUT_SECONDS,
@@ -387,6 +388,9 @@ _NO_REPLY_BODIES = [
     ({"error": "overloaded"}, "unknown"),
     ({"error": {"type": "overloaded_error", "message": "busy"}}, "overloaded"),
     ({"error": {"code": "rate_limit_exceeded"}}, "rate_limit"),
+    ({"choices": [{"message": {"content": ""}, "finish_reason": "insufficient_system_resource"}]},
+     "unknown"),
+    ({"choices": [{"message": {"content": ""}}]}, "unknown"),
 ]
 
 
@@ -395,13 +399,91 @@ async def test_a_reply_with_nothing_in_it_is_a_failed_round(
     monkeypatch, hooks, no_wait, body, error_type
 ):
     hooks.configure({"StopFailure": [group()], "Stop": [group()]})
-    FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
+    replies = [json_reply(json.dumps(body), 200)] * react_core.MAX_SEND_ATTEMPTS  # 忙碌類會重試
+    FakeUpstream(replies).install(monkeypatch)
     chunks = await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
     await until(lambda: hooks.http.calls)
     await asyncio.sleep(0.05)
     assert hooks.http.events() == ["StopFailure"]
     assert hooks.http.calls[0]["error"] == error_type
     assert any("API Error (200)" in chunk for chunk in chunks)
+
+
+@pytest.mark.parametrize("body", [{"candidates": [{"finishReason": "MALFORMED_FUNCTION_CALL"}]},
+                                  {"candidates": [{}]}, {}])
+async def test_a_gemini_reply_with_nothing_in_it_is_a_failed_round(
+    monkeypatch, hooks, no_wait, body
+):
+    hooks.configure({"StopFailure": [group()], "Stop": [group()]})
+    FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
+    await _run_loop(GeminiAdapter(stream=False), "gemini-2.5-flash",
+                    _loop_ctx(gemini_api_key="fake-key"))
+    await until(lambda: hooks.http.calls)
+    await asyncio.sleep(0.05)
+    assert hooks.http.events() == ["StopFailure"]
+
+
+async def test_text_with_an_unknown_finish_reason_is_still_a_reply(monkeypatch, hooks, no_wait):
+    hooks.configure({"StopFailure": [group()], "Stop": [group()]})
+    body = {"choices": [{"message": {"content": "好"}, "finish_reason": "weird"}]}
+    FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    await until(lambda: hooks.http.calls)
+    await asyncio.sleep(0.05)
+    assert hooks.http.events() == ["Stop"]
+
+
+async def test_a_busy_error_body_is_retried_like_the_stream_path(monkeypatch, hooks, no_wait):
+    hooks.configure({"StopFailure": [group()]})
+    busy = {"error": {"type": "overloaded_error"}}
+    good = {"choices": [{"message": {"content": "好"}, "finish_reason": "stop"}]}
+    upstream = FakeUpstream([json_reply(json.dumps(busy), 200), json_reply(json.dumps(good), 200)])
+    upstream.install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    assert len(upstream.requests) == 2
+    await asyncio.sleep(0.05)
+    assert hooks.http.calls == []
+
+
+def test_no_reply_error_only_carries_the_error_fields():
+    """整份回應可能帶我們送出的系統提示，錯誤文字會進 StopFailure、心跳與 SNS 的回覆。"""
+    raw = {
+        "id": "r", "status": "failed", "instructions": "CANARY", "output": [],
+        "incomplete_details": {"reason": "other", "extra": "CANARY"},
+        "error": {"type": "server_error", "message": "boom", "extra": "CANARY"},
+    }  # fmt: skip
+    error = retry.no_reply_error("X", raw)
+    assert "CANARY" not in error.user_message
+    assert all(word in error.user_message for word in ("boom", "failed", "other"))
+    assert error.error_type == "server_error"
+
+
+@pytest.mark.parametrize("raw", [{"error": {"type": {}}}, {"error": {"code": [1]}},
+                                 {"error": ["x"]}, {"choices": []}, "text", None])
+def test_no_reply_error_takes_any_shape(raw):
+    error = retry.no_reply_error("X", raw)
+    assert error.error_type == "unknown"
+    assert "沒有回覆內容" in error.user_message
+
+
+async def test_usage_reported_with_no_reply_is_booked(monkeypatch, no_wait):
+    booked: list[Any] = []
+    monkeypatch.setattr(react_core, "accumulate_token_usage", lambda *a, **_k: booked.append(a[2]))
+    body = {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 1}}
+    FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    assert len(booked) == 1
+
+
+async def test_an_estimated_no_reply_round_is_booked_only_once(monkeypatch, no_wait):
+    booked: list[Any] = []
+    monkeypatch.setattr(react_core, "accumulate_token_usage", lambda *a, **_k: booked.append(a[2]))
+    adapter = OpenAIAdapter(stream=False)
+    partial = PartialUsage(usage={"prompt_tokens": 3}, total_input=3, estimated=True)
+    monkeypatch.setattr(adapter, "partial_usage", lambda _state: partial)
+    FakeUpstream([json_reply("{}", 200)]).install(monkeypatch)
+    await _run_loop(adapter, "grok-4", _loop_ctx())
+    assert len(booked) == 1
 
 
 async def test_a_reply_with_nothing_in_it_ends_the_ui_turn_as_failed(monkeypatch, hooks, no_wait):
@@ -856,10 +938,10 @@ async def _elicit_and_decline(hooks: HookSetup, ctx: dict[str, Any] | None = Non
 
 
 def test_a_person_keeps_the_whole_form_time_after_the_hook():
-    """hook 用完上限之後，回合與整體的時間都還夠人填完表單。"""
+    """hook 用完上限（收掉行程還要一點時間）之後，第一個回合還夠人填完；後面回合的時間不變。"""
     needed = MCP_INTERACTION_TIMEOUT_SECONDS + MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
-    assert needed <= mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS
-    assert needed <= mrtr.DEFAULT_TOTAL_TIMEOUT_SECONDS
+    assert needed < mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS
+    assert mrtr.DEFAULT_TOTAL_TIMEOUT_SECONDS - mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS == 60
 
 
 async def test_elicitation_content_and_matcher(hooks):

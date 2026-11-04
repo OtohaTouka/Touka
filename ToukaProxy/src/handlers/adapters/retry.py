@@ -45,6 +45,7 @@ _BUSY_ERROR_CODES = frozenset({"UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL",
                                "server_error", "rate_limit_exceeded"})
 _MAX_CAUSE_DEPTH = 8  # 例外鏈最多往下找幾層（禁令 18；循環的鏈也會停）
 _NO_REPLY_DETAIL_CHARS = 200  # 沒有回覆時，錯誤訊息最多附多少上游內容
+_NO_REPLY_ERROR_FIELDS = ("type", "code", "status", "message")
 _RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")  # RetryInfo 的 retryDelay，如 "27s"
 # StopFailure hook 的錯誤類型（名稱照 Claude Code）
 AUTHENTICATION_FAILED = "authentication_failed"
@@ -150,10 +151,25 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
 
 
 def no_reply_error(label: str, raw: Any) -> RoundError:
-    """回 200 但沒有回覆：內容有錯誤本文就標上它的類型。"""
-    detail = json.dumps(raw, ensure_ascii=False, default=str)[:_NO_REPLY_DETAIL_CHARS]
-    error = RoundError(f"{label} API Error (200)\n\n`{detail}`")
-    return on_error_body(error, raw.get("error") if isinstance(raw, dict) else None, label)
+    """回 200 但沒有回覆：只取錯誤的固定欄位（整份回應可能帶我們送出的系統提示）。"""
+    body = raw if isinstance(raw, dict) else {}
+    upstream = body.get("error")
+    fields: dict[str, Any] = {}
+    if isinstance(upstream, dict):
+        fields = {key: upstream[key] for key in _NO_REPLY_ERROR_FIELDS
+                  if isinstance(upstream.get(key), str | int)}
+    elif isinstance(upstream, str):
+        fields = {"message": upstream}
+    shown = dict(fields)
+    if isinstance(body.get("status"), str):
+        shown["response_status"] = body["status"]
+    incomplete = body.get("incomplete_details")
+    if isinstance(incomplete, dict) and isinstance(incomplete.get("reason"), str):
+        shown["incomplete_reason"] = incomplete["reason"]
+    detail = "沒有回覆內容"
+    if shown:
+        detail = json.dumps(shown, ensure_ascii=False)[:_NO_REPLY_DETAIL_CHARS]
+    return on_error_body(RoundError(f"{label} API Error (200)\n\n`{detail}`"), fields, label)
 
 
 def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:

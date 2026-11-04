@@ -101,6 +101,21 @@ export async function awakenSoul(initPrompt: string, sessionMode: "independent" 
   });
 }
 
+export interface SavedMessage {
+  role: string;
+  generationFailed?: boolean;
+}
+
+/** 存檔裡這段對話的訊息節點（不是畫面上的）。 */
+export async function savedMessages(token: string, sessionId: string): Promise<SavedMessage[]> {
+  const session = await call<{ messages: { messages: Record<string, SavedMessage> } }>(
+    "GET",
+    `/v1/ui/sessions/${sessionId}`,
+    token,
+  );
+  return Object.values(session.messages.messages);
+}
+
 export async function hookRuns(token: string): Promise<HookRunRow[]> {
   const body = await call<{ runs: HookRunRow[] }>("GET", "/v1/hooks/runs", token);
   return body.runs;
