@@ -241,7 +241,8 @@ describe('R2 snapshot binding and explicit recovery', () => {
       expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'text-rev' });
       expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
     });
-    it('a turn without text still saves against its base revision when the home was set meanwhile', async () => {
+    // 後端收到舊版本會擋下（已知限制，ADR-0231）；這裡釘的是絕不送出沒有版本的保存
+    it('a turn without text never saves without a revision when the home was set meanwhile', async () => {
       const { result } = await created();
       const producer = result.current.beginProducer('s1')!;
       act(() => result.current.applySavedHome('s1', 'Alice', true));
@@ -256,6 +257,18 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'unknown' }); });
       act(() => result.current.applySavedHome('s1', 'Alice', true));
       await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'saved' }); });
+    });
+    it('the save-only retry is withdrawn after the home changed: its revision is stale until rechecked', async () => {
+      const other = () => ({ ...local(), title: 'someone else' });
+      const { result } = await created(other);
+      fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+      await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+      await act(async () => { await result.current.recheckSession('s1'); });
+      expect(result.current.canRetrySave('s1')).toBe(true);
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      expect(result.current.canRetrySave('s1')).toBe(false);
+      await act(async () => { await result.current.recheckSession('s1'); });
+      expect(result.current.canRetrySave('s1')).toBe(true);
     });
     it('after a list refresh without a revision the next command still saves', async () => {
       const { result } = await created();

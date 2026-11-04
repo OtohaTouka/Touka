@@ -154,6 +154,29 @@ test("回覆之後重新整理：存檔不變、沒有提示，下一則直接�
   expect(await savedUserTexts(id)).toEqual(expect.arrayContaining(["重新整理之前", "重新整理之後"]));
 });
 
+// 已知限制（ADR-0231）：後端收尾時版本已被 set_home 換掉，會跳提示；按恢復之後內容不會掉。
+test("回覆還在跑時設為家：跳提示，按恢復之後內容完整，下一則直接送出", async ({ page }) => {
+  await send(page, "還在跑之前");
+  const id = await latestSessionId(adminToken);
+  // 工具等核准時這一輪還沒結束
+  await sendMessage(page, writeRequest(`session-save-${Date.now()}.txt`));
+  await approveButton(page).waitFor();
+  await setChatAsHome(page, "還在跑之前");
+  await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
+
+  await approveButton(page).click();
+  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await recoverSave(page);
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
+  const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
+  expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
+
+  await send(page, "還在跑之後");
+  expect(await savedUserTexts(id)).toContain("還在跑之後");
+  expect((await savedSnapshot(adminToken, id)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
+});
+
 test("有工具步驟的回覆，重新整理之後內容仍然完整", async ({ page }, info) => {
   const fileName = `session-save-${Date.now()}.txt`;
   await sendMessage(page, writeRequest(fileName));

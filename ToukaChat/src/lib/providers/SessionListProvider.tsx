@@ -100,14 +100,15 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
   }, []);
 
   // set_home 成功後存檔的家欄位和版本已經變了。這是存檔的事實，不是外部輸入：有未確認草稿的對話也跟著改，
-  // 其他內容照留；沒有保存在跑的對話清掉版本，下一個命令重讀存檔比對（ADR-0231）。
+  // 其他內容照留；舊版本作廢，下一個命令重讀存檔比對（ADR-0231）。這一輪還在跑時不動版本：收尾要用它，不能不帶版本存。
   const applySavedHome = useCallback((id: string, agentId: string, isHome: boolean) => {
     const previous = sessionsRef.current;
     setSessions(applySetHome(previous, id, agentId, isHome).map((session, index) => {
       if (session === previous[index]) return session;
       const writer = getWriter(session);
       writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent };
-      if (writer.halted || writer.producer || writer.pending.length || writer.recoveryBusy) return session;
+      writer.recovery = undefined;
+      if (writer.producer) return session;
       writer.confirmed.revision = undefined;
       return { ...session, revision: undefined };
     }));

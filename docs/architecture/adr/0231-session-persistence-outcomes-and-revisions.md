@@ -46,7 +46,9 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    transition；public ingress 不是保存證據，變更持久欄位須重新核對內容，不能借 fresh token 背書
    舊樹。pending／failed／unknown／unconfirmed 草稿不被列表、refresh return 或 resume 蓋掉。
    例外只有 `set_home` 成功（2026-11-05）：家欄位只由它改，存檔已經變了，本機草稿的這兩個欄位跟著改，
-   其他內容照留；沒有保存在跑時清掉版本，下一個命令重讀存檔比對，不算放寬比對。
+   其他內容照留；舊版本作廢（待恢復的版本也作廢），下一個命令重讀存檔比對，不算放寬比對。這一輪回覆還在跑時
+   不動版本：收尾不能不帶版本存。所以回覆還在跑時設家或換家，後端收尾的版本已被換掉，會跳保存提示，
+   用既有按鈕恢復，內容不會掉（`session-save.spec.ts`）。
    user full 保存後才送模型；React updater 不做 HTTP。純轉換拋錯回 typed failed，釋放 pending／
    producer，保留可核對草稿；無痕錯誤不永久鎖住下一回合。
 9. scope 綁 proxy＋credential principal／epoch，wire／refresh／body await 後再驗；scope 失效
