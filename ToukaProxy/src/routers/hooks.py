@@ -33,6 +33,7 @@ from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/hooks", tags=["hooks"])
+_require_authenticated = require_authenticated
 
 
 @router.get("", response_model=HooksConfigResponse)
@@ -69,7 +70,7 @@ async def save_hooks_config(
 
 @router.get("/active", response_model=HooksActiveResponse)
 async def hooks_active(
-    _identity: Annotated[AgentIdentity, Depends(require_authenticated)],
+    _identity: Annotated[AgentIdentity, Depends(_require_authenticated)],
 ) -> HooksActiveResponse:
     """有沒有啟用中的 hook 會收到對話內容。"""
     return HooksActiveResponse(active=hook_service.has_conversation_hooks())

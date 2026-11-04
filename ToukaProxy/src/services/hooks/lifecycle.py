@@ -26,6 +26,8 @@ from src.utils.secret_text import redact_credentials
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
+    from src.models.identity import AgentIdentity
+
 logger = logging.getLogger(__name__)
 
 STOP_FAILURE_EVENT: Final[str] = "StopFailure"
@@ -106,14 +108,16 @@ class SubagentStart:
     stopped: bool = False
 
 
-async def run_subagent_start_hooks(ctx: Mapping[str, Any], agent_id: str) -> SubagentStart:
+async def run_subagent_start_hooks(
+    ctx: Mapping[str, Any], sub_identity: AgentIdentity
+) -> SubagentStart:
     """子代理開始之前執行；``ctx`` 是父代理的。出錯時當成沒有 hook。"""
     try:
         if not hook_service.has_matching_hooks(SUBAGENT_START_EVENT, (SUBAGENT_TYPE,)):
             return SubagentStart()
         decision = await hook_service.dispatch(
             SUBAGENT_START_EVENT,
-            {**base_payload(ctx), "agent_id": agent_id, "agent_type": SUBAGENT_TYPE},
+            {**base_payload(ctx), "agent_id": sub_identity.agent_id, "agent_type": SUBAGENT_TYPE},
             match=(SUBAGENT_TYPE,),
             incognito=bool(ctx.get("incognito")),
         )
@@ -127,13 +131,15 @@ async def run_subagent_start_hooks(ctx: Mapping[str, Any], agent_id: str) -> Sub
     return SubagentStart(text="\n\n" + wrap_hook_output(SUBAGENT_START_EVENT, decision.context))
 
 
-def notify_subagent_stop(ctx: Mapping[str, Any], agent_id: str, last_message: str) -> None:
+def notify_subagent_stop(
+    ctx: Mapping[str, Any], sub_identity: AgentIdentity, last_message: str
+) -> None:
     """子代理結束；失敗或逾時沒有回覆時 ``last_message`` 是空字串。"""
     _notify(
         SUBAGENT_STOP_EVENT,
         ctx,
         lambda: {
-            "agent_id": agent_id,
+            "agent_id": sub_identity.agent_id,
             "agent_type": SUBAGENT_TYPE,
             "last_assistant_message": last_message,
         },

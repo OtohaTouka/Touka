@@ -531,7 +531,7 @@ _INCOGNITO_CTX = {"session_id": "s1", "identity": _SOUL, "incognito": True}
     ("event", "fire"),
     [
         ("StopFailure", lambda ctx: lifecycle.notify_stop_failure(ctx, "unknown", "detail")),
-        ("SubagentStop", lambda ctx: lifecycle.notify_subagent_stop(ctx, "sub", "reply")),
+        ("SubagentStop", lambda ctx: lifecycle.notify_subagent_stop(ctx, _SOUL, "reply")),
         ("TaskCreated", lambda ctx: lifecycle.notify_tasks_created(ctx, _ONE_TASK)),
         ("TaskCompleted", lambda ctx: lifecycle.notify_task_completed(ctx, _ONE_TASK, "t1")),
     ],

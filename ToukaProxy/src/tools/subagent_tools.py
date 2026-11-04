@@ -136,7 +136,7 @@ async def _assemble_subagent_request(
     from src.services.proxy_service import pipeline  # noqa: LOCAL_IMPORT_BAN
 
     # hook 的補充說明是資料，只進第一則訊息；審查員只看 user_intent（禁令 64 ③）
-    started = await run_subagent_start_hooks(base_ctx, sub_identity.agent_id)
+    started = await run_subagent_start_hooks(base_ctx, sub_identity)
     if started.stopped:
         raise SubagentStoppedError
 
@@ -237,7 +237,7 @@ async def _run_subagent(
         )
         reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal)
     finally:
-        notify_subagent_stop(base_ctx, sub_identity.agent_id, reply)
+        notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
 
 
