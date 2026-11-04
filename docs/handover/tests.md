@@ -6,6 +6,10 @@
 
 ## 現況
 
+- **兩份凍結清單（2026-11-05，ADR-0297）**：`tests/lint/vulture_baseline.json`（後端未用的函式、方法、類別 108 筆）和 `ToukaChat/scripts/contract_type_baseline.json`（和後端合約同名的手寫型別 10 個）都沒有清掉，也沒有期限，清理在候選裡。
+  - 死碼清單只有多出來才紅。只有測試在用的新函式、先加函式下個 PR 才接上、搬動或拿掉檔案（可能一次多好幾筆）都會紅：接上，或 `python scripts/lint_ratchet.py vulture --update` 並在 PR 說明逐項列出。`--update` 也會收下新增項目，`# noqa` 和白名單也能藏項目，靠審查看。
+  - 合約清單要完全相等，後端改 schema 名時常常要一起重拍（`npm run guard:api -- --update`）。
+  - 這兩道都可能和同時進行的 PR 撞：各自綠、合起來紅時 dev 會紅，合併前先把 dev 合進來重跑 CI。
 - **實際驗證（2026-11-04，ADR-0295）**：`cd ToukaChat && npm run test:e2e:real` 用 Playwright 走打包好的正式版畫面與真的 Proxy，模型是假的，資料在沙盒，不花額度。目前走 Hook 全部事件與審批卡（`ToukaChat/e2e-real/`；假 MCP 在 `tests/e2e/fake_mcp_server.py`，心跳由測試帶權杖打喚醒端點）。走新路徑時走完再送一則：這次的既有問題都是送第二則才看到的（ADR-0295）。`hooks-lifecycle.spec.ts` 的 `recoverSave`、`sendRecovering` 是繞過既有問題用的，修好之後要拿掉。GitHub 上每個進 dev、main 的 PR 都跑（`e2e-real.yml`），先不列為必過。
 - **CI 的 `contracts` 工作上限 60 分鐘（2026-11-04）**：全量 pytest 在 GitHub 上已經跑到 36～40 分鐘，原本 40 分鐘的上限會把它取消（看起來是失敗，其實是時間到）。再變長時先看哪些測試慢，不要只加上限。
 - **維護流程的本機紀錄資料夾 `.toukadev/`（2026-10-10）**：開發流程本身（不是產品功能）的變更。
@@ -33,6 +37,8 @@
 
 ## 待排小項
 
+- `EnvSovereigntyRule` 的 `os.system`、`os.chdir` 仍只看 `/src/`，Heartbeat、Dispatch 掃不到（禁令 42；ADR-0297 只處理 7、10）。Ruff TID251 掃得到這兩個資料夾，但 `ToukaDispatch/server.py`、`**/awaken.py`、`**/config.py` 豁免，`server.py` 用了 `subprocess.Popen`。
+- vulture 不看 `.gitignore`：有人在四個產品資料夾底下放沒進版控的 `.py`（例如 `ToukaHeartbeat/.venv`），死碼檢查會多紅（ADR-0297）。
 - `scripts/update_docs.py` 改了匯入順序後沒有實際執行過（會跑 mkdocs build），下次要產生文件時順便確認。
 - Guard #22 的 pip-audit 空輸出：2026-10-21 起自動重跑一次，仍空就回報「掃描沒跑成」並判紅；【推測】是查詢服務暫時沒回應，根因沒抓到，下次遇到用 `guard_all.py --audit-evidence-root` 保留 stderr 看原因。
 - 【推測】禁令 22 的轉址守衛用檔案系統掃描，以後若有人在 ToukaHeartbeat 或 ToukaDispatch 底下建自己的 `.venv`，守衛會掃到第三方套件而變紅。

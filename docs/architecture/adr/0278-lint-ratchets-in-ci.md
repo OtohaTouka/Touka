@@ -3,7 +3,7 @@
 - 狀態：✅ 已接受
 - 日期：2026-10-22（2026-10-23 增補 §7，以及 §2 升級帶進新規則）
 - 影響範圍：`ruff.toml`（加 ERA）、`scripts/lint_ratchet.py`、`tests/lint/ruff_baseline.json`、`tests/lint/test_ruff_ratchet.py`、CI `frontend` job（Guard #35）、`scripts/guard_eslint_ratchet.py` 與 `scripts/eslint_baseline.json`、`scripts/lint_ssot.py` 的業務層判斷、`CONTRIBUTING.md`「PR 前必做」、`tests/lint/test_ci_pr_checks.py`、root 開發依賴 ruff 釘版；`tests/README.md`、`tests/lint/test_tests_readme_listing.py` 與 `tests_readme_unlisted.json`、AGENTS.md 文件協議一列；程式與測試的註解（ERA、內部用語、決定代號）；pyproject.toml 的 `[tool.pyrefly]` 與 root 開發依賴 pyrefly 釘版、`tests/lint/pyrefly_baseline.json`、`tests/lint/test_pyrefly_ratchet.py`
-- 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）
+- 相關：[ADR-0098](0098-eslint-ratchet-guard.md)（ESLint 棘輪 Guard #35）、[ADR-0254](0254-iso-c1-small-fixes-and-execution-gaps.md)（CI 加 ruff F、CONTRIBUTING 標示；其已知問題中的「ESLint 基準過時」「完整 ruff 沒有棘輪」由本 ADR 處理）、[ADR-0297](0297-rule-text-matches-checks.md)（`lint_ratchet.py` 加 vulture，只有多出來才紅，和這裡的「完全相等」不同）
 
 ## 背景
 
