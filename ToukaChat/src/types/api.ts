@@ -7886,7 +7886,7 @@ export interface components {
              * Outcome
              * @enum {string}
              */
-            outcome: "blocked" | "ask" | "context" | "none" | "failed";
+            outcome: "blocked" | "ask" | "context" | "none" | "failed" | "skipped";
             /** Duration Ms */
             duration_ms: number;
             /** Exit Code */

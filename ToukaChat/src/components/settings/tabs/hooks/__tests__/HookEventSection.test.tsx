@@ -33,13 +33,15 @@ describe('HookEventSection（ADR-0292）', () => {
         },
     );
 
-    it.each(['PostToolUseFailure', 'PermissionRequest', 'PermissionDenied', 'Notification'])(
-        '%s 有事件說明，不是翻譯鍵',
-        (event) => {
-            render(<HookEventSection event={event} usesMatcher={false} groups={[]} onChange={vi.fn()} />);
-            expect(screen.queryByText(`settings.hooks_tab.events.${event}`)).not.toBeInTheDocument();
-        },
-    );
+    it.each([
+        ['PostToolUseFailure', '工具開始執行之後失敗時'],
+        ['PermissionRequest', '審批卡跳出之前'],
+        ['PermissionDenied', '工具呼叫被拒時'],
+        ['Notification', '跳審批卡、代理人問問題'],
+    ])('%s 的事件說明看得到', (event, text) => {
+        render(<HookEventSection event={event} usesMatcher={false} groups={[]} onChange={vi.fn()} />);
+        expect(screen.getByText(text, { exact: false })).toBeInTheDocument();
+    });
 
     it('不看比對規則的事件沒有比對欄位', () => {
         render(<HookEventSection event="Stop" usesMatcher={false} groups={groups} onChange={vi.fn()} />);

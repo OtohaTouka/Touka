@@ -35,6 +35,7 @@ from src.services.autonomy import autonomy_service
 from src.services.hooks.events import attach_to_tool_result, legacy_aliases
 from src.services.hooks.notifications import notify_approval_card, notify_mcp_input
 from src.services.hooks.tool_hooks import (
+    HOOK_DENIED_REASON,
     ToolCall,
     hook_ask_unavailable_error,
     notify_permission_denied,
@@ -115,15 +116,29 @@ CRITICAL_TOOLS = frozenset(
 TERMINAL_REPAIR_TOOLS = frozenset(
     {"execute_command", "get_command_result", "bash", "terminal__bash", "execute_terminal"}
 )
+_TERMINAL_EXIT_CODE = re.compile(r"\[EXIT_CODE: (-?\d+)\]")
+_LEGACY_FAILURE_PREFIXES = ("Error:", "❌")
 # get_command_result 對同一個 execution_id 每次都回同一份結果：只計第一次。記住已計過的
 # (session, execution_id)，超過上限淘汰最舊的（行程記憶體、不落地）。
 MAX_TRACKED_REPAIR_RESULTS = 1024
 _counted_repair_results: OrderedDict[tuple[str, str], None] = OrderedDict()
 
 
-def _counts_as_tool_failure(result_text: str) -> bool:
-    """工具跑了之後的失敗；工具自己回權限拒絕（含自帶審批被拒）照 Claude Code 不算。"""
-    return tool_errors.extract_error_class(result_text) != tool_errors.PERMISSION_DENIED
+def _counts_as_tool_failure(name: str, result_text: str, *, from_mcp: bool) -> bool:
+    """工具跑了之後算不算失敗（PostToolUseFailure 用；畫面上的成功與否另外判定）.
+
+    結構化錯誤為準，工具自己回權限拒絕（含自帶審批被拒）照 Claude Code 不算。沒有結構的結果：
+    MCP 的失敗已經轉成結構化錯誤（``isError``），終端看結束碼，其他工具看開頭（舊工具的慣例）。
+    內容裡出現 ``Error:`` 不算，不然讀到含這個字的輸出就會誤判。
+    """
+    if tool_errors.is_tool_error(result_text):
+        return tool_errors.extract_error_class(result_text) != tool_errors.PERMISSION_DENIED
+    if from_mcp or tool_errors.is_tool_success(result_text):
+        return False
+    exit_code = _TERMINAL_EXIT_CODE.search(result_text) if name in TERMINAL_REPAIR_TOOLS else None
+    if exit_code:
+        return int(exit_code.group(1)) != 0
+    return result_text.lstrip().startswith(_LEGACY_FAILURE_PREFIXES)
 
 
 def _first_repair_report(session_id: str, name: str, args: dict[str, Any]) -> bool:
@@ -701,7 +716,7 @@ class ToolExecutor:
             else:
                 needs_human = True
         # ADR-0292：PermissionRequest hook——要跳卡之前（無人在場沒有卡，也不問 hook）。只能拒絕。
-        if needs_human and interactive:
+        if needs_human and interactive and denied_text is None:
             denied_text = await run_permission_request_hooks(ctx, hook_call)
         if needs_human and denied_text is None:
             if interactive:
@@ -780,17 +795,20 @@ class ToolExecutor:
                     result_text=denied_text,
                 ).to_result_sse()
             )
+            denied_reason = tool_errors.extract_field(denied_text, "reason")
             await queue.put(
                 {
                     "type": "log",
-                    "content": f"🖐️ 待審批攔截（fail-closed）: {name}\n",
+                    "content": (
+                        f"🪝 hook 拒絕: {name}\n"
+                        if denied_reason == HOOK_DENIED_REASON
+                        else f"🖐️ 待審批攔截（fail-closed）: {name}\n"
+                    ),
                     "result_text": denied_text,
                 }
             )
             await queue.put(None)
-            notify_permission_denied(
-                ctx, hook_call, tool_errors.extract_field(denied_text, "reason")
-            )
+            notify_permission_denied(ctx, hook_call, denied_reason)
             return denied_text
 
         # Validate only selected native public calls after policy/approval, before
@@ -824,6 +842,7 @@ class ToolExecutor:
         result_text = ""
         is_success = False
         ran_tool = False  # 工具真的開始跑了（PostToolUseFailure 只看這種失敗）
+        post_hooks_ran = False  # 之後才出錯時不要再觸發一次
         duration_ms: float | None = None  # 僅在工具實際執行的路徑設值（早退不設）
 
         try:
@@ -1036,7 +1055,7 @@ class ToolExecutor:
 
             # --- [終端機自動修復邏輯] ---
             if name in TERMINAL_REPAIR_TOOLS:
-                exit_code_match = re.search(r"\[EXIT_CODE: (-?\d+)\]", result_text)
+                exit_code_match = _TERMINAL_EXIT_CODE.search(result_text)
                 if (
                     exit_code_match
                     and session_id
@@ -1057,14 +1076,16 @@ class ToolExecutor:
                     elif exit_code == 0 and session_id:
                         autonomy_service.reset_repair_attempts(session_id)
 
-            # ADR-0292：PostToolUse hook 只在成功後執行、PostToolUseFailure 在工具跑了卻失敗時
-            # 執行；hook 的補充說明（含 PreToolUse 的）當成資料接在結果後面，成功與否照上面的
-            # 判定不變。
+            # ADR-0292：PostToolUseFailure 在工具跑了卻失敗時執行，其他跑完的情況執行 PostToolUse
+            # （內容含 Error: 時畫面算失敗，但工具確實跑完了）。hook 的補充說明（含 PreToolUse
+            # 的）當成資料接在結果後面，畫面上的成功與否照上面的判定不變。
             hook_outputs = list(pre_hooks.outputs)
-            if is_success:
-                hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
-            elif ran_tool and _counts_as_tool_failure(result_text):
+            from_mcp = handler_source is None
+            if ran_tool and _counts_as_tool_failure(name, result_text, from_mcp=from_mcp):
                 hook_outputs += await run_post_tool_failure_hooks(ctx, hook_call, result_text)
+            elif is_success or (ran_tool and not tool_errors.is_tool_error(result_text)):
+                hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
+            post_hooks_ran = True
             result_text = attach_to_tool_result(result_text, hook_outputs)
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
@@ -1102,7 +1123,11 @@ class ToolExecutor:
             )
             result_text = tool_errors.from_exception(e, detail)
             hook_outputs = list(pre_hooks.outputs)
-            if ran_tool and _counts_as_tool_failure(result_text):
+            if (
+                ran_tool
+                and not post_hooks_ran
+                and _counts_as_tool_failure(name, result_text, from_mcp=handler_source is None)
+            ):
                 hook_outputs += await run_post_tool_failure_hooks(ctx, hook_call, result_text)
             result_text = attach_to_tool_result(result_text, hook_outputs)
 

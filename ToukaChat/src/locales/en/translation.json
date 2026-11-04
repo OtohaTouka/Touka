@@ -554,7 +554,7 @@
         "UserPromptSubmit": "After a user sends a message, before it reaches the model. Can block the message or add context for the model. Heartbeats do not trigger it.",
         "PreToolUse": "Before a tool runs. Can block it or ask a person to confirm on the approval card. The matcher checks the tool name.",
         "PostToolUse": "After a tool succeeds. Can add context for the model. The matcher checks the tool name.",
-        "PostToolUseFailure": "After a tool that started fails. Can add context for the model. Credentials and paths are removed from the error first; permission denials and bad arguments do not trigger it. The matcher checks the tool name.",
+        "PostToolUseFailure": "After a tool that started fails (a terminal command that exits non-zero counts). Can add context for the model. Credentials and paths are removed from the error first; permission denials and bad arguments do not trigger it. The matcher checks the tool name.",
         "PermissionRequest": "Before an approval card appears (cards only appear when someone is present). Can deny, so no card shows and the tool does not run. It cannot approve for a person: allow and changed arguments are ignored and the card still shows. The matcher checks the tool name.",
         "PermissionDenied": "When a tool call is denied; notifies in the background and cannot change the result. The reason is always a fixed code. A block by a before-tool hook does not count. The matcher checks the tool name.",
         "Notification": "Notifies in the background when an approval card appears, the agent asks a question, an MCP tool asks for input, or the isolation level changes. The matcher checks the notification type.",
@@ -590,7 +590,8 @@
         "ask": "Asked to confirm",
         "context": "Added context",
         "none": "No action",
-        "failed": "Hook failed (not blocking)"
+        "failed": "Hook failed (not blocking)",
+        "skipped": "Skipped (too many hooks running)"
       },
       "path_reasons": {
         "not_absolute": "not an absolute path",

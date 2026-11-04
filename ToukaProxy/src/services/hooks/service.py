@@ -50,7 +50,7 @@ MAX_BLOCK_REASON_CHARS: Final[int] = 4_000
 HOOKS_FILE_NAME: Final[str] = "hooks.json"
 
 HealthStatus = Literal["ok", "missing", "error"]
-RunOutcome = Literal["blocked", "ask", "context", "none", "failed"]
+RunOutcome = Literal["blocked", "ask", "context", "none", "failed", "skipped"]
 
 
 class CommandRunner(Protocol):
@@ -331,7 +331,7 @@ class HookService:
         self._runs.append(
             HookRunRecord(
                 at=get_current_epoch(), event=event, hook="" if incognito else "background",
-                hook_type="", status="skipped", outcome="failed", duration_ms=0,
+                hook_type="", status="skipped", outcome="skipped", duration_ms=0,
                 detail=None if incognito else "skipped: too many background hooks are running",
                 incognito=incognito,
             )

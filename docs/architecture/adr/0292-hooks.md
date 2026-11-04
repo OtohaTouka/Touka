@@ -39,7 +39,7 @@
    - `hookEventName` 對不上的 `hookSpecificOutput` 整段不採用。
 4. **hook 只能擋、不能放行**：
    - `permissionDecision` 的 `allow`／`defer`、PermissionRequest 的 `decision.behavior: allow` 與 `updatedInput`、`updatedPermissions`、`interrupt`，以及 `updatedInput`、`updatedToolOutput`、`updatedMCPToolOutput`、`systemMessage` 一律不採用，只在執行紀錄記一筆說明；`continue: false` 只在能擋的事件當成擋下（決定 3），不能讓代理人停下或繼續。
-   - PreToolUse 在政策判定（含角色權限、底線）之後執行：政策已拒絕的不會送給 hook；hook 的 `ask` 跳同一張人類審批卡，不送審查員，無人在場直接拒絕（終端也不落到舊的審批通道），Auto 與 YOLO 都不能代替人；審批卡以 `hook_reason` 欄位顯示「管理員設定的 hook 要你確認」，和審查員的理由分開。
+   - PreToolUse 在政策判定（含角色權限、底線）之後執行：政策已拒絕的不會送給 PreToolUse hook（PermissionDenied hook 會收到，含 `tool_input`，見決定 16）；hook 的 `ask` 跳同一張人類審批卡，不送審查員，無人在場直接拒絕（終端也不落到舊的審批通道），Auto 與 YOLO 都不能代替人；審批卡以 `hook_reason` 欄位顯示「管理員設定的 hook 要你確認」，和審查員的理由分開。
    - hook 不能改寫工具參數，工具照原本的參數與審批流程走。
    - hook 程式不是代理人撰寫或指定的程式（只有人能設定、腳本放在受保護的位置），所以不經 ADR-0272 的隔離 runner，以 Touka 自己的權限執行；靠決定 5 保證代理人改不到它。
 5. **指令與腳本必須在代理人寫不到的地方**（`services/hooks/paths.py`；存檔時檢查全部 command hook、含停用的，每次執行前再檢查一次）：
@@ -110,12 +110,12 @@
     - 自己組歷史的用戶端（IDE、自訂 client）不在這個範圍：被擋下的訊息若被它們放進之後的請求，hook 只看最後一則 user 訊息（決定 7），較早的那則會送到模型。
 15. **失敗不擋（fail-open）**：hook 自己失敗（結束碼、逾時、連不上、路徑被拒、輸出壞掉）和 hook 服務本身出錯都不擋動作；前者記在執行紀錄與 log，後者只記 log。例外內容不回給模型或用戶端，只記類型。所以 hook 不能當成唯一的安全防線：模型可以故意讓 hook 失敗（例如送很大的參數讓 hook 逾時、送讓 hook 腳本出錯的內容），hook 失敗時動作照常執行。「失敗就擋」列為下一批，讓每個 hook 自己選。
 16. **工具失敗、審批與通知四個事件**（丙-2）：工具類事件的比對與事件內容照決定 7（舊工具名稱也比對新名稱、`tool_input` 是模型送來的參數）。
-    - PostToolUseFailure：`ToolExecutor` 裡工具真的開始跑之後才失敗時執行（工具回錯誤結果或丟例外），等 hook 跑完，補充說明與回饋照決定 6 接在工具結果後面（`ran_tool`）。權限拒絕（含工具自己回的 `permission_denied`）、參數不對、查無工具、MCP 參數太大或清單不允許都不觸發。內容多 `tool_use_id`、`error`：取結構化錯誤的訊息，先遮憑證（`utils/secret_text.redact_credentials`）再遮路徑與長 token（`sanitize_diagnostic`）。
+    - PostToolUseFailure：`ToolExecutor` 裡工具真的開始跑之後才失敗時執行（工具回錯誤結果或丟例外），等 hook 跑完，補充說明與回饋照決定 6 接在工具結果後面（`ran_tool`）。失敗是：結構化錯誤（MCP 的 `isError` 與例外都會變成這種）、終端結束碼不是 0、舊工具結果開頭是 `Error:` 或 `❌`。內容裡才出現這些字不算失敗，走 PostToolUse（畫面上的成功與否是另一個判定，沒有改）。權限拒絕（含工具自己回的 `permission_denied`）、參數不對、查無工具、MCP 參數太大或清單不允許都不觸發。內容多 `tool_use_id`、`error`：取結構化錯誤的訊息，先遮憑證（`utils/secret_text.redact_credentials`）再遮路徑與長 token（`sanitize_diagnostic`）。
     - PermissionRequest：審查員判完、要跳人類審批卡之前執行；無人在場沒有卡，也不問 hook。等 hook 跑完。`deny` 時不跳卡、不執行，回結構化 `permission_denied`（`reason: "hook_denied"`）；其他回應卡照樣跳。內容沒有 `tool_use_id`（照官方）。等 hook 的期間按了停止：不跳卡、不執行（`stopped_by_user`）。只有 `ToolExecutor` 的卡會觸發：驗證指令的卡與工具自帶的審批不觸發（決定 7 的範圍）。
     - PermissionDenied：工具呼叫被政策（含底線、MCP 工具的角色權限）、審查員、PermissionRequest hook、人按拒絕或審批逾時擋下，或無人在場時，在背景通知，不能改結果。`reason` 只放固定代碼（`policy`、`mcp_tool_rbac`、`human_only`、`auto_review_denied`、`hook_denied`、`hook_requires_human`、`approval_rejected`、`approval_timeout` 等；政策的原因文字不送）。使用者按停止不算被拒。不算的：PreToolUse 擋下（照官方）、更早的出口（角色沒有這個工具、不在這一輪清單、使用者範圍的 MCP、vault 限制的 MCP、分類對不上）、工具自帶審批（終端舊通道、技能安裝）的拒絕。
     - Notification：在背景通知，不能改結果；比對規則比的是通知類型。`permission_prompt`：審批卡真的送出之後（含驗證指令的卡；佇列滿沒送出不發；PermissionRequest 拒絕就沒有卡，也不發）。`agent_needs_input`：代理人問使用者問題。`elicitation_dialog`：MCP 工具的表單送出之後。`isolation_level`：隔離層級改變，開機第一次判定也算（`IsolationLevelNotifier` 接 `isolation_monitor.on_level_change`）；這則不屬於任何對話，`session_id` 是 null。`message` 是固定文字加工具名稱，隔離只放層級名稱、不放原因細節。
-    - 背景入口（`services/hooks/background.py`）：Stop、PermissionDenied、Notification 共用。沒有符合的 hook 時不組內容。同時最多 32 個（`MAX_BACKGROUND_HOOK_RUNS`），慢的 hook 碰上大量事件時背景工作不會一直累積；超過就跳過這次、在執行紀錄記一筆 `skipped`，設定頁看得到（無痕只留時間、事件與結果）。入口出錯只記 log，不影響呼叫端。
-    - 工具缺必要參數：內建工具少了廣告 schema 的 `required` 參數時，在 `tool_start` 之前回結構化 `validation_error`（`param` 是第一個缺的；只看鍵在不在，不回顯參數值），不進工具本體。以前會變成 `TypeError` 顯示在畫面上。照官方，這種情況不算 PostToolUseFailure。走 Pydantic 合約的七個工具照舊由 `validate_native_arguments` 檢查；舊工具不在廣告清單裡，由工具自己處理。
+    - 背景入口（`services/hooks/background.py`）：Stop、PermissionDenied、Notification 共用。沒有符合的 hook 時不組內容。同時最多 32 個（`MAX_BACKGROUND_HOOK_RUNS`），慢的 hook 碰上大量事件時背景工作不會一直累積；超過就跳過這次、在執行紀錄記一筆 `skipped`，設定頁看得到（無痕只留時間、事件與結果）。入口出錯只記 log，不影響呼叫端。名額是所有事件與對話共用的：模型或其他對話可以把名額佔滿，這段期間別的通知會被跳過，所以這些事件不能當成完整的稽核紀錄。
+    - 工具缺必要參數：內建工具少了廣告 schema 的 `required` 參數時，在 `tool_start` 之前回結構化 `validation_error`（`param` 是第一個缺的；只看鍵在不在，不回顯參數值），不進工具本體。以前會變成 `TypeError` 顯示在畫面上。照官方，這種情況不算 PostToolUseFailure。順序照 ADR-0229（政策與審批在前、參數檢查在後）不變：缺參數的呼叫仍可能先跳卡、先觸發 PermissionRequest 與 Notification，人按批准後才被退回。走 Pydantic 合約的七個工具照舊由 `validate_native_arguments` 檢查；舊工具不在廣告清單裡，由工具自己處理。
 
 ## 和 Claude Code 對不上的部分
 
@@ -132,6 +132,7 @@
   - PermissionRequest 只能拒絕：Claude Code 能放行、改參數或權限、`interrupt`，Touka 都不採用，卡照樣跳；內容沒有 `permission_suggestions`。
   - PermissionDenied 範圍較廣：Claude Code 只有自動模式被拒才觸發、回 `retry` 可提示模型重試；Touka 手動拒絕、政策與審批逾時也觸發，`retry` 不採用；`reason` 是固定代碼，不是說明文字。
   - Notification：Claude Code 的閒置、登入、額度、完成等類型 Touka 沒有；`isolation_level` 是 Touka 多的；沒有 `title`。驗證指令的卡發 Notification 但不觸發 PermissionRequest。
+  - 工具缺必要參數：Claude Code 先驗證參數才處理權限，所以不會有卡；Touka 政策與審批在前（ADR-0229），可能先跳卡、先觸發 PermissionRequest 與 Notification。
   - PostToolUseFailure 沒有 `is_interrupt`、`duration_ms`。MCP 工具沒有 `mcp_server` 欄位，和其他工具事件一樣用 `mcp_tool_name`。
   - matcher 的正規表示式是 Python 的 `re`（`re.search`，不錨定）；只有字母、數字、`_`、`-`、空白、`,`、`|` 的寫法當成精確名稱或清單（`,` 也能分隔）。
 - **Touka 沒有對應功能，不做**：工作目錄切換、檔案監看、worktree、Agent 團隊相關事件。
@@ -147,7 +148,7 @@
   - 本機安裝時，安裝資料夾裡的 Python（例如 `.venv` 底下的直譯器）在工作區根裡，不能當 hook 的程式（`agent_writable`）；請用系統安裝的直譯器，腳本放 `config/hooks/`。
   - 腳本被刪掉或改名時，直譯器自己會以結束碼 2 結束（例如 Python 找不到檔案），照 Claude Code 的規則就是擋下，而且 stderr（含路徑）會當成理由顯示；這時所有符合的動作都會被擋，直到修好設定。
   - PermissionRequest 在審查員之後：審查員放行或拒絕就沒有卡，也不會問這個 hook；PreToolUse 要人確認時兩個都會跑。
-  - PostToolUseFailure 的遮罩是比對樣式：認得的憑證格式（`Bearer`、`sk-`、`key=`、`api_key`、`password`、網址裡的帳密）與路徑會遮掉，認不出的格式不保證；`tool_input` 照原樣給 hook，和其他工具事件相同。
+  - PostToolUseFailure 的遮罩是比對樣式：認得的憑證格式（`Bearer`、`sk-`、`key=`、`api_key`、`password`、`secret`、`token`，含 JSON 的引號寫法與網址參數；網址裡的帳密）與路徑會遮掉，認不出的格式不保證；`tool_input` 照原樣給 hook，和其他工具事件相同。
   - 事件內容一律送給 hook，無痕對話也一樣（決定 7 的 `incognito` 讓 hook 自己決定要不要留）；設定頁說明會寫明。之後在丙-2 讓使用者在無痕對話裡看得到「有 hook 在執行」。
   - 事件內容的 `session_id` 是請求帶來的對話 id，hook 不能把它當成已驗證的身分。
   - PreToolUse 的「要人確認」跳的是一般的人類審批卡，誰能按和其他審批卡相同（ADR-0246）；hook 不能指定由誰核准。

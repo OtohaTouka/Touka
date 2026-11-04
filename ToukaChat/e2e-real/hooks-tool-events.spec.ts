@@ -137,6 +137,7 @@ test("審批卡前的 hook 拒絕時不跳卡、不執行，被拒事件收到�
   await sendMessage(page, writeRequest(fileName));
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
   await composer(page).waitFor();
+  await expect(page.getByText(/hook 拒絕/).first()).toBeVisible();
   await shot(page, info, "no-card");
   await expect(approveButton(page)).toHaveCount(0);
   expect(sandboxHasFile(fileName)).toBe(false);
@@ -242,6 +243,8 @@ test("工具缺必要參數：回一般的參數錯誤，不算工具失敗", as
   await approveButton(page).click();
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
   await composer(page).waitFor();
+  await page.getByText(/已調用/).last().click();
+  await expect(page.getByText(/missing required parameters: content/).first()).toBeVisible();
   await shot(page, info, "validation-error");
 
   await expect(page.getByText("TypeError")).toHaveCount(0);

@@ -1,4 +1,4 @@
-"""憑證遮罩：搬到共用函式之後行為不變（N7/N9），``key=`` 的門檻是 8 個字元。"""
+"""憑證遮罩（N7/N9）：``key=`` 的門檻是 8 個字元；JSON 的引號寫法與網址參數也要遮。"""
 
 from __future__ import annotations
 
@@ -18,6 +18,17 @@ from src.utils.secret_text import redact_credentials
         ("api-key=hunter22", "hunter22"),
         ("Password=hunter22", "hunter22"),
         ("https://user:pass@example.test/x", "user:pass"),
+        ('{"password": "hunter 22"}', "hunter 22"),
+        ('{"api_key":"abcd1234"}', "abcd1234"),
+        ("{'password': 'hunter 22'}", "hunter 22"),
+        ('{\\"password\\": \\"hunter22\\"}', "hunter22"),
+        ("GET /v1?access_token=abc123&x=1", "abc123"),
+        ("GET /v1?token=abc", "abc"),
+        ("client_secret=abc123", "abc123"),
+        ("secret: abc123", "abc123"),
+        ("refresh_token: abc123", "abc123"),
+        ("pwd=abc123", "abc123"),
+        ("passwd: abc123", "abc123"),
     ],
 )
 def test_credentials_are_replaced(raw, secret):
@@ -26,7 +37,9 @@ def test_credentials_are_replaced(raw, secret):
     assert "[REDACTED]" in result
 
 
-@pytest.mark.parametrize("raw", ["connection refused", "GET /v1?key=short", "keys are fine"])
+@pytest.mark.parametrize(
+    "raw", ["connection refused", "GET /v1?key=short", "keys are fine", "max_tokens: 100"]
+)
 def test_ordinary_text_is_left_alone(raw):
     assert redact_credentials(raw) == raw
 

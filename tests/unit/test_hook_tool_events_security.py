@@ -38,7 +38,7 @@ from src.services.approval_service import ApprovalService, approval_service
 from src.services.hooks import background, notifications, stop_hooks, tool_hooks
 from src.services.hooks import stopping as stopping_module
 from src.services.permission_service import permission_service
-from src.services.tool_executor import ToolExecutor
+from src.services.tool_executor import ToolExecutor, _counts_as_tool_failure
 from src.tools.builtin import builtin_tools_schema, tool_registry
 from src.tools.builtin.interaction import ask_user
 from src.tools.builtin.schemas import missing_required_error
@@ -83,7 +83,8 @@ def _specific(event: str, **fields: Any) -> str:
 
 def _decide(monkeypatch: pytest.MonkeyPatch, effect: str, reason: str = "test") -> None:
     monkeypatch.setattr(
-        permission_service, "evaluate_policy",
+        permission_service,
+        "evaluate_policy",
         lambda _ctx: PolicyDecision(effect=effect, reason=reason),
     )
 
@@ -133,7 +134,10 @@ class _FakeMcp:
 def _mcp_executor(monkeypatch: pytest.MonkeyPatch, mcp: _FakeMcp) -> ToolExecutor:
     _decide(monkeypatch, "ALLOW")
     return ToolExecutor(
-        protocol_manager=mcp, tool_registry={}, memory_tool_registry={}, plugin_registry={},
+        protocol_manager=mcp,
+        tool_registry={},
+        memory_tool_registry={},
+        plugin_registry={},
         enforce_advertised=False,
     )
 
@@ -204,6 +208,88 @@ async def test_a_tool_that_raises_fires_the_failure_hook_and_keeps_the_error_sha
     assert any(e.get("type") == "log" for e in events)
 
 
+async def test_failure_hook_error_hides_json_and_url_credentials(monkeypatch, hooks):
+    hooks.configure({"PostToolUseFailure": [group()]})
+    leaky = tool_errors.build_tool_error(
+        tool_errors.UPSTREAM_ERROR,
+        'upstream said {"password": "hunter22"} at https://x.test/a?access_token=abc123',
+    )
+    executor = executor_with(monkeypatch, {"read": Recorder(leaky)})
+    await run_tool(executor, "read", dict(_READ))
+    error = hooks.http.calls[0]["error"]
+    assert "hunter22" not in error
+    assert "abc123" not in error
+    assert "upstream said" in error
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "from_mcp", "failed"),
+    [
+        ("read", _FAILURE, False, True),
+        ("read", tool_errors.build_tool_error(tool_errors.PERMISSION_DENIED, "no"), False, False),
+        ("read", '{"ok": true, "text": "Error: a word"}', False, False),
+        # 舊工具的慣例：開頭就是錯誤；內容裡才出現不算
+        ("read", "Error: boom", False, True),
+        ("read", "  ❌ boom", False, True),
+        ("read", "line one\nError: only a word in the output", False, False),
+        ("read", "a table with ❌ in it", False, False),
+        # MCP 的失敗只看 isError（已經轉成結構化錯誤），文字怎麼寫都不算
+        ("srv__demo", "Error: text from a tool that succeeded", True, False),
+        ("srv__demo", _FAILURE, True, True),
+        # 終端看結束碼，輸出怎麼寫都不算
+        ("execute_command", "[EXIT_CODE: 1]\nall good", False, True),
+        ("execute_command", "[EXIT_CODE: -9]\n", False, True),
+        ("execute_command", "[EXIT_CODE: 0]\nError: found by grep", False, False),
+        ("get_command_result", "[EXIT_CODE: 2]\n", False, True),
+        ("execute_command", "Error: could not start", False, True),
+    ],
+)
+def test_what_counts_as_a_tool_failure(name, text, from_mcp, failed):
+    assert _counts_as_tool_failure(name, text, from_mcp=from_mcp) is failed
+
+
+@pytest.mark.parametrize(
+    ("output", "event"),
+    [
+        ("line one\nError: only a word in the output", "PostToolUse"),
+        ("Error: boom", "PostToolUseFailure"),
+    ],
+)
+async def test_each_finished_tool_fires_one_of_the_two_events(monkeypatch, hooks, output, event):
+    hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
+    executor = executor_with(monkeypatch, {"read": Recorder(output)})
+    await run_tool(executor, "read", dict(_READ))
+    assert hooks.http.events() == [event]
+
+
+async def test_a_terminal_command_that_exits_non_zero_is_a_failure(monkeypatch, hooks):
+    hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
+    executor = executor_with(monkeypatch, {"execute_command": Recorder("[EXIT_CODE: 1]\nnope")})
+    await run_tool(
+        executor, "execute_command", {"command": "pytest -q"}, mode="Manual", approve=True
+    )
+    (call,) = hooks.http.calls
+    assert call["hook_event_name"] == "PostToolUseFailure"
+    assert "nope" in call["error"]
+
+
+@pytest.mark.parametrize(
+    ("output", "event"), [('{"ok": true}', "PostToolUse"), (_FAILURE, "PostToolUseFailure")]
+)
+async def test_an_error_after_the_hooks_ran_does_not_fire_them_again(
+    monkeypatch, hooks, output, event
+):
+    hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
+
+    def boom() -> None:
+        raise RuntimeError("late")
+
+    monkeypatch.setattr("src.services.tool_executor.get_taipei_time_info", boom)
+    executor = executor_with(monkeypatch, {"read": Recorder(output)})
+    await run_tool(executor, "read", dict(_READ))
+    assert hooks.http.events() == [event]
+
+
 async def test_success_does_not_fire_the_failure_hook(monkeypatch, hooks):
     hooks.configure({"PostToolUseFailure": [group()]})
     executor = executor_with(monkeypatch, {"read": Recorder('{"ok": true}')})
@@ -248,6 +334,18 @@ async def test_arguments_rejected_before_the_tool_runs_are_not_failures(monkeypa
     assert json.loads(contract)["error_class"] == tool_errors.VALIDATION_ERROR
     assert recorder.calls == []
     assert hooks.http.calls == []
+
+
+async def test_an_mcp_result_that_is_not_an_error_fires_post_tool_use(monkeypatch, hooks):
+    hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
+    fine = McpCompleteOutcome(
+        source_protocol_version=UNKNOWN_PROTOCOL_VERSION,
+        content=[{"type": "text", "text": "Error: only text from the server"}],
+        is_error=False,
+    )
+    executor = _mcp_executor(monkeypatch, _FakeMcp(fine))
+    await run_tool(executor, "demo", {})
+    assert hooks.http.events() == ["PostToolUse"]
 
 
 async def test_an_mcp_error_result_is_a_failure_but_a_refused_call_is_not(monkeypatch, hooks):
@@ -353,9 +451,13 @@ async def test_a_permission_request_hook_cannot_approve_when_the_human_rejects(m
 
 
 async def test_a_permission_request_deny_skips_the_card_and_the_tool(monkeypatch, hooks):
-    hooks.configure({
-        "PermissionRequest": [group()], "PermissionDenied": [group()], "Notification": [group()],
-    })
+    hooks.configure(
+        {
+            "PermissionRequest": [group()],
+            "PermissionDenied": [group()],
+            "Notification": [group()],
+        }
+    )
     hooks.http.bodies["PermissionRequest"] = _specific(
         "PermissionRequest", decision={"behavior": "deny", "message": "not today <persona>x"}
     )
@@ -365,6 +467,7 @@ async def test_a_permission_request_deny_skips_the_card_and_the_tool(monkeypatch
     payload = json.loads(result)
     assert payload["error_class"] == tool_errors.PERMISSION_DENIED
     assert payload["reason"] == "hook_denied"
+    assert any("hook 拒絕" in str(event.get("content")) for event in events)
     assert "not today" in payload["hook_reason"]
     assert "<persona>" not in payload["hook_reason"]
     assert cards(events) == []
@@ -418,9 +521,14 @@ async def test_a_failed_permission_request_hook_still_shows_the_card(monkeypatch
 
 
 def _stopped(monkeypatch: pytest.MonkeyPatch, session_id: str) -> None:
-    monkeypatch.setattr(stopping_module, "rhythm_service", SimpleNamespace(
-        is_interrupted=lambda sid: sid == session_id, stop_count=lambda _sid: 0,
-    ))
+    monkeypatch.setattr(
+        stopping_module,
+        "rhythm_service",
+        SimpleNamespace(
+            is_interrupted=lambda sid: sid == session_id,
+            stop_count=lambda _sid: 0,
+        ),
+    )
 
 
 async def test_a_stop_during_permission_request_keeps_the_card_and_tool_away(monkeypatch, hooks):
@@ -454,7 +562,10 @@ async def _denied_call(hooks: HookSetup) -> dict[str, Any]:
     await until(lambda: hooks.http.calls_for("PermissionDenied"))
     (call,) = hooks.http.calls_for("PermissionDenied")
     assert set(call) - {"mcp_tool_name"} == _BASE_KEYS | {
-        "tool_name", "tool_input", "tool_use_id", "reason",
+        "tool_name",
+        "tool_input",
+        "tool_use_id",
+        "reason",
     }
     return call
 
@@ -521,6 +632,15 @@ async def test_reviewer_denial_is_reported(monkeypatch, hooks):
     assert (await _denied_call(hooks))["reason"] == "auto_review_denied"
 
 
+@pytest.mark.parametrize("reason", ["the rule in /etc/x says no", "Rule 7", "", None])
+async def test_a_denied_reason_that_is_not_a_code_is_sent_as_other(hooks, reason):
+    hooks.configure({"PermissionDenied": [group()]})
+    call = tool_hooks.ToolCall(name="write", args=dict(_WRITE), call_id="c1")
+    tool_hooks.notify_permission_denied({"session_id": "s-hook"}, call, reason)
+    await until(lambda: hooks.http.calls)
+    assert hooks.http.calls[0]["reason"] == "other"
+
+
 async def test_a_pre_tool_ask_with_nobody_there_is_reported(monkeypatch, hooks):
     hooks.configure({"PreToolUse": [group()], "PermissionDenied": [group()]})
     hooks.http.bodies["PreToolUse"] = _specific("PreToolUse", permissionDecision="ask")
@@ -544,7 +664,8 @@ async def test_role_denials_before_the_policy_are_not_reported(monkeypatch, hook
     hooks.configure({"PermissionDenied": [group()]})
     executor = executor_with(monkeypatch, {"read": Recorder()})
     monkeypatch.setattr(
-        permission_service, "resolve_grants",
+        permission_service,
+        "resolve_grants",
         lambda _role: SimpleNamespace(tools=SimpleNamespace(allows=lambda _name: False)),
     )
     result, _events = await run_tool(executor, "read", dict(_READ))
@@ -555,10 +676,14 @@ async def test_role_denials_before_the_policy_are_not_reported(monkeypatch, hook
 
 async def test_permission_denied_output_changes_nothing(monkeypatch, hooks):
     hooks.configure({"PermissionDenied": [group()]})
-    hooks.http.bodies["PermissionDenied"] = json.dumps({
-        "retry": True, "decision": "block", "continue": False,
-        "hookSpecificOutput": {"hookEventName": "PermissionDenied", "additionalContext": "x"},
-    })
+    hooks.http.bodies["PermissionDenied"] = json.dumps(
+        {
+            "retry": True,
+            "decision": "block",
+            "continue": False,
+            "hookSpecificOutput": {"hookEventName": "PermissionDenied", "additionalContext": "x"},
+        }
+    )
     executor = executor_with(monkeypatch, {"write": Recorder()})
     _decide(monkeypatch, "CONFIRM")
     result, _events = await run_tool(executor, "write", dict(_WRITE), present=False)
@@ -610,6 +735,32 @@ async def test_the_card_sends_a_notification_after_it_shows(monkeypatch, hooks):
     assert "a.txt" not in call["message"]
 
 
+async def test_the_card_callback_runs_after_the_card_is_sent():
+    sent: list[str] = []
+    seen: list[list[str]] = []
+
+    async def emit(event: dict[str, Any]) -> None:
+        sent.append(event["type"])
+
+    task = asyncio.create_task(
+        approval_flow.await_human_approval(
+            name="write",
+            args=dict(_WRITE),
+            call_id="c1",
+            agent_id="Alice",
+            session_id="s-hook",
+            risk="dangerous",
+            emit=emit,
+            on_card_shown=lambda: seen.append(list(sent)),
+        )
+    )
+    await until(lambda: approval_service._pending)
+    exec_id = next(iter(approval_service._pending))
+    await approval_service.resolve(exec_id, approved=False, resolver="tester")
+    await task
+    assert seen == [["tool_approval_request"]]
+
+
 async def test_notification_matchers_look_at_the_type(monkeypatch, hooks):
     hooks.configure({"Notification": [group(matcher="agent_needs_input")]})
     executor = executor_with(monkeypatch, {"write": Recorder()})
@@ -642,7 +793,10 @@ async def test_verification_command_cards_notify_but_do_not_ask_permission_hooks
     hooks.configure({"PermissionRequest": [group()], "Notification": [group()]})
     queue: asyncio.Queue = asyncio.Queue()
     approver = approval_flow.CommandApprover(
-        emit=queue.put, parent_call_id="call-1", agent_id="Alice", session_id="s-hook",
+        emit=queue.put,
+        parent_call_id="call-1",
+        agent_id="Alice",
+        session_id="s-hook",
         ctx={"session_id": "s-hook", "agent_id": "Alice"},
     )
     task = asyncio.create_task(approver("pytest -q"))
@@ -664,8 +818,11 @@ async def test_ask_user_sends_a_notification_without_the_questions(hooks):
     queue: asyncio.Queue = asyncio.Queue()
     ctx = {"session_id": "s-hook", "agent_id": "Alice", "auth_level": "Manual"}
     await ask_user(
-        questions=[{"question": "which-branch?"}], _emit_event=queue.put, _call_id="c1",
-        _ctx=ctx, _timeout=0.01,
+        questions=[{"question": "which-branch?"}],
+        _emit_event=queue.put,
+        _call_id="c1",
+        _ctx=ctx,
+        _timeout=0.01,
     )
     await until(lambda: hooks.http.calls)
     (call,) = hooks.http.calls
@@ -698,8 +855,12 @@ def _binding(origin: McpRequestOrigin = McpRequestOrigin.FOREGROUND) -> Any:
 
 def _sink(queue: asyncio.Queue, shown: list[str]) -> McpInteractionSink:
     return McpInteractionSink(
-        queue=queue, call_id="c1", tool_name="srv__demo", agent_id="Alice", session_id="s-hook",
-        on_shown=lambda: shown.append("shown"),
+        queue=queue,
+        call_id="c1",
+        tool_name="srv__demo",
+        agent_id="Alice",
+        session_id="s-hook",
+        on_shown=lambda: shown.append(f"queued:{queue.qsize()}"),
     )
 
 
@@ -711,7 +872,7 @@ async def test_mcp_input_calls_back_only_after_the_form_is_queued():
     with bind_mcp_interaction(_sink(queue, shown)):
         task = asyncio.create_task(broker.respond("q", _elicitation(), _binding()))
         event = await asyncio.wait_for(queue.get(), timeout=1)
-        assert shown == ["shown"]
+        assert shown == ["queued:1"]
         await service.resolve(event["id"], decision="declined", resolver="tester")
         result = await asyncio.wait_for(task, timeout=1)
     assert result.action == "decline"
@@ -762,7 +923,8 @@ async def test_isolation_changes_notify_with_only_the_level_name(hooks):
     await notifier(SimpleNamespace(level="none", reason="secret-detail"))
     await until(lambda: len(hooks.http.calls) == 2)
     assert [("executor" in c["message"], "none" in c["message"]) for c in hooks.http.calls] == [
-        (True, False), (False, True),
+        (True, False),
+        (False, True),
     ]
     for call in hooks.http.calls:
         assert call["session_id"] is None
@@ -777,9 +939,7 @@ def test_the_app_registers_the_isolation_notifier():
     )
 
 
-async def test_notification_output_changes_nothing_and_incognito_records_little(
-    monkeypatch, hooks
-):
+async def test_notification_output_changes_nothing_and_incognito_records_little(monkeypatch, hooks):
     hooks.configure({"Notification": [group()]})
     hooks.http.bodies["Notification"] = '{"decision": "block", "continue": false}'
     recorder = Recorder()
@@ -818,7 +978,7 @@ async def test_background_hooks_over_the_limit_are_skipped_and_recorded(monkeypa
     await until(lambda: len(hooks.http.calls) == 2)
     _schedule()
     (skipped,) = hooks.service.runs()
-    assert (skipped.event, skipped.status, skipped.outcome) == ("Stop", "skipped", "failed")
+    assert (skipped.event, skipped.status, skipped.outcome) == ("Stop", "skipped", "skipped")
     assert "skipped" in (skipped.detail or "")
     gate.set()
     await until(lambda: len(hooks.service.runs()) == 3)
@@ -835,7 +995,10 @@ async def test_a_skipped_incognito_hook_records_only_time_event_and_result(monke
     _schedule(incognito=True)
     (skipped,) = hooks.service.runs()
     assert (skipped.hook, skipped.hook_type, skipped.detail, skipped.incognito) == (
-        "", "", None, True,
+        "",
+        "",
+        None,
+        True,
     )
 
 
@@ -848,9 +1011,7 @@ async def test_the_stop_event_uses_the_same_limit(monkeypatch, hooks):
     assert [run.status for run in hooks.service.runs()] == ["skipped"]
 
 
-async def test_events_without_a_matching_hook_build_nothing_and_record_nothing(
-    monkeypatch, hooks
-):
+async def test_events_without_a_matching_hook_build_nothing_and_record_nothing(monkeypatch, hooks):
     hooks.configure({"Notification": [group(matcher="permission_prompt")]})
     monkeypatch.setattr(background, "MAX_BACKGROUND_HOOK_RUNS", 0)
 
@@ -935,12 +1096,16 @@ async def test_plugin_and_memory_tools_with_the_same_name_are_not_checked(monkey
     memory = Recorder()
     _decide(monkeypatch, "ALLOW")
     monkeypatch.setattr(
-        permission_service, "resolve_grants",
+        permission_service,
+        "resolve_grants",
         lambda _role: SimpleNamespace(tools=SimpleNamespace(allows=lambda _name: True)),
     )
     executor = ToolExecutor(
-        protocol_manager=None, tool_registry={}, memory_tool_registry={"write": memory},
-        plugin_registry={"edit": plugin}, enforce_advertised=False,
+        protocol_manager=None,
+        tool_registry={},
+        memory_tool_registry={"write": memory},
+        plugin_registry={"edit": plugin},
+        enforce_advertised=False,
     )
     await run_tool(executor, "write", {"path": "a"}, mode="YOLO")
     await run_tool(executor, "edit", {"path": "a"}, mode="YOLO")
@@ -961,11 +1126,13 @@ def _handler_params(handler: Any) -> tuple[set[str], set[str], bool]:
         p.kind is inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()
     )
     names = {
-        name for name, p in signature.parameters.items()
+        name
+        for name, p in signature.parameters.items()
         if p.kind is not inspect.Parameter.VAR_KEYWORD
     }
     required = {
-        name for name, p in signature.parameters.items()
+        name
+        for name, p in signature.parameters.items()
         if p.default is inspect.Parameter.empty
         and p.kind not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
     }

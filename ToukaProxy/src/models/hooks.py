@@ -222,7 +222,7 @@ class HookRunOut(BaseModel):
     hook: str
     hook_type: str
     status: str
-    outcome: Literal["blocked", "ask", "context", "none", "failed"]
+    outcome: Literal["blocked", "ask", "context", "none", "failed", "skipped"]
     duration_ms: int
     exit_code: int | None = None
     http_status: int | None = None
