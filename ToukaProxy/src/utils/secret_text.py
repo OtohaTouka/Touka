@@ -29,4 +29,5 @@ def redact_credentials(text: str) -> str:
 
 def sanitize_error_text(text: str) -> str:
     """錯誤內容要交給別人之前：遮憑證與本機路徑，限長（遮兩次結果不變）。"""
-    return sanitize_diagnostic(redact_credentials(text))
+    # 限長切完尾端可能剛好是空白，不去掉的話遮第二次會少一個字
+    return sanitize_diagnostic(redact_credentials(text)).rstrip()

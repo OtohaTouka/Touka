@@ -26,6 +26,7 @@ from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult
 from src.routers.heartbeat import _execute_single_pulse, _process_heartbeat_loop
 from src.services.dispatchers.group import dispatch_group_stream
+from src.services.models.routes import CustomRouteDisposition
 from src.services.rhythm_service import rhythm_service
 from src.services.sns_gateway import SNSGatewayService
 from src.tools.subagent_tools import _result_from_error
@@ -139,6 +140,7 @@ def test_upstream_error_kind_in_the_retry_status_is_masked() -> None:
         f"https://user:{URL_VALUE}@example.test/a?token=abc",
         f"  token={FIELD_VALUE}  ",
         "plain text with `backticks` and [REDACTED] already",
+        "長" * 299 + " 第 300 字是空白",
         "連線逾時",
         "",
     ],
@@ -287,17 +289,27 @@ async def test_heartbeat_round_text_saved_in_the_conversation_is_masked(
 # ── SNS：頻道裡是外人，只留固定文字 ──────────────────────────────────
 
 
-def _sns_round(sent_to_model: list[Any]) -> Any:
-    """換掉管線前段，模型回合照真的跑；ctx 是 SNS 閘道建的那一個。"""
+def _pipeline_fills_the_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    """閘道之後的管線照真的跑，只換掉 middleware（它只在同一個 ctx 上加欄位）與模型路由資料。"""
 
-    async def run(request: Any, ctx: Any, **_kwargs: Any) -> SimpleNamespace:
-        sent_to_model.append(request)
+    async def execute(request: Any, ctx: Any) -> None:
         for key, value in make_ctx("req-sns", ctx["session_id"], custom_connection=False).items():
-            if key not in {"agent_id", "session_id"}:
+            if key not in {"agent_id", "session_id", "identity"}:  # 外人訊息不帶身分
                 ctx[key] = value
-        return SimpleNamespace(body_iterator=handle_openai_request(openai_request(), ctx))
+        if request.model != "ToukaGroup":
+            request.model = "gpt-test"
 
-    return run
+    monkeypatch.setattr("src.services.proxy_service.pipeline.execute", execute)
+    monkeypatch.setattr("src.services.proxy_service.log_payload", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.services.proxy_service.record_working_brain", lambda *_a: None)
+    monkeypatch.setattr("src.services.dispatcher.record_working_brain", lambda *_a: None)
+    monkeypatch.setattr("src.services.dispatchers.factory.model_manager", SimpleNamespace(
+        get_models=lambda: [],
+        resolve_custom_route=lambda *_a, **_k: SimpleNamespace(
+            disposition=CustomRouteDisposition.UNKNOWN),
+    ))
+    monkeypatch.setattr("src.services.dispatchers.factory.get_provider_info",
+                        lambda *_a, **_k: ("http://fake-api.test", "fake-key", "OpenAI"))
 
 
 @pytest.mark.asyncio
@@ -307,13 +319,13 @@ async def test_sns_failure_sends_and_stores_only_the_fixed_text(
     gateway = SNSGatewayService()
     adapter = MockAdapter(agent_id="Alice")
     identity_service, sessions = _make_mocks()
+    _pipeline_fills_the_context(monkeypatch)
     install_clock(monkeypatch, _MODULE, make_clock())
     FakeUpstream([json_reply(LEAKY, 400)]).install(monkeypatch)
     with (
         patch("src.services.sns_gateway.detect_target_agent", return_value=None),
         patch("src.services.sns_gateway.identity_service", identity_service),
         patch("src.services.sns_gateway.session_service", sessions),
-        patch("src.services.sns_gateway.process_proxy_request", new=_sns_round([])),
         patch("src.handlers.react_core.ToolExecutor"),
     ):
         returned = await gateway.on_event(adapter, make_event("hi"), session_mode="independent")
@@ -323,16 +335,16 @@ async def test_sns_failure_sends_and_stores_only_the_fixed_text(
     stored = [call.args[2] for call in sessions.append_message_to_session.await_args_list
               if call.args[1] == "assistant"]
     assert stored == [SNS_FAILURE_NOTICE]
+    # 心跳共用這份設定：SNS 的標記不能留在上面
+    assert not gateway.context.get("sns_source")
 
 
-def test_only_the_sns_gateway_marks_a_context() -> None:
+def test_a_context_is_not_from_sns_by_default() -> None:
     assert PipelineContext().sns_source is False
 
 
-async def _group_round(
-    monkeypatch: pytest.MonkeyPatch, context: PipelineContext
-) -> tuple[str, list[str]]:
-    """兩位成員的群聊：第一位模型失敗，第二位正常。回傳送出的文字與第二位收到的訊息。"""
+def _install_group(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """兩位成員的群聊：第一位模型失敗，第二位正常。回傳第二位收到的訊息（跑完才有內容）。"""
     monkeypatch.setattr("src.services.dispatchers.group.parse_group_roster", lambda *_a: [
         {"id": "Alice", "name": "Alice"}, {"id": "Bob", "name": "Bob"}])
     monkeypatch.setattr("src.services.dispatchers.group.resource_manager.read_json",
@@ -366,24 +378,31 @@ async def _group_round(
     monkeypatch.setattr("src.services.dispatchers.group.get_stream_generator", member_round)
     install_clock(monkeypatch, _MODULE, make_clock())
     FakeUpstream([json_reply(LEAKY, 400)]).install(monkeypatch)
-    request = OpenAIChatRequest(
-        model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@Alice @Bob 哈囉")]
-    )
-    chunks: list[str] = []
-    with patch("src.handlers.react_core.ToolExecutor"):
-        async for chunk in dispatch_group_stream(request, "req-group", 0.0, context):
-            chunks.append(chunk)
-    return delta_text(chunks), second_member_messages
+    return second_member_messages
 
 
 @pytest.mark.asyncio
 async def test_sns_group_keeps_the_fixed_text_for_the_channel_and_the_next_member(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    context = PipelineContext(session_id="sess-mask-group", agent_id="Alice", sns_source=True)
-    text, next_member = await _group_round(monkeypatch, context)
-    assert SNS_FAILURE_NOTICE in text
-    assert "API Error" not in text
+    gateway = SNSGatewayService()
+    adapter = MockAdapter(agent_id="Alice")
+    identity_service, sessions = _make_mocks()
+    next_member = _install_group(monkeypatch)
+    _pipeline_fills_the_context(monkeypatch)
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", identity_service),
+        patch("src.services.sns_gateway.session_service", sessions),
+        patch("src.handlers.react_core.ToolExecutor"),
+    ):
+        returned = await gateway.on_event(
+            adapter, make_event("@Alice @Bob 哈囉"), session_mode="independent"
+        )
+
+    assert [message.text for _channel, message in adapter.sent_messages] == [returned]
+    assert SNS_FAILURE_NOTICE in returned
+    assert "API Error" not in returned
     seen_by_next = "\n".join(next_member)
     assert SNS_FAILURE_NOTICE in seen_by_next
     assert "API Error" not in seen_by_next
@@ -391,8 +410,16 @@ async def test_sns_group_keeps_the_fixed_text_for_the_channel_and_the_next_membe
 
 @pytest.mark.asyncio
 async def test_plain_group_next_member_gets_masked_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    next_member = _install_group(monkeypatch)
+    request = OpenAIChatRequest(
+        model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@Alice @Bob 哈囉")]
+    )
     context = PipelineContext(session_id="sess-mask-group", agent_id="Alice")
-    text, next_member = await _group_round(monkeypatch, context)
+    chunks: list[str] = []
+    with patch("src.handlers.react_core.ToolExecutor"):
+        async for chunk in dispatch_group_stream(request, "req-group", 0.0, context):
+            chunks.append(chunk)
+    text = delta_text(chunks)
     assert "API Error (400)" in text
     assert SNS_FAILURE_NOTICE not in text
     replies = [message for message in next_member if "API Error (400)" in message]
