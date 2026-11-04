@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/e2e-real.yml"
 BACKEND = ROOT / "tests/e2e/serve_real_backend.py"
 PINNED_ACTION = re.compile(r"[^@]+@[0-9a-f]{40}")
+CREDENTIAL_USE = re.compile(r"\bsecrets\b|github\.token|GITHUB_TOKEN")
 READ_ONLY = {"contents": "read"}
 PRODUCT_PACKAGES = {"src", "memory_server", "toukaheartbeat", "toukadispatch"}
 
@@ -33,7 +34,21 @@ def _imported_packages(node: ast.AST) -> set[str]:
         return {alias.name.split(".")[0] for alias in node.names}
     if isinstance(node, ast.ImportFrom):
         return {(node.module or "").split(".")[0]}
+    if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+        callee = node.func
+        name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", "")
+        if name in {"import_module", "__import__"}:
+            return {str(node.args[0].value).split(".")[0]}
     return set()
+
+
+def _runs_the_sandbox(value: ast.expr) -> bool:
+    """只認直接呼叫，或外面只包呼叫（如 Path(...)）；lambda、條件式裡的不一定會執行."""
+    if not isinstance(value, ast.Call):
+        return False
+    if isinstance(value.func, ast.Name) and value.func.id == "enable_smoke_sandbox":
+        return True
+    return any(_runs_the_sandbox(argument) for argument in value.args)
 
 
 def _sandbox_runs_before_product_imports(source: str) -> bool:
@@ -42,11 +57,7 @@ def _sandbox_runs_before_product_imports(source: str) -> bool:
     sandbox_lines = [
         statement.lineno
         for statement in tree.body
-        if isinstance(statement, ast.Expr | ast.Assign)
-        for call in ast.walk(statement.value)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Name)
-        and call.func.id == "enable_smoke_sandbox"
+        if isinstance(statement, ast.Expr | ast.Assign) and _runs_the_sandbox(statement.value)
     ]
     product_lines = [
         node.lineno for node in ast.walk(tree) if _imported_packages(node) & PRODUCT_PACKAGES
@@ -55,7 +66,7 @@ def _sandbox_runs_before_product_imports(source: str) -> bool:
 
 
 def test_workflow_has_no_secrets_and_read_only_permissions() -> None:
-    assert not re.search(r"\bsecrets\b", WORKFLOW.read_text(encoding="utf-8"))
+    assert not CREDENTIAL_USE.search(WORKFLOW.read_text(encoding="utf-8"))
     workflow = _workflow()
     assert workflow["permissions"] == READ_ONLY
     for name, job in workflow["jobs"].items():
@@ -115,6 +126,26 @@ def test_backend_enables_the_sandbox_before_any_product_import() -> None:
         pytest.param(
             "try:\n    import src.main\nexcept ImportError:\n    pass\nenable_smoke_sandbox()\n",
             id="import-nested-first",
+        ),
+        pytest.param(
+            "run = lambda: enable_smoke_sandbox()\nimport src.main\n",
+            id="sandbox-in-lambda",
+        ),
+        pytest.param(
+            "done = False and enable_smoke_sandbox()\nimport src.main\n",
+            id="sandbox-short-circuited",
+        ),
+        pytest.param(
+            "done = enable_smoke_sandbox() if False else None\nimport src.main\n",
+            id="sandbox-in-conditional-expression",
+        ),
+        pytest.param(
+            "importlib.import_module('src.main')\nenable_smoke_sandbox()\nimport uvicorn\n",
+            id="import-module-first",
+        ),
+        pytest.param(
+            "__import__('memory_server')\nenable_smoke_sandbox()\nimport uvicorn\n",
+            id="dunder-import-first",
         ),
     ],
 )

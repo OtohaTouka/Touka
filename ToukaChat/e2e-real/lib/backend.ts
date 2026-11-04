@@ -136,15 +136,17 @@ export async function startBackend(): Promise<RunningBackend> {
   );
   const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
   const log = fs.createWriteStream(BACKEND_LOG);
-  log.on("error", (error) => {
-    throw new Error(`Cannot write ${BACKEND_LOG}: ${error.message}`);
-  });
-  child.stderr.on("data", (data: Buffer) => log.write(data));
+  // 記錄檔出問題不蓋掉測試結果，但要看得到；強制結束後才到的輸出直接丟掉
+  log.on("error", (error) => console.error(`Cannot write ${BACKEND_LOG}: ${error.message}`));
+  const writeLog = (data: Buffer) => {
+    if (!log.writableEnded) log.write(data);
+  };
+  child.stderr.on("data", writeLog);
   const sandboxLine = new Promise<string>((resolve, reject) => {
     let seen = "";
     void closed.then((code) => reject(new Error(`Backend exited with ${code}; see ${BACKEND_LOG}`)));
     child.stdout.on("data", (data: Buffer) => {
-      log.write(data);
+      writeLog(data);
       seen += data.toString("utf8");
       const line = seen.split(/\r?\n/).find((text) => text.startsWith(SANDBOX_MARKER));
       if (line) resolve(line.slice(SANDBOX_MARKER.length));
@@ -160,7 +162,13 @@ export async function startBackend(): Promise<RunningBackend> {
     forceKill(child);
     await closedWithin(closed, FORCE_KILL_WAIT_MS);
     await endLog(log);
-    if (startedRoot) removeSandbox(startedRoot);
+    if (startedRoot) {
+      try {
+        removeSandbox(startedRoot);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Backend failed to start and its sandbox was not removed");
+      }
+    }
     throw error;
   }
 }

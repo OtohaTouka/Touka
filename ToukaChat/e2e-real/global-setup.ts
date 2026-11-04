@@ -86,8 +86,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
     return async () => {
       closeServers();
-      await backend.stop();
-      assertLogHasNoPassword(passwords);
+      try {
+        await backend.stop();
+      } finally {
+        // 後端失敗時最需要看記錄檔，記錄檔也照樣會傳出去，所以一樣要查
+        assertLogHasNoPassword(passwords);
+      }
     };
   } catch (error) {
     closeServers();

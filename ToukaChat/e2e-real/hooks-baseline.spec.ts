@@ -72,6 +72,7 @@ test("四個事件都走到底：設定、觸發、收到內容、紀錄看得�
   }
   await shot(page, info, "settings", eventSection(page, "UserPromptSubmit"));
   await shot(page, info, "settings-tool-matcher", eventSection(page, "PreToolUse"));
+  await shot(page, info, "settings-post-tool-matcher", eventSection(page, "PostToolUse"));
   await saveHooks(page);
 
   await openChat(page);
@@ -80,6 +81,7 @@ test("四個事件都走到底：設定、觸發、收到內容、紀錄看得�
   await sendMessage(page, writeRequest(fileName));
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await composer(page).waitFor();
   await shot(page, info, "after-approve");
   expect(sandboxHasFile(fileName)).toBe(true);
 
@@ -102,8 +104,13 @@ test("四個事件都走到底：設定、觸發、收到內容、紀錄看得�
   const [stop] = await receivedFor("Stop");
   expect(stop.payload.last_assistant_message).toContain(FAKE_AFTER_TOOL_REPLY);
 
-  // Stop 在背景跑：接收端先收到，紀錄稍後才寫，等四筆都有再開設定頁
-  await expect.poll(async () => (await hookRuns(adminToken)).length).toBeGreaterThanOrEqual(FOUR_EVENTS.length);
+  // Stop 在背景跑：接收端先收到，紀錄稍後才寫。前面的測試也有紀錄，所以看這四個名稱
+  await expect
+    .poll(async () => {
+      const names = new Set((await hookRuns(adminToken)).map((run) => run.hook));
+      return FOUR_EVENTS.filter((event) => names.has(`e2e-${event}`));
+    })
+    .toEqual(FOUR_EVENTS);
   await openHooksTab(page);
   const runRow = (event: string) => page.getByRole("listitem").filter({ hasText: `e2e-${event}` }).first();
   for (const event of FOUR_EVENTS) {
@@ -131,6 +138,7 @@ test("hook 回放行時審批卡照樣跳，按拒絕工具不執行", async ({ 
 
   await page.getByRole("button", { name: "拒絕", exact: true }).click();
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await composer(page).waitFor();
   await shot(page, info, "after-reject");
   expect(await receivedFor("PostToolUse")).toHaveLength(0);
   expect(sandboxHasFile(fileName)).toBe(false);
