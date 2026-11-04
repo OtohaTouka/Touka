@@ -80,6 +80,36 @@ test("這一頁新建的對話設為家之後，下一則直接送出", async ({
   await shot(page, info, "after-next-message");
 });
 
+test("這一頁新建的對話，點一下開著的這段再送：下一則直接送出", async ({ page }) => {
+  await send(page, "點之前");
+  const id = await latestSessionId(adminToken);
+
+  // 點對話會重新載入清單，清單沒有版本，下一則要重讀存檔
+  await page.getByText("點之前", { exact: true }).first().click();
+  await page.waitForLoadState("networkidle");
+
+  await send(page, "點之後");
+  expect(await savedUserTexts(id)).toEqual(expect.arrayContaining(["點之前", "點之後"]));
+});
+
+test("新對話 A、新對話 B 各送一則，點回 A 再送：下一則直接送出", async ({ page }) => {
+  await send(page, "甲段");
+  const first = await latestSessionId(adminToken);
+
+  await page.getByRole("button", { name: "新增對話" }).click();
+  await selectSoul(page);
+  await send(page, "乙段");
+  const second = await latestSessionId(adminToken);
+  expect(second).not.toBe(first);
+
+  await page.getByText("甲段", { exact: true }).first().click();
+  await page.waitForLoadState("networkidle");
+
+  await send(page, "甲段：切回來之後");
+  expect(await savedUserTexts(first)).toEqual(expect.arrayContaining(["甲段", "甲段：切回來之後"]));
+  expect(await savedUserTexts(second)).not.toContain("甲段：切回來之後");
+});
+
 test("設為家又馬上取消，再送一則都正常", async ({ page }) => {
   await send(page, "取消之前");
   const id = await latestSessionId(adminToken);
