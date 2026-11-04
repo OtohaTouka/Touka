@@ -38,13 +38,17 @@ def test_wired_events():
     assert set(WIRED_EVENTS) == {
         "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
         "PostToolUseFailure", "PermissionRequest", "PermissionDenied", "Notification",
+        "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
+        "TaskCreated", "TaskCompleted", "Elicitation", "ConfigChange",
+        "HeartbeatStart", "HeartbeatStop",
     }
 
 
 def test_matcher_events_are_the_ones_with_something_to_match():
     assert {
         "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
-        "PermissionDenied", "Notification",
+        "PermissionDenied", "Notification", "StopFailure", "SubagentStart", "SubagentStop",
+        "PreCompact", "PostCompact", "Elicitation", "ConfigChange",
     } == MATCHER_EVENTS
 
 
