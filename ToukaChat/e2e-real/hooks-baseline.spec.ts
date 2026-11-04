@@ -12,6 +12,7 @@ import { modelCalls, receivedFor, receivedHooks, resetRecorders, sandboxHasFile 
 import { BLOCK_REASON, hookUrl } from "./lib/hook_sink";
 import {
   addHttpHook,
+  composer,
   enableHooks,
   eventSection,
   loginInBrowser,
@@ -51,8 +52,9 @@ test.beforeEach(async ({ page }) => {
   await loginInBrowser(page);
 });
 
-test("一般對話：假模型的回覆顯示在畫面上", async ({ page }, info) => {
-  await sendMessage(page, "你好，這是實際驗證");
+test("一般對話：按傳送後假模型的回覆顯示在畫面上", async ({ page }, info) => {
+  await composer(page).fill("你好，這是實際驗證");
+  await page.getByRole("button", { name: "傳送" }).click();
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
   await shot(page, info, "reply");
 });
@@ -69,6 +71,7 @@ test("四個事件都走到底：設定、觸發、收到內容、紀錄看得�
     });
   }
   await shot(page, info, "settings", eventSection(page, "UserPromptSubmit"));
+  await shot(page, info, "settings-tool-matcher", eventSection(page, "PreToolUse"));
   await saveHooks(page);
 
   await openChat(page);
@@ -99,6 +102,8 @@ test("四個事件都走到底：設定、觸發、收到內容、紀錄看得�
   const [stop] = await receivedFor("Stop");
   expect(stop.payload.last_assistant_message).toContain(FAKE_AFTER_TOOL_REPLY);
 
+  // Stop 在背景跑：接收端先收到，紀錄稍後才寫，等四筆都有再開設定頁
+  await expect.poll(async () => (await hookRuns(adminToken)).length).toBeGreaterThanOrEqual(FOUR_EVENTS.length);
   await openHooksTab(page);
   const runRow = (event: string) => page.getByRole("listitem").filter({ hasText: `e2e-${event}` }).first();
   for (const event of FOUR_EVENTS) {
@@ -126,6 +131,7 @@ test("hook 回放行時審批卡照樣跳，按拒絕工具不執行", async ({ 
 
   await page.getByRole("button", { name: "拒絕", exact: true }).click();
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await shot(page, info, "after-reject");
   expect(await receivedFor("PostToolUse")).toHaveLength(0);
   expect(sandboxHasFile(fileName)).toBe(false);
   const allowRun = (await hookRuns(adminToken)).find((run) => run.hook === "e2e-allow");

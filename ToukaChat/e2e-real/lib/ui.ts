@@ -46,9 +46,10 @@ export async function selectSoul(page: Page): Promise<void> {
   await expect(picker).toContainText(SOUL_ID);
 }
 
+/** 用 Enter 送：換模型的提示可能還蓋在「傳送」鈕上，點按鈕要等提示消失。 */
 export async function sendMessage(page: Page, text: string): Promise<void> {
   await composer(page).fill(text);
-  await page.getByRole("button", { name: "傳送" }).click();
+  await composer(page).press("Enter");
 }
 
 export async function openHooksTab(page: Page): Promise<void> {

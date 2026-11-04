@@ -14,10 +14,13 @@ import {
 
 const START_TIMEOUT_MS = 240_000;
 const STOP_TIMEOUT_MS = 60_000;
+const FORCE_KILL_WAIT_MS = 10_000;
 const POLL_MS = 500;
 const IS_WINDOWS = process.platform === "win32";
 const SANDBOX_MARKER = "SANDBOX_ROOT=";
 const SANDBOX_PREFIX = "touka_smoke_e2e_real_";
+// tests/network_guard.py 的 format_violations 開頭
+const NETWORK_VIOLATION_MARK = "自動化測試企圖連到外部網路";
 
 export interface RunningBackend {
   sandboxRoot: string;
@@ -48,15 +51,31 @@ function forceKill(child: ChildProcessWithoutNullStreams): void {
   }
 }
 
-function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<number | null | "timeout"> {
-  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve("timeout"), timeoutMs);
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      resolve(code);
-    });
+async function closedWithin(closed: Promise<number | null>, timeoutMs: number): Promise<number | null | "timeout"> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
+  try {
+    return await Promise.race([closed, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function endLog(log: fs.WriteStream): Promise<void> {
+  return new Promise((resolve) => log.end(resolve));
+}
+
+function removeSandbox(sandboxRoot: string): void {
+  fs.rmSync(sandboxRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+}
+
+/** 結束碼不是 0 時帶出原因：網路防護在結束前才印這段，有這段才算證明是外連。 */
+function nonZeroExitReason(): string {
+  const log = fs.readFileSync(BACKEND_LOG, "utf8");
+  const start = log.indexOf(NETWORK_VIOLATION_MARK);
+  return start >= 0 ? log.slice(start).trim() : `no external network attempt in the log; see ${BACKEND_LOG}`;
 }
 
 async function waitForHealth(child: ChildProcessWithoutNullStreams): Promise<void> {
@@ -76,20 +95,26 @@ async function waitForHealth(child: ChildProcessWithoutNullStreams): Promise<voi
 
 /**
  * 正常結束靠關掉標準輸入：後端的 atexit 清沙盒、把外連違規變成非 0 結束碼，所以這裡看結束碼。
+ * 等 close 不是 exit：輸出讀完才關記錄檔，違規訊息才不會漏掉。
  * 逾時才強制結束，此時算失敗，也只刪後端自己印出來的沙盒路徑。
  */
-async function stopBackend(child: ChildProcessWithoutNullStreams, sandboxRoot: string, log: fs.WriteStream): Promise<void> {
+async function stopBackend(
+  child: ChildProcessWithoutNullStreams,
+  closed: Promise<number | null>,
+  sandboxRoot: string,
+  log: fs.WriteStream,
+): Promise<void> {
   child.stdin.end();
-  const code = await waitForExit(child, STOP_TIMEOUT_MS);
-  log.end();
+  const code = await closedWithin(closed, STOP_TIMEOUT_MS);
   if (code === "timeout") {
     forceKill(child);
-    fs.rmSync(sandboxRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    await closedWithin(closed, FORCE_KILL_WAIT_MS);
+    await endLog(log);
+    removeSandbox(sandboxRoot);
     throw new Error(`Backend did not stop in time; see ${BACKEND_LOG}`);
   }
-  if (code !== 0) {
-    throw new Error(`Backend exited with ${code} (external network attempt or sandbox cleanup failure); see ${BACKEND_LOG}`);
-  }
+  await endLog(log);
+  if (code !== 0) throw new Error(`Backend exited with ${code}: ${nonZeroExitReason()}`);
 }
 
 export async function startBackend(): Promise<RunningBackend> {
@@ -109,11 +134,15 @@ export async function startBackend(): Promise<RunningBackend> {
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
     },
   );
+  const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
   const log = fs.createWriteStream(BACKEND_LOG);
+  log.on("error", (error) => {
+    throw new Error(`Cannot write ${BACKEND_LOG}: ${error.message}`);
+  });
   child.stderr.on("data", (data: Buffer) => log.write(data));
   const sandboxLine = new Promise<string>((resolve, reject) => {
     let seen = "";
-    child.once("exit", (code) => reject(new Error(`Backend exited with ${code}; see ${BACKEND_LOG}`)));
+    void closed.then((code) => reject(new Error(`Backend exited with ${code}; see ${BACKEND_LOG}`)));
     child.stdout.on("data", (data: Buffer) => {
       log.write(data);
       seen += data.toString("utf8");
@@ -121,12 +150,17 @@ export async function startBackend(): Promise<RunningBackend> {
       if (line) resolve(line.slice(SANDBOX_MARKER.length));
     });
   });
+  let startedRoot: string | undefined;
   try {
     const sandboxRoot = checkedSandboxRoot(await sandboxLine);
+    startedRoot = sandboxRoot;
     await waitForHealth(child);
-    return { sandboxRoot, stop: () => stopBackend(child, sandboxRoot, log) };
+    return { sandboxRoot, stop: () => stopBackend(child, closed, sandboxRoot, log) };
   } catch (error) {
     forceKill(child);
+    await closedWithin(closed, FORCE_KILL_WAIT_MS);
+    await endLog(log);
+    if (startedRoot) removeSandbox(startedRoot);
     throw error;
   }
 }

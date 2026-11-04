@@ -4,7 +4,7 @@
 - 日期：2026-11-04
 - 決策者：維護者
 - 相關：ADR-0103（smoke 反死鎖）、ADR-0214（測試沙盒）、ADR-0243（臨時查驗限沙盒）、ADR-0292（Hook）。
-- 影響範圍：新增 `tests/e2e/serve_real_backend.py`、`ToukaChat/playwright.real.config.ts`、`ToukaChat/e2e-real/`、`.github/workflows/e2e-real.yml`、`tests/lint/test_e2e_real_contract.py`；修改 `ToukaChat/package.json`（`test:e2e:real`）、`ToukaChat/knip.config.ts`、`ToukaChat/tsconfig.build.json`。產品程式沒有變動。
+- 影響範圍：新增 `tests/e2e/serve_real_backend.py`、`ToukaChat/playwright.real.config.ts`、`ToukaChat/e2e-real/`、`.github/workflows/e2e-real.yml`、`tests/lint/test_e2e_real_contract.py`；修改 `ToukaChat/package.json`（`test:e2e:real`）、`ToukaChat/knip.config.ts`、`ToukaChat/tsconfig.build.json`、`ToukaChat/scripts/lib/orphaned_tests_logic.ts`（`e2e-real/` 不是 Vitest 測試）。產品程式沒有變動。
 
 ## 背景
 
@@ -15,14 +15,15 @@
 1. **用使用者實際的方式走一次**：Playwright 開瀏覽器，走打包好的正式版畫面（`next build` 的 `out/`，不是開發模式）與真的 Proxy。模型是測試自己帶的假模型，收 hook 的也是測試自己帶的小伺服器。一個指令能重跑：`cd ToukaChat && npm run test:e2e:real`。
 2. **花不到額度、碰不到真實資料**，三層都成立才算：
    - 後端跑在 `enable_smoke_sandbox` 裡，資料與設定都在系統暫存；啟動後再核對資料根與設定資料夾確實在沙盒裡，不在就中止。
-   - 同一個函式清掉金鑰類環境變數，並掛上網路防護：連本機以外的位址一律擋下並記下來。
+   - 同一個函式按名稱樣式清掉金鑰類環境變數，並掛上網路防護：後端這個 Python 行程連本機以外的位址時擋下並記下來（缺口見「碰不到的地方」）。
    - 模型設定只有本機的假模型。設定裡的金鑰是標明不是真金鑰的固定字串，用來確認設定值不會出現在 hook 的事件內容。
-3. **看結束碼，不看有沒有跑完**：測試結束時關掉後端的標準輸入，後端正常結束；atexit 清沙盒、把外連違規變成非 0 結束碼，Playwright 的 global teardown 看到非 0 就判整體失敗。逾時才強制結束，此時也判失敗，並且只刪後端印出來、核對過位置的沙盒路徑。
+3. **看結束碼，不看有沒有跑完**：測試結束時關掉後端的標準輸入，後端正常結束；atexit 清沙盒、把外連違規變成非 0 結束碼，Playwright 的 global teardown 看到非 0 就判整體失敗，錯誤訊息帶出被擋的目的地。逾時才強制結束，此時也判失敗，並且只刪後端印出來、核對過位置的沙盒路徑。teardown 也確認 `backend.log` 裡沒有測試帳號的密碼，因為它會傳成 CI 產物。
 4. **設定走畫面，準備走 API**：設定 hook、觸發、看執行紀錄都走畫面。帳號與靈魂的準備，以及每個測試開始前的重置走 API，而且要排在瀏覽器登入之前（再登入會換掉瀏覽器的 refresh token）。
 5. **固定埠 4901～4904**：前端建置時要寫死後端網址。被占用就報錯，不碰別的程式；後端的埠先確認空著，否則 health 會打到別人身上。
 6. **輸出放在 repo 外面**：`E2E_REAL_OUTPUT_DIR`，預設系統暫存的 `touka-e2e-real`。每條路徑留截圖給審查員核對；trace 只在失敗時留，內容只有沙盒假資料與用完就丟的測試帳號。CI 把這個資料夾傳成產物，保留 7 天。
 7. **放寬登入限制只限這個沙盒**：每次頁面載入都會換一次 refresh token，產品預設的次數上限不夠跑完整套，`serve_real_backend.py` 放寬 `AUTH_RATE_LIMIT_MAX`。產品設定不變。
 8. **GitHub 上的自動檢查先不列為必過**：每個進 dev 和 main 的 PR 都跑，不用 secrets。瀏覽器測試可能不穩，連續 20 次沒有因為測試不穩而失敗，再由維護者決定要不要改成必過。
+9. **模型探索打開，和一般 smoke 沙盒不同**：沙盒預設關掉模型探索，但假模型要靠它才進得了模型選單，所以 `serve_real_backend.py` 打開 `ENABLE_DYNAMIC_MODELS`；連線設定只有本機的假模型，探索也只會連到它。代價是 ADR-0103 提過的關機風險：探索留下的背景工作可能讓 Windows 上的關機卡住。這裡有 60 秒的關機逾時，逾時就強制結束並判失敗，不會默默過去。
 
 ## 碰不到的地方
 
@@ -30,6 +31,8 @@
 - 不起心跳服務。
 - 精選 MCP 清單在沙盒裡是空的：清單不空時，打開設定頁就會去 npm 查下載量，那在這裡算違規，所以這份清單的畫面沒有走到。
 - 這套不證明模型的行為：假模型只照標記回覆。
+- 網路防護只管後端這個 Python 行程：後端再開的子行程不受管；Windows 上以 IP 字面值發起的 async 連線不會觸發它看的事件；瀏覽器與 Node 端的假伺服器都不在防護內。這些路徑若連外，這套不會變紅。
+- 金鑰只按名稱樣式清除（`API_KEY`、`TOKEN`、`SECRET` 這類）：名字不符合的變數（例如只叫 `XXX_KEY`）會留在後端的環境裡。設定裡沒有真的模型連線，所以不會被拿去用，但環境裡有不代表一定安全，不要在跑這套的環境放這類變數。
 
 ## 後果
 

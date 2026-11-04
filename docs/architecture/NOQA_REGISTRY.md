@@ -303,7 +303,7 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | `unit/test_permission_service.py` | 多處 | `SLF001` | 🔴 不可修復 | PermissionService 突變補測：直接呼叫 `_check_pattern`／`_load_config`／`_load_identity_map`／`_load_policies` 驗證私有載入與安全邏輯邊界；P2 授權解析改走公開 `resolve_grants` |
 | `unit/test_permission_service_sandbox_isolation.py` | L34-L83 | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | 測試動態切換 TOUKA_CONFIG_DIR 環境變數與路徑重置。 |
 | `unit/test_live_api_consent.py` | process environment oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須驗證 pytest 在任何產品 import 前停用計量功能、清空 provider credential 並錨定 sandbox env file。 |
-| `e2e/serve_real_backend.py` | 模組頂層 `_process_environment` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0295：測試用的後端入口要在沙盒建好之後、載入產品之前設定環境；`enable_smoke_sandbox` 會清掉繼承的環境，所以不能由上層帶進來。 |
+| `e2e/serve_real_backend.py` | 模組頂層 `os.environ.update` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0295：測試用的後端入口要在沙盒建好之後、載入產品之前設定環境。`enable_smoke_sandbox` 會覆寫 `_SANDBOX_FLAGS`（這四個變數裡只有 `ENABLE_DYNAMIC_MODELS` 在內），所以這一個不能由上層帶進來；其他三個放在一起，讓這個環境的設定集中在一處。 |
 | `unit/test_smoke_sandbox_governance.py` | process environment mutation oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須對 sandbox helper 的 process environment mutation 做完整斷言，並在 `finally` 還原原始 mapping。 |
 | `unit/test_isolation_zone_shapes.py` | `test_whitelist_by_shape` 的 `st/proxy/home/x` | `PATH_LITERAL_SSOT` | 🔴 不可修復 | ADR-0293：相對於假 state 根的版面路徑，`home` 是 sandbox state 真實的資料夾名（`isolation/profiles.py`），不是實體路徑；換成別的名字就不是真實版面。 |
 | `unit/test_zone_tripwire.py` | `test_the_full_run_flag_is_not_inherited_by_child_runs` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0293 Z9：確認 conftest 已從行程環境移除全量檢查旗標（`TOUKA_Z9_FULL_RUN`），測試再開的 pytest 不會繼承。 |
