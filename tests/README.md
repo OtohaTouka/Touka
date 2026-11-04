@@ -25,7 +25,7 @@ pytest tests/unit/
 # 整合測試
 pytest tests/integration/
 
-# 靜態守衛 + lint（43 道關卡）
+# 靜態守衛 + lint（44 道關卡）
 python scripts/guard_all.py
 ```
 
@@ -82,6 +82,12 @@ tests/
 | `unit/test_conversations_sources_contract.py` | ui／legacy／all／省略／null 選來源、壞參數與 both 拒絕、欄位及分頁上限不變、驗證錯誤指出欄位、role 說明不宣稱作者。 |
 | `unit/test_conversations_resource_seam.py` | 真 reader 綁定／未綁定、原 identity 與完整參數透傳、只見 SELECT 與普通交易、缺庫空頁與無效資料庫錯誤分開。 |
 | `support/conversation_search.py` | 合成樹、真雙庫 fixture、Proxy 閘道與結果斷言、SQL／legacy 查詢觀察；無獨立測試。 |
+
+### 規則與交班分流（ADR-0296）
+
+| 檔案 | 說明 |
+|---|---|
+| `lint/test_doc_routing_guard.py` | `scripts/applicable_rules.py` 與 Guard #46：glob 語意；路徑對到規則與交班檔；已修改、已暫存、未追蹤、改名都算；資料夾展開；認不出的路徑要讀全部；算不出基準就失敗；主控台是 cp950 也不當；標籤、全文與路徑的各種錯誤；大小上限只提醒；真實 repo 唯讀核對，含規則管到的代表檔案。 |
 
 ### Hook（ADR-0292）
 
@@ -1020,7 +1026,7 @@ npx tsx scripts/guard_xAgentId.ts             # 身份主權（禁手動注入 X
 npx tsx scripts/guard_eventSource.ts          # 串流主權（禁建立不帶 Token 的 EventSource）
 npx tsx scripts/guard_console.ts              # Console 禁令（禁 console.log/warn/error）
 
-# 一鍵全量（含 43 道關卡，推薦）
+# 一鍵全量（含 44 道關卡，推薦）
 python scripts/guard_all.py
 ```
 
