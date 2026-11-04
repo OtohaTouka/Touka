@@ -522,6 +522,36 @@ async def test_incognito_subagent_hooks_keep_only_the_result(monkeypatch, hooks)
     assert (run.incognito, run.hook) == (True, "")
 
 
+_NAMED_HOOK = {"type": "http", "url": "http://127.0.0.1:9/h", "name": "secret-name"}
+_ONE_TASK = SimpleNamespace(mission_id="m1", tasks=[SimpleNamespace(id="t1", description="d")])
+_INCOGNITO_CTX = {"session_id": "s1", "identity": _SOUL, "incognito": True}
+
+
+@pytest.mark.parametrize(
+    ("event", "fire"),
+    [
+        ("StopFailure", lambda ctx: lifecycle.notify_stop_failure(ctx, "unknown", "detail")),
+        ("SubagentStop", lambda ctx: lifecycle.notify_subagent_stop(ctx, "sub", "reply")),
+        ("TaskCreated", lambda ctx: lifecycle.notify_tasks_created(ctx, _ONE_TASK)),
+        ("TaskCompleted", lambda ctx: lifecycle.notify_task_completed(ctx, _ONE_TASK, "t1")),
+    ],
+)
+async def test_incognito_background_events_keep_only_the_result(hooks, event, fire):
+    """背景事件也要把無痕帶到紀錄，不然無痕對話的紀錄會多留 hook 名稱。"""
+    hooks.configure({event: [group([_NAMED_HOOK])]})
+    fire(_INCOGNITO_CTX)
+    await until(hooks.service.runs)
+    (run,) = hooks.service.runs()
+    assert (run.incognito, run.hook) == (True, "")
+
+
+async def test_incognito_elicitation_hook_keeps_only_the_result(hooks):
+    hooks.configure({"Elicitation": [group([_NAMED_HOOK])]})
+    await lifecycle.run_elicitation_hooks(_INCOGNITO_CTX, "srv", "message", {"type": "object"})
+    (run,) = hooks.service.runs()
+    assert (run.incognito, run.hook) == (True, "")
+
+
 # ── PreCompact／PostCompact ────────────────────────────────────────────────────
 
 

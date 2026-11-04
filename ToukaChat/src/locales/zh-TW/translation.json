@@ -1408,6 +1408,7 @@
       "copy_code": "複製代碼",
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
+      "generation_failed": "模型回覆失敗，這一輪沒有完成。",
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",

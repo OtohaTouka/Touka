@@ -1414,6 +1414,7 @@
       "copy_code": "Copy Code",
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
+      "generation_failed": "The model reply failed; this turn did not finish.",
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",

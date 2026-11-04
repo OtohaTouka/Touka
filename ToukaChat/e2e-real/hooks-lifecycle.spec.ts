@@ -165,6 +165,8 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(failure.payload.error).toBe("invalid_request");
   expect(String(failure.payload.error_details)).toContain("400");
   await composer(page).waitFor();
+  const failedNotice = page.getByRole("alert").filter({ hasText: "模型回覆失敗" });
+  await expect(failedNotice).toHaveCount(1);
   await shot(page, info, "model-400");
 
   // 模型失敗後對話的保存狀態不確定，要先恢復才送得出下一則
@@ -178,6 +180,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(unreadable.payload.error).toBe("unknown");
   expect(String(unreadable.payload.error_details)).toContain("200");
   await composer(page).waitFor();
+  await expect(failedNotice).toHaveCount(2);
   await expect(page.getByText(/KeyError|TypeError|Traceback/)).toHaveCount(0);
   await shot(page, info, "model-bad-json");
 

@@ -4,11 +4,12 @@
 
 ## Hook 設定與事件（2026-10-28，ADR-0292）
 
-- 管理端點（根路徑與 `/v1` 對等），三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
+- 管理端點（根路徑與 `/v1` 對等），`/hooks`、`/hooks/runs` 三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
   - `GET /v1/hooks` → `HooksConfigResponse`：`config`（目前生效的設定；`hooks.json` 壞掉時是上一份好的）、`health`（`status` 為 `ok`／`missing`／`error`，`revision` 是目前檔案內容的 SHA-256、沒有檔案時 `null`，`detail` 是錯誤類型）、`wired_events`、`matcher_events`。
   - `PUT /v1/hooks`：body `HooksSaveRequest` `{config, revision}`，`revision` 必填（沒有檔案時送 `null`），多的欄位 422。先查 CSRF Origin（不可信回 403）；revision 和目前檔案不同回 409 `HOOK_CONFIG_CONFLICT`（`detail.revision` 帶目前的值）；command hook 的程式或參數指到代理人寫得到的地方、或無法確認時回 422 `HOOK_PATH_REJECTED`（`detail.problems[]`：`event`、`where`、`reason`、`value`），都不寫檔；讀不到目前的檔案或寫不進去時回 500 `CONFIG_SAVE_FAILED`，執行中的仍是上一版。成功回 `{revision}`；`author`、`updated_at` 由伺服器填。
     - `reason` 的值：`not_absolute`、`missing`、`not_file`、`parent_segment`、`unc_path`、`file_url`（參數是 `file:` 網址）、`agent_writable`、`outside_hooks_dir`（參數的路徑不在 `config/hooks/`）、`linked_path`（`config/hooks/` 本身或經過的一層是連結）、`hard_link`、`link_loop`、`unverifiable`。
   - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。`detail` 是擋下或要求確認的理由、失敗原因（例外只有類型）與不採用的欄位，不含 stdout。
+- `GET /v1/hooks/active` → `{active: boolean}`（`require_authenticated`，任何已登入身分）：有沒有啟用中的 hook 會收到對話內容；ConfigChange、HeartbeatStart、HeartbeatStop 不算。只回布林值，不透露設定。聊天畫面在無痕對話用它提示（ADR-0292 決定 17）。
 - 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由；`detail.reason` 最多 4,000 字；這時後端沒有寫任何東西（請求在送模型前就被拒）。hook 執行期間這個對話被停止（`POST /v1/ui/sessions/{id}/stop`）時，hook 跑完後不送模型，回 409 `PROMPT_STOPPED`（hook 擋下時仍回 403）。停止端點不帶 `stream_id` 時，若呼叫者本人在這個對話有還沒開始串流的請求、而且沒有進行中的串流，就把這個人還在等的請求標成已停止、回 200（不讀這一輪的對話內容，無痕也停得下來；同一對話之後的請求清不掉）。對話已存在時要有權限（沒有就回 403），這時也設這個對話的停止旗標、結束這個對話的子程序；查不到對話時只停自己的請求。這個停止之後同一個對話的下一則請求清掉旗標也一樣停（看這次執行開始之後被停止過幾次）。組上下文期間才停的，換綁對話之前與開始串流前回同樣的 409、不換綁、不建立串流。這個 409 不算模型失敗，不改用備援模型。有進行中的串流時照舊回 404 `STREAM_NOT_FOUND`，要帶 `stream_id` 才停得到。hook 服務自己出錯時照常回覆（當成沒有 hook 結果）。
 - 插話（ADR-0249 的 `POST …/interjections`）：進佇列前跑 UserPromptSubmit，擋下回 403 `HOOK_PROMPT_BLOCKED`（`detail.reason`），不進佇列；hook 執行期間串流換代或結束時回 404 `STREAM_NOT_FOUND`。
 - SNS：外人訊息等 hook 跑過、pipeline 開始回覆後才寫進對話（回覆是串流，寫好之前不讀）；被 UserPromptSubmit 擋下的不寫、不回覆外人，也不往外丟錯（只記 log），其他錯誤照舊寫。寫入失敗回 `SESSION_SAVE_FAILED`，不讀回覆、不呼叫模型。
@@ -21,14 +22,22 @@
 - 代理人的檔案動詞（各 scope）不跟隨連結：路上有 symlink 或 junction 時讀寫刪回錯誤「the path goes through a symbolic link or junction; links are not followed.」；list 把連結列成「名稱 (link, not followed)」，find、grep 不進入也不列出連結。
 - 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
 - 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
+- 模型失敗：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時，這一輪是一般的模型失敗（`RoundError`），UI 串流以 `generation: "error"` 結束。
 - 工具結果（續）：PermissionRequest hook 拒絕時回同樣的 `permission_denied`（`reason: "hook_denied"`、`hook_reason`），沒有 `tool_approval_request`；等這個 hook 時被停止回 `reason: "stopped_by_user"`。內建工具缺 schema 列的必要參數時回 `validation_error`（`param` 是第一個缺的），沒有 `tool_start`，和 hook 設定無關。
 - 事件內容（共同欄位 `session_id`、`agent_id`、`incognito`，有模式時多 `permission_mode`）：
   - PostToolUseFailure：`tool_name`、`tool_input`、`tool_use_id`、`error`（先遮憑證與路徑）；工具真的開始跑之後失敗才有（結構化錯誤、MCP 回錯誤、丟例外、終端結束碼不是 0、舊工具結果開頭是 `Error:`／`❌`；內容裡出現這些字不算，走 PostToolUse）。
   - PermissionRequest：`tool_name`、`tool_input`（沒有 `tool_use_id`）。回應只認 `hookSpecificOutput.decision.behavior: "deny"`（`message` 當理由）。
   - PermissionDenied：`tool_name`、`tool_input`、`tool_use_id`、`reason`（固定代碼）。
   - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。
-  - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop 不看；Notification 看通知類型；其他看工具名稱。
-- 背景事件（Stop、PermissionDenied、Notification）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
+  - StopFailure：`error`（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`、`unknown`）、`error_details`（先遮憑證與路徑）。子代理的回合不發，這一輪不跑 Stop。
+  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（失敗時是空字串）。
+  - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者不看 `permission_mode`。
+  - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
+  - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。
+  - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發，擋不了設定；關閉 hooks 那次不發。
+  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。
+  - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop、TaskCreated、TaskCompleted、HeartbeatStart、HeartbeatStop 不看；Notification 看通知類型；StopFailure 看錯誤類型；SubagentStart、SubagentStop 看 `agent_type`；PreCompact、PostCompact 看 `trigger`；Elicitation 看 MCP 伺服器名稱；ConfigChange 看 `source`；其他看工具名稱。
+- 背景事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。
 
 ## 查最後一次重置的結果（2026-10-28，ADR-0289）

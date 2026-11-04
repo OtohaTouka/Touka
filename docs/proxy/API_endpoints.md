@@ -64,6 +64,7 @@
 - `GET /v1/hooks` - 讀 Hook 設定、設定檔狀態與已接線的事件（人類 admin）⭐ *ADR-0292*
 - `PUT /v1/hooks` - 存整份 Hook 設定（人類 admin、CSRF Origin、revision 比對、存檔前查路徑）⭐ *ADR-0292*
 - `GET /v1/hooks/runs` - 最近 50 筆 hook 執行紀錄（人類 admin，只在記憶體）⭐ *ADR-0292*
+- `GET /v1/hooks/active` - 有沒有啟用中的 hook 會收到對話內容，只回布林值（任何已登入身分）⭐ *ADR-0292*
 
 ### 創建引擎 (Creation Engine) ⭐ *ADR-0069*
 - `POST /v1/creation/skill` - 創建 skill（Owner/admin；走 VALIDATE→SMOKE→COMMIT→EVAL 流水線）

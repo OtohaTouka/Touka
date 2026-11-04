@@ -97,6 +97,8 @@ tests/
 | `unit/test_hook_service.py` | 結果解讀照 Claude Code（結束碼 2、JSON 欄位、純文字、壞 JSON、`continue: false` 只在能擋的事件擋下）、只擋不放行（`allow`、`updatedInput` 等不採用並記說明）、matcher、同時執行與去重、停用的不跑、執行紀錄與無痕只留結果、壞檔／讀不到／載入後被刪掉都沿用上一份、解讀或記錄出錯只算那個 hook 失敗、存檔 CAS 與路徑檢查（含停用的 hook）；存檔前讀不到檔案或寫不進去都回存檔錯誤、不寫檔、保留原本的設定；事件內容有落單的 surrogate 時照樣執行。 |
 | `unit/test_hook_tool_events_security.py` | 工具失敗、審批與通知四個事件（ADR-0292 決定 16）：事件內容的鍵、比對規則、PermissionRequest 只有 `deny` 生效且 `allow`／`updatedInput` 不放行、hook 失敗不擋、沒有 hook 不組內容、錯誤內容遮憑證與路徑、被拒原因只有固定代碼、各拒絕出口、權限拒絕與參數不對不算工具失敗、卡片送出後才通知、等 hook 時按停止、背景入口的上限與 `skipped` 紀錄、無痕只留結果；內建工具缺必要參數回 `validation_error`、不進工具本體。 |
 | `unit/test_secret_text.py` | 憑證樣式：`Bearer`、`sk-`、`key=`、`api_key`、`password`、網址裡的帳密遮掉，其他文字不動。 |
+| `unit/test_hook_lifecycle_events_security.py` | 其餘十一個事件（ADR-0292 決定 17）：事件清單、輸出解讀、StopFailure 的類型與路徑、讀不懂的模型回覆、子代理、剪裁、任務、Elicitation、心跳、ConfigChange 的內容 |
+| `unit/test_hook_config_change_security.py` | ConfigChange：每個會改狀態的路由都分類（新端點沒分類就紅）；存好才發、失敗不發、回擋下照樣存好、關閉 hooks 成功且不發 |
 | `unit/test_hook_wiring_security.py` | 四個事件的接線：UserPromptSubmit 只在真的請求執行（預覽、子代理與只有工具結果的回合不執行）、事件內容不帶模式、擋下帶理由、補充說明是中和過的資料；PreToolUse 擋下不送審不跳卡、政策已拒絕的工具不送 hook、要求確認跳標成 hook 的卡且不送審、無人在場拒絕、YOLO 也要人、`allow` 不放行、matcher；PostToolUse 只在成功後、JSON 與文字結果的附加方式；Stop 在背景、子代理與沒有設定時不讀回覆；hook 服務出錯時請求與工具照常；沒有設定時結果不變；舊工具名稱也比對它對應的新名稱（事件內容帶 `tool_aliases`）；工具 hook 看到的是模型送來的參數（MCP 分支之後補的欄位與換掉的根目錄不會出現）；巢狀太深讀不進來的 JSON 結果照文字結果附加；hook 執行期間停止時不送模型（`PROMPT_STOPPED`）、不執行工具（`stopped_by_user`），擋下優先於停止，沒有 hook 執行（含 hook 全部停用）或沒比到的工具不看停止旗標；UI 請求在串流開始前登記為等待中、結束或出錯時移除；停止標在這一則請求上，同一對話的下一則請求清掉旗標後仍停著；UserPromptSubmit 與 PreToolUse 都看這次執行開始之後的停止次數，旗標被清掉也停；前景請求清掉殘留旗標之後才記停止起點；開始串流前只看這次執行自己的記號（只剩對話旗標時交給 ReAct 迴圈）；MCP 工具用裸名稱叫時也比對 `server__tool` 與 `mcp__server__tool`；群聊成員各自觸發 Stop、事件內容是這位成員；除錯執行時事件內容的 `agent_id` 是字串。 |
 | `unit/test_hooks_router_security.py` | 管理 API：三個端點只給人類管理員（admin 代打、一般使用者、靈魂、Debugger、DispatchAgent、子代理、沒登入與壞的 token 都拒絕且不寫檔）；存檔寫檔並回 revision、作者與時間由伺服器填；舊 revision 回 409 且不動檔；路徑被拒回 422 且不寫檔（含停用的 hook）；不可信的 Origin 拒絕；沒帶 revision、多的欄位、未接線事件、`shell` 欄位、標頭環境變數拒收；執行紀錄新的在前、無痕只留結果；壞檔時給上一份好的設定與壞檔的 revision、帶它存檔可修好；`/v1` 與根路徑都掛上；設定匯出不含 `hooks.json`。 |
 
@@ -1148,6 +1150,9 @@ python scripts/guard_all.py
 | `src/components/sidebar/__tests__/MemoryNoticeBar.schema.test.tsx` ⭐ | ADR-0256 記憶庫結構提示：5 個結構代碼都顯示成翻譯過的警告（`role="alert"`、和降級橫幅一樣醒目）；5 個代碼都有英文訊息 |
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
+| `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
+| `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |
+| `src/components/chat/__tests__/IncognitoHookNotice.test.tsx` ⭐ | ADR-0292 無痕提示：有 hook 才提示、一般對話不查、中途打開下一則就提示、查不到維持上次 |
 | `e2e/mcp-oauth.spec.ts` ⭐ | ADR-0206 P8-A Playwright：callback 當前 URL 無 state/code canary、local/session storage 與 console/message surface 無秘密、exact origin/source opaque message。 |
 
 ### 靜態守衛邏輯測試

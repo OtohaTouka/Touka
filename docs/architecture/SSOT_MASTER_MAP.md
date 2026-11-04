@@ -26,6 +26,7 @@
 - hook 腳本：設定資料夾的 `hooks/`（`services/hooks/paths.py` 的 `HOOKS_DIR_NAME`），也是 command hook 的工作目錄；參數裡的路徑必須在這裡，程式在別處時不能指到代理人寫得到的地方（資料根、sandbox state、執行器、工作區根、專案根、MCP 可寫資料夾與它們的對映路徑）。不進版控也不進映像。
 - 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行只有管理員擁有的靈魂：`authorization_gateway.only_admins_own`）。
 - 執行與合併結果的唯一入口：`services/hooks/service.py` 的 `hook_service`；解讀規則 `outcome.py`，比對規則 `matcher.py`，執行 `runners.py`（command 經 `execution_broker.spawn_exec`、不經 shell）。
+- 事件清單與「不帶對話內容的事件」：`models/hooks.py` 的 `WIRED_EVENTS`、`MATCHER_EVENTS`、`NO_CONVERSATION_EVENTS`；生命週期事件的內容與時點：`services/hooks/lifecycle.py`；ConfigChange 的區段名稱：同檔的 `ConfigSection`，每個會改狀態的路由在 `tests/unit/test_hook_config_change_security.py` 分類。
 - 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
 - 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
 - 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。

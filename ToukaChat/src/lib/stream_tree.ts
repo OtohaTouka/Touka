@@ -14,6 +14,13 @@ import type { Interjection } from '@/lib/types';
 import { ROUND_INTERRUPTED_EVENT, parseRoundInterruptedEvent } from '@/lib/chat/interjections';
 import { getSystemEpoch } from './time_utils';
 
+/** 串流以錯誤結束：在那則回覆記下，畫面才看得出是模型沒有回成功（ADR-0292）。 */
+export function markGenerationFailed(tree: TreeHistory, assistantId: string): TreeHistory {
+  const node = tree.messages[assistantId];
+  if (!node) return tree;
+  return { ...tree, messages: { ...tree.messages, [assistantId]: { ...node, generationFailed: true } } };
+}
+
 export interface BuildStreamNodesParams {
   userText: string;
   attachment: ChatAttachment | null;
