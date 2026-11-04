@@ -459,11 +459,34 @@ def test_no_reply_error_only_carries_the_error_fields():
 
 
 @pytest.mark.parametrize("raw", [{"error": {"type": {}}}, {"error": {"code": [1]}},
-                                 {"error": ["x"]}, {"choices": []}, "text", None])
+                                 {"error": ["x"]}, {"choices": []}, {"choices": ["x"]},
+                                 {"candidates": [{"finishReason": 1}]}, {"stop_reason": []},
+                                 "text", None])
 def test_no_reply_error_takes_any_shape(raw):
     error = retry.no_reply_error("X", raw)
     assert error.error_type == "unknown"
     assert "沒有回覆內容" in error.user_message
+
+
+@pytest.mark.parametrize("code", ["²", "9" * 5000])
+def test_no_reply_error_takes_a_code_that_looks_like_a_number(code):
+    """isdigit() 為真但 int() 轉不了：不能丟例外，否則走不到失敗路徑、沒有 StopFailure。"""
+    error = retry.no_reply_error("X", {"error": {"code": code}})
+    assert error.error_type == "unknown"
+    assert error.retry_note is None
+
+
+@pytest.mark.parametrize(("raw", "reason"), [
+    ({"choices": [{"finish_reason": "insufficient_system_resource"}]},
+     "insufficient_system_resource"),
+    ({"candidates": [{"finishReason": "MALFORMED_FUNCTION_CALL"}]}, "MALFORMED_FUNCTION_CALL"),
+    ({"content": [], "stop_reason": "pause_turn"}, "pause_turn"),
+])
+def test_no_reply_error_says_why_the_reply_ended(raw, reason):
+    """管理員要分得出是工具格式壞掉還是資源不足；內容本身仍然不帶。"""
+    error = retry.no_reply_error("X", {**raw, "instructions": "CANARY"})
+    assert reason in error.user_message
+    assert "CANARY" not in error.user_message
 
 
 async def test_usage_reported_with_no_reply_is_booked(monkeypatch, no_wait):
@@ -473,6 +496,22 @@ async def test_usage_reported_with_no_reply_is_booked(monkeypatch, no_wait):
     FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
     await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
     assert len(booked) == 1
+
+
+async def test_an_error_body_with_usage_is_booked_and_not_retried(monkeypatch, hooks, no_wait):
+    """帶用量表示廠商已經計費：入帳一次、不重送，仍是失敗。"""
+    hooks.configure({"StopFailure": [group()]})
+    booked: list[Any] = []
+    monkeypatch.setattr(react_core, "accumulate_token_usage", lambda *a, **_k: booked.append(a[2]))
+    body = {"error": {"type": "overloaded_error"},
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1}}
+    upstream = FakeUpstream([json_reply(json.dumps(body), 200)])
+    upstream.install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    await until(lambda: hooks.http.calls)
+    assert len(booked) == 1
+    assert len(upstream.requests) == 1
+    assert hooks.http.calls[0]["error"] == "overloaded"
 
 
 async def test_an_estimated_no_reply_round_is_booked_only_once(monkeypatch, no_wait):
@@ -938,7 +977,7 @@ async def _elicit_and_decline(hooks: HookSetup, ctx: dict[str, Any] | None = Non
 
 
 def test_a_person_keeps_the_whole_form_time_after_the_hook():
-    """hook 用完上限（收掉行程還要一點時間）之後，第一個回合還夠人填完；後面回合的時間不變。"""
+    """hook 用完上限（收掉行程還要一點時間）之後，第一張表單還夠人填完；整體上限也多同樣的時間。"""
     needed = MCP_INTERACTION_TIMEOUT_SECONDS + MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
     assert needed < mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS
     assert mrtr.DEFAULT_TOTAL_TIMEOUT_SECONDS - mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS == 60

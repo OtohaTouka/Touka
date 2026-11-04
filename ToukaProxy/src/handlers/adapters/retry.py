@@ -150,6 +150,28 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
     return error
 
 
+def _finish_reason(body: dict[str, Any]) -> str | None:
+    """回應為什麼結束（OpenAI、Gemini、Claude 的寫法）；沒有就 None。"""
+    for key, field in (("choices", "finish_reason"), ("candidates", "finishReason")):
+        items = body.get(key)
+        first = items[0] if isinstance(items, list) and items else None
+        reason = first.get(field) if isinstance(first, dict) else None
+        if isinstance(reason, str):
+            return reason
+    reason = body.get("stop_reason")
+    return reason if isinstance(reason, str) else None
+
+
+def _code_number(code: Any) -> Any:
+    """``"429"`` → 429；看起來是數字卻轉不了（``"²"``、位數過多）就照原樣。"""
+    if not (isinstance(code, str) and code.isdigit()):
+        return code
+    try:
+        return int(code)
+    except ValueError:
+        return code
+
+
 def no_reply_error(label: str, raw: Any) -> RoundError:
     """回 200 但沒有回覆：只取錯誤的固定欄位（整份回應可能帶我們送出的系統提示）。"""
     body = raw if isinstance(raw, dict) else {}
@@ -166,6 +188,9 @@ def no_reply_error(label: str, raw: Any) -> RoundError:
     incomplete = body.get("incomplete_details")
     if isinstance(incomplete, dict) and isinstance(incomplete.get("reason"), str):
         shown["incomplete_reason"] = incomplete["reason"]
+    finish = _finish_reason(body)
+    if finish is not None:
+        shown["finish_reason"] = finish
     detail = "沒有回覆內容"
     if shown:
         detail = json.dumps(shown, ensure_ascii=False)[:_NO_REPLY_DETAIL_CHARS]
@@ -177,7 +202,7 @@ def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:
     if not isinstance(body, dict):
         return error
     code = body.get("code")
-    number = int(code) if isinstance(code, str) and code.isdigit() else code
+    number = _code_number(code)
     busy = (body.get("type") in _BUSY_ERROR_TYPES or body.get("status") in _BUSY_ERROR_CODES
             or code in _BUSY_ERROR_CODES
             or (isinstance(number, int) and retryable_status(number)))

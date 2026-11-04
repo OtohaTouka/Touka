@@ -17,6 +17,7 @@ import {
   MCP_SERVER,
   MODEL_400_REQUEST,
   MODEL_BAD_JSON_REQUEST,
+  MODEL_EMPTY_REPLY_REQUEST,
   MODEL_NO_REPLY_REQUEST,
   SOUL_ID,
   SUBAGENT_GOAL,
@@ -205,10 +206,22 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await expectLastReplyMarkedFailed(page);
   await shot(page, info, "model-no-reply");
 
+  // 模型回 200、有回應的外殼但沒有內容，停止原因也不正常：這條才走到解析之後的判斷
+  await recoverSave(page);
+  await sendMessage(page, MODEL_EMPTY_REPLY_REQUEST);
+  await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(4);
+  const emptyReply = (await receivedFor("StopFailure"))[3];
+  expectCleanPayload("StopFailure", emptyReply);
+  expect(emptyReply.payload.error).toBe("unknown");
+  expect(String(emptyReply.payload.error_details)).toContain("insufficient_system_resource");
+  await composer(page).waitFor();
+  await expectLastReplyMarkedFailed(page);
+  await shot(page, info, "model-empty-reply");
+
   // 標示在重試保存時才進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
   await recoverSave(page);
   const saved = await savedMessages(adminToken, String(noReply.payload.session_id));
-  expect(saved.filter((message) => message.generationFailed)).toHaveLength(3);
+  expect(saved.filter((message) => message.generationFailed)).toHaveLength(4);
   await page.reload();
   await composer(page).waitFor();
   await expectLastReplyMarkedFailed(page);

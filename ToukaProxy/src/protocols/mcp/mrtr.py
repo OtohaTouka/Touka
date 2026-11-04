@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 _ResultT = TypeVar("_ResultT")
 
 DEFAULT_MAX_ROUNDS = 8
-# 第一個回合的表單前面有 Elicitation hook：加上它的上限與收掉行程的時間，人才有完整的倒數
-# （interaction.py）；後面回合能用的時間不因此變少
+# 表單前面有 Elicitation hook：加上它的上限與收掉行程的時間，第一張表單的人才有完整的倒數
+# （interaction.py）。沒設 hook 也一樣多這些時間；後面的表單受整體上限管，前面用掉的會扣掉
 _ELICITATION_HOOK_SECONDS = MAX_ELICITATION_HOOK_TIMEOUT_SECONDS + 10
 DEFAULT_ROUND_TIMEOUT_SECONDS = 120.0 + _ELICITATION_HOOK_SECONDS
 DEFAULT_TOTAL_TIMEOUT_SECONDS = 180.0 + _ELICITATION_HOOK_SECONDS
