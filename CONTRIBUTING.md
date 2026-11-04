@@ -26,7 +26,7 @@ PR 請開到 **`dev`** 分支。預設分支 `main` 是穩定版，只由維護�
 
 ### 給 AI 程式代理人的規則（AGENTS.md）
 
-repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
+repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。綁特定路徑的規則全文在 `docs/rules/`，`python scripts/applicable_rules.py` 會列出這次改動適用哪些。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
 
 ### 環境設置（首次接手 / fresh clone）
 

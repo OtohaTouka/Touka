@@ -239,5 +239,5 @@ python -B -m pytest tests/integration/test_mcp_dispatch_tools.py -v # 3 項
 python -B -m pytest tests/integration/test_dispatch_mcp_transport.py -v
 
 # 全體守衛
-python scripts/guard_all.py  # 目前 43 guards
+python scripts/guard_all.py  # 目前 44 guards
 ```
