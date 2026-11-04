@@ -33,10 +33,11 @@ parser.add_argument("--web-origin", required=True)
 args = parser.parse_args()
 
 sandbox_root = Path(enable_smoke_sandbox("e2e_real"))
-os.environ["ENABLE_DYNAMIC_MODELS"] = "true"
-os.environ["SECURE_COOKIES"] = "false"
-os.environ["UI_DEFAULT_URL"] = args.web_origin
-os.environ["AUTH_RATE_LIMIT_MAX"] = AUTH_RATE_LIMIT_MAX_FOR_E2E
+_process_environment = os.environ  # noqa: ENV_SSOT_VIOLATION - 沙盒建好之後、載入產品之前
+_process_environment["ENABLE_DYNAMIC_MODELS"] = "true"
+_process_environment["SECURE_COOKIES"] = "false"
+_process_environment["UI_DEFAULT_URL"] = args.web_origin
+_process_environment["AUTH_RATE_LIMIT_MAX"] = AUTH_RATE_LIMIT_MAX_FOR_E2E
 (sandbox_root / "config" / "connections.json").write_text(
     json.dumps(
         {
