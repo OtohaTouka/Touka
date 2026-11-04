@@ -31,6 +31,10 @@
 
 2026-11-04 之前的完整交班內容在 [封存檔](docs/changelog/handover-archive-2026-11.md)。
 
+### 開工前、交付前、審查時
+
+跑 `python scripts/applicable_rules.py`（計畫階段還沒有改動時加 `--paths`，可以給資料夾），讀它列出的規則全文與交班檔。規則怎麼分流見 [docs/rules/README.md](docs/rules/README.md)（ADR-0296）。
+
 ### 交班怎麼寫
 
 - 新的未完成事項、已知限制、待部署與操作注意事項寫進對應的模組交班檔，做完就刪掉，紀錄寫進 CHANGELOG。

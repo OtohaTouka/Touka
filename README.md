@@ -56,7 +56,7 @@ Touka 由四個獨立子系統組成：
 - **MCP 生態系整合**：支援 Model Context Protocol 第三方工具
 - **Anthropic Agent Skills 標準**：技能採目錄式 `SKILL.md` 開放標準，可打包為 `.skill` 雙向分發，並依白名單自動召喚外部 AI 協作（ADR-0066 / ADR-0067）
 - **滑動視窗歷史管理**：自動歸檔長對話，維持 context 效能
-- **43 道靜態守衛**：`guard_all.py` 自動檢查架構規範、CVE、API 合約一致性
+- **44 道靜態守衛**：`guard_all.py` 自動檢查架構規範、CVE、API 合約一致性
 - **原生創建引擎 (Creation Engine)**：MCP 與 Skill 共用的創建流水線（VALIDATE → SMOKE 沙箱試跑 → COMMIT → EVAL 後置評測），支援從零 scaffold 決定性生成 Python SDK v2 `MCPServer`。Owner/admin 可經 `/v1/creation/*` 路由或 agent 對話創建產物；CREATE 不覆寫既有 id，受 Creation Sovereignty Guard #29 保護（ADR-0069／0199）。
 - **終端機修復**：自動生成與執行 Exit Code 修復腳本。
 - **背景任務**：非同步執行長時間多脈衝 ReAct 循環。
