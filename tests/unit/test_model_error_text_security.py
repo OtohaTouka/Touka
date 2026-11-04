@@ -141,6 +141,8 @@ def test_upstream_error_kind_in_the_retry_status_is_masked() -> None:
         f"  token={FIELD_VALUE}  ",
         "plain text with `backticks` and [REDACTED] already",
         "長" * 299 + " 第 300 字是空白",
+        "長" * 280 + " https://example.test/v1/abcdefghijklmnopqrstuvwxyz",  # 切在網址中間
+        "長" * 280 + " /srv/someone/.config/provider/key.json",  # 切在路徑中間
         "連線逾時",
         "",
     ],
