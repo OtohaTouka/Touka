@@ -1,5 +1,5 @@
 import http from "node:http";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_MODEL_ID, FAKE_TEXT_REPLY, WRITE_REQUEST_PATTERN } from "./constants";
+import { FAKE_AFTER_TOOL_REPLY, FAKE_MODEL_ID, FAKE_TEXT_REPLY, toolRequestIn } from "./constants";
 
 export interface ModelCall {
   model: string;
@@ -39,13 +39,14 @@ function contentText(content: unknown): string {
 
 function assistantReply(call: ModelCall): AssistantMessage {
   if (call.lastRole === "tool") return { role: "assistant", content: FAKE_AFTER_TOOL_REPLY };
-  const fileName = call.lastText.match(WRITE_REQUEST_PATTERN)?.[1];
-  if (call.lastRole === "user" && fileName && call.tools.includes("write")) {
-    const args = JSON.stringify({ scope: "personal", path: fileName, content: "x" });
+  const request = call.lastRole === "user" ? toolRequestIn(call.lastText) : null;
+  if (request && call.tools.includes(request.tool)) {
     return {
       role: "assistant",
       content: null,
-      tool_calls: [{ id: "call_1", type: "function", function: { name: "write", arguments: args } }],
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: request.tool, arguments: request.args } },
+      ],
     };
   }
   return { role: "assistant", content: FAKE_TEXT_REPLY };

@@ -5,6 +5,8 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { HookRun } from '@/lib/types';
+import en from '@/locales/en/translation.json';
+import zhTW from '@/locales/zh-TW/translation.json';
 import { HookRunsList } from '../HookRunsList';
 
 vi.mock('react-i18next', () => ({
@@ -20,6 +22,11 @@ const run = (extra: Partial<HookRun>): HookRun => ({
 });
 
 describe('HookRunsList（ADR-0292）', () => {
+    it.each(['blocked', 'ask', 'context', 'none', 'failed', 'skipped'] as const)('結果 %s 有翻譯', (outcome) => {
+        expect(zhTW.settings.hooks_tab.outcomes[outcome]).toBeTruthy();
+        expect(en.settings.hooks_tab.outcomes[outcome]).toBeTruthy();
+    });
+
     it('顯示 hook 名稱、類型、結果、結束碼、耗時與說明', () => {
         render(<HookRunsList runs={[run({})]} onRefresh={vi.fn()} />);
         expect(screen.getByText('guard')).toBeInTheDocument();

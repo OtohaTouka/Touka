@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from src.models.hooks import WIRED_EVENTS, HooksConfig
+from src.models.hooks import MATCHER_EVENTS, WIRED_EVENTS, HooksConfig
 from src.services.hooks.matcher import matcher_matches
 
 _EXAMPLE = Path(__file__).resolve().parents[2] / "ToukaProxy" / "config" / "hooks.json.example"
@@ -34,8 +34,18 @@ def test_default_is_disabled_and_example_validates():
     assert example.enabled is False
 
 
-def test_wired_events_are_the_first_four():
-    assert set(WIRED_EVENTS) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+def test_wired_events():
+    assert set(WIRED_EVENTS) == {
+        "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
+        "PostToolUseFailure", "PermissionRequest", "PermissionDenied", "Notification",
+    }
+
+
+def test_matcher_events_are_the_ones_with_something_to_match():
+    assert {
+        "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
+        "PermissionDenied", "Notification",
+    } == MATCHER_EVENTS
 
 
 def test_command_and_http_hooks_validate():

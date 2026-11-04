@@ -50,7 +50,7 @@ MAX_BLOCK_REASON_CHARS: Final[int] = 4_000
 HOOKS_FILE_NAME: Final[str] = "hooks.json"
 
 HealthStatus = Literal["ok", "missing", "error"]
-RunOutcome = Literal["blocked", "ask", "context", "none", "failed"]
+RunOutcome = Literal["blocked", "ask", "context", "none", "failed", "skipped"]
 
 
 class CommandRunner(Protocol):
@@ -256,6 +256,10 @@ class HookService:
         """這個事件有沒有設定 hook；接線點先問這個，沒有就不組事件內容。"""
         return bool(self.current().groups_for(event))
 
+    def has_matching_hooks(self, event: str, match: Iterable[str] = ()) -> bool:
+        """這次有沒有 hook 會執行（已比對 matcher、略過停用的）。"""
+        return bool(self._select(event, match))
+
     def runs(self) -> list[HookRunRecord]:
         """最近的執行紀錄，新的在前。"""
         return list(reversed(self._runs))
@@ -321,6 +325,17 @@ class HookService:
                 detail=_detail(result, verdict),
             )
         self._runs.append(record)
+
+    def record_skipped(self, event: str, *, incognito: bool) -> None:
+        """背景 hook 超過同時執行上限、這次跳過：記一筆，設定頁看得到。"""
+        self._runs.append(
+            HookRunRecord(
+                at=get_current_epoch(), event=event, hook="" if incognito else "background",
+                hook_type="", status="skipped", outcome="skipped", duration_ms=0,
+                detail=None if incognito else "skipped: too many background hooks are running",
+                incognito=incognito,
+            )
+        )
 
     @staticmethod
     def _interpret(event: str, result: RunResult) -> HookVerdict:

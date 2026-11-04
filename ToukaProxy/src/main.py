@@ -114,6 +114,7 @@ from .services.continuity_events import start_recording, stop_recording
 from .services.creation.evaluation import eval_runner
 from .services.creation.model_judge import ModelJudge, resolve_judge_model
 from .services.dispatch_supervisor import DispatchSupervisor
+from .services.hooks.notifications import IsolationLevelNotifier
 from .services.identity_router import get_verified_identity
 from .services.identity_service import identity_service
 from .services.isolation.status import isolation_monitor
@@ -183,6 +184,7 @@ protocol_manager = ProtocolManager(registry)
 # 隔離封鎖埠的上游來源：已設定的全部模型連線 URL（存檔後立刻生效、不等探測）。在這裡接，
 # 避開 isolation → models → agent_service → permission_service → isolation 的循環匯入。
 isolation_monitor.add_upstream_source(model_manager.route_endpoints)
+isolation_monitor.on_level_change(IsolationLevelNotifier())
 
 
 def _build_mcp_oauth_authorization_fence() -> McpOAuthAuthorizationFence:

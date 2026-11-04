@@ -26,13 +26,44 @@ export const FAKE_MODEL_ID = "fake-chat";
 export const CANARY_API_KEY = "e2e-canary-not-a-real-key";
 export const CANARY_HOOK_HEADER = "e2e-canary-hook-header";
 
-// 假模型看使用者訊息裡的標記決定怎麼回。
-const MARK_CALL_WRITE = "E2E_CALL_WRITE";
-export const WRITE_REQUEST_PATTERN = new RegExp(`${MARK_CALL_WRITE}:(\\S+)`);
+export const ASK_QUESTION = "實際驗證：要繼續嗎？";
+export const ASK_ANSWER = "繼續";
 
-/** 使用者訊息裡的標記：假模型看到就叫 write 工具，寫這個檔名。 */
+// 假模型看使用者訊息裡的標記決定叫哪個工具，`:` 後面是檔名。
+const TOOL_REQUESTS: Record<string, { tool: string; args: (fileName: string) => object }> = {
+  E2E_CALL_WRITE: { tool: "write", args: (path) => ({ scope: "personal", path, content: "x" }) },
+  // 讀不存在的檔：工具開始跑之後才失敗
+  E2E_CALL_READ: { tool: "read", args: (path) => ({ scope: "personal", path }) },
+  // 少了必要參數 content
+  E2E_CALL_BAD_WRITE: { tool: "write", args: (path) => ({ scope: "personal", path }) },
+  E2E_CALL_ASK: {
+    tool: "ask_user",
+    args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }] }),
+  },
+};
+
+/** 使用者訊息裡的標記對應到的工具呼叫；沒有標記回 null。 */
+export function toolRequestIn(text: string): { tool: string; args: string } | null {
+  const match = text.match(/(E2E_CALL_[A-Z_]+):(\S+)/);
+  const request = match && TOOL_REQUESTS[match[1]];
+  return request ? { tool: request.tool, args: JSON.stringify(request.args(match[2])) } : null;
+}
+
+/** 假模型看到就叫 write 工具，寫這個檔名。 */
 export function writeRequest(fileName: string): string {
-  return `${MARK_CALL_WRITE}:${fileName} 請寫一個檔案`;
+  return `E2E_CALL_WRITE:${fileName} 請寫一個檔案`;
+}
+
+export function readRequest(fileName: string): string {
+  return `E2E_CALL_READ:${fileName} 請讀這個檔案`;
+}
+
+export function badWriteRequest(fileName: string): string {
+  return `E2E_CALL_BAD_WRITE:${fileName} 請寫一個檔案`;
+}
+
+export function askRequest(): string {
+  return "E2E_CALL_ASK:question 請問我問題";
 }
 export const FAKE_TEXT_REPLY = "假模型的回覆：收到。";
 export const FAKE_AFTER_TOOL_REPLY = "假模型的回覆：工具結果收到。";

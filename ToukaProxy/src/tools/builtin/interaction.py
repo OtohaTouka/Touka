@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from src.services.ask_user_store import get_ask_user_store
+from src.services.hooks.notifications import notify_agent_question
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def ask_user(
     token = _call_id or store.generate_token()
     store.register(token)
     await _emit_event({"type": "ask_user_request", "id": token, "questions": questions})
+    notify_agent_question(kwargs.get("_ctx") or {})
 
     timeout = float(kwargs.get("_timeout", ASK_USER_TIMEOUT))
     result = await store.wait_for_answer(token, timeout=timeout)

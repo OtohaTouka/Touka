@@ -7886,7 +7886,7 @@ export interface components {
              * Outcome
              * @enum {string}
              */
-            outcome: "blocked" | "ask" | "context" | "none" | "failed";
+            outcome: "blocked" | "ask" | "context" | "none" | "failed" | "skipped";
             /** Duration Ms */
             duration_ms: number;
             /** Exit Code */
@@ -7997,9 +7997,9 @@ export interface components {
             config: components["schemas"]["HooksConfig-Output"];
             health: components["schemas"]["HookHealthOut"];
             /** Wired Events */
-            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
             /** Matcher Events */
-            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
         };
         /**
          * HooksSaveRequest

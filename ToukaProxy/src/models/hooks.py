@@ -19,17 +19,45 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from src.models.permissions import BasePolicyModel
 
-# 丙-1 接線的四個事件；丙-2 接其餘事件時往這裡加（模型只收已接線的事件）。
-WIRED_EVENTS: Final[tuple[str, ...]] = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
-# 照 Claude Code：這兩個事件看工具名稱；UserPromptSubmit 與 Stop 不看 matcher。
-MATCHER_EVENTS: Final[frozenset[str]] = frozenset({"PreToolUse", "PostToolUse"})
+# 已接線的事件；模型只收這些。
+WIRED_EVENTS: Final[tuple[str, ...]] = (
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionRequest",
+    "PermissionDenied",
+    "Notification",
+    "Stop",
+)
+# 照 Claude Code：工具事件看工具名稱、Notification 看通知類型；
+# UserPromptSubmit 與 Stop 不看 matcher。
+MATCHER_EVENTS: Final[frozenset[str]] = frozenset(
+    {
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PermissionRequest",
+        "PermissionDenied",
+        "Notification",
+    }
+)
 
 MAX_HANDLERS_PER_EVENT: Final[int] = 20
 DEFAULT_HOOK_TIMEOUT_SECONDS: Final[int] = 30
 MAX_HOOK_TIMEOUT_SECONDS: Final[int] = 300
 MAX_HOOK_ARGS: Final[int] = 64
 
-HookEvent = Literal["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+HookEvent = Literal[
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionRequest",
+    "PermissionDenied",
+    "Notification",
+    "Stop",
+]
 
 _ENV_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 # HTTP 標頭名稱（RFC 9110 的 token）；Touka 自己送的標頭不讓設定改（比對不分大小寫）
@@ -194,7 +222,7 @@ class HookRunOut(BaseModel):
     hook: str
     hook_type: str
     status: str
-    outcome: Literal["blocked", "ask", "context", "none", "failed"]
+    outcome: Literal["blocked", "ask", "context", "none", "failed", "skipped"]
     duration_ms: int
     exit_code: int | None = None
     http_status: int | None = None

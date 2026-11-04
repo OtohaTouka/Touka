@@ -152,7 +152,9 @@ async def test_deny_blocks_and_never_executes(monkeypatch):
 async def test_allow_executes_tool(monkeypatch):
     recorder = _Recorder()
     _patch_decision(monkeypatch, "ALLOW")
-    result, _events = await _run(_executor({"write": recorder}), "write", {"scope": "vault"})
+    result, _events = await _run(
+        _executor({"write": recorder}), "write", {"scope": "vault", "path": "a.md", "content": "x"}
+    )
 
     assert len(recorder.calls) == 1
     assert '"ok": true' in result.lower()

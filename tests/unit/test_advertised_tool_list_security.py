@@ -922,7 +922,8 @@ async def test_b19_switch_off_keeps_the_old_behavior(gates):
     """開關關閉（/debug/execute）：不看清單；找不到的名稱照舊先過政策。"""
     handler = AsyncMock(return_value="ran")
     executor = _executor({"write": handler}, enforce=False)
-    await _call(executor, "write", _listed_ctx({"read"}))
+    args = {"scope": "personal", "path": "a", "content": "x"}
+    await _call(executor, "write", _listed_ctx({"read"}), args)
     handler.assert_awaited_once()
 
     result, _events = await _call(executor, "nosuchtool", _listed_ctx({"read"}))
@@ -1071,8 +1072,8 @@ async def test_b14_same_round_runs_only_the_listed_call(gates, quiet_loop):
     read = AsyncMock(return_value="contents")
     write = AsyncMock(return_value="written")
     calls = [
-        ToolCall(id="c1", name="read", args={"path": "a"}),
-        ToolCall(id="c2", name="write", args={"path": "b"}),
+        ToolCall(id="c1", name="read", args={"scope": "personal", "path": "a"}),
+        ToolCall(id="c2", name="write", args={"scope": "personal", "path": "b", "content": "x"}),
     ]
     adapter = _loop_adapter([Turn(tool_calls=calls), Turn(text_parts=["done"])])
     ctx = _loop_ctx(

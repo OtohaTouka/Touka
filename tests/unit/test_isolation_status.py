@@ -21,6 +21,7 @@ from src.sandbox_kernel import framing
 from src.sandbox_kernel import launcher as kernel_launcher
 from src.sandbox_kernel import spec as kernel_spec
 from src.services import approval_flow
+from src.services.hooks.notifications import IsolationLevelNotifier
 from src.services.isolation import profiles as profiles_module
 from src.services.isolation import runners as runners_module
 from src.services.isolation import status as status_module
@@ -44,6 +45,7 @@ from src.services.isolation.status import (
 from src.services.resource_manager import resource_manager
 from src.utils import isolation_policy as policy
 
+from tests.support.hook_wiring import group, install_hooks, until
 from tests.support.isolation import (
     FixedBroker,
     PinnedMonitor,
@@ -488,6 +490,30 @@ async def test_9p_failure_recovers_only_through_9p_selftest(tmp_path):
     assert monitor.snapshot().level == "landlock"
     # C2-3 U3d：本機自測有結果（9p 失敗）也通知，等本機判定的第三方 MCP 才會啟動
     assert changes == ["none", "landlock"]
+
+
+async def test_level_changes_reach_notification_hooks_once_each(tmp_path, monkeypatch):
+    """真的 monitor 接真的 hook 服務：層級改變才通知，只帶層級名稱，沒有對話。"""
+    hooks = install_hooks(tmp_path, monkeypatch)
+    hooks.configure({"Notification": [group(matcher="isolation_level")]})
+    probe = _SelfTest(data_ok=False, state_ok=True)
+    monitor = _monitor(_status_layout(tmp_path), probe)
+    monitor.on_level_change(IsolationLevelNotifier())
+    await monitor.ensure_ready()
+    await until(lambda: hooks.http.calls)
+    # 本機自測又跑了一次、層級沒變：不再通知
+    await monitor.run_selftest("state")
+    probe.data_ok = True
+    await monitor.run_selftest("data")
+    await until(lambda: len(hooks.http.calls) == 2)
+    for _ in range(5):
+        await asyncio.sleep(0)
+    none_call, landlock_call = hooks.http.calls
+    assert none_call["message"].endswith(" none.")
+    assert landlock_call["message"].endswith(" landlock.")
+    assert {call["notification_type"] for call in hooks.http.calls} == {"isolation_level"}
+    assert {call["session_id"] for call in hooks.http.calls} == {None}
+    assert "fs_9p" not in str(hooks.http.calls)
 
 
 async def test_background_keeps_9p_selftest_after_fs_9p(tmp_path):

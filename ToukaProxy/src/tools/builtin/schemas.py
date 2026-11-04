@@ -1,5 +1,9 @@
 """內建工具之 JSON Schema 定義清單，用於向 LLM 宣告可用的 API。"""
 
+from collections.abc import Mapping
+from typing import Any
+
+from src.services import tool_errors
 from src.tools.contracts import native_parameters
 from src.tools.editor import IDE_OPEN_DIFF_SCHEMA
 from src.tools.file_verbs import FILE_VERB_SCHEMAS
@@ -581,3 +585,24 @@ builtin_tools_schema = [
     DISPATCH_SUBAGENT_SCHEMA,
     DISPATCH_SUBAGENT_GROUP_SCHEMA,
 ]
+
+_REQUIRED_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    schema["function"]["name"]: tuple(schema["function"]["parameters"].get("required", ()))
+    for schema in builtin_tools_schema
+}
+
+
+def missing_required_error(name: str, arguments: Mapping[str, Any]) -> str | None:
+    """內建工具少了廣告 schema 列的必要參數時回結構化錯誤；只看鍵在不在，不回顯模型送的值。
+
+    舊工具不在廣告清單裡，一律回 None，由工具自己處理。
+    """
+    missing = [key for key in _REQUIRED_ARGUMENTS.get(name, ()) if key not in arguments]
+    if not missing:
+        return None
+    return tool_errors.build_tool_error(
+        tool_errors.VALIDATION_ERROR,
+        f"Tool '{name}' is missing required parameters: {', '.join(missing)}.",
+        suggestion="Retry with the tool's required parameters.",
+        param=missing[0],
+    )

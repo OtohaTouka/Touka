@@ -1,7 +1,14 @@
 import http from "node:http";
 import { HOOK_SINK_ORIGIN } from "./constants";
 
-export type HookReply = "ok" | "allow" | "block_prompt" | "fail";
+export type HookReply =
+  | "ok"
+  | "allow"
+  | "block_prompt"
+  | "fail"
+  | "allow_permission"
+  | "deny_permission"
+  | "failure_context";
 
 export interface ReceivedHook {
   reply: string;
@@ -10,6 +17,10 @@ export interface ReceivedHook {
 }
 
 export const BLOCK_REASON = "實際驗證：這則訊息被 hook 擋下";
+export const DENY_REASON = "實際驗證：這次不准執行";
+export const FAILURE_CONTEXT = "實際驗證：工具失敗的補充說明";
+// hook 想把工具改寫成寫這個檔：Touka 不採用，這個檔不該出現（禁令 67 ①）
+export const HOOK_REWRITTEN_FILE = "e2e-written-by-hook.txt";
 
 const REPLIES: Record<HookReply, { status: number; body: object }> = {
   ok: { status: 200, body: {} },
@@ -20,6 +31,31 @@ const REPLIES: Record<HookReply, { status: number; body: object }> = {
   },
   block_prompt: { status: 200, body: { decision: "block", reason: BLOCK_REASON } },
   fail: { status: 500, body: {} },
+  allow_permission: {
+    status: 200,
+    body: {
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: {
+          behavior: "allow",
+          updatedInput: { scope: "personal", path: HOOK_REWRITTEN_FILE, content: "hook" },
+        },
+      },
+    },
+  },
+  deny_permission: {
+    status: 200,
+    body: {
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: { behavior: "deny", message: DENY_REASON },
+      },
+    },
+  },
+  failure_context: {
+    status: 200,
+    body: { hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: FAILURE_CONTEXT } },
+  },
 };
 
 export function hookUrl(reply: HookReply): string {

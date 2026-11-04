@@ -327,7 +327,9 @@ async def _run_interactive(
 async def test_human_only_interactive_shows_card_and_runs_only_after_approval(monkeypatch):
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"write": recorder})
-    _result, events = await _run_interactive(executor, "write", {"scope": "vault"}, approved=True)
+    _result, events = await _run_interactive(
+        executor, "write", {"scope": "vault", "path": "a.md", "content": "x"}, approved=True
+    )
     assert len(recorder.calls) == 1
     types = [e.get("type") for e in events]
     assert types.index("tool_approval_request") < types.index("tool_start")

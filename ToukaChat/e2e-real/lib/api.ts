@@ -49,7 +49,7 @@ export async function createSoul(token: string): Promise<void> {
     agent_id: SOUL_ID,
     name: SOUL_ID,
     persona: "實際驗證用",
-    config: { base_model: FAKE_MODEL_ID, enabled_tools: ["read", "write", "list"] },
+    config: { base_model: FAKE_MODEL_ID, enabled_tools: ["read", "write", "list", "ask_user"] },
   });
   const identity = await call<{ agent_overrides?: Record<string, unknown> }>("GET", "/v1/identity", token);
   await call("POST", "/v1/identity", token, {
