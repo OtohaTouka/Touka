@@ -701,6 +701,7 @@ def test_real_hook_ban_lives_in_its_own_rule_file() -> None:
     config = rules.load_config(ROOT)
     assert config["modules"]["hooks"]["rules_file"] == "docs/rules/hooks.md"
     assert "禁令 67" not in config["inline_rules"]
+    assert "ToukaProxy/**" in config["bans"]["67"]
 
 
 @pytest.mark.parametrize(
