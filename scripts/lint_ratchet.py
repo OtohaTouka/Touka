@@ -40,7 +40,7 @@ VULTURE_KINDS = frozenset({"function", "method", "class", "property"})
 # 結束碼 0 是沒有死碼、3 是有死碼；1 是輸入壞掉、2 是參數錯誤。
 VULTURE_FINISHED_EXIT_CODES = (0, 3)
 VULTURE_UNUSED_LINE = re.compile(r"^(?P<path>.+?):\d+: unused (?P<kind>\w+) '(?P<name>[^']+)' \(")
-VULTURE_OTHER_LINE = re.compile(r"^.+?:\d+: (?:unreachable code|unsatisfiable) ")
+VULTURE_OTHER_LINE = re.compile(r"^.+?:\d+: (?:unreachable|unsatisfiable|redundant) ")
 # 別處新增一個同名的用法就會讓項目消失，和那個 PR 無關，所以這些工具少了不算問題。
 ONE_WAY_TOOLS = frozenset({"vulture"})
 TOOL_TIMEOUT_SECONDS = 300
@@ -211,6 +211,8 @@ def main(argv: list[str]) -> int:
     problems = compare_counts(current, load_baseline(baseline_path))
     for problem in problems:
         print(problem)
+    if problems and argv[0] in ONE_WAY_TOOLS:
+        print("接上或刪掉；確定要留就加 --update，並在 PR 說明逐項列出。")
     print(f"{argv[0]}: {'FAIL' if problems else 'PASS'} ({sum(current.values())} violations)")
     return 1 if problems else 0
 

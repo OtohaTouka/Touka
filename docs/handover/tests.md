@@ -10,6 +10,7 @@
   - 死碼清單只有多出來才紅。只有測試在用的新函式、先加函式下個 PR 才接上、搬動或拿掉檔案（可能一次多好幾筆）都會紅：接上，或 `python scripts/lint_ratchet.py vulture --update` 並在 PR 說明逐項列出。`--update` 也會收下新增項目，`# noqa` 和白名單也能藏項目，靠審查看。
   - 合約清單要完全相等，後端改 schema 名時常常要一起重拍（`npm run guard:api -- --update`）。
   - 這兩道都可能和同時進行的 PR 撞：各自綠、合起來紅時 dev 會紅，合併前先把 dev 合進來重跑 CI。
+  - 清死碼時先看名字和安全有關的：`is_safe_outbound_url`、`verify_secret_strength`、`create_mission_token`、`validate_mission_token`、`revoke_mission_token`、`_has_chaining_metacharacters` 在清單裡，產品程式查不到呼叫端，沒有查過是不是漏接。
 - **實際驗證（2026-11-04，ADR-0295）**：`cd ToukaChat && npm run test:e2e:real` 用 Playwright 走打包好的正式版畫面與真的 Proxy，模型是假的，資料在沙盒，不花額度。目前走 Hook 全部事件與審批卡（`ToukaChat/e2e-real/`；假 MCP 在 `tests/e2e/fake_mcp_server.py`，心跳由測試帶權杖打喚醒端點）。走新路徑時走完再送一則：這次的既有問題都是送第二則才看到的（ADR-0295）。`hooks-lifecycle.spec.ts` 的 `recoverSave`、`sendRecovering` 是繞過既有問題用的，修好之後要拿掉。GitHub 上每個進 dev、main 的 PR 都跑（`e2e-real.yml`），先不列為必過。
 - **CI 的 `contracts` 工作上限 60 分鐘（2026-11-04）**：全量 pytest 在 GitHub 上已經跑到 36～40 分鐘，原本 40 分鐘的上限會把它取消（看起來是失敗，其實是時間到）。再變長時先看哪些測試慢，不要只加上限。
 - **維護流程的本機紀錄資料夾 `.toukadev/`（2026-10-10）**：開發流程本身（不是產品功能）的變更。

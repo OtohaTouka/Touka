@@ -5,6 +5,7 @@ CI 本來就跑 pytest，所以這支測試就是這道檢查在 CI 上的關卡
 """
 
 import json
+import tomllib
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ import lint_ratchet  # scripts/ 由 tests/conftest.py 加進 sys.path
 import pytest
 from lint_ratchet import (
     PRODUCT_SOURCE_ROOTS,
+    PROJECT_ROOT,
     VULTURE_BASELINE,
     VULTURE_WHITELIST,
     collect_vulture,
@@ -77,8 +79,33 @@ class UnusedClass:
     pass
 
 
+def all_the_other_vulture_messages(x):
+    if True:
+        x = 1
+    if True:
+        x = 2
+    else:
+        x = 3
+    y = 1 if True else 2
+    if False:
+        x = 4
+    while True:
+        break
+    else:
+        x = 5
+    try:
+        return x + y
+    except ValueError:
+        pass
+    else:
+        x = 6
+    return x
+    x = 7
+
+
 unused_variable = 1
 Model().name_used_elsewhere
+all_the_other_vulture_messages(1)
 """
 
 
@@ -96,7 +123,9 @@ def _fake_vulture(monkeypatch: pytest.MonkeyPatch, *, returncode: int, stdout: s
 
 
 def test_no_new_unused_definitions_beyond_the_baseline() -> None:
-    problems = compare_additions(collect_vulture(), load_baseline(VULTURE_BASELINE))
+    current = collect_vulture()
+    assert current, "一筆都沒有代表收集壞了；真的清完了才拿掉這句"
+    problems = compare_additions(current, load_baseline(VULTURE_BASELINE))
     assert not problems, "\n".join(
         [
             *problems,
@@ -111,6 +140,12 @@ def test_collect_uses_the_reviewed_arguments(monkeypatch: pytest.MonkeyPatch) ->
     collect_vulture()
     assert calls[0][1:2] == ["-m"]
     assert calls[0][2:] == REVIEWED_ARGUMENTS
+
+
+def test_no_vulture_section_in_pyproject() -> None:
+    """vulture 會讀工作目錄的 pyproject.toml 再合併命令列：在那裡加 exclude 不會動到釘住的參數。"""
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "vulture" not in pyproject.get("tool", {})
 
 
 def test_ignored_decorators_keep_the_builtin_ones_reportable() -> None:
@@ -145,6 +180,9 @@ def test_collect_keeps_only_definitions_and_normalizes_paths(
             r"ToukaHeartbeat\b.py:9: unsatisfiable 'if' condition (100% confidence)",
             r"ToukaHeartbeat\b.py:10: unused function 'f' (60% confidence)",
             r"ToukaHeartbeat\b.py:11: unused function 'f' (60% confidence)",
+            r"ToukaHeartbeat\b.py:12: redundant if-condition (100% confidence)",
+            r"ToukaHeartbeat\b.py:13: unreachable 'else' block (100% confidence)",
+            r"ToukaHeartbeat\b.py:14: unreachable 'else' expression (100% confidence)",
         ]
     )
     _fake_vulture(monkeypatch, returncode=3, stdout=stdout)
@@ -221,7 +259,7 @@ def test_compare_additions_is_one_way() -> None:
 
 
 def test_main_passes_on_fewer_items_and_fails_on_new_ones(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     baseline = tmp_path / "baseline.json"
     counts = Counter({"b.py:method:m": 1, "a.py:function:f": 1})
@@ -236,8 +274,10 @@ def test_main_passes_on_fewer_items_and_fails_on_new_ones(
     del counts["a.py:function:f"]
     assert lint_ratchet.main(["vulture"]) == 0
 
+    capsys.readouterr()
     counts["c.py:class:C"] = 1
     assert lint_ratchet.main(["vulture"]) == 1
+    assert "--update" in capsys.readouterr().out
 
 
 def test_baseline_keys_are_repo_relative_with_forward_slashes() -> None:

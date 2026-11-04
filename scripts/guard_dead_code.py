@@ -71,7 +71,8 @@ def main() -> None:
 
     print("=" * 60)
     if any_failed:
-        print("Dead code detected. Please remove dead code or update whitelist.")
+        print("Dead code detected. Remove it or wire it up.")
+        print("If a new unused definition must stay: lint_ratchet.py vulture --update, list it in the PR.")
         sys.exit(1)
     print("✅ No dead code detected.")
     sys.exit(0)

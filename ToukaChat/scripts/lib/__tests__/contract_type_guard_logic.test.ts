@@ -122,7 +122,7 @@ describe('整個前端的掃描與基準', () => {
     write('openapi.json', JSON.stringify({ components: { schemas: { BackupInfo: {}, SoulConfig: {} } } }));
     write('src/lib/types.ts', "export type McpHubServer = components['schemas']['MCPHubServerItem'];\n");
     write('src/hooks/zeta.ts', 'export interface SoulConfig { id: string }\n');
-    write('src/components/alpha.tsx', 'interface BackupInfo { id: string }\ninterface McpHubServer { id: string }\n');
+    write('src/components/alpha.tsx', 'interface McpHubServer { id: string }\ninterface BackupInfo { id: string }\n');
     write('src/hooks/useFoo.test.ts', 'interface BackupInfo { id: string }\n');
     write('src/types/api.ts', 'export interface BackupInfo { id: string }\n');
     write('src/generated/x.ts', 'export interface BackupInfo { id: string }\n');

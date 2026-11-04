@@ -2,6 +2,8 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+const RADIX_IMPORT_MESSAGE = "🚫 [SSOT] 請勿直接引用 Radix UI。請使用 @/components/ui/ 下已經過樣式封裝的組件。";
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -21,13 +23,13 @@ const eslintConfig = defineConfig([
           "paths": [
             {
               "name": "radix-ui",
-              "message": "🚫 [SSOT] 請勿直接引用 Radix UI。請使用 @/components/ui/ 下已經過樣式封裝的組件。"
+              "message": RADIX_IMPORT_MESSAGE
             }
           ],
           "patterns": [
             {
               "group": ["@radix-ui/*", "radix-ui/*"],
-              "message": "🚫 [SSOT] 請勿直接引用 Radix UI。請使用 @/components/ui/ 下已經過樣式封裝的組件。"
+              "message": RADIX_IMPORT_MESSAGE
             }
           ]
         }

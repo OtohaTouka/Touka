@@ -29,7 +29,7 @@
 3. **`radix-ui` 也不能直接引用**：`no-restricted-imports` 加精確名稱 `radix-ui` 與 pattern `radix-ui/*`，封裝層 `src/components/ui/**` 照舊放行。精確名稱不能寫成 pattern，否則會連 `@/components/radix-ui` 一起擋。其他底層元件沒有規則：真要做白名單，封裝層外約 100 行原生按鈕、輸入框要改或豁免，好處很小，所以禁令 50 拿掉「強制實施組件使用白名單」，「不得直接用未封裝的底層元件」照留。
 4. **後端未用的函式、方法、類別不得增加**：`lint_ratchet.py` 加 `vulture`，測試 `tests/lint/test_vulture_ratchet.py` 在 CI 的 pytest 裡跑，Guard #20 也會跑。
    - 參數由測試釘住：門檻 60，排除靠註冊才用到的裝飾器（`@router.*`、`@*_router.*`、`@app.*`、`@mcp.*`、`@field_validator`、`@model_validator`、`@computed_field`、`@self.client.event`），`@classmethod`、`@staticmethod`、`@property` 不排除。不排除時門檻 60 有 628 筆，大多是誤報。
-   - 只留函式、方法、類別、屬性；鍵是「相對路徑:種類:名稱」，路徑用 `/`。既有 108 筆（方法 63、函式 37、類別 6、屬性 2）凍結成清單，由維護者接受，清理另列。
+   - 只留函式、方法、類別、屬性；鍵是「相對路徑:種類:名稱」，路徑用 `/`。既有 108 筆（方法 63、函式 37、類別 6、屬性 2）凍結成清單，清理另列。維護者接受凍結時是 107 筆，開工重算多了一筆 `hooks/background.py:in_flight_count`（只有測試在用），列在 PR 說明。
    - 比對**單向**：多出來才紅，少了不紅，`--update` 收緊。和 ruff、pyrefly 的完全相等不同，因為別處新增一個同名的用法就會讓項目消失，和那個 PR 無關（實測：加一個 `x.covers`，`mcp_origin.py:method:covers` 就消失）。前例是 Guard #35。
    - 分清跑完（結束碼 0、3）和壞掉（1、2），看不懂的輸出行也算壞掉：單向比對下，格式變了全部比對不到會變成 0 筆而通過。
    - 門檻 80 的掃描也加 `ToukaDispatch`（0 筆）。基準只要變長，PR 說明要逐項列出。
@@ -53,6 +53,8 @@
 - 合約型別：
   - 改名就抓不到；只比名字，不比內容，既有 10 個是否漂移不會發現。
   - 只看 `interface` 與 `type`，`class`、`enum` 不算。
+  - `lib/types.ts` 的別名改成手寫，那個名字就不再算合約名；不是 schema 名的 9 個別名（例如 `McpHubServer`）會因此失守，schema 名不受影響。
+- `print`、硬編碼錯誤字串：`WHITELIST_FILES` 依檔名放行，`ToukaHeartbeat/config.py`、`awaken.py` 裡的不會紅。
 - `console`：只抓直接的 `console.log(...)` 這類呼叫，`window.console`、解構都抓不到。
 - ESLint：動態 `import()` 擋不到。
 - Guard #15、#20 不在 CI，只有本機全套檢查會跑；死碼的基準比對在 CI 的 pytest 裡。
