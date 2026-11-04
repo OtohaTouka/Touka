@@ -19,7 +19,7 @@ export const TEST_INCLUDE_GLOBS: string[] = [
 export const ALL_TESTS_GLOB = '**/*.{test,spec}.{ts,tsx}';
 
 /** 由其他 runner 收錄的測試根；不得要求 Vitest 重複收錄。 */
-export const NON_VITEST_TEST_PREFIXES: string[] = ['e2e/'];
+export const NON_VITEST_TEST_PREFIXES: string[] = ['e2e/', 'e2e-real/'];
 
 /** glob 掃描時應忽略的目錄。 */
 export const TEST_GLOB_IGNORE: string[] = [

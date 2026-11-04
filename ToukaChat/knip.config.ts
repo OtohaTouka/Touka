@@ -18,6 +18,8 @@ const config: KnipConfig = {
     "tailwind.config.ts",
     // esbuild 入口：artifact 沙箱 runtime（非 app 匯入，由 build-artifact-runtime.mjs 打包；ADR-0114）
     "src/lib/artifacts/runtime-entry.ts",
+    // 實際驗證（ADR-0295）的測試與輔助程式，由 playwright.real.config.ts 載入
+    "e2e-real/**/*.ts",
   ],
   // guard:prune 帶 --no-gitignore（.toukadev/worktrees/ 底下 gitignore 會濾掉入口檔；ADR-0243）。
   // 原本靠 .gitignore 擋掉的產生檔與建置產物在此移出相依圖；只放 ignore 時它們仍會被分析，

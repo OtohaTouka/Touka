@@ -113,6 +113,11 @@ python -m pytest tests/       # 全綠
 cd ToukaChat && npm run test  # vitest auth tests
 ```
 
+**改到 ToukaChat 或會影響畫面的後端行為時再跑實際驗證（真前端、真後端、假模型；全在沙盒、不花額度；ADR-0295）：**
+```bash
+cd ToukaChat && npm run test:e2e:real  # 用到埠 4901～4904；截圖在系統暫存的 touka-e2e-real/shots
+```
+
 **修改 ToukaIDE 時額外執行（compile／package 必須串行，避免共寫 `dist/`）：**
 ```powershell
 cd ToukaIDE

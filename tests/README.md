@@ -61,6 +61,7 @@ tests/
 ├── memory_eval/                 # 記憶長期穩定性評估：情境、規則判定、合成資料、多輪 driver、送前花費界線（離線；真模型只走人工 probe，ADR-0261、ADR-0268）
 ├── support/                     # 共用測試替身（隔離層，ADR-0272）
 ├── docker/                      # Linux 隔離測試映像、突變腳本與執行器端到端資產（ADR-0272）
+├── e2e/                         # 實際驗證的真後端啟動程式；測試本身在 ToukaChat/e2e-real（ADR-0295）
 └── smoke/                       # 需真實服務運行的人工冒煙腳本
 ```
 
@@ -145,6 +146,7 @@ tests/
 
 | 檔案 | 說明 |
 |------|------|
+| `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走。 |
 | `lint/test_chat_dev_terminal_security.py` | `npm run dev` 只啟動 `next dev`、不啟動其他伺服器；`terminal_server.mjs` 不存在；`src/` 沒有程式開 socket 伺服器或 pty |
 | `lint/test_chat_markdown_render_security.py` | `src/` 裡只有 `SafeMarkdown.tsx` 能匯入 `react-markdown`（`from`、`import()`、`require()` 都算）、它不收 rehype 外掛；`package.json` 與 `src/` 沒有 `rehype-raw`；產品程式不匯入 `mermaid`（型別除外），mermaid 執行檔只由沙箱框的模組載入；直接塞 HTML 只有流程圖一處，而且經 `sanitizeMermaidSvg` |
 
@@ -1143,6 +1145,7 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useLegacySync.test.ts` ⭐ | ADR-0253：後端回錯誤狀態、或 200 但 `status` 不是 success 時不顯示同步成功；只有真的成功才顯示一次成功；讀統計失敗時顯示錯誤、不默默略過 |
 | `src/components/sidebar/__tests__/MemoryNoticeBar.schema.test.tsx` ⭐ | ADR-0256 記憶庫結構提示：5 個結構代碼都顯示成翻譯過的警告（`role="alert"`、和降級橫幅一樣醒目）；5 個代碼都有英文訊息 |
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
+| `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e/mcp-oauth.spec.ts` ⭐ | ADR-0206 P8-A Playwright：callback 當前 URL 無 state/code canary、local/session storage 與 console/message surface 無秘密、exact origin/source opaque message。 |
 
 ### 靜態守衛邏輯測試
