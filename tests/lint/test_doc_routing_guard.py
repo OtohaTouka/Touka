@@ -679,11 +679,36 @@ def test_real_routing_matches_the_approved_inventory(
         ("scripts/lint_ssot.py", ["禁令 37"]),
         ("scripts/guard_creation_sovereignty.py", ["禁令 52"]),
         ("scripts/guard_module_boundaries.py", ["禁令 14"]),
+        ("ToukaChat/src/components/settings/tabs/HooksTab.tsx", ["禁令 67"]),
+        ("ToukaChat/src/components/settings/tabs/hooks/hook_draft.ts", ["禁令 67"]),
+        ("ToukaProxy/src/routers/config.py", ["禁令 67"]),
+        ("ToukaProxy/src/utils/hard_floor.py", ["禁令 67"]),
+        ("ToukaProxy/src/tools/project_tools.py", ["禁令 67"]),
+        ("ToukaMemory/src/memory_server/tools/core_file_ops.py", ["禁令 67"]),
     ],
 )
 def test_real_routing_lists_rules_for_the_files_they_govern(path: str, keys: list[str]) -> None:
     listed = _keys(rules.route([path], rules.load_config(ROOT), rules.parse_tags(ROOT)))
     assert [key for key in keys if key not in listed] == []
+
+
+def test_real_hook_ban_lives_in_its_own_rule_file() -> None:
+    config = rules.load_config(ROOT)
+    assert config["modules"]["hooks"]["rules_file"] == "docs/rules/hooks.md"
+    assert config["inline_rules"] == []
+
+
+def test_real_code_that_fires_hooks_is_routed_to_the_hook_ban() -> None:
+    config, tags = rules.load_config(ROOT), rules.parse_tags(ROOT)
+    callers = [
+        path
+        for path in _tracked_real()
+        if path.startswith(("ToukaProxy/src/", "ToukaMemory/src/"))
+        and path.endswith(".py")
+        and "services.hooks" in (ROOT / path).read_text(encoding="utf-8")
+    ]
+    assert callers
+    assert [p for p in callers if "禁令 67" not in _keys(rules.route([p], config, tags))] == []
 
 
 @pytest.mark.parametrize(
