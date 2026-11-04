@@ -17,6 +17,7 @@ from src.models.identity import AgentIdentity  # noqa: TC001
 from src.routers import custom_models
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.models import model_manager as _model_manager
 from src.services.providers import registry
 from src.services.resource_manager import resource_manager
@@ -301,6 +302,7 @@ async def update_model_settings(
         logger.exception("Failed to update model settings")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
     else:
+        notify_config_change("models")
         return {"status": "success"}
 
 
@@ -326,6 +328,7 @@ async def delete_model(
         logger.exception("Failed to delete model")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
     else:
+        notify_config_change("models")
         return {"status": "success"}
 
 

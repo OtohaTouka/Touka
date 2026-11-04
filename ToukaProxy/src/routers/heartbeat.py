@@ -50,6 +50,7 @@ from src.services.continuity_events import (
 from src.services.continuity_service import inject_continuity
 from src.services.dispatcher import dispatch_request
 from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
+from src.services.hooks.lifecycle import notify_heartbeat_start, notify_heartbeat_stop
 from src.services.hooks.stopping import request_stopped, stop_baseline
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
@@ -524,6 +525,9 @@ async def _process_heartbeat_loop(
             identity, final_session_id, run_key, pulses_total=pulse_count, home=is_home_mode
         )
         run_started = True
+        notify_heartbeat_start(
+            identity, final_session_id, pulses_total=pulse_count, home=is_home_mode
+        )
         # 0. Pre-flight: 更新模型健康狀態 (只需做一次)
         try:
             await model_manager.check_models_health()
@@ -626,6 +630,14 @@ async def _process_heartbeat_loop(
             logger.warning("%s", exc.code.name)
 
     finally:
+        if run_started:  # 只排背景工作、不 await（被取消時也安全），重置或刪除中也要通知
+            notify_heartbeat_stop(
+                identity,
+                final_session_id,
+                pulses_total=pulse_count,
+                pulses_done=pulses_done,
+                end=end,
+            )
         # 丙-4：正在或開跑之後曾經重置、刪除，結束事件不寫、也不剪裁（剪裁會寫舊對話庫）。
         blocked = destructive_ops.disturbed(identity, started_at)
         try:

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import logging
 import os
@@ -30,6 +31,8 @@ parser.add_argument("--api-port", type=int, required=True)
 parser.add_argument("--fake-model-url", required=True)
 parser.add_argument("--fake-model-api-key", required=True)
 parser.add_argument("--web-origin", required=True)
+parser.add_argument("--fake-mcp-port", type=int, required=True)
+parser.add_argument("--heartbeat-token", required=True)
 args = parser.parse_args()
 
 sandbox_root = Path(enable_smoke_sandbox("e2e_real"))
@@ -40,6 +43,8 @@ os.environ.update(  # noqa: ENV_SSOT_VIOLATION - 沙盒建好之後、載入產�
         "SECURE_COOKIES": "false",
         "UI_DEFAULT_URL": args.web_origin,
         "AUTH_RATE_LIMIT_MAX": AUTH_RATE_LIMIT_MAX_FOR_E2E,
+        # 排程服務沒有跑，測試自己帶這個權杖打喚醒端點
+        "HEARTBEAT_TOKEN": args.heartbeat_token,
     }
 )
 (sandbox_root / "config" / "connections.json").write_text(
@@ -62,11 +67,16 @@ os.environ.update(  # noqa: ENV_SSOT_VIOLATION - 沙盒建好之後、載入產�
 )
 # 設定頁一打開就會讀精選 MCP 清單，清單不是空的就會去 npm 查下載量；沙盒裡不能連外。
 (sandbox_root / "config" / "mcp_hub.json").write_text(json.dumps({"hub": []}), encoding="utf-8")
+(sandbox_root / "config" / "server_config.json").write_text(
+    json.dumps({"mcpServers": {"e2e": {"url": f"http://{HOST}:{args.fake_mcp_port}/mcp"}}}),
+    encoding="utf-8",
+)
 sys.stdout.write(f"SANDBOX_ROOT={sandbox_root}\n")
 sys.stdout.flush()
 
 sys.path[:0] = [str(REPO_ROOT / "ToukaProxy"), str(REPO_ROOT / "ToukaMemory" / "src")]
 
+import fake_mcp_server  # noqa: E402
 import uvicorn  # noqa: E402
 from src.config import get_app_data_dir, get_config_dir  # noqa: E402
 from src.main import app  # noqa: E402
@@ -81,6 +91,8 @@ def _stop_when_stdin_closes(server: uvicorn.Server) -> None:
     server.should_exit = True
 
 
+fake_mcp_server.start_in_background(args.fake_mcp_port)
+
 log_to_stderr = logging.StreamHandler(sys.stderr)
 log_to_stderr.setLevel(logging.WARNING)
 log_to_stderr.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
@@ -91,7 +103,8 @@ uvicorn_server = uvicorn.Server(
 )
 threading.Thread(target=_stop_when_stdin_closes, args=(uvicorn_server,), daemon=True).start()
 uvicorn_server.run()
-# atexit 先清沙盒；Windows 上開著的記錄檔會讓清除失敗，所以先關掉。
+# atexit 先清沙盒；Windows 上開著的記錄檔與還沒回收的資料庫連線會讓清除失敗，所以先關掉。
 logging.shutdown()
+gc.collect()
 if not uvicorn_server.started:
     sys.exit("uvicorn did not start")

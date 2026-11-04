@@ -21,6 +21,7 @@ from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.authorization_gateway import require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.model_manager import model_manager
 from src.services.providers import registry
 from src.services.resource_manager import resource_manager
@@ -176,6 +177,7 @@ async def save_connections(
         except Exception as exc:
             logger.exception("Failed to save connections.json")
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(exc)) from exc
+    notify_config_change("connections")
     return {"status": "success"}
 
 

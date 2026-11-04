@@ -1,20 +1,19 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { adminLogin, disableHooks, hookRuns } from "./lib/api";
 import {
   ASK_ANSWER,
   ASK_QUESTION,
-  CANARY_API_KEY,
   CANARY_HOOK_HEADER,
   ENV_SANDBOX_ROOT,
   FAKE_AFTER_TOOL_REPLY,
-  SOUL_ID,
   askRequest,
   badWriteRequest,
   readRequest,
   writeRequest,
 } from "./lib/constants";
-import { modelCalls, receivedFor, resetRecorders, sandboxHasFile } from "./lib/control";
-import { DENY_REASON, FAILURE_CONTEXT, HOOK_REWRITTEN_FILE, hookUrl, type ReceivedHook } from "./lib/hook_sink";
+import { receivedFor, resetRecorders, sandboxHasFile } from "./lib/control";
+import { approveButton, expectBackgroundHook, expectCleanPayload, lastToolResultForModel } from "./lib/hook_checks";
+import { DENY_REASON, FAILURE_CONTEXT, HOOK_REWRITTEN_FILE, hookUrl } from "./lib/hook_sink";
 import {
   addHttpHook,
   composer,
@@ -28,44 +27,7 @@ import {
   shot,
 } from "./lib/ui";
 
-const SHARED_KEYS = ["agent_id", "hook_event_name", "incognito", "permission_mode", "session_id"];
-const TOOL_KEYS = ["tool_input", "tool_name"];
-// 事件內容的鍵（白名單）：多了就可能把設定值帶出去。
-const EXPECTED_KEYS: Record<string, string[]> = {
-  PostToolUseFailure: [...SHARED_KEYS, ...TOOL_KEYS, "error", "tool_use_id"].sort(),
-  PermissionRequest: [...SHARED_KEYS, ...TOOL_KEYS].sort(),
-  PermissionDenied: [...SHARED_KEYS, ...TOOL_KEYS, "reason", "tool_use_id"].sort(),
-  Notification: [...SHARED_KEYS, "message", "notification_type"].sort(),
-};
-
 let adminToken = "";
-
-function expectCleanPayload(event: string, hook: ReceivedHook | undefined): asserts hook is ReceivedHook {
-  expect(hook, event).toBeDefined();
-  if (!hook) return;
-  expect(Object.keys(hook.payload).sort(), event).toEqual(EXPECTED_KEYS[event]);
-  expect(hook.payload.agent_id, event).toBe(SOUL_ID);
-  const body = JSON.stringify(hook.payload);
-  expect(body, event).not.toContain(CANARY_API_KEY);
-  expect(body, event).not.toContain(CANARY_HOOK_HEADER);
-}
-
-/** 背景事件不等回覆，要等它真的到了才核對。 */
-async function expectBackgroundHook(event: string): Promise<ReceivedHook> {
-  await expect.poll(async () => (await receivedFor(event)).length, event).toBeGreaterThan(0);
-  const [hook] = await receivedFor(event);
-  expectCleanPayload(event, hook);
-  return hook;
-}
-
-function approveButton(page: Page) {
-  return page.getByRole("button", { name: "批准", exact: true });
-}
-
-async function lastToolResultForModel(): Promise<string> {
-  const toolCalls = (await modelCalls()).filter((call) => call.lastRole === "tool");
-  return toolCalls.at(-1)?.lastText ?? "";
-}
 
 // API 準備要排在瀏覽器登入之前：再登入會換掉瀏覽器的 refresh token。
 test.beforeEach(async ({ page }) => {

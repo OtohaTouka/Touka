@@ -449,7 +449,7 @@
     },
     "hooks_tab": {
       "title": "Hooks",
-      "description": "在使用者送出訊息、工具執行前後、審批前後、需要人注意時與一輪回覆結束時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。Hook 程式以 Touka 自己的權限執行、不經隔離，只放信得過的程式。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收；不要用 env、npx、py 這類會自己找程式的啟動器，腳本用到的套件請裝在 hooks/ 裡（例如 hooks/node_modules），而且用複製的方式裝（例如 uv 設 UV_LINK_MODE=copy、pnpm 加 --package-import-method=copy；npm 本來就是複製）：uv、pnpm 可能用硬連結共用同一份檔案，代理人改自己專案裡的那份，hook 用的那份也會跟著變。Linux／Docker 上參數不能放網址（: 會被當成路徑清單的分隔），網址請寫在 hooks/ 裡的設定檔，由腳本讀取。所有使用者的對話都會觸發 hook，無痕對話也一樣，訊息與工具內容會送給 hook（事件內容標示 incognito，由 hook 自己決定要不要留）。「使用者送出訊息」只檢查聊天送出的文字，心跳、排程提示與重新觸發不觸發，不能拿來管住使用者；「工具執行前」只涵蓋經工具執行器的呼叫（代理人的工具與除錯執行），任務驗證指令與試跑不觸發。「審批卡跳出之前」的 hook 只能拒絕，不能替人核准。工具前後 hook 的補充說明會接在工具結果裡，對話的使用者看得到，也會存進對話紀錄。程式以結束碼 2 擋下時，標準錯誤輸出會當成擋下原因顯示給對話的使用者，不要在裡面放秘密。HTTP hook 的回應不能壓縮，伺服器回壓縮過的內容算失敗。",
+      "description": "在使用者送出訊息、工具執行前後、審批前後、需要人注意時、一輪回覆結束時，以及子代理、任務、剪裁、心跳與設定有變動時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。Hook 程式以 Touka 自己的權限執行、不經隔離，只放信得過的程式。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收；不要用 env、npx、py 這類會自己找程式的啟動器，腳本用到的套件請裝在 hooks/ 裡（例如 hooks/node_modules），而且用複製的方式裝（例如 uv 設 UV_LINK_MODE=copy、pnpm 加 --package-import-method=copy；npm 本來就是複製）：uv、pnpm 可能用硬連結共用同一份檔案，代理人改自己專案裡的那份，hook 用的那份也會跟著變。Linux／Docker 上參數不能放網址（: 會被當成路徑清單的分隔），網址請寫在 hooks/ 裡的設定檔，由腳本讀取。所有使用者的對話都會觸發 hook，無痕對話也一樣，訊息與工具內容會送給 hook（事件內容標示 incognito，由 hook 自己決定要不要留）。「使用者送出訊息」只檢查聊天送出的文字，心跳、排程提示與重新觸發不觸發，不能拿來管住使用者；「工具執行前」只涵蓋經工具執行器的呼叫（代理人的工具與除錯執行），任務驗證指令與試跑不觸發。「審批卡跳出之前」的 hook 只能拒絕，不能替人核准。工具前後 hook 的補充說明會接在工具結果裡，對話的使用者看得到，也會存進對話紀錄。程式以結束碼 2 擋下時，標準錯誤輸出會當成擋下原因顯示給對話的使用者，不要在裡面放秘密。HTTP hook 的回應不能壓縮，伺服器回壓縮過的內容算失敗。",
       "enable_label": "啟用 Hooks",
       "enable_hint": "關閉時所有 hook 都不執行。",
       "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
@@ -461,7 +461,14 @@
       "save_success": "Hook 設定已儲存",
       "path_problem": "{{event}} 的 {{where}}：{{reason}}（{{value}}）",
       "matcher_placeholders": {
-        "Notification": "permission_prompt、agent_needs_input、elicitation_dialog、isolation_level；可用 | 分隔多個；空白或 * 表示全部"
+        "Notification": "permission_prompt、agent_needs_input、elicitation_dialog、isolation_level；可用 | 分隔多個；空白或 * 表示全部",
+        "StopFailure": "rate_limit、overloaded、authentication_failed、billing_error、invalid_request、model_not_found、server_error、unknown；可用 | 分隔多個；空白或 * 表示全部",
+        "SubagentStart": "subagent；空白或 * 表示全部",
+        "SubagentStop": "subagent；空白或 * 表示全部",
+        "PreCompact": "auto；空白或 * 表示全部",
+        "PostCompact": "auto；空白或 * 表示全部",
+        "Elicitation": "MCP 伺服器名稱；可用 | 分隔多個；空白或 * 表示全部",
+        "ConfigChange": "設定區段：autonomy、env、connections、hooks、identity、mcp、models、permissions、skills…；可用 | 分隔多個；空白或 * 表示全部"
       },
       "types": {
         "command": "程式",
@@ -475,7 +482,18 @@
         "PermissionRequest": "審批卡跳出之前（有人在場才有卡）。可以拒絕，就不跳卡也不執行；不能替人核准，回 allow 或改參數都不採用，卡照樣跳。比對規則看工具名稱。",
         "PermissionDenied": "工具呼叫被拒時，在背景通知、不能改結果；原因只有固定的代碼。「工具執行前」的 hook 擋下不算。比對規則看工具名稱。",
         "Notification": "跳審批卡、代理人問問題、MCP 工具要資料、隔離層級改變時，在背景通知。比對規則看通知類型。",
-        "Stop": "一輪回覆結束後在背景執行，不影響回覆。"
+        "Stop": "一輪回覆結束後在背景執行，不影響回覆。",
+        "StopFailure": "一輪回覆因錯誤結束時（重試都用完才算），在背景通知。這一輪不跑 Stop。錯誤內容會先遮掉憑證與本機路徑；比對規則看錯誤類型。",
+        "SubagentStart": "子代理開始前。可以補充說明給子代理（當資料），不能擋。內容不含派工目標。",
+        "SubagentStop": "子代理結束後，在背景通知；不能叫它繼續。失敗或逾時時回覆是空的。",
+        "PreCompact": "滑動視窗剪裁前，在背景通知；不能擋，也不會拖住對話。",
+        "PostCompact": "滑動視窗剪裁存好後，在背景通知；內容含剪裁的摘要（有長度上限）。",
+        "TaskCreated": "任務看板建立時，每個任務各通知一次；不能擋。外部 AI 經派工伺服器的操作不觸發。",
+        "TaskCompleted": "任務變成完成時，在背景通知；不能擋。外部 AI 經派工伺服器的操作不觸發。",
+        "Elicitation": "MCP 工具用表單向人要資料、表單跳出之前。可以拒絕；不能替人回答，回 accept 或 content 時表單照樣跳。比對規則看 MCP 伺服器名稱。",
+        "ConfigChange": "設定存好之後，在背景通知；擋不了任何設定，內容也不含設定值。關閉 Hooks 那次不觸發。比對規則看設定區段。",
+        "HeartbeatStart": "心跳開始時，在背景通知；不影響心跳。",
+        "HeartbeatStop": "心跳結束時，在背景通知；內容含跑了幾個脈衝與結束原因。"
       },
       "fields": {
         "name": "名稱（選填）",
@@ -1637,6 +1655,7 @@
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
     },
+    "incognito_hook_notice": "管理員設定了 Hook：這段無痕對話的內容也會交給 Hook，會不會留存由管理員的設定決定。",
     "message_nav": {
       "label": "訊息導覽",
       "jump_to": "跳到第 {{n}} 則：{{preview}}",

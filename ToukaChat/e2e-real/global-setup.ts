@@ -9,8 +9,10 @@ import {
   API_PORT,
   BACKEND_LOG,
   ENV_EMAIL,
+  ENV_HEARTBEAT_TOKEN,
   ENV_PASSWORD,
   ENV_SANDBOX_ROOT,
+  FAKE_MCP_PORT,
   FAKE_MODEL_PORT,
   HOOK_SINK_PORT,
   LOOPBACK,
@@ -52,11 +54,11 @@ async function prepareAccount(sandboxRoot: string): Promise<string[]> {
   return [initial, password];
 }
 
-/** backend.log 會傳成 CI 產物，測試帳號的密碼也不能在裡面。訊息不印密碼本身。 */
-function assertLogHasNoPassword(passwords: string[]): void {
+/** backend.log 會傳成 CI 產物，測試帳號的密碼與心跳權杖也不能在裡面。訊息不印值本身。 */
+function assertLogHasNoSecret(secrets: string[]): void {
   const log = fs.readFileSync(BACKEND_LOG, "utf8");
-  if (passwords.some((password) => log.includes(password))) {
-    throw new Error(`${BACKEND_LOG} contains a test account password`);
+  if (secrets.some((secret) => log.includes(secret))) {
+    throw new Error(`${BACKEND_LOG} contains a test account password or the heartbeat token`);
   }
 }
 
@@ -70,12 +72,15 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     [createStaticWeb(), WEB_PORT],
   ];
   await assertPortFree(API_PORT);
+  await assertPortFree(FAKE_MCP_PORT);
   await Promise.all(servers.map(([server, port]) => listen(server, port)));
   const closeServers = () => {
     for (const [server] of servers) server.close();
   };
   try {
-    const backend = await startBackend();
+    const heartbeatToken = crypto.randomBytes(24).toString("hex");
+    process.env[ENV_HEARTBEAT_TOKEN] = heartbeatToken;
+    const backend = await startBackend(heartbeatToken);
     process.env[ENV_SANDBOX_ROOT] = backend.sandboxRoot;
     let passwords: string[];
     try {
@@ -90,7 +95,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         await backend.stop();
       } finally {
         // 後端失敗時最需要看記錄檔，記錄檔也照樣會傳出去，所以一樣要查
-        assertLogHasNoPassword(passwords);
+        assertLogHasNoSecret([...passwords, heartbeatToken]);
       }
     };
   } catch (error) {

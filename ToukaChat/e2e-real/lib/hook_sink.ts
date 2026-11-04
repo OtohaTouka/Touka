@@ -8,10 +8,15 @@ export type HookReply =
   | "fail"
   | "allow_permission"
   | "deny_permission"
-  | "failure_context";
+  | "failure_context"
+  | "hang"
+  | "subagent_context"
+  | "elicit_accept"
+  | "elicit_decline";
 
 export interface ReceivedHook {
   reply: string;
+  receivedAt: number;
   payload: Record<string, unknown>;
   headers: http.IncomingHttpHeaders;
 }
@@ -19,10 +24,14 @@ export interface ReceivedHook {
 export const BLOCK_REASON = "實際驗證：這則訊息被 hook 擋下";
 export const DENY_REASON = "實際驗證：這次不准執行";
 export const FAILURE_CONTEXT = "實際驗證：工具失敗的補充說明";
+export const SUBAGENT_CONTEXT = "實際驗證：給子代理的補充說明";
+export const HOOK_FORM_ANSWER = "hook 代填的答案";
+// 卡住的 hook 回得比這久：等它的話聊天會看得出來
+export const HANG_MS = 30_000;
 // hook 想把工具改寫成寫這個檔：Touka 不採用，這個檔不該出現（禁令 67 ①）
 export const HOOK_REWRITTEN_FILE = "e2e-written-by-hook.txt";
 
-const REPLIES: Record<HookReply, { status: number; body: object }> = {
+const REPLIES: Record<HookReply, { status: number; body: object; delayMs?: number }> = {
   ok: { status: 200, body: {} },
   // hook 想放行工具：Touka 不採用，審批卡照樣要跳（禁令 67 ①）
   allow: {
@@ -56,6 +65,26 @@ const REPLIES: Record<HookReply, { status: number; body: object }> = {
     status: 200,
     body: { hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: FAILURE_CONTEXT } },
   },
+  hang: { status: 200, body: {}, delayMs: HANG_MS },
+  subagent_context: {
+    status: 200,
+    body: { hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: SUBAGENT_CONTEXT } },
+  },
+  // hook 想替人回答：Touka 不採用，表單照樣要跳（禁令 67 ①）
+  elicit_accept: {
+    status: 200,
+    body: {
+      hookSpecificOutput: {
+        hookEventName: "Elicitation",
+        action: "accept",
+        content: { answer: HOOK_FORM_ANSWER },
+      },
+    },
+  },
+  elicit_decline: {
+    status: 200,
+    body: { hookSpecificOutput: { hookEventName: "Elicitation", action: "decline" } },
+  },
 };
 
 export function hookUrl(reply: HookReply): string {
@@ -84,11 +113,14 @@ export function createHookSink(): http.Server {
       }
       received.push({
         reply,
+        receivedAt: Date.now(),
         payload: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>,
         headers: req.headers,
       });
       res.statusCode = planned.status;
-      res.end(JSON.stringify(planned.body));
+      const answer = () => res.end(JSON.stringify(planned.body));
+      if (planned.delayMs) setTimeout(answer, planned.delayMs).unref();
+      else answer();
     });
   });
 }

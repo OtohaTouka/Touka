@@ -151,7 +151,9 @@ class ResponsesAdapter:
                        forced_tool_choice=rules.forced_tool_choice)
         credential = context.get("token_provider") or context.get("api_key")
         if not credential:
-            state.setup_error = RoundError(_MISSING_KEY.format(state.label))
+            state.setup_error = RoundError(
+                _MISSING_KEY.format(state.label), error_type=retry.AUTHENTICATION_FAILED
+            )
         elif not state.base_url:
             state.setup_error = _connection_error(state, "缺少 base URL")
         else:

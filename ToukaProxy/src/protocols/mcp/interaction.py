@@ -27,7 +27,7 @@ from src.utils.tool_events import (
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import Callable, Iterator
+    from collections.abc import Awaitable, Callable, Iterator
 
     from src.protocols.mcp.mrtr import McpMrtrBinding
     from src.services.approval_service import ApprovalService
@@ -54,6 +54,8 @@ class McpInteractionSink:
     session_id: str | None
     # 表單真的送到聊天之後呼叫（協定層不直接依賴 hook）
     on_shown: Callable[[], None] | None = None
+    # 表單送出之前呼叫（訊息、schema）；回 True 就不跳表單、直接拒絕
+    before_shown: Callable[[str, dict[str, Any]], Awaitable[bool]] | None = None
 
 
 _current_sink: contextvars.ContextVar[McpInteractionSink | None] = (
@@ -100,6 +102,8 @@ class InProcessMcpInteractionBroker:
             schema = normalize_mcp_elicitation_schema(params.requested_schema)
         except McpSchemaError as exc:
             raise McpInteractionUnsupportedError() from exc
+        if sink.before_shown is not None and await sink.before_shown(params.message, schema):
+            return types.ElicitResult(action="decline")
         exec_id = f"mcpint_{uuid.uuid4().hex[:12]}"
         registered = await self._service.register(
             exec_id,

@@ -1,14 +1,20 @@
 """Hook 結果解讀（照 Claude Code，ADR-0292）.
 
-- 結束碼 2：UserPromptSubmit、PreToolUse 擋下，原因取 stderr；PostToolUse、PostToolUseFailure
-  （工具已經跑完）把 stderr 當回饋給模型；其他事件不採用。結束碼 2 時不讀 stdout 的 JSON。
+- 結束碼 2：UserPromptSubmit、PreToolUse、Elicitation 擋下，原因取 stderr；PostToolUse、
+  PostToolUseFailure（工具已經跑完）把 stderr 當回饋給模型；其他事件不採用。結束碼 2 時不讀
+  stdout 的 JSON。
 - 結束碼 0：stdout 是 JSON 物件就讀欄位；不是 JSON 的文字只在 UserPromptSubmit 當補充說明。
   看起來是 JSON 卻解析失敗（含數字太長、巢狀太深）算 hook 自己失敗。
-- ``continue: false``：UserPromptSubmit、PreToolUse 擋下，原因取 ``stopReason``（比其他欄位優先）；
+- ``continue: false``：同上三個事件擋下，原因取 ``stopReason``（比其他欄位優先）；
   其他事件不採用（工具已經跑完、回合已經結束，hook 不能讓代理人停下或繼續）。
 - PermissionRequest 只認 ``hookSpecificOutput.decision.behavior`` 的 ``deny``（理由取
   ``message``）。
-- Stop、PermissionDenied、Notification 只通知：結束碼 2 與 JSON 欄位都沒有效果。
+- Elicitation 另認 ``hookSpecificOutput.action`` 的 ``decline``、``cancel``；``accept`` 與
+  ``content`` 不採用，表單照樣問人。
+- SubagentStart 只認 ``additionalContext``，不能擋。
+- 只通知的事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、
+  PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）：
+  結束碼 2 與 JSON 欄位都沒有效果。
 - 其他結束碼、逾時、連不上、路徑被拒：hook 自己失敗，不擋、記下來。
 - http：2xx 的回應內容當成結束碼 0 的 stdout；其他情況都是失敗。
 
@@ -28,12 +34,17 @@ if TYPE_CHECKING:
 
 BLOCK_EXIT_CODE: Final[int] = 2
 MAX_TEXT_CHARS: Final[int] = 10_000
+ELICITATION_EVENT: Final[str] = "Elicitation"
 # 結束碼 2、decision、continue 能擋下的事件；其他事件的工具已經跑完或回合已經結束
-BLOCKING_EVENTS: Final[frozenset[str]] = frozenset({"UserPromptSubmit", "PreToolUse"})
+BLOCKING_EVENTS: Final[frozenset[str]] = frozenset(
+    {"UserPromptSubmit", "PreToolUse", ELICITATION_EVENT}
+)
 # 工具已經跑完：結束碼 2 與 decision 當回饋給模型
 FEEDBACK_EVENTS: Final[frozenset[str]] = frozenset({"PostToolUse", "PostToolUseFailure"})
-# 可以用 additionalContext 補充說明給模型的事件
-CONTEXT_EVENTS: Final[frozenset[str]] = BLOCKING_EVENTS | FEEDBACK_EVENTS
+# 可以用 additionalContext 補充說明給模型的事件（Elicitation 沒有回給模型的路）
+CONTEXT_EVENTS: Final[frozenset[str]] = frozenset(
+    {"UserPromptSubmit", "PreToolUse", "SubagentStart"}
+) | FEEDBACK_EVENTS
 PERMISSION_REQUEST_EVENT: Final[str] = "PermissionRequest"
 
 _IGNORED_TOP_LEVEL: Final[tuple[str, ...]] = ("systemMessage",)
@@ -97,6 +108,15 @@ def _from_permission_request(specific: dict[str, Any], notes: list[str]) -> Hook
     return HookVerdict()
 
 
+def _from_elicitation(specific: dict[str, Any], notes: list[str]) -> HookVerdict:
+    action = specific.get("action")
+    if action in ("decline", "cancel"):
+        return HookVerdict(blocked=True, reason=f"{action} by hook")
+    if action is not None or "content" in specific:
+        notes.append("hooks can not answer for the user; the form is shown as usual")
+    return HookVerdict()
+
+
 def _from_specific(event: str, specific: Any, notes: list[str]) -> HookVerdict:
     if not isinstance(specific, dict):
         return HookVerdict()
@@ -110,6 +130,8 @@ def _from_specific(event: str, specific: Any, notes: list[str]) -> HookVerdict:
     )
     if event == PERMISSION_REQUEST_EVENT:
         return _from_permission_request(specific, notes)
+    if event == ELICITATION_EVENT:
+        return _from_elicitation(specific, notes)
     context = _text(specific.get("additionalContext")) if event in CONTEXT_EVENTS else None
     if event != "PreToolUse":
         return HookVerdict(context=context)
@@ -135,7 +157,7 @@ def _from_json(event: str, body: dict[str, Any]) -> HookVerdict:
             return HookVerdict(
                 blocked=True, reason=stop_reason, context=context, notes=tuple(notes)
             )
-        notes.append("continue: false only blocks prompts and tool calls; ignored")
+        notes.append(f"{event} hooks can not block; continue: false is ignored")
     if body.get("decision") == "block":
         top_reason = _text(body.get("reason")) or "blocked by hook"
         if event in BLOCKING_EVENTS:

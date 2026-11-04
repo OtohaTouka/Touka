@@ -44,6 +44,7 @@ from src.services.authorization_gateway import (
     require_authenticated,
 )
 from src.services.handover_service import handover_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
 from src.services.isolation import profiles
@@ -853,6 +854,7 @@ async def update_workspace_settings(
     new_root = payload.workspace_root
     await set_system_setting("workspace_root", new_root)
     resource_manager.invalidate_cache()
+    notify_config_change("workspace")
     return {"status": "success", "workspace_root": new_root}
 
 

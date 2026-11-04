@@ -7,6 +7,7 @@ export const FAKE_MODEL_PORT = 4901;
 export const API_PORT = 4902;
 export const WEB_PORT = 4903;
 export const HOOK_SINK_PORT = 4904;
+export const FAKE_MCP_PORT = 4905;
 export const FAKE_MODEL_ORIGIN = `http://${LOOPBACK}:${FAKE_MODEL_PORT}`;
 export const API_ORIGIN = `http://${LOOPBACK}:${API_PORT}`;
 export const WEB_ORIGIN = `http://${LOOPBACK}:${WEB_PORT}`;
@@ -28,6 +29,12 @@ export const CANARY_HOOK_HEADER = "e2e-canary-hook-header";
 
 export const ASK_QUESTION = "實際驗證：要繼續嗎？";
 export const ASK_ANSWER = "繼續";
+// 和 tests/e2e/fake_mcp_server.py 同一句
+export const MCP_FORM_MESSAGE = "實際驗證：請填這個欄位";
+export const MCP_SERVER = "e2e";
+export const MCP_TOOL = `${MCP_SERVER}__ask_form`;
+export const SUBAGENT_GOAL = "實際驗證：子代理的目標";
+export const TASK_SUBJECTS = { T1: "實際驗證：第一個任務", T2: "實際驗證：第二個任務" };
 
 // 假模型看使用者訊息裡的標記決定叫哪個工具，`:` 後面是檔名。
 const TOOL_REQUESTS: Record<string, { tool: string; args: (fileName: string) => object }> = {
@@ -40,6 +47,24 @@ const TOOL_REQUESTS: Record<string, { tool: string; args: (fileName: string) => 
     tool: "ask_user",
     args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }] }),
   },
+  E2E_CALL_SUBAGENT: { tool: "dispatch_subagent", args: () => ({ goal: SUBAGENT_GOAL }) },
+  E2E_CALL_MISSION: {
+    tool: "mission_tools",
+    args: () => ({
+      action: "initialize",
+      goal: "實際驗證：任務看板",
+      tasks: Object.entries(TASK_SUBJECTS).map(([task_id, description]) => ({ task_id, description })),
+    }),
+  },
+  E2E_CALL_TASK_DOING: {
+    tool: "mission_tools",
+    args: (task_id) => ({ action: "update_status", task_id, status: "DOING" }),
+  },
+  E2E_CALL_TASK_DONE: {
+    tool: "mission_tools",
+    args: (task_id) => ({ action: "update_status", task_id, status: "DONE" }),
+  },
+  E2E_CALL_MCP: { tool: MCP_TOOL, args: () => ({}) },
 };
 
 /** 使用者訊息裡的標記對應到的工具呼叫；沒有標記回 null。 */
@@ -65,6 +90,26 @@ export function badWriteRequest(fileName: string): string {
 export function askRequest(): string {
   return "E2E_CALL_ASK:question 請問我問題";
 }
+
+export function subagentRequest(): string {
+  return "E2E_CALL_SUBAGENT:go 請派子代理";
+}
+
+export function missionRequest(): string {
+  return "E2E_CALL_MISSION:go 請建立任務";
+}
+
+export function taskRequest(status: "DOING" | "DONE", taskId: string): string {
+  return `E2E_CALL_TASK_${status}:${taskId} 請更新任務`;
+}
+
+export function mcpRequest(): string {
+  return "E2E_CALL_MCP:go 請用 MCP 工具";
+}
+
+// 假模型看到就不回答：回 400（內容帶金鑰，要被遮掉），或回 200 但內容不是 JSON。
+export const MODEL_400_REQUEST = "E2E_MODEL_400 這則會失敗";
+export const MODEL_BAD_JSON_REQUEST = "E2E_MODEL_BAD_JSON 這則會失敗";
 export const FAKE_TEXT_REPLY = "假模型的回覆：收到。";
 export const FAKE_AFTER_TOOL_REPLY = "假模型的回覆：工具結果收到。";
 
@@ -72,3 +117,4 @@ export const FAKE_AFTER_TOOL_REPLY = "假模型的回覆：工具結果收到。
 export const ENV_EMAIL = "E2E_REAL_EMAIL";
 export const ENV_PASSWORD = "E2E_REAL_PASSWORD";
 export const ENV_SANDBOX_ROOT = "E2E_REAL_SANDBOX_ROOT";
+export const ENV_HEARTBEAT_TOKEN = "E2E_REAL_HEARTBEAT_TOKEN";

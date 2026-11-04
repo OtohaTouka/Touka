@@ -33,6 +33,7 @@ from src.services.authorization_gateway import require_admin_authority, require_
 from src.services.backup_crypto import encrypt_backup_zip
 from src.services.backup_scheduler_service import load_schedule_config, persist_policy
 from src.services.execution_broker import run_sync
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.memory_scrub import in_progress as memory_scrub_in_progress
 from src.services.models import model_manager
 from src.services.resource_manager import resource_manager
@@ -285,6 +286,8 @@ async def run_restore(
 
     _record_restore("running")  # 蓋掉上一次的失敗，前端不會誤判這一次
     background_tasks.add_task(_execute_restore, script_path, zip_path)
+    # 還原完行程就重啟，沒有「成功之後」可發：在接受還原時通知（ADR-0292 差別表）
+    notify_config_change("restore")
     return {
         "status": "accepted",
         "message": "Restore process initiated. The server will restart shortly.",
@@ -396,7 +399,9 @@ async def update_backup_schedule(
 ) -> BackupScheduleConfig:
     """更新自動備份排程策略（admin）。``last_run_epoch`` 為排程器狀態，不被前端重設。"""
     verify_origin(http_request)
-    return await persist_policy(payload)
+    saved = await persist_policy(payload)
+    notify_config_change("backup_schedule")
+    return saved
 
 
 # ── 設定快照（ADR-0112 設定匯入／匯出）─────────────────────────────────────────
@@ -472,6 +477,8 @@ async def import_settings(
             apply_snapshot, request.snapshot,
             mode=request.mode, sections=request.sections, dry_run=False,
         )
+    if result.get("applied"):
+        notify_config_change("settings_import")
     result["pre_import_backup"] = pre_import_backup
     logger.warning(
         "AUDIT: admin %s imported settings snapshot (mode=%s, applied=%s)",
@@ -503,6 +510,7 @@ async def update_sliding_window_config(
         config_path = Path(base) / "config" / _SW_CONFIG_FILE
         resource_manager.write_json(config_path, payload.model_dump(exclude_none=True), indent=2)
         logger.info("SlidingWindow config updated by admin.")
+        notify_config_change("sliding_window")
         return {"status": "success", "config": payload.model_dump(exclude_none=True)}
     except Exception:
         logger.exception("Failed to update sliding_window config")

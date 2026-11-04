@@ -115,12 +115,14 @@ class RoundError:
     """上游回合失敗（傳輸/非 200）：user_message 為 wire 方言的使用者可read訊息。
 
     可重試時 adapter 另標 ``retry_note``（重試狀態文字的前半）與 ``retry_after``（秒；
-    廠商要求的等待），由核心退避重送（3b-U5a，見 retry.py）；兩欄不參與比較。
+    廠商要求的等待），由核心退避重送（3b-U5a，見 retry.py）；``error_type`` 是給 StopFailure
+    hook 的固定類型（名稱照 Claude Code，對不上的是 ``unknown``，見 retry.py）；三欄不參與比較。
     """
 
     user_message: str
     retry_note: str | None = field(default=None, compare=False)
     retry_after: float | None = field(default=None, compare=False)
+    error_type: str = field(default="unknown", compare=False)
 
 
 class ProviderAdapter(Protocol):

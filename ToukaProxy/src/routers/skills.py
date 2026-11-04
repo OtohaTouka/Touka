@@ -16,6 +16,7 @@ from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.authorization_gateway import require_owner_or_admin, require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.resource_manager import resource_manager
 from src.services.skill_catalog_service import SkillCatalogService
 from src.services.skill_service import skill_service
@@ -86,6 +87,7 @@ async def install_skill(
 ) -> dict:
     """從受信任 URL 下載 .skill 並安裝。需 Owner/admin 權限。"""
     skill_id = await skill_service.install_skill_from_url(request.url)
+    notify_config_change("skills")
     return {"status": "success", "skill_id": skill_id}
 
 
@@ -116,6 +118,7 @@ async def install_catalog_skill(
 ) -> dict:
     """從策展目錄安裝真技能（逐檔釘 commit raw 抓取）。需 Owner/admin 權限。"""
     skill_id = await skill_service.install_skill_from_catalog(request.catalog_id)
+    notify_config_change("skills")
     return {"status": "success", "skill_id": skill_id}
 
 
@@ -138,6 +141,7 @@ async def update_skill(
 ) -> dict:
     """新增或更新技能。"""
     skill_service.update_skill(skill.id, skill.model_dump())
+    notify_config_change("skills")
     return {"status": "success", "skill_id": skill.id}
 
 
@@ -148,4 +152,5 @@ async def delete_skill(
 ) -> dict:
     """刪除技能。"""
     skill_service.delete_skill(skill_id)
+    notify_config_change("skills")
     return {"status": "success"}

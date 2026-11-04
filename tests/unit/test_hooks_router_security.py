@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
-from src.models.hooks import MATCHER_EVENTS, WIRED_EVENTS
+from src.models.hooks import MATCHER_EVENTS, NO_CONVERSATION_EVENTS, WIRED_EVENTS
 from src.models.identity import AgentIdentity
 from src.routers import hooks as hooks_router
 from src.services import settings_snapshot_service
@@ -260,6 +260,68 @@ def test_r11_routes_are_mounted_with_and_without_v1(
 ) -> None:
     assert _client().get("/hooks").status_code == 200
     assert _client().get("/hooks/runs").status_code == 200
+    assert _client().get("/hooks/active").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "identity", [ADMIN, ASSUMED_ADMIN, USER, SOUL, DEBUGGER, DISPATCHER, SUBAGENT]
+)
+def test_r13_any_signed_in_identity_only_learns_a_yes_or_no(
+    service: HookService, as_identity: list[AgentIdentity | None], identity: AgentIdentity
+) -> None:
+    as_identity[0] = ADMIN
+    assert _put({"config": _config(_http_hook("secret-name")), "revision": None}).status_code == 200
+    as_identity[0] = identity
+    response = _client().get("/v1/hooks/active")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"active": True}
+
+
+def test_r14_active_refuses_without_a_valid_login(
+    service: HookService, as_identity: list[AgentIdentity | None]
+) -> None:
+    as_identity[0] = None
+    assert _client().get("/v1/hooks/active").status_code == 403
+    app.dependency_overrides.pop(get_verified_identity, None)
+    headers = {"Authorization": "Bearer not-a-real-token"}
+    assert _client().get("/v1/hooks/active", headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("events", "hook_enabled", "hooks_enabled", "expected"),
+    [
+        (["PreToolUse"], True, True, True),
+        (["Stop"], True, True, True),
+        (["SubagentStart"], True, True, True),
+        (["ConfigChange"], True, True, False),
+        (["HeartbeatStart", "HeartbeatStop"], True, True, False),
+        (["ConfigChange", "Stop"], True, True, True),
+        (["PreToolUse"], False, True, False),
+        (["PreToolUse"], True, False, False),
+        ([], True, True, False),
+    ],
+)
+def test_r15_active_counts_only_enabled_hooks_that_see_the_conversation(
+    service: HookService,
+    as_identity: list[AgentIdentity | None],
+    events: list[str],
+    hook_enabled: bool,
+    hooks_enabled: bool,
+    expected: bool,
+) -> None:
+    hook = {**_http_hook(), "enabled": hook_enabled}
+    config = {
+        "enabled": hooks_enabled,
+        "hooks": {event: [{"matcher": "", "hooks": [hook]}] for event in events},
+    }
+    assert _put({"config": config, "revision": None}).status_code == 200
+    assert _client().get("/v1/hooks/active").json() == {"active": expected}
+
+
+def test_r16_every_event_is_sorted_into_with_or_without_the_conversation() -> None:
+    """新事件預設算會收到對話內容；只有明列的三個不算，名單裡不能有打錯的。"""
+    assert {"ConfigChange", "HeartbeatStart", "HeartbeatStop"} == NO_CONVERSATION_EVENTS
+    assert set(WIRED_EVENTS) >= NO_CONVERSATION_EVENTS
 
 
 def test_r12_settings_snapshot_never_carries_the_hook_config() -> None:

@@ -39,6 +39,7 @@ from src.models.identity import AgentIdentity
 from src.services import tool_errors
 from src.services.dispatch_callback_store import get_callback_store
 from src.services.dispatchers.factory import get_stream_generator
+from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_start_hooks
 from src.services.model_manager import model_manager
 from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_report
 from src.tools.contracts import MAX_SUBAGENT_GROUP, SUBAGENT_GROUP_CONCURRENCY
@@ -79,6 +80,13 @@ _BACKGROUND_TASKS: set[asyncio.Task] = set()
 # --------------------------------------------------------------------------- #
 # 內部：子代理請求組裝與子 loop 執行
 # --------------------------------------------------------------------------- #
+
+
+class SubagentStoppedError(Exception):
+    """等 SubagentStart hook 的期間使用者按了停止：不送模型（禁令 67 ⑦）。"""
+
+    def __init__(self) -> None:
+        super().__init__("The user stopped this run before the subagent started.")
 
 
 def _subagent_user_prompt(goal: str) -> str:
@@ -127,11 +135,16 @@ async def _assemble_subagent_request(
     """
     from src.services.proxy_service import pipeline  # noqa: LOCAL_IMPORT_BAN
 
+    # hook 的補充說明是資料，只進第一則訊息；審查員只看 user_intent（禁令 64 ③）
+    started = await run_subagent_start_hooks(base_ctx, sub_identity.agent_id)
+    if started.stopped:
+        raise SubagentStoppedError
+
     # 不寫 max_tokens：Claude 用 AnthropicRequest 的預設 8192，其他家不帶上限。
     # convert_to_openai 會轉送呼叫端明確給的值（O20，給 IDE 的 Anthropic 入口；ADR-0254）。
     request = AnthropicRequest(
         model=(model or "").strip() or sub_identity.agent_id,
-        messages=[{"role": "user", "content": _subagent_user_prompt(goal)}],
+        messages=[{"role": "user", "content": _subagent_user_prompt(goal) + started.text}],
     )
 
     ctx = _derive_context(base_ctx)
@@ -217,10 +230,25 @@ async def _run_subagent(
         sub_request_id,
     )
 
-    request = await _assemble_subagent_request(
-        goal=goal, sub_identity=sub_identity, base_ctx=base_ctx, model=model
-    )
+    reply = ""
+    try:
+        request = await _assemble_subagent_request(
+            goal=goal, sub_identity=sub_identity, base_ctx=base_ctx, model=model
+        )
+        reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal)
+    finally:
+        notify_subagent_stop(base_ctx, sub_identity.agent_id, reply)
+    return reply
 
+
+async def _run_assembled(
+    request: AnthropicRequest,
+    sub_identity: AgentIdentity,
+    sub_request_id: str,
+    base_ctx: Any,
+    goal: str,
+) -> str:
+    """跑組裝好的子代理請求，回傳最終文字。"""
     ctx = _derive_context(base_ctx)
     ctx.session_id = None
     # 執行 ctx 不經 ToolLayer：父代理是無痕就一律 Manual（與組裝一致，ADR-0246）

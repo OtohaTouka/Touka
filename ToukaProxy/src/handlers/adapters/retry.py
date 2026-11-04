@@ -44,11 +44,45 @@ _BUSY_ERROR_CODES = frozenset({"UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL",
                                "server_error", "rate_limit_exceeded"})
 _MAX_CAUSE_DEPTH = 8  # 例外鏈最多往下找幾層（禁令 18；循環的鏈也會停）
 _RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")  # RetryInfo 的 retryDelay，如 "27s"
+# StopFailure hook 的錯誤類型（名稱照 Claude Code）
+AUTHENTICATION_FAILED = "authentication_failed"
+_STATUS_ERROR_TYPES = {
+    400: "invalid_request",
+    422: "invalid_request",
+    401: AUTHENTICATION_FAILED,
+    403: AUTHENTICATION_FAILED,
+    402: "billing_error",
+    404: "model_not_found",
+    429: "rate_limit",
+    529: "overloaded",
+}
+_BODY_ERROR_TYPES = {
+    "overloaded_error": "overloaded",
+    "rate_limit_error": "rate_limit",
+    "rate_limit_exceeded": "rate_limit",
+    "RESOURCE_EXHAUSTED": "rate_limit",
+    "api_error": "server_error",
+    "server_error": "server_error",
+    "INTERNAL": "server_error",
+    "UNAVAILABLE": "server_error",
+    "invalid_request_error": "invalid_request",
+    "authentication_error": AUTHENTICATION_FAILED,
+    "permission_error": AUTHENTICATION_FAILED,
+    "not_found_error": "model_not_found",
+    "billing_error": "billing_error",
+}
 
 
 def retryable_status(status: int) -> bool:
     """408／409／429 與 5xx 可重試。"""
     return status in RETRYABLE_STATUS or status in _SERVER_ERRORS
+
+
+def error_type_for_status(status: int) -> str:
+    """HTTP 狀態對應的錯誤類型；其他 5xx 是 server_error，對不上的是 unknown。"""
+    if status in _STATUS_ERROR_TYPES:
+        return _STATUS_ERROR_TYPES[status]
+    return "server_error" if status in _SERVER_ERRORS else "unknown"
 
 
 def retry_after_s(headers: Any) -> float | None:
@@ -87,7 +121,8 @@ def retry_info_s(body: Any) -> float | None:
 
 def on_status(error: RoundError, status: int, headers: Any, note: str,
               body: Any = None) -> RoundError:
-    """可重試的狀態碼：標上重試文字與等待秒數（標頭優先，再看 RetryInfo）；其餘原樣。"""
+    """標上錯誤類型；可重試的狀態碼再標重試文字與等待秒數（標頭優先，再看 RetryInfo）。"""
+    error = replace(error, error_type=error_type_for_status(status))
     if not retryable_status(status):
         return error
     after = retry_after_s(headers)
@@ -113,7 +148,7 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
 
 
 def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:
-    """200 之後才收到的錯誤本文：型別或代碼等同 429／5xx 就比照狀態碼可重試。"""
+    """200 之後才收到的錯誤本文：標上錯誤類型；型別或代碼等同 429／5xx 就比照狀態碼可重試。"""
     if not isinstance(body, dict):
         return error
     code = body.get("code")
@@ -122,6 +157,10 @@ def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:
             or code in _BUSY_ERROR_CODES
             or (isinstance(number, int) and retryable_status(number)))
     kind = body.get("status") or code or body.get("type")
+    named = [value for value in (body.get("type"), body.get("status"), code)
+             if isinstance(value, str) and value in _BODY_ERROR_TYPES]
+    error = replace(error, error_type=_BODY_ERROR_TYPES[named[0]] if named else
+                    error_type_for_status(number) if isinstance(number, int) else "unknown")
     return replace(error, retry_note=f"{label} busy ({kind})") if busy else error
 
 

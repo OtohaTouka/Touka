@@ -22,6 +22,7 @@ from src.services.approval_flow import CommandApprover
 from src.services.auto_reviewer import auto_reviewer
 from src.services.autonomy import autonomy_service
 from src.services.dispatch_callback_store import get_callback_store
+from src.services.hooks.lifecycle import notify_task_completed, notify_tasks_created
 from src.services.isolation.policy import session_project_root
 from src.services.resource_manager import resource_manager
 from src.services.tool_errors import (
@@ -116,6 +117,7 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
                 target_agent_id=target_agent_id,
             )
             continuity_events.record_mission_started(identity, mission, kwargs.get("_ctx"))
+            notify_tasks_created(kwargs.get("_ctx") or {"identity": identity}, mission)
 
             # ADR-0051：若 notify_on_complete=True，為每個 task 生成 callback_token
             if notify_on_complete and target_agent_id == "DispatchAgent":
@@ -382,6 +384,10 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
             continuity_events.record_task_update(
                 identity, state, task_id, status, kwargs.get("_ctx")
             )
+            if status == TaskStatus.DONE:
+                notify_task_completed(
+                    kwargs.get("_ctx") or {"identity": identity}, state, task_id
+                )
             return f"✅ Task '{task_id}' updated to {status_str}."
 
         if action == "get_board":

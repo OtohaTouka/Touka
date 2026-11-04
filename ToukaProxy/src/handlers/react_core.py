@@ -29,6 +29,7 @@ from src.models.session_persistence import UiGenerationStopped
 from src.services.autonomy import autonomy_service
 from src.services.context_breakdown import compute_context_breakdown
 from src.services.guard_service import guard_service
+from src.services.hooks.lifecycle import notify_stop_failure
 from src.services.hooks.stop_hooks import schedule_stop_hooks
 from src.services.interjection_queue import (
     interjection_queue,
@@ -381,6 +382,7 @@ async def run_react_loop(  # noqa: PLR0915
                 deliver(urgent_items, interrupted=True)  # 打斷的範本（不是工具執行期間）
                 continue
             if isinstance(raw, RoundError):
+                notify_stop_failure(context, raw.error_type, raw.user_message)
                 partial = record_partial_usage()
                 if partial is not None and adapter.emits_usage_event(state):
                     yield sse_line(token_usage_event(run_usage.total_tokens, run_usage.cost_usd,

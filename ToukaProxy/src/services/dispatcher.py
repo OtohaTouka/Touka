@@ -30,6 +30,7 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.dispatchers import dispatch_group_stream, get_stream_generator
 from src.services.hooks import events as hook_events
+from src.services.hooks.lifecycle import notify_stop_failure
 from src.services.hooks.stopping import stopped_since_start
 from src.services.identity_service import identity_service
 from src.services.interjection_queue import InterjectionQueue, interjection_queue
@@ -414,7 +415,10 @@ async def dispatch_request(
             if identity:
                 record_working_brain(identity, model_name)
 
-        except Exception:
+        except Exception as exc:
+            # 模型錯誤已在 react_core 發過；UiGenerationStopped 是那次的結果或使用者按停止
+            if not isinstance(exc, UiGenerationStopped):
+                notify_stop_failure(context, "unknown", f"{type(exc).__name__}: {exc}")
             if admission is not None:
                 # 真正 fatal 生成錯誤交給 UI producer；可恢復 tool_result 仍是普通 frame。
                 raise

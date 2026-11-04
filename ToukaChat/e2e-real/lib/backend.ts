@@ -7,6 +7,7 @@ import {
   API_PORT,
   BACKEND_LOG,
   CANARY_API_KEY,
+  FAKE_MCP_PORT,
   FAKE_MODEL_ORIGIN,
   REPO_ROOT,
   WEB_ORIGIN,
@@ -117,7 +118,7 @@ async function stopBackend(
   if (code !== 0) throw new Error(`Backend exited with ${code}: ${nonZeroExitReason()}`);
 }
 
-export async function startBackend(): Promise<RunningBackend> {
+export async function startBackend(heartbeatToken: string): Promise<RunningBackend> {
   const script = path.join(REPO_ROOT, "tests", "e2e", "serve_real_backend.py");
   const child = spawn(
     venvPython(),
@@ -127,6 +128,8 @@ export async function startBackend(): Promise<RunningBackend> {
       "--fake-model-url", `${FAKE_MODEL_ORIGIN}/v1`,
       "--fake-model-api-key", CANARY_API_KEY,
       "--web-origin", WEB_ORIGIN,
+      "--fake-mcp-port", String(FAKE_MCP_PORT),
+      "--heartbeat-token", heartbeatToken,
     ],
     {
       cwd: path.join(REPO_ROOT, "ToukaProxy"),

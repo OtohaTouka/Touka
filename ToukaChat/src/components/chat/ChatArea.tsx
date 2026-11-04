@@ -20,6 +20,7 @@ import { SkillSelector } from "./SkillSelector";
 import { ContextMeter } from "./ContextMeter";
 import { ChatWelcome } from "./ChatWelcome";
 import { FeedbackReasonDialog } from "./FeedbackReasonDialog";
+import { IncognitoHookNotice } from './IncognitoHookNotice';
 import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { QueuedMessageList } from "./QueuedMessageList";
 import { MessageNavigator } from "./MessageNavigator";
@@ -287,6 +288,7 @@ export function ChatArea({
   return (
     <div className={cn("h-full flex flex-col mx-auto w-full relative", isIDE ? "max-w-none" : "max-w-[95%] 2xl:max-w-[85%]")}>
       <SessionPersistenceNotice key={activeSessionId} sessionId={activeSessionId} />
+      <IncognitoHookNotice sessionId={activeSessionId} recheckKey={isSending} />
       {/* 訊息捲動區：導覽列以它為定位基準，不會壓到下方輸入區 */}
       <div ref={messageAreaRef} className="relative flex-1 min-h-0">
       <Virtuoso
