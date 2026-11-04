@@ -49,6 +49,7 @@
     "gen:design": "npm run sync:design",
     "test": "npm run gen:artifact-runtime && vitest run",
     "test:e2e": "playwright test --project=chromium",
+    "test:e2e:real": "tsx e2e-real/build-frontend.ts && playwright test --config=playwright.real.config.ts",
     "install:controlled": "npm ci --ignore-scripts"
   },
   "dependencies": {

@@ -109,6 +109,10 @@ python -B -m pytest tests/
 # 6. 前端測試（CI 會跑）：npm run test 會先產生 artifact runtime 再跑 vitest
 cd ToukaChat && npm run test && cd ..
 
+# 6-1. 實際驗證（CI 會跑，先不列為必過）：真前端、真後端、假模型，全在沙盒、不花額度。改到畫面或
+#      畫面會用到的後端行為時跑；要有 .venv 與 Playwright 的瀏覽器（npx playwright install chromium）
+cd ToukaChat && npm run test:e2e:real && cd ..
+
 # 7. ToukaIDE 測試、型別檢查、建置（CI 會跑）：照順序一個跑完再跑下一個，compile 與 package 會寫同一個 dist/
 cd ToukaIDE && npm run install:controlled && npm test && npm run typecheck && npm run compile && cd ..
 

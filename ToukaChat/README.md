@@ -60,6 +60,9 @@ ToukaChat 遵循嚴格的 TDD 與 SOLID 原則。
 # 執行全域測試
 npm run test
 
+# 實際驗證：真前端、真後端（沙盒）、假模型，不花額度（ADR-0295；要先有根目錄的 .venv）
+npm run test:e2e:real
+
 # 執行架構守衛 (SSOT 檢查)
 npm run guard:all
 

@@ -1,0 +1,84 @@
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { ENV_EMAIL, ENV_PASSWORD, SHOTS_DIR, SOUL_ID } from "./constants";
+
+export interface HttpHookSpec {
+  url: string;
+  name: string;
+  matcher?: string;
+  headers?: string;
+}
+
+/**
+ * 留給審查員與人核對的截圖：檔名是「測試標題-步驟」。設定頁是內層捲動，fullPage 照不到下面，
+ * 要核對的東西不在第一屏時傳 focus，先捲過去；提示訊息的淡入也先快轉完。
+ */
+export async function shot(page: Page, info: TestInfo, step: string, focus?: Locator): Promise<void> {
+  fs.mkdirSync(SHOTS_DIR, { recursive: true });
+  const title = info.title.replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);
+  await focus?.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS_DIR, `${title}-${step}.png`), animations: "disabled" });
+}
+
+export function composer(page: Page) {
+  return page.getByPlaceholder("在此輸入指令或對話...");
+}
+
+export async function loginInBrowser(page: Page): Promise<void> {
+  await page.goto("/login");
+  await page.getByPlaceholder("Email").fill(process.env[ENV_EMAIL] ?? "");
+  await page.getByPlaceholder("Password").fill(process.env[ENV_PASSWORD] ?? "");
+  await page.keyboard.press("Enter");
+  await page.waitForURL((url) => !url.pathname.includes("login"));
+  await composer(page).waitFor();
+}
+
+export async function openChat(page: Page): Promise<void> {
+  await page.goto("/?view=chat");
+  await composer(page).waitFor();
+}
+
+export async function selectSoul(page: Page): Promise<void> {
+  const picker = page.getByRole("combobox", { name: "選擇模型" });
+  await picker.click();
+  await page.getByRole("option", { name: SOUL_ID }).click();
+  await expect(picker).toContainText(SOUL_ID);
+}
+
+export async function sendMessage(page: Page, text: string): Promise<void> {
+  await composer(page).fill(text);
+  await page.getByRole("button", { name: "傳送" }).click();
+}
+
+export async function openHooksTab(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await page.getByText("系統管理", { exact: true }).first().click();
+  await page.getByText("Hooks", { exact: true }).first().click();
+  await page.getByText("啟用 Hooks").waitFor();
+}
+
+export function eventSection(page: Page, event: string) {
+  return page.locator("section").filter({ has: page.getByRole("heading", { name: event, exact: true }) });
+}
+
+export async function enableHooks(page: Page): Promise<void> {
+  await page.getByRole("switch", { name: "啟用 Hooks" }).click();
+}
+
+/** 走設定頁新增一個 http hook：新增一組預設帶一個程式 hook，換成 HTTP。 */
+export async function addHttpHook(page: Page, event: string, spec: HttpHookSpec): Promise<void> {
+  const section = eventSection(page, event);
+  await section.getByRole("button", { name: "新增一組" }).click();
+  await section.getByRole("button", { name: "HTTP", exact: true }).click();
+  await section.getByRole("button", { name: "刪除這個 hook" }).first().click();
+  await section.getByRole("textbox", { name: "名稱（選填）" }).fill(spec.name);
+  await section.getByRole("textbox", { name: "網址" }).fill(spec.url);
+  if (spec.headers) await section.getByRole("textbox", { name: "標頭" }).fill(spec.headers);
+  if (spec.matcher) await section.getByRole("textbox", { name: "比對規則" }).fill(spec.matcher);
+}
+
+export async function saveHooks(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "儲存", exact: true }).click();
+  await page.getByText("Hook 設定已儲存").first().waitFor();
+}

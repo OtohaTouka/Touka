@@ -1,9 +1,10 @@
 # Touka 目前交班
 
-更新：2026-10-30。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
+更新：2026-11-04。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只描述現況；歷史見 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## 1. 現況
 
+- **實際驗證（2026-11-04，ADR-0295）**：`cd ToukaChat && npm run test:e2e:real` 用 Playwright 走打包好的正式版畫面與真的 Proxy，模型是假的，資料在沙盒，不花額度。目前走 Hook 現有四個事件與審批卡（`ToukaChat/e2e-real/`）。GitHub 上每個進 dev、main 的 PR 都跑（`e2e-real.yml`），先不列為必過。
 - **代理人資料夾不跟隨連結 PR 2（2026-10-30，ADR-0293）**：演化的工具資料夾（`data/mcp_servers/managed`）、文件輸出（`data/temp/docgen_output`）與 sandbox state 也只經區內方法讀寫，路上有連結就以固定原因拒絕（演化回 `skill_changed`，清除沙盒 home 回 `proxy_state_link`）；計分卡只讀輸出區裡的產出檔；靈魂檔名只能是單層；還原只寫回備份會寫的 data 資料夾。執行器改成只掛 `data/mcp_servers/managed`：**GHCR 安裝升級前先建好這個資料夾**（擁有者與 `data` 相同），`docker-compose.yml` 的 `touka-init` 會自動建；單獨開發用的 `ToukaProxy/docker-compose.yml` 沒有 `touka-init`，Linux 上也要先建（擁有者 1001；這份 compose 的資料夾是 `${MEMORY_APP_DATA_DIR:-./data}`，相對於 `ToukaProxy/`）。技能名稱不能再用執行器保留的 7 個名字（`soul`、`personal_drive` 等，見 ADR-0293「PR 2」的後果）。測試多了 TF、G3、G4 三道靜態檢查。ADR-0292 的「暫時不要啟用 command hook」解除。
 - **隔離規則只給字面位置（2026-11-03，ADR-0293 後續 PR）**：Touka 幫沙盒算規則時不再跟著連結走：MCP 條目經連結引用另一個技能資料夾時，還是判成自建、那個技能還是凍結，但不給它的讀與執行（`literal_managed_skills`、`frozen_managed_skills`）；公開設定檔從字面位置往上找，解析後和字面不同的不給；專案根核對用解析後的位置、授與用字面位置。人經連結設定 data 根時兩種寫法都認（`data_root_spellings`），第三種寫法不認（ADR「升級」）。G4 的已知界線清空。
 - **測試守衛補缺口（2026-11-03，ADR-0293 後續 PR）**：連結測試的核對多看裝飾器包住的原函式、可變常數的內容與別處字典裡對防線的參照；替換防線沒換回的測試在自己的 teardown 紅；xfail 不再吞違規；`LINK_SCAN_ALLOWED` 每項多一欄替換目標，新增放行項目要寫它換的名稱。G4 改成預設拒絕：區字串寫進容器時，只有函式自己新建的容器不算出口。只改測試工具，產品行為不變。
