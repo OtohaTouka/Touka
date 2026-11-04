@@ -116,7 +116,9 @@ CRITICAL_TOOLS = frozenset(
 TERMINAL_REPAIR_TOOLS = frozenset(
     {"execute_command", "get_command_result", "bash", "terminal__bash", "execute_terminal"}
 )
-_TERMINAL_EXIT_CODE = re.compile(r"\[EXIT_CODE: (-?\d+)\]")
+# 結束碼是輸出區塊的第一行（terminal._wrap_output）。指令文字排在它前面，
+# 只比對這個位置，指令裡的同樣字串才不會被當成結果。
+_TERMINAL_EXIT_CODE = re.compile(r"(?:\A|^```\n)\[EXIT_CODE: (-?\d+)\]", re.MULTILINE)
 _LEGACY_FAILURE_PREFIXES = ("Error:", "❌")
 # get_command_result 對同一個 execution_id 每次都回同一份結果：只計第一次。記住已計過的
 # (session, execution_id)，超過上限淘汰最舊的（行程記憶體、不落地）。
@@ -800,7 +802,7 @@ class ToolExecutor:
                 {
                     "type": "log",
                     "content": (
-                        f"🪝 hook 拒絕: {name}\n"
+                        f"🚫 hook 拒絕: {name}\n"
                         if denied_reason == HOOK_DENIED_REASON
                         else f"🖐️ 待審批攔截（fail-closed）: {name}\n"
                     ),

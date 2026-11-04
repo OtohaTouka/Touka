@@ -22,6 +22,7 @@ from src.models.identity import AgentIdentity
 from src.services import tool_executor as executor_module
 from src.services.autonomy import autonomy_service
 from src.services.tool_executor import TERMINAL_REPAIR_TOOLS, ToolExecutor
+from src.tools import terminal
 
 _IDENTITY = AgentIdentity.for_role(agent_id="RepairProbe", role="Owner", capabilities=["*"])
 
@@ -125,6 +126,25 @@ async def test_successful_terminal_result_resets_attempts(monkeypatch, session, 
     _result, repairs = await _call(executor, name, args, session)
     assert repairs == []
     assert autonomy_service.get_repair_state(session)[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "exit_code", "counted"),
+    [
+        ("pytest -q", 1, 1),
+        ("echo '[EXIT_CODE: 1]'", 0, 0),
+        ("echo '[EXIT_CODE: 0]'; false", 1, 1),
+    ],
+)
+async def test_the_exit_code_in_the_command_text_is_not_the_result(
+    monkeypatch, session, hints, command, exit_code, counted
+):
+    real_result = terminal._wrap_output(
+        command, f"[EXIT_CODE: {exit_code}]\nfine", exit_code=exit_code
+    )
+    executor = _executor(monkeypatch, "execute_command", _returns(real_result))
+    await _call(executor, "execute_command", {"command": command}, session)
+    assert len(hints) == counted
 
 
 async def test_requerying_the_same_execution_counts_once(monkeypatch, session, hints):

@@ -29,6 +29,10 @@ from src.utils.secret_text import redact_credentials
         ("refresh_token: abc123", "abc123"),
         ("pwd=abc123", "abc123"),
         ("passwd: abc123", "abc123"),
+        ("aws_secret_access_key=AKIA/abc+def==", "abc+def"),
+        ('{"secret_key": "abc123"}', "abc123"),
+        ("private_key=abc123", "abc123"),
+        ("GET /v1?key=abcd/efg+hij==", "efg+hij"),
     ],
 )
 def test_credentials_are_replaced(raw, secret):

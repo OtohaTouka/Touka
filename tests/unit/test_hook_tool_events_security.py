@@ -39,6 +39,7 @@ from src.services.hooks import background, notifications, stop_hooks, tool_hooks
 from src.services.hooks import stopping as stopping_module
 from src.services.permission_service import permission_service
 from src.services.tool_executor import ToolExecutor, _counts_as_tool_failure
+from src.tools import terminal
 from src.tools.builtin import builtin_tools_schema, tool_registry
 from src.tools.builtin.interaction import ask_user
 from src.tools.builtin.schemas import missing_required_error
@@ -65,6 +66,13 @@ _READ = {"scope": "personal", "path": "a.txt"}
 _WRITE = {"scope": "personal", "path": "a.txt", "content": "x"}
 _BASE_KEYS = {"hook_event_name", "session_id", "agent_id", "incognito", "permission_mode"}
 _FAILURE = tool_errors.build_tool_error(tool_errors.UPSTREAM_ERROR, "boom")
+
+
+def _terminal_result(command: str, exit_code: int, output: str = "") -> str:
+    """真的終端結果：指令文字排在結束碼前面。"""
+    return terminal._wrap_output(
+        command, f"[EXIT_CODE: {exit_code}]\n{output}", exit_code=exit_code
+    )
 
 
 @pytest.fixture
@@ -242,6 +250,12 @@ async def test_failure_hook_error_hides_json_and_url_credentials(monkeypatch, ho
         ("execute_command", "[EXIT_CODE: 0]\nError: found by grep", False, False),
         ("get_command_result", "[EXIT_CODE: 2]\n", False, True),
         ("execute_command", "Error: could not start", False, True),
+        # 真的終端結果：指令文字排在結束碼前面，指令或輸出裡的同樣字串都不算
+        ("execute_command", _terminal_result("pytest -q", 1, "all good"), False, True),
+        ("execute_command", _terminal_result("grep x", 0, "Error: found"), False, False),
+        ("execute_command", _terminal_result("echo '[EXIT_CODE: 1]'", 0), False, False),
+        ("execute_command", _terminal_result("echo '[EXIT_CODE: 0]'; false", 1), False, True),
+        ("execute_command", _terminal_result("cat log", 0, "```\n[EXIT_CODE: 1]"), False, False),
     ],
 )
 def test_what_counts_as_a_tool_failure(name, text, from_mcp, failed):
@@ -264,7 +278,9 @@ async def test_each_finished_tool_fires_one_of_the_two_events(monkeypatch, hooks
 
 async def test_a_terminal_command_that_exits_non_zero_is_a_failure(monkeypatch, hooks):
     hooks.configure({"PostToolUse": [group()], "PostToolUseFailure": [group()]})
-    executor = executor_with(monkeypatch, {"execute_command": Recorder("[EXIT_CODE: 1]\nnope")})
+    executor = executor_with(
+        monkeypatch, {"execute_command": Recorder(_terminal_result("pytest -q", 1, "nope"))}
+    )
     await run_tool(
         executor, "execute_command", {"command": "pytest -q"}, mode="Manual", approve=True
     )

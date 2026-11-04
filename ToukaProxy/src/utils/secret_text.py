@@ -11,9 +11,10 @@ _CREDENTIAL_PATTERNS = re.compile(
     r"(?i)"
     r"(?:Bearer|Basic|Token|Authorization)\s+\S+"  # Auth header values
     r"|sk-[A-Za-z0-9\-_]+"  # OpenAI-style API keys
-    r"|key=[A-Za-z0-9\-_]{8,}"  # URL key params
+    r"|key=[A-Za-z0-9\-_/+=]{8,}"  # URL key params
     # 密碼、金鑰、權杖欄位：= 或 :，名稱與值可有引號（JSON 的引號可能再被跳脫一次）
-    r"|(?:passw(?:or)?d|pwd|secret|api[-_]?key|token)\\?[\"']?\s*[=:]\s*"
+    r"|(?:passw(?:or)?d|pwd|secret|private[-_]?key|api[-_]?key|token)"
+    r"(?:[-_]?(?:access[-_]?)?key)?\\?[\"']?\s*[=:]\s*"
     r"(?:\\?\"[^\"]*\"|\\?'[^']*'|\S+)"
     r"|//[^/\s:@]+:[^/\s@]+@"  # URL userinfo (user:pass@host)
 )
