@@ -15,7 +15,7 @@ interface HookEventSectionProps {
 
 const HOOK_TYPES: HookHandler["type"][] = ["command", "http"];
 
-/** 一個事件的設定：每組一個比對規則（只有看工具名稱的事件才有）和它的 hook。 */
+/** 一個事件的設定：每組一個比對規則（只有看工具名稱或通知類型的事件才有）和它的 hook。 */
 export function HookEventSection({ event, usesMatcher, groups, onChange }: HookEventSectionProps) {
     const { t } = useTranslation();
     const setGroup = (index: number, group: HookMatcherGroup) => onChange(replaceAt(groups, index, group));
@@ -36,7 +36,9 @@ export function HookEventSection({ event, usesMatcher, groups, onChange }: HookE
                                 value={group.matcher ?? ""}
                                 onChange={(e) => setGroup(index, { ...group, matcher: e.target.value })}
                                 aria-label={t("settings.hooks_tab.fields.matcher")}
-                                placeholder={t("settings.hooks_tab.fields.matcher_placeholder")}
+                                placeholder={t(`settings.hooks_tab.matcher_placeholders.${event}`, {
+                                    defaultValue: t("settings.hooks_tab.fields.matcher_placeholder"),
+                                })}
                                 spellCheck={false}
                                 className="h-8 flex-1 font-mono text-xs"
                             />

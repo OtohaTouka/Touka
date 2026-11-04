@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextvars
 import uuid
-from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -28,6 +27,7 @@ from src.utils.tool_events import (
 
 if TYPE_CHECKING:
     import asyncio
+    from collections.abc import Callable, Iterator
 
     from src.protocols.mcp.mrtr import McpMrtrBinding
     from src.services.approval_service import ApprovalService
@@ -52,6 +52,8 @@ class McpInteractionSink:
     tool_name: str
     agent_id: str
     session_id: str | None
+    # 表單真的送到聊天之後呼叫（協定層不直接依賴 hook）
+    on_shown: Callable[[], None] | None = None
 
 
 _current_sink: contextvars.ContextVar[McpInteractionSink | None] = (
@@ -125,6 +127,8 @@ class InProcessMcpInteractionBroker:
                 timeout_s=MCP_INTERACTION_TIMEOUT_SECONDS,
             )
         )
+        if sink.on_shown is not None:
+            sink.on_shown()
         resolution = await self._service.wait_for_resolution(
             exec_id,
             timeout_s=MCP_INTERACTION_TIMEOUT_SECONDS,

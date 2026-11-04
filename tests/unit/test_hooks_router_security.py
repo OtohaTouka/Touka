@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
+from src.models.hooks import MATCHER_EVENTS, WIRED_EVENTS
 from src.models.identity import AgentIdentity
 from src.routers import hooks as hooks_router
 from src.services import settings_snapshot_service
@@ -103,8 +104,8 @@ def test_r01_admin_reads_the_empty_config_and_the_wired_events(
     assert body["config"]["enabled"] is False
     assert body["config"]["hooks"] == {}
     assert body["health"] == {"status": "missing", "revision": None, "detail": None}
-    assert body["wired_events"] == ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
-    assert body["matcher_events"] == ["PreToolUse", "PostToolUse"]
+    assert body["wired_events"] == list(WIRED_EVENTS)
+    assert set(body["matcher_events"]) == MATCHER_EVENTS
 
 
 @pytest.mark.parametrize(

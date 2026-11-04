@@ -627,7 +627,7 @@ async def test_isolated_creation_tool_is_allowed_in_yolo(monkeypatch, tool):
     recorder = _Recorder()
     executor = _executor(monkeypatch, tool, recorder)
     ctx = {"identity": _ACTOR, "auth_level": "YOLO", "session_id": "s-yolo"}
-    result = await _run(executor, tool, {"name": "x", "command": "npx"}, ctx)
+    result = await _run(executor, tool, {"name": "x", "command": "npx", "tools": []}, ctx)
     assert json.loads(result) == {"ok": True}
     assert len(recorder.calls) == 1
 

@@ -198,6 +198,104 @@ def test_continue_false_after_the_tool_or_turn_is_only_noted(event):
     assert any("continue" in note for note in verdict.notes)
 
 
+def test_exit_2_after_a_failed_tool_is_feedback_not_a_block():
+    verdict = interpret("PostToolUseFailure", _ok(exit_code=2, stderr="flaky disk"))
+    assert (verdict.blocked, verdict.context) == (False, "flaky disk")
+
+
+def test_failed_tool_hooks_can_add_context_but_not_block():
+    body = {"decision": "block", "reason": "look here", "continue": False}
+    verdict = interpret("PostToolUseFailure", _ok(stdout=json.dumps(body)))
+    assert (verdict.blocked, verdict.context) == (False, "look here")
+    specific = {"hookSpecificOutput": {
+        "hookEventName": "PostToolUseFailure", "additionalContext": "ctx"}}
+    assert interpret("PostToolUseFailure", _ok(stdout=json.dumps(specific))).context == "ctx"
+
+
+def test_permission_request_does_not_honour_exit_2():
+    """照 Claude Code：結束碼 2 不生效，只認 ``decision.behavior``。"""
+    verdict = interpret("PermissionRequest", _ok(exit_code=2, stderr="no"))
+    assert (verdict.blocked, verdict.failed, verdict.context) == (False, False, None)
+    assert verdict.notes
+
+
+def _permission_request(decision: dict[str, object]) -> str:
+    return json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PermissionRequest", "decision": decision}})
+
+
+def test_permission_request_deny_uses_the_message_as_the_reason():
+    verdict = interpret(
+        "PermissionRequest", _ok(stdout=_permission_request({"behavior": "deny", "message": "m"}))
+    )
+    assert (verdict.blocked, verdict.reason) == (True, "m")
+    no_message = interpret(
+        "PermissionRequest", _ok(stdout=_permission_request({"behavior": "deny"}))
+    )
+    assert no_message.blocked is True
+    assert no_message.reason
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {"behavior": "allow"},
+        {"behavior": "allow", "updatedInput": {"x": 1}},
+        {"behavior": "allow", "updatedPermissions": []},
+        {"behavior": "maybe"},
+    ],
+)
+def test_permission_request_ignores_everything_but_deny(decision):
+    verdict = interpret("PermissionRequest", _ok(stdout=_permission_request(decision)))
+    assert (verdict.blocked, verdict.ask) == (False, False)
+    assert verdict.notes
+
+
+def test_permission_request_deny_with_interrupt_is_still_a_plain_deny():
+    body = _permission_request({"behavior": "deny", "interrupt": True})
+    verdict = interpret("PermissionRequest", _ok(stdout=body))
+    assert verdict.blocked is True
+    assert any("interrupt" in note for note in verdict.notes)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"decision": "block", "reason": "r"},
+        {"continue": False, "stopReason": "r"},
+        {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                "decision": {"behavior": "deny"}}},
+        {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                "permissionDecision": "deny"}},
+        {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                "additionalContext": "ctx"}},
+    ],
+    ids=["top-decision", "continue", "other-event", "pre-tool-field", "context"],
+)
+def test_permission_request_only_reads_its_own_decision(body):
+    verdict = interpret("PermissionRequest", _ok(stdout=json.dumps(body)))
+    assert (verdict.blocked, verdict.ask, verdict.context) == (False, False, None)
+
+
+@pytest.mark.parametrize("event", ["PermissionDenied", "Notification"])
+def test_notify_only_events_ignore_exit_2_and_json(event):
+    assert interpret(event, _ok(exit_code=2, stderr="x")).notes
+    exit_2 = interpret(event, _ok(exit_code=2, stderr="x"))
+    assert (exit_2.blocked, exit_2.failed, exit_2.context) == (False, False, None)
+    body = {
+        "decision": "block", "continue": False, "retry": True,
+        "hookSpecificOutput": {"hookEventName": event, "additionalContext": "ctx"},
+    }
+    verdict = interpret(event, _ok(stdout=json.dumps(body)))
+    assert (verdict.blocked, verdict.ask, verdict.context) == (False, False, None)
+
+
+@pytest.mark.parametrize("event", ["PermissionDenied", "Notification", "PermissionRequest"])
+def test_a_crashing_notify_hook_still_counts_as_failed(event):
+    assert interpret(event, _ok(exit_code=1)).failed is True
+    assert interpret(event, RunResult(status="timeout", duration_ms=1)).failed is True
+
+
 def test_plain_stdout_is_context_only_for_prompts():
     assert interpret("UserPromptSubmit", _ok(stdout="today is a holiday\n")).context == (
         "today is a holiday"

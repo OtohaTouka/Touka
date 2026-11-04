@@ -9,9 +9,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Final
 
+from src.services.hooks.background import schedule_background_hook
 from src.services.hooks.events import base_payload
-from src.services.hooks.service import hook_service
-from src.utils.task_utils import spawn_logged
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -23,18 +22,14 @@ STOP_EVENT: Final[str] = "Stop"
 
 def schedule_stop_hooks(ctx: Mapping[str, Any], final_text: Callable[[], str]) -> None:
     """有設定 Stop hook 時在背景執行；``final_text`` 只在要執行時才呼叫。出錯只記 log。"""
-    try:
-        if ctx.get("subagent_run") or not hook_service.has_hooks(STOP_EVENT):
-            return
+
+    def build_payload() -> dict[str, Any]:
         payload: dict[str, Any] = {**base_payload(ctx), "stop_hook_active": False}
-    except Exception:
-        logger.exception("Stop hooks failed; the reply is not affected")
-        return
-    try:
-        payload["last_assistant_message"] = final_text()
-    except Exception:
-        logger.exception("Stop hook could not read the final reply; sending it without one")
-    spawn_logged(
-        hook_service.dispatch(STOP_EVENT, payload, incognito=bool(ctx.get("incognito"))),
-        name="hook:Stop",
-    )
+        try:
+            payload["last_assistant_message"] = final_text()
+        except Exception:
+            logger.exception("Stop hook could not read the final reply; sending it without one")
+        return payload
+
+    if not ctx.get("subagent_run"):
+        schedule_background_hook(STOP_EVENT, build_payload, incognito=bool(ctx.get("incognito")))

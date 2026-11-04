@@ -18831,6 +18831,10 @@
                 "UserPromptSubmit",
                 "PreToolUse",
                 "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
                 "Stop"
               ]
             },
@@ -18922,6 +18926,10 @@
                 "UserPromptSubmit",
                 "PreToolUse",
                 "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
                 "Stop"
               ]
             },
@@ -18949,6 +18957,10 @@
                 "UserPromptSubmit",
                 "PreToolUse",
                 "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
                 "Stop"
               ]
             },
@@ -18962,6 +18974,10 @@
                 "UserPromptSubmit",
                 "PreToolUse",
                 "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
                 "Stop"
               ]
             },

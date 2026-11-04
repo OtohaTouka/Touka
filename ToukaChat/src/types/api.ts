@@ -7997,9 +7997,9 @@ export interface components {
             config: components["schemas"]["HooksConfig-Output"];
             health: components["schemas"]["HookHealthOut"];
             /** Wired Events */
-            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
             /** Matcher Events */
-            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop")[];
+            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
         };
         /**
          * HooksSaveRequest

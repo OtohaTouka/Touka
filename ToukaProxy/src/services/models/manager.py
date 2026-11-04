@@ -5,7 +5,6 @@
 import asyncio
 import json
 import logging
-import re
 from typing import Any
 
 from src.core.exceptions import ErrorCode, ToukaException
@@ -32,20 +31,10 @@ from src.services.models.routes import (
 from src.services.providers import registry
 from src.utils import config_utils
 from src.utils.opaque_identifier import opaque_identifier
+from src.utils.secret_text import redact_credentials
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
-
-# N7/N9 fix: patterns that indicate credential material in error messages.
-_CREDENTIAL_PATTERNS = re.compile(
-    r"(?i)"
-    r"(?:Bearer|Basic|Token|Authorization)\s+\S+"  # Auth header values
-    r"|sk-[A-Za-z0-9\-_]+"                         # OpenAI-style API keys
-    r"|key=[A-Za-z0-9\-_]{8,}"                     # URL key params
-    r"|api[-_]?key\s*[=:]\s*\S+"                   # api_key=... patterns
-    r"|[Pp]assword\s*[=:]\s*\S+"                   # password=...
-    r"|//[^/\s:@]+:[^/\s@]+@"                       # URL userinfo (user:pass@host)
-)
 
 _CONTROL_PLANE_PROVIDERS = frozenset({"proxy"})
 _LEGACY_ROUTE_FIELDS = frozenset({"_source_url", "_api_key"})
@@ -59,7 +48,7 @@ def _sanitize_connection_error(error_msg: str) -> str:
     messages (e.g., HTTP error responses, URL strings) from being stored
     in _connection_errors where they might later be exposed via the API.
     """
-    return _CREDENTIAL_PATTERNS.sub("[REDACTED]", error_msg)
+    return redact_credentials(error_msg)
 
 
 def _sanitize_model_descriptor(model: dict[str, Any]) -> dict[str, Any]:

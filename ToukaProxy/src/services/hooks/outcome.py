@@ -1,16 +1,20 @@
 """Hook 結果解讀（照 Claude Code，ADR-0292）.
 
-- 結束碼 2：UserPromptSubmit、PreToolUse 擋下，原因取 stderr；PostToolUse（工具已經跑完）把
-  stderr 當回饋給模型；Stop 只觀察。結束碼 2 時不讀 stdout 的 JSON。
+- 結束碼 2：UserPromptSubmit、PreToolUse 擋下，原因取 stderr；PostToolUse、PostToolUseFailure
+  （工具已經跑完）把 stderr 當回饋給模型；其他事件不採用。結束碼 2 時不讀 stdout 的 JSON。
 - 結束碼 0：stdout 是 JSON 物件就讀欄位；不是 JSON 的文字只在 UserPromptSubmit 當補充說明。
   看起來是 JSON 卻解析失敗（含數字太長、巢狀太深）算 hook 自己失敗。
 - ``continue: false``：UserPromptSubmit、PreToolUse 擋下，原因取 ``stopReason``（比其他欄位優先）；
-  PostToolUse 與 Stop 不採用（工具已經跑完、回合已經結束，hook 不能讓代理人停下或繼續）。
+  其他事件不採用（工具已經跑完、回合已經結束，hook 不能讓代理人停下或繼續）。
+- PermissionRequest 只認 ``hookSpecificOutput.decision.behavior`` 的 ``deny``（理由取
+  ``message``）。
+- Stop、PermissionDenied、Notification 只通知：結束碼 2 與 JSON 欄位都沒有效果。
 - 其他結束碼、逾時、連不上、路徑被拒：hook 自己失敗，不擋、記下來。
 - http：2xx 的回應內容當成結束碼 0 的 stdout；其他情況都是失敗。
 
-hook 只能擋不能放行：``permissionDecision`` 的 ``allow``／``defer``、``updatedInput``、
-``updatedToolOutput``、``systemMessage`` 一律不採用，只記一筆說明。
+hook 只能擋不能放行：``permissionDecision`` 的 ``allow``／``defer``、``decision.behavior`` 的
+``allow``、``updatedInput``、``updatedPermissions``、``updatedToolOutput``、``systemMessage`` 一律
+不採用，只記一筆說明。
 """
 
 from __future__ import annotations
@@ -26,12 +30,22 @@ BLOCK_EXIT_CODE: Final[int] = 2
 MAX_TEXT_CHARS: Final[int] = 10_000
 # 結束碼 2、decision、continue 能擋下的事件；其他事件的工具已經跑完或回合已經結束
 BLOCKING_EVENTS: Final[frozenset[str]] = frozenset({"UserPromptSubmit", "PreToolUse"})
+# 工具已經跑完：結束碼 2 與 decision 當回饋給模型
+FEEDBACK_EVENTS: Final[frozenset[str]] = frozenset({"PostToolUse", "PostToolUseFailure"})
+# 可以用 additionalContext 補充說明給模型的事件
+CONTEXT_EVENTS: Final[frozenset[str]] = BLOCKING_EVENTS | FEEDBACK_EVENTS
+PERMISSION_REQUEST_EVENT: Final[str] = "PermissionRequest"
 
 _IGNORED_TOP_LEVEL: Final[tuple[str, ...]] = ("systemMessage",)
 _IGNORED_SPECIFIC: Final[tuple[str, ...]] = (
     "updatedInput",
     "updatedToolOutput",
     "updatedMCPToolOutput",
+)
+_IGNORED_PERMISSION_DECISION: Final[tuple[str, ...]] = (
+    "updatedInput",
+    "updatedPermissions",
+    "interrupt",
 )
 
 
@@ -62,9 +76,25 @@ def _from_exit_2(event: str, stderr: str) -> HookVerdict:
     reason = _clip(stderr) or "blocked by hook"
     if event in BLOCKING_EVENTS:
         return HookVerdict(blocked=True, reason=reason)
-    if event == "PostToolUse":
+    if event in FEEDBACK_EVENTS:
         return HookVerdict(context=reason)
-    return HookVerdict(notes=("Stop hooks only observe; exit code 2 is ignored",))
+    return HookVerdict(notes=(f"{event} hooks do not act on exit code 2; ignored",))
+
+
+def _from_permission_request(specific: dict[str, Any], notes: list[str]) -> HookVerdict:
+    decision = specific.get("decision")
+    if not isinstance(decision, dict):
+        return HookVerdict()
+    notes.extend(
+        f"decision.{key} is not supported; ignored"
+        for key in _IGNORED_PERMISSION_DECISION
+        if key in decision
+    )
+    behavior = decision.get("behavior")
+    if behavior == "deny":
+        return HookVerdict(blocked=True, reason=_text(decision.get("message")) or "denied by hook")
+    notes.append(f"decision.behavior {behavior!r} is not supported; hooks only deny")
+    return HookVerdict()
 
 
 def _from_specific(event: str, specific: Any, notes: list[str]) -> HookVerdict:
@@ -78,7 +108,9 @@ def _from_specific(event: str, specific: Any, notes: list[str]) -> HookVerdict:
         for key in _IGNORED_SPECIFIC
         if key in specific
     )
-    context = _text(specific.get("additionalContext")) if event != "Stop" else None
+    if event == PERMISSION_REQUEST_EVENT:
+        return _from_permission_request(specific, notes)
+    context = _text(specific.get("additionalContext")) if event in CONTEXT_EVENTS else None
     if event != "PreToolUse":
         return HookVerdict(context=context)
     decision = specific.get("permissionDecision")
@@ -108,10 +140,10 @@ def _from_json(event: str, body: dict[str, Any]) -> HookVerdict:
         top_reason = _text(body.get("reason")) or "blocked by hook"
         if event in BLOCKING_EVENTS:
             blocked, reason = True, reason or top_reason
-        elif event == "PostToolUse":
+        elif event in FEEDBACK_EVENTS:
             context = "\n".join(part for part in (top_reason, context) if part)
         else:
-            notes.append("Stop hooks only observe; decision is ignored")
+            notes.append(f"{event} hooks can not block; decision is ignored")
     return HookVerdict(
         blocked=blocked, ask=ask and not blocked, reason=reason, context=context, notes=tuple(notes)
     )

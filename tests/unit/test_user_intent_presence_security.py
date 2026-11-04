@@ -452,7 +452,8 @@ async def test_subagent_tools_see_headless_interactive_flag(monkeypatch):
         permission_service, "evaluate_policy", lambda _c: PolicyDecision(effect="ALLOW", reason="t")
     )
     executor = ToolExecutor(None, {"write": recorder}, {}, {}, enforce_advertised=False)
-    await _run(executor, "write", {"scope": "vault"}, _subagent_ctx(_OWNER, "YOLO"))
+    args = {"scope": "vault", "path": "a.md", "content": "x"}
+    await _run(executor, "write", args, _subagent_ctx(_OWNER, "YOLO"))
     assert recorder.calls[0]["_interactive"] is False
 
 

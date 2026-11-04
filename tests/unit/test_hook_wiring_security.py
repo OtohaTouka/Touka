@@ -21,93 +21,82 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-from dataclasses import dataclass, field, replace
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
 from src.handlers import react_core
-from src.middleware.layers import hooks as layer_module
 from src.middleware.layers import monitor as monitor_module
 from src.middleware.layers.hooks import HookLayer
 from src.middleware.layers.monitor import MonitorLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.policy import PolicyDecision
-from src.models.safety import AuthPoliciesConfig
 from src.protocols.mcp.canonical import McpCompleteOutcome
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.routers import debug as debug_router
-from src.services import auto_reviewer as reviewer_module
 from src.services import context_snapshot_service, proxy_service, tool_errors
-from src.services import tool_executor as executor_module
 from src.services.approval_service import approval_service
-from src.services.auto_reviewer import AutoReviewer
-from src.services.completion import CompletionResult
-from src.services.hooks import stop_hooks, stopping, tool_hooks
+from src.services.hooks import stop_hooks, stopping
 from src.services.hooks.events import HOOK_DATA_NOTE, attach_to_tool_result, legacy_aliases
-from src.services.hooks.runners import RunResult
-from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookService
+from src.services.hooks.service import MAX_BLOCK_REASON_CHARS
 from src.services.permission_service import permission_service
-from src.services.review.budget import _reset_review_ledger
 from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import PendingRequest, StreamBufferService
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import LEGACY_ADVERTISED_SUCCESSORS
 from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
-from src.utils.user_intent import chat_intent
 
-_SOUL = AgentIdentity.for_role(agent_id="HookWiringProbe", role="Owner", is_human=False)
-_WAIT_S = 5.0
-_HTTP_HOOK = {"type": "http", "url": "http://127.0.0.1:9/hook"}
-_REVIEW_ALLOW = '{"verdict": "allow", "reason": "the user asked for it"}'
-_REVIEW_DENY = '{"verdict": "deny", "reason": "clearly harmful"}'
+from tests.support.hook_wiring import (
+    HTTP_HOOK as _HTTP_HOOK,
+)
+from tests.support.hook_wiring import (
+    REVIEW_DENY as _REVIEW_DENY,
+)
+from tests.support.hook_wiring import (
+    SOUL as _SOUL,
+)
+from tests.support.hook_wiring import (
+    WAIT_S as _WAIT_S,
+)
+from tests.support.hook_wiring import (
+    Recorder as _Recorder,
+)
+from tests.support.hook_wiring import (
+    cards as _cards,
+)
+from tests.support.hook_wiring import (
+    clean_approval_state,
+    install_hooks,
+)
+from tests.support.hook_wiring import (
+    executor_with as _executor,
+)
+from tests.support.hook_wiring import (
+    group as _group,
+)
+from tests.support.hook_wiring import (
+    run_tool as _run,
+)
+from tests.support.hook_wiring import (
+    until as _until,
+)
+from tests.support.hook_wiring import (
+    use_reviewer as _reviewer,
+)
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-@dataclass
-class _FakeHttp:
-    """假的 http runner：記下每次的事件內容，依事件回指定的回應內容。"""
-
-    bodies: dict[str, str] = field(default_factory=dict)
-    calls: list[dict[str, Any]] = field(default_factory=list)
-
-    async def __call__(self, _hook: Any, payload: bytes, **_kwargs: Any) -> RunResult:
-        body = json.loads(payload)
-        self.calls.append(body)
-        return RunResult(
-            status="ok", duration_ms=1, http_status=200,
-            stdout=self.bodies.get(body["hook_event_name"], ""),
-        )
-
-    def events(self) -> list[str]:
-        return [call["hook_event_name"] for call in self.calls]
-
-
-@dataclass
-class _Hooks:
-    service: HookService
-    http: _FakeHttp
-    path: Path
-
-    def configure(self, groups: dict[str, list[dict[str, Any]]]) -> None:
-        config = {"enabled": True, "hooks": groups, "version": "1.0.0", "author": "test"}
-        self.path.write_text(json.dumps(config), encoding="utf-8")
+    from tests.support.hook_wiring import (
+        HookSetup as _Hooks,
+    )
 
 
 @pytest.fixture
 def hooks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Hooks:
-    http = _FakeHttp()
-    path = tmp_path / "hooks.json"
-    service = HookService(config_path=lambda: path, http_runner=http)
-    for module in (layer_module, tool_hooks, stop_hooks):
-        monkeypatch.setattr(module, "hook_service", service)
-    return _Hooks(service=service, http=http, path=path)
-
-
-def _group(event_hooks: list[dict[str, Any]] | None = None, matcher: str = "") -> dict[str, Any]:
-    return {"matcher": matcher, "hooks": event_hooks or [dict(_HTTP_HOOK)]}
+    return install_hooks(tmp_path, monkeypatch)
 
 
 # ── UserPromptSubmit ────────────────────────────────────────────────────────────────
@@ -395,95 +384,9 @@ async def test_only_ui_requests_with_a_conversation_count_as_waiting(monkeypatch
 # ── PreToolUse／PostToolUse（執行器） ───────────────────────────────────────────────
 
 
-class _FakeCompleter:
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.calls = 0
-
-    async def __call__(self, *_args: Any, **_kwargs: Any) -> CompletionResult:
-        self.calls += 1
-        return CompletionResult(text=self.text, usage={}, cost_usd=0.0, stop_reason="end",
-                                error=None)
-
-
-class _Recorder:
-    def __init__(self, result: str = '{"ok": true, "lines": 3}') -> None:
-        self.result = result
-        self.calls: list[dict[str, Any]] = []
-
-    async def __call__(self, **kwargs: Any) -> str:
-        self.calls.append(kwargs)
-        return self.result
-
-
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch: pytest.MonkeyPatch):
-    approval_service.reset_for_test()
-    _reset_review_ledger()
-    monkeypatch.setattr(reviewer_module.audit_service, "log_decision", lambda *_a: None)
-    yield
-    approval_service.reset_for_test()
-    _reset_review_ledger()
-
-
-def _reviewer(monkeypatch: pytest.MonkeyPatch, text: str = _REVIEW_ALLOW) -> _FakeCompleter:
-    completer = _FakeCompleter(text)
-    config = {"model": "claude-haiku-5-5", "max_tokens": 300, "timeout_s": 7.0}
-    monkeypatch.setattr(
-        executor_module, "auto_reviewer", AutoReviewer(completer, config_loader=lambda: config)
-    )
-    return completer
-
-
-def _executor(monkeypatch: pytest.MonkeyPatch, registry: dict[str, Any]) -> ToolExecutor:
-    example = Path(__file__).resolve().parents[2] / "ToukaProxy" / "config"
-    policy = AuthPoliciesConfig.model_validate(
-        json.loads((example / "auth_policies.json.example").read_text(encoding="utf-8"))
-    )
-    bindings = dict(executor_module.BUILTIN_EXECUTION_BINDINGS)
-    for name, handler in registry.items():
-        bindings[name] = replace(bindings[name], handler=handler)
-    monkeypatch.setattr(executor_module, "BUILTIN_EXECUTION_BINDINGS", bindings)
-    monkeypatch.setattr(permission_service, "evaluate_policy", policy.evaluate)
-    return ToolExecutor(
-        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={},
-        enforce_advertised=False,
-    )
-
-
-async def _run(
-    executor: ToolExecutor, name: str, args: dict[str, Any], *,
-    present: bool = True, mode: str = "Auto", approve: bool | None = None,
-    extra: dict[str, Any] | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
-    """跑一次；``approve`` 不是 None 時必須跳卡並以該決定解算。"""
-    ctx: dict[str, Any] = {
-        "identity": _SOUL, "auth_level": mode, "session_id": "s-hook",
-        "user_intent": chat_intent([{"role": "user", "content": "跑一下測試"}]),
-        **(extra or {}),
-    }
-    if present:
-        ctx["resumable_stream"] = True
-    queue: asyncio.Queue = asyncio.Queue()
-    async with asyncio.timeout(_WAIT_S):
-        task = asyncio.create_task(executor.execute_to_queue(name, args, "req-hook", ctx, queue))
-        if approve is not None:
-            while not approval_service._pending:
-                assert not task.done(), "應該跳出審批卡"
-                await asyncio.sleep(0.005)
-            exec_id = next(iter(approval_service._pending))
-            await approval_service.resolve(exec_id, approved=approve, resolver="tester")
-        result = await task
-    events = []
-    while not queue.empty():
-        item = queue.get_nowait()
-        if item is not None:
-            events.append(item)
-    return result, events
-
-
-def _cards(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [e for e in events if e.get("type") == "tool_approval_request"]
+    yield from clean_approval_state(monkeypatch)
 
 
 def _pre(decision: str, reason: str | None = None) -> str:
@@ -856,12 +759,6 @@ async def test_without_hooks_nothing_runs_and_results_are_unchanged(monkeypatch,
 # ── Stop ──────────────────────────────────────────────────────────────────────────
 
 
-async def _until(predicate: Any) -> None:
-    async with asyncio.timeout(_WAIT_S):
-        while not predicate():
-            await asyncio.sleep(0.005)
-
-
 async def test_stop_hook_runs_in_the_background_with_the_final_reply(hooks):
     hooks.configure({"Stop": [_group()]})
     hooks.http.bodies["Stop"] = '{"decision": "block", "reason": "keep going"}'
@@ -927,10 +824,11 @@ async def test_stop_hook_still_runs_when_the_reply_cannot_be_read(hooks):
 
 
 async def test_stop_hook_service_errors_do_not_reach_the_reply(hooks, monkeypatch):
-    def broken(_event: str) -> bool:
+    def broken(*_args: Any, **_kwargs: Any) -> bool:
         raise RuntimeError("bug")
 
-    monkeypatch.setattr(hooks.service, "has_hooks", broken)
+    hooks.configure({"Stop": [_group()]})
+    monkeypatch.setattr(hooks.service, "has_matching_hooks", broken)
     stop_hooks.schedule_stop_hooks({"session_id": "s-hook"}, lambda: "done")
     await asyncio.sleep(0.01)
     assert hooks.http.calls == []

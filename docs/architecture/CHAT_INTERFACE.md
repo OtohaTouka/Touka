@@ -12,7 +12,7 @@
 
 - 設定畫面「系統」組新增「Hooks」分頁（`config.ts` 的 `hooks`，`adminOnly`；搜尋索引一筆）。不加左側欄入口。
   - 資料層 `hooks/settings/useHooksSettings.ts`：經 `fetchTouka` 讀 `GET /v1/hooks` 與 `GET /v1/hooks/runs`；存檔 `PUT /v1/hooks` 送整份設定和載入時的 `health.revision`（沒有檔案時送 `null`）。存檔結果分成 `saved`、`conflict`（409）、`path_rejected`（422，帶 `problems`）、`invalid`（422 欄位驗證，取第一個錯誤的位置與訊息）、`failed`。讀不到（含 403）當讀取失敗。
-  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示，比對規則只在 `matcher_events` 出現；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
+  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前八個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。

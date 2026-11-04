@@ -23,6 +23,7 @@ from src.services.approval_service import (
     DEFAULT_TIMEOUT_S,
     approval_service,
 )
+from src.services.hooks.notifications import notify_approval_card
 from src.services.isolation.consent import ConsentKey, consent_ledger, consent_subject
 from src.services.isolation.policy import policy_level
 from src.services.isolation.profiles import authorize_derived_path, current_layout
@@ -299,6 +300,7 @@ async def await_human_approval(
     review_reason: str | None = None,
     hook_reason: str | None = None,
     human_only: bool = False,
+    on_card_shown: Callable[[], None] | None = None,
 ) -> str:
     """回 "approved"|"rejected"|"timeout"|"queue_full"。
 
@@ -339,6 +341,8 @@ async def await_human_approval(
             isolation=isolation.event_field() if isolation else None,
         )
     )
+    if on_card_shown is not None:
+        on_card_shown()
     await emit({"type": "touka_status", "status": f"awaiting_approval: {name}"})
 
     resolution = await approval_service.wait_for_resolution(exec_id)
@@ -423,6 +427,7 @@ class CommandApprover:
             emit=self._emit,
             review_reason=review_reason,
             human_only=human_only,
+            on_card_shown=lambda: notify_approval_card(self._ctx, self.tool_name),
         )
         if verdict == "approved":
             self._open.append((call_id, cmd))

@@ -1,9 +1,14 @@
-"""工具執行前後的 hook（ADR-0292），由 ``ToolExecutor`` 呼叫.
+"""工具執行與審批的 hook（ADR-0292），由 ``ToolExecutor`` 呼叫.
 
 - PreToolUse：政策沒拒絕之後、審查員與審批卡之前執行。只能擋下或要求人核准：擋下回結構化
   ``permission_denied``；要求人核准時跳同一張人類審批卡，無人在場直接拒絕（審查員與模式都不能
   代替）。``allow``、``updatedInput`` 不採用，工具照原本的參數與審批流程走。
 - PostToolUse：工具成功之後執行；回饋與補充說明當成資料接在工具結果後面。
+- PostToolUseFailure：工具開始跑之後失敗才執行；權限拒絕與執行前的驗證不算。錯誤內容先遮罩憑證與
+  本機路徑再交給 hook。回饋與補充說明同樣接在結果後面。
+- PermissionRequest：審批卡跳出之前執行（有人在場才有卡）。只有 ``deny`` 有效果（不跳卡、不執行）；
+  ``allow``、``updatedInput`` 不採用，卡照樣跳。照 Claude Code，內容沒有 ``tool_use_id``。
+- PermissionDenied：工具呼叫被拒時在背景執行；不能改結果。``reason`` 只放固定的原因代碼。
 - 補充說明（含 PreToolUse 的）都接在工具結果後面給模型。
 
 沒有設定 hook 時不組事件內容、不改任何結果。hook 服務自己出錯時記 log、當成沒有 hook 結果
@@ -18,12 +23,16 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
 from src.services import tool_errors
+from src.services.hooks.background import schedule_background_hook
 from src.services.hooks.events import base_payload, neutralize_hook_text, tool_match_names
+from src.services.hooks.outcome import PERMISSION_REQUEST_EVENT
 from src.services.hooks.service import hook_service
 from src.services.hooks.stopping import request_stopped
+from src.utils.mcp_secrets import sanitize_diagnostic
+from src.utils.secret_text import redact_credentials
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from src.services.hooks.service import HookDecision
 
@@ -31,7 +40,10 @@ logger = logging.getLogger(__name__)
 
 PRE_TOOL_EVENT: Final[str] = "PreToolUse"
 POST_TOOL_EVENT: Final[str] = "PostToolUse"
+POST_FAILURE_EVENT: Final[str] = "PostToolUseFailure"
+PERMISSION_DENIED_EVENT: Final[str] = "PermissionDenied"
 MAX_REASON_CHARS: Final[int] = 2_000
+STOPPED_REASON: Final[str] = "stopped_by_user"
 
 
 @dataclass
@@ -76,7 +88,7 @@ def _model_reason(reason: str) -> str:
 
 
 def hook_denied_error(name: str, reason: str) -> str:
-    """PreToolUse hook 擋下時回給模型的結構化錯誤。"""
+    """PreToolUse 或 PermissionRequest hook 擋下時回給模型的結構化錯誤。"""
     return tool_errors.build_tool_error(
         tool_errors.PERMISSION_DENIED,
         f"Tool '{name}' was blocked by a hook that an administrator configured.",
@@ -97,7 +109,7 @@ def hook_stopped_error(name: str) -> str:
         f"The user stopped this run while a hook was checking '{name}'; it was not run.",
         suggestion="Do not retry; wait for the user's next message.",
         denied_tool=name,
-        reason="stopped_by_user",
+        reason=STOPPED_REASON,
     )
 
 
@@ -114,17 +126,29 @@ def hook_ask_unavailable_error(name: str, reason: str | None) -> str:
     )
 
 
+def _match_names(call: ToolCall) -> list[str]:
+    return tool_match_names(call.name, call.mcp_server, call.mcp_tool, call.aliases)
+
+
 async def _dispatch(
-    event: str, ctx: Mapping[str, Any], call: ToolCall, extra: Mapping[str, Any]
+    event: str,
+    ctx: Mapping[str, Any],
+    call: ToolCall,
+    extra: Callable[[], Mapping[str, Any]] | None = None,
+    *,
+    with_use_id: bool = True,
 ) -> HookDecision | None:
-    """有設定 hook 時執行；沒有 hook 或 hook 服務出錯時回 None。"""
+    """有設定 hook 時執行；沒有 hook 或 hook 服務出錯時回 None。``extra`` 要執行時才組。"""
     try:
         if not hook_service.has_hooks(event):
             return None
+        payload = {**_payload(ctx, call), **(extra() if extra else {})}
+        if not with_use_id:
+            del payload["tool_use_id"]
         return await hook_service.dispatch(
             event,
-            {**_payload(ctx, call), **extra},
-            match=tool_match_names(call.name, call.mcp_server, call.mcp_tool, call.aliases),
+            payload,
+            match=_match_names(call),
             incognito=bool(ctx.get("incognito")),
         )
     except Exception:
@@ -134,7 +158,7 @@ async def _dispatch(
 
 async def run_pre_tool_hooks(ctx: Mapping[str, Any], call: ToolCall) -> PreToolOutcome:
     """執行 PreToolUse hook。"""
-    decision = await _dispatch(PRE_TOOL_EVENT, ctx, call, {})
+    decision = await _dispatch(PRE_TOOL_EVENT, ctx, call)
     if decision is None:
         return PreToolOutcome()
     outputs = [(PRE_TOOL_EVENT, decision.context)] if decision.context else []
@@ -154,7 +178,50 @@ async def run_post_tool_hooks(
     ctx: Mapping[str, Any], call: ToolCall, result_text: str
 ) -> list[tuple[str, str]]:
     """執行 PostToolUse hook，回傳要接在結果後面的輸出。"""
-    decision = await _dispatch(POST_TOOL_EVENT, ctx, call, {"tool_response": result_text})
+    decision = await _dispatch(
+        POST_TOOL_EVENT, ctx, call, lambda: {"tool_response": result_text}
+    )
     if decision is None or not decision.context:
         return []
     return [(POST_TOOL_EVENT, decision.context)]
+
+
+def _failure_text(result_text: str) -> str:
+    """給 hook 的錯誤內容：結構化錯誤取訊息本身，遮掉憑證與本機路徑。"""
+    message = tool_errors.extract_field(result_text, "message")
+    return sanitize_diagnostic(redact_credentials(message or result_text))
+
+
+async def run_post_tool_failure_hooks(
+    ctx: Mapping[str, Any], call: ToolCall, result_text: str
+) -> list[tuple[str, str]]:
+    """工具開始跑之後失敗時執行 PostToolUseFailure hook，回傳要接在結果後面的輸出。"""
+    decision = await _dispatch(
+        POST_FAILURE_EVENT, ctx, call, lambda: {"error": _failure_text(result_text)}
+    )
+    if decision is None or not decision.context:
+        return []
+    return [(POST_FAILURE_EVENT, decision.context)]
+
+
+async def run_permission_request_hooks(ctx: Mapping[str, Any], call: ToolCall) -> str | None:
+    """審批卡跳出之前執行 PermissionRequest hook；回傳不是 None 就不跳卡、不執行。"""
+    decision = await _dispatch(PERMISSION_REQUEST_EVENT, ctx, call, with_use_id=False)
+    if decision is None:
+        return None
+    if decision.blocked:
+        return hook_denied_error(call.name, decision.reason)
+    # 等 hook 的期間按了停止：人不用再看這張卡，這個工具也不執行
+    return hook_stopped_error(call.name) if decision.ran and request_stopped(ctx) else None
+
+
+def notify_permission_denied(ctx: Mapping[str, Any], call: ToolCall, reason: str | None) -> None:
+    """工具呼叫被拒時在背景執行 PermissionDenied hook；使用者按停止不算被拒。"""
+    if reason == STOPPED_REASON:
+        return
+    schedule_background_hook(
+        PERMISSION_DENIED_EVENT,
+        lambda: {**_payload(ctx, call), "reason": reason},
+        match=_match_names(call),
+        incognito=bool(ctx.get("incognito")),
+    )
