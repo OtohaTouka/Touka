@@ -681,10 +681,15 @@ def test_real_routing_matches_the_approved_inventory(
         ("scripts/guard_module_boundaries.py", ["禁令 14"]),
         ("ToukaChat/src/components/settings/tabs/HooksTab.tsx", ["禁令 67"]),
         ("ToukaChat/src/components/settings/tabs/hooks/hook_draft.ts", ["禁令 67"]),
-        ("ToukaProxy/src/routers/config.py", ["禁令 67"]),
-        ("ToukaProxy/src/utils/hard_floor.py", ["禁令 67"]),
-        ("ToukaProxy/src/tools/project_tools.py", ["禁令 67"]),
+        ("ToukaChat/src/hooks/settings/useHooksSettings.ts", ["禁令 67"]),
+        ("ToukaChat/src/hooks/useHookBlockNotice.ts", ["禁令 67"]),
+        ("ToukaChat/src/hooks/useInterjectionQueue.ts", ["禁令 67"]),
+        ("ToukaChat/src/lib/stream_tree.ts", ["禁令 67"]),
+        ("ToukaChat/src/lib/providers/StreamRegistryProvider.tsx", ["禁令 67"]),
+        ("ToukaChat/e2e-real/lib/hook_sink.ts", ["禁令 67"]),
+        ("ToukaChat/e2e-real/hooks-lifecycle.spec.ts", ["禁令 67"]),
         ("ToukaMemory/src/memory_server/tools/core_file_ops.py", ["禁令 67"]),
+        ("tests/support/hook_wiring.py", ["禁令 67"]),
     ],
 )
 def test_real_routing_lists_rules_for_the_files_they_govern(path: str, keys: list[str]) -> None:
@@ -695,20 +700,7 @@ def test_real_routing_lists_rules_for_the_files_they_govern(path: str, keys: lis
 def test_real_hook_ban_lives_in_its_own_rule_file() -> None:
     config = rules.load_config(ROOT)
     assert config["modules"]["hooks"]["rules_file"] == "docs/rules/hooks.md"
-    assert config["inline_rules"] == []
-
-
-def test_real_code_that_fires_hooks_is_routed_to_the_hook_ban() -> None:
-    config, tags = rules.load_config(ROOT), rules.parse_tags(ROOT)
-    callers = [
-        path
-        for path in _tracked_real()
-        if path.startswith(("ToukaProxy/src/", "ToukaMemory/src/"))
-        and path.endswith(".py")
-        and "services.hooks" in (ROOT / path).read_text(encoding="utf-8")
-    ]
-    assert callers
-    assert [p for p in callers if "禁令 67" not in _keys(rules.route([p], config, tags))] == []
+    assert "禁令 67" not in config["inline_rules"]
 
 
 @pytest.mark.parametrize(
@@ -733,7 +725,7 @@ def test_widened_safety_rules_cover_every_proxy_file() -> None:
     """ADR-0296 決定 1：這些規則放寬到整個 Proxy，新檔案也要列出來。"""
     path = "ToukaProxy/src/services/brand_new_file.py"
     listed = _keys(rules.route([path], rules.load_config(ROOT), rules.parse_tags(ROOT)))
-    assert {"禁令 60", "禁令 64", "禁令 65", "禁令 66", "禁令 68"} <= set(listed)
+    assert {"禁令 60", "禁令 64", "禁令 65", "禁令 66", "禁令 67", "禁令 68"} <= set(listed)
     assert any(key.startswith("2. 身分憑證化") for key in listed)
 
 

@@ -190,7 +190,7 @@ npm run package
 *   **禁令 64**〔模組：proxy、chat、ide〕：底線寫死在程式，審查員與 YOLO 都不能推翻，審查失敗不放行。全文：docs/rules/proxy.md
 *   **禁令 65**〔模組：proxy、chat〕：只有擁有者或管理員能插話，插話不能核准也不能改模式。全文：docs/rules/proxy.md
 *   **禁令 66**〔模組：isolation、proxy、deploy、chat、tests〕：代理人撰寫或指定的程式一律經隔離 runner 啟動，不可用就不執行。全文：docs/rules/isolation.md
-*   **禁令 67**〔模組：hooks、proxy、memory、tests、chat〕：hook 只能擋或要人確認，不得放行或改寫；輸出一律當資料。全文：docs/rules/hooks.md
+*   **禁令 67**〔模組：hooks、proxy、memory、tests、chat〕：hook 只能擋或要人確認（部分事件只通知），不得放行或改寫；hook 自己失敗不擋；輸出一律當資料。全文：docs/rules/hooks.md
 *   **禁令 68**〔模組：isolation、memory、proxy、tests〕：代理人資料夾路徑只用 ZonePath、經 RM 區內方法，不跟隨連結。全文：docs/rules/isolation.md
 
 ## 🛡️ Touka系統安全與核心守則 (Core Mandates)
