@@ -11,6 +11,7 @@ from src.models.identity import AgentIdentity  # noqa: TC001
 from src.models.permissions import PermissionsConfig  # noqa: TC001
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_admin_authority
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.permission_service import permission_service
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def update_permissions(
     """更新工具權限設定"""
     success = permission_service.update_permissions(new_config.model_dump())
     if success:
+        notify_config_change("permissions")
         try:
             agent_service.sync_with_permissions()
         except Exception:

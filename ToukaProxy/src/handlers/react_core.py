@@ -29,6 +29,7 @@ from src.models.session_persistence import UiGenerationStopped
 from src.services.autonomy import autonomy_service
 from src.services.context_breakdown import compute_context_breakdown
 from src.services.guard_service import guard_service
+from src.services.hooks.lifecycle import notify_stop_failure
 from src.services.hooks.stop_hooks import schedule_stop_hooks
 from src.services.interjection_queue import (
     interjection_queue,
@@ -49,7 +50,8 @@ from src.utils.sse import sse_line
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_usage import ToolUsage
 
-from .adapters.base import ProviderAdapter, RoundError, Turn  # noqa: TC001
+from .adapters import retry
+from .adapters.base import ProviderAdapter, RoundError, StopReason, Turn  # noqa: TC001
 from .adapters.usage import PartialUsage
 from .interjections import InterjectionRound
 
@@ -63,6 +65,25 @@ RETRY_BACKOFF_S = 2.0  # 第 n 次重試前等 n×2 秒（沿用 Gemini 舊階�
 _FINISH_REASONS = {"max_tokens": "length", "safety": "content_filter", "refusal": "content_filter"}
 _SAFETY_NOTICE = "\n\n⚠️ 回應被廠商的安全過濾擋下。"
 _REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
+
+
+def _read_stop_reason(adapter: ProviderAdapter, state: Any, raw: Any) -> StopReason:
+    """停止原因；讀不出來當 ``error``。"""
+    try:
+        return adapter.stop_reason(state, raw)
+    except Exception:
+        logger.exception("Stop reason could not be read; finish_reason stays stop")
+        return "error"
+
+
+def _no_reply(adapter: ProviderAdapter, state: Any, raw: Any, turn: Turn) -> bool:
+    """回 200 但沒有回覆：沒有文字也沒有工具呼叫，停止原因又是 ``error``。
+
+    被安全過濾擋下、拒答、模型正常結束或被截斷卻沒有字，都不算。
+    """
+    if (turn.visible_text or "").strip() or turn.tool_calls:
+        return False
+    return _read_stop_reason(adapter, state, raw) == "error"
 
 
 async def _retry_sleep(seconds: float) -> None:
@@ -311,6 +332,25 @@ async def run_react_loop(  # noqa: PLR0915
                        usage_model, partial.estimated, partial.usage)
         return partial
 
+    async def fail_round(error: RoundError, *, booked: bool = False) -> AsyncGenerator[str]:
+        """這一輪失敗：通知、入帳（``booked`` 是已經記過）、收尾。
+
+        UI 由 producer 標失敗，其他路徑把訊息當回覆。
+        """
+        notify_stop_failure(context, error.error_type, error.user_message)
+        partial = None if booked else record_partial_usage()
+        if (partial is not None or (booked and run_usage.totals)
+                ) and adapter.emits_usage_event(state):
+            estimated = run_usage.estimated if partial is None else partial.estimated
+            yield sse_line(token_usage_event(run_usage.total_tokens, run_usage.cost_usd,
+                                             estimated=estimated))
+        for _line in interjection_finish():
+            yield _line
+        if context.get("ui_authorized") is True:
+            raise UiGenerationStopped("error")
+        yield yield_delta(error.user_message)
+        yield "data: [DONE]\n\n"
+
     try:
         while True:
             # 硬中斷：使用者按停 → 在呼叫 LLM 前就停（**刻意不發遙測**，凍結語意）
@@ -381,25 +421,10 @@ async def run_react_loop(  # noqa: PLR0915
                 deliver(urgent_items, interrupted=True)  # 打斷的範本（不是工具執行期間）
                 continue
             if isinstance(raw, RoundError):
-                partial = record_partial_usage()
-                if partial is not None and adapter.emits_usage_event(state):
-                    yield sse_line(token_usage_event(run_usage.total_tokens, run_usage.cost_usd,
-                                                     estimated=partial.estimated))
-                for _line in interjection_finish():
+                async for _line in fail_round(raw):
                     yield _line
-                if context.get("ui_authorized") is True:
-                    raise UiGenerationStopped("error")
-                yield yield_delta(raw.user_message)
-                yield "data: [DONE]\n\n"
                 return
             upstream_gen_s += get_current_epoch() - t_send  # C4：本輪上游耗時入帳
-            # 插話：下一輪送出成功才算送達；urgent 的 tool_choice=none 只維持這一輪
-            if interjection_round is not None:
-                for _line in interjection_round.delivered():
-                    yield _line
-            if restore_tool_choice is not None:
-                restore_tool_choice()
-                restore_tool_choice = None
 
             turn = adapter.parse_round(state, raw)
             # 每輪 parse 後就入帳（ADR-0244）：下方成本閘看得到本次 run 正在花的錢。
@@ -410,6 +435,18 @@ async def run_react_loop(  # noqa: PLR0915
                 run_usage.add(round_usage, round_input)
             else:  # 串流完成卻沒回報用量：照裁定 6 估算，不靜默不入帳（裁定 5）
                 record_partial_usage()
+            if _no_reply(adapter, state, raw, turn):  # 用量照記，插話算沒送到
+                failure = retry.no_reply_error(provider, raw)
+                async for _line in fail_round(failure, booked=True):
+                    yield _line
+                return
+            # 插話：下一輪送出成功才算送達；urgent 的 tool_choice=none 只維持這一輪
+            if interjection_round is not None:
+                for _line in interjection_round.delivered():
+                    yield _line
+            if restore_tool_choice is not None:
+                restore_tool_choice()
+                restore_tool_choice = None
             if turn.empty:
                 final_raw = raw
                 break
@@ -526,11 +563,7 @@ async def run_react_loop(  # noqa: PLR0915
         yield _line
 
     # 3b-U5a：截斷、拒答、安全過濾照實回報；拒答與安全過濾另給一則可讀提示。
-    try:
-        stop = adapter.stop_reason(state, final_raw)
-    except Exception:
-        logger.exception("Stop reason could not be read; finish_reason stays stop")
-        stop = "error"
+    stop = _read_stop_reason(adapter, state, final_raw)
     if stop == "refusal":
         detail = turn.refusal_text.strip()
         yield yield_delta(f"{_REFUSAL_NOTICE[:-1]}：{detail}" if detail else _REFUSAL_NOTICE)

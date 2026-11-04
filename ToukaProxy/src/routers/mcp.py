@@ -57,6 +57,7 @@ from src.protocols.mcp.mrtr import (
 )
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.services.authorization_gateway import require_human_requester, require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.isolation.consent import Consent
 from src.services.isolation.mcp_launch import manual_start_subject, origin_record
@@ -811,6 +812,7 @@ async def save_mcp_config(
     except Exception as e:
         logger.exception("Failed to save mcp config")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
+    notify_config_change("mcp")
     return McpConfigSaveResponse(isolation_cleared=cleared)
 
 
@@ -961,6 +963,7 @@ async def put_mcp_isolation(
         origin,
         len(grants),
     )
+    notify_config_change("mcp")
     return await _isolation_view(server_name, entry, store.record_for(server_name, entry))
 
 
@@ -1117,6 +1120,10 @@ async def install_mcp_from_hub(
         return JSONResponse(
             status_code=404, content={"error": f"'{request.hub_id}' not found in hub"}
         )
+    if result["status"] != "success":  # 條目缺欄位：沒有寫檔，不重載也不通知
+        return JSONResponse(
+            status_code=422, content={"error": f"'{request.hub_id}' is not a valid hub entry"}
+        )
 
     # 嘗試熱插拔重載 MCP 連線
     try:
@@ -1129,4 +1136,5 @@ async def install_mcp_from_hub(
     except AttributeError:
         logger.exception("Reload failed: protocol_manager missing attributes")
 
+    notify_config_change("mcp")
     return {"status": "success", "message": f"Installed {result['server_name']}"}

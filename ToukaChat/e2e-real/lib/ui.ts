@@ -67,16 +67,17 @@ export async function enableHooks(page: Page): Promise<void> {
   await page.getByRole("switch", { name: "啟用 Hooks" }).click();
 }
 
-/** 走設定頁新增一個 http hook：新增一組預設帶一個程式 hook，換成 HTTP。 */
+/** 走設定頁新增一個 http hook：新增一組預設帶一個程式 hook，換成 HTTP。同一事件可以加好幾組。 */
 export async function addHttpHook(page: Page, event: string, spec: HttpHookSpec): Promise<void> {
   const section = eventSection(page, event);
   await section.getByRole("button", { name: "新增一組" }).click();
-  await section.getByRole("button", { name: "HTTP", exact: true }).click();
-  await section.getByRole("button", { name: "刪除這個 hook" }).first().click();
-  await section.getByRole("textbox", { name: "名稱（選填）" }).fill(spec.name);
-  await section.getByRole("textbox", { name: "網址" }).fill(spec.url);
-  if (spec.headers) await section.getByRole("textbox", { name: "標頭" }).fill(spec.headers);
-  if (spec.matcher) await section.getByRole("textbox", { name: "比對規則" }).fill(spec.matcher);
+  const newGroup = section.locator(":scope > div").last();
+  await newGroup.getByRole("button", { name: "HTTP", exact: true }).click();
+  await newGroup.getByRole("button", { name: "刪除這個 hook" }).first().click();
+  await newGroup.getByRole("textbox", { name: "名稱（選填）" }).fill(spec.name);
+  await newGroup.getByRole("textbox", { name: "網址" }).fill(spec.url);
+  if (spec.headers) await newGroup.getByRole("textbox", { name: "標頭" }).fill(spec.headers);
+  if (spec.matcher) await newGroup.getByRole("textbox", { name: "比對規則" }).fill(spec.matcher);
 }
 
 export async function saveHooks(page: Page): Promise<void> {

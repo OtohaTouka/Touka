@@ -1,5 +1,15 @@
 import http from "node:http";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_MODEL_ID, FAKE_TEXT_REPLY, toolRequestIn } from "./constants";
+import {
+  CANARY_API_KEY,
+  FAKE_AFTER_TOOL_REPLY,
+  FAKE_MODEL_ID,
+  FAKE_TEXT_REPLY,
+  MODEL_400_REQUEST,
+  MODEL_BAD_JSON_REQUEST,
+  MODEL_EMPTY_REPLY_REQUEST,
+  MODEL_NO_REPLY_REQUEST,
+  toolRequestIn,
+} from "./constants";
 
 export interface ModelCall {
   model: string;
@@ -102,6 +112,31 @@ export function createFakeModel(): http.Server {
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ?? []),
       };
       calls.push(call);
+      if (call.lastRole === "user" && call.lastText.includes(MODEL_400_REQUEST)) {
+        res.statusCode = 400;
+        return writeJson(res, { error: { message: `bad request api_key=${CANARY_API_KEY}` } });
+      }
+      if (call.lastRole === "user" && call.lastText.includes(MODEL_BAD_JSON_REQUEST)) {
+        res.setHeader("content-type", "text/html");
+        return res.end("<html>not json</html>");
+      }
+      if (call.lastRole === "user" && call.lastText.includes(MODEL_NO_REPLY_REQUEST)) {
+        return writeJson(res, { error: { type: "overloaded_error", message: "overloaded" } });
+      }
+      if (call.lastRole === "user" && call.lastText.includes(MODEL_EMPTY_REPLY_REQUEST)) {
+        return writeJson(res, {
+          id: "c1",
+          object: "chat.completion",
+          created: 1,
+          model: call.model,
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "" },
+            finish_reason: "insufficient_system_resource",
+          }],
+          usage: USAGE,
+        });
+      }
       const message = assistantReply(call);
       if (call.stream) return writeStream(res, call.model, message);
       return writeJson(res, {

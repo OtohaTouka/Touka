@@ -7,8 +7,9 @@
 - **分支**：開源快照（2026-10-22）時 `main` 與 `dev` 內容相同。PR 開到 `dev`，`main` 由維護者從 `dev` 合入。
 - **產品版本**：開源後 GHCR 的 `0.1.0`、`latest` 由公開 main 的 `62197042` 建置（見 README_QUICKSTART）；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
 - **發行與 dev 的差距**：上面那個 commit 之後進 `dev` 的改動，要等下一次發版才進 GHCR；有哪些看 [CHANGELOG](docs/CHANGELOG.md)。
-- **最近進度**：連結防護（ADR-0293）的 PR 都已合併，後續項目見 [isolation](docs/handover/isolation.md)；Hook 的第一批事件已接線，其餘事件還在做；實際驗證（ADR-0295）已上線，見 [tests](docs/handover/tests.md)；隔離的 MCP 部分（ADR-0275）仍待整批整合驗證。
+- **最近進度**：連結防護（ADR-0293）的 PR 都已合併，後續項目見 [isolation](docs/handover/isolation.md)；Hook 全部事件已接線（[proxy](docs/handover/proxy.md)）；實際驗證（ADR-0295）已上線，見 [tests](docs/handover/tests.md)；隔離的 MCP 部分（ADR-0275）仍待整批整合驗證。
 - **目前卡住的事**：
+  - 實際驗證找到三個既有問題還沒修：下一則存不進去、模型失敗要按兩個按鈕才能繼續（[chat](docs/handover/chat.md)）、聊天側自動剪裁存不進去（[proxy](docs/handover/proxy.md)）。
   - docgen 一類的工具在安全讀寫做好之前一律被拒（[isolation](docs/handover/isolation.md)）。
   - Docker Desktop 掛載還沒手動驗證 ADR-0293（[isolation](docs/handover/isolation.md)）。
   - 審查員的準確率等實測要照禁令 61 逐批取得同意（[proxy](docs/handover/proxy.md)）。

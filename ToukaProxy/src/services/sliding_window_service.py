@@ -29,6 +29,7 @@ from src.models.identity import AgentIdentity  # noqa: TC001
 from src.models.session_persistence import SavedResult, SessionChanges
 from src.models.sliding_window import SlidingWindowConfig
 from src.services.dialogue_summarizer import summarize_dialogue
+from src.services.hooks.lifecycle import notify_post_compact, notify_pre_compact
 from src.services.models.context_window_registry import get_context_window
 from src.services.resource_manager import resource_manager
 from src.utils.async_db import SessionPersistenceError, session_service
@@ -388,6 +389,7 @@ class SlidingWindowService:
             return False
 
         agent_id = identity.agent_id
+        notify_pre_compact(identity, session_id)
 
         # ── 4. ACID-A: 歸檔進舊對話庫（先於 session 更新；失敗就不剪）──────
         label = f"{agent_id}_sw_{int(get_current_epoch())}.json"
@@ -463,6 +465,7 @@ class SlidingWindowService:
             label,
             len(kept_msgs),
         )
+        notify_post_compact(identity, session_id, summary)
         return True
 
 

@@ -70,6 +70,7 @@ vi.mock('../AuthSwitcher', () => ({ AuthSwitcher: () => <div data-testid="auth-s
 vi.mock('../SkillSelector', () => ({ SkillSelector: () => <div data-testid="skill-selector" /> }));
 vi.mock('../ContextMeter', () => ({ ContextMeter: () => null }));
 vi.mock('../SessionPersistenceNotice', () => ({ SessionPersistenceNotice: () => null }));
+vi.mock('../IncognitoHookNotice', () => ({ IncognitoHookNotice: () => null }));
 vi.mock('../MessageItem', () => ({ MessageItem: () => null }));
 vi.mock('../ChatWelcome', () => ({ ChatWelcome: () => null }));
 vi.mock('../FeedbackReasonDialog', () => ({ FeedbackReasonDialog: () => null }));

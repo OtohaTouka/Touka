@@ -27,8 +27,9 @@ import httpx2
 
 from src.utils.time_utils import get_current_epoch
 
+from .base import RoundError
+
 if TYPE_CHECKING:
-    from .base import RoundError
     from .stream_timeout import RoundClock
 
 RETRYABLE_STATUS = frozenset({408, 409, 429})
@@ -43,12 +44,48 @@ _CONNECT_FAILURES = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout
 _BUSY_ERROR_CODES = frozenset({"UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL",
                                "server_error", "rate_limit_exceeded"})
 _MAX_CAUSE_DEPTH = 8  # 例外鏈最多往下找幾層（禁令 18；循環的鏈也會停）
+_NO_REPLY_DETAIL_CHARS = 200  # 沒有回覆時，錯誤訊息最多附多少上游內容
+_NO_REPLY_ERROR_FIELDS = ("type", "code", "status", "message")
 _RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")  # RetryInfo 的 retryDelay，如 "27s"
+# StopFailure hook 的錯誤類型（名稱照 Claude Code）
+AUTHENTICATION_FAILED = "authentication_failed"
+_STATUS_ERROR_TYPES = {
+    400: "invalid_request",
+    422: "invalid_request",
+    401: AUTHENTICATION_FAILED,
+    403: AUTHENTICATION_FAILED,
+    402: "billing_error",
+    404: "model_not_found",
+    429: "rate_limit",
+    529: "overloaded",
+}
+_BODY_ERROR_TYPES = {
+    "overloaded_error": "overloaded",
+    "rate_limit_error": "rate_limit",
+    "rate_limit_exceeded": "rate_limit",
+    "RESOURCE_EXHAUSTED": "rate_limit",
+    "api_error": "server_error",
+    "server_error": "server_error",
+    "INTERNAL": "server_error",
+    "UNAVAILABLE": "server_error",
+    "invalid_request_error": "invalid_request",
+    "authentication_error": AUTHENTICATION_FAILED,
+    "permission_error": AUTHENTICATION_FAILED,
+    "not_found_error": "model_not_found",
+    "billing_error": "billing_error",
+}
 
 
 def retryable_status(status: int) -> bool:
     """408／409／429 與 5xx 可重試。"""
     return status in RETRYABLE_STATUS or status in _SERVER_ERRORS
+
+
+def error_type_for_status(status: int) -> str:
+    """HTTP 狀態對應的錯誤類型；其他 5xx 是 server_error，對不上的是 unknown。"""
+    if status in _STATUS_ERROR_TYPES:
+        return _STATUS_ERROR_TYPES[status]
+    return "server_error" if status in _SERVER_ERRORS else "unknown"
 
 
 def retry_after_s(headers: Any) -> float | None:
@@ -87,7 +124,8 @@ def retry_info_s(body: Any) -> float | None:
 
 def on_status(error: RoundError, status: int, headers: Any, note: str,
               body: Any = None) -> RoundError:
-    """可重試的狀態碼：標上重試文字與等待秒數（標頭優先，再看 RetryInfo）；其餘原樣。"""
+    """標上錯誤類型；可重試的狀態碼再標重試文字與等待秒數（標頭優先，再看 RetryInfo）。"""
+    error = replace(error, error_type=error_type_for_status(status))
     if not retryable_status(status):
         return error
     after = retry_after_s(headers)
@@ -112,16 +150,77 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
     return error
 
 
+def reports_usage(body: dict[str, Any]) -> bool:
+    """回應帶了非零用量：廠商已經計費。形狀不對或全是 0 都不算。"""
+    usage = body.get("usage")
+    return isinstance(usage, dict) and any(
+        isinstance(value, int | float) and value > 0 for value in usage.values()
+    )
+
+
+def _finish_reason(raw: Any) -> str | None:
+    """回應為什麼結束（OpenAI、Gemini 是 dict，Claude 是 SDK 物件）；沒有就 None。"""
+    if not isinstance(raw, dict):
+        reason = getattr(raw, "stop_reason", None)
+        return reason if isinstance(reason, str) else None
+    for key, field in (("choices", "finish_reason"), ("candidates", "finishReason")):
+        items = raw.get(key)
+        first = items[0] if isinstance(items, list) and items else None
+        reason = first.get(field) if isinstance(first, dict) else None
+        if isinstance(reason, str):
+            return reason
+    return None
+
+
+def _code_number(code: Any) -> Any:
+    """``"429"`` → 429；看起來是數字卻轉不了（``"²"``、位數過多）就照原樣。"""
+    if not (isinstance(code, str) and code.isdigit()):
+        return code
+    try:
+        return int(code)
+    except ValueError:
+        return code
+
+
+def no_reply_error(label: str, raw: Any) -> RoundError:
+    """回 200 但沒有回覆：只取錯誤的固定欄位（整份回應可能帶我們送出的系統提示）。"""
+    body = raw if isinstance(raw, dict) else {}
+    upstream = body.get("error")
+    fields: dict[str, Any] = {}
+    if isinstance(upstream, dict):
+        fields = {key: upstream[key] for key in _NO_REPLY_ERROR_FIELDS
+                  if isinstance(upstream.get(key), str | int)}
+    elif isinstance(upstream, str):
+        fields = {"message": upstream}
+    shown = dict(fields)
+    if isinstance(body.get("status"), str):
+        shown["response_status"] = body["status"]
+    incomplete = body.get("incomplete_details")
+    if isinstance(incomplete, dict) and isinstance(incomplete.get("reason"), str):
+        shown["incomplete_reason"] = incomplete["reason"]
+    finish = _finish_reason(raw)
+    if finish is not None:
+        shown["finish_reason"] = finish
+    detail = "沒有回覆內容"
+    if shown:
+        detail = json.dumps(shown, ensure_ascii=False)[:_NO_REPLY_DETAIL_CHARS]
+    return on_error_body(RoundError(f"{label} API Error (200)\n\n`{detail}`"), fields, label)
+
+
 def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:
-    """200 之後才收到的錯誤本文：型別或代碼等同 429／5xx 就比照狀態碼可重試。"""
+    """200 之後才收到的錯誤本文：標上錯誤類型；型別或代碼等同 429／5xx 就比照狀態碼可重試。"""
     if not isinstance(body, dict):
         return error
     code = body.get("code")
-    number = int(code) if isinstance(code, str) and code.isdigit() else code
+    number = _code_number(code)
     busy = (body.get("type") in _BUSY_ERROR_TYPES or body.get("status") in _BUSY_ERROR_CODES
             or code in _BUSY_ERROR_CODES
             or (isinstance(number, int) and retryable_status(number)))
     kind = body.get("status") or code or body.get("type")
+    named = [value for value in (body.get("type"), body.get("status"), code)
+             if isinstance(value, str) and value in _BODY_ERROR_TYPES]
+    error = replace(error, error_type=_BODY_ERROR_TYPES[named[0]] if named else
+                    error_type_for_status(number) if isinstance(number, int) else "unknown")
     return replace(error, retry_note=f"{label} busy ({kind})") if busy else error
 
 

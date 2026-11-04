@@ -1145,8 +1145,8 @@ async def get_system_setting(key: str, default: Any = None) -> Any:
         return default
 
 
-async def set_system_setting(key: str, value: str) -> None:
-    """設置系統設定。"""
+async def set_system_setting(key: str, value: str) -> bool:
+    """設置系統設定；寫不進去時記 log、回 False。"""
     try:
         async with get_async_db() as db:
             await db.execute(
@@ -1158,6 +1158,8 @@ async def set_system_setting(key: str, value: str) -> None:
             await db.commit()
     except Exception:
         logger.exception("Error setting system setting %s", key)
+        return False
+    return True
 
 
 async def init_db_async() -> None:

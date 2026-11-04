@@ -15,6 +15,7 @@ from src.models.identity import (
 )
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_admin_authority, require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.permission_service import permission_service
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ async def update_identity_map(
     }
     success = permission_service.update_identity(payload)
     if success:
+        notify_config_change("identity")
         return {"status": "success", "message": "Identity map updated successfully."}
     raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED)
 

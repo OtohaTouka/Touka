@@ -1,4 +1,13 @@
-import { API_ORIGIN, ENV_EMAIL, ENV_PASSWORD, FAKE_MODEL_ID, SOUL_ID, WEB_ORIGIN } from "./constants";
+import {
+  API_ORIGIN,
+  ENV_EMAIL,
+  ENV_HEARTBEAT_TOKEN,
+  ENV_PASSWORD,
+  FAKE_MODEL_ID,
+  MCP_TOOL,
+  SOUL_ID,
+  WEB_ORIGIN,
+} from "./constants";
 
 export interface HookRunRow {
   at: number;
@@ -49,12 +58,18 @@ export async function createSoul(token: string): Promise<void> {
     agent_id: SOUL_ID,
     name: SOUL_ID,
     persona: "實際驗證用",
-    config: { base_model: FAKE_MODEL_ID, enabled_tools: ["read", "write", "list", "ask_user"] },
+    config: {
+      base_model: FAKE_MODEL_ID,
+      enabled_tools: ["read", "write", "list", "ask_user", "dispatch_subagent", "mission_tools", MCP_TOOL],
+    },
   });
   const identity = await call<{ agent_overrides?: Record<string, unknown> }>("GET", "/v1/identity", token);
   await call("POST", "/v1/identity", token, {
     ...identity,
-    agent_overrides: { ...identity.agent_overrides, [SOUL_ID]: { role: "Owner", capabilities: [] } },
+    agent_overrides: {
+      ...identity.agent_overrides,
+      [SOUL_ID]: { role: "Owner", capabilities: ["heartbeat_awakening"] },
+    },
   });
 }
 
@@ -64,6 +79,41 @@ export async function disableHooks(token: string): Promise<void> {
     config: { enabled: false, hooks: {} },
     revision: current.health.revision,
   });
+}
+
+export async function hooksEnabled(token: string): Promise<boolean> {
+  const body = await call<{ config: { enabled: boolean } }>("GET", "/v1/hooks", token);
+  return body.config.enabled;
+}
+
+export async function setSlidingWindow(token: string, config: object): Promise<void> {
+  await call("POST", "/v1/system/sliding_window", token, config);
+}
+
+/** 排程服務喚醒靈魂時打的端點；這裡沒有跑排程服務，權杖由 global-setup 產生。 */
+export async function awakenSoul(initPrompt: string, sessionMode: "independent" | "home" = "independent"): Promise<void> {
+  await call("POST", "/v1/heartbeat/awaken", null, {
+    token: process.env[ENV_HEARTBEAT_TOKEN] ?? "",
+    agent_id: SOUL_ID,
+    pulse_count: 1,
+    session_mode: sessionMode,
+    init_prompt: initPrompt,
+  });
+}
+
+export interface SavedMessage {
+  role: string;
+  generationFailed?: boolean;
+}
+
+/** 存檔裡這段對話的訊息節點（不是畫面上的）。 */
+export async function savedMessages(token: string, sessionId: string): Promise<SavedMessage[]> {
+  const session = await call<{ messages: { messages: Record<string, SavedMessage> } }>(
+    "GET",
+    `/v1/ui/sessions/${sessionId}`,
+    token,
+  );
+  return Object.values(session.messages.messages);
 }
 
 export async function hookRuns(token: string): Promise<HookRunRow[]> {

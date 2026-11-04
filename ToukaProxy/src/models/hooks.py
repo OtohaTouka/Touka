@@ -29,9 +29,20 @@ WIRED_EVENTS: Final[tuple[str, ...]] = (
     "PermissionDenied",
     "Notification",
     "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+    "TaskCreated",
+    "TaskCompleted",
+    "Elicitation",
+    "ConfigChange",
+    "HeartbeatStart",
+    "HeartbeatStop",
 )
-# 照 Claude Code：工具事件看工具名稱、Notification 看通知類型；
-# UserPromptSubmit 與 Stop 不看 matcher。
+# 照 Claude Code：工具事件看工具名稱、Notification 看通知類型，其他看各自的類型；
+# UserPromptSubmit、Stop、Task*、Heartbeat* 不看 matcher。
 MATCHER_EVENTS: Final[frozenset[str]] = frozenset(
     {
         "PreToolUse",
@@ -40,12 +51,25 @@ MATCHER_EVENTS: Final[frozenset[str]] = frozenset(
         "PermissionRequest",
         "PermissionDenied",
         "Notification",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "Elicitation",
+        "ConfigChange",
     }
+)
+# 事件內容不帶對話內容的事件：無痕對話的提示不算這些
+NO_CONVERSATION_EVENTS: Final[frozenset[str]] = frozenset(
+    {"ConfigChange", "HeartbeatStart", "HeartbeatStop"}
 )
 
 MAX_HANDLERS_PER_EVENT: Final[int] = 20
 DEFAULT_HOOK_TIMEOUT_SECONDS: Final[int] = 30
 MAX_HOOK_TIMEOUT_SECONDS: Final[int] = 300
+# 表單的 hook 和等人填表算在同一個 MCP 回合（protocols/mcp/mrtr.py）：hook 要先自己逾時、留下紀錄
+MAX_ELICITATION_HOOK_TIMEOUT_SECONDS: Final[int] = 30
 MAX_HOOK_ARGS: Final[int] = 64
 
 HookEvent = Literal[
@@ -57,6 +81,17 @@ HookEvent = Literal[
     "PermissionDenied",
     "Notification",
     "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+    "TaskCreated",
+    "TaskCompleted",
+    "Elicitation",
+    "ConfigChange",
+    "HeartbeatStart",
+    "HeartbeatStop",
 ]
 
 _ENV_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
@@ -170,6 +205,10 @@ class HooksConfig(BasePolicyModel):
             if sum(len(group.hooks) for group in groups) > MAX_HANDLERS_PER_EVENT:
                 msg = f"at most {MAX_HANDLERS_PER_EVENT} hooks per event ({event})"
                 raise HookConfigError(msg)
+        for group in self.hooks.get("Elicitation", []):
+            if any(hook.timeout > MAX_ELICITATION_HOOK_TIMEOUT_SECONDS for hook in group.hooks):
+                msg = f"Elicitation hook timeout is at most {MAX_ELICITATION_HOOK_TIMEOUT_SECONDS}s"
+                raise HookConfigError(msg)
         return self
 
     def groups_for(self, event: str) -> list[HookMatcherGroup]:
@@ -228,6 +267,12 @@ class HookRunOut(BaseModel):
     http_status: int | None = None
     detail: str | None = None
     incognito: bool = False
+
+
+class HooksActiveResponse(BaseModel):
+    """有沒有會收到對話內容的 hook（給無痕對話的提示；只有這個布林值，不透露設定）。"""
+
+    active: bool
 
 
 class HookRunsResponse(BaseModel):

@@ -13,6 +13,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.authorization_gateway import require_owner_or_admin
 from src.services.bot_service import bot_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.utils.secrets import is_masked, mask_secret
 
 router = APIRouter(prefix="/bots", tags=["UI Bots"])
@@ -162,4 +163,5 @@ async def save_bots_config(
     except Exception as e:
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
     else:
+        notify_config_change("bots")
         return {"status": "success", "message": "Bots reloaded."}

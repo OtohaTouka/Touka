@@ -20,7 +20,7 @@ import type { RequestScope } from '../connections';
 import { useSessionList } from "./SessionListProvider";
 import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
-import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, recordInterjection, stampNodeTime, dropBlockedTurn } from "../stream_tree";
+import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, recordInterjection, stampNodeTime, dropBlockedTurn } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
 import { getLinearMessages, migrateFlatToTree, TreeHistory } from "../tree_history";
@@ -230,11 +230,14 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     const onDone = async (terminal?: StreamTerminalEvent) => {
-      const s = streamsRef.current[sessionId];
-      if (!s || !ownsStream() || s.settling) return;
-      if (terminal && (!s.started || terminal.stream_id !== s.started.stream_id ||
-          terminal.session_id !== sessionId || terminal.assistant_node_id !== s.assistantMsgId ||
-          terminal.user_parent_id !== s.started.user_parent_id)) return;
+      const latest = streamsRef.current[sessionId];
+      if (!latest || !ownsStream() || latest.settling) return;
+      if (terminal && (!latest.started || terminal.stream_id !== latest.started.stream_id ||
+          terminal.session_id !== sessionId || terminal.assistant_node_id !== latest.assistantMsgId ||
+          terminal.user_parent_id !== latest.started.user_parent_id)) return;
+      // 後端說這一輪失敗（模型回錯、例外）：標在回覆上，保存狀態另外算（ADR-0231）
+      const s = terminal?.generation === 'error'
+        ? { ...latest, tree: markGenerationFailed(latest.tree, latest.assistantMsgId) } : latest;
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'saving' } }));
       // EOF／DONE 沒有保存證據；無痕只代表記憶體內容，不需要持久化核對。
       const result = await persistDone(s, terminal?.persistence ?? (s.incognito ?

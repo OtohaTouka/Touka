@@ -19,7 +19,7 @@ from src.services import tool_executor as executor_module
 from src.services.approval_service import approval_service
 from src.services.auto_reviewer import AutoReviewer
 from src.services.completion import CompletionResult
-from src.services.hooks import background, tool_hooks
+from src.services.hooks import background, lifecycle, tool_hooks
 from src.services.hooks.runners import RunResult
 from src.services.hooks.service import HookService
 from src.services.permission_service import permission_service
@@ -85,7 +85,7 @@ def install_hooks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> HookSetup:
     http = FakeHttp()
     path = tmp_path / "hooks.json"
     service = HookService(config_path=lambda: path, http_runner=http)
-    for module in (layer_module, tool_hooks, background):
+    for module in (layer_module, tool_hooks, background, lifecycle):
         monkeypatch.setattr(module, "hook_service", service)
     monkeypatch.setattr(background, "_in_flight", set())
     return HookSetup(service=service, http=http, path=path)

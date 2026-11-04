@@ -33,6 +33,7 @@ from src.services import approval_flow, mcp_vault_jail, tool_errors
 from src.services.auto_reviewer import CODE_HEADLESS_TERMINAL, ReviewRequest, auto_reviewer
 from src.services.autonomy import autonomy_service
 from src.services.hooks.events import attach_to_tool_result, legacy_aliases
+from src.services.hooks.lifecycle import run_elicitation_hooks
 from src.services.hooks.notifications import notify_approval_card, notify_mcp_input
 from src.services.hooks.tool_hooks import (
     HOOK_DENIED_REASON,
@@ -945,6 +946,11 @@ class ToolExecutor:
                                         agent_id=agent_id,
                                         session_id=session_id,
                                         on_shown=lambda: notify_mcp_input(ctx, name),
+                                        before_shown=lambda message, schema: (
+                                            run_elicitation_hooks(
+                                                ctx, server_id, message, schema
+                                            )
+                                        ),
                                     )
                                 )
                                 if human_present

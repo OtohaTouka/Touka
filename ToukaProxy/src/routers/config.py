@@ -10,6 +10,7 @@ from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.authorization_gateway import require_admin_authority
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.model_manager import model_manager
 from src.services.providers import registry
 from src.utils.secrets import MASK as _MASK  # 遮罩 SSOT（向後相容別名）
@@ -121,6 +122,7 @@ async def update_env(update: EnvUpdate, _identity: AgentIdentity = Depends(_requ
         logger.exception("Failed to update .env")
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
 
+    notify_config_change("env")
     # .env 寫入成功 → provider 金鑰即時生效＋探測（免重啟）；非 provider 設定仍需重啟。
     # best-effort：即時套用/探測失敗不影響「已存檔」結果。值為空＝清除（探測回 "cleared"，
     # 其模型由 get_models 的 health 邏輯自動標離線——反向生命週期）。

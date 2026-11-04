@@ -21,6 +21,7 @@ from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import require_privileged
 from src.services.custom_model_service import custom_model_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
 from src.tools import terminal
@@ -252,6 +253,7 @@ async def update_custom_model(
                 if not removed:
                     logger.warning("Could not remove half-written custom model %s", model_id)
             raise ToukaException(ErrorCode.SYSTEM_ERROR)
+        notify_config_change("custom_models")
         return {"status": "success", "model_id": model_id}
 
 
@@ -314,6 +316,7 @@ async def rename_custom_model(
                     _identity.agent_id,
                 )
             raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
+        notify_config_change("custom_models")
         return {"status": "success", "old_id": model_id, "new_id": new_id}
 
 
@@ -338,4 +341,5 @@ async def delete_custom_model(
         if model_id not in soul_io.list_soul_ids():
             user_service.remove_owned_agent_from_all(identity)
 
+        notify_config_change("custom_models")
         return {"status": "success"}

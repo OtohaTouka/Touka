@@ -223,6 +223,9 @@ export const MessageItem = React.memo(({
                   </SafeMarkdown>
                 </div>
               )}
+              {msg.role === 'assistant' && msg.generationFailed && (
+                <div role="alert" className="text-sm text-status-error">{t('chat.message_item.generation_failed')}</div>
+              )}
               {msg.role === 'assistant' && msg.progress && (
                 <AgentActivityStrip progress={msg.progress} />
               )}

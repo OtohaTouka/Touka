@@ -3853,6 +3853,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/hooks/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hooks Active
+         * @description 有沒有啟用中的 hook 會收到對話內容。
+         */
+        get: operations["hooks_active_v1_hooks_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/hooks/runs": {
         parameters: {
             query?: never;
@@ -3890,6 +3910,26 @@ export interface paths {
          * @description 存整份設定；``author``／``updated_at`` 由伺服器填。
          */
         put: operations["save_hooks_config_hooks_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hooks Active
+         * @description 有沒有啟用中的 hook 會收到對話內容。
+         */
+        get: operations["hooks_active_hooks_active_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -7910,6 +7950,14 @@ export interface components {
             runs: components["schemas"]["HookRunOut"][];
         };
         /**
+         * HooksActiveResponse
+         * @description 有沒有會收到對話內容的 hook（給無痕對話的提示；只有這個布林值，不透露設定）。
+         */
+        HooksActiveResponse: {
+            /** Active */
+            active: boolean;
+        };
+        /**
          * HooksConfig
          * @description 整份 hook 設定；預設關閉，打開後依事件執行。
          */
@@ -7997,9 +8045,9 @@ export interface components {
             config: components["schemas"]["HooksConfig-Output"];
             health: components["schemas"]["HookHealthOut"];
             /** Wired Events */
-            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
+            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ConfigChange" | "HeartbeatStart" | "HeartbeatStop")[];
             /** Matcher Events */
-            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop")[];
+            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ConfigChange" | "HeartbeatStart" | "HeartbeatStop")[];
         };
         /**
          * HooksSaveRequest
@@ -17396,6 +17444,26 @@ export interface operations {
             };
         };
     };
+    hooks_active_v1_hooks_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksActiveResponse"];
+                };
+            };
+        };
+    };
     list_hook_runs_v1_hooks_runs_get: {
         parameters: {
             query?: never;
@@ -17465,6 +17533,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hooks_active_hooks_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksActiveResponse"];
                 };
             };
         };

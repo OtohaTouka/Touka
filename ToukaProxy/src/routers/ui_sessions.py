@@ -44,6 +44,7 @@ from src.services.authorization_gateway import (
     require_authenticated,
 )
 from src.services.handover_service import handover_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
 from src.services.isolation import profiles
@@ -851,8 +852,10 @@ async def update_workspace_settings(
 ) -> dict[str, Any]:
     """更新工作區路徑設定（DA4-followup：全域系統設定，限 admin）。"""
     new_root = payload.workspace_root
-    await set_system_setting("workspace_root", new_root)
+    if not await set_system_setting("workspace_root", new_root):
+        raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED)
     resource_manager.invalidate_cache()
+    notify_config_change("workspace")
     return {"status": "success", "workspace_root": new_root}
 
 

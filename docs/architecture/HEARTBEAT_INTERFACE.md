@@ -2,6 +2,10 @@
 
 > **TL;DR** — `POST /heartbeat/awaken` 需 `X-Heartbeat-Token` 或 service JWT（`sub=heartbeat, type=service`）；token 驗證唯一入口 `verify_heartbeat_token()` Depends（SOLID-SRP）；滑動視窗在 PostHeartbeat finally 區塊觸發，僅家對話，子對話跳過（ADR-0035）。
 
+## Hook（ADR-0292 決定 17）
+
+- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗時脈衝照舊算跑完、`end` 是 `completed`，要看 StopFailure）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
+
 ## 對話歸屬與獨立頻道（ADR-0276）
 
 - `/heartbeat/awaken`（含 `/v1`）與 `/v1/heartbeat/retrigger` 在讀歷史及寫入前核對執行靈魂與對話綁定；外靈魂、矛盾家、多家、退休 ID 或非法保留 ID 回 403 `SESSION_SCOPE_MISMATCH`（1221）。Debugger／admin 代打不豁免；retrigger 仍需人類存取權與既有能力閘。

@@ -9222,6 +9222,33 @@
         ]
       }
     },
+    "/v1/hooks/active": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Hooks Active",
+        "description": "有沒有啟用中的 hook 會收到對話內容。",
+        "operationId": "hooks_active_v1_hooks_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksActiveResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/hooks/runs": {
       "get": {
         "tags": [
@@ -9309,6 +9336,33 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/hooks/active": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Hooks Active",
+        "description": "有沒有啟用中的 hook 會收到對話內容。",
+        "operationId": "hooks_active_hooks_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksActiveResponse"
                 }
               }
             }
@@ -18753,6 +18807,20 @@
         "title": "HookRunsResponse",
         "description": "最近的執行紀錄，新的在前（只在記憶體，重啟後清空）。"
       },
+      "HooksActiveResponse": {
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active"
+        ],
+        "title": "HooksActiveResponse",
+        "description": "有沒有會收到對話內容的 hook（給無痕對話的提示；只有這個布林值，不透露設定）。"
+      },
       "HooksConfig-Input": {
         "properties": {
           "version": {
@@ -18836,7 +18904,18 @@
                 "PermissionRequest",
                 "PermissionDenied",
                 "Notification",
-                "Stop"
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
               ]
             },
             "type": "object",
@@ -18931,7 +19010,18 @@
                 "PermissionRequest",
                 "PermissionDenied",
                 "Notification",
-                "Stop"
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
               ]
             },
             "type": "object",
@@ -18962,7 +19052,18 @@
                 "PermissionRequest",
                 "PermissionDenied",
                 "Notification",
-                "Stop"
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
               ]
             },
             "type": "array",
@@ -18979,7 +19080,18 @@
                 "PermissionRequest",
                 "PermissionDenied",
                 "Notification",
-                "Stop"
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
               ]
             },
             "type": "array",

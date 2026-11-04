@@ -3066,12 +3066,7 @@
           "model"
         ],
         "kwargs": null,
-        "reads": [
-          [
-            "base_ctx",
-            "enable_autonomy"
-          ]
-        ],
+        "reads": [],
         "dynamic": []
       },
       "_result_from_text": {
@@ -3169,6 +3164,31 @@
           [
             "r",
             "status"
+          ]
+        ],
+        "dynamic": []
+      },
+      "SubagentStoppedError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_run_assembled": {
+        "parameters": [
+          "request",
+          "sub_identity",
+          "sub_request_id",
+          "base_ctx",
+          "goal"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "enable_autonomy"
           ]
         ],
         "dynamic": []

@@ -27,7 +27,13 @@ from pydantic import ValidationError
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
-from src.models.hooks import MATCHER_EVENTS, CommandHook, HooksConfig, HttpHook
+from src.models.hooks import (
+    MATCHER_EVENTS,
+    NO_CONVERSATION_EVENTS,
+    CommandHook,
+    HooksConfig,
+    HttpHook,
+)
 from src.services.hooks.matcher import matcher_matches
 from src.services.hooks.outcome import HookVerdict, interpret
 from src.services.hooks.paths import HOOKS_DIR_NAME, HookZones, command_path_problems, current_zones
@@ -259,6 +265,17 @@ class HookService:
     def has_matching_hooks(self, event: str, match: Iterable[str] = ()) -> bool:
         """這次有沒有 hook 會執行（已比對 matcher、略過停用的）。"""
         return bool(self._select(event, match))
+
+    def has_conversation_hooks(self) -> bool:
+        """有沒有啟用中的 hook 會收到對話內容（無痕對話要提示）。"""
+        config = self.current()
+        return config.enabled and any(
+            hook.enabled
+            for event, groups in config.hooks.items()
+            if event not in NO_CONVERSATION_EVENTS
+            for group in groups
+            for hook in group.hooks
+        )
 
     def runs(self) -> list[HookRunRecord]:
         """最近的執行紀錄，新的在前。"""

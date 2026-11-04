@@ -42,6 +42,7 @@ vi.mock('../AuthSwitcher', () => ({ AuthSwitcher: () => null }));
 vi.mock('../SkillSelector', () => ({ SkillSelector: () => null }));
 vi.mock('../ContextMeter', () => ({ ContextMeter: () => null }));
 vi.mock('../SessionPersistenceNotice', () => ({ SessionPersistenceNotice: () => null }));
+vi.mock('../IncognitoHookNotice', () => ({ IncognitoHookNotice: () => null }));
 vi.mock('../MessageItem', () => ({ MessageItem: () => null }));
 vi.mock('../ChatWelcome', () => ({ ChatWelcome: () => null }));
 vi.mock('../FeedbackReasonDialog', () => ({ FeedbackReasonDialog: () => null }));

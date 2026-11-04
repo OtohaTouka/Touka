@@ -12,8 +12,10 @@
 
 - 設定畫面「系統」組新增「Hooks」分頁（`config.ts` 的 `hooks`，`adminOnly`；搜尋索引一筆）。不加左側欄入口。
   - 資料層 `hooks/settings/useHooksSettings.ts`：經 `fetchTouka` 讀 `GET /v1/hooks` 與 `GET /v1/hooks/runs`；存檔 `PUT /v1/hooks` 送整份設定和載入時的 `health.revision`（沒有檔案時送 `null`）。存檔結果分成 `saved`、`conflict`（409）、`path_rejected`（422，帶 `problems`）、`invalid`（422 欄位驗證，取第一個錯誤的位置與訊息）、`failed`。讀不到（含 403）當讀取失敗。
-  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前八個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
+  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前十九個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
+- 無痕提示：`hooks/useHooksActive.ts` 只在無痕對話查 `GET /v1/hooks/active`，送出訊息後（`isSending` 變了）再查一次，查不到維持上次結果；`components/chat/IncognitoHookNotice.tsx` 在 `active` 時顯示（`role="status"`）。
+- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡，模型失敗時要重試保存才進存檔；無痕也有），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
 - 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。

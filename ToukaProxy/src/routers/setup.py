@@ -18,6 +18,7 @@ from pydantic import BaseModel, field_validator
 from src.core.exceptions import ErrorCode, ToukaException
 from src.routers.admin import require_admin
 from src.services import embedding_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.setup_service import SetupService, SetupStatus
 from src.utils.task_utils import spawn_logged
 
@@ -80,6 +81,7 @@ async def apply_setup(
     except ValueError as e:
         # 宿主目錄驗證失敗（原生模式路徑不存在等）→ 乾淨的在地化 422，避免未捕捉例外變 500。
         raise ToukaException(ErrorCode.VALIDATION_ERROR, detail_override=str(e)) from e
+    notify_config_change("setup")
     return {"status": "ok"}
 
 
@@ -136,4 +138,7 @@ async def switch_embedding_model(
     """
     # 偵測要讀事實庫、重置要等向量庫的鎖：在記憶工作者上做成一個工作，
     # 偵測和套用之間不會插進別的記憶操作（ADR-0288）
-    return await run_memory_job(embedding_service.switch_model, body.model, force=body.force)
+    result = await run_memory_job(embedding_service.switch_model, body.model, force=body.force)
+    if result.get("status") == "ok":
+        notify_config_change("embedding")
+    return result
