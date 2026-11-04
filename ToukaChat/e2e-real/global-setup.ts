@@ -7,6 +7,7 @@ import { adminLogin, createSoul, replaceInitialPassword } from "./lib/api";
 import { startBackend } from "./lib/backend";
 import {
   API_PORT,
+  BACKEND_LOG,
   ENV_EMAIL,
   ENV_PASSWORD,
   ENV_SANDBOX_ROOT,
@@ -37,7 +38,8 @@ async function assertPortFree(port: number): Promise<void> {
   });
 }
 
-async function prepareAccount(sandboxRoot: string): Promise<void> {
+/** 回傳這次用過的兩個密碼，teardown 要確認沒有落到記錄檔。 */
+async function prepareAccount(sandboxRoot: string): Promise<string[]> {
   const raw = fs.readFileSync(path.join(sandboxRoot, "config", "INITIAL_ADMIN_PASSWORD.txt"), "utf8");
   const email = raw.match(/email:\s*(\S+)/)?.[1];
   const initial = raw.match(/password:\s*(\S+)/)?.[1];
@@ -47,6 +49,15 @@ async function prepareAccount(sandboxRoot: string): Promise<void> {
   process.env[ENV_EMAIL] = email;
   process.env[ENV_PASSWORD] = password;
   await createSoul(await adminLogin());
+  return [initial, password];
+}
+
+/** backend.log 會傳成 CI 產物，測試帳號的密碼也不能在裡面。訊息不印密碼本身。 */
+function assertLogHasNoPassword(passwords: string[]): void {
+  const log = fs.readFileSync(BACKEND_LOG, "utf8");
+  if (passwords.some((password) => log.includes(password))) {
+    throw new Error(`${BACKEND_LOG} contains a test account password`);
+  }
 }
 
 /** 起假模型、hook 接收端、靜態前端與真後端；回傳的函式是 global teardown。 */
@@ -66,15 +77,21 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   try {
     const backend = await startBackend();
     process.env[ENV_SANDBOX_ROOT] = backend.sandboxRoot;
+    let passwords: string[];
     try {
-      await prepareAccount(backend.sandboxRoot);
+      passwords = await prepareAccount(backend.sandboxRoot);
     } catch (error) {
       await backend.stop().catch(() => undefined);
       throw error;
     }
     return async () => {
       closeServers();
-      await backend.stop();
+      try {
+        await backend.stop();
+      } finally {
+        // 後端失敗時最需要看記錄檔，記錄檔也照樣會傳出去，所以一樣要查
+        assertLogHasNoPassword(passwords);
+      }
     };
   } catch (error) {
     closeServers();

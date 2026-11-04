@@ -33,10 +33,15 @@ parser.add_argument("--web-origin", required=True)
 args = parser.parse_args()
 
 sandbox_root = Path(enable_smoke_sandbox("e2e_real"))
-os.environ["ENABLE_DYNAMIC_MODELS"] = "true"
-os.environ["SECURE_COOKIES"] = "false"
-os.environ["UI_DEFAULT_URL"] = args.web_origin
-os.environ["AUTH_RATE_LIMIT_MAX"] = AUTH_RATE_LIMIT_MAX_FOR_E2E
+os.environ.update(  # noqa: ENV_SSOT_VIOLATION - 沙盒建好之後、載入產品之前
+    {
+        # 沙盒預設關掉模型探索；假模型要靠它進選單，連線又只有本機假模型（ADR-0295）
+        "ENABLE_DYNAMIC_MODELS": "true",
+        "SECURE_COOKIES": "false",
+        "UI_DEFAULT_URL": args.web_origin,
+        "AUTH_RATE_LIMIT_MAX": AUTH_RATE_LIMIT_MAX_FOR_E2E,
+    }
+)
 (sandbox_root / "config" / "connections.json").write_text(
     json.dumps(
         {
