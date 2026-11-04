@@ -24,7 +24,7 @@ CHAT_ROOT = ROOT / "ToukaChat"
 # Guard #42 (Release Workflow Gate) and #43 (ghcr Compose Pull-Purity) are retired;
 # guard numbers are stable identifiers and are not renumbered.
 RETIRED_GUARD_IDS = {42, 43}
-GUARD_IDS = set(range(1, 46)) - RETIRED_GUARD_IDS
+GUARD_IDS = set(range(1, 47)) - RETIRED_GUARD_IDS
 AUDIT_GUARD_IDS = {22, 23}
 
 
@@ -152,7 +152,7 @@ def test_dependency_audit_guards_use_dedicated_fail_closed_scripts() -> None:
     assert "npm run guard:audit" not in commands
 
 
-def test_main_keeps_43_guards_and_registers_both_audit_aggregates(
+def test_main_keeps_44_guards_and_registers_both_audit_aggregates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     guard_all = _load_guard_all()
@@ -173,7 +173,7 @@ def test_main_keeps_43_guards_and_registers_both_audit_aggregates(
         guard_all.main()
 
     assert exc_info.value.code == 0
-    assert len(calls) == len(GUARD_IDS) == 43
+    assert len(calls) == len(GUARD_IDS) == 44
     assert calls[21][0] == "python scripts/guard_python_cve.py"
     assert "[Guard #22]" in calls[21][2]
     assert calls[22][0] == "python scripts/guard_node_cve.py"
@@ -212,7 +212,7 @@ def test_pytest_guards_use_current_interpreter_native_argv(
 
 
 @pytest.mark.parametrize("failed_guard", [None, "[Guard #27]"])
-def test_non_audit_runs_exactly_41_and_reports_incomplete_full_suite(
+def test_non_audit_runs_exactly_42_and_reports_incomplete_full_suite(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     failed_guard: str | None,
@@ -242,13 +242,13 @@ def test_non_audit_runs_exactly_41_and_reports_incomplete_full_suite(
     output = capsys.readouterr().out
     assert "[NOT RUN] | Python CVE Guard (pip-audit) [Guard #22]" in output
     assert "[NOT RUN] | Node CVE Guard (Chat + IDE, runtime + full) [Guard #23]" in output
-    assert "Full 43-guard suite: INCOMPLETE" in output
+    assert "Full 44-guard suite: INCOMPLETE" in output
     assert "All architectural checks PASSED" not in output
     if failed_guard:
         assert "selected guard failed" in output
         assert "Selected guards PASSED" not in output
     else:
-        assert "Selected guards PASSED (41/41)" in output
+        assert "Selected guards PASSED (42/42)" in output
 
 
 def test_unknown_guard_option_fails_before_any_execution(
@@ -372,7 +372,7 @@ def test_retained_audits_use_safe_argv_and_keep_separate_raw_receipts(
         guard_all.main(["--audit-evidence-root", str(evidence_root)])
 
     assert actual.value.code == int(failed_audit is not None)
-    assert len(calls) == 43
+    assert len(calls) == 44
     assert [index for index, (command, _) in enumerate(calls) if not isinstance(command, str)] == [
         16,
         21,
@@ -387,7 +387,7 @@ def test_retained_audits_use_safe_argv_and_keep_separate_raw_receipts(
         receipt = json.loads((retained / "receipt.json").read_text(encoding="utf-8"))
         assert receipt["exit_code"] == int(audit == failed_audit)
     output = capsys.readouterr().out
-    assert ("Full 43-guard suite: INCOMPLETE" in output) == (failed_audit is not None)
+    assert ("Full 44-guard suite: INCOMPLETE" in output) == (failed_audit is not None)
     assert ("All architectural checks PASSED" in output) == (failed_audit is None)
 
 
@@ -452,13 +452,13 @@ def test_non_audit_retention_option_never_creates_root_or_launches_audits(
     assert {int(name.rsplit("#", 1)[1].removesuffix("]")) for name in calls} == (
         GUARD_IDS - AUDIT_GUARD_IDS
     )
-    assert len(calls) == 41
+    assert len(calls) == 42
     assert not evidence_root.exists()
     output = capsys.readouterr().out
     assert "[NOT RUN] | Python CVE Guard (pip-audit) [Guard #22]" in output
     assert "[NOT RUN] | Node CVE Guard (Chat + IDE, runtime + full) [Guard #23]" in output
-    assert "Full 43-guard suite: INCOMPLETE" in output
-    assert "Selected guards PASSED (41/41)" in output
+    assert "Full 44-guard suite: INCOMPLETE" in output
+    assert "Selected guards PASSED (42/42)" in output
     assert "All architectural checks PASSED" not in output
 
 
@@ -497,7 +497,7 @@ def test_invalid_evidence_root_refuses_all_guards_and_preserves_existing_bytes(
     assert marker.read_bytes() == b"original failure\xff"
     output = capsys.readouterr().out
     assert "[FAIL] Audit evidence root" in output
-    assert "Full 43-guard suite: INCOMPLETE" in output
+    assert "Full 44-guard suite: INCOMPLETE" in output
     assert "All architectural checks PASSED" not in output
 
 
