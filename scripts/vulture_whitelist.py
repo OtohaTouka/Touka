@@ -1,7 +1,7 @@
 # ruff: noqa
 """Vulture 白名單 — 告知 vulture 哪些是刻意保留的符號。
 
-此檔案由 `scripts/guard_dead_code.py` 傳入 vulture 作為「白名單輸入」。
+此檔案由 `scripts/guard_dead_code.py` 與 `scripts/lint_ratchet.py` 傳入 vulture 作為「白名單輸入」。
 每當 vulture 誤報某個符號時，在此加一行「引用」以消除誤報。
 
 常見誤報類別：
@@ -12,7 +12,7 @@
 - __all__ 中聲明的公開 API
 
 用法：
-    vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat scripts/vulture_whitelist.py --min-confidence 80
+    vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch scripts/vulture_whitelist.py --min-confidence 80
 """
 
 # ADR-0069 Phase B — Judge Protocol 介面參數（由 Phase D 的 ModelJudge 實作使用；

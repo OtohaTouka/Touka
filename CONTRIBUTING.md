@@ -90,8 +90,11 @@ ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatc
 #    裡檢查（tests/lint/test_ruff_ratchet.py、test_pyrefly_ratchet.py）。型別檢查的範圍在 pyproject.toml
 #    的 [tool.pyrefly]。修掉舊錯誤後，重拍基準一起提交：
 #    python -B scripts/lint_ratchet.py ruff --update（型別檢查是 pyrefly --update）
+#    未用的函式、方法、類別不得增加：和 tests/lint/vulture_baseline.json 比，這道只有多出來才紅、少了不紅
+#    （test_vulture_ratchet.py）。接上或刪掉；確定要留才跑 vulture --update，並在 PR 說明逐項列出
 python -B scripts/lint_ratchet.py ruff
 python -B scripts/lint_ratchet.py pyrefly
+python -B scripts/lint_ratchet.py vulture
 
 # 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint

@@ -59,9 +59,16 @@ describe('Console Ban Guard Logic', () => {
     expect(violations.length).toBe(0);
   });
 
-  it('should NOT flag files outside scanPaths (e.g. src/components/)', () => {
+  it('should detect console.log in src/components/', () => {
     const code = `console.log("in components");`;
     const sf = project.createSourceFile('src/components/SomeComponent.tsx', code, { overwrite: true });
+    const violations = checkConsoleViolations(sf, DEFAULT_CONSOLE_GUARD_CONFIG);
+    expect(violations.length).toBe(1);
+  });
+
+  it('should NOT flag files outside scanPaths (e.g. src/test/)', () => {
+    const code = `console.log("test helper");`;
+    const sf = project.createSourceFile('src/test/helper.ts', code, { overwrite: true });
     const violations = checkConsoleViolations(sf, DEFAULT_CONSOLE_GUARD_CONFIG);
     expect(violations.length).toBe(0);
   });

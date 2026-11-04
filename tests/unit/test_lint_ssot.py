@@ -4,11 +4,13 @@ import ast
 import sys
 from pathlib import Path
 
+import pytest
+
 # 為了方便測試，我們動態導入 scripts/lint_ssot.py
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from lint_ssot import SSOTGuard
+from lint_ssot import FLAT_PRODUCT_DIRS, REPO_ROOT, SSOTGuard, run_guard
 
 
 def parse_and_check(code_str: str, filename: str = "dummy.py") -> list[dict]:
@@ -170,6 +172,69 @@ def test_raise_string_ban_noqa():
     visitor = SSOTGuard("ToukaProxy/src/services/soul_service.py", ignored_lines=ignored)
     visitor.visit(tree)
     assert not any(v["rule"] == "RAISE_STRING_BAN" for v in visitor.violations)
+
+
+# ── Heartbeat、Dispatch 沒有 src 資料夾，也算業務層（ADR-0297）─────────────────
+
+BUSINESS_LAYER_CASES = [
+    # (路徑, 算不算業務層)
+    ("ToukaProxy/src/services/a.py", True),
+    (str(Path("ToukaHeartbeat") / "proxy_client.py"), True),
+    (str(Path("ToukaDispatch") / "session_manager.py"), True),
+    (str(REPO_ROOT / "ToukaHeartbeat" / "proxy_client.py"), True),
+    (str(REPO_ROOT / "ToukaDispatch" / "session_manager.py"), True),
+    # 只認 repo 頂層那兩個資料夾，名字長得像或放在別層都不算
+    ("ToukaHeartbeatOld/a.py", False),
+    ("tests/ToukaHeartbeat/a.py", False),
+    ("scripts/ToukaDispatch.py", False),
+    (str(REPO_ROOT / "tests" / "ToukaDispatch" / "a.py"), False),
+    (str(REPO_ROOT.parent / "ToukaHeartbeat" / "a.py"), False),
+    # 含 .. 比對不了，照舊只看 /src/
+    (str(Path("ToukaHeartbeat") / ".." / "tests" / "a.py"), False),
+    # 命令列工具刻意不掃（禁令 7）
+    ("ToukaProxy/plugin_manager.py", False),
+]
+
+
+@pytest.mark.parametrize(("filename", "expected"), BUSINESS_LAYER_CASES)
+def test_print_ban_covers_the_business_layer(filename: str, expected: bool) -> None:
+    violations = parse_and_check('print("debug info")', filename)
+    assert any(v["rule"] == "PRINT_BAN" for v in violations) is expected
+
+
+@pytest.mark.parametrize(("filename", "expected"), BUSINESS_LAYER_CASES)
+def test_raise_string_ban_covers_the_business_layer(filename: str, expected: bool) -> None:
+    violations = parse_and_check('raise ValueError("oneword")', filename)
+    assert any(v["rule"] == "RAISE_STRING_BAN" for v in violations) is expected
+
+
+def test_flat_product_dirs_still_exist_at_the_repo_root() -> None:
+    """資料夾改名或搬走時要跟著改，否則檢查會悄悄掃不到。"""
+    assert FLAT_PRODUCT_DIRS == ("ToukaHeartbeat", "ToukaDispatch")
+    assert all((REPO_ROOT / folder).is_dir() for folder in FLAT_PRODUCT_DIRS)
+
+
+def test_run_guard_reports_flat_product_folders_the_way_guard_all_runs_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """guard_all 和 CI 從 repo 根掃 `.`，規則收到的是不含 `/src/` 的相對路徑。"""
+    bad_code = 'print("debug info")\nraise ValueError("oneword")\n'
+    for folder in FLAT_PRODUCT_DIRS:
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "bad_module.py").write_text(bad_code, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    reported = {
+        (path.parts[0], violation["rule"])
+        for path, violations in run_guard(".")
+        for violation in violations
+    }
+
+    assert reported >= {
+        (folder, rule)
+        for folder in FLAT_PRODUCT_DIRS
+        for rule in ("PRINT_BAN", "RAISE_STRING_BAN")
+    }
 
 
 # ── ENV_SSOT_VIOLATION 擴充：系統 API 禁令 ─────────────────────────────────
