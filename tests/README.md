@@ -1155,7 +1155,8 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useLegacySync.test.ts` ⭐ | ADR-0253：後端回錯誤狀態、或 200 但 `status` 不是 success 時不顯示同步成功；只有真的成功才顯示一次成功；讀統計失敗時顯示錯誤、不默默略過 |
 | `src/components/sidebar/__tests__/MemoryNoticeBar.schema.test.tsx` ⭐ | ADR-0256 記憶庫結構提示：5 個結構代碼都顯示成翻譯過的警告（`role="alert"`、和降級橫幅一樣醒目）；5 個代碼都有英文訊息 |
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
-| `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了並標出目前畫面、點對話或新對話回聊天、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動 |
+| `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
+| `unit/LeftSidebar.switch.test.tsx` | 點對話：在其他畫面點開著的這段只回聊天、不重新載入；點另一段會切過去也回聊天；已經在聊天時照常切換 |
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
 | `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |

@@ -94,11 +94,12 @@ export function NavigationArea({
             aria-label={currentPage
               ? t('sidebar.navigation_area.menu_aria_page', { name, page: currentPage })
               : t('sidebar.navigation_area.menu_aria', { name })}
-            className="flex items-center gap-3 px-3 py-2 rounded-xl transition-all w-full text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="group flex items-center gap-3 px-3 py-2 rounded-xl transition-all w-full text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Menu className="w-5 h-5 shrink-0" />
             <span className="text-base font-bold truncate">{name}</span>
-            {currentPage && <span className="ml-auto text-xs font-bold text-primary shrink-0">{currentPage}</span>}
+            {/* primary 小字在 accent 上對比不足 4.5:1，滑鼠移上時換色 */}
+            {currentPage && <span className="ml-auto text-xs font-bold text-primary group-hover:text-foreground shrink-0">{currentPage}</span>}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="z-50 w-56 rounded-xl border border-border bg-popover p-1 shadow-xl">

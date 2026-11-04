@@ -165,7 +165,7 @@ describe('NavigationArea — 選單按鈕', () => {
         expect(trigger()).not.toHaveTextContent('設定');
     });
 
-    it('不用強制對話模式：手機抽屜關掉時畫面要點得動', () => {
+    it('不用強制對話模式（防手機抽屜關掉後畫面卡住，實際驗證沒重現，靠這條釘住）', () => {
         render(<NavigationArea {...defaultProps} />);
         expect(menu.modal).toBe(false);
     });
@@ -191,7 +191,7 @@ describe('NavigationArea — 分頁入口', () => {
         for (const name of hybridOnly) expect(screen.queryByRole('menuitem', { name })).toBeNull();
     });
 
-    it('沒有聊天大廳：回聊天靠點對話或新對話', () => {
+    it('選單裡沒有聊天大廳', () => {
         render(<NavigationArea {...defaultProps} isHybrid />);
         expect(screen.queryByRole('menuitem', { name: '聊天大廳' })).toBeNull();
     });

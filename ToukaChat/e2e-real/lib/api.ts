@@ -116,6 +116,14 @@ export async function savedMessages(token: string, sessionId: string): Promise<S
   return Object.values(session.messages.messages);
 }
 
+/** 用標題找對話編號：畫面上看不到編號。 */
+export async function sessionIdByTitle(token: string, title: string): Promise<string> {
+  const sessions = await call<{ id: string; title: string }[]>("GET", "/v1/ui/sessions", token);
+  const match = sessions.find((session) => session.title === title);
+  if (!match) throw new Error(`no session titled ${title}`);
+  return match.id;
+}
+
 export async function hookRuns(token: string): Promise<HookRunRow[]> {
   const body = await call<{ runs: HookRunRow[] }>("GET", "/v1/hooks/runs", token);
   return body.runs;

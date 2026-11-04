@@ -228,7 +228,8 @@ function ChatLobby() {
   useEffect(() => {
     if (!isMobile || (isSidebarCollapsed && !isRightSidebarOpen)) return;
     const onEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // 選單或抽屜自己接走這次 Esc 時（Radix 會標 defaultPrevented）一次只關一層
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         setIsSidebarCollapsed(true);
         setRightSidebarOpen(false);
       }
