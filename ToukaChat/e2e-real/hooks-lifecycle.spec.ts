@@ -16,6 +16,7 @@ import {
   MCP_SERVER,
   MODEL_400_REQUEST,
   MODEL_BAD_JSON_REQUEST,
+  MODEL_NO_REPLY_REQUEST,
   SOUL_ID,
   SUBAGENT_GOAL,
   TASK_SUBJECTS,
@@ -94,13 +95,16 @@ async function recoverSave(page: Page): Promise<void> {
 /**
  * 送出並等模型收到。設為家對話會換掉對話版本，畫面手上的版本過期、下一則存不進去
  * （既有問題，見 ADR-0295 的「實際驗證找到的既有問題」），這時恢復後再送一次。
+ * 一則最多恢復一次：恢復了還存不進去就不是這個既有問題，讓測試紅。
  */
 async function sendRecovering(page: Page, text: string): Promise<void> {
   const before = (await modelCalls()).length;
   await sendMessage(page, text);
+  let recovered = false;
   await expect
     .poll(async () => {
-      if (await page.getByRole("button", { name: "重新核對保存結果" }).isVisible()) {
+      if (!recovered && (await page.getByRole("button", { name: "重新核對保存結果" }).isVisible())) {
+        recovered = true;
         await recoverSave(page);
         await sendMessage(page, text);
       }
@@ -108,6 +112,12 @@ async function sendRecovering(page: Page, text: string): Promise<void> {
     })
     .toBeGreaterThan(before);
   await composer(page).waitFor();
+}
+
+/** 最後一則回覆有失敗標示。訊息清單是虛擬捲動，捲出畫面的不在頁面上，不能數總數。 */
+async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
+  const lastItem = page.locator("[data-index]").last();
+  await expect(lastItem.getByRole("alert")).toHaveText(/這一輪回覆失敗/);
 }
 
 async function setCurrentChatAsHome(page: Page): Promise<void> {
@@ -165,8 +175,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(failure.payload.error).toBe("invalid_request");
   expect(String(failure.payload.error_details)).toContain("400");
   await composer(page).waitFor();
-  const failedNotice = page.getByRole("alert").filter({ hasText: "模型回覆失敗" });
-  await expect(failedNotice).toHaveCount(1);
+  await expectLastReplyMarkedFailed(page);
   await shot(page, info, "model-400");
 
   // 模型失敗後對話的保存狀態不確定，要先恢復才送得出下一則
@@ -180,9 +189,27 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(unreadable.payload.error).toBe("unknown");
   expect(String(unreadable.payload.error_details)).toContain("200");
   await composer(page).waitFor();
-  await expect(failedNotice).toHaveCount(2);
+  await expectLastReplyMarkedFailed(page);
   await expect(page.getByText(/KeyError|TypeError|Traceback/)).toHaveCount(0);
   await shot(page, info, "model-bad-json");
+
+  // 模型回 200 但沒有回覆（這裡只有錯誤本文）：以前是空白泡泡、算正常結束，Stop 還會跑
+  await recoverSave(page);
+  await sendMessage(page, MODEL_NO_REPLY_REQUEST);
+  await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(3);
+  const noReply = (await receivedFor("StopFailure"))[2];
+  expectCleanPayload("StopFailure", noReply);
+  expect(noReply.payload.error).toBe("overloaded");
+  await composer(page).waitFor();
+  await expectLastReplyMarkedFailed(page);
+  await shot(page, info, "model-no-reply");
+
+  // 標示在重試保存時才進存檔：存好之後重新載入還在
+  await recoverSave(page);
+  await page.reload();
+  await composer(page).waitFor();
+  await expectLastReplyMarkedFailed(page);
+  await shot(page, info, "still-marked-after-reload");
 
   expect(await receivedFor("Stop")).toHaveLength(0);
   await expectRunRows(page, info, ["e2e-stop-failure"]);
@@ -332,7 +359,7 @@ test("設定存好才通知：回擋下照樣存好，內容沒有設定值，�
   await expect(
     eventSection(page, "ConfigChange").getByRole("textbox", { name: "名稱（選填）" }).first(),
   ).toHaveValue("e2e-config");
-  await shot(page, info, "still-saved");
+  await shot(page, info, "still-saved", eventSection(page, "ConfigChange"));
 
   await setSlidingWindow(adminToken, { ...SLIDING_WINDOW_OFF, summary_model: CANARY_API_KEY });
   await expect.poll(async () => (await receivedFor("ConfigChange")).length).toBe(2);
@@ -368,6 +395,22 @@ test("心跳：開始與結束都收到，內容有脈衝數與結束原因", as
   expect(stop.payload.end).toBe("completed");
   expect(stop.payload.session_id).toBe(start.payload.session_id);
   await expectRunRows(page, info, ["e2e-beat-start", "e2e-beat-stop"]);
+});
+
+test("心跳的模型失敗：StopFailure 有發，脈衝照舊算跑完", async ({ page }, info) => {
+  await openHooksTab(page);
+  await enableHooks(page);
+  await addHttpHook(page, "StopFailure", { url: hookUrl("ok"), name: "e2e-beat-failure" });
+  await addHttpHook(page, "HeartbeatStop", { url: hookUrl("ok"), name: "e2e-beat-end" });
+  await saveHooks(page);
+
+  await awakenSoul(MODEL_400_REQUEST);
+  const failure = await expectBackgroundHook("StopFailure");
+  expect(failure.payload.error).toBe("invalid_request");
+  const stop = await expectBackgroundHook("HeartbeatStop");
+  expect(stop.payload.end).toBe("completed");
+  expect(stop.payload.pulses_done).toBe(1);
+  await expectRunRows(page, info, ["e2e-beat-failure", "e2e-beat-end"]);
 });
 
 test("MCP 要資料：hook 回代填時表單照樣跳，答案是人填的，也發通知", async ({ page }, info) => {

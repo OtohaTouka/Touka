@@ -31,11 +31,11 @@
   - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。
   - StopFailure：`error`（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`、`unknown`）、`error_details`（先遮憑證與路徑）。子代理的回合不發，這一輪不跑 Stop。
   - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（失敗時是空字串）。
-  - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者不看 `permission_mode`。
+  - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者沒有 `permission_mode`。
   - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
-  - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。
-  - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發，擋不了設定；關閉 hooks 那次不發。
-  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。
+  - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。
+  - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發（備份還原例外：在接受時發，完成後行程就重啟），擋不了設定；關閉 hooks 那次不發。
+  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發，`end` 仍是 `completed`。
   - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop、TaskCreated、TaskCompleted、HeartbeatStart、HeartbeatStop 不看；Notification 看通知類型；StopFailure 看錯誤類型；SubagentStart、SubagentStop 看 `agent_type`；PreCompact、PostCompact 看 `trigger`；Elicitation 看 MCP 伺服器名稱；ConfigChange 看 `source`；其他看工具名稱。
 - 背景事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。

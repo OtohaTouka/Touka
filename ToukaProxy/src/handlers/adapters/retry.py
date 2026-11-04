@@ -27,8 +27,9 @@ import httpx2
 
 from src.utils.time_utils import get_current_epoch
 
+from .base import RoundError
+
 if TYPE_CHECKING:
-    from .base import RoundError
     from .stream_timeout import RoundClock
 
 RETRYABLE_STATUS = frozenset({408, 409, 429})
@@ -43,6 +44,7 @@ _CONNECT_FAILURES = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout
 _BUSY_ERROR_CODES = frozenset({"UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL",
                                "server_error", "rate_limit_exceeded"})
 _MAX_CAUSE_DEPTH = 8  # 例外鏈最多往下找幾層（禁令 18；循環的鏈也會停）
+_NO_REPLY_DETAIL_CHARS = 200  # 沒有回覆時，錯誤訊息最多附多少上游內容
 _RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")  # RetryInfo 的 retryDelay，如 "27s"
 # StopFailure hook 的錯誤類型（名稱照 Claude Code）
 AUTHENTICATION_FAILED = "authentication_failed"
@@ -145,6 +147,13 @@ def on_post_failure(error: RoundError, cause: BaseException, note: str) -> Round
             break
         seen = seen.__cause__
     return error
+
+
+def no_reply_error(label: str, raw: Any) -> RoundError:
+    """回 200 但沒有回覆：內容有錯誤本文就標上它的類型。"""
+    detail = json.dumps(raw, ensure_ascii=False, default=str)[:_NO_REPLY_DETAIL_CHARS]
+    error = RoundError(f"{label} API Error (200)\n\n`{detail}`")
+    return on_error_body(error, raw.get("error") if isinstance(raw, dict) else None, label)
 
 
 def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:

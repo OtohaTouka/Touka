@@ -15,7 +15,13 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from src.models.hooks import MATCHER_EVENTS, WIRED_EVENTS, HooksConfig
+from src.models.hooks import (
+    MATCHER_EVENTS,
+    MAX_ELICITATION_HOOK_TIMEOUT_SECONDS,
+    MAX_HOOK_TIMEOUT_SECONDS,
+    WIRED_EVENTS,
+    HooksConfig,
+)
 from src.services.hooks.matcher import matcher_matches
 
 _EXAMPLE = Path(__file__).resolve().parents[2] / "ToukaProxy" / "config" / "hooks.json.example"
@@ -113,6 +119,17 @@ def test_rejects_unknown_top_level_keys_and_bad_regex():
         HooksConfig.model_validate({"enabled": True, "disableAllHooks": True})
     with pytest.raises(ValidationError):
         HooksConfig.model_validate(_config("PreToolUse", _COMMAND, "Edit(["))
+
+
+def test_elicitation_hooks_have_a_shorter_timeout_than_the_others():
+    short = {**_COMMAND, "timeout": MAX_ELICITATION_HOOK_TIMEOUT_SECONDS}
+    long = {**_COMMAND, "timeout": MAX_ELICITATION_HOOK_TIMEOUT_SECONDS + 1}
+    HooksConfig.model_validate(_config("Elicitation", short))
+    with pytest.raises(ValidationError):
+        HooksConfig.model_validate(_config("Elicitation", long))
+    HooksConfig.model_validate(
+        _config("PreToolUse", {**_COMMAND, "timeout": MAX_HOOK_TIMEOUT_SECONDS})
+    )
 
 
 def test_rejects_too_many_hooks_for_one_event():

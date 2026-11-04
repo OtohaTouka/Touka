@@ -28,12 +28,19 @@ from src.handlers.adapters import retry
 from src.handlers.adapters.base import RoundError
 from src.handlers.adapters.gemini_adapter import GeminiAdapter
 from src.handlers.adapters.openai_adapter import OpenAIAdapter, _State
-from src.models.hooks import MATCHER_EVENTS, NO_CONVERSATION_EVENTS, WIRED_EVENTS
+from src.models.hooks import (
+    MATCHER_EVENTS,
+    MAX_ELICITATION_HOOK_TIMEOUT_SECONDS,
+    NO_CONVERSATION_EVENTS,
+    WIRED_EVENTS,
+)
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult, UiGenerationStopped
 from src.models.sliding_window import SlidingWindowConfig
+from src.protocols.mcp import mrtr
 from src.protocols.mcp.canonical import McpRequestOrigin
 from src.protocols.mcp.interaction import (
+    MCP_INTERACTION_TIMEOUT_SECONDS,
     InProcessMcpInteractionBroker,
     McpInteractionSink,
     bind_mcp_interaction,
@@ -374,6 +381,57 @@ async def test_a_reply_that_can_not_be_read_is_a_round_error(body):
     assert result.retry_note is None
 
 
+_NO_REPLY_BODIES = [
+    ({}, "unknown"),
+    ({"choices": []}, "unknown"),
+    ({"error": "overloaded"}, "unknown"),
+    ({"error": {"type": "overloaded_error", "message": "busy"}}, "overloaded"),
+    ({"error": {"code": "rate_limit_exceeded"}}, "rate_limit"),
+]
+
+
+@pytest.mark.parametrize(("body", "error_type"), _NO_REPLY_BODIES)
+async def test_a_reply_with_nothing_in_it_is_a_failed_round(
+    monkeypatch, hooks, no_wait, body, error_type
+):
+    hooks.configure({"StopFailure": [group()], "Stop": [group()]})
+    FakeUpstream([json_reply(json.dumps(body), 200)]).install(monkeypatch)
+    chunks = await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    await until(lambda: hooks.http.calls)
+    await asyncio.sleep(0.05)
+    assert hooks.http.events() == ["StopFailure"]
+    assert hooks.http.calls[0]["error"] == error_type
+    assert any("API Error (200)" in chunk for chunk in chunks)
+
+
+async def test_a_reply_with_nothing_in_it_ends_the_ui_turn_as_failed(monkeypatch, hooks, no_wait):
+    FakeUpstream([json_reply("{}", 200)]).install(monkeypatch)
+    with pytest.raises(UiGenerationStopped) as caught:
+        await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx(ui_authorized=True))
+    assert caught.value.generation == "error"
+
+
+async def test_a_model_that_really_said_nothing_is_not_a_failed_round(monkeypatch, hooks, no_wait):
+    hooks.configure({"StopFailure": [group()], "Stop": [group()]})
+    silent = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+    FakeUpstream([json_reply(json.dumps(silent), 200)]).install(monkeypatch)
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", _loop_ctx())
+    await until(lambda: hooks.http.calls)
+    await asyncio.sleep(0.05)
+    assert hooks.http.events() == ["Stop"]
+
+
+async def test_a_blocked_prompt_is_not_a_failed_round(monkeypatch, hooks, no_wait):
+    hooks.configure({"StopFailure": [group()], "Stop": [group()]})
+    blocked = {"promptFeedback": {"blockReason": "SAFETY"}}
+    FakeUpstream([json_reply(json.dumps(blocked), 200)]).install(monkeypatch)
+    await _run_loop(GeminiAdapter(stream=False), "gemini-2.5-flash",
+                    _loop_ctx(gemini_api_key="fake-key"))
+    await until(lambda: hooks.http.calls)
+    await asyncio.sleep(0.05)
+    assert hooks.http.events() == ["Stop"]
+
+
 # ── SubagentStart／SubagentStop ────────────────────────────────────────────────
 
 
@@ -469,6 +527,30 @@ async def test_stopping_during_the_subagent_start_hook_never_reaches_the_model(m
     assert pipeline.contexts == []
 
 
+async def test_subagent_start_context_stays_out_of_what_the_reviewer_reads(monkeypatch, hooks):
+    """真正跑子代理的 ctx（審查員讀的那個），不只是組裝時的。"""
+    hooks.configure({"SubagentStart": [group()]})
+    hooks.http.bodies["SubagentStart"] = _specific(
+        "SubagentStart", additionalContext="note from hook"
+    )
+    monkeypatch.setattr("src.services.proxy_service.pipeline", _Pipeline())
+    stream = _fake_subagent_stream("done")
+    seen: list[Any] = []
+
+    async def capture(*args: Any, **kwargs: Any) -> Any:
+        seen.append(args)
+        return await stream(*args, **kwargs)
+
+    monkeypatch.setattr(subagent_tools, "get_stream_generator", capture)
+    await subagent_tools._run_subagent(
+        goal="g", parent_identity=None, parent_request_id="r", base_ctx=dict(_BASE_CTX), model="m",
+    )  # fmt: skip
+    ((_model, request, _identity, _request_id, _t0, ctx),) = seen
+    assert "note from hook" in request.messages[0].content
+    assert "note" not in str(ctx["user_intent"])
+    assert "note" not in ctx["subagent_goal"]
+
+
 def _fake_subagent_stream(text: str) -> Callable[..., Any]:
     async def factory(*_args: Any, **_kwargs: Any) -> Any:
         async def stream() -> Any:
@@ -493,6 +575,19 @@ async def test_subagent_stop_reports_the_last_message(monkeypatch, hooks):
     assert _extra(call) == {"agent_type", "last_assistant_message"}
     assert call["agent_id"].startswith("__subagent_")
     assert call["last_assistant_message"] == "all done"
+
+
+async def test_each_subagent_in_a_group_fires_its_own_start_and_stop(monkeypatch, hooks):
+    hooks.configure({"SubagentStart": [group()], "SubagentStop": [group()]})
+    monkeypatch.setattr("src.services.proxy_service.pipeline", _Pipeline())
+    monkeypatch.setattr(subagent_tools, "get_stream_generator", _fake_subagent_stream("done"))
+    results = await subagent_tools.run_subagent_group(
+        subtasks=[{"goal": "first"}, {"goal": "second"}], parent_identity=None,
+        parent_request_id="r", base_ctx=dict(_BASE_CTX), model="m",
+    )  # fmt: skip
+    assert [result["status"] for result in results] == ["DONE", "DONE"]
+    await until(lambda: len(hooks.http.calls) == 4)
+    assert sorted(hooks.http.events()) == ["SubagentStart"] * 2 + ["SubagentStop"] * 2
 
 
 async def test_subagent_stop_fires_when_the_subagent_fails_with_an_empty_message(
@@ -610,6 +705,15 @@ async def test_trimming_fires_pre_then_post_compact(monkeypatch, hooks):
     assert (pre["trigger"], post["trigger"]) == ("auto", "auto")
     assert post["compact_summary"] == "short summary"
     assert (pre["session_id"], pre["agent_id"]) == ("s-trim", _SOUL.agent_id)
+
+
+async def test_nothing_to_trim_fires_no_compact_hook(monkeypatch, hooks):
+    hooks.configure({"PreCompact": [group()], "PostCompact": [group()]})
+    svc = _trim_service(monkeypatch, saved=_SAVED)
+    monkeypatch.setattr(svc, "compute_split_by_tokens", lambda *_a: ([], _linear()))
+    assert await svc.check_and_trim(_SOUL, "s-trim") is False
+    await asyncio.sleep(0.05)
+    assert hooks.http.calls == []
 
 
 async def test_a_trim_that_was_not_saved_fires_no_post_compact(monkeypatch, hooks):
@@ -749,6 +853,13 @@ async def _elicit_and_decline(hooks: HookSetup, ctx: dict[str, Any] | None = Non
             waiter.cancel()
         result = await asyncio.wait_for(task, _GUARD_S)
     return shown, result
+
+
+def test_a_person_keeps_the_whole_form_time_after_the_hook():
+    """hook 用完上限之後，回合與整體的時間都還夠人填完表單。"""
+    needed = MCP_INTERACTION_TIMEOUT_SECONDS + MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
+    assert needed <= mrtr.DEFAULT_ROUND_TIMEOUT_SECONDS
+    assert needed <= mrtr.DEFAULT_TOTAL_TIMEOUT_SECONDS
 
 
 async def test_elicitation_content_and_matcher(hooks):

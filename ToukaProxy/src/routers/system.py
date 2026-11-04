@@ -286,7 +286,7 @@ async def run_restore(
 
     _record_restore("running")  # 蓋掉上一次的失敗，前端不會誤判這一次
     background_tasks.add_task(_execute_restore, script_path, zip_path)
-    # 還原完行程就重啟，沒有「成功之後」可發：在接受還原時通知（ADR-0292 差別表）
+    # 還原完行程就重啟，沒有「成功之後」可發：在接受還原時通知（ADR-0292 決定 17）
     notify_config_change("restore")
     return {
         "status": "accepted",

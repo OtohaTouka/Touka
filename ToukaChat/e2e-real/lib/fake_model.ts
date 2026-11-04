@@ -6,6 +6,7 @@ import {
   FAKE_TEXT_REPLY,
   MODEL_400_REQUEST,
   MODEL_BAD_JSON_REQUEST,
+  MODEL_NO_REPLY_REQUEST,
   toolRequestIn,
 } from "./constants";
 
@@ -117,6 +118,9 @@ export function createFakeModel(): http.Server {
       if (call.lastRole === "user" && call.lastText.includes(MODEL_BAD_JSON_REQUEST)) {
         res.setHeader("content-type", "text/html");
         return res.end("<html>not json</html>");
+      }
+      if (call.lastRole === "user" && call.lastText.includes(MODEL_NO_REPLY_REQUEST)) {
+        return writeJson(res, { error: { type: "overloaded_error", message: "overloaded" } });
       }
       const message = assistantReply(call);
       if (call.stream) return writeStream(res, call.model, message);

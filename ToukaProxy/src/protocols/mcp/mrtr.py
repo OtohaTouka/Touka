@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from mcp import types
+from src.models.hooks import MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
 from src.protocols.mcp.canonical import digest_mcp_arguments as _digest_mcp_arguments
 
 if TYPE_CHECKING:
@@ -17,8 +18,9 @@ if TYPE_CHECKING:
 _ResultT = TypeVar("_ResultT")
 
 DEFAULT_MAX_ROUNDS = 8
-DEFAULT_ROUND_TIMEOUT_SECONDS = 120.0
-DEFAULT_TOTAL_TIMEOUT_SECONDS = 180.0
+# 表單前面還有 Elicitation hook：把它的上限加上去，人才有完整的倒數（interaction.py）
+DEFAULT_ROUND_TIMEOUT_SECONDS = 120.0 + MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
+DEFAULT_TOTAL_TIMEOUT_SECONDS = 180.0 + MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
 DEFAULT_MAX_INPUT_REQUESTS = 8
 DEFAULT_MAX_INPUT_BYTES = 128 * 1024
 DEFAULT_MAX_STATE_BYTES = 64 * 1024

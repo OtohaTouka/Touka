@@ -1120,6 +1120,10 @@ async def install_mcp_from_hub(
         return JSONResponse(
             status_code=404, content={"error": f"'{request.hub_id}' not found in hub"}
         )
+    if result["status"] != "success":  # 條目缺欄位：沒有寫檔，不重載也不通知
+        return JSONResponse(
+            status_code=422, content={"error": f"'{request.hub_id}' is not a valid hub entry"}
+        )
 
     # 嘗試熱插拔重載 MCP 連線
     try:

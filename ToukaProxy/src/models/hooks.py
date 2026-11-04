@@ -68,6 +68,8 @@ NO_CONVERSATION_EVENTS: Final[frozenset[str]] = frozenset(
 MAX_HANDLERS_PER_EVENT: Final[int] = 20
 DEFAULT_HOOK_TIMEOUT_SECONDS: Final[int] = 30
 MAX_HOOK_TIMEOUT_SECONDS: Final[int] = 300
+# 表單的 hook 和等人填表算在同一個 MCP 回合（protocols/mcp/mrtr.py）：hook 要先自己逾時、留下紀錄
+MAX_ELICITATION_HOOK_TIMEOUT_SECONDS: Final[int] = 30
 MAX_HOOK_ARGS: Final[int] = 64
 
 HookEvent = Literal[
@@ -202,6 +204,10 @@ class HooksConfig(BasePolicyModel):
         for event, groups in self.hooks.items():
             if sum(len(group.hooks) for group in groups) > MAX_HANDLERS_PER_EVENT:
                 msg = f"at most {MAX_HANDLERS_PER_EVENT} hooks per event ({event})"
+                raise HookConfigError(msg)
+        for group in self.hooks.get("Elicitation", []):
+            if any(hook.timeout > MAX_ELICITATION_HOOK_TIMEOUT_SECONDS for hook in group.hooks):
+                msg = f"Elicitation hook timeout is at most {MAX_ELICITATION_HOOK_TIMEOUT_SECONDS}s"
                 raise HookConfigError(msg)
         return self
 

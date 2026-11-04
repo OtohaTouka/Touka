@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.routing import APIRoute
-from src.core.exceptions import ToukaException
+from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
 from src.models.autonomy import AutonomyConfigModel
 from src.models.hooks import HooksConfig, HooksSaveRequest
@@ -28,8 +28,11 @@ from src.models.sliding_window import SlidingWindowConfig
 from src.routers import autonomy as autonomy_router
 from src.routers import creation as creation_router
 from src.routers import hooks as hooks_router
+from src.routers import mcp as mcp_router
 from src.routers import system as system_router
+from src.routers import ui_sessions as ui_sessions_router
 from src.services.hooks.lifecycle import ConfigSection
+from src.utils import async_db
 
 from tests.support.hook_wiring import group, install_hooks, until
 
@@ -229,11 +232,38 @@ async def test_sliding_window_failure_fires_nothing(hooks, monkeypatch):
 
 async def test_a_settings_import_preview_fires_nothing(hooks, monkeypatch):
     monkeypatch.setattr(system_router, "verify_origin", lambda _request: None)
-    monkeypatch.setattr(system_router, "apply_snapshot", MagicMock(return_value={"applied": []}))
+    preview = MagicMock(return_value={"applied": ["autonomy"]})
+    monkeypatch.setattr(system_router, "apply_snapshot", preview)
     request = MagicMock(dry_run=True, snapshot={}, mode="merge", sections=None)
     await system_router.import_settings(request, MagicMock(), MagicMock(role="admin"))
     await asyncio.sleep(0.05)
     assert hooks.http.calls == []
+
+
+async def test_a_hub_entry_that_could_not_be_installed_fires_nothing(hooks, monkeypatch):
+    hub = MagicMock(install=AsyncMock(return_value={"status": "invalid_entry", "hub_id": "x"}))
+    monkeypatch.setattr(mcp_router, "MCPHubService", lambda **_kwargs: hub)
+    response = await mcp_router.install_mcp_from_hub(
+        MagicMock(hub_id="x", env_vars={}), MagicMock(is_owner_or_admin=lambda: True)
+    )
+    assert response.status_code == 422
+    await asyncio.sleep(0.05)
+    assert hooks.http.calls == []
+
+
+async def test_a_workspace_setting_that_was_not_written_fires_nothing(hooks, monkeypatch):
+    monkeypatch.setattr(ui_sessions_router, "set_system_setting", AsyncMock(return_value=False))
+    payload = ui_sessions_router.WorkspaceSettings(workspace_root="x")
+    with pytest.raises(ToukaException) as caught:
+        await ui_sessions_router.update_workspace_settings(payload, MagicMock())
+    assert caught.value.code is ErrorCode.CONFIG_SAVE_FAILED
+    await asyncio.sleep(0.05)
+    assert hooks.http.calls == []
+
+
+async def test_a_system_setting_that_can_not_be_written_says_so(monkeypatch):
+    monkeypatch.setattr(async_db, "get_async_db", MagicMock(side_effect=OSError))
+    assert await async_db.set_system_setting("k", "v") is False
 
 
 @pytest.mark.parametrize("committed", [True, False])

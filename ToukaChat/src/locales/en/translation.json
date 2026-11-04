@@ -573,7 +573,7 @@
         "PostCompact": "After a trim is saved; notifies in the background. Includes the trim summary, up to a limit.",
         "TaskCreated": "When a mission board is created, once per task; cannot block. Changes made by external AI through the dispatch server do not fire it.",
         "TaskCompleted": "When a task becomes done; notifies in the background and cannot block. Changes made by external AI through the dispatch server do not fire it.",
-        "Elicitation": "When an MCP tool asks a person for data, before the form shows. Can refuse; cannot answer for the person, so accept or content still shows the form. The matcher looks at the MCP server name.",
+        "Elicitation": "When an MCP tool asks a person for data, before the form shows. Can refuse; cannot answer for the person, so accept or content still shows the form. The matcher looks at the MCP server name. Timeout is at most 30 seconds (it shares its time with the person filling in the form).",
         "ConfigChange": "After settings are saved; notifies in the background. It cannot block a setting and never includes values. Does not fire when hooks are turned off. The matcher looks at the settings section.",
         "HeartbeatStart": "When a heartbeat starts; notifies in the background and does not affect it.",
         "HeartbeatStop": "When a heartbeat ends; notifies in the background with the pulses run and how it ended."
@@ -1414,7 +1414,7 @@
       "copy_code": "Copy Code",
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
-      "generation_failed": "The model reply failed; this turn did not finish.",
+      "generation_failed": "This reply failed and did not finish.",
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",

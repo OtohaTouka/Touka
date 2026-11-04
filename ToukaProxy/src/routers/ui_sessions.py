@@ -852,7 +852,8 @@ async def update_workspace_settings(
 ) -> dict[str, Any]:
     """更新工作區路徑設定（DA4-followup：全域系統設定，限 admin）。"""
     new_root = payload.workspace_root
-    await set_system_setting("workspace_root", new_root)
+    if not await set_system_setting("workspace_root", new_root):
+        raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED)
     resource_manager.invalidate_cache()
     notify_config_change("workspace")
     return {"status": "success", "workspace_root": new_root}

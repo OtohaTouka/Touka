@@ -28,11 +28,11 @@
    - `http`：POST 事件內容，`follow_redirects=False`、`trust_env=False`；逾時是整次請求（含讀回應）的上限，回應讀到 64 KiB 就停止讀取並關閉連線；只收沒有壓縮的回應（送 `Accept-Encoding: identity`，回應有壓縮就算失敗、不解開），64 KiB 算的就是收到的位元組：壓縮過的內容解開前看不出多大，幾百位元組可以解成幾百 MiB。3xx 與非 2xx 都算失敗，先看狀態、不讀內容（有壓縮也照 HTTP 狀態說明）。標頭照字面送出，寫成 `$VAR`／`${VAR}` 拒收（不替換環境變數，避免以為有效或洩金鑰）；標頭名稱必須是 HTTP 的 token（不能有空白、冒號等分隔字元），Touka 自己送的 `Content-Type`、`Content-Length`、`Host`、`Transfer-Encoding`、`Accept-Encoding` 不能設定（不分大小寫）。
    - 逾時預設 30 秒、上限 300 秒。
 3. **結果解讀照 Claude Code**（`services/hooks/outcome.py`）：
-   - 結束碼 2：UserPromptSubmit、PreToolUse 擋下，原因取 stderr；PostToolUse、PostToolUseFailure 把 stderr 當回饋；其他事件只記一筆說明，沒有效果。結束碼 2 時不讀 stdout 的 JSON。
+   - 結束碼 2：UserPromptSubmit、PreToolUse、Elicitation 擋下，原因取 stderr；PostToolUse、PostToolUseFailure 把 stderr 當回饋；其他事件只記一筆說明，沒有效果。結束碼 2 時不讀 stdout 的 JSON。
    - 結束碼 0：stdout 是 JSON 就讀欄位（`decision: "block"`、`hookSpecificOutput.permissionDecision` 的 `deny`／`ask`、`additionalContext`）；純文字只在 UserPromptSubmit 當補充說明；看起來是 JSON 卻壞掉算 hook 失敗。
-   - `continue: false`：UserPromptSubmit、PreToolUse 擋下，原因取 `stopReason`；其他事件不採用（工具已經跑完、回合已經結束，或這個事件本來就不能擋），記一筆說明。
+   - `continue: false`：UserPromptSubmit、PreToolUse、Elicitation 擋下，原因取 `stopReason`；其他事件不採用（工具已經跑完、回合已經結束，或這個事件本來就不能擋），記一筆說明。
    - PermissionRequest 只認 `hookSpecificOutput.decision.behavior` 的 `deny`，理由取 `message`；照官方，結束碼 2 不生效；`decision: "block"` 與 `continue: false` 也不生效。
-   - `additionalContext` 只有 UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure 採用；PermissionRequest、PermissionDenied、Notification、Stop 沒有回給模型的路。
+   - `additionalContext` 只有 UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure、SubagentStart 採用；其他事件沒有回給模型的路。
    - http：2xx 的回應內容當結束碼 0 的 stdout。
    - 其他結束碼、逾時、連不上、路徑被拒：hook 自己失敗，不擋動作，但記在執行紀錄裡。
    - 同一事件符合的 hook 同時執行，相同的 handler 只跑一次，任一個擋下就擋下。
@@ -79,13 +79,13 @@
 8. **執行紀錄**：最近 50 筆存在記憶體（重啟清空），記時間、事件、hook 名稱與類型、結果、耗時、結束碼或 HTTP 狀態與說明。說明是擋下或要求確認的理由、失敗原因（例外只記類型、stderr 只取第一行）與不採用的欄位，有長度上限，不含 stdout 的內容。背景 hook 超過同時執行上限被跳過時也記一筆（`skipped`，決定 16）。無痕對話照跑 hook，但紀錄只留時間、事件、結果與耗時。
 9. **存檔**：只經管理 API，以 revision（內容 SHA-256）做 CAS，對不上回 `HOOK_CONFIG_CONFLICT`（409）；存檔前跑決定 5 的檢查；存檔前讀不到目前的檔案、或寫不進檔案（磁碟滿、沒有權限、被鎖住）回 `CONFIG_SAVE_FAILED`（500），不寫檔，執行中的仍是上一版。設定頁存好後重新讀取失敗時，留著剛存的內容與新的 revision，不當成讀取失敗（下一次存檔才不會誤判成衝突）。
 10. **管理 API**（`routers/hooks.py`，`/hooks` 與 `/v1/hooks`）：
-    - 三個端點都只給人類管理員（`require_admin_human`；admin 代打、靈魂、DebugAgent 都不行）。
-    - `GET /hooks`：目前生效的設定（壞檔時是上一份好的）、`health`（`ok`／`missing`／`error`、目前檔案的 revision、錯誤類型）、已接線的事件與看比對規則的事件（`matcher_events`：看工具名稱或通知類型）。
+    - 下面三個端點只給人類管理員（`require_admin_human`；admin 代打、靈魂、DebugAgent 都不行）；`GET /hooks/active` 見決定 17。
+    - `GET /hooks`：目前生效的設定（壞檔時是上一份好的）、`health`（`ok`／`missing`／`error`、目前檔案的 revision、錯誤類型）、已接線的事件與看比對規則的事件（`matcher_events`：有比對規則的事件，見決定 7、16、17）。
     - `PUT /hooks`：送 `{config, revision}`，revision 必填（沒有檔案時明確送 `null`），多的欄位拒收；先查 CSRF Origin；`author` 與 `updated_at` 由伺服器填，用戶端送的不採用；回新的 revision。
     - `GET /hooks/runs`：決定 8 的執行紀錄，新的在前。
     - `hooks.json` 不在設定匯出／匯入（`settings_snapshot_service.SECTIONS`）裡：匯入不經存檔的路徑檢查。
 11. **設定頁**：設定畫面「系統」組的「Hooks」分頁（`adminOnly`，不加左側欄入口）。
-    - 依伺服器回的事件逐區顯示；比對規則只在看工具名稱或通知類型的事件出現，提示依事件不同；每組可加 command 或 http hook。
+    - 依伺服器回的事件逐區顯示；比對規則只在 `matcher_events` 的事件出現，提示依事件不同；每組可加 command 或 http hook。
     - command 填程式的絕對路徑、參數一行一個（原樣交給程式）；http 填網址、標頭一行一個「名稱: 值」。
     - 存檔被拒時列出原因：路徑問題逐項列事件、位置、原因與值；衝突提示重新載入；欄位不合規則顯示第一個錯誤的位置。設定檔壞掉時提醒目前用的是上一份好的設定、存檔會取代它。
     - 下方列最近的執行紀錄（hook 名稱與類型、結果、結束碼或 HTTP 狀態、耗時與說明），無痕的只顯示時間、事件與結果。
@@ -117,16 +117,16 @@
     - 背景入口（`services/hooks/background.py`）：Stop、PermissionDenied、Notification 共用。沒有符合的 hook 時不組內容。同時最多 32 個（`MAX_BACKGROUND_HOOK_RUNS`），慢的 hook 碰上大量事件時背景工作不會一直累積；超過就跳過這次、在執行紀錄記一筆 `skipped`，設定頁看得到（無痕只留時間、事件與結果）。入口出錯只記 log，不影響呼叫端。名額是所有事件與對話共用的：模型或其他對話可以把名額佔滿，這段期間別的通知會被跳過，所以這些事件不能當成完整的稽核紀錄。
     - 工具缺必要參數：內建工具少了廣告 schema 的 `required` 參數時，在 `tool_start` 之前回結構化 `validation_error`（`param` 是第一個缺的；只看鍵在不在，不回顯參數值），不進工具本體。以前會變成 `TypeError` 顯示在畫面上。照官方，這種情況不算 PostToolUseFailure。順序照 ADR-0229（政策與審批在前、參數檢查在後）不變：缺參數的呼叫仍可能先跳卡、先觸發 PermissionRequest 與 Notification，人按批准後才被退回。走 Pydantic 合約的七個工具照舊由 `validate_native_arguments` 檢查；舊工具不在廣告清單裡，由工具自己處理。
 17. **其餘十一個事件與無痕提示**（丙-2，`services/hooks/lifecycle.py`）：除了 SubagentStart 與 Elicitation，都走背景入口（決定 16），不等 hook、不能改結果；hook 回「擋下」一律不採用。事件內容只放下面列的欄位（鍵的白名單由實際驗證與單元測試釘住），不放設定值、不放派工目標。
-    - StopFailure：一輪回覆因錯誤結束時（重試和備援都用完才算；`react_core` 的 `RoundError` 分支，`dispatcher` 只補沒走到那裡的例外，不會發兩次），子代理的回合不發，這一輪不跑 Stop。`error` 是錯誤類型（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`，其他都是 `unknown`；`RoundError.error_type`，adapter 依 HTTP 狀態與錯誤內容標），比對規則看它；`error_details` 先遮憑證再遮路徑與長 token。使用者按停止不算。心跳的例外不走這條，由 HeartbeatStop 的 `end: "error"` 表示。
+    - StopFailure：一輪回覆因錯誤結束時（重試和備援都用完才算；`react_core` 的 `RoundError` 分支，`dispatcher` 只補沒走到那裡的例外，不會發兩次），子代理的回合不發，這一輪不跑 Stop。`error` 是錯誤類型（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`，其他都是 `unknown`；`RoundError.error_type`，adapter 依 HTTP 狀態與錯誤內容標），比對規則看它；`error_details` 先遮憑證再遮路徑與長 token。使用者按停止不算。心跳的模型失敗也發（HeartbeatStop 的 `end` 仍是 `completed`，見下）；心跳迴圈本身的例外不走這條，由 `end: "error"` 表示。
     - SubagentStart：子代理開始之前（`dispatch_subagent` 與群組都經過 `_assemble_subagent_request`），`agent_id` 是子代理、`agent_type` 固定 `subagent`；比對規則看 `agent_type`。補充說明以 `<hook_output>` 區塊接在第一則訊息後面（資料，決定 6）；不能擋。等 hook 的期間按了停止就不開始（`SubagentStoppedError`）。審查員的輸入不變（禁令 64：只看使用者的要求）。內容不含派工目標。
     - SubagentStop：子代理結束時（成功、失敗或逾時都發），`last_assistant_message` 失敗時是空字串；不能叫它繼續。
     - PreCompact、PostCompact：滑動視窗剪裁前與存好之後（`_check_and_trim_inner`），`trigger` 固定 `auto`，比對規則看它。不新增觸發點，也不等 hook（禁令 28、57）：hook 卡住不拖住對話也不拖住剪裁。PostCompact 只在確認存好時發，`compact_summary` 最多 10,000 字（沒有摘要時是空字串）。手動切分是前端做的，後端沒有這個時點，所以沒有 `manual`。
     - TaskCreated、TaskCompleted：任務看板建立時每個任務各一次，任務變成 `DONE` 時一次；內容 `mission_id`、`task_id`、`task_subject`。在寫入之後才發，不能擋。外部 AI 經 ToukaDispatch 的操作不經工具執行器，不觸發（和決定 7 的工具事件同一條界線）。
-    - Elicitation：有人在場、MCP 工具用表單要資料、表單送出之前（`McpInteractionSink.before_shown`，表單的 schema 已正規化）；比對規則看 MCP 伺服器名稱。內容 `mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`action: decline|cancel`），結果是不跳表單、回 MCP 伺服器 `decline`；`action: accept` 與 `content` 不採用，表單照樣跳，執行紀錄記下不採用的欄位。等 hook 的期間按了停止也不跳表單。無人在場本來就直接拒絕，不觸發。
-    - ConfigChange：設定頁或 API 確認存好之後才發（不是存檔前），比對規則看 `source`（`autonomy`、`backup_schedule`、`bots`、`connections`、`custom_models`、`embedding`、`env`、`group_whitelist`、`hooks`、`identity`、`mcp`、`models`、`permissions`、`restore`、`settings_import`、`setup`、`skills`、`sliding_window`、`workspace`）。內容只有 `source` 與共同欄位（`session_id`、`agent_id` 是空的），不放值。擋不了任何設定，所以 hook 壞掉也關得掉；關閉 hooks 那次已經關了，不觸發。每個會改狀態的路由都要在 `tests/unit/test_hook_config_change_security.py` 分類：存好後通知，或列進「不是設定」並寫理由，新端點沒分類就紅。這批歸「不是設定」的：帳號與登入、對話與專案資料、審批與回答、靈魂的資料與排程、備份檔案本身、唯讀的重新整理、除錯工具、MCP OAuth 的連線與憑證（有自己的稽核紀錄）。代理人用工具建立 MCP、Skill 不算（走工具事件）；設定頁的建立只在真的寫入時發。還原在接受還原時發（完成後行程就重啟）。
-    - HeartbeatStart、HeartbeatStop（Touka 自己的）：心跳確定要跑之後與結束時（`_process_heartbeat_loop`），內容 `pulses_total`、`home`；結束多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。不看比對規則。重新觸發（`/heartbeat/retrigger`）也算。
+    - Elicitation：有人在場、MCP 工具用表單要資料、表單送出之前（`McpInteractionSink.before_shown`，表單的 schema 已正規化）；比對規則看 MCP 伺服器名稱。內容 `mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`action: decline|cancel`），結果是不跳表單、回 MCP 伺服器 `decline`；`action: accept` 與 `content` 不採用，表單照樣跳，執行紀錄記下不採用的欄位。等 hook 的期間按了停止也不跳表單。無人在場本來就直接拒絕，不觸發。hook 的 `timeout` 最多 30 秒（`MAX_ELICITATION_HOOK_TIMEOUT_SECONDS`，存檔時檢查）：hook 和等人填表算在同一個 MCP 回合，上限短 hook 才會自己先逾時、留下紀錄，表單照樣跳；回合與整體的上限（`mrtr.py`）也多加這 30 秒，人一定有完整的 120 秒倒數。
+    - ConfigChange：設定頁或 API 確認存好之後才發（不是存檔前），比對規則看 `source`（`autonomy`、`backup_schedule`、`bots`、`connections`、`custom_models`、`embedding`、`env`、`group_whitelist`、`hooks`、`identity`、`mcp`、`models`、`permissions`、`restore`、`settings_import`、`setup`、`skills`、`sliding_window`、`workspace`）。內容只有 `source` 與共同欄位（`session_id`、`agent_id` 是空的），不放值。擋不了任何設定，所以 hook 壞掉也關得掉；關閉 hooks 那次已經關了，不觸發。每個會改狀態的路由都要在 `tests/unit/test_hook_config_change_security.py` 分類：存好後通知，或列進「不是設定」並寫理由，新端點沒分類就紅。這批歸「不是設定」的：帳號與登入、對話與專案資料、審批與回答、靈魂的資料與排程、備份檔案本身、唯讀的重新整理、除錯工具、MCP OAuth 的連線與憑證（有自己的稽核紀錄）。代理人用工具建立 MCP、Skill 不算（走工具事件）；設定頁的建立只在真的寫入時發。還原在接受還原時發（完成後行程就重啟，沒有「成功之後」可發）；接受不等於還原成功，所以這個通知不代表已經還原。
+    - HeartbeatStart、HeartbeatStop（Touka 自己的）：心跳確定要跑之後與結束時（`_process_heartbeat_loop`），內容 `pulses_total`、`home`；結束多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。不看比對規則。重新觸發（`/heartbeat/retrigger`）也算。模型失敗時心跳把錯誤訊息當這次脈衝的回覆（既有行為），StopFailure 照發，但 `pulses_done` 照算、`end` 仍是 `completed`；`error` 是心跳迴圈本身出例外。要知道模型有沒有失敗請看 StopFailure，不要只看 HeartbeatStop。
     - 無痕提示：`GET /hooks/active` 回 `{active}`，任何已登入身分都能查、只回布林值，不透露設定。`active` 是「有啟用中的 hook 會收到對話內容」：`NO_CONVERSATION_EVENTS`（ConfigChange、HeartbeatStart、HeartbeatStop）以外的事件才算。聊天畫面只在無痕對話查，送出訊息後再查一次（hook 在對話中途打開時，下一則就知道）；查不到時維持上次結果。
-    - 順手修：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時回 `RoundError`（其他 adapter 已經這樣），不再變成 `KeyError` 一類的例外；串流以 `generation: "error"` 結束時，那則回覆的泡泡標「這一輪回覆失敗」（`generationFailed`，跟著對話存，只用來顯示、不送給模型），無痕對話也看得到。ADR-0231 的保存狀態不變：模型失敗時對話的保存結果仍是不確定，要核對、重試保存才能送下一則（見 ADR-0295「實際驗證找到的既有問題」）。
+    - 順手修：模型回 200 卻讀不懂或沒有回覆時，是一般的模型失敗。OpenAI 相容 API 內容讀不懂或不是物件時回 `RoundError`（不再變成 `KeyError` 一類的例外）；解析後沒有回覆、停止原因是 `error` 時（`{}`、`{"choices": []}`、只有 `{"error": …}`），`react_core` 當成失敗，`retry.no_reply_error` 依錯誤本文標類型；Gemini 非串流讀不懂時是例外，走 `dispatcher`。被安全過濾擋下、模型真的回了空字不算失敗。串流以 `generation: "error"` 結束時，那則回覆的泡泡標「這一輪回覆失敗」（`generationFailed`，只用來顯示、不送給模型），無痕對話也看得到。文字不寫「模型」：還沒呼叫模型就結束（畫面帶的版本已過期）、Touka 自己的例外也是這個結束方式。標示在畫面的對話樹裡，模型失敗時後端不存這一輪，要重試保存才進存檔；沒有重試保存就重新整理，而且串流緩衝已過期（10 分鐘）時，這則回覆和標示都不在。ADR-0231 的保存狀態不變：模型失敗時對話的保存結果仍是不確定，要核對、重試保存才能送下一則（見 ADR-0295「實際驗證找到的既有問題」）。
 
 ## 和 Claude Code 對不上的部分
 
@@ -145,8 +145,8 @@
   - Notification：Claude Code 的閒置、登入、額度、完成等類型 Touka 沒有；`isolation_level` 是 Touka 多的；沒有 `title`。驗證指令的卡發 Notification 但不觸發 PermissionRequest。
   - 工具缺必要參數：Claude Code 先驗證參數才處理權限，所以不會有卡；Touka 政策與審批在前（ADR-0229），可能先跳卡、先觸發 PermissionRequest 與 Notification。
   - PostToolUseFailure 沒有 `is_interrupt`、`duration_ms`。MCP 工具沒有 `mcp_server` 欄位，和其他工具事件一樣用 `mcp_tool_name`。
-  - StopFailure 的錯誤類型用同樣的名稱，Claude Code 的 `oauth_org_not_allowed`、`account_on_hold`、`max_output_tokens` 在 Touka 都算 `unknown`（`max_output_tokens` 不走錯誤路徑）；內容的 `error_details` 先遮憑證與路徑，不附回覆全文。
-  - SubagentStart、SubagentStop：`agent_type` 固定 `subagent`；沒有 `agent_transcript_path`、`stop_hook_active`。SubagentStop 只通知：Claude Code 能叫子代理繼續，Touka 不採用（和 Stop 一樣）。
+  - StopFailure 的錯誤類型用同樣的名稱，Claude Code 的 `oauth_org_not_allowed`、`account_on_hold`、`cloud_credential_error`、`max_output_tokens` 在 Touka 都算 `unknown`（`max_output_tokens` 不走錯誤路徑）；內容的 `error_details` 先遮憑證與路徑，不附回覆全文，也沒有 `last_assistant_message`。HTTP 錯誤的類型只看狀態碼：OpenAI 的 `429 insufficient_quota` 是 `rate_limit`，不是 `billing_error`。
+  - SubagentStart、SubagentStop：`agent_type` 固定 `subagent`；沒有 `agent_transcript_path`、`stop_hook_active`。SubagentStop 只通知：Claude Code 能叫子代理繼續，Touka 不採用（和 Stop 一樣）。SubagentStart 的補充說明 Claude Code 放在第一個提示之前，Touka 接在派工內容後面（資料，決定 6）；Claude Code 結束碼 2 的 stderr 會給使用者看，Touka 沒有這條路。
   - PreCompact 只通知：Claude Code 能擋；Touka 規定剪裁不能被拖住（禁令 28、57）。`trigger` 只有 `auto`，沒有 `custom_instructions`。
   - TaskCreated、TaskCompleted 只通知：Claude Code 能擋；Touka 的紀錄點在寫入之後，要擋得另外改任務流程。多一個 `mission_id`，沒有 `task_description`、`teammate_name`。外部 AI 經派工伺服器的操作不觸發。
   - Elicitation 只能拒絕：Claude Code 能代填（`accept`＋`content`）；Touka 不能替人回答。Touka 只支援表單，沒有 `url`、`elicitation_id`；無人在場本來就直接拒絕，不觸發。
@@ -169,7 +169,9 @@
   - PermissionRequest 在審查員之後：審查員放行或拒絕就沒有卡，也不會問這個 hook；PreToolUse 要人確認時兩個都會跑。
   - PostToolUseFailure 的遮罩是比對樣式：認得的憑證格式（`Bearer`、`sk-`、`key=`、`api_key`、`password`、`secret`、`token`，含 JSON 的引號寫法與網址參數；網址裡的帳密）與路徑會遮掉，認不出的格式不保證；`tool_input` 照原樣給 hook，和其他工具事件相同。
   - 事件內容一律送給 hook，無痕對話也一樣（決定 7 的 `incognito` 讓 hook 自己決定要不要留）；設定頁說明會寫明，無痕對話也會提示（決定 17）。提示是畫面查的：查不到時維持上次結果，所以一開始就查不到時不會顯示；這個提示只是告知，不能當成擋住內容外送的保證。
-  - 背景事件不保證送達（決定 16 的名額）：ConfigChange、StopFailure 這些也一樣，不能當成完整的稽核紀錄。
+  - 背景事件不保證送達（決定 16 的名額）：ConfigChange、StopFailure 這些也一樣，不能當成完整的稽核紀錄。一次建立超過 32 個任務的看板時，TaskCreated 在同一段程式裡排進背景，第 33 個起一定超過名額而跳過（紀錄看得到），和 hook 快慢無關。
+  - 無痕提示把 PreCompact、PostCompact 也算進去：這兩個事件在無痕不會觸發，只設這兩個也會提示；方向是多報，不是漏報。
+  - 模型回 200、讀得懂、但真的沒有文字（`finish_reason: stop` 的空內容，或 Responses `completed` 沒有輸出）不算失敗（決定 17），畫面仍是空白泡泡。
   - PreCompact 發出之後剪裁仍可能沒存好（版本對不上；見 ADR-0295「實際驗證找到的既有問題」），這時只有 PreCompact、沒有 PostCompact。
   - ConfigChange 的分類表寫在測試裡：看路由是否改狀態、原始碼裡有沒有這個呼叫；路由把存檔交給別的函式、呼叫放在失敗的分支裡，分類表抓不到，要靠每個路由自己的測試。
   - 事件內容的 `session_id` 是請求帶來的對話 id，hook 不能把它當成已驗證的身分。
@@ -204,7 +206,7 @@
 - Stop 改走背景入口：同時有 32 個背景 hook 在跑時，這次 Stop hook 跳過並留紀錄（以前沒有上限）。
 - 設定了 PermissionRequest 的工具，跳卡前多等 hook 執行完；PostToolUseFailure 也一樣，錯誤結果要等 hook 跑完才回到模型。
 - 設定了 SubagentStart 時，子代理開始前多等 hook 執行完；設定了 Elicitation 時，表單跳出前多等 hook 執行完。其餘新事件都在背景，不影響原本的流程。
-- 下面兩項和 hook 設定無關、一律生效：OpenAI 相容 API 回 200 但內容讀不懂時，這一輪是一般的模型失敗（決定 17）；串流以錯誤結束時，那則回覆的泡泡標「這一輪回覆失敗」，存下來的節點多一個 `generationFailed`。
+- 下面幾項和 hook 設定無關、一律生效：模型回 200 但讀不懂或沒有回覆時，這一輪是一般的模型失敗，不再是空白泡泡（決定 17）；串流以錯誤結束時，那則回覆的泡泡標「這一輪回覆失敗」，重試保存後存下來的節點多一個 `generationFailed`；MCP 互動的回合與整體上限各多 30 秒（Elicitation hook 的時間）；工作區設定寫不進去回 `CONFIG_SAVE_FAILED`（以前回成功）；Hub 條目缺欄位裝不了回 422（以前 500）。
 - 代理人的檔案動詞不跟隨連結（決定 12）：list 把連結列成名稱、find 與 grep 略過連結，路上有連結時讀寫刪回錯誤；指回根裡面的連結照常可用。
 - 撤回：把 `enabled` 設成 false 或清空 `hooks` 只停用 hook；決定 12、停止與 SNS 的改動不看 `enabled`，要撤回只能 revert（整個移除，`hooks.json` 留著無害）。
 

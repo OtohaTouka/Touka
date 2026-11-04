@@ -4,7 +4,7 @@
 
 ## Hook（ADR-0292 決定 17）
 
-- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因，例外是 `error`）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
+- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗時脈衝照舊算跑完、`end` 是 `completed`，要看 StopFailure）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
 
 ## 對話歸屬與獨立頻道（ADR-0276）
 

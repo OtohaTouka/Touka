@@ -15,7 +15,7 @@ interface HookEventSectionProps {
 
 const HOOK_TYPES: HookHandler["type"][] = ["command", "http"];
 
-/** 一個事件的設定：每組一個比對規則（只有看工具名稱或通知類型的事件才有）和它的 hook。 */
+/** 一個事件的設定：每組一個比對規則（只有 `usesMatcher` 的事件才有）和它的 hook。 */
 export function HookEventSection({ event, usesMatcher, groups, onChange }: HookEventSectionProps) {
     const { t } = useTranslation();
     const setGroup = (index: number, group: HookMatcherGroup) => onChange(replaceAt(groups, index, group));
