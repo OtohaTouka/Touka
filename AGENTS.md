@@ -85,6 +85,8 @@
 | 重大功能（影響禁令或核心守則） | `AGENTS.md` 對應章節與 `HANDOVER.md` 對應章節；若是歷史記錄則寫入 `docs/CHANGELOG.md` |
 | 新增測試檔 | `tests/README.md` 加一列（檔名、說明；不寫案例數，ADR-0278） |
 
+常駐文件上限：`AGENTS.md` 40,000、`HANDOVER.md` 10,240 位元組（Guard #46 只提醒），交班項目 30 天（見 `HANDOVER.md`「交班怎麼寫」）。
+
 > ⚠️ 直譯器（3.12 venv）與 Windows 本機前置條件（Node／npm 版本、前端依賴、已知環境跳過）：全文見 docs/dev-environment.md。
 
 **每次任務完成後必須執行（先啟用 3.12 venv；佈建見 docs/dev-environment.md——`uv sync` 必帶 `--all-packages`）：**

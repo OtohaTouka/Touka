@@ -1,6 +1,6 @@
 # Touka 目前交班
 
-更新：2026-11-04。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只放總覽；各範圍的細節在下面的模組交班檔，歷史見 [CHANGELOG](docs/CHANGELOG.md)。
+更新：2026-11-05。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只放總覽；各範圍的細節在下面的模組交班檔，歷史見 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## 1. 現況
 
@@ -9,10 +9,10 @@
 - **發行與 dev 的差距**：上面那個 commit 之後進 `dev` 的改動，要等下一次發版才進 GHCR；有哪些看 [CHANGELOG](docs/CHANGELOG.md)。
 - **最近進度**：連結防護（ADR-0293）的 PR 都已合併，後續項目見 [isolation](docs/handover/isolation.md)；Hook 全部事件已接線（[proxy](docs/handover/proxy.md)）；實際驗證（ADR-0295）已上線，見 [tests](docs/handover/tests.md)；隔離的 MCP 部分（ADR-0275）仍待整批整合驗證。
 - **目前卡住的事**：
-  - 實際驗證找到三個既有問題還沒修：下一則存不進去、模型失敗要按兩個按鈕才能繼續（[chat](docs/handover/chat.md)）、聊天側自動剪裁存不進去（[proxy](docs/handover/proxy.md)）。
-  - docgen 一類的工具在安全讀寫做好之前一律被拒（[isolation](docs/handover/isolation.md)）。
-  - Docker Desktop 掛載還沒手動驗證 ADR-0293（[isolation](docs/handover/isolation.md)）。
-  - 審查員的準確率等實測要照禁令 61 逐批取得同意（[proxy](docs/handover/proxy.md)）。
+  - 實際驗證找到三個既有問題還沒修（2026-11-04）：下一則存不進去，下次發版前修（[chat](docs/handover/chat.md)）；模型失敗要按兩個按鈕才能繼續（[chat](docs/handover/chat.md)）、聊天側自動剪裁存不進去（[proxy](docs/handover/proxy.md)），不擋發版。
+  - docgen 一類的工具在安全讀寫做好之前一律被拒（2026-10-30，[isolation](docs/handover/isolation.md)）。
+  - Docker Desktop 掛載還沒手動驗證 ADR-0293（2026-10-30，[isolation](docs/handover/isolation.md)）。
+  - 審查員的準確率等實測要照禁令 61 逐批取得同意（2026-10-12，[proxy](docs/handover/proxy.md)）。
 
 ### 模組交班檔
 
@@ -40,6 +40,7 @@
 
 - 新的未完成事項、已知限制、待部署與操作注意事項寫進對應的模組交班檔，做完就刪掉，紀錄寫進 CHANGELOG。
 - 本檔只改總覽、最近一次驗證與產品層的未完成事項。
+- 「目前卡住的事」每項寫加入日期，超過 30 天還沒動，搬到第 3 節或模組交班檔的「待排小項」，或寫明原因。第 3 節和待排小項就是候選清單，不算天數。
 
 ## 2. 最近一次驗證
 
