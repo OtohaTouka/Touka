@@ -7,6 +7,7 @@
 ## 現況
 
 - **實際驗證（2026-11-04，ADR-0295）**：`cd ToukaChat && npm run test:e2e:real` 用 Playwright 走打包好的正式版畫面與真的 Proxy，模型是假的，資料在沙盒，不花額度。目前走 Hook 八個事件與審批卡（`ToukaChat/e2e-real/`）。GitHub 上每個進 dev、main 的 PR 都跑（`e2e-real.yml`），先不列為必過。
+- **CI 的 `contracts` 工作上限 60 分鐘（2026-11-04）**：全量 pytest 在 GitHub 上已經跑到 36～40 分鐘，原本 40 分鐘的上限會把它取消（看起來是失敗，其實是時間到）。再變長時先看哪些測試慢，不要只加上限。
 - **維護流程的本機紀錄資料夾 `.toukadev/`（2026-10-10）**：開發流程本身（不是產品功能）的變更。
   - AGENTS.md「文件協議」加上一行：流程或規則出問題時，記到主要專案資料夾的本機 `.toukadev/lessons/`（不進版控）。
   - `lint_ssot.py`、`guard_noqa_registry.py`、`guard_adr_integrity.py` 這三支從 repo 根目錄遞迴走訪的守衛，依資料夾名稱略過 `.toukadev`（只比對名稱，不是路徑逐段比對，所以在 `.toukadev/worktrees/` 裡的工作資料夾跑守衛仍會正常掃描）。
