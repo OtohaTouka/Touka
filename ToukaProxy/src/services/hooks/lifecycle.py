@@ -170,25 +170,29 @@ def notify_post_compact(identity: Any, session_id: str, summary: str | None) -> 
     )
 
 
-def _notify_task(event: str, ctx: Mapping[str, Any], mission_id: str, task: Any) -> None:
+def _notify_task(event: str, ctx: Mapping[str, Any], mission: Any, task: Any) -> None:
     _notify(
         event,
         ctx,
-        lambda: {"mission_id": mission_id, "task_id": task.id, "task_subject": task.description},
+        lambda: {
+            "mission_id": mission.mission_id,
+            "task_id": task.id,
+            "task_subject": task.description,
+        },
     )
 
 
 def notify_tasks_created(ctx: Mapping[str, Any], mission: Any) -> None:
     """任務看板建好了：每個任務各一次。"""
     for task in mission.tasks:
-        _notify_task(TASK_CREATED_EVENT, ctx, mission.mission_id, task)
+        _notify_task(TASK_CREATED_EVENT, ctx, mission, task)
 
 
 def notify_task_completed(ctx: Mapping[str, Any], mission: Any, task_id: str) -> None:
     """任務變成完成。"""
     for task in mission.tasks:
         if task.id == task_id:
-            _notify_task(TASK_COMPLETED_EVENT, ctx, mission.mission_id, task)
+            _notify_task(TASK_COMPLETED_EVENT, ctx, mission, task)
 
 
 async def run_elicitation_hooks(

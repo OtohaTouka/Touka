@@ -251,9 +251,9 @@ class OpenAIAdapter:
                 error_type=retry.AUTHENTICATION_FAILED,
             )
         error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`")
-        return retry.on_status(
-            error, status, response.headers, f"{state.provider} busy ({status})"
-        )
+        # 只有可重試的才讀 retry-after 標頭
+        headers = response.headers if retry.retryable_status(status) else None
+        return retry.on_status(error, status, headers, f"{state.provider} busy ({status})")
 
     def parse_round(self, _state: _State, raw: Any) -> Turn:
         """解析 choices → Turn（含 ADR-0152 reasoning 分頻的 OpenAI 方言）。"""
