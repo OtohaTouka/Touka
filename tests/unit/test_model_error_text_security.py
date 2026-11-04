@@ -46,7 +46,7 @@ API_KEY = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 BEARER_VALUE = "abcdefghijklmnopqrstuvwxyz0123456789"
 FIELD_VALUE = "hunter2hunter2hunter2"
 URL_VALUE = "pw-in-url"
-LOCAL_PATH = "/home/someone/.config/provider/key.json"
+LOCAL_PATH = "/srv/someone/.config/provider/key.json"
 FILLER = "長" * 5000
 LEAKY = (
     f"upstream said: {API_KEY} Authorization: Bearer {BEARER_VALUE} api_key={FIELD_VALUE} "
@@ -335,8 +335,8 @@ async def _group_round(
     """兩位成員的群聊：第一位模型失敗，第二位正常。回傳送出的文字與第二位收到的訊息。"""
     monkeypatch.setattr("src.services.dispatchers.group.parse_group_roster", lambda *_a: [
         {"id": "Alice", "name": "Alice"}, {"id": "Bob", "name": "Bob"}])
-    monkeypatch.setattr("src.services.dispatchers.group.resource_manager",
-                        MagicMock(read_json=lambda *_a: {}))
+    monkeypatch.setattr("src.services.dispatchers.group.resource_manager.read_json",
+                        lambda *_a: {})
     monkeypatch.setattr("src.services.dispatchers.group.record_working_brain",
                         lambda *_a, **_k: None)
     monkeypatch.setattr("src.services.dispatchers.group.get_active_brain", lambda _i: "m")
