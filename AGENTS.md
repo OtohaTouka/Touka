@@ -58,7 +58,7 @@
 
 | 任務類型 | 必讀文件 |
 |---------|---------|
-| **所有任務** | 本檔 **§18 開發禁令**（禁令 1–68，全文或一行索引）＋ `HANDOVER.md`（當前交班現況） |
+| **所有任務** | 本檔 **§18 開發禁令**（禁令 1–69，全文或一行索引）＋ `HANDOVER.md`（當前交班現況） |
 | **開工前、交付前、審查時** | 跑 `python scripts/applicable_rules.py`（計畫階段加 `--paths`，可以給資料夾），讀它列出的規則全文與交班檔 |
 | 新增/修改端點或認證 | `docs/architecture/PROXY_INTERFACE.md` TL;DR 區塊 |
 | 安全弱點修復 | `SECURITY.md`、`docs/architecture/LEGAL_ARCH.md` |
@@ -192,6 +192,7 @@ npm run package
 *   **禁令 66**〔模組：isolation、proxy、deploy、chat、tests〕：代理人撰寫或指定的程式一律經隔離 runner 啟動，不可用就不執行。全文：docs/rules/isolation.md
 *   **禁令 67**〔模組：hooks、proxy、memory、tests、chat〕：hook 只能擋或要人確認（部分事件只通知），不得放行或改寫；hook 自己失敗不擋；輸出一律當資料。全文：docs/rules/hooks.md
 *   **禁令 68**〔模組：isolation、memory、proxy、tests〕：代理人資料夾路徑只用 ZonePath、經 RM 區內方法，不跟隨連結。全文：docs/rules/isolation.md
+*   **禁令 69**〔模組：deploy、chat、ide、tests〕：新版本上架滿 3 天才採用；緊急修補只有兩級例外，嚴重的每次先問維護者。全文：docs/rules/deploy.md
 
 ## 🛡️ Touka系統安全與核心守則 (Core Mandates)
 

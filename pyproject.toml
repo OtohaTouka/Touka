@@ -37,10 +37,10 @@ dev = [
 #    可於數秒內以 --all-packages 復原，但切勿在誤剝後直接跑測試。（ADR-0117）
 package = false
 constraint-dependencies = ["anyio==4.14.2", "urllib3==2.8.0", "multidict==6.9.1"]
-# 供應鏈冷卻期：只採用上架滿 7 天的 Python 套件（只管 uv；前端 npm 不在內）。
+# 供應鏈冷卻期：只採用上架滿 3 天的 Python 套件（禁令 69；npm 與 Dependabot 同數字，測試釘住）。
 # uv.lock 只記期間（exclude-newer-span）；日期往前走不會讓 --locked 失效，重新解析時才套用新截止點。
-# 要提早放行單一套件只能用 exclude-newer-package，每個例外都要 Owner 逐一同意。
-exclude-newer = "7 days"
+# 要提早放行單一套件只能用 exclude-newer-package，條件與寫法見禁令 69。
+exclude-newer = "3 days"
 
 [tool.uv.workspace]
 members = [

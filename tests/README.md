@@ -157,6 +157,7 @@ tests/
 | 檔案 | 說明 |
 |------|------|
 | `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走。 |
+| `lint/test_dep_audit_workflow.py` | 每日依賴檢查的 workflow（ADR-0299）：掃描只能讀、只有回報能寫 issue 且只從 main 跑、action 釘 commit SHA、輸入不直接進 shell |
 | `lint/test_chat_dev_terminal_security.py` | `npm run dev` 只啟動 `next dev`、不啟動其他伺服器；`terminal_server.mjs` 不存在；`src/` 沒有程式開 socket 伺服器或 pty |
 | `lint/test_chat_markdown_render_security.py` | `src/` 裡只有 `SafeMarkdown.tsx` 能匯入 `react-markdown`（`from`、`import()`、`require()` 都算）、它不收 rehype 外掛；`package.json` 與 `src/` 沒有 `rehype-raw`；產品程式不匯入 `mermaid`（型別除外），mermaid 執行檔只由沙箱框的模組載入；直接塞 HTML 只有流程圖一處，而且經 `sanitizeMermaidSvg` |
 
@@ -455,7 +456,8 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_live_api_consent.py` | CLI early preflight、exact scope capability、request／token hard bounds、temp writes、provider mismatch／unsupported route fail-closed；conftest 先裝網路封鎖與 HF 離線旗標、registry 金鑰名 ⊆ 清空清單（ADR-0241）；scorecard／tool_eval episode CLI 主迴圈只送 1 次、`memory_eval_probe` 早期閘、沙盒先於產品與評估框架 import、四家 send_round 核銷、不被自動找到（ADR-0261）；r55（ADR-0271）operation 集合多 `manual_thinking_latency_probe` |
 | `test_network_guard.py` | （ADR-0241；ADR-0247 加 SDK 1.x httpx2 傳輸＋注入 client 的 messages.create 只試一次即被擋）：本機／外部判斷表、install 只掛一次、getaddrinfo／connect／sendto 與 httpx／httpx2／SDK／其他執行緒皆被擋並記錄、本機轉發代理繞不過、loopback 與新 event loop 照常、sentinel 讓測試失敗 |
 | `test_live_chat_probe_gemini.py` | （ADR-0241；R-3b 加 probe 的 Claude client 掛位元組計時、503 開關那支釘精確狀態清單；ADR-0248 起 probe 改用主迴圈共用的重試開關 `react_core.MAX_SEND_ATTEMPTS=1`，503 只送 1 次、設 3 就送 3 次）：probe 的 Gemini 只送 1 個請求（503／連線錯誤不重試）且帶 `maxOutputTokens`、產品 adapter 不變、`--env-file` 驗證與核准前不匯入 provider |
-| `test_uv_dependency_cooldown.py` | （ADR-0241）：`exclude-newer = "7 days"`、不得有 `exclude-newer-package` 例外 |
+| `test_uv_dependency_cooldown.py` | （ADR-0299）：冷卻期五處數字一致（`pyproject.toml`、`uv.lock`、兩份 `.npmrc`、`dependabot.yml`）、Python 例外要列在清單裡 |
+| `test_dep_audit_report.py` | （ADR-0299）：每日依賴檢查的回報邏輯，結果檔當不可信的資料；用存好的輸出，不連網 |
 | `test_openapi_script_sandbox.py` | （ADR-0250 B1，禁令 63；純 AST，不匯入腳本）：`update_openapi.py` 在任何 `src`／`awaken`／`memory_server` 匯入前先呼叫 `enable_smoke_sandbox`、產品匯入只在模組頂部、輸出位置由 `Path(__file__)` 推出（不用 `get_workspace_root`）；`openapi_merge.py` 是純函式、不匯入產品程式，入口不重複定義合併函式；`update_docs.py` 第一個專案匯入就是 `update_openapi`；測試改從 `openapi_merge` 匯入 |
 | `test_heartbeat_models_sync.py` | Heartbeat 模型與錯誤碼的投影由單一純來源產生（`sync_heartbeat_models`、`sync_errors`），檢查漂移不改檔、只補缺的錯誤碼、不讀私有設定；合併 openapi 遇到同名不同內容的元件拒絕（ADR-0250 B1 起從 `openapi_merge` 匯入、`TRANSPORT_MODELS` 直接取自 `src.models.session_persistence`） |
 | `test_session_persistence_contract.py` | （可靠性 R2）：保存／終態公開模型由單一 Pydantic 定義（結果 round-trip、無效結果不會變成已保存、generation 與 persistence 分開、具名 discriminated union）；實際 openapi 合併含 transport 合約、名稱衝突拒絕、nullable 投影與 FastAPI 一致（ADR-0250 B1 起從 `openapi_merge` 匯入） |

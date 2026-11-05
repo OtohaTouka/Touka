@@ -1,0 +1,112 @@
+name: Daily dependency audit
+
+# 每天跑一次現有的弱點檢查（Guard #22、#23），有問題才開 issue 通知維護者（ADR-0299、禁令 69）。
+# GitHub 的排程只跑預設分支，所以這個檔案進 main 之後才會開始跑。
+# 權限分開：掃描 job 會裝依賴、跑分支上的程式，只能讀；回報 job 才能寫 issue，它只跑 main 上的
+# 小腳本（只用標準函式庫），掃描結果一律當不可信的資料。
+on:
+  schedule:
+    # 台北 04:17；避開整點，GitHub 文件說整點最容易延後或被丟掉
+    - cron: "17 20 * * *"
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: "不掃描，模擬有問題，驗通知收不收得到"
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - .github/workflows/dep-audit.yml
+      - scripts/dep_audit_report.py
+
+permissions:
+  contents: read
+
+# 手動和排程同時跑可能各開一張重複的 issue
+concurrency:
+  group: dep-audit-${{ github.ref }}
+
+jobs:
+  scan:
+    name: scan (${{ matrix.branch }})
+    if: ${{ !inputs.simulate }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # PR 上只掃 PR 自己的內容，也不跑回報
+        branch: ${{ fromJSON(github.event_name == 'pull_request' && '["pr"]' || '["main","dev"]') }}
+    env:
+      RESULTS: dep-audit-results
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.branch != 'pr' && matrix.branch || github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: "0.12.1"
+          # 不開快取：排程都在 main 的範圍執行，dev 那一路寫進去的快取，main 也讀得到
+          enable-cache: false
+      # Guard #22 要讀裝好的 torch，所以要全部裝
+      - run: uv sync --locked --all-packages --python 3.12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
+      - name: Run the audits
+        run: |
+          mkdir -p "$RESULTS"
+          code=0
+          uv run --no-sync python -B scripts/guard_python_cve.py > "$RESULTS/python.txt" 2>&1 || code=$?
+          echo "$code" > "$RESULTS/python.exit"
+          code=0
+          uv run --no-sync python -B scripts/guard_node_cve.py > "$RESULTS/node.txt" 2>&1 || code=$?
+          echo "$code" > "$RESULTS/node.exit"
+          python3 -I scripts/dep_audit_report.py collect-exceptions --pyproject pyproject.toml --out "$RESULTS/exceptions.json"
+          cat "$RESULTS/python.txt" "$RESULTS/node.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: dep-audit-${{ matrix.branch }}
+          path: dep-audit-results
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail when an audit did not pass
+        run: test "$(cat "$RESULTS/python.exit")" = 0 && test "$(cat "$RESULTS/node.exit")" = 0
+
+  report:
+    needs: scan
+    # 掃描失敗也要跑，手動取消就不跑；只有從 main 觸發才跑，手動從別的分支觸發不會拿到寫 issue 的權限
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        # 沒有結果檔也要往下跑，小腳本會當成沒跑完
+        continue-on-error: true
+        with:
+          path: dep-audit-results
+      - name: Open, update or close the issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEP_AUDIT_SIMULATE: ${{ inputs.simulate }}
+        run: |
+          simulate=""
+          if [ "$DEP_AUDIT_SIMULATE" = "true" ]; then simulate="--simulate"; fi
+          python3 -I scripts/dep_audit_report.py report --results dep-audit-results \
+            --branches main dev --repo "$GITHUB_REPOSITORY" --assignee "$OWNER" \
+            --run-url "$RUN_URL" --now "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" $simulate
