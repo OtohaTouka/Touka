@@ -417,7 +417,7 @@ def _run_gh(args: list[str], *, stdin: str | None = None) -> str:
 
 
 def _expiry(cutoff: object, cooldown_days: int | None) -> str | None:
-    """上架時間加冷卻期。沒有日期（例如 false）或看不懂就回 None，回報時一律列出來。"""
+    """放行時間加冷卻期。沒有日期（例如 false）或看不懂就回 None，回報時一律列出來。"""
     if not isinstance(cutoff, str) or cooldown_days is None:
         return None
     try:

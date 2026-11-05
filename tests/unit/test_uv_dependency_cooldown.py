@@ -16,7 +16,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 COOLDOWN_DAYS = 3
-# 緊急放行的 Python 套件 -> 修補版的上架時間。上架時間加冷卻期就該拿掉，
+# 緊急放行的 Python 套件 -> 放行到的時間（寫法見禁令 69）。這個時間加冷卻期就該拿掉，
 # 每日檢查（scripts/dep_audit_report.py）會提醒；這裡不依日期變紅，否則 CI 會在某一天突然紅。
 ALLOWED_UV_EXCEPTIONS: dict[str, str] = {}
 
