@@ -61,6 +61,61 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await composer(page).press("Enter");
 }
 
+/** 保存狀態不確定或對不上時，人要走的路：先核對，再重試保存（ADR-0231）。 */
+export async function recoverSave(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "重新核對保存結果" }).click();
+  await page.getByRole("button", { name: "僅重試保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
+}
+
+/** 最後一則回覆有失敗標示。訊息清單是虛擬捲動，捲出畫面的不在頁面上，不能數總數。 */
+export async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
+  const lastItem = page.locator("[data-index]").last();
+  await expect(lastItem.getByRole("alert")).toHaveText(/這一輪回覆失敗/);
+}
+
+function sessionOptions(page: Page, title?: string): Locator {
+  if (title) return page.getByRole("button", { name: `會話選項：${title}` }).first();
+  return page.locator('aside [role="treeitem"][aria-current="true"]').getByRole("button", { name: /^會話選項：/ });
+}
+
+/** 沒給標題時是開著的這段。 */
+export async function setChatAsHome(page: Page, title?: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "設為家對話" }).click();
+  await page.keyboard.press("Escape");
+}
+
+export async function unsetChatHome(page: Page, title: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "取消家對話" }).click();
+  await page.keyboard.press("Escape");
+}
+
+/** 清單上這段是不是家：選單給的動作跟著畫面記的家標記走，家對話就是資料夾那一列。 */
+export async function expectChatIsHome(page: Page, title: string, isHome: boolean): Promise<void> {
+  await expect(page.getByRole("treeitem", { name: new RegExp(`，家對話：${title}`) })).toHaveCount(isHome ? 1 : 0);
+  await sessionOptions(page, title).click();
+  // 先等該有的動作出現：選單還沒打開時，「沒有」的檢查會直接過
+  const [shown, hidden] = isHome ? ["取消家對話", "設為家對話"] : ["設為家對話", "取消家對話"];
+  await expect(page.getByRole("menuitem", { name: shown })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: hidden })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+}
+
+/** 點清單上的這段（不能是家對話，那一列顯示的是靈魂名）。訊息可能是同樣的文字，要限定在清單裡。 */
+export async function clickChatInList(page: Page, title: string): Promise<void> {
+  await page.locator('aside [role="treeitem"]').getByText(title, { exact: true }).first().click();
+}
+
+export async function renameChat(page: Page, title: string, next: string): Promise<void> {
+  await sessionOptions(page, title).click();
+  await page.getByRole("menuitem", { name: "重命名" }).click();
+  // 輸入框一打開就有焦點；用原標題找的話，填完就找不到了
+  await page.locator(`input[value="${title}"]`).fill(next);
+  await page.keyboard.press("Enter");
+}
+
 /** 左側邊欄底部的選單按鈕：其他畫面與登出都收在這裡。 */
 export function sideMenuButton(page: Page): Locator {
   return page.getByRole("button", { name: /^選單：/ });

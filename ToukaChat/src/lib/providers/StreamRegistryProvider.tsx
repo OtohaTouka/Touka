@@ -34,7 +34,7 @@ import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
 import { buildApiHistory } from "@/lib/chat/buildApiMessage";
-import { isSaved, unknownSave, parseBufferedStreamState } from '../session_persistence';
+import { isSaved, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
 import { useTranslation } from 'react-i18next';
 
 /** 同時可背景生成的對話數上限（溫和上限，SSOT）。 */
@@ -376,6 +376,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     const sess = await prepareResume(sessionId);
     if (!sess) return;
     if (!isRequestScopeCurrent(requestScope) || streamsRef.current[sessionId] || atCapacity()) return;
+    if (state.terminal && savedPastTerminal(state.terminal, sess)) return;
     const assistantMsgId = state.started.assistant_node_id;
     let tree: TreeHistory;
     try { tree = restoreAssistantNode(migrateFlatToTree(sess.messages), state.started.user_parent_id, assistantMsgId); }

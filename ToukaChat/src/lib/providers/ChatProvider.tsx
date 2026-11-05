@@ -64,7 +64,7 @@ const isEmptySession = (sess?: Session) => Object.keys(migrateFlatToTree(sess?.m
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const { availableModels, selectedModel, setSelectedModel } = useModels();
-  const { sessions, setSessions, syncSession, updateSession, refreshSessions } = useSessionList();
+  const { sessions, setSessions, applySavedHome, syncSession, updateSession, refreshSessions } = useSessionList();
 
   const { getStream, streamingSessionIds, checkSessionStream } = useStreamRegistry();
 
@@ -325,10 +325,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ session_id: id, agent_id: agentId, is_home: true })
       });
       if (res.ok) {
-        setSessions(prev => prev.map(s => (s.id !== id && s.is_home && s.agent_id && canonicalSoulId(s.agent_id) === agentId) ? { ...s, is_home: false } : (s.id === id ? { ...s, is_home: true, home_for_agent: agentId } : s)));
+        applySavedHome(id, agentId, true);
       }
     } catch (err) { logSSOTError(err, "ChatProvider:setHome"); }
-  }, [sessions, setSessions]);
+  }, [sessions, applySavedHome]);
 
   const handleUnsetHome = useCallback(async (id: string) => {
     const sess = sessions.find(s => s.id === id);
@@ -341,10 +341,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ session_id: id, agent_id: agentId, is_home: false })
       });
       if (res.ok) {
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, is_home: false, home_for_agent: undefined } : s));
+        applySavedHome(id, agentId, false);
       }
     } catch (err) { logSSOTError(err, "ChatProvider:unsetHome"); }
-  }, [sessions, setSessions]);
+  }, [sessions, applySavedHome]);
 
   const handleUpdateSessionMessages = useCallback(async (id: string, newMessages: MessageNode[], expectedBase?: Session) => {
     const updatedAt = getSystemEpoch();

@@ -1,5 +1,7 @@
-import type { SaveResult, Session, SessionSnapshot, BufferedStreamState, StreamStartedEvent } from './types';
+import type { SaveResult, Session, SessionSnapshot, BufferedStreamState, StreamStartedEvent, StreamTerminalEvent } from './types';
 import { ERRORS } from './error_codes';
+import { migrateFlatToTree } from './tree_history';
+import { canonicalSoulId } from './session_tree';
 import type { components } from '../types/api';
 
 /** 僅前端生命週期；傳輸結果仍由 Pydantic 生成的 SaveResult 定義。 */
@@ -43,6 +45,29 @@ export function replaceSession(list: Session[], session: Session): Session[] {
   return list.some(item => item.id === session.id)
     ? list.map(item => item.id === session.id ? session : item)
     : [session, ...list];
+}
+
+/**
+ * 設家、取消家成功後的本機內容。規則和後端 set_home 一致（看 home_for_agent，含舊前綴；存下的是不帶前綴的 ID），
+ * 重新核對時才對得上存檔。沒有變動的對話回傳原物件。
+ */
+export function applySetHome(list: Session[], sessionId: string, agentId: string, isHome = true): Session[] {
+  const owner = canonicalSoulId(agentId);
+  return list.map(session => {
+    if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner };
+    return session.home_for_agent && canonicalSoulId(session.home_for_agent) === owner
+      ? { ...session, is_home: false, home_for_agent: null } : session;
+  });
+}
+
+/**
+ * 重新整理後接回已結束的一輪：存檔已經比這一輪新就不重播，重播只會用舊版本存回去而被擋下（ADR-0231）。
+ * 這一輪有文字版本時比版本；沒有（沒有文字、不確定、失敗）時看存檔裡是否已有這則回覆。
+ */
+export function savedPastTerminal(terminal: StreamTerminalEvent, session: Session): boolean {
+  const { persistence } = terminal;
+  if (persistence.status === 'saved') return !!session.revision && session.revision !== persistence.revision;
+  return !!migrateFlatToTree(session.messages).messages[terminal.assistant_node_id];
 }
 
 export function mergeSessionRefresh(local: Session[], remote: Session[], protectedIds: ReadonlySet<string>): Session[] {

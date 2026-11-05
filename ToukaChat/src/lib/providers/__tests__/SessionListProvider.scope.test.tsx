@@ -65,6 +65,8 @@ describe('credential scope invalidates actual Chat view owners', () => {
     expect(result.current.list.sessions).toEqual([]);
     expect(h.fetch).not.toHaveBeenCalled();
     act(() => result.current.list.setSessions([session('B')]));
+    act(() => oldCommands.applySavedHome('same-id', 'Alice', true));
+    expect(result.current.list.getSession('same-id')?.is_home).toBeFalsy();
     act(() => result.current.chat.setActiveSessionId('same-id'));
     expect(result.current.chat.history.messages.a.content).toBe('B');
     expect(result.current.chat.inputValue).toBe('');

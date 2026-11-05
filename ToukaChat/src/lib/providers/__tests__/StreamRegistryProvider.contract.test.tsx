@@ -60,7 +60,8 @@ describe('shared Python producer / real TS decoder, registry and writer contract
         session_id: 'ui', stream_id: contract.aliases.stream_id, status: 'done', last_seq: 6, started_at: 1,
         started: contract.started, terminal: contract.terminal,
       } });
-      if (url.search === '?snapshot=true') return jsonResponse({ exists: true, revision: 'resume-base', session });
+      // 這一輪之後沒有別的保存：存檔版本就是收尾事件記的文字版本（ADR-0231）
+      if (url.search === '?snapshot=true') return jsonResponse({ exists: true, revision: contract.terminal.persistence.revision, session });
       if (path.endsWith('/stream')) return new Response([
         `data: ${JSON.stringify(contract.started)}\n\n`, ...contract.generator_frames,
         `data: ${JSON.stringify(contract.terminal)}\n\n`,
