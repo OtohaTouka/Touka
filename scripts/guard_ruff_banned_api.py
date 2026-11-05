@@ -5,8 +5,9 @@
 `[lint.flake8-tidy-imports.banned-api]`（規則碼 **TID251**）以 SSOT 形式宣告了
 時間／路徑／配置／bootstrap 的禁用 API（`datetime.now`／`time.time`／`os.getcwd`／
 `os.path.abspath`／`os.path.realpath`／`os.environ`／`os.getenv`／`sys.path.insert`／
-`src.config.get_app_data_dir` 等），但 **ruff 從未被 guard_all 或 CI 執行**——刪任何
-banned-api 條目、或新代碼引入被禁呼叫，皆零守衛變紅。
+`src.config.get_app_data_dir` 等），但當時 **ruff 從未被 guard_all 或 CI 執行**——刪任何
+banned-api 條目、或新代碼引入被禁呼叫，皆零守衛變紅。（完整 ruff 之後由 ADR-0278 放進 CI 的
+pytest，只算總數；逐條驗 TID251 的仍是這道。）
 
 其中 `os.getcwd`／`os.path.abspath`／`os.path.realpath`／`sys.path.insert`／
 `get_app_data_dir` 甚至連 `lint_ssot.py`（Guard #1）也不涵蓋（見 E09/ADR-0004/0017），

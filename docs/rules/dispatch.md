@@ -2,11 +2,11 @@
 
 範圍：`ToukaDispatch/**`：對外派工。
 
-從根 `AGENTS.md` 搬來的全文，沒有改寫。跑 `python scripts/applicable_rules.py --print-rules` 看這次改動適用哪幾條，不必讀完整份。改規則見 [README](README.md)。
+從根 `AGENTS.md` 搬來的全文；禁令 33 之後依 ADR-0298 更正過函式名。跑 `python scripts/applicable_rules.py --print-rules` 看這次改動適用哪幾條，不必讀完整份。改規則見 [README](README.md)。
 
 ## 禁令
 
-*   **禁令 33 (ToukaDispatch Token 非空)**：**嚴禁**在 `DISPATCH_TOKEN` 環境變數為空時允許任何操作通過。`_check_token()` 在 expected 為空時必須直接回傳 `False`，拒絕全部請求。嚴禁為了便利在開發環境設定空 token 後忘記在部署時填入。（ADR-0046）
+*   **禁令 33 (ToukaDispatch Token 非空)**：**嚴禁**在 `DISPATCH_TOKEN` 環境變數為空時允許任何操作通過。`_verify_dispatch_token()` 在 expected 為空時必須直接回傳 `False`，拒絕全部請求。嚴禁為了便利在開發環境設定空 token 後忘記在部署時填入。（ADR-0046）
 
 ## 小節
 

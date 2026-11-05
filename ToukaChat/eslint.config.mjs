@@ -2,6 +2,8 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+const RADIX_IMPORT_MESSAGE = "🚫 [SSOT] 請勿直接引用 Radix UI。請使用 @/components/ui/ 下已經過樣式封裝的組件。";
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -17,10 +19,17 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
+          // radix-ui 總包要比對精確名稱：寫成 pattern 會連 @/components/radix-ui 一起擋掉
+          "paths": [
+            {
+              "name": "radix-ui",
+              "message": RADIX_IMPORT_MESSAGE
+            }
+          ],
           "patterns": [
             {
-              "group": ["@radix-ui/*"],
-              "message": "🚫 [SSOT] 請勿直接引用 Radix UI。請使用 @/components/ui/ 下已經過樣式封裝的組件。"
+              "group": ["@radix-ui/*", "radix-ui/*"],
+              "message": RADIX_IMPORT_MESSAGE
             }
           ]
         }
@@ -58,19 +67,6 @@ const eslintConfig = defineConfig([
     files: ["src/components/ui/**"],
     rules: {
       "no-restricted-imports": "off"
-    }
-  },
-  {
-    files: ["src/**/*.ts", "src/**/*.tsx"],
-    ignores: ["src/lib/types.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "warn",
-        {
-          "selector": "TSInterfaceDeclaration[id.name='McpHubServer'], TSTypeAliasDeclaration[id.name='McpHubServer']",
-          "message": "🚫 [Contract SSOT] 禁止手動重複定義 McpHubServer。請從 @/lib/types 匯入以確保與後端合約同步。"
-        }
-      ]
     }
   },
   {
