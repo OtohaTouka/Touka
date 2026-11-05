@@ -2,6 +2,7 @@
  * 工作狀態的來源（ADR-0300）：查詢怎麼轉成狀態、什麼時候留小點、什麼時候下載新對話。
  * 最要擋的回歸：查狀態的過程不能重抓整份清單（這裡的 useSessionList 根本沒有 refreshSessions）。
  */
+import { useEffect } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchTouka } from '@/lib/connections';
@@ -54,7 +55,8 @@ const heartbeat = (id: string, current = 2, total = 5) => ({ session_id: id, kin
 
 let value: ReturnType<typeof useSessionActivity>;
 function Probe() {
-  value = useSessionActivity();
+  const current = useSessionActivity();
+  useEffect(() => { value = current; });
   return null;
 }
 const tree = (chatVisible: boolean) => (
@@ -115,7 +117,7 @@ describe('查詢的節奏', () => {
     await mount({ cursor: 111 });
     await poll({ cursor: 222 });
     await poll({ cursor: 222 });
-    expect(urls()).toEqual(['/v1/ui/activity', '/v1/ui/activity?since=111', '/v1/ui/activity?since=222']);
+    expect(urls()).toEqual(['/v1/ui/activity?', '/v1/ui/activity?since=111', '/v1/ui/activity?since=222']);
   });
 
   it('分頁藏起來不查，回到分頁馬上查一次', async () => {
@@ -166,7 +168,7 @@ describe('憑證換了', () => {
     act(() => state.credentialListeners.forEach(listener => listener()));
     await flush();
     expect(signal?.aborted).toBe(true);
-    expect(urls().at(-1)).toBe('/v1/ui/activity');
+    expect(urls().at(-1)).toBe('/v1/ui/activity?');
   });
 
   it('舊身分的回應晚到：丟掉', async () => {

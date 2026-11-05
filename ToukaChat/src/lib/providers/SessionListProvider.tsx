@@ -548,6 +548,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const handleScopeChanged = () => { ensureScope(); void refreshSessions(); };
     const unsubscribe = subscribeCredentialScope(handleScopeChanged);
     // 非同步載入；所有實際 state transition 在單一同步入口。
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 清單讀到後才標「讀過」（在 await 之後，非同步 setState 屬預期）
     void refreshSessions();
     window.addEventListener('touka_auth_changed', handleScopeChanged);
     window.addEventListener('touka_connections_updated', handleScopeChanged);

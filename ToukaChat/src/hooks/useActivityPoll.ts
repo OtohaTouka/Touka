@@ -31,9 +31,9 @@ export function useActivityPoll(enabled: boolean, handlers: ActivityPollHandlers
       const current = new AbortController();
       controller = current;
       const issued = ++sequence.current;
-      const query = cursor === null ? '' : `?since=${cursor}`;
+      const query = new URLSearchParams(cursor === null ? {} : { since: String(cursor) });
       try {
-        const response = await fetchTouka(scope.proxyOrigin, `/v1/ui/activity${query}`, {
+        const response = await fetchTouka(scope.proxyOrigin, `/v1/ui/activity?${query}`, {
           cache: 'no-store', signal: current.signal, nonStreaming: true, requestScope: scope,
         });
         const activity = response.ok ? parseSessionActivity(await response.json()) : null;

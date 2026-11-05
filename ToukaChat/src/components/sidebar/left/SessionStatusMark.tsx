@@ -7,7 +7,7 @@ import type { SessionWorkStatus } from '@/lib/session_activity';
 import { cn } from '@/lib/utils';
 
 /** 工作中：桌面版是對話名稱呼吸（手機沒有滑鼠、名稱又常被截斷，改由名稱前的小點呼吸）。 */
-export const isWorkingStatus = (status: SessionWorkStatus | null | undefined) =>
+const isWorkingStatus = (status: SessionWorkStatus | null | undefined) =>
   status?.kind === 'replying' || status?.kind === 'heartbeat';
 
 /** 狀態的文字：寫進列的無障礙名稱；減少動態時也顯示在列上。 */
