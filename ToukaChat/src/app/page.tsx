@@ -18,7 +18,7 @@ import { MainAreaControls } from '@/components/layout/MainAreaControls';
 import { SetupNoticeDot } from '@/components/setup/SetupNoticeDot';
 import { useHasSetupNotice } from '@/components/setup/SetupNoticesProvider';
 import {
-  Settings, MessageSquare,  BarChart4,
+  MessageSquare,  BarChart4,
   Menu, Loader2
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from "react-resizable-panels";
@@ -228,7 +228,8 @@ function ChatLobby() {
   useEffect(() => {
     if (!isMobile || (isSidebarCollapsed && !isRightSidebarOpen)) return;
     const onEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // 選單或抽屜自己接走這次 Esc 時（Radix 會標 defaultPrevented）一次只關一層
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         setIsSidebarCollapsed(true);
         setRightSidebarOpen(false);
       }
@@ -301,7 +302,6 @@ function ChatLobby() {
                 </div>
              </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setViewMode("settings")} className={cn("p-1.5 rounded-lg transition-colors", viewMode === "settings" ? "bg-primary/10 text-primary" : "text-muted-foreground")}><Settings size={20} /></button>
                 <button onClick={handleToggleRightSidebar} className={cn("p-1.5 rounded-lg transition-colors", isRightSidebarOpen ? "bg-primary/10 text-primary" : "text-muted-foreground")}>
                   <BarChart4 size={20} />
                 </button>

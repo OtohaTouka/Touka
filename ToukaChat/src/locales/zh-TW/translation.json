@@ -1338,7 +1338,9 @@
       "delete_conversation": "刪除對話"
     },
     "navigation_area": {
-      "nav_chat": "聊天大廳",
+      "menu": "選單",
+      "menu_aria": "選單：{{name}}",
+      "menu_aria_page": "選單：{{name}}，目前在{{page}}",
       "nav_projects": "專案管理",
       "nav_soul": "靈魂核心",
       "nav_studio": "模型工坊",
@@ -1972,6 +1974,7 @@
       "new_chat_button": "新增對話",
       "incognito_chat_button_tooltip": "開一個不留痕跡的對話：不存檔、AI 不讀寫記憶",
       "incognito_chat_button": "無痕對話",
+      "incognito_chat_button_short": "無痕",
       "session_history_heading": "對話歷史",
       "collapse_sidebar": "收合側邊欄"
     },

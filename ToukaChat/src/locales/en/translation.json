@@ -1342,7 +1342,9 @@
       "round_count_other": "{{count}} rounds"
     },
     "navigation_area": {
-      "nav_chat": "Chat Lobby",
+      "menu": "Menu",
+      "menu_aria": "Menu: {{name}}",
+      "menu_aria_page": "Menu: {{name}}, currently on {{page}}",
       "nav_projects": "Projects",
       "nav_soul": "Soul Core",
       "nav_studio": "Model Studio",
@@ -1980,6 +1982,7 @@
       "new_chat_button": "New Chat",
       "incognito_chat_button_tooltip": "Start a conversation that leaves no trace: not saved, and the AI doesn't read or write memory",
       "incognito_chat_button": "Incognito Chat",
+      "incognito_chat_button_short": "Incognito",
       "session_history_heading": "Conversation History",
       "collapse_sidebar": "Collapse sidebar"
     },
