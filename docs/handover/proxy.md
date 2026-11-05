@@ -14,7 +14,7 @@
 - **模型溝通層第 0 段（2026-10-11，ADR-0241）**：
   - 內容：自動測試網路封鎖；三家 adapter 與 ToukaChat 不送取樣參數；Claude 思考／強制工具暫行規則；Gemini 無痕不建快取；備援只限同一家；沒設主要模型回 409 `AGENT_BRAIN_NOT_SET` 並跳通知；研究搜尋改用代理人自己的模型、評分沒設模型不啟用；還原拿掉硬逾時與三個穩定性小修；uv 7 天冷卻期；實測程式支援 Gemini 與 `--env-file`。
   - 第 2 段完成前不啟動 Touka、不跑心跳。
-  - **uv 例外流程**：要提早採用上架未滿 7 天的 Python 套件，只能在 root `[tool.uv]` 加 `exclude-newer-package`，每個套件都要維護者逐一同意，並同步修改 `tests/unit/test_uv_dependency_cooldown.py`（目前鎖住不得有例外）。npm 不在冷卻期內。
+  - **uv 例外流程**：改 3 天與放行的寫法見 `docs/rules/deploy.md` 禁令 69（ADR-0299）。
   - 後續任務：B8（這次不做）、取樣參數設定面與介面拉桿清理、前端寫死模型名、心跳／群聊與其他入口在沒設主要模型時的處理、ADR-0241「已知限制」所列既有問題。
 - **Touka 重新運作前的小任務（2026-10-12，ADR-0243）**：
   - 全停 Gemini 顯式快取：刪 `gemini_cache_service`，一般與無痕對話每一輪都照常送 system 與工具，KF-1／KF-2／KF-2d 消失；`extract_usage` 仍讀 Google 隱式快取的用量計數（Touka 沒有建立任何快取）。

@@ -63,7 +63,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 | **依賴與映像** | Python／Node 依賴由 Guard #22／#23 稽核（HIGH／CRITICAL 阻擋，ADR-0222／0223）；映像的 Node／npm 取自 digest 釘版官方 node 映像，Debian 套件於建置時以 `apt-get upgrade` 取官方安全更新（ADR-0238） |
 | **Docker 容器** | 三個服務均以非 root `appuser` 執行（USER directive） |
 | **自動化測試網路封鎖** | pytest 與自動 smoke 以 audit hook 擋下非本機的解析與連線並讓測試失敗，並清掉代理變數（`NO_PROXY=*`）；只有先過 `preflight_live_api_cli` 的人工實測工具可開放（ADR-0241；子程序不在封鎖內） |
-| **Python 套件冷卻期** | uv `exclude-newer = "7 days"`，只採用上架滿 7 天的套件；逐套件例外需維護者同意；npm 不在內（ADR-0241） |
+| **依賴冷卻期與緊急修補** | Python（uv）、npm、GitHub Actions 都只採用上架滿 3 天的版本，工具會擋。緊急修補只有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue（[禁令 69](docs/rules/deploy.md)、ADR-0299） |
 
 > ⚠️ **雲端部署必讀**：Touka 預設設計為本機使用。若需暴露至公網 VPS，請務必：
 > 1. 設定 `CLOUD_MODE=true`（停用 LDH 自動發卡，改用 X-Real-IP 識別真實客戶端）
@@ -150,7 +150,7 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 ### Node 依賴的 moderate advisory
 
-Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容修正版、滿 7 天冷卻期後更新。2026-10-25 這批（hono、ip-address、vitest、smol-toml、IDE 的 MCP client）見依賴表；fast-uri 在 2026-10-27 那批升到 3.1.9（見依賴表）；還剩一項：
+Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容修正版、滿冷卻期後更新。2026-10-25 這批（hono、ip-address、vitest、smol-toml、IDE 的 MCP client）見依賴表；fast-uri 在 2026-10-27 那批升到 3.1.9（見依賴表）；還剩一項：
 - katex（Chat runtime，經 mermaid；GHSA-238p-pmpm-9mq7，low，要先有別的原型污染才能利用）：mermaid 11 要求 katex `^0.16.45`，修正版 0.18.2 不在範圍內；mermaid 12.0、12.1 仍要求 `^0.16.47`，要升到 mermaid 12.2.0 以上（大版本）才有，暫不處理。
 
 ---

@@ -94,6 +94,7 @@ def test_committed_npm_policy_is_fail_closed() -> None:
         "engine-strict": "true",
         "fund": "false",
         "ignore-scripts": "true",
+        "min-release-age": "3",
         "registry": "https://registry.npmjs.org/",
         "update-notifier": "false",
     }

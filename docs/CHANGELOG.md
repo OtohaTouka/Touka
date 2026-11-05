@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-11-06 | **依賴冷卻期改 3 天，加上緊急修補通道與每日檢查**：Python、npm、GitHub Actions 都只採用上架滿 3 天的版本，工具會擋（npm 以前只靠慣例）；緊急修補有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue，這項要進 main 之後才開始跑。條文統一在 `docs/rules/deploy.md` 禁令 69。使用者端沒有改變。 | [ADR-0299](architecture/adr/0299-dependency-cooldown-and-emergency-patches.md) |
 | 2026-11-05 | **下一則不再存不進去**：設為家對話或取消之後、換家之後的舊家對話、這一頁新建的對話切走再回來、回覆結束後重新整理頁面，下一則都會直接送出，不用再按「重新核對」與「僅重試保存」；保存規則沒有放寬，每次一樣重讀存檔、比對內容才存。回覆還在跑時設家仍會跳提示，按恢復之後內容完整。 | [ADR-0231](architecture/adr/0231-session-persistence-outcomes-and-revisions.md) |
 | 2026-11-05 | **依賴弱點一批清掉**：dnspython 2.8.0 → 2.9.0、msgpack 1.2.1 → 1.2.4、body-parser 2.3.0 → 2.4.0（連帶 qs 6.16.2）、IDE 的 `@modelcontextprotocol/node` 2.0.0 → 2.1.1、打包工具帶入的 `@azure/msal-node` 5.6.0 → 7.1.2（連帶 `@azure/identity` 4.14.1）。產品功能不變，使用者不用做什麼，下次發版帶上；Guard #22、#23 轉綠。 | [SECURITY.md](../SECURITY.md) |
 | 2026-11-05 | **規則文字和實際檢查對齊**：禁止 `print`、硬編碼錯誤字串的檢查開始掃 Heartbeat、Dispatch；`console` 檢查開始掃元件；`radix-ui` 總包也不能直接引用；後端新增沒人用的函式、方法、類別會紅（既有 108 筆凍結成清單）；前端手寫和後端合約同名的型別會紅（既有 10 個凍結）。禁令 7、9、33、43、46、50、51 的文字改成和檢查一致。只改檢查、測試與文件，產品行為不變。 | [ADR-0298](architecture/adr/0298-rule-text-matches-checks.md) |

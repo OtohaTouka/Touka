@@ -83,6 +83,7 @@ def _fake_repo(tmp_path: Path) -> Path:
         (project / "package.json").write_text("{}\n", encoding="utf-8")
         (project / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
     (repo / "ToukaChat" / ".npmrc").write_text("registry=https://registry.npmjs.org/\n")
+    (repo / "ToukaIDE" / ".npmrc").write_text("min-release-age=3\n")
     return repo
 
 
@@ -860,6 +861,7 @@ def _run_main_with_fake_scan(
     "relative",
     [
         "ToukaChat/.npmrc",
+        "ToukaIDE/.npmrc",
         "ToukaChat/package.json",
         "ToukaChat/package-lock.json",
         "ToukaIDE/package.json",
