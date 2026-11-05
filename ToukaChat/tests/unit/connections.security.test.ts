@@ -39,6 +39,7 @@ describe('P4 — Access token in-memory storage', () => {
 
   it('fetchTouka reads token from memory, not localStorage', async () => {
     const mod = await import('@/lib/connections');
+    window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://localhost:8000' }]));
     mod.setAccessToken('mem-token-abc');
 
     const lsGetSpy = vi.spyOn(Storage.prototype, 'getItem');
@@ -53,8 +54,10 @@ describe('P4 — Access token in-memory storage', () => {
       ([key]) => key === 'touka_auth_token',
     );
     expect(tokenRead).toBeUndefined();
+    expect(new Headers(fetchSpy.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer mem-token-abc');
 
     mod.clearAccessToken();
+    window.localStorage.removeItem('touka_connections');
     fetchSpy.mockRestore();
     lsGetSpy.mockRestore();
   });

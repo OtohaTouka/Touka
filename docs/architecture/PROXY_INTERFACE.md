@@ -886,7 +886,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 1. **後端驅動**：Pydantic 模型定義為 SSOT。
 2. **合約驗證**：透過 `test_api_schema_sync.py` 確保模型與物理 `openapi.json` 強一致。
 3. **合約工具**：提供 `scripts/update_openapi.py` 自動更新物理合約。
-4. **前端守衛**：透過 `guard_frontend.ts` 強制校驗前端所有 API 呼叫是否符合 `openapi.json` 定義（包含 `/v1` 前綴與路徑格式）。
+4. **前端守衛**：透過 `guard_frontend.ts` 強制校驗前端所有 API 呼叫是否符合 `openapi.json` 定義（包含 `/v1` 前綴與路徑格式）；前端手寫和 schema 同名的型別也由它擋（基準凍結，ADR-0298）。
 5. **前端同步**：前端呼叫 `npm run sync-api` 消費合約產出型別。
 
 ---
@@ -936,7 +936,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 ### 4. 前端 Console 禁令 (CONSOLE_BAN)
 - **規則**：前端生產代碼嚴禁直接呼叫 `console.log/warn/error()`，必須透過 `logSSOTError()` 封裝層。
 - **執法**：`guard_console.ts`（CONSOLE_BAN），整合於 `guard_all.py` 第 15 關 (Guard #15)（ADR-0031）。
-- **唯一授權**：`src/lib/error_handler.ts`（白名單）。
+- **唯一授權**：`src/lib/error_handler.ts`（靠行內 `// noqa: CONSOLE_BAN`）。
 
 ### 5. 模組邊界守衛 (Module Boundary Guard)
 - **規則**：ToukaMemory 嚴禁直接 import ToukaProxy 內部模組（`src.services`、`src.utils` 等）。

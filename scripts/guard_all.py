@@ -215,7 +215,7 @@ def main(argv: Sequence[str] = ()) -> None:
             "cwd": root_dir,
         },
         {
-            "name": "Frontend API Parity Guard [Guard #2]",
+            "name": "Frontend API Parity & Contract Type Guard [Guard #2]",
             "command": "npm run guard:api",
             "cwd": frontend_dir,
         },

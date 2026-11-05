@@ -410,7 +410,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 
 | 檔案 | 說明 |
 |------|------|
-| `test_lint_ssot.py` | `lint_ssot.py` 主規則集：時間/環境/IO 監獄/本地匯入/raise 硬編碼等 |
+| `test_lint_ssot.py` | `lint_ssot.py` 主規則集：時間/環境/IO 監獄/本地匯入/raise 硬編碼等；ADR-0298 起 `print`、raise 硬編碼的業務層判斷對照表，以及照 guard_all 的跑法（從 repo 根掃 `.`）實跑 |
 | `test_lint_ssot_top_level_tests.py` | **ADR-0278**：repo 頂層 `tests/` 底下的檔案不算業務層，檔名含 tools、service 也不會被 IO 監獄擋（相對、`./` 開頭、絕對路徑）；`ToukaProxy/tests/`、`tests_old/`、`src/tests/`、產品的 services／tools 與 `*_service.py`、絕對路徑的產品檔、含 `..` 從 tests/ 繞回產品資料夾的相對與絕對路徑照舊攔 |
 | `test_eslint_ratchet_guard_registration.py` | **ADR-0098／ADR-0278**：Guard #35 腳本、基準檔格式與 guard_all 註冊；收集違規時只跑 ESLint（ADR-0282 起不先驗 braces 補丁）；基準是 `{}` 而且沒有違規時通過，基準檔不存在時失敗 |
 | `test_ssot_guard_io.py` | `SSOTGuard` IO Prison 層感知規則單元測試 |
@@ -926,9 +926,10 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_dockerfile_base_images.py` ⭐ | Proxy／Heartbeat必須用核准 官方Debian trixie-slim tagged immutable ref、Python3.12與明示bash供應與非root useradd；拒絕alpine/musl替代，保留CPU manylinux相容條件。 |
 | `test_npm_docker_paths_guard.py` | Guard #26：npm scripts 的父目錄相對路徑必須在 `docker-compose.yml` 掛載為 volume |
 | `test_release_licensing.py` | 發布的映像與 VSIX 帶著授權聲明：三個映像的 `/app` 都有 LICENSE、NOTICE（chat 從具名 context `touka-root` 取得，它宣告成空的 scratch 階段，沒帶 context 時建置失敗、不會去 registry 拉同名映像；compose 與 GHCR 發布都要帶它）；chat 執行期安裝帶 `--omit=optional`（不帶進 sharp 的 LGPL libvips）；GHCR 發布只在 main 跑、每個 action 都釘 commit SHA；`ToukaIDE/THIRD_PARTY_NOTICES.txt` 列滿 lock 的執行期套件，版本都對得上 lock |
-| `test_ci_pr_checks.py` | **ADR-0254 A4、ADR-0278**：四個產品子專案（`ToukaProxy/src`、`ToukaMemory/src`、`ToukaHeartbeat`、`ToukaDispatch`）`ruff --select F` 0 錯誤；CI `contracts` job 恰有一個鎖定版 ruff F 步驟涵蓋四個根目錄、沒有放寬旗標；`toukaide` job 在 devEngines 的 Node／npm 上依序跑 `install:controlled`、`test`、`typecheck`、`compile`，不能被 `if`／`continue-on-error` 跳過；`CONTRIBUTING.md`「PR 前必做」寫明 CI 綠燈就能開 PR、每項都標「CI 會跑」或「維護者合併前補跑」、完整 ruff、pyrefly 與 ESLint 棘輪標 CI、標示和 CI 實際跑的對得上；`frontend` job 在安裝依賴之後跑 Guard #35、不能被跳過，也不再有 braces 步驟（ADR-0282）；跑整套 pytest 的 job 恰有一個（ruff 與 pyrefly 棘輪靠它進 CI）。ruff 帶 `--no-cache`，不寫檔 |
+| `test_ci_pr_checks.py` | **ADR-0254 A4、ADR-0278**：四個產品子專案（`ToukaProxy/src`、`ToukaMemory/src`、`ToukaHeartbeat`、`ToukaDispatch`）`ruff --select F` 0 錯誤；CI `contracts` job 恰有一個鎖定版 ruff F 步驟涵蓋四個根目錄、沒有放寬旗標；`toukaide` job 在 devEngines 的 Node／npm 上依序跑 `install:controlled`、`test`、`typecheck`、`compile`，不能被 `if`／`continue-on-error` 跳過；`CONTRIBUTING.md`「PR 前必做」寫明 CI 綠燈就能開 PR、每項都標「CI 會跑」或「維護者合併前補跑」、完整 ruff、pyrefly、vulture 與 ESLint 棘輪標 CI、標示和 CI 實際跑的對得上；`frontend` job 在安裝依賴之後跑 Guard #35、不能被跳過，也不再有 braces 步驟（ADR-0282）；跑整套 pytest 的 job 恰有一個（ruff、pyrefly、vulture 棘輪靠它進 CI）。ruff 帶 `--no-cache`，不寫檔 |
 | `test_pyrefly_ratchet.py` | **ADR-0278 §7**：pyrefly 型別檢查（範圍在 `pyproject.toml` 的 `[tool.pyrefly]`，先從隔離與安全邊界開始），每種錯誤的數量和 `tests/lint/pyrefly_baseline.json` 完全相等；整份設定逐項釘住（範圍、search-path、平台 linux、版本對齊 `.python-version`、不讀 ignore 檔；不准多出排除、錯誤開關或直譯器路徑）；`project-includes` 每個樣式都還對得到檔案；範圍內不准 `# pyrefly: ignore-errors` 整檔壓制；收集指令的參數整組釘住（目前的直譯器、repo 設定、JSON 輸出）；結束碼異常、錯誤輸出有 INFO 以外的行（設定欄位打錯、search-path 不存在、日誌格式改變）、輸出不是完整 JSON 時收集失敗，不當成 0 個；用真的 pyrefly 檢查暫存資料夾的小專案，核對輸出格式與設定錯誤會失敗；`--update` 排序寫出、寫完即通過。收集與重拍共用 `scripts/lint_ratchet.py` |
 | `test_ruff_ratchet.py` | **ADR-0278**：四個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍從 CI workflow 讀出、和 F 步驟相同；比對函式的變多、變少、新規則三種情況；ruff 異常結束時收集失敗、不當成 0 個；`--update` 依規則代號排序寫出、寫完即通過、再多一個就失敗；打錯的工具名或參數回 2、不做檢查。收集與重拍共用 `scripts/lint_ratchet.py` |
+| `test_vulture_ratchet.py` | **ADR-0298**：四個產品資料夾未用的函式、方法、類別不得超過 `tests/lint/vulture_baseline.json`（單向，少了不紅）；參數釘住；工具異常結束、看不懂的輸出要失敗；用真的 vulture 跑小專案 |
 | `test_tests_readme_listing.py` | **ADR-0278**：版控中的每個 `tests/**/test_*.py` 都要在本檔用反引號列出（有相對路徑比對相對路徑；只寫檔名時檔名必須唯一；沒加反引號的不算），還沒列的凍結在 `tests/lint/tests_readme_unlisted.json`、只准變短（已補列或已刪除還留在清單也算失敗）；反引號裡的測試檔名要對得到實際檔案（萬用字元除外）；本檔不寫「現在有幾個案例」（只擋固定格式：數字欄、粗體與標籤裡的數量、「N 個測試／TDD／案例」、合計句；某一批加了幾個、HTTP 狀態碼、年份、有日期的實跑結果、live 預算不擋，正反例都釘住）；反引號名稱檢查拒絕 `..` 與絕對路徑、有斜線的要等於版控路徑、同名檔另外說明（合成資料測試）；沒有 git 就失敗、不跳過 |
 
 ---
@@ -1012,12 +1013,13 @@ fallback／retry。若未核准，唯一正確狀態是 `NOT RUN`，不得冒充
 python scripts/lint_ssot.py .                  # SSOT 主規則（IO/路徑/時間/環境/錯誤碼/日誌/raise...）
 python scripts/guard_noqa_registry.py          # noqa 計數與 NOQA_REGISTRY.md 同步驗證（Guard #19）
 python scripts/guard_dead_code.py              # 死碼偵測 vulture（Python）+ knip（TS）（Guard #20）
+python scripts/lint_ratchet.py vulture         # 未用的函式、方法、類別不得增加（ADR-0298；CI 在 pytest 裡跑）
 python scripts/guard_module_boundaries.py      # ToukaMemory→ToukaProxy 逆向 import 禁令（Guard #21）
 python scripts/guard_endpoint_auth.py          # 全 FastAPI 端點認證 Depends 檢查（Guard #24）
 python scripts/guard_native_npm.py             # 前端 native module 需編譯工具驗證（Guard #25）
 
 # 前端（ToukaChat/）
-npx tsx scripts/guard_frontend.ts             # API Parity（路徑 + /v1 前綴）
+npx tsx scripts/guard_frontend.ts             # API Parity（路徑 + /v1 前綴）＋合約同名手寫型別（ADR-0298）
 npx tsx scripts/guard_time.ts                 # 時間主權（禁 Date.now/new Date）
 npx tsx scripts/guard_errors.ts               # 錯誤碼主權（禁硬編碼字串）
 npx tsx scripts/guard_env.ts                  # 環境變數主權（禁 process.env/import.meta.env）
@@ -1047,7 +1049,7 @@ python scripts/guard_all.py
 | 錯誤碼主權 | `lint_ssot.py`（RAISE_STRING_BAN）、`guard_errors.ts` |
 | HTTP 客戶端主權 | `guard_fetch.ts`（FETCH_SSOT，ADR-0024） |
 | localStorage 主權 | `guard_localStorage.ts`（ADR-0026） |
-| 日誌主權 | `lint_ssot.py`（PRINT_BAN / BASICCONFIG_BAN，ADR-0025） |
+| 日誌主權 | `lint_ssot.py`（PRINT_BAN / BASICCONFIG_BAN，ADR-0025；ADR-0298 起也掃 Heartbeat、Dispatch） |
 | 密碼安全 | `lint_ssot.py`（BCRYPT_IMPORT_SSOT，ADR-0028） |
 | 資料庫主權 | `lint_ssot.py`（SQLITE3_IMPORT_BAN，ADR-0030） |
 | 模組邊界 | `guard_module_boundaries.py`（ADR-0032） |
@@ -1096,7 +1098,7 @@ python scripts/guard_all.py
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
 | `unit/ChatProvider.backgroundStream.test.tsx` | ADR-0080 背景續跑端到端：切走不中止、per-session isSending、背景 chunk 不污染、切回看到累積、完成寫回 session；兩對話同時背景生成互不污染 |
 | `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕（交不到就下一個畫面再試，最多 30 個畫面；焦點已到別處、或這次展開不是按鈕要求的就不搶） |
-| `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的分頁與登出：登出要按兩次、走 `useAuth().logout()`；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫（2026-10-28 上導覽列拿掉後側欄是唯一的分頁入口） |
+| `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的選單（2026-11-05 起其他選項都收在這裡）：按鈕顯示名稱並標出目前畫面；登出要按兩次、走 `useAuth().logout()`，關選單清掉確認與計時器；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫 |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
@@ -1156,6 +1158,15 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useLegacySync.test.ts` ⭐ | ADR-0253：後端回錯誤狀態、或 200 但 `status` 不是 success 時不顯示同步成功；只有真的成功才顯示一次成功；讀統計失敗時顯示錯誤、不默默略過 |
 | `src/components/sidebar/__tests__/MemoryNoticeBar.schema.test.tsx` ⭐ | ADR-0256 記憶庫結構提示：5 個結構代碼都顯示成翻譯過的警告（`role="alert"`、和降級橫幅一樣醒目）；5 個代碼都有英文訊息 |
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
+| `src/lib/__tests__/session_tree.test.ts`、`src/hooks/__tests__/useSessionTreeState.test.ts`、`src/hooks/__tests__/useSessionTreeKeyboard.test.tsx`、`unit/SessionTree.test.tsx` | 對話清單：靈魂資料夾分組（不分大小寫、`toukasoul:`、舊前綴、別名、清單讀不到時只信前綴與家）、「設為家」規則與後端相同、先列 5 筆且開著的不收；收合狀態各帳號分開、只有無痕的資料夾不寫瀏覽器；鍵盤只算一個 Tab 站、方向鍵與左右收合、Shift+F10、輸入框與 portal 選單的按鍵不動清單、列消失時焦點交給同位置 |
+| `src/lib/providers/__tests__/ChatProvider.setHome.test.tsx` | 設家與取消家：後端只收正式靈魂 ID；舊家是前綴或正式 ID 都算同一個靈魂、別的靈魂的家不動；沒綁模型不送請求；後端拒絕時畫面不動 |
+| `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名 |
+| `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
+| `src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx` ⭐ | ADR-0297 換後端網址：真的 AuthProvider、設定頁與 `connections.ts`，只假 fetch 與提示框，攔每個請求的憑證與內容。存檔換網址走確認→探測→向舊後端登出→切換，新網址收不到憑證與清單；取消、連不上、不是 Touka、舊後端連不上或不回、重複確認、留下來的提示、探測中別的分頁換網址；後端清單不能改網址；別的分頁改網址時登出；舊 `/connections` 頁事件晚於寫入；同網址存檔照舊 |
+| `src/lib/__tests__/connections.token-origin.security.test.ts` ⭐ | ADR-0297 統一出口：`fetchTouka`、`fetchChatStream` 對非發卡後端不帶卡、不續期、不重送，對發卡後端照帶（含各種網址寫法）；領卡與續期綁回應的網址；`activeProxyUrlOf`、`keepActiveProxy`、`publishConnections`、`isProxyReachable` |
+| `tests/auth/AuthPagesProxyUrl.test.tsx` | ADR-0297 登入與註冊頁顯示目前的網址，別的分頁改網址時跟著變，沒有設定時顯示前端來源 |
+| `e2e-real/connection-switch.spec.ts` ⭐ | ADR-0297 實際驗證：真瀏覽器、真後端、一支放行 CORS 的小伺服器當新後端。確認後兩個分頁都回登入頁，小伺服器沒收到憑證、預檢沒要求憑證、沒收到 refresh cookie（同主機換埠）、沒收到清單；連不上時不換、可以重試 |
+| `unit/LeftSidebar.switch.test.tsx` | 點對話：在其他畫面點開著的這段只回聊天、不重新載入；點另一段會切過去也回聊天；已經在聊天時照常切換 |
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
 | `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |
@@ -1168,6 +1179,8 @@ python scripts/guard_all.py
 |------|------|
 | `scripts/lib/__tests__/eventsource_guard_logic.test.ts` | 驗證 EventSource Token Query 靜態 AST 守衛的語法掃描與 noqa 排除邏輯 |
 | `scripts/lib/__tests__/xagentid_guard_logic.test.ts` | 驗證 X-Agent-ID 身份主權守衛的 AST 檢索邏輯 |
+| `scripts/lib/__tests__/contract_type_guard_logic.test.ts` | ADR-0298 合約型別檢查：手寫同名會報、真別名放行（單一索引、多層索引、全合約聯集），基準要完全相等 |
+| `scripts/lib/__tests__/eslint_component_rules.test.ts` | ADR-0298 用真的 ESLint 設定跑：封裝層外擋 `radix-ui`、`radix-ui/*`、`@radix-ui/*`，封裝層放行，深層相對匯入的警告沒被蓋掉 |
 | `scripts/lib/__tests__/env_guard.test.ts` | env 守衛邏輯：ADR-0250 B2 起暫存資料夾改用 `fs.mkdtempSync(os.tmpdir())`、只刪自己建的那個，新增一個確認位置在系統暫存資料夾底下；原有 4 個檢查的斷言不變 |
 | `tests/guard/a11y_basics.test.ts` | 無障礙基本檢查：ADR-0250 A2 刪掉 `/create` 頁後，拿掉 layout metadata 清單與 main-content 清單裡的 create 兩項，其他路由的斷言不變 |
 | `scripts/lib/theme_guard_logic.test.ts` | P11主題守衛characterization：移除`any`前後維持原違規攔截與合法CSS變數判定，不放寬守衛。 |

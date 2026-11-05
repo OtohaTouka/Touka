@@ -189,6 +189,7 @@ def test_contributing_lists_full_ruff_and_eslint_as_ci_ratchets() -> None:
     assert not bare_full_ruff, "full ruff runs through scripts/lint_ratchet.py"
     assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
     assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py vulture") == CI_LABEL
     assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
 
 

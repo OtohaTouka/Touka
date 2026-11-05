@@ -1,17 +1,22 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useRouter } from 'next/navigation';
 import { authService } from '../../lib/api/authService';
 import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
+import { useActiveProxyUrl } from '@/hooks/useActiveProxyUrl';
+import { proxyDisplayUrl } from '@/lib/connections';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { t } = useTranslation();
+  const proxyUrl = useActiveProxyUrl();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,6 +44,9 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-sm text-center text-muted-foreground break-all">
+              {t('app.login_page.connected_to', { url: proxyDisplayUrl(proxyUrl) })}
+            </p>
             <div className="space-y-2">
               {/* WCAG 3.3.2：程式化標籤（sr-only 保持視覺不變，placeholder 仍為可視提示） */}
               <label htmlFor="register-email" className="sr-only">Email</label>

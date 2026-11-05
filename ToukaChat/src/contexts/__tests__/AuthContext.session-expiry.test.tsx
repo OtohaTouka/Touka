@@ -59,6 +59,11 @@ const syntheticToken = `e30.${btoa(JSON.stringify({ sub: 'u1', type: 'access', e
 const wrapper = ({ children }: { children: React.ReactNode }) =>
     React.createElement(AuthProvider, null, children);
 
+// connections.ts 內部讀真的清單，要和上面 mock 的目前網址一致。
+beforeEach(() => {
+    window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://localhost:8000' }]));
+});
+
 describe('AuthContext session-expired（修復 2）', () => {
     beforeEach(() => {
         vi.clearAllMocks();

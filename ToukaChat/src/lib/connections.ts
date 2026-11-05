@@ -3,7 +3,8 @@
  * 統一 API 適配器 (Unified API Adapter)
  * 支持 ToukaProxy, Ollama, OpenAI, OpenRouter, LiteLLM
  * NOTE: fetchTouka() 與 fetchChatStream() 是 fetch 的唯一授權呼叫點，
- *       其他模組必須透過這兩個函式發送請求。
+ *       其他模組必須透過這兩個函式發送請求。同檔例外：認證續期 refreshAccessToken()
+ *       （避免遞迴）與換網址前的探測 isProxyReachable()（不能帶任何憑證）。
  */
 import { BackendProtocol, Connection, StreamStartedEvent, StreamTerminalEvent, UiPersistence } from './types';
 import { CONFIG } from './config';
@@ -13,6 +14,7 @@ import { PROVIDER_CATALOG, buildChatEndpoint } from './providerCatalog';
 import { getSystemEpoch } from './time_utils';
 import { parseSaveResult } from './session_persistence';
 import { INTERJECTION_EVENT_TYPES, ROUND_INTERRUPTED_EVENT } from './chat/interjections';
+import { validHealth } from './healthResponse';
 
 // BackendProvider 由供應商目錄 SSOT 衍生（providerCatalog.ts），不再各自維護一份清單。
 export type BackendProvider = keyof typeof PROVIDER_CATALOG;
@@ -20,23 +22,31 @@ export type BackendProvider = keyof typeof PROVIDER_CATALOG;
 // P4 fix: store access token in module-level memory, not localStorage.
 // On page refresh, the HttpOnly refresh cookie auto-restores the session.
 let _accessToken: string | null = null;
+// 這張卡是哪個後端發的（normalizeProxyUrl 後）。卡只送回這個後端，見 cardFor。
+let _tokenOrigin: string | null = null;
 
 // P3（認證縫 #9）：token 世代——clearAccessToken（登出／換帳號）遞增之，作廢所有
 // 在途 refresh run，使晚到的成功回應不得把記憶體 access token 重新填回（半殭屍）。
 let _tokenGeneration = 0;
 
-export function setAccessToken(token: string): void {
+export function setAccessToken(token: string, origin: string = getActiveProxyUrl()): void {
     // 明確登入／還原是新的 client scope，即使是同 principal 或相同 token。
     _accessToken = token;
+    _tokenOrigin = normalizeProxyUrl(origin);
     _tokenGeneration++;
     _refreshPromise = null;
     notifyCredentialScopeChanged();
 }
 export function getAccessToken(): string | null { return _accessToken; }
+/** 要送往 proxyUrl 的卡：只有發卡的後端拿得到。空字串（前端來源）也是合法的發卡後端。 */
+function cardFor(proxyUrl: string): string | null {
+    return normalizeProxyUrl(proxyUrl) === _tokenOrigin ? _accessToken : null;
+}
 /** 登入尚未有 principal 時，仍可錨定明確憑證世代。 */
 export function getCredentialGeneration(): number { return _tokenGeneration; }
 export function clearAccessToken(): void {
     _accessToken = null;
+    _tokenOrigin = null;
     _refreshPromise = null;
     _tokenGeneration++;               // 作廢在途 refresh（回填前會比對世代）
     _knownAgentIds = new Set();       // 清跨帳號殘留（換帳號登入時 AgentProvider 重填）
@@ -84,9 +94,10 @@ function tokenPrincipal(token: string | null): string | null {
 }
 
 export function captureRequestScope(): RequestScope | null {
-    const principal = tokenPrincipal(_accessToken);
+    const proxyOrigin = getActiveProxyUrl();
+    const principal = tokenPrincipal(cardFor(proxyOrigin));
     return principal === null ? null : {
-        proxyOrigin: getActiveProxyUrl(), authenticatedPrincipalId: principal, authEpoch: _tokenGeneration,
+        proxyOrigin, authenticatedPrincipalId: principal, authEpoch: _tokenGeneration,
     };
 }
 
@@ -193,8 +204,11 @@ export async function refreshAccessToken(proxyUrl: string): Promise<string | nul
       if (gen !== _tokenGeneration) return null;
       if (tok) {
         // 正常同 principal 續期保留 scope；不同／無法辨認主體不得沿舊操作。
-        if (tokenPrincipal(tok) !== tokenPrincipal(_accessToken)) setAccessToken(tok);
-        else _accessToken = tok;
+        if (tokenPrincipal(tok) !== tokenPrincipal(_accessToken)) setAccessToken(tok, proxyUrl);
+        else {
+          _accessToken = tok;
+          _tokenOrigin = normalizeProxyUrl(proxyUrl);
+        }
       }
       return tok;
     } catch (e) {
@@ -271,11 +285,23 @@ export interface ChatOptions {
     mcpDispatcher?: boolean;
 }
 
+export const CONNECTIONS_STORAGE_KEY = "touka_connections";
+/** 換網址前探測新後端、以及向舊後端登出時最多等多久。 */
+export const PROXY_PROBE_TIMEOUT_MS = 5000;
+
+const isProxyConnection = (c: Connection): boolean => c.provider === 'proxy' || c.id === 'proxy';
+/** 這份清單裡決定後端網址的那一筆：第一筆啟用的 Proxy。 */
+export const activeConnectionOf = (conns: Connection[]): Connection | null =>
+    conns.find((c: Connection) => c.enabled && isProxyConnection(c)) || null;
+
+export function normalizeProxyUrl(url: string): string {
+    return url.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+}
+
 export function getActiveConnection(): Connection | null {
     try {
         if (typeof window !== 'undefined') {
-            const conns = getLocalStorageItem<Connection[]>("touka_connections", []);
-            return conns.find((c: Connection) => c.enabled && (c.provider === 'proxy' || c.id === 'proxy')) || null;
+            return activeConnectionOf(getLocalStorageItem<Connection[]>(CONNECTIONS_STORAGE_KEY, []));
         }
     } catch (e) {
         logSSOTError(e, "Connections:getActiveConnection");
@@ -283,13 +309,55 @@ export function getActiveConnection(): Connection | null {
     return null;
 }
 
+/** 這份清單會讓瀏覽器連到哪個後端。 */
+export function activeProxyUrlOf(conns: Connection[]): string {
+    const url = activeConnectionOf(conns)?.url || "";
+    return url ? normalizeProxyUrl(url) : CONFIG.PROXY_URL;
+}
+
 export function getActiveProxyUrl(): string {
     const conn = getActiveConnection();
-    const url = conn?.url || "";
-    if (url) {
-        return url.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+    return activeProxyUrlOf(conn ? [conn] : []);
+}
+
+/** 給人看的網址：空字串代表和前端同一個來源。 */
+export function proxyDisplayUrl(proxyUrl: string): string {
+    if (proxyUrl) return proxyUrl;
+    return typeof window !== 'undefined' ? window.location.origin : "";
+}
+
+/** 寫入清單並通知其他元件。先寫再發：收到事件的人讀到的必須已是新網址。 */
+export function publishConnections(conns: Connection[]): void {
+    setLocalStorageItem(CONNECTIONS_STORAGE_KEY, conns);
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent("touka_connections_updated", { detail: conns }));
     }
-    return CONFIG.PROXY_URL;
+}
+
+/**
+ * 後端存的清單不能決定這個瀏覽器連哪裡：算出的網址和目前不同時，Proxy 項目留本機的，
+ * 其他連線用後端的。換後端只走 useConnectionSettings 的確認流程。
+ */
+export function keepActiveProxy(serverConns: Connection[]): Connection[] {
+    if (activeProxyUrlOf(serverConns) === getActiveProxyUrl()) return serverConns;
+    const local = getLocalStorageItem<Connection[]>(CONNECTIONS_STORAGE_KEY, []);
+    return [...local.filter(isProxyConnection), ...serverConns.filter(c => !isProxyConnection(c))];
+}
+
+/** 這個網址連得上、而且看起來是 Touka。不帶任何憑證，也不跟隨轉址。 */
+export async function isProxyReachable(proxyUrl: string): Promise<boolean> {
+    try {
+        const res = await fetch(`${proxyUrl}/v1/health`, { // noqa: FETCH_SSOT — 換網址前的探測，fetchTouka 一律帶 cookie，這裡不能帶
+            credentials: 'omit',
+            redirect: 'error',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+            signal: AbortSignal.timeout(PROXY_PROBE_TIMEOUT_MS),
+        });
+        return res.ok && validHealth(await res.json());
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -333,7 +401,8 @@ export async function fetchTouka(
     // refresh 再送。根因：本機 LDH 對「帶過期人類 token」的請求不回 401，而是靜默降級成
     // DebugAgent；讓 token 永不過期抵達後端，LDH 就永不觸發（比 401-retry 可靠、比定時
     // timer 不受睡眠影響）。refresh 失敗只保留舊卡（由下方領卡防挾持 ② 兜住）。
-    if (_accessToken && !isAuthEndpoint(cleanPath) && isTokenExpired(_accessToken)) {
+    const expiringCard = cardFor(proxyUrl);
+    if (expiringCard && !isAuthEndpoint(cleanPath) && isTokenExpired(expiringCard)) {
         await refreshAccessToken(proxyUrl);
     }
     assertRequestScope(requestScope, proxyUrl, options);
@@ -344,9 +413,10 @@ export async function fetchTouka(
     // 1. 送卡：從記憶體獲取並注入 Token (P4 fix: no longer localStorage)
     // usedModuleToken＝本請求帶的是「模組管理的人類卡」（呼叫端自帶 Authorization
     // 者除外）——僅這類請求適用修復 2 的 401 續期重送。
-    const usedModuleToken = !!_accessToken && !headers.has('Authorization');
+    const moduleToken = cardFor(proxyUrl);
+    const usedModuleToken = !!moduleToken && !headers.has('Authorization');
     if (usedModuleToken) {
-        headers.set('Authorization', `Bearer ${_accessToken}`);
+        headers.set('Authorization', `Bearer ${moduleToken}`);
     }
 
     // FormData（如頭像 multipart 上傳）：不可手動設 Content-Type，須由瀏覽器自帶 multipart
@@ -383,6 +453,7 @@ export async function fetchTouka(
             const newToken = resp.headers.get("X-New-Auth-Token");
             if (newToken && !_accessToken && !hasEverLoggedIn()) {
                 _accessToken = newToken;
+                _tokenOrigin = normalizeProxyUrl(proxyUrl);
             }
         } catch (e) {
             logSSOTError(e, "Connections:fetchTouka:領卡");
@@ -422,12 +493,12 @@ export async function fetchToolSchemas(): Promise<Record<string, unknown>[]> {
  * 執行登出邏輯：通知後端廢止 Token 並清除記憶體中的 accessToken。
  * 導向 /login 的責任由呼叫端 AuthContext.logout() 負責，
  * 確保 React state 正確清空後再觸發 AuthGuard 路由跳轉。
+ * 換網址時用 proxyUrl 指定舊後端、用 signal 限制最多等多久。
  */
-export async function logoutTouka(): Promise<void> {
-    const proxyUrl = getActiveProxyUrl();
+export async function logoutTouka(proxyUrl: string = getActiveProxyUrl(), signal?: AbortSignal): Promise<void> {
     const generation = _tokenGeneration;
     try {
-        await fetchTouka(proxyUrl, "/v1/auth/logout", { method: 'POST' });
+        await fetchTouka(proxyUrl, "/v1/auth/logout", { method: 'POST', ...(signal ? { signal } : {}) });
     } catch (e) {
         logSSOTError(e, "Connections:logoutTouka");
     } finally {
@@ -523,15 +594,17 @@ export async function fetchChatStream(
     try {
         // 批1 ①：proxy 串流送出前 token 續期（同 fetchTouka）——帶過期卡會被本機 LDH 靜默
         // 降級成 DebugAgent，使回合錯記在 DebugAgent 名下、側欄分組錯亂、模型顯示變 DebugAgent。
-        if (provider === 'proxy' && _accessToken && isTokenExpired(_accessToken)) {
+        const expiringCard = cardFor(baseUrl);
+        if (provider === 'proxy' && expiringCard && isTokenExpired(expiringCard)) {
             await refreshAccessToken(baseUrl);
         }
         // --- [認證全鏈路整合：Streaming 模式送卡] ---
-        // 每次送出都重讀 _accessToken（修復 2 的 401 續期重送需以新卡重打）。
+        // 每次送出都重讀卡（修復 2 的 401 續期重送需以新卡重打）。
         const sendStream = async (): Promise<Response> => {
             if (provider === 'proxy') assertRequestScope(requestScope, baseUrl, { headers, signal });
-            if (_accessToken) {
-                headers["Authorization"] = `Bearer ${_accessToken}`;
+            const card = cardFor(baseUrl);
+            if (card) {
+                headers["Authorization"] = `Bearer ${card}`;
             }
             return fetch(url, { // noqa: FETCH_SSOT — 多供應商 SSE 串流（Ollama/OpenAI/xAI），URL 格式與 fetchTouka 不相容
                 method: "POST",
@@ -548,6 +621,7 @@ export async function fetchChatStream(
             const newToken = response.headers.get("X-New-Auth-Token");
             if (newToken && !_accessToken && !hasEverLoggedIn()) {
                 _accessToken = newToken;
+                _tokenOrigin = normalizeProxyUrl(baseUrl);
             }
         } catch (e) {
             logSSOTError(e, "Connections:fetchChatStream:領卡");
@@ -556,7 +630,7 @@ export async function fetchChatStream(
         // 修復 2（ADR-0144）：帶模組卡串流被判 401 → single-flight 續期一次重送
         //（改密碼撤銷等「未過期但已失效」情境）。續期死＝handler 已通知導回登入，
         // 走下方 !response.ok 的既有錯誤路徑（onError）。
-        if (provider === 'proxy' && response.status === 401 && _accessToken) {
+        if (provider === 'proxy' && response.status === 401 && cardFor(baseUrl)) {
             const freshToken = await refreshAccessToken(baseUrl);
             if (freshToken) {
                 response = await sendStream();

@@ -32,7 +32,7 @@ export const DEFAULT_CONSOLE_GUARD_CONFIG: ConsoleGuardConfig = {
     '.stories.tsx',
   ],
   whitelistFiles: [],
-  scanPaths: ['src/hooks/', 'src/lib/', 'src/app/', 'src/contexts/'],
+  scanPaths: ['src/hooks/', 'src/lib/', 'src/app/', 'src/contexts/', 'src/components/'],
 };
 
 /**

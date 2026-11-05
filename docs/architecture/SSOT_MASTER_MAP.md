@@ -401,6 +401,8 @@
 | 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch` | 每次 PR／push；`tests/lint/test_ci_pr_checks.py` 釘住 |
 | 完整 ruff 只減不增（ADR-0278） | `scripts/lint_ratchet.py` 收集與重拍；基準 `tests/lint/ruff_baseline.json`；`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善後同一個 PR 重拍基準 |
 | 型別檢查只減不增（ADR-0278 §7） | pyrefly，範圍與設定在 `pyproject.toml` 的 `[tool.pyrefly]`（平台固定 linux）；`scripts/lint_ratchet.py pyrefly` 收集與重拍；基準 `tests/lint/pyrefly_baseline.json`；`tests/lint/test_pyrefly_ratchet.py` 要求每種錯誤數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善或升級 pyrefly 後同一個 PR 重拍基準 |
+| 未用定義不得增加（ADR-0298） | vulture，參數在 `scripts/lint_ratchet.py`；基準 `tests/lint/vulture_baseline.json`；`tests/lint/test_vulture_ratchet.py` | 在 `contracts` job 的 pytest 裡執行；只有多出來才紅，少了不紅（和 ruff、pyrefly 的完全相等不同）；基準變長要在 PR 說明逐項列出 |
+| 合約同名手寫型別（ADR-0298） | `ToukaChat/scripts/guard_frontend.ts`（Guard #2）與 `ToukaChat/scripts/lib/contract_type_guard_logic.ts`；基準 `ToukaChat/scripts/contract_type_baseline.json` | 在 `frontend` job 的 `guard:api` 執行；要完全相等，重拍用 `npm run guard:api -- --update` |
 | ToukaIDE CI（ADR-0254） | 同一個 workflow 的 `toukaide` job（Node 24.22.1、npm 11.19.1）：`install:controlled`、`test`、`typecheck`、`compile` 依序 | 每次 PR／push；`package` 只在本機；`tests/lint/test_ci_pr_checks.py` 釘住 |
 
 詳 [ADR-0230](adr/0230-heartbeat-transaction-and-credential-contracts.md)。
@@ -599,6 +601,16 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
 
+### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
+
+| 來源 | 責任與使用邊界 |
+|---|---|
+| `ToukaChat/src/lib/connections.ts` 的 `cardFor` | 憑證只送回發它的後端；`fetchTouka`、`fetchChatStream`、`captureRequestScope` 都經它取卡。`getAccessToken()` 只回答「手上有沒有卡」，不能拿來送出。 |
+| `ToukaChat/src/lib/connections.ts` 的 `activeConnectionOf`、`activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單裡哪一筆決定後端、會連到哪個網址、兩個網址是否同一台的唯一判斷。 |
+| `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
+| `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
+
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。
 *   **身份感知執行**: 所有工具執行前必須通過 `PermissionService` 的二次驗證，並強制將 `AgentIdentity` 注入操作上下文，防止參數劫持。
@@ -650,17 +662,17 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 | 規則 | 禁令摘要 | 守衛 |
 |------|---------|------|
-| TID251 | 嚴禁硬編碼磁碟路徑；必須透過 `ResourceManager` | `lint_ssot.py` TID251 |
-| ENV_SSOT | 嚴禁 `os.environ`/`os.system`/`os.chdir`；必須 `src.config` | `lint_ssot.py` EnvSovereigntyRule |
-| ERROR_SSOT | 嚴禁 `HTTPException(detail="...")` 硬編碼；必須 `ErrorCode` | `lint_ssot.py` ErrorSovereigntyRule |
+| TID251 | 嚴禁硬編碼磁碟路徑；必須透過 `ResourceManager` | ruff（Guard #44）；另有 `lint_ssot.py` PathLiteralRule（PATH_LITERAL_SSOT） |
+| ENV_SSOT_VIOLATION | 嚴禁 `os.environ`/`os.system`/`os.chdir`；必須 `src.config` | `lint_ssot.py` EnvSovereigntyRule |
+| ERROR_SSOT_VIOLATION | 嚴禁 `HTTPException(detail="...")` 硬編碼；必須 `ErrorCode` | `lint_ssot.py` ErrorSovereigntyRule |
 | RAISE_STRING_BAN | 嚴禁 `raise ValueError("...")` 帶字串；必須 `ToukaException` | `lint_ssot.py` RaiseHardcodedStringRule |
-| TIME_BAN | 嚴禁 `datetime.now()`/`time.time()`；必須 `time_utils` | `lint_ssot.py` TimeBanRule |
+| TIME_SSOT_VIOLATION | 嚴禁 `datetime.now()`/`time.time()`；必須 `time_utils` | `lint_ssot.py` TimeSovereigntyRule |
 | PRINT_BAN | 嚴禁業務層 `print()`；必須 `logging.getLogger()` | `lint_ssot.py` PrintBanRule |
 | FETCH_SSOT | 嚴禁前端 `fetch()`；必須 `fetchTouka()` | `guard_fetch.ts` |
 | LOCALSTORAGE_SSOT | 嚴禁前端 `localStorage.*`；必須 `useLocalStorage` hook | `guard_localStorage.ts` |
 | BCRYPT_IMPORT_SSOT | 嚴禁非授權檔案 `import bcrypt`；白名單 `auth_service.py` | `lint_ssot.py` BcryptImportRule |
 | SQLITE3_IMPORT_BAN | 嚴禁非授權檔案 `import sqlite3`；白名單三個 SSOT 入口 | `lint_ssot.py` Sqlite3ImportRule |
-| CONSOLE_BAN | 嚴禁前端 `console.*`；白名單 `error_handler.ts` | `guard_console.ts` (Guard #15) |
+| CONSOLE_BAN | 嚴禁前端 `console.*`；`error_handler.ts` 靠行內 `// noqa` | `guard_console.ts` (Guard #15) |
 | MODULE_BOUNDARY | 嚴禁 ToukaMemory import ToukaProxy 內部模組 | `guard_module_boundaries.py` (Guard #21) |
 | ENDPOINT_AUTH | 所有非公開端點必須有 Depends 認證守衛 | `guard_endpoint_auth.py` (Guard #24) |
 | XAGENTID_IDENTITY | 嚴禁前端手動注入 `X-Agent-ID` Header | `guard_xAgentId.ts` (Guard #13) |

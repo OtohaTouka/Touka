@@ -1,0 +1,12 @@
+[
+  "src/components/dashboard/EnvSettings.tsx:BackupInfo",
+  "src/components/dashboard/EnvSettings.tsx:BackupStats",
+  "src/components/layout/SoulStudio.tsx:SoulConfig",
+  "src/hooks/settings/useGroupSettings.ts:GroupWhitelist",
+  "src/hooks/settings/useSlidingWindowSettings.ts:SlidingWindowConfig",
+  "src/hooks/useSetupStatus.ts:SetupStatus",
+  "src/lib/SystemStatusContext.tsx:SystemNotice",
+  "src/lib/providers/ModelProvider.tsx:ModelInfo",
+  "src/lib/types.ts:AgentIdentity",
+  "src/lib/types.ts:SkillInstallRequest"
+]

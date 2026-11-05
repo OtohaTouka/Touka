@@ -58,4 +58,4 @@
 
 **限制**：
 - 10 處現有違規以 noqa 豁免，需未來逐步遷移
-- 未覆蓋 `src/components/**`（由 `guard_hooks.ts` 的 DIP 守衛負責）
+- 未覆蓋 `src/components/**`（由 `guard_hooks.ts` 的 DIP 守衛負責）。2026-11-05 更正：`guard_hooks.ts` 其實不查 `console`，[ADR-0298](0298-rule-text-matches-checks.md) 起 `guard_console.ts` 也掃 `src/components/**`；它只抓直接的 `console.log(...)` 這類呼叫，`window.console`、解構都抓不到
