@@ -40,12 +40,15 @@ import {
   composer,
   enableHooks,
   eventSection,
+  expectLastReplyMarkedFailed,
   loginInBrowser,
   openChat,
   openHooksTab,
+  recoverSave,
   saveHooks,
   selectSoul,
   sendMessage,
+  setChatAsHome,
   shot,
 } from "./lib/ui";
 
@@ -87,45 +90,12 @@ async function sendAndFinishTool(page: Page, text: string): Promise<void> {
   await composer(page).waitFor();
 }
 
-/** 保存狀態不確定或對不上時，人要走的路：先核對，再重試保存（ADR-0231）。 */
-async function recoverSave(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "重新核對保存結果" }).click();
-  await page.getByRole("button", { name: "僅重試保存" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
-}
-
-/**
- * 送出並等模型收到。設為家對話會換掉對話版本，畫面手上的版本過期、下一則存不進去
- * （既有問題，見 ADR-0295 的「實際驗證找到的既有問題」），這時恢復後再送一次。
- * 一則最多恢復一次：恢復了還存不進去就不是這個既有問題，讓測試紅。
- */
-async function sendRecovering(page: Page, text: string): Promise<void> {
+/** 送出並等模型收到。 */
+async function sendAndWaitForModel(page: Page, text: string): Promise<void> {
   const before = (await modelCalls()).length;
   await sendMessage(page, text);
-  let recovered = false;
-  await expect
-    .poll(async () => {
-      if (!recovered && (await page.getByRole("button", { name: "重新核對保存結果" }).isVisible())) {
-        recovered = true;
-        await recoverSave(page);
-        await sendMessage(page, text);
-      }
-      return (await modelCalls()).length;
-    })
-    .toBeGreaterThan(before);
+  await expect.poll(async () => (await modelCalls()).length).toBeGreaterThan(before);
   await composer(page).waitFor();
-}
-
-/** 最後一則回覆有失敗標示。訊息清單是虛擬捲動，捲出畫面的不在頁面上，不能數總數。 */
-async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
-  const lastItem = page.locator("[data-index]").last();
-  await expect(lastItem.getByRole("alert")).toHaveText(/這一輪回覆失敗/);
-}
-
-async function setCurrentChatAsHome(page: Page): Promise<void> {
-  await page.locator('aside [role="treeitem"][aria-current="true"]').getByRole("button", { name: /^會話選項：/ }).click();
-  await page.getByRole("menuitem", { name: "設為家對話" }).click();
-  await page.keyboard.press("Escape");
 }
 
 /** 走到設定頁，看執行紀錄裡有這些 hook。背景事件要等它跑完才有紀錄。 */
@@ -304,17 +274,17 @@ test("剪裁（聊天）：PreCompact 卡住時聊天不受影響", async ({ pag
     await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
     await composer(page).waitFor();
     // 只有家對話才剪；換模型後的第一輪也不剪，所以多送幾則
-    await setCurrentChatAsHome(page);
+    await setChatAsHome(page);
     for (let attempt = 0; attempt < MAX_TRIM_ATTEMPTS; attempt += 1) {
       if ((await receivedFor("PreCompact")).length > 0) break;
-      await sendRecovering(page, LONG_MESSAGE);
+      await sendAndWaitForModel(page, LONG_MESSAGE);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     const pre = await expectBackgroundHook("PreCompact");
     expect(pre.payload.trigger).toBe("auto");
 
     // PreCompact 還卡著，聊天照常
-    await sendRecovering(page, "剪裁之後的訊息");
+    await sendAndWaitForModel(page, "剪裁之後的訊息");
     expect(Date.now() - pre.receivedAt).toBeLessThan(NOT_WAITING_LIMIT_MS);
     await shot(page, info, "chat-after-trim");
     await expectRunRows(page, info, ["e2e-pre-compact"], HUNG_RUN_TIMEOUT_MS);

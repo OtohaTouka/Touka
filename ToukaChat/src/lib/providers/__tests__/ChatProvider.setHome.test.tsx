@@ -5,9 +5,10 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { Session } from '../../types';
+import { applySetHome } from '../../session_persistence';
 
 let sessions: Session[] = [];
-const setSessions = vi.fn();
+const applySavedHome = vi.fn();
 const fetchTouka = vi.fn();
 
 vi.mock('@/hooks/useArtifacts', () => ({
@@ -23,7 +24,7 @@ vi.mock('../ModelProvider', () => ({
   useModels: () => ({ availableModels: [], selectedModel: '', setSelectedModel: vi.fn() }),
 }));
 vi.mock('../SessionListProvider', () => ({
-  useSessionList: () => ({ sessions, setSessions, syncSession: vi.fn(), updateSession: vi.fn(), refreshSessions: vi.fn(async () => []) }),
+  useSessionList: () => ({ sessions, setSessions: vi.fn(), applySavedHome, syncSession: vi.fn(), updateSession: vi.fn(), refreshSessions: vi.fn(async () => []) }),
 }));
 vi.mock('../StreamRegistryProvider', () => ({
   useStreamRegistry: () => ({ getStream: () => undefined, streamingSessionIds: [], checkSessionStream: vi.fn() }),
@@ -42,14 +43,14 @@ import { ChatProvider, useChat } from '../ChatProvider';
 const wrapper = ({ children }: { children: React.ReactNode }) => <ChatProvider>{children}</ChatProvider>;
 
 const session = (id: string, agentId: string | undefined, isHome = false): Session => ({
-  id, title: id, messages: [], updatedAt: 1, agent_id: agentId, is_home: isHome,
+  id, title: id, messages: [], updatedAt: 1, agent_id: agentId, is_home: isHome, home_for_agent: isHome ? agentId : null,
 });
 
 const sentBody = () => JSON.parse(fetchTouka.mock.calls[0][2].body as string) as { session_id: string; agent_id: string; is_home: boolean };
 
 function applyLastUpdate(): Record<string, boolean | undefined> {
-  const updater = setSessions.mock.calls[0][0] as (previous: Session[]) => Session[];
-  return Object.fromEntries(updater(sessions).map(item => [item.id, item.is_home]));
+  const [id, agentId, isHome] = applySavedHome.mock.calls[0] as [string, string, boolean];
+  return Object.fromEntries(applySetHome(sessions, id, agentId, isHome).map(item => [item.id, item.is_home]));
 }
 
 describe('ChatProvider 設家與取消家', () => {
@@ -113,6 +114,6 @@ describe('ChatProvider 設家與取消家', () => {
     sessions = [session('old', 'Alice', true), session('new', 'Alice')];
     const { result } = renderHook(() => useChat(), { wrapper });
     await act(async () => { await result.current.handleSetHome('new'); });
-    expect(setSessions).not.toHaveBeenCalled();
+    expect(applySavedHome).not.toHaveBeenCalled();
   });
 });

@@ -45,12 +45,16 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
 8. Chat 每 scope／session 以一個有限 writer 保存語意命令，operation 去重。state/ref 使用同一純
    transition；public ingress 不是保存證據，變更持久欄位須重新核對內容，不能借 fresh token 背書
    舊樹。pending／failed／unknown／unconfirmed 草稿不被列表、refresh return 或 resume 蓋掉。
+   例外只有 `set_home` 成功（2026-11-05）：家欄位只由它改，存檔已經變了，本機草稿的這兩個欄位跟著改，
+   其他內容照留；舊版本作廢（待恢復的版本也作廢），下一個命令重讀存檔比對，不算放寬比對。這一輪回覆還在跑時
+   不動版本：收尾不能不帶版本存。所以回覆還在跑時設家或換家，後端收尾的版本已被換掉，會跳保存提示，
+   用既有按鈕恢復，內容不會掉（`session-save.spec.ts`）。
    user full 保存後才送模型；React updater 不做 HTTP。純轉換拋錯回 typed failed，釋放 pending／
    producer，保留可核對草稿；無痕錯誤不永久鎖住下一回合。
 9. scope 綁 proxy＋credential principal／epoch，wire／refresh／body await 後再驗；scope 失效
    best-effort abort，清除 writer、history、輸入、attachment、Debug payload 與 artifacts。
    JWT subject 只作 client 排隊錨點，不替代 server auth。selected URL session 清單載入後才消耗
-   一次 state 核對；已完成 TTL stream 亦可接回，不 fan-out 或 poll。真 UTF-8 decoder 以同 generation
+   一次 state 核對；已完成 TTL stream 亦可接回，但存檔已比那一輪新（有文字版本時版本不同；沒有時存檔已有那則回覆）就不重播，否則舊版本存不回去（2026-11-05）；不 fan-out 或 poll。真 UTF-8 decoder 以同 generation
    started／terminal 判斷，DONE／EOF 不證保存，游標重播可用已授權 started 座標。
 10. unknown 只提供唯讀「重新核對保存結果」，相同內容才確認 full；不同保留草稿及 conflict。
     取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0。

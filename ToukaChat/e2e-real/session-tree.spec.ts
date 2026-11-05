@@ -39,25 +39,6 @@ function rowNames(page: Page): Promise<(string | null)[]> {
 const arrow = (target: Locator) => target.getByTestId("session-tree-toggle");
 const treeSkeleton = (page: Page) => page.getByRole("status", { name: "對話清單載入中" });
 
-/** 設為家對話會換掉版本，下一則存不進去（既有問題，修好之前走人會走的恢復路徑；修好後改回一般送出）。 */
-async function sendRecovering(page: Page, text: string): Promise<void> {
-  const before = (await modelCalls()).length;
-  await sendMessage(page, text);
-  let recovered = false;
-  await expect
-    .poll(async () => {
-      const recheck = page.getByRole("button", { name: "重新核對保存結果" });
-      if (!recovered && (await recheck.isVisible())) {
-        recovered = true;
-        await recheck.click();
-        await page.getByRole("button", { name: "僅重試保存" }).click();
-        await sendMessage(page, text);
-      }
-      return (await modelCalls()).length;
-    })
-    .toBeGreaterThan(before);
-}
-
 test.beforeAll(async () => {
   adminToken = await adminLogin();
 });
@@ -232,8 +213,11 @@ test("設為家只有靈魂的對話看得到；設家後舊家回到子對話�
 
   await row(page, newHome).getByText(soul).click();
   await expect(row(page, newHome)).toHaveAttribute("aria-current", "true");
-  await sendRecovering(page, "設家後再送一則");
+  await sendMessage(page, "設家後再送一則");
+  // 存不進去時根本不會送模型
+  await expect.poll(async () => (await modelCalls()).some((call) => call.lastText.includes("設家後再送一則"))).toBe(true);
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
 
   await page.reload();
   await expect(row(page, newHome)).toBeVisible();
