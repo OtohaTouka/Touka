@@ -237,10 +237,13 @@ describe('SessionTree — 開著的對話在收合的資料夾裡', () => {
     fireEvent.click(arrowOf(/^Alice/));
     const folder = row(/^Alice/);
     expect(folder).toHaveAttribute('aria-current', 'true');
+    // 開著的是子對話，不能只念成「家對話是目前項目」
+    expect(folder).toHaveAccessibleName('Alice，家對話：我家，開著的對話在裡面');
     expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toEqual([folder]);
 
     fireEvent.click(arrowOf(/^Alice/));
     expect(row(/^Alice/)).not.toHaveAttribute('aria-current');
+    expect(row(/^Alice/)).toHaveAccessibleName('Alice，家對話：我家');
     expect(row('a1')).toHaveAttribute('aria-current', 'true');
   });
 
@@ -249,8 +252,17 @@ describe('SessionTree — 開著的對話在收合的資料夾裡', () => {
     state.activeSessionId = 'a1';
     renderTree();
     fireEvent.click(arrowOf('Alice'));
-    expect(row('Alice')).toHaveAttribute('aria-current', 'true');
-    expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toEqual([row('Alice')]);
+    const folder = row(/^Alice/);
+    expect(folder).toHaveAttribute('aria-current', 'true');
+    expect(folder).toHaveAccessibleName('Alice，開著的對話在裡面');
+    expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toEqual([folder]);
+  });
+
+  it('家對話本身開著又沒有收合：名稱不多念', () => {
+    state.sessions = [session('h', 'Alice', 2, { title: '我家', is_home: true }), session('a1', 'Alice', 1)];
+    state.activeSessionId = 'h';
+    renderTree();
+    expect(row(/^Alice/)).toHaveAccessibleName('Alice，家對話：我家');
   });
 
   it('開著的不在這個資料夾：不標', () => {
@@ -528,9 +540,9 @@ describe('SessionTree — 專案畫面', () => {
 
   it('維持依專案分組，同樣只算一站，不寫瀏覽器', () => {
     renderTree('projects');
-    expect(rows()).toEqual(['專案: Alpha', 'in', '其他對話', 'out']);
+    expect(rows()).toEqual(['專案: Alpha，1', 'in', '其他對話，1', 'out']);
     expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toHaveLength(1);
-    fireEvent.click(arrowOf('專案: Alpha'));
+    fireEvent.click(arrowOf(/^專案: Alpha/));
     expect(screen.queryByRole('treeitem', { name: 'in' })).toBeNull();
     expect(window.localStorage.getItem('touka_session_tree_collapsed:user-1')).toBeNull();
   });
@@ -539,6 +551,7 @@ describe('SessionTree — 專案畫面', () => {
     renderTree('projects');
     const name = /Alpha/;
     expect(row(name)).toHaveTextContent('1');
+    expect(row(name)).toHaveAccessibleName(/Alpha，1$/);
     fireEvent.click(within(row(name)).getByText(/Alpha/));
     expect(row(name)).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(within(row(name)).getByText(/Alpha/));

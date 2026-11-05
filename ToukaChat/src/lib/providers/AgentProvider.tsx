@@ -36,7 +36,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     selectedAgentIdRef.current = selectedAgentId;
   }, [selectedAgentId]);
 
-  // 換了帳號或連線就加一：還在路上的舊請求不能把上一份清單蓋回來
+  // 登入狀態翻轉就加一：還在路上的舊請求不能把上一份清單蓋回來
   const scopeGeneration = useRef(0);
 
   const refreshAgents = useCallback(async (): Promise<boolean> => {
@@ -74,18 +74,25 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     // → setKnownAgentIds 空 → 聊天不帶 X-Touka-Soul-ID（身分歸屬弱化）。換帳號重登入
     // 亦藉此重抓＝關閉跨帳號殘留清單。SessionListProvider 同款（其兄弟站點補齊）。
     const handleAuthChanged = () => {
-      // 這兩個事件只在登入狀態翻轉或連線被改時發（權杖更新不會）：上一份清單不能留著分組
+      // 只在登入狀態翻轉時發（權杖更新不會）。登出時這裡已被 AuthGuard 卸載，
+      // 會走到這裡的是停在登入頁、先領了本機卡又登入：本機卡那份清單不能留著分組
       scopeGeneration.current += 1;
       setAgents([]);
       setAgentsStatus('loading');
       refreshAgents();
     };
+    const handleConnectionsUpdated = () => {
+      // 存任何連線都會發。真的換後端時 AuthContext 會登出、這裡跟著卸載，所以不清清單；
+      // 沒讀到過才算載入中，讀到過的不閃
+      setAgentsStatus(current => current === 'ready' ? current : 'loading');
+      refreshAgents();
+    };
     window.addEventListener('touka_auth_changed', handleAuthChanged);
-    window.addEventListener('touka_connections_updated', handleAuthChanged);
+    window.addEventListener('touka_connections_updated', handleConnectionsUpdated);
     return () => {
       clearTimeout(timer);
       window.removeEventListener('touka_auth_changed', handleAuthChanged);
-      window.removeEventListener('touka_connections_updated', handleAuthChanged);
+      window.removeEventListener('touka_connections_updated', handleConnectionsUpdated);
     };
   }, [refreshAgents]);
 

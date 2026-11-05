@@ -103,7 +103,7 @@ test("資料夾那一列：點名字開家對話、點箭頭收合展開、沒�
   await setChatHome(token, "six-home", withHome);
   await loginInBrowser(page, email, PASSWORD);
 
-  const folder = row(page, `${withHome}，家對話：六的家`);
+  const folder = row(page, new RegExp(`^${withHome}，家對話：六的家`));
   await folder.getByText(withHome).click();
   await expect(folder).toHaveAttribute("aria-current", "true");
   await expect(folder).toHaveAttribute("aria-expanded", "true");
@@ -115,6 +115,7 @@ test("資料夾那一列：點名字開家對話、點箭頭收合展開、沒�
   await expect(row(page, "六之一")).toHaveCount(0);
   // 開著的對話收進去了：資料夾那一列亮起來，畫面上才找得到它
   await expect(folder).toHaveAttribute("aria-current", "true");
+  await expect(folder).toHaveAttribute("aria-label", /開著的對話在裡面$/);
   await shot(page, info, "collapsed-holds-active");
   await arrow(folder).click();
   await expect(row(page, "六之一")).toHaveAttribute("aria-current", "true");
@@ -253,7 +254,7 @@ test("專案畫面維持依專案分組，點對話回到聊天與靈魂資料�
 
   await openSideMenu(page);
   await page.getByRole("menuitem", { name: "專案管理", exact: true }).click();
-  const projectFolder = row(page, "專案: 十號專案");
+  const projectFolder = row(page, /^專案: 十號專案/);
   await expect(projectFolder).toHaveAttribute("aria-expanded", "true");
   await expect(row(page, "十之專案內")).toHaveAttribute("aria-level", "2");
   await expect(row(page, soul)).toHaveCount(0);

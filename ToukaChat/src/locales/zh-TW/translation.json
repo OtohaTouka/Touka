@@ -1325,6 +1325,7 @@
       "loading": "對話清單載入中",
       "more_sessions": "還有 {{count}} 個",
       "folder_home_aria": "{{name}}，家對話：{{title}}",
+      "folder_holds_active": "開著的對話在裡面",
       "label_separator": "，"
     },
     "session_item": {

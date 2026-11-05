@@ -83,6 +83,12 @@ describe('buildSessionTree', () => {
     expect(ids(others)).toEqual(['model']);
   });
 
+  it.each(['ready', 'failed'] as const)('冒號後面沒有名字（清單%s）：放其他對話，不開空白名稱的資料夾', (status) => {
+    const { folders, others } = buildSessionTree([session('blank', 'toukasoul:', 1, { is_home: true })], [], status);
+    expect(folders).toEqual([]);
+    expect(ids(others)).toEqual(['blank']);
+  });
+
   it('清單裡沒有的前綴名稱仍是靈魂：開資料夾，名稱去掉前綴', () => {
     const { folders } = buildSessionTree([session('s', 'ToukaSoulGhost', 1)], [], 'ready');
     expect(folders.map(folder => folder.name)).toEqual(['Ghost']);

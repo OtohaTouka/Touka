@@ -42,6 +42,8 @@ interface SessionItemProps {
   canSetHome?: boolean;
   /** 資料夾那一列：顯示靈魂名稱，對話標題放在 title。 */
   folderName?: string;
+  /** 資料夾收合著，開著的對話在裡面：名稱要念出來，不然聽起來像家對話開著。 */
+  holdsActive?: boolean;
   /** 名稱前面的東西（資料夾的箭頭）。 */
   leading?: React.ReactNode;
   /** 其他對話的列上標模型。 */
@@ -70,6 +72,7 @@ export function SessionItem({
   projects,
   canSetHome = false,
   folderName,
+  holdsActive = false,
   leading,
   modelLabel,
   row,
@@ -112,6 +115,7 @@ export function SessionItem({
   const separator = t('sidebar.session_tree.label_separator');
   const label = [
     folderName ? t('sidebar.session_tree.folder_home_aria', { name: folderName, title: session.title }) : session.title,
+    holdsActive && t('sidebar.session_tree.folder_holds_active'),
     isStreaming && t('sidebar.session_item.background_generating'),
     session.incognito && t('sidebar.session_item.incognito_label'),
     modelLabel,

@@ -246,6 +246,7 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         folderName: node.name,
         leading: arrow,
         isActive: node.home.id === activeSessionId || node.holdsActive,
+        holdsActive: node.holdsActive,
       });
     }
     return (
@@ -254,7 +255,7 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- 這列不能選；axe 不要求 aria-selected
         role="treeitem"
         aria-current={node.holdsActive ? 'true' : undefined}
-        aria-label={node.name}
+        aria-label={[node.name, node.count, node.holdsActive && t('sidebar.session_tree.folder_holds_active')].filter(Boolean).join(t('sidebar.session_tree.label_separator'))}
         {...rowProps(node)}
         onClick={() => openFolder(node)}
         className={cn(
@@ -264,7 +265,7 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
       >
         {arrow}
         {!node.isProject && <Folder className="w-3.5 h-3.5 ml-1 shrink-0 text-muted-foreground" />}
-        <span className="px-1 py-1.5 text-sm font-semibold truncate">{node.name}</span>
+        <span className="pl-1.5 pr-1 py-1.5 text-sm font-semibold truncate">{node.name}</span>
         {node.count !== undefined && <span className="ml-auto mr-2 rounded-md bg-muted px-1.5 text-xs text-muted-foreground">{node.count}</span>}
       </div>
     );

@@ -306,8 +306,8 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
     *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列，只放開側欄與工具面板兩顆鈕，設定從選單進（`isMobile` 分支不看 `isIDE()`，窄 IDE 面板也走這裡）。
 *   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
-    *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current` 並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
-    *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`、`touka_connections_updated` 表示換了帳號或連線：先清空清單、回到載入中再重抓，還在路上的舊請求作廢；同一個帳號重抓失敗才留舊清單。
+    *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
+    *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換後端時，`AuthGuard` 會卸載整個 Provider，舊清單不會留下。
     *   「設為家」嚴格（`canSetHome`）：只給 `type === 'soul'`，正式 ID 規則和後端 `identify_agent` 相同（`canonicalSoulId`，只去掉大小寫完全相符的 `ToukaSoul`）；設家、取消家都送正式 ID。
     *   收合狀態在 `useSessionTreeState`：`localStorage` 鍵名含使用者 ID，`SessionTree` 用身分當 React key 重掛（`useLocalStorage` 換鍵不重讀）；只有無痕對話的資料夾與專案分組只記在記憶體（ADR-0086）；「還有 N 個」不保存。
     *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。

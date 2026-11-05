@@ -65,7 +65,8 @@ export function buildSessionTree(sessions: Session[], agents: AgentInfo[], statu
     const soul = parsed && souls.get(parsed.key);
     // 靈魂清單沒讀到時，純 ID 分不出是靈魂還是模型，只信得過前綴與家對話
     const guessed = parsed && (parsed.prefixed || (status === 'failed' && session.is_home));
-    if (!parsed || (!soul && !guessed)) {
+    // 冒號後面沒有名字（`toukasoul:`）不開空白名稱的資料夾
+    if (!parsed?.key || (!soul && !guessed)) {
       others.push(session);
       continue;
     }

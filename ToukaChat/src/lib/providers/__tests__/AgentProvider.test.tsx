@@ -86,14 +86,42 @@ describe('AgentProvider — agentsStatus', () => {
 
     const bobOk = { ok: true, json: async () => [{ id: 'bob', name: 'Bob', type: 'soul', is_group: false }] };
 
-    it.each(['touka_auth_changed', 'touka_connections_updated'])('讀到過之後收到 %s（換了帳號或連線）：先清空、載入中，新清單回來才換', async (eventName) => {
+    it('存連線（touka_connections_updated）：不清空、不閃載入中，新清單回來才換', async () => {
         mockFetchTouka.mockResolvedValue(ok);
         const { result } = renderHook(() => useAgents(), { wrapper });
         await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
 
         let finish!: (value: unknown) => void;
         mockFetchTouka.mockReturnValue(new Promise(resolve => { finish = resolve; }));
-        act(() => { window.dispatchEvent(new Event(eventName)); });
+        act(() => { window.dispatchEvent(new Event('touka_connections_updated')); });
+        expect(result.current.agentsStatus).toBe('ready');
+        expect(result.current.agents.map(agent => agent.id)).toEqual(['alice']);
+
+        await act(async () => { finish(bobOk); });
+        await waitFor(() => expect(result.current.agents.map(agent => agent.id)).toEqual(['bob']));
+    });
+
+    it('存連線後重抓失敗：留著舊清單，不退回 failed', async () => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        mockFetchTouka.mockResolvedValue({ ok: false });
+        await act(async () => { window.dispatchEvent(new Event('touka_connections_updated')); });
+        await waitFor(() => expect(mockFetchTouka).toHaveBeenCalledTimes(2));
+        await act(async () => { await Promise.resolve(); });
+        expect(result.current.agentsStatus).toBe('ready');
+        expect(result.current.agents.map(agent => agent.id)).toEqual(['alice']);
+    });
+
+    it('讀到過之後登入狀態翻轉（touka_auth_changed）：先清空、載入中，新清單回來才換', async () => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        let finish!: (value: unknown) => void;
+        mockFetchTouka.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        act(() => { window.dispatchEvent(new Event('touka_auth_changed')); });
         expect(result.current.agents).toEqual([]);
         expect(result.current.agentsStatus).toBe('loading');
 
