@@ -393,5 +393,32 @@ def test_collect_exceptions_reads_the_cutoff_and_the_cooldown(tmp_path: Path) ->
     ]
 
 
+def test_collect_exceptions_writes_the_file_the_report_reads(tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[tool.uv]\nexclude-newer = "3 days"\n'
+        '[tool.uv.exclude-newer-package]\npkg-a = "2026-11-05T00:00:00Z"\n',
+        encoding="utf-8",
+    )
+    folder = tmp_path / "dep-audit-main"
+    folder.mkdir()
+    out = folder / "exceptions.json"
+    argv = ["collect-exceptions", "--pyproject", str(pyproject), "--out", str(out)]
+    assert report.main(argv) == 0
+    assert report.classify("main", tmp_path, now=NOW).expired == ()
+    later = datetime(2026, 11, 8, tzinfo=UTC)
+    assert report.classify("main", tmp_path, now=later).expired == ("pkg-a",)
+
+
+@pytest.mark.parametrize("now", ["2026-11-06T00:00:00", "soon"])
+def test_the_report_refuses_a_time_without_a_timezone(tmp_path: Path, now: str) -> None:
+    argv = [
+        "report", "--results", str(tmp_path), "--branches", "main", "--repo", "o/r",
+        "--assignee", "owner", "--run-url", "https://example.test", "--now", now,
+    ]  # fmt: skip
+    with pytest.raises(SystemExit):
+        report.main(argv)
+
+
 def test_collect_exceptions_with_none_is_empty() -> None:
     assert report.collect_exceptions('[tool.uv]\nexclude-newer = "3 days"\n') == []

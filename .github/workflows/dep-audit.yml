@@ -101,5 +101,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DEP_AUDIT_SIMULATE: ${{ inputs.simulate }}
         run: |
+          simulate=""
+          if [ "$DEP_AUDIT_SIMULATE" = "true" ]; then simulate="--simulate"; fi
           python3 -I scripts/dep_audit_report.py report --results dep-audit-results \
-            --branches main dev --repo "$GITHUB_REPOSITORY" --assignee "$OWNER" --run-url "$RUN_URL"
+            --branches main dev --repo "$GITHUB_REPOSITORY" --assignee "$OWNER" \
+            --run-url "$RUN_URL" --now "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" $simulate

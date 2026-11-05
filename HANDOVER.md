@@ -46,10 +46,9 @@
 
 每個 PR 的完整驗證結果寫在該 PR 的說明裡；這裡只留一份在 `dev` 上跑完整驗證的摘要，註明日期與 commit，當作本機基準的參考；之後有人在 `dev` 上重跑完整驗證時再換成新的。開源前最後一份逐筆紀錄（2026-10-09～10-16）在公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 第 2 節，更早的只留在開源前的私人歷史。
 
-- **2026-10-22，授權聲明與映像發布（PR #4，合併後的 dev `15e91887`）**：本機 Windows、Python 3.12 venv、Node 24.21.0。
-  - 全量 pytest：14742 passed、8 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）；8 個跳過與 AGENTS.md 列的基準相同。
-  - guard_all：除 #22（certifi）、#23（ToukaIDE 的 markdown-it）外全部通過；兩項都在等修正版發布滿 7 天（Python 由工具強制，npm 依維護者慣例），與改動無關。
-  - chat 映像以獨立的 compose 專案實際建置並檢查內容後刪除。
+- **2026-11-06，依賴批與既有問題 ①②⑥ 之後（dev `93dbfa96`）**：本機 Windows、Python 3.12 venv、Node 24.22.1。
+  - 全量 pytest：19213 passed、21 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）。跑的是併入 #87 之前的 `9cff0f3d`，#87 只動前端與文件。
+  - guard_all：全綠。
 
 ## 3. 尚未完成的產品工作
 

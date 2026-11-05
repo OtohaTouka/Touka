@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -440,6 +439,14 @@ def collect_exceptions(pyproject_text: str) -> list[dict[str, str | None]]:
     ]
 
 
+def _aware_datetime(text: str) -> datetime:
+    """命令列給的時間一定要帶時區，否則和到期日比不出先後。"""
+    value = datetime.fromisoformat(text)
+    if value.tzinfo is None:
+        raise ValueError(text)
+    return value
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """命令列入口。"""
     if sys.stdout.encoding != "utf-8" and hasattr(sys.stdout, "reconfigure"):
@@ -455,6 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report.add_argument("--repo", required=True)
     report.add_argument("--assignee", required=True)
     report.add_argument("--run-url", required=True)
+    report.add_argument("--now", type=_aware_datetime, required=True)
     report.add_argument("--simulate", action="store_true")
     arguments = parser.parse_args(argv)
     if arguments.command == "collect-exceptions":
@@ -467,9 +475,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         repo=arguments.repo,
         assignee=arguments.assignee,
         run_url=arguments.run_url,
-        now=datetime.now(UTC),
+        now=arguments.now,
         gh=_run_gh,
-        simulate=arguments.simulate or os.environ.get("DEP_AUDIT_SIMULATE") == "true",
+        simulate=arguments.simulate,
     )
 
 

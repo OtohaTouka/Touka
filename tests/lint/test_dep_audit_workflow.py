@@ -61,6 +61,7 @@ def test_only_the_report_job_can_write_issues_and_it_runs_no_branch_code() -> No
     assert "python3 -I scripts/dep_audit_report.py report" in text
     for banned in ("uv ", "npm ", "guard_"):
         assert banned not in text
+    assert "--now" in text
     checkouts = [step for step in report["steps"] if "checkout" in str(step.get("uses", ""))]
     assert len(checkouts) == 1
     assert "ref" not in checkouts[0].get("with", {})
