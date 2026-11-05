@@ -96,8 +96,10 @@ export async function unsetChatHome(page: Page, title: string): Promise<void> {
 export async function expectChatIsHome(page: Page, title: string, isHome: boolean): Promise<void> {
   await expect(page.getByRole("treeitem", { name: new RegExp(`，家對話：${title}`) })).toHaveCount(isHome ? 1 : 0);
   await sessionOptions(page, title).click();
-  await expect(page.getByRole("menuitem", { name: "取消家對話" })).toHaveCount(isHome ? 1 : 0);
-  await expect(page.getByRole("menuitem", { name: "設為家對話" })).toHaveCount(isHome ? 0 : 1);
+  // 先等該有的動作出現：選單還沒打開時，「沒有」的檢查會直接過
+  const [shown, hidden] = isHome ? ["取消家對話", "設為家對話"] : ["設為家對話", "取消家對話"];
+  await expect(page.getByRole("menuitem", { name: shown })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: hidden })).toHaveCount(0);
   await page.keyboard.press("Escape");
 }
 
