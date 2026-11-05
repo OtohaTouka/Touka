@@ -16,6 +16,12 @@ import { ToukaMcpServer } from '../mcp/server';
 
 const PAYLOAD = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
 
+// zstd needs Node 22.15 or later. The pinned Node has it; @types/node 20 does not declare it yet.
+const zstd = zlib as unknown as {
+    createZstdDecompress: () => NodeJS.ReadWriteStream;
+    zstdCompressSync: (data: Buffer) => Buffer;
+};
+
 interface RunningApp {
     httpServer: ReturnType<express.Application['listen']>;
     reachedRoute: () => number;
@@ -84,6 +90,7 @@ function spyOnDecompressors(): Array<ReturnType<typeof vi.spyOn>> {
         vi.spyOn(zlib, 'createGunzip'),
         vi.spyOn(zlib, 'createInflate'),
         vi.spyOn(zlib, 'createBrotliDecompress'),
+        vi.spyOn(zstd, 'createZstdDecompress'),
     ];
 }
 
@@ -119,6 +126,7 @@ describe('ToukaMcpServer JSON body parsing', () => {
         ['gzip', gzipSync],
         ['deflate', deflateSync],
         ['br', brotliCompressSync],
+        ['zstd', zstd.zstdCompressSync],
     ])('rejects a %s-encoded body with 415 without decompressing it', async (encoding, compress) => {
         const app = await startServerApp();
         const decompressors = spyOnDecompressors();
