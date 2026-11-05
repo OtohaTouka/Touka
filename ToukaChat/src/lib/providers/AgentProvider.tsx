@@ -82,8 +82,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       refreshAgents();
     };
     const handleConnectionsUpdated = () => {
-      // 存任何連線都會發，而且這時可能還讀到舊網址（useLocalStorage 不一定先寫完），
-      // 清了也只是抓回同一份，所以不清清單；沒讀到過才算載入中，讀到過的不閃
+      // 存任何連線都會發。網址沒變：抓回同一份，不清清單；沒讀到過才算載入中，讀到過的不閃。
+      // 網址變了：AuthContext 會清掉登入狀態，AuthGuard 卸載這裡，舊清單留不下來（ADR-0297）
       setAgentsStatus(current => current === 'ready' ? current : 'loading');
       refreshAgents();
     };
