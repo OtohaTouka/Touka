@@ -894,6 +894,17 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 |------|----------|----------|
 | `services/creation/`、`tools/builtin/creation.py`、`routers/creation.py` | 候選 MCP 的 SMOKE／EVAL 未接隔離 runner，HTTP 入口可直接試跑 | 工具從帳本取一次 grant 並共用；HTTP 沒有降級同意，none 不啟動。試跑沿用正式自建／scaffold profile 與 clean env；來源由程式路徑決定。缺少 launch context 時 SMOKE 拒絕、EVAL 不啟動候選程式，不重新取得層級。有隔離時 YOLO 依層級執行；層級 none 時 Auto／YOLO 仍只有人能核准；Auto 原本就受底線 F5 約束。測試：`test_creation_isolation_grant_security.py`。 |
 
+### 換後端網址時的登入憑證與連線清單（2026-11-05，ADR-0297）
+
+| 位置 | 原有缺口 | 嚴重度 | 修復摘要 |
+|------|----------|--------|----------|
+| `ToukaChat/src/lib/connections.ts` | 瀏覽器的後端網址改變後（別的分頁改了，或後端存的清單改了），記憶體裡的登入憑證會送到新網址；收到的服務可在憑證效期內用這個身分操作舊後端 | 🟠 High | 憑證綁發它的後端，統一出口送出前比對，不符就不帶、不續期、不重送。殘留：沒有生產呼叫端的 `useAgentSSE.ts` 不走統一出口 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` | 後端存的清單能改掉這個瀏覽器的網址，使用者不知情；後端預設範本就有一筆本機網址 | 🟠 High | 後端的清單不再決定連哪裡，Proxy 項目留本機的；回應到達時網址已換就丟棄 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` | 存檔改網址時，整份連線清單（含本機還沒遮罩的金鑰）送到新網址 | 🟠 High | 換網址改走確認流程，切換時清單不送給任何後端；探測新網址不帶任何憑證、不跟隨轉址。殘留：切換後新後端清單是空的或讀取失敗時，之後在新後端存檔可能把舊連線一起送過去 |
+| `ToukaChat/src/contexts/AuthContext.tsx`、`src/app/connections/page.tsx` | 換網址的通知可能早於寫入，或別的分頁改了網址完全沒有通知，這個分頁維持登入 | 🟡 Medium | 先寫再通知；聽別的分頁的變更；換網址時向舊後端真的登出。殘留：舊後端連不上時登出不生效，長效 cookie 留著，同主機換埠時之後的請求會帶過去 |
+
+測試：`ToukaChat/src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx`、`ToukaChat/src/lib/__tests__/connections.token-origin.security.test.ts`、`ToukaChat/e2e-real/connection-switch.spec.ts`。
+
 ## Out of Scope
 
 以下項目**不在**本專案的安全維護範圍內：
