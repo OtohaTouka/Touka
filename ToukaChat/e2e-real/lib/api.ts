@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { SessionActivity } from "@/lib/types";
 import {
   API_ORIGIN,
   ENV_EMAIL,
@@ -146,6 +147,56 @@ export async function awakenSoul(initPrompt: string, sessionMode: "independent" 
     session_mode: sessionMode,
     init_prompt: initPrompt,
   });
+}
+
+/** 喚醒指定的靈魂；要等它跑完用 waitForFinished。回傳不等背景工作結束。 */
+export async function awakenSoulOf(agentId: string, options: { pulseCount?: number; sessionId?: string; initPrompt?: string } = {}): Promise<void> {
+  await call("POST", "/v1/heartbeat/awaken", null, {
+    token: process.env[ENV_HEARTBEAT_TOKEN] ?? "",
+    agent_id: agentId,
+    pulse_count: options.pulseCount ?? 1,
+    session_mode: "independent",
+    init_prompt: options.initPrompt ?? "實際驗證：心跳",
+    ...(options.sessionId ? { session_id: options.sessionId } : {}),
+  });
+}
+
+export function sessionActivity(token: string, since?: number): Promise<SessionActivity> {
+  return call("GET", `/v1/ui/activity${since === undefined ? "" : `?since=${since}`}`, token);
+}
+
+/** 等這段對話的心跳結束（查結束紀錄，不靠畫面）。`since`：只看這之後結束的。 */
+export async function waitForFinished(token: string, sessionId?: string, since = 0): Promise<SessionActivity["finished"][number]> {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const { finished } = await sessionActivity(token, since);
+    const match = finished.find((row) => !sessionId || row.session_id === sessionId);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`heartbeat did not finish: ${sessionId ?? "any"}`);
+}
+
+/** 另一個裝置改了標題。 */
+export async function retitleChat(token: string, sessionId: string, title: string): Promise<void> {
+  const snapshot = await call<{ revision: string; session: { messages: unknown; updatedAt: number; agent_id: string } }>(
+    "GET",
+    `/v1/ui/sessions/${sessionId}?snapshot=true`,
+    token,
+  );
+  await call("POST", `/v1/ui/sessions/${sessionId}`, token, {
+    id: sessionId,
+    title,
+    messages: snapshot.session.messages,
+    updatedAt: snapshot.session.updatedAt,
+    agent_id: snapshot.session.agent_id,
+    revision: snapshot.revision,
+  });
+}
+
+/** 另一個裝置按了停止。 */
+export async function stopChat(token: string, sessionId: string): Promise<void> {
+  const { state } = await call<{ state: { stream_id: string } | null }>("GET", `/v1/ui/sessions/${sessionId}/stream/state`, token);
+  await call("POST", `/v1/ui/sessions/${sessionId}/stop${state ? `?stream_id=${state.stream_id}` : ""}`, token);
 }
 
 export interface SavedMessage {

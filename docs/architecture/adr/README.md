@@ -314,9 +314,10 @@
 | [ADR-0296](0296-doc-routing.md) | [規則與交班依路徑分流](0296-doc-routing.md) | ✅ 已實作（PR 1 交班拆檔；PR 2 規則分流、路徑腳本、Guard #46；PR 3 搬禁令 67，2026-11-05；相關 ADR-0243） | 2026-11-04 | 新 `scripts/applicable_rules.py`・`scripts/guard_doc_routing.py`・`tests/lint/test_doc_routing_guard.py`・`docs/rules/`・`docs/dev-environment.md`・`docs/handover/`；改 `AGENTS.md`・`HANDOVER.md`・`scripts/guard_all.py` | 規則分流, 路徑腳本, Guard #46, Codex 32 KiB |
 | [ADR-0297](0297-proxy-switch-credentials.md) | [登入憑證只送回發它的後端，換後端要確認並真的登出](0297-proxy-switch-credentials.md) | ✅ 已實作（相關 ADR-0131、0144、0295） | 2026-11-05 | 改 `ToukaChat/src/lib/connections.ts`・`src/contexts/AuthContext.tsx`・`src/hooks/settings/useConnectionSettings.ts`・登入與註冊頁；新 `src/lib/healthResponse.ts`・`src/hooks/useActiveProxyUrl.ts`；後端與 API 不變 | 憑證綁後端, 換後端, 連線清單, 真的登出 |
 | [ADR-0298](0298-rule-text-matches-checks.md) | [規則文字和實際檢查對齊](0298-rule-text-matches-checks.md) | ✅ 已實作（相關 ADR-0025、0027、0031、0278、0296） | 2026-11-05 | `scripts/lint_ssot.py`・`scripts/lint_ratchet.py`＋`tests/lint/vulture_baseline.json`・`scripts/guard_dead_code.py`・`ToukaChat/scripts/guard_frontend.ts`＋`contract_type_baseline.json`・`console_guard_logic.ts`・`eslint.config.mjs`；禁令 7、9、33、43、46、50、51 文字 | vulture 基準, 單向比對, 合約型別, PRINT_BAN, CONSOLE_BAN, radix-ui |
+| [ADR-0300](0300-session-activity-sidebar.md) | [左側邊欄的工作狀態與動畫，清單自己更新](0300-session-activity-sidebar.md) | ✅ 已實作（相關 ADR-0078、0080、0081、0086、0231、0295） | 2026-11-06 | `ToukaProxy/src/routers/ui_sessions.py`・`src/services/activity_registry.py`＋`ToukaChat/src/lib/providers/SessionActivityProvider.tsx`・`src/components/sidebar/left/SessionStatusMark.tsx` | 工作狀態, 呼吸燈, 輪詢, 有新內容, 提問排隊 |
 
 ---
 
 
-*Last Updated: 2026-11-05*
+*Last Updated: 2026-11-06*
 

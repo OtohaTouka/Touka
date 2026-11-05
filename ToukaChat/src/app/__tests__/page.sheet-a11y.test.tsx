@@ -63,6 +63,10 @@ vi.mock('@/lib/providers/DebugProvider', () => ({
     useDebug: () => ({ debugMode: false, setDebugMode: vi.fn() }),
 }));
 
+vi.mock('@/lib/providers/SessionActivityProvider', () => ({
+  SessionActivityProvider: ({ children }: { children: React.ReactNode }) => children,
+  useSessionActivity: () => ({ statusOf: () => null, activityTimeOf: () => undefined, attention: null, staleSessionId: null, clearStale: () => {} }),
+}));
 vi.mock('@/lib/bridge', () => ({
     postToBridge: vi.fn(),
     isIDE: vi.fn().mockReturnValue(false),

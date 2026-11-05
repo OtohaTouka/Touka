@@ -5,6 +5,7 @@
  * 2. 右上角「工具面板」用 aria-expanded 表示右側邊欄開或關，並指向右側面板。
  * 3. IDE 沒有左側邊欄：只有設定鈕（aria-pressed），沒有展開鈕與工具面板鈕。
  * 4. 側欄剛收起而焦點掉了時，焦點交給展開鈕；一開始就收起時不搶焦點。
+ * 5. 收起時也看得到對話在工作（ADR-0300）：和紅點並存，名稱涵蓋兩者。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -14,6 +15,8 @@ import { SetupNoticesProvider } from '@/components/setup/SetupNoticesProvider';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('@/hooks/useSetupStatus', () => ({ useSetupStatus: vi.fn() }));
+const activity = vi.hoisted(() => ({ attention: null as { kind: string; current?: number; total?: number } | null }));
+vi.mock('@/lib/providers/SessionActivityProvider', () => ({ useSessionActivity: () => ({ attention: activity.attention }) }));
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useSetupStatus } from '@/hooks/useSetupStatus';
@@ -54,8 +57,43 @@ function withSetupWarning(isTempPassword: boolean, ui: React.ReactElement) {
   return <SetupNoticesProvider>{ui}</SetupNoticesProvider>;
 }
 
+describe('MainAreaControls — 工作狀態的提示', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activity.attention = null;
+  });
+
+  it('沒有對話在工作：沒有提示點，名稱不變', () => {
+    render(withSetupWarning(false, <MainAreaControls {...makeProps({ isLeftSidebarCollapsed: true })} />));
+    expect(screen.queryByTestId('session-attention-dot')).toBeNull();
+    expect(screen.getByRole('button', { name: '展開側邊欄' })).toBeInTheDocument();
+  });
+
+  it('有對話在工作：亮提示點，名稱寫狀態', () => {
+    activity.attention = { kind: 'heartbeat', current: 2, total: 5 };
+    render(withSetupWarning(false, <MainAreaControls {...makeProps({ isLeftSidebarCollapsed: true })} />));
+    expect(screen.getByRole('button', { name: '展開側邊欄，心跳 2/5' })).toBeInTheDocument();
+    expect(screen.getByTestId('session-attention-dot')).toHaveAttribute('data-kind', 'heartbeat');
+  });
+
+  it('和首次設定提醒同時存在：兩個點分開放，名稱涵蓋兩者', () => {
+    activity.attention = { kind: 'awaiting' };
+    render(withSetupWarning(true, <MainAreaControls {...makeProps({ isLeftSidebarCollapsed: true })} />));
+    const dot = screen.getByTestId('session-attention-dot');
+    const notice = screen.getByTestId('setup-notice-dot');
+    expect(dot).toHaveClass('left-1');
+    expect(notice).toHaveClass('right-1');
+    const name = dot.closest('button')?.getAttribute('aria-label') ?? '';
+    expect(name).toContain('等您處理');
+    expect(name).toContain('設定');
+  });
+});
+
 describe('MainAreaControls — 左上角展開鈕', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activity.attention = null;
+  });
 
   it('左側邊欄展開時沒有展開鈕', () => {
     render(<MainAreaControls {...makeProps()} />);

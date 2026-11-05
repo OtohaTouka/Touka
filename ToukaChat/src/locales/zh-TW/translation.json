@@ -1332,8 +1332,13 @@
       "folder_holds_active": "開著的對話在裡面",
       "label_separator": "，"
     },
+    "session_activity": {
+      "awaiting": "等您處理",
+      "replying": "回覆中",
+      "heartbeat": "心跳 {{current}}/{{total}}",
+      "unseen": "有新內容"
+    },
     "session_item": {
-      "background_generating": "背景生成中",
       "incognito_label": "無痕對話",
       "incognito_badge": "無痕",
       "round_count": "{{count}} 則對話",
@@ -1668,6 +1673,10 @@
       "failed": "對話尚未保存，或內容已發生衝突。草稿仍保留。",
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
+    },
+    "session_updated": {
+      "message": "這段對話有新內容。",
+      "refresh": "點一下更新"
     },
     "incognito_hook_notice": "管理員設定了 Hook：這段無痕對話的內容也會交給 Hook，會不會留存由管理員的設定決定。",
     "message_nav": {

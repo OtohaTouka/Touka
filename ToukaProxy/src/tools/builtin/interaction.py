@@ -25,7 +25,6 @@ _NO_ANSWER = (
 async def ask_user(
     questions: list[dict[str, Any]] | None = None,
     _emit_event: Any = None,
-    _call_id: str | None = None,
     **kwargs: Any,
 ) -> str:
     """向使用者提出結構化問題（單選/複選/連續多問題），暫停生成等回答後續跑。
@@ -40,7 +39,8 @@ async def ask_user(
         return _NO_ANSWER
 
     store = get_ask_user_store()
-    token = _call_id or store.generate_token()
+    # 不用工具呼叫編號：有些模型是流水號，猜得到，兩段對話同時問也會撞在一起（ADR-0300）
+    token = store.generate_token()
     store.register(token)
     await _emit_event({"type": "ask_user_request", "id": token, "questions": questions})
     notify_agent_question(kwargs.get("_ctx") or {})

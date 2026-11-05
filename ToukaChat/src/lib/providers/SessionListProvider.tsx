@@ -4,12 +4,21 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { Session, SaveResult, StreamTerminalEvent, SessionSnapshot } from "../types";
 import { captureRequestScope, isRequestScopeCurrent, subscribeCredentialScope, fetchTouka } from "../connections";
 import type { RequestScope } from "../connections";
-import { logSSOTError, errorMsg } from "@/lib/error_handler";
+import { logSSOTError, errorMsg, getResponseErrorCode } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { ERRORS } from '../error_codes';
+import { countRounds } from '../context_usage';
+import { getLinearMessages, migrateFlatToTree } from '../tree_history';
 import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, parseSaveResult,
   unknownSave, rejectedSave, isSaved, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
+
+/**
+ * 下載一段清單上沒有的對話的結果：
+ * 不存在（通常是剛被刪）、暫時失敗（網路、500，之後再試）、永久拒絕（這次掛載內不再試）。
+ */
+export type DiscoverResult = 'added' | 'known' | 'absent' | 'retry' | 'denied';
+type SnapshotOutcome = { kind: 'found'; snapshot: SessionSnapshot } | { kind: 'retry' } | { kind: 'denied' };
 
 export interface SessionProducer {
   readonly sessionId: string;
@@ -38,6 +47,10 @@ interface SessionContextType {
   applySavedHome: (id: string, agentId: string, isHome: boolean) => void;
   getSession: (id: string) => Session | undefined;
   refreshSessions: () => Promise<Session[]>;
+  /** 這個身分的清單成功讀過了；還沒讀到時不能判斷哪段對話是新的。 */
+  listLoaded: boolean;
+  /** 下載單筆加進清單，不重抓整份（重抓會讓其他對話更容易存不進去）。 */
+  discoverSession: (id: string) => Promise<DiscoverResult>;
   updateSessionTitle: (id: string, title: string) => Promise<SaveResult>;
   deleteSession: (id: string) => Promise<boolean>;
   syncSession: (session: Session, operation?: object) => Promise<SaveResult>;
@@ -66,6 +79,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
   const requests = useRef(new Set<AbortController>());
   const scopeRef = useRef<RequestScope | null>(captureRequestScope());
   const [scopeKey, setScopeKey] = useState(() => scopeId(scopeRef.current));
+  const [loadedScopeKey, setLoadedScopeKey] = useState<string | null>(null);
 
   // 全部 ingress 共用此同步 transition。React 只收到值，不執行帶副作用的 updater。
   const setSessions = useCallback<React.Dispatch<React.SetStateAction<Session[]>>>((action) => {
@@ -132,19 +146,50 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     return result;
   }, [report, setSessions]);
 
-  const readSnapshot = useCallback(async (id: string, scope: RequestScope | null): Promise<SessionSnapshot | null> => {
-    if (!isRequestScopeCurrent(scope)) return null;
+  const fetchSnapshot = useCallback(async (id: string, scope: RequestScope | null): Promise<SnapshotOutcome> => {
+    if (!isRequestScopeCurrent(scope)) return { kind: 'retry' };
     const controller = new AbortController();
     requests.current.add(controller);
     try {
       const response = await fetchTouka(scope!.proxyOrigin, `/v1/ui/sessions/${encodeURIComponent(id)}?snapshot=true`,
         { requestScope: scope, signal: controller.signal });
-      const body: unknown = response.ok && response.status === 200 ? await response.json() : null;
-      if (!isRequestScopeCurrent(scope) || controller.signal.aborted) return null;
-      return parseSessionSnapshot(body, id);
-    } catch { return null; }
+      if (response.ok && response.status === 200) {
+        const body: unknown = await response.json();
+        if (!isRequestScopeCurrent(scope) || controller.signal.aborted) return { kind: 'retry' };
+        const snapshot = parseSessionSnapshot(body, id);
+        return snapshot ? { kind: 'found', snapshot } : { kind: 'denied' };
+      }
+      // 嚴格讀取擋下舊格式的對話（async_db `_parse_session_row`）：再試也一樣
+      const permanent = response.status === 403 || await getResponseErrorCode(response) === 'SESSION_SAVE_FAILED';
+      return { kind: permanent ? 'denied' : 'retry' };
+    } catch { return { kind: 'retry' }; }
     finally { requests.current.delete(controller); }
   }, []);
+
+  const readSnapshot = useCallback(async (id: string, scope: RequestScope | null): Promise<SessionSnapshot | null> => {
+    const outcome = await fetchSnapshot(id, scope);
+    return outcome.kind === 'found' ? outcome.snapshot : null;
+  }, [fetchSnapshot]);
+
+  const discoverSession = useCallback(async (id: string): Promise<DiscoverResult> => {
+    const scope = ensureScope();
+    if (getSession(id)) return 'known';
+    const outcome = await fetchSnapshot(id, scope);
+    if (outcome.kind !== 'found') return outcome.kind;
+    if (!outcome.snapshot.exists) return 'absent';
+    // 清單已經有了（重新整理帶回來）就不蓋掉；身分換了的回應 fetchSnapshot 已經丟掉
+    if (getSession(id)) return 'known';
+    const { revision, session: stored } = outcome.snapshot;
+    const round_count = countRounds(getLinearMessages(migrateFlatToTree(stored.messages)));
+    const session: Session = { ...stored, round_count, revision };
+    // 不走對外的 setSessions：它會拿掉版本、標成未確認，新對話的下一則就存不進去
+    const writer = writers.current.get(id);
+    if (writer && !writer.halted && !writer.unconfirmed && !writer.producer && !writer.pending.length && !writer.recoveryBusy) {
+      writer.confirmed = structuredClone(session);
+    }
+    setSessions(previous => replaceSession(previous, session));
+    return 'added';
+  }, [ensureScope, fetchSnapshot, getSession, setSessions]);
 
   const bindBase = useCallback(async (writer: SessionWriter, scope: RequestScope | null,
     allowAbsentDelete = false): Promise<SaveResult | null> => {
@@ -438,6 +483,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         }
       }
       setSessions(merged);
+      setLoadedScopeKey(scopeId(scope));
       return merged;
     } catch {
       return sessionsRef.current;
@@ -488,6 +534,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       }
       writer.generation++;
       writer.halted = true;
+      // 心跳對話的編號固定，刪掉後下次心跳會重建同一個編號：退役的 writer 不能留著等它回來
+      writers.current.delete(id);
       setSessions(previous => previous.filter(item => item.id !== id));
       return true;
     });
@@ -518,6 +566,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const current = () => scopeId(captureRequestScope()) === scopeKey && scopeId(scopeRef.current) === scopeKey;
     return {
       sessions, scopeKey,
+      listLoaded: loadedScopeKey === scopeKey,
+      discoverSession: id => current() ? discoverSession(id) : Promise.resolve('retry' as const),
       setSessions: action => {
         if (!current()) return;
         const previous = sessionsRef.current;
@@ -565,7 +615,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       completeProducer: (token, change, result, generation) => current()
         ? completeProducer(token, change, result, generation) : Promise.resolve(rejectedSave()),
     };
-  }, [sessions, scopeKey, setSessions, applySavedHome, getSession, getWriter, getPersistence, refreshSessions, updateSessionTitle,
+  }, [sessions, scopeKey, loadedScopeKey, discoverSession, setSessions, applySavedHome, getSession, getWriter, getPersistence, refreshSessions, updateSessionTitle,
     deleteSession, syncSession, updateSession, beginProducer, completeProducer, recheckSession, retrySaveSession, prepareResume]);
 
   return (

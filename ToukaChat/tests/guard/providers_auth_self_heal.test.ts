@@ -30,6 +30,16 @@ const EXEMPT: Record<string, string> = {
     '首探閘於 sessions.length>0（resumedRef 未消耗）＝下游隨 SessionListProvider 自癒重跑',
 };
 
+// 查詢在 hook 裡（useActivityPoll），這個 provider 本身不用 fetchTouka，上面的分類掃不到：
+// 每 8 秒自己重查，憑證換了由 subscribeCredentialScope 重來。這裡單獨驗它訂閱了憑證變動。
+describe('SessionActivityProvider 的查詢自癒', () => {
+  it('useActivityPoll 訂閱憑證變動並持續輪詢', () => {
+    const src = readFileSync(path.resolve(__dirname, '../../src/hooks/useActivityPoll.ts'), 'utf-8');
+    expect(src).toMatch(/subscribeCredentialScope\(/);
+    expect(src).toMatch(/setInterval\(/);
+  });
+});
+
 describe('providers 認證自癒 parity（ADR-0153 同族守衛）', () => {
   it('SELF_HEALING 成員必須註冊且清理 touka_auth_changed 監聽', () => {
     for (const f of SELF_HEALING) {

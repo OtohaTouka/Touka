@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { ENV_SANDBOX_ROOT, FAKE_MODEL_ORIGIN, HOOK_SINK_ORIGIN } from "./constants";
@@ -22,6 +23,20 @@ export function sandboxHasFile(fileName: string): boolean {
 export async function resetRecorders(): Promise<void> {
   await getJson(`${FAKE_MODEL_ORIGIN}/_reset`);
   await getJson(`${HOOK_SINK_ORIGIN}/_reset`);
+}
+
+/** 從現在算起第 n 次呼叫模型時先不回，等 releaseModel。 */
+export async function holdModelCall(n: number): Promise<void> {
+  await getJson(`${FAKE_MODEL_ORIGIN}/_hold/${n}`);
+}
+
+/** 等到假模型真的扣住 n 個回覆：畫面比請求快，太早放行會放個空，之後到的就一直等。 */
+export async function modelHolding(count = 1): Promise<void> {
+  await expect.poll(async () => (await getJson<{ count: number }>(`${FAKE_MODEL_ORIGIN}/_held`)).count).toBe(count);
+}
+
+export async function releaseModel(): Promise<void> {
+  await getJson(`${FAKE_MODEL_ORIGIN}/_release`);
 }
 
 export function modelCalls(): Promise<ModelCall[]> {

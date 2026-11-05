@@ -112,6 +112,7 @@ export const MODEL_400_REQUEST = "E2E_MODEL_400 這則會失敗";
 export const MODEL_BAD_JSON_REQUEST = "E2E_MODEL_BAD_JSON 這則會失敗";
 export const MODEL_NO_REPLY_REQUEST = "E2E_MODEL_NO_REPLY 這則會失敗";
 export const MODEL_EMPTY_REPLY_REQUEST = "E2E_MODEL_EMPTY_REPLY 這則會失敗";
+export const MODEL_HOLD_REQUEST = "E2E_MODEL_HOLD 等一下再回";
 export const FAKE_TEXT_REPLY = "假模型的回覆：收到。";
 export const FAKE_AFTER_TOOL_REPLY = "假模型的回覆：工具結果收到。";
 

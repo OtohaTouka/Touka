@@ -37,9 +37,11 @@ function GlobalSessionEvents({ children }: { children: React.ReactNode }) {
       
       {chat.pendingInstall && (
         <React.Suspense fallback={null}>
+          {/* key：排隊跳下一筆時彈窗內部的狀態（填到一半的欄位）不帶過去 */}
           <McpInstallModal
+            key={chat.pendingInstall.id}
             installRequest={chat.pendingInstall}
-            onClose={() => chat.setPendingInstall(null)}
+            onClose={chat.dismissPendingInstall}
           />
         </React.Suspense>
       )}
@@ -47,11 +49,12 @@ function GlobalSessionEvents({ children }: { children: React.ReactNode }) {
       {/* HAX G10（ADR-0085）：AI 詢問使用者 → 問卷彈窗；作答後 POST 回 ask_user 答案端點解除等待。 */}
       {chat.pendingAsk && (
         <AskUserModal
+          key={chat.pendingAsk.id}
           request={chat.pendingAsk}
-          onCancel={() => chat.setPendingAsk(null)}
+          onCancel={chat.dismissPendingAsk}
           onSubmit={async (answers) => {
             const req = chat.pendingAsk;
-            chat.setPendingAsk(null);
+            chat.dismissPendingAsk();
             if (!req) return;
             try {
               await fetchTouka(getActiveProxyUrl(), `/v1/ask_user/answer/${req.id}`, {

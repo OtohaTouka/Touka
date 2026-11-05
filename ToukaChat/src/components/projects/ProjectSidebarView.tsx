@@ -15,7 +15,9 @@ import {
 } from 'lucide-react';
 import { useTranslation } from "react-i18next";
 import { useChat } from '@/lib/providers/ChatProvider';
+import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
+import { isBusyStatus } from '@/lib/session_activity';
 import { formatToTaipeiDate } from '@/lib/time_utils';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -26,7 +28,8 @@ import { useProjects, ProjectOverview, FileNode } from '@/hooks/useProjects';
 export default function ProjectSidebarView() {
     const { t } = useTranslation();
     const { sessions: allSessions } = useSessionList();
-    const { activeSessionId, handleSwitchSession, streamingSessionIds } = useChat();
+    const { activeSessionId, handleSwitchSession } = useChat();
+    const { statusOf } = useSessionActivity();
     const { fetchProjectOverview, fetchProjectFiles } = useProjects();
     const [overview, setOverview] = useState<ProjectOverview | null>(null);
     const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -157,7 +160,7 @@ export default function ProjectSidebarView() {
                                     >
                                         <div className="flex flex-col min-w-0 pr-2">
                                             <span className="flex items-center gap-1 text-xs font-semibold truncate group-hover:text-primary transition-colors">
-                                                {streamingSessionIds.includes(s.id) && (
+                                                {isBusyStatus(statusOf(s.id)) && (
                                                     <Loader2 className="w-3 h-3 shrink-0 text-primary animate-spin" aria-label={t('projects.project_sidebar_view.generating_in_background')} />
                                                 )}
                                                 {s.title || t('projects.project_sidebar_view.untitled_session')}

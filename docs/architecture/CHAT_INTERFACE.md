@@ -285,7 +285,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 對話串流以 **per-session 登錄表（`StreamRegistryProvider`）** 為進行中串流的唯一事實來源，使「切走後背景續跑、切回看到結果」成為可能：
 
 *   **進行中串流 SSOT**：`StreamRegistry`（`Record<sessionId, StreamState>`），每個進行中對話各自持有 `AbortController` + 累積樹 + status。串流回調以函數式更新「對應 sid」的 entry，與「前端顯示哪個對話」無關。
-*   **顯示衍生（不另存）**：ChatProvider 的 `history` = `activeStream?.tree ?? storedSession.messages ?? staticHistory`；`isSending`/`isWaiting` 衍生自 `activeStream.status`；`streamingSessionIds` 供側欄顯示生成指示（`Loader2` spinner）。
+*   **顯示衍生（不另存）**：ChatProvider 的 `history` = `activeStream?.tree ?? storedSession.messages ?? staticHistory`；`isSending`/`isWaiting` 衍生自 `activeStream.status`；`streamingSessionIds` 供側欄工作狀態的本地來源（ADR-0300）（`Loader2` spinner）。
 *   **防污染＝per-session 隔離**：chunk 只寫進自己 sid 的累積樹，碰不到別的對話（取代早期「切換即 abort」的防污染）。切換對話**不再中止**串流。
 *   **完成寫回**：typed terminal 後經 writer conditional 補存完整樹，saved(full)才清 registry；failed／unknown 保留富樹及恢復入口。
 *   **並發上限**：`MAX_CONCURRENT_STREAMS = 5`（模組級 SSOT）；超過時 `startStream` 回 `false`，呼叫端 toast 提示先停其一。
@@ -316,6 +316,13 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。按這兩顆鈕收起或展開後焦點掉了，就交給另一顆鈕（`setLeftSidebarOpen()` 記下這次是按鈕要求的，兩邊在狀態改變後各問一次 `takeFocusRequest`；面板掛上時依版面記錄自己同步狀態的那一次不移焦點，載入時才不搶焦點）；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。左側邊欄底部的選單是唯一的分頁入口，目前分頁標 `aria-current="page"`。
     *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
     *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列，只放開側欄與工具面板兩顆鈕，設定從選單進（`isMobile` 分支不看 `isIDE()`，窄 IDE 面板也走這裡）。
+*   **工作狀態與動畫（2026-11-06，ADR-0300）**: `lib/providers/SessionActivityProvider.tsx` 是工作狀態的唯一來源，掛在 `page.tsx`，`useSessionActivity()` 回 `statusOf`、`activityTimeOf`、`attention`、`staleSessionId`。
+    *   查詢：`useActivityPoll` 每 8 秒查 `GET /v1/ui/activity`，只在分頁顯示中查，回到分頁馬上查，同時只跑一個請求；IDE 不查。**不呼叫 `refreshSessions()`**：清單裡沒有的對話走 `useSessionDiscovery` → `SessionListProvider.discoverSession(id)` 下載單筆（帶版本）；已知的只記活動時間，不動內容。
+    *   本分頁的串流以 `StreamRegistryProvider` 為準；查詢失敗不轉換，連續 3 次清掉心跳活動、不留小點，不跳錯誤視窗。
+    *   顯示優先序：等您處理（不動的圖示）＞ 工作中（桌面版名稱呼吸、手機版名稱前的小點呼吸，`animate-breathe`）＞ 有新內容（小點，`useUnseenSessions`，無痕只放記憶體）。第 6 筆以後在工作的不收進「還有 N 個」，資料夾與側欄收起來時亮在資料夾列與開關鈕上。
+    *   減少動態看 `useReducedMotionPreference`：App 設定優先，「跟隨系統」才看系統；停掉動畫時顯示文字。
+    *   提問與技能安裝改排隊（`usePendingRequestQueue`）：對外仍是目前那一筆，答完跳下一筆，串流結束的那筆移除。
+    *   開著的對話被別處寫入：`SessionUpdatedNotice` 顯示「有新內容，點一下更新」；存檔已失敗時不顯示。
 *   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
     *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
     *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。

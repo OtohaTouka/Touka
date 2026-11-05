@@ -21,6 +21,7 @@ from src.services.authorization_gateway import can_access_session
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
+from src.utils.activity_visibility import agent_visibility, record_agent
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -42,14 +43,7 @@ async def get_touka_stats(
     # 依身分過濾（2026-10-28、10-29）：背景紀錄與 token 用量只列 can_access_session 放行的靈魂，
     # 全域用量紀錄與派工伺服器的 pid 只給 admin（含代打）。
     # 這次請求內每個靈魂只判斷一次；對不到靈魂的紀錄只給 admin／Debugger
-    visible: dict[str, bool] = {}
-
-    def _can_see(agent: object) -> bool:
-        if not isinstance(agent, str) or not agent:
-            return can_access_session(identity, None)
-        if agent not in visible:
-            visible[agent] = can_access_session(identity, agent)
-        return visible[agent]
+    _can_see = agent_visibility(lambda agent: can_access_session(identity, agent))
 
     is_admin = identity.is_admin_authority()
     stats_data = {"total_usage": 0, "usage_history": []}
@@ -89,14 +83,14 @@ async def get_touka_stats(
     stats_data["background_activity"] = {
         session_id: record
         for session_id, record in activity_registry.snapshot().items()
-        if _can_see(record.get("agent") if isinstance(record, dict) else None)
+        if _can_see(record_agent(record))
     }
 
     # P5c：上次未完成的背景任務（當機復原可見化），供 UI「⚠️ 上次有 N 個未完成」通知
     stats_data["interrupted_runs"] = [
         run
         for run in autonomy_service.get_interrupted_runs()
-        if _can_see(run.get("agent") if isinstance(run, dict) else None)
+        if _can_see(record_agent(run))
     ]
 
     # ADR-0082：dispatch supervisor 觀測（status/pid/restarts）——dict-fold 免動 openapi

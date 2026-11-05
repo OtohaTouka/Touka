@@ -197,6 +197,19 @@
 | 聊天側剪裁的身分（家對話所屬的靈魂，不用請求者） | `ToukaProxy/src/services/dispatcher.py` `_home_soul_identity`（`home_for_agent`；判定與設家相同，身分建法與心跳相同） | `_maybe_trim_after_chat` |
 | 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `content_normalize.append_to_last_user`（`continuity_service`、`HookLayer` 共用）、`ContextLayer._append_context`（`<ide_context>`） |
 
+## 左側邊欄的工作狀態（2026-11-06，ADR-0300）
+
+| 責任 | 唯一來源 | 使用者 |
+|---|---|---|
+| 查詢的間隔與上限、狀態型別、優先序 | `ToukaChat/src/lib/session_activity.ts`（`ACTIVITY_POLL_MS`、`MAX_ACTIVITY_FAILURES`、`MAX_DISCOVERIES_PER_POLL`、`mostUrgentStatus`） | `useActivityPoll`、`useSessionDiscovery`、`SessionActivityProvider`、`SessionTree` |
+| 每段對話現在是什麼狀態 | `ToukaChat/src/lib/providers/SessionActivityProvider.tsx` `statusOf`（本地串流來自 `StreamRegistryProvider`，心跳與別處的串流來自查詢） | `SessionItem`、`SessionTree`、`ProjectSidebarView`、`MainAreaControls`、`MobileMenuButton`、`SessionUpdatedNotice` |
+| 清單沒有的對話怎麼加進來 | `SessionListProvider.discoverSession`（下載單筆、帶版本；工作狀態查詢不呼叫 `refreshSessions`） | `useSessionDiscovery` |
+| 呼吸動畫 | `ToukaChat/src/app/globals.css` `touka-breathe`、`animate-breathe` | `SessionStatusMark.tsx` |
+| 要不要減少動態 | `ToukaChat/src/hooks/useReducedMotionPreference.ts`（App 設定優先，「跟隨系統」才看系統） | `SessionStatusMark.tsx` |
+| 心跳結束紀錄 | `ToukaProxy/src/services/activity_registry.py` `record_finished`、`finished_since`（`MAX_FINISHED_ACTIVITY`） | `routers/heartbeat.py`、`routers/ui_sessions.py` |
+| 誰看得到哪個靈魂的活動 | `ToukaProxy/src/utils/activity_visibility.py` | `routers/stats.py`、`routers/ui_sessions.py` |
+| 這個人自己開的進行中串流（不碰資料庫） | `ToukaProxy/src/services/stream_buffer_service.py` `active_session_ids_of` | `routers/ui_sessions.py` |
+
 ## 記憶系統第二批：段 L 記憶會演變與安全標記（2026-10-15，ADR-0263）
 
 | 責任 | 唯一來源 | 使用者 |

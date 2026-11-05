@@ -223,6 +223,17 @@ html.motion-reduce *::after {
   scroll-behavior: auto !important;
 }
 
+/* 工作中的呼吸燈：只有明暗，黑白交替，不快於 2 秒一次（ADR-0300）。
+   減少動態時上面兩條規則會讓它一閃就停，畫面另外改用文字表示狀態。 */
+@keyframes touka-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@utility animate-breathe {
+  animation: touka-breathe 2.4s ease-in-out infinite;
+}
+
 @layer utilities {
   /* 客製化捲軸樣式 */
   .custom-scrollbar {

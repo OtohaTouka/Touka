@@ -12,6 +12,7 @@ import { Session, SkillInstallRequest, AskUserRequest, SaveResult } from "../typ
 import { getSystemEpoch } from "../time_utils";
 import { useArtifactExtractor } from "@/hooks/useArtifactExtractor";
 import { useChatStream } from "@/hooks/useChatStream";
+import { usePendingRequestQueue } from "@/hooks/usePendingRequestQueue";
 import { useStreamRegistry } from "./StreamRegistryProvider";
 import { logSSOTError } from "@/lib/error_handler";
 import { toast } from "sonner";
@@ -48,11 +49,15 @@ interface ChatContextType {
   isIncognito: boolean;
   handleSetAuthLevel: (level: string) => void;
   pendingInstall: SkillInstallRequest | null;
-  setPendingInstall: (req: SkillInstallRequest | null) => void;
+  /** 關掉目前這筆，跳下一筆。 */
+  dismissPendingInstall: () => void;
   /** HAX G10（ADR-0085）：ask_user 工具的待答提問（觸發 AskUserModal）。 */
   pendingAsk: AskUserRequest | null;
-  setPendingAsk: (req: AskUserRequest | null) => void;
-  /** ADR-0080：進行中（含背景）串流的 session id 清單，供側欄顯示生成指示。 */
+  /** 答完或關掉目前這筆，跳下一筆。 */
+  dismissPendingAsk: () => void;
+  /** 有提問或技能安裝等人回答的對話（一段可能出現多次）。 */
+  pendingRequestSessionIds: string[];
+  /** ADR-0080：進行中（含背景）串流的 session id 清單。 */
   streamingSessionIds: string[];
 }
 
@@ -132,8 +137,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [attachment, setAttachment] = useState<Attachment | null>(null);
-  const [pendingInstall, setPendingInstall] = useState<SkillInstallRequest | null>(null);
-  const [pendingAsk, setPendingAsk] = useState<AskUserRequest | null>(null);
+  const { current: pendingInstall, sessionIds: installSessionIds, enqueue: enqueueInstall,
+    dismissCurrent: dismissPendingInstall, dropSession: dropInstallsOf } = usePendingRequestQueue<SkillInstallRequest>();
+  const { current: pendingAsk, sessionIds: askSessionIds, enqueue: enqueueAsk,
+    dismissCurrent: dismissPendingAsk, dropSession: dropAsksOf } = usePendingRequestQueue<AskUserRequest>();
+  const pendingRequestSessionIds = React.useMemo(() => [...askSessionIds, ...installSessionIds], [askSessionIds, installSessionIds]);
+
+  // 串流結束，那段對話等著的問題也作廢（後端不會再收答案），不能排到之後才跳出來
+  const previousStreamingIds = useRef(streamingSessionIds);
+  useEffect(() => {
+    for (const id of previousStreamingIds.current) {
+      if (!streamingSessionIds.includes(id)) {
+        dropAsksOf(id);
+        dropInstallsOf(id);
+      }
+    }
+    previousStreamingIds.current = streamingSessionIds;
+  }, [streamingSessionIds, dropAsksOf, dropInstallsOf]);
 
   const { processStreamChunk, finalizeStream } = useArtifactExtractor(activeSessionId, isSending, history);
 
@@ -146,7 +166,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const isIncognitoSession = useCallback((id: string) => incognitoIdsRef.current.has(id), []);
 
   const { handleSendStream, handleStopGeneration } = useChatStream({
-    staticHistory, activeSessionId, setActiveSessionId, setPendingInstall, setPendingAsk,
+    staticHistory, activeSessionId, setActiveSessionId, enqueueInstall, enqueueAsk,
     isIncognitoSession,
   });
 
@@ -450,8 +470,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     handleHomeSession, handleSetHome, handleUnsetHome,
     handleDeleteMessage, handleSwitchMessage, handleRegenerate, handleEditMessage,
     handleUpdateSessionMessages, handleSetProject,
-    authLevel, isIncognito, handleSetAuthLevel, pendingInstall, setPendingInstall,
-    pendingAsk, setPendingAsk,
+    authLevel, isIncognito, handleSetAuthLevel, pendingInstall, dismissPendingInstall,
+    pendingAsk, dismissPendingAsk, pendingRequestSessionIds,
     streamingSessionIds,
   }), [
     activeSessionId, history, isSending, isWaiting, inputValue, attachment, setInputValue, setHistory,
@@ -459,8 +479,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     handleHomeSession, handleSetHome, handleUnsetHome,
     handleDeleteMessage, handleSwitchMessage, handleRegenerate, handleEditMessage,
     handleUpdateSessionMessages, handleSetProject,
-    authLevel, isIncognito, handleSetAuthLevel, pendingInstall, setPendingInstall,
-    pendingAsk, setPendingAsk,
+    authLevel, isIncognito, handleSetAuthLevel, pendingInstall, dismissPendingInstall,
+    pendingAsk, dismissPendingAsk, pendingRequestSessionIds,
     streamingSessionIds,
   ]);
 

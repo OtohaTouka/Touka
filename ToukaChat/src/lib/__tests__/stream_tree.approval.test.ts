@@ -7,7 +7,7 @@
  * （P3 permission_denied → denied 黃）。多筆並行各自獨立（grok parallel calls）。
  */
 import { describe, it, expect } from 'vitest';
-import { applyEventToTree, appendAssistantNode } from '../stream_tree';
+import { applyEventToTree, appendAssistantNode, hasPendingApproval } from '../stream_tree';
 import { TreeHistory } from '../tree_history';
 
 function baseTreeWithAssistant(): { tree: TreeHistory; aid: string } {
@@ -258,5 +258,33 @@ describe('stream_tree — isolation on the approval card (iso-c2)', () => {
     expect(isolationOf({ ...direct, complete: null })).toEqual({ ...direct, complete: false });
     expect(isolationOf({ ...direct, complete: true })).toEqual(direct);
     expect(isolationOf(direct)).toEqual(direct);
+  });
+});
+
+describe('hasPendingApproval（側欄的「等您處理」，ADR-0300）', () => {
+  it('沒有審批：不算', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    expect(hasPendingApproval(tree, aid)).toBe(false);
+  });
+
+  it('找不到這則回覆：不算', () => {
+    const { tree } = baseTreeWithAssistant();
+    expect(hasPendingApproval(tree, 'missing')).toBe(false);
+  });
+
+  it('在等人回應：算；決定送出後就不算，不等工具開始跑', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    const waiting = applyEventToTree(tree, aid, approvalEvent('ex1', 'c1'));
+    expect(hasPendingApproval(waiting, aid)).toBe(true);
+    const resolved = applyEventToTree(waiting, aid, { type: 'tool_approval_resolved', id: 'ex1', call_id: 'c1', decision: 'approved' });
+    expect(hasPendingApproval(resolved, aid)).toBe(false);
+  });
+
+  it('兩筆並行：答完一筆還在等另一筆', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    let next = applyEventToTree(tree, aid, approvalEvent('ex1', 'c1'));
+    next = applyEventToTree(next, aid, approvalEvent('ex2', 'c2'));
+    next = applyEventToTree(next, aid, { type: 'tool_approval_resolved', id: 'ex1', call_id: 'c1', decision: 'denied' });
+    expect(hasPendingApproval(next, aid)).toBe(true);
   });
 });
