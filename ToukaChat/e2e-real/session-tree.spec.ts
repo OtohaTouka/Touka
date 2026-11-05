@@ -193,12 +193,13 @@ test("沒有靈魂的對話放其他對話並標模型；冒號格式進對應�
   await selectSoul(page, secret);
   await sendMessage(page, "無痕的一則");
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
-  const secretFolder = row(page, secret);
+  const secretFolder = row(page, new RegExp(`^${secret}`));
   await expect(secretFolder).toBeVisible();
   await expect(page.getByRole("treeitem", { name: /無痕對話$/ })).toHaveAttribute("aria-level", "2");
   await shot(page, info, "incognito");
   await arrow(secretFolder).click();
   await expect(secretFolder).toHaveAttribute("aria-expanded", "false");
+  await expect(secretFolder).toHaveAttribute("aria-label", /開著的對話在裡面$/);
   // eslint-disable-next-line no-restricted-globals -- 測試要看瀏覽器實際存了什麼，不能經 Hook
   const stored = await page.evaluate((prefix) => Object.entries(localStorage).filter(([key]) => key.startsWith(prefix)).map(([, value]) => value), COLLAPSED_KEY);
   expect(stored.join("")).not.toContain(secret.toLowerCase());

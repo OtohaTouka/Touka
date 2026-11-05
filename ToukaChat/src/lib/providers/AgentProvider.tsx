@@ -82,8 +82,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       refreshAgents();
     };
     const handleConnectionsUpdated = () => {
-      // 存任何連線都會發。真的換後端時 AuthContext 會登出、這裡跟著卸載，所以不清清單；
-      // 沒讀到過才算載入中，讀到過的不閃
+      // 存任何連線都會發，而且這時可能還讀到舊網址（useLocalStorage 不一定先寫完），
+      // 清了也只是抓回同一份，所以不清清單；沒讀到過才算載入中，讀到過的不閃
       setAgentsStatus(current => current === 'ready' ? current : 'loading');
       refreshAgents();
     };
