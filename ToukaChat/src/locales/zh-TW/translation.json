@@ -1220,7 +1220,11 @@
       "empty_state": "尚未建立任何連線來源。",
       "saved": "連線已儲存",
       "delete_confirm": "刪除連線「{{name}}」？已儲存的 API 金鑰會一併移除。",
-      "delete_confirm_label": "刪除"
+      "delete_confirm_label": "刪除",
+      "proxy_switch_confirm": "要把後端換成 {{url}} 嗎？確認後，這個帳號在目前後端的所有裝置都會登出，這個瀏覽器會回到登入頁。",
+      "proxy_switch_confirm_label": "換後端並登出",
+      "proxy_checking": "正在確認 {{url}} 連得上…",
+      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。"
     },
     "theme_showcase": {
       "agent_sample_reply": "這是 {{name}} 的範例對話回覆。我們使用 Design Tokens 確保每個 Agent 在任何主題下都具有高度辨識度。",
@@ -1320,6 +1324,13 @@
       "unavailable": "連線或能力尚未確認",
       "standalone": "獨立模式",
       "hybrid": "整合模式"
+    },
+    "session_tree": {
+      "loading": "對話清單載入中",
+      "more_sessions": "還有 {{count}} 個",
+      "folder_home_aria": "{{name}}，家對話：{{title}}",
+      "folder_holds_active": "開著的對話在裡面",
+      "label_separator": "，"
     },
     "session_item": {
       "background_generating": "背景生成中",
@@ -2153,6 +2164,9 @@
     }
   },
   "app": {
+    "login_page": {
+      "connected_to": "連線到：{{url}}"
+    },
     "connections_page": {
       "title": "連線管理系統",
       "add_ai_node": "新增 AI 節點",
@@ -2182,7 +2196,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "未指定代理人",
       "project_group": "專案: {{name}}",
       "unknown_project": "未知專案",
       "other_conversations": "其他對話",

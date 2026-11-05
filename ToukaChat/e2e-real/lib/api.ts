@@ -1,8 +1,10 @@
+import path from "node:path";
 import {
   API_ORIGIN,
   ENV_EMAIL,
   ENV_HEARTBEAT_TOKEN,
   ENV_PASSWORD,
+  ENV_SANDBOX_ROOT,
   FAKE_MODEL_ID,
   MCP_TOOL,
   SOUL_ID,
@@ -53,10 +55,10 @@ export async function replaceInitialPassword(email: string, current: string, nex
 }
 
 /** 新靈魂預設 Base 沒有工具，要指定 Owner 才看得到工具。 */
-export async function createSoul(token: string): Promise<void> {
+export async function createSoul(token: string, soulId: string = SOUL_ID): Promise<void> {
   await call("POST", "/v1/souls", token, {
-    agent_id: SOUL_ID,
-    name: SOUL_ID,
+    agent_id: soulId,
+    name: soulId,
     persona: "實際驗證用",
     config: {
       base_model: FAKE_MODEL_ID,
@@ -68,8 +70,53 @@ export async function createSoul(token: string): Promise<void> {
     ...identity,
     agent_overrides: {
       ...identity.agent_overrides,
-      [SOUL_ID]: { role: "Owner", capabilities: ["heartbeat_awakening"] },
+      [soulId]: { role: "Owner", capabilities: ["heartbeat_awakening"] },
     },
+  });
+}
+
+/** 新的一般帳號，擁有這些靈魂。回傳帳號 ID。 */
+export async function createUser(adminToken: string, email: string, password: string, ownedAgents: string[]): Promise<string> {
+  const user = await call<{ id: string }>("POST", "/v1/admin/users", adminToken, { email, password, role: "normal" });
+  await call("PATCH", `/v1/admin/users/${user.id}`, adminToken, { owned_agents: ownedAgents });
+  return user.id;
+}
+
+export interface ChatSeed {
+  id: string;
+  title: string;
+  agentId?: string;
+  updatedAt?: number;
+  projectId?: string;
+}
+
+/** 直接建好一段對話，不經畫面：要先拿到「還不存在」的版本才存得進去。 */
+export async function createChat(token: string, chat: ChatSeed): Promise<void> {
+  const snapshot = await call<{ revision: string }>("GET", `/v1/ui/sessions/${chat.id}?snapshot=true`, token);
+  await call("POST", `/v1/ui/sessions/${chat.id}`, token, {
+    id: chat.id,
+    title: chat.title,
+    messages: { messages: {}, currentId: null },
+    updatedAt: chat.updatedAt ?? 1,
+    agent_id: chat.agentId,
+    project_id: chat.projectId,
+    revision: snapshot.revision,
+  });
+}
+
+export async function setChatHome(token: string, sessionId: string, agentId: string): Promise<void> {
+  await call("POST", "/v1/ui/sessions/set_home", token, { session_id: sessionId, agent_id: agentId, is_home: true });
+}
+
+/** 根目錄放沙盒裡：對話掛上專案時後端會在那裡寫交班檔，相對路徑會寫到後端的工作目錄。 */
+export async function createProject(token: string, id: string, name: string): Promise<void> {
+  const sandboxRoot = process.env[ENV_SANDBOX_ROOT];
+  if (!sandboxRoot) throw new Error(`${ENV_SANDBOX_ROOT} is not set`);
+  await call("POST", "/v1/ui/projects/save", token, {
+    id,
+    name,
+    root_path: path.join(sandboxRoot, "e2e-real-project"),
+    description: "實際驗證用",
   });
 }
 

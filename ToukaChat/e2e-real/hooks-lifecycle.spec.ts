@@ -123,7 +123,7 @@ async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
 }
 
 async function setCurrentChatAsHome(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /^會話選項：/ }).first().click();
+  await page.locator('aside [role="treeitem"][aria-current="true"]').getByRole("button", { name: /^會話選項：/ }).click();
   await page.getByRole("menuitem", { name: "設為家對話" }).click();
   await page.keyboard.press("Escape");
 }

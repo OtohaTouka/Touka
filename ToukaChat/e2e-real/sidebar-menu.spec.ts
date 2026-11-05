@@ -1,15 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { adminLogin, savedMessages, sessionIdByTitle } from "./lib/api";
-import { FAKE_TEXT_REPLY, SOUL_ID } from "./lib/constants";
+import { FAKE_TEXT_REPLY } from "./lib/constants";
 import { modelCalls } from "./lib/control";
 import { composer, loginInBrowser, openSideMenu, sendMessage, shot, sideMenuButton } from "./lib/ui";
 
 // 沙盒是整合模式：非整合模式少三項，由 NavigationArea 的單元測試驗。
 const PAGES = ["專案管理", "靈魂核心", "模型工坊", "系統脈搏", "記憶寶庫", "設定"];
-// 按鈕上的標示只證明狀態換了，標題才證明畫面內容真的換了
+// 按鈕上的標示只證明狀態換了，標題才證明畫面內容真的換了。
+// 靈魂核心開清單第一個靈魂，順序看檔案系統（Windows 照字母、Linux 不一定），不能比靈魂名
 const PAGE_HEADINGS: Record<string, string> = {
   專案管理: "專案管理",
-  靈魂核心: SOUL_ID,
+  靈魂核心: "運行配置",
   模型工坊: "工具權限",
   系統脈搏: "脈搏控制中心",
   記憶寶庫: "記憶寶庫",
@@ -76,7 +77,7 @@ test("每個項目都到得了；按鈕標出目前畫面；點對話或新對�
   await shot(page, info, "settings-marked");
 
   // 迴圈最後停在設定：點目前的對話回聊天，按鈕上的標示要消失
-  await page.locator('aside button[aria-current="true"]').click();
+  await page.locator('aside [role="treeitem"][aria-current="true"]').click();
   await expectInChat(page);
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
   await shot(page, info, "back-to-chat");

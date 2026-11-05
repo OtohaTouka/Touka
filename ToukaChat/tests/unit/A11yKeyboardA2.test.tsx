@@ -1,6 +1,6 @@
 /**
  * WCAG A2 批：鍵盤可操作性行為測試（2.1.1 / 4.1.2）。
- * - SessionItem 會話列：可聚焦、Enter/Space 切換、子元素事件不誤觸切換
+ * - SessionItem 會話列：treeitem、子元素事件不誤觸切換（方向鍵與 Enter 在 useSessionTreeKeyboard）
  * - ToolStepTracker 展開列：button 語意＋aria-expanded
  */
 import React from 'react';
@@ -48,33 +48,34 @@ function renderItem(overrides: Partial<React.ComponentProps<typeof SessionItem>>
 describe('SessionItem 鍵盤可操作性（WCAG 2.1.1 核心動線，A5 axe 後的無巢狀結構）', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('切換會話是原生 <button>（鍵盤語意內建、無 nested-interactive）', () => {
+  it('會話列是 treeitem；整列不是 role="button"（axe nested-interactive）', () => {
     renderItem();
-    const switchBtn = screen.getByRole('button', { name: /^KeyboardTest/ });
-    expect(switchBtn.tagName).toBe('BUTTON');
-    // axe nested-interactive 根治：外層容器不得再是 role="button"
-    expect(switchBtn.closest('[role="button"]')).toBeNull();
+    const row = screen.getByRole('treeitem', { name: 'KeyboardTest' });
+    expect(row.closest('[role="button"]')).toBeNull();
+    expect(row.querySelector('[role="button"]')).toBeNull();
   });
 
-  it('啟動（click＝原生 Enter/Space 語意）切換會話', () => {
+  it('點標題切換會話；點「⋯」不切換', () => {
     const { onSwitch } = renderItem();
-    fireEvent.click(screen.getByRole('button', { name: /^KeyboardTest/ }));
+    fireEvent.click(screen.getByRole('button', { name: /會話選項：KeyboardTest/ }));
+    expect(onSwitch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('KeyboardTest'));
     expect(onSwitch).toHaveBeenCalledWith('s1');
   });
 
   it('當前會話以 aria-current 標記', () => {
     renderItem({ isActive: true });
-    expect(screen.getByRole('button', { name: /^KeyboardTest/ })).toHaveAttribute(
+    expect(screen.getByRole('treeitem', { name: 'KeyboardTest' })).toHaveAttribute(
       'aria-current',
       'true',
     );
   });
 
-  it('選單觸發鈕有可及名稱（axe button-name 修正）', () => {
+  it('選單觸發鈕有可及名稱（axe button-name 修正），不在 Tab 順序（Shift+F10 打開）', () => {
     renderItem();
     expect(
       screen.getByRole('button', { name: /會話選項：KeyboardTest/ }),
-    ).toBeInTheDocument();
+    ).toHaveAttribute('tabindex', '-1');
   });
 
   it('編輯模式下，標題輸入框按 Enter＝儲存標題、不誤觸會話切換', () => {

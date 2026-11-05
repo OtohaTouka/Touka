@@ -601,6 +601,16 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
 
+### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
+
+| 來源 | 責任與使用邊界 |
+|---|---|
+| `ToukaChat/src/lib/connections.ts` 的 `cardFor` | 憑證只送回發它的後端；`fetchTouka`、`fetchChatStream`、`captureRequestScope` 都經它取卡。`getAccessToken()` 只回答「手上有沒有卡」，不能拿來送出。 |
+| `ToukaChat/src/lib/connections.ts` 的 `activeConnectionOf`、`activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單裡哪一筆決定後端、會連到哪個網址、兩個網址是否同一台的唯一判斷。 |
+| `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
+| `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
+
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。
 *   **身份感知執行**: 所有工具執行前必須通過 `PermissionService` 的二次驗證，並強制將 `AgentIdentity` 注入操作上下文，防止參數劫持。
