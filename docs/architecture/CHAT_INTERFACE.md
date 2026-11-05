@@ -1,6 +1,6 @@
 # ToukaChat 對話介面文件 (Standardized Chat Interface)
 
-> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
+> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
 ## 換後端網址與登入憑證（ADR-0297）
 
@@ -432,7 +432,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 1. **型別來源**：`src/types/api.ts` 是與後端通訊的唯一事實來源。
 2. **自動同步**：透過執行 `npm run sync-api` 獲取最新的後端 Schema。
 3. **API 守衛 (Parity Guard)**：透過 `guard_frontend.ts` 自動檢查所有 `fetchTouka` 調用，確保與後端端點強對齊（包含 `/v1` 前綴標準）。
-4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。
+4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。`guard_frontend.ts` 也以 AST 檢查：名字和後端 schema 或 `lib/types.ts` 的合約別名相同、卻是手寫的宣告會紅，既有 10 個凍結在 `scripts/contract_type_baseline.json`，改名就抓不到（ADR-0298）。
 
 ---
 ### 3. 配置主權 (Env SSOT)
@@ -451,7 +451,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 - **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
 - **覆蓋範圍**：`src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`（`src/components/**` 已由 `guard_hooks.ts` 覆蓋）
 - **靜態執法**：由 `guard_localStorage.ts` 進行 AST 掃描，整合至 `guard_all.py`
-- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）、`connections.ts`（Auth Token 管理，非 React 函數環境）
+- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`
 - **合法豁免**：Theme SSOT 初始化（純字串/CSS 同步需求）、純字串值儲存（`useLocalStorage` 的 JSON 序列化不相容）允許 `// noqa: LOCALSTORAGE_SSOT`，須登記於 `NOQA_REGISTRY.md`
 
 ### 5.5 身份主權前端靜態守衛 (X-Agent-ID Identity Guard) ⭐

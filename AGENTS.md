@@ -130,7 +130,7 @@ npm run package
 *   **禁令 4**〔全系統〕：嚴禁繞過 `AuthService` 使用原生 `bcrypt` 或 `passlib`。必須維持 `SHA256 -> Bcrypt` 的預雜湊鏈以相容長密碼。
 *   **禁令 5**〔模組：proxy、memory〕：工具執行器與工具都要傳 auth_level，不得忽略。全文：docs/rules/proxy.md
 *   **禁令 6**〔模組：memory〕：Memory 的 I/O 走 get_resource_proxy，不直接匯入。全文：docs/rules/memory.md
-*   **禁令 7**〔全系統〕：**嚴禁**在業務代碼中直接調用 `print()`，必須使用 `logger = logging.getLogger(__name__)`。腳本/CLI 工具（`scripts/` 目錄）除外。（PRINT_BAN 規則）
+*   **禁令 7**〔全系統〕：**嚴禁**在業務代碼中直接調用 `print()`，必須使用 `logger = logging.getLogger(__name__)`。腳本/CLI 工具（`scripts/` 目錄）除外；`ToukaProxy/plugin_manager.py` 是命令列工具，目前不掃。（PRINT_BAN 規則）
 *   **禁令 8**〔模組：proxy、memory、heartbeat、dispatch、deploy、tests、ide〕：basicConfig 限 logging_config（lint 會擋；noqa、白名單能躲過檢查，但仍算違規）。全文：docs/rules/proxy.md
 *   **禁令 9**〔模組：chat〕：前端不直接碰 localStorage，用 useLocalStorage。全文：docs/rules/chat.md
 *   **禁令 10**〔全系統〕：**嚴禁**在業務代碼中用 `raise ValueError("字串")` / `raise RuntimeError("字串")` 帶硬編碼字串，必須改用 `raise ToukaException(ErrorCode.XXX)`。ToukaMemory 等跨服務邊界可加 `# noqa: RAISE_STRING_BAN`。
@@ -166,10 +166,10 @@ npm run package
 *   **禁令 40 (ToukaDispatch Token 隔離)**〔全系統〕：**嚴禁**將 `DISPATCH_TOKEN`（全域主金鑰）傳遞給任何外部 AI 工具或超出 Touka 進程邊界的任何通訊通道。外部 AI 工具只能收到由 `dispatch_initialize_mission` 生成的 `mission_token`（一次性，與 `mission_id`／generation 綁定，首次成功 handshake 即消耗，新 mission 建立時舊 credential/session 原子失效）。Token 必須透過**環境變數**傳遞（`DISPATCH_TOKEN=<mission_token>`），嚴禁放進 prompt 明文或命令列參數（避免 `ps` 可見）。`DISPATCH_URL` 必須是完整 modern `/mcp` endpoint；application session 不可跨 `/mcp`／`/sse` transport 使用。外部 session 不得呼叫 `dispatch_initialize_mission`，違反時系統立即拒絕。（ADR-0064 + ADR-0201）
 *   **禁令 41（物理路徑禁令 / TID251）**〔全系統〕：**嚴禁**在代碼中寫死任何絕對路徑字串。所有路徑必須透過 `ResourceManager` 解析。**由 `lint_ssot.py` 的 `PATH_LITERAL_SSOT` 規則與 ruff TID251（`ruff.toml` 的路徑 API 禁用，Guard #44）靜態攔截。**（ADR-0004）
 *   **禁令 42（環境變數主權 / Env SSOT）**〔全系統〕：業務邏輯**嚴禁**直接調用 `os.environ`、`os.chdir`、`sys.path.append` 等敏感 API；子程序一律經 `services/execution_broker.py`（`spawn_exec`／`run_sync`，ADR-0239），`os.system`／`subprocess.run`／`subprocess.Popen` 由 ruff TID251（Guard #44）攔截，`tests/lint/test_security_kernel_ratchet.py` 另禁止在 broker 以外直接啟動子程序；前端**嚴禁**直接調用 `process.env` 或 `import.meta.env`，所有配置必須統一經由 `src.config`（後端）或 `src/lib/config.ts`（前端）存取。特權白名單僅限 `config.py`、`main.py`、`bootstrap.py`、`terminal.py`、`conftest.py`。**由 `lint_ssot.py`（後端）與 `guard_env.ts`（前端）進行靜態稽核。**（ADR-0015）
-*   **禁令 43（時間獲取禁令 / TIME_BAN）**〔全系統〕：**嚴禁**調用 `datetime.now()`、`time.time()` 或 `datetime.today()`，必須統一使用 `time_utils`（後端）/ `getSystemEpoch()`（前端），內部一律以 UNIX Epoch 為基準。**由 `lint_ssot.py`（AST 級）與 `guard_time.ts` 強制攔截。**（ADR-0013）
+*   **禁令 43（時間獲取禁令 / TIME_SSOT_VIOLATION）**〔全系統〕：**嚴禁**調用 `datetime.now()`、`time.time()` 或 `datetime.today()`，必須統一使用 `time_utils`（後端）/ `getSystemEpoch()`（前端），內部一律以 UNIX Epoch 為基準。**由 `lint_ssot.py`（AST 級）與 `guard_time.ts` 強制攔截。**（ADR-0013）
 *   **禁令 44（錯誤碼主權 / Error Code Sovereignty）**〔全系統〕：嚴禁在 Exception 或 UI 提示中使用硬編碼字串——後端**嚴禁** `HTTPException(detail="...")`（補禁令 10 的 raise 字串禁令）；前端**嚴禁** `toast.error("...")` / `console.error("...")` 硬編碼內容。`errors.json` 為跨端唯一錯誤定義來源，自動生成雙端常數。**由 `lint_ssot.py`（後端）與 `guard_errors.ts`（前端）攔截。**（ADR-0014）
 *   **禁令 45**〔模組：chat〕：前端 HTTP 一律走 fetchTouka，不得直接 fetch()。全文：docs/rules/chat.md
-*   **禁令 46（死碼禁令 / Dead Code Guard）**〔全系統〕：**嚴禁**未使用的函式、export 或檔案長期存在。**後端由 `vulture`、前端由 `knip` 偵測，整合至 `guard_all.py` 第 20 道關卡。**
+*   **禁令 46（死碼禁令 / Dead Code Guard）**〔全系統〕：**嚴禁**未使用的函式、export 或檔案長期存在。前端 export 與檔案由 `knip` 擋（Guard #20）。後端由 `vulture`：函式、方法、類別以基準清單 `tests/lint/vulture_baseline.json` 不得增加（名字和別處相同就不會報，只有測試在用的會報）；未用匯入與到不了的程式由 Guard #20 擋；後端未用的檔案目前沒有檢查。（ADR-0298）
 *   **禁令 47**〔模組：deploy〕：成員依賴與 Dockerfile 要同步，不得手動白名單 COPY。全文：docs/rules/deploy.md
 *   **禁令 48**〔模組：proxy、chat〕：refresh Cookie 設 path=/，前端帶 credentials。全文：docs/rules/proxy.md
 *   **禁令 49**〔模組：chat〕：前端視覺樣式出自 tokens.ts 或系統定義，不用任意值。全文：docs/rules/chat.md
