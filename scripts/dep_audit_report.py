@@ -226,7 +226,7 @@ def _read_expired(path: Path, now: datetime) -> tuple[str, ...] | None:
 
 
 def classify(branch: str, results: Path, *, now: datetime) -> BranchResult:
-    """兩道檢查都回 0 才算乾淨；失敗又列不出任何一筆就算沒跑完。"""
+    """兩道檢查都回 0 才算乾淨；失敗時筆數對不上、掃到一半就停，都標明沒跑完。"""
     folder = results / f"dep-audit-{branch}"
     findings: list[Finding] = []
     incomplete: list[str] = []
@@ -360,7 +360,7 @@ def _open_issues(repo: str, gh: GhRunner) -> dict[str, ExistingIssue]:
     return {
         item["title"]: parse_existing(item["number"], item["body"])
         for item in json.loads(output)
-        if item["author"]["login"] == WORKFLOW_AUTHOR
+        if (item.get("author") or {}).get("login") == WORKFLOW_AUTHOR
     }
 
 

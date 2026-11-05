@@ -190,6 +190,24 @@ def test_a_line_that_cannot_be_read_does_not_vanish_silently(
     assert result.incomplete_checks == (check,)
 
 
+def test_the_same_finding_in_two_scopes_counts_each_time_and_merges_into_one_row(
+    tmp_path: Path,
+) -> None:
+    # Guard #23 的總數是各範圍相加：依賴批之前的舊 lock 實跑是 7 筆列出 7 行
+    output = (
+        "[Scan] ToukaIDE runtime dependency scope\n"
+        "  high hono GHSA-2g87-pp6c-29x5\n"
+        "  blocking=1 lower-severity=0 registry=x\n"
+        "[Scan] ToukaIDE full dependency scope\n"
+        "  high hono GHSA-2g87-pp6c-29x5\n"
+        "  blocking=1 lower-severity=0 registry=x\n"
+        "[FAIL] 2 HIGH/CRITICAL finding(s) across audited scopes.\n"
+    )
+    result = _classify(tmp_path, node=(1, output))
+    assert result.incomplete_checks == ()
+    assert [item.scope for item in result.findings] == ["ToukaIDE full、ToukaIDE runtime"]
+
+
 def test_complete_output_is_not_marked_as_not_finished(tmp_path: Path) -> None:
     result = _classify(tmp_path, python=(1, PYTHON_FINDING), node=(1, NODE_FINDING))
     assert result.incomplete_checks == ()
@@ -385,6 +403,13 @@ def test_an_issue_someone_else_opened_with_the_same_title_does_not_count(tmp_pat
     gh = _FakeGh([_open_issue(report.issue_title("main"), "hand written", login="someone")])
     assert _run(tmp_path, gh) == 0
     assert gh.verbs() == []
+
+
+def test_an_issue_without_an_author_does_not_stop_the_report(tmp_path: Path) -> None:
+    _results(tmp_path, branch="main")
+    _results(tmp_path, branch="dev")
+    gh = _FakeGh([{"number": 9, "title": "whatever", "body": "", "author": None}])
+    assert _run(tmp_path, gh) == 0
 
 
 def test_new_issue_is_assigned_to_the_owner(tmp_path: Path) -> None:
