@@ -50,6 +50,7 @@ PUBLIC_NPM_REGISTRY = EXPECTED_NPM_POLICY["registry"]
 # own modules are already loaded when it starts, so they are not listed.
 TRACKED_SOURCES: tuple[str, ...] = (
     "ToukaChat/.npmrc",
+    "ToukaIDE/.npmrc",
     *(
         f"{project}/{name}"
         for project in PROJECT_NAMES

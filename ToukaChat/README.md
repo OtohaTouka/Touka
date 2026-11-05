@@ -103,6 +103,7 @@ npm run build
 
 Committed `.npmrc` 另固定 `audit=false`、`fund=false`、`update-notifier=false`。Docker build
 會停用 Next telemetry；production `serve` 也停用自動更新檢查，讓非必要網路行為保持顯式。
+`min-release-age=3` 讓 `npm install` 不採用上架未滿 3 天的版本（禁令 69）；`npm ci` 照 lock 裝，不受影響。
 
 ---
 

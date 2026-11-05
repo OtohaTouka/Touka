@@ -5,7 +5,7 @@
 ## 1. 現況
 
 - **分支**：開源快照（2026-10-22）時 `main` 與 `dev` 內容相同。PR 開到 `dev`，`main` 由維護者從 `dev` 合入。
-- **產品版本**：開源後 GHCR 的 `0.1.0`、`latest` 由公開 main 的 `62197042` 建置（見 README_QUICKSTART）；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
+- **產品版本**：GHCR 最新是 `0.1.1`、`latest`（2026-10-24，公開 main 的 `e6bcfc18`）；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
 - **發行與 dev 的差距**：上面那個 commit 之後進 `dev` 的改動，要等下一次發版才進 GHCR；有哪些看 [CHANGELOG](docs/CHANGELOG.md)。
 - **最近進度**：連結防護（ADR-0293）的 PR 都已合併，後續項目見 [isolation](docs/handover/isolation.md)；Hook 全部事件已接線（[proxy](docs/handover/proxy.md)）；實際驗證（ADR-0295）已上線，見 [tests](docs/handover/tests.md)；隔離的 MCP 部分（ADR-0275）仍待整批整合驗證。
 - **目前卡住的事**：
@@ -46,10 +46,9 @@
 
 每個 PR 的完整驗證結果寫在該 PR 的說明裡；這裡只留一份在 `dev` 上跑完整驗證的摘要，註明日期與 commit，當作本機基準的參考；之後有人在 `dev` 上重跑完整驗證時再換成新的。開源前最後一份逐筆紀錄（2026-10-09～10-16）在公開 repo 第一個 commit `4479c47f` 的 HANDOVER.md 第 2 節，更早的只留在開源前的私人歷史。
 
-- **2026-10-22，授權聲明與映像發布（PR #4，合併後的 dev `15e91887`）**：本機 Windows、Python 3.12 venv、Node 24.21.0。
-  - 全量 pytest：14742 passed、8 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）；8 個跳過與 AGENTS.md 列的基準相同。
-  - guard_all：除 #22（certifi）、#23（ToukaIDE 的 markdown-it）外全部通過；兩項都在等修正版發布滿 7 天（Python 由工具強制，npm 依維護者慣例），與改動無關。
-  - chat 映像以獨立的 compose 專案實際建置並檢查內容後刪除。
+- **2026-11-06，依賴批與既有問題 ①②⑥ 之後（dev `93dbfa96`）**：本機 Windows、Python 3.12 venv、Node 24.22.1。
+  - 全量 pytest：19213 passed、21 skipped、6 failed。6 個失敗是本機 Docker Desktop 的 `test_local_compose_bindings`（以 CI 為準）。跑的是併入 #87 之前的 `9cff0f3d`，#87 只動前端與文件。
+  - guard_all：全綠。
 
 ## 3. 尚未完成的產品工作
 

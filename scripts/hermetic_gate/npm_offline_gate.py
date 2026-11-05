@@ -20,6 +20,7 @@ EXPECTED_POLICY = {
     "engine-strict": "true",
     "fund": "false",
     "ignore-scripts": "true",
+    "min-release-age": "3",
     "registry": "https://registry.npmjs.org/",
     "update-notifier": "false",
 }
