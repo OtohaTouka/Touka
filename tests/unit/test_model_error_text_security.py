@@ -141,8 +141,6 @@ def test_upstream_error_kind_in_the_retry_status_is_masked() -> None:
         f"  token={FIELD_VALUE}  ",
         "plain text with `backticks` and [REDACTED] already",
         "長" * 299 + " 第 300 字是空白",
-        "長" * 280 + " https://example.test/v1/abcdefghijklmnopqrstuvwxyz",  # 切在網址中間
-        "長" * 280 + " /srv/someone/.config/provider/key.json",  # 切在路徑中間
         "連線逾時",
         "",
     ],
@@ -153,6 +151,20 @@ def test_masking_twice_changes_nothing(text: str) -> None:
     assert sanitize_error_text(once) == once
     error = RoundError(text)
     assert replace(error, error_type="overloaded").user_message == error.user_message
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "長" * 280 + " https://example.test/v1/abcdefghijklmnopqrstuvwxyz",  # 切在網址中間
+        "長" * 297 + f" {LOCAL_PATH}",  # 切在路徑換成的遮罩記號中間
+    ],
+)
+def test_masking_twice_changes_nothing_after_a_real_cut(text: str) -> None:
+    """路徑先遮罩才限長，遮完放得下就不會切到，所以要先確認真的切了。"""
+    once = sanitize_error_text(text)
+    assert len(once) == MAX_TEXT
+    assert sanitize_error_text(once) == once
 
 
 def test_replacing_other_fields_keeps_the_masked_text() -> None:
@@ -292,7 +304,7 @@ async def test_heartbeat_round_text_saved_in_the_conversation_is_masked(
 
 
 def _pipeline_fills_the_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    """閘道之後的管線照真的跑，只換掉 middleware（它只在同一個 ctx 上加欄位）與模型路由資料。"""
+    """閘道之後的管線照真的跑，換掉 middleware（只在 ctx 上加欄位）、模型路由與寫紀錄的函式。"""
 
     async def execute(request: Any, ctx: Any) -> None:
         for key, value in make_ctx("req-sns", ctx["session_id"], custom_connection=False).items():
