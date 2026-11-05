@@ -146,6 +146,55 @@ def test_a_finding_wins_over_the_other_check_not_finishing(tmp_path: Path) -> No
     assert "`node`" in report.render(result)
 
 
+def test_node_stopping_halfway_lists_what_it_found_and_says_it_did_not_finish(
+    tmp_path: Path,
+) -> None:
+    output = (
+        "[Scan] ToukaChat full dependency scope\n"
+        "  high hono GHSA-2g87-pp6c-29x5\n"
+        "  blocking=1 lower-severity=0 registry=x\n"
+        "[FAIL] Node dependency audit evidence invalid: boom\n"
+    )
+    result = _classify(tmp_path, node=(1, output))
+    assert result.state == "attention"
+    assert [item.package for item in result.findings] == ["hono"]
+    assert result.incomplete_checks == ("node",)
+
+
+def test_python_coverage_gap_lists_what_it_found_and_says_it_did_not_finish(
+    tmp_path: Path,
+) -> None:
+    output = PYTHON_FINDING + (
+        "\n[INCOMPLETE] 1 dependency coverage gap(s):\n"
+        "  [runtime] [SKIPPED] torch: not on PyPI\n"
+        "[INCOMPLETE] Audit stopped; no later dependency scope was started.\n"
+    )
+    result = _classify(tmp_path, python=(1, output))
+    assert result.state == "attention"
+    assert len(result.findings) == 2
+    assert result.incomplete_checks == ("python",)
+
+
+@pytest.mark.parametrize(
+    "check,output",
+    [
+        ("python", PYTHON_FINDING.replace("[FAIL] 2 blocking", "[FAIL] 3 blocking")),
+        ("node", NODE_FINDING.replace("[FAIL] 2 HIGH", "[FAIL] 3 HIGH")),
+    ],
+)
+def test_a_line_that_cannot_be_read_does_not_vanish_silently(
+    tmp_path: Path, check: str, output: str
+) -> None:
+    result = _classify(tmp_path, **{check: (1, output)})
+    assert result.state == "attention"
+    assert result.incomplete_checks == (check,)
+
+
+def test_complete_output_is_not_marked_as_not_finished(tmp_path: Path) -> None:
+    result = _classify(tmp_path, python=(1, PYTHON_FINDING), node=(1, NODE_FINDING))
+    assert result.incomplete_checks == ()
+
+
 def test_expired_exception_needs_attention_even_when_the_scan_is_clean(tmp_path: Path) -> None:
     exceptions = [{"package": "pkg-old", "expires": "2026-11-05T00:00:00+00:00"}]
     result = _classify(tmp_path, exceptions=exceptions)
@@ -218,7 +267,7 @@ def test_a_long_list_is_cut_and_says_so(tmp_path: Path) -> None:
     assert f"還有 {200 - report.MAX_ROWS} 筆" in body
 
 
-def test_oversized_output_is_read_only_up_to_the_limit(tmp_path: Path) -> None:
+def test_oversized_output_is_thrown_away_and_counts_as_not_finished(tmp_path: Path) -> None:
     filler = "x" * (report.MAX_RESULT_BYTES + 10)
     result = _classify(tmp_path, python=(1, filler + "\n" + PYTHON_FINDING))
     assert result.state == "incomplete"
@@ -287,6 +336,10 @@ def test_the_marker_round_trips_and_ignores_other_bodies(tmp_path: Path) -> None
     assert report.parse_existing(7, "hand edited").digest == ""
 
 
+def _open_issue(title: str, body: str, login: str = report.WORKFLOW_AUTHOR) -> dict[str, object]:
+    return {"number": 9, "title": title, "body": body, "author": {"login": login}}
+
+
 class _FakeGh:
     """記下送出的 gh 指令，開著的 issue 由測試給。"""
 
@@ -321,9 +374,15 @@ def test_main_clean_does_not_close_the_dev_issue(tmp_path: Path) -> None:
     _results(tmp_path, branch="main")
     _results(tmp_path, branch="dev", python=(1, PYTHON_FINDING))
     result = report.classify("dev", tmp_path, now=NOW)
-    gh = _FakeGh(
-        [{"number": 9, "title": report.issue_title("dev"), "body": report.render(result)}]
-    )
+    gh = _FakeGh([_open_issue(report.issue_title("dev"), report.render(result))])
+    assert _run(tmp_path, gh) == 0
+    assert gh.verbs() == []
+
+
+def test_an_issue_someone_else_opened_with_the_same_title_does_not_count(tmp_path: Path) -> None:
+    _results(tmp_path, branch="main")
+    _results(tmp_path, branch="dev")
+    gh = _FakeGh([_open_issue(report.issue_title("main"), "hand written", login="someone")])
     assert _run(tmp_path, gh) == 0
     assert gh.verbs() == []
 

@@ -23,6 +23,10 @@ on:
 permissions:
   contents: read
 
+# 手動和排程同時跑可能各開一張重複的 issue
+concurrency:
+  group: dep-audit-${{ github.ref }}
+
 jobs:
   scan:
     name: scan (${{ matrix.branch }})
@@ -46,8 +50,8 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: "0.12.1"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
+          # 不開快取：排程都在 main 的範圍執行，dev 那一路寫進去的快取，main 也讀得到
+          enable-cache: false
       # Guard #22 要讀裝好的 torch，所以要全部裝
       - run: uv sync --locked --all-packages --python 3.12
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -78,8 +82,8 @@ jobs:
 
   report:
     needs: scan
-    # 掃描失敗也要跑；只有從 main 觸發才跑，手動從別的分支觸發不會拿到寫 issue 的權限
-    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    # 掃描失敗也要跑，手動取消就不跑；只有從 main 觸發才跑，手動從別的分支觸發不會拿到寫 issue 的權限
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

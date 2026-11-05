@@ -8,7 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
-| 2026-11-06 | **依賴冷卻期改 3 天，加上緊急修補通道與每日檢查**：Python、npm、GitHub Actions 都只採用上架滿 3 天的版本，工具會擋（npm 以前只靠慣例）；緊急修補有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue，這項要進 main 之後才開始跑。條文統一在 `docs/rules/deploy.md` 禁令 69。使用者端沒有改變。 | [ADR-0299](architecture/adr/0299-dependency-cooldown-and-emergency-patches.md) |
+| 2026-11-06 | **依賴冷卻期改 3 天，加上緊急修補通道與每日檢查**：Python、npm、GitHub Actions 都只採用上架滿 3 天的版本（npm 以前只靠慣例，現在 `npm install` 會擋）；緊急修補有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue，這項要進 main 之後才開始跑。條文統一在 `docs/rules/deploy.md` 禁令 69。使用者端沒有改變。 | [ADR-0299](architecture/adr/0299-dependency-cooldown-and-emergency-patches.md) |
 | 2026-11-05 | **模型失敗的文字先遮罩再送出**：模型廠商回錯誤時，錯誤文字會先遮掉憑證與本機路徑、限 300 字，才交給 IDE、外部 API、心跳與群聊；SNS 來的對話失敗時，頻道和對話只留固定文字。 | [SECURITY.md](../SECURITY.md) |
 | 2026-11-05 | **下一則不再存不進去**：設為家對話或取消之後、換家之後的舊家對話、這一頁新建的對話切走再回來、回覆結束後重新整理頁面，下一則都會直接送出，不用再按「重新核對」與「僅重試保存」；保存規則沒有放寬，每次一樣重讀存檔、比對內容才存。回覆還在跑時設家仍會跳提示，按恢復之後內容完整。 | [ADR-0231](architecture/adr/0231-session-persistence-outcomes-and-revisions.md) |
 | 2026-11-05 | **依賴弱點一批清掉**：dnspython 2.8.0 → 2.9.0、msgpack 1.2.1 → 1.2.4、body-parser 2.3.0 → 2.4.0（連帶 qs 6.16.2）、IDE 的 `@modelcontextprotocol/node` 2.0.0 → 2.1.1、打包工具帶入的 `@azure/msal-node` 5.6.0 → 7.1.2（連帶 `@azure/identity` 4.14.1）。產品功能不變，使用者不用做什麼，下次發版帶上；Guard #22、#23 轉綠。 | [SECURITY.md](../SECURITY.md) |

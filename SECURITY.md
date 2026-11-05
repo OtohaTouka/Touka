@@ -63,7 +63,7 @@ Touka 為本機部署系統（localhost），安全邊界設計如下：
 | **依賴與映像** | Python／Node 依賴由 Guard #22／#23 稽核（HIGH／CRITICAL 阻擋，ADR-0222／0223）；映像的 Node／npm 取自 digest 釘版官方 node 映像，Debian 套件於建置時以 `apt-get upgrade` 取官方安全更新（ADR-0238） |
 | **Docker 容器** | 三個服務均以非 root `appuser` 執行（USER directive） |
 | **自動化測試網路封鎖** | pytest 與自動 smoke 以 audit hook 擋下非本機的解析與連線並讓測試失敗，並清掉代理變數（`NO_PROXY=*`）；只有先過 `preflight_live_api_cli` 的人工實測工具可開放（ADR-0241；子程序不在封鎖內） |
-| **依賴冷卻期與緊急修補** | Python（uv）、npm、GitHub Actions 都只採用上架滿 3 天的版本，工具會擋。緊急修補只有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue（[禁令 69](docs/rules/deploy.md)、ADR-0299） |
+| **依賴冷卻期與緊急修補** | Python（uv 重新解析）、npm（`npm install`）、GitHub Actions（Dependabot 開的 PR）都只採用上架滿 3 天的版本。緊急修補只有兩級例外，嚴重的每次先問維護者；每天掃一次弱點，有問題開 issue（[禁令 69](docs/rules/deploy.md)、ADR-0299） |
 
 > ⚠️ **雲端部署必讀**：Touka 預設設計為本機使用。若需暴露至公網 VPS，請務必：
 > 1. 設定 `CLOUD_MODE=true`（停用 LDH 自動發卡，改用 X-Real-IP 識別真實客戶端）

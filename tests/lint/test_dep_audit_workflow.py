@@ -42,6 +42,8 @@ def test_the_scan_job_only_reads_and_runs_both_guards() -> None:
     assert "scripts/guard_node_cve.py" in text
     assert "collect-exceptions" in text
     assert "['main','dev']" in str(scan["strategy"]["matrix"]["branch"]).replace('"', "'")
+    # 排程時 inputs 是空值，只有手動勾模擬才跳過掃描
+    assert scan["if"] == "${{ !inputs.simulate }}"
 
 
 def test_the_scan_job_keeps_its_results_even_when_a_step_fails() -> None:
@@ -70,9 +72,36 @@ def test_only_the_report_job_can_write_issues_and_it_runs_no_branch_code() -> No
 
 def test_the_report_job_runs_only_from_main_and_also_after_a_failed_scan() -> None:
     condition = _workflow()["jobs"]["report"]["if"]
-    assert "always()" in condition
+    assert "!cancelled()" in condition
     assert "github.ref == 'refs/heads/main'" in condition
     assert "github.event_name != 'pull_request'" in condition
+
+
+def test_the_scan_job_does_not_share_a_cache_between_branches() -> None:
+    steps = _workflow()["jobs"]["scan"]["steps"]
+    setup_uv = next(step for step in steps if "setup-uv" in str(step.get("uses", "")))
+    assert setup_uv["with"]["enable-cache"] is False
+    setup_node = next(step for step in steps if "setup-node" in str(step.get("uses", "")))
+    assert setup_node["with"]["package-manager-cache"] is False
+
+
+def test_result_files_line_up_from_the_scan_to_the_script() -> None:
+    jobs = _workflow()["jobs"]
+    upload = next(s for s in jobs["scan"]["steps"] if "upload-artifact" in str(s.get("uses", "")))
+    download = next(
+        s for s in jobs["report"]["steps"] if "download-artifact" in str(s.get("uses", ""))
+    )
+    results = jobs["scan"]["env"]["RESULTS"]
+    assert upload["with"]["name"] == "dep-audit-${{ matrix.branch }}"
+    assert upload["with"]["path"] == results
+    assert "name" not in download["with"]
+    assert download["with"]["path"] == results
+    assert f"--results {results}" in _steps_text(jobs["report"])
+    script = (ROOT / "scripts/dep_audit_report.py").read_text(encoding="utf-8")
+    assert 'folder = results / f"dep-audit-{branch}"' in script
+    scan_text = _steps_text(jobs["scan"])
+    for name in ("python.txt", "python.exit", "node.txt", "node.exit", "exceptions.json"):
+        assert f"$RESULTS/{name}" in scan_text
 
 
 def test_every_action_is_pinned_to_a_commit() -> None:

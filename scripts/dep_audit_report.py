@@ -37,11 +37,13 @@ MAX_ROWS = 50
 MAX_ADVISORIES_PER_ROW = 5
 GH_TIMEOUT_SECONDS = 60
 SIMULATED_BRANCH = "模擬（請忽略）"
+WORKFLOW_AUTHOR = "app/github-actions"
+MAX_OPEN_ISSUES = 200
 
 _ADVISORY = r"(?:GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}|PYSEC-\d{4}-\d{1,7}|CVE-\d{4}-\d{4,7})"
 _PYPI_NAME = r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}"
 _NPM_NAME = r"(?:@[a-z0-9][a-z0-9._~-]{0,99}/)?[a-z0-9][a-z0-9._~-]{0,99}"
-_PYTHON_BLOCKING_HEADER = re.compile(r"\[FAIL\] \d+ blocking or unrated finding\(s\):")
+_PYTHON_BLOCKING_HEADER = re.compile(r"\[FAIL\] (\d+) blocking or unrated finding\(s\):")
 _PYTHON_FINDING = re.compile(
     r"  \[(?P<scope>runtime|build-test)\] \[(?P<severity>[A-Z]{1,10})\] "
     rf"\[(?P<advisory>{_ADVISORY})\] (?P<package>{_PYPI_NAME})=="
@@ -54,6 +56,7 @@ _NODE_FINDING = re.compile(
     rf"  (?P<severity>high|critical) (?P<package>{_NPM_NAME})"
     rf"(?P<advisories>(?: {_ADVISORY})*)(?: via {_NPM_NAME})*"
 )
+_NODE_SUMMARY = re.compile(r"\[FAIL\] (\d+) HIGH/CRITICAL finding\(s\) across audited scopes\.")
 _SAFE_PACKAGE = re.compile(_PYPI_NAME)
 _EXIT_CODE = re.compile(r"\d{1,3}")
 _COOLDOWN = re.compile(r"(\d{1,3}) days?")
@@ -122,12 +125,19 @@ def _read_exit_code(path: Path) -> int | None:
     return int(text.strip())
 
 
-def _parse_python(output: str) -> list[Finding]:
+def _parse_python(output: str) -> tuple[list[Finding], bool]:
+    """回傳列得出來的弱點，和這份輸出是否完整（筆數對得上，也沒有覆蓋缺口）。"""
     findings: list[Finding] = []
+    expected: int | None = None
+    gap = False
     blocking = False
     for line in output.splitlines():
-        if _PYTHON_BLOCKING_HEADER.fullmatch(line):
+        if header := _PYTHON_BLOCKING_HEADER.fullmatch(line):
             blocking = True
+            expected = int(header[1])
+        elif line.startswith("[INCOMPLETE]"):
+            gap = True
+            blocking = False
         elif line.startswith("[") or not line.strip():
             blocking = False
         elif blocking and (match := _PYTHON_FINDING.fullmatch(line)):
@@ -140,15 +150,19 @@ def _parse_python(output: str) -> list[Finding]:
                     scope=f"Python {match['scope']}",
                 )
             )
-    return findings
+    return findings, expected == len(findings) and not gap
 
 
-def _parse_node(output: str) -> list[Finding]:
+def _parse_node(output: str) -> tuple[list[Finding], bool]:
+    """回傳列得出來的弱點，和這份輸出是否完整（有跑到結尾的總結，筆數也對得上）。"""
     findings: list[Finding] = []
     scope: str | None = None
+    expected: int | None = None
     for line in output.splitlines():
         if scope_match := _NODE_SCOPE.fullmatch(line):
             scope = scope_match["scope"]
+        elif summary := _NODE_SUMMARY.fullmatch(line):
+            expected = int(summary[1])
         elif scope is not None and (match := _NODE_FINDING.fullmatch(line)):
             findings.append(
                 Finding(
@@ -159,7 +173,7 @@ def _parse_node(output: str) -> list[Finding]:
                     scope=scope,
                 )
             )
-    return findings
+    return findings, expected == len(findings)
 
 
 _PARSERS = {"python": _parse_python, "node": _parse_node}
@@ -221,8 +235,11 @@ def classify(branch: str, results: Path, *, now: datetime) -> BranchResult:
         if exit_code == 0:
             continue
         output = _read_limited(folder / f"{check}.txt")
-        parsed = _PARSERS[check](output) if exit_code is not None and output is not None else []
-        if not parsed:
+        parsed, complete = (
+            _PARSERS[check](output) if exit_code is not None and output is not None else ([], False)
+        )
+        # 掃到一半就停，或有列不出來的項目：列得出來的照列，也要標明不完整
+        if not parsed or not complete:
             incomplete.append(check)
         findings.extend(parsed)
     expired = _read_expired(folder / "exceptions.json", now)
@@ -286,7 +303,7 @@ def render(result: BranchResult, run_url: str | None = None) -> str:
     if result.incomplete_checks:
         lines += [
             "",
-            f"`{result.branch}` 這幾項沒跑完，沒有結果不代表沒有問題："
+            f"`{result.branch}` 這幾項沒跑完或有列不出來的項目，沒有結果不代表沒有問題："
             + "、".join(_code(check) for check in result.incomplete_checks),
         ]
     if run_url:
@@ -330,15 +347,20 @@ def _simulated_result() -> BranchResult:
 
 
 def _open_issues(repo: str, gh: GhRunner) -> dict[str, ExistingIssue]:
-    """只看這個 workflow 開的 issue：別人開同名的 issue 不算。"""
+    """只看這個 workflow 開的 issue：別人開同名的 issue 不算。
+
+    作者在這裡比對，不用 ``--author``：那會改走搜尋 API，索引有延遲，可能重複開。
+    """
     output = gh(
         [
-            "issue", "list", "--repo", repo, "--state", "open", "--author", "app/github-actions",
-            "--limit", "100", "--json", "number,title,body",
+            "issue", "list", "--repo", repo, "--state", "open", "--limit", str(MAX_OPEN_ISSUES),
+            "--json", "number,title,body,author",
         ]
     )  # fmt: skip
     return {
-        item["title"]: parse_existing(item["number"], item["body"]) for item in json.loads(output)
+        item["title"]: parse_existing(item["number"], item["body"])
+        for item in json.loads(output)
+        if item["author"]["login"] == WORKFLOW_AUTHOR
     }
 
 
