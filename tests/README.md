@@ -1097,7 +1097,7 @@ python scripts/guard_all.py
 | `unit/hooks/useSessionActions.test.ts` | P11翻譯回呼：切換語言後家對話禁止刪除、過短對話不分割提示更新，且不刪除、不送出匯出或修改訊息。 |
 | `unit/ChatProvider.backgroundStream.test.tsx` | ADR-0080 背景續跑端到端：切走不中止、per-session isSending、背景 chunk 不污染、切回看到累積、完成寫回 session；兩對話同時背景生成互不污染 |
 | `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕（交不到就下一個畫面再試，最多 30 個畫面；焦點已到別處、或這次展開不是按鈕要求的就不搶） |
-| `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的分頁與登出：登出要按兩次、走 `useAuth().logout()`；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫（2026-10-28 上導覽列拿掉後側欄是唯一的分頁入口） |
+| `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的選單（2026-11-05 起其他選項都收在這裡）：按鈕顯示名稱並標出目前畫面；登出要按兩次、走 `useAuth().logout()`，關選單清掉確認與計時器；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫 |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
@@ -1157,6 +1157,8 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useLegacySync.test.ts` ⭐ | ADR-0253：後端回錯誤狀態、或 200 但 `status` 不是 success 時不顯示同步成功；只有真的成功才顯示一次成功；讀統計失敗時顯示錯誤、不默默略過 |
 | `src/components/sidebar/__tests__/MemoryNoticeBar.schema.test.tsx` ⭐ | ADR-0256 記憶庫結構提示：5 個結構代碼都顯示成翻譯過的警告（`role="alert"`、和降級橫幅一樣醒目）；5 個代碼都有英文訊息 |
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
+| `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
+| `unit/LeftSidebar.switch.test.tsx` | 點對話：在其他畫面點開著的這段只回聊天、不重新載入；點另一段會切過去也回聊天；已經在聊天時照常切換 |
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
 | `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |

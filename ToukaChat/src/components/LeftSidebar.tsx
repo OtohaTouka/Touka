@@ -117,7 +117,7 @@ function LeftSidebar({
         )}>
             {/* WCAG（A5 axe landmark-unique）：兩個 aside 地標需可辨識名稱 */}
             <aside aria-label={t('layout.left_sidebar.nav_aria_label')} className="h-full bg-sidebar flex flex-col border-r border-border overflow-hidden w-full">
-                {/* 側欄太矮（例如首次設定警告佔了位置）時整欄捲動，底部導覽與登出一定點得到 */}
+                {/* 側欄太矮（例如首次設定警告佔了位置）時整欄捲動，底部選單一定點得到 */}
                 <div className="py-4 flex flex-col gap-6 h-full relative transition-all duration-300 w-full min-w-0 px-4 overflow-y-auto overflow-x-hidden custom-scrollbar">
                     
                     {/* Identity (SRP: SidebarIdentity)＋桌面版收合鈕；側欄拖窄到擺不下時，收合鈕換到下一行靠右，不蓋住身分與警告標記 */}
@@ -145,7 +145,8 @@ function LeftSidebar({
                     <SidebarSetupNotices onAction={onSetupAction} />
 
                     {/* New Chat ＋ 無痕對話（HAX G17，ADR-0086） */}
-                    <div className="w-full px-2 flex flex-col gap-2">
+                    {/* 排同一列；側欄拖窄到擺不下時，無痕換到下一行 */}
+                    <div className="w-full px-2 flex flex-wrap gap-2">
                         <Button
                             variant="default"
                             onClick={() => {
@@ -153,9 +154,9 @@ function LeftSidebar({
                                 if (activeMode !== 'chat') onChatClick?.();
                             }}
                             title={t('layout.left_sidebar.new_chat_button_tooltip')}
-                            className="w-full h-12 px-3 rounded-xl bg-primary-button hover:bg-primary-button/90 text-white shadow-md shrink-0 focus:ring-2 focus:ring-primary/20"
+                            className="flex-1 min-w-fit h-10 px-2 rounded-xl bg-primary-button hover:bg-primary-button/90 text-white shadow-md shrink-0 focus:ring-2 focus:ring-primary/20"
                         >
-                            <PlusCircle className="w-5 h-5 mr-2" />
+                            <PlusCircle className="w-5 h-5" />
                             <span className="font-bold">{t('layout.left_sidebar.new_chat_button')}</span>
                         </Button>
                         <Button
@@ -165,10 +166,11 @@ function LeftSidebar({
                                 if (activeMode !== 'chat') onChatClick?.();
                             }}
                             title={t('layout.left_sidebar.incognito_chat_button_tooltip')}
-                            className="w-full h-9 px-3 rounded-xl border-border/60 bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none shrink-0 focus:ring-2 focus:ring-primary/20"
+                            aria-label={t('layout.left_sidebar.incognito_chat_button')}
+                            className="min-w-fit h-10 px-2 rounded-xl border-border/60 bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40 shadow-none shrink-0 focus:ring-2 focus:ring-primary/20"
                         >
-                            <VenetianMask className="w-4 h-4 mr-2" />
-                            <span className="font-bold text-sm">{t('layout.left_sidebar.incognito_chat_button')}</span>
+                            <VenetianMask className="w-4 h-4" />
+                            <span className="font-bold text-sm">{t('layout.left_sidebar.incognito_chat_button_short')}</span>
                         </Button>
                     </div>
 
@@ -200,8 +202,13 @@ function LeftSidebar({
                                         deleteConfirmId={sessionActions.deleteConfirmId}
                                         projects={projects}
                                         onSwitch={(id) => {
-                                            handleSwitchSession(id);
-                                            if (activeMode !== 'chat') onChatClick?.();
+                                            if (activeMode === 'chat') {
+                                                handleSwitchSession(id);
+                                                return;
+                                            }
+                                            // 從其他畫面回到開著的這段只換畫面，和以前的聊天大廳一樣不重新載入
+                                            if (id !== activeSessionId) handleSwitchSession(id);
+                                            onChatClick?.();
                                         }}
                                         onStartEdit={sessionActions.handleStartEdit}
                                         onSaveTitle={sessionActions.handleSaveTitle}
@@ -223,7 +230,6 @@ function LeftSidebar({
                     <NavigationArea 
                         activeMode={activeMode}
                         isHybrid={sysStatus.mode === 'hybrid'}
-                        onChatClick={() => onChatClick?.()}
                         onProjectsClick={() => onProjectsClick?.()}
                         onSoulClick={() => onSoulClick?.()}
                         onStudioClick={() => onStudioClick?.()}

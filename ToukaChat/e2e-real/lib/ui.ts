@@ -52,8 +52,19 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await composer(page).press("Enter");
 }
 
+/** 左側邊欄底部的選單按鈕：其他畫面與登出都收在這裡。 */
+export function sideMenuButton(page: Page): Locator {
+  return page.getByRole("button", { name: /^選單：/ });
+}
+
+export async function openSideMenu(page: Page): Promise<void> {
+  await sideMenuButton(page).click();
+  await page.getByRole("menu").waitFor();
+}
+
 export async function openHooksTab(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await openSideMenu(page);
+  await page.getByRole("menuitem", { name: "設定", exact: true }).click();
   await page.getByText("系統管理", { exact: true }).first().click();
   await page.getByText("Hooks", { exact: true }).first().click();
   await page.getByText("啟用 Hooks").waitFor();
