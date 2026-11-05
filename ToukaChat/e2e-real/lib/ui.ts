@@ -92,11 +92,18 @@ export async function unsetChatHome(page: Page, title: string): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
-/** 清單上這段是不是家：選單給的動作跟著畫面記的家標記走。 */
+/** 清單上這段是不是家：選單給的動作跟著畫面記的家標記走，家對話就是資料夾那一列。 */
 export async function expectChatIsHome(page: Page, title: string, isHome: boolean): Promise<void> {
+  await expect(page.getByRole("treeitem", { name: new RegExp(`，家對話：${title}`) })).toHaveCount(isHome ? 1 : 0);
   await sessionOptions(page, title).click();
-  await expect(page.getByRole("menuitem", { name: isHome ? "取消家對話" : "設為家對話" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "取消家對話" })).toHaveCount(isHome ? 1 : 0);
+  await expect(page.getByRole("menuitem", { name: "設為家對話" })).toHaveCount(isHome ? 0 : 1);
   await page.keyboard.press("Escape");
+}
+
+/** 點清單上的這段（不能是家對話，那一列顯示的是靈魂名）。訊息可能是同樣的文字，要限定在清單裡。 */
+export async function clickChatInList(page: Page, title: string): Promise<void> {
+  await page.locator('aside [role="treeitem"]').getByText(title, { exact: true }).first().click();
 }
 
 export async function renameChat(page: Page, title: string, next: string): Promise<void> {
