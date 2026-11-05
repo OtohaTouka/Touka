@@ -6,7 +6,7 @@ export const ACTIVITY_POLL_MS = 8_000;
 export const MAX_ACTIVITY_FAILURES = 3;
 /** 每次查詢最多下載幾段新出現的對話，其餘留到下一次。 */
 export const MAX_DISCOVERIES_PER_POLL = 5;
-/** 後端讀不出某段對話時（可能只是資料庫暫時忙），連續試幾次才放棄。 */
+/** 後端讀不出某段對話時（可能只是資料庫暫時忙），讀不出來滿幾次才放棄；中間讀到就不算。 */
 export const MAX_UNREADABLE_ATTEMPTS = 3;
 
 export type SessionWorkStatus =

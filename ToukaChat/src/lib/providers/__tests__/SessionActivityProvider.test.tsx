@@ -492,7 +492,7 @@ describe('新對話', () => {
     expect(state.discoverSession).toHaveBeenCalledTimes(1);
   });
 
-  it(`後端讀不出來（可能只是資料庫暫時忙）：連續 ${MAX_UNREADABLE_ATTEMPTS} 次才放棄並清掉小點`, async () => {
+  it(`後端讀不出來（可能只是資料庫暫時忙）：滿 ${MAX_UNREADABLE_ATTEMPTS} 次才放棄並清掉小點`, async () => {
     state.discoverSession.mockResolvedValue('unreadable');
     await mount();
     await poll({ finished: [{ session_id: 'new', finished_at: 1 }] });

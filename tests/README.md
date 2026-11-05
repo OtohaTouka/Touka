@@ -1168,7 +1168,9 @@ python scripts/guard_all.py
 | `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
 | `e2e-real/session-activity.spec.ts` ⭐ | ADR-0300 實際驗證：呼吸動畫與週期、心跳進度、新對話自動出現、查詢之間跑完、分頁藏起來、不重抓清單、下載失敗與晚到、舊查詢、換帳號、收起來也亮、查詢失敗與恢復、刪掉重建、列被搬動時的焦點與改名。 |
 | `e2e-real/session-attention.spec.ts` ⭐ | ADR-0300 實際驗證：核准與提問與外掛工具亮等您處理、同時提問排隊、重新整理、有新內容的小點、減少動態、無痕、可見範圍、手機、有新內容提示與存檔失敗。 |
-| `src/lib/providers/__tests__/SessionActivityProvider.test.tsx`、`SessionListProvider.discover.test.tsx`、`src/lib/__tests__/session_activity.test.ts`、`src/hooks/__tests__/usePendingRequestQueue.test.ts` ⭐ | ADR-0300 工作狀態：顯示優先序、舊查詢不蓋本地、連續失敗、換帳號、小點、單筆下載帶版本與各種失敗、提問排隊。 |
+| `src/lib/providers/__tests__/SessionActivityProvider.test.tsx`、`SessionListProvider.discover.test.tsx`、`src/lib/__tests__/session_activity.test.ts`、`src/hooks/__tests__/usePendingRequestQueue.test.ts` ⭐ | ADR-0300 工作狀態：顯示優先序、舊查詢不蓋本地、連續失敗、換帳號、小點、單筆下載帶版本與各種失敗（後端讀不出來滿 3 次才放棄、重試的排到後面）、提問排隊與依編號關。 |
+| `src/hooks/__tests__/useUnseenSessions.test.ts`、`src/hooks/__tests__/useReducedMotionPreference.test.ts` | ADR-0300：小點清單在瀏覽器裡壞掉（不是陣列）時當成空的，記、清、只留用得到的都不出錯；減少動態以 App 設定優先，「跟隨系統」才看系統。 |
+| `src/components/sidebar/left/__tests__/SessionStatusMark.test.tsx`、`src/components/layout/__tests__/MobileMenuButton.test.tsx`、`src/components/chat/__tests__/SessionUpdatedNotice.test.tsx` | ADR-0300 畫面：狀態圖示與文字（減少動態時改文字）、手機選單鈕的提示點與名稱、「有新內容，點一下更新」只在開著的那段且存檔沒失敗時出現，點了收起並重讀。 |
 | `src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx` ⭐ | ADR-0297 換後端網址：真的 AuthProvider、設定頁與 `connections.ts`，只假 fetch 與提示框，攔每個請求的憑證與內容。存檔換網址走確認→探測→向舊後端登出→切換，新網址收不到憑證與清單；取消、連不上、不是 Touka、舊後端連不上或不回、重複確認、留下來的提示、探測中別的分頁換網址；後端清單不能改網址；別的分頁改網址時登出；舊 `/connections` 頁事件晚於寫入；同網址存檔照舊 |
 | `src/lib/__tests__/connections.token-origin.security.test.ts` ⭐ | ADR-0297 統一出口：`fetchTouka`、`fetchChatStream` 對非發卡後端不帶卡、不續期、不重送，對發卡後端照帶（含各種網址寫法）；領卡與續期綁回應的網址；`activeProxyUrlOf`、`keepActiveProxy`、`publishConnections`、`isProxyReachable` |
 | `tests/auth/AuthPagesProxyUrl.test.tsx` | ADR-0297 登入與註冊頁顯示目前的網址，別的分頁改網址時跟著變，沒有設定時顯示前端來源 |
