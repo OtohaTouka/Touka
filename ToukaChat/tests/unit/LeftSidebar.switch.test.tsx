@@ -6,29 +6,20 @@ import LeftSidebar from '@/components/LeftSidebar';
 const chat = vi.hoisted(() => ({ handleSwitchSession: vi.fn(), handleNewSession: vi.fn() }));
 
 vi.mock('@/lib/SystemStatusContext', () => ({ useSystemStatus: () => ({ status: { mode: 'hybrid' } }) }));
-vi.mock('@/lib/providers/SessionListProvider', () => ({ useSessionList: () => ({ sessions: [] }) }));
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
     activeSessionId: 'open',
-    streamingSessionIds: [],
     handleNewSession: chat.handleNewSession,
     handleSwitchSession: chat.handleSwitchSession,
-    handleSetHome: vi.fn(),
-    handleSetProject: vi.fn(),
-    handleUnsetHome: vi.fn(),
   }),
 }));
-vi.mock('@/lib/providers/ProjectProvider', () => ({ useProjects: () => ({ projects: [] }) }));
-vi.mock('@/hooks/useSessionGroups', () => ({
-  useSessionGroups: () => ({ sessionGroups: { all: [{ id: 'open', title: '開著的' }, { id: 'other', title: '另一段' }] } }),
-}));
-vi.mock('@/hooks/useSessionActions', () => ({
-  useSessionActions: () => ({ editingSessionId: null, editTitle: '', deleteConfirmId: null }),
-}));
 vi.mock('@/components/sidebar/left/NavigationArea', () => ({ NavigationArea: () => null }));
-vi.mock('@/components/sidebar/left/SessionItem', () => ({
-  SessionItem: ({ session, onSwitch }: { session: { id: string; title: string }; onSwitch: (id: string) => void }) => (
-    <button onClick={() => onSwitch(session.id)}>{session.title}</button>
+vi.mock('@/components/sidebar/left/SessionTree', () => ({
+  SessionTree: ({ onSwitch }: { onSwitch: (id: string) => void }) => (
+    <>
+      <button onClick={() => onSwitch('open')}>開著的</button>
+      <button onClick={() => onSwitch('other')}>另一段</button>
+    </>
   ),
 }));
 

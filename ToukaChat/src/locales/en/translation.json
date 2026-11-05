@@ -1327,6 +1327,13 @@
       "standalone": "Standalone",
       "hybrid": "Hybrid System"
     },
+    "session_tree": {
+      "loading": "Loading chats",
+      "more_sessions": "{{count}} more",
+      "folder_home_aria": "{{name}}, home chat: {{title}}",
+      "folder_holds_active": "open chat inside",
+      "label_separator": ", "
+    },
     "session_item": {
       "background_generating": "Generating in background",
       "incognito_label": "Incognito conversation",
@@ -2132,7 +2139,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "Unassigned agent",
       "project_group": "Project: {{name}}",
       "unknown_project": "Unknown project",
       "other_conversations": "Other conversations",

@@ -137,6 +137,8 @@ test("換後端：新網址連不上就不換，人還在、可以重試", async
   await expect(page.getByRole("heading", { name: "連線管理" })).toBeVisible();
   expect(await refreshCookie(context)).toBe(cookieBefore);
   expect(await stored()).toBe(listBefore);
+  // 按下後提示還有 0.2 秒退場動畫；這段時間再跳一個，畫面上會有兩顆一樣的按鈕
+  await expect(page.getByRole("button", { name: "換後端並登出" })).toHaveCount(0);
 
   // 換一個連得上的網址，同一個畫面可以重試。
   backend = await startFakeBackend();

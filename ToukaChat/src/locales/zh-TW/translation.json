@@ -1325,6 +1325,13 @@
       "standalone": "獨立模式",
       "hybrid": "整合模式"
     },
+    "session_tree": {
+      "loading": "對話清單載入中",
+      "more_sessions": "還有 {{count}} 個",
+      "folder_home_aria": "{{name}}，家對話：{{title}}",
+      "folder_holds_active": "開著的對話在裡面",
+      "label_separator": "，"
+    },
     "session_item": {
       "background_generating": "背景生成中",
       "incognito_label": "無痕對話",
@@ -2189,7 +2196,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "未指定代理人",
       "project_group": "專案: {{name}}",
       "unknown_project": "未知專案",
       "other_conversations": "其他對話",
