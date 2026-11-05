@@ -17,7 +17,13 @@ export function usePendingRequestQueue<T extends { id: string }>() {
       ? current : [...current, { sessionId, request }]);
   }, []);
 
-  const dismissCurrent = useCallback(() => setQueue(current => current.slice(1)), []);
+  /** 依編號關：彈窗在 await 之後才關時，排第一的可能已經換成下一筆。 */
+  const dismiss = useCallback((id: string) => {
+    setQueue(current => {
+      const kept = current.filter(item => item.request.id !== id);
+      return kept.length === current.length ? current : kept;
+    });
+  }, []);
 
   /** 那段對話的串流結束了：等著的問題已經沒有人要答案，不能之後才跳出來。 */
   const dropSession = useCallback((sessionId: string) => {
@@ -29,5 +35,5 @@ export function usePendingRequestQueue<T extends { id: string }>() {
 
   const sessionIds = useMemo(() => queue.map(item => item.sessionId), [queue]);
 
-  return { current: queue[0]?.request ?? null, sessionIds, enqueue, dismissCurrent, dropSession };
+  return { current: queue[0]?.request ?? null, sessionIds, enqueue, dismiss, dropSession };
 }

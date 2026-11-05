@@ -183,7 +183,8 @@ test("單筆下載暫時失敗：下次補上；重新整理不多打下載", as
   let downloads = 0;
   await page.route(SNAPSHOT_URL, async (route) => {
     downloads += 1;
-    if (downloads === 1) await route.fulfill({ status: 500, json: {} });
+    // 後端讀取出錯時真正送出的形狀（資料庫暫時忙也是這個代碼）
+    if (downloads === 1) await route.fulfill({ status: 500, json: { detail: { code: "SESSION_SAVE_FAILED" } } });
     else await route.continue();
   });
   await awakenSoulOf(soul);

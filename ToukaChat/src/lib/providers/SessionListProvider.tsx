@@ -15,10 +15,12 @@ import type { PersistenceState, SessionChange } from '../session_persistence';
 
 /**
  * 下載一段清單上沒有的對話的結果：
- * 不存在（通常是剛被刪）、暫時失敗（網路、500，之後再試）、永久拒絕（這次掛載內不再試）。
+ * 不存在（通常是剛被刪）、暫時失敗（網路、500，之後再試）、永久拒絕（這次掛載內不再試）、
+ * 後端讀不出來（舊格式被嚴格讀取擋下就再試也一樣，資料庫暫時忙則下次會好，由呼叫端決定試幾次）。
  */
-export type DiscoverResult = 'added' | 'known' | 'absent' | 'retry' | 'denied';
-type SnapshotOutcome = { kind: 'found'; snapshot: SessionSnapshot } | { kind: 'retry' } | { kind: 'denied' };
+export type DiscoverResult = 'added' | 'known' | 'absent' | 'retry' | 'denied' | 'unreadable';
+type SnapshotOutcome = { kind: 'found'; snapshot: SessionSnapshot } | { kind: 'retry' } | { kind: 'denied' }
+  | { kind: 'unreadable' };
 
 export interface SessionProducer {
   readonly sessionId: string;
@@ -159,9 +161,10 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         const snapshot = parseSessionSnapshot(body, id);
         return snapshot ? { kind: 'found', snapshot } : { kind: 'denied' };
       }
-      // 嚴格讀取擋下舊格式的對話（async_db `_parse_session_row`）：再試也一樣
-      const permanent = response.status === 403 || await getResponseErrorCode(response) === 'SESSION_SAVE_FAILED';
-      return { kind: permanent ? 'denied' : 'retry' };
+      if (response.status === 403) return { kind: 'denied' };
+      // 後端讀取時的任何錯誤都回這個代碼：舊格式被嚴格讀取擋下（async_db `_parse_session_row`），或只是資料庫暫時忙
+      if (await getResponseErrorCode(response) === 'SESSION_SAVE_FAILED') return { kind: 'unreadable' };
+      return { kind: 'retry' };
     } catch { return { kind: 'retry' }; }
     finally { requests.current.delete(controller); }
   }, []);

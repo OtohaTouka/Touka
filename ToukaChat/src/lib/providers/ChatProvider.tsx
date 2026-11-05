@@ -49,12 +49,12 @@ interface ChatContextType {
   isIncognito: boolean;
   handleSetAuthLevel: (level: string) => void;
   pendingInstall: SkillInstallRequest | null;
-  /** 關掉目前這筆，跳下一筆。 */
-  dismissPendingInstall: () => void;
+  /** 關掉這筆（依編號），跳下一筆。 */
+  dismissPendingInstall: (id: string) => void;
   /** HAX G10（ADR-0085）：ask_user 工具的待答提問（觸發 AskUserModal）。 */
   pendingAsk: AskUserRequest | null;
-  /** 答完或關掉目前這筆，跳下一筆。 */
-  dismissPendingAsk: () => void;
+  /** 答完或關掉這筆（依編號），跳下一筆。 */
+  dismissPendingAsk: (id: string) => void;
   /** 有提問或技能安裝等人回答的對話（一段可能出現多次）。 */
   pendingRequestSessionIds: string[];
   /** ADR-0080：進行中（含背景）串流的 session id 清單。 */
@@ -138,9 +138,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const { current: pendingInstall, sessionIds: installSessionIds, enqueue: enqueueInstall,
-    dismissCurrent: dismissPendingInstall, dropSession: dropInstallsOf } = usePendingRequestQueue<SkillInstallRequest>();
+    dismiss: dismissPendingInstall, dropSession: dropInstallsOf } = usePendingRequestQueue<SkillInstallRequest>();
   const { current: pendingAsk, sessionIds: askSessionIds, enqueue: enqueueAsk,
-    dismissCurrent: dismissPendingAsk, dropSession: dropAsksOf } = usePendingRequestQueue<AskUserRequest>();
+    dismiss: dismissPendingAsk, dropSession: dropAsksOf } = usePendingRequestQueue<AskUserRequest>();
   const pendingRequestSessionIds = React.useMemo(() => [...askSessionIds, ...installSessionIds], [askSessionIds, installSessionIds]);
 
   // 串流結束，那段對話等著的問題也作廢（後端不會再收答案），不能排到之後才跳出來

@@ -285,7 +285,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 對話串流以 **per-session 登錄表（`StreamRegistryProvider`）** 為進行中串流的唯一事實來源，使「切走後背景續跑、切回看到結果」成為可能：
 
 *   **進行中串流 SSOT**：`StreamRegistry`（`Record<sessionId, StreamState>`），每個進行中對話各自持有 `AbortController` + 累積樹 + status。串流回調以函數式更新「對應 sid」的 entry，與「前端顯示哪個對話」無關。
-*   **顯示衍生（不另存）**：ChatProvider 的 `history` = `activeStream?.tree ?? storedSession.messages ?? staticHistory`；`isSending`/`isWaiting` 衍生自 `activeStream.status`；`streamingSessionIds` 供側欄工作狀態的本地來源（ADR-0300）（`Loader2` spinner）。
+*   **顯示衍生（不另存）**：ChatProvider 的 `history` = `activeStream?.tree ?? storedSession.messages ?? staticHistory`；`isSending`/`isWaiting` 衍生自 `activeStream.status`；`streamingSessionIds` 供側欄工作狀態的本地來源（ADR-0300）。
 *   **防污染＝per-session 隔離**：chunk 只寫進自己 sid 的累積樹，碰不到別的對話（取代早期「切換即 abort」的防污染）。切換對話**不再中止**串流。
 *   **完成寫回**：typed terminal 後經 writer conditional 補存完整樹，saved(full)才清 registry；failed／unknown 保留富樹及恢復入口。
 *   **並發上限**：`MAX_CONCURRENT_STREAMS = 5`（模組級 SSOT）；超過時 `startStream` 回 `false`，呼叫端 toast 提示先停其一。
@@ -321,7 +321,8 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   本分頁的串流以 `StreamRegistryProvider` 為準；查詢失敗不轉換，連續 3 次清掉心跳活動、不留小點，不跳錯誤視窗。
     *   顯示優先序：等您處理（不動的圖示）＞ 工作中（桌面版名稱呼吸、手機版名稱前的小點呼吸，`animate-breathe`）＞ 有新內容（小點，`useUnseenSessions`，無痕只放記憶體）。第 6 筆以後在工作的不收進「還有 N 個」，資料夾與側欄收起來時亮在資料夾列與開關鈕上。
     *   減少動態看 `useReducedMotionPreference`：App 設定優先，「跟隨系統」才看系統；停掉動畫時顯示文字。
-    *   提問與技能安裝改排隊（`usePendingRequestQueue`）：對外仍是目前那一筆，答完跳下一筆，串流結束的那筆移除。
+    *   提問與技能安裝改排隊（`usePendingRequestQueue`）：對外仍是目前那一筆，答完或關掉時依編號移除（`dismiss(id)`）、跳下一筆，串流結束的那筆移除。
+    *   新對話下載：後端讀不出來（`SESSION_SAVE_FAILED`，可能只是資料庫暫時忙）連續 3 次才放棄（`MAX_UNREADABLE_ATTEMPTS`）；403 與看不懂的回應直接放棄；重試的排到佇列最後。
     *   開著的對話被別處寫入：`SessionUpdatedNotice` 顯示「有新內容，點一下更新」；存檔已失敗時不顯示。
 *   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
     *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。

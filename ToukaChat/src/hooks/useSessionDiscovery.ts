@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { DiscoverResult } from '@/lib/providers/SessionListProvider';
-import { MAX_DISCOVERIES_PER_POLL } from '@/lib/session_activity';
+import { MAX_DISCOVERIES_PER_POLL, MAX_UNREADABLE_ATTEMPTS } from '@/lib/session_activity';
 
 interface UseSessionDiscoveryOptions {
   discover: (id: string) => Promise<DiscoverResult>;
-  /** 再也不會出現在清單上（不存在且沒在工作、永久拒絕）。 */
+  /** 再也不會出現在清單上（不存在且沒在工作、永久拒絕、一直讀不出來）。 */
   onDropped: (id: string) => void;
 }
 
@@ -15,6 +15,7 @@ interface UseSessionDiscoveryOptions {
 export function useSessionDiscovery(options: UseSessionDiscoveryOptions) {
   const queue = useRef(new Set<string>());
   const denied = useRef(new Set<string>());
+  const unreadable = useRef(new Map<string, number>());
   const running = useRef(false);
   // 清單一變，discover 就是新的函式；佇列不該因此重跑
   const latest = useRef(options);
@@ -32,10 +33,19 @@ export function useSessionDiscovery(options: UseSessionDiscoveryOptions) {
       try {
         for (const id of [...queue.current].slice(0, MAX_DISCOVERIES_PER_POLL)) {
           const result = await latest.current.discover(id);
-          if (result === 'retry' || (result === 'absent' && working.has(id))) continue;
+          const attempts = result === 'unreadable' ? (unreadable.current.get(id) ?? 0) + 1 : 0;
+          if (result === 'retry' || (result === 'absent' && working.has(id))
+            || (result === 'unreadable' && attempts < MAX_UNREADABLE_ATTEMPTS)) {
+            if (attempts) unreadable.current.set(id, attempts);
+            // 排到最後：一直失敗的幾筆不能擋住後面新出現的
+            queue.current.delete(id);
+            queue.current.add(id);
+            continue;
+          }
           queue.current.delete(id);
-          if (result === 'denied') denied.current.add(id);
-          if (result === 'denied' || result === 'absent') latest.current.onDropped(id);
+          unreadable.current.delete(id);
+          if (result === 'denied' || result === 'unreadable') denied.current.add(id);
+          if (result === 'denied' || result === 'unreadable' || result === 'absent') latest.current.onDropped(id);
         }
       } finally {
         running.current = false;

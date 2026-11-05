@@ -12,11 +12,21 @@ describe('usePendingRequestQueue', () => {
     act(() => result.current.enqueue('s2', request('r2')));
     expect(result.current.current?.id).toBe('r1');
     expect(result.current.sessionIds).toEqual(['s1', 's2']);
-    act(() => result.current.dismissCurrent());
+    act(() => result.current.dismiss('r1'));
     expect(result.current.current?.id).toBe('r2');
     expect(result.current.sessionIds).toEqual(['s2']);
-    act(() => result.current.dismissCurrent());
+    act(() => result.current.dismiss('r2'));
     expect(result.current.current).toBeNull();
+  });
+
+  it('依編號關：那筆已經被移除時，不會關到排在後面的', () => {
+    const { result } = renderHook(() => usePendingRequestQueue<{ id: string }>());
+    act(() => result.current.enqueue('s1', request('r1')));
+    act(() => result.current.enqueue('s2', request('r2')));
+    act(() => result.current.dropSession('s1'));
+    act(() => result.current.dismiss('r1'));
+    expect(result.current.current?.id).toBe('r2');
+    expect(result.current.sessionIds).toEqual(['s2']);
   });
 
   it('同一筆請求重送不會排兩次', () => {

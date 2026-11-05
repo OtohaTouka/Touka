@@ -104,6 +104,7 @@ describe('SkillSelector', () => {
     updateSession: mockUpdateSession, getSession: vi.fn(), getPersistence: vi.fn(),
     beginProducer: vi.fn(), completeProducer: vi.fn(), scopeKey: 'test',
     recheckSession: vi.fn(), retrySaveSession: vi.fn(), canRetrySave: vi.fn(), prepareResume: vi.fn(),
+    listLoaded: true, discoverSession: vi.fn(),
   });
 
   beforeEach(() => {

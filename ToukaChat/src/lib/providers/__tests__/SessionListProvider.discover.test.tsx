@@ -150,7 +150,8 @@ describe('discoverSession', () => {
     ['500', () => json(500, {}), 'retry'],
     ['斷線', () => { throw new Error('offline'); }, 'retry'],
     ['403', () => json(403, {}), 'denied'],
-    ['舊格式被嚴格讀取擋下', () => json(500, { detail: { code: 'SESSION_SAVE_FAILED' } }), 'denied'],
+    ['後端讀不出來（舊格式或資料庫暫時忙，都回這個代碼）', () => json(500, { detail: { code: 'SESSION_SAVE_FAILED' } }),
+      'unreadable'],
     ['200 但內容看不懂', () => json(200, { nonsense: true }), 'denied'],
   ])('%s → 回報原因，不加進清單', async (_name, respond, expected) => {
     const { result } = await mounted();

@@ -7,7 +7,9 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchTouka } from '@/lib/connections';
 import { logSSOTError } from '@/lib/error_handler';
-import { ACTIVITY_POLL_MS, MAX_ACTIVITY_FAILURES, MAX_DISCOVERIES_PER_POLL } from '@/lib/session_activity';
+import {
+  ACTIVITY_POLL_MS, MAX_ACTIVITY_FAILURES, MAX_DISCOVERIES_PER_POLL, MAX_UNREADABLE_ATTEMPTS,
+} from '@/lib/session_activity';
 import type { Session, SessionActivity } from '@/lib/types';
 import { SessionActivityProvider, useSessionActivity } from '../SessionActivityProvider';
 
@@ -196,12 +198,13 @@ describe('憑證換了', () => {
 });
 
 describe('狀態', () => {
-  it('心跳帶進度；優先序是等您處理 ＞ 工作中 ＞ 小點', async () => {
-    await mount({ background: [heartbeat('a')] });
+  it('心跳帶進度；同一段也在等您處理時顯示等您處理', async () => {
+    const { rerender } = await mount({ background: [heartbeat('a')] });
     expect(value.statusOf('a')).toEqual({ kind: 'heartbeat', current: 2, total: 5 });
     state.awaiting = ['a'];
-    await flush(ACTIVITY_POLL_MS);
-    expect(value.statusOf('a')).toEqual({ kind: 'heartbeat', current: 2, total: 5 });
+    rerender(tree(true));
+    await flush();
+    expect(value.statusOf('a')).toEqual({ kind: 'awaiting' });
   });
 
   it('核准卡與提問都算等您處理，蓋過工作中', async () => {
@@ -373,6 +376,14 @@ describe('什麼時候留小點', () => {
     await mount();
     expect(value.statusOf('b')).toBeNull();
   });
+
+  it('瀏覽器裡的小點清單壞掉（不是陣列）：當成空的，照常記與清', async () => {
+    window.localStorage.setItem('touka_session_unseen:user-1', JSON.stringify({ broken: true }));
+    state.active = 'a';
+    await mount();
+    await poll({ finished: [{ session_id: 'b', finished_at: 1 }] });
+    expect(stored()).toEqual(['b']);
+  });
 });
 
 describe('查不到時', () => {
@@ -479,6 +490,37 @@ describe('新對話', () => {
     await poll({ background: [heartbeat('new')] });
     await poll({ background: [heartbeat('new')] });
     expect(state.discoverSession).toHaveBeenCalledTimes(1);
+  });
+
+  it(`後端讀不出來（可能只是資料庫暫時忙）：連續 ${MAX_UNREADABLE_ATTEMPTS} 次才放棄並清掉小點`, async () => {
+    state.discoverSession.mockResolvedValue('unreadable');
+    await mount();
+    await poll({ finished: [{ session_id: 'new', finished_at: 1 }] });
+    expect(stored()).toEqual(['new']);
+    for (let attempt = 1; attempt < MAX_UNREADABLE_ATTEMPTS; attempt += 1) await poll({});
+    expect(state.discoverSession).toHaveBeenCalledTimes(MAX_UNREADABLE_ATTEMPTS);
+    expect(stored()).toEqual([]);
+    await poll({});
+    expect(state.discoverSession).toHaveBeenCalledTimes(MAX_UNREADABLE_ATTEMPTS);
+  });
+
+  it('讀不出來一次之後讀到了：照常加入，小點留著', async () => {
+    state.discoverSession.mockResolvedValueOnce('unreadable');
+    await mount();
+    await poll({ finished: [{ session_id: 'new', finished_at: 1 }] });
+    await poll({});
+    expect(state.discoverSession).toHaveBeenCalledTimes(2);
+    expect(stored()).toEqual(['new']);
+  });
+
+  it('一直暫時失敗的排到後面，不擋住後面新出現的', async () => {
+    const stuck = Array.from({ length: MAX_DISCOVERIES_PER_POLL }, (_, index) => `stuck-${index}`);
+    state.discoverSession.mockImplementation(async (id: string) => id.startsWith('stuck') ? 'retry' : 'added');
+    await mount();
+    await poll({ finished: stuck.map((id, index) => ({ session_id: id, finished_at: index + 1 })) });
+    await poll({ finished: [{ session_id: 'late', finished_at: 99 }] });
+    await poll({});
+    expect(state.discoverSession).toHaveBeenCalledWith('late');
   });
 
   it(`每次查詢最多下載 ${MAX_DISCOVERIES_PER_POLL} 筆，其餘留到下一次`, async () => {

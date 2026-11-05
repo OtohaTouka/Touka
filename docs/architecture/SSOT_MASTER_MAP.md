@@ -201,7 +201,7 @@
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
-| 查詢的間隔與上限、狀態型別、優先序 | `ToukaChat/src/lib/session_activity.ts`（`ACTIVITY_POLL_MS`、`MAX_ACTIVITY_FAILURES`、`MAX_DISCOVERIES_PER_POLL`、`mostUrgentStatus`） | `useActivityPoll`、`useSessionDiscovery`、`SessionActivityProvider`、`SessionTree` |
+| 查詢的間隔與上限、狀態型別、優先序 | `ToukaChat/src/lib/session_activity.ts`（`ACTIVITY_POLL_MS`、`MAX_ACTIVITY_FAILURES`、`MAX_DISCOVERIES_PER_POLL`、`MAX_UNREADABLE_ATTEMPTS`、`mostUrgentStatus`） | `useActivityPoll`、`useSessionDiscovery`、`SessionActivityProvider`、`SessionTree` |
 | 每段對話現在是什麼狀態 | `ToukaChat/src/lib/providers/SessionActivityProvider.tsx` `statusOf`（本地串流來自 `StreamRegistryProvider`，心跳與別處的串流來自查詢） | `SessionItem`、`SessionTree`、`ProjectSidebarView`、`MainAreaControls`、`MobileMenuButton`、`SessionUpdatedNotice` |
 | 清單沒有的對話怎麼加進來 | `SessionListProvider.discoverSession`（下載單筆、帶版本；工作狀態查詢不呼叫 `refreshSessions`） | `useSessionDiscovery` |
 | 呼吸動畫 | `ToukaChat/src/app/globals.css` `touka-breathe`、`animate-breathe` | `SessionStatusMark.tsx` |

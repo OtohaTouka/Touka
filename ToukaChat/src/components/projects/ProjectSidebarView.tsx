@@ -161,7 +161,9 @@ export default function ProjectSidebarView() {
                                         <div className="flex flex-col min-w-0 pr-2">
                                             <span className="flex items-center gap-1 text-xs font-semibold truncate group-hover:text-primary transition-colors">
                                                 {isBusyStatus(statusOf(s.id)) && (
-                                                    <Loader2 className="w-3 h-3 shrink-0 text-primary animate-spin" aria-label={t('projects.project_sidebar_view.generating_in_background')} />
+                                                    <Loader2 className="w-3 h-3 shrink-0 text-primary animate-spin" aria-label={statusOf(s.id)?.kind === 'awaiting'
+                                                        ? t('sidebar.session_activity.awaiting')
+                                                        : t('projects.project_sidebar_view.generating_in_background')} />
                                                 )}
                                                 {s.title || t('projects.project_sidebar_view.untitled_session')}
                                             </span>
