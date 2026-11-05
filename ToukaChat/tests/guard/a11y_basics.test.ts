@@ -132,15 +132,17 @@ describe('a11y 鍵盤可操作性守衛（A2 批）', () => {
     },
   );
 
-  it('SessionItem：原生 button 切換＋無巢狀互動＋可見焦點 — WCAG 2.1.1/4.1.2/2.4.7', () => {
+  it('SessionItem：treeitem＋「⋯」不在 Tab 順序＋可見焦點 — WCAG 2.1.1/4.1.2/2.4.7', () => {
     const content = readFileSync(
       join(SRC, 'components/sidebar/left/SessionItem.tsx'),
       'utf-8',
     );
-    // A5 axe nested-interactive 根治：切換改原生 <button>，外層不得 role="button"
+    // A5 axe nested-interactive 根治：不得 role="button"；清單改 tree 後，列是 treeitem、「⋯」不在 Tab 順序
     expect(content, '外層容器不得是 role="button"（nested-interactive）').not.toMatch(
       /role="button"/,
     );
+    expect(content, '會話列是 treeitem').toMatch(/role="treeitem"/);
+    expect(content, '「⋯」不在 Tab 順序').toMatch(/<button tabIndex=\{-1\}/);
     expect(content, '切換需有 aria-current 標記當前會話').toMatch(/aria-current/);
     expect(content, '選單觸發鈕需具名').toMatch(/aria-label=\{t\('sidebar\.session_item\.session_options/);
     expect(content, '會話列/編輯框需可見焦點樣式').toMatch(/focus-visible:ring/);

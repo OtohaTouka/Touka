@@ -14,7 +14,7 @@
 ## 3. 錯誤碼主權 (Error Code Sovereignty) ⭐
 *   **執法**: 嚴禁在 Exception 或是 UI 提示中使用硬編碼字串。
     - **後端（HTTPException）**: 攔截 `HTTPException(detail="...")` 與 `ToukaException` 字串傳入。**由 `lint_ssot.py` 的 `ErrorSovereigntyRule` 執行。**
-    - **後端（raise 硬編碼）**: 攔截 `raise ValueError("...")` / `raise RuntimeError("...")` 等對 `ValueError`, `RuntimeError`, `TypeError` 使用字串字面量或 f-string 的情形。**由 `lint_ssot.py` 的 `RaiseHardcodedStringRule`（RAISE_STRING_BAN）執行。**（ADR-0027）
+    - **後端（raise 硬編碼）**: 攔截 `raise ValueError("...")` / `raise RuntimeError("...")` 等對 `ValueError`, `RuntimeError`, `TypeError` 使用字串字面量或 f-string 的情形。**由 `lint_ssot.py` 的 `RaiseHardcodedStringRule`（RAISE_STRING_BAN）執行，掃描 `/src/` 路徑與 `ToukaHeartbeat`、`ToukaDispatch`。**（ADR-0027、ADR-0298）
     - **前端**: 攔截 `toast.error("...")` 與 `console.error("...")` 硬編碼內容。
 *   **SSOT 接口**: 後端使用 `ErrorCode` 枚舉，前端使用 `ERRORS` 常數，兩者皆自動衍生自 `errors.json`。
 
@@ -22,7 +22,7 @@
 *   **執法**: 嚴禁調用 `datetime.now()` 或 `time.time()`，必須統一使用 `src.utils.time_utils` 提供的 SSOT 接口。**由 `lint_ssot.py` 進行強制攔截。**
 
 ## 3-C. 日誌主權禁令 (Logging Sovereignty) ⭐
-*   **`print()` 禁令**（PRINT_BAN）：業務層嚴禁直接調用 `print()`，必須改用 `logging.getLogger(__name__)`。**由 `lint_ssot.py` 的 `PrintBanRule` 執行，僅掃描 `/src/` 路徑。**（ADR-0025）
+*   **`print()` 禁令**（PRINT_BAN）：業務層嚴禁直接調用 `print()`，必須改用 `logging.getLogger(__name__)`。**由 `lint_ssot.py` 的 `PrintBanRule` 執行，掃描 `/src/` 路徑與 `ToukaHeartbeat`、`ToukaDispatch`。**（ADR-0025、ADR-0298）
 *   **`logging.basicConfig()` 禁令**（BASICCONFIG_BAN）：嚴禁在非初始化檔案中調用 `logging.basicConfig()`。唯一授權入口為 `src/core/logging_config.py`。**由 `lint_ssot.py` 的 `BasicConfigBanRule` 執行。**（ADR-0025）
 
 ## 3-D. HTTP 客戶端主權 (Fetch SSOT) ⭐
@@ -30,7 +30,7 @@
 
 ## 3-E. localStorage 存取主權 (localStorage SSOT) ⭐
 *   前端所有 localStorage 操作必須透過 `src/hooks/useLocalStorage.ts`（通用）或領域 Custom Hook 進行。**由 `guard_localStorage.ts`（LOCALSTORAGE_SSOT）掃描 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`。**（ADR-0026）
-*   白名單：`useLocalStorage.ts`（SSOT 定義本體）、`connections.ts`（非 React 環境的 Auth Token 管理）。
+*   白名單：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（非 React 環境的 Auth Token 管理）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`。
 
 ## 3-F. 密碼安全禁令 (BCRYPT_IMPORT_SSOT) ⭐
 *   **執法**：嚴禁在非授權檔案直接 `import bcrypt` 或 `from passlib import`。**由 `lint_ssot.py` 的 `BcryptImportRule` 執行。**（ADR-0028）
@@ -52,8 +52,8 @@
 *   **豁免**：引導者白名單（`bootstrap.py`、`terminal.py` 等）及全域白名單（`is_whitelisted`）自動豁免。
 
 ## 3-I. 前端 Console 禁令 (CONSOLE_BAN) ⭐
-*   **執法**：前端生產代碼嚴禁直接呼叫 `console.log()`、`console.warn()`、`console.error()`。**由 `guard_console.ts`（CONSOLE_BAN）掃描 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`。**（ADR-0031）
-*   **唯一授權點**：`src/lib/error_handler.ts`（`logSSOTError()` SSOT 封裝層，白名單）。
+*   **執法**：前端生產代碼嚴禁直接呼叫 `console.log()`、`console.warn()`、`console.error()`。**由 `guard_console.ts`（CONSOLE_BAN）掃描 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`、`src/components/**`。**（ADR-0031、ADR-0298）
+*   **唯一授權點**：`src/lib/error_handler.ts`（`logSSOTError()` SSOT 封裝層，靠行內 `// noqa: CONSOLE_BAN`）。
 *   **與後端對稱**：與 PRINT_BAN（ADR-0025）設計原則一致。
 
 ## 3-J. 模組邊界禁令 (Module Boundary Guard) ⭐

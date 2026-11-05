@@ -7,38 +7,14 @@ import LeftSidebar from '@/components/LeftSidebar';
 vi.mock('@/lib/SystemStatusContext', () => ({
   useSystemStatus: () => ({ status: { mode: 'hybrid' } })
 }));
-vi.mock('@/lib/providers/SessionListProvider', () => ({
-  useSessionList: () => ({ sessions: [] })
-}));
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
     activeSessionId: null,
     handleNewSession: vi.fn(),
-    handleSwitchSession: vi.fn(),
-    handleSetHome: vi.fn(),
-    handleSetProject: vi.fn(),
-    handleUnsetHome: vi.fn()
+    handleSwitchSession: vi.fn()
   })
 }));
-vi.mock('@/lib/providers/ProjectProvider', () => ({
-  useProjects: () => ({ projects: [] })
-}));
-vi.mock('@/hooks/useSessionGroups', () => ({
-  useSessionGroups: () => ({ sessionGroups: {} })
-}));
-vi.mock('@/hooks/useSessionActions', () => ({
-  useSessionActions: () => ({
-    editingSessionId: null,
-    editTitle: '',
-    deleteConfirmId: null,
-    handleStartEdit: vi.fn(),
-    handleSaveTitle: vi.fn(),
-    setEditTitle: vi.fn(),
-    handleDelete: vi.fn(),
-    handleExport: vi.fn(),
-    handleSplitExport: vi.fn()
-  })
-}));
+vi.mock('@/components/sidebar/left/SessionTree', () => ({ SessionTree: () => null }));
 
 vi.mock('@/components/sidebar/left/NavigationArea', () => ({
   NavigationArea: () => <div>Navigation Area</div>
