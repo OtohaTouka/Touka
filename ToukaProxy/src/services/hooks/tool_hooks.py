@@ -30,8 +30,7 @@ from src.services.hooks.events import base_payload, neutralize_hook_text, tool_m
 from src.services.hooks.outcome import PERMISSION_REQUEST_EVENT
 from src.services.hooks.service import hook_service
 from src.services.hooks.stopping import request_stopped
-from src.utils.mcp_secrets import sanitize_diagnostic
-from src.utils.secret_text import redact_credentials
+from src.utils.secret_text import sanitize_error_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -195,7 +194,7 @@ async def run_post_tool_hooks(
 def _failure_text(result_text: str) -> str:
     """給 hook 的錯誤內容：結構化錯誤取訊息本身，遮掉憑證與本機路徑。"""
     message = tool_errors.extract_field(result_text, "message")
-    return sanitize_diagnostic(redact_credentials(message or result_text))
+    return sanitize_error_text(message or result_text)
 
 
 async def run_post_tool_failure_hooks(

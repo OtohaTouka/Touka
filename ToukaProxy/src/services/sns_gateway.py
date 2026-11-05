@@ -179,6 +179,7 @@ class SNSGatewayService:
             "is_native": False,
             "session_id": session_id,
             "agent_id": identity.agent_id,
+            "sns_source": True,
         })
 
         # 4a. 決定模型：@alias → ToukaGroup 群聊分發器，否則單 Agent

@@ -324,7 +324,7 @@ async def test_no_hook_means_the_details_are_not_even_read(hooks, monkeypatch):
     def boom(_text: str) -> str:
         raise AssertionError
 
-    monkeypatch.setattr(lifecycle, "redact_credentials", boom)
+    monkeypatch.setattr(lifecycle, "sanitize_error_text", boom)
     lifecycle.notify_stop_failure({"session_id": "s"}, "unknown", "details")
     await asyncio.sleep(0.05)
     assert hooks.http.calls == []
