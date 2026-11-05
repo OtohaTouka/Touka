@@ -15,6 +15,8 @@ import copy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from src.utils.secret_text import sanitize_error_text
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
@@ -117,12 +119,20 @@ class RoundError:
     可重試時 adapter 另標 ``retry_note``（重試狀態文字的前半）與 ``retry_after``（秒；
     廠商要求的等待），由核心退避重送（3b-U5a，見 retry.py）；``error_type`` 是給 StopFailure
     hook 的固定類型（名稱照 Claude Code，對不上的是 ``unknown``，見 retry.py）；三欄不參與比較。
+
+    兩段文字都可能帶著廠商的錯誤原文，建立時就遮罩與限長：這裡是所有廠商的共同入口。
+    ``dataclasses.replace`` 會再跑一次，遮兩次結果不變。
     """
 
     user_message: str
     retry_note: str | None = field(default=None, compare=False)
     retry_after: float | None = field(default=None, compare=False)
     error_type: str = field(default="unknown", compare=False)
+
+    def __post_init__(self) -> None:
+        self.user_message = sanitize_error_text(self.user_message)
+        if self.retry_note is not None:
+            self.retry_note = sanitize_error_text(self.retry_note)
 
 
 class ProviderAdapter(Protocol):

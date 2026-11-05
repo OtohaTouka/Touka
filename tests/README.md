@@ -687,6 +687,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_native_tool_parameter_flow.py` | （ADR-0228；ADR-0256 加 1 個；ADR-0274 加 1 個：`conversations` 帶齊 7 個欄位；ADR-0263 加 1 個：manage_dups 那一例改成 supersede 帶齊 6 個欄位，resolve 另寫一個只比觀察值的測試，`query` 例加 `include_history`）：每個公開欄位的非預設值都一路傳到真的原生 adapter 與後端接點；ADR-0256 起 `query` 帶 `include_sources`，並在 `CASES` 最後加 `memory_tools(action="reindex")`（加在最後，既有 case 編號不變） |
 | `test_memory_tool_contracts.py` | （ADR-0228；ADR-0263 加 2 個：公開欄位 `include_history`、`content`，`operation` 列出 supersede、`content` 的描述分 save 與 manage_dups）：記憶工具公開 schema 的欄位與描述、`query` 回事實庫的正式 ID、`manage_dups` resolve 的公開 operation、`query` 的非預設篩選傳到兩個庫；ADR-0256 起語意結果要回查事實庫，替身補 `get_active_facts`，個數不變 |
 | `test_sns_gateway.py` | `SNSGatewayService`：預設 Agent 路由、`@alias` 覆蓋、Session ID 隔離、SSE chunk 聚合；R-2c：home／independent 兩種模式存檔與送出的外人訊息都帶 `【SNS 外部訊息】` 開頭、不算人類原意 |
+| `test_model_error_text_security.py` | 模型回合失敗的文字：`RoundError` 建立時遮罩與限長、遮兩次不變；四家廠商走真回合比對送出的字串；SNS 單人與群聊只留固定文字；一般群聊下一位成員、心跳存檔與例外、子代理都遮過 |
 | `test_group_soul_only.py` ⭐ | **ADR-0245**：群聊只限靈魂——白名單只認 ToukaSoul 區、別名解析到 agents_registry 的靈魂；指向原始模型或 regex 的別名被拒；registry 裡不是靈魂的成員不能被點名、白名單值不是靈魂時不退回比對別名本身；舊歷史裡解析不到的點名略過、最新一則仍嚴格驗證（R-2a）；舊 Native／Custom 項目略過並記警告、檔案不動（tmp 合成設定）；設定 API 只回、只收靈魂區；群聊派發與 SNS `@別名` 只到靈魂；hook 補充說明（`<hook_output>` 區塊）裡的 `@別名` 不算點名（ADR-0292） |
 | `test_context_snapshot_service.py` | `get_context_snapshot()`/`render_snapshot_markdown()`：無 I/O 純邏輯驗證 |
 | `test_skill_service.py` | `SkillService`：技能清單載入、RBAC 過濾、執行委派 |
