@@ -27,6 +27,68 @@ const mockFetchTouka = fetchTouka as ReturnType<typeof vi.fn>;
 const wrapper = ({ children }: { children: React.ReactNode }) =>
     React.createElement(AgentProvider, null, children);
 
+describe('AgentProvider — agentsStatus', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    const ok = { ok: true, json: async () => [{ id: 'alice', name: 'Alice', type: 'soul', is_group: false }] };
+
+    it('一開始是載入中，讀到變 ready', async () => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        expect(result.current.agentsStatus).toBe('loading');
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+    });
+
+    it.each([
+        ['回應不是 200', () => mockFetchTouka.mockResolvedValue({ ok: false })],
+        ['連線失敗', () => mockFetchTouka.mockRejectedValue(new Error('down'))],
+    ])('%s 變 failed', async (_label, arrange) => {
+        arrange();
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('failed'));
+    });
+
+    it.each(['touka_auth_changed', 'touka_connections_updated'])('失敗後收到 %s：重試期間載入中，成功變 ready', async (eventName) => {
+        mockFetchTouka.mockResolvedValue({ ok: false });
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('failed'));
+
+        let finish!: (value: unknown) => void;
+        mockFetchTouka.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        act(() => { window.dispatchEvent(new Event(eventName)); });
+        expect(result.current.agentsStatus).toBe('loading');
+        await act(async () => { finish(ok); });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+    });
+
+    it.each(['touka_auth_changed', 'touka_connections_updated'])('卸載後收到 %s 不再重抓', async (eventName) => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result, unmount } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+        unmount();
+        mockFetchTouka.mockClear();
+        window.dispatchEvent(new Event(eventName));
+        expect(mockFetchTouka).not.toHaveBeenCalled();
+    });
+
+    it('讀到過之後，一次失敗留著舊清單，不退回 failed；權杖更新也不閃載入中', async () => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        mockFetchTouka.mockResolvedValue({ ok: false });
+        await act(async () => { await result.current.refreshAgents(); });
+        expect(result.current.agentsStatus).toBe('ready');
+        expect(result.current.agents).toHaveLength(1);
+
+        act(() => { window.dispatchEvent(new Event('touka_auth_changed')); });
+        expect(result.current.agentsStatus).toBe('ready');
+        await act(async () => { await Promise.resolve(); });
+    });
+});
+
 describe('AgentProvider — refreshAgents 穩定性與無窮迴圈防護', () => {
     beforeEach(() => {
         vi.clearAllMocks();

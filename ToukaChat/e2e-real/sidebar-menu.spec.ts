@@ -76,7 +76,7 @@ test("每個項目都到得了；按鈕標出目前畫面；點對話或新對�
   await shot(page, info, "settings-marked");
 
   // 迴圈最後停在設定：點目前的對話回聊天，按鈕上的標示要消失
-  await page.locator('aside button[aria-current="true"]').click();
+  await page.locator('aside [role="treeitem"][aria-current="true"]').click();
   await expectInChat(page);
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
   await shot(page, info, "back-to-chat");

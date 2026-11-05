@@ -8,19 +8,13 @@ import { useSystemStatus } from '@/lib/SystemStatusContext';
 import { hasMemoryWarning } from '@/lib/memoryNotices';
 import { cn } from '@/lib/utils';
 import { useChat } from '@/lib/providers/ChatProvider';
-import { useSessionList } from '@/lib/providers/SessionListProvider';
-import { useProjects } from '@/lib/providers/ProjectProvider';
 import { PanelLeftClose, PlusCircle, VenetianMask } from "lucide-react";
-
-// Hooks
-import { useSessionGroups } from '@/hooks/useSessionGroups';
-import { useSessionActions } from '@/hooks/useSessionActions';
 
 // Components
 import { SidebarIdentity } from './sidebar/left/SidebarIdentity';
 import { SidebarSetupNotices } from './sidebar/left/SidebarSetupNotices';
 import { NavigationArea } from './sidebar/left/NavigationArea';
-import { SessionItem } from './sidebar/left/SessionItem';
+import { SessionTree } from './sidebar/left/SessionTree';
 
 /** 展開後交焦點最多試幾個畫面。過場開始後通常下一個畫面就看得見，上限只是保險（60Hz 約 0.5 秒）。 */
 const EXPAND_FOCUS_MAX_FRAMES = 30;
@@ -53,28 +47,9 @@ function LeftSidebar({
 }: LeftSidebarProps) {
     const { t } = useTranslation();
     const { status: sysStatus } = useSystemStatus();
-    const { sessions } = useSessionList();
-    const {
-        activeSessionId,
-        handleNewSession,
-        handleSwitchSession,
-        handleSetHome,
-        handleSetProject,
-        handleUnsetHome,
-        streamingSessionIds
-    } = useChat();
-    const { projects } = useProjects();
+    const { activeSessionId, handleNewSession, handleSwitchSession } = useChat();
 
-    const [searchQuery] = useState("");
     const [mounted, setMounted] = useState(false);
-    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-
-    // Use refactored logic (SOLID: SRP/DIP)
-    const { sessionGroups } = useSessionGroups({
-        sessions, projects, activeMode, searchQuery
-    });
-
-    const sessionActions = useSessionActions();
 
     // 僅用於標記掛載狀態
     useEffect(() => {
@@ -105,10 +80,6 @@ function LeftSidebar({
         frame = requestAnimationFrame(tryFocus);
         return () => cancelAnimationFrame(frame);
     }, [isCollapsed, takeFocusRequest]);
-
-    const toggleGroup = (group: string) => {
-        setCollapsedGroups(prev => ({ ...prev, [group]: !prev[group] }));
-    };
 
     return (
         <div className={cn(
@@ -174,56 +145,26 @@ function LeftSidebar({
                         </Button>
                     </div>
 
-                    {/* Session List (SRP: SessionItem) */}
+                    {/* Session List (SRP: SessionTree)；整個清單只算一個 Tab 站 */}
                     <div className="flex-grow min-h-12 overflow-y-auto custom-scrollbar flex flex-col gap-1 w-full px-2">
                         <div className="flex items-center justify-between px-2 mb-1">
                             <h2 className="text-xs font-black text-muted-foreground uppercase tracking-widest">{t('layout.left_sidebar.session_history_heading')}</h2>
                         </div>
                         
-                        {mounted && Object.entries(sessionGroups).map(([groupName, groupSessions]) => (
-                            <div key={groupName} className="flex flex-col gap-0.5">
-                                <button 
-                                    onClick={() => toggleGroup(groupName)}
-                                    className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-colors text-left"
-                                >
-                                    <span className={cn("transition-transform", collapsedGroups[groupName] ? "" : "rotate-90")}>▶</span>
-                                    <span className="truncate">{groupName}</span>
-                                    <span className="ml-auto bg-muted px-1.5 rounded-md text-xs">{groupSessions.length}</span>
-                                </button>
-                                
-                                {!collapsedGroups[groupName] && groupSessions.map((s) => (
-                                    <SessionItem 
-                                        key={s.id}
-                                        session={s}
-                                        isActive={activeSessionId === s.id}
-                                        isStreaming={streamingSessionIds.includes(s.id)}
-                                        editingSessionId={sessionActions.editingSessionId}
-                                        editTitle={sessionActions.editTitle}
-                                        deleteConfirmId={sessionActions.deleteConfirmId}
-                                        projects={projects}
-                                        onSwitch={(id) => {
-                                            if (activeMode === 'chat') {
-                                                handleSwitchSession(id);
-                                                return;
-                                            }
-                                            // 從其他畫面回到開著的這段只換畫面，和以前的聊天大廳一樣不重新載入
-                                            if (id !== activeSessionId) handleSwitchSession(id);
-                                            onChatClick?.();
-                                        }}
-                                        onStartEdit={sessionActions.handleStartEdit}
-                                        onSaveTitle={sessionActions.handleSaveTitle}
-                                        onEditTitleChange={sessionActions.setEditTitle}
-                                        onDelete={sessionActions.handleDelete}
-                                        onClearDeleteConfirm={sessionActions.clearDeleteConfirm}
-                                        onExport={sessionActions.handleExport}
-                                        onSplitExport={sessionActions.handleSplitExport}
-                                        onSetHome={handleSetHome}
-                                        onUnsetHome={handleUnsetHome}
-                                        onSetProject={handleSetProject}
-                                    />
-                                ))}
-                            </div>
-                        ))}
+                        {mounted && (
+                            <SessionTree
+                                activeMode={activeMode}
+                                onSwitch={(id) => {
+                                    if (activeMode === 'chat') {
+                                        handleSwitchSession(id);
+                                        return;
+                                    }
+                                    // 從其他畫面回到開著的這段只換畫面，和以前的聊天大廳一樣不重新載入
+                                    if (id !== activeSessionId) handleSwitchSession(id);
+                                    onChatClick?.();
+                                }}
+                            />
+                        )}
                     </div>
 
                     {/* Navigation (SRP/OCP: NavigationArea) */}
