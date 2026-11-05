@@ -76,7 +76,7 @@
 *   **NOQA 登記簿自動同步 (guard_noqa_registry.py)** ⭐：`scripts/guard_noqa_registry.py` 自動驗證 `NOQA_REGISTRY.md` 統計表與代碼庫實際 `# noqa` 計數一致，整合為第 16 道 guard。（ADR-0029）
 *   **系統操作 API 禁令 (ENV_SSOT 擴充)** ⭐：`EnvSovereigntyRule` 擴充攔截業務層的 `os.system()`、`os.chdir()`、`sys.path.append()`（限 `/src/` 路徑），補齊 AGENTS.md 第 18 節的聲明。
 *   **前端 Console 禁令 (CONSOLE_BAN)** ⭐：`guard_console.ts` 掃描前端生產代碼中的 `console.log/warn/error()` 直接呼叫，整合為第 17 道 guard。與後端 PRINT_BAN 對稱。（ADR-0031）
-*   **死碼偵測 (guard_dead_code.py)** ⭐：整合 `vulture`（Python）與 `knip`（TypeScript），整合為第 20 道 guard。前端擋未使用的 export 與檔案；後端未使用的函式、方法、類別以基準清單不得增加（ADR-0297），後端未使用的檔案沒有檢查。初次執行清除 5 個未使用 TS 檔案及多個死碼函式。
+*   **死碼偵測 (guard_dead_code.py)** ⭐：整合 `vulture`（Python）與 `knip`（TypeScript），整合為第 20 道 guard。前端擋未使用的 export 與檔案；後端未使用的函式、方法、類別以基準清單不得增加（ADR-0298），後端未使用的檔案沒有檢查。初次執行清除 5 個未使用 TS 檔案及多個死碼函式。
 *   **模組邊界守衛 (guard_module_boundaries.py)** ⭐：使用 `import-linter` 強制 ToukaMemory 不直接依賴 ToukaProxy 內部模組，整合為第 21 道 guard（現行編號，序號 SSOT＝`guard_all.py`）。（ADR-0032）
 *   **InfoSec C1~N12 安全加固** ⭐：完成二次審計，共 33 項弱點修復（11 Critical + 10 High + 11 Medium + 1 Low），詳見 [SECURITY.md](../SECURITY.md) 與 [ADR-0033](../docs/architecture/adr/0033-infosec-hardening-c1-m6.md)。
     1. **密鑰主權**：`AuthSecretManager`、`StorageService._initial_config()`、`ToukaHeartbeat/config.py` — 系統無公開已知硬編碼預設密鑰（C1、C2、H5殘留、M6）

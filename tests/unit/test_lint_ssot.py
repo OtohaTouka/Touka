@@ -174,7 +174,7 @@ def test_raise_string_ban_noqa():
     assert not any(v["rule"] == "RAISE_STRING_BAN" for v in visitor.violations)
 
 
-# ── Heartbeat、Dispatch 沒有 src 資料夾，也算業務層（ADR-0297）─────────────────
+# ── Heartbeat、Dispatch 沒有 src 資料夾，也算業務層（ADR-0298）─────────────────
 
 BUSINESS_LAYER_CASES = [
     # (路徑, 算不算業務層)

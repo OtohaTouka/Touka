@@ -2,7 +2,7 @@
 
 範圍：`ToukaDispatch/**`：對外派工。
 
-從根 `AGENTS.md` 搬來的全文；禁令 33 之後依 ADR-0297 更正過函式名。跑 `python scripts/applicable_rules.py --print-rules` 看這次改動適用哪幾條，不必讀完整份。改規則見 [README](README.md)。
+從根 `AGENTS.md` 搬來的全文；禁令 33 之後依 ADR-0298 更正過函式名。跑 `python scripts/applicable_rules.py --print-rules` 看這次改動適用哪幾條，不必讀完整份。改規則見 [README](README.md)。
 
 ## 禁令
 

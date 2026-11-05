@@ -10,7 +10,7 @@ import {
 
 const UPDATE_FLAG = '--update';
 
-/** 第 2 部分（禁令 51，ADR-0297）：和後端合約同名的手寫型別必須和基準完全相等。 */
+/** 第 2 部分（禁令 51，ADR-0298）：和後端合約同名的手寫型別必須和基準完全相等。 */
 async function checkContractTypes(projectRoot: string, schemaPath: string, update: boolean): Promise<number> {
   const current = await collectContractTypeKeys(projectRoot, schemaPath);
   console.log(`✅ 找到 ${current.length} 個和後端合約同名的手寫型別。`);

@@ -415,7 +415,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 1. **型別來源**：`src/types/api.ts` 是與後端通訊的唯一事實來源。
 2. **自動同步**：透過執行 `npm run sync-api` 獲取最新的後端 Schema。
 3. **API 守衛 (Parity Guard)**：透過 `guard_frontend.ts` 自動檢查所有 `fetchTouka` 調用，確保與後端端點強對齊（包含 `/v1` 前綴標準）。
-4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。`guard_frontend.ts` 也以 AST 檢查：名字和後端 schema 或 `lib/types.ts` 的合約別名相同、卻是手寫的宣告會紅，既有 10 個凍結在 `scripts/contract_type_baseline.json`，改名就抓不到（ADR-0297）。
+4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。`guard_frontend.ts` 也以 AST 檢查：名字和後端 schema 或 `lib/types.ts` 的合約別名相同、卻是手寫的宣告會紅，既有 10 個凍結在 `scripts/contract_type_baseline.json`，改名就抓不到（ADR-0298）。
 
 ---
 ### 3. 配置主權 (Env SSOT)

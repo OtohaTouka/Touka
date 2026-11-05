@@ -6,7 +6,7 @@
 
 ## 現況
 
-- **兩份凍結清單（2026-11-05，ADR-0297）**：`tests/lint/vulture_baseline.json`（後端未用的函式、方法、類別 108 筆）和 `ToukaChat/scripts/contract_type_baseline.json`（和後端合約同名的手寫型別 10 個）都沒有清掉，也沒有期限，清理在候選裡。
+- **兩份凍結清單（2026-11-05，ADR-0298）**：`tests/lint/vulture_baseline.json`（後端未用的函式、方法、類別 108 筆）和 `ToukaChat/scripts/contract_type_baseline.json`（和後端合約同名的手寫型別 10 個）都沒有清掉，也沒有期限，清理在候選裡。
   - 死碼清單只有多出來才紅。只有測試在用的新函式、先加函式下個 PR 才接上、搬動或拿掉檔案（可能一次多好幾筆）都會紅：接上，或 `python scripts/lint_ratchet.py vulture --update` 並在 PR 說明逐項列出。`--update` 也會收下新增項目，`# noqa` 和白名單也能藏項目，靠審查看。
   - 合約清單要完全相等，後端改 schema 名時常常要一起重拍（`npm run guard:api -- --update`）。
   - 這兩道都可能和同時進行的 PR 撞：各自綠、合起來紅時 dev 會紅，合併前先把 dev 合進來重跑 CI。
@@ -38,8 +38,8 @@
 
 ## 待排小項
 
-- `EnvSovereigntyRule` 的 `os.system`、`os.chdir` 仍只看 `/src/`，Heartbeat、Dispatch 掃不到（禁令 42；ADR-0297 只處理 7、10）。Ruff TID251 掃得到這兩個資料夾，但 `ToukaDispatch/server.py`、`**/awaken.py`、`**/config.py` 豁免，`server.py` 用了 `subprocess.Popen`。
-- vulture 不看 `.gitignore`：有人在四個產品資料夾底下放沒進版控的 `.py`（例如 `ToukaHeartbeat/.venv`），死碼檢查會多紅（ADR-0297）。
+- `EnvSovereigntyRule` 的 `os.system`、`os.chdir` 仍只看 `/src/`，Heartbeat、Dispatch 掃不到（禁令 42；ADR-0298 只處理 7、10）。Ruff TID251 掃得到這兩個資料夾，但 `ToukaDispatch/server.py`、`**/awaken.py`、`**/config.py` 豁免，`server.py` 用了 `subprocess.Popen`。
+- vulture 不看 `.gitignore`：有人在四個產品資料夾底下放沒進版控的 `.py`（例如 `ToukaHeartbeat/.venv`），死碼檢查會多紅（ADR-0298）。
 - `scripts/update_docs.py` 改了匯入順序後沒有實際執行過（會跑 mkdocs build），下次要產生文件時順便確認。
 - Guard #22 的 pip-audit 空輸出：2026-10-21 起自動重跑一次，仍空就回報「掃描沒跑成」並判紅；【推測】是查詢服務暫時沒回應，根因沒抓到，下次遇到用 `guard_all.py --audit-evidence-root` 保留 stderr 看原因。
 - 【推測】禁令 22 的轉址守衛用檔案系統掃描，以後若有人在 ToukaHeartbeat 或 ToukaDispatch 底下建自己的 `.venv`，守衛會掃到第三方套件而變紅。

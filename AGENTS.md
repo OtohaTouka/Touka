@@ -169,7 +169,7 @@ npm run package
 *   **禁令 43（時間獲取禁令 / TIME_SSOT_VIOLATION）**〔全系統〕：**嚴禁**調用 `datetime.now()`、`time.time()` 或 `datetime.today()`，必須統一使用 `time_utils`（後端）/ `getSystemEpoch()`（前端），內部一律以 UNIX Epoch 為基準。**由 `lint_ssot.py`（AST 級）與 `guard_time.ts` 強制攔截。**（ADR-0013）
 *   **禁令 44（錯誤碼主權 / Error Code Sovereignty）**〔全系統〕：嚴禁在 Exception 或 UI 提示中使用硬編碼字串——後端**嚴禁** `HTTPException(detail="...")`（補禁令 10 的 raise 字串禁令）；前端**嚴禁** `toast.error("...")` / `console.error("...")` 硬編碼內容。`errors.json` 為跨端唯一錯誤定義來源，自動生成雙端常數。**由 `lint_ssot.py`（後端）與 `guard_errors.ts`（前端）攔截。**（ADR-0014）
 *   **禁令 45**〔模組：chat〕：前端 HTTP 一律走 fetchTouka，不得直接 fetch()。全文：docs/rules/chat.md
-*   **禁令 46（死碼禁令 / Dead Code Guard）**〔全系統〕：**嚴禁**未使用的函式、export 或檔案長期存在。前端 export 與檔案由 `knip` 擋（Guard #20）。後端由 `vulture`：函式、方法、類別以基準清單 `tests/lint/vulture_baseline.json` 不得增加（名字和別處相同就不會報，只有測試在用的會報）；未用匯入與到不了的程式由 Guard #20 擋；後端未用的檔案目前沒有檢查。（ADR-0297）
+*   **禁令 46（死碼禁令 / Dead Code Guard）**〔全系統〕：**嚴禁**未使用的函式、export 或檔案長期存在。前端 export 與檔案由 `knip` 擋（Guard #20）。後端由 `vulture`：函式、方法、類別以基準清單 `tests/lint/vulture_baseline.json` 不得增加（名字和別處相同就不會報，只有測試在用的會報）；未用匯入與到不了的程式由 Guard #20 擋；後端未用的檔案目前沒有檢查。（ADR-0298）
 *   **禁令 47**〔模組：deploy〕：成員依賴與 Dockerfile 要同步，不得手動白名單 COPY。全文：docs/rules/deploy.md
 *   **禁令 48**〔模組：proxy、chat〕：refresh Cookie 設 path=/，前端帶 credentials。全文：docs/rules/proxy.md
 *   **禁令 49**〔模組：chat〕：前端視覺樣式出自 tokens.ts 或系統定義，不用任意值。全文：docs/rules/chat.md

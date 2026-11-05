@@ -2,7 +2,7 @@
 """靜態檢查只減不增（ADR-0278）：收集違規、比對基準、重拍基準都在這裡。
 
 ruff、pyrefly 每條規則的數量必須和基準完全相等。變多要修；變少要在同一個 PR 重拍基準，
-讓改善留在差異裡、之後不會被悄悄用掉。vulture 例外，只有多出來才紅（ADR-0297）。
+讓改善留在差異裡、之後不會被悄悄用掉。vulture 例外，只有多出來才紅（ADR-0298）。
 測試（`tests/lint/test_ruff_ratchet.py`、`tests/lint/test_pyrefly_ratchet.py`、
 `tests/lint/test_vulture_ratchet.py`）和重拍都用這裡唯一一份收集指令，兩邊不會各算各的。
 只用標準函式庫。

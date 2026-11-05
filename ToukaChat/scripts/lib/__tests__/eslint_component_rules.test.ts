@@ -9,7 +9,7 @@ const RESTRICTED_SYNTAX = 'no-restricted-syntax';
 const ERROR = 2;
 const WARN = 1;
 
-describe('ESLint 的元件與匯入規則（禁令 50、51；ADR-0297）', () => {
+describe('ESLint 的元件與匯入規則（禁令 50、51；ADR-0298）', () => {
   let eslint: ESLint;
 
   beforeAll(() => {

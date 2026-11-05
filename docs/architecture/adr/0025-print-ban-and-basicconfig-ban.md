@@ -20,7 +20,7 @@
 在 `lint_ssot.py` 中新增兩條 Pluggable Rule：
 
 1. **`PrintBanRule`**（Rule ID: `PRINT_BAN`）  
-   - 偵測 `src/` 業務核心目錄下的 `print()` 直接呼叫（2026-11-05 補記：沒有 `src/` 的 `ToukaHeartbeat`、`ToukaDispatch` 當時掃不到，[ADR-0297](0297-rule-text-matches-checks.md) 起也掃）
+   - 偵測 `src/` 業務核心目錄下的 `print()` 直接呼叫（2026-11-05 補記：沒有 `src/` 的 `ToukaHeartbeat`、`ToukaDispatch` 當時掃不到，[ADR-0298](0298-rule-text-matches-checks.md) 起也掃）
    - 排除 `scripts/` 目錄（CLI 工具輸出）及 `WHITELIST_FILES` 中的白名單檔案
    
 2. **`BasicConfigBanRule`**（Rule ID: `BASICCONFIG_BAN`）  

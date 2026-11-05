@@ -32,7 +32,7 @@ raise ToukaException(ErrorCode.MODEL_NOT_FOUND, detail_override="Context...")
 **禁止清單**：`ValueError`、`RuntimeError`、`TypeError`  
 **偵測對象**：第一個位置參數為 `ast.Constant`（字串字面量）或 `ast.JoinedStr`（f-string）  
 **不禁止**：傳入變數（`raise ValueError(msg)`，AST 無法靜態判定值）、`KeyError`、`NotImplementedError`、`ConnectionError` 等  
-**路徑過濾**：僅掃描 `/src/` 目錄（排除 tests/、scripts/）。2026-11-05 補記：沒有 `src/` 的 `ToukaHeartbeat`、`ToukaDispatch` 當時掃不到，[ADR-0297](0297-rule-text-matches-checks.md) 起也掃。
+**路徑過濾**：僅掃描 `/src/` 目錄（排除 tests/、scripts/）。2026-11-05 補記：沒有 `src/` 的 `ToukaHeartbeat`、`ToukaDispatch` 當時掃不到，[ADR-0298](0298-rule-text-matches-checks.md) 起也掃。
 
 ---
 

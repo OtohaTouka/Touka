@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).absolute().parent.parent
 REPO_TESTS_DIR = REPO_ROOT / "tests"
-# 這兩個產品資料夾沒有 src/，程式直接放在第一層（ADR-0297）。
+# 這兩個產品資料夾沒有 src/，程式直接放在第一層（ADR-0298）。
 FLAT_PRODUCT_DIRS = ("ToukaHeartbeat", "ToukaDispatch")
 
 
