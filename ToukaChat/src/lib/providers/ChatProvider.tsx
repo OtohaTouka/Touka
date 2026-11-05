@@ -7,6 +7,7 @@ import { useArtifacts } from "@/hooks/useArtifacts";
 import { useModels, ModelInfo } from "./ModelProvider";
 import { pickDefaultModel } from "../default_model";
 import { useSessionList } from "./SessionListProvider";
+import { canonicalSoulId } from "../session_tree";
 import { Session, SkillInstallRequest, AskUserRequest, SaveResult } from "../types";
 import { getSystemEpoch } from "../time_utils";
 import { useArtifactExtractor } from "@/hooks/useArtifactExtractor";
@@ -314,8 +315,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const handleSetHome = useCallback(async (id: string) => {
     const sess = sessions.find(s => s.id === id);
-    if (!sess) return;
-    const agentId = sess.agent_id || "ToukaGroup";
+    if (!sess?.agent_id) return;
+    // 後端只收正式靈魂 ID
+    const agentId = canonicalSoulId(sess.agent_id);
     const proxyUrl = getActiveProxyUrl();
     try {
       const res = await fetchTouka(proxyUrl, '/v1/ui/sessions/set_home', {
@@ -330,8 +332,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const handleUnsetHome = useCallback(async (id: string) => {
     const sess = sessions.find(s => s.id === id);
-    if (!sess) return;
-    const agentId = sess.agent_id || "ToukaGroup";
+    if (!sess?.agent_id) return;
+    const agentId = canonicalSoulId(sess.agent_id);
     const proxyUrl = getActiveProxyUrl();
     try {
       const res = await fetchTouka(proxyUrl, '/v1/ui/sessions/set_home', {

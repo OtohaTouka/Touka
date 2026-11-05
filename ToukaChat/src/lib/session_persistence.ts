@@ -1,6 +1,7 @@
 import type { SaveResult, Session, SessionSnapshot, BufferedStreamState, StreamStartedEvent, StreamTerminalEvent } from './types';
 import { ERRORS } from './error_codes';
 import { migrateFlatToTree } from './tree_history';
+import { canonicalSoulId } from './session_tree';
 import type { components } from '../types/api';
 
 /** 僅前端生命週期；傳輸結果仍由 Pydantic 生成的 SaveResult 定義。 */
@@ -51,11 +52,10 @@ export function replaceSession(list: Session[], session: Session): Session[] {
  * 重新核對時才對得上存檔。沒有變動的對話回傳原物件。
  */
 export function applySetHome(list: Session[], sessionId: string, agentId: string, isHome = true): Session[] {
-  const owner = agentId.replace(/^ToukaSoul/, '');
-  const owners = [owner, `ToukaSoul${owner}`];
+  const owner = canonicalSoulId(agentId);
   return list.map(session => {
     if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner };
-    return session.home_for_agent && owners.includes(session.home_for_agent)
+    return session.home_for_agent && canonicalSoulId(session.home_for_agent) === owner
       ? { ...session, is_home: false, home_for_agent: null } : session;
   });
 }

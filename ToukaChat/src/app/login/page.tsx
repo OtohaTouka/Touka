@@ -10,6 +10,8 @@ import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { safeAuthError } from '../../lib/api/authService';
 import { peekSetupResume } from '@/hooks/useSetupResume';
+import { useActiveProxyUrl } from '@/hooks/useActiveProxyUrl';
+import { proxyDisplayUrl } from '@/lib/connections';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -21,6 +23,8 @@ export default function LoginPage() {
   // 精靈改完管理員密碼後，背景請求常先把人帶到這裡，「登入已逾期」提示會隨 Toaster 卸載消失；
   // 有有效的接續點就在這裡說明（只看不取，ADR-0053 補記 2026-10-23）。
   const [setupResumePending] = useState(peekSetupResume);
+  // 打密碼前看得到密碼會送去哪；換後端後的提示同樣會隨 Toaster 卸載，結果也看這裡。
+  const proxyUrl = useActiveProxyUrl();
   const { login } = useAuth();
   const router = useRouter();
 
@@ -60,6 +64,9 @@ export default function LoginPage() {
                 {t('setup.relogin.login_notice')}
               </p>
             )}
+            <p className="text-sm text-center text-muted-foreground break-all">
+              {t('app.login_page.connected_to', { url: proxyDisplayUrl(proxyUrl) })}
+            </p>
             <div className="space-y-2">
               {/* WCAG 3.3.2：程式化標籤（sr-only 保持視覺不變，placeholder 仍為可視提示） */}
               <label htmlFor="login-email" className="sr-only">Email</label>

@@ -2,6 +2,16 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 換後端網址與登入憑證（ADR-0297）
+
+- 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
+- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
+- 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
+- `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。
+- `AuthContext` 在網址移動時（這個分頁的事件，或別的分頁改了清單、清掉 storage）向舊後端登出並清卡。
+- 換網址是真的登出：這個帳號在舊後端所有裝置都要重新登入。成功時沒有提示（Toaster 隨登出卸載），登入與註冊頁顯示目前的網址（`app.login_page.connected_to`）。
+
 ## 模型輸出的 Markdown 與流程圖（ADR-0294）
 
 - 聊天訊息（`MessageItem` 兩處）與 artifact 的 Markdown（`ArtifactView` 的 `MarkdownRenderer`）一律用 `components/markdown/SafeMarkdown.tsx`；呼叫端可以加自己的元件，`img` 換不掉；不收 rehype 外掛，原始 HTML 不顯示。新的顯示處也要用它（`src/` 裡只有它能匯入 `react-markdown`）。
@@ -149,7 +159,7 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 
 - 管理員密碼還是臨時的、初次設定還沒完成這兩個警告，畫在左側邊欄最上面（`SidebarSetupNotices`）。狀態、「稍後」與設定精靈都在 `app/layout.tsx` 的 `SetupNoticesProvider`（在 `AuthGuard` 裡，只呼叫一次 `useSetupStatus`）；這個提供者不能畫任何佔版面的元素，因為 body 是左右排列。
 - 有警告時，桌面版左側邊欄收起後主區左上角的展開鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告（2026-10-28 起；以前在上導覽列的收合鈕）。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
-- 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部導覽與登出仍點得到。
+- 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部選單仍點得到。
 - 精靈第 2 步改完密碼（後端撤銷所有舊卡，ADR-0144）後不前進：`SetupWizard` 改畫 `ReloginNotice`（隱藏上一步與 ×，焦點移到「前往登入」，按下呼叫 `useAuth().logout()`），並由提供者經 `useSetupResume.saveSetupResume` 記下接續點（localStorage `touka_setup_resume`：`{ userId, stepId, savedAt }`，`SETUP_RESUME_TTL_MS`＝1 小時；三欄型別、步驟名稱、時間不在未來都驗過才算有效，能解析但格式不對或過期的整筆刪；`me.id` 由第 2 步傳上來，畫面已卸載也照寫）。登出時 `AuthGuard` 先卸載整棵樹（含 Toaster），到 `/login` 重新掛上；登入後到首頁不重掛，所以 `useSetupResumeAfterLogin` 在管理員的 user.id 出現或改變時取一次（登入、帶有效 session 重新整理都算；別人的不取不刪），提供者等狀態讀到、`hasSetupIssues` 為真才打開精靈。登入頁用 `peekSetupResume`（只看不取）顯示說明。管理員密碼已不是臨時密碼時第 2 步有「保留目前密碼」；前進到第 7 步時呼叫 `onStatusRefresh` 重讀狀態（在 `next()` 裡觸發，不用 effect）。
 
 ## 訊息時間戳（ADR-0264）
@@ -302,10 +312,16 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 *   **模式**: **Flattened PanelGroup**。
 *   **結構**: `[Left Panel] | [Center Panel] | [Right Panel]` 處於同一層級。
 *   **優點**: 調整左側寬度時不會影響右側寬度，徹底解決巢狀連動問題。
-*   **沒有上導覽列（2026-10-28）**: 分頁切換與設定只在左側邊欄（`NavigationArea`）。主區最上面是 `components/layout/MainAreaControls.tsx` 的一條 `h-10` 細列（沒有框線、沒有標題），只放角落按鈕：
-    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。按這兩顆鈕收起或展開後焦點掉了，就交給另一顆鈕（`setLeftSidebarOpen()` 記下這次是按鈕要求的，兩邊在狀態改變後各問一次 `takeFocusRequest`；面板掛上時依版面記錄自己同步狀態的那一次不移焦點，載入時才不搶焦點）；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。左側邊欄底部的分頁鈕是唯一的分頁入口，目前分頁標 `aria-current="page"`。
+*   **沒有上導覽列（2026-10-28）**: 分頁切換、設定與登出都收在左側邊欄底部的選單（`NavigationArea`，2026-11-05 起；手機同一個側欄）。按鈕顯示使用者名稱，不在聊天時標出目前畫面；沒有「聊天大廳」，回聊天靠點對話或新對話（點開著的這段只換畫面、不重新載入，和以前的聊天大廳一樣）；登出要按兩下，第一下不關選單；`modal={false}` 是防禦寫法：選項會同時關掉手機抽屜，強制對話模式可能把整頁的點擊留在關閉狀態（實際驗證沒有重現，由單元測試釘住）。主區最上面是 `components/layout/MainAreaControls.tsx` 的一條 `h-10` 細列（沒有框線、沒有標題），只放角落按鈕：
+    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。按這兩顆鈕收起或展開後焦點掉了，就交給另一顆鈕（`setLeftSidebarOpen()` 記下這次是按鈕要求的，兩邊在狀態改變後各問一次 `takeFocusRequest`；面板掛上時依版面記錄自己同步狀態的那一次不移焦點，載入時才不搶焦點）；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。左側邊欄底部的選單是唯一的分頁入口，目前分頁標 `aria-current="page"`。
     *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
-    *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列。
+    *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列，只放開側欄與工具面板兩顆鈕，設定從選單進（`isMobile` 分支不看 `isIDE()`，窄 IDE 面板也走這裡）。
+*   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
+    *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
+    *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。
+    *   「設為家」嚴格（`canSetHome`）：只給 `type === 'soul'`，正式 ID 規則和後端 `identify_agent` 相同（`canonicalSoulId`，只去掉大小寫完全相符的 `ToukaSoul`）；設家、取消家都送正式 ID。
+    *   收合狀態在 `useSessionTreeState`：`localStorage` 鍵名含使用者 ID，`SessionTree` 用身分當 React key 重掛（`useLocalStorage` 換鍵不重讀）；只有無痕對話的資料夾與專案分組只記在記憶體（ADR-0086）；「還有 N 個」不保存。
+    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
 *   **手機版判斷**: `hooks/useIsMobile.ts`（`(max-width: 768px)`），`page.tsx` 的版面切換與 ChatArea 的訊息導覽列共用。
 

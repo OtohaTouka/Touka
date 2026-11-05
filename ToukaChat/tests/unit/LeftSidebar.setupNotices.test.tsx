@@ -13,29 +13,14 @@ vi.mock('@/components/setup/SetupWizard', () => ({
 vi.mock('@/lib/SystemStatusContext', () => ({
   useSystemStatus: () => ({ status: { mode: 'hybrid', memoryNotices: [], systemNotices: [] } }),
 }));
-vi.mock('@/lib/providers/SessionListProvider', () => ({
-  useSessionList: () => ({ sessions: [] }),
-}));
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
     activeSessionId: null,
     handleNewSession: vi.fn(),
     handleSwitchSession: vi.fn(),
-    handleSetHome: vi.fn(),
-    handleSetProject: vi.fn(),
-    handleUnsetHome: vi.fn(),
-    streamingSessionIds: [],
   }),
 }));
-vi.mock('@/lib/providers/ProjectProvider', () => ({
-  useProjects: () => ({ projects: [] }),
-}));
-vi.mock('@/hooks/useSessionGroups', () => ({
-  useSessionGroups: () => ({ sessionGroups: {} }),
-}));
-vi.mock('@/hooks/useSessionActions', () => ({
-  useSessionActions: () => ({}),
-}));
+vi.mock('@/components/sidebar/left/SessionTree', () => ({ SessionTree: () => null }));
 vi.mock('@/components/sidebar/left/NavigationArea', () => ({
   NavigationArea: () => <nav data-testid="navigation-area" />,
 }));

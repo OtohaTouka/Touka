@@ -61,6 +61,8 @@ const okProfile = () =>
 describe('AuthContext', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // connections.ts 內部讀真的清單，要和上面 mock 的目前網址一致。
+    window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://localhost:8000' }]));
   });
 
   it('should show loading initially and attempt to refresh token', async () => {

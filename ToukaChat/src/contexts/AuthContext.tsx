@@ -17,6 +17,7 @@ import {
   captureRequestScope,
   subscribeCredentialScope,
   logoutTouka,
+  CONNECTIONS_STORAGE_KEY,
 } from '../lib/connections';
 import { logSSOTError } from '../lib/error_handler';
 import i18n from '../lib/i18n';
@@ -152,12 +153,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const changeOrigin = () => {
       const nextUrl = getActiveProxyUrl();
       if (nextUrl === proxyUrl) return;
+      // 換網址等於登出舊後端。設定頁的流程已經先登出（沒卡）；別的分頁與舊頁走到這裡。
+      if (getAccessToken()) void logoutTouka(proxyUrl);
       proxyUrl = nextUrl;
       invalidate();
       clearAccessToken();
     };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CONNECTIONS_STORAGE_KEY || event.key === null) changeOrigin();
+    };
     const unsubscribe = subscribeCredentialScope(invalidate);
     window.addEventListener('touka_connections_updated', changeOrigin);
+    window.addEventListener('storage', onStorage);
     const initAuth = async () => {
       const operation = beginOperation();
       try {
@@ -167,7 +174,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           credentialEpoch: operation.epoch,
         });
         requireCurrent(operation);
-        writeCard(operation, () => storeToken(data.access_token));
+        writeCard(operation, () => storeToken(data.access_token, operation.proxyUrl));
         const profile = await fetchUserProfile(operation);
         requireCurrent(operation);
         setAccessToken(getAccessToken());
@@ -189,6 +196,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       active.current = null;
       unsubscribe();
       window.removeEventListener('touka_connections_updated', changeOrigin);
+      window.removeEventListener('storage', onStorage);
     };
   }, [beginOperation, current, requireCurrent, writeCard, fetchUserProfile, clearView]);
 
@@ -206,7 +214,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         credentialEpoch: operation.epoch,
       });
       requireCurrent(operation);
-      writeCard(operation, () => storeToken(data.access_token));
+      writeCard(operation, () => storeToken(data.access_token, operation.proxyUrl));
       const profile = await fetchUserProfile(operation);
       requireCurrent(operation);
       setAccessToken(getAccessToken());

@@ -80,6 +80,10 @@ describe('applySetHome follows the backend set_home rule', () => {
       expect.objectContaining({ id: 'old', is_home: false, home_for_agent: null }),
     ]);
   });
+  it('a prefix in another case is a different agent, like the backend', () => {
+    const other = home('other', 'toukasoulAlice');
+    expect(applySetHome([other, home('new', null)], 'new', 'Alice')[0]).toBe(other);
+  });
   it('cancelling clears every home of that agent and sets nothing', () => {
     const plain = home('plain', null);
     const list = [home('current', 'Alice'), home('legacy', 'ToukaSoulAlice'), home('other', 'Bob'), plain];

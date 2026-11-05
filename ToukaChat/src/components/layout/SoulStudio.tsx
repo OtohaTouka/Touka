@@ -1,7 +1,7 @@
 // src/components/layout/SoulStudio.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useLayoutEffect, useId, useSyncExternalStore } from "react";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect, useId } from "react";
 import {
     UserCircle2, Cpu, PlusCircle, X,
     Info, Check, RefreshCw, Zap, Brain,
@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useSoulSave } from "@/hooks/useSoulSave";
 import { useSoulToolCatalog } from "@/hooks/useSoulToolCatalog";
+import { useActiveProxyUrl } from "@/hooks/useActiveProxyUrl";
 import { isSelectableBaseModel } from "@/lib/default_model";
 import {
     Dialog,
@@ -63,15 +64,6 @@ const DEFAULT_SOUL_CONFIG: SoulConfig = {
     ]
 };
 
-function subscribeProxy(notify: () => void) {
-    window.addEventListener('touka_connections_updated', notify);
-    window.addEventListener('storage', notify);
-    return () => {
-        window.removeEventListener('touka_connections_updated', notify);
-        window.removeEventListener('storage', notify);
-    };
-}
-
 const SAVE_FIELDS = ['persona', 'baseModel', 'temperature', 'topP', 'topK', 'enabledTools', 'safetySettings'] as const;
 
 export function SoulStudio() {
@@ -93,7 +85,7 @@ export function SoulStudio() {
     const [pendingAction, setPendingAction] = useState<"delete" | "save" | null>(null);
     const [confirmPassword, setConfirmPassword] = useState("");
     const [actionBusy, setActionBusy] = useState(false);
-    const saveProxyUrl = useSyncExternalStore(subscribeProxy, getActiveProxyUrl, getActiveProxyUrl);
+    const saveProxyUrl = useActiveProxyUrl();
     const toolCatalog = useSoulToolCatalog(saveProxyUrl);
     const [soulsProxyUrl, setSoulsProxyUrl] = useState<string | null>(null);
     const activeSoul = soulsProxyUrl === saveProxyUrl

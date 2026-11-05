@@ -978,7 +978,11 @@
       "empty_state": "No connections created yet.",
       "saved": "Connections saved",
       "delete_confirm": "Delete connection \"{{name}}\"? Its saved API key will be removed.",
-      "delete_confirm_label": "Delete"
+      "delete_confirm_label": "Delete",
+      "proxy_switch_confirm": "Switch the backend to {{url}}? This account will be signed out on all devices for the current backend, and this browser will go to the login page.",
+      "proxy_switch_confirm_label": "Switch and sign out",
+      "proxy_checking": "Checking that {{url}} is reachable…",
+      "proxy_unreachable": "Can't reach {{url}}, or it isn't a Touka backend. The URL was not changed."
     },
     "tools_tab": {
       "no_description": "No description yet",
@@ -1323,6 +1327,13 @@
       "standalone": "Standalone",
       "hybrid": "Hybrid System"
     },
+    "session_tree": {
+      "loading": "Loading chats",
+      "more_sessions": "{{count}} more",
+      "folder_home_aria": "{{name}}, home chat: {{title}}",
+      "folder_holds_active": "open chat inside",
+      "label_separator": ", "
+    },
     "session_item": {
       "background_generating": "Generating in background",
       "incognito_label": "Incognito conversation",
@@ -1342,7 +1353,9 @@
       "round_count_other": "{{count}} rounds"
     },
     "navigation_area": {
-      "nav_chat": "Chat Lobby",
+      "menu": "Menu",
+      "menu_aria": "Menu: {{name}}",
+      "menu_aria_page": "Menu: {{name}}, currently on {{page}}",
       "nav_projects": "Projects",
       "nav_soul": "Soul Core",
       "nav_studio": "Model Studio",
@@ -1980,6 +1993,7 @@
       "new_chat_button": "New Chat",
       "incognito_chat_button_tooltip": "Start a conversation that leaves no trace: not saved, and the AI doesn't read or write memory",
       "incognito_chat_button": "Incognito Chat",
+      "incognito_chat_button_short": "Incognito",
       "session_history_heading": "Conversation History",
       "collapse_sidebar": "Collapse sidebar"
     },
@@ -2125,7 +2139,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "Unassigned agent",
       "project_group": "Project: {{name}}",
       "unknown_project": "Unknown project",
       "other_conversations": "Other conversations",
@@ -2201,6 +2214,9 @@
     }
   },
   "app": {
+    "login_page": {
+      "connected_to": "Connected to: {{url}}"
+    },
     "connections_page": {
       "title": "Connection Management",
       "add_ai_node": "Add AI Node",

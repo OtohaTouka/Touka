@@ -25,10 +25,19 @@ export function composer(page: Page) {
   return page.getByPlaceholder("在此輸入指令或對話...");
 }
 
-export async function loginInBrowser(page: Page): Promise<void> {
+export async function loginInBrowser(
+  page: Page,
+  email: string = process.env[ENV_EMAIL] ?? "",
+  password: string = process.env[ENV_PASSWORD] ?? "",
+): Promise<void> {
   await page.goto("/login");
-  await page.getByPlaceholder("Email").fill(process.env[ENV_EMAIL] ?? "");
-  await page.getByPlaceholder("Password").fill(process.env[ENV_PASSWORD] ?? "");
+  await submitLogin(page, email, password);
+}
+
+/** 已經在登入頁時直接填：不重新載入頁面，才驗得到同一頁換帳號。 */
+export async function submitLogin(page: Page, email: string, password: string): Promise<void> {
+  await page.getByPlaceholder("Email").fill(email);
+  await page.getByPlaceholder("Password").fill(password);
   await page.keyboard.press("Enter");
   await page.waitForURL((url) => !url.pathname.includes("login"));
   await composer(page).waitFor();
@@ -39,11 +48,11 @@ export async function openChat(page: Page): Promise<void> {
   await composer(page).waitFor();
 }
 
-export async function selectSoul(page: Page): Promise<void> {
+export async function selectSoul(page: Page, soulId: string = SOUL_ID): Promise<void> {
   const picker = page.getByRole("combobox", { name: "選擇模型" });
   await picker.click();
-  await page.getByRole("option", { name: SOUL_ID }).click();
-  await expect(picker).toContainText(SOUL_ID);
+  await page.getByRole("option", { name: soulId }).click();
+  await expect(picker).toContainText(soulId);
 }
 
 /** 用 Enter 送：換模型的提示可能還蓋在「傳送」鈕上，點按鈕要等提示消失。 */
@@ -66,10 +75,11 @@ export async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
 }
 
 function sessionOptions(page: Page, title?: string): Locator {
-  return page.getByRole("button", { name: title ? `會話選項：${title}` : /^會話選項：/ }).first();
+  if (title) return page.getByRole("button", { name: `會話選項：${title}` }).first();
+  return page.locator('aside [role="treeitem"][aria-current="true"]').getByRole("button", { name: /^會話選項：/ });
 }
 
-/** 沒給標題時是側欄最上面那段（剛送過訊息的對話）。 */
+/** 沒給標題時是開著的這段。 */
 export async function setChatAsHome(page: Page, title?: string): Promise<void> {
   await sessionOptions(page, title).click();
   await page.getByRole("menuitem", { name: "設為家對話" }).click();
@@ -97,8 +107,19 @@ export async function renameChat(page: Page, title: string, next: string): Promi
   await page.keyboard.press("Enter");
 }
 
+/** 左側邊欄底部的選單按鈕：其他畫面與登出都收在這裡。 */
+export function sideMenuButton(page: Page): Locator {
+  return page.getByRole("button", { name: /^選單：/ });
+}
+
+export async function openSideMenu(page: Page): Promise<void> {
+  await sideMenuButton(page).click();
+  await page.getByRole("menu").waitFor();
+}
+
 export async function openHooksTab(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await openSideMenu(page);
+  await page.getByRole("menuitem", { name: "設定", exact: true }).click();
   await page.getByText("系統管理", { exact: true }).first().click();
   await page.getByText("Hooks", { exact: true }).first().click();
   await page.getByText("啟用 Hooks").waitFor();
