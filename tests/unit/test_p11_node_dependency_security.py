@@ -31,8 +31,9 @@ SECURITY_FLOORS = {
     "@vitest/mocker": "4.1.12",
     "@modelcontextprotocol/client": "2.3.0",
     "@modelcontextprotocol/node": "2.1.0",
+    "@azure/msal-node": "7.1.0",
 }
-IDE_ONLY_PACKAGES = ("@modelcontextprotocol/client", "@modelcontextprotocol/node")
+IDE_ONLY_PACKAGES = ("@modelcontextprotocol/client", "@modelcontextprotocol/node", "@azure/msal-node")
 PROJECT_PACKAGES = {
     "ToukaChat": tuple(name for name in SECURITY_FLOORS if name not in IDE_ONLY_PACKAGES),
     "ToukaIDE": (
@@ -51,6 +52,7 @@ PROJECT_PACKAGES = {
         "@modelcontextprotocol/client",
         "@modelcontextprotocol/node",
         "body-parser",
+        "@azure/msal-node",
     ),
 }
 
