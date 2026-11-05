@@ -20,8 +20,7 @@ from src.services.hooks.background import schedule_background_hook
 from src.services.hooks.events import base_payload, wrap_hook_output
 from src.services.hooks.service import hook_service
 from src.services.hooks.stopping import request_stopped
-from src.utils.mcp_secrets import sanitize_diagnostic
-from src.utils.secret_text import redact_credentials
+from src.utils.secret_text import sanitize_error_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -94,7 +93,7 @@ def notify_stop_failure(ctx: Mapping[str, Any], error_type: str, details: str) -
         ctx,
         lambda: {
             "error": error_type,
-            "error_details": sanitize_diagnostic(redact_credentials(details)),
+            "error_details": sanitize_error_text(details),
         },
         match=(error_type,),
     )

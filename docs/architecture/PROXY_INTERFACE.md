@@ -13,6 +13,7 @@
 - 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由；`detail.reason` 最多 4,000 字；這時後端沒有寫任何東西（請求在送模型前就被拒）。hook 執行期間這個對話被停止（`POST /v1/ui/sessions/{id}/stop`）時，hook 跑完後不送模型，回 409 `PROMPT_STOPPED`（hook 擋下時仍回 403）。停止端點不帶 `stream_id` 時，若呼叫者本人在這個對話有還沒開始串流的請求、而且沒有進行中的串流，就把這個人還在等的請求標成已停止、回 200（不讀這一輪的對話內容，無痕也停得下來；同一對話之後的請求清不掉）。對話已存在時要有權限（沒有就回 403），這時也設這個對話的停止旗標、結束這個對話的子程序；查不到對話時只停自己的請求。這個停止之後同一個對話的下一則請求清掉旗標也一樣停（看這次執行開始之後被停止過幾次）。組上下文期間才停的，換綁對話之前與開始串流前回同樣的 409、不換綁、不建立串流。這個 409 不算模型失敗，不改用備援模型。有進行中的串流時照舊回 404 `STREAM_NOT_FOUND`，要帶 `stream_id` 才停得到。hook 服務自己出錯時照常回覆（當成沒有 hook 結果）。
 - 插話（ADR-0249 的 `POST …/interjections`）：進佇列前跑 UserPromptSubmit，擋下回 403 `HOOK_PROMPT_BLOCKED`（`detail.reason`），不進佇列；hook 執行期間串流換代或結束時回 404 `STREAM_NOT_FOUND`。
 - SNS：外人訊息等 hook 跑過、pipeline 開始回覆後才寫進對話（回覆是串流，寫好之前不讀）；被 UserPromptSubmit 擋下的不寫、不回覆外人，也不往外丟錯（只記 log），其他錯誤照舊寫。寫入失敗回 `SESSION_SAVE_FAILED`，不讀回覆、不呼叫模型。
+- 模型回合失敗：文字在 `RoundError` 建立時遮罩並限 300 字；SNS 來的對話（單人與群聊）對外與存檔只留固定文字（`sns_source`，由閘道標記）。
 - 事件內容：PreToolUse／PostToolUse 的 `tool_input` 是模型送來的參數（不含執行器之後補上的欄位）；模型叫舊工具名稱時另帶 `tool_aliases`（對應的新名稱），matcher 兩者都比對；MCP 工具另比對 `server__tool` 與 `mcp__server__tool`（模型用裸名稱叫也一樣）。
 - 專案根（ADR-0292 決定 12）：一般使用者（非 admin、非 Debugger）的專案根不能在 Touka 保護的位置或它們的上層；本機安裝時安裝根底下 Touka 自己的第一層資料夾也不行。
   - `POST /v1/ui/projects/save`（存專案）不合規則回 422 `VALIDATION_ERROR`，`detail.reason` 是 `outside_workspace`、`protected_location` 或 `scan_limit`（檢查沒做完：資料夾太多、讀不到或還在查，訊息另外說明）。
