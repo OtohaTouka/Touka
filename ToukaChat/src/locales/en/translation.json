@@ -978,7 +978,11 @@
       "empty_state": "No connections created yet.",
       "saved": "Connections saved",
       "delete_confirm": "Delete connection \"{{name}}\"? Its saved API key will be removed.",
-      "delete_confirm_label": "Delete"
+      "delete_confirm_label": "Delete",
+      "proxy_switch_confirm": "Switch the backend to {{url}}? This account will be signed out on all devices for the current backend, and this browser will go to the login page.",
+      "proxy_switch_confirm_label": "Switch and sign out",
+      "proxy_checking": "Checking that {{url}} is reachable…",
+      "proxy_unreachable": "Can't reach {{url}}, or it isn't a Touka backend. The URL was not changed."
     },
     "tools_tab": {
       "no_description": "No description yet",
@@ -2210,6 +2214,9 @@
     }
   },
   "app": {
+    "login_page": {
+      "connected_to": "Connected to: {{url}}"
+    },
     "connections_page": {
       "title": "Connection Management",
       "add_ai_node": "Add AI Node",

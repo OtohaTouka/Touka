@@ -2,6 +2,16 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 換後端網址與登入憑證（ADR-0297）
+
+- 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
+- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
+- 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
+- `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。
+- `AuthContext` 在網址移動時（這個分頁的事件，或別的分頁改了清單、清掉 storage）向舊後端登出並清卡。
+- 換網址是真的登出：這個帳號在舊後端所有裝置都要重新登入。成功時沒有提示（Toaster 隨登出卸載），登入與註冊頁顯示目前的網址（`app.login_page.connected_to`）。
+
 ## 模型輸出的 Markdown 與流程圖（ADR-0294）
 
 - 聊天訊息（`MessageItem` 兩處）與 artifact 的 Markdown（`ArtifactView` 的 `MarkdownRenderer`）一律用 `components/markdown/SafeMarkdown.tsx`；呼叫端可以加自己的元件，`img` 換不掉；不收 rehype 外掛，原始 HTML 不顯示。新的顯示處也要用它（`src/` 裡只有它能匯入 `react-markdown`）。

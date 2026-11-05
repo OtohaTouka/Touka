@@ -1159,6 +1159,10 @@ python scripts/guard_all.py
 | `src/lib/providers/__tests__/ChatProvider.setHome.test.tsx` | 設家與取消家：後端只收正式靈魂 ID；舊家是前綴或正式 ID 都算同一個靈魂、別的靈魂的家不動；沒綁模型不送請求；後端拒絕時畫面不動 |
 | `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名 |
 | `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
+| `src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx` ⭐ | ADR-0297 換後端網址：真的 AuthProvider、設定頁與 `connections.ts`，只假 fetch 與提示框，攔每個請求的憑證與內容。存檔換網址走確認→探測→向舊後端登出→切換，新網址收不到憑證與清單；取消、連不上、不是 Touka、舊後端連不上或不回、重複確認、留下來的提示、探測中別的分頁換網址；後端清單不能改網址；別的分頁改網址時登出；舊 `/connections` 頁事件晚於寫入；同網址存檔照舊 |
+| `src/lib/__tests__/connections.token-origin.security.test.ts` ⭐ | ADR-0297 統一出口：`fetchTouka`、`fetchChatStream` 對非發卡後端不帶卡、不續期、不重送，對發卡後端照帶（含各種網址寫法）；領卡與續期綁回應的網址；`activeProxyUrlOf`、`keepActiveProxy`、`publishConnections`、`isProxyReachable` |
+| `tests/auth/AuthPagesProxyUrl.test.tsx` | ADR-0297 登入與註冊頁顯示目前的網址，別的分頁改網址時跟著變，沒有設定時顯示前端來源 |
+| `e2e-real/connection-switch.spec.ts` ⭐ | ADR-0297 實際驗證：真瀏覽器、真後端、一支放行 CORS 的小伺服器當新後端。確認後兩個分頁都回登入頁，小伺服器沒收到憑證、預檢沒要求憑證、沒收到 refresh cookie（同主機換埠）、沒收到清單；連不上時不換、可以重試 |
 | `unit/LeftSidebar.switch.test.tsx` | 點對話：在其他畫面點開著的這段只回聊天、不重新載入；點另一段會切過去也回聊天；已經在聊天時照常切換 |
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |

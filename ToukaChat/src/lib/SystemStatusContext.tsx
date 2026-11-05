@@ -4,9 +4,9 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchTouka, getActiveProxyUrl, getAccessToken, captureRequestScope,
     isRequestScopeCurrent, subscribeCredentialScope } from "./connections";
+import { validHealth } from "./healthResponse";
 import { getSystemEpoch, formatToTaipeiTime } from "./time_utils";
 import i18n from "./i18n";
-import type { components } from "@/types/api";
 
 export type SystemCheckState = "checking" | "auth_required" | "forbidden" | "unavailable" | "degraded" | "ready";
 /** 記憶提示（/v1/memory 的 memory_notices）：只有代碼與等級，文字由前端翻譯；不影響狀態判斷。 */
@@ -30,11 +30,6 @@ interface SystemStatusContextType { status: SystemStatus; checkStatus: () => Pro
 const SystemStatusContext = createContext<SystemStatusContextType | undefined>(undefined);
 const record = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
-function validHealth(value: unknown): value is components["schemas"]["HealthResponse"] {
-    return record(value) && (value.status === "healthy" || value.status === "degraded") &&
-        typeof value.timestamp === "string" && typeof value.permission_config_degraded === "boolean" &&
-        typeof value.permission_config_degraded_reason === "string";
-}
 function emptyStatus(checkState: SystemCheckState): SystemStatus {
     return { isConnected: false, isMemoryActive: false, systemDegraded: false, degradedReason: "",
         latency: "", mode: "unknown", checkState, lastChecked: formatToTaipeiTime(getSystemEpoch()), memoryNotices: [], systemNotices: [] };

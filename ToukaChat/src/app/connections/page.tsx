@@ -13,13 +13,14 @@ import { PlusCircle, Pencil, Trash2, Shield, Radio, Globe, Zap, Cpu } from "luci
 import { getSystemEpoch } from "@/lib/time_utils";
 import { PROVIDER_CATALOG, PROVIDER_IDS, resolvePrefillUrl, type ProviderKey } from "@/lib/providerCatalog";
 import { applyConnectionEdit } from "@/lib/connectionEdit";
+import { CONNECTIONS_STORAGE_KEY, publishConnections } from "@/lib/connections";
 import { Connection } from "@/lib/types";
 import { DirectConnectionNotice } from "@/components/settings/tabs/connections/DirectConnectionNotice";
 
 export default function ConnectionsPage() {
     const { t } = useTranslation();
     // useLocalStorage 統一管理 JSON 序列化與持久化（LOCALSTORAGE_SSOT）
-    const [connections, setConnections] = useLocalStorage<Connection[]>("touka_connections", []);
+    const [connections, setConnections] = useLocalStorage<Connection[]>(CONNECTIONS_STORAGE_KEY, []);
     const [newConnName, setNewConnName] = useState("");
     const [newConnUrl, setNewConnUrl] = useState("");
     const [newConnApiKey, setNewConnApiKey] = useState("");
@@ -33,9 +34,9 @@ export default function ConnectionsPage() {
     };
 
     const saveConnections = (conns: Connection[]) => {
+        // 先寫再通知：收到事件的人（AuthContext）要讀到新網址才知道換了後端。
+        publishConnections(conns);
         setConnections(conns); // useLocalStorage 自動持久化
-        // Broadcast update for other components
-        window.dispatchEvent(new CustomEvent("touka_connections_updated", { detail: conns }));
     };
 
     const addConnection = () => {
