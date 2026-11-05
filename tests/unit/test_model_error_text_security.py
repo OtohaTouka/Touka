@@ -156,7 +156,7 @@ def test_masking_twice_changes_nothing(text: str) -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "長" * 280 + " https://example.test/v1/abcdefghijklmnopqrstuvwxyz",  # 切在網址中間
+        "長" * 280 + " https://example.test/v1/abcdefghijklmnopqrstuvwxyz",  # 切在遮完的網址中間
         "長" * 297 + f" {LOCAL_PATH}",  # 切在路徑換成的遮罩記號中間
     ],
 )
