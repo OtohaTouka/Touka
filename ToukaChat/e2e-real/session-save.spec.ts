@@ -5,6 +5,7 @@ import { modelCalls, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import {
   composer,
+  expectChatIsHome,
   expectLastReplyMarkedFailed,
   loginInBrowser,
   openChat,
@@ -118,6 +119,7 @@ test("設為家又馬上取消，再送一則都正常", async ({ page }) => {
 
   await unsetChatHome(page, "取消之前");
   await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(false);
+  await expectChatIsHome(page, "取消之前", false);
 
   await send(page, "取消之後");
   expect(await savedUserTexts(id)).toContain("取消之後");
@@ -166,6 +168,35 @@ test("輪流換家之後，舊的家對話再送一則都正常", async ({ page 
   await send(page, "第二段：換家之後");
   expect(await savedUserTexts(second)).toContain("第二段：換家之後");
   await shot(page, info, "old-home-saved");
+});
+
+test("連續換兩次家：清單上只剩最後一段是家，舊家再送一則都正常", async ({ page }) => {
+  await send(page, "甲家");
+  const first = await latestSessionId(adminToken);
+  await setChatAsHome(page, "甲家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
+
+  const setNewChatAsHome = async (title: string): Promise<string> => {
+    await page.getByRole("button", { name: "新增對話" }).click();
+    await selectSoul(page);
+    await send(page, title);
+    const id = await latestSessionId(adminToken);
+    await setChatAsHome(page, title);
+    await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
+    return id;
+  };
+  const second = await setNewChatAsHome("乙家");
+  const third = await setNewChatAsHome("丙家");
+
+  expect((await savedSnapshot(adminToken, second)).session).toMatchObject({ is_home: false, home_for_agent: null });
+  await expectChatIsHome(page, "甲家", false);
+  await expectChatIsHome(page, "乙家", false);
+  await expectChatIsHome(page, "丙家", true);
+
+  await page.getByText("乙家", { exact: true }).first().click();
+  await send(page, "乙家：換家之後");
+  expect(await savedUserTexts(second)).toContain("乙家：換家之後");
+  expect((await savedSnapshot(adminToken, third)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
 });
 
 test("回覆之後重新整理：存檔不變、沒有提示，下一則直接送出", async ({ page }, info) => {

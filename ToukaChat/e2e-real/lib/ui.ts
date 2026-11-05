@@ -82,6 +82,13 @@ export async function unsetChatHome(page: Page, title: string): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
+/** 清單上這段是不是家：選單給的動作跟著畫面記的家標記走。 */
+export async function expectChatIsHome(page: Page, title: string, isHome: boolean): Promise<void> {
+  await sessionOptions(page, title).click();
+  await expect(page.getByRole("menuitem", { name: isHome ? "取消家對話" : "設為家對話" })).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
 export async function renameChat(page: Page, title: string, next: string): Promise<void> {
   await sessionOptions(page, title).click();
   await page.getByRole("menuitem", { name: "重命名" }).click();

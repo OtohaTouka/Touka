@@ -202,6 +202,16 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
       expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
     });
+    it('setting the home twice in a row leaves only the last one marked', async () => {
+      const { result } = await created();
+      act(() => result.current.setSessions(previous => [...previous, { ...local(), id: 's2' }, { ...local(), id: 's3' }]));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      act(() => result.current.applySavedHome('s2', 'Alice', true));
+      act(() => result.current.applySavedHome('s3', 'Alice', true));
+      expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
+      expect(result.current.getSession('s2')).toMatchObject({ is_home: false, home_for_agent: null });
+      expect(result.current.getSession('s3')).toMatchObject(homeFields);
+    });
     it('cancelling a home that was never saved again follows the store and the next command saves', async () => {
       const { result } = await created();
       act(() => result.current.applySavedHome('s1', 'Alice', true));
