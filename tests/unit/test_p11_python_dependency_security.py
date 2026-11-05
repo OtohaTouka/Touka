@@ -26,6 +26,8 @@ SECURITY_FLOORS = (
     ("pyjwt", "2.15.1"),
     ("urllib3", "2.8.0"),
     ("opentelemetry-api", "1.45.1"),
+    ("dnspython", "2.9.0"),
+    ("msgpack", "1.2.3"),
 )
 
 
