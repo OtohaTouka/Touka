@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { adminLogin, createChat, createProject, createSoul, createUser, login, setChatHome, type ChatSeed } from "./lib/api";
 import { FAKE_MODEL_ID, FAKE_TEXT_REPLY } from "./lib/constants";
 import { modelCalls } from "./lib/control";
-import { composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot, sideMenuButton } from "./lib/ui";
+import { composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot, sideMenuButton, submitLogin } from "./lib/ui";
 
 // 每個情境用新的靈魂與帳號：共用沙盒裡 hooks-* 的靈魂已經有對話和家，一般帳號只看得到自己的對話。
 const PASSWORD = "session-tree-password-1";
@@ -113,9 +113,12 @@ test("資料夾那一列：點名字開家對話、點箭頭收合展開、沒�
   await arrow(folder).click();
   await expect(folder).toHaveAttribute("aria-expanded", "false");
   await expect(row(page, "六之一")).toHaveCount(0);
-  await expect(folder).not.toHaveAttribute("aria-current", "true");
+  // 開著的對話收進去了：資料夾那一列亮起來，畫面上才找得到它
+  await expect(folder).toHaveAttribute("aria-current", "true");
+  await shot(page, info, "collapsed-holds-active");
   await arrow(folder).click();
   await expect(row(page, "六之一")).toHaveAttribute("aria-current", "true");
+  await expect(folder).not.toHaveAttribute("aria-current", "true");
 
   const bare = row(page, noHome);
   await arrow(bare).click();
@@ -152,7 +155,8 @@ test("收合後重新整理還在；換一個帳號不受影響、沒有殘留",
   await page.getByRole("menuitem", { name: "確認登出？", exact: true }).click();
   await page.waitForURL((url) => url.pathname.includes("login"));
 
-  await loginInBrowser(page, second.email, PASSWORD);
+  // 同一頁換帳號：登出、登入都不重新載入，頁面上的狀態要自己換掉
+  await submitLogin(page, second.email, PASSWORD);
   await expect(row(page, soul)).toHaveAttribute("aria-expanded", "true");
   await expect(row(page, "七之乙")).toBeVisible();
 
@@ -161,7 +165,7 @@ test("收合後重新整理還在；換一個帳號不受影響、沒有殘留",
   await page.getByRole("menuitem", { name: "確認登出？", exact: true }).click();
   await page.waitForURL((url) => url.pathname.includes("login"));
 
-  await loginInBrowser(page, first.email, PASSWORD);
+  await submitLogin(page, first.email, PASSWORD);
   await expect(row(page, soul)).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -242,6 +246,8 @@ test("專案畫面維持依專案分組，點對話回到聊天與靈魂資料�
   await seed(adminToken, [
     { id: "ten-in", title: "十之專案內", agentId: soul, updatedAt: 20, projectId: "ten-project" },
     { id: "ten-out", title: "十之專案外", agentId: soul, updatedAt: 10 },
+    // 一般帳號不能建群聊對話，放在這個管理員的情境驗
+    { id: "ten-group", title: "十之群聊", agentId: "ToukaGroup", updatedAt: 5 },
   ]);
   await loginInBrowser(page);
 
@@ -253,11 +259,18 @@ test("專案畫面維持依專案分組，點對話回到聊天與靈魂資料�
   await expect(row(page, soul)).toHaveCount(0);
   await shot(page, info, "projects");
 
+  // 專案分組和改版前一樣：點名字也能收合
+  await projectFolder.getByText("專案: 十號專案").click();
+  await expect(projectFolder).toHaveAttribute("aria-expanded", "false");
+  await projectFolder.getByText("專案: 十號專案").click();
+  await expect(projectFolder).toHaveAttribute("aria-expanded", "true");
+
   await row(page, "十之專案內").click();
   await composer(page).waitFor();
   await expect(row(page, soul)).toHaveAttribute("aria-expanded", "true");
   await expect(projectFolder).toHaveCount(0);
   await expect(row(page, "十之專案內")).toHaveAttribute("aria-current", "true");
+  await expect(page.getByRole("group", { name: "其他對話" }).getByRole("treeitem", { name: "十之群聊，群聊" })).toHaveAttribute("aria-level", "1");
 });
 
 test("資料夾依底下最新的對話排序，送一則就排到前面", async ({ page }, info) => {
@@ -312,6 +325,10 @@ test("只用鍵盤：Tab 一下跳過清單、方向鍵、左右收合、Shift+F
   // 滑鼠不在這一列上，「⋯」靠焦點顯示
   await expect(row(page, "十二之乙").getByRole("button", { name: "會話選項：十二之乙" }).locator("..")).toHaveCSS("opacity", "1");
   await shot(page, info, "focus-ring", row(page, "十二之乙"));
+  await page.keyboard.press("Home");
+  await expect(folder).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(row(page, "十二之乙")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
   await expect(folder).toBeFocused();
   await page.keyboard.press("ArrowLeft");

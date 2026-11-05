@@ -121,6 +121,28 @@ describe('SessionTree — 結構', () => {
     expect(rows()).toEqual(['Alice', 'busy，背景生成中', 'secret，無痕對話']);
   });
 
+  it('列的補充說明有日期與則數，報讀器念得到（舊版的按鈕念得到）', () => {
+    state.sessions = [session('a1', 'Alice', 1, { round_count: 3 })];
+    renderTree();
+    expect(row('a1')).toHaveAccessibleDescription(/1970.*，3 則對話/);
+    expect(within(row('a1')).getByText('3 則對話')).toBeVisible();
+  });
+
+  it('家的圖示在可以點的範圍裡', () => {
+    state.sessions = [session('h', 'Alice', 2, { title: '我家', is_home: true }), session('a1', 'Alice', 1)];
+    renderTree();
+    expect(within(row(/^Alice/)).getByTitle('我家').querySelector('svg')).not.toBeNull();
+  });
+
+  it('只有家、底下沒有子對話：沒有箭頭，也不說自己能展開', () => {
+    state.sessions = [session('h', 'Alice', 1, { title: '我家', is_home: true })];
+    renderTree();
+    expect(row(/^Alice/)).not.toHaveAttribute('aria-expanded');
+    expect(within(row(/^Alice/)).queryByTestId('session-tree-toggle')).toBeNull();
+    fireEvent.keyDown(row(/^Alice/), { key: 'ArrowLeft' });
+    expect(window.localStorage.getItem('touka_session_tree_collapsed:user-1')).toBeNull();
+  });
+
   it('其他對話標模型：群聊寫群聊、清單裡有的寫名稱、沒有 agent 的不標', () => {
     state.agents = [{ id: 'mine', name: '我的模型', type: 'custom', is_group: false }];
     state.sessions = [session('g', 'ToukaGroup', 3), session('c', 'mine', 2), session('n', null, 1)];
@@ -204,6 +226,48 @@ describe('SessionTree — 資料夾那一列', () => {
     state.activeSessionId = 'home';
     renderTree();
     expect(row(/^Alice/)).toHaveAttribute('aria-current', 'true');
+  });
+});
+
+describe('SessionTree — 開著的對話在收合的資料夾裡', () => {
+  it('家資料夾：那一列標目前項目，Tab 站也在那裡；展開後回到對話那一列', () => {
+    state.sessions = [session('b-new', 'Bob', 9), session('h', 'Alice', 2, { title: '我家', is_home: true }), session('a1', 'Alice', 1)];
+    state.activeSessionId = 'a1';
+    renderTree();
+    fireEvent.click(arrowOf(/^Alice/));
+    const folder = row(/^Alice/);
+    expect(folder).toHaveAttribute('aria-current', 'true');
+    expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toEqual([folder]);
+
+    fireEvent.click(arrowOf(/^Alice/));
+    expect(row(/^Alice/)).not.toHaveAttribute('aria-current');
+    expect(row('a1')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('沒有家的資料夾一樣', () => {
+    state.sessions = [session('b-new', 'Bob', 9), session('a1', 'Alice', 1)];
+    state.activeSessionId = 'a1';
+    renderTree();
+    fireEvent.click(arrowOf('Alice'));
+    expect(row('Alice')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getAllByRole('treeitem').filter(item => item.tabIndex === 0)).toEqual([row('Alice')]);
+  });
+
+  it('開著的不在這個資料夾：不標', () => {
+    state.sessions = [session('a1', 'Alice', 2), session('b1', 'Bob', 1)];
+    state.activeSessionId = 'b1';
+    renderTree();
+    fireEvent.click(arrowOf('Alice'));
+    expect(row('Alice')).not.toHaveAttribute('aria-current');
+  });
+
+  it('專案分組一樣', () => {
+    state.projects = [{ id: 'p1', name: 'Alpha', root_path: '/a', description: '', updatedAt: 1 }];
+    state.sessions = [session('in', 'Alice', 1, { project_id: 'p1' })];
+    state.activeSessionId = 'in';
+    renderTree('projects');
+    fireEvent.click(arrowOf(/Alpha/));
+    expect(row(/Alpha/)).toHaveAttribute('aria-current', 'true');
   });
 });
 
@@ -438,6 +502,12 @@ describe('SessionTree — 鍵盤', () => {
     fireEvent.keyDown(menu, { key: 'Escape' });
   });
 
+  it('改名輸入框有名稱', () => {
+    state.editingSessionId = 'a1';
+    renderTree();
+    expect(screen.getByRole('textbox', { name: '重命名' })).toHaveValue('新標題');
+  });
+
   it('改名輸入框裡方向鍵不移動焦點，Shift+F10 不開選單', () => {
     state.editingSessionId = 'a1';
     renderTree();
@@ -463,6 +533,19 @@ describe('SessionTree — 專案畫面', () => {
     fireEvent.click(arrowOf('專案: Alpha'));
     expect(screen.queryByRole('treeitem', { name: 'in' })).toBeNull();
     expect(window.localStorage.getItem('touka_session_tree_collapsed:user-1')).toBeNull();
+  });
+
+  it('點專案名稱或按 Enter 都會收合展開，也顯示筆數（和改版前一樣）', () => {
+    renderTree('projects');
+    const name = /Alpha/;
+    expect(row(name)).toHaveTextContent('1');
+    fireEvent.click(within(row(name)).getByText(/Alpha/));
+    expect(row(name)).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(within(row(name)).getByText(/Alpha/));
+    expect(row(name)).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(row(name), { key: 'Enter' });
+    expect(row(name)).toHaveAttribute('aria-expanded', 'false');
+    expect(onSwitch).not.toHaveBeenCalled();
   });
 
   it('點對話走 onSwitch', () => {

@@ -88,6 +88,7 @@ export function SessionItem({
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const rowRef = React.useRef<HTMLDivElement>(null);
+  const descriptionId = React.useId();
 
   const isEditing = editingSessionId === session.id;
   const isConfirmingDelete = deleteConfirmId === session.id;
@@ -108,12 +109,18 @@ export function SessionItem({
     }
   };
 
+  const separator = t('sidebar.session_tree.label_separator');
   const label = [
     folderName ? t('sidebar.session_tree.folder_home_aria', { name: folderName, title: session.title }) : session.title,
     isStreaming && t('sidebar.session_item.background_generating'),
     session.incognito && t('sidebar.session_item.incognito_label'),
     modelLabel,
-  ].filter(Boolean).join('，');
+  ].filter(Boolean).join(separator);
+  const roundCount = typeof session.round_count === 'number' && session.round_count > 0
+    ? t('sidebar.session_item.round_count', { count: session.round_count })
+    : null;
+  // aria-label 蓋過列裡的文字，日期與則數另外給，報讀器才念得到
+  const description = [formatToTaipeiDate(session.updatedAt), roundCount].filter(Boolean).join(separator);
 
   return (
     // 整列是 treeitem、「⋯」在裡面但不在 Tab 順序（tabIndex=-1，Shift+F10 打開）。
@@ -125,6 +132,7 @@ export function SessionItem({
       role="treeitem"
       aria-current={isActive ? 'true' : undefined}
       aria-label={label}
+      aria-describedby={descriptionId}
       {...row}
       onKeyDown={handleKeyDown}
       onContextMenu={(e) => {
@@ -138,10 +146,12 @@ export function SessionItem({
         isActive ? 'bg-accent shadow-sm' : 'hover:bg-accent/50'
       )}
     >
+      <span id={descriptionId} hidden>{description}</span>
       {leading}
       {isEditing ? (
         <div className="flex flex-col min-w-0 flex-1 px-3 py-2.5">
           <input
+            aria-label={t('sidebar.session_item.rename')}
             value={editTitle}
             onChange={e => onEditTitleChange(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && onSaveTitle(session.id)}
@@ -165,22 +175,23 @@ export function SessionItem({
             {isStreaming && (
               <Loader2 className="w-3.5 h-3.5 shrink-0 text-primary animate-spin" aria-hidden="true" />
             )}
+            {folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
             <span className="text-sm font-semibold truncate">{folderName ?? session.title}</span>
             {session.is_home && !folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
             {/* HAX G17（ADR-0086）：無痕對話標示。 */}
             {session.incognito && (
               <span aria-hidden="true" className="shrink-0 rounded bg-muted px-1 text-xs font-bold text-muted-foreground">{t('sidebar.session_item.incognito_badge')}</span>
             )}
-            {modelLabel && <span className="ml-auto shrink-0 max-w-[50%] truncate text-xs text-muted-foreground">{modelLabel}</span>}
+            {modelLabel && <span className="ml-auto shrink-0 max-w-1/2 truncate text-xs text-muted-foreground">{modelLabel}</span>}
           </div>
           {!folderName && (
             <div className="flex items-center gap-2">
               <span suppressHydrationWarning className="text-xs text-muted-foreground">
                 {formatToTaipeiDate(session.updatedAt)}
               </span>
-              {typeof session.round_count === 'number' && session.round_count > 0 && (
+              {roundCount && (
                 <span className="rounded-md bg-muted px-1.5 font-bold text-xs text-muted-foreground whitespace-nowrap">
-                  {t('sidebar.session_item.round_count', { count: session.round_count })}
+                  {roundCount}
                 </span>
               )}
             </div>

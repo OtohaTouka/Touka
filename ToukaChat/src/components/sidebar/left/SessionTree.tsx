@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Folder, Home } from "lucide-react";
+import { ChevronRight, Folder } from "lucide-react";
 import { useAuth } from '@/contexts/AuthContext';
 import { useSessionActions } from '@/hooks/useSessionActions';
 import { useSessionGroups } from '@/hooks/useSessionGroups';
@@ -28,6 +28,10 @@ interface FolderNode {
   home: Session | null;
   persist: boolean;
   isProject: boolean;
+  /** 收合著，開著的對話在裡面：這一列要標出來，不然畫面上找不到它。 */
+  holdsActive: boolean;
+  /** 專案分組顯示筆數。 */
+  count?: number;
 }
 
 interface SessionNode {
@@ -76,6 +80,9 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
     const folderNodes: TreeNode[] = [];
     const otherNodes: TreeNode[] = [];
 
+    const holdsActive = (children: Session[], expanded: boolean | undefined) =>
+      expanded === false && children.some(session => session.id === activeSessionId);
+
     const addChildren = (parentId: string, children: Session[], more?: { key: string; count: number }) => {
       const size = children.length + (more ? 1 : 0);
       children.forEach((session, index) => folderNodes.push({
@@ -90,7 +97,7 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         const key = `project:${name}`;
         const id = `folder:${key}`;
         const expanded = !isCollapsed(key);
-        folderNodes.push({ kind: 'folder', id, key, name, home: null, persist: false, isProject: true, expanded, level: 1, pos: index + 1, size: groups.length });
+        folderNodes.push({ kind: 'folder', id, key, name, home: null, persist: false, isProject: true, holdsActive: holdsActive(children, expanded), count: children.length, expanded, level: 1, pos: index + 1, size: groups.length });
         if (expanded) addChildren(id, children);
       });
       return { folderNodes, otherNodes };
@@ -100,10 +107,11 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
     const pinned = new Set(activeSessionId ? [activeSessionId] : []);
     tree.folders.forEach((folder, index) => {
       const id = `folder:${folder.key}`;
-      const expanded = !isCollapsed(folder.key);
+      // 只有家、底下沒有子對話：沒有東西可以收合
+      const expanded = folder.children.length > 0 ? !isCollapsed(folder.key) : undefined;
       // 只有無痕對話的資料夾不寫進瀏覽器（ADR-0086）
       const persist = [folder.home, ...folder.children].some(session => session && !session.incognito);
-      folderNodes.push({ kind: 'folder', id, key: folder.key, name: folder.name, home: folder.home, persist, isProject: false, expanded, level: 1, pos: index + 1, size: tree.folders.length });
+      folderNodes.push({ kind: 'folder', id, key: folder.key, name: folder.name, home: folder.home, persist, isProject: false, holdsActive: holdsActive(folder.children, expanded), expanded, level: 1, pos: index + 1, size: tree.folders.length });
       if (!expanded) return;
       const { visible, hiddenCount } = previewChildren(folder.children, isShowingAll(folder.key), pinned);
       addChildren(id, visible, hiddenCount > 0 ? { key: folder.key, count: hiddenCount } : undefined);
@@ -122,16 +130,18 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
     ...(node.kind === 'folder' ? { expanded: node.expanded } : {}),
   })), [nodes]);
 
-  const openFolder = (node: FolderNode) => {
+  const toggle = (node: FolderNode, expanded: boolean | undefined) => setCollapsed(node.key, !!expanded, node.persist);
+
+  const openFolder = (node: FolderNode & { expanded?: boolean }) => {
     if (node.home) onSwitch(node.home.id);
+    // 專案分組和改版前一樣，點名字也能收合
+    else if (node.isProject) toggle(node, node.expanded);
     else setCollapsed(node.key, false, node.persist);
   };
 
-  const toggle = (node: FolderNode, expanded: boolean | undefined) => setCollapsed(node.key, !!expanded, node.persist);
-
   const preferredId = nodes.find(node =>
     (node.kind === 'session' && node.session.id === activeSessionId) ||
-    (node.kind === 'folder' && node.home?.id === activeSessionId))?.id ?? null;
+    (node.kind === 'folder' && (node.home?.id === activeSessionId || node.holdsActive)))?.id ?? null;
 
   const { rootRef, rootProps, currentId } = useSessionTreeKeyboard({
     rows,
@@ -217,7 +227,10 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         </div>
       );
     }
-    const arrow = (
+    const arrow = node.expanded === undefined ? (
+      // 沒有東西可以收合：留同樣的寬度，名稱才對齊
+      <span aria-hidden="true" className="w-6 shrink-0" />
+    ) : (
       // 只給滑鼠與觸控；鍵盤用左右鍵，不是另一個 Tab 站
       <span
         aria-hidden="true"
@@ -231,7 +244,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
     if (node.home) {
       return renderSession(node.home, node, {
         folderName: node.name,
-        leading: <>{arrow}<Home className="w-3.5 h-3.5 ml-1 shrink-0 text-status-warning fill-status-warning" /></>,
+        leading: arrow,
+        isActive: node.home.id === activeSessionId || node.holdsActive,
       });
     }
     return (
@@ -239,14 +253,19 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         key={node.id}
         // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- 這列不能選；axe 不要求 aria-selected
         role="treeitem"
+        aria-current={node.holdsActive ? 'true' : undefined}
         aria-label={node.name}
         {...rowProps(node)}
         onClick={() => openFolder(node)}
-        className="flex items-center rounded-xl hover:bg-accent/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className={cn(
+          "flex items-center rounded-xl cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          node.holdsActive ? 'bg-accent shadow-sm' : 'hover:bg-accent/50'
+        )}
       >
         {arrow}
         {!node.isProject && <Folder className="w-3.5 h-3.5 ml-1 shrink-0 text-muted-foreground" />}
         <span className="px-1 py-1.5 text-sm font-semibold truncate">{node.name}</span>
+        {node.count !== undefined && <span className="ml-auto mr-2 rounded-md bg-muted px-1.5 text-xs text-muted-foreground">{node.count}</span>}
       </div>
     );
   };

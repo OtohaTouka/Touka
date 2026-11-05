@@ -36,11 +36,12 @@ export function canSetHome(session: Session, agents: AgentInfo[]): boolean {
 
 /** 分組比對從寬，比照後端 `agent_detector`：不分大小寫，處理 `toukasoul:` 與舊前綴。 */
 function parseAgentRef(ref: string): { key: string; name: string; prefixed: boolean } {
-  const clean = ref.split(':').pop() ?? '';
-  const prefixLength = SOUL_PREFIX.length;
-  const prefixed = clean.toLowerCase().startsWith(SOUL_PREFIX.toLowerCase()) && clean.length > prefixLength;
-  const name = prefixed ? clean.slice(prefixLength) : clean;
-  return { key: name.toLowerCase(), name, prefixed };
+  const parts = ref.split(':');
+  const clean = parts[parts.length - 1];
+  const prefix = SOUL_PREFIX.toLowerCase();
+  const inline = clean.toLowerCase().startsWith(prefix) && clean.length > prefix.length;
+  const name = inline ? clean.slice(prefix.length) : clean;
+  return { key: name.toLowerCase(), name, prefixed: inline || parts[parts.length - 2]?.toLowerCase() === prefix };
 }
 
 function soulsByKey(agents: AgentInfo[]): Map<string, AgentInfo> {

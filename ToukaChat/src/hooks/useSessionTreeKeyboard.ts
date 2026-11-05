@@ -48,6 +48,8 @@ export function useSessionTreeKeyboard({ rows, preferredId, onToggle, onActivate
   }, []);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    // Alt+左鍵是瀏覽器上一頁；帶這些修飾鍵的都不是清單的按鍵
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement;
     // 改名輸入框的方向鍵是移動游標
     if (target.tagName === 'INPUT') return;
@@ -83,5 +85,5 @@ export function useSessionTreeKeyboard({ rows, preferredId, onToggle, onActivate
     event.preventDefault();
   };
 
-  return { rootRef, currentId, focusRow, rootProps: { onKeyDown, onFocus } };
+  return { rootRef, currentId, rootProps: { onKeyDown, onFocus } };
 }

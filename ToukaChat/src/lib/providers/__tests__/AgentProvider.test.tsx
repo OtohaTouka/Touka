@@ -73,7 +73,7 @@ describe('AgentProvider — agentsStatus', () => {
         expect(mockFetchTouka).not.toHaveBeenCalled();
     });
 
-    it('讀到過之後，一次失敗留著舊清單，不退回 failed；權杖更新也不閃載入中', async () => {
+    it('讀到過之後，一次失敗留著舊清單，不退回 failed', async () => {
         mockFetchTouka.mockResolvedValue(ok);
         const { result } = renderHook(() => useAgents(), { wrapper });
         await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
@@ -82,10 +82,58 @@ describe('AgentProvider — agentsStatus', () => {
         await act(async () => { await result.current.refreshAgents(); });
         expect(result.current.agentsStatus).toBe('ready');
         expect(result.current.agents).toHaveLength(1);
+    });
 
+    const bobOk = { ok: true, json: async () => [{ id: 'bob', name: 'Bob', type: 'soul', is_group: false }] };
+
+    it.each(['touka_auth_changed', 'touka_connections_updated'])('讀到過之後收到 %s（換了帳號或連線）：先清空、載入中，新清單回來才換', async (eventName) => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        let finish!: (value: unknown) => void;
+        mockFetchTouka.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        act(() => { window.dispatchEvent(new Event(eventName)); });
+        expect(result.current.agents).toEqual([]);
+        expect(result.current.agentsStatus).toBe('loading');
+
+        await act(async () => { finish(bobOk); });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+        expect(result.current.agents.map(agent => agent.id)).toEqual(['bob']);
+    });
+
+    it('換帳號後讀不到：不留上一個帳號的清單', async () => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        mockFetchTouka.mockResolvedValue({ ok: false });
         act(() => { window.dispatchEvent(new Event('touka_auth_changed')); });
-        expect(result.current.agentsStatus).toBe('ready');
-        await act(async () => { await Promise.resolve(); });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('failed'));
+        expect(result.current.agents).toEqual([]);
+    });
+
+    it.each([
+        ['回應成功', (finish: (value: unknown) => void) => finish(ok), () => undefined],
+        ['回應失敗', (finish: (value: unknown) => void) => finish({ ok: false }), () => undefined],
+        ['連線失敗', () => undefined, (fail: (reason: Error) => void) => fail(new Error('down'))],
+    ])('上一個帳號還在路上的請求（%s）：不蓋掉新帳號的結果', async (_label, settle, reject) => {
+        mockFetchTouka.mockResolvedValue(ok);
+        const { result } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+
+        let finishOld!: (value: unknown) => void;
+        let failOld!: (reason: Error) => void;
+        mockFetchTouka.mockReturnValueOnce(new Promise((resolve, fail) => { finishOld = resolve; failOld = fail; }));
+        let oldResult: Promise<boolean> | undefined;
+        act(() => { oldResult = result.current.refreshAgents(); });
+
+        mockFetchTouka.mockReturnValueOnce(new Promise<never>(() => undefined));
+        act(() => { window.dispatchEvent(new Event('touka_auth_changed')); });
+
+        await act(async () => { settle(finishOld); reject(failOld); await oldResult; });
+        expect(result.current.agents).toEqual([]);
+        expect(result.current.agentsStatus).toBe('loading');
     });
 });
 

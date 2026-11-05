@@ -51,6 +51,23 @@ describe('useSessionTreeState', () => {
     expect(result.current.isCollapsed('alice')).toBe(false);
   });
 
+  it('瀏覽器記著收合，後來只剩無痕對話：展開得開，也不動瀏覽器', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ alice: true }));
+    const { result } = renderHook(() => useSessionTreeState('user-1'));
+    expect(result.current.isCollapsed('alice')).toBe(true);
+    act(() => result.current.setCollapsed('alice', false, false));
+    expect(result.current.isCollapsed('alice')).toBe(false);
+    expect(JSON.parse(window.localStorage.getItem(KEY) ?? 'null')).toEqual({ alice: true });
+    act(() => result.current.setCollapsed('alice', true, false));
+    expect(result.current.isCollapsed('alice')).toBe(true);
+  });
+
+  it('靈魂 ID 剛好是物件內建的名稱：不會讀到內建的值', () => {
+    const { result } = renderHook(() => useSessionTreeState('user-1'));
+    expect(result.current.isCollapsed('constructor')).toBe(false);
+    expect(result.current.isShowingAll('constructor')).toBe(false);
+  });
+
   it('瀏覽器裡的值壞掉時當作沒有', () => {
     window.localStorage.setItem(KEY, 'null');
     const { result } = renderHook(() => useSessionTreeState('user-1'));

@@ -132,7 +132,7 @@ describe('a11y 鍵盤可操作性守衛（A2 批）', () => {
     },
   );
 
-  it('SessionItem：treeitem＋無巢狀互動＋可見焦點 — WCAG 2.1.1/4.1.2/2.4.7', () => {
+  it('SessionItem：treeitem＋「⋯」不在 Tab 順序＋可見焦點 — WCAG 2.1.1/4.1.2/2.4.7', () => {
     const content = readFileSync(
       join(SRC, 'components/sidebar/left/SessionItem.tsx'),
       'utf-8',

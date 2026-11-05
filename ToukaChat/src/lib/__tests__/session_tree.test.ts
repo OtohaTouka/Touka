@@ -76,6 +76,13 @@ describe('buildSessionTree', () => {
     expect(folders.map(folder => [folder.name, ids(folder.children)])).toEqual([['Alice', ['by-alias']], ['Bob', ['bob']]]);
   });
 
+  it('靈魂清單讀不到時，冒號寫法也算前綴；別的廠商冒號不算', () => {
+    const { folders, others } = buildSessionTree(
+      [session('colon', 'toukasoul:Alice', 2), session('model', 'openai:gpt-5', 1)], [], 'failed');
+    expect(folders.map(folder => folder.name)).toEqual(['Alice']);
+    expect(ids(others)).toEqual(['model']);
+  });
+
   it('清單裡沒有的前綴名稱仍是靈魂：開資料夾，名稱去掉前綴', () => {
     const { folders } = buildSessionTree([session('s', 'ToukaSoulGhost', 1)], [], 'ready');
     expect(folders.map(folder => folder.name)).toEqual(['Ghost']);

@@ -31,6 +31,11 @@ export async function loginInBrowser(
   password: string = process.env[ENV_PASSWORD] ?? "",
 ): Promise<void> {
   await page.goto("/login");
+  await submitLogin(page, email, password);
+}
+
+/** 已經在登入頁時直接填：不重新載入頁面，才驗得到同一頁換帳號。 */
+export async function submitLogin(page: Page, email: string, password: string): Promise<void> {
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.keyboard.press("Enter");

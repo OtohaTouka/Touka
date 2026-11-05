@@ -1326,7 +1326,8 @@
     "session_tree": {
       "loading": "Loading chats",
       "more_sessions": "{{count}} more",
-      "folder_home_aria": "{{name}}, home chat: {{title}}"
+      "folder_home_aria": "{{name}}, home chat: {{title}}",
+      "label_separator": ", "
     },
     "session_item": {
       "background_generating": "Generating in background",

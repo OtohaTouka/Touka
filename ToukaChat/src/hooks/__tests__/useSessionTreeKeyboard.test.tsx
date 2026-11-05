@@ -154,6 +154,19 @@ describe('useSessionTreeKeyboard', () => {
     expect(fireEvent.keyDown(row('a1'), { key })).toBe(false);
   });
 
+  it.each([
+    ['Alt+左鍵（瀏覽器上一頁）', { key: 'ArrowLeft', altKey: true }],
+    ['Alt+右鍵（瀏覽器下一頁）', { key: 'ArrowRight', altKey: true }],
+    ['Ctrl+Home', { key: 'Home', ctrlKey: true }],
+    ['Cmd+上鍵', { key: 'ArrowUp', metaKey: true }],
+  ])('%s 不攔、清單不動', (_label, init) => {
+    render(<Tree />);
+    row('folder-a').focus();
+    expect(fireEvent.keyDown(row('folder-a'), init)).toBe(true);
+    expect(handlers.onToggle).not.toHaveBeenCalled();
+    expect(row('folder-a')).toHaveFocus();
+  });
+
   it('其他按鍵不攔', () => {
     render(<Tree />);
     row('a1').focus();

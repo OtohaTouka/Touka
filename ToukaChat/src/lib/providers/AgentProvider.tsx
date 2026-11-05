@@ -36,12 +36,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     selectedAgentIdRef.current = selectedAgentId;
   }, [selectedAgentId]);
 
+  // 換了帳號或連線就加一：還在路上的舊請求不能把上一份清單蓋回來
+  const scopeGeneration = useRef(0);
+
   const refreshAgents = useCallback(async (): Promise<boolean> => {
     const proxyUrl = getActiveProxyUrl();
+    const generation = scopeGeneration.current;
     try {
       const r = await fetchTouka(proxyUrl, "/v1/agents");
       if (r.ok) {
         const data = await r.json();
+        if (generation !== scopeGeneration.current) return false;
         setAgents(data);
         setAgentsStatus('ready');
         // SSOT: feed known agent ids to connections.ts for X-Touka-Soul-ID resolution
@@ -54,7 +59,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       logSSOTError(e, "AgentProvider:refreshAgents");
     }
-    // 讀到過就留著舊清單：一次失敗不該讓整棵樹退回猜測
+    if (generation !== scopeGeneration.current) return false;
+    // 同一個帳號讀到過就留著舊清單：一次失敗不該讓整棵樹退回猜測
     setAgentsStatus(current => current === 'ready' ? current : 'failed');
     return false;
   }, []);
@@ -68,8 +74,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     // → setKnownAgentIds 空 → 聊天不帶 X-Touka-Soul-ID（身分歸屬弱化）。換帳號重登入
     // 亦藉此重抓＝關閉跨帳號殘留清單。SessionListProvider 同款（其兄弟站點補齊）。
     const handleAuthChanged = () => {
-      // 之前沒讀到的話重試期間算載入中；讀到過的（例如權杖更新）不閃
-      setAgentsStatus(current => current === 'ready' ? current : 'loading');
+      // 這兩個事件只在登入狀態翻轉或連線被改時發（權杖更新不會）：上一份清單不能留著分組
+      scopeGeneration.current += 1;
+      setAgents([]);
+      setAgentsStatus('loading');
       refreshAgents();
     };
     window.addEventListener('touka_auth_changed', handleAuthChanged);
