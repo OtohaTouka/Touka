@@ -22,7 +22,7 @@
 1. **憑證綁發它的後端**：`connections.ts` 記下發卡的網址（`_tokenOrigin`），`fetchTouka`、`fetchChatStream` 送出前用 `cardFor(proxyUrl)` 比對，不符就不帶、不先續期、401 也不續期重送。登入與續期綁回應它的網址，本機領卡綁發它的網址。比對都經 `normalizeProxyUrl`。這一條擋住所有路，包含以後新增的寫入與通知還沒到的空檔。
 2. **換後端是這個瀏覽器自己的決定**：`keepActiveProxy` 讓後端的清單算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。`fetchConnections` 的回應到達時網址已換就丟棄。
    - Proxy 項目一律用本機的，同網址存檔時會覆蓋後端那筆；`ToukaProxy/src/services/models/manager.py` 把 Proxy 當控制面、不當上游，沒有路由損失。
-   - 隔離的封鎖埠（`services/isolation/block_ports.py`）會讀清單全部條目，所以寫上後端的 Proxy 項目（含切換後留下的舊項目）的埠也會被封鎖；只多不少，後端自己的埠由 `profiles.blocked_ports` 固定涵蓋。
+   - 隔離的封鎖埠（`services/isolation/block_ports.py`）會讀清單全部條目，所以寫上後端的 Proxy 項目（含切換後留下的舊項目）的埠也會被封鎖。同一次執行只多不少；重啟後依清單重算，被蓋掉的舊 Proxy 項目的埠就不在其中。後端自己的埠由 `profiles.blocked_ports` 固定涵蓋。
 3. **存檔換網址改成明確的流程**（維護者 2026-11-05 決定）：確認 → 探測新網址 → 向舊後端登出 → 切過去 → 回登入頁。
    - 探測不帶任何憑證、不跟隨轉址，要連得上而且回應符合健康檢查的形狀才算（`isProxyReachable`，5 秒）。
    - 這段時間可能已登出或別的分頁已換網址，確認後與探測後都再核對一次（`isRequestScopeCurrent`），不符就停。

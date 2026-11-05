@@ -349,7 +349,7 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | L63 | `FETCH_SSOT` | 🔴 不可修復 | `refreshAccessToken` 認證續期直呼 `/auth/refresh`；不可經 `fetchTouka`（否則觸發其送出前續期而遞迴），且為 single-flight SSOT |
 | L232 | `FETCH_SSOT` | 🔴 不可修復 | `fetchTouka` 核心定義：此處即為授權的 HTTP 客戶端 SSOT，必須調用原始 `fetch` |
 | L371 | `FETCH_SSOT` | 🔴 不可修復 | `fetchChatStream` 多供應商 SSE 串流（Ollama/OpenAI/xAI），URL 格式與 `fetchTouka(proxyUrl, path)` 簽名不相容，且 Auth 已手動嵌入 Headers |
-| L349 | `FETCH_SSOT` | 🔴 不可修復 | `isProxyReachable` 換網址前探測新後端：必須不帶任何憑證、不跟隨轉址，`fetchTouka` 一律帶 cookie，不能共用 |
+| L350 | `FETCH_SSOT` | 🔴 不可修復 | `isProxyReachable` 換網址前探測新後端：必須不帶任何憑證、不跟隨轉址，`fetchTouka` 一律帶 cookie，不能共用 |
 
 ### `src/hooks/useAgentSSE.ts`
 
