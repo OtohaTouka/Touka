@@ -164,6 +164,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 弱點 | 修正與驗證 |
 |---|---|
 | `ask_user` 用模型給的工具呼叫編號當答案憑證。有些模型的編號是流水號，猜得到；兩段對話同時問也會撞在一起，先問的那段拿不到答案。 | 憑證一律由 `AskUserStore.generate_token()` 隨機產生。`tests/unit/test_ask_user_tool.py`、實際驗證 `e2e-real/session-attention.spec.ts`。 |
+
 ### 模型廠商的錯誤原文跟著回覆流出去（2026-11-05）
 
 | 弱點 | 修正與驗證 |
