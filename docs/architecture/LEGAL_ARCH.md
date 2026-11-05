@@ -30,7 +30,7 @@
 
 ## 3-E. localStorage 存取主權 (localStorage SSOT) ⭐
 *   前端所有 localStorage 操作必須透過 `src/hooks/useLocalStorage.ts`（通用）或領域 Custom Hook 進行。**由 `guard_localStorage.ts`（LOCALSTORAGE_SSOT）掃描 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`。**（ADR-0026）
-*   白名單：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（非 React 環境的 Auth Token 管理）使用它匯出的 `getLocalStorageItem()`。
+*   白名單：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（非 React 環境的 Auth Token 管理）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`。
 
 ## 3-F. 密碼安全禁令 (BCRYPT_IMPORT_SSOT) ⭐
 *   **執法**：嚴禁在非授權檔案直接 `import bcrypt` 或 `from passlib import`。**由 `lint_ssot.py` 的 `BcryptImportRule` 執行。**（ADR-0028）

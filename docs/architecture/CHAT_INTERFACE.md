@@ -450,7 +450,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 - **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
 - **覆蓋範圍**：`src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`（`src/components/**` 已由 `guard_hooks.ts` 覆蓋）
 - **靜態執法**：由 `guard_localStorage.ts` 進行 AST 掃描，整合至 `guard_all.py`
-- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`
+- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`
 - **合法豁免**：Theme SSOT 初始化（純字串/CSS 同步需求）、純字串值儲存（`useLocalStorage` 的 JSON 序列化不相容）允許 `// noqa: LOCALSTORAGE_SSOT`，須登記於 `NOQA_REGISTRY.md`
 
 ### 5.5 身份主權前端靜態守衛 (X-Agent-ID Identity Guard) ⭐

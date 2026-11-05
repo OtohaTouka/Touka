@@ -6,7 +6,7 @@
 
 ## 禁令
 
-*   **禁令 9**：**嚴禁**在前端對 `localStorage.*` 直接呼叫（`guard_localStorage.ts` 掃 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`；`src/components/**` 由 `guard_hooks.ts` 擋），必須使用 `useLocalStorage<T>()` 或領域 Hook。唯一白名單：`useLocalStorage.ts`（定義本體）；`connections.ts`（Auth Token 非 React 函數）使用它匯出的 `getLocalStorageItem()`。
+*   **禁令 9**：**嚴禁**在前端對 `localStorage.*` 直接呼叫（`guard_localStorage.ts` 掃 `src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`；`src/components/**` 由 `guard_hooks.ts` 擋），必須使用 `useLocalStorage<T>()` 或領域 Hook。唯一白名單：`useLocalStorage.ts`（定義本體）；`connections.ts`（Auth Token 非 React 函數）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`。
 *   **禁令 13**：**嚴禁**在前端生產代碼中直接呼叫 `console.log()`、`console.warn()`、`console.error()`，必須透過 `logSSOTError()` 或 ERRORS 常數封裝層。`guard_console.ts`（Guard #15）會自動攔截。（CONSOLE_BAN，ADR-0031）
 *   **禁令 45（HTTP 客戶端主權 / Fetch SSOT）**：前端所有 HTTP 請求必須透過 `src/lib/connections.ts` 的 `fetchTouka()` 發送，**嚴禁**直接調用原生 `fetch()`。**由 `guard_fetch.ts`（FETCH_SSOT）AST 掃描，整合至 `guard_all.py`。**（ADR-0024）
 *   **禁令 49（設計主權 / Design Token Sovereignty）**：透過 Guard #4（`ToukaChat/scripts/guard_design.ts`），強制所有視覺樣式**必須**出自 `tokens.ts` 或系統定義，嚴禁任意值（arbitrary value）。
