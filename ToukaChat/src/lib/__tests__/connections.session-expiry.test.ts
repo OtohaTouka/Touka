@@ -48,6 +48,7 @@ function refreshResponse(accessToken: string): Response {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://x' }]));
   clearAccessToken();
   fetchMock.mockReset();
   onExpired.mockReset();

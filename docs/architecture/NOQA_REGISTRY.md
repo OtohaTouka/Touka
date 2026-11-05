@@ -31,7 +31,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `IO_PRISON_VIOLATION` | 11 | I/O 監獄違規（備援實作、引導邏輯或獨立容器存取）；明細見下表（+3 ADR-0272 執行器伺服器；−2 ADR-0293 個人空間與任務鎖的備援建資料夾）。 |
 | `IDENTITY_SSOT` | 39 | 身分物件化違規（獨立容器協約、路由層 URL 參數、回應模型欄位、鎖原語 key 或誤判；含 debug.py `_read_last_payload(agent_id)` 依 payload log 的 agent_id 字串比對；跨身分看板定址修復淨 +1：-1 mission_manager 移除硬編 role="Base" 的 `_PathIdentity`，+2 `resource_manager`/`protocols` 的 `get_vault_path_for_agent(agent_id: str)`——跨身分定址入口以 agent_id 字串為鍵，於函式內查真實註冊身分後才物件化；ADR-0142 soul CRUD 修復 +3：`routers/souls.py` 的 `delete_soul(soul_id)` 端點＋`_remove_from_all_owned_agents(soul_id)`／`_remove_identity_override(soul_id)` 清除輔助，soul_id 為攻擊者可控的 URL path 字串、於函式內過路徑監獄後才操作，同既有 `update_soul(soul_id)` 慣例；hitl-unification H2 +1：`services/approval_service.py` 的 `PendingApproval.agent_id`——待批快照的顯示／owned_agents 比對用字串，授權判定主體是解算端點的已驗證 `AgentIdentity`；ADR-0214 +1：execution context 的 legacy `agent_id` kwargs 是已驗證 identity 的字串投影，不是授權 principal） |
 | `TRY003` | 23 | 例外訊息過長或直接寫在 raise 中 (基礎建設底層 + Pydantic 模型驗證器 + setup_service.py 輸入驗證 + embedding_service.py apply_switch 空值檢查；+1 ADR-0137 test_reviewer 測試替身模擬傳輸失敗) |
-| `FETCH_SSOT` | 6 | 前端直接 fetch() 合法豁免（fetchTouka 核心定義、多供應商 SSE 串流、外部 URL 入參、認證續期直呼 refresh 避免遞迴） |
+| `FETCH_SSOT` | 7 | 前端直接 fetch() 合法豁免（fetchTouka 核心定義、多供應商 SSE 串流、外部 URL 入參、認證續期直呼 refresh 避免遞迴、換網址前不帶憑證的探測） |
 | `BASICCONFIG_BAN` | 2 | MCP 伺服器必須將日誌導向 stderr 以保護 stdout 為 JSON-RPC 通訊通道 |
 | `LOCALSTORAGE_SSOT` | 12 | 前端直接 localStorage 合法豁免：Theme／外觀偏好 SSOT 初始化與寫入（純字串/CSS） |
 | `RAISE_STRING_BAN` | 30 | 後端 raise硬編碼字串合法豁免（已全面重構為自定義異常）；+3 ADR-0135 mission_manager.finalize_mission（空 verdict／無 mission／未全 DONE 校驗，沿用同檔既有慣例）；+7 ADR-0137 mission_manager 互審 gate（_save_mission_unlocked 落盤不變式 review gate＋cmd 鎖 ×2、record_review can_review／review_status／無 mission／自簽／task 不存在 ×5） |
@@ -349,6 +349,7 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | L63 | `FETCH_SSOT` | 🔴 不可修復 | `refreshAccessToken` 認證續期直呼 `/auth/refresh`；不可經 `fetchTouka`（否則觸發其送出前續期而遞迴），且為 single-flight SSOT |
 | L232 | `FETCH_SSOT` | 🔴 不可修復 | `fetchTouka` 核心定義：此處即為授權的 HTTP 客戶端 SSOT，必須調用原始 `fetch` |
 | L371 | `FETCH_SSOT` | 🔴 不可修復 | `fetchChatStream` 多供應商 SSE 串流（Ollama/OpenAI/xAI），URL 格式與 `fetchTouka(proxyUrl, path)` 簽名不相容，且 Auth 已手動嵌入 Headers |
+| L349 | `FETCH_SSOT` | 🔴 不可修復 | `isProxyReachable` 換網址前探測新後端：必須不帶任何憑證、不跟隨轉址，`fetchTouka` 一律帶 cookie，不能共用 |
 
 ### `src/hooks/useAgentSSE.ts`
 
