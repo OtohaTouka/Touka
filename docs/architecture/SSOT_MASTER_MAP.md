@@ -604,9 +604,9 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 來源 | 責任與使用邊界 |
 |---|---|
 | `ToukaChat/src/lib/connections.ts` 的 `cardFor` | 憑證只送回發它的後端；`fetchTouka`、`fetchChatStream`、`captureRequestScope` 都經它取卡。`getAccessToken()` 只回答「手上有沒有卡」，不能拿來送出。 |
-| `ToukaChat/src/lib/connections.ts` 的 `activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單會連到哪個後端、兩個網址是否同一台的唯一判斷。 |
+| `ToukaChat/src/lib/connections.ts` 的 `activeConnectionOf`、`activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單裡哪一筆決定後端、會連到哪個網址、兩個網址是否同一台的唯一判斷。 |
 | `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。 |
-| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 換後端唯一的主動入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
 | `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
 
 ### 4. 工具調用大一統 (Unified Tooling SSOT)

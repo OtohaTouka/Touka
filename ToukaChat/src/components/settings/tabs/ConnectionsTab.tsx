@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConnectionSettings } from "@/hooks/settings/useConnectionSettings";
 import { useConfirmToast } from "@/hooks/useConfirmToast";
+import { activeConnectionOf } from "@/lib/connections";
 import { Connection } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ConnectionItem } from "./connections/ConnectionItem";
@@ -30,8 +31,8 @@ export function ConnectionsTab({ isSystemRefreshing, onRefresh }: Props) {
     const { confirmToast } = useConfirmToast();
     const [editing, setEditing] = useState<Connection | null>(null);
 
-    // 使用中連線：與 getActiveConnection()（connections.ts:87）相同判定，改自 React state 推導以即時反映勾選。
-    const activeId = connections.find(c => c.enabled && (c.provider === 'proxy' || c.id === 'proxy'))?.id ?? null;
+    // 使用中連線：與 getActiveConnection() 相同判定，改自 React state 推導以即時反映勾選。
+    const activeId = activeConnectionOf(connections)?.id ?? null;
 
     useEffect(() => {
         fetchConnections();

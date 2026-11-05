@@ -290,7 +290,8 @@ export const CONNECTIONS_STORAGE_KEY = "touka_connections";
 export const PROXY_PROBE_TIMEOUT_MS = 5000;
 
 const isProxyConnection = (c: Connection): boolean => c.provider === 'proxy' || c.id === 'proxy';
-const activeConnectionOf = (conns: Connection[]): Connection | null =>
+/** 這份清單裡決定後端網址的那一筆：第一筆啟用的 Proxy。 */
+export const activeConnectionOf = (conns: Connection[]): Connection | null =>
     conns.find((c: Connection) => c.enabled && isProxyConnection(c)) || null;
 
 export function normalizeProxyUrl(url: string): string {

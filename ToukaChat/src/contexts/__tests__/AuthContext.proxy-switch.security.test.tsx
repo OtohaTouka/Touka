@@ -5,7 +5,7 @@
  */
 import React, { useEffect } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const flags = vi.hoisted(() => ({ plainSelect: false, plainSwitch: false }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
@@ -49,7 +49,7 @@ import { SystemStatusProvider } from '@/lib/SystemStatusContext';
 import { ConnectionsTab } from '@/components/settings/tabs/ConnectionsTab';
 import ConnectionsPage from '@/app/connections/page';
 import { useConnectionSettings } from '@/hooks/settings/useConnectionSettings';
-import { clearAccessToken, fetchTouka, getAccessToken, getActiveProxyUrl } from '@/lib/connections';
+import { PROXY_PROBE_TIMEOUT_MS, clearAccessToken, fetchTouka, getAccessToken, getActiveProxyUrl } from '@/lib/connections';
 import type { Connection } from '@/lib/types';
 
 const OLD = 'http://old.test:8000';
@@ -78,6 +78,7 @@ let oldList: Connection[] = [];
 let newList: Connection[] = [];
 let newHealth: Health = 'ok';
 let oldListResponse: Promise<void> | null = null;
+let oldLogout: ((init?: RequestInit) => Promise<Response>) | null = null;
 
 const profile = (id: string) => ({ id, email: 'a@b.c', role: 'admin', status: 'active', owned_agents: [] });
 
@@ -203,6 +204,7 @@ beforeEach(() => {
   calls = [];
   newHealth = 'ok';
   oldListResponse = null;
+  oldLogout = null;
   flags.plainSelect = false;
   flags.plainSwitch = false;
   newList = [];
@@ -219,6 +221,7 @@ beforeEach(() => {
       credentials: init?.credentials, redirect: init?.redirect, body: typeof init?.body === 'string' ? init.body : null,
     });
     if (url.startsWith('http') && !url.startsWith(OLD)) return otherBackend(url, init);
+    if (url.endsWith('/v1/auth/logout') && oldLogout) return oldLogout(init);
     if (url.endsWith('/v1/ui/connections') && (init?.method ?? 'GET') === 'GET' && oldListResponse) await oldListResponse;
     return loggedInBackend(url, init, () => oldList, next => { oldList = next; });
   }));
@@ -418,6 +421,53 @@ describe('在設定頁換網址', () => {
     await act(async () => { finishProbe('ok'); });
     await settle();
     expect(storedList().map(conn => conn.id)).toEqual(['proxy']);
+  });
+
+  it('T11 舊後端連不上：照樣切換、清掉憑證、不送清單，切完可以再存', async () => {
+    oldLogout = async () => { throw new TypeError('Failed to fetch'); };
+    await renderSettings({ guard: false });
+    await act(async () => { await settingsApi.current!.saveConnections([proxy(NEW)]); });
+    calls = [];
+
+    await act(async () => { lastPrompt()?.action?.onClick(); });
+    await settle();
+
+    expectSwitched(NEW);
+    expect(storedList()[0].url).toBe(NEW);
+    expect(toasts.dismiss).toHaveBeenCalledWith('toast-id');
+    let saved: boolean | undefined;
+    await act(async () => { saved = await settingsApi.current!.saveConnections([proxy(NEW), custom('c9')]); });
+    expect(saved).toBe(true);
+  });
+
+  it('T11b 舊後端一直不回：等到上限才切換，等待期間不能再存', async () => {
+    const limit = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(limit.signal);
+    onTestFinished(() => timeout.mockRestore());
+    oldLogout = init => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Logout timed out', 'TimeoutError')));
+    });
+    await renderSettings({ guard: false });
+    await act(async () => { await settingsApi.current!.saveConnections([proxy(NEW)]); });
+    calls = [];
+
+    await act(async () => { lastPrompt()?.action?.onClick(); });
+    await waitFor(() => expect(logoutsAt(OLD)).toHaveLength(1));
+    await settle();
+
+    expect(getActiveProxyUrl()).toBe(OLD);
+    expect(toasts.dismiss).not.toHaveBeenCalled();
+    let saved: boolean | undefined;
+    await act(async () => { saved = await settingsApi.current!.saveConnections([proxy(OLD), custom('c9')]); });
+    expect(saved).toBe(false);
+    expect(timeout).toHaveBeenLastCalledWith(PROXY_PROBE_TIMEOUT_MS);
+
+    await act(async () => { limit.abort(); });
+    await settle();
+
+    expectSwitched(NEW);
+    expect(storedList().map(conn => conn.url)).toEqual([NEW]);
+    expect(toasts.dismiss).toHaveBeenCalledWith('toast-id');
   });
 
   it('T8 同網址只改其他欄位：不登出，存到同一台後端並帶憑證', async () => {

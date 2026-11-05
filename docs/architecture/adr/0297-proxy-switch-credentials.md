@@ -22,6 +22,7 @@
 1. **憑證綁發它的後端**：`connections.ts` 記下發卡的網址（`_tokenOrigin`），`fetchTouka`、`fetchChatStream` 送出前用 `cardFor(proxyUrl)` 比對，不符就不帶、不先續期、401 也不續期重送。登入與續期綁回應它的網址，本機領卡綁發它的網址。比對都經 `normalizeProxyUrl`。這一條擋住所有路，包含以後新增的寫入與通知還沒到的空檔。
 2. **換後端是這個瀏覽器自己的決定**：`keepActiveProxy` 讓後端的清單算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。`fetchConnections` 的回應到達時網址已換就丟棄。
    - Proxy 項目一律用本機的，同網址存檔時會覆蓋後端那筆；`ToukaProxy/src/services/models/manager.py` 把 Proxy 當控制面、不當上游，沒有路由損失。
+   - 隔離的封鎖埠（`services/isolation/block_ports.py`）會讀清單全部條目，所以寫上後端的 Proxy 項目（含切換後留下的舊項目）的埠也會被封鎖；只多不少，後端自己的埠由 `profiles.blocked_ports` 固定涵蓋。
 3. **存檔換網址改成明確的流程**（維護者 2026-11-05 決定）：確認 → 探測新網址 → 向舊後端登出 → 切過去 → 回登入頁。
    - 探測不帶任何憑證、不跟隨轉址，要連得上而且回應符合健康檢查的形狀才算（`isProxyReachable`，5 秒）。
    - 這段時間可能已登出或別的分頁已換網址，確認後與探測後都再核對一次（`isRequestScopeCurrent`），不符就停。
@@ -32,7 +33,7 @@
 5. **別的分頁改網址時，這個分頁也登出**：`AuthContext` 聽 `storage`（連線清單變更，或整個 storage 被清掉）。設定頁的流程已先登出，這裡沒有卡就不多打。
 6. **先寫再發事件**：`publishConnections` 是寫入清單與通知的唯一入口，收到事件的人讀到的一定是新網址。
 7. **登入頁和註冊頁顯示目前的網址**：打密碼前看得到密碼會送去哪，換完也看得到結果。
-8. **不把 Toaster 移出 AuthGuard**：登出時整棵樹含 Toaster 卸載，切換成功的提示看不到。但移出去會讓確認提示活過登出與換帳號，有人按下去就用新身分執行舊畫面問的動作（全系統有 22 個這種提示）。所以依既有做法（`ReloginNotice.tsx`）把結果放在登入頁。
+8. **不把 Toaster 移出 AuthGuard**：登出時整棵樹含 Toaster 卸載，切換成功的提示看不到。但移出去會讓確認提示活過登出與換帳號，有人按下去就用新身分執行舊畫面問的動作（全系統有二十多個這種提示）。所以依既有做法（`ReloginNotice.tsx`）把結果放在登入頁。
 
 ## 沒有做
 
