@@ -68,6 +68,13 @@ export async function recoverSave(page: Page): Promise<void> {
   await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
 }
 
+/** 沒有保存提示：沒有通知、沒有「重新核對保存結果」按鈕，也沒有保存的狀態列。 */
+export async function expectNoSaveNotice(page: Page): Promise<void> {
+  await expect(page.getByText("儲存工作階段失敗")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
+}
+
 /** 最後一則回覆有失敗標示。訊息清單是虛擬捲動，捲出畫面的不在頁面上，不能數總數。 */
 export async function expectLastReplyMarkedFailed(page: Page): Promise<void> {
   const lastItem = page.locator("[data-index]").last();

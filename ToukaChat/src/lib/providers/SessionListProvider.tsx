@@ -347,8 +347,11 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       catch { return rejectChange(token.sessionId, writer); }
       let result: SaveResult = writer.confirmed.incognito ? { status: 'skipped', reason: 'incognito' } :
         generation === 'completed' || terminal.status === 'unknown' || terminal.status === 'failed' ? terminal : unknownSave();
-      if (generation === 'completed' && (terminal.status === 'saved' || (terminal.status === 'skipped' &&
-          (terminal.reason === 'no_text' || writer.confirmed.incognito)))) {
+      // 後端沒寫這一輪（沒有文字、Hook 擋下、模型失敗）：用 user 保存拿到的版本把畫面這一則存一次（ADR-0231 決定 6）
+      const backendSkipped = terminal.status === 'skipped' && (generation === 'completed'
+        ? terminal.reason === 'no_text' || writer.confirmed.incognito
+        : generation === 'error' && terminal.reason === 'generation_failed');
+      if ((generation === 'completed' && terminal.status === 'saved') || backendSkipped) {
         if (terminal.status === 'saved') intended.revision = terminal.revision;
         result = await save(intended, token.scope);
       }

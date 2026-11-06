@@ -25,10 +25,10 @@
   - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前十九個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
 - 無痕提示：`hooks/useHooksActive.ts` 只在無痕對話查 `GET /v1/hooks/active`，送出訊息後（`isSending` 變了）再查一次，查不到維持上次結果；`components/chat/IncognitoHookNotice.tsx` 在 `active` 時顯示（`role="status"`）。
-- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡，模型失敗時要重試保存才進存檔；無痕也有），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
+- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡；模型失敗時後端回 `skipped`／`generation_failed`，畫面用 user 保存的版本把這一則存一次，不跳保存提示，版本對不上才照舊提示；無痕也有標示），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
-- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。
+- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才拿掉這一輪；模型失敗（`generation: 'error'`＋`generation_failed`）時保留這一輪、照同一條路存一次（見上面「回覆失敗」）；取消與其他錯誤照舊不存（ADR-0231）。
 - 停止：`StreamRegistryProvider.stopStream` 查 `/stream/state` 沒有進行中的串流時（`state: null`、讀不到（例如無痕還沒有串流時回 403），或只剩上一則已結束的登記；例如 UserPromptSubmit hook 還在跑），改送不帶 `stream_id` 的 `POST /v1/ui/sessions/{id}/stop`，讓後端在 hook 跑完後不送模型（409 `PROMPT_STOPPED`；後端停的是這個人還在等的請求，對話已存在時也停整個對話）。這次停止回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪的串流才帶 `stream_id` 停止。有進行中的串流但不是這一輪時什麼都不送。請求還沒在後端登記成等待中（剛按送出就按停止）時，這個不指名的停止照原本的路停整個對話（對話正在跑的心跳也會停下）；沒有 hook 的使用者也一樣。
 - 別處停止：聊天送出收到 409 `PROMPT_STOPPED`（這一則在開始串流前被另一個分頁或裝置、或重置靈魂停止）時，`usePromptStoppedNotice` 顯示一次「這次回覆在開始前就被停止了」，`StreamRegistryProvider` 當成中止（generation 存成 `cancelled`、訊息留著），不顯示網路錯誤。自己按停止時前端先當成中止，不會走到這裡。
 - 插話被擋：`useInterjectionQueue.enqueue` 收到 403 `HOOK_PROMPT_BLOCKED` 時以 `useHookBlockNotice` 顯示理由並回 `null`（不進佇列）；`useInterjectionComposer` 在還是同一個對話時把文字接回輸入框。
@@ -179,7 +179,7 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 
 `SaveResult`／snapshot／started／terminal 以 Pydantic→OpenAPI→api.ts→types.ts alias 為唯一型別。
 `syncSession`／`updateSession` 回 typed 結果；只有 saved(full) 或無痕 skipped(incognito) 完成前端保存屏障。
-text／no_text 不是 full；completed no_text 的富內容仍補存，error／cancelled 不自動保存部分結果。
+text／no_text／generation_failed 不是 full；completed no_text 與 error generation_failed 的富內容由畫面以 user 保存的版本存一次，其他 error／cancelled 不自動保存部分結果（ADR-0231 決定 6）。
 同 scope/session writer 按已確認樹套用純語意命令，logical operation 去重；React updater 不做 HTTP。
 純轉換例外回 failed、釋放 pending／producer 並保留草稿，不讓 rejected promise 永久阻斷後續操作。
 

@@ -64,6 +64,12 @@ describe('typed UI terminal through real fetch/decoder', () => {
       expect(result.done).toHaveBeenCalledTimes(1);
       expect(result.done.mock.calls[0][0]).toBeUndefined();
     });
+  it.each([false, true])('a model failure the backend did not write reaches the page as that result; resume=%s', async resume => {
+    const failed: StreamTerminalEvent = { ...started, type: 'touka_stream_terminal', generation: 'error',
+      persistence: { status: 'skipped', reason: 'generation_failed' } };
+    const result = await consume(frame(started) + frame(failed), resume);
+    expect(result.done).toHaveBeenCalledExactlyOnceWith(failed);
+  });
   it('ignores foreign start and duplicate terminal without admitting another generation', async () => {
     const result = await consume(frame({ ...started, assistant_node_id: 'other' }) + frame(started) + frame(terminal) + frame(terminal));
     expect(result.done).toHaveBeenCalledExactlyOnceWith(terminal);

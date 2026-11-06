@@ -45,6 +45,7 @@ def test_snapshot_boolean_union_does_not_emit_string_discriminator_mapping():
         {"status": "saved", "representation": "full", "revision": "opaque-revision"},
         {"status": "skipped", "reason": "incognito"},
         {"status": "skipped", "reason": "no_text"},
+        {"status": "skipped", "reason": "generation_failed"},
         {"status": "failed", "error_code": 1102},
         {"status": "unknown", "error_code": 1302},
     ],
