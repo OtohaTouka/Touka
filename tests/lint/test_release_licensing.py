@@ -6,17 +6,17 @@
 - touka-chat's runtime install omits optional packages, which keeps sharp's LGPL libvips out.
 - The image publish workflow only runs from main and pins every action to a commit SHA.
 - ToukaIDE/THIRD_PARTY_NOTICES.txt lists the npm packages bundled into dist/extension.js.
-- An image that holds node also holds Node's LICENSE, and one that holds uv also holds uv's two
-  license texts, kept in ToukaProxy/licenses/uv because the official uv image carries none; NOTICE
-  says where each of them lands. The check follows node, uv and the license files through the
-  stages of every tracked Dockerfile: COPY and ADD with --from (a stage name, a stage number or an
-  image, with global ARG defaults filled in), single files, whole folders and wildcards, and FROM
-  another stage. The image is the last stage. The uv texts count only when a COPY names them or
-  their folder; a bulk `COPY . .` does not. Not covered: files placed by RUN (for example
-  `RUN --mount=from=... cp`). An image named by an ARG without a default is assumed to hold both
-  node and uv, so a license taken from it is not checked against the image node came from. The
-  parser fails on heredocs, an escape directive and a dangling line continuation instead of
-  guessing.
+- An image that holds node also holds Node's LICENSE from the same image, and one that holds uv
+  also holds uv's two license texts, kept in ToukaProxy/licenses/uv because the official uv image
+  carries none; NOTICE names each absolute path they land on. The check follows node, uv and the
+  license files through the stages of every tracked Dockerfile: COPY and ADD with --from (a stage
+  name, a stage number or an image, with global ARG defaults filled in; a relative source is read
+  from that stage's root), single files, whole folders and wildcards, and FROM another stage. The
+  image is the last stage. The uv texts count only when a COPY names them or their folder; a bulk
+  `COPY . .` does not. Not covered: files placed by RUN (for example `RUN --mount=from=... cp`),
+  character classes (`[...]`) in sources, and `--parents`. An image named by an ARG without a
+  default is assumed to hold both node and uv. The parser fails on heredocs, an escape directive
+  and a dangling line continuation instead of guessing.
 """
 
 from __future__ import annotations
@@ -59,7 +59,8 @@ UV_LICENSES = {
     "LICENSE-MIT": "014835144877ea9c926d027ece3e1a26290cf481",
     "LICENSE-APACHE": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
 }
-NODE, NODE_LICENSE, UV = "node", "Node.js LICENSE", "uv"
+# Node and its LICENSE are tracked per image they came from, so the LICENSE must match the node.
+NODE_FROM, NODE_LICENSE_FROM, UV = "node from ", "Node.js LICENSE from ", "uv"
 UV_LICENSE_KINDS = {name: f"uv {name}" for name in UV_LICENSES}
 
 Contents = dict[str, set[str]]  # what a stage or image holds: kind -> paths
@@ -152,8 +153,8 @@ def _image_contents(reference: str) -> Contents:
     repository = _repository(reference)
     contents: Contents = {}
     if repository in (None, "node"):
-        contents[NODE] = {NODE_BINARY_PATH}
-        contents[NODE_LICENSE] = {NODE_LICENSE_PATH}
+        contents[NODE_FROM + reference.lower()] = {NODE_BINARY_PATH}
+        contents[NODE_LICENSE_FROM + reference.lower()] = {NODE_LICENSE_PATH}
     if repository in (None, "uv"):
         contents[UV] = set(UV_PATHS)
     return contents
@@ -194,6 +195,12 @@ def _landing(copy: _Copy, source: str, path: str, stop: str | None = None) -> st
     return None
 
 
+def _from_root(source: str) -> str:
+    """A --from source is read from the root of that stage or image, written relative or not."""
+    relative = source.removeprefix("./").lstrip("/").removesuffix("/.")
+    return "/" + ("" if relative == "." else relative)
+
+
 def _copied(copy: _Copy, held: list[Contents], named: dict[str, int]) -> list[tuple[str, str]]:
     """(kind, landing path) for everything this copy brings in."""
     if copy.source_image is None:
@@ -222,7 +229,7 @@ def _copied(copy: _Copy, held: list[Contents], named: dict[str, int]) -> list[tu
         for kind, paths in source_contents.items()
         for path in paths
         for source in copy.sources
-        if (landing := _landing(copy, source, path))
+        if (landing := _landing(copy, _from_root(source), path))
     ]
 
 
@@ -246,8 +253,10 @@ def _final_contents(recipe: str) -> Contents:
 def _license_violations(recipe: str) -> list[str]:
     held = _final_contents(recipe)
     problems: list[str] = []
-    if held.get(NODE) and not held.get(NODE_LICENSE):
-        problems.append(f"node at {sorted(held[NODE])} without Node's LICENSE")
+    for kind, paths in sorted(held.items()):
+        origin = kind.removeprefix(NODE_FROM)
+        if kind.startswith(NODE_FROM) and paths and not held.get(NODE_LICENSE_FROM + origin):
+            problems.append(f"node at {sorted(paths)} without the LICENSE of {origin}")
     if held.get(UV):
         missing = [name for name, kind in UV_LICENSE_KINDS.items() if not held.get(kind)]
         if missing:
@@ -258,8 +267,9 @@ def _license_violations(recipe: str) -> list[str]:
 def _license_destinations(recipe: str) -> list[str]:
     """Where the image keeps Node's LICENSE and the uv license texts."""
     held = _final_contents(recipe)
-    kinds = [NODE_LICENSE, *UV_LICENSE_KINDS.values()]
-    return sorted(path for kind in kinds for path in held.get(kind, set()))
+    kinds = [kind for kind in held if kind.startswith(NODE_LICENSE_FROM)]
+    kinds += UV_LICENSE_KINDS.values()
+    return sorted({path for kind in kinds for path in held.get(kind, set())})
 
 
 def _dockerfiles() -> list[Path]:
@@ -418,6 +428,11 @@ MISSING_LICENSES = {
     "node license from another image": NODE_STAGE
     + NODE_BINARY_COPY
     + "COPY --from=other /usr/local/LICENSE /usr/local/share/doc/node/LICENSE\n",
+    "node license from another node image": "FROM python:3.12\n"
+    + "COPY --from=node:24 /usr/local/bin/node /usr/local/bin/node\n"
+    + "COPY --from=node:20 /usr/local/LICENSE /usr/local/share/doc/node/LICENSE\n",
+    "node by a relative source": NODE_STAGE
+    + "COPY --from=node-runtime usr/local/bin/node /usr/local/bin/node\n",
     "node in the stage the image is built from": NODE_DONOR
     + "FROM python:3.12 AS base\nCOPY --from=node-runtime /usr/local/bin/ /usr/local/bin/\n"
     + "FROM base\nRUN true\n",
@@ -441,6 +456,8 @@ MISSING_LICENSES = {
     "uv with the repository copied in bulk": UV_ONLY + "COPY . .\n",
     "uv from a stage named after it": "FROM ghcr.io/astral-sh/uv:0.12.1 AS uv-image\n"
     + "FROM python:3.12\nCOPY --from=uv-image /uv /bin/\n",
+    "uv by relative sources": "FROM ghcr.io/astral-sh/uv:0.12.1 AS uv-runtime\n"
+    + "FROM python:3.12\nCOPY --from=uv-runtime uv uvx /bin/\n",
 }
 COMPLETE_LICENSES = {
     "node and its license": NODE_STAGE + NODE_BINARY_COPY + NODE_LICENSE_COPY,
@@ -530,6 +547,8 @@ def test_notice_says_where_each_image_keeps_those_licenses() -> None:
     }
 
     assert landed
+    # A relative landing depends on WORKDIR, and a bare name like LICENSE is found in any NOTICE.
+    assert sorted(destination for destination in landed if not destination.startswith("/")) == []
     assert sorted(destination for destination in landed if destination not in notice) == []
 
 
