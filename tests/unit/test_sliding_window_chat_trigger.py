@@ -8,6 +8,9 @@
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import copy
 import json
 import uuid
 from pathlib import Path
@@ -17,10 +20,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from src.models.identity import AgentIdentity
 from src.models.sliding_window import SlidingWindowConfig
+from src.routers import ui_sessions
+from src.services import chat_trim_wait, destructive_ops
 from src.services import dispatcher as dispatcher_mod
 from src.services import sliding_window_service as sliding
+from src.services.chat_trim_wait import closing_saves
 from src.services.dispatcher import _maybe_trim_after_chat
 from src.services.resource_manager import resource_manager
+from src.services.stream_buffer_service import stream_buffer_service
 from src.utils.async_db import init_db_async, session_service
 
 _SOUL = "Hanatou"
@@ -114,7 +121,9 @@ def _line(rounds: int) -> dict[str, Any]:
 async def home_trim(sessions_db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """一個靈魂的家對話（人類擁有、4 輪、要剪）與聊天側剪裁所需的設定。"""
     soul_id = f"T4Soul{uuid.uuid4().hex[:6]}"
-    human = AgentIdentity(agent_id=f"t4-human-{uuid.uuid4().hex[:6]}", is_human=True)
+    human = AgentIdentity.for_role(  # 擁有這個靈魂，畫面的保存才進得去
+        f"t4-human-{uuid.uuid4().hex[:6]}", "normal", is_human=True, owned_agents=[soul_id]
+    )
     soul = AgentIdentity.for_role(agent_id=soul_id, role="Owner", is_human=False)
     monkeypatch.setattr(
         dispatcher_mod.agent_service, "identify_agent", {soul_id: _passport(soul_id)}.get
@@ -185,3 +194,156 @@ async def test_chat_trim_archive_and_manual_sync_on_the_real_resource_manager(
     assert second["total_in_db"] == first["total_in_db"]
     assert owner_file.exists() and not (soul_dir / "backup").exists()
     assert not Path(resource_manager.get_vault_path("legacy", human)).exists()
+
+
+# ── 先等畫面的收尾保存再剪（ADR-0302）──────────────────────────────────────────────
+
+
+async def _ui_save(home_trim: dict[str, Any], **messages_changes: Any) -> Any:
+    """畫面整棵存一次（走真的保存端點，存好時會叫醒等著的剪裁）。"""
+    sid, human = home_trim["sid"], home_trim["human"]
+    snapshot = await session_service.read_persistence_snapshot(sid, human)
+    tree = copy.deepcopy(snapshot.session["messages"])
+    tree["messages"].update(messages_changes.get("nodes", {}))
+    tree["currentId"] = messages_changes.get("current", tree["currentId"])
+    model = ui_sessions.SessionModel(
+        id=sid, title="home", messages=tree, updatedAt=2000, revision=snapshot.revision
+    )
+    return await ui_sessions.save_session(sid, model, human)
+
+
+def _rich_reply() -> dict[str, Any]:
+    return {"n7": {"id": "n7", "role": "assistant", "content": "line-7", "parentId": "n6",
+                   "childrenIds": [], "timestamp": 1_760_486_820_000, "steps": [{"tool": "x"}]}}
+
+
+async def _waiting_turn(home_trim: dict[str, Any]) -> asyncio.Task[None]:
+    sid = home_trim["sid"]
+    revision = (await session_service.read_persistence_snapshot(sid, home_trim["human"])).revision
+    waiter = closing_saves.register(sid, revision, "n7", home_trim["human"])
+    task = asyncio.create_task(_maybe_trim_after_chat(sid, waiter))
+    await asyncio.sleep(0.05)
+    return task
+
+
+async def test_chat_trim_waits_for_the_closing_save_and_keeps_its_rich_reply(
+    home_trim: dict[str, Any],
+) -> None:
+    task = await _waiting_turn(home_trim)
+    assert not task.done() and home_trim["summarize"].await_count == 0
+
+    assert (await _ui_save(home_trim, nodes=_rich_reply())).persistence.status == "saved"
+    await asyncio.wait_for(task, 5)
+
+    trimmed = await session_service.get_session_by_id(home_trim["sid"])
+    assert "n0" not in trimmed["messages"]["messages"]
+    assert trimmed["messages"]["messages"]["n7"]["steps"] == [{"tool": "x"}]
+    home_trim["summarize"].assert_awaited_once()
+
+
+async def test_chat_trim_trims_the_text_version_when_the_closing_save_never_comes(
+    home_trim: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(chat_trim_wait, "CLOSING_SAVE_WAIT_SECONDS", 0.05)
+    await asyncio.wait_for(await _waiting_turn(home_trim), 5)
+    trimmed = await session_service.get_session_by_id(home_trim["sid"])
+    assert "n0" not in trimmed["messages"]["messages"]
+
+
+async def test_a_closing_save_before_the_wait_starts_is_not_missed(
+    home_trim: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """畫面在剪裁開始等之前就存好了：不等到逾時，直接往下剪。"""
+    monkeypatch.setattr(chat_trim_wait, "CLOSING_SAVE_WAIT_SECONDS", 60)
+    sid = home_trim["sid"]
+    revision = (await session_service.read_persistence_snapshot(sid, home_trim["human"])).revision
+    assert (await _ui_save(home_trim, nodes=_rich_reply())).persistence.status == "saved"
+    waiter = closing_saves.register(sid, revision, "n7", home_trim["human"])
+    await asyncio.wait_for(_maybe_trim_after_chat(sid, waiter), 5)
+    assert "n0" not in (await session_service.get_session_by_id(sid))["messages"]["messages"]
+
+
+async def test_a_newer_turn_replaces_the_waiting_trim(home_trim: dict[str, Any]) -> None:
+    sid = home_trim["sid"]
+    task = await _waiting_turn(home_trim)
+    newer = closing_saves.register(sid, "newer", "n9", home_trim["human"])
+    await asyncio.wait_for(task, 1)
+    assert "n0" in (await session_service.get_session_by_id(sid))["messages"]["messages"]
+    home_trim["summarize"].assert_not_awaited()
+    closing_saves.saved(sid)
+    assert await closing_saves.wait(newer)
+
+
+@pytest.mark.parametrize("busy", ["heartbeat", "next_message", "pending_request"])
+async def test_chat_trim_gives_up_when_the_session_moved_on(
+    home_trim: dict[str, Any], busy: str
+) -> None:
+    sid, soul, human = home_trim["sid"], home_trim["soul"], home_trim["human"]
+    task = await _waiting_turn(home_trim)
+    with contextlib.ExitStack() as stack:
+        if busy == "heartbeat":  # 心跳結束時自己會剪
+            destructive_ops.start_heartbeat(soul, sid)
+            stack.callback(destructive_ops.end_heartbeat, soul, sid)
+        if busy == "pending_request":  # 下一則已經送到、還沒開始串流
+            stack.enter_context(stream_buffer_service.pending_request(sid, human))
+        nodes = _rich_reply()
+        current = "n7"
+        if busy == "next_message":  # 您已經存下一則 user
+            nodes["n7"]["childrenIds"] = ["n8"]
+            nodes["n8"] = {"id": "n8", "role": "user", "content": "next", "parentId": "n7",
+                           "childrenIds": [], "timestamp": 1_760_486_880_000}
+            current = "n8"
+        saved = await _ui_save(home_trim, nodes=nodes, current=current)
+        assert saved.persistence.status == "saved"
+        await asyncio.wait_for(task, 5)
+    assert "n0" in (await session_service.get_session_by_id(sid))["messages"]["messages"]
+    home_trim["summarize"].assert_not_awaited()
+
+
+@pytest.mark.parametrize("stage", ["summary", "commit"])
+async def test_chat_trim_checks_again_before_the_summary_and_the_commit(
+    home_trim: dict[str, Any], monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    """讀完存檔之後下一則才送到：寫摘要前、存回前各再查一次，省下白花的模型呼叫。"""
+    sid, human = home_trim["sid"], home_trim["human"]
+    manager = MagicMock()
+    archive = manager.get_legacy_sync_service.return_value.archive_payload
+    archive.return_value = 4
+    monkeypatch.setattr(sliding, "get_manager", lambda: manager)
+    pending = contextlib.ExitStack()
+
+    def arrive(result: Any) -> Any:
+        pending.enter_context(stream_buffer_service.pending_request(sid, human))
+        return result
+
+    if stage == "summary":
+        archive.side_effect = lambda *_a: arrive(4)
+    else:
+        home_trim["summarize"].side_effect = lambda *_a: arrive("summary")
+    task = await _waiting_turn(home_trim)
+    with pending:
+        assert (await _ui_save(home_trim, nodes=_rich_reply())).persistence.status == "saved"
+        await asyncio.wait_for(task, 5)
+    assert "n0" in (await session_service.get_session_by_id(sid))["messages"]["messages"]
+    assert home_trim["summarize"].await_count == (0 if stage == "summary" else 1)
+
+
+async def test_trims_that_lose_twice_do_not_duplicate_the_archive(
+    home_trim: dict[str, Any],
+) -> None:
+    """ADR-0295 曾寫「舊對話庫每次多一份」：剪裁輸掉兩次，舊對話庫裡的訊息數不變。"""
+    soul = home_trim["soul"]
+    store = sliding.get_manager().get_legacy_sync_service().get_store(soul)
+    stats = []
+
+    async def lose(*_args: Any) -> str:  # 寫摘要的時候畫面先存了，存回時版本對不上
+        await _ui_save(home_trim, nodes=_rich_reply())
+        return "summary"
+
+    home_trim["summarize"].side_effect = lose
+    for _ in range(2):
+        await _maybe_trim_after_chat(home_trim["sid"])
+        stats.append(store.get_stats())
+    untrimmed = await session_service.get_session_by_id(home_trim["sid"])
+    assert "n0" in untrimmed["messages"]["messages"]
+    assert stats[0] == stats[1] and stats[0]["message_count"] > 0

@@ -30,6 +30,7 @@ from src.models.session_persistence import (
 from src.routers import proxy as proxy_router
 from src.services import dispatcher as dispatcher_mod
 from src.services import proxy_service
+from src.services.chat_trim_wait import closing_saves
 from src.services.dispatchers import factory
 from src.services.identity_router import get_verified_identity
 from src.services.models.routes import CustomRouteDisposition
@@ -466,14 +467,30 @@ async def test_ui_real_producer_saves_fixed_node_before_typed_terminal(
     monkeypatch.setattr(dispatcher_mod, "record_working_brain", Mock())
     trim = AsyncMock()
     monkeypatch.setattr(dispatcher_mod, "_maybe_trim_after_chat", trim)
+    finish = dispatcher_mod.stream_buffer_service.finish
+    registered_before_terminal = []
+
+    async def finish_after_register(session_id, *args, **kwargs):
+        registered_before_terminal.append(trim.called)
+        return await finish(session_id, *args, **kwargs)
+
+    monkeypatch.setattr(dispatcher_mod.stream_buffer_service, "finish", finish_after_register)
     response = await _ui_dispatch(request)
     events = await _response_events(response)
     terminal = next(
         (event for event in events if event.get("type") == "touka_stream_terminal"), None
     )
     assert terminal is not None, "producer lacks typed terminal"
-    # 剪裁身分由家對話歸屬決定；UI 請求者（人類）不傳進去
-    trim.assert_called_once_with("ui")
+    # 剪裁身分由家對話歸屬決定；等畫面收尾保存的登記在送出終態之前（ADR-0302）
+    assert registered_before_terminal == [True]
+    (session_id, closing_save), _ = trim.call_args
+    assert session_id == "ui"
+    assert (closing_save.revision, closing_save.assistant_node_id) == (
+        terminal["persistence"]["revision"],
+        "assistant",
+    )
+    closing_saves.saved("ui")
+    assert await closing_saves.wait(closing_save)
     assert events[0]["type"] == "touka_stream_started"
     assert (
         terminal["generation"] == "completed"

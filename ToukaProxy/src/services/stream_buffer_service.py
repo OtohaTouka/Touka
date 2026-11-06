@@ -289,6 +289,14 @@ class StreamBufferService:
             for request in self._pending.get(session_id, set())
         )
 
+    def is_busy(self, session_id: str) -> bool:
+        """這個對話有進行中的串流，或有還沒開始串流的請求（不分是誰送的）。"""
+        self._sweep()
+        entry = self._streams.get(session_id)
+        return (entry is not None and entry.status == "active") or bool(
+            self._pending.get(session_id)
+        )
+
     def stop_pending_requests(self, session_id: str, identity: AgentIdentity) -> bool:
         """把 ``identity`` 在這個對話還在等的請求標成已停止；條件同 ``has_pending_request``。"""
         if not self.has_pending_request(session_id, identity):
