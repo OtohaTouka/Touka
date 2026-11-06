@@ -60,6 +60,7 @@ def _make_session(linear: list[dict]) -> dict:
         "id": "test-session",
         "title": "Test",
         "messages": _make_tree(linear),
+        "is_home": 1,  # 只剪家對話
     }
 
 

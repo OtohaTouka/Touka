@@ -235,8 +235,17 @@ test("回覆之後重新整理：存檔不變、沒有提示，下一則直接�
   expect(await savedUserTexts(id)).toEqual(expect.arrayContaining(["重新整理之前", "重新整理之後"]));
 });
 
-// 已知限制（ADR-0231）：後端收尾時版本已被 set_home 換掉，會跳提示；按恢復之後內容不會掉。
-test("回覆還在跑時設為家：跳提示，按恢復之後內容完整，下一則直接送出", async ({ page }) => {
+/** 這一輪收尾存好了，存檔裡最後一則回覆有工具步驟。 */
+async function expectToolReplySaved(page: Page, id: string): Promise<void> {
+  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
+  const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
+  expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
+}
+
+// 家標記不算進版本（ADR-0301）：設家不讓回覆收尾的保存存不進去
+test("回覆還在跑時設為家：不跳提示，回覆存好，下一則直接送出", async ({ page }) => {
   await send(page, "還在跑之前");
   const id = await latestSessionId(adminToken);
   // 工具等核准時這一輪還沒結束
@@ -246,16 +255,68 @@ test("回覆還在跑時設為家：跳提示，按恢復之後內容完整，�
   await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
 
   await approveButton(page).click();
-  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
-  await recoverSave(page);
-  await turnEnded(page);
-  await expectNoSaveNotice(page);
-  const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
-  expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
+  await expectToolReplySaved(page, id);
+  await expectChatIsHome(page, "還在跑之前", true);
 
   await send(page, "還在跑之後");
   expect(await savedUserTexts(id)).toContain("還在跑之後");
   expect((await savedSnapshot(adminToken, id)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
+});
+
+test("回覆還在跑時把家換到另一段：舊家這段不跳提示，回覆存好", async ({ page }) => {
+  await send(page, "之後的家");
+  const newHome = await latestSessionId(adminToken);
+  await page.getByRole("button", { name: "新增對話" }).click();
+  await selectSoul(page);
+  await send(page, "原本的家");
+  const oldHome = await latestSessionId(adminToken);
+  expect(oldHome).not.toBe(newHome);
+  await setChatAsHome(page, "原本的家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, oldHome)).session.is_home).toBe(true);
+
+  await sendMessage(page, writeRequest(`session-save-${Date.now()}.txt`));
+  await approveButton(page).waitFor();
+  await setChatAsHome(page, "之後的家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, newHome)).session.is_home).toBe(true);
+
+  await approveButton(page).click();
+  await expectToolReplySaved(page, oldHome);
+  await expectChatIsHome(page, "之後的家", true);
+  await expectChatIsHome(page, "原本的家", false);
+
+  await send(page, "舊家換掉之後");
+  expect(await savedUserTexts(oldHome)).toContain("舊家換掉之後");
+  expect((await savedSnapshot(adminToken, oldHome)).session).toMatchObject({ is_home: false, home_for_agent: null });
+});
+
+test("回覆收尾的保存延後、這期間設為家：放行後不跳提示，資料夾那一列是新家", async ({ page }) => {
+  await send(page, "延後之前");
+  const id = await latestSessionId(adminToken);
+  // 攔住這一輪收尾的完整保存，設好家才放行
+  let held!: () => void;
+  const holding = new Promise<void>((resolve) => { held = resolve; });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/v1/ui/sessions/*", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (route.request().method() === "POST" && body.includes(FAKE_AFTER_TOOL_REPLY)) {
+      held();
+      await released;
+    }
+    await route.continue();
+  });
+  await sendMessage(page, writeRequest(`session-save-${Date.now()}.txt`));
+  await approveButton(page).click();
+  await holding;
+  await setChatAsHome(page, "延後之前");
+  await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
+  release();
+
+  await expectToolReplySaved(page, id);
+  await page.unroute("**/v1/ui/sessions/*");
+  await expectChatIsHome(page, "延後之前", true);
+  await send(page, "延後之後");
+  expect(await savedUserTexts(id)).toContain("延後之後");
 });
 
 test("有工具步驟的回覆，重新整理之後內容仍然完整", async ({ page }, info) => {

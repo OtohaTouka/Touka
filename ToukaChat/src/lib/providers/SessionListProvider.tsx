@@ -72,6 +72,9 @@ const SessionListContext = createContext<SessionContextType | undefined>(undefin
 const scopeId = (scope: RequestScope | null) => JSON.stringify(scope);
 // 第一次存好之後，存檔裡當然有它；之後照常重讀存檔、比對內容才存（ADR-0231）。
 const markSavedHere = (writer: SessionWriter) => { writer.requireAbsence = false; writer.savedHere = true; };
+// 家欄位只由設家改、存檔不寫它（ADR-0301）：設家前送出的保存晚回來時，保留設家的結果，不蓋回送出時的值。
+const withSavedHome = (session: Session, writer: SessionWriter): Session =>
+  ({ ...session, is_home: writer.confirmed.is_home, home_for_agent: writer.confirmed.home_for_agent });
 
 export function SessionListProvider({ children }: { children: React.ReactNode }) {
   const [sessions, renderSessions] = useState<Session[]>([]);
@@ -115,18 +118,15 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     return writer;
   }, []);
 
-  // set_home 成功後存檔的家欄位和版本已經變了。這是存檔的事實，不是外部輸入：有未確認草稿的對話也跟著改，
-  // 其他內容照留；舊版本作廢，下一個命令重讀存檔比對（ADR-0231）。這一輪還在跑時不動版本：收尾要用它，不能不帶版本存。
+  // set_home 成功後存檔的家欄位變了。這是存檔的事實，不是外部輸入：有未確認草稿的對話也跟著改，其他內容照留。
+  // 家欄位不算進版本（ADR-0301）：版本和待恢復的版本都照用，不必重讀存檔。
   const applySavedHome = useCallback((id: string, agentId: string, isHome: boolean) => {
     const previous = sessionsRef.current;
     setSessions(applySetHome(previous, id, agentId, isHome).map((session, index) => {
       if (session === previous[index]) return session;
       const writer = getWriter(session);
       writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent };
-      writer.recovery = undefined;
-      if (writer.producer) return session;
-      writer.confirmed.revision = undefined;
-      return { ...session, revision: undefined };
+      return session;
     }));
   }, [getWriter, setSessions]);
 
@@ -287,6 +287,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       catch { return rejectChange(id, writer, pending); }
       const result = baseError ?? await save(intended, scope);
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
+      intended = withSavedHome(intended, writer);
       if (isSaved(result)) {
         writer.unconfirmed = false;
         markSavedHere(writer);
@@ -352,6 +353,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         result = await save(intended, token.scope);
       }
       if (writers.current.get(token.sessionId) !== writer || writer.producer !== producer) return result;
+      intended = withSavedHome(intended, writer);
       writer.result = result;
       writer.halted = !isSaved(result);
       if (isSaved(result)) writer.confirmed = { ...intended,
@@ -429,7 +431,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (result.status === 'saved' && result.representation === 'full') {
         writer.unconfirmed = false;
         markSavedHere(writer);
-        writer.confirmed = { ...intended, revision: result.revision };
+        writer.confirmed = { ...withSavedHome(intended, writer), revision: result.revision };
         let preview: Session;
         try { preview = writer.pending.reduce((state, item) => item.deferred ? state : applySessionChange(state, item.change), writer.confirmed); }
         catch { return rejectChange(id, writer); }

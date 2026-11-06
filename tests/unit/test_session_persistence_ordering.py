@@ -144,8 +144,6 @@ async def test_omitted_metadata_preserved_and_explicit_null_or_empty_clears(owne
         ("title", "other"),
         ("messages", json.dumps({"messages": {}, "currentId": None})),
         ("updatedAt", 2000),
-        ("is_home", 1),
-        ("home_for_agent", "other"),
         ("agent_id", "other"),
         ("project_id", "other"),
         ("auth_level", "YOLO"),
@@ -154,6 +152,7 @@ async def test_omitted_metadata_preserved_and_explicit_null_or_empty_clears(owne
         ("last_activity_at", 2000),
         ("context_summary", "other"),
         ("owner_user_id", "other"),
+        ("session_scope_version", 0),
     ],
 )
 @pytest.mark.asyncio
@@ -169,6 +168,21 @@ async def test_every_mutable_row_column_invalidates_the_old_revision(owned_db, c
     result = await save(before.revision, title="must-not-win", messages=TREE)
     assert result.status == "failed"
     assert (await snapshot()).revision == changed.revision
+
+
+@pytest.mark.parametrize("column,value", [("is_home", 1), ("home_for_agent", "other")])
+@pytest.mark.asyncio
+async def test_home_columns_do_not_change_the_revision(owned_db, column, value):
+    """家標記只由設家改，存檔不寫它（ADR-0301）；設家不讓別處手上的版本失效。"""
+    await seed()
+    before = await snapshot()
+    async with async_db.get_async_db() as db:
+        # column is exclusively the finite parameterized fixture above, never external input.
+        await db.execute(f"UPDATE user_sessions SET {column} = ? WHERE id = ?", (value, SID))  # noqa: S608
+        await db.commit()
+    changed = await snapshot()
+    assert changed.session[column] == value
+    assert changed.revision == before.revision
 
 
 @pytest.mark.asyncio
@@ -550,6 +564,7 @@ async def test_rich_save_during_summary_wins_and_stale_trim_discards_without_ret
 ):
     soul = AgentIdentity(agent_id="synthetic-soul")
     await seed(identity=soul)
+    assert await async_db.SessionService.set_home(SID, soul, True)  # 只剪家對話
     before = await snapshot()
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -589,6 +604,7 @@ async def test_trim_first_causes_stale_rich_save_conflict_without_overwrite(
 ):
     soul = AgentIdentity(agent_id="synthetic-soul")
     await seed(identity=soul)
+    assert await async_db.SessionService.set_home(SID, soul, True)  # 只剪家對話
     before = await snapshot()
     monkeypatch.setattr(sliding, "summarize_dialogue", AsyncMock(return_value="new-summary"))
     assert await trim_service.check_and_trim(soul, SID)

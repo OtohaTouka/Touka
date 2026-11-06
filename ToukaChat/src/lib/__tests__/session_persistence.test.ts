@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applySessionChange, applySetHome, mergeSessionRefresh, parseSaveResult, isSaved, parseSessionSnapshot, savedPastTerminal } from '../session_persistence';
+import { applySessionChange, applySetHome, matchesSessionContent, mergeSessionRefresh, parseSaveResult, isSaved, parseSessionSnapshot,
+  savedPastTerminal, sessionWritePayload } from '../session_persistence';
 import type { SaveResult, Session, StreamTerminalEvent } from '../types';
 import { ERRORS } from '../error_codes';
 
@@ -98,6 +99,17 @@ describe('applySetHome follows the backend set_home rule', () => {
   it('cancelling on a session the agent does not own leaves it alone, as the backend does', () => {
     const other = home('other', 'Bob');
     expect(applySetHome([other], 'other', 'Alice', false)[0]).toBe(other);
+  });
+  // 家欄位只由設家改，存檔不寫它（ADR-0301）：不送出，比對內容時也不算
+  it('a save never sends the home fields', () => {
+    const payload = sessionWritePayload(home('s', 'Alice', { title: 't' }));
+    expect(payload).toMatchObject({ id: 's', title: 't' });
+    expect(payload).not.toHaveProperty('is_home');
+    expect(payload).not.toHaveProperty('home_for_agent');
+  });
+  it('different home fields alone are the same content', () => {
+    expect(matchesSessionContent(home('s', null), home('s', 'Alice'))).toBe(true);
+    expect(matchesSessionContent(home('s', null), home('s', 'Alice', { title: 'other' }))).toBe(false);
   });
 });
 

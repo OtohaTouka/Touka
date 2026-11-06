@@ -154,6 +154,12 @@ def _parse_session_row(raw: aiosqlite.Row) -> dict[str, Any]:
 def _session_revision(
     session_id: str, row: dict[str, Any] | None, identity: AgentIdentity | None
 ) -> str:
+    # 家的兩欄不算（ADR-0301）：只有設家改它、存檔不寫它，設家不能讓別處手上的版本失效
+    content = (
+        {k: v for k, v in row.items() if k not in {"is_home", "home_for_agent"}}
+        if row is not None
+        else None
+    )
     canonical = json.dumps(
         [
             _persistence_epoch,
@@ -161,7 +167,7 @@ def _session_revision(
             identity.agent_id if identity else None,
             identity.is_human if identity else False,
             _persistence_generations.get(session_id, 0),
-            row,
+            content,
         ],
         ensure_ascii=False,
         sort_keys=True,
@@ -477,14 +483,19 @@ class SessionService:
         identity: AgentIdentity,
         *,
         representation: str = "full",
+        require_home: bool = False,
     ) -> SaveResult:
-        """SQLite 層 compare+write 原子化，任何不明讀取／提交錯誤皆 unknown。"""
+        """SQLite 層 compare+write 原子化，任何不明讀取／提交錯誤皆 unknown。
+
+        ``require_home``：剪裁用，交易內那一列已經不是家就不寫（家標記不算進版本，ADR-0301）。
+        """
         return await SessionService._save_session(
             session_id,
             changes,
             identity,
             expected_revision=expected_revision,
             representation=representation,
+            require_home=require_home,
         )
 
     @staticmethod
@@ -516,6 +527,7 @@ class SessionService:
         message: tuple[str, str, str | None] | None = None,
         owner_user_id: str | None = None,
         channel_id: str | None = None,
+        require_home: bool = False,
     ) -> SaveResult:
         """所有內容寫入共用鎖、嚴格讀取與同一個 IMMEDIATE 交易。"""
         try:
@@ -524,6 +536,16 @@ class SessionService:
                 row = await _strict_session_row(db, session_id)
                 if expected_revision is not None and expected_revision != _session_revision(
                     session_id, row, identity
+                ):
+                    return _persistence_rejected()
+                if require_home and not (row and row["is_home"]):
+                    return _persistence_rejected()
+                # 已存在的對話，家標記只由 set_home 改（它先清掉同一個靈魂的舊家）；
+                # 版本不含它（ADR-0301），帶版本的存檔改它一律擋下
+                if (
+                    expected_revision is not None
+                    and row is not None
+                    and {"is_home", "home_for_agent"} & changes.model_fields_set
                 ):
                     return _persistence_rejected()
                 if row is None and not {"title", "messages"}.issubset(changes.model_fields_set):

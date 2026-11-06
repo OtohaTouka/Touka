@@ -77,8 +77,11 @@ export function mergeSessionRefresh(local: Session[], remote: Session[], protect
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-/** UI 可覆寫欄位；不把 revision、owner 或 server 衍生值當作可寫內容。缺席仍是缺席。 */
-const writableFields = ['id', 'title', 'messages', 'updatedAt', 'is_home', 'home_for_agent', 'agent_id',
+/**
+ * UI 可覆寫欄位；不把 revision、owner 或 server 衍生值當作可寫內容。缺席仍是缺席。
+ * 家的兩欄只由設家改、不算進版本（ADR-0301），存檔不送、比對內容也不算。
+ */
+const writableFields = ['id', 'title', 'messages', 'updatedAt', 'agent_id',
   'project_id', 'auth_level', 'active_mcp_servers', 'active_skills', 'context_summary'] as const satisfies readonly (keyof Session)[];
 
 export function sessionWritePayload(session: Session): Record<string, unknown> {

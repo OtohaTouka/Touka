@@ -703,6 +703,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_mcp_connection_owner.py` ⭐ | **MCP 連線 owner 的生命週期**（life1；ADR-0273；假連線在 owner task 進入 anyio task group，另有真 MCPServer 經 ASGI 與真 stdio 伺服器 `tests/fixtures/mcp_v2/lifecycle_stdio_server.py`，只用 `sys.executable`、不連外）：owner 在自己的 task 進入；失聯通知恰好一次（從 ExceptionGroup 取根因、取消狀態已清）；要求關閉不通知（含關閉途中出錯）；期限內收完不算硬關、卡住時期限到硬關且不通知；關閉者被取消就重拋、不硬關；外部原生取消不通知；握手失敗原樣交回，非取消 BaseException 不留未讀例外，KeyboardInterrupt／SystemExit 照樣往外拋（另開事件迴圈）；關閉錯誤的 WARNING 不帶內容；manager：握手中被取消（asyncio 一次、兩次、anyio scope）等 owner 收完才離開、不留 handle 與 task；並行連線只剩一個；先換再關並停舊訂閱；`_install_handle` 讓呼叫端的取消拋出；裝的期間斷線保留失聯紀錄；同名加兩次；失聯只記錄、停訂閱、不重連（hook 收到的 owner 就是失聯那條，且繼承建立者的 contextvars）；被換掉的 owner 失聯不記錄、不呼叫 hook；停訂閱與失聯處理並行不 KeyError；cleanup 並行關、一個總期限、超過只記一行 WARNING、期間才裝進 pool 的正常收掉、中止的握手不被 with_retry 重試；背景收尾不先取消 owner；owner 與訂閱 supervisor 不帶 workload 票；真 SDK／真 stdio：建立者已結束時另一條不受影響、送出用呼叫端 context、Dispatch 下線一段時間後 restart 恢復、失聯後 MCP 頁顯示 error 而不是整頁空白、stdin 關了也不結束的伺服器在期限到後仍被殺掉、stdio 伺服器自己結束時目前不通知（釘住已知限制） |
 | `test_heartbeat_logic.py` | Heartbeat 排程邏輯：interval/daily/once 模式觸發時機 |
 | `test_heartbeat_finished_record.py` | ADR-0300 心跳的結束紀錄：跑完、失敗、第一個脈衝前就停都記一筆（側欄留小點），而且等剪裁做完才記；沒開跑、開始記錄之前就失敗不記 |
+| `test_session_home_revision.py` | ADR-0301 家標記不算進存檔版本：設家、換家、取消家後舊版本照樣存得進去、新家留著；帶版本的存檔改不了家欄位；舊版本仍刪不掉、換綁不了新家；剪裁讀檔前不是家就不剪、讀檔後換家存不回去；心跳中途換家，脈衝照常存、結尾不剪（沙盒 SQLite） |
 | `test_dispatch_auth.py` | DispatchAgent 任務看板跨身分代理授權與 Pydantic schema 擴充單元測試 (TDD) |
 | `test_dependency_security.py` | 任務更新與前置依賴鏈缺乏驗證安全防範與拓撲排序循環依賴校驗單元測試 (TDD) |
 | `test_status_transition.py` | 任務狀態轉換有限狀態機 (FSM) 校驗與 FAILED 重置特權校驗單元測試 (TDD) |
@@ -1179,7 +1180,7 @@ python scripts/guard_all.py
 | `e2e-real/hooks-baseline.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：真前端、真後端（沙盒）、假模型走 Hook 現有四個事件：設定走畫面、hook 收到的內容鍵固定且不含設定值、執行紀錄看得到；hook 回放行時審批卡照樣跳；hook 失敗不擋動作；UserPromptSubmit 擋下時模型收不到；無痕紀錄只有時間、事件、結果。 |
 | `e2e-real/hooks-tool-events.spec.ts` ⭐ | ADR-0295 實際驗證：工具失敗、審批與通知四個事件走到底；hook 回放行時卡照樣跳、參數不被改；hook 拒絕不跳卡；工具缺參數回一般錯誤；無痕只記時間、事件、結果 |
 | `e2e-real/hooks-lifecycle.spec.ts` ⭐ | ADR-0295 實際驗證（`npm run test:e2e:real`，不是 Vitest）：其餘十一個事件走到底（設定走畫面、hook 收到的內容鍵固定、紀錄看得到）；模型失敗時畫面標示且不跑 Stop；hook 回代填時 MCP 表單照樣跳、回拒絕不跳；PreCompact 卡住不拖住聊天與 PostCompact；ConfigChange 回擋下設定照樣存好、關閉 hooks 成功；心跳；無痕提示 |
-| `e2e-real/session-save.spec.ts` ⭐ | ADR-0295 實際驗證：這一頁新建的對話點一下再送、切走再點回來再送、設家後下一則與改名、設家又取消、輪流換家後舊家再送、連續換兩次家（清單只剩最後一段是家）、回覆還在跑時設家（已知限制：按恢復之後完整）、回覆後重新整理（存檔不變、沒有提示、下一則直接送出）、有工具步驟的回覆重新整理後完整、原頁沒存完整內容時重播補回、模型失敗恢復後重新整理 |
+| `e2e-real/session-save.spec.ts` ⭐ | ADR-0295 實際驗證：這一頁新建的對話點一下再送、切走再點回來再送、設家後下一則與改名、設家又取消、輪流換家後舊家再送、連續換兩次家（清單只剩最後一段是家）、回覆還在跑時設家或把家換走、收尾保存延後期間設家（都不跳提示，ADR-0301）、回覆後重新整理（存檔不變、沒有提示、下一則直接送出）、有工具步驟的回覆重新整理後完整、原頁沒存完整內容時重播補回、模型失敗恢復後重新整理 |
 | `src/components/chat/__tests__/IncognitoHookNotice.test.tsx` ⭐ | ADR-0292 無痕提示：有 hook 才提示、一般對話不查、中途打開下一則就提示、查不到維持上次 |
 | `e2e/mcp-oauth.spec.ts` ⭐ | ADR-0206 P8-A Playwright：callback 當前 URL 無 state/code canary、local/session storage 與 console/message surface 無秘密、exact origin/source opaque message。 |
 
