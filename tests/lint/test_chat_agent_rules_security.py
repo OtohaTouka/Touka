@@ -27,5 +27,9 @@ def test_next_config_turns_off_agent_rules() -> None:
     assert re.search(r"(?m)^  agentRules: false,$", _config_body())
 
 
-def test_next_config_sets_agent_rules_once() -> None:
-    assert len(re.findall(r"\bagentRules\b", _config_body())) == 1
+def test_next_config_sets_agent_rules_once_and_exports_that_object() -> None:
+    text = NEXT_CONFIG.read_text(encoding="utf-8")
+
+    # Nothing else in the file may set it again, and the object Next reads is the one checked.
+    assert len(re.findall(r"\bagentRules\b", text)) == 1
+    assert re.findall(r"(?m)^export default .*$", text) == ["export default nextConfig;"]
