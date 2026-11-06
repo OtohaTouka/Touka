@@ -540,7 +540,8 @@ class SessionService:
                     return _persistence_rejected()
                 if require_home and not (row and row["is_home"]):
                     return _persistence_rejected()
-                # 已存在的對話，家標記只由 set_home 改（它先清掉同一個靈魂的舊家）；版本不含它（ADR-0301）
+                # 已存在的對話，家標記只由 set_home 改（它先清掉同一個靈魂的舊家）；
+                # 版本不含它（ADR-0301），帶版本的存檔改它一律擋下
                 if (
                     expected_revision is not None
                     and row is not None
