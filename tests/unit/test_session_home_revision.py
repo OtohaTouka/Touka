@@ -64,6 +64,28 @@ async def test_home_change_keeps_old_revision_and_the_new_home(home_before, set_
     assert await home_of() == expected
 
 
+@pytest.mark.parametrize(
+    ("home", "changes"),
+    [
+        ("chat", {"is_home": False, "home_for_agent": None}),
+        ("other", {"is_home": True, "home_for_agent": A}),
+    ],
+    ids=["clear", "second-home"],
+)
+async def test_a_versioned_save_cannot_change_the_home_fields(home, changes):
+    """家標記只由設家改（它會先清掉同一個靈魂的舊家）；帶版本的存檔改它一律擋下。"""
+    await seed("chat")
+    await seed("other")
+    assert await service.set_home(home, A, True)
+    before = {sid: await raw_row(sid) for sid in ("chat", "other")}
+    current = await snap()
+    result = await service.conditional_save_session(
+        "chat", current.revision, SessionChanges(title="renamed", **changes), HUMAN
+    )
+    assert result.status == "failed"
+    assert {sid: await raw_row(sid) for sid in ("chat", "other")} == before
+
+
 async def test_old_revision_still_cannot_delete_the_new_home():
     await seed("chat")
     stale = await snap()

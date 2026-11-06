@@ -540,6 +540,13 @@ class SessionService:
                     return _persistence_rejected()
                 if require_home and not (row and row["is_home"]):
                     return _persistence_rejected()
+                # 已存在的對話，家標記只由 set_home 改（它先清掉同一個靈魂的舊家）；版本不含它（ADR-0301）
+                if (
+                    expected_revision is not None
+                    and row is not None
+                    and {"is_home", "home_for_agent"} & changes.model_fields_set
+                ):
+                    return _persistence_rejected()
                 if row is None and not {"title", "messages"}.issubset(changes.model_fields_set):
                     return _persistence_rejected()
                 updated = _apply_session_changes(session_id, row, changes, identity)
