@@ -42,8 +42,10 @@ from src.routers import custom_models as custom_models_router
 from src.routers import souls as souls_router
 from src.routers import stats as stats_router
 from src.services import authorization_gateway, avatar_service, memory_collection_guard
+from src.services import soul_service as soul_service_module
 from src.services.agent_service import agent_service
 from src.services.auth_service import AuthService
+from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.services.soul_service import soul_service
 from src.utils import custom_io, soul_io
@@ -186,7 +188,11 @@ def _users(monkeypatch, *owned: tuple[str, list[str]]) -> None:
 
 
 def _known(monkeypatch, *, souls=(), customs=(), registry=()) -> None:
+    """``agent_service.is_known_id`` 看到的已知代理人（逐字比對，和實際的判斷來源一致）."""
     monkeypatch.setattr(soul_io, "list_soul_ids", lambda: list(souls))
+    monkeypatch.setattr(
+        soul_service, "has_soul_folder", lambda identity: identity.agent_id in souls
+    )
     monkeypatch.setattr(custom_io, "list_custom_ids", lambda: list(customs))
     monkeypatch.setattr(
         custom_io, "custom_file_exists", lambda identity, _name: identity.agent_id in customs
@@ -287,6 +293,39 @@ def test_memory_standalone_fallback_checks_the_name_too(zone_data_root, name):
     with pytest.raises(memory_manager_module.VaultPathRefusedError):
         MemoryManager().get_legacy_dir(identity)
     assert MemoryManager().get_soul_dir(identity) is None
+
+
+def test_memory_does_not_build_its_own_path_when_the_proxy_refuses(zone_data_root):
+    """名稱合格、proxy 卻不給路徑（例如資料夾在、但不是靈魂）：不退回自己用原名拼路徑."""
+    _make_soul(zone_data_root, "zzPlainFolder", is_soul=False)
+    made: list[object] = []
+    proxy = SimpleNamespace(
+        get_vault_path=lambda _vault, _identity: None,
+        make_dir=lambda path, **_k: made.append(path),
+    )
+    identity = AgentIdentity(agent_id="zzPlainFolder")
+    assert MemoryManager().get_soul_dir(identity, resource_proxy=proxy) is None
+    with pytest.raises(memory_manager_module.VaultPathRefusedError):
+        MemoryManager().get_legacy_dir(identity, resource_proxy=proxy)
+    assert made == []
+
+
+def test_splitting_a_chat_with_a_model_name_that_is_not_a_folder_name_is_a_422(zone_data_root):
+    """一般模型對話（ID 像 ollama/llama3:8b）不能存進舊對話庫：回 422，不是 500."""
+    app.dependency_overrides[get_verified_identity] = lambda: ADMIN
+    try:
+        body = {
+            "agent_id": "ollama/llama3:8b",
+            "filename": "x.json",
+            "json_content": [{"id": "s", "chat": {"history": {"messages": {
+                "n1": {"id": "n1", "role": "user", "content": "hi", "timestamp": 1_760_486_400}
+            }}}}],
+        }
+        response = TestClient(app).post("/v1/ui/sessions/legacy/export", json=body)
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "folder" not in response.text
 
 
 # ── B. 靈魂名稱：逐字出現在列表 ────────────────────────────────────────────────
@@ -402,6 +441,86 @@ def test_simulated_alias_is_not_a_soul(zone_data_root, monkeypatch):
     assert soul_service.has_soul_folder(AgentIdentity(agent_id="ZZREALSOULNAME")) is False
     assert (agent_service.identify_agent("ZZREALSOULNAME") or {}).get("is_toukasoul") is not True
     assert soul_service.is_toukasoul("zzRealSoulName") is True
+
+
+def _count_listings(monkeypatch) -> list[bool]:
+    """記下每次列 soul/ 的呼叫（strict 參數），照常回真正的列表."""
+    calls: list[bool] = []
+    real = resource_manager.list_child_names
+
+    def spy(path, *args, strict=True, **kwargs):
+        calls.append(strict)
+        return real(path, *args, strict=strict, **kwargs)
+
+    monkeypatch.setattr(resource_manager, "list_child_names", spy)
+    return calls
+
+
+def test_soul_name_cache_skips_the_listing_for_a_name_it_already_saw(zone_data_root, monkeypatch):
+    _make_soul(zone_data_root, "zzCachedSoul")
+    calls = _count_listings(monkeypatch)
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    assert len(calls) == 1
+
+
+def test_soul_name_cache_relists_when_the_folder_changes(zone_data_root, monkeypatch):
+    _make_soul(zone_data_root, "zzCachedSoul")
+    calls = _count_listings(monkeypatch)
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    # 新建的靈魂馬上查得到：不在快取裡一律重列
+    _make_soul(zone_data_root, "zzBrandNewSoul")
+    assert soul_service.is_toukasoul("zzBrandNewSoul") is True
+    assert len(calls) == 2
+    # 根目錄的修改時間變了（有增刪改名）：已在快取裡的名稱也重列
+    root = zone_data_root / "soul"
+    stamp = root.stat().st_mtime_ns + 5_000_000_000
+    os.utime(root, ns=(stamp, stamp))
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    assert len(calls) == 3
+
+
+def test_soul_name_cache_expires_even_when_the_folder_time_does_not_change(
+    zone_data_root, monkeypatch
+):
+    """修改時間不準的檔案系統：改了名字修改時間也不一定變，快取最多沿用一小段時間."""
+    _make_soul(zone_data_root, "zzCachedSoul")
+    calls = _count_listings(monkeypatch)
+    clock = [1_000.0]
+    monkeypatch.setattr(soul_service_module, "get_monotonic_ms", lambda: clock[0])
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    clock[0] += soul_service_module._SOUL_NAMES_TTL_MS - 1
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    assert len(calls) == 1
+    clock[0] += 2
+    assert soul_service.is_toukasoul("zzCachedSoul") is True
+    assert len(calls) == 2
+
+
+def test_an_unreadable_entry_does_not_hide_the_other_souls(zone_data_root, monkeypatch, caplog):
+    """有一項讀不到：用列得到的部分判斷；沒列到的名稱不算，記成「列不完整」而不是別名."""
+    _make_soul(zone_data_root, "zzVisibleSoul")
+    _make_soul(zone_data_root, "zzHiddenSoul")
+    real = resource_manager.list_child_names
+
+    def partial(path, *args, strict=True, **kwargs):
+        if strict:
+            failed = "cannot list every entry"
+            raise OSError(failed)
+        return [name for name in real(path, *args, strict=False, **kwargs) if "Hidden" not in name]
+
+    monkeypatch.setattr(resource_manager, "list_child_names", partial)
+    assert soul_service.is_toukasoul("zzVisibleSoul") is True
+    with caplog.at_level("WARNING"):
+        assert soul_service.is_toukasoul("zzHiddenSoul") is False
+    assert "incomplete" in caplog.text
+    assert "short name" not in caplog.text
+
+
+def test_a_file_in_the_soul_folder_is_not_a_soul(zone_data_root):
+    (zone_data_root / "soul").mkdir(parents=True, exist_ok=True)
+    (zone_data_root / "soul" / "zzJustAFile").write_text("x", "utf-8")
+    assert soul_service.has_soul_folder(AgentIdentity(agent_id="zzJustAFile")) is False
 
 
 def test_custom_model_ids_cannot_alias_another_agents_folder(zone_data_root, monkeypatch):
@@ -664,10 +783,32 @@ async def test_admin_still_creates_and_converts_by_editing(zone_data_root, soul_
 
 # ── C. is_owner ────────────────────────────────────────────────────────────────
 def test_owner_path_does_not_treat_an_alias_as_ownerless(monkeypatch):
+    """只差大小寫的寫法即使被認得，擁有者還是 B：拒絕的理由是擁有者，不是不認得."""
     _users(monkeypatch, ("userA", ["zzAgentOfA"]), ("userB", ["zzSoulOfB"]))
-    _known(monkeypatch, souls=["zzAgentOfA", "zzSoulOfB"])
+    _known(monkeypatch, souls=["zzAgentOfA", "zzSoulOfB"], registry=["zzsoulofb"])
     target = AgentIdentity(agent_id="zzsoulofb")
     assert resource_manager.is_owner(target, OWNER_A) is False
+
+
+def test_owner_path_needs_a_known_target_even_when_the_case_owner_is_shared(monkeypatch):
+    """A 擁有 zzFoo，不存在的 zzfoo 不會因為大小寫找到 A 而被放行."""
+    _users(monkeypatch, ("userA", ["zzAgentOfA", "zzFoo"]))
+    _known(monkeypatch, souls=["zzAgentOfA", "zzFoo"])
+    assert resource_manager.is_owner(AgentIdentity(agent_id="zzfoo"), OWNER_A) is False
+    assert resource_manager.is_owner(AgentIdentity(agent_id="zzFoo"), OWNER_A) is True
+
+
+def test_grace_period_only_looks_at_exact_owners(monkeypatch):
+    """System 與自己存取：只差大小寫的擁有者很久沒登入，不會因此擋掉（和改動前一樣）."""
+    long_ago = int(get_current_epoch()) - 90 * 86400
+    users = [SimpleNamespace(id="userB", owned_agents=["zzFoo"], last_active_at=long_ago)]
+    monkeypatch.setattr(AuthService, "get_all_users", lambda self: users)
+    _known(monkeypatch, souls=["zzFoo", "zzfoo"])
+    target = AgentIdentity(agent_id="zzfoo")
+    myself = AgentIdentity.for_role(agent_id="zzfoo", role="Base")
+    assert resource_manager.is_owner(target, SYSTEM) is True
+    assert resource_manager.is_owner(target, myself) is True
+    assert resource_manager.is_owner(AgentIdentity(agent_id="zzFoo"), SYSTEM) is False
 
 
 def test_owner_path_does_not_allow_unknown_targets(monkeypatch):

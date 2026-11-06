@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request  # noqa: TC002
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
+from memory_server.services.manager import VaultPathRefusedError
 from memory_server.services.mission_manager import MissionManager
 from memory_server.tools import get_manager
 from memory_server.utils.no_follow import LinkRefusedError
@@ -780,6 +781,10 @@ async def export_legacy(
             req.json_content,
             req.filename,
         )
+    except VaultPathRefusedError as e:
+        # 只有代理人的對話能存進舊對話庫；一般模型的 ID（如 ollama/llama3:8b）不能當資料夾名
+        logger.warning("Legacy export refused: %r has no legacy folder", req.agent_id.agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR) from e
     except Exception as e:
         logger.exception("Failed to export legacy chat")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=f"Export failed: {e!s}") from e

@@ -394,9 +394,12 @@ class ResourceManager:
             str | None: 實體絕對路徑字串，若權限不足或類型未知則回傳 None。
         """
         agent_id = identity.agent_id
-        # 名稱不是單一段就不拼路徑（sec-9 PR 1b）：Windows 上 \\主機\分享 拼上去會變成網路路徑
+        if vault == "personal":
+            raise ZonePathRequiredError(None, "get_vault_path")
+        # 名稱不是單一段就不拼路徑（sec-9 PR 1b）：Windows 上 \\主機\分享 拼上去會變成網路路徑。
+        # 一般模型的 ID（如 ollama/llama3:8b）每個請求都會走到這裡，只記 debug
         if not is_zone_segment(agent_id):
-            logger.warning("🚫 Vault path refused for a name that is not one segment: %r", agent_id)
+            logger.debug("Vault path refused for a name that is not one segment: %r", agent_id)
             return None
         app_data_dir = Path(get_app_data_dir())
 
@@ -406,9 +409,6 @@ class ResourceManager:
             if soul_service.is_toukasoul(identity):
                 return str(soul_dir)
             return None
-
-        if vault == "personal":
-            raise ZonePathRequiredError(None, "get_vault_path")
 
         if vault == "custom_soul":
             # 自定義模型的「靈魂」配置空間 (Level 2 SSOT)；禁令 17：ID 不得穿越出 custom/
@@ -530,26 +530,23 @@ class ResourceManager:
             # ("System" — internal-only, absent from ASSIGNABLE_AGENT_ROLES — keeps its
             # documented global bypass for background scans and is intentionally not
             # constrained here; this guard scopes the externally-reachable Owner role.)
-            # sec-9 PR 1b：逐字找不到擁有者時，只差大小寫的寫法找到的擁有者就是這個目標的擁有者
-            # （不分大小寫的檔案系統上它們指到同一個資料夾）；逐字找到的優先，權限不會因此變寬。
-            target_owners = [u for u in users if target_id in u.owned_agents]
-            if not target_owners:
+            exact_owners = [u for u in users if target_id in u.owned_agents]
+            if identity.agent_role == "Owner" and identity.agent_id != target_id:
+                # sec-9 PR 1b：逐字找不到擁有者時，再找只差大小寫的寫法的擁有者（不分大小寫的
+                # 檔案系統上它們指到同一個資料夾）。只拿來拒絕跨擁有者，不會讓權限變寬
                 folded = target_id.casefold()
-                target_owners = [
+                owners = exact_owners or [
                     u for u in users if any(a.casefold() == folded for a in u.owned_agents)
                 ]
-            if identity.agent_role == "Owner" and identity.agent_id != target_id:
-                if target_owners and not any(
-                    identity.agent_id in u.owned_agents for u in target_owners
-                ):
+                if owners and not any(identity.agent_id in u.owned_agents for u in owners):
                     logger.warning(
                         "🚫 Cross-owner autonomy denied: %s → %s",
                         identity.agent_id,
                         target_id,
                     )
                     return False
-                # 沒有擁有者時只放行逐字已知的代理人：8.3 短檔名這類別名大小寫比對抓不到
-                if not target_owners and not self._is_known_agent(target_identity):
+                # 逐字沒有擁有者時只放行逐字已知的代理人：8.3 短檔名這類別名大小寫比對抓不到
+                if not exact_owners and not self._is_known_agent(target_identity):
                     logger.warning(
                         "🚫 Autonomy denied for an unknown target: %s → %r",
                         identity.agent_id,
@@ -557,10 +554,10 @@ class ResourceManager:
                     )
                     return False
 
-            # 找到該 Agent 的人類擁有者以確認最後活躍時間
-            # 第一位擁有者決定（和以前逐一找 users 的順序相同）
-            if target_owners:
-                user = target_owners[0]
+            # 找到該 Agent 的人類擁有者以確認最後活躍時間（只看逐字的擁有者，和以前一樣；
+            # 第一位擁有者決定，和以前逐一找 users 的順序相同）
+            if exact_owners:
+                user = exact_owners[0]
                 if not user.last_active_at:
                     return False  # 從未登入過的代理人無權限自主
 

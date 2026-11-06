@@ -25,11 +25,15 @@ from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 from src.utils.model_text import blank_control_chars
+from src.utils.time_utils import get_monotonic_ms
 
 logger = logging.getLogger(__name__)
 
 # 別名警告最多記幾個不同的名稱（名稱來自請求，不讓這份集合無限長大）
 _ALIAS_WARN_LIMIT = 256
+# 靈魂名稱快取最多沿用多久（毫秒）：修改時間不準的檔案系統（FAT、部分網路或容器掛載）上，
+# 名稱改了修改時間不一定變，過期就重列
+_SOUL_NAMES_TTL_MS = 2000.0
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
@@ -133,8 +137,9 @@ class SoulService:
     def __init__(self) -> None:
         """初始化靈魂服務."""
         self._alias_warned: set[str] = set()  # 別名的警告每個名稱只記一次
-        # (根目錄, 列表當時的修改時間, 名稱)：只拿來確認「逐字在列表裡」，不在裡面一律重列
-        self._soul_names: tuple[str, int, frozenset[str]] | None = None
+        # (根目錄, 列表當時的修改時間, 名稱, 列表的時刻)：只拿來確認「逐字在列表裡」，
+        # 不在裡面一律重列
+        self._soul_names: tuple[str, int, frozenset[str], float] | None = None
 
     @property
     def base_dir(self) -> Path:
@@ -182,46 +187,62 @@ class SoulService:
         r"""靈魂資料夾：名稱是單一段，而且逐字出現在 ``soul/`` 的目錄列表裡（sec-9 PR 1b）.
 
         名稱先過 ``is_zone_segment`` 才碰檔案系統（Windows 上 ``\\主機\分享`` 拼上去會變成網路
-        路徑）。資料夾存在才列目錄：大多數不是靈魂的查詢停在 ``exists()``。不分大小寫的檔案系統上，
+        路徑）。是資料夾才列目錄：大多數不是靈魂的查詢停在 ``is_dir()``。不分大小寫的檔案系統上，
         只差大小寫、8.3 短檔名的名稱也會「存在」，但不會逐字出現在列表裡——那是別名，不算。
-        列表用寬鬆模式：一項讀不到不會讓所有靈魂失效；根目錄列不到就不算。
+        有一項讀不到時用列得到的部分判斷（一項壞掉不讓所有靈魂失效），沒列到的名稱不算。
 
-        成本：上一次列出的名稱以根目錄的修改時間為鍵記住。名稱在裡面（而且資料夾還在）就直接
-        回傳；不在裡面一律重新列一次再判斷，所以快取過期只會多列一次，不會漏掉剛建立的靈魂。
+        成本：上一次列出的名稱以根目錄的修改時間為鍵記住，最多沿用 ``_SOUL_NAMES_TTL_MS``。
+        名稱在裡面（而且資料夾還在）就直接回傳；不在裡面一律重新列一次再判斷，所以快取過期只會
+        多列一次，不會漏掉剛建立的靈魂。
         """
         agent_id = identity.agent_id
         if not is_zone_segment(agent_id):
             return None
         soul_root = Path(config_utils.get_app_data_dir()) / "soul"
         agent_dir = soul_root / agent_id
-        if not agent_dir.exists():
+        if not agent_dir.is_dir():
             return None
         if agent_id in self._cached_soul_names(soul_root):
             return agent_dir
         try:
-            names = self._list_soul_names(soul_root)
+            names, complete = self._list_soul_names(soul_root)
         except OSError:
             logger.warning("🧬 Soul folder list unreadable; %r is not treated as a soul", agent_id)
             return None
         if agent_id not in names:
-            if agent_id not in self._alias_warned and len(self._alias_warned) < _ALIAS_WARN_LIMIT:
-                self._alias_warned.add(agent_id)
-                logger.warning(
-                    "🧬 %r is not the exact name of a soul folder (differs only by case or is a "
-                    "short name); not treated as a soul",
-                    agent_id,
-                )
+            self._warn_not_listed(identity, complete=complete)
             return None
         return agent_dir
 
+    def _warn_not_listed(self, identity: AgentIdentity, *, complete: bool) -> None:
+        """名稱沒出現在列表裡：每個名稱只記一次，集合有上限（名稱來自請求）."""
+        agent_id = identity.agent_id
+        if agent_id in self._alias_warned or len(self._alias_warned) >= _ALIAS_WARN_LIMIT:
+            return
+        self._alias_warned.add(agent_id)
+        if complete:
+            logger.warning(
+                "🧬 %r is not the exact name of a soul folder (differs only by case or is a "
+                "short name); not treated as a soul",
+                agent_id,
+            )
+        else:
+            logger.warning(
+                "🧬 Soul folder list incomplete (some entries unreadable); %r is not treated as "
+                "a soul",
+                agent_id,
+            )
+
     def has_soul_folder(self, identity: AgentIdentity) -> bool:
-        """名稱逐字是 ``soul/`` 底下的資料夾（不看設定檔裡的靈魂標記；別名不算）."""
+        """名稱逐字是 ``soul/`` 底下的資料夾（不看設定檔裡的靈魂標記；別名、檔案都不算）."""
         return self._soul_dir(identity) is not None
 
     def _cached_soul_names(self, soul_root: Path) -> frozenset[str]:
-        """上一次列出的靈魂資料夾名稱；根目錄換了或修改時間變了（有增刪改名）就是空集合."""
+        """上一次列出的靈魂資料夾名稱；根目錄換了、修改時間變了（有增刪改名）或過期就是空集合."""
         cached = self._soul_names
         if cached is None or cached[0] != str(soul_root):
+            return frozenset()
+        if get_monotonic_ms() - cached[3] > _SOUL_NAMES_TTL_MS:
             return frozenset()
         try:
             mtime = soul_root.stat().st_mtime_ns
@@ -229,12 +250,17 @@ class SoulService:
             return frozenset()
         return cached[2] if cached[1] == mtime else frozenset()
 
-    def _list_soul_names(self, soul_root: Path) -> frozenset[str]:
-        """重新列 ``soul/`` 第一層的名稱並記住（寬鬆模式；根目錄列不到丟 OSError）."""
+    def _list_soul_names(self, soul_root: Path) -> tuple[frozenset[str], bool]:
+        """重新列 ``soul/`` 第一層的名稱並記住；回 (名稱, 是否列完整)。根目錄讀不到丟 OSError."""
         mtime = soul_root.stat().st_mtime_ns
-        names = frozenset(_resource_manager().list_child_names(soul_root, strict=False))
-        self._soul_names = (str(soul_root), mtime, names)
-        return names
+        manager = _resource_manager()
+        try:
+            names, complete = frozenset(manager.list_child_names(soul_root)), True
+        except OSError:
+            names = frozenset(manager.list_child_names(soul_root, strict=False))
+            complete = False
+        self._soul_names = (str(soul_root), mtime, names, get_monotonic_ms())
+        return names, complete
 
     def is_toukasoul(self, identity: str | AgentIdentity) -> bool:
         """判斷指定身分是否具備正式靈魂特徵 (Identity SSOT).
