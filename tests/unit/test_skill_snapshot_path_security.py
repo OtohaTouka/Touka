@@ -210,7 +210,7 @@ def test_listing_failure_refuses_names_that_are_not_loaded(svc, monkeypatch):
         svc.update_skill("new-skill", {"system_prompt": "x"})
 
 
-def test_listing_permission_error_names_the_path_and_lenient_mode_lists_the_rest(
+def test_unreadable_entry_fails_strict_listing_and_lenient_mode_lists_the_rest(
     svc, tmp_path, monkeypatch
 ):
     root = tmp_path / "listing"
@@ -221,9 +221,8 @@ def test_listing_permission_error_names_the_path_and_lenient_mode_lists_the_rest
         yield WalkEntry(("kept",), "dir", (root / "kept").stat())
 
     monkeypatch.setattr(resource_manager_module, "_walk_plain", partial_walk)
-    with pytest.raises(PermissionError) as exc:
+    with pytest.raises(OSError, match="locked"):
         resource_manager.list_child_names(root)
-    assert exc.value.filename == str(root / "locked")
     assert resource_manager.list_child_names(root, strict=False) == ["kept"]
 
 
@@ -303,7 +302,10 @@ def test_scan_loads_every_skill_folder_however_many_files(svc):
     assert {s["id"] for s in svc.list_skills()} == {"0-first", "zz-system"}
 
 
-@pytest.mark.parametrize("name", sorted(RESERVED_SYSTEM_SKILL_IDS))
+@pytest.mark.parametrize(
+    "name",
+    [*sorted(RESERVED_SYSTEM_SKILL_IDS), "Deep-Research-Coordinator", "System-MCP-Dispatcher"],
+)
 async def test_builtin_system_skill_names_are_reserved_even_when_missing(svc, tmp_path, name):
     """內建系統技能的資料夾不在時，也不能用同名建立一般技能（深入研究會依名稱注入）。"""
     with pytest.raises(ToukaException) as exc:

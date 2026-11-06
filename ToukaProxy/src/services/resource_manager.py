@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import csv
-import errno
 import fnmatch
 import json
 import logging
@@ -1541,12 +1540,8 @@ class ResourceManager:
         with contextlib.closing(walk):
             entries = [entry for entry in walk if len(entry.parts) == 1]
         if report.errors and strict:
-            rel, code = report.errors[0]
-            failed = f"Cannot list every entry of {text} ({rel or '.'})"
-            if code in (errno.EACCES, errno.EPERM):
-                denied = PermissionError(failed)
-                denied.filename = str(Path(text, rel))  # 讓權限自癒找得到要修的路徑
-                raise denied
+            # 一般 OSError：權限自癒只處理帶 errno 的真實權限錯誤，這裡不假裝能修
+            failed = f"Cannot list every entry of {text} ({report.errors[0][0] or '.'})"
             raise OSError(failed)
         if report.errors:
             logger.warning("Listed %s partially; %d entries unreadable.", text, len(report.errors))

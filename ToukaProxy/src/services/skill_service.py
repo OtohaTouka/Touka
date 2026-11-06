@@ -277,7 +277,7 @@ class SkillService:
 
     def _is_system_skill(self, skill_id: str, skill_dir: Path) -> bool:
         """內建系統技能的名稱，或已載入的 metadata、磁碟上的 ``SKILL.md`` 任一標成系統技能就算。"""
-        if skill_id in RESERVED_SYSTEM_SKILL_IDS:
+        if skill_id.casefold() in RESERVED_SYSTEM_SKILL_IDS:  # 只差大小寫也不能先佔名稱
             return True
         loaded = self._metadata.get(skill_id, {})
         return bool(skill_parser.read_touka_field(loaded, "is_system")) or self._declares_system(
