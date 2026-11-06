@@ -103,6 +103,26 @@ function submitNewPassword(password = NEW_PASSWORD) {
   fireEvent.click(screen.getByRole('button', { name: /設定密碼/ }));
 }
 
+/**
+ * 讓 CI 機器很忙時的先後順序每次都發生（2026-11-06 CI 紅過兩次，焦點停在 body）。
+ * `findBy*` 看到畫面變了以後，只再等一個 0 毫秒計時器就交回測試；React 每次 commit 後先讓出，
+ * effect（例如移焦點）排在下一輪才跑。機器在這中間卡住超過 1 毫秒，計時器先到期，測試就在
+ * effect 之前斷言。這裡在每個 0 毫秒計時器排好後卡住幾毫秒，本機也一定是這個順序。
+ * afterEach 的 vi.unstubAllGlobals() 會還原。
+ */
+function stallAfterZeroDelayTimers(stallMs = 3) {
+  const realSetTimeout = globalThis.setTimeout;
+  const stalling = (handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => {
+    const id = realSetTimeout(handler, timeout, ...args);
+    if (!timeout) {
+      const until = getSystemEpoch() + stallMs;
+      while (getSystemEpoch() < until) { /* 模擬機器卡住 */ }
+    }
+    return id;
+  };
+  vi.stubGlobal('setTimeout', stalling);
+}
+
 const storedResume = () => {
   const raw = window.localStorage.getItem(RESUME_KEY);
   return raw === null ? null : JSON.parse(raw);
@@ -127,6 +147,7 @@ describe('精靈改完密碼：請重新登入，登入後從下一步接續', (
   });
 
   it('改完密碼：顯示重新登入說明、記下接續第 3 步，沒有用失效的卡打後端', async () => {
+    stallAfterZeroDelayTimers();
     renderWizard();
     submitNewPassword();
 
@@ -135,7 +156,8 @@ describe('精靈改完密碼：請重新登入，登入後從下一步接續', (
     expect(screen.queryByRole('button', { name: /上一步/ })).toBeNull();
     // 舊卡已失效：關掉精靈會用失效的卡重讀狀態而被登出，所以只留「前往登入」，焦點也移過去。
     expect(screen.queryByLabelText('關閉設定精靈')).toBeNull();
-    expect(screen.getByRole('button', { name: '前往登入' })).toHaveFocus();
+    // 焦點在 effect 裡移，比說明文字晚一步出現，要等它（見 stallAfterZeroDelayTimers）。
+    await waitFor(() => expect(screen.getByRole('button', { name: '前往登入' })).toHaveFocus());
     expect(storedResume()).toMatchObject({ userId: ADMIN.id, stepId: 'api_keys' });
 
     const calls = backend.fetch.mock.calls.map(([url]) => new URL(String(url), 'http://touka.test').pathname);
