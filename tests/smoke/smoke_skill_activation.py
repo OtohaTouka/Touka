@@ -22,8 +22,9 @@ for _p in (PROJECT_ROOT / "ToukaProxy", PROJECT_ROOT / "ToukaMemory" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from src.middleware.layers.skill import _SKILL_DISPATCHER_ID, SkillLayer
+from src.middleware.layers.skill import SkillLayer
 from src.models.identity import AgentIdentity
+from src.services.skill_service import SKILL_DISPATCHER_ID
 
 
 async def main() -> None:
@@ -48,7 +49,7 @@ async def main() -> None:
     active = ctx.get("active_skills", [])
     print(f"    active_skills = {active}")
 
-    if _SKILL_DISPATCHER_ID not in active:
+    if SKILL_DISPATCHER_ID not in active:
         failures.append(f"system-skill-dispatcher 未常駐注入：{active}")
     if bogus_skill in active:
         failures.append(f"未授權/不存在技能 {bogus_skill!r} 竟進入 active_skills（RBAC 失效）")

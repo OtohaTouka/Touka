@@ -127,7 +127,9 @@ WINDOWS_RESERVED_NAMES = frozenset({"con", "prn", "aux", "nul"}) | {
 
 
 def is_skill_segment(name: object) -> bool:
-    """技能名稱的唯一判斷（ADR-0293 P9）：``validate_skill_id`` 與 ``tool_root`` 都只經這裡.
+    """技能名稱的唯一判斷（ADR-0293 P9）.
+
+    ``validate_skill_id``、``tool_root``、``SkillService``（含 ``SkillModel``）都只經這裡。
 
     技能名稱會成為執行器可寫掛載根 ``managed`` 的第一層；執行器把掛載根第一層是 Touka 目錄
     名稱（kernel 的 ``DATA_ROOT_NAMES``、``TOUKA_MARKERS``，``fold_name`` 後比對）判成

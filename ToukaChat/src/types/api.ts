@@ -3608,7 +3608,7 @@ export interface paths {
         put?: never;
         /**
          * Create Skill Endpoint
-         * @description 建立 skill（Owner/admin）。
+         * @description 建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。
          */
         post: operations["create_skill_endpoint_v1_creation_skill_post"];
         delete?: never;
@@ -3668,7 +3668,7 @@ export interface paths {
         put?: never;
         /**
          * Create Skill Endpoint
-         * @description 建立 skill（Owner/admin）。
+         * @description 建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。
          */
         post: operations["create_skill_endpoint_creation_skill_post"];
         delete?: never;

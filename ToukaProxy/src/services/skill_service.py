@@ -32,6 +32,7 @@ from src.services.skill_catalog_service import (
     SkillCatalogEntry,
     SkillCatalogService,
 )
+from src.utils.isolation_policy import is_skill_segment
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,15 @@ _SKILL_FILE = "SKILL.md"
 _MCP_FILE = ".mcp.json"
 # catalog 安裝來源 provenance（版本追蹤）：記下釘的 commit，供「最新／可更新」判定。
 _SOURCE_FILE = ".touka_source.json"
+
+# 內建系統技能：兩個調度員由同步產生，深入研究協調由 repo 附上、依名稱強制注入（ADR-0087）。
+# 不論資料夾在不在，都不能經 API 建立、覆蓋或刪除（不然同名的一般技能會被注入所有人的請求）。
+SKILL_DISPATCHER_ID = "system-skill-dispatcher"
+MCP_DISPATCHER_ID = "system-mcp-dispatcher"
+DEEP_RESEARCH_SKILL_ID = "deep-research-coordinator"
+RESERVED_SYSTEM_SKILL_IDS = frozenset(
+    {SKILL_DISPATCHER_ID, MCP_DISPATCHER_ID, DEEP_RESEARCH_SKILL_ID}
+)
 
 # Skill 安裝來源 allowlist（防 SSRF）
 ALLOWED_SKILL_DOMAINS = frozenset({
@@ -190,17 +200,95 @@ class SkillService:
         logger.info("Loaded %d skills from %s", len(self._metadata), self._skills_dir)
 
     def _scan_skill_ids(self) -> list[str]:
-        """掃描技能目錄，回傳含 SKILL.md 的直接子目錄 id 清單。
+        """列技能目錄第一層，回傳含 ``SKILL.md``、名稱合規的資料夾名稱（連結不列）。
 
-        glob_search 採 rglob，故過濾僅保留 ``<id>/SKILL.md`` (兩段路徑)，
-        排除 ``<id>/references/SKILL.md`` 等巢狀雜訊。
+        直接列第一層，不用有筆數上限的遞迴搜尋：技能多時系統技能才不會沒被載入。
+        ``<id>/references/SKILL.md`` 等巢狀檔不算技能。列不出來時記錄並回空清單。
         """
+        try:
+            # 只拿來顯示與載入：少列一項不危險（名稱檢查與系統技能保護另外嚴格判斷）
+            names = resource_manager.list_child_names(
+                self._skills_dir, dirs_only=True, strict=False
+            )
+        except OSError:
+            logger.exception("Cannot list skill directory %s; no skills loaded.", self._skills_dir)
+            return []
         ids = []
-        for rel in resource_manager.glob_search(self._skills_dir, _SKILL_FILE):
-            parts = rel.split("/")
-            if len(parts) == 2 and parts[1] == _SKILL_FILE:
-                ids.append(parts[0])
+        for name in sorted(names):
+            if not resource_manager.exists(self._skills_dir / name / _SKILL_FILE):
+                continue
+            if is_skill_segment(name):
+                ids.append(name)
+            else:
+                logger.warning("Skipping skill folder with an invalid name: %r", name)
         return ids
+
+    def _skill_dir(self, skill_id: str) -> Path | None:
+        """技能名稱 → ``config/skills/<名稱>``；名稱不合規，或只和已有資料夾差大小寫時回 None.
+
+        名稱只收單一段（``is_skill_segment``），不會被當成路徑。不分大小寫的檔案系統上，只差
+        大小寫的名稱會指到同一個資料夾（例如繞過「系統技能不可刪」），所以已有同名資料夾時，
+        名稱要和目錄列表的實際名稱完全相同。
+        """
+        if not is_skill_segment(skill_id):
+            return None
+        if skill_id in self._metadata:
+            # 已載入的名稱就是實際名稱（掃描列出來的、經本檢查寫入的、或兩個調度員的固定名稱）。
+            # 前提是只有一個行程（ADR-0207）：多個行程各自的清單可能過期。
+            return self._skills_dir / skill_id
+        try:
+            names = resource_manager.list_child_names(self._skills_dir)
+        except OSError:
+            logger.warning("Cannot list skill directory; refusing skill name %r", skill_id)
+            return None
+        if skill_id not in names and skill_id.casefold() in {n.casefold() for n in names}:
+            return None
+        return self._skills_dir / skill_id
+
+    def is_usable_name(self, skill_id: str) -> bool:
+        """這個名稱能不能用來指到或新增技能（規則同 ``_skill_dir``）；建立引擎驗證用。"""
+        return self._skill_dir(skill_id) is not None
+
+    def _require_skill_dir(self, skill_id: str) -> Path:
+        """同 ``_skill_dir``，不合規時拋 VALIDATION_ERROR（寫入、刪除、安裝用）。"""
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            logger.warning("Refused skill name that is not a single valid name: %r", skill_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
+        return skill_dir
+
+    @staticmethod
+    def _declares_system(skill_dir: Path) -> bool:
+        """磁碟上這個技能的 ``SKILL.md`` 有沒有標成系統技能；讀不到當成有（不放行）。
+
+        掃描缺口 E35（ADR-0175）：is_system 須走 read_touka_field——生產寫入
+        （build_frontmatter）把擴充欄位收進 metadata 子欄位，直讀頂層鍵只命中 legacy 檔。
+        """
+        md_path = skill_dir / _SKILL_FILE
+        if not resource_manager.exists(md_path):
+            return False
+        try:
+            raw = resource_manager.read_file_text(md_path)
+        except (OSError, UnicodeDecodeError):
+            logger.warning("Cannot read %s; treating it as a system skill.", md_path)
+            return True
+        fm, _body = skill_parser.parse_skill_md(raw)
+        return bool(skill_parser.read_touka_field(fm, "is_system"))
+
+    def _is_system_skill(self, skill_id: str, skill_dir: Path) -> bool:
+        """內建系統技能的名稱，或已載入的 metadata、磁碟上的 ``SKILL.md`` 任一標成系統技能就算。"""
+        if skill_id.casefold() in RESERVED_SYSTEM_SKILL_IDS:  # 只差大小寫也不能先佔名稱
+            return True
+        loaded = self._metadata.get(skill_id, {})
+        return bool(skill_parser.read_touka_field(loaded, "is_system")) or self._declares_system(
+            skill_dir
+        )
+
+    def _refuse_system_skill(self, skill_id: str, skill_dir: Path, action: str) -> None:
+        """系統技能不能經 API 覆蓋或刪除（只由調度員同步與 repo 維護）。"""
+        if self._is_system_skill(skill_id, skill_dir):
+            logger.warning("Refused to %s system skill '%s'.", action, skill_id)
+            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     def _read_skill_source(self, skill_id: str) -> dict[str, Any] | None:
         """讀取技能安裝來源 provenance（catalog 安裝寫入的 ``.touka_source.json``）。
@@ -251,9 +339,12 @@ class SkillService:
     def get_skill(self, skill_id: str) -> dict[str, Any] | None:
         """讀取單一技能完整內容 (第 2 層)，回傳契約 9 key dict。
 
-        不存在時回 None，呼叫端 (router) 據此回 404。
+        不存在或名稱不合規時回 None，呼叫端 (router) 據此回 404。
         """
-        md_path = self._skills_dir / skill_id / _SKILL_FILE
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return None
+        md_path = skill_dir / _SKILL_FILE
         if not resource_manager.exists(md_path):
             return None
         try:
@@ -262,17 +353,17 @@ class SkillService:
             logger.warning("Failed to read skill %s", skill_id)
             return None
         fm, body = skill_parser.parse_skill_md(raw)
-        mcp_servers = self._derive_mcp_servers(skill_id)
+        mcp_servers = self._derive_mcp_servers(skill_dir)
         return skill_parser.map_to_contract(fm, body, mcp_servers)
 
-    def _derive_mcp_servers(self, skill_id: str) -> list[str]:
+    def _derive_mcp_servers(self, skill_dir: Path) -> list[str]:
         """從同目錄 .mcp.json 的 top-level keys 推導 mcp_servers 清單。
 
         先檢查檔案存在再讀取，避免對無 .mcp.json 的技能 (如系統 dispatcher)
         觸發非必要的 read_json。只取 keys、不碰 value，故 value 內的
         ``${DISPATCH_URL}`` 等插值佔位不影響 JSON 解析 (推導與插值解耦)。
         """
-        mcp_path = self._skills_dir / skill_id / _MCP_FILE
+        mcp_path = skill_dir / _MCP_FILE
         if not resource_manager.exists(mcp_path):
             return []
         data = resource_manager.read_json(mcp_path)
@@ -286,9 +377,12 @@ class SkillService:
         """讀取技能目錄下的 bundled resource (第 3 層，按需)。
 
         rel_path 正規化後必須仍在 ``<skill_id>/`` 目錄內，防止 ``../`` 目錄逃逸。
-        逃逸或檔案不存在回 None。
+        名稱不合規、逃逸或檔案不存在回 None。
         """
-        skill_root = (self._skills_dir / skill_id).resolve()
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return None
+        skill_root = skill_dir.resolve()
         target = (skill_root / rel_path).resolve()
         if target != skill_root and skill_root not in target.parents:
             logger.warning("Skill resource path escape blocked: %s / %s", skill_id, rel_path)
@@ -301,8 +395,10 @@ class SkillService:
             return None
 
     def list_skill_resources(self, skill_id: str) -> list[str]:
-        """列舉技能目錄下 scripts/ references/ assets/ 的檔案 (第 3 層)。"""
-        skill_dir = self._skills_dir / skill_id
+        """列舉技能目錄下 scripts/ references/ assets/ 的檔案 (第 3 層)；名稱不合規回空清單。"""
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return []
         resources = []
         for sub in ("scripts", "references", "assets"):
             sub_dir = skill_dir / sub
@@ -315,7 +411,12 @@ class SkillService:
     # --- 寫入 (SSOT = 目錄) ---
 
     def update_skill(self, skill_id: str, skill_data: dict[str, Any]) -> None:
-        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)。"""
+        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)。
+
+        名稱不合規拋 VALIDATION_ERROR；已存在的系統技能不能覆蓋（AUTH_PERMISSION_DENIED）。
+        """
+        skill_dir = self._require_skill_dir(skill_id)
+        self._refuse_system_skill(skill_id, skill_dir, "overwrite")
         display_name = (
             skill_data.get("display-name") or skill_data.get("name") or skill_id
         )
@@ -331,33 +432,30 @@ class SkillService:
 
         body = skill_data.get("system_prompt", "")
         content = skill_parser.serialize_skill_md(frontmatter, body)
-        md_path = self._skills_dir / skill_id / _SKILL_FILE
+        md_path = skill_dir / _SKILL_FILE
         resource_manager.write_file_text(md_path, content, make_parents=True)
 
         # 選填：從 mcp_servers 清單反向產生最小 .mcp.json 設定。
         mcp_servers = skill_data.get("mcp_servers") or []
         if mcp_servers:
             mcp_config = {name: {} for name in mcp_servers}
-            mcp_path = self._skills_dir / skill_id / _MCP_FILE
+            mcp_path = skill_dir / _MCP_FILE
             resource_manager.write_json(mcp_path, mcp_config, indent=2)
 
         # reload 第 1 層 metadata (與 load 解析結果等價，round-trip 已驗證)。
         self._metadata[skill_id] = frontmatter
 
         # 技能清單變動 → 重新同步技能調度員 (保持清單最新)。
-        if skill_id != "system-skill-dispatcher":
+        if skill_id != SKILL_DISPATCHER_ID:
             self.sync_skill_dispatcher()
 
     def delete_skill(self, skill_id: str) -> None:
-        """刪除技能目錄。系統技能 (is_system) 受保護不可刪除。"""
-        fm = self._metadata.get(skill_id, {})
-        # 掃描缺口 E35（ADR-0175）：is_system 須走 read_touka_field——生產寫入
-        # （build_frontmatter）把擴充欄位收進 metadata 子欄位，直讀頂層鍵只命中
-        # legacy 檔＝新制系統技能曾可被刪。
-        if skill_parser.read_touka_field(fm, "is_system"):
-            logger.warning("Refused to delete system skill '%s'.", skill_id)
-            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
-        skill_dir = self._skills_dir / skill_id
+        """刪除技能目錄。系統技能受保護不可刪除（同時看載入的清單與磁碟上的 SKILL.md）。
+
+        名稱不合規拋 VALIDATION_ERROR。
+        """
+        skill_dir = self._require_skill_dir(skill_id)
+        self._refuse_system_skill(skill_id, skill_dir, "delete")
         resource_manager.remove_dir(skill_dir, missing_ok=True)
         self._metadata.pop(skill_id, None)
 
@@ -440,7 +538,7 @@ class SkillService:
 
         if dispatcher_body:
             formatted_prompts.append(
-                f'<skill name={quoteattr("system-skill-dispatcher")}>\n'
+                f"<skill name={quoteattr(SKILL_DISPATCHER_ID)}>\n"
                 f"{dispatcher_body}\n</skill>"
             )
 
@@ -493,7 +591,7 @@ class SkillService:
 請勿嘗試猜測路徑，僅基於上述註冊表進行連線。"""
 
             frontmatter = skill_parser.build_frontmatter(
-                name="system-mcp-dispatcher",
+                name=MCP_DISPATCHER_ID,
                 description="系統調度器。可隨時『召喚』外部 MCP 伺服器工具。",
                 display_name="🛡️ MCP Dynamic Dispatcher",
                 category="System",
@@ -502,9 +600,9 @@ class SkillService:
                 version=_content_version(system_prompt),
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
-            md_path = self._skills_dir / "system-mcp-dispatcher" / _SKILL_FILE
+            md_path = self._skills_dir / MCP_DISPATCHER_ID / _SKILL_FILE
             written = _write_if_changed(md_path, content)
-            self._metadata["system-mcp-dispatcher"] = frontmatter
+            self._metadata[MCP_DISPATCHER_ID] = frontmatter
             if written:
                 logger.info("✅ System MCP Dispatcher skill synchronized with SSOT.")
         except Exception:
@@ -531,7 +629,7 @@ class SkillService:
             system_prompt = _render_dispatcher_body(skill_list_xml)
 
             frontmatter = skill_parser.build_frontmatter(
-                name="system-skill-dispatcher",
+                name=SKILL_DISPATCHER_ID,
                 description="技能調度器。列出可用技能，供 Agent 依需求動態啟用。",
                 display_name="🧩 Skill Dynamic Dispatcher",
                 category="System",
@@ -540,9 +638,9 @@ class SkillService:
                 version=_content_version(system_prompt),
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
-            md_path = self._skills_dir / "system-skill-dispatcher" / _SKILL_FILE
+            md_path = self._skills_dir / SKILL_DISPATCHER_ID / _SKILL_FILE
             written = _write_if_changed(md_path, content)
-            self._metadata["system-skill-dispatcher"] = frontmatter
+            self._metadata[SKILL_DISPATCHER_ID] = frontmatter
             if written:
                 logger.info("✅ System Skill Dispatcher synchronized with SSOT.")
         except Exception:
@@ -553,11 +651,11 @@ class SkillService:
     def package_skill(self, skill_id: str) -> Path:
         """打包 config/skills/<id>/ 為 .skill (zip)，回傳暫存檔路徑。
 
-        zip 內含 ``<id>/`` 前綴 (相容 Anthropic)。不存在 → RESOURCE_NOT_FOUND。
+        zip 內含 ``<id>/`` 前綴 (相容 Anthropic)。不存在或名稱不合規 → RESOURCE_NOT_FOUND。
         暫存於 temp/skill_exports (非 protected)，由呼叫端負責清理。
         """
-        skill_dir = self._skills_dir / skill_id
-        if not resource_manager.exists(skill_dir):
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None or not resource_manager.exists(skill_dir):
             raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND, resource_type="Skill")
         export_dir = Path(resource_manager.get_temp_path("skill_exports"))
         resource_manager.make_dir(export_dir)
@@ -567,12 +665,13 @@ class SkillService:
     async def install_skill_from_url(self, url: str) -> str:
         """從受信任 URL 下載 .skill 安裝，回傳 skill_id。
 
-        安全：domain allowlist (SSRF) + follow_redirects=False + 下載大小上限
+        安全：只收 https + domain allowlist (SSRF) + follow_redirects=False + 下載大小上限
         + extract_archive (zip bomb/path traversal)；解壓到臨時、驗證通過才上線。
         覆寫既有 id 用 .bak 原子保證；finally 清臨時 (回滾)。
         """
-        if urlparse(url).netloc not in ALLOWED_SKILL_DOMAINS:
-            logger.warning("Skill install blocked: domain not in allowlist (%s).", url)
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc not in ALLOWED_SKILL_DOMAINS:
+            logger.warning("Skill install blocked: not https or domain not in allowlist (%s).", url)
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
@@ -598,6 +697,7 @@ class SkillService:
             if len(roots) != 1:
                 raise ToukaException(ErrorCode.VALIDATION_ERROR)
             skill_id = roots.pop()
+            self._require_skill_dir(skill_id)
             self._validate_skill_dir(staging / skill_id)
             return self._atomic_install_from_staging(skill_id, staging / skill_id)
         finally:
@@ -621,8 +721,14 @@ class SkillService:
         """把已驗證的 staging skill 目錄原子上線至 config/skills/<id>/。
 
         覆寫既有用 ``.bak`` 備份保證 + 失敗回滾；兩個安裝器（URL / catalog）共用（DRY）。
+        名稱不合規（含只和已有技能差大小寫）或安裝包自稱系統技能拋 VALIDATION_ERROR；
+        不能覆蓋已存在的系統技能（AUTH_PERMISSION_DENIED）。
         """
-        dest = self._skills_dir / skill_id
+        dest = self._require_skill_dir(skill_id)
+        self._refuse_system_skill(skill_id, dest, "replace")
+        if self._declares_system(staged_skill_dir):
+            logger.warning("Refused to install '%s': packages cannot be system skills.", skill_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
         backup = self._skills_dir / f"{skill_id}.bak"
         if resource_manager.exists(dest):
             resource_manager.remove_dir(backup, missing_ok=True)
@@ -649,6 +755,7 @@ class SkillService:
         raw_entry = next((e for e in catalog.get_catalog() if e.get("id") == catalog_id), None)
         if raw_entry is None:
             raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND, resource_type="Skill")
+        self._require_skill_dir(catalog_id)
         try:
             entry = SkillCatalogEntry.model_validate(raw_entry)
         except ValidationError as exc:

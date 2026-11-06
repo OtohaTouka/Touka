@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Request  # noqa: TC002
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse  # noqa: TC002
+from memory_server.utils.zone_paths import is_zone_segment
 from pydantic import BaseModel, Field  # noqa: TC002
 
 from src.core.exceptions import ErrorCode, ToukaException
-from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
 from src.routers.system import restore_in_progress
 from src.services import context_snapshot_service
 from src.services.agent_reset.orchestrator import reset_debug_agent_data
@@ -113,6 +114,24 @@ def _safe_json_line(line: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _check_snapshot_target(target: AgentIdentity, caller: AgentIdentity) -> None:
+    """快照的代理人名稱要是單一安全段（不會被當成路徑）；不是查自己時，還要是系統認得的代理人.
+
+    名稱不合規 → 422；不認得 → 403（和跨擁有者拒絕同一個答案）。「認得」是和代理人清單的
+    名稱逐字相同：只差大小寫、帶舊前綴等寫法都不算，先確認名稱，再檢查擁有權。查自己時名稱
+    來自已驗證的憑證。
+    """
+    target_id = target.agent_id
+    if not is_zone_segment(target_id):
+        logger.warning("🚫 Context-snapshot refused an agent id that is not a single name")
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    if caller.agent_id == target_id or target_id in SYSTEM_AGENT_IDS:
+        return
+    if target_id not in {str(agent.get("id")) for agent in agent_service.get_all_agents()}:
+        logger.warning("🚫 Context-snapshot refused an unknown agent: %r", target_id)
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+
+
 def _read_last_payload(agent_id: str) -> dict[str, Any] | None:  # noqa: IDENTITY_SSOT
     """讀 proxy_payload.log 最近一筆屬於該 agent 的請求 payload（static vs 實際送出對照）。"""
     log_path = Path(resource_manager.get_base_path()) / "logs" / "proxy_payload.log"
@@ -153,6 +172,7 @@ async def get_context_snapshot(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     target = AgentIdentity(agent_id=agent_id, agent_role="Owner")
+    _check_snapshot_target(target, identity)
     # IDOR fix: the role gate alone let any Owner read ANY agent's snapshot. Scope to
     # ownership (admin/Debugger bypass inside is_owner); cross-owner → 403, no leak.
     # Self-access (caller IS the agent) is always allowed (token-derived agent_id).
@@ -200,6 +220,7 @@ async def export_context_snapshot(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     target = AgentIdentity(agent_id=agent_id, agent_role="Owner")
+    _check_snapshot_target(target, identity)
     # IDOR fix: same ownership scoping as the read endpoint — an Owner must not be
     # able to export (write to disk) another user's agent context. 403 on cross-owner.
     # Self-access (caller IS the agent) is always allowed (token-derived agent_id).
