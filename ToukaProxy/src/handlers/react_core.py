@@ -340,6 +340,7 @@ async def run_react_loop(  # noqa: PLR0915
         UI 由 producer 標失敗，其他路徑把訊息當回覆。
         """
         notify_stop_failure(context, error.error_type, error.user_message)
+        context["model_failed"] = True
         partial = None if booked else record_partial_usage()
         if (partial is not None or (booked and run_usage.totals)
                 ) and adapter.emits_usage_event(state):

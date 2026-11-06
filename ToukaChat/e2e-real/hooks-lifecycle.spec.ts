@@ -398,18 +398,19 @@ test("心跳：開始與結束都收到，內容有脈衝數與結束原因", as
   await expectRunRows(page, info, ["e2e-beat-start", "e2e-beat-stop"]);
 });
 
-test("心跳的模型失敗：StopFailure 有發，脈衝照舊算跑完", async ({ page }, info) => {
+test("心跳的模型失敗：StopFailure 有發，結束原因是模型失敗，剩下的脈衝不跑", async ({ page }, info) => {
   await openHooksTab(page);
   await enableHooks(page);
   await addHttpHook(page, "StopFailure", { url: hookUrl("ok"), name: "e2e-beat-failure" });
   await addHttpHook(page, "HeartbeatStop", { url: hookUrl("ok"), name: "e2e-beat-end" });
   await saveHooks(page);
 
-  await awakenSoul(MODEL_400_REQUEST);
+  await awakenSoul(MODEL_400_REQUEST, "independent", 3);
   const failure = await expectBackgroundHook("StopFailure");
   expect(failure.payload.error).toBe("invalid_request");
   const stop = await expectBackgroundHook("HeartbeatStop");
-  expect(stop.payload.end).toBe("completed");
+  expect(stop.payload.end).toBe("model_error");
+  expect(stop.payload.pulses_total).toBe(3);
   expect(stop.payload.pulses_done).toBe(1);
   await expectRunRows(page, info, ["e2e-beat-failure", "e2e-beat-end"]);
 });

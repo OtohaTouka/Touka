@@ -57,6 +57,9 @@ class PipelineContext(BaseModel):
     # Hook（ADR-0292）：只有真的請求執行 UserPromptSubmit hook；上下文預覽不設
     run_hooks: bool = Field(default=False, description="這次請求要不要執行 UserPromptSubmit hook")
 
+    # 這一輪模型失敗、StopFailure 已發；心跳據此以 model_error 結束（ADR-0292 決定 17 修訂）
+    model_failed: bool = Field(default=False, description="這一輪模型失敗（系統寫入）")
+
     # 深入研究模式（ADR-0087）：旗標啟用時注入研究協調 Skill、引導多步搜尋＋引用報告
     deep_research: bool = Field(default=False, description="深入研究模式")
 

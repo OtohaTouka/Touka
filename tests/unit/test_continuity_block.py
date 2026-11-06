@@ -560,6 +560,18 @@ async def test_run_line_counts_only_finished_runs(clock: dict[str, float]) -> No
     assert f"- {cs.RUN_LABEL_HEARTBEAT}: {expected}" in await _v1(heartbeat=True)
 
 
+async def test_run_line_says_the_model_failed(clock: dict[str, float]) -> None:
+    """心跳因模型失敗結束時，靈魂讀到的是 model_error，不是 unknown（3c ⑤）。"""
+    ended = NOW - 3600
+    await _event(
+        "heartbeat_finished",
+        at=_ms(ended),
+        subject="run-1",
+        metadata={"pulses_total": 3, "pulses_done": 1, "turns": 0, "end": "model_error"},
+    )
+    assert f"1/3 pulses, model_error {cs.ACTIVITY_RECORD}" in await _v1()
+
+
 async def test_recent_completions_window_limit_and_order(clock: dict[str, float]) -> None:
     for days, kind, subject, metadata in (
         (8, "task_done", "m0/T0", {"task_id": "T0"}),  # 超過 7 天

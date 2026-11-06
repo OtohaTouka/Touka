@@ -61,7 +61,7 @@ REPEATABLE_KINDS: frozenset[str] = frozenset(
 )
 # 心跳結束原因（固定列舉）
 HeartbeatEnd = Literal[
-    "completed", "interrupted", "quota", "budget", "no_model", "error", "cancelled"
+    "completed", "interrupted", "quota", "budget", "no_model", "model_error", "error", "cancelled"
 ]
 # 無痕、子代理、派工：不記
 _SKIP_FLAGS = ("incognito", "subagent_run", "dispatch_run")

@@ -40,7 +40,7 @@
 
 - event_id 一律帶靈魂（多個靈魂回同一則訊息不會只留第一個）。會重複發生的四種任務轉換加毫秒，所以「FAILED → 特權重置 → 再 FAILED」、兩次 BLOCKED 都會留；其餘是終端狀態，或主體天生唯一、不會再發生第二次的事件，用固定鍵。全部 `INSERT OR IGNORE`。
 - 同一任務最新一筆已經是同一個狀態（例如 DOING 中補產出、FAILED 補 log）就不記：`insert_event` 對任務事件用單一 `INSERT … SELECT … WHERE` 敘述判斷，在 SQLite 內原子。
-- 心跳結束原因是固定列舉：`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`；metadata 另帶 `pulses_total`、`pulses_done`、`turns`。跨看板事件的 metadata 帶 `board_owner`。
+- 心跳結束原因是固定列舉：`completed`、`interrupted`、`quota`、`budget`、`no_model`、`model_error`（2026-11-06，ADR-0292 修訂）、`error`、`cancelled`；metadata 另帶 `pulses_total`、`pulses_done`、`turns`。跨看板事件的 metadata 帶 `board_owner`。
 
 ### 3. 只在事實提交之後記；結果不明不寫
 
