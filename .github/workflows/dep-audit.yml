@@ -47,7 +47,7 @@ jobs:
         with:
           ref: ${{ matrix.branch != 'pr' && matrix.branch || github.sha }}
           persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           version: "0.12.1"
           # 不開快取：排程都在 main 的範圍執行，dev 那一路寫進去的快取，main 也讀得到
