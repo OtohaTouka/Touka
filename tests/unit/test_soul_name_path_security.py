@@ -48,6 +48,8 @@ from src.services.soul_service import soul_service
 from src.utils import custom_io, soul_io
 from src.utils.time_utils import get_current_epoch
 
+from tests.conftest import SESSION_TMP_DATA_ROOT
+
 SENTINEL = "192.0.2.1"
 UNC = "\\\\192.0.2.1\\share\\x"
 UNC_FORWARD = "//192.0.2.1/share/x"
@@ -104,12 +106,14 @@ _PATH_WRITES = ("write_text", "write_bytes", "mkdir", "replace", "rename", "unli
 
 @pytest.fixture(autouse=True)
 def _writes_stay_in_sandbox(monkeypatch, tmp_path):
-    allowed = tmp_path.resolve()
+    # 這個測試的暫存資料夾，加上 conftest 的整輪沙盒（資料庫等共用元件建在那裡）
+    allowed = (tmp_path.resolve(), Path(SESSION_TMP_DATA_ROOT).resolve())
 
     def check(target: object, what: str) -> None:
         if _mentions_sentinel(target):
             pytest.fail(f"{what} on a network path: {target!r}")
-        if not Path(os.fspath(target)).resolve().is_relative_to(allowed):
+        resolved = Path(os.fspath(target)).resolve()
+        if not any(resolved.is_relative_to(root) for root in allowed):
             pytest.fail(f"{what} outside the sandbox: {target!r}")
 
     for name, positions in _RM_WRITES.items():
