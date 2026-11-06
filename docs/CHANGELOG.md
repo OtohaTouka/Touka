@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-11-06 | **proxy 映像補上 Node.js 與 uv 的授權聲明；前端開發伺服器不再替 AI 代理寫指示檔**：touka-proxy 映像從官方映像複製的 node 與 uv，現在連同授權檔一起放進 `/usr/local/share/doc/node/`、`/usr/local/share/doc/uv/`（uv 官方映像不帶授權檔，原文放在 `ToukaProxy/licenses/uv`），NOTICE 寫明位置；之後新增複製 node 或 uv 的映像，沒帶授權檔測試會紅。`next dev` 不再寫出要代理人 commit 的 `ToukaChat/AGENTS.md`。產品功能不變，下次發版帶上。 | [SECURITY.md](../SECURITY.md)、NOTICE |
 | 2026-11-06 | **模型失敗之後不用按按鈕**：模型回錯誤時，那一則標「這一輪回覆失敗」、自動存好，不跳「儲存工作階段失敗」，也不用按「重新核對」「僅重試保存」，重新整理後標示還在、下一則直接送。另一個裝置或這一輪的工具（例如啟用技能）先改過這段對話時照舊提示。失敗那則（或只有工具步驟的回覆）如果是空白的，下一輪送給模型前會拿掉，前後兩則訊息併成一則。 | [ADR-0231](architecture/adr/0231-session-persistence-outcomes-and-revisions.md) |
 | 2026-11-06 | **回覆還在跑時設家，不再要按兩個按鈕**：回覆還在跑或剛結束時設為家、換家、取消家，聊天照常，不跳「尚未保存」的提示。家標記不再算進存檔的版本；自動剪裁在開始前和存回時各確認一次還是家，心跳跑到一半換家時剩下的會照常寫完、結尾不剪。 | [ADR-0301](architecture/adr/0301-home-fields-outside-session-revision.md) |
 | 2026-11-06 | **心跳因模型失敗結束時照實說**：模型失敗（重試與備援都用完）時，HeartbeatStop、活動紀錄和靈魂讀到的近況都寫 `model_error`，不再寫「正常結束」；剩下的脈衝不跑，免得同一個錯誤重複寫進對話、扣配額。心跳程式本身出例外仍是 `error`。 | [ADR-0292](architecture/adr/0292-hooks.md) |
