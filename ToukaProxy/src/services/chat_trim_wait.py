@@ -65,8 +65,12 @@ class ClosingSaveWaits:
                 await asyncio.wait_for(waiter.saved.wait(), CLOSING_SAVE_WAIT_SECONDS)
             return not waiter.replaced
         finally:
-            if self._waiting.get(waiter.session_id) is waiter:
-                del self._waiting[waiter.session_id]
+            self.discard(waiter)
+
+    def discard(self, waiter: ClosingSave) -> None:
+        """不等了（等完、不用剪或出錯）：還是它在等就拿掉，已被取代就不動新的。"""
+        if self._waiting.get(waiter.session_id) is waiter:
+            del self._waiting[waiter.session_id]
 
 
 closing_saves = ClosingSaveWaits()

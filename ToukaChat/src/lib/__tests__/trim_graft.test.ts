@@ -27,6 +27,7 @@ describe('graftOntoTrim（ADR-0302）', () => {
     const result = graftOntoTrim(trimmed(), base(), withNext('n7'))!;
     expect(Object.keys(result.messages.messages).sort()).toEqual(['n4', 'n5', 'n6', 'n7', 'u8']);
     expect(result.messages.messages.n4.parentId).toBeNull();
+    expect(result.messages.messages.n4.childrenIds).toEqual(['n5']);
     expect(result.messages.messages.n7.childrenIds).toEqual(['u8']);
     expect(result.messages.currentId).toBe('u8');
     expect(result.context_summary).toBe('new summary');
@@ -38,6 +39,31 @@ describe('graftOntoTrim（ADR-0302）', () => {
     for (const session of [local, confirmed]) delete session.context_summary;
     const stored = trimmed(() => {}, { auth_level: 'Manual', project_id: null, active_skills: [], active_mcp_servers: [] });
     expect(graftOntoTrim(stored, confirmed, local)?.messages.currentId).toBe('u8');
+  });
+
+  it('剪裁之後本機刪掉最後一則：被刪的那則不寫回去', () => {
+    const local = base();
+    delete local.messages.messages.n7;
+    local.messages.messages.n6.childrenIds = [];
+    local.messages.currentId = 'n6';
+    const result = graftOntoTrim(trimmed(), base(), local)!;
+    expect(Object.keys(result.messages.messages).sort()).toEqual(['n4', 'n5', 'n6']);
+    expect(result.messages.messages.n6.childrenIds).toEqual([]);
+  });
+
+  it('剪裁之後本機切分只留最後兩則：切掉的不寫回去，第一則沒有上一層', () => {
+    const local = base();
+    for (const id of ['n0', 'n1', 'b1', 'n2', 'n3', 'n4', 'n5', 'b5']) delete local.messages.messages[id];
+    local.messages.messages.n6.parentId = null;
+    const result = graftOntoTrim(trimmed(), base(), local)!;
+    expect(Object.keys(result.messages.messages).sort()).toEqual(['n6', 'n7']);
+    expect(result.messages.messages.n6.parentId).toBeNull();
+  });
+
+  it('樹壞掉或還是舊的扁平格式：不丟例外，當成不是剪裁', () => {
+    expect(graftOntoTrim(trimmed(), session([] as unknown as TreeHistory), withNext('n7'))).toBeNull();
+    const broken = session({ messages: { n0: null }, currentId: 'n0' } as unknown as TreeHistory);
+    expect(graftOntoTrim(trimmed(), broken, withNext('n7'))).toBeNull();
   });
 
   it('逾時那條路：存檔最後是這一輪的文字版，畫面還沒確認過它，換成本機的富版', () => {
@@ -69,10 +95,12 @@ describe('graftOntoTrim（ADR-0302）', () => {
     expect(graftOntoTrim(trimmed(), base(), withNext(parent))).toBeNull();
   });
 
-  it('本機另有一則接不上（不是目前這則）：不默默丟掉，照舊提示', () => {
+  it.each([
+    ['接在被剪掉的一則、上一層沒記下它', 'n1'], // 正規化會補上，算改過被剪掉的那則
+    ['上一層哪裡都沒有', 'gone'], // 樹不完整，要靠接不上就停
+  ])('本機另有一則接不上（不是目前這則，%s）：不默默丟掉，照舊提示', (_name, parent) => {
     const local = withNext('n7');
-    // 上一層沒記下它，「改過被剪掉的那則」抓不到，要靠接不上就停
-    local.messages.messages.e2 = { id: 'e2', role: 'user', content: 'edited old turn', parentId: 'n1', childrenIds: [] };
+    local.messages.messages.e2 = { id: 'e2', role: 'user', content: 'edited old turn', parentId: parent, childrenIds: [] };
     expect(graftOntoTrim(trimmed(), base(), local)).toBeNull();
   });
 

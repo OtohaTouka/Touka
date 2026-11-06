@@ -320,11 +320,15 @@ async def _maybe_trim_after_chat(session_id: str, closing_save: ClosingSave | No
     否則剪下的舊對話與摘要記帳會落到人類名下、靈魂找不到。解析不到靈魂就不剪。
     網頁版帶 ``closing_save``：先在鎖外等畫面的收尾保存，再照放棄條件剪（ADR-0302）。
     """
-    session = await session_service.get_session_by_id(session_id)
-    is_home = bool(session and session.get("is_home"))
-    soul = _home_soul_identity(session.get("home_for_agent")) if is_home else None
-    if closing_save is not None and not await _closing_save_arrived(closing_save, soul):
-        return
+    try:
+        session = await session_service.get_session_by_id(session_id)
+        is_home = bool(session and session.get("is_home"))
+        soul = _home_soul_identity(session.get("home_for_agent")) if is_home else None
+        if closing_save is not None and not await _closing_save_arrived(closing_save, soul):
+            return
+    finally:
+        if closing_save is not None:  # 讀檔出錯也清掉，下一輪登記時才不會以為還有人在等
+            closing_saves.discard(closing_save)
     if not is_home:
         return
     if soul is None:
@@ -361,7 +365,7 @@ async def _closing_save_arrived(closing_save: ClosingSave, soul: AgentIdentity |
             )
             moved = snapshot.revision != closing_save.revision
     if moved:
-        closing_saves.saved(closing_save.session_id)
+        closing_save.saved.set()  # 只放掉自己：已被取代時不能替新的一輪宣告畫面存好了
     return await closing_saves.wait(closing_save)
 
 

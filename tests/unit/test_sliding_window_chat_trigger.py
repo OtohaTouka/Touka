@@ -274,7 +274,40 @@ async def test_a_newer_turn_replaces_the_waiting_trim(home_trim: dict[str, Any])
     assert await closing_saves.wait(newer)
 
 
-@pytest.mark.parametrize("busy", ["heartbeat", "next_message", "pending_request"])
+async def test_a_replaced_trim_does_not_wake_the_newer_one(home_trim: dict[str, Any]) -> None:
+    """舊的那輪發現存檔已經變了：只放掉自己，不能替新的一輪宣告「畫面存好了」。"""
+    sid = home_trim["sid"]
+    older = closing_saves.register(sid, "stale", "n7", home_trim["human"])
+    newer = closing_saves.register(sid, "newer", "n9", home_trim["human"])
+    await asyncio.wait_for(_maybe_trim_after_chat(sid, older), 5)
+    assert not newer.saved.is_set()
+    closing_saves.saved(sid)
+    assert await closing_saves.wait(newer)
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    [AsyncMock(return_value={"is_home": False}), AsyncMock(side_effect=RuntimeError("db down"))],
+    ids=["not_home", "read_fails"],
+)
+async def test_the_waiter_is_cleared_when_there_is_nothing_to_trim(lookup: AsyncMock) -> None:
+    """不是家或讀檔出錯：等待者也要清掉，下一輪登記時不會以為還有人在等。"""
+    sid = f"sess-{uuid.uuid4().hex[:6]}"
+    human = AgentIdentity.for_role("h", "normal", is_human=True)
+    waiter = closing_saves.register(sid, "r1", "n7", human)
+    with patch(_SS) as mock_ss, patch(_SW) as mock_sw:
+        mock_ss.get_session_by_id = lookup
+        mock_sw.check_and_trim = AsyncMock(return_value=True)
+        with contextlib.suppress(RuntimeError):
+            await _maybe_trim_after_chat(sid, waiter)
+    newer = closing_saves.register(sid, "r2", "n9", human)
+    assert not waiter.replaced
+    mock_sw.check_and_trim.assert_not_awaited()
+    closing_saves.saved(sid)
+    assert await closing_saves.wait(newer)
+
+
+@pytest.mark.parametrize("busy",["heartbeat", "next_message", "pending_request"])
 async def test_chat_trim_gives_up_when_the_session_moved_on(
     home_trim: dict[str, Any], busy: str
 ) -> None:

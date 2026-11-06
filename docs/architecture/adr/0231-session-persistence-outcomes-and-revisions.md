@@ -75,8 +75,8 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    一次 state 核對；已完成 TTL stream 亦可接回，但存檔已比那一輪新（有文字版本時版本不同；沒有時存檔已有那則回覆）就不重播，否則舊版本存不回去（2026-11-05）；不 fan-out 或 poll。真 UTF-8 decoder 以同 generation
    started／terminal 判斷，DONE／EOF 不證保存，游標重播可用已授權 started 座標。
 10. unknown 只提供唯讀「重新核對保存結果」，相同內容才確認 full；不同保留草稿及 conflict。
-    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0；存檔是剪裁造成的就接在剪過的存檔上，
-    不把剪掉的寫回去（ADR-0302）。
+    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0；存檔是剪裁造成的、接得上就接在剪過的存檔上，
+    不把剪掉的寫回去；接不上照舊整棵寫回（ADR-0302）。
     recheck／retry 不競逐，慢回應不能覆蓋較新 intent。刪除 await 合法 200 才移除；無痕零 HTTP。
     split 綁 export 前依賴內容，等待期間 drift 拒絕縮減；無痕拒絕 split 縮減、改用本機匯出。
 
