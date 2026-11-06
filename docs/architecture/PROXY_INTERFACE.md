@@ -36,7 +36,7 @@
   - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
   - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。
   - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發（備份還原例外：在接受時發，完成後行程就重啟），擋不了設定；關閉 hooks 那次不發。
-  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發，`end` 仍是 `completed`。
+  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`model_error`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發（含 dispatcher 補發的 `unknown`），`end` 是 `model_error`，剩下的脈衝不跑（2026-11-06）。
   - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop、TaskCreated、TaskCompleted、HeartbeatStart、HeartbeatStop 不看；Notification 看通知類型；StopFailure 看錯誤類型；SubagentStart、SubagentStop 看 `agent_type`；PreCompact、PostCompact 看 `trigger`；Elicitation 看 MCP 伺服器名稱；ConfigChange 看 `source`；其他看工具名稱。
 - 背景事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。

@@ -419,6 +419,7 @@ async def dispatch_request(
             # 模型錯誤已在 react_core 發過；UiGenerationStopped 是那次的結果或使用者按停止
             if not isinstance(exc, UiGenerationStopped):
                 notify_stop_failure(context, "unknown", f"{type(exc).__name__}: {exc}")
+                context["model_failed"] = True
             if admission is not None:
                 # 真正 fatal 生成錯誤交給 UI producer；可恢復 tool_result 仍是普通 frame。
                 raise

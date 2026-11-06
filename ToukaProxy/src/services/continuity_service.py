@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from memory_server.services.mission_manager import MissionManager
 from memory_server.utils.legacy_time import to_epoch_ms
@@ -29,7 +29,7 @@ from memory_server.utils.legacy_time import to_epoch_ms
 from src.adapters.content_normalize import append_to_last_user
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
-from src.services.continuity_events import safe_ref
+from src.services.continuity_events import HeartbeatEnd, safe_ref
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import read_snapshot
@@ -82,9 +82,7 @@ SERVER_CLOCK = "(server clock)"
 SERVER_MEMORY = "(server memory)"
 ACTIVITY_RECORD = "(activity record)"
 MISSION_BOARD = "(mission board)"
-_END_REASONS = frozenset(
-    {"completed", "interrupted", "quota", "budget", "no_model", "error", "cancelled"}
-)
+_END_REASONS = frozenset(get_args(HeartbeatEnd))
 
 _last_request_at: OrderedDict[tuple[str, str], float] = OrderedDict()
 

@@ -273,6 +273,30 @@ async def test_a_failed_round_fires_stop_failure_and_no_stop(monkeypatch, hooks,
     assert "400" in call["error_details"]
 
 
+async def test_a_failed_round_marks_the_context_for_the_heartbeat(monkeypatch, hooks, no_wait):
+    """這一輪模型失敗時在 ctx 做記號，心跳據此寫「模型失敗」（3c ⑤）。用心跳那種 ctx。"""
+    FakeUpstream([json_reply("bad key", 400)]).install(monkeypatch)
+    ctx = hb.PipelineContext(**_loop_ctx(heartbeat_run=True))
+    await _run_loop(OpenAIAdapter(stream=True), "grok-4", ctx)
+    assert ctx.get("model_failed") is True
+
+
+async def test_a_retry_that_succeeds_leaves_no_failure_mark(monkeypatch, hooks, no_wait):
+    good = {"choices": [{"message": {"content": "好"}, "finish_reason": "stop"}]}
+    FakeUpstream([status_reply(503), json_reply(json.dumps(good), 200)]).install(monkeypatch)
+    ctx = _loop_ctx()
+    await _run_loop(OpenAIAdapter(stream=False), "grok-4", ctx)
+    assert not ctx.get("model_failed")
+
+
+def test_a_subagent_failure_does_not_mark_the_parent():
+    """子代理的 ctx 是淺複製：子代理的模型失敗不會讓父心跳以「模型失敗」結束。"""
+    parent = hb.PipelineContext(session_id="s")
+    child = subagent_tools._derive_context(parent)
+    child["model_failed"] = True
+    assert parent.model_failed is False
+
+
 async def test_retries_do_not_fire_only_the_final_failure_does(monkeypatch, hooks, no_wait):
     hooks.configure({"StopFailure": [group()]})
     FakeUpstream([status_reply(503, "busy")] * 3).install(monkeypatch)
@@ -342,10 +366,12 @@ class _FailingStream:
         return stream()
 
 
-async def _dispatch(monkeypatch, error: Exception) -> None:
+async def _dispatch(monkeypatch, error: Exception) -> dict[str, Any]:
     monkeypatch.setattr(dispatcher, "get_stream_generator", _FailingStream(error))
     request = SimpleNamespace(stream=False, ui_persistence=None)
-    await dispatcher.dispatch_request("grok-4", request, _SOUL, "r-life", 0.0, {"session_id": "s"})
+    ctx: dict[str, Any] = {"session_id": "s"}
+    await dispatcher.dispatch_request("grok-4", request, _SOUL, "r-life", 0.0, ctx)
+    return ctx
 
 
 async def test_an_unexpected_error_in_the_turn_fires_stop_failure_as_unknown(monkeypatch, hooks):
@@ -357,12 +383,19 @@ async def test_an_unexpected_error_in_the_turn_fires_stop_failure_as_unknown(mon
     assert "abc123" not in call["error_details"]
 
 
+async def test_an_unexpected_error_in_the_turn_marks_the_context_too(monkeypatch, hooks):
+    ctx = await _dispatch(monkeypatch, RuntimeError("boom"))
+    assert ctx.get("model_failed") is True
+
+
 @pytest.mark.parametrize("reason", ["error", "cancelled"])
 async def test_a_turn_already_reported_or_stopped_is_not_reported_again(monkeypatch, hooks, reason):
+    """``error`` 在 react_core 已經發過、做過記號；按停止不是模型失敗。"""
     hooks.configure({"StopFailure": [group()]})
-    await _dispatch(monkeypatch, UiGenerationStopped(reason))
+    ctx = await _dispatch(monkeypatch, UiGenerationStopped(reason))
     await asyncio.sleep(0.05)
     assert hooks.http.calls == []
+    assert not ctx.get("model_failed")
 
 
 # ── 讀不懂的模型回覆（順手修 1）───────────────────────────────────────────────
@@ -1071,14 +1104,22 @@ async def test_nobody_present_declines_before_any_hook_runs(hooks):
 # ── HeartbeatStart／HeartbeatStop ──────────────────────────────────────────────
 
 
-async def _heartbeat(monkeypatch, pulse: Any, pulses: int = 2, home: bool = False) -> None:
+async def _heartbeat(
+    monkeypatch, pulse: Any, pulses: int = 2, home: bool = False, ctx: Any = None
+) -> None:
     monkeypatch.setattr(hb, "_execute_single_pulse", pulse)
     monkeypatch.setattr(hb.asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(hb.model_manager, "check_models_health", AsyncMock())
     await hb._process_heartbeat_loop(
-        final_session_id="s-beat", identity=_SOUL, model_override=None, ctx=hb.PipelineContext(),
+        final_session_id="s-beat", identity=_SOUL, model_override=None,
+        ctx=ctx if ctx is not None else hb.PipelineContext(),
         pulse_count=pulses, pulse_slots=1, t0=0.0, init_prompt="", is_home_mode=home,
     )  # fmt: skip
+
+
+async def _pulse_whose_model_failed(_sid: str, _identity: Any, _model: Any, ctx: Any, *_a, **_k):
+    ctx["model_failed"] = True  # react_core 的 fail_round 做的記號
+    return 1
 
 
 _real_sleep = asyncio.sleep
@@ -1114,6 +1155,37 @@ async def test_a_heartbeat_that_blew_up_still_reports_how_it_ended(monkeypatch, 
     await _heartbeat(monkeypatch, AsyncMock(side_effect=OSError("boom")))
     await _settle(hooks, 1)
     assert (hooks.http.calls[0]["end"], hooks.http.calls[0]["pulses_done"]) == ("error", 0)
+
+
+async def test_a_heartbeat_whose_model_failed_says_so_and_stops(monkeypatch, hooks):
+    """模型失敗（StopFailure 已發）：HeartbeatStop 寫 model_error，剩下的脈衝不跑；失敗那一脈衝
+    照算跑完（3c ⑤，Owner 11/06 選停）。"""
+    hooks.configure({"HeartbeatStop": [group()]})
+    pulse = AsyncMock(side_effect=_pulse_whose_model_failed)
+    await _heartbeat(monkeypatch, pulse, pulses=3)
+    await _settle(hooks, 1)
+    assert (hooks.http.calls[0]["end"], hooks.http.calls[0]["pulses_done"]) == ("model_error", 1)
+    assert pulse.await_count == 1
+
+
+async def test_a_failure_mark_left_on_the_context_does_not_end_the_heartbeat(monkeypatch, hooks):
+    """每個脈衝前清掉記號：之前留下的不算這次心跳的失敗。"""
+    hooks.configure({"HeartbeatStop": [group()]})
+    stale = hb.PipelineContext(model_failed=True)
+    await _heartbeat(monkeypatch, AsyncMock(return_value=1), ctx=stale)
+    await _settle(hooks, 1)
+    assert (hooks.http.calls[0]["end"], hooks.http.calls[0]["pulses_done"]) == ("completed", 2)
+
+
+async def test_a_heartbeat_that_ended_on_a_model_failure_still_trims_the_home(monkeypatch, hooks):
+    """「模型失敗」不是心跳程式出例外：家對話照樣剪裁（只有 error 跳過）。"""
+    hooks.configure({"HeartbeatStop": [group()]})
+    trim = AsyncMock()
+    monkeypatch.setattr(hb.sliding_window_service, "check_and_trim", trim)
+    await _heartbeat(monkeypatch, AsyncMock(side_effect=_pulse_whose_model_failed), home=True)
+    await _settle(hooks, 1)
+    assert hooks.http.calls[0]["end"] == "model_error"
+    trim.assert_awaited_once()
 
 
 async def test_a_stuck_heartbeat_hook_does_not_hold_the_pulses(monkeypatch, hooks):

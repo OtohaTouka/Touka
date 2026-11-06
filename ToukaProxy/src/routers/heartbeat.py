@@ -585,7 +585,8 @@ async def _process_heartbeat_loop(
             )
             logger.info(f"🌈 [Heartbeat-BG] Executing Pulse {i + 1}/{pulse_count}...")
 
-            # 執行單次脈衝
+            # 執行單次脈衝（ctx 由每個脈衝共用：先清掉上一次留下的模型失敗記號）
+            ctx["model_failed"] = False
             turns = await _execute_single_pulse(
                 final_session_id,
                 identity,
@@ -600,6 +601,9 @@ async def _process_heartbeat_loop(
                 break
             pulses_done += 1
             total_turns += turns
+            if ctx.get("model_failed"):  # StopFailure 已發；剩下的不跑，免得重複寫錯誤、扣配額
+                end = "model_error"
+                break
 
             # 如果不是最後一個 Pulse，休息一下防止 DB 鎖定或 API 過熱
             if i < pulse_count - 1:
