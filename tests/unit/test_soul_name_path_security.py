@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient
 from memory_server.services import manager as memory_manager_module
 from memory_server.services.manager import MemoryManager
 from memory_server.tools import core_file_ops
+from memory_server.utils.zone_paths import ZoneRootsUnavailableError
 from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
 from src.models.identity import AgentIdentity
@@ -432,6 +433,18 @@ def test_simulated_alias_of_a_personal_space_is_refused(zone_data_root, monkeypa
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
 
 
+def test_personal_space_that_cannot_be_resolved_is_a_vault_error(zone_data_root, monkeypatch):
+    """個人空間的根解析不到：不能確認就不動，回整理過的錯誤，不是 500."""
+
+    def unavailable():
+        raise ZoneRootsUnavailableError
+
+    monkeypatch.setattr(soul_io, "_personal_drive_names", unavailable)
+    with pytest.raises(ToukaException) as exc:
+        soul_io.check_new_agent_name(AgentIdentity(agent_id="zzAnyName"))
+    assert _code(exc) is ErrorCode.SOUL_VAULT_ERROR
+
+
 def test_simulated_alias_is_not_a_soul(zone_data_root, monkeypatch):
     """查靈魂時別名不算（Linux CI 也測得到）."""
     _make_soul(zone_data_root, "zzRealSoulName")
@@ -605,6 +618,20 @@ async def test_create_soul_refuses_the_short_name_of_an_existing_soul(zone_data_
             SoulCreateRequest(agent_id=short, config=SoulConfig(base_model=None)), ADMIN
         )
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+@pytest.mark.parametrize("base", ["custom", "stats"])
+async def test_create_soul_refuses_an_alias_of_another_agents_folder(
+    zone_data_root, soul_ops, monkeypatch, base
+):
+    (zone_data_root / base / "zzVictimModel").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / base / "ZZVICTIMMODEL")
+    with pytest.raises(ToukaException) as exc:
+        await souls_router.create_soul(
+            SoulCreateRequest(agent_id="ZZVICTIMMODEL", config=SoulConfig(base_model=None)), ADMIN
+        )
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+    assert not (zone_data_root / "soul" / "ZZVICTIMMODEL").exists()
 
 
 async def test_admin_update_through_an_alias_is_refused(zone_data_root, soul_ops):
