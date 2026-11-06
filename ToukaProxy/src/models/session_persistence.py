@@ -140,10 +140,13 @@ class SavedResult(PersistenceModel):
 
 
 class SkippedResult(PersistenceModel):
-    """刻意不寫，不得表示成已保存。"""
+    """刻意不寫，不得表示成已保存。
+
+    generation_failed：基底與 scope 都驗過之後模型失敗，後端什麼都沒寫（ADR-0231 決定 2）。
+    """
 
     status: Literal["skipped"]
-    reason: Literal["incognito", "no_text"]
+    reason: Literal["incognito", "no_text", "generation_failed"]
 
 
 class FailedResult(PersistenceModel):

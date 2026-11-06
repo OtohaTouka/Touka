@@ -929,4 +929,42 @@ describe('R2 controlled session writes', () => {
     expect(result.current.getPersistence('s1')).toMatchObject({ status: 'unknown' });
     expect(result.current.sessions[0].messages.messages.a.steps).toEqual(['partial']);
   });
+  // ADR-0231 決定 6：模型失敗時後端什麼都沒寫，畫面用 user 保存的版本把失敗那則存一次，不跳提示
+  it('a failed generation that the backend did not write saves the marked turn once against the user revision', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    const failed = { messages: { a: { content: 'part', generationFailed: true } }, currentId: 'a' };
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current, messages: failed }),
+      { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    expect(fetchToukaMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchToukaMock.mock.calls[0][2]!.body as string)).toMatchObject({ revision: 'user', messages: failed });
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved', representation: 'full' });
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    // 存好之後下一則可以直接送：沒有停住
+    expect(result.current.beginProducer('s1')).not.toBeNull();
+  });
+  it('a failed generation still warns when someone else changed the conversation first', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(okJson({ status: 'success', session_id: 's1',
+      persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } }));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { generationFailed: true } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    expect(fetchToukaMock).toHaveBeenCalledTimes(1);
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+  });
+  it.each(['completed', 'cancelled'] as const)('generation_failed only saves with an error generation (%s does not)', async generation => {
+    const { result } = await mount();
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { steps: ['partial'] } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, generation); });
+    expect(fetchToukaMock).not.toHaveBeenCalled();
+  });
 });

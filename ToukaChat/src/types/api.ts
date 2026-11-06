@@ -10530,6 +10530,8 @@ export interface components {
         /**
          * SkippedResult
          * @description 刻意不寫，不得表示成已保存。
+         *
+         *     generation_failed：基底與 scope 都驗過之後模型失敗，後端什麼都沒寫（ADR-0231 決定 2）。
          */
         SkippedResult: {
             /**
@@ -10541,7 +10543,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "incognito" | "no_text";
+            reason: "incognito" | "no_text" | "generation_failed";
         };
         /**
          * SlidingWindowConfig

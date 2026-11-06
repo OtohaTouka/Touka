@@ -67,6 +67,16 @@ def _refuse_if_stopped(context: dict[str, Any]) -> None:
         raise ToukaException(ErrorCode.PROMPT_STOPPED)
 
 
+def _failed_generation(admission: UiPersistence) -> SkippedResult | None:
+    """模型失敗、後端沒寫：持久對話回略過，由畫面以原版本存一次（ADR-0231 決定 6）。
+
+    無痕交給終態的預設。
+    """
+    if admission.mode == "persistent":
+        return SkippedResult(status="skipped", reason="generation_failed")
+    return None
+
+
 def _valid_ui_base(snapshot: SessionSnapshot, admission: PersistedStreamAdmission) -> bool:
     if snapshot.session is None or snapshot.revision != admission.revision:
         return False
@@ -136,6 +146,8 @@ async def _pump_ui_stream(
     result: SaveResult = _unknown_ui_save()
     snapshot: SessionSnapshot | None = None
     full_content = ""
+    # 基底與 scope 都驗過才開始生成；之後的失敗後端確定什麼都沒寫，之前的照舊回不確定
+    generating = False
     try:
         if admission.mode == "persistent":
             snapshot = await session_service.read_persistence_snapshot(session_id, requester)
@@ -146,6 +158,7 @@ async def _pump_ui_stream(
                 return
             if execution:
                 session_service.require_scope(snapshot.session, execution)
+        generating = True
         async for chunk in gen:
             if not await stream_buffer_service.append(session_id, chunk, stream_id=stream_id):
                 return
@@ -154,10 +167,22 @@ async def _pump_ui_stream(
         await stream_buffer_service.finish(session_id, "cancelled", stream_id=stream_id)
         raise
     except UiGenerationStopped as stopped:
-        await stream_buffer_service.finish(session_id, stopped.generation, stream_id=stream_id)
+        await stream_buffer_service.finish(
+            session_id,
+            stopped.generation,
+            stream_id=stream_id,
+            persistence=_failed_generation(admission)
+            if generating and stopped.generation == "error"
+            else None,
+        )
         return
     except Exception:
-        await stream_buffer_service.finish(session_id, "error", stream_id=stream_id)
+        await stream_buffer_service.finish(
+            session_id,
+            "error",
+            stream_id=stream_id,
+            persistence=_failed_generation(admission) if generating else None,
+        )
         return
     else:
         if admission.mode == "incognito":

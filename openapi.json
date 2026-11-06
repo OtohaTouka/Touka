@@ -24793,7 +24793,7 @@
       },
       "SkippedResult": {
         "additionalProperties": false,
-        "description": "刻意不寫，不得表示成已保存。",
+        "description": "刻意不寫，不得表示成已保存。\n\ngeneration_failed：基底與 scope 都驗過之後模型失敗，後端什麼都沒寫（ADR-0231 決定 2）。",
         "properties": {
           "status": {
             "const": "skipped",
@@ -24803,7 +24803,8 @@
           "reason": {
             "enum": [
               "incognito",
-              "no_text"
+              "no_text",
+              "generation_failed"
             ],
             "title": "Reason",
             "type": "string"

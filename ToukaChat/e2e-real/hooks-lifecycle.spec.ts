@@ -41,6 +41,7 @@ import {
   enableHooks,
   eventSection,
   expectLastReplyMarkedFailed,
+  expectNoSaveNotice,
   loginInBrowser,
   openChat,
   openHooksTab,
@@ -163,14 +164,18 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(String(failure.payload.error_details)).toContain("400");
   await composer(page).waitFor();
   await expectLastReplyMarkedFailed(page);
+  // 模型失敗時後端什麼都沒寫，畫面把失敗那則存好：不跳提示，下一則直接送（ADR-0231 決定 6）
+  await expectNoSaveNotice(page);
   await shot(page, info, "model-400");
-
-  // 模型失敗後對話的保存狀態不確定，要先恢復才送得出下一則
-  await recoverSave(page);
 
   // 模型回 200 但內容讀不懂：以前會變成 KeyError，現在是一般的模型失敗
   await sendMessage(page, MODEL_BAD_JSON_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(2);
+  // 上一則失敗的空白回覆送出前拿掉了：兩則 user 併成一則送到模型
+  const merged = (await modelCalls()).at(-1)!;
+  expect(merged.lastRole).toBe("user");
+  expect(merged.lastText).toContain(MODEL_400_REQUEST);
+  expect(merged.lastText).toContain(MODEL_BAD_JSON_REQUEST);
   const unreadable = (await receivedFor("StopFailure"))[1];
   expectCleanPayload("StopFailure", unreadable);
   expect(unreadable.payload.error).toBe("unknown");
@@ -181,7 +186,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await shot(page, info, "model-bad-json");
 
   // 模型回 200 但沒有回覆（這裡只有錯誤本文）：以前是空白泡泡、算正常結束，Stop 還會跑
-  await recoverSave(page);
+  await expectNoSaveNotice(page);
   await sendMessage(page, MODEL_NO_REPLY_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(3);
   const noReply = (await receivedFor("StopFailure"))[2];
@@ -192,7 +197,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await shot(page, info, "model-no-reply");
 
   // 模型回 200、有回應的外殼但沒有內容，停止原因也不正常：這條才走到解析之後的判斷
-  await recoverSave(page);
+  await expectNoSaveNotice(page);
   await sendMessage(page, MODEL_EMPTY_REPLY_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(4);
   const emptyReply = (await receivedFor("StopFailure"))[3];
@@ -203,8 +208,8 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await expectLastReplyMarkedFailed(page);
   await shot(page, info, "model-empty-reply");
 
-  // 標示在重試保存時才進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
-  await recoverSave(page);
+  // 不用按任何按鈕，標示已經進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
+  await expectNoSaveNotice(page);
   const saved = await savedMessages(adminToken, String(noReply.payload.session_id));
   expect(saved.filter((message) => message.generationFailed)).toHaveLength(4);
   await page.reload();
