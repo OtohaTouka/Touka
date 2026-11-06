@@ -21,11 +21,15 @@ _NT_PATH_PREFIX = "\\??\\"
 
 
 def same_drive(target: str, root: str, flavour: type[PurePath] = Path) -> bool:
-    """``target``（相對時接在 ``root`` 底下）和 ``root`` 是否在同一個磁碟或分享上（不分大小寫）."""
-    if issubclass(flavour, PureWindowsPath) and target.replace("/", "\\").startswith(
+    """``target``（相對時接在 ``root`` 底下）和 ``root`` 是否在同一個磁碟或分享上（不分大小寫）.
+
+    Windows 與否看實際建出來的路徑：預設的 ``Path`` 本身不是 ``PureWindowsPath`` 的子類別，
+    在 Windows 上建出來的才是。
+    """
+    root_path = flavour(root)
+    if isinstance(root_path, PureWindowsPath) and target.replace("/", "\\").startswith(
         _NT_PATH_PREFIX
     ):
         return False
-    root_path = flavour(root)
     literal = root_path / flavour(target)
     return literal.drive.casefold() == root_path.drive.casefold()

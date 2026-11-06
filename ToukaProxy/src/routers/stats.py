@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -118,7 +119,7 @@ async def get_legacy_sync_stats(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     target = AgentIdentity.from_str(agent_id)
     # 名稱先確認（sec-9 PR 1b）：不是單一段 422、不認得 403，之後才拼舊對話資料夾的路徑
-    agent_service.check_known_target(target, identity)
+    await asyncio.to_thread(agent_service.check_known_target, target, identity)
     if not resource_manager.is_owner(target, identity):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     try:
@@ -157,7 +158,8 @@ async def trigger_legacy_sync(
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     target = AgentIdentity.from_str(agent_id)
-    agent_service.check_known_target(target, identity)  # 同上（sec-9 PR 1b）
+    # 同上（sec-9 PR 1b）
+    await asyncio.to_thread(agent_service.check_known_target, target, identity)
     if not resource_manager.is_owner(target, identity):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     try:

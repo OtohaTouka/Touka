@@ -149,6 +149,13 @@ def _writes_stay_in_sandbox(monkeypatch, tmp_path):
         monkeypatch.setattr(owner, name, fn_guarded)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_soul_service_state(monkeypatch):
+    """靈魂服務是單例：名稱快取與「只記一次」的警告不跨測試沿用，結果不依執行順序."""
+    monkeypatch.setattr(soul_service, "_soul_names", None)
+    monkeypatch.setattr(soul_service, "_alias_warned", set())
+
+
 # ── 輔助 ──────────────────────────────────────────────────────────────────────
 def _make_soul(data: Path, name: str, *, is_soul: bool = True, base: str = "soul") -> Path:
     folder = data / base / name
@@ -392,14 +399,22 @@ def test_alias_check_uses_the_file_system_not_casefold(zone_data_root, monkeypat
 
 
 def _simulate_aliases(monkeypatch, *aliases: Path) -> None:
-    """模擬不分大小寫的檔案系統：這些路徑「存在」，但不在目錄列表裡（Linux CI 也測得到）."""
+    """模擬不分大小寫的檔案系統：這些路徑「存在」、是資料夾，但不在目錄列表裡.
+
+    別名的名字和真的資料夾沒有大小寫關係（``zzPhantom…``），所以在 Windows 上也只有這個模擬讓它
+    「存在」：Windows 本機跑的結果就是 Linux CI 的結果，改壞驗證在兩邊一致。
+    """
     fake = set(aliases)
-    real_exists = Path.exists
+    real_exists, real_is_dir = Path.exists, Path.is_dir
 
     def exists(self, *args, **kwargs):
         return True if self in fake else real_exists(self, *args, **kwargs)
 
+    def is_dir(self, *args, **kwargs):
+        return True if self in fake else real_is_dir(self, *args, **kwargs)
+
     monkeypatch.setattr(Path, "exists", exists)
+    monkeypatch.setattr(Path, "is_dir", is_dir)
 
 
 @pytest.mark.parametrize(
@@ -416,9 +431,9 @@ def _simulate_aliases(monkeypatch, *aliases: Path) -> None:
 )
 def test_simulated_aliases_are_refused(zone_data_root, monkeypatch, check, base):
     (zone_data_root / base / "zzVictimFolder").mkdir(parents=True)
-    _simulate_aliases(monkeypatch, zone_data_root / base / "ZZVICTIMFOLDER")
+    _simulate_aliases(monkeypatch, zone_data_root / base / "zzPhantomAlias")
     with pytest.raises(ToukaException) as exc:
-        getattr(soul_io, check)(AgentIdentity(agent_id="ZZVICTIMFOLDER"))
+        getattr(soul_io, check)(AgentIdentity(agent_id="zzPhantomAlias"))
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
     getattr(soul_io, check)(AgentIdentity(agent_id="zzVictimFolder"))  # 逐字的名稱照常
 
@@ -448,11 +463,12 @@ def test_personal_space_that_cannot_be_resolved_is_a_vault_error(zone_data_root,
 def test_simulated_alias_is_not_a_soul(zone_data_root, monkeypatch):
     """查靈魂時別名不算（Linux CI 也測得到）."""
     _make_soul(zone_data_root, "zzRealSoulName")
-    _simulate_aliases(monkeypatch, zone_data_root / "soul" / "ZZREALSOULNAME")
-    assert soul_service.is_toukasoul("ZZREALSOULNAME") is False
-    assert soul_service.get_soul_data("ZZREALSOULNAME") == (None, {})
-    assert soul_service.has_soul_folder(AgentIdentity(agent_id="ZZREALSOULNAME")) is False
-    assert (agent_service.identify_agent("ZZREALSOULNAME") or {}).get("is_toukasoul") is not True
+    phantom = zone_data_root / "soul" / "zzPhantomSoul"
+    _simulate_aliases(monkeypatch, phantom, phantom / "config.json", phantom / "soul.md")
+    assert soul_service.is_toukasoul("zzPhantomSoul") is False
+    assert soul_service.get_soul_data("zzPhantomSoul") == (None, {})
+    assert soul_service.has_soul_folder(AgentIdentity(agent_id="zzPhantomSoul")) is False
+    assert (agent_service.identify_agent("zzPhantomSoul") or {}).get("is_toukasoul") is not True
     assert soul_service.is_toukasoul("zzRealSoulName") is True
 
 
@@ -538,9 +554,9 @@ def test_a_file_in_the_soul_folder_is_not_a_soul(zone_data_root):
 
 def test_custom_model_ids_cannot_alias_another_agents_folder(zone_data_root, monkeypatch):
     (zone_data_root / "legacy" / "zzVictimSoul").mkdir(parents=True)
-    _simulate_aliases(monkeypatch, zone_data_root / "legacy" / "ZZVICTIMSOUL")
+    _simulate_aliases(monkeypatch, zone_data_root / "legacy" / "zzPhantomSoulAlias")
     with pytest.raises(ToukaException) as exc:
-        custom_models_router._validate_new_model_id(AgentIdentity(agent_id="ZZVICTIMSOUL"))
+        custom_models_router._validate_new_model_id(AgentIdentity(agent_id="zzPhantomSoulAlias"))
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
 
 
@@ -551,6 +567,28 @@ def test_custom_model_cannot_take_the_short_name_of_a_soul(zone_data_root):
         pytest.skip("no 8.3 short name here")
     with pytest.raises(ToukaException) as exc:
         custom_models_router._validate_new_model_id(AgentIdentity(agent_id=short))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+@pytest.mark.parametrize("name", ["KUMOAS~1", "zz~Model", "~zz"])
+def test_new_agent_ids_cannot_contain_the_short_name_mark(zone_data_root, name):
+    """Windows 的 8.3 短檔名都帶 ~，之後才配給新資料夾：新 ID 先佔下就會變成別人的別名."""
+    with pytest.raises(ToukaException) as exc:
+        soul_io.check_new_agent_name(AgentIdentity(agent_id=name))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+    with pytest.raises(ToukaException) as exc:
+        custom_models_router._validate_new_model_id(AgentIdentity(agent_id=name))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+def test_renaming_by_a_unicode_case_mapping_is_not_a_case_only_rename(zone_data_root, monkeypatch):
+    """開氏符號 K 和 k 在 casefold 下相同，NTFS 卻不當成同一個字：不算只改大小寫，照樣查別名."""
+    (zone_data_root / "legacy" / "kzVictim").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / "legacy" / "KZVICTIM")
+    with pytest.raises(ToukaException) as exc:
+        custom_models_router._validate_new_model_id(
+            AgentIdentity(agent_id="KZVICTIM"), renaming="Kzvictim"
+        )
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
 
 
@@ -625,13 +663,13 @@ async def test_create_soul_refuses_an_alias_of_another_agents_folder(
     zone_data_root, soul_ops, monkeypatch, base
 ):
     (zone_data_root / base / "zzVictimModel").mkdir(parents=True)
-    _simulate_aliases(monkeypatch, zone_data_root / base / "ZZVICTIMMODEL")
+    _simulate_aliases(monkeypatch, zone_data_root / base / "zzPhantomModel")
     with pytest.raises(ToukaException) as exc:
         await souls_router.create_soul(
-            SoulCreateRequest(agent_id="ZZVICTIMMODEL", config=SoulConfig(base_model=None)), ADMIN
+            SoulCreateRequest(agent_id="zzPhantomModel", config=SoulConfig(base_model=None)), ADMIN
         )
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
-    assert not (zone_data_root / "soul" / "ZZVICTIMMODEL").exists()
+    assert not (zone_data_root / "soul" / "zzPhantomModel").exists()
 
 
 async def test_admin_update_through_an_alias_is_refused(zone_data_root, soul_ops):
@@ -668,15 +706,15 @@ async def test_admin_cannot_create_a_soul_by_editing_over_another_agents_folder(
     zone_data_root, soul_ops, monkeypatch
 ):
     (zone_data_root / "stats" / "zzVictimStats").mkdir(parents=True)
-    _simulate_aliases(monkeypatch, zone_data_root / "stats" / "ZZVICTIMSTATS")
+    _simulate_aliases(monkeypatch, zone_data_root / "stats" / "zzPhantomStats")
     with pytest.raises(ToukaException) as exc:
         await souls_router.update_soul(
-            "ZZVICTIMSTATS",
+            "zzPhantomStats",
             SoulUpdateRequest(config=SoulConfig(is_toukasoul=True), persona="p"),
             ADMIN,
         )
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
-    assert not (zone_data_root / "soul" / "ZZVICTIMSTATS").exists()
+    assert not (zone_data_root / "soul" / "zzPhantomStats").exists()
     assert "free" not in soul_ops
 
 
@@ -917,6 +955,7 @@ async def test_project_root_on_a_network_share_is_refused_before_resolving():
     assert await resource_manager.is_within_workspace(UNC) is False
 
 
+@pytest.mark.skipif(not WINDOWS, reason="only Windows hands these paths to the system as they are")
 @pytest.mark.parametrize(
     "target",
     ["\\??\\UNC\\192.0.2.1\\share\\x", "/??/UNC/192.0.2.1/share/x", "\\??\\PIPE\\192.0.2.1"],

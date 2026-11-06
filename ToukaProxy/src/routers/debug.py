@@ -153,7 +153,7 @@ async def get_context_snapshot(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     target = AgentIdentity(agent_id=agent_id, agent_role="Owner")
-    agent_service.check_known_target(target, identity)
+    await asyncio.to_thread(agent_service.check_known_target, target, identity)
     # IDOR fix: the role gate alone let any Owner read ANY agent's snapshot. Scope to
     # ownership (admin/Debugger bypass inside is_owner); cross-owner → 403, no leak.
     # Self-access (caller IS the agent) is always allowed (token-derived agent_id).
@@ -201,7 +201,7 @@ async def export_context_snapshot(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     target = AgentIdentity(agent_id=agent_id, agent_role="Owner")
-    agent_service.check_known_target(target, identity)
+    await asyncio.to_thread(agent_service.check_known_target, target, identity)
     # IDOR fix: same ownership scoping as the read endpoint — an Owner must not be
     # able to export (write to disk) another user's agent context. 403 on cross-owner.
     # Self-access (caller IS the agent) is always allowed (token-derived agent_id).

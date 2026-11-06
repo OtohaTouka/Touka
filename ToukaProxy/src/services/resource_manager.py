@@ -358,6 +358,7 @@ class ResourceManager:
         # （\??\ 開頭）原樣交給系統。Linux 不這樣要求：Docker 裡的專案根是主機的 Windows 路徑，
         # 和工作區根一樣對著同一個目前資料夾解析（sec-9 PR 1b）
         if isinstance(target, PureWindowsPath) and not target.is_absolute():
+            logger.warning("Project root must be an absolute path on Windows: %r", path_str)
             return False
         workspace = await self._get_workspace_root()
         # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）。

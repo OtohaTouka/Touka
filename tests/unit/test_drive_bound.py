@@ -7,6 +7,7 @@ Linux 的 ``drive`` 恆為空字串，行為不變。純函式，不碰任何檔
 
 from __future__ import annotations
 
+import sys
 from pathlib import PurePosixPath, PureWindowsPath
 
 import pytest
@@ -45,6 +46,14 @@ def test_other_drives_and_shares_are_refused(target):
 def test_nt_paths_are_refused_even_on_the_same_drive(target):
     """``\\??\\`` 開頭會原樣交給系統，看不出會到哪個磁碟或分享，一律不收."""
     assert same_drive(target, WIN_ROOT, flavour=PureWindowsPath) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the default flavour is Windows only there")
+def test_nt_paths_are_refused_with_the_default_flavour():
+    """正式的呼叫端用預設參數（``Path``）：判斷要看實際建出來的路徑，不是 ``Path`` 這個類別."""
+    assert same_drive("\\??\\UNC\\192.0.2.1\\share\\x", WIN_ROOT) is False
+    assert same_drive("/??/UNC/192.0.2.1/share/x", WIN_ROOT) is False
+    assert same_drive("sub\\x", WIN_ROOT) is True
 
 
 @pytest.mark.parametrize(
