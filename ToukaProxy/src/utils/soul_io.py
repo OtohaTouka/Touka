@@ -44,24 +44,28 @@ _SHORT_NAME_MARK = "~"
 def check_new_agent_name(identity: AgentIdentity, *, renamed_from: str | None = None) -> None:
     """新的代理人 ID 能不能用：建立靈魂、用編輯建立或轉換靈魂、建立或改名自訂模型（sec-9 PR 1b）.
 
-    - 不收 ``~``：Windows 的 8.3 短檔名都帶 ``~``，是之後才配給新資料夾的；新 ID 先佔下，
-      之後建立的代理人的短檔名就會指到它。
-    - 代理人資料夾所在的四個位置和個人空間都查，規則見 ``_check_folder_names``。
     - ``renamed_from``：自我改名只差 ASCII 大小寫時，在不分大小寫的檔案系統上指的就是自己的資料夾，
-      不查別名。其他 Unicode 的大小寫對應（例如開氏符號 K）不算：檔案系統不把它們當成同一個字。
+      不查別名（升級前就有、含 ``~`` 的 ID 也能這樣改）。其他 Unicode 的大小寫對應（例如開氏符號 K）
+      不算：檔案系統不把它們當成同一個字。
+    - 不收 ``~``：Windows 的 8.3 短檔名都帶 ``~``，是建立資料夾時各資料夾分開配的；新 ID 先佔下
+      某個短檔名，之後建立的代理人在別的資料夾被配到同一個短檔名，就會指到不同代理人的資料夾。
+    - 代理人資料夾所在的四個位置和個人空間都查，規則見 ``_check_folder_names``。
     """
-    if _SHORT_NAME_MARK in identity.agent_id:
-        logger.warning("🚫 New agent ID contains the 8.3 short-name mark: %r", identity.agent_id)
-        raise ToukaException(ErrorCode.VALIDATION_ERROR)
     if renamed_from is not None and _differs_only_by_ascii_case(identity.agent_id, renamed_from):
         _check_folder_names(identity, (), personal=False)
         return
+    if _SHORT_NAME_MARK in identity.agent_id:
+        logger.warning("🚫 New agent ID contains the 8.3 short-name mark: %r", identity.agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
     _check_folder_names(identity, _AGENT_FOLDER_BASES, personal=True)
 
 
 def _differs_only_by_ascii_case(name: str, other: str) -> bool:
-    """兩個名稱只差 ASCII 字母的大小寫（``bytes.lower`` 只動 ASCII）."""
-    return name.encode("utf-8").lower() == other.encode("utf-8").lower()
+    """兩個名稱只差 ASCII 字母的大小寫（``bytes.lower`` 只動 ASCII；孤立代理字元照原樣比）."""
+    return (
+        name.encode("utf-8", "surrogatepass").lower()
+        == other.encode("utf-8", "surrogatepass").lower()
+    )
 
 
 def check_soul_name(identity: AgentIdentity) -> None:

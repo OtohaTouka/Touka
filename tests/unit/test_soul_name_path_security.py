@@ -581,6 +581,19 @@ def test_new_agent_ids_cannot_contain_the_short_name_mark(zone_data_root, name):
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
 
 
+def test_an_existing_id_with_the_short_name_mark_can_still_change_case(zone_data_root):
+    """升級前就有、含 ~ 的自訂模型只改 ASCII 大小寫：指的就是自己的資料夾，不擋."""
+    custom_models_router._validate_new_model_id(
+        AgentIdentity(agent_id="ZZOLD~MODEL"), renaming="zzOld~Model"
+    )
+
+
+def test_case_only_rename_check_does_not_fail_on_lone_surrogates():
+    """JSON 能送進孤立代理字元：比對大小寫時不能因為編碼失敗變成 500."""
+    assert soul_io._differs_only_by_ascii_case("\ud800a", "\ud800A") is True
+    assert soul_io._differs_only_by_ascii_case("\ud800a", "\ud801a") is False
+
+
 def test_renaming_by_a_unicode_case_mapping_is_not_a_case_only_rename(zone_data_root, monkeypatch):
     """開氏符號 K 和 k 在 casefold 下相同，NTFS 卻不當成同一個字：不算只改大小寫，照樣查別名."""
     (zone_data_root / "legacy" / "kzVictim").mkdir(parents=True)

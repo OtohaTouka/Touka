@@ -48,6 +48,19 @@ def test_nt_paths_are_refused_even_on_the_same_drive(target):
     assert same_drive(target, WIN_ROOT, flavour=PureWindowsPath) is False
 
 
+class _WindowsLikePath:
+    """像 Windows 上的 ``Path``：類別本身不是 ``PureWindowsPath``，建出來的路徑才是."""
+
+    def __new__(cls, *parts: str) -> PureWindowsPath:
+        return PureWindowsPath(*parts)
+
+
+def test_nt_paths_are_refused_when_only_the_built_path_is_windows():
+    """Linux CI 也釘得住：判斷要看建出來的路徑，不能看傳進來的類別."""
+    assert same_drive("\\??\\UNC\\192.0.2.1\\share\\x", WIN_ROOT, flavour=_WindowsLikePath) is False
+    assert same_drive("sub\\x", WIN_ROOT, flavour=_WindowsLikePath) is True
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="the default flavour is Windows only there")
 def test_nt_paths_are_refused_with_the_default_flavour():
     """正式的呼叫端用預設參數（``Path``）：判斷要看實際建出來的路徑，不是 ``Path`` 這個類別."""
