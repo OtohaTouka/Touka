@@ -307,7 +307,7 @@ async def test_the_waiter_is_cleared_when_there_is_nothing_to_trim(lookup: Async
     assert await closing_saves.wait(newer)
 
 
-@pytest.mark.parametrize("busy",["heartbeat", "next_message", "pending_request"])
+@pytest.mark.parametrize("busy", ["heartbeat", "next_message", "pending_request"])
 async def test_chat_trim_gives_up_when_the_session_moved_on(
     home_trim: dict[str, Any], busy: str
 ) -> None:

@@ -60,7 +60,7 @@ describe('graftOntoTrim（ADR-0302）', () => {
     expect(result.messages.messages.n6.parentId).toBeNull();
   });
 
-  it('樹壞掉或還是舊的扁平格式：不丟例外，當成不是剪裁', () => {
+  it('樹讀不懂（空的扁平格式、節點是空的）：不丟例外，當成不是剪裁', () => {
     expect(graftOntoTrim(trimmed(), session([] as unknown as TreeHistory), withNext('n7'))).toBeNull();
     const broken = session({ messages: { n0: null }, currentId: 'n0' } as unknown as TreeHistory);
     expect(graftOntoTrim(trimmed(), broken, withNext('n7'))).toBeNull();
@@ -101,7 +101,9 @@ describe('graftOntoTrim（ADR-0302）', () => {
   ])('本機另有一則接不上（不是目前這則，%s）：不默默丟掉，照舊提示', (_name, parent) => {
     const local = withNext('n7');
     local.messages.messages.e2 = { id: 'e2', role: 'user', content: 'edited old turn', parentId: parent, childrenIds: [] };
+    const before = structuredClone(local);
     expect(graftOntoTrim(trimmed(), base(), local)).toBeNull();
+    expect(local).toEqual(before); // 正規化補上下層時不能改到畫面的狀態
   });
 
   it('本機改過被剪掉的一則：照舊提示', () => {

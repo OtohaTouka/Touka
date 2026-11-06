@@ -5,7 +5,7 @@ import { matchesSessionContent, sessionContentKey } from './session_persistence'
 
 /**
  * 存檔因版本舊被擋時，看是不是聊天側剪裁造成的；是就以剪過的存檔為底，
- * 把這一頁的改動接上去（ADR-0302）。不是、接不上或樹壞掉就回 null，照舊提示。
+ * 把這一頁的改動接上去（ADR-0302）。不是、接不上或樹讀不懂就回 null，照舊提示。
  *
  * 剪裁（後端 `_rebuild_tree`）只留主幹的後段：第一則沒有 parentId、每則只連下一則、
  * 主幹外的分支丟掉、換上新摘要。逾時那條路剪的是文字版，存檔最後多一則這一輪的回覆。
