@@ -172,7 +172,11 @@ describe('MainAreaControls — IDE 模式', () => {
 });
 
 describe('MainAreaControls — 鍵盤焦點', () => {
-  beforeEach(() => vi.clearAllMocks());
+  // 測試是隨機順序：別組留下的工作狀態會讓展開鈕的名稱多出「心跳 2/5」
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activity.attention = null;
+  });
 
   it('側欄剛收起、焦點掉在 body 時，焦點交給展開鈕', () => {
     const { rerender } = render(<MainAreaControls {...makeProps()} />);
