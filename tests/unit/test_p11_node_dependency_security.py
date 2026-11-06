@@ -117,6 +117,7 @@ def test_every_locked_occurrence_meets_its_project_floor(project: str, name: str
 @pytest.mark.parametrize(
     ("project", "version", "message"),
     [
+        ("ToukaChat", "2.0.11", "is below 2.1.6"),
         ("ToukaChat", "2.1.5", "is below 2.1.6"),
         ("ToukaChat", "1.19.18", "outside the reviewed release branch"),
         ("ToukaIDE", "1.19.17", "is below 1.19.18"),
