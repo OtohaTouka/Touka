@@ -162,6 +162,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 連線的第三方金鑰留在瀏覽器（2026-11-07）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 在連線管理輸入的第三方 API 金鑰，會連同連線清單存進瀏覽器的 localStorage（`touka_connections`）。等後端回應的期間一定留著；後端回空清單、換後端，或用舊的 `/connections` 頁時，真值會一直留著。網頁被注入腳本，或有人讀得到這台電腦的瀏覽器資料，就拿得到金鑰。 | 寫進瀏覽器的清單一律把金鑰換成和後端相同的遮罩（`maskConnectionKeys`，經 `useStoredConnections` 與 `publishConnections`；通知其他元件的事件也只帶遮罩），真值只在記憶體裡、隨 `POST /v1/ui/connections` 送給後端。從瀏覽器讀進來的清單也先換成遮罩，舊版留下的真值不會再被送出。載入時 `StoredConnectionKeyCleanup` 把舊版存下的真值換成遮罩，別的分頁寫回時再換一次，寫不回去就顯示提示。舊的 `/connections` 頁只寫本機，拿掉金鑰欄位。換後端時，還沒存到後端的金鑰不會帶到新後端，要在新後端重新輸入；只存在這個瀏覽器、從沒存到後端的金鑰（例如在舊頁輸入的），也要到設定的連線管理重新輸入。開著的舊版分頁要重新載入才會換；換成遮罩不代表瀏覽器抹掉了磁碟上的舊資料。`useConnectionSettings.key-storage.security.test.ts`、`StoredConnectionKeyCleanup.security.test.tsx`、`app/connections/__tests__/page.key-storage.security.test.tsx`、`tests/lint/test_connection_key_mask_security.py`（前後端遮罩逐字相同、只有遮罩過的寫入點能寫這份清單）、`tests/unit/test_connections_key_masking.py`。 |
+
 ### 提問的答案憑證可以被猜到、也會撞在一起（2026-11-06，ADR-0300）
 
 | 弱點 | 修正與驗證 |

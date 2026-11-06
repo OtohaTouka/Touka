@@ -937,6 +937,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_ruff_ratchet.py` | **ADR-0278**：四個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍從 CI workflow 讀出、和 F 步驟相同；比對函式的變多、變少、新規則三種情況；ruff 異常結束時收集失敗、不當成 0 個；`--update` 依規則代號排序寫出、寫完即通過、再多一個就失敗；打錯的工具名或參數回 2、不做檢查。收集與重拍共用 `scripts/lint_ratchet.py` |
 | `test_vulture_ratchet.py` | **ADR-0298**：四個產品資料夾未用的函式、方法、類別不得超過 `tests/lint/vulture_baseline.json`（單向，少了不紅）；參數釘住；工具異常結束、看不懂的輸出要失敗；用真的 vulture 跑小專案 |
 | `test_tests_readme_listing.py` | **ADR-0278**：版控中的每個 `tests/**/test_*.py` 都要在本檔用反引號列出（有相對路徑比對相對路徑；只寫檔名時檔名必須唯一；沒加反引號的不算），還沒列的凍結在 `tests/lint/tests_readme_unlisted.json`、只准變短（已補列或已刪除還留在清單也算失敗）；反引號裡的測試檔名要對得到實際檔案（萬用字元除外）；本檔不寫「現在有幾個案例」（只擋固定格式：數字欄、粗體與標籤裡的數量、「N 個測試／TDD／案例」、合計句；某一批加了幾個、HTTP 狀態碼、年份、有日期的實跑結果、live 預算不擋，正反例都釘住）；反引號名稱檢查拒絕 `..` 與絕對路徑、有斜線的要等於版控路徑、同名檔另外說明（合成資料測試）；沒有 git 就失敗、不跳過 |
+| `test_connection_key_mask_security.py` | 瀏覽器存連線清單時用的金鑰遮罩（`ToukaChat/src/lib/secretMask.ts`）和後端 `utils/secrets.py` 的 `MASK` 逐字相同（不同的話，後端會把瀏覽器送回的遮罩當成新金鑰存下）；前端產品程式只有 `lib/connections.ts` 與 `hooks/useStoredConnections.ts` 的遮罩寫入點能寫這份清單，其他地方也不能直接拼出它的 key（逐行比對的絆線，不是解析器）。 |
 
 ---
 

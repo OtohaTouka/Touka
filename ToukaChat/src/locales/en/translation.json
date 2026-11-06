@@ -982,7 +982,8 @@
       "proxy_switch_confirm": "Switch the backend to {{url}}? This account will be signed out on all devices for the current backend, and this browser will go to the login page.",
       "proxy_switch_confirm_label": "Switch and sign out",
       "proxy_checking": "Checking that {{url}} is reachable…",
-      "proxy_unreachable": "Can't reach {{url}}, or it isn't a Touka backend. The URL was not changed."
+      "proxy_unreachable": "Can't reach {{url}}, or it isn't a Touka backend. The URL was not changed.",
+      "storage_cleanup_failed": "The browser could not replace connection API keys saved by an older version with a mask. Clear this site's stored data in your browser settings, then reload."
     },
     "tools_tab": {
       "no_description": "No description yet",
@@ -2237,7 +2238,6 @@
       "api_url_placeholder_proxy": "e.g. http://localhost:8000",
       "api_url_placeholder_openai": "e.g. https://api.openai.com/v1",
       "proxy_url_hint": "* Use the root URL and ToukaUI will automatically unlock advanced stats and Soul sync.",
-      "api_key_label": "API Key (optional)",
       "deploy_connection_button": "Deploy Connection",
       "existing_nodes_heading": "Existing Connection Nodes ({{count}})",
       "empty_state_title": "No connections configured yet",

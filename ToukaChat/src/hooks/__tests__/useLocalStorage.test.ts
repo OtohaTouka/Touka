@@ -1,5 +1,37 @@
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { removeLocalStorageItem } from '../useLocalStorage';
+import { removeLocalStorageItem, useLocalStorage } from '../useLocalStorage';
+
+describe('a storage sanitizer', () => {
+  beforeEach(() => { window.localStorage.clear(); });
+  const upper = (value: string[]) => value.map(item => item.toUpperCase());
+
+  it('keeps the value in state and stores the transformed value', () => {
+    const { result } = renderHook(() => useLocalStorage<string[]>('transform-test-key', [], upper));
+
+    act(() => result.current[1](['a']));
+    act(() => result.current[1](previous => [...previous, 'b']));
+
+    expect(result.current[0]).toEqual(['a', 'b']);
+    expect(JSON.parse(window.localStorage.getItem('transform-test-key') ?? 'null')).toEqual(['A', 'B']);
+  });
+
+  it('also sanitizes the value read from storage', () => {
+    window.localStorage.setItem('transform-test-key', JSON.stringify(['a']));
+
+    const { result } = renderHook(() => useLocalStorage<string[]>('transform-test-key', [], upper));
+
+    expect(result.current[0]).toEqual(['A']);
+  });
+
+  it('stores the value unchanged without a sanitizer', () => {
+    const { result } = renderHook(() => useLocalStorage<string[]>('transform-test-key', []));
+
+    act(() => result.current[1](['a']));
+
+    expect(JSON.parse(window.localStorage.getItem('transform-test-key') ?? 'null')).toEqual(['a']);
+  });
+});
 
 describe('exact-key storage removal', () => {
   beforeEach(() => { vi.restoreAllMocks(); window.localStorage.clear(); });
