@@ -58,6 +58,8 @@ describe('R2 snapshot binding and explicit recovery', () => {
     persistence: { status: 'saved', representation: 'full', revision } });
   async function mount() {
     vi.clearAllMocks();
+    // 別的測試會把連線範圍改成另一個帳號或失效；clearAllMocks 不會還原，每條開始前設回預設（隨機順序）
+    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
     vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
     fetchToukaMock.mockResolvedValue(okJson([]));
     const rendered = renderHook(() => useSessionList(), { wrapper });
@@ -628,6 +630,9 @@ describe('R2 snapshot binding and explicit recovery', () => {
 describe('syncSession 失敗可見化（批2 ④）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 別的測試會把連線範圍改成另一個帳號或失效；clearAllMocks 不會還原，每條開始前設回預設（隨機順序）
+    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
+    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
     // 掛載時 refreshSessions 的 GET：預設回空清單
     fetchToukaMock.mockResolvedValue(okJson([]));
   });

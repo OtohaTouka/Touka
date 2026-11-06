@@ -26,7 +26,7 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    OpenAPI merge → api.ts → types.ts alias。saved 必須含 revision／representation；failed、unknown
    不附舊 token／原輸入。snapshot 的 exists 是必要 boolean，present／absent 內容互斥。
    skipped 的原因有三種：無痕（incognito）、沒有文字（no_text）、生成失敗（generation_failed）。
-   generation_failed 只用在基底與 scope 都驗過、開始生成之後的失敗：後端確定什麼都沒寫（2026-11-06）。
+   generation_failed 只用在基底與 scope 都驗過、開始生成之後的失敗：後端沒寫這一輪的回覆（2026-11-06）。生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面那次保存會被擋下並照舊提示；不能據此放寬版本比對。
    讀基底失敗、scope 不對、按停止照舊回 unknown。
 3. `async_db.py` 對選定 session 路徑 strict 讀取原 row，將 14 欄原始 readset（家的兩欄除外，ADR-0301）、presence、owner、
    requester、process epoch 與 session generation 綁到不透明 revision。同一 SQLite transaction
@@ -48,7 +48,7 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    失敗標示）存一次，和 no_text 同一條路；版本對不上照舊提示（2026-11-06）。換綁靈魂那一輪版本已變，照舊提示（ADR-0276）。
    存下的失敗回覆會變成下一輪的前文：送給模型前在分流到各家之前（`dispatchers/factory.py`）拿掉
    空白的助理訊息，前後兩則 user 用空行併成一則（`content_normalize.drop_blank_assistant_turns`；
-   有工具呼叫或其他區塊的不算空白）。2026-11-06 查各家官方文件：Anthropic 文字區塊至少 1 個字、
+   有工具呼叫或其他區塊的不算空白）。completed＋no_text、只有工具步驟的回覆也存成空白（工具步驟不送給模型），一樣會被拿掉。2026-11-06 查各家官方文件：Anthropic 文字區塊至少 1 個字、
    連續同角色會自動合併（platform.claude.com/docs/en/api/messages）；Gemini、DeepSeek、xAI 沒寫；
    OpenAI 頁面打不開，沒查到。
    trim 保持非阻塞，但以原 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。

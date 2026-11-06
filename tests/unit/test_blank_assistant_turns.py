@@ -68,6 +68,16 @@ def test_several_blank_replies_in_a_row_merge_into_one_user():
     assert _contents(drop_blank_assistant_turns(messages)) == ["a\n\nb\n\nc"]
 
 
+def test_only_the_two_users_around_the_blank_reply_are_merged():
+    messages = [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": ""},
+        {"role": "user", "content": "b"},
+        {"role": "user", "content": "c"},
+    ]
+    assert _contents(drop_blank_assistant_turns(messages)) == ["a\n\nb", "c"]
+
+
 def test_a_merge_with_an_image_keeps_the_image_block():
     messages = [
         {"role": "user", "content": _IMAGE},

@@ -140,11 +140,14 @@ export function createFakeModel(): http.Server {
 
 /**
  * 最後一則 user 裡最新的那一段。失敗那則空白回覆送出前會被拿掉，前後兩則 user 用空行併成一則
- * （ADR-0231 決定 6），尾端還附著 `<continuity>`；要照最新那一段的要求回，不照上一則失敗的。
+ * （ADR-0231 決定 6），尾端還附著 Touka 加的區塊（`<continuity>`、hook 輸出、IDE 內容）；
+ * 先去掉這些區塊，再照最新那一段的要求回，不照上一則失敗的。測試訊息本身不含空行。
+ * 工具與扣住的觸發字仍看整段（目前沒有測試在失敗後接著送這兩種）。
  */
 function newestUserText(call: ModelCall): string {
   if (call.lastRole !== "user") return "";
-  return call.lastText.split("<continuity>")[0].trimEnd().split("\n\n").at(-1) ?? "";
+  const body = call.lastText.split(/\n\n<(?:continuity|hook_output|ide_context)>/)[0];
+  return body.trimEnd().split("\n\n").at(-1) ?? "";
 }
 
 function answer(res: http.ServerResponse, call: ModelCall): void {

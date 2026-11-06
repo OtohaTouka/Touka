@@ -142,7 +142,8 @@ class SavedResult(PersistenceModel):
 class SkippedResult(PersistenceModel):
     """刻意不寫，不得表示成已保存。
 
-    generation_failed：基底與 scope 都驗過之後模型失敗，後端什麼都沒寫（ADR-0231 決定 2）。
+    generation_failed：基底與 scope 都驗過之後模型失敗，後端沒寫這一輪的回覆（ADR-0231 決定 2）。
+    生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面以原版本存會被擋下。
     """
 
     status: Literal["skipped"]

@@ -442,7 +442,7 @@ Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與
 
 ## 對話保存／終態模型（可靠性 R2，來源候選）
 
-`src/models/session_persistence.py` 是純Pydantic SSOT；saved含representation／revision，skipped分incognito／no_text／generation_failed（基底與scope驗過後模型失敗、後端沒寫），failed／unknown只回固定error_code。
+`src/models/session_persistence.py` 是純Pydantic SSOT；saved含representation／revision，skipped分incognito／no_text／generation_failed（基底與scope驗過後模型失敗、後端沒寫這一輪回覆；生成中工具改過對話時版本已不同），failed／unknown只回固定error_code。
 同一生成helper登錄模型並拒絕重名差異；snapshot exists為必要boolean，present／absent內容互斥。
 正常GET保持原形並含revision／derived round_count；`?snapshot=true`回strict typed存在或缺席，讀錯不發token。
 POST必帶revision；existing DELETE需If-Match，strict absent仍200。SQLite同transaction read／compare／write，
