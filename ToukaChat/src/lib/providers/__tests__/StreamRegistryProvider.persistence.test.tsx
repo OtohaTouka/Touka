@@ -188,6 +188,28 @@ describe('actual registry user-turn persistence barrier', () => {
     await act(async () => { resolve({ status: 'saved', representation: 'full', revision: 'full' }); await terminal; });
     expect(result.current.getStream('s1')).toBeUndefined();
   });
+  // ADR-0231 決定 6：模型失敗、後端沒寫，畫面把標成失敗的這一則交去存一次；存好就收掉，下一則直接送
+  it('a model failure the backend did not write is handed over marked as failed and the next turn can start', async () => {
+    h.complete.mockResolvedValue({ status: 'saved', representation: 'full', revision: 'full' });
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    const started = { type: 'touka_stream_started', session_id: 's1', stream_id: 'stream',
+      user_parent_id: state.tree.messages[state.assistantMsgId].parentId, assistant_node_id: state.assistantMsgId };
+    const persistence = { status: 'skipped', reason: 'generation_failed' } as const;
+    await act(async () => {
+      h.wire.mock.calls[0][5](started);
+      h.wire.mock.calls[0][2]('part');
+      await h.wire.mock.calls[0][3]({ ...started, type: 'touka_stream_terminal', generation: 'error', persistence });
+    });
+    expect(h.complete).toHaveBeenCalledTimes(1);
+    expect(h.complete.mock.calls[0][2]).toEqual(persistence);
+    expect(h.complete.mock.calls[0][3]).toBe('error');
+    const change: SessionChange = h.complete.mock.calls[0][1];
+    expect(change(h.sessions[0]).messages.messages[state.assistantMsgId]).toMatchObject({ content: 'part', generationFailed: true });
+    expect(result.current.getStream('s1')).toBeUndefined();
+    await act(async () => { expect(await result.current.startStream(params())).toBe(true); });
+  });
   it.each(['error', 'cancelled'] as const)('incognito %s has skipped persistence and can start another turn', async generation => {
     h.sessions[0].incognito = true;
     h.save.mockResolvedValue({ status: 'skipped', reason: 'incognito' });

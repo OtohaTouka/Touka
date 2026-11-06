@@ -3,6 +3,8 @@
 > ADR-0276 修訂對話條件提交：儲存交易內增加精確歸屬檢查，UI 串流准入可由授權人類換綁並傳遞提交後 revision；assistant 最後保存無換綁權。內部 marker 納入 revision，部署後須重讀 snapshot；原保存結果型別沿用。
 >
 > ADR-0301 修訂（2026-11-06）：家的兩欄（`is_home`、`home_for_agent`）不算進 revision，設家不再作廢版本；剪裁在讀檔時與存回時各查一次還是家。改第 3、8 點。
+>
+> 路線圖 3c PR 2 修訂（2026-11-06）：模型失敗時後端回「生成失敗、沒寫」（`SkippedResult` 的 `generation_failed`），畫面用 user 保存的版本把失敗那則存一次，不再跳保存提示；送給模型前拿掉空白的助理訊息。改第 2、6 點。
 
 - 日期：2026-09-21
 - 狀態：維護者核准計畫（委託審查）；來源實作與完整Python R4完成，最終審查以本輪審查原件為準（未入版控）。
@@ -23,6 +25,9 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
 2. 純 `src/models/session_persistence.py` 定義 SaveResult、snapshot、started／terminal；沿共同
    OpenAPI merge → api.ts → types.ts alias。saved 必須含 revision／representation；failed、unknown
    不附舊 token／原輸入。snapshot 的 exists 是必要 boolean，present／absent 內容互斥。
+   skipped 的原因有三種：無痕（incognito）、沒有文字（no_text）、生成失敗（generation_failed）。
+   generation_failed 只用在基底與 scope 都驗過、開始生成之後的失敗：後端沒寫這一輪的回覆（2026-11-06）。生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面那次保存會被擋下並照舊提示；不能據此放寬版本比對。
+   讀基底失敗、scope 不對、按停止照舊回 unknown。
 3. `async_db.py` 對選定 session 路徑 strict 讀取原 row，將 14 欄原始 readset（家的兩欄除外，ADR-0301）、presence、owner、
    requester、process epoch 與 session generation 綁到不透明 revision。同一 SQLite transaction
    使用 BEGIN IMMEDIATE 完成 read／compare／write；舊 token、重啟、刪除重建或其他 writer 變更皆拒絕。
@@ -37,8 +42,15 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    `_pump_ui_stream`／`_persist_ui_assistant_turn` 負責新契約；未明示的既有外部路徑不擴承諾。
 6. buffer 在單一 event loop 以無 await 原子 transition 同時記 terminal／status 並通知 waiter；
    append／attach／finish／replace／stop 帶 stream fence。generation 與 persistence 分開：fatal
-   RoundError 是 error、rhythm interruption 是 cancelled；不自動保存部分內容或 trim。
+   RoundError 是 error、rhythm interruption 是 cancelled；後端不自動保存部分內容或 trim。
    完成保存 text 後才允許富樹補存；no_text 且有 steps／tools／attachments 仍需 full 保存。
+   生成失敗（generation_failed）時畫面用 user 保存拿到的版本，把畫面上那一則（已出的文字、工具步驟、
+   失敗標示）存一次，和 no_text 同一條路；版本對不上照舊提示（2026-11-06）。換綁靈魂那一輪版本已變，照舊提示（ADR-0276）。
+   存下的失敗回覆會變成下一輪的前文：送給模型前在分流到各家之前（`dispatchers/factory.py`）拿掉
+   空白的助理訊息，前後兩則 user 用空行併成一則（`content_normalize.drop_blank_assistant_turns`；
+   有工具呼叫或其他區塊的不算空白）。completed＋no_text、只有工具步驟的回覆也存成空白（工具步驟不送給模型），一樣會被拿掉。2026-11-06 查各家官方文件：Anthropic 文字區塊至少 1 個字、
+   連續同角色會自動合併（platform.claude.com/docs/en/api/messages）；Gemini、DeepSeek、xAI 沒寫；
+   OpenAI 頁面打不開，沒查到。
    trim 保持非阻塞，但以原 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。
 7. 持久串流 state／resume／stop／active 同時核 requester、fresh DB 存在與原 ownership；無痕只用
    經認證的 memory owner，DB0。受控刪除退休精確舊 stream，晚到 producer 不可寫入重建的新代。

@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from src.adapters.content_normalize import drop_blank_assistant_turns
 from src.adapters.schemas import OpenAIChatRequest
 from src.config import strip_anthropic_sdk_env_overrides
 from src.handlers.claude_handler import handle_claude_request
@@ -50,6 +51,10 @@ async def get_stream_generator(
     if route.kind == HUMAN_ROUTE:
         handler = HumanModelHandler()
         return handler.generate_response(request, context)
+
+    # 分流到各家之前：拿掉空白的助理訊息（失敗那一輪存下的空回覆），前後的 user 合併
+    if isinstance(getattr(request, "messages", None), list):
+        request.messages = drop_blank_assistant_turns(request.messages)
 
     if route.kind == ANTHROPIC_FAMILY:
         # root-cause-B（免重啟）：啟動時的 anthropic_client 以當時金鑰快照建立；此處改以
