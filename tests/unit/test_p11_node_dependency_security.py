@@ -101,6 +101,38 @@ def test_every_locked_occurrence_meets_captured_security_floor(project: str, nam
     )
 
 
+# The two projects lock different reviewed release branches, so each gets its own floor.
+PROJECT_SECURITY_FLOORS = {
+    ("ToukaChat", "@hono/node-server"): "2.1.6",
+    ("ToukaIDE", "@hono/node-server"): "1.19.18",
+}
+
+
+@pytest.mark.parametrize(("project", "name"), sorted(PROJECT_SECURITY_FLOORS))
+def test_every_locked_occurrence_meets_its_project_floor(project: str, name: str) -> None:
+    lock = json.loads((ROOT / project / "package-lock.json").read_text(encoding="utf-8"))
+    _assert_safe_entries(lock, name, PROJECT_SECURITY_FLOORS[(project, name)])
+
+
+@pytest.mark.parametrize(
+    ("project", "version", "message"),
+    [
+        ("ToukaChat", "2.1.5", "is below 2.1.6"),
+        ("ToukaChat", "1.19.18", "outside the reviewed release branch"),
+        ("ToukaIDE", "1.19.17", "is below 1.19.18"),
+        ("ToukaIDE", "2.1.6", "outside the reviewed release branch"),
+    ],
+)
+def test_project_floor_rejects_older_patch_and_other_branch(
+    project: str, version: str, message: str
+) -> None:
+    lock = {"packages": {"node_modules/@hono/node-server": {"version": version}}}
+    with pytest.raises(AssertionError, match=re.escape(message)):
+        _assert_safe_entries(
+            lock, "@hono/node-server", PROJECT_SECURITY_FLOORS[(project, "@hono/node-server")]
+        )
+
+
 @pytest.mark.parametrize("depth", (1, 2, 3))
 def test_safe_top_level_does_not_hide_vulnerable_nested_entry(depth: int) -> None:
     nested = "node_modules/parent/" * depth + "node_modules/fast-uri"
