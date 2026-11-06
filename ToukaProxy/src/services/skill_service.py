@@ -42,6 +42,15 @@ _MCP_FILE = ".mcp.json"
 # catalog 安裝來源 provenance（版本追蹤）：記下釘的 commit，供「最新／可更新」判定。
 _SOURCE_FILE = ".touka_source.json"
 
+# 內建系統技能：兩個調度員由同步產生，深入研究協調由 repo 附上、依名稱強制注入（ADR-0087）。
+# 不論資料夾在不在，都不能經 API 建立、覆蓋或刪除（不然同名的一般技能會被注入所有人的請求）。
+SKILL_DISPATCHER_ID = "system-skill-dispatcher"
+MCP_DISPATCHER_ID = "system-mcp-dispatcher"
+DEEP_RESEARCH_SKILL_ID = "deep-research-coordinator"
+RESERVED_SYSTEM_SKILL_IDS = frozenset(
+    {SKILL_DISPATCHER_ID, MCP_DISPATCHER_ID, DEEP_RESEARCH_SKILL_ID}
+)
+
 # Skill 安裝來源 allowlist（防 SSRF）
 ALLOWED_SKILL_DOMAINS = frozenset({
     "raw.githubusercontent.com",
@@ -197,7 +206,10 @@ class SkillService:
         ``<id>/references/SKILL.md`` 等巢狀檔不算技能。列不出來時記錄並回空清單。
         """
         try:
-            names = resource_manager.list_child_names(self._skills_dir, dirs_only=True)
+            # 只拿來顯示與載入：少列一項不危險（名稱檢查與系統技能保護另外嚴格判斷）
+            names = resource_manager.list_child_names(
+                self._skills_dir, dirs_only=True, strict=False
+            )
         except OSError:
             logger.exception("Cannot list skill directory %s; no skills loaded.", self._skills_dir)
             return []
@@ -221,7 +233,8 @@ class SkillService:
         if not is_skill_segment(skill_id):
             return None
         if skill_id in self._metadata:
-            # 已載入的名稱就是實際名稱（掃描列出來的、經本檢查寫入的、或兩個調度員的固定名稱）
+            # 已載入的名稱就是實際名稱（掃描列出來的、經本檢查寫入的、或兩個調度員的固定名稱）。
+            # 前提是只有一個行程（ADR-0207）：多個行程各自的清單可能過期。
             return self._skills_dir / skill_id
         try:
             names = resource_manager.list_child_names(self._skills_dir)
@@ -263,7 +276,9 @@ class SkillService:
         return bool(skill_parser.read_touka_field(fm, "is_system"))
 
     def _is_system_skill(self, skill_id: str, skill_dir: Path) -> bool:
-        """已載入的 metadata 或磁碟上的 ``SKILL.md`` 任一標成系統技能就算（不只看載入的清單）。"""
+        """內建系統技能的名稱，或已載入的 metadata、磁碟上的 ``SKILL.md`` 任一標成系統技能就算。"""
+        if skill_id in RESERVED_SYSTEM_SKILL_IDS:
+            return True
         loaded = self._metadata.get(skill_id, {})
         return bool(skill_parser.read_touka_field(loaded, "is_system")) or self._declares_system(
             skill_dir
@@ -431,7 +446,7 @@ class SkillService:
         self._metadata[skill_id] = frontmatter
 
         # 技能清單變動 → 重新同步技能調度員 (保持清單最新)。
-        if skill_id != "system-skill-dispatcher":
+        if skill_id != SKILL_DISPATCHER_ID:
             self.sync_skill_dispatcher()
 
     def delete_skill(self, skill_id: str) -> None:
@@ -523,7 +538,7 @@ class SkillService:
 
         if dispatcher_body:
             formatted_prompts.append(
-                f'<skill name={quoteattr("system-skill-dispatcher")}>\n'
+                f"<skill name={quoteattr(SKILL_DISPATCHER_ID)}>\n"
                 f"{dispatcher_body}\n</skill>"
             )
 
@@ -576,7 +591,7 @@ class SkillService:
 請勿嘗試猜測路徑，僅基於上述註冊表進行連線。"""
 
             frontmatter = skill_parser.build_frontmatter(
-                name="system-mcp-dispatcher",
+                name=MCP_DISPATCHER_ID,
                 description="系統調度器。可隨時『召喚』外部 MCP 伺服器工具。",
                 display_name="🛡️ MCP Dynamic Dispatcher",
                 category="System",
@@ -585,9 +600,9 @@ class SkillService:
                 version=_content_version(system_prompt),
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
-            md_path = self._skills_dir / "system-mcp-dispatcher" / _SKILL_FILE
+            md_path = self._skills_dir / MCP_DISPATCHER_ID / _SKILL_FILE
             written = _write_if_changed(md_path, content)
-            self._metadata["system-mcp-dispatcher"] = frontmatter
+            self._metadata[MCP_DISPATCHER_ID] = frontmatter
             if written:
                 logger.info("✅ System MCP Dispatcher skill synchronized with SSOT.")
         except Exception:
@@ -614,7 +629,7 @@ class SkillService:
             system_prompt = _render_dispatcher_body(skill_list_xml)
 
             frontmatter = skill_parser.build_frontmatter(
-                name="system-skill-dispatcher",
+                name=SKILL_DISPATCHER_ID,
                 description="技能調度器。列出可用技能，供 Agent 依需求動態啟用。",
                 display_name="🧩 Skill Dynamic Dispatcher",
                 category="System",
@@ -623,9 +638,9 @@ class SkillService:
                 version=_content_version(system_prompt),
             )
             content = skill_parser.serialize_skill_md(frontmatter, system_prompt)
-            md_path = self._skills_dir / "system-skill-dispatcher" / _SKILL_FILE
+            md_path = self._skills_dir / SKILL_DISPATCHER_ID / _SKILL_FILE
             written = _write_if_changed(md_path, content)
-            self._metadata["system-skill-dispatcher"] = frontmatter
+            self._metadata[SKILL_DISPATCHER_ID] = frontmatter
             if written:
                 logger.info("✅ System Skill Dispatcher synchronized with SSOT.")
         except Exception:

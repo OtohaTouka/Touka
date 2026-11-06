@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from memory_server.utils.no_follow import WalkEntry
 from pydantic import ValidationError
 from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
@@ -31,9 +32,10 @@ from src.services.creation.models import SkillSpec
 from src.services.creation.skill_kind import SkillCreationKind
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
-from src.services.skill_service import skill_service
+from src.services.skill_service import RESERVED_SYSTEM_SKILL_IDS, skill_service
 from src.tools.builtin.system import activate_skill
 
+from tests.support.links import make_dir_link
 from tests.support.zone_roots import point_zone_roots
 
 BAD_NAMES = ["..", ".", "../outside", "a/b", "a\\b", "/abs", "C:", "name\n", "", " name", "a.b"]
@@ -208,6 +210,33 @@ def test_listing_failure_refuses_names_that_are_not_loaded(svc, monkeypatch):
         svc.update_skill("new-skill", {"system_prompt": "x"})
 
 
+def test_listing_permission_error_names_the_path_and_lenient_mode_lists_the_rest(
+    svc, tmp_path, monkeypatch
+):
+    root = tmp_path / "listing"
+    resource_manager.make_dir(root / "kept")
+
+    def partial_walk(_resolved, report, **_options):
+        report.errors.append(("locked", errno.EACCES))
+        yield WalkEntry(("kept",), "dir", (root / "kept").stat())
+
+    monkeypatch.setattr(resource_manager_module, "_walk_plain", partial_walk)
+    with pytest.raises(PermissionError) as exc:
+        resource_manager.list_child_names(root)
+    assert exc.value.filename == str(root / "locked")
+    assert resource_manager.list_child_names(root, strict=False) == ["kept"]
+
+
+def test_list_child_names_lists_links_by_name_without_entering(svc, tmp_path):
+    root = tmp_path / "listing"
+    target = tmp_path / "elsewhere"
+    resource_manager.write_file_text(target / "inside.txt", "x", make_parents=True)
+    resource_manager.make_dir(root)
+    make_dir_link(root / "linked", target)
+    assert resource_manager.list_child_names(root) == ["linked"]
+    assert resource_manager.list_child_names(root, dirs_only=True) == []
+
+
 def test_list_child_names_lists_only_the_first_level(svc, tmp_path):
     root = tmp_path / "listing"
     resource_manager.write_file_text(root / "a-dir" / "inner" / "deep.txt", "x", make_parents=True)
@@ -272,6 +301,33 @@ def test_scan_loads_every_skill_folder_however_many_files(svc):
     _write_skill(svc, "zz-system", is_system=True)
     svc.load_config()
     assert {s["id"] for s in svc.list_skills()} == {"0-first", "zz-system"}
+
+
+@pytest.mark.parametrize("name", sorted(RESERVED_SYSTEM_SKILL_IDS))
+async def test_builtin_system_skill_names_are_reserved_even_when_missing(svc, tmp_path, name):
+    """內建系統技能的資料夾不在時，也不能用同名建立一般技能（深入研究會依名稱注入）。"""
+    with pytest.raises(ToukaException) as exc:
+        svc.update_skill(name, {"system_prompt": "injected"})
+    assert exc.value.code == ErrorCode.AUTH_PERMISSION_DENIED
+    with _url_install(_skill_archive(tmp_path, name)), pytest.raises(ToukaException) as exc:
+        await svc.install_skill_from_url("https://github.com/x/y.skill")
+    assert exc.value.code == ErrorCode.AUTH_PERMISSION_DENIED
+    assert name not in resource_manager.list_child_names(svc._skills_dir)
+
+
+def test_creation_route_lets_only_admins_create_a_system_skill(monkeypatch):
+    create = AsyncMock()
+    monkeypatch.setattr("src.routers.creation.creation_api.create_skill", create)
+    app.dependency_overrides[get_verified_identity] = lambda: SOUL_OWNER
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/creation/skill", json={"id": "my-skill", "is_system": True}
+            )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 403
+    create.assert_not_awaited()
 
 
 # --- 新增與安裝 ---

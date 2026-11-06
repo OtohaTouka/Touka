@@ -833,7 +833,7 @@ Touka 的 Skill 系統已完全遷移至 [Anthropic Agent Skills 開放標準](h
 - **Progressive Disclosure（三層載入）**：① metadata（frontmatter）常駐 context；② body（SKILL.md 本文）於 skill 觸發時載入；③ resources（`scripts/`/`references/`/`assets/`）由 `SkillService.get_skill_resource()` 按需讀取（含目錄逃逸防護）。
 - **Pull 模式 auto-trigger**：`SkillLayer` 常駐注入 `system-skill-dispatcher`（動態列出非系統 skill 的 name+description）；Agent 自主呼叫 `activate_skill(skill_id)` 寫入 `session.active_skills`，下一輪以 `header ∪ active_skills` 注入（仿 `connect_mcp_server` 範式，免 RBAC 的 dispatcher 常駐）。
 - **技能名稱（2026-11-06）**：所有接技能名稱的操作（讀、寫、刪、打包、安裝、`activate_skill`）只經 `SkillService._skill_dir`：名稱要過 `is_skill_segment`，已有同名資料夾時要和目錄列表的實際名稱完全相同（擋只差大小寫的別名），目錄列不完整時拒絕。讀取回「不存在」（`GET` 與匯出 404、資源清單空、`activate_skill` 回找不到）；新增或更新、刪除、安裝回 `VALIDATION_ERROR`（422）；`SkillModel.id` 也驗證（OpenAPI 不變）。名稱不合規的資料夾不列出。
-- **系統技能（2026-11-06）**：載入的清單或磁碟上的 `SKILL.md` 任一標成系統技能就算；`POST /v1/skills`、兩種安裝覆蓋它、`DELETE` 都回 `AUTH_PERMISSION_DENIED`（403）。安裝包自稱系統技能回 422。調度員同步不經這些端點。
+- **系統技能（2026-11-06）**：內建名稱（兩個調度員、`deep-research-coordinator`，資料夾不在也算）、載入的清單或磁碟上的 `SKILL.md` 任一標成系統技能就算；`POST /v1/skills`、兩種安裝覆蓋它、`DELETE` 都回 `AUTH_PERMISSION_DENIED`（403）。安裝包自稱系統技能回 422；`POST /v1/creation/skill` 帶 `is_system: true` 只有管理員可以，其他人 403。調度員同步不經這些端點。
 - **端點**：`GET /v1/skills/list`、`GET /v1/skills/{skill_id}`、`POST /v1/skills`（建立/更新）、`DELETE /v1/skills/{skill_id}`（`is_system` 受保護不可刪）、`GET /v1/skills/{skill_id}/export`（打包為 `.skill` ZIP 下載）、`POST /v1/skills/install`（Owner/admin 由 URL 安裝）。安裝只收 https，受 `ALLOWED_SKILL_DOMAINS` SSRF 白名單 + `follow_redirects=False` + zip-bomb 防護（entry/解壓/下載上限）+ `.bak` 原子覆寫保護。
 
 ---
