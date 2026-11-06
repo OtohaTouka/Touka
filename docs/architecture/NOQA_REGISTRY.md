@@ -38,7 +38,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `BCRYPT_IMPORT_SSOT` | 0 | 目前無豁免（auth_service.py 為白名單，不需 noqa） |
 | `SQLITE3_IMPORT_BAN` | 0 | 目前無豁免（原 container-security runtime smoke 已隨 ADR-0238 移除）。 |
 | `FILELOCK_ASYNC_SSOT` | 5 | 服務層必須使用 AsyncFileLock；mission_lock.py 為既有定義點（ADR-0049）；ADR-0206 keyring atomic writer 與 OAuth profile fence；ADR-0207 workload profile/delegation JSON generation CAS 各一個定義點 |
-| `PATH_LITERAL_SSOT` | 9 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑；+3 ADR-0303 `test_drive_bound.py` 的 Windows 路徑字串（純字串比對，不碰檔案系統）。 |
+| `PATH_LITERAL_SSOT` | 10 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑；+3 ADR-0303 `test_drive_bound.py` 的 Windows 路徑字串（純字串比對，不碰檔案系統）；+1 ADR-0303 `test_soul_name_path_security.py` 的 `HOST_WORKSPACE`（Docker 裡主機 Windows 路徑的樣本字串，只在 Linux 解析成相對路徑）。 |
 | `CONSOLE_BAN` | 1 | 前端直接 console.log/warn/error 合法豁免：`error_handler.ts` L76 是 `logSSOTError()` 的 SSOT 封裝層 |
 | `ERROR_SSOT_VIOLATION` | 1 | 明示 UI admission 的固定 typed precommit 衝突結果須 HTTP 409；不反射原輸入。 |
 | `PAC_MANUAL_LEVEL_CHECK` | 5 | 安全測試合法豁免：`test_native_tool_payload_contracts.py`（1）、`test_session_persistence_ordering.py`（2）、`test_auth_mode_authority_security.py`（2）讀回被保護的 auth_level 驗證既有安全級或舊值對照，非生產中介層手刻策略判定（ADR-0246 U2c-4：E01 測試改用屬性斷言 -5，舊值讀取對照斷言 +2） |

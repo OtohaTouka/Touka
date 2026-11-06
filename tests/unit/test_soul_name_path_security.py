@@ -38,6 +38,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.models.souls import SoulConfig, SoulCreateRequest, SoulDeleteRequest, SoulUpdateRequest
+from src.routers import custom_models as custom_models_router
 from src.routers import souls as souls_router
 from src.routers import stats as stats_router
 from src.services import authorization_gateway, avatar_service, memory_collection_guard
@@ -53,6 +54,8 @@ from tests.conftest import SESSION_TMP_DATA_ROOT
 SENTINEL = "192.0.2.1"
 UNC = "\\\\192.0.2.1\\share\\x"
 UNC_FORWARD = "//192.0.2.1/share/x"
+# Docker 裡的工作區根是主機的 Windows 路徑（Linux 上不是絕對路徑）；純字串，不碰主機的磁碟
+HOST_WORKSPACE = "W:/ws"  # noqa: PATH_LITERAL_SSOT - 主機路徑的樣本字串，只在 Linux 解析成相對路徑
 BAD_NAMES = ["..", ".", "a/b", "a\\b", UNC, UNC_FORWARD]
 WINDOWS_BAD_NAMES = ["con", "C:foo", "a:b", "name.", "name "]
 WINDOWS = sys.platform == "win32"
@@ -348,6 +351,90 @@ def test_alias_check_uses_the_file_system_not_casefold(zone_data_root, monkeypat
     assert _code(exc) is ErrorCode.VALIDATION_ERROR
 
 
+def _simulate_aliases(monkeypatch, *aliases: Path) -> None:
+    """模擬不分大小寫的檔案系統：這些路徑「存在」，但不在目錄列表裡（Linux CI 也測得到）."""
+    fake = set(aliases)
+    real_exists = Path.exists
+
+    def exists(self, *args, **kwargs):
+        return True if self in fake else real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+
+
+@pytest.mark.parametrize(
+    ("check", "base"),
+    [
+        ("check_new_agent_name", "soul"),
+        ("check_new_agent_name", "legacy"),
+        ("check_new_agent_name", "custom"),
+        ("check_new_agent_name", "stats"),
+        ("check_soul_name", "soul"),
+        ("check_soul_name", "legacy"),
+        ("check_soul_folder_name", "soul"),
+    ],
+)
+def test_simulated_aliases_are_refused(zone_data_root, monkeypatch, check, base):
+    (zone_data_root / base / "zzVictimFolder").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / base / "ZZVICTIMFOLDER")
+    with pytest.raises(ToukaException) as exc:
+        getattr(soul_io, check)(AgentIdentity(agent_id="ZZVICTIMFOLDER"))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+    getattr(soul_io, check)(AgentIdentity(agent_id="zzVictimFolder"))  # 逐字的名稱照常
+
+
+@pytest.mark.parametrize("check", ["check_new_agent_name", "check_soul_name"])
+def test_simulated_alias_of_a_personal_space_is_refused(zone_data_root, monkeypatch, check):
+    # 資料夾真的在（檔案系統說它存在），列表卻只有另一種大小寫：不分大小寫的檔案系統就是這樣
+    _make_soul(zone_data_root, "ZZVICTIMDRIVE", base="personal_drive")
+    monkeypatch.setattr(soul_io, "_personal_drive_names", lambda: {"zzVictimDrive"})
+    with pytest.raises(ToukaException) as exc:
+        getattr(soul_io, check)(AgentIdentity(agent_id="ZZVICTIMDRIVE"))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+def test_simulated_alias_is_not_a_soul(zone_data_root, monkeypatch):
+    """查靈魂時別名不算（Linux CI 也測得到）."""
+    _make_soul(zone_data_root, "zzRealSoulName")
+    _simulate_aliases(monkeypatch, zone_data_root / "soul" / "ZZREALSOULNAME")
+    assert soul_service.is_toukasoul("ZZREALSOULNAME") is False
+    assert soul_service.get_soul_data("ZZREALSOULNAME") == (None, {})
+    assert soul_service.has_soul_folder(AgentIdentity(agent_id="ZZREALSOULNAME")) is False
+    assert (agent_service.identify_agent("ZZREALSOULNAME") or {}).get("is_toukasoul") is not True
+    assert soul_service.is_toukasoul("zzRealSoulName") is True
+
+
+def test_custom_model_ids_cannot_alias_another_agents_folder(zone_data_root, monkeypatch):
+    (zone_data_root / "legacy" / "zzVictimSoul").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / "legacy" / "ZZVICTIMSOUL")
+    with pytest.raises(ToukaException) as exc:
+        custom_models_router._validate_new_model_id(AgentIdentity(agent_id="ZZVICTIMSOUL"))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+def test_custom_model_cannot_take_the_short_name_of_a_soul(zone_data_root):
+    folder = _make_soul(zone_data_root, "zzLongSoulFolderName")
+    short = _short_name(folder)
+    if not short:
+        pytest.skip("no 8.3 short name here")
+    with pytest.raises(ToukaException) as exc:
+        custom_models_router._validate_new_model_id(AgentIdentity(agent_id=short))
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+
+
+def test_renaming_a_custom_model_by_case_only_is_still_allowed(zone_data_root, monkeypatch):
+    (zone_data_root / "custom" / "zzMyModel").mkdir(parents=True)
+    (zone_data_root / "legacy" / "zzMyModel").mkdir(parents=True)
+    _simulate_aliases(
+        monkeypatch,
+        zone_data_root / "custom" / "zzmymodel",
+        zone_data_root / "legacy" / "zzmymodel",
+    )
+    custom_models_router._validate_new_model_id(
+        AgentIdentity(agent_id="zzmymodel"), renaming="zzMyModel"
+    )
+
+
 def test_names_that_differ_only_by_case_both_work_on_a_case_sensitive_system(zone_data_root):
     if _case_insensitive(zone_data_root / "probe-root"):
         pytest.skip("needs a case-sensitive file system")
@@ -413,6 +500,40 @@ async def test_admin_update_through_an_alias_is_refused(zone_data_root, soul_ops
     assert (folder / "soul.md").read_text("utf-8") == "persona of zzLongSoulFolderName"
 
 
+async def test_existing_soul_stays_editable_when_another_folder_differs_by_case(
+    zone_data_root, soul_ops, monkeypatch
+):
+    """舊版在 Windows 上可能用別的大小寫建出 legacy、個人空間；編輯只寫 soul/<id>，不擋."""
+    _make_soul(zone_data_root, "zzSumiSoul")
+    (zone_data_root / "legacy" / "zzsumisoul").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / "legacy" / "zzSumiSoul")
+    await souls_router.update_soul("zzSumiSoul", SoulUpdateRequest(persona="new persona"), ADMIN)
+    assert (zone_data_root / "soul" / "zzSumiSoul" / "soul.md").read_text("utf-8") == "new persona"
+    # 刪除會清 legacy：大小寫不一致時不刪，要先把資料夾改成和 ID 一致（升級注意有寫）
+    with pytest.raises(ToukaException) as exc:
+        await souls_router.delete_soul(
+            "zzSumiSoul", SoulDeleteRequest(admin_password="pw"), ADMIN
+        )
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+    assert not any(call.startswith("purge:") for call in soul_ops)
+
+
+async def test_admin_cannot_create_a_soul_by_editing_over_another_agents_folder(
+    zone_data_root, soul_ops, monkeypatch
+):
+    (zone_data_root / "stats" / "zzVictimStats").mkdir(parents=True)
+    _simulate_aliases(monkeypatch, zone_data_root / "stats" / "ZZVICTIMSTATS")
+    with pytest.raises(ToukaException) as exc:
+        await souls_router.update_soul(
+            "ZZVICTIMSTATS",
+            SoulUpdateRequest(config=SoulConfig(is_toukasoul=True), persona="p"),
+            ADMIN,
+        )
+    assert _code(exc) is ErrorCode.VALIDATION_ERROR
+    assert not (zone_data_root / "soul" / "ZZVICTIMSTATS").exists()
+    assert "free" not in soul_ops
+
+
 @pytest.mark.parametrize("name", [UNC, "a\\b"])
 async def test_admin_update_refuses_bad_names(zone_data_root, soul_ops, name):
     with pytest.raises(ToukaException) as exc:
@@ -450,7 +571,23 @@ async def test_delete_refuses_bad_names(zone_data_root, soul_ops, name):
     assert not any(call.startswith("purge:") for call in soul_ops)
 
 
-# ── D. 第 5 題：非人類只能編輯已存在、和自己同一位擁有者的靈魂 ────────────────────
+# ── D. 非人類只能編輯已存在、和自己同一位擁有者的靈魂 ──────────────────────────────
+async def test_non_humans_are_refused_before_the_model_is_checked(
+    zone_data_root, soul_ops, monkeypatch
+):
+    """用編輯建立靈魂被拒時回 403，不會因為模型不能用先回 404."""
+    _users(monkeypatch, ("userA", ["zzAgentOfA", "zzNewSoul"]))
+    monkeypatch.setattr(souls_router, "should_set_active_brain", lambda **_k: True)
+    monkeypatch.setattr(souls_router, "is_selectable_brain", lambda *_a, **_k: False)
+    with pytest.raises(ToukaException) as exc:
+        await souls_router.update_soul(
+            "zzNewSoul",
+            SoulUpdateRequest(config=SoulConfig(base_model="zz-no-such-model"), persona="p"),
+            OWNER_A,
+        )
+    assert _code(exc) is ErrorCode.AUTH_PERMISSION_DENIED
+
+
 async def test_non_humans_cannot_create_a_soul_by_editing(zone_data_root, soul_ops, monkeypatch):
     _users(monkeypatch, ("userA", ["zzAgentOfA", "zzNewSoul"]))
     for caller in (OWNER_A, DEBUGGER):
@@ -598,6 +735,42 @@ def test_file_tools_refuse_network_paths_before_resolving(tmp_path, target):
         core_file_ops._enforce_root_bound(target, str(tmp_path))
 
 
+def test_file_tools_accept_absolute_targets_under_a_relative_root(tmp_path, monkeypatch):
+    """資料根設成相對路徑（預設值就是）時，根底下的絕對路徑照樣收：字面上的根沒有磁碟代號."""
+    (tmp_path / "data" / "vault").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "data" / "vault" / "note.md"
+    resolved = core_file_ops._enforce_root_bound(str(target), "data/vault")
+    assert resolved == target.resolve()
+
+
 @pytest.mark.skipif(not WINDOWS, reason="UNC paths only exist on Windows")
 async def test_project_root_on_a_network_share_is_refused_before_resolving():
     assert await resource_manager.is_within_workspace(UNC) is False
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["\\??\\UNC\\192.0.2.1\\share\\x", "/??/UNC/192.0.2.1/share/x", "\\??\\PIPE\\192.0.2.1"],
+)
+async def test_project_root_written_as_an_nt_path_is_refused_before_resolving(target):
+    assert await resource_manager.is_within_workspace(target) is False
+
+
+@pytest.mark.skipif(WINDOWS, reason="Docker runs the proxy on Linux")
+async def test_docker_keeps_host_windows_project_roots(tmp_path, monkeypatch):
+    """Docker 裡工作區根與專案根都是主機的 Windows 路徑，對同一個目前資料夾解析，照常可以."""
+    monkeypatch.setattr(resource_manager, "_workspace_root_cached", Path(HOST_WORKSPACE))
+    monkeypatch.chdir(tmp_path)
+    assert await resource_manager.is_within_workspace(f"{HOST_WORKSPACE}/proj") is True
+    assert await resource_manager.is_within_workspace(f"{HOST_WORKSPACE}-other/proj") is False
+
+
+@pytest.mark.skipif(not WINDOWS, reason="only Windows resolves rooted paths without a drive")
+async def test_project_root_must_be_an_absolute_path(zone_data_root, monkeypatch):
+    workspace = zone_data_root / "workspace"
+    (workspace / "proj").mkdir(parents=True)
+    monkeypatch.setattr(resource_manager, "_workspace_root_cached", workspace)
+    assert await resource_manager.is_within_workspace(str(workspace / "proj")) is True
+    monkeypatch.chdir(workspace)
+    assert await resource_manager.is_within_workspace("proj") is False

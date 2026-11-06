@@ -75,8 +75,9 @@ def _enforce_root_bound(
     if not target_path_str or target_path_str.strip() in [".", "/"]:
         return root
 
-    # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）
-    if not same_drive(target_path_str, root_bound_str):
+    # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）。
+    # 根是相對路徑、對應的磁碟機或跨磁碟的連結時，字面和解析後的磁碟不同，兩個都算
+    if not (same_drive(target_path_str, root_bound_str) or same_drive(target_path_str, str(root))):
         msg = "Cross-drive forbidden."
         raise PathGuardError(msg)
 

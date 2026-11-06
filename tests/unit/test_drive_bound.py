@@ -34,6 +34,22 @@ def test_other_drives_and_shares_are_refused(target):
 @pytest.mark.parametrize(
     "target",
     [
+        "\\??\\UNC\\192.0.2.1\\share\\x",
+        "/??/UNC/192.0.2.1/share/x",
+        "/??\\UNC\\192.0.2.1\\share\\x",
+        "\\??\\D:\\x",
+        "\\??\\C:\\proj\\x",
+        "\\??\\PIPE\\x",
+    ],
+)
+def test_nt_paths_are_refused_even_on_the_same_drive(target):
+    """``\\??\\`` 開頭會原樣交給系統，看不出會到哪個磁碟或分享，一律不收."""
+    assert same_drive(target, WIN_ROOT, flavour=PureWindowsPath) is False
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
         "sub\\x",
         "C:x",
         "c:\\proj\\x",  # noqa: PATH_LITERAL_SSOT - 純字串比對的測試資料

@@ -17,7 +17,7 @@ import stat
 import tempfile
 import zipfile
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from memory_server.models.conversation_search import ConversationSearchError
@@ -353,11 +353,20 @@ class ResourceManager:
         """
         if not path_str:
             return False
-        workspace = await self._get_workspace_root()
-        # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）
-        if not same_drive(path_str, str(workspace)):
+        target = Path(path_str)
+        # Windows 只收有磁碟也有根的絕對路徑：下面解析的是原字串，只有根的寫法會照目前磁碟或
+        # （\??\ 開頭）原樣交給系統。Linux 不這樣要求：Docker 裡的專案根是主機的 Windows 路徑，
+        # 和工作區根一樣對著同一個目前資料夾解析（sec-9 PR 1b）
+        if isinstance(target, PureWindowsPath) and not target.is_absolute():
             return False
-        return validate_no_symlink_escape(Path(path_str), workspace)
+        workspace = await self._get_workspace_root()
+        # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）。
+        # 工作區根是相對路徑或對應的磁碟機時，字面和解析後的磁碟不同，兩個都算
+        if not (
+            same_drive(path_str, str(workspace)) or same_drive(path_str, str(workspace.resolve()))
+        ):
+            return False
+        return validate_no_symlink_escape(target, workspace)
 
     def get_avatars_dir(self) -> Path:
         """取得使用者頭像目錄（ADR-0106，位於 app data 根，納入備份）。

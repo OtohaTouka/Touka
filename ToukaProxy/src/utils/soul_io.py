@@ -16,6 +16,7 @@ from memory_server.utils.no_follow import WalkReport
 from memory_server.utils.zone_paths import (
     ALL_ANCHORS,
     Anchor,
+    ZoneRootsUnavailableError,
     contains_zone,
     current_roots,
     is_zone_segment,
@@ -33,36 +34,67 @@ logger = logging.getLogger(__name__)
 _SOUL_STORAGE_BASES = ("soul", "legacy", "personal_drive")
 
 
+# 每個代理人在這些資料夾底下各有一個同名資料夾（個人空間另外看錨點）：新的 ID 不能是其中
+# 任何一個既有資料夾的別名，不然會和別的代理人共用資料夾。
+_AGENT_FOLDER_BASES = ("soul", "legacy", "custom", "stats")
+
+
+def check_new_agent_name(identity: AgentIdentity) -> None:
+    """新的代理人 ID 能不能用：建立靈魂、用編輯建立或轉換靈魂、建立或改名自訂模型（sec-9 PR 1b）.
+
+    代理人資料夾所在的四個位置和個人空間都查，規則見 ``_check_folder_names``。
+    """
+    _check_folder_names(identity, _AGENT_FOLDER_BASES, personal=True)
+
+
 def check_soul_name(identity: AgentIdentity) -> None:
-    r"""靈魂名稱能不能拿來建立、編輯、刪除（sec-9 PR 1b）：單一段，而且不是既有資料夾的別名.
+    """刪除靈魂前：會清掉的三個位置（soul、legacy、個人空間）都不能是別名（sec-9 PR 1b）."""
+    _check_folder_names(identity, ("soul", "legacy"), personal=True)
+
+
+def check_soul_folder_name(identity: AgentIdentity) -> None:
+    """編輯既有靈魂前：只寫 ``soul/<id>``，只查這一個位置（sec-9 PR 1b）.
+
+    舊版在 Windows 上可能用別的大小寫建出 legacy、個人空間；那在 Windows 上就是同一份資料，
+    不擋編輯。用編輯建立或轉換靈魂時另外走 ``check_new_agent_name``。
+    """
+    _check_folder_names(identity, ("soul",), personal=False)
+
+
+def _check_folder_names(
+    identity: AgentIdentity, bases: tuple[str, ...], *, personal: bool
+) -> None:
+    r"""名稱是單一段，而且不是 ``bases``（與個人空間）裡既有資料夾的別名.
 
     1. 不是單一段（``is_zone_segment``）→ ``VALIDATION_ERROR``。這一步不碰檔案系統：Windows 上
        ``\\主機\分享`` 拼上去會變成網路路徑，檢查之後才會碰到本機的 base。
-    2. 三個 base 各自判斷：名稱逐字出現在目錄列表 → 通過；不在列表、檔案系統卻說它存在 → 別名
+    2. 每個位置各自判斷：名稱逐字出現在目錄列表 → 通過；不在列表、檔案系統卻說它存在 → 別名
        （只差大小寫、8.3 短檔名、Unicode 正規化），``VALIDATION_ERROR``；都不是 → 還沒有，通過。
        Linux 上真的並存的 ``Foo``、``foo`` 各自逐字在列表裡，都通過。
-    3. 列不完整 → ``SOUL_VAULT_ERROR``：不能確認就不動。
+    3. 列不完整或位置解析不到 → ``SOUL_VAULT_ERROR``：不能確認就不動。
     """
     agent_id = identity.agent_id
     if not is_zone_segment(agent_id):
-        logger.warning("🚫 Soul name is not a single segment: %r", agent_id)
+        logger.warning("🚫 Agent name is not a single segment: %r", agent_id)
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
     base_path = Path(resource_manager.get_base_path())
-    for base_name in ("soul", "legacy"):
+    for base_name in bases:
         root = base_path / base_name
         try:
             names = resource_manager.list_child_names(root)
         except OSError as exc:
-            logger.warning("🚫 Cannot list %s to check the soul name %r", base_name, agent_id)
+            logger.warning("🚫 Cannot list %s to check the agent name %r", base_name, agent_id)
             raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
         if agent_id not in names and (root / agent_id).exists(follow_symlinks=False):
             _refuse_alias(base_name, agent_id)
-    drive = resource_manager.soul_drive(identity)
+    if not personal:
+        return
     try:
+        drive = resource_manager.soul_drive(identity)
         names = _personal_drive_names()
         present = drive is not None and resource_manager.zone_kind(drive) != "missing"
-    except OSError as exc:
-        logger.warning("🚫 Cannot list the personal space to check the soul name %r", agent_id)
+    except (OSError, ZoneRootsUnavailableError) as exc:
+        logger.warning("🚫 Cannot list the personal space to check the agent name %r", agent_id)
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
     if agent_id not in names and present:
         _refuse_alias(Anchor.PERSONAL_DRIVE.value, agent_id)

@@ -115,8 +115,8 @@ async def create_soul(
     # 檢查之前，Windows 與 Linux 的結果才一致。讀不到事實庫就拒絕（不能確認就不建立）。
     new_identity = AgentIdentity(agent_id=agent_id)
     await asyncio.to_thread(memory_collection_guard.assert_id_free, new_identity)
-    # 不是既有資料夾的別名（8.3 短檔名等，撞名檢查抓不到的）；列不完整就不建立
-    soul_io.check_soul_name(new_identity)
+    # 不是任何代理人資料夾的別名（8.3 短檔名等，撞名檢查抓不到的）；列不完整就不建立
+    soul_io.check_new_agent_name(new_identity)
 
     soul_root_str = resource_manager.get_vault_root("soul", identity)
     if not soul_root_str:
@@ -316,8 +316,9 @@ async def update_soul(
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # Use an Owner identity for vault access (permission already decided above).
     identity = AgentIdentity(agent_id=soul_id, agent_role="Owner")
-    # 名稱是單一段、不是別名（sec-9 PR 1b）：先於任何路徑操作
-    soul_io.check_soul_name(identity)
+    # 名稱是單一段、soul/<id> 不是別名（sec-9 PR 1b）：先於任何路徑操作。
+    # 用編輯建立或轉換靈魂時，下面再查其他位置（check_new_agent_name）。
+    soul_io.check_soul_folder_name(identity)
     soul_dir_str = resource_manager.get_vault_root("soul", identity)
     if not soul_dir_str:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
@@ -336,6 +337,26 @@ async def update_soul(
     stored = resource_manager.read_json(agent_dir / "config.json")
     old_model = stored.get("base_model") if isinstance(stored, dict) else None
     config_data = data.config.model_dump() if data.config is not None else None
+
+    was_soul = isinstance(stored, dict) and stored.get("is_toukasoul", stored.get("is_soul", False))
+    creating_soul = bool(config_data and config_data["is_toukasoul"] and not was_soul)
+    # 名稱已確認不是別名，exists() 就是逐字的結果
+    new_dir = not agent_dir.exists()
+    # ADR-0303：非人類只能編輯逐字存在、已標成靈魂的資料夾；建立、轉換只有重新輸入密碼的管理員能做。
+    # 先於模型驗證：被拒的請求不會因為模型不能用先回 404
+    if not verified.is_human and (new_dir or not was_soul or creating_soul):
+        logger.warning(
+            "🚫 Only a re-authenticated admin may create or convert a soul by editing: %s → %s",
+            verified.agent_id,
+            soul_id,
+        )
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    if new_dir or creating_soul:
+        # 和 create_soul 一樣：新 ID 不能是任何代理人資料夾的別名，也不能和既有 ID 共用向量
+        # collection（不能確認就不建立）
+        soul_io.check_new_agent_name(identity)
+        await asyncio.to_thread(memory_collection_guard.assert_id_free, identity)
+
     new_model = normalize_model_choice(config_data["base_model"] if config_data else None)
     switch = should_set_active_brain(
         is_human=verified.is_human,
@@ -348,21 +369,6 @@ async def update_soul(
         logger.warning("Soul %s save rejected: model %r is not selectable", soul_id, switch_to)
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND)
 
-    was_soul = isinstance(stored, dict) and stored.get("is_toukasoul", stored.get("is_soul", False))
-    creating_soul = bool(config_data and config_data["is_toukasoul"] and not was_soul)
-    # 名稱已確認不是別名，exists() 就是逐字的結果
-    new_dir = not agent_dir.exists()
-    # ADR-0303：非人類只能編輯逐字存在、已標成靈魂的資料夾；建立、轉換只有重新輸入密碼的管理員能做
-    if not verified.is_human and (new_dir or not was_soul or creating_soul):
-        logger.warning(
-            "🚫 Only a re-authenticated admin may create or convert a soul by editing: %s → %s",
-            verified.agent_id,
-            soul_id,
-        )
-        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
-    if new_dir or creating_soul:
-        # 和 create_soul 一樣：新 ID 和既有 ID 共用向量 collection 就拒絕（不能確認就不建立）
-        await asyncio.to_thread(memory_collection_guard.assert_id_free, identity)
     if creating_soul:
         if soul_id.casefold().startswith("toukasoul"):
             raise ToukaException(ErrorCode.VALIDATION_ERROR)
