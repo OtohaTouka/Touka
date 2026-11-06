@@ -340,6 +340,8 @@ _UNCOMPARED_MUTABLE_CONSTANTS = (
     ("memory_server.utils.zone_paths", "_observers"),
     ("memory_server.utils.zone_paths", "_handoffs"),
     ("memory_server.utils.no_follow", "WalkEntry._field_defaults"),
+    # 相對專案根的警告每個路徑只記一次，執行時會長
+    ("src.services.resource_manager", "_RELATIVE_ROOT_WARNED"),
 )
 
 
