@@ -533,6 +533,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **ToukaIDE Marketplace Candidate** | `ToukaIDE/package.json`＋`package-lock.json`＋`scripts/build_marketplace_candidate.py`＋`scripts/deterministic_vsix.py` | `touka.ide.marketplace-candidate.v1` canonical manifest＋一份universal VSIX | **現行IDE發行SSOT（ADR-0218）**：`@vscode/vsce@3.9.2` direct exact pin；以 exact Node 直接執行 package-local npm 與 repo-local vsce。Builder要求clean release inputs與版本tag→HEAD，bundle後重驗source，repo外create-only輸出並綁commit／tag／publisher／MIT／archive與exact members。Marketplace登入／upload／readback仍是獨立人工gate；Open VSX不在範圍。步驟見`docs/guides/toukaide-marketplace-release.md`。 |
 | **Dependency Audit Coverage／CPU Source Identity** | `scripts/dependency_audit_coverage.py`＋`docs/security/torch-cpu-advisory-identity.json` | frozen lock projection＋exact query pairing＋官方來源紀錄 | **ADR-0223 coverage/error-path 實作切片已接受**：覆蓋跨平台 marker，CPU advisory 身分綁官方來源與 hash；first-party editable 由 workspace 身分獨立分類。缺列、錯配、未證明來源／skip 均 INCOMPLETE；JSON 不是版本 lock 或弱點豁免清單。 |
 | **SNS 表單憑證與退役 Storage Keys** | SNS 單一領域 Hook＋`ToukaChat/src/hooks/useLocalStorage.ts` 清除接縫 | React memory-only state＋精確 retired-key 清單 | **ADR-0224 SNS 修復切片與完整前端驗證已接受**：全 app 接線清除舊 SNS keys，不讀回秘密、不清無關 storage；單 Hook 擁有表單，成功／失敗／卸載 scrub。尚未部署，關閉／離線舊 client 必須載入新版才能清除；不宣稱 secure erase 或已全數清空。 |
+| **瀏覽器連線清單的金鑰遮罩** | `ToukaProxy/src/utils/secrets.py` 的 `MASK`（正本）＋`ToukaChat/src/lib/secretMask.ts` 的 `SECRET_MASK`（鏡像） | 字面常數；`tests/lint/test_connection_key_mask_security.py` 釘兩邊逐字相同，也逐行攔下新增的未遮罩寫入點 | 瀏覽器的 `touka_connections` 只存遮罩：`lib/connections.ts` 的 `maskConnectionKeys` 經 `useStoredConnections` 與 `publishConnections` 套在每次讀寫；`StoredConnectionKeyCleanup` 換掉舊版存的真值。後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。 |
 | **自癒範本** | `ToukaProxy/config/*.json.example` → `${TOUKA_CONFIG_DIR}/*.json` | `Git Tracked → Runtime` | **SSOT 恢復基準（ADR-0209）**：來源範本唯讀且受 Git 追蹤；只在目標缺少時建立 runtime JSON，不覆寫既有設定。Production 來源／目標可同目錄；pytest 目標只能是 session temp sandbox。 |
 | **認證密鑰 (Secret)**| `.env: TOUKA_AUTH_SECRET` | `Sensitive Environment` | **認證 SSOT**: 簽署與驗證 JWT Token 的唯一事實來源。公開值拒用見 ADR-0251（`config.PUBLIC_SECRET_VALUES`）。 |
 | **身分與能力 (Ident)** | `${TOUKA_CONFIG_DIR}/identity_map.json` | `JSON` | 身分標籤規則、個體角色 Override (role)、**心跳喚醒權限 (capabilities: heartbeat_awakening)** 與 **工作分派特權代理 (capabilities: can_supervise_dispatch)** 的權威來源。 |
@@ -620,7 +621,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 |---|---|
 | `ToukaChat/src/lib/connections.ts` 的 `cardFor` | 憑證只送回發它的後端；`fetchTouka`、`fetchChatStream`、`captureRequestScope` 都經它取卡。`getAccessToken()` 只回答「手上有沒有卡」，不能拿來送出。 |
 | `ToukaChat/src/lib/connections.ts` 的 `activeConnectionOf`、`activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單裡哪一筆決定後端、會連到哪個網址、兩個網址是否同一台的唯一判斷。 |
-| `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。 |
+| `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。兩者經手的清單金鑰都只有遮罩（`maskConnectionKeys`，見上方「瀏覽器連線清單的金鑰遮罩」）。 |
 | `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
 | `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
 
