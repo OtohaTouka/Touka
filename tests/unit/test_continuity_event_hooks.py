@@ -202,8 +202,8 @@ async def _pulse_no_model(*_args: Any, **_kwargs: Any) -> None:
 async def _pulse_model_failed(
     _sid: str, _identity: Any, _model: Any, ctx: Any, *_args: Any, **_kwargs: Any
 ) -> int:
-    ctx["model_failed"] = True  # react_core 的 fail_round 做的記號；錯誤文字沒算成回合
-    return 0
+    ctx["model_failed"] = True  # react_core 的 fail_round 做的記號；錯誤文字照存成一則回覆
+    return 1
 
 
 class _SyntheticPulseFailure(RuntimeError):
@@ -222,7 +222,7 @@ async def _pulse_error(*_args: Any, **_kwargs: Any) -> int:
         (_pulse_ok, _autonomy(quota=False), False, "quota", 0, 0),
         (_pulse_ok, _autonomy(over_budget=True), False, "budget", 0, 0),
         (_pulse_no_model, None, False, "no_model", 0, 0),
-        (_pulse_model_failed, None, False, "model_error", 1, 0),
+        (_pulse_model_failed, None, False, "model_error", 1, 1),
         (_pulse_error, None, False, "error", 0, 0),
     ],
 )

@@ -4,7 +4,7 @@
 
 ## Hook（ADR-0292 決定 17）
 
-- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗（StopFailure 已發）時 `end` 是 `model_error`，失敗那一脈衝照算跑完、剩下的不跑）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
+- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗（StopFailure 已發，含 dispatcher 補發的 `unknown`：這一輪裡 Touka 自己出的例外）時 `end` 是 `model_error`，失敗那一脈衝照算跑完、剩下的不跑）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
 
 ## 對話歸屬與獨立頻道（ADR-0276）
 

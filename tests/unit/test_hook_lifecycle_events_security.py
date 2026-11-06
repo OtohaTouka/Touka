@@ -274,9 +274,9 @@ async def test_a_failed_round_fires_stop_failure_and_no_stop(monkeypatch, hooks,
 
 
 async def test_a_failed_round_marks_the_context_for_the_heartbeat(monkeypatch, hooks, no_wait):
-    """這一輪模型失敗時在 ctx 做記號，心跳據此寫「模型失敗」（3c ⑤）。"""
+    """這一輪模型失敗時在 ctx 做記號，心跳據此寫「模型失敗」（3c ⑤）。用心跳那種 ctx。"""
     FakeUpstream([json_reply("bad key", 400)]).install(monkeypatch)
-    ctx = _loop_ctx()
+    ctx = hb.PipelineContext(**_loop_ctx(heartbeat_run=True))
     await _run_loop(OpenAIAdapter(stream=True), "grok-4", ctx)
     assert ctx.get("model_failed") is True
 
@@ -1179,9 +1179,12 @@ async def test_a_failure_mark_left_on_the_context_does_not_end_the_heartbeat(mon
 
 async def test_a_heartbeat_that_ended_on_a_model_failure_still_trims_the_home(monkeypatch, hooks):
     """「模型失敗」不是心跳程式出例外：家對話照樣剪裁（只有 error 跳過）。"""
+    hooks.configure({"HeartbeatStop": [group()]})
     trim = AsyncMock()
     monkeypatch.setattr(hb.sliding_window_service, "check_and_trim", trim)
     await _heartbeat(monkeypatch, AsyncMock(side_effect=_pulse_whose_model_failed), home=True)
+    await _settle(hooks, 1)
+    assert hooks.http.calls[0]["end"] == "model_error"
     trim.assert_awaited_once()
 
 
