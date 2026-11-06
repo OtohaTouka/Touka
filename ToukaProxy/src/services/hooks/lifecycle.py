@@ -240,7 +240,7 @@ def notify_heartbeat_stop(
 ) -> None:
     """心跳結束了；``end`` 是結束原因。
 
-    completed、interrupted、quota、budget、no_model、error 或 cancelled。
+    completed、interrupted、quota、budget、no_model、model_error、error 或 cancelled。
     """
     _notify(
         HEARTBEAT_STOP_EVENT,

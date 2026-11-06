@@ -139,11 +139,11 @@ export async function setSlidingWindow(token: string, config: object): Promise<v
 }
 
 /** 排程服務喚醒靈魂時打的端點；這裡沒有跑排程服務，權杖由 global-setup 產生。 */
-export async function awakenSoul(initPrompt: string, sessionMode: "independent" | "home" = "independent"): Promise<void> {
+export async function awakenSoul(initPrompt: string, sessionMode: "independent" | "home" = "independent", pulseCount = 1): Promise<void> {
   await call("POST", "/v1/heartbeat/awaken", null, {
     token: process.env[ENV_HEARTBEAT_TOKEN] ?? "",
     agent_id: SOUL_ID,
-    pulse_count: 1,
+    pulse_count: pulseCount,
     session_mode: sessionMode,
     init_prompt: initPrompt,
   });
