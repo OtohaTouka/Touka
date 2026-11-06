@@ -251,13 +251,143 @@ async def test_mcp_branch_only_fields_survive_stripping():
     assert not _ROOT_COMBINATORS & set(schema)
     assert schema["type"] == "object"
     assert schema["properties"] == {
-        "email": {"type": "string"},  # 分支之間先出現者為準
+        "email": {"anyOf": [{"type": "string"}, {"type": "integer"}]},  # 分支各自的定義都留
         "target": {"$ref": "#/$defs/Target"},
         "phone": {"type": "string"},
         "note": {"type": "string"},
     }
     assert schema["$defs"] == _MCP_BRANCH_ONLY["function"]["parameters"]["$defs"]  # $ref 還指得到
     assert "required" not in schema  # 分支的必填不升到根層
+
+
+# 判別欄位只寫在分支裡：每個分支的 kind 只收一個值，只留第一個的話另一種永遠送不出來
+_MCP_DISCRIMINATED = {
+    "server": "ext",
+    "tool": "notify",
+    "type": "function",
+    "function": {
+        "name": "ext__notify",
+        "description": "a discriminator that lives only in the branches",
+        "parameters": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "properties": {
+                        "kind": {"const": "email", "description": "send an email"},
+                        "address": {"type": "string"},
+                        "subject": {"type": "string"},
+                    },
+                    "required": ["kind", "address"],
+                },
+                {
+                    "properties": {
+                        "kind": {"const": "sms", "description": "send a text message"},
+                        "number": {"type": "string"},
+                        "subject": {"type": "string"},
+                    },
+                    "required": ["kind", "number"],
+                },
+                {
+                    "properties": {
+                        "kind": {"const": "email", "description": "send an email"},
+                        "cc": {"type": "string"},
+                    },
+                },
+                {"properties": {"kind": {"const": "sms", "description": "send a text message"}}},
+            ],
+        },
+    },
+}
+
+
+async def test_mcp_discriminator_only_in_branches_keeps_every_choice():
+    tools = await _listed_tools([copy.deepcopy(_MCP_DISCRIMINATED)])
+    schema = (await _anthropic_wire(tools))["ext__notify"]
+    assert not _ROOT_COMBINATORS & set(schema)
+    assert schema["properties"]["kind"] == {  # 依出現順序、相同的只留一份
+        "anyOf": [
+            {"const": "email", "description": "send an email"},
+            {"const": "sms", "description": "send a text message"},
+        ]
+    }
+    assert schema["properties"]["subject"] == {"type": "string"}  # 每個分支都一樣：不包 anyOf
+    assert set(schema["properties"]) == {"kind", "address", "subject", "number", "cc"}
+    assert "required" not in schema
+
+
+def test_branch_variants_never_mutate_the_input():
+    tool = copy.deepcopy(_MCP_DISCRIMINATED)
+    snapshot = copy.deepcopy(tool)
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    assert tool == snapshot
+    schema["properties"]["kind"]["anyOf"].append({"const": "fax"})  # 合成的 anyOf 是新建的
+    schema["properties"]["kind"]["description"] = "changed"
+    assert tool == snapshot
+
+
+def test_same_field_across_combinators_keeps_combinator_order():
+    tool = {
+        "name": "pick",
+        "input_schema": {
+            "oneOf": [{"properties": {"k": {"const": "a"}}}],
+            "anyOf": [{"properties": {"k": {"const": "b"}}}],
+            "allOf": [{"properties": {"k": {"const": "c"}}}, {"properties": {"k": {"const": "a"}}}],
+        },
+    }
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    assert schema["properties"] == {
+        "k": {"anyOf": [{"const": "a"}, {"const": "b"}, {"const": "c"}]}
+    }
+
+
+_NESTED_ENUMS = ([[1], [2]], [[1]])
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_properties"),
+    [
+        ({"oneOf": "x"}, None),
+        ({"oneOf": 1, "allOf": True}, None),
+        ({"anyOf": {"properties": {"v": {"type": "string"}}}}, None),
+        ({"oneOf": [1, None, "s", {"properties": [1]}, {"properties": None}]}, None),
+        # Python 的 True == 1，後面的 1 被當成重複（ADR-0285 已知限制）
+        (
+            {"oneOf": [{"properties": {"v": v}} for v in (True, None, 1)]},
+            {"v": {"anyOf": [True, None]}},
+        ),
+        (
+            {"allOf": [{"properties": {"v": {"enum": e}}} for e in _NESTED_ENUMS]},
+            {"v": {"anyOf": [{"enum": e} for e in _NESTED_ENUMS]}},
+        ),
+    ],
+    ids=["string", "non-iterable", "dict", "junk-branches", "non-dict-definitions", "nested-lists"],
+)
+def test_odd_branches_never_raise(parameters, expected_properties):
+    tool = {"type": "function", "function": {"name": "odd", "parameters": parameters}}
+    snapshot = copy.deepcopy(tool)
+    schema = openai_to_anthropic_tools([tool])[0]["input_schema"]
+    expected = {"type": "object"}
+    if expected_properties is not None:
+        expected["properties"] = expected_properties
+    assert schema == expected
+    assert tool == snapshot
+
+
+async def test_native_tools_reach_claude_with_their_root_properties(listed):
+    """Touka 自己的工具：送給 Claude 的欄位就是正本根層的欄位，合併方式改了也不變。"""
+    canonical = _canonical(listed)
+    wire = await _anthropic_wire(listed)
+    for name in _ROOT_ONEOF_NATIVE:
+        assert wire[name]["properties"] == canonical[name]["properties"], name
+    for name, schema in canonical.items():  # 以後新增帶根層組合子的原生工具也要過這關
+        root = set(schema.get("properties") or {})
+        seen: dict[str, Any] = {}
+        for key in _ROOT_COMBINATORS:
+            for branch in schema.get(key) or []:
+                for field, definition in (branch.get("properties") or {}).items():
+                    if field in root:
+                        continue
+                    assert seen.setdefault(field, definition) == definition, (name, field)
 
 
 async def test_anthropic_shaped_passthrough_is_stripped_on_native_ingress():

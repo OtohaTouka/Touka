@@ -23,6 +23,7 @@ from src.services.creation.models import (
     SkillSpec,
     ToolSpec,
 )
+from src.services.hooks.lifecycle import notify_config_change
 
 if TYPE_CHECKING:
     from src.services.creation.models import CreationResult
@@ -154,6 +155,8 @@ async def create_skill_endpoint(
     except Exception:
         logger.exception("create_skill endpoint failed")
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from None
+    if res.committed:
+        notify_config_change("skills")
     return _to_response(res)
 
 
@@ -182,6 +185,8 @@ async def create_mcp_endpoint(
     except Exception:
         logger.exception("create_mcp endpoint failed")
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from None
+    if res.committed:
+        notify_config_change("mcp")
     return _to_response(res)
 
 
@@ -220,6 +225,8 @@ async def scaffold_mcp_endpoint(
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from None
 
     committed = bool(cres and cres.committed)
+    if committed:
+        notify_config_change("mcp")
     errors = list(sres.errors)
     if cres and not cres.committed:
         errors.extend(cres.validation.errors)

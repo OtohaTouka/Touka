@@ -111,7 +111,7 @@
   {
     "id": "derived_path_link_check_removed",
     "file": "ToukaProxy/src/services/isolation/profiles.py",
-    "old": "    if os.path.normcase(Path(path).absolute()) != os.path.normcase(target):",
+    "old": "    if has_link(path, target):",
     "new": "    if False:",
     "tests": [
       "tests/integration/test_isolation_linux.py::test_project_root_swapped_for_a_symlink_is_refused_and_does_not_reach_bob"
@@ -120,8 +120,8 @@
   {
     "id": "grantable_root_not_per_identity",
     "file": "ToukaProxy/src/services/isolation/profiles.py",
-    "old": "    return (_resolve(layout.data_root) / \"personal_drive\" / owner,)",
-    "new": "    return (_resolve(layout.data_root) / \"personal_drive\",)",
+    "old": "    return os.path.normcase(found[1][0]) == os.path.normcase(owner)",
+    "new": "    return True",
     "tests": [
       "tests/integration/test_isolation_linux.py::test_project_root_swapped_for_a_symlink_is_refused_and_does_not_reach_bob"
     ]
@@ -371,7 +371,7 @@
   {
     "id": "g_deployed_name_only",
     "file": "ToukaProxy/src/services/isolation/evolution_command.py",
-    "old": "    if deployed.covers(skill_id) or same_path:",
+    "old": "    for name in deployed.skills:\n        if _name_key(name) == key or (\n            is_skill_segment(name)\n            and _overlapping_roots(root, EvolutionPathGuard.get_tool_root(name))\n        ):",
     "new": "    if skill_id in evolution_config().get(\"mcpServers\", {}):",
     "tests": [
       "tests/unit/test_evolution_deployed_freeze_security.py::test_deployed_entries_refuse_before_any_write"

@@ -15,7 +15,7 @@ import { Model } from "@/lib/types";
 import { isSelectableBaseModel } from "@/lib/default_model";
 import { SafetySettingsGrid } from "@/components/studio/SafetySettingsGrid";
 import { SystemPromptEditor } from "@/components/studio/SystemPromptEditor";
-import { logSSOTError, getErrorMessage, getCollisionMessage, errorMsg } from "@/lib/error_handler";
+import { logSSOTError, getErrorMessage, getCollisionMessage } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useTranslation } from "react-i18next";
@@ -166,11 +166,18 @@ export function ModelStudio() {
                 });
                 if (!renameRes.ok) {
                     if (renameRes.status === 409) {
-                        toast.error((await getCollisionMessage(renameRes)) ?? errorMsg("MODEL_CONFLICT"));
+                        // 撞名以外的 409（個人空間是連結、別的代理人正在重置）依錯誤碼說原因（ADR-0293）
+                        toast.error((await getCollisionMessage(renameRes)) ?? (await getErrorMessage(renameRes, "MODEL_CONFLICT")));
                         return;
                     }
+                    // 改名失敗就停下：再對新 ID 存檔會多出第二個模型（舊審查報告丙-2）
                     logSSOTError(new Error("Rename failed"), "ModelStudio:saveModel:rename");
+                    toast.error(await getErrorMessage(renameRes, "CONFIG_SAVE_FAILED"));
+                    return;
                 }
+                // 改名成功就記下後端的新 ID：接下來的存檔失敗時，重試不會再送一次舊→新的改名。
+                // 不換畫面上的 ID：換了會重新載入清單，洗掉還沒存的修改（舊審查報告丙-2）
+                setModels(prev => prev.map(m => (m.id === activeModel.id ? { ...m, originalId: targetId } : m)));
             }
 
             const saveRes = await fetchTouka(proxyUrl, `/v1/ui/custom_models/${targetId}`, {
@@ -209,13 +216,25 @@ export function ModelStudio() {
     };
 
     const deleteModel = async (id: string) => {
+        // 送後端記著的 ID（改名成功、存檔失敗後畫面上的 id 還是舊的）；還沒存過的新模型只在畫面上拿掉。
+        // 後端沒刪成就顯示錯誤、不從清單拿掉（舊審查報告丙-2）
+        const savedId = models.find(m => m.id === id)?.originalId;
         try {
-            const proxyUrl = getActiveProxyUrl();
-            // 職責邊界：ModelStudio 只刪除 Level 2 自訂模型
-            await fetchTouka(proxyUrl, `/v1/ui/custom_models/${id}`, { method: "DELETE" });
-            window.dispatchEvent(new CustomEvent("touka_refresh_models"));
+            if (savedId) {
+                const proxyUrl = getActiveProxyUrl();
+                // 職責邊界：ModelStudio 只刪除 Level 2 自訂模型
+                const res = await fetchTouka(proxyUrl, `/v1/ui/custom_models/${savedId}`, { method: "DELETE" });
+                // 404：已經被刪掉了（例如別的分頁），照樣從畫面拿掉
+                if (!res.ok && res.status !== 404) {
+                    toast.error(await getErrorMessage(res, "MODEL_DELETE_FAILED"));
+                    return;
+                }
+                window.dispatchEvent(new CustomEvent("touka_refresh_models"));
+            }
         } catch (err) {
             logSSOTError(err, "ModelStudio:deleteModel");
+            toast.error(await getErrorMessage(err, "MODEL_DELETE_FAILED"));
+            return;
         }
 
         const filtered = models.filter(m => m.id !== id);

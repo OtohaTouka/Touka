@@ -1,4 +1,9 @@
-"""標準函式庫的隔離探針；Linux 核心測試與跨平台協定測試共用。"""
+"""標準函式庫的隔離探針與技能 venv；Linux 核心測試與跨平台協定測試共用。"""
+
+import os
+import sysconfig
+import venv
+from pathlib import Path
 
 EVOLUTION_PROBE_SOURCE = """
 import errno
@@ -65,3 +70,19 @@ if __name__ == "__main__":
             result = {}
         print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
 """
+
+
+def build_skill_venv(python: str) -> None:
+    """在演化交出的 venv python 位置（``evolution._venv_python``）建一個真的 venv.
+
+    驗證照實跑技能資料夾裡的 python，不替換 ``_venv_python``（ADR-0293 PR 2 T3）。不裝 pip、
+    不連網；套件用 ``.pth`` 把目前直譯器的 site-packages 加成 site 目錄（MCP SDK 從那裡來；那裡的
+    ``.pth`` 也照常處理，例如 Windows 的 pywin32）。
+    """
+    root = Path(python).parent.parent
+    venv.EnvBuilder(symlinks=os.name != "nt", with_pip=False).create(root)
+    site = Path(sysconfig.get_path("purelib", "venv", {"base": str(root), "platbase": str(root)}))
+    paths = dict.fromkeys(sysconfig.get_path(name) for name in ("purelib", "platlib"))
+    lines = [f"import site; site.addsitedir({path!r})" for path in paths]
+    (site / "touka_test_packages.pth").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert Path(python).is_file(), python

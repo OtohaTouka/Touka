@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,9 +15,10 @@ from memory_server import get_app_data_dir
 from memory_server.config_utils import (
     get_current_epoch,
     get_embedding_model_name,
+    get_resource_proxy,
     get_workspace_root,
 )
-from memory_server.factual import FactualStore
+from memory_server.factual import ArchiveResult, FactualStore
 from memory_server.models.source_ref import describe_sources
 from memory_server.services.event_recorder import record_memory_event
 from memory_server.services.index_state import (
@@ -37,19 +39,23 @@ from memory_server.services.lifecycle import (
 )
 from memory_server.utils.historical_data import wrap_historical_data
 from memory_server.utils.legacy_time import format_taipei, taipei_day_start
-from memory_server.vector import VectorStore
+from memory_server.utils.memory_worker import run_memory_job
+from memory_server.vector import SemanticSearchUnavailableError, VectorStore
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
 
     from memory_server.models.source_ref import SourceRef
-    from memory_server.protocols import ISourceResolver
+    from memory_server.protocols import IResourceProxy, ISourceResolver
+    from memory_server.utils.zone_paths import ZonePath
 
 logger = logging.getLogger(__name__)
 
 # 重複記憶掃描：每次最多比對最近的這麼多筆事實（每筆一次向量查詢）。
 # 相似度門檻與候選數（DUPLICATE_*）和存記憶的查重共用，定義在 services/lifecycle.py。
 MAX_DUPLICATE_SCAN_FACTS = 200
+# 向量庫單例的建立與重置（換嵌入模型）互斥：不會建出兩個、也不會在重置後留下舊模型的那個
+_VECTOR_STORE_LOCK = threading.Lock()
 
 
 class MemoryManager:
@@ -67,7 +73,8 @@ class MemoryManager:
     def reset_singletons(cls) -> None:
         """重置全域單例 (主要用於測試環境隔離)."""
         cls._factual_store_singleton = None
-        cls._vector_store_singleton = None
+        with _VECTOR_STORE_LOCK:
+            cls._vector_store_singleton = None
         FactualStore.reset_shared()
 
     def __init__(self) -> None:
@@ -91,27 +98,11 @@ class MemoryManager:
             path.mkdir(parents=True, exist_ok=True)  # noqa: IO_PRISON_VIOLATION
         return path
 
-    def get_personal_drive_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path:
-        """獲取指定代理人的個人硬碟目錄路徑 (SSOT)."""
-        if resource_proxy and hasattr(resource_proxy, "get_vault_path"):
-            path_str = resource_proxy.get_vault_path("personal", identity)
-            if path_str:
-                return Path(path_str)
-
-        app_data = Path(get_app_data_dir())
-        agent_id = identity.agent_id
-
-        # 根據物理目錄存在性判定 (Path SSOT 備援邏輯)
-        if (app_data / "soul" / agent_id).exists():
-            path = app_data / "personal_drive" / agent_id
-        else:
-            path = app_data / "custom" / agent_id / "drive"
-
-        if resource_proxy and hasattr(resource_proxy, "make_dir"):
-            resource_proxy.make_dir(str(path))
-        else:
-            path.mkdir(parents=True, exist_ok=True)  # noqa: IO_PRISON_VIOLATION
-        return path
+    def get_personal_drive_dir(
+        self, identity: AgentIdentity, resource_proxy: IResourceProxy | None = None
+    ) -> ZonePath | None:
+        """代理人的個人空間（``ZonePath``，ADR-0293；不建資料夾）；id 不能當一段時回 None."""
+        return (resource_proxy or get_resource_proxy()).agent_drive(identity)
 
     def get_soul_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path | None:
         """獲取指定代理人的靈魂腳本目錄路徑 (SSOT)."""
@@ -186,11 +177,12 @@ class MemoryManager:
         return MemoryManager._factual_store_singleton or FactualStore.shared()
 
     def get_vector_store(self) -> VectorStore:
-        """獲取向量庫實例 (Singleton)."""
-        if MemoryManager._vector_store_singleton is None:
-            model = get_embedding_model_name()
-            MemoryManager._vector_store_singleton = VectorStore(model_name=model)
-        return MemoryManager._vector_store_singleton
+        """獲取向量庫實例 (Singleton)；兩條執行緒同時第一次取用也只建一個."""
+        with _VECTOR_STORE_LOCK:
+            if MemoryManager._vector_store_singleton is None:
+                model = get_embedding_model_name()
+                MemoryManager._vector_store_singleton = VectorStore(model_name=model)
+            return MemoryManager._vector_store_singleton
 
     def purge_agent(self, identity: AgentIdentity) -> dict[str, int]:
         """破壞性清除某 agent 的全部記憶（事實＋向量）。回各 store 刪除數（Batch 6）。"""
@@ -250,33 +242,38 @@ class MemoryManager:
         寫入檢查（消毒、安全標記、完全相同與語意查重）和 supersede 共用
         ``lifecycle.check_new_memory``。
         ``source_context`` 是可信參數：只由 Proxy 記憶閘道依執行資訊組成，模型帶了會被拒絕。
+        查重到寫入整段是記憶工作者上的一個工作，中間不會插進別的記憶操作（ADR-0288）。
         """
-        checked = check_new_memory(self, identity, content)
-        if checked.blocked:
-            return checked.blocked
 
-        factual = self.get_factual_store()
-        fact_res = factual.save_fact(
-            identity,
-            checked.content,
-            tags,
-            importance,
-            emotions,
-            source=source_context,
-            safety_flags=checked.safety_flags,
-        )
-        if fact_res.get("status") == "error":
-            return f"❌ 存儲失敗：{fact_res.get('message')}"
+        def save() -> str:
+            checked = check_new_memory(self, identity, content)
+            if checked.blocked:
+                return checked.blocked
 
-        fact_id = fact_res["id"]
-        record_memory_event(identity, "memory_saved", fact_id)  # 事實已提交（可信活動事件）
-        note = SAVED_FLAGGED_NOTE if checked.safety_flags else ""
-        if index_new_fact(factual, checked.vector, identity, fact_res["record"]):
-            return f"Memory successfully saved (ID: {fact_id}).{note}"
+            factual = self.get_factual_store()
+            fact_res = factual.save_fact(
+                identity,
+                checked.content,
+                tags,
+                importance,
+                emotions,
+                source=source_context,
+                safety_flags=checked.safety_flags,
+            )
+            if fact_res.get("status") == "error":
+                return f"❌ 存儲失敗：{fact_res.get('message')}"
 
-        # 向量寫不進去不刪事實：標成待補，之後用 reindex 補上（保留 (ID: …) 格式）
-        logger.error("❌ [Manager] Vector write failed; fact kept for reindex: %s", fact_id)
-        return f"已存，語意索引稍後補上 (ID: {fact_id}).{note}"
+            fact_id = fact_res["id"]
+            record_memory_event(identity, "memory_saved", fact_id)  # 事實已提交（可信活動事件）
+            note = (SAVED_FLAGGED_NOTE if checked.safety_flags else "") + checked.dedup_note
+            if index_new_fact(factual, checked.vector, identity, fact_res["record"]):
+                return f"Memory successfully saved (ID: {fact_id}).{note}"
+
+            # 向量寫不進去不刪事實：標成待補，之後用 reindex 補上（保留 (ID: …) 格式）
+            logger.error("❌ [Manager] Vector write failed; fact kept for reindex: %s", fact_id)
+            return f"已存，語意索引稍後補上 (ID: {fact_id}).{note}"
+
+        return await run_memory_job(save)
 
     def normalize_time_range(
         self, date_start: str | None = None, date_end: str | None = None, is_recent: bool = False
@@ -324,61 +321,72 @@ class MemoryManager:
         include_history 時每筆附上被新記憶取代前的版本（只從這次的有效結果往回）。有安全標記
         的記憶附一行提示、排在沒標記的後面。向量庫取不到時只回事實庫的結果並註明。
         ``source_resolver`` 是可信參數：只由 Proxy 記憶閘道傳入，模型帶了會被拒絕。
+        事實庫、向量庫與舊版本在記憶工作者上讀；來源行要 await，留在主迴圈（ADR-0288）。
         """
-        factual = self.get_factual_store()
-
         start_ts, end_ts = self.normalize_time_range(date_start, date_end, is_recent)
 
-        q_lower = query.lower().strip()
-        auto_recent = not q_lower or any(k in q_lower for k in ["recent", "最新", "最近"])
+        def find() -> tuple[list[dict[str, Any]], dict[str, str], bool]:
+            factual = self.get_factual_store()
+            q_lower = query.lower().strip()
+            auto_recent = not q_lower or any(k in q_lower for k in ["recent", "最新", "最近"])
 
-        facts = factual.query_facts(
-            identity=identity,
-            query="" if auto_recent else query,
-            tags_any=tags,
-            importance=importance or importance_min,
-            emotions_any=emotions,
-            date_start=start_ts,
-            date_end=end_ts,
-        )
+            facts = factual.query_facts(
+                identity=identity,
+                query="" if auto_recent else query,
+                tags_any=tags,
+                importance=importance or importance_min,
+                emotions_any=emotions,
+                date_start=start_ts,
+                date_end=end_ts,
+            )
 
-        vectors = []
-        semantic_down = False
-        if query and not auto_recent:
-            try:
-                hits = self.get_vector_store().query_vectors(
-                    identity=identity,
-                    query=query,
-                    limit=limit,
-                    tags_any=tags,
-                    importance=importance or importance_min,
-                    emotions_any=emotions,
-                    date_start=start_ts,
-                    date_end=end_ts,
-                )
-            except Exception:  # 向量庫取不到：只回事實庫（同樣只有有效的）並註明
-                logger.exception("Vector store unavailable; answering from the fact store only")
-                hits, semantic_down = [], True
-            vectors = live_semantic_hits(factual, identity, hits)  # 封存或不存在的不回傳
+            vectors = []
+            semantic_down = False
+            if query and not auto_recent:
+                try:
+                    hits = self.get_vector_store().query_vectors(
+                        identity=identity,
+                        query=query,
+                        limit=limit,
+                        tags_any=tags,
+                        importance=importance or importance_min,
+                        emotions_any=emotions,
+                        date_start=start_ts,
+                        date_end=end_ts,
+                    )
+                except Exception:  # 向量庫取不到：只回事實庫（同樣只有有效的）並註明
+                    logger.exception("Vector store unavailable; answering from the fact store only")
+                    hits, semantic_down = [], True
+                vectors = live_semantic_hits(factual, identity, hits)  # 封存或不存在的不回傳
+
+            seen_ids = set()
+            candidates = []
+
+            # 排序：將標記為 recent 或 5 的提前；有安全標記的排到最後才補位
+            prio_keys = ["recent", "5"]
+            sorted_facts = sorted(
+                facts, key=lambda x: x.get("importance") in prio_keys, reverse=True
+            )
+            for f in sorted_facts:
+                if f["id"] not in seen_ids:
+                    seen_ids.add(f["id"])
+                    candidates.append(f | {"type": "Exact Memory"})
+
+            for v in vectors:
+                f_id = v.get("fact_id")
+                if f_id and f_id not in seen_ids:
+                    seen_ids.add(f_id)
+                    candidates.append(v | {"type": "Semantic Memory"})
+            found = flagged_last(candidates)[:limit]
+            history: dict[str, str] = {}
+            for res in found if include_history else []:
+                fact_id = res.get("fact_id") if res["type"] == "Semantic Memory" else res.get("id")
+                if fact_id:
+                    history[fact_id] = describe_history(factual, identity, fact_id)
+            return found, history, semantic_down
+
+        merged, histories, semantic_down = await run_memory_job(find)
         down_note = f"\n{SEMANTIC_DOWN_NOTE}" if semantic_down else ""
-
-        seen_ids = set()
-        candidates = []
-
-        # 排序：將標記為 recent 或 5 的提前；有安全標記的排到最後才補位
-        prio_keys = ["recent", "5"]
-        sorted_facts = sorted(facts, key=lambda x: x.get("importance") in prio_keys, reverse=True)
-        for f in sorted_facts:
-            if f["id"] not in seen_ids:
-                seen_ids.add(f["id"])
-                candidates.append(f | {"type": "Exact Memory"})
-
-        for v in vectors:
-            f_id = v.get("fact_id")
-            if f_id and f_id not in seen_ids:
-                seen_ids.add(f_id)
-                candidates.append(v | {"type": "Semantic Memory"})
-        merged = flagged_last(candidates)[:limit]
 
         if not merged:
             return "No relevant memories found." + down_note
@@ -399,18 +407,27 @@ class MemoryManager:
             if include_sources:
                 line += "\n   " + await describe_sources(res, identity, source_resolver)
             if include_history and fact_id:
-                line += describe_history(factual, identity, fact_id)
+                line += histories[fact_id]
             output.append(line)
 
         # 來源行與舊版本都在界線裡（整段是歷史資料）；語意半失效的註明在界線外
         return wrap_historical_data("memory_query", "\n".join(output)) + down_note
 
     def find_duplicates(self, identity: AgentIdentity) -> list[dict[str, Any]]:
-        """掃描最近的事實，列出向量相似度達門檻的重複候選（每對只列一次）."""
+        """掃描最近的事實，列出向量相似度達門檻的重複候選（每對只列一次）.
+
+        取不到向量庫或查詢失敗丟 ``SemanticSearchUnavailableError``：沒掃成不能說成沒有重複。
+        """
         factual_facts = self.get_factual_store().query_facts(identity=identity)
         active = {fact["id"]: fact for fact in factual_facts}  # 候選回查事實庫用
         facts = factual_facts[:MAX_DUPLICATE_SCAN_FACTS]
-        vector = self.get_vector_store()
+        if not facts:
+            return []
+        try:
+            vector = self.get_vector_store()
+        except Exception as exc:
+            logger.exception("Vector store unavailable; the duplicate scan cannot run")
+            raise SemanticSearchUnavailableError from exc
         duplicates: list[dict[str, Any]] = []
         seen_pairs: set[tuple[str, str]] = set()
 
@@ -445,10 +462,17 @@ class MemoryManager:
         return duplicates
 
     def resolve_duplicate(self, identity: AgentIdentity, fact_id_to_archive: str) -> str:
-        """解決重複記憶：封存其中一項（已被取代的舊版本會一併從歷史拿掉）."""
+        """解決重複記憶：封存其中一項（已被取代的舊版本會一併從歷史拿掉）.
+
+        資料庫寫入失敗丟 ``FactWriteError``（閘道回結構化錯誤），不說成查無。本來就封存、
+        也不在歷史裡的回資訊性的成功：沒有改動，不記事件、不動索引。
+        """
         factual = self.get_factual_store()
-        if not factual.archive_fact(identity, fact_id_to_archive):
+        result = factual.archive_fact(identity, fact_id_to_archive)
+        if result is ArchiveResult.NOT_FOUND:
             return f"❌ Fact ID '{fact_id_to_archive}' not found."
+        if result is ArchiveResult.ALREADY_ARCHIVED:
+            return f"Memory {fact_id_to_archive} was already archived; nothing changed."
         record_memory_event(identity, "memory_archived", fact_id_to_archive)  # 封存已提交
 
         try:
@@ -457,4 +481,9 @@ class MemoryManager:
             logger.exception("Vector store unavailable; %s waits for reindex", fact_id_to_archive)
             vector = None
         archive_in_index(factual, vector, identity, fact_id_to_archive)  # 沒封存到就等 reindex
+        if result is ArchiveResult.DETACHED:
+            return (
+                f"✅ Memory {fact_id_to_archive} was an archived older version; it has been"
+                " removed from the version history."
+            )
         return f"✅ Memory {fact_id_to_archive} has been archived."

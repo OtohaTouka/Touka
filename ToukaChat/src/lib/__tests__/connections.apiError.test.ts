@@ -38,6 +38,15 @@ describe('fetchChatStream 非 200 錯誤碼傳遞（model-p0 U7）', () => {
     expect(getErrorCode(err)).toBe('AGENT_BRAIN_NOT_SET');
   });
 
+  it('ADR-0292：hook 擋下 → 帶上 hook 的理由；理由不是字串就不帶', async () => {
+    const detail = { code: 'HOOK_PROMPT_BLOCKED', id: 1, message: 'x', reason: '含有不允許的內容' };
+    const err = await failWith(403, JSON.stringify({ detail }));
+    expect(getErrorCode(err)).toBe('HOOK_PROMPT_BLOCKED');
+    expect((err as ToukaApiError).reason).toBe('含有不允許的內容');
+    const odd = await failWith(403, JSON.stringify({ detail: { ...detail, reason: { html: '<b>' } } }));
+    expect((odd as ToukaApiError).reason).toBeUndefined();
+  });
+
   it('沒有 detail.code → 訊息照舊、沒有錯誤碼', async () => {
     const err = await failWith(502, JSON.stringify({ error: { message: 'upstream boom' } }));
     expect((err as Error).message).toBe('upstream boom');

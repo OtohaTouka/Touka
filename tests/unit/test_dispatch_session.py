@@ -80,11 +80,10 @@ class TestDispatchHandshake:
 
     @pytest.mark.asyncio
     async def test_handshake_succeeds_when_dispatch_token_configured(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """DISPATCH_TOKEN 已設定時，呼叫方無需傳遞密鑰即可換取 session token。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "valid-dispatch-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -98,11 +97,10 @@ class TestDispatchHandshake:
 
     @pytest.mark.asyncio
     async def test_handshake_session_token_differs_from_dispatch_token(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """回傳的 session token 必須是獨立隨機值，不得等於 DISPATCH_TOKEN env var（密鑰隔離）。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "my-dispatch-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -117,11 +115,10 @@ class TestDispatchHandshake:
 
     @pytest.mark.asyncio
     async def test_handshake_rejects_when_dispatch_token_not_configured(
-        self, tmp_path, monkeypatch
+        self, zone_data_root, monkeypatch
     ):
         """DISPATCH_TOKEN 環境變數為空時，handshake 應拒絕所有請求。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -129,10 +126,9 @@ class TestDispatchHandshake:
         assert "Unauthorized" in result or "Error" in result
 
     @pytest.mark.asyncio
-    async def test_handshake_rejects_wrong_dispatch_token(self, tmp_path, monkeypatch):
+    async def test_handshake_rejects_wrong_dispatch_token(self, zone_data_root, monkeypatch):
         """呼叫方傳入錯誤 dispatch_token 應被拒絕（ADR-0050）。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "correct-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -142,10 +138,9 @@ class TestDispatchHandshake:
         assert "Unauthorized" in result or "Error" in result
 
     @pytest.mark.asyncio
-    async def test_handshake_rejects_empty_dispatch_token_param(self, tmp_path, monkeypatch):
+    async def test_handshake_rejects_empty_dispatch_token_param(self, zone_data_root, monkeypatch):
         """呼叫方傳入空字串 dispatch_token 應被拒絕，即使 env var 已設定（ADR-0050）。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "correct-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -162,10 +157,9 @@ class TestDispatchToolSessionValidation:
     """操作工具必須使用 session token，不得直接接受 DISPATCH_TOKEN。"""
 
     @pytest.mark.asyncio
-    async def test_task_tool_rejects_direct_dispatch_token(self, tmp_path, monkeypatch):
+    async def test_task_tool_rejects_direct_dispatch_token(self, zone_data_root, monkeypatch):
         """直接使用 DISPATCH_TOKEN 作為 session_token 呼叫操作工具應被拒絕。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "actual-dispatch-token")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 
@@ -174,10 +168,9 @@ class TestDispatchToolSessionValidation:
         assert "Unauthorized" in result or "Error" in result
 
     @pytest.mark.asyncio
-    async def test_task_tool_accepts_valid_session_token(self, tmp_path, monkeypatch):
+    async def test_task_tool_accepts_valid_session_token(self, zone_data_root, monkeypatch):
         """合法 session token 應能成功呼叫操作工具，不回傳 Unauthorized。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from memory_server import config_utils
 
@@ -198,10 +191,9 @@ class TestDispatchToolSessionValidation:
         assert "Error: Unauthorized" not in result
 
     @pytest.mark.asyncio
-    async def test_task_tool_rejects_expired_session(self, tmp_path, monkeypatch):
+    async def test_task_tool_rejects_expired_session(self, zone_data_root, monkeypatch):
         """過期的 session token 應被拒絕，回傳 Unauthorized 提示重新握手。"""
         monkeypatch.setenv("DISPATCH_TOKEN", "dispatch-secret")
-        monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
 
         from ToukaDispatch import server as ds
 

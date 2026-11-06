@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 from src.config import Settings
 from src.models.autonomy import AutonomyConfigModel
+from src.models.hooks import HooksConfig
 from src.models.identity import IdentityMapConfig
 from src.models.permissions import PermissionsConfig
 from src.models.safety import AuthPoliciesConfig
@@ -46,6 +47,7 @@ _MODELED = {
     "autonomy.json": AutonomyConfigModel,
     "permissions.json": PermissionsConfig,
     "sliding_window.json": SlidingWindowConfig,
+    "hooks.json": HooksConfig,  # ADR-0292
     # ADR-0147：靈魂→角色 SSOT，加入 ESSENTIAL_CONFIGS 自癒（缺檔全塌 Base）。
     # 由 .example 逐位元複製到 live，故 .example 須通過 IdentityMapConfig 驗證。
     "identity_map.json": IdentityMapConfig,

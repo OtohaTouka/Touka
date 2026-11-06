@@ -34,7 +34,7 @@ PD = "/srv/data/personal_drive"
 MCP = "/srv/data/mcp_servers"
 MANAGED = f"{MCP}/managed"
 STATE = "/srv/executor_state"
-LAYOUT = es.Layout(rw=(PD, MCP), ro=("/srv/config/skills",), state=STATE, exec_paths=("/usr",))
+LAYOUT = es.Layout(rw=(PD, MANAGED), ro=("/srv/config/skills",), state=STATE, exec_paths=("/usr",))
 HELLO_PORTS = frozenset(kspec.DEFAULT_BLOCK_PORTS)
 SEG = "m" + "0123456789abcdef01234567"  # Touka 算的段名（sha256 前 24 字）
 OTHER_SEG = "m" + "f" * 24
@@ -105,7 +105,7 @@ def _reason(document: dict, layout: es.Layout = LAYOUT) -> str:
 def test_kind_mcp_runs_in_its_own_state_home_with_the_code_folder_read_only():
     plan = _check(_start())
     assert (plan.root, plan.cwd, plan.home, plan.tmp) == (STATE, HOME, HOME, TMP)
-    assert (plan.code, plan.code_root) == (CODE, MCP)
+    assert (plan.code, plan.code_root) == (CODE, MANAGED)
     assert (plan.io, plan.max_seconds) == ("stdio", 0)
     assert plan.home == f"{STATE}/mcp/{SEG}/home"  # 執行器的 kind mcp 只放自建，段名是 owner
     sent = {rule.path: rule.access for rule in kspec.parse_spec(plan.spec).rules}
@@ -113,7 +113,7 @@ def test_kind_mcp_runs_in_its_own_state_home_with_the_code_folder_read_only():
 
 
 def test_kind_mcp_without_a_code_folder_needs_no_data_root():
-    """非演化的自建沒有程式資料夾：沒掛 ``mcp_servers`` 也能跑；有程式資料夾的規則就拒絕."""
+    """非演化的自建沒有程式資料夾：沒掛 ``managed`` 也能跑；有程式資料夾的規則就拒絕."""
     only_pd = es.Layout(rw=(PD,), ro=(), state=STATE, exec_paths=("/usr",))
     plan = _check(_start(code=False), only_pd)
     assert (plan.root, plan.cwd, plan.code, plan.code_root) == (STATE, HOME, None, None)
@@ -224,51 +224,51 @@ def test_cache_variables_have_a_single_copy_in_the_kernel():
 
 def _disk_server(tmp_path: Path, calls: list) -> tuple[srv.ExecutorServer, Path, Path]:
     """真的資料夾上的伺服器；``calls`` 記下每次修路徑鏈的（root、目標）。"""
-    state, mcp = tmp_path / "state", tmp_path / "mcp_servers"
-    for path in (state, mcp / "managed"):
+    state, managed = tmp_path / "state", tmp_path / "mcp_servers" / "managed"
+    for path in (state, managed):
         path.mkdir(parents=True)
     config = srv.ServerConfig(
         ipc=(tmp_path / "ipc").as_posix(), kernel=str(KERNEL.directory), state=state.as_posix(),
-        rw=(mcp.as_posix(),), ro=(), require_foreign_peer=False,
+        rw=(managed.as_posix(),), ro=(), require_foreign_peer=False,
     )
     hooks = srv.Hooks(
         repair=lambda root, target: (calls.append((root, target)), kor.RepairOutcome())[1]
     )
     server = srv.ExecutorServer(config, KERNEL, hooks, require_root_interpreter=False)
     server.uid = os.lstat(state).st_uid
-    return server, state, mcp
+    return server, state, managed
 
 
-def _disk_plan(server: srv.ExecutorServer, mcp: Path, *, code: bool) -> es.StartPlan:
+def _disk_plan(server: srv.ExecutorServer, managed: Path, *, code: bool) -> es.StartPlan:
     home, tmp = server.layout.state_dirs("mcp", SEG)
-    folder = (mcp / "managed" / SKILL).as_posix() if code else None
+    folder = (managed / SKILL).as_posix() if code else None
     return es.StartPlan(
         argv=("true",), cwd=home, env={}, spec=b"{}", ports=(), root=server.config.state,
         home=home, tmp=tmp, max_seconds=0, io="stdio", code=folder,
-        code_root=mcp.as_posix() if code else None,
+        code_root=managed.as_posix() if code else None,
     )
 
 
 def test_prepare_builds_only_its_own_home_and_tmp_and_never_the_code_folder(tmp_path):
     calls: list = []
-    server, state, mcp = _disk_server(tmp_path, calls)
-    plan = _disk_plan(server, mcp, code=True)
+    server, state, managed = _disk_server(tmp_path, calls)
+    plan = _disk_plan(server, managed, code=True)
     assert server._prepare_dirs(plan, {plan.home, plan.tmp, plan.code}) is None
     built = sorted(path.relative_to(state).as_posix() for path in state.rglob("*"))
     assert built == ["mcp", f"mcp/{SEG}", *(f"mcp/{SEG}/{name}" for name in ("home", "tmp"))]
-    assert list((mcp / "managed").iterdir()) == []  # 不見了也不建：啟動器 exec 時照實失敗
+    assert list(managed.iterdir()) == []  # 不見了也不建：啟動器 exec 時照實失敗
     root = state.as_posix()
-    assert calls == [(root, plan.home), (root, plan.tmp), (mcp.as_posix(), plan.code)]
+    assert calls == [(root, plan.home), (root, plan.tmp), (managed.as_posix(), plan.code)]
 
 
 def test_prepare_repairs_an_existing_code_folder_only_within_the_budget(tmp_path):
     calls: list = []
-    server, _state, mcp = _disk_server(tmp_path, calls)
-    (mcp / "managed" / SKILL).mkdir()
-    plan = _disk_plan(server, mcp, code=True)
+    server, _state, managed = _disk_server(tmp_path, calls)
+    (managed / SKILL).mkdir()
+    plan = _disk_plan(server, managed, code=True)
     assert server._prepare_dirs(plan, {plan.code}) is None
-    assert calls == [(mcp.as_posix(), plan.code)]  # 只修擁有者位元
-    assert list((mcp / "managed" / SKILL).iterdir()) == []
+    assert calls == [(managed.as_posix(), plan.code)]  # 只修擁有者位元
+    assert list((managed / SKILL).iterdir()) == []
     calls.clear()
     assert server._prepare_dirs(plan, set()) is None
     assert calls == []
@@ -276,15 +276,15 @@ def test_prepare_repairs_an_existing_code_folder_only_within_the_budget(tmp_path
 
 def test_prepare_without_a_code_folder_touches_only_the_state(tmp_path):
     calls: list = []
-    server, state, mcp = _disk_server(tmp_path, calls)
-    plan = _disk_plan(server, mcp, code=False)
+    server, state, managed = _disk_server(tmp_path, calls)
+    plan = _disk_plan(server, managed, code=False)
     assert server._prepare_dirs(plan, {plan.home, plan.tmp}) is None
     assert calls == [(state.as_posix(), plan.home), (state.as_posix(), plan.tmp)]
 
 
 async def test_prepare_budget_counts_home_tmp_and_code_once_each(tmp_path):
-    server, _state, mcp = _disk_server(tmp_path, [])
-    plan = _disk_plan(server, mcp, code=True)
+    server, _state, managed = _disk_server(tmp_path, [])
+    plan = _disk_plan(server, managed, code=True)
     seen = []
     server._prepare_dirs = lambda plan, allowed: seen.append(allowed)
     await srv.ExecutorServer.prepare(server, plan)
@@ -294,7 +294,7 @@ async def test_prepare_budget_counts_home_tmp_and_code_once_each(tmp_path):
 
 
 def test_startup_empties_kind_mcp_tmp_but_not_home(tmp_path):
-    server, state, _mcp = _disk_server(tmp_path, [])
+    server, state, _managed = _disk_server(tmp_path, [])
     base = state / "mcp" / SEG
     (base / "tmp" / "sub").mkdir(parents=True)
     (base / "tmp" / "sub" / "f").write_text("x", encoding="utf-8")

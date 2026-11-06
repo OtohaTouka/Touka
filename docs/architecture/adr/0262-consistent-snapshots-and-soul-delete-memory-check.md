@@ -1,6 +1,6 @@
 # ADR-0262：系統快照一致且不互蓋、快照路徑單一來源；刪除靈魂前要先清記憶
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`）
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，刪除靈魂時還有記憶就要求先重置；記憶系統第二批段 6；[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md) 修訂：`child_python_env()` 回傳完整環境〔含金鑰〕，隔離邊界〔`sandbox_kernel/**`、`services/isolation/**`〕不得使用它、`get_full_env` 或 `get_clean_env`；[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md) 修訂決策 9：刪除整段持有破壞性操作鎖、還有心跳在跑回 409、清完家目錄再查一次、取消註冊照實回報）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（`scripts/manage_backup.py`、`services/system_backup.py`、`services/backup_scheduler_service.py`、`services/dispatch_supervisor.py`、`routers/system.py`、`routers/souls.py`、新 `services/agent_reset/delete_guard.py`、新 `utils/child_env.py`、`config/errors.json.example`）＋ ToukaMemory（`factual.py`、`vector.py`）＋ ToukaChat（`AgentDataResetCard.tsx`、`lib/error_handler.ts`、i18n、`lib/error_codes.ts` 產生檔）
@@ -28,7 +28,7 @@
 6. **快照目錄＝`.env` 所在資料夾的 `backups`（不動 compose）**：容器裡是 `/app/host_root/backups`，也就是宿主 compose 目錄的 `./backups`，容器重建不消失；本機整合模式是 repo 根的 `backups`，和以前相同。
 7. **子程序 PYTHONPATH 一個來源**：新 `src/utils/child_env.child_python_env()` 回傳 `settings.get_full_env()` 的複本，PYTHONPATH 依序是 PROXY_ROOT、`ToukaMemory/src`、原本的值（去重保序）。dispatch 子程序、快照、還原三處共用；dispatch 原本那段寫法換成呼叫，行為不變。理由：子程序已經是同一個直譯器（`sys.executable`），但 memory_server 不是安裝的套件（`ToukaMemory/pyproject.toml` 的 `package = false`），只能靠 PYTHONPATH 找到，改用 `-m` 也解決不了；先例是 `DispatchSupervisor.build_child_env` 原本的同一段寫法，Docker 映像的 `ENV PYTHONPATH` 與 `ToukaProxy/run_proxy.ps1` 本來也這樣設。
 8. **快照失敗不回腳本輸出**：`SYSTEM_BACKUP_FAILED` 只帶錯誤碼；stderr 先經 `utils/secrets.redact_secrets_from_content` 消毒，再只寫伺服器 log（禁令 23）。還原失敗本來就只記狀態與錯誤碼（ADR-0254）。
-9. **刪除靈魂前檢查記憶**：步升、不可刪名單、路徑監獄之後，事實庫該 ID 任何狀態的列（含已封存、待補索引）、向量點、或向量 collection 還在（空的也算）就回 409 `SOUL_MEMORY_NOT_RESET`（1408，附 `facts`、`vectors`、`vector_collection`），什麼都不刪；記憶系統不可用、無法確認時回 503 `SOUL_MEMORY_CHECK_FAILED`（1409），不刪。用 `MemoryManager.count_agent_memory` 與新的 `VectorStore.has_agent_collection`，Guard #45 基準不變。
+9. **刪除靈魂前檢查記憶**：步升、不可刪名單、路徑監獄之後，事實庫該 ID 任何狀態的列（含已封存、待補索引）、向量點、或向量 collection 還在（空的也算）就回 409 `SOUL_MEMORY_NOT_RESET`（1408，附 `facts`、`vectors`、`vector_collection`），什麼都不刪；記憶系統不可用、無法確認時回 503 `SOUL_MEMORY_CHECK_FAILED`（1409），不刪。用 `MemoryManager.count_agent_memory` 與新的 `VectorStore.has_agent_collection`，Guard #45 基準不變。〔ADR-0287 修訂：整段持有破壞性操作鎖並標記目標，和重置、清除互斥；還有心跳在跑就叫它停下、回 409 `SOUL_HEARTBEAT_RUNNING`；清完隔離家目錄後再查一次記憶與活動紀錄；取消註冊有一步失敗回 500 `SOUL_UNREGISTER_INCOMPLETE`。〕
 10. **畫面講清楚**：刪除被擋時顯示「這個靈魂還有記憶，請先到『代理人資料重置』重置它，再刪除」；重置因快照失敗中止時，重置卡顯示「系統快照沒有做成，所以這次重置沒有執行，什麼都沒刪。你的操作沒有錯」（前端依錯誤碼 `SYSTEM_BACKUP_FAILED` 選文字，後端錯誤碼不變）。
 
 ## 後果
@@ -43,6 +43,14 @@
 - `ui_sessions.db`、`feedback.db`、`legacy_history.db` 等其他 SQLite 仍直接複製，不在本次範圍。
 - 還原子程序沒有攔截輸出，它的 stderr 直接流進伺服器自己的 stderr、沒有消毒；不經過任何 API 回應。
 - 測試：`tests/unit/test_snapshot_consistency.py`、`test_backup_paths_ssot.py`、`test_backup_error_output_security.py`、`test_soul_delete_memory_guard.py`；前端 `AgentDataResetCard.test.tsx`、`SoulStudio.crud.test.tsx`。
+
+## 補記：發布失敗不留下空檔（2026-10-25，舊審查報告丙-1）
+
+- 原本先用 O_EXCL 佔正式檔名、再把暫存檔改名過去；改名失敗時只刪暫存檔，0 位元組的佔位檔留著。排程修剪只看 mtime 數份數，這個空檔被算成一份，結果少留一份真的備份；清除時它也被記成 `not_needed`。拿它還原時打不開、什麼都不寫（安全方向）。
+- 改成：改名遇 `PermissionError` 重試 3 次、間隔 0.5 秒（和 `memory_scrub/swap.py` 同值，腳本不載入 Proxy，測試核對兩邊一致）；仍失敗時，佔位檔仍是 0 位元組才刪掉，再把原本的錯誤往外丟（已經不在就略過，刪不掉只印警告），磁碟上不留 `.zip`；暫存檔本身被占用、刪不掉時可能留下 `.partial`（只印警告、原本的錯誤照樣往外丟；它不在清單上、修剪不算，記憶清除會掃掉），腳本回非 0、`create_backup` 照舊回 `SYSTEM_BACKUP_FAILED`、重置照舊中止。改名成功後在 POSIX 上 fsync 資料夾（Windows 略過），失敗只警告、備份仍算完成。
+- 排程修剪時 0 位元組的自動備份不算份數、直接刪；人工備份的 0 位元組檔不動。Proxy 的每條備份路徑都經 `run_backup_job` 的備份鎖，修剪碰不到正在佔的檔名；只有人手動用命令列以自動備份的前綴執行時例外，後果也只是那次改名到不存在的目標、照樣成功。
+- 沒採用 `os.link` 發布（遇到同名就失敗、不需要佔位檔）：bind mount 上不一定支援硬連結。
+- 測試：`tests/unit/test_snapshot_consistency.py`（改名一直失敗時資料夾是空的、失敗幾次後成功並照常數等待、最後一次仍失敗就放棄且不再等、其他錯誤不重試、等待中按 Ctrl+C 也清乾淨、佔位檔已不是空的就不刪、佔位檔或暫存刪不掉時丟出的仍是原本的錯誤並警告、佔位檔已消失不警告、重試常數和 swap 一致、只在 POSIX 對資料夾 fsync、改名後才 fsync 並關掉 fd、fsync 失敗只警告）、`tests/unit/test_backup_scheduler.py`（0 位元組的自動備份不算份數）；兩輪共 21 個突變全紅。
 
 ---
 

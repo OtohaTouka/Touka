@@ -11,6 +11,7 @@ import pytest
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.routers import heartbeat as hb
+from src.services import destructive_ops
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
 from src.utils.async_db import SessionService, SessionSnapshot
@@ -24,6 +25,10 @@ OWN_SESSION = {
     "id": "sess-x", "is_home": 0, "home_for_agent": None,
     "title": "t", "messages": {}, "agent_id": "DebugAgent",
 }
+
+
+def _who(name: str) -> AgentIdentity:
+    return AgentIdentity(agent_id=name)
 
 
 def _as(identity: AgentIdentity) -> None:
@@ -215,3 +220,63 @@ def test_retrigger_on_own_session_still_runs_auto(auth_client, monkeypatch, mock
     )
     assert resp.status_code == 202, resp.text
     assert loop_spy.await_args.args[3].auth_level == "Auto"
+
+
+def test_retrigger_is_refused_while_the_soul_is_reset_or_deleted(
+    auth_client, monkeypatch, mock_identity
+):
+    """舊審查報告丙-4：重置、清除或刪除這個靈魂期間重新觸發回 409，「上次未完成」保留。"""
+    loop_spy = _arm(monkeypatch, mock_identity, dict(OWN_SESSION))
+    autonomy_service._interrupted_runs = [
+        {"session_id": "sess-x", "agent": "DebugAgent", "total": 3}
+    ]
+    _as(HUMAN_OWNER)
+    destructive_ops.hold(_who("DebugAgent"))
+    try:
+        resp = auth_client.post(
+            "/v1/heartbeat/retrigger", json={"agent_id": "DebugAgent", "session_id": "sess-x"}
+        )
+    finally:
+        destructive_ops.release(_who("DebugAgent"))
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    loop_spy.assert_not_awaited()
+    assert [r["session_id"] for r in autonomy_service.get_interrupted_runs()] == ["sess-x"]
+    autonomy_service._interrupted_runs = []
+
+
+def test_retrigger_checks_after_reading_the_session(auth_client, monkeypatch, mock_identity):
+    """讀對話時有 await；這段期間開始的重置也擋，「上次未完成」照留。"""
+    loop_spy = _arm(monkeypatch, mock_identity, dict(OWN_SESSION))
+
+    async def read_during_a_reset(*_args: object, **_kwargs: object) -> SessionSnapshot:
+        destructive_ops.hold(_who("DebugAgent"))
+        return SessionSnapshot(dict(OWN_SESSION), "revision")
+
+    monkeypatch.setattr(SessionService, "read_persistence_snapshot", read_during_a_reset)
+    autonomy_service._interrupted_runs = [
+        {"session_id": "sess-x", "agent": "DebugAgent", "total": 3}
+    ]
+    _as(HUMAN_OWNER)
+    try:
+        resp = auth_client.post(
+            "/v1/heartbeat/retrigger", json={"agent_id": "DebugAgent", "session_id": "sess-x"}
+        )
+    finally:
+        destructive_ops.release(_who("DebugAgent"))
+    assert resp.status_code == 409, resp.text
+    loop_spy.assert_not_awaited()
+    assert [r["session_id"] for r in autonomy_service.get_interrupted_runs()] == ["sess-x"]
+    autonomy_service._interrupted_runs = []
+
+
+def test_retrigger_hands_the_entry_generation_to_the_loop(auth_client, monkeypatch, mock_identity):
+    loop_spy = _arm(monkeypatch, mock_identity, dict(OWN_SESSION))
+    _as(HUMAN_OWNER)
+    resp = auth_client.post(
+        "/v1/heartbeat/retrigger", json={"agent_id": "DebugAgent", "session_id": "sess-x"}
+    )
+    assert resp.status_code == 202, resp.text
+    since = loop_spy.await_args.kwargs["not_disturbed_since"]
+    assert since is not None
+    assert since == destructive_ops.generation(_who("DebugAgent"))

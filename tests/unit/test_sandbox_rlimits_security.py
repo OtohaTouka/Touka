@@ -62,11 +62,11 @@ class TestBuildRlimitPreexec:
 
 
 class TestRunSandboxCommandWiring:
-    def test_run_sandbox_command_passes_preexec_on_posix(self, monkeypatch, tmp_path):
+    def test_run_sandbox_command_passes_preexec_on_posix(self, monkeypatch, zone_data_root):
         """run_sandbox_command must attach the rlimit preexec_fn when on a POSIX host."""
         monkeypatch.setattr(_RESOURCE_ATTR, _fake_resource([]))
-        # neutralise path validation + the actual subprocess
-        monkeypatch.setattr(EvolutionPathGuard, "validate_path", lambda skill_id, p: True)
+        # the skill folder lives under zone_data_root; neutralise the actual subprocess
+        EvolutionPathGuard.mkdir_tool("skill")
         monkeypatch.setattr(EvolutionPathGuard, "get_clean_env", lambda: {})
 
         captured: dict = {}
@@ -78,7 +78,7 @@ class TestRunSandboxCommandWiring:
         monkeypatch.setattr("src.services.evolution_security.subprocess.run", _fake_run)
 
         EvolutionPathGuard.run_sandbox_command(
-            "skill", ["python", "x.py"], cwd=str(tmp_path),
+            "skill", ["python", "x.py"],
             memory_mb=256, storage_mb=50, timeout=30, launch=passthrough_launch("skill"),
         )
         assert callable(captured.get("preexec_fn"))

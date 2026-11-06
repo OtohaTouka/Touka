@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from memory_server.services.mission_manager import MissionManager
 from memory_server.utils.legacy_time import to_epoch_ms
 
-from src.adapters.content_normalize import append_text_part
+from src.adapters.content_normalize import append_to_last_user
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import safe_ref
@@ -263,7 +263,8 @@ async def _mission_line(identity: Any, soul: AgentIdentity, now_s: float) -> str
         return f"- {MISSION_LABEL}: unknown (read failed)"
     if not mission or mission.status == "DONE":  # 與 ToolLayer 注入 mission_awareness 同條件
         return f"- {MISSION_LABEL}: {NO_ACTIVE_MISSION} {MISSION_BOARD}"
-    doing = [f"{t.id} (updated {_ago(now_s, t.updated_at)})" for t in mission.tasks
+    # 任務 id 是模型取的：這個區塊標成事實，id 只顯示過濾過的參照（ADR-0285）
+    doing = [f"{safe_ref(t.id)} (updated {_ago(now_s, t.updated_at)})" for t in mission.tasks
              if t.status == "DOING"]
     return (
         f"- {MISSION_LABEL}: updated {_ago(now_s, mission.updated_at)}; in progress: "
@@ -306,27 +307,6 @@ async def build_continuity_block(
     return wrap_block(CONTINUITY, "\n".join(lines))
 
 
-def _append_to_last_user(request: Any, text: str) -> None:
-    """接在最後一則訊息（須是 user）的尾端；不是 user 就不附（不改動歷史訊息）。"""
-    messages = getattr(request, "messages", None)
-    if not messages:
-        return
-    last = messages[-1]
-    is_dict = isinstance(last, dict)
-    if (last.get("role") if is_dict else getattr(last, "role", None)) != "user":
-        return
-    # ToukaChat 的多模態 JSON 字串先還原成 list，接一個 part（串接字串會讓轉接層認不出圖片）
-    updated = append_text_part(
-        last.get("content") if is_dict else getattr(last, "content", None), text
-    )
-    if updated is None:
-        return
-    if is_dict:
-        last["content"] = updated
-    else:
-        last.content = updated
-
-
 async def inject_continuity(
     request: Any, ctx: Any, soul: AgentIdentity, *, now_s: float | None = None
 ) -> None:
@@ -340,4 +320,4 @@ async def inject_continuity(
         current_message_id=ctx.get("source_message_id"),
         now_s=now_s,
     )
-    _append_to_last_user(request, "\n\n" + block)
+    append_to_last_user(request, "\n\n" + block)

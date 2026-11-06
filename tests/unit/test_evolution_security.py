@@ -8,19 +8,23 @@ category + benign survivor + forced PYTHONPATH), file roundtrips + sandbox-escap
 PermissionErrors, run_sandbox_command cwd/env wiring, the POSIX rlimit preexec
 (via a fake `resource` module), and get_tool_root resolution.
 
-Deterministic setup: MANAGED_BASE_DIR is monkeypatched to tmp_path so the sandbox
-lives entirely under pytest's tmp dir (no real data/ touched). settings.get_full_env
+Deterministic setup: the data root is moved to ``zone_data_root`` (tmp_path) so the
+sandbox lives entirely under pytest's tmp dir (no real data/ touched). settings.get_full_env
 is patched to a known dict for env tests. subprocess.run is patched to capture kwargs.
 """
 
 from __future__ import annotations
 
+import inspect
 import types
 
 import pytest
-from src.services.evolution_security import EvolutionPathGuard
+from memory_server.utils.zone_paths import HandoffKind, is_handed_off
+from src.services.evolution_security import EvolutionPathGuard, EvolutionRefused
 
 from tests.support.isolation import passthrough_launch
+from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_records import expect_zone_refusal
 
 _RESOURCE_ATTR = "src.services.evolution_security.resource"
 _SETTINGS_ATTR = "src.services.evolution_security.settings"
@@ -44,11 +48,10 @@ _SKILL = "skill_alpha"
 
 
 @pytest.fixture()
-def sandbox_base(monkeypatch, tmp_path):
-    """Relocate the managed base dir into tmp_path and create the skill root."""
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path)
+def sandbox_base(zone_data_root):
+    """技能資料夾放在這個測試自己的 data 根（``zone_data_root``）底下並建好；回 managed 根."""
     EvolutionPathGuard.mkdir_tool(_SKILL)
-    return tmp_path
+    return zone_data_root / "mcp_servers" / "managed"
 
 
 def _fake_resource(calls: list) -> types.SimpleNamespace:
@@ -64,41 +67,44 @@ def _fake_resource(calls: list) -> types.SimpleNamespace:
 # get_tool_root
 # ---------------------------------------------------------------------------
 
-def test_get_tool_root_is_base_dir_joined_with_skill_resolved(monkeypatch, tmp_path):
-    monkeypatch.setattr(EvolutionPathGuard, "MANAGED_BASE_DIR", tmp_path)
+def test_get_tool_root_is_the_skill_folder_zone_text(zone_data_root):
     root = EvolutionPathGuard.get_tool_root(_SKILL)
-    assert root == (tmp_path / _SKILL).resolve()
+    assert root == str(zone_data_root / "mcp_servers" / "managed" / _SKILL)
 
 
 # ---------------------------------------------------------------------------
-# validate_path
+# file names that cannot be one segment (was validate_path; ADR-0293 PR 2)
 # ---------------------------------------------------------------------------
 
-def test_validate_path_inside_root_is_true(sandbox_base):
-    root = EvolutionPathGuard.get_tool_root(_SKILL)
-    inside = str(root / "sub" / "file.py")
-    assert EvolutionPathGuard.validate_path(_SKILL, inside) is True
+_EVIL_NAMES = ["../../evil.txt", "..", "sub/file.py", "sub\\file.py", "bad\x00name", ""]
 
 
-def test_validate_path_traversal_escapes_root_is_false(sandbox_base):
-    root = EvolutionPathGuard.get_tool_root(_SKILL)
-    # ../../evil climbs above the skill root → must be rejected
-    escaping = str(root / ".." / ".." / "evil.txt")
-    assert EvolutionPathGuard.validate_path(_SKILL, escaping) is False
+@pytest.mark.parametrize("evil", _EVIL_NAMES)
+def test_file_names_that_escape_the_skill_folder_are_refused(sandbox_base, evil):
+    calls = [
+        lambda: EvolutionPathGuard.write_tool_file(_SKILL, evil, "x"),
+        lambda: EvolutionPathGuard.read_tool_file(_SKILL, evil),
+        lambda: EvolutionPathGuard.delete_tool_file(_SKILL, evil),
+        lambda: EvolutionPathGuard.tool_file_exists(_SKILL, evil),
+    ]
+    for call in calls:
+        with (
+            expect_zone_refusal("ZoneSegmentError"),
+            pytest.raises(EvolutionRefused, match="skill_changed"),
+        ):
+            call()
+    assert [p.name for p in sandbox_base.iterdir()] == [_SKILL]
+    assert list((sandbox_base / _SKILL).iterdir()) == []
 
 
-def test_validate_path_absolute_outside_sandbox_is_false(sandbox_base, tmp_path):
-    # An absolute path that is a sibling of MANAGED_BASE_DIR, not under the skill root.
-    outside = str(tmp_path.parent / "totally_other_dir" / "x.txt")
-    assert EvolutionPathGuard.validate_path(_SKILL, outside) is False
-
-
-def test_validate_path_garbage_does_not_raise_and_is_false(sandbox_base):
-    # A NUL-embedded target_path makes Path(target_path).resolve() raise ValueError;
-    # validate_path's except-branch must catch it and return False (no propagation).
-    garbage = "bad\x00name"
-    result = EvolutionPathGuard.validate_path(_SKILL, garbage)
-    assert result is False
+def test_absolute_file_name_outside_the_sandbox_is_refused(sandbox_base, tmp_path):
+    outside = tmp_path.parent / "totally_other_dir" / "x.txt"
+    with (
+        expect_zone_refusal("ZoneSegmentError"),
+        pytest.raises(EvolutionRefused, match="skill_changed"),
+    ):
+        EvolutionPathGuard.write_tool_file(_SKILL, str(outside), "x")
+    assert not outside.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -153,16 +159,6 @@ def test_read_missing_file_returns_none(sandbox_base):
     assert EvolutionPathGuard.read_tool_file(_SKILL, "nope.py") is None
 
 
-def test_write_read_delete_escape_raise_permission_error(sandbox_base):
-    evil = "../../evil.txt"
-    with pytest.raises(PermissionError):
-        EvolutionPathGuard.write_tool_file(_SKILL, evil, "x")
-    with pytest.raises(PermissionError):
-        EvolutionPathGuard.read_tool_file(_SKILL, evil)
-    with pytest.raises(PermissionError):
-        EvolutionPathGuard.delete_tool_file(_SKILL, evil)
-
-
 def test_delete_existing_returns_true_then_gone_missing_returns_false(sandbox_base):
     EvolutionPathGuard.write_tool_file(_SKILL, "tmp.py", "data")
     assert EvolutionPathGuard.delete_tool_file(_SKILL, "tmp.py") is True
@@ -180,7 +176,7 @@ def test_tool_file_exists_true_for_present_false_for_absent(sandbox_base):
 # run_sandbox_command
 # ---------------------------------------------------------------------------
 
-def test_run_sandbox_command_defaults_cwd_to_root_and_cleans_env(
+def test_run_sandbox_command_hands_off_the_skill_folder_and_cleans_env(
     sandbox_base, monkeypatch
 ):
     _patch_full_env(monkeypatch, {"MY_SECRET": "leak", "PATH": "/usr/bin"})
@@ -192,6 +188,8 @@ def test_run_sandbox_command_defaults_cwd_to_root_and_cleans_env(
     def _fake_run(cmd_list, **kwargs):
         captured["cmd"] = cmd_list
         captured.update(kwargs)
+        # spawn 的當下 cwd 以「子行程的工作資料夾」交接中（ADR-0293 P6）
+        captured["handed"] = is_handed_off(kwargs["cwd"], HandoffKind.SUBPROCESS_CWD)
         return types.SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(_RUN_ATTR, _fake_run)
@@ -200,9 +198,10 @@ def test_run_sandbox_command_defaults_cwd_to_root_and_cleans_env(
         _SKILL, ["python", "x.py"], launch=passthrough_launch(_SKILL)
     )
 
-    root = EvolutionPathGuard.get_tool_root(_SKILL)
-    # (a) cwd defaults to str(root)
-    assert captured["cwd"] == str(root)
+    # (a) cwd 是技能資料夾的區字串，spawn 當下交接中、結束後收回
+    assert captured["cwd"] == EvolutionPathGuard.get_tool_root(_SKILL)
+    assert captured["handed"] is True
+    assert not is_handed_off(captured["cwd"], HandoffKind.SUBPROCESS_CWD)
     # (b) env is the cleaned env: PYTHONPATH forced to '.', secret stripped
     env = captured["env"]
     assert env["PYTHONPATH"] == "."
@@ -210,9 +209,19 @@ def test_run_sandbox_command_defaults_cwd_to_root_and_cleans_env(
     assert env["PATH"] == "/usr/bin"
 
 
-def test_run_sandbox_command_cwd_outside_sandbox_raises_before_run(
-    sandbox_base, monkeypatch, tmp_path
+def test_run_sandbox_command_has_no_cwd_parameter():
+    """cwd 只能是技能資料夾（ADR-0293 P6）：沒有讓呼叫端另給 cwd 的參數."""
+    assert "cwd" not in inspect.signature(EvolutionPathGuard.run_sandbox_command).parameters
+
+
+def test_run_sandbox_command_refuses_a_linked_skill_before_run(
+    zone_data_root, monkeypatch, tmp_path
 ):
+    managed = zone_data_root / "mcp_servers" / "managed"
+    managed.mkdir(parents=True)
+    fake = tmp_path.resolve() / "fake"
+    fake.mkdir()
+    make_dir_link(managed / _SKILL, fake)
     ran = {"called": False}
 
     def _fake_run(cmd_list, **kwargs):  # noqa: ARG001
@@ -221,12 +230,14 @@ def test_run_sandbox_command_cwd_outside_sandbox_raises_before_run(
 
     monkeypatch.setattr(_RUN_ATTR, _fake_run)
 
-    outside = str(tmp_path.parent / "escape_dir")
-    with pytest.raises(PermissionError):
+    with (
+        expect_zone_refusal("ZoneLinkRefusedError"),
+        pytest.raises(EvolutionRefused, match="skill_changed"),
+    ):
         EvolutionPathGuard.run_sandbox_command(
-            _SKILL, ["python", "x.py"], cwd=outside, launch=passthrough_launch(_SKILL)
+            _SKILL, ["python", "x.py"], launch=passthrough_launch(_SKILL)
         )
-    assert ran["called"] is False, "subprocess.run must NOT execute when cwd escapes"
+    assert ran["called"] is False, LINK_FOLLOWED
 
 
 # ---------------------------------------------------------------------------

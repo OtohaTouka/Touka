@@ -41,3 +41,15 @@ def test_interrupt_is_per_session_isolated():
     assert rhythm_service.is_interrupted(a) is True
     assert rhythm_service.is_interrupted(b) is False
     rhythm_service.clear_interrupt(a)
+
+
+def test_stop_count_only_grows():
+    """停止次數只增不減：清掉旗標或清掉會話都不動它（ADR-0292 用它看執行期間有沒有被停止過）。"""
+    sid = "test-stop-count"
+    before = rhythm_service.stop_count(sid)
+    rhythm_service.interrupt_session(sid)
+    rhythm_service.clear_interrupt(sid)
+    rhythm_service.clear_session(sid)
+    rhythm_service.interrupt_session(sid)
+    assert rhythm_service.stop_count(sid) == before + 2
+    assert rhythm_service.stop_count("test-stop-count-other") == 0

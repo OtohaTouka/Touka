@@ -113,14 +113,19 @@ def extract_error_class(text: str) -> str | None:
     以 ``raw_decode`` 只解析開頭第一個 JSON 值，容忍下游在尾端附註（如時間 footer）；
     非本模組錯誤（``is_tool_error`` 為否）、狀態 payload 或解析失敗一律回 ``None``.
     """
+    return extract_field(text, "error_class")
+
+
+def extract_field(text: str, key: str) -> str | None:
+    """從結構化錯誤字串取出一個字串欄位；不是結構化錯誤或沒有這個欄位時回 ``None``."""
     if not is_tool_error(text):
         return None
     try:
         obj, _ = json.JSONDecoder().raw_decode(text.lstrip())
     except (ValueError, TypeError):
         return None
-    error_class = obj.get("error_class") if isinstance(obj, dict) else None
-    return error_class if isinstance(error_class, str) else None
+    value = obj.get(key) if isinstance(obj, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def classify_exception(exc: BaseException) -> str:

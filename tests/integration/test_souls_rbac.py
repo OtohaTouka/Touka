@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.routers import souls as souls_router
 from src.services.identity_router import get_verified_identity
 
 # ---------------------------------------------------------------------------
@@ -55,9 +56,13 @@ FAKE_SOULS = ["Alice", "Bob", "Charlie"]
 
 
 @pytest.fixture
-def soul_sandbox(tmp_path: Path) -> Path:
-    """建立隔離的假靈魂目錄 (沙盒保護，不觸碰真實 data/)."""
-    soul_root = tmp_path / "data" / "soul"
+def soul_sandbox(zone_data_root: Path) -> Path:
+    """建立隔離的假靈魂目錄 (沙盒保護，不觸碰真實 data/).
+
+    靈魂資料夾在測試自己的 data 根，路由用真的 ResourceManager 讀；只換 ``get_vault_root``，
+    讓一般使用者也走到 RBAC 過濾（ADR-0293 T3：不換掉 resource_manager）。
+    """
+    soul_root = zone_data_root / "soul"
     for soul_id in FAKE_SOULS:
         soul_dir = soul_root / soul_id
         soul_dir.mkdir(parents=True, exist_ok=True)
@@ -93,14 +98,10 @@ class TestSoulsRbac:
         app.dependency_overrides[get_verified_identity] = lambda: identity
 
         try:
-            with patch("src.routers.souls.resource_manager") as mock_rm:
-                mock_rm.get_vault_root.return_value = str(soul_sandbox)
-                mock_rm.exists.side_effect = lambda p: Path(p).exists()
-                mock_rm.read_file_text.side_effect = lambda p: Path(p).read_text(encoding="utf-8")
-                mock_rm.read_json.return_value = {}
-
-                with TestClient(app) as client:
-                    soul_ids = _get_soul_ids(client)
+            with patch.object(
+                souls_router.resource_manager, "get_vault_root", return_value=str(soul_sandbox)
+            ), TestClient(app) as client:
+                soul_ids = _get_soul_ids(client)
         finally:
             app.dependency_overrides.clear()
 
@@ -114,14 +115,10 @@ class TestSoulsRbac:
         app.dependency_overrides[get_verified_identity] = lambda: identity
 
         try:
-            with patch("src.routers.souls.resource_manager") as mock_rm:
-                mock_rm.get_vault_root.return_value = str(soul_sandbox)
-                mock_rm.exists.side_effect = lambda p: Path(p).exists()
-                mock_rm.read_file_text.side_effect = lambda p: Path(p).read_text(encoding="utf-8")
-                mock_rm.read_json.return_value = {}
-
-                with TestClient(app) as client:
-                    soul_ids = _get_soul_ids(client)
+            with patch.object(
+                souls_router.resource_manager, "get_vault_root", return_value=str(soul_sandbox)
+            ), TestClient(app) as client:
+                soul_ids = _get_soul_ids(client)
         finally:
             app.dependency_overrides.clear()
 
@@ -135,14 +132,10 @@ class TestSoulsRbac:
         app.dependency_overrides[get_verified_identity] = lambda: identity
 
         try:
-            with patch("src.routers.souls.resource_manager") as mock_rm:
-                mock_rm.get_vault_root.return_value = str(soul_sandbox)
-                mock_rm.exists.side_effect = lambda p: Path(p).exists()
-                mock_rm.read_file_text.side_effect = lambda p: Path(p).read_text(encoding="utf-8")
-                mock_rm.read_json.return_value = {}
-
-                with TestClient(app) as client:
-                    resp = client.get("/souls")
+            with patch.object(
+                souls_router.resource_manager, "get_vault_root", return_value=str(soul_sandbox)
+            ), TestClient(app) as client:
+                resp = client.get("/souls")
         finally:
             app.dependency_overrides.clear()
 
@@ -157,14 +150,10 @@ class TestSoulsRbac:
         app.dependency_overrides[get_verified_identity] = lambda: identity
 
         try:
-            with patch("src.routers.souls.resource_manager") as mock_rm:
-                mock_rm.get_vault_root.return_value = str(soul_sandbox)
-                mock_rm.exists.side_effect = lambda p: Path(p).exists()
-                mock_rm.read_file_text.side_effect = lambda p: Path(p).read_text(encoding="utf-8")
-                mock_rm.read_json.return_value = {}
-
-                with TestClient(app) as client:
-                    resp = client.get("/souls")
+            with patch.object(
+                souls_router.resource_manager, "get_vault_root", return_value=str(soul_sandbox)
+            ), TestClient(app) as client:
+                resp = client.get("/souls")
         finally:
             app.dependency_overrides.clear()
 

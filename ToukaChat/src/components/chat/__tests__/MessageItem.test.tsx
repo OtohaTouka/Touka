@@ -71,11 +71,30 @@ describe('MessageItem', () => {
     expect(screen.getByText('You')).toBeInTheDocument();
   });
 
+  it('ADR-0294 外部圖片不自動載入，改顯示佔位連結', () => {
+    const msg = { ...mockHistory.messages['2'], content: '![x](https://evil.example/a.png?d=1)' } as any;
+    const { container } = render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(container.querySelector('img[src*="evil.example"]')).toBeNull();
+    expect(screen.getByRole('link', { name: /外部圖片（未載入）/ })).toHaveAttribute('target', '_blank');
+  });
+
   it('renders assistant message with markdown', () => {
     const msg = { ...mockHistory.messages['2'], content: '# Head\n**bold**' } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);
     expect(screen.getByRole('heading')).toHaveTextContent('Head');
     expect(screen.getByText('bold').tagName).toBe('STRONG');
+  });
+
+  it('ADR-0292 串流以錯誤結束的回覆標示回覆失敗', () => {
+    const msg = { id: '2', role: 'assistant', content: '', parentId: '1', childrenIds: [], generationFailed: true } as any;
+    render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('這一輪回覆失敗');
+  });
+
+  it('一般的回覆沒有失敗標示', () => {
+    const msg = { id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [] } as any;
+    render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('renders specialized ToukaGroup multi-model content', () => {

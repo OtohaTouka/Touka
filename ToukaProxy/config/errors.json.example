@@ -113,6 +113,18 @@
     "msg": "Could not clear this soul's sandbox home folders; the soul was not deleted",
     "i18n": "error.soul.sandbox_home_not_cleared"
   },
+  "SOUL_HEARTBEAT_RUNNING": {
+    "id": 1419,
+    "status": 409,
+    "msg": "This soul's heartbeat is running and has been asked to stop; reset the soul after it stops, then delete it",
+    "i18n": "error.soul.heartbeat_running"
+  },
+  "SOUL_UNREGISTER_INCOMPLETE": {
+    "id": 1420,
+    "status": 500,
+    "msg": "The soul's data was deleted but some registrations were not removed; delete it again to finish",
+    "i18n": "error.soul.unregister_incomplete"
+  },
   "MEMORY_SCRUB_NOT_ACKNOWLEDGED": {
     "id": 1410,
     "status": 422,
@@ -146,8 +158,14 @@
   "AGENT_RESET_IN_PROGRESS": {
     "id": 1415,
     "status": 409,
-    "msg": "Another reset is running; try again when it finishes",
+    "msg": "Another reset, memory scrub, or deletion or rename of an agent is running; try again when it finishes",
     "i18n": "error.agent_reset.in_progress"
+  },
+  "AGENT_DRIVE_LINKED": {
+    "id": 1421,
+    "status": 409,
+    "msg": "This agent's personal folder is a link, and links are not followed; nothing was changed",
+    "i18n": "error.agent_reset.drive_linked"
   },
   "AGENT_ID_COLLECTION_COLLISION": {
     "id": 1416,
@@ -280,6 +298,12 @@
     "status": 403,
     "msg": "This conversation cannot be used for the requested target",
     "i18n": "error.session.scope_mismatch"
+  },
+  "PROMPT_STOPPED": {
+    "id": 1222,
+    "status": 409,
+    "msg": "The user stopped this reply before it started",
+    "i18n": "error.session.prompt_stopped"
   },
   "TERMINAL_APPROVAL_NOT_FOUND": {
     "id": 1208,
@@ -652,5 +676,23 @@
     "status": 503,
     "msg": "心跳共享憑證尚未就緒；請完成設定並重啟",
     "i18n": "error.heartbeat.shared_credential_not_ready"
+  },
+  "HOOK_PROMPT_BLOCKED": {
+    "id": 6001,
+    "status": 403,
+    "msg": "這則訊息被管理員設定的 hook 擋下",
+    "i18n": "error.hooks.prompt_blocked"
+  },
+  "HOOK_CONFIG_CONFLICT": {
+    "id": 6002,
+    "status": 409,
+    "msg": "Hook 設定已被別人改過，請重新載入後再存",
+    "i18n": "error.hooks.config_conflict"
+  },
+  "HOOK_PATH_REJECTED": {
+    "id": 6003,
+    "status": 422,
+    "msg": "Hook 的程式或腳本放在代理人寫得到的地方，或路徑不合規則",
+    "i18n": "error.hooks.path_rejected"
   }
 }

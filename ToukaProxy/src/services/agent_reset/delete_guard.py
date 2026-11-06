@@ -11,6 +11,8 @@ import importlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+from memory_server.utils.memory_worker import run_memory_job
+
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services import memory_collection_guard
 from src.utils.continuity_events_db import count_agent_events
@@ -26,26 +28,31 @@ def _memory_manager() -> Any:
     return importlib.import_module("memory_server.tools").get_manager()
 
 
-def assert_memory_cleared(identity: AgentIdentity) -> None:
+def _memory_left(identity: AgentIdentity) -> tuple[dict[str, int], bool]:
+    """記憶殘留數與 collection 在不在（在記憶工作者上跑）."""
+    manager = _memory_manager()
+    store = manager.get_factual_store()
+    others = memory_collection_guard.colliding_ids(
+        identity, memory_collection_guard.known_memory_ids(store)
+    )
+    if others:  # 撞名：collection 是共用的，只數不屬於別人任何事實的點、不看 collection 在不在
+        keep = memory_collection_guard.point_ids_of(store, others)
+        outside = manager.get_vector_store().count_points_outside(identity, keep)
+        return {"facts": store.count_agent_facts(identity), "vectors": outside}, False
+    counts = manager.count_agent_memory(identity)
+    return counts, manager.get_vector_store().has_agent_collection(identity)
+
+
+async def assert_memory_cleared(identity: AgentIdentity) -> None:
     """還有記憶就 409 ``SOUL_MEMORY_NOT_RESET``；無法確認就 503 ``SOUL_MEMORY_CHECK_FAILED``.
+
+    記憶庫在記憶工作者上讀，不卡住主迴圈（ADR-0288）。
 
     Args:
         identity: 要刪除的靈魂（只用 agent_id 查記憶）。
     """
     try:
-        manager = _memory_manager()
-        store = manager.get_factual_store()
-        others = memory_collection_guard.colliding_ids(
-            identity, memory_collection_guard.known_memory_ids(store)
-        )
-        if others:  # 撞名：collection 是共用的，只數不屬於別人任何事實的點、不看 collection 在不在
-            keep = memory_collection_guard.point_ids_of(store, others)
-            outside = manager.get_vector_store().count_points_outside(identity, keep)
-            counts = {"facts": store.count_agent_facts(identity), "vectors": outside}
-            has_collection = False
-        else:
-            counts = manager.count_agent_memory(identity)
-            has_collection = manager.get_vector_store().has_agent_collection(identity)
+        counts, has_collection = await run_memory_job(_memory_left, identity)
     except Exception as exc:
         logger.warning("Soul delete blocked: cannot confirm %s has no memory", identity.agent_id)
         raise ToukaException(ErrorCode.SOUL_MEMORY_CHECK_FAILED) from exc

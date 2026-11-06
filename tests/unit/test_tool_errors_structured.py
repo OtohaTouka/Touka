@@ -125,7 +125,7 @@ async def test_structured_success_with_emoji_marked_success():
             preview="   9| ok\n> 10| raise ValueError('Error: boom')  # ❌ marker",
         )
 
-    executor = ToolExecutor(None, {"edit_like": _edit_like}, {}, {})
+    executor = ToolExecutor(None, {"edit_like": _edit_like}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         result, events = await _run(executor, "edit_like", {"a": 1}, _make_ctx())
@@ -140,7 +140,7 @@ async def test_structured_success_with_emoji_marked_success():
 
 @pytest.mark.asyncio
 async def test_policy_deny_returns_structured_permission_denied():
-    executor = ToolExecutor(None, {}, {}, {})
+    executor = ToolExecutor(None, {}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="DENY", reason="blocked by policy")
         result, events = await _run(executor, "bash", {"command": "ls"}, _make_ctx())
@@ -156,7 +156,7 @@ async def test_policy_deny_returns_structured_permission_denied():
 
 @pytest.mark.asyncio
 async def test_unknown_tool_returns_resource_not_found():
-    executor = ToolExecutor(None, {}, {}, {})
+    executor = ToolExecutor(None, {}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         result, events = await _run(executor, "dream_tool", {"x": 1}, _make_ctx())
@@ -168,7 +168,7 @@ async def test_unknown_tool_returns_resource_not_found():
 
 @pytest.mark.asyncio
 async def test_identity_missing_returns_internal_error():
-    executor = ToolExecutor(None, {}, {}, {})
+    executor = ToolExecutor(None, {}, {}, {}, enforce_advertised=False)
     result, events = await _run(executor, "research", {"query": "x"}, {"identity": None})
     data = json.loads(result)
     assert data["error_class"] == "internal_error"
@@ -177,7 +177,7 @@ async def test_identity_missing_returns_internal_error():
 
 @pytest.mark.asyncio
 async def test_critical_tool_empty_args_returns_validation_error():
-    executor = ToolExecutor(None, {}, {}, {})
+    executor = ToolExecutor(None, {}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         result, _events = await _run(executor, "update_my_soul", {}, _make_ctx())
@@ -198,7 +198,7 @@ async def test_critical_tool_empty_args_returns_validation_error():
     ],
 )
 async def test_exception_mapping_to_error_class(exc: Exception, expected_class: str):
-    executor = ToolExecutor(None, {"boom": _raiser(exc)}, {}, {})
+    executor = ToolExecutor(None, {"boom": _raiser(exc)}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         result, events = await _run(executor, "boom", {"a": 1}, _make_ctx())
@@ -215,7 +215,7 @@ async def test_tool_returning_structured_error_marks_event_error():
     async def _fake_tool(**_kwargs: Any) -> str:
         return tool_errors.build_tool_error(tool_errors.UPSTREAM_ERROR, "backend 500")
 
-    executor = ToolExecutor(None, {"fake": _fake_tool}, {}, {})
+    executor = ToolExecutor(None, {"fake": _fake_tool}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         result, events = await _run(executor, "fake", {"q": 1}, _make_ctx())

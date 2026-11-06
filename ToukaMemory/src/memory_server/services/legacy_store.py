@@ -8,11 +8,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import sqlite3
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from memory_server.config_utils import get_current_epoch
 from memory_server.models.conversation_search import ConversationPage, ConversationRow
@@ -43,6 +44,11 @@ _MESSAGE_INSERT_ONLY = """
     INSERT INTO messages (id, session_id, parent_id, role, content, timestamp, metadata)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
+"""
+# 歸檔後讀回這批 id 存著的內容：一句固定 SQL，只綁一個 JSON 陣列參數（禁令 24）
+_MESSAGES_BY_IDS = """
+    SELECT id, session_id, role, content FROM messages
+    WHERE id IN (SELECT value FROM json_each(?))
 """
 _PROCESSED_INSERT = """
     INSERT INTO processed_files (filename, content_sha256, processed_at) VALUES (?, ?, ?)
@@ -88,8 +94,32 @@ _SEARCH_NEWEST = (
 )
 
 
+class ArchiveOutcome(NamedTuple):
+    """一次歸檔的結果."""
+
+    confirmed: int  # 確認在庫的訊息數（含另存成版本的）
+    versions: int  # 同 id 已存著不同內容、另存成版本的筆數
+
+
+class LegacyArchiveMismatchError(RuntimeError):
+    """歸檔後讀回的內容和要存的不一樣（版本 id 已被別的內容占用）；整筆 rollback."""
+
+
+def _content_text(content: Any) -> str:
+    """訊息內容存成文字：字串原樣、None 是空字串、其他（多模態 list 等）存成 JSON."""
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    return json.dumps(content, ensure_ascii=False, default=str)
+
+
 def _message_row(msg: dict[str, Any]) -> tuple[Any, ...]:
-    """訊息轉成資料列：其餘欄位存成 metadata JSON；時間一律毫秒，沒有才用寫入當下."""
+    """訊息轉成資料列：其餘欄位存成 metadata JSON；時間一律毫秒，沒有才用寫入當下.
+
+    id 與 session id 先換成文字：欄位是 TEXT，SQLite 本來就把數字存成文字，讀回比對時型別才一致
+    （匯入檔的 id 可能是數字；舊審查報告乙-1 審查）。
+    """
     metadata = {k: v for k, v in msg.items() if k not in _RESERVED_KEYS}
     ts = (
         to_epoch_ms(msg.get("timestamp"))
@@ -97,14 +127,42 @@ def _message_row(msg: dict[str, Any]) -> tuple[Any, ...]:
         or int(get_current_epoch() * 1000)
     )
     return (
-        msg["id"],
-        msg["session_id"],
+        str(msg["id"]),
+        str(msg["session_id"]),
         msg.get("parentId"),
         msg["role"],
-        msg["content"],
+        _content_text(msg["content"]),
         ts,
         json.dumps(metadata, ensure_ascii=False),
     )
+
+
+def _row_key(row: tuple[Any, ...]) -> tuple[Any, Any, Any]:
+    """比對「同一則訊息」用的欄位：session、角色、內容（messages.id 是全域主鍵）."""
+    return row[1], row[3], row[4]
+
+
+def _version_row(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    """同 id 已存著不同內容時另存的版本列：id 由原 id 與內容算出，metadata 記 version_of."""
+    msg_id, session_id, parent_id, role, content, ts, metadata = row
+    key = json.dumps([session_id, role, content], ensure_ascii=False)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    meta = {**json.loads(metadata), "version_of": msg_id}
+    return (
+        f"{msg_id}~v{digest}",
+        session_id,
+        parent_id,
+        role,
+        content,
+        ts,
+        json.dumps(meta, ensure_ascii=False),
+    )
+
+
+def _stored(conn: sqlite3.Connection, ids: list[Any]) -> dict[Any, tuple[Any, Any, Any]]:
+    """這批 id 目前存著的 (session, 角色, 內容)."""
+    rows = conn.execute(_MESSAGES_BY_IDS, (json.dumps(ids, ensure_ascii=False),))
+    return {msg_id: (session_id, role, content) for msg_id, session_id, role, content in rows}
 
 
 class LegacyStore:
@@ -222,10 +280,12 @@ class LegacyStore:
         sessions: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         source: tuple[str, str] | None = None,
-    ) -> None:
+    ) -> ArchiveOutcome:
         """歸檔：一個交易寫完 sessions、訊息與已處理紀錄；任一列失敗整筆 rollback 並往上拋.
 
-        sessions 的標題等中繼資料照 upsert；訊息只新增，已歸檔的不被覆寫。
+        sessions 的標題等中繼資料照 upsert；訊息只新增，已歸檔的不被覆寫。同一個交易裡讀回比對：
+        同 id 已存著同樣的 session、角色與內容算確認在庫；不同的另存成這則訊息的版本列（重跑不
+        重複存），也讀回確認；讀回對不上丟 ``LegacyArchiveMismatchError``（舊審查報告乙-1）。
         ``source`` 是同步來源 ``(檔名, 內容 SHA-256)``；剪裁與匯出端點沒有來源檔，傳 None。
         """
         session_rows = [
@@ -238,8 +298,18 @@ class LegacyStore:
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.executemany(_SESSION_UPSERT, session_rows)
             conn.executemany(_MESSAGE_INSERT_ONLY, message_rows)
+            stored = _stored(conn, [row[0] for row in message_rows])
+            version_rows = [
+                _version_row(row) for row in message_rows if stored.get(row[0]) != _row_key(row)
+            ]
+            if version_rows:
+                conn.executemany(_MESSAGE_INSERT_ONLY, version_rows)
+                stored = _stored(conn, [row[0] for row in version_rows])
+                if any(stored.get(row[0]) != _row_key(row) for row in version_rows):
+                    raise LegacyArchiveMismatchError
             if source is not None:
                 conn.execute(_PROCESSED_INSERT, (*source, int(get_current_epoch() * 1000)))
+        return ArchiveOutcome(confirmed=len(message_rows), versions=len(version_rows))
 
     def processed_keys(self) -> set[tuple[str, str]]:
         """已處理的 (檔名, 內容雜湊)；沒有庫、或舊庫還沒有這張表回空集合（只讀，不建檔不建表）."""

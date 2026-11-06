@@ -19,7 +19,7 @@ import threading
 from dotenv import set_key
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-from src.config import apply_runtime_env, resolve_env_file_path
+from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +175,19 @@ def apply_switch(target_model: str) -> None:
         msg = "target_model must not be empty"
         raise ValueError(msg)  # noqa: TRY003
     env_path = resolve_env_file_path()
-    set_key(str(env_path), "EMBEDDING_MODEL", target)
+    with ENV_FILE_LOCK:  # 在記憶工作者上寫，和主迴圈上寫 .env 的地方互斥（ADR-0288）
+        set_key(str(env_path), "EMBEDDING_MODEL", target)
     apply_runtime_env({"EMBEDDING_MODEL": target})
     _reset_memory_singletons()
+
+
+def switch_model(target_model: str, *, force: bool) -> dict:
+    """偵測，可以就套用：放在同一個記憶工作裡，中間不會插進用舊模型的記憶操作（ADR-0288）。
+
+    已有記憶且換不同模型時，未 force 只回需確認、不寫入。
+    """
+    evaluation = evaluate_switch(target_model)
+    if evaluation["requires_confirmation"] and not force:
+        return {"status": "confirmation_required", **evaluation}
+    apply_switch(target_model)
+    return {"status": "ok", **evaluation}

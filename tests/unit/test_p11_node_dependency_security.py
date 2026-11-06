@@ -11,22 +11,31 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SECURITY_FLOORS = {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.9",
     "nanoid": "3.3.18",
     "browserslist": "4.28.7",
-    "ip-address": "10.3.1",
+    "ip-address": "10.7.4",
     "js-yaml": "4.3.1",
-    "undici": "7.29.1",
-    "hono": "4.12.34",
-    "qs": "6.16.0",
+    "undici": "7.30.1",
+    "hono": "4.13.11",
+    "qs": "6.16.1",
+    "body-parser": "2.4.0",
     "@humanfs/node": "0.16.8",
-    "postcss-selector-parser": "7.1.3",
-    "smol-toml": "1.7.1",
+    "postcss-selector-parser": "7.1.6",
+    "smol-toml": "1.9.0",
     "engine.io": "6.6.10",
     "next": "16.4.2",
+    "zod": "4.6.6",
+    "baseline-browser-mapping": "2.11.0",
+    "vitest": "4.1.11",
+    "@vitest/mocker": "4.1.12",
+    "@modelcontextprotocol/client": "2.3.0",
+    "@modelcontextprotocol/node": "2.1.0",
+    "@azure/msal-node": "7.1.0",
 }
+IDE_ONLY_PACKAGES = ("@modelcontextprotocol/client", "@modelcontextprotocol/node", "@azure/msal-node")
 PROJECT_PACKAGES = {
-    "ToukaChat": tuple(SECURITY_FLOORS),
+    "ToukaChat": tuple(name for name in SECURITY_FLOORS if name not in IDE_ONLY_PACKAGES),
     "ToukaIDE": (
         "fast-uri",
         "nanoid",
@@ -36,6 +45,14 @@ PROJECT_PACKAGES = {
         "undici",
         "hono",
         "qs",
+        "zod",
+        "baseline-browser-mapping",
+        "vitest",
+        "@vitest/mocker",
+        "@modelcontextprotocol/client",
+        "@modelcontextprotocol/node",
+        "body-parser",
+        "@azure/msal-node",
     ),
 }
 

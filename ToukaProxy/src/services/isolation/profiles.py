@@ -24,6 +24,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    Anchor,
+    ZoneRoots,
+    is_zone_segment,
+    zone_of,
+)
+
 from src.config import (
     HOST_WORKSPACE_ROOT,
     PROXY_ROOT,
@@ -42,10 +50,12 @@ from src.sandbox_kernel.spec import (
 from src.services.isolation.project_scan import project_scanner
 from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
-from src.utils.touka_dirs import PROTECTED_LOCATION
+from src.utils.touka_dirs import PROTECTED_LOCATION, is_toplevel_protected
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.identity import AgentIdentity
     from src.sandbox_kernel.spec import AccessName, RlimitName
@@ -94,6 +104,8 @@ class SandboxLayout:
     executor_dir: Path | None
     mirror_roots: tuple[Path, ...]
     in_container: bool
+    # 設定裡的 data 根寫法（人做的連結未解析）；字面比對同時看它和解析後的寫法（ADR-0293 決定 17）
+    data_root_literal: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -127,17 +139,32 @@ def _resolve(path: Path | str) -> Path:
     return Path(path).resolve()
 
 
+def _literal(path: Path | str) -> Path:
+    """絕對、以字面消掉 ``..``，不跟隨連結：授與只用這個位置（ADR-0293 決定 16）。"""
+    return Path(os.path.normpath(Path(path).absolute()))
+
+
 def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
+
+
+def has_link(path: Path | str, resolved: Path | None = None) -> bool:
+    """路徑任何一段是符號連結或 junction：解析前後不同（Windows 不分大小寫）。
+
+    8.3 短檔名、subst、對應的網路磁碟機、``..`` 與 Windows 結尾的空白或句點解析後也會不同，
+    一樣算有連結。``resolved`` 是呼叫端已解析的結果：判斷和後續使用同一次解析。
+    """
+    real = _resolve(path) if resolved is None else resolved
+    return os.path.normcase(Path(path).absolute()) != os.path.normcase(real)
 
 
 def current_layout() -> SandboxLayout:
     """依目前設定組出版面；容器內 ST／kernel 未設定時保留 None（由狀態判定原因）。"""
     in_container = is_container_runtime()
-    data_root = _resolve(resource_manager.get_base_path())
-    state = settings.TOUKA_SANDBOX_STATE_DIR
+    configured_data_root = resource_manager.get_base_path()
+    data_root = _resolve(configured_data_root)
+    state = resource_manager.sandbox_state_root()  # ST 只有一個來源（ADR-0293 P7）
     kernel = settings.TOUKA_SANDBOX_KERNEL_DIR
-    native_state = None if in_container else resource_manager.get_temp_path("sandbox_state")
     native_kernel = None if in_container else PROXY_ROOT / "src" / "sandbox_kernel"
     env_file = _resolve(resolve_env_file_path())
     mirrors = {env_file.parent, *(m for m in (resource_manager.get_workspace_mount(),) if m)}
@@ -149,11 +176,12 @@ def current_layout() -> SandboxLayout:
         install_root=PROXY_ROOT.parent,
         proxy_root=PROXY_ROOT,
         env_file=env_file,
-        state_root=_resolve(state) if state else (_resolve(native_state) if native_state else None),
+        state_root=_resolve(state) if state is not None else None,
         kernel_dir=_resolve(kernel) if kernel else native_kernel,
         executor_dir=_resolve(settings.TOUKA_EXECUTOR_DIR) if settings.TOUKA_EXECUTOR_DIR else None,
         mirror_roots=tuple(sorted(_resolve(m) for m in mirrors)),
         in_container=in_container,
+        data_root_literal=_literal(configured_data_root),
     )
 
 
@@ -179,11 +207,28 @@ def fixed_protected(layout: SandboxLayout) -> tuple[Path, ...]:
     return tuple(_resolve(p) for p in items)
 
 
-def grantable_roots(layout: SandboxLayout, owner: str | None) -> tuple[Path, ...]:
-    """可給根目錄 G：只有代理人自己的 ``personal_drive/<id>``（共用的 docgen_output 不給）。"""
+def layout_zone_roots(layout: SandboxLayout) -> ZoneRoots:
+    """版面的區根：隔離層把路徑分到代理人資料夾，一律經 ``zone_of``（ADR-0293 R3）。"""
+    return ZoneRoots(layout.data_root, layout.state_root)
+
+
+def _is_zone(found: tuple[Anchor, tuple[str, ...]] | None, own: ZonePath | None) -> bool:
+    """``zone_of`` 的結果恰好是 ``own``（大小寫照平台）。"""
+    if found is None or own is None:
+        return False
+    anchor, rest = found
+    fold = [os.path.normcase(p) for p in rest]
+    return anchor is own.anchor and fold == [os.path.normcase(p) for p in own.parts]
+
+
+def _in_own_drive(target: Path, layout: SandboxLayout, owner: str | None) -> bool:
+    """可給根目錄 G：只有自己的 ``personal_drive/<id>`` 和它底下（共用的 docgen_output 不給）."""
     if owner is None or not is_safe_segment(owner):
-        return ()
-    return (_resolve(layout.data_root) / "personal_drive" / owner,)
+        return False
+    found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS)
+    if found is None or found[0] is not Anchor.PERSONAL_DRIVE:
+        return False
+    return os.path.normcase(found[1][0]) == os.path.normcase(owner)
 
 
 def _denied_by_fixed_rules(path: Path, layout: SandboxLayout) -> bool:
@@ -200,6 +245,29 @@ def _denied_by_fixed_rules(path: Path, layout: SandboxLayout) -> bool:
     return False
 
 
+async def project_root_reason(path: Path, layout: SandboxLayout) -> str | None:
+    """一般使用者的專案根（登記、列檔、專案檔案工具）；可用回 None，否則回拒絕原因.
+
+    固定受保護集合 P 與鏡像根一律檢查（解析連結後比對，P 的上層也算）。原生安裝時安裝資料夾
+    底下只有使用者自建的頂層資料夾可以用（點開頭與清單內的名稱不行，同禁令 66 ③）。容器裡
+    工作區掛載可能是 Touka 目錄的另一個路徑，另做 Touka 目錄偵測（往上、往下）；沒查完回
+    ``SCAN_LIMIT``（呼叫端照樣不放行）。原生安裝不做偵測：E 就是 INSTALL_ROOT，往上檢查會擋掉
+    工作區根底下所有專案；原生路徑沒有掛載別名，解析後比對已足夠。這裡不拒絕連結；代理人的
+    專案檔案工具另外拒絕路上有連結的根（``has_link``）。（ADR-0292）
+    """
+    target = _resolve(path)
+    if _denied_by_fixed_rules(target, layout):
+        return PROTECTED_LOCATION
+    if layout.in_container:
+        return await touka_directory_verdict(target, layout)
+    install = _resolve(layout.install_root)
+    if target != install and target.is_relative_to(install):
+        top = target.relative_to(install).parts[0]
+        if is_toplevel_protected(top):
+            return PROTECTED_LOCATION
+    return None
+
+
 async def touka_directory_verdict(path: Path, layout: SandboxLayout) -> str | None:
     """Touka 目錄偵測與上下檢查（往上到鏡像根、往下 3 層），見 ``project_scan``。"""
     return await project_scanner.verdict(path, layout)
@@ -214,9 +282,9 @@ async def authorize_derived_path(
     路徑任何一段是符號連結或 junction（resolve 前後不同）一律拒絕：連結可以被改寫成指向別處。
     """
     target = _resolve(path)
-    if os.path.normcase(Path(path).absolute()) != os.path.normcase(target):
+    if has_link(path, target):
         return PROTECTED_LOCATION
-    if any(_within(target, root) for root in grantable_roots(layout, owner)):
+    if _in_own_drive(target, layout, owner):
         return None
     if _denied_by_fixed_rules(target, layout):
         return PROTECTED_LOCATION
@@ -224,12 +292,15 @@ async def authorize_derived_path(
 
 
 def public_config_rules(anchors: Iterable[Path], layout: SandboxLayout) -> tuple[PathRule, ...]:
-    """錨點每一層上層裡、真實存在的九個公開設定檔（一般檔、非硬連結），唯讀。"""
+    """錨點每一層字面上層裡、真實存在的九個公開設定檔（一般檔、非硬連結），唯讀.
+
+    只給字面位置（ADR-0293 決定 16）：解析結果只用來略過，上層有連結（解析後和字面不同）的不給。
+    """
     blocked = [_resolve(layout.data_root)]
     blocked += [p for p in (layout.state_root, _protected_env_dir(layout)) if p]
     found: dict[Path, PathRule] = {}
     for anchor in anchors:
-        for parent in _resolve(anchor).parents:
+        for parent in Path(os.path.normpath(anchor)).parents:
             for name in sorted(PUBLIC_CONFIG_NAMES):
                 candidate = parent / name
                 try:
@@ -239,7 +310,8 @@ def public_config_rules(anchors: Iterable[Path], layout: SandboxLayout) -> tuple
                 # lstat：符號連結不是一般檔；硬連結（st_nlink>1）也略過
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                     continue
-                if any(_within(candidate, _resolve(b)) for b in blocked):
+                resolved = _resolve(candidate)
+                if resolved != candidate or any(_within(resolved, _resolve(b)) for b in blocked):
                     continue
                 found[candidate] = PathRule(candidate, "ro", optional=True, skip_symlink=True)
     return tuple(found.values())
@@ -302,24 +374,62 @@ def checked_ports(block_ports: tuple[int, ...] | None, location: Location) -> tu
     return ports
 
 
+def _same_state(layout: SandboxLayout, subject: str) -> None:
+    """版面的 ST 和 RM 的 ST 要是同一處（解析後比）；不是就丟 ``SANDBOX_STATE_UNCONFIGURED``."""
+    state = resource_manager.sandbox_state_root()
+    if state is None or layout.state_root is None or os.path.normcase(
+        _resolve(layout.state_root)
+    ) != os.path.normcase(_resolve(state)):
+        raise ProfileError(subject, SANDBOX_STATE_UNCONFIGURED)
+
+
+def proxy_state_zone(layout: SandboxLayout) -> ZonePath | None:
+    """``ST/proxy``（P7）：Touka 在 ST 裡的讀寫只經這裡和 ``proxy_state_owner`` 拿路徑.
+
+    ``None`` 只代表版面沒設 ST（不看 RM）；版面設了、RM 沒設或兩邊不同丟 ``ProfileError``。
+    """
+    if layout.state_root is None:
+        return None
+    _same_state(layout, "state")
+    return resource_manager.sandbox_state_proxy()
+
+
+def proxy_state_owner(layout: SandboxLayout, kind: str, owner: str) -> ZonePath | None:
+    """``ST/proxy/<kind>/<owner>``（P7）；``None`` 與 ST 的例外同 ``proxy_state_zone``.
+
+    ``kind``、``owner`` 要同時是安全名稱（``is_safe_segment``）與區裡的一段，否則丟
+    ``ProfileError(owner)``。
+    """
+    if layout.state_root is None:
+        return None
+    _same_state(layout, owner)
+    if not (is_safe_segment(owner) and is_zone_segment(owner) and is_zone_segment(kind)):
+        raise ProfileError(owner)
+    return resource_manager.sandbox_state_dir(kind, owner)
+
+
 def state_dirs(
     layout: SandboxLayout, location: Location, kind: str, owner: str, *, create: bool = True
 ) -> tuple[Path, Path]:
-    """ST 的 ``{home,tmp}``；分類可只算位置，預設建立，ST 未設定或名稱不安全就拒絕。"""
-    if layout.state_root is None:
-        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED)
-    if not is_safe_segment(owner):
+    """ST 的 ``{home,tmp}``（區字串）；分類可只算位置，預設經區內方法建立.
+
+    只有 proxy 位置；ST 沒設、版面與 RM 不同或建不出來都是 ``SANDBOX_STATE_UNCONFIGURED``，
+    名稱不安全是 ``ProfileError(owner)``。
+    """
+    if location != "proxy":
         raise ProfileError(owner)
-    base = _resolve(layout.state_root) / location / kind / owner
-    dirs = (base / "home", base / "tmp")
-    if not create:
-        return dirs
-    try:
-        for directory in dirs:
-            resource_manager.make_dir(directory)
-    except OSError as exc:
-        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED) from exc
-    return dirs
+    zp = proxy_state_owner(layout, kind, owner)
+    if zp is None:
+        raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED)
+    dirs = (zp.child("home"), zp.child("tmp"))
+    if create:
+        try:
+            for directory in dirs:
+                resource_manager.zone_make_dir(directory)
+        except OSError as exc:
+            raise ProfileError(owner, SANDBOX_STATE_UNCONFIGURED) from exc
+    home, tmp = (Path(resource_manager.zone_text(directory)) for directory in dirs)
+    return home, tmp
 
 
 def _state(
@@ -339,11 +449,18 @@ def _state(
 
 
 def _own_drive(identity: AgentIdentity, agent_dir: Path, layout: SandboxLayout) -> Path:
+    """代理人自己的個人空間（呼叫端 ``zone_handoff`` 交出的字串），也是 Landlock 的規則路徑.
+
+    形狀用 ``zone_of`` 判斷（ADR-0293 R3）：只收自己的 ``PERSONAL_DRIVE/<id>`` 或
+    ``CUSTOM_DRIVE/<id>/drive``。路上有連結就拒絕；交出的字串只消掉 ``..``、不再解析（R7）。
+    """
     agent_id = identity.agent_id
-    data = _resolve(layout.data_root)
-    target = _resolve(agent_dir)
-    shapes = (data / "personal_drive" / agent_id, data / "custom" / agent_id / "drive")
-    if not is_safe_segment(agent_id) or target not in shapes:
+    target = _literal(agent_dir)
+    found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS)
+    own = (resource_manager.soul_drive(identity), resource_manager.custom_drive(identity))
+    if not is_safe_segment(agent_id) or has_link(target):
+        raise ProfileError(agent_id)
+    if not any(_is_zone(found, zp) for zp in own):
         raise ProfileError(agent_id)
     return target
 
@@ -414,7 +531,8 @@ async def build_agent_command_profile(
     if project_root is not None:
         verdict = await authorize_derived_path(project_root, layout, identity.agent_id)
         if verdict is None:
-            granted_project = _resolve(project_root)
+            # 給檢查過的字面位置：之後才換成連結的，啟動器開不了（ADR-0293 決定 16）
+            granted_project = _literal(project_root)
             rules.append(PathRule(granted_project, "rwx"))
         else:
             ungranted = (verdict,)
@@ -440,7 +558,7 @@ async def build_agent_command_profile(
 
 def build_evolution_profile(
     skill_id: str,
-    tool_root: Path,
+    tool_root: Path | str,
     *,
     layout: SandboxLayout,
     location: Location = "proxy",
@@ -449,9 +567,9 @@ def build_evolution_profile(
 ) -> SandboxProfile:
     """演化建置與驗證：讀寫只給 ``managed/<skill>`` 與自己的 state 資料夾；rlimit 由指令帶入."""
     ports = checked_ports(block_ports, location)
-    root = _resolve(tool_root)
     managed = _resolve(layout.data_root) / "mcp_servers" / "managed"
-    if not is_safe_segment(skill_id) or root != managed / skill_id:
+    root = managed / skill_id  # 授與只用字面位置；解析 tool_root 的結果只用來核對
+    if not is_safe_segment(skill_id) or _resolve(tool_root) != root:
         raise ProfileError(skill_id)
     home, tmp = _state(layout, location, "evolution", skill_id, executor_state)
     rules = system_rules()

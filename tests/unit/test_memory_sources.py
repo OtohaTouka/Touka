@@ -209,7 +209,7 @@ async def _execute(
     permission.evaluate_policy.return_value = SimpleNamespace(effect="ALLOW", reason=None)
     monkeypatch.setattr("src.services.tool_executor.permission_service", permission)
     monkeypatch.setattr("src.services.tool_executor.soul_service.is_toukasoul", lambda _: False)
-    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {})
+    executor = ToolExecutor(None, {"memory_tools": handler}, {}, {}, enforce_advertised=False)
     return await executor.execute_to_queue(
         "memory_tools", args, "req-source-1", ctx, asyncio.Queue()
     )

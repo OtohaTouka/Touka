@@ -63,7 +63,6 @@ def run_router_smoke_test():
         {"path": "/v1/skills/list", "role": "normal", "expected_status": {200}},
         {"path": "/v1/souls", "role": "normal", "expected_status": {200}},
         {"path": "/v1/stats", "role": "normal", "expected_status": {200}},
-        {"path": "/v1/stats/emergence", "role": "normal", "expected_status": {200}},
         {"path": "/v1/system/sliding_window", "role": "normal", "expected_status": {200}},
         {"path": "/v1/system_health", "role": "normal", "expected_status": {200}},
         {"path": "/v1/memory", "role": "normal", "expected_status": {200}},

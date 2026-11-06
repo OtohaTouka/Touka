@@ -2,6 +2,72 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## Hook 設定與事件（2026-10-28，ADR-0292）
+
+- 管理端點（根路徑與 `/v1` 對等），`/hooks`、`/hooks/runs` 三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
+  - `GET /v1/hooks` → `HooksConfigResponse`：`config`（目前生效的設定；`hooks.json` 壞掉時是上一份好的）、`health`（`status` 為 `ok`／`missing`／`error`，`revision` 是目前檔案內容的 SHA-256、沒有檔案時 `null`，`detail` 是錯誤類型）、`wired_events`、`matcher_events`。
+  - `PUT /v1/hooks`：body `HooksSaveRequest` `{config, revision}`，`revision` 必填（沒有檔案時送 `null`），多的欄位 422。先查 CSRF Origin（不可信回 403）；revision 和目前檔案不同回 409 `HOOK_CONFIG_CONFLICT`（`detail.revision` 帶目前的值）；command hook 的程式或參數指到代理人寫得到的地方、或無法確認時回 422 `HOOK_PATH_REJECTED`（`detail.problems[]`：`event`、`where`、`reason`、`value`），都不寫檔；讀不到目前的檔案或寫不進去時回 500 `CONFIG_SAVE_FAILED`，執行中的仍是上一版。成功回 `{revision}`；`author`、`updated_at` 由伺服器填。
+    - `reason` 的值：`not_absolute`、`missing`、`not_file`、`parent_segment`、`unc_path`、`file_url`（參數是 `file:` 網址）、`agent_writable`、`outside_hooks_dir`（參數的路徑不在 `config/hooks/`）、`linked_path`（`config/hooks/` 本身或經過的一層是連結）、`hard_link`、`link_loop`、`unverifiable`。
+  - `GET /v1/hooks/runs` → `{runs: HookRunOut[]}`：最近 50 筆執行紀錄，新的在前，只在記憶體；無痕的只有時間、事件、結果與耗時。`detail` 是擋下或要求確認的理由、失敗原因（例外只有類型）與不採用的欄位，不含 stdout。
+- `GET /v1/hooks/active` → `{active: boolean}`（`require_authenticated`，任何已登入身分）：有沒有啟用中的 hook 會收到對話內容；ConfigChange、HeartbeatStart、HeartbeatStop 不算。只回布林值，不透露設定。聊天畫面在無痕對話用它提示（ADR-0292 決定 17）。
+- 聊天端點：UserPromptSubmit hook 擋下時回 403 `HOOK_PROMPT_BLOCKED`，`detail.reason` 是 hook 給的理由；`detail.reason` 最多 4,000 字；這時後端沒有寫任何東西（請求在送模型前就被拒）。hook 執行期間這個對話被停止（`POST /v1/ui/sessions/{id}/stop`）時，hook 跑完後不送模型，回 409 `PROMPT_STOPPED`（hook 擋下時仍回 403）。停止端點不帶 `stream_id` 時，若呼叫者本人在這個對話有還沒開始串流的請求、而且沒有進行中的串流，就把這個人還在等的請求標成已停止、回 200（不讀這一輪的對話內容，無痕也停得下來；同一對話之後的請求清不掉）。對話已存在時要有權限（沒有就回 403），這時也設這個對話的停止旗標、結束這個對話的子程序；查不到對話時只停自己的請求。這個停止之後同一個對話的下一則請求清掉旗標也一樣停（看這次執行開始之後被停止過幾次）。組上下文期間才停的，換綁對話之前與開始串流前回同樣的 409、不換綁、不建立串流。這個 409 不算模型失敗，不改用備援模型。有進行中的串流時照舊回 404 `STREAM_NOT_FOUND`，要帶 `stream_id` 才停得到。hook 服務自己出錯時照常回覆（當成沒有 hook 結果）。
+- 插話（ADR-0249 的 `POST …/interjections`）：進佇列前跑 UserPromptSubmit，擋下回 403 `HOOK_PROMPT_BLOCKED`（`detail.reason`），不進佇列；hook 執行期間串流換代或結束時回 404 `STREAM_NOT_FOUND`。
+- SNS：外人訊息等 hook 跑過、pipeline 開始回覆後才寫進對話（回覆是串流，寫好之前不讀）；被 UserPromptSubmit 擋下的不寫、不回覆外人，也不往外丟錯（只記 log），其他錯誤照舊寫。寫入失敗回 `SESSION_SAVE_FAILED`，不讀回覆、不呼叫模型。
+- 模型回合失敗：文字在 `RoundError` 建立時遮罩並限 300 字；SNS 來的對話（單人與群聊）對外與存檔只留固定文字（`sns_source`，由閘道標記）。
+- 事件內容：PreToolUse／PostToolUse 的 `tool_input` 是模型送來的參數（不含執行器之後補上的欄位）；模型叫舊工具名稱時另帶 `tool_aliases`（對應的新名稱），matcher 兩者都比對；MCP 工具另比對 `server__tool` 與 `mcp__server__tool`（模型用裸名稱叫也一樣）。
+- 專案根（ADR-0292 決定 12）：一般使用者（非 admin、非 Debugger）的專案根不能在 Touka 保護的位置或它們的上層；本機安裝時安裝根底下 Touka 自己的第一層資料夾也不行。
+  - `POST /v1/ui/projects/save`（存專案）不合規則回 422 `VALIDATION_ERROR`，`detail.reason` 是 `outside_workspace`、`protected_location` 或 `scan_limit`（檢查沒做完：資料夾太多、讀不到或還在查，訊息另外說明）。
+  - `GET /v1/ui/projects/{project_id}/files`（專案檔案樹）遇到這種專案根回 403 `AUTH_PERMISSION_DENIED`，不分原因（檢查沒做完時也一樣）。
+  - 專案檔案工具（列檔與讀寫）遇到這種專案根回結構化的 `permission_denied`（`reason` 同上），不執行；只有管理員擁有的靈魂不受限，有一般使用者共同擁有的照一般身分檢查。
+  - 代理人（含 Debugger 與只有管理員擁有的靈魂）的專案根路上有連結（解析前後不同，含 `..`、Windows 結尾的空白或句點、8.3 短檔名）時，專案檔案工具回 `permission_denied`、`reason: "linked_root"`；人類照舊。
+- 代理人的檔案動詞（各 scope）不跟隨連結：路上有 symlink 或 junction 時讀寫刪回錯誤「the path goes through a symbolic link or junction; links are not followed.」；list 把連結列成「名稱 (link, not followed)」，find、grep 不進入也不列出連結。
+- 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
+- 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
+- 模型失敗：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時，這一輪是一般的模型失敗（`RoundError`），UI 串流以 `generation: "error"` 結束。
+- 工具結果（續）：PermissionRequest hook 拒絕時回同樣的 `permission_denied`（`reason: "hook_denied"`、`hook_reason`），沒有 `tool_approval_request`；等這個 hook 時被停止回 `reason: "stopped_by_user"`。內建工具缺 schema 列的必要參數時回 `validation_error`（`param` 是第一個缺的），沒有 `tool_start`，和 hook 設定無關。
+- 事件內容（共同欄位 `session_id`、`agent_id`、`incognito`，有模式時多 `permission_mode`）：
+  - PostToolUseFailure：`tool_name`、`tool_input`、`tool_use_id`、`error`（先遮憑證與路徑）；工具真的開始跑之後失敗才有（結構化錯誤、MCP 回錯誤、丟例外、終端結束碼不是 0、舊工具結果開頭是 `Error:`／`❌`；內容裡出現這些字不算，走 PostToolUse）。
+  - PermissionRequest：`tool_name`、`tool_input`（沒有 `tool_use_id`）。回應只認 `hookSpecificOutput.decision.behavior: "deny"`（`message` 當理由）。
+  - PermissionDenied：`tool_name`、`tool_input`、`tool_use_id`、`reason`（固定代碼）。
+  - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。
+  - StopFailure：`error`（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`、`unknown`）、`error_details`（先遮憑證與路徑）。子代理的回合不發，這一輪不跑 Stop。
+  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（失敗時是空字串）。
+  - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者沒有 `permission_mode`。
+  - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
+  - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。
+  - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發（備份還原例外：在接受時發，完成後行程就重啟），擋不了設定；關閉 hooks 那次不發。
+  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發，`end` 仍是 `completed`。
+  - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop、TaskCreated、TaskCompleted、HeartbeatStart、HeartbeatStop 不看；Notification 看通知類型；StopFailure 看錯誤類型；SubagentStart、SubagentStop 看 `agent_type`；PreCompact、PostCompact 看 `trigger`；Elicitation 看 MCP 伺服器名稱；ConfigChange 看 `source`；其他看工具名稱。
+- 背景事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
+- `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。
+
+## 查最後一次重置的結果（2026-10-28，ADR-0289）
+
+- 新端點 `GET /v1/admin/agents/reset/last`（根路徑 `/admin/agents/reset/last` 對等）：回 `LastResetStatus`。只給人類 admin（`Depends(require_admin_human)`），admin 代打與一般使用者回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401。唯讀。
+- `state`：
+  - `idle`：本次啟動後沒有紀錄（伺服器重啟後也是）。
+  - `running`：拿到破壞性操作鎖之後；請求斷線、清除還在跑時也是。
+  - `done`：`report` 和 `POST /v1/admin/agents/{target}/reset` 回的是同一份 `AgentResetResponse`（含 `scrub`）。
+  - `failed`：`error_code` 是 errors.json 的鍵（例如 `SYSTEM_BACKUP_FAILED`），不放例外原文；不是 Touka 錯誤的一律 `SYSTEM_ERROR`。
+  - `interrupted`：請求中途取消、還沒交給清除工作，可能只清了一部分。
+  - 另有 `agent_id`、`started_at`、`finished_at`（UNIX 秒）。
+- 只記最後一次、只在記憶體。被 409 擋下、或還沒拿到鎖就被拒絕的請求不改紀錄；DebugAgent 重置也記。結果在放鎖、清旗標之前記好，下一次重置蓋不掉。
+- 重置端點的參數與回應不變。
+
+## 刪除、重置、記憶清除期間擋住心跳（2026-10-27，ADR-0287）
+
+- `DELETE /v1/souls/{soul_id}`：步升、不可刪名單、路徑監獄之後，整段持有破壞性操作鎖並標記目標。順序是：
+  1. 重置、清除或另一個刪除進行中：409 `AGENT_RESET_IN_PROGRESS`（1415）。
+  2. 這個靈魂還有心跳在跑：叫它停下，409 `SOUL_HEARTBEAT_RUNNING`（1419），什麼都不清。那次心跳留下的活動紀錄要先重置。
+  3. 記憶、活動紀錄檢查，清隔離家目錄。
+  4. 再查一次記憶與活動紀錄：清家目錄期間寫進來的照樣 409 `SOUL_MEMORY_NOT_RESET`。
+  5. 清三個資料夾與取消註冊。
+- 取消註冊五步每步都做；有失敗時回 500 `SOUL_UNREGISTER_INCOMPLETE`（1420），`detail.failed_steps` 是步驟名稱（`models`、`agents_registry`、`brain`、`owners`、`identity_override`），不帶例外原文。資料已刪，再刪一次會補清。成功回應不變。
+- `POST /v1/admin/agents/{target}/reset` 與 DebugAgent 重置：刪除靈魂進行中也回 409 `AGENT_RESET_IN_PROGRESS`。重置時叫這個靈魂正在跑的心跳停下（照常重置）；`AGENT_RESET_IN_PROGRESS` 的訊息改成「另一個重置、記憶清除或刪除靈魂正在進行」（ADR-0293 起是「另一個重置、記憶清除，或刪除、改名代理人的操作正在進行」）。
+- `POST /v1/system/restore/run`：刪除靈魂進行中同樣回 409 `AGENT_RESET_IN_PROGRESS`。
+- `POST /v1/heartbeat/awaken`、`POST /v1/heartbeat/retrigger`：這個靈魂正在刪除、重置或清除時回 409 `AGENT_RESET_IN_PROGRESS`；`/awaken` 在寫初始提示前再看一次；細節見 HEARTBEAT_INTERFACE。
+- 參數與回應形狀不變；OpenAPI 只有刪除端點的說明文字更新。錯誤碼多 1419、1420，兩語 i18n 各兩個鍵。
+
 ## 刪除靈魂清隔離家目錄、密碼重輸錯誤碼（2026-10-21）
 
 - `DELETE /v1/souls/{soul_id}`：記憶與活動檢查之後、刪任何東西之前，清這個 ID 在隔離暫存區的 HOME／TMP（proxy 的 `ST/proxy/agents/<id>`；預期是執行器時另經既有 START 清 `<state_root>/agents/<id>/{home,tmp}`，ADR-0272 限制 26 補記）。清不掉回 503 `SOUL_SANDBOX_HOME_NOT_CLEARED`（1418），什麼都不刪，不帶原因與路徑。
@@ -100,8 +166,8 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 
 ## 模型溝通層第 1b 段：計費與 complete_once（ADR-0244）
 
-- 用量：三家 adapter 回同一組四欄，`prompt_tokens` 只含未快取輸入，快取讀（`cache_read_input_tokens`）、快取寫（`cache_creation_input_tokens`）另列，加上 `completion_tokens`。`token_usage.json` 鍵名與稽核 CSV 欄位都不變；價格表沒填快取費率的模型，快取 token 照 input 價計。
-- 每輪記帳：ReAct 迴圈每一輪解析後就寫進 `token_usage.json`，成本上限在同一次 run 中途就看得到已花的錢。E-Index 歷史每次 run 一筆；稽核 CSV 每次 run 一列，`cost_usd` 為整次加總、含快取。
+- 用量：三家 adapter 回同一組四欄，`prompt_tokens` 只含未快取輸入，快取讀（`cache_read_input_tokens`）、快取寫（`cache_creation_input_tokens`）另列，加上 `completion_tokens`。`token_usage.json` 鍵名不變；稽核 CSV 的欄位只在 ADR-0291 拿掉 `e_index`；價格表沒填快取費率的模型，快取 token 照 input 價計。
+- 每輪記帳：ReAct 迴圈每一輪解析後就寫進 `token_usage.json`，成本上限在同一次 run 中途就看得到已花的錢。稽核 CSV 每次 run 一列（不再有 `e_index` 欄，ADR-0291），`cost_usd` 為整次加總、含快取。
 - SSE `token_usage` 進度事件（前端「本回合用量」）：位置與欄位不變，`total` 改為整次 run 所有模型呼叫的四欄加總，`cost` 改為整次加總且含快取（以前只算最後一次回覆、不含快取）；`usage_pct` 與 Claude 的 `context_breakdown` 仍看最後一輪。只呼叫一次模型的回合數字不變，多輪的回合數字會變大。
 - 原生 `POST /v1/messages`：照常記帳並寫 CSV（以前完全不記），但串流不送 Touka 的 `token_usage` 事件，回應 wire 不變。
 - 摘要、互審 critic、創建評分改走 `complete_once`，記帳到對應身分（provider 標籤 `summarizer`／`critic`／`judge`）並受成本上限約束。超過上限時，摘要略過、只做純無損剪裁；critic 視同傳輸失敗＝REJECT；評分回 0.0。critic 依 critic 模型路由；`/v1/creation/*` 帶 `eval_scoring=true` 時，評分記到發起建立的身分。
@@ -193,6 +259,13 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 新端點 `GET /v1/system/restore/status`（根路徑 `/system/restore/status` 對等）：admin 限定（`require_admin_authority`，登記在 Guard #24 的 admin 清單），唯讀。回 `RestoreStatus`：`state` 為 `idle`（這次啟動後沒有還原紀錄）、`running`（還原進行中）或 `failed`（還原失敗），`error_code` 只在失敗時有值，目前是 `SYSTEM_BACKUP_FAILED`（1303），其他時候 `null`；不帶路徑或例外原文。沒登入 401 `AUTH_INVALID_TOKEN`，不是 admin 403 `AUTH_ADMIN_REQUIRED`。紀錄只在記憶體：`POST /v1/system/restore/run` 接受時記 `running`（蓋掉上一次的失敗；回應形狀不變），背景還原丟例外時記 `failed`；成功時進程結束重啟，新進程回 `idle`。OpenAPI 已重生。
 - `POST /v1/souls`（建立靈魂）：`config.base_model` 比照存檔（ADR-0250）先正規化，`null`、空字串、只有空白都當沒指定、`config.json` 存 `null`，有值時去掉前後空白後寫回。有指定時在建任何資料夾之前先驗：不在模型清單裡（`is_selectable_brain` 不過）回 404 `MODEL_NOT_FOUND`（1202），只差大小寫的兩個自訂連線都在、寫法又對不上時回 409 `MODEL_NAME_AMBIGUOUS`（1220）；兩者都不建資料夾、不註冊、不加擁有權。驗模型排在人類 ID 撞名與 409 `SOUL_ALREADY_EXISTS` 之後。可選或沒指定照舊建立（可選時設成主要模型），成功回應不變。
 - `POST /ui/custom_models/{id}/rename`（含 `/v1`）：搬資料夾失敗不再回 200。來源不見 404 `MODEL_NOT_FOUND`（1202）、新 ID 已被占用 409 `MODEL_ALREADY_EXISTS`（1403）、其他失敗（沙箱檢查不過、搬移出錯）500 `SYSTEM_ERROR`（1000）；三種都不改 `config.json`、不搬擁有權。只差大小寫的改名（Windows 上是同一個資料夾）現在會真的改名並搬擁有權。成功回應照舊 `{"status":"success","old_id","new_id"}`；撞名檢查（ADR-0250 A5）不變。
+- 2026-10-25 起（ADR-0254 H12 補記），自訂模型（含 `/v1`）：
+  - `POST /ui/custom_models/{id}/rename` 的 `new_id` 可以用中文等各語言的字母數字（`^[\w.-]+$`，和建立時一致；原本 `^[A-Za-z0-9._-]+$`）。新舊 ID 相同回成功、什麼都不寫；舊 ID 和靈魂同名回 409 `MODEL_ALREADY_EXISTS`；搬完之後 `config.json` 讀不到、寫不進去，或擁有權寫不進去時，把資料夾與 config 搬回、回 500 `SYSTEM_ERROR`。擁有權改成所有使用者的清單一起換名（不再只改呼叫者的，呼叫者不是人類也改），別人清單裡新 ID 的殘留拿掉。
+  - `GET`、`POST`、`DELETE /ui/custom_models/{id}` 與改名只認名稱完全相同、有 `config.json` 的模型資料夾：只差大小寫的 ID、以及沒有 `config.json` 的資料夾（別的身分的個人空間），查看、改名、刪除回 404 `MODEL_NOT_FOUND`；存檔只差大小寫時不當成既有模型、走新建的撞名檢查回 409 `MODEL_ALREADY_EXISTS`。新建與改名的新 ID 不能是 DebugAgent、DispatchAgent（不分大小寫，409）。
+  - 新建時別人清單裡這個 ID 的殘留拿掉、只加給人類建立者；刪除時從所有人的清單拿掉，不只呼叫者的（和靈魂同名的舊資料夾不動）。
+  - `POST /ui/custom_models/{id}` 寫不進去時回 500 `SYSTEM_ERROR`、不認領（原本照樣回 200）；新建時寫了一半的資料夾會刪掉。
+  - `POST /v1/souls`：和既有自訂模型（有 `config.json`）完全同名回 409 `MODEL_ALREADY_EXISTS`、什麼都不建；同名資料夾沒有 `config.json` 時照樣建立。建立成功時別人清單裡這個 ID 的殘留拿掉、只加給建立者。刪除靈魂從所有人的清單拿掉，改成一次原子寫入。
+  - 沒有新增錯誤碼，成功回應不變。
 - `POST /v1/admin/setup/apply`：`dispatch_token` 或 `auth_secret` 是歷來公開過的值（`config.PUBLIC_SECRET_VALUES`，比對前去掉前後空白）時回 422 `VALIDATION_ERROR`（3001），`.env` 不寫任何欄位；訊息只寫欄位名、不帶值。非公開值照舊寫入。
 - 演化工具：`evolution_implement_and_verify` 不再是自帶審批，照一般工具過政策。Manual 有人在場時先送一張一般的 `tool_approval_request`（很長的參數可能只預覽前段），核准才建 venv、pip、驗證；無人在場時 executor 回 `permission_denied`（`reason=approval_required`）、什麼都不跑。`submit_for_deploy=True` 時部署前仍有 `skill_creation_approval_request` 卡（無人在場照舊 fail-closed）；Auto、YOLO 行為不變。自帶審批工具剩 `request_skill_install`、`request_mcp_creation`。
 - MCP stdio 伺服器的啟動環境＝`LAUNCH_ENV_ALLOWLIST`（`protocols/mcp/environment.py`）內的父環境變數＋條目自己的 `env`（解析哨兵）＋`TOOL_BASE_URL`；`PATH`、`HOME`、`SYSTEMROOT` 一類由 MCP SDK 照舊帶。不再繼承 Touka 與廠商金鑰，也不再拿到 `PYTHONPATH`、`HF_HOME`、`HTTP_PROXY`／`HTTPS_PROXY`、Windows 的 `HOME`；需要的值寫進 `POST /mcp/ui/config` 條目的 `env`。創建引擎試跑用同一個白名單＋spec 宣告的 `env`（不解析哨兵）。
@@ -215,7 +288,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 
 ## Claude 工具定義：根層組合子（ADR-0266）
 
-- 送給 Claude 的每個工具 `input_schema`：根層不帶 `oneOf`／`anyOf`／`allOf`（各分支的 `properties` 併進根層，同名以根層為準；`required` 只留根層原有的；其他根層鍵如 `$defs` 照留；根層 `type` 一律 `object`），內層照留。OpenAI 形狀與 Anthropic 形狀（含 `/v1/messages` 帶來的工具、外部 MCP 工具）都一樣；沒有 `input_schema` 的伺服器工具原樣送出。Gemini、OpenAI 相容、Responses 送出的工具定義不變；執行前的參數檢查不變。端點與 OpenAPI 不變。
+- 送給 Claude 的每個工具 `input_schema`：根層不帶 `oneOf`／`anyOf`／`allOf`（各分支的 `properties` 併進根層，同名以根層為準；分支之間同名欄位的定義依出現順序收集、相同的只留一份，多種合成 `anyOf`（ADR-0285 甲-2）；`required` 只留根層原有的；其他根層鍵如 `$defs` 照留；根層 `type` 一律 `object`），內層照留。OpenAI 形狀與 Anthropic 形狀（含 `/v1/messages` 帶來的工具、外部 MCP 工具）都一樣；沒有 `input_schema` 的伺服器工具原樣送出。Gemini、OpenAI 相容、Responses 送出的工具定義不變；執行前的參數檢查不變。端點與 OpenAPI 不變。
 
 ## 記憶系統第二批段 4：可信活動時間軸與時間感（ADR-0267）
 
@@ -238,13 +311,15 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
   | 完全找不到（不是 builtin／memory／plugin，解析出的 MCP 伺服器不在 registry、清單上也沒有任何一對用這台） | `resource_not_found` | （無） |
   | 這一輪的清單不可用（缺失或型別不對；接線問題，伺服器記 error log） | `internal_error` | `advertised_tools_unavailable` |
   | 這一輪沒列出 | `permission_denied` | `not_advertised` |
+  | 列出了，但這是使用者各自授權（`oauth_user`）的 MCP，而這次不是人在場、和靈魂的前景對話（心跳、SNS、群聊成員、子代理、派工等；ADR-0281 T1 的第二層防線，排在審查員與審批卡之前、不寫同意紀錄） | `permission_denied` | `user_scoped_mcp_unavailable` |
 
   `internal_error`／`permission_denied` 兩種另帶 `denied_tool`（模型叫的名稱）與 `suggestion`。
 - 舊名工具（`bash`、`vault_tools`、`project_tools`、`update_my_soul`、`sns_control` 與四個演化舊名）：它的後繼正式工具**全部**在這一輪清單上才放行，不看參數裡的 action（對應表 `tools/builtin/__init__.py` 的 `LEGACY_ADVERTISED_SUCCESSORS`）。舊名各自的角色權限照舊。
 - MCP：核對（伺服器, 裸工具名）這一對。`connect_mcp_server` 掛上的伺服器，下一輪對話才列出（背景執行是下一次脈衝），同一輪叫回 `not_advertised`。伺服器當下沒連上時同樣回 `not_advertised`，不會現場連線。
-- Gate 1 從來不列、因此一律回 `not_advertised` 的三類：使用者各自授權的 MCP（`auth_mode` 為 `oauth_user`、`oauth_client_credentials` 或 enterprise）、還沒連線的共享 MCP、SoulStudio 存成短名的 MCP 工具與外掛（plugin）。修正另開任務（T1、T2，見 ADR-0269）。
+- 使用者各自授權的 MCP（ADR-0281 T1）：只在人在場、和靈魂的前景對話時，ToolLayer 為 `oauth_user` 的伺服器帶身分列出（先做只讀的授權查詢，沒授權不連；第一次連線最多等 5 秒，逾時這一輪不列；連線還在跑或失敗後 60 秒內這一輪直接略過）；其他情況、`oauth_client_credentials` 與 enterprise 一律不列。還沒連線的共享 MCP 不列成工具，名字寫在每輪會變動的 `<mcp_unavailable>` 區塊。
+- 靈魂與自訂模型的工具清單（`enabled_tools`，ADR-0281 T2）：比對只用 `utils/soul_tool_selection.py`。內建與記憶工具比名稱；MCP 只認恰好一個斜線的 `伺服器/工具`，比（伺服器, 工具）這一對；舊長名 `伺服器__工具` 照舊比廣告名；舊短名、只寫伺服器名、含萬用字元、兩個以上斜線都不生效（舊短名只在靈魂自己的執行檢查，每個靈魂記一次警告）。外掛（plugin）照舊不列。`/v1/tools_stats` 的 MCP 條目附加 `server`、`tool` 欄位給畫面存檔用。
 - 子代理：用自己組裝出的清單，不沿用父代理；`dispatch_subagent` 與 `dispatch_subagent_group` 從請求與清單都拿掉。
-- 成對的工具要一起開：`execute_command` 的非同步流程會叫模型之後呼叫 `get_command_result` 取結果（`tools/terminal.py`）。靈魂的 `enabled_tools` 只勾了 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）；自動帶上配套工具另開後續任務（見 ADR-0269）。
+- 成對的工具一起開：`execute_command` 的非同步流程會叫模型之後呼叫 `get_command_result` 取結果（`tools/terminal.py`）。工具清單勾了 `execute_command` 而且它真的列出時，`get_command_result`、`stop_command` 一起列出（ADR-0281 T2 的 `TOOL_COMPANIONS`）；它們照樣先經過政策與角色權限，舊名 `bash` 不帶。`/v1/tools_stats` 的 `tool_companions` 給畫面標示。
 - `/v1/debug/execute`：人按的執行，不核對清單（行為不變）。
 - 模型迴圈建立的執行器若沒開核對，`run_react_loop` 在送出上游之前以 `ToukaException(SYSTEM_ERROR)`（1000）中止，不執行任何工具。
 - 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
@@ -377,6 +452,8 @@ revision涵蓋完整14欄readset、owner、absence、process epoch與generation�
 只有已授權明示 `ui_persistence` 使用 `_pump_ui_stream`／`_persist_ui_assistant_turn`。pipeline前同一snapshot
 綁owner＋client revision，dispatcher admission再驗user節點；原requester不隨soul執行身分切換。
 UI envelope不送上游provider。無UI契約的已認證OpenAI／Anthropic及內部舊路徑不取得新保證。
+persistent 客戶端必須送這個對話完整的線性路徑：SoulLayer 據此在家對話本身不再插家對話（請求帶 persistent
+`ui_persistence` 且路由核准 `ui_authorized`，兩者都要）；子對話、SNS、IDE 與沒帶 `ui_persistence` 的請求照舊插入（2026-10-29）。
 fatal RoundError／rhythm中止分別為error／cancelled，不自動保存部分內容；只有確認保存才排非阻塞trim，
 trim以strict原基底CAS，不能覆蓋UI新樹。詳 [ADR-0231](adr/0231-session-persistence-outcomes-and-revisions.md)。
 
@@ -629,6 +706,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 
 ### 1.10b 韌性可觀察性 (Resilience Observability) — ADR-0078 ⭐
 - **`GET /v1/stats` 折入 `interrupted_runs`**：ToukaProxy 啟動時 `autonomy_service.scan_and_clear_interrupted()` 掃描各 agent `autonomy_log.json` 殘留的 `heartbeat_in_flight` 標記（上次當機/被關時未跑完的背景脈衝），供前端「⚠️ 上次有 N 個未完成的背景任務」通知（沿用 `daily_quota`/`background_activity` 的 fold 技巧，免改 openapi/api.ts）。
+- **`GET /v1/stats` 依身分過濾（2026-10-28）**：`background_activity`、`interrupted_runs` 只列 `authorization_gateway.can_access_session` 放行的靈魂：admin（含代打）與 Debugger 看全部，人類看自己擁有的，代理只看自己，沒有 `agent` 的紀錄只給 admin 與 Debugger。`usage_history`／`total_usage` 只給 admin（`is_admin_authority`），其他人是 `[]`／`0`；`dispatch_supervisor.pid` 對 admin 以外是 `null`。鍵與型別不變。一般人類每遇到一個不同的靈魂會讀一次使用者資料（`users.json`）判斷擁有權；檔案存在但讀壞時這次 `/stats` 整個回 `PERSISTENCE_ERROR`（拒絕而不放寬）；檔案不存在時當成不擁有任何靈魂。`token_usage` 也用同一個判斷過濾（2026-10-29），看不到的靈魂不讀檔、不出現在鍵裡：Owner 代理只看自己，人類 admin 與 Debugger 看全部；其他身分（一般使用者、admin 代打、其他代理角色）仍是 `{}`（`list_all_agent_stats` 本來就不給）。
 - **`POST /v1/heartbeat/retrigger`**：人類擁有者一鍵重跑中斷會話（強制 `Auto`、只給 admin 或人類擁有者、會話須屬於該靈魂、`can_awaken` 能力守衛、`pulse` 夾 1..5），詳見 [HEARTBEAT_INTERFACE.md](HEARTBEAT_INTERFACE.md)。
 - **系統降級可見化**：記憶系統未載入（degraded）由 `GET /v1/memory` 的 `system_degraded`/`degraded_reason` 暴露；前端 `SystemStatusContext` 解析後於側欄常駐 `DegradedBanner`（`role="alert"`）。
 - **記憶提示（ADR-0253；結構提示 ADR-0256）**：`GET /v1/memory` 另回 `memory_notices`（list），每一項是 `{"code", "level", 選填欄位…}`，只放代碼；`level` 是 `info` 或 `warning`。代碼與等級的正本是 `routers/observability.py` 的 `MEMORY_NOTICE_*` 常數：舊記憶檔提示由 lifespan 的 `collect_memory_notices()` 算一次；記憶庫結構提示（5 個 `warning` 代碼）由 `memory_schema_notices()` 每次請求即時算，狀態讀自 `FactualStore.existing_shared()`。這是只給畫面看的提示，不是降級：不改 `system_degraded`、不進 prompt。既有三個欄位不變；端點沒有 `response_model`，openapi 不變，前端型別（`MemoryNotice`）自己宣告。前端：`MemoryNoticeBar` 放在右側欄降級橫幅下方（`info` 是 `role="status"`、`warning` 是 `role="alert"` 且和降級橫幅同色），有 `warning` 時左側身分列另加警告標記（`lib/memoryNotices.ts` 的 `hasMemoryWarning`）。
@@ -685,7 +763,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
   - **邏輯下沉**：工具實作邏輯已完全下沉至 ToukaMemory。Proxy 扮演「薄橋接器」，負責身份錨定與權限透傳，不重複實作業務邏輯。
   - **依賴反轉接縫（ADR-0116：整合模式單一部署）**：`get_resource_proxy()` 只回傳 Proxy 注入的真實 `ResourceManager`；取不到即 fail-loud。ToukaMemory 獨立 MCP 模式與 `_FallbackResourceProxy` 已退役，不得靜默降級至無身分隔離或路徑保護的 I/O。
   - **記憶來源（記憶系統第一批段 4，ADR-0256）**：記憶閘道（`tools/builtin/memory.py`）持有 `services/memory_source_resolver.MemorySourceResolver` 單例，不在 `main.py` 注入。存記憶時只用執行器注入的 `session_id`／`request_id` 與 `PipelineContext.source_message_id` 組來源；`source_message_id` 只有兩處寫：`routers/proxy._authorize_ui_persistence`（明示 UI 持久模式、revision 驗過後的 `user_parent_id`，無痕不寫）與 `routers/heartbeat._execute_single_pulse`（每次脈衝的觸發 user 節點）。`query` 帶 `include_sources` 時才把查回器交給記憶系統。外面帶進來的 `source_context`／`source_resolver` 一律剝掉。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶來源」。
-  - **一步取代與查舊版本（記憶系統第二批段 L，ADR-0263）**：`manage_dups` 的 `operation="supersede"` 存的新記憶，閘道同樣組 `source_context`（和 `save` 同一條）。`memory_server.factual.SupersedeTargetError`（被取代的不是自己仍有效的記憶）轉成 `resource_not_found`，訊息固定、不回顯 id；其他例外照舊是 `internal_error`。`query` 公開欄位多 `include_history`。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶會演變與安全標記」。
+  - **一步取代與查舊版本（記憶系統第二批段 L，ADR-0263）**：`manage_dups` 的 `operation="supersede"` 存的新記憶，閘道同樣組 `source_context`（和 `save` 同一條）。`memory_server.factual.SupersedeTargetError`（被取代的不是自己仍有效的記憶）轉成 `resource_not_found`，訊息固定、不回顯 id；其他例外照舊是 `internal_error`。〔ADR-0286 乙-2：`memory_server.vector.SemanticSearchUnavailableError`（語意查詢沒做成；目前只有重複掃描會帶到閘道）轉成 `upstream_error`；forget 遇到資料庫錯誤（`FactWriteError`）走 `internal_error`，不再回「not found」〕`query` 公開欄位多 `include_history`。細節見 [MEMORY_INTERFACE](MEMORY_INTERFACE.md)「記憶會演變與安全標記」。
 
 ---
 
@@ -713,6 +791,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
 - **身份識別**: 依據認證 Token 判定操作主權。路由層會自動將 URL 中的 `model_id` 字串轉化為經認證的 `AgentIdentity` 物件傳遞至 Service 層。
+- **刪除與改名（ADR-0293）**: `DELETE /v1/ui/custom_models/{model_id}`、`POST /v1/ui/custom_models/{model_id}/rename` 與設定頁的 `DELETE /v1/models/{model_id}`（遇到自訂模型時）走同一條路：個人空間是連結回 409 `AGENT_DRIVE_LINKED`、什麼都不改；先停掉這個模型的全部指令再刪或改名（和靈魂同名的舊資料夾不停，但期間靈魂的新指令與心跳一樣被擋）。別的代理人正在重置、清除或刪除時回 409 `AGENT_RESET_IN_PROGRESS`。`DELETE /v1/models/{model_id}` 刪自訂模型時也查擁有權，不是擁有者回 403。新的 ID 不能當成一段資料夾名稱（例如 Windows 上結尾是點或空白）時 422。
 
 ---
 
@@ -807,7 +886,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 1. **後端驅動**：Pydantic 模型定義為 SSOT。
 2. **合約驗證**：透過 `test_api_schema_sync.py` 確保模型與物理 `openapi.json` 強一致。
 3. **合約工具**：提供 `scripts/update_openapi.py` 自動更新物理合約。
-4. **前端守衛**：透過 `guard_frontend.ts` 強制校驗前端所有 API 呼叫是否符合 `openapi.json` 定義（包含 `/v1` 前綴與路徑格式）。
+4. **前端守衛**：透過 `guard_frontend.ts` 強制校驗前端所有 API 呼叫是否符合 `openapi.json` 定義（包含 `/v1` 前綴與路徑格式）；前端手寫和 schema 同名的型別也由它擋（基準凍結，ADR-0298）。
 5. **前端同步**：前端呼叫 `npm run sync-api` 消費合約產出型別。
 
 ---
@@ -828,6 +907,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **自癒能力**: 支援 `.env` 自動發現與缺失配置自動復原。
 - **環境感知互斥載入 (ADR-0052)** ⭐：系統支援整合與解耦分開運行。當以大一統整合模式執行時，系統強制載入並統一讀取根目錄 `.env`；當分開獨立運行某個子專案時，強制載入並讀取子專案目錄下的 `.env`，不得混載或相互覆蓋。
 - **`.env` 寫入路徑 SSOT 與 `TOUKA_ENV_FILE` 覆寫（2026-07-02，ADR-0118，延伸 ADR-0052／禁令 38）** ⭐：`routers/config.py` 的 `POST /v1/config/env` 讀寫 `.env` 一律經 `src.config.resolve_env_file_path()`（SSOT），移除裸相對 `".env"`。`resolve_env_file_path()` 新增最高優先權環境覆寫 `TOUKA_ENV_FILE`（高於整合／獨立模式自動偵測）；`docker-compose.yml` 設 `TOUKA_ENV_FILE=/app/host_root/.env`（**ADR-0151**：`./:/app/host_root` 恆掛 compose 目錄＝compose `env_file` 讀取的同一 .env，與 `WORKSPACE_ROOT` **解耦**；舊制 `/app/workspace/.env` 綁 `WORKSPACE_ROOT`，指向 repo 以外即寫幽靈 .env）→ 精靈與自動生成的金鑰**跨容器重建持久化**並於重啟重新注入。寫入後 `apply_runtime_env()` 同步 `os.environ` ＋ settings ＋ 模組層 `src.config` 常數（免重啟即時生效）。
+- **寫 `.env` 共用一把鎖（2026-10-28，ADR-0288）**：`POST /v1/config/env`、首裝精靈、密鑰持久化與切換嵌入模型（在記憶工作者上）寫 `.env` 時，讀改寫整段持 `src.config.ENV_FILE_LOCK`，同時寫不會互相蓋掉；只管 Proxy 這個行程。回應不變。
 - **`POST /v1/config/env` 寫入失敗錯誤消毒（2026-07-02，E#21 security）** ⭐：`update_env` 的 500 回應不再夾帶原始例外字串（移除 `error_output=str(e)`）；統一回乾淨的 `SYSTEM_ERROR`，詳情僅寫入 `logger.exception`。雖為 admin-only 端點，仍避免洩漏檔案系統路徑。
 
 ## 📦 部署主權 (Deployment Sovereignty) ⭐
@@ -856,7 +936,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 ### 4. 前端 Console 禁令 (CONSOLE_BAN)
 - **規則**：前端生產代碼嚴禁直接呼叫 `console.log/warn/error()`，必須透過 `logSSOTError()` 封裝層。
 - **執法**：`guard_console.ts`（CONSOLE_BAN），整合於 `guard_all.py` 第 15 關 (Guard #15)（ADR-0031）。
-- **唯一授權**：`src/lib/error_handler.ts`（白名單）。
+- **唯一授權**：`src/lib/error_handler.ts`（靠行內 `// noqa: CONSOLE_BAN`）。
 
 ### 5. 模組邊界守衛 (Module Boundary Guard)
 - **規則**：ToukaMemory 嚴禁直接 import ToukaProxy 內部模組（`src.services`、`src.utils` 等）。
@@ -880,6 +960,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
   - 已知限制：檔案都已寫入、但最後讀統計失敗時，整次仍回 `SYNC_FAILED`。
 - **同步不搬檔（ADR-0264）**：`legacy/` 受保護，以前搬到 `backup/` 一律被擋（每次都回 `SYNC_FAILED`）。現在檔案留在原地，以（檔名, 內容 SHA-256）記為已處理，重跑跳過；`GET` 的 `archived_files` 改成已處理紀錄數、`pending_files` 是還沒處理的 JSON 數。
 - **切分存入舊對話 `POST /v1/ui/sessions/legacy/export`（ADR-0264）**：存取檢查不變（要能存取該 agent）；`json_content` 直接歸檔進該 agent 的舊對話庫，不寫檔；`filename` 只當標籤。回 `{"status": "success", "archived": n}`，不再回實體路徑；沒有可歸檔的訊息回 `VALIDATION_ERROR`，寫入失敗回 `SYSTEM_ERROR`。以前寫檔被保護擋下，一定回 `SYSTEM_ERROR`。
+- **歸檔照實（ADR-0286，2026-10-27）**：匯出端點的 `archived` 與滑動視窗剪裁的判斷，改成確認在庫的筆數：之前就存著同樣內容的訊息也算；同 id 但內容不同的另存成這則訊息的版本、也算在內，不再靜默丟掉新內容。`GET /v1/stats/legacy/{agent_id}` 遇到不是 UTF-8 的 JSON 檔算待處理，不再回 500。節點內容不是字串時改成存文字，不再讓歸檔失敗。錯誤碼不變；回應只有 `POST …/sync` 的 `result` 多一個 `conflicts`（另存成版本的筆數）。
 
 ---
 

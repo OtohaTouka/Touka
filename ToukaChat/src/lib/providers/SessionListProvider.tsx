@@ -7,7 +7,7 @@ import type { RequestScope } from "../connections";
 import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { ERRORS } from '../error_codes';
-import { applySessionChange, replaceSession, mergeSessionRefresh, parseSaveResult,
+import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, parseSaveResult,
   unknownSave, rejectedSave, isSaved, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
 
@@ -22,6 +22,7 @@ interface SessionWriter {
   intent: number;
   recoveryBusy?: boolean;
   requireAbsence?: boolean;
+  savedHere?: boolean; // 這一頁存過；畫面更新會清掉 revision，不能用 revision 判斷
   recovery?: SessionSnapshot;
   confirmed: Session;
   tail: Promise<unknown>;
@@ -34,6 +35,7 @@ interface SessionWriter {
 interface SessionContextType {
   sessions: Session[];
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
+  applySavedHome: (id: string, agentId: string, isHome: boolean) => void;
   getSession: (id: string) => Session | undefined;
   refreshSessions: () => Promise<Session[]>;
   updateSessionTitle: (id: string, title: string) => Promise<SaveResult>;
@@ -53,6 +55,8 @@ interface SessionContextType {
 
 const SessionListContext = createContext<SessionContextType | undefined>(undefined);
 const scopeId = (scope: RequestScope | null) => JSON.stringify(scope);
+// 第一次存好之後，存檔裡當然有它；之後照常重讀存檔、比對內容才存（ADR-0231）。
+const markSavedHere = (writer: SessionWriter) => { writer.requireAbsence = false; writer.savedHere = true; };
 
 export function SessionListProvider({ children }: { children: React.ReactNode }) {
   const [sessions, renderSessions] = useState<Session[]>([]);
@@ -94,6 +98,21 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     }
     return writer;
   }, []);
+
+  // set_home 成功後存檔的家欄位和版本已經變了。這是存檔的事實，不是外部輸入：有未確認草稿的對話也跟著改，
+  // 其他內容照留；舊版本作廢，下一個命令重讀存檔比對（ADR-0231）。這一輪還在跑時不動版本：收尾要用它，不能不帶版本存。
+  const applySavedHome = useCallback((id: string, agentId: string, isHome: boolean) => {
+    const previous = sessionsRef.current;
+    setSessions(applySetHome(previous, id, agentId, isHome).map((session, index) => {
+      if (session === previous[index]) return session;
+      const writer = getWriter(session);
+      writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent };
+      writer.recovery = undefined;
+      if (writer.producer) return session;
+      writer.confirmed.revision = undefined;
+      return { ...session, revision: undefined };
+    }));
+  }, [getWriter, setSessions]);
 
   const report = useCallback((id: string, result: SaveResult) => {
     if (!isSaved(result)) {
@@ -222,6 +241,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
       if (isSaved(result)) {
         writer.unconfirmed = false;
+        markSavedHere(writer);
         writer.confirmed = { ...intended, ...(result.status === 'saved' ? { revision: result.revision } : {}) };
       } else writer.halted = true;
       writer.result = result;
@@ -247,7 +267,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     ensureScope();
     if (!getSession(session.id)) setSessions(previous => replaceSession(previous, session));
     const writer = getWriter(getSession(session.id)!);
-    if (!writer.confirmed.revision) writer.requireAbsence = true;
+    if (!writer.confirmed.revision && !writer.savedHere) writer.requireAbsence = true;
     // 只有建立／明確匯入使用 snapshot；既有 session 的操作改走 semantic change。
     return updateSession(session.id, () => session, operation);
   }, [ensureScope, getSession, getWriter, setSessions, updateSession]);
@@ -324,6 +344,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (matchesSessionContent(draft, snapshot.session)) {
         result = { status: 'saved', representation: 'full', revision: snapshot.revision };
         writer.unconfirmed = false;
+        markSavedHere(writer);
         writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision };
         setSessions(previous => replaceSession(previous, writer.confirmed));
       } else {
@@ -359,6 +380,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       writer.halted = !isSaved(result);
       if (result.status === 'saved' && result.representation === 'full') {
         writer.unconfirmed = false;
+        markSavedHere(writer);
         writer.confirmed = { ...intended, revision: result.revision };
         let preview: Session;
         try { preview = writer.pending.reduce((state, item) => item.deferred ? state : applySessionChange(state, item.change), writer.confirmed); }
@@ -527,6 +549,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         });
         setSessions([...next, ...retained.values()]);
       },
+      applySavedHome: (id, agentId, isHome) => { if (current()) applySavedHome(id, agentId, isHome); },
       getSession: id => current() ? getSession(id) : undefined,
       getPersistence: id => current() ? getPersistence(id) : undefined,
       recheckSession: id => current() ? recheckSession(id) : Promise.resolve(rejectedSave()),
@@ -542,7 +565,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       completeProducer: (token, change, result, generation) => current()
         ? completeProducer(token, change, result, generation) : Promise.resolve(rejectedSave()),
     };
-  }, [sessions, scopeKey, setSessions, getSession, getWriter, getPersistence, refreshSessions, updateSessionTitle,
+  }, [sessions, scopeKey, setSessions, applySavedHome, getSession, getWriter, getPersistence, refreshSessions, updateSessionTitle,
     deleteSession, syncSession, updateSession, beginProducer, completeProducer, recheckSession, retrySaveSession, prepareResume]);
 
   return (

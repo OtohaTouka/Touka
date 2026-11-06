@@ -12,12 +12,13 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # 全量 pytest 現在約 40 分鐘
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: "0.12.1"
           enable-cache: true
@@ -29,7 +30,7 @@ jobs:
       - run: uv run --no-sync python -B scripts/guard_native_tool_contracts.py
       - run: uv run --no-sync python -B scripts/guard_permissions_registry.py
       # test_mcp_modern_companion 需要 Node 24.22.1 與 ToukaIDE 的 esbuild。
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.22.1"
           package-manager-cache: false
@@ -37,6 +38,9 @@ jobs:
       - run: npm run install:controlled
         working-directory: ToukaIDE
       - run: uv run --no-sync python -m pytest tests/ -q
+        # 測試絆線（ADR-0293 Z9）的放行清單每項都要用到；只在這個全量步驟判定
+        env:
+          TOUKA_Z9_FULL_RUN: "1"
 
   frontend:
     runs-on: ubuntu-24.04
@@ -48,14 +52,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.22.1"
           package-manager-cache: false
       - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
       - run: npm ci --ignore-scripts
-      - run: node container-security/braces-backport/backport.mjs apply --project-root .
-      - run: node container-security/braces-backport/backport.mjs verify --project-root . --scope full
       - run: npm run gen:artifact-runtime --ignore-scripts
       - run: npm run test
       - run: npm run guard:typecheck
@@ -71,7 +73,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.22.1"
           package-manager-cache: false

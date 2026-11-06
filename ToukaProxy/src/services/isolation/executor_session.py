@@ -2,14 +2,14 @@
 
 只用標準函式庫；kernel 的 ``framing``、``spec`` 由伺服器依路徑載入後經 ``host`` 傳進來
 （``host`` 就是 ``ExecutorServer``）。START 全部 fail-closed（設計 §2.4）：讀寫規則只有這次的
-目標 ``<rw root>/[managed/]<owner>`` 與 ``<state>/<kind>/<owner>/{home,tmp}``，cwd 就是目標；其他
+目標 ``<rw root>/<owner>`` 與 ``<state>/<kind>/<owner>/{home,tmp}``，cwd 就是目標；其他
 規則只能是系統路徑或唯讀 root；spec 的封鎖埠包含 HELLO 的；env 走 kernel 的允許清單；spec 的
 ``parent_pid`` 改成伺服器的 pid。啟動器經 ``host.launch``（新行程群組、只傳 spec／狀態／規則集
 三個 fd、環境加新的 ``TOUKA_EXEC_ID``）。**EXIT 之前連線斷掉就是 STOP**（relay 收到 SIGTERM
 不送 STOP）：殺掉整個行程群組並有界回收；STOP 與 ``max_seconds`` 到期也殺，但照樣回 EXIT。
 
 C2-3：kind ``mcp``（常駐的自建 MCP 伺服器）沒有資料的目標，讀寫只有自己的 state，目標（cwd）
-就是 home；程式資料夾最多一條唯讀＋執行，正好是演化部署的 ``<mcp_servers>/managed/<skill>``
+就是 home；程式資料夾最多一條唯讀＋執行，正好是演化部署的 ``<managed>/<skill>``
 （部署後唯讀）。``io`` 是 ``stdio`` 時 stderr 另外送 ERR；``max_seconds`` 0（沒有時限）只准
 kind ``mcp`` 加 ``stdio``。
 """
@@ -49,10 +49,14 @@ MODES = frozenset({"health", "exec"})
 START_KEYS = frozenset({"argv", "cwd", "env", "spec", "kind", "owner", "io", "max_seconds"})
 # merged：stderr 併進 stdout（指令）；stdio：stdin 照轉、stderr 另外送 ERR（MCP 伺服器、演化驗證）
 IO_MODES = frozenset({"merged", "stdio"})
+# 演化工具所在的讀寫 root（``data/mcp_servers/managed``）；也是伺服器自測用的資料所在 root。
+# 只掛 managed、不掛 mcp_servers：掛載根本身不能被改名或刪除，執行器裡的程式換不掉錨點
+# （ADR-0293 PR 2）
+MANAGED_ROOT = "managed"
 # kind → （讀寫 root 的名稱、root 底下到 owner 之前的中間段）
 KIND_LAYOUT: dict[str, tuple[str, tuple[str, ...]]] = {
     "agents": ("personal_drive", ()),
-    "evolution": ("mcp_servers", ("managed",)),
+    "evolution": (MANAGED_ROOT, ()),
 }
 MCP_KIND = "mcp"  # 沒有資料的目標（見模組說明）；程式資料夾和 kind evolution 的目標同一個位置
 CODE_KIND = "evolution"
@@ -214,7 +218,7 @@ class StartPlan:
     """驗證過的 START（spec 已改寫 ``parent_pid``；``root`` 是目標所在的讀寫 root）.
 
     ``max_seconds`` 0 是沒有時限；``code`` 是 kind ``mcp`` 的程式資料夾（唯讀＋執行），
-    ``code_root`` 是它所在的讀寫 root（``mcp_servers``）。
+    ``code_root`` 是它所在的讀寫 root（``managed``）。
     """
 
     argv: tuple[str, ...]

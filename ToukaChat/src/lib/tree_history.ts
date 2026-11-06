@@ -26,6 +26,7 @@ export interface ToolStepApproval {
   // 解算結果（含逾時自動拒；isolation_* 是核准沒算數的兩種隔離結果，approval_flow 的 verdict）
   decision?: 'approved' | 'rejected' | 'timeout' | 'isolation_unacknowledged' | 'isolation_incomplete';
   reviewReason?: string;                            // Auto 審查員轉人的理由（ADR-0246）
+  hookReason?: string;                              // 管理員設定的 hook 要人確認（可為空字串，ADR-0292）
   humanOnly?: boolean;                              // 只有人能核准（底線；審查員與 YOLO 不能放行）
   isolation?: ToolStepIsolation;                    // 事件沒帶就照舊顯示（iso-c2）
 }
@@ -85,6 +86,8 @@ export interface MessageNode {
   childrenIds: string[];
   role: "user" | "assistant" | "system";
   content: string;
+  /** 後端寫入的發言者名稱；心跳補的「請繼續」是 user 角色、name 為 SYSTEM_SPEAKER（lib/chat/messageNavigation.ts）。 */
+  name?: string;
   model?: string;
   createdAt?: number;
   /** 訊息實際時間（毫秒）：使用者訊息在送出時、助理回覆在完成時由前端蓋；
@@ -101,6 +104,8 @@ export interface MessageNode {
   interjections?: Interjection[];
   /** ADR-0249 第 4b 段：這一回合被 Ctrl+Enter 打斷的那幾輪（第 N 步）。 */
   interruptions?: RoundInterruption[];
+  /** ADR-0292：串流以錯誤結束；只用來顯示，組歷史時不送給模型（後端原樣收存）。 */
+  generationFailed?: boolean;
 }
 
 export interface TreeHistory {

@@ -6,7 +6,7 @@
  "data: {\"id\": \"chatcmpl-req-gg-recache_mid_loop\", \"object\": \"chat.completion.chunk\", \"created\": 1700000060, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"[vault_tools done]\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
  "data: {\"id\": \"chatcmpl-req-gg-recache_mid_loop\", \"object\": \"chat.completion.chunk\", \"created\": 1700000067, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"delta\": {\"content\": \"長迴圈完成。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
  "data: {\"type\": \"touka_progress\", \"kind\": \"token_usage\", \"total\": 82, \"cost\": 8.4e-05, \"usage_pct\": 0.0}\n\n",
- "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-recache_mid_loop\", \"total_ms\": 67000, \"local_ms\": 0, \"pure_gen_ms\": 42000, \"e_index\": 0.0}}\n\n",
- "data: {\"id\": \"chatcmpl-req-gg-recache_mid_loop\", \"object\": \"chat.completion.chunk\", \"created\": 1700000067, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"stop\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-recache_mid_loop\", \"total_ms\": 67000, \"local_ms\": 0, \"pure_gen_ms\": 42000, \"e_index\": 0.0}}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gg-recache_mid_loop\", \"total_ms\": 67000, \"local_ms\": 0, \"pure_gen_ms\": 42000}}\n\n",
+ "data: {\"id\": \"chatcmpl-req-gg-recache_mid_loop\", \"object\": \"chat.completion.chunk\", \"created\": 1700000067, \"model\": \"gemini-2.5-flash\", \"choices\": [{\"index\": 0, \"finish_reason\": \"stop\", \"delta\": {\"content\": \"\"}}], \"usage\": {\"prompt_tokens\": 5, \"completion_tokens\": 2, \"total_tokens\": 0}, \"telemetry\": {\"request_id\": \"req-gg-recache_mid_loop\", \"total_ms\": 67000, \"local_ms\": 0, \"pure_gen_ms\": 42000}}\n\n",
  "data: [DONE]\n\n"
 ]

@@ -11,6 +11,7 @@ from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.group_router import drop_legacy_sections
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 
@@ -89,4 +90,5 @@ async def update_whitelist(
     except Exception as e:
         raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED, error_output=str(e)) from e
     else:
+        notify_config_change("group_whitelist")
         return {"message": "Group whitelist updated and aligned with SSOT."}

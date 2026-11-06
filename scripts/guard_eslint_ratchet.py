@@ -17,7 +17,6 @@ ADR-0098：ESLint 內建多條 error 級規則（`@typescript-eslint/no-explicit
 """
 
 import json
-import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -33,31 +32,6 @@ ESLINT_CMD = 'npx eslint "src/**/*.{ts,tsx}" -f json'
 
 def collect_violations() -> Counter:
     """執行 ESLint，回傳 {rule_id: count} 的 error 級（severity==2）違規計數。"""
-    node = shutil.which("node")
-    if node is None:
-        message = "Node executable is required for installed-byte verification"
-        raise FileNotFoundError(message)
-    try:
-        subprocess.run(  # noqa: S603 - fixed readonly installed-byte verifier
-            [
-                str(Path(node).resolve()),
-                str(FRONTEND_DIR / "container-security/braces-backport/backport.mjs"),
-                "verify",
-                "--project-root",
-                str(FRONTEND_DIR),
-                "--scope",
-                "full",
-            ],
-            cwd=FRONTEND_DIR,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.CalledProcessError as error:
-        print(error.stdout or "", end="")
-        print(error.stderr or "", end="", file=sys.stderr)
-        raise
     result = subprocess.run(
         ESLINT_CMD,
         cwd=FRONTEND_DIR,

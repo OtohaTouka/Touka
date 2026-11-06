@@ -2,14 +2,17 @@
 
 import json
 import logging
+from contextlib import nullcontext
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from src.core.exceptions import ErrorCode, ToukaException
+from src.middleware.layers.hooks import HookLayer
 from src.models.identity import AgentIdentity
 from src.services.dispatchers.route_family import same_route_family
 from src.services.resource_manager import resource_manager
+from src.services.stream_buffer_service import stream_buffer_service
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
@@ -32,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Initialize Global Pipeline
 pipeline = ProxyPipeline([
     MonitorLayer(),
+    HookLayer(),        # ADR-0292：UserPromptSubmit hook（只在 ctx.run_hooks 時）
     ContextLayer(),
     NativeModelLayer(),  # ADR-0111：原生模型預設參數（在 custom/soul 之前→被其覆蓋）
     CustomModelLayer(), # Level 2 自定義模型注入
@@ -70,6 +74,23 @@ async def process_proxy_request(
     request: Any, ctx: PipelineContext, is_anthropic: bool = True
 ) -> Any:
     """處理請求管道：採用中介軟體式架構 (SOLID)。"""
+    # UI 請求在開始串流前先登記請求者，hook 執行中也停得下來；停止標在這一則請求上，
+    # HookLayer 與開始串流前各看一次（ADR-0292）
+    requester = ctx.get("ui_requester")
+    session_id = getattr(request, "session_id", None)
+    waiting = (
+        stream_buffer_service.pending_request(session_id, requester)
+        if isinstance(requester, AgentIdentity) and isinstance(session_id, str) and session_id
+        else nullcontext()
+    )
+    with waiting as pending:
+        ctx["ui_pending"] = pending
+        return await _run_request(request, ctx, is_anthropic)
+
+
+async def _run_request(request: Any, ctx: PipelineContext, is_anthropic: bool) -> Any:
+    # 真的請求才跑 UserPromptSubmit hook（上下文預覽直接呼叫 pipeline，不經這裡；ADR-0292）
+    ctx["run_hooks"] = True
     # 執行處理管道 (Pipeline執行所有的 Middleware Layers)
     await pipeline.execute(request, ctx)
     
@@ -99,6 +120,8 @@ async def process_proxy_request(
     except ValueError as ve:
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(ve)) from ve
     except Exception as e:
+        if isinstance(e, ToukaException) and e.code is ErrorCode.PROMPT_STOPPED:
+            raise  # 使用者按了停止，不是模型失敗：不記錯誤、不換備援（ADR-0292）
         logger.exception(f"⚠️ Primary brain ({model_name}) failed")
         if is_toukasoul and identity:
             fallback_model = get_last_working_brain(identity)

@@ -8,6 +8,7 @@ from memory_server.config_utils import get_resource_proxy
 from memory_server.models.conversation_search import sort_conversations
 from memory_server.utils.historical_data import wrap_historical_data
 from memory_server.utils.legacy_time import format_taipei, seconds_range_to_ms
+from memory_server.utils.memory_worker import run_memory_job
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -57,8 +58,13 @@ async def search_conversations(
     if source != "legacy":
         pages.append(await get_resource_proxy().query_ui_conversations(identity, **parameters))
     if source != "ui":
-        store = manager.get_legacy_sync_service().get_store(identity)
-        pages.append(store.query_messages(**parameters))
+        pages.append(  # 舊對話庫在記憶工作者上讀；UI 對話要 await，留在主迴圈
+            await run_memory_job(
+                lambda: manager.get_legacy_sync_service()
+                .get_store(identity)
+                .query_messages(**parameters)
+            )
+        )
     total = sum(page.total for page in pages)
     unknown = sum(page.unknown_time_count for page in pages)
     rows = sort_conversations([row for page in pages for row in page.rows], oldest_first)

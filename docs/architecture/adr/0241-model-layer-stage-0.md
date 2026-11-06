@@ -1,6 +1,6 @@
 # ADR-0241：模型溝通層第 0 段（測試網路封鎖、取樣參數不送、同家備援與小修）
 
-- 狀態：✅ 已接受（維護者 2026-10-11 核准計畫與決定 A–G）
+- 狀態：✅ 已接受（維護者 2026-10-11 核准計畫與決定 A–G；決策 9 與「緊急安全更新也要晚 7 天」由 [ADR-0299](0299-dependency-cooldown-and-emergency-patches.md) 取代）
 - 日期：2026-10-11
 - 決策者：維護者
 - 影響範圍：三個 provider adapter、`SoulLayer`、`proxy_service` 備援、研究工具 Google 搜尋、創建評分、備份／還原／子程序清理、`tests/` 護欄、`pyproject.toml`／`uv.lock`、ToukaChat 錯誤處理與送出內容

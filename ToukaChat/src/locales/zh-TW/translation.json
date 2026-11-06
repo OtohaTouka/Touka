@@ -252,6 +252,7 @@
     "still_there": "「{{id}}」的資料還留在系統快照裡（重置前會先存一份），記憶也可能留在記憶庫的升級備份裡。",
     "still_there_delete": "「{{id}}」的資料可能還留在之前的系統快照裡，記憶也可能留在記憶庫的升級備份裡。",
     "still_there_scrubbed": "記憶已從備份清掉，但「{{id}}」的對話與其他資料還留在系統快照裡。",
+    "still_there_scrubbed_partial": "範圍內的記憶已從備份清掉，但還有舊格式或舊前綴的記憶不在清除範圍、留在備份裡；「{{id}}」的對話與其他資料也還留在系統快照裡。",
     "summary": "備份在哪裡、怎麼徹底刪",
     "where_snapshots": "系統快照：放 .env 的那個 Touka 資料夾裡的 backups，檔名是 Touka_Backup_….zip 或 Touka_AutoBackup_….zip。",
     "where_upgrade": "升級備份：資料資料夾裡的 vault/core_memory_backups。",
@@ -300,6 +301,7 @@
         "rbac": "權限矩陣（RBAC）",
         "identity_map": "身分映射",
         "autonomy": "自主預算",
+        "hooks": "Hook（事件觸發的程式與 HTTP）",
         "users": "使用者管理",
         "agent_reset": "代理人資料重置",
         "backup": "系統備份／還原",
@@ -366,6 +368,10 @@
       "security": {
         "label": "安全設定",
         "title": "安全與隱私"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook 設定"
       },
       "sliding_window": {
         "label": "滑動視窗",
@@ -440,6 +446,107 @@
       "save_success": "滑動視窗設定已儲存",
       "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
       "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+    },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "在使用者送出訊息、工具執行前後、審批前後、需要人注意時、一輪回覆結束時，以及子代理、任務、剪裁、心跳與設定有變動時，執行管理員指定的程式或送出 HTTP 請求。Hook 只能擋下或要人確認，不能放行；hook 自己失敗或逾時時不會擋下，只記在執行紀錄，所以不要拿 hook 當唯一的防線。Hook 程式以 Touka 自己的權限執行、不經隔離，只放信得過的程式。指令不經 shell；腳本與參數裡的路徑都要在設定資料夾的 hooks/ 裡，程式放在 hooks/ 或代理人寫不到的地方（例如系統的直譯器），不合規則會被拒收；不要用 env、npx、py 這類會自己找程式的啟動器，腳本用到的套件請裝在 hooks/ 裡（例如 hooks/node_modules），而且用複製的方式裝（例如 uv 設 UV_LINK_MODE=copy、pnpm 加 --package-import-method=copy；npm 本來就是複製）：uv、pnpm 可能用硬連結共用同一份檔案，代理人改自己專案裡的那份，hook 用的那份也會跟著變。Linux／Docker 上參數不能放網址（: 會被當成路徑清單的分隔），網址請寫在 hooks/ 裡的設定檔，由腳本讀取。所有使用者的對話都會觸發 hook，無痕對話也一樣，訊息與工具內容會送給 hook（事件內容標示 incognito，由 hook 自己決定要不要留）。「使用者送出訊息」只檢查聊天送出的文字，心跳、排程提示與重新觸發不觸發，不能拿來管住使用者；「工具執行前」只涵蓋經工具執行器的呼叫（代理人的工具與除錯執行），任務驗證指令與試跑不觸發。「審批卡跳出之前」的 hook 只能拒絕，不能替人核准。工具前後 hook 的補充說明會接在工具結果裡，對話的使用者看得到，也會存進對話紀錄。程式以結束碼 2 擋下時，標準錯誤輸出會當成擋下原因顯示給對話的使用者，不要在裡面放秘密。HTTP hook 的回應不能壓縮，伺服器回壓縮過的內容算失敗。",
+      "enable_label": "啟用 Hooks",
+      "enable_hint": "關閉時所有 hook 都不執行。",
+      "health_error": "設定檔讀不到或格式壞掉（{{detail}}），目前沿用上一份好的設定；存檔會取代設定檔。",
+      "add_group": "新增一組",
+      "remove_group": "刪除這組",
+      "remove_hook": "刪除這個 hook",
+      "reload": "重新載入",
+      "save_button": "儲存",
+      "save_success": "Hook 設定已儲存",
+      "path_problem": "{{event}} 的 {{where}}：{{reason}}（{{value}}）",
+      "matcher_placeholders": {
+        "Notification": "permission_prompt、agent_needs_input、elicitation_dialog、isolation_level；可用 | 分隔多個；空白或 * 表示全部",
+        "StopFailure": "rate_limit、overloaded、authentication_failed、billing_error、invalid_request、model_not_found、server_error、unknown；可用 | 分隔多個；空白或 * 表示全部",
+        "SubagentStart": "subagent；空白或 * 表示全部",
+        "SubagentStop": "subagent；空白或 * 表示全部",
+        "PreCompact": "auto；空白或 * 表示全部",
+        "PostCompact": "auto；空白或 * 表示全部",
+        "Elicitation": "MCP 伺服器名稱；可用 | 分隔多個；空白或 * 表示全部",
+        "ConfigChange": "設定區段：autonomy、env、connections、hooks、identity、mcp、models、permissions、skills…；可用 | 分隔多個；空白或 * 表示全部"
+      },
+      "types": {
+        "command": "程式",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "使用者送出訊息後、交給模型前。可以擋下訊息，或補充說明給模型。心跳不觸發。",
+        "PreToolUse": "工具執行前。可以擋下，或要人在審批卡上確認。比對規則看工具名稱。",
+        "PostToolUse": "工具成功執行後。可以補充說明給模型。比對規則看工具名稱。",
+        "PostToolUseFailure": "工具開始執行之後失敗時（終端指令結束碼不是 0 也算）。可以補充說明給模型。錯誤內容會先遮掉憑證與路徑；權限拒絕與參數不對不觸發。比對規則看工具名稱。",
+        "PermissionRequest": "審批卡跳出之前（有人在場才有卡）。可以拒絕，就不跳卡也不執行；不能替人核准，回 allow 或改參數都不採用，卡照樣跳。比對規則看工具名稱。",
+        "PermissionDenied": "工具呼叫被拒時，在背景通知、不能改結果；原因只有固定的代碼。「工具執行前」的 hook 擋下不算。比對規則看工具名稱。",
+        "Notification": "跳審批卡、代理人問問題、MCP 工具要資料、隔離層級改變時，在背景通知。比對規則看通知類型。",
+        "Stop": "一輪回覆結束後在背景執行，不影響回覆。",
+        "StopFailure": "一輪回覆因錯誤結束時（重試都用完才算），在背景通知。這一輪不跑 Stop。錯誤內容會先遮掉憑證與本機路徑；比對規則看錯誤類型。",
+        "SubagentStart": "子代理開始前。可以補充說明給子代理（當資料），不能擋。內容不含派工目標。",
+        "SubagentStop": "子代理結束後，在背景通知；不能叫它繼續。失敗或逾時時回覆是空的。",
+        "PreCompact": "滑動視窗剪裁前，在背景通知；不能擋，也不會拖住對話。",
+        "PostCompact": "滑動視窗剪裁存好後，在背景通知；內容含剪裁的摘要（有長度上限）。",
+        "TaskCreated": "任務看板建立時，每個任務各通知一次；不能擋。外部 AI 經派工伺服器的操作不觸發。",
+        "TaskCompleted": "任務變成完成時，在背景通知；不能擋。外部 AI 經派工伺服器的操作不觸發。",
+        "Elicitation": "MCP 工具用表單向人要資料、表單跳出之前。可以拒絕；不能替人回答，回 accept 或 content 時表單照樣跳。比對規則看 MCP 伺服器名稱。逾時最多 30 秒（和等人填表算在同一段時間）。",
+        "ConfigChange": "設定存好之後，在背景通知；擋不了任何設定，內容也不含設定值。關閉 Hooks 那次不觸發。比對規則看設定區段。",
+        "HeartbeatStart": "心跳開始時，在背景通知；不影響心跳。",
+        "HeartbeatStop": "心跳結束時，在背景通知；內容含跑了幾個脈衝與結束原因。"
+      },
+      "fields": {
+        "name": "名稱（選填）",
+        "enabled": "啟用這個 hook",
+        "command": "程式的絕對路徑",
+        "command_placeholder": "程式的絕對路徑（例如直譯器），腳本放在設定資料夾的 hooks/",
+        "args": "參數",
+        "args_placeholder": "參數，一行一個（原樣交給程式，不經 shell）",
+        "url": "網址",
+        "url_placeholder": "https://",
+        "headers": "標頭",
+        "headers_placeholder": "標頭，一行一個「名稱: 值」（照字面送出，不替換環境變數）",
+        "timeout": "逾時（秒）",
+        "matcher": "比對規則",
+        "matcher_placeholder": "工具名稱；可用 | 分隔多個，或寫正規表示式；空白或 * 表示全部"
+      },
+      "runs": {
+        "title": "最近執行",
+        "hint": "只保留在伺服器記憶體裡最新的 50 筆，重啟後清空。無痕對話只記時間、事件與結果。",
+        "refresh": "重新整理",
+        "empty": "還沒有執行紀錄。",
+        "incognito": "（無痕）",
+        "duration": "{{ms}} 毫秒",
+        "exit_code": "結束碼 {{code}}",
+        "http_status": "HTTP {{status}}"
+      },
+      "outcomes": {
+        "blocked": "擋下",
+        "ask": "要人確認",
+        "context": "補充說明",
+        "none": "沒有動作",
+        "failed": "hook 失敗（不擋）",
+        "skipped": "太多 hook 在跑，這次跳過"
+      },
+      "path_reasons": {
+        "not_absolute": "不是絕對路徑",
+        "missing": "檔案不存在",
+        "not_file": "不是檔案",
+        "parent_segment": "含有「..」",
+        "file_url": "不接受 file: 網址",
+        "unc_path": "不接受網路路徑或磁碟機相對路徑",
+        "agent_writable": "在代理人寫得到的地方",
+        "outside_hooks_dir": "不在設定資料夾的 hooks/ 裡",
+        "linked_path": "路徑經過符號連結或 junction",
+        "hard_link": "有其他硬連結",
+        "link_loop": "符號連結太多層或繞圈",
+        "unverifiable": "無法確認位置"
+      },
+      "errors": {
+        "load_failed": "讀不到 Hook 設定。",
+        "save_failed": "儲存失敗，請稍後再試。",
+        "invalid_field": "欄位不合規則：{{where}}：{{message}}"
+      }
     },
     "general_tab": {
       "profile_heading": "個人檔案",
@@ -572,6 +679,8 @@
       "reset_button": "重置資料",
       "confirm_title": "重置代理人「{{id}}」的資料",
       "confirm_body": "此操作不可逆。請確認下列範圍，輸入代理人 ID 並重新輸入你的密碼以繼續。",
+      "result_title": "重置代理人「{{id}}」的結果",
+      "result_body": "這裡只顯示結果，不會再刪除任何資料。",
       "wipe_label": "將清除",
       "wipe_list": "對話、記憶、統計、任務、產出、情境快照",
       "keep_label": "將保留",
@@ -588,7 +697,19 @@
       "store_line": "已清 {{purged}}、殘留 {{remaining}}",
       "preserved_line": "刻意保留（未清除）：{{items}}",
       "done": "完成",
-      "result_unknown": "結果不明：伺服器可能仍在執行，重置與清除可能已經完成，請稍後重新整理查看",
+      "result_unknown": "結果不明：伺服器可能仍在執行，重置與清除可能已經完成。請稍後按「查看結果」",
+      "view_result": "查看結果",
+      "last": {
+        "heading_running": "上次重置：{{id}}（{{time}} 開始）",
+        "heading_finished": "上次重置：{{id}}（{{time}} 結束）",
+        "running": "還在執行中，請稍後再按「查看結果」",
+        "done": "已結束，按「查看結果」看明細",
+        "failed": "沒有完成：{{reason}}",
+        "interrupted": "請求中途中斷，可能只清了一部分，請再重置一次",
+        "none": "查不到這次的結果：伺服器可能重新啟動過，或請求沒有送到。請查看這個代理人的資料，必要時再重置一次",
+        "done_header": "以下是「{{id}}」在 {{time}} 結束的那次重置",
+        "lookup_failed": "現在查不到伺服器的紀錄（連線或權限問題），不代表重置沒有執行。請稍後再按「查看結果」"
+      },
       "scrub": {
         "option_label": "一併清除備份裡這個靈魂的記憶（預設不勾）",
         "will_clear_title": "會清掉（全部成功時）：",
@@ -605,12 +726,14 @@
         "toast_incomplete": "「{{id}}」已重置，但備份裡的記憶沒有全部清除，請查看結果",
         "result_clean_live": "✅ 線上資料已完整重置",
         "summary_complete": "備份清單裡的每一份快照與升級備份都已清除這個靈魂的記憶，無法復原。",
+        "summary_complete_out_of_scope": "備份清單裡的每一份快照與升級備份，都已清除這個靈魂在清除範圍內的記憶，無法復原；其中 {{n}} 份還留著舊格式或舊前綴的記憶（不在清除範圍，見下方清單）。",
         "summary_unfinished": "清除沒有完成：{{reason}}。備份裡可能還有這個靈魂的記憶；可以再做一次重置並勾選清除。",
         "reason_see_details": "有些項目沒有清除，見下方明細",
         "files_left": "這 {{failed}} 個檔維持原樣，仍含這個靈魂的記憶；其他 {{done}} 個已清除，無法復原。",
         "summary_not_ran": "清除沒有執行（{{reason}}），備份維持原樣。",
         "live_verify_failed": "線上記憶庫整理後驗證沒通過，請先別再存記憶，並找團隊。",
         "live_not_compacted": "線上記憶庫沒有整理（{{reason}}）。",
+        "live_rewritten": "重置之後又寫入了這個靈魂的記憶，線上記憶庫裡又有它的記憶。",
         "remaining_unknown": "無法確認線上是否還有殘留。",
         "remaining_positive": "重置後這個靈魂又寫入了新記憶，例如心跳仍在跑；先停用心跳，再做一次。",
         "category_failed": "{{category}}：沒有完成（{{reason}}）",
@@ -619,6 +742,7 @@
         "item_line_reason": "{{name}}：{{status}}（{{reason}}）",
         "info_title": "其他資訊",
         "info_line": "{{name}}：{{reason}}（{{count}}）",
+        "info_line_plain": "{{name}}：{{reason}}",
         "collection_shared": "這個靈魂和 {{id}} 共用語意索引，可以做一般重置，但無法清除備份。",
         "categories": {
           "leftovers": "上次中斷留下的暫存",
@@ -662,7 +786,8 @@
           "write_failed": "寫不進暫存檔，原檔沒動",
           "own_snapshot_unverified": "這次重置前做的快照沒有清掉任何記憶，無法確認已清乾淨",
           "backup_failed": "重置前的快照沒有做成，所以沒有清除",
-          "cancelled": "請求在清除開始前就中止了"
+          "cancelled": "請求在清除開始前就中止了",
+          "os_metadata_file": "作業系統放的雜檔（縮圖快取或資料夾設定），裡面沒有記憶，原樣留著"
         }
       }
     },
@@ -1095,7 +1220,11 @@
       "empty_state": "尚未建立任何連線來源。",
       "saved": "連線已儲存",
       "delete_confirm": "刪除連線「{{name}}」？已儲存的 API 金鑰會一併移除。",
-      "delete_confirm_label": "刪除"
+      "delete_confirm_label": "刪除",
+      "proxy_switch_confirm": "要把後端換成 {{url}} 嗎？確認後，這個帳號在目前後端的所有裝置都會登出，這個瀏覽器會回到登入頁。",
+      "proxy_switch_confirm_label": "換後端並登出",
+      "proxy_checking": "正在確認 {{url}} 連得上…",
+      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。"
     },
     "theme_showcase": {
       "agent_sample_reply": "這是 {{name}} 的範例對話回覆。我們使用 Design Tokens 確保每個 Agent 在任何主題下都具有高度辨識度。",
@@ -1196,6 +1325,13 @@
       "standalone": "獨立模式",
       "hybrid": "整合模式"
     },
+    "session_tree": {
+      "loading": "對話清單載入中",
+      "more_sessions": "還有 {{count}} 個",
+      "folder_home_aria": "{{name}}，家對話：{{title}}",
+      "folder_holds_active": "開著的對話在裡面",
+      "label_separator": "，"
+    },
     "session_item": {
       "background_generating": "背景生成中",
       "incognito_label": "無痕對話",
@@ -1213,7 +1349,9 @@
       "delete_conversation": "刪除對話"
     },
     "navigation_area": {
-      "nav_chat": "聊天大廳",
+      "menu": "選單",
+      "menu_aria": "選單：{{name}}",
+      "menu_aria_page": "選單：{{name}}，目前在{{page}}",
       "nav_projects": "專案管理",
       "nav_soul": "靈魂核心",
       "nav_studio": "模型工坊",
@@ -1264,7 +1402,7 @@
       "setup_now": "立即設定",
       "later": "稍後",
       "dismiss_aria": "稍後：先關閉初次設定提示",
-      "toggle_sidebar_aria": "切換側邊欄（側邊欄裡有設定警告）",
+      "expand_sidebar_aria": "展開側邊欄（側邊欄裡有設定警告）",
       "open_menu_aria": "開啟選單（側邊欄裡有設定警告）"
     },
     "isolation_banner": {
@@ -1283,6 +1421,7 @@
       "copy_code": "複製代碼",
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
+      "generation_failed": "這一輪回覆失敗，沒有完成。",
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",
@@ -1385,6 +1524,8 @@
       "reject": "拒絕",
       "countdown": "{{seconds}} 秒後自動拒絕",
       "review_reason": "審查員轉給你的理由：{{reason}}",
+      "hook_ask": "管理員設定的 hook 要你確認這個動作。",
+      "hook_reason": "管理員設定的 hook 要你確認：{{reason}}",
       "human_only": "只有你能核准",
       "human_only_desc": "這類動作審查員和 YOLO 都不能代為放行。",
       "risk": {
@@ -1527,6 +1668,16 @@
       "failed": "對話尚未保存，或內容已發生衝突。草稿仍保留。",
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
+    },
+    "incognito_hook_notice": "管理員設定了 Hook：這段無痕對話的內容也會交給 Hook，會不會留存由管理員的設定決定。",
+    "message_nav": {
+      "label": "訊息導覽",
+      "jump_to": "跳到第 {{n}} 則：{{preview}}",
+      "jump_to_range": "跳到第 {{first}}～{{last}} 則：{{preview}}",
+      "image": "圖片",
+      "attachment": "附件：{{name}}",
+      "file": "檔案",
+      "empty": "（沒有文字）"
     }
   },
   "dashboard": {
@@ -1734,6 +1885,14 @@
       "section_system_persona": "核心人格指令 (System Persona)",
       "persona_editor_title": "Persona 指令集",
       "section_abilities_tools": "能力授權 (Abilities & Tools)",
+      "tools_title": "能力",
+      "tools_active": "{{count}} 個啟用",
+      "tools_not_listed": "目前不在清單",
+      "tools_needs_reselect": "有 {{count}} 個工具名稱對不到任何工具：可以按一下移除，或從清單重新勾選",
+      "tools_empty_means_all": "不勾任何工具代表全部可用",
+      "tools_companion": "隨 {{tool}} 一起開",
+      "tools_loading": "正在讀取工具清單…",
+      "tools_load_failed": "讀不到工具清單：重新開啟這個畫面再試一次",
       "cancel": "取消 (Cancel)",
       "initialize_soul": "啟動靈魂核心 (Initialize Soul)",
       "edit_soul": "編輯靈魂",
@@ -1815,19 +1974,10 @@
         }
       }
     },
-    "main_header": {
-      "toggle_sidebar": "切換側邊欄",
-      "views": {
-        "chat": "聊天大廳",
-        "soul": "靈魂核心",
-        "studio": "模型工坊",
-        "pulse": "系統脈搏",
-        "vault": "記憶寶庫",
-        "projects": "專案管理",
-        "settings": "設定"
-      },
-      "settings_button_title": "系統設定",
-      "right_sidebar_title": "查看分析與資產"
+    "main_area_controls": {
+      "expand_sidebar": "展開側邊欄",
+      "right_sidebar": "工具面板",
+      "settings": "設定"
     },
     "left_sidebar": {
       "nav_aria_label": "會話導覽",
@@ -1835,7 +1985,9 @@
       "new_chat_button": "新增對話",
       "incognito_chat_button_tooltip": "開一個不留痕跡的對話：不存檔、AI 不讀寫記憶",
       "incognito_chat_button": "無痕對話",
-      "session_history_heading": "對話歷史"
+      "incognito_chat_button_short": "無痕",
+      "session_history_heading": "對話歷史",
+      "collapse_sidebar": "收合側邊欄"
     },
     "right_sidebar": {
       "aria_system_panel": "系統面板",
@@ -2012,6 +2164,9 @@
     }
   },
   "app": {
+    "login_page": {
+      "connected_to": "連線到：{{url}}"
+    },
     "connections_page": {
       "title": "連線管理系統",
       "add_ai_node": "新增 AI 節點",
@@ -2041,7 +2196,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "未指定代理人",
       "project_group": "專案: {{name}}",
       "unknown_project": "未知專案",
       "other_conversations": "其他對話",
@@ -2116,6 +2270,10 @@
       "token_usage": "本回合 {{total}} tok · ${{cost}}"
     }
   },
+  "markdown": {
+    "external_image_blocked": "外部圖片（未載入）",
+    "external_image_open": "在新分頁開啟外部圖片"
+  },
   "theme": {
     "names": {
       "touka": "Touka 經典",
@@ -2182,7 +2340,9 @@
       "write_failed": "靈魂檔案寫入失敗",
       "memory_not_reset": "這個靈魂還有記憶，請先到設定的「代理人資料重置」重置它，再刪除。這次什麼都沒刪。",
       "memory_check_failed": "無法確認這個靈魂的記憶已清空（記憶系統暫時不可用），所以沒有刪除。請稍後再試。",
-      "sandbox_home_not_cleared": "無法清掉這個靈魂在隔離環境裡的家目錄（執行器沒有在服務，或清除失敗），所以沒有刪除。請等執行器恢復後再試。"
+      "sandbox_home_not_cleared": "無法清掉這個靈魂在隔離環境裡的家目錄（執行器沒有在服務，或清除失敗），所以沒有刪除。請等執行器恢復後再試。",
+      "heartbeat_running": "這個靈魂的心跳正在跑，已經叫它停下，所以這次沒有刪除。心跳開跑時留下了活動紀錄，請等它停下後先重置這個靈魂，再刪除。可以先暫停這個靈魂的心跳排程，免得重置和刪除之間又跑一次。",
+      "unregister_incomplete": "靈魂的資料已經刪掉，但有幾項登記（例如模型清單或擁有者名單）沒清掉。再刪除一次就會補清。"
     },
     "config": {
       "load_failed": "載入設定失敗",
@@ -2207,6 +2367,7 @@
       "id_mismatch": "工作階段 ID 不符",
       "save_failed": "儲存工作階段失敗",
       "scope_mismatch": "此對話無法用於指定的對象",
+      "prompt_stopped": "這次回覆在開始前就被停止了",
       "interjection_queue_full": "這一則回覆的補充太多了",
       "interjection_too_long": "補充的文字太長",
       "interjection_not_found": "找不到這則補充",
@@ -2269,12 +2430,18 @@
       "in_progress": "正在清除備份裡的記憶，請等清除結束再試"
     },
     "agent_reset": {
-      "in_progress": "另一個重置正在進行，請等它結束再試"
+      "in_progress": "另一個重置、記憶清除，或刪除、改名代理人的操作正在進行，請等它結束再試",
+      "drive_linked": "這個代理人的個人空間被換成了連結，Touka 不跟著連結走；什麼都沒動"
     },
     "agent_id": {
       "collection_collision": "這個 ID 會和既有的 ID 共用語意索引，請換一個 ID",
       "check_failed": "無法確認這個 ID 不會和既有的記憶共用，什麼都沒建立",
       "collection_collision_with": "這個 ID 會和「{{id}}」共用語意索引，請換一個 ID"
+    },
+    "hooks": {
+      "prompt_blocked": "管理員設定的 hook 擋下了這則訊息：沒有送給模型，也已從對話拿掉。",
+      "config_conflict": "hook 設定已被別人改過，請重新載入後再存。",
+      "path_rejected": "hook 指令或參數指到代理人可以寫入的位置，或無法確認安全，不能存檔。"
     }
   }
 }

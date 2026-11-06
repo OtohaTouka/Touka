@@ -21,9 +21,11 @@ from pathlib import Path
 
 import pytest
 from memory_server.services.personal_catalog import CatalogPathDeniedError
+from memory_server.utils.zone_paths import Anchor, agent_root
 from src.sandbox_kernel import owner_repair
 from src.sandbox_kernel.owner_repair import RepairOutcome
 from src.sandbox_kernel.spec import SelfTestResult
+from src.services import resource_manager as rm_module
 from src.services.isolation import repair, status
 from src.services.isolation.profiles import SandboxLayout
 from src.services.isolation.repair import PermissionRepairService
@@ -35,6 +37,8 @@ from src.utils.permission_repair import (
     permission_repair_exempt,
     set_permission_repair,
 )
+
+from tests.support.isolation import match_state_root
 
 EACCES_PATH = "/data/personal_drive/Alice/notes.txt"
 
@@ -778,21 +782,24 @@ def test_the_real_soul_protection_refusal_never_reaches_the_hook(on_linux):
     assert hook.calls == [] and not soul_file.exists()
 
 
-# --- 6：真的巢狀（get_uploads_path 包著 get_outputs_path）---
+# --- 6：真的巢狀（zone_write_json 交給 zone_write_text，ADR-0293）---
 
 
-def test_get_uploads_path_is_repaired_once_by_the_outermost_call(
-    monkeypatch, on_linux, mock_identity
-):
-    """內層 get_outputs_path 不各自修、不各自重試：mkdir 失敗兩次就照實往上丟。"""
-    mkdir = Raiser(Path.mkdir, _eacces(), failures=2)
-    monkeypatch.setattr(Path, "mkdir", mkdir)
+def test_zone_write_json_is_repaired_only_by_the_inner_write(zone_data_root, monkeypatch, on_linux):
+    """``zone_write_json`` 是 delegates 豁免：內層 ``zone_write_text`` 是最外層，修一次、不重試。"""
+    denied: list[object] = []
+
+    def deny(*args: object, **_kwargs: object) -> None:
+        denied.append(args[0])
+        raise _eacces()
+
+    monkeypatch.setattr(rm_module, "replace_text_no_follow", deny)
     hook = FakeHook()
     set_permission_repair(hook)
     with pytest.raises(PermissionError):
-        resource_manager.get_uploads_path(mock_identity())
-    assert [method for method, _ in hook.calls] == ["get_uploads_path"]
-    assert mkdir.calls == 2 and hook.retries == [("get_uploads_path", False)]
+        resource_manager.zone_write_json(agent_root(Anchor.PERSONAL_DRIVE, "A").child("x.json"), {})
+    assert [method for method, _ in hook.calls] == ["zone_write_text"]
+    assert len(denied) == 1 and hook.retry_flags == [False] and hook.retries == []
 
 
 def test_read_json_inner_calls_are_each_repaired_once(tmp_path, monkeypatch, on_linux):
@@ -888,8 +895,9 @@ async def test_refresh_checks_the_roots_about_once_a_minute(tmp_path):
     assert monitor.snapshot().repairs["attempted"] == 0  # 沒有改動不記錄
 
 
-async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path):
+async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path, monkeypatch):
     layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     monitor = _wired_monitor(layout)
     spy = monitor._repair = SpyService(layout)
     spy.check_roots = lambda: 1 / 0
@@ -901,6 +909,7 @@ async def test_a_failing_periodic_check_does_not_break_the_health_check(tmp_path
 def test_state_issue_repairs_st_proxy_once_then_judges_again(tmp_path, monkeypatch):
     """ST/proxy 不可寫（``os.access`` 失敗）：先修一次 ST/proxy、再判斷一次。"""
     layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)
     monitor = _wired_monitor(layout)
     hook = monitor._repair = FakeHook()
     answers = iter([False, True])
@@ -912,7 +921,9 @@ def test_state_issue_repairs_st_proxy_once_then_judges_again(tmp_path, monkeypat
 
 @pytest.mark.parametrize("hook", [None, FakeHook(result=False), FakeHook(error=RuntimeError())])
 def test_state_issue_stays_not_writable_when_the_repair_does_not_help(tmp_path, monkeypatch, hook):
-    monitor = _wired_monitor(_monitor_layout(tmp_path))
+    layout = _monitor_layout(tmp_path)
+    match_state_root(monkeypatch, layout.state_root)  # 版面與 RM 相同：不可寫只來自 os.access
+    monitor = _wired_monitor(layout)
     monitor._repair = hook
     monkeypatch.setattr(status.os, "access", lambda *_args: False)
     assert monitor._check_disk(None).state_issue == "not_writable"

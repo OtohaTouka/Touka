@@ -3,19 +3,29 @@
 import logging
 from typing import Any
 
+from memory_server.utils.historical_data import neutralize_tags
 from src.adapters.content_normalize import append_text_part
 from src.adapters.schemas import OpenAIMessage
 from src.middleware.base import ProxyLayer
 from src.models.context import PipelineContext
 from src.services.prompt_blocks import (
+    ALL_BLOCK_TAGS,
     IDE_CONTEXT,
     MISSION_AWARENESS,
     PROJECT_CONTEXT,
     wrap_block,
 )
 from src.utils.async_db import get_project_context
+from src.utils.model_text import single_line
 
 logger = logging.getLogger(__name__)
+
+def _board_text(value: Any) -> str:
+    """看板文字是模型寫的（ADR-0285）：先壓成一行、再中和區塊 tag。
+
+    id 也保留原文（只做跳脫），mission 工具要用它完全比對。
+    """
+    return neutralize_tags(single_line(str(value)), ALL_BLOCK_TAGS)
 
 
 def inject_anthropic_system(request: Any, ctx_str: str) -> None:
@@ -61,16 +71,18 @@ def render_mission_block(mission: Any) -> str:
     awareness_block = [
         f"\n<{MISSION_AWARENESS}>",
         "### 📋 目前任務狀態 (Current Mission Progress)",
-        f"**大目標**: {mission.goal}",
+        f"**大目標**: {_board_text(mission.goal)}",
         f"**進度**: {len([t for t in mission.tasks if t.status == 'DONE'])}"
         f"/{len(mission.tasks)}",
         "---",
     ]
     for t in mission.tasks:
         icon = "✅" if t.status == "DONE" else "⏳" if t.status == "DOING" else "⬜"
-        dep = f" (依賴: {', '.join(t.dependencies)})" if t.dependencies else ""
-        art = f" [產出: {t.artifact_ref}]" if t.artifact_ref else ""
-        awareness_block.append(f"{icon} {t.id}: {t.description}{dep}{art}")
+        deps = ", ".join(_board_text(d) for d in t.dependencies)
+        dep = f" (依賴: {deps})" if t.dependencies else ""
+        art = f" [產出: {_board_text(t.artifact_ref)}]" if t.artifact_ref else ""
+        line = f"{icon} {_board_text(t.id)}: {_board_text(t.description)}{dep}{art}"
+        awareness_block.append(line)
     awareness_block.append(f"</{MISSION_AWARENESS}>\n")
     return "\n".join(awareness_block)
 

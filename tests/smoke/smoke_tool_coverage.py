@@ -167,6 +167,7 @@ async def main() -> None:
         tool_registry=tool_registry,
         memory_tool_registry=memory_tool_registry,
         plugin_registry={},
+        enforce_advertised=False,
     )
 
     failures: list[str] = []

@@ -1,7 +1,8 @@
 """清除連備份：升級備份（vault 的 core_memory_backups，所有靈魂共用）只刪目標的列.
 
 全程持有升級備份鎖（和升級的備份＋輪替互斥）。每份都在記憶體裡處理，輸出到同資料夾的暫存，
-驗證後原子取代、保留原檔的時間與權限；任一步失敗原檔不動、逐檔回報。
+驗證後原子取代、保留原檔的時間與權限；任一步失敗原檔不動、逐檔回報。作業系統放的雜檔
+（os_metadata）原樣留著、記成資訊。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import TYPE_CHECKING
 from memory_server import factual
 
 from src.models.memory_scrub import ScrubItemResult
-from src.services.memory_scrub import swap
+from src.services.memory_scrub import os_metadata, swap
 from src.services.resource_manager import resource_manager
 
 if TYPE_CHECKING:
@@ -44,6 +45,8 @@ def iter_upgrade_backups(identity: AgentIdentity, directory: Path) -> Iterator[S
                 yield _remove_leftover(entry)
             elif kind == "backup" and swap.regular_file(entry):
                 yield from _scrub_one(entry, identity)
+            elif os_metadata.is_os_metadata_name(entry.name) and swap.regular_file(entry):
+                yield from _note_os_file(entry, identity)
             else:
                 yield ScrubItemResult(
                     kind="upgrade_backup", name=entry.name, status="failed", reason="unknown_file"
@@ -61,6 +64,19 @@ def _remove_leftover(path: Path) -> ScrubItemResult:
 
 def _failed(path: Path, reason: str) -> list[ScrubItemResult]:
     return [ScrubItemResult(kind="upgrade_backup", name=path.name, status="failed", reason=reason)]
+
+
+def _note_os_file(path: Path, identity: AgentIdentity) -> list[ScrubItemResult]:
+    return swap.guard_item("upgrade_backup", path.name, lambda: _check_os_file(path, identity))
+
+
+def _check_os_file(path: Path, identity: AgentIdentity) -> list[ScrubItemResult]:
+    """名字像雜檔：太大、是 SQLite 或含目標 ID 就照舊當不認得的檔；其餘不動、記成資訊."""
+    if swap.stamp(path).size > os_metadata.MAX_OS_FILE_BYTES:
+        return _failed(path, "unknown_file")
+    if not os_metadata.is_os_metadata_content(resource_manager.read_file_binary(path), identity):
+        return _failed(path, "unknown_file")
+    return [ScrubItemResult(kind="info", name=path.name, status="info", reason="os_metadata_file")]
 
 
 def _scrub_one(path: Path, identity: AgentIdentity) -> list[ScrubItemResult]:

@@ -1,6 +1,6 @@
 # ADR-0264：記憶系統第二批段 T4：對話時間戳、摘要時間範圍、剪下的對話直接歸檔進舊對話庫
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，含「舊對話日期改成訊息的實際時間」；舊對話歸檔的修正經審查併入本段）〔ADR-0267 修訂決策 3：記憶體那條上一輪改標 `(server memory)`，仍絕不加對話紀錄的註記〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，含「舊對話日期改成訊息的實際時間」；舊對話歸檔的修正經審查併入本段）〔ADR-0267 修訂決策 3：記憶體那條上一輪改標 `(server memory)`，仍絕不加對話紀錄的註記〕〔ADR-0286 修訂決策 5、6 與已知限制第 4 條：同 id 內容不同的另存成版本，歸檔回確認在庫的筆數，內容不是字串改成存文字〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaChat（`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/time_utils.ts`、`lib/export-utils.ts`、`lib/providers/StreamRegistryProvider.tsx`）；ToukaProxy（`services/sliding_window_service.py`、`services/dispatcher.py`、`services/dialogue_summarizer.py`、`services/continuity_service.py`、`middleware/layers/context.py`、`adapters/content_normalize.py`、`utils/time_utils.py`、`routers/ui_sessions.py` 匯出端點、`routers/stats.py` 舊對話統計）；ToukaMemory（`services/legacy_store.py`、`services/legacy_sync.py`）
@@ -47,7 +47,7 @@
 - 這輪助理節點的後端完成時間會被前端完成時間取代（前端整棵寫回；兩者都是完成時間，差網路延遲）。要保留得讓串流終態事件帶後端時間（改合約），這次不做。
 - 改用決定性 id 後，舊版用隨機 id 匯入過、且目錄裡還留著的檔，第一次重跑時沒有 id 的訊息會多一份（不處理）。
 - `backup/` 目錄不再使用；裡面若有舊檔，不再計入統計。
-- 剪下的節點內容若不是字串，歸檔會失敗，那個 session 就一直不剪（安全的失敗方向；目前沒有會產生這種節點的路徑）。
+- 剪下的節點內容若不是字串，歸檔會失敗，那個 session 就一直不剪（安全的失敗方向；目前沒有會產生這種節點的路徑）。〔ADR-0286 已解決：內容改成存文字〕
 - 同步最後讀統計失敗時，整次仍回 SYNC_FAILED（檔已寫入並記為已處理）。
 
 ## 驗證

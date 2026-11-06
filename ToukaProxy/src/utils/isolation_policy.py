@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal, cast, get_args
 
 # Landlock ABI 對照（SSOT 在只用標準函式庫的 kernel）：未驗證的權利不用；landlock 層要擋 TCP
@@ -14,7 +15,7 @@ from src.sandbox_kernel.landlock import MIN_ABI as EXECUTOR_LAYER_MIN_ABI
 from src.sandbox_kernel.landlock import MIN_NET_ABI as LANDLOCK_LAYER_MIN_ABI
 from src.sandbox_kernel.landlock import VERIFIED_ABI_MAX as VERIFIED_ABI_MAX
 from src.sandbox_kernel.landlock import effective_abi
-from src.sandbox_kernel.spec import PUBLIC_CONFIG_NAMES
+from src.sandbox_kernel.spec import PUBLIC_CONFIG_NAMES, fold_name, listing_kind
 
 IsolationLevel = Literal["none", "landlock", "executor"]
 ISOLATION_LEVELS: tuple[str, ...] = get_args(IsolationLevel)
@@ -116,6 +117,28 @@ def landlock_features(abi: int) -> frozenset[str]:
     """依 ABI 對照表回傳實際生效的權利。"""
     abi = effective_abi(abi)
     return frozenset(name for name, min_abi in _FEATURE_MIN_ABI.items() if abi >= min_abi)
+
+
+# 技能名稱（演化工具的資料夾 ``mcp_servers/managed/<skill>``）：單層、英數開頭
+SKILL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+WINDOWS_RESERVED_NAMES = frozenset({"con", "prn", "aux", "nul"}) | {
+    f"{prefix}{number}" for prefix in ("com", "lpt") for number in range(1, 10)
+}
+
+
+def is_skill_segment(name: object) -> bool:
+    """技能名稱的唯一判斷（ADR-0293 P9）：``validate_skill_id`` 與 ``tool_root`` 都只經這裡.
+
+    技能名稱會成為執行器可寫掛載根 ``managed`` 的第一層；執行器把掛載根第一層是 Touka 目錄
+    名稱（kernel 的 ``DATA_ROOT_NAMES``、``TOUKA_MARKERS``，``fold_name`` 後比對）判成
+    ``touka_root``、不服務，所以這些名字也不能當技能名稱。
+    """
+    return (
+        isinstance(name, str)
+        and SKILL_ID_PATTERN.fullmatch(name) is not None
+        and name.casefold() not in WINDOWS_RESERVED_NAMES
+        and listing_kind({fold_name(name)}) is None
+    )
 
 
 def is_safe_segment(name: str) -> bool:

@@ -39,6 +39,7 @@ class RhythmService:
         _session_rounds (dict[str, int]): 請求 ID 與剩餘工具輪的對映（僅有限 run）。
         _session_totals (dict[str, int]): 請求 ID 與初始總額的對映（供進度顯示）。
         _interrupted_sessions (set[str]): 已標記為中斷的會話集合。
+        _stop_counts (dict[str, int]): 會話被停止過的次數（只增不減，``clear_interrupt`` 不動它）。
     """
 
     def __init__(self) -> None:
@@ -46,6 +47,7 @@ class RhythmService:
         self._session_rounds: dict[str, int] = {}
         self._session_totals: dict[str, int] = {}
         self._interrupted_sessions: set[str] = set()
+        self._stop_counts: dict[str, int] = {}
 
     def get_effective_rounds(
         self,
@@ -129,7 +131,16 @@ class RhythmService:
             session_id (str): 會話識別碼。
         """
         self._interrupted_sessions.add(session_id)
+        self._stop_counts[session_id] = self._stop_counts.get(session_id, 0) + 1
         logger.info(f"🛑 [Rhythm] Session {session_id} marked for interruption.")
+
+    def stop_count(self, session_id: str) -> int:
+        """這個會話到目前為止被停止過幾次。
+
+        執行開始時記下，之後次數變多就是這次執行期間被停止過；之後的請求清掉中斷旗標也看得出來
+        （ADR-0292）。
+        """
+        return self._stop_counts.get(session_id, 0)
 
     def is_interrupted(self, session_id: str) -> bool:
         """檢查會話是否已被中斷.
@@ -165,6 +176,7 @@ class RhythmService:
         self._session_rounds.clear()
         self._session_totals.clear()
         self._interrupted_sessions.clear()
+        self._stop_counts.clear()
         logger.debug("🔄 [Rhythm] All rhythm states reloaded/cleared.")
 
 

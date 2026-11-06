@@ -11,8 +11,8 @@
 解析到**不同目錄**——跨讀讀不到（回 None）或寫到分裂位置。
 
 本測試以 pytest 沙盒（conftest 全域 `MEMORY_APP_DATA_DIR` 隔離）直接驗證
-`_get_mission_path` 的路徑決定論不變式：看板物理路徑必須是 agent_id 的函數，
-與存取者身分無關。**不在沙盒外呼叫**（`_get_mission_path` 有 make_dir 副作用）。
+`_get_mission_path` 的路徑決定論不變式：看板的區內路徑（ADR-0293）必須是 agent_id 的函數，
+與存取者身分無關。
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pathlib import Path
 
 from memory_server import config_utils
 from memory_server.services.mission_manager import MissionManager
+from memory_server.utils.zone_paths import Anchor
 from src.models.identity import AgentIdentity, AgentOverride, IdentityMapConfig
 from src.services.identity_service import identity_service
 from src.services.permission_service import permission_service
@@ -70,14 +71,14 @@ class TestCrossIdentityMissionPathDeterminism:
         self_path = manager._get_mission_path(authoritative)
 
         # 前置條件：Owner/靈魂看板落在 personal_drive/（分流的「靈魂」側）。
-        assert "personal_drive" in self_path.parts, self_path
+        assert self_path.anchor is Anchor.PERSONAL_DRIVE, self_path.display()
 
         # 督導（can_supervise_dispatch）以 target_agent_id 跨身分讀同一看板。
         cross_path = manager._get_mission_path(_SUPERVISOR, target_agent_id=agent_id)
 
         # 不變式：同一 agent 的看板路徑與存取者無關。
         assert cross_path == self_path, (
-            f"跨身分看板路徑分裂：自讀={self_path} 跨讀={cross_path}"
+            f"跨身分看板路徑分裂：自讀={self_path.display()} 跨讀={cross_path.display()}"
         )
 
     def test_dispatch_agent_cross_read_matches_dispatch_self_write(self):
@@ -92,11 +93,11 @@ class TestCrossIdentityMissionPathDeterminism:
         # Dispatch 伺服器自寫用的固定身分（role="Base"，見 ToukaDispatch/server.py）。
         dispatch_self = AgentIdentity.for_role(agent_id="DispatchAgent", role="Base")
         self_path = manager._get_mission_path(dispatch_self)
-        assert "custom" in self_path.parts, self_path
+        assert self_path.anchor is Anchor.CUSTOM_DRIVE, self_path.display()
 
         cross_path = manager._get_mission_path(
             _SUPERVISOR, target_agent_id="DispatchAgent"
         )
         assert cross_path == self_path, (
-            f"DispatchAgent 看板路徑分裂：自寫={self_path} 跨讀={cross_path}"
+            f"DispatchAgent 看板路徑分裂：自寫={self_path.display()} 跨讀={cross_path.display()}"
         )

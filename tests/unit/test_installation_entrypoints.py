@@ -37,9 +37,6 @@ LF_BUILD_INPUTS = (
     "ToukaChat/Dockerfile.prod",
     "ToukaChat/scripts/ensure-critical-native.mjs",
     "docker-compose.ghcr.yml",
-    "ToukaChat/container-security/braces-backport/backport.mjs",
-    "ToukaChat/container-security/braces-backport/manifest.json",
-    "ToukaChat/container-security/braces-backport/braces-3.0.3-depth-limit.patch",
     "tests/docker/Dockerfile.isolation-test",
 )
 RAW_BUILD_INPUTS = ("ToukaHeartbeat/permission_init.py",)

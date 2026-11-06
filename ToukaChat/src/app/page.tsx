@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from 'react';
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
 import { SettingsView } from '@/components/settings/SettingsView';
@@ -9,17 +9,16 @@ import { VaultDashboard } from "@/components/dashboard/VaultDashboard";
 import { SoulStudio } from "@/components/layout/SoulStudio";
 import { ModelStudio } from "@/components/layout/ModelStudio";
 import { ProjectsView } from "@/components/projects/ProjectsView";
-import { useSystemStatus } from '@/lib/SystemStatusContext';
 import { useArtifacts } from "@/hooks/useArtifacts";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ChatArea } from '@/components/chat/ChatArea';
-import { MainHeader } from '@/components/layout/MainHeader';
+import { MainAreaControls } from '@/components/layout/MainAreaControls';
 import { SetupNoticeDot } from '@/components/setup/SetupNoticeDot';
 import { useHasSetupNotice } from '@/components/setup/SetupNoticesProvider';
 import {
-  Settings, MessageSquare,  BarChart4,
+  MessageSquare,  BarChart4,
   Menu, Loader2
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from "react-resizable-panels";
@@ -62,8 +61,7 @@ export default function ChatPage() {
 
 function ChatLobby() {
   const { t } = useTranslation();
-  const isMobile = useMediaQuery("(max-width: 768px)");
-  const { status: sysStatus } = useSystemStatus();
+  const isMobile = useIsMobile();
   const { activeSessionId, setAttachment, handleNewSession } = useChat();
   const { selectedModel } = useModels();
 
@@ -194,6 +192,26 @@ function ChatLobby() {
   };
 
 
+  // 只有按鈕要求的收起／展開才移焦點（WCAG 2.4.3）；面板掛上時依版面記錄自己同步狀態的那一次不算，
+  // 載入時才不會把焦點搶到側欄按鈕上。左側邊欄與主區角落鈕在狀態改變後各問一次，問完就清掉。
+  const sidebarFocusRequest = useRef<boolean | null>(null);
+  const takeSidebarFocusRequest = useCallback((open: boolean) => {
+    const requested = sidebarFocusRequest.current === open;
+    sidebarFocusRequest.current = null;
+    return requested;
+  }, []);
+
+  // 桌面版左側邊欄展開／收合：以面板實際狀態為準；面板已是目標狀態（記住的狀態沒同步到）時只校正狀態，
+  // 免得按了沒反應。記住的狀態已經是目標時什麼都不會變，不留焦點要求。
+  const setLeftSidebarOpen = (open: boolean) => {
+    const panel = leftPanelRef.current;
+    if (!panel || isSidebarCollapsed === !open) return;
+    sidebarFocusRequest.current = open;
+    if (open && panel.isCollapsed()) panel.expand();
+    else if (!open && !panel.isCollapsed()) panel.collapse();
+    else setIsSidebarCollapsed(!open);
+  };
+
   const handleToggleRightSidebar = () => {
     const next = !isRightSidebarOpen;
     setRightSidebarOpen(next);
@@ -210,7 +228,8 @@ function ChatLobby() {
   useEffect(() => {
     if (!isMobile || (isSidebarCollapsed && !isRightSidebarOpen)) return;
     const onEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // 選單或抽屜自己接走這次 Esc 時（Radix 會標 defaultPrevented）一次只關一層
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         setIsSidebarCollapsed(true);
         setRightSidebarOpen(false);
       }
@@ -283,7 +302,6 @@ function ChatLobby() {
                 </div>
              </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setViewMode("settings")} className={cn("p-1.5 rounded-lg transition-colors", viewMode === "settings" ? "bg-primary/10 text-primary" : "text-muted-foreground")}><Settings size={20} /></button>
                 <button onClick={handleToggleRightSidebar} className={cn("p-1.5 rounded-lg transition-colors", isRightSidebarOpen ? "bg-primary/10 text-primary" : "text-muted-foreground")}>
                   <BarChart4 size={20} />
                 </button>
@@ -335,6 +353,8 @@ function ChatLobby() {
                   onVaultClick={() => setViewMode('vault')}
                   onSettingsClick={() => setViewMode('settings')}
                   onProjectsClick={() => setViewMode('projects')}
+                  onCollapse={() => setLeftSidebarOpen(false)}
+                  takeFocusRequest={takeSidebarFocusRequest}
                   isCollapsed={isSidebarCollapsed}
                 />
               </Panel>
@@ -344,22 +364,16 @@ function ChatLobby() {
 
           <Panel id="main-content" order={2} minSize={30} className="flex flex-col min-w-0 relative overflow-hidden">
             <main className="flex-1 flex flex-col min-w-0 relative h-full">
-              <MainHeader
-                viewMode={viewMode}
-                setViewMode={setViewMode}
+              <MainAreaControls
                 isIDE={isIDE()}
-                isMobile={isMobile}
-                onToggleSidebar={() => {
-                    if (leftPanelRef.current) {
-                        if (leftPanelRef.current.isCollapsed()) leftPanelRef.current.expand();
-                        else leftPanelRef.current.collapse();
-                    }
-                }}
+                isLeftSidebarCollapsed={isSidebarCollapsed}
+                takeFocusRequest={takeSidebarFocusRequest}
+                onExpandLeftSidebar={() => setLeftSidebarOpen(true)}
                 isRightSidebarOpen={isRightSidebarOpen}
                 onToggleRightSidebar={handleToggleRightSidebar}
-                sysStatus={sysStatus}
+                isSettingsOpen={viewMode === "settings"}
+                onToggleSettings={() => setViewMode(viewMode === "settings" ? "chat" : "settings")}
               />
-
 
               <div className="flex-1 overflow-hidden relative">
                 {viewMode === "chat" ? (

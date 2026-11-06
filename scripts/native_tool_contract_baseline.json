@@ -91,13 +91,15 @@
         "Import(names=[alias(name='json')])",
         "Import(names=[alias(name='logging')])",
         "ImportFrom(module='typing', names=[alias(name='TYPE_CHECKING'), alias(name='Any')], level=0)",
+        "ImportFrom(module='memory_server.config_utils', names=[alias(name='get_resource_proxy')], level=0)",
         "ImportFrom(module='memory_server.services.personal_catalog', names=[alias(name='run_vault_action')], level=0)",
-        "ImportFrom(module='memory_server.tools.core_file_ops', names=[alias(name='core_delete'), alias(name='core_find'), alias(name='core_grep'), alias(name='core_list'), alias(name='core_read'), alias(name='core_str_replace'), alias(name='core_write')], level=0)",
+        "ImportFrom(module='memory_server.tools.core_file_ops', names=[alias(name='PathGuardError'), alias(name='core_delete'), alias(name='core_find'), alias(name='core_grep'), alias(name='core_list'), alias(name='core_read'), alias(name='core_str_replace'), alias(name='core_write'), alias(name='drive_target')], level=0)",
         "ImportFrom(module='memory_server.tools.diag', names=[alias(name='manage_duplicate_memories'), alias(name='memory_diagnostics'), alias(name='reindex_memories')], level=0)",
         "ImportFrom(module='memory_server.tools.legacy_vault', names=[alias(name='search_conversations')], level=0)",
         "ImportFrom(module='memory_server.tools.mission_tools', names=[alias(name='mission_tools')], level=0)",
         "ImportFrom(module='memory_server.tools.recall', names=[alias(name='random_recall')], level=0)",
-        "ImportFrom(module='memory_server.tools.schemas', names=[alias(name='MEMORY_TOOLS_SCHEMA_LIST')], level=0)"
+        "ImportFrom(module='memory_server.tools.schemas', names=[alias(name='MEMORY_TOOLS_SCHEMA_LIST')], level=0)",
+        "ImportFrom(module='memory_server.utils.memory_worker', names=[alias(name='run_memory_job')], level=0)"
       ]
     }
   },
@@ -1056,28 +1058,16 @@
         "reads": [],
         "dynamic": []
       },
-      "_resolve_inside": {
-        "parameters": [
-          "path",
-          "root"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "run_vault_action": {
         "parameters": [
           "handler",
           "action",
           "root",
+          "target",
           "kwargs"
         ],
         "kwargs": null,
         "reads": [
-          [
-            "kwargs",
-            "path"
-          ],
           [
             "kwargs",
             "resource_proxy"
@@ -1213,7 +1203,78 @@
       "_enforce_root_bound": {
         "parameters": [
           "target_path_str",
-          "root_bound_str"
+          "root_bound_str",
+          "root_is_real"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "drive_target": {
+        "parameters": [
+          "path",
+          "root",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_place": {
+        "parameters": [
+          "path",
+          "root_bound",
+          "root_is_real",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_check_no_links": {
+        "parameters": [
+          "path",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_not_a_file": {
+        "parameters": [
+          "path",
+          "resource_proxy"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_read": {
+        "parameters": [
+          "target",
+          "resource_proxy",
+          "errors"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_write": {
+        "parameters": [
+          "target",
+          "content",
+          "resource_proxy",
+          "append"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_regular_files": {
+        "parameters": [
+          "root",
+          "skipped",
+          "resource_proxy"
         ],
         "kwargs": null,
         "reads": [],
@@ -1225,7 +1286,8 @@
           "root_bound",
           "offset",
           "limit",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1237,7 +1299,8 @@
           "root_bound",
           "content",
           "mode",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1249,7 +1312,8 @@
           "root_bound",
           "old_str",
           "new_str",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1259,7 +1323,8 @@
         "parameters": [
           "path",
           "root_bound",
-          "resource_proxy"
+          "resource_proxy",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1271,7 +1336,8 @@
           "root_bound",
           "max_depth",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1282,7 +1348,8 @@
           "pattern",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1293,7 +1360,8 @@
           "query",
           "root_bound",
           "resource_proxy",
-          "exclude"
+          "exclude",
+          "root_is_real"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -1301,6 +1369,15 @@
       }
     },
     "ToukaMemory/src/memory_server/tools/diag.py": {
+      "personal_drive_bytes": {
+        "parameters": [
+          "identity",
+          "manager"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "normalize_agent_id": {
         "parameters": [
           "identity",
@@ -1418,21 +1495,6 @@
             "tasks"
           ]
         ],
-        "dynamic": []
-      }
-    },
-    "ToukaMemory/src/memory_server/tools/personal_drive.py": {
-      "access_personal_drive": {
-        "parameters": [
-          "identity",
-          "manager",
-          "filename",
-          "action",
-          "write_content",
-          "read_image"
-        ],
-        "kwargs": "kwargs",
-        "reads": [],
         "dynamic": []
       }
     },
@@ -1898,6 +1960,10 @@
         "reads": [
           [
             "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
             "_timeout"
           ],
           [
@@ -2174,7 +2240,17 @@
         "dynamic": []
       }
     },
-    "ToukaProxy/src/tools/builtin/schemas.py": {},
+    "ToukaProxy/src/tools/builtin/schemas.py": {
+      "missing_required_error": {
+        "parameters": [
+          "name",
+          "arguments"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      }
+    },
     "ToukaProxy/src/tools/builtin/sns.py": {
       "send_message": {
         "parameters": [
@@ -2408,15 +2484,6 @@
       }
     },
     "ToukaProxy/src/tools/editor.py": {
-      "_get_safe_path": {
-        "parameters": [
-          "path",
-          "identity"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "_get_ide_config": {
         "parameters": [],
         "kwargs": null,
@@ -2431,21 +2498,6 @@
           "session_id"
         ],
         "kwargs": "kwargs",
-        "reads": [],
-        "dynamic": []
-      },
-      "text_editor": {
-        "parameters": [
-          "command",
-          "path",
-          "identity",
-          "file_text",
-          "old_str",
-          "new_str",
-          "view_range",
-          "insert_line"
-        ],
-        "kwargs": "_kwargs",
         "reads": [],
         "dynamic": []
       }
@@ -2872,6 +2924,15 @@
       }
     },
     "ToukaProxy/src/tools/project_tools.py": {
+      "_root_refused": {
+        "parameters": [
+          "project_id",
+          "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "project_tools": {
         "parameters": [
           "action",
@@ -3005,12 +3066,7 @@
           "model"
         ],
         "kwargs": null,
-        "reads": [
-          [
-            "base_ctx",
-            "enable_autonomy"
-          ]
-        ],
+        "reads": [],
         "dynamic": []
       },
       "_result_from_text": {
@@ -3111,6 +3167,31 @@
           ]
         ],
         "dynamic": []
+      },
+      "SubagentStoppedError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_run_assembled": {
+        "parameters": [
+          "request",
+          "sub_identity",
+          "sub_request_id",
+          "base_ctx",
+          "goal"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "enable_autonomy"
+          ]
+        ],
+        "dynamic": []
       }
     },
     "ToukaProxy/src/tools/terminal.py": {
@@ -3175,6 +3256,32 @@
         ],
         "dynamic": []
       },
+      "_track_task": {
+        "parameters": [
+          "identity",
+          "task"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "stop_agent_commands": {
+        "parameters": [
+          "identity"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "record",
+            "agent_id"
+          ],
+          [
+            "record",
+            "command"
+          ]
+        ],
+        "dynamic": []
+      },
       "_remember_result": {
         "parameters": [
           "exec_id",
@@ -3207,6 +3314,15 @@
         "parameters": [
           "command",
           "reason"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_not_run": {
+        "parameters": [
+          "command",
+          "exc"
         ],
         "kwargs": null,
         "reads": [],
@@ -3263,7 +3379,7 @@
         "parameters": [
           "command",
           "env",
-          "drive_path",
+          "drive",
           "session_id",
           "emit",
           "call_id",
@@ -3294,7 +3410,7 @@
           "command",
           "env",
           "identity",
-          "drive_path",
+          "drive",
           "session_id",
           "scope"
         ],
@@ -3308,7 +3424,7 @@
           "command",
           "env",
           "identity",
-          "drive_path",
+          "drive",
           "session_id",
           "dangerous",
           "scope"

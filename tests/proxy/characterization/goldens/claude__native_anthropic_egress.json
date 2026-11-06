@@ -1,6 +1,6 @@
 [
  "data: {\"id\": \"chatcmpl-req-gc-native_anthropic_egress\", \"object\": \"chat.completion.chunk\", \"created\": 1700000007, \"model\": \"claude-3-5-sonnet\", \"choices\": [{\"delta\": {\"content\": \"你好，我是 Sumi。\"}, \"index\": 0, \"finish_reason\": null}]}\n\n",
- "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gc-native_anthropic_egress\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
- "data: {\"id\": \"msg_golden\", \"model\": \"claude-3-5-sonnet\", \"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"\"}], \"usage\": {\"input_tokens\": 10, \"output_tokens\": 5}, \"telemetry\": {\"request_id\": \"req-gc-native_anthropic_egress\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000, \"e_index\": 0.0}}\n\n",
+ "data: {\"type\": \"touka_status\", \"telemetry\": {\"request_id\": \"req-gc-native_anthropic_egress\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000}}\n\n",
+ "data: {\"id\": \"msg_golden\", \"model\": \"claude-3-5-sonnet\", \"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"\"}], \"usage\": {\"input_tokens\": 10, \"output_tokens\": 5}, \"telemetry\": {\"request_id\": \"req-gc-native_anthropic_egress\", \"total_ms\": 7000, \"local_ms\": 0, \"pure_gen_ms\": 7000}}\n\n",
  "data: [DONE]\n\n"
 ]

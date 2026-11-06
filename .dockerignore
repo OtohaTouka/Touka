@@ -63,6 +63,8 @@ ToukaMemory/.env
 ToukaDispatch/.env
 # 首裝精靈一次性密碼檔（防禦性：跑過精靈的開發機上 build 時可能在場）
 ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt
+# 管理員自己放的 hook 程式與腳本（ADR-0292）：本機設定，不打包進映像
+ToukaProxy/config/hooks/
 
 # --- 私人/內部文件（gitignored，但 .gitignore 擋不了 COPY . .——映像將公開散布）---
 AGENTS.md

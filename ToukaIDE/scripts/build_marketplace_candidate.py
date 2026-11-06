@@ -292,7 +292,6 @@ def _verify_source_identity(
             "--",
             "LICENSE",
             "ToukaIDE",
-            "ToukaChat/container-security/braces-backport",
         ),
         repo,
         label="release-input cleanliness check",
@@ -416,17 +415,6 @@ def _verify_toolchain(
         _fail(f"npm must be exactly {EXPECTED_NPM_VERSION}")
 
 
-def _verify_braces(repo: Path, ide: Path, node: Path, runner: CommandRunner) -> None:
-    """Recheck the source installation before a development dependency is used."""
-    helper = repo / "ToukaChat" / "container-security" / "braces-backport" / "backport.mjs"
-    _checked_command(
-        runner,
-        (str(node), str(helper), "verify", "--project-root", str(ide), "--scope", "full"),
-        ide,
-        label="braces installed-byte verification",
-    )
-
-
 def _write_create_only(path: Path, content: bytes, *, label: str) -> None:
     created = False
     try:
@@ -533,7 +521,6 @@ def _assemble_candidate(
         final_vsix = workspace / CANDIDATE_FILENAME
         manifest_path = workspace / MANIFEST_FILENAME
         _stage_extension(repo, ide, staging)
-        _verify_braces(repo, ide, node, runner)
         _checked_command(
             runner,
             (
@@ -604,7 +591,6 @@ def build_marketplace_candidate(
     node = _resolve_executable(node_executable, label="Node")
     resolved_npm_cli = _resolve_npm_cli(node, npm_cli)
     _verify_toolchain(ide, runner, node, resolved_npm_cli)
-    _verify_braces(repo, ide, node, runner)
     _checked_command(
         runner,
         (str(node), str(resolved_npm_cli), "run", "package"),

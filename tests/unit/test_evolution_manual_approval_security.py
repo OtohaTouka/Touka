@@ -134,7 +134,7 @@ async def _first_card(queue: asyncio.Queue) -> dict[str, Any] | None:
 async def _run_with_card(level: str, *, approve: bool) -> tuple[str, dict[str, Any] | None]:
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(
             _TOOL, dict(_ARGS), "evo-gate", _ctx(level, present=True), queue
         )
     )
@@ -154,7 +154,8 @@ async def _run_with_card(level: str, *, approve: bool) -> tuple[str, dict[str, A
 
 async def _run_headless(level: str) -> str:
     async with asyncio.timeout(_WAIT_S):
-        return await ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        executor = ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False)
+        return await executor.execute_to_queue(
             _TOOL, dict(_ARGS), "evo-headless", _ctx(level, present=False), asyncio.Queue()
         )
 
@@ -181,7 +182,7 @@ async def test_manual_with_human_asks_before_any_build_and_rejection_runs_nothin
 ):
     queue: asyncio.Queue = asyncio.Queue()
     task = asyncio.create_task(
-        ToolExecutor(None, tool_registry, {}, {}).execute_to_queue(
+        ToolExecutor(None, tool_registry, {}, {}, enforce_advertised=False).execute_to_queue(
             _TOOL, dict(_ARGS), "evo-reject", _ctx("Manual", present=True), queue
         )
     )

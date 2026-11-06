@@ -17,6 +17,8 @@ from typing import Any
 
 import yaml
 
+from tests.support.zone_tripwire import FULL_RUN_ENV
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/native-tool-contracts.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
@@ -187,6 +189,7 @@ def test_contributing_lists_full_ruff_and_eslint_as_ci_ratchets() -> None:
     assert not bare_full_ruff, "full ruff runs through scripts/lint_ratchet.py"
     assert _item_running(items, "scripts/lint_ratchet.py ruff") == CI_LABEL
     assert _item_running(items, "scripts/lint_ratchet.py pyrefly") == CI_LABEL
+    assert _item_running(items, "scripts/lint_ratchet.py vulture") == CI_LABEL
     assert _item_running(items, "scripts/guard_eslint_ratchet.py") == CI_LABEL
 
 
@@ -202,8 +205,7 @@ def test_ci_runs_the_eslint_ratchet_after_installing_the_frontend() -> None:
     assert ratchet in steps, "Guard #35 must run in the frontend job from the repo root"
     position = steps.index(ratchet)
     assert steps.index(("ToukaChat", "npm ci --ignore-scripts")) < position
-    apply = "node container-security/braces-backport/backport.mjs apply --project-root ."
-    assert steps.index(("ToukaChat", apply)) < position
+    assert not any("braces" in run for _, run in steps), "ADR-0282 retired the braces backport"
 
 
 def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
@@ -216,6 +218,17 @@ def test_ci_pytest_carries_the_ruff_and_pyrefly_ratchets() -> None:
     ]
     assert len(found) == 1, "one CI job runs the whole pytest suite"
     _assert_blocking(*found[0])
+
+
+def test_ci_full_pytest_asks_the_zone_tripwire_to_check_its_allowances() -> None:
+    """全量 pytest 那一步設 Z9 的環境變數：放行清單每項都要用到（ADR-0293 Z9）."""
+    steps = [
+        step
+        for job in _jobs().values()
+        for step in job["steps"]
+        if " ".join(step.get("run", "").split()).endswith("python -m pytest tests/ -q")
+    ]
+    assert [step.get("env") for step in steps] == [{FULL_RUN_ENV: "1"}]
 
 
 def test_contributing_ci_labels_match_what_ci_runs() -> None:

@@ -12,7 +12,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator  # noqa: TC003
 from pathlib import Path
 
-REPO_TESTS_DIR = Path(__file__).absolute().parent.parent / "tests"
+REPO_ROOT = Path(__file__).absolute().parent.parent
+REPO_TESTS_DIR = REPO_ROOT / "tests"
+# 這兩個產品資料夾沒有 src/，程式直接放在第一層（ADR-0298）。
+FLAT_PRODUCT_DIRS = ("ToukaHeartbeat", "ToukaDispatch")
 
 
 def _is_top_level_tests_path(filename: str) -> bool:
@@ -26,6 +29,27 @@ def _is_top_level_tests_path(filename: str) -> bool:
     if path.is_absolute():
         return path.absolute().is_relative_to(REPO_TESTS_DIR)
     return path.parts[:1] == ("tests",)
+
+
+def _is_flat_product_path(filename: str) -> bool:
+    """逐段比對：相對路徑看第一段，絕對路徑先算相對 repo 根；判斷不跟隨連結。
+
+    guard_all 與 CI 從 repo 根掃 `.`，收到的是相對路徑，所以不能比對子字串。
+    含 `..` 的路徑比對不了，一律不算。
+    """
+    path = Path(filename)
+    if ".." in path.parts:
+        return False
+    if path.is_absolute():
+        if not path.is_relative_to(REPO_ROOT):
+            return False
+        path = path.relative_to(REPO_ROOT)
+    return path.parts[:1] in {(folder,) for folder in FLAT_PRODUCT_DIRS}
+
+
+def _is_business_source_path(filename: str) -> bool:
+    """業務層：`/src/` 底下，或 ToukaHeartbeat、ToukaDispatch（排除測試、腳本、診斷工具等）。"""
+    return "/src/" in filename or "\\src\\" in filename or _is_flat_product_path(filename)
 
 
 # --- 基礎介面定義 ---
@@ -271,7 +295,7 @@ class EnvSovereigntyRule(BaseRule):
                 f"嚴禁直接調用 '{func_name}'，請將配置遷移至 src.config。"
             )
 
-        # ── 系統操作 API 禁令（限 /src/ 業務層，與 PRINT_BAN 相同路徑過濾）──
+        # ── 系統操作 API 禁令（限 /src/；PRINT_BAN 另外涵蓋 Heartbeat、Dispatch，這條沒有）──
         if self.is_whitelisted:
             return
         if "/src/" not in self.full_path and "\\src\\" not in self.full_path:
@@ -550,8 +574,7 @@ class PrintBanRule(BaseRule):
         """檢查 print() 函式呼叫。"""
         if self.is_whitelisted:
             return
-        # 僅對 src/ 目錄下的業務核心代碼執行（排除測試、腳本、診斷工具等）
-        if "/src/" not in self.full_path and "\\src\\" not in self.full_path:
+        if not _is_business_source_path(self.full_path):
             return
         if isinstance(node.func, ast.Name) and node.func.id == "print":
             self.add_violation(
@@ -610,8 +633,8 @@ class RaiseHardcodedStringRule(BaseRule):
 
     def check_Raise(self, node: ast.Raise) -> None:
         """檢查 raise 語句中的硬編碼字串。"""
-        # 1. 僅對 src/ 目錄下的業務核心代碼執行（排除 tests/、scripts/ 等）
-        if "/src/" not in self.full_path and "\\src\\" not in self.full_path:
+        # 1. 僅對業務核心代碼執行（排除 tests/、scripts/ 等）
+        if not _is_business_source_path(self.full_path):
             return
         if self.is_whitelisted:
             return
@@ -803,8 +826,8 @@ class SSOTGuard(ast.NodeVisitor):
         "config.py", "bootstrap.py", "time_utils.py",
         "conftest.py", "update_docs.py", "export_schema.py",
         "resource_manager.py", "config_utils.py", "terminal.py",
-        "soul_io.py", "evolution_security.py", "custom_io.py",
-        "core_file_ops.py", "test_ssot_guard_path.py",
+        "soul_io.py", "custom_io.py",
+        "core_file_ops.py", "no_follow.py", "zone_paths.py", "test_ssot_guard_path.py",
         "test_ssot_guard_io.py", "test_ssot_guard_local_import.py", "smoke_mcp_lifecycle.py",
         "smoke_io_prison.py", "smoke_ldh_handshake.py",
         "smoke_mission_awareness.py", "smoke_group_dispatcher.py",

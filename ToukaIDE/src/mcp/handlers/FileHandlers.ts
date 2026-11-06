@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 
 import { AuthLevel, needsIdeConfirmation } from '../authPolicy';
 import { diffManager } from '../diffManager';
+import { readFileNoFollow, writeFileNoFollow } from '../noFollowFile';
 import { resolveWorkspacePath } from '../workspacePath';
 
 function workspaceRoots(): string[] {
@@ -67,7 +68,7 @@ async function getDirectoryTree(
 export async function handleReadFile(filePath: string): Promise<string> {
     try {
         const absolutePath = resolveWorkspacePath(workspaceRoots(), filePath);
-        return await fs.promises.readFile(absolutePath, 'utf8');
+        return await readFileNoFollow(absolutePath);
     } catch (error: unknown) {
         return `Error reading file: ${errorMessage(error)}`;
     }
@@ -96,11 +97,15 @@ export async function handleWriteFile(
         const absolutePath = resolveWorkspacePath(workspaceRoots(), filePath);
         if (!needsIdeConfirmation(authLevel, humanApproved)) {
             await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
-            await fs.promises.writeFile(absolutePath, content, 'utf8');
+            await writeFileNoFollow(absolutePath, content);
             const reason = humanApproved ? 'approved on the Touka card' : `${authLevel} mode`;
             return `Successfully directly wrote to ${filePath} (${reason})`;
         }
-        return await diffManager.proposeChanges(absolutePath, content);
+        return await diffManager.proposeChanges(
+            absolutePath,
+            content,
+            () => resolveWorkspacePath(workspaceRoots(), filePath),
+        );
     } catch (error: unknown) {
         return `Error writing file: ${errorMessage(error)}`;
     }

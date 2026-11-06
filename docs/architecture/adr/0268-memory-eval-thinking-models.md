@@ -1,11 +1,12 @@
 # ADR-0268：記憶評估工具測得了會思考的模型（實送上限、天花板、送前最壞花費）
 
-- 狀態：✅ 已實作（評估工具與測試；5.5 真模型實測另經人類同意，排在 M1-d 重跑與本段合併之後，尚未執行）
+- 狀態：✅ 已實作（評估工具與測試；5.5 真模型實測另經人類同意，已執行：2026-10-15 用 `claude-haiku-5-5` 跑過一次（見 ADR-0280 背景）；照 ADR-0284 新版，2026-10-27～28 E1、E2 又各跑三次（每次 5 輪，見 `docs/proxy/live-check-backlog.md`））
 - 日期：2026-10-15
 - 決策者：維護者（2026-10-15 核准 e1b 計畫）
 - 影響範圍：`tests/smoke/manual/memory_eval_probe.py`、`tests/memory_eval/`（新 `live_bounds.py`；`judges.py`、
   `runner.py`、`scenarios.py`）、`docs/proxy/live-check-backlog.md`；產品程式 0 行
 - 2026-10-16 由 [ADR-0271](0271-claude-5-5-thinking-by-purpose.md) 修訂（r55）：「5.5 思考關不掉」只對 Opus 5.5 成立（Sonnet 5.5 可送 `between_tools`、Haiku 5.5 可送 `disabled`，都要 effort ≤ high）；評估工具的送前估價改取分檔型號的貴檔（`_dearest_rate`，Haiku 5.5 仍 0.625／2.5），結清依實際提示長度選檔；工具改過，之後再跑要照新版重新取得同意
+- 2026-10-25 由 [ADR-0284](0284-memory-eval-measures-memory.md) 修訂決策 3：改名只在自稱後面接否定的述語時放過（否定另一個名字、「沒錯」照樣算改名），另加否認自己名字的判定；口令說出任一段就算洩漏；經過時間三題與相對時間題改用較嚴的規則；第二部分修訂決策 2：價目表查不到的型號拒跑、靠家族名稱估價時核准範圍標 `pricing=family_estimate`
 - 相關：本 ADR 修訂 [ADR-0261](0261-memory-long-horizon-eval.md) 決策 5、6（已回指）；
   [ADR-0247](0247-model-layer-stage-3a.md)（每模型規則表）、
   [ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)（人工實測政策）決策不變
@@ -36,10 +37,10 @@
    - 最壞花費＝實送輸出上限全用滿（含思考）× 輸出價＋輸入估計 × max(輸入價, 寫入快取價)。
    - 輸入估計＝這個請求要送的內容（adapter 的 kwargs／payload：訊息、system、工具 schema）轉成 JSON 後
      每個字元算 1 token（中文每字至少 1；英數與 JSON 結構高估），再加 1,024 廠商端餘量。
-   - 價格取產品價目表 `pricing.get_pricing`（唯讀），核准範圍印出 `worst_case_usd_per_mtok`。
+   - 價格取產品價目表 `pricing.get_pricing`（唯讀），核准範圍印出 `worst_case_usd_per_mtok`。〔查不到的型號拒跑、家族估價要標出：ADR-0284 決策 13〕
    - 已花：廠商回報用量的請求照實際金額（產品 `telemetry.usage_cost_usd`），沒回報的（中途失敗）照最壞值。
      原本每輪開始前的累計軟上限保留。
-3. **判定**（修訂 ADR-0261 決策 5）
+3. **判定**（修訂 ADR-0261 決策 5）〔改名、口令、經過時間由 ADR-0284 決策 4 修訂〕
    - 改名：切成子句，去掉開頭的空白、符號與語氣詞（好的、嗯、那就、沒問題、OK…）後，只認以自稱開頭、
      沒有否定詞、不是以問號結尾的子句。引號開頭的引述、別人的話（「你如果想叫我小晴」）、反問都不算；
      動詞多收「改名叫／改名成／改名為」。

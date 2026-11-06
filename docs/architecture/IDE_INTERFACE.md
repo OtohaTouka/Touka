@@ -82,6 +82,13 @@ IDE 工具系統（`vault_tools`, `project_tools` 等）由 ToukaMemory 提供�
 - Node runtime 使用 `@modelcontextprotocol/server`／`node` v2 public API；已移除 `server-legacy` 依賴、相容入口及 session transport Map。
 - Server 只監聽 loopback，並驗證 Host／Origin；缺少或錯誤 Bearer 回 401，啟動 token
   為空回 503。MCP session 與 `clientInfo` 不能代替 Bearer。
+- JSON 請求內容只收未壓縮的：`Content-Type` 是 JSON 的請求帶 `Content-Encoding`（`identity` 或空值除外）
+  時回 415。這一步在 Bearer 驗證之前，也在建立任何解壓縮串流之前（GHSA-27r3-jxmh-p828）。其他
+  `Content-Type` 不在這裡解析，沒帶權杖照常回 401，整條路上都不解壓縮。
+- Express 轉交的錯誤（請求內容解析失敗、路由丟錯）回固定 JSON：4xx 照原狀態碼回
+  `{"error":"Invalid request"}`，5xx 回 `{"error":"Internal server error"}`，不回 stack、錯誤訊息或檔案路徑；
+  5xx 另寫擴充主機日誌。Bearer、Host／Origin、exact route 與關閉中的既有回應不變；沒有對應路由仍是
+  Express 的 404 頁（不含 stack，只回顯跳脫過的路徑）。
 - modern HTTP stream 關閉會把 AbortSignal 傳入工具 executor；終端子程序收到取消後
   會被終止，避免 client 斷線後繼續執行。
 - 多個 modern client 彼此 request-scoped；取消其中一個 stream 後，另一個 client 仍須能執行工具。
@@ -109,6 +116,8 @@ Extension 在 OS temp 的 `gemini/ide/gemini-ide-server-touka.json` 寫入：
 Proxy 只接受合法 port、非空 token、exact modern mode 與本機絕對 path；不接受外部 URL、
 `//host`、query 或 fragment。token 只進 discovery file 與 Proxy process memory，
 不得出現在 log 或 Webview message。
+
+權限（ADR-0294 決定 9）：Linux／macOS 上 Extension 只在自己的 `gemini`、`ide`（0700，別人能寫就先收緊）裡以 0600、不跟隨連結建新檔；上層暫存資料夾的擁有者要是 root 或自己，而且有 sticky 位元或別人不能寫，否則不寫並跳警告。Proxy 只讀自己的、別人不能寫、不是連結的兩層資料夾與檔案（`open_read_no_follow`＋`fstat`），不符合就略過並記一行警告。Windows 兩邊照舊。
 
 ### 5. Marketplace candidate boundary（ADR-0218）
 
@@ -155,7 +164,7 @@ Proxy 只接受合法 port、非空 token、exact modern mode 與本機絕對 pa
 | :--- | :--- | :--- |
 | **ToukaIDE 工作區根目錄** | VS Code Workspace API | `vscode.workspace.workspaceFolders` |
 | **ToukaIDE MCP 端點** | `MCP_ENDPOINTS` | `ToukaIDE/src/mcp/contracts.ts` |
-| **ToukaIDE discovery** | `buildDiscoveryPayload()` | OS temp `gemini/ide/` |
+| **ToukaIDE discovery** | `buildDiscoveryPayload()`；權限 `discoveryFile.ts`（寫）／`protocols/ide/discovery.py`（讀） | OS temp `gemini/ide/` |
 | **ToukaIDE AuthLevel** | `ToukaMcpServer` runtime state | Extension process memory |
 | **ToukaIDE Webview rendering policy** | ADR-0219 | `docs/architecture/adr/0219-toukaide-webview-plaintext-security-boundary.md` |
 | **ToukaIDE Webview rendering implementation** | CSP＋DOM＋CSS | `ToukaIDE/src/webview/index.html`、`main.js`、`style.css` |

@@ -11,24 +11,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from memory_server import factual
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
+from memory_server.utils.no_follow import LinkRefusedError
 
 from src.core.exceptions import ErrorCode, ToukaException
-from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.identity import AgentIdentity
 from src.models.memory_scrub import MemoryScrubReport
-from src.services import memory_collection_guard, memory_scrub, system_backup
-from src.services.agent_reset import primitives
+from src.services import destructive_ops, memory_collection_guard, memory_scrub, system_backup
+from src.services.agent_reset import last_result, primitives
 from src.services.agent_reset.guard import assert_agent_resettable, assert_resettable
 from src.services.agent_reset.primitives import ALL_STORES, RETAINED_STORES
 from src.services.authorization_gateway import require_admin_human
 from src.services.memory_scrub import orchestrator as scrub_orchestrator
+from src.services.resource_manager import resource_manager
+from src.tools import terminal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
+
+    from memory_server.utils.zone_paths import ZonePath
 
     from src.models.memory_scrub import ScrubReason
     from src.services.memory_scrub.ports import ScrubFactStore
@@ -41,8 +47,42 @@ _reset_lock = asyncio.Lock()
 
 
 def reset_in_progress() -> bool:
-    """重置或清除是否正在進行（還原端點據此擋下；重置被取消後清除可能還在跑）."""
+    """重置、清除或刪除靈魂是否正在進行（還原端點據此擋下；重置被取消後清除可能還在跑）."""
     return _reset_lock.locked() or memory_scrub.in_progress()
+
+
+@asynccontextmanager
+async def destructive_op(target: AgentIdentity) -> AsyncIterator[None]:
+    """不等待地拿全系統一把的破壞性操作鎖，並標記目標（舊審查報告丙-4，ADR-0287）.
+
+    重置、清除或刪除已經在跑就回 409 `AGENT_RESET_IN_PROGRESS`。標記期間這個靈魂的心跳
+    不開跑、在下一個脈衝前停下。檢查、取鎖、標記之間沒有讓出事件迴圈的地方。
+
+    前提：產品程式只在這裡取 `_reset_lock`，所以鎖沒被持有時也不會有人在等，`acquire()`
+    立刻拿到、不讓出。別處若改成會等的 `async with _reset_lock`，這裡就可能變成排隊。
+    """
+    if reset_in_progress():
+        raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
+    await _reset_lock.acquire()
+    destructive_ops.hold(target)
+    try:
+        yield
+    finally:
+        destructive_ops.release(target)
+        _reset_lock.release()
+
+
+def refuse_linked_drive(drive: ZonePath | None) -> None:
+    """破壞性操作的前置檢查（ADR-0293 R11）：個人空間根是連結就丟 ``AGENT_DRIVE_LINKED``.
+
+    上層（``custom/<id>``）本身是連結時 ``zone_kind`` 丟連結拒絕，轉成同一個錯誤。
+    """
+    try:
+        linked = drive is not None and resource_manager.zone_kind(drive) == "link"
+    except LinkRefusedError as exc:
+        raise ToukaException(ErrorCode.AGENT_DRIVE_LINKED) from exc
+    if linked:
+        raise ToukaException(ErrorCode.AGENT_DRIVE_LINKED)
 
 
 def scrub_rejected(actor_label: str, target: str, reason: str) -> None:
@@ -114,31 +154,66 @@ async def _execute_reset(
             scrub_orchestrator.audit_rejected(actor_label, normalized, "reset_in_progress")
         raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
 
-    async with _reset_lock:
+    target = AgentIdentity(agent_id=normalized)
+    async with destructive_op(target):
+        run = last_result.start(target)
         report = ResetReport(agent=normalized)
-        session = None
-        if scrub:
-            identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
-            session = memory_scrub.begin()
-        try:
-            await _reset_stores(report, normalized, guard, do_backup=do_backup)
-            if session is not None:
-                report.scrub = await _scrub_after(
-                    report, identity, actor_label, store, known, session
-                )
-        except asyncio.CancelledError:
-            if session is not None and not session.handed_over:
-                _audit_not_run(actor_label, normalized, "cancelled")
-            raise
-        except Exception as exc:
-            # 還沒交給清除工作就結束（備份失敗等）：照樣留一行結果稽核再往外丟
-            if session is not None and not session.handed_over:
-                _audit_not_run(actor_label, normalized, _not_run_reason(exc))
-            raise
-        finally:
-            if session is not None and not session.handed_over:
-                session.end()
+        session: memory_scrub.ScrubSession | None = None
+        # 交給清除工作之後，最後結果由清除工作在清旗標前記（請求斷線也一樣）。
+        with last_result.recording(run, lambda: session is not None and session.handed_over):
+            identity = _checked_identity(normalized, guard, scrub=scrub, actor_label=actor_label)
+            if scrub:
+                identity, store, known = await _prepare_scrub(normalized, guard, actor_label)
+            # 預檢沒過的重置什麼都沒做，不叫停；標記已經設好，這段期間新的心跳與指令開不了。
+            # 放在設清除旗標之前：旗標要靠下面 try 的 finally 才清得掉。
+            stopped = destructive_ops.stop_heartbeats(target)
+            if stopped:
+                logger.info("[reset] asked %d heartbeat(s) of %s to stop", len(stopped), normalized)
+            killed = await terminal.stop_agent_commands(identity)  # R11：個人空間裡沒有在跑的指令
+            if killed:
+                logger.info("[reset] stopped %d command(s) of %s", killed, normalized)
+            if scrub:
+                session = memory_scrub.begin(target)
+            try:
+                await _reset_stores(report, normalized, guard, do_backup=do_backup)
+                if session is not None:
+                    report.scrub = await _scrub_after(
+                        report, identity, actor_label, store, known, session, run
+                    )
+            except asyncio.CancelledError:
+                if session is not None and not session.handed_over:
+                    _audit_not_run(actor_label, normalized, "cancelled")
+                raise
+            except Exception as exc:
+                # 還沒交給清除工作就結束（備份失敗等）：照樣留一行結果稽核再往外丟
+                if session is not None and not session.handed_over:
+                    _audit_not_run(actor_label, normalized, _not_run_reason(exc))
+                raise
+            finally:
+                if session is not None and not session.handed_over:
+                    session.end()
+        run.done(report.to_dict())  # 還持有破壞性操作鎖：下一次重置蓋不掉
         return report
+
+
+def _checked_identity(
+    normalized: str, guard: Callable[[str], str], *, scrub: bool, actor_label: str
+) -> AgentIdentity:
+    """過閘並查個人空間根（R11，任何副作用之前）；勾選清除時被擋下先寫一行稽核."""
+    try:
+        identity = primitives.identity_for(normalized, guard)
+        refuse_linked_drive(resource_manager.agent_drive(identity))
+    except ToukaException as exc:
+        if scrub:
+            linked = exc.code is ErrorCode.AGENT_DRIVE_LINKED
+            reason = "drive_linked" if linked else "not_resettable"
+            scrub_orchestrator.audit_rejected(actor_label, normalized, reason)
+        raise
+    except Exception:
+        if scrub:
+            scrub_orchestrator.audit_rejected(actor_label, normalized, "internal_error")
+        raise
+    return identity
 
 
 def _audit_not_run(actor_label: str, target: str, reason: ScrubReason) -> None:
@@ -236,6 +311,7 @@ async def _scrub_after(
     store: ScrubFactStore,
     known: set[str],
     session: memory_scrub.ScrubSession,
+    run: last_result.ResetRun,
 ) -> MemoryScrubReport:
     """重置完全成功才清除；沒成功就記成「沒有執行」並寫稽核."""
     if not report.clean:
@@ -244,6 +320,12 @@ async def _scrub_after(
         return skipped
     own = (report.backup or {}).get("filename")
     removed = sum(s.purged for s in report.stores if s.name == primitives.MEMORY_STORE_NAME)
+
+    def finished(result: MemoryScrubReport) -> None:
+        """清除工作寫完稽核、清旗標之前呼叫：記下含清除結果的最後一次重置."""
+        report.scrub = result
+        run.done(report.to_dict())
+
     return await scrub_orchestrator.run_after_reset(
         identity,
         actor_label=actor_label,
@@ -252,6 +334,7 @@ async def _scrub_after(
         own_snapshot=own if isinstance(own, str) else None,
         session=session,
         reset_removed=removed,
+        on_report=finished,
     )
 
 

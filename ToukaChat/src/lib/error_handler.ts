@@ -10,17 +10,19 @@ export interface ToukaError {
 
 /**
  * 帶後端錯誤碼的 API 錯誤（ToukaException 的 detail.code）。
- * 是 Error 子類別，既有 catch／message 用法不受影響。
+ * 是 Error 子類別，既有 catch／message 用法不受影響。`reason`＝detail.reason（如 hook 擋下的理由）。
  */
 export class ToukaApiError extends Error {
   readonly status: number;
   readonly code?: string;
+  readonly reason?: string;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, reason?: string) {
     super(message);
     this.name = "ToukaApiError";
     this.status = status;
     this.code = code;
+    this.reason = reason;
   }
 }
 

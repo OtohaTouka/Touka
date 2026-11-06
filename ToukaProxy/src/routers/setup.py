@@ -12,11 +12,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
+from memory_server.utils.memory_worker import run_memory_job
 from pydantic import BaseModel, field_validator
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.routers.admin import require_admin
 from src.services import embedding_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.setup_service import SetupService, SetupStatus
 from src.utils.task_utils import spawn_logged
 
@@ -79,6 +81,7 @@ async def apply_setup(
     except ValueError as e:
         # 宿主目錄驗證失敗（原生模式路徑不存在等）→ 乾淨的在地化 422，避免未捕捉例外變 500。
         raise ToukaException(ErrorCode.VALIDATION_ERROR, detail_override=str(e)) from e
+    notify_config_change("setup")
     return {"status": "ok"}
 
 
@@ -133,8 +136,9 @@ async def switch_embedding_model(
 
     force=True（使用者已確認）才寫入 EMBEDDING_MODEL 並重置向量單例；**絕不自動 re-embed**。
     """
-    evaluation = embedding_service.evaluate_switch(body.model)
-    if evaluation["requires_confirmation"] and not body.force:
-        return {"status": "confirmation_required", **evaluation}
-    embedding_service.apply_switch(body.model)
-    return {"status": "ok", **evaluation}
+    # 偵測要讀事實庫、重置要等向量庫的鎖：在記憶工作者上做成一個工作，
+    # 偵測和套用之間不會插進別的記憶操作（ADR-0288）
+    result = await run_memory_job(embedding_service.switch_model, body.model, force=body.force)
+    if result.get("status") == "ok":
+        notify_config_change("embedding")
+    return result

@@ -57,12 +57,17 @@ _SHELL_CASES: dict[str, list[str]] = {
         "cat /proc/1/environ",
         "cp users.json leak.txt",
         f"grep KEY {_APP}/host_root/.env",
+        # ADR-0292：http hook 的標頭可能有權杖，讀寫 hooks.json 都算金鑰
+        f"cat {_APP}/config/hooks.json",
+        "echo {} > hooks.json",
     ],
     "F3": [
         "echo {} > auth_policies.json",
         f"cp evil.json {_APP}/config/permissions.json",
         "sed -i s/Manual/FullYOLO/ identity_map.json",
         "Set-Content autonomy.json '{}'",
+        "cp evil.py ToukaProxy/config/hooks/guard.py",  # ADR-0292
+        "cp evil.json hooks.json.example",
     ],
     "F4": [
         "sed -i s/a/b/ ToukaProxy/src/models/safety.py",
@@ -281,7 +286,8 @@ def _executor(
         lambda _ctx: PolicyDecision(effect=effect, reason="Hard floor F2"),
     )
     return ToolExecutor(
-        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
 
 
@@ -321,7 +327,9 @@ async def _run_interactive(
 async def test_human_only_interactive_shows_card_and_runs_only_after_approval(monkeypatch):
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"write": recorder})
-    _result, events = await _run_interactive(executor, "write", {"scope": "vault"}, approved=True)
+    _result, events = await _run_interactive(
+        executor, "write", {"scope": "vault", "path": "a.md", "content": "x"}, approved=True
+    )
     assert len(recorder.calls) == 1
     types = [e.get("type") for e in events]
     assert types.index("tool_approval_request") < types.index("tool_start")

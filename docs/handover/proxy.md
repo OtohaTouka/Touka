@@ -1,0 +1,173 @@
+# Proxy交班
+
+範圍：`ToukaProxy/**`：API、工具、模型層、對話流程。
+
+這份只放這個範圍沒做完、有未解限制、做完還沒部署或要特別操作的事。總覽見 [HANDOVER](../../HANDOVER.md)，舊內容見 [封存](../changelog/handover-archive-2026-11.md)。做完一項就從這裡刪掉，紀錄寫進 [CHANGELOG](../CHANGELOG.md)。
+
+## 現況
+
+- **Hook 其餘十五個事件（2026-11-04，ADR-0292 決定 16、17，丙-2）**：管理員可以再設定工具開始跑之後失敗（PostToolUseFailure，錯誤內容先遮憑證與路徑）、審批卡跳出之前（PermissionRequest，只能拒絕、不能替人核准）、工具呼叫被拒（PermissionDenied，只有固定的原因代碼）、需要人注意（Notification：跳審批卡、代理人問問題、MCP 工具要資料、隔離層級改變）；一輪回覆因錯誤結束（StopFailure）、子代理開始與結束（SubagentStart 可補充說明，當資料）、剪裁前後（PreCompact、PostCompact）、任務建立與完成（TaskCreated、TaskCompleted）、MCP 表單跳出前（Elicitation，只能拒絕、不能代填）、設定存好之後（ConfigChange，擋不了設定，hooks 一定關得掉）、心跳開始與結束（HeartbeatStart、HeartbeatStop）。除了 PostToolUseFailure、PermissionRequest、SubagentStart、Elicitation，都在背景跑，同時最多 32 個，超過跳過並留紀錄。無痕對話有會收到對話內容的 hook 時會提示（`GET /v1/hooks/active`）。另外內建工具缺必要參數時回 `validation_error`，畫面不再顯示 `TypeError`；模型回 200 但讀不懂或沒有回覆時是一般的模型失敗，那則回覆標「這一輪回覆失敗」。新的改狀態路由要在 `tests/unit/test_hook_config_change_security.py` 分類。
+- **聊天側的自動剪裁幾乎每次都存不進去（2026-11-04 實際驗證找到，既有問題，還沒修；不擋發版）**：回覆存好後後端開始剪裁，畫面同時送出收尾的保存，版本對不上，後端記 `ACID-B not confirmed`。對照時 4 次都這樣（假模型；真模型沒測）。沒有剪到，但歸檔已經做了，舊對話庫每次多一份相同的訊息。心跳那條照常成功。設家後下一則存不進去修好之後（2026-11-05），開了滑動視窗的家對話會更常走到剪裁，重複可能變多。見 ADR-0295「實際驗證找到的既有問題」。
+- **Hook（2026-10-28，ADR-0292，丙-1）**：管理員可以在設定畫面「Hooks」分頁（只有人類管理員看得到）設定使用者送出訊息、工具執行前後、一輪回覆結束時執行的程式（不經 shell）或 HTTP。預設關閉；設定檔 `config/hooks.json`（代理人用終端讀寫屬底線 F2），腳本與參數裡的路徑要在同資料夾的 `hooks/`，程式指到代理人寫得到的地方會被拒收。hook 只能擋下或要人確認（審批卡另標「hook 要你確認」，不送審查員），不能放行；hook 失敗不擋。被擋下的訊息前端顯示理由，這一輪從對話拿掉、文字放回輸入框；插話與 SNS 外人訊息也一樣會檢查，被擋下的不進佇列、不寫進對話；hook 執行期間按停止時不送模型、不執行工具（無痕對話也一樣）。一般使用者的專案根不能放在 Touka 保護的位置（管理員、Debugger 與只有管理員擁有的靈魂不受限）；代理人的專案根路上有連結時不能用專案檔案工具，代理人的檔案動詞也不跟隨連結（list、find、grep 不進入，路上有連結時讀寫刪回錯誤）。心跳的脈衝提示、排程提示與重新觸發不觸發「使用者送出訊息」。其他事件的狀況見本節最上面的丙-2。規則見禁令 67。
+- **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
+- **兩個調度員技能檔不進版控（2026-10-28，ADR-0290）**：`system-mcp-dispatcher`、`system-skill-dispatcher` 的 SKILL.md 改成 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）產生，內容沒變不重寫；載入程式時不再寫。用 git 更新到這一版之前，先 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時 git 會拒絕更新），更新後重啟一次。
+- **模型溝通層第 0 段（2026-10-11，ADR-0241）**：
+  - 內容：自動測試網路封鎖；三家 adapter 與 ToukaChat 不送取樣參數；Claude 思考／強制工具暫行規則；Gemini 無痕不建快取；備援只限同一家；沒設主要模型回 409 `AGENT_BRAIN_NOT_SET` 並跳通知；研究搜尋改用代理人自己的模型、評分沒設模型不啟用；還原拿掉硬逾時與三個穩定性小修；uv 7 天冷卻期；實測程式支援 Gemini 與 `--env-file`。
+  - 第 2 段完成前不啟動 Touka、不跑心跳。
+  - **uv 例外流程**：改 3 天與放行的寫法見 `docs/rules/deploy.md` 禁令 69（ADR-0299）。
+  - 後續任務：B8（這次不做）、取樣參數設定面與介面拉桿清理、前端寫死模型名、心跳／群聊與其他入口在沒設主要模型時的處理、ADR-0241「已知限制」所列既有問題。
+- **Touka 重新運作前的小任務（2026-10-12，ADR-0243）**：
+  - 全停 Gemini 顯式快取：刪 `gemini_cache_service`，一般與無痕對話每一輪都照常送 system 與工具，KF-1／KF-2／KF-2d 消失；`extract_usage` 仍讀 Google 隱式快取的用量計數（Touka 沒有建立任何快取）。
+  - KF-6：Claude 健康檢查帶 `anthropic-version`，OpenAI 健康檢查改送 `max_completion_tokens`。根 `.env.example` 補六把廠商金鑰（值留空），由 `test_root_env_example_provider_keys.py` 防漂移。設定頁「API 金鑰」分頁因此會列出這六把金鑰（`GET /config/env` 的欄位只從 `.env.example` 產生），不再一律顯示未設定。
+  - ToukaChat `next`／`eslint-config-next` 16.3.6→16.3.8，修 6 個 advisory（含 1 個 high），Guard #23 轉綠；鎖檔只變 12 個 Next 套件，皆上架滿 7 天。
+  - 兩個 Dockerfile 的 uv 換成 0.12.1（與 CI 同版）；在 Python 基底映像裡實際跑 `uv sync --locked` 要等下一次完整 `docker build` 才算確認。
+  - 新禁令 63：臨時查驗不得在沙盒外載入專案程式（載入時的初始化也算寫入），需要時寫成沙盒內的測試。
+  - 已知限制：Guard #20 的 knip 在 `.toukadev/worktrees/` 底下的工作資料夾會假紅（gitignore 濾掉入口檔），守衛未改，見 ADR-0243。
+- **模型溝通層第 1b 段（2026-10-12，ADR-0244）**：
+  - 計費：三家用量正規化成四欄（未快取輸入、快取讀、快取寫、輸出），價格表沒填快取費率時照 input 價；ReAct 每輪記帳，成本上限在同一次 run 中途就看得到花費；稽核 CSV 金額含快取。湧現指數（E-Index）已刪除（ADR-0291）：新的稽核檔沒有 `e_index` 欄，舊檔沿用自己的表頭、這欄補空值。
+  - 畫面 `token_usage` 事件改為整次 run 加總（含快取），多輪對話的數字會變大；`usage_pct` 仍看最後一輪。原生 `/v1/messages` 改為記帳但不送事件（修訂 ADR-0156 的凍結）。14 份 golden 刻意重錄，經獨立審查逐份核對。
+  - 新增 `complete_once`（`services/completion.py`）：單次、不帶工具、先過成本上限、只記用量、不跨廠商、不重試、`timeout_s` 是總時間、非成功一律結構化；Claude 用 `output_config.format`。契約測試在 3a／3b 必須原封不動通過。
+  - 摘要、互審 critic、創建評分改走 `complete_once`，都會記帳、受成本上限約束。critic 改依模型路由（非 Claude 也可能 APPROVE），critic 逾時 120 秒、評分 30 秒。
+  - 剩餘風險見 ADR-0244：中途結束的 run 沒有 CSV 列、`_SHAPERS` 留給 3a、OpenAI 推理模型的 `max_completion_tokens` 留給 3b、Gemini 思考 token 與 DeepSeek 快取命中未讀；新記帳只用 mock 驗證。
+- **模型溝通層第 2a 段：只留靈魂（2026-10-12，ADR-0245）**：
+  - 聊天要登入：`/messages`、`/chat/completions`（含 `/v1`）沒有已驗證身分回 401，修掉「沒登入也能叫出靈魂人設與家對話、花伺服器金鑰」的既有漏洞（SECURITY.md 一列）；首裝前本機領卡照舊。
+  - 非擁有者指定別人的靈魂：2a 本身只擋了「未登入」，已由後續修補（U2-SOUL，見下一項）修好。
+  - Guest 退役：子代理改用 `Subagent`（工具逐項照抄）；只有靈魂、DebugAgent、DispatchAgent 有代理角色與能力，其他 ID 一律 Base；X-Agent-ID 只能切進靈魂；`POST /identity` 拒絕其他 ID（422）；心跳白名單不再把靈魂降級成 Base。
+  - 群聊與 SNS `@別名` 只限靈魂（registry 成員還要經靈魂檢查），群聊設定只剩靈魂區；舊群聊歷史裡解析不到的點名略過，只驗最新一則。舊 `ToukaSoul` 前綴 ID 一律 Base、沒有能力（R-2a 修正）。
+  - live 權限設定檔已改成新版面，舊 Guest 不再當子代理用。其他 live 設定程式不改檔，舊值讀取時略過並記 AUDIT 警告：`identity_map.json` 非靈魂的舊覆寫畫面上看不到、存檔時保留；`group_whitelist.json` 的 `Native`／`Custom` 區會在群聊設定頁存檔時消失。
+  - AGENTS.md 只改身分與自動領卡、禁令 16、群聊三處。
+- **模型溝通層第 2b 段：審批管線（2026-10-12，ADR-0246 審批一節；三模式由 2c 補齊）**：
+  - 互審驗證指令逐條審批（SECURITY B2）：核准 `request_review` 不再代表指令已核准；CONFIRM 級指令在互動會話裡各自跳一張卡（步驟 id `<id>:verify:<n>`），核准才執行。Manual 下互審要跑指令時會有兩張卡。子代理不跳卡、立刻當無人在場。
+  - 審批卡完整顯示指令（SECURITY A7）：`command` 最多 8 KB，前端換行顯示。審批流程抽成 `services/approval_flow.py`，ToolExecutor 保留 `_await_human_approval` 並委派。
+  - 卡在人類這一關（SECURITY B1）：無人在場、逾時或佇列滿回 `reason=human_approval_required`，被拒回 `human_rejected_command`；三者都標 `BLOCKED_FOR_HUMAN`、不叫 critic、不扣次數、不上鎖，也不再叫代理人改用 `execute_command`。P7（被擋太多次就直接問人）留給 2c。
+  - 剩餘風險：看板 `get_board` 不顯示審查欄位，人從看板分不出「等人核准」和其他 `BLOCKED_FOR_HUMAN`；正式流程每個任務只有一條驗證指令；子代理裡其他要核准的工具仍要等 180 秒逾時（【推論】，留給 2c）。
+- **模型溝通層第 3a 段（2026-10-12，ADR-0247）**：
+  - anthropic SDK 0.83→1.11（冷卻期內最新、沒開例外）。每個 Claude client 建構點都注入不跟隨轉址的 client，並顯式傳 `config.ANTHROPIC_API_BASE_URL`：環境變數 `ANTHROPIC_BASE_URL` 不能再改目的地、把金鑰帶走。禁令 22 AST 守衛擴大到整個 `ToukaProxy/src`＋`scripts`＋人工 probe，並檢查這兩條（SECURITY SDK1、SDK2）。
+  - 每模型規則表 `services/models/model_rules.py` 取代 `claude_model_rules`、轉換器寫死的別名表與固定思考預算，不拿來過濾模型發現。Claude `max_tokens` 改為照請求值（沒給用規則表預設），超過非串流上限 21,333（Opus 4／4.1 為 8,192）時壓低；3b 起只在主迴圈不串流時壓。Gemini 模型名原樣送出，不合法的名稱回 `MODEL_NOT_FOUND`。
+  - Claude 快取：KF-5、KF-10、新對話第 2 輪斷點已修；KF-7b 隨 Gemini 模型名原樣一起修好。`complete_once` 契約測試原封不動通過；golden 零差異。
+  - 行為變化：Claude 舊簡稱（如 `claude-4-5`）不再自動改成完整 ID；只寫家族名的 Gemini 模型（如 `gemini`）會報錯。
+  - 剩餘風險見 ADR-0247：Claude 目的地寫死（要改得改常數）、3b 前長輸出會被壓低；範圍外四項未修（context window 內建表過時、`AnthropicThinking` 定義兩次、OpenAI 形狀入口不理 `request.thinking`、呼叫端自帶超過 4 個斷點仍會 400）。
+- **模型溝通層第 2c 段：三種模式、底線與審查員（2026-10-12，ADR-0246 改為已接受）**：
+  - 三種模式 Manual／Auto／YOLO 取代四級。已存的舊值讀取時對照（ReadOnly、SafeAuto、看不懂→Manual，FullYOLO→YOLO），不做資料庫遷移、不備份；寫入只收新名稱。只有 admin 或該靈魂的擁有者能把對話存成 Auto／YOLO，在對話存檔時判定（原本 MonitorLayer 的閘會被 ToolLayer 覆寫、實際無效）。
+  - 底線寫在程式裡、設定檔關不掉：刪改 Touka 資料、讀金鑰、改權限設定、改原始碼、系統破壞（F1–F4、F7）三種模式都只有人能核准、無人在場拒絕；能力擴張與對外發言（F5、F6）在 Auto 只有人能核准。規則檔寫壞時保留上一份黑名單。
+  - Auto 審查員：有人在場時，終端指令與高風險工具先交審查員（經 `complete_once`、只收型別化判決、任何失敗都轉人、P7 被擋太多次就直接問人）；審查員模型預設空白＝每次都問人；無人在場不送審、直接拒絕。新禁令 64。
+  - 在場判斷：心跳與子代理的標記真的設定，子代理一律無人在場、不再等 180 秒（2b 記的殘留已修）。原意（最近 3 則人類訊息）只留在記憶體，給審查員用。
+  - 心跳：safe→Auto（不在場不跑指令）、full→YOLO、看不懂→Manual；KF-4 修好，心跳第一次能用工具（ADR-0242 KF 表改已修）。workload OAuth 刻意維持關閉。
+  - IDE 只剩 Manual／YOLO，黑名單直接拒絕；人類在 Touka 卡片核准過的動作不再問第二次（HMAC 標記），但要等 Proxy 轉送 IDE 工具才會在正式環境用到；核准的指令只跑一次，代價是 VS Code 終端不再顯示。
+  - 前端：三模式選單（存檔後立即顯示實際模式）、安全設定的審查員模型選單、審批卡的審查理由與「只有你能核准」、心跳標籤、直連標示。
+  - 無痕對話一律 Manual（2026-10-12 決定：無痕無法追溯）：U2c-9 讓 ToolLayer 在所有模式來源之後最後套 `enforce_incognito_manual`，修掉「無痕請求帶著已存成 Auto／YOLO 的 session id 會照存的模式跑」；原因提示在前端。
+  - AGENTS.md 只改這幾處（三模式＋底線＋審查員、新模式名稱、禁令 64）。ADR-0246 取代 ADR-0021 的四階矩陣與 MonitorLayer 降級閘，修訂 ADR-0143、0018、0089、0078（反向註記已加）。
+  - workload OAuth：維護者 2026-10-13 決定維持關閉。`POST /v1/autonomy` 的權限含 Debugger 已在 R-2c 修好（`auto_review` 只有人類 admin 能改，預算欄位仍是 Owner／Debugger／admin；ADR-0246 已知限制裡已劃掉）。心跳在 YOLO 下會在無人在場時用 MCP 工具是 ADR-0246 的已知限制，沒修，列在 §3 待排小項。其他剩餘風險（文字地板可被先寫檔再執行、shell 變數與萬用字元繞過；審查員準確率沒實測）見 ADR-0246；根治要等模型層第 5 段的隔離執行環境。
+- **模型溝通層第 3b 段：上游串流、OpenAI Responses、重試（2026-10-13，ADR-0248）**：
+  - 主迴圈改串流：Claude 用 SDK 的 `messages.stream()`；Gemini 自寫 SSE（Q5 部分不過：google-genai 會靜默丟掉不認得的欄位）；規則表的已知相容廠商（OpenAI、DeepSeek、Grok）自寫 SSE 並送 `include_usage`。自訂連線、Ollama、LiteLLM 維持非串流；`complete_once` 照舊非串流、只送 1 次。下游 SSE 形狀不變。
+  - 逾時：第一個位元組前 120 秒、閒置 60 秒（推測值，待實測 L3）、整輪 600 秒；ping 也算還活著（Claude 與 Responses 在 httpx2 傳輸層計時）。沒有完整訊號就斷線、200 之後才出錯，一律回錯誤、不回半截。
+  - 用量：沒跑完的一輪（取消、逾時、斷線、重試放棄的那次）廠商已回報的照記、其餘估算，估計標記只在畫面事件與日誌，用量紀錄檔仍四欄；串流沒開不記，`complete_once` 永不估。
+  - 重試搬到主迴圈（四家共用、最多送 3 次）：只重試 429／5xx／529 與首事件、閒置逾時，照 retry-after（上限 30 秒）；SDK 自帶重試關掉。finish_reason 照實回報（`length`／`content_filter`），拒答與安全過濾多一則可讀提示；6 份 golden 刻意重錄、經獨立審查。
+  - OpenAI Responses：只給非自訂連線、官方 OpenAI、規則表標記的模型；新依賴 openai `~=3.24.0`；目的地是常數 `OPENAI_RESPONSES_BASE_URL`；`OPENAI_*` 改寫請求的環境變數清掉、logger 釘在 WARNING、禁令 22 守衛擴到 openai 建構子（SECURITY SDK4～SDK6）；`store=false`、`prompt_cache_key` 用雜湊；GPT 登入只留接縫。
+  - KF-7a、KF-8、KF-9 修正（ADR-0242 KF 表改已修）：Gemini 外部工具歷史用工具名、相容 Chat 不外送內部欄位、IDE 的 Claude 格式入口接非 Claude 模型時工具紀錄與 system 帶得過去。Claude 非串流上限改成只在主迴圈不串流時壓（修訂 ADR-0247 決策 4）。
+  - 實測待辦：[docs/proxy/live-check-backlog.md](../proxy/live-check-backlog.md)（L1～L5，每批照禁令 61 揭露與同意；L5 尚未安排）。待 R-3b 判斷的點與已知限制見 ADR-0248。AGENTS.md 不改。
+- **模型溝通層第 4a 段：工具邊界插話（2026-10-13，ADR-0249）**：
+  - AI 工作中可以插話：Enter 排隊、Ctrl／Cmd+Enter 優先、Esc 停止；排隊中的訊息可收回或修改；回合正常結束時沒送達的自動當成下一則送出，停止或出錯時放回輸入框。
+  - 佇列 `services/interjection_queue.py`（只在記憶體、鍵 (session_id, stream_id)、10 則／4,000 字／600 秒）；端點 `/v1/ui/sessions/{id}/interjections`（只收人類，admin 代打可以；沿用停止端點的授權，admin 不是串流發起者也 403）；錯誤碼 1216～1219。
+  - AI 在下一個工具步驟之間收到（`append_tool_results` 之後，只在 UI 對話）；下一輪送出成功才算送達並送 `interjection_delivered`，回合結束時送一次 `interjection_undelivered`；urgent 讓下一輪不用工具。四家格式各自實作，OpenAI 相容、Gemini、Responses 與 Claude 中途 system 訊息待實測（backlog L6、L7）。
+  - 插話存在那一則 AI 回覆的 `interjections[]`、不算回合；下一輪的歷史（前端，以及伺服器的心跳、家對話、摘要三處）在 content 前加同一個標註。
+  - AGENTS.md：§3 補一句、新增禁令 65；§2 的閘道函式清單已補上 `require_human_requester`（2026-10-13）。ADR-0249 已改為已接受。已知限制見 ADR-0249。
+- **模型溝通層第 4b 段：Ctrl+Enter 中斷（2026-10-13，ADR-0249）**：
+  - urgent 插話在上游串流接收中直接打斷那一輪：取消、丟掉半截文字／思考／工具呼叫、不重試、不算一步，串流那一輪計費照廠商回報、沒有就估（只在事件與日誌標估計），非串流那一輪被打斷時不記也不估（已知限制）；請求沒有工具時不送 `tool_choice`、Claude 連續中途 system 併成一則（M9-R1a）；先送排隊的插話（urgent 優先、打斷範本句），下一輪不用工具。
+  - 觸發是佇列的 per-串流 `urgent_signal`；一輪開始前就有 urgent 時那一輪直接不送。串流內送 `round_interrupted_by_user`（step＝已完成的工具步數），前端存進助理節點 `interruptions[]` 並在時間軸標「這一輪被你打斷」；Ctrl+Enter 的說明改成「立即中斷正在寫的回答」。已知限制見 ADR-0249（伺服器存檔不帶 `interruptions`）。
+- **Touka 待排小任務（2026-10-14，ADR-0250）**
+  - 靈魂頁主要模型分兩欄：你指定的（`config.base_model`）與目前在用的（active brain，模型可以自己換）。`POST /v1/souls/{id}` 只有人類存檔、而且改了你指定的或還沒有主要模型時，才把主要模型換成新值；新值必須在模型清單裡（`is_selectable_brain`），否則 404 `MODEL_NOT_FOUND`、設定與人格都不寫；代理人存檔不動主要模型。只改人格不會把模型自己換的蓋回去。修訂 ADR-0241 決策 6。
+  - `GET /v1/souls` 沒設主要模型或讀取出錯時 `active_brain` 回 `null`（畫面自己翻譯成未配置）；舊的 `toukasoul` 主要模型值當成沒設，聊天回 409，不再偷換成寫死的模型。
+  - 模型名查表不分大小寫：唯一入口 `ModelManager.resolve_custom_route`，先找完全相同、只有一個不分大小寫符合才用，兩個以上回 409 `MODEL_NAME_AMBIGUOUS`（1220，新錯誤碼）；靈魂層、群聊、子代理、心跳都經 `request_model_name`，自訂連線送原名。自訂模型的新 ID 和靈魂或其他自訂模型只差大小寫也回 409 `MODEL_ALREADY_EXISTS`（Windows 與 Linux 一樣）。
+  - 沒設主要模型時：群聊整輪不派發、串流裡點名哪位成員；心跳 `/awaken` 沒有 `model_override` 時回 409 `AGENT_BRAIN_NOT_SET`、不啟動背景迴圈；背景迴圈拿不到模型就記 log 結束。
+  - 計費：Gemini 思考 token 算進輸出（含回給客戶端的 `completion_tokens`），DeepSeek 快取命中照快取價記；成本上限因此照實。只用 mock 驗證。
+  - 規則漏洞：重生 openapi 的腳本先開沙盒再載入產品程式（新 `scripts/openapi_merge.py`）；Dispatch 明寫不跟隨轉址，禁令 22 守衛擴到 Dispatch、Heartbeat、Memory；刪掉 Proxy 內走不到的排程引擎（含唯一的 `verify=False`）；指令逾時後的回收有時間上限、取消不被吞掉；研究工具沒有模型時回結構化錯誤；`AnthropicThinking` 只定義一次。
+  - 介面：拿掉 SoulStudio、ModelStudio、ModelsTab 的取樣參數拉桿（API 欄位保留，修訂 ADR-0111 D4 的前端面板），刪掉沒有入口的 `/create` 頁；寫死的模型名改成清單載入後挑第一個可用的一般模型（共用 `pickDefaultModel`），找不到就不切換；IDE 行內補全預設留空、留空不發請求。
+  - 開發環境：Guard #20 knip 加 `--no-gitignore`，工作資料夾不再假紅（ADR-0243 的已知限制）；ToukaChat `npm run test` 先產生 artifact runtime；env_guard 測試改用系統暫存資料夾。
+  - 現有靈魂實際的主要模型值沒有查（沒讀 `data/`），部署者可以在靈魂頁自己確認或改正。AGENTS.md 不改（沒有新增或改動禁令與核心守則），SECURITY.md 不改（審查判定沒有安全弱點修補）。已知限制見 ADR-0250，範圍外的事列在 §3 待排小項。
+- **開發環境整理（2026-10-14，ADR-0251）**：含 AGENTS.md 文字、建置產物宣告 7 行與金鑰的行為改變。
+  - AGENTS.md「直譯器主權」之後新增「Windows 本機跑後端測試的前置條件」：Node／npm 版本以兩個 `package.json` 為準（目前 24.21.0／11.19.1，只替這次指令切換）、先在 `ToukaIDE` 跑 `npm run install:controlled`（要跑 guard_all 時 `ToukaChat` 也跑一次，再跑 `npm run gen:artifact-runtime`）、9 個安裝腳本測試用 Git for Windows 的 bash；條件都對時已知只有 E1 的 6 個 failed 與 7 個環境跳過，比這多就查原因。`CONTRIBUTING.md` 的佈建對齊 CI（`ToukaChat`、`ToukaIDE` 都用 `install:controlled`；ADR-0282 起它就是 `npm ci --ignore-scripts`）。
+  - `pytest.ini` 加 `addopts = -rfEs`：結尾列出失敗、錯誤與每個跳過的原因。安裝腳本測試從 PATH 上 `git` 的位置推算 bash，`mingw64` 位置多往上一層，從 Git Bash 跑也不再跳過。
+  - 測試沙盒收尾：`tests/conftest.py` 的 `SANDBOX_RELEASE_STEPS` 依序等稽核寫入、關 Qdrant（只在向量模組已載入時）、關 SQLite、關 log handler，再由 `tests/sandbox_cleanup.py` 刪除；`mkdtemp` 後立刻登記 atexit，session fixture 與 `pytest_sessionfinish` 也呼叫同一個函式；刪不掉時結尾印「測試沙盒沒刪乾淨：<路徑>」。強制結束的 pytest 仍會留下沙盒。
+  - 根目錄 `rebuildable-outputs.txt` 宣告 7 種可以直接刪的建置產物（`ToukaChat` 的 `.next/`、`out/`、`next-env.d.ts`、`src/generated/`、兩個 `tsbuildinfo`，`ToukaIDE/dist/`），由 `test_rebuildable_outputs_declaration.py` 檢查格式與忽略狀態。**要等 dev 合進 main、本機執行 `git fetch origin` 之後，清理工作資料夾前的檢查才採用**；撤回只要刪檔並合進 main。
+  - 三把自動持久化金鑰（心跳、登入、派工）不再接受歷來公開過的 9 個值（`config.PUBLIC_SECRET_VALUES`，三個解析點與設定精靈共用）：`.env` 已存非公開值就沿用、不寫檔；否則產生新值寫回；寫不回時 fail-closed。讀真 `.env` 的測試已刪（跳過 8 → 7），範本檢查改成所有版控中的 `.env*.example`。SECURITY.md 三列。
+  - **升級時要做的事**：更新後執行一次 `docker compose up -d`（只按重新啟動不夠；設定若剛好是公開值，在那之前心跳喚醒和排程管理頁會失敗）；登入金鑰若被換掉，所有人要重新登入一次。值本來就不是公開值時沒有副作用。
+  - 已知限制見 ADR-0251，範圍外的事列在 §3 待排小項。
+- **記憶系統第二批：段 6（系統快照、刪除靈魂前檢查）（2026-10-15，ADR-0262）**：刪除靈魂時如果還有記憶，要求先重置。
+  - 先前系統快照與重置一直是壞的：快照腳本路徑錯（手動、排程、重置前快照全部失敗，每靈魂重置一律中止）；容器裡找不到 `.env`、資料路徑是宿主路徑，快照做不出來；資料路徑對不上時會靜默產出不含資料的快照。現在 Proxy 把資料根、`.env`、設定目錄、輸出目錄交給腳本，資料根不存在就失敗，重置因此不會在沒有真備份時刪資料。
+  - 快照目錄改成 `.env` 所在資料夾的 `backups`：本機整合模式和以前一樣在 repo 根；容器裡在宿主 compose 目錄的 `./backups`，重建不消失；本機獨立模式在 `ToukaProxy/backups`。
+  - 檔名到秒、同一秒加序號，絕不覆蓋既有快照；記憶庫與向量庫取一致複本（SQLite backup API），不再複製到寫一半的資料庫。快照失敗的回應不再帶腳本輸出（消毒後只進伺服器 log）。
+  - 刪除靈魂時還有記憶（任何狀態的事實、向量點或向量 collection）就擋下，畫面引導先到「代理人資料重置」；重置後再刪。重置卡在快照沒做成時會明講「重置沒有執行、你的操作沒有錯」。
+  - 子程序的 PYTHONPATH 收成 `utils/child_env.child_python_env()`，dispatch 與快照、還原共用（dispatch 行為不變）。新錯誤碼 1408、1409；openapi、Guard #45 基準、AGENTS.md 都不變。
+- **Claude 拒收記憶／任務工具定義（2026-10-15，ADR-0266）**：送給 Claude 的工具定義根層若有 `oneOf`／`anyOf`／`allOf`，Anthropic 整包拒絕（400）。`mission_tools` 從 7/04 起、`memory_tools` 與 `edit_soul` 從 9/16 起根層帶 `oneOf`，所以用 Claude 跟有開這些工具的靈魂聊天或跑心跳都會失敗。
+  - 現在只在送給 Claude 的最後一步另建一份、拿掉根層組合子（各分支的欄位併回根層、必填只留根層原有的、根層一定是 object）；參數正本與執行前檢查都不變，外部 MCP 工具一起修好。Claude 看不到「每個動作要哪些欄位」的條件提示，只剩說明文字。
+  - 新增跨廠商出場形狀測試（四家 adapter 逐家核對規定）；舊測試原本規定要保留根層 `oneOf`，已改寫。openapi、NOQA、Guard #45 基準、AGENTS.md 都不變。
+- **模型只能用這一輪列給它的工具（2026-10-15，ADR-0269，安全修補 h2）**：Touka 每一輪會先挑好給模型看的工具（靈魂只開某幾個、無痕不給記憶工具、背景執行不給「問使用者」、MCP 要先掛載），但執行時沒有再對一次。以前模型直接喊沒列出的工具照樣會跑：無痕對話讀得到記憶、YOLO 下叫得到沒開的終端、背景執行叫「問使用者」空等 10 分鐘、外掛不查角色權限就執行、根本不存在的工具也先跳審批卡或找審查員。
+  - 現在執行前先對清單：沒列出回「這一輪沒有提供這個工具」（`not_advertised`）、根本不存在回「找不到」、清單不見回「工具清單不可用」，三種都不跳審批卡、不找審查員、不執行，YOLO 也一樣。原本的角色權限、MCP 權限、底線、審批照舊，只是多一道。子代理用自己的清單，也不能再派子代理群組。除錯面板手動執行不受影響。模型開始工作前會確認這道檢查開著，沒開就停下報錯。
+  - **會被擋、原本能用的**：舊名工具（`vault_tools`、`bash` 等）要對應的新工具全部有開；做了「掛載 MCP」的動作之後，下一輪（背景是下一次脈衝）才能用那台 MCP 的工具；你用自己帳號登入授權的 MCP、當下沒連上的 MCP、在靈魂設定畫面勾的 MCP 工具與外掛（畫面存短名）本來就沒列給模型，現在確定叫不到（另開 T1、T2）；Discord 等 SNS 叫記憶工具會被擋；靈魂工具清單只勾 `execute_command` 時要連 `get_command_result` 一起勾，否則背景指令拿不到結果。在短名問題修好前，建立新靈魂時工具清單請留空（等於全部可用）。〔2026-10-24 起（ADR-0281 T1）：人在場、和靈魂的前景對話時，自己登入授權的 MCP 叫得到了；還沒連上的共用 MCP 在說明區塊列出名字。T2：靈魂設定畫面勾的 MCP 工具存成 `伺服器/工具`、真的有效，編輯時也能改；勾了 `execute_command` 會自動帶上 `get_command_result`、`stop_command`；外掛照舊用不到、從勾選清單拿掉；已經存了舊短名的靈魂要重新勾一次。〕
+  - 測試 `tests/integration/test_tool_loop_budget.py` 有 2 個只改授權設定、斷言不動（補 `vault_tools` 的 7 個後繼檔案動詞，見 tests/README）。openapi、NOQA、Guard #45 基準都不變；AGENTS.md §8 加一句。
+- **mcp 升級 2.2.0、轉址一律擋下、呼叫當下核對工具清單（2026-10-16，dep1；ADR-0199、ADR-0203 的 dep1 補記）**：Proxy 的 MCP 客戶端原本會照伺服器給的 schema 去抓外部網址（GHSA-rwrf-2pqf-9j8j），升級後修好；另外在呼叫 MCP 工具前核對伺服器當下的工具清單，被隔離或不在清單就不呼叫、也不計入斷路器；SDK 2.2 會自己跟同源轉址，改由連線設定的 hook 擋下所有 3xx，代價是遠端 MCP 回 3xx 時整條連線失效、要手動重啟那台伺服器。
+  - 連線途中斷線會取消 lifespan：已由 life1（ADR-0273）解決，`tests/unit/test_mcp_midflight_transport_failure.py` 的三個 xfail 已轉綠。
+- **Claude 5.5 家族接手前要先修（2026-10-16，ADR-0271，r55）**：審查員照舊思考強度、等待改 60 秒；延遲實測工具只寫不跑。
+  - 小工作少想：評分、摘要員、IDE 行內補全用 Claude 5.5 時降低思考強度（Haiku／Sonnet 5.5 直接關掉、不再硬拉 8,192；Opus 5.5 關不掉，只降強度）。審查員與互審照舊。只對 5.5 三型號生效，5.6 以後照舊。
+  - IDE 補全送「這是補全」的標頭，只能讓 Touka 少想，不影響身分、路由、工具、權限、花費上限；IDE 另加 10 秒等待、你繼續打字時取消舊請求。
+  - 花費上限有開時，摘要員、審查員、互審、評分送出前先估「輸出全用滿」的最壞花費，會超過就不送（加嚴）。
+  - 價目照官方：Haiku 5.5 一般請求不再高估 5 倍（提示超過 10 萬 token 才用貴檔）、Sonnet 5.5 快取命中減半；畫面「本回合花費」與稽核 CSV 跟著變準。
+  - 審查員等待預設 20→60 秒，設定頁多一欄可看可改。逾時仍是轉人或拒絕、不是放行；但用 5.5 當審查員時，原本逾時轉給你的動作改由審查員判斷，自動放行會比現在多（回到原設計）；審查員卡住時約 65 秒才跳審批卡。
+  - **你要做的一步**：設定頁「審查員等待秒數」若顯示 20，改成 60 存檔（已存的設定檔不會自動改）。
+  - **會改變的行為**：用 OpenAI 格式送 Claude 的請求，停止字串開始生效（IDE 補全以 ``` 開頭時會變空）；原生 Claude 格式送來的思考強度開始照送、「關掉思考」依型號改寫或不送、5.x 的小輸出上限補到 8,192（ToukaChat／IDE 選 anthropic 協定的 4,096、評分頁 512／1,024）；摘要員用 Haiku／Sonnet 5.5 時寫超過預算會截斷、退回無損剪裁。
+  - 延遲實測工具 `tests/smoke/manual/thinking_latency_probe.py` 只寫、沒跑，要跑時另附命令與金額問維護者；記憶評估工具改過（最壞估價取貴檔），之後再跑要重新同意。openapi／`api.ts` 重產；沒有新錯誤碼；Guard #45 基準、NOQA、AGENTS.md、SECURITY.md 都不變。
+- **MCP 連線斷一條不再全停（2026-10-16，ADR-0273，life1）**：以前只要一台 MCP 伺服器在呼叫途中斷線、逾時或被轉址，或你在 MCP 頁按 restart、存 MCP 設定、從 Hub 安裝，Touka 的背景（所有 MCP 連線、Dispatch 監督、背景任務）可能整個停掉，畫面卻看起來正常，要重開容器才恢復。
+  - 現在每條連線各自管理：出事的只有那一台在 MCP 頁顯示錯誤，其他伺服器、心跳與 Dispatch 照常；聊天拿到工具錯誤，繼續進行。設定和畫面都不變，你不用做任何事。
+  - C2-3 接線後的限制：restart 等鎖最多 5 秒、關舊連線最多 8 秒、握手預算 15 秒、逾時後收尾另最多 8 秒，不能再以約 22 秒為上限。隔離 stdio 的 EOF 會通知失聯並排重連；direct stdio 仍可能等到下一次呼叫才記錯，遠端與 direct 都不自動重連。
+  - 其他限制與技術細節見 ADR-0273；SECURITY.md 一列。`_connect_once`、SDK、main.py、openapi、NOQA、Guard #45 基準、AGENTS.md 都不變。
+
+## 也和這裡有關
+
+- IDE 讀寫不跟隨連結，連線資訊檔只給自己；Windows 照舊：見 [ide.md](ide.md)。
+- 網頁版在家對話本身不再重複插入家對話內容；前端改成只送最近幾輪之前要先改後端：見 [chat.md](chat.md)。
+- 刪靈魂前先清隔離家目錄；舊 ID 要手動刪，密碼錯回 403：見 [isolation.md](isolation.md)。
+- 靈魂可搜尋聊天對話；舊列不可見、全載入後才分頁：見 [memory.md](memory.md)。
+- 心跳與 SNS 改每靈魂頻道；所有 writer 要一起升級：見 [heartbeat.md](heartbeat.md)。
+- 修記憶「壞了卻顯示正常」；其餘限制列在待排小項：見 [memory.md](memory.md)。
+- 演化先問人、MCP 不再拿金鑰；升級要檢查 MCP 連線：見 [isolation.md](isolation.md)。
+- 個人空間多系統維護的檔案目錄；終端機仍寫得進去：見 [memory.md](memory.md)。
+- 記憶庫升級、向量失敗不刪事實、記憶來源；有限制與回復步驟：見 [memory.md](memory.md)。
+- 加現在時間區塊與歷史資料界線；界線擋不住模型照做：見 [memory.md](memory.md)。
+- 記憶可取代並保留舊版、加安全標記；啟動時自動升級記憶庫：見 [memory.md](memory.md)。
+- 對話有時間戳、舊對話直接歸檔；剪裁會開始真的生效：見 [memory.md](memory.md)。
+- 新增可信活動時間軸，心跳也注入；關機時事件可能丟：見 [memory.md](memory.md)。
+- 可選擇一併清除備份裡的記憶；VPS 的 nginx 要補設定：見 [memory.md](memory.md)。
+
+## 待排小項
+
+- `/mcp/list` 尚無 Pydantic 回應模型，前端 `McpServerStatus` 仍為手寫型別；後端補上回應模型後，前端應改用生成型別。
+- 外部 OpenAI／Anthropic 相容客戶端帶家對話 session id、自己送完整歷史、沒有 `ui_persistence` 時，家對話會重複，後端分辨不出來（2026-10-29 修網頁版家對話重複時發現）。SNS 家對話模式原本也會讓最新一句送兩次（先寫進家對話、再只送這一句）；ADR-0292 把 SNS 外人訊息改成 pipeline 跑完才寫，已一併修好（`test_sns_gateway.py` 驗順序）。
+- 上下文快照（`context_snapshot_service.py`）沒有 session，在家對話本身照樣列出 Home Messages 一欄，沒反映 2026-10-29 起網頁版在家對話本身不插家對話。
+- `<harness_context>` 的固定文字裡就有 `<conversation_summary>` 字樣，`to_cached_system` 找最早的波動區塊時會在 harness 中間切開，`tool_availability`、`validation_protocol` 被留在波動段，只影響快取命中（ADR-0139 起就有；ADR-0285 審查時發現）。
+- 審查員的準確率、拒答率、解析失敗率與延遲沒有實測（ADR-0246；要照禁令 61 逐批揭露與同意）。
+- 心跳在 YOLO、無人在場時會用 MCP 工具（MCP 工具不經底線分類；ADR-0246 已知限制）。
+- 【推測】不是經靈魂、而是直接用小寫名稱聊天時，查表找得到自訂連線，但送出的模型名仍是使用者寫的小寫，自訂端點可能不認得。
+- ADR-0250 其他已知限制：代理人仍可寫 `config.base_model`（照存、不驗、不動主要模型）；模型清單在存檔當下沒載入時，有效 ID 也會被判無效。
+- ADR-0251 其他已知限制：單獨執行 ToukaDispatch（不經 Proxy）時不經對照表；fail-closed 時公開值仍留在 `os.environ`；把 A 金鑰的公開值填在 B 金鑰不會被擋。
+- `/v1/memory` 沒有正式的 Pydantic 回應模型，前端的記憶提示型別只能自己宣告，後端改欄位時 openapi 與型別檢查都抓不到（ADR-0253）。
+- `ErrorCode.SCHEDULE_NOT_FOUND`（1205）在 Proxy 排程 CRUD 刪掉後沒有後端使用者；刪除要動 `errors.json` 與兩端產生檔，和其他改動共用，要排序（ADR-0254）。
+- 還原失敗的錯誤碼目前沿用 `SYSTEM_BACKUP_FAILED`（「系統備份失敗」），語意不精確；畫面用專用文字所以看不出來。改用專用的 `SYSTEM_RESTORE_FAILED` 要動 `errors.json` 與兩端產生檔（ADR-0254）。
+- `ToukaProxy/scripts/manage_backup.py` 還原時找不到 zip 會印錯誤但 exit 0，會被當成還原成功（端點接受前已檢查 zip 存在，只剩中間的時間差）（ADR-0254）。
+- `DELETE /v1/models/{id}`（`ModelManager.delete_model`）刪自訂模型資料夾時不清擁有清單，會留下殘留。同一個 ID 再被建立（新建自訂模型、改名、建立靈魂）時會清掉，不會讓人拿到新的模型或靈魂，只是清單不乾淨（ADR-0254 2026-10-25 補記）。
+- `ToukaProxy/src/utils/custom_io.py` 的 `write_custom_file` 直接 `write_text`，不是原子置換（ADR-0078）：寫到一半失敗時 config.json 會被截斷，改名的回滾會把截斷的檔搬回舊 ID（ADR-0254 2026-10-25 補記）。
+- 新建自訂模型時存檔成功、認領擁有權卻丟例外：回 500，但模型資料夾留著、沒有主人（admin 看得到，非人類的 Owner 身分會當成公用模型）；`save_model` 先寫 system_prompt.md 再寫 config.json，既有模型 config 寫不進去時 prompt 已經改了。兩件都是原本就有（ADR-0254 2026-10-25 補記）。
+- 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
+- 動作型工具（memory／mission／edit_soul）的廣告 schema 依動作合併同名欄位，只留第一個動作的型別限制（`contracts.action_parameters` 的 setdefault）；hist-bak b 用不同欄位名 `page_size` 避開，共用機制另排（ADR-0274 已知限制）。
+- 刪除、重置、記憶清除期間仍擋不住人自己的前景聊天、SNS、群聊對這個靈魂的寫入（舊審查報告第 3 題乙案，要改工具層）；刪除靠清完家目錄後的再查擋下。叫停要等正在跑的那一輪模型呼叫回來，重置不等它：重置自檢之前寫進來的會顯示「重置後又有新寫入」，之後才寫的不在任何報告裡（ADR-0287）。
+- 還原進行中仍可刪除靈魂：重置與 DebugAgent 重置會看還原旗標，刪除靈魂不看（原本就有，ADR-0287 審查時發現、範圍外）。
+- 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。
+- 寫 `.env` 的共用鎖（`config.ENV_FILE_LOCK`，ADR-0288）只管 Proxy 這個行程；設定頁 `POST /v1/config/env` 仍是清空再寫（不是原子置換），寫到一半當機一樣會壞（原本就有，乙-3 審查時發現）。候選：改成和 `persist_generated_secrets` 一樣的暫存檔置換；改之前 `update_env` 要留在主迴圈上（讀 `.env` 的地方沒拿鎖，靠它在同一條主迴圈上才讀不到清空到一半的檔）。備份還原子程序（`manage_backup.py`）快照時讀 `.env`、還原時直接覆寫，也不在鎖的保護內。
+- 重置的「查看結果」只記最後一次、只在 Proxy 記憶體（ADR-0289）：伺服器重啟或系統還原後就查不到；請求根本沒送到時查到的是更早的那次（畫面寫了靈魂與時間）；清除工作在寫結果之前出錯而請求已經斷線、或清除的安全網自己也失敗時，會一直顯示還在執行，直到下一次重置或伺服器重啟。
+- 【推測】Gemini 出場對外部 MCP 工具的 `$ref`／`$defs` 不處理，欄位只寫在條件分支裡的也會在剝分支時消失；這類 MCP 工具在 Gemini 可能被拒收或變成沒有欄位（ADR-0266）。
+- 外掛（plugin）不列給模型、也不在靈魂工具勾選清單裡（ADR-0281 T2，維護者決定 2 甲）；要讓模型用外掛時，「列給模型＋補角色權限」一起另開 ADR（ADR-0269）。
+- ADR-0281 T2 的後續候選：已經存了舊短名的靈魂工具清單不會自動對應，要到編輯畫面重新勾選；勾選清單列不出使用者個人授權的工具（不知道是誰在看）。
+- ADR-0281 T1 的後續候選：使用者授權的 MCP 連上後常駐（沒有閒置關閉、訂閱照伺服器設定），解除授權後連線不會立刻關；自己的使用者授權伺服器連不上或授權資料損毀時只記 log、畫面與模型看不到；好幾台同時第一次連線時一台一台等。
+- 既有問題（T1 審查時發現，不是 T1 造成）：MCP 回應快取 `_cache_scope` 只用人當分區，handle 與授權卻是人＋靈魂，同一個人的兩個靈魂可能共用快取回應；`require_privileged` 讓任何擁有靈魂的人都能改全域 MCP 設定（伺服器名稱等）。
+- r55（ADR-0271）：子代理與群聊會繼承主對話的少想；IDE 中止後 Proxy 端非串流請求不會跟著停、仍會花錢【推測】；並行的旁路呼叫不互相預留花費、主迴圈第一輪送前不檢查上限；`model_pricing.json` 覆寫不分檔；原生 `stop_sequences` 未轉送；原生 `between_tools` 給 Opus／Haiku 5.5 照原樣轉出（廠商會 400）；少想的實際延遲與 60 秒夠不夠都還沒實測（工具已寫，`docs/proxy/live-check-backlog.md` T1）。
+- MCP 連線（ADR-0273）：direct stdio 自己結束時仍不即時通知，隔離 stdio 已有 EOF 通知；transport 子 task 仍帶 workload bootstrap 票（啟用 heartbeat workload OAuth 前必修）；C2-3 已補 generation 安裝檢查、失聯清單略過、隔離重連與關機閘；compose 的 `stop_grace_period` 列候選。

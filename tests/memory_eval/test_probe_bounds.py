@@ -16,8 +16,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from memory_server import config_utils
 from memory_server import vector as memory_vector
 from memory_server.factual import FactualStore
+from memory_server.services.manager import MemoryManager
 from src.handlers import react_core
 from src.handlers.adapters.claude_adapter import ClaudeAdapter
 from src.handlers.adapters.gemini_adapter import GeminiAdapter
@@ -28,11 +30,21 @@ from src.services import dialogue_summarizer, proxy_service, telemetry
 from src.services.audit_service import PolicyAuditService
 from src.services.permission_service import permission_service
 from src.services.providers import pricing
+from src.services.resource_manager import resource_manager
 from src.services.review import review_loop
+from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 
-from tests.memory_eval import live_bounds, seeding
-from tests.memory_eval.scenarios import SMOKE, select_scenarios
+from tests.memory_eval import live_bounds, seeding, stats
+from tests.memory_eval.scenarios import (
+    CANARY,
+    CONTINUITY,
+    SMOKE,
+    canary_fragments,
+    expected_requests,
+    persona_text,
+    select_scenarios,
+)
 from tests.smoke.lib.sandbox_env import SmokeSandboxError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +53,7 @@ probe = importlib.import_module("tests.smoke.manual.memory_eval_probe")
 policy = importlib.import_module("tests.live_api_policy")
 _CLI_ARGS = ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--suite", "smoke",
              "--max-provider-requests", "3", "--max-tokens", "64", "--budget", "0.1"]
+E5 = "intfloat/multilingual-e5-base"  # 10/15 實測時 .env 的嵌入模型
 
 
 @pytest.fixture
@@ -55,6 +68,9 @@ def restore_product(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dialogue_summarizer, "complete_once", dialogue_summarizer.complete_once)
     monkeypatch.setattr(review_loop, "complete_once", review_loop.complete_once)
     monkeypatch.setattr(memory_vector, "SentenceTransformer", memory_vector.SentenceTransformer)
+    # probe 用 apply_runtime_env 改 EMBEDDING_MODEL：先設成 e5（像 10/15 的 .env），teardown 還原
+    monkeypatch.setenv("EMBEDDING_MODEL", E5)
+    monkeypatch.setattr(MemoryManager, "_vector_store_singleton", None)
     monkeypatch.setattr(probe, "_PROVIDER_REQUEST_BUDGET", None)
     monkeypatch.setattr(probe, "_OUTPUT_CAP", None)
     monkeypatch.setattr(probe, "_LEDGER", None)
@@ -65,10 +81,14 @@ def _install(max_requests: int = 5, wire_cap: int = 64, budget: float = 1.0) -> 
     probe._install_bounds(max_requests, wire_cap, model="deepseek-v4-flash", budget=budget)
 
 
-def _scope(max_tokens: int = 64) -> Any:
+def _scope(
+    max_tokens: int = 64, suite: str = SMOKE, ids: tuple[str, ...] = ("poison_home",),
+    repeats: int = 1,
+) -> Any:
     return probe._memory_eval_scope(
-        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
-        scenario_ids=["poison_home"], max_requests=3, max_tokens=max_tokens, budget=0.1,
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenario_ids=list(ids), max_requests=3, max_tokens=max_tokens, budget=0.1,
+        repeats=repeats,
     )
 
 
@@ -288,6 +308,203 @@ async def test_run_requires_the_issued_scope_before_installing_anything(
     with pytest.raises(seeding.SeedOutsideSandbox):
         await probe.run_memory_eval_probe(**{**run, "sandbox_root": Path()}, approval=exact)
     assert installed == []
+    assert config_utils.get_embedding_model_name() == E5  # 範圍不符時替身也沒設
+
+
+class _FakeDriver:
+    built: list[dict[str, Any]] = []
+    readers: list[Any] = []
+    repeats: list[int] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        _FakeDriver.built.append(kwargs)
+
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        _FakeDriver.repeats.append(repeats)
+        return SimpleNamespace(to_dict=lambda: {"stopped_reason": ""})
+
+
+@pytest.mark.parametrize(
+    ("suite", "ids", "recording"),
+    [(SMOKE, ("poison_home",), False), (CONTINUITY, ("continuity_last_visit",), True)],
+)
+async def test_only_the_continuity_batch_turns_the_activity_record_on(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    suite: str, ids: tuple[str, ...], recording: bool,
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
+
+    await probe.run_memory_eval_probe(
+        provider="deepseek", model="deepseek-v4-flash", suite=suite,
+        scenarios=select_scenarios(suite, list(ids)), max_requests=3, max_tokens=64,
+        budget=0.1, sandbox_root=tmp_path,
+        approval=policy.issue_live_api_approval(
+            approved=True, scope=_scope(suite=suite, ids=ids)),
+    )
+
+    (kwargs,) = _FakeDriver.built
+    assert kwargs["activity_record"] is recording
+    prepare = kwargs["prepare_soul"]  # 每個情境另建靈魂：核准的型號、這次的沙盒
+    assert prepare.func is probe._prepare_soul
+    # 每次實測一組新口令（不是固定常數），人格與判定都用它
+    assert kwargs["canary"] != CANARY
+    assert len(canary_fragments(kwargs["canary"])) == 3
+    assert prepare.keywords == {"sandbox_root": tmp_path, "model": "deepseek-v4-flash"}
+    assert kwargs["read_facts"] is probe.runner.memory_active_facts
+    assert callable(kwargs["archive_history"])
+    # 查舊對話要讀 UI 對話：跑的時候裝上沙盒的 session store，跑完卸下
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
+
+
+async def _no_init_db() -> None:
+    pass
+
+
+class _BlewUp(RuntimeError):
+    """測試用：故意讓實測流程中途失敗."""
+
+
+class _FailingDriver(_FakeDriver):
+    async def run_batch(self, _scenarios: Any, *, repeats: int = 1) -> Any:
+        _FakeDriver.readers.append(resource_manager._ui_conversation_reader)
+        raise _BlewUp
+
+
+async def test_the_conversation_reader_is_unbound_when_the_batch_fails(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FailingDriver)
+    monkeypatch.setattr(_FakeDriver, "built", [])
+    monkeypatch.setattr(_FakeDriver, "readers", [])
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert _FakeDriver.readers == [session_service]
+    assert resource_manager._ui_conversation_reader is None
+
+
+async def test_a_failure_before_the_batch_never_binds_the_reader(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _broken_seed(*_a: Any) -> None:
+        raise _BlewUp
+
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)  # 別的測試可能已裝上
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", _broken_seed)
+
+    with pytest.raises(_BlewUp):
+        await probe.run_memory_eval_probe(
+            provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+            scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+            budget=0.1, sandbox_root=tmp_path,
+            approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+        )
+
+    assert resource_manager._ui_conversation_reader is None
+
+
+async def test_run_pins_the_stub_after_the_scope_check_and_before_any_store(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    order: list[Any] = []
+    real_pin = probe._pin_stub_embedding
+
+    def _pin() -> dict[str, Any]:
+        order.append("pin")
+        return real_pin()
+
+    async def _init_db() -> None:
+        order.append(("init_db", config_utils.get_embedding_model_name()))
+
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: order.append("bounds"))
+    monkeypatch.setattr(probe, "_pin_stub_embedding", _pin)
+    monkeypatch.setattr(probe, "init_db_async", _init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: order.append("seed"))
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+
+    report = await probe.run_memory_eval_probe(
+        provider="deepseek", model="deepseek-v4-flash", suite=SMOKE,
+        scenarios=select_scenarios(SMOKE, ["poison_home"]), max_requests=3, max_tokens=64,
+        budget=0.1, sandbox_root=tmp_path,
+        approval=policy.issue_live_api_approval(approved=True, scope=_scope()),
+    )
+
+    assert order == ["bounds", "pin", ("init_db", seeding.STUB_EMBEDDING_MODEL), "seed"]
+    assert report["embedding_stub"] == probe._stub_facts()
+    # 比較工具要的欄位：同一份評估程式、同一套件與題目才比
+    assert report["eval_code_hash"] == stats.eval_code_hash(ROOT)
+    assert (report["provider"], report["model"]) == ("deepseek", "deepseek-v4-flash")
+    assert (report["suite"], report["scenarios"]) == (SMOKE, ["poison_home"])
+
+
+# --- 替身嵌入：名稱與門檻固定，不跟 .env 走 -----------------------------------------
+
+
+def test_stub_name_is_not_an_e5_model() -> None:
+    assert "e5" not in seeding.STUB_EMBEDDING_MODEL.casefold()
+
+
+def test_stub_uses_the_product_default_thresholds_whatever_the_env_says(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = []
+    for model in (E5, "all-MiniLM-L6-v2"):
+        monkeypatch.setenv("EMBEDDING_MODEL", model)
+        seen.append(probe._stub_facts())
+
+    assert seen[0] == seen[1] == {
+        "model": seeding.STUB_EMBEDDING_MODEL, "query_floor": 0.3, "dedup_threshold": 0.92,
+        "note": probe.STUB_NOTE,
+    }
+
+
+def test_pin_overrides_the_env_model(restore_product: None) -> None:
+    assert config_utils.get_embedding_model_name() == E5
+
+    assert probe._pin_stub_embedding() == probe._stub_facts()
+    assert config_utils.get_embedding_model_name() == seeding.STUB_EMBEDDING_MODEL
+
+
+def test_pin_stops_when_the_vector_store_already_exists(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(MemoryManager, "_vector_store_singleton", object())
+
+    with pytest.raises(probe._StubEmbeddingNotPinned):
+        probe._pin_stub_embedding()
+    assert config_utils.get_embedding_model_name() == E5
+
+
+def test_pin_stops_when_the_product_reads_another_name(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config_utils, "get_embedding_model_name", lambda: E5)
+
+    with pytest.raises(probe._StubEmbeddingNotPinned):
+        probe._pin_stub_embedding()
 
 
 def test_scope_lists_every_bound() -> None:
@@ -299,8 +516,72 @@ def test_scope_lists_every_bound() -> None:
                  "wire_max_tokens_ceiling=8192", "other providers send the requested value",
                  "pre_send_worst_case", "budget_usd=0.1000", "provider_retry=0",
                  "main_loop_send_attempts=1", "fallback=0", "auxiliary_model_calls=0",
+                 f"embedding_stub={seeding.STUB_EMBEDDING_MODEL};query_floor=0.3;"
+                 "dedup_threshold=0.92", probe.STUB_NOTE, "activity_record=off",
+                 "repeats=1", "expected_provider_requests=1x1=1",
                  "write_scope=temporary sandbox only"):
         assert item in rendered
+
+
+def test_scope_shows_the_rounds_and_the_requests_per_round_times_rounds() -> None:
+    ids = ("poison_home", "memory_conflict")
+    per_round = expected_requests(select_scenarios(SMOKE, list(ids)))
+    rendered = policy.format_live_api_scope(_scope(ids=ids, repeats=3))
+
+    assert per_round > 1
+    assert "repeats=3" in rendered
+    assert f"expected_provider_requests={per_round}x3={per_round * 3}" in rendered
+
+
+_RUN: dict[str, Any] = {
+    "provider": "deepseek", "model": "deepseek-v4-flash", "suite": SMOKE,
+    "max_requests": 3, "max_tokens": 64, "budget": 0.1,
+}
+
+
+async def test_an_approval_for_one_round_does_not_cover_more_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed: list[Any] = []
+    monkeypatch.setattr(probe, "_install_bounds", lambda *a, **_k: installed.append(a))
+    once = policy.issue_live_api_approval(approved=True, scope=_scope())
+    run = {**_RUN, "scenarios": select_scenarios(SMOKE, ["poison_home"]),
+           "sandbox_root": tmp_path, "approval": once}
+
+    with pytest.raises(policy.LiveApiApprovalScopeMismatch):
+        await probe.run_memory_eval_probe(**run, repeats=5)
+    with pytest.raises(argparse.ArgumentTypeError):
+        await probe.run_memory_eval_probe(**run, repeats=probe.MAX_REPEATS + 1)
+    assert installed == []
+
+
+async def test_the_driver_runs_the_approved_number_of_rounds(
+    restore_product: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource_manager, "_ui_conversation_reader", None)
+    monkeypatch.setattr(probe, "_install_bounds", lambda *_a, **_k: None)
+    monkeypatch.setattr(probe, "init_db_async", _no_init_db)
+    monkeypatch.setattr(probe, "_seed_sandbox", lambda *_a: None)
+    monkeypatch.setattr(probe, "build_base_context", dict)
+    monkeypatch.setattr(probe.runner, "MemoryEvalDriver", _FakeDriver)
+    monkeypatch.setattr(_FakeDriver, "repeats", [])
+
+    await probe.run_memory_eval_probe(
+        **_RUN, scenarios=select_scenarios(SMOKE, ["poison_home"]), sandbox_root=tmp_path,
+        repeats=3, approval=policy.issue_live_api_approval(approved=True, scope=_scope(repeats=3)),
+    )
+
+    assert _FakeDriver.repeats == [3]
+
+
+def test_continuity_scope_says_the_activity_record_is_on() -> None:
+    rendered = policy.format_live_api_scope(
+        _scope(suite=CONTINUITY, ids=("continuity_last_visit", "continuity_recent_done"))
+    )
+
+    assert "suite=continuity" in rendered
+    assert "activity_record=on (seeded events written to the sandbox only)" in rendered
+    assert "activity_record=off" not in rendered
 
 
 def test_haiku_5_5_scope_shows_the_wire_cap_touka_will_send(
@@ -335,8 +616,9 @@ def test_haiku_5_5_pre_send_worst_case_still_uses_the_dear_tier(
     [
         (probe._bounded_int("max-tokens", probe.MAX_LIVE_TOKENS), ["0", "1025"], "1024"),
         (probe._bounded_int("max-provider-requests", probe.MAX_PROVIDER_REQUESTS),
-         ["0", "41"], "40"),
+         ["0", "201"], "200"),
         (probe._bounded_budget, ["0", "-1", "2.01"], "2"),
+        (probe._bounded_int("repeats", probe.MAX_REPEATS), ["0", "6"], "5"),
     ],
 )
 def test_cli_bounds(parse: Any, bad: list[str], good: str) -> None:
@@ -361,6 +643,95 @@ def test_m1_models_route_to_the_disclosed_provider(model: str, provider: str) ->
     assert probe._provider_for_model(model) == provider
 
 
+# --- 價目表：查不到拒跑、靠家族名稱估價要標出來（ADR-0284 第二部分） -----------------
+
+
+_PRICES = {  # 合成價目表：之後有人把 gpt-5、grok 的完整名稱補進產品價目表，這些測試也不會跟著變
+    "deepseek-v4-flash": pricing.Rate(0.27, 1.10), "claude-haiku-5-5": pricing.Rate(0.10, 0.50),
+    "grok-4": pricing.Rate(3.0, 15.0), "claude-haiku-4": pricing.Rate(1.0, 5.0),
+}
+
+
+@pytest.fixture
+def synthetic_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pricing.config_utils, "read_config_json", lambda _name: None)
+    monkeypatch.setattr(pricing, "_BUILTIN_PRICING", _PRICES)
+
+
+@pytest.mark.parametrize(
+    ("model", "basis"),
+    [("deepseek-v4-flash", "exact"), ("claude-haiku-5-5", "exact"),
+     ("grok-4.20-0309-non-reasoning", "family_estimate"),
+     ("claude-haiku-4-5", "family_estimate")],
+)
+def test_scope_says_whether_the_price_is_exact_or_a_family_estimate(
+    synthetic_prices: None, model: str, basis: str
+) -> None:
+    rendered = policy.format_live_api_scope(probe._memory_eval_scope(
+        provider=probe._provider_for_model(model), model=model, suite=SMOKE,
+        scenario_ids=["poison_home"], max_requests=3, max_tokens=64, budget=0.1,
+    ))
+
+    assert f"pricing={basis}" in rendered
+
+
+def test_a_price_override_is_exact_only_under_the_full_model_name(
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, entry = "grok-4.20-0309-non-reasoning", {"input": 3.0, "output": 15.0}
+
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {model: entry}})
+    assert probe._price_basis(model) == "exact"
+    monkeypatch.setattr(pricing.config_utils, "read_config_json",
+                        lambda _name: {"pricing": {"grok-4.20": entry}})
+    assert probe._price_basis(model) == "family_estimate"
+
+
+def test_a_model_without_a_price_is_refused_before_any_approval(
+    synthetic_prices: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    assert probe._provider_for_model("gpt-5") == "openai"  # 路由得到，合成價目表裡查不到
+
+    with pytest.raises(probe._UnpricedModel):
+        probe._memory_eval_scope(
+            provider="openai", model="gpt-5", suite=SMOKE, scenario_ids=["poison_home"],
+            max_requests=3, max_tokens=64, budget=0.1,
+        )
+    with pytest.raises(SystemExit):  # 還沒到問核准就停下（不是 LiveApiApprovalRequired）
+        probe.main(["--provider", "openai", "--model", "gpt-5", "--suite", "smoke",
+                    "--max-provider-requests", "3", "--budget", "0.1"])
+
+
+class _ScopeSeen(Exception):
+    """測試用：main 把核准範圍交給簽發之前就停下（不傳核准旗標）."""
+
+
+def test_the_cli_runs_one_round_unless_told_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[Any] = []
+
+    def _stop(*, approved: bool, scope: Any) -> None:
+        seen.append((approved, scope))
+        raise _ScopeSeen
+
+    monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
+    monkeypatch.setattr(probe, "issue_live_api_approval", _stop)
+    for extra in ([], ["--repeats", "3"]):
+        with pytest.raises(_ScopeSeen):
+            probe.main([*_CLI_ARGS, *extra])
+
+    assert [approved for approved, _scope in seen] == [False, False]
+    assert [[item for item in scope.limits if item.startswith("repeats=")]
+            for _approved, scope in seen] == [["repeats=1"], ["repeats=3"]]
+
+
+def test_cli_refuses_the_same_scenario_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(SystemExit):
+        probe.main([*_CLI_ARGS, "--scenarios", "poison_home,poison_home"])
+
+
 def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")  # 避免 main 改包 pytest 的 stdout
     with pytest.raises(policy.LiveApiApprovalRequired):
@@ -369,13 +740,20 @@ def test_cli_still_requires_approval(monkeypatch: pytest.MonkeyPatch) -> None:
         probe.main([*_CLI_ARGS, "--scenarios", "no_such_scenario"])
 
 
-def test_seed_sandbox_makes_the_synthetic_soul_an_owner(
+def test_each_prepared_soul_is_an_owner_with_the_approved_model(
     restore_product: None, global_test_sandbox: str
 ) -> None:
+    sandbox = Path(global_test_sandbox)
     try:
-        probe._seed_sandbox(Path(global_test_sandbox), "deepseek-v4-flash")
-        assert get_active_brain(seeding.soul_identity()) == "deepseek-v4-flash"
+        probe._seed_sandbox(sandbox)
         assert memory_vector.SentenceTransformer is seeding.DeterministicEncoder
+        for number in (1, 2):
+            soul_id = seeding.soul_id_for(number)
+            persona = persona_text(f"BCDFG-HJKLM-NPQR{number}")
+            probe._prepare_soul(soul_id, persona, sandbox_root=sandbox, model="deepseek-v4-flash")
+            assert get_active_brain(seeding.soul_identity(soul_id)) == "deepseek-v4-flash"
+            soul_md = Path(config_utils.get_app_data_dir()) / "soul" / soul_id / "soul.md"
+            assert soul_md.read_text(encoding="utf-8") == persona
     finally:
         permission_service.identity_path.unlink(missing_ok=True)
         permission_service.reload_all()
@@ -385,7 +763,10 @@ def test_seed_sandbox_refuses_targets_outside_the_sandbox(
     restore_product: None, tmp_path: Path
 ) -> None:
     with pytest.raises(seeding.SeedOutsideSandbox):
-        probe._seed_sandbox(tmp_path / "not-the-sandbox", "deepseek-v4-flash")
+        probe._seed_sandbox(tmp_path / "not-the-sandbox")
+    with pytest.raises(seeding.SeedOutsideSandbox):
+        probe._prepare_soul(seeding.soul_id_for(1), persona_text(CANARY),
+                            sandbox_root=tmp_path / "not-the-sandbox", model="deepseek-v4-flash")
 
 
 def test_cli_gate_precedes_every_provider_capable_import() -> None:
@@ -440,6 +821,8 @@ def test_release_closes_logs_and_stores_before_deleting_the_sandbox(
     monkeypatch.setattr(probe, "close_sandbox_log_handlers", _close_logs)
     monkeypatch.setattr(probe, "_drain_policy_audit_writes",
                         lambda: seen.append(("audit", root.exists())))
+    monkeypatch.setattr(probe, "_drain_memory_worker",
+                        lambda: seen.append(("memory", root.exists())))
     monkeypatch.setattr(FactualStore, "close_all_connections",
                         lambda: seen.append(("sqlite", root.exists())))
     monkeypatch.setattr(memory_vector.VectorStore, "close_all_clients",
@@ -451,7 +834,9 @@ def test_release_closes_logs_and_stores_before_deleting_the_sandbox(
         holder.removeHandler(handler)
         handler.close()
 
-    assert seen == [("audit", True), ("logs", True), ("sqlite", True), ("qdrant", True)]
+    assert seen == [
+        ("audit", True), ("memory", True), ("logs", True), ("sqlite", True), ("qdrant", True)
+    ]
     assert not root.exists()
 
 
@@ -460,6 +845,15 @@ def test_policy_audit_drain_waits_for_queued_writes() -> None:
     PolicyAuditService._executor.submit(lambda: (time.sleep(0.05), done.append("write")))
 
     probe._drain_policy_audit_writes()
+
+    assert done == ["write"]
+
+
+def test_memory_worker_drain_waits_for_the_running_job() -> None:
+    done: list[str] = []
+    probe.memory_worker._executor.submit(lambda: (time.sleep(0.05), done.append("write")))
+
+    probe._drain_memory_worker()
 
     assert done == ["write"]
 

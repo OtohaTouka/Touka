@@ -53,24 +53,56 @@ def iter_snapshot_leftovers(directory: Path, started_at: float) -> Iterator[Scru
     snapshot_temps = [e for e in entries if _PARTIAL_RE.match(e.name) or _WORKDIR_RE.match(e.name)]
     busy = any(_too_new(entry, deadline) for entry in snapshot_temps)
     for entry in entries:
-        if SCRUB_TMP_RE.match(entry.name):
-            ok = swap.regular_file(entry)
-            yield _remove(entry, directory=False) if ok else _unknown(entry)
-        elif _PARTIAL_RE.match(entry.name):
-            ok = not busy and _partial_ok(entry)
-            yield _remove(entry, directory=False) if ok else _unknown(entry)
-        elif _WORKDIR_RE.match(entry.name):
-            ok = not busy and _workdir_ok(entry)
-            yield _remove(entry, directory=True) if ok else _unknown(entry)
+        # 列出之後才消失（快照剛發布、暫存改名成正式快照）就跳過：新的正式快照會在同一個清除
+        # 工作稍後的快照類別被清到（舊審查報告丙-3）
+        if swap.missing(entry):
+            continue
+        try:
+            result = _sweep_one(entry, busy=busy)
+        except FileNotFoundError:
+            if swap.missing(entry):
+                continue
+            # 這一項還在（例如工作資料夾刪到一半、裡面的檔被別人先刪掉）：裡面可能還有記憶庫副本，
+            # 不能當成沒事，記成刪不掉
+            result = ScrubItemResult(
+                kind="leftover", name=entry.name, status="failed", reason="in_use"
+            )
+        if result is not None:
+            yield result
+
+
+def _sweep_one(entry: Path, *, busy: bool) -> ScrubItemResult | None:
+    """清一項；名稱不符任何樣式回 None。處理到一半消失時 FileNotFoundError 往上丟."""
+    if SCRUB_TMP_RE.match(entry.name):
+        ok = swap.regular_file(entry)
+        return _remove(entry, directory=False) if ok else _unknown(entry)
+    if _PARTIAL_RE.match(entry.name):
+        ok = not busy and _partial_ok(entry)
+        return _remove(entry, directory=False) if ok else _unknown(entry)
+    if _WORKDIR_RE.match(entry.name):
+        ok = not busy and _workdir_ok(entry)
+        return _remove(entry, directory=True) if ok else _unknown(entry)
+    return None
 
 
 def _too_new(path: Path, deadline: float) -> bool:
-    """這個暫存（工作資料夾連同裡面的檔）有沒有比門檻新的."""
-    if path.lstat().st_mtime > deadline:
-        return True
-    if not swap.regular_dir(path):
+    """這個暫存（工作資料夾連同裡面的檔）有沒有比門檻新的；中途消失的部分不算."""
+    try:
+        if path.lstat().st_mtime > deadline:
+            return True
+        if not swap.regular_dir(path):
+            return False
+        children = list(path.iterdir())
+    except FileNotFoundError:
         return False
-    return any(entry.lstat().st_mtime > deadline for entry in path.iterdir())
+    return any(_mtime(entry) > deadline for entry in children)
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.lstat().st_mtime
+    except FileNotFoundError:
+        return float("-inf")
 
 
 def _partial_ok(path: Path) -> bool:
@@ -94,6 +126,8 @@ def _remove(path: Path, *, directory: bool) -> ScrubItemResult:
             resource_manager.remove_dir(path)
         else:
             resource_manager.remove_file(path)
+    except FileNotFoundError:
+        raise  # 已經不見：交給呼叫端跳過，不算刪不掉
     except OSError:
         logger.warning("[memory-scrub] could not remove a leftover: %s", path.name, exc_info=True)
         return ScrubItemResult(kind="leftover", name=path.name, status="failed", reason="in_use")

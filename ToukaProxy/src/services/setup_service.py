@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import set_key
 from pydantic import BaseModel
 
-from src.config import CONFIG_DIR, is_public_secret, resolve_env_file_path
+from src.config import CONFIG_DIR, ENV_FILE_LOCK, is_public_secret, resolve_env_file_path
 from src.core.exceptions import ToukaException
 from src.services.auth_service import AuthService
 from src.services.providers import registry
@@ -183,5 +183,6 @@ class SetupService:
                 raise ValueError(msg)  # noqa: TRY003
             writes.append(("EMBEDDING_MODEL", embedding_model))
 
-        for env_var, value in writes:
-            set_key(str(self._env_file_path), env_var, value, quote_mode="never")
+        with ENV_FILE_LOCK:  # 和其他寫 .env 的地方互斥（ADR-0288）
+            for env_var, value in writes:
+                set_key(str(self._env_file_path), env_var, value, quote_mode="never")

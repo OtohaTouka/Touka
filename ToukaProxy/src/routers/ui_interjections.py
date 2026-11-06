@@ -4,6 +4,7 @@
 - 用 ``_authorized_stream_state`` 驗串流擁有者與 session 存取，並要求同一串流代
   （``stream_id``）；加入只限進行中的串流。
 - 文字只進記憶體佇列，不存檔（無痕也一樣）；取出交給 react_core（U4a-2）。
+- 加入前經 UserPromptSubmit hook（ADR-0292）：擋下就不加入；等過 hook 後重新驗證串流。
 - 驗證錯誤一律回 ``VALIDATION_ERROR``（沿用 ``SessionPersistenceRoute``）。
 """
 
@@ -18,7 +19,9 @@ from src.models.interjection import (
 )
 from src.routers.ui_sessions import SessionPersistenceRoute, _authorized_stream_state
 from src.services.authorization_gateway import require_human_requester
+from src.services.hooks.interjection_hooks import check_interjection
 from src.services.interjection_queue import interjection_queue
+from src.services.stream_buffer_service import stream_buffer_service
 
 router = APIRouter(
     prefix="/ui/sessions", tags=["UI Interjections"], route_class=SessionPersistenceRoute
@@ -50,6 +53,11 @@ async def add_interjection(
 ) -> Interjection:
     """把一則補充排進目前串流。"""
     await _ensure_current_stream(session_id, stream_id, identity, active=True)
+    incognito = stream_buffer_service.persistence_mode(session_id, stream_id) == "incognito"
+    fields = stream_buffer_service.hook_fields_of(session_id, stream_id)
+    if await check_interjection(session_id, fields, req.text, incognito=incognito):
+        # 等 hook 的期間串流可能換代或結束：重新驗證。
+        await _ensure_current_stream(session_id, stream_id, identity, active=True)
     # 驗證之後到加入之間沒有 await：串流不會在這中間換代或結束。
     return interjection_queue.enqueue(session_id, stream_id, req.text, urgent=req.urgent)
 

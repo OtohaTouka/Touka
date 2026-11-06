@@ -162,6 +162,193 @@ describe('R2 snapshot binding and explicit recovery', () => {
     expect(fetchToukaMock.mock.calls.some(([, , options]) => options?.method === 'POST')).toBe(false);
     expect(result.current.getSession('s1')?.title).toBe('imported');
   });
+  describe('a conversation created in this page', () => {
+    const absent = () => okJson({ exists: false, revision: 'absent', session: null });
+    const postBodies = () => fetchToukaMock.mock.calls.filter(([, , options]) => options?.method === 'POST')
+      .map(([, , options]) => JSON.parse(options!.body as string));
+    /** 新建對話第一次存好（後端版本 r1），之後的讀回都回 remote（版本 r2）。 */
+    async function created(remote: () => Session = () => local()) {
+      const rendered = renderHook(() => useSessionList(), { wrapper });
+      await act(async () => {});
+      let first = true;
+      fetchToukaMock.mockReset();
+      fetchToukaMock.mockImplementation(async (_proxy, _path, options) => {
+        if (options?.method === 'POST') return saved(first ? 'r1' : 'r3');
+        return first ? absent() : present(remote(), 'r2');
+      });
+      await act(async () => { expect(await rendered.result.current.syncSession(local())).toMatchObject({ status: 'saved', revision: 'r1' }); });
+      first = false;
+      fetchToukaMock.mockClear();
+      return rendered;
+    }
+    const homeFields = { is_home: true, home_for_agent: 'Alice' };
+
+    it('after set home (revision changes, UI holds no revision) the next command saves against the fresh revision', async () => {
+      const { result } = await created(() => ({ ...local(), ...homeFields }));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      expect(result.current.getSession('s1')?.revision).toBeUndefined();
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
+      expect(postBodies()).toHaveLength(1);
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+      expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved' });
+    });
+    it('an old home that was never saved again follows the store and the next command saves', async () => {
+      const { result } = await created();
+      act(() => result.current.setSessions(previous => [...previous, { ...local(), id: 's2' }]));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      act(() => result.current.applySavedHome('s2', 'Alice', true));
+      expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
+      expect(result.current.getSession('s2')).toMatchObject(homeFields);
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+    });
+    it('setting the home twice in a row leaves only the last one marked', async () => {
+      const { result } = await created();
+      act(() => result.current.setSessions(previous => [...previous, { ...local(), id: 's2' }, { ...local(), id: 's3' }]));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      act(() => result.current.applySavedHome('s2', 'Alice', true));
+      act(() => result.current.applySavedHome('s3', 'Alice', true));
+      expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
+      expect(result.current.getSession('s2')).toMatchObject({ is_home: false, home_for_agent: null });
+      expect(result.current.getSession('s3')).toMatchObject(homeFields);
+    });
+    it('cancelling a home that was never saved again follows the store and the next command saves', async () => {
+      const { result } = await created();
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      act(() => result.current.applySavedHome('s1', 'Alice', false));
+      expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
+    });
+    it('an unconfirmed draft keeps its content while the home fields follow the store', async () => {
+      const { result } = await created(() => ({ ...local(), title: 'draft', ...homeFields }));
+      act(() => result.current.setSessions(previous => previous.map(item => ({ ...item, title: 'draft' }))));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'draft', ...homeFields });
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+    });
+    it('after set home a list refresh still brings what was written elsewhere', async () => {
+      const elsewhere = () => ({ ...local(), title: 'written elsewhere', ...homeFields });
+      const { result } = await created(elsewhere);
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      fetchToukaMock.mockImplementation(async (_proxy, path, options) => {
+        if (options?.method === 'POST') return saved('r3');
+        return path === '/v1/ui/sessions' ? okJson([elsewhere()]) : present(elsewhere(), 'r2');
+      });
+      await act(async () => { await result.current.refreshSessions(); });
+      expect(result.current.getSession('s1')?.title).toBe('written elsewhere');
+      await act(async () => { expect(await result.current.updateSession('s1', current => ({ ...current, updatedAt: 2 }))).toMatchObject({ status: 'saved' }); });
+    });
+    it('a home set while a turn is running survives the end of the turn', async () => {
+      const { result } = await created();
+      const producer = result.current.beginProducer('s1')!;
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      expect(result.current.getSession('s1')).toMatchObject(homeFields);
+      await act(async () => {
+        await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }),
+          { status: 'saved', representation: 'text', revision: 'text-rev' });
+      });
+      expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'text-rev' });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
+    });
+    // 後端收到舊版本會擋下（已知限制，ADR-0231）；這裡釘的是絕不送出沒有版本的保存
+    it('a turn without text never saves without a revision when the home was set meanwhile', async () => {
+      const { result } = await created();
+      const producer = result.current.beginProducer('s1')!;
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => {
+        await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' });
+      });
+      expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'r1' });
+    });
+    it('a save that stopped can still be rechecked after the home changed', async () => {
+      const { result } = await created(() => ({ ...local(), title: 'next', ...homeFields }));
+      fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'unknown' }); });
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'saved' }); });
+    });
+    it('the save-only retry is withdrawn after the home changed: its revision is stale until rechecked', async () => {
+      const other = () => ({ ...local(), title: 'someone else' });
+      const { result } = await created(other);
+      fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+      await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+      await act(async () => { await result.current.recheckSession('s1'); });
+      expect(result.current.canRetrySave('s1')).toBe(true);
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      expect(result.current.canRetrySave('s1')).toBe(false);
+      await act(async () => { await result.current.recheckSession('s1'); });
+      expect(result.current.canRetrySave('s1')).toBe(true);
+    });
+    it('after a list refresh without a revision the next command still saves', async () => {
+      const { result } = await created();
+      fetchToukaMock.mockImplementation(async (_proxy, path, options) => {
+        if (options?.method === 'POST') return saved('r3');
+        return path === '/v1/ui/sessions' ? okJson([{ ...local(), revision: undefined }]) : present(local(), 'r2');
+      });
+      await act(async () => { await result.current.refreshSessions(); });
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+    });
+    it('a mismatched store is still a conflict after set home: no POST', async () => {
+      const { result } = await created(() => ({ ...local(), title: 'someone else' }));
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'failed' }); });
+      expect(postBodies()).toHaveLength(0);
+    });
+    it('after it was saved here, an import of different content still cannot overwrite', async () => {
+      const { result } = await created();
+      const imported = { ...local(), title: 'imported' };
+      act(() => result.current.setSessions(previous => previous.map(item => item.id === 's1' ? imported : item)));
+      await act(async () => { expect(await result.current.syncSession(imported)).toMatchObject({ status: 'failed' }); });
+      expect(postBodies()).toHaveLength(0);
+    });
+    it('after it was saved here and deleted elsewhere, an import is reported as not found, not recreated', async () => {
+      const { result } = await created();
+      const imported = { ...local(), title: 'imported' };
+      act(() => result.current.setSessions(previous => previous.map(item => item.id === 's1' ? imported : item)));
+      fetchToukaMock.mockImplementation(async () => absent());
+      await act(async () => {
+        expect(await result.current.syncSession(imported)).toEqual({ status: 'failed', error_code: ERRORS.SESSION_NOT_FOUND.id });
+      });
+      expect(postBodies()).toHaveLength(0);
+    });
+    it('a first save confirmed only by readback counts as saved here', async () => {
+      const rendered = renderHook(() => useSessionList(), { wrapper });
+      await act(async () => {});
+      let remote: Session | null = null;
+      fetchToukaMock.mockReset();
+      fetchToukaMock.mockImplementation(async (_proxy, _path, options) => {
+        if (options?.method === 'POST') {
+          if (remote) return saved('r3');
+          remote = JSON.parse(options.body as string) as Session;
+          throw new Error('commit response lost');
+        }
+        return remote ? present(remote, 'r2') : absent();
+      });
+      const { result } = rendered;
+      await act(async () => { await result.current.syncSession(local()); });
+      await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'saved' }); });
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      remote = { ...remote!, ...homeFields };
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
+    });
+    it('a first save done by the explicit save-only retry counts as saved here', async () => {
+      const rendered = renderHook(() => useSessionList(), { wrapper });
+      await act(async () => {});
+      const { result } = rendered;
+      fetchToukaMock.mockReset();
+      fetchToukaMock.mockImplementation(async () => present({ ...local(), title: 'other' }, 'r0'));
+      await act(async () => { expect(await result.current.syncSession(local())).toMatchObject({ status: 'failed' }); });
+      await act(async () => { await result.current.recheckSession('s1'); });
+      fetchToukaMock.mockImplementation(async (_proxy, _path, options) => options?.method === 'POST' ? saved('r1') : present(local(), 'r2'));
+      await act(async () => { expect(await result.current.retrySaveSession('s1')).toMatchObject({ status: 'saved' }); });
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      fetchToukaMock.mockImplementation(async (_proxy, _path, options) => options?.method === 'POST'
+        ? saved('r3') : present({ ...local(), ...homeFields }, 'r2'));
+      await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
+    });
+  });
   it('DELETE carries only the revision of matching content', async () => {
     const { result } = await mount();
     fetchToukaMock.mockImplementation(async (_proxy, _path, options) => options?.method === 'DELETE'

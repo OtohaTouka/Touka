@@ -1,6 +1,6 @@
 # ADR-0257：記憶系統第一批段 6：現在時間區塊（continuity v0）與歷史資料界線
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第一批計畫；本 ADR 是段 6 的 PR，S2 現在時間區塊與 S1 歷史資料界線都照一般驗收）〔ADR-0267 修訂 S2 決策 3（上一輪的來源順序）與決策 4（心跳也注入）〕〔ADR-0285 修訂 S1「內文先中和」：前情摘要與家對話也中和其他 prompt 區塊 tag〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`adapters/openai_to_claude.py` 的斷點 2、`services/soul_service.py`）；ToukaMemory（新 `utils/historical_data.py`、`services/manager.py`、`tools/recall.py`）；SECURITY.md 一列
@@ -143,7 +143,7 @@ S1：
 | 決策 | 檔案 | 位置 | 測試／守衛 |
 |---|---|---|---|
 | 1 新區塊與內容 | `ToukaProxy/src/services/continuity_service.py`、`services/prompt_blocks.py`、`services/context_snapshot_service.py` | `build_continuity_block`、`HEADER`、`_mission_line`、`_board_identity`、`format_elapsed`；`CONTINUITY`、`ALL_BLOCK_TAGS`；`BLOCK_META` | `test_continuity_block.py` |
-| 2 位置與多模態 | `continuity_service.py` | `inject_continuity`、`_append_to_last_user` | `test_continuity_block.py`（`test_continuity_after_cache_breakpoint`、`test_multimodal_json_string_keeps_image_and_adds_part`） |
+| 2 位置與多模態 | `continuity_service.py` | `inject_continuity`（附加文字經 `content_normalize.append_to_last_user`） | `test_continuity_block.py`（`test_continuity_after_cache_breakpoint`、`test_multimodal_json_string_keeps_image_and_adds_part`） |
 | 2 Claude 歷史快取斷點 | `ToukaProxy/src/adapters/openai_to_claude.py`、`services/prompt_blocks.py` | `convert_openai_to_anthropic` 斷點 2、`_mark_history_breakpoint`、`_split_request_tail`；`REQUEST_TAIL_TAGS` | `test_request_tail_cache_breakpoint.py` |
 | 3 距上一輪多久 | `continuity_service.py` | `_previous_turn_line`、`_swap_last_request`、`last_backend_timestamp_ms`、`elapsed_seconds`、`MAX_TRACKED_SESSIONS` | `test_continuity_block.py` |
 | 4 閘門 | `ToukaProxy/src/middleware/layers/soul.py` | `SoulLayer.process`（`session_bound` 或無痕） | `test_continuity_block.py`、`test_continuity_not_persisted.py`（心跳） |

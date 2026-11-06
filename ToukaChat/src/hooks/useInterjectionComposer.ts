@@ -2,7 +2,7 @@
  * ADR-0249 第 4a 段：輸入框在 AI 工作中的行為（DB-20）。
  *
  * - Enter＝排隊、Ctrl／Cmd+Enter＝優先排隊（第 4b 段：立即中斷正在寫的回答）、Esc＝停止；沒在生成時 Enter 照舊送出。
- *   （@ 選單開著時 Esc 由 MentionInput 先關選單，不會傳到這裡。）
+ *   （@ 選單開著時 Esc 由 MentionInput 先關選單、訊息導覽列的預覽開著時由 MessageNavigator 先收預覽，那一下都不會傳到這裡。）
  * - 回合結束：正常完成 → 未送達的合成下一則自動送出；按停止或出錯 → 放回輸入框，不自動送出。
  * - 切到別的對話不算回合結束（停止旗標歸零）；背景對話的未送達項目留在佇列，回來時可收回或修改。
  * - 自動送出掛在剛答完的 assistant 節點下（handleSend 的 parentIdOverride），不用尚未更新的舊樹。
@@ -46,6 +46,11 @@ export function useInterjectionComposer(params: ComposerParams) {
     if (!text || disabled) return;
     setInputValue('');
     void queue.enqueue(text, urgent).then(item => {
+      // hook 擋下（ADR-0292，沒有加入佇列）：放回還在這個對話的輸入框。
+      if (!item) {
+        if (latest.current.sessionId === sessionId) latest.current.setInputValue(appendText(latest.current.inputValue, text));
+        return;
+      }
       // 回應到時這個對話已不在生成中（404，或 201 晚於回合結束）：放回輸入框，不留在佇列等下一輪。
       // 已切到別的對話：留在原對話的佇列，不放進別的對話的輸入框。
       if (latest.current.sessionId !== sessionId || latest.current.sending) return;

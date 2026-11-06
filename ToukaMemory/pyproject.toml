@@ -11,7 +11,7 @@ dependencies = [
     "sentence-transformers~=6.0.0",
     "python-dotenv~=1.2.2",
     "pydantic~=2.12.5",
-    "filelock~=3.29.0",
+    "filelock~=4.2.4",
     # torch：經 root [tool.uv.sources] 綁 pytorch-cpu index 納入鎖檔（ADR-0117）。
     "torch==2.13.0",
 ]

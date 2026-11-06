@@ -6,16 +6,34 @@ HAPPY paths and exact return STRUCTURES so a one-line logic change in the
 production source flips a result.
 
 All filesystem access is redirected to ``tmp_path`` via monkeypatch of
-``get_custom_dir`` / ``_get_base_dir`` — the real ``data/`` dir is NEVER touched.
+``get_custom_dir`` / ``_get_base_dir``, or the ``zone_data_root`` fixture for the delete
+and move paths that go through ResourceManager (ADR-0293) — the real ``data/`` dir is
+NEVER touched.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
+from src.core.exceptions import ToukaException
 from src.models.identity import AgentIdentity
+from src.services import destructive_ops
 from src.utils import custom_io
 
+from tests.support.zone_records import expect_zone_refusal
+
 IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
+
+
+@contextmanager
+def _held(identity):
+    """刪除路由的 ``destructive_op`` 會做的標記（R11）."""
+    destructive_ops.hold(identity)
+    try:
+        yield
+    finally:
+        destructive_ops.release(identity)
 
 
 # ===========================================================================
@@ -24,27 +42,34 @@ IDENT = AgentIdentity.for_role(agent_id="agentX", role="Base")
 
 
 class TestDeleteCustomDir:
-    def test_returns_false_when_dir_missing(self, tmp_path, monkeypatch):
-        missing = tmp_path / "custom" / "nope"
-        monkeypatch.setattr(
-            "src.utils.custom_io.get_custom_dir", lambda identity: missing
-        )
-        assert custom_io.delete_custom_dir(IDENT) is False
+    def test_returns_false_when_dir_missing(self, zone_data_root):
+        (zone_data_root / "custom").mkdir()
+        with _held(IDENT):
+            assert custom_io.delete_custom_dir(IDENT) is False
 
-    def test_returns_true_and_dir_gone_when_exists(self, tmp_path, monkeypatch):
-        d = tmp_path / "custom" / "modelX"
+    def test_returns_true_and_dir_gone_when_exists(self, zone_data_root):
+        d = zone_data_root / "custom" / "agentX"
         d.mkdir(parents=True)
         (d / "weights.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io.get_custom_dir", lambda identity: d)
 
-        assert custom_io.delete_custom_dir(IDENT) is True
+        with _held(IDENT):
+            assert custom_io.delete_custom_dir(IDENT) is True
         assert not d.exists()
 
-    def test_returns_false_when_get_custom_dir_none(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.utils.custom_io.get_custom_dir", lambda identity: None
-        )
-        assert custom_io.delete_custom_dir(IDENT) is False
+    def test_refuses_unless_a_destructive_op_holds_the_model(self, zone_data_root):
+        """只有走 R11 的刪除（停指令、拒絕連結）能刪；別的入口直接呼叫就丟例外."""
+        d = zone_data_root / "custom" / "agentX"
+        d.mkdir(parents=True)
+        with pytest.raises(ToukaException):
+            custom_io.delete_custom_dir(IDENT)
+        assert d.exists()
+
+    def test_returns_false_when_the_id_is_not_one_segment(self, zone_data_root):
+        (zone_data_root / "custom" / "agentX").mkdir(parents=True)
+        escaping = AgentIdentity(agent_id="../custom")
+        with expect_zone_refusal("ZoneSegmentError"), _held(escaping):
+            assert custom_io.delete_custom_dir(escaping) is False
+        assert (zone_data_root / "custom" / "agentX").exists()
 
 
 # ===========================================================================
@@ -142,14 +167,13 @@ class TestWriteReadRoundtrip:
 
 class TestMoveCustomDir:
     @pytest.fixture
-    def base(self, tmp_path, monkeypatch):
+    def base(self, zone_data_root):
         # Nested so an escaping target would still land inside tmp_path for assertions.
-        b = tmp_path / "app" / "custom"
-        b.mkdir(parents=True)
+        b = zone_data_root / "custom"
+        b.mkdir()
         old = b / "modelX"
         old.mkdir()
         (old / "config.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io._get_base_dir", lambda: b)
         return b
 
     def test_success_moves_dir(self, base):
@@ -168,10 +192,12 @@ class TestMoveCustomDir:
         assert (base / "modelX" / "config.json").exists()
 
     def test_sandbox_escape_new_id_traversal_blocked(self, base, tmp_path):
-        assert custom_io.move_custom_dir("modelX", "../../escape") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "../../escape") is False
         assert (base / "modelX" / "config.json").exists()
         assert not (tmp_path / "escape").exists()
 
     def test_sandbox_escape_old_id_traversal_blocked(self, base):
-        assert custom_io.move_custom_dir("../../etc", "modelY") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("../../etc", "modelY") is False
         assert not (base / "modelY").exists()

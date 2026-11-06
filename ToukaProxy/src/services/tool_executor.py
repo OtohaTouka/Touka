@@ -19,12 +19,9 @@ from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
 from src.protocols.manager import McpToolArgumentRefusal, McpToolCatalogRefusal, ToolDisabledError
 from src.protocols.mcp.canonical import (
-    ExecutionKind,
     McpCompleteOutcome,
     McpErrorKind,
     McpOperationException,
-    McpRequestContext,
-    McpRequestOrigin,
 )
 from src.protocols.mcp.error_mapping import map_mcp_error
 from src.protocols.mcp.interaction import (
@@ -35,16 +32,32 @@ from src.protocols.mcp.mrtr import McpMrtrAuthorizationError
 from src.services import approval_flow, mcp_vault_jail, tool_errors
 from src.services.auto_reviewer import CODE_HEADLESS_TERMINAL, ReviewRequest, auto_reviewer
 from src.services.autonomy import autonomy_service
+from src.services.hooks.events import attach_to_tool_result, legacy_aliases
+from src.services.hooks.lifecycle import run_elicitation_hooks
+from src.services.hooks.notifications import notify_approval_card, notify_mcp_input
+from src.services.hooks.tool_hooks import (
+    HOOK_DENIED_REASON,
+    ToolCall,
+    hook_ask_unavailable_error,
+    notify_permission_denied,
+    run_permission_request_hooks,
+    run_post_tool_failure_hooks,
+    run_post_tool_hooks,
+    run_pre_tool_hooks,
+)
 from src.services.isolation.policy import policy_level, reviewer_level
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
 from src.tools.builtin import BUILTIN_EXECUTION_BINDINGS, LEGACY_ADVERTISED_SUCCESSORS
+from src.tools.builtin.schemas import missing_required_error
 from src.tools.contracts import PUBLIC_TOOL_CONTRACTS, validate_native_arguments
 from src.tools.execution_context import APPROVED_BY_AUTO_REVIEWER, build_execution_context_kwargs
 from src.tools.execution_policy import ToolExecutionClass, classify_registered_tool
 from src.utils.async_db import session_service
 from src.utils.command_safety import effective_shell
 from src.utils.hard_floor import floor_tool_action
+from src.utils.mcp_request_identity import mcp_request_context as build_mcp_request_context
+from src.utils.mcp_request_identity import user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
 from src.utils.progress_events import repair_event
 from src.utils.time_utils import (
@@ -58,9 +71,10 @@ from src.utils.tool_events import (
     tool_error_event,
     tool_start_event,
 )
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Callable
 
     from src.services.auto_reviewer import ReviewOutcome
 
@@ -103,10 +117,31 @@ CRITICAL_TOOLS = frozenset(
 TERMINAL_REPAIR_TOOLS = frozenset(
     {"execute_command", "get_command_result", "bash", "terminal__bash", "execute_terminal"}
 )
+# 結束碼是輸出區塊的第一行（terminal._wrap_output）。指令文字排在它前面，
+# 只比對這個位置，指令裡的同樣字串才不會被當成結果。
+_TERMINAL_EXIT_CODE = re.compile(r"(?:\A|^```\n)\[EXIT_CODE: (-?\d+)\]", re.MULTILINE)
+_LEGACY_FAILURE_PREFIXES = ("Error:", "❌")
 # get_command_result 對同一個 execution_id 每次都回同一份結果：只計第一次。記住已計過的
 # (session, execution_id)，超過上限淘汰最舊的（行程記憶體、不落地）。
 MAX_TRACKED_REPAIR_RESULTS = 1024
 _counted_repair_results: OrderedDict[tuple[str, str], None] = OrderedDict()
+
+
+def _counts_as_tool_failure(name: str, result_text: str, *, from_mcp: bool) -> bool:
+    """工具跑了之後算不算失敗（PostToolUseFailure 用；畫面上的成功與否另外判定）.
+
+    結構化錯誤為準，工具自己回權限拒絕（含自帶審批被拒）照 Claude Code 不算。沒有結構的結果：
+    MCP 的失敗已經轉成結構化錯誤（``isError``），終端看結束碼，其他工具看開頭（舊工具的慣例）。
+    內容裡出現 ``Error:`` 不算，不然讀到含這個字的輸出就會誤判。
+    """
+    if tool_errors.is_tool_error(result_text):
+        return tool_errors.extract_error_class(result_text) != tool_errors.PERMISSION_DENIED
+    if from_mcp or tool_errors.is_tool_success(result_text):
+        return False
+    exit_code = _TERMINAL_EXIT_CODE.search(result_text) if name in TERMINAL_REPAIR_TOOLS else None
+    if exit_code:
+        return int(exit_code.group(1)) != 0
+    return result_text.lstrip().startswith(_LEGACY_FAILURE_PREFIXES)
 
 
 def _first_repair_report(session_id: str, name: str, args: dict[str, Any]) -> bool:
@@ -140,27 +175,6 @@ _SELF_APPROVING_TOOLS = frozenset(
     for name, binding in BUILTIN_EXECUTION_BINDINGS.items()
     if binding.kind == ToolExecutionClass.SELF_APPROVING
 )
-
-
-def record_tool_usage(
-    actually_used_tools: set[str] | None,
-    name: str,
-    args: dict[str, Any] | None,
-) -> None:
-    """把工具使用記入追蹤集（訊號生產 SSOT，漂移修復批 C2）。
-
-    記入工具名本身；聚合工具（memory_tools/vault_tools 等）帶 `action` 參數時
-    **同時記入限定名 ``name.action``**（如 ``memory_tools.save``）——guard_service
-    的記憶/誠實判定與 e_index 檢索訊號一律消費此集合，取代三 handler 各自的
-    字串嗅探/私有旗標（漂移根絕）。九裸動詞無 action、依名計；語意為「模型
-    實際發起了呼叫」（與舊行為一致，於執行前記入、不表成敗）。
-    """
-    if actually_used_tools is None:
-        return
-    actually_used_tools.add(name)
-    action = (args or {}).get("action")
-    if isinstance(action, str) and action:
-        actually_used_tools.add(f"{name}.{action}")
 
 
 def _unknown_tool_error(name: str) -> str:
@@ -227,7 +241,7 @@ class ToolExecutor:
         memory_tool_registry: dict[str, Any],
         plugin_registry: dict[str, Any],
         *,
-        enforce_advertised: bool = False,
+        enforce_advertised: bool = True,
     ) -> None:
         """初始化執行器並掛載工具註冊表.
 
@@ -236,8 +250,8 @@ class ToolExecutor:
             tool_registry: 核心工具註冊表.
             memory_tool_registry: 記憶工具註冊表.
             plugin_registry: 外掛工具註冊表.
-            enforce_advertised: 只執行這一輪列給模型的工具（模型迴圈必開；人按的
-                ``/debug/execute`` 關）；建立後不能改.
+            enforce_advertised: 只執行這一輪列給模型的工具；預設開（舊審查報告甲-3），
+                只有人按的 ``/debug/execute`` 明寫關；建立後不能改.
         """
         self.protocol_manager = protocol_manager
         self.tool_registry = tool_registry
@@ -286,6 +300,21 @@ class ToolExecutor:
             reason="not_advertised",
         )
 
+    def _user_scope_denial(self, name: str, ctx: dict[str, Any], server: str | None) -> str | None:
+        """使用者各自授權的 MCP 只給人在場、和靈魂的前景對話（ToolLayer 之外的第二層防線）."""
+        registry = getattr(self.protocol_manager, "registry", None)
+        config = registry.get_server(server) if server and registry is not None else None
+        if getattr(config, "auth_mode", None) != "oauth_user" or user_scoped_mcp_allowed(ctx):
+            return None
+        return tool_errors.build_tool_error(
+            tool_errors.PERMISSION_DENIED,
+            f"Tool '{name}' uses the user's own authorization, which only works in a foreground "
+            "conversation with a soul while the user is present.",
+            suggestion="Do not retry this tool in this run.",
+            denied_tool=name,
+            reason="user_scoped_mcp_unavailable",
+        )
+
     async def _await_human_approval(
         self,
         *,
@@ -297,7 +326,9 @@ class ToolExecutor:
         tool_action: str | None,
         queue: asyncio.Queue[dict[str, Any] | None],
         review_reason: str | None = None,
+        hook_reason: str | None = None,
         human_only: bool = False,
+        on_card_shown: Callable[[], None] | None = None,
     ) -> str:
         """統一審批 broker（H2）：委派 ``approval_flow.await_human_approval``。
 
@@ -315,7 +346,9 @@ class ToolExecutor:
             risk=risk,
             emit=queue.put,
             review_reason=review_reason,
+            hook_reason=hook_reason,
             human_only=human_only,
+            on_card_shown=on_card_shown,
         )
 
     async def execute(
@@ -455,9 +488,13 @@ class ToolExecutor:
         ):
             mcp_server, mcp_tool_name = self.protocol_manager.resolve_tool(name)
 
-        # 這一輪清單核對（模型迴圈）：角色權限之後、軸 B／PaC／審查員／審批卡之前
+        # 這一輪清單核對（模型迴圈）：角色權限之後、軸 B／PaC／審查員／審批卡之前；使用者各自授權
+        # 的 MCP 另外再核一次在場條件（ADR-0281 T1）
         offer_denial = (
-            self._offer_denial(name, ctx, handler_source, mcp_server, mcp_tool_name)
+            (
+                self._offer_denial(name, ctx, handler_source, mcp_server, mcp_tool_name)
+                or self._user_scope_denial(name, ctx, mcp_server)
+            )
             if self._enforce_advertised
             else None
         )
@@ -474,6 +511,34 @@ class ToolExecutor:
             )
             await queue.put(None)
             return offer_denial
+
+        # vault-jailed MCP（如 docgen）：不再交出任何根，工具在這裡就以固定原因拒絕、不送出；
+        # 放在審批卡與 hook 之前，人不會核准一個不會執行的呼叫（ADR-0293）
+        if mcp_server:
+            try:
+                mcp_vault_jail.apply(self.protocol_manager.registry, mcp_server)
+            except mcp_vault_jail.VaultJailedToolUnavailableError as refused:
+                result_text = tool_errors.build_tool_error(
+                    tool_errors.PERMISSION_DENIED,
+                    str(refused),
+                    suggestion="Do not retry this tool; tell the user it is switched off for now. "
+                    'Plain-text files can be read with the read tool (scope "personal").',
+                    denied_tool=name,
+                    reason=refused.reason,
+                )
+                logger.warning("🛡️ Vault-jailed MCP tool refused: %s -> %s", agent_id, name)
+                await queue.put(
+                    ToolCallEvent(
+                        call_id=call_id,
+                        tool_name=name,
+                        arguments={},
+                        status="error",
+                        error_class=tool_errors.PERMISSION_DENIED,
+                        result_text=result_text,
+                    ).to_result_sse()
+                )
+                await queue.put(None)
+                return result_text
 
         # Gate 2a（ADR-0195 軸 B）：MCP 工具面 RBAC。模型迴圈裡廣告面（這一輪的清單）也是
         # 執行條件（上面的核對），但列出不等於有權限：角色授權仍在這裡獨立核對，執行面
@@ -539,6 +604,15 @@ class ToolExecutor:
         # 執行策略評估
         decision = permission_service.evaluate_policy(policy_context)
 
+        # 給 hook 的工具呼叫資料。參數先複製一份：之後 MCP 分支會在 args 補上 agent_id、把根目錄
+        # 換成實際路徑，hook 只看模型送來的參數。舊工具名稱也比對它對應的新名稱（規則寫
+        # execute_command，模型叫 bash 也要比得到）（ADR-0292）
+        hook_call = ToolCall(
+            name=name, args=dict(args), call_id=call_id, mcp_server=mcp_server,
+            mcp_tool=mcp_tool_name,
+            aliases=() if mcp_server else legacy_aliases(name, args, LEGACY_ADVERTISED_SUCCESSORS),
+        )
+
         if mcp_rbac_denied or decision.effect == "DENY":
             deny_reason = "mcp_tool_rbac" if mcp_rbac_denied else (decision.reason or "policy")
             result_text = tool_errors.build_tool_error(
@@ -570,7 +644,29 @@ class ToolExecutor:
                 }
             )
             await queue.put(None)
+            # 政策的原因可能是規則文字，hook 只收固定的代碼
+            notify_permission_denied(
+                ctx, hook_call, "mcp_tool_rbac" if mcp_rbac_denied else "policy"
+            )
             return result_text
+
+        # ADR-0292：PreToolUse hook——政策沒拒絕之後、審查員與審批卡之前。只能擋下或要求人
+        # 核准（跳下面同一張人類卡，無人在場拒絕）；不能放行、不能改參數。
+        pre_hooks = await run_pre_tool_hooks(ctx, hook_call)
+        if pre_hooks.denied_text is not None:
+            logger.warning("🪝 PreToolUse hook blocked: %s -> %s", agent_id, name)
+            await queue.put(
+                ToolCallEvent(
+                    call_id=call_id,
+                    tool_name=name,
+                    arguments=args,
+                    status="error",
+                    error_class=tool_errors.PERMISSION_DENIED,
+                    result_text=pre_hooks.denied_text,
+                ).to_result_sse()
+            )
+            await queue.put(None)
+            return pre_hooks.denied_text
 
         # H2（hitl-unification）：CONFIRM 的統一 HITL 處置。
         # - 互動會話（resumable_stream＝UI 聊天）：審批卡走**當前聊天 SSE**（統一
@@ -589,13 +685,18 @@ class ToolExecutor:
         card_complete = False  # 審批卡沒截斷任何參數（IDE「由人核准」標記的前提）
         approved_by: str | None = None
         human_only = decision.effect == "HUMAN_ONLY"
-        needs_human = human_only or (
-            decision.effect == "CONFIRM" and execution_class != ToolExecutionClass.SELF_APPROVING
+        needs_human = (
+            human_only
+            or pre_hooks.ask
+            or (
+                decision.effect == "CONFIRM"
+                and execution_class != ToolExecutionClass.SELF_APPROVING
+            )
         )
         interactive = is_human_present(ctx)
         review: ReviewOutcome | None = None
         denied_text: str | None = None
-        if decision.effect == "REVIEW":
+        if decision.effect == "REVIEW" and not pre_hooks.ask:
             review = await auto_reviewer.review(
                 identity,
                 ReviewRequest(
@@ -617,7 +718,10 @@ class ToolExecutor:
                 denied_text = approval_flow.auto_review_denied_error(name, review.reason)
             else:
                 needs_human = True
-        if needs_human:
+        # ADR-0292：PermissionRequest hook——要跳卡之前（無人在場沒有卡，也不問 hook）。只能拒絕。
+        if needs_human and interactive and denied_text is None:
+            denied_text = await run_permission_request_hooks(ctx, hook_call)
+        if needs_human and denied_text is None:
             if interactive:
                 verdict = await self._await_human_approval(
                     name=name,
@@ -628,7 +732,9 @@ class ToolExecutor:
                     tool_action=policy_context.environment.get("tool_action"),
                     queue=queue,
                     review_reason=review.reason if review is not None else None,
+                    hook_reason=(pre_hooks.ask_reason or "") if pre_hooks.ask else None,
                     human_only=human_only,
+                    on_card_shown=lambda: notify_approval_card(ctx, name),
                 )
                 if verdict != "approved":
                     result_text = approval_flow.approval_denied_error(name, verdict)
@@ -644,12 +750,18 @@ class ToolExecutor:
                         ).to_result_sse()
                     )
                     await queue.put(None)
+                    notify_permission_denied(
+                        ctx, hook_call, tool_errors.extract_field(result_text, "reason")
+                    )
                     return result_text
                 hitl_preapproved = True
                 card_complete = not approval_flow.approval_preview_truncated(args)
             elif human_only:
                 # H1 錨（headless fail-closed）：HUMAN_ONLY 連終端也直接拒絕
                 denied_text = approval_flow.human_only_unavailable_error(name, decision.reason)
+            elif pre_hooks.ask:
+                # hook 要求人核准：無人在場一律拒絕，終端也不落到遺留通道（ADR-0292）
+                denied_text = hook_ask_unavailable_error(name, pre_hooks.ask_reason)
             elif review is not None:
                 denied_text = approval_flow.auto_review_no_human_error(
                     name, review.reason, headless_terminal=review.code == CODE_HEADLESS_TERMINAL
@@ -686,35 +798,45 @@ class ToolExecutor:
                     result_text=denied_text,
                 ).to_result_sse()
             )
+            denied_reason = tool_errors.extract_field(denied_text, "reason")
             await queue.put(
                 {
                     "type": "log",
-                    "content": f"🖐️ 待審批攔截（fail-closed）: {name}\n",
+                    "content": (
+                        f"🚫 hook 拒絕: {name}\n"
+                        if denied_reason == HOOK_DENIED_REASON
+                        else f"🖐️ 待審批攔截（fail-closed）: {name}\n"
+                    ),
                     "result_text": denied_text,
                 }
             )
             await queue.put(None)
+            notify_permission_denied(ctx, hook_call, denied_reason)
             return denied_text
 
         # Validate only selected native public calls after policy/approval, before
         # project fallback or trusted metadata injection can consume model values.
+        # 其他內建工具只核對廣告 schema 列的必要參數（缺了會在工具裡變成 TypeError）。
+        validation_error: str | None = None
         if name in PUBLIC_TOOL_CONTRACTS and (
             name in self.tool_registry or name in self.memory_tool_registry
         ):
             args, validation_error = validate_native_arguments(name, args)
-            if validation_error is not None:
-                await queue.put(
-                    ToolCallEvent(
-                        call_id=call_id,
-                        tool_name=name,
-                        arguments={},
-                        status="error",
-                        error_class=tool_errors.VALIDATION_ERROR,
-                        result_text=validation_error,
-                    ).to_result_sse()
-                )
-                await queue.put(None)
-                return validation_error
+        elif handler_source == "builtin":
+            validation_error = missing_required_error(name, args)
+        if validation_error is not None:
+            await queue.put(
+                ToolCallEvent(
+                    call_id=call_id,
+                    tool_name=name,
+                    arguments={},
+                    status="error",
+                    error_class=tool_errors.VALIDATION_ERROR,
+                    result_text=validation_error,
+                ).to_result_sse()
+            )
+            await queue.put(None)
+            return validation_error
 
         # 1. 發送 tool_start 事件
         await queue.put(tool_start_event(call_id=call_id, tool=name, args=args))
@@ -722,6 +844,8 @@ class ToolExecutor:
 
         result_text = ""
         is_success = False
+        ran_tool = False  # 工具真的開始跑了（PostToolUseFailure 只看這種失敗）
+        post_hooks_ran = False  # 之後才出錯時不要再觸發一次
         duration_ms: float | None = None  # 僅在工具實際執行的路徑設值（早退不設）
 
         try:
@@ -783,6 +907,9 @@ class ToolExecutor:
                 }
 
                 # --- [工具尋址與執行 - SSOT via ProtocolManager] ---
+                # 真正交給 handler 才算「執行過」（T3）；前面任何一關擋下都不算
+                record_tool_executed(actually_used_tools, name, args)
+                ran_tool = True
                 t0_monotonic = get_monotonic_ms()  # 單調時鐘：量測純執行耗時
                 if is_native:
                     res_data = await resolved_handler(**call_kwargs)
@@ -799,45 +926,13 @@ class ToolExecutor:
                     server_id, actual_tool = mcp_server, mcp_tool_name
                     if server_id:
                         args["agent_id"] = identity.agent_id
-                        # vault-jailed 伺服器（如 mcp-docgen）：依身分把其根目錄參數覆寫成當下
-                        # agent 自己的 vault（per-agent 隔離；模型給的根目錄被蓋掉）。
-                        mcp_vault_jail.apply(
-                            self.protocol_manager.registry, server_id, args, identity
-                        )
-                        # 派工（子代理）優先於心跳：心跳派出的子代理算派工（U2c-2）
                         human_present = is_human_present(ctx)
-                        origin_value = ctx.get("request_origin")
-                        if origin_value is None:
-                            origin_value = (
-                                McpRequestOrigin.FOREGROUND
-                                if human_present
-                                else McpRequestOrigin.DISPATCH
-                                if ctx.get("dispatch_run")
-                                else McpRequestOrigin.HEARTBEAT
-                                if ctx.get("heartbeat_run")
-                                else McpRequestOrigin.FOREGROUND
-                            )
-                        mcp_request_context = McpRequestContext(
+                        mcp_request_context = build_mcp_request_context(
+                            ctx,
+                            identity,
                             request_id=request_id,
-                            session_id=session_id,
-                            identity=identity,
-                            human_principal_id=(
-                                ctx.get("human_principal_id")
-                                or (identity.agent_id if identity.is_human else None)
-                            ),
                             installation_id=server_id,
-                            auth_level=ctx.get("auth_level") or "Manual",
-                            execution_kind=(
-                                ExecutionKind.DISPATCH
-                                if ctx.get("dispatch_run")
-                                else ExecutionKind.HEARTBEAT
-                                if ctx.get("heartbeat_run")
-                                else ExecutionKind.FOREGROUND
-                            ),
-                            origin=origin_value,
                             policy_context=policy_context,
-                            cancellation_id=ctx.get("cancellation_id"),
-                            trace_context=ctx.get("trace_context") or {},
                             # U2c-7：只有人類卡片核准、且卡上參數沒被截斷；審查員與 YOLO 放行不帶
                             human_approved=hitl_preapproved and card_complete,
                         )
@@ -850,6 +945,12 @@ class ToolExecutor:
                                         tool_name=name,
                                         agent_id=agent_id,
                                         session_id=session_id,
+                                        on_shown=lambda: notify_mcp_input(ctx, name),
+                                        before_shown=lambda message, schema: (
+                                            run_elicitation_hooks(
+                                                ctx, server_id, message, schema
+                                            )
+                                        ),
                                     )
                                 )
                                 if human_present
@@ -891,6 +992,7 @@ class ToolExecutor:
                             logger.warning("🛡️ Install policy block: %s -> %s", agent_id, name)
                         except McpToolArgumentRefusal as refusal:
                             # 參數放進標頭後超過上限：模型縮短參數即可重試，不是上游故障。
+                            ran_tool = False
                             result_text = tool_errors.build_tool_error(
                                 tool_errors.VALIDATION_ERROR,
                                 str(refusal),
@@ -902,6 +1004,7 @@ class ToolExecutor:
                             )
                         except McpToolCatalogRefusal as refusal:
                             # ADR-0203 dep1：伺服器當下清單不允許（隔離／不在清單），不是上游故障。
+                            ran_tool = False
                             result_text = tool_errors.build_tool_error(
                                 tool_errors.PERMISSION_DENIED
                                 if refusal.quarantined
@@ -938,8 +1041,10 @@ class ToolExecutor:
                             else:
                                 result_text = _render_mcp_complete(res_data)
                     else:
+                        ran_tool = False
                         result_text = _unknown_tool_error(name)
                 else:
+                    ran_tool = False
                     result_text = _unknown_tool_error(name)
 
                 duration_ms = get_monotonic_ms() - t0_monotonic  # 純執行耗時（additive）
@@ -958,7 +1063,7 @@ class ToolExecutor:
 
             # --- [終端機自動修復邏輯] ---
             if name in TERMINAL_REPAIR_TOOLS:
-                exit_code_match = re.search(r"\[EXIT_CODE: (-?\d+)\]", result_text)
+                exit_code_match = _TERMINAL_EXIT_CODE.search(result_text)
                 if (
                     exit_code_match
                     and session_id
@@ -979,8 +1084,22 @@ class ToolExecutor:
                     elif exit_code == 0 and session_id:
                         autonomy_service.reset_repair_attempts(session_id)
 
+            # ADR-0292：PostToolUseFailure 在工具跑了卻失敗時執行，其他跑完的情況執行 PostToolUse
+            # （內容含 Error: 時畫面算失敗，但工具確實跑完了）。hook 的補充說明（含 PreToolUse
+            # 的）當成資料接在結果後面，畫面上的成功與否照上面的判定不變。
+            hook_outputs = list(pre_hooks.outputs)
+            from_mcp = handler_source is None
+            if ran_tool and _counts_as_tool_failure(name, result_text, from_mcp=from_mcp):
+                hook_outputs += await run_post_tool_failure_hooks(ctx, hook_call, result_text)
+            elif is_success or (ran_tool and not tool_errors.is_tool_error(result_text)):
+                hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
+            post_hooks_ran = True
+            result_text = attach_to_tool_result(result_text, hook_outputs)
+
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
             #    duration_ms／error_class；失敗才抬 error_class、成功不帶）
+            if is_success:
+                record_tool_succeeded(actually_used_tools, name, args)
             await queue.put(
                 ToolCallEvent(
                     call_id=call_id,
@@ -1011,6 +1130,14 @@ class ToolExecutor:
                 {"type": "log", "content": f"❌ 執行發生例外：{detail}\n", "result_text": "Error"}
             )
             result_text = tool_errors.from_exception(e, detail)
+            hook_outputs = list(pre_hooks.outputs)
+            if (
+                ran_tool
+                and not post_hooks_ran
+                and _counts_as_tool_failure(name, result_text, from_mcp=handler_source is None)
+            ):
+                hook_outputs += await run_post_tool_failure_hooks(ctx, hook_call, result_text)
+            result_text = attach_to_tool_result(result_text, hook_outputs)
 
         finally:
             await queue.put(None)

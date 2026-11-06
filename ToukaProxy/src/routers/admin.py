@@ -5,17 +5,18 @@ Enforces Admin RBAC.
 """
 
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, StrictBool
 
 from src.core.exceptions import ErrorCode, ToukaException
-from src.models.agent_reset import AgentResetResponse
+from src.models.agent_reset import AgentResetResponse, LastResetStatus
 from src.models.identity import AgentIdentity
 from src.models.user import User, UserCreate, UserOut
 from src.routers.auth import get_auth_service, get_current_user
 from src.routers.system import restore_in_progress
+from src.services.agent_reset.last_result import last_reset
 from src.services.agent_reset.orchestrator import reset_agent_data, scrub_rejected
 from src.services.auth_service import AuthService
 from src.services.authorization_gateway import require_admin_authority, require_admin_human
@@ -215,3 +216,14 @@ async def reset_agent(
     )
     report = await reset_agent_data(target, actor, scrub=scrub)
     return report.to_dict()
+
+
+@router.get("/agents/reset/last", response_model=LastResetStatus)
+async def last_agent_reset(
+    _admin: Annotated[AgentIdentity, Depends(require_admin_human)],
+) -> LastResetStatus:
+    """最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.
+
+    只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。
+    """
+    return last_reset()

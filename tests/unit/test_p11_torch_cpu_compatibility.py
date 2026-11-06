@@ -348,10 +348,8 @@ def test_real_cpu_encode_empty_and_unknown_text_stays_finite(
 def test_vector_store_uses_real_cpu_encode_and_reuses_cached_list(
     local_cpu_model: SentenceTransformer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    resource_proxy = MagicMock()
     qdrant = MagicMock()
     model_factory = MagicMock(return_value=local_cpu_model)
-    monkeypatch.setattr(vector, "get_resource_proxy", lambda: resource_proxy)
     monkeypatch.setattr(vector, "QdrantClient", qdrant)
     monkeypatch.setattr(vector, "SentenceTransformer", model_factory)
     monkeypatch.setattr(vector.VectorStore, "_client_cache", {})
@@ -367,5 +365,5 @@ def test_vector_store_uses_real_cpu_encode_and_reuses_cached_list(
     assert other == pytest.approx([0.0, 1.0])
     assert encode.call_args_list == [call("alpha gamma"), call("beta beta")]
     model_factory.assert_called_once_with("p11-local-bow", trust_remote_code=False)
-    resource_proxy.make_dir.assert_called_once_with(str(tmp_path / "_qdrant_db"))
+    assert (tmp_path / "_qdrant_db").is_dir()  # 真的 resource proxy 建的（ADR-0293 T3）
     qdrant.assert_called_once_with(path=str((tmp_path / "_qdrant_db").absolute()))

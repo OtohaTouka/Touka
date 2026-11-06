@@ -5,7 +5,7 @@ import asyncio
 import contextlib
 import logging
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends
 
@@ -17,11 +17,12 @@ from src.models.souls import (  # noqa: TC001
     SoulDeleteRequest,
     SoulUpdateRequest,
 )
-from src.services import memory_collection_guard
+from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
     assert_timeline_cleared,
 )
+from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.auth_service import AuthService
 from src.services.dispatchers.route_family import is_selectable_brain
 from src.services.identity_router import get_verified_identity
@@ -30,7 +31,8 @@ from src.services.models import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.services.user_service import UserService
-from src.utils import soul_io
+from src.tools import terminal
+from src.utils import custom_io, soul_io
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import (
     clear_agent,
@@ -40,6 +42,9 @@ from src.utils.brain_persistence import (
     should_set_active_brain,
 )
 from src.utils.path_security import validate_no_symlink_escape
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/souls", tags=["souls"])
@@ -120,26 +125,35 @@ async def create_soul(
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     if soul_path.exists():
         raise ToukaException(ErrorCode.SOUL_ALREADY_EXISTS)
+    # 和既有的自訂模型完全同名（collection 撞名檢查不算完全相同的 ID）：擁有清單共用同一筆，
+    # 自訂模型的主人會一起變成這個靈魂的擁有者（舊審查報告丙-2）。只看有 config.json 的模型；
+    # 沒有的是個人空間之類的殘留，清單裡的同一個 ID 由下面的認領清掉。
+    if agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+        new_identity, "config.json"
+    ):
+        raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=agent_id)
     # 主要模型比照存檔先驗（先於任何建立動作）：不能用就 404；只差大小寫分不出時
     # resolve_custom_route 直接拋 409 MODEL_NAME_AMBIGUOUS。
     if base_model and not is_selectable_brain(base_model, manager=model_manager):
         logger.warning("Soul %s create rejected: model %r is not selectable", agent_id, base_model)
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND)
 
+    drive = resource_manager.soul_drive(new_identity)  # 個人空間走區內方法（ADR-0293）
+    if drive is None:
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
     await session_service.invalidate_agent_sessions(new_identity)
     app_data_dir = Path(resource_manager.get_base_path())
-    dir_specs = {
-        "soul": soul_path,
-        "personal_drive": app_data_dir / "personal_drive" / agent_id,
-        "legacy": app_data_dir / "legacy" / agent_id,
-    }
+    dir_specs = {"soul": soul_path, "legacy": app_data_dir / "legacy" / agent_id}
     # D6 回滾範圍＝本次「新建」的目錄；personal_drive/legacy 可能先於本次即存在
     # （舊資料），失敗回滾絕不誤刪既有資料。
     newly_created = [name for name, d in dir_specs.items() if not d.exists()]
+    if resource_manager.zone_kind(drive) == "missing":
+        newly_created.append("personal_drive")
 
     try:
         for d in dir_specs.values():
             resource_manager.make_dir(d)
+        resource_manager.zone_make_dir(drive)
 
         # 寫入人格＋設定：走 soul_io 受認可通道（_safe_target 監獄＋原子寫＋自動備份）。
         # 不弱化 resource_manager 的 Soul Protection 原語——它照擋其他一切呼叫者。
@@ -157,7 +171,9 @@ async def create_soul(
         # 過去建立側漏寫（刪除側反而會清＝不對稱），新靈魂在手動歸屬前心跳全滅。
         # 角色面毋須寫 identity_map——tag_rules is_toukasoul→Owner（ADR-0147）已涵蓋，
         # 寫 override 反而有蓋掉 tag_rules 的降級風險。
-        UserService().add_owned_agent(identity.agent_id, soul_identity)
+        # 舊審查報告丙-2：用認領，別人清單裡同一個 ID 的殘留（刪掉的自訂模型留下的）一併拿掉，
+        # 不然殘留的主人會變成這個新靈魂的擁有者。
+        UserService().claim_owned_agent(soul_identity, identity.agent_id)
 
         # 如果有大腦型號，就立刻寫入設定紀錄 (SSOT 原子化建立)
         if base_model:
@@ -363,6 +379,9 @@ async def delete_soul(
     brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
     零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
     記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+
+    舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
+    清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
     """
     _verify_admin_stepup(verified, req.admin_password, "delete", soul_id)
     if soul_id in _UNDELETABLE_SOULS:
@@ -376,29 +395,40 @@ async def delete_soul(
         or (soul_base / soul_id).resolve() == soul_base.resolve()
     ):
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
-    # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
-    assert_memory_cleared(AgentIdentity(agent_id=soul_id))
-    await assert_timeline_cleared(AgentIdentity(agent_id=soul_id))  # 活動紀錄也屬記憶
-    # 隔離暫存區的 HOME／TMP 也要清（同名新靈魂不沿用舊檔案）；清不掉就 503、什麼都不刪。
-    # Owner 身分：soul/ 已不在的孤兒也要解析到 personal_drive（不是 custom 的 drive）。
-    try:
-        await wipe_agent_homes(AgentIdentity(agent_id=soul_id, agent_role="Owner"))
-    except HomeWipeError as exc:
-        logger.warning("Soul %s not deleted: sandbox home not cleared (%s)", soul_id, exc.reason)
-        raise ToukaException(ErrorCode.SOUL_SANDBOX_HOME_NOT_CLEARED) from exc
+    identity = AgentIdentity(agent_id=soul_id)
+    async with destructive_op(identity):
+        # 設標記和查心跳之間沒有 await：查完之後新開跑的心跳會看到標記、不開跑。
+        if destructive_ops.stop_heartbeats(identity):
+            logger.warning("Soul %s not deleted: heartbeat running (asked to stop)", soul_id)
+            raise ToukaException(ErrorCode.SOUL_HEARTBEAT_RUNNING)
+        # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
+        await assert_memory_cleared(identity)
+        await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
+        # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個靈魂的全部指令，
+        # 標記期間也不會開新的。
+        refuse_linked_drive(resource_manager.soul_drive(identity))
+        killed = await terminal.stop_agent_commands(identity)
+        if killed:
+            logger.info("Soul %s: stopped %d command(s) before deleting", soul_id, killed)
+        # 隔離暫存區的 HOME／TMP 也要清（同名新靈魂不沿用舊檔案）；清不掉就 503、什麼都不刪。
+        # Owner 身分：soul/ 已不在的孤兒也要解析到 personal_drive（不是 custom 的 drive）。
+        try:
+            await wipe_agent_homes(AgentIdentity(agent_id=soul_id, agent_role="Owner"))
+        except HomeWipeError as exc:
+            logger.warning(
+                "Soul %s not deleted: sandbox home not cleared (%s)", soul_id, exc.reason
+            )
+            raise ToukaException(ErrorCode.SOUL_SANDBOX_HOME_NOT_CLEARED) from exc
+        # 清家目錄要好幾秒；這段期間寫進來的（例如前景聊天）再查一次。
+        await assert_memory_cleared(identity)
+        await assert_timeline_cleared(identity)
 
-    storage = soul_io.purge_soul_storage(soul_id)
-    # SSOT 註冊面（皆冪等；缺項即 no-op）——各自吞錯，任一面失敗不阻其餘。
-    with contextlib.suppress(Exception):
-        _update_models_config(soul_id, action="remove")
-    with contextlib.suppress(Exception):
-        _update_agents_registry(soul_id, action="remove")
-    with contextlib.suppress(Exception):
-        clear_agent(AgentIdentity(agent_id=soul_id))
-    with contextlib.suppress(Exception):
-        _remove_from_all_owned_agents(soul_id)
-    with contextlib.suppress(Exception):
-        _remove_identity_override(soul_id)
+        storage = soul_io.purge_soul_storage(soul_id)
+        failed = _unregister_soul(identity)
+    if failed:
+        # 資料已刪；登記各步都冪等，再刪一次會補清。
+        logger.error("Soul %s deleted but unregister steps failed: %s", soul_id, failed)
+        raise ToukaException(ErrorCode.SOUL_UNREGISTER_INCOMPLETE, failed_steps=failed)
 
     removed = [f"{base}" for base, status in storage.items() if status == "removed"]
     skipped = [f"{base}:{status}" for base, status in storage.items() if status != "removed"]
@@ -406,13 +436,29 @@ async def delete_soul(
     return {"status": "success", "soul_id": soul_id, "removed": removed, "skipped": skipped}
 
 
+def _unregister_soul(identity: AgentIdentity) -> list[str]:
+    """取消註冊五步（皆冪等）：每步都做，回傳失敗的步驟名稱（原始例外只進 log）."""
+    soul_id = identity.agent_id
+    steps: list[tuple[str, Callable[[], object]]] = [
+        ("models", lambda: _update_models_config(soul_id, action="remove")),
+        ("agents_registry", lambda: _update_agents_registry(soul_id, action="remove")),
+        ("brain", lambda: clear_agent(identity)),
+        ("owners", lambda: _remove_from_all_owned_agents(soul_id)),
+        ("identity_override", lambda: _remove_identity_override(soul_id)),
+    ]
+    failed: list[str] = []
+    for name, step in steps:
+        try:
+            step()
+        except Exception:
+            logger.exception("Soul %s unregister step %s failed", soul_id, name)
+            failed.append(name)
+    return failed
+
+
 def _remove_from_all_owned_agents(soul_id: str) -> None:  # noqa: IDENTITY_SSOT
-    """把 soul_id 從所有使用者的 owned_agents 清單移除（冪等）。"""
-    auth_service = AuthService()
-    user_service = UserService(auth_service=auth_service)
-    for user in auth_service.get_all_users():
-        if soul_id in user.owned_agents:
-            user_service.remove_owned_agent(user.id, AgentIdentity(agent_id=soul_id))
+    """把 soul_id 從所有使用者的 owned_agents 清單移除（冪等、一次原子寫入）。"""
+    UserService().remove_owned_agent_from_all(AgentIdentity(agent_id=soul_id))
 
 
 def _remove_identity_override(soul_id: str) -> None:  # noqa: IDENTITY_SSOT

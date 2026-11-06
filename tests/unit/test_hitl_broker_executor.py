@@ -67,6 +67,7 @@ def _executor(
         tool_registry=registry or {},
         memory_tool_registry=memory_registry or {},
         plugin_registry={},
+        enforce_advertised=False,
     )
 
 
@@ -127,7 +128,10 @@ async def test_interactive_confirm_approved_executes(monkeypatch):
     recorder = _Recorder()
     _patch_confirm(monkeypatch)
     result, events = await _run_with_resolution(
-        _executor({"write": recorder}), "write", {"scope": "vault"}, approved=True
+        _executor({"write": recorder}),
+        "write",
+        {"scope": "vault", "path": "a.md", "content": "x"},
+        approved=True,
     )
     assert len(recorder.calls) == 1
     assert '"ok": true' in result.lower()

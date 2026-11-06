@@ -2,11 +2,13 @@
 
 import atexit
 import importlib
+import inspect
 import logging
 import os
 import shutil
 import sys
 import tempfile
+from concurrent.futures import Executor
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
@@ -48,6 +50,10 @@ if str(DISPATCH_DIR) not in sys.path:
 SANDBOX_RELEASE_STEPS: list[ReleaseStep] = []
 SANDBOX_RESIDUE_MESSAGE = "測試沙盒沒刪乾淨："
 _sandbox_residue: list[Path] = []
+ZONE_LATE_MESSAGE = "測試結束後才到的區例外紀錄（ADR-0293 R13）：\n"
+ZONE_UNUSED_ALLOWANCE_MESSAGE = "絆線放行清單有項目整個全量測試都沒用到（ADR-0293 Z9）："
+_zone_unused_allowances: list[str] = []
+_zone_late_records: list = []
 _SANDBOX_OWNER_PID = os.getpid()
 
 
@@ -117,10 +123,12 @@ import copy  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
 from memory_server.services.mission_lock import _reset_mission_lock_cache  # noqa: E402
+from memory_server.utils import memory_worker  # noqa: E402
 from src import config as runtime_config  # noqa: E402
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.main import app, protocol_manager  # noqa: E402
 from src.models.identity import AgentIdentity  # noqa: E402
+from src.services import destructive_ops  # noqa: E402
 from src.services.audit_service import PolicyAuditService  # noqa: E402
 from src.services.autonomy import autonomy_service  # noqa: E402
 from src.services.identity_router import get_verified_identity  # noqa: E402
@@ -136,6 +144,23 @@ from src.utils.async_db import session_service  # noqa: E402
 isolation_support = importlib.import_module("tests.support.isolation")
 # 權限自癒的全域掛鉤（iso-c2 U2n）：autouse fixture 每個測試前後重設。
 permission_repair = importlib.import_module("src.utils.permission_repair")
+# 區內路徑與換 data 根（ADR-0293）：``zone_data_root``、``zone_drive`` 用。
+zone_paths = importlib.import_module("memory_server.utils.zone_paths")
+zone_roots = importlib.import_module("tests.support.zone_roots")
+# 區例外紀錄（R13）：測試期間每一筆都記下，測試結束時有沒宣告的就失敗。
+zone_records = importlib.import_module("tests.support.zone_records")
+zone_paths.add_observer(zone_records.observe)
+# 執行期絆線（Z9）：產品程式對代理人資料夾直接做 I/O 就記一筆；session 沙盒的根之後換掉也照判斷。
+zone_tripwire = importlib.import_module("tests.support.zone_tripwire")
+zone_tripwire.add_roots(zone_paths.current_roots())
+zone_tripwire.install()
+# 全量檢查（Z9）的旗標只給這一個 session：讀一次就從環境拿掉，測試再開的 pytest 只跑一部分，不繼承
+_ZONE_FULL_RUN = os.environ.pop(zone_tripwire.FULL_RUN_ENV, None) == "1"
+# 連結測試不准把防線換掉（ADR-0293 決定 26）：執行期照物件身分核對，靜態掃描只是提早提醒。
+link_defenses = importlib.import_module("tests.support.link_defenses")
+_LINK_MONITOR = link_defenses.start()
+# 延遲格式化的 log 也要呼叫 ZonePath.__str__（R13）：這兩個 logger 測試期間設成 DEBUG。
+ZONE_FORMAT_LOGGERS = ("src", "memory_server")
 
 logger = logging.getLogger(__name__)
 
@@ -151,17 +176,27 @@ def _enforce_pytest_runtime_baseline() -> None:
 AUDIT_DRAIN_TIMEOUT_SECONDS = 30
 
 
-def _drain_policy_audit_writes() -> None:
-    """等稽核背景寫入做完，免得它在刪除後把 stats/ 建回來。
+def _drain_executor(executor: Executor) -> None:
+    """等 executor 佇列裡的工作做完。
 
     直譯器結束時 concurrent.futures 已先收掉 worker（佇列已清空），submit 會丟
     RuntimeError；這時當成已清空，不算釋放失敗。
     """
     try:
-        PolicyAuditService._executor.submit(int).result(timeout=AUDIT_DRAIN_TIMEOUT_SECONDS)
+        executor.submit(int).result(timeout=AUDIT_DRAIN_TIMEOUT_SECONDS)
     except RuntimeError as exc:
         if "interpreter shutdown" not in str(exc):
             raise
+
+
+def _drain_policy_audit_writes() -> None:
+    """等稽核背景寫入做完，免得它在刪除後把 stats/ 建回來。"""
+    _drain_executor(PolicyAuditService._executor)
+
+
+def _drain_memory_worker() -> None:
+    """等記憶工作者做完手上的工作：等待被取消或逾時時，已開始的工作還在跑（ADR-0288）。"""
+    _drain_executor(memory_worker._executor)
 
 
 def _close_qdrant_clients() -> None:
@@ -174,10 +209,11 @@ def _close_qdrant_clients() -> None:
         vector_module.VectorStore.close_all_clients()
 
 
-# 刪沙盒前依序釋放握住它的東西；新的 handle 來源加在這裡（單元測試釘住這四步）。
+# 刪沙盒前依序釋放握住它的東西；新的 handle 來源加在這裡（單元測試釘住這五步）。
 SANDBOX_RELEASE_STEPS.extend(
     [
         ("drain_policy_audit_writes", _drain_policy_audit_writes),
+        ("drain_memory_worker", _drain_memory_worker),
         ("close_qdrant_clients", _close_qdrant_clients),
         ("close_sqlite_connections", FactualStore.close_all_connections),
         ("close_log_handlers", partial(close_sandbox_log_handlers, SESSION_TMP_DATA_ROOT)),
@@ -186,14 +222,119 @@ SANDBOX_RELEASE_STEPS.extend(
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish() -> None:
-    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。"""
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Session fixture 沒跑（--collect-only、沒選到測試）時在這裡刪；結果留給結尾摘要。
+
+    測試結束後才到的區例外紀錄（R13）在這裡報出，整個 session 失敗。CI 的全量測試另外要求
+    絆線（Z9）的放行清單每項都用到過。
+    """
     _cleanup_session_sandbox()
+    late = zone_records.remaining()
+    if late:
+        _zone_late_records.extend(late)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if _ZONE_FULL_RUN:
+        _zone_unused_allowances[:] = zone_tripwire.missing_hits()
+        if _zone_unused_allowances:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+LINK_DEFENSE_MESSAGE = "連結測試換掉了防線（ADR-0293 決定 26，{phase}）：\n"
+_LINK_DEFENSE_PREFIX = LINK_DEFENSE_MESSAGE.split("{", 1)[0]
+
+
+def _link_test_key(item: pytest.Item) -> str | None:
+    """測試函式的「模組:函式」（``@patch`` 裝飾過的取原函式）."""
+    function = getattr(item, "function", None)
+    code = getattr(inspect.unwrap(function), "__code__", None) if function else None
+    return None if code is None else link_defenses.code_key(code.co_filename, code.co_qualname)
+
+
+def _fail_on_link_violations(found: list[str], phase: str) -> None:
+    if found:
+        pytest.fail(LINK_DEFENSE_MESSAGE.format(phase=phase) + "\n".join(found), pytrace=False)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item):
+    """連結測試的執行期核對：每個階段跑完都和 session 開始時的防線比一次（setup 階段含 fixture）."""
+    _LINK_MONITOR.begin(item.path, _link_test_key(item))
+    result = yield
+    _fail_on_link_violations(_LINK_MONITOR.take(), "setup")
+    return result
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_call(item: pytest.Item):
+    result = yield
+    _fail_on_link_violations(_LINK_MONITOR.take(), "測試本體")
+    return result
+
+
+def _end_link_checks() -> list[str]:
+    """這個測試的最後一次核對：查換回了沒有，交出還沒報的違規."""
+    try:
+        _LINK_MONITOR.check_leaks()
+        return _LINK_MONITOR.take()
+    finally:
+        _LINK_MONITOR.end()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
+    try:
+        result = yield
+    except (KeyboardInterrupt, SystemExit, pytest.exit.Exception):
+        # 中斷不能變成一般失敗，核對自己出錯也不能蓋掉它：整批要停，這時的違規不報
+        with suppress(Exception):
+            _end_link_checks()
+        raise
+    except BaseException:  # ``pytest.fail`` 不是 ``Exception``
+        # teardown 自己也失敗時違規照報，原本的失敗留在例外鏈上
+        _fail_on_link_violations(_end_link_checks(), "teardown")
+        raise
+    _fail_on_link_violations(_end_link_checks(), "teardown")
+    return result
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
+    """xfail 不能吞掉連結核對的違規（pytest 把 xfail 的失敗改成 skipped；這個 wrapper 在它外面）."""
+    rep = yield
+    violation = call.excinfo is not None and str(call.excinfo.value).startswith(
+        _LINK_DEFENSE_PREFIX
+    )
+    if violation and rep.outcome != "failed":
+        rep.outcome = "failed"
+        if hasattr(rep, "wasxfail"):
+            del rep.wasxfail
+    return rep
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_fixture_setup(fixturedef: pytest.FixtureDef, request: pytest.FixtureRequest):
+    """連結核對要知道替換是哪個範圍的 fixture 做的：module、session 範圍的到它結束才看有沒有換回."""
+    _LINK_MONITOR.enter_fixture(fixturedef)
+    try:
+        return (yield)
+    finally:
+        _LINK_MONITOR.leave_fixture()
+
+
+def pytest_fixture_post_finalizer(
+    fixturedef: pytest.FixtureDef, request: pytest.FixtureRequest
+) -> None:
+    _LINK_MONITOR.fixture_finished(fixturedef)
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     for residue in _sandbox_residue:
         terminalreporter.write_line(f"{SANDBOX_RESIDUE_MESSAGE}{residue}")
+    if _zone_late_records:
+        terminalreporter.write_line(ZONE_LATE_MESSAGE + zone_records.describe(_zone_late_records))
+    if _zone_unused_allowances:
+        unused = ", ".join(_zone_unused_allowances)
+        terminalreporter.write_line(ZONE_UNUSED_ALLOWANCE_MESSAGE + unused)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -324,6 +465,60 @@ def _reset_permission_repair():
     permission_repair.set_permission_repair(None)
 
 
+class _FormatOnly(logging.Handler):
+    """只格式化、不輸出：``logger.debug("%s", zp)`` 這類延遲格式化也會呼叫 ``__str__``（R13）."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with suppress(Exception):  # 誤用已由觀察者記下
+            record.getMessage()
+
+
+@pytest.fixture(autouse=True)
+def _zone_refusal_records(request):
+    """測試期間的區例外紀錄（R13）：結束時有沒宣告的就失敗（產品接住了也一樣）."""
+    handler = _FormatOnly(logging.DEBUG)
+    saved = []
+    for name in ZONE_FORMAT_LOGGERS:
+        target = logging.getLogger(name)
+        saved.append((target, target.level))
+        target.setLevel(logging.DEBUG)
+        target.addHandler(handler)
+    token = zone_records.begin(request.node.nodeid)
+    try:
+        yield
+    finally:
+        mine = zone_records.end(request.node.nodeid, token)
+        for target, level in saved:
+            target.removeHandler(handler)
+            target.setLevel(level)
+    if mine:
+        pytest.fail("未宣告的區例外（ADR-0293 R13）：\n" + zone_records.describe(mine))
+
+
+@pytest.fixture
+def zone_data_root(tmp_path, monkeypatch) -> Path:
+    """這個測試自己的 data 根（ADR-0293）：設定、環境變數與 sandbox state 根都換到 ``tmp_path``.
+
+    ResourceManager 的區內方法經它註冊的根來源讀這些值，所以區的根跟著換；測試要換 data 根
+    只能用這個 fixture 或 ``tests.support.zone_roots``（T3）。
+    """
+    data = tmp_path.resolve() / "zone_data"
+    data.mkdir()
+    zone_roots.point_zone_roots(monkeypatch, data, tmp_path.resolve() / "zone_state")
+    return data
+
+
+@pytest.fixture
+def zone_drive(zone_data_root):
+    """``zone_data_root`` 底下 Alice 的個人空間（``personal_drive/Alice``，資料夾已建好）.
+
+    回 ``ZonePath``；測試經 ResourceManager 的區內方法放檔案，真的資料夾是
+    ``zone_data_root / "personal_drive" / "Alice"``。
+    """
+    (zone_data_root / "personal_drive" / "Alice").mkdir(parents=True)
+    return zone_paths.agent_root(zone_paths.Anchor.PERSONAL_DRIVE, "Alice")
+
+
 @pytest.fixture(autouse=True)
 def setup_test_environment(global_test_sandbox):
     """確保每個測試都在乾淨的環境下執行，且單例狀態已重置 (SSOT & SOLID)。"""
@@ -428,6 +623,7 @@ def setup_test_environment(global_test_sandbox):
     model_manager.reset_for_test()
     rhythm_service.reload_all()
     autonomy_service.reload_all()
+    destructive_ops.reload_all()
 
     # 5. 還原依賴覆寫狀態，防止 Mock 洩漏且不影響其他隔離 Mock (SSOT)
     app.dependency_overrides.clear()

@@ -1,5 +1,5 @@
 import {
-    existsSync,
+    lstatSync,
     realpathSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -14,9 +14,23 @@ function isWithin(root: string, candidate: string): boolean {
         );
 }
 
+// 不跟隨連結：指向不存在位置的連結也算存在，之後 realpath 解不開就拒絕（ADR-0294）
+function exists(candidate: string): boolean {
+    try {
+        lstatSync(candidate);
+        return true;
+    } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+            return false;
+        }
+        throw error;
+    }
+}
+
 function nearestExistingPath(candidate: string): string {
     let current = candidate;
-    while (!existsSync(current)) {
+    while (!exists(current)) {
         const parent = path.dirname(current);
         if (parent === current) {
             throw new Error('No existing workspace ancestor found');

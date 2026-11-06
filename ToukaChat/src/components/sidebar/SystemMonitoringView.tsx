@@ -72,7 +72,6 @@ export function SystemMonitoringView({ isActive }: SystemMonitoringViewProps) {
         <MemoryStatus
           memStats={stats.memStats}
           vaultHealth={stats.vaultHealth}
-          emergence={stats.emergence}
         />
       </SectionWrapper>
 

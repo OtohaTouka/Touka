@@ -1,10 +1,11 @@
 # ADR-0269：模型只能執行這一輪列給它的工具（執行前核對清單）
 
-- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190）
+- 狀態：✅ 已接受（安全修補 h2；維護者 2026-10-15 核准計畫第 3 版，同日決定執行器開關採方案 (a)；產品行數上限同日由 +150 提高到 +190；[ADR-0285](0285-prompt-boundaries-for-model-written-text.md) 甲-3 修訂：開關改成預設開（維護者 2026-10-25 選甲），結構測試 C2 縮小，決策 2 補「事後指派由執行器擋下」）
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
 - 相關：本 ADR 修訂 ADR-0119 Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完全相容」（改為有條件相容，見決策 5）；補註 ADR-0195（軸 B 不變，這一輪的清單另外也是執行條件）。ADR-0228（原生角色權限）、ADR-0229（批准分類順序）、ADR-0246（三種模式、底線、審查員）、ADR-0206（使用者各自授權的 MCP）、禁令 59（結構化工具錯誤），決策都不變
+- 2026-10-24 由 [ADR-0281](0281-tool-list-follow-ups.md) 修訂（T1、T2）：行為改變第 4 點的 (a) 改成人在場、和靈魂的前景對話時可以用使用者各自授權的 MCP；(b) 還沒連上的共用 MCP 改成在說明區塊列出名字（仍不列成工具）；(c) 由 T2 修訂：靈魂工具清單存的 `伺服器/工具` 與舊長名都會列出，舊短名與外掛照舊不列
 
 ## 背景
 
@@ -22,12 +23,12 @@
 ## 決策
 
 1. **清單物件**：新純模組 `models/advertised_tools.py` 的 `AdvertisedTools`（frozen dataclass，不做 I/O）：`native` 是原生工具名的 frozenset，`mcp` 是（伺服器, 裸工具名）的 frozenset；`__post_init__` 一律轉成不可變集合（呼叫端事後改自己的 list 影響不到）。`from_schemas` 由注入的 schema 算清單（帶 `server` 的是 MCP，沒有裸名時用廣告名）；`permits_native`、`permits_mcp`、`has_server` 三個查詢。
-2. **只有系統能寫**：`PipelineContext.advertised_tools`，型別 `InstanceOf[AdvertisedTools] | None`（dict、frozenset 一律拒絕，不會被轉型成物件）。寫入者：
+2. **只有系統能寫**：`PipelineContext.advertised_tools`，型別 `InstanceOf[AdvertisedTools] | None`（建立時 dict、frozenset 一律拒絕，不會被轉型成物件；〔ADR-0285 甲-3 更正：建好之後不論用 `ctx[...]`（ToolLayer 的寫法）還是屬性指派都不驗證，由執行器的 `isinstance` 擋下；B11 的 dict、frozenset 案例就在測這條〕）。寫入者：
    - ToolLayer：`_inject_tools` 改成回傳實際放進請求、去重之後的 schema，清單由它算；一律覆寫（心跳與子代理組裝共用 ctx，舊清單不得沿用）。被客戶端同名 schema 蓋掉的伺服器端工具不算列出（模型看到的是客戶端的版本）。
    - `_run_subagent`：用子代理自己組裝出的 `request.tools` 算，不沿用父代理。
    - `tests/tool_eval/live_episode.py`：唯一列名的測試例外（見決策 7）。
    不加進 `EXECUTION_CONTEXT_KWARG_NAMES`（那是交給 handler 的 kwargs）；核對不讀模型參數，執行器再用 `isinstance` 把一次關，不是 `AdvertisedTools` 就當成「清單不可用」。
-3. **執行器開關**：`ToolExecutor(..., *, enforce_advertised: bool = False)`，只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
+3. **執行器開關**〔ADR-0285 甲-3 修訂：改成預設 `True`，C2 改成「`ToolExecutor` 只能被直接呼叫、只有 `debug_execute_tool` 能用字面 False 關、私有屬性與核對方法不得被改寫」〕：`ToolExecutor(..., *, enforce_advertised: bool = True)`（原本是 `= False`），只能用名稱指定，存成私有屬性、對外只有唯讀 property。`run_react_loop` 寫字面 `True`；`/debug/execute` 明寫 `False`（人按的、已過特權閘，模型選不到這條路）。理由與守法見下一節。
 4. **核對位置與結果**：開關打開時，順序是身分 → 原生角色權限（ADR-0228，保留 `native_tool_rbac` 原因碼）→ MCP 名稱解析 → **清單核對** → 軸 B → 分類＋PaC → 審查員／審批卡 → 參數驗證 → 執行。
 
    | 情況 | 判定 | 錯誤類別 | reason |
@@ -43,6 +44,8 @@
 8. **子代理**：常數 `_SUBAGENT_STRIPPED_TOOLS = {dispatch_subagent, dispatch_subagent_group}`，請求與清單同步拿掉；就算角色權限允許，子代理也不能再派子代理或子代理群組。
 
 ## 執行器開關預設關，靠結構測試＋執行期檢查守住
+
+〔2026-10-27 ADR-0285 甲-3 修訂：舊審查報告指出 T1 之後同一個開關還管使用者授權 MCP 的在場檢查，忘了開代價變成兩道一起失效；維護者選改成預設開（原本的方案 (c)），C2 改成守「誰能關、誰能改寫核對」，建立點清單與匯入棘輪拿掉。以下保留原決定與理由。〕
 
 **決定**：開關預設關、只能用名稱指定、私有屬性加唯讀 property；正式程式只允許兩個建立點，各自寫出字面值；react_core 建好執行器後再做一次執行期檢查。
 
@@ -81,8 +84,8 @@
 
 ## 已知限制
 
-- **LOW-2（另開 T3）**：`record_tool_usage` 在所有拒絕之前就記錄（角色權限、PaC、審批的拒絕本來就這樣，不是本 ADR 造成的），記憶承諾守衛（`guard_service`）把被擋的 `memory_tools` 也算成用過：無痕或 SNS 裡模型說「記住了」不會跳提醒。因為實際沒有寫入，資料保護不受影響，只少一個使用者提示。正確修法要把「試過」（幻覺偵測需要）和「真的執行」（記憶守衛、查證守衛需要）分成兩個集合，會動到 `guard_service`、react_core 與四個 adapter 的 mid_loop_hook，超出本次範圍。
-- 行為改變第 4 點的三類要等 T1、T2 才能重新列給模型。
+- **LOW-2（另開 T3）**：`record_tool_usage` 在所有拒絕之前就記錄（角色權限、PaC、審批的拒絕本來就這樣，不是本 ADR 造成的），記憶承諾守衛（`guard_service`）把被擋的 `memory_tools` 也算成用過：無痕或 SNS 裡模型說「記住了」不會跳提醒。因為實際沒有寫入，資料保護不受影響，只少一個使用者提示。正確修法要把「試過」（幻覺偵測需要）和「真的執行」（記憶守衛、查證守衛需要）分成兩個集合，會動到 `guard_service`、react_core 與四個 adapter 的 mid_loop_hook，超出本次範圍。〔已修：ADR-0281 T3。〕
+- 行為改變第 4 點的三類要等 T1、T2 才能重新列給模型。〔(a)(b) 已由 ADR-0281 T1 處理；(c) 已由 ADR-0281 T2 處理（外掛照舊不列）。〕
 - C2、C3 不聲稱能抓任意動態 Python（見上一節殘餘限制）。
 - 呼叫 MCP 工具當下，manager 另外依伺服器當下的清單與隔離紀錄核對（dep1，見 ADR-0203 的 dep1 補記）：所有入口都適用、`/debug/execute` 也擋；和本 ADR 不重疊，分工見該節。
 - 伺服器名本身含 `__` 時，誤判只落在錯誤類別（`resource_not_found` 或 `not_advertised`），不會放行。
@@ -92,10 +95,10 @@
 
 ## 另開任務
 
-- **T1**：ToolLayer 帶精確的 request context，列出使用者各自授權的 MCP 與還沒連線的共享 MCP。
-- **T2**：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名），並決定外掛選項的語意（要讓模型用外掛時和角色權限一起另開 ADR）。在 T2 修好前，建立新靈魂時工具清單留空（等於全部可用），不要只勾幾個 MCP 工具。
-- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。
-- **終端配套工具（候選）**：`execute_command` 走非同步流程時，會叫模型之後呼叫 `get_command_result(execution_id=…)` 取結果（`tools/terminal.py` 的 `_pending_payload`）。靈魂的 `enabled_tools` 只勾 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）。後續可讓 ToolLayer 列出 `execute_command` 時自動帶上配套工具，或讓 SoulStudio 成組勾選；另開任務，不在本 ADR 做。
+- **T1**：ToolLayer 帶精確的 request context，列出使用者各自授權的 MCP 與還沒連線的共享 MCP。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T1；還沒連線的共享 MCP 依維護者決定只在說明區塊列出名字。〕
+- **T2**：修 `enabled_tools` 的短名與長名比對（SoulStudio 存短名），並決定外掛選項的語意（要讓模型用外掛時和角色權限一起另開 ADR）。在 T2 修好前，建立新靈魂時工具清單留空（等於全部可用），不要只勾幾個 MCP 工具。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T2；外掛依維護者決定維持用不到、從勾選清單拿掉。〕
+- **T3**：記憶守衛與查證守衛分開「試過」和「真的執行」（LOW-2）。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T3。〕
+- **終端配套工具（候選）**：`execute_command` 走非同步流程時，會叫模型之後呼叫 `get_command_result(execution_id=…)` 取結果（`tools/terminal.py` 的 `_pending_payload`）。靈魂的 `enabled_tools` 只勾 `execute_command` 時，取結果那一步回 `not_advertised`，所以兩個要一起勾（`stop_command` 同理）。後續可讓 ToolLayer 列出 `execute_command` 時自動帶上配套工具，或讓 SoulStudio 成組勾選；另開任務，不在本 ADR 做。〔已完成：見 [ADR-0281](0281-tool-list-follow-ups.md) T2，工具清單勾了執行指令就自動帶上，兩者照樣經過角色權限與政策。〕
 
 ## 和設計的小差異
 

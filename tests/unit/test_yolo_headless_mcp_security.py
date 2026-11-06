@@ -103,7 +103,7 @@ async def _call(monkeypatch, ctx: dict[str, Any], args: dict[str, Any]) -> tuple
     monkeypatch.setattr(permission_service, "evaluate_policy", _config().evaluate)
     monkeypatch.setattr(permission_service, "is_mcp_tool_allowed", lambda *_a: True)
     manager = _FakeProtocolManager()
-    executor = ToolExecutor(manager, {}, {}, {})
+    executor = ToolExecutor(manager, {}, {}, {}, enforce_advertised=False)
     queue: asyncio.Queue = asyncio.Queue()
     async with asyncio.timeout(5):
         result = await executor.execute_to_queue("remote_write", args, "req-mcp", ctx, queue)

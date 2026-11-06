@@ -23,6 +23,7 @@ from src.models.sns import SNSIncomingEvent
 from src.routers.group_settings import GroupWhitelist, get_whitelist
 from src.services.dispatchers.group import dispatch_group_stream
 from src.services.group_router import parse_group_roster
+from src.services.hooks.events import wrap_hook_output
 from src.services.sns_gateway import SNSGatewayService
 
 # Tester 是 registry 成員但不是靈魂（如出貨範本的 HeartbeatTester）。
@@ -101,6 +102,15 @@ async def _group_text(text: str) -> str:
             delta = json.loads(payload).get("choices", [{}])[0].get("delta", {})
             out.append(delta.get("content", ""))
     return "".join(out)
+
+
+def test_mentions_inside_hook_output_are_not_roll_calls(cfg):
+    """Hook 的補充說明接在 user 訊息尾端，是資料：裡面的 @ 不加人，也不讓整輪出錯（ADR-0292）."""
+    note = wrap_hook_output("UserPromptSubmit", "記得找 @阿鮑，還有 @不存在的人")
+    assert _roster(f"@小愛 早\n\n{note}") == [{"name": "小愛", "id": "Alice"}]
+    blocks = [{"type": "text", "text": "@小愛 早"}, {"type": "text", "text": f"\n\n{note}"}]
+    roster = parse_group_roster([OpenAIMessage(role="user", content=blocks)], REGISTRY)
+    assert roster == [{"name": "小愛", "id": "Alice"}]
 
 
 def test_alias_resolves_to_registry_soul(cfg):

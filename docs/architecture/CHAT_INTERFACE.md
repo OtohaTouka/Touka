@@ -1,6 +1,51 @@
 # ToukaChat 對話介面文件 (Standardized Chat Interface)
 
-> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，唯一白名單 `error_handler.ts`（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；ToukaChat 跑在 port 3001。
+> **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
+
+## 換後端網址與登入憑證（ADR-0297）
+
+- 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
+- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
+- 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
+- `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。
+- `AuthContext` 在網址移動時（這個分頁的事件，或別的分頁改了清單、清掉 storage）向舊後端登出並清卡。
+- 換網址是真的登出：這個帳號在舊後端所有裝置都要重新登入。成功時沒有提示（Toaster 隨登出卸載），登入與註冊頁顯示目前的網址（`app.login_page.connected_to`）。
+
+## 模型輸出的 Markdown 與流程圖（ADR-0294）
+
+- 聊天訊息（`MessageItem` 兩處）與 artifact 的 Markdown（`ArtifactView` 的 `MarkdownRenderer`）一律用 `components/markdown/SafeMarkdown.tsx`；呼叫端可以加自己的元件，`img` 換不掉；不收 rehype 外掛，原始 HTML 不顯示。新的顯示處也要用它（`src/` 裡只有它能匯入 `react-markdown`）。
+- 圖片：`lib/markdownImagePolicy.ts` 解析網址後比來源。前端頁面同來源、目前連線的後端同來源、後端是本機時同協定同埠號的另一種本機寫法照常顯示，加 `referrerPolicy="no-referrer"`；其他顯示「外部圖片（未載入）＋網站名稱」（`markdown.external_image_blocked`），是在新分頁開的連結（`noopener noreferrer`）；帶帳號密碼的網址與其他協定只有文字、沒有連結。
+- 流程圖：`lib/artifacts/mermaidSandbox.ts` 的 `renderMermaidInSandbox(id, text)` 在一個隱藏的沙箱框裡畫（`ARTIFACT_SANDBOX`＋`ARTIFACT_CSP`，畫圖當下載不到任何外部資源），回傳 SVG 字串；框只建一次、各圖共用（載入失敗或某張圖逾時就重建，其他在等的圖改在新框重送一次）；同一個 `id` 一次只送一個請求，新內容取代還在等的舊內容，被取代的呼叫拿到最新那份的結果，每張圖的 15 秒從送進框才算；第一次畫圖時才載入 mermaid（產品程式不要匯入 `mermaid`，型別除外）。框裡套用 `MERMAID_CONFIG`（`lib/artifacts/mermaidConfig.ts`，圖裡的設定指令改不了 `secure` 列的欄位，含三個樣式欄位）。回傳的 SVG 經 `lib/artifacts/sanitizeMermaidSvg.ts` 再放進頁面：外部網址的屬性與樣式片段移除，文字標籤（`foreignObject`）與 `click` 連結保留，連結在新分頁開。
+
+## Hook 設定頁、hook 的審批卡與被擋的訊息（ADR-0292）
+
+- 設定畫面「系統」組新增「Hooks」分頁（`config.ts` 的 `hooks`，`adminOnly`；搜尋索引一筆）。不加左側欄入口。
+  - 資料層 `hooks/settings/useHooksSettings.ts`：經 `fetchTouka` 讀 `GET /v1/hooks` 與 `GET /v1/hooks/runs`；存檔 `PUT /v1/hooks` 送整份設定和載入時的 `health.revision`（沒有檔案時送 `null`）。存檔結果分成 `saved`、`conflict`（409）、`path_rejected`（422，帶 `problems`）、`invalid`（422 欄位驗證，取第一個錯誤的位置與訊息）、`failed`。讀不到（含 403）當讀取失敗。
+  - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前十九個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
+  - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
+- 無痕提示：`hooks/useHooksActive.ts` 只在無痕對話查 `GET /v1/hooks/active`，送出訊息後（`isSending` 變了）再查一次，查不到維持上次結果；`components/chat/IncognitoHookNotice.tsx` 在 `active` 時顯示（`role="status"`）。
+- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡，模型失敗時要重試保存才進存檔；無痕也有），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
+- 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
+- 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
+- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。
+- 停止：`StreamRegistryProvider.stopStream` 查 `/stream/state` 沒有進行中的串流時（`state: null`、讀不到（例如無痕還沒有串流時回 403），或只剩上一則已結束的登記；例如 UserPromptSubmit hook 還在跑），改送不帶 `stream_id` 的 `POST /v1/ui/sessions/{id}/stop`，讓後端在 hook 跑完後不送模型（409 `PROMPT_STOPPED`；後端停的是這個人還在等的請求，對話已存在時也停整個對話）。這次停止回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪的串流才帶 `stream_id` 停止。有進行中的串流但不是這一輪時什麼都不送。請求還沒在後端登記成等待中（剛按送出就按停止）時，這個不指名的停止照原本的路停整個對話（對話正在跑的心跳也會停下）；沒有 hook 的使用者也一樣。
+- 別處停止：聊天送出收到 409 `PROMPT_STOPPED`（這一則在開始串流前被另一個分頁或裝置、或重置靈魂停止）時，`usePromptStoppedNotice` 顯示一次「這次回覆在開始前就被停止了」，`StreamRegistryProvider` 當成中止（generation 存成 `cancelled`、訊息留著），不顯示網路錯誤。自己按停止時前端先當成中止，不會走到這裡。
+- 插話被擋：`useInterjectionQueue.enqueue` 收到 403 `HOOK_PROMPT_BLOCKED` 時以 `useHookBlockNotice` 顯示理由並回 `null`（不進佇列）；`useInterjectionComposer` 在還是同一個對話時把文字接回輸入框。
+- Hook 設定頁的「最近執行」另顯示 hook 類型、結束碼與 HTTP 狀態（無痕的紀錄不顯示）；存好後重新讀取失敗時保留剛存的內容與新的 revision。
+
+## 重置卡查最後一次重置的結果（ADR-0289）
+
+- `hooks/useAgentDataReset.ts` 多 `last` 與 `refreshLast()`：經 `fetchTouka` 讀 `GET /v1/admin/agents/reset/last`；掛載時查一次，按「完成」後再查；查詢本身失敗（連不上、403）時回 `null`、卡上保留上一次查到的，伺服器沒有紀錄時是 `idle`。
+- `components/settings/tabs/AgentResetLastResult.tsx`：卡上方寫明是哪個靈魂、什麼時候（還在跑寫開始時間，其餘寫結束時間，經 `formatToTaipeiTime`）和結果一句話；結束的那次可以按「查看結果」打開報告，還在跑時按同一個按鈕再查一次。`idle` 與看不懂的狀態不顯示。
+- 「結果不明」畫面多「查看結果」：同一個靈魂已結束就換成那份報告（上面寫明靈魂與結束時間，不跳通知）；還在跑、沒有完成（錯誤碼經 `errorMsg`，看不懂的當 `SYSTEM_ERROR`）、中途中斷照實說；沒有紀錄或是別的靈魂的，說查不到這次的結果；查詢本身失敗另說「現在查不到」。不輪詢。
+- 對話框顯示結果時，標題與說明換成 `settings.agent_reset.result_title`／`result_body`（只看結果、不叫人輸入密碼）。
+
+## 靈魂的工具清單（ADR-0281 T2）
+
+- SoulStudio 建立與編輯共用 `components/studio/SoulToolPicker.tsx`；清單由 `hooks/useSoulToolCatalog.ts` 讀 `/v1/tools_stats`，回讀取中／讀完／讀不到三種狀態（換連線就重讀，別的連線讀到的清單不給）。沒讀完時照原樣列出存的條目、不判斷「不在清單」、不給改。
+- 存檔格式與「勾了沒」由 `lib/soul_tools.ts` 決定：內建與記憶工具存名稱，MCP 存 `伺服器/工具`（用 tools_stats 的 `server`、`tool` 欄位）；舊長名 `伺服器__工具` 照舊算勾了，取消勾選時兩種寫法一起拿掉。比對規則以後端 `utils/soul_tool_selection.py` 為準。
+- 清單裡找不到的條目（斷線伺服器的工具、使用者個人授權的工具、舊短名）存檔時保留，標「目前不在清單」，要拿掉得自己按；對不到任何工具的純名稱另外提示可以移除或重新勾選。勾了 `execute_command` 時，tools_stats 的 `tool_companions` 列的配套標「隨 execute_command 一起開」、不能單獨取消。外掛與名稱含斜線的 MCP 工具不在清單裡。不勾任何工具代表全部可用（唯讀頁也寫明，編輯時用警告色）。
 
 ## 對話換靈魂與家欄位（ADR-0276）
 
@@ -38,7 +83,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 
 ## 模型溝通層第 4a 段：生成中插話的前端（ADR-0249）
 
-- 按鍵（DB-20，`composerKeyAction`）：AI 工作中 Enter＝排隊、Ctrl／Cmd+Enter＝優先排隊（urgent：立即中斷正在寫的回答，見第 4b 段）、Esc＝停止；@ 選單開著時 Esc 由 `MentionInput` 先關選單。沒在生成時 Enter 照舊送出、Shift+Enter 換行。生成中送出鈕變成「排隊」，placeholder 提示三個按鍵。
+- 按鍵（DB-20，`composerKeyAction`）：AI 工作中 Enter＝排隊、Ctrl／Cmd+Enter＝優先排隊（urgent：立即中斷正在寫的回答，見第 4b 段）、Esc＝停止；@ 選單開著時 Esc 由 `MentionInput` 先關選單；訊息導覽列的預覽開著時，那一下 Esc 只收預覽（見「對話左側的訊息導覽列」）；兩者同時開著時先收預覽。沒在生成時 Enter 照舊送出、Shift+Enter 換行。生成中送出鈕變成「排隊」，placeholder 提示三個按鍵。
 - 資料層 `useInterjectionQueue`：經 `fetchTouka` 打 `POST`／`DELETE /v1/ui/sessions/{id}/interjections[/{iid}]?stream_id=…`，`stream_id` 取自 `touka_stream_started`。還沒拿到 `stream_id`、被拒（錯誤用 `errorMsg` 顯示）或連不上時，文字留在前端（`local`），不遺失。佇列在 `lib/chat/interjectionStore.ts`（每個對話一份，只在記憶體）。
 - `QueuedMessageList`：輸入框上方的灰色清單，標示「下一個工具步驟交給 AI」或「回合結束後送出」與「優先」；可收回，或修改（＝收回後把文字放回輸入框，再按 Enter 重新加入）。
 - SSE 契約（雙端常數：前端 `lib/chat/interjections.ts`、後端 `services/interjection_queue.py`）：
@@ -61,7 +106,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 - 預設模型不寫死：`ModelProvider` 的 `selectedModel` 初值是空字串，模型清單載入後若還沒選，選 `pickDefaultModel`（`src/lib/default_model.ts`：第一個啟用、沒隱藏、非代理、不離線的模型）；已選的不被蓋掉，找不到就維持空字串。`ChatProvider` 開新對話時目前選的是靈魂，就換成 `pickDefaultModel` 的結果並提示；找不到就不切換、不提示。SoulStudio 建立表單與 `ModelStudio` 的基礎引擎同樣在清單載入後選第一個一般模型。
 - 取樣參數 UI 移除：SoulStudio（唯讀、編輯與建立）、`ModelStudio` 的推理參數欄、設定頁 `ModelsTab` 的參數面板都拿掉了；`/create` 頁（沒有任何入口）整頁刪除。`temperature`／`top_p`／`top_k` 的 API 欄位與存放值保留，存檔照原值送回（ADR-0241 起本來就不送給廠商）。
 - ToukaIDE 行內補全：`touka.inlineCompletionModel` 預設留空，留空表示不啟用、不發任何請求；有設才用設定的模型送出。
-- 開發：`npm run test` 會先 `braces:verify`、再產生 artifact runtime（`gen:artifact-runtime`）才跑 Vitest；`guard:prune`（knip）帶 `--no-gitignore`，產生檔與建置產物由 `knip.config.ts` 的 `project` 排除。
+- 開發：`npm run test` 先產生 artifact runtime（`gen:artifact-runtime`）才跑 Vitest；`guard:prune`（knip）帶 `--no-gitignore`，產生檔與建置產物由 `knip.config.ts` 的 `project` 排除。
 
 ## 隔離第一批（iso-c1）：還原結果、模型下拉、設定搜尋（ADR-0254）
 
@@ -71,6 +116,7 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
   - 成功（伺服器重啟後回 `idle`）、查不到（重啟中連不上、未授權或其他非 2xx）：照舊重整頁面，不跳錯誤。
   - 對話框關掉或元件卸載時計時器清掉。
 - `ModelStudio` 的基礎引擎下拉和 `SoulStudio` 的主要模型下拉用同一個規則 `isSelectableBaseModel`（`src/lib/default_model.ts`）：不列 `is_agent`、`owned_by` 是 human 或 touka 的項目；預設仍是清單載入後第一個一般模型。`pickDefaultModel` 本身沒改（還沒排除 human／touka，列待排）。
+- `ModelStudio` 改名與刪除（ADR-0254 H12 補記，2026-10-25）：改名回任何非 2xx 都顯示錯誤並停下，不再對新 ID 存檔；改名成功就記下新 ID（`originalId`），接下來的存檔失敗時重試直接存到新 ID、不再送一次改名，表單上沒存的修改留著。改名可以用中文名字（後端 `new_id` 規則和建立時一致）。刪除送 `originalId`（後端記著的 ID），後端沒刪成就顯示錯誤、不從畫面拿掉，回 404（已經被刪掉了）照樣拿掉；還沒存過的新模型只在畫面上拿掉、不送請求。
 - 設定頁搜尋拿掉已不存在的「取樣參數（溫度／Top P／Top K）」條目，搜「溫度」「Top P」找不到；兩語翻譯 `settings.search.entries.model_params` 一起刪。
 - ToukaIDE 行內補全的請求不再帶 `temperature`（後端本來就不送取樣參數，ADR-0241）。
 - 已知限制：ToukaChat 與 ToukaIDE 選 anthropic 協定時自己寫死 `max_tokens: 4096`；後端的 Anthropic 形狀入口現在會把它帶給非 Claude 模型（ADR-0254 O20），所以這條路接非 Claude 模型時輸出上限是 4096（預設協定是 openai，不受影響；列待排）。
@@ -112,8 +158,8 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 ## 首次設定警告（ADR-0053，2026-10-23 補記）
 
 - 管理員密碼還是臨時的、初次設定還沒完成這兩個警告，畫在左側邊欄最上面（`SidebarSetupNotices`）。狀態、「稍後」與設定精靈都在 `app/layout.tsx` 的 `SetupNoticesProvider`（在 `AuthGuard` 裡，只呼叫一次 `useSetupStatus`）；這個提供者不能畫任何佔版面的元素，因為 body 是左右排列。
-- 有警告時桌面側欄收合鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
-- 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部導覽與登出仍點得到。
+- 有警告時，桌面版左側邊欄收起後主區左上角的展開鈕與手機選單鈕顯示紅點（`SetupNoticeDot`），按鈕名稱改成說明有設定警告（2026-10-28 起；以前在上導覽列的收合鈕）。手機版的 `LeftSidebar` 收到 `onSetupAction`，按警告按鈕會先關掉 Sheet，精靈才不會被擋住。
+- 左側邊欄內層整欄可上下捲動，對話紀錄區有最小高度，警告佔位置時底部選單仍點得到。
 - 精靈第 2 步改完密碼（後端撤銷所有舊卡，ADR-0144）後不前進：`SetupWizard` 改畫 `ReloginNotice`（隱藏上一步與 ×，焦點移到「前往登入」，按下呼叫 `useAuth().logout()`），並由提供者經 `useSetupResume.saveSetupResume` 記下接續點（localStorage `touka_setup_resume`：`{ userId, stepId, savedAt }`，`SETUP_RESUME_TTL_MS`＝1 小時；三欄型別、步驟名稱、時間不在未來都驗過才算有效，能解析但格式不對或過期的整筆刪；`me.id` 由第 2 步傳上來，畫面已卸載也照寫）。登出時 `AuthGuard` 先卸載整棵樹（含 Toaster），到 `/login` 重新掛上；登入後到首頁不重掛，所以 `useSetupResumeAfterLogin` 在管理員的 user.id 出現或改變時取一次（登入、帶有效 session 重新整理都算；別人的不取不刪），提供者等狀態讀到、`hasSetupIssues` 為真才打開精靈。登入頁用 `peekSetupResume`（只看不取）顯示說明。管理員密碼已不是臨時密碼時第 2 步有「保留目前密碼」；前進到第 7 步時呼叫 `onStatusRefresh` 重讀狀態（在 `next()` 裡觸發，不用 effect）。
 
 ## 訊息時間戳（ADR-0264）
@@ -140,13 +186,16 @@ text／no_text 不是 full；completed no_text 的富內容仍補存，error／c
 列表沒有 revision；首次 strict snapshot 必核對內容或綁定明確缺席，不能替舊樹配上最新 token。
 POST 送 confirmed revision；DELETE 送 If-Match，缺席仍等待明確 DELETE 200 才移除。
 `setSessions`／ref 共用 transition，外部 ingress 不視為保存證據；pending／failed／unknown／unconfirmed
-草稿在 state、refresh returned list 與 resume 都受到保護。省略保留，取消 project 綁定送 explicit null。
+草稿在 state、refresh returned list 與 resume 都受到保護；`set_home` 成功後只有家欄位跟著存檔改（`applySavedHome`）。
+省略保留，取消 project 綁定送 explicit null。
 
 scope 綁 proxy origin、實際 credential principal／epoch；明確登入／clear 退休舊操作，同 principal
 內部 refresh 可維持 epoch。wire、refresh、body await 後重驗並 best-effort abort；清除 registry、
 history、input、attachment、Debug payload 與 artifacts，舊 callback 不得回填。這不取代 server auth。
 
 user full 成功才送模型。只有同 generation typed terminal 能證生成結果；EOF／DONE不是保存成功。
+一般聊天（persistent）送的是這個對話完整的線性路徑（`StreamRegistryProvider` 的 `buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput)`：去掉待填的 assistant，這一句用 resolvedInput），後端據此在家對話本身不再插家對話；
+改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
 確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。
@@ -263,7 +312,26 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 *   **模式**: **Flattened PanelGroup**。
 *   **結構**: `[Left Panel] | [Center Panel] | [Right Panel]` 處於同一層級。
 *   **優點**: 調整左側寬度時不會影響右側寬度，徹底解決巢狀連動問題。
+*   **沒有上導覽列（2026-10-28）**: 分頁切換、設定與登出都收在左側邊欄底部的選單（`NavigationArea`，2026-11-05 起；手機同一個側欄）。按鈕顯示使用者名稱，不在聊天時標出目前畫面；沒有「聊天大廳」，回聊天靠點對話或新對話（點開著的這段只換畫面、不重新載入，和以前的聊天大廳一樣）；登出要按兩下，第一下不關選單；`modal={false}` 是防禦寫法：選項會同時關掉手機抽屜，強制對話模式可能把整頁的點擊留在關閉狀態（實際驗證沒有重現，由單元測試釘住）。主區最上面是 `components/layout/MainAreaControls.tsx` 的一條 `h-10` 細列（沒有框線、沒有標題），只放角落按鈕：
+    *   左側邊欄頂端（`SidebarIdentity` 那一列）有收合鈕，桌面版才傳 `onCollapse`；收起後主區左上角出現展開鈕。兩者都經 `page.tsx` 的 `setLeftSidebarOpen()`：以面板實際狀態為準呼叫 `expand()`／`collapse()`，面板已是目標狀態時只校正 `isSidebarCollapsed`。按這兩顆鈕收起或展開後焦點掉了，就交給另一顆鈕（`setLeftSidebarOpen()` 記下這次是按鈕要求的，兩邊在狀態改變後各問一次 `takeFocusRequest`；面板掛上時依版面記錄自己同步狀態的那一次不移焦點，載入時才不搶焦點）；展開時側欄的 visibility 有過場，剛開始那一刻瀏覽器仍當它看不見，所以每個畫面試一次、最多 30 個畫面，焦點已被移到別處就不搶。側欄拖到最窄、收合鈕和身分擺不下時，收合鈕換到下一行靠右，不蓋住模式文字與警告標記。左側邊欄底部的選單是唯一的分頁入口，目前分頁標 `aria-current="page"`。
+    *   右上角「工具面板」鈕切換右側邊欄（`aria-expanded`、`aria-controls="right-sidebar-panel"`）；開關仍只在 `useArtifacts().isOpen`，預設收起、不保存，新產出物與模擬模式照舊自動打開。
+    *   IDE 沒有左側邊欄：右上角只有設定鈕（`aria-pressed`），在設定頁再按一次回對話。手機版維持 `page.tsx` 裡自己的頂列，只放開側欄與工具面板兩顆鈕，設定從選單進（`isMobile` 分支不看 `isIDE()`，窄 IDE 面板也走這裡）。
+*   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
+    *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
+    *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。
+    *   「設為家」嚴格（`canSetHome`）：只給 `type === 'soul'`，正式 ID 規則和後端 `identify_agent` 相同（`canonicalSoulId`，只去掉大小寫完全相符的 `ToukaSoul`）；設家、取消家都送正式 ID。
+    *   收合狀態在 `useSessionTreeState`：`localStorage` 鍵名含使用者 ID，`SessionTree` 用身分當 React key 重掛（`useLocalStorage` 換鍵不重讀）；只有無痕對話的資料夾與專案分組只記在記憶體（ADR-0086）；「還有 N 個」不保存。
+    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
+*   **手機版判斷**: `hooks/useIsMobile.ts`（`(max-width: 768px)`），`page.tsx` 的版面切換與 ChatArea 的訊息導覽列共用。
+
+### 3. 對話左側的訊息導覽列（2026-10-29）
+*   **畫線規則**（`lib/chat/messageNavigation.ts`，純函式）：ChatArea 同一份 `linearMessages` 裡，`role === 'user'` 且 `name` 不是 `SYSTEM_SPEAKER` 的節點一則一條；index 就是 Virtuoso 的 data index。心跳補的「請繼續」以 `name=SYSTEM_SPEAKER` 寫入，不畫；心跳初始提示、SNS 外人訊息照畫。`SYSTEM_SPEAKER` 是雙端常數（後端 `utils/user_intent.py`，`test_system_speaker_contract.py` 核對）。
+*   **顯示條件**: 桌面網頁版、至少 `MIN_NAV_TICKS`（2）條線；手機版與 IDE 不顯示；`rangeChanged` 照樣交給 Virtuoso、只記範圍不重繪（防禦用：同一個 ChatArea 停用再啟用時標亮立刻正確；目前手機與桌面切換時 `page.tsx` 會重新掛載 ChatArea）。線數不是對話回合數（回合數見 `countRounds`）。
+*   **版面**: Virtuoso 包在 `relative flex-1 min-h-0` 的容器裡，導覽列（`components/chat/MessageNavigator.tsx`）以它定位在左側 `w-6` 留白、垂直置中，不壓到輸入區；「回到最底」按鈕在容器外。每條固定 `h-4`、排不下時等比例壓縮。線數上限依容器高度（`ResizeObserver`，每 8px 高度一條、工具列內距沒扣所以實際略小於 8px，最少 2 條、最多 120 條，`maxTicksFor`）；則數超過上限時平均分段，一條代表一段、點擊跳到段內第一則。容器高度在 `useLayoutEffect` 裡先同步量一次（`clientHeight`），再交給 `ResizeObserver`；`ResizeObserver` 的回呼用 `flushSync` 當場重繪，在同一次繪製前換成正確條數（量的那一刻下方輸入區可能還沒定下來，首次打開長對話時量到的高度會和最後不同），所以第一個畫面就是依高度的條數。量不到高度（0）時用 120 條；沒有 `ResizeObserver` 時只在掛上或啟用時量一次，之後不跟著變。
+*   **互動**: 滑鼠移上去浮出預覽（純文字、最多 3 行，不經 Markdown），移開或點擊後收起；點擊呼叫 `scrollToIndex({ index, align: 'start', behavior: 'smooth' })`。鍵盤用 roving tabindex：整排一個 Tab 停留點（記住的那條不在了就退回目前那條、再退回第一條），上下鍵、Home、End 換條並浮出預覽，Enter／Space 是原生 button。焦點那條因重新分段被移除時（拉動視窗高度、則數變多），焦點交給新分段裡涵蓋原位置的那條，找不到就交給 Tab 停留點，`focus({ preventScroll: true })` 不捲動（WCAG 2.4.3）：按鈕解除 ref 時若它是焦點就記下元素與位置（React 先解除 ref 再移出 DOM），每次畫完的 `useLayoutEffect` 在「那個元素已不在文件裡、焦點掉到 body（或沒有焦點元素）」時才交接，每次都清掉記錄；焦點在導覽列外、使用者已離開導覽列，或同一次重繪裡別的元素已拿到焦點（例如 `autoFocus`）時不搶。用鍵盤操作時（`:focus-visible`）交接後新的那條照常浮出預覽，拉動視窗時預覽跟著換到新的那條；用滑鼠點過後交接不浮出預覽。導覽列整個消失（線少於 2 條）、ChatArea 重新掛載、導覽列停用時不交接。
+*   **目前那則**（`hooks/useMessageNavigation.ts`）: 依 Virtuoso 的 `rangeChanged` 取範圍內最上面的使用者訊息，範圍內沒有就取之前最近的那則；分段時落在段內整段標亮（`aria-current`）。最新範圍放在 React state 外（`useSyncExternalStore`），範圍變了但算出來同一則就不重繪 ChatArea；停用時沒有目前那則。
+*   **無障礙**: 線用 `bg-muted-foreground`／`bg-primary`，不加透明度（WCAG 1.4.11）。每條按鈕高 16px（排不下時更小）、又緊挨著排，低於 2.5.8 的 24px，依「有等效操作」例外（直接捲動對話一樣能到）。預覽按 Esc 收起（不用移開滑鼠或焦點；在 window 的 capture 階段先攔，那一下 Esc 不傳到輸入框，生成中要停止就再按一次；下拉選單或 @ 選單同時開著時也是先收預覽、下一下才關選單；預覽那條因重新分段不見了就不攔，預覽也一併忘掉，分段變回原狀時不會自己再冒出來），滑鼠或焦點離開也收起（1.4.13 的可關閉、持續）；預覽不能把滑鼠移上去停留（1.4.13 的可停留沒做）：它只是那則訊息開頭最多三行的摘錄，完整內容點下去就看得到，同樣的文字也在按鈕的 `aria-label`。按鈕的 `aria-label` 帶第幾則與預覽，浮出的預覽 `aria-hidden`。
 
 ---
 
@@ -364,7 +432,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 1. **型別來源**：`src/types/api.ts` 是與後端通訊的唯一事實來源。
 2. **自動同步**：透過執行 `npm run sync-api` 獲取最新的後端 Schema。
 3. **API 守衛 (Parity Guard)**：透過 `guard_frontend.ts` 自動檢查所有 `fetchTouka` 調用，確保與後端端點強對齊（包含 `/v1` 前綴標準）。
-4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。
+4. **編譯時鎖定**：嚴禁手動定義與後端端點相關的 Interface。這確保了當後端模型變更時，前端會在編譯階段立即反映錯誤。`guard_frontend.ts` 也以 AST 檢查：名字和後端 schema 或 `lib/types.ts` 的合約別名相同、卻是手寫的宣告會紅，既有 10 個凍結在 `scripts/contract_type_baseline.json`，改名就抓不到（ADR-0298）。
 
 ---
 ### 3. 配置主權 (Env SSOT)
@@ -383,7 +451,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 - **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
 - **覆蓋範圍**：`src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`（`src/components/**` 已由 `guard_hooks.ts` 覆蓋）
 - **靜態執法**：由 `guard_localStorage.ts` 進行 AST 掃描，整合至 `guard_all.py`
-- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）、`connections.ts`（Auth Token 管理，非 React 函數環境）
+- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`
 - **合法豁免**：Theme SSOT 初始化（純字串/CSS 同步需求）、純字串值儲存（`useLocalStorage` 的 JSON 序列化不相容）允許 `// noqa: LOCALSTORAGE_SSOT`，須登記於 `NOQA_REGISTRY.md`
 
 ### 5.5 身份主權前端靜態守衛 (X-Agent-ID Identity Guard) ⭐

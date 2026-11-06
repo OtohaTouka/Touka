@@ -20,6 +20,7 @@ from memory_server.services.mission_manager import MissionManager
 from src.models.identity import AgentIdentity
 from src.services.autonomy import autonomy_service
 from src.services.completion import CompletionError, CompletionResult
+from src.services.resource_manager import resource_manager
 from src.services.review.budget import _reset_review_ledger
 from src.services.review.review_loop import (
     ReviewOutcome,
@@ -89,7 +90,7 @@ async def _make_reviewed_mission(identity: AgentIdentity, *, risk: str = "normal
 async def _run(
     manager: MissionManager,
     identity: AgentIdentity,
-    tmp_path,
+    drive,
     *,
     completer,
     critic_model: str | None = "critic-brain",
@@ -102,7 +103,7 @@ async def _run(
         task=task,
         goal=state.goal,
         producer_claims=claims,
-        artifact_root=tmp_path,
+        artifact_root=drive,
         parent_identity=identity,
         mission_id=state.mission_id,
         manager=manager,
@@ -112,8 +113,8 @@ async def _run(
     )
 
 
-def _with_artifact(manager, identity, tmp_path):
-    (tmp_path / "out.md").write_text("摘要", encoding="utf-8")
+def _with_artifact(manager, identity, drive):
+    resource_manager.zone_write_text(drive.child("out.md"), "摘要")
 
 
 async def _set_artifacts(manager, identity):
@@ -130,17 +131,17 @@ async def _set_artifacts(manager, identity):
 # --------------------------------------------------------------------------- #
 
 
-async def test_approve_with_isolated_critic_records_approved(tmp_path, monkeypatch):
+async def test_approve_with_isolated_critic_records_approved(zone_drive, monkeypatch):
     identity = AgentIdentity.for_role(agent_id="LoopApprove", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     brain_spy = MagicMock()
     monkeypatch.setattr("src.utils.brain_persistence.record_working_brain", brain_spy)
 
     completer, _calls = _completer_returning(_approve_json())
-    outcome = await _run(manager, identity, tmp_path, completer=completer)
+    outcome = await _run(manager, identity, zone_drive, completer=completer)
 
     assert outcome.review_status == "APPROVED"
     state = await manager.get_current_mission(identity)
@@ -154,30 +155,30 @@ async def test_approve_with_isolated_critic_records_approved(tmp_path, monkeypat
     await manager.update_task(identity=identity, task_id="t1", status=TaskStatus.DONE)
 
 
-async def test_same_brain_normal_risk_downgrades_low_confidence(tmp_path):
+async def test_same_brain_normal_risk_downgrades_low_confidence(zone_drive):
     identity = AgentIdentity.for_role(agent_id="LoopSameBrain", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     completer, _ = _completer_returning(_approve_json())
     outcome = await _run(
-        manager, identity, tmp_path,
+        manager, identity, zone_drive,
         completer=completer, critic_model="same-brain", producer_model="same-brain",
     )
     assert outcome.review_status == "APPROVED_LOW_CONFIDENCE"
 
 
-async def test_high_risk_same_brain_blocks_without_calling_critic(tmp_path):
+async def test_high_risk_same_brain_blocks_without_calling_critic(zone_drive):
     """高風險＋同模型＝隔離硬前提不滿足 → 不開審直接 BLOCKED（fail-closed＋省成本）。"""
     identity = AgentIdentity.for_role(agent_id="LoopHighRisk", role="Owner")
     manager = await _make_reviewed_mission(identity, risk="high")
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     completer, calls = _completer_returning(_approve_json())
     outcome = await _run(
-        manager, identity, tmp_path,
+        manager, identity, zone_drive,
         completer=completer, critic_model="same-brain", producer_model="same-brain",
     )
     assert outcome.review_status == "BLOCKED_FOR_HUMAN"
@@ -189,13 +190,13 @@ async def test_high_risk_same_brain_blocks_without_calling_critic(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-async def test_approve_verdict_cannot_override_failed_evidence(tmp_path):
+async def test_approve_verdict_cannot_override_failed_evidence(zone_drive):
     identity = AgentIdentity.for_role(agent_id="LoopEvidence", role="Owner")
     manager = await _make_reviewed_mission(identity)
     await _set_artifacts(manager, identity)  # 宣稱 out.md 但檔案不存在
 
     completer, _ = _completer_returning(_approve_json())
-    outcome = await _run(manager, identity, tmp_path, completer=completer)
+    outcome = await _run(manager, identity, zone_drive, completer=completer)
     assert outcome.review_status == "REVISING"  # 證據層否決意見層
 
     state = await manager.get_current_mission(identity)
@@ -207,44 +208,44 @@ async def test_approve_verdict_cannot_override_failed_evidence(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-async def test_soft_task_without_evidence_blocks_for_human(tmp_path):
+async def test_soft_task_without_evidence_blocks_for_human(zone_drive):
     identity = AgentIdentity.for_role(agent_id="LoopSoft", role="Owner")
     manager = await _make_reviewed_mission(identity)
     # 無 artifact、無 verification_cmd（初始未帶）＝無可執行證據
 
     completer, calls = _completer_returning(_approve_json())
-    outcome = await _run(manager, identity, tmp_path, completer=completer)
+    outcome = await _run(manager, identity, zone_drive, completer=completer)
     assert outcome.review_status == "BLOCKED_FOR_HUMAN"
     assert calls == []  # 軟任務不開審（human-ack 路徑）
 
 
-async def test_reject_goes_revising_then_stagnation_blocks(tmp_path):
+async def test_reject_goes_revising_then_stagnation_blocks(zone_drive):
     identity = AgentIdentity.for_role(agent_id="LoopStagnate", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     completer, _ = _completer_returning(_reject_json("缺結論"))
-    first = await _run(manager, identity, tmp_path, completer=completer)
+    first = await _run(manager, identity, zone_drive, completer=completer)
     assert first.review_status == "REVISING"
 
     # 第二輪同樣的 fixes 集合 → 停滯早停
-    second = await _run(manager, identity, tmp_path, completer=completer)
+    second = await _run(manager, identity, zone_drive, completer=completer)
     assert second.review_status == "BLOCKED_FOR_HUMAN"
     assert "停滯" in second.note or "stagnation" in second.note.lower()
 
 
-async def test_attempts_cap_blocks_and_locks(tmp_path):
+async def test_attempts_cap_blocks_and_locks(zone_drive):
     identity = AgentIdentity.for_role(agent_id="LoopCap", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     # 每輪不同 issue（避開停滯偵測），直到 CAP=3 觸頂
     outcomes = []
     for i in range(3):
         completer, _ = _completer_returning(_reject_json(f"問題{i}"))
-        outcomes.append(await _run(manager, identity, tmp_path, completer=completer))
+        outcomes.append(await _run(manager, identity, zone_drive, completer=completer))
 
     assert outcomes[0].review_status == "REVISING"
     assert outcomes[1].review_status == "REVISING"
@@ -255,19 +256,19 @@ async def test_attempts_cap_blocks_and_locks(tmp_path):
 
     # 永鎖後再審 → 直接 BLOCKED，不開審
     completer, calls = _completer_returning(_reject_json("再來"))
-    again = await _run(manager, identity, tmp_path, completer=completer)
+    again = await _run(manager, identity, zone_drive, completer=completer)
     assert again.review_status == "BLOCKED_FOR_HUMAN"
     assert calls == []
 
 
-async def test_no_completer_fail_closed_revising(tmp_path):
+async def test_no_completer_fail_closed_revising(zone_drive):
     """審查傳輸不可用＝fail-closed：按 REJECT 分流（不放行）。"""
     identity = AgentIdentity.for_role(agent_id="LoopNoLLM", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
-    outcome = await _run(manager, identity, tmp_path, completer=None)
+    outcome = await _run(manager, identity, zone_drive, completer=None)
     assert outcome.review_status in ("REVISING", "BLOCKED_FOR_HUMAN")
     assert outcome.review_status != "APPROVED"
 
@@ -401,16 +402,16 @@ async def test_unsuccessful_critic_completion_is_reject(monkeypatch, reason):
     assert report.reasoning == "fail-closed: completer error: CriticCallError"
 
 
-async def test_unsuccessful_critic_round_is_revising_not_approved(tmp_path, monkeypatch):
+async def test_unsuccessful_critic_round_is_revising_not_approved(zone_drive, monkeypatch):
     """整輪：critic 超預算＝按 REJECT 分流（REVISING），證據齊備也不放行。"""
     monkeypatch.setattr(_COMPLETE, _failed_with_approve_text("over_budget"))
     identity = AgentIdentity.for_role(agent_id="LoopCriticFail", role="Owner")
     manager = await _make_reviewed_mission(identity)
-    _with_artifact(manager, identity, tmp_path)
+    _with_artifact(manager, identity, zone_drive)
     await _set_artifacts(manager, identity)
 
     outcome = await _run(
-        manager, identity, tmp_path,
+        manager, identity, zone_drive,
         completer=build_critic_completer(identity, "critic-brain"),
     )
     assert outcome.review_status == "REVISING"

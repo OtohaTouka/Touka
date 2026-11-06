@@ -9,8 +9,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from memory_server.config_utils import get_resource_proxy
 from memory_server.services.personal_catalog import run_vault_action
 from memory_server.tools.core_file_ops import (
+    PathGuardError,
     core_delete,
     core_find,
     core_grep,
@@ -18,6 +20,7 @@ from memory_server.tools.core_file_ops import (
     core_read,
     core_str_replace,
     core_write,
+    drive_target,
 )
 from memory_server.tools.diag import (
     manage_duplicate_memories,
@@ -30,6 +33,7 @@ from memory_server.tools.recall import random_recall
 
 # 匯入底層實作
 from memory_server.tools.schemas import MEMORY_TOOLS_SCHEMA_LIST
+from memory_server.utils.memory_worker import run_memory_job
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -66,9 +70,9 @@ async def query_memory(identity: AgentIdentity, **kwargs: Any) -> str:
 
 
 async def forget_memory(identity: AgentIdentity, **kwargs: Any) -> str:
-    """封存記憶實作。"""
+    """封存記憶實作（在記憶工作者上做，ADR-0288）。"""
     manager = kwargs.pop("manager", get_manager())
-    return manager.resolve_duplicate(identity=identity, **kwargs)
+    return await run_memory_job(manager.resolve_duplicate, identity=identity, **kwargs)
 
 
 async def export_facts(identity: AgentIdentity, **kwargs: Any) -> str:
@@ -78,7 +82,9 @@ async def export_facts(identity: AgentIdentity, **kwargs: Any) -> str:
     僅能取得該 agent 自身的事實，不會跨 agent 洩漏。不寫入、不修改任何既有資料。
     """
     manager = kwargs.pop("manager", get_manager())
-    facts = manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    facts = await run_memory_job(
+        lambda: manager.get_factual_store().query_facts(identity=identity, include_archived=True)
+    )
     return json.dumps(
         {"agent_id": identity.agent_id, "count": len(facts), "facts": facts},
         ensure_ascii=False,
@@ -143,9 +149,15 @@ async def vault_tools(vault: str, action: str, **kwargs: Any) -> Any:
 
     kwargs.setdefault("resource_proxy", resource_proxy)
     kwargs.pop("exclude", None)  # 隱藏範圍只由系統決定（個人空間見 personal_catalog）
+    # 個人空間的根是 ZonePath（ADR-0293），交給目錄層；其他照舊是路徑字串
+    if vault == "personal" and root_bound is not None:
+        proxy = kwargs["resource_proxy"] = resource_proxy or get_resource_proxy()
+        try:
+            target = drive_target(str(kwargs["path"] or ""), root_bound, proxy)
+        except (PathGuardError, ValueError):  # 越界或名稱不合格：交給檔案動詞報錯
+            target = None
+        return await run_vault_action(VAULT_ACTIONS[action], action, root_bound, target, kwargs)
     root = str(root_bound) if root_bound else ""
-    if vault == "personal" and root:
-        return await run_vault_action(VAULT_ACTIONS[action], action, root, kwargs)
     return await VAULT_ACTIONS[action](root_bound=root, **kwargs)
 
 

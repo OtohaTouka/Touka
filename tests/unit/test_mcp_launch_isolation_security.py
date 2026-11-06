@@ -60,6 +60,7 @@ from tests.support.isolation import (
     PinnedMonitor,
     fake_kernel_layout,
     fixed_interpreter,
+    match_state_root,
     pinned_snapshot,
 )
 
@@ -80,6 +81,12 @@ EXECUTOR_READY = ExecutorReady(
     state_root="/x/executor_state", kernel_digest="k" * 64, server_digest="s" * 64,
     boot_id=BOOT, block_ports_digest="d" * 64, uid=1001,
 )  # fmt: skip
+
+
+@pytest.fixture(autouse=True)
+def _rm_state_matches_layout(tmp_path, monkeypatch):
+    """RM 的 ST 指向本檔版面的 ST（ADR-0293 P7：兩者不同時 ST 的存取函式拒絕）."""
+    match_state_root(monkeypatch, tmp_path / "touka" / "state")
 
 
 def _read_fd(fd: int) -> bytes:

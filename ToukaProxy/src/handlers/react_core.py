@@ -29,6 +29,8 @@ from src.models.session_persistence import UiGenerationStopped
 from src.services.autonomy import autonomy_service
 from src.services.context_breakdown import compute_context_breakdown
 from src.services.guard_service import guard_service
+from src.services.hooks.lifecycle import notify_stop_failure
+from src.services.hooks.stop_hooks import schedule_stop_hooks
 from src.services.interjection_queue import (
     interjection_queue,
     round_interrupted_by_user_event,
@@ -38,7 +40,6 @@ from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import stream_buffer_service
 from src.services.telemetry import (
     accumulate_token_usage,
-    calculate_emergence_index,
     is_long_prompt,
     log_usage_audit,
     run_cost_usd,
@@ -47,8 +48,10 @@ from src.services.tool_executor import ToolExecutor
 from src.utils.progress_events import react_slots_event, token_usage_event
 from src.utils.sse import sse_line
 from src.utils.time_utils import get_current_epoch
+from src.utils.tool_usage import ToolUsage
 
-from .adapters.base import ProviderAdapter, RoundError, Turn  # noqa: TC001
+from .adapters import retry
+from .adapters.base import ProviderAdapter, RoundError, StopReason, Turn  # noqa: TC001
 from .adapters.usage import PartialUsage
 from .interjections import InterjectionRound
 
@@ -62,6 +65,27 @@ RETRY_BACKOFF_S = 2.0  # 第 n 次重試前等 n×2 秒（沿用 Gemini 舊階�
 _FINISH_REASONS = {"max_tokens": "length", "safety": "content_filter", "refusal": "content_filter"}
 _SAFETY_NOTICE = "\n\n⚠️ 回應被廠商的安全過濾擋下。"
 _REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
+# SNS 頻道裡是外人：不帶廠商名稱、狀態碼與原文，想知道原因看 hook 或本機紀錄
+SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
+
+
+def _read_stop_reason(adapter: ProviderAdapter, state: Any, raw: Any) -> StopReason:
+    """停止原因；讀不出來當 ``error``。"""
+    try:
+        return adapter.stop_reason(state, raw)
+    except Exception:
+        logger.exception("Stop reason could not be read; finish_reason stays stop")
+        return "error"
+
+
+def _no_reply(adapter: ProviderAdapter, state: Any, raw: Any, turn: Turn) -> bool:
+    """回 200 但沒有回覆：沒有文字也沒有工具呼叫，停止原因又是 ``error``。
+
+    被安全過濾擋下、拒答、模型正常結束或被截斷卻沒有字，都不算。
+    """
+    if (turn.visible_text or "").strip() or turn.tool_calls:
+        return False
+    return _read_stop_reason(adapter, state, raw) == "error"
 
 
 async def _retry_sleep(seconds: float) -> None:
@@ -257,8 +281,7 @@ async def run_react_loop(  # noqa: PLR0915
         if restore_tool_choice is None and any(item.urgent for item in items):
             restore_tool_choice = adapter.hold_tool_choice(state, "none")
 
-    all_thinking_and_tool_logs = ""
-    actually_used_tools: set[str] = set()
+    actually_used_tools = ToolUsage()  # 試過／執行過／存成功由執行器記（T3）
     final_raw: Any = {}
     turn = Turn()
     wrapping_up = False  # ADR-0146：額度耗盡後的「最後一次無工具收尾呼叫」旗標
@@ -310,6 +333,25 @@ async def run_react_loop(  # noqa: PLR0915
         logger.warning("Unfinished or unreported round usage for %s (estimated=%s): %s",
                        usage_model, partial.estimated, partial.usage)
         return partial
+
+    async def fail_round(error: RoundError, *, booked: bool = False) -> AsyncGenerator[str]:
+        """這一輪失敗：通知、入帳（``booked`` 是已經記過）、收尾。
+
+        UI 由 producer 標失敗，其他路徑把訊息當回覆。
+        """
+        notify_stop_failure(context, error.error_type, error.user_message)
+        partial = None if booked else record_partial_usage()
+        if (partial is not None or (booked and run_usage.totals)
+                ) and adapter.emits_usage_event(state):
+            estimated = run_usage.estimated if partial is None else partial.estimated
+            yield sse_line(token_usage_event(run_usage.total_tokens, run_usage.cost_usd,
+                                             estimated=estimated))
+        for _line in interjection_finish():
+            yield _line
+        if context.get("ui_authorized") is True:
+            raise UiGenerationStopped("error")
+        yield yield_delta(SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message)
+        yield "data: [DONE]\n\n"
 
     try:
         while True:
@@ -381,25 +423,10 @@ async def run_react_loop(  # noqa: PLR0915
                 deliver(urgent_items, interrupted=True)  # 打斷的範本（不是工具執行期間）
                 continue
             if isinstance(raw, RoundError):
-                partial = record_partial_usage()
-                if partial is not None and adapter.emits_usage_event(state):
-                    yield sse_line(token_usage_event(run_usage.total_tokens, run_usage.cost_usd,
-                                                     estimated=partial.estimated))
-                for _line in interjection_finish():
+                async for _line in fail_round(raw):
                     yield _line
-                if context.get("ui_authorized") is True:
-                    raise UiGenerationStopped("error")
-                yield yield_delta(raw.user_message)
-                yield "data: [DONE]\n\n"
                 return
             upstream_gen_s += get_current_epoch() - t_send  # C4：本輪上游耗時入帳
-            # 插話：下一輪送出成功才算送達；urgent 的 tool_choice=none 只維持這一輪
-            if interjection_round is not None:
-                for _line in interjection_round.delivered():
-                    yield _line
-            if restore_tool_choice is not None:
-                restore_tool_choice()
-                restore_tool_choice = None
 
             turn = adapter.parse_round(state, raw)
             # 每輪 parse 後就入帳（ADR-0244）：下方成本閘看得到本次 run 正在花的錢。
@@ -410,6 +437,18 @@ async def run_react_loop(  # noqa: PLR0915
                 run_usage.add(round_usage, round_input)
             else:  # 串流完成卻沒回報用量：照裁定 6 估算，不靜默不入帳（裁定 5）
                 record_partial_usage()
+            if _no_reply(adapter, state, raw, turn):  # 用量照記，插話算沒送到
+                failure = retry.no_reply_error(provider, raw)
+                async for _line in fail_round(failure, booked=True):
+                    yield _line
+                return
+            # 插話：下一輪送出成功才算送達；urgent 的 tool_choice=none 只維持這一輪
+            if interjection_round is not None:
+                for _line in interjection_round.delivered():
+                    yield _line
+            if restore_tool_choice is not None:
+                restore_tool_choice()
+                restore_tool_choice = None
             if turn.empty:
                 final_raw = raw
                 break
@@ -503,7 +542,6 @@ async def run_react_loop(  # noqa: PLR0915
                     completed_count += 1
                     continue
                 if event["type"] == "log":
-                    all_thinking_and_tool_logs += event["content"]
                     yield yield_delta(event["content"])
                 else:
                     yield sse_line(event)
@@ -527,11 +565,7 @@ async def run_react_loop(  # noqa: PLR0915
         yield _line
 
     # 3b-U5a：截斷、拒答、安全過濾照實回報；拒答與安全過濾另給一則可讀提示。
-    try:
-        stop = adapter.stop_reason(state, final_raw)
-    except Exception:
-        logger.exception("Stop reason could not be read; finish_reason stays stop")
-        stop = "error"
+    stop = _read_stop_reason(adapter, state, final_raw)
     if stop == "refusal":
         detail = turn.refusal_text.strip()
         yield yield_delta(f"{_REFUSAL_NOTICE[:-1]}：{detail}" if detail else _REFUSAL_NOTICE)
@@ -543,7 +577,8 @@ async def run_react_loop(  # noqa: PLR0915
         response_text = adapter.extract_final_text(state, final_raw)
         # 已知工具集走 guard_service SSOT——涵蓋動態 MCP 工具（禁令 59(c)）。
         all_known_tools = await guard_service.collect_known_tool_names(
-            tool_registry, memory_tool_registry, plugin_registry, protocol_manager
+            tool_registry, memory_tool_registry, plugin_registry, protocol_manager,
+            extra_names=context.get("user_scoped_tool_names"),
         )
         hallucination_warnings = guard_service.detect_tool_hallucinations(
             response_text, actually_used_tools, all_known_tools
@@ -555,29 +590,21 @@ async def run_react_loop(  # noqa: PLR0915
         if guard_service.check_memory_hallucination(response_text, actually_used_tools):
             yield yield_delta(guard_service.get_memory_warning_message())
 
+    # ADR-0292：Stop hook 在背景執行，回覆不等它
+    schedule_stop_hooks(context, lambda: adapter.extract_final_text(state, final_raw))
+
     t3 = get_current_epoch()
-    gen_time = upstream_gen_s  # C4：Σ上游耗時（e_index 與 pure_gen_ms 同源）
-    last_msg = request.messages[-1].content if request.messages else ""
-    # 檢索訊號讀 tool_executor 限定名 SSOT（ADR-0155 C2）。
-    e_index = calculate_emergence_index(
-        5 if "memory_tools.query" in actually_used_tools else 0,
-        0.7,
-        gen_time,
-        str(last_msg),
-    )
+    gen_time = upstream_gen_s  # C4：Σ上游耗時
 
     latency_info = {
         "request_id": request_id,
         "total_ms": int((t3 - t0) * 1000),
         "local_ms": int((t1 - t0) * 1000),
         "pure_gen_ms": int(gen_time * 1000),
-        "e_index": e_index,
     }
 
     if run_usage.totals:
-        # 用量已逐輪入帳；E-Index 歷史整次 run 只記一筆（空用量＝不重複累計）。
-        accumulate_token_usage(identity, provider, {}, e_index, model=usage_model)
-        # 稽核 CSV 每次 run 一列、欄位不變；token 與 cost_usd 為整次 run 加總（含快取，A5）。
+        # 用量已逐輪入帳。稽核 CSV 每次 run 一列；token 與 cost_usd 為整次 run 加總（含快取，A5）。
         log_usage_audit(identity, request_id, provider, latency_info, run_usage.totals,
                         model=usage_model, cost_usd=run_usage.cost_usd)
         if adapter.emits_usage_event(state):

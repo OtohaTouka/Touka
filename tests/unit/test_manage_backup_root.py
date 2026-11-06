@@ -54,9 +54,12 @@ def test_returns_dir_that_directly_has_key(tmp_path):
     assert mod.find_project_root(tmp_path) == tmp_path.resolve()
 
 
-def test_collect_items_includes_legacy(tmp_path):
-    """collect_items 必須涵蓋 Sanctuary 的 legacy 子目錄（回歸保護）。"""
-    data = tmp_path / "data"
+def test_collect_items_includes_legacy(tmp_path, zone_data_root):
+    """collect_items 必須涵蓋 Sanctuary 的 legacy 子目錄（回歸保護）。
+
+    data 根取自 ``zone_data_root``（ADR-0293：腳本碰到區的 I/O 測試絆線看得到）。
+    """
+    data = zone_data_root
     (data / "legacy" / "Alice").mkdir(parents=True)
     (data / "legacy" / "Alice" / "old.json").write_text("{}", encoding="utf-8")
     (data / "vault").mkdir()
@@ -73,14 +76,14 @@ def test_collect_items_includes_legacy(tmp_path):
     assert "data/vault/core_memory.db" in arcs
 
 
-def test_collect_items_includes_root_level_dbs(tmp_path):
+def test_collect_items_includes_root_level_dbs(tmp_path, zone_data_root):
     """ADR-0104：data 根層的 ui_sessions.db / feedback.db 必須納入備份。
 
     這是「備份優先」名副其實的前提——DebugAgent 重置會刪 sessions/feedback，若備份漏了
-    它們，刪除即不可還原。回歸保護：未來別再讓根層 DB 漏出備份範圍。
+    它們，刪除即不可還原。回歸保護：未來別再讓根層 DB 漏出備份範圍。data 根取自
+    ``zone_data_root``。
     """
-    data = tmp_path / "data"
-    data.mkdir()
+    data = zone_data_root
     (data / "ui_sessions.db").write_text("x", encoding="utf-8")
     (data / "feedback.db").write_text("x", encoding="utf-8")
     (data / "notes.txt").write_text("x", encoding="utf-8")  # 非 .db：不應被納入

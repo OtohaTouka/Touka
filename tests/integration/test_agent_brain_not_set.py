@@ -53,10 +53,7 @@ def test_agent_without_brain_returns_conflict(auth_client, global_test_sandbox, 
     (soul_dir / "config.json").write_text('{"is_toukasoul": true}', encoding="utf-8")
 
     dispatch = AsyncMock()
-    with (
-        patch("memory_server.config_utils.get_app_data_dir", return_value=str(global_test_sandbox)),
-        patch("src.services.proxy_service.dispatch_request", dispatch),
-    ):
+    with patch("src.services.proxy_service.dispatch_request", dispatch):
         response = auth_client.post(
             path, json=_PAYLOADS[path], headers={"X-Touka-Soul-ID": AGENT_ID}
         )

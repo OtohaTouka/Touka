@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from memory_server.utils.zone_paths import Anchor, ZoneSegmentError
+
 from src.config import get_app_data_dir  # noqa: TID251
+from src.core.exceptions import ErrorCode, ToukaException
+from src.services import destructive_ops
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
 
@@ -94,18 +97,18 @@ def read_custom_file(identity: AgentIdentity, filename: str) -> str | None:
 
 
 def delete_custom_dir(identity: AgentIdentity) -> bool:
-    """刪除整個自定義模型資料夾。"""
-    target_dir = get_custom_dir(identity)
-    if not target_dir or not target_dir.exists():
-        return False
+    """刪除整個自定義模型資料夾（不跟隨連結，ADR-0293 R5）；沒有或刪不掉回 False。
 
+    只有這個 ID 有標記時能呼叫（R11 的刪除在 ``destructive_op`` 裡，建立失敗的回滾只標記），
+    其他入口直接丟例外。
+    """
+    if not destructive_ops.is_held(identity):
+        raise ToukaException(ErrorCode.SYSTEM_ERROR)
     try:
-        shutil.rmtree(target_dir)
+        return resource_manager.remove_custom_model_dir(identity)
     except Exception:
         logger.exception("Failed to delete custom dir for %s", identity.agent_id)
         return False
-    else:
-        return True
 
 
 def list_custom_ids() -> list[str]:
@@ -117,38 +120,22 @@ def list_custom_ids() -> list[str]:
 
 
 def move_custom_dir(old_id: str, new_id: str) -> bool:
-    """搬移自定義模型資料夾 (重命名)。"""
-    base = _get_base_dir()
-    old_dir = base / old_id
-    new_dir = base / new_id
+    """改名自定義模型資料夾：只改名、不複製，舊名是連結就不改（ADR-0293 R10）。
 
-    # 安全檢查：舊與新路徑都必須留在 custom 沙箱內（is_relative_to，擋 ../ 路徑穿越
-    # 逃逸——這是本檔唯一未走 _safe_target 的函式，故在此補上同一道看守）。
-    if not validate_no_symlink_escape(old_dir, base) or not validate_no_symlink_escape(
-        new_dir, base
-    ):
+    兩個名字都必須是單層名稱（擋 ``../`` 路徑穿越）；新名已被占用、舊名不在或出錯回 False。
+    只差大小寫（Windows 不分大小寫）照常改名。
+    """
+    try:
+        resource_manager.rename_agent_container(Anchor.CUSTOM_DRIVE, old_id, new_id)
+    except ZoneSegmentError:
         logger.warning(
             "🚫 Custom-model sandbox violation on move: %s -> %s", old_id, new_id
         )
         return False
-
-    if not old_dir.exists():
-        return False
-    # 只差大小寫時（Windows 不分大小寫）新舊名指向同一個資料夾：直接改名，不算撞名
-    case_only = new_dir.exists() and old_dir.samefile(new_dir)
-    if new_dir.exists() and not case_only:
-        return False
-
-    try:
-        if case_only:
-            old_dir.rename(new_dir)
-        else:
-            shutil.move(str(old_dir), str(new_dir))
     except Exception:
         logger.exception("Failed to move custom model %s to %s", old_id, new_id)
         return False
-    else:
-        return True
+    return True
 
 
 def custom_path_exists(model_id: str) -> bool:

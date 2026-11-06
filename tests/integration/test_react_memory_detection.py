@@ -4,13 +4,14 @@
 迴圈結束後依賴殘留的最後一輪 `tool_use_blocks` 推導 save/query，較早回合的記憶
 動作會偵測遺漏（誤發記憶幻覺警告／e_index 被算成 0）。
 
-漂移修復批 C2 之後：訊號 SSOT ＝ `tool_executor.record_tool_usage` 產生的限定名
+漂移修復批 C2 之後：訊號 SSOT ＝ `utils/tool_usage` 的記錄函式產生的限定名
 （`memory_tools.save`/`memory_tools.query`，記入 `actually_used_tools`、天然跨輪
 累積），三 handler 同源消費。本檔守的**跨輪語意不變**——mock 執行器改呼叫真的
 `record_tool_usage`，使測試持續追蹤生產訊號機制：
 
 - save 在較早回合 → 最終宣稱存檔不得誤發「記憶幻覺警告」。
-- query 在較早回合 → 湧現指標 e_index 必須 > 0。
+
+湧現指標已刪除（ADR-0291），原本「query 在較早回合 → e_index > 0」的案例一併刪除。
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from src.handlers.claude_handler import handle_claude_request
 from src.models.identity import AgentIdentity
 from src.services.autonomy import autonomy_service
 from src.services.rhythm_service import rhythm_service
-from src.services.tool_executor import record_tool_usage
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 
@@ -105,25 +106,6 @@ def _decode_texts(chunks: list[str]) -> str:
     return "".join(out)
 
 
-def _e_index_values(chunks: list[str]) -> list[float]:
-    """蒐集 telemetry 裡出現過的 e_index（湧現指標）。"""
-    vals = []
-    for c in chunks:
-        if not c.startswith("data: "):
-            continue
-        payload = c[len("data: "):].strip()
-        if not payload or payload == "[DONE]":
-            continue
-        try:
-            obj = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        tele = obj.get("telemetry")
-        if isinstance(tele, dict) and "e_index" in tele:
-            vals.append(tele["e_index"])
-    return vals
-
-
 async def _drive(request, context) -> list[str]:
     chunks: list[str] = []
     async for c in handle_claude_request(request, context):
@@ -133,15 +115,20 @@ async def _drive(request, context) -> list[str]:
     return chunks
 
 
-def _mock_executor(monkeypatch):
-    """Patch ToolExecutor，以真的 record_tool_usage（SSOT）登記 actually_used_tools。
+def _mock_executor(monkeypatch, *, succeed: bool = True):
+    """Patch ToolExecutor，以真的記錄函式（SSOT）登記試過、執行過、存成功。
 
     C2 後訊號＝限定名（memory_tools.save/query）；mock 呼叫生產同款函式，
     測試才持續追蹤真實訊號機制（而非複製一份會漂移的 add(name)）。
+    ``succeed=False`` 模擬被擋下：只算試過，沒有執行、沒有成功（T3）。
     """
 
     async def mock_execute(name, args, req_id, ctx, queue, **kwargs):
-        record_tool_usage(kwargs.get("actually_used_tools"), name, args)
+        used = kwargs.get("actually_used_tools")
+        record_tool_usage(used, name, args)
+        if succeed:
+            record_tool_executed(used, name, args)
+            record_tool_succeeded(used, name, args)
         await queue.put(None)
         return "OK"
 
@@ -202,46 +189,38 @@ async def test_save_in_earlier_round_no_false_memory_warning(monkeypatch, isolat
 
 
 @pytest.mark.asyncio
-async def test_query_in_earlier_round_keeps_emergence_index(monkeypatch, isolate_rhythm):
-    """第 1 輪 memory_tools query、最後一輪純文字 → 湧現指標 e_index 應 > 0。
-
-    舊碼從最後一輪空的 tool_use_blocks 推導 has_queried=False，使 e_index 被算成 0。
-    """
-    sid, rid = "sess-mem-query-1", "req-mem-query-1"
+async def test_blocked_save_still_warns(monkeypatch, isolate_rhythm):
+    """T3：save 被擋下（例如無痕）只算試過；模型照樣說「已經存檔」→ 要跳記憶幻覺警告。"""
+    sid, rid = "sess-mem-blocked-1", "req-mem-blocked-1"
     rhythm_service.clear_session(sid)
 
-    query_block = _block(
-        "tool_use", cid="c1", name="memory_tools", inp={"action": "query", "query": "x"}
+    save_block = _block(
+        "tool_use", cid="c1", name="memory_tools", inp={"action": "save", "content": "x"}
     )
     round1 = _response(
-        [_block("text", text="我先查一下記憶。"), query_block],
-        [
-            {"type": "text", "text": "我先查一下記憶。"},
-            {"type": "tool_use", "id": "c1", "name": "memory_tools", "input": {"action": "query"}},
-        ],
+        [save_block],
+        [{"type": "tool_use", "id": "c1", "name": "memory_tools", "input": {"action": "save"}}],
     )
     round2 = _response(
-        [_block("text", text="我查到了相關的記憶，任務結束。")],
-        [{"type": "text", "text": "我查到了相關的記憶，任務結束。"}],
+        [_block("text", text="好的，我已經存檔了，任務結束。")],
+        [{"type": "text", "text": "好的，我已經存檔了，任務結束。"}],
     )
 
     context = _ctx(sid, rid)
     client = MagicMock()
     client.messages.create = AsyncMock(side_effect=[round1, round2])
-    context["anthropic_client"] = delegate_stream_to_create(client)  # 3b-U1：走 stream()
+    context["anthropic_client"] = delegate_stream_to_create(client)
 
-    p = _mock_executor(monkeypatch)
+    p = _mock_executor(monkeypatch, succeed=False)
     try:
         chunks = await _drive(_request(), context)
     finally:
         p.stop()
         rhythm_service.clear_session(sid)
 
-    e_vals = _e_index_values(chunks)
-    assert e_vals, "未取得任何 telemetry e_index"
-    assert max(e_vals) > 0, (
-        "query 發生在較早回合，has_queried 偵測遺漏導致 e_index=0（跨輪偵測遺漏）"
-    )
+    texts = _decode_texts(chunks)
+    assert "已經存檔" in texts
+    assert "記憶幻覺警告" in texts, "存記憶被擋下卻說已存檔，沒有提醒"
 
 
 @pytest.mark.asyncio

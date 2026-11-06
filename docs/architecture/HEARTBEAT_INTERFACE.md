@@ -2,6 +2,10 @@
 
 > **TL;DR** — `POST /heartbeat/awaken` 需 `X-Heartbeat-Token` 或 service JWT（`sub=heartbeat, type=service`）；token 驗證唯一入口 `verify_heartbeat_token()` Depends（SOLID-SRP）；滑動視窗在 PostHeartbeat finally 區塊觸發，僅家對話，子對話跳過（ADR-0035）。
 
+## Hook（ADR-0292 決定 17）
+
+- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗時脈衝照舊算跑完、`end` 是 `completed`，要看 StopFailure）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
+
 ## 對話歸屬與獨立頻道（ADR-0276）
 
 - `/heartbeat/awaken`（含 `/v1`）與 `/v1/heartbeat/retrigger` 在讀歷史及寫入前核對執行靈魂與對話綁定；外靈魂、矛盾家、多家、退休 ID 或非法保留 ID 回 403 `SESSION_SCOPE_MISMATCH`（1221）。Debugger／admin 代打不豁免；retrigger 仍需人類存取權與既有能力閘。
@@ -31,6 +35,17 @@
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - ToukaHeartbeat 服務本身不變。
+
+## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
+
+- 刪除靈魂、重置、記憶清除期間，這個靈魂被標記（`services/destructive_ops.py`）；真的要動手時叫停（重置在預檢通過後、刪除在查心跳時），叫停讓這個靈魂的代數加一，沒做成的操作不動代數。
+- `/awaken` 在擁有者與能力檢查之後、找或建對話之前回 409 `AGENT_RESET_IN_PROGRESS`（1415）；寫初始提示之前再看一次代數，找或建對話期間開始的也擋。心跳端把 409 當成這次喚醒沒做，下一次排程照常。
+- `/retrigger` 讀完對話之後檢查，同樣回 409、不派發，「上次未完成」照留。
+- 兩個入口都把檢查時的代數交給背景迴圈；迴圈開跑時已標記、或之後被叫停過，就不開跑、什麼都不寫（不寫進行中標記、`heartbeat_started`）。登記成功之後才清上一次殘留的中斷旗標。
+- 每個脈衝前，標記還在或開跑之後被叫停過就停（結束原因 `interrupted`）；重置先做完也照樣停。中斷旗標被前景訊息清掉時，這個脈衝會跑完，下一個脈衝前才停。這時脈衝的一般錯誤訊息不寫進對話。
+- `finally` 遇到同樣情況就不寫 `heartbeat_finished`、不剪裁。進行中標記照舊在剪裁前清；背景活動與登記留到剪裁做完才拿掉（例外或被取消時也拿掉）。
+- 刪除時這個靈魂還有心跳在跑：叫它停下（同一個對話的中斷旗標），回 409 `SOUL_HEARTBEAT_RUNNING`（1419），什麼都不清；那次心跳留下的活動紀錄要先重置，建議先暫停這個靈魂的心跳排程。重置時也叫它停下，但照常重置（勾清除時在預檢通過之後才叫停）。
+- 心跳派出的子代理不在登記裡，刪除與重置看不到它（ADR-0287 已知限制）。
 
 ## 發布前來源契約：排程交易與憑證（ADR-0230）
 
@@ -229,12 +244,13 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 
 ## 🔁 UI 一鍵重新觸發 (Retrigger) — ADR-0078 ⭐
 
-當機/被誤關時，進行中的背景多脈衝迴圈會在 `autonomy_log.json` 留下 in-flight 標記（`AutonomyService.mark_heartbeat_in_flight`，`_process_heartbeat_loop` 起點落盤、`finally` 清除）。ToukaProxy 啟動時 `scan_and_clear_interrupted()` 掃描各 agent 殘留標記，折進 `GET /v1/stats` 的 `interrupted_runs`，前端顯示「⚠️ 上次有 N 個未完成的背景任務」並提供「重新觸發」按鈕。
+當機/被誤關時，進行中的背景多脈衝迴圈會在 `autonomy_log.json` 留下 in-flight 標記（`AutonomyService.mark_heartbeat_in_flight`，`_process_heartbeat_loop` 起點落盤、`finally` 清除）。ToukaProxy 啟動時 `scan_and_clear_interrupted()` 掃描各 agent 殘留標記，折進 `GET /v1/stats` 的 `interrupted_runs`，前端顯示「⚠️ 上次有 N 個未完成的背景任務」並提供「重新觸發」按鈕。`interrupted_runs` 與 `background_activity` 只列呼叫者能存取的靈魂（規則同 `can_access_session`），一般使用者看不到別人靈魂的紀錄（2026-10-28）。
 
 - **端點**: `POST /v1/heartbeat/retrigger`
 - **認證**：以**人類擁有者**身分驗證（`get_verified_identity` + `resource_manager.is_owner`），**非** service token——供登入使用者從 UI 直接重跑自己擁有的 agent。
 - **守衛**：擁有權守衛（`is_owner`）＋ 能力守衛（`can_awaken`，須具 `heartbeat_awakening`）＋ 會話須存在（404）。重跑一律以 Auto 執行，所以再過 session 寫入同一個模式授權：只有 admin 或人類擁有者（Debugger 旁路與代理身分都 403）；會話的 `agent_id` 必須是這個靈魂、呼叫者要能存取它，否則 403（R-2c，ADR-0246）。
 - **安全**：**強制 `Auto`**（UI 重新觸發永不升級 `YOLO`；無人在場不跑終端、不叫審查員）；`pulse_count` 夾在 `1..5`；仍受每日配額約束。
+- **刪除、重置、清除期間**：回 409 `AGENT_RESET_IN_PROGRESS`、不派發，「上次未完成」照留（ADR-0287）。
 - **語意**：不新建會話、不重寫 init prompt——對既有（中斷）會話派發延續脈衝，沿用既有歷史（`_execute_single_pulse` 於上一則為 assistant 時自動補 user nudge 續跑）。成功後自 `interrupted_runs` 移除（`clear_interrupted_run`），免下次輪詢復現。
 - **輸入**:
   ```json
@@ -251,6 +267,9 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 - **`agent_id`**: 指定要喚醒的代理人。
 - **`pulse_count`**: 該次喚醒允許執行的最大連鎖反應次數。
 - **`session_id`**: 指定對話發生的頻道（通常為 `home`）。
+
+**多脈衝之間的 nudge**：兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
+
 ## 📦 部署與執行規範 (Deployment) ⭐
 為了確保容器環境的穩定性，ToukaHeartbeat 遵循以下規則：
 1. **絕對匯入**：嚴禁使用相對匯入（如 `from .config import ...`）。

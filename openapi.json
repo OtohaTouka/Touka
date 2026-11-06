@@ -592,7 +592,7 @@
           "souls"
         ],
         "summary": "Delete Soul",
-        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。",
+        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。\n\n舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、\n清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。",
         "operationId": "delete_soul_v1_souls__soul_id__delete",
         "security": [
           {
@@ -796,7 +796,7 @@
           "souls"
         ],
         "summary": "Delete Soul",
-        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。",
+        "description": "刪除靈魂及其全部 SSOT 面（ADR-0142 D2/D4/D5）：admin 步升＋冪等清除。\n\n清除範圍：三實體目錄（soul／legacy／personal_drive）＋models.json／agents_registry／\nbrain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、\n零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與\n記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。\n\n舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、\n清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。",
         "operationId": "delete_soul_souls__soul_id__delete",
         "security": [
           {
@@ -867,35 +867,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Touka Stats V1 Stats Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/v1/stats/emergence": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "Get Emergence Index",
-        "description": "讀取 usage_audit.csv 並回傳最新的湧現指標",
-        "operationId": "get_emergence_index_v1_stats_emergence_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Emergence Index V1 Stats Emergence Get"
                 }
               }
             }
@@ -1025,35 +996,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Touka Stats Stats Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/stats/emergence": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "Get Emergence Index",
-        "description": "讀取 usage_audit.csv 並回傳最新的湧現指標",
-        "operationId": "get_emergence_index_stats_emergence_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Emergence Index Stats Emergence Get"
                 }
               }
             }
@@ -9208,6 +9150,258 @@
         ]
       }
     },
+    "/v1/hooks": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Get Hooks Config",
+        "description": "目前生效的 hook 設定、設定檔狀態與可用的事件。",
+        "operationId": "get_hooks_config_v1_hooks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksConfigResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Save Hooks Config",
+        "description": "存整份設定；``author``／``updated_at`` 由伺服器填。",
+        "operationId": "save_hooks_config_v1_hooks_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HooksSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksSaveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/hooks/active": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Hooks Active",
+        "description": "有沒有啟用中的 hook 會收到對話內容。",
+        "operationId": "hooks_active_v1_hooks_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksActiveResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/hooks/runs": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "List Hook Runs",
+        "description": "最近的執行紀錄，新的在前。",
+        "operationId": "list_hook_runs_v1_hooks_runs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookRunsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/hooks": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Get Hooks Config",
+        "description": "目前生效的 hook 設定、設定檔狀態與可用的事件。",
+        "operationId": "get_hooks_config_hooks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksConfigResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Save Hooks Config",
+        "description": "存整份設定；``author``／``updated_at`` 由伺服器填。",
+        "operationId": "save_hooks_config_hooks_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HooksSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksSaveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/hooks/active": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "Hooks Active",
+        "description": "有沒有啟用中的 hook 會收到對話內容。",
+        "operationId": "hooks_active_hooks_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HooksActiveResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/hooks/runs": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "summary": "List Hook Runs",
+        "description": "最近的執行紀錄，新的在前。",
+        "operationId": "list_hook_runs_hooks_runs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookRunsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/auth/register": {
       "post": {
         "tags": [
@@ -10395,6 +10589,33 @@
         }
       }
     },
+    "/v1/admin/agents/reset/last": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Last Agent Reset",
+        "description": "最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.\n\n只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。",
+        "operationId": "last_agent_reset_v1_admin_agents_reset_last_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastResetStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/admin/users": {
       "get": {
         "tags": [
@@ -10682,6 +10903,33 @@
             }
           }
         }
+      }
+    },
+    "/admin/agents/reset/last": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Last Agent Reset",
+        "description": "最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.\n\n只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。",
+        "operationId": "last_agent_reset_admin_agents_reset_last_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastResetStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/v1/heartbeat/schedules": {
@@ -17556,6 +17804,63 @@
         "title": "ClearMyDataRequest",
         "description": "ADR-0107: self-service personal-data clear payload (password re-entry)."
       },
+      "CommandHook": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "設定頁顯示的名稱"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "timeout": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Timeout",
+            "description": "秒",
+            "default": 30
+          },
+          "type": {
+            "type": "string",
+            "const": "command",
+            "title": "Type"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Command"
+          },
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Args"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "command"
+        ],
+        "title": "CommandHook",
+        "description": "執行一個程式：``command`` 是絕對路徑，``args`` 原樣交給作業系統，事件內容從標準輸入給。"
+      },
       "ConnectionItem": {
         "properties": {
           "id": {
@@ -17661,7 +17966,7 @@
         "properties": {
           "new_id": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9._-]+$",
+            "pattern": "^[\\w.-]+$",
             "title": "New Id",
             "description": "新的模型 ID"
           }
@@ -18315,6 +18620,591 @@
         "title": "HeartbeatSchedule",
         "description": "Known schedule fields are typed; compatible extension fields round-trip."
       },
+      "HookHealthOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "missing",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HookHealthOut",
+        "description": "設定檔狀態：``revision`` 是目前檔案內容的 sha256，存檔時原樣送回（沒有檔案時 null）。"
+      },
+      "HookMatcherGroup": {
+        "properties": {
+          "matcher": {
+            "type": "string",
+            "maxLength": 1024,
+            "title": "Matcher",
+            "default": ""
+          },
+          "hooks": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CommandHook"
+                },
+                {
+                  "$ref": "#/components/schemas/HttpHook"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "command": "#/components/schemas/CommandHook",
+                  "http": "#/components/schemas/HttpHook"
+                }
+              }
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Hooks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hooks"
+        ],
+        "title": "HookMatcherGroup",
+        "description": "一組比對規則與它的 handler；比對規則見 ``services/hooks/matcher``。"
+      },
+      "HookRunOut": {
+        "properties": {
+          "at": {
+            "type": "number",
+            "title": "At"
+          },
+          "event": {
+            "type": "string",
+            "title": "Event"
+          },
+          "hook": {
+            "type": "string",
+            "title": "Hook"
+          },
+          "hook_type": {
+            "type": "string",
+            "title": "Hook Type"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "blocked",
+              "ask",
+              "context",
+              "none",
+              "failed",
+              "skipped"
+            ],
+            "title": "Outcome"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "incognito": {
+            "type": "boolean",
+            "title": "Incognito",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "event",
+          "hook",
+          "hook_type",
+          "status",
+          "outcome",
+          "duration_ms"
+        ],
+        "title": "HookRunOut",
+        "description": "一筆執行紀錄；無痕對話只有時間、事件與結果。"
+      },
+      "HookRunsResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/HookRunOut"
+            },
+            "type": "array",
+            "title": "Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs"
+        ],
+        "title": "HookRunsResponse",
+        "description": "最近的執行紀錄，新的在前（只在記憶體，重啟後清空）。"
+      },
+      "HooksActiveResponse": {
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active"
+        ],
+        "title": "HooksActiveResponse",
+        "description": "有沒有會收到對話內容的 hook（給無痕對話的提示；只有這個布林值，不透露設定）。"
+      },
+      "HooksConfig-Input": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "策略版本 (e.g. 1.0.0)"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author",
+            "description": "策略建立者"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "建立時間 (UNIX Epoch)"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "更新時間 (UNIX Epoch)"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "策略描述"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "hooks": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/HookMatcherGroup"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "enum": [
+                "UserPromptSubmit",
+                "PreToolUse",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
+              ]
+            },
+            "type": "object",
+            "title": "Hooks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HooksConfig",
+        "description": "整份 hook 設定；預設關閉，打開後依事件執行。"
+      },
+      "HooksConfig-Output": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "策略版本 (e.g. 1.0.0)"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author",
+            "description": "策略建立者"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "建立時間 (UNIX Epoch)"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "更新時間 (UNIX Epoch)"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "策略描述"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "hooks": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/HookMatcherGroup"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "enum": [
+                "UserPromptSubmit",
+                "PreToolUse",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
+              ]
+            },
+            "type": "object",
+            "title": "Hooks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HooksConfig",
+        "description": "整份 hook 設定；預設關閉，打開後依事件執行。"
+      },
+      "HooksConfigResponse": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/HooksConfig-Output"
+          },
+          "health": {
+            "$ref": "#/components/schemas/HookHealthOut"
+          },
+          "wired_events": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "UserPromptSubmit",
+                "PreToolUse",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
+              ]
+            },
+            "type": "array",
+            "title": "Wired Events"
+          },
+          "matcher_events": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "UserPromptSubmit",
+                "PreToolUse",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PermissionRequest",
+                "PermissionDenied",
+                "Notification",
+                "Stop",
+                "StopFailure",
+                "SubagentStart",
+                "SubagentStop",
+                "PreCompact",
+                "PostCompact",
+                "TaskCreated",
+                "TaskCompleted",
+                "Elicitation",
+                "ConfigChange",
+                "HeartbeatStart",
+                "HeartbeatStop"
+              ]
+            },
+            "type": "array",
+            "title": "Matcher Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config",
+          "health",
+          "wired_events",
+          "matcher_events"
+        ],
+        "title": "HooksConfigResponse",
+        "description": "目前生效的設定（設定檔壞掉時是上一份好的）與設定檔狀態。"
+      },
+      "HooksSaveRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/HooksConfig-Input"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "config",
+          "revision"
+        ],
+        "title": "HooksSaveRequest",
+        "description": "整份設定與載入時的 ``health.revision``；revision 必填（沒有檔案時明確送 null）。"
+      },
+      "HooksSaveResponse": {
+        "properties": {
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "HooksSaveResponse",
+        "description": "存檔後的新 revision。"
+      },
+      "HttpHook": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "設定頁顯示的名稱"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "timeout": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Timeout",
+            "description": "秒",
+            "default": 30
+          },
+          "type": {
+            "type": "string",
+            "const": "http",
+            "title": "Type"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "url"
+        ],
+        "title": "HttpHook",
+        "description": "POST 事件內容到 ``url``；不跟隨轉址，標頭照字面送出。"
+      },
       "IdentityMapConfig": {
         "properties": {
           "version": {
@@ -18949,6 +19839,88 @@
         ],
         "title": "IsolationStatusResponse",
         "description": "``GET /isolation``：monitor 的判定結果，只有層級與原因代碼（給側欄橫幅用）。\n\n``local_issue``：讓降級只能「未隔離」的本機原因；``block_ports_issue``：封鎖埠擋不全；\n``repairs``：自癒沒有在跑（不是 Linux）或 snapshot 還沒接上時是 null。"
+      },
+      "LastResetStatus": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "done",
+              "failed",
+              "interrupted"
+            ],
+            "title": "State",
+            "description": "idle＝本次啟動後沒有重置紀錄；running＝進行中（請求斷線後清除還在跑也算）；done＝已結束，附報告；failed＝沒有完成，附錯誤碼；interrupted＝請求中途取消，可能只清了一部分"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "重置的靈魂"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "開始時間（UNIX 秒）"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "結束時間（UNIX 秒）"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "失敗時的錯誤碼（errors.json 的鍵）"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentResetResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "done 時的重置報告"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "LastResetStatus",
+        "description": "最後一次重置的結果，只存在行程記憶體（舊審查報告丙-5，ADR-0289）.\n\n伺服器重啟後回 ``idle``。失敗只記錯誤碼，不放路徑或例外原文（禁令 23）。"
       },
       "LegacyExportRequest": {
         "properties": {
@@ -21212,7 +22184,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {
@@ -22798,7 +23771,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {
@@ -22877,7 +23851,8 @@
                   "cancelled",
                   "internal_error",
                   "empty_file",
-                  "out_of_scope"
+                  "out_of_scope",
+                  "os_metadata_file"
                 ]
               },
               {

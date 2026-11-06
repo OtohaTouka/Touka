@@ -51,7 +51,7 @@ async def _ok_tool(**_kwargs: Any) -> str:
 @pytest.mark.asyncio
 async def test_tool_start_wire_fields_unchanged():
     """回歸：tool_start 的 wire 欄位＝凍結四鍵，一位不差。"""
-    executor = ToolExecutor(None, {"mytool": _ok_tool}, {}, {})
+    executor = ToolExecutor(None, {"mytool": _ok_tool}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         events = await _run(executor, "mytool", {"x": 1})
@@ -66,7 +66,7 @@ async def test_tool_start_wire_fields_unchanged():
 @pytest.mark.asyncio
 async def test_success_result_carries_duration_ms():
     """實際執行成功 → tool_result additive 帶 duration_ms（float、≥0），且 status=success。"""
-    executor = ToolExecutor(None, {"mytool": _ok_tool}, {}, {})
+    executor = ToolExecutor(None, {"mytool": _ok_tool}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         events = await _run(executor, "mytool", {"x": 1})
@@ -82,7 +82,7 @@ async def test_success_result_carries_duration_ms():
 @pytest.mark.asyncio
 async def test_deny_result_carries_error_class_no_duration():
     """DENY（未執行）→ tool_result 帶 error_class，但**不帶** duration_ms。"""
-    executor = ToolExecutor(None, {}, {}, {})
+    executor = ToolExecutor(None, {}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="DENY", reason="blocked by policy")
         events = await _run(executor, "bash", {"command": "ls"})
@@ -99,7 +99,7 @@ async def test_executed_tool_error_carries_error_class_and_duration():
     async def _fail(**_kwargs: Any) -> str:
         return tool_errors.build_tool_error(tool_errors.UPSTREAM_ERROR, "backend 500")
 
-    executor = ToolExecutor(None, {"fake": _fail}, {}, {})
+    executor = ToolExecutor(None, {"fake": _fail}, {}, {}, enforce_advertised=False)
     with patch("src.services.tool_executor.permission_service") as perm:
         perm.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
         events = await _run(executor, "fake", {"q": 1})

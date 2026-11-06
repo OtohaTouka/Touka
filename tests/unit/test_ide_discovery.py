@@ -15,15 +15,21 @@ from src.protocols.ide.discovery import discover_ide_servers
 
 @pytest.fixture
 def ide_temp_dir(tmp_path: Path) -> Path:
-    """在 tmp_path 下建立 gemini/ide 目錄結構，隔離實際 %TEMP%。"""
+    """在 tmp_path 下建立 gemini/ide 目錄結構，隔離實際 %TEMP%。
+
+    POSIX 上只讀自己的、別人不能寫的資料夾與檔案（ADR-0294），權限明確設好，不受 umask 影響。
+    """
     ide_dir = tmp_path / "gemini" / "ide"
     ide_dir.mkdir(parents=True)
+    ide_dir.parent.chmod(0o700)
+    ide_dir.chmod(0o700)
     return ide_dir
 
 
 def _write_discovery_file(ide_dir: Path, filename: str, data: dict) -> Path:
     f = ide_dir / filename
     f.write_text(json.dumps(data), encoding="utf-8")
+    f.chmod(0o600)
     return f
 
 

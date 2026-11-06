@@ -29,10 +29,15 @@ GIT = shutil.which("git")
 MUST_BE_IGNORED = (
     "ToukaProxy/config/INITIAL_ADMIN_PASSWORD.txt",
     "ToukaProxy/config/mcp_servers/example_server/server.py",
+    # The administrator's own hook programs and scripts (ADR-0292).
+    "ToukaProxy/config/hooks/guard.py",
     # Skills and evals an agent creates at runtime; only the ones the repo ships stay tracked.
     "ToukaProxy/config/skills/agent-made-skill/SKILL.md",
     "ToukaProxy/config/evals/mcp/agent_made_server.eval.md",
     "ToukaProxy/config/evals/skill/agent_made_skill.eval.md",
+    # Generated at startup from the local MCP config and installed skills (ADR-0290).
+    "ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md",
+    "ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md",
 )
 COMPOSES = ("docker-compose.yml", "docker-compose.ghcr.yml", "ToukaProxy/docker-compose.yml")
 _WORKSPACE_DEFAULT = re.compile(r"\$\{WORKSPACE_ROOT:-([^}]*)\}")

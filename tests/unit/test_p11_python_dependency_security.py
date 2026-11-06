@@ -16,7 +16,9 @@ SECURITY_FLOORS = (
     ("aiohttp", "3.14.3"),
     ("cryptography", "50.0.0"),
     ("h2", "4.4.1"),
-    ("setuptools", "83.0.0"),
+    ("setuptools", "84.1.0"),
+    ("certifi", "2026.10.19"),
+    ("filelock", "4.2.1"),
     ("mkdocs-material", "9.7.7"),
     ("pip", "26.2"),
     ("pymdown-extensions", "11.0.1"),
@@ -24,6 +26,8 @@ SECURITY_FLOORS = (
     ("pyjwt", "2.15.1"),
     ("urllib3", "2.8.0"),
     ("opentelemetry-api", "1.45.1"),
+    ("dnspython", "2.9.0"),
+    ("msgpack", "1.2.3"),
 )
 
 

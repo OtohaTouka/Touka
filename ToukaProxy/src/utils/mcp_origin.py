@@ -6,6 +6,8 @@
 
 啟發式對所有條目都套用、只會更嚴：任一參數或環境路徑引用到代理人影響得到的位置，
 就當自建，不論 origin、用途或路徑是否已存在。解析結果不改寫啟動參數。
+
+跟隨連結算出的結果只用來多判自建、多凍結、多拒絕；給程式資料夾只看字面位置（ADR-0293 決定 16）。
 """
 
 from __future__ import annotations
@@ -19,6 +21,15 @@ from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from urllib.parse import unquote, urlsplit
 
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    Anchor,
+    ZoneRoots,
+    anchor_at,
+    contains_zone,
+    zone_of,
+)
+
 from src.services.isolation.project_scan import layout_anchors
 from src.utils.isolation_policy import (
     MCP_ORIGINS,
@@ -30,7 +41,7 @@ from src.utils.mcp_sentinels import APPDATA_SENTINEL, OUTPUT_DIR_SENTINEL, resol
 from src.utils.touka_dirs import upward_verdict
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from src.services.isolation.profiles import SandboxLayout
     from src.utils.isolation_policy import McpClass, McpOrigin
@@ -109,7 +120,7 @@ UNREADABLE_RECORD = OriginRecord("unreadable")
 class McpClassification:
     """分類結果；``reason`` 是判定依據的代碼（只有代碼，沒有路徑）。
 
-    ``managed_skills``：條目引用到的 ``managed/<skill>``（演化部署的程式資料夾，唯讀＋執行）；
+    ``managed_skills``：條目字面引用的 ``managed/<skill>``（演化部署的程式資料夾，唯讀＋執行）；
     ``scaffold_dir``：scaffold 自己的 ``config/mcp_servers/<name>``（只有 scaffold 有）。
     """
 
@@ -166,9 +177,15 @@ def personal_drive_root(layout: SandboxLayout) -> Path:
     return _resolve(layout.data_root) / "personal_drive"
 
 
-def managed_root(layout: SandboxLayout) -> Path:
-    """演化部署的程式資料夾的上層（``managed/<skill>``）。"""
-    return _resolve(layout.data_root) / "mcp_servers" / "managed"
+def managed_root(layout: SandboxLayout, data_root: Path | None = None) -> Path:
+    """演化部署的程式資料夾的上層（``managed/<skill>``）；``data_root`` 預設解析後的 data 根。"""
+    return (data_root or _resolve(layout.data_root)) / "mcp_servers" / "managed"
+
+
+def data_root_spellings(layout: SandboxLayout) -> tuple[Path, ...]:
+    """字面比對要認的 data 根：解析後與設定裡的寫法（ADR-0293 決定 17）；授與一律用解析後的錨點."""
+    configured = layout.data_root if layout.data_root_literal is None else layout.data_root_literal
+    return tuple(dict.fromkeys((_resolve(layout.data_root), Path(os.path.normpath(configured)))))
 
 
 def resolve_reference_sentinel(value: str, layout: SandboxLayout) -> str:
@@ -199,7 +216,7 @@ def _item_paths(item: str, base_dir: Path, *, code: bool = False) -> Iterator[Pa
         path = Path(piece)
         if path.is_absolute():
             yield path
-        elif (any(sep in piece for sep in _SEPARATORS) or (base_dir / path).exists()
+        elif (any(sep in piece for sep in _SEPARATORS) or os.path.lexists(base_dir / path)
               or (code and path.suffix)):
             yield base_dir / path
 
@@ -247,6 +264,7 @@ def referenced_paths(
     ``base_dir`` 是要檢查的 cwd；授權不以副檔名推測普通名稱，使用 ``infer_suffix=False``。
     """
     refs: list[PathReference] = []
+    data_roots = data_root_spellings(layout)
     if entry.command:
         command = resolve_reference_sentinel(entry.command, layout)
         refs += [PathReference(p, code_dir=True, program=True, freeze_ancestor=True)
@@ -257,7 +275,7 @@ def referenced_paths(
         # Scoped package 規格不是相對檔名；其他啟動器的同形字串仍按路徑檢查。
         if Path(entry.command or "").stem.casefold() in _PACKAGE_RUNNERS and re.fullmatch(
             r"@[^/\\\s]+/[^/\\\s]+", argument
-        ) and not (base_dir / argument).exists():
+        ) and not os.path.lexists(base_dir / argument):
             continue
         token = resolve_reference_sentinel(argument, layout)
         if "=" in token:
@@ -267,9 +285,10 @@ def referenced_paths(
             index > 0 and entry.args[index - 1].startswith("-") and entry.args[index - 1] != "--"
         )
         # 未知包裝器也可能把任何位置參數當程式；不依啟動器名稱放寬。
-        # 只有普通 data 根資料參數不代表載入全部技能；command／env／選項仍從嚴凍結。
+        # 只有字面就是 data 根的資料參數不代表載入全部技能；
+        # 經連結指過去的、command／env／選項仍從嚴凍結。
         for path in _token_paths(token, base_dir, code=infer_suffix):
-            plain_data_root = not option_value and _resolve(layout.data_root) in _candidates(path)
+            plain_data_root = not option_value and Path(os.path.normpath(path)) in data_roots
             refs.append(PathReference(
                 path, code_dir=True, program=True, freeze_ancestor=not plain_data_root,
             ))
@@ -307,12 +326,25 @@ def is_file_reference(path: Path) -> bool:
     return not stat.S_ISDIR(info.st_mode) or lexical.is_junction()
 
 
-def _custom_drive_hit(path: Path, custom: Path, *, code_dir: bool) -> bool:
-    """``custom/*/drive``：在某個 drive 底下；載入程式碼的位置另算 ``custom/<x>`` 本身。"""
-    if not path.is_relative_to(custom) or path == custom:
-        return code_dir and _under(custom, path)
-    parts = path.relative_to(custom).parts
-    return (len(parts) >= 2 and parts[1] == "drive") or (code_dir and len(parts) == 1)
+def _zone_roots(layout: SandboxLayout) -> ZoneRoots:
+    """版面的區根；大小寫比較同 ``_comparison_path``（macOS 不分大小寫）."""
+    state = layout.state_root
+    return ZoneRoots(
+        _comparison_path(_resolve(layout.data_root)),
+        None if state is None else _comparison_path(_resolve(state)),
+    )
+
+
+def _in_agent_zone(path: Path, zones: ZoneRoots, *, code_dir: bool) -> bool:
+    """在某個區裡，或就是某個錨點（``custom`` 本身除外）；形狀經 ``zone_of``（ADR-0293 R3）.
+
+    ``code_dir`` 另算錨點的上層與 ``custom/<x>``（``contains_zone``）。
+    """
+    if zone_of(path, zones, anchors=ALL_ANCHORS) is not None:
+        return True
+    if code_dir:
+        return contains_zone(path, zones, anchors=ALL_ANCHORS)
+    return anchor_at(path, zones, anchors=ALL_ANCHORS) not in (None, Anchor.CUSTOM_DRIVE)
 
 
 def _mirror_hit(path: Path, layout: SandboxLayout, *, code_dir: bool) -> bool:
@@ -327,7 +359,10 @@ def _mirror_hit(path: Path, layout: SandboxLayout, *, code_dir: bool) -> bool:
             continue  # 鏡像根本身不會授權給代理人，直接放在那裡的檔案代理人寫不到
         if not folder.is_dir():
             return True
-        if upward_verdict(folder.resolve(), layout_anchors(layout)) is None:
+        real = folder.resolve()
+        if _comparison_path(real) != folder:
+            return True  # 路上有連結：解析後的判斷不能拿來放行（ADR-0293 決定 16）
+        if upward_verdict(real, layout_anchors(layout)) is None:
             return True
     return False
 
@@ -337,18 +372,10 @@ def agent_influenced(path: Path, layout: SandboxLayout, *, code_dir: bool) -> bo
 
     ``code_dir``（載入程式碼的位置）另算這些根的上層（namespace package 也能 import 進去）。
     """
-    roots = [personal_drive_root(layout), managed_root(layout), docgen_output_root(layout)]
-    roots += [_resolve(layout.state_root)] if layout.state_root else []
-    roots = [_comparison_path(root) for root in roots]
-    custom = _comparison_path(_resolve(layout.data_root) / "custom")
+    zones = _zone_roots(layout)
     for candidate in _candidates(path):
         candidate = _comparison_path(candidate)
-        for root in roots:
-            if _under(candidate, root) or (
-                code_dir and _under(root, candidate)
-            ):
-                return True
-        if _custom_drive_hit(candidate, custom, code_dir=code_dir):
+        if _in_agent_zone(candidate, zones, code_dir=code_dir):
             return True
         if _mirror_hit(candidate, layout, code_dir=code_dir):
             return True
@@ -367,15 +394,26 @@ def heuristic_hit(refs: Sequence[PathReference], layout: SandboxLayout) -> bool:
     return False
 
 
-def referenced_managed_skills(refs: Sequence[PathReference], layout: SandboxLayout) -> set[str]:
-    """引用到的 ``managed/<skill>``（字面或 resolve 後）；看路徑不看條目名稱。"""
-    root = managed_root(layout)
-    skills: set[str] = set()
-    for ref in refs:
-        for candidate in _candidates(ref.path):
-            if candidate != root and candidate.is_relative_to(root):
-                skills.add(candidate.relative_to(root).parts[0])
-    return skills
+def _skills_under(paths: Iterable[Path], roots: Sequence[Path]) -> set[str]:
+    return {
+        path.relative_to(root).parts[0]
+        for path in paths
+        for root in roots
+        if path != root and path.is_relative_to(root)
+    }
+
+
+def frozen_managed_skills(refs: Sequence[PathReference], layout: SandboxLayout) -> set[str]:
+    """凍結用：引用到的 ``managed/<skill>``（字面或 resolve 後，只會多凍結）；看路徑不看條目名稱."""
+    candidates = (candidate for ref in refs for candidate in _candidates(ref.path))
+    return _skills_under(candidates, (managed_root(layout),))
+
+
+def literal_managed_skills(refs: Sequence[PathReference], layout: SandboxLayout) -> set[str]:
+    """授與用：字面落在 ``managed/<skill>`` 的技能；解析後才在那裡的不算（ADR-0293 決定 16）."""
+    literals = [Path(os.path.normpath(ref.path)) for ref in refs]
+    roots = [managed_root(layout, spelling) for spelling in data_root_spellings(layout)]
+    return _skills_under(literals, roots)
 
 
 def scaffold_dir_for(
@@ -468,7 +506,7 @@ def deployed_skills(
             for ref in refs for candidate in _candidates(ref.path)
         ):
             return ALL_SKILLS_DEPLOYED
-        skills |= referenced_managed_skills(refs, layout)
+        skills |= frozen_managed_skills(refs, layout)
     return DeployedSkills(frozenset(skills))
 
 
@@ -496,7 +534,7 @@ def classify(
             record.state == "absent" or origin == MCP_SCAFFOLD_ORIGIN
         ),
     )
-    skills = frozenset(referenced_managed_skills(refs, layout))
+    skills = frozenset(literal_managed_skills(refs, layout))
     if _expandable_reference(entry):
         return McpClassification("self", origin, "expandable_reference", skills)
     if heuristic_hit(refs, layout):

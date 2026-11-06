@@ -137,7 +137,7 @@ async def test_true_react_failure_reaches_ui_terminal_without_partial_save(
     adapter.resolve_provider_label = Mock(return_value="test")
 
     async def send(_state):
-        yield RoundError("synthetic-private-upstream-error") if failure == "round_error" else {}
+        yield RoundError("synthetic-private upstream error") if failure == "round_error" else {}
 
     adapter.send_round.side_effect = send
 
@@ -179,7 +179,7 @@ async def test_true_react_failure_reaches_ui_terminal_without_partial_save(
         assert not any(event.get("type") == "touka_stream_terminal" for event in events)
         assert "data: [DONE]\n\n" in chunks
         assert (
-            "synthetic-private-upstream-error" if failure == "round_error" else "已由使用者中斷"
+            "synthetic-private upstream error" if failure == "round_error" else "已由使用者中斷"
         ) in "".join(chunks)
     save.assert_not_awaited()
     trim.assert_not_awaited()

@@ -27,7 +27,7 @@ from src.models.identity import AgentIdentity
 from src.models.session_persistence import UiGenerationStopped
 from src.services.interjection_queue import InMemoryInterjectionQueue
 
-from tests.helpers.stream_transport import FakeUpstream, status_reply, stream_reply
+from tests.helpers.stream_transport import FakeUpstream, json_reply, status_reply, stream_reply
 
 
 def openai_text(text: str) -> dict:
@@ -143,6 +143,19 @@ async def test_next_round_failing_every_retry_turns_it_undelivered(monkeypatch):
     assert _events(chunks, "interjection_undelivered") == [
         {"type": "interjection_undelivered", "interjection_ids": ids}]
     assert [i.status for i in queue.list_items(_SID, _STREAM)] == ["undelivered"]
+
+
+async def test_next_round_with_no_reply_turns_it_undelivered(monkeypatch):
+    """模型回 200 卻沒有回覆：沒有人讀到這則插話，要退回給前端。"""
+    queue = InMemoryInterjectionQueue()
+    ids, hook = _enqueue_at(queue, 1, "改成 e")
+    replies = [json_reply(_TOOL), json_reply({"choices": []})]
+    FakeUpstream(replies, on_request=hook).install(monkeypatch)
+    chunks, stopped = await _run(queue, _ctx("r-ij-no-reply", custom_connection=True))
+    assert stopped == "error"
+    assert _events(chunks, "interjection_delivered") == []
+    assert _events(chunks, "interjection_undelivered") == [
+        {"type": "interjection_undelivered", "interjection_ids": ids}]
 
 
 @pytest.mark.parametrize("ending", ["text", "budget", "wrap-up-tools"])

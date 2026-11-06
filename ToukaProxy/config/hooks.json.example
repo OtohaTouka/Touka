@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "hooks": {},
+  "version": "1.0.0",
+  "author": "system",
+  "description": "Hook 設定（ADR-0292）。只有管理員能在設定頁的「Hooks」修改；預設關閉。格式照 Claude Code 的 hooks 區塊，指令寫成程式加參數清單、不經 shell，腳本放在設定資料夾的 hooks/。"
+}

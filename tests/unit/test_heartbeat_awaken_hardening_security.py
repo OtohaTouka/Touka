@@ -12,13 +12,21 @@ The ownership + `heartbeat_awakening` capability gates already existed, but:
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock
 
+import pytest
+from src.models.identity import AgentIdentity
 from src.models.user import User
 from src.routers.heartbeat import _resolve_auth_level, identity_service, permission_service
+from src.services import destructive_ops
 from src.services.auth_service import AuthService
 
 _HEARTBEAT_SERVICE_VALUE = "test_heartbeat_token_for_ci"
+
+
+def _who(name: str) -> AgentIdentity:
+    return AgentIdentity(agent_id=name)
 
 
 class TestSecurityLevelMapping:
@@ -88,6 +96,68 @@ def test_awaken_orphan_denied_until_attributed(auth_client, monkeypatch):
     assert r2.json()["detail"]["code"] == "HEARTBEAT_UNAUTHORIZED_AGENT"
 
 
+_NOW = 2_000_000_000
+
+
+@pytest.mark.parametrize(
+    ("expired_ago", "code"),
+    [(29, "HEARTBEAT_UNAUTHORIZED_AGENT"), (30, "HEARTBEAT_ORPHAN_AGENT")],
+)
+def test_awaken_owner_token_grace_ends_at_30_seconds(
+    auth_client, monkeypatch, expired_ago, code
+):
+    """P26（舊審查報告丙-6 改成行為測試）：擁有者的 refresh token 過期後 29 秒仍放行
+    （停在下一道能力閘），滿 30 秒就拒絕。"""
+    monkeypatch.setattr("src.routers.heartbeat.HEARTBEAT_TOKEN", _HEARTBEAT_SERVICE_VALUE)
+    monkeypatch.setattr("src.routers.heartbeat.get_current_epoch", lambda: float(_NOW))
+    owner = User(
+        id="owner_id",
+        email="owner@test.com",
+        hashed_password="...",
+        owned_agents=["GraceSoulX"],
+        refresh_token_exp=_NOW - expired_ago,
+    )
+    monkeypatch.setattr(AuthService, "get_all_users", lambda self: [owner])
+    monkeypatch.setattr(permission_service, "can_awaken", lambda x: False)
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "GraceSoulX", "pulse_count": 1},
+    )
+
+    assert resp.json()["detail"]["code"] == code
+
+
+def test_awaken_logs_checks_passed_at_debug_level(
+    auth_client, mock_identity, monkeypatch, caplog
+):
+    """P29（舊審查報告丙-6 改成行為測試）：「Heartbeat checks passed」只記在 DEBUG，
+    這次喚醒也沒有 INFO 以上、開頭寫著 DEBUG: 的紀錄。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.append_message_to_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session",
+        AsyncMock(return_value="sess-x"),
+    )
+    caplog.set_level(logging.DEBUG, logger="src.routers.heartbeat")
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 202, resp.text
+    passed = [r for r in caplog.records if r.getMessage().startswith("Heartbeat checks passed")]
+    assert [r.levelno for r in passed] == [logging.DEBUG]
+    assert not [
+        r for r in caplog.records
+        if r.levelno >= logging.INFO and r.getMessage().startswith("DEBUG:")
+    ]
+
+
 def test_awaken_sanitizes_init_prompt(auth_client, mock_identity, monkeypatch):
     """#2: a caller-supplied init_prompt must pass the H3 content guard (truncation)
     before it is injected into the agent's session."""
@@ -122,3 +192,81 @@ def test_awaken_sanitizes_init_prompt(auth_client, mock_identity, monkeypatch):
     assert "content" in captured
     # the 9000-char prompt must have been truncated to <= 8000 (+ a short time prefix)
     assert len(captured["content"]) <= 8100
+
+
+def test_awaken_is_refused_while_the_soul_is_reset_or_deleted(
+    auth_client, mock_identity, monkeypatch
+):
+    """舊審查報告丙-4：重置、清除或刪除這個靈魂期間 /awaken 回 409，也不寫初始提示。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    append = AsyncMock(return_value=True)
+    opened = AsyncMock(return_value="sess-x")
+    monkeypatch.setattr("src.routers.heartbeat.session_service.append_message_to_session", append)
+    monkeypatch.setattr("src.routers.heartbeat.session_service.open_channel_session", opened)
+
+    destructive_ops.hold(_who("DebugAgent"))
+    try:
+        resp = auth_client.post(
+            "/v1/heartbeat/awaken",
+            json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+        )
+    finally:
+        destructive_ops.release(_who("DebugAgent"))
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    opened.assert_not_called()  # 連對話都不建
+    append.assert_not_called()
+
+
+def test_awaken_is_refused_when_a_reset_starts_while_the_session_is_opened(
+    auth_client, mock_identity, monkeypatch
+):
+    """找或建對話時有 await；這段期間開始（甚至做完）的重置，初始提示也不寫。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    append = AsyncMock(return_value=True)
+
+    async def open_during_a_reset(*_args: object, **_kwargs: object) -> str:
+        destructive_ops.hold(_who("DebugAgent"))
+        destructive_ops.stop_heartbeats(_who("DebugAgent"))
+        destructive_ops.release(_who("DebugAgent"))
+        return "sess-x"
+
+    monkeypatch.setattr("src.routers.heartbeat.session_service.append_message_to_session", append)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session", open_during_a_reset
+    )
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "AGENT_RESET_IN_PROGRESS"
+    append.assert_not_called()
+
+
+def test_awaken_hands_the_entry_generation_to_the_loop(auth_client, mock_identity, monkeypatch):
+    """入口檢查時的代數交給背景迴圈：202 之後、開跑之前做完的重置也擋得住。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    loop = AsyncMock(return_value=None)
+    monkeypatch.setattr("src.routers.heartbeat._process_heartbeat_loop", loop)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.append_message_to_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session",
+        AsyncMock(return_value="sess-x"),
+    )
+
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent", "pulse_count": 1},
+    )
+
+    assert resp.status_code == 202, resp.text
+    since = loop.await_args.kwargs["not_disturbed_since"]
+    assert since is not None
+    assert since == destructive_ops.generation(_who("DebugAgent"))

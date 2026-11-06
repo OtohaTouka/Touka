@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -108,18 +109,15 @@ class _FakeProtocolManager:
 
 
 @pytest.fixture
-def _evolution_harness(monkeypatch, tmp_path):
+def _evolution_harness(monkeypatch, zone_data_root):
     """沙盒中保留實際部署路徑與設定，熱掛載只記錄、不啟動程序。"""
-    layout = replace(evolution_command.current_layout(), data_root=tmp_path / "owned")
+    layout = replace(evolution_command.current_layout(), data_root=zone_data_root)
     monkeypatch.setattr(evolution_command, "current_layout", lambda: layout)
-    monkeypatch.setattr(
-        EvolutionPathGuard, "MANAGED_BASE_DIR", layout.data_root / "mcp_servers" / "managed"
-    )
     for name, content in {
         "spec.json": '{"name": "Acme"}', "server.py": "pass", "requirements.txt": ""
     }.items():
         EvolutionPathGuard.write_tool_file("acme-tool", name, content)
-    root = EvolutionPathGuard.get_tool_root("acme-tool")
+    root = Path(EvolutionPathGuard.get_tool_root("acme-tool"))
     _seed_config({"acme-tool": {
         "command": "python", "args": [str(root / "server.py")], **_POLICY
     }})

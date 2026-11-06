@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 from memory_server import factual as fm
 from src.models.identity import AgentIdentity
-from src.services.memory_scrub import swap
+from src.services.memory_scrub import os_metadata, swap
 from src.services.memory_scrub import upgrade_backups as ub
 from src.services.resource_manager import resource_manager
 
@@ -431,3 +431,90 @@ def test_u18_no_space_for_an_upgrade_backup(
     (item,) = ub.scrub_upgrade_backups(IDENT, backup_dir)
     assert (item.status, item.reason) == ("failed", "no_space")
     assert sha256(path) == digest
+
+
+# --- 丙-3b：作業系統自己放的雜檔（ADR-0270 補記 2026-10-28）---------------------
+
+OS_FILES = ("Thumbs.db", "desktop.ini", ".DS_Store")
+HARMLESS = b"\xd0\xcf\x11\xe0 thumbnail cache"  # 縮圖快取的 OLE 檔頭，不是 SQLite
+
+
+def test_u19_os_metadata_files_are_left_as_they_are(backup_dir: Path) -> None:
+    path = _backup(backup_dir, 1_700_000_000)
+    for name in OS_FILES:
+        (backup_dir / name).write_bytes(HARMLESS)
+    items = _by_name(ub.scrub_upgrade_backups(IDENT, backup_dir))
+    assert items[path.name].status == "scrubbed"
+    for name in OS_FILES:
+        item = items[name]
+        assert (item.kind, item.status, item.reason, item.count) == (
+            "info",
+            "info",
+            "os_metadata_file",
+            None,
+        )
+        assert (backup_dir / name).read_bytes() == HARMLESS
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("Thumbs.db", b"SQLite format 3\x00" + bytes(84)),  # 名字像雜檔，內容是資料庫格式
+        ("THUMBS.DB", b"cache " + TARGET.encode() + b" cache"),  # 含這個靈魂的 ID
+        ("desktop.ini", b"[x]" + TARGET.encode("utf-16-le")),  # UTF-16LE 的 ID
+        (".DS_Store", b"Bud1" + TARGET.encode("utf-16-be")),  # UTF-16BE 的 ID
+        ("thumb\u017f.db", HARMLESS),  # 非 ASCII：不分大小寫比對後才像
+        ("des\u212atop.ini", HARMLESS),  # 克耳文符號轉小寫後就是 ASCII 的 k
+        ("Thumbs.db.old", HARMLESS),
+    ],
+)
+def test_u20_lookalikes_still_fail_closed(backup_dir: Path, name: str, content: bytes) -> None:
+    (backup_dir / name).write_bytes(content)
+    (item,) = ub.scrub_upgrade_backups(IDENT, backup_dir)
+    assert (item.kind, item.status, item.reason) == ("upgrade_backup", "failed", "unknown_file")
+    assert (backup_dir / name).read_bytes() == content
+
+
+def test_u21_os_metadata_name_that_is_not_a_small_file_fails_closed(
+    backup_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (backup_dir / "Thumbs.db").mkdir()
+    (backup_dir / "desktop.ini").write_bytes(HARMLESS)
+    monkeypatch.setattr(os_metadata, "MAX_OS_FILE_BYTES", len(HARMLESS) - 1)
+    read = []
+    real_read = resource_manager.read_file_binary
+    monkeypatch.setattr(
+        resource_manager,
+        "read_file_binary",
+        lambda p, *a, **k: read.append(p.name) or real_read(p, *a, **k),
+    )
+    items = _by_name(ub.scrub_upgrade_backups(IDENT, backup_dir))
+    assert read == []  # 先看大小，太大的不讀進記憶體
+    assert (items["Thumbs.db"].status, items["Thumbs.db"].reason) == ("failed", "unknown_file")
+    assert (items["desktop.ini"].status, items["desktop.ini"].reason) == ("failed", "unknown_file")
+    assert (backup_dir / "desktop.ini").read_bytes() == HARMLESS
+
+
+def test_u22_content_check_on_its_own() -> None:
+    limit = os_metadata.MAX_OS_FILE_BYTES
+    assert os_metadata.is_os_metadata_content(b"x" * limit, IDENT) is True
+    assert os_metadata.is_os_metadata_content(b"x" * (limit + 1), IDENT) is False  # 讀的時候變大
+
+
+def test_u23_os_metadata_read_error_fails_only_that_file(
+    backup_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _backup(backup_dir, 1_700_000_000)
+    (backup_dir / "Thumbs.db").write_bytes(HARMLESS)
+    real_read = resource_manager.read_file_binary
+
+    def flaky(p: Path, *a: object, **k: object) -> bytes:
+        if p.name == "Thumbs.db":
+            raise PermissionError(13, "locked")
+        return real_read(p, *a, **k)
+
+    monkeypatch.setattr(resource_manager, "read_file_binary", flaky)
+    items = _by_name(ub.scrub_upgrade_backups(IDENT, backup_dir))
+    assert (items["Thumbs.db"].kind, items["Thumbs.db"].status) == ("upgrade_backup", "failed")
+    assert items["Thumbs.db"].reason == "unreadable"
+    assert items[path.name].status == "scrubbed"  # 一檔出錯不擋其他檔

@@ -28,6 +28,9 @@ from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.utils import custom_io, soul_io
 
+from tests.support.zone_records import expect_zone_refusal
+from tests.support.zone_roots import point_zone_roots
+
 OWNER = AgentIdentity.for_role(agent_id="ownerAgent", role="Owner", is_human=False, owned_agents=[])
 ADMIN = AgentIdentity.for_role(agent_id="AdminUser", role="admin", is_human=True)
 
@@ -102,7 +105,7 @@ class TestContextSnapshotIDOR:
             "src.services.context_snapshot_service.render_snapshot_markdown",
             lambda snap: "MARKDOWN",
         )
-        monkeypatch.setattr(resource_manager, "get_base_path", lambda: str(tmp_path))
+        point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
         monkeypatch.setattr(resource_manager, "write_file_text", lambda *a, **k: None)
         r = owner_client.get("/debug/context-snapshot/export?agent_id=ownerAgent")
         assert r.status_code == 200
@@ -223,30 +226,32 @@ class TestCustomIoMoveSandbox:
     paths must now stay inside the custom base (is_relative_to)."""
 
     @pytest.fixture
-    def base(self, tmp_path, monkeypatch):
+    def base(self, zone_data_root):
         # Nested so a "../../escape" target still lands inside tmp_path for assertions.
-        b = tmp_path / "app" / "custom"
-        b.mkdir(parents=True)
+        b = zone_data_root / "custom"
+        b.mkdir()
         old = b / "modelX"
         old.mkdir()
         (old / "config.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("src.utils.custom_io._get_base_dir", lambda: b)
         return b
 
     def test_move_blocks_traversal(self, base, tmp_path):
-        assert custom_io.move_custom_dir("modelX", "../../escape") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "../../escape") is False
         # Source untouched; nothing materialised outside the sandbox.
         assert (base / "modelX" / "config.json").exists()
         assert not (tmp_path / "escape").exists()
 
     def test_move_blocks_dotdot_single_level(self, base, tmp_path):
         # ".." passes the new_id char-pattern but must be caught by the path guard.
-        assert custom_io.move_custom_dir("modelX", "..") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("modelX", "..") is False
         assert (base / "modelX").exists()
 
     def test_move_blocks_traversal_old_id(self, base):
         # An escaping OLD id is rejected too (defense on both sides).
-        assert custom_io.move_custom_dir("../../etc", "modelY") is False
+        with expect_zone_refusal("ZoneSegmentError"):
+            assert custom_io.move_custom_dir("../../etc", "modelY") is False
         assert not (base / "modelY").exists()
 
     def test_legitimate_rename_works(self, base):
@@ -261,12 +266,18 @@ class TestCustomModelRenameRequestValidation:
 
     @pytest.mark.parametrize(
         "bad_id",
-        ["../../../../some/target/path", "../escape", "a/b", "a\\b", "", "foo/../bar"],
+        [
+            "../../../../some/target/path", "../escape", "a/b", "a\\b", "", "foo/../bar",
+            "a b", "中文/路徑",
+        ],
     )
     def test_traversal_new_id_rejected(self, bad_id):
         with pytest.raises(ValidationError):
             CustomModelRenameRequest(new_id=bad_id)
 
-    @pytest.mark.parametrize("good_id", ["modelY", "my_model-2.0", "Model_42", "a.b-c"])
+    # 建立時可以用中文 ID，改名收同樣的名字（舊審查報告丙-2）
+    @pytest.mark.parametrize(
+        "good_id", ["modelY", "my_model-2.0", "Model_42", "a.b-c", "新模型", "助手_2"]
+    )
     def test_legitimate_new_id_accepted(self, good_id):
         assert CustomModelRenameRequest(new_id=good_id).new_id == good_id

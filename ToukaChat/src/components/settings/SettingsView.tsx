@@ -37,6 +37,7 @@ import { useSkillSettings } from "@/hooks/settings/useSkillSettings";
 import { useMcpSettings } from "@/hooks/settings/useMcpSettings";
 import { useUserSettings } from "@/hooks/settings/useUserSettings";
 import { SlidingWindowTab } from "@/components/settings/tabs/SlidingWindowTab";
+import { HooksTab } from "@/components/settings/tabs/HooksTab";
 import { ProviderKeysTab } from "@/components/settings/tabs/ProviderKeysTab";
 import { SnsBotsTab } from "@/components/settings/tabs/SnsBotsTab";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -513,6 +514,11 @@ export function SettingsView() {
                     mcpServers={mcpServers}
                     skills={skills}
                   />
+                </TabsContent>
+
+                {/* --- Hooks Tab（ADR-0292）--- */}
+                <TabsContent value="hooks" className="mt-0 outline-none">
+                  <HooksTab />
                 </TabsContent>
 
                 {/* --- Sliding Window Tab --- */}

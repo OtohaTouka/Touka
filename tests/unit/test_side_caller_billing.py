@@ -108,7 +108,7 @@ async def test_summarizer_bills_its_identity(wire, budget, ledger):
     wire.reply = "• 約定下週交付"
     assert (await _summarize() or "").endswith("\n• 約定下週交付")  # 第一行是時間範圍
     assert budget.checked == [_IDENTITY]
-    assert ledger == [((_IDENTITY, "summarizer", _USAGE), {"e_index": None, "model": _MODEL})]
+    assert ledger == [((_IDENTITY, "summarizer", _USAGE), {"model": _MODEL})]
 
 
 async def test_critic_bills_its_identity(wire, budget, ledger):
@@ -116,14 +116,14 @@ async def test_critic_bills_its_identity(wire, budget, ledger):
     report = await _critic()
     assert report.verdict == "APPROVE"
     assert budget.checked == [_IDENTITY]
-    assert ledger == [((_IDENTITY, "critic", _USAGE), {"e_index": None, "model": _MODEL})]
+    assert ledger == [((_IDENTITY, "critic", _USAGE), {"model": _MODEL})]
 
 
 async def test_judge_bills_creator_identity(wire, budget, ledger):
     wire.reply = "0.7"
     assert await _judge() == 0.7
     assert budget.checked == [_IDENTITY]
-    assert ledger == [((_IDENTITY, "judge", _USAGE), {"e_index": None, "model": _MODEL})]
+    assert ledger == [((_IDENTITY, "judge", _USAGE), {"model": _MODEL})]
 
 
 async def test_judge_without_creator_bills_system_account(wire, budget, ledger):
@@ -131,7 +131,7 @@ async def test_judge_without_creator_bills_system_account(wire, budget, ledger):
     assert await _judge(None) == 0.7
     system = AgentIdentity(agent_id="System")
     assert budget.checked == [system]
-    assert ledger == [((system, "judge", _USAGE), {"e_index": None, "model": _MODEL})]
+    assert ledger == [((system, "judge", _USAGE), {"model": _MODEL})]
 
 
 async def test_over_budget_summarizer_returns_none_without_sending(wire, budget, ledger):

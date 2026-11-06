@@ -21,6 +21,7 @@ from src.sandbox_kernel import framing
 from src.sandbox_kernel import launcher as kernel_launcher
 from src.sandbox_kernel import spec as kernel_spec
 from src.services import approval_flow
+from src.services.hooks.notifications import IsolationLevelNotifier
 from src.services.isolation import profiles as profiles_module
 from src.services.isolation import runners as runners_module
 from src.services.isolation import status as status_module
@@ -44,12 +45,22 @@ from src.services.isolation.status import (
 from src.services.resource_manager import resource_manager
 from src.utils import isolation_policy as policy
 
+from tests.support.hook_wiring import group, install_hooks, until
 from tests.support.isolation import (
     FixedBroker,
     PinnedMonitor,
     fixed_interpreter,
     pinned_snapshot,
 )
+from tests.support.links import LINK_FOLLOWED, make_dir_link
+from tests.support.zone_roots import point_zone_roots
+
+
+@pytest.fixture(autouse=True)
+def _zone_roots_match_layout(tmp_path, monkeypatch):
+    """RM 的 data 與 ST 根指向 ``_status_layout`` 同一處（ADR-0293 P7：版面與 RM 的 ST 要相同）."""
+    point_zone_roots(monkeypatch, tmp_path / "data", tmp_path / "state")
+
 
 # --- 純函式：isolation_policy ---------------------------------------------------------
 
@@ -237,7 +248,8 @@ class _SelfTest:
 
     async def __call__(self, kernel_dir: Path, test_dir: Path) -> SelfTestResult:
         location = "data" if test_dir.parent.name == "mcp_servers" else "state"
-        assert location == "data" or test_dir.parent.name == "proxy"
+        # ST 的自測在 ``ST/proxy/selftest/<一次一個>``（ADR-0293 PR 2）
+        assert location == "data" or test_dir.parent.parts[-2:] == ("proxy", "selftest")
         self.calls.append(location)
         if self.gate is not None:
             await self.gate.wait()
@@ -270,6 +282,12 @@ def _status_layout(tmp_path: Path, **overrides) -> SandboxLayout:
     }
     values.update(overrides)
     return SandboxLayout(**values)
+
+
+def _pointed_layout(monkeypatch, base: Path, **overrides) -> SandboxLayout:
+    """在 ``base`` 另建一個版面，RM 的 data 與 ST 根一起指過去（一個測試裡輪流用好幾個版面時）."""
+    point_zone_roots(monkeypatch, base / "data", base / "state")
+    return _status_layout(base, **overrides)
 
 
 def _monitor(layout: SandboxLayout, selftest=None, *, clock=None, platform="linux", **kwargs):
@@ -320,7 +338,7 @@ def _ready_for(layout: SandboxLayout, ports=None, **overrides) -> ExecutorReady:
     data = layout.data_root
     roots = (
         ExecutorRoot(str(data / "personal_drive"), "rw"),
-        ExecutorRoot(str(data / "mcp_servers"), "rw"),
+        ExecutorRoot(str(data / "mcp_servers" / "managed"), "rw"),
         ExecutorRoot(str(layout.config_dir / "skills"), "ro"),
     )
     values = {
@@ -439,9 +457,10 @@ async def test_sandbox_state_unset_is_unconfigured(tmp_path):
     assert (snap.level, snap.reason, snap.detail) == ("none", "sandbox_state_unconfigured", "unset")
 
 
-async def test_sandbox_state_not_writable_is_unconfigured_without_crash(tmp_path):
+async def test_sandbox_state_not_writable_is_unconfigured_without_crash(tmp_path, monkeypatch):
     blocker = tmp_path / "state-is-a-file"
     blocker.write_text("", encoding="utf-8")
+    point_zone_roots(monkeypatch, tmp_path / "data", blocker)  # RM 的 ST 也是這個檔案
     snap = await _monitor(_status_layout(tmp_path, state_root=blocker)).ensure_ready()
     assert (snap.level, snap.reason, snap.detail) == (
         "none",
@@ -471,6 +490,30 @@ async def test_9p_failure_recovers_only_through_9p_selftest(tmp_path):
     assert monitor.snapshot().level == "landlock"
     # C2-3 U3d：本機自測有結果（9p 失敗）也通知，等本機判定的第三方 MCP 才會啟動
     assert changes == ["none", "landlock"]
+
+
+async def test_level_changes_reach_notification_hooks_once_each(tmp_path, monkeypatch):
+    """真的 monitor 接真的 hook 服務：層級改變才通知，只帶層級名稱，沒有對話。"""
+    hooks = install_hooks(tmp_path, monkeypatch)
+    hooks.configure({"Notification": [group(matcher="isolation_level")]})
+    probe = _SelfTest(data_ok=False, state_ok=True)
+    monitor = _monitor(_status_layout(tmp_path), probe)
+    monitor.on_level_change(IsolationLevelNotifier())
+    await monitor.ensure_ready()
+    await until(lambda: hooks.http.calls)
+    # 本機自測又跑了一次、層級沒變：不再通知
+    await monitor.run_selftest("state")
+    probe.data_ok = True
+    await monitor.run_selftest("data")
+    await until(lambda: len(hooks.http.calls) == 2)
+    for _ in range(5):
+        await asyncio.sleep(0)
+    none_call, landlock_call = hooks.http.calls
+    assert none_call["message"].endswith(" none.")
+    assert landlock_call["message"].endswith(" landlock.")
+    assert {call["notification_type"] for call in hooks.http.calls} == {"isolation_level"}
+    assert {call["session_id"] for call in hooks.http.calls} == {None}
+    assert "fs_9p" not in str(hooks.http.calls)
 
 
 async def test_background_keeps_9p_selftest_after_fs_9p(tmp_path):
@@ -1579,6 +1622,56 @@ async def test_level_for_on_the_executor_layer(tmp_path):
     assert monitor.executor_scope_issue(custom, project) == "agent_dir_not_in_executor"
 
 
+@pytest.mark.parametrize(
+    ("kind", "issue"),
+    [
+        ("dir", None),
+        ("missing", None),
+        ("link", "agent_dir_not_in_executor"),
+        ("file", "agent_dir_not_in_executor"),
+        ("other", "agent_dir_not_in_executor"),
+    ],
+)
+async def test_executor_scope_classifies_the_drive_without_resolving_it(
+    tmp_path, monkeypatch, kind, issue
+):
+    """範圍看個人空間區的分類（``zone_kind``，不跟隨），不解析路徑（ADR-0293 R7）."""
+    data = Path(resource_manager.get_base_path()).resolve()
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=data)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+    seen: list[object] = []
+
+    def _kind(zp):
+        seen.append(zp)
+        return kind
+
+    monkeypatch.setattr(resource_manager, "zone_kind", _kind)
+    assert monitor.executor_scope_issue(soul, None) == issue
+    assert seen == [resource_manager.agent_drive(soul)]
+
+
+async def test_executor_scope_is_out_when_the_drive_cannot_be_read(tmp_path, monkeypatch):
+    data = Path(resource_manager.get_base_path()).resolve()
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=data)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+
+    def _refuse(_zp):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(resource_manager, "zone_kind", _refuse)
+    assert monitor.executor_scope_issue(soul, None) == "agent_dir_not_in_executor"
+
+
+async def test_a_linked_soul_drive_is_not_in_the_executor(tmp_path, zone_data_root):
+    """靈魂的個人空間是連結（即使指到 personal_drive 裡別的資料夾）：不在執行器範圍."""
+    monitor, _executor, _layout = _executor_monitor(tmp_path, data_root=zone_data_root)
+    soul = AgentIdentity.for_role("Alice", "Owner", capabilities=[])
+    drives = zone_data_root / "personal_drive"
+    (drives / "Bob").mkdir(parents=True)
+    make_dir_link(drives / "Alice", drives / "Bob")
+    assert monitor.executor_scope_issue(soul, None) == "agent_dir_not_in_executor", LINK_FOLLOWED
+
+
 @pytest.mark.parametrize("local_ok", [True, False], ids=["local-landlock", "local-broken"])
 async def test_level_for_puts_the_executor_scope_before_net_reasons(tmp_path, local_ok):
     """快照是 none、只差網路設定時（§2.8 原因順序）：決定降級去處的原因排在網路原因前面.
@@ -1799,18 +1892,21 @@ async def test_local_decision_is_pending_only_on_linux_before_the_first_selftest
     assert monitor.local_decision().status == "available"
 
 
-async def test_local_decision_features_drop_tcp_when_the_net_or_the_ports_are_unsafe(tmp_path):
+async def test_local_decision_features_drop_tcp_when_the_net_or_the_ports_are_unsafe(
+    tmp_path, monkeypatch
+):
     """可用時照樣包（features 不含 tcp）；ABI 3 只有檔案隔離."""
-    ok = _monitor(_status_layout(tmp_path / "ok"))
+    ok = _monitor(_pointed_layout(monkeypatch, tmp_path / "ok"))
     await ok.ensure_ready()
     assert ok.local_decision() == LocalDecision("available", features=policy.landlock_features(7))
-    net = _monitor(_status_layout(tmp_path / "net"), _SelfTest(net="net_tcp_fastopen"))
+    net_layout = _pointed_layout(monkeypatch, tmp_path / "net")
+    net = _monitor(net_layout, _SelfTest(net="net_tcp_fastopen"))
     await net.ensure_ready()
     assert net.local_decision().features == policy.landlock_features(7) - {"tcp"}
-    abi_3 = _monitor(_status_layout(tmp_path / "abi3"), _SelfTest(abi=3))
+    abi_3 = _monitor(_pointed_layout(monkeypatch, tmp_path / "abi3"), _SelfTest(abi=3))
     await abi_3.ensure_ready()
     assert abi_3.local_decision() == LocalDecision("available", features=frozenset({"fs"}))
-    layout = _status_layout(tmp_path / "ports")
+    layout = _pointed_layout(monkeypatch, tmp_path / "ports")
     layout.config_dir.mkdir(parents=True)
     (layout.config_dir / "connections.json").write_text("[]", encoding="utf-8")  # 結構不對
     ports = _monitor(layout)
@@ -1885,19 +1981,23 @@ def test_unknown_or_missing_local_reasons_are_temporary():
         assert not decision.stable, decision
 
 
-async def test_local_level_is_landlock_only_with_abi_4_a_safe_net_and_complete_ports(tmp_path):
+async def test_local_level_is_landlock_only_with_abi_4_a_safe_net_and_complete_ports(
+    tmp_path, monkeypatch
+):
     """本機層級（scaffold 的試跑）：同 landlock 層的規則，但不看部署預期（執行器部署也看本機）."""
-    executor = _monitor(_status_layout(tmp_path / "exec", executor_dir=tmp_path / "ipc"))
+    executor = _monitor(
+        _pointed_layout(monkeypatch, tmp_path / "exec", executor_dir=tmp_path / "ipc")
+    )
     snap = await executor.ensure_ready()
     assert snap.expected == "executor" and snap.level == "none"
     assert executor.local_level() == LevelDecision("landlock")
-    abi_3 = _monitor(_status_layout(tmp_path / "abi3"), _SelfTest(abi=3))
+    abi_3 = _monitor(_pointed_layout(monkeypatch, tmp_path / "abi3"), _SelfTest(abi=3))
     await abi_3.ensure_ready()
     assert abi_3.local_level() == LevelDecision("none", "landlock_abi_insufficient")
-    net = _monitor(_status_layout(tmp_path / "net"), _SelfTest(net="net_mptcp"))
+    net = _monitor(_pointed_layout(monkeypatch, tmp_path / "net"), _SelfTest(net="net_mptcp"))
     await net.ensure_ready()
     assert net.local_level() == LevelDecision("none", "net_mptcp")
-    layout = _status_layout(tmp_path / "ports")
+    layout = _pointed_layout(monkeypatch, tmp_path / "ports")
     layout.config_dir.mkdir(parents=True)
     (layout.config_dir / "connections.json").write_text("[]", encoding="utf-8")
     ports = _monitor(layout)
@@ -1936,10 +2036,11 @@ async def test_first_local_selftest_result_notifies_even_when_the_level_stays_no
     assert seen == ["fs_9p"]
 
 
-async def test_local_issue_change_notifies_under_the_executor_level(tmp_path):
+async def test_local_issue_change_notifies_under_the_executor_level(tmp_path, monkeypatch):
     """MEDIUM-R3-2：執行器部署下 ST 恢復可寫，層級與本機狀態都不變，仍要通知（第三方才會重啟）."""
     blocker = tmp_path / "state-is-a-file"
     blocker.write_text("", encoding="utf-8")
+    point_zone_roots(monkeypatch, tmp_path / "data", blocker)  # RM 的 ST 也是這個檔案
     monitor, _executor, _layout = _executor_monitor(tmp_path, state_root=blocker)
     seen: list[tuple[str, str | None]] = []
 

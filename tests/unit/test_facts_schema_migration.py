@@ -309,11 +309,10 @@ def vault(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def shared_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Point the in-process shared store at tmp_path and reset it before and after."""
-    monkeypatch.setenv("MEMORY_APP_DATA_DIR", str(tmp_path))
+def shared_vault(zone_data_root: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Point the in-process shared store at zone_data_root and reset it before and after."""
     MemoryManager.reset_singletons()
-    yield tmp_path / "vault"
+    yield zone_data_root / "vault"
     MemoryManager.reset_singletons()
 
 

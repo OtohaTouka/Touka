@@ -477,7 +477,11 @@ class McpLauncher:
         layout, base_dir = self._layout_provider(), self._base_dir()
         found = classify(name, entry, record, layout, base_dir=base_dir)
         if found.kind != "remote":
-            for home in mcp_classification_bases(name, layout=layout, base_dir=base_dir)[1:]:
+            try:  # 版面與 RM 的 ST 不同：組不出分類基準，當隔離不可用（ADR-0293 P10）
+                bases = mcp_classification_bases(name, layout=layout, base_dir=base_dir)
+            except ProfileError as exc:
+                raise profile_unavailable(exc) from exc
+            for home in bases[1:]:
                 actual = classify(name, entry, record, layout, base_dir=home)
                 skills = found.managed_skills | actual.managed_skills
                 found = replace(actual if actual.kind == "self" else found, managed_skills=skills)

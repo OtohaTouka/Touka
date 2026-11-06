@@ -1,9 +1,9 @@
 # ruff: noqa: T201, S602, S603, S607
-"""Touka 架構大一統守衛聚合器（43 道守衛的單一執行入口）。
+"""Touka 架構大一統守衛聚合器（44 道守衛的單一執行入口）。
 
 逐道執行 lint_ssot、前端 npm 守衛、依賴、死碼、ADR 完整性 等關卡；每道有逾時保護
 （DEFAULT_GUARD_TIMEOUT_SECONDS），逾時即殺進程樹。任一失敗即彙整報告並非零退出。
---non-audit 僅略過兩道需獨立執行的 CVE audit，明示完整 43 道尚未完成。
+--non-audit 僅略過兩道需獨立執行的 CVE audit，明示完整 44 道尚未完成。
 --audit-evidence-root 保留兩道 CVE audit 的原始證據於全新的專案外目錄。
 """
 
@@ -165,7 +165,7 @@ def main(argv: Sequence[str] = ()) -> None:
     parser.add_argument(
         "--non-audit",
         action="store_true",
-        help="Run 41 non-audit guards; report CVE guards #22/#23 as NOT RUN.",
+        help="Run 42 non-audit guards; report CVE guards #22/#23 as NOT RUN.",
     )
     parser.add_argument(
         "--dependency-cache-only",
@@ -194,7 +194,7 @@ def main(argv: Sequence[str] = ()) -> None:
         print("[FAIL] Frontend Runtime Preflight failed.")
         print(runtime_detail)
         print("System check BLOCKED before guard execution.")
-        print("Full 43-guard suite: INCOMPLETE")
+        print("Full 44-guard suite: INCOMPLETE")
         sys.exit(1)
     print(f"[OK] Frontend Runtime Preflight passed: {runtime_detail}")
 
@@ -205,7 +205,7 @@ def main(argv: Sequence[str] = ()) -> None:
         except (OSError, ValueError) as exc:
             print(f"[FAIL] Audit evidence root could not be created: {exc}")
             print("System check BLOCKED before guard execution.")
-            print("Full 43-guard suite: INCOMPLETE")
+            print("Full 44-guard suite: INCOMPLETE")
             sys.exit(1)
 
     tasks = [
@@ -215,7 +215,7 @@ def main(argv: Sequence[str] = ()) -> None:
             "cwd": root_dir,
         },
         {
-            "name": "Frontend API Parity Guard [Guard #2]",
+            "name": "Frontend API Parity & Contract Type Guard [Guard #2]",
             "command": "npm run guard:api",
             "cwd": frontend_dir,
         },
@@ -330,9 +330,7 @@ def main(argv: Sequence[str] = ()) -> None:
         },
         {
             "name": "Node CVE Guard (Chat + IDE, runtime + full) [Guard #23]",
-            "command": (
-                "python scripts/guard_node_cve.py --profile node-lock-and-braces-backport-v1"
-            ),
+            "command": "python scripts/guard_node_cve.py",
             "cwd": root_dir,
             "requires_audit": True,
             "audit_evidence_name": "node",
@@ -444,6 +442,11 @@ def main(argv: Sequence[str] = ()) -> None:
         {
             "name": "Native Tool Contract Guard [Guard #45]",
             "command": "python -B scripts/guard_native_tool_contracts.py",
+            "cwd": root_dir,
+        },
+        {
+            "name": "Doc Routing Guard [Guard #46]",
+            "command": "python -B scripts/guard_doc_routing.py",
             "cwd": root_dir,
         },
     ]

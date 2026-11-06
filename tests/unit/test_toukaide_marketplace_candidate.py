@@ -230,13 +230,6 @@ class FakeRunner:
             and Path(normalized[1]).name == "npm-cli.js"
         ):
             stdout = "11.19.1\n"
-        elif len(normalized) == 7 and normalized[2] == "verify":
-            assert (
-                Path(normalized[1])
-                == cwd.parent / "ToukaChat/container-security/braces-backport/backport.mjs"
-            )
-            assert normalized[3:] == ("--project-root", str(cwd), "--scope", "full")
-            stdout = "synthetic installed-byte proof\n"
         elif len(normalized) >= 4 and normalized[2:4] == ("run", "package"):
             stdout = "bundle complete\n"
         elif "package" in normalized and "--out" in normalized:
@@ -517,38 +510,8 @@ def test_checked_command_rejects_missing_text_output(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("failure_at", [1, 2])
-def test_braces_verification_refusal_stops_package_or_vsce(tmp_path, failure_at):
-    builder = _load_module()
-    repo, node, npm_cli = _candidate_repo(tmp_path)
-
-    class RefusingRunner(FakeRunner):
-        def __init__(self):
-            super().__init__()
-            self.verifies = 0
-
-        def __call__(self, command, cwd):
-            if len(command) > 2 and command[2] == "verify":
-                self.verifies += 1
-                if self.verifies == failure_at:
-                    self.commands.append((tuple(command), cwd))
-                    return subprocess.CompletedProcess(command, 2, "", "synthetic refusal")
-            return super().__call__(command, cwd)
-
-    runner = RefusingRunner()
-    output = tmp_path / "candidate"
-    with pytest.raises(builder.CandidatePolicyError, match="braces"):
-        builder.build_marketplace_candidate(
-            repo, output, runner=runner, node_executable=node, npm_cli=npm_cli
-        )
-    assert not output.exists()
-    assert not any("--out" in command for command, _ in runner.commands)
-    assert (
-        sum(command[2:4] == ("run", "package") for command, _ in runner.commands) == failure_at - 1
-    )
-
-
-def test_braces_verification_uses_source_install_not_staging(tmp_path):
+def test_candidate_build_no_longer_verifies_braces(tmp_path):
+    """ADR-0282: packaging reads only LICENSE and ToukaIDE and runs no braces verifier."""
     builder = _load_module()
     repo, node, npm_cli = _candidate_repo(tmp_path)
     runner = FakeRunner()
@@ -556,16 +519,9 @@ def test_braces_verification_uses_source_install_not_staging(tmp_path):
         repo, tmp_path / "candidate", runner=runner, node_executable=node, npm_cli=npm_cli
     )
     calls = runner.commands
-    verifies = [
-        i for i, (command, _) in enumerate(calls) if len(command) > 2 and command[2] == "verify"
-    ]
-    assert len(verifies) == 2
-    package = next(i for i, (command, _) in enumerate(calls) if command[2:4] == ("run", "package"))
-    vsce = next(i for i, (command, _) in enumerate(calls) if "--out" in command)
-    assert verifies[0] < package < verifies[1] < vsce
-    assert all(calls[i][1] == repo / "ToukaIDE" for i in verifies)
+    assert not any(len(command) > 2 and command[2] == "verify" for command, _ in calls)
+    statuses = [command for command, _ in calls if "status" in command]
+    assert statuses
     assert all(
-        "ToukaChat/container-security/braces-backport" in command
-        for command, _ in calls
-        if "status" in command
+        command[command.index("--") + 1 :] == ("LICENSE", "ToukaIDE") for command in statuses
     )

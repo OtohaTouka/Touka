@@ -12,8 +12,19 @@ export type Interjection = components['schemas']['Interjection'];
 export type RestoreStatus = components['schemas']['RestoreStatus'];
 export type AgentResetRequest = components['schemas']['AgentResetRequest'];
 export type AgentResetResponse = components['schemas']['AgentResetResponse'];
+export type LastResetStatus = components['schemas']['LastResetStatus'];
 export type MemoryScrubReport = components['schemas']['MemoryScrubReport'];
 export type ScrubItemResult = components['schemas']['ScrubItemResult'];
+
+// ADR-0292：Hook 設定頁
+export type HooksConfig = components['schemas']['HooksConfig-Input'];
+export type HookMatcherGroup = components['schemas']['HookMatcherGroup'];
+export type CommandHook = components['schemas']['CommandHook'];
+export type HttpHook = components['schemas']['HttpHook'];
+export type HookHandler = CommandHook | HttpHook;
+export type HookHealth = components['schemas']['HookHealthOut'];
+export type HookRun = components['schemas']['HookRunOut'];
+export type HooksConfigResponse = components['schemas']['HooksConfigResponse'];
 
 export type SoulUpdateInput = components['schemas']['SoulUpdateRequest'];
 export type SoulUpdateResult = operations['update_soul_v1_souls__soul_id__post']['responses'][200]['content']['application/json'];

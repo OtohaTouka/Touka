@@ -43,21 +43,6 @@ Copyright (c) Vercel, Inc.
 License: MIT
 Source:  https://github.com/vercel/next.js
 ------------------------------------------------------------
-braces, fill-range, is-number
-Copyright (c) 2014-present, Jon Schlinkert.
-to-regex-range
-Copyright (c) 2015-present, Jon Schlinkert.
-License: MIT
-Source:  https://github.com/micromatch/braces
-         https://github.com/jonschlinkert/fill-range
-         https://github.com/jonschlinkert/is-number
-         https://github.com/micromatch/to-regex-range
-
-ToukaChat/container-security/braces-backport/braces-3.0.3-depth-limit.patch
-is taken from micromatch/braces pull request #72 and applied to braces 3.0.3.
-tests/fixtures/braces-backport/*.tgz are the unmodified npm tarballs of the
-four packages above; each keeps its own LICENSE file.
-------------------------------------------------------------
 shadcn/ui
 Copyright (c) 2023 shadcn
 License: MIT

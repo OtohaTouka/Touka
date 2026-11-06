@@ -1,6 +1,5 @@
-"""Report theme guard diagnostics after verifying installed development bytes."""
+"""Report theme guard diagnostics."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,26 +9,6 @@ def list_violations() -> None:
     """Run the fixed theme guard and retain its diagnostic output."""
     cwd = Path(__file__).parent.parent / "ToukaChat"
     cmd = "npx tsx scripts/guard_theme.ts"
-    node = shutil.which("node")
-    if node is None:
-        message = "Node executable is required for installed-byte verification"
-        raise FileNotFoundError(message)
-    subprocess.run(  # noqa: S603 - fixed readonly installed-byte verifier
-        [
-            str(Path(node).resolve()),
-            str(cwd / "container-security/braces-backport/backport.mjs"),
-            "verify",
-            "--project-root",
-            str(cwd),
-            "--scope",
-            "full",
-        ],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
     result = subprocess.run(  # noqa: S602 - fixed existing theme guard command
         cmd,
         shell=True,

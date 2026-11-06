@@ -357,7 +357,7 @@ def booked(monkeypatch) -> list:
     calls: list = []
 
     def book(_identity: Any, _provider: Any, usage: dict, *_rest: Any, **_kw: Any) -> None:
-        if usage:  # run 結束的 E-Index 那一筆用量是空的，不算
+        if usage:  # 空用量不算
             calls.append(usage)
 
     monkeypatch.setattr(react_core, "accumulate_token_usage", book)

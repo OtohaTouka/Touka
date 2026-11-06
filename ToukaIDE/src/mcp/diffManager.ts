@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+import { readFileNoFollow, writeFileNoFollow } from './noFollowFile';
+
 export class DiffManager {
     constructor() {}
 
@@ -10,30 +12,36 @@ export class DiffManager {
      * Proposes changes to a file by opening a native VS Code diff view.
      * @param originalPath The absolute path of the file to modify.
      * @param newContent The new content to write.
+     * @param recheck Resolves the requested path again when the user accepts; it must still be `originalPath`.
      * @returns A promise that resolves with a success or rejection message.
      */
-    public async proposeChanges(originalPath: string, newContent: string): Promise<string> {
+    public async proposeChanges(originalPath: string, newContent: string, recheck: () => string): Promise<string> {
         return new Promise(async (resolve) => {
+            let tempDir: string | undefined;
             try {
                 const originalUri = vscode.Uri.file(originalPath);
-                const fileExists = fs.existsSync(originalPath);
-                
-                // Read original content if it exists, otherwise empty
-                const originalContent = fileExists ? await fs.promises.readFile(originalPath, 'utf8') : '';
+                // Read the original without following links, so a FIFO or a link swapped in cannot hang or redirect it (ADR-0294)
+                const originalContent = await readFileNoFollow(originalPath).catch((error: NodeJS.ErrnoException) => {
+                    if (error.code === 'ENOENT') {
+                        return undefined;
+                    }
+                    throw error;
+                });
+                const fileExists = originalContent !== undefined;
 
                 // If content is exactly the same, no need to diff
-                if (originalContent === newContent) {
+                if ((originalContent ?? '') === newContent) {
                     return resolve("No changes detected. The new content is identical to the existing file.");
                 }
 
-                // Create a temporary file for the new content
-                const tempDir = os.tmpdir();
+                // The proposed content goes in a private folder (mkdtemp creates it 0700), not the shared temp folder (ADR-0294)
+                const folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'touka-diff-'));
+                tempDir = folder;
                 const fileName = path.basename(originalPath);
                 const ext = path.extname(originalPath);
                 const baseNameWithoutExt = path.basename(originalPath, ext);
-                const tempFileName = `${baseNameWithoutExt}.touka-diff-${Date.now()}${ext}`;
-                const tempFilePath = path.join(tempDir, tempFileName);
-                
+                const tempFilePath = path.join(folder, `${baseNameWithoutExt}.touka-diff${ext}`);
+
                 await fs.promises.writeFile(tempFilePath, newContent, 'utf8');
                 const tempUri = vscode.Uri.file(tempFilePath);
 
@@ -51,43 +59,40 @@ export class DiffManager {
                     "Accept (Apply)", 
                     "Reject (Discard)"
                 ).then(async (selection) => {
+                    // User rejected or dismissed the notification unless they chose Accept
+                    let outcome = `Rejected: User denied the proposed changes to ${fileName}.`;
                     if (selection === "Accept (Apply)") {
                         try {
-                            // Ensure directory exists for new files
-                            const dir = path.dirname(originalPath);
-                            if (!fs.existsSync(dir)) {
-                                await fs.promises.mkdir(dir, { recursive: true });
+                            // The path may have changed while the user was reading the diff: check it again
+                            if (recheck() !== originalPath) {
+                                throw new Error('The path changed after the proposal');
                             }
-                            // Write the new content to the actual file
-                            await fs.promises.writeFile(originalPath, newContent, 'utf8');
-                            resolve(`Success: User accepted and applied the changes to ${fileName}.`);
+                            await fs.promises.mkdir(path.dirname(originalPath), { recursive: true });
+                            await writeFileNoFollow(originalPath, newContent);
+                            outcome = `Success: User accepted and applied the changes to ${fileName}.`;
                         } catch (err: any) {
-                            resolve(`Error applying changes: ${err.message}`);
-                        } finally {
-                            this.cleanupTempFile(tempFilePath);
-                            this.closeDiffEditor(tempUri);
+                            outcome = `Error applying changes: ${err.message}`;
                         }
-                    } else {
-                        // User rejected or dismissed the notification
-                        this.cleanupTempFile(tempFilePath);
-                        this.closeDiffEditor(tempUri);
-                        resolve(`Rejected: User denied the proposed changes to ${fileName}.`);
                     }
+                    await this.cleanupTempDir(folder);
+                    this.closeDiffEditor(tempUri);
+                    resolve(outcome);
                 });
 
             } catch (error: any) {
+                if (tempDir) {
+                    await this.cleanupTempDir(tempDir);
+                }
                 resolve(`Error initiating diff: ${error.message}`);
             }
         });
     }
 
-    private async cleanupTempFile(tempPath: string) {
+    private async cleanupTempDir(tempDir: string) {
         try {
-            if (fs.existsSync(tempPath)) {
-                await fs.promises.unlink(tempPath);
-            }
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
         } catch (e) {
-            console.error(`[ToukaIDE] Failed to cleanup temp file: ${tempPath}`, e);
+            console.error(`[ToukaIDE] Failed to cleanup temp folder: ${tempDir}`, e);
         }
     }
 

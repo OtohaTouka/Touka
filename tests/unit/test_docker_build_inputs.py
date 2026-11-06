@@ -222,18 +222,12 @@ def test_explicit_copy_sources_exist_and_survive_context_rules(recipe_path):
         assert _finite_context_included(Path(source), rules), source
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "backport.mjs",
-        "manifest.json",
-        "braces-3.0.3-depth-limit.patch",
-    ],
-)
-def test_chat_recipes_copy_braces_backport_inputs(name):
-    source = f"container-security/braces-backport/{name}"
-    for recipe_path in ("ToukaChat/Dockerfile.prod", "ToukaChat/Dockerfile"):
-        assert source in _explicit_copy_sources((ROOT / recipe_path).read_text(encoding="utf-8"))
+@pytest.mark.parametrize("recipe_path", ["ToukaChat/Dockerfile.prod", "ToukaChat/Dockerfile"])
+def test_chat_recipes_no_longer_patch_braces(recipe_path):
+    """ADR-0282 retired the braces backport; the images install stock npm packages."""
+    recipe = (ROOT / recipe_path).read_text(encoding="utf-8")
+    assert "container-security" not in recipe
+    assert "braces" not in recipe
 
 
 @pytest.mark.parametrize("product", ["touka-proxy", "touka-heartbeat"])
@@ -303,12 +297,10 @@ def test_finite_context_projection_rejects_unsupported_rules(rule):
         _finite_context_included(Path("src/visible.py"), [rule])
 
 
-@pytest.mark.parametrize(
-    "exclusion", ["container-security", "container-security/**", "*/braces-backport"]
-)
+@pytest.mark.parametrize("exclusion", ["scripts", "scripts/**", "*/ensure-critical-native.mjs"])
 def test_context_projection_detects_later_exclusion_of_required_input(exclusion):
     rules = _product_context_rules("touka-chat")
-    relative = Path("container-security/braces-backport/manifest.json")
+    relative = Path("scripts/ensure-critical-native.mjs")
     assert _finite_context_included(relative, rules)
     assert not _finite_context_included(relative, [*rules, exclusion])
 

@@ -21,6 +21,8 @@ from src.models.session_persistence import IncognitoStreamAdmission, PersistedSt
 from src.routers import ui_interjections as interjection_mod
 from src.routers import ui_sessions as ui_mod
 from src.services.authorization_gateway import require_human_requester
+from src.services.hooks import interjection_hooks
+from src.services.hooks.service import MAX_BLOCK_REASON_CHARS, HookDecision
 from src.services.identity_router import get_verified_identity
 from src.services.interjection_queue import InMemoryInterjectionQueue
 from src.services.stream_buffer_service import StreamBufferService
@@ -49,6 +51,7 @@ def queue(monkeypatch) -> InMemoryInterjectionQueue:
 def buffer(monkeypatch, queue) -> StreamBufferService:
     svc = StreamBufferService(interjections=queue)
     monkeypatch.setattr(ui_mod, "stream_buffer_service", svc)
+    monkeypatch.setattr(interjection_mod, "stream_buffer_service", svc)
     return svc
 
 
@@ -67,7 +70,7 @@ def _client(identity: AgentIdentity) -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-async def _stream(buffer, owner, session_id="sess-1", *, incognito=True):
+async def _stream(buffer, owner, session_id="sess-1", *, incognito=True, agent_id=None):
     if incognito:
         admission = IncognitoStreamAdmission(
             mode="incognito", user_parent_id="u", assistant_node_id="a"
@@ -76,7 +79,10 @@ async def _stream(buffer, owner, session_id="sess-1", *, incognito=True):
         admission = PersistedStreamAdmission(
             mode="persistent", revision="r1", user_parent_id="u", assistant_node_id="a"
         )
-    return await buffer.create(session_id, identity=owner, admission=admission)
+    return await buffer.create(
+        session_id, identity=owner, admission=admission,
+        hook_fields={"agent_id": agent_id} if agent_id else None,
+    )
 
 
 def _path(session_id: str, interjection_id: str | None = None) -> str:
@@ -389,3 +395,110 @@ async def test_incognito_interjections_stay_in_memory_only(buffer, queue, monkey
     await buffer.finish(entry.session_id, stream_id=entry.stream_id)
     assert queue.list_items(entry.session_id, entry.stream_id) == []
     database.assert_not_awaited()
+
+
+# --- UserPromptSubmit hook（ADR-0292） -------------------------------------------
+
+
+class _PromptHooks:
+    """假的 hook 服務：記下事件內容，依設定擋下、補充說明或出錯。"""
+
+    def __init__(self, decision: HookDecision | None = None, *, error: bool = False) -> None:
+        self.decision = decision or HookDecision()
+        self.error = error
+        self.payloads: list[dict] = []
+        self.on_dispatch = None
+
+    def has_hooks(self, event: str) -> bool:
+        return event == "UserPromptSubmit"
+
+    async def dispatch(self, event, payload, *, match=(), incognito=False):
+        self.payloads.append({"event": event, "incognito_arg": incognito, **payload})
+        if self.on_dispatch is not None:
+            await self.on_dispatch()
+        if self.error:
+            raise RuntimeError
+        return self.decision
+
+
+def _prompt_hooks(monkeypatch, **kwargs) -> _PromptHooks:
+    fake = _PromptHooks(**kwargs)
+    monkeypatch.setattr(interjection_hooks, "hook_service", fake)
+    return fake
+
+
+async def test_blocked_interjections_are_not_queued(buffer, queue, monkeypatch):
+    fake = _prompt_hooks(monkeypatch, decision=HookDecision(blocked=True, reasons=["no secrets"]))
+    entry = await _stream(buffer, _OWNER, agent_id="Alice")
+    response = await _call(
+        _OWNER, "POST", entry.session_id, entry.stream_id, body={"text": "pw is 123"}
+    )
+    assert _code(response) == (403, "HOOK_PROMPT_BLOCKED")
+    assert response.json()["detail"]["reason"] == "no secrets"
+    assert queue.list_items(entry.session_id, entry.stream_id) == []
+    (payload,) = fake.payloads
+    assert payload == {
+        "event": "UserPromptSubmit", "incognito_arg": True, "session_id": entry.session_id,
+        "agent_id": "Alice", "incognito": True, "prompt": "pw is 123", "interjection": True,
+    }
+
+
+async def test_a_long_block_reason_is_capped_like_a_blocked_prompt(buffer, queue, monkeypatch):
+    _prompt_hooks(monkeypatch, decision=HookDecision(blocked=True, reasons=["x" * 9_000]))
+    entry = await _stream(buffer, _OWNER, agent_id="Alice")
+    response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id, body={"text": "hi"})
+    assert _code(response) == (403, "HOOK_PROMPT_BLOCKED")
+    assert len(response.json()["detail"]["reason"]) == MAX_BLOCK_REASON_CHARS
+
+
+async def test_persistent_interjections_say_they_are_not_incognito(buffer, queue, monkeypatch):
+    fake = _prompt_hooks(monkeypatch)
+    entry = await _stream(buffer, _OWNER, incognito=False, agent_id="Alice")
+    snapshot = AsyncMock(return_value=type("S", (), {"session": {"agent_id": "Alice"}})())
+    with (
+        patch.object(session_service, "read_persistence_snapshot", snapshot),
+        patch.object(ui_mod, "_can_access_session", return_value=True),
+    ):
+        response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id)
+    assert response.status_code == 201
+    assert [(p["incognito"], p["incognito_arg"]) for p in fake.payloads] == [(False, False)]
+
+
+async def test_hook_context_does_not_change_the_interjection(buffer, queue, monkeypatch):
+    _prompt_hooks(monkeypatch, decision=HookDecision(contexts=["extra note"]))
+    entry = await _stream(buffer, _OWNER)
+    response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id)
+    assert response.status_code == 201
+    assert [i.text for i in queue.list_items(entry.session_id, entry.stream_id)] == ["hello"]
+
+
+async def test_hook_service_errors_still_queue_the_interjection(buffer, queue, monkeypatch):
+    _prompt_hooks(monkeypatch, error=True)
+    entry = await _stream(buffer, _OWNER)
+    response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id)
+    assert response.status_code == 201
+    assert len(queue.list_items(entry.session_id, entry.stream_id)) == 1
+
+
+async def test_hooks_never_see_interjections_the_caller_may_not_send(buffer, queue, monkeypatch):
+    fake = _prompt_hooks(monkeypatch)
+    entry = await _stream(buffer, _OWNER)
+    with patch.object(
+        session_service, "get_session_by_id", AsyncMock(return_value={"agent_id": "Alice"})
+    ):
+        response = await _call(_STRANGER, "POST", entry.session_id, entry.stream_id)
+    assert _code(response) == (403, "AUTH_PERMISSION_DENIED")
+    assert fake.payloads == []
+
+
+async def test_a_stream_replaced_while_the_hook_runs_gets_nothing(buffer, queue, monkeypatch):
+    fake = _prompt_hooks(monkeypatch)
+    entry = await _stream(buffer, _OWNER)
+
+    async def replace_stream() -> None:
+        await _stream(buffer, _OWNER)
+
+    fake.on_dispatch = replace_stream
+    response = await _call(_OWNER, "POST", entry.session_id, entry.stream_id)
+    assert _code(response) == (404, "STREAM_NOT_FOUND")
+    assert queue.list_items(entry.session_id, entry.stream_id) == []

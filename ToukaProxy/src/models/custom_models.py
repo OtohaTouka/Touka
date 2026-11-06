@@ -26,4 +26,5 @@ class CustomModelRenameRequest(BaseModel):
     """自定義模型重命名的請求模型"""
     # 縱深防禦：限制 new_id 字元集，於請求層即擋掉路徑分隔字元 (/、\)，
     # 配合 custom_io.move_custom_dir 的沙箱看守阻斷路徑穿越逃逸。
-    new_id: str = Field(..., description="新的模型 ID", pattern=r"^[A-Za-z0-9._-]+$")
+    # \w 含中文等各語言的字母數字：建立時的 ID 可以是中文，改名要收同樣的名字（舊審查報告丙-2）。
+    new_id: str = Field(..., description="新的模型 ID", pattern=r"^[\w.-]+$")

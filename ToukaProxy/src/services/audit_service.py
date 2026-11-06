@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.services.resource_manager import resource_manager
+from src.utils.audit_resource import audit_resource_for
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,8 @@ class PolicyAuditService:
                 context.actor.agent_id,
                 context.actor.display_role,
                 context.action,
-                context.resource,
+                # ADR-0283：終端指令只記程式名稱和長度；判斷用的 context 不改。
+                audit_resource_for(context.action, context.resource),
                 context.environment.get("auth_level", "N/A"),
                 decision.effect,
                 decision.reason or "",

@@ -23,6 +23,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from memory_server.utils.no_follow import LinkRefusedError
+
 from src.services.completion import complete_once
 from src.services.review.budget import (
     cost_ceiling_exceeded,
@@ -31,6 +33,7 @@ from src.services.review.budget import (
     get_review_ledger,
 )
 from src.services.review.evidence import (
+    AGENT_BUSY,
     AWAITING_HUMAN_APPROVAL,
     NO_HUMAN_DECISION,
     NO_ISOLATED_ENVIRONMENT,
@@ -48,6 +51,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
+    from memory_server.utils.zone_paths import ZonePath
+
     from src.models.identity import AgentIdentity
     from src.services.review.evidence import CommandApprover, CommandReviewer
 
@@ -63,7 +68,10 @@ _HUMAN_GATE = {
     NO_HUMAN_DECISION: "human_approval_required",
     REJECTED_BY_HUMAN: "human_rejected_command",
     NO_ISOLATED_ENVIRONMENT: "isolation_unavailable",
+    AGENT_BUSY: "agent_busy",
 }
+# 個人空間或證據檔的路上有連結（ADR-0293）：這一輪不送審、不計次數，固定原因轉人
+EVIDENCE_REFUSED = "蒐證被拒：個人空間或證據檔的路上有連結，不跟隨；需人工確認"
 
 
 class CriticCallError(Exception):
@@ -121,7 +129,7 @@ async def run_review_round(
     task: Any,
     goal: str,
     producer_claims: str,
-    artifact_root: Path,
+    artifact_root: ZonePath,
     parent_identity: AgentIdentity,
     mission_id: str,
     manager: Any,
@@ -191,22 +199,26 @@ async def run_review_round(
         return ReviewOutcome(_BLOCK, None, "", "成本天花板已達，拒開審（互審成本閘不可關）")
 
     # --- 4. 蒐證（非阻塞；verification_cmd 先過終端指令政策）---
-    evidence = await collect_evidence(
-        artifact_refs=list(fresh.artifact_refs or []),
-        verification_cmd=fresh.verification_cmd,
-        test_log=fresh.test_log,
-        artifact_root=artifact_root,
-        command_gate=policy_command_gate(
-            parent_identity,
-            auth_level=auth_level,
-            approver=approver,
-            reviewer=reviewer,
+    try:
+        evidence = await collect_evidence(
+            artifact_refs=list(fresh.artifact_refs or []),
+            verification_cmd=fresh.verification_cmd,
+            test_log=fresh.test_log,
+            artifact_root=artifact_root,
+            command_gate=policy_command_gate(
+                parent_identity,
+                auth_level=auth_level,
+                approver=approver,
+                reviewer=reviewer,
+                project_root=project_root,
+            ),
+            identity=parent_identity,
             project_root=project_root,
-        ),
-        identity=parent_identity,
-        project_root=project_root,
-        consent=approver.take_consent if approver is not None else None,
-    )
+            consent=approver.take_consent if approver is not None else None,
+        )
+    except LinkRefusedError:
+        await _record(_BLOCK, reviewer_id=gate_reviewer_id)
+        return ReviewOutcome(_BLOCK, None, "", EVIDENCE_REFUSED)
     digest = bundle_digest(evidence)
 
     # --- 4b. 驗證指令卡在人類這一關（B1：無人在場／沒等到決定／被拒）：不送審、不計次數、不上鎖 ---

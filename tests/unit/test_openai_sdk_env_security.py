@@ -16,6 +16,8 @@ import pytest
 from src import config
 from src.core import logging_config
 
+from tests.support.zone_roots import point_zone_roots
+
 _ENV = {"OPENAI_API_KEY": "sk-env-not-used", "OPENAI_BASE_URL": "https://env.invalid/v1",
         "OPENAI_ORG_ID": "org-env", "OPENAI_PROJECT_ID": "proj-env",
         "OPENAI_CUSTOM_HEADERS": "X-From-Env: 1"}
@@ -43,7 +45,7 @@ def test_strip_removes_only_sdk_override_names_and_pins_loggers(sdk_loggers):
 
 
 def test_logging_setup_pins_sdk_loggers(monkeypatch, tmp_path, sdk_loggers):
-    monkeypatch.setattr(logging_config.resource_manager, "get_base_path", lambda: str(tmp_path))
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     monkeypatch.setattr(logging_config.logging, "basicConfig", lambda **_kw: None)
     for lg in sdk_loggers:
         lg.setLevel(logging.DEBUG)

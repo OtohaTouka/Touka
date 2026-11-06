@@ -290,6 +290,9 @@ export interface paths {
          *     brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
          *     零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
          *     記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+         *
+         *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
+         *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
          */
         delete: operations["delete_soul_v1_souls__soul_id__delete"];
         options?: never;
@@ -346,6 +349,9 @@ export interface paths {
          *     brain_settings／各使用者 owned_agents／identity_map override。**冪等**——孤兒（空目錄、
          *     零註冊）照清、清完 agent_id 可重用（直解「建立失敗連清都清不掉」）。聊天 sessions 與
          *     記憶 vault 不在此範圍（既有 per-agent 破壞性重置涵蓋）。
+         *
+         *     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
+         *     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
          */
         delete: operations["delete_soul_souls__soul_id__delete"];
         options?: never;
@@ -368,26 +374,6 @@ export interface paths {
          *     Previously had Depends but did not check if identity is None.
          */
         get: operations["get_touka_stats_v1_stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/stats/emergence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Emergence Index
-         * @description 讀取 usage_audit.csv 並回傳最新的湧現指標
-         */
-        get: operations["get_emergence_index_v1_stats_emergence_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -451,26 +437,6 @@ export interface paths {
          *     Previously had Depends but did not check if identity is None.
          */
         get: operations["get_touka_stats_stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stats/emergence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Emergence Index
-         * @description 讀取 usage_audit.csv 並回傳最新的湧現指標
-         */
-        get: operations["get_emergence_index_stats_emergence_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3863,6 +3829,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hooks Config
+         * @description 目前生效的 hook 設定、設定檔狀態與可用的事件。
+         */
+        get: operations["get_hooks_config_v1_hooks_get"];
+        /**
+         * Save Hooks Config
+         * @description 存整份設定；``author``／``updated_at`` 由伺服器填。
+         */
+        put: operations["save_hooks_config_v1_hooks_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hooks Active
+         * @description 有沒有啟用中的 hook 會收到對話內容。
+         */
+        get: operations["hooks_active_v1_hooks_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Hook Runs
+         * @description 最近的執行紀錄，新的在前。
+         */
+        get: operations["list_hook_runs_v1_hooks_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hooks Config
+         * @description 目前生效的 hook 設定、設定檔狀態與可用的事件。
+         */
+        get: operations["get_hooks_config_hooks_get"];
+        /**
+         * Save Hooks Config
+         * @description 存整份設定；``author``／``updated_at`` 由伺服器填。
+         */
+        put: operations["save_hooks_config_hooks_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hooks Active
+         * @description 有沒有啟用中的 hook 會收到對話內容。
+         */
+        get: operations["hooks_active_hooks_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Hook Runs
+         * @description 最近的執行紀錄，新的在前。
+         */
+        get: operations["list_hook_runs_hooks_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/register": {
         parameters: {
             query?: never;
@@ -4396,6 +4490,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/agents/reset/last": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Last Agent Reset
+         * @description 最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.
+         *
+         *     只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。
+         */
+        get: operations["last_agent_reset_v1_admin_agents_reset_last_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -4467,6 +4583,28 @@ export interface paths {
          *     `is_protected_path` 物理保護、custom config 由清除原語範圍排除——永不被觸及。
          */
         post: operations["reset_agent_admin_agents__target__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/agents/reset/last": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Last Agent Reset
+         * @description 最後一次重置的結果（舊審查報告丙-5，ADR-0289）：「結果不明」時畫面據此查詢.
+         *
+         *     只給人類 admin（admin 代打不算，和清除連備份同一道閘）。只存在記憶體，伺服器重啟後回 idle。
+         */
+        get: operations["last_agent_reset_admin_agents_reset_last_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7304,6 +7442,37 @@ export interface components {
             current_password: string;
         };
         /**
+         * CommandHook
+         * @description 執行一個程式：``command`` 是絕對路徑，``args`` 原樣交給作業系統，事件內容從標準輸入給。
+         */
+        CommandHook: {
+            /**
+             * Name
+             * @description 設定頁顯示的名稱
+             */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Timeout
+             * @description 秒
+             * @default 30
+             */
+            timeout: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "command";
+            /** Command */
+            command: string;
+            /** Args */
+            args?: string[];
+        };
+        /**
          * ConnectionItem
          * @description 單一外部 API 連線設定模型。
          */
@@ -7711,6 +7880,226 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * HookHealthOut
+         * @description 設定檔狀態：``revision`` 是目前檔案內容的 sha256，存檔時原樣送回（沒有檔案時 null）。
+         */
+        HookHealthOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "missing" | "error";
+            /** Revision */
+            revision?: string | null;
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
+         * HookMatcherGroup
+         * @description 一組比對規則與它的 handler；比對規則見 ``services/hooks/matcher``。
+         */
+        HookMatcherGroup: {
+            /**
+             * Matcher
+             * @default
+             */
+            matcher: string;
+            /** Hooks */
+            hooks: (components["schemas"]["CommandHook"] | components["schemas"]["HttpHook"])[];
+        };
+        /**
+         * HookRunOut
+         * @description 一筆執行紀錄；無痕對話只有時間、事件與結果。
+         */
+        HookRunOut: {
+            /** At */
+            at: number;
+            /** Event */
+            event: string;
+            /** Hook */
+            hook: string;
+            /** Hook Type */
+            hook_type: string;
+            /** Status */
+            status: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "blocked" | "ask" | "context" | "none" | "failed" | "skipped";
+            /** Duration Ms */
+            duration_ms: number;
+            /** Exit Code */
+            exit_code?: number | null;
+            /** Http Status */
+            http_status?: number | null;
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Incognito
+             * @default false
+             */
+            incognito: boolean;
+        };
+        /**
+         * HookRunsResponse
+         * @description 最近的執行紀錄，新的在前（只在記憶體，重啟後清空）。
+         */
+        HookRunsResponse: {
+            /** Runs */
+            runs: components["schemas"]["HookRunOut"][];
+        };
+        /**
+         * HooksActiveResponse
+         * @description 有沒有會收到對話內容的 hook（給無痕對話的提示；只有這個布林值，不透露設定）。
+         */
+        HooksActiveResponse: {
+            /** Active */
+            active: boolean;
+        };
+        /**
+         * HooksConfig
+         * @description 整份 hook 設定；預設關閉，打開後依事件執行。
+         */
+        "HooksConfig-Input": {
+            /**
+             * Version
+             * @description 策略版本 (e.g. 1.0.0)
+             */
+            version?: string | null;
+            /**
+             * Author
+             * @description 策略建立者
+             */
+            author?: string | null;
+            /**
+             * Created At
+             * @description 建立時間 (UNIX Epoch)
+             */
+            created_at?: number | null;
+            /**
+             * Updated At
+             * @description 更新時間 (UNIX Epoch)
+             */
+            updated_at?: number | null;
+            /**
+             * Description
+             * @description 策略描述
+             */
+            description?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Hooks */
+            hooks?: {
+                [key: string]: components["schemas"]["HookMatcherGroup"][];
+            };
+        };
+        /**
+         * HooksConfig
+         * @description 整份 hook 設定；預設關閉，打開後依事件執行。
+         */
+        "HooksConfig-Output": {
+            /**
+             * Version
+             * @description 策略版本 (e.g. 1.0.0)
+             */
+            version?: string | null;
+            /**
+             * Author
+             * @description 策略建立者
+             */
+            author?: string | null;
+            /**
+             * Created At
+             * @description 建立時間 (UNIX Epoch)
+             */
+            created_at?: number | null;
+            /**
+             * Updated At
+             * @description 更新時間 (UNIX Epoch)
+             */
+            updated_at?: number | null;
+            /**
+             * Description
+             * @description 策略描述
+             */
+            description?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Hooks */
+            hooks?: {
+                [key: string]: components["schemas"]["HookMatcherGroup"][];
+            };
+        };
+        /**
+         * HooksConfigResponse
+         * @description 目前生效的設定（設定檔壞掉時是上一份好的）與設定檔狀態。
+         */
+        HooksConfigResponse: {
+            config: components["schemas"]["HooksConfig-Output"];
+            health: components["schemas"]["HookHealthOut"];
+            /** Wired Events */
+            wired_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ConfigChange" | "HeartbeatStart" | "HeartbeatStop")[];
+            /** Matcher Events */
+            matcher_events: ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied" | "Notification" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ConfigChange" | "HeartbeatStart" | "HeartbeatStop")[];
+        };
+        /**
+         * HooksSaveRequest
+         * @description 整份設定與載入時的 ``health.revision``；revision 必填（沒有檔案時明確送 null）。
+         */
+        HooksSaveRequest: {
+            config: components["schemas"]["HooksConfig-Input"];
+            /** Revision */
+            revision: string | null;
+        };
+        /**
+         * HooksSaveResponse
+         * @description 存檔後的新 revision。
+         */
+        HooksSaveResponse: {
+            /** Revision */
+            revision: string;
+        };
+        /**
+         * HttpHook
+         * @description POST 事件內容到 ``url``；不跟隨轉址，標頭照字面送出。
+         */
+        HttpHook: {
+            /**
+             * Name
+             * @description 設定頁顯示的名稱
+             */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Timeout
+             * @description 秒
+             * @default 30
+             */
+            timeout: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "http";
+            /** Url */
+            url: string;
+            /** Headers */
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        /**
          * IdentityMapConfig
          * @description 完整身份映射配置 (用於 API 驗證)
          */
@@ -7996,6 +8385,42 @@ export interface components {
             block_ports_issue: string | null;
             repairs: components["schemas"]["IsolationRepairs"] | null;
             mcp: components["schemas"]["IsolationMcpStatus"];
+        };
+        /**
+         * LastResetStatus
+         * @description 最後一次重置的結果，只存在行程記憶體（舊審查報告丙-5，ADR-0289）.
+         *
+         *     伺服器重啟後回 ``idle``。失敗只記錯誤碼，不放路徑或例外原文（禁令 23）。
+         */
+        LastResetStatus: {
+            /**
+             * State
+             * @description idle＝本次啟動後沒有重置紀錄；running＝進行中（請求斷線後清除還在跑也算）；done＝已結束，附報告；failed＝沒有完成，附錯誤碼；interrupted＝請求中途取消，可能只清了一部分
+             * @enum {string}
+             */
+            state: "idle" | "running" | "done" | "failed" | "interrupted";
+            /**
+             * Agent Id
+             * @description 重置的靈魂
+             */
+            agent_id?: string | null;
+            /**
+             * Started At
+             * @description 開始時間（UNIX 秒）
+             */
+            started_at?: number | null;
+            /**
+             * Finished At
+             * @description 結束時間（UNIX 秒）
+             */
+            finished_at?: number | null;
+            /**
+             * Error Code
+             * @description 失敗時的錯誤碼（errors.json 的鍵）
+             */
+            error_code?: string | null;
+            /** @description done 時的重置報告 */
+            report?: components["schemas"]["AgentResetResponse"] | null;
         };
         /**
          * LegacyExportRequest
@@ -8968,7 +9393,7 @@ export interface components {
              */
             complete: boolean;
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
             /** Categories */
             categories?: components["schemas"]["ScrubCategoryResult"][];
             /** Items */
@@ -9658,7 +10083,7 @@ export interface components {
              */
             state: "done" | "failed" | "not_started";
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
         };
         /**
          * ScrubItemResult
@@ -9678,7 +10103,7 @@ export interface components {
              */
             status: "scrubbed" | "not_needed" | "removed" | "failed" | "info";
             /** Reason */
-            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope") | null;
+            reason?: ("busy" | "in_use" | "read_only" | "no_space" | "unreadable" | "too_large" | "has_journal" | "unknown_member" | "unknown_file" | "unknown_schema" | "unknown_qdrant_meta" | "collection_shared" | "ambiguous_member" | "changed_during_scrub" | "verify_failed" | "live_verify_failed" | "write_failed" | "rewritten_after_reset" | "list_failed" | "lock_timeout" | "recheck_failed" | "own_snapshot_missing" | "own_snapshot_unverified" | "reset_not_clean" | "backup_failed" | "cancelled" | "internal_error" | "empty_file" | "out_of_scope" | "os_metadata_file") | null;
             /**
              * Facts Removed
              * @default 0
@@ -11322,28 +11747,6 @@ export interface operations {
             };
         };
     };
-    get_emergence_index_v1_stats_emergence_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     get_legacy_sync_stats_v1_stats_legacy__agent_id__get: {
         parameters: {
             query?: never;
@@ -11411,28 +11814,6 @@ export interface operations {
         };
     };
     get_touka_stats_stats_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    get_emergence_index_stats_emergence_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -17010,6 +17391,192 @@ export interface operations {
             };
         };
     };
+    get_hooks_config_v1_hooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksConfigResponse"];
+                };
+            };
+        };
+    };
+    save_hooks_config_v1_hooks_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HooksSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hooks_active_v1_hooks_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksActiveResponse"];
+                };
+            };
+        };
+    };
+    list_hook_runs_v1_hooks_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookRunsResponse"];
+                };
+            };
+        };
+    };
+    get_hooks_config_hooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksConfigResponse"];
+                };
+            };
+        };
+    };
+    save_hooks_config_hooks_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HooksSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hooks_active_hooks_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HooksActiveResponse"];
+                };
+            };
+        };
+    };
+    list_hook_runs_hooks_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookRunsResponse"];
+                };
+            };
+        };
+    };
     register_v1_auth_register_post: {
         parameters: {
             query?: never;
@@ -17861,6 +18428,26 @@ export interface operations {
             };
         };
     };
+    last_agent_reset_v1_admin_agents_reset_last_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastResetStatus"];
+                };
+            };
+        };
+    };
     list_users_admin_users_get: {
         parameters: {
             query?: never;
@@ -18044,6 +18631,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    last_agent_reset_admin_agents_reset_last_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastResetStatus"];
                 };
             };
         };

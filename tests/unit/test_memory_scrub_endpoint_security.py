@@ -382,7 +382,7 @@ async def test_e12_restore_in_progress_blocks_every_reset(
 
 
 async def test_e14_restore_is_refused_while_a_scrub_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    session = memory_scrub.begin()
+    session = memory_scrub.begin(AgentIdentity(agent_id=TARGET))
     try:
         auth = _auth()
         request = system_router.RestoreRequest(filename="Touka_Backup_x.zip", current_password="pw")
@@ -400,7 +400,7 @@ async def test_e15_another_reset_is_refused_while_a_scrub_or_reset_runs(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr(P, "_identity", lambda candidate, guard: AgentIdentity(agent_id=candidate))
-    session = memory_scrub.begin()
+    session = memory_scrub.begin(AgentIdentity(agent_id=TARGET))
     try:
         with pytest.raises(ToukaException) as exc:
             await O._execute_reset(

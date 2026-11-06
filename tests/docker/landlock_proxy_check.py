@@ -3,7 +3,8 @@
 只能由 ``tests/docker/sandboxed.py`` 先開 smoke 沙盒再執行；compose 的 ``iso-landlock``（profile
 ``landlock``）就是這個形狀。真 monitor 要判 ``landlock``、網路設定安全（``local.net`` 是 None）、
 features 含 tcp；再經真 ``RunnerBroker``／``LandlockRunner`` 跑一條代理人指令：讀得到自己的資料夾、
-讀不到別人的。每一項寫一行 JSON；全部通過才 exit 0。
+讀不到別人的。每一項寫一行 JSON；全部通過才 exit 0。版面的 data 根與 ST 照 RM（ST 由 compose 的
+``TOUKA_SANDBOX_STATE_DIR`` 給，ADR-0293 P7）；另外只換 kernel、不接執行器、不給映射根、標成容器內。
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import argparse
 import asyncio
 import json
 import sys
-import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -43,13 +43,19 @@ def emit(check: str, ok: bool, **detail: object) -> bool:
 
 
 async def run_checks(kernel: Path) -> int:
-    root = Path(tempfile.mkdtemp(prefix="touka_iso_landlock_"))
-    state = root / "st"
-    state.mkdir(mode=0o700)
+    # data 根與 ST 照 RM（ST 只有一個來源，ADR-0293 P7）：data 根是 smoke 沙盒的，ST 由 compose 的
+    # TOUKA_SANDBOX_STATE_DIR 指到 tmpfs；另外只換 kernel、不接執行器、不給映射根、標成容器內
     layout = replace(
-        current_layout(), data_root=root / "data", kernel_dir=kernel, state_root=state,
-        executor_dir=None, mirror_roots=(), in_container=True,
+        current_layout(), kernel_dir=kernel, executor_dir=None, mirror_roots=(), in_container=True
     )
+    if layout.state_root is None:
+        emit("landlock_level", False, reason="TOUKA_SANDBOX_STATE_DIR is not set")
+        return 1
+    try:  # 每次都是新的 ST：已經存在就不碰（可能是別處真的 ST）
+        layout.state_root.mkdir(mode=0o700, parents=True)
+    except FileExistsError:
+        emit("landlock_level", False, reason="sandbox state already exists")
+        return 1
     drives = layout.data_root / "personal_drive"
     for owner in (OWNER, OTHER):
         (drives / owner).mkdir(parents=True)

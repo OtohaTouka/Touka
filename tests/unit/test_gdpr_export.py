@@ -5,15 +5,17 @@ Covers:
   - ``_sanitize_user``：白名單脫敏（排除密碼雜湊/權杖）
   - ``create_encrypted_export``：加密 ZIP roundtrip（解密驗內容、僅本人對話、事實、
     個人硬碟檔、profile 無機密）、記憶不可用時優雅降級
+  - 個人硬碟不跟隨連結（ADR-0293）：根是連結整個略過、裡面的連結不打包；data 根換到
+    ``zone_data_root``（``tmp_path``），不碰 ``data/``
   - ``POST /auth/export-my-data`` 端點：需登入、密碼錯誤 401、密語過短 422、happy path
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 
 import memory_server.tools as mtmod
-import pytest
 import pyzipper
 from fastapi.testclient import TestClient
 from src.main import app
@@ -22,6 +24,8 @@ from src.models.user import User
 from src.routers.auth import get_current_user
 from src.services import gdpr_export_service as gx
 from src.services.auth_service import AuthService
+
+from tests.support.links import LINK_FOLLOWED, make_dir_link
 
 _PHRASE = "passphrase-123456"  # ≥12 字
 
@@ -32,6 +36,21 @@ def _clear():
 
 async def _empty():
     return []
+
+
+def _drive(zone_data_root, agent="A"):
+    """沒有靈魂資料夾的 agent，個人硬碟在 ``custom/<id>/drive``（和 agent_drive 相同）。"""
+    folder = zone_data_root / "custom" / agent / "drive"
+    folder.mkdir(parents=True)
+    return folder
+
+
+def _outside(tmp_path):
+    """連結的另一端：根外面的假設定資料夾。"""
+    folder = tmp_path.resolve() / "fake_config"
+    folder.mkdir()
+    (folder / "users.json").write_text("TOUKA_AUTH_SECRET=leak", encoding="utf-8")
+    return folder
 
 
 # ── ToukaMemory: export_facts 動作 ─────────────────────────────────────────────
@@ -80,7 +99,7 @@ def test_sanitize_user_excludes_secrets():
 
 # ── service: 加密 ZIP roundtrip ────────────────────────────────────────────────
 
-async def test_create_encrypted_export_roundtrip(tmp_path, monkeypatch):
+async def test_create_encrypted_export_roundtrip(zone_data_root, monkeypatch):
     user = User(
         id="U1", email="u1@touka.io", hashed_password="secret-hash",
         owned_agents=["A"], display_name="Alice", bio="hi",
@@ -101,16 +120,8 @@ async def test_create_encrypted_export_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(gx.session_service, "get_all_sessions", fake_sessions)
     monkeypatch.setattr(gx.session_service, "get_all_projects", fake_projects)
 
-    pdir = tmp_path / "personal" / "A"
-    pdir.mkdir(parents=True)
-    (pdir / "note.txt").write_text("agent A file", encoding="utf-8")
-
-    def fake_vault(vault, identity):
-        return str(pdir) if (vault == "personal" and identity.agent_id == "A") else None
-
-    monkeypatch.setattr(gx.resource_manager, "get_vault_path", fake_vault)
-    # 根目錄圍堵檢查需 app_data 涵蓋 pdir（pdir 在 tmp_path 下）。
-    monkeypatch.setattr(gx.resource_manager, "get_base_path", lambda: str(tmp_path))
+    (_drive(zone_data_root) / "note.txt").write_text("agent A file", encoding="utf-8")
+    (_drive(zone_data_root, "B") / "other.txt").write_text("not mine", encoding="utf-8")
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
 
     async def fake_facts(identity):
@@ -142,6 +153,7 @@ async def test_create_encrypted_export_roundtrip(tmp_path, monkeypatch):
             assert facts["count"] == 2
 
             assert zf.read("agents/A/files/note.txt").decode() == "agent A file"
+            assert not any(name.startswith("agents/B/") for name in names)  # 別人的 agent
 
             manifest = json.loads(zf.read("manifest.json"))
             assert manifest["counts"]["conversations"] == 1
@@ -150,7 +162,7 @@ async def test_create_encrypted_export_roundtrip(tmp_path, monkeypatch):
         enc.unlink(missing_ok=True)
 
 
-async def test_export_includes_owner_user_id_bare_model_conversations(tmp_path, monkeypatch):
+async def test_export_includes_owner_user_id_bare_model_conversations(zone_data_root, monkeypatch):
     """G-2（ADR-0110 × ADR-0132）：使用者「擁有」的裸模型對話（owner_user_id==user.id 且
     agent_id 非 owned agent，如與 gemini-2.5-flash 直聊）必須納入 GDPR 匯出；他人擁有的
     （owner_user_id 不符）仍排除。防回歸：匯出過濾須是 agent_id∈owned ∪ owner_user_id==user.id。"""
@@ -166,7 +178,6 @@ async def test_export_includes_owner_user_id_bare_model_conversations(tmp_path, 
 
     monkeypatch.setattr(gx.session_service, "get_all_sessions", fake_sessions)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
-    monkeypatch.setattr(gx.resource_manager, "get_vault_path", lambda _v, _i: None)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
 
     async def no_facts(_i):
@@ -186,24 +197,12 @@ async def test_export_includes_owner_user_id_bare_model_conversations(tmp_path, 
         enc.unlink(missing_ok=True)
 
 
-async def test_export_skips_symlink_escape(tmp_path, monkeypatch):
-    """複審 High：個人硬碟內指向外部機密的 symlink 不得被打包（防 .env/users.db 外洩）。"""
-    app_data = tmp_path / "appdata"
-    pdir = app_data / "personal" / "A"
-    pdir.mkdir(parents=True)
+async def test_export_skips_symlink_escape(zone_data_root, tmp_path, monkeypatch):
+    """複審 High：個人硬碟內指向外部機密的連結不得被打包（防 .env/users.db 外洩；ADR-0293）。"""
+    pdir = _drive(zone_data_root)
     (pdir / "ok.txt").write_text("safe-content", encoding="utf-8")
-    secret = tmp_path / "secret.env"
-    secret.write_text("TOUKA_AUTH_SECRET=leak", encoding="utf-8")
-    try:
-        (pdir / "leak.txt").symlink_to(secret)
-    except (OSError, NotImplementedError):
-        pytest.skip("symlink 在此平台無權限建立（生產 junction 由 resolve() 同樣攔下）")
+    make_dir_link(pdir / "leak", _outside(tmp_path))
 
-    monkeypatch.setattr(gx.resource_manager, "get_base_path", lambda: str(app_data))
-    monkeypatch.setattr(
-        gx.resource_manager, "get_vault_path",
-        lambda v, _i: str(pdir) if v == "personal" else None,
-    )
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
@@ -217,31 +216,19 @@ async def test_export_skips_symlink_escape(tmp_path, monkeypatch):
         with pyzipper.AESZipFile(str(enc)) as zf:
             zf.setpassword(_PHRASE.encode())
             names = set(zf.namelist())
+            assert not any("users.json" in name for name in names), LINK_FOLLOWED
             assert "agents/A/files/ok.txt" in names  # 正常檔仍匯出
-            assert "agents/A/files/leak.txt" not in names  # symlink 逃逸被擋
             manifest = json.loads(zf.read("manifest.json"))
-            assert any(s.get("reason") == "symlink_escape" for s in manifest.get("skipped", []))
+            skipped = {"agent": "A", "vault": "files", "reason": "symlink_escape", "count": 1}
+            assert skipped in manifest["skipped"]
     finally:
         enc.unlink(missing_ok=True)
 
 
-async def test_export_excludes_escaping_file_deterministic(tmp_path, monkeypatch):
-    """平台無關（複審 High 防回歸）：逐檔逃逸檢查回 False 的檔案不得入包、且記入 manifest。"""
-    app_data = tmp_path / "appdata"
-    pdir = app_data / "personal" / "A"
-    pdir.mkdir(parents=True)
-    (pdir / "ok.txt").write_text("safe", encoding="utf-8")
-    (pdir / "escape.txt").write_text("would-leak", encoding="utf-8")
-
-    def fake_escape_check(path, _root):  # 模擬 escape.txt 解析後逃出 vault 根
-        return path.name != "escape.txt"
-
-    monkeypatch.setattr(gx, "validate_no_symlink_escape", fake_escape_check)
-    monkeypatch.setattr(gx.resource_manager, "get_base_path", lambda: str(app_data))
-    monkeypatch.setattr(
-        gx.resource_manager, "get_vault_path",
-        lambda v, _i: str(pdir) if v == "personal" else None,
-    )
+async def test_export_skips_a_linked_drive_root(zone_data_root, tmp_path, monkeypatch):
+    """個人硬碟根本身是連結：整個略過、記入 manifest，連結另一端一個檔都不打包（ADR-0293）。"""
+    (zone_data_root / "custom" / "A").mkdir(parents=True)
+    make_dir_link(zone_data_root / "custom" / "A" / "drive", _outside(tmp_path))
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
@@ -255,28 +242,56 @@ async def test_export_excludes_escaping_file_deterministic(tmp_path, monkeypatch
         with pyzipper.AESZipFile(str(enc)) as zf:
             zf.setpassword(_PHRASE.encode())
             names = set(zf.namelist())
-            assert "agents/A/files/ok.txt" in names
-            assert "agents/A/files/escape.txt" not in names
+            assert not any(name.startswith("agents/A/files/") for name in names), LINK_FOLLOWED
             manifest = json.loads(zf.read("manifest.json"))
-            assert any(s.get("reason") == "symlink_escape" for s in manifest.get("skipped", []))
+            skipped = {"agent": "A", "vault": "files", "reason": "root_escapes_app_data"}
+            assert skipped in manifest["skipped"]
     finally:
         enc.unlink(missing_ok=True)
 
 
-async def test_export_skips_oversize_file(tmp_path, monkeypatch):
+async def test_a_folder_swapped_for_a_link_after_collection_is_not_packed(
+    zone_data_root, tmp_path, monkeypatch
+):
+    """收集之後、寫 zip 之前把資料夾換成連結：另一端的檔案不打包（ADR-0293；舊版會跟隨）。"""
+    pdir = _drive(zone_data_root)
+    (pdir / "sub").mkdir()
+    (pdir / "sub" / "a.txt").write_text("mine", encoding="utf-8")
+    fake = _outside(tmp_path)
+    (fake / "a.txt").write_text("TOUKA_AUTH_SECRET=leak", encoding="utf-8")
+    write_zip = gx._write_plaintext_zip
+
+    def swap_then_write(*args):
+        shutil.rmtree(pdir / "sub")
+        make_dir_link(pdir / "sub", fake)
+        return write_zip(*args)
+
+    monkeypatch.setattr(gx, "_write_plaintext_zip", swap_then_write)
+    monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
+    monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
+    monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
+
+    async def no_facts(_i):
+        return None
+
+    user = User(id="U6", email="u6@touka.io", hashed_password="h", owned_agents=["A"])
+    enc = await gx.create_encrypted_export(user, _PHRASE, facts_fn=no_facts)
+    try:
+        with pyzipper.AESZipFile(str(enc)) as zf:
+            zf.setpassword(_PHRASE.encode())
+            packed = [zf.read(name) for name in zf.namelist()]
+    finally:
+        enc.unlink(missing_ok=True)
+    assert not any(b"leak" in content for content in packed), LINK_FOLLOWED
+
+
+async def test_export_skips_oversize_file(zone_data_root, monkeypatch):
     """複審 Med（防 OOM DoS）：超過單檔上限者略過、記入 manifest（不入包）。"""
-    app_data = tmp_path / "appdata"
-    pdir = app_data / "personal" / "A"
-    pdir.mkdir(parents=True)
+    pdir = _drive(zone_data_root)
     (pdir / "small.txt").write_text("ok", encoding="utf-8")
     (pdir / "big.bin").write_bytes(b"x" * 50)
 
     monkeypatch.setattr(gx, "_MAX_FILE_BYTES", 10)  # 縮小上限以測試
-    monkeypatch.setattr(gx.resource_manager, "get_base_path", lambda: str(app_data))
-    monkeypatch.setattr(
-        gx.resource_manager, "get_vault_path",
-        lambda v, _i: str(pdir) if v == "personal" else None,
-    )
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
@@ -298,11 +313,10 @@ async def test_export_skips_oversize_file(tmp_path, monkeypatch):
         enc.unlink(missing_ok=True)
 
 
-async def test_export_facts_unavailable_is_graceful(tmp_path, monkeypatch):
+async def test_export_facts_unavailable_is_graceful(zone_data_root, monkeypatch):
     user = User(id="U2", email="u2@touka.io", hashed_password="h", owned_agents=["A"])
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
-    monkeypatch.setattr(gx.resource_manager, "get_vault_path", lambda _v, _i: None)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
 
     async def no_facts(_identity):
@@ -321,12 +335,11 @@ async def test_export_facts_unavailable_is_graceful(tmp_path, monkeypatch):
         enc.unlink(missing_ok=True)
 
 
-async def test_export_includes_the_activity_timeline_of_owned_agents(tmp_path, monkeypatch):
+async def test_export_includes_the_activity_timeline_of_owned_agents(zone_data_root, monkeypatch):
     """活動時間軸（只有時間與識別碼）跟著自有 agent 匯出；別人的不在包裡。"""
     user = User(id="U3", email="u3@touka.io", hashed_password="h", owned_agents=["A"])
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
-    monkeypatch.setattr(gx.resource_manager, "get_vault_path", lambda _v, _i: None)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
     seen: list[str] = []
 
@@ -356,11 +369,10 @@ async def test_export_includes_the_activity_timeline_of_owned_agents(tmp_path, m
     assert seen == ["A"]  # 只查自有 agent
 
 
-async def test_export_lists_an_unreadable_timeline_in_skipped(tmp_path, monkeypatch):
+async def test_export_lists_an_unreadable_timeline_in_skipped(zone_data_root, monkeypatch):
     user = User(id="U4", email="u4@touka.io", hashed_password="h", owned_agents=["A"])
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
     monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
-    monkeypatch.setattr(gx.resource_manager, "get_vault_path", lambda _v, _i: None)
     monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
 
     async def broken_timeline(_identity):

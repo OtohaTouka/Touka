@@ -4,7 +4,11 @@
 端點能「真的」終止正在跑的 bash 指令（硬中斷），而非只設軟中斷旗標、等迴圈邊界。
 
 bash 工具於執行期登記、結束時註銷；`/stop` 呼叫 ``terminate_session`` 強殺。
+登記時可帶 ``agent_id``（終端與互審驗證指令）：重置、刪除以 ``terminate_agent`` 跨 session
+停掉這個代理人的全部子行程（ADR-0293 R11）。
 """
+
+from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -13,10 +17,14 @@ import os
 import signal
 import subprocess
 import sys
-from collections.abc import Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.utils.task_utils import spawn_logged
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -127,38 +135,41 @@ class ProcessRegistry:
 
     Attributes:
         _session_processes (dict[str, set[Any]]): session_id → 執行中子進程集合。
+        _agent_processes (dict[str, set[Any]]): agent_id（casefold）→ 執行中子進程集合。
     """
 
     def __init__(self) -> None:
         """初始化登記表。"""
         self._session_processes: dict[str, set[Any]] = {}
+        self._agent_processes: dict[str, set[Any]] = {}
 
-    def register(self, session_id: str | None, proc: Any) -> None:
-        """登記一個執行中子進程到指定會話（session_id 為空則略過）。
+    def register(self, session_id: str | None, proc: Any, *, agent_id: str | None = None) -> None:
+        """登記一個執行中子進程到指定會話與代理人（兩者都為空則略過）。
 
         Args:
             session_id (str | None): 會話識別碼。
             proc (Any): asyncio subprocess 物件（需具 kill() 與 returncode）。
+            agent_id (str | None): 代理人 ID（不分大小寫；重置、刪除時跨 session 停掉）。
         """
-        if not session_id or proc is None:
+        if proc is None:
             return
-        self._session_processes.setdefault(session_id, set()).add(proc)
+        if session_id:
+            self._session_processes.setdefault(session_id, set()).add(proc)
+        if agent_id:
+            self._agent_processes.setdefault(agent_id.casefold(), set()).add(proc)
 
-    def unregister(self, session_id: str | None, proc: Any) -> None:
-        """子進程結束後從會話登記中移除。
+    def unregister(self, session_id: str | None, proc: Any, *, agent_id: str | None = None) -> None:
+        """子進程結束後從會話與代理人的登記中移除。
 
         Args:
             session_id (str | None): 會話識別碼。
             proc (Any): 先前登記的子進程物件。
+            agent_id (str | None): 登記時帶的代理人 ID。
         """
-        if not session_id:
-            return
-        procs = self._session_processes.get(session_id)
-        if not procs:
-            return
-        procs.discard(proc)
-        if not procs:
-            self._session_processes.pop(session_id, None)
+        if session_id:
+            _discard(self._session_processes, session_id, proc)
+        if agent_id:
+            _discard(self._agent_processes, agent_id.casefold(), proc)
 
     def pop_session(self, session_id: str) -> list[Any]:
         """取出並移除某會話登記中的子進程（在事件迴圈上呼叫；之後才到執行緒裡殺）。
@@ -182,6 +193,20 @@ class ProcessRegistry:
         """
         return terminate_processes(self.pop_session(session_id), session_id)
 
+    def terminate_agent(self, identity: AgentIdentity) -> int:
+        """強制終止某代理人所有登記中的子進程（跨 session；同步，可在執行緒裡呼叫）。
+
+        session 的登記照舊由行程結束時的 ``unregister`` 移除。
+
+        Args:
+            identity (AgentIdentity): 要停掉指令的代理人（ID 不分大小寫）。
+
+        Returns:
+            int: 實際送出終止訊號的子進程數量。
+        """
+        procs = list(self._agent_processes.pop(identity.agent_id.casefold(), None) or ())
+        return terminate_processes(procs, f"agent {identity.agent_id}")
+
     def count(self, session_id: str) -> int:
         """回傳某會話目前登記中的子進程數量。"""
         return len(self._session_processes.get(session_id, ()))
@@ -189,6 +214,16 @@ class ProcessRegistry:
     def reload_all(self) -> None:
         """清空所有登記（SSOT：供測試環境重置）。"""
         self._session_processes.clear()
+        self._agent_processes.clear()
+
+
+def _discard(table: dict[str, set[Any]], key: str, proc: Any) -> None:
+    procs = table.get(key)
+    if not procs:
+        return
+    procs.discard(proc)
+    if not procs:
+        table.pop(key, None)
 
 
 # 全系統單例

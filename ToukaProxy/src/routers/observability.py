@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 import psutil
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from memory_server.factual import FactsSchemaStatus, FactualStore, find_unmigrated_jsonl_agents
+from memory_server.utils.memory_worker import run_memory_job
+from memory_server.utils.zone_paths import Anchor
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
@@ -33,6 +35,7 @@ from src.services.isolation.status import IsolationSnapshot, isolation_monitor
 from src.services.mcp_isolation_store import McpIsolationStore
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
+from src.utils.soul_tool_selection import TOOL_COMPANIONS
 from src.utils.time_utils import get_current_epoch, get_current_taipei_iso
 
 logger = logging.getLogger(__name__)
@@ -280,8 +283,9 @@ async def get_memory_list(
             get_manager,  # noqa: LOCAL_IMPORT_BAN — 整合層延遲匯入，ToukaProxy 獨立運作時 ImportError
         )
         manager = get_manager()
-        factual = manager.get_factual_store()
-        all_facts = factual.query_all_facts(limit=MEMORY_LIST_LIMIT)
+        all_facts = await run_memory_job(  # 在記憶工作者上讀（ADR-0288）
+            lambda: manager.get_factual_store().query_all_facts(limit=MEMORY_LIST_LIMIT)
+        )
         memories = [_fact_to_memory_dto(f) for f in all_facts]
         return {"memories": memories}
     except ImportError:
@@ -306,7 +310,9 @@ async def get_memory_health(
         "facts": check_exists(["vault", "core_memory.db"]),
         "vector": check_exists(["vault", "_qdrant_db"]),
         "legacy": Path(Path(base_dir) / "legacy").is_dir(),
-        "personal": Path(Path(base_dir) / "personal_drive").is_dir(),
+        # 個人空間的錨點經區內方法看（ADR-0293）
+        "personal": resource_manager.zone_kind(resource_manager.anchor_root(Anchor.PERSONAL_DRIVE))
+        == "dir",
     }
 
 
@@ -461,7 +467,10 @@ async def get_tools_stats(
                     "description": fn.get("description", ""),
                     "parameters": fn.get("parameters", {})
                 },
-                "category": f"MCP: {server_id}"
+                "category": f"MCP: {server_id}",
+                # 靈魂工具清單存 `伺服器/工具`（ADR-0281 T2）：分開給，不從廣告名切
+                "server": server_id,
+                "tool": tool_schema.get("tool") or display_name,
             })
     except Exception as e:
         logger.warning(f"Failed to fetch MCP stats: {e}")
@@ -470,7 +479,8 @@ async def get_tools_stats(
         "builtin_schemas": ctx.get("builtin_tools_schema", []),
         "memory_schemas": ctx.get("memory_tools_schema", []),
         "plugin_schemas": ctx.get("plugin_schemas", []),
-        "mcp_schemas": mcp_schemas
+        "mcp_schemas": mcp_schemas,
+        "tool_companions": {tool: list(names) for tool, names in TOOL_COMPANIONS.items()},
     }
 
 

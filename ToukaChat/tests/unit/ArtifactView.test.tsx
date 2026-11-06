@@ -46,12 +46,9 @@ vi.mock('@/lib/bridge', () => ({
   isIDE: vi.fn(() => false),
 }));
 
-// Mock mermaid
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    render: vi.fn(),
-  }
+// 流程圖在沙箱框裡畫（ADR-0294）
+vi.mock('@/lib/artifacts/mermaidSandbox', () => ({
+  renderMermaidInSandbox: vi.fn(),
 }));
 
 describe('ArtifactView (Frontend Sandbox Defense)', () => {

@@ -32,8 +32,8 @@ from src.middleware.layers import soul as soul_mod
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.services import continuity_service
-from src.services.tool_executor import record_tool_usage
 from src.utils.async_db import init_db_async, session_service
+from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 from . import harness as upstream_harness
 from .harness import (
@@ -125,7 +125,10 @@ def _executor_returning(text: str) -> Any:
     def _factory(_clock: dict) -> Any:
         async def _execute(name: str, args: dict, _rid: str, _ctx: Any, queue: Any,
                            **kwargs: Any) -> str:
-            record_tool_usage(kwargs.get("actually_used_tools"), name, args)
+            used = kwargs.get("actually_used_tools")
+            record_tool_usage(used, name, args)
+            record_tool_executed(used, name, args)
+            record_tool_succeeded(used, name, args)
             await queue.put(None)
             return text
 

@@ -19,8 +19,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from memory_server.utils.zone_paths import ALL_ANCHORS, Anchor, zone_of
+
 from src.sandbox_kernel import owner_repair
-from src.services.isolation.profiles import current_layout
+from src.services.isolation.profiles import current_layout, layout_zone_roots
 from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
 from src.utils.permission_repair import set_permission_repair
@@ -53,6 +55,9 @@ _GROUPS = {
     "nothing_changed": (logging.INFO, "unchanged", UNCHANGED_BURST),
 }
 _AGENT, _STATE = "agent_area", "state_area"
+# 代理人或技能那段佔幾段（W2～W4）；ST 底下只有 ``proxy``（W7）
+_ZONE_DEPTH = {Anchor.PERSONAL_DRIVE: 1, Anchor.CUSTOM_DRIVE: 2, Anchor.MCP_SERVERS: 1}
+_STATE_PROXY = "proxy"
 
 
 @dataclass(frozen=True)
@@ -76,27 +81,32 @@ def reserved_roots(layout: SandboxLayout) -> frozenset[Path]:
 
 
 def match_whitelist(target: Path, layout: SandboxLayout) -> WhitelistMatch | None:
-    """``target`` 落在哪一條白名單；不在回 None（``*`` 段要通過 ``is_safe_segment``）。"""
-    data, state = layout.data_root, layout.state_root
-    families = [
-        (data / "personal_drive", ("*",), _AGENT),
-        (data / "mcp_servers", ("managed", "*"), _AGENT),
-        (data / "custom", ("*", "drive"), _AGENT),
-        *([(state, ("proxy",), _STATE)] if state is not None else []),
-    ]
-    for base, pattern, kind in families:
-        if not target.is_relative_to(base):
-            continue
-        head = target.relative_to(base).parts[: len(pattern)]
-        pairs = zip(pattern, head, strict=False)
-        if any(want not in ("*", got) or not is_safe_segment(got) for want, got in pairs):
-            return None
-        reserved = target in reserved_roots(layout)
-        if not reserved and len(head) < len(pattern):
-            return None
-        kind = "mount_root" if reserved and kind == _AGENT else kind
-        return WhitelistMatch(base, base.joinpath(*head), kind, reserved)
-    return None
+    """``target`` 落在哪一條白名單；不在回 None（代理人或技能那段要通過 ``is_safe_segment``）.
+
+    區（``personal_drive/*``、``custom/*/drive``、``mcp_servers/managed/*``、``ST/proxy``）經
+    ``zone_of`` 只看字面判斷（ADR-0293 R3；解析前後由呼叫端各比一次）；根本身照 ``reserved_roots``。
+    """
+    reserved = reserved_roots(layout)
+    if target in reserved:
+        root = next(p for p in (*reversed(target.parents), target) if p in reserved)
+        kind = _STATE if root == layout.state_root else "mount_root"
+        return WhitelistMatch(root, target, kind, True)
+    found = zone_of(target, layout_zone_roots(layout), anchors=ALL_ANCHORS, follow=False)
+    if found is None:
+        return None
+    anchor, rest = found
+    if anchor is Anchor.SANDBOX_STATE and rest[0] == _STATE_PROXY:
+        depth, kind = 1, _STATE
+    elif anchor in _ZONE_DEPTH:
+        depth, kind = _ZONE_DEPTH[anchor], _AGENT
+    else:
+        return None  # docgen 輸出夾、ST 的其他地方不在白名單
+    head = rest[:depth]
+    if not all(is_safe_segment(part) for part in head):
+        return None
+    base = Path(*target.parts[: len(target.parts) - len(rest)])
+    root = base.parent if anchor is Anchor.MCP_SERVERS else base  # 技能從 mcp_servers 起走（W1）
+    return WhitelistMatch(root, base.joinpath(*head), kind, False)
 
 
 def _absolute(raw: object) -> Path | None:

@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +26,8 @@ from memory_server.utils.collection_names import (  # fact_point_id 原名照舊
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
@@ -33,6 +37,25 @@ _SCROLL_PAGE_SIZE = 256  # count_points_outside 每頁讀幾個點 ID
 # e5 的值由人工 probe 用 e5-base 校準（tests/smoke/manual/embedding_threshold_probe.py）。
 DEFAULT_QUERY_SCORE_FLOOR = 0.3
 QUERY_SCORE_FLOORS: dict[str | None, float] = {"e5": 0.65}
+# 保險（ADR-0288）：平常只有記憶工作者在用向量庫；整個行程共用一把（Qdrant client 依路徑共用），
+# 每個公開方法整段持有，「先查再建 collection」與延遲載入模型不會被別的執行緒插進來
+_STORE_LOCK = threading.RLock()
+
+
+def _locked[**P, R](method: Callable[P, R]) -> Callable[P, R]:
+    @functools.wraps(method)
+    def call(*args: P.args, **kwargs: P.kwargs) -> R:
+        with _STORE_LOCK:
+            return method(*args, **kwargs)
+
+    return call
+
+
+class SemanticSearchUnavailableError(Exception):
+    """語意查詢沒做成（向量庫讀不到、嵌入模型或查詢失敗）；不能當成「沒有相似的記憶」."""
+
+    def __init__(self) -> None:
+        super().__init__("Semantic search is unavailable")
 
 
 def embedding_family(model_name: str | None) -> str | None:
@@ -68,6 +91,7 @@ class VectorStore:
     _client_cache: dict[str, QdrantClient] = {}
 
     @classmethod
+    @_locked
     def close_all_clients(cls) -> None:
         """關閉所有快取 Qdrant clients；即使其中一個失敗仍完成其餘清理。"""
         clients = tuple(cls._client_cache.values())
@@ -84,6 +108,7 @@ class VectorStore:
         if first_error is not None:
             raise first_error
 
+    @_locked
     def __init__(
         self,
         base_dir: str | Path | None = None,
@@ -117,6 +142,7 @@ class VectorStore:
         self.client = VectorStore._client_cache[client_key]
 
     @property
+    @_locked
     def model(self) -> SentenceTransformer:
         """延遲載入 Embedding 模型以節省啟動時間."""
         if self._model is None:
@@ -124,6 +150,7 @@ class VectorStore:
             self._model = SentenceTransformer(self.model_name, trust_remote_code=False)
         return self._model
 
+    @_locked
     def get_embedding(self, text: str) -> list[float]:
         """將文字轉為向量，具備內部快取功能.
 
@@ -159,6 +186,7 @@ class VectorStore:
             )
             logger.info(f"✨ [Vector] Created new collection for agent: {identity.agent_id}")
 
+    @_locked
     def drop_agent(self, identity: AgentIdentity) -> int:
         """刪除某 agent 的整個向量 collection（破壞性重置 Batch 6）。回**實際刪除的向量點數**。
 
@@ -173,10 +201,12 @@ class VectorStore:
         logger.info(f"🗑️ [Vector] Dropped collection for agent: {identity.agent_id} ({n} points)")
         return n
 
+    @_locked
     def has_agent_collection(self, identity: AgentIdentity) -> bool:
         """某 agent 的向量 collection 是否還在（空的也算；刪除靈魂前檢查用）。"""
         return bool(self.client.collection_exists(self.get_collection_name(identity)))
 
+    @_locked
     def agent_point_count(self, identity: AgentIdentity) -> int:
         """某 agent 的向量數（完整性自檢；無 collection 回 0）。"""
         name = self.get_collection_name(identity)
@@ -184,6 +214,7 @@ class VectorStore:
             return 0
         return int(self.client.count(collection_name=name).count)
 
+    @_locked
     def delete_points(self, identity: AgentIdentity, point_ids: list[str]) -> int:
         """只刪指定的點（collection 名稱和別人撞名時的重置用）；回傳實際刪掉的數量."""
         name = self.get_collection_name(identity)
@@ -199,6 +230,7 @@ class VectorStore:
             self.client.delete(collection_name=name, points_selector=PointIdsList(points=present))
         return len(present)
 
+    @_locked
     def count_points_outside(self, identity: AgentIdentity, keep_point_ids: set[str]) -> int:
         """數 collection 裡不屬於 keep 的點（撞名時的完整性自檢；別人的孤兒點也會算進來）."""
         name = self.get_collection_name(identity)
@@ -217,6 +249,7 @@ class VectorStore:
             if offset is None:
                 return count
 
+    @_locked
     def save_vector(
         self,
         identity: AgentIdentity,
@@ -272,6 +305,7 @@ class VectorStore:
         else:
             return True
 
+    @_locked
     def indexed_fact_ids(self, identity: AgentIdentity, fact_ids: list[str]) -> set[str]:
         """這些事實裡已經有向量的那些（只看 point 在不在，不載入模型、不算向量）."""
         name = self.get_collection_name(identity)
@@ -283,6 +317,7 @@ class VectorStore:
         )
         return {by_point[str(record.id)] for record in records if str(record.id) in by_point}
 
+    @_locked
     def query_vectors(
         self,
         identity: AgentIdentity,
@@ -311,13 +346,15 @@ class VectorStore:
             date_end (int | None): 時間範圍結束。
 
         Returns:
-            list[dict[str, Any]]: 檢索結果列表。
+            list[dict[str, Any]]: 檢索結果列表；這個身分還沒有向量庫時是空的。
+
+        Raises:
+            SemanticSearchUnavailableError: 查詢沒做成（原例外在 ``__cause__``）。
         """
         name = self.get_collection_name(identity)
-        if not self.client.collection_exists(name):
-            return []
-
         try:
+            if not self.client.collection_exists(name):
+                return []
             query_vector = self.get_embedding(
                 _format_for_embedding(self.model_name, query, is_query=True)
             )
@@ -367,10 +404,11 @@ class VectorStore:
             return [
                 hit.payload | {"_score": hit.score} for hit in search_results.points
             ]
-        except Exception:
+        except Exception as exc:
             logger.exception(f"❌ [Vector] Error querying vectors for {identity.agent_id}")
-            return []
+            raise SemanticSearchUnavailableError from exc
 
+    @_locked
     def archive_vector_by_fact_id(self, identity: AgentIdentity, fact_id: str) -> bool:
         """封存指定的向量記憶.
 

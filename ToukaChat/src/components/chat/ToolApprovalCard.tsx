@@ -142,6 +142,14 @@ export function ToolApprovalCard({ step }: { step: ToolStep }) {
         </p>
       )}
 
+      {step.approval?.hookReason !== undefined && (
+        <p className="text-xs whitespace-pre-wrap break-words opacity-80">
+          {step.approval.hookReason
+            ? t("chat.tool_approval_card.hook_reason", { reason: step.approval.hookReason })
+            : t("chat.tool_approval_card.hook_ask")}
+        </p>
+      )}
+
       {argsPreview && (
         <div className="rounded-lg bg-background/60 p-2 text-xs flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">
           {argsPreview}

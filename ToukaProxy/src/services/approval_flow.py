@@ -23,6 +23,7 @@ from src.services.approval_service import (
     DEFAULT_TIMEOUT_S,
     approval_service,
 )
+from src.services.hooks.notifications import notify_approval_card
 from src.services.isolation.consent import ConsentKey, consent_ledger, consent_subject
 from src.services.isolation.policy import policy_level
 from src.services.isolation.profiles import authorize_derived_path, current_layout
@@ -297,12 +298,15 @@ async def await_human_approval(
     risk: str,
     emit: EventSink,
     review_reason: str | None = None,
+    hook_reason: str | None = None,
     human_only: bool = False,
+    on_card_shown: Callable[[], None] | None = None,
 ) -> str:
     """回 "approved"|"rejected"|"timeout"|"queue_full"。
 
     先登記後推卡（避免極速 approve 撞 404）；解算事件一律回推（含逾時），卡片狀態可收斂。
-    卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）。
+    卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）；hook 要求人核准時
+    另帶 hook 的理由（可為空字串，ADR-0292）。
     """
     exec_id = f"appr_{uuid.uuid4().hex[:10]}"
     key = ConsentKey(agent_id, session_id or "", call_id)
@@ -332,10 +336,13 @@ async def await_human_approval(
             risk=risk,
             timeout_s=DEFAULT_TIMEOUT_S,
             review_reason=review_reason,
+            hook_reason=hook_reason,
             human_only=human_only,
             isolation=isolation.event_field() if isolation else None,
         )
     )
+    if on_card_shown is not None:
+        on_card_shown()
     await emit({"type": "touka_status", "status": f"awaiting_approval: {name}"})
 
     resolution = await approval_service.wait_for_resolution(exec_id)
@@ -420,6 +427,7 @@ class CommandApprover:
             emit=self._emit,
             review_reason=review_reason,
             human_only=human_only,
+            on_card_shown=lambda: notify_approval_card(self._ctx, self.tool_name),
         )
         if verdict == "approved":
             self._open.append((call_id, cmd))

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.services import proxy_service
@@ -106,3 +107,14 @@ async def test_cross_family_fallback_is_off(monkeypatch, dispatch, caplog, prima
         await _run(monkeypatch, primary, last_working)
     assert dispatch.await_count == 1
     assert "跨廠商備援已關閉" in caplog.text
+
+
+async def test_a_stopped_request_is_not_retried_on_another_model(monkeypatch, dispatch, caplog):
+    """使用者按了停止（ADR-0292）不是模型失敗：不改用上次能用的模型、不記成主要模型失敗。"""
+    dispatch.side_effect = [ToukaException(ErrorCode.PROMPT_STOPPED), "fallback-response"]
+    caplog.set_level(logging.INFO, logger=proxy_service.logger.name)
+    with pytest.raises(ToukaException) as raised:
+        await _run(monkeypatch, "claude-opus-4-8", "claude-sonnet-4-6")
+    assert raised.value.code is ErrorCode.PROMPT_STOPPED
+    assert dispatch.await_count == 1
+    assert "Primary brain" not in caplog.text

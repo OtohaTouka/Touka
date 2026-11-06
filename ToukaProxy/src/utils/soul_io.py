@@ -10,13 +10,19 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from memory_server.utils.zone_paths import (
+    ALL_ANCHORS,
+    contains_zone,
+    current_roots,
+    is_zone_segment,
+    zone_of,
+)
+
+from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
-
-if TYPE_CHECKING:
-    from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +37,20 @@ def _safe_target(base: Path, filename: str) -> Path | None:
     un-resolved and was defeated by a sibling-prefix dir (``/soul/AgentX-evil`` starts
     with ``/soul/AgentX``). ``validate_no_symlink_escape`` resolves BOTH sides and uses
     ``is_relative_to``, also blocking symlink/``..`` escapes. Returns None if outside.
+
+    ADR-0293 PR 2：``filename`` 來自模型，只收單層名稱（擋 ``sub/x``）；``base/filename`` 也不能
+    在代理人資料夾裡或是它的根（擋自訂模型靈魂根 ``custom/<id>`` 底下的 ``drive``）。靈魂根的
+    區外部分只有 Touka 寫得到，單層名稱與它的 ``.tmp``、``.bak`` 都在區外。
     """
+    if not is_zone_segment(filename):
+        logger.warning("🚫 Soul file name is not a single level: %r", filename)
+        return None
     target = base / filename
+    roots = current_roots()
+    in_zone = zone_of(target, roots, anchors=ALL_ANCHORS) is not None
+    if in_zone or contains_zone(target, roots, anchors=ALL_ANCHORS):
+        logger.warning("🚫 Soul file is in an agent folder: %s", filename)
+        return None
     if not validate_no_symlink_escape(target, base):
         logger.warning("🚫 Soul sandbox violation: %s", filename)
         return None
@@ -121,6 +139,8 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
     """
     if base_name not in _SOUL_STORAGE_BASES:
         return "violation"
+    if base_name == "personal_drive":
+        return _remove_soul_drive(agent_id)
     base = Path(resource_manager.get_base_path()) / base_name
     target = base / agent_id
     if not validate_no_symlink_escape(target, base) or target.resolve() == base.resolve():
@@ -135,6 +155,22 @@ def remove_soul_storage_dir(base_name: str, agent_id: str) -> str:
         return "error"
     else:
         return "removed"
+
+
+def _remove_soul_drive(agent_id: str) -> str:
+    """個人空間走區內方法（ADR-0293）：本身是連結只刪連結，樹裡的連結也只刪本身."""
+    drive = resource_manager.soul_drive(AgentIdentity(agent_id=agent_id))
+    if drive is None:
+        logger.warning("🚫 Soul purge sandbox violation: personal_drive/%s", agent_id)
+        return "violation"
+    try:
+        kind = resource_manager.zone_kind(drive)
+        if kind != "missing":
+            resource_manager.zone_remove_dir(drive)
+    except Exception:
+        logger.exception("Failed to purge personal_drive/%s", agent_id)
+        return "error"
+    return "absent" if kind == "missing" else "removed"
 
 
 def purge_soul_storage(agent_id: str) -> dict[str, str]:

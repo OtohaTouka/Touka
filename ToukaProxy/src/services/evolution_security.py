@@ -2,20 +2,28 @@
 
 負責演化過程中的沙盒隔離、路徑校驗與環境淨化。
 本服務實施「預設監獄」原則，確保 Agent 產生的工具代碼無法逃逸出指定的沙盒目錄。
+技能資料夾 ``mcp_servers/managed/<skill>`` 的檔案一律經 ResourceManager 的區內方法
+（ADR-0293 PR 2）。
 """
 
 import logging
 import os
 import subprocess
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from src.config import get_app_data_dir, settings
+from memory_server.utils.no_follow import ZoneLinkRefusedError
+from memory_server.utils.zone_paths import HandoffKind, ZoneSegmentError
+
+from src.config import settings
 from src.services.execution_broker import run_sync
+from src.services.resource_manager import resource_manager
 
 if TYPE_CHECKING:
     # 只用在型別：isolation 模組（經 status）會匯入本模組，執行時匯入會循環
+    from memory_server.utils.zone_paths import ZonePath
+
     from src.sandbox_kernel.spec import RlimitName
     from src.services.isolation.evolution_command import EvolutionLaunch
 
@@ -29,15 +37,25 @@ except ImportError:  # pragma: no cover - platform dependent (Windows)
 logger = logging.getLogger(__name__)
 
 
-class EvolutionPathGuard:
-    """自主演化沙盒管理員，負責維護執行隔離邊界.
+class EvolutionRefused(Exception):
+    """演化的驗證拒絕，與隔離環境不可用分開。"""
 
-    Attributes:
-        MANAGED_BASE_DIR (Path): 存放自主演化 MCP 伺服器的物理根目錄。
-    """
-    
-    # SSOT: 鎖定受管理的 MCP 伺服器基礎目錄
-    MANAGED_BASE_DIR = Path(get_app_data_dir()) / "mcp_servers" / "managed"
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+@contextmanager
+def _skill_changed() -> Iterator[None]:
+    """技能資料夾路上有連結、或段落不合格：轉成 ``skill_changed``（ADR-0293 P10）；其他錯誤照丟."""
+    try:
+        yield
+    except (ZoneLinkRefusedError, ZoneSegmentError) as exc:
+        raise EvolutionRefused("skill_changed") from exc
+
+
+class EvolutionPathGuard:
+    """自主演化沙盒管理員，負責維護執行隔離邊界."""
 
     @staticmethod
     def is_windows() -> bool:
@@ -45,50 +63,17 @@ class EvolutionPathGuard:
         return os.name == "nt"
 
     @classmethod
-    def get_tool_root(cls, skill_id: str) -> Path:
-        """獲取該技能唯一的合法物理根目錄 (SSOT).
-        
-        Args:
-            skill_id (str): 技能/工具的唯一識別碼。
-            
-        Returns:
-            Path: 解析後的絕對路徑對象。
-        """
-        return (cls.MANAGED_BASE_DIR / skill_id).resolve()
+    def tool_zone(cls, skill_id: str) -> "ZonePath":
+        """技能資料夾 ``managed/<skill>`` 的區內路徑；名稱不合格（P9）丟 ``invalid_skill_id``."""
+        tool = resource_manager.tool_root(skill_id)
+        if tool is None:
+            raise EvolutionRefused("invalid_skill_id")
+        return tool
 
     @classmethod
-    def validate_path(cls, skill_id: str, target_path: str) -> bool:
-        """驗證目標路徑是否安全地位於工具沙盒內.
-
-        防止路徑穿透攻擊 (../../) 與絕對路徑逃逸，確保 Agent 僅能修改自己的沙盒內容。
-
-        Args:
-            skill_id (str): 技能識別碼。
-            target_path (str): 欲存取的目標路徑。
-
-        Returns:
-            bool: 若路徑安全則回傳 True。
-        """
-        root = Path(cls.get_tool_root(skill_id)).resolve()
-        try:
-            target = Path(target_path).resolve()
-        except Exception:
-            # 若路徑無法解析（如無效字元），視為不安全
-            return False
-        
-        # 核心安全性判定：target 必須位於 root 目錄下
-        # 使用 is_relative_to (Python 3.9+) 進行結構化校驗
-        try:
-            is_safe = target.is_relative_to(root)
-        except ValueError:
-            is_safe = False
-        
-        if not is_safe:
-            logger.warning(
-                f"🛡️ [Security] Sandbox escape blocked! Skill: {skill_id}, Path: {target}"
-            )
-            
-        return is_safe
+    def get_tool_root(cls, skill_id: str) -> str:
+        """技能資料夾的區字串（ADR-0293 P4）：交給 profile、子行程與部署條目，不解析最後一段."""
+        return resource_manager.zone_text(cls.tool_zone(skill_id))
 
     @classmethod
     def get_clean_env(cls) -> dict[str, str]:
@@ -151,57 +136,50 @@ class EvolutionPathGuard:
     # Removed to avoid security theatre; introducing genuine fine-grained per-skill
     # ownership enforcement should be a tracked ADR, not a silently-revived method.
 
+    # 五個檔案方法：``filename`` 只來自程式常數；路上有連結或段落不合格轉成 ``skill_changed``，
+    # 其他 OSError 照丟（ADR-0293 Q3、P10）
+
     @classmethod
     def mkdir_tool(cls, skill_id: str) -> None:
         """建立工具沙盒目錄。"""
-        root = cls.get_tool_root(skill_id)
-        root.mkdir(parents=True, exist_ok=True)
+        tool = cls.tool_zone(skill_id)
+        with _skill_changed():
+            resource_manager.zone_make_dir(tool)
 
     @classmethod
     def write_tool_file(cls, skill_id: str, filename: str, content: str) -> None:
-        """在沙盒內寫入檔案，強制執行路徑校驗。"""
-        root = cls.get_tool_root(skill_id)
-        target = root / filename
-        if not cls.validate_path(skill_id, str(target)):
-            msg = f"🛡️ Sandbox Violation: Access denied to {filename}"
-            raise PermissionError(msg)
-        
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        """在沙盒內原子寫入檔案（需要時建資料夾）。"""
+        tool = cls.tool_zone(skill_id)
+        with _skill_changed():
+            resource_manager.zone_write_text(tool.child(filename), content)
 
     @classmethod
     def read_tool_file(cls, skill_id: str, filename: str) -> str | None:
-        """從沙盒內讀取檔案。"""
-        root = cls.get_tool_root(skill_id)
-        target = root / filename
-        if not cls.validate_path(skill_id, str(target)):
-            msg = f"🛡️ Sandbox Violation: Access denied to {filename}"
-            raise PermissionError(msg)
-        
-        if not target.exists():
-            return None
-        return target.read_text(encoding="utf-8")
+        """從沙盒內讀取檔案；不存在回 None。"""
+        tool = cls.tool_zone(skill_id)
+        with _skill_changed():
+            try:
+                return resource_manager.zone_read_text(tool.child(filename))
+            except FileNotFoundError:
+                return None
 
     @classmethod
     def delete_tool_file(cls, skill_id: str, filename: str) -> bool:
-        """刪除沙盒內的檔案。"""
-        root = cls.get_tool_root(skill_id)
-        target = root / filename
-        if not cls.validate_path(skill_id, str(target)):
-            msg = f"🛡️ Sandbox Violation: Access denied to {filename}"
-            raise PermissionError(msg)
-        
-        if target.exists():
-            target.unlink()
+        """刪除沙盒內的檔案（是連結時只刪連結本身）；回是否刪了。"""
+        tool = cls.tool_zone(skill_id)
+        with _skill_changed():
+            target = tool.child(filename)
+            if resource_manager.zone_kind(target) == "missing":
+                return False
+            resource_manager.zone_remove_file(target)
             return True
-        return False
 
     @classmethod
     def tool_file_exists(cls, skill_id: str, filename: str) -> bool:
-        """檢查沙盒檔案是否存在。"""
-        root = cls.get_tool_root(skill_id)
-        target = root / filename
-        return target.exists()
+        """檢查沙盒檔案是否存在（連結本身也算存在，和以前一樣不重建）。"""
+        tool = cls.tool_zone(skill_id)
+        with _skill_changed():
+            return resource_manager.zone_kind(tool.child(filename)) != "missing"
 
     @staticmethod
     def _build_rlimit_preexec(
@@ -254,7 +232,6 @@ class EvolutionPathGuard:
         cls,
         skill_id: str,
         cmd_list: list[str],
-        cwd: str | None = None,
         memory_mb: int | None = None,
         storage_mb: int | None = None,
         *,
@@ -265,12 +242,10 @@ class EvolutionPathGuard:
 
         argv／env／pass_fds 由 spawn 前選好的隔離 runner（``launch``）改寫；直接執行時 rlimit 用
         ``preexec_fn``，隔離時由啟動器在 exec 前套用。只在 ``asyncio.to_thread`` 的 worker 呼叫
-        （PDEATHSIG 綁在建立子行程的執行緒，worker 會等子行程結束）。
+        （PDEATHSIG 綁在建立子行程的執行緒，worker 會等子行程結束）。cwd 一定是技能資料夾，spawn
+        前後以「子行程的工作資料夾」交接（ADR-0293 P6）；最後一段或路上是連結就不執行。
         """
-        root = cls.get_tool_root(skill_id)
-        if not cls.validate_path(skill_id, cwd or str(root)):
-            msg = "🛡️ Sandbox Violation: Command CWD outside sandbox."
-            raise PermissionError(msg)
+        tool = cls.tool_zone(skill_id)
 
         clean_env = cls.get_clean_env()
         # 呼叫端 env 也過同一道黑名單：只能補功能性變數，不能把密鑰／loader 變數加回來
@@ -279,22 +254,24 @@ class EvolutionPathGuard:
         # ADR-0076: OS-enforced resource limits on POSIX (no-op on Windows).
         cpu_sec = kwargs.get("timeout")
         preexec = cls._build_rlimit_preexec(memory_mb, storage_mb, cpu_sec)
-        plan = launch.plan(
-            cmd_list,
-            env,
-            preexec_fn=kwargs.pop("preexec_fn", preexec),
-            rlimits=cls.rlimit_values(memory_mb, storage_mb, cpu_sec),
-            timeout=cpu_sec,
-        )
-        try:
-            return run_sync(
-                list(plan.argv),
-                cwd=cwd or str(root),
-                env=plan.env,
-                preexec_fn=plan.preexec_fn,
-                pass_fds=plan.pass_fds,
-                stdin=subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
-                **kwargs,
+        handoff = resource_manager.zone_handoff(tool, HandoffKind.SUBPROCESS_CWD)
+        with _skill_changed(), handoff as cwd:
+            plan = launch.plan(
+                cmd_list,
+                env,
+                preexec_fn=kwargs.pop("preexec_fn", preexec),
+                rlimits=cls.rlimit_values(memory_mb, storage_mb, cpu_sec),
+                timeout=cpu_sec,
             )
-        finally:
-            launch.finish(plan)  # 關掉 runner 開的 fd，收下狀態 fd（回事件迴圈後 report）
+            try:
+                return run_sync(
+                    list(plan.argv),
+                    cwd=cwd,
+                    env=plan.env,
+                    preexec_fn=plan.preexec_fn,
+                    pass_fds=plan.pass_fds,
+                    stdin=subprocess.DEVNULL,  # 不繼承 proxy 的 stdin（TTY 時可 TIOCSTI）
+                    **kwargs,
+                )
+            finally:
+                launch.finish(plan)  # 關掉 runner 開的 fd，收下狀態 fd（回事件迴圈後 report）

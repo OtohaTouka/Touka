@@ -24,12 +24,14 @@ from memory_server.utils import collection_names as cn
 from src import config as config_module
 from src.core.exceptions import ErrorCode, ToukaException
 from src.main import app
+from src.models.agent_reset import AgentResetResponse, LastResetStatus
 from src.models.identity import AgentIdentity
 from src.models.memory_scrub import MemoryScrubReport, ScrubCategoryResult, ScrubItemResult
 from src.models.system_restore import RestoreStatus
 from src.routers import system as system_router
 from src.routers.auth import get_auth_service, get_current_user
-from src.services import memory_collection_guard, memory_scrub, system_backup
+from src.services import destructive_ops, memory_collection_guard, memory_scrub, system_backup
+from src.services.agent_reset import last_result as L
 from src.services.agent_reset import orchestrator as O
 from src.services.agent_reset import primitives as P
 from src.services.identity_router import get_verified_identity
@@ -66,6 +68,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNames
     # 測試順序隨機：每個測試用自己的備份鎖（會等鎖的測試會把鎖綁在自己的事件迴圈上）與乾淨的還原狀態
     monkeypatch.setattr(system_backup, "backup_execution_lock", asyncio.Lock())
     monkeypatch.setattr(system_router, "_last_restore", RestoreStatus(state="idle"))
+    monkeypatch.setattr(L, "_last", LastResetStatus(state="idle"))
     vault = tmp_path / "vault"
     store = fm.FactualStore(base_dir=vault)
     monkeypatch.setattr(MemoryManager, "_factual_store_singleton", store)
@@ -367,6 +370,8 @@ async def test_o09_cancelled_request_still_finishes_and_audits(
         await task
     assert system_backup.backup_execution_lock.locked()
     assert memory_scrub.in_progress()
+    # 丙-4：請求取消了，清除還在跑，心跳照樣擋
+    assert destructive_ops.is_held(AgentIdentity(agent_id=TARGET))
     with pytest.raises(ToukaException) as exc:
         await asyncio.wait_for(O.reset_agent_data(TARGET, ADMIN), REPLY_TIMEOUT_S)
     assert exc.value.code is ErrorCode.AGENT_RESET_IN_PROGRESS
@@ -376,6 +381,7 @@ async def test_o09_cancelled_request_still_finishes_and_audits(
             break
         await asyncio.sleep(0.02)
     assert not memory_scrub.in_progress()
+    assert not destructive_ops.is_held(AgentIdentity(agent_id=TARGET))  # 工作結束時自己放行
     assert "AUDIT: memory-scrub result" in caplog.text
     assert [p.name for p in env.backups.iterdir() if ".memscrub-" in p.name] == []
 
@@ -759,3 +765,138 @@ async def test_o22b_linked_collection_folder_fails_the_live_check(
         for i in report.scrub.items
         if i.kind == "live_store" and i.status == "failed"
     ] == [(cn.QDRANT_COLLECTION_DIR, "live_verify_failed")]
+
+
+# ── 最後一次重置的結果（舊審查報告丙-5，ADR-0289）────────────────────────────
+
+
+def _states_at_end(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """每次清旗標時，最後結果是什麼狀態（要在旗標放開前就記好，下一次重置才蓋不掉它）."""
+    seen: list[str] = []
+    real_end = memory_scrub.ScrubSession.end
+
+    def end(self: memory_scrub.ScrubSession) -> None:
+        seen.append(L.last_reset().state)
+        real_end(self)
+
+    monkeypatch.setattr(memory_scrub.ScrubSession, "end", end)
+    return seen
+
+
+async def test_o23_cancelled_request_keeps_running_until_the_scrub_records_its_result(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _states_at_end(monkeypatch)
+    entered, release = threading.Event(), threading.Event()
+    real = snapshots.scrub_snapshot
+
+    def slow(path: Path, identity: AgentIdentity, known: set[str]):
+        entered.set()
+        release.wait(10)
+        return real(path, identity, known)
+
+    monkeypatch.setattr(snapshots, "scrub_snapshot", slow)
+    task = asyncio.create_task(_reset())
+    await _until_entered(entered, task)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert L.last_reset().state == "running"  # 清除還在跑：不是中斷
+    release.set()
+    assert wait_scrub_idle() == []
+    assert seen[:1] == ["done"]
+    last = L.last_reset()
+    assert (last.state, last.agent_id) == ("done", TARGET)
+    assert last.report.clean is True
+    assert last.report.scrub.ran is True
+    assert last.report.scrub.complete is True, last.report.scrub
+    assert last.started_at <= last.finished_at
+
+
+async def test_o24_finished_scrub_is_kept_with_the_returned_report(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _states_at_end(monkeypatch)
+    report = await _reset()
+    assert seen[:1] == ["done"]
+    last = L.last_reset()
+    assert last.state == "done"
+    assert last.report == AgentResetResponse.model_validate(report.to_dict())
+    assert last.report.scrub.complete is True
+
+
+async def test_o25_cancel_before_handover_is_interrupted(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered, release = threading.Event(), threading.Event()
+    real = system_backup.create_backup
+
+    def slow(*, auto: bool = False) -> dict:
+        entered.set()
+        release.wait(10)
+        return real()
+
+    monkeypatch.setattr(system_backup, "create_backup", slow)
+    task = asyncio.create_task(_reset())
+    await _until_entered(entered, task)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    release.set()
+    last = L.last_reset()
+    assert (last.state, last.agent_id, last.report) == ("interrupted", TARGET, None)
+
+
+async def test_o27_preflight_refusal_is_a_failed_result_with_its_code(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(soul_io, "list_soul_ids", lambda: [TARGET, TARGET.replace("-", "_")])
+    with pytest.raises(ToukaException):
+        await _reset()
+    last = L.last_reset()
+    assert (last.state, last.agent_id, last.error_code, last.report) == (
+        "failed",
+        TARGET,
+        "MEMORY_SCRUB_COLLECTION_SHARED",
+        None,
+    )
+    monkeypatch.setattr(soul_io, "list_soul_ids", lambda: [TARGET])
+    monkeypatch.setattr(fm, "memory_scrub_supported", lambda: False)
+    with pytest.raises(ToukaException):
+        await _reset()
+    last = L.last_reset()
+    assert (last.state, last.error_code) == ("failed", "MEMORY_SCRUB_UNAVAILABLE")
+
+
+async def test_o26_scrub_safety_net_report_is_the_kept_report(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken() -> Path:
+        raise RuntimeError("cannot resolve the snapshot folder")
+
+    monkeypatch.setattr(system_backup, "backup_dir", broken)
+    seen = _states_at_end(monkeypatch)
+    report = await _reset()
+    assert seen[:1] == ["done"]
+    last = L.last_reset()
+    assert last.report == AgentResetResponse.model_validate(report.to_dict())
+    assert last.report.scrub.reason == "internal_error"
+
+
+# --- 丙-3b：升級備份資料夾裡的系統雜檔不擋住完成（ADR-0270 補記 2026-10-28）------
+
+
+async def test_o28_os_metadata_in_the_upgrade_folder_does_not_stop_completion(
+    env: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    thumbs = env.upgrade.parent / "Thumbs.db"
+    thumbs.write_bytes(b"\xd0\xcf\x11\xe0 thumbnail cache")
+    report = await _reset()
+    assert report.scrub.complete is True, report.scrub
+    infos = [i for i in report.scrub.items if i.kind == "info"]
+    assert [(i.name, i.reason) for i in infos] == [("Thumbs.db", "os_metadata_file")]
+    assert thumbs.read_bytes() == b"\xd0\xcf\x11\xe0 thumbnail cache"
+    line = next(
+        r.getMessage() for r in caplog.records if "AUDIT: memory-scrub result" in r.getMessage()
+    )
+    assert "info=['Thumbs.db'=os_metadata_file]" in line  # 不附數量時不寫 :None

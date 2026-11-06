@@ -9,6 +9,8 @@ import openapi from '../../../../../../openapi.json';
 import zhTW from '@/locales/zh-TW/translation.json';
 import en from '@/locales/en/translation.json';
 
+const RESET_PATH = '/v1/admin/agents/jin-soul/reset';
+
 type Reply = () => Promise<Response>;
 let resetReply: Reply;
 
@@ -16,6 +18,7 @@ const mockFetch = vi.fn((...[_u, path]: Parameters<typeof fetchTouka>) => {
     if (path === '/v1/models') {
         return Promise.resolve(Response.json({ data: [{ id: 'jin-soul', name: 'Jin', is_agent: true }] }));
     }
+    if (path === '/v1/admin/agents/reset/last') return Promise.resolve(Response.json({ state: 'idle' }));
     if (path.startsWith('/v1/admin/agents/')) return resetReply();
     return Promise.resolve(new Response(null, { status: 404 }));
 });
@@ -30,7 +33,7 @@ import { AgentDataResetCard } from '../AgentDataResetCard';
 import { AgentResetScrubResult } from '../AgentResetScrubResult';
 
 type Item = NonNullable<MemoryScrubReport['items']>[number];
-const REASON_COUNT = 29;
+const REASON_COUNT = 30;
 
 function item(kind: Item['kind'], name: string, status: Item['status'], reason: Item['reason'] = null): Item {
     return { kind, name, status, reason, facts_removed: 0, collection_removed: false, members_dropped: 0, count: null };
@@ -78,7 +81,7 @@ function confirmButton(): HTMLButtonElement {
 async function sentBody(): Promise<Record<string, unknown>> {
     let body: Record<string, unknown> = {};
     await waitFor(() => {
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).startsWith('/v1/admin/agents/'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]) === RESET_PATH);
         if (!call || typeof call[2]?.body !== 'string') throw new Error('no reset request yet');
         body = JSON.parse(call[2].body);
     });
@@ -151,6 +154,41 @@ describe('AgentDataResetCard：清除連備份', () => {
         expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.acknowledged'))).toBeNull();
     });
 
+    it('V05b 完成、但有不在範圍的舊格式資料：總結句與保留提示都照實說，不說每一份都清了（丙-3）', async () => {
+        const withLegacy: MemoryScrubReport = {
+            ...SCRUB_DONE,
+            items: [
+                ...(SCRUB_DONE.items ?? []),
+                { ...item('info', 'facts.jsonl', 'info', 'out_of_scope'), count: 4 },
+                { ...item('info', 'core_memory.v0-to-v1.1.db', 'info', 'out_of_scope'), count: 2 },
+            ],
+        };
+        replyWith(report({ scrub: withLegacy }));
+        await openDialog();
+        fireEvent.click(screen.getByRole('checkbox'));
+        fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.agent_reset.scrub.acknowledge') }));
+        fillAndSubmit();
+        // 數字是還留著這類資料的備份份數（每份一個資訊項），筆數在下方清單
+        expect(await screen.findByText(i18n.t('settings.agent_reset.scrub.summary_complete_out_of_scope', { n: 2 }))).toBeDefined();
+        expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeNull();
+        expect(screen.getByText(i18n.t('backup_notice.still_there_scrubbed_partial', { id: 'jin-soul' }))).toBeDefined();
+        expect(screen.queryByText(i18n.t('backup_notice.still_there_scrubbed', { id: 'jin-soul' }))).toBeNull();
+        // 有數量的資訊行照舊寫數量（丙-3b 只有不附數量的才換句）
+        expect(screen.getByText(i18n.t('settings.agent_reset.scrub.info_line', {
+            name: 'facts.jsonl', reason: i18n.t('settings.agent_reset.scrub.reasons.out_of_scope'), count: 4,
+        }))).toBeDefined();
+    });
+
+    it('V05c 線上庫又有新寫入：說又有記憶，不說有沒有整理（整理前或整理後都可能發現，丙-3）', () => {
+        render(<AgentResetScrubResult report={{
+            ...SCRUB_DONE, complete: false, reason: 'rewritten_after_reset', memory_remaining: 1,
+            items: [item('live_store', 'core_memory.db', 'failed', 'rewritten_after_reset')],
+        } as MemoryScrubReport} />);
+        expect(screen.getByText(i18n.t('settings.agent_reset.scrub.live_rewritten'))).toBeDefined();
+        const reason = i18n.t('settings.agent_reset.scrub.reasons.rewritten_after_reset');
+        expect(screen.queryByText(i18n.t('settings.agent_reset.scrub.live_not_compacted', { reason }))).toBeNull();
+    });
+
     it('V05 結果分類別列出、有總結句（從真實可能出現的報告）', async () => {
         const failedList: MemoryScrubReport = {
             ...SCRUB_DONE, complete: false, reason: 'list_failed',
@@ -214,6 +252,17 @@ describe('AgentDataResetCard：清除連備份', () => {
         expect(screen.getByText(i18n.t('settings.agent_reset.scrub.files_left', { failed: 1, done: 1 }))).toBeDefined();
     });
 
+    it('V05e 升級備份資料夾裡的系統雜檔：列在其他資訊、不寫數量，不算沒清掉的檔（丙-3b）', () => {
+        render(<AgentResetScrubResult report={{
+            ...SCRUB_DONE,
+            items: [...(SCRUB_DONE.items ?? []), item('info', 'Thumbs.db', 'info', 'os_metadata_file')],
+        }} />);
+        expect(screen.getByText(i18n.t('settings.agent_reset.scrub.summary_complete'))).toBeDefined();
+        // 整句直接比對（測試固定 zh-TW；原因本身有括號，所以比整句）：只有名字與原因，沒有數量
+        const reason = i18n.t('settings.agent_reset.scrub.reasons.os_metadata_file');
+        expect(screen.getByText(`Thumbs.db：${reason}`)).toBeDefined();
+    });
+
     it('V05 每個原因代碼兩語都有翻譯鍵', () => {
         const reasons = openapi.components.schemas.ScrubItemResult.properties.reason.anyOf[0].enum as string[];
         expect(reasons.length).toBe(REASON_COUNT);
@@ -229,7 +278,7 @@ describe('AgentDataResetCard：清除連備份', () => {
         const view = await openDialog();
         fillAndSubmit();
         await sentBody();
-        const call = mockFetch.mock.calls.find((c) => String(c[1]).startsWith('/v1/admin/agents/'));
+        const call = mockFetch.mock.calls.find((c) => String(c[1]) === RESET_PATH);
         const signal = call?.[2]?.signal;
         expect(signal).toBeInstanceOf(AbortSignal);
         expect(call?.[2]).not.toHaveProperty('requestScope');

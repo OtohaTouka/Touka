@@ -145,12 +145,18 @@ def test_conftest_release_steps_cover_every_known_handle():
         "close_log_handlers",
         "close_qdrant_clients",
         "close_sqlite_connections",
+        "drain_memory_worker",
         "drain_policy_audit_writes",
     }
     assert steps["close_log_handlers"].func is close_sandbox_log_handlers
     assert steps["close_log_handlers"].args == (session_conftest.SESSION_TMP_DATA_ROOT,)
     assert steps["close_sqlite_connections"] == FactualStore.close_all_connections
     assert steps["drain_policy_audit_writes"] is session_conftest._drain_policy_audit_writes
+    assert steps["drain_memory_worker"] is session_conftest._drain_memory_worker
+    # 先等背景工作做完，才關它們可能還開著的 SQLite／Qdrant
+    order = [name for name, _ in session_conftest.SANDBOX_RELEASE_STEPS]
+    assert order.index("drain_memory_worker") < order.index("close_qdrant_clients")
+    assert order.index("drain_memory_worker") < order.index("close_sqlite_connections")
 
 
 def test_qdrant_step_closes_clients_of_a_loaded_vector_module(monkeypatch):
@@ -189,6 +195,23 @@ def test_policy_audit_drain_waits_for_queued_writes(tmp_path, monkeypatch):
     try:
         executor.submit(slow_write)
         session_conftest._drain_policy_audit_writes()
+        assert written.exists()
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_memory_worker_drain_waits_for_the_running_job(tmp_path, monkeypatch):
+    executor = ThreadPoolExecutor(max_workers=1)
+    monkeypatch.setattr(session_conftest.memory_worker, "_executor", executor)
+    written = tmp_path / "late_fact.txt"
+
+    def slow_job():
+        time.sleep(0.3)
+        written.write_text("fact", encoding="utf-8")
+
+    try:
+        executor.submit(slow_job)
+        session_conftest._drain_memory_worker()
         assert written.exists()
     finally:
         executor.shutdown(wait=True)
@@ -243,9 +266,17 @@ def test_terminal_summary_lists_sandbox_residue(tmp_path, monkeypatch, residue):
     leftover = None if residue is None else tmp_path / "touka_test_session_leftover"
     monkeypatch.setattr(session_conftest, "remove_session_sandbox", lambda _root, _steps: leftover)
     monkeypatch.setattr(session_conftest, "_sandbox_residue", [])
+    # 真的 session hook 也判區的紀錄與 Z9 全量檢查：旗標在匯入 conftest 時就讀進常數（CI 全量是
+    # True，跑到一半時放行清單本來就還沒全部用到）；別的測試還沒結算的紀錄也不能被這裡取走
+    monkeypatch.setattr(session_conftest, "_ZONE_FULL_RUN", False)
+    monkeypatch.setattr(session_conftest, "_zone_late_records", [])
+    monkeypatch.setattr(session_conftest, "_zone_unused_allowances", [])
+    monkeypatch.setattr(session_conftest.zone_records, "remaining", list)
     lines: list[str] = []
+    session = SimpleNamespace(exitstatus=pytest.ExitCode.OK)
 
-    session_conftest.pytest_sessionfinish()
+    session_conftest.pytest_sessionfinish(session)
     session_conftest.pytest_terminal_summary(SimpleNamespace(write_line=lines.append))
 
     assert lines == ([] if leftover is None else [f"測試沙盒沒刪乾淨：{leftover}"])
+    assert session.exitstatus == pytest.ExitCode.OK  # 沙盒殘留只在摘要列出，不讓整個 session 失敗

@@ -24,6 +24,7 @@ from src.services.rhythm_service import rhythm_service
 
 from tests.helpers.stream_transport import FakeUpstream, stream_reply
 from tests.unit.test_per_round_accounting import (
+    _AUDIT_HEADERS,
     _audit_rows,
     _ctx,
     _executor,
@@ -32,6 +33,7 @@ from tests.unit.test_per_round_accounting import (
     _usage_events,
 )
 
+_COST_COLUMN = _AUDIT_HEADERS.index("cost_usd")  # 依欄名取格，欄位增減時不會讀錯欄
 _HAIKU = "claude-haiku-5-5"
 _UNTIERED = ["claude-sonnet-4-6", "claude-opus-5-5", "deepseek-chat", "gemini-2.5-flash",
              "gpt-4o", None]
@@ -105,8 +107,8 @@ def test_log_usage_audit_writes_the_given_cost(monkeypatch):
                               cost_usd=0.012)
     telemetry.log_usage_audit(identity, "req-2", "Anthropic", {}, totals, model=_HAIKU)
 
-    assert rows[0][11] == "0.012000"
-    assert rows[1][11] == "0.060000"  # 沒傳：照舊用 usage_cost_usd(totals)
+    assert rows[0][_COST_COLUMN] == "0.012000"
+    assert rows[1][_COST_COLUMN] == "0.060000"  # 沒傳：照舊用 usage_cost_usd(totals)
 
 
 # ── 端到端：主迴圈兩輪，各自便宜檔 ────────────────────────────────────────────────
@@ -147,4 +149,4 @@ async def test_run_total_on_screen_and_in_audit_matches_per_round_billing(monkey
     (event,) = _usage_events(chunks)
     assert event["cost"] == expected
     audit = _audit_rows(ctx["identity"])
-    assert audit[1][11] == "0.001360"
+    assert audit[1][_COST_COLUMN] == "0.001360"

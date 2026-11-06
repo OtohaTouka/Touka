@@ -7,10 +7,12 @@ import logging
 import re
 from typing import Any
 
+from src.utils.tool_usage import executed_tools, succeeded_tools
+
 logger = logging.getLogger(__name__)
 
-# 「查證」工具集（誠實度閘，漂移修復批 C2）：模型提到過去/檔案時，出現任一即視為
-# 已實際查閱。含記憶查詢（memory_tools 限定名，見 tool_executor.record_tool_usage）、
+# 「查證」工具集（誠實度閘，漂移修復批 C2）：模型提到過去/檔案時，這一輪「執行過」任一即視為
+# 已實際查閱（T3）。含記憶查詢（memory_tools 限定名，見 utils/tool_usage）、
 # 九裸動詞 read-family（ADR-0119 重設計後的主廣告面；其內部委派 vault_tools 屬
 # Python 呼叫、不經 tool_executor，故必須顯式列名）與 vault_tools 讀側 shim 相容。
 VERIFICATION_TOOLS = frozenset({
@@ -22,7 +24,7 @@ VERIFICATION_TOOLS = frozenset({
 # 記憶儲存訊號（記憶承諾閘）：memory_tools(action=save) 的限定名。
 MEMORY_SAVE_SIGNAL = "memory_tools.save"
 
-# 記憶查詢訊號（e_index 檢索分量等消費）：memory_tools(action=query) 的限定名。
+# 記憶查詢訊號：memory_tools(action=query) 的限定名。
 MEMORY_QUERY_SIGNAL = "memory_tools.query"
 
 
@@ -53,8 +55,13 @@ class GuardService:
         memory_tool_registry: dict[str, Any] | None,
         plugin_registry: dict[str, Any] | None,
         protocol_manager: Any,
+        *,
+        extra_names: frozenset[str] | None = None,
     ) -> set[str]:
-        """幻覺偵測的「已知工具」全集：三個靜態 registry ＋ 動態 MCP 工具名（SSOT）。
+        """幻覺偵測的「已知工具」全集（SSOT）：三個靜態 registry ＋ 動態 MCP ＋ ``extra_names``。
+
+        ``extra_names``：ToolLayer 這一輪為人在場的前景對話列出的使用者授權 MCP（ADR-0281 T1）；
+        不收客戶端自帶的工具名，不擴大誤報。
 
         禁令 59(c)：已知工具集**必須涵蓋 MCP 工具**——過去只比對靜態 registry，
         模型文字提及（未實際呼叫的）MCP 工具時偵測不到（假陰性）。MCP 列舉失敗
@@ -67,6 +74,7 @@ class GuardService:
         for reg in (tool_registry, memory_tool_registry, plugin_registry):
             if reg:
                 names.update(reg.keys())
+        names.update(extra_names or ())
         if protocol_manager is None:
             return names
         try:
@@ -104,13 +112,14 @@ class GuardService:
     def check_memory_hallucination(
         self, response_text: str, actually_used_tools: set[str]
     ) -> bool:
-        """檢查是否口頭承諾記錄記憶但未實際呼叫 memory_tools(action=save)。
+        """檢查是否口頭承諾記錄記憶，但這一輪 memory_tools(action=save) 沒有成功。
 
         C2：舊判定閘在已退役的工具名 ``save_memory``（記憶大一統後僅存為
         ToukaMemory 內部函式、永不出現在 actually_used_tools）＝抑制分支死碼、
-        誤報恆真；改讀 tool_executor 產生的限定名 SSOT。
+        誤報恆真；改讀執行器產生的限定名 SSOT。T3：只看「存成功」，被擋下或失敗的
+        save 不算存了。
         """
-        if MEMORY_SAVE_SIGNAL in actually_used_tools:
+        if MEMORY_SAVE_SIGNAL in succeeded_tools(actually_used_tools):
             return False
 
         return bool(re.search(self.memory_promise_pattern, response_text))
@@ -121,10 +130,11 @@ class GuardService:
         """檢查是否提到過去或文件但未實際調用查證工具（集合見 VERIFICATION_TOOLS）。
 
         C2：舊判定閘在已退役的名字（query_memory/access_personal_drive）＝
-        永不知道模型有查證；改讀限定名＋裸動詞 read-family。
+        永不知道模型有查證；改讀限定名＋裸動詞 read-family。T3：只看「執行過」，
+        被擋下的查證工具不算有查。
         """
-        # 如果已經用了任一查證工具，就視為誠實
-        if VERIFICATION_TOOLS & actually_used_tools:
+        # 如果這一輪真的執行過任一查證工具，就視為誠實
+        if VERIFICATION_TOOLS & executed_tools(actually_used_tools):
             return False
 
         # 檢查是否出現疑似「查證」或「回想」的關鍵字
@@ -140,7 +150,7 @@ class GuardService:
     def get_memory_warning_message(self) -> str:
         """格式化記憶幻覺警告訊息（C2：文案改引實存工具，勿教已退役名）。
         """
-        return "\n\n⚠️ **[記憶幻覺警告]** 您承諾記錄但未呼叫 `memory_tools` 進行儲存。"
+        return "\n\n⚠️ **[記憶幻覺警告]** 您承諾記錄，但這一輪沒有成功用 `memory_tools` 存下記憶。"
 
     def get_honesty_warning_message(self) -> str:
         """格式化誠實度（沒查資料就瞎掰）警告訊息（C2：文案改引實存工具）。

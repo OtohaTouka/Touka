@@ -21,7 +21,7 @@ BOOT = "c" * 32
 DIGEST = "d" * 64
 ROOTS = [
     {"path": "/srv/data/personal_drive", "access": "rw"},
-    {"path": "/srv/data/mcp_servers", "access": "rw"},
+    {"path": "/srv/data/mcp_servers/managed", "access": "rw"},
     {"path": "/srv/config/skills", "access": "ro"},
 ]
 

@@ -66,7 +66,30 @@ describe("useSystemMonitoring", () => {
     });
 
     // Initial call + 1 interval call
-    expect(mockFetch).toHaveBeenCalledTimes(2 * 7); // 7 endpoints
+    expect(mockFetch).toHaveBeenCalledTimes(2 * 6); // 6 endpoints
+  });
+
+  it("no longer requests the removed emergence endpoint and still maps stats and memories", async () => {
+    const mockFetch = connections.fetchTouka as any;
+    const tokenUsage = { Alice: { OpenAI: { prompt_tokens: 10, completion_tokens: 2 } } };
+    const bodies: Record<string, unknown> = {
+      "/v1/stats": { token_usage: tokenUsage, interrupted_runs: [{ session_id: "s1" }] },
+      "/v1/memory/list": { memories: [{}, {}, {}] },
+    };
+    mockFetch.mockImplementation(async (_url: string, path: string) => ({
+      ok: true,
+      json: async () => bodies[path] ?? {},
+    }));
+
+    const { result } = renderHook(() => useSystemMonitoring(true));
+    await act(async () => {});
+
+    const paths = mockFetch.mock.calls.map((call: unknown[]) => call[1]);
+    expect(paths.some((p: string) => p.includes("emergence"))).toBe(false);
+    expect(result.current).not.toHaveProperty("emergence");
+    expect(result.current.tokenUsage).toEqual(tokenUsage);
+    expect(result.current.interruptedRuns).toEqual([{ session_id: "s1" }]);
+    expect(result.current.memStats).toEqual({ memory_load: 3, status: "Connected" });
   });
 
   it("should clear interval on unmount or deactivation", () => {

@@ -33,7 +33,7 @@ from src.services.isolation import profiles
 from src.utils import isolation_policy
 
 PD = "/srv/data/personal_drive"
-MCP = "/srv/data/mcp_servers"
+MCP = "/srv/data/mcp_servers/managed"  # 只掛 managed（ADR-0293 PR 2 Q7）
 SKILLS = "/srv/config/skills"
 STATE = "/srv/executor_state"
 VENV = "/opt/venv"
@@ -52,7 +52,7 @@ def _system_rules() -> list[dict]:
 
 
 def _start(kind: str = "agents", owner: str = "Alice", **overrides) -> dict:
-    target = f"{PD}/{owner}" if kind == "agents" else f"{MCP}/managed/{owner}"
+    target = f"{PD}/{owner}" if kind == "agents" else f"{MCP}/{owner}"
     home, tmp = LAYOUT.state_dirs(kind, owner)
     rules = [*_system_rules(), {"path": SKILLS, "access": "rox", "optional": True}]
     rules += [{"path": p, "access": "rwx"} for p in (target, home, tmp)]
@@ -120,7 +120,7 @@ def test_net_strict_false_is_passed_through():
 
 def test_valid_evolution_start_uses_managed_skill_folder():
     plan = _check(_start("evolution", "my_tool"))
-    assert plan.cwd == f"{MCP}/managed/my_tool" and plan.root == MCP
+    assert plan.cwd == f"{MCP}/my_tool" and plan.root == MCP
     assert plan.home == f"{STATE}/evolution/my_tool/home"
 
 
@@ -155,7 +155,7 @@ REJECTED = {
     "spec_ports_missing_hello": _with_spec(block_ports=sorted(kspec.DEFAULT_BLOCK_PORTS)),
     "rw_other_owner": _with_rule({"path": f"{PD}/Bob", "access": "rwx"}),
     "rw_whole_root": _with_rule({"path": PD, "access": "rwx"}),
-    "rw_other_kind_root": _with_rule({"path": f"{MCP}/managed/Alice", "access": "rwx"}),
+    "rw_other_kind_root": _with_rule({"path": f"{MCP}/Alice", "access": "rwx"}),
     "rw_other_state_kind": _with_rule({"path": f"{STATE}/evolution/Alice/home", "access": "rwx"}),
     "rw_other_state_owner": _with_rule(
         {"path": LAYOUT.state_dirs("agents", "Bob")[1], "access": "rwx"}
@@ -249,7 +249,7 @@ def test_features_match_isolation_policy(abi, net):
 
 def test_layout_targets_follow_the_kind_table():
     assert LAYOUT.target("agents", "Alice") == (PD, f"{PD}/Alice")
-    assert LAYOUT.target("evolution", "t") == (MCP, f"{MCP}/managed/t")
+    assert LAYOUT.target("evolution", "t") == (MCP, f"{MCP}/t")
     only_pd = es.Layout(rw=(PD,), ro=(), state=STATE, exec_paths=())
     assert only_pd.target("evolution", "t") is None
     assert str(PurePosixPath(STATE, "agents", "Alice")) == f"{STATE}/agents/Alice"
@@ -1127,7 +1127,7 @@ CONFIG_PROBLEMS = {
     "ok": (lambda view: None, None),
     "root_missing": (lambda view: view.dirs.pop(SKILLS), "root_path"),
     "root_is_a_link": (
-        lambda view: view.links.update({MCP: "/elsewhere/mcp_servers"}), "root_path"
+        lambda view: view.links.update({MCP: "/elsewhere/managed"}), "root_path"
     ),
     "root_under_a_linked_parent": (
         lambda view: view.resolved.update({PD: "/mnt/real/personal_drive"}), "root_path"
@@ -1179,6 +1179,15 @@ def test_duplicate_rw_root_names_are_a_config_problem():
     assert srv.config_problem(_config(rw=()), KERNEL, FakeView()) == "roots"
 
 
+@pytest.mark.parametrize("rw", [(PD,), (PD, "/srv/data/mcp_servers")])
+def test_without_the_managed_root_the_executor_does_not_serve(rw):
+    """資料所在的 root 只認名稱是 ``managed`` 的（ADR-0293 PR 2 Q7），不退回第一個讀寫 root.
+
+    舊 compose 掛 ``mcp_servers`` 也不行。
+    """
+    assert srv.config_problem(_config(rw=rw), KERNEL, FakeView()) == "data_root"
+
+
 async def test_start_with_a_bad_ipc_folder_stays_alive_without_serving(tmp_path):
     """設定有錯：start() 回 False、記下原因、不建 socket、不起背景工作（程序不退出）。"""
     ipc = tmp_path / "ipc"
@@ -1192,7 +1201,7 @@ async def test_start_with_a_bad_ipc_folder_stays_alive_without_serving(tmp_path)
 
 
 def test_maintenance_repairs_ipc_and_state_and_roots_every_twelfth_round():
-    """每 5 秒：ipc 的資料夾、socket、權杖、alive 與 state_root；約每 60 秒加上掛載根與 managed."""
+    """每 5 秒：ipc 的資料夾、socket、權杖、alive 與 state_root；約每 60 秒加上掛載根."""
     chains = []
     server = _server(Recorder())
     server.hooks.repair = lambda root, target: (
@@ -1204,7 +1213,7 @@ def test_maintenance_repairs_ipc_and_state_and_roots_every_twelfth_round():
     assert chains == [*expected, (STATE, STATE)]
     chains.clear()
     server._maintain(roots=True, alive=False)
-    assert chains[5:] == [(PD, PD), (MCP, MCP), (MCP, f"{MCP}/managed")]
+    assert chains[5:] == [(PD, PD), (MCP, MCP)]
 
 
 def test_repair_outcomes_are_counted():
@@ -1234,7 +1243,7 @@ def test_maintenance_also_closes_its_private_inodes_to_group_and_other():
     ipc = "/srv/ipc"
     files = [(ipc, f"{ipc}/{name}") for name in ("ctl.sock", "token", "alive")]
     w6 = [(ipc, ipc), *files, (STATE, STATE)]
-    assert private == w6 and owner[:5] == w6 and len(owner) == 8
+    assert private == w6 and owner[:5] == w6 and owner[5:] == [(PD, PD), (MCP, MCP)]
     assert server.repairs["repaired"] == 5
 
 
@@ -1537,10 +1546,10 @@ async def test_background_rounds_continue_after_any_other_error_but_stop_on_canc
 
 def _disk_server(tmp_path):
     """真的資料夾（tmp_path）上的伺服器：清自測、清 tmp、寫 ipc 檔案的案例用."""
-    dirs = {n: tmp_path / n for n in ("personal_drive", "mcp_servers", "skills", "state", "ipc")}
+    dirs = {n: tmp_path / n for n in ("personal_drive", "managed", "skills", "state", "ipc")}
     for path in dirs.values():
         path.mkdir()
-    rw = (dirs["personal_drive"].as_posix(), dirs["mcp_servers"].as_posix())
+    rw = (dirs["personal_drive"].as_posix(), dirs["managed"].as_posix())
     server = _server(
         Recorder(), rw=rw, ro=(dirs["skills"].as_posix(),), state=dirs["state"].as_posix(),
         ipc=dirs["ipc"].as_posix(),
@@ -1550,12 +1559,12 @@ def _disk_server(tmp_path):
 
 def test_startup_removes_only_its_own_selftest_folders(tmp_path):
     server, dirs = _disk_server(tmp_path)
-    for base in (dirs["mcp_servers"], dirs["state"]):
+    for base in (dirs["managed"], dirs["state"]):
         (base / f"{srv.SELFTEST_PREFIX}old" / "x").mkdir(parents=True)
         (base / ".touka-selftest-proxy").mkdir()  # proxy 自己的，不碰
     (dirs["personal_drive"] / f"{srv.SELFTEST_PREFIX}old").mkdir()  # 不是資料所在的 root
     server._clean_stale_selftests()
-    for base in (dirs["mcp_servers"], dirs["state"]):
+    for base in (dirs["managed"], dirs["state"]):
         assert [p.name for p in base.iterdir()] == [".touka-selftest-proxy"]
     assert (dirs["personal_drive"] / f"{srv.SELFTEST_PREFIX}old").is_dir()
 

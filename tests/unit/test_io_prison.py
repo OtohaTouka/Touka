@@ -106,16 +106,16 @@ async def test_core_write_blocks_traversal(tmp_path: Path) -> None:
 
 
 def test_identity_vaults_isolated() -> None:
-    """兩個身分的 personal vault 路徑必不同、且各含自己的 agent_id。"""
+    """兩個身分的個人空間必不同、且各是自己的 agent_id（``agent_drive``，ADR-0293）。"""
     alice = AgentIdentity.for_role(agent_id="Alice", role="Base")
     bob = AgentIdentity.for_role(agent_id="Bob", role="Base")
 
-    alice_vault = resource_manager.get_vault_path("personal", alice)
-    bob_vault = resource_manager.get_vault_path("personal", bob)
+    alice_drive = resource_manager.agent_drive(alice)
+    bob_drive = resource_manager.agent_drive(bob)
 
-    assert alice_vault != bob_vault
-    assert "Alice" in str(alice_vault)
-    assert "Bob" in str(bob_vault)
+    assert alice_drive != bob_drive
+    assert alice_drive.parts[0] == "Alice"
+    assert bob_drive.parts[0] == "Bob"
 
 
 def test_soul_protection_blocks_direct_write() -> None:

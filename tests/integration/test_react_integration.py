@@ -1,7 +1,6 @@
 """Integration test for the ReAct loop."""
 
-import tempfile
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,7 +15,7 @@ def mock_anthropic(mock_anthropic):
 
 @pytest.mark.asyncio
 async def test_full_react_loop_with_tool(
-    auth_client, mock_anthropic, mock_tool_response, mock_text_response
+    auth_client, mock_anthropic, mock_tool_response, mock_text_response, zone_data_root
 ):
     """驗證全鏈路 ReAct 循環：接收請求 -> 觸發工具 -> 返回結果。"""
     agent_id = "ReactAgent"
@@ -49,15 +48,9 @@ async def test_full_react_loop_with_tool(
     }
 
     # 4. 執行請求
-    # 使用獨立的空資料目錄，避免其他測試的 soul 殘留影響本測試
-    with tempfile.TemporaryDirectory(prefix="react_test_") as empty_dir, patch(
-        "memory_server.config_utils.get_app_data_dir",
-        return_value=empty_dir,
-    ):
-        headers = {"X-Touka-Soul-ID": agent_id}
-        response = auth_client.post(
-            "/v1/messages", json=payload, headers=headers
-        )
+    # data 根是這個測試自己的空資料夾（zone_data_root），其他測試的 soul 殘留影響不到
+    headers = {"X-Touka-Soul-ID": agent_id}
+    response = auth_client.post("/v1/messages", json=payload, headers=headers)
 
     assert response.status_code == 200
     assert "list of files" in response.text.lower()

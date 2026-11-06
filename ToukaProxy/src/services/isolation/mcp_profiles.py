@@ -14,12 +14,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from memory_server.utils.zone_paths import ALL_ANCHORS, Anchor, anchor_at, zone_of
+
 from src.services.isolation.profiles import (
     PathRule,
     ProfileError,
     SandboxProfile,
     authorize_derived_path,
     checked_ports,
+    layout_zone_roots,
+    proxy_state_zone,
     sandbox_env,
     state_dirs,
     system_rules,
@@ -27,6 +31,7 @@ from src.services.isolation.profiles import (
 from src.utils.isolation_policy import MAX_MCP_SANDBOX_PATHS, is_safe_segment
 from src.utils.mcp_origin import (
     RawMcpEntry,
+    data_root_spellings,
     docgen_output_root,
     is_file_reference,
     managed_root,
@@ -127,8 +132,11 @@ def mcp_state_dirs(
 def mcp_classification_bases(
     name: str, *, layout: SandboxLayout, base_dir: Path,
 ) -> tuple[Path, ...]:
-    """啟動與部署凍結共用的解析基準；只算位置，不建立 state。"""
-    homes = () if layout.state_root is None else tuple(
+    """啟動與部署凍結共用的解析基準；只算位置，不建立 state.
+
+    版面沒設 ST 時只有 ``base_dir``；版面與 RM 的 ST 不同時往外丟 ``ProfileError``。
+    """
+    homes = () if proxy_state_zone(layout) is None else tuple(
         mcp_state_dirs(category, name, layout=layout, location="proxy", create=False)[0]
         for category in ("third", "self")
     )
@@ -146,8 +154,8 @@ def build_mcp_self_profile(
 ) -> SandboxProfile:
     """自建：讀寫只有自己的 state；演化部署的程式資料夾唯讀＋執行；不收 ``sandbox_paths``.
 
-    不給 ``config/skills``、代理人資料夾、專案與公開設定檔；cwd 是 home。程式資料夾是條目引用
-    的那一個 ``managed/<skill>``（看路徑不看名稱）；引用不只一個時都不給（起不來，照實顯示）。
+    不給 ``config/skills``、代理人資料夾、專案與公開設定檔；cwd 是 home。程式資料夾是條目字面
+    引用的那一個 ``managed/<skill>``（看路徑不看名稱）；引用不只一個時都不給（起不來，照實顯示）。
     """
     if classification.kind != "self":
         raise ProfileError(name)
@@ -178,17 +186,18 @@ def _lexical(path: Path) -> Path:
     return Path(os.path.normpath(path))
 
 
-def _same_path(value: str, target: Path) -> bool:
+def _is_data_root(value: str, layout: SandboxLayout) -> bool:
+    """字面等於 data 根的任一種寫法；經連結指過去的不算（ADR-0293 決定 16）."""
     try:
         path = Path(value)
-        return path.is_absolute() and path.resolve() == target
-    except (OSError, RuntimeError, ValueError):
+        return path.is_absolute() and _lexical(path) in data_root_spellings(layout)
+    except ValueError:
         return False
 
 
 def map_appdata(value: str, layout: SandboxLayout) -> str:
-    """APPDATA 對映：哨兵或「等於 data 根的絕對路徑」→ personal_drive 根；OUTPUT 哨兵照解析."""
-    if value == APPDATA_SENTINEL or _same_path(value, layout.data_root.resolve()):
+    """APPDATA 對映：哨兵或「字面等於 data 根的絕對路徑」→ personal_drive 根；OUTPUT 哨兵照解析."""
+    if value == APPDATA_SENTINEL or _is_data_root(value, layout):
         return str(personal_drive_root(layout))
     return resolve_reference_sentinel(value, layout)
 
@@ -206,14 +215,22 @@ def _covered_by_system(folder: Path) -> bool:
     )
 
 
+def _in_personal_drive(target: Path, layout: SandboxLayout) -> bool:
+    """所有個人空間的上層本身或它底下（第三方的 APPDATA 對映到這裡）；形狀經 ``zone_of``（R3）."""
+    roots = layout_zone_roots(layout)
+    found = zone_of(target, roots, anchors=ALL_ANCHORS)
+    if found is not None:
+        return found[0] is Anchor.PERSONAL_DRIVE
+    return anchor_at(target, roots, anchors=ALL_ANCHORS) is Anchor.PERSONAL_DRIVE
+
+
 async def _reference_rule(
     path: Path, layout: SandboxLayout, skip: Path | None
 ) -> tuple[PathRule | None, str | None]:
     """引用的一條路徑：資料夾讀寫、檔案的所在資料夾唯讀＋執行；先過永不授權（owner=None）."""
     target = _lexical(path)
     is_file = is_file_reference(target)
-    drive = personal_drive_root(layout)
-    if not is_file and (target == docgen_output_root(layout) or target.is_relative_to(drive)):
+    if not is_file and (target == docgen_output_root(layout) or _in_personal_drive(target, layout)):
         if target.resolve() != target or not target.is_dir():
             return None, PROTECTED_LOCATION
         return PathRule(target, "rwx"), None

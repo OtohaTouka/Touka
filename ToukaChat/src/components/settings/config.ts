@@ -1,6 +1,6 @@
-import { Settings2, Cable, Monitor, Wrench, Box, Zap, MessageSquare, Shield, Settings, LucideIcon, Users, Palette, History, KeyRound } from "lucide-react";
+import { Settings2, Cable, Monitor, Wrench, Box, Zap, MessageSquare, Shield, Settings, LucideIcon, Users, Palette, History, KeyRound, Webhook } from "lucide-react";
 
-export type SettingsTabId = "general" | "theme" | "connections" | "models" | "tools" | "mcp" | "skills" | "vscode" | "security" | "sns_bots" | "env" | "group" | "users" | "sliding_window" | "provider_keys";
+export type SettingsTabId = "general" | "theme" | "connections" | "models" | "tools" | "mcp" | "skills" | "vscode" | "security" | "sns_bots" | "env" | "group" | "users" | "sliding_window" | "provider_keys" | "hooks";
 
 /** 設定頁 IA 分組（側邊欄以此分類標題聚合分頁，減少 15 分頁平鋪蔓延）。 */
 export type SettingsGroupId = "personal" | "models" | "capabilities" | "conversation" | "system";
@@ -54,6 +54,7 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     { id: "sns_bots", label: "settings.tabs.sns_bots.label", title: "settings.tabs.sns_bots.title", icon: MessageSquare, group: "conversation", adminOnly: true },
     { id: "users", label: "settings.tabs.users.label", title: "settings.tabs.users.title", icon: Users, group: "system", adminOnly: true },
     { id: "security", label: "settings.tabs.security.label", title: "settings.tabs.security.title", icon: Shield, group: "system", adminOnly: true },
+    { id: "hooks", label: "settings.tabs.hooks.label", title: "settings.tabs.hooks.title", icon: Webhook, group: "system", adminOnly: true },
     { id: "vscode", label: "settings.tabs.vscode.label", title: "settings.tabs.vscode.title", icon: Monitor, group: "system", adminOnly: true },
     { id: "env", label: "settings.tabs.env.label", title: "settings.tabs.env.title", icon: Settings, group: "system", adminOnly: true },
 ];

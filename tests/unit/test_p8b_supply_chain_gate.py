@@ -42,10 +42,10 @@ AUDIT_SAFE_DIRECT_DEPENDENCIES = {
     "mermaid": "11.16.1",
 }
 AUDIT_SAFE_OVERRIDES = {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.9",
     "nanoid": "3.3.18",
     "socket.io-parser": "4.2.7",
-    "undici": "7.29.1",
+    "undici": "7.30.1",
 }
 
 
@@ -94,6 +94,7 @@ def test_committed_npm_policy_is_fail_closed() -> None:
         "engine-strict": "true",
         "fund": "false",
         "ignore-scripts": "true",
+        "min-release-age": "3",
         "registry": "https://registry.npmjs.org/",
         "update-notifier": "false",
     }
@@ -109,13 +110,27 @@ def test_frontend_runtime_and_lifecycle_are_exact() -> None:
     assert package.get("devEngines") == DEV_ENGINES
     assert package["devDependencies"]["@types/node"] == "^24.13.3"
     scripts = package["scripts"]
-    assert "postinstall" not in scripts
-    assert "prebuild" not in scripts
-    assert (
-        scripts["gen:artifact-runtime"]
-        == "npm run braces:verify && node scripts/build-artifact-runtime.mjs"
-    )
-    assert scripts["build"] == "npm run braces:verify && next build"
+    assert scripts["gen:artifact-runtime"] == "node scripts/build-artifact-runtime.mjs"
+    assert scripts["build"] == "next build"
+
+
+LIFECYCLE_HOOKS = frozenset({"preinstall", "install", "postinstall", "prepare", "prebuild"})
+
+
+@pytest.mark.parametrize("project", [CHAT, IDE], ids=["ToukaChat", "ToukaIDE"])
+def test_controlled_install_runs_no_lifecycle_scripts(project: Path) -> None:
+    scripts = json.loads((project / "package.json").read_text(encoding="utf-8"))["scripts"]
+    assert not (LIFECYCLE_HOOKS & scripts.keys())
+    assert scripts["install:controlled"] == "npm ci --ignore-scripts"
+
+
+@pytest.mark.parametrize("project", [CHAT, IDE], ids=["ToukaChat", "ToukaIDE"])
+def test_npm_scripts_no_longer_reference_the_braces_backport(project: Path) -> None:
+    """ADR-0282: no script runs, defines or points at the retired braces backport."""
+    scripts = json.loads((project / "package.json").read_text(encoding="utf-8"))["scripts"]
+    for name, command in scripts.items():
+        assert "braces" not in name, name
+        assert "braces" not in command and "container-security" not in command, name
 
 
 def test_toukaide_uses_exact_build_toolchain_without_widening_host_api() -> None:
@@ -150,6 +165,7 @@ def test_lockfile_dependencies_are_integrity_bound_to_official_registry() -> Non
     assert len(bundled) == 6
     assert all("resolved" not in row and "integrity" not in row for row in bundled.values())
     npm_offline_gate.validate_lockfile(CHAT)
+    npm_offline_gate.validate_lockfile(IDE)
 
 
 def test_inbundle_metadata_does_not_bypass_parent_integrity_binding(tmp_path: Path) -> None:

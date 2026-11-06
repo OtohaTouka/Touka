@@ -26,7 +26,7 @@ PR 請開到 **`dev`** 分支。預設分支 `main` 是穩定版，只由維護�
 
 ### 給 AI 程式代理人的規則（AGENTS.md）
 
-repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
+repo 根目錄的 [`AGENTS.md`](AGENTS.md) 是給 AI 程式代理人（例如 Codex、Claude Code）讀的開發規則，資料保護、SSOT、TDD 與編號的「開發禁令」都寫在裡面，下面說的 Guard 與禁令編號也出自這份檔。綁特定路徑的規則全文在 `docs/rules/`，`python scripts/applicable_rules.py` 會列出這次改動適用哪些。用 AI 代理人貢獻時，請讓它先讀這份檔；人類貢獻者也可以把它當成完整的規則清單。
 
 ### 環境設置（首次接手 / fresh clone）
 
@@ -38,7 +38,7 @@ uv sync --locked --all-packages
 
 # 2. 前端（lifecycle 關閉，顯式生成 artifact runtime）
 cd ToukaChat
-npm run install:controlled   # npm ci --ignore-scripts＋braces 回補與驗證（同 CI）
+npm run install:controlled   # npm ci --ignore-scripts（同 CI）
 npm run gen:artifact-runtime
 cd ../ToukaIDE
 npm run install:controlled   # pytest 的 companion 測試要用它的 esbuild
@@ -90,8 +90,11 @@ ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatc
 #    裡檢查（tests/lint/test_ruff_ratchet.py、test_pyrefly_ratchet.py）。型別檢查的範圍在 pyproject.toml
 #    的 [tool.pyrefly]。修掉舊錯誤後，重拍基準一起提交：
 #    python -B scripts/lint_ratchet.py ruff --update（型別檢查是 pyrefly --update）
+#    未用的函式、方法、類別不得增加：和 tests/lint/vulture_baseline.json 比，這道只有多出來才紅、少了不紅
+#    （test_vulture_ratchet.py）。接上或刪掉；確定要留才跑 vulture --update，並在 PR 說明逐項列出
 python -B scripts/lint_ratchet.py ruff
 python -B scripts/lint_ratchet.py pyrefly
+python -B scripts/lint_ratchet.py vulture
 
 # 3. 前端 ESLint 只減不增（CI 會跑）：Guard #35 跑完整 ESLint，對照 scripts/eslint_baseline.json，
 #    任一規則的 error 數比基準多就失敗（warning 不算）。要看逐條結果：cd ToukaChat && npm run lint
@@ -108,6 +111,10 @@ python -B -m pytest tests/
 
 # 6. 前端測試（CI 會跑）：npm run test 會先產生 artifact runtime 再跑 vitest
 cd ToukaChat && npm run test && cd ..
+
+# 6-1. 實際驗證（CI 會跑，先不列為必過）：真前端、真後端、假模型，全在沙盒、不花額度。改到畫面或
+#      畫面會用到的後端行為時跑；要有 .venv 與 Playwright 的瀏覽器（npx playwright install chromium）
+cd ToukaChat && npm run test:e2e:real && cd ..
 
 # 7. ToukaIDE 測試、型別檢查、建置（CI 會跑）：照順序一個跑完再跑下一個，compile 與 package 會寫同一個 dist/
 cd ToukaIDE && npm run install:controlled && npm test && npm run typecheck && npm run compile && cd ..

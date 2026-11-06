@@ -149,7 +149,7 @@ async def test_tool_executor_emits_repair_progress(monkeypatch):
     autonomy_service.reset_repair_attempts(sid)
 
     async def fake_bash(**kwargs):
-        return "command failed [EXIT_CODE: 1]"
+        return "[EXIT_CODE: 1]\ncommand failed"
 
     # Explicit synthetic registration preserves the real terminal classification.
     bindings = dict(executor_module.BUILTIN_EXECUTION_BINDINGS)
@@ -171,6 +171,7 @@ async def test_tool_executor_emits_repair_progress(monkeypatch):
         tool_registry={"bash": fake_bash},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="Charlie", role="Owner", capabilities=["*"]),
@@ -343,6 +344,7 @@ async def test_tool_executor_passes_emit_channel(monkeypatch):
         tool_registry={"mytool": fake_tool},
         memory_tool_registry={},
         plugin_registry={},
+        enforce_advertised=False,
     )
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="Charlie", role="Owner", capabilities=["*"]),

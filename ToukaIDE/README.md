@@ -14,7 +14,7 @@ ToukaIDE 是為 VS Code 量身打造的 AI 原生開發插件。它不僅提供�
     - **預覽與套用**：接收來自 `ToukaChat` 的 `Apply to Project` 指令。
     - **虛擬編輯器 (Virtual Buffer)**：內容會以「未儲存檔案」形式在 VS Code 中開啟，讓使用者審核後再決定是否存檔，確保安全性。
 - **MCP 工具整合 (Model Context Protocol)**：
-  - **檔案操作**：基於 `FileHandlers` 的讀寫與目錄遍歷。
+  - **檔案操作**：基於 `FileHandlers` 的讀寫與目錄遍歷。讀寫檔不跟隨連結：指向工作區外面（或不存在位置）的連結、FIFO 這類不是一般檔案的東西會被拒絕，差異預覽按「接受」時路徑變了就不寫（ADR-0294）。
   - **Terminal Auto-Fix**：自動捕捉 Exit Code 並在 ReAct 迴圈中嘗試修正。
 - **分級授權機制 (Tiered Auth，ADR-0246)**：
   - `Manual`: 寫入與執行前需手動確認 (預設)。
@@ -45,6 +45,7 @@ ToukaIDE 是為 VS Code 量身打造的 AI 原生開發插件。它不僅提供�
 3. 在 VS Code Settings 搜尋 `Touka`，將 `touka.proxyUrl` 設為你的 Proxy 網址（預設 `http://localhost:8000`），`touka.apiKey` 填入供此連線使用的 Bearer 憑證。不要使用 Dispatch mission token，也不要分享個人 token。
 4. 執行 **Start Touka** 開啟側欄；`touka.defaultModel` 留空時採第一個可用 Agent。行內補全可由 `touka.enableInlineCompletion` 關閉；補全請求帶 `X-Touka-Purpose: inline-completion`（Touka 只拿來讓 Claude 5.5 少想）、10 秒逾時，繼續打字時取消舊請求。
 5. IDE 提供給 Touka 的工具反向連線只綁 loopback，使用 `/mcp`及啟動時產生的 discovery token；這與側欄聊天到 Proxy 的認證是不同方向。
+6. Linux／macOS 上連線資訊檔只有自己讀得到（資料夾 0700、檔案 0600）。跳出「Touka 找不到這個 IDE」警告時，是暫存區的 `gemini` 或 `ide` 資料夾屬於別人、是連結，或暫存區別人能改；照警告裡的路徑刪掉那個資料夾（屬於別人的要請那位使用者或管理員刪），或把 `TMPDIR` 設成只有自己能寫的資料夾（ADR-0294）。
 
 **0.3.0 更新內容**：Node SDK v2／MCP `2026-07-28` modern-only bridge；退役 `/mcp/sse`與`/mcp/messages`，保留 modern request-scoped SSE、逐 request Bearer、取消與多連線隔離。Webview仍以純文字顯示HTML／Markdown並保留換行，不載入外部CDN腳本。版本更新不替你改動Touka的個人資料或部署。
 

@@ -194,7 +194,8 @@ services:
   # ── 執行器（iso-c2）：代理人指令在這裡以 Landlock 隔離執行 ─────────────────────
   # 和 proxy 同一個映像；看不到 .env、設定、原始碼與 Touka 內部網路（說明見開發版 compose）。
   # 最後一段才建立：proxy 先把 proxy-config 播種好（skills 取自它的子路徑）。安裝目錄的
-  # data/personal_drive、data/mcp_servers 要先存在（create_host_path: false）。
+  # data/personal_drive、data/mcp_servers/managed 要先存在（create_host_path: false；擁有者與 data
+  # 相同）。升級時舊安裝沒用過演化就沒有 managed，先建好再 up（ADR-0293 PR 2）。
   # 核心有 MPTCP 時，覆寫檔要在這個服務也加 net.mptcp.enabled: 0（同 proxy）。
   touka-executor:
     image: ghcr.io/${TOUKA_IMAGE_OWNER:-otohatouka}/touka-proxy:${TOUKA_VERSION:-latest}
@@ -202,7 +203,7 @@ services:
     command: ["python", "-m", "src.services.isolation.executor_server",
               "--ipc-dir", "/app/ipc/executor", "--kernel-dir", "/opt/touka-sandbox",
               "--state-dir", "/app/executor_state",
-              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers",
+              "--root", "rw:/app/data/personal_drive", "--root", "rw:/app/data/mcp_servers/managed",
               "--root", "ro:/app/ToukaProxy/config/skills", "--require-foreign-peer"]
     user: "1001:1001"
     init: true
@@ -223,8 +224,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${SANCTUARY_DATA_PATH:-./data}/mcp_servers
-        target: /app/data/mcp_servers
+        source: ${SANCTUARY_DATA_PATH:-./data}/mcp_servers/managed
+        target: /app/data/mcp_servers/managed
         bind:
           create_host_path: false
       - type: volume

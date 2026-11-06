@@ -16,6 +16,7 @@ from src.models.autonomy import (
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.authorization_gateway import require_admin_human, require_privileged
 from src.services.autonomy import autonomy_service
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.models import model_manager
 from src.services.providers import registry
 
@@ -95,6 +96,7 @@ async def update_autonomy_config(
             raise ToukaException(ErrorCode.VALIDATION_ERROR, field="auto_review.model")
     success = autonomy_service.update_config(new_config.model_dump())
     if success:
+        notify_config_change("autonomy")
         return {"status": "success", "message": "Autonomy configuration updated and saved."}
     
     raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED)

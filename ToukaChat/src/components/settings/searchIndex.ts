@@ -40,6 +40,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     { id: "rbac", tabId: "security", label: "settings.search.entries.rbac", keywords: "permission rbac 權限 role 角色 安全 security matrix 矩陣" },
     { id: "identity_map", tabId: "security", label: "settings.search.entries.identity_map", keywords: "identity mapping 身分 映射 capability 能力" },
     { id: "autonomy", tabId: "security", label: "settings.search.entries.autonomy", keywords: "autonomy budget 自主 預算 quota 配額 cost 花費 cap 上限" },
+    { id: "hooks", tabId: "hooks", label: "settings.search.entries.hooks", keywords: "hook hooks 鉤子 事件 event 攔截 block 擋下 PreToolUse PostToolUse UserPromptSubmit Stop webhook 自動化 automation" },
     { id: "users", tabId: "users", label: "settings.search.entries.users", keywords: "user 使用者 帳號 account role 角色 admin 管理員 invite 邀請" },
     { id: "agent_reset", tabId: "users", label: "settings.search.entries.agent_reset", keywords: "reset 重置 agent 代理人 清除資料 clear data wipe" },
     { id: "backup", tabId: "env", label: "settings.search.entries.backup", keywords: "backup restore 備份 還原 download 下載 encrypt 加密" },

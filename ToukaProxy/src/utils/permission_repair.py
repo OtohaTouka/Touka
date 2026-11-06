@@ -1,7 +1,8 @@
 """權限自癒的裝飾器（iso-c2 U2n）：ResourceManager 碰檔案的方法遇到 EACCES 時交給注入的掛鉤.
 
 - ``permission_repair(retry=<字面 bool>)``：只有最外層的已裝飾呼叫處理（ContextVar 巢狀保護），
-  只處理 Linux 上 ``errno == EACCES`` 而且帶 ``filename`` 的 PermissionError；掛鉤回報真的有修時，
+  只處理 Linux 上 ``errno == EACCES`` 而且帶 ``filename`` 的 PermissionError（區內方法的例外看
+  ``zone_abs``）；掛鉤回報真的有修時，
   ``retry=True`` 再執行一次（第二次失敗照實往上丟）。其餘情況（政策拒絕的 errno 是 None、EPERM、
   沒有掛鉤、掛鉤出錯、``retry=False``）一律原樣往上丟**同一個例外物件**。
 - ``permission_repair_exempt(category=…, reason=…)``：不包裝，只加標記。
@@ -23,7 +24,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ExemptCategory = Literal["swap_semantics", "path_only", "delegates"]
+# generator：走訪與交出路徑的產生器，例外在呼叫之後才發生，裝飾器包不到（ADR-0293）
+ExemptCategory = Literal["swap_semantics", "path_only", "delegates", "generator"]
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 _active: ContextVar[bool] = ContextVar("permission_repair_active", default=False)
@@ -77,8 +79,10 @@ def permission_repair(*, retry: bool) -> Callable[[Callable[_P, _R]], Callable[_
                     return func(*args, **kwargs)
                 except PermissionError as exc:
                     eligible = sys.platform == "linux" and exc.errno == errno.EACCES
-                    paths = (exc.filename, exc.filename2)
-                    fixed = eligible and bool(exc.filename) and _call_hook(
+                    # 區內方法的例外只帶顯示路徑，絕對路徑在 zone_abs（ADR-0293 R12）
+                    zone_abs = getattr(exc, "zone_abs", None)
+                    paths = (zone_abs, None) if zone_abs else (exc.filename, exc.filename2)
+                    fixed = eligible and bool(paths[0]) and _call_hook(
                         name, lambda hook: hook.repair(name, paths, retry=retry)
                     )
                     if not (fixed and retry):

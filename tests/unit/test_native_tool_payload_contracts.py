@@ -50,7 +50,7 @@ async def _execute_public_call(
     monkeypatch.setattr(
         "src.services.tool_executor.session_service.get_session_by_id", AsyncMock(return_value=None)
     )
-    executor = ToolExecutor(None, {name: handler}, {}, {})
+    executor = ToolExecutor(None, {name: handler}, {}, {}, enforce_advertised=False)
     result = await executor.execute_to_queue(
         name,
         args,
@@ -333,7 +333,7 @@ async def test_native_write_risk_and_denials_preserve_existing_gates(
     gate.evaluate_policy.side_effect = policy.evaluate
     monkeypatch.setattr("src.services.tool_executor.permission_service", gate)
     backend = AsyncMock()
-    executor = ToolExecutor(None, {"memory_tools": backend}, {}, {})
+    executor = ToolExecutor(None, {"memory_tools": backend}, {}, {}, enforce_advertised=False)
     result = await executor.execute_to_queue(
         "memory_tools",
         {

@@ -2,13 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.routers.custom_models import user_service
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
-from src.utils import custom_io
-from src.config import settings
-from tests.conftest import SESSION_TMP_DATA_ROOT
-from src.routers.custom_models import user_service
-
 
 
 @pytest.fixture
@@ -48,7 +44,6 @@ def test_custom_model_idor_lifecycle(client, test_users, monkeypatch):
     auth_service = AuthService()
     
     # 使用 monkeypatch 安全修改屬性以避免全域污染
-    monkeypatch.setattr(settings, "MEMORY_APP_DATA_DIR", SESSION_TMP_DATA_ROOT)
     monkeypatch.setattr(user_service.auth_service, "users_file_path", auth_service.users_file_path)
     
     # 1. 以 Owner A 身分登入/建立模型

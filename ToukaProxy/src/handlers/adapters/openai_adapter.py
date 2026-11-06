@@ -230,7 +230,18 @@ class OpenAIAdapter:
                 f"{state.provider} connection error")
         if http_resp.status_code != 200:
             return self._status_error(state, http_resp)
-        return http_resp.json()
+        try:
+            body = http_resp.json()
+        except ValueError as e:
+            return RoundError(
+                f"{state.provider} API Error (200)\n\n`{type(e).__name__}: {str(e)[:200]}`"
+            )
+        if not isinstance(body, dict):  # 讀得懂但不是回覆：parse_round 只收物件
+            return RoundError(f"{state.provider} API Error (200)\n\n`{http_resp.text[:200]}`")
+        # 忙碌類的錯誤本文和串流一樣會重試；非串流帶非零用量的已經計費，交給 react_core 入帳、不重試
+        if "error" in body and not body.get("choices") and not retry.reports_usage(body):
+            return retry.no_reply_error(state.provider, body)
+        return body
 
     def _status_error(self, state: _State, response: httpx.Response) -> RoundError:
         """非 200 的使用者訊息（OpenAI 缺金鑰的 401 另給提示；429／5xx 標可重試）。"""
@@ -239,13 +250,13 @@ class OpenAIAdapter:
             return RoundError(
                 f"{state.provider} Access Denied (401)\n\n"
                 "Missing `OPENAI_API_KEY` in `.env`. "
-                f"Raw error:\n`{error_msg}`"
+                f"Raw error:\n`{error_msg}`",
+                error_type=retry.AUTHENTICATION_FAILED,
             )
         error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`")
-        if retry.retryable_status(status):  # 只有可重試的才讀 retry-after 標頭
-            note = f"{state.provider} busy ({status})"
-            error = retry.on_status(error, status, response.headers, note)
-        return error
+        # 只有可重試的才讀 retry-after 標頭
+        headers = response.headers if retry.retryable_status(status) else None
+        return retry.on_status(error, status, headers, f"{state.provider} busy ({status})")
 
     def parse_round(self, _state: _State, raw: Any) -> Turn:
         """解析 choices → Turn（含 ADR-0152 reasoning 分頻的 OpenAI 方言）。"""

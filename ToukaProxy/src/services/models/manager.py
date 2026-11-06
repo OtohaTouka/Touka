@@ -5,13 +5,11 @@
 import asyncio
 import json
 import logging
-import re
 from typing import Any
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.agent_service import agent_service
-from src.services.custom_model_service import custom_model_service
 from src.services.models.fetcher import (
     DiscoveryError,
     fetch_anthropic_models,
@@ -33,20 +31,10 @@ from src.services.models.routes import (
 from src.services.providers import registry
 from src.utils import config_utils
 from src.utils.opaque_identifier import opaque_identifier
+from src.utils.secret_text import redact_credentials
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
-
-# N7/N9 fix: patterns that indicate credential material in error messages.
-_CREDENTIAL_PATTERNS = re.compile(
-    r"(?i)"
-    r"(?:Bearer|Basic|Token|Authorization)\s+\S+"  # Auth header values
-    r"|sk-[A-Za-z0-9\-_]+"                         # OpenAI-style API keys
-    r"|key=[A-Za-z0-9\-_]{8,}"                     # URL key params
-    r"|api[-_]?key\s*[=:]\s*\S+"                   # api_key=... patterns
-    r"|[Pp]assword\s*[=:]\s*\S+"                   # password=...
-    r"|//[^/\s:@]+:[^/\s@]+@"                       # URL userinfo (user:pass@host)
-)
 
 _CONTROL_PLANE_PROVIDERS = frozenset({"proxy"})
 _LEGACY_ROUTE_FIELDS = frozenset({"_source_url", "_api_key"})
@@ -60,7 +48,7 @@ def _sanitize_connection_error(error_msg: str) -> str:
     messages (e.g., HTTP error responses, URL strings) from being stored
     in _connection_errors where they might later be exposed via the API.
     """
-    return _CREDENTIAL_PATTERNS.sub("[REDACTED]", error_msg)
+    return redact_credentials(error_msg)
 
 
 def _sanitize_model_descriptor(model: dict[str, Any]) -> dict[str, Any]:
@@ -855,20 +843,15 @@ class ModelManager:
             self._save_config()
 
     def delete_model(self, identity: AgentIdentity) -> bool:
-        """從名冊中刪除模型 (Identity SSOT)。"""
+        """從名冊中刪除模型 (Identity SSOT)；自訂模型的資料夾由路由先刪（ADR-0293 R11）。"""
         deleted_any = False
         model_id = identity.agent_id
-        
-        # 1. 嘗試刪除自定義模型目錄 (Level 2)
-        if custom_model_service.delete_model(identity):
-            logger.info(f"🗑️ Deleted custom model directory: {model_id}")
-            deleted_any = True
-            
-        # 2. 嘗試從註冊表中移除 (Level 0)
+
+        # 1. 嘗試從註冊表中移除 (Level 0)
         if agent_service.delete_agent_registration(identity):
             deleted_any = True
             
-        # 3. 從基礎模型快取中移除
+        # 2. 從基礎模型快取中移除
         original_len = len(self._models_cache)
         self._models_cache = [m for m in self._models_cache if m["id"] != model_id]
         

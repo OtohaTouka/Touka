@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi.testclient import TestClient
-from memory_server import factual as factual_module
 from src import main as main_module
 from src.main import app
 from src.models.identity import AgentIdentity
 from src.routers import observability
 from src.services.identity_router import get_verified_identity
+
+from tests.support.zone_roots import point_zone_roots
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +28,7 @@ def _plant(vault: Path, agent: str, name: str = "facts.jsonl") -> Path:
 
 @pytest.fixture
 def isolated_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr(factual_module, "_get_app_data_dir", lambda: str(tmp_path))
+    point_zone_roots(monkeypatch, tmp_path, tmp_path / "zone_state")
     return tmp_path / "vault"
 
 

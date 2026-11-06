@@ -25,7 +25,7 @@ from memory_server.services.index_state import (
 )
 from memory_server.utils.content_guard import memory_safety_flags, sanitize_memory_content
 from memory_server.utils.legacy_time import format_taipei
-from memory_server.vector import embedding_family
+from memory_server.vector import SemanticSearchUnavailableError, embedding_family
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -53,6 +53,9 @@ SAVED_FLAGGED_NOTE = (
     " and random recall skips it."
 )
 SEMANTIC_DOWN_NOTE = "（語意搜尋暫時無法使用：這次只比對了事實庫的關鍵字。）"
+SEMANTIC_DEDUP_SKIPPED_NOTE = (
+    "（語意查重暫時無法使用：照常存了，但只擋得住完全相同的內容，意思相近的舊記憶這次沒比對。）"
+)
 HISTORY_LABEL = "被取代前的版本"
 _HISTORY_UNAVAILABLE = f"\n   {HISTORY_LABEL}：暫時無法讀取"
 
@@ -66,12 +69,22 @@ def duplicate_similarity_threshold(model_name: str) -> float:
 
 @dataclass(frozen=True)
 class CheckedContent:
-    """新內容檢查完的結果；``blocked`` 不是 None 就是擋下時給模型的回覆（不寫入）."""
+    """新內容檢查完的結果；``blocked`` 不是 None 就是擋下時給模型的回覆（不寫入）.
+
+    ``semantic_checked`` 是 False 時語意查重沒做成（取不到向量庫或查詢失敗）：照常存，回覆
+    要說（``dedup_note``）。
+    """
 
     content: str
     safety_flags: list[str]
     vector: VectorStore | None
     blocked: str | None = None
+    semantic_checked: bool = True
+
+    @property
+    def dedup_note(self) -> str:
+        """存成功的回覆尾端：語意查重沒做成時附一行說明，否則是空字串."""
+        return "" if self.semantic_checked else f"\n{SEMANTIC_DEDUP_SKIPPED_NOTE}"
 
 
 def _similar_reply(similar_id: str, replacing: str | None) -> str:
@@ -118,27 +131,24 @@ def check_new_memory(
         vector = manager.get_vector_store()
     except Exception:
         logger.exception("Vector store unavailable; the fact is kept and indexed later.")
-        vector = None
+        return CheckedContent(sanitized, flags, None, semantic_checked=False)
+
+    try:
+        hits = vector.query_vectors(
+            identity=identity, query=sanitized, limit=DUPLICATE_CANDIDATES_PER_FACT
+        )
+    except SemanticSearchUnavailableError:  # 事實庫是正本：照存，回覆說查重沒做到
+        logger.warning("Semantic duplicate check skipped for %s", identity.agent_id)
+        return CheckedContent(sanitized, flags, vector, semantic_checked=False)
 
     blocked = None
-    try:
-        hits = (
-            vector.query_vectors(
-                identity=identity, query=sanitized, limit=DUPLICATE_CANDIDATES_PER_FACT
-            )
-            if vector is not None
-            else []
-        )
-        similar = [
-            hit for hit in live_semantic_hits(factual, identity, hits)
-            if hit["fact_id"] != replacing
-        ]
-        threshold = duplicate_similarity_threshold(get_embedding_model_name())
-        if similar and similar[0]["_score"] > threshold:
-            logger.warning("⚠️ [Manager] Blocking duplicate (Score: %.2f)", similar[0]["_score"])
-            blocked = _similar_reply(similar[0]["fact_id"], replacing)
-    except Exception:
-        logger.exception("Check for duplicates failed.")
+    similar = [
+        hit for hit in live_semantic_hits(factual, identity, hits) if hit["fact_id"] != replacing
+    ]
+    threshold = duplicate_similarity_threshold(get_embedding_model_name())
+    if similar and similar[0]["_score"] > threshold:
+        logger.warning("⚠️ [Manager] Blocking duplicate (Score: %.2f)", similar[0]["_score"])
+        blocked = _similar_reply(similar[0]["fact_id"], replacing)
     return CheckedContent(sanitized, flags, vector, blocked)
 
 
@@ -183,7 +193,7 @@ def supersede_memory(
     new_id = result["id"]
     record_memory_event(identity, "memory_superseded", old_fact_id, new_fact_id=new_id)  # 已提交
     archive_in_index(factual, checked.vector, identity, old_fact_id)
-    note = SAVED_FLAGGED_NOTE if checked.safety_flags else ""
+    note = (SAVED_FLAGGED_NOTE if checked.safety_flags else "") + checked.dedup_note
     if index_new_fact(factual, checked.vector, identity, result["record"]):
         return f"✅ 已用新記憶取代 {old_fact_id}（舊的保留並連到新的） (ID: {new_id}).{note}"
     logger.error("❌ [Lifecycle] Vector write failed; fact kept for reindex: %s", new_id)

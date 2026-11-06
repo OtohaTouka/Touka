@@ -19,6 +19,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from memory_server.factual import FactualStore
+from memory_server.utils.zone_paths import is_zone_segment
 
 from src.core.exceptions import ErrorCode, ToukaException
 
@@ -82,6 +83,7 @@ from .routers.editor import router as editor_router
 from .routers.feedback import router as feedback_router
 from .routers.group_settings import router as group_settings_router
 from .routers.heartbeat import router as heartbeat_router
+from .routers.hooks import router as hooks_router
 from .routers.identity import router as identity_router
 from .routers.mcp import MCP_MANUAL_START_STARTER
 from .routers.mcp import router as mcp_router
@@ -112,13 +114,16 @@ from .services.continuity_events import start_recording, stop_recording
 from .services.creation.evaluation import eval_runner
 from .services.creation.model_judge import ModelJudge, resolve_judge_model
 from .services.dispatch_supervisor import DispatchSupervisor
+from .services.hooks.notifications import IsolationLevelNotifier
 from .services.identity_router import get_verified_identity
 from .services.identity_service import identity_service
 from .services.isolation.status import isolation_monitor
 from .services.model_manager import model_manager
 from .services.permission_service import permission_service
 from .services.resource_manager import resource_manager
+from .services.skill_service import skill_service
 from .services.sns_gateway import sns_gateway
+from .services.zone_file_response import zone_file_response
 from .tools.builtin import builtin_tools_schema, tool_registry
 from .tools.plugin_loader import load_plugins
 from .utils.async_db import init_db_async, session_service
@@ -179,6 +184,7 @@ protocol_manager = ProtocolManager(registry)
 # 隔離封鎖埠的上游來源：已設定的全部模型連線 URL（存檔後立刻生效、不等探測）。在這裡接，
 # 避開 isolation → models → agent_service → permission_service → isolation 的循環匯入。
 isolation_monitor.add_upstream_source(model_manager.route_endpoints)
+isolation_monitor.on_level_change(IsolationLevelNotifier())
 
 
 def _build_mcp_oauth_authorization_fence() -> McpOAuthAuthorizationFence:
@@ -382,6 +388,11 @@ async def _lifespan_runtime(
             protocol_manager.registry.load_config()
     except Exception as e:
         logger.error(f"⚠️ MCP server key 遷移失敗（略過，不影響啟動）：{e}", exc_info=True)
+
+    # ADR-0290：兩個調度員技能檔不進版控，在設定自癒與 MCP 名稱遷移之後產生（不看 bootstrap
+    # 開關）。兩個 sync 自己吞錯並記錄，失敗不影響啟動。
+    skill_service.sync_system_dispatcher()
+    skill_service.sync_skill_dispatcher()
 
     try:
         oauth_bundle = await build_mcp_oauth_runtime_bundle(
@@ -624,24 +635,16 @@ async def get_sovereign_output(
         logger.warning(f"🚨 Output Violation! Req: {agent_id}, Identity: {identity.agent_id}")
         raise ToukaException(ErrorCode.AUTH_UNAUTHORIZED_ACCESS)
 
-    # 取得 Agent 專屬輸出路徑
-    output_dir = resource_manager.get_outputs_path(identity)
-    if not output_dir:
-        raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND)
-
-    file_path = Path(output_dir) / filename
-
-    # 安全檢查：防止路徑穿越 (Path Traversal)
-    abs_file_path = file_path.resolve()
-    abs_output_dir = Path(output_dir).resolve()
-
-    if not abs_file_path.is_relative_to(abs_output_dir):
+    # 檔名只能是一段（防路徑穿越；Windows 另拒 ``C:x``、保留裝置名）
+    if not is_zone_segment(filename):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
-
-    if not abs_file_path.exists():
+    output_dir = resource_manager.outputs_dir(identity)
+    if output_dir is None:
         raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND)
-
-    return FileResponse(abs_file_path)
+    try:
+        return zone_file_response(output_dir.child(filename), filename)
+    except OSError as e:  # 連結（ADR-0293）、不存在或不是檔案：一律和不存在一樣
+        raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND) from e
 
 
 @app.get("/v1/users/{user_id}/avatar")
@@ -702,7 +705,7 @@ async def root_identity():
         "service": "ToukaProxy",
         "version": "0.4.1",
         "status": "DEGRADED" if SYSTEM_DEGRADED else "HEALTHY",
-        "features": ["soul", "memory", "telemetry", "emergence", "stats", "mcp", "connections"],
+        "features": ["soul", "memory", "telemetry", "stats", "mcp", "connections"],
         "identity": "🛡️ Touka Core Engine",
         "system_degraded": SYSTEM_DEGRADED,
         "degraded_reason": DEGRADED_REASON,
@@ -730,6 +733,7 @@ CORE_ROUTERS = [
     skills_router,
     creation_router,
     autonomy_router,
+    hooks_router,
     auth_router,
     admin_router,
     heartbeat_router,

@@ -1,5 +1,46 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 模型輸出的外部資源不自動載入、本機連線資訊只給自己（2026-10-30，ADR-0294）
+
+- Markdown 圖片載不載入：ToukaChat `src/lib/markdownImagePolicy.ts` 的 `decideMarkdownImage`（純函式，解析後比來源；後端來源由呼叫端傳 `getActiveProxyUrl()`）。
+- 顯示模型輸出的 Markdown：只用 `src/components/markdown/SafeMarkdown.tsx`（`img` 固定交給 `MarkdownImage`、不收 rehype 外掛）；`tests/lint/test_chat_markdown_render_security.py` 釘住只有它能匯入 `react-markdown`。
+- 流程圖：畫圖只經 `src/lib/artifacts/mermaidSandbox.ts` 的 `renderMermaidInSandbox`（隱藏沙箱框，沿用 `sandbox.ts` 的 `ARTIFACT_SANDBOX`／`ARTIFACT_CSP`；框裡的 mermaid 瀏覽器版由 `gen:artifact-runtime` 產生成 `src/generated/mermaidRuntime.ts`，產品程式不匯入 `mermaid`）；設定只有 `src/lib/artifacts/mermaidConfig.ts` 的 `MERMAID_CONFIG`（`secure` 的預設項目與三個樣式欄位），輸出消毒只有 `src/lib/artifacts/sanitizeMermaidSvg.ts`（專屬 DOMPurify 實例）。
+- ToukaIDE 讀寫檔：路徑只經 `src/mcp/workspacePath.ts` 的 `resolveWorkspacePath`（找最近存在的上層用 `lstat`），讀寫只經 `src/mcp/noFollowFile.ts` 的 `readFileNoFollow`、`writeFileNoFollow`；`read_file`、`FileHandlers` 直接寫與 `diffManager` 讀原檔、按接受都用這些。
+- IDE 連線資訊檔的權限：寫的一方是 ToukaIDE `src/mcp/discoveryFile.ts`（`writeDiscoveryFile`，判斷是 `isSafeTempRoot`、`privateDirVerdict`），讀的一方是 ToukaProxy `src/protocols/ide/discovery.py`（`_is_private`、`_private_folders`、`_read_discovery`）。兩邊語言不同、各自執行，所以各有一份；規則以 ADR-0294 決定 9 為準，改一邊要同時改另一邊。內容格式仍是 `contracts.ts` 的 `buildDiscoveryPayload()`。
+
+## 代理人資料夾不跟隨連結（2026-10-30，ADR-0293）
+
+- 區與錨點的唯一定義：ToukaMemory `utils/zone_paths.py`（`Anchor`、`ENFORCED_ANCHORS`、`ALL_ANCHORS`、`anchor_dirname`；判斷只有 `zone_of`、`contains_zone`、`anchor_at`，呼叫端明確傳錨點集合）。目前的 data 根由 `resource_manager` 載入時以 `set_roots_provider` 登記，讀取一律 `current_roots()`；隔離層用 `services/isolation/profiles.layout_zone_roots(layout)`。
+- 區裡的路徑：`ZonePath`，只由 `ResourceManager` 的 `agent_drive`、`agent_drive_for`、`soul_drive`、`custom_drive`、`outputs_dir`、`uploads_dir`、`tool_root`、`sandbox_state_proxy`／`sandbox_state_dir`、`anchor_root`（只限明列的呼叫點）與 `zone_rel_from_abs` 交出；I/O 只經 RM 的 `zone_*` 方法（`IResourceProxy` 有對應方法）。字串方法碰區丟 `ZonePathRequiredError`（`resource_manager._plain`／`_plain_tree`；遞迴走訪用 `walk_pruned` 剪掉區）。
+- 交給子行程或回檔：`ResourceManager.zone_handoff`（登記表在 `zone_paths`，`HandoffKind`、`is_handed_off`）；包住的 MCP 的 cwd `ResourceManager.handoff_cwd`；檔案下載 `services/zone_file_response.py` 的 `ZoneFileResponse`。
+- 區字串（交給沙盒規則、argv、部署條目的資料）：`ResourceManager.zone_text`；回傳或收區字串的函式由 `tests/lint/test_zone_path_guard.py` 的 TF 算出，釘在 `ZONE_TEXT_PRODUCERS`／`ZONE_TEXT_RECEIVERS`，去處只准 `G4_DESTINATIONS`／`G4_ALLOWED`（ADR-0293 PR 2）。
+- sandbox state 根（ST）：RM 的 `_state_setting_or_default`（`_zone_roots` 用）與 `sandbox_state_root`；Touka 要在 ST 讀寫的路徑只經 `services/isolation/profiles.proxy_state_zone`／`proxy_state_owner`（版面與 RM 不一致時在建資料夾前丟 `ProfileError`）。
+- 技能名稱：`utils/isolation_policy.is_skill_segment`（`validate_skill_id` 與 `tool_root` 都只經它；執行器保留名單引用 `sandbox_kernel/spec.listing_kind`）。演化技能資料夾的 `ZonePath` 由 `EvolutionPathGuard.tool_zone` 交出。
+- 破壞性操作前的連結檢查：`services/agent_reset/orchestrator.refuse_linked_drive`（重置、刪除靈魂、刪除與改名自訂模型共用，錯誤碼 `AGENT_DRIVE_LINKED`）；停掉代理人的指令：`tools/terminal.stop_agent_commands`；改名 `ResourceManager.rename_agent_container`，刪自訂模型資料夾 `ResourceManager.remove_custom_model_dir`；刪除自訂模型資料夾只經 `routers/custom_models._remove_model_dir`（刪除路由、`/v1/models` 的刪除與建立失敗的回滾都經它）。
+- 設了 `vault_jail_arg` 的 MCP 伺服器：`services/mcp_vault_jail.apply` 以固定原因拒絕（`tool_executor` 在審批卡與 hook 之前呼叫）。
+- 例外被產品程式接住也看得到：`zone_paths.add_observer`／`report`（`ZoneEvent`）；測試期間的絆線與紀錄在 `tests/support/`，換 data 根只經 `zone_data_root` fixture 與 `tests/support/zone_roots.point_zone_roots`。
+
+## Hook（2026-10-28，ADR-0292）
+
+- 設定唯一來源：`config/hooks.json`（`models/hooks.py` 的 `HooksConfig`；種子 `hooks.json.example`，預設關閉）。只經 `PUT /v1/hooks`（人類 admin）改；代理人用終端讀寫屬底線 F2（標頭可能有權杖；檔案動詞與 MCP 不經底線，靠專案根限制）。不在設定匯出／匯入裡。
+- hook 腳本：設定資料夾的 `hooks/`（`services/hooks/paths.py` 的 `HOOKS_DIR_NAME`），也是 command hook 的工作目錄；參數裡的路徑必須在這裡，程式在別處時不能指到代理人寫得到的地方（資料根、sandbox state、執行器、工作區根、專案根、MCP 可寫資料夾與它們的對映路徑）。不進版控也不進映像。
+- 一般使用者的專案根能不能用：`services/isolation/profiles.project_root_reason`（登記、列檔、專案檔案工具三處共用；管理員與 Debugger 由 `resource_manager.bypasses_project_jail` 放行，專案檔案工具另外放行只有管理員擁有的靈魂：`authorization_gateway.only_admins_own`）。
+- 執行與合併結果的唯一入口：`services/hooks/service.py` 的 `hook_service`；解讀規則 `outcome.py`，比對規則 `matcher.py`，執行 `runners.py`（command 經 `execution_broker.spawn_exec`、不經 shell）。
+- 事件清單與「不帶對話內容的事件」：`models/hooks.py` 的 `WIRED_EVENTS`、`MATCHER_EVENTS`、`NO_CONVERSATION_EVENTS`；生命週期事件的內容與時點：`services/hooks/lifecycle.py`；ConfigChange 的區段名稱：同檔的 `ConfigSection`，每個會改狀態的路由在 `tests/unit/test_hook_config_change_security.py` 分類。
+- 接線點：UserPromptSubmit＝`middleware/layers/hooks.py` 的 `HookLayer`（只在 `ctx.run_hooks`），插話＝`services/hooks/interjection_hooks.py`（`routers/ui_interjections.py` 進佇列前）；PreToolUse／PostToolUse＝`tool_executor.py`（`services/hooks/tool_hooks.py`）；Stop＝`react_core.py`（`services/hooks/stop_hooks.py`）。
+- 回給模型的文字：`<hook_output>` 區塊（`prompt_blocks.HOOK_OUTPUT`，`events.wrap_hook_output`）；工具結果經 `events.attach_to_tool_result`。
+- 執行紀錄：`hook_service.runs()`，只在記憶體、最新 50 筆。
+- 代理人檔案動詞不跟隨連結的 I/O：ToukaMemory `utils/no_follow.py`（`core_file_ops` 直接用；ToukaProxy 的 `ResourceManager` 以 `*_no_follow` 方法包一層，`IResourceProxy` 有對應方法）。根是代理人資料夾時改走區內方法（ADR-0293，見「代理人資料夾不跟隨連結」一節）。和 `core_file_ops.py`、`zone_paths.py`、`resource_manager.py` 一樣列在 `lint_ssot.py` 的 I/O 白名單。
+- 被擋下的一輪在前端怎麼處理：`ToukaChat/src/lib/stream_tree.ts` 的 `dropBlockedTurn`（`StreamRegistryProvider` 存回、`ChatProvider` 放回輸入框）。
+
+## 舊審查報告乙-3：記憶讀寫在哪條執行緒上跑（2026-10-27，ADR-0288）
+
+| 責任 | 唯一來源 | 使用者 |
+|---|---|---|
+| 記憶讀寫排在哪裡跑（整個行程一條單執行緒工作者 `touka-memory`；主迴圈 await、別的執行緒同步等、工作者裡直接跑；帶呼叫端 contextvars；等待被取消後才失敗的記到 log；持鎖做破壞性操作的做完才放手） | `ToukaMemory/src/memory_server/utils/memory_worker.py`（`run_memory_job`、`run_memory_job_to_end`、`run_memory_job_blocking`、`in_memory_worker`、`MemoryWorkerMisuseError`） | 記憶工具（存、查、forget、manage_dups、reindex、診斷、隨機回想、對話搜尋、匯出）、記憶列表與切換嵌入模型端點（偵測與套用一個工作，`embedding_service.switch_model`）、刪除靈魂前的記憶檢查、重置的清記憶（做完才放手）與重算、舊對話統計與同步端點、測試沙盒釋放步驟 |
+| 向量庫的執行緒保險（公開方法整段持鎖；建單例與重置互斥） | `ToukaMemory/src/memory_server/vector.py` `_STORE_LOCK`；`services/manager.py` `_VECTOR_STORE_LOCK` | `VectorStore` 的公開方法、`MemoryManager.get_vector_store`、`reset_singletons` |
+| 寫 `.env` 的互斥（讀改寫整段持鎖；只管這個行程） | `ToukaProxy/src/config.py` `ENV_FILE_LOCK` | 設定頁 `POST /v1/config/env`（`routers/config.py`）、首裝精靈 `SetupService.apply`、`persist_generated_secret`、`persist_generated_secrets`、切換嵌入模型 `embedding_service.apply_switch` |
+
 ## MCP 伺服器與創建試跑的隔離（C2-3）
 
 決策見 ADR-0275。來源與額外資料夾不放入 `server_config.json`；設定、判定、傳輸各有自己的來源，不由 UI 推導權限。
@@ -7,7 +48,7 @@
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
 | 來源值、分類值、可隔離／已接線工具、額外資料夾上限 | `utils/isolation_policy.py`（`MCP_ORIGINS`、`MCP_SELF_ORIGINS`、`MCP_THIRD_PARTY_ORIGINS`、`ISOLATION_WIRED_ACTIONS`） | 來源分類、政策、模型與啟動器橋接 |
-| 來源分類、引用路徑、部署程式辨識；啟發式只會更嚴 | `utils/mcp_origin.py`（`classify`、`referenced_paths`、`deployed_skills`） | `mcp_launch`、隔離設定端點、演化凍結 |
+| 來源分類、引用路徑、部署程式辨識；啟發式只會更嚴，授與只用字面位置（ADR-0293 決定 16） | `utils/mcp_origin.py`（`classify`、`referenced_paths`、`deployed_skills`） | `mcp_launch`、隔離設定端點、演化凍結 |
 | 隔離紀錄位置、原子寫入鎖、讀不到／過期語意與程式身分雜湊 | `services/mcp_isolation_store.py`（`McpIsolationStore`、`bound_of`）；`get_config_dir()` 下的 `mcp_server_isolation.json` | Hub、技能安裝、創建、演化、設定存檔與匯入；bootstrap 只播種 `.example` |
 | 設定與手動啟動的 API 模型 | `models/mcp_isolation.py`；`routers/mcp.py` 的 GET／PUT isolation 與 restart | `useMcpIsolation`、`useMcpSettings`、手動啟動確認框 |
 | 每台的啟動判定、啟動帳本、等待 660 秒、手動同意 | `services/isolation/mcp_launch.py`（`mcp_launcher`、`mcp_launch_book`、`McpManualStart`） | manager、`GET /mcp/list`、`GET /isolation`、創建試跑 |
@@ -65,7 +106,7 @@
 | 政策當下的層級與專案根（只來自 ctx／session，不讀模型參數；只看內建工具）、審查員看的層級 | `services/isolation/policy.py`（`policy_level`、`session_project_root`、`reviewer_level`） | `tool_executor`、`tools/terminal.py`、`approval_flow.CommandApprover` |
 | 未隔離同意（subject、一次性、10 分鐘、上限 4,096） | `services/isolation/consent.py` `consent_ledger`（`consent_subject`、`ConsentKey.of`） | `policy`、`approval_flow`、`agent_command`、`evolution_command` |
 | 選 runner 與「降級要先經人核准」 | `services/isolation/runners.py` `runner_broker`（`RunnerBroker.acquire`、`LaunchPlan.release`；固定維護指令用的 `acquire_maintenance`） | `agent_command`、`evolution_command`、`home_wipe`（刪除靈魂時清家目錄） |
-| profile、永不授權、封鎖埠、環境變數改寫（含 `PYTEST_ADDOPTS`） | `services/isolation/profiles.py`（`build_agent_command_profile`、`build_evolution_profile`、`authorize_derived_path`、`grantable_roots`（依身分）、`fixed_protected`、`blocked_ports`、`sandbox_env`） | `agent_command`、`evolution_command`、`status`、`approval_flow` |
+| profile、永不授權、封鎖埠、環境變數改寫（含 `PYTEST_ADDOPTS`） | `services/isolation/profiles.py`（`build_agent_command_profile`、`build_evolution_profile`、`authorize_derived_path`、`_in_own_drive`（依身分）、`layout_zone_roots`、`fixed_protected`、`blocked_ports`、`sandbox_env`） | `agent_command`、`evolution_command`、`status`、`approval_flow` |
 | Touka 目錄偵測（往上到鏡像根、往下 3 層、資料根名稱、快取與背景續掃） | 標記與資料根名稱在 `sandbox_kernel/spec.py`（`TOUKA_MARKERS`、`DATA_ROOT_NAMES`、`fold_name`、`listing_kind`，C2-2 搬入、執行器伺服器共用）；`utils/touka_dirs.py`＋`services/isolation/project_scan.py` `project_scanner` | `profiles.touka_directory_verdict`、執行器伺服器的 roots 檢查 |
 | 代理人指令與演化接上 runner | `services/isolation/agent_command.py`（`take_grant`、`command_scope`、`command_level`、`prepare_command`）、`services/isolation/evolution_command.py` | `tools/terminal.py`、`services/review/evidence.py`；`tools/builtin/evolution.py`、`evolution_security.py` |
 | 審批卡的隔離標示與 `isolation_ack` | `services/approval_flow.py`（`CardIsolation`、`card_isolation`、`ISOLATION_ACK_FIELD`）；事件欄位 `utils/tool_events.py` | `ToukaChat` `stream_tree.ts`、`ToolApprovalCard.tsx`（翻譯 `chat.tool_approval_card.isolation.*`） |
@@ -88,6 +129,8 @@
 | 整次 run 金額（畫面 `token_usage` 與稽核 CSV 同一個值） | `services/telemetry.py` `run_cost_usd`、`is_long_prompt`；`handlers/react_core.py` `_RunUsage.long_totals` | `react_core`、`log_usage_audit(cost_usd=)` |
 | 審查員等待預設與上限 | `models/autonomy.py` `AutoReviewConfig.timeout_s`（60，`gt=0, le=120`）＋`config/autonomy.json.example`；前端 `useAutoReviewSettings` `REVIEWER_TIMEOUT_MAX_S`（對齊 `le=120`） | `auto_reviewer._config`；ToukaChat 審查員卡片 |
 | 人工實測的最壞估價取貴檔 | `tests/smoke/manual/memory_eval_probe.py` `_dearest_rate` | 記憶評估工具、`thinking_latency_probe.py` |
+| 記憶評估的價目依據（查不到拒跑、家族估價標示；ADR-0284） | `tests/smoke/manual/memory_eval_probe.py` `_price_basis`（讀 `pricing.resolve` 與價目表私有部分） | 記憶評估工具（延遲實測腳本不用） |
+| 記憶評估的通過率範圍、兩次比較、評估程式雜湊（ADR-0284） | `tests/memory_eval/stats.py`（`wilson`、`newcombe`、`eval_code_hash`、`EVAL_CODE_FILES`、`compare_reports`） | `runner.BatchReport`、`memory_eval_probe.py`、比較工具 `python -m tests.memory_eval.stats` |
 
 ## 記憶系統第二批：段 7 清除連備份（2026-10-15，ADR-0270）
 
@@ -97,7 +140,9 @@
 | 清除時要處理的表（fail closed） | `ToukaMemory/src/memory_server/factual.py` `MEMORY_SCRUB_TABLES` | `inspect_store_image`、`scrub_store_image`、`compact_after_reset` |
 | 升級與清除升級備份的互斥 | `factual._UPGRADE_BACKUP_LOCK`（`upgrade_backup_lock()`、`FactualStore._upgrade_with_backup_lock`） | 升級、`memory_scrub/upgrade_backups` |
 | 清除進行中旗標 | `ToukaProxy/src/services/memory_scrub/__init__.py` `begin`、`in_progress`、`ScrubSession` | 重置協調器（`reset_in_progress`）、還原端點 |
-| 重置或清除進行中 | `services/agent_reset/orchestrator.py` `reset_in_progress()` | 還原端點、第二個重置 |
+| 重置、清除或刪除靈魂進行中（全系統一把） | `services/agent_reset/orchestrator.py` `reset_in_progress()`、`destructive_op()`（不等待取鎖並標記目標，ADR-0287） | 還原端點、重置、刪除靈魂 |
+| 這個靈魂正在刪除、重置或清除；這個靈魂還有心跳在跑 | `services/destructive_ops.py`（`hold`／`release`／`is_held`、`start_heartbeat`／`end_heartbeat`、`stop_heartbeats`；ADR-0287） | 心跳迴圈、`/awaken`、`/retrigger`、刪除靈魂、重置、清除 |
+| 最後一次重置的結果（只在記憶體，重啟後 idle；放鎖、清旗標前記好） | `services/agent_reset/last_result.py`（`start`、`ResetRun`、`recording`、`last_reset`；ADR-0289） | 重置協調器、清除工作的 `on_report`、`GET /v1/admin/agents/reset/last`、ToukaChat 重置卡 |
 | 清除的原因代碼與完成判定 | `ToukaProxy/src/models/memory_scrub.py` `ScrubReason`、`MemoryScrubReport.build`；Memory 端 `factual.ScrubFailure`（值都在 `ScrubReason` 裡） | 重置回應、結果稽核、ToukaChat 結果畫面 |
 | 清除稽核的格式（一份） | `services/memory_scrub/orchestrator.py` `audit_result`、`audit_rejected`（路由經 `agent_reset.orchestrator.scrub_rejected`） | 路由、重置協調器 |
 | 換檔順序、戳記、連結判斷、改名重試 | `services/memory_scrub/swap.py`（`replace_verified`、`stamp`、`folder_problem`、`RENAME_ATTEMPTS`） | 升級備份與快照清除 |
@@ -115,8 +160,21 @@
 | 這一輪實際列給模型的工具（原生工具名；MCP 的（伺服器, 裸工具名）；不可變、不做 I/O） | `ToukaProxy/src/models/advertised_tools.py` `AdvertisedTools`（`from_schemas`、`permits_native`、`permits_mcp`、`has_server`）；存在 `PipelineContext.advertised_tools`（`models/context.py`，`InstanceOf[AdvertisedTools] \| None`） | `services/tool_executor.py` `ToolExecutor._offer_denial`（只讀） |
 | 誰能寫這份清單（結構測試 C3 釘住） | 正式程式只有兩處：`middleware/layers/tool.py` `ToolLayer`（由 `_inject_tools` 回傳的實際注入、去重後 schema 算，一律覆寫）、`tools/subagent_tools.py` `_run_subagent`（子代理自己組裝的 `request.tools`）；測試例外只有 `tests/tool_eval/live_episode.py` | 所有經 `run_react_loop` 的模型迴圈 |
 | 舊名工具 → 後繼正式工具（後繼全部列出才放行；鍵＝Guard #45 基準的 `legacy_tools`） | `ToukaProxy/src/tools/builtin/__init__.py` `LEGACY_ADVERTISED_SUCCESSORS`（`MappingProxyType`） | `AdvertisedTools.permits_native` ← `ToolExecutor._offer_denial` |
-| 執行器要不要核對清單（只能用名稱指定、建立後唯讀；正式程式只有兩個建立點、各一次，結構測試 C2 逐一比對建立點，並限定只有這兩個檔能匯入 `tool_executor` 模組） | `ToolExecutor(..., *, enforce_advertised)`：`handlers/react_core.py` `run_react_loop` 寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈；人按的 `/debug/execute` |
+| 執行器要不要核對清單（只能用名稱指定、建立後唯讀；預設開，ADR-0285 甲-3；結構測試 C2 只准 `debug_execute_tool` 用字面 `False` 關） | `ToolExecutor(..., *, enforce_advertised=True)`：`handlers/react_core.py` `run_react_loop` 明寫 `True` 並在建好後再檢查一次（沒開就 `SYSTEM_ERROR`）；`routers/debug.py` `debug_execute_tool` 寫 `False` | 模型迴圈與其他建立點；人按的 `/debug/execute` |
 | 子代理一定拿掉的工具（請求與清單同步） | `tools/subagent_tools.py` `_SUBAGENT_STRIPPED_TOOLS`（`dispatch_subagent`、`dispatch_subagent_group`） | `_assemble_subagent_request`、`_run_subagent` |
+
+## ADR-0269 的後續：工具使用分三種、使用者授權的 MCP、工具清單比對（2026-10-24，ADR-0281 T3、T1、T2）
+
+| 責任 | 唯一來源 | 使用者 |
+|---|---|---|
+| 這一輪的工具使用：試過（集合本身，被擋也算）、執行過（真正交給 handler 時）、存成功（結果判定成功時）；限定名 `name.action` | `ToukaProxy/src/utils/tool_usage.py` `ToolUsage`、`record_tool_usage`／`record_tool_executed`／`record_tool_succeeded`、`executed_tools`／`succeeded_tools` | 記：`ToolExecutor.execute_to_queue`；讀：幻覺偵測（試過）、查證守衛（執行過）、記憶守衛（存成功）；建立：`react_core.run_react_loop` |
+| 能不能用使用者各自授權（`oauth_user`）的 MCP：已驗證的靈魂身分且就是對話目標、人在場、不是群聊（`ToukaGroup`／`group_member_run`）、有原始人類 | `ToukaProxy/src/utils/mcp_request_identity.py` `user_scoped_mcp_allowed`（純函式）、`GROUP_MEMBER_FLAG` | ToolLayer（組清單）、`ToolExecutor._user_scope_denial`（第二層防線，原因 `user_scoped_mcp_unavailable`）；群聊分發器設旗標 |
+| MCP 操作的請求上下文（來源、執行種類、原始人類） | `utils/mcp_request_identity.py` `mcp_request_context` | ToolLayer（組清單）、`ToolExecutor`（呼叫 MCP） |
+| 組清單時只為 `oauth_user` 帶身分、先查授權、第一次連線上限、連線中不重開、失敗冷卻 | `protocols/manager.py` `get_all_tools`、`_user_scoped_listing_handle`、`USER_SCOPED_CONNECT_TIMEOUT_S`、`USER_SCOPED_RETRY_COOLDOWN_S` | ToolLayer |
+| 靈魂與自訂模型工具清單（`enabled_tools`）的比對：名稱、`伺服器/工具` 這一對、舊長名；不生效的寫法；終端配套工具 | `ToukaProxy/src/utils/soul_tool_selection.py` `ToolSelection`、`TOOL_COMPANIONS`、`companions_of`（純函式） | ToolLayer（最後過濾、配套、自訂模型連線、`<mcp_unavailable>` 過濾、舊短名警告）；`/v1/tools_stats` 的 `tool_companions` |
+| 畫面存工具清單的格式與「勾了沒」（MCP 存 `伺服器/工具`、舊長名算勾了、不列外掛、保留看不到的條目） | `ToukaChat/src/lib/soul_tools.ts`；讀清單 `hooks/useSoulToolCatalog.ts` | `components/studio/SoulToolPicker.tsx`（SoulStudio 建立與編輯） |
+| 組清單用的只讀授權查詢（不推進時鐘、不寫、不解密；懸空指標算損毀） | `protocols/mcp/oauth/runtime.py` `has_usable_grant` → `oauth/store.py` `OAuthSqliteStore.has_usable_grant` | `ProtocolManager._user_scoped_listing_handle` |
+| 設定好但沒連上的共用 MCP（只看狀態、不連線）與說明區塊 | `ProtocolManager.unavailable_shared_servers`；區塊 tag `prompt_blocks.MCP_UNAVAILABLE`（在 `ALL_BLOCK_TAGS`、`VOLATILE_SYSTEM_TAGS`） | ToolLayer 依軸 B 過濾後注入 |
 
 ## 記憶系統第二批：段 4 可信活動時間軸與時間感（2026-10-15，ADR-0267）
 
@@ -137,7 +195,7 @@
 | 系統把對話歸檔進舊對話庫（`legacy/` 不寫檔、不搬檔；訊息只新增） | `ToukaMemory/src/memory_server/services/legacy_sync.py` `LegacySyncService.archive_payload` → `legacy_store.py` `LegacyStore.archive`（一個交易） | 滑動視窗剪裁 ACID-A、`POST /v1/ui/sessions/legacy/export`、`sync_all_json_to_db`；兩個 tools 目錄不得引用（`test_legacy_archive.py` 釘住） |
 | 手動同步的已處理紀錄（檔名, 內容 SHA-256） | 舊對話庫表 `processed_files`（`LegacyStore.processed_keys`、`LegacySyncService.file_status`） | `sync_all_json_to_db`（重跑跳過）、`GET /v1/stats/legacy/{agent_id}`（`archived_files`／`pending_files`） |
 | 聊天側剪裁的身分（家對話所屬的靈魂，不用請求者） | `ToukaProxy/src/services/dispatcher.py` `_home_soul_identity`（`home_for_agent`；判定與設家相同，身分建法與心跳相同） | `_maybe_trim_after_chat` |
-| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `continuity_service._append_to_last_user`、`ContextLayer._append_context`（`<ide_context>`） |
+| 在訊息內容尾端附一段文字（多模態 JSON 字串先還原成 list） | `ToukaProxy/src/adapters/content_normalize.py` `append_text_part` | `content_normalize.append_to_last_user`（`continuity_service`、`HookLayer` 共用）、`ContextLayer._append_context`（`<ide_context>`） |
 
 ## 記憶系統第二批：段 L 記憶會演變與安全標記（2026-10-15，ADR-0263）
 
@@ -173,7 +231,8 @@
 |---|---|---|
 | `<continuity>` 區塊（現在時間、距這個對話上一輪多久、任務看板時間）的 tag、組字與記憶體紀錄上限 | tag `ToukaProxy/src/services/prompt_blocks.py` `CONTINUITY`（列在 `ALL_BLOCK_TAGS`，不列 `VOLATILE_SYSTEM_TAGS`）；組字 `ToukaProxy/src/services/continuity_service.py`（`build_continuity_block`、`inject_continuity`、`HEADER`、`elapsed_seconds`、`format_elapsed`、`last_backend_timestamp_ms`、`MAX_TRACKED_SESSIONS`） | `middleware/layers/soul.py` `SoulLayer`（靈魂路，`session_bound` 或無痕）；`context_snapshot_service.BLOCK_META`〔ADR-0267：v1 另讀活動事件，心跳由 `routers/heartbeat._execute_single_pulse` 也注入〕 |
 | 只在這一次請求附在最後一則 user 訊息尾端、不進下一輪歷史的區塊 | `ToukaProxy/src/services/prompt_blocks.py` `REQUEST_TAIL_TAGS`（`IDE_CONTEXT`、`CONTINUITY`） | `adapters/openai_to_claude.py` `convert_openai_to_anthropic` 的斷點 2（`_mark_history_breakpoint`、`_split_request_tail`：Claude 歷史快取斷點打在這些區塊之前） |
-| 歷史資料界線的文字與中和規則（安全，禁令 18、20） | `ToukaMemory/src/memory_server/utils/historical_data.py`（`HISTORICAL_DATA_CLOSE`、`historical_data_open`、`neutralize_historical_tags`、`wrap_historical_data`） | `MemoryManager.query_memory`、`tools/recall.random_recall`、`SoulService.inject_context_summary`、`SoulService.inject_home_messages`（`_mark_home_history`）；Proxy 從這裡匯入 |
+| 歷史資料界線的文字與中和規則（安全，禁令 18、20） | `ToukaMemory/src/memory_server/utils/historical_data.py`（`HISTORICAL_DATA_CLOSE`、`historical_data_open`、`neutralize_historical_tags`、`neutralize_tags`（ADR-0285）、`wrap_historical_data`） | `MemoryManager.query_memory`、`tools/recall.random_recall`、`SoulService.inject_context_summary`、`SoulService.inject_home_messages`（`_mark_home_history`）；Proxy 從這裡匯入 |
+| 模型寫的文字進 prompt 前的單行化與控制字元處理（安全，禁令 18；必須在 tag 中和之前） | `ToukaProxy/src/utils/model_text.py`（`single_line`、`blank_control_chars`、`LINE_BREAK_MARK`，ADR-0285） | `middleware/layers/context.py` 的 `render_mission_block`（ContextLayer／ToolLayer 注入的 `<mission_awareness>`）、`services/soul_service.py` 的前情摘要與家對話 |
 
 ## 記憶系統第一批：段 2～4 記憶庫升級、事實庫是正本、記憶來源（2026-10-15，ADR-0256）
 
@@ -264,6 +323,7 @@
 | 三模式決策表（含 Auto 的 `REVIEW` 與動態 shell `HUMAN_ONLY`） | `AuthPoliciesConfig._evaluate_rules`（`models/safety.py`）；動態 shell 偵測 `command_safety.has_dynamic_shell_syntax` | Gate 1、Gate 2、`classify_command`、MCP MRTR |
 | 有沒有人在場 | `src/utils/presence.py`（`is_human_present`，只看伺服器設的 `heartbeat_run`／`subagent_run`／`dispatch_run`） | ToolExecutor、ToolLayer、MCP 互動出口 |
 | 使用者原意（審查員的資料） | `src/utils/user_intent.py`（`UserIntent`） | MonitorLayer、心跳、UI 重跑、子代理 → 審查員 |
+| 系統寫進對話的 user 訊息標記（雙端） | 後端 `src/utils/user_intent.py` 的 `SYSTEM_SPEAKER`＋前端 `lib/chat/messageNavigation.ts`（同名常數），跨端測試 `test_system_speaker_contract.py`（也核對心跳寫入端） | 心跳 nudge 寫入（`routers/heartbeat.py`）、審查員原意過濾、前端訊息導覽列 |
 | Auto 審查員（輸入格式、判決解析、P7 計數） | `services/auto_reviewer.py`；設定 `AutoReviewConfig`（`autonomy.json` 的 `auto_review`） | ToolExecutor、互審 `policy_command_gate` |
 | 審查員核准的可信欄位 | `tools/execution_context.py` 的 `_approved_by`＝`APPROVED_BY_AUTO_REVIEWER` | ToolExecutor → terminal（只滿足 `REVIEW`） |
 | 心跳 `security_level` → 模式 | `routers/heartbeat._SECURITY_LEVEL_TO_AUTH` | `/awaken`、`/retrigger`；前端 `heartbeat_mode.ts` 只做顯示對照 |
@@ -309,20 +369,6 @@
 | 取消時殺行程樹並有界回收 | `process_registry.reap_cancelled_process` | terminal、互審蒐證 |
 | 沒設主要模型 | `errors.json.example` `AGENT_BRAIN_NOT_SET`（1215／409）→ `sync_errors.py` | `SoulLayer`、ToukaChat `useAgentBrainNotice` |
 
-## braces 防禦回補契約（ADR-0237）
-
-braces專案依賴與npm CLI內的brace-expansion是不同套件，不能互借PASS；Chat／IDE 依 `backport.mjs` 先 apply 再 readonly verify，Chat production runner 只驗 runtime scope。
-
-| 責任 | 唯一來源 | 封閉契約 |
-| --- | --- | --- |
-| 固定回補與完整inventory | `ToukaChat/container-security/braces-backport/{backport.mjs,manifest.json,braces-3.0.3-depth-limit.patch}` | 官方3.0.3＋固定PR72 production delta；保留版本／lock URL／SRI／LICENSE，完整before/after inventory；不帶PR base無關parse變更。 |
-| 安裝原件純reader | `scripts/braces_backport_evidence.py` | `touka.braces-backport.installed-bytes.v1`，sha256:前綴、sorted nodes/files arrays及每檔body_base64重算；可信source重建所有節點與parents，不信PASS或stamp。 |
-| audit profile | `guard_node_cve.py --profile` | legacy `lock-only-v1` 與明示 `node-lock-and-braces-backport-v1` 兩 profile；`guard_all.py` 固定使用後者，audit source inputs 於執行期間變動即中止。 |
-| 原high與修補coverage | `scripts/braces_backport_evidence.py::assess_braces_audit` | 原parser tuple、raw exit／high不改；僅固定GHSA完整via graph＋完整trusted bytes可另列covered；runtime high、critical／其他advisory／缺件仍阻擋。 |
-| 安裝與工具順序 | `npm_offline_gate.py::npm_command_sequence`與固定helper CLI | full六步、runtime兩步，canonical／actual同源；full先apply再readonly verify，omit-dev只驗真runtime absence，不借full dev旗標宣稱absence。 |
-
-本次不重現漏洞、沒有新增EXCLUDE。
-
 ## 任務／對話保存結果（可靠性 R2，2026-09-21）
 
 | 責任 | 唯一來源 | 消費／驗證 |
@@ -355,6 +401,8 @@ braces專案依賴與npm CLI內的brace-expansion是不同套件，不能互借P
 | 後端 pyflakes CI（ADR-0254） | 同一個 workflow 的 `contracts` job：鎖定版 `ruff check --no-cache --select F --config ruff.toml ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch` | 每次 PR／push；`tests/lint/test_ci_pr_checks.py` 釘住 |
 | 完整 ruff 只減不增（ADR-0278） | `scripts/lint_ratchet.py` 收集與重拍；基準 `tests/lint/ruff_baseline.json`；`tests/lint/test_ruff_ratchet.py` 要求每條規則數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善後同一個 PR 重拍基準 |
 | 型別檢查只減不增（ADR-0278 §7） | pyrefly，範圍與設定在 `pyproject.toml` 的 `[tool.pyrefly]`（平台固定 linux）；`scripts/lint_ratchet.py pyrefly` 收集與重拍；基準 `tests/lint/pyrefly_baseline.json`；`tests/lint/test_pyrefly_ratchet.py` 要求每種錯誤數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善或升級 pyrefly 後同一個 PR 重拍基準 |
+| 未用定義不得增加（ADR-0298） | vulture，參數在 `scripts/lint_ratchet.py`；基準 `tests/lint/vulture_baseline.json`；`tests/lint/test_vulture_ratchet.py` | 在 `contracts` job 的 pytest 裡執行；只有多出來才紅，少了不紅（和 ruff、pyrefly 的完全相等不同）；基準變長要在 PR 說明逐項列出 |
+| 合約同名手寫型別（ADR-0298） | `ToukaChat/scripts/guard_frontend.ts`（Guard #2）與 `ToukaChat/scripts/lib/contract_type_guard_logic.ts`；基準 `ToukaChat/scripts/contract_type_baseline.json` | 在 `frontend` job 的 `guard:api` 執行；要完全相等，重拍用 `npm run guard:api -- --update` |
 | ToukaIDE CI（ADR-0254） | 同一個 workflow 的 `toukaide` job（Node 24.22.1、npm 11.19.1）：`install:controlled`、`test`、`typecheck`、`compile` 依序 | 每次 PR／push；`package` 只在本機；`tests/lint/test_ci_pr_checks.py` 釘住 |
 
 詳 [ADR-0230](adr/0230-heartbeat-transaction-and-credential-contracts.md)。
@@ -368,8 +416,9 @@ braces專案依賴與npm CLI內的brace-expansion是不同套件，不能互借P
 | 子程序淨化環境（呼叫端 env 亦過同一道過濾） | `EvolutionPathGuard.get_clean_env`／`strip_sensitive_env` | terminal、互審蒐證、演化沙箱 |
 | 子程序啟動與新行程群組 | `execution_broker.spawn_exec`／`run_sync`（ADR-0239） | 全部子程序（例外見 `tests/lint/test_security_kernel_ratchet.py`） |
 | 連坐殺行程樹 | `process_registry.terminate_process_tree` | terminal、互審蒐證、dispatch supervisor |
+| 政策稽核帳本的 resource 欄（終端指令只記程式名稱和長度，其他列只記工具名稱） | `src/utils/audit_resource.py`（`audit_resource_for`；金鑰樣式仍以 `utils/secrets.py` 為準，ADR-0283） | `PolicyAuditService._sync_log_write`（`stats/decisions.csv`） |
 
-見 SECURITY.md SP1–SP8、[ADR-0239](adr/0239-authorization-gateway-and-execution-broker.md) 與 [ADR-0137 補記](adr/0137-adversarial-review-subsystem.md)。
+見 SECURITY.md SP1–SP8、[ADR-0239](adr/0239-authorization-gateway-and-execution-broker.md)、[ADR-0283](adr/0283-policy-ledger-command-summary.md) 與 [ADR-0137 補記](adr/0137-adversarial-review-subsystem.md)。
 
 ## 可信工具執行分類（2026-09-16）
 
@@ -488,12 +537,13 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **錯誤碼定義** | `errors.json` | `${TOUKA_CONFIG_DIR}/errors.json` | **Error SSOT**: 跨端唯一錯誤代碼、狀態碼與 i18n 映射來源。由 `sync_errors.py` 同步至前端。 |
 | **翻譯目錄 (i18n)** | `locales/<lng>/translation.json` ＋ `locales/index.ts`（語言註冊表） | `ToukaChat/src/locales/` | **Translation Catalog SSOT**（ADR-0093）：react-i18next 翻譯目錄，一語言一檔；`zh-TW` 為來源語言、`en` 為國際參考、其餘社群語言。`index.ts` barrel export `SOURCE_LNG`/`SUPPORTED_LNGS`/`i18nResources`（新增語言＝放檔＋加一行）。由 **Guard #33**（`guard_i18n.ts`）以 zh-TW 為基準驗證跨語言 key 同步（多餘/拼錯＝錯誤、`en` 不完整＝錯誤、社群語言缺 key＝警告、複數 `*_one/_other` 允許）。錯誤訊息 `error.*` 橋接 `errors.json` 的 `i18n` key（ADR-0014），由 `errorMsg()` 在地化。`fallbackLng='en'`；語言記憶由 `i18next-browser-languagedetector` 寫 localStorage `touka_lang`。⚠️ 勿開 `nonExplicitSupportedLngs`（會壞 zh-TW 解析）。 |
 | **滑動視窗設定** | `sliding_window.json` | `${TOUKA_CONFIG_DIR}/sliding_window.json` | **SlidingWindow SSOT**（ADR-0035 amended by ADR-0092）：家對話滑動視窗的啟用狀態與 **token 百分比規則**（`trigger_pct` 觸發／`target_floor_pct` 地板／`summary_budget_pct` 摘要上限／`min_keep_pairs`／`summary_model`）。由 `SlidingWindowService.load_config()` 讀取，`POST /v1/system/sliding_window` 更新（admin only）。觸發點兩處（heartbeat finally ＋ dispatcher turn 落盤後、經 per-session 鎖；禁令 28/57）。舊 `keep_rounds`/`upper_limit_rounds` 為 deprecated 相容欄位（則數計算 SSOT `count_rounds_from_linear` 保留供 session 列表/ContextMeter 顯示）。 |
+| **Hook 設定** | `hooks.json` | `${TOUKA_CONFIG_DIR}/hooks.json` | **Hook SSOT**（ADR-0292）：`enabled` 與 `{事件: [{matcher, hooks: [command／http]}]}`，預設關閉。由 `hook_service` 每次使用前比對內容 SHA-256 重讀，壞檔、讀不到或被刪掉時沿用上一份好的；只經 `PUT /v1/hooks`（人類 admin、revision CAS、存檔前查路徑）更新；代理人用終端讀寫屬底線 F2。腳本與參數裡的路徑放同資料夾的 `hooks/`。 |
 | **Context Token 量測** | `context_window_registry._BUILTIN_WINDOWS` ＋ `config/model_context_windows.json` | code 表＋JSON 覆蓋 | **Context Window SSOT**（ADR-0092）：模型 context window（token）分母。`get_context_window(model)` 內建表為主、JSON `windows`/`_default` 覆蓋、未知回 128K。`token_estimator.estimate_tokens/estimate_messages_tokens`（CJK 感知、fail-safe、永不拋例外）為 token 估算唯一入口；`context_breakdown.compute_context_breakdown` 以 authoritative `input_tokens` 校正分類別用量（供 ContextMeter）。 |
 | **Prompt 區塊邊界** | `prompt_blocks.py`（tag 常數＋`wrap_block`） | `ToukaProxy/src/services/prompt_blocks.py` | **Prompt Delimiter SSOT**（ADR-0092 B0）：各 context 區塊以一致 XML tag 包覆（`<persona>`/`<project_context>`/`<ide_context>`/`<mission_awareness>`/`<capabilities>`/`<conversation_summary>`），供 breakdown 單一 parser 切段；`ALL_BLOCK_TAGS` 為列舉來源。soul 外層 `<persona>` 內文逐字不變（不碰 `data/soul`）。 |
 | **對話摘要欄位** | `user_sessions.context_summary` | `ui_sessions.db` | **Context Summary SSOT**（ADR-0092 D）：session 級「被剪舊對話的摘要」（替換式、不進對話訊息樹故不被再剪/再算/再摘要）。`sliding_window` 剪裁時經 `dialogue_summarizer`（haiku、fail-safe）寫入；`SoulLayer.inject_context_summary` 前置注入為 `<conversation_summary>`（無痕不注入）。文字第一行是系統寫的時間範圍（ADR-0264）。 |
 | **依賴主權 (Deps)** | root＋四member `pyproject.toml` → 單一`uv.lock` | uv workspace | **Dependency SSOT（ADR-0117／0222）**：人只改root或member的抽象dependency declaration（`~=`／`==`，禁`>=`），`uv.lock`是生成且不可手改的全workspace唯一lock；現行members為Proxy、Memory、Heartbeat、Dispatch，torch CPU來源亦鎖在其中。佈建一律`uv sync --all-packages`，裸`uv sync`會把虛擬root同步成空環境。Guard #16驗current-lock sandbox import與Docker parity，沙盒快取在git common dir（`.git/touka-guard-cache/<platform>/`，所有worktree共用、成員鎖序列化，鍵含uv sync配方與`.python-version`；ADR-0240）；#30離線驗declaration↔lock與Python版本。Guard #22固定把frozen lock匯出成repo外`runtime --no-dev`與`build-test --all-groups`兩scope，再以locked pip-audit fail-closed判讀；缺tool不安裝、空白／非JSON／錯誤exit與無權威severity不得成為clean。 |
-| **Frontend 供應鏈** | `ToukaChat/package.json`＋`package-lock.json`＋`.npmrc`；`ToukaIDE/package.json`＋`package-lock.json` | npm policy／resolution／lifecycle／audit | **ADR-0174／0222**：Chat build toolchain以engines／packageManager／devEngines精確鎖定Node.js／npm（版本以`package.json`為準）；`next`與`eslint-config-next`的direct spec均exact，lock為解析SSOT，專案不維持`sharp` override。IDE以packageManager／devEngines鎖同一build toolchain，但extension runtime/API floor保持Node 20／VS Code 1.90。lock package只允許official registry＋SHA-512 integrity；install永遠`ignore-scripts`／`no-audit`／`no-fund`。`scripts/hermetic_gate/npm_offline_gate.py`是六鍵純policy/parser與offline cache-only lifecycle SSOT（Guard23共用）；bundle allowance僅替補有official／SHA512父tarball明示宣告的缺失child欄位，所有明示URL/integrity先驗；固定NEXT_TELEMETRY_DISABLED=1。`scripts/guard_all.py`在local guards前驗exact Chat runtime與Node user-profile capability。Guard #23由`guard_node_cve.py`直接以絕對Node＋npm-cli argv掃Chat／IDE各runtime與full graph，使用repo外最小無憑證環境與public registry，parser／exit不一致fail-closed，且永不fix／install／retry。Docker build停用Next telemetry，production Chat只用本地`serve`且停用update check。 |
-| **Production image provenance** | 三產品 Dockerfile（`ToukaProxy/Dockerfile`、`ToukaHeartbeat/Dockerfile`、`ToukaChat/Dockerfile.prod`） | digest 釘版官方 base＋Debian 安全更新 | **ADR-0238**：Python 基底為 digest 釘版的官方 `python:3.12-slim-trixie`；Node／npm 直接由 digest 釘版官方 node 映像複製；Debian 套件以 `apt-get upgrade` 取官方安全更新。Chat 保留 braces 同版本防禦回補（ADR-0237），builder 驗 full scope、runner 驗 runtime scope。不再自編 Node、自組 npm、重編 Debian 套件或做映像 qualification；一般 `docker compose build` 即可建置。三個映像的 `/app` 都帶 repo 根的 LICENSE、NOTICE：Chat 的 build context 只有 `ToukaChat/`，授權檔取自具名 context `touka-root`（compose 的 `additional_contexts`、GHCR 發布的 `build-contexts` 已設好；手動 `docker build` 要加 `--build-context touka-root=.`，沒加時建置失敗）；Chat runner 以 `--omit=optional` 安裝，不帶進 sharp 的 LGPL libvips（`tests/lint/test_release_licensing.py`）。 |
+| **Frontend 供應鏈** | `ToukaChat/package.json`＋`package-lock.json`＋`.npmrc`；`ToukaIDE/package.json`＋`package-lock.json` | npm policy／resolution／lifecycle／audit | **ADR-0174／0222**：Chat build toolchain以engines／packageManager／devEngines精確鎖定Node.js／npm（版本以`package.json`為準）；`next`與`eslint-config-next`的direct spec均exact，lock為解析SSOT，專案不維持`sharp` override。IDE以packageManager／devEngines鎖同一build toolchain，但extension runtime/API floor保持Node 20／VS Code 1.90。lock package只允許official registry＋SHA-512 integrity；install永遠`ignore-scripts`／`no-audit`／`no-fund`。`scripts/hermetic_gate/npm_offline_gate.py`是六鍵純policy/parser與offline cache-only lifecycle SSOT（Guard23共用）；bundle allowance僅替補有official／SHA512父tarball明示宣告的缺失child欄位，所有明示URL/integrity先驗；固定NEXT_TELEMETRY_DISABLED=1。`scripts/guard_all.py`在local guards前驗exact Chat runtime與Node user-profile capability。Guard #23由`guard_node_cve.py`直接以絕對Node＋npm-cli argv掃Chat／IDE各runtime與full graph，使用repo外最小無憑證環境與public registry，parser／exit不一致fail-closed，且永不fix／install／retry；ADR-0282起也以`validate_lockfile`驗每個套件的official registry＋SHA-512，掃描途中`.npmrc`、`package.json`或lock被改就中止，失敗時列出阻擋套件與GHSA。Docker build停用Next telemetry，production Chat只用本地`serve`且停用update check。 |
+| **Production image provenance** | 三產品 Dockerfile（`ToukaProxy/Dockerfile`、`ToukaHeartbeat/Dockerfile`、`ToukaChat/Dockerfile.prod`） | digest 釘版官方 base＋Debian 安全更新 | **ADR-0238**：Python 基底為 digest 釘版的官方 `python:3.12-slim-trixie`；Node／npm 直接由 digest 釘版官方 node 映像複製；Debian 套件以 `apt-get upgrade` 取官方安全更新。Chat 安裝官方原版 npm 套件，不再做 braces 回補（ADR-0282）。不再自編 Node、自組 npm、重編 Debian 套件或做映像 qualification；一般 `docker compose build` 即可建置。三個映像的 `/app` 都帶 repo 根的 LICENSE、NOTICE：Chat 的 build context 只有 `ToukaChat/`，授權檔取自具名 context `touka-root`（compose 的 `additional_contexts`、GHCR 發布的 `build-contexts` 已設好；手動 `docker build` 要加 `--build-context touka-root=.`，沒加時建置失敗）；Chat runner 以 `--omit=optional` 安裝，不帶進 sharp 的 LGPL libvips（`tests/lint/test_release_licensing.py`）。 |
 | **Embedding 模型 (ML)** | `.env: EMBEDDING_MODEL` | 環境變數覆蓋 | **Embedding SSOT**（ADR-0053、ADR-0070；download/switch 生命週期 ADR-0118）：ToukaMemory 語意向量化的 SentenceTransformer 模型。**目前為 `intfloat/multilingual-e5-base`（768 維、多語、MIT）**；e5 系列需 `query:`/`passage:` 非對稱前綴，由 `vector._format_for_embedding()` 依模型名自動處理（非 e5 不加、向後相容）。查重門檻與查詢下限用同一個家族判斷（`vector.embedding_family`）查表（ADR-0265；e5 0.93／0.65，其他 0.92／0.3）；換成 e5 以外的模型或 e5 其他尺寸時重跑人工 probe `tests/smoke/manual/embedding_threshold_probe.py`。`EMBEDDING_MODEL` 要寫完整的 `intfloat/multilingual-e5-base`：少了組織時 sentence-transformers 會補成不存在的 `sentence-transformers/multilingual-e5-base` 而載入失敗。程式內建預設仍為 `all-MiniLM-L6-v2`。由 `config_utils.get_embedding_model_name()` 讀取，`VectorStore`/`MemoryManager` 使用。**換模型若維度改變，須以 `ToukaMemory/scripts/reembed_memory.py` 從 FactualStore 重建向量（建新+置換，因 Qdrant local 無法原地改維度）。**<br>**下載／切換生命週期 SSOT（`ToukaProxy/src/services/embedding_service.py`）⭐ — ADR-0118（2026-07-02）**：三動作嚴格分離——**(1) DOWNLOAD**＝抓模型檔至 HF cache（背景任務＋輪詢狀態、逐檔 `hf_hub_download` byte 進度、`snapshot_download local_files_only` 快取跳過；**純加法**，永不 `force_download`、不刪任何模型，不碰向量/事實）；**(2) SWITCH**＝寫 `EMBEDDING_MODEL` ＋ 重置 `MemoryManager` 單例（免重啟），`evaluate_switch` 偵測既有記憶（`FactualStore.query_all_facts`），當有記憶且模型不同時**強制使用者確認（`force` 旗標）**；**(3) RE-EMBED**＝離線維運限定（`reembed_memory.py`），**永不自動觸發**、只讀事實、不升級記憶庫結構（版本落後就拒絕執行；事實為無損 SSOT、向量為衍生索引）。端點：`POST /v1/admin/setup/embedding/download`、`GET /v1/admin/setup/embedding/download-status`、`POST /v1/admin/setup/embedding/switch {model, force}`。 |
 | **HF 模型快取 (HF Cache)** | `/app/hf_cache`（`.env: HF_HOME`） | Docker named volume `hf-cache` | **HF Cache SSOT**（ADR-0118 extends ADR-0038，2026-07-02）：HuggingFace hub 快取根，**單一變數 `HF_HOME` 同時涵蓋**首裝精靈的 embedding 下載與 `vector.py` runtime `SentenceTransformer` 載入（兩者共用同一 hub cache）。`docker-compose.yml` 新增頂層 named volume `hf-cache` 掛於 touka-proxy 的 `/app/hf_cache`；`touka-init` 掛同一 volume 並 `chown /app/hf_cache 1001:1001`（新建 named volume 為 root 所有，appuser 需先 chown 方可寫，**強制**）。`docker compose up --build` 保留已下載模型；`docker compose down -v` 清空。無 Dockerfile 變更。 |
 | **向量記憶雙庫** | `vault/core_memory.db` ＋ `vault/_qdrant_db/` | 各 agent 資料目錄 | **Memory SSOT**（ADR-0070）：記憶**雙寫**——`FactualStore`（`core_memory.db`，**無損事實**、SQLite、content 逐字、權威來源）＋ `VectorStore`（Qdrant，語義**索引**）。事實以 FactualStore 為準、可由其重建向量；查詢雙軌（SQL 精確 ＋ 向量語義）。索引可丟可重建，事實不可。結構版本由 `factual.FACTS_SCHEMA_STEPS` ↔ `PRAGMA user_version` 管；只在 Proxy 啟動時經 `FactualStore.shared()` 升級，離線工具 `allow_schema_upgrade=False`、版本落後就拒絕；升級前備份到 vault 裡、`core_memory.db` 旁的 `FACTS_BACKUP_DIR_NAME` 資料夾，份數 `FACTS_BACKUP_KEEP`；失敗狀態 `FactsSchemaStatus` 經 `/v1/memory` 的 `memory_notices` 顯示。向量寫不進去不刪事實：標 `EmbeddingState.FAILED`，語意結果一律回查事實庫，`memory_tools(action="reindex")` 手動補（`services/index_state.py`）（ADR-0256）。 |
@@ -503,10 +553,11 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | **首裝 admin 密碼 (DA21)** | `INITIAL_ADMIN_PASSWORD.txt` | `${TOUKA_CONFIG_DIR}/INITIAL_ADMIN_PASSWORD.txt` | **Bootstrap PW SSOT**（路徑＝`config.get_initial_admin_password_file()`）：首次無 admin 時寫入隨機初始密碼的**一次性檔**，供操作者取回，**取代**原本明文寫持久日誌的作法（日誌僅記路徑）。首次改密或啟動時（admin 非臨時密碼）由 `resource_manager.remove_file` 自動清除。 |
 | **Session TTL 設定（已退役）** | — | — | **已撤回（ADR-0259）**：P28 的 `SESSION_TTL_DAYS` 與 `cleanup_expired_sessions()` 已刪除，對話不再自動刪除。`user_sessions.last_activity_at` 欄位保留，只記最後一次寫入時間，不再驅動任何刪除。 |
 | **請求體大小限制** | `config.py: MAX_REQUEST_BODY_BYTES` | 環境變數覆蓋 | **Request Size SSOT**（P19）：`RequestSizeLimitMiddleware` 讀取此值；預設 10MB；超限回 413 `REQUEST_TOO_LARGE`。 |
-| **技能目錄 (Skills)** | `${TOUKA_CONFIG_DIR}/skills/<skill-id>/` | `目錄 (SKILL.md)` | **Skills SSOT**（ADR-0066）：每個技能為一目錄，含 Anthropic 標準 `SKILL.md`（YAML frontmatter，`name`+`description` 必填；Touka 擴充欄位 `display-name`/`category`/`author`/`is_system` 收於 `metadata:` 子欄位以通過標準 `quick_validate`）+ 選填 `.mcp.json`（MCP 連線）/`scripts/`/`references/`/`assets/`。`mcp_servers` 改由同目錄 `.mcp.json` 的 top-level keys 推導（不再是 frontmatter 欄位）。由 `SkillService` 以三層 Progressive Disclosure 載入（metadata 常駐 → body 觸發 → resources 按需），`GET /v1/skills/list` 回傳。`.skill`（ZIP）可經 `GET /v1/skills/{id}/export` 打包、`POST /v1/skills/install` 由 URL 安裝。`is_system: true` 的技能受保護不可刪除。 || **Skill Catalog 安裝 (Real-Skill Catalog)** | `config/skill_catalog.json.example` | tracked 種子（JSON） | **Skill Catalog SSOT**（ADR-0074）：真技能（能力型 `.skill`，含 `scripts/`）的安裝策展來源。每筆 `{id,name,category,description,repo,commit(40-hex),base_path,files[],author,license}`；`install_skill_from_catalog` **只認 catalog 內已審 id**（使用者不自填 URL），逐檔抓 `raw.githubusercontent.com/<repo>/<commit>/...`（**runtime 零 `api.github.com`**），重用既有真安裝防護（路徑穿越／大小上限／`.bak` 原子上線）。bootstrap 自癒植入、`get_catalog()` fallback。只收 `{Apache-2.0, MIT, BSD-3-Clause}`（避開 source-available 文件類；entry files 含 LICENSE）；含可執行腳本須 UI 警示＋二次確認＋Owner/admin。策展工具 `scripts/curate_skill_catalog.py` 屬 dev-time（用 api.github.com 列檔），嚴禁進 runtime `src/`。**版本追蹤**：安裝在技能目錄寫 `.touka_source.json`（`{catalog_id,commit,repo,installed_at}`）為**安裝來源 SSOT**（不改寫上游 SKILL.md）；`list_skills` 暴露 `source_commit`，前端純函式 `computeCatalogStatus` 衍生「最新／可更新」，升級＝重裝（覆寫並更新 sidecar）。**內容完整性**：每檔釘 `sha256`（`CatalogFile{path,sha256}`，path 與 hash 同處一筆），安裝逐檔比對下載內容雜湊、不符即拒（commit pin 之上的防禦縱深）。 |
+| **技能目錄 (Skills)** | `${TOUKA_CONFIG_DIR}/skills/<skill-id>/` | `目錄 (SKILL.md)` | **Skills SSOT**（ADR-0066）：每個技能為一目錄，含 Anthropic 標準 `SKILL.md`（YAML frontmatter，`name`+`description` 必填；Touka 擴充欄位 `display-name`/`category`/`author`/`is_system` 收於 `metadata:` 子欄位以通過標準 `quick_validate`）+ 選填 `.mcp.json`（MCP 連線）/`scripts/`/`references/`/`assets/`。`mcp_servers` 改由同目錄 `.mcp.json` 的 top-level keys 推導（不再是 frontmatter 欄位）。由 `SkillService` 以三層 Progressive Disclosure 載入（metadata 常駐 → body 觸發 → resources 按需），`GET /v1/skills/list` 回傳。`.skill`（ZIP）可經 `GET /v1/skills/{id}/export` 打包、`POST /v1/skills/install` 由 URL 安裝。`is_system: true` 的技能受保護不可刪除。兩個系統調度員（`system-mcp-dispatcher`、`system-skill-dispatcher`）是 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）依 `server_config.json` 與已裝技能產生的檔，內容沒變不重寫、不進版控（ADR-0290）。 || **Skill Catalog 安裝 (Real-Skill Catalog)** | `config/skill_catalog.json.example` | tracked 種子（JSON） | **Skill Catalog SSOT**（ADR-0074）：真技能（能力型 `.skill`，含 `scripts/`）的安裝策展來源。每筆 `{id,name,category,description,repo,commit(40-hex),base_path,files[],author,license}`；`install_skill_from_catalog` **只認 catalog 內已審 id**（使用者不自填 URL），逐檔抓 `raw.githubusercontent.com/<repo>/<commit>/...`（**runtime 零 `api.github.com`**），重用既有真安裝防護（路徑穿越／大小上限／`.bak` 原子上線）。bootstrap 自癒植入、`get_catalog()` fallback。只收 `{Apache-2.0, MIT, BSD-3-Clause}`（避開 source-available 文件類；entry files 含 LICENSE）；含可執行腳本須 UI 警示＋二次確認＋Owner/admin。策展工具 `scripts/curate_skill_catalog.py` 屬 dev-time（用 api.github.com 列檔），嚴禁進 runtime `src/`。**版本追蹤**：安裝在技能目錄寫 `.touka_source.json`（`{catalog_id,commit,repo,installed_at}`）為**安裝來源 SSOT**（不改寫上游 SKILL.md）；`list_skills` 暴露 `source_commit`，前端純函式 `computeCatalogStatus` 衍生「最新／可更新」，升級＝重裝（覆寫並更新 sidecar）。**內容完整性**：每檔釘 `sha256`（`CatalogFile{path,sha256}`，path 與 hash 同處一筆），安裝逐檔比對下載內容雜湊、不符即拒（commit pin 之上的防禦縱深）。 |
 | **派發召喚白名單 (Dispatch Hooks)** | `ToukaDispatch/config/dispatch_hooks.json` | `JSON` | **Auto-Invoke SSOT**（ADR-0067）：`on_mission_created.<executor>` 定義自動召喚外部 AI 的 `command`（白名單 list，`shell=False` 零注入）與 `pass_env`。`dispatch_initialize_mission(..., auto_invoke=<executor>)` 依此白名單，以 env var 傳遞一次性 `mission_token`（非全域 `DISPATCH_TOKEN`）召喚外部 AI。新增 executor 只改此檔（Configuration-as-Code），fail-closed（缺檔/壞檔/未列入 → 不召喚，mission 仍建立）。部署須限 Owner 寫。 |
 | **創建編排 (Creation Engine)** | `ToukaProxy/src/services/creation/` | `CreationEngine` | **Creation SSOT**（ADR-0069）：MCP 與 Skill 創建的單一編排入口。`creation_engine.create(kind, spec)` 執行 VALIDATE → SMOKE → COMMIT →（後置）EVAL 流水線；`CreationKind` 策略（`skill`/`mcp`）分別委派 `SkillService.update_skill`（`config/skills/` SSOT）與 `MCPHubService.register_server`（`server_config.json` SSOT），不另立事實來源。CREATE 不覆寫既有 id（保護既有 agent 資料）。命令安全統一於 `src/utils/mcp_security.py`。SMOKE 試跑（淨環境啟動 MCP 握手 / skill 乾跑、逾時+保證拆除）與 EVAL（commit 後**非阻斷**生成唯讀評測基線 `config/evals/<kind>/<id>.eval.md`、LLM 計分預設關閉）已實作；該評測基線為**衍生回歸物、非新 SSOT**。SCAFFOLD（Phase C）：`McpScaffolder`（`creation/scaffold.py`）決定性 stub 生成 FastMCP server 至 `config/mcp_servers/<name>/server.py`（衍生產物、`command=sys.executable`），餵入既有 create 流水線；注入防護以 `repr()` 轉義＋識別字校驗＋`ast.parse` 兜底＋路徑 slug 防穿越；不覆寫既有產物；名稱正規化統一於 `creation/naming.py`。Phase D（對外開放）：`/v1/creation` 路由（`routers/creation.py`，Owner/admin）＋ agent 工具（`tools/builtin/creation.py`）共用薄門面 `services/creation/api.py`（DRY/SSOT）；`ModelJudge`（`model_judge.py`）把 Phase B 的 Judge 接縫接上 LLM（雙閘預設關、零成本）；Creation Sovereignty Guard #29（`scripts/guard_creation_sovereignty.py`）強制路由 Owner/admin 把關＋禁繞引擎直寫。 |
-| **架構守衛編號 (Guards)** | `scripts/guard_all.py` | `scripts/guard_all.py` | **守衛編號與順序 SSOT**：以 `guard_all.py` 任務陣列為 43 道關卡（#1～#41、#44、#45）的唯一事實來源（#28 ADR 完整性、#29 創建主權、#30 環境一致性、#31 孤兒測試、#44 Ruff Banned-API、#45 原生工具契約）。#42 Release Workflow Gate 與 #43 ghcr Compose Pull-Purity 已由 ADR-0238 退役，編號不重用。所有文件編號與控制台輸出必須與其對齊。 |
+| **架構守衛編號 (Guards)** | `scripts/guard_all.py` | `scripts/guard_all.py` | **守衛編號與順序 SSOT**：以 `guard_all.py` 任務陣列為 44 道關卡（#1～#41、#44～#46）的唯一事實來源（#28 ADR 完整性、#29 創建主權、#30 環境一致性、#31 孤兒測試、#44 Ruff Banned-API、#45 原生工具契約、#46 規則分流）。#42 Release Workflow Gate 與 #43 ghcr Compose Pull-Purity 已由 ADR-0238 退役，編號不重用。所有文件編號與控制台輸出必須與其對齊。 |
+| **規則與交班分流 (Doc Routing)** | `AGENTS.md` 的標籤＋`docs/rules/modules.json` | 標籤、JSON | **規則適用範圍 SSOT**（ADR-0296）：規則的模組與全文位置在 `AGENTS.md` 的標籤，模組與每條規則對到的路徑在 `modules.json`。`scripts/applicable_rules.py` 讀這兩處列出適用的規則與交班檔，Guard #46 核對一致。 |
 | **測試收錄 (Test Include / Orphan Guard)** | `ToukaChat/scripts/lib/orphaned_tests_logic.ts: TEST_INCLUDE_GLOBS` | TS 常數陣列 | **測試收錄 SSOT**：vitest `test.include` 與「孤兒測試守衛」（Guard #31，`scripts/guard_orphaned_tests.ts`）共用同一份 glob（`src/`、`tests/`、`scripts/` 下 `*.{test,spec}.{ts,tsx}`），防止測試檔落在收錄範圍外而**靜默不執行**。配套：`guard:time`（#3）擴充禁用 Date 顯示方法 `.toLocaleString/.toDateString/.toTimeString`，強制日期顯示走 `formatToTaipeiTime`（時區一致），數字格式化改用 `Intl.NumberFormat`。 |
 | **MCP Hub 分類 (Hub Category)** | `ToukaProxy/src/utils/mcp_category.py: MCP_HUB_CATEGORIES` | 模組常數（tuple） | **MCP Hub 分類 taxonomy SSOT**：hub server 功能性分類（`Browser`/`Dev`/`File`/`Database`/`Utils`）的唯一來源。純函式 `classify_mcp_category(name, description, npm_package)`（word-boundary 關鍵字、catch-all `Utils`，恆回傳合法分類）於 `MCPHubService` 同步時標記 `category`，**取代**舊的 `Official`/`Community`（官方/社群身分改由獨立的 `source`/`is_official` 欄位保留、不流失訊號）。`MCPHubServerItem.category` 經 OpenAPI 契約（`update_openapi.py`→`sync-api`）流到前端；`McpHubView` 由 hub 資料**衍生**分類頁籤（不硬編 `["All",...]`）→ 從根本杜絕前後端分類漂移與「除『全部』外永遠空白」的頁籤 bug。 |
 | **文件 MCP 整併 (mcp-docgen)** | `config/mcp_hub.json`(.example) curated 條目 ＋ `config/skills/document-generator/` | tracked 種子＋技能目錄 | **mcp-docgen 整併 SSOT**（ADR-0079）：第一方開源文件 MCP（PyPI `mcp-docgen`，MIT，clean-room）以 curated 條目（`id=curated-mcp-docgen`、`source=curated`、`is_official=false` 誠實標示非官方、`category=File`、recipe `uvx mcp-docgen`、`env.MCP_DOCGEN_OUTPUT_DIR=@TOUKA_OUTPUT@`）收錄 MCP Hub。`MCPHubService.sync()` 保留 `source=="curated"`（外部清單不覆寫第一方）；`install()` 把哨兵 `@TOUKA_OUTPUT@` 解析為 `resource_manager.get_temp_path("docgen_output")` 共用輸出夾。薄技能 `document-generator`（`.mcp.json` 宣告 `mcp-docgen`）教 agent 三工具與 Markdown 慣例；bootstrap ESSENTIAL_CONFIGS 含 `mcp_hub.json`（缺檔自癒）。per-agent 輸出隔離列未來增強。 |
@@ -549,6 +600,16 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | `ToukaMemory/src/memory_server/models/conversation_search.py`、`tools/legacy_vault.py` | 前者定義 row/page、固定錯誤與共用排序鍵，後者選來源、合併後切頁與包歷史界線；LegacyStore 先正規化異常時間再計數／切頁（ADR-0277）。 |
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
+
+### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
+
+| 來源 | 責任與使用邊界 |
+|---|---|
+| `ToukaChat/src/lib/connections.ts` 的 `cardFor` | 憑證只送回發它的後端；`fetchTouka`、`fetchChatStream`、`captureRequestScope` 都經它取卡。`getAccessToken()` 只回答「手上有沒有卡」，不能拿來送出。 |
+| `ToukaChat/src/lib/connections.ts` 的 `activeConnectionOf`、`activeProxyUrlOf`、`normalizeProxyUrl` | 一份清單裡哪一筆決定後端、會連到哪個網址、兩個網址是否同一台的唯一判斷。 |
+| `ToukaChat/src/lib/connections.ts` 的 `publishConnections`、`keepActiveProxy` | 前者是寫入清單並通知的唯一入口（先寫再發）；後者讓後端的清單不能改掉這個瀏覽器的網址。 |
+| `ToukaChat/src/hooks/settings/useConnectionSettings.ts` 的 `switchProxy` | 設定頁換後端的唯一入口：確認、探測、向舊後端登出、切換；清單不送給任何後端。沒有入口的 `/connections` 舊頁打網址仍到得了，它只走 `publishConnections`，由 `AuthContext` 登出。 |
+| `ToukaChat/src/lib/healthResponse.ts` 的 `validHealth` | `/v1/health` 回應形狀的唯一判斷，系統狀態與換網址前的探測共用。 |
 
 ### 4. 工具調用大一統 (Unified Tooling SSOT)
 *   **調用模式**: 系統全面收攏為 **Command-Action Dispatcher** 模式。
@@ -601,17 +662,17 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 | 規則 | 禁令摘要 | 守衛 |
 |------|---------|------|
-| TID251 | 嚴禁硬編碼磁碟路徑；必須透過 `ResourceManager` | `lint_ssot.py` TID251 |
-| ENV_SSOT | 嚴禁 `os.environ`/`os.system`/`os.chdir`；必須 `src.config` | `lint_ssot.py` EnvSovereigntyRule |
-| ERROR_SSOT | 嚴禁 `HTTPException(detail="...")` 硬編碼；必須 `ErrorCode` | `lint_ssot.py` ErrorSovereigntyRule |
+| TID251 | 嚴禁硬編碼磁碟路徑；必須透過 `ResourceManager` | ruff（Guard #44）；另有 `lint_ssot.py` PathLiteralRule（PATH_LITERAL_SSOT） |
+| ENV_SSOT_VIOLATION | 嚴禁 `os.environ`/`os.system`/`os.chdir`；必須 `src.config` | `lint_ssot.py` EnvSovereigntyRule |
+| ERROR_SSOT_VIOLATION | 嚴禁 `HTTPException(detail="...")` 硬編碼；必須 `ErrorCode` | `lint_ssot.py` ErrorSovereigntyRule |
 | RAISE_STRING_BAN | 嚴禁 `raise ValueError("...")` 帶字串；必須 `ToukaException` | `lint_ssot.py` RaiseHardcodedStringRule |
-| TIME_BAN | 嚴禁 `datetime.now()`/`time.time()`；必須 `time_utils` | `lint_ssot.py` TimeBanRule |
+| TIME_SSOT_VIOLATION | 嚴禁 `datetime.now()`/`time.time()`；必須 `time_utils` | `lint_ssot.py` TimeSovereigntyRule |
 | PRINT_BAN | 嚴禁業務層 `print()`；必須 `logging.getLogger()` | `lint_ssot.py` PrintBanRule |
 | FETCH_SSOT | 嚴禁前端 `fetch()`；必須 `fetchTouka()` | `guard_fetch.ts` |
 | LOCALSTORAGE_SSOT | 嚴禁前端 `localStorage.*`；必須 `useLocalStorage` hook | `guard_localStorage.ts` |
 | BCRYPT_IMPORT_SSOT | 嚴禁非授權檔案 `import bcrypt`；白名單 `auth_service.py` | `lint_ssot.py` BcryptImportRule |
 | SQLITE3_IMPORT_BAN | 嚴禁非授權檔案 `import sqlite3`；白名單三個 SSOT 入口 | `lint_ssot.py` Sqlite3ImportRule |
-| CONSOLE_BAN | 嚴禁前端 `console.*`；白名單 `error_handler.ts` | `guard_console.ts` (Guard #15) |
+| CONSOLE_BAN | 嚴禁前端 `console.*`；`error_handler.ts` 靠行內 `// noqa` | `guard_console.ts` (Guard #15) |
 | MODULE_BOUNDARY | 嚴禁 ToukaMemory import ToukaProxy 內部模組 | `guard_module_boundaries.py` (Guard #21) |
 | ENDPOINT_AUTH | 所有非公開端點必須有 Depends 認證守衛 | `guard_endpoint_auth.py` (Guard #24) |
 | XAGENTID_IDENTITY | 嚴禁前端手動注入 `X-Agent-ID` Header | `guard_xAgentId.ts` (Guard #13) |

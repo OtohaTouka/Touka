@@ -210,6 +210,12 @@ class _Store:
     async def get_active_grant(self, _slot, **_kwargs):
         return self.active_grant
 
+    usable = True
+
+    async def has_usable_grant(self, slot, *, now):
+        self.usable_checks.append((slot, now))
+        return self.usable
+
     async def begin_profile_mutation(self, profile_id, **_kwargs):
         self.mutation_events.append(f"begin:{profile_id}")
         return 4
@@ -254,6 +260,7 @@ def _runtime(
     store.mutation_events = []
     store.updating_profiles = []
     store.frozen_grants = []
+    store.usable_checks = []
     profiles = _Profiles()
     metadata = _Metadata()
     runtime = McpOAuthRuntimeService(
@@ -793,3 +800,38 @@ def test_callback_policy_is_exact_route_bound():
     assert runtime.get_callback_policy("/mcp/oauth/callback").method == "POST"
     with pytest.raises(KeyError):
         runtime.get_callback_policy("/unknown/callback")
+
+
+def _listing_check(runtime):
+    return runtime.has_usable_grant(
+        server_name="server-a", request_context=_context(), installation_generation=7
+    )
+
+
+@pytest.mark.asyncio
+async def test_listing_grant_check_reads_the_store_without_advancing_the_clock():
+    """ADR-0281 T1：組工具清單的授權查詢不推進時鐘高水位；查的是這個人＋靈魂的授權位置。"""
+    runtime, _connector, store, _profiles = _runtime()
+
+    async def _no_clock(**_kwargs):
+        raise AssertionError
+
+    store.observe_clock = _no_clock
+
+    assert await _listing_check(runtime) is True
+    (slot, _now), = store.usable_checks
+    assert (slot.human_principal_id, slot.execution_agent_id, slot.installation_generation) == (
+        "human-a",
+        "soul-a",
+        7,
+    )
+
+
+@pytest.mark.asyncio
+async def test_listing_grant_check_is_false_when_the_fence_or_server_refuses():
+    fenced, _c, fenced_store, _p = _runtime(authorization_fence=lambda _slot: False)
+    disabled, _c, disabled_store, _p = _runtime(enabled=False)
+
+    assert await _listing_check(fenced) is False
+    assert fenced_store.usable_checks == []  # 授權條件不符時不查儲存
+    assert await _listing_check(disabled) is False

@@ -22,7 +22,6 @@ from src.routers import admin as A
 from src.services.agent_reset import guard as G
 from src.services.agent_reset import orchestrator as O
 from src.services.agent_reset import primitives as P
-import src.services.resource_manager as RM
 from src.services.agent_service import agent_service
 from src.services.resource_manager import resource_manager
 from src.utils import soul_io
@@ -205,12 +204,10 @@ async def test_timeline_store_is_scoped_to_the_real_agent(monkeypatch, tmp_path)
 
 # ── 🛡️ 關鍵安全回歸：custom agent 身分（config.json/system_prompt.md）存活 ──────
 
-async def test_custom_agent_identity_survives_reset(monkeypatch, tmp_path):
+async def test_custom_agent_identity_survives_reset(zone_data_root):
     """重置只清 drive/outputs（執行期）；custom config.json／system_prompt.md（身分）永不被觸及。"""
-    monkeypatch.setattr(RM, "get_app_data_dir", lambda: str(tmp_path))
-
     agent = "TestCustomAgent"
-    custom = tmp_path / "custom" / agent
+    custom = zone_data_root / "custom" / agent
     (custom / "drive" / "outputs").mkdir(parents=True)
     (custom / "config.json").write_text('{"base_model":"x"}', encoding="utf-8")
     (custom / "system_prompt.md").write_text("identity-do-not-touch", encoding="utf-8")

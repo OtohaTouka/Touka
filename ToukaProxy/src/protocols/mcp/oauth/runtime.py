@@ -636,6 +636,37 @@ class McpOAuthRuntimeService:
         if grant is None or not required.issubset(grant.binding.granted_scopes):
             raise OAuthScopeDeniedError()
 
+    async def has_usable_grant(
+        self,
+        *,
+        server_name: str,
+        request_context: McpRequestContext,
+        installation_generation: int,
+    ) -> bool:
+        """組工具清單用：這個人＋靈魂在這台有沒有能用的授權（ADR-0281 T1）。
+
+        只讀：不推進時鐘高水位、不寫資料庫、不解密；真的連線時才由既有防線推進時鐘（ADR-0206）。
+        """
+        if not self._feature_enabled:
+            return False
+        try:
+            config = self._config(server_name)
+        except OAuthAuthorizationRequiredError:  # 伺服器停用
+            return False
+        profile = await self._profile(config)
+        if not profile.enabled:
+            return False
+        slot = self._slot(
+            context=request_context,
+            installation_generation=installation_generation,
+            auth_profile_id=profile.profile_id,
+        )
+        try:
+            await self._assert_authorized(slot)
+        except OAuthAuthorizationRequiredError:
+            return False
+        return await self._store.has_usable_grant(slot, now=self._epoch_clock())
+
     @staticmethod
     def _slot_from_transaction(
         transaction: OAuthTransactionRecord,

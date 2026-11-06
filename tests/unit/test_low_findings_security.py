@@ -6,7 +6,7 @@ TDD-Red companion (禁令 20) for its fix:
 
   DA11 (#2/#5) heartbeat token compare  → constant-time secrets.compare_digest
   DA12 (#4)    is_owner cross-user      → Owner-role agent cannot reach another user's agent
-  DA13 (#7)    editor agent-tool sandbox→ is_relative_to() kills sibling-prefix bypass
+  DA13 (#7)    editor agent-tool sandbox→ the unused text_editor tool is removed (ADR-0293)
   DA14 (#9)    evolution quota          → model override may only tighten, never exceed, SSOT
   DA15 (#12)   skill dispatcher XML     → metadata escaped before system-prompt interpolation
   DA16 (#10)   evolution_security       → dead verify_ownership removed (no security theatre)
@@ -116,31 +116,13 @@ class TestDA12IsOwnerCrossUser:
         assert resource_manager.is_owner(target, actor) is True
 
 
-class TestDA13EditorSandboxIsRelativeTo:
-    """#7: the agent-tool _get_safe_path must reject a sibling-prefix path."""
+class TestDA13EditorAgentToolRemoved:
+    """#7: the editor agent-tool (and its own sandbox check) had no callers; it must stay gone."""
 
-    def test_sibling_prefix_bypass_is_blocked(self, tmp_path, monkeypatch):
-        drive = tmp_path / "drive"
-        drive.mkdir()
-        (tmp_path / "drive-evil").mkdir()
-        monkeypatch.setattr(
-            editor.resource_manager, "get_vault_path", lambda kind, identity: str(drive)
-        )
-        identity = AgentIdentity.for_role(agent_id="a", role="Base")
-
-        with pytest.raises(PermissionError):
-            editor._get_safe_path("../drive-evil/secret.txt", identity)
-
-    def test_path_inside_sandbox_is_allowed(self, tmp_path, monkeypatch):
-        drive = tmp_path / "drive"
-        drive.mkdir()
-        monkeypatch.setattr(
-            editor.resource_manager, "get_vault_path", lambda kind, identity: str(drive)
-        )
-        identity = AgentIdentity.for_role(agent_id="a", role="Base")
-
-        result = editor._get_safe_path("sub/file.txt", identity)
-        assert result.is_relative_to(drive.resolve())
+    def test_text_editor_is_removed(self):
+        assert not hasattr(editor, "text_editor")
+        assert not hasattr(editor, "_get_safe_path")
+        assert not hasattr(editor, "TEXT_EDITOR_SCHEMA")
 
 
 class TestDA14EvolutionQuotaClamp:

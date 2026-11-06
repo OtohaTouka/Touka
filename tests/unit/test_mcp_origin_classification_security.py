@@ -607,6 +607,17 @@ def test_renamed_entry_still_marks_its_skill_deployed(layout):
     assert result.covers("foo") and not result.covers("renamed") and not result.every
 
 
+def test_a_link_into_a_managed_skill_marks_it_deployed(layout, tmp_path):
+    """外面的連結指進 ``managed/<skill>``：字面看不出來，解析後的位置也要算（``_candidates``）。"""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (layout.data_root / "mcp_servers" / "managed" / "foo" / "server.py").write_text("", "utf-8")
+    _dir_link(outside / "via", layout.data_root / "mcp_servers" / "managed" / "foo")
+    entry = {"command": "python", "args": [str(outside / "via" / "server.py")]}
+    result = _deployed(layout, {"mcpServers": {"elsewhere": entry}})
+    assert result.covers("foo") and not result.every
+
+
 def test_entry_named_like_a_skill_but_pointing_elsewhere_freezes_nothing(layout):
     doc = {"mcpServers": {"foo": {"command": "npx", "args": ["-y", "pkg"]}}}
     assert not _deployed(layout, doc).covers("foo")

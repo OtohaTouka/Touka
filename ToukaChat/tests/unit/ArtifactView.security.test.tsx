@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import mermaid from 'mermaid';
+import { MERMAID_CONFIG } from '@/lib/artifacts/mermaidConfig';
+import { renderMermaidInSandbox } from '@/lib/artifacts/mermaidSandbox';
 
 // Mock modules before importing component.
 // 單一頂層 vi.mock + vi.hoisted 可變狀態（同 ArtifactView.test.tsx 模式）：
@@ -41,11 +42,9 @@ vi.mock('@/lib/bridge', () => ({
   isIDE: vi.fn(() => false),
 }));
 
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    render: vi.fn().mockResolvedValue({ svg: '<svg id="test"><text>A</text></svg>' }),
-  },
+// 流程圖在沙箱框裡畫（ADR-0294）；這裡直接給框回傳的 SVG 字串
+vi.mock('@/lib/artifacts/mermaidSandbox', () => ({
+  renderMermaidInSandbox: vi.fn(),
 }));
 
 // Import component after mocks are set up
@@ -71,27 +70,39 @@ describe('P2 — Mermaid XSS security', () => {
   });
 
   it('mermaid securityLevel must be strict (not loose)', () => {
-    // mermaid.initialize is called at module load — capture the call args
-    const initCalls = (mermaid.initialize as ReturnType<typeof vi.fn>).mock.calls;
-    // If called, every call must use strict securityLevel
-    for (const [config] of initCalls) {
-      expect(config?.securityLevel).not.toBe('loose');
-      if (config?.securityLevel !== undefined) {
-        expect(config.securityLevel).toBe('strict');
-      }
-    }
+    // 沙箱框裡套用的設定（mermaidSandbox.ts 把 MERMAID_CONFIG 送進框）
+    expect(MERMAID_CONFIG.securityLevel).toBe('strict');
   });
 
-  it('ArtifactView.tsx must import DOMPurify and use it in MermaidRenderer', async () => {
-    // Static verification: the source file must use DOMPurify.sanitize
+  it('renders the diagram in the sandbox frame and sanitizes the returned SVG', async () => {
+    vi.mocked(renderMermaidInSandbox).mockResolvedValue(
+      '<svg id="test"><text>A</text><image href="https://evil.example/x.png"/></svg>',
+    );
+    const { container } = render(<ArtifactView />);
+    await waitFor(() => expect(container.querySelector('svg#test')).not.toBeNull());
+    expect(renderMermaidInSandbox).toHaveBeenCalledWith(expect.any(String), 'graph TD; A-->B');
+    expect(container.querySelector('svg#test')?.textContent).toBe('A');
+    expect(container.innerHTML).not.toContain('evil.example');
+  });
+
+  it('MermaidRenderer sanitizes the SVG through sanitizeMermaidSvg (DOMPurify)', async () => {
+    // Static verification: the renderer hands the SVG to the shared sanitizer (ADR-0294),
+    // and the sanitizer is built on DOMPurify.
     const { readFileSync } = await import('fs');
     const { resolve } = await import('path');
     const src = readFileSync(
       resolve(process.cwd(), 'src/components/artifacts/ArtifactView.tsx'),
       'utf-8',
     );
-    expect(src).toContain("import DOMPurify from 'dompurify'");
-    expect(src).toContain('DOMPurify.sanitize(svg');
+    expect(src).toContain("import { sanitizeMermaidSvg } from '@/lib/artifacts/sanitizeMermaidSvg'");
+    expect(src).toContain('sanitizeMermaidSvg(svg)');
+    expect(src).toContain('renderMermaidInSandbox(');
+    const sanitizer = readFileSync(
+      resolve(process.cwd(), 'src/lib/artifacts/sanitizeMermaidSvg.ts'),
+      'utf-8',
+    );
+    expect(sanitizer).toContain('from "dompurify"');
+    expect(sanitizer).toContain('.sanitize(svg, PURIFY_CONFIG)');
   });
 });
 

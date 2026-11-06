@@ -181,7 +181,8 @@ def _executor(monkeypatch, registry: dict[str, Any]) -> tuple[ToolExecutor, _Fak
             bindings[name] = replace(bindings[name], handler=handler)
     monkeypatch.setattr(executor_module, "BUILTIN_EXECUTION_BINDINGS", bindings)
     executor = ToolExecutor(
-        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={}
+        protocol_manager=None, tool_registry=registry, memory_tool_registry={}, plugin_registry={},
+        enforce_advertised=False,
     )
     return executor, completer
 

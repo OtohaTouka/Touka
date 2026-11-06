@@ -60,17 +60,21 @@ ToukaChat 遵循嚴格的 TDD 與 SOLID 原則。
 # 執行全域測試
 npm run test
 
+# 實際驗證：真前端、真後端（沙盒）、假模型，不花額度（ADR-0295；要先有根目錄的 .venv）
+npm run test:e2e:real
+
 # 執行架構守衛 (SSOT 檢查)
 npm run guard:all
 
-# Docker 容器建置（開發模式，含 node-pty 原生模組編譯）
+# Docker 容器建置（開發模式）
 docker compose build touka-chat
 ```
 
 > **注意**：`ToukaChat/Dockerfile` 與 `Dockerfile.prod` 都從 digest 釘版的官方 Node 24.22.1
 > 映像取得 Node／npm，production 的 runner 直接以該映像為基底。開發 builder 保留
-> `python3 make g++`。全域 lifecycle 維持停用，只有 dev terminal 需要的
-> `node-pty` 會以明示 `npm rebuild node-pty` 在 Linux 容器中編譯。
+> `python3 make g++`。全域 lifecycle 維持停用，只有還在依賴清單裡的 `node-pty`
+> 會以明示 `npm rebuild node-pty` 在 Linux 容器中編譯（開發終端伺服器已於 ADR-0294 移除，
+> 套件留到下一批依賴升級一起刪）。
 
 詳細測試規範請參閱 [測試指南](../docs/guides/testing_guide.md)。
 
@@ -95,10 +99,11 @@ npm test
 npm run build
 ```
 
-需要開發伺服器時另執行 `npm run dev`（包含既有 sync-api／artifact runtime 生成）。安裝 lifecycle 關閉，不能依賴 postinstall；明示生成完成後再跑 tests/build。原生 terminal 所需的 node-pty 以既有開發建置程序處理，不開放所有 lifecycle，也不在未知平台自行安裝全域編譯器。
+需要開發伺服器時另執行 `npm run dev`（包含既有 sync-api／artifact runtime 生成，只開網頁，不開其他伺服器；ADR-0294）。安裝 lifecycle 關閉，不能依賴 postinstall；明示生成完成後再跑 tests/build。還在依賴清單裡的 node-pty 以既有開發建置程序處理，不開放所有 lifecycle，也不在未知平台自行安裝全域編譯器。
 
 Committed `.npmrc` 另固定 `audit=false`、`fund=false`、`update-notifier=false`。Docker build
 會停用 Next telemetry；production `serve` 也停用自動更新檢查，讓非必要網路行為保持顯式。
+`min-release-age=3` 讓 `npm install` 不採用上架未滿 3 天的版本（禁令 69）；`npm ci` 照 lock 裝，不受影響。
 
 ---
 

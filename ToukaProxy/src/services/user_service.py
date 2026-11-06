@@ -291,6 +291,40 @@ class UserService:
                 user.owned_agents.append(agent_id)
         self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
 
+    def rename_owned_agent(self, old_id: str, new_id: str) -> None:
+        """改名：所有使用者擁有清單裡的舊 ID 原地換成新 ID，一次原子寫入（禁令 21）。
+
+        新 ID 已在同一份清單裡時只留一份。改名前新 ID 沒有模型，沒有舊 ID 的人清單裡的
+        新 ID 是刪除後留下的殘留，一併拿掉，免得改名後的模型落到他手上。
+        """
+        def _mutate(users: list[User]) -> None:
+            for user in users:
+                if old_id in user.owned_agents:
+                    renamed = [new_id if a == old_id else a for a in user.owned_agents]
+                    user.owned_agents = list(dict.fromkeys(renamed))
+                elif new_id in user.owned_agents:
+                    user.owned_agents = [a for a in user.owned_agents if a != new_id]
+        self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
+
+    def claim_owned_agent(self, agent_identity: AgentIdentity, owner_user_id: str | None) -> None:
+        """新建立的 ID 只屬於建立者，一次原子寫入（禁令 21）。
+
+        先從所有人的清單拿掉這個 ID（刪除後留下的殘留），再加給 ``owner_user_id``；
+        ``None`` 時誰都不加。
+        """
+        agent_id = agent_identity.agent_id
+        def _mutate(users: list[User]) -> None:
+            for user in users:
+                if agent_id in user.owned_agents:
+                    user.owned_agents = [a for a in user.owned_agents if a != agent_id]
+                if user.id == owner_user_id:
+                    user.owned_agents.append(agent_id)
+        self.auth_service._atomic_users_write(_mutate)  # noqa: SLF001
+
+    def remove_owned_agent_from_all(self, agent_identity: AgentIdentity) -> None:
+        """刪除：所有使用者清單裡的這個 ID 一起拿掉，一次原子寫入（禁令 21）。"""
+        self.claim_owned_agent(agent_identity, None)
+
     def remove_owned_agent(self, user_id: str, agent_identity: AgentIdentity) -> None:
         """Remove an agent from a user's owned list safely. (SOLID/SSOT)"""
         agent_id = agent_identity.agent_id

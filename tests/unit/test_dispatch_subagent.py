@@ -461,7 +461,7 @@ async def test_executor_injects_ctx_into_call_kwargs():
         seen.update(kwargs)
         return "ok"
 
-    executor = ToolExecutor(None, {"capture": _capture}, {}, {})
+    executor = ToolExecutor(None, {"capture": _capture}, {}, {}, enforce_advertised=False)
     ctx = {"identity": _debug_identity(), "auth_level": "Manual"}
     queue: asyncio.Queue = asyncio.Queue()
     with patch("src.services.tool_executor.permission_service") as perm:

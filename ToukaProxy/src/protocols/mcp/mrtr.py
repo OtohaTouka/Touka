@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from mcp import types
+from src.models.hooks import MAX_ELICITATION_HOOK_TIMEOUT_SECONDS
 from src.protocols.mcp.canonical import digest_mcp_arguments as _digest_mcp_arguments
 
 if TYPE_CHECKING:
@@ -17,8 +18,11 @@ if TYPE_CHECKING:
 _ResultT = TypeVar("_ResultT")
 
 DEFAULT_MAX_ROUNDS = 8
-DEFAULT_ROUND_TIMEOUT_SECONDS = 120.0
-DEFAULT_TOTAL_TIMEOUT_SECONDS = 180.0
+# 表單前面有 Elicitation hook：加上它的上限與收掉行程的時間，第一張表單的人才有完整的倒數
+# （interaction.py）。沒設 hook 也一樣多這些時間；後面的表單受整體上限管，前面用掉的會扣掉
+_ELICITATION_HOOK_SECONDS = MAX_ELICITATION_HOOK_TIMEOUT_SECONDS + 10
+DEFAULT_ROUND_TIMEOUT_SECONDS = 120.0 + _ELICITATION_HOOK_SECONDS
+DEFAULT_TOTAL_TIMEOUT_SECONDS = 180.0 + _ELICITATION_HOOK_SECONDS
 DEFAULT_MAX_INPUT_REQUESTS = 8
 DEFAULT_MAX_INPUT_BYTES = 128 * 1024
 DEFAULT_MAX_STATE_BYTES = 64 * 1024

@@ -252,6 +252,7 @@
     "still_there": "\"{{id}}\"'s data still remains in system snapshots (one is saved right before a reset), and its memory may also remain in the memory store's upgrade backups.",
     "still_there_delete": "\"{{id}}\"'s data may still remain in earlier system snapshots, and its memory may also remain in the memory store's upgrade backups.",
     "still_there_scrubbed": "Memory was cleared from backups, but \"{{id}}\"'s conversations and other data still remain in system snapshots.",
+    "still_there_scrubbed_partial": "Memory within the clearing scope was cleared from backups, but legacy-format or legacy-prefix memory outside the scope remains in backups; \"{{id}}\"'s conversations and other data also remain in system snapshots.",
     "summary": "Where the backups are and how to remove them for good",
     "where_snapshots": "System snapshots: the backups folder inside the Touka folder that holds .env, named Touka_Backup_….zip or Touka_AutoBackup_….zip.",
     "where_upgrade": "Upgrade backups: vault/core_memory_backups inside the data folder.",
@@ -300,6 +301,7 @@
         "rbac": "Permission Matrix (RBAC)",
         "identity_map": "Identity Mapping",
         "autonomy": "Autonomy Budget",
+        "hooks": "Hooks (programs and HTTP calls run on events)",
         "users": "User Management",
         "agent_reset": "Agent Data Reset",
         "backup": "System Backup/Restore",
@@ -366,6 +368,10 @@
       "security": {
         "label": "Security",
         "title": "Security & Privacy"
+      },
+      "hooks": {
+        "label": "Hooks",
+        "title": "Hook settings"
       },
       "sliding_window": {
         "label": "Sliding Window",
@@ -524,6 +530,107 @@
       "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
       "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
     },
+    "hooks_tab": {
+      "title": "Hooks",
+      "description": "Run a program or send an HTTP request chosen by the administrator when a user sends a message, before and after a tool runs, around an approval, when someone's attention is needed, when a reply ends, and when subagents, tasks, trims, heartbeats or settings change. Hooks can only block or ask a person to confirm; they cannot allow anything. If a hook itself fails or times out it does not block, and the failure only shows in the run log, so do not rely on a hook as your only safeguard. Hook programs run with Touka's own permissions and no isolation, so only use programs you trust. Commands do not go through a shell. Scripts and any paths in the arguments must be in the hooks/ folder of the config folder; the program must be in hooks/ or somewhere agents cannot write to (for example the system interpreter). Anything else is refused. Do not use launchers such as env, npx or py, which look up the program to run on their own, and install the packages your scripts use inside hooks/ (for example hooks/node_modules) by copying them (for example set UV_LINK_MODE=copy for uv, or pass --package-import-method=copy to pnpm; npm copies already): uv and pnpm may share one copy of a file through hard links, so an agent changing the copy in its own project would also change the one your hook uses. On Linux and Docker, arguments cannot contain URLs (\":\" is treated as a path list separator); put URLs in a settings file inside hooks/ and have the script read it. Every user's conversations trigger hooks, incognito chats included, and the message and tool content is sent to them (the event is marked incognito; the hook decides whether to keep it). \"When a user sends a message\" only checks text sent in a chat; heartbeats, scheduled prompts and re-triggered runs do not trigger it, so it cannot be used to restrict users. \"Before a tool runs\" only covers calls made through the tool executor (the agent's tools and debug runs); task verification commands and trial runs do not trigger it. Hooks that run before an approval card can only deny; they cannot approve for a person. Extra context from tool hooks is added to the tool result, so the conversation's user can see it and it is saved with the conversation. When a program blocks with exit code 2, its standard error is shown to the conversation's user as the reason, so do not put secrets in it. HTTP hook replies must not be compressed; a compressed reply counts as a failure.",
+      "enable_label": "Enable hooks",
+      "enable_hint": "When off, no hook runs.",
+      "health_error": "The config file cannot be read or is malformed ({{detail}}). The last good config is still in use; saving replaces the file.",
+      "add_group": "Add a group",
+      "remove_group": "Remove this group",
+      "remove_hook": "Remove this hook",
+      "reload": "Reload",
+      "save_button": "Save",
+      "save_success": "Hook settings saved",
+      "path_problem": "{{event}} {{where}}: {{reason}} ({{value}})",
+      "matcher_placeholders": {
+        "Notification": "permission_prompt, agent_needs_input, elicitation_dialog, isolation_level; separate several with |; empty or * matches all",
+        "StopFailure": "rate_limit, overloaded, authentication_failed, billing_error, invalid_request, model_not_found, server_error, unknown; separate several with |; empty or * matches all",
+        "SubagentStart": "subagent; empty or * matches all",
+        "SubagentStop": "subagent; empty or * matches all",
+        "PreCompact": "auto; empty or * matches all",
+        "PostCompact": "auto; empty or * matches all",
+        "Elicitation": "MCP server name; separate several with |; empty or * matches all",
+        "ConfigChange": "Settings section: autonomy, env, connections, hooks, identity, mcp, models, permissions, skills…; separate several with |; empty or * matches all"
+      },
+      "types": {
+        "command": "Program",
+        "http": "HTTP"
+      },
+      "events": {
+        "UserPromptSubmit": "After a user sends a message, before it reaches the model. Can block the message or add context for the model. Heartbeats do not trigger it.",
+        "PreToolUse": "Before a tool runs. Can block it or ask a person to confirm on the approval card. The matcher checks the tool name.",
+        "PostToolUse": "After a tool succeeds. Can add context for the model. The matcher checks the tool name.",
+        "PostToolUseFailure": "After a tool that started fails (a terminal command that exits non-zero counts). Can add context for the model. Credentials and paths are removed from the error first; permission denials and bad arguments do not trigger it. The matcher checks the tool name.",
+        "PermissionRequest": "Before an approval card appears (cards only appear when someone is present). Can deny, so no card shows and the tool does not run. It cannot approve for a person: allow and changed arguments are ignored and the card still shows. The matcher checks the tool name.",
+        "PermissionDenied": "When a tool call is denied; notifies in the background and cannot change the result. The reason is always a fixed code. A block by a before-tool hook does not count. The matcher checks the tool name.",
+        "Notification": "Notifies in the background when an approval card appears, the agent asks a question, an MCP tool asks for input, or the isolation level changes. The matcher checks the notification type.",
+        "Stop": "After a reply ends; runs in the background and does not affect the reply.",
+        "StopFailure": "When a reply ends with an error (only once retries are used up); notifies in the background. Stop does not run for that reply. Credentials and local paths are removed from the error first. The matcher looks at the error type.",
+        "SubagentStart": "Before a subagent starts. Can add context for the subagent (as data); cannot block. The content does not include the subagent's goal.",
+        "SubagentStop": "After a subagent ends; notifies in the background and cannot make it continue. The reply is empty when it failed or timed out.",
+        "PreCompact": "Before the sliding window trims a chat; notifies in the background. Cannot block and never holds up the chat.",
+        "PostCompact": "After a trim is saved; notifies in the background. Includes the trim summary, up to a limit.",
+        "TaskCreated": "When a mission board is created, once per task; cannot block. Changes made by external AI through the dispatch server do not fire it.",
+        "TaskCompleted": "When a task becomes done; notifies in the background and cannot block. Changes made by external AI through the dispatch server do not fire it.",
+        "Elicitation": "When an MCP tool asks a person for data, before the form shows. Can refuse; cannot answer for the person, so accept or content still shows the form. The matcher looks at the MCP server name. Timeout is at most 30 seconds (it shares its time with the person filling in the form).",
+        "ConfigChange": "After settings are saved; notifies in the background. It cannot block a setting and never includes values. Does not fire when hooks are turned off. The matcher looks at the settings section.",
+        "HeartbeatStart": "When a heartbeat starts; notifies in the background and does not affect it.",
+        "HeartbeatStop": "When a heartbeat ends; notifies in the background with the pulses run and how it ended."
+      },
+      "fields": {
+        "name": "Name (optional)",
+        "enabled": "Enable this hook",
+        "command": "Absolute path of the program",
+        "command_placeholder": "Absolute path of the program (for example an interpreter); keep scripts in the config folder's hooks/",
+        "args": "Arguments",
+        "args_placeholder": "Arguments, one per line (passed as-is, no shell)",
+        "url": "URL",
+        "url_placeholder": "https://",
+        "headers": "Headers",
+        "headers_placeholder": "Headers, one \"Name: value\" per line (sent literally, no environment variables)",
+        "timeout": "Timeout (seconds)",
+        "matcher": "Matcher",
+        "matcher_placeholder": "Tool name; separate several with |, or use a regular expression; empty or * matches all"
+      },
+      "runs": {
+        "title": "Recent runs",
+        "hint": "Only the latest 50 are kept in server memory and cleared on restart. Incognito chats record only the time, event and result.",
+        "refresh": "Refresh",
+        "empty": "No runs yet.",
+        "incognito": "(incognito)",
+        "duration": "{{ms}} ms",
+        "exit_code": "exit code {{code}}",
+        "http_status": "HTTP {{status}}"
+      },
+      "outcomes": {
+        "blocked": "Blocked",
+        "ask": "Asked to confirm",
+        "context": "Added context",
+        "none": "No action",
+        "failed": "Hook failed (not blocking)",
+        "skipped": "Skipped (too many hooks running)"
+      },
+      "path_reasons": {
+        "not_absolute": "not an absolute path",
+        "missing": "file does not exist",
+        "not_file": "not a file",
+        "parent_segment": "contains \"..\"",
+        "file_url": "file: URLs are not accepted",
+        "unc_path": "network paths and drive-relative paths are not accepted",
+        "agent_writable": "in a place agents can write to",
+        "outside_hooks_dir": "not in the config folder's hooks/",
+        "linked_path": "the path goes through a symbolic link or junction",
+        "hard_link": "has other hard links",
+        "link_loop": "too many or looping symbolic links",
+        "unverifiable": "location cannot be verified"
+      },
+      "errors": {
+        "load_failed": "Could not load the hook settings.",
+        "save_failed": "Saving failed. Please try again later.",
+        "invalid_field": "Invalid field: {{where}}: {{message}}"
+      }
+    },
     "models_tab": {
       "search_placeholder": "Search models...",
       "scanning": "Scanning...",
@@ -574,6 +681,8 @@
       "reset_button": "Reset Data",
       "confirm_title": "Reset data for agent \"{{id}}\"",
       "confirm_body": "This is irreversible. Review the scope below, type the agent ID, and re-enter your password to proceed.",
+      "result_title": "Reset result for agent \"{{id}}\"",
+      "result_body": "This only shows the result; nothing else will be deleted.",
       "wipe_label": "Will wipe",
       "wipe_list": "Conversations, memory, stats, missions, outputs, context snapshots",
       "keep_label": "Will keep",
@@ -590,7 +699,19 @@
       "store_line": "purged {{purged}}, remaining {{remaining}}",
       "preserved_line": "Intentionally preserved (not wiped): {{items}}",
       "done": "Done",
-      "result_unknown": "Result unknown: the server may still be working, and the reset and clearing may already be done. Refresh later to check.",
+      "result_unknown": "Result unknown: the server may still be working, and the reset and clearing may already be done. Press “View result” later.",
+      "view_result": "View result",
+      "last": {
+        "heading_running": "Last reset: {{id}} (started {{time}})",
+        "heading_finished": "Last reset: {{id}} (finished {{time}})",
+        "running": "Still running. Press “View result” again later.",
+        "done": "Finished. Press “View result” for the details.",
+        "failed": "Did not complete: {{reason}}",
+        "interrupted": "The request stopped partway, so only part of the data may have been cleared. Please reset again.",
+        "none": "No result for this request: the server may have restarted, or the request never arrived. Check this agent's data and reset again if needed.",
+        "done_header": "This is the reset of “{{id}}” that finished at {{time}}",
+        "lookup_failed": "Could not reach the server's record right now (connection or permission problem). This does not mean the reset did not run. Press “View result” again later."
+      },
       "scrub": {
         "option_label": "Also clear this soul's memory from backups (off by default)",
         "will_clear_title": "Clears (when everything succeeds):",
@@ -607,12 +728,14 @@
         "toast_incomplete": "\"{{id}}\" was reset, but its memory was not cleared from every backup — see results",
         "result_clean_live": "✅ Live data fully reset",
         "summary_complete": "This soul's memory has been cleared from every snapshot on the backup list and every upgrade backup. It cannot be recovered.",
+        "summary_complete_out_of_scope": "Within the clearing scope, this soul's memory has been cleared from every snapshot on the backup list and every upgrade backup. It cannot be recovered. Backups that still hold legacy-format or legacy-prefix memory outside the clearing scope (see the list below): {{n}}.",
         "summary_unfinished": "Clearing did not finish: {{reason}}. Backups may still contain this soul's memory; you can reset again with clearing turned on.",
         "reason_see_details": "some items were not cleared; see the details below",
         "files_left": "These {{failed}} files were left unchanged and still contain this soul's memory; the other {{done}} were cleared and cannot be recovered.",
         "summary_not_ran": "Clearing did not run ({{reason}}); the backups are unchanged.",
         "live_verify_failed": "The live memory store failed verification after compaction. Stop saving memory for now and contact the team.",
         "live_not_compacted": "The live memory store was not compacted ({{reason}}).",
+        "live_rewritten": "This soul wrote new memory after the reset, so the live memory store holds its memory again.",
         "remaining_unknown": "Could not confirm whether anything remains in the live store.",
         "remaining_positive": "This soul wrote new memory after the reset, for example because its heartbeat is still running. Turn the heartbeat off, then try again.",
         "category_failed": "{{category}}: not finished ({{reason}})",
@@ -621,6 +744,7 @@
         "item_line_reason": "{{name}}: {{status}} ({{reason}})",
         "info_title": "Other information",
         "info_line": "{{name}}: {{reason}} ({{count}})",
+        "info_line_plain": "{{name}}: {{reason}}",
         "collection_shared": "This soul shares its semantic index with {{id}}. A normal reset works, but backups cannot be cleared.",
         "categories": {
           "leftovers": "Leftovers from an interrupted run",
@@ -664,7 +788,8 @@
           "write_failed": "could not write the temporary file; the original was kept",
           "own_snapshot_unverified": "the snapshot made before this reset did not lose any memory, so it could not be confirmed as cleared",
           "backup_failed": "the snapshot before the reset could not be made, so nothing was cleared",
-          "cancelled": "the request was cancelled before clearing started"
+          "cancelled": "the request was cancelled before clearing started",
+          "os_metadata_file": "a file the operating system put there (thumbnail cache or folder settings); it holds no memory and was left as it is"
         }
       }
     },
@@ -853,7 +978,11 @@
       "empty_state": "No connections created yet.",
       "saved": "Connections saved",
       "delete_confirm": "Delete connection \"{{name}}\"? Its saved API key will be removed.",
-      "delete_confirm_label": "Delete"
+      "delete_confirm_label": "Delete",
+      "proxy_switch_confirm": "Switch the backend to {{url}}? This account will be signed out on all devices for the current backend, and this browser will go to the login page.",
+      "proxy_switch_confirm_label": "Switch and sign out",
+      "proxy_checking": "Checking that {{url}} is reachable…",
+      "proxy_unreachable": "Can't reach {{url}}, or it isn't a Touka backend. The URL was not changed."
     },
     "tools_tab": {
       "no_description": "No description yet",
@@ -1198,6 +1327,13 @@
       "standalone": "Standalone",
       "hybrid": "Hybrid System"
     },
+    "session_tree": {
+      "loading": "Loading chats",
+      "more_sessions": "{{count}} more",
+      "folder_home_aria": "{{name}}, home chat: {{title}}",
+      "folder_holds_active": "open chat inside",
+      "label_separator": ", "
+    },
     "session_item": {
       "background_generating": "Generating in background",
       "incognito_label": "Incognito conversation",
@@ -1217,7 +1353,9 @@
       "round_count_other": "{{count}} rounds"
     },
     "navigation_area": {
-      "nav_chat": "Chat Lobby",
+      "menu": "Menu",
+      "menu_aria": "Menu: {{name}}",
+      "menu_aria_page": "Menu: {{name}}, currently on {{page}}",
       "nav_projects": "Projects",
       "nav_soul": "Soul Core",
       "nav_studio": "Model Studio",
@@ -1270,7 +1408,7 @@
       "setup_now": "Set up now",
       "later": "Later",
       "dismiss_aria": "Later: dismiss the setup notice",
-      "toggle_sidebar_aria": "Toggle Sidebar (setup warnings in the sidebar)",
+      "expand_sidebar_aria": "Expand sidebar (setup warnings in the sidebar)",
       "open_menu_aria": "Open menu (setup warnings in the sidebar)"
     },
     "isolation_banner": {
@@ -1289,6 +1427,7 @@
       "copy_code": "Copy Code",
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
+      "generation_failed": "This reply failed and did not finish.",
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",
@@ -1391,6 +1530,8 @@
       "reject": "Reject",
       "countdown": "Auto-rejects in {{seconds}}s",
       "review_reason": "Why the reviewer sent this to you: {{reason}}",
+      "hook_ask": "A hook set by the administrator asks you to confirm this action.",
+      "hook_reason": "A hook set by the administrator asks you to confirm: {{reason}}",
       "human_only": "Only you can approve",
       "human_only_desc": "Neither the reviewer nor YOLO can approve this kind of action for you.",
       "risk": {
@@ -1533,6 +1674,16 @@
       "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
       "recheck": "Check save status",
       "retry": "Retry save only"
+    },
+    "incognito_hook_notice": "An administrator has set up hooks: this incognito chat is also sent to them, and whether it is kept depends on the administrator's setup.",
+    "message_nav": {
+      "label": "Message navigation",
+      "jump_to": "Jump to message {{n}}: {{preview}}",
+      "jump_to_range": "Jump to messages {{first}}–{{last}}: {{preview}}",
+      "image": "Image",
+      "attachment": "Attachment: {{name}}",
+      "file": "File",
+      "empty": "(no text)"
     }
   },
   "dashboard": {
@@ -1742,6 +1893,14 @@
       "section_system_persona": "System Persona",
       "persona_editor_title": "Persona instructions",
       "section_abilities_tools": "Abilities & Tools",
+      "tools_title": "Abilities",
+      "tools_active": "{{count}} active",
+      "tools_not_listed": "not currently listed",
+      "tools_needs_reselect": "Tool names that match nothing: {{count}}. Click one to remove it, or select tools again from the list",
+      "tools_empty_means_all": "Selecting no tools means every tool is available",
+      "tools_companion": "Comes with {{tool}}",
+      "tools_loading": "Loading the tool list…",
+      "tools_load_failed": "Could not load the tool list. Open this screen again to retry",
       "cancel": "Cancel",
       "initialize_soul": "Initialize Soul",
       "edit_soul": "Edit Soul",
@@ -1823,19 +1982,10 @@
         }
       }
     },
-    "main_header": {
-      "toggle_sidebar": "Toggle Sidebar",
-      "views": {
-        "chat": "Chat Lobby",
-        "soul": "Soul Core",
-        "studio": "Model Studio",
-        "pulse": "System Pulse",
-        "vault": "Memory Vault",
-        "projects": "Projects",
-        "settings": "Settings"
-      },
-      "settings_button_title": "Settings",
-      "right_sidebar_title": "View analytics and assets"
+    "main_area_controls": {
+      "expand_sidebar": "Expand sidebar",
+      "right_sidebar": "Tool panel",
+      "settings": "Settings"
     },
     "left_sidebar": {
       "nav_aria_label": "Conversation navigation",
@@ -1843,7 +1993,9 @@
       "new_chat_button": "New Chat",
       "incognito_chat_button_tooltip": "Start a conversation that leaves no trace: not saved, and the AI doesn't read or write memory",
       "incognito_chat_button": "Incognito Chat",
-      "session_history_heading": "Conversation History"
+      "incognito_chat_button_short": "Incognito",
+      "session_history_heading": "Conversation History",
+      "collapse_sidebar": "Collapse sidebar"
     },
     "right_sidebar": {
       "aria_system_panel": "System panel",
@@ -1987,7 +2139,6 @@
   },
   "hooks": {
     "use_session_groups": {
-      "unassigned_agent": "Unassigned agent",
       "project_group": "Project: {{name}}",
       "unknown_project": "Unknown project",
       "other_conversations": "Other conversations",
@@ -2063,6 +2214,9 @@
     }
   },
   "app": {
+    "login_page": {
+      "connected_to": "Connected to: {{url}}"
+    },
     "connections_page": {
       "title": "Connection Management",
       "add_ai_node": "Add AI Node",
@@ -2123,6 +2277,10 @@
       "no_import_prefix": "This preview is an offline sandbox; importing external modules is not supported: ",
       "runtime_unavailable": "React runtime failed to load; cannot render."
     }
+  },
+  "markdown": {
+    "external_image_blocked": "External image (not loaded)",
+    "external_image_open": "Open the external image in a new tab"
   },
   "theme": {
     "names": {
@@ -2190,7 +2348,9 @@
       "write_failed": "Failed to persist soul files",
       "memory_not_reset": "This soul still has memory. Reset it under Settings › \"Agent Data Reset\" first, then delete it. Nothing was deleted.",
       "memory_check_failed": "Could not confirm this soul's memory is empty (the memory system is unavailable), so it was not deleted. Try again later.",
-      "sandbox_home_not_cleared": "Could not clear this soul's home folders in the sandbox (the executor is not serving, or the cleanup failed), so it was not deleted. Try again once the executor is back."
+      "sandbox_home_not_cleared": "Could not clear this soul's home folders in the sandbox (the executor is not serving, or the cleanup failed), so it was not deleted. Try again once the executor is back.",
+      "heartbeat_running": "This soul's heartbeat is running and has been asked to stop, so it was not deleted. The heartbeat left activity records when it started; once it stops, reset the soul first, then delete it. Pausing this soul's heartbeat schedule first keeps it from running again between the reset and the delete.",
+      "unregister_incomplete": "The soul's data was deleted, but a few registrations (such as the model list or the owner list) were not removed. Delete it again to finish."
     },
     "config": {
       "load_failed": "Failed to load configuration",
@@ -2215,6 +2375,7 @@
       "id_mismatch": "Session ID mismatch",
       "save_failed": "Failed to save the session",
       "scope_mismatch": "This conversation cannot be used for the requested target",
+      "prompt_stopped": "This reply was stopped before it started",
       "interjection_queue_full": "Too many messages added to this reply",
       "interjection_too_long": "The message is too long",
       "interjection_not_found": "Message not found for this reply",
@@ -2277,12 +2438,18 @@
       "in_progress": "Memory is being cleared from backups; try again when it finishes"
     },
     "agent_reset": {
-      "in_progress": "Another reset is running; try again when it finishes"
+      "in_progress": "Another reset, memory scrub, or deletion or rename of an agent is running; try again when it finishes",
+      "drive_linked": "This agent's personal folder is a link, and Touka does not follow links; nothing was changed"
     },
     "agent_id": {
       "collection_collision": "This ID would share a semantic index with an existing ID; choose another ID",
       "check_failed": "Could not confirm this ID will not share memory with an existing one; nothing was created",
       "collection_collision_with": "This ID would share a semantic index with \"{{id}}\"; choose another ID"
+    },
+    "hooks": {
+      "prompt_blocked": "A hook set by the administrator blocked this message. It was not sent to the model and was taken out of the conversation.",
+      "config_conflict": "The hook settings were changed elsewhere. Reload, then save again.",
+      "path_rejected": "A hook command or argument points to a place agents can write to, or its safety cannot be confirmed, so it cannot be saved."
     }
   }
 }

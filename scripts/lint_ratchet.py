@@ -1,18 +1,21 @@
 # ruff: noqa: T201
 """靜態檢查只減不增（ADR-0278）：收集違規、比對基準、重拍基準都在這裡。
 
-每條規則的數量必須和基準完全相等。變多要修；變少要在同一個 PR 重拍基準，
-讓改善留在差異裡、之後不會被悄悄用掉。測試（`tests/lint/test_ruff_ratchet.py`、
-`tests/lint/test_pyrefly_ratchet.py`）和重拍都用這裡唯一一份收集指令，兩邊不會各算各的。
+ruff、pyrefly 每條規則的數量必須和基準完全相等。變多要修；變少要在同一個 PR 重拍基準，
+讓改善留在差異裡、之後不會被悄悄用掉。vulture 例外，只有多出來才紅（ADR-0298）。
+測試（`tests/lint/test_ruff_ratchet.py`、`tests/lint/test_pyrefly_ratchet.py`、
+`tests/lint/test_vulture_ratchet.py`）和重拍都用這裡唯一一份收集指令，兩邊不會各算各的。
 只用標準函式庫。
 
 用法：
     python scripts/lint_ratchet.py ruff               # 檢查
     python scripts/lint_ratchet.py ruff --update      # 重拍基準
     python scripts/lint_ratchet.py pyrefly [--update] # 型別檢查，範圍在 pyproject.toml
+    python scripts/lint_ratchet.py vulture [--update] # 未用的函式、方法、類別
 """
 
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -24,6 +27,22 @@ PROJECT_ROOT = Path(__file__).absolute().parent.parent
 PRODUCT_SOURCE_ROOTS = ("ToukaProxy/src", "ToukaMemory/src", "ToukaHeartbeat", "ToukaDispatch")
 RUFF_BASELINE = PROJECT_ROOT / "tests" / "lint" / "ruff_baseline.json"
 PYREFLY_BASELINE = PROJECT_ROOT / "tests" / "lint" / "pyrefly_baseline.json"
+VULTURE_BASELINE = PROJECT_ROOT / "tests" / "lint" / "vulture_baseline.json"
+VULTURE_WHITELIST = "scripts/vulture_whitelist.py"
+# 未用的函式、方法、類別信心值都是 60，門檻要低於等於它才報得出來。
+VULTURE_MIN_CONFIDENCE = "60"
+# 只排除靠註冊才用到的（路由、MCP 工具、Pydantic、discord 事件）；內建裝飾器不排除。
+VULTURE_IGNORE_DECORATORS = (
+    "@router.*,@*_router.*,@app.*,@mcp.*,@field_validator,@model_validator,"
+    "@computed_field,@self.client.event"
+)
+VULTURE_KINDS = frozenset({"function", "method", "class", "property"})
+# 結束碼 0 是沒有死碼、3 是有死碼；1 是輸入壞掉、2 是參數錯誤。
+VULTURE_FINISHED_EXIT_CODES = (0, 3)
+VULTURE_UNUSED_LINE = re.compile(r"^(?P<path>.+?):\d+: unused (?P<kind>\w+) '(?P<name>[^']+)' \(")
+VULTURE_OTHER_LINE = re.compile(r"^.+?:\d+: (?:unreachable|unsatisfiable|redundant) ")
+# 別處新增一個同名的用法就會讓項目消失，和那個 PR 無關，所以這些工具少了不算問題。
+ONE_WAY_TOOLS = frozenset({"vulture"})
 TOOL_TIMEOUT_SECONDS = 300
 SYNTAX_ERROR_KEY = "syntax-error"
 # pyrefly 在有型別錯誤時結束碼是 1，可以接受；設定壞掉的結束碼也是 1，只能從輸出分辨。
@@ -102,6 +121,38 @@ def collect_pyrefly() -> Counter[str]:
     return Counter(item["name"] for item in errors)
 
 
+def collect_vulture() -> Counter[str]:
+    """跑 vulture，回傳 {相對路徑:種類:名稱: 數量}，路徑一律用 `/`。
+
+    只留函式、方法、類別、屬性。結果裡有看不懂的行就算失敗：升級後格式變了，
+    全部比對不到會變成 0 筆，而單向比對不會因此變紅。
+    """
+    result = _run_tool_module(
+        [
+            "vulture",
+            *PRODUCT_SOURCE_ROOTS,
+            VULTURE_WHITELIST,
+            "--min-confidence",
+            VULTURE_MIN_CONFIDENCE,
+            "--ignore-decorators",
+            VULTURE_IGNORE_DECORATORS,
+        ]
+    )
+    if result.returncode not in VULTURE_FINISHED_EXIT_CODES:
+        message = f"vulture did not finish (exit {result.returncode}): {result.stderr[-1500:]}"
+        raise RuntimeError(message)
+    found: Counter[str] = Counter()
+    for line in result.stdout.splitlines():
+        unused = VULTURE_UNUSED_LINE.match(line)
+        if unused is None:
+            if line.strip() and not VULTURE_OTHER_LINE.match(line):
+                raise RuntimeError(f"unexpected vulture output: {line}")
+            continue
+        if unused["kind"] in VULTURE_KINDS:
+            found[f"{unused['path'].replace(chr(92), '/')}:{unused['kind']}:{unused['name']}"] += 1
+    return found
+
+
 def load_baseline(path: Path) -> dict[str, int]:
     """讀基準；不存在就是空的，任何違規都會被當成變多。"""
     if not path.exists():
@@ -127,9 +178,19 @@ def compare(current: Counter[str], baseline: dict[str, int]) -> list[str]:
     return problems
 
 
+def compare_additions(current: Counter[str], baseline: dict[str, int]) -> list[str]:
+    """只回傳比基準多的項目；少了不算問題。"""
+    return [
+        f"[變多] {key}：現在 {now} 個，基準 {baseline.get(key, 0)} 個"
+        for key, now in sorted(current.items())
+        if now > baseline.get(key, 0)
+    ]
+
+
 TOOLS: dict[str, tuple[Callable[[], Counter[str]], Path]] = {
     "ruff": (collect_ruff, RUFF_BASELINE),
     "pyrefly": (collect_pyrefly, PYREFLY_BASELINE),
+    "vulture": (collect_vulture, VULTURE_BASELINE),
 }
 
 
@@ -146,9 +207,12 @@ def main(argv: list[str]) -> int:
         total, rules = sum(current.values()), len(current)
         print(f"{argv[0]}: baseline updated, {total} violations / {rules} rules")
         return 0
-    problems = compare(current, load_baseline(baseline_path))
+    compare_counts = compare_additions if argv[0] in ONE_WAY_TOOLS else compare
+    problems = compare_counts(current, load_baseline(baseline_path))
     for problem in problems:
         print(problem)
+    if problems and argv[0] in ONE_WAY_TOOLS:
+        print("接上或刪掉；確定要留就加 --update，並在 PR 說明逐項列出。")
     print(f"{argv[0]}: {'FAIL' if problems else 'PASS'} ({sum(current.values())} violations)")
     return 1 if problems else 0
 

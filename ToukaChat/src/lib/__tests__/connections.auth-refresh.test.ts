@@ -62,6 +62,7 @@ describe('isTokenExpired（JWT exp 解析，fail-safe）', () => {
 describe('fetchTouka 送出前 token 續期（①）', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://x' }]));
     clearAccessToken();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
@@ -190,6 +191,7 @@ describe('X-New-Auth-Token 領卡防挾持（②）', () => {
 describe('fetchChatStream 送出前續期 + 領卡防挾持（①②鏡像）', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.localStorage.setItem('touka_connections', JSON.stringify([{ id: 'p', provider: 'proxy', enabled: true, url: 'http://x' }]));
     clearAccessToken();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);

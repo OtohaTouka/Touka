@@ -27,7 +27,8 @@ async function main() {
           }
       }
   } else {
-      const tsFiles = [`${rootDir}/**/*.{ts,tsx}`, `!${rootDir}/lib/design-system/tokens.ts`].map(p => p.replace(/\\/g, '/'));
+      // src/generated 是建置時產生的第三方 runtime（不進版控），和 ESLint、knip 一樣不檢查（ADR-0294）
+      const tsFiles = [`${rootDir}/**/*.{ts,tsx}`, `!${rootDir}/lib/design-system/tokens.ts`, `!${rootDir}/generated/**`].map(p => p.replace(/\\/g, '/'));
       project.addSourceFilesAtPaths(tsFiles);
   }
 

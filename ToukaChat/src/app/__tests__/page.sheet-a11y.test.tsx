@@ -81,10 +81,6 @@ vi.mock('@/components/chat/ChatArea', () => ({
     ChatArea: () => <div data-testid="chat-area">ChatArea</div>,
 }));
 
-vi.mock('@/components/layout/MainHeader', () => ({
-    MainHeader: () => <div data-testid="main-header">MainHeader</div>,
-}));
-
 vi.mock('@/components/layout/SoulStudio', () => ({
     SoulStudio: () => <div>SoulStudio</div>,
 }));

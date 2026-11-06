@@ -57,6 +57,7 @@ from src.protocols.mcp.mrtr import (
 )
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.services.authorization_gateway import require_human_requester, require_privileged
+from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
 from src.services.isolation.consent import Consent
 from src.services.isolation.mcp_launch import manual_start_subject, origin_record
@@ -143,8 +144,9 @@ class MCPServerItem(BaseModel):
     url: str | None = None
     headers: dict[str, str] | None = None
     enabled: bool = True
-    # per-agent vault 隔離政策（mcp_vault_jail）。納入契約以便 GET 不被 extra='forbid' 整份拒、
-    # 且 POST 來回不丟失；前端未回傳時由 _preserve_masked_env 自磁碟還原（不可被前端清掉）。
+    # vault 隔離設定（mcp_vault_jail；ADR-0293 之後設了這個的工具一律拒絕）。納入契約以便 GET
+    # 不被 extra='forbid' 整份拒、且 POST 來回不丟失；前端未回傳時由 _preserve_masked_env
+    # 自磁碟還原（不可被前端清掉）。
     vault_jail_arg: str | None = None
     # per-installation 工具治理（ADR-0195 軸 A）。同樣納入契約——extra='forbid' 下漏宣告
     # 一個磁碟既存欄位，整份 GET 會被 ValidationError 打成空設定頁。
@@ -810,6 +812,7 @@ async def save_mcp_config(
     except Exception as e:
         logger.exception("Failed to save mcp config")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=str(e)) from e
+    notify_config_change("mcp")
     return McpConfigSaveResponse(isolation_cleared=cleared)
 
 
@@ -960,6 +963,7 @@ async def put_mcp_isolation(
         origin,
         len(grants),
     )
+    notify_config_change("mcp")
     return await _isolation_view(server_name, entry, store.record_for(server_name, entry))
 
 
@@ -1116,6 +1120,10 @@ async def install_mcp_from_hub(
         return JSONResponse(
             status_code=404, content={"error": f"'{request.hub_id}' not found in hub"}
         )
+    if result["status"] != "success":  # 條目缺欄位：沒有寫檔，不重載也不通知
+        return JSONResponse(
+            status_code=422, content={"error": f"'{request.hub_id}' is not a valid hub entry"}
+        )
 
     # 嘗試熱插拔重載 MCP 連線
     try:
@@ -1128,4 +1136,5 @@ async def install_mcp_from_hub(
     except AttributeError:
         logger.exception("Reload failed: protocol_manager missing attributes")
 
+    notify_config_change("mcp")
     return {"status": "success", "message": f"Installed {result['server_name']}"}

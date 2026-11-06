@@ -183,8 +183,7 @@ async def _board(cmd: str) -> None:
     await manager.update_task(identity=_SOUL, task_id="t1", status=TaskStatus.DOING)
 
 
-async def _review_and_reject(monkeypatch, tmp_path, cmd: str) -> dict[str, Any]:
-    monkeypatch.setattr(mt, "_agent_artifact_root", lambda _identity: tmp_path)
+async def _review_and_reject(cmd: str) -> dict[str, Any]:
     await _board(cmd)
     events: list[dict[str, Any]] = []
 
@@ -215,15 +214,17 @@ async def _review_and_reject(monkeypatch, tmp_path, cmd: str) -> dict[str, Any]:
     return next(e for e in events if e["type"] == "tool_approval_request")
 
 
-async def test_request_review_escalation_card_shows_the_reviewer_reason(monkeypatch, tmp_path):
+@pytest.mark.usefixtures("zone_data_root")  # 看板與個人空間在 tmp_path（ADR-0293）
+async def test_request_review_escalation_card_shows_the_reviewer_reason(monkeypatch):
     _install_reviewer(monkeypatch, _ESCALATE)
-    card = await _review_and_reject(monkeypatch, tmp_path, "pytest -q")
+    card = await _review_and_reject("pytest -q")
     assert card["review_reason"] == _ESCALATE_REASON
     assert "human_only" not in card
 
 
-async def test_request_review_floor_card_is_human_only(monkeypatch, tmp_path):
+@pytest.mark.usefixtures("zone_data_root")
+async def test_request_review_floor_card_is_human_only(monkeypatch):
     completer = _install_reviewer(monkeypatch, _ALLOW)
-    card = await _review_and_reject(monkeypatch, tmp_path, _FLOOR_CMD)
+    card = await _review_and_reject(_FLOOR_CMD)
     assert card["human_only"] is True
     assert completer.calls == []

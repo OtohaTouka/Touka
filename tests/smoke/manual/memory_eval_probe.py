@@ -4,7 +4,7 @@
 
     python tests/smoke/manual/memory_eval_probe.py \
         --provider deepseek --model deepseek-v4-flash --suite smoke \
-        --max-provider-requests 40 --max-tokens 512 --budget 0.20 \
+        --max-provider-requests 40 --max-tokens 512 --budget 0.20 [--repeats 3] \
         --human-approved-live-api [--env-file <金鑰 .env 路徑>]
 
 只送合成資料（合成人格、合成事實與對話、注入句）。所有本機寫入（靈魂檔、session DB、記憶庫、
@@ -13,6 +13,19 @@ log）都先切到程序專屬暫存沙盒；結果只印到 stdout。主迴圈�
 「已花＋這個請求最壞花費」不超過金額上限、核銷請求預算；不換模型、摘要員與審查員一律不呼叫；
 任何一輪遇到 429／5xx 或其他錯誤，整批停下。報告先印出（含每個請求的用量），再放開紀錄檔、
 記憶庫與向量庫的連線、刪掉沙盒；刪不掉照實回報並以非零結束。
+
+嵌入一律用替身編碼器：產品讀到的嵌入模型名稱在建庫前固定成評估專用名稱（不看 .env），查詢下限
+與查重門檻取產品對這個名稱的預設值；核准範圍與報告都印這一行。分數只代表替身，不代表真實嵌入
+模型的召回。
+
+``--suite continuity``（時間軸）另外打開活動記錄器，每個情境先在沙盒預放活動事件；核准範圍印
+``activity_record=on``。smoke 不開。兩條命令算兩批，各自取得同意。
+
+``--repeats N``（1..5）先把整批跑完一輪再跑下一輪，每一次都是新的合成靈魂；次數印在核准範圍，
+預計請求數印成「每輪 × 輪數」。同意跑 1 輪的核准不能拿來跑更多輪。
+
+價目表查不到的型號（產品會用保守預設價估）直接拒跑；靠家族名稱估價的型號，核准範圍標
+``pricing=family_estimate``。送前預留、結清與軟上限都用同一份產品價目表。
 """
 
 from __future__ import annotations
@@ -95,7 +108,14 @@ from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient  # noqa: E402
 from memory_server import config_utils  # noqa: E402
 from memory_server import vector as memory_vector  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
-from src.config import ANTHROPIC_API_BASE_URL, strip_anthropic_sdk_env_overrides  # noqa: E402
+from memory_server.services.lifecycle import duplicate_similarity_threshold  # noqa: E402
+from memory_server.services.manager import MemoryManager  # noqa: E402
+from memory_server.utils import memory_worker  # noqa: E402
+from src.config import (  # noqa: E402
+    ANTHROPIC_API_BASE_URL,
+    apply_runtime_env,
+    strip_anthropic_sdk_env_overrides,
+)
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.handlers import react_core  # noqa: E402
 from src.handlers.adapters.claude_adapter import ClaudeAdapter  # noqa: E402
@@ -116,16 +136,19 @@ from src.services.models.model_rules import claude_send_max_tokens  # noqa: E402
 from src.services.permission_service import permission_service  # noqa: E402
 from src.services.providers import pricing  # noqa: E402
 from src.services.providers import registry as provider_registry  # noqa: E402
+from src.services.resource_manager import resource_manager  # noqa: E402
 from src.services.review import review_loop  # noqa: E402
-from src.utils.async_db import init_db_async  # noqa: E402
+from src.utils.async_db import init_db_async, session_service  # noqa: E402
 from src.utils.brain_persistence import set_active_brain  # noqa: E402
 
-from tests.memory_eval import live_bounds, runner, seeding  # noqa: E402
+from tests.memory_eval import live_bounds, runner, seeding, stats  # noqa: E402
 from tests.memory_eval.scenarios import (  # noqa: E402
-    SOUL_ID,
+    ACTIVITY_RECORD_SUITES,
     SUITES,
+    DuplicateScenario,
     UnknownScenario,
     expected_requests,
+    random_canary,
     select_scenarios,
 )
 from tests.sandbox_cleanup import remove_session_sandbox  # noqa: E402
@@ -134,16 +157,22 @@ if TYPE_CHECKING:
     from tests.memory_eval.scenarios import Scenario
     from tests.sandbox_cleanup import ReleaseStep
 
-MAX_PROVIDER_REQUESTS = 40
+MAX_PROVIDER_REQUESTS = 200
 MAX_LIVE_TOKENS = 1024  # 請求裡的 max_tokens；Touka 送出時可能拉高（見 _wire_max_tokens）
 DEFAULT_LIVE_TOKENS = 512
 # 工具自己的天花板：Touka 實際要送的輸出上限超過就不送（之後規則表改 32K／64K 也不會照送）。
 OUTPUT_TOKEN_CEILING = 8_192
 _WIRE_RULE = "anthropic follows Touka model rules; other providers send the requested value"
 MAX_BUDGET_USD = 2.0
+MAX_REPEATS = 5
+PRICE_EXACT = "exact"
+PRICE_FAMILY = "family_estimate"
 # 主迴圈的四家共用重試開關（react_core.MAX_SEND_ATTEMPTS 是總送出次數）：只送 1 次、不重試。
 _PROBE_SEND_ATTEMPTS = 1
 _AUDIT_DRAIN_TIMEOUT_S = 30
+STUB_NOTE = "stub encoder; recall does not reflect a real embedding model"
+ACTIVITY_RECORD_ON = "activity_record=on (seeded events written to the sandbox only)"
+ACTIVITY_RECORD_OFF = "activity_record=off"
 _ADAPTERS = (ClaudeAdapter, OpenAIAdapter, ResponsesAdapter, GeminiAdapter)
 _ORIGINAL_SEND_ROUNDS = {adapter: adapter.send_round for adapter in _ADAPTERS}
 _ORIGINAL_EXTRACT_USAGES = {adapter: adapter.extract_usage for adapter in _ADAPTERS}
@@ -175,6 +204,12 @@ class _OutputCeilingExceeded(RuntimeError):
                          f"{OUTPUT_TOKEN_CEILING}; nothing sent")
 
 
+class _UnpricedModel(RuntimeError):
+    def __init__(self, model: str) -> None:
+        super().__init__(f"{model} 不在價目表裡（產品會用保守預設價估），不跑；"
+                         "要跑先把它補進產品價目表")
+
+
 class _ProviderRouteMismatch(ValueError):
     def __init__(self) -> None:
         super().__init__("provider/model route mismatch or unsupported provider")
@@ -183,6 +218,13 @@ class _ProviderRouteMismatch(ValueError):
 class _SoulNotOwner(RuntimeError):
     def __init__(self, role: str) -> None:
         super().__init__(f"synthetic soul resolved to role {role!r}, expected Owner")
+
+
+class _StubEmbeddingNotPinned(RuntimeError):
+    def __init__(self, found: str | None = None) -> None:
+        reason = "the vector store already exists" if found is None else (
+            f"the product reads {found!r}")
+        super().__init__(f"stub embedding model not pinned ({reason}); nothing sent")
 
 
 def _bounded_int(label: str, high: int) -> Callable[[str], int]:
@@ -288,6 +330,18 @@ def _dearest_rate(model: str) -> Any:
     return rate.long_prompt[1] if rate.long_prompt is not None else rate
 
 
+def _price_basis(model: str) -> str:
+    """價目表怎麼估這個型號：完整名稱有一筆是 exact，靠家族名稱（子字串）估是 family_estimate。
+
+    查不到（產品會用保守預設價）就拒跑。要分出完整名稱得讀價目表的私有部分（已知限制，ADR-0284）。
+    """
+    _rate, source = pricing.resolve(model)
+    if source == "fallback":
+        raise _UnpricedModel(model)
+    table = pricing._load_config()[0] if source == "override" else pricing._BUILTIN_PRICING
+    return PRICE_EXACT if model.strip().lower() in table else PRICE_FAMILY
+
+
 def _install_bounds(max_requests: int, wire_cap: int, *, model: str, budget: float) -> None:
     global _PROVIDER_REQUEST_BUDGET, _OUTPUT_CAP, _LEDGER
     _PROVIDER_REQUEST_BUDGET = LiveApiCallBudget(max_requests=max_requests)
@@ -323,6 +377,33 @@ async def _refuse_auxiliary_call(*args: Any, **kwargs: Any) -> CompletionResult:
     )
 
 
+def _stub_facts() -> dict[str, Any]:
+    """替身的名稱與兩個門檻（經產品自己的查表，不看 .env）。"""
+    name = seeding.STUB_EMBEDDING_MODEL
+    return {"model": name, "query_floor": memory_vector.query_score_floor(name),
+            "dedup_threshold": duplicate_similarity_threshold(name), "note": STUB_NOTE}
+
+
+def _pin_stub_embedding() -> dict[str, Any]:
+    """建庫前把產品讀到的嵌入模型名稱換成替身名稱（之後讀 .env 也蓋不掉）。
+
+    向量庫已經建立（名稱已定）或產品讀回的名稱不符就停下，不送任何請求。
+    """
+    if MemoryManager._vector_store_singleton is not None:
+        raise _StubEmbeddingNotPinned
+    apply_runtime_env({"EMBEDDING_MODEL": seeding.STUB_EMBEDDING_MODEL})
+    found = config_utils.get_embedding_model_name()
+    if found != seeding.STUB_EMBEDDING_MODEL:
+        raise _StubEmbeddingNotPinned(found)
+    return _stub_facts()
+
+
+def _expected_requests(suite: str, scenario_ids: Sequence[str], repeats: int) -> str:
+    """預計請求數（估計）：每輪 × 輪數。"""
+    per_round = expected_requests(select_scenarios(suite, list(scenario_ids)))
+    return f"{per_round}x{repeats}={per_round * repeats}"
+
+
 def _memory_eval_scope(
     *,
     provider: str,
@@ -332,9 +413,12 @@ def _memory_eval_scope(
     max_requests: int,
     max_tokens: int,
     budget: float,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> LiveApiScope:
+    basis = _price_basis(model)  # 查不到價目就在這裡停下：連核准範圍都不印
     rate = _dearest_rate(model)
+    stub = _stub_facts()
     return LiveApiScope(
         operation_id="manual_memory_eval_probe",
         provider=provider,
@@ -342,6 +426,8 @@ def _memory_eval_scope(
         limits=(
             f"suite={suite}",
             f"scenarios={','.join(scenario_ids)}",
+            f"repeats={repeats}",
+            f"expected_provider_requests={_expected_requests(suite, scenario_ids, repeats)}",
             f"provider_requests<={max_requests}",
             f"max_tokens_requested={max_tokens}",
             f"wire_max_tokens_per_request={_wire_max_tokens(provider, model, max_tokens)}",
@@ -350,12 +436,16 @@ def _memory_eval_scope(
             f"budget_usd={budget:.4f}",
             "pre_send_worst_case=spent + wire cap x output + (request chars + "
             f"{live_bounds.VENDOR_OVERHEAD_TOKENS}) x max(input|cache_write) <= budget",
+            f"pricing={basis}",
             f"worst_case_usd_per_mtok=input={live_bounds.worst_case_input_price(rate):g};"
             f"output={rate.output:g}",
             "provider_retry=0",
             "main_loop_send_attempts=1",
             "fallback=0",
             "auxiliary_model_calls=0",
+            f"embedding_stub={stub['model']};query_floor={stub['query_floor']:g};"
+            f"dedup_threshold={stub['dedup_threshold']:g} ({stub['note']})",
+            ACTIVITY_RECORD_ON if suite in ACTIVITY_RECORD_SUITES else ACTIVITY_RECORD_OFF,
             f"env_file={env_file}",
         ),
         data_scope="synthetic persona, facts, conversations and injection text only",
@@ -363,18 +453,25 @@ def _memory_eval_scope(
     )
 
 
-def _seed_sandbox(sandbox_root: Path, model: str) -> None:
-    """合成靈魂、主要模型、身分對映（.example）、替身編碼器：全部只在沙盒。"""
+def _seed_sandbox(sandbox_root: Path) -> None:
+    """身分對映（.example）、替身編碼器：全部只在沙盒；合成靈魂每個情境另建（_prepare_soul）。"""
     memory_vector.SentenceTransformer = seeding.DeterministicEncoder  # 零下載
-    seeding.write_synthetic_soul(Path(config_utils.get_app_data_dir()), sandbox_root=sandbox_root)
     seeding.seed_identity_map(
         permission_service.identity_path, IDENTITY_MAP_EXAMPLE, sandbox_root=sandbox_root
     )
     permission_service.reload_all()
-    role, _caps = agent_service.resolve_role_and_caps(SOUL_ID)
+
+
+def _prepare_soul(soul_id: str, persona: str, *, sandbox_root: Path, model: str) -> None:
+    """這個情境的合成靈魂：人格寫進沙盒、核對解析成 Owner、設主要模型（核准的那一個）。"""
+    seeding.write_synthetic_soul(
+        Path(config_utils.get_app_data_dir()), soul_id, sandbox_root=sandbox_root,
+        persona=persona,
+    )
+    role, _caps = agent_service.resolve_role_and_caps(soul_id)
     if role != "Owner":
         raise _SoulNotOwner(role)
-    set_active_brain(seeding.soul_identity(), model)
+    set_active_brain(seeding.soul_identity(soul_id), model)
 
 
 async def run_memory_eval_probe(
@@ -388,6 +485,7 @@ async def run_memory_eval_probe(
     budget: float,
     approval: LiveApiApproval,
     sandbox_root: Path,
+    repeats: int = 1,
     env_file: Path = DEFAULT_ENV_FILE,
 ) -> dict[str, Any]:
     """驗證核准範圍與上限後跑一批；回彙總（含實際請求數與被拒的輔助呼叫）。"""
@@ -395,6 +493,8 @@ async def run_memory_eval_probe(
         raise _BoundsError("max-tokens", 1, MAX_LIVE_TOKENS)
     if not 1 <= max_requests <= MAX_PROVIDER_REQUESTS:
         raise _BoundsError("max-provider-requests", 1, MAX_PROVIDER_REQUESTS)
+    if not 1 <= repeats <= MAX_REPEATS:
+        raise _BoundsError("repeats", 1, MAX_REPEATS)
     wire_cap = _wire_max_tokens(provider, model, max_tokens)
     if wire_cap > OUTPUT_TOKEN_CEILING:
         raise _OutputCeilingExceeded(wire_cap)
@@ -405,11 +505,13 @@ async def run_memory_eval_probe(
     validate_live_api_approval(approval, expected_scope=_memory_eval_scope(
         provider=provider.casefold(), model=model, suite=suite,
         scenario_ids=[s.id for s in scenarios], max_requests=max_requests,
-        max_tokens=max_tokens, budget=budget, env_file=env_file,
+        max_tokens=max_tokens, budget=budget, repeats=repeats, env_file=env_file,
     ))
+    code_hash = stats.eval_code_hash(PROJECT_ROOT)  # 跑之前的評估程式（比較工具只比同一份）
     _install_bounds(max_requests, wire_cap, model=model, budget=budget)
+    stub = _pin_stub_embedding()
     await init_db_async()
-    _seed_sandbox(sandbox_root, model)
+    _seed_sandbox(sandbox_root)
     base_ctx = build_base_context()
     anthropic_client: AsyncAnthropic | None = None
     if provider.casefold() == "anthropic":
@@ -425,15 +527,26 @@ async def run_memory_eval_probe(
     driver = runner.MemoryEvalDriver(
         base_ctx=base_ctx, send_turn=runner.pipeline_send_turn,
         save_fact=runner.memory_save_fact, max_tokens=max_tokens, budget_usd=budget,
+        activity_record=suite in ACTIVITY_RECORD_SUITES,
+        prepare_soul=partial(_prepare_soul, sandbox_root=sandbox_root, model=model),
+        read_facts=runner.memory_active_facts,
+        archive_history=runner.legacy_archiver(sandbox_root),
+        canary=random_canary(),  # 每次實測一組新口令，事先猜不到；不印出
     )
     try:
-        report = (await driver.run_batch(scenarios)).to_dict()
+        # 查舊對話（memory_tools conversations）要讀 UI 對話：和 Proxy 啟動時一樣裝上沙盒的 session
+        resource_manager.bind_ui_conversation_reader(session_service)
+        report = (await driver.run_batch(scenarios, repeats=repeats)).to_dict()
     finally:
+        resource_manager.bind_ui_conversation_reader(None)
         if anthropic_client is not None:
             await anthropic_client.close()
     used = _PROVIDER_REQUEST_BUDGET.used_requests if _PROVIDER_REQUEST_BUDGET else 0
     return {
+        "provider": provider.casefold(), "model": model, "suite": suite,
+        "scenarios": [s.id for s in scenarios], "eval_code_hash": code_hash,
         **report, "provider_requests_used": used, "auxiliary_calls_refused": _AUXILIARY_CALLS,
+        "embedding_stub": stub,
         "wire_max_tokens": {"per_request": wire_cap, "ceiling": OUTPUT_TOKEN_CEILING,
                             "rule": _WIRE_RULE},
         **(_LEDGER.to_dict() if _LEDGER else {}),
@@ -445,10 +558,19 @@ def _drain_policy_audit_writes() -> None:
     PolicyAuditService._executor.submit(int).result(timeout=_AUDIT_DRAIN_TIMEOUT_S)
 
 
+def _drain_memory_worker() -> None:
+    """記憶工作者還在跑的工作（等待被取消時已開始的那種）也會寫沙盒：等它做完（ADR-0288）。"""
+    memory_worker._executor.submit(int).result(timeout=_AUDIT_DRAIN_TIMEOUT_S)
+
+
 def _sandbox_release_steps(root: Path) -> list[ReleaseStep]:
-    """刪沙盒前依序放開握住它的東西：稽核寫入、紀錄檔 handler、記憶庫 SQLite、向量庫 Qdrant。"""
+    """刪沙盒前依序放開握住它的東西.
+
+    稽核寫入、記憶工作者、紀錄檔 handler、記憶庫 SQLite、向量庫 Qdrant。
+    """
     return [
         ("drain_policy_audit_writes", _drain_policy_audit_writes),
+        ("drain_memory_worker", _drain_memory_worker),
         ("close_log_handlers", partial(close_sandbox_log_handlers, str(root))),
         ("close_sqlite_connections", FactualStore.close_all_connections),
         ("close_qdrant_clients", memory_vector.VectorStore.close_all_clients),
@@ -497,6 +619,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                              f"另印在核准範圍，超過 {OUTPUT_TOKEN_CEILING} 不送")
     parser.add_argument("--budget", type=_bounded_budget, required=True,
                         help=f"USD 軟上限（0..{MAX_BUDGET_USD:g}；依內建價目表累計）")
+    parser.add_argument("--repeats", type=_bounded_int("repeats", MAX_REPEATS), default=1,
+                        help=f"整批跑幾輪（1..{MAX_REPEATS}）；每一次都是新的合成靈魂")
     parser.add_argument("--env-file", help=f"金鑰 .env 路徑（預設 {DEFAULT_ENV_FILE}）")
     parser.add_argument(LIVE_API_APPROVAL_FLAG, action="store_true",
                         help="確認已取得本批明確人類同意（不得由自動化傳入）")
@@ -508,24 +632,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     ids = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     try:
         scenarios = select_scenarios(args.suite, ids)
-    except UnknownScenario as exc:
+    except (UnknownScenario, DuplicateScenario) as exc:
         parser.error(str(exc))
     env_file = _resolve_env_file(sys.argv[1:] if argv is None else argv)
-    scope = _memory_eval_scope(
-        provider=provider, model=args.model, suite=args.suite,
-        scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
-        max_tokens=args.max_tokens, budget=args.budget, env_file=env_file,
-    )
+    try:
+        scope = _memory_eval_scope(
+            provider=provider, model=args.model, suite=args.suite,
+            scenario_ids=[s.id for s in scenarios], max_requests=args.max_provider_requests,
+            max_tokens=args.max_tokens, budget=args.budget, repeats=args.repeats,
+            env_file=env_file,
+        )
+    except _UnpricedModel as exc:
+        parser.error(str(exc))
     approval = issue_live_api_approval(approved=args.human_approved_live_api, scope=scope)
     sys.stdout.write(format_live_api_scope(scope) + "\n")
-    sys.stdout.write(f"expected_requests={expected_requests(scenarios)}\n")
+    expected = _expected_requests(args.suite, [s.id for s in scenarios], args.repeats)
+    sys.stdout.write(f"expected_requests={expected}\n")
     sys.stdout.write(f"sandbox={_SANDBOX_ROOT}\n")
 
     return _report_then_release(lambda: asyncio.run(run_memory_eval_probe(
         provider=provider, model=args.model, suite=args.suite, scenarios=scenarios,
         max_requests=args.max_provider_requests, max_tokens=args.max_tokens,
         budget=args.budget, approval=approval, sandbox_root=Path(_SANDBOX_ROOT),
-        env_file=env_file,
+        repeats=args.repeats, env_file=env_file,
     )), _SANDBOX_ROOT)
 
 

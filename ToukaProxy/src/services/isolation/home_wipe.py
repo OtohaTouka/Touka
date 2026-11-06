@@ -11,16 +11,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from memory_server.utils.no_follow import ZoneLinkRefusedError
+from memory_server.utils.zone_paths import HandoffKind, is_zone_segment
 
 from src.services.execution_broker import spawn_exec
 from src.services.isolation.profiles import (
     ProfileError,
     build_agent_command_profile,
     current_layout,
-    state_dirs,
+    proxy_state_owner,
 )
 from src.services.isolation.runners import (
     ExecRequest,
@@ -39,8 +44,6 @@ from src.services.resource_manager import resource_manager
 from src.utils.isolation_policy import is_safe_segment
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from src.models.identity import AgentIdentity
     from src.services.isolation.profiles import Location, SandboxProfile
 
@@ -66,8 +69,8 @@ class HomeWipeError(Exception):
 
 async def wipe_agent_homes(identity: AgentIdentity) -> None:
     """先清執行器那一層（可能拒絕），再清 proxy 那一層；任何一處清不掉就拋 ``HomeWipeError``."""
-    if not is_safe_segment(identity.agent_id):
-        return  # profile 一律拒絕這種名稱，不會有家目錄
+    if not (is_safe_segment(identity.agent_id) and is_zone_segment(identity.agent_id)):
+        return  # profile 一律拒絕這種名稱（含這個系統不能當資料夾的），不會有家目錄
     snapshot = await isolation_monitor.ensure_ready()
     if snapshot.expected == "executor":
         await _wipe_in_executor(identity)
@@ -88,35 +91,42 @@ async def _profile(
 
 
 async def _wipe_in_executor(identity: AgentIdentity) -> None:
-    drive = current_layout().data_root / "personal_drive" / identity.agent_id
+    drive = resource_manager.soul_drive(identity)  # 個人空間（ADR-0293）
+    if drive is None:
+        raise HomeWipeError("unsafe_owner")
     issue = isolation_monitor.executor_scope_issue(identity, None)
-    try:
-        acquired = await runner_broker.acquire_maintenance(
-            ProfileSource(partial(_profile, identity, drive), issue)
-        )
-        resource_manager.make_dir(drive)  # START 與 relay 的 cwd；刪除靈魂接著會整個刪掉
-        env = acquired.profile.env_set
-        argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
-        request = ExecRequest(
-            argv=argv, env={}, profile=acquired.profile,
-            max_seconds=executor_max_seconds(WIPE_SECONDS),
-        )
-        plan = acquired.runner.plan(request)
-    except (IsolationUnavailableError, ProfileError) as exc:
-        raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
-    except OSError as exc:
-        raise HomeWipeError("drive_unavailable") from exc
-    try:
-        proc = await spawn_exec(
-            *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
-            pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
-        raise HomeWipeError("spawn_failed") from exc
-    finally:
-        plan.release()
+    # START 與 relay 的 cwd 交給接收端（G1）；路上有連結就拒絕，spawn 之後就收回
+    with contextlib.ExitStack() as handoff:
+        try:
+            cwd = handoff.enter_context(
+                resource_manager.zone_handoff(drive, HandoffKind.SUBPROCESS_CWD)
+            )
+            acquired = await runner_broker.acquire_maintenance(
+                ProfileSource(partial(_profile, identity, Path(cwd)), issue)
+            )
+            resource_manager.zone_make_dir(drive)  # 刪除靈魂接著會整個刪掉
+            env = acquired.profile.env_set
+            argv = ("/bin/sh", "-c", WIPE_SCRIPT, "touka-home-wipe", env["HOME"], env["TMPDIR"])
+            request = ExecRequest(
+                argv=argv, env={}, profile=acquired.profile,
+                max_seconds=executor_max_seconds(WIPE_SECONDS),
+            )
+            plan = acquired.runner.plan(request)
+        except (IsolationUnavailableError, ProfileError) as exc:
+            raise HomeWipeError(getattr(exc, "reason", None) or "isolation_unavailable") from exc
+        except OSError as exc:  # 含個人空間路上有連結
+            raise HomeWipeError("drive_unavailable") from exc
+        try:
+            proc = await spawn_exec(
+                *plan.argv, new_process_group=True, cwd=str(plan.cwd), env=plan.env,
+                pass_fds=plan.pass_fds, stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            acquired.runner.failure(plan.read_status())  # 沒啟動：狀態 fd 的讀端照樣關掉
+            raise HomeWipeError("spawn_failed") from exc
+        finally:
+            plan.release()
     try:
         code = await asyncio.wait_for(proc.wait(), WIPE_SECONDS)
     except TimeoutError as exc:
@@ -135,19 +145,23 @@ async def _wipe_in_executor(identity: AgentIdentity) -> None:
 
 
 def _remove_proxy_state(identity: AgentIdentity) -> None:
-    """``ST/proxy/agents/<id>`` 整個刪掉；ST 沒設定就沒有東西可清."""
-    layout = current_layout()
-    if layout.state_root is None:
+    """``ST/proxy/agents/<id>`` 整個刪掉（區內方法，不跟隨連結）；ST 沒設定就沒有東西可清.
+
+    ``<id>`` 本身是連結時只刪連結；上層是連結時拒絕（``proxy_state_link``）。唯讀、被拿掉
+    權限的也刪（不跟隨地補擁有者權限）。
+    """
+    try:
+        owner = proxy_state_owner(current_layout(), "agents", identity.agent_id)
+    except ProfileError as exc:  # 名稱不安全沒有原因；版面與 RM 的 ST 不同帶原因
+        reason = "unsafe_owner" if exc.reason is None else "proxy_state_unconfigured"
+        raise HomeWipeError(reason) from exc
+    if owner is None:
         return
     try:
-        home, _tmp = state_dirs(layout, "proxy", "agents", identity.agent_id, create=False)
-    except ProfileError as exc:
-        raise HomeWipeError("unsafe_owner") from exc
-    owner = home.parent
-    if owner.is_symlink() or owner.is_junction() or owner.resolve() != owner:
-        logger.warning("Sandbox home of %s is a link; not following it", identity.agent_id)
-        raise HomeWipeError("proxy_state_link")
-    try:
-        resource_manager.remove_dir(owner, unlock=True)  # 唯讀、被拿掉權限的也刪
+        if resource_manager.zone_kind(owner) != "missing":
+            resource_manager.zone_remove_dir(owner)
+    except ZoneLinkRefusedError as exc:
+        logger.warning("Sandbox state of %s is under a link; not following it", identity.agent_id)
+        raise HomeWipeError("proxy_state_link") from exc
     except OSError as exc:
         raise HomeWipeError("proxy_state_remove_failed") from exc
