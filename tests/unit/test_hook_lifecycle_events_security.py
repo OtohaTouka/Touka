@@ -802,7 +802,7 @@ def _linear() -> list[dict[str, Any]]:
 def _session() -> dict[str, Any]:
     linear = _linear()
     return {
-        "id": "s-trim", "title": "t",
+        "id": "s-trim", "title": "t", "is_home": 1,
         "messages": {"messages": {m["id"]: m for m in linear}, "currentId": linear[-1]["id"]},
     }  # fmt: skip
 

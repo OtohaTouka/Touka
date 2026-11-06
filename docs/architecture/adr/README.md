@@ -245,7 +245,7 @@
 | [ADR-0229](0229-trusted-tool-execution-classification.md) | 可信工具執行分類與批准例外 | B1 經審查接受；B6 尚待 | 2026-09-16 | Proxy executor／builtin registry／Guard45／pytest seed | handler identity, immutable classification, approval snapshot, public examples |
 | [ADR-0230](0230-heartbeat-transaction-and-credential-contracts.md) | Heartbeat 持久化交易、真人管理與服務憑證 | B2/B3 經審查接受；B6 尚待 | 2026-09-16 | Heartbeat／Proxy bridge／Chat／出貨模型與錯誤來源 | atomic storage, revision, ownership, shared token, source CI |
 
-| [ADR-0231](0231-session-persistence-outcomes-and-revisions.md) | 任務與對話持久化結果、條件提交及恢復 | 維護者核准計畫；B5來源驗證中 | 2026-09-21 | Memory／Proxy／Chat／SQLite／生成合約／sandbox測試 | SaveResult, revision CAS, typed terminal, scope, manual recovery |
+| [ADR-0231](0231-session-persistence-outcomes-and-revisions.md) | 任務與對話持久化結果、條件提交及恢復 | 維護者核准計畫；B5來源驗證中（第 3、8 點由 ADR-0301 修訂） | 2026-09-21 | Memory／Proxy／Chat／SQLite／生成合約／sandbox測試 | SaveResult, revision CAS, typed terminal, scope, manual recovery |
 
 | [ADR-0232](0232-system-mode-and-login-outcomes.md) | 模式確認與登入結果 | 來源回歸通過；最終審查以未入版控的原件為準 | 2026-09-21 | Chat／Proxy bootstrap／sandbox tests | mode, auth outcome, scope, credential delivery |
 | [ADR-0233](0233-local-upgrade-baseline-adoption.md) | 本機升級的現況採納與有限來源契約 | ⛔ 已歸檔：由 ADR-0238 取代 | 2026-09-21 | local cold driver／sealed source contract／三映像相容性／回復 | observed baseline, exact Git diff, original consumers, retained IDs |
@@ -316,6 +316,7 @@
 | [ADR-0298](0298-rule-text-matches-checks.md) | [規則文字和實際檢查對齊](0298-rule-text-matches-checks.md) | ✅ 已實作（相關 ADR-0025、0027、0031、0278、0296） | 2026-11-05 | `scripts/lint_ssot.py`・`scripts/lint_ratchet.py`＋`tests/lint/vulture_baseline.json`・`scripts/guard_dead_code.py`・`ToukaChat/scripts/guard_frontend.ts`＋`contract_type_baseline.json`・`console_guard_logic.ts`・`eslint.config.mjs`；禁令 7、9、33、43、46、50、51 文字 | vulture 基準, 單向比對, 合約型別, PRINT_BAN, CONSOLE_BAN, radix-ui |
 | [ADR-0299](0299-dependency-cooldown-and-emergency-patches.md) | [依賴冷卻期 3 天、緊急修補通道與每日檢查](0299-dependency-cooldown-and-emergency-patches.md) | ✅ 已接受（取代 ADR-0241 決策 9） | 2026-11-06 | `pyproject.toml`・兩份 `.npmrc`・`.github/dependabot.yml`・`.github/workflows/dep-audit.yml`・`scripts/dep_audit_report.py`・`docs/rules/deploy.md` 禁令 69 | 冷卻期, exclude-newer, min-release-age, 緊急修補, hotfix, 每日檢查 |
 | [ADR-0300](0300-session-activity-sidebar.md) | [左側邊欄的工作狀態與動畫，清單自己更新](0300-session-activity-sidebar.md) | ✅ 已實作（相關 ADR-0078、0080、0081、0086、0231、0295） | 2026-11-06 | `ToukaProxy/src/routers/ui_sessions.py`・`src/services/activity_registry.py`＋`ToukaChat/src/lib/providers/SessionActivityProvider.tsx`・`src/components/sidebar/left/SessionStatusMark.tsx` | 工作狀態, 呼吸燈, 輪詢, 有新內容, 提問排隊 |
+| [ADR-0301](0301-home-fields-outside-session-revision.md) | [家標記不算進對話的存檔版本](0301-home-fields-outside-session-revision.md) | ✅ 已實作（修訂 ADR-0231 第 3、8 點） | 2026-11-06 | `ToukaProxy/src/utils/async_db.py`・`src/services/sliding_window_service.py`＋`ToukaChat/src/lib/session_persistence.ts`・`src/lib/providers/SessionListProvider.tsx` | 家對話, revision, 設家, 剪裁, 保存提示 |
 
 ---
 

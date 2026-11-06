@@ -342,6 +342,9 @@ class SlidingWindowService:
             logger.debug("SlidingWindow: session %s not found, skipping", session_id)
             return False
         session_service.require_scope(session, identity)
+        # 只剪家對話；呼叫端判斷之後才換家、取消家就不剪（存回時交易內再查一次，ADR-0301）
+        if not session.get("is_home"):
+            return False
 
         raw_messages = session.get("messages", {})
         linear = TreeMessageManager.get_linear_path(raw_messages)
@@ -439,6 +442,7 @@ class SlidingWindowService:
                 snapshot.revision,
                 changes,
                 identity,
+                require_home=True,
             )
         except Exception:
             logger.exception(

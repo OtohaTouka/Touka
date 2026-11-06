@@ -183,14 +183,17 @@ describe('R2 snapshot binding and explicit recovery', () => {
     }
     const homeFields = { is_home: true, home_for_agent: 'Alice' };
 
-    it('after set home (revision changes, UI holds no revision) the next command saves against the fresh revision', async () => {
+    // 家欄位不算進版本（ADR-0301）：設家後版本照用，不重讀存檔，送出的內容也不帶家欄位
+    it('after set home the revision is kept and the next command saves without rereading', async () => {
       const { result } = await created(() => ({ ...local(), ...homeFields }));
       act(() => result.current.applySavedHome('s1', 'Alice', true));
-      expect(result.current.getSession('s1')?.revision).toBeUndefined();
+      expect(result.current.getSession('s1')?.revision).toBe('r1');
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
-      expect(postBodies()).toHaveLength(1);
-      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
-      expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved' });
+      expect(fetchToukaMock.mock.calls.every(([, , options]) => options?.method === 'POST')).toBe(true);
+      expect(postBodies()).toEqual([expect.objectContaining({ title: 'next', revision: 'r1' })]);
+      expect(postBodies()[0]).not.toHaveProperty('is_home');
+      expect(postBodies()[0]).not.toHaveProperty('home_for_agent');
+      expect(result.current.getSession('s1')).toMatchObject(homeFields);
     });
     it('an old home that was never saved again follows the store and the next command saves', async () => {
       const { result } = await created();
@@ -200,7 +203,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
       expect(result.current.getSession('s2')).toMatchObject(homeFields);
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
-      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r1' });
     });
     it('setting the home twice in a row leaves only the last one marked', async () => {
       const { result } = await created();
@@ -251,7 +254,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'text-rev' });
       expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
     });
-    // 後端收到舊版本會擋下（已知限制，ADR-0231）；這裡釘的是絕不送出沒有版本的保存
+    // 設家不改版本（ADR-0301），收尾照用原來的版本；這裡釘的是絕不送出沒有版本的保存
     it('a turn without text never saves without a revision when the home was set meanwhile', async () => {
       const { result } = await created();
       const producer = result.current.beginProducer('s1')!;
@@ -268,7 +271,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       act(() => result.current.applySavedHome('s1', 'Alice', true));
       await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'saved' }); });
     });
-    it('the save-only retry is withdrawn after the home changed: its revision is stale until rechecked', async () => {
+    it('the save-only retry stays available after the home changed: its revision is still current', async () => {
       const other = () => ({ ...local(), title: 'someone else' });
       const { result } = await created(other);
       fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
@@ -276,9 +279,61 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { await result.current.recheckSession('s1'); });
       expect(result.current.canRetrySave('s1')).toBe(true);
       act(() => result.current.applySavedHome('s1', 'Alice', true));
-      expect(result.current.canRetrySave('s1')).toBe(false);
-      await act(async () => { await result.current.recheckSession('s1'); });
       expect(result.current.canRetrySave('s1')).toBe(true);
+      await act(async () => { expect(await result.current.retrySaveSession('s1')).toMatchObject({ status: 'saved' }); });
+      expect(postBodies().at(-1)).toMatchObject({ title: 'next', revision: 'r2' });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'next', ...homeFields });
+    });
+    // 設家前送出、還在路上的保存晚回來時，家欄位保留設家的結果（ADR-0301）
+    it('a save and a queued command in flight when the home is set keep the new home', async () => {
+      const { result } = await created();
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let first!: Promise<unknown>;
+      act(() => { first = result.current.updateSessionTitle('s1', 'one'); });
+      const base = result.current.getSession('s1')!;
+      let queued!: Promise<unknown>;
+      act(() => { queued = result.current.updateSession('s1', current => ({ ...current, title: 'two' }), {}, base); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => {
+        response.resolve(saved('r3'));
+        expect(await first).toMatchObject({ status: 'saved' });
+        expect(await queued).toMatchObject({ status: 'saved' });
+      });
+      expect(postBodies().map(body => body.revision)).toEqual(['r1', 'r3']);
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'two', ...homeFields });
+    });
+    it.each([
+      ['saved', saved('r3')],
+      ['refused', okJson({ status: 'success', session_id: 's1',
+        persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } })],
+    ])('a turn whose end save is in flight when the home is set keeps the new home: %s', async (_case, reply) => {
+      const { result } = await created();
+      const producer = result.current.beginProducer('s1')!;
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let done!: Promise<unknown>;
+      act(() => { done = result.current.completeProducer(producer, current => ({ ...current, title: 'final' }),
+        { status: 'saved', representation: 'text', revision: 'text-rev' }); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { response.resolve(reply); await done; });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
+    });
+    it('a save-only retry in flight when the home is set keeps the new home', async () => {
+      const { result } = await created(() => ({ ...local(), title: 'someone else' }));
+      fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+      await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+      await act(async () => { await result.current.recheckSession('s1'); });
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let retry!: Promise<unknown>;
+      act(() => { retry = result.current.retrySaveSession('s1'); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { response.resolve(saved('r4')); expect(await retry).toMatchObject({ status: 'saved' }); });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'next', ...homeFields });
     });
     it('after a list refresh without a revision the next command still saves', async () => {
       const { result } = await created();
@@ -290,11 +345,18 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
       expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
     });
-    it('a mismatched store is still a conflict after set home: no POST', async () => {
+    // 設家後不重讀存檔：別處改過內容時由後端用版本擋下，這裡釘的是不蓋掉、留著草稿並提示
+    it('a store changed elsewhere still refuses the save after set home and keeps the draft', async () => {
       const { result } = await created(() => ({ ...local(), title: 'someone else' }));
       act(() => result.current.applySavedHome('s1', 'Alice', true));
+      fetchToukaMock.mockImplementation(async () => okJson({ status: 'success', session_id: 's1',
+        persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } }));
+      vi.mocked(toast.error).mockClear();
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'failed' }); });
-      expect(postBodies()).toHaveLength(0);
+      expect(postBodies()).toEqual([expect.objectContaining({ title: 'next', revision: 'r1' })]);
+      expect(result.current.getSession('s1')?.title).toBe('next');
+      expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
+      expect(toast.error).toHaveBeenCalledWith(expect.any(String), { id: 'session-sync-failed' });
     });
     it('after it was saved here, an import of different content still cannot overwrite', async () => {
       const { result } = await created();
