@@ -1523,6 +1523,16 @@ class ResourceManager:
         p.chmod(stat.S_IMODE(p.stat().st_mode) | stat.S_IWRITE)
 
     @permission_repair(retry=True)
+    def list_child_names(self, path: Path | str) -> list[str]:
+        """列出 path 第一層項目的實際名稱（不跟隨連結、代理人資料夾不列）；不是資料夾回空清單."""
+        text = _plain(path, "list_child_names")
+        if not Path(text).is_dir():
+            return []
+        walk = _walk_plain(Path(text).resolve(), WalkReport(), show_links=True, list_depth=1)
+        with contextlib.closing(walk):
+            return [entry.parts[0] for entry in walk if len(entry.parts) == 1]
+
+    @permission_repair(retry=True)
     def list_directory(
         self, path: Path | str, max_depth: int = 2, exclude: frozenset[str] = frozenset()
     ) -> list[str]:

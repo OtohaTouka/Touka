@@ -745,6 +745,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **端點**: `GET /debug/context-snapshot`、`POST /debug/context-snapshot/export`、`POST /souls/{soul_id}`（`update_soul`）
 - **問題**：原僅檢 `role in {Owner,Debugger,admin}`，再以呼叫者提供的 `agent_id`/`soul_id` 建 `AgentIdentity(role='Owner')` 取/匯出/**覆寫**，完全跳過擁有權 → 非 admin 的 Owner（真人 assume 自己的 Owner agent 即可達）能讀/匯出/覆寫他人 soul/context。
 - **修復**：三處加 `resource_manager.is_owner(target, caller)`（admin/Debugger 旁路、自身放行）；跨擁有者 read→回空（不洩）、export/update→403。
+- **快照的代理人名稱（2026-11-06）**：兩個快照端點先檢查 `agent_id`：不是單一安全段（`is_zone_segment`）→ 422；不是查自己、也不是系統代理人或認得的代理人（`agent_service.identify_agent`）→ 403。`is_owner` 對沒有擁有者的名稱會放行，所以這一步要在它之前。
 
 ### 1.12 連線管理並發安全 (P9 fix) ⭐
 - **端點**: `POST /ui/connections`
@@ -831,7 +832,8 @@ Touka 的 Skill 系統已完全遷移至 [Anthropic Agent Skills 開放標準](h
 - **MCP 自動掛載**：`mcp_servers` 由同目錄 `.mcp.json` 的 top-level keys 推導（只取 keys，與 `${DISPATCH_URL}` 插值解耦）。同一份 `.mcp.json` 同時服務 Touka 內部自動掛載與外部 AI 安裝 plugin 時的客戶端 MCP 註冊，零客製橋接。
 - **Progressive Disclosure（三層載入）**：① metadata（frontmatter）常駐 context；② body（SKILL.md 本文）於 skill 觸發時載入；③ resources（`scripts/`/`references/`/`assets/`）由 `SkillService.get_skill_resource()` 按需讀取（含目錄逃逸防護）。
 - **Pull 模式 auto-trigger**：`SkillLayer` 常駐注入 `system-skill-dispatcher`（動態列出非系統 skill 的 name+description）；Agent 自主呼叫 `activate_skill(skill_id)` 寫入 `session.active_skills`，下一輪以 `header ∪ active_skills` 注入（仿 `connect_mcp_server` 範式，免 RBAC 的 dispatcher 常駐）。
-- **端點**：`GET /v1/skills/list`、`GET /v1/skills/{skill_id}`、`POST /v1/skills`（建立/更新）、`DELETE /v1/skills/{skill_id}`（`is_system` 受保護不可刪）、`GET /v1/skills/{skill_id}/export`（打包為 `.skill` ZIP 下載）、`POST /v1/skills/install`（Owner/admin 由 URL 安裝）。安裝受 `ALLOWED_SKILL_DOMAINS` SSRF 白名單 + `follow_redirects=False` + zip-bomb 防護（entry/解壓/下載上限）+ `.bak` 原子覆寫保護。
+- **技能名稱（2026-11-06）**：所有接技能名稱的操作（讀、寫、刪、打包、安裝、`activate_skill`）只經 `SkillService._skill_dir`：名稱要過 `is_skill_segment`，已有同名資料夾時要和目錄列表的實際名稱完全相同（擋只差大小寫的別名）。讀取類回「不存在」，寫入、刪除、安裝回 `VALIDATION_ERROR`（422）；`SkillModel.id` 也驗證（OpenAPI 不變）。名稱不合規的資料夾不列出。
+- **端點**：`GET /v1/skills/list`、`GET /v1/skills/{skill_id}`、`POST /v1/skills`（建立/更新）、`DELETE /v1/skills/{skill_id}`（`is_system` 受保護不可刪）、`GET /v1/skills/{skill_id}/export`（打包為 `.skill` ZIP 下載）、`POST /v1/skills/install`（Owner/admin 由 URL 安裝）。安裝只收 https，受 `ALLOWED_SKILL_DOMAINS` SSRF 白名單 + `follow_redirects=False` + zip-bomb 防護（entry/解壓/下載上限）+ `.bak` 原子覆寫保護。
 
 ---
 

@@ -122,6 +122,7 @@ tests/
 | `unit/test_evolution_links_security.py` | R15：演化的提案、實作與部署在技能資料夾換成連結時不寫入、不讀取另一端（用真的流程）；`mkdir_tool`、四個檔案方法與部署讀檔遇到連結回 `skill_changed`，不合格技能名稱回 `invalid_skill_id`；POSIX 的檔案連結：寫、讀與部署讀檔拒絕，刪除只刪連結本身。 |
 | `unit/test_sandbox_state_access.py` | ADR-0293 PR 2 P7：ST 的兩個存取函式（`proxy_state_zone`、`proxy_state_owner`）的判斷順序：版面沒設 ST、RM 沒設、兩者解析後不同、名稱不合格；`state_dirs` 經區內方法建資料夾、交出 `zone_text`；MCP 分類基準與 `refuse_deployed` 在兩者不同時當隔離不可用；監看器的 ST 可寫判斷與補權限。 |
 | `unit/test_sandbox_state_links_security.py` | R15：ST 裡的連結：`state_dirs` 經連結的 `ST/proxy/agents` 拒絕；刪除靈魂清 proxy 那一層時連結只刪連結、上層是連結就拒絕；開機清 tmp 時連結不跟、其他種類保留、舊垃圾刪掉；ST 的自測在自己的資料夾跑、經交接交給啟動器、跑完刪掉，自測資料夾是連結就拒絕。 |
+| `unit/test_skill_snapshot_path_security.py` | 技能名稱與內容快照的代理人名稱不會被當成路徑：技能的讀、寫、刪、打包、安裝、啟用都拒絕路徑與只差大小寫的名稱（系統技能刪不掉），合規名稱照常可用；快照拒絕路徑名稱與不認得的代理人；從網址安裝只收 https。 |
 | `unit/test_skill_names_security.py` | 技能名稱不能是 Touka 資料根或標記的 9 個名稱（不分大小寫、尾點與空白）與 Windows 保留名稱；相近的名稱照常可用；提案用這些名稱時什麼都不建立。 |
 | `unit/test_zone_file_response.py` | `/v1/outputs` 的回應物件：Linux 版持有開好的檔案，送完、出錯、中斷或沒被呼叫都關檔並取消登記；沒有 `/proc` 的系統只在送出期間登記。 |
 | `unit/test_outputs_route_links_security.py` | R15：`/v1/outputs` 的 `outputs` 或檔名換成連結時回 404、不送出另一端的內容；標頭、Range、If-Range 和直接送出一樣；不能當一段的檔名回 403。 |

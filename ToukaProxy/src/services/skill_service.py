@@ -32,6 +32,7 @@ from src.services.skill_catalog_service import (
     SkillCatalogEntry,
     SkillCatalogService,
 )
+from src.utils.isolation_policy import is_skill_segment
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
@@ -198,9 +199,35 @@ class SkillService:
         ids = []
         for rel in resource_manager.glob_search(self._skills_dir, _SKILL_FILE):
             parts = rel.split("/")
-            if len(parts) == 2 and parts[1] == _SKILL_FILE:
+            if len(parts) != 2 or parts[1] != _SKILL_FILE:
+                continue
+            if is_skill_segment(parts[0]):
                 ids.append(parts[0])
+            else:
+                logger.warning("Skipping skill folder with an invalid name: %r", parts[0])
         return ids
+
+    def _skill_dir(self, skill_id: str) -> Path | None:
+        """技能名稱 → ``config/skills/<名稱>``；名稱不合規，或只和已有資料夾差大小寫時回 None.
+
+        名稱只收單一段（``is_skill_segment``），不會被當成路徑。不分大小寫的檔案系統上，只差
+        大小寫的名稱會指到同一個資料夾（例如繞過「系統技能不可刪」），所以已有同名資料夾時，
+        名稱要和目錄列表的實際名稱完全相同。
+        """
+        if not is_skill_segment(skill_id):
+            return None
+        names = resource_manager.list_child_names(self._skills_dir)
+        if skill_id not in names and skill_id.casefold() in {n.casefold() for n in names}:
+            return None
+        return self._skills_dir / skill_id
+
+    def _require_skill_dir(self, skill_id: str) -> Path:
+        """同 ``_skill_dir``，不合規時拋 VALIDATION_ERROR（寫入、刪除、打包、安裝用）。"""
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            logger.warning("Refused skill name that is not a single valid name: %r", skill_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
+        return skill_dir
 
     def _read_skill_source(self, skill_id: str) -> dict[str, Any] | None:
         """讀取技能安裝來源 provenance（catalog 安裝寫入的 ``.touka_source.json``）。
@@ -251,9 +278,12 @@ class SkillService:
     def get_skill(self, skill_id: str) -> dict[str, Any] | None:
         """讀取單一技能完整內容 (第 2 層)，回傳契約 9 key dict。
 
-        不存在時回 None，呼叫端 (router) 據此回 404。
+        不存在或名稱不合規時回 None，呼叫端 (router) 據此回 404。
         """
-        md_path = self._skills_dir / skill_id / _SKILL_FILE
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return None
+        md_path = skill_dir / _SKILL_FILE
         if not resource_manager.exists(md_path):
             return None
         try:
@@ -262,17 +292,17 @@ class SkillService:
             logger.warning("Failed to read skill %s", skill_id)
             return None
         fm, body = skill_parser.parse_skill_md(raw)
-        mcp_servers = self._derive_mcp_servers(skill_id)
+        mcp_servers = self._derive_mcp_servers(skill_dir)
         return skill_parser.map_to_contract(fm, body, mcp_servers)
 
-    def _derive_mcp_servers(self, skill_id: str) -> list[str]:
+    def _derive_mcp_servers(self, skill_dir: Path) -> list[str]:
         """從同目錄 .mcp.json 的 top-level keys 推導 mcp_servers 清單。
 
         先檢查檔案存在再讀取，避免對無 .mcp.json 的技能 (如系統 dispatcher)
         觸發非必要的 read_json。只取 keys、不碰 value，故 value 內的
         ``${DISPATCH_URL}`` 等插值佔位不影響 JSON 解析 (推導與插值解耦)。
         """
-        mcp_path = self._skills_dir / skill_id / _MCP_FILE
+        mcp_path = skill_dir / _MCP_FILE
         if not resource_manager.exists(mcp_path):
             return []
         data = resource_manager.read_json(mcp_path)
@@ -286,9 +316,12 @@ class SkillService:
         """讀取技能目錄下的 bundled resource (第 3 層，按需)。
 
         rel_path 正規化後必須仍在 ``<skill_id>/`` 目錄內，防止 ``../`` 目錄逃逸。
-        逃逸或檔案不存在回 None。
+        名稱不合規、逃逸或檔案不存在回 None。
         """
-        skill_root = (self._skills_dir / skill_id).resolve()
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return None
+        skill_root = skill_dir.resolve()
         target = (skill_root / rel_path).resolve()
         if target != skill_root and skill_root not in target.parents:
             logger.warning("Skill resource path escape blocked: %s / %s", skill_id, rel_path)
@@ -301,8 +334,10 @@ class SkillService:
             return None
 
     def list_skill_resources(self, skill_id: str) -> list[str]:
-        """列舉技能目錄下 scripts/ references/ assets/ 的檔案 (第 3 層)。"""
-        skill_dir = self._skills_dir / skill_id
+        """列舉技能目錄下 scripts/ references/ assets/ 的檔案 (第 3 層)；名稱不合規回空清單。"""
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None:
+            return []
         resources = []
         for sub in ("scripts", "references", "assets"):
             sub_dir = skill_dir / sub
@@ -315,7 +350,8 @@ class SkillService:
     # --- 寫入 (SSOT = 目錄) ---
 
     def update_skill(self, skill_id: str, skill_data: dict[str, Any]) -> None:
-        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)。"""
+        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)；名稱不合規拋 VALIDATION_ERROR。"""
+        skill_dir = self._require_skill_dir(skill_id)
         display_name = (
             skill_data.get("display-name") or skill_data.get("name") or skill_id
         )
@@ -331,14 +367,14 @@ class SkillService:
 
         body = skill_data.get("system_prompt", "")
         content = skill_parser.serialize_skill_md(frontmatter, body)
-        md_path = self._skills_dir / skill_id / _SKILL_FILE
+        md_path = skill_dir / _SKILL_FILE
         resource_manager.write_file_text(md_path, content, make_parents=True)
 
         # 選填：從 mcp_servers 清單反向產生最小 .mcp.json 設定。
         mcp_servers = skill_data.get("mcp_servers") or []
         if mcp_servers:
             mcp_config = {name: {} for name in mcp_servers}
-            mcp_path = self._skills_dir / skill_id / _MCP_FILE
+            mcp_path = skill_dir / _MCP_FILE
             resource_manager.write_json(mcp_path, mcp_config, indent=2)
 
         # reload 第 1 層 metadata (與 load 解析結果等價，round-trip 已驗證)。
@@ -349,7 +385,8 @@ class SkillService:
             self.sync_skill_dispatcher()
 
     def delete_skill(self, skill_id: str) -> None:
-        """刪除技能目錄。系統技能 (is_system) 受保護不可刪除。"""
+        """刪除技能目錄。系統技能 (is_system) 受保護不可刪除；名稱不合規拋 VALIDATION_ERROR。"""
+        skill_dir = self._require_skill_dir(skill_id)
         fm = self._metadata.get(skill_id, {})
         # 掃描缺口 E35（ADR-0175）：is_system 須走 read_touka_field——生產寫入
         # （build_frontmatter）把擴充欄位收進 metadata 子欄位，直讀頂層鍵只命中
@@ -357,7 +394,6 @@ class SkillService:
         if skill_parser.read_touka_field(fm, "is_system"):
             logger.warning("Refused to delete system skill '%s'.", skill_id)
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
-        skill_dir = self._skills_dir / skill_id
         resource_manager.remove_dir(skill_dir, missing_ok=True)
         self._metadata.pop(skill_id, None)
 
@@ -553,11 +589,11 @@ class SkillService:
     def package_skill(self, skill_id: str) -> Path:
         """打包 config/skills/<id>/ 為 .skill (zip)，回傳暫存檔路徑。
 
-        zip 內含 ``<id>/`` 前綴 (相容 Anthropic)。不存在 → RESOURCE_NOT_FOUND。
+        zip 內含 ``<id>/`` 前綴 (相容 Anthropic)。不存在或名稱不合規 → RESOURCE_NOT_FOUND。
         暫存於 temp/skill_exports (非 protected)，由呼叫端負責清理。
         """
-        skill_dir = self._skills_dir / skill_id
-        if not resource_manager.exists(skill_dir):
+        skill_dir = self._skill_dir(skill_id)
+        if skill_dir is None or not resource_manager.exists(skill_dir):
             raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND, resource_type="Skill")
         export_dir = Path(resource_manager.get_temp_path("skill_exports"))
         resource_manager.make_dir(export_dir)
@@ -567,12 +603,13 @@ class SkillService:
     async def install_skill_from_url(self, url: str) -> str:
         """從受信任 URL 下載 .skill 安裝，回傳 skill_id。
 
-        安全：domain allowlist (SSRF) + follow_redirects=False + 下載大小上限
+        安全：只收 https + domain allowlist (SSRF) + follow_redirects=False + 下載大小上限
         + extract_archive (zip bomb/path traversal)；解壓到臨時、驗證通過才上線。
         覆寫既有 id 用 .bak 原子保證；finally 清臨時 (回滾)。
         """
-        if urlparse(url).netloc not in ALLOWED_SKILL_DOMAINS:
-            logger.warning("Skill install blocked: domain not in allowlist (%s).", url)
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc not in ALLOWED_SKILL_DOMAINS:
+            logger.warning("Skill install blocked: not https or domain not in allowlist (%s).", url)
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
@@ -621,8 +658,9 @@ class SkillService:
         """把已驗證的 staging skill 目錄原子上線至 config/skills/<id>/。
 
         覆寫既有用 ``.bak`` 備份保證 + 失敗回滾；兩個安裝器（URL / catalog）共用（DRY）。
+        名稱不合規（含只和已有技能差大小寫）拋 VALIDATION_ERROR。
         """
-        dest = self._skills_dir / skill_id
+        dest = self._require_skill_dir(skill_id)
         backup = self._skills_dir / f"{skill_id}.bak"
         if resource_manager.exists(dest):
             resource_manager.remove_dir(backup, missing_ok=True)
@@ -649,6 +687,7 @@ class SkillService:
         raw_entry = next((e for e in catalog.get_catalog() if e.get("id") == catalog_id), None)
         if raw_entry is None:
             raise ToukaException(ErrorCode.RESOURCE_NOT_FOUND, resource_type="Skill")
+        self._require_skill_dir(catalog_id)
         try:
             entry = SkillCatalogEntry.model_validate(raw_entry)
         except ValidationError as exc:

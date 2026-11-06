@@ -44,6 +44,7 @@ EXPECTED_RETRY = {
     "iter_files": True,
     "stat_files": True,
     "list_directory": True,
+    "list_child_names": True,
     "glob_search": True,
     "write_file_binary": True,  # 權限錯誤只在開檔時、截斷之前
     "write_file_text": False,
