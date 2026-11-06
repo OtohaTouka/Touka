@@ -32,9 +32,13 @@ class SkillCreationKind:
     def validate(self, spec: SkillSpec) -> ValidationReport:
         """檢查 id 格式、description 非空，且 id 不可覆寫既有 skill。"""
         errors: list[str] = []
-        valid_id = bool(_KEBAB_RE.fullmatch(spec.id))
+        # 名稱規則和 SkillService 寫入時一樣（長度、保留名稱、不能和既有技能只差大小寫）
+        valid_id = bool(_KEBAB_RE.fullmatch(spec.id)) and self._service.is_usable_name(spec.id)
         if not valid_id:
-            errors.append(f"id {spec.id!r} 必須為 kebab-case（小寫字母/數字/連字號）")
+            errors.append(
+                f"id {spec.id!r} 必須為 kebab-case（小寫字母/數字/連字號）、最長 64 字、"
+                "不能是保留名稱，也不能和既有技能只差大小寫"
+            )
         if not spec.description.strip():
             errors.append("description 不可為空")
         if valid_id and self._service.get_skill(spec.id) is not None:

@@ -191,20 +191,24 @@ class SkillService:
         logger.info("Loaded %d skills from %s", len(self._metadata), self._skills_dir)
 
     def _scan_skill_ids(self) -> list[str]:
-        """掃描技能目錄，回傳含 SKILL.md 的直接子目錄 id 清單。
+        """列技能目錄第一層，回傳含 ``SKILL.md``、名稱合規的資料夾名稱（連結不列）。
 
-        glob_search 採 rglob，故過濾僅保留 ``<id>/SKILL.md`` (兩段路徑)，
-        排除 ``<id>/references/SKILL.md`` 等巢狀雜訊。
+        直接列第一層，不用有筆數上限的遞迴搜尋：技能多時系統技能才不會沒被載入。
+        ``<id>/references/SKILL.md`` 等巢狀檔不算技能。列不出來時記錄並回空清單。
         """
+        try:
+            names = resource_manager.list_child_names(self._skills_dir, dirs_only=True)
+        except OSError:
+            logger.exception("Cannot list skill directory %s; no skills loaded.", self._skills_dir)
+            return []
         ids = []
-        for rel in resource_manager.glob_search(self._skills_dir, _SKILL_FILE):
-            parts = rel.split("/")
-            if len(parts) != 2 or parts[1] != _SKILL_FILE:
+        for name in sorted(names):
+            if not resource_manager.exists(self._skills_dir / name / _SKILL_FILE):
                 continue
-            if is_skill_segment(parts[0]):
-                ids.append(parts[0])
+            if is_skill_segment(name):
+                ids.append(name)
             else:
-                logger.warning("Skipping skill folder with an invalid name: %r", parts[0])
+                logger.warning("Skipping skill folder with an invalid name: %r", name)
         return ids
 
     def _skill_dir(self, skill_id: str) -> Path | None:
@@ -216,18 +220,60 @@ class SkillService:
         """
         if not is_skill_segment(skill_id):
             return None
-        names = resource_manager.list_child_names(self._skills_dir)
+        if skill_id in self._metadata:
+            # 已載入的名稱就是實際名稱（掃描列出來的、經本檢查寫入的、或兩個調度員的固定名稱）
+            return self._skills_dir / skill_id
+        try:
+            names = resource_manager.list_child_names(self._skills_dir)
+        except OSError:
+            logger.warning("Cannot list skill directory; refusing skill name %r", skill_id)
+            return None
         if skill_id not in names and skill_id.casefold() in {n.casefold() for n in names}:
             return None
         return self._skills_dir / skill_id
 
+    def is_usable_name(self, skill_id: str) -> bool:
+        """這個名稱能不能用來指到或新增技能（規則同 ``_skill_dir``）；建立引擎驗證用。"""
+        return self._skill_dir(skill_id) is not None
+
     def _require_skill_dir(self, skill_id: str) -> Path:
-        """同 ``_skill_dir``，不合規時拋 VALIDATION_ERROR（寫入、刪除、打包、安裝用）。"""
+        """同 ``_skill_dir``，不合規時拋 VALIDATION_ERROR（寫入、刪除、安裝用）。"""
         skill_dir = self._skill_dir(skill_id)
         if skill_dir is None:
             logger.warning("Refused skill name that is not a single valid name: %r", skill_id)
             raise ToukaException(ErrorCode.VALIDATION_ERROR)
         return skill_dir
+
+    @staticmethod
+    def _declares_system(skill_dir: Path) -> bool:
+        """磁碟上這個技能的 ``SKILL.md`` 有沒有標成系統技能；讀不到當成有（不放行）。
+
+        掃描缺口 E35（ADR-0175）：is_system 須走 read_touka_field——生產寫入
+        （build_frontmatter）把擴充欄位收進 metadata 子欄位，直讀頂層鍵只命中 legacy 檔。
+        """
+        md_path = skill_dir / _SKILL_FILE
+        if not resource_manager.exists(md_path):
+            return False
+        try:
+            raw = resource_manager.read_file_text(md_path)
+        except (OSError, UnicodeDecodeError):
+            logger.warning("Cannot read %s; treating it as a system skill.", md_path)
+            return True
+        fm, _body = skill_parser.parse_skill_md(raw)
+        return bool(skill_parser.read_touka_field(fm, "is_system"))
+
+    def _is_system_skill(self, skill_id: str, skill_dir: Path) -> bool:
+        """已載入的 metadata 或磁碟上的 ``SKILL.md`` 任一標成系統技能就算（不只看載入的清單）。"""
+        loaded = self._metadata.get(skill_id, {})
+        return bool(skill_parser.read_touka_field(loaded, "is_system")) or self._declares_system(
+            skill_dir
+        )
+
+    def _refuse_system_skill(self, skill_id: str, skill_dir: Path, action: str) -> None:
+        """系統技能不能經 API 覆蓋或刪除（只由調度員同步與 repo 維護）。"""
+        if self._is_system_skill(skill_id, skill_dir):
+            logger.warning("Refused to %s system skill '%s'.", action, skill_id)
+            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     def _read_skill_source(self, skill_id: str) -> dict[str, Any] | None:
         """讀取技能安裝來源 provenance（catalog 安裝寫入的 ``.touka_source.json``）。
@@ -350,8 +396,12 @@ class SkillService:
     # --- 寫入 (SSOT = 目錄) ---
 
     def update_skill(self, skill_id: str, skill_data: dict[str, Any]) -> None:
-        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)；名稱不合規拋 VALIDATION_ERROR。"""
+        """新增或更新技能，寫入 SKILL.md (+ 選填 .mcp.json)。
+
+        名稱不合規拋 VALIDATION_ERROR；已存在的系統技能不能覆蓋（AUTH_PERMISSION_DENIED）。
+        """
         skill_dir = self._require_skill_dir(skill_id)
+        self._refuse_system_skill(skill_id, skill_dir, "overwrite")
         display_name = (
             skill_data.get("display-name") or skill_data.get("name") or skill_id
         )
@@ -385,15 +435,12 @@ class SkillService:
             self.sync_skill_dispatcher()
 
     def delete_skill(self, skill_id: str) -> None:
-        """刪除技能目錄。系統技能 (is_system) 受保護不可刪除；名稱不合規拋 VALIDATION_ERROR。"""
+        """刪除技能目錄。系統技能受保護不可刪除（同時看載入的清單與磁碟上的 SKILL.md）。
+
+        名稱不合規拋 VALIDATION_ERROR。
+        """
         skill_dir = self._require_skill_dir(skill_id)
-        fm = self._metadata.get(skill_id, {})
-        # 掃描缺口 E35（ADR-0175）：is_system 須走 read_touka_field——生產寫入
-        # （build_frontmatter）把擴充欄位收進 metadata 子欄位，直讀頂層鍵只命中
-        # legacy 檔＝新制系統技能曾可被刪。
-        if skill_parser.read_touka_field(fm, "is_system"):
-            logger.warning("Refused to delete system skill '%s'.", skill_id)
-            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+        self._refuse_system_skill(skill_id, skill_dir, "delete")
         resource_manager.remove_dir(skill_dir, missing_ok=True)
         self._metadata.pop(skill_id, None)
 
@@ -635,6 +682,7 @@ class SkillService:
             if len(roots) != 1:
                 raise ToukaException(ErrorCode.VALIDATION_ERROR)
             skill_id = roots.pop()
+            self._require_skill_dir(skill_id)
             self._validate_skill_dir(staging / skill_id)
             return self._atomic_install_from_staging(skill_id, staging / skill_id)
         finally:
@@ -658,9 +706,14 @@ class SkillService:
         """把已驗證的 staging skill 目錄原子上線至 config/skills/<id>/。
 
         覆寫既有用 ``.bak`` 備份保證 + 失敗回滾；兩個安裝器（URL / catalog）共用（DRY）。
-        名稱不合規（含只和已有技能差大小寫）拋 VALIDATION_ERROR。
+        名稱不合規（含只和已有技能差大小寫）或安裝包自稱系統技能拋 VALIDATION_ERROR；
+        不能覆蓋已存在的系統技能（AUTH_PERMISSION_DENIED）。
         """
         dest = self._require_skill_dir(skill_id)
+        self._refuse_system_skill(skill_id, dest, "replace")
+        if self._declares_system(staged_skill_dir):
+            logger.warning("Refused to install '%s': packages cannot be system skills.", skill_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
         backup = self._skills_dir / f"{skill_id}.bak"
         if resource_manager.exists(dest):
             resource_manager.remove_dir(backup, missing_ok=True)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import errno
 import fnmatch
 import json
 import logging
@@ -1523,14 +1524,25 @@ class ResourceManager:
         p.chmod(stat.S_IMODE(p.stat().st_mode) | stat.S_IWRITE)
 
     @permission_repair(retry=True)
-    def list_child_names(self, path: Path | str) -> list[str]:
-        """列出 path 第一層項目的實際名稱（不跟隨連結、代理人資料夾不列）；不是資料夾回空清單."""
+    def list_child_names(self, path: Path | str, *, dirs_only: bool = False) -> list[str]:
+        """列出 path 第一層項目的實際名稱：不進入任何資料夾，連結只列名稱、不跟隨.
+
+        ``dirs_only`` 只回一般資料夾（不含連結）。不是資料夾回空清單。列不完整（權限、某一項
+        讀不到）時丟例外而不是少列：呼叫端拿名稱做檢查，少列一項就等於放行。
+        """
         text = _plain(path, "list_child_names")
         if not Path(text).is_dir():
             return []
-        walk = _walk_plain(Path(text).resolve(), WalkReport(), show_links=True, list_depth=1)
+        report = WalkReport()
+        walk = _walk_plain(Path(text).resolve(), report, show_links=True, list_depth=1)
         with contextlib.closing(walk):
-            return [entry.parts[0] for entry in walk if len(entry.parts) == 1]
+            entries = [entry for entry in walk if len(entry.parts) == 1]
+        if report.errors:
+            failed = f"Cannot list every entry of {text} ({report.errors[0][0] or '.'})"
+            if report.errors[0][1] in (errno.EACCES, errno.EPERM):
+                raise PermissionError(failed)
+            raise OSError(failed)
+        return [entry.parts[0] for entry in entries if not dirs_only or entry.kind == "dir"]
 
     @permission_repair(retry=True)
     def list_directory(
