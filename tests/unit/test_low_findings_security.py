@@ -21,6 +21,7 @@ import pytest
 from src.core.exceptions import ToukaException
 from src.models.identity import AgentIdentity
 from src.routers import heartbeat
+from src.services.agent_service import agent_service
 from src.services.evolution_security import EvolutionPathGuard
 from src.services.resource_manager import resource_manager
 from src.services.skill_service import (
@@ -110,10 +111,15 @@ class TestDA12IsOwnerCrossUser:
         guard only fires when the target has an explicit *different* owner."""
         user_a = SimpleNamespace(owned_agents=["agentX"], last_active_at=2000)
         self._patch_users(monkeypatch, [user_a])
+        # ADR-0303：沒有擁有者時只放行逐字已知的代理人
+        known = {"agentX", "ownerless-model"}
+        monkeypatch.setattr(agent_service, "is_known_id", lambda target: target.agent_id in known)
 
         actor = AgentIdentity.for_role(agent_id="agentX", role="Owner", is_human=False)
         target = AgentIdentity.for_role(agent_id="ownerless-model", role="Base", is_human=False)
         assert resource_manager.is_owner(target, actor) is True
+        unknown = AgentIdentity.for_role(agent_id="not-an-agent", role="Base", is_human=False)
+        assert resource_manager.is_owner(unknown, actor) is False
 
 
 class TestDA13EditorAgentToolRemoved:

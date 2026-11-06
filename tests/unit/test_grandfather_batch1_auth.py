@@ -248,8 +248,21 @@ def test_souls_update_requires_auth():
     assert resp.status_code in (401, 403), f"Got {resp.status_code}"
 
 
-def test_souls_update_owner_passes_auth():
+def test_souls_update_owner_passes_auth(zone_data_root):
+    # 編輯自己已存在的靈魂：過得了權限閘
+    soul = zone_data_root / "soul" / "DebugAgent"
+    soul.mkdir(parents=True)
+    (soul / "config.json").write_text('{"is_toukasoul": true}', encoding="utf-8")
     c = _as_owner()
     resp = c.post("/souls/DebugAgent", json={})
     _clear()
     assert resp.status_code not in (401, 403), f"Owner must pass, got {resp.status_code}"
+
+
+def test_souls_update_owner_cannot_create_by_editing(zone_data_root):
+    # ADR-0303：非人類不能用編輯建立還不存在的靈魂（只有重新輸入密碼的管理員能做）
+    c = _as_owner()
+    resp = c.post("/souls/DebugAgent", json={})
+    _clear()
+    assert resp.status_code == 403
+    assert not (zone_data_root / "soul" / "DebugAgent").exists()

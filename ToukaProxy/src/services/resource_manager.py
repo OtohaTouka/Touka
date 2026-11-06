@@ -17,10 +17,11 @@ import stat
 import tempfile
 import zipfile
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from memory_server.models.conversation_search import ConversationSearchError
+from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
     WalkReport,
@@ -96,6 +97,9 @@ _ARCHIVE_EXCLUDE_FILES = frozenset({".DS_Store"})
 ARCHIVE_MAX_ENTRIES = 2_000
 ARCHIVE_MAX_TOTAL_BYTES = 50 * 1024 * 1024  # 50 MiB
 _ARCHIVE_COPY_CHUNK = 1024 * 1024  # rewrite_archive 串流照抄時每次搬的位元組數
+# Windows 上相對寫法的專案根：每個路徑只警告一次；路徑來自設定，集合有上限（sec-9 PR 1b）
+_RELATIVE_ROOT_WARN_LIMIT = 64
+_RELATIVE_ROOT_WARNED: set[str] = set()
 
 
 def _archive_skips_dir(parts: tuple[str, ...]) -> bool:
@@ -352,8 +356,27 @@ class ResourceManager:
         """
         if not path_str:
             return False
+        target = Path(path_str)
+        # Windows 只收有磁碟也有根的絕對路徑：下面解析的是原字串，只有根的寫法會照目前磁碟或
+        # （\??\ 開頭）原樣交給系統。Linux 不這樣要求：Docker 裡的專案根是主機的 Windows 路徑，
+        # 和工作區根一樣對著同一個目前資料夾解析（sec-9 PR 1b）
+        if isinstance(target, PureWindowsPath) and not target.is_absolute():
+            # 每次存取專案都會走到：每個路徑只警告一次（路徑來自設定，集合有上限）
+            if (
+                path_str not in _RELATIVE_ROOT_WARNED
+                and len(_RELATIVE_ROOT_WARNED) < _RELATIVE_ROOT_WARN_LIMIT
+            ):
+                _RELATIVE_ROOT_WARNED.add(path_str)
+                logger.warning("Project root must be an absolute path on Windows: %r", path_str)
+            return False
         workspace = await self._get_workspace_root()
-        return validate_no_symlink_escape(Path(path_str), workspace)
+        # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）。
+        # 工作區根是相對路徑或對應的磁碟機時，字面和解析後的磁碟不同，兩個都算
+        if not (
+            same_drive(path_str, str(workspace)) or same_drive(path_str, str(workspace.resolve()))
+        ):
+            return False
+        return validate_no_symlink_escape(target, workspace)
 
     def get_avatars_dir(self) -> Path:
         """取得使用者頭像目錄（ADR-0106，位於 app data 根，納入備份）。
@@ -381,6 +404,13 @@ class ResourceManager:
             str | None: 實體絕對路徑字串，若權限不足或類型未知則回傳 None。
         """
         agent_id = identity.agent_id
+        if vault == "personal":
+            raise ZonePathRequiredError(None, "get_vault_path")
+        # 名稱不是單一段就不拼路徑（sec-9 PR 1b）：Windows 上 \\主機\分享 拼上去會變成網路路徑。
+        # 一般模型的 ID（如 ollama/llama3:8b）每個請求都會走到這裡，只記 debug
+        if not is_zone_segment(agent_id):
+            logger.debug("Vault path refused for a name that is not one segment: %r", agent_id)
+            return None
         app_data_dir = Path(get_app_data_dir())
 
         if vault == "soul":
@@ -389,9 +419,6 @@ class ResourceManager:
             if soul_service.is_toukasoul(identity):
                 return str(soul_dir)
             return None
-
-        if vault == "personal":
-            raise ZonePathRequiredError(None, "get_vault_path")
 
         if vault == "custom_soul":
             # 自定義模型的「靈魂」配置空間 (Level 2 SSOT)；禁令 17：ID 不得穿越出 custom/
@@ -464,8 +491,14 @@ class ResourceManager:
 
         Returns:
             str: 實體統計目錄路徑。
+
+        Raises:
+            ToukaException: ``VALIDATION_ERROR``，名稱不是單一段（sec-9 PR 1b）。
         """
         agent_id = identity.agent_id
+        if not is_zone_segment(agent_id):
+            logger.warning("🚫 Stats path refused for a name that is not one segment: %r", agent_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
         path = Path(get_app_data_dir()) / "stats" / agent_id
         return str(path)
 
@@ -507,32 +540,45 @@ class ResourceManager:
             # ("System" — internal-only, absent from ASSIGNABLE_AGENT_ROLES — keeps its
             # documented global bypass for background scans and is intentionally not
             # constrained here; this guard scopes the externally-reachable Owner role.)
+            exact_owners = [u for u in users if target_id in u.owned_agents]
             if identity.agent_role == "Owner" and identity.agent_id != target_id:
-                target_owners = [u for u in users if target_id in u.owned_agents]
-                if target_owners and not any(
-                    identity.agent_id in u.owned_agents for u in target_owners
-                ):
+                # sec-9 PR 1b：逐字找不到擁有者時，再找只差大小寫的寫法的擁有者（不分大小寫的
+                # 檔案系統上它們指到同一個資料夾）。只拿來拒絕跨擁有者，不會讓權限變寬
+                folded = target_id.casefold()
+                owners = exact_owners or [
+                    u for u in users if any(a.casefold() == folded for a in u.owned_agents)
+                ]
+                if owners and not any(identity.agent_id in u.owned_agents for u in owners):
                     logger.warning(
                         "🚫 Cross-owner autonomy denied: %s → %s",
                         identity.agent_id,
                         target_id,
                     )
                     return False
-
-            # 找到該 Agent 的人類擁有者以確認最後活躍時間
-            for user in users:
-                if target_id in user.owned_agents:
-                    if not user.last_active_at:
-                        return False  # 從未登入過的代理人無權限自主
-
-                    from src.utils.time_utils import get_current_epoch
-
-                    # 30 天 = 2,592,000 秒
-                    if int(get_current_epoch()) - user.last_active_at < 2592000:
-                        return True
-
-                    logger.warning("⏳ Autonomy expired for %s", target_id)
+                # 逐字沒有擁有者時只放行逐字已知的代理人：8.3 短檔名這類別名大小寫比對抓不到
+                if not exact_owners and not self._is_known_agent(target_identity):
+                    logger.warning(
+                        "🚫 Autonomy denied for an unknown target: %s → %r",
+                        identity.agent_id,
+                        target_id,
+                    )
                     return False
+
+            # 找到該 Agent 的人類擁有者以確認最後活躍時間（只看逐字的擁有者，和以前一樣；
+            # 第一位擁有者決定，和以前逐一找 users 的順序相同）
+            if exact_owners:
+                user = exact_owners[0]
+                if not user.last_active_at:
+                    return False  # 從未登入過的代理人無權限自主
+
+                from src.utils.time_utils import get_current_epoch
+
+                # 30 天 = 2,592,000 秒
+                if int(get_current_epoch()) - user.last_active_at < 2592000:
+                    return True
+
+                logger.warning("⏳ Autonomy expired for %s", target_id)
+                return False
 
             # 若無明確擁有者 (如公共代理人)，則允許 System 或自我存取
             return True
@@ -548,6 +594,13 @@ class ResourceManager:
                 return target_id in user.owned_agents
 
         return False
+
+    def _is_known_agent(self, target: AgentIdentity) -> bool:
+        """目標逐字是已知的代理人（系統代理人、靈魂、有設定的自訂模型、登記的 ID；sec-9 PR 1b）."""
+        # 延遲匯入破循環：agent_service → soul_io／custom_io → resource_manager
+        from src.services.agent_service import agent_service  # noqa: LOCAL_IMPORT_BAN
+
+        return agent_service.is_known_id(target)
 
     @permission_repair(retry=True)
     def list_all_agent_stats(self, identity: AgentIdentity) -> list[tuple[str, str]]:

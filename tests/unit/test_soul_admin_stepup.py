@@ -245,7 +245,10 @@ def test_update_agent_self_access_unchanged():
     """回歸鎖：agent 對自身靈魂的存取路徑（非人類）不受步升影響（無需密碼）。"""
     selfid = AgentIdentity.for_role("SelfSoulX", "Owner", is_human=False)
     app.dependency_overrides[get_verified_identity] = lambda: selfid
-    (_app_data() / "soul" / "SelfSoulX").mkdir(parents=True)
+    soul = _app_data() / "soul" / "SelfSoulX"
+    soul.mkdir(parents=True)
+    # ADR-0303：非人類只能編輯已標成靈魂的資料夾（自己的靈魂一定是）
+    (soul / "config.json").write_text('{"is_toukasoul": true}', encoding="utf-8")
     with TestClient(app, raise_server_exceptions=False) as c:
         r = c.post("/v1/souls/SelfSoulX", json={"persona": "mine"})
     app.dependency_overrides.clear()

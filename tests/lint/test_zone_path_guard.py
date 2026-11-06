@@ -872,6 +872,10 @@ G1_SITES: dict[str, tuple[dict[str, int], str]] = {
         {"anchor_root:PERSONAL_DRIVE": 1},
         "整個錨點：健康檢查只看個人空間的根存不存在",
     ),
+    "src.utils.soul_io:_personal_drive_names": (
+        {"anchor_root:PERSONAL_DRIVE": 1},
+        "整個錨點：靈魂名稱檢查只列個人空間第一層的名稱（區內走訪，不進入、不跟隨連結）",
+    ),
     "src.protocols.mcp.isolated_stdio:isolated_stdio_client": (
         {"handoff_cwd": 1},
         "SUBPROCESS_CWD：被包住的 MCP 的 cwd 經 handoff_cwd 交出，行程結束時釋放（P6、Q4）",
