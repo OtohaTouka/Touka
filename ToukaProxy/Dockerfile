@@ -3,6 +3,9 @@
 # 黑名單見根 .dockerignore（禁令 47：COPY . . ＋黑名單——密鑰/活體 config/data 絕不入映像）。
 # Node／npm 直接取自官方 node 映像（v24.22.1，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
 # uv 0.12.1（與 CI setup-uv 同版）linux/amd64 子 manifest digest；讀得懂 exclude-newer 期間與 uv.lock 的 exclude-newer-span。
+# 授權聲明：Node 的 LICENSE 從同一個 node 映像複製；官方 uv 映像不帶授權檔，原文放在
+# ToukaProxy/licenses/uv（取自 uv 0.12.1，升版時一併核對）。兩者都放進 /usr/local/share/doc，NOTICE 寫明位置
+#（tests/lint/test_release_licensing.py）。
 FROM node@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node-runtime
 FROM ghcr.io/astral-sh/uv@sha256:f6edac8c6d516a01a5387a8655c97481e0db46dd0a62ab62f41e5b2294376f6e AS uv-runtime
 
@@ -11,7 +14,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     bash ca-certificates libstdc++6 && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-runtime /uv /uvx /bin/
+COPY ToukaProxy/licenses/uv/LICENSE-MIT ToukaProxy/licenses/uv/LICENSE-APACHE /usr/local/share/doc/uv/
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
