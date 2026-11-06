@@ -5,8 +5,8 @@
 ## 換後端網址與登入憑證（ADR-0297）
 
 - 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
-- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）；唯一例外是清理舊版真值的 `scrubStoredConnectionKeys`，它只換金鑰、網址不變，所以不發事件。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
-- 瀏覽器裡的連線清單不留第三方金鑰：`publishConnections` 與 `useStoredConnections` 寫進去的、事件帶的、讀進記憶體的，金鑰都是遮罩（`maskConnectionKeys`；遮罩是後端 `utils/secrets.py` 的 `MASK`，前端鏡像在 `lib/secretMask.ts`）。這次輸入的真值只在記憶體裡，隨 `POST /v1/ui/connections` 送出；後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。`StoredConnectionKeyCleanup`（掛在 `layout.tsx`，和 `RetiredSnsStorageCleanup` 並列）載入時把舊版存的真值換成遮罩，寫不回去顯示 `settings.connections_tab.storage_cleanup_failed`。舊的 `/connections` 頁只寫本機，沒有金鑰欄位。
+- 會換網址的寫入一律走 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。`useStoredConnections` 的 setter 與清理舊版真值的 `scrubStoredConnectionKeys` 也會寫，但只寫遮罩、不發事件。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 瀏覽器裡的連線清單不留第三方金鑰：`publishConnections` 與 `useStoredConnections` 寫進去的、事件帶的、讀進記憶體的，金鑰都是遮罩（`maskConnectionKeys`；遮罩是後端 `utils/secrets.py` 的 `MASK`，前端鏡像在 `lib/secretMask.ts`）。這次輸入的真值只在記憶體裡，隨 `POST /v1/ui/connections` 送出，後端收下後記憶體裡也換成遮罩；後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。`StoredConnectionKeyCleanup`（掛在 `layout.tsx`，和 `RetiredSnsStorageCleanup` 並列）載入時把舊版存的真值換成遮罩，寫不回去顯示 `settings.connections_tab.storage_cleanup_failed`。舊的 `/connections` 頁只寫本機，沒有金鑰欄位。
 - 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
 - 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
 - `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。

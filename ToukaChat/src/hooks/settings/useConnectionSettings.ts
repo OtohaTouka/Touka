@@ -15,6 +15,7 @@ import {
     isRequestScopeCurrent,
     keepActiveProxy,
     logoutTouka,
+    maskConnectionKeys,
     proxyDisplayUrl,
     publishConnections,
     type RequestScope,
@@ -137,6 +138,8 @@ export function useConnectionSettings(onConnectionsUpdated?: () => void) {
                 body: JSON.stringify(newConns)
             });
             if (!res.ok) throw new Error(`save connections ${res.status}`);
+            // 後端已收下真值：記憶體裡也只留遮罩，之後的存檔不會再送一次舊值（讀回清單失敗或回空清單時也一樣）。
+            if (getActiveProxyUrl() === proxyUrl) setConnections(maskConnectionKeys(newConns));
             await fetchTouka(proxyUrl, "/v1/models/refresh", { method: 'POST' });
             if (onConnectionsUpdated) onConnectionsUpdated();
             await fetchConnections();

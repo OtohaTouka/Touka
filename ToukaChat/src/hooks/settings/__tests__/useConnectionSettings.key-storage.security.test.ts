@@ -1,7 +1,7 @@
 /**
  * 連線頁輸入的第三方 API 金鑰不能留在瀏覽器：存進 localStorage 的清單一律是遮罩佔位，
  * 送給後端的 POST 才帶這次輸入的真值（後端收到遮罩當作沒變）。
- * 涵蓋新增、編輯換金鑰、POST 失敗與換後端四種寫入，以及舊版留在本機的真值不會被讀出來再送出。
+ * 涵蓋新增、編輯換金鑰、POST 失敗與換後端四種寫入，以及舊版留在本機或存檔後留在記憶體的真值不會再被送出。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -120,12 +120,22 @@ describe('連線金鑰不留在瀏覽器', () => {
     });
 
     it('POST 失敗：還原成記憶體裡上一份清單（含真值）時，本機也只有遮罩', async () => {
-        // 第一次存檔成功，但後端回空清單，記憶體裡的上一份清單就還留著真值。
-        backend();
+        // 第一次存檔的 POST 還沒回來，記憶體裡是含真值的清單；這時第二次存檔失敗，會還原成那一份。
+        let answerFirst: (value: unknown) => void = () => undefined;
+        let saves = 0;
+        mockFetch.mockImplementation(async (_url: string, path: string, init?: RequestInit) => {
+            if (path === '/v1/ui/connections' && init?.method === 'POST') {
+                saves += 1;
+                if (saves === 1) return new Promise(resolve => { answerFirst = resolve; });
+                return { ok: false, status: 500, json: async () => ({}) };
+            }
+            if (path === '/v1/ui/connections/status') return { ok: true, json: async () => ({}) };
+            return { ok: true, json: async () => [] };
+        });
         const { result } = renderHook(() => useConnectionSettings());
-        await act(async () => { await result.current.saveConnections([custom('c1', TYPED_KEY)]); });
 
-        backend(false);
+        let first: Promise<boolean> = Promise.resolve(true);
+        act(() => { first = result.current.saveConnections([custom('c1', TYPED_KEY)]); });
         let ok = true;
         await act(async () => {
             ok = await result.current.saveConnections([custom('c1', TYPED_KEY), custom('c2', 'second-typed-test-value')]);
@@ -137,6 +147,27 @@ describe('連線金鑰不留在瀏覽器', () => {
         expect(stored()).not.toContain(TYPED_KEY);
         expect(stored()).not.toContain('second-typed-test-value');
         expect(stored()).toContain(SECRET_MASK);
+
+        answerFirst({ ok: true, status: 200, json: async () => ({}) });
+        await act(async () => { await first; });
+    });
+
+    it('存檔成功後記憶體裡也只留遮罩：之後刪除或切換別的連線，不會再送一次真值', async () => {
+        backend(); // 後端回空清單：記憶體裡的清單不會被後端的換掉
+        const { result } = renderHook(() => useConnectionSettings());
+
+        await act(async () => { await result.current.saveConnections([custom('c1', TYPED_KEY), custom('c2', '')]); });
+        await act(async () => { result.current.removeConnection('c2'); });
+        await waitFor(() => expect(posted()).toHaveLength(2));
+        await act(async () => {
+            await result.current.saveConnections(result.current.connections.map(c => ({ ...c, enabled: !c.enabled })));
+        });
+
+        expect(posted()).toHaveLength(3);
+        for (const body of posted().slice(1)) {
+            expect(body).not.toContain(TYPED_KEY);
+            expect(JSON.parse(body)).toEqual([expect.objectContaining({ id: 'c1', apiKey: SECRET_MASK })]);
+        }
     });
 
     it('換後端：只寫本機的清單也是遮罩，網址照常換', async () => {
