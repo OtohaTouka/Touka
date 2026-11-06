@@ -62,14 +62,20 @@ def _run_instructions(text: str) -> str:
     return "\n".join(re.findall(r"(?m)^RUN\s+(.+)$", joined))
 
 
-def _assert_debian_node_from_official_image(text: str) -> None:
-    """Node/npm come only from the digest-pinned official node image, never apt/npm."""
+def _assert_debian_node_from_official_image(text: str, *, ships_node_license: bool) -> None:
+    """Node/npm come only from the digest-pinned official node image, never apt/npm.
+
+    An image that keeps the copied node also keeps Node's LICENSE from the same image
+    (tests/lint/test_release_licensing.py); a build stage that is not shipped does not.
+    """
     assert f"FROM {PYTHON_IMAGE}" in text
     donor = re.search(rf"(?m)^FROM node@{NODE_INDEX} AS ([\w-]+)$", text)
     assert donor is not None
     copies = re.findall(rf"(?m)^COPY --from={re.escape(donor[1])}\s+(.+)$", text)
+    node_license = ["/usr/local/LICENSE /usr/local/share/doc/node/LICENSE"]
     assert copies == [
         "/usr/local/bin/node /usr/local/bin/node",
+        *(node_license if ships_node_license else []),
         "/usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm",
     ]
     runs = _run_instructions(text)
@@ -390,7 +396,8 @@ def test_chat_production_image_uses_pinned_node_and_explicit_commands() -> None:
     assert runner_runs.index("apt-get upgrade -y") < runner_runs.index(
         "rm -rf /var/lib/apt/lists/*"
     )
-    _assert_debian_node_from_official_image(text)
+    # node is copied only into the builder stage; the runner is the official node image itself.
+    _assert_debian_node_from_official_image(text, ships_node_license=False)
     assert {ref for ref in _from_refs(dockerfile) if "@" in ref} == {
         f"node@{NODE_INDEX}",
         PYTHON_IMAGE,
@@ -413,7 +420,7 @@ def test_chat_development_image_uses_same_pinned_node_and_lock_install() -> None
     dockerfile = CHAT / "Dockerfile"
     text = dockerfile.read_text(encoding="utf-8")
 
-    _assert_debian_node_from_official_image(text)
+    _assert_debian_node_from_official_image(text, ships_node_license=True)
     assert {ref for ref in _from_refs(dockerfile) if "@" in ref} == {
         f"node@{NODE_INDEX}",
         PYTHON_IMAGE,
@@ -441,7 +448,7 @@ def test_single_proxy_image_uses_pinned_python_uv_and_node_references() -> None:
         f"ghcr.io/astral-sh/uv@{UV_CHILD}",
         PYTHON_IMAGE,
     }
-    _assert_debian_node_from_official_image(text)
+    _assert_debian_node_from_official_image(text, ships_node_license=True)
     assert "UV_PYTHON_DOWNLOADS=never" in text
     assert "uv sync --locked --no-dev" in text
     assert 'ENV PATH="/app/.venv/bin:$PATH"' in text  # noqa: PATH_LITERAL_SSOT - Dockerfile contract
