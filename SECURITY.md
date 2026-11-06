@@ -169,6 +169,7 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 不分大小寫的檔案系統（Windows、macOS）上，只差大小寫或 Windows 8.3 短檔名的名稱，會指到別人的靈魂資料夾，但系統把它當成另一個沒有擁有者的代理人：切成自己靈魂的一般使用者能讀到或改到別人靈魂的人設，管理員能用這種名稱刪掉除錯身分。 | 名稱要逐字出現在目錄列表裡，不在列表、檔案系統卻說存在就是別名：查靈魂時不算（`soul_service._soul_dir`），建立、編輯、刪除時回 422（`soul_io.check_soul_name`，三個儲存位置都查）；不可刪名單不分大小寫。`is_owner` 的非人類那條路：逐字找不到擁有者時，只差大小寫的寫法找到的擁有者就是擁有者；都找不到時，Owner 角色只能碰逐字已知的代理人。`tests/unit/test_soul_name_path_security.py`（不分大小寫的 Windows 本機用實際的別名與短檔名測）。 |
 | 在 Windows 上，名稱或路徑是網路分享的寫法時，檢查之前就先連到那台主機，可能把 Windows 登入資訊送出去：不用登入的頭像端點、`X-Touka-Soul-ID` 標頭（任何登入者）、代理人的檔案工具、專案根目錄的登記、靈魂三個端點、舊對話統計與同步（ToukaMemory 拿不到路徑時用原名自己拼路徑，還會建資料夾）。 | 名稱先過 `is_zone_segment` 才碰檔案系統（`get_soul_data`、`is_toukasoul`、`get_vault_path`、`get_stats_path`、頭像、靈魂端點、`agent_service.check_known_target`）；ToukaMemory 拿不到路徑時不再自己拼。檔案工具與專案根目錄解析之前，先用字面比對磁碟或分享的開頭（`memory_server.utils.drive_bound.same_drive`）。同上測試，`tests/unit/test_drive_bound.py`；測試的防線讓任何碰到哨兵網路主機的檔案系統呼叫都判失敗。 |
 | 「編輯靈魂」能建立新靈魂或把舊資料夾轉成靈魂，除錯身分與切成靈魂的一般使用者也能用；一般使用者還能編輯沒有擁有者的靈魂。 | 只有重新輸入密碼的管理員能用編輯建立或轉換（也檢查 collection 撞名）；非人類只能編輯逐字存在、已標成靈魂的資料夾，Owner 角色另外要和目標有同一位人類擁有者（`authorization_gateway.shares_human_owner`）。同上測試。 |
+
 ### 前端開發伺服器替 AI 代理寫出指示檔（2026-11-06）
 
 | 弱點 | 修正與驗證 |
