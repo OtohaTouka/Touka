@@ -5,7 +5,8 @@
 ## 換後端網址與登入憑證（ADR-0297）
 
 - 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
-- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 會換網址的寫入一律走 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。`useStoredConnections` 的 setter 與清理舊版真值的 `scrubStoredConnectionKeys` 也會寫，但只寫遮罩、不發事件。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 瀏覽器裡的連線清單不留第三方金鑰：`publishConnections` 與 `useStoredConnections` 寫進去的、事件帶的、讀進記憶體的，金鑰都是遮罩（`maskConnectionKeys`；遮罩是後端 `utils/secrets.py` 的 `MASK`，前端鏡像在 `lib/secretMask.ts`）。這次輸入的真值只在記憶體裡，隨 `POST /v1/ui/connections` 送出，後端收下後記憶體裡也換成遮罩；後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。`StoredConnectionKeyCleanup`（掛在 `layout.tsx`，和 `RetiredSnsStorageCleanup` 並列）載入時把舊版存的真值換成遮罩，寫不回去顯示 `settings.connections_tab.storage_cleanup_failed`。舊的 `/connections` 頁只寫本機，沒有金鑰欄位。
 - 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
 - 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
 - `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。
@@ -198,6 +199,7 @@ user full 成功才送模型。只有同 generation typed terminal 能證生成�
 改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
 確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
+保存因版本舊被擋時讀一次存檔：形狀是剪裁造成的（`trim_graft.ts` 的 `graftOntoTrim`），以剪過的存檔為底接上這一頁的改動、存一次，不跳提示；剪掉的前段與摘要以存檔為準，這一頁刪掉或切分掉的不寫回去。一般保存、回覆收尾、「僅重試保存」都這樣接；只接一次，接不上照舊提示（ADR-0302）。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。
 
 匯入部分失敗不報全部成功；split 匯出後縮減綁開始時的內容，等待期間 drift 拒絕覆蓋。
@@ -456,10 +458,10 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 - **Header 注入消毒 (M5 fix) ⭐**：任何寫入 HTTP header 的使用者控制值**必須**先通過 `sanitizeHeaderValue()`，剝除 `\r`、`\n`、`\x00`。目前已套用至 `X-Touka-Soul-ID`，避免 HTTP Response Splitting 攻擊。
 
 ### 5. localStorage 存取主權 (localStorage SSOT) ⭐
-- **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
+- **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。`useLocalStorage` 的第三個參數 `sanitize` 套在讀進來與寫回去的值上，記憶體狀態保留呼叫端設的值；連線清單用它（`useStoredConnections`）讓金鑰只存遮罩。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
 - **覆蓋範圍**：`src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`（`src/components/**` 已由 `guard_hooks.ts` 覆蓋）
 - **靜態執法**：由 `guard_localStorage.ts` 進行 AST 掃描，整合至 `guard_all.py`
-- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`
+- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`、`replaceLocalStorageItem()`（寫入失敗只回 `false`，不記錄例外）
 - **合法豁免**：Theme SSOT 初始化（純字串/CSS 同步需求）、純字串值儲存（`useLocalStorage` 的 JSON 序列化不相容）允許 `// noqa: LOCALSTORAGE_SSOT`，須登記於 `NOQA_REGISTRY.md`
 
 ### 5.5 身份主權前端靜態守衛 (X-Agent-ID Identity Guard) ⭐

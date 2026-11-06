@@ -170,6 +170,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 | 在 Windows 上，部分名稱與路徑在檢查之前就會被當成網路位置存取，包括不用登入就能呼叫的端點，可能把服務帳號的 Windows 登入資訊送到外部主機。影響名稱會拼成路徑的地方（靈魂、代理人、使用者頭像）、代理人的檔案工具與專案根目錄的登記。 | 名稱先過 `is_zone_segment` 才碰檔案系統（`get_soul_data`、`is_toukasoul`、`get_vault_path`、`get_stats_path`、頭像、靈魂端點、`agent_service.check_known_target`）；ToukaMemory 拿不到路徑時不再自己拼。檔案工具與專案根目錄解析之前，先用字面比對磁碟或分享的開頭（`memory_server.utils.drive_bound.same_drive`），Windows 原樣交給系統的內部路徑寫法一律不收，專案根目錄在 Windows 上必須是絕對路徑。同上測試，`tests/unit/test_drive_bound.py`；測試的防線讓任何碰到哨兵網路主機的檔案系統呼叫都判失敗。 |
 | 「編輯靈魂」能建立新靈魂或把舊資料夾轉成靈魂，除錯身分與切成靈魂的一般使用者也能用；一般使用者還能編輯沒有擁有者的靈魂。 | 只有重新輸入密碼的管理員能用編輯建立或轉換（也檢查 collection 撞名）；非人類只能編輯逐字存在、已標成靈魂的資料夾，Owner 角色另外要和目標有同一位人類擁有者（`authorization_gateway.shares_human_owner`）。同上測試。 |
 
+### 連線的第三方金鑰留在瀏覽器（2026-11-07）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 在連線管理輸入的第三方 API 金鑰，會連同連線清單存進瀏覽器的 localStorage（`touka_connections`）。等後端回應的期間一定留著；後端回空清單、換後端，或用舊的 `/connections` 頁時，真值會一直留著。網頁被注入腳本，或有人讀得到這台電腦的瀏覽器資料，就拿得到金鑰。 | 寫進瀏覽器的清單一律把金鑰換成和後端相同的遮罩（`maskConnectionKeys`，經 `useStoredConnections` 與 `publishConnections`；通知其他元件的事件也只帶遮罩），真值只在記憶體裡、隨 `POST /v1/ui/connections` 送給後端，後端收下後記憶體裡也換成遮罩。從瀏覽器讀進來的清單也先換成遮罩，舊版留下的真值不會再被送出。載入時 `StoredConnectionKeyCleanup` 把舊版存下的真值換成遮罩，別的分頁寫回時再換一次，寫不回去就顯示提示。舊的 `/connections` 頁只寫本機，拿掉金鑰欄位。換後端時，還沒存到後端的金鑰不會帶到新後端，要在新後端重新輸入；只存在這個瀏覽器、從沒存到後端的金鑰（例如在舊頁輸入的），也要到設定的連線管理重新輸入。開著的舊版分頁要重新載入才會換；換成遮罩不代表瀏覽器抹掉了磁碟上的舊資料。`useConnectionSettings.key-storage.security.test.ts`、`StoredConnectionKeyCleanup.security.test.tsx`、`app/connections/__tests__/page.key-storage.security.test.tsx`、`tests/lint/test_connection_key_mask_security.py`（前後端遮罩逐字相同；逐行比對，攔下新增的未遮罩寫入點）、`tests/unit/test_connections_key_masking.py`。 |
+
 ### 前端開發伺服器替 AI 代理寫出指示檔（2026-11-06）
 
 | 弱點 | 修正與驗證 |

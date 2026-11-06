@@ -959,7 +959,8 @@ describe('R2 controlled session writes', () => {
     await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
       messages: { messages: { a: { generationFailed: true } }, currentId: 'a' } }),
     { status: 'skipped', reason: 'generation_failed' }, 'error'); });
-    expect(fetchToukaMock).toHaveBeenCalledTimes(1);
+    // 被擋之後讀一次存檔看是不是剪裁造成的（ADR-0302）；只存一次
+    expect(fetchToukaMock.mock.calls.filter(([, , options]) => options?.method === 'POST')).toHaveLength(1);
     expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
   });
