@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
+import { formatToTaipeiDate } from '@/lib/time_utils';
 import { SessionTree } from '@/components/sidebar/left/SessionTree';
 import type { AgentInfo, AgentsStatus } from '@/lib/providers/AgentProvider';
+import type { SessionWorkStatus } from '@/lib/session_activity';
 import type { Project, Session } from '@/lib/types';
 
 const state = vi.hoisted(() => ({
@@ -11,7 +13,8 @@ const state = vi.hoisted(() => ({
   agentsStatus: 'ready' as AgentsStatus,
   projects: [] as Project[],
   activeSessionId: null as string | null,
-  streamingSessionIds: [] as string[],
+  statuses: {} as Record<string, SessionWorkStatus>,
+  activityTimes: {} as Record<string, number>,
   userId: 'user-1' as string | undefined,
   handleSetHome: vi.fn(),
   handleUnsetHome: vi.fn(),
@@ -26,10 +29,15 @@ vi.mock('@/lib/providers/ProjectProvider', () => ({ useProjects: () => ({ projec
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
     activeSessionId: state.activeSessionId,
-    streamingSessionIds: state.streamingSessionIds,
     handleSetHome: state.handleSetHome,
     handleUnsetHome: state.handleUnsetHome,
     handleSetProject: vi.fn(),
+  }),
+}));
+vi.mock('@/lib/providers/SessionActivityProvider', () => ({
+  useSessionActivity: () => ({
+    statusOf: (id: string) => state.statuses[id] ?? null,
+    activityTimeOf: (id: string) => state.activityTimes[id],
   }),
 }));
 vi.mock('@/hooks/useSessionActions', () => ({
@@ -68,7 +76,8 @@ beforeEach(() => {
   state.agentsStatus = 'ready';
   state.projects = [];
   state.activeSessionId = null;
-  state.streamingSessionIds = [];
+  state.statuses = {};
+  state.activityTimes = {};
   state.userId = 'user-1';
   state.editingSessionId = null;
 });
@@ -115,10 +124,10 @@ describe('SessionTree — 結構', () => {
   });
 
   it('列的名稱念出生成中與無痕', () => {
-    state.streamingSessionIds = ['busy'];
+    state.statuses = { busy: { kind: 'replying' } };
     state.sessions = [session('busy', 'Alice', 2), session('secret', 'Alice', 1, { incognito: true })];
     renderTree();
-    expect(rows()).toEqual(['Alice', 'busy，背景生成中', 'secret，無痕對話']);
+    expect(rows()).toEqual(['Alice', 'busy，回覆中', 'secret，無痕對話']);
   });
 
   it('列的補充說明有日期與則數，報讀器念得到（舊版的按鈕念得到）', () => {
@@ -529,6 +538,110 @@ describe('SessionTree — 鍵盤', () => {
     expect(input).toHaveFocus();
     fireEvent.keyDown(input, { key: 'F10', shiftKey: true });
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('SessionTree — 工作狀態', () => {
+  it('狀態寫進列的名稱；心跳顯示進度，小點與等您處理畫出來', () => {
+    state.statuses = {
+      working: { kind: 'heartbeat', current: 2, total: 5 },
+      asking: { kind: 'awaiting' },
+      done: { kind: 'unseen' },
+    };
+    state.sessions = [session('working', 'Alice', 3), session('asking', 'Alice', 2), session('done', 'Alice', 1)];
+    renderTree();
+    expect(within(row('working，心跳 2/5')).getByTestId('session-status-text')).toHaveTextContent('心跳 2/5');
+    expect(within(row('asking，等您處理')).getByTestId('session-status-awaiting')).toBeInTheDocument();
+    expect(within(row('done，有新內容')).getByTestId('session-status-unseen')).toBeInTheDocument();
+  });
+
+  it('工作中：名稱與手機的小點會呼吸；等您處理不動', () => {
+    state.statuses = { working: { kind: 'replying' }, asking: { kind: 'awaiting' } };
+    state.sessions = [session('working', 'Alice', 2), session('asking', 'Alice', 1)];
+    renderTree();
+    expect(within(row('working，回覆中')).getByTestId('session-name')).toHaveClass('md:animate-breathe');
+    expect(within(row('working，回覆中')).getByTestId('session-status-working-dot')).toHaveClass('animate-breathe');
+    expect(within(row('asking，等您處理')).getByTestId('session-name')).not.toHaveClass('md:animate-breathe');
+    expect(within(row('asking，等您處理')).queryByTestId('session-status-working-dot')).toBeNull();
+    expect(row('asking，等您處理').innerHTML).not.toContain('animate-');
+  });
+
+  it('工作中的不收進「還有 N 個」，等您處理也一樣；小點會收', () => {
+    state.statuses = { a1: { kind: 'replying' }, a2: { kind: 'awaiting' }, a3: { kind: 'unseen' } };
+    state.sessions = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => session(`a${n}`, 'Alice', n));
+    renderTree();
+    expect(row('a1，回覆中')).toBeInTheDocument();
+    expect(row('a2，等您處理')).toBeInTheDocument();
+    expect(screen.queryByRole('treeitem', { name: /^a3/ })).toBeNull();
+    expect(row('還有 2 個')).toBeInTheDocument();
+  });
+
+  it('資料夾收起來也會亮：最要緊的狀態畫在資料夾那一列', () => {
+    state.statuses = { child: { kind: 'replying' }, other: { kind: 'awaiting' } };
+    state.sessions = [session('child', 'Alice', 2), session('other', 'Alice', 1), session('bob-1', 'Bob', 1)];
+    window.localStorage.setItem('touka_session_tree_collapsed:user-1', JSON.stringify({ alice: true }));
+    renderTree();
+    const folder = row('Alice，等您處理');
+    expect(within(folder).getByTestId('session-status-awaiting')).toBeInTheDocument();
+    expect(row('Bob')).toBeInTheDocument();
+  });
+
+  it('沒有家的資料夾收起來：名稱呼吸', () => {
+    state.statuses = { child: { kind: 'replying' } };
+    state.sessions = [session('child', 'Alice', 1)];
+    window.localStorage.setItem('touka_session_tree_collapsed:user-1', JSON.stringify({ alice: true }));
+    renderTree();
+    expect(within(row('Alice，回覆中')).getByTestId('session-name')).toHaveClass('md:animate-breathe');
+  });
+
+  it('專案分組收起來也會亮', () => {
+    state.projects = [{ id: 'p1', name: 'Alpha', root_path: '/a', description: '', updatedAt: 1 }];
+    state.statuses = { in: { kind: 'awaiting' } };
+    state.sessions = [session('in', 'Alice', 1, { project_id: 'p1' })];
+    renderTree('projects');
+    expect(screen.queryByRole('treeitem', { name: /Alpha.*等您處理/ })).toBeNull();
+    fireEvent.click(arrowOf(/^專案: Alpha/));
+    expect(row(/Alpha.*等您處理/)).toBeInTheDocument();
+  });
+
+  it('列上的日期用看到它在工作的時刻，不是存檔時間', () => {
+    const worked = 1_790_000_000_000;
+    state.activityTimes = { a: worked };
+    state.sessions = [session('a', 'Alice', 1_700_000_000_000)];
+    renderTree();
+    expect(row('a')).toHaveTextContent(formatToTaipeiDate(worked));
+    expect(row('a')).not.toHaveTextContent(formatToTaipeiDate(1_700_000_000_000));
+  });
+
+  it('有家的資料夾收起來：家那一列帶上子對話的狀態', () => {
+    state.statuses = { child: { kind: 'heartbeat', current: 1, total: 3 } };
+    state.sessions = [session('home', 'Alice', 1, { is_home: true }), session('child', 'Alice', 2)];
+    window.localStorage.setItem('touka_session_tree_collapsed:user-1', JSON.stringify({ alice: true }));
+    renderTree();
+    expect(row('Alice，家對話：home，心跳 1/3')).toBeInTheDocument();
+  });
+
+  it('資料夾展開時，看得到的子對話不重複算到資料夾列', () => {
+    state.statuses = { child: { kind: 'replying' } };
+    state.sessions = [session('child', 'Alice', 2)];
+    renderTree();
+    expect(row('Alice')).toBeInTheDocument();
+    expect(row('child，回覆中')).toBeInTheDocument();
+  });
+
+  it('收在「還有 N 個」裡的小點算到資料夾列', () => {
+    state.statuses = { a1: { kind: 'unseen' } };
+    state.sessions = [1, 2, 3, 4, 5, 6].map(n => session(`a${n}`, 'Alice', n));
+    renderTree();
+    expect(row('Alice，有新內容')).toBeInTheDocument();
+  });
+
+  it('活動時間決定順序與列上的日期；存檔內容不動', () => {
+    state.activityTimes = { old: 5_000_000 };
+    state.sessions = [session('new', 'Alice', 2_000_000), session('old', 'Bob', 1_000_000)];
+    renderTree();
+    expect(rows()).toEqual(['Bob', 'old', 'Alice', 'new']);
+    expect(state.sessions[1].updatedAt).toBe(1_000_000);
   });
 });
 

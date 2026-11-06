@@ -81,11 +81,13 @@ function createChatContext(activeSessionId: string): ReturnType<typeof ChatProvi
     handleUpdateSessionMessages: vi.fn().mockResolvedValue(undefined),
     handleSetProject: vi.fn().mockResolvedValue(undefined),
     authLevel: 'Manual',
+    isIncognito: false,
     handleSetAuthLevel: vi.fn(),
     pendingInstall: null,
-    setPendingInstall: vi.fn(),
+    dismissPendingInstall: vi.fn(),
     pendingAsk: null,
-    setPendingAsk: vi.fn(),
+    dismissPendingAsk: vi.fn(),
+    pendingRequestSessionIds: [],
     streamingSessionIds: [],
   };
 }
@@ -104,6 +106,7 @@ describe('SkillSelector', () => {
     updateSession: mockUpdateSession, getSession: vi.fn(), getPersistence: vi.fn(),
     beginProducer: vi.fn(), completeProducer: vi.fn(), scopeKey: 'test',
     recheckSession: vi.fn(), retrySaveSession: vi.fn(), canRetrySave: vi.fn(), prepareResume: vi.fn(),
+    listLoaded: true, discoverSession: vi.fn(), applySavedHome: vi.fn(),
   });
 
   beforeEach(() => {

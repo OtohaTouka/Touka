@@ -1953,8 +1953,7 @@
       "ask_user": {
         "parameters": [
           "questions",
-          "_emit_event",
-          "_call_id"
+          "_emit_event"
         ],
         "kwargs": "kwargs",
         "reads": [

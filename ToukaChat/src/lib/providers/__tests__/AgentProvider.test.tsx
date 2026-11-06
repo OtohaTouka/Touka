@@ -19,7 +19,7 @@ vi.mock('@/lib/error_handler', () => ({
     logSSOTError: vi.fn(),
 }));
 
-import { fetchTouka } from '@/lib/connections';
+import { fetchTouka, setKnownAgentIds } from '@/lib/connections';
 import { AgentProvider, useAgents } from '../AgentProvider';
 
 const mockFetchTouka = fetchTouka as ReturnType<typeof vi.fn>;
@@ -61,6 +61,16 @@ describe('AgentProvider — agentsStatus', () => {
         expect(result.current.agentsStatus).toBe('loading');
         await act(async () => { finish(ok); });
         await waitFor(() => expect(result.current.agentsStatus).toBe('ready'));
+    });
+
+    it('卸載之後才回來的舊請求：不把舊身分的靈魂寫回', async () => {
+        let finish!: (value: unknown) => void;
+        mockFetchTouka.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        const { unmount } = renderHook(() => useAgents(), { wrapper });
+        await waitFor(() => expect(mockFetchTouka).toHaveBeenCalled());
+        unmount();
+        await act(async () => { finish(ok); });
+        expect(setKnownAgentIds).not.toHaveBeenCalled();
     });
 
     it.each(['touka_auth_changed', 'touka_connections_updated'])('卸載後收到 %s 不再重抓', async (eventName) => {

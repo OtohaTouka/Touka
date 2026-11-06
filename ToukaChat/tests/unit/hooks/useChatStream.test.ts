@@ -67,8 +67,8 @@ describe('useChatStream（委派 StreamRegistry）', () => {
   });
 
   const opts = (activeSessionId = 'sess-1') => ({
-    staticHistory: emptyTree, activeSessionId, setActiveSessionId, setPendingInstall: vi.fn(),
-    setPendingAsk: vi.fn(),
+    staticHistory: emptyTree, activeSessionId, setActiveSessionId, enqueueInstall: vi.fn(),
+    enqueueAsk: vi.fn(),
   });
 
   it('既有 session：委派 startStream 帶正確 sessionId/model/resolvedInput/skills', async () => {

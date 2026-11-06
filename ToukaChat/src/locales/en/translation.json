@@ -1334,8 +1334,13 @@
       "folder_holds_active": "open chat inside",
       "label_separator": ", "
     },
+    "session_activity": {
+      "awaiting": "needs your attention",
+      "replying": "replying",
+      "heartbeat": "heartbeat {{current}}/{{total}}",
+      "unseen": "new content"
+    },
     "session_item": {
-      "background_generating": "Generating in background",
       "incognito_label": "Incognito conversation",
       "incognito_badge": "Incognito",
       "round_count": "{{count}} rounds",
@@ -1674,6 +1679,10 @@
       "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
       "recheck": "Check save status",
       "retry": "Retry save only"
+    },
+    "session_updated": {
+      "message": "This conversation has new content.",
+      "refresh": "Update"
     },
     "incognito_hook_notice": "An administrator has set up hooks: this incognito chat is also sent to them, and whether it is kept depends on the administrator's setup.",
     "message_nav": {

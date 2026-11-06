@@ -669,6 +669,10 @@ async def _process_heartbeat_loop(
             # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
             activity_registry.clear(final_session_id)
             destructive_ops.end_heartbeat(identity, final_session_id)
+            # 放在最後（ADR-0300）：側欄看到紀錄就會下載這段對話，太早記會下載到剪裁前的內容。
+            # 靈魂由這裡傳：第一輪前就停的沒登記過活動，同一對話重疊跑時也可能被另一次清掉。
+            if run_started:
+                activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
 
 
 @router.post("/awaken", status_code=202)

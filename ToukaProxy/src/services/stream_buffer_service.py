@@ -351,6 +351,19 @@ class StreamBufferService:
         self._sweep()
         return [self._state_of(e) for e in self._streams.values() if e.status == "active"]
 
+    def active_session_ids_of(self, identity: AgentIdentity) -> list[str]:
+        """這個人自己送出、會存檔的進行中串流（別人的不回，連 admin 也一樣）；只看記憶體。"""
+        self._sweep()
+        return [
+            entry.session_id
+            for entry in self._streams.values()
+            if entry.status == "active"
+            and entry.admission is not None
+            and entry.admission.mode != "incognito"
+            and entry.owner is not None
+            and _same_requester(entry.owner, identity)
+        ]
+
     # ------------------------------------------------------------------
     # 訂閱（重播 + 跟流）
     # ------------------------------------------------------------------

@@ -41,7 +41,9 @@ async def test_ask_user_emits_event_and_returns_formatted_answers():
     await task
 
     assert emitted[0]["type"] == "ask_user_request"
-    assert emitted[0]["id"] == "tok1"
+    # 答案憑證一律隨機：工具呼叫編號可能是流水號（ADR-0300）
+    assert emitted[0]["id"] != "tok1"
+    assert len(emitted[0]["id"]) >= 32
     parsed = json.loads(result)
     assert parsed[0]["question"] == "選一個"
     assert parsed[0]["answer"] == ["A"]
@@ -57,3 +59,28 @@ async def test_ask_user_timeout_returns_sentinel():
         questions=questions, _emit_event=emit, _call_id="tok2", _timeout=0.1
     )
     assert "未" in result
+
+
+@pytest.mark.asyncio
+async def test_same_call_id_in_two_conversations_do_not_collide():
+    """Gemini 的工具呼叫編號是每段串流的流水號：兩段對話同時問，各自收到自己的答案（ADR-0300）。"""
+    emitted: list[dict] = []
+
+    async def emit(event: dict) -> None:
+        emitted.append(event)
+
+    def ask():
+        return asyncio.create_task(
+            ask_user(questions=[{"question": "Q"}], _emit_event=emit, _call_id="gcall_0")
+        )
+
+    first, second = ask(), ask()
+    while len(emitted) < 2:
+        await asyncio.sleep(0)
+    assert emitted[0]["id"] != emitted[1]["id"]
+
+    store = get_ask_user_store()
+    assert store.deliver_answer(emitted[0]["id"], [["一"]])
+    assert store.deliver_answer(emitted[1]["id"], [["二"]])
+    assert json.loads(await asyncio.wait_for(first, 1))[0]["answer"] == ["一"]
+    assert json.loads(await asyncio.wait_for(second, 1))[0]["answer"] == ["二"]

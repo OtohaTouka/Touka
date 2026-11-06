@@ -719,6 +719,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **`GET /v1/ui/sessions/{id}/stream?starting_after=N`**：SSE 重播＋跟流（游標續傳）；`_require_authenticated` ＋ `_can_access_session`（DA3 同款 IDOR 述詞，持久 session 不存在 fail-closed 拒絕，無痕以已驗 requester memory owner 判定且DB0）；無緩衝回 `STREAM_NOT_FOUND`(1212)。
 - **`GET /v1/ui/sessions/{id}/stream/state`**：回同 stream 的 started／terminal及status，供已完成TTL接回；persistent須fresh DB owner／存在，無痕只驗memory owner。stop帶stream fence，受控delete只退休捕捉的舊entry。
 - **`GET /v1/ui/streams/active`**：呼叫者可存取的進行中串流清單（逐條 ownership 過濾），前端重整後據此接回。
+- **`GET /v1/ui/activity?since=<毫秒>`（ADR-0300）**：側欄的工作狀態，只看記憶體、不碰對話資料庫。`streams` 只回呼叫者自己開的串流（管理員也一樣；無痕、舊路徑沒有 `started` 的不回）；`background`（`session_id`、`kind`、`current`、`total`）與 `finished`（`since` 之後結束的心跳，`session_id`、`finished_at`）依靈魂可見範圍過濾，和 `/v1/stats` 共用 `utils/activity_visibility.py`；`cursor` 是下一個 `since`，別人的心跳結束時回應逐字不變。沒帶 `since` 時回目前時間、`finished` 為空。不帶標題、內容與靈魂名。
 - **`POST /v1/ui/sessions/{id}/stop` 擴充**：原 rhythm interrupt ＋ process kill 之外，加 `stream_buffer_service.cancel`（producer 連坐取消＋訂閱者喚醒）。
 - **保留策略**：完成後緩衝保留 `STREAM_BUFFER_TTL_SECONDS=600`；`STREAM_BUFFER_MAX_CHUNKS=50000` 記憶體保險；`STREAM_ACTIVE_MAX_SECONDS=3600` 孤兒保險。server 重啟＝進行中生成與緩衝俱滅（in-memory，誠實限制）。
 

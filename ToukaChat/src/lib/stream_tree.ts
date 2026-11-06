@@ -14,6 +14,12 @@ import type { Interjection } from '@/lib/types';
 import { ROUND_INTERRUPTED_EVENT, parseRoundInterruptedEvent } from '@/lib/chat/interjections';
 import { getSystemEpoch } from './time_utils';
 
+/** 這一輪有核准卡或外掛工具的表單還在等人回應；決定送出後要等工具開始跑才換狀態，所以看 decision。 */
+export function hasPendingApproval(tree: TreeHistory, assistantId: string): boolean {
+  return (tree.messages[assistantId]?.steps ?? []).some(step =>
+    step.status === 'awaiting_approval' && !step.approval?.decision);
+}
+
 /** 串流以錯誤結束：在那則回覆記下，畫面才看得出是模型沒有回成功（ADR-0292）。 */
 export function markGenerationFailed(tree: TreeHistory, assistantId: string): TreeHistory {
   const node = tree.messages[assistantId];

@@ -159,6 +159,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 提問的答案憑證可以被猜到、也會撞在一起（2026-11-06，ADR-0300）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| `ask_user` 用模型給的工具呼叫編號當答案憑證。有些模型的編號是流水號，猜得到；兩段對話同時問也會撞在一起，先問的那段拿不到答案。 | 憑證一律由 `AskUserStore.generate_token()` 隨機產生。`tests/unit/test_ask_user_tool.py`、實際驗證 `e2e-real/session-attention.spec.ts`。 |
+
 ### 模型廠商的錯誤原文跟著回覆流出去（2026-11-05）
 
 | 弱點 | 修正與驗證 |

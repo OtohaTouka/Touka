@@ -5518,6 +5518,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ui/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session Activity
+         * @description 側欄的工作狀態：只看記憶體、不碰對話資料庫，前端每 8 秒查一次（ADR-0300）。
+         *
+         *     ``cursor`` 只隨呼叫者看得到的結束紀錄前進：別人的心跳結束時回應逐字不變，不洩漏次數。
+         *     第一次查詢（沒帶 ``since``）只拿游標，之前結束的不算。
+         */
+        get: operations["get_session_activity_v1_ui_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ui/sessions/legacy/export": {
         parameters: {
             query?: never;
@@ -5832,6 +5855,29 @@ export interface paths {
          *     逐條套用 _can_access_session 過濾（IDOR 防護，DA3 同款述詞）。
          */
         get: operations["list_active_streams_ui_streams_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ui/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session Activity
+         * @description 側欄的工作狀態：只看記憶體、不碰對話資料庫，前端每 8 秒查一次（ADR-0300）。
+         *
+         *     ``cursor`` 只隨呼叫者看得到的結束紀錄前進：別人的心跳結束時回應逐字不變，不洩漏次數。
+         *     第一次查詢（沒帶 ``since``）只拿游標，之前結束的不算。
+         */
+        get: operations["get_session_activity_ui_activity_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7204,6 +7250,20 @@ export interface components {
             auto_review?: components["schemas"]["AutoReviewConfig"];
         };
         /**
+         * BackgroundActivity
+         * @description 正在跑的背景工作（心跳第幾輪）。
+         */
+        BackgroundActivity: {
+            /** Session Id */
+            session_id: string;
+            /** Kind */
+            kind: string;
+            /** Current */
+            current: number;
+            /** Total */
+            total: number;
+        };
+        /**
          * BackupDownloadRequest
          * @description 加密下載請求模型（ADR-0108）.
          */
@@ -7720,6 +7780,16 @@ export interface components {
              * @description 回饋 ID；撤回時為 null
              */
             feedback_id?: string | null;
+        };
+        /**
+         * FinishedActivity
+         * @description ``since`` 之後結束的心跳。
+         */
+        FinishedActivity: {
+            /** Session Id */
+            session_id: string;
+            /** Finished At */
+            finished_at: number;
         };
         /**
          * GlobalConfig
@@ -10142,6 +10212,20 @@ export interface components {
              * @default [REPAIR] 指令執行失敗 (退出碼: {exit_code})。這是第 {attempts}/{max_attempts} 次嘗試。請修正錯誤後重試。
              */
             repair_prompt: string;
+        };
+        /**
+         * SessionActivityResponse
+         * @description 側欄的工作狀態；``cursor`` 是下一次查詢帶的 ``since``。
+         */
+        SessionActivityResponse: {
+            /** Streams */
+            streams: string[];
+            /** Background */
+            background: components["schemas"]["BackgroundActivity"][];
+            /** Finished */
+            finished: components["schemas"]["FinishedActivity"][];
+            /** Cursor */
+            cursor: number;
         };
         /**
          * SessionDocument
@@ -20135,6 +20219,37 @@ export interface operations {
             };
         };
     };
+    get_session_activity_v1_ui_activity_get: {
+        parameters: {
+            query?: {
+                since?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionActivityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_legacy_v1_ui_sessions_legacy_export_post: {
         parameters: {
             query?: never;
@@ -20685,6 +20800,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_session_activity_ui_activity_get: {
+        parameters: {
+            query?: {
+                since?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionActivityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

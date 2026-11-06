@@ -90,11 +90,26 @@ async function sendAndFinishTool(page: Page, text: string): Promise<void> {
   await composer(page).waitFor();
 }
 
-/** 送出並等模型收到。 */
+/**
+ * 送出並等模型收到。剪裁和設家都會和畫面收尾的保存搶同一個版本，哪邊先存好要看時間；
+ * 畫面輸了就存不進去，下一則送不出去（剪裁：ADR-0295 記的既有問題，路線圖 3c ③；設家：路線圖 2c）。
+ * 這條只驗 PreCompact 卡住時聊天照常，所以存不進去時先走人會走的恢復路徑再送。
+ * 「僅重試保存」會把剪掉的內容寫回去，等於撤銷剪裁。
+ * 看內容不看次數：剪裁寫摘要也會呼叫模型。
+ */
 async function sendAndWaitForModel(page: Page, text: string): Promise<void> {
   const before = (await modelCalls()).length;
+  const received = async () => (await modelCalls()).slice(before)
+    .some((call) => call.lastRole === "user" && call.lastText.includes(text));
+  const saveFailed = page.getByRole("button", { name: "重新核對保存結果" });
   await sendMessage(page, text);
-  await expect.poll(async () => (await modelCalls()).length).toBeGreaterThan(before);
+  await expect.poll(async () => (await received()) || saveFailed.isVisible()).toBe(true);
+  // 模型還沒收到又看得到提示：這則被擋下了。收到之後才出現的是這一輪收尾，留給下一則處理，不重送
+  if (!(await received())) {
+    await recoverSave(page);
+    await sendMessage(page, text);
+    await expect.poll(received, "恢復之後模型收到這一則").toBe(true);
+  }
   await composer(page).waitFor();
 }
 
@@ -273,11 +288,11 @@ test("剪裁（聊天）：PreCompact 卡住時聊天不受影響", async ({ pag
     await sendMessage(page, LONG_MESSAGE);
     await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
     await composer(page).waitFor();
-    // 只有家對話才剪；換模型後的第一輪也不剪，所以多送幾則
+    // 只有家對話才剪；換模型後的第一輪也不剪，所以多送幾則。加編號：寫摘要時前面的長訊息也會送給模型
     await setChatAsHome(page);
     for (let attempt = 0; attempt < MAX_TRIM_ATTEMPTS; attempt += 1) {
       if ((await receivedFor("PreCompact")).length > 0) break;
-      await sendAndWaitForModel(page, LONG_MESSAGE);
+      await sendAndWaitForModel(page, `${LONG_MESSAGE}（第 ${attempt + 1} 則）`);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     const pre = await expectBackgroundHook("PreCompact");

@@ -13,6 +13,7 @@
 | 可及名稱 | 所有 icon-only 按鈕具 `aria-label`（含會話選單、視圖切換、模型選擇器） | `tests/guard/a11y_basics.test.ts`（源碼掃描） |
 | 表單 | login/register 程式化 label＋`autocomplete`＋真實 heading | 同上＋`tests/auth/AuthPagesA11y.test.tsx`（渲染驗證） |
 | 狀態宣告 | 串流「正在產生回覆／回覆已完成」sr-only 宣告器；監控元件 `role="status"` | 守衛掃描 |
+| 動態 | 工作中的呼吸動畫只有明暗、2.4 秒一次；減少動態（App 設定優先，「跟隨系統」才看系統）時不動，改顯示文字（ADR-0300） |
 | 鍵盤 | 對話清單是 WAI-ARIA tree，只算一個 Tab 站（roving tabindex），「⋯」不在 Tab 順序；Esc 一次關一層；skip link；focus-visible ring | `tests/unit/A11yKeyboardA2.test.tsx`、`src/hooks/__tests__/useSessionTreeKeyboard.test.tsx`、`tests/unit/SessionTree.test.tsx` |
 | 彈窗 | 三個自製 modal 遷移 Radix Dialog（焦點陷阱／Esc／焦點歸位） | `tests/unit/A11yModalsA3.test.tsx`＋守衛 |
 | 對比 | 六主題深階 CTA 底色（白字 ≥4.5:1）、表單邊框 ≥3:1、低 alpha 文字禁令 | `tests/guard/a11y_contrast.test.ts`（WCAG 公式實算全主題） |

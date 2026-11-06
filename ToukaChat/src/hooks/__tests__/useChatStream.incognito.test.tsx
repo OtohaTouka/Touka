@@ -58,8 +58,8 @@ function renderStream(activeSessionId: string, isIncognitoSession?: (id: string)
       staticHistory: { messages: {}, currentId: null },
       activeSessionId,
       setActiveSessionId: vi.fn(),
-      setPendingInstall: vi.fn(),
-      setPendingAsk: vi.fn(),
+      enqueueInstall: vi.fn(),
+      enqueueAsk: vi.fn(),
       isIncognitoSession,
     }),
   );

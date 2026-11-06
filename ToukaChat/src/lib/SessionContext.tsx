@@ -22,6 +22,9 @@ function GlobalSessionEvents({ children }: { children: React.ReactNode }) {
   const chat = useChat();
 
   const { importPending } = useSessionEvents(sessions, setSessions, syncSession);
+  // 彈窗各自記著自己是哪一筆：安裝在 await 之後才關，那時排第一的可能已經換人
+  const install = chat.pendingInstall;
+  const ask = chat.pendingAsk;
 
   return (
     <>
@@ -35,26 +38,27 @@ function GlobalSessionEvents({ children }: { children: React.ReactNode }) {
         />
       )}
       
-      {chat.pendingInstall && (
+      {install && (
         <React.Suspense fallback={null}>
+          {/* key：排隊跳下一筆時彈窗內部的狀態（填到一半的欄位）不帶過去 */}
           <McpInstallModal
-            installRequest={chat.pendingInstall}
-            onClose={() => chat.setPendingInstall(null)}
+            key={install.id}
+            installRequest={install}
+            onClose={() => chat.dismissPendingInstall(install.id)}
           />
         </React.Suspense>
       )}
 
       {/* HAX G10（ADR-0085）：AI 詢問使用者 → 問卷彈窗；作答後 POST 回 ask_user 答案端點解除等待。 */}
-      {chat.pendingAsk && (
+      {ask && (
         <AskUserModal
-          request={chat.pendingAsk}
-          onCancel={() => chat.setPendingAsk(null)}
+          key={ask.id}
+          request={ask}
+          onCancel={() => chat.dismissPendingAsk(ask.id)}
           onSubmit={async (answers) => {
-            const req = chat.pendingAsk;
-            chat.setPendingAsk(null);
-            if (!req) return;
+            chat.dismissPendingAsk(ask.id);
             try {
-              await fetchTouka(getActiveProxyUrl(), `/v1/ask_user/answer/${req.id}`, {
+              await fetchTouka(getActiveProxyUrl(), `/v1/ask_user/answer/${ask.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ answers }),

@@ -27,6 +27,20 @@ Object.defineProperty(globalThis, 'sessionStorage', {
   configurable: true,
 });
 
+// jsdom 沒有 matchMedia；預設什麼都不符合（桌面版、不減少動態），要測別的情況由測試自己覆寫。
+// 標了 node 環境的測試檔沒有 window，跳過。
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: false, media: query, onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    }),
+  });
+}
+
 // i18n 測試語言固定為 zh-TW。Phase 1 起元件改用 react-i18next 的 t() 渲染字串，
 // 既有測試以中文來源字串斷言（如 getByText('儲存配置')、name: /新增連線/i）。
 // 固定 zh-TW 讓 t() 回傳來源中文，既有斷言無需改動即可通過。

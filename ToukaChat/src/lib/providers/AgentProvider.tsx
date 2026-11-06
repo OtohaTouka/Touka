@@ -90,6 +90,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('touka_auth_changed', handleAuthChanged);
     window.addEventListener('touka_connections_updated', handleConnectionsUpdated);
     return () => {
+      // 卸載（登出、換網址）之後才回來的舊請求，不能把舊身分的靈魂寫回 connections.ts
+      scopeGeneration.current += 1;
       clearTimeout(timer);
       window.removeEventListener('touka_auth_changed', handleAuthChanged);
       window.removeEventListener('touka_connections_updated', handleConnectionsUpdated);

@@ -53,11 +53,17 @@ function soulsByKey(agents: AgentInfo[]): Map<string, AgentInfo> {
   return map;
 }
 
-export function buildSessionTree(sessions: Session[], agents: AgentInfo[], status: AgentsStatus): SessionTree {
+/** 排序與列上日期用的時間：存檔時間和看到它在工作的時刻取較新的（不動對話內容）。 */
+export function sessionSortTime(session: Session, activityTimeOf?: (sessionId: string) => number | undefined): number {
+  return Math.max(session.updatedAt || 0, activityTimeOf?.(session.id) ?? 0);
+}
+
+export function buildSessionTree(sessions: Session[], agents: AgentInfo[], status: AgentsStatus,
+  activityTimeOf?: (sessionId: string) => number | undefined): SessionTree {
   const souls = soulsByKey(agents);
   const folders = new Map<string, SoulFolder>();
   const others: Session[] = [];
-  const newestFirst = [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const newestFirst = [...sessions].sort((a, b) => sessionSortTime(b, activityTimeOf) - sessionSortTime(a, activityTimeOf));
 
   for (const session of newestFirst) {
     const ref = session.agent_id || session.home_for_agent;
@@ -79,7 +85,7 @@ export function buildSessionTree(sessions: Session[], agents: AgentInfo[], statu
   return { folders: [...folders.values()], others };
 }
 
-/** 先列幾筆，其餘收起來；`pinned`（開著的對話）不收。 */
+/** 先列幾筆，其餘收起來；`pinned`（開著的、工作中的、等您處理的對話）不收。 */
 export function previewChildren(children: Session[], showAll: boolean, pinned: ReadonlySet<string>):
   { visible: Session[]; hiddenCount: number } {
   if (showAll) return { visible: children, hiddenCount: 0 };

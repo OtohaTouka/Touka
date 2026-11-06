@@ -7,6 +7,7 @@ import {
   MODEL_400_REQUEST,
   MODEL_BAD_JSON_REQUEST,
   MODEL_EMPTY_REPLY_REQUEST,
+  MODEL_HOLD_REQUEST,
   MODEL_NO_REPLY_REQUEST,
   toolRequestIn,
 } from "./constants";
@@ -85,6 +86,9 @@ function writeJson(res: http.ServerResponse, body: unknown): void {
 /** OpenAI 相容的假模型。後端每輪一次拿完整回覆（一般 JSON），串流也支援。`/_calls` 給測試核對。 */
 export function createFakeModel(): http.Server {
   let calls: ModelCall[] = [];
+  // 「第幾次呼叫才等」：心跳的 init_prompt 只進第一輪，第二輪之後認不出來，只能數次數
+  let holdAtCall = 0;
+  let held: (() => void)[] = [];
   return http.createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -93,6 +97,18 @@ export function createFakeModel(): http.Server {
       if (url === "/_calls") return writeJson(res, calls);
       if (url === "/_reset") {
         calls = [];
+        return writeJson(res, {});
+      }
+      const hold = url.match(/^\/_hold\/(\d+)$/);
+      if (hold) {
+        holdAtCall = calls.length + Number(hold[1]);
+        return writeJson(res, {});
+      }
+      if (url === "/_held") return writeJson(res, { count: held.length });
+      if (url === "/_release") {
+        holdAtCall = 0;
+        for (const respond of held) respond();
+        held = [];
         return writeJson(res, {});
       }
       if (url.endsWith("/models")) {
@@ -112,41 +128,51 @@ export function createFakeModel(): http.Server {
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ?? []),
       };
       calls.push(call);
-      if (call.lastRole === "user" && call.lastText.includes(MODEL_400_REQUEST)) {
-        res.statusCode = 400;
-        return writeJson(res, { error: { message: `bad request api_key=${CANARY_API_KEY}` } });
+      const waiting = calls.length === holdAtCall || (call.lastRole === "user" && call.lastText.includes(MODEL_HOLD_REQUEST));
+      if (waiting) {
+        held.push(() => answer(res, call));
+        return;
       }
-      if (call.lastRole === "user" && call.lastText.includes(MODEL_BAD_JSON_REQUEST)) {
-        res.setHeader("content-type", "text/html");
-        return res.end("<html>not json</html>");
-      }
-      if (call.lastRole === "user" && call.lastText.includes(MODEL_NO_REPLY_REQUEST)) {
-        return writeJson(res, { error: { type: "overloaded_error", message: "overloaded" } });
-      }
-      if (call.lastRole === "user" && call.lastText.includes(MODEL_EMPTY_REPLY_REQUEST)) {
-        return writeJson(res, {
-          id: "c1",
-          object: "chat.completion",
-          created: 1,
-          model: call.model,
-          choices: [{
-            index: 0,
-            message: { role: "assistant", content: "" },
-            finish_reason: "insufficient_system_resource",
-          }],
-          usage: USAGE,
-        });
-      }
-      const message = assistantReply(call);
-      if (call.stream) return writeStream(res, call.model, message);
-      return writeJson(res, {
-        id: "c1",
-        object: "chat.completion",
-        created: 1,
-        model: call.model,
-        choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }],
-        usage: USAGE,
-      });
+      return answer(res, call);
     });
+  });
+}
+
+function answer(res: http.ServerResponse, call: ModelCall): void {
+  if (call.lastRole === "user" && call.lastText.includes(MODEL_400_REQUEST)) {
+    res.statusCode = 400;
+    return writeJson(res, { error: { message: `bad request api_key=${CANARY_API_KEY}` } });
+  }
+  if (call.lastRole === "user" && call.lastText.includes(MODEL_BAD_JSON_REQUEST)) {
+    res.setHeader("content-type", "text/html");
+    res.end("<html>not json</html>");
+    return;
+  }
+  if (call.lastRole === "user" && call.lastText.includes(MODEL_NO_REPLY_REQUEST)) {
+    return writeJson(res, { error: { type: "overloaded_error", message: "overloaded" } });
+  }
+  if (call.lastRole === "user" && call.lastText.includes(MODEL_EMPTY_REPLY_REQUEST)) {
+    return writeJson(res, {
+      id: "c1",
+      object: "chat.completion",
+      created: 1,
+      model: call.model,
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: "" },
+        finish_reason: "insufficient_system_resource",
+      }],
+      usage: USAGE,
+    });
+  }
+  const message = assistantReply(call);
+  if (call.stream) return writeStream(res, call.model, message);
+  return writeJson(res, {
+    id: "c1",
+    object: "chat.completion",
+    created: 1,
+    model: call.model,
+    choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }],
+    usage: USAGE,
   });
 }
