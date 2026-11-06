@@ -316,9 +316,9 @@ COMPLETE_LICENSES = {
     "node only in a build stage": "FROM node@sha256:aa AS node-runtime\n"
     + "FROM python:3.12 AS builder\n"
     + NODE_BINARY_COPY
-    + "FROM python:3.12\nCOPY --from=builder /app/out /app/out\n",
+    + "FROM python:3.12\nCOPY --from=builder /build/out /srv/out\n",
     "the official node image as the base": "FROM node@sha256:aa AS node-runtime\n"
-    + "FROM node-runtime AS runner\nCOPY --from=builder /app/out ./out\n",
+    + "FROM node-runtime AS runner\nCOPY --from=builder /build/out ./out\n",
 }
 
 
