@@ -293,6 +293,16 @@ def test_existing_soul_is_found_by_its_exact_name(zone_data_root):
     soul_io.check_soul_name(AgentIdentity(agent_id="zzNotThereYet"))
 
 
+def test_soul_lookup_accepts_identity_objects_that_are_not_agent_identity(zone_data_root):
+    """派工服務等處傳的是只有 agent_id／agent_role 的身分物件，不是 AgentIdentity 也不是字串."""
+    _make_soul(zone_data_root, "zzDuckSoul")
+    duck = SimpleNamespace(agent_id="zzDuckSoul", agent_role="Base")
+    assert soul_service.is_toukasoul(duck) is True
+    assert soul_service.get_soul_data(duck)[0] == "persona of zzDuckSoul"
+    missing = SimpleNamespace(agent_id="zzNoSuchSoul", agent_role="Base")
+    assert soul_service.is_toukasoul(missing) is False
+
+
 def _aliases(data: Path, folder: Path) -> list[str]:
     names = []
     if _case_insensitive(data / "probe-root"):

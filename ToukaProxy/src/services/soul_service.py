@@ -33,8 +33,12 @@ _ALIAS_WARN_LIMIT = 256
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
-    """字串身分轉成 AgentIdentity（沒有角色資訊）；已經是就原樣回傳."""
-    return identity if isinstance(identity, AgentIdentity) else AgentIdentity(agent_id=identity)
+    """字串身分轉成 AgentIdentity（沒有角色資訊）；其他身分物件原樣回傳（只讀 agent_id）.
+
+    派工服務等處傳的是自己的身分物件（有 agent_id／agent_role，但不是 AgentIdentity），
+    和改動前一樣照收。
+    """
+    return AgentIdentity(agent_id=identity) if isinstance(identity, str) else identity
 
 
 def _resource_manager() -> Any:
