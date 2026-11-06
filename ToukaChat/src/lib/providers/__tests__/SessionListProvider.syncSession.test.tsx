@@ -168,6 +168,8 @@ describe('R2 snapshot binding and explicit recovery', () => {
       .map(([, , options]) => JSON.parse(options!.body as string));
     /** 新建對話第一次存好（後端版本 r1），之後的讀回都回 remote（版本 r2）。 */
     async function created(remote: () => Session = () => local()) {
+      // 掛載時會讀一次清單：先清掉上一條測試留下的假回應（測試是隨機順序）
+      fetchToukaMock.mockReset().mockResolvedValue(okJson([]));
       const rendered = renderHook(() => useSessionList(), { wrapper });
       await act(async () => {});
       let first = true;
