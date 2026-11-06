@@ -238,6 +238,19 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 第 4b 段：urgent 插話在上游串流接收中直接打斷那一輪（取消、丟掉半截、不重試、不算一步、計費照廠商回報或估算），串流內送 `round_interrupted_by_user`（`step`），接著用打斷範本送出插話。佇列 Protocol 多 `urgent_signal`；端點與 openapi 不變。
 - OpenAPI 已在沙盒內重生。
 
+## 靈魂與代理人的名稱、用編輯建立靈魂（ADR-0303，2026-11-07）
+
+- **名稱**：`POST /v1/souls`、`POST /v1/souls/{soul_id}`、`DELETE /v1/souls/{soul_id}` 的 ID 要是單一段（`is_zone_segment`），否則 422 `VALIDATION_ERROR`，檢查在任何檔案系統呼叫之前（建立時也在 collection 撞名檢查之前）。已有資料夾時，名稱要逐字出現在 `soul`、`legacy`、個人空間的目錄列表裡，只差大小寫或 8.3 短檔名的別名回 422；列不完整回 `SOUL_VAULT_ERROR`。刪除的不可刪名單（DebugAgent）不分大小寫，一律 403。
+- **用編輯建立或轉換**（`POST /v1/souls/{soul_id}`）：只有重新輸入密碼的人類管理員能建立新資料夾或把未標成靈魂的資料夾轉成靈魂，也照建立時檢查 collection 撞名。非人類：
+  - 只能編輯逐字存在、已標成靈魂的資料夾，否則 403 `AUTH_PERMISSION_DENIED`。這也包括只改人設寫進未標靈魂的資料夾。
+  - Owner 角色只能編輯自己，或和自己有同一位人類擁有者的靈魂；沒有擁有者的不行。
+  - Debugger 可以編輯任何已存在的靈魂。
+- **查靈魂**（`X-Touka-Soul-ID`、`X-Agent-ID` 切換、前景與心跳）：名稱不合規或不是逐字的資料夾名稱，就不算靈魂。別名的警告每個名稱只記一次。
+- **頭像** `GET /v1/users/{user_id}/avatar`：`user_id` 不是單一段回 404，不碰檔案系統。
+- **舊對話** `GET /v1/stats/legacy/{agent_id}`、`POST /v1/stats/legacy/{agent_id}/sync`：在擁有權檢查之前先經 `agent_service.check_known_target`（和內容快照共用）。不是單一段回 422；不是查自己時，不在代理人清單裡回 403。這也包括已刪除代理人留下的資料夾。
+- **擁有權**（`ResourceManager.is_owner` 的非人類 Owner 角色）：沒有擁有者的目標只放行逐字已知的代理人（`agent_service.is_known_id`）。Owner 角色查不存在的自訂模型，從 404 變成 403。
+- **專案根目錄**：登記時和工作區根的磁碟或分享開頭不同，就不收（解析之前比對）。
+
 ## Touka 待排小任務：靈魂主要模型、模型名大小寫、沒設模型（ADR-0250）
 
 - `POST /v1/souls/{soul_id}`（`update_soul`）存檔規則（認證、擁有權與步升密碼不變，成功回應形狀不變）：

@@ -15,6 +15,7 @@ import re
 from pathlib import Path, PurePath, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
     LINK_REFUSED_MESSAGE,
@@ -73,6 +74,11 @@ def _enforce_root_bound(
 
     if not target_path_str or target_path_str.strip() in [".", "/"]:
         return root
+
+    # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）
+    if not same_drive(target_path_str, root_bound_str):
+        msg = "Cross-drive forbidden."
+        raise PathGuardError(msg)
 
     try:
         target = Path(target_path_str)

@@ -12,14 +12,17 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from memory_server.utils.no_follow import WalkReport
 from memory_server.utils.zone_paths import (
     ALL_ANCHORS,
+    Anchor,
     contains_zone,
     current_roots,
     is_zone_segment,
     zone_of,
 )
 
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
@@ -28,6 +31,59 @@ logger = logging.getLogger(__name__)
 
 # 靈魂實體儲存的三個 base（create 建立／刪除清理的完整集合）。
 _SOUL_STORAGE_BASES = ("soul", "legacy", "personal_drive")
+
+
+def check_soul_name(identity: AgentIdentity) -> None:
+    r"""靈魂名稱能不能拿來建立、編輯、刪除（sec-9 PR 1b）：單一段，而且不是既有資料夾的別名.
+
+    1. 不是單一段（``is_zone_segment``）→ ``VALIDATION_ERROR``。這一步不碰檔案系統：Windows 上
+       ``\\主機\分享`` 拼上去會變成網路路徑，檢查之後才會碰到本機的 base。
+    2. 三個 base 各自判斷：名稱逐字出現在目錄列表 → 通過；不在列表、檔案系統卻說它存在 → 別名
+       （只差大小寫、8.3 短檔名、Unicode 正規化），``VALIDATION_ERROR``；都不是 → 還沒有，通過。
+       Linux 上真的並存的 ``Foo``、``foo`` 各自逐字在列表裡，都通過。
+    3. 列不完整 → ``SOUL_VAULT_ERROR``：不能確認就不動。
+    """
+    agent_id = identity.agent_id
+    if not is_zone_segment(agent_id):
+        logger.warning("🚫 Soul name is not a single segment: %r", agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    base_path = Path(resource_manager.get_base_path())
+    for base_name in ("soul", "legacy"):
+        root = base_path / base_name
+        try:
+            names = resource_manager.list_child_names(root)
+        except OSError as exc:
+            logger.warning("🚫 Cannot list %s to check the soul name %r", base_name, agent_id)
+            raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
+        if agent_id not in names and (root / agent_id).exists(follow_symlinks=False):
+            _refuse_alias(base_name, agent_id)
+    drive = resource_manager.soul_drive(identity)
+    try:
+        names = _personal_drive_names()
+        present = drive is not None and resource_manager.zone_kind(drive) != "missing"
+    except OSError as exc:
+        logger.warning("🚫 Cannot list the personal space to check the soul name %r", agent_id)
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
+    if agent_id not in names and present:
+        _refuse_alias(Anchor.PERSONAL_DRIVE.value, agent_id)
+
+
+def _refuse_alias(base_name: str, name: str) -> None:
+    logger.warning(
+        "🚫 %r is not the exact name of the existing %s folder it points to", name, base_name
+    )
+    raise ToukaException(ErrorCode.VALIDATION_ERROR)
+
+
+def _personal_drive_names() -> set[str]:
+    """個人空間錨點第一層的實際名稱（區內方法，不跟隨連結；列不完整丟 OSError）."""
+    report = WalkReport()
+    root = resource_manager.anchor_root(Anchor.PERSONAL_DRIVE)
+    entries = list(resource_manager.zone_walk(root, report, list_depth=1, show_links=True))
+    if report.errors:
+        failed = f"Cannot list every entry of the personal space ({report.errors[0][0] or '.'})"
+        raise OSError(failed)
+    return {entry.parts[0] for entry in entries if len(entry.parts) == 1}
 
 
 def _safe_target(base: Path, filename: str) -> Path | None:

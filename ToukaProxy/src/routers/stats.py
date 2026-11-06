@@ -17,6 +17,7 @@ from memory_server.utils.memory_worker import run_memory_job
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.activity_registry import activity_registry
+from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
@@ -116,6 +117,8 @@ async def get_legacy_sync_stats(
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     target = AgentIdentity.from_str(agent_id)
+    # 名稱先確認（sec-9 PR 1b）：不是單一段 422、不認得 403，之後才拼舊對話資料夾的路徑
+    agent_service.check_known_target(target, identity)
     if not resource_manager.is_owner(target, identity):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     try:
@@ -154,6 +157,7 @@ async def trigger_legacy_sync(
     if not identity:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     target = AgentIdentity.from_str(agent_id)
+    agent_service.check_known_target(target, identity)  # 同上（sec-9 PR 1b）
     if not resource_manager.is_owner(target, identity):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     try:

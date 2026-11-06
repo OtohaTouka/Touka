@@ -9,7 +9,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from memory_server.utils.zone_paths import is_zone_segment
+
 from src.config import CONFIG_DIR
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity
 from src.services.custom_model_service import custom_model_service
 from src.services.permission_service import permission_service
@@ -60,6 +63,45 @@ class AgentService:
         if not isinstance(raw, dict):
             raise RegistryUnreadableError
         return set(raw)
+
+    def is_known_id(self, target: AgentIdentity) -> bool:
+        """目標的 ID 逐字是已知的代理人：系統代理人、靈魂、有 config.json 的自訂模型、註冊表的鍵.
+
+        給「放不放行」的判斷用（``ResourceManager.is_owner``，sec-9 PR 1b），比 ``get_all_agents``
+        便宜：依序查，查到就停，只查這一個 ID 的設定檔。註冊表讀不出來時只記警告、當不認得——
+        不能確認就不放行。
+        """
+        agent_id = target.agent_id
+        if agent_id in SYSTEM_AGENT_IDS:
+            return True
+        if agent_id in custom_io.list_custom_ids() and custom_io.custom_file_exists(
+            target, "config.json"
+        ):
+            return True
+        if soul_service.has_soul_folder(target):  # 逐字的靈魂資料夾（有快取）
+            return True
+        try:
+            return agent_id in self.registered_ids()
+        except RegistryUnreadableError:
+            logger.warning("Agent registry unreadable; its ids are not treated as known")
+            return False
+
+    def check_known_target(self, target: AgentIdentity, caller: AgentIdentity) -> None:
+        """目標代理人名稱要是單一安全段（不會被當成路徑）；不是查自己時，還要是系統認得的代理人.
+
+        名稱不合規 → 422；不認得 → 403（和跨擁有者拒絕同一個答案）。「認得」是和代理人清單的
+        名稱逐字相同：只差大小寫、8.3 短檔名、帶舊前綴等寫法都不算。先確認名稱，再檢查擁有權；
+        查自己時名稱來自已驗證的憑證。內容快照（sec-9 PR 1a）與舊對話統計、同步（PR 1b）共用。
+        """
+        target_id = target.agent_id
+        if not is_zone_segment(target_id):
+            logger.warning("🚫 Refused an agent id that is not a single name")
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
+        if caller.agent_id == target_id or target_id in SYSTEM_AGENT_IDS:
+            return
+        if target_id not in {str(agent.get("id")) for agent in self.get_all_agents()}:
+            logger.warning("🚫 Refused an unknown agent: %r", target_id)
+            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
 
     def save_registry(self, registry: dict[str, list[str]]) -> None:
         """持久化註冊表至磁碟 (Warden SSOT)."""

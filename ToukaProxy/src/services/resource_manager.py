@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from memory_server.models.conversation_search import ConversationSearchError
+from memory_server.utils.drive_bound import same_drive
 from memory_server.utils.no_follow import (
     LINK_NOT_FOLLOWED,
     WalkReport,
@@ -353,6 +354,9 @@ class ResourceManager:
         if not path_str:
             return False
         workspace = await self._get_workspace_root()
+        # 解析之前先比對磁碟或分享開頭：Windows 解析 \\主機\分享 時會先連出去（sec-9 PR 1b）
+        if not same_drive(path_str, str(workspace)):
+            return False
         return validate_no_symlink_escape(Path(path_str), workspace)
 
     def get_avatars_dir(self) -> Path:
@@ -381,6 +385,10 @@ class ResourceManager:
             str | None: 實體絕對路徑字串，若權限不足或類型未知則回傳 None。
         """
         agent_id = identity.agent_id
+        # 名稱不是單一段就不拼路徑（sec-9 PR 1b）：Windows 上 \\主機\分享 拼上去會變成網路路徑
+        if not is_zone_segment(agent_id):
+            logger.warning("🚫 Vault path refused for a name that is not one segment: %r", agent_id)
+            return None
         app_data_dir = Path(get_app_data_dir())
 
         if vault == "soul":
@@ -464,8 +472,14 @@ class ResourceManager:
 
         Returns:
             str: 實體統計目錄路徑。
+
+        Raises:
+            ToukaException: ``VALIDATION_ERROR``，名稱不是單一段（sec-9 PR 1b）。
         """
         agent_id = identity.agent_id
+        if not is_zone_segment(agent_id):
+            logger.warning("🚫 Stats path refused for a name that is not one segment: %r", agent_id)
+            raise ToukaException(ErrorCode.VALIDATION_ERROR)
         path = Path(get_app_data_dir()) / "stats" / agent_id
         return str(path)
 
@@ -507,8 +521,15 @@ class ResourceManager:
             # ("System" — internal-only, absent from ASSIGNABLE_AGENT_ROLES — keeps its
             # documented global bypass for background scans and is intentionally not
             # constrained here; this guard scopes the externally-reachable Owner role.)
+            # sec-9 PR 1b：逐字找不到擁有者時，只差大小寫的寫法找到的擁有者就是這個目標的擁有者
+            # （不分大小寫的檔案系統上它們指到同一個資料夾）；逐字找到的優先，權限不會因此變寬。
+            target_owners = [u for u in users if target_id in u.owned_agents]
+            if not target_owners:
+                folded = target_id.casefold()
+                target_owners = [
+                    u for u in users if any(a.casefold() == folded for a in u.owned_agents)
+                ]
             if identity.agent_role == "Owner" and identity.agent_id != target_id:
-                target_owners = [u for u in users if target_id in u.owned_agents]
                 if target_owners and not any(
                     identity.agent_id in u.owned_agents for u in target_owners
                 ):
@@ -518,21 +539,30 @@ class ResourceManager:
                         target_id,
                     )
                     return False
+                # 沒有擁有者時只放行逐字已知的代理人：8.3 短檔名這類別名大小寫比對抓不到
+                if not target_owners and not self._is_known_agent(target_identity):
+                    logger.warning(
+                        "🚫 Autonomy denied for an unknown target: %s → %r",
+                        identity.agent_id,
+                        target_id,
+                    )
+                    return False
 
             # 找到該 Agent 的人類擁有者以確認最後活躍時間
-            for user in users:
-                if target_id in user.owned_agents:
-                    if not user.last_active_at:
-                        return False  # 從未登入過的代理人無權限自主
+            # 第一位擁有者決定（和以前逐一找 users 的順序相同）
+            if target_owners:
+                user = target_owners[0]
+                if not user.last_active_at:
+                    return False  # 從未登入過的代理人無權限自主
 
-                    from src.utils.time_utils import get_current_epoch
+                from src.utils.time_utils import get_current_epoch
 
-                    # 30 天 = 2,592,000 秒
-                    if int(get_current_epoch()) - user.last_active_at < 2592000:
-                        return True
+                # 30 天 = 2,592,000 秒
+                if int(get_current_epoch()) - user.last_active_at < 2592000:
+                    return True
 
-                    logger.warning("⏳ Autonomy expired for %s", target_id)
-                    return False
+                logger.warning("⏳ Autonomy expired for %s", target_id)
+                return False
 
             # 若無明確擁有者 (如公共代理人)，則允許 System 或自我存取
             return True
@@ -548,6 +578,13 @@ class ResourceManager:
                 return target_id in user.owned_agents
 
         return False
+
+    def _is_known_agent(self, target: AgentIdentity) -> bool:
+        """目標逐字是已知的代理人（系統代理人、靈魂、有設定的自訂模型、登記的 ID；sec-9 PR 1b）."""
+        # 延遲匯入破循環：agent_service → soul_io／custom_io → resource_manager
+        from src.services.agent_service import agent_service  # noqa: LOCAL_IMPORT_BAN
+
+        return agent_service.is_known_id(target)
 
     @permission_repair(retry=True)
     def list_all_agent_stats(self, identity: AgentIdentity) -> list[tuple[str, str]]:
