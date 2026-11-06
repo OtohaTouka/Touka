@@ -162,6 +162,12 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 前端開發伺服器替 AI 代理寫出指示檔（2026-11-06）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| Next.js 16.4 起，`next dev` 偵測到 AI 程式代理時會在 `ToukaChat/` 寫出 `AGENTS.md`。那段指示要代理人把這個檔案和自己的工作一起 commit，和本專案給代理人的規則衝突；代理人可能照做，把不屬於這次任務的檔案帶進 commit。只影響開發環境，不進映像。 | `ToukaChat/next.config.ts` 設 `agentRules: false`，`next dev` 不再寫出，舊的那段也會被它移除。`tests/lint/test_chat_agent_rules_security.py`。 |
+
 ### 技能名稱與內容快照的代理人名稱會被當成路徑；系統技能可以被覆蓋（2026-11-06）
 
 | 弱點 | 修正與驗證 |

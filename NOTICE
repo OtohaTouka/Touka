@@ -68,4 +68,18 @@ ToukaProxy/Dockerfile, ToukaHeartbeat/Dockerfile and ToukaChat/Dockerfile.prod.
 
 Python and npm packages installed in the images keep their own license
 files next to the package.
+
+touka-proxy also carries two programs copied from their official images:
+- Node.js (node and npm), from the node image named above. The Node.js
+  license, which also covers the libraries built into node, is in
+  /usr/local/share/doc/node/LICENSE; npm keeps its license files under
+  /usr/local/lib/node_modules/npm.
+- uv and uvx, Copyright (c) Astral Software Inc., licensed under MIT or
+  Apache-2.0 (https://github.com/astral-sh/uv), from ghcr.io/astral-sh/uv.
+  That image has no license file, so both texts are kept in this repository
+  under ToukaProxy/licenses/uv and copied to
+  /usr/local/share/doc/uv/LICENSE-MIT and /usr/local/share/doc/uv/LICENSE-APACHE.
+
+touka-chat runs on the official node image itself, which keeps the Node.js
+license in /usr/local/LICENSE.
 ------------------------------------------------------------
