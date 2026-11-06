@@ -24,6 +24,7 @@ from pydantic import ValidationError
 from src.main import app
 from src.models.custom_models import CustomModelRenameRequest
 from src.models.identity import AgentIdentity
+from src.services.agent_service import agent_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.utils import custom_io, soul_io
@@ -50,6 +51,8 @@ def owner_client():
 
 class TestContextSnapshotIDOR:
     def test_read_cross_owner_denied_and_service_not_reached(self, owner_client, monkeypatch):
+        # victimAgent 是認得的代理人：擋下它的是擁有權檢查，不是「不認得」那一步
+        monkeypatch.setattr(agent_service, "get_all_agents", lambda: [{"id": "victimAgent"}])
         monkeypatch.setattr(resource_manager, "is_owner", lambda target, caller: False)
         reached = {"v": False}
 
@@ -81,6 +84,7 @@ class TestContextSnapshotIDOR:
         assert r.json() == {"blocks": ["ok"]}
 
     def test_export_cross_owner_denied(self, owner_client, monkeypatch):
+        monkeypatch.setattr(agent_service, "get_all_agents", lambda: [{"id": "victimAgent"}])
         monkeypatch.setattr(resource_manager, "is_owner", lambda target, caller: False)
         wrote = {"v": False}
         monkeypatch.setattr(

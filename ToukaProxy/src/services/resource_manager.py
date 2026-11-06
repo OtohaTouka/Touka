@@ -1523,6 +1523,31 @@ class ResourceManager:
         p.chmod(stat.S_IMODE(p.stat().st_mode) | stat.S_IWRITE)
 
     @permission_repair(retry=True)
+    def list_child_names(
+        self, path: Path | str, *, dirs_only: bool = False, strict: bool = True
+    ) -> list[str]:
+        """列出 path 第一層項目的實際名稱：不進入任何資料夾，連結只列名稱、不跟隨.
+
+        ``dirs_only`` 只回一般資料夾（不含連結）。不是資料夾回空清單。列不完整（權限、某一項
+        讀不到）時預設丟例外而不是少列：呼叫端拿名稱做檢查，少列一項就等於放行。``strict=False``
+        只記警告、回列得到的部分（只拿來顯示的清單用）。
+        """
+        text = _plain(path, "list_child_names")
+        if not Path(text).is_dir():
+            return []
+        report = WalkReport()
+        walk = _walk_plain(Path(text).resolve(), report, show_links=True, list_depth=1)
+        with contextlib.closing(walk):
+            entries = [entry for entry in walk if len(entry.parts) == 1]
+        if report.errors and strict:
+            # 一般 OSError：權限自癒只處理帶 errno 的真實權限錯誤，這裡不假裝能修
+            failed = f"Cannot list every entry of {text} ({report.errors[0][0] or '.'})"
+            raise OSError(failed)
+        if report.errors:
+            logger.warning("Listed %s partially; %d entries unreadable.", text, len(report.errors))
+        return [entry.parts[0] for entry in entries if not dirs_only or entry.kind == "dir"]
+
+    @permission_repair(retry=True)
     def list_directory(
         self, path: Path | str, max_depth: int = 2, exclude: frozenset[str] = frozenset()
     ) -> list[str]:

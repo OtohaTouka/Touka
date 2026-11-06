@@ -168,6 +168,15 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 |---|---|
 | 在連線管理輸入的第三方 API 金鑰，會連同連線清單存進瀏覽器的 localStorage（`touka_connections`）。等後端回應的期間一定留著；後端回空清單、換後端，或用舊的 `/connections` 頁時，真值會一直留著。網頁被注入腳本，或有人讀得到這台電腦的瀏覽器資料，就拿得到金鑰。 | 寫進瀏覽器的清單一律把金鑰換成和後端相同的遮罩（`maskConnectionKeys`，經 `useStoredConnections` 與 `publishConnections`；通知其他元件的事件也只帶遮罩），真值只在記憶體裡、隨 `POST /v1/ui/connections` 送給後端。從瀏覽器讀進來的清單也先換成遮罩，舊版留下的真值不會再被送出。載入時 `StoredConnectionKeyCleanup` 把舊版存下的真值換成遮罩，別的分頁寫回時再換一次，寫不回去就顯示提示。舊的 `/connections` 頁只寫本機，拿掉金鑰欄位。換後端時，還沒存到後端的金鑰不會帶到新後端，要在新後端重新輸入；只存在這個瀏覽器、從沒存到後端的金鑰（例如在舊頁輸入的），也要到設定的連線管理重新輸入。開著的舊版分頁要重新載入才會換；換成遮罩不代表瀏覽器抹掉了磁碟上的舊資料。`useConnectionSettings.key-storage.security.test.ts`、`StoredConnectionKeyCleanup.security.test.tsx`、`app/connections/__tests__/page.key-storage.security.test.tsx`、`tests/lint/test_connection_key_mask_security.py`（前後端遮罩逐字相同、只有遮罩過的寫入點能寫這份清單）、`tests/unit/test_connections_key_masking.py`。 |
 
+### 技能名稱與內容快照的代理人名稱會被當成路徑；系統技能可以被覆蓋（2026-11-06）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 技能的讀取、新增、刪除、打包、從網址安裝，以及靈魂的「啟用技能」，把技能名稱直接接成資料夾路徑，名稱沒有檢查；有特權的帳號（管理員、除錯身分、擁有靈魂的使用者）能讀寫或刪除技能資料夾以外的檔案。在不分大小寫的檔案系統（Windows、macOS）上，只差大小寫的名稱會指到既有的技能資料夾。 | 技能名稱一律經 `is_skill_segment`；已有同名資料夾時，名稱要和目錄列表的實際名稱完全相同（`SkillService._skill_dir`，列表用新的 `ResourceManager.list_child_names`：不跟隨連結，列不完整就拒絕）。新增技能的請求模型、建立引擎的驗證（改成整串比對，規則和寫入時一樣）也擋。名稱不合規的技能資料夾不列出。`tests/unit/test_skill_snapshot_path_security.py`。 |
+| 系統技能（會注入其他使用者的請求）可以被「更新技能」或安裝覆蓋，覆蓋後就不再算系統技能、也能刪掉；技能資料夾裡的檔案很多時，系統技能可能沒被載入，因此能刪；內建系統技能的資料夾不在時，能用同名建立一般技能。 | 系統技能看內建名稱（`RESERVED_SYSTEM_SKILL_IDS`）、載入的清單與磁碟上的 `SKILL.md`；更新、安裝都不能覆蓋，也不能刪除，和設定頁只顯示「受保護」一致。安裝包不能自稱系統技能，建立引擎只有管理員能建立系統技能。載入技能改成直接列第一層資料夾，沒有筆數上限。同上測試。 |
+| 內容快照的讀取與匯出沒有檢查代理人名稱，匯出能寫到快照資料夾以外，也能替不認得的名稱組裝快照。 | 名稱要是單一安全段（`is_zone_segment`），否則 422；不是查自己時，要和代理人清單的名稱逐字相同（只差大小寫、帶舊前綴都不算），否則 403。同上測試；`tests/unit/test_idor_soul_sandbox_security.py` 的跨擁有者案例改成先通過名稱檢查，確實測到擁有權檢查。 |
+| 從網址安裝技能時也接受 http。 | 只收 https。同上測試。 |
+
 ### 提問的答案憑證可以被猜到、也會撞在一起（2026-11-06，ADR-0300）
 
 | 弱點 | 修正與驗證 |
