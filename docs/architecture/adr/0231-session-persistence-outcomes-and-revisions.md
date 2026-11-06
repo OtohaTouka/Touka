@@ -6,6 +6,8 @@
 >
 > 路線圖 3c PR 2 修訂（2026-11-06）：模型失敗時後端回「生成失敗、沒寫」（`SkippedResult` 的 `generation_failed`），畫面用 user 保存的版本把失敗那則存一次，不再跳保存提示；送給模型前拿掉空白的助理訊息。改第 2、6 點。
 
+> ADR-0302 修訂（2026-11-06）：網頁版聊天側剪裁先等畫面的收尾保存、有放棄條件；畫面因版本舊被擋而存檔是剪裁造成的，接在剪過的存檔上再存一次。改第 6、8、10 點。
+
 - 日期：2026-09-21
 - 狀態：維護者核准計畫（委託審查）；來源實作與完整Python R4完成，最終審查以本輪審查原件為準（未入版控）。
 - 範圍：Memory 任務保存、Proxy 明示 UI session 契約、Chat writer／串流／恢復。未發布、未部署。
@@ -51,7 +53,8 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    有工具呼叫或其他區塊的不算空白）。completed＋no_text、只有工具步驟的回覆也存成空白（工具步驟不送給模型），一樣會被拿掉。2026-11-06 查各家官方文件：Anthropic 文字區塊至少 1 個字、
    連續同角色會自動合併（platform.claude.com/docs/en/api/messages）；Gemini、DeepSeek、xAI 沒寫；
    OpenAI 頁面打不開，沒查到。
-   trim 保持非阻塞，但以原 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。
+   trim 保持非阻塞，以讀到的 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。網頁版先在鎖外等畫面的收尾保存（存好時叫醒，上限 10 秒），
+   心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時放棄（ADR-0302）。
 7. 持久串流 state／resume／stop／active 同時核 requester、fresh DB 存在與原 ownership；無痕只用
    經認證的 memory owner，DB0。受控刪除退休精確舊 stream，晚到 producer 不可寫入重建的新代。
    完成 buffer TTL 600 秒、上限與 orphan 保護維持；server 重啟會失去 memory buffer，未保存草稿
@@ -62,6 +65,8 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    例外只有 `set_home` 成功（2026-11-05）：家欄位只由它改，存檔已經變了，本機草稿的這兩個欄位跟著改，
    其他內容照留。家欄位不算進版本、存檔不送也不比（ADR-0301，2026-11-06），所以版本與待恢復的版本都照用；
    設家前送出、還在路上的保存回來時保留設家的結果。回覆還在跑時設家或換家不再跳保存提示（`session-save.spec.ts`）。
+   另一個例外是聊天側剪裁（ADR-0302）：版本舊被擋而存檔是剪裁造成的，以剪過的存檔為底，接上這一頁新增或改過、接得上的部分再存一次；
+   剪掉的前段、主幹外的分支與摘要以存檔為準。只接一次，接不上照舊提示。
    user full 保存後才送模型；React updater 不做 HTTP。純轉換拋錯回 typed failed，釋放 pending／
    producer，保留可核對草稿；無痕錯誤不永久鎖住下一回合。
 9. scope 綁 proxy＋credential principal／epoch，wire／refresh／body await 後再驗；scope 失效
@@ -70,7 +75,8 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    一次 state 核對；已完成 TTL stream 亦可接回，但存檔已比那一輪新（有文字版本時版本不同；沒有時存檔已有那則回覆）就不重播，否則舊版本存不回去（2026-11-05）；不 fan-out 或 poll。真 UTF-8 decoder 以同 generation
    started／terminal 判斷，DONE／EOF 不證保存，游標重播可用已授權 started 座標。
 10. unknown 只提供唯讀「重新核對保存結果」，相同內容才確認 full；不同保留草稿及 conflict。
-    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0。
+    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0；存檔是剪裁造成的、接得上就接在剪過的存檔上，
+    不把剪掉的寫回去；接不上照舊整棵寫回（ADR-0302）。
     recheck／retry 不競逐，慢回應不能覆蓋較新 intent。刪除 await 合法 200 才移除；無痕零 HTTP。
     split 綁 export 前依賴內容，等待期間 drift 拒絕縮減；無痕拒絕 split 縮減、改用本機匯出。
 

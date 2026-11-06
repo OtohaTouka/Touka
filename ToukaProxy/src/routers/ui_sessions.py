@@ -49,6 +49,7 @@ from src.services.authorization_gateway import (
     require_admin_authority,
     require_authenticated,
 )
+from src.services.chat_trim_wait import closing_saves
 from src.services.handover_service import handover_service
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
@@ -495,6 +496,7 @@ async def save_session(
     )
     if result.status != "saved":
         return SessionSaveResponse(session_id=session_id, persistence=result)
+    closing_saves.saved(session_id)  # 叫醒等畫面收尾保存的剪裁（ADR-0302）
 
     new_agent_id = (
         session.agent_id.agent_id

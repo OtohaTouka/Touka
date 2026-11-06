@@ -978,6 +978,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
   - `POST /v1/system/sliding_window`：更新設定（admin only）
 - **SSOT**：`ToukaProxy/config/sliding_window.json`（預設 `enabled: false`）
 - **ACID 保證**：先歸檔進舊對話庫（`archive_payload`，一個交易）→ 確認成功 → 再更新 Session；任一失敗、或一則都沒歸檔到，安全跳過，下次重試（ADR-0264；以前先寫 legacy JSON，被保護擋下，正式環境從沒剪成）
+- **聊天側先等畫面的收尾保存（ADR-0302）**：網頁版文字版存好後、送出終態前登記一個等待者；`POST /v1/ui/sessions/{id}` 存好時叫醒它（上限 10 秒，逾時照剪）。心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時不剪（讀到後、寫摘要前、存回前各查一次）。同一段對話只留一個在等，新的取代舊的。
 - **身分**：剪裁、歸檔、摘要記帳都用家對話所屬的靈魂。心跳本來就是靈魂；聊天側（dispatcher 存檔後）從 session 的 `home_for_agent` 解析，解析不到不剪並記 warning，不用 UI 請求者（ADR-0264）
 - **摘要**：`context_summary` 第一行是時間範圍；送摘要員的每行帶台北時間（ADR-0264）
 

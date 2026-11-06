@@ -199,6 +199,7 @@ user full 成功才送模型。只有同 generation typed terminal 能證生成�
 改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
 確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
+保存因版本舊被擋時讀一次存檔：形狀是剪裁造成的（`trim_graft.ts` 的 `graftOntoTrim`），以剪過的存檔為底接上這一頁的改動、存一次，不跳提示；剪掉的前段與摘要以存檔為準，這一頁刪掉或切分掉的不寫回去。一般保存、回覆收尾、「僅重試保存」都這樣接；只接一次，接不上照舊提示（ADR-0302）。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。
 
 匯入部分失敗不報全部成功；split 匯出後縮減綁開始時的內容，等待期間 drift 拒絕覆蓋。
