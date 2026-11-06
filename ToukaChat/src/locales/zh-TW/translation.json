@@ -1224,7 +1224,8 @@
       "proxy_switch_confirm": "要把後端換成 {{url}} 嗎？確認後，這個帳號在目前後端的所有裝置都會登出，這個瀏覽器會回到登入頁。",
       "proxy_switch_confirm_label": "換後端並登出",
       "proxy_checking": "正在確認 {{url}} 連得上…",
-      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。"
+      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。",
+      "storage_cleanup_failed": "無法把瀏覽器內舊版存下的連線金鑰換成遮罩。請在瀏覽器設定清除此網站的儲存資料，再重新載入。"
     },
     "theme_showcase": {
       "agent_sample_reply": "這是 {{name}} 的範例對話回覆。我們使用 Design Tokens 確保每個 Agent 在任何主題下都具有高度辨識度。",
@@ -2187,7 +2188,6 @@
       "api_url_placeholder_proxy": "例: http://localhost:8000",
       "api_url_placeholder_openai": "例: https://api.openai.com/v1",
       "proxy_url_hint": "* 使用根目錄 URL，ToukaUI 將自動解鎖專業統計與靈魂同步功能。",
-      "api_key_label": "API Key (選填)",
       "deploy_connection_button": "部署此連線",
       "existing_nodes_heading": "現有的連線節點 ({{count}})",
       "empty_state_title": "尚未配置任何連線",

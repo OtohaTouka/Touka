@@ -2,11 +2,10 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useConfirmToast } from '@/hooks/useConfirmToast';
-import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useStoredConnections } from '@/hooks/useStoredConnections';
 import { Connection } from '@/lib/types';
 import { applyConnectionEdit, type ConnectionDraft } from '@/lib/connectionEdit';
 import {
-    CONNECTIONS_STORAGE_KEY,
     PROXY_PROBE_TIMEOUT_MS,
     activeProxyUrlOf,
     captureRequestScope,
@@ -16,6 +15,7 @@ import {
     isRequestScopeCurrent,
     keepActiveProxy,
     logoutTouka,
+    maskConnectionKeys,
     proxyDisplayUrl,
     publishConnections,
     type RequestScope,
@@ -26,8 +26,8 @@ import { logSSOTError, errorMsg } from '@/lib/error_handler';
 export function useConnectionSettings(onConnectionsUpdated?: () => void) {
     const { t } = useTranslation();
     const { confirmToast } = useConfirmToast();
-    // useLocalStorage 統一管理 JSON 序列化與持久化（LOCALSTORAGE_SSOT）
-    const [connections, setConnections] = useLocalStorage<Connection[]>(CONNECTIONS_STORAGE_KEY, []);
+    // 瀏覽器裡只存遮罩（useStoredConnections）；這次輸入的金鑰真值只在記憶體裡，隨下面的 POST 送給後端。
+    const [connections, setConnections] = useStoredConnections();
     // 後端 GET /status 以 connection id 為 key，值為已消毒的 'ok' / 'connection_error'（禁令 23）。
     const [connectionStatus, setConnectionStatus] = useState<Record<string, string>>({});
     const switching = useRef(false);
@@ -85,7 +85,8 @@ export function useConnectionSettings(onConnectionsUpdated?: () => void) {
     };
 
     // 換後端：確認新網址是 Touka → 向舊後端登出 → 切過去（AuthGuard 回登入頁，登入頁顯示目前網址）。
-    // 清單不送給任何後端：舊的快要不算數，新的還沒登入，而且清單裡可能有本機還沒遮罩的金鑰。
+    // 清單不送給任何後端：舊的快要不算數，新的還沒登入。這次輸入、還沒存到後端的金鑰不會帶過去，
+    // 本機只留遮罩；新後端收到遮罩時沒有真值可保留，存成沒有金鑰，要在新後端重新輸入。
     const switchProxy = async (newConns: Connection[], next: string, scope: RequestScope | null) => {
         if (switching.current || !scope || !isRequestScopeCurrent(scope)) return;
         switching.current = true;
@@ -137,6 +138,8 @@ export function useConnectionSettings(onConnectionsUpdated?: () => void) {
                 body: JSON.stringify(newConns)
             });
             if (!res.ok) throw new Error(`save connections ${res.status}`);
+            // 後端已收下真值：記憶體裡也只留遮罩，之後的存檔不會再送一次舊值（讀回清單失敗或回空清單時也一樣）。
+            if (getActiveProxyUrl() === proxyUrl) setConnections(maskConnectionKeys(newConns));
             await fetchTouka(proxyUrl, "/v1/models/refresh", { method: 'POST' });
             if (onConnectionsUpdated) onConnectionsUpdated();
             await fetchConnections();

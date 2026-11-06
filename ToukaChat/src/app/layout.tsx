@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import { SetupNoticesProvider } from "@/components/setup/SetupNoticesProvider";
 import { RetiredSnsStorageCleanup } from "@/components/security/RetiredSnsStorageCleanup";
+import { StoredConnectionKeyCleanup } from "@/components/security/StoredConnectionKeyCleanup";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function RootLayout({
         <AuthProvider>
           <I18nProvider>
             <RetiredSnsStorageCleanup />
+            <StoredConnectionKeyCleanup />
             {/* mode 軸（亮/暗/跟隨系統）由 next-themes 管理：attribute="class" 切換 <html> 的
                 .light/.dark；enableSystem 接 prefers-color-scheme；FOUC 由其 pre-paint 腳本處理。
                 自製 ThemeProvider（accent 軸）置於其內，訂閱 resolvedTheme 注入對應中性色（ADR-0105）。 */}

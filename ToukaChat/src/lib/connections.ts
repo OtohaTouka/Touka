@@ -9,7 +9,8 @@
 import { BackendProtocol, Connection, StreamStartedEvent, StreamTerminalEvent, UiPersistence } from './types';
 import { CONFIG } from './config';
 import { logSSOTError, ToukaApiError } from './error_handler';
-import { getLocalStorageItem, setLocalStorageItem } from '../hooks/useLocalStorage';
+import { getLocalStorageItem, replaceLocalStorageItem, setLocalStorageItem } from '../hooks/useLocalStorage';
+import { SECRET_MASK } from './secretMask';
 import { PROVIDER_CATALOG, buildChatEndpoint } from './providerCatalog';
 import { getSystemEpoch } from './time_utils';
 import { parseSaveResult } from './session_persistence';
@@ -326,11 +327,39 @@ export function proxyDisplayUrl(proxyUrl: string): string {
     return typeof window !== 'undefined' ? window.location.origin : "";
 }
 
-/** 寫入清單並通知其他元件。先寫再發：收到事件的人讀到的必須已是新網址。 */
+/** 一筆連線存進瀏覽器的樣子：有金鑰就換成遮罩，其他欄位不動。讀不懂的值原樣回傳。 */
+function withMaskedKey<T>(entry: T): T {
+    if (!entry || typeof entry !== 'object') return entry;
+    const apiKey = (entry as { apiKey?: unknown }).apiKey;
+    return apiKey && apiKey !== SECRET_MASK ? { ...entry, apiKey: SECRET_MASK } : entry;
+}
+
+/**
+ * 瀏覽器裡的連線清單不留第三方金鑰：有金鑰的一律換成遮罩（後端收到遮罩就保留它存的真值）。
+ * 真值只在記憶體裡，隨 POST 送給後端。
+ */
+export function maskConnectionKeys(conns: Connection[]): Connection[] {
+    return Array.isArray(conns) ? conns.map(withMaskedKey) : conns;
+}
+
+/**
+ * 舊版存下的真值換成遮罩（比照 ADR-0224）。只改金鑰欄位、不通知換網址；讀不懂的值不動。
+ * 回傳 false 代表該換卻寫不回去。
+ */
+export function scrubStoredConnectionKeys(): boolean {
+    const stored = getLocalStorageItem<unknown>(CONNECTIONS_STORAGE_KEY, null);
+    if (!Array.isArray(stored)) return true;
+    const masked = stored.map(withMaskedKey);
+    if (masked.every((entry, i) => entry === stored[i])) return true;
+    return replaceLocalStorageItem(CONNECTIONS_STORAGE_KEY, masked);
+}
+
+/** 寫入清單並通知其他元件。先寫再發：收到事件的人讀到的必須已是新網址。兩邊都只有遮罩。 */
 export function publishConnections(conns: Connection[]): void {
-    setLocalStorageItem(CONNECTIONS_STORAGE_KEY, conns);
+    const masked = maskConnectionKeys(conns);
+    setLocalStorageItem(CONNECTIONS_STORAGE_KEY, masked);
     if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent("touka_connections_updated", { detail: conns }));
+        window.dispatchEvent(new CustomEvent("touka_connections_updated", { detail: masked }));
     }
 }
 
@@ -340,7 +369,7 @@ export function publishConnections(conns: Connection[]): void {
  */
 export function keepActiveProxy(serverConns: Connection[]): Connection[] {
     if (activeProxyUrlOf(serverConns) === getActiveProxyUrl()) return serverConns;
-    const local = getLocalStorageItem<Connection[]>(CONNECTIONS_STORAGE_KEY, []);
+    const local = maskConnectionKeys(getLocalStorageItem<Connection[]>(CONNECTIONS_STORAGE_KEY, []));
     return [...local.filter(isProxyConnection), ...serverConns.filter(c => !isProxyConnection(c))];
 }
 
