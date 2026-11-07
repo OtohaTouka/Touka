@@ -308,6 +308,18 @@ export const ERRORS = {
     msg: "The user stopped this reply before it started",
     i18n: "error.session.prompt_stopped"
   },
+  SESSION_OLD_HOME_READ_ONLY: {
+    id: 1223,
+    status: 409,
+    msg: "This is a former home conversation; set it as home again to continue it",
+    i18n: "error.session.old_home_read_only"
+  },
+  SESSION_OLD_HOME_NOT_DELETABLE: {
+    id: 1224,
+    status: 409,
+    msg: "A former home conversation cannot be deleted until its handover finishes",
+    i18n: "error.session.old_home_not_deletable"
+  },
   TERMINAL_APPROVAL_NOT_FOUND: {
     id: 1208,
     status: 404,

@@ -281,10 +281,10 @@ def build_snapshot(
     ))
     pos += 1
 
-    # ④ Home Messages（get_home_messages，前置於 request.messages）
+    # ④ Home Messages（主線讀到的家與還沒交接完的舊家原文，前置於 request.messages）
     blocks.append(_block(
         pos, tag=None, name="Home Messages", layer="SoulLayer",
-        source="get_home_messages（DB，前置於 messages）", kind="real" if home_messages else "mock",
+        source="inject_mainline（DB，前置於 messages）", kind="real" if home_messages else "mock",
         present=bool(home_messages), content_length=len(home_messages),
         tokens=estimate_messages_tokens(home_messages, model) if home_messages else 0,
         preview=_home_preview(home_messages), cache_tier=None,

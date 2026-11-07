@@ -13,6 +13,7 @@ from src.models.identity import AgentIdentity
 from src.services.dispatchers.route_family import same_route_family
 from src.services.resource_manager import resource_manager
 from src.services.stream_buffer_service import stream_buffer_service
+from src.utils.async_db import session_service
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
@@ -44,7 +45,7 @@ pipeline = ProxyPipeline([
     ToolLayer()
 ])
 
-# Note: get_home_messages and get_project_context have been moved to src/utils/async_db.py
+# Note: get_project_context lives in src/utils/async_db.py; home messages come from the mainline
 
 def log_payload(request_id: str, identity: AgentIdentity, model: str, payload: Any) -> None:
     """紀錄請求 Payload 至旋轉日誌檔案 (Identity SSOT)."""
@@ -88,7 +89,23 @@ async def process_proxy_request(
         return await _run_request(request, ctx, is_anthropic)
 
 
+async def _refuse_old_home(request: Any, ctx: PipelineContext) -> None:
+    """舊家不能開新的一輪：在 hook、組主線、記錄這一輪之前先擋（ADR-0306）.
+
+    網頁（帶 ``ui_persistence``）在准入交易裡重驗並記新家開始用；IDE 舊路徑、SNS 家模式與外部
+    相容路徑沒有准入交易，在這裡記。讀不到紀錄時讓這一輪失敗（不放寬）。
+    """
+    session_id = getattr(request, "session_id", None)
+    if not isinstance(session_id, str) or not session_id:
+        return
+    web = getattr(request, "ui_persistence", None) is not None
+    mark = not web and not ctx.get("incognito")
+    if await session_service.check_old_home(session_id, mark_started=mark):
+        raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
+
+
 async def _run_request(request: Any, ctx: PipelineContext, is_anthropic: bool) -> Any:
+    await _refuse_old_home(request, ctx)
     # 真的請求才跑 UserPromptSubmit hook（上下文預覽直接呼叫 pipeline，不經這裡；ADR-0292）
     ctx["run_hooks"] = True
     # 執行處理管道 (Pipeline執行所有的 Middleware Layers)

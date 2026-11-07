@@ -2385,6 +2385,8 @@
       "save_failed": "儲存工作階段失敗",
       "scope_mismatch": "此對話無法用於指定的對象",
       "prompt_stopped": "這次回覆在開始前就被停止了",
+      "old_home_read_only": "這是以前的家，要繼續這段對話請先把它設為家",
+      "old_home_not_deletable": "以前的家要等交接完成才能刪除",
       "interjection_queue_full": "這一則回覆的補充太多了",
       "interjection_too_long": "補充的文字太長",
       "interjection_not_found": "找不到這則補充",

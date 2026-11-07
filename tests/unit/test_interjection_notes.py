@@ -145,7 +145,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     soul.get_soul_data = lambda _identity: ("靈魂", SoulConfig().model_dump())
     session = {"id": "s", "title": "t", "messages": _tree()}
     monkeypatch.setattr(
-        heartbeat, "session_service",
+        heartbeat,
+        "session_service",
         MagicMock(read_execution_snapshot=AsyncMock(return_value=SessionSnapshot(session, "rev"))),
     )
     monkeypatch.setattr(heartbeat, "dispatch_request", _dispatch)
@@ -171,16 +172,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     ]
 
 
-async def test_home_messages_carry_the_note(monkeypatch):
-    service = MagicMock(
-        read_home_snapshot=AsyncMock(
-            return_value=async_db.SessionSnapshot({"id": "home", "messages": _tree()}, "rev")
-        ),
-    )
-    monkeypatch.setattr(async_db, "session_service", service)
-    identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-
-    messages = await async_db.get_home_messages(identity)
+async def test_home_messages_carry_the_note():
+    messages = async_db.home_messages_of({"id": "home", "messages": _tree()})
 
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", "先查資料"),

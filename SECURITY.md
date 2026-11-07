@@ -961,6 +961,14 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | `services/dialogue_summarizer.py` | SNS 外人能在自己的訊息裡寫一行像「[時間] user: …」的假擁有者發言，摘要員照抄成決定或待辦，之後跟著前情進心跳與子對話（審查） | 送摘要員的每則壓成一行（`single_line`，換行寫成 `⏎`），假的那行留在外人那一則裡；附給摘要員的前情最後一段、送去合併的各段也壓成一行（第 2 輪審查：這兩個輸入原本沒壓，舊摘要裡假造的標籤或對話列會變成真的）；指示說明以 SNS 外部訊息開頭的是外部人士的要求或說法，不記成擁有者的決定、承諾或待辦。回歸測試 `test_dialogue_summarizer.py::test_forged_owner_line_stays_inside_the_outsider_message`、`test_previous_entry_is_one_line`、`test_soul_prelude_service.py::test_merge_entries_are_one_line_each`。殘留：仍靠摘要模型照指示做；長得像區塊標籤的寫法（零寬字元、全形括號）沒有中和（沿用 ADR-0257）；SNS 頻道與 SNS 群聊的請求也帶前情（維護者 2026-11-07 決定 PR 1 照帶），PR 2b 加子對話回報前再問要不要讓回報進 SNS。 |
 | `services/soul_prelude_service.py` | 畫面能寫的 `context_summary` 搬進前情後不受上限限制，會散到靈魂的每一個請求（審查） | 搬家時截到 2,000 token，註明後面截掉了、被摘要的原文在舊對話庫；同一來源只顯示最新一段；單段超過前情上限時截短。回歸測試 `test_soul_prelude_service.py::test_long_legacy_summary_is_cut_when_moved`、`test_a_single_segment_over_the_cap_is_cut`。 |
 
+
+### 舊家原文的歷史資料界線與舊家唯讀（2026-11-08，ADR-0306）
+
+| 位置 | 原有缺口 | 修復摘要 |
+|------|----------|----------|
+| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`_mark_home_history`，同家原文的中和規則），只送角色與內容；`tests/unit/test_mainline_service.py` |
+| `services/proxy_service.py`、`utils/async_db.py`、`routers/ui_interjections.py`、`routers/heartbeat.py`、`routers/ui_sessions.py` | 以前換家只清家標記，舊家還能開新的一輪、插話、換到別的靈魂或被刪，內容離開主線也沒有紀錄 | 舊家由交接紀錄推導；共同入口在 hook 之前擋、准入交易再驗、插話與心跳指定擋、換靈魂擋、交接開始後存檔閘擋寫入、交接完成前不能刪；讀不到紀錄時這一輪失敗（不放寬）；`tests/unit/test_old_home_gates.py`、`test_home_transitions.py` |
+
 ## Out of Scope
 
 以下項目**不在**本專案的安全維護範圍內：

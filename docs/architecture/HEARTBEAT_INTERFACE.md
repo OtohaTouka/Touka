@@ -34,7 +34,8 @@
 - Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
-- 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。
+- 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。在家時另帶還沒交接完的舊家原文（ADR-0306）。
+- 換家之後的舊家（ADR-0306）：`/awaken` 指定這段、`/retrigger` 這段都回 409 `SESSION_OLD_HOME_READ_ONLY`，不寫入、不排背景；跑到一半才換家時剩下的脈衝照樣寫完。家模式找到或建好家之後記「新家開始用」；沒有家時建家和設家走同一套交接紀錄，同一個交易裡確認沒有別的家（有就整筆退回）。
 - ToukaHeartbeat 服務本身不變。
 
 ## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）

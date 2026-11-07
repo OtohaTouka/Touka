@@ -271,3 +271,64 @@ async def test_awaken_http_scope_failure_is_fixed_403():
     assert response.json()["detail"]["code"] == "SESSION_SCOPE_MISMATCH"
     assert "private" not in response.text and A.agent_id not in response.text
     assert await raw_row() == before
+
+
+# --- 舊家（3d PR 2a，ADR-0306） ---
+
+
+async def _move_home():
+    """A 是舊家、B 是還沒開始用的新家."""
+    await seed("A")
+    await seed("B")
+    assert await async_db.session_service.set_home("A", A, True)
+    assert await async_db.session_service.set_home("B", A, True)
+
+
+async def _started(sid):
+    async with async_db.get_async_db() as db:
+        cursor = await db.execute(
+            "SELECT new_started FROM soul_home_transitions WHERE new_session = ?", (sid,)
+        )
+        return [row[0] for row in await cursor.fetchall()]
+
+
+async def test_awaken_refuses_an_old_home_before_append_or_background():
+    await _move_home()
+    before = await raw_row("A")
+    result, tasks = await awaken(A, session_id="A")
+    assert tasks.tasks == []
+    assert await raw_row("A") == before
+    assert isinstance(result, ToukaException)
+    assert result.code.name == "SESSION_OLD_HOME_READ_ONLY"
+
+
+async def test_retrigger_refuses_an_old_home_and_keeps_the_interrupt():
+    await _move_home()
+    tasks = BackgroundTasks()
+    result = await attempt(
+        hb.retrigger_heartbeat(
+            hb.HeartbeatRetriggerRequest(agent_id=A, session_id="A"), request(), tasks, HUMAN
+        )
+    )
+    assert tasks.tasks == []
+    hb.autonomy_service.clear_interrupted_run.assert_not_called()
+    assert isinstance(result, ToukaException)
+    assert result.code.name == "SESSION_OLD_HOME_READ_ONLY"
+
+
+async def test_home_heartbeat_marks_the_new_home_started():
+    await _move_home()
+    result, _tasks = await awaken(A, session_id="home")
+    assert result["session_id"] == "B"
+    assert await _started("B") == [1]
+
+
+async def test_home_heartbeat_without_a_home_creates_one_through_the_records():
+    await seed("A")
+    assert await async_db.session_service.set_home("A", A, True)
+    assert await async_db.session_service.set_home("A", A, False)
+    result, _tasks = await awaken(A, session_id="home")
+    created = result["session_id"]
+    assert created.startswith(f"home_{A.agent_id}_")
+    assert await _started(created) == [1]
+    assert await async_db.session_service.is_old_home("A")

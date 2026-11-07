@@ -62,7 +62,7 @@ from src.services.rhythm_service import rhythm_service
 from src.services.sliding_window_service import sliding_window_service
 from src.services.soul_service import soul_service
 from src.utils import user_intent
-from src.utils.async_db import SessionPersistenceError, session_service
+from src.utils.async_db import SessionPersistenceError, new_home_after_write, session_service
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import TreeMessageManager
@@ -775,9 +775,12 @@ async def awaken_agent(
                     agent_id=identity, is_home=True, home_for_agent=identity, project_id="default",
                 ),
                 identity,
+                # 建家和設家走同一套交接紀錄，同一個交易裡確認沒有別的家（ADR-0306）
+                after_write=new_home_after_write(identity, final_session_id),
             )
             if not isinstance(result, SavedResult):
                 raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+        await session_service.mark_home_started(final_session_id)  # 心跳這一輪就是開始用
     else:
         default_id = channel_session_id("heartbeat", agent_id)
         final_session_id = req.session_id
@@ -791,6 +794,10 @@ async def awaken_agent(
             if final_session_id.startswith("touka."):
                 raise ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH)
             snapshot = await session_service.read_execution_snapshot(final_session_id, identity)
+            if snapshot.session is not None and await session_service.is_old_home(
+                final_session_id
+            ):  # 心跳不能在舊家開新的一輪（ADR-0306）
+                raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
             if snapshot.session is None:
                 result = await session_service.conditional_save_session(
                     final_session_id,
@@ -940,6 +947,8 @@ async def retrigger_heartbeat(
         identity, session_agent_id, session_data.get("owner_user_id")
     ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    if await session_service.is_old_home(req.session_id):  # 舊家不重跑（ADR-0306）
+        raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
     # 丙-4：正在重置、清除或刪除這個靈魂時不重跑，「上次未完成」照留。放在最後一個 await 之後，
     # 從這裡到派發、清「上次未完成」之間沒有 await。
     since = destructive_ops.generation(target_identity)

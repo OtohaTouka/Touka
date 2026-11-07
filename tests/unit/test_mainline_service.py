@@ -116,8 +116,15 @@ def _dialogue(request: OpenAIChatRequest) -> list[str]:
         ("chat", None, False, True, True, False),  # 沒有對話編號：不當成子對話（審查 F14）
     ],
     ids=[
-        "web-home", "ide-home", "web-child", "ide-child",
-        "group", "hb-home", "hb-child", "incognito", "no-session",
+        "web-home",
+        "ide-home",
+        "web-child",
+        "ide-child",
+        "group",
+        "hb-home",
+        "hb-child",
+        "incognito",
+        "no-session",
     ],
 )
 async def test_mainline_table(mode, session_id, sends_own, prelude, home, stamped):
@@ -223,9 +230,7 @@ async def test_preview_does_not_move_the_old_summary():
     await seed("home2", context_summary="家的舊摘要")
     assert await async_db.session_service.set_home("home2", A, True)
     request = _request()
-    await mainline_service.inject_mainline(
-        request, A, mode="chat", session_id=None, preview=True
-    )
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id=None, preview=True)
     assert "前情的一段" in _system(request)
     kinds = [s.kind for s in await db_mod.list_live_segments(A.agent_id)]
     assert "legacy_summary" not in kinds
@@ -408,3 +413,96 @@ async def test_cut_summary_is_given_in_full_in_its_own_conversation():
     )
     system = _system(request)
     assert "<conversation_summary>" in system and "結尾標記" in system
+
+
+# --- 換家後、交接完成前：還沒交接完的舊家原文（3d PR 2a，ADR-0306） ---
+
+
+OLD_SOURCE = 'source="old_home_pending_handover"'
+
+
+async def _move_home_to_new():
+    await seed("new", tree={"messages": {}, "currentId": None})
+    assert await async_db.session_service.set_home("new", A, True)
+
+
+@pytest.mark.parametrize(
+    ("mode", "session_id", "sends_own", "old"),
+    [
+        ("chat", "new", True, True),  # 網頁版新家本身：第一輪就接得上
+        ("chat", "child", True, True),
+        ("chat", "child", False, True),
+        ("group", None, False, True),
+        ("heartbeat", "new", True, True),
+        ("heartbeat", "child", True, False),
+        ("incognito", "child", True, False),
+    ],
+    ids=["web-new-home", "web-child", "ide-child", "group", "hb-home", "hb-child", "incognito"],
+)
+async def test_unfinished_old_home_originals_follow_the_mainline(mode, session_id, sends_own, old):
+    await _move_home_to_new()
+    request = _request()
+    await mainline_service.inject_mainline(
+        request, A, mode=mode, session_id=session_id, sends_own_history=sends_own
+    )
+    joined = "\n".join(_dialogue(request))
+    assert ("家裡的問題" in joined) is old
+    assert (OLD_SOURCE in joined) is old
+    if old:
+        assert "2023" in joined  # 舊家原文每則標時間
+    assert _dialogue(request)[-1] == "這一輪"
+
+
+async def test_old_home_originals_come_before_the_current_home():
+    await seed(
+        "new",
+        tree=HOME_TREE
+        | {
+            "messages": {
+                "n": {"id": "n", "role": "user", "content": "新家的話", "parentId": None},
+            },
+            "currentId": "n",
+        },
+    )
+    assert await async_db.session_service.set_home("new", A, True)
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")
+    joined = "\n".join(_dialogue(request))
+    assert joined.index("家裡的問題") < joined.index("新家的話")
+
+
+async def test_a_finished_handover_no_longer_sends_the_old_home():
+    await _move_home_to_new()
+    async with async_db.get_async_db() as db:
+        await db.execute("UPDATE soul_home_transitions SET status = 'done'")
+        await db.commit()
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")
+    assert "家裡的問題" not in "\n".join(_dialogue(request))
+
+
+async def test_an_old_home_that_is_home_again_is_sent_as_the_home():
+    await _move_home_to_new()
+    await async_db.session_service.mark_home_started("new")
+    assert await async_db.session_service.set_home("home", A, True)
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")
+    joined = "\n".join(_dialogue(request))
+    assert joined.count("家裡的問題") == 1
+    assert 'source="home_conversation"' in joined
+
+
+@pytest.mark.parametrize("mode", ["chat", "heartbeat"])
+async def test_unreadable_old_homes_fail_the_turn_except_heartbeat(monkeypatch, mode):
+    async def broken(_identity):
+        raise async_db.SessionPersistenceError
+
+    monkeypatch.setattr(async_db.session_service, "read_unfinished_old_homes", broken)
+    request = _request()
+    call = mainline_service.inject_mainline(request, A, mode=mode, session_id="home")
+    if mode == "chat":
+        with pytest.raises(async_db.SessionPersistenceError):
+            await call
+    else:
+        await call
+        assert "<soul_prelude>" in _system(request)

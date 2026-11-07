@@ -22,6 +22,7 @@ from src.services.authorization_gateway import require_human_requester
 from src.services.hooks.interjection_hooks import check_interjection
 from src.services.interjection_queue import interjection_queue
 from src.services.stream_buffer_service import stream_buffer_service
+from src.utils.async_db import session_service
 
 router = APIRouter(
     prefix="/ui/sessions", tags=["UI Interjections"], route_class=SessionPersistenceRoute
@@ -42,6 +43,8 @@ async def _ensure_current_stream(
         or (active and state["status"] != "active")
     ):
         raise ToukaException(ErrorCode.STREAM_NOT_FOUND)
+    if await session_service.is_old_home(session_id):  # 舊家不接插話（ADR-0306）
+        raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
 
 
 @router.post("/{session_id}/interjections", status_code=201)

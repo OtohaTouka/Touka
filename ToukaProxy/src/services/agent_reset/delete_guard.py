@@ -15,6 +15,7 @@ from memory_server.utils.memory_worker import run_memory_job
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services import memory_collection_guard
+from src.utils.async_db import session_service
 from src.utils.continuity_events_db import count_agent_events
 from src.utils.soul_prelude_db import count_agent_segments
 
@@ -94,22 +95,26 @@ async def assert_timeline_cleared(identity: AgentIdentity) -> None:
 
 
 async def assert_prelude_cleared(identity: AgentIdentity) -> None:
-    """還有前情段落（ADR-0305，也屬記憶）就 409；讀不到就 503（不能確認就不刪）。
+    """還有前情段落（ADR-0305，也屬記憶）或換家紀錄（ADR-0306）就 409；讀不到就 503.
 
-    同名新靈魂不會看到舊前情（範圍失效），但刪除照樣要先重置，不留孤兒資料。
+    同名新靈魂不會看到舊前情與舊紀錄（範圍失效），但刪除照樣要先重置，不留孤兒資料。
 
     Args:
-        identity: 要刪除的靈魂（只用 agent_id 查前情段落）。
+        identity: 要刪除的靈魂（只用 agent_id 查）。
     """
     try:
         segments = await count_agent_segments(identity)
+        home_records = await session_service.count_agent_home_records(identity)
     except Exception as exc:
         logger.warning("Soul delete blocked: cannot confirm %s has no prelude", identity.agent_id)
         raise ToukaException(ErrorCode.SOUL_MEMORY_CHECK_FAILED) from exc
-    if segments:
+    if segments or home_records:
         logger.warning(
-            "AUDIT: soul delete blocked for %s: prelude remains (segments=%d)",
+            "AUDIT: soul delete blocked for %s: prelude remains (segments=%d, home_records=%d)",
             identity.agent_id,
             segments,
+            home_records,
         )
-        raise ToukaException(ErrorCode.SOUL_MEMORY_NOT_RESET, prelude_segments=segments)
+        raise ToukaException(
+            ErrorCode.SOUL_MEMORY_NOT_RESET, prelude_segments=segments, home_records=home_records
+        )
