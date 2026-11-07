@@ -279,19 +279,28 @@ async def test_reset_starting_after_the_read_stops_before_the_archive(trim, monk
 
 
 async def test_reset_completed_during_the_read_stops_before_the_archive(trim, monkeypatch):
-    """讀存檔期間一次重置整個跑完（已不在進行中、代數變了）：照樣在歸檔前停（第 3 輪 H5）."""
+    """讀存檔期間一次重置整個跑完（已不在進行中、代數變了）：照樣在歸檔前停（第 3 輪 H5、第 4 輪）.
+
+    重置放在第一次讀存檔讀完、回傳之前，釘住「代數在讀存檔之前取」。
+    """
     await seed("chat")
     assert await service.set_home("chat", A, True)
     before = await raw_row()
+    real = service.read_persistence_snapshot
+    reads: list[str] = []
 
-    def split_after_a_reset(linear, *_args):
-        destructive_ops.hold(A)
-        destructive_ops.stop_heartbeats(A)
-        destructive_ops.release(A)
-        return linear[:1], linear[1:]
+    async def read_then_reset(session_id, identity):
+        snapshot = await real(session_id, identity)
+        reads.append(session_id)
+        if len(reads) == 1:
+            destructive_ops.hold(A)
+            destructive_ops.stop_heartbeats(A)
+            destructive_ops.release(A)
+        return snapshot
 
-    monkeypatch.setattr(trim.service, "compute_split_by_tokens", split_after_a_reset)
+    monkeypatch.setattr(service, "read_persistence_snapshot", read_then_reset)
     assert await trim.service.check_and_trim(A, "chat") is False
+    assert reads  # 真的經過讀存檔
     trim.archive.assert_not_called()
     trim.summarize.assert_not_awaited()
     assert await _live() == []
