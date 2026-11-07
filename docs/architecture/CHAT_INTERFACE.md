@@ -331,7 +331,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。
     *   「設為家」嚴格（`canSetHome`）：只給 `type === 'soul'`，正式 ID 規則和後端 `identify_agent` 相同（`canonicalSoulId`，只去掉大小寫完全相符的 `ToukaSoul`）；設家、取消家都送正式 ID。
     *   收合狀態在 `useSessionTreeState`：`localStorage` 鍵名含使用者 ID，`SessionTree` 用身分當 React key 重掛（`useLocalStorage` 換鍵不重讀）；只有無痕對話的資料夾與專案分組只記在記憶體（ADR-0086）；「還有 N 個」不保存。
-    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
+    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列；選單淡出期間焦點已被移到別處（例如輸入框）時不搶回。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
 *   **手機版判斷**: `hooks/useIsMobile.ts`（`(max-width: 768px)`），`page.tsx` 的版面切換與 ChatArea 的訊息導覽列共用。
 

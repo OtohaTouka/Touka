@@ -160,20 +160,27 @@ test("重新整理：提問不亮（既有限制），核准卡仍亮", async ({
   ]);
   await loginInBrowser(page, email, PASSWORD);
 
-  await clickChatInList(page, "整理甲");
-  await sendMessage(page, writeRequest("activity-reload.txt"));
-  await expect(approveButton(page)).toBeVisible();
-  await page.reload();
-  await expect(row(page, `整理甲，${AWAITING}`)).toBeVisible();
+  try {
+    await clickChatInList(page, "整理甲");
+    await sendMessage(page, writeRequest("activity-reload.txt"));
+    await expect(approveButton(page)).toBeVisible();
+    await page.reload();
+    await expect(row(page, `整理甲，${AWAITING}`)).toBeVisible();
 
-  await clickChatInList(page, "整理乙");
-  await sendMessage(page, askRequest());
-  await expect(page.getByText(ASK_QUESTION).first()).toBeVisible();
-  await expect(row(page, `整理乙，${AWAITING}`)).toBeVisible();
-  await page.reload();
-  await expect(row(page, "整理乙，回覆中")).toBeVisible();
-  await expect(row(page, `整理甲，${AWAITING}`)).toBeVisible();
-  await expect(row(page, `整理乙，${AWAITING}`)).toHaveCount(0);
+    await clickChatInList(page, "整理乙");
+    await sendMessage(page, askRequest());
+    await expect(page.getByText(ASK_QUESTION).first()).toBeVisible();
+    await expect(row(page, `整理乙，${AWAITING}`)).toBeVisible();
+    await page.reload();
+    await expect(row(page, "整理乙，回覆中")).toBeVisible();
+    await expect(row(page, `整理甲，${AWAITING}`)).toBeVisible();
+    await expect(row(page, `整理乙，${AWAITING}`)).toHaveCount(0);
+  } finally {
+    // 核准卡和提問沒人回，逾時（核准 180 秒）後代理人會再呼叫一次模型，會被後面的測試「扣住第幾次」抓走。
+    // 中途失敗也要停；停止本身出錯時不蓋掉原本的失敗，兩段都照停（停不掉的話下面那行會紅）。
+    await Promise.allSettled([stopChat(token, "reload-a"), stopChat(token, "reload-b")]);
+  }
+  await expect.poll(async () => (await sessionActivity(token)).streams).toEqual([]);
 });
 
 test("看別段對話時回覆完成：留小點，打開消失，重新整理也一樣", async ({ page }, info) => {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { adminLogin, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot } from "./lib/api";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
-import { holdModelCall, modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
+import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
+import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import {
   clickChatInList,
@@ -61,6 +61,10 @@ test.beforeEach(async ({ page }) => {
   await loginInBrowser(page);
   await openChat(page);
   await selectSoul(page);
+});
+
+test.afterEach(async () => {
+  await releaseModel();
 });
 
 test("這一頁新建的對話設為家之後，下一則直接送出", async ({ page }, info) => {
@@ -382,8 +386,8 @@ test("模型失敗之後重新整理：不用按恢復，失敗標示還在，�
 });
 
 test("模型失敗前另一個裝置先改過這段對話：照舊提示，失敗那則不硬存", async ({ page }, info) => {
-  await holdModelCall(1);
-  await sendMessage(page, MODEL_400_REQUEST);
+  // 只扣這一則（看內容，不數第幾次）：別條留下的代理人多呼叫一次模型時，才不會扣錯
+  await sendMessage(page, `${MODEL_HOLD_REQUEST} ${MODEL_400_REQUEST}`);
   await modelHolding();
   const id = await latestSessionId(adminToken);
   await retitleChat(adminToken, id, "另一個裝置改過名");
