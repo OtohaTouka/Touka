@@ -13,51 +13,58 @@
 | 心跳（在家或子對話） | 帶 | 不帶（在家時自己的歷史就是家；子對話時全文太貴） |
 | 無痕 | 不帶 | 不帶 |
 
-每輪只讀一次家，前情與家原文用同一份（審查 F16）；讀不到家當作沒有家，照樣送出。前情讀不到時
-照樣送出這一輪（記 warning 與原因），家原文的規則不受影響。上下文預覽（``preview``）不搬舊摘要，
-整個流程不寫資料（審查 F12）。
+每輪只讀一次家，前情與家原文用同一份。讀家碰到儲存錯誤時，前情照樣組，家原文交回原本的讀法：
+和以前一樣讓這一輪失敗（ADR-0078 失效不沉默，審查第 2 輪 G2）；心跳（以前不讀家）不帶家原文，
+照樣帶前情。兩個家等範圍矛盾當作沒有家。
+前情讀不到時照樣送出這一輪（記 warning 與原因）。上下文預覽（``preview``）不搬舊摘要，整個流程
+不寫資料。
 
-子對話自己升級前的舊摘要（``<conversation_summary>``）經 ``inject_conversation_summary``：已經搬進
-前情的（例如舊家）不再插第二次（審查 F13）。
+``own_summary``（SoulLayer 對綁在這個靈魂的對話開）：這段對話自己升級前的舊摘要
+（``<conversation_summary>``）照插，除非這一輪前情已經原文照登同一段（家與子對話一樣；截短過、
+被折掉、被合併時照插，審查第 2 輪 G1）。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from src.core.exceptions import ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.sliding_window_config import load_sliding_window_config
-from src.services.soul_prelude_service import (
-    build_prelude_block,
-    conversation_summary_in_prelude,
-)
+from src.services.soul_prelude_service import prelude_view, render_prelude, summaries_shown_for
 from src.services.soul_service import append_system_block, soul_service
 from src.utils.async_db import SessionPersistenceError, home_messages_of, session_service
+
+if TYPE_CHECKING:
+    from src.utils.soul_prelude_db import StoredSegment
 
 logger = logging.getLogger(__name__)
 
 type MainlineMode = Literal["chat", "group", "heartbeat", "incognito"]
 
 
-async def _home_session(identity: AgentIdentity) -> dict[str, Any] | None:
-    """現任家；讀不到或矛盾（兩個家）時當作沒有家."""
+async def _home_session(identity: AgentIdentity) -> tuple[dict[str, Any] | None, bool]:
+    """現任家與「讀得到」；範圍矛盾（兩個家）時當作沒有家，儲存錯誤回（None, False）."""
     try:
         snapshot = await session_service.read_home_snapshot(identity)
-    except (ToukaException, SessionPersistenceError):
+    except ToukaException:
         logger.warning(
             "Mainline: home conversation unavailable for %s", identity.agent_id, exc_info=True
         )
-        return None
-    return snapshot.session if snapshot else None
+        return None, True
+    except SessionPersistenceError:
+        logger.warning("Mainline: home unreadable for %s", identity.agent_id, exc_info=True)
+        return None, False
+    return (snapshot.session if snapshot else None), True
 
 
 async def _inject_prelude(
     request: Any, identity: AgentIdentity, home: dict[str, Any] | None, *, preview: bool
-) -> None:
+) -> list[StoredSegment]:
+    """放前情區塊，回傳這一輪顯示的段落；讀不到就不放、回空清單."""
     try:
-        block = await build_prelude_block(
+        shown, folded = await prelude_view(
             identity,
             home_id=home["id"] if home else None,
             config=load_sliding_window_config(),
@@ -69,9 +76,11 @@ async def _inject_prelude(
             identity.agent_id,
             exc_info=True,
         )
-        return
+        return []
+    block = render_prelude(shown, folded)
     if block:
         append_system_block(request, block)
+    return shown
 
 
 async def inject_mainline(
@@ -82,8 +91,9 @@ async def inject_mainline(
     session_id: str | None = None,
     sends_own_history: bool = False,
     preview: bool = False,
+    own_summary: bool = False,
 ) -> None:
-    """依上表把前情（system 尾端）與家原文（對話開頭）放進請求.
+    """依上表把前情（system 尾端）、家原文（對話開頭）與這段對話自己的舊摘要放進請求.
 
     Args:
         request: 已套上人格的模型請求。
@@ -92,34 +102,26 @@ async def inject_mainline(
         session_id: 這一輪所在的對話；判斷它是不是家（子對話要標時間）。
         sends_own_history: 請求已帶著這個對話的完整紀錄（網頁版）；它就是家時不再插家原文。
         preview: 上下文預覽：不搬舊摘要，不寫任何資料。
+        own_summary: 插這段對話自己升級前的舊摘要（呼叫端已確認對話綁在這個靈魂）。
     """
     if mode == "incognito":
         return
-    home = await _home_session(identity)
-    await _inject_prelude(request, identity, home, preview=preview)
+    home, readable = await _home_session(identity)
+    shown = await _inject_prelude(request, identity, home, preview=preview)
     if mode == "heartbeat":
         return
     home_id = home["id"] if home else None
     current = session_id if sends_own_history else None
+    # 用同一次讀到的家（沒有家就是空的）；讀不到時交回原本的讀法：再讀一次，儲存錯誤照舊讓這一輪失敗
+    home_messages = (home_messages_of(home, current) if home else []) if readable else None
     await soul_service.inject_home_messages(
         request,
         identity,
         current_session_id=current,
         stamp_times=mode == "chat" and session_id is not None and session_id != home_id,
-        # 用同一次讀到的家；讀不到就是空的，不再讀第二次
-        home_messages=home_messages_of(home, current) if home else [],
+        home_messages=home_messages,
     )
-
-
-async def inject_conversation_summary(
-    request: Any, identity: AgentIdentity, session_id: str | None
-) -> None:
-    """這段對話自己升級前的舊摘要；已經搬進前情（例如舊家）就不再插（審查 F13）."""
-    if not session_id:
-        return
-    try:
-        if await conversation_summary_in_prelude(identity, session_id):
-            return
-    except Exception:
-        logger.warning("Mainline: prelude check failed for %s", session_id, exc_info=True)
-    await soul_service.inject_context_summary(request, session_id)
+    if own_summary and session_id:
+        await soul_service.inject_context_summary(
+            request, session_id, summaries_shown_for(shown, session_id)
+        )

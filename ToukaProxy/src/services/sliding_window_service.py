@@ -375,6 +375,12 @@ class SlidingWindowService:
         config = self.load_config()
         if not config.enabled:
             return False
+        # 靈魂正在重置或刪除時不剪（前情段落與舊對話庫都寫不得，審查 F11、第 2 輪 G6）；
+        # 代數在讀存檔之前取，之後開始的重置在歸檔前與寫段落時都看得到
+        since = destructive_ops.generation(identity)
+        if since is None:
+            logger.info("SlidingWindow: %s is being reset or deleted; not trimming", session_id)
+            return False
 
         # ── 1. 讀取 session 與線性路徑 ──────────────────────────────────────
         try:
@@ -437,6 +443,10 @@ class SlidingWindowService:
             return False
 
         agent_id = identity.agent_id
+        # 開始之後才進入重置或刪除的：歸檔進舊對話庫之前就停（審查第 2 輪 G6）
+        if destructive_ops.disturbed(identity, since):
+            logger.info("SlidingWindow: %s is being reset or deleted; not trimming", agent_id)
+            return False
         notify_pre_compact(identity, session_id)
 
         # ── 4. ACID-A: 歸檔進舊對話庫（先於 session 更新；失敗就不剪）──────
@@ -467,20 +477,16 @@ class SlidingWindowService:
 
         # ── ACID-S: 摘要（best-effort、不進關鍵路徑；失敗→None→降級成一行來源註記）──
         # 寫進前情（ADR-0305），不再改 context_summary；摘要員拿前情最後一段當背景。
-        # 靈魂正在重置或刪除時不剪（前情段落寫不得，審查 F11）；摘要期間開始的在交易裡退回。
-        since = destructive_ops.generation(identity)
-        if since is None:
-            logger.info("SlidingWindow: %s is being reset or deleted; not trimming", agent_id)
-            return False
+        # 摘要期間開始重置或刪除的，寫段落時在交易裡退回（審查 F11）。
         summary: str | None = None
         if abandon is not None and await self._moved_on(
             identity, session_id, snapshot.revision, abandon
         ):
             return False
         if config.summary_budget_pct > 0:
-            # 摘要長度不超過前情上限，免得一段就擠掉整份前情（審查 F6）
+            # 摘要最多前情上限的一半（和合併保留的額度一致），一段擠不掉整份前情（審查 F6、G10）
             budget_tokens = min(
-                int(window * config.summary_budget_pct / 100), config.prelude_max_tokens
+                int(window * config.summary_budget_pct / 100), config.prelude_max_tokens // 2
             )
             summary = await summarize_dialogue(
                 identity,
@@ -521,6 +527,11 @@ class SlidingWindowService:
             return False
 
         if not isinstance(success, SavedResult):
+            if destructive_ops.disturbed(identity, since):  # 重置或刪除開始了：整筆退回是預期的
+                logger.info(
+                    "SlidingWindow: trim of %s rolled back; reset or delete started", session_id
+                )
+                return False
             logger.error(
                 "SlidingWindow: ACID-B not confirmed (including conflict) for session %s. "
                 "Legacy archive %s preserved.",

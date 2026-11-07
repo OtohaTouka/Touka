@@ -21,7 +21,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.utils.async_db import canonical_agent_id, get_async_db
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import aiosqlite
 
@@ -46,6 +46,10 @@ _HAS = (
     "SELECT 1 FROM soul_prelude_segments WHERE agent_id = ? AND scope_version = 1 "
     "AND kind = ? AND source_session = ? AND dedupe_key = ? LIMIT 1"
 )
+_HAS_INVALIDATED = (
+    "SELECT 1 FROM soul_prelude_segments WHERE agent_id = ? AND scope_version = 0 "
+    "AND kind = ? AND source_session = ? AND dedupe_key = ? LIMIT 1"
+)
 # 被合併的來源一次標完：一句固定 SQL，編號清單綁成一個 JSON 陣列參數（禁令 24）
 _MARK_MERGED = (
     "UPDATE soul_prelude_segments SET merged_into = ? "
@@ -57,7 +61,7 @@ _DELETE = "DELETE FROM soul_prelude_segments WHERE agent_id = ?"
 _LIST_ALL = (
     "SELECT id, agent_id, kind, source_session, dedupe_key, covers_from, covers_to, content, "
     "created_at, merged_into, scope_version FROM soul_prelude_segments "
-    "WHERE agent_id = ? AND scope_version = 1 ORDER BY id"
+    "WHERE agent_id = ? ORDER BY id"
 )
 
 
@@ -110,13 +114,29 @@ async def insert_segment_tx(db: aiosqlite.Connection, seg: PreludeSegment) -> bo
     return (cursor.rowcount or 0) > 0
 
 
-async def insert_segment(seg: PreludeSegment) -> bool:
-    """自己開交易寫一段；同一段已存在時不寫，回 False."""
+async def insert_segment(seg: PreludeSegment, *, skip_if: Callable[[], bool] | None = None) -> bool:
+    """自己開交易寫一段；同一段已存在時不寫，回 False.
+
+    ``skip_if``：拿到寫鎖之後再問一次要不要放棄（例如靈魂剛開始重置）；回 True 就不寫、回 False。
+    重置的清除也要寫鎖，所以「先清、後寫」和「先寫、後清」都不會留下這一段。
+    """
     params = _params(seg)
     async with get_async_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        if skip_if is not None and skip_if():
+            await db.rollback()
+            return False
         cursor = await db.execute(_INSERT, params)
         await db.commit()
         return (cursor.rowcount or 0) > 0
+
+
+async def was_invalidated(agent: str, kind: str, source_session: str, dedupe_key: str) -> bool:
+    """這一段曾經寫過、後來被還原或同名重建失效（範圍版本 0 的列還在）."""
+    async with get_async_db() as db, db.execute(
+        _HAS_INVALIDATED, (agent, kind, source_session, dedupe_key)
+    ) as cursor:
+        return await cursor.fetchone() is not None
 
 
 async def has_segment(agent: str, kind: str, source_session: str, dedupe_key: str) -> bool:
@@ -184,9 +204,9 @@ async def purge_agent_segments(identity: AgentIdentity) -> int:
 
 
 async def list_agent_segments(identity: AgentIdentity) -> list[dict[str, Any]]:
-    """某靈魂範圍有效的段落（含已合併；個人資料匯出用）.
+    """某靈魂的全部段落（含失效、已合併；個人資料匯出用），每列帶範圍版本.
 
-    失效的列可能屬於同名的前一個靈魂（擁有者可能不同），不匯出（審查 F11）。
+    和對話匯出一樣不看範圍版本：資料還存著就匯出（審查第 2 輪 G11）。
     """
     agent = canonical_agent_id(identity)
     async with get_async_db() as db, db.execute(_LIST_ALL, (agent,)) as cursor:

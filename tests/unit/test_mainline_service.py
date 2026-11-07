@@ -9,9 +9,9 @@
 | 心跳（在家或子對話） | 帶 | 不帶 |
 | 無痕 | 不帶 | 不帶 |
 
-另外：家不再插自己的 ``context_summary``（已搬進前情）；子對話自己的舊摘要照舊插，
-已經搬進前情的（例如舊家）不再插第二次。上下文預覽不搬舊摘要（不寫資料）；每輪只讀一次家；
-沒有對話編號的請求不當成子對話（不標時間）。
+另外：對話自己的舊摘要（家與子對話一樣）只在這一輪前情原文照登同一段時不插，截短過、被折掉、
+被合併時照插（審查第 2 輪 G1）。上下文預覽不搬舊摘要（不寫資料）；每輪只讀一次家，讀家碰到儲存錯誤
+這一輪照舊失敗（心跳照帶前情）；沒有對話編號的請求不當成子對話（不標時間）。
 全部離線：SQLite 只在測試沙盒。
 """
 
@@ -28,7 +28,6 @@ from src.models.sliding_window import SlidingWindowConfig
 from src.routers.ui_sessions import SetHomeRequest, set_home_session
 from src.services import context_snapshot_service, mainline_service, soul_prelude_service
 from src.services.proxy_service import pipeline
-from src.services.soul_service import soul_service
 from src.utils import async_db
 from src.utils import soul_prelude_db as db_mod
 from src.utils.soul_prelude_db import PreludeSegment
@@ -153,9 +152,8 @@ async def test_home_summary_moves_into_the_prelude_instead_of_its_own_block():
     assert await async_db.session_service.set_home("home2", A, True)
     request = _request()
     await mainline_service.inject_mainline(
-        request, A, mode="chat", session_id="home2", sends_own_history=True
+        request, A, mode="chat", session_id="home2", sends_own_history=True, own_summary=True
     )
-    await soul_service.inject_context_summary(request, "home2")
     system = _system(request)
     assert "家的舊摘要" in system
     assert "<conversation_summary>" not in system
@@ -163,7 +161,9 @@ async def test_home_summary_moves_into_the_prelude_instead_of_its_own_block():
 
 async def test_child_keeps_its_own_old_summary_block():
     request = _request()
-    await mainline_service.inject_conversation_summary(request, A, "child")
+    await mainline_service.inject_mainline(
+        request, A, mode="chat", session_id="child", own_summary=True
+    )
     assert "<conversation_summary>" in _system(request)
     assert "子對話自己的舊摘要" in _system(request)
 
@@ -172,7 +172,7 @@ async def test_prelude_failure_does_not_block_the_turn(monkeypatch, caplog):
     async def broken(*_a, **_k):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(mainline_service, "build_prelude_block", broken)
+    monkeypatch.setattr(mainline_service, "prelude_view", broken)
     request = _request()
     with caplog.at_level(logging.WARNING, logger=mainline_service.__name__):
         await mainline_service.inject_mainline(
@@ -239,9 +239,8 @@ async def test_former_home_summary_is_not_injected_twice():
     assert await async_db.session_service.set_home("home", A, True)
     request = _request()
     await mainline_service.inject_mainline(
-        request, A, mode="chat", session_id="old", sends_own_history=True
+        request, A, mode="chat", session_id="old", sends_own_history=True, own_summary=True
     )
-    await mainline_service.inject_conversation_summary(request, A, "old")
     system = _system(request)
     assert system.count("舊家的舊摘要") == 1
     assert "<conversation_summary>" not in system
@@ -263,17 +262,24 @@ async def test_home_is_read_once_per_turn(monkeypatch):
     assert "家裡的問題" in "\n".join(_dialogue(request))
 
 
-async def test_unreadable_home_still_sends_the_turn(monkeypatch):
-    """讀家失敗：當作沒有家，這一輪照樣送出（不會第二次讀家又失敗）."""
+async def _broken_home(_identity):
+    raise async_db.SessionPersistenceError
 
-    async def broken(_identity):
-        raise async_db.SessionPersistenceError
 
-    monkeypatch.setattr(async_db.session_service, "read_home_snapshot", broken)
+@pytest.mark.parametrize("mode", ["chat", "group"])
+async def test_storage_error_reading_home_fails_the_turn(monkeypatch, mode):
+    """讀家碰到儲存錯誤：和以前一樣讓這一輪失敗，不靜默少掉家原文（ADR-0078；審查第 2 輪 G2）."""
+    monkeypatch.setattr(async_db.session_service, "read_home_snapshot", _broken_home)
+    with pytest.raises(async_db.SessionPersistenceError):
+        await mainline_service.inject_mainline(_request(), A, mode=mode, session_id="child")
+
+
+async def test_heartbeat_keeps_its_prelude_when_home_is_unreadable(monkeypatch):
+    """心跳以前不讀家：讀家失敗時當作沒有家，照樣帶前情（審查第 2 輪 G2）."""
+    monkeypatch.setattr(async_db.session_service, "read_home_snapshot", _broken_home)
     request = _request()
-    await mainline_service.inject_mainline(request, A, mode="group")
-    assert "家裡的問題" not in "\n".join(_dialogue(request))
-    assert _dialogue(request)[-1] == "這一輪"
+    await mainline_service.inject_mainline(request, A, mode="heartbeat", session_id="child")
+    assert "前情的一段" in _system(request)
 
 
 async def test_soul_layer_passes_the_preview_flag(monkeypatch):
@@ -305,3 +311,69 @@ async def test_context_preview_marks_itself_as_preview(monkeypatch):
         AgentIdentity(agent_id="DebugAgent"), {}, seed_mock=False
     )
     assert [ctx.preview for ctx in seen] == [True]
+
+
+# ── 審查第 2 輪的修正 ───────────────────────────────────────────────────────
+
+
+async def _scope_zero(session_id: str) -> None:
+    await async_db.session_service.set_home(session_id, A, True)
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET session_scope_version = 0 WHERE id = ?", (session_id,)
+        )
+        await db.commit()
+
+
+async def test_old_home_summary_reaches_the_model():
+    """2026-10-17 以前的家（範圍版本 0）：舊摘要搬進前情、模型看得到（審查第 2 輪 G1）."""
+    await seed("old-home", context_summary="老家的舊摘要")
+    await _scope_zero("old-home")
+    request = _request()
+    await mainline_service.inject_mainline(
+        request, A, mode="chat", session_id="old-home", sends_own_history=True, own_summary=True
+    )
+    assert _system(request).count("老家的舊摘要") == 1
+
+
+async def test_home_summary_folded_out_is_still_given_to_the_home(monkeypatch):
+    """前情超過上限、舊摘要被折掉：家自己的舊摘要照插，不會兩邊都看不到（審查第 2 輪 G1、G7）."""
+    monkeypatch.setattr(
+        mainline_service,
+        "load_sliding_window_config",
+        lambda: SlidingWindowConfig(prelude_max_tokens=500),
+    )
+    await seed("home3", context_summary="被折掉的舊摘要")
+    assert await async_db.session_service.set_home("home3", A, True)
+    for i in range(12):
+        await db_mod.insert_segment(
+            PreludeSegment(
+                agent=A.agent_id,
+                kind="home_trim",
+                source_session="home3",
+                dedupe_key=f"t{i}",
+                content="剪裁" + "字" * 200,
+                created_at=10 + i,
+            )
+        )
+    request = _request()
+    await mainline_service.inject_mainline(
+        request, A, mode="chat", session_id="home3", sends_own_history=True, own_summary=True
+    )
+    system = _system(request)
+    assert "<conversation_summary>" in system and "被折掉的舊摘要" in system
+
+
+async def test_cut_summary_is_given_in_full_in_its_own_conversation():
+    """搬家時截短的舊摘要：回到那段對話時照插全文（審查第 2 輪 G5）."""
+    long_summary = "字" * 3_000 + "結尾標記"
+    await seed("long", context_summary=long_summary)
+    assert await async_db.session_service.set_home("long", A, True)
+    await mainline_service.inject_mainline(_request(), A, mode="chat", session_id="long")
+    assert await async_db.session_service.set_home("home", A, True)
+    request = _request()
+    await mainline_service.inject_mainline(
+        request, A, mode="chat", session_id="long", sends_own_history=True, own_summary=True
+    )
+    system = _system(request)
+    assert "<conversation_summary>" in system and "結尾標記" in system

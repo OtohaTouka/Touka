@@ -3,9 +3,9 @@
 - 剪成功：舊對話庫歸檔、樹剪短、寫一段 ``home_trim``（有摘要放摘要，沒有放來源註記），
   ``context_summary`` 不動（畫面照舊送它，``trim_graft`` 不受影響）。
 - 樹被擋下（讀檔後換家、取消家）時段落也不寫；段落寫入失敗時樹也不寫。
-- 摘要員拿到前情顯示順序的最後一段，避免重複；摘要長度不超過前情上限。
+- 摘要員拿到前情顯示順序的最後一段，避免重複；摘要最多前情上限的一半。
 - 剪完才在背景做前情合併（拿靈魂鎖，在剪裁的對話鎖外面），剪裁不等它。
-- 靈魂正在重置或刪除時不寫前情段落，樹也不剪（審查 F11）。
+- 靈魂正在重置或刪除時不寫前情段落，樹也不剪；讀完存檔才開始的，歸檔進舊對話庫前就停（審查 F11、第 2 輪 G6）。
 
 全部離線：SQLite 只在測試沙盒；舊對話庫、摘要與 hook 都是假的。
 """
@@ -228,8 +228,8 @@ async def test_summarizer_gets_the_last_shown_entry_not_the_last_written(trim):
     assert trim.summarize.await_args.kwargs["previous"] == "顯示的最後一段"
 
 
-async def test_trim_summary_is_no_longer_than_the_prelude_limit(trim, monkeypatch):
-    """剪裁摘要的長度不超過前情上限，免得一段就擠掉整份前情（審查 F6）."""
+async def test_trim_summary_is_at_most_half_the_prelude_limit(trim, monkeypatch):
+    """剪裁摘要最多前情上限的一半（和合併保留的額度一致），一段擠不掉整份前情（F6、第 2 輪 G10）."""
     config = SlidingWindowConfig(enabled=True, summary_budget_pct=5, prelude_max_tokens=1_000)
     monkeypatch.setattr(trim.service, "load_config", lambda: config)
     monkeypatch.setattr(sliding, "get_context_window", lambda _model: 1_000_000)
@@ -237,11 +237,11 @@ async def test_trim_summary_is_no_longer_than_the_prelude_limit(trim, monkeypatc
     await seed("chat")
     assert await service.set_home("chat", A, True)
     assert await trim.service.check_and_trim(A, "chat") is True
-    assert trim.summarize.await_args.args[2] == 1_000
+    assert trim.summarize.await_args.args[2] == 500
 
 
 async def test_no_segment_while_the_soul_is_being_reset(trim):
-    """重置或刪除進行中：不剪、不寫前情、不花摘要（審查 F11）."""
+    """重置或刪除進行中：不剪、不歸檔、不寫前情、不花摘要（F11、第 2 輪 G6）."""
     await seed("chat")
     assert await service.set_home("chat", A, True)
     before = await raw_row()
@@ -251,12 +251,34 @@ async def test_no_segment_while_the_soul_is_being_reset(trim):
     finally:
         destructive_ops.release(A)
     trim.summarize.assert_not_awaited()
+    trim.archive.assert_not_called()
     assert await _live() == []
     assert await raw_row() == before
 
 
-async def test_reset_starting_during_the_summary_rolls_back_the_trim(trim):
-    """摘要期間開始重置：前情段落不寫，樹也不剪（同一個交易退回，審查 F11）."""
+async def test_reset_starting_after_the_read_stops_before_the_archive(trim, monkeypatch):
+    """讀完存檔才開始重置：不寫舊對話庫、不剪、不花摘要（第 2 輪 G6）."""
+    await seed("chat")
+    assert await service.set_home("chat", A, True)
+    before = await raw_row()
+
+    def split_then_reset(linear, *_args):
+        destructive_ops.hold(A)
+        return linear[:1], linear[1:]
+
+    monkeypatch.setattr(trim.service, "compute_split_by_tokens", split_then_reset)
+    try:
+        assert await trim.service.check_and_trim(A, "chat") is False
+    finally:
+        destructive_ops.release(A)
+    trim.archive.assert_not_called()
+    trim.summarize.assert_not_awaited()
+    assert await _live() == []
+    assert await raw_row() == before
+
+
+async def test_reset_starting_during_the_summary_rolls_back_the_trim(trim, caplog):
+    """摘要期間開始重置：前情段落不寫，樹也不剪（同一個交易退回，審查 F11）；記 info 不記 error."""
     await seed("chat")
     assert await service.set_home("chat", A, True)
     before = await raw_row()
@@ -274,3 +296,4 @@ async def test_reset_starting_during_the_summary_rolls_back_the_trim(trim):
     assert await _live() == []
     assert await raw_row() == before
     trim.merge.assert_not_awaited()
+    assert not [r for r in caplog.records if r.name == sliding.__name__ and r.levelname == "ERROR"]

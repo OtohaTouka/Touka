@@ -26,13 +26,14 @@ from memory_server.utils.legacy_time import format_taipei, to_epoch_ms
 
 from src.services import destructive_ops
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, SOUL_PRELUDE, wrap_block
-from src.utils.async_db import canonical_agent_id, session_service
+from src.utils.async_db import canonical_agent_id
 from src.utils.model_text import blank_control_chars
 from src.utils.soul_prelude_db import (
     PreludeSegment,
     has_segment,
     insert_segment,
     list_live_segments,
+    was_invalidated,
 )
 from src.utils.time_utils import get_current_epoch_ms
 from src.utils.token_estimator import estimate_tokens, truncate_to_tokens
@@ -87,8 +88,10 @@ def is_source_note(seg: StoredSegment) -> bool:
     return seg.kind == "home_trim" and bool(_TRIM_NOTE_PATTERN.fullmatch(seg.content))
 
 
-def _legacy_cut_note(source: str) -> str:
-    return f"[Truncated here; the full summary is in conversation {source}]"
+_LEGACY_CUT_NOTE = (
+    "[Truncated here to fit; the original messages behind this summary are in the legacy "
+    "conversation archive]"
+)
 
 
 def legacy_summary_key(summary: str) -> str:
@@ -183,13 +186,13 @@ def _fit(visible: list[StoredSegment], max_tokens: int) -> tuple[list[StoredSegm
 async def migrate_legacy_summary(identity: AgentIdentity, session: dict[str, Any]) -> None:
     """把一段對話升級前的 ``context_summary`` 搬成前情（內容雜湊當去重值；重做不重複）.
 
-    不搬的情況：那段對話已經失效（還原、同名重建，審查 F2）；靈魂正在重置或刪除（審查 F11）。
-    太長時截到 ``LEGACY_SUMMARY_MAX_TOKENS`` 並註明原文在那段對話（審查 F8）。
+    不搬的情況：同一段搬過、後來被還原或同名重建失效（F2；不看對話的範圍版本：2026-10-17 以前的家、
+    換綁過的家永遠是 0，審查第 2 輪 G1）；靈魂正在重置或刪除（寫鎖裡再看一次，G6）。
+    太長時截到 ``LEGACY_SUMMARY_MAX_TOKENS`` 並註明（F8）；那段對話自己照舊插全文（主線看這一輪
+    前情有沒有原文照登同一段，``summaries_shown_for``）。
     """
     summary = session.get("context_summary")
     if not isinstance(summary, str) or not summary.strip():
-        return
-    if session.get("session_scope_version") != 1:
         return
     since = destructive_ops.generation(identity)
     if since is None:
@@ -197,15 +200,14 @@ async def migrate_legacy_summary(identity: AgentIdentity, session: dict[str, Any
     agent = prelude_agent(identity)
     source = str(session.get("id") or "")
     key = legacy_summary_key(summary)
-    if await has_segment(agent, "legacy_summary", source, key):
+    if await has_segment(agent, "legacy_summary", source, key) or await was_invalidated(
+        agent, "legacy_summary", source, key
+    ):
         return
     content = summary
     if estimate_tokens(summary) > LEGACY_SUMMARY_MAX_TOKENS:
-        note = _legacy_cut_note(source)
-        budget = LEGACY_SUMMARY_MAX_TOKENS - estimate_tokens(note) - 1
-        content = f"{truncate_to_tokens(summary, budget)}\n{note}"
-    if destructive_ops.disturbed(identity, since):
-        return
+        budget = LEGACY_SUMMARY_MAX_TOKENS - estimate_tokens(_LEGACY_CUT_NOTE) - 1
+        content = f"{truncate_to_tokens(summary, budget)}\n{_LEGACY_CUT_NOTE}"
     await insert_segment(
         PreludeSegment(
             agent=agent,
@@ -214,29 +216,19 @@ async def migrate_legacy_summary(identity: AgentIdentity, session: dict[str, Any
             dedupe_key=key,
             content=content,
             created_at=get_current_epoch_ms(),
-        )
+        ),
+        skip_if=lambda: destructive_ops.disturbed(identity, since),
     )
 
 
-async def conversation_summary_in_prelude(identity: AgentIdentity, session_id: str) -> bool:
-    """這段對話自己的 ``context_summary`` 已經搬進前情（例如舊家）：不必再插一次（審查 F13）."""
-    session = await session_service.get_session_by_id(session_id)
-    summary = session.get("context_summary") if session else None
-    if not isinstance(summary, str) or not summary.strip():
-        return False
-    return await has_segment(
-        prelude_agent(identity), "legacy_summary", session_id, legacy_summary_key(summary)
-    )
-
-
-async def build_prelude_block(
+async def prelude_view(
     identity: AgentIdentity,
     *,
     home_id: str | None,
     config: SlidingWindowConfig,
     home_session: dict[str, Any] | None = None,
-) -> str | None:
-    """組這個靈魂的 ``<soul_prelude>`` 區塊；沒有任何段落回 None.
+) -> tuple[list[StoredSegment], int]:
+    """這一輪要顯示的段落（舊到新）與折掉的段數.
 
     ``home_session`` 有給時，先把現任家升級前的舊摘要搬進前情（只搬一次）；上下文預覽不給，
     整個流程不寫資料。
@@ -244,14 +236,27 @@ async def build_prelude_block(
     if home_session is not None:
         await migrate_legacy_summary(identity, home_session)
     visible = visible_segments(await list_live_segments(prelude_agent(identity)), home_id)
-    if not visible:
+    return _fit(visible, config.prelude_max_tokens)
+
+
+def render_prelude(shown: list[StoredSegment], folded: int) -> str | None:
+    """把要顯示的段落組成 ``<soul_prelude>`` 區塊；沒有段落回 None."""
+    if not shown:
         return None
-    shown, folded = _fit(visible, config.prelude_max_tokens)
     parts = ([folded_note(folded)] if folded else []) + [render_segment(seg) for seg in shown]
     historical = wrap_historical_data(
         SOUL_PRELUDE, blank_control_chars("\n\n".join(parts)), extra_tags=ALL_BLOCK_TAGS
     )
     return wrap_block(SOUL_PRELUDE, f"{_INTRO}\n{historical}")
+
+
+def summaries_shown_for(shown: list[StoredSegment], session_id: str) -> frozenset[str]:
+    """這一輪前情原文照登的、那段對話自己的舊摘要（截短過、被折掉、被合併的都不算）."""
+    return frozenset(
+        seg.content
+        for seg in shown
+        if seg.kind == "legacy_summary" and seg.source_session == session_id
+    )
 
 
 def trim_segment(

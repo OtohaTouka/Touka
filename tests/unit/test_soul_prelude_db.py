@@ -1,6 +1,6 @@
 """靈魂前情段落表（``ui_sessions.db`` 的 ``soul_prelude_segments``）的建表與讀寫（3d PR 1）。
 
-- 建表在 ``init_db_async``；同一靈魂、種類、來源、去重值、範圍版本只留一筆（INSERT OR IGNORE）。
+- 建表在 ``init_db_async``；範圍有效的列裡，同一靈魂、種類、來源、去重值只留一筆（INSERT OR IGNORE）。
 - 讀前情只看範圍版本 1、還沒被合併的段落；合併只標記被合併的段落，不刪。
 - 同名重建（``invalidate_agent_sessions``）只讓那個靈魂的段落失效；還原備份
   （``invalidate_restored_sessions``）讓全部失效。失效的段落不再出現在前情裡。
@@ -203,14 +203,41 @@ async def test_invalidating_twice_after_rewriting_the_same_key_works() -> None:
 
 
 @pytest.mark.asyncio
-async def test_export_lists_only_live_rows() -> None:
-    """失效的列可能屬於同名的前一個靈魂，匯出不帶；已合併的照帶（審查 F11）."""
+async def test_export_lists_every_row_with_its_scope() -> None:
+    """匯出帶全部列（含失效、已合併），和對話匯出一樣；範圍版本照實帶著（審查第 2 輪 G11）."""
     await init_db_async()
-    await db_mod.insert_segment(_seg("old"))
+    await db_mod.insert_segment(_seg("old", content="舊的"))
     await session_service.invalidate_agent_sessions(SOUL)
     await db_mod.insert_segment(_seg("new", content="新的"))
     rows = await db_mod.list_agent_segments(SOUL)
-    assert [row["content"] for row in rows] == ["新的"]
+    assert [(row["content"], row["scope_version"]) for row in rows] == [("舊的", 0), ("新的", 1)]
+
+
+@pytest.mark.asyncio
+async def test_was_invalidated_finds_only_invalidated_rows() -> None:
+    """搬過又被失效的舊摘要查得到；範圍有效的、從沒寫過的都查不到（審查第 2 輪 G1）."""
+    await init_db_async()
+    await db_mod.insert_segment(_seg("h", kind="legacy_summary"))
+    assert await db_mod.was_invalidated(SOUL.agent_id, "legacy_summary", "home-1", "h") is False
+    await session_service.invalidate_restored_sessions()
+    assert await db_mod.was_invalidated(SOUL.agent_id, "legacy_summary", "home-1", "h") is True
+    assert await db_mod.was_invalidated(SOUL.agent_id, "legacy_summary", "home-1", "x") is False
+
+
+@pytest.mark.asyncio
+async def test_insert_checks_skip_inside_the_write_lock() -> None:
+    """寫入前在寫鎖裡再問一次要不要放棄：回 True 就不寫（重置剛開始時，審查第 2 輪 G6）."""
+    await init_db_async()
+    asked: list[bool] = []
+
+    def skip() -> bool:
+        asked.append(True)
+        return True
+
+    assert await db_mod.insert_segment(_seg("a"), skip_if=skip) is False
+    assert asked == [True]
+    assert await db_mod.list_live_segments(SOUL.agent_id) == []
+    assert await db_mod.insert_segment(_seg("a"), skip_if=lambda: False) is True
 
 
 @pytest.mark.asyncio

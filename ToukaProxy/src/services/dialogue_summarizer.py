@@ -61,7 +61,8 @@ _SYSTEM = (
     "不要記成擁有者的決定、承諾或待辦。"
 )
 _MERGE_SYSTEM = (
-    "你是前情整理員。下面是幾段較早的前情，每段開頭方括號標它從哪段對話來、涵蓋什麼時間。"
+    "你是前情整理員。下面是幾段較早的前情，每段只占一行（原本的換行寫成 "
+    f"{LINE_BREAK_MARK}），開頭方括號標它從哪段對話來、涵蓋什麼時間。"
     "請合併成一份精簡條列，保留：人名、做過的決定、承諾與待辦、未解問題、情緒或關係的轉折，"
     "以及每件事從哪段對話來；丟棄重複。用繁體中文，不要開場白或結語，只要要點本身。"
 )
@@ -192,8 +193,8 @@ async def summarize_dialogue(
     lines = _dialogue_lines(messages)
     if not lines:
         return None
-    if previous:
-        previous = truncate_to_tokens(previous, PREVIOUS_MAX_TOKENS, model)
+    if previous:  # 截短後壓成一行：裡面假造的標籤或對話列不會變成真的（審查第 2 輪 G8）
+        previous = single_line(truncate_to_tokens(previous, PREVIOUS_MAX_TOKENS, model))
     prefix = f"{_PREVIOUS_LABEL}\n{previous}\n\n{_DIALOGUE_LABEL}\n" if previous else ""
     # 先用最長的長度提示估算指示的大小（實際的只會更短）
     overhead = estimate_tokens(_SYSTEM + _length_hint(4096), model) + estimate_tokens(

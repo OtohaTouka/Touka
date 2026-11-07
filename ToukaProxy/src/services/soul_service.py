@@ -6,7 +6,7 @@
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -469,22 +469,23 @@ class SoulService:
         logger.info(f"🏠 Injected {len(home_msgs)} home messages for {agent_id}")
 
     async def inject_context_summary(
-        self, request: Any, session_id: str | None
+        self, request: Any, session_id: str | None, shown: Collection[str] = ()
     ) -> None:
         """注入 session 級 ``context_summary`` 為 ``<conversation_summary>`` system 區塊。
 
         ADR-0092 Phase D：摘要固定前置、**不進對話訊息樹**（故不被 round 計數/再剪）。
         無 session_id 或無摘要則 no-op。呼叫端負責無痕 gating（無痕不注入）。
-        家不插自己的舊摘要：它已搬進靈魂的前情（ADR-0305）；子對話自己的舊摘要照舊插。
+        ``shown``：這一輪前情已經原文照登的舊摘要（ADR-0305）；同一段就不再插。家與子對話一樣：
+        截短過、被折掉、被合併時照舊插，不會兩邊都看不到。
         """
         if not session_id:
             return
         from src.utils.async_db import session_service  # noqa: LOCAL_IMPORT_BAN
         session = await session_service.get_session_by_id(session_id)
-        if not session or session.get("is_home"):
+        if not session:
             return
         summary = session.get("context_summary")
-        if not summary or not isinstance(summary, str):
+        if not summary or not isinstance(summary, str) or summary in shown:
             return
 
         # 歷史資料界線包在 <conversation_summary> 裡面：位置與角色都不變，只加文字

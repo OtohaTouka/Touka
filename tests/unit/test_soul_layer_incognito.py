@@ -69,4 +69,6 @@ async def test_non_incognito_injects_context_summary(monkeypatch):
         is_toukasoul=True, agent_id="Sumi", incognito=False, session_id="sess-1"
     )
     await soul_mod.SoulLayer().process(req, ctx)
-    inject_summary.assert_awaited_once_with(req, "sess-1")
+    inject_summary.assert_awaited_once()
+    # 第三個參數是這一輪前情已顯示的同一段原文（ADR-0305），這裡前情是空的
+    assert inject_summary.await_args.args[:2] == (req, "sess-1")
