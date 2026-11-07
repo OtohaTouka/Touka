@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 if TYPE_CHECKING:
     from pathlib import Path
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from starlette.background import BackgroundTask
 
 from src.config import get_config_dir
@@ -20,6 +20,7 @@ from src.services.hooks.lifecycle import notify_config_change
 from src.services.resource_manager import resource_manager
 from src.services.skill_catalog_service import SkillCatalogService
 from src.services.skill_service import skill_service
+from src.utils.isolation_policy import is_skill_segment
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -31,6 +32,10 @@ _require_skills_role = require_privileged
 _require_owner_role = require_owner_or_admin
 
 
+class InvalidSkillIdError(ValueError):
+    """技能名稱不是單一段的技能名稱（``SkillModel`` 驗證用，pydantic 轉成 422）。"""
+
+
 class SkillModel(BaseModel):
     """技能資料模型。"""
 
@@ -40,6 +45,14 @@ class SkillModel(BaseModel):
     system_prompt: str
     required_tools: list[str] = []
     mcp_servers: list[str] = []
+
+    @field_validator("id")
+    @classmethod
+    def _id_is_a_skill_name(cls, value: str) -> str:
+        """技能名稱只收單一段（``is_skill_segment``），不會被當成路徑；不改 OpenAPI 合約。"""
+        if not is_skill_segment(value):
+            raise InvalidSkillIdError
+        return value
 
 
 class SkillInstallRequest(BaseModel):

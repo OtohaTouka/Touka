@@ -19,8 +19,8 @@ interface UseChatStreamOptions {
   staticHistory: TreeHistory;
   activeSessionId: string;
   setActiveSessionId: (id: string) => void;
-  setPendingInstall: React.Dispatch<React.SetStateAction<SkillInstallRequest | null>>;
-  setPendingAsk: React.Dispatch<React.SetStateAction<AskUserRequest | null>>;
+  enqueueInstall: (sessionId: string, request: SkillInstallRequest) => void;
+  enqueueAsk: (sessionId: string, request: AskUserRequest) => void;
   /**
    * HAX G17 加固（批2 ⑤a）：無痕 id 兜底查詢（ChatProvider 誕生登記）。
    * 無痕 session 僅存前端記憶體，refreshSessions 整批覆蓋會把它洗出清單；
@@ -37,7 +37,7 @@ interface UseChatStreamOptions {
  * 切換對話不再中止串流（背景續跑）；停止改為 per-session 的 stopStream(activeSessionId)。
  */
 export function useChatStream({
-  staticHistory, activeSessionId, setActiveSessionId, setPendingInstall, setPendingAsk,
+  staticHistory, activeSessionId, setActiveSessionId, enqueueInstall, enqueueAsk,
   isIncognitoSession,
 }: UseChatStreamOptions) {
   const { t } = useTranslation();
@@ -119,7 +119,9 @@ export function useChatStream({
     const started = await startStream({
       sessionId, baseTree, userText: textToSend, resolvedInput, attachment, parentId: finalParentId,
       model: selectedModel, protocol, proxyUrl, projectId: projectId ?? undefined, authLevel, activeSkills,
-      onBeforeSend, onSkillInstallRequest: setPendingInstall, onAskUser: setPendingAsk, incognito, deepResearch, mcpDispatcher,
+      onBeforeSend, incognito, deepResearch, mcpDispatcher,
+      onSkillInstallRequest: request => enqueueInstall(sentSessionId, request),
+      onAskUser: request => enqueueAsk(sentSessionId, request),
       onHookBlocked: onHookBlocked ? () => onHookBlocked(sentSessionId) : undefined,
     });
 
@@ -128,7 +130,7 @@ export function useChatStream({
     if (started) onSuccessResetInput?.();
   }, [
     selectedModel, getSession, activeSessionId, staticHistory,
-    updateSession, syncSession, setActiveSessionId, setPendingInstall, setPendingAsk,
+    updateSession, syncSession, setActiveSessionId, enqueueInstall, enqueueAsk,
     setLastRequestPayload, setIsSimulationMode, startStream, isIncognitoSession, t,
   ]);
 

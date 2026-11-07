@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
@@ -24,6 +25,7 @@ from src.models.sliding_window import SlidingWindowConfig
 from src.services import sliding_window_service as sliding
 from src.services.sliding_window_service import SlidingWindowService
 from src.utils.async_db import SessionSnapshot
+from src.utils.history_manager import TreeMessageManager
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -60,6 +62,7 @@ def _make_session(linear: list[dict]) -> dict:
         "id": "test-session",
         "title": "Test",
         "messages": _make_tree(linear),
+        "is_home": 1,  # 只剪家對話
     }
 
 
@@ -654,7 +657,7 @@ def _concurrency_probe(svc: SlidingWindowService) -> dict:
     """把 _check_and_trim_inner 換成併發探針：記錄同時在臨界區內的最大數。"""
     state = {"now": 0, "max": 0}
 
-    async def _slow_inner(identity: AgentIdentity, session_id: str) -> bool:
+    async def _slow_inner(identity: AgentIdentity, session_id: str, _abandon=None) -> bool:
         state["now"] += 1
         state["max"] = max(state["max"], state["now"])
         await asyncio.sleep(0.05)  # 撐開重疊視窗
@@ -663,6 +666,18 @@ def _concurrency_probe(svc: SlidingWindowService) -> dict:
 
     svc._check_and_trim_inner = _slow_inner  # 實例層 shadow；鎖與入口皆走真實碼
     return state
+
+
+def test_the_shared_trim_fixture_is_what_the_backend_makes() -> None:
+    """畫面判斷「是不是剪裁造成的」用這份範例（ADR-0302）：它必須就是剪裁真的產生的樣子。"""
+    fixture = json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "sliding_window_trim.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    linear = TreeMessageManager.get_linear_path(fixture["before"])
+    kept = linear[fixture["kept_from"] :]
+    assert SlidingWindowService._rebuild_tree(kept) == fixture["after"]
 
 
 @pytest.mark.asyncio

@@ -11,20 +11,26 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, Header, Request  # noqa: TC002
+from fastapi import APIRouter, Depends, Header, Query, Request  # noqa: TC002
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
+from memory_server.services.manager import VaultPathRefusedError
 from memory_server.services.mission_manager import MissionManager
 from memory_server.tools import get_manager
 from memory_server.utils.no_follow import LinkRefusedError
 from memory_server.utils.zone_paths import ZoneSegmentError
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from src.config import DEFAULT_WORKSPACE_ROOT
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.history import TreeHistory
 from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.session_activity import (
+    BackgroundActivity,
+    FinishedActivity,
+    SessionActivityResponse,
+)
 from src.models.session_persistence import (
     AbsentSessionSnapshot,
     BufferedStreamState,
@@ -37,12 +43,14 @@ from src.models.session_persistence import (
     SessionStreamStateResponse,
     UnknownResult,
 )
+from src.services.activity_registry import activity_registry
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import (
     can_access_session,
     require_admin_authority,
     require_authenticated,
 )
+from src.services.chat_trim_wait import closing_saves
 from src.services.handover_service import handover_service
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
@@ -52,6 +60,7 @@ from src.services.process_registry import process_registry, terminate_processes
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import stream_buffer_service
+from src.utils.activity_visibility import agent_visibility, record_agent
 from src.utils.async_db import (
     SessionPersistenceError,
     get_async_db,
@@ -64,7 +73,7 @@ from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.history_manager import count_rounds_from_linear, get_linear_messages_from_tree
 from src.utils.path_security import validate_no_symlink_escape
 from src.utils.task_utils import spawn_logged
-from src.utils.time_utils import get_current_epoch
+from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
 from src.utils.touka_dirs import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -488,6 +497,7 @@ async def save_session(
     )
     if result.status != "saved":
         return SessionSaveResponse(session_id=session_id, persistence=result)
+    closing_saves.saved(session_id)  # 叫醒等畫面收尾保存的剪裁（ADR-0302）
 
     new_agent_id = (
         session.agent_id.agent_id
@@ -687,6 +697,46 @@ async def list_active_streams(
     return {"streams": items}
 
 
+@router.get("/activity", response_model=SessionActivityResponse)
+async def get_session_activity(
+    since: int | None = Query(default=None, ge=0),
+    identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
+) -> SessionActivityResponse:
+    """側欄的工作狀態：只看記憶體、不碰對話資料庫，前端每 8 秒查一次（ADR-0300）。
+
+    ``cursor`` 只隨呼叫者看得到的結束紀錄前進：別人的心跳結束時回應逐字不變，不洩漏次數。
+    第一次查詢（沒帶 ``since``）只拿游標，之前結束的不算。
+    """
+    can_see = agent_visibility(lambda agent: _can_access_session(identity, agent))
+    background: list[BackgroundActivity] = []
+    for session_id, record in activity_registry.snapshot().items():
+        if not can_see(record_agent(record)) or not isinstance(record, dict):
+            continue
+        fields = {key: record.get(key) for key in ("kind", "current", "total")}
+        try:
+            background.append(
+                BackgroundActivity.model_validate({"session_id": session_id, **fields})
+            )
+        except ValidationError:
+            logger.warning("Skipping malformed background activity record")
+    if since is None:
+        finished: list[FinishedActivity] = []
+        cursor = get_current_epoch_ms()
+    else:
+        finished = [
+            FinishedActivity(session_id=record["session_id"], finished_at=record["finished_at"])
+            for record in activity_registry.finished_since(since)
+            if can_see(record_agent(record))
+        ]
+        cursor = max([since, *(row.finished_at for row in finished)])
+    return SessionActivityResponse(
+        streams=stream_buffer_service.active_session_ids_of(identity),
+        background=background,
+        finished=finished,
+        cursor=cursor,
+    )
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
@@ -733,6 +783,10 @@ async def export_legacy(
             req.json_content,
             req.filename,
         )
+    except VaultPathRefusedError as e:
+        # 只有代理人的對話能存進舊對話庫；一般模型的 ID（如 ollama/llama3:8b）不能當資料夾名
+        logger.warning("Legacy export refused: %r has no legacy folder", req.agent_id.agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR) from e
     except Exception as e:
         logger.exception("Failed to export legacy chat")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=f"Export failed: {e!s}") from e

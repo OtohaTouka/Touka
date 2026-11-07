@@ -15,11 +15,10 @@ import { cn } from "@/lib/utils";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { MainAreaControls } from '@/components/layout/MainAreaControls';
-import { SetupNoticeDot } from '@/components/setup/SetupNoticeDot';
-import { useHasSetupNotice } from '@/components/setup/SetupNoticesProvider';
+import { MobileMenuButton } from '@/components/layout/MobileMenuButton';
 import {
   MessageSquare,  BarChart4,
-  Menu, Loader2
+  Loader2
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
@@ -28,6 +27,7 @@ import { logSSOTError } from "@/lib/error_handler";
 import { useChat } from '@/lib/providers/ChatProvider';
 import { useModels } from '@/lib/providers/ModelProvider';
 import { useDebug } from '@/lib/providers/DebugProvider';
+import { SessionActivityProvider } from '@/lib/providers/SessionActivityProvider';
 import { postToBridge, isIDE } from '@/lib/bridge';
 import {
   Sheet,
@@ -67,8 +67,7 @@ function ChatLobby() {
 
   const { isOpen: isRightSidebarOpen, setIsOpen: setRightSidebarOpen, setActiveTab } = useArtifacts();
   const { isSimulationMode } = useDebug();
-  const hasSetupNotice = useHasSetupNotice();
-  
+
   // 視圖狀態持久化：在掛載後讀取以避免 Hydration Mismatch
   const [viewMode, setViewMode] = useState<"chat" | "soul" | "studio" | "pulse" | "vault" | "settings" | "projects">("chat");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage("touka_sidebar_collapsed", false);
@@ -253,6 +252,7 @@ function ChatLobby() {
 
 
   return (
+    <SessionActivityProvider chatVisible={viewMode === "chat"}>
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground relative font-sans">
       {/* Mobile Backdrop（WCAG 2.1.1：裝飾性遮罩 aria-hidden；鍵盤替代＝下方 Esc 監聽） */}
       {isMobile && (!isSidebarCollapsed || isRightSidebarOpen) && (
@@ -272,13 +272,7 @@ function ChatLobby() {
              <div className="flex items-center gap-1">
                 <Sheet open={!isSidebarCollapsed} onOpenChange={(open) => setIsSidebarCollapsed(!open)}>
                   <SheetTrigger asChild>
-                    <button 
-                      className="relative p-2 -ml-2 text-muted-foreground hover:text-primary transition-colors shrink-0"
-                      aria-label={hasSetupNotice ? t('sidebar.setup_notice.open_menu_aria') : undefined}
-                    >
-                      <Menu size={24} />
-                      <SetupNoticeDot />
-                    </button>
+                    <MobileMenuButton />
                   </SheetTrigger>
                   <SheetContent side="left" className="p-0 w-72 border-none shadow-2xl bg-sidebar">
                     <SheetTitle className="sr-only">{t('app.home_page.nav_menu_title')}</SheetTitle>
@@ -410,5 +404,6 @@ function ChatLobby() {
         </PanelGroup>
       )}
     </div>
+    </SessionActivityProvider>
   );
 }

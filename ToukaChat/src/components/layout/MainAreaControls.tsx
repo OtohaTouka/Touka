@@ -4,8 +4,10 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SessionAttentionDot, useStatusLabel } from "@/components/sidebar/left/SessionStatusMark";
 import { SetupNoticeDot } from "@/components/setup/SetupNoticeDot";
 import { useHasSetupNotice } from "@/components/setup/SetupNoticesProvider";
+import { useSessionActivity } from "@/lib/providers/SessionActivityProvider";
 
 interface MainAreaControlsProps {
   isIDE: boolean;
@@ -39,6 +41,8 @@ export function MainAreaControls({
 }: MainAreaControlsProps) {
   const { t } = useTranslation();
   const hasSetupNotice = useHasSetupNotice();
+  const { attention } = useSessionActivity();
+  const attentionLabel = useStatusLabel(attention);
   const expandRef = useRef<HTMLButtonElement>(null);
   const wasCollapsed = useRef(isLeftSidebarCollapsed);
 
@@ -65,12 +69,13 @@ export function MainAreaControls({
             ref={expandRef}
             type="button"
             onClick={onExpandLeftSidebar}
-            aria-label={hasSetupNotice ? t("sidebar.setup_notice.expand_sidebar_aria") : expandLabel}
+            aria-label={[hasSetupNotice ? t("sidebar.setup_notice.expand_sidebar_aria") : expandLabel, attentionLabel].filter(Boolean).join(t("sidebar.session_tree.label_separator"))}
             title={expandLabel}
             className={cn(ICON_BUTTON, "text-muted-foreground hover:text-foreground hover:bg-sidebar")}
           >
             <PanelLeftOpen size={18} />
             <SetupNoticeDot />
+            <SessionAttentionDot status={attention} />
           </button>
         )}
       </div>

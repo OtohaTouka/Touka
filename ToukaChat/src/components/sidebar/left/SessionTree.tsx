@@ -11,11 +11,14 @@ import { useSessionTreeState } from '@/hooks/useSessionTreeState';
 import { useAgents } from '@/lib/providers/AgentProvider';
 import { useChat } from '@/lib/providers/ChatProvider';
 import { useProjects } from '@/lib/providers/ProjectProvider';
+import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
-import { buildSessionTree, canSetHome, previewChildren } from '@/lib/session_tree';
+import { isBusyStatus, mostUrgentStatus, type SessionWorkStatus } from '@/lib/session_activity';
+import { buildSessionTree, canSetHome, previewChildren, sessionSortTime } from '@/lib/session_tree';
 import type { Session } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { SessionItem, type SessionTreeRowProps } from './SessionItem';
+import { SessionStatusLead, SessionStatusTail, useBreathingClass, useStatusLabel } from './SessionStatusMark';
 
 const SKELETON_ROWS = [0, 1, 2];
 const GROUP_CHAT_ID = 'ToukaGroup';
@@ -30,6 +33,8 @@ interface FolderNode {
   isProject: boolean;
   /** 收合著，開著的對話在裡面：這一列要標出來，不然畫面上找不到它。 */
   holdsActive: boolean;
+  /** 畫面上看不到的子對話裡最要緊的狀態：收合了也要亮。 */
+  hiddenStatus: SessionWorkStatus | null;
   /** 專案分組顯示筆數。 */
   count?: number;
 }
@@ -56,6 +61,34 @@ interface SessionTreeProps {
   onSwitch: (id: string) => void;
 }
 
+/** 沒有家對話的資料夾、專案分組。 */
+function FolderRow({ node, arrow, rowProps, onOpen }: { node: FolderNode; arrow: React.ReactNode; rowProps: SessionTreeRowProps; onOpen: () => void }) {
+  const { t } = useTranslation();
+  const statusLabel = useStatusLabel(node.hiddenStatus);
+  const breathing = useBreathingClass(node.hiddenStatus);
+  return (
+    <div
+      // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- 這列不能選；axe 不要求 aria-selected
+      role="treeitem"
+      aria-current={node.holdsActive ? 'true' : undefined}
+      aria-label={[node.name, node.count, node.holdsActive && t('sidebar.session_tree.folder_holds_active'), statusLabel].filter(Boolean).join(t('sidebar.session_tree.label_separator'))}
+      {...rowProps}
+      onClick={onOpen}
+      className={cn(
+        "flex items-center gap-1 rounded-xl cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        node.holdsActive ? 'bg-accent shadow-sm' : 'hover:bg-accent/50'
+      )}
+    >
+      {arrow}
+      <SessionStatusLead status={node.hiddenStatus} />
+      {!node.isProject && <Folder className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />}
+      <span data-testid="session-name" className={cn("pr-1 py-1.5 text-sm font-semibold truncate", breathing)}>{node.name}</span>
+      <SessionStatusTail status={node.hiddenStatus} />
+      {node.count !== undefined && <span className="ml-auto mr-2 rounded-md bg-muted px-1.5 text-xs text-muted-foreground">{node.count}</span>}
+    </div>
+  );
+}
+
 /** 平鋪的樹：每列帶 aria-level，資料夾與子對話是兄弟節點，事件不會互相冒泡。 */
 export function SessionTree(props: SessionTreeProps) {
   const { user } = useAuth();
@@ -67,7 +100,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
   const { t } = useTranslation();
   const { sessions } = useSessionList();
   const { agents, agentsStatus } = useAgents();
-  const { activeSessionId, handleSetHome, handleSetProject, handleUnsetHome, streamingSessionIds } = useChat();
+  const { activeSessionId, handleSetHome, handleSetProject, handleUnsetHome } = useChat();
+  const { statusOf, activityTimeOf } = useSessionActivity();
   const { projects } = useProjects();
   const sessionActions = useSessionActions();
   const { isCollapsed, setCollapsed, isShowingAll, showAll } = useSessionTreeState(userId);
@@ -82,6 +116,7 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
 
     const holdsActive = (children: Session[], expanded: boolean | undefined) =>
       expanded === false && children.some(session => session.id === activeSessionId);
+    const statusOfHidden = (hidden: Session[]) => mostUrgentStatus(hidden.map(session => statusOf(session.id)));
 
     const addChildren = (parentId: string, children: Session[], more?: { key: string; count: number }) => {
       const size = children.length + (more ? 1 : 0);
@@ -97,30 +132,32 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         const key = `project:${name}`;
         const id = `folder:${key}`;
         const expanded = !isCollapsed(key);
-        folderNodes.push({ kind: 'folder', id, key, name, home: null, persist: false, isProject: true, holdsActive: holdsActive(children, expanded), count: children.length, expanded, level: 1, pos: index + 1, size: groups.length });
+        folderNodes.push({ kind: 'folder', id, key, name, home: null, persist: false, isProject: true, holdsActive: holdsActive(children, expanded), hiddenStatus: expanded ? null : statusOfHidden(children), count: children.length, expanded, level: 1, pos: index + 1, size: groups.length });
         if (expanded) addChildren(id, children);
       });
       return { folderNodes, otherNodes };
     }
 
-    const tree = buildSessionTree(sessions, agents, agentsStatus);
-    const pinned = new Set(activeSessionId ? [activeSessionId] : []);
+    const tree = buildSessionTree(sessions, agents, agentsStatus, activityTimeOf);
+    // 工作中、等您處理的不收進「還有 N 個」
+    const pinned = new Set(sessions.filter(session => session.id === activeSessionId || isBusyStatus(statusOf(session.id))).map(session => session.id));
     tree.folders.forEach((folder, index) => {
       const id = `folder:${folder.key}`;
       // 只有家、底下沒有子對話：沒有東西可以收合
       const expanded = folder.children.length > 0 ? !isCollapsed(folder.key) : undefined;
       // 只有無痕對話的資料夾不寫進瀏覽器（ADR-0086）
       const persist = [folder.home, ...folder.children].some(session => session && !session.incognito);
-      folderNodes.push({ kind: 'folder', id, key: folder.key, name: folder.name, home: folder.home, persist, isProject: false, holdsActive: holdsActive(folder.children, expanded), expanded, level: 1, pos: index + 1, size: tree.folders.length });
-      if (!expanded) return;
       const { visible, hiddenCount } = previewChildren(folder.children, isShowingAll(folder.key), pinned);
+      const hidden = expanded === false ? folder.children : folder.children.filter(session => !visible.includes(session));
+      folderNodes.push({ kind: 'folder', id, key: folder.key, name: folder.name, home: folder.home, persist, isProject: false, holdsActive: holdsActive(folder.children, expanded), hiddenStatus: statusOfHidden(hidden), expanded, level: 1, pos: index + 1, size: tree.folders.length });
+      if (!expanded) return;
       addChildren(id, visible, hiddenCount > 0 ? { key: folder.key, count: hiddenCount } : undefined);
     });
     tree.others.forEach((session, index) => otherNodes.push({
       kind: 'session', id: session.id, parentId: null, session, level: 1, pos: index + 1, size: tree.others.length,
     }));
     return { folderNodes, otherNodes };
-  }, [showingProjects, sessionGroups, sessions, agents, agentsStatus, activeSessionId, isCollapsed, isShowingAll]);
+  }, [showingProjects, sessionGroups, sessions, agents, agentsStatus, activeSessionId, isCollapsed, isShowingAll, statusOf, activityTimeOf]);
 
   const nodes = useMemo(() => [...folderNodes, ...otherNodes], [folderNodes, otherNodes]);
 
@@ -182,7 +219,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
       key={node.id}
       session={session}
       isActive={activeSessionId === session.id}
-      isStreaming={streamingSessionIds.includes(session.id)}
+      status={statusOf(session.id)}
+      displayTime={sessionSortTime(session, activityTimeOf)}
       editingSessionId={sessionActions.editingSessionId}
       editTitle={sessionActions.editTitle}
       deleteConfirmId={sessionActions.deleteConfirmId}
@@ -247,28 +285,10 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
         leading: arrow,
         isActive: node.home.id === activeSessionId || node.holdsActive,
         holdsActive: node.holdsActive,
+        status: mostUrgentStatus([statusOf(node.home.id), node.hiddenStatus]),
       });
     }
-    return (
-      <div
-        key={node.id}
-        // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- 這列不能選；axe 不要求 aria-selected
-        role="treeitem"
-        aria-current={node.holdsActive ? 'true' : undefined}
-        aria-label={[node.name, node.count, node.holdsActive && t('sidebar.session_tree.folder_holds_active')].filter(Boolean).join(t('sidebar.session_tree.label_separator'))}
-        {...rowProps(node)}
-        onClick={() => openFolder(node)}
-        className={cn(
-          "flex items-center rounded-xl cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-          node.holdsActive ? 'bg-accent shadow-sm' : 'hover:bg-accent/50'
-        )}
-      >
-        {arrow}
-        {!node.isProject && <Folder className="w-3.5 h-3.5 ml-1 shrink-0 text-muted-foreground" />}
-        <span className="pl-1.5 pr-1 py-1.5 text-sm font-semibold truncate">{node.name}</span>
-        {node.count !== undefined && <span className="ml-auto mr-2 rounded-md bg-muted px-1.5 text-xs text-muted-foreground">{node.count}</span>}
-      </div>
-    );
+    return <FolderRow key={node.id} node={node} arrow={arrow} rowProps={rowProps(node)} onOpen={() => openFolder(node)} />;
   };
 
   return (

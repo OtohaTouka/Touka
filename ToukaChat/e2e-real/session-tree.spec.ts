@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { adminLogin, createChat, createProject, createSoul, createUser, login, setChatHome, type ChatSeed } from "./lib/api";
 import { FAKE_MODEL_ID, FAKE_TEXT_REPLY } from "./lib/constants";
 import { modelCalls } from "./lib/control";
-import { composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot, sideMenuButton, submitLogin } from "./lib/ui";
+import { clickChatInList, composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, setChatAsHome, shot, sideMenuButton, submitLogin } from "./lib/ui";
 
 // 每個情境用新的靈魂與帳號：共用沙盒裡 hooks-* 的靈魂已經有對話和家，一般帳號只看得到自己的對話。
 const PASSWORD = "session-tree-password-1";
@@ -186,6 +186,32 @@ test("沒有靈魂的對話放其他對話並標模型；冒號格式進對應�
   expect(stored.join("")).not.toContain(secret.toLowerCase());
 });
 
+test("連續設家甲、乙、丙，再換回較舊的一段：資料夾那一列一直是最後設的家", async ({ page }, info) => {
+  const soul = "TreeChain";
+  const { email, token } = await newSoulAccount("chain", [soul]);
+  const titles = ["連甲", "連乙", "連丙"];
+  await seed(token, titles.map((title, index) => ({ id: `chain-${index}`, title, agentId: soul, updatedAt: 3 - index })));
+  await loginInBrowser(page, email, PASSWORD);
+
+  for (const [index, title] of titles.entries()) {
+    await setChatAsHome(page, title);
+    await expect(row(page, `${soul}，家對話：${title}`)).toBeVisible();
+    for (const earlier of titles.slice(0, index)) await expect(row(page, earlier)).toHaveAttribute("aria-level", "2");
+  }
+  await shot(page, info, "third-home");
+
+  await clickChatInList(page, "連甲");
+  await expect(row(page, "連甲")).toHaveAttribute("aria-current", "true");
+  await expect(row(page, `${soul}，家對話：連丙`)).toBeVisible();
+  await sendMessage(page, "換回舊的那段再送一則");
+  await expect.poll(async () => (await modelCalls()).some((call) => call.lastText.includes("換回舊的那段再送一則"))).toBe(true);
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
+
+  await page.reload();
+  await expect(row(page, `${soul}，家對話：連丙`)).toBeVisible();
+  await expect(row(page, "連乙")).toHaveAttribute("aria-level", "2");
+});
+
 test("設為家只有靈魂的對話看得到；設家後舊家回到子對話；再送一則模型收得到", async ({ page }, info) => {
   const soul = "TreeNine";
   const { email, token } = await newSoulAccount("nine", [soul]);
@@ -351,4 +377,13 @@ test("只用鍵盤：Tab 一下跳過清單、方向鍵、左右收合、Shift+F
   await page.keyboard.type("改");
   await page.keyboard.press("Enter");
   await expect(row(page, "十二之甲改")).toBeFocused();
+
+  // 關掉「⋯」後馬上去輸入框：選單淡出跑完也不能把焦點拉回這一列（不然接著按的 Enter 會打在側欄上）。
+  // 確定的防線是單元測試 SessionItem.closeFocus.test.tsx；這裡補真的 Radix 與淡出（機器很慢時可能漏抓，不會誤紅）
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await composer(page).focus();
+  await page.waitForTimeout(300);
+  await expect(composer(page)).toBeFocused();
 });

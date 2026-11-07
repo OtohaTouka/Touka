@@ -82,6 +82,74 @@ def append_to_last_user(request: Any, text: str) -> bool:
     return True
 
 
+def _field(message: Any, name: str) -> Any:
+    return message.get(name) if isinstance(message, dict) else getattr(message, name, None)
+
+
+def _is_blank_assistant(message: Any) -> bool:
+    """沒有文字、也沒有工具呼叫或其他區塊的助理訊息（例如模型一個字都沒出就失敗的那一輪）。"""
+    if _field(message, "role") != "assistant" or _field(message, "tool_calls"):
+        return False
+    content = normalize_message_content(_field(message, "content"))
+    if content is None:
+        return True
+    if isinstance(content, str):
+        return not content.strip()
+    if isinstance(content, list):
+        return all(
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and not str(block.get("text") or "").strip()
+            for block in content
+        )
+    return False
+
+
+def _as_blocks(content: Any) -> list[Any] | None:
+    content = normalize_message_content(content)
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content else []
+    return list(content) if isinstance(content, list) else None
+
+
+def _merged_user_content(first: Any, second: Any) -> Any:
+    """兩則 user 的內容接成一則；都是純文字就用空行接，有區塊就接成區塊陣列。認不得回 None。"""
+    first, second = normalize_message_content(first), normalize_message_content(second)
+    if isinstance(first, str) and isinstance(second, str):
+        return f"{first}\n\n{second}"
+    head, tail = _as_blocks(first), _as_blocks(second)
+    return None if head is None or tail is None else [*head, *tail]
+
+
+def _with_content(message: Any, content: Any) -> Any:
+    if isinstance(message, dict):
+        return {**message, "content": content}
+    return message.model_copy(update={"content": content})
+
+
+def drop_blank_assistant_turns(messages: list[Any]) -> list[Any]:
+    """拿掉空白的助理訊息；因此接在一起的前後兩則 user 合併成一則（ADR-0231 決定 6）。
+
+    Anthropic 規定文字區塊至少 1 個字，其他家文件沒寫（2026-11-06 查），所以在分流到各家
+    之前一起處理。原本就相鄰的 user 不動；回傳新串列，不改動傳入的訊息。
+    """
+    result: list[Any] = []
+    dropped = False
+    for message in messages:
+        if _is_blank_assistant(message):
+            dropped = True
+            continue
+        if dropped and result and _field(result[-1], "role") == _field(message, "role") == "user":
+            merged = _merged_user_content(_field(result[-1], "content"), _field(message, "content"))
+            if merged is not None:
+                result[-1] = _with_content(result[-1], merged)
+                dropped = False
+                continue
+        result.append(message)
+        dropped = False
+    return result
+
+
 def message_text(content: Any) -> str:
     """訊息內容裡的文字（多模態 JSON 字串先還原；圖片等非文字區塊略過）。"""
     content = normalize_message_content(content)

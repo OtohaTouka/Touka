@@ -21,9 +21,9 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
 | `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
-| `B008` | 228 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
-| `LOCAL_IMPORT_BAN` | 24 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）；終端工具改用頂層匯入的區內方法，不再列入（ADR-0293）。其餘位置見下方明細。 |
-| `S603` | 29 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集；+1 ADR-0278 tests/README 列表核對的 git ls-files）。 |
+| `B008` | 229 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（+1 ADR-0300 `routers/ui_sessions.py` `get_session_activity`；-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
+| `LOCAL_IMPORT_BAN` | 25 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）；終端工具改用頂層匯入的區內方法，不再列入（ADR-0293）；+1 ADR-0303 `ResourceManager._is_known_agent` 延遲載入 `agent_service`。其餘位置見下方明細。 |
+| `S603` | 30 | 子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集；+1 ADR-0278 tests/README 列表核對的 git ls-files；+1 映像授權檢查列出版控中的 Dockerfile 的 git ls-files）。 |
 | `SLF001` | 70 | 跨類別私有成員存取（-2 ADR-0253 `services/legacy_sync.py` 改用公開的 `MemoryManager.get_legacy_dir`；P2 -3：刪除 `_get_effective_permissions` 私有測試接點；P5 +1：`PermissionService.reset_singleton()` 重設不可變 `_permission_config_health` 快照；+1 ADR-0195 tests/unit/test_mcp_server_tools_endpoint.py 注入 `_active_sessions` 建立「已連線」態以做 HTTP 級端點測試；+4 ADR-0195 tests/unit/test_mcp_tool_governance.py 直接注入 ProtocolManager 的 `_active_sessions`／`_circuit_breakers` 以建立不含真實子進程的受控連線態；-1 ADR-0146 test_mission_stop_gate 隨 nudge 退役刪除；+4 ADR-0148 test_skill_registry_rbac 注入/還原 skill_service._metadata 測試 seed；+5 P3 認證縫 test_auth_seam_hardening_p3 顯式建立/毒化沙箱 users.json（_atomic_users_write 清空／注入毒化／改水位／改密碼快照）＋user_service.create_user 單閉包呼叫 _atomic_users_write；+1 G03 test_ldh_cardless_no_type_flag 清空沙箱 users.json 設「未認領」LDH 前提；+1 G05 test_soul_stepup_audit 清空沙箱 users.json 建 admin 驗步升 AUDIT；+4 G07 test_soul_model_registration_cache 存取 model_manager._models_cache／_save_config 與 souls._update_models_config 源碼驗快取權威；+1 G13 test_env_persistence_anchor 讀 config._ENV_PERSISTENCE_PROBE_KEYS 驗 compose environment parity；+3 G20/G22 test_soul_model_registration_cache 讀 model_manager._models_cache 驗冪等/裸條目；-1 ADR-0208 connections status 改用 public diagnostics getter；+1 演化 MCP 驗證沿用 `EvolutionPathGuard._build_rlimit_preexec`，保持直接執行與啟動器的配額同源；+2 ADR-0254 H12 補記：`UserService.rename_owned_agent` 用一次 `_atomic_users_write` 把所有人清單裡的舊 ID 換成新 ID、`claim_owned_agent` 新建時一次換掉這個 ID 的擁有權） |
 | `PTH121` | 1 | 演化技能的實體別名判斷使用 `os.path.samefile`，可對不分大小寫的掛載注入一致的測試接點。 |
 | `ARG002` | 5 | 介面協議規定的未使用參數（+4 ADR-0137 NoopReviewer.review 實作 Reviewer Protocol 對稱簽名，哨兵無條件放行不使用參數） |
@@ -38,7 +38,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `BCRYPT_IMPORT_SSOT` | 0 | 目前無豁免（auth_service.py 為白名單，不需 noqa） |
 | `SQLITE3_IMPORT_BAN` | 0 | 目前無豁免（原 container-security runtime smoke 已隨 ADR-0238 移除）。 |
 | `FILELOCK_ASYNC_SSOT` | 5 | 服務層必須使用 AsyncFileLock；mission_lock.py 為既有定義點（ADR-0049）；ADR-0206 keyring atomic writer 與 OAuth profile fence；ADR-0207 workload profile/delegation JSON generation CAS 各一個定義點 |
-| `PATH_LITERAL_SSOT` | 6 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑。 |
+| `PATH_LITERAL_SSOT` | 10 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑；+3 ADR-0303 `test_drive_bound.py` 的 Windows 路徑字串（純字串比對，不碰檔案系統）；+1 ADR-0303 `test_soul_name_path_security.py` 的 `HOST_WORKSPACE`（Docker 裡主機 Windows 路徑的樣本字串，只在 Linux 解析成相對路徑）。 |
 | `CONSOLE_BAN` | 1 | 前端直接 console.log/warn/error 合法豁免：`error_handler.ts` L76 是 `logSSOTError()` 的 SSOT 封裝層 |
 | `ERROR_SSOT_VIOLATION` | 1 | 明示 UI admission 的固定 typed precommit 衝突結果須 HTTP 409；不反射原輸入。 |
 | `PAC_MANUAL_LEVEL_CHECK` | 5 | 安全測試合法豁免：`test_native_tool_payload_contracts.py`（1）、`test_session_persistence_ordering.py`（2）、`test_auth_mode_authority_security.py`（2）讀回被保護的 auth_level 驗證既有安全級或舊值對照，非生產中介層手刻策略判定（ADR-0246 U2c-4：E01 測試改用屬性斷言 -5，舊值讀取對照斷言 +2） |
@@ -182,7 +182,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `routers/setup.py` | L42, L43, L52, L53 | `B008` | 🔴 不可修復 | ADR-0053：Setup 端點的 `require_admin` 與 `get_setup_service` 依賴注入，符合 FastAPI Depends 慣例 |
 | `routers/skills.py` | `export_skill`, `install_skill`, `get_skill_catalog`, `install_catalog_skill` | `B008` | 🔴 不可修復 | ADR-0066/0074：技能 export/install + 真技能策展目錄端點的依賴注入 |
 | `routers/creation.py` | `create_skill_endpoint`, `create_mcp_endpoint`, `scaffold_mcp_endpoint` | `B008` | 🔴 不可修復 | ADR-0069 Phase D：創建端點 Owner/admin 依賴注入（Depends 置於參數預設值） |
-| `routers/ui_sessions.py` | resume_session_stream, list_active_streams | `B008` | 🔴 不可修復 | ADR-0081 可恢復串流端點的 `_require_authenticated` 依賴注入（Guard #24 合規） |
+| `routers/ui_sessions.py` | resume_session_stream, list_active_streams, get_session_activity | `B008` | 🔴 不可修復 | ADR-0081 可恢復串流端點與 ADR-0300 側欄工作狀態端點的 `_require_authenticated` 依賴注入（Guard #24 合規） |
 | `routers/ui_interjections.py` | add_interjection, list_interjections, retract_interjection | `B008` | 🔴 不可修復 | ADR-0249 插話端點的 `_require_human_requester` 依賴注入（Guard #24 合規） |
 | `routers/feedback.py` | `submit_feedback`, `get_session_feedback`, `get_recent_feedback` | `B008` | 🔴 不可修復 | ADR-0084：回饋端點（提交/還原/檢視）的依賴注入（Depends 置於參數預設值；含 owner-gate） |
 | `routers/chat_upload.py` | `upload_chat_file`（`File(...)`／`Form(...)`／`Depends(get_verified_identity)`） | `B008` | 🔴 不可修復 | 聊天上傳 Phase 2：multipart 上傳端點的 FastAPI 依賴注入（File/Form/Depends 置於參數預設值，框架慣例）|
@@ -202,11 +202,11 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `services/authorization_gateway.py` | 5 個共用授權函式＋`require_human_requester`（ADR-0249）的 `Depends(get_verified_identity)` | `B008` | 🔴 不可修復 | ADR-0239：Authorization Gateway；各 router 的 `_require_*` 改為指向這 5 個函式的別名，原本分散的 B008 收斂於此 |
 | `services/execution_broker.py` | `run_sync` | `S603` | 🔴 不可修復 | ADR-0239：同步子程序的單一啟動入口，純轉傳 argv／kwargs；TID251 由 `ruff.toml` per-file-ignores 豁免 |
 | `services/permission_service.py` | L76-L89 | `SLF001` | 🔴 不可修復 | 單例模式重設時存取內部屬性；P5 同步清除 `_permission_config_health`，避免測試單例沿用 degraded 快照 |
-| `services/resource_manager.py` | L54, L389, `get_vault_path_for_agent` | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | `async_db` 反向導入破壞；`get_vault_path_for_agent` 延遲載入 `identity_service`，破 identity_service→permission_service→resource_manager 循環（跨身分看板決定論定址） |
+| `services/resource_manager.py` | L54, L389, `get_vault_path_for_agent`, `_is_known_agent` | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | `async_db` 反向導入破壞；`get_vault_path_for_agent` 延遲載入 `identity_service`，破 identity_service→permission_service→resource_manager 循環（跨身分看板決定論定址）；`_is_known_agent` 延遲載入 `agent_service`，破 agent_service→soul_io／custom_io→resource_manager 循環（ADR-0303） |
 | `services/resource_manager.py` | `get_vault_path_for_agent` | `IDENTITY_SSOT` | 🔴 不可修復 | 跨身分定址入口以 `agent_id: str` 為鍵——呼叫端（如 `MissionManager._get_mission_path` 的 `target_agent_id`）僅持有字串；本方法即負責於函式內經 `identity_service.get_identity(agent_id)` 查真實註冊身分後才物件化定址 |
 | `services/skill_service.py` | L30 | `SLF001` | 🔴 不可修復 | 單例重設 |
 | `services/sns_gateway.py` | 已移除 | `LOCAL_IMPORT_BAN` | 🟢 已修復 | ADR-0276：啟動時注入服務 context，事件入口不再延遲匯入 main。 |
-| `services/soul_service.py` | L59, L206, `inject_context_summary` | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | `soul_service`/`resource_manager`/`async_db` 循環破壞（含 ADR-0092 context_summary 讀取） |
+| `services/soul_service.py` | `_resource_manager`, L206, `inject_context_summary` | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | `soul_service`/`resource_manager`/`async_db` 循環破壞（含 ADR-0092 context_summary 讀取）；原本 `get_soul_data` 裡的那一處移到 `_resource_manager`，`get_soul_data` 與 `_soul_dir` 共用（ADR-0303，數量不變） |
 | `services/context_snapshot_service.py` | `get_context_snapshot` harness (×3) | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | ADR-0133：快照 harness 於函式內延遲載入 `AnthropicRequest`／`PipelineContext`／`proxy_service.pipeline`——後者匯入整條中介層 pipeline，頂層匯入會與 services 層形成重循環 |
 | `tools/subagent_tools.py` | `_assemble_subagent_request` | `LOCAL_IMPORT_BAN` | 🔴 不可修復 | Phase 1 in-process 子代理：組裝走真實 `proxy_service.pipeline`（ADR-0133 同款 harness），頂層匯入會經 middleware→tools 形成重循環 |
 | `services/user_service.py` | L80, L104, L141, L226, L265, L283, L292, L307, L322, L336 | `SLF001` | 🔴 不可修復 | 呼叫 `AuthService` 的私有 `_atomic_users_write` 進行 users.json 的安全原子落庫 (N11 fix；含 DA25 `change_own_password` 自助改密碼；L307、L322 是 ADR-0254 H12 補記的 `rename_owned_agent`、`claim_owned_agent`) |
@@ -275,6 +275,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | --- | --- | --- |
 | `scripts/lint_ratchet.py::_run_tool_module` | `S603` ×1 | ADR-0278、ADR-0298：ruff、pyrefly、vulture 共用的子程序入口，以 `sys.executable -m <工具>` 跑固定 argv（ruff：四個產品資料夾、`--no-cache`、JSON 輸出；pyrefly：`--config pyproject.toml`、目前的直譯器、JSON 輸出；vulture：四個產品資料夾加白名單、固定門檻與排除的裝飾器），`shell=False`、有逾時；工具異常結束就失敗，不當成 0 個違規。 |
 | `tests/lint/test_tests_readme_listing.py::git_ls_files` | `S603` ×1 | ADR-0278：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z -- <pathspec>`（`tests` 或全 repo），`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
+| `tests/lint/test_release_licensing.py::_dockerfiles` | `S603` ×1 | 映像授權檢查：以 `shutil.which` 解析出的 git 跑固定 argv `ls-files -z`，從結果挑出版控中的 Dockerfile，`shell=False`、`check=True`；找不到 git 就失敗、不跳過。 |
 | `scripts/list_theme_violations.py`、`scripts/summarize_theme_violations.py` 的固定shell命令 | `S602` ×2 | 保留既有命令／診斷語義；不接收自由shell輸入。 |
 
 ## 測試與驗證（`tests/`）

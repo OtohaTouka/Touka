@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_FILE_NAME = "sliding_window.json"
 _DEFAULT_CONFIG = SlidingWindowConfig()
+# 剪裁中途要不要放棄：拿到讀到的存檔（存回前是 None），回 True 就不剪
+type Abandon = Callable[[dict[str, Any] | None], bool]
 
 
 class SlidingWindowService:
@@ -305,19 +308,33 @@ class SlidingWindowService:
         self,
         identity: AgentIdentity,
         session_id: str,
+        abandon: Abandon | None = None,
     ) -> bool:
         """ACID-safe 滑動視窗主入口。
 
         ADR-0092 Phase D / 禁令 57：以 per-session 鎖序列化 heartbeat 與 chat
         兩授權觸發點，避免兩條路徑同時讀改同一 session 樹造成競態。
+        ``abandon``（聊天側，ADR-0302）：讀到存檔後、寫摘要前（重讀一次）、存回前各問一次，
+        回 True 就不剪；存回前傳 None。
         """
         async with self._get_lock(session_id):
-            return await self._check_and_trim_inner(identity, session_id)
+            return await self._check_and_trim_inner(identity, session_id, abandon)
+
+    async def _moved_on(
+        self, identity: AgentIdentity, session_id: str, revision: str, abandon: Abandon
+    ) -> bool:
+        """寫摘要前重讀一次：存檔已經變了或該放棄，就省下這次模型呼叫。"""
+        try:
+            fresh = await session_service.read_persistence_snapshot(session_id, identity)
+        except SessionPersistenceError:
+            return True
+        return fresh.revision != revision or abandon(fresh.session)
 
     async def _check_and_trim_inner(
         self,
         identity: AgentIdentity,
         session_id: str,
+        abandon: Abandon | None = None,
     ) -> bool:
         """check_and_trim 的實際邏輯（呼叫端已持 per-session 鎖）。
 
@@ -342,6 +359,9 @@ class SlidingWindowService:
             logger.debug("SlidingWindow: session %s not found, skipping", session_id)
             return False
         session_service.require_scope(session, identity)
+        # 只剪家對話；呼叫端判斷之後才換家、取消家就不剪（存回時交易內再查一次，ADR-0301）
+        if not session.get("is_home") or (abandon is not None and abandon(session)):
+            return False
 
         raw_messages = session.get("messages", {})
         linear = TreeMessageManager.get_linear_path(raw_messages)
@@ -420,6 +440,10 @@ class SlidingWindowService:
         # ── ACID-S: 摘要（best-effort、不進關鍵路徑；失敗→None→降級純無損剪裁）──
         # 替換式：本次摘要覆蓋舊 context_summary；None 沿既有語意省略、保留舊值。
         summary: str | None = None
+        if abandon is not None and await self._moved_on(
+            identity, session_id, snapshot.revision, abandon
+        ):
+            return False
         if config.summary_budget_pct > 0:
             budget_tokens = int(window * config.summary_budget_pct / 100)
             summary = await summarize_dialogue(
@@ -427,6 +451,8 @@ class SlidingWindowService:
             )
 
         # ── 5. ACID-B: 更新 Session（只在 legacy 確認寫入後） ─────────────
+        if abandon is not None and abandon(None):
+            return False
         new_tree = self._rebuild_tree(kept_msgs)
         try:
             changes = SessionChanges(
@@ -439,6 +465,7 @@ class SlidingWindowService:
                 snapshot.revision,
                 changes,
                 identity,
+                require_home=True,
             )
         except Exception:
             logger.exception(

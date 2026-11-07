@@ -20,7 +20,7 @@ import type { RequestScope } from '../connections';
 import { useSessionList } from "./SessionListProvider";
 import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
-import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, recordInterjection, stampNodeTime, dropBlockedTurn } from "../stream_tree";
+import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, recordInterjection, stampNodeTime, dropBlockedTurn, hasPendingApproval } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
 import { getLinearMessages, migrateFlatToTree, TreeHistory } from "../tree_history";
@@ -89,6 +89,8 @@ interface StreamRegistryContextType {
   getStream: (sessionId: string) => StreamState | undefined;
   checkSessionStream: (sessionId: string) => Promise<void>;
   streamingSessionIds: string[];
+  /** 進行中、有核准卡或外掛工具表單在等人回應的對話。 */
+  awaitingApprovalSessionIds: string[];
   activeCount: number;
 }
 
@@ -484,12 +486,15 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     streamsRef.current = {};
   }, []);
 
-  const streamingSessionIds = Object.values(streams).filter(stream =>
-    ['saving', 'waiting', 'streaming'].includes(stream.status)).map(stream => stream.sessionId);
+  const activeStreams = Object.values(streams).filter(stream =>
+    ['saving', 'waiting', 'streaming'].includes(stream.status));
+  const streamingSessionIds = activeStreams.map(stream => stream.sessionId);
+  const awaitingApprovalSessionIds = activeStreams.filter(stream =>
+    hasPendingApproval(stream.tree, stream.assistantMsgId)).map(stream => stream.sessionId);
 
   const value = React.useMemo(() => ({
-    startStream, stopStream, getStream, checkSessionStream, streamingSessionIds, activeCount: streamingSessionIds.length,
-  }), [startStream, stopStream, getStream, checkSessionStream, streamingSessionIds]);
+    startStream, stopStream, getStream, checkSessionStream, streamingSessionIds, awaitingApprovalSessionIds, activeCount: streamingSessionIds.length,
+  }), [startStream, stopStream, getStream, checkSessionStream, streamingSessionIds, awaitingApprovalSessionIds]);
 
   return (
     <StreamRegistryContext.Provider value={value}>

@@ -3,11 +3,13 @@
 import React from 'react';
 import { useTranslation } from "react-i18next";
 import {
-    MoreVertical, Download, Pencil, Trash2, Home, Ban, Scissors, Folder, Loader2
+    MoreVertical, Download, Pencil, Trash2, Home, Ban, Scissors, Folder
 } from "lucide-react";
 import { cn } from '@/lib/utils';
 import { Session, Project } from '@/lib/types';
+import type { SessionWorkStatus } from '@/lib/session_activity';
 import { formatToTaipeiDate } from '@/lib/time_utils';
+import { SessionStatusLead, SessionStatusTail, useBreathingClass, useStatusLabel } from './SessionStatusMark';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -32,8 +34,10 @@ export interface SessionTreeRowProps {
 interface SessionItemProps {
   session: Session;
   isActive: boolean;
-  /** ADR-0080：此對話有進行中（含背景）串流時顯示生成指示。 */
-  isStreaming?: boolean;
+  /** 工作狀態（ADR-0300）；資料夾那一列也算進收起來的子對話。 */
+  status?: SessionWorkStatus | null;
+  /** 列上的日期；工作中的對話用看到它在工作的時刻，預設是存檔時間。 */
+  displayTime?: number;
   editingSessionId: string | null;
   editTitle: string;
   deleteConfirmId: string | null;
@@ -65,7 +69,8 @@ interface SessionItemProps {
 export function SessionItem({
   session,
   isActive,
-  isStreaming = false,
+  status,
+  displayTime,
   editingSessionId,
   editTitle,
   deleteConfirmId,
@@ -113,10 +118,13 @@ export function SessionItem({
   };
 
   const separator = t('sidebar.session_tree.label_separator');
+  const statusLabel = useStatusLabel(status);
+  const breathing = useBreathingClass(status);
+  const shownTime = displayTime ?? session.updatedAt;
   const label = [
     folderName ? t('sidebar.session_tree.folder_home_aria', { name: folderName, title: session.title }) : session.title,
     holdsActive && t('sidebar.session_tree.folder_holds_active'),
-    isStreaming && t('sidebar.session_item.background_generating'),
+    statusLabel,
     session.incognito && t('sidebar.session_item.incognito_label'),
     modelLabel,
   ].filter(Boolean).join(separator);
@@ -124,7 +132,7 @@ export function SessionItem({
     ? t('sidebar.session_item.round_count', { count: session.round_count })
     : null;
   // aria-label 蓋過列裡的文字，日期與則數另外給，報讀器才念得到
-  const description = [formatToTaipeiDate(session.updatedAt), roundCount].filter(Boolean).join(separator);
+  const description = [formatToTaipeiDate(shownTime), roundCount].filter(Boolean).join(separator);
 
   return (
     // 整列是 treeitem、「⋯」在裡面但不在 Tab 順序（tabIndex=-1，Shift+F10 打開）。
@@ -176,22 +184,21 @@ export function SessionItem({
           )}
         >
           <div className="flex items-center gap-1.5 w-full">
-            {isStreaming && (
-              <Loader2 className="w-3.5 h-3.5 shrink-0 text-primary animate-spin" aria-hidden="true" />
-            )}
+            <SessionStatusLead status={status} />
             {folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
-            <span className="text-sm font-semibold truncate">{folderName ?? session.title}</span>
+            <span data-testid="session-name" className={cn("text-sm font-semibold truncate", breathing)}>{folderName ?? session.title}</span>
             {session.is_home && !folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
             {/* HAX G17（ADR-0086）：無痕對話標示。 */}
             {session.incognito && (
               <span aria-hidden="true" className="shrink-0 rounded bg-muted px-1 text-xs font-bold text-muted-foreground">{t('sidebar.session_item.incognito_badge')}</span>
             )}
+            <SessionStatusTail status={status} />
             {modelLabel && <span className="ml-auto shrink-0 max-w-1/2 truncate text-xs text-muted-foreground">{modelLabel}</span>}
           </div>
           {!folderName && (
             <div className="flex items-center gap-2">
               <span suppressHydrationWarning className="text-xs text-muted-foreground">
-                {formatToTaipeiDate(session.updatedAt)}
+                {formatToTaipeiDate(shownTime)}
               </span>
               {roundCount && (
                 <span className="rounded-md bg-muted px-1.5 font-bold text-xs text-muted-foreground whitespace-nowrap">
@@ -214,10 +221,16 @@ export function SessionItem({
             align="end"
             className="z-50 w-40 rounded-xl border border-border bg-popover p-1 shadow-xl"
             onCloseAutoFocus={(e) => {
-              // 「⋯」不在 Tab 順序，焦點回到這一列；選了重命名就留給輸入框
+              // Radix 預設會把焦點給列裡的「⋯」，但「⋯」不在 Tab 順序，一律擋下
               e.preventDefault();
               const element = rowRef.current;
-              (element?.querySelector('input') ?? element)?.focus();
+              if (!element) return;
+              // 選單淡出跑完才走到這裡；這段時間焦點已經被移到別處（例如輸入框）就不搶回來，
+              // 不然接著按的 Enter 會打在這一列上
+              const active = document.activeElement;
+              if (active && active !== document.body && !element.contains(active)) return;
+              // 焦點回到這一列；選了重命名就留給輸入框
+              (element.querySelector('input') ?? element).focus();
             }}
           >
             <DropdownMenuItem

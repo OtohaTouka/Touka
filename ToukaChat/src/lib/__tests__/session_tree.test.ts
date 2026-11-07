@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo } from '@/lib/providers/AgentProvider';
 import type { Session } from '@/lib/types';
-import { buildSessionTree, canonicalSoulId, canSetHome, FOLDER_PREVIEW_COUNT, previewChildren } from '../session_tree';
+import { buildSessionTree, canonicalSoulId, canSetHome, FOLDER_PREVIEW_COUNT, previewChildren, sessionSortTime } from '../session_tree';
 
 function agent(id: string, type = 'soul', extra: Partial<AgentInfo> = {}): AgentInfo {
   return { id, name: id, type, is_group: type === 'group', ...extra };
@@ -35,6 +35,23 @@ describe('buildSessionTree', () => {
       session('c1', 'Carol', 15),
     ], [agent('Alice'), agent('Bob'), agent('Carol')], 'ready');
     expect(folders.map(folder => folder.name)).toEqual(['Bob', 'Carol', 'Alice']);
+  });
+
+  it('活動時間比存檔時間新時用活動時間：工作中的資料夾與對話排前面', () => {
+    const activity: Record<string, number> = { 'a-old': 100 };
+    const { folders } = buildSessionTree([
+      session('a-old', 'Alice', 1),
+      session('a-new', 'Alice', 2),
+      session('b1', 'Bob', 50),
+    ], [agent('Alice'), agent('Bob')], 'ready', id => activity[id]);
+    expect(folders.map(folder => folder.name)).toEqual(['Alice', 'Bob']);
+    expect(ids(folders[0].children)).toEqual(['a-old', 'a-new']);
+  });
+
+  it('活動時間比存檔時間舊時不影響排序', () => {
+    expect(sessionSortTime(session('a', 'Alice', 50), () => 10)).toBe(50);
+    expect(sessionSortTime(session('a', 'Alice', 50), () => undefined)).toBe(50);
+    expect(sessionSortTime(session('a', 'Alice', 50))).toBe(50);
   });
 
   it('不列空資料夾：一般帳號清單裡的佔位靈魂沒有對話就不出現', () => {

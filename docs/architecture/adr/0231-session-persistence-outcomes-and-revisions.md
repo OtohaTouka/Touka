@@ -1,6 +1,12 @@
 # ADR-0231：任務與對話持久化結果、條件提交及恢復
 
 > ADR-0276 修訂對話條件提交：儲存交易內增加精確歸屬檢查，UI 串流准入可由授權人類換綁並傳遞提交後 revision；assistant 最後保存無換綁權。內部 marker 納入 revision，部署後須重讀 snapshot；原保存結果型別沿用。
+>
+> ADR-0301 修訂（2026-11-06）：家的兩欄（`is_home`、`home_for_agent`）不算進 revision，設家不再作廢版本；剪裁在讀檔時與存回時各查一次還是家。改第 3、8 點。
+>
+> 路線圖 3c PR 2 修訂（2026-11-06）：模型失敗時後端回「生成失敗、沒寫」（`SkippedResult` 的 `generation_failed`），畫面用 user 保存的版本把失敗那則存一次，不再跳保存提示；送給模型前拿掉空白的助理訊息。改第 2、6 點。
+
+> ADR-0302 修訂（2026-11-06）：網頁版聊天側剪裁先等畫面的收尾保存、有放棄條件；畫面因版本舊被擋而存檔是剪裁造成的，接在剪過的存檔上再存一次。改第 6、8、10 點。
 
 - 日期：2026-09-21
 - 狀態：維護者核准計畫（委託審查）；來源實作與完整Python R4完成，最終審查以本輪審查原件為準（未入版控）。
@@ -21,7 +27,10 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
 2. 純 `src/models/session_persistence.py` 定義 SaveResult、snapshot、started／terminal；沿共同
    OpenAPI merge → api.ts → types.ts alias。saved 必須含 revision／representation；failed、unknown
    不附舊 token／原輸入。snapshot 的 exists 是必要 boolean，present／absent 內容互斥。
-3. `async_db.py` 對選定 session 路徑 strict 讀取原 row，將 14 欄原始 readset、presence、owner、
+   skipped 的原因有三種：無痕（incognito）、沒有文字（no_text）、生成失敗（generation_failed）。
+   generation_failed 只用在基底與 scope 都驗過、開始生成之後的失敗：後端沒寫這一輪的回覆（2026-11-06）。生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面那次保存會被擋下並照舊提示；不能據此放寬版本比對。
+   讀基底失敗、scope 不對、按停止照舊回 unknown。
+3. `async_db.py` 對選定 session 路徑 strict 讀取原 row，將 14 欄原始 readset（家的兩欄除外，ADR-0301）、presence、owner、
    requester、process epoch 與 session generation 綁到不透明 revision。同一 SQLite transaction
    使用 BEGIN IMMEDIATE 完成 read／compare／write；舊 token、重啟、刪除重建或其他 writer 變更皆拒絕。
    不新增 DB migration，不將 Python FIFO 宣稱為 CAS。其他非 conditional writer 不獲得本次完整保證。
@@ -35,9 +44,17 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    `_pump_ui_stream`／`_persist_ui_assistant_turn` 負責新契約；未明示的既有外部路徑不擴承諾。
 6. buffer 在單一 event loop 以無 await 原子 transition 同時記 terminal／status 並通知 waiter；
    append／attach／finish／replace／stop 帶 stream fence。generation 與 persistence 分開：fatal
-   RoundError 是 error、rhythm interruption 是 cancelled；不自動保存部分內容或 trim。
+   RoundError 是 error、rhythm interruption 是 cancelled；後端不自動保存部分內容或 trim。
    完成保存 text 後才允許富樹補存；no_text 且有 steps／tools／attachments 仍需 full 保存。
-   trim 保持非阻塞，但以原 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。
+   生成失敗（generation_failed）時畫面用 user 保存拿到的版本，把畫面上那一則（已出的文字、工具步驟、
+   失敗標示）存一次，和 no_text 同一條路；版本對不上照舊提示（2026-11-06）。換綁靈魂那一輪版本已變，照舊提示（ADR-0276）。
+   存下的失敗回覆會變成下一輪的前文：送給模型前在分流到各家之前（`dispatchers/factory.py`）拿掉
+   空白的助理訊息，前後兩則 user 用空行併成一則（`content_normalize.drop_blank_assistant_turns`；
+   有工具呼叫或其他區塊的不算空白）。completed＋no_text、只有工具步驟的回覆也存成空白（工具步驟不送給模型），一樣會被拿掉。2026-11-06 查各家官方文件：Anthropic 文字區塊至少 1 個字、
+   連續同角色會自動合併（platform.claude.com/docs/en/api/messages）；Gemini、DeepSeek、xAI 沒寫；
+   OpenAI 頁面打不開，沒查到。
+   trim 保持非阻塞，以讀到的 snapshot conditional commit，不能用舊整樹蓋掉 UI 新內容。網頁版先在鎖外等畫面的收尾保存（存好時叫醒，上限 10 秒），
+   心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時放棄（ADR-0302）。
 7. 持久串流 state／resume／stop／active 同時核 requester、fresh DB 存在與原 ownership；無痕只用
    經認證的 memory owner，DB0。受控刪除退休精確舊 stream，晚到 producer 不可寫入重建的新代。
    完成 buffer TTL 600 秒、上限與 orphan 保護維持；server 重啟會失去 memory buffer，未保存草稿
@@ -46,9 +63,10 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    transition；public ingress 不是保存證據，變更持久欄位須重新核對內容，不能借 fresh token 背書
    舊樹。pending／failed／unknown／unconfirmed 草稿不被列表、refresh return 或 resume 蓋掉。
    例外只有 `set_home` 成功（2026-11-05）：家欄位只由它改，存檔已經變了，本機草稿的這兩個欄位跟著改，
-   其他內容照留；舊版本作廢（待恢復的版本也作廢），下一個命令重讀存檔比對，不算放寬比對。這一輪回覆還在跑時
-   不動版本：收尾不能不帶版本存。所以回覆還在跑時設家或換家，後端收尾的版本已被換掉，會跳保存提示，
-   用既有按鈕恢復，內容不會掉（`session-save.spec.ts`）。
+   其他內容照留。家欄位不算進版本、存檔不送也不比（ADR-0301，2026-11-06），所以版本與待恢復的版本都照用；
+   設家前送出、還在路上的保存回來時保留設家的結果。回覆還在跑時設家或換家不再跳保存提示（`session-save.spec.ts`）。
+   另一個例外是聊天側剪裁（ADR-0302）：版本舊被擋而存檔是剪裁造成的，以剪過的存檔為底，接上這一頁新增或改過、接得上的部分再存一次；
+   剪掉的前段、主幹外的分支與摘要以存檔為準。只接一次，接不上照舊提示。
    user full 保存後才送模型；React updater 不做 HTTP。純轉換拋錯回 typed failed，釋放 pending／
    producer，保留可核對草稿；無痕錯誤不永久鎖住下一回合。
 9. scope 綁 proxy＋credential principal／epoch，wire／refresh／body await 後再驗；scope 失效
@@ -57,7 +75,8 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
    一次 state 核對；已完成 TTL stream 亦可接回，但存檔已比那一輪新（有文字版本時版本不同；沒有時存檔已有那則回覆）就不重播，否則舊版本存不回去（2026-11-05）；不 fan-out 或 poll。真 UTF-8 decoder 以同 generation
    started／terminal 判斷，DONE／EOF 不證保存，游標重播可用已授權 started 座標。
 10. unknown 只提供唯讀「重新核對保存結果」，相同內容才確認 full；不同保留草稿及 conflict。
-    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0。
+    取得有效 revision 且明確 failed 後，使用者可「僅重試保存」單送一次 POST，model／tools0；存檔是剪裁造成的、接得上就接在剪過的存檔上，
+    不把剪掉的寫回去；接不上照舊整棵寫回（ADR-0302）。
     recheck／retry 不競逐，慢回應不能覆蓋較新 intent。刪除 await 合法 200 才移除；無痕零 HTTP。
     split 綁 export 前依賴內容，等待期間 drift 拒絕縮減；無痕拒絕 split 縮減、改用本機匯出。
 

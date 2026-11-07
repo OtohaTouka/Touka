@@ -585,7 +585,8 @@ async def _process_heartbeat_loop(
             )
             logger.info(f"🌈 [Heartbeat-BG] Executing Pulse {i + 1}/{pulse_count}...")
 
-            # 執行單次脈衝
+            # 執行單次脈衝（ctx 由每個脈衝共用：先清掉上一次留下的模型失敗記號）
+            ctx["model_failed"] = False
             turns = await _execute_single_pulse(
                 final_session_id,
                 identity,
@@ -600,6 +601,9 @@ async def _process_heartbeat_loop(
                 break
             pulses_done += 1
             total_turns += turns
+            if ctx.get("model_failed"):  # StopFailure 已發；剩下的不跑，免得重複寫錯誤、扣配額
+                end = "model_error"
+                break
 
             # 如果不是最後一個 Pulse，休息一下防止 DB 鎖定或 API 過熱
             if i < pulse_count - 1:
@@ -669,6 +673,10 @@ async def _process_heartbeat_loop(
             # P4：背景活動結束，清除登記（UI 不再顯示「背景跑中」）
             activity_registry.clear(final_session_id)
             destructive_ops.end_heartbeat(identity, final_session_id)
+            # 放在最後（ADR-0300）：側欄看到紀錄就會下載這段對話，太早記會下載到剪裁前的內容。
+            # 靈魂由這裡傳：第一輪前就停的沒登記過活動，同一對話重疊跑時也可能被另一次清掉。
+            if run_started:
+                activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
 
 
 @router.post("/awaken", status_code=202)

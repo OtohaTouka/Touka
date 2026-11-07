@@ -8672,7 +8672,7 @@
           "creation"
         ],
         "summary": "Create Skill Endpoint",
-        "description": "建立 skill（Owner/admin）。",
+        "description": "建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。",
         "operationId": "create_skill_endpoint_v1_creation_skill_post",
         "requestBody": {
           "content": {
@@ -8813,7 +8813,7 @@
           "creation"
         ],
         "summary": "Create Skill Endpoint",
-        "description": "建立 skill（Owner/admin）。",
+        "description": "建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。",
         "operationId": "create_skill_endpoint_creation_skill_post",
         "requestBody": {
           "content": {
@@ -13144,6 +13144,62 @@
         ]
       }
     },
+    "/v1/ui/activity": {
+      "get": {
+        "tags": [
+          "UI Sessions"
+        ],
+        "summary": "Get Session Activity",
+        "description": "側欄的工作狀態：只看記憶體、不碰對話資料庫，前端每 8 秒查一次（ADR-0300）。\n\n``cursor`` 只隨呼叫者看得到的結束紀錄前進：別人的心跳結束時回應逐字不變，不洩漏次數。\n第一次查詢（沒帶 ``since``）只拿游標，之前結束的不算。",
+        "operationId": "get_session_activity_v1_ui_activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionActivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ui/sessions/legacy/export": {
       "post": {
         "tags": [
@@ -14013,6 +14069,62 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/ui/activity": {
+      "get": {
+        "tags": [
+          "UI Sessions"
+        ],
+        "summary": "Get Session Activity",
+        "description": "側欄的工作狀態：只看記憶體、不碰對話資料庫，前端每 8 秒查一次（ADR-0300）。\n\n``cursor`` 只隨呼叫者看得到的結束紀錄前進：別人的心跳結束時回應逐字不變，不洩漏次數。\n第一次查詢（沒帶 ``since``）只拿游標，之前結束的不算。",
+        "operationId": "get_session_activity_ui_activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionActivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/ui/sessions/legacy/export": {
@@ -17379,6 +17491,36 @@
         "title": "AutonomyConfigModel",
         "description": "自主行為系統配置模型 (SSOT)"
       },
+      "BackgroundActivity": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "current": {
+            "type": "integer",
+            "title": "Current"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "kind",
+          "current",
+          "total"
+        ],
+        "title": "BackgroundActivity",
+        "description": "正在跑的背景工作（心跳第幾輪）。"
+      },
       "BackupDownloadRequest": {
         "properties": {
           "passphrase": {
@@ -18299,6 +18441,26 @@
         "type": "object",
         "title": "FeedbackSubmitResponse",
         "description": "提交結果。"
+      },
+      "FinishedActivity": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "finished_at": {
+            "type": "integer",
+            "title": "Finished At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "finished_at"
+        ],
+        "title": "FinishedActivity",
+        "description": "``since`` 之後結束的心跳。"
       },
       "GlobalConfig": {
         "properties": {
@@ -23919,6 +24081,45 @@
         "title": "SelfRepairConfig",
         "description": "自動自癒/自我修復限制。"
       },
+      "SessionActivityResponse": {
+        "properties": {
+          "streams": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Streams"
+          },
+          "background": {
+            "items": {
+              "$ref": "#/components/schemas/BackgroundActivity"
+            },
+            "type": "array",
+            "title": "Background"
+          },
+          "finished": {
+            "items": {
+              "$ref": "#/components/schemas/FinishedActivity"
+            },
+            "type": "array",
+            "title": "Finished"
+          },
+          "cursor": {
+            "type": "integer",
+            "title": "Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "streams",
+          "background",
+          "finished",
+          "cursor"
+        ],
+        "title": "SessionActivityResponse",
+        "description": "側欄的工作狀態；``cursor`` 是下一次查詢帶的 ``since``。"
+      },
       "SessionDocument": {
         "additionalProperties": false,
         "description": "公開讀取投影；完整的既存欄位，不包括內部 owner 或授權物件。",
@@ -24592,7 +24793,7 @@
       },
       "SkippedResult": {
         "additionalProperties": false,
-        "description": "刻意不寫，不得表示成已保存。",
+        "description": "刻意不寫，不得表示成已保存。\n\ngeneration_failed：基底與 scope 都驗過之後模型失敗，後端沒寫這一輪的回覆（ADR-0231 決定 2）。\n生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面以原版本存會被擋下。",
         "properties": {
           "status": {
             "const": "skipped",
@@ -24602,7 +24803,8 @@
           "reason": {
             "enum": [
               "incognito",
-              "no_text"
+              "no_text",
+              "generation_failed"
             ],
             "title": "Reason",
             "type": "string"

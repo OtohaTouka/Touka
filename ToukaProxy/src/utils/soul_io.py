@@ -12,14 +12,18 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from memory_server.utils.no_follow import WalkReport
 from memory_server.utils.zone_paths import (
     ALL_ANCHORS,
+    Anchor,
+    ZoneRootsUnavailableError,
     contains_zone,
     current_roots,
     is_zone_segment,
     zone_of,
 )
 
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.resource_manager import resource_manager
 from src.utils.path_security import validate_no_symlink_escape
@@ -28,6 +32,111 @@ logger = logging.getLogger(__name__)
 
 # 靈魂實體儲存的三個 base（create 建立／刪除清理的完整集合）。
 _SOUL_STORAGE_BASES = ("soul", "legacy", "personal_drive")
+
+
+# 每個代理人在這些資料夾底下各有一個同名資料夾（個人空間另外看錨點）：新的 ID 不能是其中
+# 任何一個既有資料夾的別名，不然會和別的代理人共用資料夾。
+_AGENT_FOLDER_BASES = ("soul", "legacy", "custom", "stats")
+# Windows 8.3 短檔名的標記：新的代理人 ID 不收
+_SHORT_NAME_MARK = "~"
+
+
+def check_new_agent_name(identity: AgentIdentity, *, renamed_from: str | None = None) -> None:
+    """新的代理人 ID 能不能用：建立靈魂、用編輯建立或轉換靈魂、建立或改名自訂模型（sec-9 PR 1b）.
+
+    - ``renamed_from``：自我改名只差 ASCII 大小寫時，在不分大小寫的檔案系統上指的就是自己的資料夾，
+      不查別名（升級前就有、含 ``~`` 的 ID 也能這樣改）。其他 Unicode 的大小寫對應（例如開氏符號 K）
+      不算：檔案系統不把它們當成同一個字。
+    - 不收 ``~``：Windows 的 8.3 短檔名都帶 ``~``，是建立資料夾時各資料夾分開配的；新 ID 先佔下
+      某個短檔名，之後建立的代理人在別的資料夾被配到同一個短檔名，就會指到不同代理人的資料夾。
+    - 代理人資料夾所在的四個位置和個人空間都查，規則見 ``_check_folder_names``。
+    """
+    if renamed_from is not None and _differs_only_by_ascii_case(identity.agent_id, renamed_from):
+        _check_folder_names(identity, (), personal=False)
+        return
+    if _SHORT_NAME_MARK in identity.agent_id:
+        logger.warning("🚫 New agent ID contains the 8.3 short-name mark: %r", identity.agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    _check_folder_names(identity, _AGENT_FOLDER_BASES, personal=True)
+
+
+def _differs_only_by_ascii_case(name: str, other: str) -> bool:
+    """兩個名稱只差 ASCII 字母的大小寫（``bytes.lower`` 只動 ASCII；孤立代理字元照原樣比）."""
+    return (
+        name.encode("utf-8", "surrogatepass").lower()
+        == other.encode("utf-8", "surrogatepass").lower()
+    )
+
+
+def check_soul_name(identity: AgentIdentity) -> None:
+    """刪除靈魂前：會清掉的三個位置（soul、legacy、個人空間）都不能是別名（sec-9 PR 1b）."""
+    _check_folder_names(identity, ("soul", "legacy"), personal=True)
+
+
+def check_soul_folder_name(identity: AgentIdentity) -> None:
+    """編輯既有靈魂前：只寫 ``soul/<id>``，只查這一個位置（sec-9 PR 1b）.
+
+    舊版在 Windows 上可能用別的大小寫建出 legacy、個人空間；那在 Windows 上就是同一份資料，
+    不擋編輯。用編輯建立或轉換靈魂時另外走 ``check_new_agent_name``。
+    """
+    _check_folder_names(identity, ("soul",), personal=False)
+
+
+def _check_folder_names(
+    identity: AgentIdentity, bases: tuple[str, ...], *, personal: bool
+) -> None:
+    r"""名稱是單一段，而且不是 ``bases``（與個人空間）裡既有資料夾的別名.
+
+    1. 不是單一段（``is_zone_segment``）→ ``VALIDATION_ERROR``。這一步不碰檔案系統：Windows 上
+       ``\\主機\分享`` 拼上去會變成網路路徑，檢查之後才會碰到本機的 base。
+    2. 每個位置各自判斷：名稱逐字出現在目錄列表 → 通過；不在列表、檔案系統卻說它存在 → 別名
+       （只差大小寫、8.3 短檔名、Unicode 正規化），``VALIDATION_ERROR``；都不是 → 還沒有，通過。
+       Linux 上真的並存的 ``Foo``、``foo`` 各自逐字在列表裡，都通過。
+    3. 列不完整或位置解析不到 → ``SOUL_VAULT_ERROR``：不能確認就不動。
+    """
+    agent_id = identity.agent_id
+    if not is_zone_segment(agent_id):
+        logger.warning("🚫 Agent name is not a single segment: %r", agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    base_path = Path(resource_manager.get_base_path())
+    for base_name in bases:
+        root = base_path / base_name
+        try:
+            names = resource_manager.list_child_names(root)
+        except OSError as exc:
+            logger.warning("🚫 Cannot list %s to check the agent name %r", base_name, agent_id)
+            raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
+        if agent_id not in names and (root / agent_id).exists(follow_symlinks=False):
+            _refuse_alias(base_name, agent_id)
+    if not personal:
+        return
+    try:
+        drive = resource_manager.soul_drive(identity)
+        names = _personal_drive_names()
+        present = drive is not None and resource_manager.zone_kind(drive) != "missing"
+    except (OSError, ZoneRootsUnavailableError) as exc:
+        logger.warning("🚫 Cannot list the personal space to check the agent name %r", agent_id)
+        raise ToukaException(ErrorCode.SOUL_VAULT_ERROR) from exc
+    if agent_id not in names and present:
+        _refuse_alias(Anchor.PERSONAL_DRIVE.value, agent_id)
+
+
+def _refuse_alias(base_name: str, name: str) -> None:
+    logger.warning(
+        "🚫 %r is not the exact name of the existing %s folder it points to", name, base_name
+    )
+    raise ToukaException(ErrorCode.VALIDATION_ERROR)
+
+
+def _personal_drive_names() -> set[str]:
+    """個人空間錨點第一層的實際名稱（區內方法，不跟隨連結；列不完整丟 OSError）."""
+    report = WalkReport()
+    root = resource_manager.anchor_root(Anchor.PERSONAL_DRIVE)
+    entries = list(resource_manager.zone_walk(root, report, list_depth=1, show_links=True))
+    if report.errors:
+        failed = f"Cannot list every entry of the personal space ({report.errors[0][0] or '.'})"
+        raise OSError(failed)
+    return {entry.parts[0] for entry in entries if len(entry.parts) == 1}
 
 
 def _safe_target(base: Path, filename: str) -> Path | None:

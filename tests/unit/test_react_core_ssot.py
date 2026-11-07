@@ -170,7 +170,11 @@ async def test_true_react_failure_reaches_ui_terminal_without_partial_save(
     if explicit_ui:
         terminal = next(event for event in events if event.get("type") == "touka_stream_terminal")
         assert terminal["generation"] == ("error" if failure == "round_error" else "cancelled")
-        assert terminal["persistence"]["status"] == "unknown"
+        # 模型失敗：基底驗過、後端沒寫，畫面自己存（ADR-0231 決定 6）；按停止照舊回不確定
+        if failure == "round_error":
+            assert terminal["persistence"] == {"status": "skipped", "reason": "generation_failed"}
+        else:
+            assert terminal["persistence"]["status"] == "unknown"
         assert "synthetic-private" not in "".join(chunks)
         assert (
             await async_db.session_service.read_persistence_snapshot("react", owner)

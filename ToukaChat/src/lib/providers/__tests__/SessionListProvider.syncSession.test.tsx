@@ -48,6 +48,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 const sess = (over: Partial<Session> = {}): Session =>
   ({ id: 's1', title: 't', messages: [], updatedAt: 1, ...over }) as Session;
 
+// 測試是隨機順序：每條開始前把所有假函式設回預設。clearAllMocks 只清呼叫紀錄，別條改過的回傳值
+// （例如連線範圍改成另一個帳號或失效）和沒用完的一次性值都會留到下一條；resetAllMocks 連這些一起清，
+// 並還原 vi.fn(預設) 的預設。掛載時清單的 GET 預設回空清單。
+beforeEach(() => {
+  vi.resetAllMocks();
+  fetchToukaMock.mockResolvedValue(okJson([]));
+});
+
 describe('R2 snapshot binding and explicit recovery', () => {
   const local = () => sess({ messages: { messages: {}, currentId: null }, is_home: false,
     home_for_agent: null, agent_id: null, project_id: null, auth_level: 'Manual',
@@ -57,9 +65,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
   const saved = (revision = 'next') => okJson({ status: 'success', session_id: 's1',
     persistence: { status: 'saved', representation: 'full', revision } });
   async function mount() {
-    vi.clearAllMocks();
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-    fetchToukaMock.mockResolvedValue(okJson([]));
     const rendered = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
     act(() => rendered.result.current.setSessions([local()]));
@@ -168,6 +173,8 @@ describe('R2 snapshot binding and explicit recovery', () => {
       .map(([, , options]) => JSON.parse(options!.body as string));
     /** 新建對話第一次存好（後端版本 r1），之後的讀回都回 remote（版本 r2）。 */
     async function created(remote: () => Session = () => local()) {
+      // 掛載時會讀一次清單：先清掉上一條測試留下的假回應（測試是隨機順序）
+      fetchToukaMock.mockReset().mockResolvedValue(okJson([]));
       const rendered = renderHook(() => useSessionList(), { wrapper });
       await act(async () => {});
       let first = true;
@@ -183,14 +190,17 @@ describe('R2 snapshot binding and explicit recovery', () => {
     }
     const homeFields = { is_home: true, home_for_agent: 'Alice' };
 
-    it('after set home (revision changes, UI holds no revision) the next command saves against the fresh revision', async () => {
+    // 家欄位不算進版本（ADR-0301）：設家後版本照用，不重讀存檔，送出的內容也不帶家欄位
+    it('after set home the revision is kept and the next command saves without rereading', async () => {
       const { result } = await created(() => ({ ...local(), ...homeFields }));
       act(() => result.current.applySavedHome('s1', 'Alice', true));
-      expect(result.current.getSession('s1')?.revision).toBeUndefined();
+      expect(result.current.getSession('s1')?.revision).toBe('r1');
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
-      expect(postBodies()).toHaveLength(1);
-      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
-      expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved' });
+      expect(fetchToukaMock.mock.calls.every(([, , options]) => options?.method === 'POST')).toBe(true);
+      expect(postBodies()).toEqual([expect.objectContaining({ title: 'next', revision: 'r1' })]);
+      expect(postBodies()[0]).not.toHaveProperty('is_home');
+      expect(postBodies()[0]).not.toHaveProperty('home_for_agent');
+      expect(result.current.getSession('s1')).toMatchObject(homeFields);
     });
     it('an old home that was never saved again follows the store and the next command saves', async () => {
       const { result } = await created();
@@ -200,7 +210,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       expect(result.current.getSession('s1')).toMatchObject({ is_home: false, home_for_agent: null });
       expect(result.current.getSession('s2')).toMatchObject(homeFields);
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved', revision: 'r3' }); });
-      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
+      expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r1' });
     });
     it('setting the home twice in a row leaves only the last one marked', async () => {
       const { result } = await created();
@@ -251,7 +261,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'text-rev' });
       expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
     });
-    // 後端收到舊版本會擋下（已知限制，ADR-0231）；這裡釘的是絕不送出沒有版本的保存
+    // 設家不改版本（ADR-0301），收尾照用原來的版本；這裡釘的是絕不送出沒有版本的保存
     it('a turn without text never saves without a revision when the home was set meanwhile', async () => {
       const { result } = await created();
       const producer = result.current.beginProducer('s1')!;
@@ -268,7 +278,7 @@ describe('R2 snapshot binding and explicit recovery', () => {
       act(() => result.current.applySavedHome('s1', 'Alice', true));
       await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'saved' }); });
     });
-    it('the save-only retry is withdrawn after the home changed: its revision is stale until rechecked', async () => {
+    it('the save-only retry stays available after the home changed: its revision is still current', async () => {
       const other = () => ({ ...local(), title: 'someone else' });
       const { result } = await created(other);
       fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
@@ -276,9 +286,61 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { await result.current.recheckSession('s1'); });
       expect(result.current.canRetrySave('s1')).toBe(true);
       act(() => result.current.applySavedHome('s1', 'Alice', true));
-      expect(result.current.canRetrySave('s1')).toBe(false);
-      await act(async () => { await result.current.recheckSession('s1'); });
       expect(result.current.canRetrySave('s1')).toBe(true);
+      await act(async () => { expect(await result.current.retrySaveSession('s1')).toMatchObject({ status: 'saved' }); });
+      expect(postBodies().at(-1)).toMatchObject({ title: 'next', revision: 'r2' });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'next', ...homeFields });
+    });
+    // 設家前送出、還在路上的保存晚回來時，家欄位保留設家的結果（ADR-0301）
+    it('a save and a queued command in flight when the home is set keep the new home', async () => {
+      const { result } = await created();
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let first!: Promise<unknown>;
+      act(() => { first = result.current.updateSessionTitle('s1', 'one'); });
+      const base = result.current.getSession('s1')!;
+      let queued!: Promise<unknown>;
+      act(() => { queued = result.current.updateSession('s1', current => ({ ...current, title: 'two' }), {}, base); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => {
+        response.resolve(saved('r3'));
+        expect(await first).toMatchObject({ status: 'saved' });
+        expect(await queued).toMatchObject({ status: 'saved' });
+      });
+      expect(postBodies().map(body => body.revision)).toEqual(['r1', 'r3']);
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'two', ...homeFields });
+    });
+    it.each([
+      ['saved', saved('r3')],
+      ['refused', okJson({ status: 'success', session_id: 's1',
+        persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } })],
+    ])('a turn whose end save is in flight when the home is set keeps the new home: %s', async (_case, reply) => {
+      const { result } = await created();
+      const producer = result.current.beginProducer('s1')!;
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let done!: Promise<unknown>;
+      act(() => { done = result.current.completeProducer(producer, current => ({ ...current, title: 'final' }),
+        { status: 'saved', representation: 'text', revision: 'text-rev' }); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { response.resolve(reply); await done; });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'final', ...homeFields });
+    });
+    it('a save-only retry in flight when the home is set keeps the new home', async () => {
+      const { result } = await created(() => ({ ...local(), title: 'someone else' }));
+      fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+      await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+      await act(async () => { await result.current.recheckSession('s1'); });
+      const response = deferred<Response>();
+      fetchToukaMock.mockReturnValueOnce(response.promise);
+      let retry!: Promise<unknown>;
+      act(() => { retry = result.current.retrySaveSession('s1'); });
+      await act(async () => {});
+      act(() => result.current.applySavedHome('s1', 'Alice', true));
+      await act(async () => { response.resolve(saved('r4')); expect(await retry).toMatchObject({ status: 'saved' }); });
+      expect(result.current.getSession('s1')).toMatchObject({ title: 'next', ...homeFields });
     });
     it('after a list refresh without a revision the next command still saves', async () => {
       const { result } = await created();
@@ -290,11 +352,18 @@ describe('R2 snapshot binding and explicit recovery', () => {
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'saved' }); });
       expect(postBodies()[0]).toMatchObject({ title: 'next', revision: 'r2' });
     });
-    it('a mismatched store is still a conflict after set home: no POST', async () => {
+    // 設家後不重讀存檔：別處改過內容時由後端用版本擋下，這裡釘的是不蓋掉、留著草稿並提示
+    it('a store changed elsewhere still refuses the save after set home and keeps the draft', async () => {
       const { result } = await created(() => ({ ...local(), title: 'someone else' }));
       act(() => result.current.applySavedHome('s1', 'Alice', true));
+      fetchToukaMock.mockImplementation(async () => okJson({ status: 'success', session_id: 's1',
+        persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } }));
+      vi.mocked(toast.error).mockClear();
       await act(async () => { expect(await result.current.updateSessionTitle('s1', 'next')).toMatchObject({ status: 'failed' }); });
-      expect(postBodies()).toHaveLength(0);
+      expect(postBodies()).toEqual([expect.objectContaining({ title: 'next', revision: 'r1' })]);
+      expect(result.current.getSession('s1')?.title).toBe('next');
+      expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
+      expect(toast.error).toHaveBeenCalledWith(expect.any(String), { id: 'session-sync-failed' });
     });
     it('after it was saved here, an import of different content still cannot overwrite', async () => {
       const { result } = await created();
@@ -562,12 +631,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
 });
 
 describe('syncSession 失敗可見化（批2 ④）', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // 掛載時 refreshSessions 的 GET：預設回空清單
-    fetchToukaMock.mockResolvedValue(okJson([]));
-  });
-
   it('後端 4xx（授權失敗）→ logSSOTError + toast.error（固定 id 防轟炸）', async () => {
     const { result } = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
@@ -633,12 +696,6 @@ describe('R2 controlled session writes', () => {
     fetchToukaMock.mockClear();
     return rendered;
   }
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-  });
-
   it('returns a validated result; a bare 200 is unknown and preserves the draft', async () => {
     const { result } = await mount();
     fetchToukaMock.mockResolvedValue(okJson({ status: 'success' }));
@@ -795,8 +852,6 @@ describe('R2 controlled session writes', () => {
     await act(async () => { await old.syncSession(sess({ title: 'private A' })); });
     expect(result.current.sessions).toEqual([]);
     expect(fetchToukaMock).not.toHaveBeenCalled();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
   });
   it('the same operation token is scoped to each session', async () => {
     const { result } = await mount();
@@ -864,5 +919,44 @@ describe('R2 controlled session writes', () => {
     expect(fetchToukaMock).not.toHaveBeenCalled();
     expect(result.current.getPersistence('s1')).toMatchObject({ status: 'unknown' });
     expect(result.current.sessions[0].messages.messages.a.steps).toEqual(['partial']);
+  });
+  // ADR-0231 決定 6：模型失敗時後端什麼都沒寫，畫面用 user 保存的版本把失敗那則存一次，不跳提示
+  it('a failed generation that the backend did not write saves the marked turn once against the user revision', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    const failed = { messages: { a: { content: 'part', generationFailed: true } }, currentId: 'a' };
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current, messages: failed }),
+      { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    expect(fetchToukaMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchToukaMock.mock.calls[0][2]!.body as string)).toMatchObject({ revision: 'user', messages: failed });
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved', representation: 'full' });
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    // 存好之後下一則可以直接送：沒有停住
+    expect(result.current.beginProducer('s1')).not.toBeNull();
+  });
+  it('a failed generation still warns when someone else changed the conversation first', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(okJson({ status: 'success', session_id: 's1',
+      persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } }));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { generationFailed: true } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    // 被擋之後讀一次存檔看是不是剪裁造成的（ADR-0302）；只存一次
+    expect(fetchToukaMock.mock.calls.filter(([, , options]) => options?.method === 'POST')).toHaveLength(1);
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+  });
+  it.each(['completed', 'cancelled'] as const)('generation_failed only saves with an error generation (%s does not)', async generation => {
+    const { result } = await mount();
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { steps: ['partial'] } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, generation); });
+    expect(fetchToukaMock).not.toHaveBeenCalled();
   });
 });

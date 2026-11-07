@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminLogin, disableHooks, latestSessionId, savedMessages, savedSnapshot } from "./lib/api";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
-import { modelCalls, resetRecorders } from "./lib/control";
+import { adminLogin, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot } from "./lib/api";
+import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
+import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import {
   clickChatInList,
   composer,
   expectChatIsHome,
   expectLastReplyMarkedFailed,
+  expectNoSaveNotice,
   loginInBrowser,
   openChat,
-  recoverSave,
   renameChat,
   selectSoul,
   sendMessage,
@@ -20,11 +20,6 @@ import {
 } from "./lib/ui";
 
 let adminToken = "";
-
-async function expectNoSaveNotice(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
-}
 
 /** 畫面上這一輪結束了（收尾保存也做完才會收起停止鈕）。 */
 async function turnEnded(page: Page): Promise<void> {
@@ -66,6 +61,10 @@ test.beforeEach(async ({ page }) => {
   await loginInBrowser(page);
   await openChat(page);
   await selectSoul(page);
+});
+
+test.afterEach(async () => {
+  await releaseModel();
 });
 
 test("這一頁新建的對話設為家之後，下一則直接送出", async ({ page }, info) => {
@@ -235,8 +234,17 @@ test("回覆之後重新整理：存檔不變、沒有提示，下一則直接�
   expect(await savedUserTexts(id)).toEqual(expect.arrayContaining(["重新整理之前", "重新整理之後"]));
 });
 
-// 已知限制（ADR-0231）：後端收尾時版本已被 set_home 換掉，會跳提示；按恢復之後內容不會掉。
-test("回覆還在跑時設為家：跳提示，按恢復之後內容完整，下一則直接送出", async ({ page }) => {
+/** 這一輪收尾存好了，存檔裡最後一則回覆有工具步驟。 */
+async function expectToolReplySaved(page: Page, id: string): Promise<void> {
+  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
+  const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
+  expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
+}
+
+// 家標記不算進版本（ADR-0301）：設家不讓回覆收尾的保存存不進去
+test("回覆還在跑時設為家：不跳提示，回覆存好，下一則直接送出", async ({ page }) => {
   await send(page, "還在跑之前");
   const id = await latestSessionId(adminToken);
   // 工具等核准時這一輪還沒結束
@@ -246,16 +254,68 @@ test("回覆還在跑時設為家：跳提示，按恢復之後內容完整，�
   await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
 
   await approveButton(page).click();
-  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY).first()).toBeVisible();
-  await recoverSave(page);
-  await turnEnded(page);
-  await expectNoSaveNotice(page);
-  const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
-  expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
+  await expectToolReplySaved(page, id);
+  await expectChatIsHome(page, "還在跑之前", true);
 
   await send(page, "還在跑之後");
   expect(await savedUserTexts(id)).toContain("還在跑之後");
   expect((await savedSnapshot(adminToken, id)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
+});
+
+test("回覆還在跑時把家換到另一段：舊家這段不跳提示，回覆存好", async ({ page }) => {
+  await send(page, "之後的家");
+  const newHome = await latestSessionId(adminToken);
+  await page.getByRole("button", { name: "新增對話" }).click();
+  await selectSoul(page);
+  await send(page, "原本的家");
+  const oldHome = await latestSessionId(adminToken);
+  expect(oldHome).not.toBe(newHome);
+  await setChatAsHome(page, "原本的家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, oldHome)).session.is_home).toBe(true);
+
+  await sendMessage(page, writeRequest(`session-save-${Date.now()}.txt`));
+  await approveButton(page).waitFor();
+  await setChatAsHome(page, "之後的家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, newHome)).session.is_home).toBe(true);
+
+  await approveButton(page).click();
+  await expectToolReplySaved(page, oldHome);
+  await expectChatIsHome(page, "之後的家", true);
+  await expectChatIsHome(page, "原本的家", false);
+
+  await send(page, "舊家換掉之後");
+  expect(await savedUserTexts(oldHome)).toContain("舊家換掉之後");
+  expect((await savedSnapshot(adminToken, oldHome)).session).toMatchObject({ is_home: false, home_for_agent: null });
+});
+
+test("回覆收尾的保存延後、這期間設為家：放行後不跳提示，資料夾那一列是新家", async ({ page }) => {
+  await send(page, "延後之前");
+  const id = await latestSessionId(adminToken);
+  // 攔住這一輪收尾的完整保存，設好家才放行
+  let held!: () => void;
+  const holding = new Promise<void>((resolve) => { held = resolve; });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/v1/ui/sessions/*", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (route.request().method() === "POST" && body.includes(FAKE_AFTER_TOOL_REPLY)) {
+      held();
+      await released;
+    }
+    await route.continue();
+  });
+  await sendMessage(page, writeRequest(`session-save-${Date.now()}.txt`));
+  await approveButton(page).click();
+  await holding;
+  await setChatAsHome(page, "延後之前");
+  await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
+  release();
+
+  await expectToolReplySaved(page, id);
+  await page.unroute("**/v1/ui/sessions/*");
+  await expectChatIsHome(page, "延後之前", true);
+  await send(page, "延後之後");
+  expect(await savedUserTexts(id)).toContain("延後之後");
 });
 
 test("有工具步驟的回覆，重新整理之後內容仍然完整", async ({ page }, info) => {
@@ -305,12 +365,14 @@ test("原頁來不及存完整內容就關掉：重新整理時補回工具步�
   expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
 });
 
-test("模型失敗、按過恢復之後重新整理：不用再按一次，下一則直接送出", async ({ page }, info) => {
+test("模型失敗之後重新整理：不用按恢復，失敗標示還在，下一則直接送出", async ({ page }, info) => {
   await sendMessage(page, MODEL_400_REQUEST);
   await expectLastReplyMarkedFailed(page);
-  await recoverSave(page);
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
   const id = await latestSessionId(adminToken);
   const before = await savedSnapshot(adminToken, id);
+  expect((await savedMessages(adminToken, id)).some((message) => message.generationFailed)).toBe(true);
 
   await reloadAndSettle(page);
 
@@ -321,4 +383,19 @@ test("模型失敗、按過恢復之後重新整理：不用再按一次，下�
 
   await send(page, "失敗之後的下一則");
   expect(await savedUserTexts(id)).toContain("失敗之後的下一則");
+});
+
+test("模型失敗前另一個裝置先改過這段對話：照舊提示，失敗那則不硬存", async ({ page }, info) => {
+  // 只扣這一則（看內容，不數第幾次）：別條留下的代理人多呼叫一次模型時，才不會扣錯
+  await sendMessage(page, `${MODEL_HOLD_REQUEST} ${MODEL_400_REQUEST}`);
+  await modelHolding();
+  const id = await latestSessionId(adminToken);
+  await retitleChat(adminToken, id, "另一個裝置改過名");
+  await releaseModel();
+
+  await expectLastReplyMarkedFailed(page);
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toBeVisible();
+  await shot(page, info, "failed-after-other-device");
+  expect((await savedMessages(adminToken, id)).some((message) => message.generationFailed)).toBe(false);
+  expect((await savedSnapshot(adminToken, id)).session.title).toBe("另一個裝置改過名");
 });

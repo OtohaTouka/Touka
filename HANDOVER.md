@@ -1,15 +1,14 @@
 # Touka 目前交班
 
-更新：2026-11-05。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只放總覽；各範圍的細節在下面的模組交班檔，歷史見 [CHANGELOG](docs/CHANGELOG.md)。
+更新：2026-11-06。這份是寫給維護者與 AI 程式代理人的現況交班，先讀 [AGENTS.md](AGENTS.md)。本檔只放總覽；各範圍的細節在下面的模組交班檔，歷史見 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## 1. 現況
 
 - **分支**：開源快照（2026-10-22）時 `main` 與 `dev` 內容相同。PR 開到 `dev`，`main` 由維護者從 `dev` 合入。
-- **產品版本**：GHCR 最新是 `0.1.1`、`latest`（2026-10-24，公開 main 的 `e6bcfc18`）；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
-- **發行與 dev 的差距**：上面那個 commit 之後進 `dev` 的改動，要等下一次發版才進 GHCR；有哪些看 [CHANGELOG](docs/CHANGELOG.md)。
+- **產品版本**：GHCR 最新是 `0.1.2`、`latest`（2026-11-06，公開 main 的 `fca9848d`，內容和 `dev` 的 `d2820624` 相同）；上一版 `0.1.1` 是 2026-10-24 的 `e6bcfc18`；`modern-*` 開頭的 tag 是開源前的舊發行。下一次發版：手動執行 GHCR workflow 並填入 `version`，再依 [README_QUICKSTART](README_QUICKSTART.md) 第 4 節升級。
+- **發行與 dev 的差距**：`d2820624` 之後進 `dev` 的改動，要等下一次發版才進 GHCR；有哪些看 [CHANGELOG](docs/CHANGELOG.md)。
 - **最近進度**：連結防護（ADR-0293）的 PR 都已合併，後續項目見 [isolation](docs/handover/isolation.md)；Hook 全部事件已接線（[proxy](docs/handover/proxy.md)）；實際驗證（ADR-0295）已上線，見 [tests](docs/handover/tests.md)；隔離的 MCP 部分（ADR-0275）仍待整批整合驗證。
 - **目前卡住的事**：
-  - 實際驗證找到的既有問題還有兩個沒修（2026-11-04）：模型失敗要按兩個按鈕才能繼續（[chat](docs/handover/chat.md)）、聊天側自動剪裁存不進去（[proxy](docs/handover/proxy.md)），不擋發版。
   - docgen 一類的工具在安全讀寫做好之前一律被拒（2026-10-30，[isolation](docs/handover/isolation.md)）。
   - Docker Desktop 掛載還沒手動驗證 ADR-0293（2026-10-30，[isolation](docs/handover/isolation.md)）。
   - 審查員的準確率等實測要照禁令 61 逐批取得同意（2026-10-12，[proxy](docs/handover/proxy.md)）。

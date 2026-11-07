@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from memory_server.utils.zone_paths import is_zone_segment
+
 from src.config import AVATAR_MAX_BYTES
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services.resource_manager import resource_manager
@@ -58,7 +60,13 @@ def avatars_dir() -> Path:
 
 
 def _safe_candidate(user_id: str, ext: str) -> Path | None:
-    """組出 {user_id}.{ext} 路徑並驗證未逃出 avatars 目錄（防惡意 user_id 穿越）。"""
+    r"""組出 {user_id}.{ext} 路徑並驗證未逃出 avatars 目錄（防惡意 user_id 穿越）。
+
+    ``user_id`` 先過 ``is_zone_segment`` 才拼路徑（sec-9 PR 1b）：頭像端點不用登入，Windows 上
+    ``\\主機\分享`` 拼上去會變成網路路徑，``resolve()`` 會先連出去。使用者 ID 是 UUID，不受影響。
+    """
+    if not is_zone_segment(user_id):
+        return None
     base = avatars_dir().resolve()
     candidate = (avatars_dir() / f"{user_id}.{ext}").resolve()
     if not candidate.is_relative_to(base):

@@ -2,6 +2,7 @@ import type { components, operations } from '@/types/api';
 
 export type HeartbeatSchedule = components['schemas']['HeartbeatSchedule'];
 export type SaveResult = components['schemas']['SaveResult'];
+export type SessionActivity = components['schemas']['SessionActivityResponse'];
 export type SessionSaveResponse = components['schemas']['SessionSaveResponse'];
 export type StreamStartedEvent = components['schemas']['StreamStartedEvent'];
 export type StreamTerminalEvent = components['schemas']['StreamTerminalEvent'];

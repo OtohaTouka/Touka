@@ -50,6 +50,10 @@ vi.mock('@/lib/providers/ChatProvider', () => ({
 }));
 vi.mock('@/lib/providers/ModelProvider', () => ({ useModels: () => ({ selectedModel: null }) }));
 vi.mock('@/lib/providers/DebugProvider', () => ({ useDebug: () => ({ isSimulationMode: false }) }));
+vi.mock('@/lib/providers/SessionActivityProvider', () => ({
+  SessionActivityProvider: ({ children }: { children: React.ReactNode }) => children,
+  useSessionActivity: () => ({ statusOf: () => null, activityTimeOf: () => undefined, attention: null, staleSessionId: null, clearStale: () => {} }),
+}));
 vi.mock('@/lib/bridge', () => ({ postToBridge: vi.fn(), isIDE: vi.fn().mockReturnValue(false) }));
 
 vi.mock('@/components/LeftSidebar', () => ({

@@ -61,10 +61,10 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await composer(page).press("Enter");
 }
 
-/** 保存狀態不確定或對不上時，人要走的路：先核對，再重試保存（ADR-0231）。 */
-export async function recoverSave(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "重新核對保存結果" }).click();
-  await page.getByRole("button", { name: "僅重試保存" }).click();
+/** 沒有保存提示：沒有通知、沒有「重新核對保存結果」按鈕，也沒有保存的狀態列。 */
+export async function expectNoSaveNotice(page: Page): Promise<void> {
+  await expect(page.getByText("儲存工作階段失敗")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
 }
 

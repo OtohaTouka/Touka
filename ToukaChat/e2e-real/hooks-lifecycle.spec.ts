@@ -5,6 +5,7 @@ import {
   disableHooks,
   hookRuns,
   hooksEnabled,
+  latestSessionId,
   savedMessages,
   setSlidingWindow,
 } from "./lib/api";
@@ -41,10 +42,10 @@ import {
   enableHooks,
   eventSection,
   expectLastReplyMarkedFailed,
+  expectNoSaveNotice,
   loginInBrowser,
   openChat,
   openHooksTab,
-  recoverSave,
   saveHooks,
   selectSoul,
   sendMessage,
@@ -56,6 +57,9 @@ const PERSON_FORM_ANSWER = "人填的答案";
 // 未知模型的 context window 是 128000，trigger_pct 2 就是 2560 token；每則訊息要明顯超過。
 const LONG_MESSAGE = "實際驗證剪裁用的長訊息。".repeat(1200);
 const MAX_TRIM_ATTEMPTS = 4;
+// 後端剪裁等畫面收尾保存的上限（`chat_trim_wait.CLOSING_SAVE_WAIT_SECONDS`，ADR-0302）
+const CLOSING_SAVE_WAIT_MS = 10_000;
+const SESSION_SAVE_URL = /\/v1\/ui\/sessions\/[^/?]+$/;
 const SLIDING_WINDOW_OFF = { enabled: false };
 const TRIM_AT_ONCE = {
   enabled: true,
@@ -90,12 +94,63 @@ async function sendAndFinishTool(page: Page, text: string): Promise<void> {
   await composer(page).waitFor();
 }
 
-/** 送出並等模型收到。 */
+/**
+ * 送出並等模型收到。剪裁先等畫面收尾的保存、被擋的保存接在剪過的存檔上（ADR-0302），
+ * 所以不必先恢復。看內容不看次數：剪裁寫摘要也會呼叫模型。
+ */
 async function sendAndWaitForModel(page: Page, text: string): Promise<void> {
   const before = (await modelCalls()).length;
   await sendMessage(page, text);
-  await expect.poll(async () => (await modelCalls()).length).toBeGreaterThan(before);
+  await expect.poll(async () => (await modelCalls()).slice(before)
+    .some((call) => call.lastRole === "user" && call.lastText.includes(text))).toBe(true);
   await composer(page).waitFor();
+}
+
+/** 寫摘要的那次模型呼叫：送的是「[時間] user: …」的對話紀錄。 */
+async function summaryCalls(): Promise<number> {
+  return (await modelCalls()).filter((call) => /\] user: /.test(call.lastText)).length;
+}
+
+interface HeldSave { arrived: number; released?: number }
+
+/** 拖慢畫面收尾的保存（最後一則是 AI 回覆的整棵保存）；記下每次扣住與放行的時間。 */
+async function delayClosingSaves(page: Page, ms: number): Promise<HeldSave[]> {
+  const saves: HeldSave[] = [];
+  await page.route(SESSION_SAVE_URL, async (route) => {
+    const body = route.request().method() === "POST" ? route.request().postDataJSON() : null;
+    if (body?.messages?.messages?.[body.messages.currentId]?.role === "assistant") {
+      const save: HeldSave = { arrived: Date.now() };
+      saves.push(save);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      save.released = Date.now();
+    }
+    await route.continue();
+  });
+  return saves;
+}
+
+/** 設好家對話後一直送長訊息，直到聊天側剪裁存好（PostCompact 到）。 */
+async function chatUntilTrimmed(page: Page): Promise<void> {
+  await sendMessage(page, LONG_MESSAGE);
+  await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
+  await composer(page).waitFor();
+  // 只有家對話才剪；換模型後的第一輪也不剪，所以多送幾則。加編號：寫摘要時前面的長訊息也會送給模型
+  await setChatAsHome(page);
+  for (let attempt = 0; attempt < MAX_TRIM_ATTEMPTS; attempt += 1) {
+    if ((await receivedFor("PostCompact")).length > 0) return;
+    await sendAndWaitForModel(page, `${LONG_MESSAGE}（第 ${attempt + 1} 則）`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+/** 剪裁真的存好：最早那則長訊息不在存檔裡，摘要只叫了一次模型，畫面沒有保存提示，下一則直接送。 */
+async function expectTrimmedAndChatting(page: Page, summariesBefore: number): Promise<void> {
+  await expectBackgroundHook("PostCompact");
+  const saved = await savedMessages(adminToken, await latestSessionId(adminToken));
+  expect(saved.some((message) => message.content === LONG_MESSAGE)).toBe(false);
+  expect(await summaryCalls()).toBe(summariesBefore + 1);
+  await sendAndWaitForModel(page, "剪裁之後的訊息");
+  await expectNoSaveNotice(page);
 }
 
 /** 走到設定頁，看執行紀錄裡有這些 hook。背景事件要等它跑完才有紀錄。 */
@@ -148,14 +203,18 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   expect(String(failure.payload.error_details)).toContain("400");
   await composer(page).waitFor();
   await expectLastReplyMarkedFailed(page);
+  // 模型失敗時後端什麼都沒寫，畫面把失敗那則存好：不跳提示，下一則直接送（ADR-0231 決定 6）
+  await expectNoSaveNotice(page);
   await shot(page, info, "model-400");
-
-  // 模型失敗後對話的保存狀態不確定，要先恢復才送得出下一則
-  await recoverSave(page);
 
   // 模型回 200 但內容讀不懂：以前會變成 KeyError，現在是一般的模型失敗
   await sendMessage(page, MODEL_BAD_JSON_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(2);
+  // 上一則失敗的空白回覆送出前拿掉了：兩則 user 併成一則送到模型
+  const merged = (await modelCalls()).at(-1)!;
+  expect(merged.lastRole).toBe("user");
+  expect(merged.lastText).toContain(MODEL_400_REQUEST);
+  expect(merged.lastText).toContain(MODEL_BAD_JSON_REQUEST);
   const unreadable = (await receivedFor("StopFailure"))[1];
   expectCleanPayload("StopFailure", unreadable);
   expect(unreadable.payload.error).toBe("unknown");
@@ -166,7 +225,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await shot(page, info, "model-bad-json");
 
   // 模型回 200 但沒有回覆（這裡只有錯誤本文）：以前是空白泡泡、算正常結束，Stop 還會跑
-  await recoverSave(page);
+  await expectNoSaveNotice(page);
   await sendMessage(page, MODEL_NO_REPLY_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(3);
   const noReply = (await receivedFor("StopFailure"))[2];
@@ -177,7 +236,7 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await shot(page, info, "model-no-reply");
 
   // 模型回 200、有回應的外殼但沒有內容，停止原因也不正常：這條才走到解析之後的判斷
-  await recoverSave(page);
+  await expectNoSaveNotice(page);
   await sendMessage(page, MODEL_EMPTY_REPLY_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(4);
   const emptyReply = (await receivedFor("StopFailure"))[3];
@@ -188,8 +247,8 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   await expectLastReplyMarkedFailed(page);
   await shot(page, info, "model-empty-reply");
 
-  // 標示在重試保存時才進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
-  await recoverSave(page);
+  // 不用按任何按鈕，標示已經進存檔。看存檔本身：重新載入會接回已結束的串流，畫面上的標示可能是重標的
+  await expectNoSaveNotice(page);
   const saved = await savedMessages(adminToken, String(noReply.payload.session_id));
   expect(saved.filter((message) => message.generationFailed)).toHaveLength(4);
   await page.reload();
@@ -260,31 +319,24 @@ test("任務看板：建立時每個任務各一次，完成時一次，進行�
   await expectRunRows(page, info, ["e2e-task-created", "e2e-task-completed"]);
 });
 
-test("剪裁（聊天）：PreCompact 卡住時聊天不受影響", async ({ page }, info) => {
+test("剪裁（聊天）：PreCompact 卡住時聊天不受影響，剪裁真的存好、下一則不用恢復", async ({ page }, info) => {
   await setSlidingWindow(adminToken, TRIM_AT_ONCE);
   try {
     await openHooksTab(page);
     await enableHooks(page);
     await addHttpHook(page, "PreCompact", { url: hookUrl("hang"), name: "e2e-pre-compact", matcher: "auto" });
+    await addHttpHook(page, "PostCompact", { url: hookUrl("ok"), name: "e2e-chat-post", matcher: "auto" });
     await saveHooks(page);
 
     await openChat(page);
     await selectSoul(page);
-    await sendMessage(page, LONG_MESSAGE);
-    await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
-    await composer(page).waitFor();
-    // 只有家對話才剪；換模型後的第一輪也不剪，所以多送幾則
-    await setChatAsHome(page);
-    for (let attempt = 0; attempt < MAX_TRIM_ATTEMPTS; attempt += 1) {
-      if ((await receivedFor("PreCompact")).length > 0) break;
-      await sendAndWaitForModel(page, LONG_MESSAGE);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
+    const summaries = await summaryCalls();
+    await chatUntilTrimmed(page);
     const pre = await expectBackgroundHook("PreCompact");
     expect(pre.payload.trigger).toBe("auto");
 
-    // PreCompact 還卡著，聊天照常
-    await sendAndWaitForModel(page, "剪裁之後的訊息");
+    // PreCompact 還卡著，聊天照常；上方的舊訊息在下一則存好後從畫面消失（Owner 11/06 同意）
+    await expectTrimmedAndChatting(page, summaries);
     expect(Date.now() - pre.receivedAt).toBeLessThan(NOT_WAITING_LIMIT_MS);
     await shot(page, info, "chat-after-trim");
     await expectRunRows(page, info, ["e2e-pre-compact"], HUNG_RUN_TIMEOUT_MS);
@@ -293,8 +345,39 @@ test("剪裁（聊天）：PreCompact 卡住時聊天不受影響", async ({ pag
   }
 });
 
-// 聊天側剪裁和畫面收尾的保存會搶同一個版本，常常存不進去（見 ADR-0295 的「實際驗證找到的既有問題」），
-// PostCompact 走心跳這條：沒有畫面搶版本，每次都會存好。
+for (const [name, delayMs, waits] of [
+  ["在上限內：剪裁等它存好再剪", 3_000, true],
+  ["超過上限：剪裁先剪文字版，畫面接上去", CLOSING_SAVE_WAIT_MS + 3_000, false],
+] as const) {
+  test(`剪裁（聊天）：收尾保存拖慢${name}，不跳提示`, async ({ page }, info) => {
+    await setSlidingWindow(adminToken, TRIM_AT_ONCE);
+    try {
+      await openHooksTab(page);
+      await enableHooks(page);
+      await addHttpHook(page, "PostCompact", { url: hookUrl("ok"), name: "e2e-slow-save-post", matcher: "auto" });
+      await saveHooks(page);
+
+      await openChat(page);
+      await selectSoul(page);
+      const saves = await delayClosingSaves(page, delayMs);
+      const summaries = await summaryCalls();
+      await chatUntilTrimmed(page);
+      const post = await expectBackgroundHook("PostCompact");
+      // 等到了：存回時沒有收尾保存還扣著。逾時：那一輪的收尾保存還扣著就先存回了
+      const heldAtCommit = saves.some((save) => save.arrived < post.receivedAt &&
+        (save.released ?? Number.POSITIVE_INFINITY) > post.receivedAt);
+      expect(heldAtCommit).toBe(!waits);
+      await expect.poll(() => saves.every((save) => save.released), { timeout: delayMs + 10_000 }).toBe(true);
+      await expectTrimmedAndChatting(page, summaries);
+      await shot(page, info, waits ? "slow-save-within-limit" : "slow-save-past-limit");
+    } finally {
+      await page.unroute(SESSION_SAVE_URL);
+      await setSlidingWindow(adminToken, SLIDING_WINDOW_OFF);
+    }
+  });
+}
+
+// PostCompact 走心跳這條：沒有畫面補存，也照樣存好。
 test("剪裁（心跳）：PreCompact 卡住時 PostCompact 照樣到，內容有摘要", async ({ page }, info) => {
   await setSlidingWindow(adminToken, TRIM_AT_ONCE);
   try {
@@ -383,18 +466,19 @@ test("心跳：開始與結束都收到，內容有脈衝數與結束原因", as
   await expectRunRows(page, info, ["e2e-beat-start", "e2e-beat-stop"]);
 });
 
-test("心跳的模型失敗：StopFailure 有發，脈衝照舊算跑完", async ({ page }, info) => {
+test("心跳的模型失敗：StopFailure 有發，結束原因是模型失敗，剩下的脈衝不跑", async ({ page }, info) => {
   await openHooksTab(page);
   await enableHooks(page);
   await addHttpHook(page, "StopFailure", { url: hookUrl("ok"), name: "e2e-beat-failure" });
   await addHttpHook(page, "HeartbeatStop", { url: hookUrl("ok"), name: "e2e-beat-end" });
   await saveHooks(page);
 
-  await awakenSoul(MODEL_400_REQUEST);
+  await awakenSoul(MODEL_400_REQUEST, "independent", 3);
   const failure = await expectBackgroundHook("StopFailure");
   expect(failure.payload.error).toBe("invalid_request");
   const stop = await expectBackgroundHook("HeartbeatStop");
-  expect(stop.payload.end).toBe("completed");
+  expect(stop.payload.end).toBe("model_error");
+  expect(stop.payload.pulses_total).toBe(3);
   expect(stop.payload.pulses_done).toBe(1);
   await expectRunRows(page, info, ["e2e-beat-failure", "e2e-beat-end"]);
 });

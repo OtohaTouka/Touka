@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from src.middleware.base import ProxyLayer
 from src.models.identity import AgentIdentity
 from src.services.permission_service import permission_service
-from src.services.skill_service import skill_service
+from src.services.skill_service import DEEP_RESEARCH_SKILL_ID, SKILL_DISPATCHER_ID, skill_service
 from src.utils.async_db import session_service
 
 if TYPE_CHECKING:
@@ -15,11 +15,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 技能調度員 ID (Pull 模式：常駐注入，讓 Agent 看到可用技能清單)
-_SKILL_DISPATCHER_ID = "system-skill-dispatcher"
 
-# 深入研究協調 Skill ID（ADR-0087）：由 deep_research 旗標觸發強制注入
-_DEEP_RESEARCH_SKILL_ID = "deep-research-coordinator"
 
 
 class SkillLayer(ProxyLayer):
@@ -49,7 +45,7 @@ class SkillLayer(ProxyLayer):
         # （浪費 token）。**不可**一併剔 system-mcp-dispatcher（那是 MCP 動態掛載的啟用
         # 旗標，需保留進 active_skills 供 tool.py 讀；ADR-0161 後新啟用走 ctx.mcp_dispatcher，
         # 但既存 session 的 active_skills 仍靠此保留向後相容）。
-        requested_ids = [s for s in requested_ids if s != _SKILL_DISPATCHER_ID]
+        requested_ids = [s for s in requested_ids if s != SKILL_DISPATCHER_ID]
 
         # 2. 過濾使用者/Agent 指定的技能：須「存在」且通過 RBAC。
         #    存在性過濾擋掉不存在的技能 id 混入 active_skills——allowed_skills=["*"] 下尤需
@@ -71,8 +67,8 @@ class SkillLayer(ProxyLayer):
         # 2.5 Deep Research（ADR-0087）：旗標啟用時強制注入研究協調 Skill（提示詞層）。
         #     實際 research 工具仍受 get_allowed_tools(identity) RBAC 把關，無越權
         #     （skill_required_tools 從不授予工具，僅供 SkillLayer 收集所需 MCP）。
-        if ctx.get("deep_research") and _DEEP_RESEARCH_SKILL_ID not in authorized_skill_ids:
-            authorized_skill_ids.append(_DEEP_RESEARCH_SKILL_ID)
+        if ctx.get("deep_research") and DEEP_RESEARCH_SKILL_ID not in authorized_skill_ids:
+            authorized_skill_ids.append(DEEP_RESEARCH_SKILL_ID)
 
         # 3. 技能調度員（廣告面）——ADR-0148：依 can_use_skill 過濾，廣告面＝授權面。
         #    算出此身分「用得到」的技能集合；唯有非空才注入 dispatcher（連帶讓 tool.py
@@ -89,7 +85,7 @@ class SkillLayer(ProxyLayer):
         # 4. active_skills：已授權業務技能 ＋（僅在有可用技能時）dispatcher
         inject_ids = list(authorized_skill_ids)
         if has_dispatcher:
-            inject_ids.append(_SKILL_DISPATCHER_ID)
+            inject_ids.append(SKILL_DISPATCHER_ID)
         ctx["active_skills"] = inject_ids
 
         # 5. 注入 System Prompt：已授權技能 body ＋ RBAC 過濾後的 skill_registry

@@ -143,6 +143,9 @@ def _validate_new_model_id(model: AgentIdentity, *, renaming: str | None = None)
         or any(mid.casefold() == folded for mid in [*others, *SYSTEM_AGENT_IDS])
     ):
         raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=model.agent_id)
+    # 不是任何代理人資料夾的別名（8.3 短檔名等，撞名檢查抓不到的；sec-9 PR 1b）。只差 ASCII
+    # 大小寫的自我改名指的就是自己的資料夾，不查別名（規則在 check_new_agent_name）
+    soul_io.check_new_agent_name(model, renamed_from=renaming)
 
 
 async def _assert_collection_free(model: AgentIdentity, *, renaming: str | None = None) -> None:

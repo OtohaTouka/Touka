@@ -36,7 +36,7 @@
   - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
   - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。
   - ConfigChange：`source`（設定名稱，見 ADR-0292 決定 17）；`session_id`、`agent_id` 是空的，不放設定值。存好之後才發（備份還原例外：在接受時發，完成後行程就重啟），擋不了設定；關閉 hooks 那次不發。
-  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發，`end` 仍是 `completed`。
+  - HeartbeatStart：`pulses_total`、`home`；HeartbeatStop 多 `pulses_done`、`end`（`completed`、`interrupted`、`quota`、`budget`、`no_model`、`model_error`、`error`、`cancelled`）。模型失敗不算 `error`：StopFailure 照發（含 dispatcher 補發的 `unknown`），`end` 是 `model_error`，剩下的脈衝不跑（2026-11-06）。
   - 工具類事件 MCP 工具另有 `mcp_tool_name`，舊工具名稱另有 `tool_aliases`。比對規則（`matcher_events`）：UserPromptSubmit、Stop、TaskCreated、TaskCompleted、HeartbeatStart、HeartbeatStop 不看；Notification 看通知類型；StopFailure 看錯誤類型；SubagentStart、SubagentStop 看 `agent_type`；PreCompact、PostCompact 看 `trigger`；Elicitation 看 MCP 伺服器名稱；ConfigChange 看 `source`；其他看工具名稱。
 - 背景事件（Stop、PermissionDenied、Notification、StopFailure、SubagentStop、PreCompact、PostCompact、TaskCreated、TaskCompleted、ConfigChange、HeartbeatStart、HeartbeatStop）同時最多 32 個，超過跳過；`GET /v1/hooks/runs` 多 `status: "skipped"`、`outcome: "skipped"` 的一筆。
 - `hooks.json` 不在設定匯出／匯入（`/v1/system` 的設定快照）裡。
@@ -237,6 +237,24 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 存檔：UI 存檔的助理節點可能帶 `interjections[]`（`Interjection` 形狀、只有已送達的）；沒有插話時節點不變。心跳脈衝、家對話注入與滑動視窗摘要組給模型的歷史，會在該節點 content 前加標註（ADR-0249）。
 - 第 4b 段：urgent 插話在上游串流接收中直接打斷那一輪（取消、丟掉半截、不重試、不算一步、計費照廠商回報或估算），串流內送 `round_interrupted_by_user`（`step`），接著用打斷範本送出插話。佇列 Protocol 多 `urgent_signal`；端點與 openapi 不變。
 - OpenAPI 已在沙盒內重生。
+
+## 靈魂與代理人的名稱、用編輯建立靈魂（ADR-0303，2026-11-07）
+
+- **名稱**：`POST /v1/souls`、`POST /v1/souls/{soul_id}`、`DELETE /v1/souls/{soul_id}` 的 ID 要是單一段（`is_zone_segment`），否則 422 `VALIDATION_ERROR`，檢查在任何檔案系統呼叫之前（建立時也在 collection 撞名檢查之前）。已有資料夾時，名稱要逐字出現在目錄列表裡，只差大小寫或 8.3 短檔名的別名回 422；列不完整或個人空間的根解析不到回 `SOUL_VAULT_ERROR`。查哪些位置：
+  - 建立，或用編輯建立、轉換：`soul`、`legacy`、`custom`、`stats` 與個人空間（`soul_io.check_new_agent_name`）；新 ID 也不能含 `~`（Windows 8.3 短檔名的標記）。
+  - 編輯既有靈魂：只查 `soul`（`legacy`、個人空間只差大小寫時不擋）。
+  - 刪除：`soul`、`legacy` 與個人空間。不可刪名單（DebugAgent）不分大小寫，一律 403。
+- **用編輯建立或轉換**（`POST /v1/souls/{soul_id}`）：只有重新輸入密碼的人類管理員能建立新資料夾或把未標成靈魂的資料夾轉成靈魂，也照建立時檢查名稱與 collection 撞名。非人類：
+  - 只能編輯逐字存在、已標成靈魂的資料夾，否則 403 `AUTH_PERMISSION_DENIED`，在驗證模型之前就回。這也包括只改人設寫進未標靈魂的資料夾。
+  - Owner 角色只能編輯自己，或和自己有同一位人類擁有者的靈魂；沒有擁有者的不行。
+  - Debugger 可以編輯任何已存在的靈魂。
+- **查靈魂**（`X-Touka-Soul-ID`、`X-Agent-ID` 切換、前景與心跳）：名稱不合規或不是逐字的資料夾名稱，就不算靈魂。別名的警告每個名稱只記一次。
+- **頭像** `GET /v1/users/{user_id}/avatar`：`user_id` 不是單一段回 404，不碰檔案系統。
+- **舊對話** `GET /v1/stats/legacy/{agent_id}`、`POST /v1/stats/legacy/{agent_id}/sync`：在擁有權檢查之前先經 `agent_service.check_known_target`（和內容快照共用）。不是單一段回 422；不是查自己時，不在代理人清單裡回 403。這也包括已刪除代理人留下的資料夾。
+- **擁有權**（`ResourceManager.is_owner` 的非人類 Owner 角色）：逐字找不到擁有者時，只差大小寫的寫法找到別的擁有者就拒絕；沒有逐字擁有者的目標只放行逐字已知的代理人（`agent_service.is_known_id`）。30 天寬限期只看逐字的擁有者。Owner 角色查不存在的自訂模型，從 404 變成 403。
+- **自訂模型**：建立新模型與改名的新 ID 不能含 `~`，也不能是任何代理人資料夾的別名，否則 422 `VALIDATION_ERROR`（只差 ASCII 大小寫的自我改名不查別名）。
+- **切分存進舊對話庫** `POST /v1/ui/sessions/legacy/export`：ID 不能當資料夾名的對話（一般模型，如 `ollama/llama3:8b`）回 422 `VALIDATION_ERROR`。以前這類對話存進用模型 ID 拼成的巢狀資料夾。
+- **專案根目錄**：登記時和工作區根的磁碟或分享開頭不同，就不收（解析之前比對；工作區根的字面或解析後的磁碟都算）。Windows 原樣交給系統的內部路徑寫法一律不收；Windows 上必須是絕對路徑。Docker 裡的主機路徑照常可用。
 
 ## Touka 待排小任務：靈魂主要模型、模型名大小寫、沒設模型（ADR-0250）
 
@@ -442,7 +460,7 @@ Dispatch 使用同一 Memory 保存入口，失敗先於 mission token 輪替與
 
 ## 對話保存／終態模型（可靠性 R2，來源候選）
 
-`src/models/session_persistence.py` 是純Pydantic SSOT；saved含representation／revision，skipped分incognito／no_text，failed／unknown只回固定error_code。
+`src/models/session_persistence.py` 是純Pydantic SSOT；saved含representation／revision，skipped分incognito／no_text／generation_failed（基底與scope驗過後模型失敗、後端沒寫這一輪回覆；生成中工具改過對話時版本已不同），failed／unknown只回固定error_code。
 同一生成helper登錄模型並拒絕重名差異；snapshot exists為必要boolean，present／absent內容互斥。
 正常GET保持原形並含revision／derived round_count；`?snapshot=true`回strict typed存在或缺席，讀錯不發token。
 POST必帶revision；existing DELETE需If-Match，strict absent仍200。SQLite同transaction read／compare／write，
@@ -719,6 +737,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **`GET /v1/ui/sessions/{id}/stream?starting_after=N`**：SSE 重播＋跟流（游標續傳）；`_require_authenticated` ＋ `_can_access_session`（DA3 同款 IDOR 述詞，持久 session 不存在 fail-closed 拒絕，無痕以已驗 requester memory owner 判定且DB0）；無緩衝回 `STREAM_NOT_FOUND`(1212)。
 - **`GET /v1/ui/sessions/{id}/stream/state`**：回同 stream 的 started／terminal及status，供已完成TTL接回；persistent須fresh DB owner／存在，無痕只驗memory owner。stop帶stream fence，受控delete只退休捕捉的舊entry。
 - **`GET /v1/ui/streams/active`**：呼叫者可存取的進行中串流清單（逐條 ownership 過濾），前端重整後據此接回。
+- **`GET /v1/ui/activity?since=<毫秒>`（ADR-0300）**：側欄的工作狀態，只看記憶體、不碰對話資料庫。`streams` 只回呼叫者自己開的串流（管理員也一樣；無痕、舊路徑沒有 `started` 的不回）；`background`（`session_id`、`kind`、`current`、`total`）與 `finished`（`since` 之後結束的心跳，`session_id`、`finished_at`）依靈魂可見範圍過濾，和 `/v1/stats` 共用 `utils/activity_visibility.py`；`cursor` 是下一個 `since`，別人的心跳結束時回應逐字不變。沒帶 `since` 時回目前時間、`finished` 為空。不帶標題、內容與靈魂名。
 - **`POST /v1/ui/sessions/{id}/stop` 擴充**：原 rhythm interrupt ＋ process kill 之外，加 `stream_buffer_service.cancel`（producer 連坐取消＋訂閱者喚醒）。
 - **保留策略**：完成後緩衝保留 `STREAM_BUFFER_TTL_SECONDS=600`；`STREAM_BUFFER_MAX_CHUNKS=50000` 記憶體保險；`STREAM_ACTIVE_MAX_SECONDS=3600` 孤兒保險。server 重啟＝進行中生成與緩衝俱滅（in-memory，誠實限制）。
 
@@ -744,6 +763,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **端點**: `GET /debug/context-snapshot`、`POST /debug/context-snapshot/export`、`POST /souls/{soul_id}`（`update_soul`）
 - **問題**：原僅檢 `role in {Owner,Debugger,admin}`，再以呼叫者提供的 `agent_id`/`soul_id` 建 `AgentIdentity(role='Owner')` 取/匯出/**覆寫**，完全跳過擁有權 → 非 admin 的 Owner（真人 assume 自己的 Owner agent 即可達）能讀/匯出/覆寫他人 soul/context。
 - **修復**：三處加 `resource_manager.is_owner(target, caller)`（admin/Debugger 旁路、自身放行）；跨擁有者 read→回空（不洩）、export/update→403。
+- **快照的代理人名稱（2026-11-06）**：兩個快照端點先確認名稱，再檢查擁有權。`agent_id` 不是單一安全段（`is_zone_segment`）→ 422；不是查自己、不是系統代理人，也不和代理人清單（`agent_service.get_all_agents`）的名稱逐字相同 → 403（和跨擁有者同一個答案）。只差大小寫、帶舊前綴的寫法不算認得。
 
 ### 1.12 連線管理並發安全 (P9 fix) ⭐
 - **端點**: `POST /ui/connections`
@@ -830,7 +850,9 @@ Touka 的 Skill 系統已完全遷移至 [Anthropic Agent Skills 開放標準](h
 - **MCP 自動掛載**：`mcp_servers` 由同目錄 `.mcp.json` 的 top-level keys 推導（只取 keys，與 `${DISPATCH_URL}` 插值解耦）。同一份 `.mcp.json` 同時服務 Touka 內部自動掛載與外部 AI 安裝 plugin 時的客戶端 MCP 註冊，零客製橋接。
 - **Progressive Disclosure（三層載入）**：① metadata（frontmatter）常駐 context；② body（SKILL.md 本文）於 skill 觸發時載入；③ resources（`scripts/`/`references/`/`assets/`）由 `SkillService.get_skill_resource()` 按需讀取（含目錄逃逸防護）。
 - **Pull 模式 auto-trigger**：`SkillLayer` 常駐注入 `system-skill-dispatcher`（動態列出非系統 skill 的 name+description）；Agent 自主呼叫 `activate_skill(skill_id)` 寫入 `session.active_skills`，下一輪以 `header ∪ active_skills` 注入（仿 `connect_mcp_server` 範式，免 RBAC 的 dispatcher 常駐）。
-- **端點**：`GET /v1/skills/list`、`GET /v1/skills/{skill_id}`、`POST /v1/skills`（建立/更新）、`DELETE /v1/skills/{skill_id}`（`is_system` 受保護不可刪）、`GET /v1/skills/{skill_id}/export`（打包為 `.skill` ZIP 下載）、`POST /v1/skills/install`（Owner/admin 由 URL 安裝）。安裝受 `ALLOWED_SKILL_DOMAINS` SSRF 白名單 + `follow_redirects=False` + zip-bomb 防護（entry/解壓/下載上限）+ `.bak` 原子覆寫保護。
+- **技能名稱（2026-11-06）**：所有接技能名稱的操作（讀、寫、刪、打包、安裝、`activate_skill`）只經 `SkillService._skill_dir`：名稱要過 `is_skill_segment`，已有同名資料夾時要和目錄列表的實際名稱完全相同（擋只差大小寫的別名），目錄列不完整時拒絕。讀取回「不存在」（`GET` 與匯出 404、資源清單空、`activate_skill` 回找不到）；新增或更新、刪除、安裝回 `VALIDATION_ERROR`（422）；`SkillModel.id` 也驗證（OpenAPI 不變）。名稱不合規的資料夾不列出。
+- **系統技能（2026-11-06）**：內建名稱（兩個調度員、`deep-research-coordinator`，不分大小寫，資料夾不在也算）、載入的清單或磁碟上的 `SKILL.md` 任一標成系統技能就算；`POST /v1/skills`、兩種安裝覆蓋它、`DELETE` 都回 `AUTH_PERMISSION_DENIED`（403）。安裝包自稱系統技能回 422；`POST /v1/creation/skill` 帶 `is_system: true` 只有管理員可以，其他人 403。調度員同步不經這些端點。
+- **端點**：`GET /v1/skills/list`、`GET /v1/skills/{skill_id}`、`POST /v1/skills`（建立/更新）、`DELETE /v1/skills/{skill_id}`（`is_system` 受保護不可刪）、`GET /v1/skills/{skill_id}/export`（打包為 `.skill` ZIP 下載）、`POST /v1/skills/install`（Owner/admin 由 URL 安裝）。安裝只收 https，受 `ALLOWED_SKILL_DOMAINS` SSRF 白名單 + `follow_redirects=False` + zip-bomb 防護（entry/解壓/下載上限）+ `.bak` 原子覆寫保護。
 
 ---
 
@@ -974,6 +996,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
   - `POST /v1/system/sliding_window`：更新設定（admin only）
 - **SSOT**：`ToukaProxy/config/sliding_window.json`（預設 `enabled: false`）
 - **ACID 保證**：先歸檔進舊對話庫（`archive_payload`，一個交易）→ 確認成功 → 再更新 Session；任一失敗、或一則都沒歸檔到，安全跳過，下次重試（ADR-0264；以前先寫 legacy JSON，被保護擋下，正式環境從沒剪成）
+- **聊天側先等畫面的收尾保存（ADR-0302）**：網頁版文字版存好後、送出終態前登記一個等待者；`POST /v1/ui/sessions/{id}` 存好時叫醒它（上限 10 秒，逾時照剪）。心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時不剪（讀到後、寫摘要前、存回前各查一次）。同一段對話只留一個在等，新的取代舊的。
 - **身分**：剪裁、歸檔、摘要記帳都用家對話所屬的靈魂。心跳本來就是靈魂；聊天側（dispatcher 存檔後）從 session 的 `home_for_agent` 解析，解析不到不剪並記 warning，不用 UI 請求者（ADR-0264）
 - **摘要**：`context_summary` 第一行是時間範圍；送摘要員的每行帶台北時間（ADR-0264）
 

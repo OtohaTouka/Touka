@@ -13,6 +13,7 @@ from memory_server.services.legacy_sync import LegacySyncService
 from memory_server.services.manager import MemoryManager
 from src.main import app
 from src.models.identity import AgentIdentity
+from src.services.agent_service import agent_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 
@@ -77,8 +78,10 @@ def test_sync_partial_failure_not_200() -> None:
     assert (detail["synced"], detail["errors"]) == (1, 1)
 
 
-def test_stats_get_does_not_create_legacy_dir_or_db() -> None:
+def test_stats_get_does_not_create_legacy_dir_or_db(monkeypatch) -> None:
     agent = f"StatsProbe{uuid.uuid4().hex[:8]}"
+    # ADR-0303：舊對話端點只接受代理人清單裡的名稱
+    monkeypatch.setattr(agent_service, "get_all_agents", lambda: [{"id": agent}])
     legacy_dir = Path(resource_manager.get_vault_path("legacy", AgentIdentity.from_str(agent)))
 
     response = _client().get(f"/v1/stats/legacy/{agent}")

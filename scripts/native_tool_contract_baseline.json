@@ -550,6 +550,14 @@
   ],
   "consumers": {
     "ToukaMemory/src/memory_server/services/manager.py": {
+      "VaultPathRefusedError.__init__": {
+        "parameters": [
+          "self"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "MemoryManager.reset_singletons": {
         "parameters": [
           "cls"
@@ -1953,8 +1961,7 @@
       "ask_user": {
         "parameters": [
           "questions",
-          "_emit_event",
-          "_call_id"
+          "_emit_event"
         ],
         "kwargs": "kwargs",
         "reads": [

@@ -4,7 +4,7 @@
 
 ## Hook（ADR-0292 決定 17）
 
-- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗時脈衝照舊算跑完、`end` 是 `completed`，要看 StopFailure）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
+- 心跳確定要跑之後發 HeartbeatStart，結束時發 HeartbeatStop（`end` 是結束原因；心跳迴圈本身出例外是 `error`；模型失敗（StopFailure 已發，含 dispatcher 補發的 `unknown`：這一輪裡 Touka 自己出的例外）時 `end` 是 `model_error`，失敗那一脈衝照算跑完、剩下的不跑）；都在背景，不影響心跳。沒有走到開始（權限、歸屬被拒）就都不發。重新觸發也算。
 
 ## 對話歸屬與獨立頻道（ADR-0276）
 
@@ -31,7 +31,7 @@
 
 ## 活動紀錄與時間感（記憶系統第二批段 4，ADR-0267）
 
-- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
+- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - ToukaHeartbeat 服務本身不變。
@@ -241,6 +241,10 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 *   **未知值（typo/亂碼）⮕ fail-safe 回 `Manual`**（最嚴，並記 warning）。**DA24 修正**：原邏輯 `"SafeAuto" if level=="safe" else "FullYOLO"` 會把**任何非 `"safe"` 值都升級為 FullYOLO**（全自動、無 HITL）；後來僅明確的 `"full"` 才給全自動，看不懂的值先退回 SafeAuto，2c 起退回 Manual。
 
 ---
+
+## 📡 側欄看得到的心跳活動 — ADR-0300
+
+`services/activity_registry.py` 記錄進行中的背景活動（`/v1/stats` 的 `background_activity`），也給 `GET /v1/ui/activity` 的 `background`。心跳結束時另記一筆（`record_finished`，最多 200 筆、只放記憶體），給同一端點的 `finished`：放在 `_process_heartbeat_loop` 內層 `finally` 的最後，前端看到就會下載這段對話，放太早會下載到剪裁前的內容；第一輪之前就停的也要記，對話可能已經寫進去了。probe 與提早 return 不記。
 
 ## 🔁 UI 一鍵重新觸發 (Retrigger) — ADR-0078 ⭐
 

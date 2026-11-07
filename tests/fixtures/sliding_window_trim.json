@@ -1,0 +1,28 @@
+{
+  "_comment": "ADR-0302: the frontend decides whether a stale save was caused by the chat trim by comparing against this shape. test_sliding_window_service.py checks that 'after' is exactly what _rebuild_tree makes from 'before' kept from index 'kept_from'.",
+  "kept_from": 4,
+  "before": {
+    "currentId": "n7",
+    "messages": {
+      "n0": {"id": "n0", "role": "user", "content": "line-0", "parentId": null, "childrenIds": ["n1", "b1"], "timestamp": 1760486400000},
+      "n1": {"id": "n1", "role": "assistant", "content": "line-1", "parentId": "n0", "childrenIds": ["n2"], "timestamp": 1760486460000},
+      "b1": {"id": "b1", "role": "assistant", "content": "older branch", "parentId": "n0", "childrenIds": [], "timestamp": 1760486470000},
+      "n2": {"id": "n2", "role": "user", "content": "line-2", "parentId": "n1", "childrenIds": ["n3"], "timestamp": 1760486520000},
+      "n3": {"id": "n3", "role": "assistant", "content": "line-3", "parentId": "n2", "childrenIds": ["n4"], "timestamp": 1760486580000},
+      "n4": {"id": "n4", "role": "user", "content": "line-4", "parentId": "n3", "childrenIds": ["n5", "b5"], "timestamp": 1760486640000},
+      "n5": {"id": "n5", "role": "assistant", "content": "line-5", "parentId": "n4", "childrenIds": ["n6"], "timestamp": 1760486700000},
+      "b5": {"id": "b5", "role": "assistant", "content": "kept-range branch", "parentId": "n4", "childrenIds": [], "timestamp": 1760486710000},
+      "n6": {"id": "n6", "role": "user", "content": "line-6", "parentId": "n5", "childrenIds": ["n7"], "timestamp": 1760486760000},
+      "n7": {"id": "n7", "role": "assistant", "content": "line-7", "parentId": "n6", "childrenIds": [], "timestamp": 1760486820000, "steps": [{"tool": "x"}]}
+    }
+  },
+  "after": {
+    "currentId": "n7",
+    "messages": {
+      "n4": {"id": "n4", "role": "user", "content": "line-4", "parentId": null, "childrenIds": ["n5"], "timestamp": 1760486640000},
+      "n5": {"id": "n5", "role": "assistant", "content": "line-5", "parentId": "n4", "childrenIds": ["n6"], "timestamp": 1760486700000},
+      "n6": {"id": "n6", "role": "user", "content": "line-6", "parentId": "n5", "childrenIds": ["n7"], "timestamp": 1760486760000},
+      "n7": {"id": "n7", "role": "assistant", "content": "line-7", "parentId": "n6", "childrenIds": [], "timestamp": 1760486820000, "steps": [{"tool": "x"}]}
+    }
+  }
+}
