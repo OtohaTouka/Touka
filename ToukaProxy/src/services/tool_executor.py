@@ -45,7 +45,7 @@ from src.services.hooks.tool_hooks import (
     run_post_tool_hooks,
     run_pre_tool_hooks,
 )
-from src.services.isolation.policy import policy_level, reviewer_level
+from src.services.isolation.policy import policy_level, reviewer_level, session_project_id
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
 from src.tools.builtin import BUILTIN_EXECUTION_BINDINGS, LEGACY_ADVERTISED_SUCCESSORS
@@ -53,7 +53,6 @@ from src.tools.builtin.schemas import missing_required_error
 from src.tools.contracts import PUBLIC_TOOL_CONTRACTS, validate_native_arguments
 from src.tools.execution_context import APPROVED_BY_AUTO_REVIEWER, build_execution_context_kwargs
 from src.tools.execution_policy import ToolExecutionClass, classify_registered_tool
-from src.utils.async_db import session_service
 from src.utils.command_safety import effective_shell
 from src.utils.hard_floor import floor_tool_action
 from src.utils.mcp_request_identity import mcp_request_context as build_mcp_request_context
@@ -865,12 +864,9 @@ class ToolExecutor:
                 # 取得執行參數與上下文鎖定
                 is_toukasoul = soul_service.is_toukasoul(identity)
 
-                # 嘗試自動補全 project_id (SSOT 輔助)
-                project_id = ctx.get("project_id") or args.get("project_id")
-                if not project_id and session_id:
-                    session = await session_service.get_session_by_id(session_id)
-                    if session:
-                        project_id = session.get("project_id")
+                # 專案只來自系統（ctx 或 session 綁定的專案），不收模型在參數裡填的編號
+                # （ADR-0304）；注入的 project_id 在 call_kwargs 裡蓋過 args
+                project_id = await session_project_id(ctx, session_id)
 
                 async def _emit_event(event: dict[str, Any]) -> None:
                     """供工具把結構化事件（tool_stream / 進度）推到本次 SSE 佇列。"""

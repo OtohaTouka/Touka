@@ -2,6 +2,14 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 身分與防呆（2026-11-07，ADR-0304）
+
+- 首裝卡（LDH 在 `X-New-Auth-Token` 發的卡）帶記號 `src: "ldh"`。系統認領後（有任何完成真密碼設定的使用者），帶記號的卡一律 401 `AUTH_INVALID_TOKEN`；認領前，卡的身分和發卡時一樣（不帶類型旗標）。`X-Agent-ID` 是使用者 id 時 LDH 不發卡。
+- 使用者只收 `type: "access"` 的 token：中央 Bearer 閘（`verify_token`）與 `get_current_user`（`/auth/*` 等）對沒有 type、`sub` 是使用者的 token 回 401。
+- 檔案工具的 `project_id` 只來自 ctx 或 session 綁定的專案（`isolation/policy.session_project_id`），模型在參數裡填的值不採用；沒有綁定時工具拿到 None。
+- 還原進行中（`restore_in_progress()`）回 409 `SYSTEM_RESTORE_IN_PROGRESS`（1414）：`DELETE /v1/souls/{id}`（身分檢查之後、驗密碼之前）、`DELETE /v1/ui/custom_models/{id}`、`POST /v1/ui/custom_models/{id}/rename`，以及對自訂模型的 `DELETE /v1/models/{id}`。
+- `POST /v1/mcp/hub/sync` 失敗改回標準錯誤 500 `SYSTEM_ERROR`（原本是 `{"error": <例外原文>}`）；`GET /v1/heartbeat/test` 連不到時 `message` 是固定文字；`GET /` 的 `degraded_reason` 只剩類別（`Memory System module not found.`／`dependency error.`／`crash.`），細節在伺服器 log。
+
 ## Hook 設定與事件（2026-10-28，ADR-0292）
 
 - 管理端點（根路徑與 `/v1` 對等），`/hooks`、`/hooks/runs` 三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
@@ -532,7 +540,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
     - **身分物件**: 認證後生成 `AgentIdentity`，包含 `owner_user_id` 與技能清單。
     - **路由攔截**: 針對受保護路由，系統強制檢查請求者是否為該 Agent 的合法擁有者。
     - **沒登入不能聊天（C3 fix；ADR-0245 收緊）** ⭐：`/messages`、`/chat/completions`（含 `/v1`）掛授權閘道 `require_authenticated`，沒有已驗證身分一律 401 `AUTH_INVALID_TOKEN`，不再降級成 Guest；**禁止**讀取 `X-Agent-ID` Header 作為 fallback（防止 header 注入身份冒充）。
-- **優雅降級 (Local Dynamic Handshake)** ⭐: 僅限**完全未附 Authorization** 的 `is_private`／`is_loopback` 來源請求，系統自動在回應標頭 `X-New-Auth-Token` 發放新 Token。**帶失效 token（過期/簽章不符）一律 401**（不分本地/外部、不降級、不發卡），客戶端應走 `/auth/refresh` 續期；前端已登入時亦不採納 `X-New-Auth-Token`（ADR-0131／禁令 60，杜絕 DebugAgent 降級卡挾持）。
+- **優雅降級 (Local Dynamic Handshake)** ⭐: 僅限**完全未附 Authorization** 的 `is_private`／`is_loopback` 來源請求，系統自動在回應標頭 `X-New-Auth-Token` 發放新 Token。**帶失效 token（過期/簽章不符）一律 401**（不分本地/外部、不降級、不發卡），客戶端應走 `/auth/refresh` 續期；前端已登入時亦不採納 `X-New-Auth-Token`（ADR-0131／禁令 60，杜絕 DebugAgent 降級卡挾持）。發出的卡帶首裝卡記號，系統認領後驗卡一律 401（ADR-0304）。
 - **Query Token 降級驗證 (H3 fix)** ⭐: 針對無法手動注入 `Authorization` Header 的客戶端（例如瀏覽器原生 `EventSource` 的 SSE 串流連線），後端認證核心中介 `get_optional_identity` 支援從 URL Query 參數 `token` 中提取 JWT Token 並執行合法性與效期驗證。
 - **會話終止 (Logout)**:
     - **端點**: `POST /v1/auth/logout`

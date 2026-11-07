@@ -12,10 +12,27 @@ import jwt
 
 from src.core.security import AuthSecretManager
 from src.models.identity import AgentIdentity
+from src.services import auth_service as auth_service_module
 from src.services.agent_service import agent_service
+from src.services.permission_service import permission_service
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
+
+# 首裝卡（LDH）的記號（ADR-0304）：系統認領後驗卡一律拒絕
+LDH_CARD_SOURCE = "ldh"
+
+
+def ldh_identity(target_id: str) -> AgentIdentity:  # noqa: IDENTITY_SSOT
+    """把首裝卡上的 id（發卡時的 ``X-Agent-ID``、驗卡時的 ``sub``）轉成身分（ADR-0304）.
+
+    發卡與驗卡用同一個判斷。刻意不帶類型旗標（ADR-0147）：``X-Agent-ID`` 由呼叫者控制，
+    帶旗標會讓既有靈魂的 id 解析成 Owner。DebugAgent 經 agent_overrides 照舊是 Debugger，
+    其他 id 落回 default。
+    """
+    role = permission_service.get_role_key(target_id)
+    caps = permission_service.get_capabilities_by_id(target_id)
+    return AgentIdentity.for_role(target_id, role, capabilities=caps)
 
 
 class IIdentityService(Protocol):
@@ -28,8 +45,10 @@ class IIdentityService(Protocol):
         """驗證 Token 並回傳身分物件."""
         ...
 
-    def issue_token(self, identity: AgentIdentity, expires_delta: int | None = None) -> str:
-        """為指定代理人核發新的 Token."""
+    def issue_token(
+        self, identity: AgentIdentity, expires_delta: int | None = None, *, ldh: bool = False
+    ) -> str:
+        """為指定代理人核發新的 Token；``ldh`` 為 True 時帶首裝卡記號."""
         ...
 
 
@@ -80,10 +99,14 @@ class JWTAuthenticationProvider(IIdentityService):
                 return None
 
             # 1. 優先檢查是否為人類使用者 (Human RBAC SSOT)
-            from src.services.auth_service import AuthService, access_token_is_stale
-            auth_service = AuthService()
+            auth_service = auth_service_module.AuthService()
             user = auth_service.get_user_by_id(agent_id)
             if user:
+                # ADR-0304：人類只收 access token。沒有 type 的卡（首裝卡、一般代理人卡）
+                # 剛好寫了使用者 id 也不能變成那個人
+                if payload.get("type") != "access":
+                    logger.warning("Rejected untyped JWT naming user %s.", agent_id)
+                    return None
                 # DA23: a suspended user's existing access tokens stop working
                 # immediately at the central Bearer gate.
                 if not user.is_active:
@@ -91,7 +114,7 @@ class JWTAuthenticationProvider(IIdentityService):
                     return None
                 # 修復 1：改密碼即撤——與 routers/auth.get_current_user 同判準
                 # （SSOT），兩道 Bearer 閘一致拒絕改密碼前簽發的 token。
-                if access_token_is_stale(payload, user):
+                if auth_service_module.access_token_is_stale(payload, user):
                     logger.warning(
                         "Rejected pre-password-change token for user %s.", agent_id
                     )
@@ -103,6 +126,14 @@ class JWTAuthenticationProvider(IIdentityService):
                     owned_agents=user.owned_agents,
                     capabilities=["heartbeat_awakening"] if user.role == "admin" else []
                 )
+
+            # ADR-0304：首裝卡只在系統認領前有效，身分和發卡時一樣（不帶類型旗標）。
+            # 讀使用者清單出錯會落到下面的 except，回 None（拒絕）
+            if payload.get("src") == LDH_CARD_SOURCE:
+                if auth_service.any_claimed_user():
+                    logger.warning("Rejected first-install card for %s: system claimed.", agent_id)
+                    return None
+                return ldh_identity(agent_id)
 
             # 2. 若非人類，則獲取與身分綁定的代理人角色與能力標籤 (連動 PermissionService SSOT)
             # ADR-0147：經 agent_service 帶類型旗標（is_toukasoul/is_custom）套 tag_rules，
@@ -121,12 +152,15 @@ class JWTAuthenticationProvider(IIdentityService):
             logger.exception("Unexpected error in verify_token")
             return None
 
-    def issue_token(self, identity: AgentIdentity, expires_delta: int | None = None) -> str:
+    def issue_token(
+        self, identity: AgentIdentity, expires_delta: int | None = None, *, ldh: bool = False
+    ) -> str:
         """為 Agent 核發 JWT (Identity Issue SSOT).
 
         Args:
             identity (AgentIdentity): 經驗證的身分對象.
             expires_delta (int | None): 過期秒數，若未提供則使用預設值.
+            ldh (bool): 首裝卡（LDH）帶記號，系統認領後驗卡一律拒絕（ADR-0304）.
 
         Returns:
             str: 簽署完成的 JWT 字串.
@@ -135,6 +169,8 @@ class JWTAuthenticationProvider(IIdentityService):
         now = int(get_current_epoch())
         expiry = now + (expires_delta or self.DEFAULT_EXPIRY)
         payload = {"sub": agent_id, "exp": expiry, "iat": now, "iss": "ToukaProxy"}
+        if ldh:
+            payload["src"] = LDH_CARD_SOURCE
         return jwt.encode(payload, self.secret, algorithm=self.ALGORITHM)
 
     def get_identity(self, identity_id: str) -> AgentIdentity:

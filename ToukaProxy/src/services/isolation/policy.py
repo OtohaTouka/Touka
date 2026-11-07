@@ -40,19 +40,31 @@ logger = logging.getLogger(__name__)
 PROJECT_TOOLS = TERMINAL_TOOLS | {VERIFY_ACTION}
 
 
-async def session_project_root(
+async def session_project_id(
     ctx: Mapping[str, Any] | PipelineContext, session_id: str | None
-) -> Path | None:
-    """這次執行的專案根：ctx 的專案優先，否則 session 綁定的專案；沒有就是 None。"""
+) -> str | None:
+    """這次執行的專案：ctx 的專案優先，否則 session 綁定的專案；沒有就是 None。
+
+    檔案工具、終端與驗證指令共用（ADR-0304）；不讀模型給的參數。session 綁定專案時
+    已檢查過擁有權（``ui_sessions.save_session``）。
+    """
     project_id = ctx.get("project_id")
     if not project_id and session_id:
         session = await session_service.get_session_by_id(session_id)
         project_id = session.get("project_id") if session else None
+    return str(project_id) if project_id else None
+
+
+async def session_project_root(
+    ctx: Mapping[str, Any] | PipelineContext, session_id: str | None
+) -> Path | None:
+    """這次執行的專案根：``session_project_id`` 的專案；沒有就是 None。"""
+    project_id = await session_project_id(ctx, session_id)
     if not project_id:
         return None
     identity = ctx.get("identity")
     caller = identity if isinstance(identity, AgentIdentity) else None
-    root = await resource_manager.get_project_path(str(project_id), caller)
+    root = await resource_manager.get_project_path(project_id, caller)
     return Path(root) if root else None
 
 

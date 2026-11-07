@@ -160,7 +160,11 @@
 - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
 - 動作型工具（memory／mission／edit_soul）的廣告 schema 依動作合併同名欄位，只留第一個動作的型別限制（`contracts.action_parameters` 的 setdefault）；hist-bak b 用不同欄位名 `page_size` 避開，共用機制另排（ADR-0274 已知限制）。
 - 刪除、重置、記憶清除期間仍擋不住人自己的前景聊天、SNS、群聊對這個靈魂的寫入（舊審查報告第 3 題乙案，要改工具層）；刪除靠清完家目錄後的再查擋下。叫停要等正在跑的那一輪模型呼叫回來，重置不等它：重置自檢之前寫進來的會顯示「重置後又有新寫入」，之後才寫的不在任何報告裡（ADR-0287）。
-- 還原進行中仍可刪除靈魂：重置與 DebugAgent 重置會看還原旗標，刪除靈魂不看（原本就有，ADR-0287 審查時發現、範圍外）。
+- 還原中不能刪靈魂、刪除或改名自訂模型（2026-11-07，ADR-0304）；用編輯建立或轉換靈魂（`update_soul` 走步升）時還沒有還原檢查，是候選。
+- 其他把例外原文放進錯誤回應的地方（`error_output=str(e)` 約 15 處，例如 `custom_models.py`、`souls.py`、`mcp.py`、`models.py`、`setup.py` 的 `detail_override`，都要登入），ADR-0304 只改了 CodeQL 標的三處，其餘是候選。
+- 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）沒檢查擁有權，就把那個專案的名稱與絕對路徑放進提示；專案編號是 `proj-<毫秒時間>`（`ProjectsView.tsx`），猜得到。無痕對話不存檔、沒有 session 綁定，所以不能直接改成只認綁定；可行的修法是在 ContextLayer 對人類請求者（`ctx["ui_requester"]`）檢查 `request.project_id` 的存取權（候選，ADR-0304 審查時發現）。
+- `GET /heartbeat/test` 不用登入，成功時把對方伺服器的回應內容（`resp.json()`）回給呼叫者（候選）。
+- 子代理的 `session_id` 是 None，所以檔案工具拿不到專案（ADR-0304 之後；終端本來就拿不到）。要繼承父對話的專案，得一起看隔離層對專案的處理（候選）。
 - 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。
 - 寫 `.env` 的共用鎖（`config.ENV_FILE_LOCK`，ADR-0288）只管 Proxy 這個行程；設定頁 `POST /v1/config/env` 仍是清空再寫（不是原子置換），寫到一半當機一樣會壞（原本就有，乙-3 審查時發現）。候選：改成和 `persist_generated_secrets` 一樣的暫存檔置換；改之前 `update_env` 要留在主迴圈上（讀 `.env` 的地方沒拿鎖，靠它在同一條主迴圈上才讀不到清空到一半的檔）。備份還原子程序（`manage_backup.py`）快照時讀 `.env`、還原時直接覆寫，也不在鎖的保護內。
 - 重置的「查看結果」只記最後一次、只在 Proxy 記憶體（ADR-0289）：伺服器重啟或系統還原後就查不到；請求根本沒送到時查到的是更早的那次（畫面寫了靈魂與時間）；清除工作在寫結果之前出錯而請求已經斷線、或清除的安全網自己也失敗時，會一直顯示還在執行，直到下一次重置或伺服器重啟。
