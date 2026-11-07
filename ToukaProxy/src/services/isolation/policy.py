@@ -1,7 +1,8 @@
 """政策當下的隔離層級與專案根的唯一來源（iso-c2）.
 
 專案根只來自 ``ctx["project_id"]`` 或 session 綁定的專案，絕不讀模型給的 ``args``；
-``args`` 只用來算同意帳本的 subject。終端、驗證指令與 profile 都經 ``session_project_root``。
+``args`` 只用來算同意帳本的 subject。終端、驗證指令與 profile 都經 ``session_project_root``；
+工具執行器給檔案工具的專案編號經 ``session_project_id``（ADR-0304）。
 還沒接上 runner 的隔離必要工具（``ISOLATION_WIRED_ACTIONS`` 以外）一律 ``none``。
 """
 

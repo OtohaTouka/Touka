@@ -1,4 +1,4 @@
-"""安全 PR 2（路線圖第 9 項，ADR-0304）：身分與防呆。
+"""身分與防呆（ADR-0304）。
 
 - 首裝卡（LDH）帶記號，系統認領後失效；重送時的角色和發卡時一樣（不帶類型旗標），
   永遠不是人類。人類分支與 ``get_current_user`` 只收 ``type == "access"``。
@@ -6,7 +6,8 @@
 - 還原中不能刪靈魂、不能刪除或改名自訂模型（身分與擁有權先檢查）。
 - ``/heartbeat/test``、``GET /``、``/mcp/hub/sync`` 不把例外原文回給呼叫者。
 
-全部在 conftest 測試沙盒；本檔每個測試前後清空沙盒的 users.json（LDH 依賴「未認領」）。
+全部在 conftest 測試沙盒；本檔每個測試前清空沙盒的 users.json（LDH 依賴「未認領」），
+測後放回原本的使用者；建立的靈魂與自訂模型資料夾在測後刪掉。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import json
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import jwt
@@ -53,6 +54,9 @@ from src.services.tool_executor import ToolExecutor
 from src.utils.async_db import session_service
 from src.utils.time_utils import get_current_epoch
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 REAL_PW = "RealPassword123!"
 SOUL_ID = "pr2_replay_soul"
 MARKER = "PR2-EXCEPTION-TEXT-7f3a"
@@ -70,15 +74,22 @@ _hosts = itertools.count(10)
 # ── 共用 ─────────────────────────────────────────────────────────────────────────
 
 
-def _wipe_users() -> None:
-    AuthService()._atomic_users_write(lambda users: users.clear())
+def _swap_users(new: list[User]) -> list[User]:
+    """把沙盒 users.json 換成 ``new``，回傳原本的清單。"""
+
+    def _mutate(users: list[User]) -> list[User]:
+        old = list(users)
+        users[:] = new
+        return old
+
+    return AuthService()._atomic_users_write(_mutate)
 
 
 @pytest.fixture(autouse=True)
-def _users_hygiene():
-    _wipe_users()
+def _users_hygiene() -> Iterator[None]:
+    saved = _swap_users([])
     yield
-    _wipe_users()
+    _swap_users(saved)
     app.dependency_overrides.pop(get_verified_identity, None)
 
 
@@ -120,7 +131,7 @@ def _token(payload: dict[str, Any]) -> str:
 
 
 @pytest.fixture
-def controlled_map(monkeypatch: pytest.MonkeyPatch) -> None:
+def controlled_map(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """identity_map 釘成 is_toukasoul→Owner、DebugAgent→Debugger，並建一個真的靈魂資料夾。"""
     controlled = IdentityMapConfig.model_validate(_CONTROLLED_MAP)
     monkeypatch.setattr(permission_service, "identity_map", controlled)
@@ -128,6 +139,8 @@ def controlled_map(monkeypatch: pytest.MonkeyPatch) -> None:
     soul_dir = Path(config_utils.get_app_data_dir()) / "soul" / SOUL_ID
     soul_dir.mkdir(parents=True, exist_ok=True)
     (soul_dir / "config.json").write_text(json.dumps({"is_toukasoul": True}), encoding="utf-8")
+    yield
+    shutil.rmtree(soul_dir, ignore_errors=True)
 
 
 # ── 首裝卡 ───────────────────────────────────────────────────────────────────────
@@ -245,7 +258,9 @@ def executor_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def _run_tool(name: str, args: dict[str, Any], session_id: str) -> list[dict[str, Any]]:
+async def _run_tool(
+    name: str, args: dict[str, Any], session_id: str, ctx_project: str | None = None
+) -> list[dict[str, Any]]:
     recorder = _Recorder()
     executor = ToolExecutor(
         protocol_manager=None,
@@ -255,7 +270,9 @@ async def _run_tool(name: str, args: dict[str, Any], session_id: str) -> list[di
         enforce_advertised=False,
     )
     actor = AgentIdentity.for_role(agent_id="ProjectProbe", role="Owner", is_human=False)
-    ctx = {"identity": actor, "auth_level": "YOLO", "session_id": session_id}
+    ctx: dict[str, Any] = {"identity": actor, "auth_level": "YOLO", "session_id": session_id}
+    if ctx_project:
+        ctx["project_id"] = ctx_project
     queue: asyncio.Queue = asyncio.Queue()
     async with asyncio.timeout(5):
         await executor.execute_to_queue(name, dict(args), "req-pr2", ctx, queue, "call-pr2")
@@ -273,6 +290,14 @@ async def test_tool_gets_the_session_project_not_the_model_argument(executor_env
 async def test_tool_gets_no_project_when_the_session_has_none(executor_env, tool: str):
     calls = await _run_tool(tool, {"action": "list", "project_id": "other-project"}, "s-unbound")
     assert [c["project_id"] for c in calls] == [None]
+
+
+# 系統在 ctx 帶的專案優先於 session 綁定（目前產品程式沒有地方設，先釘住順序）
+@pytest.mark.parametrize("session_id", ["s-bound", "s-unbound"])
+async def test_project_in_the_pipeline_context_comes_before_the_session(executor_env, session_id):
+    args = {"action": "list", "project_id": "other-project"}
+    calls = await _run_tool("pr2_probe_tool", args, session_id, ctx_project="ctx-project")
+    assert [c["project_id"] for c in calls] == ["ctx-project"]
 
 
 # ── 還原中 ───────────────────────────────────────────────────────────────────────
