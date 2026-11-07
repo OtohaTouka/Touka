@@ -48,7 +48,7 @@ async def _execute_public_call(
         "src.services.tool_executor.soul_service.is_toukasoul", lambda _identity: False
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id", AsyncMock(return_value=None)
+        "src.utils.async_db.session_service.get_session_by_id", AsyncMock(return_value=None)
     )
     executor = ToolExecutor(None, {name: handler}, {}, {}, enforce_advertised=False)
     result = await executor.execute_to_queue(

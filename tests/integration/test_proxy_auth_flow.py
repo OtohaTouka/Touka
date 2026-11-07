@@ -50,7 +50,8 @@ async def test_proxy_local_handshake_flow(client, mock_identity_service):
     )
     mock_identity_service.issue_token.return_value = "new_generated_token"
     
-    with patch("src.services.identity_router.permission_service") as mock_perm, \
+    # 首裝卡的角色由 identity_service.ldh_identity 判斷（ADR-0304），替換它用的那一份
+    with patch("src.services.identity_service.permission_service") as mock_perm, \
          patch("src.routers.proxy.process_proxy_request", new_callable=AsyncMock) as mock_process:
         
         mock_perm.get_role_key.return_value = "Debugger"

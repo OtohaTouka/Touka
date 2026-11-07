@@ -1089,9 +1089,10 @@ async def sync_mcp_hub(
     try:
         result = await svc.sync()
         return {"status": result["status"], "message": f"Synced {result.get('synced', 0)} servers"}
-    except Exception as e:
+    except Exception:
+        # 例外原文只寫進 log，回標準錯誤（ADR-0304，CodeQL #69）
         logger.exception("Sync failed")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        raise ToukaException(ErrorCode.SYSTEM_ERROR) from None
 
 
 class MCPInstallRequest(BaseModel):

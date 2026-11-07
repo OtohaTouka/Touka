@@ -885,7 +885,12 @@ async def test_heartbeat_connectivity() -> dict:
             resp = await client.post(webhook_url, json=payload, timeout=5.0)
             return {"status": "ok", "http_code": resp.status_code, "data": resp.json()}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # 不用登入就能呼叫：例外原文只寫進 log，不回給呼叫者（ADR-0304，CodeQL #67）
+        logger.warning("Heartbeat connectivity test failed: %s", e)
+        return {
+            "status": "error",
+            "message": "Heartbeat endpoint is unreachable; see the server log.",
+        }
 
 
 @router.post("/retrigger", status_code=202)

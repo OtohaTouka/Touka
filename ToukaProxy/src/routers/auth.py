@@ -79,7 +79,8 @@ def get_current_user(
         if user_id is None:
             raise ToukaException(ErrorCode.AUTH_INVALID_TOKEN)
         # #1/#3 fix: a refresh/service token must not authenticate as a Bearer.
-        if payload.get("type") not in (None, "access"):
+        # ADR-0304：人類只收 access；沒有 type 的卡（首裝卡、代理人卡）不能變成使用者
+        if payload.get("type") != "access":
             raise ToukaException(ErrorCode.AUTH_INVALID_TOKEN)
     except jwt.InvalidTokenError as e:
         raise ToukaException(ErrorCode.AUTH_INVALID_TOKEN) from e

@@ -16,6 +16,7 @@ from src.models.custom_models import (  # noqa: TC001
     CustomModelUpdateRequest,
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
+from src.routers.system import restore_in_progress
 from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
@@ -100,6 +101,12 @@ async def _mark_only(model: AgentIdentity) -> AsyncIterator[None]:
         yield
     finally:
         destructive_ops.release(model)
+
+
+def _refuse_during_restore() -> None:
+    """還原中回 409 ``SYSTEM_RESTORE_IN_PROGRESS``（ADR-0304）；呼叫點要在擁有權檢查之後."""
+    if restore_in_progress():
+        raise ToukaException(ErrorCode.SYSTEM_RESTORE_IN_PROGRESS)
 
 
 async def _remove_model_dir(model: AgentIdentity, *, rollback: bool = False) -> bool:
@@ -293,6 +300,9 @@ async def rename_custom_model(
         # R11：兩邊都不動；改名後用新 ID 停不到舊 ID 登記的指令，所以搬之前先停，也和重置互斥
         try:
             async with destructive_op(old_identity):
+                # 還原中不改名（ADR-0304）。放在鎖裡：前面的檢查會讓出事件迴圈，還原可能在
+                # 那時開始；拿到鎖之後還原端點就會拒絕，所以只要這裡沒看到就不會同時進行
+                _refuse_during_restore()
                 await _stop_before_moving(old_identity)
                 custom_model_service.rename_model(old_identity, new_id)
         except ToukaException:
@@ -335,6 +345,9 @@ async def delete_custom_model(
         # IDOR fix: verify ownership before deletion
         _validate_model_access(identity, _identity)
         _assert_is_model(identity)
+        # 還原中不刪（ADR-0304）。和 _remove_model_dir 裡取破壞性操作鎖之間沒有 await，
+        # 還原端點看到鎖就會拒絕，所以兩邊不會同時進行
+        _refuse_during_restore()
 
         if not await _remove_model_dir(identity):
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)
