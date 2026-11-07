@@ -377,4 +377,12 @@ test("只用鍵盤：Tab 一下跳過清單、方向鍵、左右收合、Shift+F
   await page.keyboard.type("改");
   await page.keyboard.press("Enter");
   await expect(row(page, "十二之甲改")).toBeFocused();
+
+  // 關掉「⋯」後馬上去輸入框：選單淡出跑完也不能把焦點拉回這一列（不然接著按的 Enter 會打在側欄上）
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await composer(page).focus();
+  await page.waitForTimeout(300);
+  await expect(composer(page)).toBeFocused();
 });

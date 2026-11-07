@@ -1111,6 +1111,7 @@ python scripts/guard_all.py
 | `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕（交不到就下一個畫面再試，最多 30 個畫面；焦點已到別處、或這次展開不是按鈕要求的就不搶） |
 | `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的選單（2026-11-05 起其他選項都收在這裡）：按鈕顯示名稱並標出目前畫面；登出要按兩次、走 `useAuth().logout()`，關選單清掉確認與計時器；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫 |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
+| `src/components/sidebar/left/__tests__/SessionItem.closeFocus.test.tsx` | 對話清單「⋯」選單關掉後的焦點：焦點沒被移走時回到那一列；選單淡出期間焦點已經移到輸入框時留在輸入框（Radix 的預設仍擋下）；選了重命名給改名輸入框 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
 | `unit/lib/mentions.test.ts` | `extractMentionPaths` 純函式：去尾隨句末標點（半形＋全形 CJK）、保留路徑內部 `.`/`/` 與中文、去重保序 |
@@ -1171,7 +1172,7 @@ python scripts/guard_all.py
 | `src/components/dashboard/__tests__/VaultDashboard.listError.test.tsx`、`VaultDashboard.test.tsx` ⭐ | ADR-0256 記憶寶庫列表讀取失敗（新檔）：顯示錯誤、不顯示成空的記憶寶庫，並叫側欄重抓記憶提示；權限不足照錯誤原文顯示、不叫人看側欄。既有的 `VaultDashboard.test.tsx` 只補 `useSystemStatus` 的替身 |
 | `src/lib/__tests__/session_tree.test.ts`、`src/hooks/__tests__/useSessionTreeState.test.ts`、`src/hooks/__tests__/useSessionTreeKeyboard.test.tsx`、`unit/SessionTree.test.tsx` | 對話清單：靈魂資料夾分組（不分大小寫、`toukasoul:`、舊前綴、別名、清單讀不到時只信前綴與家）、「設為家」規則與後端相同、先列 5 筆且開著的不收；收合狀態各帳號分開、只有無痕的資料夾不寫瀏覽器；鍵盤只算一個 Tab 站、方向鍵與左右收合、Shift+F10、輸入框與 portal 選單的按鍵不動清單、列消失時焦點交給同位置 |
 | `src/lib/providers/__tests__/ChatProvider.setHome.test.tsx` | 設家與取消家：後端只收正式靈魂 ID；舊家是前綴或正式 ID 都算同一個靈魂、別的靈魂的家不動；沒綁模型不送請求；後端拒絕時畫面不動 |
-| `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名 |
+| `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名、關掉「⋯」後馬上去輸入框焦點不被拉回 |
 | `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
 | `e2e-real/session-activity.spec.ts` ⭐ | ADR-0300 實際驗證：呼吸動畫與週期、心跳進度、新對話自動出現、查詢之間跑完、分頁藏起來、不重抓清單、下載失敗與晚到、舊查詢、換帳號、收起來也亮、查詢失敗與恢復、刪掉重建、列被搬動時的焦點與改名。 |
 | `e2e-real/session-attention.spec.ts` ⭐ | ADR-0300 實際驗證：核准與提問與外掛工具亮等您處理、同時提問排隊、重新整理、有新內容的小點、減少動態、無痕、可見範圍、手機、有新內容提示與存檔失敗。 |

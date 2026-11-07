@@ -221,10 +221,16 @@ export function SessionItem({
             align="end"
             className="z-50 w-40 rounded-xl border border-border bg-popover p-1 shadow-xl"
             onCloseAutoFocus={(e) => {
-              // 「⋯」不在 Tab 順序，焦點回到這一列；選了重命名就留給輸入框
+              // Radix 預設會把焦點給列裡的「⋯」，但「⋯」不在 Tab 順序，一律擋下
               e.preventDefault();
               const element = rowRef.current;
-              (element?.querySelector('input') ?? element)?.focus();
+              if (!element) return;
+              // 選單淡出跑完才走到這裡；這段時間焦點已經被移到別處（例如輸入框）就不搶回來，
+              // 不然接著按的 Enter 會打在這一列上
+              const active = document.activeElement;
+              if (active && active !== document.body && !element.contains(active)) return;
+              // 焦點回到這一列；選了重命名就留給輸入框
+              (element.querySelector('input') ?? element).focus();
             }}
           >
             <DropdownMenuItem

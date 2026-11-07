@@ -48,6 +48,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 const sess = (over: Partial<Session> = {}): Session =>
   ({ id: 's1', title: 't', messages: [], updatedAt: 1, ...over }) as Session;
 
+// 測試是隨機順序：每條開始前把所有假函式設回預設。clearAllMocks 只清呼叫紀錄，別條改過的回傳值
+// （例如連線範圍改成另一個帳號或失效）和沒用完的一次性值都會留到下一條；resetAllMocks 連這些一起清，
+// 並還原 vi.fn(預設) 的預設。掛載時清單的 GET 預設回空清單。
+beforeEach(() => {
+  vi.resetAllMocks();
+  fetchToukaMock.mockResolvedValue(okJson([]));
+});
+
 describe('R2 snapshot binding and explicit recovery', () => {
   const local = () => sess({ messages: { messages: {}, currentId: null }, is_home: false,
     home_for_agent: null, agent_id: null, project_id: null, auth_level: 'Manual',
@@ -57,11 +65,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
   const saved = (revision = 'next') => okJson({ status: 'success', session_id: 's1',
     persistence: { status: 'saved', representation: 'full', revision } });
   async function mount() {
-    vi.clearAllMocks();
-    // 別的測試會把連線範圍改成另一個帳號或失效；clearAllMocks 不會還原，每條開始前設回預設（隨機順序）
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-    fetchToukaMock.mockResolvedValue(okJson([]));
     const rendered = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
     act(() => rendered.result.current.setSessions([local()]));
@@ -628,15 +631,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
 });
 
 describe('syncSession 失敗可見化（批2 ④）', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // 別的測試會把連線範圍改成另一個帳號或失效；clearAllMocks 不會還原，每條開始前設回預設（隨機順序）
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-    // 掛載時 refreshSessions 的 GET：預設回空清單
-    fetchToukaMock.mockResolvedValue(okJson([]));
-  });
-
   it('後端 4xx（授權失敗）→ logSSOTError + toast.error（固定 id 防轟炸）', async () => {
     const { result } = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
@@ -702,12 +696,6 @@ describe('R2 controlled session writes', () => {
     fetchToukaMock.mockClear();
     return rendered;
   }
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-  });
-
   it('returns a validated result; a bare 200 is unknown and preserves the draft', async () => {
     const { result } = await mount();
     fetchToukaMock.mockResolvedValue(okJson({ status: 'success' }));
@@ -864,8 +852,6 @@ describe('R2 controlled session writes', () => {
     await act(async () => { await old.syncSession(sess({ title: 'private A' })); });
     expect(result.current.sessions).toEqual([]);
     expect(fetchToukaMock).not.toHaveBeenCalled();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
   });
   it('the same operation token is scoped to each session', async () => {
     const { result } = await mount();
