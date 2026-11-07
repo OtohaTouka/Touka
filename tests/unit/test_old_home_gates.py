@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import copy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
+from src.middleware.layers.monitor import turn_session_id
+from src.models.identity import AgentIdentity
+from src.models.interjection import InterjectionCreateRequest
 from src.models.session_persistence import (
     PersistedStreamAdmission,
     SessionChanges,
@@ -32,6 +35,7 @@ from tests.support.session_scope import scope_db as scope_db
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("scope_db")]
 
 service = async_db.session_service
+OUTSIDER = AgentIdentity.for_role("other-human", "normal", is_human=True, owned_agents=["ScopeC"])
 READ_ONLY = ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY).error_id
 NOT_DELETABLE = ToukaException(ErrorCode.SESSION_OLD_HOME_NOT_DELETABLE).error_id
 WAITING_TREE = copy.deepcopy(TREE)
@@ -83,18 +87,90 @@ async def test_old_home_is_refused_before_hooks_and_the_mainline(monkeypatch):
     execute.assert_not_awaited()
 
 
-@pytest.mark.usefixtures("moved")
-async def test_ide_turn_marks_the_new_home_started_web_waits_for_admission(monkeypatch):
-    class Stop(Exception):
-        pass
+class Stop(Exception):
+    """pipeline 被呼叫了（這一輪沒被舊家擋下）."""
 
-    monkeypatch.setattr(proxy_service.pipeline, "execute", AsyncMock(side_effect=Stop))
+
+@pytest.fixture
+def pipeline_stops(monkeypatch):
+    execute = AsyncMock(side_effect=Stop)
+    monkeypatch.setattr(proxy_service.pipeline, "execute", execute)
+    return execute
+
+
+@pytest.mark.usefixtures("moved")
+async def test_ide_turn_marks_the_new_home_started_web_waits_for_admission(pipeline_stops):
     with pytest.raises(Stop):
         await proxy_service._run_request(proxy_request("B", web=True), {}, True)
     assert await started("B") == [0]
     with pytest.raises(Stop):
         await proxy_service._run_request(proxy_request("B"), {}, True)
     assert await started("B") == [1]
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("header", ["x-touka-session-id", "x-toukachat-session-id"])
+async def test_a_session_id_sent_in_a_header_is_checked_the_same_way(pipeline_stops, header):
+    """對話編號放在標頭（MonitorLayer 也認）時一樣擋舊家、記新家開始用（審查 J1）."""
+    result = await attempt(
+        proxy_service._run_request(proxy_request(None), {"headers": {header: "A"}}, True)
+    )
+    assert is_code(result, ErrorCode.SESSION_OLD_HOME_READ_ONLY)
+    pipeline_stops.assert_not_awaited()
+    with pytest.raises(Stop):
+        await proxy_service._run_request(proxy_request(None), {"headers": {header: "B"}}, True)
+    assert await started("B") == [1]
+
+
+async def test_the_body_session_id_wins_over_the_headers():
+    headers = {"x-touka-session-id": "header", "x-toukachat-session-id": "other"}
+    assert turn_session_id(proxy_request("body"), headers) == "body"
+    assert turn_session_id(proxy_request(None), headers) == "header"
+    assert turn_session_id(proxy_request(None), {"x-toukachat-session-id": "other"}) == "other"
+    assert turn_session_id(proxy_request(None), {}) is None
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("caller", [OUTSIDER, B], ids=["other-human", "other-soul"])
+async def test_a_caller_who_cannot_use_the_conversation_learns_and_marks_nothing(
+    pipeline_stops, caller
+):
+    """不能用這段對話的人：不回是不是舊家、不記開始用，交給後面的層照原樣拒絕（審查 J2）."""
+    for sid in ("A", "B"):
+        with pytest.raises(Stop):
+            await proxy_service._run_request(proxy_request(sid), {"identity": caller}, True)
+    assert await started("B") == [0]
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("caller", [HUMAN, A], ids=["owner", "soul"])
+async def test_a_caller_who_can_use_the_conversation_is_checked_as_before(pipeline_stops, caller):
+    result = await attempt(
+        proxy_service._run_request(proxy_request("A"), {"identity": caller}, True)
+    )
+    assert is_code(result, ErrorCode.SESSION_OLD_HOME_READ_ONLY)
+    with pytest.raises(Stop):
+        await proxy_service._run_request(proxy_request("B"), {"identity": caller}, True)
+    assert await started("B") == [1]
+
+
+@pytest.mark.usefixtures("moved")
+async def test_unreadable_records_fail_the_turn_with_a_save_error(pipeline_stops, monkeypatch):
+    """讀不到交接紀錄：這一輪失敗、有錯誤碼，不放寬（審查 J12）."""
+    monkeypatch.setattr(
+        async_db.home_transitions, "is_old_home", AsyncMock(side_effect=RuntimeError("disk"))
+    )
+    result = await attempt(proxy_service._run_request(proxy_request("A"), {}, True))
+    assert is_code(result, ErrorCode.SESSION_SAVE_FAILED)
+    pipeline_stops.assert_not_awaited()
+
+
+async def test_an_internal_channel_cannot_become_home():
+    """頻道編號固定：當過家、換走、刪掉重建會一出生就是舊家；設家一律拒絕（審查 J7）."""
+    channel = await service.open_channel_session("heartbeat", A, title="Pulse")
+    result = await attempt(service.set_home(channel, A, True))
+    assert is_code(result, ErrorCode.SESSION_SCOPE_MISMATCH)
+    assert (await raw_row(channel))["is_home"] == 0
 
 
 # --- 網頁准入 ---
@@ -119,16 +195,35 @@ async def test_web_admission_refuses_the_old_home_and_marks_the_new_home_started
     assert await started("B") == [1]
 
 
+@pytest.mark.usefixtures("moved")
+async def test_web_admission_does_not_mark_a_conversation_that_is_no_longer_home():
+    """紀錄還指向 B、B 已經不是家（舊資料）：在 B 開一輪不算新家開始用（審查 J13）."""
+    async with async_db.get_async_db() as db:
+        await db.execute("UPDATE user_sessions SET is_home = 0, home_for_agent = NULL")
+        await db.commit()
+    admitted = await admit("B")
+    assert admitted.session["id"] == "B"
+    assert await started("B") == [0]
+
+
 # --- 插話、換靈魂 ---
 
 
 @pytest.mark.usefixtures("moved")
-async def test_interjection_into_the_old_home_is_refused(monkeypatch):
+async def test_new_interjections_into_the_old_home_are_refused_listing_still_works(monkeypatch):
+    """只擋新增；換家前就在跑的回覆，插話照樣列得出、收得回（審查 J11）."""
     state = {"started": 1, "stream_id": "s", "status": "active"}
     monkeypatch.setattr(ui_interjections, "_authorized_stream_state", AsyncMock(return_value=state))
-    result = await attempt(ui_interjections._ensure_current_stream("A", "s", HUMAN, active=True))
+    monkeypatch.setattr(ui_interjections, "check_interjection", AsyncMock(return_value=False))
+    enqueue = Mock(return_value="queued")
+    monkeypatch.setattr(ui_interjections.interjection_queue, "enqueue", enqueue)
+    request = InterjectionCreateRequest(text="more")
+    result = await attempt(ui_interjections.add_interjection("A", "s", request, HUMAN))
     assert is_code(result, ErrorCode.SESSION_OLD_HOME_READ_ONLY)
-    assert await ui_interjections._ensure_current_stream("B", "s", HUMAN, active=True) is None
+    enqueue.assert_not_called()
+    listed = await ui_interjections.list_interjections("A", "s", HUMAN)
+    assert listed.interjections == []
+    assert await ui_interjections.add_interjection("B", "s", request, HUMAN) == "queued"
 
 
 @pytest.mark.usefixtures("moved")

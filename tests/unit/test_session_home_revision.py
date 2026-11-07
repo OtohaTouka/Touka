@@ -216,3 +216,5 @@ async def test_heartbeat_keeps_writing_after_home_moves_and_skips_the_end_trim(m
     assert "pulse reply" in [node["content"] for node in nodes]
     assert_not_trimmed(trim)
     assert await home_of() == (0, None)
+    # 已經在跑的這一輪寫得完；換家之後原段是舊家，新的一輪在入口就被擋（ADR-0306）
+    assert await service.check_old_home("chat", mark_started=False, requester=A)

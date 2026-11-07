@@ -27,10 +27,12 @@ from src.models.identity import AgentIdentity
 from src.models.sliding_window import SlidingWindowConfig
 from src.routers.ui_sessions import SetHomeRequest, set_home_session
 from src.services import context_snapshot_service, mainline_service, soul_prelude_service
+from src.services import soul_service as soul_service_module
 from src.services.proxy_service import pipeline
 from src.utils import async_db
 from src.utils import soul_prelude_db as db_mod
 from src.utils.soul_prelude_db import PreludeSegment
+from src.utils.token_estimator import estimate_messages_tokens
 
 from tests.support.session_scope import HUMAN, A, seed
 from tests.support.session_scope import scope_db as scope_db
@@ -471,6 +473,40 @@ async def test_old_home_originals_come_before_the_current_home():
     assert joined.index("家裡的問題") < joined.index("新家的話")
 
 
+def _long_tree(count: int) -> dict:
+    nodes = {}
+    for i in range(count):
+        nodes[f"m{i}"] = {
+            "id": f"m{i}",
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": f"長舊家第{i}則" + "字" * 40,
+            "parentId": f"m{i - 1}" if i else None,
+            "timestamp": 1_700_000_000_000 + i,
+        }
+    return {"messages": nodes, "currentId": f"m{count - 1}"}
+
+
+async def test_long_old_homes_only_send_their_tails_within_the_budget(monkeypatch):
+    """舊家原文有總量上限：新的舊家優先、只帶尾端，前面寫一行說明（審查 J5）."""
+    monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", 400)
+    await seed("long", tree=_long_tree(60))
+    assert await async_db.session_service.set_home("long", A, True)
+    await async_db.session_service.check_old_home("long", mark_started=True, requester=None)
+    await _move_home_to_new()  # 舊家依序：home、long（較新）
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")
+    old = [m for m in request.messages[1:-1] if "長舊家" in str(_field(m, "content"))]
+    joined = "\n".join(str(_field(m, "content")) for m in old)
+    assert "長舊家第59則" in joined
+    assert "長舊家第0則" not in joined
+    assert "前面還有" in joined
+    assert "家裡的問題" not in "\n".join(_dialogue(request))  # 額度用完：較舊的整段不帶
+    assert 0 < len(old) < 60
+    assert estimate_messages_tokens(
+        [{"content": f"長舊家第{i}則" + "字" * 40} for i in range(60 - len(old), 60)]
+    ) <= 400
+
+
 async def test_a_finished_handover_no_longer_sends_the_old_home():
     await _move_home_to_new()
     async with async_db.get_async_db() as db:
@@ -483,7 +519,7 @@ async def test_a_finished_handover_no_longer_sends_the_old_home():
 
 async def test_an_old_home_that_is_home_again_is_sent_as_the_home():
     await _move_home_to_new()
-    await async_db.session_service.mark_home_started("new")
+    await async_db.session_service.check_old_home("new", mark_started=True, requester=None)
     assert await async_db.session_service.set_home("home", A, True)
     request = _request()
     await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")

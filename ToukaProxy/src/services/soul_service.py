@@ -27,6 +27,7 @@ from src.models.identity import AgentIdentity
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 from src.utils.model_text import blank_control_chars
 from src.utils.time_utils import get_monotonic_ms
+from src.utils.token_estimator import estimate_messages_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,10 @@ _SOUL_NAMES_TTL_MS = 2000.0
 # 歷史資料界線的來源：家原文、還沒交接完的舊家原文（ADR-0305、0306）
 HOME_HISTORY_SOURCE = "home_conversation"
 OLD_HOME_HISTORY_SOURCE = "old_home_pending_handover"
+# 還沒交接完的舊家原文總量上限（估算 token）：新的舊家優先、每段只帶尾端，放不下的整段不帶；
+# 滑動視窗把這些當成剪不掉的部分，沒有上限時新家每一輪都被剪到最少（ADR-0306 審查 J5）
+OLD_HOME_TOKEN_BUDGET = 8000
+OLD_HOME_OMITTED_NOTE = "（這段舊家前面還有 {count} 則，原文留在舊家）"
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
@@ -116,6 +121,34 @@ def _stamp_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for m in msgs
     ]
+
+
+def _old_home_tails(
+    old_homes: Sequence[list[dict[str, Any]]],
+) -> list[tuple[list[dict[str, Any]], int]]:
+    """（帶的尾端、前面省略幾則），照原順序；從最新的舊家尾端往前收，額度用完就停."""
+    remaining = OLD_HOME_TOKEN_BUDGET
+    tails = []
+    for msgs in reversed(old_homes):
+        kept = 0
+        for message in reversed(msgs):
+            cost = estimate_messages_tokens([message])
+            if cost > remaining:
+                remaining = 0
+                break
+            remaining -= cost
+            kept += 1
+        tails.append((msgs[len(msgs) - kept :], len(msgs) - kept))
+    return tails[::-1]
+
+
+def _old_home_block(msgs: list[dict[str, Any]], omitted: int) -> list[dict[str, Any]]:
+    """舊家尾端：每則標時間，省略過時第一則前面寫一行說明，再包歷史資料界線."""
+    stamped = _stamp_times(msgs)
+    if omitted:
+        note = OLD_HOME_OMITTED_NOTE.format(count=omitted)
+        stamped[0] = {**stamped[0], "content": _add_text(stamped[0]["content"], note, before=True)}
+    return _mark_home_history(stamped, source=OLD_HOME_HISTORY_SOURCE)
 
 
 def _mark_home_history(
@@ -446,17 +479,15 @@ class SoulService:
             home_messages (list): 主線讀到的家訊息（同一次讀到的家，ADR-0305）；不送時給空清單.
             stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0305）.
             old_homes (Sequence[list]): 還沒交接完的舊家原文，依紀錄順序排在家原文前面；
-                各自包一層「交接中的舊家」歷史資料界線、每則標時間（ADR-0306）.
+                各自包一層「交接中的舊家」歷史資料界線、每則標時間；總量有上限，只帶尾端
+                （``OLD_HOME_TOKEN_BUDGET``，ADR-0306）.
         """
         if isinstance(identity, str):
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        blocks = [
-            _mark_home_history(_stamp_times(msgs), source=OLD_HOME_HISTORY_SOURCE)
-            for msgs in old_homes
-            if msgs
-        ]
+        tails = _old_home_tails(old_homes)
+        blocks = [_old_home_block(msgs, omitted) for msgs, omitted in tails if msgs]
         if home_messages:  # 先標時間再包界線：時間在界線裡面
             blocks.append(
                 _mark_home_history(_stamp_times(home_messages) if stamp_times else home_messages)

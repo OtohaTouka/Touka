@@ -68,24 +68,34 @@ _INSERT = (
 )
 _SET_NEW = "UPDATE soul_home_transitions SET new_session = ?, updated_at = ? WHERE id = ?"
 _SET_STATUS = "UPDATE soul_home_transitions SET status = ?, updated_at = ? WHERE id = ?"
-# 還沒開始用的新家：有效、待交接、新家沒用過；改回去或改設別段時改寫這一筆，當沒換過
+# 還沒開始用的新家：有效、待交接、新家沒用過；改回去或改設別段時改寫這些紀錄，當沒換過
+# （既有資料有兩個家時會有兩筆指向同一個新家，一起改）
 _UNUSED_FOR_NEW = (
     "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
     "WHERE agent_id = ? AND scope_version = 1 AND status = 'pending' AND new_started = 0 "
-    "AND new_session = ? ORDER BY id DESC LIMIT 1"
+    "AND new_session = ? ORDER BY id"
 )
-_LATEST_UNHOMED = (
+_LATEST_UNHOMED_WAITING = (
     "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
-    "WHERE agent_id = ? AND scope_version = 1 AND status = ? AND new_session IS NULL "
+    "WHERE agent_id = ? AND scope_version = 1 AND status = 'pending' AND new_session IS NULL "
     "AND old_handled_by IS NULL ORDER BY id DESC LIMIT 1"
 )
+# 交接中或失敗（失敗的會再試、仍算舊家）
+_LATEST_UNHOMED_STARTED = (
+    "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
+    "WHERE agent_id = ? AND scope_version = 1 AND status IN ('running', 'failed') "
+    "AND new_session IS NULL AND old_handled_by IS NULL ORDER BY id DESC LIMIT 1"
+)
+# 開始用只記在「新家目前就是家」的紀錄上：已經回到普通對話的那段不算
 _MARK_STARTED = (
     "UPDATE soul_home_transitions SET new_started = 1, updated_at = ? "
-    "WHERE new_session = ? AND scope_version = 1 AND status = 'pending' AND new_started = 0"
+    "WHERE new_session = ? AND scope_version = 1 AND status = 'pending' AND new_started = 0 "
+    "AND EXISTS (SELECT 1 FROM user_sessions s WHERE s.id = new_session AND s.is_home = 1)"
 )
 _UNUSED_NEW_HOME = (
-    "SELECT 1 FROM soul_home_transitions WHERE new_session = ? AND scope_version = 1 "
-    "AND status = 'pending' AND new_started = 0 LIMIT 1"
+    "SELECT 1 FROM soul_home_transitions t JOIN user_sessions s ON s.id = t.new_session "
+    "WHERE t.new_session = ? AND t.scope_version = 1 AND t.status = 'pending' "
+    "AND t.new_started = 0 AND s.is_home = 1 LIMIT 1"
 )
 # 舊家：有效、沒取消、不是「只記新家」的紀錄的舊家，而且那段對話現在不是家。
 # 下面幾句都是固定字面量（禁令 24），只差最後的條件
@@ -100,10 +110,12 @@ _BLOCKS_DELETE = (
     "AND s.is_home = 0 AND t.old_session = ? "
     "AND (t.status IN ('pending', 'running', 'failed') OR t.retired_summary_pending = 1) LIMIT 1"
 )
-_HANDOVER_RUNNING = (
+# 交接已開始：交接中、完成、失敗，或已經做到某一步（之後重試回到待交接也算）
+_HANDOVER_STARTED = (
     "SELECT 1 FROM soul_home_transitions t JOIN user_sessions s ON s.id = t.old_session "
     "WHERE t.scope_version = 1 AND t.status != 'cancelled' AND t.old_handled_by IS NULL "
-    "AND s.is_home = 0 AND t.old_session = ? AND t.status = 'running' LIMIT 1"
+    "AND s.is_home = 0 AND t.old_session = ? "
+    "AND (t.status IN ('running', 'done', 'failed') OR t.step > 0) LIMIT 1"
 )
 _ALL_OLD_HOMES = (
     "SELECT DISTINCT t.old_session FROM soul_home_transitions t "
@@ -112,6 +124,13 @@ _ALL_OLD_HOMES = (
     "AND s.is_home = 0"
 )
 # 還沒交接完的舊家（主線要帶它們的原文）：待交接、交接中、失敗，依紀錄順序
+# 刪掉一段對話：它的回報位置跟著刪，已完成或取消的紀錄失效（同一個編號重用時不是舊家）
+_FORGET_MARK = "DELETE FROM soul_child_report_marks WHERE session_id = ?"
+_FORGET_RECORDS = (
+    "UPDATE soul_home_transitions SET scope_version = 0 "
+    "WHERE scope_version = 1 AND status IN ('done', 'cancelled') "
+    "AND (old_session = ? OR new_session = ?)"
+)
 _UNFINISHED_OLD_HOMES = (
     "SELECT t.old_session FROM soul_home_transitions t "
     "JOIN user_sessions s ON s.id = t.old_session "
@@ -155,6 +174,11 @@ async def _one(db: aiosqlite.Connection, sql: str, params: tuple[object, ...]) -
     return _Record(row[0], row[1], row[2], row[3]) if row is not None else None
 
 
+async def _unused_for(db: aiosqlite.Connection, agent: str, new: str) -> list[_Record]:
+    cursor = await db.execute(_UNUSED_FOR_NEW, (agent, new))
+    return [_Record(row[0], row[1], row[2], row[3]) for row in await cursor.fetchall()]
+
+
 async def _exists(db: aiosqlite.Connection, sql: str, session_id: str) -> bool:
     cursor = await db.execute(sql, (session_id,))
     return await cursor.fetchone() is not None
@@ -181,14 +205,14 @@ async def _retarget(db: aiosqlite.Connection, record: _Record, new: str | None, 
 
 
 async def _attach_to_unhomed(db: aiosqlite.Connection, agent: str, target: str, now: int) -> None:
-    """沒有家時設家：取消家之後還沒開始交接的那一筆改指新家；交接中的另加一筆只記新家."""
-    waiting = await _one(db, _LATEST_UNHOMED, (agent, PENDING))
+    """沒有家時設家：取消家之後還沒開始交接的那一筆改指新家；交接中或失敗的另加一筆只記新家."""
+    waiting = await _one(db, _LATEST_UNHOMED_WAITING, (agent,))
     if waiting is not None:
         await _retarget(db, waiting, target, now)
         return
-    running = await _one(db, _LATEST_UNHOMED, (agent, RUNNING))
-    if running is not None and running.old_session != target:
-        await _insert(db, agent, running.old_session, target, now, handled_by=running.id)
+    started = await _one(db, _LATEST_UNHOMED_STARTED, (agent,))
+    if started is not None and started.old_session != target:
+        await _insert(db, agent, started.old_session, target, now, handled_by=started.id)
 
 
 async def apply_home_change(
@@ -213,20 +237,20 @@ async def apply_home_change(
     if not make_home:
         if target not in homes:  # 取消家只對現任家有作用
             return
-        unused = await _one(db, _UNUSED_FOR_NEW, (agent, target))
-        if unused is not None:
-            await _retarget(db, unused, None, now)
-        else:
+        unused = await _unused_for(db, agent, target)
+        for record in unused:
+            await _retarget(db, record, None, now)
+        if not unused:
             await _insert(db, agent, target, None, now)
         return
     others = [home for home in homes if home != target]
     if not others and target not in homes:
         await _attach_to_unhomed(db, agent, target, now)
     for home in others:
-        unused = await _one(db, _UNUSED_FOR_NEW, (agent, home))
-        if unused is not None:  # 那個家還沒開始用：改寫那一筆，它回到普通子對話
-            await _retarget(db, unused, target, now)
-        else:
+        unused = await _unused_for(db, agent, home)
+        for record in unused:  # 那個家還沒開始用：改寫這些紀錄，它回到普通子對話
+            await _retarget(db, record, target, now)
+        if not unused:
             await _insert(db, agent, home, target, now)
 
 
@@ -250,9 +274,15 @@ async def blocks_delete(db: aiosqlite.Connection, session_id: str) -> bool:
     return await _exists(db, _BLOCKS_DELETE, session_id)
 
 
-async def handover_running(db: aiosqlite.Connection, session_id: str) -> bool:
-    """交接已經開始：存檔閘擋所有內容寫入（唯讀第二段）."""
-    return await _exists(db, _HANDOVER_RUNNING, session_id)
+async def handover_started(db: aiosqlite.Connection, session_id: str) -> bool:
+    """交接已經開始（含完成、失敗）：存檔閘擋所有內容寫入（唯讀第二段）."""
+    return await _exists(db, _HANDOVER_STARTED, session_id)
+
+
+async def forget_session(db: aiosqlite.Connection, session_id: str) -> None:
+    """刪對話的同一個交易裡：刪回報位置、已完成或取消的紀錄失效."""
+    await db.execute(_FORGET_MARK, (session_id,))
+    await db.execute(_FORGET_RECORDS, (session_id, session_id))
 
 
 async def all_old_homes(db: aiosqlite.Connection) -> set[str]:

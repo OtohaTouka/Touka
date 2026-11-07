@@ -52,7 +52,7 @@
 
 - 後端允許真正人類在有權存取的非家對話換靈魂；舊、新靈魂都須有驅動權。非空換綁保留原樹，內部建立標記永久降為 0；只有原列與待存列整棵樹無節點、摘要為 NULL、無家欄位且非保留／退休 ID 的嚴格空草稿可保留原標記。一般模型對話轉靈魂也照此規則，不必另建 ID。
 - 家對話先透過 `POST /v1/ui/sessions/set_home` 取消家，再換靈魂。一般 save 的 `is_home`／`home_for_agent` 一律忽略，false／null 也不能清家；舊公開欄位仍相容。
-- **舊家（ADR-0306，後端已上，畫面在 3d PR 3）**：換家或取消家之後，原來的家是舊家（`GET /v1/ui/sessions` 每段的 `is_old_home`）：送出、插話、換靈魂回 409 `SESSION_OLD_HOME_READ_ONLY`（1223，網頁准入衝突照舊在 `persistence` 裡帶 `error_code`）；交接完成前刪除回 409 `SESSION_OLD_HOME_NOT_DELETABLE`（1224）。要繼續那段就把它設回家。交接開始前改名、收尾保存照舊。兩個錯誤碼已有 zh-TW／en 翻譯。
+- **舊家（ADR-0306，後端已上，畫面在 3d PR 3）**：換家或取消家之後，原來的家是舊家（`GET /v1/ui/sessions` 每段的 `is_old_home`）：送出、新增插話、換靈魂回 409 `SESSION_OLD_HOME_READ_ONLY`（1223）。送出時有兩種形狀：大多是共同入口在送模型之前回的一般錯誤（錯誤碼在一般錯誤格式裡，前端 `getErrorCode` 讀得到）；只有准入那一刻才剛換家的競態，才在 `detail.persistence.error_code` 裡帶。前端收到一般錯誤時照 hook 擋下的做法（`useOldHomeNotice`，`StreamRegistryProvider`）：顯示專屬訊息、把這一輪從樹裡拿掉再存回、文字放回輸入框，不顯示成連線錯誤。交接完成前刪除回 409 `SESSION_OLD_HOME_NOT_DELETABLE`（1224）。要繼續那段就把它設回家。交接開始前改名、收尾保存照舊；交接開始後（含完成、失敗）存檔也擋。插話的列出與收回照常。內部頻道不能設成家。兩個錯誤碼已有 zh-TW／en 翻譯。
 - `touka.` 是內部頻道保留空間，UI 不能冒名建立或換綁；舊 `pulse_channel_default`／`sns_*` 保留可讀、不續寫、不遷移。心跳與 SNS 使用每靈魂的新頻道，不把舊共享內容當成新歷史。
 - `SESSION_SCOPE_MISMATCH`（1221）已有 zh-TW／en 翻譯。一般 HTTP 歸屬錯誤回 403；條件存檔仍看 `persistence.status="failed"` 與 `error_code=1221`，不能只看 HTTP 成功。stale／unknown／saved 與串流生成終態維持原型別合約。
 - 持久串流在生成前完成人類准入與換綁，buffer／producer 採提交後的新 revision；最後保存不能再換綁。`persistDone` 仍用本輪模型存富樹，`completeProducer` 採終態 revision，沒有新增前端換綁流程。

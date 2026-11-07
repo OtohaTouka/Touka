@@ -42,6 +42,7 @@ from .history_manager import (
 )
 from .interjection_notes import annotate_node
 from .session_scope import (
+    can_be_home,
     can_rebind_session,
     channel_session_id,
     is_empty_draft,
@@ -322,6 +323,20 @@ def _check_session_write(
                 row["session_scope_version"] = 0
         else:
             row["agent_id"] = existing["agent_id"]
+
+
+async def _may_use_session(
+    db: aiosqlite.Connection, session_id: str, requester: AgentIdentity
+) -> bool:
+    """請求者能不能在這段對話開新的一輪（和存檔同一套檢查）；只回是或否，不丟權限錯誤."""
+    row = await _strict_session_row(db, session_id)
+    if row is None:
+        return False
+    try:
+        _check_session_write(row, dict(row), requester)
+    except ToukaException:
+        return False
+    return True
 
 
 async def _has_table(db: aiosqlite.Connection, name: str) -> bool:
@@ -639,8 +654,8 @@ class SessionService:
                     return _persistence_rejected()
                 if row is None and not {"title", "messages"}.issubset(changes.model_fields_set):
                     return _persistence_rejected()
-                # 交接開始後舊家唯讀（第二段）：所有內容寫入都擋（ADR-0306）
-                if row is not None and await home_transitions.handover_running(db, session_id):
+                # 交接開始後舊家唯讀（第二段，含完成與失敗）：所有內容寫入都擋（ADR-0306）
+                if row is not None and await home_transitions.handover_started(db, session_id):
                     return _persistence_rejected(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
                 updated = _apply_session_changes(session_id, row, changes, identity)
                 _check_session_write(row, updated, identity, ui=ui, channel_id=channel_id)
@@ -703,6 +718,7 @@ class SessionService:
                 if await home_transitions.blocks_delete(db, session_id):  # ADR-0306
                     return _persistence_rejected(ErrorCode.SESSION_OLD_HOME_NOT_DELETABLE)
                 await db.execute("DELETE FROM user_sessions WHERE id = ?", (session_id,))
+                await home_transitions.forget_session(db, session_id)  # ADR-0306
                 # 保守先撤銷舊 generation；即使 commit outcome unknown 也不可重播旧 token。
                 _persistence_generations[session_id] = (
                     _persistence_generations.get(session_id, 0) + 1
@@ -1138,6 +1154,8 @@ class SessionService:
         改回去或改設別段時當沒換過。
         """
         agent_id = _canonical_session_agent(identity.agent_id) or identity.agent_id
+        if is_home and not can_be_home(session_id):
+            raise ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH)
         try:
             async with _get_session_lock(session_id), get_async_db() as db:
                 await db.execute("BEGIN IMMEDIATE")
@@ -1197,27 +1215,37 @@ class SessionService:
             raise SessionPersistenceError from None
 
     @staticmethod
-    async def check_old_home(session_id: str, *, mark_started: bool) -> bool:
-        """共同入口的快速檢查：舊家回 True（要擋）；``mark_started`` 時順便記新家開始用.
+    async def check_old_home(
+        session_id: str, *, mark_started: bool, requester: AgentIdentity | None
+    ) -> bool:
+        """開新的一輪之前的檢查：舊家回 True（要擋）；``mark_started`` 時順便記新家開始用.
 
-        只有這段對話真的是還沒開始用的新家才開寫入交易；讀寫不到時丟 SessionPersistenceError。
+        ``requester``（已驗證的請求者）要能用這段對話（和存檔同一套歸屬與權限規則）；不能用時
+        什麼都不寫、回 False（不透露是不是舊家），由後面的層照原樣拒絕。沒有身分的內部路徑
+        （SNS 閘道）照舊。只有真的是還沒開始用的新家才開寫入交易；讀寫不到時丟
+        SessionPersistenceError。
         """
         try:
             async with get_async_db() as db:
-                if await home_transitions.is_old_home(db, session_id):
-                    return True
-                if mark_started and await home_transitions.is_unused_new_home(db, session_id):
+                old = await home_transitions.is_old_home(db, session_id)
+                fresh = (
+                    not old
+                    and mark_started
+                    and await home_transitions.is_unused_new_home(db, session_id)
+                )
+                if not (old or fresh):
+                    return False
+                if requester is not None and not await _may_use_session(
+                    db, session_id, requester
+                ):
+                    return False
+                if fresh:
                     await db.execute("BEGIN IMMEDIATE")
                     await home_transitions.mark_started(db, session_id, get_current_epoch_ms())
                     await db.commit()
-                return False
+                return old
         except Exception:
             raise SessionPersistenceError from None
-
-    @staticmethod
-    async def mark_home_started(session_id: str) -> None:
-        """新家開始用（心跳脈衝開始時）；不是還沒開始用的新家就什麼都不做."""
-        await SessionService.check_old_home(session_id, mark_started=True)
 
     @staticmethod
     async def read_unfinished_old_homes(identity: AgentIdentity) -> list[dict[str, Any]]:
@@ -1227,7 +1255,12 @@ class SessionService:
             async with get_async_db() as db:
                 sessions = []
                 for sid in await home_transitions.unfinished_old_homes(db, agent_id):
-                    row = await _strict_session_row(db, sid)
+                    try:
+                        row = await _strict_session_row(db, sid)
+                    except (SessionPersistenceError, ValueError, TypeError):
+                        # 一段舊家壞掉不能讓整個靈魂每一輪都失敗：跳過、記下來
+                        logger.warning("Old home %s is unreadable; not sent", sid)
+                        continue
                     if row is None:
                         continue
                     try:
@@ -1412,19 +1445,22 @@ async def set_system_setting(key: str, value: str) -> bool:
     return True
 
 
+# 升級時既有子對話的回報位置：只取字串的目前節點（不是字串、內容壞掉都當沒有），
+# 由 SQLite 取值，不把整份對話讀進記憶體
+_INITIAL_REPORT_MARKS_SQL = (
+    "SELECT id, agent_id, CASE WHEN json_valid(messages) THEN "
+    "CASE WHEN json_type(messages, '$.currentId') = 'text' "
+    "THEN json_extract(messages, '$.currentId') END END "
+    "FROM user_sessions WHERE is_home = 0 AND agent_id IS NOT NULL"
+)
+
+
 async def _initial_report_marks(db: aiosqlite.Connection) -> list[tuple[str, str, str | None]]:
-    cursor = await db.execute(
-        "SELECT id, agent_id, messages FROM user_sessions "
-        "WHERE is_home = 0 AND agent_id IS NOT NULL"
-    )
-    marks = []
-    for sid, agent, messages in await cursor.fetchall():
-        try:
-            node = json.loads(messages or "{}").get("currentId")
-        except (ValueError, AttributeError):
-            node = None
-        marks.append((sid, _canonical_session_agent(agent) or agent, node))
-    return marks
+    cursor = await db.execute(_INITIAL_REPORT_MARKS_SQL)
+    return [
+        (sid, _canonical_session_agent(agent) or agent, node)
+        for sid, agent, node in await cursor.fetchall()
+    ]
 
 
 async def init_db_async() -> None:
@@ -1534,11 +1570,15 @@ async def init_db_async() -> None:
             )
 
         # 換家交接紀錄與子對話回報位置（3d PR 2a，ADR-0306）：升級時既有子對話的回報位置
-        # 設在當下內容，不補寫歷史；之後新建的子對話沒有位置（全部算新內容）
+        # 設在當下內容，不補寫歷史；之後新建的子對話沒有位置（全部算新內容）。
+        # 建表與初始位置在同一個明確交易：中途失敗就整個重來，不留下空的位置表
+        await db.commit()
+        await db.execute("BEGIN IMMEDIATE")
         if await home_transitions.create_tables(db):
             await home_transitions.set_initial_marks(
                 db, await _initial_report_marks(db), get_current_epoch_ms()
             )
+        await db.commit()
 
         # ADR-0107: projects gain an explicit human owner column (migrate existing DBs).
         proj_cursor = await db.execute("PRAGMA table_info(projects)")

@@ -1,6 +1,6 @@
 """伺服器端重組的插話標註（ADR-0249 裁定 7、U4a-3）。
 
-伺服器從 DB 組歷史給模型的三處——心跳脈衝、家對話注入（get_home_messages）、滑動視窗摘要——
+伺服器從 DB 組歷史給模型的三處——心跳脈衝、主線帶的家原文（home_messages_of）、滑動視窗摘要——
 對帶 interjections[] 的助理節點在 content 前加標註，格式與前端 INTERJECTION_NOTE_TEMPLATE
 完全相同；角色仍是 assistant，回合數不變。
 """

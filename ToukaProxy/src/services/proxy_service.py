@@ -9,11 +9,12 @@ from typing import Any
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.middleware.layers.hooks import HookLayer
+from src.middleware.layers.monitor import turn_session_id
 from src.models.identity import AgentIdentity
 from src.services.dispatchers.route_family import same_route_family
 from src.services.resource_manager import resource_manager
 from src.services.stream_buffer_service import stream_buffer_service
-from src.utils.async_db import session_service
+from src.utils.async_db import SessionPersistenceError, session_service
 
 from ..middleware.layers.context import ContextLayer
 from ..middleware.layers.custom_model_layer import CustomModelLayer
@@ -92,15 +93,25 @@ async def process_proxy_request(
 async def _refuse_old_home(request: Any, ctx: PipelineContext) -> None:
     """舊家不能開新的一輪：在 hook、組主線、記錄這一輪之前先擋（ADR-0306）.
 
-    網頁（帶 ``ui_persistence``）在准入交易裡重驗並記新家開始用；IDE 舊路徑、SNS 家模式與外部
-    相容路徑沒有准入交易，在這裡記。讀不到紀錄時讓這一輪失敗（不放寬）。
+    對話編號和 MonitorLayer 用同一個解析（本文、兩個標頭）。網頁（帶 ``ui_persistence``）在准入
+    交易裡重驗並記新家開始用；IDE 舊路徑、SNS 家模式與外部相容路徑沒有准入交易，在這裡記。
+    請求者不能用這段對話時什麼都不記、不回舊家狀態，交給後面的層照原樣拒絕。
+    讀不到紀錄時讓這一輪失敗（不放寬）。
     """
-    session_id = getattr(request, "session_id", None)
-    if not isinstance(session_id, str) or not session_id:
+    session_id = turn_session_id(request, ctx.get("headers") or {})
+    if session_id is None:
         return
     web = getattr(request, "ui_persistence", None) is not None
-    mark = not web and not ctx.get("incognito")
-    if await session_service.check_old_home(session_id, mark_started=mark):
+    requester = ctx.get("identity")
+    try:
+        old = await session_service.check_old_home(
+            session_id,
+            mark_started=not web and not ctx.get("incognito"),
+            requester=requester if isinstance(requester, AgentIdentity) else None,
+        )
+    except SessionPersistenceError:
+        raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
+    if old:
         raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
 
 

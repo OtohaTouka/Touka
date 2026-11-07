@@ -186,7 +186,7 @@ test("沒有靈魂的對話放其他對話並標模型；冒號格式進對應�
   expect(stored.join("")).not.toContain(secret.toLowerCase());
 });
 
-test("連續設家甲、乙、丙，再換回較舊的一段：資料夾那一列一直是最後設的家", async ({ page }, info) => {
+test("連續設家甲、乙、丙，再回到較舊的一段：資料夾那一列一直是最後設的家", async ({ page }, info) => {
   const soul = "TreeChain";
   const { email, token } = await newSoulAccount("chain", [soul]);
   const titles = ["連甲", "連乙", "連丙"];
@@ -200,8 +200,9 @@ test("連續設家甲、乙、丙，再換回較舊的一段：資料夾那一�
   }
   await shot(page, info, "third-home");
 
-  await clickChatInList(page, "連甲");
-  await expect(row(page, "連甲")).toHaveAttribute("aria-current", "true");
+  // 乙設過家但沒用過就換掉：回到普通對話，可以接著聊；甲是真正的舊家，唯讀（ADR-0306）
+  await clickChatInList(page, "連乙");
+  await expect(row(page, "連乙")).toHaveAttribute("aria-current", "true");
   await expect(row(page, `${soul}，家對話：連丙`)).toBeVisible();
   await sendMessage(page, "換回舊的那段再送一則");
   await expect.poll(async () => (await modelCalls()).some((call) => call.lastText.includes("換回舊的那段再送一則"))).toBe(true);

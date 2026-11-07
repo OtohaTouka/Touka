@@ -421,6 +421,24 @@ async def test_hook_blocked_sns_message_is_not_stored(mode: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_message_refused_by_an_old_home_is_not_stored() -> None:
+    """家剛被換走、這一輪被舊家擋下：外人訊息不存進舊家，錯誤往外丟（ADR-0306 審查 J7）。"""
+    proxy = AsyncMock(side_effect=ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY))
+    gateway = SNSGatewayService()
+    mock_identity_svc, mock_session_svc = _make_mocks()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request", proxy),
+        pytest.raises(ToukaException) as raised,
+    ):
+        await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"))
+    assert raised.value.code == ErrorCode.SESSION_OLD_HOME_READ_ONLY
+    mock_session_svc.append_message_to_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_other_pipeline_errors_still_store_the_sns_message() -> None:
     """其他錯誤照舊：外人訊息留在對話裡，錯誤往外丟。"""
     proxy = AsyncMock(side_effect=ToukaException(ErrorCode.SYSTEM_ERROR))

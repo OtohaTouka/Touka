@@ -966,8 +966,9 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
-| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`_mark_home_history`，同家原文的中和規則），只送角色與內容；`tests/unit/test_mainline_service.py` |
-| `services/proxy_service.py`、`utils/async_db.py`、`routers/ui_interjections.py`、`routers/heartbeat.py`、`routers/ui_sessions.py` | 以前換家只清家標記，舊家還能開新的一輪、插話、換到別的靈魂或被刪，內容離開主線也沒有紀錄 | 舊家由交接紀錄推導；共同入口在 hook 之前擋、准入交易再驗、插話與心跳指定擋、換靈魂擋、交接開始後存檔閘擋寫入、交接完成前不能刪；讀不到紀錄時這一輪失敗（不放寬）；`tests/unit/test_old_home_gates.py`、`test_home_transitions.py` |
+| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`_mark_home_history`，同家原文的中和規則），只送角色與內容；總量有上限（`OLD_HOME_TOKEN_BUDGET`，只帶尾端）；`tests/unit/test_mainline_service.py`。殘留：SNS 獨立頻道（對方是外人）與 SNS 群聊的請求也帶舊家原文，和家原文、前情一樣（維護者 2026-11-07 決定 PR 1 照帶），PR 2b 前一起再問。 |
+| `services/proxy_service.py`、`utils/async_db.py`、`routers/ui_interjections.py`、`routers/heartbeat.py`、`routers/ui_sessions.py` | 以前換家只清家標記，舊家還能開新的一輪、插話、換到別的靈魂或被刪，內容離開主線也沒有紀錄 | 舊家由交接紀錄推導；共同入口在 hook 之前擋、准入交易再驗、新增插話與心跳（家模式、頻道、指定、重跑）擋、換靈魂擋、交接開始後（含完成、失敗）存檔閘擋寫入、交接完成前不能刪；內部頻道不能設成家；讀不到紀錄時這一輪失敗（不放寬）；`tests/unit/test_old_home_gates.py`、`test_home_transitions.py`、`test_heartbeat_session_scope_security.py` |
+| `middleware/layers/monitor.py`、`services/proxy_service.py`、`utils/async_db.py` | 審查第 1 輪：對話編號放在標頭（`x-touka-session-id`、`x-toukachat-session-id`）時共同入口整個跳過舊家檢查，舊家能開新的一輪；共同入口在確認請求者能用這段對話之前就記新家開始用、回「是不是舊家」，知道編號的人能把別人沒用過的新家記成開始用，也能探測 | 對話編號由 `turn_session_id` 解析（本文、兩個標頭），MonitorLayer 與共同入口同一個答案；`check_old_home` 帶請求者身分，用和存檔相同的歸屬與權限規則（`_may_use_session`），不能用時什麼都不寫、不回舊家狀態，交給後面的層照原樣拒絕；`tests/unit/test_old_home_gates.py::test_a_session_id_sent_in_a_header_is_checked_the_same_way`、`test_a_caller_who_cannot_use_the_conversation_learns_and_marks_nothing` |
 
 ## Out of Scope
 

@@ -6,6 +6,7 @@
 import React from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'sonner';
 import type { Session } from '@/lib/types';
 import type { TreeHistory } from '@/lib/tree_history';
 import type { StartStreamParams } from '../StreamRegistryProvider';
@@ -13,7 +14,7 @@ import type { StartStreamParams } from '../StreamRegistryProvider';
 type Updater = (current: Session) => Session;
 
 const h = vi.hoisted(() => ({
-  sessions: [] as Session[], wire: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(), complete: vi.fn(), onHookBlocked: vi.fn(),
+  sessions: [] as Session[], wire: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(), oldHomeNotice: vi.fn(), complete: vi.fn(), onHookBlocked: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
@@ -39,6 +40,7 @@ vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } 
 vi.mock('@/hooks/useAgentBrainNotice', () => ({ useAgentBrainNotice: () => () => false }));
 vi.mock('@/hooks/useHookBlockNotice', () => ({ useHookBlockNotice: () => h.hookNotice }));
 vi.mock('@/hooks/usePromptStoppedNotice', () => ({ usePromptStoppedNotice: () => h.stopNotice }));
+vi.mock('@/hooks/useOldHomeNotice', () => ({ useOldHomeNotice: () => h.oldHomeNotice }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
@@ -70,6 +72,7 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     h.sessions = [{ id: 's1', title: 't', messages: [], updatedAt: 1 }];
     h.wire.mockResolvedValue(undefined);
     h.stopNotice.mockReturnValue(false);
+    h.oldHomeNotice.mockReturnValue(false);
   });
 
   it('擋下 → 照「後端沒存文字」的完成流程存回沒有這則訊息的樹，並通知放回文字', async () => {
@@ -91,6 +94,17 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     h.hookNotice.mockReturnValue(true);
     h.sessions = [{ id: 's1', title: '我的對話', messages: [], updatedAt: 1 }];
     expect((await savedAfterError(new Error('blocked'))).title).toBe('我的對話');
+  });
+
+  it('舊家擋下（ADR-0306）→ 和 hook 擋下一樣拿掉這一輪存回、放回文字，不顯示連線錯誤', async () => {
+    h.hookNotice.mockReturnValue(false);
+    h.oldHomeNotice.mockReturnValue(true);
+    const saved = await savedAfterError(new Error('old home'));
+    expect(saved.tree).toEqual({ messages: {}, currentId: null });
+    expect(saved.terminal).toEqual({ status: 'skipped', reason: 'no_text' });
+    expect(saved.generation).toBe('completed');
+    expect(h.onHookBlocked).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled(); // 提示由舊家通知自己顯示，不跳連線錯誤
   });
 
   it('別處停止了這個對話（PROMPT_STOPPED）→ 訊息留著、當成中止，不問 hook 通知', async () => {

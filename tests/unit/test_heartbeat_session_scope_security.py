@@ -332,3 +332,55 @@ async def test_home_heartbeat_without_a_home_creates_one_through_the_records():
     assert created.startswith(f"home_{A.agent_id}_")
     assert await _started(created) == [1]
     assert await async_db.session_service.is_old_home("A")
+
+
+async def test_home_heartbeat_refuses_a_home_replaced_after_it_was_read(monkeypatch):
+    """讀到家之後才被換家：那段已經是舊家，心跳不在裡面開新的一輪（審查 J9）."""
+    await _move_home()
+    stale = SimpleNamespace(session={"id": "A"})
+    monkeypatch.setattr(
+        async_db.session_service, "read_home_snapshot", AsyncMock(return_value=stale)
+    )
+    before = await raw_row("A")
+    result, tasks = await awaken(A, session_id="home")
+    assert tasks.tasks == []
+    assert await raw_row("A") == before
+    assert isinstance(result, ToukaException)
+    assert result.code.name == "SESSION_OLD_HOME_READ_ONLY"
+
+
+async def test_awaken_on_an_unused_new_home_marks_it_started():
+    """指定新家的編號一樣算開始用（審查 J10）."""
+    await _move_home()
+    result, _tasks = await awaken(A, session_id="B")
+    assert result["session_id"] == "B"
+    assert await _started("B") == [1]
+
+
+async def test_retrigger_on_an_unused_new_home_marks_it_started():
+    await _move_home()
+    tasks = BackgroundTasks()
+    result = await hb.retrigger_heartbeat(
+        hb.HeartbeatRetriggerRequest(agent_id=A, session_id="B"), request(), tasks, HUMAN
+    )
+    assert result["status"] == "accepted"
+    assert await _started("B") == [1]
+
+
+async def test_the_default_heartbeat_channel_is_checked_too():
+    """既有資料裡頻道當過家、已經換走：預設頻道那一支也不在裡面開新的一輪（審查 J7）."""
+    channel = await async_db.session_service.open_channel_session("heartbeat", A, title="Pulse")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_home_transitions "
+            "(agent_id, old_session, new_session, created_at, updated_at) "
+            "VALUES (?, ?, NULL, 1, 1)",
+            (A.agent_id, channel),
+        )
+        await db.commit()
+    before = await raw_row(channel)
+    result, tasks = await awaken(A)
+    assert tasks.tasks == []
+    assert await raw_row(channel) == before
+    assert isinstance(result, ToukaException)
+    assert result.code.name == "SESSION_OLD_HOME_READ_ONLY"

@@ -213,6 +213,8 @@ class SNSGatewayService:
                     event.channel_id,
                 )
                 return ""
+            if exc.code == ErrorCode.SESSION_OLD_HOME_READ_ONLY:  # 家剛被換走：不存進舊家
+                raise
             await self._save_user_message(session_id, content, identity)
             if exc.code == ErrorCode.PROMPT_STOPPED:
                 logger.info(

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from src.utils import async_db
 
@@ -27,14 +29,25 @@ async def records():
         return [tuple(row) for row in await cursor.fetchall()]
 
 
-async def set_status(record_id, status, **extra):
-    columns = ", ".join(f"{key} = ?" for key in ("status", *extra))
+async def set_status(record_id, status, *, retired_summary_pending=0, step=0):
     async with async_db.get_async_db() as db:
         await db.execute(
-            f"UPDATE soul_home_transitions SET {columns} WHERE id = ?",  # noqa: S608 - 測試固定欄位
-            (status, *extra.values(), record_id),
+            "UPDATE soul_home_transitions SET status = ?, retired_summary_pending = ?, step = ? "
+            "WHERE id = ?",
+            (status, retired_summary_pending, step, record_id),
         )
         await db.commit()
+
+
+async def start(sid):
+    """新家開始一輪（內部路徑：沒有請求者身分）."""
+    return await service.check_old_home(sid, mark_started=True, requester=None)
+
+
+async def scope_versions():
+    async with async_db.get_async_db() as db:
+        cursor = await db.execute("SELECT scope_version FROM soul_home_transitions ORDER BY id")
+        return [row[0] for row in await cursor.fetchall()]
 
 
 async def homes():
@@ -83,7 +96,7 @@ async def test_picking_another_before_the_new_home_is_used_retargets(home_a):
 @pytest.mark.parametrize("status", ["pending", "running"])
 async def test_switching_back_after_the_new_home_was_used_keeps_and_adds(home_a, status):
     assert await service.set_home("B", A, True)
-    await service.mark_home_started("B")
+    await start("B")
     await set_status(1, status)
     assert await service.set_home("A", A, True)
     assert await records() == [("A", "B", 1, status, None), ("B", "A", 0, "pending", None)]
@@ -94,7 +107,7 @@ async def test_switching_back_after_the_new_home_was_used_keeps_and_adds(home_a,
 
 async def test_picking_another_after_the_new_home_was_used_queues_another(home_a):
     assert await service.set_home("B", A, True)
-    await service.mark_home_started("B")
+    await start("B")
     assert await service.set_home("C", A, True)
     assert await records() == [("A", "B", 1, "pending", None), ("B", "C", 0, "pending", None)]
 
@@ -146,6 +159,14 @@ async def test_picking_a_home_while_the_unset_handover_runs_only_notes_the_new_h
     assert not await service.old_home_blocks_delete("D")
 
 
+async def test_picking_a_home_after_the_unset_handover_failed_only_notes_the_new_home(home_a):
+    """失敗的會再試、仍算舊家：比照交接中，另加一筆只記新家（審查 J15）."""
+    assert await service.set_home("A", A, False)
+    await set_status(1, "failed")
+    assert await service.set_home("D", A, True)
+    assert await records() == [("A", None, 0, "failed", None), ("A", "D", 0, "pending", 1)]
+
+
 async def test_the_old_home_returning_while_its_unset_handover_runs_adds_nothing(home_a):
     assert await service.set_home("A", A, False)
     await set_status(1, "running")
@@ -183,6 +204,31 @@ async def test_two_existing_homes_each_get_a_record():
     assert await homes() == ["X"]
 
 
+async def test_with_two_old_homes_picking_another_retargets_both_records():
+    """兩筆都指向還沒開始用的 X：改設 Y 時兩筆一起改，不留指向 X 的紀錄（審查 J13）."""
+    await seed_all("A", "B", "X", "Y")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET is_home = 1, home_for_agent = ? WHERE id IN ('A', 'B')",
+            (A.agent_id,),
+        )
+        await db.commit()
+    assert await service.set_home("X", A, True)
+    assert await service.set_home("Y", A, True)
+    assert await records() == [("A", "Y", 0, "pending", None), ("B", "Y", 0, "pending", None)]
+    await start("X")  # X 回到普通對話：之後用它不算新家開始用
+    assert await records() == [("A", "Y", 0, "pending", None), ("B", "Y", 0, "pending", None)]
+
+
+async def test_a_conversation_that_is_no_longer_home_is_never_marked_started(home_a):
+    assert await service.set_home("B", A, True)
+    async with async_db.get_async_db() as db:  # 舊資料：紀錄還指向 B，但 B 已經不是家
+        await db.execute("UPDATE user_sessions SET is_home = 0, home_for_agent = NULL")
+        await db.commit()
+    await start("B")
+    assert await records() == [("A", "B", 0, "pending", None)]
+
+
 async def test_records_are_per_soul():
     await seed_all("A1", "A2")
     await seed("B1", identity=B)
@@ -199,9 +245,9 @@ async def test_records_are_per_soul():
 
 async def test_starting_marks_only_the_unused_new_home(home_a):
     assert await service.set_home("B", A, True)
-    await service.mark_home_started("A")
+    await start("A")
     assert await records() == [("A", "B", 0, "pending", None)]
-    await service.mark_home_started("B")
+    await start("B")
     assert await records() == [("A", "B", 1, "pending", None)]
 
 
@@ -225,6 +271,46 @@ async def test_old_home_and_delete_follow_the_record(home_a, status, summary_pen
     assert await service.is_old_home("A") is old
     assert await service.old_home_blocks_delete("A") is blocks
     assert not await service.is_old_home("B")
+
+
+@pytest.mark.parametrize(
+    ("status", "step", "started"),
+    [
+        ("pending", 0, False),
+        ("pending", 2, True),
+        ("running", 0, True),
+        ("done", 0, True),
+        ("failed", 0, True),
+        ("cancelled", 3, False),
+    ],
+)
+async def test_handover_has_started_once_it_runs_or_takes_a_step(home_a, status, step, started):
+    """唯讀第二段從交接開始起算：交接中、完成、失敗，或已經做到某一步（審查 J6）."""
+    assert await service.set_home("B", A, True)
+    await set_status(1, status, step=step)
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.handover_started(db, "A") is started
+
+
+async def test_deleting_a_handed_over_old_home_forgets_it(home_a):
+    """刪掉已完成交接的舊家：回報位置跟著刪、紀錄失效；同一個編號重用時不是舊家（審查 J19）."""
+    assert await service.set_home("B", A, True)
+    await set_status(1, "done")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_child_report_marks (session_id, agent_id, last_node, updated_at) "
+            "VALUES ('A', ?, 'a', 1)",
+            (A.agent_id,),
+        )
+        await db.commit()
+    snapshot = await service.read_persistence_snapshot("A", A)
+    assert (await service.conditional_delete_session("A", snapshot.revision, A)).status == "saved"
+    assert await scope_versions() == [0]
+    async with async_db.get_async_db() as db:
+        cursor = await db.execute("SELECT 1 FROM soul_child_report_marks WHERE session_id = 'A'")
+        assert await cursor.fetchone() is None
+    await seed("A")
+    assert not await service.is_old_home("A")
 
 
 async def test_invalidated_records_are_not_old_homes(home_a):
@@ -266,15 +352,28 @@ async def test_session_list_marks_old_homes(home_a):
 
 async def test_unfinished_old_homes_in_record_order_without_the_current_home(home_a):
     assert await service.set_home("B", A, True)
-    await service.mark_home_started("B")
+    await start("B")
     assert await service.set_home("C", A, True)
-    await service.mark_home_started("C")
+    await start("C")
     assert await service.set_home("D", A, True)
     await set_status(2, "done")  # B→C 做完了：B 不再帶原文
     olds = await service.read_unfinished_old_homes(A)
     assert [s["id"] for s in olds] == ["A", "C"]
     assert olds[0]["messages"]["currentId"] == "a"
     assert await service.read_unfinished_old_homes(B) == []
+
+
+async def test_an_unreadable_old_home_is_skipped_not_fatal(home_a, caplog):
+    """某段舊家那一列壞了：記 warning、跳過，靈魂照常能聊（審查 J14）."""
+    assert await service.set_home("B", A, True)
+    await start("B")
+    assert await service.set_home("C", A, True)
+    async with async_db.get_async_db() as db:
+        await db.execute("UPDATE user_sessions SET messages = 'not json' WHERE id = 'A'")
+        await db.commit()
+    olds = await service.read_unfinished_old_homes(A)
+    assert [s["id"] for s in olds] == ["B"]
+    assert "unreadable" in caplog.text
 
 
 # --- 生命週期 ---
@@ -308,6 +407,47 @@ async def test_upgrade_sets_report_marks_at_current_content_once(scope_db):
         marks = [tuple(row) for row in await cursor.fetchall()]
     assert marks == [("child", A.agent_id, "a")]
     assert await service.count_agent_home_records(A) == 1  # 回報位置也算這個靈魂的紀錄
+
+
+async def test_an_upgrade_that_fails_halfway_is_redone_on_the_next_start(scope_db, monkeypatch):
+    """建表與寫初始位置在同一個交易：中途失敗就整個重來，不會留下空的位置表（審查 J8）."""
+    await seed_all("home", "child")
+    async with async_db.get_async_db() as db:
+        await db.execute("DROP TABLE soul_child_report_marks")
+        await db.commit()
+    real = async_db.home_transitions.set_initial_marks
+    monkeypatch.setattr(
+        async_db.home_transitions, "set_initial_marks", AsyncMock(side_effect=RuntimeError)
+    )
+    with pytest.raises(RuntimeError):
+        await async_db.init_db_async()
+    monkeypatch.setattr(async_db.home_transitions, "set_initial_marks", real)
+    await async_db.init_db_async()
+    async with async_db.get_async_db() as db:
+        cursor = await db.execute("SELECT session_id FROM soul_child_report_marks ORDER BY 1")
+        assert [row[0] for row in await cursor.fetchall()] == ["child", "home"]
+
+
+async def test_the_upgrade_only_takes_a_text_current_node(scope_db):
+    await seed_all("text", "number", "nested")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET messages = json_set(messages, '$.currentId', 5) "
+            "WHERE id = 'number'"
+        )
+        await db.execute(
+            "UPDATE user_sessions SET messages = json_set(messages, '$.currentId', json('[1]')) "
+            "WHERE id = 'nested'"
+        )
+        await db.execute("DROP TABLE soul_child_report_marks")
+        await db.commit()
+    await async_db.init_db_async()
+    async with async_db.get_async_db() as db:
+        cursor = await db.execute(
+            "SELECT session_id, last_node FROM soul_child_report_marks ORDER BY 1"
+        )
+        marks = [tuple(row) for row in await cursor.fetchall()]
+    assert marks == [("nested", None), ("number", None), ("text", "a")]
 
 
 async def test_records_survive_with_the_raw_row(home_a):
