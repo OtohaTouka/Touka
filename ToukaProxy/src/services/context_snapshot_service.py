@@ -368,6 +368,7 @@ async def get_context_snapshot(
     ctx.auth_level = base_ctx.get("auth_level") or "Manual"
     ctx.request_id = "context-snapshot"
     ctx.run_hooks = False  # 預覽不執行 hook（ADR-0292）
+    ctx.preview = True  # 預覽不寫資料：不搬舊摘要進前情（ADR-0305）
     # 刻意不設 session_id：避免 clear_interrupt / session 連動（純唯讀快照）。
 
     model = identity.agent_id

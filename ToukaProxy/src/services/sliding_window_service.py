@@ -27,9 +27,10 @@ from typing import TYPE_CHECKING, Any
 
 from memory_server.tools import get_manager
 
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.models.session_persistence import SavedResult, SessionChanges
-from src.services import soul_prelude_merge, soul_prelude_service
+from src.services import destructive_ops, soul_prelude_merge, soul_prelude_service
 from src.services.dialogue_summarizer import summarize_dialogue
 from src.services.hooks.lifecycle import notify_post_compact, notify_pre_compact
 from src.services.models.context_window_registry import get_context_window
@@ -37,16 +38,29 @@ from src.services.sliding_window_config import load_sliding_window_config
 from src.utils.async_db import SessionPersistenceError, session_service
 from src.utils.history_manager import TreeMessageManager, count_rounds_from_linear
 from src.utils.soul_prelude_db import insert_segment_tx, list_live_segments
+from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
 from src.utils.token_estimator import estimate_messages_tokens
 
 if TYPE_CHECKING:
+    import aiosqlite
+
     from src.models.sliding_window import SlidingWindowConfig
+    from src.utils.soul_prelude_db import PreludeSegment
 
 logger = logging.getLogger(__name__)
 
 # 剪裁中途要不要放棄：拿到讀到的存檔（存回前是 None），回 True 就不剪
 type Abandon = Callable[[dict[str, Any] | None], bool]
+
+
+async def _write_segment_unless_disturbed(
+    db: aiosqlite.Connection, *, seg: PreludeSegment, identity: AgentIdentity, since: int
+) -> None:
+    """剪裁交易裡寫前情段落；摘要期間開始重置或刪除就丟例外，整筆退回（審查 F11）."""
+    if destructive_ops.disturbed(identity, since):
+        raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
+    await insert_segment_tx(db, seg)
 
 
 class SlidingWindowService:
@@ -311,28 +325,28 @@ class SlidingWindowService:
         兩授權觸發點，避免兩條路徑同時讀改同一 session 樹造成競態。
         ``abandon``（聊天側，ADR-0302）：讀到存檔後、寫摘要前（重讀一次）、存回前各問一次，
         回 True 就不剪；存回前傳 None。
-        剪成功後在對話鎖外做前情合併（拿靈魂鎖，ADR-0305 鎖的順序）；合併失敗只記 log。
+        剪成功後在對話鎖外、在背景做前情合併（拿靈魂鎖，ADR-0305 鎖的順序；審查 F4），剪裁不等它；
+        合併失敗只記 log。
         """
         async with self._get_lock(session_id):
             trimmed = await self._check_and_trim_inner(identity, session_id, abandon)
         if trimmed:
-            try:
-                await soul_prelude_merge.merge_if_needed(
-                    identity, self.load_config(), home_id=session_id
-                )
-            except Exception:
-                logger.exception("SlidingWindow: prelude merge failed for %s", session_id)
+            merge = soul_prelude_merge.merge_if_needed(
+                identity, self.load_config(), home_id=session_id
+            )
+            spawn_logged(merge, name=f"prelude-merge:{session_id}")
         return trimmed
 
     @staticmethod
-    async def _previous_entry(identity: AgentIdentity) -> str | None:
-        """前情最後一段（給摘要員當背景，避免重複）；讀不到就不給."""
+    async def _previous_entry(identity: AgentIdentity, session_id: str) -> str | None:
+        """前情顯示順序的最後一段（給摘要員當背景，避免重複；審查 F3）；讀不到就不給."""
         try:
             segments = await list_live_segments(soul_prelude_service.prelude_agent(identity))
         except Exception:
-            logger.warning("SlidingWindow: prelude unavailable for the summarizer")
+            logger.warning("SlidingWindow: prelude unavailable for the summarizer", exc_info=True)
             return None
-        return segments[-1].content if segments else None
+        visible = soul_prelude_service.visible_segments(segments, session_id)
+        return visible[-1].content if visible else None
 
     async def _moved_on(
         self, identity: AgentIdentity, session_id: str, revision: str, abandon: Abandon
@@ -453,19 +467,27 @@ class SlidingWindowService:
 
         # ── ACID-S: 摘要（best-effort、不進關鍵路徑；失敗→None→降級成一行來源註記）──
         # 寫進前情（ADR-0305），不再改 context_summary；摘要員拿前情最後一段當背景。
+        # 靈魂正在重置或刪除時不剪（前情段落寫不得，審查 F11）；摘要期間開始的在交易裡退回。
+        since = destructive_ops.generation(identity)
+        if since is None:
+            logger.info("SlidingWindow: %s is being reset or deleted; not trimming", agent_id)
+            return False
         summary: str | None = None
         if abandon is not None and await self._moved_on(
             identity, session_id, snapshot.revision, abandon
         ):
             return False
         if config.summary_budget_pct > 0:
-            budget_tokens = int(window * config.summary_budget_pct / 100)
+            # 摘要長度不超過前情上限，免得一段就擠掉整份前情（審查 F6）
+            budget_tokens = min(
+                int(window * config.summary_budget_pct / 100), config.prelude_max_tokens
+            )
             summary = await summarize_dialogue(
                 identity,
                 legacy_msgs,
                 budget_tokens,
                 config.summary_model,
-                previous=await self._previous_entry(identity),
+                previous=await self._previous_entry(identity, session_id),
             )
 
         # ── 5. ACID-B: 更新 Session（只在 legacy 確認寫入後）；前情段落同一個交易 ──
@@ -485,7 +507,9 @@ class SlidingWindowService:
                 changes,
                 identity,
                 require_home=True,
-                after_write=functools.partial(insert_segment_tx, seg=segment),
+                after_write=functools.partial(
+                    _write_segment_unless_disturbed, seg=segment, identity=identity, since=since
+                ),
             )
         except Exception:
             logger.exception(

@@ -1096,9 +1096,17 @@ async def get_home_messages(
     except ToukaException:
         logger.warning("SESSION_SCOPE_MISMATCH")
         return []
-    if snapshot is None or snapshot.session["id"] == current_session_id:
+    if snapshot is None:
         return []
-    session = snapshot.session
+    return home_messages_of(snapshot.session, current_session_id)
+
+
+def home_messages_of(
+    session: dict[str, Any], current_session_id: str | None = None
+) -> list[dict[str, Any]]:
+    """已讀到的家對話要送的訊息（不含 system）；它就是目前這段對話時回空（ADR-0305 審查 F16）."""
+    if session["id"] == current_session_id:
+        return []
     return [  # 插話放回那一則 AI 回覆（ADR-0249）
         annotate_node(m)
         for m in TreeMessageManager.get_linear_path(session["messages"])
@@ -1281,9 +1289,12 @@ async def init_db_async() -> None:
             "covers_from INTEGER, covers_to INTEGER, content TEXT NOT NULL, "
             "created_at INTEGER NOT NULL, merged_into INTEGER)"
         )
+        # 只有有效列（範圍版本 1）要唯一：失效列可以重複，失效兩次才不會撞（審查 F1）
+        await db.execute("DROP INDEX IF EXISTS idx_soul_prelude_unique")
         await db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_soul_prelude_unique ON soul_prelude_segments "
-            "(agent_id, kind, source_session, dedupe_key, scope_version)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_soul_prelude_live_unique "
+            "ON soul_prelude_segments (agent_id, kind, source_session, dedupe_key) "
+            "WHERE scope_version = 1"
         )
         await db.commit()
 

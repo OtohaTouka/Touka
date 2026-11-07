@@ -295,7 +295,7 @@ finally:
 ```
 
 **行為規則**：
-- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再估算 token 用量；超過 `trigger_pct` 時先歸檔進舊對話庫，再以 CAS 更新 Session，剪掉的部分在同一交易寫成靈魂前情的一段；剪完之後前情超過上限時合併最舊的幾段（ADR-0092、ADR-0264、ADR-0305）。
+- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再估算 token 用量；超過 `trigger_pct` 時先歸檔進舊對話庫，再以 CAS 更新 Session，剪掉的部分在同一交易寫成靈魂前情的一段；剪完之後前情超過上限時在背景合併最舊的幾段，剪裁不等它（ADR-0092、ADR-0264、ADR-0305）。
 - **子對話**：完全跳過，`is_home_mode=False` 時不呼叫 hook。
 - **失敗隔離**：hook 拋出例外時，`logger.exception` 記錄後略過，不影響 heartbeat 整體結果。
 

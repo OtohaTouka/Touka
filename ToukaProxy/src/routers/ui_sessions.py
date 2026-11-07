@@ -430,7 +430,9 @@ async def set_home_session(
         try:
             await soul_prelude_service.migrate_legacy_summary(req.agent_id, session)
         except Exception:
-            logger.warning("Prelude: old summary of %s not carried over", session.get("id"))
+            logger.warning(
+                "Prelude: old summary of %s not carried over", session.get("id"), exc_info=True
+            )
 
     return {
         "status": "success",

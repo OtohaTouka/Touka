@@ -76,6 +76,22 @@ def estimate_tokens(text: str | None, model: str = "") -> int:
             return 0
 
 
+def truncate_to_tokens(text: str, max_tokens: int, model: str = "") -> str:
+    """估算超過 ``max_tokens`` 時只留開頭；先依比例截，再逐步收到估算不超過上限。
+
+    中英混排時依比例截會估少，所以截完再量、不夠再收（ADR-0305 審查）。
+    """
+    if max_tokens <= 0:
+        return ""
+    cost = estimate_tokens(text, model)
+    if cost <= max_tokens:
+        return text
+    cut = text[: max(1, len(text) * max_tokens // cost)]
+    while len(cut) > 1 and estimate_tokens(cut, model) > max_tokens:
+        cut = cut[: max(1, len(cut) * 9 // 10)]
+    return cut
+
+
 def _coerce_content(content: Any) -> str:
     """把訊息 ``content`` 攤平成可估算的文字。
 

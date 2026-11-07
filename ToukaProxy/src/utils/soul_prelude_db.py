@@ -3,7 +3,8 @@
 前情＝一個靈魂累積的一段段摘要或來源註記；每段標它從哪段對話來、涵蓋什麼時間。
 表在 ``async_db.init_db_async`` 建；這裡只經 ``get_async_db()`` 讀寫，不直接用 sqlite3。
 
-- 同一靈魂、種類、來源、去重值、範圍版本只留一筆（INSERT OR IGNORE）；重做不會重複。
+- 有效列（範圍版本 1）裡，同一靈魂、種類、來源、去重值只留一筆（INSERT OR IGNORE）；
+  重做不會重複，失效列可以重複。
 - 讀前情只看範圍版本 1、還沒被合併的段落。範圍版本由 ``async_db`` 的兩個失效函式改成 0
   （同名重建、還原備份），和對話的 ``session_scope_version`` 同一套。
 - 合併只在被合併的段落上標 ``merged_into``，不刪；資料只新增。
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.core.exceptions import ErrorCode, ToukaException
-from src.utils.async_db import get_async_db
+from src.utils.async_db import canonical_agent_id, get_async_db
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -56,7 +57,7 @@ _DELETE = "DELETE FROM soul_prelude_segments WHERE agent_id = ?"
 _LIST_ALL = (
     "SELECT id, agent_id, kind, source_session, dedupe_key, covers_from, covers_to, content, "
     "created_at, merged_into, scope_version FROM soul_prelude_segments "
-    "WHERE agent_id = ? ORDER BY id"
+    "WHERE agent_id = ? AND scope_version = 1 ORDER BY id"
 )
 
 
@@ -168,7 +169,8 @@ async def merge_segments(agent: str, source_ids: Sequence[int], merged: PreludeS
 
 async def count_agent_segments(identity: AgentIdentity) -> int:
     """某靈魂的段落數（含失效、已合併；重置的完整性自檢與刪除前檢查用）."""
-    async with get_async_db() as db, db.execute(_COUNT, (identity.agent_id,)) as cursor:
+    agent = canonical_agent_id(identity)
+    async with get_async_db() as db, db.execute(_COUNT, (agent,)) as cursor:
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -176,12 +178,16 @@ async def count_agent_segments(identity: AgentIdentity) -> int:
 async def purge_agent_segments(identity: AgentIdentity) -> int:
     """刪掉某靈魂的全部段落（重置用）；回刪除筆數."""
     async with get_async_db() as db:
-        cursor = await db.execute(_DELETE, (identity.agent_id,))
+        cursor = await db.execute(_DELETE, (canonical_agent_id(identity),))
         await db.commit()
         return cursor.rowcount or 0
 
 
 async def list_agent_segments(identity: AgentIdentity) -> list[dict[str, Any]]:
-    """某靈魂的全部段落（含失效、已合併；個人資料匯出用）."""
-    async with get_async_db() as db, db.execute(_LIST_ALL, (identity.agent_id,)) as cursor:
+    """某靈魂範圍有效的段落（含已合併；個人資料匯出用）.
+
+    失效的列可能屬於同名的前一個靈魂（擁有者可能不同），不匯出（審查 F11）。
+    """
+    agent = canonical_agent_id(identity)
+    async with get_async_db() as db, db.execute(_LIST_ALL, (agent,)) as cursor:
         return [dict(row) for row in await cursor.fetchall()]

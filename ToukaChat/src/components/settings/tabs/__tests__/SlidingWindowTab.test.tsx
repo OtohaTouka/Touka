@@ -179,12 +179,14 @@ describe('SlidingWindowTab 摘要模型與前情摘要（ADR-0305）', () => {
         ));
     });
 
-    it('目前的模型沒有設定金鑰時，照樣列出並提醒', () => {
+    it('目前的模型不在有金鑰的清單裡時，照樣列出並提醒（本機模型不用金鑰可以忽略）', () => {
         setConfig({ summary_model: 'claude-opus-4' });
         const { container } = render(<SlidingWindowTab />);
         const values = Array.from(container.querySelectorAll('option')).map(o => o.getAttribute('value'));
         expect(values).toEqual(expect.arrayContaining(['claude-opus-4', 'claude-haiku-5-5']));
-        expect(container.textContent || '').toContain('claude-opus-4 不在已設定金鑰的模型裡');
+        const text = container.textContent || '';
+        expect(text).toContain('claude-opus-4 不在已設定金鑰的模型清單裡');
+        expect(text).toContain('本機模型');
     });
 
     it('模型清單讀不到時顯示提示，目前的模型照樣留著', () => {
@@ -194,6 +196,6 @@ describe('SlidingWindowTab 摘要模型與前情摘要（ADR-0305）', () => {
         const { container } = render(<SlidingWindowTab />);
         expect(screen.getByRole('alert').textContent).toContain('讀不到模型清單');
         expect((container.querySelector('select') as HTMLSelectElement).value).toBe('claude-haiku-5-5');
-        expect(container.textContent || '').not.toContain('不在已設定金鑰的模型裡');
+        expect(container.textContent || '').not.toContain('不在已設定金鑰的模型清單裡');
     });
 });

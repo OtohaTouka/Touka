@@ -11,7 +11,7 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_drive_soul, require_soul_access
 from src.services.continuity_events import record_user_turn
 from src.services.continuity_service import inject_continuity
-from src.services.mainline_service import inject_mainline
+from src.services.mainline_service import inject_conversation_summary, inject_mainline
 from src.services.model_manager import model_manager
 from src.services.soul_service import soul_service
 from src.utils.async_db import session_service
@@ -73,11 +73,14 @@ class SoulLayer(ProxyLayer):
                 mode="incognito" if ctx.get("incognito") else "chat",
                 session_id=ctx.get("session_id"),
                 sends_own_history=self._sends_own_history(request, ctx),
+                preview=bool(ctx.get("preview")),
             )
-            # ADR-0092 Phase D：子對話自己升級前的舊摘要（固定前置；無痕不注入；家的已搬進前情）；
-            # 只給綁在這個靈魂的 session（ADR-0245 修補）
+            # ADR-0092 Phase D：子對話自己升級前的舊摘要（固定前置；無痕不注入；
+            # 已搬進前情的不再插）；只給綁在這個靈魂的 session（ADR-0245 修補）
             if not ctx.get("incognito") and ctx["session_bound"]:
-                await soul_service.inject_context_summary(request, ctx.get("session_id"))
+                await inject_conversation_summary(
+                    request, AgentIdentity(agent_id=agent_id), ctx.get("session_id")
+                )
             # 現在時間／距上一輪多久／任務看板時間：只給綁在這個靈魂的 session 與無痕（只放時間）；
             # 附在最後一則 user 訊息尾端，不進 system、不存紀錄。心跳不經本層。
             if ctx["session_bound"] or ctx.get("incognito"):

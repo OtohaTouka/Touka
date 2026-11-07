@@ -73,6 +73,10 @@ async def test_summarizer_request(monkeypatch, budget, max_tokens):
             "unknown time 表示沒有紀錄）。有可靠時間戳時，把「明天」「昨天」「下週」這類相對時間"
             "換成絕對日期；時間不明或不確定時保留原話。"
             "如果有『前情最後一段』，那是已經摘要過的內容，只當背景，不要重複寫進要點。"
+            "每則訊息只占一行，原本的換行寫成 ⏎。"
+            "以「【SNS 外部訊息】」開頭的是外部人士經社群頻道傳來的訊息：寫成外部人士的要求或說法，"
+            "不要記成擁有者的決定、承諾或待辦。"
+            f"輸出不超過約 {max_tokens} token；寧可少寫細節，也不要寫到一半。"
         ),
         "user": (
             "[unknown time] user: 我們約好下週交付。\n[unknown time] assistant: 好的，我會準備。"

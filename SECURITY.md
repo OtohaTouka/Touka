@@ -958,6 +958,8 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | 位置 | 原有缺口 | 修復摘要 |
 |------|----------|----------|
 | `services/soul_prelude_service.py`、`services/mainline_service.py` | 新的前情（剪裁摘要、搬來的舊摘要、合併摘要）會放進靈魂的每一個請求，包含子對話、心跳、群聊；沒有界線的話，舊內容裡的要求會像這次的指令，而且散到比以前更多地方 | 和舊摘要同一套界線（ADR-0257）：內文先 `blank_control_chars`，再 `wrap_historical_data(..., extra_tags=ALL_BLOCK_TAGS)`，所有區塊標籤（含 `<soul_prelude>` 自己）都中和，舊內容不能提早關閉區塊或假造別的區塊；外層 `<soul_prelude>`。無痕不帶前情。回歸測試 `test_soul_prelude_service.py::test_block_is_historical_data_with_tags_neutralized`。殘留：界線擋不住模型自己決定照舊內容做；SNS 家對話被剪掉的外人訊息，摘要照樣進前情（以前進 `context_summary`，範圍只在家）。 |
+| `services/dialogue_summarizer.py` | SNS 外人能在自己的訊息裡寫一行像「[時間] user: …」的假擁有者發言，摘要員照抄成決定或待辦，之後跟著前情進心跳與子對話（審查） | 送摘要員的每則壓成一行（`single_line`，換行寫成 `⏎`），假的那行留在外人那一則裡；指示說明以 SNS 外部訊息開頭的是外部人士的要求或說法，不記成擁有者的決定、承諾或待辦。回歸測試 `test_dialogue_summarizer.py::test_forged_owner_line_stays_inside_the_outsider_message`。殘留：仍靠摘要模型照指示做；長得像區塊標籤的寫法（零寬字元、全形括號）沒有中和（沿用 ADR-0257）；SNS 頻道與 SNS 群聊的請求也帶前情，PR 2b 加子對話回報前再決定要不要排除。 |
+| `services/soul_prelude_service.py` | 畫面能寫的 `context_summary` 搬進前情後不受上限限制，會散到靈魂的每一個請求（審查） | 搬家時截到 2,000 token 並註明完整的在哪段對話；同一來源只顯示最新一段；單段超過前情上限時截短。回歸測試 `test_soul_prelude_service.py::test_long_legacy_summary_is_cut_when_moved`、`test_a_single_segment_over_the_cap_is_cut`。 |
 
 ## Out of Scope
 

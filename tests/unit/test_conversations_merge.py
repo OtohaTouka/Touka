@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING
 import aiosqlite
 import pytest
 
-from tests.support.conversation_search import DAY, denied, search, success, unknown_count
+from tests.support.conversation_search import (
+    DAY,
+    denied,
+    search,
+    success,
+    tree,
+    unknown_count,
+)
 from tests.support.conversation_search import conversation_db as conversation_db
 from tests.support.session_scope import A
 from tests.support.session_scope import scope_db as scope_db
@@ -187,3 +194,24 @@ async def test_dedupe_applies_to_the_unknown_time_count_too(
     store = conversation_db.manager.get_legacy_sync_service().get_store(A)
     page = store.query_messages(query="dup-text", exclude_keys=frozenset({"s1\x1fm0"}))
     assert (page.total, page.unknown_time_count, page.rows) == (0, 0, [])
+
+
+@pytest.mark.parametrize("dated", [False, True])
+async def test_dedupe_keeps_pages_consistent(conversation_db: ConversationDB, dated: bool) -> None:
+    """去掉重複之後換頁：每頁總數一致，每一則剛好出現在某一頁一次（審查 F22）."""
+    texts = [f"dup-{index}" for index in range(3)]
+    await conversation_db.ui("s1", "", messages=tree(*texts))
+    for index, text in enumerate(texts):  # 同一段對話、同一則：歸檔過的那份
+        conversation_db.legacy(text, mid=f"m{index}", sid="s1", timestamp=DAY + index)
+    for index in range(2):  # 只在舊對話庫的
+        conversation_db.legacy(f"dup-only-{index}", mid=f"x{index}", sid="old", timestamp=DAY)
+    arguments = {"date_start": "2026-05-13"} if dated else {}
+    pages = [
+        await search(source="all", query="dup", page_size=2, offset=offset, **arguments)
+        for offset in (0, 2, 4)
+    ]
+    for page in pages:
+        success(page, 5)
+    for text in [*texts, "dup-only-0", "dup-only-1"]:
+        assert sum(page.count(text) for page in pages) == 1, text
+    assert sum(page.count("[ui]") + page.count("[legacy]") for page in pages) == 5

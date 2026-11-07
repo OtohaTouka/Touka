@@ -61,7 +61,7 @@ _CLAIM_PAIRS: tuple[tuple[str, Path, str], ...] = (
     (
         "<soul_prelude>",
         _SRC / "services" / "sliding_window_service.py",
-        "after_write=functools.partial(insert_segment_tx, seg=segment)",
+        "_write_segment_unless_disturbed, seg=segment",
     ),
     (
         "<soul_prelude>",

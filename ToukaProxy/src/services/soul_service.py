@@ -418,6 +418,7 @@ class SoulService:
         *,
         current_session_id: str | None = None,
         stamp_times: bool = False,
+        home_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """為請求注入家園訊息（記憶錨點） (Identity SSOT).
 
@@ -426,7 +427,9 @@ class SoulService:
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
             current_session_id (str | None): 請求已帶著這個對話的完整紀錄時傳入；
                 它就是家對話時不再插入（避免同一份紀錄送兩次）.
-            stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0304）.
+            stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0305）.
+            home_messages (list | None): 呼叫端已讀到的家訊息（主線用同一次讀到的家，ADR-0305）；
+                沒給時自己讀.
         """
         from src.utils.async_db import get_home_messages  # noqa: LOCAL_IMPORT_BAN
 
@@ -434,7 +437,11 @@ class SoulService:
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        home_msgs = await get_home_messages(identity, current_session_id)
+        home_msgs = (
+            home_messages
+            if home_messages is not None
+            else await get_home_messages(identity, current_session_id)
+        )
         if not home_msgs:
             return
         if stamp_times:  # 先標時間再包界線：時間在界線裡面

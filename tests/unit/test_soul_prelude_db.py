@@ -186,3 +186,41 @@ async def test_has_segment_checks_live_rows_only() -> None:
     assert await db_mod.has_segment(SOUL.agent_id, "legacy_summary", "home-1", "h") is True
     await session_service.invalidate_agent_sessions(SOUL)
     assert await db_mod.has_segment(SOUL.agent_id, "legacy_summary", "home-1", "h") is False
+
+
+@pytest.mark.asyncio
+async def test_invalidating_twice_after_rewriting_the_same_key_works() -> None:
+    """失效 → 同一個去重值又寫回 → 再失效：不撞唯一索引（還原、同名重建都一樣；審查 F1）."""
+    await init_db_async()
+    await db_mod.insert_segment(_seg("k", kind="legacy_summary"))
+    await session_service.invalidate_restored_sessions()
+    assert await db_mod.insert_segment(_seg("k", kind="legacy_summary")) is True
+    await session_service.invalidate_restored_sessions()  # 以前在這裡丟 SESSION_SAVE_FAILED
+    assert await db_mod.insert_segment(_seg("k", kind="legacy_summary")) is True
+    await session_service.invalidate_agent_sessions(SOUL)
+    assert await db_mod.list_live_segments(SOUL.agent_id) == []
+    assert await db_mod.count_agent_segments(SOUL) == 3
+
+
+@pytest.mark.asyncio
+async def test_export_lists_only_live_rows() -> None:
+    """失效的列可能屬於同名的前一個靈魂，匯出不帶；已合併的照帶（審查 F11）."""
+    await init_db_async()
+    await db_mod.insert_segment(_seg("old"))
+    await session_service.invalidate_agent_sessions(SOUL)
+    await db_mod.insert_segment(_seg("new", content="新的"))
+    rows = await db_mod.list_agent_segments(SOUL)
+    assert [row["content"] for row in rows] == ["新的"]
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_helpers_use_the_canonical_soul_id() -> None:
+    """計數、清除、列出和寫入同一條正式化規則（別名換成註冊名；審查 F19）."""
+    await init_db_async()
+    await db_mod.insert_segment(_seg("a"))
+    alias = AgentIdentity.for_role(agent_id="ToukaSoulPreludeDbSoul", role="Owner")
+    with patch.object(db_mod, "canonical_agent_id", return_value=SOUL.agent_id) as canon:
+        assert await db_mod.count_agent_segments(alias) == 1
+        assert len(await db_mod.list_agent_segments(alias)) == 1
+        assert await db_mod.purge_agent_segments(alias) == 1
+    assert canon.call_count == 3

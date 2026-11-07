@@ -52,4 +52,11 @@ describe('ContextMeter — ADR-0092 Phase B 真實 token%', () => {
     expect(screen.getByText('人格')).toBeInTheDocument();
     expect(screen.getByText('對話')).toBeInTheDocument();
   });
+
+  it('前情區塊顯示中文標籤，不顯示原始鍵名（ADR-0305）', () => {
+    render(<ContextMeter messages={withUsage(50, { soul_prelude: 3000, conversation: 50000 })} />);
+    fireEvent.click(screen.getByTestId('context-meter'));
+    expect(screen.getByText('前情')).toBeInTheDocument();
+    expect(screen.queryByText('soul_prelude')).not.toBeInTheDocument();
+  });
 });
