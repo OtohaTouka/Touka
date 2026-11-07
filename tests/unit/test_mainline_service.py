@@ -274,6 +274,37 @@ async def test_storage_error_reading_home_fails_the_turn(monkeypatch, mode):
         await mainline_service.inject_mainline(_request(), A, mode=mode, session_id="child")
 
 
+async def test_storage_error_is_not_retried_with_a_second_read(monkeypatch):
+    """讀家碰到儲存錯誤就讓這一輪失敗、不讀第二次（第二次讀到時前情與時間標記會用錯的家，H3）."""
+    real = async_db.session_service.read_home_snapshot
+    calls: list[str] = []
+
+    async def flaky(identity):
+        calls.append(identity.agent_id)
+        if len(calls) == 1:
+            raise async_db.SessionPersistenceError
+        return await real(identity)
+
+    monkeypatch.setattr(async_db.session_service, "read_home_snapshot", flaky)
+    with pytest.raises(async_db.SessionPersistenceError):
+        await mainline_service.inject_mainline(_request(), A, mode="chat", session_id="home")
+    assert calls == [A.agent_id]
+
+
+async def test_two_homes_keep_the_prelude_and_send_the_turn():
+    """既有資料有兩個家（範圍矛盾）：當作沒有家，前情照帶、沒有家原文，照樣送出（第 3 輪 H5）."""
+    async with async_db.get_async_db() as db:  # set_home 不會造出兩個家，直接改資料庫
+        await db.execute(
+            "UPDATE user_sessions SET is_home = 1, home_for_agent = ? WHERE id = 'child'",
+            (A.agent_id,),
+        )
+        await db.commit()
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="child")
+    assert "前情的一段" in _system(request)
+    assert "家裡的問題" not in "\n".join(_dialogue(request))
+
+
 async def test_heartbeat_keeps_its_prelude_when_home_is_unreadable(monkeypatch):
     """心跳以前不讀家：讀家失敗時當作沒有家，照樣帶前情（審查第 2 輪 G2）."""
     monkeypatch.setattr(async_db.session_service, "read_home_snapshot", _broken_home)

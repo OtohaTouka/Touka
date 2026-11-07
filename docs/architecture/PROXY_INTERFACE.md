@@ -1007,9 +1007,9 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **聊天側先等畫面的收尾保存（ADR-0302）**：網頁版文字版存好後、送出終態前登記一個等待者；`POST /v1/ui/sessions/{id}` 存好時叫醒它（上限 10 秒，逾時照剪）。心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時不剪（讀到後、寫摘要前、存回前各查一次）。同一段對話只留一個在等，新的取代舊的。
 - **身分**：剪裁、歸檔、摘要記帳都用家對話所屬的靈魂。心跳本來就是靈魂；聊天側（dispatcher 存檔後）從 session 的 `home_for_agent` 解析，解析不到不剪並記 warning，不用 UI 請求者（ADR-0264）
 - **摘要**：第一行是時間範圍；送摘要員的每行帶台北時間（ADR-0264）。剪掉的對話太長時分段摘要，每次請求不超過 8 萬 token，任一段失敗就不寫摘要
-- **前情（ADR-0305）**：剪掉的部分寫成靈魂前情（`soul_prelude_segments`）的一段，和剪過的樹同一交易；`summary_budget_pct > 0` 時是摘要，否則是一行來源註記。`context_summary` 不再改（畫面不顯示這欄，存檔時原樣送回）。摘要長度不超過 `prelude_max_tokens`；送摘要員的每則壓成一行。靈魂正在重置或刪除時不剪。前情超過 `prelude_max_tokens` 且 `prelude_summary_enabled` 開著時，剪完之後在背景、對話鎖外合併最舊的幾段（輸出上限跟著前情上限走；失敗冷卻 6 小時）
+- **前情（ADR-0305）**：剪掉的部分寫成靈魂前情（`soul_prelude_segments`）的一段，和剪過的樹同一交易；`summary_budget_pct > 0` 時是摘要，否則是一行來源註記。`context_summary` 不再改（畫面不顯示這欄，存檔時原樣送回）。摘要長度不超過 `prelude_max_tokens` 的一半；送摘要員的每則壓成一行。靈魂正在重置或刪除時不剪。前情超過 `prelude_max_tokens` 且 `prelude_summary_enabled` 開著時，剪完之後在背景、對話鎖外合併最舊的幾段（輸出上限跟著前情上限走；失敗冷卻 6 小時）
 - **設定欄位（ADR-0305）**：`summary_model`（預設 `claude-haiku-5-5`）、`prelude_summary_enabled`（預設 true）、`prelude_max_tokens`（500～20,000，預設 4,000）
-- **主線（ADR-0305）**：`mainline_service.inject_mainline` 是唯一組法，SoulLayer、群聊、心跳都呼叫：前情一律帶（無痕不帶），以 `<soul_prelude>` 區塊、歷史資料界線包好；家原文只在 IDE／SNS 家模式、子對話（帶對話編號、不是家，內容前標時間）、群聊帶；每輪只讀一次家；讀家碰到儲存錯誤時前情照樣組，家原文照舊讓這一輪失敗（心跳照帶前情、不帶家原文）。上下文預覽（`PipelineContext.preview`）不搬舊摘要、不寫資料。對話自己的舊摘要（`<conversation_summary>`，家與子對話一樣）由 `inject_mainline(own_summary=True)` 插，只有這一輪前情原文照登同一段時不插（`summaries_shown_for`）；截短過、被折掉、被合併時照插
+- **主線（ADR-0305）**：`mainline_service.inject_mainline` 是唯一組法，SoulLayer、群聊、心跳都呼叫：前情一律帶（無痕不帶），以 `<soul_prelude>` 區塊、歷史資料界線包好；家原文只在 IDE／SNS 家模式、子對話（帶對話編號、不是家，內容前標時間）、群聊帶；每輪只讀一次家；讀家碰到儲存錯誤時這一輪照舊失敗、不讀第二次（心跳照帶前情、不帶家原文）。上下文預覽（`PipelineContext.preview`）不搬舊摘要、不寫資料。對話自己的舊摘要（`<conversation_summary>`，家與子對話一樣）由 `inject_mainline(own_summary=True)` 插，只有這一輪前情原文照登同一段時不插（`summaries_shown_for`）；截短過、被折掉、被合併時照插
 
 ---
 ## 👑 使用者管理與 RBAC (User Management) ⭐

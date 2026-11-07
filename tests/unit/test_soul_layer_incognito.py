@@ -31,6 +31,10 @@ def _patch_soul(monkeypatch) -> AsyncMock:
     monkeypatch.setattr(
         soul_mod.session_service, "get_session_by_id", AsyncMock(return_value={"agent_id": "Sumi"})
     )
+    # 主線每輪自己讀一次家（ADR-0305）；這裡沒有資料庫，當作沒有家
+    monkeypatch.setattr(
+        soul_mod.session_service, "read_home_snapshot", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         soul_mod.agent_service,
         "identify_agent",

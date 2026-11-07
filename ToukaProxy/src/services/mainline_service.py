@@ -13,9 +13,9 @@
 | 心跳（在家或子對話） | 帶 | 不帶（在家時自己的歷史就是家；子對話時全文太貴） |
 | 無痕 | 不帶 | 不帶 |
 
-每輪只讀一次家，前情與家原文用同一份。讀家碰到儲存錯誤時，前情照樣組，家原文交回原本的讀法：
-和以前一樣讓這一輪失敗（ADR-0078 失效不沉默，審查第 2 輪 G2）；心跳（以前不讀家）不帶家原文，
-照樣帶前情。兩個家等範圍矛盾當作沒有家。
+每輪只讀一次家，前情與家原文用同一份。讀家碰到儲存錯誤時，和以前一樣讓這一輪失敗、不再讀第二次
+（ADR-0078 失效不沉默，審查第 2 輪 G2、第 3 輪 H3）；心跳（以前不讀家）不帶家原文，照樣帶前情。
+兩個家等範圍矛盾當作沒有家。
 前情讀不到時照樣送出這一輪（記 warning 與原因）。上下文預覽（``preview``）不搬舊摘要，整個流程
 不寫資料。
 
@@ -44,19 +44,28 @@ logger = logging.getLogger(__name__)
 type MainlineMode = Literal["chat", "group", "heartbeat", "incognito"]
 
 
-async def _home_session(identity: AgentIdentity) -> tuple[dict[str, Any] | None, bool]:
-    """現任家與「讀得到」；範圍矛盾（兩個家）時當作沒有家，儲存錯誤回（None, False）."""
+async def _home_session(identity: AgentIdentity, *, heartbeat: bool) -> dict[str, Any] | None:
+    """現任家；範圍矛盾（兩個家）時當作沒有家.
+
+    儲存錯誤照舊丟出去讓這一輪失敗；只有心跳（以前不讀家）當作沒有家，照樣帶前情。
+    """
     try:
         snapshot = await session_service.read_home_snapshot(identity)
     except ToukaException:
         logger.warning(
             "Mainline: home conversation unavailable for %s", identity.agent_id, exc_info=True
         )
-        return None, True
+        return None
     except SessionPersistenceError:
-        logger.warning("Mainline: home unreadable for %s", identity.agent_id, exc_info=True)
-        return None, False
-    return (snapshot.session if snapshot else None), True
+        if not heartbeat:
+            raise
+        logger.warning(
+            "Mainline: home unreadable for %s; heartbeat keeps its prelude",
+            identity.agent_id,
+            exc_info=True,
+        )
+        return None
+    return snapshot.session if snapshot else None
 
 
 async def _inject_prelude(
@@ -106,20 +115,18 @@ async def inject_mainline(
     """
     if mode == "incognito":
         return
-    home, readable = await _home_session(identity)
+    home = await _home_session(identity, heartbeat=mode == "heartbeat")
     shown = await _inject_prelude(request, identity, home, preview=preview)
     if mode == "heartbeat":
         return
     home_id = home["id"] if home else None
     current = session_id if sends_own_history else None
-    # 用同一次讀到的家（沒有家就是空的）；讀不到時交回原本的讀法：再讀一次，儲存錯誤照舊讓這一輪失敗
-    home_messages = (home_messages_of(home, current) if home else []) if readable else None
-    await soul_service.inject_home_messages(
+    await soul_service.inject_home_messages(  # 用同一次讀到的家，沒有家就是空的
         request,
         identity,
         current_session_id=current,
         stamp_times=mode == "chat" and session_id is not None and session_id != home_id,
-        home_messages=home_messages,
+        home_messages=home_messages_of(home, current) if home else [],
     )
     if own_summary and session_id:
         await soul_service.inject_context_summary(

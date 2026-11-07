@@ -61,9 +61,9 @@ BLOCK_META: dict[str, dict[str, str]] = {
     CONVERSATION_SUMMARY: {
         "name": "Conversation Summary",
         "layer": "SoulLayer",
-        "source": "session.context_summary (DB, ADR-0092 Phase D；只剩子對話升級前的舊摘要)",
+        "source": "session.context_summary (DB, ADR-0092 Phase D；對話自己升級前的舊摘要)",
         "kind": "real",
-        "mock": "（子對話升級前留下的舊摘要；家的已搬進前情）",
+        "mock": "（這段對話升級前留下的舊摘要；前情原文照登時不插）",
     },
     SOUL_PRELUDE: {
         "name": "Soul Prelude",

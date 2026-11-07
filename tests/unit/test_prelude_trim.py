@@ -5,7 +5,8 @@
 - 樹被擋下（讀檔後換家、取消家）時段落也不寫；段落寫入失敗時樹也不寫。
 - 摘要員拿到前情顯示順序的最後一段，避免重複；摘要最多前情上限的一半。
 - 剪完才在背景做前情合併（拿靈魂鎖，在剪裁的對話鎖外面），剪裁不等它。
-- 靈魂正在重置或刪除時不寫前情段落，樹也不剪；讀完存檔才開始的，歸檔進舊對話庫前就停（審查 F11、第 2 輪 G6）。
+- 靈魂正在重置或刪除時不寫前情段落，樹也不剪；讀完存檔才開始的，歸檔進舊對話庫前就停
+  （審查 F11、第 2 輪 G6）。
 
 全部離線：SQLite 只在測試沙盒；舊對話庫、摘要與 hook 都是假的。
 """
@@ -271,6 +272,26 @@ async def test_reset_starting_after_the_read_stops_before_the_archive(trim, monk
         assert await trim.service.check_and_trim(A, "chat") is False
     finally:
         destructive_ops.release(A)
+    trim.archive.assert_not_called()
+    trim.summarize.assert_not_awaited()
+    assert await _live() == []
+    assert await raw_row() == before
+
+
+async def test_reset_completed_during_the_read_stops_before_the_archive(trim, monkeypatch):
+    """讀存檔期間一次重置整個跑完（已不在進行中、代數變了）：照樣在歸檔前停（第 3 輪 H5）."""
+    await seed("chat")
+    assert await service.set_home("chat", A, True)
+    before = await raw_row()
+
+    def split_after_a_reset(linear, *_args):
+        destructive_ops.hold(A)
+        destructive_ops.stop_heartbeats(A)
+        destructive_ops.release(A)
+        return linear[:1], linear[1:]
+
+    monkeypatch.setattr(trim.service, "compute_split_by_tokens", split_after_a_reset)
+    assert await trim.service.check_and_trim(A, "chat") is False
     trim.archive.assert_not_called()
     trim.summarize.assert_not_awaited()
     assert await _live() == []

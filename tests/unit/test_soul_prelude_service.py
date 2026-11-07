@@ -230,8 +230,8 @@ async def test_merge_combines_oldest_when_over_cap_and_enabled() -> None:
 @pytest.mark.asyncio
 async def test_merge_never_takes_retired_summaries() -> None:
     await init_db_async()
-    # 退任摘要不合併、也佔合併的輸出額度（第 2 輪 G3），所以這裡用短的
-    await _add("r", kind="home_retired", source="old", content="退任 " + "字" * 100, at=500)
+    # 比合併段舊的退任摘要會先被折掉，不佔合併的輸出額度（第 3 輪 H1）
+    await _add("r", kind="home_retired", source="old", content="退任 " + "字" * 600, at=500)
     for i in range(4):
         await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
     seen: list[str] = []
@@ -422,6 +422,25 @@ async def test_summary_moved_then_invalidated_is_not_moved_again() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reset_starting_after_the_check_still_blocks_the_move() -> None:
+    """拿完代數才開始重置：寫鎖內再看一次，不搬（第 2 輪 G6、第 3 輪 H5）."""
+    await init_db_async()
+    session = {"id": "home-1", "context_summary": "舊摘要", "session_scope_version": 1}
+    real = db_mod.was_invalidated
+
+    async def reset_starts(*args: object) -> bool:
+        destructive_ops.hold(SOUL)
+        return await real(*args)
+
+    try:
+        with patch.object(prelude, "was_invalidated", reset_starts):
+            await prelude.migrate_legacy_summary(SOUL, session)
+    finally:
+        destructive_ops.release(SOUL)
+    assert await db_mod.list_live_segments(SOUL.agent_id) == []
+
+
+@pytest.mark.asyncio
 async def test_summary_is_not_moved_while_the_soul_is_being_reset() -> None:
     """重置或刪除進行中不搬，避免清完又冒出一段（F11）."""
     await init_db_async()
@@ -529,6 +548,50 @@ async def test_merged_summary_fits_even_with_dense_text_and_a_note_in_between() 
     block = await _block(SOUL, home_id=None, config=cfg)
     assert block is not None and "summary summary" in block
     assert "earlier entries are not shown" not in block
+
+
+@pytest.mark.asyncio
+async def test_old_source_notes_do_not_stop_merging() -> None:
+    """早期剪裁只留來源註記（摘要關著或失敗）：比合併段舊的註記先被折掉，不擋合併（H1）."""
+    await init_db_async()
+    for i in range(60):
+        await _add(f"n{i}", content=prelude.trim_note(30), at=1_000 + i)
+    for i in range(8):
+        await _add(f"s{i}", content=f"摘要{i} " + "字" * 400, at=5_000 + i)
+    summarize = AsyncMock(return_value="合併後")
+    cfg = _cfg(prelude_max_tokens=4_000, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", summarize):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    block = await _block(SOUL, home_id=None, config=cfg)
+    assert block is not None and "合併後" in block
+
+
+@pytest.mark.asyncio
+async def test_merging_continues_when_mergeables_exceed_one_request() -> None:
+    """可合併段落超過一次請求的上限：這一輪併挑到的，剩下的下一輪再併，不會從此停掉（H1）."""
+    await init_db_async()
+    for i in range(45):
+        await _add(f"t{i}", content="字" * 2_000, at=1_000 + i)
+    summarize = AsyncMock(return_value="合併後")
+    cfg = _cfg(prelude_max_tokens=4_000, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", summarize):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+        assert await merge.merge_if_needed(SOUL, cfg) is True  # 剩下的與上次的合併段再併一次
+    visible = prelude.visible_segments(await db_mod.list_live_segments(SOUL.agent_id), None)
+    assert [s.kind for s in visible] == ["merged", "home_trim"]
+
+
+@pytest.mark.asyncio
+async def test_only_old_summaries_merge_into_one_segment_in_their_place() -> None:
+    """可見段落只有舊摘要：全部合成一段，不會排到保留下來的舊摘要後面（第 3 輪 H2）."""
+    await init_db_async()
+    for i in range(3):
+        await _add(f"L{i}", kind="legacy_summary", source=f"h{i}", content="字" * 900, at=1_000 + i)
+    cfg = _cfg(prelude_max_tokens=2_000, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", AsyncMock(return_value="合併後")):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    visible = prelude.visible_segments(await db_mod.list_live_segments(SOUL.agent_id), None)
+    assert [s.kind for s in visible] == ["merged"]
 
 
 @pytest.mark.asyncio

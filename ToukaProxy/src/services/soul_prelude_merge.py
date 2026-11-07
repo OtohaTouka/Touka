@@ -5,8 +5,9 @@
 （鎖的順序：靈魂鎖在最外層）；摘要在交易外。重置或刪除中不做，摘要期間開始的也丟掉結果；任何失敗
 都留著原本的段落，同一個靈魂冷卻一段時間再試。
 
-合併段排在它取代的段落的位置：寫入時間取被合併段落中最新的，但早於後面第一段非舊摘要的段落（舊摘要比
-剪裁晚搬進來時也不會排錯，審查第 2 輪 G4）。輸出上限＝前情上限扣掉全部不合併的可見段落與餘量；
+合併段排在它取代的段落的位置：寫入時間取被合併段落中最新的，但早於後面第一段非舊摘要的段落
+（舊摘要比剪裁晚搬進來時也不會排錯，審查第 2 輪 G4）；保留的尾段不跨進舊摘要（第 3 輪 H2）。
+輸出上限＝前情上限扣掉比合併段新、會先放進前情的段落與餘量（比它舊的會先被折掉，不扣，第 3 輪 H1）；
 模型真的 token 數和本機估算不同，拿到結果後再用估算截到上限內，合併完一定放得進前情（G3）。
 送給摘要員的每段壓成一行（G8）。同一來源被取代的舊版舊摘要一起標成已合併，不會重新出現（G7）。
 """
@@ -64,8 +65,12 @@ def _soul_lock(agent: str) -> asyncio.Lock:
     return lock
 
 
-def _pick_for_merge(visible: list[StoredSegment], max_tokens: int) -> list[StoredSegment]:
-    """最新的段落留到上限的一半（最新一段一定留），更早的可合併段落交給合併（照顯示順序）."""
+def _keep_from(visible: list[StoredSegment], max_tokens: int) -> int:
+    """保留的最新段落從哪一段開始：留到上限的一半（最新一段一定留）.
+
+    保留的尾段不跨進舊摘要：舊摘要一律排在最前面、內容都比剪裁舊，碰到時全部交給合併；否則合併段
+    （不是舊摘要）會排到保留的舊摘要後面，內容較舊卻變成「最新」（審查第 3 輪 H2）。
+    """
     keep_budget = max_tokens // _KEEP_NEWEST_SHARE
     kept = 0
     keep_from = len(visible)
@@ -75,6 +80,13 @@ def _pick_for_merge(visible: list[StoredSegment], max_tokens: int) -> list[Store
             break
         kept += cost
         keep_from = index
+    while keep_from < len(visible) and visible[keep_from].kind == "legacy_summary":
+        keep_from += 1
+    return keep_from
+
+
+def _pick_for_merge(visible: list[StoredSegment], keep_from: int) -> list[StoredSegment]:
+    """保留段落之前的可合併段落交給合併（照顯示順序，一次請求不超過上限）."""
     picked: list[StoredSegment] = []
     used = 0
     for seg in visible[:keep_from]:
@@ -94,6 +106,25 @@ def _merged_time(visible: list[StoredSegment], picked: list[StoredSegment]) -> i
     after = visible[visible.index(picked[-1]) + 1 :]
     later = [seg.created_at for seg in after if seg.kind != "legacy_summary"]
     return min(newest, later[0] - 1) if later else newest
+
+
+def _room_taken(
+    visible: list[StoredSegment], picked: list[StoredSegment], keep_from: int, merged_at: int
+) -> int:
+    """比合併段新、會先放進前情的段落成本：保留的最新段落，與排在合併段之後、不合併的段落.
+
+    前情從最新往前放，比合併段舊的（較早的註記、退任摘要）會先被折掉，不佔它的位置；這一輪超過
+    請求上限沒挑到的可合併段落下一輪會和合併段一起再併，也不扣。全部扣掉的話，舊段落累積之後上限
+    變成負數，從此不再合併（審查第 3 輪 H1）。
+    """
+    chosen = {seg.id for seg in picked}
+    room = 0
+    for index, seg in enumerate(visible):
+        if seg.id in chosen or seg.kind == "legacy_summary" or seg.created_at <= merged_at:
+            continue  # 被合併的、舊摘要（排在最前面）、比合併段舊的
+        if index >= keep_from or seg.kind not in _MERGEABLE or is_source_note(seg):
+            room += segment_cost(seg)
+    return room
 
 
 def _superseded(
@@ -140,10 +171,14 @@ async def merge_if_needed(
         total = sum(segment_cost(seg) for seg in visible)
         if total <= cap:
             return False
-        picked = _pick_for_merge(visible, cap)
-        others = total - sum(segment_cost(seg) for seg in picked)
-        budget = min(MERGE_MAX_TOKENS, cap - others - _HEADER_MARGIN_TOKENS)
-        if len(picked) < 2 or budget < MERGE_MIN_TOKENS:
+        keep_from = _keep_from(visible, cap)
+        picked = _pick_for_merge(visible, keep_from)
+        if len(picked) < 2:
+            return False
+        merged_at = _merged_time(visible, picked)
+        room = _room_taken(visible, picked, keep_from, merged_at)
+        budget = min(MERGE_MAX_TOKENS, cap - room - _HEADER_MARGIN_TOKENS)
+        if budget < MERGE_MIN_TOKENS:
             return False
         entries = [single_line(render_segment(seg)) for seg in picked]
         text = await summarize_entries(identity, entries, budget, config.summary_model)
@@ -163,7 +198,7 @@ async def merge_if_needed(
             source_session="",
             dedupe_key=f"{picked[0].id}-{picked[-1].id}-{len(picked)}",
             content=_fit_text(text, budget),
-            created_at=_merged_time(visible, picked),
+            created_at=merged_at,
             covers_from=min(starts) if starts else None,
             covers_to=max(ends) if ends else None,
         )
