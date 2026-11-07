@@ -3,7 +3,7 @@
 
 <harness_context> 是「OS 環境事實宣告」：soul.md 管我是誰、本塊管我在哪與世界的
 物理法則。它對模型做出**行為承諾**（子代理不可再派、看板未清不可停、派發結果耐久、
-長對話會摘要進 <conversation_summary>）——承諾句與對應程式行為必須**一起變**：
+長對話會剪進 <soul_prelude>）——承諾句與對應程式行為必須**一起變**：
 改了行為沒改指南、或改了指南沒改行為，此守衛即 FAIL。
 
 規則（純 AST／文字、零 import 副作用、秒級；ASCII 輸出）：
@@ -14,7 +14,7 @@
      （剝除 dispatch_subagent 與 dispatch_subagent_group，ADR-0269）
    - 「refuses to end the conversation」    ⇄ mission_stop_gate ＋ claude_handler 接線
    - 「after a harness restart」            ⇄ subagent_results.persist_result 耐久層
-   - 「<conversation_summary>」             ⇄ SoulLayer inject_context_summary
+   - 「<soul_prelude>」                     ⇄ 剪裁寫前情（同一交易）＋SoulLayer 注入主線（ADR-0305）
 3. builder 字串常數不得含 CJK（拍板：英文內文）。
 """
 from __future__ import annotations
@@ -57,10 +57,16 @@ _CLAIM_PAIRS: tuple[tuple[str, Path, str], ...] = (
         _SRC / "services" / "subagent_results.py",
         "def persist_result",
     ),
+    # ADR-0305：剪下的舊對話寫進前情（和剪過的樹同一個交易），SoulLayer 每輪注入主線
     (
-        "<conversation_summary>",
+        "<soul_prelude>",
+        _SRC / "services" / "sliding_window_service.py",
+        "after_write=functools.partial(insert_segment_tx, seg=segment)",
+    ),
+    (
+        "<soul_prelude>",
         _SRC / "middleware" / "layers" / "soul.py",
-        "inject_context_summary",
+        "await inject_mainline(",
     ),
 )
 

@@ -55,7 +55,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """SOUL 被認成靈魂；上游換成假串流，記錄送出的請求與 pipeline context。"""
     seen: dict[str, Any] = {"requests": [], "contexts": [], "home_current_session": []}
 
-    async def _no_home(*_args: Any, current_session_id: str | None = None) -> None:
+    async def _no_home(*_args: Any, current_session_id: str | None = None, **_kwargs: Any) -> None:
         seen["home_current_session"].append(current_session_id)
 
     async def _fake_stream(_model: str, request: Any, *args: Any, **_kwargs: Any) -> Any:

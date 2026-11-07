@@ -14,7 +14,8 @@ PROJECT_CONTEXT = "project_context"
 IDE_CONTEXT = "ide_context"
 MISSION_AWARENESS = "mission_awareness"
 CAPABILITIES = "capabilities"
-CONVERSATION_SUMMARY = "conversation_summary"  # ADR-0092 Phase D：被剪舊對話的摘要
+CONVERSATION_SUMMARY = "conversation_summary"  # ADR-0092 Phase D：子對話自己升級前的舊摘要
+SOUL_PRELUDE = "soul_prelude"  # ADR-0305：靈魂累積的前情（剪裁、退任、回報的摘要或來源註記）
 TOOL_AVAILABILITY = "tool_availability"  # Tier 1：Gate 1 過濾的可讀說明（防工具幻覺）
 VALIDATION_PROTOCOL = "validation_protocol"  # P2a：改動後自我驗證慣例（僅開發流程注入）
 HARNESS_CONTEXT = "harness_context"  # ADR-0139：OS 環境事實宣告（穩定層、與人格零重疊）
@@ -30,6 +31,7 @@ ALL_BLOCK_TAGS: tuple[str, ...] = (
     MISSION_AWARENESS,
     CAPABILITIES,
     CONVERSATION_SUMMARY,
+    SOUL_PRELUDE,
     TOOL_AVAILABILITY,
     VALIDATION_PROTOCOL,
     HARNESS_CONTEXT,
@@ -156,9 +158,8 @@ def build_harness_context(
         "drive stay the same across switches.",
         "",
         "## Memory and context",
-        "- When a conversation grows long, older turns are trimmed and summarized "
-        "into the <conversation_summary> block - earlier context is condensed "
-        "there, not lost.",
+        "- When a conversation grows long, older turns are trimmed into the "
+        "<soul_prelude> block - earlier context is condensed there, not lost.",
     ]
     if "memory_tools" in advertised:
         lines.append(

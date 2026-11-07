@@ -72,6 +72,7 @@ async def test_summarizer_request(monkeypatch, budget, max_tokens):
             "每行開頭方括號是該則訊息在對話紀錄裡的台北時間（可能來自使用者裝置的時鐘；"
             "unknown time 表示沒有紀錄）。有可靠時間戳時，把「明天」「昨天」「下週」這類相對時間"
             "換成絕對日期；時間不明或不確定時保留原話。"
+            "如果有『前情最後一段』，那是已經摘要過的內容，只當背景，不要重複寫進要點。"
         ),
         "user": (
             "[unknown time] user: 我們約好下週交付。\n[unknown time] assistant: 好的，我會準備。"

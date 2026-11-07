@@ -21,6 +21,7 @@ from src.models.souls import (  # noqa: TC001
 from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
+    assert_prelude_cleared,
     assert_timeline_cleared,
 )
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
@@ -445,6 +446,7 @@ async def delete_soul(
         # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
+        await assert_prelude_cleared(identity)  # 前情也屬記憶（ADR-0305）
         # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個靈魂的全部指令，
         # 標記期間也不會開新的。
         refuse_linked_drive(resource_manager.soul_drive(identity))
@@ -463,6 +465,7 @@ async def delete_soul(
         # 清家目錄要好幾秒；這段期間寫進來的（例如前景聊天）再查一次。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)
+        await assert_prelude_cleared(identity)
 
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)

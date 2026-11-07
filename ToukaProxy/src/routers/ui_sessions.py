@@ -43,6 +43,7 @@ from src.models.session_persistence import (
     SessionStreamStateResponse,
     UnknownResult,
 )
+from src.services import soul_prelude_service
 from src.services.activity_registry import activity_registry
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import (
@@ -377,6 +378,15 @@ async def get_session(
     }
 
 
+async def _current_home(soul: AgentIdentity) -> dict[str, Any] | None:
+    """設家前的現任家（搬它的舊摘要用）；讀不到或矛盾時當作沒有."""
+    try:
+        snapshot = await session_service.read_home_snapshot(soul)
+    except (ToukaException, SessionPersistenceError):
+        return None
+    return snapshot.session if snapshot else None
+
+
 @router.post("/sessions/set_home")
 async def set_home_session(
     req: SetHomeRequest,
@@ -409,9 +419,18 @@ async def set_home_session(
         identity, bound, target.get("owner_user_id")
     ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    outgoing = await _current_home(req.agent_id)
     success = await session_service.set_home(req.session_id, req.agent_id, req.is_home)
     if not success:
         raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+    # 舊家與新家升級前的舊摘要搬進前情（ADR-0305；只搬一次）；搬不了不影響設家
+    for session in (outgoing, target if req.is_home else None):
+        if session is None:
+            continue
+        try:
+            await soul_prelude_service.migrate_legacy_summary(req.agent_id, session)
+        except Exception:
+            logger.warning("Prelude: old summary of %s not carried over", session.get("id"))
 
     return {
         "status": "success",

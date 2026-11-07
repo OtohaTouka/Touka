@@ -7,6 +7,7 @@ from memory_server.models.conversation_search import (
     ConversationPage,
     ConversationRow,
     ConversationSearchError,
+    conversation_key,
     sort_conversations,
 )
 from memory_server.utils.legacy_time import to_epoch_ms
@@ -58,12 +59,14 @@ def conversation_page(
     """文字比對沿 SQLite LIKE 的 ASCII 大小寫語意，先篩完整文字再切頁。"""
     needle = query.translate(_ASCII_LOWER)
     matching = []
+    keys: set[str] = set()  # 文字與角色符合的全部訊息（不套日期），給舊對話庫去重（ADR-0305）
     unknown = 0
     for row in rows:
         if (role is not None and row.role != role) or needle not in row.content.translate(
             _ASCII_LOWER
         ):
             continue
+        keys.add(conversation_key(row.session_id, row.message_id))
         timestamp = row.timestamp_ms
         if timestamp is None:
             unknown += 1
@@ -75,4 +78,6 @@ def conversation_page(
             continue
         matching.append(row)
     ordered = sort_conversations(matching, oldest_first)
-    return ConversationPage(len(ordered), ordered[offset : offset + limit], unknown)
+    return ConversationPage(
+        len(ordered), ordered[offset : offset + limit], unknown, frozenset(keys)
+    )

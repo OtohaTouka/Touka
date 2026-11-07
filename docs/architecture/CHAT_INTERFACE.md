@@ -78,7 +78,8 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 
 - `AuthSwitcher` 只剩 Manual／Auto／YOLO，選 YOLO 仍二次確認；看不懂的值顯示 Manual。存檔後 `ChatProvider` 重讀對話清單、顯示後端實際存下的模式，被降成 Manual 時 toast 說明只有管理員或這個靈魂的擁有者能開；較舊的回應晚到時忽略。新對話還沒有 `agent_id`、目前選的是靈魂時，切模式一起帶上它存檔；選一般模型不綁，還沒有訊息的對話換模型也不被拉回；這時送出第一句會先把對話重綁到選的模型、顯示後端存下的模式再送（R-2c）。無痕對話鎖定顯示 Manual 並說明「無痕對話無法追溯，只能用 Manual」；在無痕對話要求 Auto／YOLO 時維持 Manual、不呼叫存檔，toast 說明原因。
 - `ToolApprovalCard`：`tool_approval_request` 的選用欄位 `review_reason` 顯示成「審查員轉給你的理由」，`human_only` 顯示「只有你能核准」；兩個欄位在解算事件後保留（`stream_tree`、`tree_history`），型別不對不顯示。沒有新事件種類。
-- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
+- 設定頁「滑動視窗」多了摘要模型選單與前情摘要開關（`slidingWindow/SummarySettings`，ADR-0305）：選項和 Auto 審查員同一份（`useKeyedModels`，`GET /v1/autonomy/reviewer-models`）；目前的模型不在清單裡時照樣列出並提醒；兩個控制項不受滑動視窗開關影響；仍經 `POST /v1/system/sliding_window` 存檔（admin）。設定型別改用生成合約的 `SlidingWindowConfig`（`lib/types.ts`）。
+- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`，模型清單在 `useKeyedModels`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
 - 心跳排程（`HeartbeatScheduler`、`heartbeat_mode`）：safe／full 顯示成 Auto／YOLO，看不懂顯示 Manual。新增連線表單的直連標示（`DirectConnectionNotice`）：直連沒有工具、不受權限模式管、不記帳。
 - 錯誤碼 1118～1120（審查員拒絕、無人在場不跑終端、需要人但沒人在場）兩語翻譯。
 

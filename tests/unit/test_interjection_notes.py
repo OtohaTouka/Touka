@@ -191,7 +191,7 @@ async def test_home_messages_carry_the_note(monkeypatch):
 def test_summarizer_input_carries_the_note():
     tree = _tree()
     linear = [tree["messages"][k] for k in ("u1", "a1", "u2")]
-    assert dialogue_summarizer._format_dialogue(linear) == (
+    assert "\n".join(dialogue_summarizer._dialogue_lines(linear)) == (
         "[unknown time] user: 先查資料\n"
         "[unknown time] assistant: 〔本回合中使用者補充（第 2 步）：只看 2026 年〕\n\n查好了\n"
         "[unknown time] user: 整理一下"

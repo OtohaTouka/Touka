@@ -36,6 +36,7 @@ from src.services.tool_errors import is_tool_error
 from src.tools.builtin.memory import memory_tools
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import list_agent_events
+from src.utils.soul_prelude_db import list_agent_segments
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
 if TYPE_CHECKING:
@@ -107,6 +108,15 @@ async def _fetch_agent_timeline(identity: AgentIdentity) -> list[dict[str, Any]]
         return await list_agent_events(identity)
     except Exception:
         logger.warning("GDPR export: activity timeline unavailable for %s", identity.agent_id)
+        return None
+
+
+async def _fetch_agent_prelude(identity: AgentIdentity) -> list[dict[str, Any]] | None:
+    """該 agent 的前情段落（ADR-0305；含失效、已合併的）；讀不到回 None（列進 skipped）。"""
+    try:
+        return await list_agent_segments(identity)
+    except Exception:
+        logger.warning("GDPR export: soul prelude unavailable for %s", identity.agent_id)
         return None
 
 
@@ -199,6 +209,7 @@ def _readme(user: User, taipei_time: str) -> str:
         "  - projects.json       你擁有的專案設定\n"
         "  - agents/<id>/facts.json   該 agent 的事實記憶\n"
         "  - agents/<id>/activity_timeline.json  該 agent 的活動時間軸（只有時間與識別碼）\n"
+        "  - agents/<id>/soul_prelude.json  該 agent 的前情（對話的摘要與來源註記）\n"
         "  - agents/<id>/files/...    該 agent 的個人硬碟檔案\n"
         "  - avatar.*            你的頭像（若有）\n"
         "  - manifest.json       本次匯出的清單與統計\n\n"
@@ -254,7 +265,7 @@ async def _collect(
     )
 
     # 5) 每個自有 agent：事實記憶 + 個人硬碟檔案
-    facts_count = events_count = 0
+    facts_count = events_count = prelude_count = 0
     for agent_id in owned:
         identity = AgentIdentity(agent_id=agent_id, is_human=False)
         facts = await facts_fn(identity)
@@ -276,6 +287,18 @@ async def _collect(
                 indent=2,
             )
             events_count += len(timeline)
+        prelude = await _fetch_agent_prelude(identity)
+        if prelude is None:
+            state["skipped"].append(
+                {"agent": _safe_seg(agent_id), "reason": "soul_prelude_unavailable"}
+            )
+        else:
+            text_entries[f"agents/{_safe_seg(agent_id)}/soul_prelude.json"] = json.dumps(
+                {"agent_id": agent_id, "count": len(prelude), "segments": prelude},
+                ensure_ascii=False,
+                indent=2,
+            )
+            prelude_count += len(prelude)
         drive = _drive_to_export(identity, state)
         if drive is not None:
             drives.append((_safe_seg(agent_id), drive))
@@ -297,6 +320,7 @@ async def _collect(
             "agents": len(owned),
             "facts": facts_count,
             "activity_events": events_count,
+            "prelude_segments": prelude_count,
         },
         "included": [
             "profile",
@@ -305,6 +329,7 @@ async def _collect(
             "projects",
             "agent_facts",
             "agent_activity_timeline",
+            "agent_soul_prelude",
             "agent_personal_drive",
         ],
         "excluded": [

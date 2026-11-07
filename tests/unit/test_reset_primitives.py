@@ -20,6 +20,7 @@ from src.utils.continuity_events_db import (
     count_agent_events,
     insert_event,
 )
+from src.utils.soul_prelude_db import PreludeSegment, count_agent_segments, insert_segment
 
 from tests.support.links import make_dir_link
 
@@ -154,6 +155,26 @@ async def test_timeline_isolation():
     assert await count_agent_events(JIN) == jin_before >= 1
     assert await get_system_setting(agent_epoch_key(DEBUG)) is not None
     assert [s.name for s in P.MEMORY_STORES][:2] == ["memory", "timeline"]
+
+
+async def test_prelude_isolation():
+    """前情段落（ADR-0305）：只清 DebugAgent 的，真實 agent 不受影響；和對話放在同一區."""
+    await init_db_async()
+    for ident in (DEBUG, JIN):
+        await insert_segment(
+            PreludeSegment(
+                agent=ident.agent_id,
+                kind="home_trim",
+                source_session="s",
+                dedupe_key="k",
+                content="x",
+                created_at=1,
+            )
+        )
+    assert await P.purge_prelude("DebugAgent") == 1
+    assert await P.remaining_prelude("DebugAgent") == 0
+    assert await count_agent_segments(JIN) == 1
+    assert [s.name for s in P.PROXY_STORES][:2] == ["sessions", "prelude"]
 
 
 async def test_memory_unavailable_raises(monkeypatch):

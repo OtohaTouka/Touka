@@ -52,9 +52,12 @@ from .session_scope import (
 from .time_utils import get_current_epoch, get_current_epoch_ms
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from src.models.session_persistence import PersistedStreamAdmission, SaveResult
+
+    # 和對話列同一個交易裡的額外寫入（剪裁寫前情段落，ADR-0305）
+    type AfterWrite = Callable[[aiosqlite.Connection], Awaitable[object]]
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +270,11 @@ def _canonical_session_agent(value: str | None) -> str | None:
     return passport["agent_id"] if passport and passport["is_toukasoul"] else value
 
 
+def canonical_agent_id(identity: AgentIdentity) -> str:
+    """靈魂的正式 ID（別名換成註冊名）；和對話歸屬、家歸屬同一條規則."""
+    return _canonical_session_agent(identity.agent_id) or identity.agent_id
+
+
 def _session_agent_candidates(identity: AgentIdentity) -> tuple[str, str]:
     target = _canonical_session_agent(identity.agent_id) or identity.agent_id
     return target, f"ToukaSoul{target}" if target != "DebugAgent" else target
@@ -313,6 +321,14 @@ def _check_session_write(
                 row["session_scope_version"] = 0
         else:
             row["agent_id"] = existing["agent_id"]
+
+
+async def _has_prelude_table(db: aiosqlite.Connection) -> bool:
+    """前情段落表在不在（還原或升級前的資料庫可能還沒建）."""
+    cursor = await db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'soul_prelude_segments'"
+    )
+    return await cursor.fetchone() is not None
 
 
 def _get_session_lock(session_id: str) -> asyncio.Lock:
@@ -484,10 +500,13 @@ class SessionService:
         *,
         representation: str = "full",
         require_home: bool = False,
+        after_write: AfterWrite | None = None,
     ) -> SaveResult:
         """SQLite 層 compare+write 原子化，任何不明讀取／提交錯誤皆 unknown。
 
         ``require_home``：剪裁用，交易內那一列已經不是家就不寫（家標記不算進版本，ADR-0301）。
+        ``after_write``：剪裁用，在同一個交易裡寫前情段落（ADR-0305）；樹沒寫它就不跑，它失敗
+        樹也不寫。
         """
         return await SessionService._save_session(
             session_id,
@@ -496,6 +515,7 @@ class SessionService:
             expected_revision=expected_revision,
             representation=representation,
             require_home=require_home,
+            after_write=after_write,
         )
 
     @staticmethod
@@ -528,6 +548,7 @@ class SessionService:
         owner_user_id: str | None = None,
         channel_id: str | None = None,
         require_home: bool = False,
+        after_write: AfterWrite | None = None,
     ) -> SaveResult:
         """所有內容寫入共用鎖、嚴格讀取與同一個 IMMEDIATE 交易。"""
         try:
@@ -561,6 +582,8 @@ class SessionService:
                 if row is None and owner_user_id is not None:
                     updated["owner_user_id"] = owner_user_id
                 await _write_session_row(db, updated)
+                if after_write is not None:
+                    await after_write(db)
                 if row is None:
                     _persistence_generations[session_id] = (
                         _persistence_generations.get(session_id, 0) + 1
@@ -961,6 +984,12 @@ class SessionService:
                     "WHERE agent_id IN (?, ?) OR home_for_agent IN (?, ?)",
                     (target, alias, target, alias),
                 )
+                if await _has_prelude_table(db):  # 舊前情不給同名的新靈魂看（ADR-0305）
+                    await db.execute(
+                        "UPDATE soul_prelude_segments SET scope_version = 0 "
+                        "WHERE agent_id IN (?, ?)",
+                        (target, alias),
+                    )
                 await db.commit()
         except Exception:
             raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
@@ -982,6 +1011,8 @@ class SessionService:
                     # 缺表或欄位留給正常啟動 migration，新增標記預設即為 0。
                     if "session_scope_version" in columns:
                         await db.execute("UPDATE user_sessions SET session_scope_version = 0")
+                    if await _has_prelude_table(db):  # 還原的對話來源不可信，前情一起失效
+                        await db.execute("UPDATE soul_prelude_segments SET scope_version = 0")
                     await db.commit()
             resource_manager.remove_file(get_restore_pending_path())
         except Exception:
@@ -1240,6 +1271,19 @@ async def init_db_async() -> None:
         await db.execute(
             "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
             (TRUSTED_TIMELINE_EPOCH_KEY, str(get_current_epoch_ms())),
+        )
+        # 靈魂前情段落（3d，ADR-0305）：讀寫在 utils/soul_prelude_db.py；範圍版本和對話一起失效
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS soul_prelude_segments ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, "
+            "scope_version INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL, "
+            "source_session TEXT NOT NULL, dedupe_key TEXT NOT NULL, "
+            "covers_from INTEGER, covers_to INTEGER, content TEXT NOT NULL, "
+            "created_at INTEGER NOT NULL, merged_into INTEGER)"
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_soul_prelude_unique ON soul_prelude_segments "
+            "(agent_id, kind, source_session, dedupe_key, scope_version)"
         )
         await db.commit()
 

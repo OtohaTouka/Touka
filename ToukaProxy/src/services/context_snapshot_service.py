@@ -34,6 +34,7 @@ from src.services.prompt_blocks import (
     MISSION_AWARENESS,
     PERSONA,
     PROJECT_CONTEXT,
+    SOUL_PRELUDE,
     TOOL_AVAILABILITY,
     VALIDATION_PROTOCOL,
     VOLATILE_SYSTEM_TAGS,
@@ -60,9 +61,16 @@ BLOCK_META: dict[str, dict[str, str]] = {
     CONVERSATION_SUMMARY: {
         "name": "Conversation Summary",
         "layer": "SoulLayer",
-        "source": "session.context_summary (DB, ADR-0092 Phase D)",
+        "source": "session.context_summary (DB, ADR-0092 Phase D；只剩子對話升級前的舊摘要)",
         "kind": "real",
-        "mock": "（被剪舊對話的摘要；僅剪過的長對話有）",
+        "mock": "（子對話升級前留下的舊摘要；家的已搬進前情）",
+    },
+    SOUL_PRELUDE: {
+        "name": "Soul Prelude",
+        "layer": "SoulLayer／群聊／心跳（mainline_service）",
+        "source": "soul_prelude_segments (DB, ADR-0305)",
+        "kind": "real",
+        "mock": "（靈魂累積的前情：剪裁、退任、回報的摘要或來源註記；每段標原文在哪）",
     },
     PROJECT_CONTEXT: {
         "name": "Project Context",

@@ -16,6 +16,7 @@ from memory_server.utils.memory_worker import run_memory_job
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services import memory_collection_guard
 from src.utils.continuity_events_db import count_agent_events
+from src.utils.soul_prelude_db import count_agent_segments
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -90,3 +91,25 @@ async def assert_timeline_cleared(identity: AgentIdentity) -> None:
             events,
         )
         raise ToukaException(ErrorCode.SOUL_MEMORY_NOT_RESET, activity_events=events)
+
+
+async def assert_prelude_cleared(identity: AgentIdentity) -> None:
+    """還有前情段落（ADR-0305，也屬記憶）就 409；讀不到就 503（不能確認就不刪）。
+
+    同名新靈魂不會看到舊前情（範圍失效），但刪除照樣要先重置，不留孤兒資料。
+
+    Args:
+        identity: 要刪除的靈魂（只用 agent_id 查前情段落）。
+    """
+    try:
+        segments = await count_agent_segments(identity)
+    except Exception as exc:
+        logger.warning("Soul delete blocked: cannot confirm %s has no prelude", identity.agent_id)
+        raise ToukaException(ErrorCode.SOUL_MEMORY_CHECK_FAILED) from exc
+    if segments:
+        logger.warning(
+            "AUDIT: soul delete blocked for %s: prelude remains (segments=%d)",
+            identity.agent_id,
+            segments,
+        )
+        raise ToukaException(ErrorCode.SOUL_MEMORY_NOT_RESET, prelude_segments=segments)

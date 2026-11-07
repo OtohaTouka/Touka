@@ -944,6 +944,12 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 
 測試：`ToukaChat/src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx`、`ToukaChat/src/lib/__tests__/connections.token-origin.security.test.ts`、`ToukaChat/e2e-real/connection-switch.spec.ts`。
 
+### 靈魂前情的歷史資料界線（2026-11-07，ADR-0305）
+
+| 位置 | 原有缺口 | 修復摘要 |
+|------|----------|----------|
+| `services/soul_prelude_service.py`、`services/mainline_service.py` | 新的前情（剪裁摘要、搬來的舊摘要、合併摘要）會放進靈魂的每一個請求，包含子對話、心跳、群聊；沒有界線的話，舊內容裡的要求會像這次的指令，而且散到比以前更多地方 | 和舊摘要同一套界線（ADR-0257）：內文先 `blank_control_chars`，再 `wrap_historical_data(..., extra_tags=ALL_BLOCK_TAGS)`，所有區塊標籤（含 `<soul_prelude>` 自己）都中和，舊內容不能提早關閉區塊或假造別的區塊；外層 `<soul_prelude>`。無痕不帶前情。回歸測試 `test_soul_prelude_service.py::test_block_is_historical_data_with_tags_neutralized`。殘留：界線擋不住模型自己決定照舊內容做；SNS 家對話被剪掉的外人訊息，摘要照樣進前情（以前進 `context_summary`，範圍只在家）。 |
+
 ## Out of Scope
 
 以下項目**不在**本專案的安全維護範圍內：

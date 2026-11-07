@@ -20,6 +20,8 @@ from memory_server.models.conversation_search import ConversationPage, Conversat
 from memory_server.utils.legacy_time import to_epoch_ms
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
@@ -61,9 +63,11 @@ _SEARCH_NORMALIZED = """
         SELECT id, session_id, role, content, to_epoch_ms(timestamp) AS timestamp FROM messages
     )
 """
+# 最後一個條件排除聊天對話裡已有的同一則（所屬對話＋訊息編號；一個 JSON 陣列參數，禁令 24）
 _SEARCH_MATCH = """
     FROM normalized_messages m LEFT JOIN sessions s ON s.id = m.session_id
     WHERE (? = '' OR m.content LIKE ? ESCAPE '\\') AND (? IS NULL OR m.role = ?)
+      AND (m.session_id || char(31) || m.id) NOT IN (SELECT value FROM json_each(?))
 """
 _SEARCH_FROM = (
     _SEARCH_MATCH
@@ -333,17 +337,20 @@ class LegacyStore:
         limit: int = 10,
         offset: int = 0,
         oldest_first: bool = False,
+        exclude_keys: Collection[str] = (),
     ) -> ConversationPage:
         """搜尋舊對話：回總數、這一頁與未知時間數；每列帶所屬對話的標題.
 
         修正前寫入的列可能是秒：篩選與排序一律先換成毫秒再比（門檻見 legacy_time，ADR-0258）。
         只讀：沒有資料庫回空頁、不建檔；以唯讀模式開啟；讀取失敗往上拋。
         時間是毫秒（含頭含尾）；同時間的列再依訊息 ID 排，翻頁才不會重複或漏掉。
+        ``exclude_keys``（``conversation_key``）：聊天對話裡已有的同一則，總數、未知時間數與這一頁
+        都不算（合併查詢去重，ADR-0305）。
         """
         if not self._db_exists():
             return ConversationPage(0, [])
         pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        matching = (query, pattern, role, role)
+        matching = (query, pattern, role, role, json.dumps(sorted(exclude_keys)))
         where = (*matching, date_start, date_start, date_end, date_end)
         page_sql = _SEARCH_OLDEST if oldest_first else _SEARCH_NEWEST
         uri = Path(self.db_path).resolve().as_uri() + "?mode=ro"

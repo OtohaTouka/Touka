@@ -4,6 +4,8 @@
 **日期 (Date):** 2026-06-14
 **決策者 (Deciders):** 維護者
 
+> ADR-0305 修訂（2026-11-07）：家對話剪裁的摘要（Phase D）改寫成靈魂前情的一段（同一交易），不再替換 `context_summary`；摘要模型預設改 `claude-haiku-5-5`。
+
 ## 上下文 (Context)
 
 現行 sliding window（ADR-0035）以「對話則數」（`upper_limit_rounds=150 / keep_rounds=100`）為切斷規則。**則數是很差的容量代理指標**：一則可以是 10 token、也可以是含工具輸出/圖片的上萬 token，「150 則」在 Gemini（百萬窗）與 Claude（20 萬窗）的實際占用天差地別。維護者要對標桌面版 Claude Code 的 auto-compact + context meter：

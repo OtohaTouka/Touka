@@ -23,6 +23,7 @@ from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult, UnknownResult
 from src.models.sliding_window import SlidingWindowConfig
 from src.services import sliding_window_service as sliding
+from src.services import soul_prelude_service
 from src.services.sliding_window_service import SlidingWindowService
 from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import TreeMessageManager
@@ -445,8 +446,8 @@ def test_pct_invariant_accepts_valid():
 
 
 @pytest.mark.asyncio
-async def test_check_and_trim_summarizes_and_writes_context_summary():
-    """summary_budget_pct>0 → 摘要被呼叫，結果經 context_summary 寫入 session。"""
+async def test_check_and_trim_summarizes_into_a_prelude_segment():
+    """summary_budget_pct>0 → 摘要寫成前情段落（同一交易），不改 context_summary（ADR-0305）。"""
     svc = SlidingWindowService()
     cfg = SlidingWindowConfig(
         enabled=True, trigger_pct=90, target_floor_pct=50, summary_budget_pct=10
@@ -478,13 +479,18 @@ async def test_check_and_trim_summarizes_and_writes_context_summary():
     args = mock_ss.conditional_save_session.await_args.args
     assert args[:2] == ("sess-1", "before")
     assert args[3] is DEBUG_IDENTITY
-    assert args[2].context_summary == "摘要要點"
-    assert "context_summary" in args[2].model_fields_set
+    assert "context_summary" not in args[2].model_fields_set
+    segment = mock_ss.conditional_save_session.await_args.kwargs["after_write"].keywords["seg"]
+    assert (segment.kind, segment.source_session, segment.content) == (
+        "home_trim",
+        "sess-1",
+        "摘要要點",
+    )
 
 
 @pytest.mark.asyncio
 async def test_check_and_trim_no_summary_when_budget_zero():
-    """summary_budget_pct=0（預設）→ 不呼叫摘要，context_summary 為 None（純無損剪裁）。"""
+    """summary_budget_pct=0（預設）→ 不呼叫摘要，前情只寫一行來源註記（純無損剪裁）。"""
     svc = SlidingWindowService()
     cfg = SlidingWindowConfig(
         enabled=True, trigger_pct=90, target_floor_pct=50, summary_budget_pct=0
@@ -515,8 +521,9 @@ async def test_check_and_trim_no_summary_when_budget_zero():
     args = mock_ss.conditional_save_session.await_args.args
     assert args[:2] == ("sess-1", "before")
     assert args[3] is DEBUG_IDENTITY
-    assert args[2].context_summary is None
     assert "context_summary" not in args[2].model_fields_set
+    segment = mock_ss.conditional_save_session.await_args.kwargs["after_write"].keywords["seg"]
+    assert segment.content == soul_prelude_service.trim_note(4)
 
 
 # ── helper methods: _resolve_model / _current_total_tokens / _rebuild_tree /

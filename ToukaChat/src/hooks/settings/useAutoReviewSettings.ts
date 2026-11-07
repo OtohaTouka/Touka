@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { AutonomyConfig, ReviewerModelOption } from '@/lib/types';
-import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
-import { logSSOTError } from '@/lib/error_handler';
+import { useCallback } from 'react';
+import type { AutonomyConfig } from '@/lib/types';
+import { useKeyedModels } from './useKeyedModels';
 
 /** 審查員等待秒數上限；對齊後端 AutoReviewConfig.timeout_s 的 le=120（下限 gt=0）。 */
 export const REVIEWER_TIMEOUT_MAX_S = 120;
-
-const isOption = (value: unknown): value is ReviewerModelOption => {
-  const item = value as Record<string, unknown> | null;
-  return !!item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.provider === 'string';
-};
 
 /**
  * Auto 審查員（ADR-0246）：選項只來自後端「已設定金鑰的模型」清單；選到的模型寫進
@@ -19,27 +13,7 @@ export function useAutoReviewSettings(
   autonomyConfig: AutonomyConfig | null,
   setAutonomyConfig: (config: AutonomyConfig | null) => void,
 ) {
-  const [models, setModels] = useState<ReviewerModelOption[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const res = await fetchTouka(getActiveProxyUrl(), '/v1/autonomy/reviewer-models');
-        const body: unknown = res.ok ? await res.json() : null;
-        const list = (body as { models?: unknown } | null)?.models;
-        if (!alive) return;
-        if (Array.isArray(list) && list.every(isOption)) setModels(list);
-        else setLoadFailed(true);
-      } catch (err) {
-        logSSOTError(err, 'useAutoReviewSettings:fetchModels');
-        if (alive) setLoadFailed(true);
-      }
-    };
-    void load();
-    return () => { alive = false; };
-  }, []);
+  const { models, loadFailed } = useKeyedModels();
 
   const setReviewerModel = useCallback((model: string) => {
     if (!autonomyConfig?.auto_review) return;

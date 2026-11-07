@@ -1,28 +1,20 @@
 import { useState, useCallback, useEffect } from 'react';
 import { getActiveProxyUrl, fetchTouka } from '@/lib/connections';
 import { logSSOTError, errorMsg } from '@/lib/error_handler';
+import type { SlidingWindowConfig } from '@/lib/types';
 
-export interface SlidingWindowConfig {
-    enabled: boolean;
-    // ADR-0092：token 百分比規則（現行）
-    trigger_pct: number;
-    target_floor_pct: number;
-    summary_budget_pct: number;
-    min_keep_pairs?: number;
-    summary_model?: string;
-    // deprecated 相容欄位（後端仍接受）
-    keep_rounds?: number;
-    upper_limit_rounds?: number;
-    version?: string;
-    author?: string;
-    description?: string;
-}
-
+// 讀到設定之前（或讀不到時）先顯示的值，對齊後端 SlidingWindowConfig 的預設（ADR-0092、ADR-0305）
 const DEFAULT_CONFIG: SlidingWindowConfig = {
     enabled: false,
+    keep_rounds: 100,
+    upper_limit_rounds: 150,
     trigger_pct: 90,
     target_floor_pct: 50,
     summary_budget_pct: 0,
+    min_keep_pairs: 2,
+    summary_model: 'claude-haiku-5-5',
+    prelude_summary_enabled: true,
+    prelude_max_tokens: 4000,
 };
 
 /**

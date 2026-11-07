@@ -9,6 +9,7 @@ import pytest
 
 from tests.support.conversation_search import DAY, denied, search, success, unknown_count
 from tests.support.conversation_search import conversation_db as conversation_db
+from tests.support.session_scope import A
 from tests.support.session_scope import scope_db as scope_db
 
 if TYPE_CHECKING:
@@ -140,3 +141,49 @@ async def test_largest_offset_returns_an_empty_page_instead_of_overflowing(
     result = await search(source=source, page_size=1, offset=2**63 - 1)
     success(result, 2 if source == "all" else 1)
     assert "item-ui" not in result and "item-legacy" not in result
+
+# ── 3d PR 1：同一則同時在聊天對話和舊對話庫時只算一次（ADR-0305）───────────────
+
+
+@pytest.mark.parametrize("dated", [False, True])
+async def test_all_sources_count_an_archived_ui_message_once(
+    conversation_db: ConversationDB, dated: bool
+) -> None:
+    await conversation_db.ui("s1", "dup-text")
+    conversation_db.legacy("dup-text", mid="m0", sid="s1")  # 同一段對話、同一則
+    conversation_db.legacy("dup-text", mid="x0", sid="other")  # 別段對話的同樣文字：不算同一則
+    arguments = {"date_start": "2026-05-13"} if dated else {}
+    result = await search(source="all", query="dup-text", **arguments)
+    success(result, 2)
+    assert (result.count("[ui]"), result.count("[legacy]")) == (1, 1)
+
+
+async def test_legacy_only_search_lists_every_archived_copy(
+    conversation_db: ConversationDB,
+) -> None:
+    await conversation_db.ui("s1", "dup-text")
+    conversation_db.legacy("dup-text", mid="m0", sid="s1")
+    success(await search(source="legacy", query="dup-text"), 1)
+    success(await search(source="ui", query="dup-text"), 1)
+
+
+async def test_dedupe_ignores_dates_so_an_undated_ui_copy_still_hides_the_archive(
+    conversation_db: ConversationDB,
+) -> None:
+    """聊天對話那則沒有時間；舊對話庫那份的時間是歸檔當下，套日期也不能讓它多算一次."""
+    await conversation_db.ui("s1", "dup-text", timestamp=None)
+    conversation_db.legacy("dup-text", mid="m0", sid="s1", timestamp=DAY)
+    result = await search(source="all", query="dup-text", date_start="2026-05-13")
+    success(result, 0)
+    unknown_count(result, 1)
+
+
+async def test_dedupe_applies_to_the_unknown_time_count_too(
+    conversation_db: ConversationDB,
+) -> None:
+    await conversation_db.ui("s1", "dup-text", timestamp=None)
+    conversation_db.legacy("dup-text", mid="m0", sid="s1", timestamp=DAY)
+    await conversation_db.execute("SELECT 1")  # 讓 UI 寫入落地
+    store = conversation_db.manager.get_legacy_sync_service().get_store(A)
+    page = store.query_messages(query="dup-text", exclude_keys=frozenset({"s1\x1fm0"}))
+    assert (page.total, page.unknown_time_count, page.rows) == (0, 0, [])
