@@ -528,7 +528,14 @@
       "save_button": "Save Settings",
       "save_success": "Sliding window settings saved",
       "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
-      "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
+      "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only).",
+      "summary_model_label": "Summary model",
+      "summary_model_hint": "Used for trim summaries and prelude summaries. Only models with a configured key are listed.",
+      "summary_model_missing_key": "{{model}} is not in the list of models with a configured key. A local model that needs no key can ignore this; otherwise summaries will fail (trimming still works and leaves a source note).",
+      "summary_model_no_models": "No models with a configured key yet.",
+      "summary_model_load_failed": "Could not load the model list.",
+      "prelude_label": "Prelude summaries",
+      "prelude_hint": "The prelude is what the soul has gathered about earlier conversations; it is sent to the model every time. When it grows past its limit, the oldest entries are merged into one summary; turn this off to skip merging. Whether trims are summarized follows the summary percentage above."
     },
     "hooks_tab": {
       "title": "Hooks",
@@ -1460,6 +1467,7 @@
         "project_context": "Project",
         "ide_context": "Editor",
         "conversation_summary": "Summary",
+        "soul_prelude": "Earlier context",
         "conversation": "Conversation",
         "system_other": "Other"
       },

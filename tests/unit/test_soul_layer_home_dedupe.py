@@ -150,12 +150,13 @@ async def test_web_home_conversation_is_not_sent_twice(sessions: dict) -> None:
     assert HOME_BOUNDARY not in joined
     for text in (HOME_EARLIER, HOME_REPLY, HOME_LATEST):
         assert joined.count(text) == 1, text
-    # 人格仍在最前面、前情摘要照舊注入
+    # 人格仍在最前面；家的舊摘要搬進靈魂的前情（ADR-0305），不再是自己的 conversation_summary
     role, system = _messages(request)[0]
     assert role == "system"
     assert SOUL_TEXT in system
-    assert "<conversation_summary>" in system
-    assert SUMMARY in system
+    assert "<soul_prelude>" in system
+    assert "<conversation_summary>" not in system
+    assert system.count(SUMMARY) == 1
 
 
 async def test_web_home_conversation_anthropic_is_not_sent_twice(sessions: dict) -> None:

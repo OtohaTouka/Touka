@@ -19,7 +19,9 @@ from src.models.sliding_window import SlidingWindowConfig
 from src.routers import ui_sessions
 from src.services import sliding_window_service as sliding
 from src.services.identity_router import get_verified_identity
+from src.services.soul_prelude_service import prelude_agent
 from src.utils import async_db
+from src.utils.soul_prelude_db import list_live_segments
 
 OWNER = AgentIdentity.for_role(agent_id="synthetic-owner", role="normal", is_human=True)
 OTHER = AgentIdentity.for_role(agent_id="synthetic-other", role="normal", is_human=True)
@@ -568,7 +570,7 @@ async def test_rich_save_during_summary_wins_and_stale_trim_discards_without_ret
     before = await snapshot()
     entered, release = asyncio.Event(), asyncio.Event()
 
-    async def summary(*_args):
+    async def summary(*_args, **_kwargs):
         entered.set()
         await release.wait()
         return "new-summary"
@@ -609,9 +611,10 @@ async def test_trim_first_causes_stale_rich_save_conflict_without_overwrite(
     monkeypatch.setattr(sliding, "summarize_dialogue", AsyncMock(return_value="new-summary"))
     assert await trim_service.check_and_trim(soul, SID)
     trimmed = await snapshot()
-    assert (
-        trimmed.session["messages"] != TREE and trimmed.session["context_summary"] == "new-summary"
-    )
+    assert trimmed.session["messages"] != TREE
+    # ADR-0305：摘要寫成前情的一段，不再改 context_summary
+    assert trimmed.session["context_summary"] == before.session["context_summary"]
+    assert [seg.content for seg in await list_live_segments(prelude_agent(soul))] == ["new-summary"]
     result = await save(before.revision, messages=TREE)
     assert result.status == "failed" and (await snapshot()).revision == trimmed.revision
 

@@ -179,6 +179,7 @@ export interface Project {
 
 export type AutonomyConfig = components["schemas"]["AutonomyConfigModel"];
 export type ReviewerModelOption = components["schemas"]["ReviewerModelOption"];
+export type SlidingWindowConfig = components["schemas"]["SlidingWindowConfig"];
 
 export interface PermissionConfig {
     roles: Record<string, {

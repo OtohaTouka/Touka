@@ -58,11 +58,11 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 - **直接名收掉**：`random_recall`、`memory_diagnostics` 不再在 `memory_tool_registry` 裡；入口是 `memory_tools(action="random"|"diagnostics")`。
 - **時間一律台北並標時區（ADR-0258）**：給模型看的歷史時間（查舊對話 `memory_tools(action="conversations")`、`memory_tools(action="random")` 的舊對話與事實、`action="query"` 的記憶）都經 `memory_server/utils/legacy_time.py` 的 `format_taipei`，格式 `2026-05-13 18:00 Asia/Taipei`（隨機回想與查記憶只到日期），與 `<continuity>` 同一時區，不看主機時區；讀不出時間的列顯示「未知時間」（查舊對話顯示「未知時間」），不再出現 1970 年。舊對話庫的訊息時間一律毫秒：同步與寫入時換算（小於 1e11 視為秒；數字字串、帶時區 ISO 也收；沒有時區的 ISO 視為讀不出），修正前寫入的秒列在日期篩選與排序時才換算。
 - **模型能走到的對話入口（ADR-0274／0277）**：`memory_tools(action="conversations")` 查聊天與舊對話庫，契約見下節；`memory_tools(action="random")` 隨機抽 3 則。檔案動詞 `read／list／find／grep(scope="legacy")`（舊 `vault_tools(vault="legacy")` shim 同路）只讀 `legacy/<agent>/` 下的原始 JSON（含 `backup/`），`grep` 略過 `.db`，沒有日期篩選；**無痕對話不列 `scope=legacy`、硬叫也擋（讀寫都擋）**。滑動視窗剪下與「切分存入」的內容只在資料庫，檔案動詞看不到（ADR-0264）。
-- **前情摘要的時間（ADR-0264）**：`context_summary` 文字第一行是系統寫的時間範圍（最早～最晚、幾則沒有時間、何時摘要，台北時間並註明來自對話紀錄）；送摘要員的每行前面帶台北時間，沒有就 `unknown time`；提示要求有可靠時間戳時把相對時間換成絕對日期。替換式不變（ADR-0092）。
+- **前情摘要的時間（ADR-0264）**：剪裁摘要第一行是系統寫的時間範圍（最早～最晚、幾則沒有時間、何時摘要，台北時間並註明來自對話紀錄）；送摘要員的每行前面帶台北時間，沒有就 `unknown time`；提示要求有可靠時間戳時把相對時間換成絕對日期。家對話的剪裁摘要寫成靈魂前情的一段，不再替換 `context_summary`（ADR-0305）。
 
 ## 對話搜尋 conversations（ADR-0277）
 
-- **來源**：`source="ui"` 只查聊天儲存，`"legacy"` 只查自己的舊對話庫；`"all"`、省略或 null 查兩庫。維持 read_only 分類；成功回文字，`both` 等其他值回 `validation_error`，不新增指定目標或繞過篩選的參數。
+- **來源**：`source="ui"` 只查聊天儲存，`"legacy"` 只查自己的舊對話庫；`"all"`、省略或 null 查兩庫。查兩庫時，聊天對話裡已有的同一則（同對話、同訊息編號，`ConversationPage.matched_keys`）不再從舊對話庫算一次，列表、總數、未知時間數都一樣；只查舊對話庫時照實全列（ADR-0305）。維持 read_only 分類；成功回文字，`both` 等其他值回 `validation_error`，不新增指定目標或繞過篩選的參數。
 - **UI 身分**：只接受可信執行身分的非人類靈魂或精確 `DebugAgent`，人類（含 admin）、一般模型、群聊、DispatchAgent、子代理與未知 actor 拒絕。身分與列的正式靈魂 ID 必須相同，既有 `ToukaSoul` 別名依 resolver 解析，DebugAgent 不收別名；高角色、同一擁有者或模型名不擴權，同靈魂不因人類建立者不同而排除。明示 legacy 保留既有身分契約。
 - **UI 可見列**：`session_scope_version` 精確整數 1、非退休 ID、綁定與家欄一致。同交易先驗全部家候選，不先按 marker／退休 ID／綁定濾掉壞家；多家、退休家或矛盾拒絕，唯一合法 marker=0 家不輸出。舊列與非空換綁列不回填；新心跳／SNS 專屬頻道通過條件後標 `ui`。
 - **同名重建與重置**：`create_soul`／`update_soul` 補建在寫 config 前後各降正式 ID／別名綁定或家引用列 marker，封住期間存檔，第二次失敗回滾；ToukaSoul 前綴的新／轉換 ID 不分大小寫拒絕，失效與搜尋共用正式化。不刪內容，重置只清正式 ID／別名綁定列、不刪僅由家欄引用的外靈魂列。實體世代與同一靈魂工具補建的限制見 ADR-0277。

@@ -359,6 +359,7 @@ def admin(
     identity = AgentIdentity.for_role(user.id, "admin", is_human=True, owned_agents=[])
     monkeypatch.setattr(souls, "assert_memory_cleared", AsyncMock())
     monkeypatch.setattr(souls, "assert_timeline_cleared", AsyncMock())
+    monkeypatch.setattr(souls, "assert_prelude_cleared", AsyncMock())  # ADR-0305
     app.dependency_overrides[get_verified_identity] = lambda: identity
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()

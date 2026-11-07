@@ -116,7 +116,9 @@ def trim(monkeypatch):
     monkeypatch.setattr(svc, "_check_model_cooldown", lambda *_a: False)
     monkeypatch.setattr(svc, "_current_total_tokens", lambda *_a: 100)
     monkeypatch.setattr(sliding, "get_context_window", lambda _model: 100)
-    monkeypatch.setattr(svc, "compute_split_by_tokens", lambda linear, *_a: (linear[:1], linear[1:]))
+    monkeypatch.setattr(
+        svc, "compute_split_by_tokens", lambda linear, *_a: (linear[:1], linear[1:])
+    )
     archive = Mock(return_value=1)
     manager = SimpleNamespace(
         get_legacy_sync_service=lambda: SimpleNamespace(archive_payload=archive)
@@ -163,7 +165,7 @@ async def test_trim_write_is_refused_when_home_changes_after_the_read(trim, set_
     assert await service.set_home("chat", A, True)
     before = await raw_row()
 
-    async def change_home(*_args):
+    async def change_home(*_args, **_kwargs):
         assert await service.set_home(set_home[0], A, set_home[1])
         return "new summary"
 

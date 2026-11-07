@@ -29,6 +29,7 @@ from src.services.dispatcher import _maybe_trim_after_chat
 from src.services.resource_manager import resource_manager
 from src.services.stream_buffer_service import stream_buffer_service
 from src.utils.async_db import init_db_async, session_service
+from src.utils.soul_prelude_db import list_live_segments
 
 _SOUL = "Hanatou"
 _SS = "src.services.dispatcher.session_service"
@@ -176,7 +177,9 @@ async def test_chat_trim_archive_and_manual_sync_on_the_real_resource_manager(
 
     trimmed = await session_service.get_session_by_id(home_trim["sid"])
     assert "n0" not in trimmed["messages"]["messages"]
-    assert trimmed["context_summary"] == "summary"
+    assert trimmed["context_summary"] is None  # 摘要寫進前情，不改 context_summary（ADR-0305）
+    segments = await list_live_segments(soul.agent_id)
+    assert [(s.kind, s.content) for s in segments] == [("home_trim", "summary")]
     soul_dir = Path(resource_manager.get_vault_path("legacy", soul))
     assert not list(soul_dir.glob("*.json"))  # 系統沒有在 legacy/ 寫任何檔
     sync = sliding.get_manager().get_legacy_sync_service()
@@ -352,7 +355,7 @@ async def test_chat_trim_checks_again_before_the_summary_and_the_commit(
     if stage == "summary":
         archive.side_effect = lambda *_a: arrive(4)
     else:
-        home_trim["summarize"].side_effect = lambda *_a: arrive("summary")
+        home_trim["summarize"].side_effect = lambda *_a, **_k: arrive("summary")
     task = await _waiting_turn(home_trim)
     with pending:
         assert (await _ui_save(home_trim, nodes=_rich_reply())).persistence.status == "saved"
@@ -369,7 +372,7 @@ async def test_trims_that_lose_twice_do_not_duplicate_the_archive(
     store = sliding.get_manager().get_legacy_sync_service().get_store(soul)
     stats = []
 
-    async def lose(*_args: Any) -> str:  # 寫摘要的時候畫面先存了，存回時版本對不上
+    async def lose(*_args: Any, **_kwargs: Any) -> str:  # 寫摘要的時候畫面先存了，存回時版本對不上
         await _ui_save(home_trim, nodes=_rich_reply())
         return "summary"
 

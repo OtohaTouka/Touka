@@ -6,7 +6,7 @@
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from memory_server.utils.historical_data import (
     neutralize_tags,
     wrap_historical_data,
 )
+from memory_server.utils.legacy_time import format_taipei
 from memory_server.utils.zone_paths import is_zone_segment
 
 from src.adapters.content_normalize import normalize_message_content
@@ -114,6 +115,29 @@ def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     marked[0]["content"] = _add_text(marked[0]["content"], opening, before=True)
     marked[-1]["content"] = _add_text(marked[-1]["content"], HISTORICAL_DATA_CLOSE, before=False)
     return marked
+
+
+def append_system_block(request: Any, block: str) -> None:
+    """把一個區塊接在 system 最後（Anthropic 的 system 字串或清單、OpenAI 的第一則 system）.
+
+    前面空一行；沒有 system 時新增一則。前情與子對話舊摘要共用（ADR-0305）。
+    """
+    text = "\n\n" + block
+    if hasattr(request, "system"):
+        if isinstance(request.system, list):
+            request.system.append({"type": "text", "text": text})
+        else:
+            request.system = (request.system or "") + text
+        return
+    for m in request.messages:
+        role = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
+        if role == "system":
+            if isinstance(m, dict):
+                m["content"] = (m.get("content") or "") + text
+            elif hasattr(m, "content"):
+                m.content = (m.content or "") + text
+            return
+    request.messages.insert(0, OpenAIMessage(role="system", content=text))
 
 
 def _after_leading_system(messages: list[Any]) -> int:
@@ -393,6 +417,8 @@ class SoulService:
         identity: str | AgentIdentity,
         *,
         current_session_id: str | None = None,
+        stamp_times: bool = False,
+        home_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """為請求注入家園訊息（記憶錨點） (Identity SSOT).
 
@@ -401,6 +427,9 @@ class SoulService:
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
             current_session_id (str | None): 請求已帶著這個對話的完整紀錄時傳入；
                 它就是家對話時不再插入（避免同一份紀錄送兩次）.
+            stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0305）.
+            home_messages (list | None): 呼叫端已讀到的家訊息（主線用同一次讀到的家，ADR-0305）；
+                沒給時自己讀.
         """
         from src.utils.async_db import get_home_messages  # noqa: LOCAL_IMPORT_BAN
 
@@ -408,9 +437,23 @@ class SoulService:
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        home_msgs = await get_home_messages(identity, current_session_id)
+        home_msgs = (
+            home_messages
+            if home_messages is not None
+            else await get_home_messages(identity, current_session_id)
+        )
         if not home_msgs:
             return
+        if stamp_times:  # 先標時間再包界線：時間在界線裡面
+            home_msgs = [
+                {
+                    **m,
+                    "content": _add_text(
+                        m.get("content"), f"[{format_taipei(m.get('timestamp'))}]", before=True
+                    ),
+                }
+                for m in home_msgs
+            ]
         home_msgs = _mark_home_history(home_msgs)  # 歷史資料界線，不是指令
 
         # 只送角色與內容（ADR-0260）：節點 ID、工具步驟、思考、附件、name 等 UI 樹欄位一律不外送
@@ -426,12 +469,14 @@ class SoulService:
         logger.info(f"🏠 Injected {len(home_msgs)} home messages for {agent_id}")
 
     async def inject_context_summary(
-        self, request: Any, session_id: str | None
+        self, request: Any, session_id: str | None, shown: Collection[str] = ()
     ) -> None:
         """注入 session 級 ``context_summary`` 為 ``<conversation_summary>`` system 區塊。
 
         ADR-0092 Phase D：摘要固定前置、**不進對話訊息樹**（故不被 round 計數/再剪）。
         無 session_id 或無摘要則 no-op。呼叫端負責無痕 gating（無痕不注入）。
+        ``shown``：這一輪前情已經原文照登的舊摘要（ADR-0305）；同一段就不再插。家與子對話一樣：
+        截短過、被折掉、被合併時照舊插，不會兩邊都看不到。
         """
         if not session_id:
             return
@@ -440,30 +485,14 @@ class SoulService:
         if not session:
             return
         summary = session.get("context_summary")
-        if not summary or not isinstance(summary, str):
+        if not summary or not isinstance(summary, str) or summary in shown:
             return
 
         # 歷史資料界線包在 <conversation_summary> 裡面：位置與角色都不變，只加文字
         historical = wrap_historical_data(
             "conversation_summary", blank_control_chars(summary), extra_tags=ALL_BLOCK_TAGS
         )
-        block = "\n\n" + wrap_block(CONVERSATION_SUMMARY, historical)
-        if hasattr(request, "system"):
-            if isinstance(request.system, list):
-                request.system.append({"type": "text", "text": block})
-            else:
-                request.system = (request.system or "") + block
-        else:
-            for m in request.messages:
-                role = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
-                if role == "system":
-                    if isinstance(m, dict):
-                        m["content"] = (m.get("content") or "") + block
-                    elif hasattr(m, "content"):
-                        m.content = (m.content or "") + block
-                    break
-            else:
-                request.messages.insert(0, OpenAIMessage(role="system", content=block))
+        append_system_block(request, wrap_block(CONVERSATION_SUMMARY, historical))
         logger.info("🪟 Injected context_summary for session %s", session_id)
 
 

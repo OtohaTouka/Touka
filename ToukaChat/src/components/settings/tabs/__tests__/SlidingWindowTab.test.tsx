@@ -14,12 +14,33 @@ vi.mock('@/hooks/settings/useSlidingWindowSettings', () => ({
     useSlidingWindowSettings: () => mockState,
 }));
 
+// 摘要模型選項（ADR-0305）：只列已設定金鑰的模型
+const modelState: { models: Array<{ id: string; name: string; provider: string }> | null; loadFailed: boolean } = {
+    models: [], loadFailed: false,
+};
+vi.mock('@/hooks/settings/useKeyedModels', () => ({
+    useKeyedModels: () => modelState,
+}));
+
+// Radix Select 在 jsdom 不支援 fireEvent.change，換成原生 <select>
+vi.mock('@/components/ui/select', async () => {
+    const { createElement, Fragment } = await import('react');
+    const Select = ({ children, value, onValueChange }: { children: React.ReactNode; value?: string; onValueChange?: (v: string) => void }) =>
+        createElement('select', { value, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(e.target.value) }, children);
+    const Pass = ({ children }: { children?: React.ReactNode }) => createElement(Fragment, null, children);
+    const SelectItem = ({ children, value }: { children: React.ReactNode; value: string }) => createElement('option', { value }, children);
+    return { Select, SelectTrigger: Pass, SelectValue: () => null, SelectContent: Pass, SelectItem };
+});
+
 function setConfig(over: Record<string, unknown>) {
     mockState.config = {
         enabled: true, trigger_pct: 85, target_floor_pct: 60,
-        summary_budget_pct: 10, summary_model: 'haiku', ...over,
+        summary_budget_pct: 10, summary_model: 'haiku', prelude_summary_enabled: true, ...over,
     };
 }
+
+const HAIKU_45 = { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'anthropic' };
+const HAIKU_55 = { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', provider: 'anthropic' };
 
 describe('SlidingWindowTab summary line (<Trans> interpolation, i18n Phase 1)', () => {
     it('with-summary: composes the sentence with interpolated percentages + mono spans', () => {
@@ -120,5 +141,61 @@ describe('SlidingWindowTab P2 feedback (F4/F7/F8)', () => {
             expect(floor).toBeGreaterThanOrEqual(0);
             expect(summary).toBeGreaterThanOrEqual(0);
         }
+    });
+});
+
+describe('SlidingWindowTab 摘要模型與前情摘要（ADR-0305）', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        modelState.models = [HAIKU_45, HAIKU_55];
+        modelState.loadFailed = false;
+        mockState.saving = false;
+    });
+
+    it('換摘要模型之後存檔，送出新的模型', async () => {
+        setConfig({ summary_model: 'claude-haiku-4-5' });
+        mockState.saveConfig = vi.fn().mockResolvedValue(true);
+        const { container } = render(<SlidingWindowTab />);
+        const select = container.querySelector('select') as HTMLSelectElement;
+        expect(select.value).toBe('claude-haiku-4-5');
+        fireEvent.change(select, { target: { value: 'claude-haiku-5-5' } });
+        fireEvent.click(screen.getByRole('button', { name: /儲存設定/ }));
+        await waitFor(() => expect(mockState.saveConfig).toHaveBeenCalledWith(
+            expect.objectContaining({ summary_model: 'claude-haiku-5-5' }),
+        ));
+    });
+
+    it('前情摘要開關：關掉後存檔送 false；滑動視窗沒開時也能改', async () => {
+        setConfig({ enabled: false, prelude_summary_enabled: true });
+        mockState.saveConfig = vi.fn().mockResolvedValue(true);
+        render(<SlidingWindowTab />);
+        const toggle = screen.getByRole('switch', { name: /前情摘要/ });
+        expect(toggle.getAttribute('aria-checked')).toBe('true');
+        expect(toggle.closest('.pointer-events-none')).toBeNull();
+        fireEvent.click(toggle);
+        fireEvent.click(screen.getByRole('button', { name: /儲存設定/ }));
+        await waitFor(() => expect(mockState.saveConfig).toHaveBeenCalledWith(
+            expect.objectContaining({ prelude_summary_enabled: false }),
+        ));
+    });
+
+    it('目前的模型不在有金鑰的清單裡時，照樣列出並提醒（本機模型不用金鑰可以忽略）', () => {
+        setConfig({ summary_model: 'claude-opus-4' });
+        const { container } = render(<SlidingWindowTab />);
+        const values = Array.from(container.querySelectorAll('option')).map(o => o.getAttribute('value'));
+        expect(values).toEqual(expect.arrayContaining(['claude-opus-4', 'claude-haiku-5-5']));
+        const text = container.textContent || '';
+        expect(text).toContain('claude-opus-4 不在已設定金鑰的模型清單裡');
+        expect(text).toContain('本機模型');
+    });
+
+    it('模型清單讀不到時顯示提示，目前的模型照樣留著', () => {
+        modelState.models = null;
+        modelState.loadFailed = true;
+        setConfig({ summary_model: 'claude-haiku-5-5' });
+        const { container } = render(<SlidingWindowTab />);
+        expect(screen.getByRole('alert').textContent).toContain('讀不到模型清單');
+        expect((container.querySelector('select') as HTMLSelectElement).value).toBe('claude-haiku-5-5');
+        expect(container.textContent || '').not.toContain('不在已設定金鑰的模型清單裡');
     });
 });

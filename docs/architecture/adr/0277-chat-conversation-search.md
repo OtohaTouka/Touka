@@ -4,6 +4,7 @@
 - 日期：2026-10-17
 - 影響範圍：ToukaMemory 的公開 conversations 合約、來源分發、LegacyStore、內部 row/page 與資源協定；ToukaProxy 的 ResourceManager、SessionService、session_scope、ui_conversation_reader、記憶閘道及啟動接線；Guard #45 基準與沙盒測試。
 - 修訂／相關：修訂 [ADR-0274](0274-memory-conversation-search.md) 的 conversations 來源契約，預設查兩庫、聊天對話可搜尋；沿用 [ADR-0276](0276-heartbeat-session-scope.md) 的建立標記與歸屬閘。時間與歷史資料界線沿 ADR-0258、ADR-0257。
+- ADR-0305 修訂（2026-11-07）：合併查詢（兩庫）時，聊天對話裡已有的同一則（同對話、同訊息編號）不再從舊對話庫算一次；只查舊對話庫時照實全列。
 
 ## 背景
 
