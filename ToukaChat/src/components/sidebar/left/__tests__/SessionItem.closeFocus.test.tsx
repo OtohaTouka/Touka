@@ -80,6 +80,18 @@ describe('SessionItem：選單關掉後的焦點', () => {
     expect(document.activeElement).toBe(composer);
   });
 
+  it('焦點還在這一列裡面（例如「⋯」）：回到這一列', () => {
+    render(<SessionItem {...props} />);
+    const row = screen.getByRole('treeitem');
+    const trigger = row.querySelector<HTMLButtonElement>('button[tabindex="-1"]');
+    expect(trigger).not.toBeNull();
+    trigger!.focus();
+    expect(document.activeElement).toBe(trigger);
+    const event = closeMenu();
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(row);
+  });
+
   it('選了重命名：焦點給輸入框', () => {
     render(<SessionItem {...props} editingSessionId="s1" editTitle="這一段" />);
     closeMenu();

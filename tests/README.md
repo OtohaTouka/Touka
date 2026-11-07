@@ -1111,7 +1111,7 @@ python scripts/guard_all.py
 | `unit/LeftSidebar.test.tsx` | 驗證 `LeftSidebar` 內部不讀取 localStorage，完全依賴外部傳入的 `isCollapsed` 決定是否隱藏；2026-10-28：有傳 `onCollapse`（桌面版）才有頂端的收合鈕，側欄剛展開而焦點掉在 body 時交給收合鈕（交不到就下一個畫面再試，最多 30 個畫面；焦點已到別處、或這次展開不是按鈕要求的就不搶） |
 | `src/components/sidebar/left/__tests__/NavigationArea.test.tsx` | 左側邊欄底部的選單（2026-11-05 起其他選項都收在這裡）：按鈕顯示名稱並標出目前畫面；登出要按兩次、走 `useAuth().logout()`，關選單清掉確認與計時器；目前分頁標 `aria-current="page"`；整合模式才有靈魂核心、系統脈搏、記憶寶庫 |
 | `unit/SessionItem.test.tsx` | 模擬對話刪除狀態激活，並在 DropdownMenu 觸發關閉事件時，驗證 `onClearDeleteConfirm` 必須被呼叫；同時驗證新合約下的 `onSaveTitle` 與 `onDelete` 編譯相容性 |
-| `src/components/sidebar/left/__tests__/SessionItem.closeFocus.test.tsx` | 對話清單「⋯」選單關掉後的焦點：焦點沒被移走時回到那一列；選單淡出期間焦點已經移到輸入框時留在輸入框（Radix 的預設仍擋下）；選了重命名給改名輸入框 |
+| `src/components/sidebar/left/__tests__/SessionItem.closeFocus.test.tsx` | 對話清單「⋯」選單關掉後的焦點：焦點沒被移走或還在那一列裡（例如「⋯」）時回到那一列；選單淡出期間焦點已經移到輸入框時留在輸入框（Radix 的預設仍擋下）；選了重命名給改名輸入框 |
 | `unit/lib/tree_history.test.ts` | `migrateFlatToTree`／`getLinearMessages`；含環路防禦（parent/children/self-loop 成環皆安全終止、正常深鏈不被誤砍）|
 | `unit/hooks/useMediaQuery.test.tsx` | `useMediaQuery` 改訂閱 MediaQueryList `change`（非 window `resize`）：初值取自 mql.matches、change 更新、卸載移除監聽、query 變更重新同步 |
 | `unit/lib/mentions.test.ts` | `extractMentionPaths` 純函式：去尾隨句末標點（半形＋全形 CJK）、保留路徑內部 `.`/`/` 與中文、去重保序 |
