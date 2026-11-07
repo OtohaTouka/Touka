@@ -162,7 +162,7 @@ async def test_tool_executor_emits_repair_progress(monkeypatch):
         lambda ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
 
@@ -336,7 +336,7 @@ async def test_tool_executor_passes_emit_channel(monkeypatch):
         lambda ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
     te = ToolExecutor(
