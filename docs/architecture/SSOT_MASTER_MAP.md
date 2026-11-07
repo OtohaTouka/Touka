@@ -104,7 +104,7 @@
 | 啟動器 spec 的版本、欄位（含 `parent_pid`）、上限、九個公開設定檔名、失敗標記與代碼、自測的網路設定代碼（也是卡片原因）、kernel 雜湊、自測輸出解析 | `ToukaProxy/src/sandbox_kernel/spec.py`（`SPEC_VERSION`、`parse_spec`、`PUBLIC_CONFIG_NAMES`、`FAILURE_CODES`、`NET_SYSCTL_CODES`、`kernel_digest`、`parse_selftest_output`） | `launcher.py`、`services/isolation/{profiles,runners,status}` |
 | 唯一能 exec 的地方（只用標準函式庫、`python -I -S`） | `ToukaProxy/src/sandbox_kernel/launcher.py`；容器內只從 `TOUKA_SANDBOX_KERNEL_DIR`（映像 `/opt/touka-sandbox`）載入 | `LandlockRunner`、`IsolationMonitor` 自測；`tests/lint/test_security_kernel_ratchet.py` 執法 |
 | 層級判定（`local_landlock` 與 `level`、時序、重探） | `services/isolation/status.py` `isolation_monitor`（`IsolationMonitor`：`snapshot`、`ensure_ready`、`level_for`、`fallback_for`、`report_failure`；`CHECK_FAILED` 只在這裡定義） | `policy`、`runners`、`agent_command`、`approval_flow`、`auto_reviewer`、`permission_service` |
-| 政策當下的層級與專案根（只來自 ctx／session，不讀模型參數；只看內建工具）、審查員看的層級 | `services/isolation/policy.py`（`policy_level`、`session_project_root`、`reviewer_level`） | `tool_executor`、`tools/terminal.py`、`approval_flow.CommandApprover` |
+| 政策當下的層級與專案根（只來自 ctx／session，不讀模型參數；只看內建工具）、工具拿到的專案編號（ADR-0304）、審查員看的層級 | `services/isolation/policy.py`（`policy_level`、`session_project_id`、`session_project_root`、`reviewer_level`） | `tool_executor`（注入檔案工具的 `project_id`）、`tools/terminal.py`、`approval_flow.CommandApprover` |
 | 未隔離同意（subject、一次性、10 分鐘、上限 4,096） | `services/isolation/consent.py` `consent_ledger`（`consent_subject`、`ConsentKey.of`） | `policy`、`approval_flow`、`agent_command`、`evolution_command` |
 | 選 runner 與「降級要先經人核准」 | `services/isolation/runners.py` `runner_broker`（`RunnerBroker.acquire`、`LaunchPlan.release`；固定維護指令用的 `acquire_maintenance`） | `agent_command`、`evolution_command`、`home_wipe`（刪除靈魂時清家目錄） |
 | profile、永不授權、封鎖埠、環境變數改寫（含 `PYTEST_ADDOPTS`） | `services/isolation/profiles.py`（`build_agent_command_profile`、`build_evolution_profile`、`authorize_derived_path`、`_in_own_drive`（依身分）、`layout_zone_roots`、`fixed_protected`、`blocked_ports`、`sandbox_env`） | `agent_command`、`evolution_command`、`status`、`approval_flow` |
@@ -597,7 +597,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 *   **路由層強制校驗**: `/ui/custom_models` 等涉及物理檔案 CRUD 的路由，必須在端點內部將 `model_id` 轉換為 `AgentIdentity` 物件後方可調用 Service 層。
 *   **主權隔離 (Prison Principle)**: `ResourceManager` 根據 `AgentIdentity` 物件解析資源路徑。Agent 被鎖定在其所屬的 `Soul`, `Personal`, `Stats`, `Logs` 目錄中，嚴禁越權訪問。
 *   **自主任務分派代理**: 系統對 `DispatchAgent` 的任務看板實施「能力代理 (Capability Assumption)」。如果目前發起請求的 `AgentIdentity` 在 `capabilities` 中包含 `"can_supervise_dispatch"`，`MissionManager` 將被授權繞過物理監獄，代理存取並操作 `DispatchAgent` 的個人看板。未獲授權的請求將直接被權限層阻斷。
-*   **LDH 首裝限定 ⭐**: 只有系統未認領、完全未附 Authorization 的受信任本機請求可走 LDH。失效 token 一律 401；系統認領後無卡本機請求也 fail-loud，不再鑄 DebugAgent 卡（ADR-0131／0144、禁令 60）。
+*   **LDH 首裝限定 ⭐**: 只有系統未認領、完全未附 Authorization 的受信任本機請求可走 LDH。失效 token 一律 401；系統認領後無卡本機請求也 fail-loud，不再鑄 DebugAgent 卡（ADR-0131／0144、禁令 60）。首裝卡帶記號（`identity_service.LDH_CARD_SOURCE`），認領後驗卡一律拒絕；發卡與驗卡的角色都由 `identity_service.ldh_identity` 決定；使用者只收 access token（ADR-0304）。
 
 ### 3-K. 資訊安全守衛層：對話歸屬（ADR-0276）
 

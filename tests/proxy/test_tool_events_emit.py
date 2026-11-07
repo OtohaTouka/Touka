@@ -28,7 +28,7 @@ def _make_ctx(role: str = "Owner") -> dict[str, Any]:
 async def _run(executor: ToolExecutor, name: str, args: dict) -> list[dict]:
     queue: asyncio.Queue = asyncio.Queue()
     with patch(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         new=AsyncMock(return_value=None),
     ):
         await executor.execute_to_queue(name, args, "req-p1b", _make_ctx(), queue, call_id="cid-1")
