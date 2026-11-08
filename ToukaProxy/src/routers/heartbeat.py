@@ -680,9 +680,9 @@ async def _process_heartbeat_loop(
             # 靈魂由這裡傳：第一輪前就停的沒登記過活動，同一對話重疊跑時也可能被另一次清掉。
             if run_started:
                 activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
-            # 前情維護（交接、子對話回報，ADR-0307）：至少完成一個脈衝才排；這時登記已拿掉，
+            # 前情維護（交接、子對話回報，ADR-0307）：靈魂至少完成一個脈衝才排；這時登記已拿掉，
             # 只排背景工作、不 await（被取消時也安全）
-            if pulses_done and not blocked:
+            if pulses_done and not blocked and soul_service.is_toukasoul(identity):
                 home_handover.schedule(identity)
 
 

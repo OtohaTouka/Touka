@@ -339,13 +339,20 @@ class SlidingWindowService:
 
     @staticmethod
     async def _previous_entry(identity: AgentIdentity, session_id: str) -> str | None:
-        """前情顯示順序的最後一段（給摘要員當背景，避免重複；審查 F3）；讀不到就不給."""
+        """前情顯示順序的最後一段（給摘要員當背景，避免重複；審查 F3）；讀不到就不給.
+
+        有子對話回報內容的段落不給：剪裁摘要會進 SNS 看得到的前情（ADR-0307）。
+        """
         try:
             segments = await list_live_segments(soul_prelude_service.prelude_agent(identity))
         except Exception:
             logger.warning("SlidingWindow: prelude unavailable for the summarizer", exc_info=True)
             return None
-        visible = soul_prelude_service.visible_segments(segments, session_id)
+        visible = [
+            seg
+            for seg in soul_prelude_service.visible_segments(segments, session_id)
+            if not soul_prelude_service.carries_child_reports(seg)
+        ]
         return visible[-1].content if visible else None
 
     async def _moved_on(

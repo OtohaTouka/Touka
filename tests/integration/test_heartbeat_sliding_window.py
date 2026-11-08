@@ -225,6 +225,7 @@ async def test_window_disabled_trim_not_called_with_trim_result():
 # ── 前情維護的排程（3d PR 2b，ADR-0307；禁令 28 同兩處）──────────
 
 _SCHEDULE = "src.routers.heartbeat.home_handover.schedule"
+_IS_SOUL = "src.routers.heartbeat.soul_service.is_toukasoul"
 
 
 async def _run_loop(*, is_home: bool = True, pulse_count: int = 1) -> None:
@@ -246,6 +247,22 @@ def _patch_trim():
         "src.routers.heartbeat.sliding_window_service.check_and_trim",
         new=AsyncMock(return_value=False),
     )
+
+
+@pytest.fixture(autouse=True)
+def _heartbeats_of_a_soul(monkeypatch: pytest.MonkeyPatch) -> None:
+    """這個檔的心跳都當成靈魂的；不是靈魂的有專門的測試。"""
+    monkeypatch.setattr(_IS_SOUL, lambda _identity: True)
+
+
+@pytest.mark.asyncio
+async def test_a_heartbeat_of_a_non_soul_schedules_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_IS_SOUL, lambda _identity: False)
+    with _patch_pulse(), _patch_health(), _patch_trim(), patch(_SCHEDULE) as schedule:
+        await _run_loop()
+    schedule.assert_not_called()
 
 
 @pytest.mark.asyncio

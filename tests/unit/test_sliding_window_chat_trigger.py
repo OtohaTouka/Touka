@@ -408,6 +408,19 @@ async def test_a_home_turn_schedules_maintenance_after_the_trim(souls: dict[str,
     assert schedule.call_args.args[0].agent_id == _SOUL
 
 
+async def test_a_home_with_the_old_prefix_still_schedules_maintenance(
+    souls: dict[str, dict],
+) -> None:
+    souls["ToukaSoulHanatou"] = _passport("ToukaSoulHanatou", normalized=_SOUL)
+    with patch(_SS) as mock_ss, patch(_SW), patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(
+            return_value={"is_home": True, "home_for_agent": "ToukaSoulHanatou",
+                          "agent_id": "ToukaSoulHanatou"}
+        )
+        await _maybe_trim_after_chat("sess-1")
+    assert schedule.call_args.args[0].agent_id == _SOUL
+
+
 @pytest.mark.parametrize("bound", [_SOUL, "ToukaSoulHanatou"], ids=["soul", "old-prefix"])
 async def test_a_child_turn_schedules_maintenance_for_its_soul(
     souls: dict[str, dict], bound: str

@@ -47,6 +47,8 @@ SUMMARY_TOTAL_TOKEN_CAP = 500_000
 MAX_PARALLEL_CHUNKS = 3
 # 附給摘要員的「前情最後一段」最多幾 token（每段請求都可能帶它，審查 F10）
 PREVIOUS_MAX_TOKENS = 2_000
+# 實際的輸出上限比告訴模型的多四分之一：寫超過一點時不會因為截斷整份作廢（第 2b 審查）
+_OUTPUT_HEADROOM_DIVISOR = 4
 _SYSTEM = (
     "你是對話歸檔摘要員。下面是一段『即將移出 AI 即時脈絡的較早對話』。"
     "請壓成第三人稱要點，保留：人名、做過的決定、承諾與待辦、未解問題、"
@@ -143,8 +145,9 @@ async def _complete_text(
 ) -> str | None:
     """送一次摘要；任何失敗（含例外與空回應）回 None."""
     try:
+        output_cap = max_tokens + max_tokens // _OUTPUT_HEADROOM_DIVISOR
         result = await complete_once(
-            identity, "summarizer", model, system, user, max_tokens, _TIMEOUT_S
+            identity, "summarizer", model, system, user, output_cap, _TIMEOUT_S
         )
     except Exception as e:  # complete_once 不應拋出；摘要仍守住 fail-safe
         logger.warning("DialogueSummarizer 失敗，降級為純無損剪裁：%s", e)

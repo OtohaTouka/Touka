@@ -72,7 +72,11 @@ _INSERT = (
     "(agent_id, old_session, new_session, old_handled_by, created_at, updated_at) "
     "VALUES (?, ?, ?, ?, ?, ?)"
 )
-_SET_NEW = "UPDATE soul_home_transitions SET new_session = ?, updated_at = ? WHERE id = ?"
+# 改指新家時時間跟著改：換家標記寫的是這次換家發生的時候
+_SET_NEW = (
+    "UPDATE soul_home_transitions SET new_session = ?, created_at = ?, updated_at = ? "
+    "WHERE id = ?"
+)
 _SET_STATUS = "UPDATE soul_home_transitions SET status = ?, updated_at = ? WHERE id = ?"
 # 還沒開始用的新家：有效、待交接、新家沒用過；改回去或改設別段時改寫這些紀錄，當沒換過
 # （既有資料有兩個家時會有兩筆指向同一個新家，一起改）
@@ -146,6 +150,18 @@ _ALL_OLD_HOMES = (
 # 刪掉一段對話：它的回報位置跟著刪，它當舊家的已完成或取消紀錄失效（同一個編號重用時
 # 不是舊家）；它當新家的紀錄不動（前面那段舊家照舊唯讀）
 _FORGET_MARK = "DELETE FROM soul_child_report_marks WHERE session_id = ?"
+# 使用者刪了子對話：還沒併進合併段的回報跟著失效（已併進去的分不出來，ADR-0307）
+_FORGET_REPORTS = (
+    "UPDATE soul_prelude_segments SET scope_version = 0 "
+    "WHERE kind = 'child_report' AND source_session = ? AND scope_version = 1"
+)
+# 回報位置：寫入或移動；已失效的不動（同名重建、還原之後不會被救回來）
+_SET_MARK = (
+    "INSERT INTO soul_child_report_marks (session_id, agent_id, scope_version, last_node, "
+    "updated_at) VALUES (?, ?, 1, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
+    "agent_id = excluded.agent_id, last_node = excluded.last_node, "
+    "updated_at = excluded.updated_at WHERE soul_child_report_marks.scope_version = 1"
+)
 _FORGET_RECORDS = (
     "UPDATE soul_home_transitions SET scope_version = 0 "
     "WHERE scope_version = 1 AND status IN ('done', 'cancelled') AND old_session = ?"
@@ -228,7 +244,7 @@ async def _retarget(db: aiosqlite.Connection, record: _Record, new: str | None, 
     if restored or (noted and new is None):
         await db.execute(_SET_STATUS, (CANCELLED, now, record.id))
     else:
-        await db.execute(_SET_NEW, (new, now, record.id))
+        await db.execute(_SET_NEW, (new, now, now, record.id))
     return restored
 
 
@@ -330,9 +346,18 @@ async def handover_started(db: aiosqlite.Connection, session_id: str) -> bool:
 
 
 async def forget_session(db: aiosqlite.Connection, session_id: str) -> None:
-    """刪對話的同一個交易裡：刪回報位置、它當舊家的已完成或取消紀錄失效."""
+    """刪對話的同一個交易裡：刪回報位置與它的回報、它當舊家的已完成或取消紀錄失效."""
     await db.execute(_FORGET_MARK, (session_id,))
+    await db.execute(_FORGET_REPORTS, (session_id,))
     await db.execute(_FORGET_RECORDS, (session_id,))
+
+
+async def set_report_mark(
+    db: aiosqlite.Connection, session_id: str, agent: str, node: str | None, now: int
+) -> bool:
+    """回報位置移到這個節點；位置已失效時不動、回 False."""
+    cursor = await db.execute(_SET_MARK, (session_id, agent, node, now))
+    return bool(cursor.rowcount)
 
 
 async def all_old_homes(db: aiosqlite.Connection) -> set[str]:

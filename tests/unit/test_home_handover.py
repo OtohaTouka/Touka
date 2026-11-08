@@ -15,9 +15,16 @@ from src.models.session_persistence import SessionChanges
 from src.models.sliding_window import SlidingWindowConfig
 from src.services import destructive_ops, home_handover
 from src.services.chat_trim_wait import closing_saves
+from src.services.sliding_window_service import SlidingWindowService
+from src.services.soul_locks import soul_lock
+from src.services.soul_prelude_service import (
+    MERGED_WITH_REPORTS,
+    is_source_note,
+    report_note,
+)
 from src.services.stream_buffer_service import stream_buffer_service
 from src.utils import async_db, home_handover_db
-from src.utils.soul_prelude_db import list_live_segments
+from src.utils.soul_prelude_db import PreludeSegment, list_live_segments
 
 from tests.support.session_scope import HUMAN, A, B, seed
 from tests.support.session_scope import scope_db as scope_db
@@ -93,6 +100,7 @@ def fakes(monkeypatch, config):
     monkeypatch.setattr(home_handover, "_REPORT_RETRY_AFTER", {})
     monkeypatch.setattr(home_handover, "_retried_failed", set())
     monkeypatch.setattr(home_handover, "_idle_checked", {})
+    monkeypatch.setattr(home_handover, "_report_failures", {})
     return summaries, archive
 
 
@@ -164,12 +172,12 @@ async def mark_of(sid):
         return tuple(row) if row is not None else None
 
 
-async def set_mark(sid, agent, node, scope=1):
+async def set_mark(sid, agent, node, scope=1, at=1):
     async with async_db.get_async_db() as db:
         await db.execute(
             "INSERT OR REPLACE INTO soul_child_report_marks "
-            "(session_id, agent_id, scope_version, last_node, updated_at) VALUES (?, ?, ?, ?, 1)",
-            (sid, agent, scope, node),
+            "(session_id, agent_id, scope_version, last_node, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (sid, agent, scope, node, at),
         )
         await db.commit()
 
@@ -362,16 +370,6 @@ async def test_with_summaries_off_the_retired_entry_is_a_note(summaries, config)
 
 
 @pytest.mark.usefixtures("unset_home")
-async def test_a_failed_summary_also_leaves_a_note(summaries):
-    summaries.reply = None
-    await home_handover.maintain(A)
-    assert (await records())[0][2] == "done"
-    assert "legacy conversation archive" in [
-        k for k in await segments() if k[0] == "home_retired"
-    ][0][2]
-
-
-@pytest.mark.usefixtures("unset_home")
 async def test_a_failure_counts_and_keeps_the_step(archive):
     archive.error = OSError("disk")
     await home_handover.maintain(A)
@@ -449,12 +447,14 @@ async def test_a_failed_handover_retries_after_a_restart_and_after_a_day(archive
 
 
 @pytest.mark.usefixtures("unset_home")
-@pytest.mark.parametrize("busy", ["stream", "heartbeat", "closing"])
+@pytest.mark.parametrize("busy", ["stream", "heartbeat", "closing", "sns"])
 async def test_a_busy_old_home_waits_for_the_next_turn(archive, monkeypatch, busy):
     if busy == "stream":
         monkeypatch.setattr(stream_buffer_service, "is_busy", lambda sid: sid == "A")
     elif busy == "heartbeat":
         monkeypatch.setattr(home_handover, "running_heartbeats", lambda _identity: ["A"])
+    elif busy == "sns":
+        monkeypatch.setattr(home_handover, "is_replying", lambda sid: sid == "A")
     else:
         monkeypatch.setattr(closing_saves, "is_waiting", lambda sid: sid == "A", raising=False)
     await home_handover.maintain(A)
@@ -543,14 +543,6 @@ async def test_only_what_came_after_the_mark_is_reported(summaries):
     await home_handover.maintain(A)
     report = [m for _a, m, budget in summaries.calls if budget == home_handover.REPORT_MAX_TOKENS]
     assert [[n["id"] for n in msgs] for msgs in report] == [["a"]]
-
-
-@pytest.mark.usefixtures("unset_home", "child")
-async def test_a_mark_off_the_current_branch_reports_the_whole_path(summaries):
-    await set_mark("kid", A.agent_id, "b")
-    await home_handover.maintain(A)
-    report = [m for _a, m, budget in summaries.calls if budget == home_handover.REPORT_MAX_TOKENS]
-    assert [[n["id"] for n in msgs] for msgs in report] == [["u", "a"]]
 
 
 @pytest.mark.usefixtures("unset_home", "child")
@@ -665,12 +657,16 @@ async def test_with_summaries_off_there_are_no_reports(summaries, config):
     assert await mark_of("kid") is None
 
 
-@pytest.mark.usefixtures("unset_home", "child")
+@pytest.mark.usefixtures("child")
 async def test_a_failed_report_keeps_the_mark_and_cools_down(summaries, monkeypatch):
+    clock = {"now": 7 * HOUR_MS}
+    monkeypatch.setattr(home_handover, "get_current_epoch_ms", lambda: clock["now"])
     summaries.reply = None
     await home_handover.maintain(A)
     assert await mark_of("kid") is None
     calls = len(summaries.calls)
+    assert calls == 1
+    clock["now"] += home_handover.IDLE_CHECK_EVERY_MS + 1
     await home_handover.maintain(A)  # 冷卻中：不再花模型
     assert len(summaries.calls) == calls
 
@@ -899,3 +895,618 @@ async def test_the_real_archive_keeps_every_branch_and_the_interjections(monkeyp
     for node in ("u", "a", "b"):
         assert store.get_message(node)["session_id"] == "A"
     assert "wait" in store.get_message("a")["content"]
+
+
+# --- 第 1 輪審查補的 ---
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = {"ms": 7 * HOUR_MS}
+    monkeypatch.setattr(home_handover, "get_current_epoch_ms", lambda: now["ms"])
+    return now
+
+
+def before_real(monkeypatch, name, action):
+    """插在兩個步驟之間：先做 action，再跑 home_handover 裡真的 name."""
+    real = getattr(home_handover, name)
+
+    async def wrapped(*args, **kwargs):
+        await action()
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(home_handover, name, wrapped)
+
+
+async def hold_a():
+    destructive_ops.hold(A)
+
+
+def report_calls(summaries):
+    return [
+        [node["id"] for node in messages]
+        for _agent, messages, budget in summaries.calls
+        if budget == home_handover.REPORT_MAX_TOKENS
+    ]
+
+
+async def child_reports():
+    return [k for k in await segments() if k[0] == "child_report"]
+
+
+async def rebind(sid, target):
+    current = await service.read_persistence_snapshot(sid, HUMAN)
+    result = await service.save_ui_session(sid, current.revision, SessionChanges(), HUMAN, target)
+    assert result.status == "saved"
+
+
+async def done_with_pending_summary(*sids):
+    async with async_db.get_async_db() as db:
+        for sid in sids:
+            await db.execute(
+                "INSERT INTO soul_home_transitions (agent_id, old_session, new_session, status, "
+                "step, retired_summary_pending, created_at, updated_at) "
+                "VALUES (?, ?, NULL, 'done', 5, 1, 1, 1)",
+                (A.agent_id, sid),
+            )
+        await db.commit()
+
+
+# 認領後才是最終內容
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_what_was_saved_just_before_the_claim_gets_archived(summaries, archive, monkeypatch):
+    async def late_save():
+        current = await service.read_persistence_snapshot("A", HUMAN)
+        tree = copy.deepcopy(current.session["messages"])
+        tree["messages"]["a"]["content"] = "edited late"
+        saved = await service.conditional_save_session(
+            "A", current.revision, SessionChanges(messages=tree), HUMAN
+        )
+        assert saved.status == "saved"
+
+    before_real(monkeypatch, "claim", late_save)
+    await home_handover.maintain(A)
+    nodes = {node["id"]: node for node in archive.calls[0][0]["messages"]}
+    assert "edited late" in nodes["a"]["content"]
+    assert "edited late" in summaries.calls[0][1][-1]["content"]
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_failed_read_after_the_claim_counts_as_a_failure(summaries, archive, monkeypatch):
+    real = service.read_handover_source
+    reads = []
+
+    async def second_read_fails(sid):
+        reads.append(sid)
+        if len(reads) == 2:
+            raise OSError("disk")
+        return await real(sid)
+
+    monkeypatch.setattr(home_handover.session_service, "read_handover_source", second_read_fails)
+    await home_handover.maintain(A)
+    assert archive.calls == []
+    assert await records() == [("A", None, "pending", 0, 1, 0, None)]
+
+
+# 換靈魂：同一次存檔移動回報位置
+
+
+@pytest.mark.usefixtures("child")
+async def test_changing_soul_moves_the_mark_in_the_same_save():
+    await set_mark("kid", A.agent_id, "u")
+    await rebind("kid", B)
+    assert await mark_of("kid") == (B.agent_id, 1, "a")
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_child_with_no_mark_gets_one_when_it_changes_soul():
+    await rebind("kid", B)
+    assert await mark_of("kid") == (B.agent_id, 1, "a")
+
+
+@pytest.mark.usefixtures("child")
+async def test_an_invalidated_mark_stays_invalid_when_the_child_changes_soul():
+    await set_mark("kid", A.agent_id, "u", scope=0)
+    await rebind("kid", B)
+    assert await mark_of("kid") == (A.agent_id, 0, "u")
+
+
+@pytest.mark.usefixtures("child")
+async def test_switching_souls_and_back_reports_nothing_said_to_the_other(summaries, clock):
+    await set_mark("kid", A.agent_id, "u")
+    await rebind("kid", B)
+    await rebind("kid", A)
+    await home_handover.maintain(A)
+    assert summaries.calls == []
+    assert await mark_of("kid") == (A.agent_id, 1, "a")
+
+
+# 重新生成、切分支、刪最後一輪
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+async def test_a_mark_on_another_branch_only_counts_what_follows_the_fork(summaries):
+    await set_mark("kid", A.agent_id, "b")
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["a"]]
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"z": {"id": "z", "role": "user", "content": "x", "parentId": None}},
+        {
+            "p1": {"id": "p1", "role": "user", "content": "x", "parentId": "p2"},
+            "p2": {"id": "p2", "role": "user", "content": "x", "parentId": "p1"},
+        },
+    ],
+    ids=["unrelated-root", "broken-parents"],
+)
+async def test_a_mark_with_no_shared_ancestor_counts_the_whole_path(summaries, extra):
+    tree = copy.deepcopy(BRANCHED)
+    tree["messages"].update(extra)
+    await seed("kid", tree=tree)
+    await set_mark("kid", A.agent_id, next(iter(extra)))
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["u", "a"]]
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+@pytest.mark.parametrize(("marked_at", "expected"), [(1_500_000, [["a"]]), (3_000_000, [])])
+async def test_a_deleted_mark_only_counts_what_came_after_it(summaries, marked_at, expected):
+    await set_mark("kid", A.agent_id, "gone", at=marked_at)
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == expected
+    assert await mark_of("kid") == (A.agent_id, 1, "a")
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+async def test_a_tip_already_reported_is_not_summarized_again(summaries, clock):
+    await home_handover.maintain(A)
+    assert len(report_calls(summaries)) == 1
+    await set_mark("kid", A.agent_id, "b")  # 切去別的分支又切回來
+    clock["ms"] += home_handover.IDLE_CHECK_EVERY_MS + 1
+    await home_handover.maintain(A)
+    assert len(report_calls(summaries)) == 1
+    assert len(await child_reports()) == 1
+    assert await mark_of("kid") == (A.agent_id, 1, "a")
+
+
+# 持續失敗的子對話
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_child_that_keeps_failing_ends_with_a_note(summaries, clock):
+    summaries.reply = None
+    for attempt in range(1, home_handover.REPORT_MAX_FAILURES + 1):
+        await home_handover.maintain(A)
+        assert len(summaries.calls) == attempt
+        clock["ms"] += home_handover.REPORT_RETRY_AFTER_MS + 1
+    reports = await child_reports()
+    assert len(reports) == 1
+    assert reports[0][2] == report_note()
+    assert any(is_source_note(seg) for seg in await list_live_segments(A.agent_id))
+    assert await mark_of("kid") == (A.agent_id, 1, "a")
+    await home_handover.maintain(A)  # 放棄了：不再花模型
+    assert len(summaries.calls) == home_handover.REPORT_MAX_FAILURES
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_child_that_succeeds_starts_counting_again(summaries, clock):
+    summaries.reply = None
+    await home_handover.maintain(A)
+    assert home_handover._report_failures["kid"][0] == 1
+    summaries.reply = "摘要內容"
+    clock["ms"] += home_handover.REPORT_RETRY_AFTER_MS + 1
+    await home_handover.maintain(A)
+    assert "kid" not in home_handover._report_failures
+
+
+async def test_children_that_cannot_be_read_do_not_use_up_the_slots(summaries, clock, monkeypatch):
+    for index in range(home_handover.REPORTS_PER_PASS):
+        await seed(f"bad{index}", tree=BRANCHED)
+        await set_scope_one(f"bad{index}")
+    await seed("good", tree=BRANCHED)
+    await set_scope_one("good")
+    real = service.read_handover_source
+
+    async def broken(sid):
+        if sid.startswith("bad"):
+            raise OSError("disk")
+        return await real(sid)
+
+    monkeypatch.setattr(home_handover.session_service, "read_handover_source", broken)
+    await home_handover.maintain(A)
+    assert await child_reports() == []
+    clock["ms"] += home_handover.IDLE_CHECK_EVERY_MS + 1
+    await home_handover.maintain(A)
+    assert [k[1] for k in await child_reports()] == ["good"]
+
+
+# 重置開始後不再做事
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+async def test_a_reset_during_the_queue_skips_the_later_phases(summaries, clock):
+    summaries.before = hold_a
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert len(summaries.calls) == 1  # 閒置子對話不再送模型
+
+
+async def test_a_reset_during_reports_stops_the_ones_still_waiting(summaries, clock):
+    for index in range(home_handover.REPORTS_PER_PASS):
+        await seed(f"kid{index}", tree=BRANCHED)
+        await set_scope_one(f"kid{index}")
+    summaries.before = hold_a
+    try:
+        await home_handover.maintain(A)
+    finally:
+        for _ in summaries.calls:
+            destructive_ops.release(A)
+    assert len(summaries.calls) <= home_handover.REPORTS_IN_PARALLEL
+
+
+async def test_a_deferred_summary_of_an_invalidated_record_is_dropped(summaries, archive):
+    await seed("A", tree=BRANCHED)
+    await done_with_pending_summary("A")
+
+    async def invalidate():
+        await set_record(1, scope_version=0)
+
+    summaries.before = invalidate
+    await home_handover.maintain(A)
+    assert summaries.calls
+    assert not [k for k in await segments() if k[0] == "home_retired"]
+
+
+async def test_a_reset_during_a_deferred_summary_stops_the_next_one(summaries, archive):
+    await seed("A1", tree=BRANCHED)
+    await seed("A2", tree=BRANCHED)
+    await done_with_pending_summary("A1", "A2")
+    summaries.before = hold_a
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert len(summaries.calls) == 1
+    assert len(archive.calls) == 1
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_mark_does_not_move_once_a_reset_started(summaries, clock, monkeypatch):
+    await set_mark("kid", B.agent_id, "u")
+    real = home_handover.child_candidates
+
+    async def then_reset(agents):
+        found = await real(agents)
+        destructive_ops.hold(A)
+        return found
+
+    monkeypatch.setattr(home_handover, "child_candidates", then_reset)
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert await mark_of("kid") == (B.agent_id, 1, "u")
+
+
+@pytest.mark.usefixtures("child")
+async def test_no_mark_is_written_for_a_child_deleted_meanwhile(summaries, clock, monkeypatch):
+    await set_mark("kid", B.agent_id, "u")
+    real = home_handover.child_candidates
+
+    async def then_delete(agents):
+        found = await real(agents)
+        async with async_db.get_async_db() as db:
+            await db.execute("DELETE FROM user_sessions WHERE id = 'kid'")
+            await db.execute("DELETE FROM soul_child_report_marks WHERE session_id = 'kid'")
+            await db.commit()
+        return found
+
+    monkeypatch.setattr(home_handover, "child_candidates", then_delete)
+    await home_handover.maintain(A)
+    assert await mark_of("kid") is None
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_mark_invalidated_during_the_report_stays_invalid(summaries, clock):
+    await set_mark("kid", A.agent_id, "u")
+
+    async def invalidate():
+        async with async_db.get_async_db() as db:
+            await db.execute("UPDATE soul_child_report_marks SET scope_version = 0")
+            await db.commit()
+
+    summaries.before = invalidate
+    await home_handover.maintain(A)
+    assert await mark_of("kid") == (A.agent_id, 0, "u")
+    assert await child_reports() == []
+
+
+# 刪子對話
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+async def test_deleting_a_child_takes_its_report_with_it(summaries):
+    await home_handover.maintain(A)
+    assert len(await child_reports()) == 1
+    current = await service.read_persistence_snapshot("kid", HUMAN)
+    assert (await service.conditional_delete_session("kid", current.revision, HUMAN)).status == (
+        "saved"
+    )
+    assert await child_reports() == []
+    assert [k for k in await segments() if k[0] == "home_retired"]  # 別的段落不動
+
+
+# 退任摘要失敗先再試
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_failed_retired_summary_is_tried_again_before_leaving_a_note(summaries):
+    summaries.reply = None
+    for failures in (1, 2):
+        await home_handover.maintain(A)
+        assert await records() == [("A", None, "pending", 1, failures, 0, None)]
+        assert not [k for k in await segments() if k[0] == "home_retired"]
+    await home_handover.maintain(A)
+    assert (await records())[0][2] == "done"
+    assert len(summaries.calls) == 3
+    assert "legacy conversation archive" in [
+        k for k in await segments() if k[0] == "home_retired"
+    ][0][2]
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_retired_summary_that_works_on_the_retry_is_kept(summaries, archive):
+    summaries.reply = None
+    await home_handover.maintain(A)
+    summaries.reply = "摘要內容"
+    await home_handover.maintain(A)
+    assert (await records())[0][2:5] == ("done", 5, 1)
+    assert [k[2] for k in await segments() if k[0] == "home_retired"] == ["摘要內容"]
+    assert len(archive.calls) == 1  # 第 1 步不重做
+
+
+# 一次維護的回報總量
+
+
+async def test_reports_are_capped_per_pass_not_per_record(summaries, archive):
+    await seed("A", tree=BRANCHED)
+    await seed("B", tree=BRANCHED)
+    await legacy_home("A")
+    assert await service.set_home("A", A, False)
+    await legacy_home("B")
+    assert await service.set_home("B", A, False)
+    for index in range(7):
+        await seed(f"kid{index}", tree=BRANCHED)
+        await set_scope_one(f"kid{index}")
+    await home_handover.maintain(A)
+    assert [row[2] for row in await records()] == ["done", "done"]
+    assert len(await child_reports()) == home_handover.REPORTS_PER_PASS
+
+
+# 少做白工
+
+
+async def test_a_pending_summary_of_the_current_home_does_not_read_it(archive, monkeypatch):
+    await seed("A", tree=BRANCHED)
+    await seed("B")
+    await legacy_home("A")
+    assert await service.set_home("B", A, True)
+    await start("B")
+    assert await service.set_home("A", A, True)
+    await home_handover.maintain(A)
+    assert (await records())[0][5] == 1
+    reads = []
+    real = service.read_handover_source
+
+    async def counted(sid):
+        reads.append(sid)
+        return await real(sid)
+
+    monkeypatch.setattr(home_handover.session_service, "read_handover_source", counted)
+    await home_handover.maintain(A)
+    assert reads == []
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_an_unreadable_failed_old_home_is_only_retried_once(monkeypatch):
+    await set_record(1, status="failed", failures=3)
+
+    async def broken(_sid):
+        raise OSError("disk")
+
+    monkeypatch.setattr(home_handover.session_service, "read_handover_source", broken)
+    await home_handover.maintain(A)
+    assert (await records())[0][4] == 4
+    await home_handover.maintain(A)
+    assert (await records())[0][4] == 4
+
+
+async def test_the_failure_note_goes_away_once_the_handover_works(archive, summaries):
+    await seed("A", tree=BRANCHED)
+    await legacy_home("A")
+    assert await service.set_home("A", A, False)
+    archive.fail_ids.add("A")
+    for _ in range(3):
+        await home_handover.maintain(A)
+    assert [k for k in await segments() if k[0] == "handover" and "failed" in k[2]]
+    archive.fail_ids.clear()
+    home_handover._retried_failed.clear()
+    await home_handover.maintain(A)
+    assert (await records())[0][2] == "done"
+    assert not [k for k in await segments() if k[0] == "handover" and "failed" in k[2]]
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_the_marker_is_dated_when_the_new_home_was_set(summaries, archive):
+    await set_record(1, created_at=1)
+    await seed("D")
+    assert await service.set_home("D", A, True)
+    await start("D")
+    await home_handover.maintain(A)
+    marks = [k[2] for k in await segments() if k[0] == "handover" and "from A to D" in k[2]]
+    assert len(marks) == 1
+    assert "1970" not in marks[0]
+
+
+async def test_a_first_home_set_twice_writes_a_line_each_time(summaries, archive):
+    await seed("X")
+    async with async_db.get_async_db() as db:
+        for record_id in (1, 2):
+            await db.execute(
+                "INSERT INTO soul_home_transitions (id, agent_id, old_session, new_session, "
+                "old_handled_by, new_started, created_at, updated_at) "
+                "VALUES (?, ?, 'X', 'X', 0, 1, ?, ?)",
+                (record_id, A.agent_id, 1000 * record_id, 1000 * record_id),
+            )
+        await db.commit()
+    await home_handover.maintain(A)
+    assert len([k for k in await segments() if k[0] == "handover"]) == 2
+
+
+# 剪裁的摘要員看不到回報
+
+
+async def test_the_trim_summarizer_never_sees_child_reports():
+    entries = [
+        ("handover", "old", "plain"),
+        ("child_report", "kid", "private report"),
+        ("merged", MERGED_WITH_REPORTS, "merged with report"),
+    ]
+    for created, (kind, source, content) in enumerate(entries, start=1):
+        assert await home_handover_db.write_note(
+            PreludeSegment(
+                agent=A.agent_id,
+                kind=kind,
+                source_session=source,
+                dedupe_key=str(created),
+                content=content,
+                created_at=created,
+            ),
+            skip_if=lambda: False,
+        )
+    assert await SlidingWindowService._previous_entry(A, "home") == "plain"
+
+
+# 每一步都核對（變異檢查補的）
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("change", [{"new_session": "C"}, {"new_started": 0}, {"scope_version": 0}])
+async def test_the_claim_checks_the_record_did_not_change(archive, monkeypatch, change):
+    async def moved_on():
+        await set_record(1, **change)
+
+    before_real(monkeypatch, "claim", moved_on)
+    await home_handover.maintain(A)
+    assert archive.calls == []
+    assert (await records())[0][2] == "pending"
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("change", [{"new_started": 0}, {"scope_version": 0}])
+async def test_a_step_checks_the_record_did_not_change(summaries, change):
+    async def moved_on():
+        await set_record(1, **change)
+
+    summaries.before = moved_on
+    await home_handover.maintain(A)
+    assert not [k for k in await segments() if k[0] == "home_retired"]
+    assert (await records())[0][3] == 1
+
+
+@pytest.mark.usefixtures("moved")
+@pytest.mark.parametrize("change", [{"new_session": "C"}, {"new_started": 0}, {"scope_version": 0}])
+async def test_finishing_checks_the_record_did_not_change(summaries, monkeypatch, change):
+    async def moved_on():
+        await set_record(1, **change)
+
+    before_real(monkeypatch, "finish", moved_on)
+    await home_handover.maintain(A)
+    assert (await records())[0][2] == "running"
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_failure_of_an_invalidated_record_is_not_counted(monkeypatch):
+    async def invalidate_and_fail(_run, _work_id, _source):
+        await set_record(1, scope_version=0)
+        raise OSError("disk")
+
+    monkeypatch.setattr(home_handover, "_archive_old_home", invalidate_and_fail)
+    await home_handover.maintain(A)
+    assert (await records())[0][4] == 0
+
+
+# 寫入前查重置（變異檢查補的）
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_reset_stops_the_claim(archive, monkeypatch):
+    before_real(monkeypatch, "claim", hold_a)
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert archive.calls == []
+    assert (await records())[0][2] == "pending"
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_reset_stops_the_finish(summaries, monkeypatch):
+    before_real(monkeypatch, "finish", hold_a)
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert (await records())[0][2] == "running"
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_a_reset_stops_the_failure_note(archive, monkeypatch):
+    await set_record(1, failures=2)
+    archive.error = OSError("disk")
+    before_real(monkeypatch, "write_note", hold_a)
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert not [k for k in await segments() if k[0] == "handover" and "failed" in k[2]]
+
+
+async def test_a_reset_stops_the_deferred_summary(summaries, archive):
+    await seed("A", tree=BRANCHED)
+    await done_with_pending_summary("A")
+    summaries.before = hold_a
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+    assert await segments() == []
+    assert (await records())[0][5] == 1
+
+
+async def test_two_pending_summaries_of_one_home_are_written_once(summaries, archive):
+    await seed("A", tree=BRANCHED)
+    await done_with_pending_summary("A", "A")
+    await home_handover.maintain(A)
+    assert len([k for k in await segments() if k[0] == "home_retired"]) == 1
+    assert len(summaries.calls) == 1
+    assert [row[5] for row in await records()] == [0, 0]
+
+
+@pytest.mark.usefixtures("unset_home")
+async def test_maintenance_waits_for_the_soul_lock(summaries):
+    async with soul_lock(A.agent_id):
+        task = asyncio.create_task(home_handover.maintain(A))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert summaries.calls == []
+    await task
+    assert summaries.calls

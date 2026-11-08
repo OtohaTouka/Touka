@@ -272,6 +272,17 @@ def _canonical_session_agent(value: str | None) -> str | None:
     return passport["agent_id"] if passport and passport["is_toukasoul"] else value
 
 
+async def _move_report_mark(db: aiosqlite.Connection, session: dict[str, Any]) -> None:
+    """對話換了靈魂：回報位置同一個交易移到當下，換之前的內容不會報給新靈魂（ADR-0307）."""
+    await home_transitions.set_report_mark(
+        db,
+        session["id"],
+        _canonical_session_agent(session["agent_id"]),
+        session["messages"].get("currentId"),
+        get_current_epoch_ms(),
+    )
+
+
 def canonical_agent_id(identity: AgentIdentity) -> str:
     """靈魂的正式 ID（別名換成註冊名）；和對話歸屬、家歸屬同一條規則."""
     return _canonical_session_agent(identity.agent_id) or identity.agent_id
@@ -692,6 +703,8 @@ class SessionService:
                 if row is None and owner_user_id is not None:
                     updated["owner_user_id"] = owner_user_id
                 await _write_session_row(db, updated)
+                if row is not None and updated["agent_id"] != row["agent_id"]:
+                    await _move_report_mark(db, updated)  # 同一個靈魂時字串不會變
                 if after_write is not None:
                     await after_write(db)
                 if row is None:

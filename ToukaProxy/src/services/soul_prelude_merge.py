@@ -3,7 +3,7 @@
 前情摘要開著、前情超過上限時，把最舊的幾段可合併段落合成一段 ``merged``；只有一行的來源註記不合併
 （註記留給折疊）；退任摘要會合併，否則最舊的永遠被折掉、再也看不到（ADR-0307）。比合併段新的段落
 已經把顯示段數用完時不合併（一寫進去就被折掉）。吃進子對話回報的合併段要標記：SNS 請求連它一起排除。
-在禁令 28 的兩個觸發點剪完之後在背景做（剪裁的對話鎖外面），拿靈魂鎖
+在禁令 28 的兩個觸發點剪完之後、或前情維護寫了新段落之後在背景做（對話鎖外面），拿靈魂鎖
 （鎖的順序：靈魂鎖在最外層）；摘要在交易外。重置或刪除中不做，摘要期間開始的也丟掉結果；任何失敗
 都留著原本的段落，同一個靈魂冷卻一段時間再試。
 
@@ -186,7 +186,7 @@ async def merge_if_needed(
             return False
         merged_at = _merged_time(visible, picked)
         if _newer_than(visible, picked, merged_at) >= PRELUDE_MAX_SEGMENTS - 1:
-            return False  # 合併段一寫進去就被段數上限折掉，白花一次模型
+            return False  # 合併段會排到最前面，下一段寫進來就被段數上限折掉，白花一次模型
         room = _room_taken(visible, picked, keep_from, merged_at)
         budget = min(MERGE_MAX_TOKENS, cap - room - _HEADER_MARGIN_TOKENS)
         if budget < MERGE_MIN_TOKENS:

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.utils.async_db import get_async_db
-from src.utils.home_transitions import FAILED, PENDING, RUNNING
+from src.utils.home_transitions import FAILED, PENDING, RUNNING, set_report_mark
 from src.utils.soul_prelude_db import insert_segment_tx
 
 if TYPE_CHECKING:
@@ -70,10 +70,13 @@ _CLEAR_RETIRED_PENDING = (
     "WHERE agent_id = ? AND old_session = ? AND scope_version = 1 "
     "AND retired_summary_pending = 1"
 )
-# 待補的退任摘要：沒有任何以它為舊家、還沒完成的一般紀錄（有的話交給那一筆寫）
+# 待補的退任摘要：那段已不是現任家（對話已刪的也算，要清掉待補），也沒有任何以它為舊家、
+# 還沒完成的一般紀錄（有的話交給那一筆寫）
 _PENDING_RETIRED = (
     "SELECT t.old_session, MAX(t.id) FROM soul_home_transitions t "
+    "LEFT JOIN user_sessions s ON s.id = t.old_session "
     "WHERE t.agent_id = ? AND t.scope_version = 1 AND t.retired_summary_pending = 1 "
+    "AND COALESCE(s.is_home, 0) = 0 "
     "AND NOT EXISTS (SELECT 1 FROM soul_home_transitions u "
     "WHERE u.old_session = t.old_session AND u.scope_version = 1 AND u.old_handled_by IS NULL "
     "AND u.status IN ('pending', 'running', 'failed')) "
@@ -88,7 +91,8 @@ _CHILD_CANDIDATES = (
     "SELECT s.id, s.updatedAt, s.session_scope_version, "
     "CASE WHEN json_valid(s.messages) AND json_type(s.messages, '$.currentId') = 'text' "
     "THEN json_extract(s.messages, '$.currentId') END AS node, "
-    "m.last_node, m.agent_id AS mark_agent, m.scope_version AS mark_scope "
+    "m.last_node, m.agent_id AS mark_agent, m.scope_version AS mark_scope, "
+    "m.updated_at AS mark_at "
     "FROM user_sessions s LEFT JOIN soul_child_report_marks m ON m.session_id = s.id "
     "WHERE s.is_home = 0 AND s.agent_id IN (?, ?) "
     "AND NOT EXISTS (SELECT 1 FROM soul_home_transitions t WHERE t.old_session = s.id "
@@ -96,11 +100,14 @@ _CHILD_CANDIDATES = (
     "ORDER BY COALESCE(s.updatedAt, 0) DESC, s.id"
 )
 _SESSION_AGENT = "SELECT agent_id FROM user_sessions WHERE id = ?"
-_SET_MARK = (
-    "INSERT INTO soul_child_report_marks (session_id, agent_id, scope_version, last_node, "
-    "updated_at) VALUES (?, ?, 1, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
-    "agent_id = excluded.agent_id, scope_version = 1, last_node = excluded.last_node, "
-    "updated_at = excluded.updated_at"
+_REPORT_EXISTS = (
+    "SELECT 1 FROM soul_prelude_segments WHERE agent_id = ? AND kind = 'child_report' "
+    "AND source_session = ? AND dedupe_key = ? AND scope_version = 1 LIMIT 1"
+)
+# 交接後來成功：先前寫的失敗註記失效（還沒併進合併段的）
+_DROP_FAILURE_NOTE = (
+    "UPDATE soul_prelude_segments SET scope_version = 0 "
+    "WHERE agent_id = ? AND kind = 'handover' AND dedupe_key = ? AND scope_version = 1"
 )
 
 
@@ -136,6 +143,7 @@ class Child:
     mark_node: str | None
     mark_agent: str | None
     mark_scope: int | None
+    mark_at: int | None = None
 
 
 async def list_queue(agent: str) -> list[Work]:
@@ -204,9 +212,14 @@ async def finish(
     now: int,
     *,
     segment: PreludeSegment | None = None,
+    stale_note: str | None = None,
+    agent: str = "",
     skip_if: Callable[[], bool],
 ) -> bool:
-    """這一筆完成（可同時寫一段，例如換家標記）；核對不過或該放棄回 False."""
+    """這一筆完成（可同時寫一段，例如換家標記）；核對不過或該放棄回 False.
+
+    ``stale_note`` 是這一筆先前寫的失敗註記：既然成功了就失效。
+    """
     async with get_async_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         if skip_if() or not await _apply(db, work, _FINISH, STEP_DONE, now, from_step=from_step):
@@ -214,6 +227,8 @@ async def finish(
             return False
         if segment is not None:
             await insert_segment_tx(db, segment)
+        if stale_note is not None:
+            await db.execute(_DROP_FAILURE_NOTE, (agent, stale_note))
         await db.commit()
         return True
 
@@ -256,15 +271,21 @@ async def write_deferred_retired(
     *,
     skip_if: Callable[[], bool],
 ) -> bool:
-    """補寫退任摘要並清掉這段舊家所有待補（舊家已不存在時 ``segment`` 是 None）."""
+    """補寫退任摘要並清掉這段舊家所有待補（舊家已不存在時 ``segment`` 是 None）.
+
+    該放棄或紀錄已失效時整筆不寫，回 False。
+    """
     async with get_async_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         if skip_if():
             await db.rollback()
             return False
+        cursor = await db.execute(_CLEAR_RETIRED_PENDING, (now, agent, old_session))
+        if not cursor.rowcount:
+            await db.rollback()
+            return False
         if segment is not None:
             await insert_segment_tx(db, segment)
-        await db.execute(_CLEAR_RETIRED_PENDING, (now, agent, old_session))
         await db.commit()
         return True
 
@@ -287,16 +308,48 @@ async def child_candidates(agents: Sequence[str]) -> list[Child]:
                 mark_node=row["last_node"],
                 mark_agent=row["mark_agent"],
                 mark_scope=row["mark_scope"],
+                mark_at=row["mark_at"],
             )
             for row in await cursor.fetchall()
         ]
 
 
-async def move_mark(session_id: str, agent: str, node: str | None, now: int) -> None:
-    """回報位置移到這個節點（不寫回報）."""
+async def report_exists(agent: str, session_id: str, node: str) -> bool:
+    """這段子對話的這個節點已經寫過回報（切分支又切回來）."""
+    async with get_async_db() as db, db.execute(
+        _REPORT_EXISTS, (agent, session_id, node)
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
+async def _still_bound(
+    db: aiosqlite.Connection,
+    session_id: str,
+    agents: Sequence[str],
+    skip_if: Callable[[], bool],
+) -> bool:
+    """寫回報或位置之前（寫鎖裡）：對話還在、還綁這個靈魂、沒有開始重置."""
+    async with db.execute(_SESSION_AGENT, (session_id,)) as cursor:
+        row = await cursor.fetchone()
+    return not skip_if() and row is not None and row[0] in agents
+
+
+async def move_mark(
+    session_id: str,
+    agents: Sequence[str],
+    agent: str,
+    node: str | None,
+    now: int,
+    *,
+    skip_if: Callable[[], bool],
+) -> None:
+    """回報位置移到這個節點（不寫回報）；對話已不在、換了靈魂或該放棄就不動."""
     async with get_async_db() as db:
         await db.execute("BEGIN IMMEDIATE")
-        await db.execute(_SET_MARK, (session_id, agent, node, now))
+        if not await _still_bound(db, session_id, agents, skip_if):
+            await db.rollback()
+            return
+        await set_report_mark(db, session_id, agent, node, now)
         await db.commit()
 
 
@@ -308,15 +361,14 @@ async def write_report(
     *,
     skip_if: Callable[[], bool],
 ) -> bool:
-    """回報段落和回報位置同一個交易；對話已不在、換了靈魂或該放棄就不寫，回 False."""
+    """回報段落和回報位置同一個交易；對話已不在、換了靈魂、位置已失效或該放棄就不寫，回 False."""
     async with get_async_db() as db:
         await db.execute("BEGIN IMMEDIATE")
-        async with db.execute(_SESSION_AGENT, (segment.source_session,)) as cursor:
-            row = await cursor.fetchone()
-        if skip_if() or row is None or row[0] not in agents:
+        if not await _still_bound(
+            db, segment.source_session, agents, skip_if
+        ) or not await set_report_mark(db, segment.source_session, segment.agent, node, now):
             await db.rollback()
             return False
         await insert_segment_tx(db, segment)
-        await db.execute(_SET_MARK, (segment.source_session, segment.agent, node, now))
         await db.commit()
         return True

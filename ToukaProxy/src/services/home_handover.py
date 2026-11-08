@@ -10,8 +10,9 @@
   等下一次觸發；舊家已經又是現任家時不等、退任摘要標待補。
 - 只記新家的紀錄只寫換家標記，不讀舊家。
 - 累計失敗三次標成失敗、寫一行註記、繼續做後面的；失敗的每次啟動後第一次觸發、或滿 24 小時再試。
-- 子對話回報：交接時寫前幾段；另外隔一段時間檢查 6 小時沒動、有新內容的。
-  SNS 頻道、群聊、舊家、無痕不寫。
+  退任摘要失敗也算一次失敗，試到第三次才寫來源註記。
+- 子對話回報：交接時寫前幾段；另外隔一段時間檢查 6 小時沒動、有新內容的。一次維護總共最多幾段。
+  SNS 頻道、群聊、舊家、無痕不寫。同一段一直寫不出來時，試幾次就寫一行註記、位置移到當下。
 - 模型呼叫都在交易外；每個寫入都查重置或刪除（``destructive_ops``）。
 """
 
@@ -23,15 +24,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from memory_server.tools import get_manager
-from memory_server.utils.legacy_time import format_taipei
+from memory_server.utils.legacy_time import format_taipei, to_epoch_ms
 
 from src.services import destructive_ops, soul_prelude_merge
 from src.services.chat_trim_wait import closing_saves
 from src.services.destructive_ops import running_heartbeats
 from src.services.dialogue_summarizer import has_dialogue, summarize_dialogue
+from src.services.reply_in_flight import is_replying
 from src.services.sliding_window_config import load_sliding_window_config
 from src.services.soul_locks import soul_lock
-from src.services.soul_prelude_service import message_span, prelude_agent, retired_note
+from src.services.soul_prelude_service import (
+    message_span,
+    prelude_agent,
+    report_note,
+    retired_note,
+)
 from src.services.stream_buffer_service import stream_buffer_service
 from src.utils.async_db import session_service, soul_session_agents
 from src.utils.history_manager import TreeMessageManager
@@ -49,6 +56,7 @@ from src.utils.home_handover_db import (
     list_queue,
     move_mark,
     record_failure,
+    report_exists,
     write_deferred_retired,
     write_note,
     write_report,
@@ -79,10 +87,14 @@ CHILD_IDLE_MS = 6 * 60 * 60 * 1000
 IDLE_CHECK_EVERY_MS = 30 * 60 * 1000
 # 回報摘要失敗後同一個靈魂多久再試（記在記憶體，重啟就清掉）
 REPORT_RETRY_AFTER_MS = 6 * 60 * 60 * 1000
+# 同一段子對話寫不出回報幾次就放棄（寫一行註記、位置移到當下；記在記憶體，重啟就清掉）
+REPORT_MAX_FAILURES = 3
 # 失敗的紀錄多久再試一次；重啟後第一次觸發也試
 FAILED_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
 
 _REPORT_RETRY_AFTER: dict[str, int] = {}
+# 子對話 → （失敗次數、這個時間之前不再試）
+_report_failures: dict[str, tuple[int, int]] = {}
 _retried_failed: set[int] = set()
 _idle_checked: dict[str, int] = {}
 _active: set[str] = set()
@@ -97,6 +109,10 @@ class _NothingArchived(Exception):
     """舊家有內容，舊對話庫卻一則都沒存到（算失敗，之後再試）."""
 
 
+class _SummaryFailed(Exception):
+    """退任摘要這次寫不出來（算失敗，下一次再試；試到最後一次才寫來源註記）."""
+
+
 @dataclass
 class _Pass:
     """一次維護共用的東西."""
@@ -107,6 +123,7 @@ class _Pass:
     config: SlidingWindowConfig
     since: int
     wrote: bool = False
+    reports: int = 0
 
     def disturbed(self) -> bool:
         return destructive_ops.disturbed(self.identity, self.since)
@@ -187,29 +204,38 @@ def _busy(run: _Pass, session_id: str) -> bool:
         stream_buffer_service.is_busy(session_id)
         or session_id in running_heartbeats(run.identity)
         or closing_saves.is_waiting(session_id)
+        or is_replying(session_id)
     )
+
+
+async def _claim(run: _Pass, work: Work) -> Work | None:
+    claimed = await claim(work, get_current_epoch_ms(), skip_if=run.disturbed)
+    if claimed is not None and work.status == FAILED:
+        _retried_failed.add(work.id)
+    return claimed
 
 
 async def _handle(run: _Pass, work: Work) -> bool:
     """做一筆；回 False 表示這次維護到此為止（舊家還在忙，或重置開始了）."""
-    source: dict[str, Any] | None = None
     if not work.noted:
         try:
             source = await session_service.read_handover_source(work.old_session)
         except Exception:
             logger.exception("Handover: old home %s is unreadable", work.old_session)
-            claimed = await claim(work, get_current_epoch_ms(), skip_if=run.disturbed)
+            claimed = await _claim(run, work)
             if claimed is not None:
                 await _record_failure(run, claimed)
             return True
         if source is not None and not source["is_home"] and _busy(run, work.old_session):
             return False
-    claimed = await claim(work, get_current_epoch_ms(), skip_if=run.disturbed)
+    claimed = await _claim(run, work)
     if claimed is None:
         return not run.disturbed()
-    if work.status == FAILED:
-        _retried_failed.add(work.id)
     try:
+        # 認領之後存檔閘才關上：這時讀到的才是最終內容（上面那次只用來判斷要不要等）
+        source = (
+            None if work.noted else await session_service.read_handover_source(work.old_session)
+        )
         await _run_steps(run, claimed, source)
     except _Stopped:
         logger.info("Handover %s stopped; the next pass picks it up", work.id)
@@ -276,8 +302,15 @@ async def _advance(run: _Pass, work: Work, from_step: int, to_step: int, **kwarg
 
 
 async def _finish(run: _Pass, work: Work, from_step: int, segment: PreludeSegment | None) -> None:
+    stale_note = f"failed-{work.id}" if work.failures >= HANDOVER_MAX_FAILURES else None
     if not await finish(
-        work, from_step, get_current_epoch_ms(), segment=segment, skip_if=run.disturbed
+        work,
+        from_step,
+        get_current_epoch_ms(),
+        segment=segment,
+        stale_note=stale_note,
+        agent=run.agent,
+        skip_if=run.disturbed,
     ):
         raise _Stopped
     if segment is not None:
@@ -286,8 +319,10 @@ async def _finish(run: _Pass, work: Work, from_step: int, segment: PreludeSegmen
 
 async def _run_steps(run: _Pass, work: Work, source: dict[str, Any] | None) -> None:
     if work.noted:
-        # 同一筆交接的只記新家可能有好幾筆指向同一段（用過、取消又設回）：同一段只寫一行
-        key = f"noted-{work.old_handled_by}-{work.new_session}"
+        # 同一筆交接的只記新家可能有好幾筆指向同一段（用過、取消又設回）：同一段只寫一行；
+        # 第 0 筆（沒有前任）沒有「同一筆交接」可言，一筆一行
+        scope = work.old_handled_by or f"first-{work.id}"
+        key = f"noted-{scope}-{work.new_session}"
         await _finish(run, work, work.step, _handover_segment(run, work, key, _marker(work)))
         return
     if source is None:
@@ -313,7 +348,8 @@ async def _run_steps(run: _Pass, work: Work, source: dict[str, Any] | None) -> N
         if source["is_home"]:  # 已經又是現任家：退任摘要延後
             await _advance(run, work, step, STEP_RETIRED, retired_pending=True)
         else:
-            segment = await _retired_segment(run, source, str(work.id))
+            last_try = work.failures >= HANDOVER_MAX_FAILURES - 1
+            segment = await _retired_segment(run, source, str(work.id), last_try=last_try)
             await _advance(
                 run,
                 work,
@@ -353,6 +389,8 @@ def _export_node(node: dict[str, Any]) -> dict[str, Any]:
 
 async def _archive_old_home(run: _Pass, work_id: int, source: dict[str, Any]) -> None:
     """舊家整棵樹進舊對話庫（含分支）；只新增，同一則只存一次."""
+    if run.disturbed():
+        raise _Stopped
     nodes = source["messages"].get("messages", {})
     if not nodes:
         return
@@ -371,14 +409,18 @@ async def _archive_old_home(run: _Pass, work_id: int, source: dict[str, Any]) ->
         raise _NothingArchived
 
 
-async def _retired_segment(run: _Pass, source: dict[str, Any], key: str) -> PreludeSegment:
-    """舊家的退任摘要；前情摘要關閉或失敗時寫一行來源註記."""
+async def _retired_segment(
+    run: _Pass, source: dict[str, Any], key: str, *, last_try: bool = True
+) -> PreludeSegment:
+    """舊家的退任摘要；前情摘要關閉，或這是最後一次機會還是失敗時，寫一行來源註記."""
     linear = TreeMessageManager.get_linear_path(source["messages"])
     text = None
     if run.config.prelude_summary_enabled and linear:
         text = await summarize_dialogue(
             run.identity, linear, RETIRED_MAX_TOKENS, run.config.summary_model
         )
+        if not text and not last_try and has_dialogue(linear):
+            raise _SummaryFailed
     covers_from, covers_to = message_span(linear)
     return PreludeSegment(
         agent=run.agent,
@@ -410,6 +452,8 @@ async def _write_deferred_retired(run: _Pass) -> None:
                 run.agent, old_session, segment, get_current_epoch_ms(), skip_if=run.disturbed
             ):
                 run.wrote = True
+        except _Stopped:
+            return
         except Exception:
             logger.exception("Deferred retired summary failed for %s", old_session)
 
@@ -438,70 +482,132 @@ def _needs_report(run: _Pass, child: Child, now: int, *, idle_only: bool) -> boo
 
 
 async def _report_children(run: _Pass, *, idle_only: bool) -> None:
-    """替有新內容的子對話寫回報，一次最多幾段；前情摘要關閉或冷卻中不寫."""
+    """替有新內容的子對話寫回報，一次維護總共最多幾段；前情摘要關閉或冷卻中不寫."""
     now = get_current_epoch_ms()
-    if not run.config.prelude_summary_enabled or _REPORT_RETRY_AFTER.get(run.agent, 0) > now:
+    room = REPORTS_PER_PASS - run.reports
+    if (
+        room <= 0
+        or run.disturbed()
+        or not run.config.prelude_summary_enabled
+        or _REPORT_RETRY_AFTER.get(run.agent, 0) > now
+    ):
         return
     chosen: list[Child] = []
     for child in await child_candidates(run.agents):
         if child.mark_scope == 0:  # 失效（同名重建、還原）
             continue
         if child.mark_agent is not None and child.mark_agent != run.agent:
-            if can_be_home(child.id):  # 換過靈魂：不補寫換之前的內容
-                await move_mark(child.id, run.agent, child.node, now)
+            if can_be_home(child.id):  # 升級前換過靈魂的舊資料：不補寫換之前的內容
+                await move_mark(
+                    child.id, run.agents, run.agent, child.node, now, skip_if=run.disturbed
+                )
+            continue
+        if _report_failures.get(child.id, (0, 0))[1] > now:  # 這段失敗過：不佔名額
             continue
         if _needs_report(run, child, now, idle_only=idle_only):
             chosen.append(child)
-            if len(chosen) == REPORTS_PER_PASS:
+            if len(chosen) == room:
                 break
     if not chosen:
         return
+    run.reports += len(chosen)
     gate = asyncio.Semaphore(REPORTS_IN_PARALLEL)
     await asyncio.gather(*[_report_one(run, child, gate) for child in chosen])
 
 
-def _new_messages(linear: list[dict[str, Any]], mark: str | None) -> list[dict[str, Any]]:
-    """位置之後的內容；位置不在目前這條路徑（換了分支）時整條都算."""
-    for index, node in enumerate(linear):
-        if node.get("id") == mark:
-            return linear[index + 1 :]
+def _new_messages(
+    tree: dict[str, Any], linear: list[dict[str, Any]], child: Child
+) -> list[dict[str, Any]]:
+    """這次要回報的內容.
+
+    位置在目前路徑上：位置之後的。位置在別的分支（重新生成、切分支）：兩條路分岔之後的；
+    完全沒有共同祖先才整條都算。位置那則已被刪（刪了最後一輪）：看不出分岔點，算位置移動之後
+    才有的（節點時間可能來自使用者裝置，寧可少報）。
+    """
+    if child.mark_node is None:
+        return linear
+    nodes = tree.get("messages", {})
+    if child.mark_node not in nodes:
+        marked_at = child.mark_at or 0
+        return [node for node in linear if (to_epoch_ms(node.get("timestamp")) or 0) > marked_at]
+    on_path = {node.get("id"): index for index, node in enumerate(linear)}
+    cursor: str | None = child.mark_node
+    seen: set[str] = set()
+    while cursor in nodes and cursor not in seen:
+        if cursor in on_path:
+            return linear[on_path[cursor] + 1 :]
+        seen.add(cursor)
+        cursor = nodes[cursor].get("parentId")
     return linear
+
+
+def _report_segment(
+    run: _Pass, child_id: str, node: str, text: str, messages: list[dict[str, Any]]
+) -> PreludeSegment:
+    covers_from, covers_to = message_span(messages)
+    return PreludeSegment(
+        agent=run.agent,
+        kind="child_report",
+        source_session=child_id,
+        dedupe_key=node,
+        content=text,
+        created_at=get_current_epoch_ms(),
+        covers_from=covers_from,
+        covers_to=covers_to,
+    )
+
+
+async def _write_report(run: _Pass, child: Child, gate: asyncio.Semaphore) -> bool:
+    """寫這段子對話的回報；摘要失敗回 False，其他情況（沒新內容、對話不在了）回 True."""
+    source = await session_service.read_handover_source(child.id)
+    if source is None:
+        return True
+    linear = TreeMessageManager.get_linear_path(source["messages"])
+    if not linear:
+        return True
+    fresh = _new_messages(source["messages"], linear, child)
+    node = str(linear[-1].get("id"))
+    now = get_current_epoch_ms()
+    if not has_dialogue(fresh) or await report_exists(run.agent, child.id, node):
+        await move_mark(child.id, run.agents, run.agent, node, now, skip_if=run.disturbed)
+        return True
+    async with gate:
+        if run.disturbed():
+            return True
+        text = await summarize_dialogue(
+            run.identity, fresh, REPORT_MAX_TOKENS, run.config.summary_model
+        )
+    if not text:
+        _REPORT_RETRY_AFTER[run.agent] = get_current_epoch_ms() + REPORT_RETRY_AFTER_MS
+        logger.warning("Child report for %s failed; trying again later", child.id)
+        return False
+    _report_failures.pop(child.id, None)
+    segment = _report_segment(run, child.id, node, text, fresh)
+    if await write_report(segment, run.agents, node, now, skip_if=run.disturbed):
+        run.wrote = True
+    return True
+
+
+async def _report_failed(run: _Pass, child: Child) -> None:
+    """這次寫不出回報：這段晚點再試；累計太多次就放棄，寫一行註記、位置移到當下."""
+    failures = _report_failures.get(child.id, (0, 0))[0] + 1
+    now = get_current_epoch_ms()
+    if failures < REPORT_MAX_FAILURES or child.node is None:
+        _report_failures[child.id] = (failures, now + REPORT_RETRY_AFTER_MS)
+        return
+    _report_failures.pop(child.id, None)
+    segment = _report_segment(run, child.id, child.node, report_note(), [])
+    if await write_report(segment, run.agents, child.node, now, skip_if=run.disturbed):
+        run.wrote = True
 
 
 async def _report_one(run: _Pass, child: Child, gate: asyncio.Semaphore) -> None:
     try:
-        source = await session_service.read_handover_source(child.id)
-        if source is None:
-            return
-        linear = TreeMessageManager.get_linear_path(source["messages"])
-        if not linear:
-            return
-        fresh = _new_messages(linear, child.mark_node)
-        node = str(linear[-1].get("id"))
-        now = get_current_epoch_ms()
-        if not has_dialogue(fresh):
-            await move_mark(child.id, run.agent, node, now)
-            return
-        async with gate:
-            text = await summarize_dialogue(
-                run.identity, fresh, REPORT_MAX_TOKENS, run.config.summary_model
-            )
-        if not text:
-            _REPORT_RETRY_AFTER[run.agent] = get_current_epoch_ms() + REPORT_RETRY_AFTER_MS
-            logger.warning("Child report for %s failed; trying again later", child.id)
-            return
-        covers_from, covers_to = message_span(fresh)
-        segment = PreludeSegment(
-            agent=run.agent,
-            kind="child_report",
-            source_session=child.id,
-            dedupe_key=node,
-            content=text,
-            created_at=get_current_epoch_ms(),
-            covers_from=covers_from,
-            covers_to=covers_to,
-        )
-        if await write_report(segment, run.agents, node, now, skip_if=run.disturbed):
-            run.wrote = True
+        if not await _write_report(run, child, gate):
+            await _report_failed(run, child)
     except Exception:
         logger.exception("Child report failed for %s", child.id)
+        try:
+            await _report_failed(run, child)
+        except Exception:
+            logger.exception("Child report note failed for %s", child.id)

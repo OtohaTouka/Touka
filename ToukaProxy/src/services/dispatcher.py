@@ -334,7 +334,7 @@ async def _maybe_trim_after_chat(session_id: str, closing_save: ClosingSave | No
         session = await session_service.get_session_by_id(session_id)
         is_home = bool(session and session.get("is_home"))
         soul = _home_soul_identity(session.get("home_for_agent")) if is_home else None
-        owner = soul if is_home else _bound_soul_identity(session and session.get("agent_id"))
+        owner = soul or _bound_soul_identity(session and session.get("agent_id"))
         if closing_save is not None:
             old_home = not is_home and owner is not None and await _is_old_home(session_id)
             wait_for = soul if is_home else owner if old_home else None

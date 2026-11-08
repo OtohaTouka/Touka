@@ -298,7 +298,8 @@ async def test_summarize_entries_merges_text_entries(monkeypatch):
     assert out == "合併後"
     system, user, max_tokens = rec.calls[0]
     assert "甲" in user and "乙" in user
-    assert max_tokens == 2_000
+    assert max_tokens == 2_500  # 比告訴模型的上限多留一點，寫超過一點不會整份作廢
+    assert "2000" in system
 
 
 @pytest.mark.parametrize("entries", [[], ["  "]])
@@ -368,8 +369,9 @@ async def test_prompts_state_the_output_length(monkeypatch):
     await summarize_dialogue(_OWNER, _MSGS, 300, "m")
     await summarize_entries(_OWNER, ["[A]\n甲", "[B]\n乙"], 700, "m")
     (dialogue_system, _u1, dialogue_max), (merge_system, _u2, merge_max) = rec.calls
-    assert str(dialogue_max) in dialogue_system
-    assert str(merge_max) in merge_system
+    assert "300" in dialogue_system
+    assert "700" in merge_system
+    assert (dialogue_max, merge_max) == (375, 875)  # 實際上限多留一點，寫超過一點不會整份作廢
 
 
 def test_a_single_huge_message_is_cut_to_the_chunk_limit():

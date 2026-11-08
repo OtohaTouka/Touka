@@ -68,6 +68,9 @@ _RETIRED_NOTE = (
     "[This former home conversation has no summary; the originals are in the legacy "
     "conversation archive]"
 )
+_REPORT_NOTE = (
+    "[This conversation could not be summarized; the originals are still in it]"
+)
 _DISPLAY_CUT_NOTE = "[Truncated here to fit the prelude limit]"
 # 合併段吃進子對話回報時來源欄記這個值（不會是對話編號）：SNS 請求要連它一起排除
 MERGED_WITH_REPORTS = "#child-reports"
@@ -96,11 +99,16 @@ def retired_note() -> str:
     return _RETIRED_NOTE
 
 
+def report_note() -> str:
+    """子對話回報一直寫不出來、放棄時的來源註記."""
+    return _REPORT_NOTE
+
+
 def is_source_note(seg: StoredSegment) -> bool:
     """只是一行來源註記（沒有摘要）：合併不拿它花模型呼叫，留給折疊（審查 F15）."""
     return (seg.kind == "home_trim" and bool(_TRIM_NOTE_PATTERN.fullmatch(seg.content))) or (
         seg.kind == "home_retired" and seg.content == _RETIRED_NOTE
-    )
+    ) or (seg.kind == "child_report" and seg.content == _REPORT_NOTE)
 
 
 _LEGACY_CUT_NOTE = (
