@@ -43,6 +43,7 @@ OLD_HOME_HISTORY_SOURCE = "old_home_pending_handover"
 # 滑動視窗把這些當成剪不掉的部分，沒有上限時新家每一輪都被剪到最少（ADR-0306 審查 J5）
 OLD_HOME_TOKEN_BUDGET = 8000
 OLD_HOME_OMITTED_NOTE = "（這段舊家前面還有 {count} 則，原文留在舊家）"
+OLD_HOME_SKIPPED_NOTE = "（這段舊家有 {count} 則，放不下沒有帶，原文留在舊家）"
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
@@ -126,24 +127,37 @@ def _stamp_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _old_home_tails(
     old_homes: Sequence[list[dict[str, Any]]],
 ) -> list[tuple[list[dict[str, Any]], int]]:
-    """（帶的尾端、前面省略幾則），照原順序；從最新的舊家尾端往前收，額度用完就停."""
+    """（帶的尾端、前面省略幾則），照原順序；從最新的舊家尾端往前收，額度用完就停.
+
+    尾端從使用者那則開始（Claude 規定送出的第一則要是使用者），跳過的算進省略數。
+    """
     remaining = OLD_HOME_TOKEN_BUDGET
     tails = []
     for msgs in reversed(old_homes):
-        kept = 0
+        start = len(msgs)
         for message in reversed(msgs):
             cost = estimate_messages_tokens([message])
             if cost > remaining:
                 remaining = 0
                 break
             remaining -= cost
-            kept += 1
-        tails.append((msgs[len(msgs) - kept :], len(msgs) - kept))
+            start -= 1
+        while start < len(msgs) and msgs[start].get("role") != "user":
+            start += 1
+        tails.append((msgs[start:], start))
     return tails[::-1]
 
 
 def _old_home_block(msgs: list[dict[str, Any]], omitted: int) -> list[dict[str, Any]]:
-    """舊家尾端：每則標時間，省略過時第一則前面寫一行說明，再包歷史資料界線."""
+    """舊家尾端：每則標時間，省略過時第一則前面寫一行說明，再包歷史資料界線.
+
+    一則都放不下時只送一行說明（使用者角色），新家仍知道有這段舊家。
+    """
+    if not msgs:
+        note = OLD_HOME_SKIPPED_NOTE.format(count=omitted)
+        return _mark_home_history(
+            [{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE
+        )
     stamped = _stamp_times(msgs)
     if omitted:
         note = OLD_HOME_OMITTED_NOTE.format(count=omitted)
@@ -487,7 +501,7 @@ class SoulService:
 
         agent_id = identity.agent_id
         tails = _old_home_tails(old_homes)
-        blocks = [_old_home_block(msgs, omitted) for msgs, omitted in tails if msgs]
+        blocks = [_old_home_block(msgs, omitted) for msgs, omitted in tails if msgs or omitted]
         if home_messages:  # 先標時間再包界線：時間在界線裡面
             blocks.append(
                 _mark_home_history(_stamp_times(home_messages) if stamp_times else home_messages)

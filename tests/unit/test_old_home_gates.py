@@ -26,10 +26,11 @@ from src.models.session_persistence import (
 )
 from src.routers import ui_interjections, ui_sessions
 from src.services import proxy_service
+from src.services.resource_manager import resource_manager
 from src.utils import async_db
 from src.utils.history_manager import TreeMessageManager
 
-from tests.support.session_scope import HUMAN, TREE, A, B, attempt, raw_row, seed
+from tests.support.session_scope import ADMIN, DEBUG, HUMAN, TREE, A, B, attempt, raw_row, seed
 from tests.support.session_scope import scope_db as scope_db
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("scope_db")]
@@ -154,6 +155,32 @@ async def test_a_caller_who_can_use_the_conversation_is_checked_as_before(pipeli
     assert await started("B") == [1]
 
 
+@pytest.mark.parametrize("caller", [HUMAN, ADMIN, DEBUG], ids=["owner", "admin", "debug"])
+async def test_a_legacy_prefixed_old_home_is_refused_to_whoever_can_drive_the_soul(
+    monkeypatch, caller
+):
+    """舊前綴（``ToukaSoulX``）的列：擁有者比對逐字失敗，但能驅動這個靈魂的人後面各層照樣
+    寫得進去，所以照樣檢查舊家（第 2 輪審查 K5）；不能驅動的人照舊什麼都不知道."""
+    monkeypatch.setattr(  # 正式程式的人類分支逐字比對 owned_agents，不去掉前綴
+        resource_manager,
+        "is_owner",
+        lambda target, who: who.is_admin_authority()
+        or (who.is_human and target.agent_id in who.owned_agents),
+    )
+    await seed("legacy")
+    await seed("new")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET agent_id = 'ToukaSoulScopeA', owner_user_id = NULL "
+            "WHERE id = 'legacy'"
+        )
+        await db.commit()
+    assert await service.set_home("legacy", A, True)
+    assert await service.set_home("new", A, True)
+    assert await service.check_old_home("legacy", mark_started=False, requester=caller)
+    assert not await service.check_old_home("legacy", mark_started=False, requester=OUTSIDER)
+
+
 @pytest.mark.usefixtures("moved")
 async def test_unreadable_records_fail_the_turn_with_a_save_error(pipeline_stops, monkeypatch):
     """讀不到交接紀錄：這一輪失敗、有錯誤碼，不放寬（審查 J12）."""
@@ -224,6 +251,25 @@ async def test_new_interjections_into_the_old_home_are_refused_listing_still_wor
     listed = await ui_interjections.list_interjections("A", "s", HUMAN)
     assert listed.interjections == []
     assert await ui_interjections.add_interjection("B", "s", request, HUMAN) == "queued"
+
+
+async def test_a_stream_that_ends_during_the_old_home_check_takes_no_interjection(monkeypatch):
+    """舊家檢查會讓出執行權：回覆剛好在這時結束，插話不能回 201 卻沒送達（第 2 輪審查 K8）."""
+    state = {"started": 1, "stream_id": "s", "status": "active"}
+    monkeypatch.setattr(ui_interjections, "_authorized_stream_state", AsyncMock(return_value=state))
+    monkeypatch.setattr(ui_interjections, "check_interjection", AsyncMock(return_value=False))
+
+    async def reply_ends(_sid):
+        state["status"] = "done"
+        return False
+
+    monkeypatch.setattr(ui_interjections.session_service, "is_old_home", reply_ends)
+    enqueue = Mock(return_value="queued")
+    monkeypatch.setattr(ui_interjections.interjection_queue, "enqueue", enqueue)
+    request = InterjectionCreateRequest(text="more")
+    result = await attempt(ui_interjections.add_interjection("B", "s", request, HUMAN))
+    assert is_code(result, ErrorCode.STREAM_NOT_FOUND)
+    enqueue.assert_not_called()
 
 
 @pytest.mark.usefixtures("moved")

@@ -88,6 +88,10 @@ def streams(monkeypatch):
     monkeypatch.setattr(
         "src.utils.async_db.session_service.read_home_snapshot", AsyncMock(return_value=None)
     )
+    # 主線帶還沒交接完的舊家（ADR-0306）；這裡沒有資料庫，當作沒有交接紀錄
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_unfinished_old_homes", AsyncMock(return_value=[])
+    )
     return calls, soul
 
 

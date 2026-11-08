@@ -125,6 +125,19 @@ async def test_unsetting_an_unused_new_home_leaves_old_to_nothing(home_a):
     assert await homes() == []
 
 
+async def test_unsetting_the_first_home_ever_makes_it_an_old_home_even_if_unused():
+    """原本沒有家時設 X 又馬上取消：照狀態對照表「家 A 取消家 → A→無」，X 成為舊家；
+    設回家就能繼續（第 2 輪審查 K6，寫在 ADR-0306 已知限制）."""
+    await seed_all("X")
+    assert await service.set_home("X", A, True)
+    assert await records() == []
+    assert await service.set_home("X", A, False)
+    assert await records() == [("X", None, 0, "pending", None)]
+    assert await service.is_old_home("X")
+    assert await service.set_home("X", A, True)
+    assert not await service.is_old_home("X")
+
+
 async def test_unsetting_a_segment_that_is_not_the_home_changes_nothing(home_a):
     """以前對任何一段按取消家都會清掉家（async_db 舊行為）."""
     assert await service.set_home("B", A, False)
@@ -220,6 +233,52 @@ async def test_with_two_old_homes_picking_another_retargets_both_records():
     assert await records() == [("A", "Y", 0, "pending", None), ("B", "Y", 0, "pending", None)]
 
 
+async def test_after_unsetting_two_homes_the_next_home_takes_both_records():
+    """兩個家 → 設 X → 取消 X（兩筆都 →無）→ 設 D：兩筆都改指 D（K9）."""
+    await seed_all("A", "B", "X", "D")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET is_home = 1, home_for_agent = ? WHERE id IN ('A', 'B')",
+            (A.agent_id,),
+        )
+        await db.commit()
+    assert await service.set_home("X", A, True)
+    assert await service.set_home("X", A, False)
+    assert await records() == [("A", None, 0, "pending", None), ("B", None, 0, "pending", None)]
+    assert await service.set_home("D", A, True)
+    assert await records() == [("A", "D", 0, "pending", None), ("B", "D", 0, "pending", None)]
+
+
+async def legacy_channel_home(channel):
+    """升級前的資料：內部頻道已經是家（現在設家會擋，所以直接改資料）."""
+    await seed("legacy-channel")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET id = ?, is_home = 1, home_for_agent = ? "
+            "WHERE id = 'legacy-channel'",
+            (channel, A.agent_id),
+        )
+        await db.commit()
+
+
+@pytest.mark.parametrize("channel", ["touka.hb.v1.deadbeef", "touka.sns.v1.cafe"])
+async def test_leaving_a_channel_that_was_made_home_before_leaves_no_record(channel):
+    """升級前就當家的內部頻道：換走或取消都不建紀錄，頻道不會變成卡死的舊家（K7）."""
+    await seed_all("X")
+    await legacy_channel_home(channel)
+    assert await service.set_home("X", A, True)
+    assert await records() == []
+    assert not await service.is_old_home(channel)
+    assert await homes() == ["X"]
+
+
+async def test_unsetting_a_channel_that_was_made_home_before_leaves_no_record():
+    await legacy_channel_home("touka.hb.v1.deadbeef")
+    assert await service.set_home("touka.hb.v1.deadbeef", A, False)
+    assert await records() == []
+    assert not await service.is_old_home("touka.hb.v1.deadbeef")
+
+
 async def test_a_conversation_that_is_no_longer_home_is_never_marked_started(home_a):
     assert await service.set_home("B", A, True)
     async with async_db.get_async_db() as db:  # 舊資料：紀錄還指向 B，但 B 已經不是家
@@ -292,6 +351,58 @@ async def test_handover_has_started_once_it_runs_or_takes_a_step(home_a, status,
         assert await async_db.home_transitions.handover_started(db, "A") is started
 
 
+async def test_only_the_latest_tenure_counts_as_handed_over(home_a):
+    """以前那一任已交接完，回任用過再換走：這一任還沒開始交接（第 2 輪審查 K1）."""
+    assert await service.set_home("B", A, True)
+    await set_status(1, "done")
+    assert await service.set_home("A", A, True)  # 回任，加 B→A
+    await start("A")
+    assert await service.set_home("C", A, True)  # 再換走，加 A→C（待交接、步驟 0）
+    async with async_db.get_async_db() as db:
+        assert not await async_db.home_transitions.handover_started(db, "A")
+    snapshot = await service.read_persistence_snapshot("A", A)
+    result = await service.conditional_save_session(
+        "A", snapshot.revision, async_db.SessionChanges(title="收尾"), A
+    )
+    assert result.status == "saved"  # 收尾保存照舊
+
+
+@pytest.mark.parametrize("earlier", ["failed", "done"])
+async def test_coming_back_unused_keeps_the_finished_tenure_read_only(home_a, earlier):
+    """回任但沒用過就換走：最新一筆仍是那筆完成或失敗的，照舊是第二段."""
+    assert await service.set_home("B", A, True)
+    await set_status(1, earlier)
+    assert await service.set_home("A", A, True)
+    assert await service.set_home("B", A, True)  # B→A 沒用過：取消
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.handover_started(db, "A")
+
+
+async def test_an_earlier_record_still_running_keeps_the_old_home_closed(home_a):
+    """較早的那筆正在交接（排在新的一筆前面）：照舊算交接已開始."""
+    assert await service.set_home("B", A, True)
+    await start("B")
+    assert await service.set_home("A", A, True)  # A→B 已開始用：保留，加 B→A
+    await start("A")
+    assert await service.set_home("C", A, True)  # 加 A→C
+    await set_status(1, "running")
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.handover_started(db, "A")
+
+
+async def test_deleting_a_later_home_keeps_the_earlier_old_home(home_a):
+    """A→B、B→C 都完成後刪 B：只有 B 當舊家的紀錄失效，A 照舊是舊家（K2）."""
+    assert await service.set_home("B", A, True)
+    await start("B")
+    assert await service.set_home("C", A, True)
+    await set_status(1, "done")
+    await set_status(2, "done")
+    snapshot = await service.read_persistence_snapshot("B", A)
+    assert (await service.conditional_delete_session("B", snapshot.revision, A)).status == "saved"
+    assert await scope_versions() == [1, 0]
+    assert await service.is_old_home("A")
+
+
 async def test_deleting_a_handed_over_old_home_forgets_it(home_a):
     """刪掉已完成交接的舊家：回報位置跟著刪、紀錄失效；同一個編號重用時不是舊家（審查 J19）."""
     assert await service.set_home("B", A, True)
@@ -348,6 +459,20 @@ async def test_session_list_marks_old_homes(home_a):
     assert listed["A"]["is_old_home"] is True
     assert listed["B"]["is_old_home"] is False
     assert listed["C"]["is_old_home"] is False
+
+
+async def test_unreadable_records_only_drop_the_old_home_mark_from_the_list(
+    home_a, monkeypatch, caplog
+):
+    """紀錄表讀不到：清單照常（只有舊家標記當成否）；擋寫入的各閘照舊失敗（第 2 輪審查 K15）."""
+    assert await service.set_home("B", A, True)
+    monkeypatch.setattr(
+        async_db.home_transitions, "all_old_homes", AsyncMock(side_effect=RuntimeError("disk"))
+    )
+    listed = {s["id"]: s for s in await service.get_all_sessions()}
+    assert set(listed) == {"A", "B", "C", "D"}
+    assert listed["A"]["is_old_home"] is False
+    assert "Old homes are unreadable" in caplog.text
 
 
 async def test_unfinished_old_homes_in_record_order_without_the_current_home(home_a):

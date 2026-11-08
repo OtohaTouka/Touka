@@ -40,6 +40,15 @@ _DEBUGGER = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger")
 _DB_FORBIDDEN = AssertionError("incognito interjections must not touch the session database")
 
 
+@pytest.fixture(autouse=True)
+def _not_an_old_home(monkeypatch):
+    """這裡只測插話端點；舊家擋新增在 ``test_old_home_gates.py``（ADR-0306）.
+
+    多數案例沒有建資料庫：舊家檢查讀不到紀錄表會照規則失敗（500），單獨跑或排序不同就紅。
+    """
+    monkeypatch.setattr(session_service, "is_old_home", AsyncMock(return_value=False))
+
+
 @pytest.fixture
 def queue(monkeypatch) -> InMemoryInterjectionQueue:
     svc = InMemoryInterjectionQueue()

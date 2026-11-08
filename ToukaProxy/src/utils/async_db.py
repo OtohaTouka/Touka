@@ -328,14 +328,24 @@ def _check_session_write(
 async def _may_use_session(
     db: aiosqlite.Connection, session_id: str, requester: AgentIdentity
 ) -> bool:
-    """請求者能不能在這段對話開新的一輪（和存檔同一套檢查）；只回是或否，不丟權限錯誤."""
+    """請求者能不能在這段對話開新的一輪；只回是或否，不丟權限錯誤.
+
+    和存檔同一套檢查；另外能驅動這段對話（正規化後）的靈魂也算：舊前綴的列擁有者逐字比對
+    會失敗，後面各層卻會正規化前綴後代打寫入（第 2 輪審查 K5）。
+    """
     row = await _strict_session_row(db, session_id)
     if row is None:
         return False
     try:
         _check_session_write(row, dict(row), requester)
     except ToukaException:
-        return False
+        bound = _canonical_session_agent(row["agent_id"])
+        passport = agent_service.identify_agent(bound) if bound else None
+        return bool(
+            passport
+            and passport["is_toukasoul"]
+            and can_drive_soul(requester, AgentIdentity(agent_id=passport["agent_id"]))
+        )
     return True
 
 
@@ -739,7 +749,11 @@ class SessionService:
             async with get_async_db() as db:
                 cursor = await db.execute("SELECT * FROM user_sessions ORDER BY updatedAt DESC")
                 rows = await cursor.fetchall()
-                old_homes = await home_transitions.all_old_homes(db)
+                try:  # 只是清單上的標記：讀不到時清單照常，擋寫入的各閘照舊失敗（ADR-0306）
+                    old_homes = await home_transitions.all_old_homes(db)
+                except Exception:
+                    logger.warning("Old homes are unreadable; the list shows none", exc_info=True)
+                    old_homes = set()
 
             sessions = []
             for row in rows:

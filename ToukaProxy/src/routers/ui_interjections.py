@@ -68,9 +68,9 @@ async def add_interjection(
     incognito = stream_buffer_service.persistence_mode(session_id, stream_id) == "incognito"
     fields = stream_buffer_service.hook_fields_of(session_id, stream_id)
     if await check_interjection(session_id, fields, req.text, incognito=incognito):
-        # 等 hook 的期間串流可能換代或結束、也可能換了家：重新驗證。
-        await _refuse_old_home(session_id)
-        await _ensure_current_stream(session_id, stream_id, identity, active=True)
+        await _refuse_old_home(session_id)  # 等 hook 的期間可能換了家
+    # 舊家檢查與 hook 都會讓出執行權，串流可能已換代或結束：最後再驗一次。
+    await _ensure_current_stream(session_id, stream_id, identity, active=True)
     # 驗證之後到加入之間沒有 await：串流不會在這中間換代或結束。
     return interjection_queue.enqueue(session_id, stream_id, req.text, urgent=req.urgent)
 

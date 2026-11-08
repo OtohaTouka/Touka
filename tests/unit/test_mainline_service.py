@@ -505,6 +505,44 @@ async def test_long_old_homes_only_send_their_tails_within_the_budget(monkeypatc
     assert estimate_messages_tokens(
         [{"content": f"長舊家第{i}則" + "字" * 40} for i in range(60 - len(old), 60)]
     ) <= 400
+    assert joined.index(OLD_SOURCE) < joined.index("前面還有")  # 說明在歷史資料界線裡面
+
+
+async def _long_old_home_then_new(count: int = 60) -> None:
+    await seed("long", tree=_long_tree(count))
+    assert await async_db.session_service.set_home("long", A, True)
+    await async_db.session_service.check_old_home("long", mark_started=True, requester=None)
+    await _move_home_to_new()
+
+
+@pytest.mark.parametrize("budget", [300, 350, 400, 450, 500, 550])
+async def test_the_first_message_sent_is_always_the_users(monkeypatch, budget):
+    """截短後第一則不能是 AI 的回覆：Claude 規定第一則要是使用者（第 2 輪審查 K3）."""
+    monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", budget)
+    await _long_old_home_then_new()
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="new")
+    sent = [m for m in request.messages if _field(m, "role") != "system"]
+    assert _field(sent[0], "role") == "user"
+    assert "長舊家第59則" in "\n".join(_dialogue(request))
+    # 較舊那段放不下時前面多一行說明（使用者角色）；截下來的這段自己也要從使用者開始
+    tail = next(m for m in sent if "長舊家" in str(_field(m, "content")))
+    assert _field(tail, "role") == "user"
+
+
+async def test_an_old_home_too_long_for_the_budget_still_leaves_a_note(monkeypatch):
+    """最後一則就放不下：那段改送一行說明（在界線裡），不讓新家完全不知道有舊家（K4）."""
+    monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", 20)
+    await _long_old_home_then_new(4)
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="new")
+    sent = [m for m in request.messages if _field(m, "role") != "system"]
+    joined = "\n".join(_dialogue(request))
+    assert "長舊家" not in joined
+    assert "4 則" in joined and "原文留在舊家" in joined
+    assert joined.index(OLD_SOURCE) < joined.index("4 則")
+    assert _field(sent[0], "role") == "user"
+    assert _dialogue(request)[-1] == "這一輪"
 
 
 async def test_a_finished_handover_no_longer_sends_the_old_home():
