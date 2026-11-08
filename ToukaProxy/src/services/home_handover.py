@@ -10,10 +10,10 @@
   等下一次觸發；舊家已經又是現任家時不等、退任摘要標待補。
 - 只記新家的紀錄只寫換家標記，不讀舊家。
 - 累計失敗三次標成失敗、寫一行註記、繼續做後面的；失敗的每次啟動後第一次觸發、或滿 24 小時再試。
-  退任摘要失敗也算一次失敗，隔一段時間再試，試到第三次才寫來源註記。
+  退任摘要失敗不算交接失敗，放回佇列隔一段時間再試，試到第三次才寫來源註記。
 - 子對話回報：交接時寫前幾段；另外隔一段時間檢查 6 小時沒動、有新內容的。一次維護總共最多幾段。
-  SNS 頻道、群聊、舊家、無痕不寫。同一段的內容一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
-  摘要服務整體故障（沒金鑰、超預算、逾時）不算這一段的失敗，這個靈魂冷卻一段時間再試。
+  SNS 頻道、群聊、舊家、無痕不寫。同一段送出去卻一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
+  請求根本沒送出（沒金鑰、超預算、模型不可用）不算這一段的失敗，這個靈魂冷卻一段時間再試。
 - 模型呼叫都在交易外；每個寫入都查重置或刪除（``destructive_ops``）。
 """
 
@@ -30,7 +30,7 @@ from memory_server.utils.legacy_time import format_taipei, to_epoch_ms
 from src.services import destructive_ops, soul_prelude_merge
 from src.services.chat_trim_wait import closing_saves
 from src.services.destructive_ops import running_heartbeats
-from src.services.dialogue_summarizer import CONTENT_FAILURES, has_dialogue, summarize_dialogue
+from src.services.dialogue_summarizer import NOT_SENT_FAILURES, has_dialogue, summarize_dialogue
 from src.services.reply_in_flight import is_replying
 from src.services.sliding_window_config import load_sliding_window_config
 from src.services.soul_locks import soul_lock
@@ -57,6 +57,7 @@ from src.utils.home_handover_db import (
     list_queue,
     move_mark,
     record_failure,
+    release,
     report_exists,
     write_deferred_retired,
     write_note,
@@ -116,7 +117,7 @@ class _NothingArchived(Exception):
 
 
 class _SummaryFailed(Exception):
-    """退任摘要這次寫不出來（算失敗，下一次再試；試到最後一次才寫來源註記）."""
+    """退任摘要這次寫不出來（不算交接失敗，隔一段時間再試；試到最後一次才寫來源註記）."""
 
 
 @dataclass
@@ -251,7 +252,7 @@ async def _handle(run: _Pass, work: Work) -> bool:
     except _SummaryFailed:
         tries = _retired_failures.get(work.id, (0, 0))[0] + 1
         _retired_failures[work.id] = (tries, get_current_epoch_ms() + RETIRED_RETRY_AFTER_MS)
-        await _record_failure(run, claimed)
+        await release(claimed, get_current_epoch_ms())
     except Exception:
         logger.exception("Handover %s failed", work.id)
         await _record_failure(run, claimed)
@@ -573,9 +574,9 @@ def _report_segment(
 
 
 async def _write_report(run: _Pass, child: Child, gate: asyncio.Semaphore) -> bool:
-    """寫這段子對話的回報；這段內容寫不出摘要時回 False，其他情況回 True.
+    """寫這段子對話的回報；送出去卻寫不出摘要時回 False，其他情況回 True.
 
-    摘要服務整體故障不算這一段的失敗：靈魂冷卻，模型恢復後照常補寫。
+    請求根本沒送出（沒金鑰、超預算、模型不可用）不算這一段的失敗：靈魂冷卻，恢復後照常補寫。
     """
     source = await session_service.read_handover_source(child.id)
     if source is None:
@@ -602,7 +603,7 @@ async def _write_report(run: _Pass, child: Child, gate: asyncio.Semaphore) -> bo
         )
     if not text:
         logger.warning("Child report for %s failed; trying again later", child.id)
-        if reasons & CONTENT_FAILURES:
+        if reasons - NOT_SENT_FAILURES:
             return False
         _REPORT_RETRY_AFTER[run.agent] = get_current_epoch_ms() + REPORT_RETRY_AFTER_MS
         return True

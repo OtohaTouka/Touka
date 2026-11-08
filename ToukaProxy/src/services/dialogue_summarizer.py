@@ -51,8 +51,10 @@ MAX_PARALLEL_CHUNKS = 3
 PREVIOUS_MAX_TOKENS = 2_000
 # 實際的輸出上限比告訴模型的多四分之一：寫超過一點時不會因為截斷整份作廢（第 2b 審查）
 _OUTPUT_HEADROOM_DIVISOR = 4
-# 這段內容本身寫不出摘要的原因；其他（沒金鑰、超預算、逾時、上游錯誤）是整體故障，和內容無關
-CONTENT_FAILURES = frozenset({"max_tokens", "refusal", "safety"})
+# 請求確定沒有送出的原因（沒花錢，也和這段內容無關）
+NOT_SENT_FAILURES = frozenset({"over_budget", "missing_credentials", "model_unavailable"})
+_EMPTY_ANSWER = "empty"
+_EXCEPTION = "internal"
 _SYSTEM = (
     "你是對話歸檔摘要員。下面是一段『即將移出 AI 即時脈絡的較早對話』。"
     "請壓成第三人稱要點，保留：人名、做過的決定、承諾與待辦、未解問題、"
@@ -160,13 +162,18 @@ async def _complete_text(
         )
     except Exception as e:  # complete_once 不應拋出；摘要仍守住 fail-safe
         logger.warning("DialogueSummarizer 失敗，降級為純無損剪裁：%s", e)
+        if on_failure is not None:
+            on_failure(_EXCEPTION)
         return None
     if not result.ok:
         logger.warning("DialogueSummarizer 未成功（%s），降級為純無損剪裁", result.error.reason)
         if on_failure is not None:
             on_failure(result.error.reason)
         return None
-    return result.text.strip() or None
+    text = result.text.strip()
+    if not text and on_failure is not None:
+        on_failure(_EMPTY_ANSWER)
+    return text or None
 
 
 def summary_time_range(messages: list[dict[str, Any]], now_s: float) -> str:

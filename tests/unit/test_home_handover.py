@@ -1263,7 +1263,8 @@ async def test_a_failed_retired_summary_is_tried_again_before_leaving_a_note(
     summaries.reply = None
     for failures in (1, 2):
         await home_handover.maintain(A)
-        assert await records() == [("A", None, "pending", 1, failures, 0, None)]
+        assert await records() == [("A", None, "pending", 1, 0, 0, None)]  # 不算交接失敗
+        assert len(summaries.calls) == failures
         assert not [k for k in await segments() if k[0] == "home_retired"]
         clock["ms"] += home_handover.RETIRED_RETRY_AFTER_MS
     await home_handover.maintain(A)
@@ -1281,7 +1282,7 @@ async def test_a_retired_summary_that_works_on_the_retry_is_kept(summaries, arch
     summaries.reply = "摘要內容"
     clock["ms"] += home_handover.RETIRED_RETRY_AFTER_MS
     await home_handover.maintain(A)
-    assert (await records())[0][2:5] == ("done", 5, 1)
+    assert (await records())[0][2:5] == ("done", 5, 0)
     assert [k[2] for k in await segments() if k[0] == "home_retired"] == ["摘要內容"]
     assert len(archive.calls) == 1  # 第 1 步不重做
 
@@ -1650,9 +1651,12 @@ async def test_the_first_message_of_a_chat_counts_when_the_soul_changes_on_it(su
 
 
 @pytest.mark.usefixtures("child")
-async def test_a_failure_of_the_whole_service_never_gives_up_on_a_child(summaries, clock):
+@pytest.mark.parametrize("reason", ["over_budget", "missing_credentials", "model_unavailable"])
+async def test_a_request_that_was_never_sent_does_not_count_against_a_child(
+    summaries, clock, reason
+):
     summaries.reply = None
-    summaries.reason = "over_budget"
+    summaries.reason = reason
     for _ in range(home_handover.REPORT_MAX_FAILURES + 1):
         await home_handover.maintain(A)
         clock["ms"] += home_handover.REPORT_RETRY_AFTER_MS + 1
@@ -1662,11 +1666,15 @@ async def test_a_failure_of_the_whole_service_never_gives_up_on_a_child(summarie
 
 
 @pytest.mark.usefixtures("child")
-async def test_a_child_that_cannot_be_summarized_does_not_cool_down_the_soul(summaries, clock):
+@pytest.mark.parametrize(
+    "reason", ["refusal", "max_tokens", "timeout", "upstream", "unknown_stop", "internal", "empty"]
+)
+async def test_a_request_that_was_sent_and_failed_counts_for_that_child(summaries, clock, reason):
     summaries.reply = None
-    summaries.reason = "refusal"
+    summaries.reason = reason
     await home_handover.maintain(A)
     assert A.agent_id not in home_handover._REPORT_RETRY_AFTER
+    assert home_handover._report_failures[(A.agent_id, "kid")][0] == 1
 
 
 @pytest.mark.usefixtures("child")

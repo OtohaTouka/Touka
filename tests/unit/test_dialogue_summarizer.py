@@ -375,6 +375,21 @@ async def test_the_reason_of_a_failure_is_told_to_the_caller(monkeypatch):
     assert seen == ["refusal"]
 
 
+async def test_an_empty_answer_and_an_exception_are_told_to_the_caller(monkeypatch):
+    async def empty(*_args, **_kwargs):
+        return _result("   ")
+
+    async def broken(*_args, **_kwargs):
+        raise OSError("disk")
+
+    seen: list[str] = []
+    monkeypatch.setattr(_COMPLETE, empty)
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    monkeypatch.setattr(_COMPLETE, broken)
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    assert seen == ["empty", "internal"]
+
+
 async def test_prompts_state_the_output_length(monkeypatch):
     """指示寫明輸出長度，減少寫到一半被截斷（審查 F6、F7）."""
     rec = _Recorder()

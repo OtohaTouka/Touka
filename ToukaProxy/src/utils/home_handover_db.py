@@ -62,6 +62,10 @@ _FAIL = (
     "WHERE id = ? AND scope_version = 1 AND status = 'running'"
 )
 _FAILURES = "SELECT failures FROM soul_home_transitions WHERE id = ?"
+_RELEASE = (
+    "UPDATE soul_home_transitions SET status = 'pending', updated_at = ? "
+    "WHERE id = ? AND scope_version = 1 AND status = 'running'"
+)
 _SET_RETIRED_PENDING = (
     "UPDATE soul_home_transitions SET retired_summary_pending = 1, updated_at = ? WHERE id = ?"
 )
@@ -243,6 +247,14 @@ async def record_failure(work: Work, now: int, *, max_failures: int) -> tuple[in
         await db.commit()
     failures = int(row[0]) if row else 0
     return failures, FAILED if failures >= max_failures else PENDING
+
+
+async def release(work: Work, now: int) -> None:
+    """這一筆先放回待交接（步驟保留、不算失敗）：退任摘要晚點再試."""
+    async with get_async_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(_RELEASE, (now, work.id))
+        await db.commit()
 
 
 async def write_note(segment: PreludeSegment, *, skip_if: Callable[[], bool]) -> bool:
