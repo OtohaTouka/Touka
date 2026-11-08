@@ -1514,12 +1514,22 @@ async def test_two_pending_summaries_of_one_home_are_written_once(summaries, arc
 
 
 @pytest.mark.usefixtures("unset_home")
-async def test_maintenance_waits_for_the_soul_lock(summaries):
+async def test_maintenance_waits_for_the_soul_lock(summaries, monkeypatch):
+    entered = []
+    real = destructive_ops.generation
+
+    def spy(identity):  # 拿到鎖之後第一件事，中間沒有 await：只看排程，不靠時間
+        entered.append(identity.agent_id)
+        return real(identity)
+
+    monkeypatch.setattr(destructive_ops, "generation", spy)
     async with soul_lock(A.agent_id):
         task = asyncio.create_task(home_handover.maintain(A))
-        done, _pending = await asyncio.wait({task}, timeout=0.5)
-        assert not done
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert entered == []
     await task
+    assert entered
     assert summaries.calls
 
 
