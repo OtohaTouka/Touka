@@ -237,8 +237,8 @@ async def _attach_to_unhomed(db: aiosqlite.Connection, agent: str, target: str, 
 
     - 取消家之後還沒開始交接的紀錄改指新家（設回那段舊家本身則取消）；
     - 交接已開始的另加一筆只記新家（同一段舊家的等待紀錄已經接上新家時不重複記，第 4 輪審查）；
-    - 新家沒被上面任何一筆追蹤（第一個家、舊家已交接完、設回的正是交接中的那段）：記一筆舊家＝
-      新家的只記新家，沒用過就離開時當沒換過（第 3 輪審查 L2、K6）。
+    - 沒有等待的紀錄、新家也沒被上面那筆追蹤（第一個家、舊家已交接完、設回的正是交接中的那段）：
+      記一筆舊家＝新家的只記新家，沒用過就離開時當沒換過（第 3 輪審查 L2、K6）。
     """
     cursor = await db.execute(_UNHOMED_WAITING, (agent,))
     waiting = [_Record(row[0], row[1], row[2], row[3]) for row in await cursor.fetchall()]
@@ -287,7 +287,8 @@ async def apply_home_change(
             await _insert(db, agent, target, None, now)
         return
     others = [home for home in homes if home != target]
-    restored = False
+    # 兩個家都還在時對其中一個再設家：它本來就是用過的家（第 5 輪審查）
+    restored = bool(others) and target in homes
     if not others and target not in homes:
         restored = await _attach_to_unhomed(db, agent, target, now)
     for home in others:

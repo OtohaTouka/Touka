@@ -180,6 +180,9 @@ async def test_unsetting_a_segment_that_is_not_the_home_changes_nothing(home_a):
 async def test_setting_the_same_home_again_changes_nothing(home_a):
     assert await service.set_home("A", A, True)
     assert await records() == []
+    assert await service.set_home("B", A, True)
+    assert await service.set_home("B", A, True)  # 只有一個家：再按一次不算用過
+    assert await records() == [("A", "B", 0, "pending", None)]
 
 
 async def test_after_unsetting_picking_a_home_before_handover_retargets(home_a):
@@ -398,6 +401,23 @@ async def test_a_used_home_set_back_while_an_unset_handover_runs_stays_used(home
     assert await service.old_home_blocks_delete("D")
     async with async_db.get_async_db() as db:
         assert await async_db.home_transitions.unfinished_old_homes(db, A.agent_id) == ["A", "D"]
+
+
+@pytest.mark.parametrize("again", ["A", "B"])
+async def test_setting_one_of_two_existing_homes_again_keeps_it_used(again):
+    """兩個家都還在時對其中一個再按設為家：它本來就是用過的家，之後換走照樣是舊家（第 5 輪審查）."""
+    await seed_all("A", "B", "C")
+    await legacy_homes("A", "B")
+    other = "B" if again == "A" else "A"
+    assert await service.set_home(again, A, True)
+    assert await records() == [(other, again, 1, "pending", None)]
+    assert await service.set_home("C", A, True)
+    assert await records() == [
+        (other, again, 1, "pending", None),
+        (again, "C", 0, "pending", None),
+    ]
+    assert await service.is_old_home(again)
+    assert await service.is_old_home(other)
 
 
 async def test_a_used_home_set_back_through_another_record_stays_used(home_a):

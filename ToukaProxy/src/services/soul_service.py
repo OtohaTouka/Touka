@@ -164,7 +164,8 @@ def _old_home_blocks(old_homes: Sequence[list[dict[str, Any]]]) -> list[list[dic
     """還沒交接完的舊家各包一塊（照原順序）.
 
     一則都帶不進去的那幾段合成一行說明，併進第一塊開頭；全部帶不進去時單獨送一則（使用者角色、
-    在界線裡）。新家仍知道有那些舊家，也不多出連續的使用者訊息（第 3 輪審查 L5）。
+    在界線裡）。新家仍知道有那些舊家，不每段一則（第 3 輪審查 L5）；連續使用者訊息見
+    ADR-0306 已知限制。
     """
     tails = _old_home_tails(old_homes)
     skipped = [omitted for msgs, omitted in tails if not msgs and omitted]
