@@ -562,6 +562,7 @@ async def test_nothing_new_means_no_report(summaries):
 async def test_an_invalidated_mark_is_skipped(summaries):
     await set_mark("kid", A.agent_id, "u", scope=0)
     await home_handover.maintain(A)
+    assert report_calls(summaries) == []  # 連模型都不叫
     assert not [k for k in await segments() if k[0] == "child_report"]
     assert await mark_of("kid") == (A.agent_id, 0, "u")
 
@@ -1501,6 +1502,36 @@ async def test_a_reset_stops_the_deferred_summary(summaries, archive):
     finally:
         destructive_ops.release(A)
     assert await segments() == []
+    assert (await records())[0][5] == 1
+
+
+async def test_maintenance_reads_nothing_during_a_reset(monkeypatch):
+    async def must_not_run(_agent):
+        pytest.fail("read the queue during a reset")
+
+    monkeypatch.setattr(home_handover, "list_queue", must_not_run)
+    destructive_ops.hold(A)
+    try:
+        await home_handover.maintain(A)
+    finally:
+        destructive_ops.release(A)
+
+
+async def test_a_home_set_back_while_a_deferred_summary_is_read_is_left_alone(
+    summaries, archive, monkeypatch
+):
+    await seed("A", tree=BRANCHED)
+    await done_with_pending_summary("A")
+    real = home_handover.list_pending_retired
+
+    async def then_set_back(agent):
+        found = await real(agent)
+        await legacy_home("A")
+        return found
+
+    monkeypatch.setattr(home_handover, "list_pending_retired", then_set_back)
+    await home_handover.maintain(A)
+    assert summaries.calls == []
     assert (await records())[0][5] == 1
 
 
