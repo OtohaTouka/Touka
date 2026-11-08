@@ -22,10 +22,15 @@ from src.handlers import react_core
 from src.handlers.adapters import openai_adapter
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
-from src.models.session_persistence import SessionChanges
+from src.models.session_persistence import (
+    PersistedStreamAdmission,
+    SessionChanges,
+    UiGenerationStopped,
+)
 from src.routers import proxy as proxy_router
 from src.services import dispatcher as dispatcher_mod
 from src.services import proxy_service
+from src.services.chat_trim_wait import closing_saves
 from src.services.dispatchers import factory
 from src.services.identity_router import get_verified_identity
 from src.services.models.routes import CustomRouteDisposition
@@ -462,14 +467,30 @@ async def test_ui_real_producer_saves_fixed_node_before_typed_terminal(
     monkeypatch.setattr(dispatcher_mod, "record_working_brain", Mock())
     trim = AsyncMock()
     monkeypatch.setattr(dispatcher_mod, "_maybe_trim_after_chat", trim)
+    finish = dispatcher_mod.stream_buffer_service.finish
+    registered_before_terminal = []
+
+    async def finish_after_register(session_id, *args, **kwargs):
+        registered_before_terminal.append(trim.called)
+        return await finish(session_id, *args, **kwargs)
+
+    monkeypatch.setattr(dispatcher_mod.stream_buffer_service, "finish", finish_after_register)
     response = await _ui_dispatch(request)
     events = await _response_events(response)
     terminal = next(
         (event for event in events if event.get("type") == "touka_stream_terminal"), None
     )
     assert terminal is not None, "producer lacks typed terminal"
-    # 剪裁身分由家對話歸屬決定；UI 請求者（人類）不傳進去
-    trim.assert_called_once_with("ui")
+    # 剪裁身分由家對話歸屬決定；等畫面收尾保存的登記在送出終態之前（ADR-0302）
+    assert registered_before_terminal == [True]
+    (session_id, closing_save), _ = trim.call_args
+    assert session_id == "ui"
+    assert (closing_save.revision, closing_save.assistant_node_id) == (
+        terminal["persistence"]["revision"],
+        "assistant",
+    )
+    closing_saves.saved("ui")
+    assert await closing_saves.wait(closing_save)
     assert events[0]["type"] == "touka_stream_started"
     assert (
         terminal["generation"] == "completed"
@@ -521,13 +542,107 @@ async def test_ui_failure_never_reports_saved_or_trims_partial(
         (event for event in events if event.get("type") == "touka_stream_terminal"), None
     )
     assert terminal is not None
-    assert terminal["generation"] == ("error" if fault.startswith("generation") else "completed")
-    assert terminal["persistence"]["status"] == "unknown"
+    if fault.startswith("generation"):
+        # 基底與 scope 都驗過才開始生成；生成失敗時後端什麼都沒寫（ADR-0231 決定 2）
+        assert terminal["generation"] == "error"
+        assert terminal["persistence"] == {"status": "skipped", "reason": "generation_failed"}
+    else:
+        assert terminal["generation"] == "completed"
+        assert terminal["persistence"]["status"] == "unknown"
     assert "synthetic-secret" not in json.dumps(events)
     assert (
         await session_service.read_persistence_snapshot("ui", UI_OWNER)
     ).revision == before.revision
     trim.assert_not_awaited()
+
+
+async def _admission(sid):
+    snapshot = await session_service.read_persistence_snapshot(sid, UI_OWNER)
+    return PersistedStreamAdmission(
+        mode="persistent",
+        revision=snapshot.revision,
+        user_parent_id="user",
+        assistant_node_id="assistant",
+    )
+
+
+async def _pump_directly(buffer, sid, gen, admission, *, execution=None):
+    entry = await buffer.create(sid, identity=UI_OWNER, admission=admission)
+    await dispatcher_mod._pump_ui_stream(
+        gen, sid, entry.stream_id, "test-model", UI_OWNER, admission, execution
+    )
+    return buffer.get_state(sid)["terminal"]
+
+
+@pytest.mark.parametrize(
+    ("fault", "generation", "persistence"),
+    [
+        ("model_error", "error", {"status": "skipped", "reason": "generation_failed"}),
+        ("cancelled", "cancelled", None),
+        ("base_read", "error", None),
+        ("scope", "error", None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_only_a_failed_generation_after_checked_base_reports_nothing_written(
+    sandbox_db, fresh_buffer, monkeypatch, fault, generation, persistence
+):
+    """模型失敗（react_core 丟 UiGenerationStopped）才回「生成失敗、沒寫」；
+    按停止、讀基底失敗、scope 不對都不知道寫到哪，照舊是不確定。"""
+    await _ui_seed("ui")
+    read_back = session_service.read_persistence_snapshot
+    before = await read_back("ui", UI_OWNER)
+    admission = await _admission("ui")
+    trim = AsyncMock()
+    monkeypatch.setattr(dispatcher_mod, "_maybe_trim_after_chat", trim)
+    stop = "cancelled" if fault == "cancelled" else "error"
+
+    async def generator():
+        yield _sse("partial")
+        raise UiGenerationStopped(stop)
+
+    execution = None
+    if fault == "base_read":
+        monkeypatch.setattr(
+            session_service,
+            "read_persistence_snapshot",
+            AsyncMock(side_effect=OSError("synthetic-secret-store")),
+        )
+    elif fault == "scope":
+        execution = AgentIdentity(agent_id="synthetic-other-soul")
+        monkeypatch.setattr(
+            session_service,
+            "require_scope",
+            Mock(side_effect=ToukaException(ErrorCode.SESSION_SCOPE_MISMATCH)),
+        )
+    terminal = await _pump_directly(
+        fresh_buffer, "ui", generator(), admission, execution=execution
+    )
+    assert terminal["generation"] == generation
+    if persistence is None:
+        assert terminal["persistence"]["status"] == "unknown"
+    else:
+        assert terminal["persistence"] == persistence
+    assert (await read_back("ui", UI_OWNER)).revision == before.revision
+    trim.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_incognito_generation_error_stays_incognito_skip(
+    sandbox_db, fresh_buffer, monkeypatch
+):
+    request = await _ui_request("ui", incognito=True)
+
+    async def fails_after_text():
+        yield _sse("partial")
+        raise UiGenerationStopped("error")
+
+    _patch_generator(monkeypatch, fails_after_text)
+    monkeypatch.setattr(dispatcher_mod, "record_working_brain", Mock())
+    events = await _response_events(await _ui_dispatch(request))
+    terminal = next(event for event in events if event.get("type") == "touka_stream_terminal")
+    assert terminal["generation"] == "error"
+    assert terminal["persistence"] == {"status": "skipped", "reason": "incognito"}
 
 
 @pytest.mark.parametrize("fault", ["stale", "wrong_parent", "existing_assistant", "missing"])

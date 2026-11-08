@@ -12,6 +12,7 @@ import { getLinearMessages, migrateFlatToTree } from '../tree_history';
 import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, parseSaveResult,
   unknownSave, rejectedSave, isSaved, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
+import { graftOntoTrim } from '../trim_graft';
 
 /**
  * 下載一段清單上沒有的對話的結果：
@@ -236,6 +237,17 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
+  // 版本舊被擋：是聊天側剪裁造成的，就以剪過的存檔為底接上去再存一次；只接一次（ADR-0302）
+  const saveOverTrim = useCallback(async (result: SaveResult, base: Session, intended: Session,
+    scope: RequestScope | null): Promise<[SaveResult, Session]> => {
+    if (result.status !== 'failed' || intended.incognito) return [result, intended];
+    const snapshot = await readSnapshot(intended.id, scope);
+    const grafted = snapshot?.exists ? graftOntoTrim(snapshot.session, base, intended) : null;
+    if (!snapshot?.exists || !grafted) return [result, intended];
+    const next = { ...grafted, revision: snapshot.revision };
+    return [await save(next, scope), next];
+  }, [readSnapshot, save]);
+
   const updateSession = useCallback((id: string, change: SessionChange, operation: object = {}, expectedBase?: Session): Promise<SaveResult> => {
     const scope = ensureScope();
     const current = getSession(id);
@@ -285,7 +297,10 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       let intended: Session;
       try { intended = { ...applySessionChange(writer.confirmed, change), revision: writer.confirmed.revision }; }
       catch { return rejectChange(id, writer, pending); }
-      const result = baseError ?? await save(intended, scope);
+      let result = baseError ?? await save(intended, scope);
+      const sent = intended;
+      if (!baseError) [result, intended] = await saveOverTrim(result, writer.confirmed, intended, scope);
+      const grafted = intended !== sent;
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
       intended = withSavedHome(intended, writer);
       if (isSaved(result)) {
@@ -298,7 +313,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (isSaved(result)) {
         const latest = getSession(id);
         let preview: Session | undefined;
-        try { preview = pending.deferred ? writer.pending.reduce<Session>((state, item) => item.deferred ? state : applySessionChange(state, item.change), intended) : latest; }
+        try { preview = pending.deferred || grafted ? writer.pending.reduce<Session>((state, item) => item.deferred ? state : applySessionChange(state, item.change), intended) : latest; }
         catch { return rejectChange(id, writer); }
         if (preview) setSessions(previous => replaceSession(previous, { ...preview,
           ...(result.status === 'saved' ? { revision: result.revision } : {}) }));
@@ -310,7 +325,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     sessionOperations.set(operationScope, run);
     operations.current.set(operation, sessionOperations);
     return run;
-  }, [ensureScope, getSession, getWriter, setSessions, save, report, bindBase, rejectChange]);
+  }, [ensureScope, getSession, getWriter, setSessions, save, saveOverTrim, report, bindBase, rejectChange]);
 
   const syncSession = useCallback((session: Session, operation?: object) => {
     ensureScope();
@@ -347,10 +362,14 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       catch { return rejectChange(token.sessionId, writer); }
       let result: SaveResult = writer.confirmed.incognito ? { status: 'skipped', reason: 'incognito' } :
         generation === 'completed' || terminal.status === 'unknown' || terminal.status === 'failed' ? terminal : unknownSave();
-      if (generation === 'completed' && (terminal.status === 'saved' || (terminal.status === 'skipped' &&
-          (terminal.reason === 'no_text' || writer.confirmed.incognito)))) {
+      // 後端沒寫這一輪（沒有文字、Hook 擋下、模型失敗）：用 user 保存拿到的版本把畫面這一則存一次（ADR-0231 決定 6）
+      const backendSkipped = terminal.status === 'skipped' && (generation === 'completed'
+        ? terminal.reason === 'no_text' || writer.confirmed.incognito
+        : generation === 'error' && terminal.reason === 'generation_failed');
+      if ((generation === 'completed' && terminal.status === 'saved') || backendSkipped) {
         if (terminal.status === 'saved') intended.revision = terminal.revision;
         result = await save(intended, token.scope);
+        [result, intended] = await saveOverTrim(result, writer.confirmed, intended, token.scope);
       }
       if (writers.current.get(token.sessionId) !== writer || writer.producer !== producer) return result;
       intended = withSavedHome(intended, writer);
@@ -369,7 +388,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (writer.producer === producer) writer.producer = undefined;
       producer.release();
     }
-  }, [save, setSessions, report, rejectChange]);
+  }, [save, saveOverTrim, setSessions, report, rejectChange]);
 
   const recheckSession = useCallback(async (id: string): Promise<SaveResult> => {
     const scope = ensureScope();
@@ -414,7 +433,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const draft = getSession(id);
     if (!writer || !draft || writer.producer || writer.pending.length || writer.recoveryBusy || writer.result?.status !== 'failed' ||
         !writer.recovery?.exists) return Promise.resolve(rejectedSave());
-    const revision = writer.recovery.revision;
+    const recovery = writer.recovery;
     writer.recovery = undefined; // 一次人工指令只送一次；雙按不加入第二個 POST。
     writer.recoveryBusy = true;
     writer.result = { status: 'pending' };
@@ -422,7 +441,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const generation = writer.generation;
     const run = writer.tail.then(async () => {
       if (writers.current.get(id) !== writer || writer.generation !== generation || !isRequestScopeCurrent(scope)) return rejectedSave();
-      const intended = { ...draft, revision };
+      // 存檔是剪裁造成的：接上去，不把剪掉的寫回去（ADR-0302）
+      const intended = { ...(graftOntoTrim(recovery.session, writer.confirmed, draft) ?? draft), revision: recovery.revision };
       const result = await save(intended, scope);
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
       writer.recoveryBusy = false;

@@ -5,6 +5,7 @@ import { History, Save, Loader2, AlertTriangle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useSlidingWindowSettings } from "@/hooks/settings/useSlidingWindowSettings";
 import { useDirtyGuard } from "@/components/settings/SettingsDirtyContext";
+import { SummarySettings } from "./slidingWindow/SummarySettings";
 
 export function SlidingWindowTab() {
     const { t } = useTranslation();
@@ -195,6 +196,14 @@ export function SlidingWindowTab() {
                         </p>
                     </div>
                 </div>
+
+                {/* 摘要模型與前情摘要（ADR-0305）：前情不只來自剪裁，滑動視窗沒開也能改 */}
+                <SummarySettings
+                    model={draft.summary_model}
+                    preludeSummary={draft.prelude_summary_enabled}
+                    onModelChange={(m) => handleChange("summary_model", m)}
+                    onPreludeSummaryChange={(on) => handleChange("prelude_summary_enabled", on)}
+                />
 
                 {/* 錯誤提示 */}
                 {error && (

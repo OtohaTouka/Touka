@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminLogin, disableHooks, latestSessionId, savedMessages, savedSnapshot } from "./lib/api";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
-import { modelCalls, resetRecorders } from "./lib/control";
+import { adminLogin, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot } from "./lib/api";
+import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
+import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import {
   clickChatInList,
   composer,
   expectChatIsHome,
   expectLastReplyMarkedFailed,
+  expectNoSaveNotice,
   loginInBrowser,
   openChat,
-  recoverSave,
   renameChat,
   selectSoul,
   sendMessage,
@@ -20,11 +20,6 @@ import {
 } from "./lib/ui";
 
 let adminToken = "";
-
-async function expectNoSaveNotice(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: /保存/ })).toHaveCount(0);
-}
 
 /** 畫面上這一輪結束了（收尾保存也做完才會收起停止鈕）。 */
 async function turnEnded(page: Page): Promise<void> {
@@ -66,6 +61,10 @@ test.beforeEach(async ({ page }) => {
   await loginInBrowser(page);
   await openChat(page);
   await selectSoul(page);
+});
+
+test.afterEach(async () => {
+  await releaseModel();
 });
 
 test("這一頁新建的對話設為家之後，下一則直接送出", async ({ page }, info) => {
@@ -366,12 +365,14 @@ test("原頁來不及存完整內容就關掉：重新整理時補回工具步�
   expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
 });
 
-test("模型失敗、按過恢復之後重新整理：不用再按一次，下一則直接送出", async ({ page }, info) => {
+test("模型失敗之後重新整理：不用按恢復，失敗標示還在，下一則直接送出", async ({ page }, info) => {
   await sendMessage(page, MODEL_400_REQUEST);
   await expectLastReplyMarkedFailed(page);
-  await recoverSave(page);
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
   const id = await latestSessionId(adminToken);
   const before = await savedSnapshot(adminToken, id);
+  expect((await savedMessages(adminToken, id)).some((message) => message.generationFailed)).toBe(true);
 
   await reloadAndSettle(page);
 
@@ -382,4 +383,19 @@ test("模型失敗、按過恢復之後重新整理：不用再按一次，下�
 
   await send(page, "失敗之後的下一則");
   expect(await savedUserTexts(id)).toContain("失敗之後的下一則");
+});
+
+test("模型失敗前另一個裝置先改過這段對話：照舊提示，失敗那則不硬存", async ({ page }, info) => {
+  // 只扣這一則（看內容，不數第幾次）：別條留下的代理人多呼叫一次模型時，才不會扣錯
+  await sendMessage(page, `${MODEL_HOLD_REQUEST} ${MODEL_400_REQUEST}`);
+  await modelHolding();
+  const id = await latestSessionId(adminToken);
+  await retitleChat(adminToken, id, "另一個裝置改過名");
+  await releaseModel();
+
+  await expectLastReplyMarkedFailed(page);
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toBeVisible();
+  await shot(page, info, "failed-after-other-device");
+  expect((await savedMessages(adminToken, id)).some((message) => message.generationFailed)).toBe(false);
+  expect((await savedSnapshot(adminToken, id)).session.title).toBe("另一個裝置改過名");
 });

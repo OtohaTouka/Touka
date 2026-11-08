@@ -99,6 +99,21 @@ def test_post_masked_key_preserves_existing(owner_client):
     assert MASK not in cfg.read_text(encoding="utf-8")  # 遮罩佔位絕不落盤
 
 
+def test_post_masked_key_this_backend_never_stored_saves_no_key(owner_client):
+    """換後端後，瀏覽器只存遮罩，送來的連線這台沒有真值可保留：存成沒有金鑰，不把佔位當金鑰。"""
+    client, cfg = owner_client
+    _seed(cfg, [_conn("c-here", "sk-HERE")])
+    resp = client.post(
+        "/v1/ui/connections",
+        json=[_conn("c-here", MASK), _conn("c-moved", MASK, url="https://moved.example.com/v1")],
+    )
+    assert resp.status_code == 200
+    by_id = {c["id"]: c for c in resource_manager.read_json(str(cfg))["connections"]}
+    assert by_id["c-moved"]["apiKey"] in (None, "")
+    assert by_id["c-here"]["apiKey"] == "sk-HERE"
+    assert MASK not in cfg.read_text(encoding="utf-8")
+
+
 def test_post_real_key_overwrites(owner_client):
     client, cfg = owner_client
     _seed(cfg, [_conn("c1", "sk-OLD")])

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends
+from memory_server.utils.zone_paths import is_zone_segment
 
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
@@ -17,13 +18,16 @@ from src.models.souls import (  # noqa: TC001
     SoulDeleteRequest,
     SoulUpdateRequest,
 )
+from src.routers.system import restore_in_progress
 from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
+    assert_prelude_cleared,
     assert_timeline_cleared,
 )
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.auth_service import AuthService
+from src.services.authorization_gateway import shares_human_owner
 from src.services.dispatchers.route_family import is_selectable_brain
 from src.services.identity_router import get_verified_identity
 from src.services.isolation.home_wipe import HomeWipeError, wipe_agent_homes
@@ -49,19 +53,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/souls", tags=["souls"])
 
-# DebugAgent＝系統除錯身分，不可經此端點刪除（ADR-0142 D5）。
+# DebugAgent＝系統除錯身分，不可經此端點刪除（ADR-0142 D5）；比對不分大小寫（sec-9 PR 1b）。
 _UNDELETABLE_SOULS = frozenset({"DebugAgent"})
+_UNDELETABLE_FOLDED = frozenset(name.casefold() for name in _UNDELETABLE_SOULS)
 
 
-def _verify_admin_stepup(identity: AgentIdentity, password: str, action: str, target: str) -> None:
+def _verify_admin_stepup(
+    identity: AgentIdentity,
+    password: str,
+    action: str,
+    target: str,
+    *,
+    refuse_during_restore: bool = False,
+) -> None:
     """Admin 步升重驗（ADR-0142 D2）：呼叫者須為**登入的人類 admin** 且重新提供密碼。
 
     敏感的靈魂資料變更（編輯／刪除）即使持有 admin JWT 也須步升——被竊或忘記登出的
     session 無法靜默摧毀靈魂資料。只有 is_human 的真人有密碼可驗（assumed-admin 代打／
     agent 一律過不了）。成功／失敗皆留 AUDIT log（不記密碼本身）。
+
+    ``refuse_during_restore``：還原中回 409，放在身分檢查之後、驗密碼之前（ADR-0304，
+    和重置一樣）。呼叫端到取破壞性操作鎖之間不能有 await。
     """
     if not identity.is_human or identity.human_role != "admin":
         raise ToukaException(ErrorCode.AUTH_ADMIN_REQUIRED)
+    if refuse_during_restore and restore_in_progress():
+        raise ToukaException(ErrorCode.SYSTEM_RESTORE_IN_PROGRESS)
     auth_service = AuthService()
     user = auth_service.get_user_by_id(identity.agent_id)
     if user is None or not auth_service.verify_password(password, user.hashed_password):
@@ -86,6 +103,9 @@ async def create_soul(
     agent_id = req.agent_id
     if agent_id.casefold().startswith("toukasoul"):
         raise ToukaException(ErrorCode.VALIDATION_ERROR)
+    # 名稱是單一段（sec-9 PR 1b）：先於撞名檢查與任何檔案系統呼叫（Windows 的 \\主機\分享）
+    if not is_zone_segment(agent_id):
+        raise ToukaException(ErrorCode.VALIDATION_ERROR)
     persona = req.persona or f"我是 {agent_id}，一個由 Touka 驅動的代理人。"
     config_data = req.config.model_dump()
     # 比照存檔（ADR-0250 A1）：None、空字串、只有空白都當沒指定，有值時去掉前後空白
@@ -109,6 +129,8 @@ async def create_soul(
     # 檢查之前，Windows 與 Linux 的結果才一致。讀不到事實庫就拒絕（不能確認就不建立）。
     new_identity = AgentIdentity(agent_id=agent_id)
     await asyncio.to_thread(memory_collection_guard.assert_id_free, new_identity)
+    # 不是任何代理人資料夾的別名（8.3 短檔名等，撞名檢查抓不到的）；列不完整就不建立
+    soul_io.check_new_agent_name(new_identity)
 
     soul_root_str = resource_manager.get_vault_root("soul", identity)
     if not soul_root_str:
@@ -296,8 +318,21 @@ async def update_soul(
                 "🚫 Cross-owner soul update denied: %s → %s", verified.agent_id, soul_id
             )
             raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+        # ADR-0303：切成靈魂的使用者（Owner 角色）只能改同一位人類擁有者的靈魂，沒有擁有者的不行
+        if (
+            verified.agent_role == "Owner"
+            and verified.agent_id != soul_id
+            and not shares_human_owner(target, verified)
+        ):
+            logger.warning(
+                "🚫 Soul update outside the owner's souls: %s → %s", verified.agent_id, soul_id
+            )
+            raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # Use an Owner identity for vault access (permission already decided above).
     identity = AgentIdentity(agent_id=soul_id, agent_role="Owner")
+    # 名稱是單一段、soul/<id> 不是別名（sec-9 PR 1b）：先於任何路徑操作。
+    # 用編輯建立或轉換靈魂時，下面再查其他位置（check_new_agent_name）。
+    soul_io.check_soul_folder_name(identity)
     soul_dir_str = resource_manager.get_vault_root("soul", identity)
     if not soul_dir_str:
         raise ToukaException(ErrorCode.SOUL_VAULT_ERROR)
@@ -316,6 +351,26 @@ async def update_soul(
     stored = resource_manager.read_json(agent_dir / "config.json")
     old_model = stored.get("base_model") if isinstance(stored, dict) else None
     config_data = data.config.model_dump() if data.config is not None else None
+
+    was_soul = isinstance(stored, dict) and stored.get("is_toukasoul", stored.get("is_soul", False))
+    creating_soul = bool(config_data and config_data["is_toukasoul"] and not was_soul)
+    # 名稱已確認不是別名，exists() 就是逐字的結果
+    new_dir = not agent_dir.exists()
+    # ADR-0303：非人類只能編輯逐字存在、已標成靈魂的資料夾；建立、轉換只有重新輸入密碼的管理員能做。
+    # 先於模型驗證：被拒的請求不會因為模型不能用先回 404
+    if not verified.is_human and (new_dir or not was_soul or creating_soul):
+        logger.warning(
+            "🚫 Only a re-authenticated admin may create or convert a soul by editing: %s → %s",
+            verified.agent_id,
+            soul_id,
+        )
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    if new_dir or creating_soul:
+        # 和 create_soul 一樣：新 ID 不能是任何代理人資料夾的別名，也不能和既有 ID 共用向量
+        # collection（不能確認就不建立）
+        soul_io.check_new_agent_name(identity)
+        await asyncio.to_thread(memory_collection_guard.assert_id_free, identity)
+
     new_model = normalize_model_choice(config_data["base_model"] if config_data else None)
     switch = should_set_active_brain(
         is_human=verified.is_human,
@@ -328,13 +383,10 @@ async def update_soul(
         logger.warning("Soul %s save rejected: model %r is not selectable", soul_id, switch_to)
         raise ToukaException(ErrorCode.MODEL_NOT_FOUND)
 
-    was_soul = isinstance(stored, dict) and stored.get("is_toukasoul", stored.get("is_soul", False))
-    creating_soul = bool(config_data and config_data["is_toukasoul"] and not was_soul)
     if creating_soul:
         if soul_id.casefold().startswith("toukasoul"):
             raise ToukaException(ErrorCode.VALIDATION_ERROR)
         await session_service.invalidate_agent_sessions(identity)
-    new_dir = not agent_dir.exists()
     had_config = resource_manager.exists(agent_dir / "config.json")
     resource_manager.make_dir(agent_dir)
     # 寫入走 soul_io 受認可通道（原子寫＋自動 .bak 備份；Soul Protection 原語不弱化）。
@@ -383,9 +435,14 @@ async def delete_soul(
     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
     """
-    _verify_admin_stepup(verified, req.admin_password, "delete", soul_id)
-    if soul_id in _UNDELETABLE_SOULS:
+    _verify_admin_stepup(
+        verified, req.admin_password, "delete", soul_id, refuse_during_restore=True
+    )
+    # 任何大小寫都算（不分大小寫的檔案系統上 debugagent 就是 DebugAgent 的資料夾；sec-9 PR 1b）
+    if soul_id.casefold() in _UNDELETABLE_FOLDED:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    # 名稱是單一段、不是任何 base 裡既有資料夾的別名（8.3 短檔名等）：先於任何路徑操作
+    soul_io.check_soul_name(AgentIdentity(agent_id=soul_id))
 
     # 路徑監獄：soul_id 逃逸不得清到 soul/ 之外（purge_soul_storage 內部逐 base 亦過監獄，
     # 此處先擋提早 fail-loud）。
@@ -404,6 +461,7 @@ async def delete_soul(
         # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
+        await assert_prelude_cleared(identity)  # 前情也屬記憶（ADR-0305）
         # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個靈魂的全部指令，
         # 標記期間也不會開新的。
         refuse_linked_drive(resource_manager.soul_drive(identity))
@@ -422,6 +480,7 @@ async def delete_soul(
         # 清家目錄要好幾秒；這段期間寫進來的（例如前景聊天）再查一次。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)
+        await assert_prelude_cleared(identity)
 
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)

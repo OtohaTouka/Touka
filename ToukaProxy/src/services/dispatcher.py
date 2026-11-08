@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import contextlib
 import copy
 import json
 import logging
@@ -28,6 +29,8 @@ from src.models.session_persistence import (
 )
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
+from src.services.chat_trim_wait import ClosingSave, closing_saves
+from src.services.destructive_ops import running_heartbeats
 from src.services.dispatchers import dispatch_group_stream, get_stream_generator
 from src.services.hooks import events as hook_events
 from src.services.hooks.lifecycle import notify_stop_failure
@@ -36,7 +39,7 @@ from src.services.identity_service import identity_service
 from src.services.interjection_queue import InterjectionQueue, interjection_queue
 from src.services.sliding_window_service import sliding_window_service
 from src.services.stream_buffer_service import StreamOwnershipError, stream_buffer_service
-from src.utils.async_db import SessionSnapshot, session_service
+from src.utils.async_db import SessionPersistenceError, SessionSnapshot, session_service
 from src.utils.brain_persistence import record_working_brain
 from src.utils.history_manager import TreeMessageManager
 from src.utils.session_scope import is_ui_turn_base
@@ -65,6 +68,16 @@ def _refuse_if_stopped(context: dict[str, Any]) -> None:
     """
     if stopped_since_start(context):
         raise ToukaException(ErrorCode.PROMPT_STOPPED)
+
+
+def _failed_generation(admission: UiPersistence) -> SkippedResult | None:
+    """模型失敗、後端沒寫：持久對話回略過，由畫面以原版本存一次（ADR-0231 決定 6）。
+
+    無痕交給終態的預設。
+    """
+    if admission.mode == "persistent":
+        return SkippedResult(status="skipped", reason="generation_failed")
+    return None
 
 
 def _valid_ui_base(snapshot: SessionSnapshot, admission: PersistedStreamAdmission) -> bool:
@@ -136,6 +149,8 @@ async def _pump_ui_stream(
     result: SaveResult = _unknown_ui_save()
     snapshot: SessionSnapshot | None = None
     full_content = ""
+    # 基底與 scope 都驗過才開始生成；之後的失敗後端確定什麼都沒寫，之前的照舊回不確定
+    generating = False
     try:
         if admission.mode == "persistent":
             snapshot = await session_service.read_persistence_snapshot(session_id, requester)
@@ -146,6 +161,7 @@ async def _pump_ui_stream(
                 return
             if execution:
                 session_service.require_scope(snapshot.session, execution)
+        generating = True
         async for chunk in gen:
             if not await stream_buffer_service.append(session_id, chunk, stream_id=stream_id):
                 return
@@ -154,10 +170,22 @@ async def _pump_ui_stream(
         await stream_buffer_service.finish(session_id, "cancelled", stream_id=stream_id)
         raise
     except UiGenerationStopped as stopped:
-        await stream_buffer_service.finish(session_id, stopped.generation, stream_id=stream_id)
+        await stream_buffer_service.finish(
+            session_id,
+            stopped.generation,
+            stream_id=stream_id,
+            persistence=_failed_generation(admission)
+            if generating and stopped.generation == "error"
+            else None,
+        )
         return
     except Exception:
-        await stream_buffer_service.finish(session_id, "error", stream_id=stream_id)
+        await stream_buffer_service.finish(
+            session_id,
+            "error",
+            stream_id=stream_id,
+            persistence=_failed_generation(admission) if generating else None,
+        )
         return
     else:
         if admission.mode == "incognito":
@@ -183,8 +211,13 @@ async def _pump_ui_stream(
             except Exception:
                 result = _unknown_ui_save()
         if isinstance(result, SavedResult):
+            # 畫面收到終態才補存富版：剪裁在送出終態前先登記等它，中間不經 await（ADR-0302）
+            closing_save = closing_saves.register(
+                session_id, result.revision, admission.assistant_node_id, requester
+            )
             spawn_logged(
-                _maybe_trim_after_chat(session_id), f"sliding_window_chat:{session_id}"
+                _maybe_trim_after_chat(session_id, closing_save),
+                f"sliding_window_chat:{session_id}",
             )
         await stream_buffer_service.finish(
             session_id, "done", stream_id=stream_id, persistence=result
@@ -278,22 +311,62 @@ def _home_soul_identity(agent_id: Any) -> AgentIdentity | None:
     return identity_service.get_identity(agent_id)
 
 
-async def _maybe_trim_after_chat(session_id: str) -> None:
+async def _maybe_trim_after_chat(session_id: str, closing_save: ClosingSave | None = None) -> None:
     """聊天回合落盤後的滑動視窗觸發（ADR-0092 Phase D / 禁令 28 第二授權觸發點）。
 
     僅家對話（子對話排除，對齊 heartbeat）；`check_and_trim` 內含 per-session 鎖、
     換模型冷卻與無需剪裁的早退。非阻塞背景執行（spawn_logged），失敗只記 log、
     不影響串流終態。剪裁身分是家對話所屬的靈魂（和心跳同一個），不是 UI 請求者：
     否則剪下的舊對話與摘要記帳會落到人類名下、靈魂找不到。解析不到靈魂就不剪。
+    網頁版帶 ``closing_save``：先在鎖外等畫面的收尾保存，再照放棄條件剪（ADR-0302）。
     """
-    session = await session_service.get_session_by_id(session_id)
-    if not session or not session.get("is_home"):
+    try:
+        session = await session_service.get_session_by_id(session_id)
+        is_home = bool(session and session.get("is_home"))
+        soul = _home_soul_identity(session.get("home_for_agent")) if is_home else None
+        if closing_save is not None and not await _closing_save_arrived(closing_save, soul):
+            return
+    finally:
+        if closing_save is not None:  # 讀檔出錯也清掉，下一輪登記時才不會以為還有人在等
+            closing_saves.discard(closing_save)
+    if not is_home:
         return
-    soul = _home_soul_identity(session.get("home_for_agent"))
     if soul is None:
         logger.warning("SlidingWindow: home session %s has no soul owner; skip trim", session_id)
         return
-    await sliding_window_service.check_and_trim(soul, session_id)
+    if closing_save is None:
+        await sliding_window_service.check_and_trim(soul, session_id)
+        return
+
+    def abandon(stored: dict[str, Any] | None) -> bool:
+        # 心跳結束時自己會剪；有回覆在跑或在等；存檔的最後一則已不是這一輪（已送出下一則）
+        return (
+            session_id in running_heartbeats(soul)
+            or stream_buffer_service.is_busy(session_id)
+            or (
+                stored is not None
+                and stored.get("messages", {}).get("currentId") != closing_save.assistant_node_id
+            )
+        )
+
+    await sliding_window_service.check_and_trim(soul, session_id, abandon)
+
+
+async def _closing_save_arrived(closing_save: ClosingSave, soul: AgentIdentity | None) -> bool:
+    """等畫面存好或逾時；被新的一輪取代回 False。
+
+    不剪的對話（沒有靈魂）不等；開始等之前存檔已離開文字版（畫面已經存了）也不等。
+    """
+    moved = soul is None
+    if soul is not None:
+        with contextlib.suppress(SessionPersistenceError):
+            snapshot = await session_service.read_persistence_snapshot(
+                closing_save.session_id, closing_save.requester
+            )
+            moved = snapshot.revision != closing_save.revision
+    if moved:
+        closing_save.saved.set()  # 只放掉自己：已被取代時不能替新的一輪宣告畫面存好了
+    return await closing_saves.wait(closing_save)
 
 
 async def _pump_stream_to_buffer(

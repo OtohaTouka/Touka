@@ -6,7 +6,7 @@
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -18,14 +18,39 @@ from memory_server.utils.historical_data import (
     neutralize_tags,
     wrap_historical_data,
 )
+from memory_server.utils.legacy_time import format_taipei
+from memory_server.utils.zone_paths import is_zone_segment
 
 from src.adapters.content_normalize import normalize_message_content
 from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 from src.utils.model_text import blank_control_chars
+from src.utils.time_utils import get_monotonic_ms
 
 logger = logging.getLogger(__name__)
+
+# 別名警告最多記幾個不同的名稱（名稱來自請求，不讓這份集合無限長大）
+_ALIAS_WARN_LIMIT = 256
+# 靈魂名稱快取最多沿用多久（毫秒）：修改時間不準的檔案系統（FAT、部分網路或容器掛載）上，
+# 名稱改了修改時間不一定變，過期就重列
+_SOUL_NAMES_TTL_MS = 2000.0
+
+
+def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
+    """字串身分轉成 AgentIdentity（沒有角色資訊）；其他身分物件原樣回傳（只讀 agent_id）.
+
+    派工服務等處傳的是自己的身分物件（有 agent_id／agent_role，但不是 AgentIdentity），
+    和改動前一樣照收。
+    """
+    return AgentIdentity(agent_id=identity) if isinstance(identity, str) else identity
+
+
+def _resource_manager() -> Any:
+    """ResourceManager 實例；它在模組頂層匯入本模組，這裡只能延遲匯入（循環）."""
+    from .resource_manager import resource_manager  # noqa: LOCAL_IMPORT_BAN
+
+    return resource_manager
 
 
 def _map_text(content: Any, fn: Callable[[str], str]) -> Any:
@@ -92,6 +117,29 @@ def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return marked
 
 
+def append_system_block(request: Any, block: str) -> None:
+    """把一個區塊接在 system 最後（Anthropic 的 system 字串或清單、OpenAI 的第一則 system）.
+
+    前面空一行；沒有 system 時新增一則。前情與子對話舊摘要共用（ADR-0305）。
+    """
+    text = "\n\n" + block
+    if hasattr(request, "system"):
+        if isinstance(request.system, list):
+            request.system.append({"type": "text", "text": text})
+        else:
+            request.system = (request.system or "") + text
+        return
+    for m in request.messages:
+        role = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
+        if role == "system":
+            if isinstance(m, dict):
+                m["content"] = (m.get("content") or "") + text
+            elif hasattr(m, "content"):
+                m.content = (m.content or "") + text
+            return
+    request.messages.insert(0, OpenAIMessage(role="system", content=text))
+
+
 def _after_leading_system(messages: list[Any]) -> int:
     """開頭連續 system 訊息之後的位置（第一則就不是 system＝0）。"""
     index = 0
@@ -112,7 +160,10 @@ class SoulService:
 
     def __init__(self) -> None:
         """初始化靈魂服務."""
-        pass
+        self._alias_warned: set[str] = set()  # 別名的警告每個名稱只記一次
+        # (根目錄, 列表當時的修改時間, 名稱, 列表的時刻)：只拿來確認「逐字在列表裡」，
+        # 不在裡面一律重列
+        self._soul_names: tuple[str, int, frozenset[str], float] | None = None
 
     @property
     def base_dir(self) -> Path:
@@ -129,35 +180,111 @@ class SoulService:
         Returns:
             tuple[str | None, dict]: 包含 (System Prompt, Config Dictionary) 的元組.
         """
-        agent_id = identity if isinstance(identity, str) else identity.agent_id
-        
-        app_data_dir = Path(config_utils.get_app_data_dir())
-        agent_dir = app_data_dir / "soul" / agent_id
-        logger.info(f"🧬 Loading soul for {agent_id} from {agent_dir}")
-        
-        if not agent_dir.exists():
-            logger.warning(f"🧬 Soul directory NOT FOUND: {agent_dir}")
+        target = _as_identity(identity)
+        agent_dir = self._soul_dir(target)
+        if agent_dir is None:
+            logger.warning("🧬 Soul directory NOT FOUND for %r", target.agent_id)
             return None, {}
+        logger.info(f"🧬 Loading soul for {target.agent_id} from {agent_dir}")
 
-        soul_path = agent_dir / "soul.md"
-        config_path = agent_dir / "config.json"
-
-        from .resource_manager import resource_manager  # noqa: LOCAL_IMPORT_BAN
         system_prompt = None
+        soul_path = agent_dir / "soul.md"
         if soul_path.exists():
             try:
-                system_prompt = resource_manager.read_file_text(soul_path)
+                system_prompt = _resource_manager().read_file_text(soul_path)
             except Exception:
-                logger.exception(f"Error reading soul.md for {agent_id}")
+                logger.exception(f"Error reading soul.md for {target.agent_id}")
+        return system_prompt, self._read_config(agent_dir, target)
 
-        config = {}
-        if config_path.exists():
-            try:
-                config = json.loads(resource_manager.read_file_text(config_path))
-            except Exception:
-                logger.exception(f"Error reading config.json for {agent_id}")
+    def _read_config(self, agent_dir: Path, identity: AgentIdentity) -> dict:
+        """讀靈魂資料夾的 config.json；沒有或讀不出來回空 dict."""
+        config_path = agent_dir / "config.json"
+        if not config_path.exists():
+            return {}
+        try:
+            return json.loads(_resource_manager().read_file_text(config_path))
+        except Exception:
+            logger.exception(f"Error reading config.json for {identity.agent_id}")
+            return {}
 
-        return system_prompt, config
+    def _soul_dir(self, identity: AgentIdentity) -> Path | None:
+        r"""靈魂資料夾：名稱是單一段，而且逐字出現在 ``soul/`` 的目錄列表裡（sec-9 PR 1b）.
+
+        名稱先過 ``is_zone_segment`` 才碰檔案系統（Windows 上 ``\\主機\分享`` 拼上去會變成網路
+        路徑）。是資料夾才列目錄：大多數不是靈魂的查詢停在 ``is_dir()``。不分大小寫的檔案系統上，
+        只差大小寫、8.3 短檔名的名稱也會「存在」，但不會逐字出現在列表裡——那是別名，不算。
+        有一項讀不到時用列得到的部分判斷（一項壞掉不讓所有靈魂失效），沒列到的名稱不算。
+
+        成本：上一次列出的名稱以根目錄的修改時間為鍵記住，最多沿用 ``_SOUL_NAMES_TTL_MS``。
+        名稱在裡面（而且資料夾還在）就直接回傳；不在裡面一律重新列一次再判斷，所以快取過期只會
+        多列一次，不會漏掉剛建立的靈魂。
+        """
+        agent_id = identity.agent_id
+        if not is_zone_segment(agent_id):
+            return None
+        soul_root = Path(config_utils.get_app_data_dir()) / "soul"
+        agent_dir = soul_root / agent_id
+        if not agent_dir.is_dir():
+            return None
+        if agent_id in self._cached_soul_names(soul_root):
+            return agent_dir
+        try:
+            names, complete = self._list_soul_names(soul_root)
+        except OSError:
+            logger.warning("🧬 Soul folder list unreadable; %r is not treated as a soul", agent_id)
+            return None
+        if agent_id not in names:
+            self._warn_not_listed(identity, complete=complete)
+            return None
+        return agent_dir
+
+    def _warn_not_listed(self, identity: AgentIdentity, *, complete: bool) -> None:
+        """名稱沒出現在列表裡：每個名稱只記一次，集合有上限（名稱來自請求）."""
+        agent_id = identity.agent_id
+        if agent_id in self._alias_warned or len(self._alias_warned) >= _ALIAS_WARN_LIMIT:
+            return
+        self._alias_warned.add(agent_id)
+        if complete:
+            logger.warning(
+                "🧬 %r is not the exact name of a soul folder (differs only by case or is a "
+                "short name); not treated as a soul",
+                agent_id,
+            )
+        else:
+            logger.warning(
+                "🧬 Soul folder list incomplete (some entries unreadable); %r is not treated as "
+                "a soul",
+                agent_id,
+            )
+
+    def has_soul_folder(self, identity: AgentIdentity) -> bool:
+        """名稱逐字是 ``soul/`` 底下的資料夾（不看設定檔裡的靈魂標記；別名、檔案都不算）."""
+        return self._soul_dir(identity) is not None
+
+    def _cached_soul_names(self, soul_root: Path) -> frozenset[str]:
+        """上一次列出的靈魂資料夾名稱；根目錄換了、修改時間變了（有增刪改名）或過期就是空集合."""
+        cached = self._soul_names
+        if cached is None or cached[0] != str(soul_root):
+            return frozenset()
+        if get_monotonic_ms() - cached[3] > _SOUL_NAMES_TTL_MS:
+            return frozenset()
+        try:
+            mtime = soul_root.stat().st_mtime_ns
+        except OSError:
+            return frozenset()
+        return cached[2] if cached[1] == mtime else frozenset()
+
+    def _list_soul_names(self, soul_root: Path) -> tuple[frozenset[str], bool]:
+        """重新列 ``soul/`` 第一層的名稱並記住；回 (名稱, 是否列完整)。根目錄讀不到丟 OSError."""
+        mtime = soul_root.stat().st_mtime_ns
+        manager = _resource_manager()
+        try:
+            names, complete = frozenset(manager.list_child_names(soul_root)), True
+        except OSError:
+            names = frozenset(manager.list_child_names(soul_root, strict=False))
+            complete = False
+        self._soul_names = (str(soul_root), mtime, names, get_monotonic_ms())
+        return names, complete
 
     def is_toukasoul(self, identity: str | AgentIdentity) -> bool:
         """判斷指定身分是否具備正式靈魂特徵 (Identity SSOT).
@@ -170,7 +297,6 @@ class SoulService:
         Returns:
             bool: 是否為正式靈魂.
         """
-        agent_id = identity if isinstance(identity, str) else identity.agent_id
         # ADR-0141：靈魂＝Owner 軀體判定，讀 agent_role（人類 agent_role=None→非 Owner，
         # 與拆分前 human_role 恆非 "Owner" 一致）；字串身分無角色資訊，預設 Base。
         role = "Base" if isinstance(identity, str) else (identity.agent_role or "Base")
@@ -179,17 +305,15 @@ class SoulService:
         if role == "Owner":
             return True
             
-        # 2. 檢查物理路徑存在（soul 目錄即判定為靈魂）
-
-        # 3. 檢查物理路徑是否存在
-        app_data_dir = Path(config_utils.get_app_data_dir())
-        agent_dir = app_data_dir / "soul" / agent_id
-        if not agent_dir.exists():
+        # 2. 靈魂資料夾逐字存在（名稱檢查與別名見 _soul_dir），只列一次目錄
+        target = _as_identity(identity)
+        agent_dir = self._soul_dir(target)
+        if agent_dir is None:
             return False
 
-        # 4. 檢查設定檔中的靈魂標記 (符合 SSOT 原則)
+        # 3. 檢查設定檔中的靈魂標記 (符合 SSOT 原則)
         try:
-            _, config = self.get_soul_data(identity)
+            config = self._read_config(agent_dir, target)
             return config.get("is_toukasoul", config.get("is_soul", False))
         except Exception:
             return False
@@ -293,6 +417,8 @@ class SoulService:
         identity: str | AgentIdentity,
         *,
         current_session_id: str | None = None,
+        stamp_times: bool = False,
+        home_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """為請求注入家園訊息（記憶錨點） (Identity SSOT).
 
@@ -301,6 +427,9 @@ class SoulService:
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
             current_session_id (str | None): 請求已帶著這個對話的完整紀錄時傳入；
                 它就是家對話時不再插入（避免同一份紀錄送兩次）.
+            stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0305）.
+            home_messages (list | None): 呼叫端已讀到的家訊息（主線用同一次讀到的家，ADR-0305）；
+                沒給時自己讀.
         """
         from src.utils.async_db import get_home_messages  # noqa: LOCAL_IMPORT_BAN
 
@@ -308,9 +437,23 @@ class SoulService:
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        home_msgs = await get_home_messages(identity, current_session_id)
+        home_msgs = (
+            home_messages
+            if home_messages is not None
+            else await get_home_messages(identity, current_session_id)
+        )
         if not home_msgs:
             return
+        if stamp_times:  # 先標時間再包界線：時間在界線裡面
+            home_msgs = [
+                {
+                    **m,
+                    "content": _add_text(
+                        m.get("content"), f"[{format_taipei(m.get('timestamp'))}]", before=True
+                    ),
+                }
+                for m in home_msgs
+            ]
         home_msgs = _mark_home_history(home_msgs)  # 歷史資料界線，不是指令
 
         # 只送角色與內容（ADR-0260）：節點 ID、工具步驟、思考、附件、name 等 UI 樹欄位一律不外送
@@ -326,12 +469,14 @@ class SoulService:
         logger.info(f"🏠 Injected {len(home_msgs)} home messages for {agent_id}")
 
     async def inject_context_summary(
-        self, request: Any, session_id: str | None
+        self, request: Any, session_id: str | None, shown: Collection[str] = ()
     ) -> None:
         """注入 session 級 ``context_summary`` 為 ``<conversation_summary>`` system 區塊。
 
         ADR-0092 Phase D：摘要固定前置、**不進對話訊息樹**（故不被 round 計數/再剪）。
         無 session_id 或無摘要則 no-op。呼叫端負責無痕 gating（無痕不注入）。
+        ``shown``：這一輪前情已經原文照登的舊摘要（ADR-0305）；同一段就不再插。家與子對話一樣：
+        截短過、被折掉、被合併時照舊插，不會兩邊都看不到。
         """
         if not session_id:
             return
@@ -340,30 +485,14 @@ class SoulService:
         if not session:
             return
         summary = session.get("context_summary")
-        if not summary or not isinstance(summary, str):
+        if not summary or not isinstance(summary, str) or summary in shown:
             return
 
         # 歷史資料界線包在 <conversation_summary> 裡面：位置與角色都不變，只加文字
         historical = wrap_historical_data(
             "conversation_summary", blank_control_chars(summary), extra_tags=ALL_BLOCK_TAGS
         )
-        block = "\n\n" + wrap_block(CONVERSATION_SUMMARY, historical)
-        if hasattr(request, "system"):
-            if isinstance(request.system, list):
-                request.system.append({"type": "text", "text": block})
-            else:
-                request.system = (request.system or "") + block
-        else:
-            for m in request.messages:
-                role = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
-                if role == "system":
-                    if isinstance(m, dict):
-                        m["content"] = (m.get("content") or "") + block
-                    elif hasattr(m, "content"):
-                        m.content = (m.content or "") + block
-                    break
-            else:
-                request.messages.insert(0, OpenAIMessage(role="system", content=block))
+        append_system_block(request, wrap_block(CONVERSATION_SUMMARY, historical))
         logger.info("🪟 Injected context_summary for session %s", session_id)
 
 

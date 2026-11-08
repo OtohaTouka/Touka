@@ -68,8 +68,16 @@ class SlidingWindowConfig(BasePolicyModel):
         default=2, ge=1, description="overhead 過大無法降到地板時的最低保留 pair 數"
     )
     summary_model: str = Field(
-        default="claude-haiku-4-5",
-        description="壓縮被剪對話為摘要所用的便宜模型（ADR-0092 Phase D）",
+        default="claude-haiku-5-5",
+        description="剪裁摘要與前情摘要所用的便宜模型（ADR-0092 Phase D；ADR-0305 改預設）",
+    )
+    # ── 靈魂前情（ADR-0305）──
+    prelude_summary_enabled: bool = Field(
+        default=True,
+        description="前情超過上限時合併成摘要（之後的退任摘要與子對話回報也看它）；關掉只留來源註記",
+    )
+    prelude_max_tokens: int = Field(
+        default=4_000, ge=500, le=20_000, description="每次送給模型的前情大約上限（token）"
     )
 
     @field_validator("keep_rounds")

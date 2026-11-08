@@ -27,11 +27,21 @@ class ConversationRow:
 
 @dataclass(frozen=True)
 class ConversationPage:
-    """總數在切頁前計算；未知時間數只計符合角色及文字的訊息。"""
+    """總數在切頁前計算；未知時間數只計符合角色及文字的訊息。
+
+    ``matched_keys``：聊天對話這邊文字與角色符合的全部訊息（不套日期），以 ``conversation_key``
+    表示；合併查詢時舊對話庫據此排除同一則（ADR-0305）。
+    """
 
     total: int
     rows: list[ConversationRow]
     unknown_time_count: int = 0
+    matched_keys: frozenset[str] = frozenset()
+
+
+def conversation_key(session_id: str, message_id: str) -> str:
+    """同一則訊息的比對鍵：所屬對話＋訊息編號（舊對話庫歸檔時兩者都沿用聊天對話的）。"""
+    return f"{session_id}\x1f{message_id}"
 
 
 def sort_conversations(rows: list[ConversationRow], oldest_first: bool) -> list[ConversationRow]:

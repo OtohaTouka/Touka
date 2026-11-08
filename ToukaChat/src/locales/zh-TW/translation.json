@@ -445,7 +445,14 @@
       "save_button": "儲存設定",
       "save_success": "滑動視窗設定已儲存",
       "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
-      "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+      "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。",
+      "summary_model_label": "摘要模型",
+      "summary_model_hint": "剪裁摘要和前情摘要都用這個模型。只列出已設定金鑰的模型。",
+      "summary_model_missing_key": "{{model}} 不在已設定金鑰的模型清單裡；不需要金鑰的本機模型可以忽略這個提醒，否則摘要會失敗（剪裁照常，只留來源註記）。",
+      "summary_model_no_models": "還沒有設定金鑰的模型。",
+      "summary_model_load_failed": "讀不到模型清單。",
+      "prelude_label": "前情摘要",
+      "prelude_hint": "前情是靈魂累積的前面發生過的事，每次送給模型時都會帶上。前情超過上限時，把最舊的幾段合併成一段摘要；關掉就不合併。剪裁時要不要摘要，照上面的摘要百分比。"
     },
     "hooks_tab": {
       "title": "Hooks",
@@ -1224,7 +1231,8 @@
       "proxy_switch_confirm": "要把後端換成 {{url}} 嗎？確認後，這個帳號在目前後端的所有裝置都會登出，這個瀏覽器會回到登入頁。",
       "proxy_switch_confirm_label": "換後端並登出",
       "proxy_checking": "正在確認 {{url}} 連得上…",
-      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。"
+      "proxy_unreachable": "連不上 {{url}}，或它不是 Touka 後端。網址沒有變更。",
+      "storage_cleanup_failed": "無法把瀏覽器內舊版存下的連線金鑰換成遮罩。請在瀏覽器設定清除此網站的儲存資料，再重新載入。"
     },
     "theme_showcase": {
       "agent_sample_reply": "這是 {{name}} 的範例對話回覆。我們使用 Design Tokens 確保每個 Agent 在任何主題下都具有高度辨識度。",
@@ -1453,6 +1461,7 @@
         "project_context": "專案",
         "ide_context": "編輯器",
         "conversation_summary": "摘要",
+        "soul_prelude": "前情",
         "conversation": "對話",
         "system_other": "其他"
       },
@@ -2187,7 +2196,6 @@
       "api_url_placeholder_proxy": "例: http://localhost:8000",
       "api_url_placeholder_openai": "例: https://api.openai.com/v1",
       "proxy_url_hint": "* 使用根目錄 URL，ToukaUI 將自動解鎖專業統計與靈魂同步功能。",
-      "api_key_label": "API Key (選填)",
       "deploy_connection_button": "部署此連線",
       "existing_nodes_heading": "現有的連線節點 ({{count}})",
       "empty_state_title": "尚未配置任何連線",

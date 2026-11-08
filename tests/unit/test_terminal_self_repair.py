@@ -23,6 +23,7 @@ from src.services import tool_executor as executor_module
 from src.services.autonomy import autonomy_service
 from src.services.tool_executor import TERMINAL_REPAIR_TOOLS, ToolExecutor
 from src.tools import terminal
+from src.utils.async_db import session_service
 
 _IDENTITY = AgentIdentity.for_role(agent_id="RepairProbe", role="Owner", capabilities=["*"])
 
@@ -35,7 +36,7 @@ def _allow(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda _ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        executor_module.session_service, "get_session_by_id", AsyncMock(return_value=None)
+        session_service, "get_session_by_id", AsyncMock(return_value=None)
     )
 
 

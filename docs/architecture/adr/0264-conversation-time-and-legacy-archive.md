@@ -1,6 +1,6 @@
 # ADR-0264：記憶系統第二批段 T4：對話時間戳、摘要時間範圍、剪下的對話直接歸檔進舊對話庫
 
-- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，含「舊對話日期改成訊息的實際時間」；舊對話歸檔的修正經審查併入本段）〔ADR-0267 修訂決策 3：記憶體那條上一輪改標 `(server memory)`，仍絕不加對話紀錄的註記〕〔ADR-0286 修訂決策 5、6 與已知限制第 4 條：同 id 內容不同的另存成版本，歸檔回確認在庫的筆數，內容不是字串改成存文字〕
+- 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，含「舊對話日期改成訊息的實際時間」；舊對話歸檔的修正經審查併入本段）〔ADR-0267 修訂決策 3：記憶體那條上一輪改標 `(server memory)`，仍絕不加對話紀錄的註記〕〔ADR-0286 修訂決策 5、6 與已知限制第 4 條：同 id 內容不同的另存成版本，歸檔回確認在庫的筆數，內容不是字串改成存文字〕〔ADR-0305 修訂：剪裁摘要（含時間範圍行）寫進靈魂前情，不再替換 `context_summary`〕
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaChat（`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/time_utils.ts`、`lib/export-utils.ts`、`lib/providers/StreamRegistryProvider.tsx`）；ToukaProxy（`services/sliding_window_service.py`、`services/dispatcher.py`、`services/dialogue_summarizer.py`、`services/continuity_service.py`、`middleware/layers/context.py`、`adapters/content_normalize.py`、`utils/time_utils.py`、`routers/ui_sessions.py` 匯出端點、`routers/stats.py` 舊對話統計）；ToukaMemory（`services/legacy_store.py`、`services/legacy_sync.py`）

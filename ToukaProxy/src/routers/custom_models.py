@@ -16,6 +16,7 @@ from src.models.custom_models import (  # noqa: TC001
     CustomModelUpdateRequest,
 )
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity  # noqa: TC001
+from src.routers.system import restore_in_progress
 from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
 from src.services.agent_service import agent_service
@@ -102,6 +103,12 @@ async def _mark_only(model: AgentIdentity) -> AsyncIterator[None]:
         destructive_ops.release(model)
 
 
+def _refuse_during_restore() -> None:
+    """還原中回 409 ``SYSTEM_RESTORE_IN_PROGRESS``（ADR-0304）；呼叫點要在擁有權檢查之後."""
+    if restore_in_progress():
+        raise ToukaException(ErrorCode.SYSTEM_RESTORE_IN_PROGRESS)
+
+
 async def _remove_model_dir(model: AgentIdentity, *, rollback: bool = False) -> bool:
     """刪除自訂模型資料夾的唯一路徑；``custom_io.delete_custom_dir`` 沒有標記就拒絕.
 
@@ -143,6 +150,9 @@ def _validate_new_model_id(model: AgentIdentity, *, renaming: str | None = None)
         or any(mid.casefold() == folded for mid in [*others, *SYSTEM_AGENT_IDS])
     ):
         raise ToukaException(ErrorCode.MODEL_ALREADY_EXISTS, model_id=model.agent_id)
+    # 不是任何代理人資料夾的別名（8.3 短檔名等，撞名檢查抓不到的；sec-9 PR 1b）。只差 ASCII
+    # 大小寫的自我改名指的就是自己的資料夾，不查別名（規則在 check_new_agent_name）
+    soul_io.check_new_agent_name(model, renamed_from=renaming)
 
 
 async def _assert_collection_free(model: AgentIdentity, *, renaming: str | None = None) -> None:
@@ -290,6 +300,9 @@ async def rename_custom_model(
         # R11：兩邊都不動；改名後用新 ID 停不到舊 ID 登記的指令，所以搬之前先停，也和重置互斥
         try:
             async with destructive_op(old_identity):
+                # 還原中不改名（ADR-0304）。放在鎖裡：前面的檢查會讓出事件迴圈，還原可能在
+                # 那時開始；拿到鎖之後還原端點就會拒絕，所以只要這裡沒看到就不會同時進行
+                _refuse_during_restore()
                 await _stop_before_moving(old_identity)
                 custom_model_service.rename_model(old_identity, new_id)
         except ToukaException:
@@ -332,6 +345,9 @@ async def delete_custom_model(
         # IDOR fix: verify ownership before deletion
         _validate_model_access(identity, _identity)
         _assert_is_model(identity)
+        # 還原中不刪（ADR-0304）。和 _remove_model_dir 裡取破壞性操作鎖之間沒有 await，
+        # 還原端點看到鎖就會拒絕，所以兩邊不會同時進行
+        _refuse_during_restore()
 
         if not await _remove_model_dir(identity):
             raise ToukaException(ErrorCode.MODEL_DELETE_FAILED)

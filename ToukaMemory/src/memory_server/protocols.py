@@ -58,7 +58,11 @@ class IConversationReader(Protocol):
         limit: int,
         offset: int,
     ) -> ConversationPage:
-        """同一讀取交易內驗歸屬、計數並切頁；失敗直接往上拋。"""
+        """同一讀取交易內驗歸屬、計數並切頁；失敗直接往上拋。
+
+        回傳的 ``matched_keys`` 是符合條件的每一則（``conversation_key``），合併查詢時
+        拿來排除舊對話庫裡的同一則（ADR-0305）。
+        """
         ...
 
 

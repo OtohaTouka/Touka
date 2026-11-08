@@ -14,7 +14,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.auth_service import AuthService
-from src.services.identity_service import identity_service
+from src.services.identity_service import identity_service, ldh_identity
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
 from src.utils.rate_limiter import RateLimiter
@@ -190,20 +190,25 @@ async def get_optional_identity(
         # 如果前端提供了 ID (X-Agent-ID)，根據 identity_map 動態判定角色
         target_id = header_agent_id or "DebugAgent"
 
+        # ADR-0304：首裝卡永遠不是人類——寫了使用者 id 就不發卡（驗卡時也拒絕）
+        if AuthService().get_user_by_id(target_id):
+            logger.warning(
+                "🛡️ [Gate 1] LDH refused: X-Agent-ID names a user (from %s)", client_host
+            )
+            return None
+
         # ADR-0147 審查修正：LDH（無卡首裝視窗）**刻意不帶類型旗標**——header 的
         # agent_id 是攻擊者可控。帶旗標會讓 X-Agent-ID=<既存靈魂 id> 解析成 Owner
         # 並鑄一張綁定該具名靈魂（其記憶 vault/home 錨點）的 Owner 卡＝身分冒用面
         # 擴大。不帶旗標：DebugAgent 經 agent_overrides→Debugger（首裝開發卡照舊），
         # 任意靈魂 id 落回 default Base（無害）。正規「擁有者代打自己的靈魂→Owner」
         # 走上方帶卡的 owned_agents 代打路徑（:98），不經此無卡分支。
-        role = permission_service.get_role_key(target_id)
-        caps = permission_service.get_capabilities_by_id(target_id)
-
-        identity = AgentIdentity.for_role(target_id, role, capabilities=caps)
+        # ADR-0304：判斷抽成 ldh_identity，驗卡時用同一個（重送不會變成 Owner）。
+        identity = ldh_identity(target_id)
         logger.info(
             "🛡️ Local Graceful Downgrade: '%s' (Role: %s)",
             target_id,
-            role,
+            identity.agent_role,
         )
 
         # P24 fix: rate-limit token issuance to prevent flooding
@@ -212,7 +217,7 @@ async def get_optional_identity(
         if _ldh_limiter.is_allowed(client_host, now):
             _ldh_limiter.record(client_host, now)
             # 同步發放一個正式 Token，讓前端從此之後可以「帶卡說話」
-            new_token = identity_service.issue_token(identity)
+            new_token = identity_service.issue_token(identity, ldh=True)
             request.state.new_auth_token = new_token
         else:
             logger.warning("🚨 LDH rate limit exceeded for %s, skipping token issuance", client_host)

@@ -54,6 +54,7 @@ from src.services.hooks.lifecycle import notify_heartbeat_start, notify_heartbea
 from src.services.hooks.stopping import request_stopped, stop_baseline
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
+from src.services.mainline_service import inject_mainline
 from src.services.model_manager import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
@@ -343,6 +344,8 @@ async def _execute_single_pulse(
     agent_id = identity.agent_id
     chat_req = OpenAIChatRequest(model=f"toukasoul-{agent_id}", messages=messages, stream=True)
     soul_service.apply_soul_to_request(chat_req, identity)
+    if soul_service.is_toukasoul(identity):  # 主線的前情（ADR-0305）；心跳不帶家原文
+        await inject_mainline(chat_req, identity, mode="heartbeat", session_id=final_session_id)
     chat_req.model = model_name
     _soul_text, soul_config = soul_service.get_soul_data(identity)
     if soul_config and "enabled_tools" in soul_config:  # 與 SoulLayer 同：靈魂設定收斂工具
@@ -882,7 +885,12 @@ async def test_heartbeat_connectivity() -> dict:
             resp = await client.post(webhook_url, json=payload, timeout=5.0)
             return {"status": "ok", "http_code": resp.status_code, "data": resp.json()}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # 不用登入就能呼叫：例外原文只寫進 log，不回給呼叫者（ADR-0304，CodeQL #67）
+        logger.warning("Heartbeat connectivity test failed: %s", e)
+        return {
+            "status": "error",
+            "message": "Heartbeat endpoint is unreachable; see the server log.",
+        }
 
 
 @router.post("/retrigger", status_code=202)

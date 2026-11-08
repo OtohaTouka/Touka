@@ -34,6 +34,7 @@
 - Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
+- 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。
 - ToukaHeartbeat 服務本身不變。
 
 ## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
@@ -294,7 +295,7 @@ finally:
 ```
 
 **行為規則**：
-- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再計算來回數；超過 `upper_limit_rounds` 時先存 Legacy，再以 CAS 更新 Session。
+- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再估算 token 用量；超過 `trigger_pct` 時先歸檔進舊對話庫，再以 CAS 更新 Session，剪掉的部分在同一交易寫成靈魂前情的一段；剪完之後前情超過上限時在背景合併最舊的幾段，剪裁不等它（ADR-0092、ADR-0264、ADR-0305）。
 - **子對話**：完全跳過，`is_home_mode=False` 時不呼叫 hook。
 - **失敗隔離**：hook 拋出例外時，`logger.exception` 記錄後略過，不影響 heartbeat 整體結果。
 

@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request  # noqa: TC002
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
+from memory_server.services.manager import VaultPathRefusedError
 from memory_server.services.mission_manager import MissionManager
 from memory_server.tools import get_manager
 from memory_server.utils.no_follow import LinkRefusedError
@@ -42,6 +43,7 @@ from src.models.session_persistence import (
     SessionStreamStateResponse,
     UnknownResult,
 )
+from src.services import soul_prelude_service
 from src.services.activity_registry import activity_registry
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import (
@@ -49,6 +51,7 @@ from src.services.authorization_gateway import (
     require_admin_authority,
     require_authenticated,
 )
+from src.services.chat_trim_wait import closing_saves
 from src.services.handover_service import handover_service
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.identity_router import get_verified_identity
@@ -375,6 +378,15 @@ async def get_session(
     }
 
 
+async def _current_home(soul: AgentIdentity) -> dict[str, Any] | None:
+    """設家前的現任家（搬它的舊摘要用）；讀不到或矛盾時當作沒有."""
+    try:
+        snapshot = await session_service.read_home_snapshot(soul)
+    except (ToukaException, SessionPersistenceError):
+        return None
+    return snapshot.session if snapshot else None
+
+
 @router.post("/sessions/set_home")
 async def set_home_session(
     req: SetHomeRequest,
@@ -407,9 +419,20 @@ async def set_home_session(
         identity, bound, target.get("owner_user_id")
     ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    outgoing = await _current_home(req.agent_id)
     success = await session_service.set_home(req.session_id, req.agent_id, req.is_home)
     if not success:
         raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+    # 舊家與新家升級前的舊摘要搬進前情（ADR-0305；只搬一次）；搬不了不影響設家
+    for session in (outgoing, target if req.is_home else None):
+        if session is None:
+            continue
+        try:
+            await soul_prelude_service.migrate_legacy_summary(req.agent_id, session)
+        except Exception:
+            logger.warning(
+                "Prelude: old summary of %s not carried over", session.get("id"), exc_info=True
+            )
 
     return {
         "status": "success",
@@ -495,6 +518,7 @@ async def save_session(
     )
     if result.status != "saved":
         return SessionSaveResponse(session_id=session_id, persistence=result)
+    closing_saves.saved(session_id)  # 叫醒等畫面收尾保存的剪裁（ADR-0302）
 
     new_agent_id = (
         session.agent_id.agent_id
@@ -780,6 +804,10 @@ async def export_legacy(
             req.json_content,
             req.filename,
         )
+    except VaultPathRefusedError as e:
+        # 只有代理人的對話能存進舊對話庫；一般模型的 ID（如 ollama/llama3:8b）不能當資料夾名
+        logger.warning("Legacy export refused: %r has no legacy folder", req.agent_id.agent_id)
+        raise ToukaException(ErrorCode.VALIDATION_ERROR) from e
     except Exception as e:
         logger.exception("Failed to export legacy chat")
         raise ToukaException(ErrorCode.SYSTEM_ERROR, error_output=f"Export failed: {e!s}") from e

@@ -132,7 +132,10 @@ async def create_skill_endpoint(
     request: SkillCreateRequest,
     identity: AgentIdentity = Depends(_require_creation_role),  # noqa: B008
 ) -> CreationResponse:
-    """建立 skill（Owner/admin）。"""
+    """建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。"""
+    if request.is_system and not identity.is_admin_authority():
+        logger.warning("🚫 Only admins may create a system skill: %r", request.id)
+        raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     spec = SkillSpec(
         id=request.id,
         name=request.name,

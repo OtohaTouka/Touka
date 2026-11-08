@@ -3,30 +3,28 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useStoredConnections } from "@/hooks/useStoredConnections";
 import LeftSidebar from "@/components/LeftSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { PlusCircle, Pencil, Trash2, Shield, Radio, Globe, Zap, Cpu } from "lucide-react";
 import { getSystemEpoch } from "@/lib/time_utils";
 import { PROVIDER_CATALOG, PROVIDER_IDS, resolvePrefillUrl, type ProviderKey } from "@/lib/providerCatalog";
 import { applyConnectionEdit } from "@/lib/connectionEdit";
-import { CONNECTIONS_STORAGE_KEY, publishConnections } from "@/lib/connections";
+import { publishConnections } from "@/lib/connections";
 import { Connection } from "@/lib/types";
 import { DirectConnectionNotice } from "@/components/settings/tabs/connections/DirectConnectionNotice";
 
 export default function ConnectionsPage() {
     const { t } = useTranslation();
-    // useLocalStorage 統一管理 JSON 序列化與持久化（LOCALSTORAGE_SSOT）
-    const [connections, setConnections] = useLocalStorage<Connection[]>(CONNECTIONS_STORAGE_KEY, []);
+    // 這頁只寫本機、不送後端，所以不收第三方金鑰：存起來的清單只有遮罩（useStoredConnections）。
+    // 要設定金鑰請到設定裡的連線管理，那邊會送給後端保管。
+    const [connections, setConnections] = useStoredConnections();
     const [newConnName, setNewConnName] = useState("");
     const [newConnUrl, setNewConnUrl] = useState("");
-    const [newConnApiKey, setNewConnApiKey] = useState("");
     const [newConnProvider, setNewConnProvider] = useState<string>("proxy");
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [changeKey, setChangeKey] = useState(false);
 
     const handleProviderChange = (next: string) => {
         setNewConnProvider(next);
@@ -45,7 +43,7 @@ export default function ConnectionsPage() {
             id: "conn-" + getSystemEpoch(),
             name: newConnName || (newConnProvider === 'proxy' ? "Touka Proxy" : "New Connection"),
             url: newConnUrl,
-            apiKey: newConnApiKey,
+            apiKey: "",
             provider: newConnProvider,
             protocol: "openai",
             enabled: true
@@ -53,7 +51,6 @@ export default function ConnectionsPage() {
         saveConnections(newConns);
         setNewConnName("");
         setNewConnUrl("");
-        setNewConnApiKey("");
     };
 
     const startEdit = (conn: Connection) => {
@@ -61,17 +58,13 @@ export default function ConnectionsPage() {
         setNewConnName(conn.name);
         setNewConnUrl(conn.url);
         setNewConnProvider(conn.provider);
-        setNewConnApiKey("");   // 安全：永不回填既有金鑰
-        setChangeKey(false);
     };
 
     const cancelEdit = () => {
         setEditingId(null);
         setNewConnName("");
         setNewConnUrl("");
-        setNewConnApiKey("");
         setNewConnProvider("proxy");
-        setChangeKey(false);
     };
 
     const submitConnection = () => {
@@ -79,14 +72,14 @@ export default function ConnectionsPage() {
         if (editingId) {
             const existing = connections.find(c => c.id === editingId);
             if (existing) {
-                // 金鑰保留邏輯交給共用純函式（changeKey=false 時保留既有金鑰）。
+                // 這頁不改金鑰：最後的 false 代表保留既有的（遮罩），由共用純函式處理。
                 const updated = applyConnectionEdit(existing, {
                     name: newConnName,
                     url: newConnUrl,
                     provider: newConnProvider,
                     protocol: existing.protocol || "openai",
-                    apiKey: newConnApiKey,
-                }, changeKey);
+                    apiKey: "",
+                }, false);
                 saveConnections(connections.map(c => c.id === editingId ? updated : c));
             }
             cancelEdit();
@@ -186,26 +179,6 @@ export default function ConnectionsPage() {
                                             </p>
                                         )}
                                         <DirectConnectionNotice provider={newConnProvider} />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-xs font-black uppercase text-muted-foreground tracking-widest pl-1">{t('app.connections_page.api_key_label')}</label>
-                                        {editingId && (
-                                            <label className="flex items-center gap-2 pl-1 text-xs font-medium text-muted-foreground cursor-pointer">
-                                                <Checkbox checked={changeKey} onCheckedChange={(c) => setChangeKey(!!c)} />
-                                                {t('connections.edit.change_key_label')}
-                                            </label>
-                                        )}
-                                        {(!editingId || changeKey) ? (
-                                            <Input
-                                                type="password"
-                                                placeholder="sk-..."
-                                                value={newConnApiKey}
-                                                onChange={e => setNewConnApiKey(e.target.value)}
-                                                className="h-12 bg-muted/20 border-none rounded-xl"
-                                            />
-                                        ) : (
-                                            <p className="text-xs text-muted-foreground italic pl-1">{t('connections.edit.key_kept_hint')}</p>
-                                        )}
                                     </div>
                                 </div>
                                 <div className="flex gap-3">

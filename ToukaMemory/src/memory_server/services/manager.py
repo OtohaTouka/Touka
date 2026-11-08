@@ -40,6 +40,7 @@ from memory_server.services.lifecycle import (
 from memory_server.utils.historical_data import wrap_historical_data
 from memory_server.utils.legacy_time import format_taipei, taipei_day_start
 from memory_server.utils.memory_worker import run_memory_job
+from memory_server.utils.zone_paths import is_zone_segment
 from memory_server.vector import SemanticSearchUnavailableError, VectorStore
 
 if TYPE_CHECKING:
@@ -56,6 +57,13 @@ logger = logging.getLogger(__name__)
 MAX_DUPLICATE_SCAN_FACTS = 200
 # 向量庫單例的建立與重置（換嵌入模型）互斥：不會建出兩個、也不會在重置後留下舊模型的那個
 _VECTOR_STORE_LOCK = threading.Lock()
+
+
+class VaultPathRefusedError(ValueError):
+    """代理人名稱不能拼成資料夾路徑（不是單一段，或 proxy 拒絕給路徑）；訊息固定（sec-9 PR 1b）."""
+
+    def __init__(self) -> None:
+        super().__init__("The agent name cannot be used as a folder name")
 
 
 class MemoryManager:
@@ -84,13 +92,22 @@ class MemoryManager:
         self._legacy_sync_service: LegacySyncService | None = None
 
     def get_legacy_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path:
-        """獲取指定代理人的 Legacy 目錄路徑 (SSOT)."""
+        r"""獲取指定代理人的 Legacy 目錄路徑 (SSOT).
+
+        Raises:
+            VaultPathRefusedError: proxy 不給路徑，或名稱不是單一段（sec-9 PR 1b）。不再用原本的
+                名稱自己拼路徑：Windows 上 ``\\主機\分享`` 拼上去會連出去，還會在對方的分享上
+                建資料夾。
+        """
         if resource_proxy and hasattr(resource_proxy, "get_vault_path"):
             path_str = resource_proxy.get_vault_path("legacy", identity)
             if path_str:
                 return Path(path_str)
+            raise VaultPathRefusedError
 
-        # 備援邏輯 (SSOT 糾偏)
+        # 備援邏輯 (SSOT 糾偏)：只給沒注入 proxy 的獨立模式，名稱一樣先檢查
+        if not is_zone_segment(identity.agent_id):
+            raise VaultPathRefusedError
         path = Path(get_app_data_dir()) / "legacy" / identity.agent_id
         if resource_proxy and hasattr(resource_proxy, "make_dir"):
             resource_proxy.make_dir(str(path))
@@ -105,12 +122,13 @@ class MemoryManager:
         return (resource_proxy or get_resource_proxy()).agent_drive(identity)
 
     def get_soul_dir(self, identity: AgentIdentity, resource_proxy: Any = None) -> Path | None:
-        """獲取指定代理人的靈魂腳本目錄路徑 (SSOT)."""
+        """獲取指定代理人的靈魂腳本目錄路徑 (SSOT)；proxy 不給路徑或名稱不是單一段時回 None."""
         if resource_proxy and hasattr(resource_proxy, "get_vault_path"):
             path_str = resource_proxy.get_vault_path("soul", identity)
-            if path_str:
-                return Path(path_str)
+            return Path(path_str) if path_str else None
 
+        if not is_zone_segment(identity.agent_id):
+            return None
         path = Path(get_app_data_dir()) / "soul" / identity.agent_id
         return path if path.exists() else None
 

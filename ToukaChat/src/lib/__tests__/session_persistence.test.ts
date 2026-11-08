@@ -11,6 +11,7 @@ describe('pure persistence transition and generated result boundary', () => {
     { status: 'saved', representation: 'text', revision: 'r1' },
     { status: 'skipped', reason: 'no_text' },
     { status: 'skipped', reason: 'incognito' },
+    { status: 'skipped', reason: 'generation_failed' },
     { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id },
     { status: 'unknown', error_code: ERRORS.SESSION_SAVE_FAILED.id },
   ] as SaveResult[])('valid generated union round trips $status/$representation/$reason', result => {
@@ -41,9 +42,10 @@ describe('pure persistence transition and generated result boundary', () => {
     expect(merged.map(item => item.id).sort()).toEqual(['a', 'b', 'i']);
     expect({ local, remote }).toEqual(before);
   });
-  it('text/no_text are not full-tree success', () => {
+  it('text/no_text/generation_failed are not full-tree success', () => {
     expect(isSaved({ status: 'saved', representation: 'text', revision: 'r' })).toBe(false);
     expect(isSaved({ status: 'skipped', reason: 'no_text' })).toBe(false);
+    expect(isSaved({ status: 'skipped', reason: 'generation_failed' })).toBe(false);
   });
 });
 
@@ -122,6 +124,7 @@ describe('savedPastTerminal decides whether a finished turn may be replayed', ()
   });
   const saved: SaveResult = { status: 'saved', representation: 'text', revision: R1 };
   const noText: SaveResult = { status: 'skipped', reason: 'no_text' };
+  const generationFailed: SaveResult = { status: 'skipped', reason: 'generation_failed' };
   const unknown: SaveResult = { status: 'unknown', error_code: ERRORS.SESSION_SAVE_FAILED.id };
   const failed: SaveResult = { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id };
   const stored = (revision: string | undefined, hasNode: boolean): Session => ({ ...session('s'), revision, messages: {
@@ -141,6 +144,9 @@ describe('savedPastTerminal decides whether a finished turn may be replayed', ()
     ['completed', 'no text', R1, false, false, noText],
     ['completed', 'no text', 'r2', false, false, noText],
     ['completed', 'no text', 'r2', true, true, noText],
+    // 模型失敗、後端沒寫：存檔裡還沒有這則才重播（由畫面存一次）
+    ['error', 'generation failed', R1, false, false, generationFailed],
+    ['error', 'generation failed', 'r2', true, true, generationFailed],
     ['error', 'unknown', R1, false, false, unknown],
     ['error', 'unknown', 'r2', false, false, unknown],
     ['error', 'unknown', 'r2', true, true, unknown],

@@ -3608,7 +3608,7 @@ export interface paths {
         put?: never;
         /**
          * Create Skill Endpoint
-         * @description 建立 skill（Owner/admin）。
+         * @description 建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。
          */
         post: operations["create_skill_endpoint_v1_creation_skill_post"];
         delete?: never;
@@ -3668,7 +3668,7 @@ export interface paths {
         put?: never;
         /**
          * Create Skill Endpoint
-         * @description 建立 skill（Owner/admin）。
+         * @description 建立 skill（Owner/admin）；只有管理員能建立系統技能（建好後經 API 改不了、刪不掉）。
          */
         post: operations["create_skill_endpoint_creation_skill_post"];
         delete?: never;
@@ -10530,6 +10530,9 @@ export interface components {
         /**
          * SkippedResult
          * @description 刻意不寫，不得表示成已保存。
+         *
+         *     generation_failed：基底與 scope 都驗過之後模型失敗，後端沒寫這一輪的回覆（ADR-0231 決定 2）。
+         *     生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面以原版本存會被擋下。
          */
         SkippedResult: {
             /**
@@ -10541,7 +10544,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "incognito" | "no_text";
+            reason: "incognito" | "no_text" | "generation_failed";
         };
         /**
          * SlidingWindowConfig
@@ -10623,10 +10626,22 @@ export interface components {
             min_keep_pairs: number;
             /**
              * Summary Model
-             * @description 壓縮被剪對話為摘要所用的便宜模型（ADR-0092 Phase D）
-             * @default claude-haiku-4-5
+             * @description 剪裁摘要與前情摘要所用的便宜模型（ADR-0092 Phase D；ADR-0305 改預設）
+             * @default claude-haiku-5-5
              */
             summary_model: string;
+            /**
+             * Prelude Summary Enabled
+             * @description 前情超過上限時合併成摘要（之後的退任摘要與子對話回報也看它）；關掉只留來源註記
+             * @default true
+             */
+            prelude_summary_enabled: boolean;
+            /**
+             * Prelude Max Tokens
+             * @description 每次送給模型的前情大約上限（token）
+             * @default 4000
+             */
+            prelude_max_tokens: number;
         };
         /**
          * SoulConfig

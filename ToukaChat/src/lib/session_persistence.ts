@@ -25,7 +25,7 @@ export function parseSaveResult(value: unknown): SaveResult | null {
     return { status: 'saved', representation: data.representation, revision: data.revision };
   }
   if (data.status === 'skipped' && keys === 'reason,status' &&
-      (data.reason === 'incognito' || data.reason === 'no_text')) {
+      (data.reason === 'incognito' || data.reason === 'no_text' || data.reason === 'generation_failed')) {
     return { status: 'skipped', reason: data.reason };
   }
   if ((data.status === 'failed' || data.status === 'unknown') && keys === 'error_code,status' &&

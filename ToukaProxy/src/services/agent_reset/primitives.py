@@ -32,6 +32,10 @@ from src.services.resource_manager import resource_manager
 from src.utils import brain_persistence
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import count_agent_events, purge_agent_events
+from src.utils.soul_prelude_db import (
+    count_agent_segments,
+    purge_agent_segments,
+)
 from src.utils.time_utils import get_current_epoch_ms
 
 if TYPE_CHECKING:
@@ -66,6 +70,17 @@ async def purge_sessions(candidate: str, guard: GuardFn = assert_resettable) -> 
 
 async def remaining_sessions(candidate: str, guard: GuardFn = assert_resettable) -> int:
     return await session_service.count_agent_sessions(_identity(candidate, guard))
+
+
+# ── prelude（ui_sessions.db 的前情段落，ADR-0305；和對話同一區）──────────────
+async def purge_prelude(candidate: str, guard: GuardFn = assert_resettable) -> int:
+    """刪掉該靈魂的全部前情段落（含失效、已合併的），回傳筆數。"""
+    return await purge_agent_segments(_identity(candidate, guard))
+
+
+async def remaining_prelude(candidate: str, guard: GuardFn = assert_resettable) -> int:
+    """還剩幾筆前情段落（自檢用，應為 0）。"""
+    return await count_agent_segments(_identity(candidate, guard))
 
 
 # ── feedback（feedback.db）────────────────────────────────────────────
@@ -322,6 +337,7 @@ class StorePurger:
 # ToukaProxy 自包含 store。
 PROXY_STORES: tuple[StorePurger, ...] = (
     StorePurger("sessions", purge_sessions, remaining_sessions),
+    StorePurger("prelude", purge_prelude, remaining_prelude),
     StorePurger("feedback", purge_feedback, remaining_feedback),
     StorePurger("brain_settings", purge_brain, remaining_brain),
     StorePurger("stats", purge_stats, remaining_stats),

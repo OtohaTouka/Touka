@@ -57,12 +57,14 @@ async def search_conversations(
     pages = []
     if source != "legacy":
         pages.append(await get_resource_proxy().query_ui_conversations(identity, **parameters))
+    # 合併查詢時，聊天對話裡已有的同一則不再從舊對話庫算一次（ADR-0305）；只查舊對話庫時照實全列
+    exclude = pages[0].matched_keys if source == "all" else frozenset()
     if source != "ui":
         pages.append(  # 舊對話庫在記憶工作者上讀；UI 對話要 await，留在主迴圈
             await run_memory_job(
                 lambda: manager.get_legacy_sync_service()
                 .get_store(identity)
-                .query_messages(**parameters)
+                .query_messages(**parameters, exclude_keys=exclude)
             )
         )
     total = sum(page.total for page in pages)

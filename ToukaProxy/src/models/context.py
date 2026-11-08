@@ -57,6 +57,9 @@ class PipelineContext(BaseModel):
     # Hook（ADR-0292）：只有真的請求執行 UserPromptSubmit hook；上下文預覽不設
     run_hooks: bool = Field(default=False, description="這次請求要不要執行 UserPromptSubmit hook")
 
+    # 上下文預覽（ADR-0305 審查 F12）：組裝時不寫任何資料（例如不搬舊摘要進前情）
+    preview: bool = Field(default=False, description="上下文預覽：組裝時不寫資料（系統寫入）")
+
     # 這一輪模型失敗、StopFailure 已發；心跳據此以 model_error 結束（ADR-0292 決定 17 修訂）
     model_failed: bool = Field(default=False, description="這一輪模型失敗（系統寫入）")
 

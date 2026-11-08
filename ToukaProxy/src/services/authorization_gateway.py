@@ -25,6 +25,8 @@
 
 ``only_admins_own``（ADR-0292）：某個代理人是不是只有人類管理員擁有（專案根的限制只套用在
 一般使用者能用的靈魂）。
+
+``shares_human_owner``（ADR-0303）：兩個代理人是不是有同一位人類擁有者（非人類編輯靈魂用）。
 """
 
 from fastapi import Depends
@@ -118,6 +120,18 @@ def only_admins_own(identity: AgentIdentity) -> bool:
         if identity.agent_id in user.owned_agents
     ]
     return bool(roles) and all(role == "admin" for role in roles)
+
+
+def shares_human_owner(target: AgentIdentity, caller: AgentIdentity) -> bool:
+    """有一位人類使用者同時擁有 ``target`` 與 ``caller``（``owned_agents`` 逐字比對）。
+
+    非人類用「編輯靈魂」改別的靈魂時用（sec-9 PR 1b、ADR-0303）：切成靈魂的使用者只能改自己
+    擁有的靈魂；沒有擁有者的靈魂不算。
+    """
+    return any(
+        target.agent_id in user.owned_agents and caller.agent_id in user.owned_agents
+        for user in AuthService().get_all_users()
+    )
 
 
 def require_soul_access(identity: AgentIdentity, soul: AgentIdentity) -> None:

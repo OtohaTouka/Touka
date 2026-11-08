@@ -5,7 +5,8 @@
 ## 換後端網址與登入憑證（ADR-0297）
 
 - 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。
-- 寫連線清單一律 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 會換網址的寫入一律走 `publishConnections`（先寫 localStorage 再發 `touka_connections_updated`）。`useStoredConnections` 的 setter 與清理舊版真值的 `scrubStoredConnectionKeys` 也會寫，但只寫遮罩、不發事件。元件讀目前網址用 `useActiveProxyUrl`，它同時聽事件與別的分頁的 `storage`。
+- 瀏覽器裡的連線清單不留第三方金鑰：`publishConnections` 與 `useStoredConnections` 寫進去的、事件帶的、讀進記憶體的，金鑰都是遮罩（`maskConnectionKeys`；遮罩是後端 `utils/secrets.py` 的 `MASK`，前端鏡像在 `lib/secretMask.ts`）。這次輸入的真值只在記憶體裡，隨 `POST /v1/ui/connections` 送出，後端收下後記憶體裡也換成遮罩；後端收到遮罩就保留它存的真值，沒有就存成沒有金鑰。`StoredConnectionKeyCleanup`（掛在 `layout.tsx`，和 `RetiredSnsStorageCleanup` 並列）載入時把舊版存的真值換成遮罩，寫不回去顯示 `settings.connections_tab.storage_cleanup_failed`。舊的 `/connections` 頁只寫本機，沒有金鑰欄位。
 - 設定頁存檔算出的網址和目前不同時（改網址、新增、勾選、停用、刪除），`saveConnections` 回 `false` 並跳確認，確認後才走 `switchProxy`：探測新網址（`isProxyReachable`，不帶憑證，要符合 `validHealth`）→ 向舊後端登出（`logoutTouka(舊網址, signal)`）→ `publishConnections` → AuthGuard 回登入頁。切換時不呼叫 `POST /v1/ui/connections`。探測失敗只顯示錯誤，清單與登入都不變。
 - 同網址存檔照舊 `POST /v1/ui/connections`；網址比對經 `normalizeProxyUrl`，尾斜線與 `/v1` 不算換網址，`localhost` 換 `127.0.0.1` 算。
 - `GET /v1/ui/connections` 的回應經 `keepActiveProxy`：算出的網址和目前不同時，Proxy 項目留本機的，其他連線用後端的。回應到達時網址已換就丟棄。
@@ -25,10 +26,10 @@
   - `components/settings/tabs/HooksTab.tsx` 與 `tabs/hooks/`：依伺服器回的 `wired_events` 逐區顯示（目前十九個事件，新事件要補 `settings.hooks_tab.events.<事件>` 翻譯），比對規則只在 `matcher_events` 出現，提示依事件不同（`settings.hooks_tab.matcher_placeholders.<事件>`，沒有就用工具名稱的提示）；command 填程式與參數（一行一個），http 填網址與標頭（一行一個「名稱: 值」）。草稿未存時受設定頁的未存變更守衛保護；重新讀到設定（載入、存檔、重新載入）就換掉草稿。`health.status` 是 `error` 時顯示「目前用上一份好的設定」。
   - 型別從 `api.ts` 經 `lib/types.ts` 取（`HooksConfig`、`HookMatcherGroup`、`CommandHook`、`HttpHook`、`HookRun` 等）。
 - 無痕提示：`hooks/useHooksActive.ts` 只在無痕對話查 `GET /v1/hooks/active`，送出訊息後（`isSending` 變了）再查一次，查不到維持上次結果；`components/chat/IncognitoHookNotice.tsx` 在 `active` 時顯示（`role="status"`）。
-- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡，模型失敗時要重試保存才進存檔；無痕也有），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
+- 回覆失敗：串流結尾的 `generation` 是 `error` 時，`stream_tree.markGenerationFailed` 在助理節點記 `generationFailed: true`（在畫面的對話樹裡；模型失敗時後端回 `skipped`／`generation_failed`，畫面用 user 保存的版本把這一則存一次，不跳保存提示，版本對不上才照舊提示；無痕也有標示），`MessageItem` 顯示「這一輪回覆失敗」（`role="alert"`）。保存狀態照 ADR-0231，不因此改變。
 - 審批卡：`tool_approval_request` 有 `hook_reason` 時（`stream_tree.ts` 存成 `hookReason`），`ToolApprovalCard` 顯示「管理員設定的 hook 要你確認」與理由，和審查員的理由分開。
 - 聊天送出被 UserPromptSubmit hook 擋下（403 `HOOK_PROMPT_BLOCKED`）：`ToukaApiError` 多 `reason`（取自 `detail.reason`），`useHookBlockNotice` 以專屬通知顯示擋下與理由（理由最多 2,000 字），不再顯示成網路錯誤。
-- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才這樣做，取消與其他錯誤照舊不存（ADR-0231）。
+- 被擋下的這一輪：`StreamRegistryProvider` 用 `stream_tree.dropBlockedTurn` 把這則 user 訊息和它的空回覆從樹裡拿掉（上一則訊息的其他分支保留；這則訊息底下還有別的分支、或形狀對不上時不動），再照「後端沒有存文字」的完成流程存回（`completeProducer` 的 `generation: 'completed'`＋`{status: 'skipped', reason: 'no_text'}`，以 revision 比對；後端在送模型前就拒絕，什麼都沒寫）。對話標題若是用被擋文字的前 20 字建的，換回第一則 user 訊息（沒有就「新對話」）。`StartStreamParams.onHookBlocked` 通知 `useChatStream`，`ChatProvider` 在使用者還在這個對話、輸入框還空著時把文字放回去。只有 hook 擋下才拿掉這一輪；模型失敗（`generation: 'error'`＋`generation_failed`）時保留這一輪、照同一條路存一次（見上面「回覆失敗」）；取消與其他錯誤照舊不存（ADR-0231）。
 - 停止：`StreamRegistryProvider.stopStream` 查 `/stream/state` 沒有進行中的串流時（`state: null`、讀不到（例如無痕還沒有串流時回 403），或只剩上一則已結束的登記；例如 UserPromptSubmit hook 還在跑），改送不帶 `stream_id` 的 `POST /v1/ui/sessions/{id}/stop`，讓後端在 hook 跑完後不送模型（409 `PROMPT_STOPPED`；後端停的是這個人還在等的請求，對話已存在時也停整個對話）。這次停止回 404 表示兩次呼叫之間串流開始了：再讀一次，是這一輪的串流才帶 `stream_id` 停止。有進行中的串流但不是這一輪時什麼都不送。請求還沒在後端登記成等待中（剛按送出就按停止）時，這個不指名的停止照原本的路停整個對話（對話正在跑的心跳也會停下）；沒有 hook 的使用者也一樣。
 - 別處停止：聊天送出收到 409 `PROMPT_STOPPED`（這一則在開始串流前被另一個分頁或裝置、或重置靈魂停止）時，`usePromptStoppedNotice` 顯示一次「這次回覆在開始前就被停止了」，`StreamRegistryProvider` 當成中止（generation 存成 `cancelled`、訊息留著），不顯示網路錯誤。自己按停止時前端先當成中止，不會走到這裡。
 - 插話被擋：`useInterjectionQueue.enqueue` 收到 403 `HOOK_PROMPT_BLOCKED` 時以 `useHookBlockNotice` 顯示理由並回 `null`（不進佇列）；`useInterjectionComposer` 在還是同一個對話時把文字接回輸入框。
@@ -77,7 +78,8 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 
 - `AuthSwitcher` 只剩 Manual／Auto／YOLO，選 YOLO 仍二次確認；看不懂的值顯示 Manual。存檔後 `ChatProvider` 重讀對話清單、顯示後端實際存下的模式，被降成 Manual 時 toast 說明只有管理員或這個靈魂的擁有者能開；較舊的回應晚到時忽略。新對話還沒有 `agent_id`、目前選的是靈魂時，切模式一起帶上它存檔；選一般模型不綁，還沒有訊息的對話換模型也不被拉回；這時送出第一句會先把對話重綁到選的模型、顯示後端存下的模式再送（R-2c）。無痕對話鎖定顯示 Manual 並說明「無痕對話無法追溯，只能用 Manual」；在無痕對話要求 Auto／YOLO 時維持 Manual、不呼叫存檔，toast 說明原因。
 - `ToolApprovalCard`：`tool_approval_request` 的選用欄位 `review_reason` 顯示成「審查員轉給你的理由」，`human_only` 顯示「只有你能核准」；兩個欄位在解算事件後保留（`stream_tree`、`tree_history`），型別不對不顯示。沒有新事件種類。
-- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
+- 設定頁「滑動視窗」多了摘要模型選單與前情摘要開關（`slidingWindow/SummarySettings`，ADR-0305）：選項和 Auto 審查員同一份（`useKeyedModels`，`GET /v1/autonomy/reviewer-models`）；目前的模型不在清單裡時照樣列出並提醒；兩個控制項不受滑動視窗開關影響；仍經 `POST /v1/system/sliding_window` 存檔（admin）。設定型別改用生成合約的 `SlidingWindowConfig`（`lib/types.ts`）。
+- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`，模型清單在 `useKeyedModels`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
 - 心跳排程（`HeartbeatScheduler`、`heartbeat_mode`）：safe／full 顯示成 Auto／YOLO，看不懂顯示 Manual。新增連線表單的直連標示（`DirectConnectionNotice`）：直連沒有工具、不受權限模式管、不記帳。
 - 錯誤碼 1118～1120（審查員拒絕、無人在場不跑終端、需要人但沒人在場）兩語翻譯。
 
@@ -179,7 +181,7 @@ SystemStatus 與登入共用 `getActiveProxyUrl()`，支援預設／同源且未
 
 `SaveResult`／snapshot／started／terminal 以 Pydantic→OpenAPI→api.ts→types.ts alias 為唯一型別。
 `syncSession`／`updateSession` 回 typed 結果；只有 saved(full) 或無痕 skipped(incognito) 完成前端保存屏障。
-text／no_text 不是 full；completed no_text 的富內容仍補存，error／cancelled 不自動保存部分結果。
+text／no_text／generation_failed 不是 full；completed no_text 與 error generation_failed 的富內容由畫面以 user 保存的版本存一次，其他 error／cancelled 不自動保存部分結果（ADR-0231 決定 6）。
 同 scope/session writer 按已確認樹套用純語意命令，logical operation 去重；React updater 不做 HTTP。
 純轉換例外回 failed、釋放 pending／producer 並保留草稿，不讓 rejected promise 永久阻斷後續操作。
 
@@ -198,6 +200,7 @@ user full 成功才送模型。只有同 generation typed terminal 能證生成�
 改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
 確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
+保存因版本舊被擋時讀一次存檔：形狀是剪裁造成的（`trim_graft.ts` 的 `graftOntoTrim`），以剪過的存檔為底接上這一頁的改動、存一次，不跳提示；剪掉的前段與摘要以存檔為準，這一頁刪掉或切分掉的不寫回去。一般保存、回覆收尾、「僅重試保存」都這樣接；只接一次，接不上照舊提示（ADR-0302）。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。
 
 匯入部分失敗不報全部成功；split 匯出後縮減綁開始時的內容，等待期間 drift 拒絕覆蓋。
@@ -329,7 +332,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。
     *   「設為家」嚴格（`canSetHome`）：只給 `type === 'soul'`，正式 ID 規則和後端 `identify_agent` 相同（`canonicalSoulId`，只去掉大小寫完全相符的 `ToukaSoul`）；設家、取消家都送正式 ID。
     *   收合狀態在 `useSessionTreeState`：`localStorage` 鍵名含使用者 ID，`SessionTree` 用身分當 React key 重掛（`useLocalStorage` 換鍵不重讀）；只有無痕對話的資料夾與專案分組只記在記憶體（ADR-0086）；「還有 N 個」不保存。
-    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
+    *   鍵盤（`useSessionTreeKeyboard`，WAI-ARIA APG Tree View）：清單只算一個 Tab 站（roving tabindex），上下鍵移動，右鍵展開或進第一個子對話，左鍵收合或回資料夾，Home／End，Enter 或空白開啟，Shift+F10 或選單鍵打開「⋯」，關閉後焦點回該列；選單淡出期間焦點已被移到別處（例如輸入框）時不搶回。列是 `role="treeitem"`、平鋪（`aria-level`、`aria-setsize`、`aria-posinset`）；「⋯」在列裡但 `tabIndex={-1}`；輸入框內的按鍵不動清單；經 portal 畫的選單事件會冒泡，根節點要擋。
 *   **折疊狀態提升 (State Lifting)**: 側邊欄的折疊狀態 `isSidebarCollapsed` 統一提升至 `page.tsx` 層級以 `useLocalStorage` 管理，使 page 為唯一折疊事實來源，並透過 `isCollapsed` 屬性單向向下傳遞給 `LeftSidebar`，消除雙重 State 的 SSOT 違規。
 *   **手機版判斷**: `hooks/useIsMobile.ts`（`(max-width: 768px)`），`page.tsx` 的版面切換與 ChatArea 的訊息導覽列共用。
 
@@ -456,10 +459,10 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
 - **Header 注入消毒 (M5 fix) ⭐**：任何寫入 HTTP header 的使用者控制值**必須**先通過 `sanitizeHeaderValue()`，剝除 `\r`、`\n`、`\x00`。目前已套用至 `X-Touka-Soul-ID`，避免 HTTP Response Splitting 攻擊。
 
 ### 5. localStorage 存取主權 (localStorage SSOT) ⭐
-- **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
+- **唯一儲存定義**：`src/hooks/useLocalStorage.ts`；領域 Hook（如 `useConnectionSettings`）透過此接縫存取。`useLocalStorage` 的第三個參數 `sanitize` 套在讀進來與寫回去的值上，記憶體狀態保留呼叫端設的值；連線清單用它（`useStoredConnections`）讓金鑰只存遮罩。SNS 的 `useSnsBotSettings` 只用記憶體，禁止持久化或讀回舊憑證（ADR-0224）。
 - **覆蓋範圍**：`src/hooks/**`、`src/lib/**`、`src/app/**`、`src/contexts/**`（`src/components/**` 已由 `guard_hooks.ts` 覆蓋）
 - **靜態執法**：由 `guard_localStorage.ts` 進行 AST 掃描，整合至 `guard_all.py`
-- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`
+- **白名單**：`useLocalStorage.ts`（SSOT 定義本體）。`connections.ts`（Auth Token 管理，非 React 函數環境）使用它匯出的 `getLocalStorageItem()`、`setLocalStorageItem()`、`replaceLocalStorageItem()`（寫入失敗只回 `false`，不記錄例外）
 - **合法豁免**：Theme SSOT 初始化（純字串/CSS 同步需求）、純字串值儲存（`useLocalStorage` 的 JSON 序列化不相容）允許 `// noqa: LOCALSTORAGE_SSOT`，須登記於 `NOQA_REGISTRY.md`
 
 ### 5.5 身份主權前端靜態守衛 (X-Agent-ID Identity Guard) ⭐

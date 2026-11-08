@@ -28,6 +28,7 @@ from src.utils.interjection_notes import (
     format_interjection_note,
     with_interjection_notes,
 )
+from src.utils.model_text import LINE_BREAK_MARK
 
 _FRONTEND = (
     Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "lib" / "chat" / "interjections.ts"
@@ -189,10 +190,12 @@ async def test_home_messages_carry_the_note(monkeypatch):
 
 
 def test_summarizer_input_carries_the_note():
+    """摘要員的輸入一則一行（換行寫成 ⏎，ADR-0305 審查 F9）；插話標註照樣在 AI 回覆那一則."""
     tree = _tree()
     linear = [tree["messages"][k] for k in ("u1", "a1", "u2")]
-    assert dialogue_summarizer._format_dialogue(linear) == (
-        "[unknown time] user: 先查資料\n"
-        "[unknown time] assistant: 〔本回合中使用者補充（第 2 步）：只看 2026 年〕\n\n查好了\n"
-        "[unknown time] user: 整理一下"
-    )
+    gap = LINE_BREAK_MARK * 2
+    assert dialogue_summarizer._dialogue_lines(linear) == [
+        "[unknown time] user: 先查資料",
+        f"[unknown time] assistant: 〔本回合中使用者補充（第 2 步）：只看 2026 年〕{gap}查好了",
+        "[unknown time] user: 整理一下",
+    ]

@@ -48,6 +48,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 const sess = (over: Partial<Session> = {}): Session =>
   ({ id: 's1', title: 't', messages: [], updatedAt: 1, ...over }) as Session;
 
+// 測試是隨機順序：每條開始前把所有假函式設回預設。clearAllMocks 只清呼叫紀錄，別條改過的回傳值
+// （例如連線範圍改成另一個帳號或失效）和沒用完的一次性值都會留到下一條；resetAllMocks 連這些一起清，
+// 並還原 vi.fn(預設) 的預設。掛載時清單的 GET 預設回空清單。
+beforeEach(() => {
+  vi.resetAllMocks();
+  fetchToukaMock.mockResolvedValue(okJson([]));
+});
+
 describe('R2 snapshot binding and explicit recovery', () => {
   const local = () => sess({ messages: { messages: {}, currentId: null }, is_home: false,
     home_for_agent: null, agent_id: null, project_id: null, auth_level: 'Manual',
@@ -57,9 +65,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
   const saved = (revision = 'next') => okJson({ status: 'success', session_id: 's1',
     persistence: { status: 'saved', representation: 'full', revision } });
   async function mount() {
-    vi.clearAllMocks();
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-    fetchToukaMock.mockResolvedValue(okJson([]));
     const rendered = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
     act(() => rendered.result.current.setSessions([local()]));
@@ -626,12 +631,6 @@ describe('R2 snapshot binding and explicit recovery', () => {
 });
 
 describe('syncSession 失敗可見化（批2 ④）', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // 掛載時 refreshSessions 的 GET：預設回空清單
-    fetchToukaMock.mockResolvedValue(okJson([]));
-  });
-
   it('後端 4xx（授權失敗）→ logSSOTError + toast.error（固定 id 防轟炸）', async () => {
     const { result } = renderHook(() => useSessionList(), { wrapper });
     await act(async () => {});
@@ -697,12 +696,6 @@ describe('R2 controlled session writes', () => {
     fetchToukaMock.mockClear();
     return rendered;
   }
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
-  });
-
   it('returns a validated result; a bare 200 is unknown and preserves the draft', async () => {
     const { result } = await mount();
     fetchToukaMock.mockResolvedValue(okJson({ status: 'success' }));
@@ -859,8 +852,6 @@ describe('R2 controlled session writes', () => {
     await act(async () => { await old.syncSession(sess({ title: 'private A' })); });
     expect(result.current.sessions).toEqual([]);
     expect(fetchToukaMock).not.toHaveBeenCalled();
-    vi.mocked(captureRequestScope).mockReturnValue({ proxyOrigin: 'http://x', authenticatedPrincipalId: 'access:a', authEpoch: 1 });
-    vi.mocked(isRequestScopeCurrent).mockReturnValue(true);
   });
   it('the same operation token is scoped to each session', async () => {
     const { result } = await mount();
@@ -928,5 +919,44 @@ describe('R2 controlled session writes', () => {
     expect(fetchToukaMock).not.toHaveBeenCalled();
     expect(result.current.getPersistence('s1')).toMatchObject({ status: 'unknown' });
     expect(result.current.sessions[0].messages.messages.a.steps).toEqual(['partial']);
+  });
+  // ADR-0231 決定 6：模型失敗時後端什麼都沒寫，畫面用 user 保存的版本把失敗那則存一次，不跳提示
+  it('a failed generation that the backend did not write saves the marked turn once against the user revision', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    const failed = { messages: { a: { content: 'part', generationFailed: true } }, currentId: 'a' };
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current, messages: failed }),
+      { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    expect(fetchToukaMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchToukaMock.mock.calls[0][2]!.body as string)).toMatchObject({ revision: 'user', messages: failed });
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved', representation: 'full' });
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    // 存好之後下一則可以直接送：沒有停住
+    expect(result.current.beginProducer('s1')).not.toBeNull();
+  });
+  it('a failed generation still warns when someone else changed the conversation first', async () => {
+    const { result } = await mount();
+    act(() => result.current.setSessions([sess({ revision: 'user' })]));
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(okJson({ status: 'success', session_id: 's1',
+      persistence: { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id } }));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { generationFailed: true } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, 'error'); });
+    // 被擋之後讀一次存檔看是不是剪裁造成的（ADR-0302）；只存一次
+    expect(fetchToukaMock.mock.calls.filter(([, , options]) => options?.method === 'POST')).toHaveLength(1);
+    expect(result.current.getPersistence('s1')).toMatchObject({ status: 'failed' });
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+  });
+  it.each(['completed', 'cancelled'] as const)('generation_failed only saves with an error generation (%s does not)', async generation => {
+    const { result } = await mount();
+    const token = result.current.beginProducer('s1')!;
+    fetchToukaMock.mockResolvedValue(saved('full'));
+    await act(async () => { await result.current.completeProducer(token, current => ({ ...current,
+      messages: { messages: { a: { steps: ['partial'] } }, currentId: 'a' } }),
+    { status: 'skipped', reason: 'generation_failed' }, generation); });
+    expect(fetchToukaMock).not.toHaveBeenCalled();
   });
 });

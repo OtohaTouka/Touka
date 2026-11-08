@@ -258,10 +258,10 @@ async def test_g06_check_runs_before_the_existing_soul_check(
     monkeypatch.setattr(guard, "assert_id_free", lambda identity, **_k: order.append("collision"))
     real_exists = Path.exists
 
-    def exists(self: Path) -> bool:
+    def exists(self: Path, **kwargs: bool) -> bool:  # 名稱檢查用 follow_symlinks=False（ADR-0303）
         if self.parent.name == "soul":
             order.append("exists")
-        return real_exists(self)
+        return real_exists(self, **kwargs)
 
     monkeypatch.setattr(Path, "exists", exists)
     monkeypatch.setattr(souls_router, "validate_no_symlink_escape", lambda *_a: False)

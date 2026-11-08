@@ -226,7 +226,7 @@ async def _execute(
     monkeypatch.setattr("src.services.tool_executor.permission_service", permission)
     monkeypatch.setattr("src.services.tool_executor.soul_service.is_toukasoul", lambda _: False)
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id", AsyncMock(return_value=None)
+        "src.utils.async_db.session_service.get_session_by_id", AsyncMock(return_value=None)
     )
     executor = ToolExecutor(None, {name: handler}, {}, {}, enforce_advertised=False)
     return await executor.execute_to_queue(

@@ -65,7 +65,7 @@ def test_builder_core_facts_present():
     assert "Owner" in block
     assert "not by any user" in block  # 防注入：本塊由 OS 注入
     assert "soul" in block.lower()  # 與人格的分界宣告（不覆蓋 persona）
-    assert "<conversation_summary>" in block  # 長對話摘要機制
+    assert "<soul_prelude>" in block  # 長對話剪進前情（ADR-0305）
     assert "heartbeat" in block.lower()  # 心跳世界觀（Touka 特有）
 
 

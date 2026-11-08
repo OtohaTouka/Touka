@@ -6,8 +6,11 @@
 
 ## 現況
 
+- **靈魂前情與主線，第一部分（2026-11-07，ADR-0305，路線圖 3d PR 1）**：家對話剪掉的部分寫成靈魂前情的一段（摘要或來源註記，和剪過的樹同一交易），不再改 `context_summary`；網頁、IDE、SNS、群聊、心跳都經 `inject_mainline` 帶同一份前情（無痕不帶）；前情超過上限時合併最舊的幾段；重置、刪除、個人資料匯出都涵蓋前情。
+  - 還沒做：換家交接（舊家原文進舊對話庫、退任摘要、舊家唯讀、子對話回報）在 PR 2a、2b，畫面在 PR 3。2a 合併後到 2b 合併前不能發版。
+  - 合併後要操作：摘要模型預設改成 `claude-haiku-5-5`，既有 `sliding_window.json` 不動；要換到設定頁「滑動視窗」選。
 - **Hook 其餘十五個事件（2026-11-04，ADR-0292 決定 16、17，丙-2）**：管理員可以再設定工具開始跑之後失敗（PostToolUseFailure，錯誤內容先遮憑證與路徑）、審批卡跳出之前（PermissionRequest，只能拒絕、不能替人核准）、工具呼叫被拒（PermissionDenied，只有固定的原因代碼）、需要人注意（Notification：跳審批卡、代理人問問題、MCP 工具要資料、隔離層級改變）；一輪回覆因錯誤結束（StopFailure）、子代理開始與結束（SubagentStart 可補充說明，當資料）、剪裁前後（PreCompact、PostCompact）、任務建立與完成（TaskCreated、TaskCompleted）、MCP 表單跳出前（Elicitation，只能拒絕、不能代填）、設定存好之後（ConfigChange，擋不了設定，hooks 一定關得掉）、心跳開始與結束（HeartbeatStart、HeartbeatStop）。除了 PostToolUseFailure、PermissionRequest、SubagentStart、Elicitation，都在背景跑，同時最多 32 個，超過跳過並留紀錄。無痕對話有會收到對話內容的 hook 時會提示（`GET /v1/hooks/active`）。另外內建工具缺必要參數時回 `validation_error`，畫面不再顯示 `TypeError`；模型回 200 但讀不懂或沒有回覆時是一般的模型失敗，那則回覆標「這一輪回覆失敗」。新的改狀態路由要在 `tests/unit/test_hook_config_change_security.py` 分類。
-- **聊天側的自動剪裁和畫面收尾的保存搶同一個版本（2026-11-04 實際驗證找到，2026-11-06 補上反過來的情況；既有問題，還沒修；滑動視窗預設關閉；不擋發版）**：回覆存好後後端開始剪裁，畫面同時送出收尾的保存，先存好的贏。多半是剪裁輸，後端記 `ACID-B not confirmed`，對照時 4 次都這樣（假模型；真模型沒測）：沒有剪到，但歸檔已經做了，舊對話庫每次多一份相同的訊息。畫面那邊慢（收尾的保存晚到）時反過來（2026-11-06 GitHub 上 dev 也遇到）：剪裁存好，畫面那次存不進去，聊天停住，要按「重新核對」與「僅重試保存」；「僅重試保存」會把剪掉的內容寫回去，等於撤銷剪裁。心跳那條照常成功。設家後下一則存不進去修好之後（2026-11-05），開了滑動視窗的家對話會更常走到剪裁，重複可能變多。見 ADR-0295「實際驗證找到的既有問題」。
+- **聊天側剪裁不再和畫面收尾的保存搶版本（2026-11-06，ADR-0302，路線圖 3c）**：網頁版剪裁先等畫面的收尾保存（上限 10 秒，逾時照剪），心跳在跑、有回覆在跑或在等、使用者已送出下一則時不剪；畫面被擋時接在剪過的存檔上，不跳提示；接得上時「僅重試保存」也不撤銷剪裁（接不上，例如在被剪掉的那段改過或接新的一則，照舊提示）。判斷只看形狀，另一個分頁的手動切分也會被當成剪裁接上。剪裁生效後，開著的對話上方的舊訊息在下一次保存後從畫面消失。以前寫的「舊對話庫每次多一份」不成立（測試確認）。限制：寫摘要的那幾秒內剛好送出下一則，那次摘要還是白花；真的模型沒有測。
 - **Hook（2026-10-28，ADR-0292，丙-1）**：管理員可以在設定畫面「Hooks」分頁（只有人類管理員看得到）設定使用者送出訊息、工具執行前後、一輪回覆結束時執行的程式（不經 shell）或 HTTP。預設關閉；設定檔 `config/hooks.json`（代理人用終端讀寫屬底線 F2），腳本與參數裡的路徑要在同資料夾的 `hooks/`，程式指到代理人寫得到的地方會被拒收。hook 只能擋下或要人確認（審批卡另標「hook 要你確認」，不送審查員），不能放行；hook 失敗不擋。被擋下的訊息前端顯示理由，這一輪從對話拿掉、文字放回輸入框；插話與 SNS 外人訊息也一樣會檢查，被擋下的不進佇列、不寫進對話；hook 執行期間按停止時不送模型、不執行工具（無痕對話也一樣）。一般使用者的專案根不能放在 Touka 保護的位置（管理員、Debugger 與只有管理員擁有的靈魂不受限）；代理人的專案根路上有連結時不能用專案檔案工具，代理人的檔案動詞也不跟隨連結（list、find、grep 不進入，路上有連結時讀寫刪回錯誤）。心跳的脈衝提示、排程提示與重新觸發不觸發「使用者送出訊息」。其他事件的狀況見本節最上面的丙-2。規則見禁令 67。
 - **湧現指數（E-Index）已刪除（2026-10-28，ADR-0291）**：右側邊欄的指數條、`/stats/emergence`（含 `/v1`，現在回 404）、每次執行的計算與記錄都拿掉，回應的 telemetry 少了 `e_index`。舊資料不動：`token_usage.json` 已有的 `e_index_history` 照留；稽核 CSV 新檔 12 欄，舊檔沿用自己的表頭、這欄補空值。外部客戶端若讀這些欄位要自己拿掉。
 - **兩個調度員技能檔不進版控（2026-10-28，ADR-0290）**：`system-mcp-dispatcher`、`system-skill-dispatcher` 的 SKILL.md 改成 Proxy 啟動時（lifespan，設定自癒與 MCP 名稱遷移之後）產生，內容沒變不重寫；載入程式時不再寫。用 git 更新到這一版之前，先 `git restore -- ToukaProxy/config/skills/system-mcp-dispatcher/SKILL.md ToukaProxy/config/skills/system-skill-dispatcher/SKILL.md`（本機兩檔和版控不同時 git 會拒絕更新），更新後重啟一次。
@@ -160,7 +163,11 @@
 - 記憶承諾閘（`guard_service.MEMORY_SAVE_SIGNAL`）只認 `memory_tools.save`：模型說「記住了」卻只用了 supersede 時會誤報提醒（限定名由 tool_executor 產生，`manage_dups` 又包含 scan／resolve，不能直接算成 save）（ADR-0263）。
 - 動作型工具（memory／mission／edit_soul）的廣告 schema 依動作合併同名欄位，只留第一個動作的型別限制（`contracts.action_parameters` 的 setdefault）；hist-bak b 用不同欄位名 `page_size` 避開，共用機制另排（ADR-0274 已知限制）。
 - 刪除、重置、記憶清除期間仍擋不住人自己的前景聊天、SNS、群聊對這個靈魂的寫入（舊審查報告第 3 題乙案，要改工具層）；刪除靠清完家目錄後的再查擋下。叫停要等正在跑的那一輪模型呼叫回來，重置不等它：重置自檢之前寫進來的會顯示「重置後又有新寫入」，之後才寫的不在任何報告裡（ADR-0287）。
-- 還原進行中仍可刪除靈魂：重置與 DebugAgent 重置會看還原旗標，刪除靈魂不看（原本就有，ADR-0287 審查時發現、範圍外）。
+- 還原中不能刪靈魂、刪除或改名自訂模型（2026-11-07，ADR-0304）；用編輯建立或轉換靈魂（`update_soul` 走步升）、建立或更新自訂模型（`POST /v1/ui/custom_models/{id}`，失敗回滾也會刪資料夾）、刪除一般模型（`DELETE /v1/models/{id}` 改 models.json）時還沒有還原檢查，是候選。
+- 其他把例外原文放進錯誤回應的地方（`error_output=str(e)` 約 15 處，例如 `custom_models.py`、`souls.py`、`mcp.py`、`models.py`、`setup.py` 的 `detail_override`，都要登入），ADR-0304 只改了 CodeQL 標的三處，其餘是候選。
+- 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）還沒做擁有權檢查。無痕對話沒有 session 綁定，所以不能直接改成只認綁定；修法方向是在 ContextLayer 對人類請求者檢查存取權（候選，ADR-0304 審查時發現）。
+- `GET /heartbeat/test` 成功時的回應內容要再收斂（候選）。
+- 子代理的 `session_id` 是 None，所以檔案工具拿不到專案（ADR-0304 之後；終端本來就拿不到）。要繼承父對話的專案，得一起看隔離層對專案的處理（候選）。
 - 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。
 - 寫 `.env` 的共用鎖（`config.ENV_FILE_LOCK`，ADR-0288）只管 Proxy 這個行程；設定頁 `POST /v1/config/env` 仍是清空再寫（不是原子置換），寫到一半當機一樣會壞（原本就有，乙-3 審查時發現）。候選：改成和 `persist_generated_secrets` 一樣的暫存檔置換；改之前 `update_env` 要留在主迴圈上（讀 `.env` 的地方沒拿鎖，靠它在同一條主迴圈上才讀不到清空到一半的檔）。備份還原子程序（`manage_backup.py`）快照時讀 `.env`、還原時直接覆寫，也不在鎖的保護內。
 - 重置的「查看結果」只記最後一次、只在 Proxy 記憶體（ADR-0289）：伺服器重啟或系統還原後就查不到；請求根本沒送到時查到的是更早的那次（畫面寫了靈魂與時間）；清除工作在寫結果之前出錯而請求已經斷線、或清除的安全網自己也失敗時，會一直顯示還在執行，直到下一次重置或伺服器重啟。
