@@ -428,6 +428,42 @@ async def test_export_includes_the_soul_prelude_of_owned_agents(zone_data_root, 
     assert seen == ["A"]
 
 
+async def test_export_includes_home_handover_records(zone_data_root, monkeypatch):
+    """換家紀錄與回報位置（ADR-0306）跟著自有 agent 匯出；只有對話編號與狀態."""
+    user = User(id="U7", email="u7@touka.io", hashed_password="h", owned_agents=["A"])
+    monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)
+    monkeypatch.setattr(gx.session_service, "get_all_projects", _empty)
+    monkeypatch.setattr(gx, "find_avatar", lambda _uid: None)
+    seen: list[str] = []
+
+    async def fake_records(identity):
+        seen.append(identity.agent_id)
+        return {
+            "soul_home_transitions": [{"id": 1, "old_session": "h1", "status": "pending"}],
+            "soul_child_report_marks": [],
+        }
+
+    monkeypatch.setattr(gx.session_service, "list_agent_home_records", fake_records)
+
+    async def no_facts(_identity):
+        return None
+
+    enc = await gx.create_encrypted_export(user, _PHRASE, facts_fn=no_facts)
+    try:
+        with pyzipper.AESZipFile(str(enc)) as zf:
+            zf.setpassword(_PHRASE.encode())
+            records = json.loads(zf.read("agents/A/home_handover.json"))
+            assert records["agent_id"] == "A"
+            assert records["soul_home_transitions"][0]["old_session"] == "h1"
+            manifest = json.loads(zf.read("manifest.json"))
+            assert manifest["counts"]["home_handover_records"] == 1
+            assert "agent_home_handover" in manifest["included"]
+            assert "home_handover.json" in zf.read("README.txt").decode()
+    finally:
+        enc.unlink(missing_ok=True)
+    assert seen == ["A"]
+
+
 async def test_export_lists_an_unreadable_prelude_in_skipped(zone_data_root, monkeypatch):
     user = User(id="U6", email="u6@touka.io", hashed_password="h", owned_agents=["A"])
     monkeypatch.setattr(gx.session_service, "get_all_sessions", _empty)

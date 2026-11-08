@@ -79,6 +79,8 @@ from src.utils.touka_dirs import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["UI Sessions"])
+# 刪除閘回的錯誤碼：檢查之後才變成舊家時照樣回「交接完成前不能刪」（ADR-0306）
+_OLD_HOME_NOT_DELETABLE_ID = ToukaException(ErrorCode.SESSION_OLD_HOME_NOT_DELETABLE).error_id
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -778,8 +780,15 @@ async def delete_session(
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     if session["is_home"]:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    try:
+        if await session_service.old_home_blocks_delete(session_id):  # ADR-0306
+            raise ToukaException(ErrorCode.SESSION_OLD_HOME_NOT_DELETABLE)
+    except SessionPersistenceError:
+        raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
     result = await session_service.conditional_delete_session(session_id, if_match or "", identity)
     if result.status != "saved":
+        if result.error_code == _OLD_HOME_NOT_DELETABLE_ID:  # 檢查之後才變成舊家
+            raise ToukaException(ErrorCode.SESSION_OLD_HOME_NOT_DELETABLE)
         raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
     if captured_stream is not None:
         stream_buffer_service.retire_persistent(session_id, captured_stream["stream_id"])

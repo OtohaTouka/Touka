@@ -1,6 +1,6 @@
 """伺服器端重組的插話標註（ADR-0249 裁定 7、U4a-3）。
 
-伺服器從 DB 組歷史給模型的三處——心跳脈衝、家對話注入（get_home_messages）、滑動視窗摘要——
+伺服器從 DB 組歷史給模型的三處——心跳脈衝、主線帶的家原文（home_messages_of）、滑動視窗摘要——
 對帶 interjections[] 的助理節點在 content 前加標註，格式與前端 INTERJECTION_NOTE_TEMPLATE
 完全相同；角色仍是 assistant，回合數不變。
 """
@@ -145,7 +145,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     soul.get_soul_data = lambda _identity: ("靈魂", SoulConfig().model_dump())
     session = {"id": "s", "title": "t", "messages": _tree()}
     monkeypatch.setattr(
-        heartbeat, "session_service",
+        heartbeat,
+        "session_service",
         MagicMock(read_execution_snapshot=AsyncMock(return_value=SessionSnapshot(session, "rev"))),
     )
     monkeypatch.setattr(heartbeat, "dispatch_request", _dispatch)
@@ -171,16 +172,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     ]
 
 
-async def test_home_messages_carry_the_note(monkeypatch):
-    service = MagicMock(
-        read_home_snapshot=AsyncMock(
-            return_value=async_db.SessionSnapshot({"id": "home", "messages": _tree()}, "rev")
-        ),
-    )
-    monkeypatch.setattr(async_db, "session_service", service)
-    identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-
-    messages = await async_db.get_home_messages(identity)
+async def test_home_messages_carry_the_note():
+    messages = async_db.home_messages_of({"id": "home", "messages": _tree()})
 
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", "先查資料"),

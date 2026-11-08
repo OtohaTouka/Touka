@@ -23,6 +23,7 @@ import inspect
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
 
 import pytest
 from src.core.exceptions import ErrorCode, ToukaException
@@ -387,6 +388,17 @@ async def test_only_ui_requests_with_a_conversation_count_as_waiting(monkeypatch
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch: pytest.MonkeyPatch):
     yield from clean_approval_state(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _not_an_old_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    """共同入口先查舊家（ADR-0306，擋在 hook 之前的測試在 ``test_old_home_gates.py``）.
+
+    這裡沒有資料庫：讀不到交接紀錄會照規則讓這一輪失敗，單獨跑或排序不同就紅。
+    """
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.check_old_home", AsyncMock(return_value=False)
+    )
 
 
 def _pre(decision: str, reason: str | None = None) -> str:

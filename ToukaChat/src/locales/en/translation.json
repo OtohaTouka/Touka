@@ -2393,6 +2393,8 @@
       "save_failed": "Failed to save the session",
       "scope_mismatch": "This conversation cannot be used for the requested target",
       "prompt_stopped": "This reply was stopped before it started",
+      "old_home_read_only": "This was a home conversation before; set it as home again to continue it",
+      "old_home_not_deletable": "A former home conversation can be deleted once its handover finishes",
       "interjection_queue_full": "Too many messages added to this reply",
       "interjection_too_long": "The message is too long",
       "interjection_not_found": "Message not found for this reply",

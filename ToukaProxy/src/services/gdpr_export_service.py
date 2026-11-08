@@ -120,6 +120,15 @@ async def _fetch_agent_prelude(identity: AgentIdentity) -> list[dict[str, Any]] 
         return None
 
 
+async def _fetch_agent_home_records(identity: AgentIdentity) -> dict[str, Any] | None:
+    """該 agent 的換家紀錄與回報位置（ADR-0306；只有對話編號與狀態）；讀不到回 None."""
+    try:
+        return await session_service.list_agent_home_records(identity)
+    except Exception:
+        logger.warning("GDPR export: home handover records unavailable for %s", identity.agent_id)
+        return None
+
+
 _DRIVE_LABEL = "files"
 
 
@@ -210,6 +219,7 @@ def _readme(user: User, taipei_time: str) -> str:
         "  - agents/<id>/facts.json   該 agent 的事實記憶\n"
         "  - agents/<id>/activity_timeline.json  該 agent 的活動時間軸（只有時間與識別碼）\n"
         "  - agents/<id>/soul_prelude.json  該 agent 的前情（對話的摘要與來源註記）\n"
+        "  - agents/<id>/home_handover.json  該 agent 的換家紀錄（只有對話編號與狀態）\n"
         "  - agents/<id>/files/...    該 agent 的個人硬碟檔案\n"
         "  - avatar.*            你的頭像（若有）\n"
         "  - manifest.json       本次匯出的清單與統計\n\n"
@@ -265,7 +275,7 @@ async def _collect(
     )
 
     # 5) 每個自有 agent：事實記憶 + 個人硬碟檔案
-    facts_count = events_count = prelude_count = 0
+    facts_count = events_count = prelude_count = home_count = 0
     for agent_id in owned:
         identity = AgentIdentity(agent_id=agent_id, is_human=False)
         facts = await facts_fn(identity)
@@ -299,6 +309,16 @@ async def _collect(
                 indent=2,
             )
             prelude_count += len(prelude)
+        home_records = await _fetch_agent_home_records(identity)
+        if home_records is None:
+            state["skipped"].append(
+                {"agent": _safe_seg(agent_id), "reason": "home_handover_unavailable"}
+            )
+        else:
+            text_entries[f"agents/{_safe_seg(agent_id)}/home_handover.json"] = json.dumps(
+                {"agent_id": agent_id, **home_records}, ensure_ascii=False, indent=2, default=str
+            )
+            home_count += sum(len(rows) for rows in home_records.values())
         drive = _drive_to_export(identity, state)
         if drive is not None:
             drives.append((_safe_seg(agent_id), drive))
@@ -321,6 +341,7 @@ async def _collect(
             "facts": facts_count,
             "activity_events": events_count,
             "prelude_segments": prelude_count,
+            "home_handover_records": home_count,
         },
         "included": [
             "profile",
@@ -330,6 +351,7 @@ async def _collect(
             "agent_facts",
             "agent_activity_timeline",
             "agent_soul_prelude",
+            "agent_home_handover",
             "agent_personal_drive",
         ],
         "excluded": [

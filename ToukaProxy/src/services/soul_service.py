@@ -6,7 +6,7 @@
 
 import json
 import logging
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from src.models.identity import AgentIdentity
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 from src.utils.model_text import blank_control_chars
 from src.utils.time_utils import get_monotonic_ms
+from src.utils.token_estimator import estimate_messages_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,14 @@ _ALIAS_WARN_LIMIT = 256
 # 靈魂名稱快取最多沿用多久（毫秒）：修改時間不準的檔案系統（FAT、部分網路或容器掛載）上，
 # 名稱改了修改時間不一定變，過期就重列
 _SOUL_NAMES_TTL_MS = 2000.0
+# 歷史資料界線的來源：家原文、還沒交接完的舊家原文（ADR-0305、0306）
+HOME_HISTORY_SOURCE = "home_conversation"
+OLD_HOME_HISTORY_SOURCE = "old_home_pending_handover"
+# 還沒交接完的舊家原文總量上限（估算 token）：新的舊家優先、每段只帶尾端，放不下的整段不帶；
+# 滑動視窗把這些當成剪不掉的部分，沒有上限時新家每一輪都被剪到最少（ADR-0306 審查 J5）
+OLD_HOME_TOKEN_BUDGET = 8000
+OLD_HOME_OMITTED_NOTE = "（這段舊家前面還有 {count} 則，原文留在舊家）"
+OLD_HOME_SKIPPED_NOTE = "（另有 {homes} 段舊家共 {count} 則沒有帶，原文留在舊家）"
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
@@ -102,7 +111,79 @@ def _neutralize_history(text: str) -> str:
     return neutralize_tags(neutralize_historical_tags(blank_control_chars(text)), ALL_BLOCK_TAGS)
 
 
-def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _stamp_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """每則內容前標台北時間（寫在內容裡，ADR-0260/0305）；先複製，不動到讀出來的樹."""
+    return [
+        {
+            **m,
+            "content": _add_text(
+                m.get("content"), f"[{format_taipei(m.get('timestamp'))}]", before=True
+            ),
+        }
+        for m in msgs
+    ]
+
+
+def _old_home_tails(
+    old_homes: Sequence[list[dict[str, Any]]],
+) -> list[tuple[list[dict[str, Any]], int]]:
+    """（帶的尾端、前面省略幾則），照原順序；從最新的舊家尾端往前收，額度用完就停.
+
+    尾端從使用者那則開始（Claude 規定送出的第一則要是使用者），跳過的算進省略數。
+    """
+    remaining = OLD_HOME_TOKEN_BUDGET
+    tails = []
+    for msgs in reversed(old_homes):
+        start = len(msgs)
+        for message in reversed(msgs):
+            cost = estimate_messages_tokens([message])
+            if cost > remaining:
+                remaining = 0
+                break
+            remaining -= cost
+            start -= 1
+        while start < len(msgs) and msgs[start].get("role") != "user":
+            start += 1
+        tails.append((msgs[start:], start))
+    return tails[::-1]
+
+
+def _old_home_block(
+    msgs: list[dict[str, Any]], omitted: int, skipped_note: str | None = None
+) -> list[dict[str, Any]]:
+    """舊家尾端：每則標時間，第一則前面寫說明（另有幾段沒帶、這段前面還有幾則），再包歷史資料界線."""
+    stamped = _stamp_times(msgs)
+    omitted_note = OLD_HOME_OMITTED_NOTE.format(count=omitted) if omitted else None
+    note = "".join(text for text in (skipped_note, omitted_note) if text)
+    if note:
+        stamped[0] = {**stamped[0], "content": _add_text(stamped[0]["content"], note, before=True)}
+    return _mark_home_history(stamped, source=OLD_HOME_HISTORY_SOURCE)
+
+
+def _old_home_blocks(old_homes: Sequence[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
+    """還沒交接完的舊家各包一塊（照原順序）.
+
+    一則都帶不進去的那幾段合成一行說明，併進第一塊開頭；全部帶不進去時單獨送一則（使用者角色、
+    在界線裡）。新家仍知道有那些舊家，不每段一則（第 3 輪審查 L5）；連續使用者訊息見
+    ADR-0306 已知限制。
+    """
+    tails = _old_home_tails(old_homes)
+    skipped = [omitted for msgs, omitted in tails if not msgs and omitted]
+    note = OLD_HOME_SKIPPED_NOTE.format(homes=len(skipped), count=sum(skipped)) if skipped else None
+    blocks = []
+    for msgs, omitted in tails:
+        if msgs:
+            blocks.append(_old_home_block(msgs, omitted, None if blocks else note))
+    if note and not blocks:
+        blocks.append(
+            _mark_home_history([{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE)
+        )
+    return blocks
+
+
+def _mark_home_history(
+    home_msgs: list[dict[str, Any]], *, source: str = HOME_HISTORY_SOURCE
+) -> list[dict[str, Any]]:
     """家對話第一則前加歷史資料界線開頭、最後一則後加結尾：只加文字，角色與則數不變。
 
     先複製再改，不動到讀出來的 session 樹；每則文字裡的區塊 tag 先中和。
@@ -111,7 +192,7 @@ def _mark_home_history(home_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         {**m, "content": _map_text(m.get("content"), _neutralize_history)}
         for m in home_msgs
     ]
-    opening = historical_data_open("home_conversation")
+    opening = historical_data_open(source)
     marked[0]["content"] = _add_text(marked[0]["content"], opening, before=True)
     marked[-1]["content"] = _add_text(marked[-1]["content"], HISTORICAL_DATA_CLOSE, before=False)
     return marked
@@ -416,45 +497,33 @@ class SoulService:
         request: Any,
         identity: str | AgentIdentity,
         *,
-        current_session_id: str | None = None,
+        home_messages: list[dict[str, Any]],
         stamp_times: bool = False,
-        home_messages: list[dict[str, Any]] | None = None,
+        old_homes: Sequence[list[dict[str, Any]]] = (),
     ) -> None:
         """為請求注入家園訊息（記憶錨點） (Identity SSOT).
 
         Args:
             request (Any): 模型請求對象.
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
-            current_session_id (str | None): 請求已帶著這個對話的完整紀錄時傳入；
-                它就是家對話時不再插入（避免同一份紀錄送兩次）.
+            home_messages (list): 主線讀到的家訊息（同一次讀到的家，ADR-0305）；不送時給空清單.
             stamp_times (bool): 子對話看家時，每則內容前標台北時間（寫在內容裡，ADR-0260/0305）.
-            home_messages (list | None): 呼叫端已讀到的家訊息（主線用同一次讀到的家，ADR-0305）；
-                沒給時自己讀.
+            old_homes (Sequence[list]): 還沒交接完的舊家原文，依紀錄順序排在家原文前面；
+                各自包一層「交接中的舊家」歷史資料界線、每則標時間；總量有上限，只帶尾端
+                （``OLD_HOME_TOKEN_BUDGET``，ADR-0306）.
         """
-        from src.utils.async_db import get_home_messages  # noqa: LOCAL_IMPORT_BAN
-
         if isinstance(identity, str):
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        home_msgs = (
-            home_messages
-            if home_messages is not None
-            else await get_home_messages(identity, current_session_id)
-        )
+        blocks = _old_home_blocks(old_homes)
+        if home_messages:  # 先標時間再包界線：時間在界線裡面
+            blocks.append(
+                _mark_home_history(_stamp_times(home_messages) if stamp_times else home_messages)
+            )
+        home_msgs = [m for block in blocks for m in block]  # 歷史資料界線，不是指令
         if not home_msgs:
             return
-        if stamp_times:  # 先標時間再包界線：時間在界線裡面
-            home_msgs = [
-                {
-                    **m,
-                    "content": _add_text(
-                        m.get("content"), f"[{format_taipei(m.get('timestamp'))}]", before=True
-                    ),
-                }
-                for m in home_msgs
-            ]
-        home_msgs = _mark_home_history(home_msgs)  # 歷史資料界線，不是指令
 
         # 只送角色與內容（ADR-0260）：節點 ID、工具步驟、思考、附件、name 等 UI 樹欄位一律不外送
         formatted_home = [{"role": m["role"], "content": m["content"]} for m in home_msgs]

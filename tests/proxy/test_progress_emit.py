@@ -221,6 +221,13 @@ async def test_group_dispatcher_emits_group_progress(monkeypatch):
         "src.services.dispatchers.group.soul_service",
         MagicMock(inject_home_messages=AsyncMock()),
     )
+    # 主線讀家與還沒交接完的舊家（ADR-0305、0306）；這裡沒有資料庫，當作都沒有
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_home_snapshot", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_unfinished_old_homes", AsyncMock(return_value=[])
+    )
 
     async def fake_get_stream_generator(*a, **k):
         async def gen():

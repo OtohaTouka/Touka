@@ -83,6 +83,17 @@ async def remaining_prelude(candidate: str, guard: GuardFn = assert_resettable) 
     return await count_agent_segments(_identity(candidate, guard))
 
 
+# ── home_records（ui_sessions.db 的換家紀錄與回報位置，ADR-0306；和對話同一區）──────
+async def purge_home_records(candidate: str, guard: GuardFn = assert_resettable) -> int:
+    """刪掉該靈魂的全部換家紀錄與回報位置（含失效的），回傳筆數。"""
+    return await session_service.purge_agent_home_records(_identity(candidate, guard))
+
+
+async def remaining_home_records(candidate: str, guard: GuardFn = assert_resettable) -> int:
+    """還剩幾筆換家紀錄與回報位置（自檢用，應為 0）。"""
+    return await session_service.count_agent_home_records(_identity(candidate, guard))
+
+
 # ── feedback（feedback.db）────────────────────────────────────────────
 async def purge_feedback(candidate: str, guard: GuardFn = assert_resettable) -> int:
     return await FeedbackStore.purge_agent(_identity(candidate, guard))
@@ -338,6 +349,7 @@ class StorePurger:
 PROXY_STORES: tuple[StorePurger, ...] = (
     StorePurger("sessions", purge_sessions, remaining_sessions),
     StorePurger("prelude", purge_prelude, remaining_prelude),
+    StorePurger("home_records", purge_home_records, remaining_home_records),
     StorePurger("feedback", purge_feedback, remaining_feedback),
     StorePurger("brain_settings", purge_brain, remaining_brain),
     StorePurger("stats", purge_stats, remaining_stats),

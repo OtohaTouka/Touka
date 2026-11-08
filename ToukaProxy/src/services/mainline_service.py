@@ -13,6 +13,10 @@
 | 心跳（在家或子對話） | 帶 | 不帶（在家時自己的歷史就是家；子對話時全文太貴） |
 | 無痕 | 不帶 | 不帶 |
 
+換家後、交接完成前（3d PR 2a，ADR-0306）：還沒交接完的舊家原文依紀錄順序排在家原文前面，
+各自標成「交接中的舊家」、每則標時間；上表帶家原文的都帶，網頁版家本身與心跳在家時也帶
+（新家第一輪就接得上）；心跳在子對話、無痕不帶；已經又是現任家的那段不帶。
+
 每輪只讀一次家，前情與家原文用同一份。讀家碰到儲存錯誤時，和以前一樣讓這一輪失敗、不再讀第二次
 （ADR-0078 失效不沉默，審查第 2 輪 G2、第 3 輪 H3）；心跳（以前不讀家）不帶家原文，照樣帶前情。
 兩個家等範圍矛盾當作沒有家。
@@ -68,6 +72,21 @@ async def _home_session(identity: AgentIdentity, *, heartbeat: bool) -> dict[str
     return snapshot.session if snapshot else None
 
 
+async def _old_homes(identity: AgentIdentity, *, heartbeat: bool) -> list[dict[str, Any]]:
+    """還沒交接完的舊家（ADR-0306）；讀不到時和讀家一樣：這一輪失敗，心跳照樣送出."""
+    try:
+        return await session_service.read_unfinished_old_homes(identity)
+    except SessionPersistenceError:
+        if not heartbeat:
+            raise
+        logger.warning(
+            "Mainline: old homes unreadable for %s; heartbeat goes on without them",
+            identity.agent_id,
+            exc_info=True,
+        )
+        return []
+
+
 async def _inject_prelude(
     request: Any, identity: AgentIdentity, home: dict[str, Any] | None, *, preview: bool
 ) -> list[StoredSegment]:
@@ -115,19 +134,23 @@ async def inject_mainline(
     """
     if mode == "incognito":
         return
-    home = await _home_session(identity, heartbeat=mode == "heartbeat")
+    heartbeat = mode == "heartbeat"
+    home = await _home_session(identity, heartbeat=heartbeat)
     shown = await _inject_prelude(request, identity, home, preview=preview)
-    if mode == "heartbeat":
-        return
     home_id = home["id"] if home else None
+    # 還沒交接完的舊家原文：心跳只在家裡帶（子對話時全文太貴，同家原文）
+    in_home = home_id is not None and session_id == home_id
+    old_homes = await _old_homes(identity, heartbeat=heartbeat) if in_home or not heartbeat else []
     current = session_id if sends_own_history else None
     await soul_service.inject_home_messages(  # 用同一次讀到的家，沒有家就是空的
         request,
         identity,
-        current_session_id=current,
+        home_messages=home_messages_of(home, current) if home and not heartbeat else [],
         stamp_times=mode == "chat" and session_id is not None and session_id != home_id,
-        home_messages=home_messages_of(home, current) if home else [],
+        old_homes=[home_messages_of(old) for old in old_homes],
     )
+    if heartbeat:
+        return
     if own_summary and session_id:
         await soul_service.inject_context_summary(
             request, session_id, summaries_shown_for(shown, session_id)

@@ -32,6 +32,11 @@ def is_retired_session(session_id: str) -> bool:
     return session_id == "pulse_channel_default" or session_id.startswith("sns_")
 
 
+def can_be_home(session_id: str) -> bool:
+    """內部頻道與退休頻道不能當家：頻道編號固定，換走、刪掉重建會一出生就是舊家（ADR-0306）."""
+    return not is_retired_session(session_id) and not session_id.startswith("touka.")
+
+
 def channel_session_id(kind: str, soul_id: str, *coordinates: str) -> str:
     """完整雜湊避免不同靈魂或含分隔符的外部頻道互相碰撞。"""
     payload = json.dumps([kind, soul_id, *coordinates], ensure_ascii=False, separators=(",", ":"))

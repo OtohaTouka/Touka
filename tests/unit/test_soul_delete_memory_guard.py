@@ -30,7 +30,7 @@ from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
-from src.utils.async_db import init_db_async
+from src.utils.async_db import get_async_db, init_db_async
 from src.utils.continuity_events_db import EventRow, count_agent_events, insert_event
 from src.utils.soul_prelude_db import PreludeSegment, count_agent_segments, insert_segment
 
@@ -234,6 +234,26 @@ async def test_delete_is_blocked_while_prelude_remains(stores, admin):
     assert detail["prelude_segments"] == 1
     assert soul.exists()
     assert await count_agent_segments(AgentIdentity(agent_id="KeepPrelude")) == 1
+
+
+async def test_delete_is_blocked_while_home_records_remain(stores, admin):
+    """換家紀錄（ADR-0306）屬主線：還在就 409、什麼都不刪，要先重置."""
+    client, _identity = admin
+    soul = _soul_dir("KeepHome")
+    async with get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_home_transitions (agent_id, old_session, created_at, updated_at) "
+            "VALUES ('KeepHome', 'old', 1, 1)"
+        )
+        await db.commit()
+
+    resp = _delete(client, "KeepHome")
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "SOUL_MEMORY_NOT_RESET"
+    assert detail["home_records"] == 1
+    assert soul.exists()
 
 
 def test_unreadable_prelude_blocks_delete(stores, admin, monkeypatch):
