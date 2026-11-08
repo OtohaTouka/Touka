@@ -100,6 +100,13 @@ _MARK_STARTED = (
     "WHERE new_session = ? AND scope_version = 1 AND status = 'pending' AND new_started = 0 "
     "AND EXISTS (SELECT 1 FROM user_sessions s WHERE s.id = new_session AND s.is_home = 1)"
 )
+# 設回一段本來用過的家（交接紀錄改回它自己而取消）：同一個動作裡指向它的其他紀錄都算已開始用
+# （家標記在這之後才改，不能用上面那句；第 4 輪審查 M1）
+_RESTORED_STARTED = (
+    "UPDATE soul_home_transitions SET new_started = 1, updated_at = ? "
+    "WHERE agent_id = ? AND new_session = ? AND scope_version = 1 AND status = 'pending' "
+    "AND new_started = 0"
+)
 _UNUSED_NEW_HOME = (
     "SELECT 1 FROM soul_home_transitions t JOIN user_sessions s ON s.id = t.new_session "
     "WHERE t.new_session = ? AND t.scope_version = 1 AND t.status = 'pending' "
@@ -209,40 +216,43 @@ async def _insert(
     await db.execute(_INSERT, (agent, old, new, handled_by, now, now))
 
 
-async def _retarget(db: aiosqlite.Connection, record: _Record, new: str | None, now: int) -> None:
-    """還沒開始用的那一筆改指新家；當沒換過時取消.
+async def _retarget(db: aiosqlite.Connection, record: _Record, new: str | None, now: int) -> bool:
+    """還沒開始用的那一筆改指新家；當沒換過時取消。回傳是不是設回了一段本來用過的家.
 
     - 交接紀錄改回舊家本身：舊家恢復成家（它本來就用過），取消。
     - 只記新家的紀錄改成沒有新家：取消；改回它記的那段（舊家＝新家）：照樣只記新家，繼續追蹤
-      那段有沒有用過。
+      那段有沒有用過（那段的內容由它指的那筆交接，不算恢復）。
     """
     noted = record.old_handled_by is not None
-    if (not noted and new == record.old_session) or (noted and new is None):
+    restored = not noted and new == record.old_session
+    if restored or (noted and new is None):
         await db.execute(_SET_STATUS, (CANCELLED, now, record.id))
     else:
         await db.execute(_SET_NEW, (new, now, record.id))
+    return restored
 
 
-async def _attach_to_unhomed(db: aiosqlite.Connection, agent: str, target: str, now: int) -> None:
-    """沒有家時設家.
+async def _attach_to_unhomed(db: aiosqlite.Connection, agent: str, target: str, now: int) -> bool:
+    """沒有家時設家；回傳是不是設回了一段本來用過的家.
 
     - 取消家之後還沒開始交接的紀錄改指新家（設回那段舊家本身則取消）；
-    - 交接已開始的另加一筆只記新家；
+    - 交接已開始的另加一筆只記新家（同一段舊家的等待紀錄已經接上新家時不重複記，第 4 輪審查）；
     - 新家沒被上面任何一筆追蹤（第一個家、舊家已交接完、設回的正是交接中的那段）：記一筆舊家＝
       新家的只記新家，沒用過就離開時當沒換過（第 3 輪審查 L2、K6）。
     """
     cursor = await db.execute(_UNHOMED_WAITING, (agent,))
     waiting = [_Record(row[0], row[1], row[2], row[3]) for row in await cursor.fetchall()]
+    restored = False
     for record in waiting:
-        await _retarget(db, record, target, now)
+        restored = await _retarget(db, record, target, now) or restored
     started = await _one(db, _LATEST_UNHOMED_STARTED, (agent,))
-    if started is not None and started.old_session != target:
+    reached = {record.old_session for record in waiting}
+    if started is not None and started.old_session not in reached | {target}:
         await _insert(db, agent, started.old_session, target, now, handled_by=started.id)
-        return
-    if waiting:  # 改指了新家，或改回本來用過的家
-        return
-    handled_by = started.id if started is not None else NO_PREDECESSOR
-    await _insert(db, agent, target, target, now, handled_by=handled_by)
+    elif not waiting:
+        handled_by = started.id if started is not None else NO_PREDECESSOR
+        await _insert(db, agent, target, target, now, handled_by=handled_by)
+    return restored
 
 
 async def apply_home_change(
@@ -277,14 +287,17 @@ async def apply_home_change(
             await _insert(db, agent, target, None, now)
         return
     others = [home for home in homes if home != target]
+    restored = False
     if not others and target not in homes:
-        await _attach_to_unhomed(db, agent, target, now)
+        restored = await _attach_to_unhomed(db, agent, target, now)
     for home in others:
         unused = await _unused_for(db, agent, home)
         for record in unused:  # 那個家還沒開始用：改寫這些紀錄，它回到普通子對話
-            await _retarget(db, record, target, now)
+            restored = await _retarget(db, record, target, now) or restored
         if not unused:
             await _insert(db, agent, home, target, now)
+    if restored:  # 設回的那段本來就用過：之後沒開新的一輪就離開，照樣是舊家（第 4 輪審查 M1）
+        await db.execute(_RESTORED_STARTED, (now, agent, target))
 
 
 async def mark_started(db: aiosqlite.Connection, session_id: str, now: int) -> None:

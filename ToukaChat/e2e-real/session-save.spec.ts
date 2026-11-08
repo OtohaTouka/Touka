@@ -245,7 +245,7 @@ test("換回比較舊的那段當家：資料夾那一列跟著換", async ({ pa
   await expectChatIsHome(page, "新的一段", false);
 });
 
-// 乙設成家之後還沒在裡面聊過就換成丙：乙當沒換過、回到普通對話；甲才是舊家（ADR-0306）
+// 乙設成家之後還沒在裡面聊過就換成丙：乙當沒換過、回到普通對話；甲設成家之後也沒聊過，換走後同樣回到普通對話（ADR-0306）
 test("連續換兩次家：清單上只剩最後一段是家，中間沒聊過的那段回到普通對話、再送一則都正常", async ({ page }) => {
   const soul = "SaveTwoMoves";
   await useOwnSoul(page, soul);

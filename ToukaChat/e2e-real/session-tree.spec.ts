@@ -200,7 +200,7 @@ test("連續設家甲、乙、丙，再回到較舊的一段：資料夾那一�
   }
   await shot(page, info, "third-home");
 
-  // 乙設過家但沒用過就換掉：回到普通對話，可以接著聊；甲是真正的舊家，唯讀（ADR-0306）
+  // 乙設過家但沒用過就換掉：回到普通對話，可以接著聊（甲設成家之後也沒聊過，同樣不是舊家；ADR-0306）
   await clickChatInList(page, "連乙");
   await expect(row(page, "連乙")).toHaveAttribute("aria-current", "true");
   await expect(row(page, `${soul}，家對話：連丙`)).toBeVisible();

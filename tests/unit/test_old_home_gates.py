@@ -183,6 +183,31 @@ async def test_a_legacy_prefixed_old_home_is_refused_to_whoever_can_drive_the_so
     assert not await service.check_old_home("legacy", mark_started=False, requester=OUTSIDER)
 
 
+async def test_the_owner_marks_a_legacy_prefixed_new_home_started(monkeypatch):
+    """舊前綴的新家：擁有者比對逐字失敗、但人類擁有者後面各層存得進去，照樣記開始用
+    （第 3 輪審查 L6「或是人類」那半，第 4 輪審查補測試）."""
+    monkeypatch.setattr(
+        resource_manager,
+        "is_owner",
+        lambda target, who: who.is_admin_authority()
+        or (who.is_human and target.agent_id in who.owned_agents),
+    )
+    await seed("first")
+    await seed("legacy")
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET agent_id = 'ToukaSoulScopeA', owner_user_id = NULL "
+            "WHERE id = 'legacy'"
+        )
+        await db.commit()
+    assert await service.set_home("first", A, True)
+    await service.check_old_home("first", mark_started=True, requester=None)
+    assert await service.set_home("legacy", A, True)
+    assert await started("legacy") == [0]
+    assert not await service.check_old_home("legacy", mark_started=True, requester=HUMAN)
+    assert await started("legacy") == [1]
+
+
 @pytest.mark.usefixtures("moved")
 async def test_only_a_caller_whose_turn_is_saved_marks_the_new_home_started():
     """DebugAgent、代打別的靈魂的非人類身分存不進新家：不記開始用，人工測試也不改到別的靈魂的

@@ -340,6 +340,113 @@ async def test_after_unsetting_two_homes_the_next_home_takes_both_records():
     assert await records() == [("A", "D", 0, "pending", None), ("B", "D", 0, "pending", None)]
 
 
+# --- 設回本來用過的家：其他指向它的紀錄算已開始用（第 4 輪審查 M1） ---
+
+
+@pytest.mark.parametrize("how", ["move", "unset"])
+async def test_an_existing_home_set_back_is_used_so_leaving_it_makes_it_an_old_home(how):
+    """兩個家：換走或取消後設回 A，另一筆接上 A；A 本來就用過，沒開新的一輪就換走也是舊家."""
+    await seed_all("A", "B", "X", "C")
+    await legacy_homes("A", "B")
+    if how == "move":
+        assert await service.set_home("X", A, True)
+        first = ("A", "X", 0, "cancelled", None)
+    else:
+        assert await service.set_home("A", A, False)
+        assert await service.set_home("B", A, False)
+        first = ("A", None, 0, "cancelled", None)
+    assert await service.set_home("A", A, True)
+    assert await service.set_home("C", A, True)
+    assert await records() == [
+        first,
+        ("B", "A", 1, "pending", None),
+        ("A", "C", 0, "pending", None),
+    ]
+    assert await service.is_old_home("A")
+    assert await service.old_home_blocks_delete("A")
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.unfinished_old_homes(db, A.agent_id) == ["B", "A"]
+
+
+@pytest.mark.parametrize("earlier", [("running", 0), ("failed", 0), ("pending", 2)])
+@pytest.mark.parametrize("leave", ["unset", "move"])
+async def test_a_used_home_set_back_while_an_unset_handover_runs_stays_used(home_a, earlier, leave):
+    """取消 A 後交接已開始；D 用過、取消、設回 D：另記的那筆算已開始用，D 沒用就離開也是舊家."""
+    status, step = earlier
+    assert await service.set_home("A", A, False)
+    await set_status(1, status, step=step)
+    assert await service.set_home("D", A, True)
+    await start("D")
+    assert await service.set_home("D", A, False)
+    assert await service.set_home("D", A, True)
+    async with async_db.get_async_db() as db:
+        assert not await async_db.home_transitions.is_unused_new_home(db, "D")
+    if leave == "unset":
+        assert await service.set_home("D", A, False)
+        last = ("D", None, 0, "pending", None)
+    else:
+        assert await service.set_home("C", A, True)
+        last = ("D", "C", 0, "pending", None)
+    assert await records() == [
+        ("A", None, 0, status, None),
+        ("A", "D", 1, "pending", 1),
+        ("D", None, 0, "cancelled", None),
+        ("A", "D", 1, "pending", 1),
+        last,
+    ]
+    assert await service.is_old_home("D")
+    assert await service.old_home_blocks_delete("D")
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.unfinished_old_homes(db, A.agent_id) == ["A", "D"]
+
+
+async def test_a_used_home_set_back_through_another_record_stays_used(home_a):
+    """B 用過、取消、設 C（B→C 與只記 C）、沒用就設回 B：只記 C 那筆改指 B 時算已開始用."""
+    assert await service.set_home("A", A, False)
+    await set_status(1, "running")
+    assert await service.set_home("B", A, True)
+    await start("B")
+    assert await service.set_home("B", A, False)
+    assert await service.set_home("C", A, True)
+    assert await service.set_home("B", A, True)
+    assert await service.set_home("D", A, True)
+    assert await records() == [
+        ("A", None, 0, "running", None),
+        ("A", "B", 1, "pending", 1),
+        ("B", "C", 0, "cancelled", None),
+        ("A", "B", 1, "pending", 1),
+        ("B", "D", 0, "pending", None),
+    ]
+    assert await service.is_old_home("B")
+    assert await service.old_home_blocks_delete("B")
+
+
+async def test_a_second_tenure_waiting_reaches_the_next_home_once(home_a):
+    """A→（無）交接中、A 回任用過又取消（第二任等待中）時設 D：等待的那筆已帶 A 接上 D，不再另記
+    一筆一樣的只記新家；D 沒用就設回 A、再換到 C，第二任照樣有自己的紀錄（第 4 輪審查）."""
+    assert await service.set_home("A", A, False)
+    await set_status(1, "running")
+    assert await service.set_home("A", A, True)
+    await start("A")
+    assert await service.set_home("A", A, False)
+    assert await service.set_home("D", A, True)
+    assert await records() == [
+        ("A", None, 0, "running", None),
+        ("A", "A", 1, "pending", 1),
+        ("A", "D", 0, "pending", None),
+    ]
+    assert await service.set_home("A", A, True)
+    assert await service.set_home("C", A, True)
+    assert [r for r in await records() if r[4] is None] == [
+        ("A", None, 0, "running", None),
+        ("A", "D", 0, "cancelled", None),
+        ("A", "C", 0, "pending", None),
+    ]
+    assert await service.is_old_home("A")
+    async with async_db.get_async_db() as db:
+        assert not await async_db.home_transitions.handover_started(db, "A")
+
+
 async def legacy_channel_home(channel):
     """升級前的資料：內部頻道已經是家（現在設家會擋，所以直接改資料）."""
     await seed("legacy-channel")

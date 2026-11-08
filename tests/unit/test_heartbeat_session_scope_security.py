@@ -336,6 +336,16 @@ async def test_home_heartbeat_without_a_home_creates_one_through_the_records():
     assert await async_db.session_service.is_old_home("A")
 
 
+async def test_home_heartbeat_for_a_soul_that_never_had_a_home_tracks_the_first_one():
+    """從沒設過家的靈魂由心跳建第一個家：記一筆只記新家（第 0 筆）並記開始用，換走後是舊家."""
+    await seed("X")
+    result, _tasks = await awaken(A, session_id="home")
+    created = result["session_id"]
+    assert await _started(created) == [1]
+    assert await async_db.session_service.set_home("X", A, True)
+    assert await async_db.session_service.is_old_home(created)
+
+
 async def test_home_heartbeat_refuses_a_home_replaced_after_it_was_read(monkeypatch):
     """讀到家之後才被換家：那段已經是舊家，心跳不在裡面開新的一輪（審查 J9）."""
     await _move_home()
