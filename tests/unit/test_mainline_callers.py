@@ -106,12 +106,17 @@ async def test_heartbeat_pulse_sends_the_prelude_but_not_the_home(monkeypatch):
     assert all("家裡的問題" not in _text(m) for m in sent)
 
 
-@pytest.mark.parametrize(("incognito", "mode"), [(True, "incognito"), (False, "group")])
-async def test_group_hands_the_right_mode_to_the_mainline(monkeypatch, incognito, mode):
+@pytest.mark.parametrize(
+    ("incognito", "sns", "mode"),
+    [(True, False, "incognito"), (False, False, "group"), (False, True, "group")],
+)
+async def test_group_hands_the_right_mode_to_the_mainline(monkeypatch, incognito, sns, mode):
     modes: list[str] = []
+    told_sns: list[bool] = []
 
-    async def spy(_request: Any, _identity: Any, *, mode: str, **_kwargs: Any) -> None:
+    async def spy(_request: Any, _identity: Any, *, mode: str, sns: bool, **_kwargs: Any) -> None:
         modes.append(mode)
+        told_sns.append(sns)
 
     async def _fake_stream(*_args: Any) -> Any:
         async def _gen() -> Any:
@@ -131,7 +136,8 @@ async def test_group_hands_the_right_mode_to_the_mainline(monkeypatch, incognito
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@小愛 早")]
     )
-    ctx = PipelineContext(incognito=incognito)
+    ctx = PipelineContext(incognito=incognito, sns_source=sns)
     async for _chunk in group.dispatch_group_stream(request, "req-g", 0.0, ctx):
         pass
     assert modes == [mode]
+    assert told_sns == [sns]

@@ -24,9 +24,19 @@ from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.utils.activity_visibility import agent_visibility, record_agent
+from src.utils.home_handover_db import list_failed_handovers
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
+
+
+async def _failed_handovers() -> list[dict[str, object]]:
+    """讀不到就回空清單：統計頁其他欄位照舊."""
+    try:
+        return await list_failed_handovers()
+    except Exception:
+        logger.warning("Failed handovers unavailable", exc_info=True)
+        return []
 
 
 @router.get("")
@@ -93,6 +103,11 @@ async def get_touka_stats(
         run
         for run in autonomy_service.get_interrupted_runs()
         if _can_see(record_agent(run))
+    ]
+
+    # 交接失敗的紀錄（ADR-0307）：舊家留在唯讀、會自動重試，要看得到
+    stats_data["failed_handovers"] = [
+        row for row in await _failed_handovers() if _can_see(record_agent(row))
     ]
 
     # ADR-0082：dispatch supervisor 觀測（status/pid/restarts）——dict-fold 免動 openapi

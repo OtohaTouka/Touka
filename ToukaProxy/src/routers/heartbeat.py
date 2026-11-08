@@ -38,7 +38,7 @@ from src.models.session_persistence import SavedResult, SessionChanges
 from src.models.user import User  # noqa: TC001
 from src.routers.auth import get_auth_service, get_current_user
 from src.routers.ui_sessions import _can_access_session
-from src.services import destructive_ops
+from src.services import destructive_ops, home_handover
 from src.services.activity_registry import activity_registry
 from src.services.auth_service import AuthService  # noqa: TC001
 from src.services.autonomy import autonomy_service
@@ -680,6 +680,10 @@ async def _process_heartbeat_loop(
             # 靈魂由這裡傳：第一輪前就停的沒登記過活動，同一對話重疊跑時也可能被另一次清掉。
             if run_started:
                 activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
+            # 前情維護（交接、子對話回報，ADR-0307）：至少完成一個脈衝才排；這時登記已拿掉，
+            # 只排背景工作、不 await（被取消時也安全）
+            if pulses_done and not blocked:
+                home_handover.schedule(identity)
 
 
 @router.post("/awaken", status_code=202)

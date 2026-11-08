@@ -282,6 +282,11 @@ def _session_agent_candidates(identity: AgentIdentity) -> tuple[str, str]:
     return target, f"ToukaSoul{target}" if target != "DebugAgent" else target
 
 
+def soul_session_agents(identity: AgentIdentity) -> tuple[str, str]:
+    """對話列裡這個靈魂可能的兩種寫法（正式 ID、舊前綴 ID）."""
+    return _session_agent_candidates(identity)
+
+
 def _check_session_write(
     existing: dict[str, Any] | None,
     row: dict[str, Any],
@@ -1264,6 +1269,15 @@ class SessionService:
                     await home_transitions.mark_started(db, session_id, get_current_epoch_ms())
                     await db.commit()
                 return old
+        except Exception:
+            raise SessionPersistenceError from None
+
+    @staticmethod
+    async def read_handover_source(session_id: str) -> dict[str, Any] | None:
+        """交接與回報讀對話（背景，沒有請求者）；不存在回 None，讀不到丟 SessionPersistenceError."""
+        try:
+            async with get_async_db() as db:
+                return await _strict_session_row(db, session_id)
         except Exception:
             raise SessionPersistenceError from None
 

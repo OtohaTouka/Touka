@@ -13,6 +13,8 @@
 | 心跳（在家或子對話） | 帶 | 不帶（在家時自己的歷史就是家；子對話時全文太貴） |
 | 無痕 | 不帶 | 不帶 |
 
+SNS 來的請求（獨立頻道、家模式、群聊；外人觸發）前情不帶子對話回報，其他照舊（ADR-0307）。
+
 換家後、交接完成前（3d PR 2a，ADR-0306）：還沒交接完的舊家原文依紀錄順序排在家原文前面，
 各自標成「交接中的舊家」、每則標時間；上表帶家原文的都帶，網頁版家本身與心跳在家時也帶
 （新家第一輪就接得上）；心跳在子對話、無痕不帶；已經又是現任家的那段不帶。
@@ -88,7 +90,12 @@ async def _old_homes(identity: AgentIdentity, *, heartbeat: bool) -> list[dict[s
 
 
 async def _inject_prelude(
-    request: Any, identity: AgentIdentity, home: dict[str, Any] | None, *, preview: bool
+    request: Any,
+    identity: AgentIdentity,
+    home: dict[str, Any] | None,
+    *,
+    preview: bool,
+    sns: bool,
 ) -> list[StoredSegment]:
     """放前情區塊，回傳這一輪顯示的段落；讀不到就不放、回空清單."""
     try:
@@ -97,6 +104,7 @@ async def _inject_prelude(
             home_id=home["id"] if home else None,
             config=load_sliding_window_config(),
             home_session=None if preview else home,  # 預覽不搬舊摘要
+            without_reports=sns,
         )
     except Exception:
         logger.warning(
@@ -120,6 +128,7 @@ async def inject_mainline(
     sends_own_history: bool = False,
     preview: bool = False,
     own_summary: bool = False,
+    sns: bool = False,
 ) -> None:
     """依上表把前情（system 尾端）、家原文（對話開頭）與這段對話自己的舊摘要放進請求.
 
@@ -131,12 +140,13 @@ async def inject_mainline(
         sends_own_history: 請求已帶著這個對話的完整紀錄（網頁版）；它就是家時不再插家原文。
         preview: 上下文預覽：不搬舊摘要，不寫任何資料。
         own_summary: 插這段對話自己升級前的舊摘要（呼叫端已確認對話綁在這個靈魂）。
+        sns: SNS 來的請求（外人觸發）：前情不帶子對話回報（ADR-0307）。
     """
     if mode == "incognito":
         return
     heartbeat = mode == "heartbeat"
     home = await _home_session(identity, heartbeat=heartbeat)
-    shown = await _inject_prelude(request, identity, home, preview=preview)
+    shown = await _inject_prelude(request, identity, home, preview=preview, sns=sns)
     home_id = home["id"] if home else None
     # 還沒交接完的舊家原文：心跳只在家裡帶（子對話時全文太貴，同家原文）
     in_home = home_id is not None and session_id == home_id

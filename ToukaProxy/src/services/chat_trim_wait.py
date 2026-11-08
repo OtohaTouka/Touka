@@ -52,6 +52,10 @@ class ClosingSaveWaits:
         self._waiting[session_id] = waiter
         return waiter
 
+    def is_waiting(self, session_id: str) -> bool:
+        """這段對話還有收尾保存在等（10 秒內）：交接先延後（ADR-0307）。"""
+        return session_id in self._waiting
+
     def saved(self, session_id: str) -> None:
         """畫面存好了這段對話：叫醒等著的剪裁。"""
         waiter = self._waiting.get(session_id)

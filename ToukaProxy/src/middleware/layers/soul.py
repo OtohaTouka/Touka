@@ -77,6 +77,7 @@ class SoulLayer(ProxyLayer):
                 sends_own_history=self._sends_own_history(request, ctx),
                 preview=bool(ctx.get("preview")),
                 own_summary=bool(ctx["session_bound"]),
+                sns=bool(ctx.get("sns_source")),
             )
             # 現在時間／距上一輪多久／任務看板時間：只給綁在這個靈魂的 session 與無痕（只放時間）；
             # 附在最後一則 user 訊息尾端，不進 system、不存紀錄。心跳不經本層。

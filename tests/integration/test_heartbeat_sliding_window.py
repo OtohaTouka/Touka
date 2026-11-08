@@ -14,11 +14,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.sliding_window import SlidingWindowConfig
 from src.routers.heartbeat import _process_heartbeat_loop
+from src.services import destructive_ops
 from src.services.sliding_window_service import SlidingWindowService
 
 DEBUG_IDENTITY = AgentIdentity.for_role(agent_id="DebugAgent", role="Debugger", is_human=False)
@@ -220,3 +220,96 @@ async def test_window_disabled_trim_not_called_with_trim_result():
     with patch.object(svc, "load_config", return_value=cfg):
         result = await svc.check_and_trim(DEBUG_IDENTITY, "any-session")
     assert result is False
+
+
+# ── 前情維護的排程（3d PR 2b，ADR-0307；禁令 28 同兩處）──────────
+
+_SCHEDULE = "src.routers.heartbeat.home_handover.schedule"
+
+
+async def _run_loop(*, is_home: bool = True, pulse_count: int = 1) -> None:
+    await _process_heartbeat_loop(
+        final_session_id=_SESSION_ID,
+        identity=DEBUG_IDENTITY,
+        model_override=None,
+        ctx=_make_ctx(),
+        pulse_count=pulse_count,
+        pulse_slots=1,
+        t0=0.0,
+        init_prompt="test",
+        is_home_mode=is_home,
+    )
+
+
+def _patch_trim():
+    return patch(
+        "src.routers.heartbeat.sliding_window_service.check_and_trim",
+        new=AsyncMock(return_value=False),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_home", [True, False], ids=["home", "child"])
+async def test_a_finished_pulse_schedules_maintenance(is_home: bool):
+    with _patch_pulse(), _patch_health(), _patch_trim(), patch(_SCHEDULE) as schedule:
+        await _run_loop(is_home=is_home)
+    schedule.assert_called_once_with(DEBUG_IDENTITY)
+
+
+@pytest.mark.asyncio
+async def test_maintenance_is_scheduled_once_the_heartbeat_has_ended():
+    """排的時候這次心跳已經拿掉登記：維護才不會以為舊家還在跑。"""
+    seen: list[bool] = []
+
+    def _record(identity: AgentIdentity) -> None:
+        seen.append(_SESSION_ID in destructive_ops.running_heartbeats(identity))
+
+    with _patch_pulse(), _patch_health(), _patch_trim(), patch(_SCHEDULE, side_effect=_record):
+        await _run_loop()
+    assert seen == [False]
+
+
+@pytest.mark.asyncio
+async def test_no_finished_pulse_schedules_nothing():
+    with (
+        _patch_pulse(turns=None),
+        _patch_health(),
+        _patch_trim(),
+        patch(_SCHEDULE) as schedule,
+    ):
+        await _run_loop()
+    schedule.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_failure_after_a_finished_pulse_still_schedules():
+    pulses = AsyncMock(side_effect=[1, RuntimeError("boom")])
+    with (
+        patch("src.routers.heartbeat._execute_single_pulse", new=pulses),
+        patch("src.routers.heartbeat.asyncio.sleep", new=AsyncMock()),
+        patch("src.routers.heartbeat.session_service.append_message_to_session", new=AsyncMock()),
+        _patch_health(),
+        _patch_trim(),
+        patch(_SCHEDULE) as schedule,
+    ):
+        await _run_loop(pulse_count=2)
+    schedule.assert_called_once_with(DEBUG_IDENTITY)
+
+
+@pytest.mark.asyncio
+async def test_a_reset_during_the_heartbeat_schedules_nothing():
+    async def _pulse(*_args, **_kwargs):
+        destructive_ops.hold(DEBUG_IDENTITY)
+        return 1
+
+    with (
+        patch("src.routers.heartbeat._execute_single_pulse", side_effect=_pulse),
+        _patch_health(),
+        _patch_trim(),
+        patch(_SCHEDULE) as schedule,
+    ):
+        try:
+            await _run_loop()
+        finally:
+            destructive_ops.release(DEBUG_IDENTITY)
+    schedule.assert_not_called()

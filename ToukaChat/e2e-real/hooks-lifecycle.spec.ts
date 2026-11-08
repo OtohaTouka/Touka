@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
   adminLogin,
   awakenSoul,
+  createSoul,
   disableHooks,
   hookRuns,
   hooksEnabled,
@@ -144,8 +145,8 @@ async function chatUntilTrimmed(page: Page): Promise<void> {
 }
 
 /** 剪裁真的存好：最早那則長訊息不在存檔裡，摘要只叫了一次模型，畫面沒有保存提示，下一則直接送。 */
-async function expectTrimmedAndChatting(page: Page, summariesBefore: number): Promise<void> {
-  await expectBackgroundHook("PostCompact");
+async function expectTrimmedAndChatting(page: Page, summariesBefore: number, soul?: string): Promise<void> {
+  await expectBackgroundHook("PostCompact", soul);
   const saved = await savedMessages(adminToken, await latestSessionId(adminToken));
   expect(saved.some((message) => message.content === LONG_MESSAGE)).toBe(false);
   expect(await summaryCalls()).toBe(summariesBefore + 1);
@@ -345,9 +346,10 @@ test("剪裁（聊天）：PreCompact 卡住時聊天不受影響，剪裁真的
   }
 });
 
-for (const [name, delayMs, waits] of [
-  ["在上限內：剪裁等它存好再剪", 3_000, true],
-  ["超過上限：剪裁先剪文字版，畫面接上去", CLOSING_SAVE_WAIT_MS + 3_000, false],
+// 各用自己的靈魂：共用的靈魂換家會多幾次交接摘要（ADR-0307），「摘要只叫一次」就數不準了
+for (const [name, delayMs, waits, soul] of [
+  ["在上限內：剪裁等它存好再剪", 3_000, true, "SlowSaveWithin"],
+  ["超過上限：剪裁先剪文字版，畫面接上去", CLOSING_SAVE_WAIT_MS + 3_000, false, "SlowSavePast"],
 ] as const) {
   test(`剪裁（聊天）：收尾保存拖慢${name}，不跳提示`, async ({ page }, info) => {
     await setSlidingWindow(adminToken, TRIM_AT_ONCE);
@@ -357,18 +359,19 @@ for (const [name, delayMs, waits] of [
       await addHttpHook(page, "PostCompact", { url: hookUrl("ok"), name: "e2e-slow-save-post", matcher: "auto" });
       await saveHooks(page);
 
+      await createSoul(adminToken, soul);
       await openChat(page);
-      await selectSoul(page);
+      await selectSoul(page, soul);
       const saves = await delayClosingSaves(page, delayMs);
       const summaries = await summaryCalls();
       await chatUntilTrimmed(page);
-      const post = await expectBackgroundHook("PostCompact");
+      const post = await expectBackgroundHook("PostCompact", soul);
       // 等到了：存回時沒有收尾保存還扣著。逾時：那一輪的收尾保存還扣著就先存回了
       const heldAtCommit = saves.some((save) => save.arrived < post.receivedAt &&
         (save.released ?? Number.POSITIVE_INFINITY) > post.receivedAt);
       expect(heldAtCommit).toBe(!waits);
       await expect.poll(() => saves.every((save) => save.released), { timeout: delayMs + 10_000 }).toBe(true);
-      await expectTrimmedAndChatting(page, summaries);
+      await expectTrimmedAndChatting(page, summaries, soul);
       await shot(page, info, waits ? "slow-save-within-limit" : "slow-save-past-limit");
     } finally {
       await page.unroute(SESSION_SAVE_URL);

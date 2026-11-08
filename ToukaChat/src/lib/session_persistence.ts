@@ -14,6 +14,10 @@ export const isSaved = (result: PersistenceState): boolean =>
   (result.status === 'saved' && result.representation === 'full') ||
   (result.status === 'skipped' && result.reason === 'incognito');
 
+/** 舊家交接開始後，存檔閘擋下的結果（ADR-0306）。 */
+export const isOldHomeRefused = (result: PersistenceState): boolean =>
+  result.status === 'failed' && result.error_code === ERRORS.SESSION_OLD_HOME_READ_ONLY.id;
+
 /** 不接受額外欄位，尤其不將伺服器的原始 detail／輸入反射到 UI。 */
 export function parseSaveResult(value: unknown): SaveResult | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

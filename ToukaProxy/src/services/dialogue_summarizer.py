@@ -105,6 +105,11 @@ def _dialogue_lines(messages: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def has_dialogue(messages: list[dict[str, Any]]) -> bool:
+    """這些訊息裡有沒有可以摘要的使用者或助理內容."""
+    return bool(_dialogue_lines(messages))
+
+
 def _chunk_lines(lines: list[str], model: str, limit: int) -> tuple[list[str], int]:
     """從最新往前取到總上限，再依每段上限切段（舊到新）；回傳各段文字與沒取到的則數.
 

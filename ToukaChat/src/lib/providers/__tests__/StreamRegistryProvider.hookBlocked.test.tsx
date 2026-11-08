@@ -7,6 +7,7 @@ import React from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
+import { ERRORS } from '@/lib/error_codes';
 import type { Session } from '@/lib/types';
 import type { TreeHistory } from '@/lib/tree_history';
 import type { StartStreamParams } from '../StreamRegistryProvider';
@@ -16,13 +17,14 @@ type Updater = (current: Session) => Session;
 const h = vi.hoisted(() => ({
   sessions: [] as Session[], wire: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(), oldHomeNotice: vi.fn(), complete: vi.fn(), onHookBlocked: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
+  userSave: null as unknown,
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
   sessions: h.sessions,
   getSession: (id: string) => h.sessions.find(session => session.id === id),
   updateSession: async (id: string, update: Updater) => {
     h.sessions = h.sessions.map(session => (session.id === id ? update(session) : session));
-    return { status: 'saved', representation: 'full', revision: 'user' };
+    return h.userSave ?? { status: 'saved', representation: 'full', revision: 'user' };
   },
   beginProducer: () => ({ sessionId: 's1', scope: h.scope, generation: 0 }),
   completeProducer: async (_producer: unknown, update: Updater, terminal: unknown, generation: unknown) => {
@@ -73,6 +75,27 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     h.wire.mockResolvedValue(undefined);
     h.stopNotice.mockReturnValue(false);
     h.oldHomeNotice.mockReturnValue(false);
+    h.userSave = null;
+  });
+
+  it('送出前的保存被舊家擋下（ADR-0307）→ 不送出、放回文字、這一輪不留下來', async () => {
+    h.userSave = { status: 'failed', error_code: ERRORS.SESSION_OLD_HOME_READ_ONLY.id };
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    let started: boolean | undefined;
+    await act(async () => { started = await result.current.startStream(params); });
+    expect(started).toBe(false);
+    expect(h.wire).not.toHaveBeenCalled();
+    expect(h.onHookBlocked).toHaveBeenCalledTimes(1);
+    expect(result.current.getStream('s1')).toBeUndefined();
+  });
+
+  it('送出前的保存因為別的原因失敗 → 照舊留著等人核對，不放回文字', async () => {
+    h.userSave = { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id };
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params); });
+    expect(h.wire).not.toHaveBeenCalled();
+    expect(h.onHookBlocked).not.toHaveBeenCalled();
+    expect(result.current.getStream('s1')).toMatchObject({ status: 'error' });
   });
 
   it('擋下 → 照「後端沒存文字」的完成流程存回沒有這則訊息的樹，並通知放回文字', async () => {
