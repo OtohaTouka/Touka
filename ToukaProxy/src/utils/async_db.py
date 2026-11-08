@@ -272,13 +272,15 @@ def _canonical_session_agent(value: str | None) -> str | None:
     return passport["agent_id"] if passport and passport["is_toukasoul"] else value
 
 
-async def _move_report_mark(db: aiosqlite.Connection, session: dict[str, Any]) -> None:
-    """對話換了靈魂：回報位置同一個交易移到當下，換之前的內容不會報給新靈魂（ADR-0307）."""
+async def _move_report_mark(
+    db: aiosqlite.Connection, session: dict[str, Any], node: str | None
+) -> None:
+    """對話換了靈魂：回報位置同一個交易移到 ``node``，換之前的內容不會報給新靈魂（ADR-0307）."""
     await home_transitions.set_report_mark(
         db,
         session["id"],
         _canonical_session_agent(session["agent_id"]),
-        session["messages"].get("currentId"),
+        node,
         get_current_epoch_ms(),
     )
 
@@ -581,6 +583,9 @@ class SessionService:
                 _check_session_write(row, updated, requester, ui=True)
                 if row["agent_id"] != updated["agent_id"]:
                     await _write_session_row(db, updated)
+                    # 位置放在這一輪使用者那則之前：對新靈魂說的第一句要算新內容
+                    turn = updated["messages"]["messages"][admission.user_parent_id]
+                    await _move_report_mark(db, updated, turn.get("parentId"))
                 else:
                     updated = row
                 result = SessionSnapshot(updated, _session_revision(session_id, updated, requester))
@@ -704,7 +709,8 @@ class SessionService:
                     updated["owner_user_id"] = owner_user_id
                 await _write_session_row(db, updated)
                 if row is not None and updated["agent_id"] != row["agent_id"]:
-                    await _move_report_mark(db, updated)  # 同一個靈魂時字串不會變
+                    # 同一個靈魂時字串不會變
+                    await _move_report_mark(db, updated, updated["messages"].get("currentId"))
                 if after_write is not None:
                     await after_write(db)
                 if row is None:

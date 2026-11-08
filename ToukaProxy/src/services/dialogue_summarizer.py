@@ -1,7 +1,7 @@
 """DialogueSummarizer — 把被歸檔的舊對話壓成摘要（ADR-0092 Phase D）。
 
 一次 ``complete_once``（purpose=``summarizer``，ADR-0244）請便宜模型（預設 haiku）把
-「即將移出即時脈絡的舊對話」壓成第三人稱要點，長度逼近 budget_tokens；記帳到滑動視窗
+「即將移出即時脈絡的舊對話」壓成第三人稱要點，指示裡寫明長度 budget_tokens；記帳到滑動視窗
 手上的身分，並受成本閘約束。**fail-safe**：任何失敗（缺金鑰／超預算／超時／拒答／截斷／
 空回應／例外）回 ``None``，呼叫端據此降級為純無損剪裁（不卡系統）。
 
@@ -32,6 +32,8 @@ from src.utils.token_estimator import estimate_tokens, truncate_to_tokens
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from src.models.identity import AgentIdentity
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,8 @@ MAX_PARALLEL_CHUNKS = 3
 PREVIOUS_MAX_TOKENS = 2_000
 # 實際的輸出上限比告訴模型的多四分之一：寫超過一點時不會因為截斷整份作廢（第 2b 審查）
 _OUTPUT_HEADROOM_DIVISOR = 4
+# 這段內容本身寫不出摘要的原因；其他（沒金鑰、超預算、逾時、上游錯誤）是整體故障，和內容無關
+CONTENT_FAILURES = frozenset({"max_tokens", "refusal", "safety"})
 _SYSTEM = (
     "你是對話歸檔摘要員。下面是一段『即將移出 AI 即時脈絡的較早對話』。"
     "請壓成第三人稱要點，保留：人名、做過的決定、承諾與待辦、未解問題、"
@@ -141,9 +145,14 @@ def _chunk_lines(lines: list[str], model: str, limit: int) -> tuple[list[str], i
 
 
 async def _complete_text(
-    identity: AgentIdentity, model: str, system: str, user: str, max_tokens: int
+    identity: AgentIdentity,
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    on_failure: Callable[[str], None] | None = None,
 ) -> str | None:
-    """送一次摘要；任何失敗（含例外與空回應）回 None."""
+    """送一次摘要；任何失敗（含例外與空回應）回 None，有原因碼時告訴 ``on_failure``."""
     try:
         output_cap = max_tokens + max_tokens // _OUTPUT_HEADROOM_DIVISOR
         result = await complete_once(
@@ -154,6 +163,8 @@ async def _complete_text(
         return None
     if not result.ok:
         logger.warning("DialogueSummarizer 未成功（%s），降級為純無損剪裁", result.error.reason)
+        if on_failure is not None:
+            on_failure(result.error.reason)
         return None
     return result.text.strip() or None
 
@@ -188,8 +199,9 @@ async def summarize_dialogue(
     model: str,
     *,
     previous: str | None = None,
+    on_failure: Callable[[str], None] | None = None,
 ) -> str | None:
-    """把 messages 壓成 ≤ budget_tokens 的摘要文字；任何失敗回 None（降級）。
+    """把 messages 壓成約 budget_tokens 以內的摘要文字；任何失敗回 None（降級）。
 
     每次請求不超過 ``SUMMARY_REQUEST_TOKEN_CAP``：長對話切段（最多同時 ``MAX_PARALLEL_CHUNKS``
     段），只摘要最新的 ``SUMMARY_TOTAL_TOKEN_CAP``，更早的留一行來源註記。任何一段失敗整份回 None。
@@ -217,7 +229,7 @@ async def summarize_dialogue(
     async def one(index: int, chunk: str) -> str | None:
         async with gate:
             user = f"{prefix}{chunk}" if index == 0 else chunk
-            return await _complete_text(identity, model, system, user, max_tokens)
+            return await _complete_text(identity, model, system, user, max_tokens, on_failure)
 
     texts = await asyncio.gather(*(one(i, chunk) for i, chunk in enumerate(chunks)))
     if any(text is None for text in texts):

@@ -362,6 +362,19 @@ async def test_previous_entry_is_capped(monkeypatch):
     assert estimate_tokens(user) <= ds.PREVIOUS_MAX_TOKENS + 200
 
 
+async def test_the_reason_of_a_failure_is_told_to_the_caller(monkeypatch):
+    async def refused(*_args, **_kwargs):
+        return CompletionResult(
+            text="", usage={}, cost_usd=0.0, stop_reason="refusal",
+            error=CompletionError("refusal", "refusal", "x"),
+        )
+
+    monkeypatch.setattr(_COMPLETE, refused)
+    seen: list[str] = []
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    assert seen == ["refusal"]
+
+
 async def test_prompts_state_the_output_length(monkeypatch):
     """指示寫明輸出長度，減少寫到一半被截斷（審查 F6、F7）."""
     rec = _Recorder()
