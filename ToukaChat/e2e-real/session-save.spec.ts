@@ -193,6 +193,9 @@ test("換家之後在舊家送出會被擋、模型沒收到，新家照常；�
   const first = await latestSessionId(adminToken);
   await setChatAsHome(page, "第一段");
   await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
+  // 當家時聊過才算用過（沒用過的第一個家換走會回到普通對話，ADR-0306）
+  await openHome(page, "第一段");
+  await send(page, "第一段：當家時");
 
   await newChatWith(page, soul);
   await send(page, "第二段");

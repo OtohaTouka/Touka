@@ -14,7 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
 from memory_server.models.conversation_search import ConversationPage, ConversationSearchError
@@ -325,28 +325,31 @@ def _check_session_write(
             row["agent_id"] = existing["agent_id"]
 
 
-async def _may_use_session(
+async def _session_access(
     db: aiosqlite.Connection, session_id: str, requester: AgentIdentity
-) -> bool:
-    """請求者能不能在這段對話開新的一輪；只回是或否，不丟權限錯誤.
+) -> Literal["save", "soul"] | None:
+    """請求者能不能在這段對話開新的一輪；不丟權限錯誤.
 
-    和存檔同一套檢查；另外能驅動這段對話（正規化後）的靈魂也算：舊前綴的列擁有者逐字比對
-    會失敗，後面各層卻會正規化前綴後代打寫入（第 2 輪審查 K5）。
+    - ``"save"``：通過和存檔同一套檢查，這一輪存得進去。
+    - ``"soul"``：只是能驅動這段對話（前綴正規化後）的靈魂：舊前綴的列擁有者逐字比對會失敗，
+      後面各層卻會正規化前綴後放行（第 2 輪審查 K5）；DebugAgent、代打別的靈魂也是這種。
+    - ``None``：都不行。
     """
     row = await _strict_session_row(db, session_id)
     if row is None:
-        return False
+        return None
     try:
         _check_session_write(row, dict(row), requester)
     except ToukaException:
         bound = _canonical_session_agent(row["agent_id"])
         passport = agent_service.identify_agent(bound) if bound else None
-        return bool(
+        drives = bool(
             passport
             and passport["is_toukasoul"]
             and can_drive_soul(requester, AgentIdentity(agent_id=passport["agent_id"]))
         )
-    return True
+        return "soul" if drives else None
+    return "save"
 
 
 async def _has_table(db: aiosqlite.Connection, name: str) -> bool:
@@ -664,7 +667,7 @@ class SessionService:
                     return _persistence_rejected()
                 if row is None and not {"title", "messages"}.issubset(changes.model_fields_set):
                     return _persistence_rejected()
-                # 交接開始後舊家唯讀（第二段，含完成與失敗）：所有內容寫入都擋（ADR-0306）
+                # 交接開始後舊家唯讀（第二段，看最新一筆有效紀錄）：內容寫入都擋（ADR-0306）
                 if row is not None and await home_transitions.handover_started(db, session_id):
                     return _persistence_rejected(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
                 updated = _apply_session_changes(session_id, row, changes, identity)
@@ -1249,10 +1252,13 @@ class SessionService:
                 )
                 if not (old or fresh):
                     return False
-                if requester is not None and not await _may_use_session(
-                    db, session_id, requester
-                ):
-                    return False
+                if requester is not None:
+                    access = await _session_access(db, session_id, requester)
+                    if access is None:
+                        return False
+                    # 存不進新家的（DebugAgent、代打別的靈魂的非人類身分）不記開始用：
+                    # 不是事實，人工測試也不該改到別的靈魂的紀錄（第 3 輪審查 L6）
+                    fresh = fresh and (access == "save" or requester.is_human)
                 if fresh:
                     await db.execute("BEGIN IMMEDIATE")
                     await home_transitions.mark_started(db, session_id, get_current_epoch_ms())

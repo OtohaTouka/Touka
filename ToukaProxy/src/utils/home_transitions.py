@@ -12,7 +12,9 @@
   不擋刪除，ADR-0276／0277）。
 - 「是不是舊家」由紀錄推導：某筆有效、沒取消的紀錄的舊家，而且現在不是家。
 - ``old_handled_by``：「舊家已由第 n 筆交接」的紀錄只記新家是誰（2b 交接時只寫換家標記），
-  不讓舊家多算一次舊家，也不擋刪除。
+  不讓舊家多算一次舊家，也不擋刪除。沒有可改指的紀錄時設家（第一個家、舊家已交接完或正在交接
+  又設回它）也記一筆，舊家＝新家、n 指那筆交接或 0（沒有前任）：新家有沒有用過照記，沒用過就
+  離開時取消或改指，不建新的交接（第 3 輪審查 L2）。
 - 時間一律 epoch 毫秒，由呼叫端給。
 """
 
@@ -34,6 +36,8 @@ RUNNING = "running"
 DONE = "done"
 CANCELLED = "cancelled"
 FAILED = "failed"
+# 只記新家的紀錄沒有前任可指（第一個家、舊家已交接完）：old_handled_by 填 0（編號從 1 開始）
+NO_PREDECESSOR = 0
 
 _CREATE_TRANSITIONS = (
     "CREATE TABLE IF NOT EXISTS soul_home_transitions ("
@@ -75,18 +79,19 @@ _SET_STATUS = "UPDATE soul_home_transitions SET status = ?, updated_at = ? WHERE
 _UNUSED_FOR_NEW = (
     "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
     "WHERE agent_id = ? AND scope_version = 1 AND status = 'pending' AND new_started = 0 "
-    "AND new_session = ? ORDER BY id"
+    "AND step = 0 AND new_session = ? ORDER BY id"
 )
 # 取消家之後、還沒開始交接、還沒有新家的紀錄（既有資料有兩個家時會有兩筆，一起改指新家）
 _UNHOMED_WAITING = (
     "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
-    "WHERE agent_id = ? AND scope_version = 1 AND status = 'pending' AND new_session IS NULL "
-    "AND old_handled_by IS NULL ORDER BY id"
+    "WHERE agent_id = ? AND scope_version = 1 AND status = 'pending' AND step = 0 "
+    "AND new_session IS NULL AND old_handled_by IS NULL ORDER BY id"
 )
-# 交接中或失敗（失敗的會再試、仍算舊家）
+# 交接已開始的（交接中、失敗會再試、做到某一步又回到待交接），都仍算舊家
 _LATEST_UNHOMED_STARTED = (
     "SELECT id, old_session, new_session, old_handled_by FROM soul_home_transitions "
-    "WHERE agent_id = ? AND scope_version = 1 AND status IN ('running', 'failed') "
+    "WHERE agent_id = ? AND scope_version = 1 "
+    "AND (status IN ('running', 'failed') OR (status = 'pending' AND step > 0)) "
     "AND new_session IS NULL AND old_handled_by IS NULL ORDER BY id DESC LIMIT 1"
 )
 # 開始用只記在「新家目前就是家」的紀錄上：已經回到普通對話的那段不算
@@ -113,16 +118,17 @@ _BLOCKS_DELETE = (
     "AND s.is_home = 0 AND t.old_session = ? "
     "AND (t.status IN ('pending', 'running', 'failed') OR t.retired_summary_pending = 1) LIMIT 1"
 )
-# 交接已開始：交接中，或已經做到某一步（之後重試回到待交接也算）；完成或失敗只看這段舊家
-# 最新一筆有效紀錄（以前那一任交接完、回任用過再換走時，這一任還沒開始）
+# 交接已開始：這段舊家最新一筆有效紀錄是交接中、完成、失敗，或已經做到某一步（重試回到
+# 待交接也算）。只看最新一筆：以前那一任或較早那筆還在交接、這段回任用過再換走時，這一任
+# 還沒開始（較早那筆與新內容的一致性交給 2b 開始交接前等收尾保存，第 3 輪審查 L1）
 _HANDOVER_STARTED = (
     "SELECT 1 FROM soul_home_transitions t JOIN user_sessions s ON s.id = t.old_session "
     "WHERE t.scope_version = 1 AND t.status != 'cancelled' AND t.old_handled_by IS NULL "
     "AND s.is_home = 0 AND t.old_session = ? "
-    "AND (t.status = 'running' OR (t.status = 'pending' AND t.step > 0) "
-    "OR (t.status IN ('done', 'failed') AND t.id = (SELECT MAX(u.id) "
-    "FROM soul_home_transitions u WHERE u.old_session = t.old_session "
-    "AND u.scope_version = 1 AND u.status != 'cancelled' AND u.old_handled_by IS NULL))) LIMIT 1"
+    "AND (t.status IN ('running', 'done', 'failed') OR t.step > 0) "
+    "AND t.id = (SELECT MAX(u.id) FROM soul_home_transitions u "
+    "WHERE u.old_session = t.old_session AND u.scope_version = 1 "
+    "AND u.status != 'cancelled' AND u.old_handled_by IS NULL) LIMIT 1"
 )
 _ALL_OLD_HOMES = (
     "SELECT DISTINCT t.old_session FROM soul_home_transitions t "
@@ -204,24 +210,39 @@ async def _insert(
 
 
 async def _retarget(db: aiosqlite.Connection, record: _Record, new: str | None, now: int) -> None:
-    """還沒開始用的那一筆改指新家；改成沒有新家、或改回舊家本身時取消（當沒換過）."""
-    if new == record.old_session or (new is None and record.old_handled_by is not None):
+    """還沒開始用的那一筆改指新家；當沒換過時取消.
+
+    - 交接紀錄改回舊家本身：舊家恢復成家（它本來就用過），取消。
+    - 只記新家的紀錄改成沒有新家：取消；改回它記的那段（舊家＝新家）：照樣只記新家，繼續追蹤
+      那段有沒有用過。
+    """
+    noted = record.old_handled_by is not None
+    if (not noted and new == record.old_session) or (noted and new is None):
         await db.execute(_SET_STATUS, (CANCELLED, now, record.id))
     else:
         await db.execute(_SET_NEW, (new, now, record.id))
 
 
 async def _attach_to_unhomed(db: aiosqlite.Connection, agent: str, target: str, now: int) -> None:
-    """沒有家時設家：取消家之後還沒開始交接的紀錄改指新家；交接中或失敗的另加一筆只記新家."""
+    """沒有家時設家.
+
+    - 取消家之後還沒開始交接的紀錄改指新家（設回那段舊家本身則取消）；
+    - 交接已開始的另加一筆只記新家；
+    - 新家沒被上面任何一筆追蹤（第一個家、舊家已交接完、設回的正是交接中的那段）：記一筆舊家＝
+      新家的只記新家，沒用過就離開時當沒換過（第 3 輪審查 L2、K6）。
+    """
     cursor = await db.execute(_UNHOMED_WAITING, (agent,))
     waiting = [_Record(row[0], row[1], row[2], row[3]) for row in await cursor.fetchall()]
     for record in waiting:
         await _retarget(db, record, target, now)
-    if waiting:
-        return
     started = await _one(db, _LATEST_UNHOMED_STARTED, (agent,))
     if started is not None and started.old_session != target:
         await _insert(db, agent, started.old_session, target, now, handled_by=started.id)
+        return
+    if waiting:  # 改指了新家，或改回本來用過的家
+        return
+    handled_by = started.id if started is not None else NO_PREDECESSOR
+    await _insert(db, agent, target, target, now, handled_by=handled_by)
 
 
 async def apply_home_change(
@@ -287,7 +308,10 @@ async def blocks_delete(db: aiosqlite.Connection, session_id: str) -> bool:
 
 
 async def handover_started(db: aiosqlite.Connection, session_id: str) -> bool:
-    """交接已經開始（含完成、失敗）：存檔閘擋所有內容寫入（唯讀第二段）."""
+    """交接已經開始：存檔閘擋所有內容寫入（唯讀第二段）.
+
+    看這段舊家最新一筆有效紀錄：交接中、完成、失敗或做到某一步。
+    """
     return await _exists(db, _HANDOVER_STARTED, session_id)
 
 

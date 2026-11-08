@@ -64,6 +64,7 @@ async def moved(scope_db):
     await seed("A", tree=WAITING_TREE)
     await seed("B", tree=WAITING_TREE)
     assert await service.set_home("A", A, True)
+    await service.check_old_home("A", mark_started=True, requester=None)  # A 當家時用過
     assert await service.set_home("B", A, True)
 
 
@@ -176,9 +177,23 @@ async def test_a_legacy_prefixed_old_home_is_refused_to_whoever_can_drive_the_so
         )
         await db.commit()
     assert await service.set_home("legacy", A, True)
+    await service.check_old_home("legacy", mark_started=True, requester=None)
     assert await service.set_home("new", A, True)
     assert await service.check_old_home("legacy", mark_started=False, requester=caller)
     assert not await service.check_old_home("legacy", mark_started=False, requester=OUTSIDER)
+
+
+@pytest.mark.usefixtures("moved")
+async def test_only_a_caller_whose_turn_is_saved_marks_the_new_home_started():
+    """DebugAgent、代打別的靈魂的非人類身分存不進新家：不記開始用，人工測試也不改到別的靈魂的
+    紀錄；舊家照樣擋（第 3 輪審查 L6）."""
+    agent_admin = AgentIdentity(agent_id="ScopeB", human_role="admin", is_human=False)
+    for caller in (DEBUG, agent_admin):
+        assert not await service.check_old_home("B", mark_started=True, requester=caller)
+        assert await started("B") == [0]
+        assert await service.check_old_home("A", mark_started=True, requester=caller)
+    assert not await service.check_old_home("B", mark_started=True, requester=HUMAN)
+    assert await started("B") == [1]
 
 
 @pytest.mark.usefixtures("moved")
@@ -359,6 +374,7 @@ async def create_home(sid):
 async def test_heartbeat_home_creation_follows_the_records():
     await seed("A")
     assert await service.set_home("A", A, True)
+    await service.check_old_home("A", mark_started=True, requester=None)
     assert await service.set_home("A", A, False)
     assert (await create_home("D")).status == "saved"
     assert await started("D") == [0]

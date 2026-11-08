@@ -182,6 +182,7 @@ async def test_heartbeat_keeps_writing_after_home_moves_and_skips_the_end_trim(m
     await seed("chat")
     await seed("other")
     assert await service.set_home("chat", A, True)
+    await service.check_old_home("chat", mark_started=True, requester=None)  # /awaken 記的
 
     async def body():
         assert await service.set_home("other", A, True)  # 心跳跑到一半換家

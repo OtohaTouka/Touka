@@ -43,7 +43,7 @@ OLD_HOME_HISTORY_SOURCE = "old_home_pending_handover"
 # 滑動視窗把這些當成剪不掉的部分，沒有上限時新家每一輪都被剪到最少（ADR-0306 審查 J5）
 OLD_HOME_TOKEN_BUDGET = 8000
 OLD_HOME_OMITTED_NOTE = "（這段舊家前面還有 {count} 則，原文留在舊家）"
-OLD_HOME_SKIPPED_NOTE = "（這段舊家有 {count} 則，放不下沒有帶，原文留在舊家）"
+OLD_HOME_SKIPPED_NOTE = "（另有 {homes} 段舊家共 {count} 則沒有帶，原文留在舊家）"
 
 
 def _as_identity(identity: str | AgentIdentity) -> AgentIdentity:
@@ -148,21 +148,36 @@ def _old_home_tails(
     return tails[::-1]
 
 
-def _old_home_block(msgs: list[dict[str, Any]], omitted: int) -> list[dict[str, Any]]:
-    """舊家尾端：每則標時間，省略過時第一則前面寫一行說明，再包歷史資料界線.
-
-    一則都放不下時只送一行說明（使用者角色），新家仍知道有這段舊家。
-    """
-    if not msgs:
-        note = OLD_HOME_SKIPPED_NOTE.format(count=omitted)
-        return _mark_home_history(
-            [{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE
-        )
+def _old_home_block(
+    msgs: list[dict[str, Any]], omitted: int, skipped_note: str | None = None
+) -> list[dict[str, Any]]:
+    """舊家尾端：每則標時間，第一則前面寫說明（另有幾段沒帶、這段前面還有幾則），再包歷史資料界線."""
     stamped = _stamp_times(msgs)
-    if omitted:
-        note = OLD_HOME_OMITTED_NOTE.format(count=omitted)
+    omitted_note = OLD_HOME_OMITTED_NOTE.format(count=omitted) if omitted else None
+    note = "".join(text for text in (skipped_note, omitted_note) if text)
+    if note:
         stamped[0] = {**stamped[0], "content": _add_text(stamped[0]["content"], note, before=True)}
     return _mark_home_history(stamped, source=OLD_HOME_HISTORY_SOURCE)
+
+
+def _old_home_blocks(old_homes: Sequence[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
+    """還沒交接完的舊家各包一塊（照原順序）.
+
+    一則都帶不進去的那幾段合成一行說明，併進第一塊開頭；全部帶不進去時單獨送一則（使用者角色、
+    在界線裡）。新家仍知道有那些舊家，也不多出連續的使用者訊息（第 3 輪審查 L5）。
+    """
+    tails = _old_home_tails(old_homes)
+    skipped = [omitted for msgs, omitted in tails if not msgs and omitted]
+    note = OLD_HOME_SKIPPED_NOTE.format(homes=len(skipped), count=sum(skipped)) if skipped else None
+    blocks = []
+    for msgs, omitted in tails:
+        if msgs:
+            blocks.append(_old_home_block(msgs, omitted, None if blocks else note))
+    if note and not blocks:
+        blocks.append(
+            _mark_home_history([{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE)
+        )
+    return blocks
 
 
 def _mark_home_history(
@@ -500,8 +515,7 @@ class SoulService:
             identity = AgentIdentity(agent_id=identity)
 
         agent_id = identity.agent_id
-        tails = _old_home_tails(old_homes)
-        blocks = [_old_home_block(msgs, omitted) for msgs, omitted in tails if msgs or omitted]
+        blocks = _old_home_blocks(old_homes)
         if home_messages:  # 先標時間再包界線：時間在界線裡面
             blocks.append(
                 _mark_home_history(_stamp_times(home_messages) if stamp_times else home_messages)

@@ -394,7 +394,8 @@ async def test_text_length_over_http(buffer, queue):
 
 async def test_incognito_interjections_stay_in_memory_only(buffer, queue, monkeypatch):
     database = AsyncMock(side_effect=_DB_FORBIDDEN)
-    for name in ("get_session_by_id", "read_persistence_snapshot", "upsert_session"):
+    # 舊家檢查也算碰資料庫：無痕串流不查（共同入口已擋在舊家開新的一輪，第 3 輪審查 L7）
+    for name in ("get_session_by_id", "read_persistence_snapshot", "upsert_session", "is_old_home"):
         monkeypatch.setattr(session_service, name, database)
     entry = await _stream(buffer, _OWNER, "incognito-sess")
     created = await _call(_OWNER, "POST", entry.session_id, entry.stream_id)

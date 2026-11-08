@@ -67,6 +67,8 @@ async def _home_and_prelude(scope_db, monkeypatch):  # noqa: ARG001 — 先建�
     await seed("home", tree=HOME_TREE)
     await seed("child", context_summary="子對話自己的舊摘要")
     assert await async_db.session_service.set_home("home", A, True)
+    # 家用過（換走之後才是舊家；沒用過的第一個家換走會回到普通對話，ADR-0306）
+    await async_db.session_service.check_old_home("home", mark_started=True, requester=None)
     await db_mod.insert_segment(
         PreludeSegment(
             agent=A.agent_id,
@@ -530,19 +532,55 @@ async def test_the_first_message_sent_is_always_the_users(monkeypatch, budget):
     assert _field(tail, "role") == "user"
 
 
-async def test_an_old_home_too_long_for_the_budget_still_leaves_a_note(monkeypatch):
-    """最後一則就放不下：那段改送一行說明（在界線裡），不讓新家完全不知道有舊家（K4）."""
+async def test_old_homes_too_long_for_the_budget_still_leave_one_note(monkeypatch):
+    """一則都帶不進去：只送一行說明（在界線裡、使用者角色），不是每段一則（K4、第 3 輪 L5）."""
     monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", 20)
-    await _long_old_home_then_new(4)
+    await _long_old_home_then_new(4)  # 舊家依序：home（2 則）、long（4 則）
     request = _request()
     await mainline_service.inject_mainline(request, A, mode="chat", session_id="new")
     sent = [m for m in request.messages if _field(m, "role") != "system"]
     joined = "\n".join(_dialogue(request))
     assert "長舊家" not in joined
-    assert "4 則" in joined and "原文留在舊家" in joined
-    assert joined.index(OLD_SOURCE) < joined.index("4 則")
+    notes = [m for m in sent if "原文留在舊家" in str(_field(m, "content"))]
+    assert len(notes) == 1
+    assert "2 段" in str(_field(notes[0], "content"))
+    assert "6 則" in str(_field(notes[0], "content"))
+    assert joined.index(OLD_SOURCE) < joined.index("2 段")
     assert _field(sent[0], "role") == "user"
     assert _dialogue(request)[-1] == "這一輪"
+
+
+async def test_the_note_for_skipped_old_homes_rides_on_the_first_one_sent(monkeypatch):
+    """較舊那段放不下：說明併進第一段帶得進去的舊家開頭，不自成一則（第 3 輪審查 L5）."""
+    monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", 400)
+    await _long_old_home_then_new()
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="new")
+    sent = [m for m in request.messages if _field(m, "role") != "system"]
+    first = str(_field(sent[0], "content"))
+    assert _field(sent[0], "role") == "user"
+    assert "另有 1 段" in first and "2 則" in first and "長舊家" in first
+    assert first.index(OLD_SOURCE) < first.index("另有")
+    assert sum("原文留在舊家" in str(_field(m, "content")) for m in sent) == 1
+
+
+async def test_the_note_is_added_once_even_when_several_old_homes_are_sent(monkeypatch):
+    """兩段帶得進去、一段帶不進去：說明只加在第一段開頭一次（第 3 輪審查 L5）."""
+    monkeypatch.setattr(soul_service_module, "OLD_HOME_TOKEN_BUDGET", 400)
+    await seed("long", tree=_long_tree(60))
+    assert await async_db.session_service.set_home("long", A, True)
+    await async_db.session_service.check_old_home("long", mark_started=True, requester=None)
+    await seed("short", tree=_long_tree(4))
+    assert await async_db.session_service.set_home("short", A, True)
+    await async_db.session_service.check_old_home("short", mark_started=True, requester=None)
+    await _move_home_to_new()  # 舊家依序：home（帶不進去）、long（只帶尾端）、short（整段）
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="new")
+    sent = [m for m in request.messages if _field(m, "role") != "system"]
+    joined = "\n".join(_dialogue(request))
+    assert joined.count(OLD_SOURCE) == 2
+    assert joined.count("另有 1 段") == 1
+    assert "另有 1 段" in str(_field(sent[0], "content"))
 
 
 async def test_a_finished_handover_no_longer_sends_the_old_home():

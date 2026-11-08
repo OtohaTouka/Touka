@@ -281,6 +281,7 @@ async def _move_home():
     await seed("A")
     await seed("B")
     assert await async_db.session_service.set_home("A", A, True)
+    await async_db.session_service.check_old_home("A", mark_started=True, requester=None)
     assert await async_db.session_service.set_home("B", A, True)
 
 
@@ -326,6 +327,7 @@ async def test_home_heartbeat_marks_the_new_home_started():
 async def test_home_heartbeat_without_a_home_creates_one_through_the_records():
     await seed("A")
     assert await async_db.session_service.set_home("A", A, True)
+    await async_db.session_service.check_old_home("A", mark_started=True, requester=None)
     assert await async_db.session_service.set_home("A", A, False)
     result, _tasks = await awaken(A, session_id="home")
     created = result["session_id"]
@@ -368,7 +370,8 @@ async def test_retrigger_on_an_unused_new_home_marks_it_started():
 
 
 async def test_the_default_heartbeat_channel_is_checked_too():
-    """既有資料裡頻道當過家、已經換走：預設頻道那一支也不在裡面開新的一輪（審查 J7）."""
+    """防線：頻道若有舊家紀錄（現在離開頻道家不建紀錄，這裡直接寫一筆），預設頻道那一支也不
+    在裡面開新的一輪（審查 J7、第 2 輪 K7）."""
     channel = await async_db.session_service.open_channel_session("heartbeat", A, title="Pulse")
     async with async_db.get_async_db() as db:
         await db.execute(

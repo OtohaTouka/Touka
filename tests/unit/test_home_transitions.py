@@ -61,10 +61,21 @@ async def seed_all(*sids):
         await seed(sid)
 
 
+async def legacy_homes(*sids):
+    """升級前就是家（沒有任何紀錄、算用過的家）：直接改資料."""
+    async with async_db.get_async_db() as db:
+        for sid in sids:
+            await db.execute(
+                "UPDATE user_sessions SET is_home = 1, home_for_agent = ? WHERE id = ?",
+                (A.agent_id, sid),
+            )
+        await db.commit()
+
+
 @pytest.fixture
 async def home_a():
     await seed_all("A", "B", "C", "D")
-    assert await service.set_home("A", A, True)
+    await legacy_homes("A")
     assert await records() == []
 
 
@@ -125,17 +136,38 @@ async def test_unsetting_an_unused_new_home_leaves_old_to_nothing(home_a):
     assert await homes() == []
 
 
-async def test_unsetting_the_first_home_ever_makes_it_an_old_home_even_if_unused():
-    """原本沒有家時設 X 又馬上取消：照狀態對照表「家 A 取消家 → A→無」，X 成為舊家；
-    設回家就能繼續（第 2 輪審查 K6，寫在 ADR-0306 已知限制）."""
+async def test_the_first_home_ever_is_noted_so_an_unused_one_can_be_undone():
+    """原本沒有家時設 X：記一筆只記新家（沒有前任，第 0 筆）；沒用過就取消家當沒換過，
+    X 回到普通對話（第 3 輪審查 K6 乙、L2）."""
     await seed_all("X")
     assert await service.set_home("X", A, True)
-    assert await records() == []
-    assert await service.set_home("X", A, False)
-    assert await records() == [("X", None, 0, "pending", None)]
-    assert await service.is_old_home("X")
-    assert await service.set_home("X", A, True)
+    assert await records() == [("X", "X", 0, "pending", 0)]
     assert not await service.is_old_home("X")
+    assert await service.set_home("X", A, False)
+    assert await records() == [("X", "X", 0, "cancelled", 0)]
+    assert not await service.is_old_home("X")
+    assert await homes() == []
+
+
+async def test_an_unused_first_home_moved_elsewhere_goes_back_to_an_ordinary_chat():
+    await seed_all("X", "Y")
+    assert await service.set_home("X", A, True)
+    assert await service.set_home("Y", A, True)
+    assert await records() == [("X", "Y", 0, "pending", 0)]
+    assert not await service.is_old_home("X")
+    assert await service.set_home("X", A, True)  # Y 也沒用過：改回 X，X 照樣只記新家
+    assert await records() == [("X", "X", 0, "pending", 0)]
+    assert await service.set_home("X", A, False)
+    assert not await service.is_old_home("X")
+
+
+async def test_a_used_first_home_becomes_an_old_home():
+    await seed_all("X", "Y")
+    assert await service.set_home("X", A, True)
+    await start("X")
+    assert await service.set_home("Y", A, True)
+    assert await records() == [("X", "X", 1, "pending", 0), ("X", "Y", 0, "pending", None)]
+    assert await service.is_old_home("X")
 
 
 async def test_unsetting_a_segment_that_is_not_the_home_changes_nothing(home_a):
@@ -180,12 +212,76 @@ async def test_picking_a_home_after_the_unset_handover_failed_only_notes_the_new
     assert await records() == [("A", None, 0, "failed", None), ("A", "D", 0, "pending", 1)]
 
 
-async def test_the_old_home_returning_while_its_unset_handover_runs_adds_nothing(home_a):
+async def test_the_old_home_returning_while_its_unset_handover_runs_is_only_noted(home_a):
+    """交接中的舊家回任：不加新的交接，只記一筆「只記新家」追蹤有沒有用過（第 3 輪審查 L2）."""
     assert await service.set_home("A", A, False)
     await set_status(1, "running")
     assert await service.set_home("A", A, True)
-    assert await records() == [("A", None, 0, "running", None)]
+    assert await records() == [("A", None, 0, "running", None), ("A", "A", 0, "pending", 1)]
     assert not await service.is_old_home("A")
+
+
+@pytest.mark.parametrize("status", ["running", "failed", "done"])
+@pytest.mark.parametrize("leave", ["unset", "move"])
+async def test_an_old_home_back_from_no_home_and_left_unused_adds_no_handover(
+    home_a, status, leave
+):
+    """取消家後交接已開始或完成，設回舊家但沒用過就離開：不建新的交接，照舊唯讀（L2）."""
+    assert await service.set_home("A", A, False)
+    await set_status(1, status)
+    assert await service.set_home("A", A, True)
+    if leave == "unset":
+        assert await service.set_home("A", A, False)
+    else:
+        assert await service.set_home("C", A, True)
+    real = [r for r in await records() if r[4] is None]
+    assert real == [("A", None, 0, status, None)]
+    assert await service.is_old_home("A")
+    async with async_db.get_async_db() as db:
+        assert await async_db.home_transitions.handover_started(db, "A")
+        assert await async_db.home_transitions.unfinished_old_homes(db, A.agent_id) == (
+            [] if status == "done" else ["A"]
+        )
+
+
+async def test_an_old_home_back_from_no_home_and_used_starts_a_new_tenure(home_a):
+    assert await service.set_home("A", A, False)
+    await set_status(1, "done")
+    assert await service.set_home("A", A, True)
+    await start("A")
+    assert await service.set_home("A", A, False)
+    assert [r for r in await records() if r[4] is None] == [
+        ("A", None, 0, "done", None),
+        ("A", None, 0, "pending", None),
+    ]
+    async with async_db.get_async_db() as db:
+        assert not await async_db.home_transitions.handover_started(db, "A")
+
+
+async def test_a_handover_that_took_a_step_is_not_undone_by_picking_the_old_home(home_a):
+    """做到某一步、重試回到待交接的紀錄算已開始：設回舊家不取消它（第 3 輪審查 L3）."""
+    assert await service.set_home("A", A, False)
+    await set_status(1, "pending", step=2)
+    assert await service.set_home("A", A, True)
+    assert await records() == [("A", None, 0, "pending", None), ("A", "A", 0, "pending", 1)]
+    assert await service.set_home("A", A, False)
+    assert await service.set_home("D", A, True)
+    assert [r for r in await records() if r[4] is None] == [("A", None, 0, "pending", None)]
+
+
+async def test_a_waiting_and_a_started_unset_record_both_reach_the_next_home():
+    """兩個家：一筆已開始交接、一筆等待中時設家，等待的改指新家，已開始的另記新家（L4）."""
+    await seed_all("A", "B", "D")
+    await legacy_homes("A", "B")
+    assert await service.set_home("A", A, False)
+    await set_status(1, "running")
+    assert await service.set_home("B", A, False)
+    assert await service.set_home("D", A, True)
+    assert await records() == [
+        ("A", None, 0, "running", None),
+        ("B", "D", 0, "pending", None),
+        ("A", "D", 0, "pending", 1),
+    ]
 
 
 async def test_unsetting_an_unused_noted_home_cancels_the_note(home_a):
@@ -206,12 +302,7 @@ async def test_a_handed_over_home_coming_back_queues_the_current_home(home_a):
 
 async def test_two_existing_homes_each_get_a_record():
     await seed_all("A", "B", "X")
-    async with async_db.get_async_db() as db:
-        await db.execute(
-            "UPDATE user_sessions SET is_home = 1, home_for_agent = ? WHERE id IN ('A', 'B')",
-            (A.agent_id,),
-        )
-        await db.commit()
+    await legacy_homes("A", "B")
     assert await service.set_home("X", A, True)
     assert await records() == [("A", "X", 0, "pending", None), ("B", "X", 0, "pending", None)]
     assert await homes() == ["X"]
@@ -267,7 +358,7 @@ async def test_leaving_a_channel_that_was_made_home_before_leaves_no_record(chan
     await seed_all("X")
     await legacy_channel_home(channel)
     assert await service.set_home("X", A, True)
-    assert await records() == []
+    assert await records() == [("X", "X", 0, "pending", 0)]  # 頻道沒有紀錄；X 當第一個家記
     assert not await service.is_old_home(channel)
     assert await homes() == ["X"]
 
@@ -294,8 +385,8 @@ async def test_records_are_per_soul():
     await seed("B2", identity=B)
     assert await service.set_home("A1", A, True)
     assert await service.set_home("B1", B, True)
-    assert await service.set_home("A2", A, True)
-    assert await records() == [("A1", "A2", 0, "pending", None)]
+    assert await service.set_home("A2", A, True)  # A1 沒用過：那筆只記新家改指 A2
+    assert await records() == [("A1", "A2", 0, "pending", 0), ("B1", "B1", 0, "pending", 0)]
     assert await homes() == ["A2", "B1"]
 
 
@@ -378,16 +469,34 @@ async def test_coming_back_unused_keeps_the_finished_tenure_read_only(home_a, ea
         assert await async_db.home_transitions.handover_started(db, "A")
 
 
-async def test_an_earlier_record_still_running_keeps_the_old_home_closed(home_a):
-    """較早的那筆正在交接（排在新的一筆前面）：照舊算交接已開始."""
+@pytest.mark.parametrize("earlier", [("running", 0), ("pending", 2), ("failed", 2)])
+async def test_an_earlier_record_still_running_does_not_close_the_new_tenure(home_a, earlier):
+    """較早那筆在交接（或做到某一步、失敗）、這段回任用過再換走：只看最新一筆，這一任的
+    收尾保存照舊（第 3 輪審查 L1；較早那筆的歸檔一致性交給 2b 開始前等收尾保存）."""
     assert await service.set_home("B", A, True)
     await start("B")
+    status, step = earlier
+    await set_status(1, status, step=step)
     assert await service.set_home("A", A, True)  # A→B 已開始用：保留，加 B→A
     await start("A")
     assert await service.set_home("C", A, True)  # 加 A→C
-    await set_status(1, "running")
     async with async_db.get_async_db() as db:
-        assert await async_db.home_transitions.handover_started(db, "A")
+        assert not await async_db.home_transitions.handover_started(db, "A")
+    snapshot = await service.read_persistence_snapshot("A", A)
+    result = await service.conditional_save_session(
+        "A", snapshot.revision, async_db.SessionChanges(title="收尾"), A
+    )
+    assert result.status == "saved"
+
+
+async def test_an_unset_handover_running_does_not_close_the_tenure_after_coming_back(home_a):
+    assert await service.set_home("A", A, False)
+    await set_status(1, "running")
+    assert await service.set_home("A", A, True)
+    await start("A")
+    assert await service.set_home("A", A, False)
+    async with async_db.get_async_db() as db:
+        assert not await async_db.home_transitions.handover_started(db, "A")
 
 
 async def test_deleting_a_later_home_keeps_the_earlier_old_home(home_a):
@@ -447,6 +556,7 @@ async def test_same_name_rebuild_invalidates_only_that_soul(home_a):
     await seed("B2", identity=B)
     assert await service.set_home("B", A, True)
     assert await service.set_home("B1", B, True)
+    await start("B1")
     assert await service.set_home("B2", B, True)
     await service.invalidate_agent_sessions(A)
     assert not await service.is_old_home("A")
@@ -518,7 +628,7 @@ async def test_purge_and_count_are_per_soul(home_a):
 
 async def test_upgrade_sets_report_marks_at_current_content_once(scope_db):
     await seed_all("home", "child")
-    assert await service.set_home("home", A, True)
+    await legacy_homes("home")
     async with async_db.get_async_db() as db:
         await db.execute("DROP TABLE soul_child_report_marks")
         await db.commit()
