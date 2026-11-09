@@ -1,3 +1,4 @@
+import { ERRORS } from '@/lib/error_codes';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
@@ -85,6 +86,14 @@ describe('刪除確認等待與失敗狀態', () => {
     await act(async () => finish({ status: 'unknown', error_code: 1302 }));
     expect(result.current.editingSessionId).toBe('a');
     expect(result.current.editTitle).toBe('draft');
+  });
+
+  it('舊家拒絕改名（ADR-0307）：關掉編輯器，不然輸入框關不掉、一直重送', async () => {
+    mocks.updateSessionTitle.mockResolvedValue({ status: 'failed', error_code: ERRORS.SESSION_OLD_HOME_READ_ONLY.id });
+    const { result } = renderHook(() => useSessionActions());
+    act(() => result.current.handleStartEdit({ id: 'a', title: 'draft', messages: [], updatedAt: 1 }));
+    await act(async () => { await result.current.handleSaveTitle('a'); });
+    expect(result.current.editingSessionId).toBeNull();
   });
 
   it('pending 不清 confirmation，雙按只送一次，失敗與原 timer 不隱藏確認', async () => {

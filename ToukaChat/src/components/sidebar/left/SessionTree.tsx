@@ -15,6 +15,8 @@ import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { isBusyStatus, mostUrgentStatus, type SessionWorkStatus } from '@/lib/session_activity';
 import { buildSessionTree, canSetHome, previewChildren, sessionSortTime } from '@/lib/session_tree';
+import { useHomeConfirm } from '@/hooks/useHomeConfirm';
+import { HomeConfirmDialog } from '@/components/chat/HomeConfirmDialog';
 import type { Session } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { SessionItem, type SessionTreeRowProps } from './SessionItem';
@@ -100,7 +102,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
   const { t } = useTranslation();
   const { sessions } = useSessionList();
   const { agents, agentsStatus } = useAgents();
-  const { activeSessionId, handleSetHome, handleSetProject, handleUnsetHome } = useChat();
+  const { activeSessionId, handleSetProject } = useChat();
+  const home = useHomeConfirm();
   const { statusOf, activityTimeOf } = useSessionActivity();
   const { projects } = useProjects();
   const sessionActions = useSessionActions();
@@ -235,8 +238,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
       onClearDeleteConfirm={sessionActions.clearDeleteConfirm}
       onExport={sessionActions.handleExport}
       onSplitExport={sessionActions.handleSplitExport}
-      onSetHome={handleSetHome}
-      onUnsetHome={handleUnsetHome}
+      onSetHome={home.askSetHome}
+      onUnsetHome={home.askUnsetHome}
       onSetProject={handleSetProject}
       {...extra}
     />
@@ -300,6 +303,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
           {otherNodes.map(renderNode)}
         </div>
       )}
+      <HomeConfirmDialog request={home.request} onCancel={home.cancel} onConfirm={home.confirm}
+        returnFocus={() => rootRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus()} />
     </div>
   );
 }

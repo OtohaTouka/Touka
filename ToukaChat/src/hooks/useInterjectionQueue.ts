@@ -56,6 +56,10 @@ export function useInterjectionQueue({ sessionId, streamId, requestScope }: Inte
           notifyHookBlocked(new ToukaApiError('', res.status, code, await getResponseDetailString(res, 'reason')));
           return null;
         }
+        if (code === 'SESSION_OLD_HOME_READ_ONLY') { // 舊家（ADR-0306）：不留佇列，回合結束才不會自動送出又被擋
+          toast.error(errorMsg(code));
+          return null;
+        }
         toast.error(await getErrorMessage(res));
       } catch (e) {
         logSSOTError(e, 'useInterjectionQueue:enqueue');

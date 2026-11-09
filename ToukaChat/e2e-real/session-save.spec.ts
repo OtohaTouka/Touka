@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminLogin, createSoul, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot } from "./lib/api";
+import { adminLogin, createSoul, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot, setChatHome } from "./lib/api";
 import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
 import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
@@ -62,6 +62,12 @@ async function openHome(page: Page, title: string): Promise<void> {
 async function newChatWith(page: Page, soul: string): Promise<void> {
   await page.getByRole("button", { name: "新增對話" }).click();
   await selectSoul(page, soul);
+}
+
+/** 舊家只能看（ADR-0306）：輸入框換成說明和「設為家」。 */
+async function expectOldHomeReadOnly(page: Page): Promise<void> {
+  await expect(page.getByTestId("old-home-notice")).toBeVisible();
+  await expect(composer(page)).toHaveCount(0);
 }
 
 /**
@@ -185,8 +191,8 @@ test("設為家之後改名，再送一則都正常", async ({ page }) => {
   expect(await savedUserTexts(id)).toContain("改名之後");
 });
 
-// 換家之後舊家唯讀（ADR-0306）：交接完成前在舊家送出，入口就擋下、模型沒收到
-test("換家之後在舊家送出會被擋、模型沒收到，新家照常；換回來之後另一段變成舊家", async ({ page }, info) => {
+// 換家之後舊家唯讀（ADR-0306）
+test("換家之後舊家變唯讀，新家照常；換回來之後另一段變成舊家", async ({ page }, info) => {
   const soul = "SaveOldHome";
   await useOwnSoul(page, soul);
   await send(page, "第一段");
@@ -207,8 +213,8 @@ test("換家之後在舊家送出會被擋、模型沒收到，新家照常；�
 
   // 第一段現在是舊家
   await clickChatInList(page, "第一段");
-  await expectOldHomeRefused(page, first, "第一段：換家之後");
-  await shot(page, info, "old-home-refused");
+  await expectOldHomeReadOnly(page);
+  await shot(page, info, "old-home-read-only");
 
   // 新家照常聊：從這一輪起新家算開始用了
   await openHome(page, "第二段");
@@ -223,7 +229,26 @@ test("換家之後在舊家送出會被擋、模型沒收到，新家照常；�
   await send(page, "第一段：換回來之後");
   expect(await savedUserTexts(first)).toContain("第一段：換回來之後");
   await clickChatInList(page, "第二段");
-  await expectOldHomeRefused(page, second, "第二段：換走之後");
+  await expectOldHomeReadOnly(page);
+});
+
+// 這一頁的清單還不知道換了家：畫面還有輸入框，送出要被擋下，文字放回去
+test("別的地方換了家、這一頁還不知道：送出被擋、模型沒收到", async ({ page }) => {
+  const soul = "SaveStaleHome";
+  await useOwnSoul(page, soul);
+  await send(page, "甲段");
+  const first = await latestSessionId(adminToken);
+  await setChatAsHome(page, "甲段");
+  await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
+  await openHome(page, "甲段");
+  await send(page, "甲段：當家時");
+
+  await newChatWith(page, soul);
+  await send(page, "乙段");
+  const second = await latestSessionId(adminToken);
+  await openHome(page, "甲段");
+  await setChatHome(adminToken, second, soul);
+  await expectOldHomeRefused(page, first, "甲段：換家之後");
 });
 
 // 資料夾那一列取最新的家標記，要換回比較舊的那段，舊標記沒清掉才看得出來

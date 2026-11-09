@@ -1351,6 +1351,7 @@
     "session_item": {
       "incognito_label": "Incognito conversation",
       "incognito_badge": "Incognito",
+      "old_home_badge": "Former home",
       "round_count": "{{count}} rounds",
       "session_options": "Session options: {{title}}",
       "export_conversation": "Export Conversation",
@@ -1377,6 +1378,13 @@
       "nav_settings": "Settings",
       "logout_confirm": "Log out?",
       "logout": "Log Out"
+    },
+    "failed_handovers_notice": {
+      "heading": "{{count}} former home handovers failed",
+      "heading_one": "{{count}} former home handover failed",
+      "heading_other": "{{count}} former home handovers failed",
+      "unknown": "Unknown",
+      "hint": "The former home is still there, and the handover will be tried again automatically."
     },
     "interrupted_runs_notice": {
       "retrigger_success": "Re-triggered the background task for {{agent}}",
@@ -1436,6 +1444,19 @@
     }
   },
   "chat": {
+    "old_home": {
+      "notice": "This was a home conversation before and is now read-only. Set it as home to continue it.",
+      "set_as_home": "Set as home"
+    },
+    "home_confirm": {
+      "set_title": "Make this conversation the home?",
+      "set_body": "The soul continues from here. The current home becomes a former home you can read but not continue; set it as home again to go back.",
+      "confirm_set": "Set as home",
+      "unset_title": "Stop using this conversation as home?",
+      "unset_body": "It becomes a former home you can read but not continue. A home that was never used goes back to an ordinary conversation. Set it as home again to go back.",
+      "confirm_unset": "Unset home",
+      "keep": "Not now"
+    },
     "message_item": {
       "copy_code": "Copy Code",
       "cancel": "Cancel",

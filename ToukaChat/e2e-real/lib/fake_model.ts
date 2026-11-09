@@ -17,6 +17,8 @@ export interface ModelCall {
   stream: boolean;
   lastRole: string;
   lastText: string;
+  /** 這次請求所有訊息的文字（看前情、舊家內容有沒有帶到）。 */
+  allText: string;
   tools: string[];
 }
 
@@ -130,6 +132,7 @@ export function createFakeModel(): http.Server {
         stream: Boolean(body.stream),
         lastRole: last.role ?? "",
         lastText: contentText(last.content),
+        allText: (body.messages ?? []).map((message) => contentText(message.content)).join("\n"),
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ?? []),
       };
       calls.push(call);

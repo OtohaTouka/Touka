@@ -38,6 +38,8 @@ interface MessageItemProps {
   onFeedback?: (id: string, type: 'up' | 'down' | 'none', reason?: string) => void;
   /** HAX G15：倒讚時請求填寫原因（開啟原因彈窗）。 */
   onRequestDislike?: (id: string) => void;
+  /** 舊家（ADR-0306）：只能看。改內容、切分支都不會存進去，畫面會和存檔不一致。 */
+  readOnly?: boolean;
 }
 
 export const MessageItem = React.memo(({
@@ -45,7 +47,7 @@ export const MessageItem = React.memo(({
   editingMessageId, setEditingMessageId, editValue, setEditValue,
   handleCopy, handleEditMessage, handleDeleteMessage,
   handleRegenerate, handleSwitchMessage, handleApplyCode,
-  feedback, onFeedback, onRequestDislike
+  feedback, onFeedback, onRequestDislike, readOnly = false
 }: MessageItemProps) => {
   const { t } = useTranslation();
   // 外觀打磨包：密度（聊天間距）與泡泡樣式（圓角/方角）。IDE 模式維持自身緊湊樣式不受密度影響。
@@ -155,7 +157,7 @@ export const MessageItem = React.memo(({
             </div>
           )}
           
-          {editingMessageId === msg.id ? (
+          {editingMessageId === msg.id && !readOnly ? (
             <div className="flex flex-col gap-3 w-full">
               <textarea 
                 value={editValue} 
@@ -248,15 +250,15 @@ export const MessageItem = React.memo(({
           </span>
           
           {/* WCAG 2.5.8（A4）：訊息操作鈕點擊區 ≥24px（p-1.5×2 + icon12 = 24） */}
-          {!isSending && editingMessageId !== msg.id && (
+          {!isSending && (editingMessageId !== msg.id || readOnly) && (
             <>
               <button onClick={() => handleCopy(msg.content)} className="p-1.5 text-muted-foreground hover:text-primary rounded-md" title={t('chat.message_item.copy')}>
                 <Copy size={12} />
               </button>
-              <button onClick={() => { setEditingMessageId(msg.id); setEditValue(msg.content); }} className="p-1.5 text-muted-foreground hover:text-primary rounded-md" title={t('chat.message_item.edit')}>
+              {!readOnly && <button onClick={() => { setEditingMessageId(msg.id); setEditValue(msg.content); }} className="p-1.5 text-muted-foreground hover:text-primary rounded-md" title={t('chat.message_item.edit')}>
                 <Edit size={12} />
-              </button>
-              {msg.role === 'assistant' && (
+              </button>}
+              {!readOnly && msg.role === 'assistant' && (
                 <button onClick={() => handleRegenerate(msg.id)} className="p-1.5 text-muted-foreground hover:text-primary rounded-md" title={t('chat.message_item.regenerate')}>
                   <RefreshCcw size={12} />
                 </button>
@@ -290,7 +292,7 @@ export const MessageItem = React.memo(({
                   </button>
                 </>
               )}
-              {canDelete && (
+              {!readOnly && canDelete && (
                 <button onClick={() => handleDeleteMessage(msg.id)} className="p-1.5 text-muted-foreground hover:text-status-error rounded-md" title={t('chat.message_item.delete_message_and_subsequent')}>
                   <Delete size={12} />
                 </button>
@@ -298,7 +300,7 @@ export const MessageItem = React.memo(({
             </>
           )}
 
-          {siblings.length > 1 && (
+          {!readOnly && siblings.length > 1 && (
             <div className="flex items-center gap-1 bg-muted/50 rounded-full px-1.5 py-0.5 border border-border ml-1">
               <button
                 disabled={currentBranchIdx <= 0}

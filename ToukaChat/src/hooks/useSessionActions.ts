@@ -10,7 +10,7 @@ import { getActiveProxyUrl, fetchTouka, captureRequestScope, isRequestScopeCurre
 import { migrateFlatToTree, MessageNode } from '@/lib/tree_history';
 import { getSystemEpoch, formatToTaipeiDate } from '@/lib/time_utils';
 import { logSSOTError, getErrorMessage, errorMsg } from '@/lib/error_handler';
-import { isSaved } from '@/lib/session_persistence';
+import { isOldHomeRefused, isSaved } from '@/lib/session_persistence';
 
 /**
  * Hook for session operations (SOLID: SRP, DIP)
@@ -77,7 +77,8 @@ export function useSessionActions() {
     pendingTitles.current.add(id);
     try {
       const result = await handleUpdateSessionTitle(id, editTitle);
-      if (isSaved(result)) setEditingSessionId(current => current === id ? null : current);
+      // 舊家交接開始後改不了名（ADR-0307）：標題已退回，輸入框要關，不然關不掉、一直重送
+      if (isSaved(result) || isOldHomeRefused(result)) setEditingSessionId(current => current === id ? null : current);
     } catch {
       toast.error(errorMsg('SESSION_SAVE_FAILED'), { id: 'session-sync-failed' });
     } finally {

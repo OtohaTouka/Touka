@@ -154,6 +154,8 @@ export interface Session {
     updatedAt: number;
     is_home?: boolean;
     home_for_agent?: string | null;
+    /** 舊家（ADR-0306）：後端由交接紀錄推導，只在對話清單有。只能看、不能再聊。 */
+    is_old_home?: boolean;
     agent_id?: string | null;
     project_id?: string | null;
     auth_level?: string;

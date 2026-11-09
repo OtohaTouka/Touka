@@ -22,22 +22,24 @@ interface ComposerParams {
   setInputValue: (value: string) => void;
   send: (text?: string, parentId?: string | null) => Promise<void>;
   stop: () => void;
+  /** 這段已經是舊家（ADR-0306）：回合結束不自動送出，文字放回輸入框，設回家就看得到。 */
+  oldHome?: boolean;
 }
 
 const appendText = (current: string, text: string) => (current ? `${current}\n${text}` : text);
 
 export function useInterjectionComposer(params: ComposerParams) {
-  const { sessionId, isSending, disabled, inputValue, setInputValue, send, stop } = params;
+  const { sessionId, isSending, disabled, inputValue, setInputValue, send, stop, oldHome = false } = params;
   const stream = useStreamRegistry().getStream(sessionId);
   const queue = useInterjectionQueue({
     sessionId, streamId: stream?.started?.stream_id, requestScope: stream?.requestScope ?? null,
   });
   const stoppedRef = useRef(false);
-  const latest = useRef({ inputValue, setInputValue, send, failed: false, sending: isSending, sessionId });
+  const latest = useRef({ inputValue, setInputValue, send, failed: false, sending: isSending, sessionId, oldHome });
   const lastAssistant = useRef<{ sessionId: string; id: string } | null>(null);
   useEffect(() => {
     latest.current = { inputValue, setInputValue, send, failed: stream?.status === 'error', sending: isSending,
-      sessionId };
+      sessionId, oldHome };
     if (stream?.assistantMsgId) lastAssistant.current = { sessionId, id: stream.assistantMsgId };
   });
 
@@ -88,7 +90,7 @@ export function useInterjectionComposer(params: ComposerParams) {
       return;
     }
     if (!was.isSending || isSending) return;
-    const interrupted = stoppedRef.current || latest.current.failed;
+    const interrupted = stoppedRef.current || latest.current.failed || latest.current.oldHome;
     stoppedRef.current = false;
     const text = joinUndeliveredText(useInterjectionStore.getState().take(sessionId));
     if (!text) return;
