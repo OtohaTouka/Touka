@@ -69,7 +69,9 @@ def test_the_input_reaches_the_script_only_through_the_environment() -> None:
     assert _job()["env"]["PATROL_RESULT"] == "${{ inputs.result }}"
 
 
-def _run(tmp_path: Path, result: str, existing: str = "") -> tuple[int, list[str]]:
+def _run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, result: str, existing: str = ""
+) -> tuple[int, list[str]]:
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("這條測試要 bash")
@@ -81,23 +83,22 @@ def _run(tmp_path: Path, result: str, existing: str = "") -> tuple[int, list[str
     log = tmp_path / "gh.log"
     script = tmp_path / "notify.sh"
     script.write_text("set -eu\n" + _script(), encoding="utf-8", newline="\n")
-    env = {
-        **os.environ,
-        "PATH": f"{fake}{os.pathsep}{os.environ['PATH']}",
-        "GH_LOG": str(log),
-        "GH_EXISTING_TITLE": existing,
-        "OWNER": "example-owner",
-        "PATROL_RESULT": result,
-    }
+    monkeypatch.setenv("PATH", str(fake), prepend=os.pathsep)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_EXISTING_TITLE", existing)
+    monkeypatch.setenv("OWNER", "example-owner")
+    monkeypatch.setenv("PATROL_RESULT", result)
     done = subprocess.run(  # noqa: S603 - resolved bash, fixed argv, no shell
-        [bash, str(script)], env=env, capture_output=True, check=False
+        [bash, str(script)], capture_output=True, check=False
     )
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     return done.returncode, calls
 
 
-def test_a_clear_month_opens_a_notice_for_the_owner_and_closes_it(tmp_path: Path) -> None:
-    code, calls = _run(tmp_path, "clear")
+def test_a_clear_month_opens_a_notice_for_the_owner_and_closes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, calls = _run(tmp_path, monkeypatch, "clear")
     assert code == 0
     assert len(calls) == 2
     assert calls[0].startswith("issue create")
@@ -106,8 +107,10 @@ def test_a_clear_month_opens_a_notice_for_the_owner_and_closes_it(tmp_path: Path
     assert calls[1] == "issue close https://github.com/example/repo/issues/7"
 
 
-def test_needs_attention_opens_one_issue_without_any_details(tmp_path: Path) -> None:
-    code, calls = _run(tmp_path, "needs-attention")
+def test_needs_attention_opens_one_issue_without_any_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, calls = _run(tmp_path, monkeypatch, "needs-attention")
     assert code == 0
     created = [call for call in calls if call.startswith("issue create")]
     assert len(created) == 1
@@ -116,13 +119,17 @@ def test_needs_attention_opens_one_issue_without_any_details(tmp_path: Path) -> 
     assert not [call for call in calls if call.startswith("issue close")]
 
 
-def test_needs_attention_does_not_open_a_second_issue(tmp_path: Path) -> None:
-    code, calls = _run(tmp_path, "needs-attention", existing=ATTENTION_TITLE)
+def test_needs_attention_does_not_open_a_second_issue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, calls = _run(tmp_path, monkeypatch, "needs-attention", existing=ATTENTION_TITLE)
     assert code == 0
     assert not [call for call in calls if call.startswith("issue create")]
 
 
-def test_an_unknown_result_fails_and_opens_nothing(tmp_path: Path) -> None:
-    code, calls = _run(tmp_path, "anything-else")
+def test_an_unknown_result_fails_and_opens_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, calls = _run(tmp_path, monkeypatch, "anything-else")
     assert code != 0
     assert calls == []
