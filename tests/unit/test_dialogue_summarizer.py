@@ -375,6 +375,26 @@ async def test_the_reason_of_a_failure_is_told_to_the_caller(monkeypatch):
     assert seen == ["refusal"]
 
 
+async def test_each_part_tells_its_own_failure(monkeypatch):
+    reasons = iter(["over_budget", "upstream"])
+
+    async def failing(*_args, **_kwargs):
+        return CompletionResult(
+            text="", usage={}, cost_usd=0.0, stop_reason="error",
+            error=CompletionError("upstream_error", next(reasons, "upstream"), "x"),
+        )
+
+    monkeypatch.setattr(_COMPLETE, failing)
+    monkeypatch.setattr(ds, "CHUNK_TOKENS", 2_000)
+    monkeypatch.setattr(ds, "SUMMARY_REQUEST_TOKEN_CAP", 3_000)
+    seen: list[str] = []
+    out = await summarize_dialogue(
+        _OWNER, _long_dialogue(10, 400), 500, "m", on_failure=seen.append
+    )
+    assert out is None
+    assert {"over_budget", "upstream"} <= set(seen)
+
+
 async def test_an_empty_answer_and_an_exception_are_told_to_the_caller(monkeypatch):
     async def empty(*_args, **_kwargs):
         return _result("   ")
