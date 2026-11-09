@@ -163,6 +163,7 @@ async def test_errors_that_are_not_network_errors_still_surface(fix_installed, s
     try:
         await _close(_transport(sock, RecordingProtocol(), server))
         assert loop_errors == [boom]
+        assert server._active_count == 1  # 修正不能自己去扣連線計數
     finally:
         sock.close()
 
