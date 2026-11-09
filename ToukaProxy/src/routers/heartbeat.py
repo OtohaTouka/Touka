@@ -41,6 +41,7 @@ from src.routers.ui_sessions import _can_access_session
 from src.services import destructive_ops, home_handover
 from src.services.activity_registry import activity_registry
 from src.services.auth_service import AuthService  # noqa: TC001
+from src.services.authorization_gateway import require_admin_authority
 from src.services.autonomy import autonomy_service
 from src.services.continuity_events import (
     heartbeat_run_key,
@@ -874,8 +875,10 @@ async def awaken_agent(
 
 
 @router.get("/test")
-async def test_heartbeat_connectivity() -> dict:
-    """測試心跳端點的對外連通性。"""
+async def test_heartbeat_connectivity(
+    _admin: AgentIdentity = Depends(require_admin_authority),  # noqa: B008
+) -> dict:
+    """測試心跳端點的對外連通性（只有管理員能呼叫）。"""
     webhook_url = HEARTBEAT_EXTERNAL_URL
     if not webhook_url:
         return {"status": "error", "message": "HEARTBEAT_EXTERNAL_URL not configured."}
@@ -895,7 +898,7 @@ async def test_heartbeat_connectivity() -> dict:
             resp = await client.post(webhook_url, json=payload, timeout=5.0)
             return {"status": "ok", "http_code": resp.status_code, "data": resp.json()}
     except Exception as e:
-        # 不用登入就能呼叫：例外原文只寫進 log，不回給呼叫者（ADR-0304，CodeQL #67）
+        # 例外原文只寫進 log，不回給呼叫者（ADR-0304，CodeQL #67）
         logger.warning("Heartbeat connectivity test failed: %s", e)
         return {
             "status": "error",

@@ -1,0 +1,56 @@
+name: Monthly patrol notice
+
+# 暫停期間的每月巡查用這個流程通知維護者。
+# 由 github-actions 開 issue：維護者用自己的帳號開給自己的 issue，GitHub 不一定會通知他。
+# 只能手動觸發、不加 schedule：公開 repo 的排程 60 天沒動靜會被停用，通知不能跟著停。
+# 參數只有固定選項：issue 是公開的，細節只留在維護者本機的巡查紀錄。
+on:
+  workflow_dispatch:
+    inputs:
+      result:
+        description: "本月巡查結果"
+        required: true
+        type: choice
+        options:
+          - clear
+          - needs-attention
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+      PATROL_RESULT: ${{ inputs.result }}
+    steps:
+      - name: Tell the maintainer
+        run: |
+          case "$PATROL_RESULT" in
+            clear)
+              # 沒事也通知一次：沒收到就代表巡查壞了。通知已經發出，這張直接關掉。
+              url=$(gh issue create --title "每月巡查完成" --assignee "$OWNER" \
+                --body "本月巡查完成，沒有要處理的事。這張會自動關閉。")
+              gh issue close "$url"
+              ;;
+            needs-attention)
+              title="每月巡查：有事要看"
+              titles=$(gh issue list --state open --limit 200 --json title --jq '.[].title')
+              if grep -Fxq "$title" <<<"$titles"; then
+                echo "同一張還開著，不重複開"
+                exit 0
+              fi
+              gh issue create --title "$title" --assignee "$OWNER" \
+                --body "有事要看。細節在維護者本機的巡查紀錄，這裡不寫（issue 是公開的）。"
+              ;;
+            *)
+              echo "未知的結果" >&2
+              exit 1
+              ;;
+          esac

@@ -32,7 +32,7 @@
 
 公開端點白名單，永久豁免：
 - `GET /` (health check)
-- `GET /v1/heartbeat/test` (connectivity probe)
+- `GET /v1/heartbeat/test` (connectivity probe；2026-11-09 起要管理員，已移出白名單)
 - `GET /terminal/stream` (SSE read-only broadcast)
 - `GET /v1/system_logs` (observability alias)
 - 等（共 ~20 個合法公開端點）

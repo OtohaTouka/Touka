@@ -168,7 +168,7 @@
 - 還原中不能刪靈魂、刪除或改名自訂模型（2026-11-07，ADR-0304）；用編輯建立或轉換靈魂（`update_soul` 走步升）、建立或更新自訂模型（`POST /v1/ui/custom_models/{id}`，失敗回滾也會刪資料夾）、刪除一般模型（`DELETE /v1/models/{id}` 改 models.json）時還沒有還原檢查，是候選。
 - 其他把例外原文放進錯誤回應的地方（`error_output=str(e)` 約 15 處，例如 `custom_models.py`、`souls.py`、`mcp.py`、`models.py`、`setup.py` 的 `detail_override`，都要登入），ADR-0304 只改了 CodeQL 標的三處，其餘是候選。
 - 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）還沒做擁有權檢查。無痕對話沒有 session 綁定，所以不能直接改成只認綁定；修法方向是在 ContextLayer 對人類請求者檢查存取權（候選，ADR-0304 審查時發現）。
-- `GET /heartbeat/test` 成功時的回應內容要再收斂（候選）。
+- `GET /heartbeat/test` 2026-11-09 起要管理員；成功時的回應內容要再收斂（候選）。
 - 子代理的 `session_id` 是 None，所以檔案工具拿不到專案（ADR-0304 之後；終端本來就拿不到）。要繼承父對話的專案，得一起看隔離層對專案的處理（候選）。
 - 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。
 - 寫 `.env` 的共用鎖（`config.ENV_FILE_LOCK`，ADR-0288）只管 Proxy 這個行程；設定頁 `POST /v1/config/env` 仍是清空再寫（不是原子置換），寫到一半當機一樣會壞（原本就有，乙-3 審查時發現）。候選：改成和 `persist_generated_secrets` 一樣的暫存檔置換；改之前 `update_env` 要留在主迴圈上（讀 `.env` 的地方沒拿鎖，靠它在同一條主迴圈上才讀不到清空到一半的檔）。備份還原子程序（`manage_backup.py`）快照時讀 `.env`、還原時直接覆寫，也不在鎖的保護內。

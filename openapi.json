@@ -11147,7 +11147,7 @@
           "heartbeat"
         ],
         "summary": "Test Heartbeat Connectivity",
-        "description": "測試心跳端點的對外連通性。",
+        "description": "測試心跳端點的對外連通性（只有管理員能呼叫）。",
         "operationId": "test_heartbeat_connectivity_v1_heartbeat_test_get",
         "responses": {
           "200": {
@@ -11162,7 +11162,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/v1/heartbeat/retrigger": {
@@ -11429,7 +11434,7 @@
           "heartbeat"
         ],
         "summary": "Test Heartbeat Connectivity",
-        "description": "測試心跳端點的對外連通性。",
+        "description": "測試心跳端點的對外連通性（只有管理員能呼叫）。",
         "operationId": "test_heartbeat_connectivity_heartbeat_test_get",
         "responses": {
           "200": {
@@ -11444,7 +11449,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/heartbeat/retrigger": {
