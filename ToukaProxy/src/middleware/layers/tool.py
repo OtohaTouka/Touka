@@ -199,7 +199,11 @@ class ToolLayer(ProxyLayer):
                  actor=identity,
                  resource=tool_name,
                  action="schema_injection",
-                 environment={"auth_level": auth_level, "session_id": session_id}
+                 environment={
+                     "auth_level": auth_level,
+                     "session_id": session_id,
+                     "read_only_run": bool(ctx.get("subagent_read_only")),
+                 },
              )
              decision = permission_service.evaluate_policy(eval_ctx)
 
