@@ -38,7 +38,7 @@ from src.models.session_persistence import SavedResult, SessionChanges
 from src.models.user import User  # noqa: TC001
 from src.routers.auth import get_auth_service, get_current_user
 from src.routers.ui_sessions import _can_access_session
-from src.services import destructive_ops
+from src.services import destructive_ops, home_handover
 from src.services.activity_registry import activity_registry
 from src.services.auth_service import AuthService  # noqa: TC001
 from src.services.autonomy import autonomy_service
@@ -54,6 +54,7 @@ from src.services.hooks.lifecycle import notify_heartbeat_start, notify_heartbea
 from src.services.hooks.stopping import request_stopped, stop_baseline
 from src.services.identity_router import get_verified_identity
 from src.services.identity_service import identity_service
+from src.services.mainline_service import inject_mainline
 from src.services.model_manager import model_manager
 from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
@@ -61,7 +62,7 @@ from src.services.rhythm_service import rhythm_service
 from src.services.sliding_window_service import sliding_window_service
 from src.services.soul_service import soul_service
 from src.utils import user_intent
-from src.utils.async_db import SessionPersistenceError, session_service
+from src.utils.async_db import SessionPersistenceError, new_home_after_write, session_service
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import TreeMessageManager
@@ -343,6 +344,8 @@ async def _execute_single_pulse(
     agent_id = identity.agent_id
     chat_req = OpenAIChatRequest(model=f"toukasoul-{agent_id}", messages=messages, stream=True)
     soul_service.apply_soul_to_request(chat_req, identity)
+    if soul_service.is_toukasoul(identity):  # 主線的前情（ADR-0305）；心跳不帶家原文
+        await inject_mainline(chat_req, identity, mode="heartbeat", session_id=final_session_id)
     chat_req.model = model_name
     _soul_text, soul_config = soul_service.get_soul_data(identity)
     if soul_config and "enabled_tools" in soul_config:  # 與 SoulLayer 同：靈魂設定收斂工具
@@ -677,6 +680,10 @@ async def _process_heartbeat_loop(
             # 靈魂由這裡傳：第一輪前就停的沒登記過活動，同一對話重疊跑時也可能被另一次清掉。
             if run_started:
                 activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
+            # 前情維護（交接、子對話回報，ADR-0307）：靈魂至少完成一個脈衝才排；這時登記已拿掉，
+            # 只排背景工作、不 await（被取消時也安全）
+            if pulses_done and not blocked and soul_service.is_toukasoul(identity):
+                home_handover.schedule(identity)
 
 
 @router.post("/awaken", status_code=202)
@@ -772,6 +779,8 @@ async def awaken_agent(
                     agent_id=identity, is_home=True, home_for_agent=identity, project_id="default",
                 ),
                 identity,
+                # 建家和設家走同一套交接紀錄，同一個交易裡確認沒有別的家（ADR-0306）
+                after_write=new_home_after_write(identity, final_session_id),
             )
             if not isinstance(result, SavedResult):
                 raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
@@ -802,6 +811,10 @@ async def awaken_agent(
                 )
                 if not isinstance(result, SavedResult):
                     raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+
+    # 4.5 舊家不能開新的一輪（家模式讀到家之後才被換走、頻道、指定對話都一樣）；新家這一輪
+    #     就是開始用（ADR-0306）
+    await _refuse_old_home(final_session_id, identity)
 
     # 5. 寫入初始提示詞 (立即持久化)
     # DA24: the caller-controlled init_prompt enters the agent's privileged LLM context,
@@ -882,7 +895,24 @@ async def test_heartbeat_connectivity() -> dict:
             resp = await client.post(webhook_url, json=payload, timeout=5.0)
             return {"status": "ok", "http_code": resp.status_code, "data": resp.json()}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # 不用登入就能呼叫：例外原文只寫進 log，不回給呼叫者（ADR-0304，CodeQL #67）
+        logger.warning("Heartbeat connectivity test failed: %s", e)
+        return {
+            "status": "error",
+            "message": "Heartbeat endpoint is unreachable; see the server log.",
+        }
+
+
+async def _refuse_old_home(session_id: str, requester: AgentIdentity) -> None:
+    """心跳與重跑開新的一輪之前：舊家擋下，還沒開始用的新家記開始用；讀不到紀錄就失敗."""
+    try:
+        old = await session_service.check_old_home(
+            session_id, mark_started=True, requester=requester
+        )
+    except SessionPersistenceError:
+        raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
+    if old:
+        raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
 
 
 @router.post("/retrigger", status_code=202)
@@ -932,6 +962,7 @@ async def retrigger_heartbeat(
         identity, session_agent_id, session_data.get("owner_user_id")
     ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
+    await _refuse_old_home(req.session_id, identity)  # 舊家不重跑；新家記開始用（ADR-0306）
     # 丙-4：正在重置、清除或刪除這個靈魂時不重跑，「上次未完成」照留。放在最後一個 await 之後，
     # 從這裡到派發、清「上次未完成」之間沒有 await。
     since = destructive_ops.generation(target_identity)

@@ -268,13 +268,14 @@ def load_memory_system():
             DEGRADED_REASON = "Memory System module not found. "
         else:
             logger.error(f"❌ MEMORY SYSTEM dependency error: {error_msg}", exc_info=True)
-            DEGRADED_REASON = f"Memory System dependency error: {error_msg} "
+            # 例外原文只進 log：這個值會由不用登入的 GET / 回出去（ADR-0304，CodeQL #68）
+            DEGRADED_REASON = "Memory System dependency error. "
 
         SYSTEM_DEGRADED = True
         return False
     except Exception as e:
         logger.error(f"🔥 Unexpected error loading memory system: {e}", exc_info=True)
-        SYSTEM_DEGRADED, DEGRADED_REASON = True, f"Memory System crash: {str(e)} "
+        SYSTEM_DEGRADED, DEGRADED_REASON = True, "Memory System crash. "
         return False
     else:
         return True

@@ -31,6 +31,14 @@ def _patch_soul(monkeypatch) -> AsyncMock:
     monkeypatch.setattr(
         soul_mod.session_service, "get_session_by_id", AsyncMock(return_value={"agent_id": "Sumi"})
     )
+    # 主線每輪自己讀一次家（ADR-0305）；這裡沒有資料庫，當作沒有家
+    monkeypatch.setattr(
+        soul_mod.session_service, "read_home_snapshot", AsyncMock(return_value=None)
+    )
+    # 主線帶還沒交接完的舊家（ADR-0306）；這裡沒有資料庫，當作沒有交接紀錄
+    monkeypatch.setattr(
+        soul_mod.session_service, "read_unfinished_old_homes", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr(
         soul_mod.agent_service,
         "identify_agent",
@@ -69,4 +77,6 @@ async def test_non_incognito_injects_context_summary(monkeypatch):
         is_toukasoul=True, agent_id="Sumi", incognito=False, session_id="sess-1"
     )
     await soul_mod.SoulLayer().process(req, ctx)
-    inject_summary.assert_awaited_once_with(req, "sess-1")
+    inject_summary.assert_awaited_once()
+    # 第三個參數是這一輪前情已顯示的同一段原文（ADR-0305），這裡前情是空的
+    assert inject_summary.await_args.args[:2] == (req, "sess-1")

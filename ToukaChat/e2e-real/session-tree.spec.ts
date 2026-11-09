@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { adminLogin, createChat, createProject, createSoul, createUser, login, setChatHome, type ChatSeed } from "./lib/api";
 import { FAKE_MODEL_ID, FAKE_TEXT_REPLY } from "./lib/constants";
 import { modelCalls } from "./lib/control";
-import { clickChatInList, composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, setChatAsHome, shot, sideMenuButton, submitLogin } from "./lib/ui";
+import { clickChatInList, composer, confirmHomeChange, loginInBrowser, openSideMenu, selectSoul, sendMessage, setChatAsHome, shot, sideMenuButton, submitLogin } from "./lib/ui";
 
 // 每個情境用新的靈魂與帳號：共用沙盒裡 hooks-* 的靈魂已經有對話和家，一般帳號只看得到自己的對話。
 const PASSWORD = "session-tree-password-1";
@@ -186,7 +186,7 @@ test("沒有靈魂的對話放其他對話並標模型；冒號格式進對應�
   expect(stored.join("")).not.toContain(secret.toLowerCase());
 });
 
-test("連續設家甲、乙、丙，再換回較舊的一段：資料夾那一列一直是最後設的家", async ({ page }, info) => {
+test("連續設家甲、乙、丙，再回到較舊的一段：資料夾那一列一直是最後設的家", async ({ page }, info) => {
   const soul = "TreeChain";
   const { email, token } = await newSoulAccount("chain", [soul]);
   const titles = ["連甲", "連乙", "連丙"];
@@ -200,8 +200,9 @@ test("連續設家甲、乙、丙，再換回較舊的一段：資料夾那一�
   }
   await shot(page, info, "third-home");
 
-  await clickChatInList(page, "連甲");
-  await expect(row(page, "連甲")).toHaveAttribute("aria-current", "true");
+  // 乙設過家但沒用過就換掉：回到普通對話，可以接著聊（甲設成家之後也沒聊過，同樣不是舊家；ADR-0306）
+  await clickChatInList(page, "連乙");
+  await expect(row(page, "連乙")).toHaveAttribute("aria-current", "true");
   await expect(row(page, `${soul}，家對話：連丙`)).toBeVisible();
   await sendMessage(page, "換回舊的那段再送一則");
   await expect.poll(async () => (await modelCalls()).some((call) => call.lastText.includes("換回舊的那段再送一則"))).toBe(true);
@@ -231,6 +232,7 @@ test("設為家只有靈魂的對話看得到；設家後舊家回到子對話�
 
   await row(page, "九的新家").getByRole("button", { name: "會話選項：九的新家" }).click();
   await page.getByRole("menuitem", { name: "設為家對話" }).click();
+  await confirmHomeChange(page, "設為家");
 
   const newHome = `${soul}，家對話：九的新家`;
   await expect(row(page, newHome)).toBeVisible();
@@ -248,6 +250,60 @@ test("設為家只有靈魂的對話看得到；設家後舊家回到子對話�
   await page.reload();
   await expect(row(page, newHome)).toBeVisible();
   await expect(row(page, "九的舊家")).toHaveAttribute("aria-level", "2");
+});
+
+test("換家完整流程：先確認、新家的請求帶舊家內容、舊家唯讀、設回家又能聊", async ({ page }, info) => {
+  const soul = "TreeFlow";
+  const { email, token } = await newSoulAccount("flow", [soul]);
+  await seed(token, [
+    { id: "flow-a", title: "流程甲", agentId: soul, updatedAt: 30 },
+    { id: "flow-b", title: "流程乙", agentId: soul, updatedAt: 20 },
+  ]);
+  await setChatHome(token, "flow-a", soul);
+  await loginInBrowser(page, email, PASSWORD);
+
+  // 當家時聊過才算用過
+  const homeA = `${soul}，家對話：流程甲`;
+  await row(page, homeA).getByText(soul).click();
+  await sendMessage(page, "甲當家時說的話");
+  await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
+
+  // 要先確認，先不要就沒換
+  await row(page, "流程乙").getByRole("button", { name: "會話選項：流程乙" }).click();
+  await page.getByRole("menuitem", { name: "設為家對話" }).click();
+  await shot(page, info, "home-confirm");
+  await page.getByRole("dialog").getByRole("button", { name: "先不要" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row(page, homeA)).toBeVisible();
+
+  await setChatAsHome(page, "流程乙");
+  const homeB = `${soul}，家對話：流程乙`;
+  await expect(row(page, homeB)).toBeVisible();
+
+  // 新家開聊：這一輪的請求帶著舊家的內容
+  await row(page, homeB).getByText(soul).click();
+  await sendMessage(page, "乙當家的第一句");
+  await expect.poll(async () => (await modelCalls()).find((call) => call.lastText.includes("乙當家的第一句"))?.allText ?? "")
+    .toContain("甲當家時說的話");
+
+  // 舊家：側欄有標籤、只能看，重新整理後還是
+  const oldHome = row(page, /流程甲.*舊家/);
+  await expect(oldHome).toBeVisible();
+  await oldHome.click();
+  await expect(page.getByTestId("old-home-notice")).toBeVisible();
+  await expect(composer(page)).toHaveCount(0);
+  await shot(page, info, "old-home");
+  await page.reload();
+  await row(page, /流程甲.*舊家/).click();
+  await expect(page.getByTestId("old-home-notice")).toBeVisible();
+
+  // 從唯讀畫面設回家，又能聊
+  await page.getByTestId("old-home-notice").getByRole("button", { name: "設為家" }).click();
+  await confirmHomeChange(page, "設為家");
+  await expect(row(page, homeA)).toBeVisible();
+  await expect(page.getByTestId("old-home-notice")).toHaveCount(0);
+  await sendMessage(page, "甲回任之後");
+  await expect.poll(async () => (await modelCalls()).some((call) => call.lastText.includes("甲回任之後"))).toBe(true);
 });
 
 test("專案畫面維持依專案分組，點對話回到聊天與靈魂資料夾", async ({ page }, info) => {

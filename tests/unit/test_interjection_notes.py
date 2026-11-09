@@ -1,6 +1,6 @@
 """伺服器端重組的插話標註（ADR-0249 裁定 7、U4a-3）。
 
-伺服器從 DB 組歷史給模型的三處——心跳脈衝、家對話注入（get_home_messages）、滑動視窗摘要——
+伺服器從 DB 組歷史給模型的三處——心跳脈衝、主線帶的家原文（home_messages_of）、滑動視窗摘要——
 對帶 interjections[] 的助理節點在 content 前加標註，格式與前端 INTERJECTION_NOTE_TEMPLATE
 完全相同；角色仍是 assistant，回合數不變。
 """
@@ -28,6 +28,7 @@ from src.utils.interjection_notes import (
     format_interjection_note,
     with_interjection_notes,
 )
+from src.utils.model_text import LINE_BREAK_MARK
 
 _FRONTEND = (
     Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "lib" / "chat" / "interjections.ts"
@@ -144,7 +145,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     soul.get_soul_data = lambda _identity: ("靈魂", SoulConfig().model_dump())
     session = {"id": "s", "title": "t", "messages": _tree()}
     monkeypatch.setattr(
-        heartbeat, "session_service",
+        heartbeat,
+        "session_service",
         MagicMock(read_execution_snapshot=AsyncMock(return_value=SessionSnapshot(session, "rev"))),
     )
     monkeypatch.setattr(heartbeat, "dispatch_request", _dispatch)
@@ -170,16 +172,8 @@ async def test_heartbeat_pulse_sends_the_note_to_the_model(monkeypatch):
     ]
 
 
-async def test_home_messages_carry_the_note(monkeypatch):
-    service = MagicMock(
-        read_home_snapshot=AsyncMock(
-            return_value=async_db.SessionSnapshot({"id": "home", "messages": _tree()}, "rev")
-        ),
-    )
-    monkeypatch.setattr(async_db, "session_service", service)
-    identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-
-    messages = await async_db.get_home_messages(identity)
+async def test_home_messages_carry_the_note():
+    messages = async_db.home_messages_of({"id": "home", "messages": _tree()})
 
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", "先查資料"),
@@ -189,10 +183,12 @@ async def test_home_messages_carry_the_note(monkeypatch):
 
 
 def test_summarizer_input_carries_the_note():
+    """摘要員的輸入一則一行（換行寫成 ⏎，ADR-0305 審查 F9）；插話標註照樣在 AI 回覆那一則."""
     tree = _tree()
     linear = [tree["messages"][k] for k in ("u1", "a1", "u2")]
-    assert dialogue_summarizer._format_dialogue(linear) == (
-        "[unknown time] user: 先查資料\n"
-        "[unknown time] assistant: 〔本回合中使用者補充（第 2 步）：只看 2026 年〕\n\n查好了\n"
-        "[unknown time] user: 整理一下"
-    )
+    gap = LINE_BREAK_MARK * 2
+    assert dialogue_summarizer._dialogue_lines(linear) == [
+        "[unknown time] user: 先查資料",
+        f"[unknown time] assistant: 〔本回合中使用者補充（第 2 步）：只看 2026 年〕{gap}查好了",
+        "[unknown time] user: 整理一下",
+    ]

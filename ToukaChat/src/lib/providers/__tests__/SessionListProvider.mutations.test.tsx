@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import { fetchTouka } from '@/lib/connections';
+import { errorMsg } from '@/lib/error_handler';
 import type { Session } from '@/lib/types';
 import { SessionListProvider, useSessionList } from '../SessionListProvider';
 
@@ -14,6 +15,7 @@ vi.mock('@/lib/connections', () => ({
 vi.mock('@/lib/error_handler', () => ({
   logSSOTError: vi.fn(), errorMsg: (code: string) => code,
   getErrorMessage: vi.fn(async () => 'safe error'),
+  getResponseErrorCode: vi.fn(async (res: Response) => ((await res.clone().json()) as { detail: { code: string } }).detail.code),
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
@@ -132,5 +134,18 @@ describe('刪除只有後端確認才能移除', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
     expect(deleted).toBe(true);
+  });
+});
+
+describe('舊家交接完成前不能刪（ADR-0306）', () => {
+  it('提示要等交接完成，對話留著', async () => {
+    const { result } = await mounted();
+    fetchMock.mockResolvedValueOnce(snapshot())
+      .mockResolvedValueOnce(response(409, { detail: { code: 'SESSION_OLD_HOME_NOT_DELETABLE' } }));
+    let deleted: boolean | undefined;
+    await act(async () => { deleted = await result.current.deleteSession('a'); });
+    expect(deleted).toBe(false);
+    expect(result.current.sessions.map(item => item.id)).toContain('a');
+    expect(vi.mocked(toast.error).mock.calls.at(-1)?.[0]).toBe(errorMsg('SESSION_OLD_HOME_NOT_DELETABLE'));
   });
 });

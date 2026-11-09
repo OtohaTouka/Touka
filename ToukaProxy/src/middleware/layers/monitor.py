@@ -16,6 +16,22 @@ from src.utils.user_intent import chat_intent
 
 logger = logging.getLogger(__name__)
 
+# 對話編號除了請求本文，也可以放在這兩個標頭（IDE、外部相容客戶端）
+SESSION_ID_HEADERS = ("x-touka-session-id", "x-toukachat-session-id")
+
+
+def turn_session_id(request: Any, headers: dict[str, str]) -> str | None:
+    """這一輪所在的對話：本文優先，再看兩個標頭；共同入口擋舊家與本層用同一個答案（ADR-0306）."""
+    session_id = getattr(request, "session_id", None)
+    if isinstance(session_id, str) and session_id:
+        return session_id
+    for header in SESSION_ID_HEADERS:
+        value = headers.get(header)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 class MonitorLayer(ProxyLayer):
     """負責請求生成 ID、計時與日誌紀錄 (SOLID - SRP)。"""
 
@@ -64,12 +80,7 @@ class MonitorLayer(ProxyLayer):
                 )
 
         # 3.3 優先權 3: Session 中記錄的 agent_id (最後手段)
-        headers = ctx.get("headers", {})
-        session_id = (
-            getattr(request, "session_id", None) 
-            or headers.get("x-touka-session-id") 
-            or headers.get("x-toukachat-session-id")
-        )
+        session_id = turn_session_id(request, ctx.get("headers") or {})
         ctx["session_id"] = session_id
 
         # 3.4 模式（auth_level）不在本層決定：請求參數不是模式來源。ToolLayer 讀 session，

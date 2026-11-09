@@ -162,6 +162,15 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 首裝卡在認領後仍有效、模型自己填的專案編號、還原中的刪除、錯誤原文（2026-11-07，ADR-0304）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 首次安裝前發給本機的首裝卡（LDH），系統認領後最多還能用 7 天；卡被重送時，寫既有靈魂 id 的卡會拿到 Owner 角色（發卡時是 Base）；沒有 type 的卡寫了使用者 id，會被當成那位使用者。 | 首裝卡帶記號，系統認領後驗卡一律拒絕；驗卡與發卡用同一個角色判斷（`identity_service.ldh_identity`，不帶類型旗標）；使用者只收 `type == "access"` 的 token（`verify_token`、`get_current_user`）；LDH 不發卡給使用者 id。殘留：升級前發的、寫代理人 id 的舊卡，到期前（發卡後 7 天）仍有效。測試：`tests/unit/test_identity_safeguards_security.py`。 |
+| 代理人的檔案工具接受模型在參數裡自己填的專案編號，而且優先於對話綁定的專案；這條路不檢查專案是誰的，可能讀寫別人的專案。 | 專案只來自系統（`isolation/policy.session_project_id`：ctx 或對話綁定的專案），執行器不讀模型給的參數；擁有權在對話綁定專案時檢查。同上測試。 |
+| 還原備份期間仍能刪除靈魂、刪除或改名自訂模型，和還原同時改動同一批資料。 | 回 409 `SYSTEM_RESTORE_IN_PROGRESS`：刪靈魂在身分檢查之後、驗密碼之前；改名在破壞性操作鎖裡檢查；刪除自訂模型（含經 `/v1/models` 刪除）緊接在取鎖之前。同上測試。 |
+| 三個端點把例外原文回給呼叫者：`GET /heartbeat/test`、`GET /` 不用登入，`POST /mcp/hub/sync` 要特權角色；原文可能含內部網址或路徑。 | 原文只寫進 log：心跳測試回固定文字、`DEGRADED_REASON` 只留類別、hub 同步失敗回標準 `SYSTEM_ERROR`。同上測試。 |
+
 ### 靈魂與代理人的名稱會被當成路徑，或用別名指到別人的資料夾；編輯能建立靈魂（2026-11-07，ADR-0303）
 
 | 弱點 | 修正與驗證 |
@@ -943,6 +952,30 @@ openai SDK 3.24 為 Responses API 新加入（3b）；建構前就照 Claude 的
 | `ToukaChat/src/contexts/AuthContext.tsx`、`src/app/connections/page.tsx` | 換網址的通知可能早於寫入，或別的分頁改了網址完全沒有通知，這個分頁維持登入 | 🟡 Medium | 先寫再通知；聽別的分頁的變更；換網址時向舊後端真的登出。殘留：舊後端連不上時登出不生效，長效 cookie 留著，同主機換埠時之後的請求會帶過去 |
 
 測試：`ToukaChat/src/contexts/__tests__/AuthContext.proxy-switch.security.test.tsx`、`ToukaChat/src/lib/__tests__/connections.token-origin.security.test.ts`、`ToukaChat/e2e-real/connection-switch.spec.ts`。
+
+### 靈魂前情的歷史資料界線（2026-11-07，ADR-0305）
+
+| 位置 | 原有缺口 | 修復摘要 |
+|------|----------|----------|
+| `services/soul_prelude_service.py`、`services/mainline_service.py` | 新的前情（剪裁摘要、搬來的舊摘要、合併摘要）會放進靈魂的每一個請求，包含子對話、心跳、群聊；沒有界線的話，舊內容裡的要求會像這次的指令，而且散到比以前更多地方 | 和舊摘要同一套界線（ADR-0257）：內文先 `blank_control_chars`，再 `wrap_historical_data(..., extra_tags=ALL_BLOCK_TAGS)`，所有區塊標籤（含 `<soul_prelude>` 自己）都中和，舊內容不能提早關閉區塊或假造別的區塊；外層 `<soul_prelude>`。無痕不帶前情。回歸測試 `test_soul_prelude_service.py::test_block_is_historical_data_with_tags_neutralized`。殘留：界線擋不住模型自己決定照舊內容做；SNS 家對話被剪掉的外人訊息，摘要照樣進前情（以前進 `context_summary`，範圍只在家）。 |
+| `services/dialogue_summarizer.py` | SNS 外人能在自己的訊息裡寫一行像「[時間] user: …」的假擁有者發言，摘要員照抄成決定或待辦，之後跟著前情進心跳與子對話（審查） | 送摘要員的每則壓成一行（`single_line`，換行寫成 `⏎`），假的那行留在外人那一則裡；附給摘要員的前情最後一段、送去合併的各段也壓成一行（第 2 輪審查：這兩個輸入原本沒壓，舊摘要裡假造的標籤或對話列會變成真的）；指示說明以 SNS 外部訊息開頭的是外部人士的要求或說法，不記成擁有者的決定、承諾或待辦。回歸測試 `test_dialogue_summarizer.py::test_forged_owner_line_stays_inside_the_outsider_message`、`test_previous_entry_is_one_line`、`test_soul_prelude_service.py::test_merge_entries_are_one_line_each`。殘留：仍靠摘要模型照指示做；長得像區塊標籤的寫法（零寬字元、全形括號）沒有中和（沿用 ADR-0257）；SNS 頻道與 SNS 群聊的請求也帶前情（維護者 2026-11-07 決定 PR 1 照帶），PR 2b 加子對話回報前再問要不要讓回報進 SNS。 |
+| `services/soul_prelude_service.py` | 畫面能寫的 `context_summary` 搬進前情後不受上限限制，會散到靈魂的每一個請求（審查） | 搬家時截到 2,000 token，註明後面截掉了、被摘要的原文在舊對話庫；同一來源只顯示最新一段；單段超過前情上限時截短。回歸測試 `test_soul_prelude_service.py::test_long_legacy_summary_is_cut_when_moved`、`test_a_single_segment_over_the_cap_is_cut`。 |
+
+
+### 舊家原文的歷史資料界線與舊家唯讀（2026-11-08，ADR-0306）
+
+| 位置 | 原有缺口 | 修復摘要 |
+|------|----------|----------|
+| `services/mainline_service.py`、`services/soul_service.py` | 換家後、交接完成前，舊家原文會放進新家、子對話、群聊與心跳（在家時）的請求；沒有界線的話，舊內容裡的要求會像這一輪的指令 | 每段舊家原文包一層 `source="old_home_pending_handover"` 的歷史資料界線（`_mark_home_history`，同家原文的中和規則），只送角色與內容；總量有上限（`OLD_HOME_TOKEN_BUDGET`，只帶尾端）；`tests/unit/test_mainline_service.py`。殘留：SNS 家模式、SNS 獨立頻道（對方都是外人）與 SNS 群聊的請求也帶舊家原文，和家原文、前情一樣（維護者 2026-11-07 決定 PR 1 照帶；2026-11-08 再確認，只有子對話回報不進 SNS，見下一節）；群聊白名單裡別的擁有者的靈魂被外人 @ 時，那個靈魂的家原文與舊家尾端也會進回給外人的請求（家原文是既有行為），2b 不動，列在路線圖候選（維護者 2026-11-08）。 |
+| `services/proxy_service.py`、`utils/async_db.py`、`routers/ui_interjections.py`、`routers/heartbeat.py`、`routers/ui_sessions.py` | 以前換家只清家標記，舊家還能開新的一輪、插話、換到別的靈魂或被刪，內容離開主線也沒有紀錄 | 舊家由交接紀錄推導；共同入口在 hook 之前擋、准入交易再驗、新增插話與心跳（家模式、頻道、指定、重跑）擋、換靈魂擋、交接開始後（這段舊家最新一筆紀錄交接中、完成、失敗或做到某一步）存檔閘擋寫入、交接完成前不能刪；內部頻道不能設成家；讀不到紀錄時這一輪失敗（不放寬）；`tests/unit/test_old_home_gates.py`、`test_home_transitions.py`、`test_heartbeat_session_scope_security.py` |
+| `middleware/layers/monitor.py`、`services/proxy_service.py`、`utils/async_db.py` | 審查第 1 輪：對話編號放在標頭（`x-touka-session-id`、`x-toukachat-session-id`）時共同入口整個跳過舊家檢查，舊家能開新的一輪；共同入口在確認請求者能用這段對話之前就記新家開始用、回「是不是舊家」，知道編號的人能把別人沒用過的新家記成開始用，也能探測 | 對話編號由 `turn_session_id` 解析（本文、兩個標頭），MonitorLayer 與共同入口同一個答案；`check_old_home` 帶請求者身分，用和存檔相同的歸屬與權限規則（`_session_access`），不能用時什麼都不寫、不回舊家狀態，交給後面的層照原樣拒絕；`tests/unit/test_old_home_gates.py::test_a_session_id_sent_in_a_header_is_checked_the_same_way`、`test_a_caller_who_cannot_use_the_conversation_learns_and_marks_nothing` |
+| `utils/async_db.py` | 審查第 2 輪：對話列的 `agent_id` 是舊前綴（`ToukaSoulX`）時，人類擁有者比對逐字失敗，共同入口當成「不能用」而略過舊家檢查；後面各層卻把前綴正規化後代打寫入，從 IDE 舊路徑或外部相容路徑送出就能在舊家開新的一輪、回覆寫進舊家 | `_session_access` 另外接受「能驅動這段對話正規化後的靈魂」的請求者（`can_drive_soul`：擁有者、admin、靈魂本身、DebugAgent），和後面各層放行到呼叫模型的條件一致，舊家照樣擋；記新家「開始用」只限這一輪存得進去的請求者（通過存檔檢查或人類），DebugAgent、代打別的靈魂的非人類身分不記（審查第 3 輪），人工測試不會改到別的靈魂的紀錄；不能驅動的人照舊什麼都不知道；`tests/unit/test_old_home_gates.py::test_a_legacy_prefixed_old_home_is_refused_to_whoever_can_drive_the_soul`、`test_only_a_caller_whose_turn_is_saved_marks_the_new_home_started` |
+
+### 子對話回報不進 SNS（2026-11-08，ADR-0307）
+
+| 位置 | 原有缺口 | 修復摘要 |
+|------|----------|----------|
+| `services/soul_prelude_service.py`、`services/soul_prelude_merge.py`、`services/mainline_service.py`、`middleware/layers/soul.py`、`services/dispatchers/group.py` | 子對話回報寫進前情之後，SNS 獨立頻道、家模式、群聊的請求（外人觸發）也會帶到，外人問得出私人子對話的內容；回報併進合併段之後同樣會漏 | SNS 請求（`sns_source`）的前情排除子對話回報；合併段吃進回報時來源欄記 `#child-reports`（再併也留著），SNS 連它一起排除，裡面的其他內容也不帶。剪裁摘要員的背景（前情最後一段）也不給有回報內容的段落，回報不會被摘要進 SNS 看得到的 `home_trim`。回歸測試 `tests/unit/test_mainline_service.py::test_sns_requests_leave_out_child_reports`、`tests/unit/test_soul_prelude_service.py::test_a_merged_entry_remembers_it_took_in_child_reports`、`tests/unit/test_home_handover.py::test_the_trim_summarizer_never_sees_child_reports`。殘留：靈魂在家裡的回覆如果提到回報內容，會跟著家原文進 SNS；家原文、剪裁摘要、舊家尾端照舊進 SNS（維護者決定）；回報與退任摘要的內容由摘要員寫，和其他前情一樣包歷史資料界線。 |
 
 ## Out of Scope
 

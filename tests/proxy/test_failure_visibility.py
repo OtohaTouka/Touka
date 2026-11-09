@@ -69,7 +69,7 @@ async def test_tool_executor_error_includes_detail(monkeypatch):
         lambda ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
     te = ToolExecutor(None, {"boom": boom_tool}, {}, {}, enforce_advertised=False)

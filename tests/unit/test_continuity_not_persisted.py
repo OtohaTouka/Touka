@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
+from src.middleware.layers import soul as soul_layer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import SavedResult
@@ -55,8 +56,16 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """SOUL 被認成靈魂；上游換成假串流，記錄送出的請求與 pipeline context。"""
     seen: dict[str, Any] = {"requests": [], "contexts": [], "home_current_session": []}
 
-    async def _no_home(*_args: Any, current_session_id: str | None = None) -> None:
-        seen["home_current_session"].append(current_session_id)
+    async def _no_home(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    real_mainline = soul_layer.inject_mainline
+
+    async def _record_mainline(request: Any, identity: AgentIdentity, **kwargs: Any) -> None:
+        """記下主線把哪一段當成「請求已帶著完整紀錄」（是家就不再插一份）."""
+        own = kwargs.get("session_id") if kwargs.get("sends_own_history") else None
+        seen["home_current_session"].append(own)
+        await real_mainline(request, identity, **kwargs)
 
     async def _fake_stream(_model: str, request: Any, *args: Any, **_kwargs: Any) -> Any:
         seen["requests"].append(json.loads(request.model_dump_json()))
@@ -75,6 +84,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(soul_service, "get_soul_data", lambda _agent_id: ("PERSONA", {}))
     monkeypatch.setattr(soul_service, "apply_soul_to_request", lambda *_args: None)
     monkeypatch.setattr(soul_service, "inject_home_messages", _no_home)
+    monkeypatch.setattr(soul_layer, "inject_mainline", _record_mainline)
     monkeypatch.setattr(
         "src.middleware.layers.soul.get_active_brain", lambda _identity: "claude-probe"
     )

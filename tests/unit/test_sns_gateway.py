@@ -19,6 +19,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.models.sns import SNSIncomingEvent
 from src.protocols.sns_base import BaseSNSAdapter
+from src.services.reply_in_flight import is_replying
 from src.services.sns_gateway import SNSGatewayService
 from src.utils.async_db import SessionSnapshot
 from src.utils.session_scope import channel_session_id
@@ -421,6 +422,24 @@ async def test_hook_blocked_sns_message_is_not_stored(mode: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_message_refused_by_an_old_home_is_not_stored() -> None:
+    """家剛被換走、這一輪被舊家擋下：外人訊息不存進舊家，錯誤往外丟（ADR-0306 審查 J7）。"""
+    proxy = AsyncMock(side_effect=ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY))
+    gateway = SNSGatewayService()
+    mock_identity_svc, mock_session_svc = _make_mocks()
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request", proxy),
+        pytest.raises(ToukaException) as raised,
+    ):
+        await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"))
+    assert raised.value.code == ErrorCode.SESSION_OLD_HOME_READ_ONLY
+    mock_session_svc.append_message_to_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_other_pipeline_errors_still_store_the_sns_message() -> None:
     """其他錯誤照舊：外人訊息留在對話裡，錯誤往外丟。"""
     proxy = AsyncMock(side_effect=ToukaException(ErrorCode.SYSTEM_ERROR))
@@ -486,6 +505,43 @@ async def test_home_mode_stores_the_sns_message_after_the_pipeline_reads_the_hom
         await gateway.on_event(MockAdapter(agent_id="Alice"), make_event(content="hi"),
                                session_mode="home")
     assert order == ["pipeline", "save user", "save assistant"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved", [True, False], ids=["saved", "save-failed"])
+async def test_a_reply_counts_as_in_flight_until_it_is_saved(saved: bool) -> None:
+    """回覆讀完、存好之前換家交接要等（ADR-0307）；存不進去也要拿掉登記。"""
+    seen: list[bool] = []
+
+    async def _body():
+        seen.append(is_replying("home-1"))
+        yield b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\n'
+
+    async def _append(_sid: str, role: str, *_args: Any, **_kwargs: Any) -> bool:
+        if role == "assistant":
+            seen.append(is_replying("home-1"))
+            return saved
+        return True
+
+    response = MagicMock()
+    response.body_iterator = _body()
+    mock_identity_svc, mock_session_svc = _make_mocks(home_session_id="home-1")
+    mock_session_svc.append_message_to_session = AsyncMock(side_effect=_append)
+    with (
+        patch("src.services.sns_gateway.detect_target_agent", return_value=None),
+        patch("src.services.sns_gateway.identity_service", mock_identity_svc),
+        patch("src.services.sns_gateway.session_service", mock_session_svc),
+        patch("src.services.sns_gateway.process_proxy_request",
+              new_callable=AsyncMock, return_value=response),
+    ):
+        try:
+            await SNSGatewayService().on_event(
+                MockAdapter(agent_id="Alice"), make_event(content="hi"), session_mode="home"
+            )
+        except ToukaException:
+            assert not saved
+    assert seen == [True, True]
+    assert not is_replying("home-1")
 
 
 @pytest.mark.asyncio

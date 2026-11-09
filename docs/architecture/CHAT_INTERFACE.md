@@ -52,6 +52,7 @@
 
 - 後端允許真正人類在有權存取的非家對話換靈魂；舊、新靈魂都須有驅動權。非空換綁保留原樹，內部建立標記永久降為 0；只有原列與待存列整棵樹無節點、摘要為 NULL、無家欄位且非保留／退休 ID 的嚴格空草稿可保留原標記。一般模型對話轉靈魂也照此規則，不必另建 ID。
 - 家對話先透過 `POST /v1/ui/sessions/set_home` 取消家，再換靈魂。一般 save 的 `is_home`／`home_for_agent` 一律忽略，false／null 也不能清家；舊公開欄位仍相容。
+- **舊家（ADR-0306）**：換家或取消家之後，原來的家（用過的，或升級前就是家）是舊家（`GET /v1/ui/sessions` 每段的 `is_old_home`；從沒用過的家，也就是設成家之後沒聊過、以前也不是用過的家，換走回到普通對話；設回本來用過的家，沒聊過就換走照樣是舊家）：送出、新增插話、換靈魂回 409 `SESSION_OLD_HOME_READ_ONLY`（1223）。送出時有兩種形狀：大多是共同入口在送模型之前回的一般錯誤（錯誤碼在一般錯誤格式裡，前端 `getErrorCode` 讀得到）；只有准入那一刻才剛換家的競態，才在 `detail.persistence.error_code` 裡帶。前端收到一般錯誤時照 hook 擋下的做法（`useOldHomeNotice`，`StreamRegistryProvider`）：顯示專屬訊息、把這一輪從樹裡拿掉再存回、文字放回輸入框，不顯示成連線錯誤。交接完成前刪除回 409 `SESSION_OLD_HOME_NOT_DELETABLE`（1224）。要繼續那段就把它設回家。交接開始前改名、收尾保存照舊；交接開始後（這段舊家最新一筆紀錄交接中、完成、失敗或做到某一步）存檔也擋：`SESSION_OLD_HOME_READ_ONLY`（1223）的存檔失敗跳舊家提示、內容退回已存的樣子，不留等人核對的保存失敗，送出時文字放回輸入框（ADR-0307）。插話的列出與收回照常。內部頻道不能設成家（`canSetHome` 不給選，規則同後端 `can_be_home`）。兩個錯誤碼已有 zh-TW／en 翻譯。畫面：`is_old_home` 的對話輸入框換成 `OldHomeNotice`（還有回覆在跑時留著輸入框），`MessageItem` 的 `readOnly` 拿掉編輯、重新生成、刪除、切分支；側欄標「舊家」、不給切分存入舊對話庫；設家、取消家都經 `useHomeConfirm`＋`HomeConfirmDialog` 確認，成功後 `refreshSessions` 重讀清單（正在存檔的對話也更新這個標記，`mergeSessionRefresh`）。交接失敗顯示在系統監控（`FailedHandoversNotice`）。
 - `touka.` 是內部頻道保留空間，UI 不能冒名建立或換綁；舊 `pulse_channel_default`／`sns_*` 保留可讀、不續寫、不遷移。心跳與 SNS 使用每靈魂的新頻道，不把舊共享內容當成新歷史。
 - `SESSION_SCOPE_MISMATCH`（1221）已有 zh-TW／en 翻譯。一般 HTTP 歸屬錯誤回 403；條件存檔仍看 `persistence.status="failed"` 與 `error_code=1221`，不能只看 HTTP 成功。stale／unknown／saved 與串流生成終態維持原型別合約。
 - 持久串流在生成前完成人類准入與換綁，buffer／producer 採提交後的新 revision；最後保存不能再換綁。`persistDone` 仍用本輪模型存富樹，`completeProducer` 採終態 revision，沒有新增前端換綁流程。
@@ -78,7 +79,8 @@ MCP 設定的重啟回應為 `busy`／`waiting` 時，`useMcpSettings` 刷新清
 
 - `AuthSwitcher` 只剩 Manual／Auto／YOLO，選 YOLO 仍二次確認；看不懂的值顯示 Manual。存檔後 `ChatProvider` 重讀對話清單、顯示後端實際存下的模式，被降成 Manual 時 toast 說明只有管理員或這個靈魂的擁有者能開；較舊的回應晚到時忽略。新對話還沒有 `agent_id`、目前選的是靈魂時，切模式一起帶上它存檔；選一般模型不綁，還沒有訊息的對話換模型也不被拉回；這時送出第一句會先把對話重綁到選的模型、顯示後端存下的模式再送（R-2c）。無痕對話鎖定顯示 Manual 並說明「無痕對話無法追溯，只能用 Manual」；在無痕對話要求 Auto／YOLO 時維持 Manual、不呼叫存檔，toast 說明原因。
 - `ToolApprovalCard`：`tool_approval_request` 的選用欄位 `review_reason` 顯示成「審查員轉給你的理由」，`human_only` 顯示「只有你能核准」；兩個欄位在解算事件後保留（`stream_tree`、`tree_history`），型別不對不顯示。沒有新事件種類。
-- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
+- 設定頁「滑動視窗」多了摘要模型選單與前情摘要開關（`slidingWindow/SummarySettings`，ADR-0305）：選項和 Auto 審查員同一份（`useKeyedModels`，`GET /v1/autonomy/reviewer-models`）；目前的模型不在清單裡時照樣列出並提醒；兩個控制項不受滑動視窗開關影響；仍經 `POST /v1/system/sliding_window` 存檔（admin）。設定型別改用生成合約的 `SlidingWindowConfig`（`lib/types.ts`）。
+- 安全設定的「Auto 審查員」（`AutoReviewerSettings`，資料存取在 `useAutoReviewSettings`，模型清單在 `useKeyedModels`）：選項只來自 `GET /v1/autonomy/reviewer-models`，預設未設定，建議值只是提示；存檔沿用 `POST /v1/autonomy` 寫 `auto_review.model`（只有人類 admin 能改，R-2c）。說明不寫廠商名稱，也不再寫「無痕對話也一樣」（無痕一律 Manual，不會送審）。
 - 心跳排程（`HeartbeatScheduler`、`heartbeat_mode`）：safe／full 顯示成 Auto／YOLO，看不懂顯示 Manual。新增連線表單的直連標示（`DirectConnectionNotice`）：直連沒有工具、不受權限模式管、不記帳。
 - 錯誤碼 1118～1120（審查員拒絕、無人在場不跑終端、需要人但沒人在場）兩語翻譯。
 

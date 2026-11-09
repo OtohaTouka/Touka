@@ -14,6 +14,7 @@ from src.services.agent_service import agent_service
 from src.services.auth_service import AuthService
 from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
+from src.services.reply_in_flight import replying
 from src.utils.async_db import session_service
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
@@ -87,6 +88,32 @@ class SNSGatewayService:
             session_id, "user", content, identity=identity
         ):
             raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+
+    @staticmethod
+    async def _collect_reply(response: Any) -> str:
+        """把串流回應的 SSE 片段接成完整文字."""
+        full_text = ""
+        async for chunk in response.body_iterator:
+            if isinstance(chunk, bytes):
+                chunk = chunk.decode("utf-8")
+
+            lines = chunk.split("\n\n")
+            for line in lines:
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    continue
+                try:
+                    data = json.loads(data_str)
+                    delta = data.get("choices", [{}])[0].get("delta", {})
+                    if "content" in delta:
+                        full_text += delta["content"]
+                except Exception:
+                    logger.exception("Failed to parse SSE chunk")
+                    continue
+        return full_text
 
     def _warn_if_unverified(self, event: SNSIncomingEvent) -> None:
         """Log a warning when processing an SNS event that has not been signature-verified.
@@ -213,6 +240,8 @@ class SNSGatewayService:
                     event.channel_id,
                 )
                 return ""
+            if exc.code == ErrorCode.SESSION_OLD_HOME_READ_ONLY:  # 家剛被換走：不存進舊家
+                raise
             await self._save_user_message(session_id, content, identity)
             if exc.code == ErrorCode.PROMPT_STOPPED:
                 logger.info(
@@ -227,40 +256,25 @@ class SNSGatewayService:
             raise
         await self._save_user_message(session_id, content, identity)
 
-        # 5. 聚合回應內容 (Aggregator)
-        full_text = ""
-        async for chunk in response.body_iterator:
-            if isinstance(chunk, bytes):
-                chunk = chunk.decode("utf-8")
-
-            lines = chunk.split("\n\n")
-            for line in lines:
-                line = line.strip()
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    continue
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                    if "content" in delta:
-                        full_text += delta["content"]
-                except Exception:
-                    logger.exception("Failed to parse SSE chunk")
-                    continue
-
-        # 6. 紀錄 Assistant 回覆並發送
-        if full_text:
-            if session_id and not await session_service.append_message_to_session(
-                session_id,
-                "assistant",
-                full_text,
-                name=target_agent_id,
-                identity=identity,
+        # 5. 聚合回應內容 (Aggregator)、紀錄 Assistant 回覆：存好之前這段對話算有回覆在跑，
+        #    換家交接要等（ADR-0307；外人訊息剛存好，中間沒有 await）
+        with replying(session_id):
+            full_text = await self._collect_reply(response)
+            if (
+                full_text
+                and session_id
+                and not await session_service.append_message_to_session(
+                    session_id,
+                    "assistant",
+                    full_text,
+                    name=target_agent_id,
+                    identity=identity,
+                )
             ):
                 raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
 
+        # 6. 發送
+        if full_text:
             outgoing = SNSOutgoingMessage(text=full_text)
             await adapter.send_message(event.channel_id, outgoing)
 

@@ -10626,10 +10626,22 @@ export interface components {
             min_keep_pairs: number;
             /**
              * Summary Model
-             * @description 壓縮被剪對話為摘要所用的便宜模型（ADR-0092 Phase D）
-             * @default claude-haiku-4-5
+             * @description 剪裁摘要與前情摘要所用的便宜模型（ADR-0092 Phase D；ADR-0305 改預設）
+             * @default claude-haiku-5-5
              */
             summary_model: string;
+            /**
+             * Prelude Summary Enabled
+             * @description 前情超過上限時合併成摘要（之後的退任摘要與子對話回報也看它）；關掉只留來源註記
+             * @default true
+             */
+            prelude_summary_enabled: boolean;
+            /**
+             * Prelude Max Tokens
+             * @description 每次送給模型的前情大約上限（token）
+             * @default 4000
+             */
+            prelude_max_tokens: number;
         };
         /**
          * SoulConfig

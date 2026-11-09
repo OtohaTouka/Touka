@@ -29,12 +29,13 @@ import { BackendProtocol, SkillInstallRequest, AskUserRequest, SaveResult, Strea
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useAgentBrainNotice } from "@/hooks/useAgentBrainNotice";
 import { useHookBlockNotice } from "@/hooks/useHookBlockNotice";
+import { useOldHomeNotice } from "@/hooks/useOldHomeNotice";
 import { usePromptStoppedNotice } from "@/hooks/usePromptStoppedNotice";
 import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
 import { buildApiHistory } from "@/lib/chat/buildApiMessage";
-import { isSaved, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
+import { isSaved, isOldHomeRefused, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
 import { useTranslation } from 'react-i18next';
 
 /** 同時可背景生成的對話數上限（溫和上限，SSOT）。 */
@@ -120,6 +121,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
   const { registerSimHandlers } = useDebug();
   const notifyBrainNotSet = useAgentBrainNotice();
   const notifyHookBlocked = useHookBlockNotice();
+  const notifyOldHome = useOldHomeNotice();
   const notifyPromptStopped = usePromptStoppedNotice();
 
   const [streams, setStreams] = useState<Record<string, StreamState>>({});
@@ -263,7 +265,8 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       // 使用者主動中止（AbortError）不提示；其餘為串流/連線錯誤，明確提示（P5b 失效可見化）。
       // 沒設主要模型（model-p0 U7）與 hook 擋下（ADR-0292）由專屬通知處理，其餘照舊顯示連線錯誤。
       const brainNotice = !cancelled && notifyBrainNotSet(err);
-      const hookBlocked = !cancelled && !brainNotice && notifyHookBlocked(err);
+      // 舊家（ADR-0306）也在送模型之前就被擋：和 hook 擋下走同一條路
+      const hookBlocked = !cancelled && !brainNotice && (notifyHookBlocked(err) || notifyOldHome(err));
       // hook 擋下的這一輪從樹裡拿掉再存回去：之後心跳、摘要等讀存檔的地方都看不到它（ADR-0292）
       const blockedText = hookBlocked ? current.tree.messages[current.tree.messages[current.assistantMsgId]?.parentId ?? '']?.content : undefined;
       const s = hookBlocked ? { ...current, tree: dropBlockedTurn(current.tree, current.assistantMsgId) } : current;
@@ -273,8 +276,8 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
         logSSOTError(new Error('Stream delivery failed'), `StreamRegistry:onError:${sessionId}`);
         if (!brainNotice && !hookBlocked) toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
       }
-      // hook 擋下時後端什麼都沒存（請求在送模型前就被拒）：和沒有文字的完成一樣，由這裡把拿掉
-      // 這一輪的樹照 revision 存回去；其他錯誤照舊不存，等人核對後再明示重試。
+      // hook 或舊家擋下時後端什麼都沒存（請求在送模型前就被拒）：和沒有文字的完成一樣，由這裡把
+      // 拿掉這一輪的樹照 revision 存回去；其他錯誤照舊不存，等人核對後再明示重試。
       const result = hookBlocked
         ? await persistDone(s, { status: 'skipped', reason: 'no_text' }, 'completed', blockedText ?? '')
         : await persistDone(s, unknownSave(), cancelled ? 'cancelled' : 'error');
@@ -285,7 +288,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     };
 
     return { onChunk, onThinking, onEvent, onDone, onError };
-  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked, notifyPromptStopped]);
+  }, [commit, persistDone, notifyBrainNotSet, notifyHookBlocked, notifyOldHome, notifyPromptStopped]);
 
   const startStream = useCallback(async (params: StartStreamParams): Promise<boolean> => {
     const { sessionId, baseTree, userText, resolvedInput, attachment, parentId,
@@ -331,6 +334,11 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
         buildUserTurnTree(migrateFlatToTree(current.messages), { userText, attachment, parentId, userMsgId, timestamp: sentAt }).tree, updatedAt }));
     } catch { return fail(unknownSave()); }
     if (!ownsStream()) return false;
+    if (isOldHomeRefused(saved)) { // 舊家（ADR-0307）：提示由保存那邊出，文字放回輸入框，這一輪不留下來
+      onHookBlocked?.();
+      commit(prev => { const next = { ...prev }; delete next[sessionId]; return next; });
+      return false;
+    }
     if (!isSaved(saved) || controller.signal.aborted || (!incognito && !isRequestScopeCurrent(requestScope))) {
       return fail(saved);
     }

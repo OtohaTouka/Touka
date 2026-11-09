@@ -28,7 +28,8 @@ from src.services.chat_trim_wait import closing_saves
 from src.services.dispatcher import _maybe_trim_after_chat
 from src.services.resource_manager import resource_manager
 from src.services.stream_buffer_service import stream_buffer_service
-from src.utils.async_db import init_db_async, session_service
+from src.utils.async_db import SessionPersistenceError, init_db_async, session_service
+from src.utils.soul_prelude_db import list_live_segments
 
 _SOUL = "Hanatou"
 _SS = "src.services.dispatcher.session_service"
@@ -176,7 +177,9 @@ async def test_chat_trim_archive_and_manual_sync_on_the_real_resource_manager(
 
     trimmed = await session_service.get_session_by_id(home_trim["sid"])
     assert "n0" not in trimmed["messages"]["messages"]
-    assert trimmed["context_summary"] == "summary"
+    assert trimmed["context_summary"] is None  # 摘要寫進前情，不改 context_summary（ADR-0305）
+    segments = await list_live_segments(soul.agent_id)
+    assert [(s.kind, s.content) for s in segments] == [("home_trim", "summary")]
     soul_dir = Path(resource_manager.get_vault_path("legacy", soul))
     assert not list(soul_dir.glob("*.json"))  # 系統沒有在 legacy/ 寫任何檔
     sync = sliding.get_manager().get_legacy_sync_service()
@@ -352,7 +355,7 @@ async def test_chat_trim_checks_again_before_the_summary_and_the_commit(
     if stage == "summary":
         archive.side_effect = lambda *_a: arrive(4)
     else:
-        home_trim["summarize"].side_effect = lambda *_a: arrive("summary")
+        home_trim["summarize"].side_effect = lambda *_a, **_k: arrive("summary")
     task = await _waiting_turn(home_trim)
     with pending:
         assert (await _ui_save(home_trim, nodes=_rich_reply())).persistence.status == "saved"
@@ -369,7 +372,7 @@ async def test_trims_that_lose_twice_do_not_duplicate_the_archive(
     store = sliding.get_manager().get_legacy_sync_service().get_store(soul)
     stats = []
 
-    async def lose(*_args: Any) -> str:  # 寫摘要的時候畫面先存了，存回時版本對不上
+    async def lose(*_args: Any, **_kwargs: Any) -> str:  # 寫摘要的時候畫面先存了，存回時版本對不上
         await _ui_save(home_trim, nodes=_rich_reply())
         return "summary"
 
@@ -380,3 +383,142 @@ async def test_trims_that_lose_twice_do_not_duplicate_the_archive(
     untrimmed = await session_service.get_session_by_id(home_trim["sid"])
     assert "n0" in untrimmed["messages"]["messages"]
     assert stats[0] == stats[1] and stats[0]["message_count"] > 0
+
+
+# ── 前情維護的排程（3d PR 2b，ADR-0307；禁令 28 同兩處）──────────
+
+_SCHEDULE = "src.services.dispatcher.home_handover.schedule"
+
+
+async def test_a_home_turn_schedules_maintenance_after_the_trim(souls: dict[str, dict]) -> None:
+    order: list[str] = []
+
+    async def trim(*_args: Any) -> bool:
+        order.append("trim")
+        return True
+
+    with patch(_SS) as mock_ss, patch(_SW) as mock_sw, patch(_SCHEDULE) as schedule:
+        schedule.side_effect = lambda _identity: order.append("schedule")
+        mock_ss.get_session_by_id = AsyncMock(
+            return_value={"is_home": True, "home_for_agent": _SOUL}
+        )
+        mock_sw.check_and_trim = trim
+        await _maybe_trim_after_chat("sess-1")
+    assert order == ["trim", "schedule"]
+    assert schedule.call_args.args[0].agent_id == _SOUL
+
+
+async def test_a_home_with_the_old_prefix_still_schedules_maintenance(
+    souls: dict[str, dict],
+) -> None:
+    souls["ToukaSoulHanatou"] = _passport("ToukaSoulHanatou", normalized=_SOUL)
+    with patch(_SS) as mock_ss, patch(_SW), patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(
+            return_value={"is_home": True, "home_for_agent": "ToukaSoulHanatou",
+                          "agent_id": "ToukaSoulHanatou"}
+        )
+        await _maybe_trim_after_chat("sess-1")
+    assert schedule.call_args.args[0].agent_id == _SOUL
+
+
+@pytest.mark.parametrize("bound", [_SOUL, "ToukaSoulHanatou"], ids=["soul", "old-prefix"])
+async def test_a_child_turn_schedules_maintenance_for_its_soul(
+    souls: dict[str, dict], bound: str
+) -> None:
+    """子對話不剪，但回報靠這裡排；舊前綴的寫法也是同一個靈魂。"""
+    souls["ToukaSoulHanatou"] = _passport("ToukaSoulHanatou", normalized=_SOUL)
+    with patch(_SS) as mock_ss, patch(_SW) as mock_sw, patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(return_value={"is_home": False, "agent_id": bound})
+        mock_sw.check_and_trim = AsyncMock(return_value=False)
+        await _maybe_trim_after_chat("sess-1")
+    mock_sw.check_and_trim.assert_not_awaited()
+    schedule.assert_called_once()
+    identity = schedule.call_args.args[0]
+    assert identity.agent_id == _SOUL and not identity.is_human
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        None,
+        {"is_home": False, "agent_id": "gpt-4o"},
+        {"is_home": False, "agent_id": None},
+        {"is_home": False, "agent_id": "Ghost"},
+        {"is_home": True, "home_for_agent": None, "agent_id": _SOUL},
+    ],
+    ids=["no-session", "plain-model", "no-agent", "unknown", "home-without-owner"],
+)
+async def test_a_turn_without_a_soul_schedules_nothing(
+    monkeypatch: pytest.MonkeyPatch, session: dict | None
+) -> None:
+    registry = {"gpt-4o": _passport("gpt-4o", soul=False)}
+    monkeypatch.setattr(dispatcher_mod.agent_service, "identify_agent", registry.get)
+    with patch(_SS) as mock_ss, patch(_SW) as mock_sw, patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(return_value=session)
+        mock_sw.check_and_trim = AsyncMock(return_value=False)
+        await _maybe_trim_after_chat("sess-1")
+    schedule.assert_not_called()
+
+
+async def test_a_failed_trim_still_schedules_maintenance(souls: dict[str, dict]) -> None:
+    with patch(_SS) as mock_ss, patch(_SW) as mock_sw, patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(
+            return_value={"is_home": True, "home_for_agent": _SOUL}
+        )
+        mock_sw.check_and_trim = AsyncMock(side_effect=OSError("disk"))
+        with pytest.raises(OSError, match="disk"):
+            await _maybe_trim_after_chat("sess-1")
+    schedule.assert_called_once()
+
+
+def _waiter(session_id: str) -> Any:
+    human = AgentIdentity.for_role("t-human", "normal", is_human=True)
+    return closing_saves.register(session_id, "r1", "n1", human)
+
+
+async def test_a_replaced_closing_save_schedules_nothing(souls: dict[str, dict]) -> None:
+    """同一段對話又開了新的一輪：這一輪不動，新的那輪存好時會排。"""
+    old = _waiter("sess-2")
+    newer = _waiter("sess-2")
+    with patch(_SS) as mock_ss, patch(_SW), patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(
+            return_value={"is_home": True, "home_for_agent": _SOUL}
+        )
+        mock_ss.read_persistence_snapshot = AsyncMock(return_value=MagicMock(revision="r1"))
+        await _maybe_trim_after_chat("sess-2", old)
+    schedule.assert_not_called()
+    closing_saves.discard(newer)
+
+
+async def test_an_old_home_waits_for_its_closing_save_before_scheduling(
+    souls: dict[str, dict],
+) -> None:
+    """舊家的最後一輪：等畫面存好才排，交接才不會比富版早。"""
+    waiter = _waiter("old-1")
+    with patch(_SS) as mock_ss, patch(_SW), patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(return_value={"is_home": False, "agent_id": _SOUL})
+        mock_ss.is_old_home = AsyncMock(return_value=True)
+        mock_ss.read_persistence_snapshot = AsyncMock(return_value=MagicMock(revision="r1"))
+        task = asyncio.create_task(_maybe_trim_after_chat("old-1", waiter))
+        await asyncio.sleep(0.05)
+        assert not task.done() and closing_saves.is_waiting("old-1")
+        schedule.assert_not_called()
+        closing_saves.saved("old-1")
+        await asyncio.wait_for(task, 5)
+    schedule.assert_called_once()
+    assert not closing_saves.is_waiting("old-1")
+
+
+@pytest.mark.parametrize(
+    "old_home", [False, SessionPersistenceError()], ids=["child", "unreadable"]
+)
+async def test_a_plain_child_does_not_wait_for_a_closing_save(
+    souls: dict[str, dict], monkeypatch: pytest.MonkeyPatch, old_home: Any
+) -> None:
+    monkeypatch.setattr(chat_trim_wait, "CLOSING_SAVE_WAIT_SECONDS", 60)
+    waiter = _waiter("child-1")
+    with patch(_SS) as mock_ss, patch(_SW), patch(_SCHEDULE) as schedule:
+        mock_ss.get_session_by_id = AsyncMock(return_value={"is_home": False, "agent_id": _SOUL})
+        mock_ss.is_old_home = AsyncMock(side_effect=[old_home])
+        await asyncio.wait_for(_maybe_trim_after_chat("child-1", waiter), 5)
+    schedule.assert_called_once()

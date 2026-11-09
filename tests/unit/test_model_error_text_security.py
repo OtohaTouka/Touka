@@ -314,6 +314,10 @@ def _pipeline_fills_the_context(monkeypatch: pytest.MonkeyPatch) -> None:
             request.model = "gpt-test"
 
     monkeypatch.setattr("src.services.proxy_service.pipeline.execute", execute)
+    # 共同入口先查舊家（ADR-0306）；這裡沒有資料庫，當作不是舊家（讀不到會讓這一輪失敗）
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.check_old_home", AsyncMock(return_value=False)
+    )
     monkeypatch.setattr("src.services.proxy_service.log_payload", lambda *_a, **_k: None)
     monkeypatch.setattr("src.services.proxy_service.record_working_brain", lambda *_a: None)
     monkeypatch.setattr("src.services.dispatcher.record_working_brain", lambda *_a: None)
@@ -370,6 +374,11 @@ def _install_group(monkeypatch: pytest.MonkeyPatch) -> list[str]:
                         MagicMock(request_model_name=lambda brain: brain))
     monkeypatch.setattr("src.services.dispatchers.group.soul_service",
                         MagicMock(inject_home_messages=AsyncMock()))
+    # 主線讀家與還沒交接完的舊家（ADR-0305、0306）；這裡沒有資料庫，當作都沒有
+    monkeypatch.setattr("src.utils.async_db.session_service.read_home_snapshot",
+                        AsyncMock(return_value=None))
+    monkeypatch.setattr("src.utils.async_db.session_service.read_unfinished_old_homes",
+                        AsyncMock(return_value=[]))
     second_member_messages: list[str] = []
     calls = {"count": 0}
 

@@ -15,6 +15,7 @@ from src.services.authorization_gateway import can_drive_soul
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.dispatchers.utils import strip_redundant_labels
 from src.services.group_router import parse_group_roster
+from src.services.mainline_service import inject_mainline
 from src.services.model_manager import model_manager
 from src.services.prompt_blocks import IDE_CONTEXT, wrap_block
 from src.services.resource_manager import resource_manager
@@ -152,7 +153,12 @@ async def dispatch_group_stream(
         brain_model = brains[target_agent]
         current_request.model = brain_model
         soul_service.apply_soul_to_request(current_request, target_identity)
-        await soul_service.inject_home_messages(current_request, target_identity)
+        await inject_mainline(  # 前情＋家原文（ADR-0305）；無痕都不帶
+            current_request,
+            target_identity,
+            mode="incognito" if context.get("incognito") else "group",
+            sns=bool(context.get("sns_source")),
+        )
 
         ide_ctx = getattr(request, "ide_context", None)
         ide_note = ""

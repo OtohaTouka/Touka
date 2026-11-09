@@ -13,13 +13,19 @@ from src.services.agent_reset import primitives as P
 from src.services.feedback_store import FeedbackStore
 from src.services.resource_manager import resource_manager
 from src.utils import brain_persistence
-from src.utils.async_db import get_system_setting, init_db_async, session_service
+from src.utils.async_db import (
+    get_async_db,
+    get_system_setting,
+    init_db_async,
+    session_service,
+)
 from src.utils.continuity_events_db import (
     EventRow,
     agent_epoch_key,
     count_agent_events,
     insert_event,
 )
+from src.utils.soul_prelude_db import PreludeSegment, count_agent_segments, insert_segment
 
 from tests.support.links import make_dir_link
 
@@ -156,6 +162,26 @@ async def test_timeline_isolation():
     assert [s.name for s in P.MEMORY_STORES][:2] == ["memory", "timeline"]
 
 
+async def test_prelude_isolation():
+    """前情段落（ADR-0305）：只清 DebugAgent 的，真實 agent 不受影響；和對話放在同一區."""
+    await init_db_async()
+    for ident in (DEBUG, JIN):
+        await insert_segment(
+            PreludeSegment(
+                agent=ident.agent_id,
+                kind="home_trim",
+                source_session="s",
+                dedupe_key="k",
+                content="x",
+                created_at=1,
+            )
+        )
+    assert await P.purge_prelude("DebugAgent") == 1
+    assert await P.remaining_prelude("DebugAgent") == 0
+    assert await count_agent_segments(JIN) == 1
+    assert [s.name for s in P.PROXY_STORES][:2] == ["sessions", "prelude"]
+
+
 async def test_memory_unavailable_raises(monkeypatch):
     """記憶橋接不可用時 purge/remaining 必須 raise（禁 false-clean，ADR-0104 R11）。"""
     def _boom() -> object:
@@ -173,3 +199,30 @@ async def test_every_purge_rejects_non_debugagent(store):
     sp = next(s for s in P.ALL_STORES if s.name == store)
     with pytest.raises(ToukaException):
         await sp.purge("Jin")
+
+
+async def _home_record(agent_id: str) -> None:
+    """換家紀錄與回報位置各一筆（ADR-0306；直接寫列，不經設家）."""
+    async with get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_home_transitions (agent_id, old_session, created_at, updated_at) "
+            "VALUES (?, 'old', 1, 1)",
+            (agent_id,),
+        )
+        await db.execute(
+            "INSERT INTO soul_child_report_marks (session_id, agent_id, updated_at) "
+            "VALUES (?, ?, 1)",
+            (f"child-{agent_id}", agent_id),
+        )
+        await db.commit()
+
+
+async def test_home_records_isolation():
+    """換家紀錄與回報位置（ADR-0306）：只清 DebugAgent 的；和對話、前情放在同一區."""
+    await init_db_async()
+    for ident in (DEBUG, JIN):
+        await _home_record(ident.agent_id)
+    assert await P.purge_home_records("DebugAgent") == 2
+    assert await P.remaining_home_records("DebugAgent") == 0
+    assert await session_service.count_agent_home_records(JIN) == 2
+    assert [s.name for s in P.PROXY_STORES][:3] == ["sessions", "prelude", "home_records"]

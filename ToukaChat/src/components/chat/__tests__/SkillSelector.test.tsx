@@ -71,7 +71,6 @@ function createChatContext(activeSessionId: string): ReturnType<typeof ChatProvi
     handleStopGeneration: vi.fn(),
     handleNewSession: vi.fn(),
     handleSwitchSession: vi.fn(),
-    handleHomeSession: vi.fn(),
     handleSetHome: vi.fn().mockResolvedValue(undefined),
     handleUnsetHome: vi.fn().mockResolvedValue(undefined),
     handleDeleteMessage: vi.fn(),

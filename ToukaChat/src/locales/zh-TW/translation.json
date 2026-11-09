@@ -445,7 +445,14 @@
       "save_button": "儲存設定",
       "save_success": "滑動視窗設定已儲存",
       "summary_line_with_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v> 並把剪掉的內容壓成佔 <v>{{summary}}%</v> 的摘要，剪後約 <v>{{after}}%</v>。",
-      "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。"
+      "summary_line_no_summary": "當前設定：context 占用達 <v>{{trigger}}%</v> 時觸發，無損剪到 <v>{{floor}}%</v>（不摘要，純無損剪裁）。",
+      "summary_model_label": "摘要模型",
+      "summary_model_hint": "剪裁摘要和前情摘要都用這個模型。只列出已設定金鑰的模型。",
+      "summary_model_missing_key": "{{model}} 不在已設定金鑰的模型清單裡；不需要金鑰的本機模型可以忽略這個提醒，否則摘要會失敗（剪裁照常，只留來源註記）。",
+      "summary_model_no_models": "還沒有設定金鑰的模型。",
+      "summary_model_load_failed": "讀不到模型清單。",
+      "prelude_label": "前情摘要",
+      "prelude_hint": "前情是靈魂累積的前面發生過的事，每次送給模型時都會帶上。前情超過上限時，把最舊的幾段合併成一段摘要；關掉就不合併。剪裁時要不要摘要，照上面的摘要百分比。"
     },
     "hooks_tab": {
       "title": "Hooks",
@@ -1342,6 +1349,7 @@
     "session_item": {
       "incognito_label": "無痕對話",
       "incognito_badge": "無痕",
+      "old_home_badge": "舊家",
       "round_count": "{{count}} 則對話",
       "session_options": "會話選項：{{title}}",
       "export_conversation": "匯出對話",
@@ -1366,6 +1374,11 @@
       "nav_settings": "設定",
       "logout_confirm": "確認登出？",
       "logout": "登出"
+    },
+    "failed_handovers_notice": {
+      "heading": "有 {{count}} 段舊家交接失敗",
+      "unknown": "未知",
+      "hint": "舊家的內容還在，系統之後會自動再試。"
     },
     "interrupted_runs_notice": {
       "retrigger_success": "已重新觸發 {{agent}} 的背景任務",
@@ -1423,6 +1436,19 @@
     }
   },
   "chat": {
+    "old_home": {
+      "notice": "這是以前的家，現在只能看。要繼續這段對話，先把它設為家。",
+      "set_as_home": "設為家"
+    },
+    "home_confirm": {
+      "set_title": "把這段對話設為家？",
+      "set_body": "靈魂之後從這裡繼續。原本的家會變成舊家，只能看、不能再聊；想回去時再把它設為家就好。",
+      "confirm_set": "設為家",
+      "unset_title": "取消這段對話的家？",
+      "unset_body": "取消後這段對話會變成舊家，只能看、不能再聊；還沒用過的家會直接回到一般對話。想回去時再把它設為家就好。",
+      "confirm_unset": "取消家",
+      "keep": "先不要"
+    },
     "message_item": {
       "copy_code": "複製代碼",
       "cancel": "取消",
@@ -1454,6 +1480,7 @@
         "project_context": "專案",
         "ide_context": "編輯器",
         "conversation_summary": "摘要",
+        "soul_prelude": "前情",
         "conversation": "對話",
         "system_other": "其他"
       },
@@ -2377,6 +2404,8 @@
       "save_failed": "儲存工作階段失敗",
       "scope_mismatch": "此對話無法用於指定的對象",
       "prompt_stopped": "這次回覆在開始前就被停止了",
+      "old_home_read_only": "這是以前的家，要繼續這段對話請先把它設為家",
+      "old_home_not_deletable": "以前的家要等交接完成才能刪除",
       "interjection_queue_full": "這一則回覆的補充太多了",
       "interjection_too_long": "補充的文字太長",
       "interjection_not_found": "找不到這則補充",

@@ -5,9 +5,11 @@
   "trigger_pct": 90,
   "target_floor_pct": 50,
   "summary_budget_pct": 0,
-  "summary_model": "claude-haiku-4-5",
+  "summary_model": "claude-haiku-5-5",
+  "prelude_summary_enabled": true,
+  "prelude_max_tokens": 4000,
   "min_keep_pairs": 2,
   "version": "1.1.0",
   "author": "system",
-  "description": "滑動視窗對話紀錄設定。ADR-0092：剪裁基準為 context window token 百分比（trigger_pct 觸發、剪到 target_floor_pct 地板、summary_budget_pct 摘要上限）。僅對家對話生效，PostHeartbeat 觸發。keep_rounds/upper_limit_rounds 為 deprecated 相容欄位。"
+  "description": "滑動視窗對話紀錄設定。ADR-0092：剪裁基準為 context window token 百分比（trigger_pct 觸發、剪到 target_floor_pct 地板、summary_budget_pct 摘要上限）。僅對家對話生效，PostHeartbeat 觸發。ADR-0305：剪掉的部分寫進靈魂前情（prelude_summary_enabled 關掉時前情超過上限也不合併，prelude_max_tokens 是前情放進 prompt 的上限）。keep_rounds/upper_limit_rounds 為 deprecated 相容欄位。"
 }

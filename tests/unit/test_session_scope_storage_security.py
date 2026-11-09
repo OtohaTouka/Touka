@@ -7,7 +7,11 @@ import copy
 from contextlib import asynccontextmanager
 
 import pytest
+from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
+from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
+from src.models.sliding_window import SlidingWindowConfig
+from src.services import mainline_service
 from src.utils import async_db
 
 from tests.support.session_scope import (
@@ -29,6 +33,12 @@ from tests.support.session_scope import (
 from tests.support.session_scope import scope_db as scope_db
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("scope_db")]
+
+
+@pytest.fixture(autouse=True)
+def _default_window(monkeypatch):
+    """主線讀前情時用預設的滑動視窗設定（不讀沙盒外的設定檔）."""
+    monkeypatch.setattr(mainline_service, "load_sliding_window_config", SlidingWindowConfig)
 
 
 @pytest.mark.parametrize(
@@ -98,18 +108,32 @@ async def test_home_read_never_selects_inconsistent_or_ambiguous_rows(reader, ki
     if reader == "lookup":
         result = await async_db.session_service.get_home_session_id(B)
         assert result is None, f"unsafe home was selected: {result}"
-    else:
-        result = await async_db.get_home_messages(B)
-        assert result == [], "unsafe home reached prompt injection"
-    assert "SESSION_SCOPE_MISMATCH" in caplog.text
+        assert "SESSION_SCOPE_MISMATCH" in caplog.text
+    else:  # 真正的注入路徑：主線（PR 1 審查 N3）
+        request = _chat_request()
+        await mainline_service.inject_mainline(request, B, mode="chat", session_id="elsewhere")
+        assert "private A" not in request.model_dump_json(), "unsafe home reached prompt injection"
+        assert len(request.messages) == 1
     assert "private A" not in caplog.text
+
+
+def _chat_request() -> OpenAIChatRequest:
+    return OpenAIChatRequest(model="m", messages=[OpenAIMessage(role="user", content="now")])
 
 
 async def test_single_consistent_home_lookup_and_injection_agree():
     await seed(is_home=True, home_for_agent=A.agent_id)
     assert await async_db.session_service.get_home_session_id(A) == "chat"
-    assert [m["content"] for m in await async_db.get_home_messages(A)] == ["private A", "answer A"]
-    assert await async_db.get_home_messages(A, current_session_id="chat") == []
+    request = _chat_request()
+    await mainline_service.inject_mainline(request, A, mode="chat")
+    sent = request.model_dump_json()
+    assert "private A" in sent
+    assert "answer A" in sent
+    own = _chat_request()  # 網頁版家本身已帶完整紀錄：不再插一次
+    await mainline_service.inject_mainline(
+        own, A, mode="chat", session_id="chat", sends_own_history=True
+    )
+    assert "private A" not in own.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -148,13 +172,29 @@ async def test_human_can_switch_nonempty_conversation_without_losing_history():
     assert row["owner_user_id"] == before["owner_user_id"]
 
 
-async def test_home_must_be_unset_before_human_can_switch_souls():
+async def test_neither_the_home_nor_a_former_home_can_switch_souls():
+    """家不能換靈魂；取消家之後是舊家（唯讀），也不能換（ADR-0306）."""
     await seed(is_home=True, home_for_agent=A.agent_id)
     before = await raw_row()
     result = await attempt(ui_save(agent_id=B, is_home=False, home_for_agent=None))
     assert await raw_row() == before
     assert_scope_denied(getattr(result, "persistence", result))
     assert await async_db.session_service.set_home("chat", A, False)
+    unset = await raw_row()
+    result = await ui_save(agent_id=B)
+    assert result.persistence.status == "failed"
+    assert result.persistence.error_code == (
+        ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY).error_id
+    )
+    assert await raw_row() == unset
+
+
+async def test_a_conversation_that_was_never_used_as_home_can_still_switch_souls():
+    await seed()
+    await seed("home", is_home=True, home_for_agent=A.agent_id)
+    assert await async_db.session_service.set_home("chat", A, True)
+    assert await async_db.session_service.set_home("home", A, True)  # 沒開始用就改回去
+    before = await raw_row()
     result = await ui_save(agent_id=B)
     row = await raw_row()
     assert result.persistence.status == "saved"

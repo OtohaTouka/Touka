@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from src.adapters.schemas import (
@@ -92,14 +92,9 @@ def _home_tree() -> dict:
     return {"messages": {U1: user, A1: assistant}, "currentId": A1}
 
 
-@pytest.fixture(autouse=True)
-def _home_store(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = MagicMock(
-        read_home_snapshot=AsyncMock(
-            return_value=async_db.SessionSnapshot({"id": "home", "messages": _home_tree()}, "rev")
-        ),
-    )
-    monkeypatch.setattr(async_db, "session_service", service)
+def _home_messages() -> list[dict[str, Any]]:
+    """主線讀到家之後交給注入的那份（ADR-0305；注入不再自己讀家）."""
+    return async_db.home_messages_of({"id": "home", "messages": _home_tree()})
 
 
 def _soul() -> SoulService:
@@ -113,7 +108,7 @@ async def _assemble(request: Any) -> Any:
     soul = _soul()
     identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
     soul.apply_soul_to_request(request, identity)
-    await soul.inject_home_messages(request, identity)
+    await soul.inject_home_messages(request, identity, home_messages=_home_messages())
     return request
 
 
@@ -242,7 +237,7 @@ async def test_client_message_name_not_forwarded(model, send) -> None:
 
 async def _inject(request: Any) -> Any:
     identity = AgentIdentity.for_role(agent_id="Alice", role="Owner")
-    await _soul().inject_home_messages(request, identity)
+    await _soul().inject_home_messages(request, identity, home_messages=_home_messages())
     return request
 
 

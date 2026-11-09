@@ -162,7 +162,7 @@ async def test_tool_executor_emits_repair_progress(monkeypatch):
         lambda ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
 
@@ -220,6 +220,13 @@ async def test_group_dispatcher_emits_group_progress(monkeypatch):
     monkeypatch.setattr(
         "src.services.dispatchers.group.soul_service",
         MagicMock(inject_home_messages=AsyncMock()),
+    )
+    # 主線讀家與還沒交接完的舊家（ADR-0305、0306）；這裡沒有資料庫，當作都沒有
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_home_snapshot", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_unfinished_old_homes", AsyncMock(return_value=[])
     )
 
     async def fake_get_stream_generator(*a, **k):
@@ -336,7 +343,7 @@ async def test_tool_executor_passes_emit_channel(monkeypatch):
         lambda ctx: type("D", (), {"effect": "ALLOW", "reason": "ok"})(),
     )
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id",
+        "src.utils.async_db.session_service.get_session_by_id",
         AsyncMock(return_value=None),
     )
     te = ToolExecutor(

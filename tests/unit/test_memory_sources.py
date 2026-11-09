@@ -394,7 +394,7 @@ async def _execute_public_call(
 ) -> tuple[str, AsyncMock]:
     handler = AsyncMock(return_value='{"ok": true}')
     monkeypatch.setattr(
-        "src.services.tool_executor.session_service.get_session_by_id", AsyncMock(return_value=None)
+        "src.utils.async_db.session_service.get_session_by_id", AsyncMock(return_value=None)
     )
     ctx = {
         "identity": AgentIdentity.for_role(agent_id="DebugAgent", role="Owner"),

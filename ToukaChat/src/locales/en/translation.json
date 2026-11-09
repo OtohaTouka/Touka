@@ -528,7 +528,14 @@
       "save_button": "Save Settings",
       "save_success": "Sliding window settings saved",
       "summary_line_with_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> and compresses the trimmed content into a summary taking <v>{{summary}}%</v>, leaving about <v>{{after}}%</v> after trimming.",
-      "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only)."
+      "summary_line_no_summary": "Current settings: triggers when context usage reaches <v>{{trigger}}%</v>, losslessly trims to <v>{{floor}}%</v> (no summary, lossless trim only).",
+      "summary_model_label": "Summary model",
+      "summary_model_hint": "Used for trim summaries and prelude summaries. Only models with a configured key are listed.",
+      "summary_model_missing_key": "{{model}} is not in the list of models with a configured key. A local model that needs no key can ignore this; otherwise summaries will fail (trimming still works and leaves a source note).",
+      "summary_model_no_models": "No models with a configured key yet.",
+      "summary_model_load_failed": "Could not load the model list.",
+      "prelude_label": "Prelude summaries",
+      "prelude_hint": "The prelude is what the soul has gathered about earlier conversations; it is sent to the model every time. When it grows past its limit, the oldest entries are merged into one summary; turn this off to skip merging. Whether trims are summarized follows the summary percentage above."
     },
     "hooks_tab": {
       "title": "Hooks",
@@ -1344,6 +1351,7 @@
     "session_item": {
       "incognito_label": "Incognito conversation",
       "incognito_badge": "Incognito",
+      "old_home_badge": "Former home",
       "round_count": "{{count}} rounds",
       "session_options": "Session options: {{title}}",
       "export_conversation": "Export Conversation",
@@ -1370,6 +1378,13 @@
       "nav_settings": "Settings",
       "logout_confirm": "Log out?",
       "logout": "Log Out"
+    },
+    "failed_handovers_notice": {
+      "heading": "{{count}} former home handovers failed",
+      "heading_one": "{{count}} former home handover failed",
+      "heading_other": "{{count}} former home handovers failed",
+      "unknown": "Unknown",
+      "hint": "The former home is still there, and the handover will be tried again automatically."
     },
     "interrupted_runs_notice": {
       "retrigger_success": "Re-triggered the background task for {{agent}}",
@@ -1429,6 +1444,19 @@
     }
   },
   "chat": {
+    "old_home": {
+      "notice": "This was a home conversation before and is now read-only. Set it as home to continue it.",
+      "set_as_home": "Set as home"
+    },
+    "home_confirm": {
+      "set_title": "Make this conversation the home?",
+      "set_body": "The soul continues from here. The current home becomes a former home you can read but not continue; set it as home again to go back.",
+      "confirm_set": "Set as home",
+      "unset_title": "Stop using this conversation as home?",
+      "unset_body": "It becomes a former home you can read but not continue. A home that was never used goes back to an ordinary conversation. Set it as home again to go back.",
+      "confirm_unset": "Unset home",
+      "keep": "Not now"
+    },
     "message_item": {
       "copy_code": "Copy Code",
       "cancel": "Cancel",
@@ -1460,6 +1488,7 @@
         "project_context": "Project",
         "ide_context": "Editor",
         "conversation_summary": "Summary",
+        "soul_prelude": "Earlier context",
         "conversation": "Conversation",
         "system_other": "Other"
       },
@@ -2385,6 +2414,8 @@
       "save_failed": "Failed to save the session",
       "scope_mismatch": "This conversation cannot be used for the requested target",
       "prompt_stopped": "This reply was stopped before it started",
+      "old_home_read_only": "This was a home conversation before; set it as home again to continue it",
+      "old_home_not_deletable": "A former home conversation can be deleted once its handover finishes",
       "interjection_queue_full": "Too many messages added to this reply",
       "interjection_too_long": "The message is too long",
       "interjection_not_found": "Message not found for this reply",

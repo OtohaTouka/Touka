@@ -34,6 +34,9 @@
 - Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
+- 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。在家時另帶還沒交接完的舊家原文（ADR-0306）。
+- 換家之後的舊家（ADR-0306）：`/awaken`（指定這段、家模式讀到家之後才被換走；獨立模式的預設頻道也查，只是防線，現在離開頻道家不建紀錄）與 `/retrigger` 這段都回 409 `SESSION_OLD_HOME_READ_ONLY`，不寫入、不排背景；讀不到交接紀錄時回 `SESSION_SAVE_FAILED`、不放寬。檢查在選好對話之後、寫初始提示之前，兩者不在同一個交易（中間剛好換家時整次跑在舊家，同 IDE 的已知空檔）；跑到一半才換家時剩下的脈衝照樣寫完（排程設的次數；`/retrigger` 最多 5 個）。`/awaken`（每種模式，含指定一段還沒用過的新家）與 `/retrigger` 開新的一輪之前記「新家開始用」；沒有家時建家和設家走同一套交接紀錄，同一個交易裡確認沒有別的家（有就整筆退回）。升級前就當家的頻道換走時不建紀錄，頻道模式照常。
+- 靈魂的一次心跳結束時（至少完成一個脈衝、開跑之後沒被重置或刪除），在背景排一次前情維護（換家交接、子對話回報，ADR-0307）；這時這次心跳已經拿掉登記，排程不拉長心跳。
 - ToukaHeartbeat 服務本身不變。
 
 ## 刪除、重置、記憶清除期間（舊審查報告丙-4，ADR-0287）
@@ -294,7 +297,7 @@ finally:
 ```
 
 **行為規則**：
-- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再計算來回數；超過 `upper_limit_rounds` 時先存 Legacy，再以 CAS 更新 Session。
+- **家對話**：`check_and_trim()` 先驗執行靈魂與對話歸屬，再估算 token 用量；超過 `trigger_pct` 時先歸檔進舊對話庫，再以 CAS 更新 Session，剪掉的部分在同一交易寫成靈魂前情的一段；剪完之後前情超過上限時在背景合併最舊的幾段，剪裁不等它（ADR-0092、ADR-0264、ADR-0305）。
 - **子對話**：完全跳過，`is_home_mode=False` 時不呼叫 hook。
 - **失敗隔離**：hook 拋出例外時，`logger.exception` 記錄後略過，不影響 heartbeat 整體結果。
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { formatToTaipeiDate } from '@/lib/time_utils';
 import { SessionTree } from '@/components/sidebar/left/SessionTree';
@@ -382,6 +382,46 @@ describe('SessionTree — 設為家', () => {
     openMenu(/^m1/);
     await screen.findByRole('menu');
     expect(screen.queryByRole('menuitem', { name: '設為家對話' })).toBeNull();
+  });
+
+  it('設為家要先確認，按先不要就不送', async () => {
+    state.sessions = [session('a1', 'Alice', 2)];
+    renderTree();
+    openMenu('a1');
+    fireEvent.click(await screen.findByRole('menuitem', { name: '設為家對話' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(state.handleSetHome).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '先不要' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(state.handleSetHome).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('treeitem'));
+  });
+
+  it('確認之後才設家', async () => {
+    state.sessions = [session('a1', 'Alice', 2)];
+    renderTree();
+    openMenu('a1');
+    fireEvent.click(await screen.findByRole('menuitem', { name: '設為家對話' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '設為家' }));
+    expect(state.handleSetHome).toHaveBeenCalledWith('a1');
+  });
+
+  it('取消家也要先確認', async () => {
+    state.sessions = [session('h', 'Alice', 1, { is_home: true })];
+    renderTree();
+    openMenu(/^Alice/);
+    fireEvent.click(await screen.findByRole('menuitem', { name: '取消家對話' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '取消家' }));
+    expect(state.handleUnsetHome).toHaveBeenCalledWith('h');
+  });
+
+  it('舊家有標籤，也不能切分存入舊對話庫', async () => {
+    state.sessions = [session('o', 'Alice', 1, { is_old_home: true })];
+    renderTree();
+    expect(row(/舊家/)).toBeInTheDocument();
+    openMenu(/舊家/);
+    expect(await screen.findByRole('menuitem', { name: '設為家對話' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /切分/ })).toBeNull();
   });
 
   it('家對話看得到取消', async () => {

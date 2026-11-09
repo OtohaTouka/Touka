@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminLogin, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot } from "./lib/api";
+import { adminLogin, createSoul, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot, setChatHome } from "./lib/api";
 import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
 import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
@@ -42,6 +42,47 @@ async function send(page: Page, text: string): Promise<void> {
 async function savedUserTexts(sessionId: string): Promise<string[]> {
   const messages = await savedMessages(adminToken, sessionId);
   return messages.filter((message) => message.role === "user").map((message) => message.content ?? "");
+}
+
+/**
+ * 換家的情境各用自己的靈魂：別的情境留下的家與舊家（ADR-0306）不影響這一條，單獨跑也一樣。
+ * 開一段新對話、選好這個靈魂。
+ */
+async function useOwnSoul(page: Page, soul: string): Promise<void> {
+  await createSoul(adminToken, soul);
+  await openChat(page);
+  await selectSoul(page, soul);
+}
+
+/** 家是資料夾那一列（列上顯示靈魂名）：用對話標題找到它再點開。 */
+async function openHome(page: Page, title: string): Promise<void> {
+  await page.getByRole("treeitem", { name: new RegExp(`，家對話：${title}`) }).getByTitle(title).click();
+}
+
+async function newChatWith(page: Page, soul: string): Promise<void> {
+  await page.getByRole("button", { name: "新增對話" }).click();
+  await selectSoul(page, soul);
+}
+
+/** 舊家只能看（ADR-0306）：輸入框換成說明和「設為家」。 */
+async function expectOldHomeReadOnly(page: Page): Promise<void> {
+  await expect(page.getByTestId("old-home-notice")).toBeVisible();
+  await expect(composer(page)).toHaveCount(0);
+}
+
+/**
+ * 在舊家送出（ADR-0306）：入口就擋下，跳舊家的提示、文字放回輸入框，模型沒收到，
+ * 存檔裡也沒有這一則，不留保存提示。
+ */
+async function expectOldHomeRefused(page: Page, sessionId: string, text: string): Promise<void> {
+  await sendMessage(page, text);
+  await expect(page.getByText("這是以前的家，要繼續這段對話請先把它設為家").first()).toBeVisible();
+  await expect(composer(page)).toHaveValue(text);
+  await turnEnded(page);
+  await expectNoSaveNotice(page);
+  await expect.poll(async () => savedUserTexts(sessionId)).not.toContain(text);
+  expect((await modelCalls()).some((call) => call.lastText.includes(text))).toBe(false);
+  await composer(page).fill("");
 }
 
 /** 重新整理，等畫面查完這段對話的串流狀態、該做的請求都做完。 */
@@ -111,10 +152,20 @@ test("新對話 A、新對話 B 各送一則，點回 A 再送：下一則直接
   expect(await savedUserTexts(second)).not.toContain("甲段：切回來之後");
 });
 
-test("設為家又馬上取消，再送一則都正常", async ({ page }) => {
+// 設了家還沒在裡面聊過就取消：當沒換過，這段回到普通對話（ADR-0306）
+test("新設的家沒聊過就取消：這段回到普通對話，再送一則都正常", async ({ page }) => {
+  const soul = "SaveUnsetUnused";
+  await useOwnSoul(page, soul);
+  await send(page, "原本的家");
+  const home = await latestSessionId(adminToken);
+  await setChatAsHome(page, "原本的家");
+  await expect.poll(async () => (await savedSnapshot(adminToken, home)).session.is_home).toBe(true);
+
+  await newChatWith(page, soul);
   await send(page, "取消之前");
   const id = await latestSessionId(adminToken);
-  await setChatAsHome(page);
+  expect(id).not.toBe(home);
+  await setChatAsHome(page, "取消之前");
   await expect.poll(async () => (await savedSnapshot(adminToken, id)).session.is_home).toBe(true);
 
   await unsetChatHome(page, "取消之前");
@@ -140,14 +191,19 @@ test("設為家之後改名，再送一則都正常", async ({ page }) => {
   expect(await savedUserTexts(id)).toContain("改名之後");
 });
 
-test("輪流換家之後，舊的家對話再送一則都正常", async ({ page }, info) => {
+// 換家之後舊家唯讀（ADR-0306）
+test("換家之後舊家變唯讀，新家照常；換回來之後另一段變成舊家", async ({ page }, info) => {
+  const soul = "SaveOldHome";
+  await useOwnSoul(page, soul);
   await send(page, "第一段");
   const first = await latestSessionId(adminToken);
   await setChatAsHome(page, "第一段");
   await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
+  // 當家時聊過才算用過（沒用過的第一個家換走會回到普通對話，ADR-0306）
+  await openHome(page, "第一段");
+  await send(page, "第一段：當家時");
 
-  await page.getByRole("button", { name: "新增對話" }).click();
-  await selectSoul(page);
+  await newChatWith(page, soul);
   await send(page, "第二段");
   const second = await latestSessionId(adminToken);
   expect(second).not.toBe(first);
@@ -157,17 +213,42 @@ test("輪流換家之後，舊的家對話再送一則都正常", async ({ page 
 
   // 第一段現在是舊家
   await clickChatInList(page, "第一段");
-  await send(page, "第一段：換家之後");
-  expect(await savedUserTexts(first)).toContain("第一段：換家之後");
+  await expectOldHomeReadOnly(page);
+  await shot(page, info, "old-home-read-only");
 
-  // 換回來，第二段變成舊家
+  // 新家照常聊：從這一輪起新家算開始用了
+  await openHome(page, "第二段");
+  await send(page, "第二段：設家之後");
+  expect(await savedUserTexts(second)).toContain("第二段：設家之後");
+
+  // 換回第一段：它又是家、可以聊；第二段用過了，變成舊家
   await setChatAsHome(page, "第一段");
   await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
   expect((await savedSnapshot(adminToken, second)).session).toMatchObject({ is_home: false, home_for_agent: null });
+  await openHome(page, "第一段");
+  await send(page, "第一段：換回來之後");
+  expect(await savedUserTexts(first)).toContain("第一段：換回來之後");
   await clickChatInList(page, "第二段");
-  await send(page, "第二段：換家之後");
-  expect(await savedUserTexts(second)).toContain("第二段：換家之後");
-  await shot(page, info, "old-home-saved");
+  await expectOldHomeReadOnly(page);
+});
+
+// 這一頁的清單還不知道換了家：畫面還有輸入框，送出要被擋下，文字放回去
+test("別的地方換了家、這一頁還不知道：送出被擋、模型沒收到", async ({ page }) => {
+  const soul = "SaveStaleHome";
+  await useOwnSoul(page, soul);
+  await send(page, "甲段");
+  const first = await latestSessionId(adminToken);
+  await setChatAsHome(page, "甲段");
+  await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
+  await openHome(page, "甲段");
+  await send(page, "甲段：當家時");
+
+  await newChatWith(page, soul);
+  await send(page, "乙段");
+  const second = await latestSessionId(adminToken);
+  await openHome(page, "甲段");
+  await setChatHome(adminToken, second, soul);
+  await expectOldHomeRefused(page, first, "甲段：換家之後");
 });
 
 // 資料夾那一列取最新的家標記，要換回比較舊的那段，舊標記沒清掉才看得出來
@@ -189,15 +270,17 @@ test("換回比較舊的那段當家：資料夾那一列跟著換", async ({ pa
   await expectChatIsHome(page, "新的一段", false);
 });
 
-test("連續換兩次家：清單上只剩最後一段是家，舊家再送一則都正常", async ({ page }) => {
+// 乙設成家之後還沒在裡面聊過就換成丙：乙當沒換過、回到普通對話；甲設成家之後也沒聊過，換走後同樣回到普通對話（ADR-0306）
+test("連續換兩次家：清單上只剩最後一段是家，中間沒聊過的那段回到普通對話、再送一則都正常", async ({ page }) => {
+  const soul = "SaveTwoMoves";
+  await useOwnSoul(page, soul);
   await send(page, "甲家");
   const first = await latestSessionId(adminToken);
   await setChatAsHome(page, "甲家");
   await expect.poll(async () => (await savedSnapshot(adminToken, first)).session.is_home).toBe(true);
 
   const setNewChatAsHome = async (title: string): Promise<string> => {
-    await page.getByRole("button", { name: "新增對話" }).click();
-    await selectSoul(page);
+    await newChatWith(page, soul);
     await send(page, title);
     const id = await latestSessionId(adminToken);
     await setChatAsHome(page, title);
@@ -215,7 +298,7 @@ test("連續換兩次家：清單上只剩最後一段是家，舊家再送一�
   await clickChatInList(page, "乙家");
   await send(page, "乙家：換家之後");
   expect(await savedUserTexts(second)).toContain("乙家：換家之後");
-  expect((await savedSnapshot(adminToken, third)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
+  expect((await savedSnapshot(adminToken, third)).session).toMatchObject({ is_home: true, home_for_agent: soul });
 });
 
 test("回覆之後重新整理：存檔不變、沒有提示，下一則直接送出", async ({ page }, info) => {
@@ -262,11 +345,12 @@ test("回覆還在跑時設為家：不跳提示，回覆存好，下一則直�
   expect((await savedSnapshot(adminToken, id)).session).toMatchObject({ is_home: true, home_for_agent: SOUL_ID });
 });
 
-test("回覆還在跑時把家換到另一段：舊家這段不跳提示，回覆存好", async ({ page }) => {
+test("回覆還在跑時把家換到另一段：舊家這段不跳提示，回覆存好；之後在新家接著聊", async ({ page }) => {
+  const soul = "SaveMoveMidReply";
+  await useOwnSoul(page, soul);
   await send(page, "之後的家");
   const newHome = await latestSessionId(adminToken);
-  await page.getByRole("button", { name: "新增對話" }).click();
-  await selectSoul(page);
+  await newChatWith(page, soul);
   await send(page, "原本的家");
   const oldHome = await latestSessionId(adminToken);
   expect(oldHome).not.toBe(newHome);
@@ -283,9 +367,11 @@ test("回覆還在跑時把家換到另一段：舊家這段不跳提示，回�
   await expectChatIsHome(page, "之後的家", true);
   await expectChatIsHome(page, "原本的家", false);
 
-  await send(page, "舊家換掉之後");
-  expect(await savedUserTexts(oldHome)).toContain("舊家換掉之後");
+  // 已經在跑的這一輪照樣存好；換家之後舊家唯讀、不能再開新的一輪（ADR-0306），接著在新家聊
   expect((await savedSnapshot(adminToken, oldHome)).session).toMatchObject({ is_home: false, home_for_agent: null });
+  await openHome(page, "之後的家");
+  await send(page, "舊家換掉之後");
+  expect(await savedUserTexts(newHome)).toContain("舊家換掉之後");
 });
 
 test("回覆收尾的保存延後、這期間設為家：放行後不跳提示，資料夾那一列是新家", async ({ page }) => {

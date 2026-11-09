@@ -30,8 +30,9 @@ from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
-from src.utils.async_db import init_db_async
+from src.utils.async_db import get_async_db, init_db_async
 from src.utils.continuity_events_db import EventRow, count_agent_events, insert_event
+from src.utils.soul_prelude_db import PreludeSegment, count_agent_segments, insert_segment
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
@@ -208,6 +209,65 @@ async def test_reset_with_the_timeline_then_delete_succeeds(stores, admin, monke
     resp = _delete(client, "ResetTimeline")
     assert resp.status_code == 200, resp.text
     assert not soul.exists()
+
+
+async def test_delete_is_blocked_while_prelude_remains(stores, admin):
+    """前情（ADR-0305）也屬記憶：還在就 409、什麼都不刪，要先重置."""
+    client, _identity = admin
+    soul = _soul_dir("KeepPrelude")
+    await insert_segment(
+        PreludeSegment(
+            agent="KeepPrelude",
+            kind="home_trim",
+            source_session="s",
+            dedupe_key="k",
+            content="x",
+            created_at=1,
+        )
+    )
+
+    resp = _delete(client, "KeepPrelude")
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "SOUL_MEMORY_NOT_RESET"
+    assert detail["prelude_segments"] == 1
+    assert soul.exists()
+    assert await count_agent_segments(AgentIdentity(agent_id="KeepPrelude")) == 1
+
+
+async def test_delete_is_blocked_while_home_records_remain(stores, admin):
+    """換家紀錄（ADR-0306）屬主線：還在就 409、什麼都不刪，要先重置."""
+    client, _identity = admin
+    soul = _soul_dir("KeepHome")
+    async with get_async_db() as db:
+        await db.execute(
+            "INSERT INTO soul_home_transitions (agent_id, old_session, created_at, updated_at) "
+            "VALUES ('KeepHome', 'old', 1, 1)"
+        )
+        await db.commit()
+
+    resp = _delete(client, "KeepHome")
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "SOUL_MEMORY_NOT_RESET"
+    assert detail["home_records"] == 1
+    assert soul.exists()
+
+
+def test_unreadable_prelude_blocks_delete(stores, admin, monkeypatch):
+    client, _identity = admin
+    soul = _soul_dir("UnknownPrelude")
+
+    async def broken(_identity):
+        raise RuntimeError("synthetic prelude failure")
+
+    monkeypatch.setattr(delete_guard, "count_agent_segments", broken)
+    resp = _delete(client, "UnknownPrelude")
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"]["code"] == "SOUL_MEMORY_CHECK_FAILED"
+    assert soul.exists()
 
 
 def test_unreadable_activity_record_blocks_delete(stores, admin, monkeypatch):

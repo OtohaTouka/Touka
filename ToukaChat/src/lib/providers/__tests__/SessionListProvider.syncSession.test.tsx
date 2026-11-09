@@ -13,9 +13,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { SessionListProvider, useSessionList } from '../SessionListProvider';
 import { fetchTouka } from '@/lib/connections';
-import { logSSOTError } from '@/lib/error_handler';
+import { errorMsg, logSSOTError } from '@/lib/error_handler';
 import { toast } from 'sonner';
-import type { Session } from '@/lib/types';
+import type { SaveResult, Session } from '@/lib/types';
 import { captureRequestScope, isRequestScopeCurrent, subscribeCredentialScope } from '@/lib/connections';
 import { ERRORS } from '@/lib/error_codes';
 import { buildUserTurnTree } from '@/lib/stream_tree';
@@ -270,6 +270,129 @@ describe('R2 snapshot binding and explicit recovery', () => {
         await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' });
       });
       expect(postBodies()[0]).toMatchObject({ title: 'final', revision: 'r1' });
+    });
+    describe('the old-home flag follows the list (ADR-0306)', () => {
+      const list = () => okJson([{ ...local(), is_old_home: true }]);
+      const flag = (result: { current: ReturnType<typeof useSessionList> }) => result.current.getSession('s1')?.is_old_home;
+      const holdNext = () => {
+        let finish!: (response: Response) => void;
+        fetchToukaMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+        return (response: Response) => finish(response);
+      };
+      it('a reply running when the home moved keeps it after finishing', async () => {
+        const { result } = await created();
+        const producer = result.current.beginProducer('s1')!;
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        expect(flag(result)).toBe(true);
+        await act(async () => {
+          await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' });
+        });
+        expect(flag(result)).toBe(true);
+        expect(result.current.getSession('s1')?.title).toBe('final');
+      });
+      it('the list arriving while a reply is being finished keeps it', async () => {
+        const { result } = await created();
+        const producer = result.current.beginProducer('s1')!;
+        const release = holdNext();
+        let done!: Promise<SaveResult>;
+        act(() => { done = result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' }); });
+        await act(async () => {});
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        await act(async () => { release(saved('r3')); await done; });
+        expect(flag(result)).toBe(true);
+        expect(result.current.getSession('s1')?.title).toBe('final');
+      });
+      it('a save on its way when the list arrives keeps it', async () => {
+        const { result } = await created();
+        const release = holdNext();
+        let pending!: Promise<SaveResult>;
+        act(() => { pending = result.current.updateSessionTitle('s1', 'next'); });
+        await act(async () => {});
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        await act(async () => { release(saved('r3')); await pending; });
+        expect(flag(result)).toBe(true);
+        expect(result.current.getSession('s1')?.title).toBe('next');
+      });
+      it('a recheck does not bring the old value back', async () => {
+        const { result } = await created(() => ({ ...local(), title: 'next' }));
+        fetchToukaMock.mockImplementationOnce(async () => { throw new Error('commit response lost'); });
+        await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+        const release = holdNext();
+        let pending!: Promise<SaveResult>;
+        act(() => { pending = result.current.recheckSession('s1'); });
+        await act(async () => {});
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        await act(async () => { release(present({ ...local(), title: 'next' }, 'r2')); await pending; });
+        expect(flag(result)).toBe(true);
+      });
+      it('a resume read does not bring the old value back', async () => {
+        const { result } = await created();
+        const release = holdNext();
+        let pending!: Promise<Session | undefined>;
+        act(() => { pending = result.current.prepareResume('s1'); });
+        await act(async () => {});
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        await act(async () => { release(present(local(), 'r2')); await pending; });
+        expect(flag(result)).toBe(true);
+      });
+      it('setting it back clears the flag at once, also for the next save', async () => {
+        const { result } = await created();
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        act(() => result.current.applySavedHome('s1', 'Alice', true));
+        expect(flag(result)).toBe(false);
+        const producer = result.current.beginProducer('s1')!;
+        await act(async () => {
+          await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' });
+        });
+        expect(flag(result)).toBe(false);
+      });
+    });
+    describe('old home refuses the save-back (ADR-0307)', () => {
+      const refused = { status: 'failed', error_code: ERRORS.SESSION_OLD_HOME_READ_ONLY.id };
+      const finish = async (terminal: SaveResult, persistence: unknown = refused) => {
+        const { result } = await created();
+        const producer = result.current.beginProducer('s1')!;
+        fetchToukaMock.mockResolvedValueOnce(okJson({ status: 'success', session_id: 's1', persistence }));
+        let outcome: SaveResult | undefined;
+        await act(async () => { outcome = await result.current.completeProducer(producer, current => ({ ...current }), terminal); });
+        return { outcome, persistence: result.current.getPersistence('s1') };
+      };
+      it('a turn the backend never wrote settles: there is nothing to change on the server', async () => {
+        const { outcome, persistence } = await finish({ status: 'skipped', reason: 'no_text' });
+        expect(outcome).toEqual({ status: 'saved', representation: 'full', revision: 'r1' });
+        expect(persistence).toMatchObject({ status: 'saved' });
+      });
+      it('a change the old home refuses is dropped: content goes back, nothing stays halted', async () => {
+        const { result } = await created();
+        fetchToukaMock.mockResolvedValueOnce(okJson({ status: 'success', session_id: 's1', persistence: refused }));
+        let outcome: SaveResult | undefined;
+        await act(async () => { outcome = await result.current.updateSessionTitle('s1', 'next'); });
+        expect(outcome).toEqual(refused);
+        expect(result.current.getSession('s1')?.title).not.toBe('next');
+        expect(result.current.getPersistence('s1')).toMatchObject({ status: 'saved', revision: 'r1' });
+        expect(result.current.beginProducer('s1')).not.toBeNull();
+        expect(toast.error).toHaveBeenCalledTimes(1);
+        expect(errorMsg).toHaveBeenCalledWith('SESSION_OLD_HOME_READ_ONLY');
+        expect(logSSOTError).not.toHaveBeenCalled();
+      });
+      it('a turn the backend did write keeps that save: nothing stays halted', async () => {
+        const terminal: SaveResult = { status: 'saved', representation: 'text', revision: 'r2' };
+        const { outcome, persistence } = await finish(terminal);
+        expect(outcome).toEqual({ status: 'saved', representation: 'full', revision: 'r2' });
+        expect(persistence).toMatchObject({ status: 'saved', revision: 'r2' });
+        expect(toast.error).not.toHaveBeenCalled();
+      });
+      it('any other refusal of such a turn still shows', async () => {
+        const other = { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id };
+        const { outcome } = await finish({ status: 'skipped', reason: 'no_text' }, other);
+        expect(outcome).toEqual(other);
+      });
     });
     it('a save that stopped can still be rechecked after the home changed', async () => {
       const { result } = await created(() => ({ ...local(), title: 'next', ...homeFields }));

@@ -18,9 +18,11 @@ from src.models.souls import (  # noqa: TC001
     SoulDeleteRequest,
     SoulUpdateRequest,
 )
+from src.routers.system import restore_in_progress
 from src.services import destructive_ops, memory_collection_guard
 from src.services.agent_reset.delete_guard import (
     assert_memory_cleared,
+    assert_prelude_cleared,
     assert_timeline_cleared,
 )
 from src.services.agent_reset.orchestrator import destructive_op, refuse_linked_drive
@@ -56,15 +58,27 @@ _UNDELETABLE_SOULS = frozenset({"DebugAgent"})
 _UNDELETABLE_FOLDED = frozenset(name.casefold() for name in _UNDELETABLE_SOULS)
 
 
-def _verify_admin_stepup(identity: AgentIdentity, password: str, action: str, target: str) -> None:
+def _verify_admin_stepup(
+    identity: AgentIdentity,
+    password: str,
+    action: str,
+    target: str,
+    *,
+    refuse_during_restore: bool = False,
+) -> None:
     """Admin 步升重驗（ADR-0142 D2）：呼叫者須為**登入的人類 admin** 且重新提供密碼。
 
     敏感的靈魂資料變更（編輯／刪除）即使持有 admin JWT 也須步升——被竊或忘記登出的
     session 無法靜默摧毀靈魂資料。只有 is_human 的真人有密碼可驗（assumed-admin 代打／
     agent 一律過不了）。成功／失敗皆留 AUDIT log（不記密碼本身）。
+
+    ``refuse_during_restore``：還原中回 409，放在身分檢查之後、驗密碼之前（ADR-0304，
+    和重置一樣）。呼叫端到取破壞性操作鎖之間不能有 await。
     """
     if not identity.is_human or identity.human_role != "admin":
         raise ToukaException(ErrorCode.AUTH_ADMIN_REQUIRED)
+    if refuse_during_restore and restore_in_progress():
+        raise ToukaException(ErrorCode.SYSTEM_RESTORE_IN_PROGRESS)
     auth_service = AuthService()
     user = auth_service.get_user_by_id(identity.agent_id)
     if user is None or not auth_service.verify_password(password, user.hashed_password):
@@ -421,7 +435,9 @@ async def delete_soul(
     舊審查報告丙-4（ADR-0287）：從檢查到取消註冊整段持有破壞性操作鎖並標記目標（和重置、
     清除互斥，期間心跳不開跑）；還有心跳在跑就叫它停下、回 409，什麼都不清。
     """
-    _verify_admin_stepup(verified, req.admin_password, "delete", soul_id)
+    _verify_admin_stepup(
+        verified, req.admin_password, "delete", soul_id, refuse_during_restore=True
+    )
     # 任何大小寫都算（不分大小寫的檔案系統上 debugagent 就是 DebugAgent 的資料夾；sec-9 PR 1b）
     if soul_id.casefold() in _UNDELETABLE_FOLDED:
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
@@ -445,6 +461,7 @@ async def delete_soul(
         # 還有記憶就 409 擋下、什麼都不刪，要先重置（避免孤兒記憶與同名新靈魂接手舊記憶）。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)  # 活動紀錄也屬記憶
+        await assert_prelude_cleared(identity)  # 前情也屬記憶（ADR-0305）
         # R11（ADR-0293）：個人空間根是連結就 409、什麼都不刪；動手前停這個靈魂的全部指令，
         # 標記期間也不會開新的。
         refuse_linked_drive(resource_manager.soul_drive(identity))
@@ -463,6 +480,7 @@ async def delete_soul(
         # 清家目錄要好幾秒；這段期間寫進來的（例如前景聊天）再查一次。
         await assert_memory_cleared(identity)
         await assert_timeline_cleared(identity)
+        await assert_prelude_cleared(identity)
 
         storage = soul_io.purge_soul_storage(soul_id)
         failed = _unregister_soul(identity)

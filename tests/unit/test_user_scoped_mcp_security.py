@@ -598,6 +598,14 @@ async def test_group_members_are_marked_so_the_executor_refuses_user_scoped_mcp(
     monkeypatch.setattr(group, "get_stream_generator", _fake_stream)
     monkeypatch.setattr(group, "record_working_brain", lambda *_a: None)
     monkeypatch.setattr(group, "soul_service", MagicMock(inject_home_messages=AsyncMock()))
+    # 主線每輪自己讀一次家（ADR-0305）；這裡沒有資料庫，當作沒有家（讀不到會讓這一輪失敗）
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_home_snapshot", AsyncMock(return_value=None)
+    )
+    # 主線帶還沒交接完的舊家（ADR-0306）；這裡沒有資料庫，當作沒有交接紀錄
+    monkeypatch.setattr(
+        "src.utils.async_db.session_service.read_unfinished_old_homes", AsyncMock(return_value=[])
+    )
     request = OpenAIChatRequest(
         model=GROUP_MODEL, messages=[OpenAIMessage(role="user", content="@A 早")]
     )

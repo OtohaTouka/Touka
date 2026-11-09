@@ -60,7 +60,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["persona"].append(agent_id)
 
     async def _inject_home(_request: Any, agent_id: Any, **_kwargs: Any) -> None:
-        seen["home"].append(agent_id)
+        seen["home"].append(getattr(agent_id, "agent_id", agent_id))  # 主線傳身分物件（ADR-0305）
 
     async def _no_summary(*_args: Any) -> None:
         return None

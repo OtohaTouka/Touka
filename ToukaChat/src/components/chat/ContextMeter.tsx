@@ -27,6 +27,7 @@ const CATEGORY_LABEL_KEYS: Record<string, string> = {
   project_context: 'chat.context_meter.categories.project_context',
   ide_context: 'chat.context_meter.categories.ide_context',
   conversation_summary: 'chat.context_meter.categories.conversation_summary',
+  soul_prelude: 'chat.context_meter.categories.soul_prelude',
   conversation: 'chat.context_meter.categories.conversation',
   system_other: 'chat.context_meter.categories.system_other',
 };

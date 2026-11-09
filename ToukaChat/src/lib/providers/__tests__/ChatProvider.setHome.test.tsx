@@ -10,6 +10,7 @@ import { applySetHome } from '../../session_persistence';
 let sessions: Session[] = [];
 const applySavedHome = vi.fn();
 const fetchTouka = vi.fn();
+const refreshSessions = vi.fn(async () => []);
 
 vi.mock('@/hooks/useArtifacts', () => ({
   useArtifacts: Object.assign(() => ({}), { getState: () => ({ setManuallyClosed: vi.fn() }) }),
@@ -24,7 +25,7 @@ vi.mock('../ModelProvider', () => ({
   useModels: () => ({ availableModels: [], selectedModel: '', setSelectedModel: vi.fn() }),
 }));
 vi.mock('../SessionListProvider', () => ({
-  useSessionList: () => ({ sessions, setSessions: vi.fn(), applySavedHome, syncSession: vi.fn(), updateSession: vi.fn(), refreshSessions: vi.fn(async () => []) }),
+  useSessionList: () => ({ sessions, setSessions: vi.fn(), applySavedHome, syncSession: vi.fn(), updateSession: vi.fn(), refreshSessions }),
 }));
 vi.mock('../StreamRegistryProvider', () => ({
   useStreamRegistry: () => ({ getStream: () => undefined, streamingSessionIds: [], checkSessionStream: vi.fn() }),
@@ -39,6 +40,7 @@ vi.mock('../../connections', () => ({
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 import { ChatProvider, useChat } from '../ChatProvider';
+import { toast } from 'sonner';
 
 const wrapper = ({ children }: { children: React.ReactNode }) => <ChatProvider>{children}</ChatProvider>;
 
@@ -115,5 +117,50 @@ describe('ChatProvider 設家與取消家', () => {
     const { result } = renderHook(() => useChat(), { wrapper });
     await act(async () => { await result.current.handleSetHome('new'); });
     expect(applySavedHome).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatProvider 設家的結果', () => {
+  const home = () => renderHook(() => useChat(), { wrapper }).result;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessions = [session('a', 'Alice')];
+    fetchTouka.mockResolvedValue({ ok: true });
+  });
+
+  it.each([['handleSetHome'], ['handleUnsetHome']] as const)('%s 成功後重讀清單：舊家由後端推導', async (action) => {
+    const result = home();
+    await act(async () => { await result.current[action]('a'); });
+    expect(refreshSessions).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('被拒絕：提示原因，畫面不跟著改', async () => {
+    fetchTouka.mockResolvedValue(new Response(JSON.stringify({ detail: { code: 'SESSION_OLD_HOME_READ_ONLY' } }), { status: 409 }));
+    const result = home();
+    await act(async () => { await result.current.handleSetHome('a'); });
+    expect(applySavedHome).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('連線失敗也要有提示', async () => {
+    fetchTouka.mockRejectedValue(new Error('network'));
+    const result = home();
+    await act(async () => { await result.current.handleUnsetHome('a'); });
+    expect(applySavedHome).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('對話沒有靈魂：按了也要有提示', async () => {
+    sessions = [session('bare', undefined)];
+    const result = home();
+    await act(async () => { await result.current.handleSetHome('bare'); });
+    expect(fetchTouka).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('不再提供「家」按鈕的舊入口', () => {
+    expect(home().current).not.toHaveProperty('handleHomeSession');
   });
 });

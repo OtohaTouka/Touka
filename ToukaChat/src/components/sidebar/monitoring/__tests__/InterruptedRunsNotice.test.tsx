@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { InterruptedRunsNotice } from '../InterruptedRunsNotice';
 import { InterruptedRun } from '@/hooks/useSystemMonitoring';
 import * as connections from '@/lib/connections';
+import { errorMsg } from '@/lib/error_handler';
 import { toast } from 'sonner';
 
 vi.mock('@/lib/connections');
@@ -62,6 +63,16 @@ describe('InterruptedRunsNotice', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('interrupted-runs-notice')).not.toBeInTheDocument();
     });
+  });
+
+  it('舊家不能重跑：提示舊家的說明，不是連線錯誤（ADR-0306）', async () => {
+    const errorSpy = vi.spyOn(toast, 'error').mockImplementation((() => '') as never);
+    vi.spyOn(connections, 'fetchTouka').mockResolvedValue(
+      new Response(JSON.stringify({ detail: { code: 'SESSION_OLD_HOME_READ_ONLY' } }), { status: 409 }),
+    );
+    render(<InterruptedRunsNotice runs={[{ session_id: 's1', agent: 'Alice', total: 5 }]} />);
+    fireEvent.click(screen.getByRole('button', { name: /重新觸發/ }));
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith(errorMsg('SESSION_OLD_HOME_READ_ONLY')));
   });
 
   it('shows an error toast when retrigger fails', async () => {

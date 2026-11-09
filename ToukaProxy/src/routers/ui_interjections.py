@@ -22,6 +22,7 @@ from src.services.authorization_gateway import require_human_requester
 from src.services.hooks.interjection_hooks import check_interjection
 from src.services.interjection_queue import interjection_queue
 from src.services.stream_buffer_service import stream_buffer_service
+from src.utils.async_db import SessionPersistenceError, session_service
 
 router = APIRouter(
     prefix="/ui/sessions", tags=["UI Interjections"], route_class=SessionPersistenceRoute
@@ -44,6 +45,16 @@ async def _ensure_current_stream(
         raise ToukaException(ErrorCode.STREAM_NOT_FOUND)
 
 
+async def _refuse_old_home(session_id: str) -> None:
+    """舊家不接新的插話；列出、收回照常（換家前就在跑的回覆收得回來，ADR-0306）."""
+    try:
+        old = await session_service.is_old_home(session_id)
+    except SessionPersistenceError:
+        raise ToukaException(ErrorCode.SESSION_SAVE_FAILED) from None
+    if old:
+        raise ToukaException(ErrorCode.SESSION_OLD_HOME_READ_ONLY)
+
+
 @router.post("/{session_id}/interjections", status_code=201)
 async def add_interjection(
     session_id: str,
@@ -54,10 +65,15 @@ async def add_interjection(
     """把一則補充排進目前串流。"""
     await _ensure_current_stream(session_id, stream_id, identity, active=True)
     incognito = stream_buffer_service.persistence_mode(session_id, stream_id) == "incognito"
+    # 無痕不碰資料庫（只讀也不碰）、插話也不存：不查舊家；在舊家開新的一輪由共同入口擋
+    if not incognito:
+        await _refuse_old_home(session_id)
     fields = stream_buffer_service.hook_fields_of(session_id, stream_id)
-    if await check_interjection(session_id, fields, req.text, incognito=incognito):
-        # 等 hook 的期間串流可能換代或結束：重新驗證。
-        await _ensure_current_stream(session_id, stream_id, identity, active=True)
+    hooked = await check_interjection(session_id, fields, req.text, incognito=incognito)
+    if hooked and not incognito:
+        await _refuse_old_home(session_id)  # 等 hook 的期間可能換了家
+    # 舊家檢查與 hook 都會讓出執行權，串流可能已換代或結束：最後再驗一次。
+    await _ensure_current_stream(session_id, stream_id, identity, active=True)
     # 驗證之後到加入之間沒有 await：串流不會在這中間換代或結束。
     return interjection_queue.enqueue(session_id, stream_id, req.text, urgent=req.urgent)
 

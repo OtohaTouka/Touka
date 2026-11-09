@@ -2,6 +2,14 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 身分與防呆（2026-11-07，ADR-0304）
+
+- 首裝卡（LDH 在 `X-New-Auth-Token` 發的卡）帶記號 `src: "ldh"`。系統認領後（有任何完成真密碼設定的使用者），帶記號的卡一律 401 `AUTH_INVALID_TOKEN`；認領前，卡的身分和發卡時一樣（不帶類型旗標）。`X-Agent-ID` 是使用者 id 時 LDH 不發卡。
+- 使用者只收 `type: "access"` 的 token：中央 Bearer 閘（`verify_token`）與 `get_current_user`（`/auth/*` 等）對沒有 type、`sub` 是使用者的 token 回 401。
+- 檔案工具的 `project_id` 只來自 ctx 或 session 綁定的專案（`isolation/policy.session_project_id`），模型在參數裡填的值不採用；沒有綁定時工具拿到 None。
+- 還原進行中（`restore_in_progress()`）回 409 `SYSTEM_RESTORE_IN_PROGRESS`（1414）：`DELETE /v1/souls/{id}`（身分檢查之後、驗密碼之前）、`DELETE /v1/ui/custom_models/{id}`、`POST /v1/ui/custom_models/{id}/rename`，以及對自訂模型的 `DELETE /v1/models/{id}`。
+- `POST /v1/mcp/hub/sync` 失敗改回標準錯誤 500 `SYSTEM_ERROR`（原本是 `{"error": <例外原文>}`）；`GET /v1/heartbeat/test` 連不到時 `message` 是固定文字；`GET /` 的 `degraded_reason` 只剩類別（`Memory System module not found.`／`dependency error.`／`crash.`），細節在伺服器 log。
+
 ## Hook 設定與事件（2026-10-28，ADR-0292）
 
 - 管理端點（根路徑與 `/v1` 對等），`/hooks`、`/hooks/runs` 三個都只給人類 admin（`Depends(require_admin_human)`；admin 代打、一般使用者、靈魂回 403 `AUTH_ADMIN_REQUIRED`，未登入回 401）：
@@ -78,6 +86,7 @@
 - 心跳、排程執行、SNS、工具及一般 append/upsert/conditional 保存都不能跨靈魂換綁；角色特權不能代替精確歸屬。儲存層在 session 鎖＋IMMEDIATE 交易內讀最新列、驗 scope／revision 後寫入，缺席與失敗分開。
 - 只有真正人類的 UI 專用保存或明示持久串流能換綁，須有舊對話存取權及舊、新靈魂的驅動權。非空換綁保留原樹、內部 `session_scope_version` 降為 0；原列與待存列均是無節點、無摘要、非家且非保留頻道的嚴格空草稿，才保留標記。家對話須先取消家；不能用 A→NULL→B 繞過。
 - `POST /v1/ui/sessions/{id}` 忽略 `is_home`／`home_for_agent`（包括 false／null）；家欄只由 `POST /v1/ui/sessions/set_home` 修改，受管首次建家除外。set_home 在交易內先驗目標再清舊家；公開模型不增加 marker，list／GET／snapshot 也不回傳它。
+- **換家（ADR-0306）**：set_home 在同一個交易裡照狀態對照表寫交接紀錄（`soul_home_transitions`）；取消家只對現任家有作用，對別段按什麼都不做。換家後舊家唯讀：共同入口（`proxy_service._run_request`，hook 與組主線之前；對話編號用 `monitor.turn_session_id`，本文或 `x-touka-session-id`／`x-toukachat-session-id` 標頭）、網頁准入交易、新增插話（列出、收回照常；無痕串流不查）、心跳 `/awaken`（家模式、頻道、指定這段）與 `/retrigger`、換靈魂都回 409 `SESSION_OLD_HOME_READ_ONLY`（1223）；請求者不能用那段對話時共同入口什麼都不記、不回舊家狀態，交給後面的層照原樣拒絕（能驅動那段對話正規化後的靈魂的人算能用，舊前綴的列也擋；這一輪存不進去的 DebugAgent、代打別的靈魂的非人類身分不記開始用）。交接開始後（這段舊家最新一筆有效紀錄是交接中、完成、失敗或做到某一步）存檔閘擋所有內容寫入，之前一般存檔照舊。舊家交接完成前不能刪：路由與刪除閘回 409 `SESSION_OLD_HOME_NOT_DELETABLE`（1224）；刪掉的對話，回報位置跟著刪、它當舊家的已完成或取消紀錄失效（它當新家的不動，前面的舊家照舊唯讀）。設回家立刻不算舊家。新家還沒開始用時改回去等於沒換過（原本沒有家時設的家也一樣：從沒用過就取消家，回到普通對話；設回本來用過的家，沒聊過就換走照樣是舊家）；「開始用」網頁在准入交易、IDE／SNS／外部相容路徑在共同入口、心跳在 `/awaken` 與 `/retrigger` 記，只記在新家目前就是家的紀錄上。內部頻道（`touka.` 開頭）與退休頻道不能設成家（403 `SESSION_SCOPE_MISMATCH`）；升級前就當家的頻道離開時不建紀錄。`GET /v1/ui/sessions` 每段多 `is_old_home`（紀錄表讀不到時標記當成否、清單照常）。讀不到紀錄時這一輪失敗（`SESSION_SAVE_FAILED`）。
 - HTTP 歸屬拒絕為 403 `SESSION_SCOPE_MISMATCH`（1221）；UI 條件保存沿既有 `persistence.status="failed", error_code=1221` 外形，不把每個保存拒絕改成 HTTP 403。stale revision 沿 `SESSION_SAVE_FAILED`，不明保存為 `unknown`。明示串流准入衝突回 409、不明回 503；生成／保存終態仍分開，保存成功帶提交後 revision。
 - UI 不可建立 `touka.` ID，admin 亦同；保留頻道也不能換綁。心跳獨立模式的省略／空字串／`pulse_channel_default` 解析為 `touka.hb.v1.<hash>`；SNS 為 `touka.sns.v1.<hash>`，完整雜湊分別涵蓋靈魂與靈魂＋平台＋頻道。舊 `pulse_channel_default`／`sns_*` 保留、不搬、不續寫；詳見 `HEARTBEAT_INTERFACE.md`。
 - 家定位／注入共用 `read_home_snapshot`，驗 `is_home=1` 且正式化的 `agent_id`、`home_for_agent`、請求靈魂三者相同；多家、退休家與矛盾家拒絕，不任取一筆。顯示不回 ID、注入不回歷史；心跳／SNS 不把拒絕當成沒有家。儲存讀取失敗維持 typed persistence failure。
@@ -532,7 +541,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
     - **身分物件**: 認證後生成 `AgentIdentity`，包含 `owner_user_id` 與技能清單。
     - **路由攔截**: 針對受保護路由，系統強制檢查請求者是否為該 Agent 的合法擁有者。
     - **沒登入不能聊天（C3 fix；ADR-0245 收緊）** ⭐：`/messages`、`/chat/completions`（含 `/v1`）掛授權閘道 `require_authenticated`，沒有已驗證身分一律 401 `AUTH_INVALID_TOKEN`，不再降級成 Guest；**禁止**讀取 `X-Agent-ID` Header 作為 fallback（防止 header 注入身份冒充）。
-- **優雅降級 (Local Dynamic Handshake)** ⭐: 僅限**完全未附 Authorization** 的 `is_private`／`is_loopback` 來源請求，系統自動在回應標頭 `X-New-Auth-Token` 發放新 Token。**帶失效 token（過期/簽章不符）一律 401**（不分本地/外部、不降級、不發卡），客戶端應走 `/auth/refresh` 續期；前端已登入時亦不採納 `X-New-Auth-Token`（ADR-0131／禁令 60，杜絕 DebugAgent 降級卡挾持）。
+- **優雅降級 (Local Dynamic Handshake)** ⭐: 僅限**完全未附 Authorization** 的 `is_private`／`is_loopback` 來源請求，系統自動在回應標頭 `X-New-Auth-Token` 發放新 Token。**帶失效 token（過期/簽章不符）一律 401**（不分本地/外部、不降級、不發卡），客戶端應走 `/auth/refresh` 續期；前端已登入時亦不採納 `X-New-Auth-Token`（ADR-0131／禁令 60，杜絕 DebugAgent 降級卡挾持）。發出的卡帶首裝卡記號，系統認領後驗卡一律 401（ADR-0304）。
 - **Query Token 降級驗證 (H3 fix)** ⭐: 針對無法手動注入 `Authorization` Header 的客戶端（例如瀏覽器原生 `EventSource` 的 SSE 串流連線），後端認證核心中介 `get_optional_identity` 支援從 URL Query 參數 `token` 中提取 JWT Token 並執行合法性與效期驗證。
 - **會話終止 (Logout)**:
     - **端點**: `POST /v1/auth/logout`
@@ -725,6 +734,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 ### 1.10b 韌性可觀察性 (Resilience Observability) — ADR-0078 ⭐
 - **`GET /v1/stats` 折入 `interrupted_runs`**：ToukaProxy 啟動時 `autonomy_service.scan_and_clear_interrupted()` 掃描各 agent `autonomy_log.json` 殘留的 `heartbeat_in_flight` 標記（上次當機/被關時未跑完的背景脈衝），供前端「⚠️ 上次有 N 個未完成的背景任務」通知（沿用 `daily_quota`/`background_activity` 的 fold 技巧，免改 openapi/api.ts）。
 - **`GET /v1/stats` 依身分過濾（2026-10-28）**：`background_activity`、`interrupted_runs` 只列 `authorization_gateway.can_access_session` 放行的靈魂：admin（含代打）與 Debugger 看全部，人類看自己擁有的，代理只看自己，沒有 `agent` 的紀錄只給 admin 與 Debugger。`usage_history`／`total_usage` 只給 admin（`is_admin_authority`），其他人是 `[]`／`0`；`dispatch_supervisor.pid` 對 admin 以外是 `null`。鍵與型別不變。一般人類每遇到一個不同的靈魂會讀一次使用者資料（`users.json`）判斷擁有權；檔案存在但讀壞時這次 `/stats` 整個回 `PERSISTENCE_ERROR`（拒絕而不放寬）；檔案不存在時當成不擁有任何靈魂。`token_usage` 也用同一個判斷過濾（2026-10-29），看不到的靈魂不讀檔、不出現在鍵裡：Owner 代理只看自己，人類 admin 與 Debugger 看全部；其他身分（一般使用者、admin 代打、其他代理角色）仍是 `{}`（`list_all_agent_stats` 本來就不給）。
+- **`GET /v1/stats` 折入 `failed_handovers`（ADR-0307）**：換家交接累計失敗三次的紀錄（`agent`、`old_session`、`new_session`、`failures`、`updated_at`），依身分過濾同上；讀不到時是空清單。舊家在這段期間照舊唯讀，失敗的紀錄每次啟動後第一次觸發或滿 24 小時自動再試。
 - **`POST /v1/heartbeat/retrigger`**：人類擁有者一鍵重跑中斷會話（強制 `Auto`、只給 admin 或人類擁有者、會話須屬於該靈魂、`can_awaken` 能力守衛、`pulse` 夾 1..5），詳見 [HEARTBEAT_INTERFACE.md](HEARTBEAT_INTERFACE.md)。
 - **系統降級可見化**：記憶系統未載入（degraded）由 `GET /v1/memory` 的 `system_degraded`/`degraded_reason` 暴露；前端 `SystemStatusContext` 解析後於側欄常駐 `DegradedBanner`（`role="alert"`）。
 - **記憶提示（ADR-0253；結構提示 ADR-0256）**：`GET /v1/memory` 另回 `memory_notices`（list），每一項是 `{"code", "level", 選填欄位…}`，只放代碼；`level` 是 `info` 或 `warning`。代碼與等級的正本是 `routers/observability.py` 的 `MEMORY_NOTICE_*` 常數：舊記憶檔提示由 lifespan 的 `collect_memory_notices()` 算一次；記憶庫結構提示（5 個 `warning` 代碼）由 `memory_schema_notices()` 每次請求即時算，狀態讀自 `FactualStore.existing_shared()`。這是只給畫面看的提示，不是降級：不改 `system_degraded`、不進 prompt。既有三個欄位不變；端點沒有 `response_model`，openapi 不變，前端型別（`MemoryNotice`）自己宣告。前端：`MemoryNoticeBar` 放在右側欄降級橫幅下方（`info` 是 `role="status"`、`warning` 是 `role="alert"` 且和降級橫幅同色），有 `warning` 時左側身分列另加警告標記（`lib/memoryNotices.ts` 的 `hasMemoryWarning`）。
@@ -998,7 +1008,10 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **ACID 保證**：先歸檔進舊對話庫（`archive_payload`，一個交易）→ 確認成功 → 再更新 Session；任一失敗、或一則都沒歸檔到，安全跳過，下次重試（ADR-0264；以前先寫 legacy JSON，被保護擋下，正式環境從沒剪成）
 - **聊天側先等畫面的收尾保存（ADR-0302）**：網頁版文字版存好後、送出終態前登記一個等待者；`POST /v1/ui/sessions/{id}` 存好時叫醒它（上限 10 秒，逾時照剪）。心跳在跑、有回覆在跑或在等、存檔最後一則已不是這一輪時不剪（讀到後、寫摘要前、存回前各查一次）。同一段對話只留一個在等，新的取代舊的。
 - **身分**：剪裁、歸檔、摘要記帳都用家對話所屬的靈魂。心跳本來就是靈魂；聊天側（dispatcher 存檔後）從 session 的 `home_for_agent` 解析，解析不到不剪並記 warning，不用 UI 請求者（ADR-0264）
-- **摘要**：`context_summary` 第一行是時間範圍；送摘要員的每行帶台北時間（ADR-0264）
+- **摘要**：第一行是時間範圍；送摘要員的每行帶台北時間（ADR-0264）。剪掉的對話太長時分段摘要，每次請求不超過 8 萬 token，任一段失敗就不寫摘要
+- **前情（ADR-0305）**：剪掉的部分寫成靈魂前情（`soul_prelude_segments`）的一段，和剪過的樹同一交易；`summary_budget_pct > 0` 時是摘要，否則是一行來源註記。`context_summary` 不再改（畫面不顯示這欄，存檔時原樣送回）。摘要長度不超過 `prelude_max_tokens` 的一半；送摘要員的每則壓成一行。靈魂正在重置或刪除時不剪。前情超過 `prelude_max_tokens` 且 `prelude_summary_enabled` 開著時，剪完之後在背景、對話鎖外合併最舊的幾段（輸出上限跟著前情上限走；失敗冷卻 6 小時）
+- **設定欄位（ADR-0305）**：`summary_model`（預設 `claude-haiku-5-5`）、`prelude_summary_enabled`（預設 true）、`prelude_max_tokens`（500～20,000，預設 4,000）
+- **主線（ADR-0305）**：`mainline_service.inject_mainline` 是唯一組法，SoulLayer、群聊、心跳都呼叫：前情一律帶（無痕不帶），以 `<soul_prelude>` 區塊、歷史資料界線包好；家原文只在 IDE／SNS 家模式、子對話（帶對話編號、不是家，內容前標時間）、群聊帶；每輪只讀一次家；讀家碰到儲存錯誤時這一輪照舊失敗、不讀第二次（心跳照帶前情、不帶家原文）。上下文預覽（`PipelineContext.preview`）不搬舊摘要、不寫資料。對話自己的舊摘要（`<conversation_summary>`，家與子對話一樣）由 `inject_mainline(own_summary=True)` 插，只有這一輪前情原文照登同一段時不插（`summaries_shown_for`）；截短過、被折掉、被合併時照插。換家後、交接完成前（ADR-0306），還沒交接完的舊家原文依紀錄順序排在家原文前面，各自包 `source="old_home_pending_handover"` 的歷史資料界線、每則標時間，總量有上限（`soul_service.OLD_HOME_TOKEN_BUDGET`：新的舊家優先、每段只帶尾端，每段從使用者那則開始，省略時第一則前面寫一行「前面還有幾則」，帶不進去的幾段合成一行說明併進第一段（全部帶不進去時單獨一則）；某段那一列讀不出來時記 warning 跳過）；帶家原文的地方都帶，網頁版家本身與心跳在家時也帶，心跳在子對話與無痕不帶
 
 ---
 ## 👑 使用者管理與 RBAC (User Management) ⭐

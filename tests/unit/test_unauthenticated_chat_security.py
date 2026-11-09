@@ -169,6 +169,15 @@ async def test_sns_internal_path_is_not_gated_by_http_auth(
     session_svc.open_channel_session.return_value = "sns-test-channel"
     session_svc.append_message_to_session.return_value = True
     monkeypatch.setattr("src.services.sns_gateway.session_service", session_svc)
+    # 共同入口查舊家、主線讀家與舊家（ADR-0305、0306）都讀資料庫；這裡不靠同檔別的測試先建表
+    for name, value in (
+        ("check_old_home", False),
+        ("read_home_snapshot", None),
+        ("read_unfinished_old_homes", []),
+    ):
+        monkeypatch.setattr(
+            f"src.utils.async_db.session_service.{name}", AsyncMock(return_value=value)
+        )
     identity = AgentIdentity.for_role(PROBE_SOUL, "Owner")
     monkeypatch.setattr(identity_service, "get_identity", lambda _agent: identity)
     dispatch = AsyncMock(return_value=_sse("pong"))

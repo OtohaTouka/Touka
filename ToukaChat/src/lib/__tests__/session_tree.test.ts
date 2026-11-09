@@ -231,3 +231,14 @@ describe('previewChildren', () => {
     expect(hiddenCount).toBe(0);
   });
 });
+
+describe('canSetHome：頻道不能當家（ADR-0306）', () => {
+  const agents = [agent('Alice')];
+  it.each(['touka.hb.v1.abc', 'touka.sns.v1.abc', 'sns_abc', 'pulse_channel_default'])('%s 不給選', id => {
+    expect(canSetHome(session(id, 'Alice', 1), agents)).toBe(false);
+  });
+  it('一般對話和舊家都可以', () => {
+    expect(canSetHome(session('chat', 'Alice', 1), agents)).toBe(true);
+    expect(canSetHome(session('chat', 'Alice', 1, { is_old_home: true }), agents)).toBe(true);
+  });
+});

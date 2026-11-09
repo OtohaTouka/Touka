@@ -11,7 +11,7 @@ import type { Session } from '@/lib/types';
 import type { StartStreamParams } from '../StreamRegistryProvider';
 
 const h = vi.hoisted(() => ({
-  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(),
+  sessions: [] as Session[], wire: vi.fn(), notice: vi.fn(), hookNotice: vi.fn(), stopNotice: vi.fn(), oldHomeNotice: vi.fn(),
   scope: { proxyOrigin: 'http://x', authenticatedPrincipalId: 'a', authEpoch: 1 },
 }));
 vi.mock('../SessionListProvider', () => ({ useSessionList: () => ({
@@ -31,6 +31,7 @@ vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } 
 vi.mock('@/hooks/useAgentBrainNotice', () => ({ useAgentBrainNotice: () => h.notice }));
 vi.mock('@/hooks/useHookBlockNotice', () => ({ useHookBlockNotice: () => h.hookNotice }));
 vi.mock('@/hooks/usePromptStoppedNotice', () => ({ usePromptStoppedNotice: () => h.stopNotice }));
+vi.mock('@/hooks/useOldHomeNotice', () => ({ useOldHomeNotice: () => h.oldHomeNotice }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
