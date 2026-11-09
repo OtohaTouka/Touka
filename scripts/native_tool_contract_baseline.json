@@ -1987,6 +1987,14 @@
           ]
         ],
         "dynamic": []
+      },
+      "_wait_seconds": {
+        "parameters": [
+          "value"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
       }
     },
     "ToukaProxy/src/tools/builtin/memory.py": {

@@ -20,6 +20,7 @@ from src.services.model_manager import model_manager
 from src.services.prompt_blocks import IDE_CONTEXT, wrap_block
 from src.services.resource_manager import resource_manager
 from src.services.soul_service import soul_service
+from src.utils.ask_user_stop import UNANSWERED_KEY
 from src.utils.brain_persistence import get_active_brain, record_working_brain
 from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 from src.utils.progress_events import group_event
@@ -332,6 +333,11 @@ async def dispatch_group_stream(
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
             stripped_first_label = True
+
+        # 這位成員問的問題沒等到回答：整輪停下，下一位成員不再呼叫模型（ADR-0308）
+        if nested_ctx.get(UNANSWERED_KEY):
+            record_working_brain(target_identity, brain_model)  # 這位的模型呼叫是成功的
+            break
 
         if idx < len(roster) - 1:
             sep = "\n\n&nbsp;\n\n---\n\n&nbsp;\n\n"

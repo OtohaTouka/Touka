@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import pkgutil
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,6 +26,7 @@ from src.services.dispatchers.group import dispatch_group_stream
 from src.services.group_router import parse_group_roster
 from src.services.hooks.events import wrap_hook_output
 from src.services.sns_gateway import SNSGatewayService
+from src.utils.ask_user_stop import mark_unanswered
 
 # Tester 是 registry 成員但不是靈魂（如出貨範本的 HeartbeatTester）。
 REGISTRY = {"Alice": ["Ember"], "Bob": [], "Tester": ["tester"]}
@@ -216,6 +218,33 @@ async def test_group_dispatch_soul_member_uses_soul_identity(cfg, streams):
         {"model": "brain-x", "identity": AgentIdentity(agent_id="Alice"), "is_toukasoul": True}
     ]
     assert soul.apply_soul_to_request.call_args[0][1] == AgentIdentity(agent_id="Alice")
+
+
+async def test_every_member_speaks_when_no_question_is_left_unanswered(cfg, streams):
+    calls, _ = streams
+    await _group_text("@小愛 @阿鮑 早")
+    assert [call["identity"].agent_id for call in calls] == ["Alice", "Bob"]
+
+
+async def test_a_question_left_unanswered_stops_the_next_member(cfg, streams, monkeypatch):
+    """第一位問的問題沒等到回答：這一輪到此為止，下一位不再呼叫模型（ADR-0308）。"""
+    calls, _ = streams
+    target = "src.services.dispatchers.group.get_stream_generator"
+    fake = pkgutil.resolve_name(target)
+
+    async def asks(model, req, identity, request_id, start_time, ctx):
+        mark_unanswered(ctx, [{"question": "要繼續嗎？"}])
+        return await fake(model, req, identity, request_id, start_time, ctx)
+
+    monkeypatch.setattr(target, asks)
+    worked: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "src.services.dispatchers.group.record_working_brain",
+        lambda identity, model: worked.append((identity.agent_id, model)),
+    )
+    await _group_text("@小愛 @阿鮑 早")
+    assert [call["identity"].agent_id for call in calls] == ["Alice"]
+    assert [agent for agent, _model in worked] == ["Alice"]  # 這位的模型呼叫是成功的
 
 
 async def _sns_reply(content: str) -> str:

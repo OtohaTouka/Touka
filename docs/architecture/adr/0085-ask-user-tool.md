@@ -1,6 +1,6 @@
 # ADR-0085: AI 詢問使用者工具（ask_user，人在迴圈中的暫停-續跑）
 
-**狀態 (Status):** ✅ 已接受
+**狀態 (Status):** ✅ 已接受（逾時的行為由 [ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 取代）
 **日期 (Date):** 2026-06-13
 **決策者 (Deciders):** 維護者
 
