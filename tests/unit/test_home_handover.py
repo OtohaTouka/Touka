@@ -1458,6 +1458,17 @@ async def test_a_failure_of_an_invalidated_record_is_not_counted(monkeypatch):
     assert (await records())[0][4] == 0
 
 
+@pytest.mark.usefixtures("unset_home")
+async def test_a_summary_failure_does_not_touch_an_invalidated_record(monkeypatch):
+    async def invalidate_and_fail(_run, _work_id, _source):
+        await set_record(1, scope_version=0)
+        raise home_handover._SummaryFailed
+
+    monkeypatch.setattr(home_handover, "_archive_old_home", invalidate_and_fail)
+    await home_handover.maintain(A)
+    assert (await records())[0][2] == "running"
+
+
 # 寫入前查重置（變異檢查補的）
 
 
