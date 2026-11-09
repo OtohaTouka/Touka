@@ -14,7 +14,7 @@ import { useArtifactExtractor } from "@/hooks/useArtifactExtractor";
 import { useChatStream } from "@/hooks/useChatStream";
 import { usePendingRequestQueue } from "@/hooks/usePendingRequestQueue";
 import { useStreamRegistry } from "./StreamRegistryProvider";
-import { logSSOTError } from "@/lib/error_handler";
+import { logSSOTError, errorMsg, getResponseErrorCode } from "@/lib/error_handler";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -35,7 +35,6 @@ interface ChatContextType {
   handleStopGeneration: () => void;
   handleNewSession: (projectId?: string, incognito?: boolean) => void;
   handleSwitchSession: (id: string) => void;
-  handleHomeSession: () => void;
   handleSetHome: (id: string) => Promise<void>;
   handleUnsetHome: (id: string) => Promise<void>;
   handleDeleteMessage: (id: string) => void;
@@ -315,56 +314,30 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, [sessions, setSelectedModel, activeSessionId, setInputValue, setAuthLevel, refreshSessions, setHistory]);
 
-  const handleHomeSession = useCallback(async () => {
-    const homeSess = sessions.find(s => s.is_home);
-    if (homeSess) {
-      await handleSwitchSession(homeSess.id);
-    } else {
-      // ADR-0080：建立家對話不再中止進行中的串流（背景續跑）
-      const newId = `session-home-${getSystemEpoch()}`;
-      const newSess: Session = { id: newId, title: "妳的家", messages: [], updatedAt: getSystemEpoch(), is_home: true };
-      setSessions(prev => [newSess, ...prev]);
-      setActiveSessionId(newId);
-      setHistory({ messages: {}, currentId: null });
-      setInputValue("");
-      draftsRef.current.delete(newId);
-      setAttachment(null);
-      void syncSession(newSess);
-    }
-  }, [sessions, handleSwitchSession, setSessions, syncSession, setInputValue, setHistory]);
-
-  const handleSetHome = useCallback(async (id: string) => {
+  const saveHome = useCallback(async (id: string, isHome: boolean) => {
     const sess = sessions.find(s => s.id === id);
     if (!sess?.agent_id) return;
     // 後端只收正式靈魂 ID
     const agentId = canonicalSoulId(sess.agent_id);
-    const proxyUrl = getActiveProxyUrl();
     try {
-      const res = await fetchTouka(proxyUrl, '/v1/ui/sessions/set_home', {
+      const res = await fetchTouka(getActiveProxyUrl(), '/v1/ui/sessions/set_home', {
         method: "POST",
-        body: JSON.stringify({ session_id: id, agent_id: agentId, is_home: true })
+        body: JSON.stringify({ session_id: id, agent_id: agentId, is_home: isHome })
       });
-      if (res.ok) {
-        applySavedHome(id, agentId, true);
+      if (!res.ok) {
+        toast.error(errorMsg((await getResponseErrorCode(res)) ?? "SESSION_SAVE_FAILED"));
+        return;
       }
-    } catch (err) { logSSOTError(err, "ChatProvider:setHome"); }
-  }, [sessions, applySavedHome]);
+      applySavedHome(id, agentId, isHome);
+      void refreshSessions(); // 誰變成舊家由後端的交接紀錄決定（ADR-0306）
+    } catch (err) {
+      logSSOTError(err, "ChatProvider:saveHome");
+      toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
+    }
+  }, [sessions, applySavedHome, refreshSessions]);
 
-  const handleUnsetHome = useCallback(async (id: string) => {
-    const sess = sessions.find(s => s.id === id);
-    if (!sess?.agent_id) return;
-    const agentId = canonicalSoulId(sess.agent_id);
-    const proxyUrl = getActiveProxyUrl();
-    try {
-      const res = await fetchTouka(proxyUrl, '/v1/ui/sessions/set_home', {
-        method: "POST",
-        body: JSON.stringify({ session_id: id, agent_id: agentId, is_home: false })
-      });
-      if (res.ok) {
-        applySavedHome(id, agentId, false);
-      }
-    } catch (err) { logSSOTError(err, "ChatProvider:unsetHome"); }
-  }, [sessions, applySavedHome]);
+  const handleSetHome = useCallback((id: string) => saveHome(id, true), [saveHome]);
+  const handleUnsetHome = useCallback((id: string) => saveHome(id, false), [saveHome]);
 
   const handleUpdateSessionMessages = useCallback(async (id: string, newMessages: MessageNode[], expectedBase?: Session) => {
     const updatedAt = getSystemEpoch();
@@ -467,7 +440,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     activeSessionId, setActiveSessionId, history, setHistory, 
     isSending, isWaiting, inputValue, setInputValue, attachment, setAttachment,
     handleSend, handleStopGeneration, handleNewSession, handleSwitchSession,
-    handleHomeSession, handleSetHome, handleUnsetHome,
+    handleSetHome, handleUnsetHome,
     handleDeleteMessage, handleSwitchMessage, handleRegenerate, handleEditMessage,
     handleUpdateSessionMessages, handleSetProject,
     authLevel, isIncognito, handleSetAuthLevel, pendingInstall, dismissPendingInstall,
@@ -476,7 +449,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }), [
     activeSessionId, history, isSending, isWaiting, inputValue, attachment, setInputValue, setHistory,
     setAttachment, handleSend, handleStopGeneration, handleNewSession, handleSwitchSession,
-    handleHomeSession, handleSetHome, handleUnsetHome,
+    handleSetHome, handleUnsetHome,
     handleDeleteMessage, handleSwitchMessage, handleRegenerate, handleEditMessage,
     handleUpdateSessionMessages, handleSetProject,
     authLevel, isIncognito, handleSetAuthLevel, pendingInstall, dismissPendingInstall,

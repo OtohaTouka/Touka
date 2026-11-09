@@ -27,9 +27,13 @@ export function canonicalSoulId(agentId: string): string {
   return agentId.startsWith(SOUL_PREFIX) ? agentId.slice(SOUL_PREFIX.length) : agentId;
 }
 
+/** 內部頻道與退休頻道不能當家，規則和後端 `can_be_home` 相同（ADR-0306）。 */
+const isChannel = (id: string): boolean =>
+  id.startsWith('touka.') || id.startsWith('sns_') || id === 'pulse_channel_default';
+
 /** 這段對話能不能設為家。後端只收正式靈魂 ID，其他的按了只會被拒絕，所以不給選。 */
 export function canSetHome(session: Session, agents: AgentInfo[]): boolean {
-  if (session.incognito || !session.agent_id) return false;
+  if (session.incognito || !session.agent_id || isChannel(session.id)) return false;
   const id = canonicalSoulId(session.agent_id);
   return agents.some(agent => agent.id === id && agent.type === 'soul');
 }

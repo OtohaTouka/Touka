@@ -126,6 +126,7 @@ export function SessionItem({
     holdsActive && t('sidebar.session_tree.folder_holds_active'),
     statusLabel,
     session.incognito && t('sidebar.session_item.incognito_label'),
+    session.is_old_home && t('sidebar.session_item.old_home_badge'),
     modelLabel,
   ].filter(Boolean).join(separator);
   const roundCount = typeof session.round_count === 'number' && session.round_count > 0
@@ -188,6 +189,9 @@ export function SessionItem({
             {folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
             <span data-testid="session-name" className={cn("text-sm font-semibold truncate", breathing)}>{folderName ?? session.title}</span>
             {session.is_home && !folderName && <Home className="w-3.5 h-3.5 shrink-0 text-status-warning fill-status-warning" />}
+            {session.is_old_home && (
+              <span aria-hidden="true" className="shrink-0 rounded bg-muted px-1 text-xs font-bold text-muted-foreground">{t('sidebar.session_item.old_home_badge')}</span>
+            )}
             {/* HAX G17（ADR-0086）：無痕對話標示。 */}
             {session.incognito && (
               <span aria-hidden="true" className="shrink-0 rounded bg-muted px-1 text-xs font-bold text-muted-foreground">{t('sidebar.session_item.incognito_badge')}</span>
@@ -240,13 +244,13 @@ export function SessionItem({
               <Download className="w-4 h-4 text-muted-foreground" />
               {t('sidebar.session_item.export_conversation')}
             </DropdownMenuItem>
-            <DropdownMenuItem
+            {!session.is_old_home && <DropdownMenuItem
               onClick={() => onSplitExport(session)}
               className="flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg cursor-pointer hover:bg-accent transition-colors"
             >
               <Scissors className="w-4 h-4 text-muted-foreground" />
               {t('sidebar.session_item.split_and_export')}
-            </DropdownMenuItem>
+            </DropdownMenuItem>}
             <DropdownMenuItem
               onClick={() => onStartEdit(session)}
               className="flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg cursor-pointer hover:bg-accent transition-colors"

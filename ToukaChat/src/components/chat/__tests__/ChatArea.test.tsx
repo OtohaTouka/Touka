@@ -34,7 +34,7 @@ vi.mock('react-virtuoso', async () => {
   Virtuoso.displayName = 'Virtuoso';
   return { Virtuoso };
 });
-const chat = vi.hoisted(() => ({ history: [] as unknown }));
+const chat = vi.hoisted(() => ({ history: [] as unknown, isSending: false }));
 const media = vi.hoisted(() => ({ mobile: false }));
 vi.mock('@/hooks/useMediaQuery', () => ({ useMediaQuery: () => media.mobile }));
 
@@ -46,7 +46,7 @@ vi.mock('@/lib/ThemeContext', () => ({ useTheme: () => ({ density: 'comfortable'
 vi.mock('@/lib/providers/ChatProvider', () => ({
   useChat: () => ({
     history: chat.history, inputValue: '', setInputValue: vi.fn(),
-    attachment: null, setAttachment: vi.fn(), isSending: false,
+    attachment: null, setAttachment: vi.fn(), isSending: chat.isSending,
     handleSend: vi.fn(), handleStopGeneration: vi.fn(),
     handleDeleteMessage: vi.fn(), handleSwitchMessage: vi.fn(),
     handleRegenerate: vi.fn(), handleEditMessage: vi.fn(),
@@ -263,5 +263,27 @@ describe('ChatArea 對話左側的訊息導覽列', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('舊家是唯讀畫面（ADR-0306）', () => {
+  beforeEach(() => { chat.isSending = false; });
+
+  it('沒有輸入框，顯示說明和設為家', () => {
+    renderChatArea({ is_old_home: true });
+    expect(screen.queryByTestId('mention-input')).toBeNull();
+    expect(screen.getByTestId('old-home-notice')).toBeInTheDocument();
+  });
+
+  it('一般對話照舊有輸入框', () => {
+    renderChatArea();
+    expect(screen.getByTestId('mention-input')).toBeInTheDocument();
+    expect(screen.queryByTestId('old-home-notice')).toBeNull();
+  });
+
+  it('還有回覆在跑時留著輸入框，才停得下來', () => {
+    chat.isSending = true;
+    renderChatArea({ is_old_home: true });
+    expect(screen.getByTestId('mention-input')).toBeInTheDocument();
   });
 });

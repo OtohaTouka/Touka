@@ -31,6 +31,12 @@ export interface BackgroundActivityItem {
 export type BackgroundActivityMap = Record<string, BackgroundActivityItem>;
 
 // P5c：上次未完成的背景任務（當機/被強制關閉時殘留的 in-flight 標記）。
+export interface FailedHandover {
+  agent?: string;
+  old_session?: string;
+  failures?: number;
+}
+
 export interface InterruptedRun {
   session_id?: string;
   agent?: string;
@@ -48,6 +54,7 @@ export interface SystemStats {
   dailyQuota: DailyQuotaStats | null;
   backgroundActivity: BackgroundActivityMap;
   interruptedRuns: InterruptedRun[];
+  failedHandovers: FailedHandover[];
   memStats: { memory_load: number; status: string } | null;
 }
 
@@ -62,6 +69,7 @@ export function useSystemMonitoring(isActive: boolean) {
     dailyQuota: null,
     backgroundActivity: {},
     interruptedRuns: [],
+    failedHandovers: [],
     memStats: null,
   });
 
@@ -114,6 +122,7 @@ export function useSystemMonitoring(isActive: boolean) {
         newStats.dailyQuota = data.daily_quota || null;
         newStats.backgroundActivity = data.background_activity || {};
         newStats.interruptedRuns = data.interrupted_runs || [];
+        newStats.failedHandovers = data.failed_handovers || [];
       }
 
       // 6. Memory List (for count)

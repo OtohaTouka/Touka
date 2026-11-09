@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { fetchTouka } from '../utils/api';
+import { proxyErrorMessage } from '../utils/proxyError';
 import * as EditorHandlers from '../mcp/handlers/EditorHandlers';
 import * as GitHandlers from '../mcp/handlers/GitHandlers';
 import { terminalOutputTracker } from '../utils/TerminalOutputTracker';
@@ -281,7 +282,7 @@ export class ToukaChatViewProvider implements vscode.WebviewViewProvider {
                 body: JSON.stringify(body)
             });
 
-            if (!response.ok) { throw new Error(`Proxy Error: ${response.status}`); }
+            if (!response.ok) { throw new Error(await proxyErrorMessage(response)); }
 
             const returnedSessionId = response.headers.get('x-session-id');
             if (returnedSessionId && returnedSessionId !== sessionId) {

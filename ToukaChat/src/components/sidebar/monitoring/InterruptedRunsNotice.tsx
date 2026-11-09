@@ -4,7 +4,7 @@ import { AlertTriangle, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { InterruptedRun } from "@/hooks/useSystemMonitoring";
 import { getActiveProxyUrl, fetchTouka } from "@/lib/connections";
-import { logSSOTError, errorMsg } from "@/lib/error_handler";
+import { logSSOTError, errorMsg, getResponseErrorCode } from "@/lib/error_handler";
 
 interface InterruptedRunsNoticeProps {
   runs: InterruptedRun[];
@@ -40,7 +40,7 @@ export function InterruptedRunsNotice({ runs }: InterruptedRunsNoticeProps) {
         toast.success(t("sidebar.interrupted_runs_notice.retrigger_success", { agent: run.agent }));
         setActed((prev) => new Set(prev).add(key));
       } else {
-        toast.error(errorMsg("NETWORK_CONNECTION_ERROR"));
+        toast.error(errorMsg((await getResponseErrorCode(resp)) ?? "NETWORK_CONNECTION_ERROR"));
       }
     } catch (e) {
       logSSOTError(e, "InterruptedRunsNotice:retrigger");

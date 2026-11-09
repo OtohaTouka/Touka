@@ -179,3 +179,19 @@ describe('strict generated session snapshot boundary', () => {
     expect(parseSessionSnapshot({ exists: true, revision: 'r', session: { ...document, [key as string]: value } }, 's')).toBeNull();
   });
 });
+
+describe('舊家標記跟著清單走（ADR-0306）', () => {
+  it('正在存檔的對話內容留本機，舊家標記用清單的', () => {
+    const local = { ...session('a'), title: 'draft' };
+    const remote = { ...session('a'), title: 'stored', is_old_home: true };
+    const [merged] = mergeSessionRefresh([local], [remote], new Set(['a']));
+    expect(merged).toMatchObject({ title: 'draft', is_old_home: true });
+  });
+  it('標記沒變時同一個物件，不多觸發畫面更新', () => {
+    const local = session('a');
+    expect(mergeSessionRefresh([local], [session('a')], new Set(['a']))[0]).toBe(local);
+  });
+  it('存檔不帶舊家標記', () => {
+    expect(sessionWritePayload({ ...session('a'), is_old_home: true })).not.toHaveProperty('is_old_home');
+  });
+});

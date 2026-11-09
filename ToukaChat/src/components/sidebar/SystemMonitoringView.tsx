@@ -10,6 +10,7 @@ import { TokenUsage } from "./monitoring/TokenUsage";
 import { DailyQuota } from "./monitoring/DailyQuota";
 import { BackgroundActivity } from "./monitoring/BackgroundActivity";
 import { InterruptedRunsNotice } from "./monitoring/InterruptedRunsNotice";
+import { FailedHandoversNotice } from "./monitoring/FailedHandoversNotice";
 import { ServerHealth } from "./monitoring/ServerHealth";
 import { FeedbackLog } from "./monitoring/FeedbackLog";
 
@@ -43,6 +44,7 @@ export function SystemMonitoringView({ isActive }: SystemMonitoringViewProps) {
       </div>
 
       <InterruptedRunsNotice runs={stats.interruptedRuns} />
+      <FailedHandoversNotice handovers={stats.failedHandovers} />
       <BackgroundActivity activity={stats.backgroundActivity} />
 
       <SectionWrapper

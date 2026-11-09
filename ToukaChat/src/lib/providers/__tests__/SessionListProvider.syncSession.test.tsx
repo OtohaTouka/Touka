@@ -299,9 +299,12 @@ describe('R2 snapshot binding and explicit recovery', () => {
         expect(errorMsg).toHaveBeenCalledWith('SESSION_OLD_HOME_READ_ONLY');
         expect(logSSOTError).not.toHaveBeenCalled();
       });
-      it('a turn the backend did write still shows the refusal', async () => {
-        const { outcome } = await finish({ status: 'saved', representation: 'text', revision: 'r1' });
-        expect(outcome).toEqual(refused);
+      it('a turn the backend did write keeps that save: nothing stays halted', async () => {
+        const terminal: SaveResult = { status: 'saved', representation: 'text', revision: 'r2' };
+        const { outcome, persistence } = await finish(terminal);
+        expect(outcome).toEqual({ status: 'saved', representation: 'full', revision: 'r2' });
+        expect(persistence).toMatchObject({ status: 'saved', revision: 'r2' });
+        expect(toast.error).not.toHaveBeenCalled();
       });
       it('any other refusal of such a turn still shows', async () => {
         const other = { status: 'failed', error_code: ERRORS.SESSION_SAVE_FAILED.id };
