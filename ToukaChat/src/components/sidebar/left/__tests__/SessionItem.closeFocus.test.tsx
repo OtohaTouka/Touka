@@ -6,15 +6,18 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { SessionItem } from '@/components/sidebar/left/SessionItem';
 import type { Session } from '@/lib/types';
 
 type CloseAutoFocus = (event: Event) => void;
-const captured: { onCloseAutoFocus?: CloseAutoFocus } = {};
+const captured: { onCloseAutoFocus?: CloseAutoFocus; onOpenChange?: (open: boolean) => void } = {};
 
 vi.mock('@/components/ui/dropdown-menu', () => ({
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenu: ({ children, onOpenChange }: { children: React.ReactNode; onOpenChange?: (open: boolean) => void }) => {
+    captured.onOpenChange = onOpenChange;
+    return <div>{children}</div>;
+  },
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuContent: ({ children, onCloseAutoFocus }: { children: React.ReactNode; onCloseAutoFocus?: CloseAutoFocus }) => {
     captured.onCloseAutoFocus = onCloseAutoFocus;
@@ -89,6 +92,15 @@ describe('SessionItem：選單關掉後的焦點', () => {
     closeMenu();
     closeMenu();
     expect(onSetHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('淡出時又打開選單：剛才的設為家不留著，之後關選單不會跳視窗', () => {
+    const onSetHome = vi.fn();
+    render(<SessionItem {...props} canSetHome onSetHome={onSetHome} />);
+    fireEvent.click(screen.getByText('設為家對話'));
+    act(() => captured.onOpenChange?.(true));
+    closeMenu();
+    expect(onSetHome).not.toHaveBeenCalled();
   });
 
   it('焦點沒有被移走：回到這一列', () => {

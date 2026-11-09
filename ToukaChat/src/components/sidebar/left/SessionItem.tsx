@@ -219,7 +219,7 @@ export function SessionItem({
       )}
 
       <div className="flex items-center pr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenu open={menuOpen} onOpenChange={(open) => { setMenuOpen(open); if (!open) onClearDeleteConfirm(); }}>
+        <DropdownMenu open={menuOpen} onOpenChange={(open) => { setMenuOpen(open); if (open) afterMenuClosed.current = null; else onClearDeleteConfirm(); }}>
           <DropdownMenuTrigger asChild>
             <button tabIndex={-1} aria-label={t('sidebar.session_item.session_options', { title: session.title })} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               <MoreVertical className="w-4 h-4" />
