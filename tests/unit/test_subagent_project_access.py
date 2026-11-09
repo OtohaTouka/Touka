@@ -331,6 +331,19 @@ async def test_a_read_only_subagent_can_still_look_at_the_project(world, mode):
     assert "note.txt" in results
 
 
+async def test_the_dispatch_tool_carries_the_limit_all_the_way(world):
+    session_id, root = await _bound(world)
+    client = _client(_reply(WRITE_NEW))
+    parent = _parent(client, session_id, "YOLO")
+    result = await subagent_tools.dispatch_subagent(
+        goal="只看", identity=A, request_id="parent", model=MODEL, _ctx=parent, read_only=True
+    )
+    assert "callback_token" in result
+    await _settle()
+    assert "write" not in _advertised(client)
+    assert not (root / "new.txt").exists()
+
+
 async def test_the_limit_also_holds_when_a_listed_tool_is_called(world):
     """工具清單之外的第二道：就算 write 在清單上，執行時的決策表也要擋。"""
     session_id, root = await _bound(world)
