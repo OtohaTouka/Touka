@@ -250,7 +250,7 @@ export const MessageItem = React.memo(({
           </span>
           
           {/* WCAG 2.5.8（A4）：訊息操作鈕點擊區 ≥24px（p-1.5×2 + icon12 = 24） */}
-          {!isSending && editingMessageId !== msg.id && (
+          {!isSending && (editingMessageId !== msg.id || readOnly) && (
             <>
               <button onClick={() => handleCopy(msg.content)} className="p-1.5 text-muted-foreground hover:text-primary rounded-md" title={t('chat.message_item.copy')}>
                 <Copy size={12} />

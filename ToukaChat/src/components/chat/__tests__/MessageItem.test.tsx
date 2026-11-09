@@ -177,6 +177,7 @@ describe('MessageItem 舊家唯讀（ADR-0306）', () => {
     render(<MessageItem {...defaultProps} editingMessageId="2" history={history as any} msg={msg} readOnly />);
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByText('hi')).toBeInTheDocument();
+    expect(screen.getByTitle('chat.message_item.copy')).toBeInTheDocument();
   });
 
   it('一般對話照舊', () => {
