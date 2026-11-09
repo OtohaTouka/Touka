@@ -2,6 +2,11 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 子代理的專案與只能看（2026-11-10，ADR-0309）
+
+- `dispatch_subagent`、`dispatch_subagent_group` 派出的子代理看得到對話綁定的專案（`scope=project`）；專案只來自綁定，派出時算一次。
+- 新參數 `read_only`（群組是每個子任務各一個）：true 時非 `read_only` 類的工具一律拒絕，三種模式都一樣。
+
 ## 提問沒等到回答（2026-11-09，ADR-0308）
 
 - 工具 `ask_user` 逾時或全部空白時，這一輪結束、不再呼叫模型；串流裡多一段固定文字（問題、選項、已答內容、用過的工具），之後照一般回合收尾。

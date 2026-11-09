@@ -179,7 +179,12 @@ CASES = [
         "dispatch_subagent_group",
         {
             "subtasks": [
-                {"goal": "bounded subtask", "task_id": "task-a", "sub_model": "mock-submodel"}
+                {
+                    "goal": "bounded subtask",
+                    "task_id": "task-a",
+                    "sub_model": "mock-submodel",
+                    "read_only": True,
+                }
             ]
         },
     ),
