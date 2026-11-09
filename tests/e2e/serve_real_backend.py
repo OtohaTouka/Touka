@@ -77,6 +77,7 @@ sys.stdout.flush()
 sys.path[:0] = [str(REPO_ROOT / "ToukaProxy"), str(REPO_ROOT / "ToukaMemory" / "src")]
 
 import fake_mcp_server  # noqa: E402
+import proactor_close_fix  # noqa: E402
 import uvicorn  # noqa: E402
 from src.config import get_app_data_dir, get_config_dir  # noqa: E402
 from src.main import app  # noqa: E402
@@ -91,6 +92,7 @@ def _stop_when_stdin_closes(server: uvicorn.Server) -> None:
     server.should_exit = True
 
 
+proactor_close_fix.install()
 fake_mcp_server.start_in_background(args.fake_mcp_port)
 
 log_to_stderr = logging.StreamHandler(sys.stderr)
