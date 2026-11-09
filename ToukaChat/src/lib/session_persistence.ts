@@ -105,8 +105,8 @@ function withoutFailureDetail(messages: Session['messages']): Session['messages'
     if (!failure || !('detail' in failure)) continue;
     const kept = { ...failure };
     delete kept.detail;
-    changed ??= { ...nodes };
-    changed[id] = { ...node, progress: { ...node.progress, [GENERATION_FAILURE_KIND]: kept } };
+    const copy: Record<string, unknown> = (changed ??= { ...nodes });
+    copy[id] = { ...node, progress: { ...node.progress, [GENERATION_FAILURE_KIND]: kept } };
   }
   return changed ? { ...messages, messages: changed } : messages;
 }
