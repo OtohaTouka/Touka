@@ -24,6 +24,15 @@ _NO_ANSWER = (
 )
 
 
+def _wait_seconds(value: Any) -> float:
+    """等待秒數：模型可以縮短，不能拉長；不是數字就用預設（發問前算好，不留下沒人等的問題）。"""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return ASK_USER_TIMEOUT
+    return seconds if 0 <= seconds <= ASK_USER_TIMEOUT else ASK_USER_TIMEOUT
+
+
 async def ask_user(
     questions: list[dict[str, Any]] | None = None,
     _emit_event: Any = None,
@@ -40,6 +49,7 @@ async def ask_user(
         # 無事件管道（非互動情境）→ 立即回哨兵，不阻塞
         return _NO_ANSWER
 
+    timeout = _wait_seconds(kwargs.get("_timeout"))
     store = get_ask_user_store()
     # 不用工具呼叫編號：有些模型是流水號，猜得到，兩段對話同時問也會撞在一起（ADR-0300）
     token = store.generate_token()
@@ -48,7 +58,6 @@ async def ask_user(
     ctx = kwargs.get("_ctx")
     notify_agent_question(ctx or {})
 
-    timeout = float(kwargs.get("_timeout", ASK_USER_TIMEOUT))
     result = await store.wait_for_answer(token, timeout=timeout)
     answers = result.get("answers")
     if is_blank_answer(answers):

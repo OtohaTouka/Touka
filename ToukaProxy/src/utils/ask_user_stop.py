@@ -1,4 +1,4 @@
-"""AI 問使用者問題沒等到回答時，這一輪要停下（融合段 0）。
+"""AI 問使用者問題沒等到回答時，這一輪要停下（ADR-0308）。
 
 沒回覆不算同意：逾時或什麼都沒選時，``ask_user`` 在 ctx 記下還沒答的問題，
 迴圈收完工具結果就結束這一輪，不再呼叫模型。對話裡留一段固定文字；
@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, MutableMapping
+    from collections.abc import Iterable
 
 UNANSWERED_KEY = "ask_user_unanswered"
 ANSWERED_KEY = "ask_user_answered"
@@ -30,13 +30,13 @@ def is_blank_answer(answers: Any) -> bool:
     )
 
 
-def mark_unanswered(ctx: MutableMapping[str, Any] | None, questions: list[Any]) -> None:
+def mark_unanswered(ctx: Any, questions: list[Any]) -> None:
     """記下這一輪沒等到回答的問題；有記就會停下。"""
     if ctx is not None:
         ctx[UNANSWERED_KEY] = [*(ctx.get(UNANSWERED_KEY) or []), *questions]
 
 
-def mark_answered(ctx: MutableMapping[str, Any] | None, answered: list[dict[str, Any]]) -> None:
+def mark_answered(ctx: Any, answered: list[dict[str, Any]]) -> None:
     """記下這一輪已經回答的問題；由工具自己記，不解析結果文字（會被加時間尾綴）。"""
     if ctx is not None:
         ctx[ANSWERED_KEY] = [*(ctx.get(ANSWERED_KEY) or []), *answered]
@@ -67,7 +67,7 @@ def _tool_names(used: Iterable[str]) -> list[str]:
     return sorted({name for name in used if "." not in name and name != "ask_user"})
 
 
-def ask_user_stop_text(ctx: Mapping[str, Any], used: Iterable[str]) -> str | None:
+def ask_user_stop_text(ctx: Any, used: Iterable[str]) -> str | None:
     """沒有未答的問題回 None；有就回這一輪要留下的固定文字。組文字失敗也不能讓停下失敗。"""
     questions = ctx.get(UNANSWERED_KEY)
     if not questions:

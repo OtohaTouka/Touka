@@ -30,6 +30,8 @@ export const CANARY_HOOK_HEADER = "e2e-canary-hook-header";
 export const ASK_QUESTION = "實際驗證：要繼續嗎？";
 export const ASK_ANSWER = "繼續";
 export const ASK_NOT_ANSWERED_NOTICE = "這個問題沒有等到回答";
+/** 提問逾時後工具給模型的結果；出現在送給模型的訊息裡，就代表模型又被呼叫了。 */
+export const ASK_TIMED_OUT_TOOL_RESULT = "未在時限內回答";
 // 和 tests/e2e/fake_mcp_server.py 同一句
 export const MCP_FORM_MESSAGE = "實際驗證：請填這個欄位";
 export const MCP_SERVER = "e2e";
@@ -51,7 +53,7 @@ const TOOL_REQUESTS: Record<string, { tool: string; args: (fileName: string) => 
   // 等待時間縮短：沒回答時這一輪要停下
   E2E_CALL_EXPIRINGASK: {
     tool: "ask_user",
-    args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }], _timeout: 1 }),
+    args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }], _timeout: 3 }),
   },
   E2E_CALL_SUBAGENT: { tool: "dispatch_subagent", args: () => ({ goal: SUBAGENT_GOAL }) },
   E2E_CALL_MISSION: {

@@ -17,6 +17,7 @@ import {
   ASK_ANSWER,
   ASK_NOT_ANSWERED_NOTICE,
   ASK_QUESTION,
+  ASK_TIMED_OUT_TOOL_RESULT,
   askRequest,
   expiringAskRequest,
   FAKE_AFTER_TOOL_REPLY,
@@ -26,7 +27,7 @@ import {
   MODEL_HOLD_REQUEST,
   writeRequest,
 } from "./lib/constants";
-import { holdModelCall, modelHolding, releaseModel } from "./lib/control";
+import { holdModelCall, modelCalls, modelHolding, releaseModel } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import { clickChatInList, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot } from "./lib/ui";
 
@@ -82,15 +83,24 @@ test("問問題沒等到回答：這一輪停下，時間到之後回覆就接�
   await clickChatInList(page, "提問逾時");
 
   await sendMessage(page, expiringAskRequest());
+  await expect(submitAsk(page)).toBeVisible(); // 問題卡真的出現過，不是一開始就沒問
   await expect(page.getByText(ASK_NOT_ANSWERED_NOTICE).first()).toBeVisible();
   await expect(submitAsk(page)).toHaveCount(0);
   await expect(page.getByText(ASK_QUESTION).first()).toBeVisible();
   // 模型沒有再被呼叫，所以不會有收到工具結果之後的回覆
   await expect(page.getByText(FAKE_AFTER_TOOL_REPLY)).toHaveCount(0);
+  const afterTimeout = (await modelCalls()).filter(
+    (call) => call.lastRole === "tool" && call.lastText.includes(ASK_TIMED_OUT_TOOL_RESULT),
+  );
+  expect(afterTimeout).toEqual([]);
   await shot(page, info, "ask-expired");
 
   await sendMessage(page, "選繼續");
   await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
+  // 下一輪看得到剛才的問題和這次的回答，模型才接得上
+  const reply = (await modelCalls()).filter((call) => call.lastText.includes("選繼續")).pop();
+  expect(reply?.allText).toContain(ASK_QUESTION);
+  expect(reply?.allText).toContain("選繼續");
 });
 
 test("提問與外掛工具要回應：亮等您處理，答完消失", async ({ page }, info) => {

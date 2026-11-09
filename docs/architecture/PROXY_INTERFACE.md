@@ -2,13 +2,16 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 提問沒等到回答（2026-11-09，ADR-0308）
+
+- 工具 `ask_user` 逾時或全部空白時，這一輪結束、不再呼叫模型；串流裡多一段固定文字（問題、選項、已答內容、用過的工具），之後照一般回合收尾。
+
 ## 身分與防呆（2026-11-07，ADR-0304）
 
 - 首裝卡（LDH 在 `X-New-Auth-Token` 發的卡）帶記號 `src: "ldh"`。系統認領後（有任何完成真密碼設定的使用者），帶記號的卡一律 401 `AUTH_INVALID_TOKEN`；認領前，卡的身分和發卡時一樣（不帶類型旗標）。`X-Agent-ID` 是使用者 id 時 LDH 不發卡。
 - 使用者只收 `type: "access"` 的 token：中央 Bearer 閘（`verify_token`）與 `get_current_user`（`/auth/*` 等）對沒有 type、`sub` 是使用者的 token 回 401。
 - 檔案工具的 `project_id` 只來自 ctx 或 session 綁定的專案（`isolation/policy.session_project_id`），模型在參數裡填的值不採用；沒有綁定時工具拿到 None。
 - 還原進行中（`restore_in_progress()`）回 409 `SYSTEM_RESTORE_IN_PROGRESS`（1414）：`DELETE /v1/souls/{id}`（身分檢查之後、驗密碼之前）、`DELETE /v1/ui/custom_models/{id}`、`POST /v1/ui/custom_models/{id}/rename`，以及對自訂模型的 `DELETE /v1/models/{id}`。
-- 工具 `ask_user` 沒等到回答（逾時或全部空白）時，這一輪結束、不再呼叫模型，串流最後是一段固定文字（ADR-0308）。
 - `POST /v1/mcp/hub/sync` 失敗改回標準錯誤 500 `SYSTEM_ERROR`（原本是 `{"error": <例外原文>}`）；`GET /v1/heartbeat/test` 連不到時 `message` 是固定文字；`GET /` 的 `degraded_reason` 只剩類別（`Memory System module not found.`／`dependency error.`／`crash.`），細節在伺服器 log。
 
 ## Hook 設定與事件（2026-10-28，ADR-0292）

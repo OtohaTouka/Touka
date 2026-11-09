@@ -1,4 +1,4 @@
-"""AI 問使用者問題沒等到回答時，這一輪直接結束、不再呼叫模型（融合段 0）。"""
+"""AI 問使用者問題沒等到回答時，這一輪直接結束、不再呼叫模型（ADR-0308）。"""
 
 from __future__ import annotations
 
@@ -7,13 +7,15 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.adapters.schemas import AnthropicMessage, AnthropicRequest
 from src.handlers import react_core
 from src.handlers.claude_handler import handle_claude_request
+from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.services.ask_user_store import _reset_ask_user_store, get_ask_user_store
 from src.services.rhythm_service import rhythm_service
-from src.tools.builtin.interaction import ask_user
-from src.utils.ask_user_stop import ask_user_stop_text, is_blank_answer
+from src.tools.builtin.interaction import ASK_USER_TIMEOUT, ask_user
+from src.utils.ask_user_stop import ask_user_stop_text, is_blank_answer, mark_unanswered
 from src.utils.tool_usage import record_tool_executed
 
 from tests.helpers.claude_stream import delegate_stream_to_create
@@ -85,6 +87,31 @@ async def test_no_event_channel_does_not_tell_the_model_to_guess():
     assert "最合理的判斷" not in result
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("given", "waited"),
+    [
+        ("不是數字", ASK_USER_TIMEOUT),
+        (None, ASK_USER_TIMEOUT),
+        ("nan", ASK_USER_TIMEOUT),
+        (-1, ASK_USER_TIMEOUT),
+        (ASK_USER_TIMEOUT * 10, ASK_USER_TIMEOUT),
+        (0.5, 0.5),
+        ("2", 2.0),
+    ],
+)
+async def test_the_model_can_shorten_the_wait_but_not_extend_it(monkeypatch, given, waited):
+    seen: list[float] = []
+
+    async def wait(_token: str, timeout: float) -> dict[str, Any]:
+        seen.append(timeout)
+        return {"answers": [["正式環境"]]}
+
+    monkeypatch.setattr(get_ask_user_store(), "wait_for_answer", wait)
+    await ask_user(questions=[QUESTION], _emit_event=_emit, _timeout=given)
+    assert seen == [waited]
+
+
 def test_is_blank_answer_only_when_every_answer_is_empty():
     assert is_blank_answer(None) is True
     assert is_blank_answer([]) is True
@@ -118,6 +145,16 @@ def test_the_notice_lists_questions_already_answered_in_this_turn():
     assert text is not None
     assert "用哪個分支？" in text
     assert "dev" in text
+
+
+def test_marking_works_on_the_real_pipeline_context():
+    ctx = PipelineContext()
+    mark_unanswered(ctx, [QUESTION])
+    mark_unanswered(ctx, [{"question": "第二題"}])
+    text = ask_user_stop_text(ctx, set())
+    assert text is not None
+    assert "要部署到哪裡？" in text
+    assert "第二題" in text
 
 
 def test_no_notice_when_nothing_was_left_unanswered():
@@ -186,7 +223,11 @@ def _text_response(text: str) -> MagicMock:
 
 
 async def _run(
-    client: MagicMock, tools: dict[str, Any], request_id: str, monkeypatch: pytest.MonkeyPatch
+    client: MagicMock,
+    tools: dict[str, Any],
+    request_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+    native_request: AnthropicRequest | None = None,
 ) -> list[str]:
     async def run_tool(
         _self: Any,
@@ -231,7 +272,7 @@ async def _run(
         "messages": [],
     }
     request.messages = [MagicMock(content="hi", role="user")]
-    chunks = [c async for c in handle_claude_request(request, context)]
+    chunks = [c async for c in handle_claude_request(native_request or request, context)]
     rhythm_service.clear_session(request_id)
     return chunks
 
@@ -337,3 +378,31 @@ async def test_two_questions_in_one_turn_one_answered_one_timed_out(monkeypatch)
     assert "用哪個分支？" in text
     assert "dev" in text
     assert "要部署到哪裡？" in text
+
+
+@pytest.mark.asyncio
+async def test_the_native_claude_ending_keeps_its_own_shape(monkeypatch):
+    """Claude 原生入口的結尾沒有 ``choices``；已經串流過的文字要清空，才不會顯示兩次。"""
+    said = MagicMock()
+    said.type = "text"
+    said.text = "我先問一下"
+    asked = _response(
+        [said, _tool_block("t1", "ask_user", ASK_ARGS)],
+        [
+            {"type": "text", "text": "我先問一下"},
+            {"type": "tool_use", "id": "t1", "name": "ask_user", "input": ASK_ARGS},
+        ],
+        "tool_use",
+    )
+    client = MagicMock()
+    client.messages.create = AsyncMock(side_effect=[asked, _text_response("自己猜著做")])
+    native = AnthropicRequest(
+        model="claude-3-5-sonnet", messages=[AnthropicMessage(role="user", content="hi")]
+    )
+    chunks = await _run(client, {"ask_user": ask_user}, "ask-stop-native", monkeypatch, native)
+    assert client.messages.create.call_count == 1
+    assert chunks[-1].strip() == "data: [DONE]"
+    ending = json.loads(chunks[-2][len("data: ") :])
+    assert "choices" not in ending
+    assert ending["content"][0] == {"type": "text", "text": ""}
+    assert "回答前不得代為決定" in _text_of(chunks)  # 文字片段不分入口都是同一種格式

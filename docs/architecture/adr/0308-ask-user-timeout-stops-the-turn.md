@@ -4,7 +4,7 @@
 - 日期：2026-11-09
 - 決策者：維護者
 - 相關：取代 [ADR-0085](0085-ask-user-tool.md)「逾時 AI 續跑」；[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（工具步驟不送給模型）
-- 影響範圍：`ToukaProxy/src/tools/builtin/interaction.py`、`src/utils/ask_user_stop.py`、`src/handlers/react_core.py`
+- 影響範圍：`ToukaProxy/src/tools/builtin/interaction.py`、`src/utils/ask_user_stop.py`、`src/handlers/react_core.py`、`src/services/dispatchers/group.py`
 
 ## 背景
 
@@ -17,6 +17,8 @@
 3. **走正常完成的路**：比照沒有工具呼叫時的結束，不用使用者按停的路（`UiGenerationStopped` 後端不存檔）；工具輪上限那條路會再呼叫一次模型，也不適用。
 4. **固定文字要自己夠用**：工具步驟不帶到下一輪，所以寫進問題和選項、這一輪已經回答的題目、用過的工具名稱，以及一句給模型看的「回答前不得代為決定」。題目格式不完整也要能組出文字，停下不能失敗。
 5. **同一輪其他工具照常跑完**：迴圈本來就等全部工具結束。
+6. **群聊也一起停**：一位成員的問題沒等到回答，下一位成員不再呼叫模型。
+7. **等待秒數**：留在模型參數（`_timeout`），實際驗證用它縮短時間；只能縮短、不能拉長，不是數字就用預設的 10 分鐘。
 
 ## 後果
 
@@ -26,6 +28,7 @@
 - 按掉問題卡時仍要等滿 10 分鐘才停（前端沒有通知後端）。
 - IDE 不顯示問題（`ask_user_request` 不在它的事件名單），改完會停下並以文字顯示；IDE 每則只送最新一句，回覆時要把問題和答案一起打。
 - Claude 原生格式的外部用戶端，收尾片段帶著工具呼叫（和按停的路相同）。
+- Stop hook 的最後一則訊息讀的是工具輪的文字，收不到固定文字（和按停的路相同）。
 
 ## 更正 ADR-0085
 
