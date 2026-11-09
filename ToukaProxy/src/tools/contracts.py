@@ -246,6 +246,7 @@ class SubagentTaskInput(PublicToolInput):
     goal: str = Field(description="自包含的子任務目標與完整指示")
     task_id: str | None = Field(None, description="mission board task ID 結果標記")
     sub_model: str | None = Field(None, description="子任務模型；省略沿用父模型")
+    read_only: bool = Field(False, description="true＝只能查看，不能修改任何檔案（例如審查者）")
 
 
 class SubagentGroupInput(PublicToolInput):

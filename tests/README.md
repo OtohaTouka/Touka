@@ -163,6 +163,7 @@ tests/
 | `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走，並在開始服務前裝好 Windows 連線收尾修正。 |
 | `unit/test_e2e_proactor_close_fix.py` | 實際驗證後端的 Windows 連線收尾修正（ADR-0295）：對方重置連線時伺服器等得完、socket 真的關了；正常關閉照舊、其他錯誤不吞、子行程管線不動、沒關的連線照舊要等。用真的 asyncio 類別模擬，Linux 也跑得到；未裝修正時的那條釘住缺陷還在，Python 修好時會變紅。 |
 | `unit/test_ask_user_stop.py` | ADR-0308：提問沒等到回答時這一輪結束、不再呼叫模型；空白送出算沒回答；固定文字的內容與容錯 |
+| `unit/test_subagent_project_access.py` | ADR-0309：子代理看得到對話綁定的專案、照模式寫入；只能看的子代理在任何模式都不能改檔案；真的走派工、工具清單與權限判定，只有模型是假的 |
 | `lint/test_patrol_notify_workflow.py` | 每月巡查的通知流程：只能手動觸發、參數是固定選項、只有開 issue 的權限、只從 main 跑；有事不重複開、沒事開完就關 |
 | `lint/test_dep_audit_workflow.py` | 每日依賴檢查的 workflow（ADR-0299）：掃描只能讀、只有回報能寫 issue 且只從 main 跑、action 釘 commit SHA、輸入不直接進 shell |
 | `lint/test_chat_dev_terminal_security.py` | `npm run dev` 只啟動 `next dev`、不啟動其他伺服器；`terminal_server.mjs` 不存在；`src/` 沒有程式開 socket 伺服器或 pty |

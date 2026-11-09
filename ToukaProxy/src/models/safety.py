@@ -21,6 +21,8 @@ F5、F6 在 Auto 下都改成 HUMAN_ONLY（只有人能核准），但不把 DEN
 要隔離的動作（``isolation_policy.requires_isolation``）在 environment 的 ``isolation`` 是 none
 （缺鍵、看不懂的值也算）時，Auto 與 YOLO 改成 HUMAN_ONLY（程式常數，設定檔改不鬆）。
 YOLO 下 dangerous 的 MCP 工具在 ``human_present`` 不是 True 時也是 HUMAN_ONLY（ADR-0272 決定 4）。
+只能看的子代理（environment 的 ``read_only_run``）：不是 read_only 類一律 DENY，
+三種模式都一樣（ADR-0309）。
 """
 
 import logging
@@ -218,6 +220,12 @@ class AuthPoliciesConfig(BasePolicyModel):
                 resource,
                 context.environment.get("tool_action"),
                 advertisement=(context.action == "schema_injection"),
+            )
+
+        # --- 只能看的子代理：排在模式決策表之前，YOLO 也放不寬（ADR-0309）---
+        if context.environment.get("read_only_run") and risk != "read_only":
+            return PolicyDecision(
+                effect="DENY", reason="This sub-agent was dispatched as read-only"
             )
 
         # --- read_only 類：三模式 ALLOW 免 HITL（ADR-0089 語意承接）---

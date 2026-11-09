@@ -516,7 +516,8 @@ DISPATCH_SUBAGENT_SCHEMA = {
             "單一自包含任務。立即回傳 callback_token——之後用 mission_tools("
             "action='await_dispatch_result', callback_token=...) 等待結果，期間可先"
             "做其他事。子代理以受限工具面（Subagent）獨立執行、看不到你的對話上下文、"
-            "也無法再派子代理。何時不要用：任務依賴目前對話上下文，或你幾步內就能"
+            "也無法再派子代理。對話綁專案時，子代理看得到同一個專案（scope=project）；"
+            "要它只看不改（例如審查者）就加 read_only=true。何時不要用：任務依賴目前對話上下文，或你幾步內就能"
             "自己完成時。"
         ),
         "parameters": {
@@ -540,6 +541,10 @@ DISPATCH_SUBAGENT_SCHEMA = {
                     "type": "string",
                     "description": "（選）子代理底層模型；預設沿用你目前的模型",
                 },
+                "read_only": {
+                    "type": "boolean",
+                    "description": "（選）true＝只能查看，不能修改任何檔案（例如審查者）",
+                },
             },
             "required": ["goal"],
         },
@@ -554,7 +559,8 @@ DISPATCH_SUBAGENT_GROUP_SCHEMA = {
         "description": (
             "同時派多個 in-process 子代理各跑各的獨立子任務，阻塞至全部完成後把每個"
             "子任務的結構化回報匯總回來。適合把一個大任務拆成數個**彼此獨立**的子任務"
-            "並行完成再收斂。並發與子任務數皆有上限。何時不要用：子任務彼此相依（改逐一"
+            "並行完成再收斂。並發與子任務數皆有上限。對話綁專案時，子代理看得到同一個專案；"
+            "每個子任務可各自加 read_only=true。何時不要用：子任務彼此相依（改逐一"
             "派）、或需要「先派了先做別的」的非阻塞語義（改用 dispatch_subagent 拿 token）。"
         ),
         "parameters": native_parameters("dispatch_subagent_group"),
