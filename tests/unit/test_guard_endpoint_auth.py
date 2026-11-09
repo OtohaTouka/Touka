@@ -40,16 +40,16 @@ def test_multiple_router_receivers_keep_their_own_prefix(tmp_path: Path) -> None
     source = _write_router(
         tmp_path,
         """
-        router = APIRouter(prefix="/heartbeat")
+        router = APIRouter(prefix="/system_logs")
         other = APIRouter(prefix="/other")
-        @router.get("/test")
+        @router.get("/recent")
         def public_probe(): pass
         @other.post("/protected")
         def missing_auth(): pass
     """,
     )
     records = collect_endpoints(source)
-    assert {r.path for r in records} == {"/heartbeat/test", "/other/protected"}
+    assert {r.path for r in records} == {"/system_logs/recent", "/other/protected"}
     assert [r.path for r in scan_router_file(source)] == ["/other/protected"]
 
 

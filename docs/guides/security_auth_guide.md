@@ -182,7 +182,6 @@ ABAC／HITL 即時決策。`auth_level` 不儲存在 `permissions.json`：
 ### 6.3 公開端點白名單
 以下端點合法豁免（`endpoint_auth_allowlist.py`）：
 - `GET /`、`GET /health`（health check）
-- `GET /v1/heartbeat/test`（connectivity probe）
 - `GET /terminal/stream`（SSE read-only broadcast）
 - 等約 20 個公開服務探測端點
 
