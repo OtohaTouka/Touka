@@ -37,9 +37,11 @@
 
 ## 驗證
 
-- `tests/unit/test_ask_user_stop.py`：逾時不再呼叫模型、同輪其他工具跑完、什麼都沒選算沒回答、部分回答照常繼續、同一輪一次答一次逾時、題目格式不完整仍停下。
-- 實際驗證 `session-attention.spec.ts`：問題卡關掉、固定文字出現、假模型沒有再被呼叫、回覆後接著做。
+- `tests/unit/test_ask_user_stop.py`：逾時不再呼叫模型、同輪其他工具跑完、什麼都沒選算沒回答、部分回答照常繼續、同一輪一次答一次逾時、題目格式不完整仍停下、等待秒數的上限、Claude 原生入口的結尾。
+- `tests/unit/test_group_soul_only.py`：群聊有人沒等到回答時，下一位成員不再呼叫模型。
+- `tests/unit/test_interjection_drain.py`：等待時排隊的文字在串流結束前退回給前端。
+- 實際驗證 `session-attention.spec.ts`：問題卡出現又關掉、固定文字出現、假模型沒有再被呼叫、回覆後下一輪看得到問題和回答。
 
 ## 回復
 
-還原這三個檔與測試，本 ADR 改「⛔ 已撤回」，ADR-0085 的狀態行拿掉取代說明，CHANGELOG 加一列。
+還原 `ask_user_stop.py`、`react_core.py`、`interaction.py`、`group.py`、`scripts/native_tool_contract_baseline.json` 與測試，本 ADR 改「⛔ 已撤回」，ADR-0085 的狀態行拿掉取代說明，CHANGELOG 加一列。

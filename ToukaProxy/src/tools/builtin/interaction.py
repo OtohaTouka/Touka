@@ -28,7 +28,7 @@ def _wait_seconds(value: Any) -> float:
     """等待秒數：模型可以縮短，不能拉長；不是數字就用預設（發問前算好，不留下沒人等的問題）。"""
     try:
         seconds = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return ASK_USER_TIMEOUT
     return seconds if 0 <= seconds <= ASK_USER_TIMEOUT else ASK_USER_TIMEOUT
 

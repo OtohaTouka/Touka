@@ -336,6 +336,7 @@ async def dispatch_group_stream(
 
         # 這位成員問的問題沒等到回答：整輪停下，下一位成員不再呼叫模型（ADR-0308）
         if nested_ctx.get(UNANSWERED_KEY):
+            record_working_brain(target_identity, brain_model)  # 這位的模型呼叫是成功的
             break
 
         if idx < len(roster) - 1:

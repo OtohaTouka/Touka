@@ -96,6 +96,7 @@ async def test_no_event_channel_does_not_tell_the_model_to_guess():
         ("nan", ASK_USER_TIMEOUT),
         (-1, ASK_USER_TIMEOUT),
         (ASK_USER_TIMEOUT * 10, ASK_USER_TIMEOUT),
+        (10**400, ASK_USER_TIMEOUT),  # 大到轉不成小數
         (0.5, 0.5),
         ("2", 2.0),
     ],

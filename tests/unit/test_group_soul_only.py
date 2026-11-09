@@ -237,8 +237,14 @@ async def test_a_question_left_unanswered_stops_the_next_member(cfg, streams, mo
         return await fake(model, req, identity, request_id, start_time, ctx)
 
     monkeypatch.setattr(target, asks)
+    worked: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "src.services.dispatchers.group.record_working_brain",
+        lambda identity, model: worked.append((identity.agent_id, model)),
+    )
     await _group_text("@小愛 @阿鮑 早")
     assert [call["identity"].agent_id for call in calls] == ["Alice"]
+    assert [agent for agent, _model in worked] == ["Alice"]  # 這位的模型呼叫是成功的
 
 
 async def _sns_reply(content: str) -> str:
