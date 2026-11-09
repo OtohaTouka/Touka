@@ -47,6 +47,7 @@
 | 謂詞 | 允許集合 | 定義 |
 |------|----------|------|
 | `is_admin_authority()` | 人類 `admin`（含 admin 代打） | `human_role == "admin"` |
+| `is_admin_human()` | 人類本人而且是 `admin`（不含 admin 代打） | `is_human and is_admin_authority()` |
 | `is_privileged()` | `{admin, Owner, Debugger}` | `is_admin_authority() or agent_role in ("Owner","Debugger")` |
 | `is_owner_or_admin()` | `{admin, Owner}`（排除 Debugger） | `is_admin_authority() or agent_role == "Owner"` |
 | `is_admin_or_debugger()` | `{admin, Debugger}`（排除 Owner） | `is_admin_authority() or agent_role == "Debugger"` |

@@ -17,6 +17,11 @@ interface FailureDetailState {
 
 export const useFailureDetails = create<FailureDetailState>(() => ({ details: {} }));
 
+/** 換帳號或換後端時清掉：這段文字只給當時發請求的管理員看。 */
+export function clearFailureDetails(): void {
+  useFailureDetails.setState({ details: {} });
+}
+
 export function rememberFailureDetail(assistantId: string, event: Record<string, unknown>): void {
   const { type, kind, detail } = event;
   if (type !== 'touka_progress' || kind !== GENERATION_FAILURE_KIND || typeof detail !== 'string' || !detail) return;

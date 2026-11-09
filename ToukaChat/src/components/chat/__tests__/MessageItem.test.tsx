@@ -102,6 +102,7 @@ describe('MessageItem', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('可能已下架或名稱不對');
     expect(alert).toHaveTextContent('gone');
+    useFailureDetails.setState({ details: {} });
     expect(screen.queryByTestId('agent-activity-strip')).toBeNull();
   });
 
