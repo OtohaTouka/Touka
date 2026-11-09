@@ -6,7 +6,7 @@
 
 ## 現況
 
-- **每日依賴檢查還沒開始跑（2026-11-06，ADR-0299）**：GitHub 的排程只跑預設分支，`.github/workflows/dep-audit.yml` 要等 dev→main 之後才會動。進 main 之後要手動試跑一次，含一次勾「模擬有問題」，確認維護者真的收得到通知，再關掉那張「模擬」的 issue。在那之前，沒有東西每天主動檢查。
+- **每月巡查的通知流程（2026-11-09）**：`.github/workflows/patrol-notify.yml` 給專案暫停期間的每月巡查用，由 github-actions 開 issue 通知維護者；只能從 main 手動觸發。暫停開始時要實際觸發一次，確認維護者收得到。
 - **GHCR 的 `touka-init` 遇到特殊項目改成略過（2026-10-23，ADR-0279）**：以前資料裡只要有一個符號連結（Hugging Face 模型快取一定有）、FIFO、socket、多連結檔、setid、延伸屬性就整個拒絕，用過記憶的 GHCR 部署下一次 `up` 起不來。現在這些項目不開啟、不跟進、不修改，結果多一個 `skipped` 計數；四個掛載根目錄與兩個代理人工作區根目錄照舊嚴格；最後驗證連略過的一起比對，中途被換掉仍失敗；代理人或伺服器資料夾底下 `SCAN_SKIP_NAMES` 那些工具資料夾不往下走（init 裡的副本由測試釘住）；還要補擁有者權限位元的 setgid 資料夾在盤點時就拒絕、什麼都不改（補位元會被核心清掉 setgid）。手動跑 init 前先停 executor、heartbeat 與 proxy。CI 容器 job 用建好的 Proxy 映像在真核心上跑 `tests/docker/permission_init_real.py`；觸發路徑加 `permission_init.py`。原始碼版 compose 不受影響。
 
 ## 也和這裡有關

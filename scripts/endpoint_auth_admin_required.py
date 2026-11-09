@@ -60,6 +60,7 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
 
     # ── 身分映射／權限矩陣（identity.py／permissions.py）───────────────────
     {"method": "post", "path": "/identity"},
+    {"method": "get", "path": "/heartbeat/test"},  # 心跳連通測試（2026-11-09 起要管理員）
     {"method": "get", "path": "/permissions"},
     {"method": "post", "path": "/permissions"},
 
