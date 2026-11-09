@@ -291,6 +291,19 @@ describe('R2 snapshot binding and explicit recovery', () => {
         expect(flag(result)).toBe(true);
         expect(result.current.getSession('s1')?.title).toBe('final');
       });
+      it('the list arriving while a reply is being finished keeps it', async () => {
+        const { result } = await created();
+        const producer = result.current.beginProducer('s1')!;
+        const release = holdNext();
+        let done!: Promise<SaveResult>;
+        act(() => { done = result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' }); });
+        await act(async () => {});
+        fetchToukaMock.mockResolvedValueOnce(list());
+        await act(async () => { await result.current.refreshSessions(); });
+        await act(async () => { release(saved('r3')); await done; });
+        expect(flag(result)).toBe(true);
+        expect(result.current.getSession('s1')?.title).toBe('final');
+      });
       it('a save on its way when the list arrives keeps it', async () => {
         const { result } = await created();
         const release = holdNext();
@@ -333,7 +346,10 @@ describe('R2 snapshot binding and explicit recovery', () => {
         await act(async () => { await result.current.refreshSessions(); });
         act(() => result.current.applySavedHome('s1', 'Alice', true));
         expect(flag(result)).toBe(false);
-        await act(async () => { await result.current.updateSessionTitle('s1', 'next'); });
+        const producer = result.current.beginProducer('s1')!;
+        await act(async () => {
+          await result.current.completeProducer(producer, current => ({ ...current, title: 'final' }), { status: 'skipped', reason: 'no_text' });
+        });
         expect(flag(result)).toBe(false);
       });
     });
