@@ -69,7 +69,8 @@ class Summaries:
         if self.before is not None:
             await self.before()
         if self.reply is None and self.reason and on_failure is not None:
-            on_failure(self.reason)
+            for reason in [self.reason] if isinstance(self.reason, str) else self.reason:
+                on_failure(reason)
         return self.reply
 
 
@@ -1677,8 +1678,26 @@ async def test_a_request_that_was_never_sent_does_not_count_against_a_child(
 
 
 @pytest.mark.usefixtures("child")
+async def test_one_part_sent_and_one_not_counts_for_that_child(summaries, clock):
+    summaries.reply = None
+    summaries.reason = ("over_budget", "upstream")
+    await home_handover.maintain(A)
+    assert A.agent_id not in home_handover._REPORT_RETRY_AFTER
+    assert home_handover._report_failures[(A.agent_id, "kid")][0] == 1
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_failure_with_no_reason_cools_the_soul_and_counts_nothing(summaries, clock):
+    summaries.reply = None  # 沒設摘要模型：沒有送出，也沒有原因碼
+    await home_handover.maintain(A)
+    assert A.agent_id in home_handover._REPORT_RETRY_AFTER
+    assert home_handover._report_failures == {}
+
+
+@pytest.mark.usefixtures("child")
 @pytest.mark.parametrize(
-    "reason", ["refusal", "max_tokens", "timeout", "upstream", "unknown_stop", "internal", "empty"]
+    "reason",
+    ["refusal", "safety", "max_tokens", "timeout", "upstream", "unknown_stop", "internal", "empty"],
 )
 async def test_a_request_that_was_sent_and_failed_counts_for_that_child(summaries, clock, reason):
     summaries.reply = None

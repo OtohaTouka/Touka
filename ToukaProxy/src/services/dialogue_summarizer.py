@@ -24,7 +24,13 @@ from typing import TYPE_CHECKING, Any
 
 from memory_server.utils.legacy_time import format_taipei, to_epoch_ms
 
-from src.services.completion import complete_once
+from src.services.completion import (
+    REASON_INTERNAL,
+    REASON_MISSING_CREDENTIALS,
+    REASON_MODEL_UNAVAILABLE,
+    REASON_OVER_BUDGET,
+    complete_once,
+)
 from src.utils.interjection_notes import annotate_node
 from src.utils.model_text import LINE_BREAK_MARK, single_line
 from src.utils.time_utils import CONVERSATION_RECORD_TIME_NOTE, get_current_epoch
@@ -52,9 +58,10 @@ PREVIOUS_MAX_TOKENS = 2_000
 # 實際的輸出上限比告訴模型的多四分之一：寫超過一點時不會因為截斷整份作廢（第 2b 審查）
 _OUTPUT_HEADROOM_DIVISOR = 4
 # 請求確定沒有送出的原因（沒花錢，也和這段內容無關）
-NOT_SENT_FAILURES = frozenset({"over_budget", "missing_credentials", "model_unavailable"})
+NOT_SENT_FAILURES = frozenset(
+    {REASON_OVER_BUDGET, REASON_MISSING_CREDENTIALS, REASON_MODEL_UNAVAILABLE}
+)
 _EMPTY_ANSWER = "empty"
-_EXCEPTION = "internal"
 _SYSTEM = (
     "你是對話歸檔摘要員。下面是一段『即將移出 AI 即時脈絡的較早對話』。"
     "請壓成第三人稱要點，保留：人名、做過的決定、承諾與待辦、未解問題、"
@@ -154,7 +161,7 @@ async def _complete_text(
     max_tokens: int,
     on_failure: Callable[[str], None] | None = None,
 ) -> str | None:
-    """送一次摘要；任何失敗（含例外與空回應）回 None，有原因碼時告訴 ``on_failure``."""
+    """送一次摘要；任何失敗（含例外與空回應）回 None，原因碼告訴 ``on_failure``."""
     try:
         output_cap = max_tokens + max_tokens // _OUTPUT_HEADROOM_DIVISOR
         result = await complete_once(
@@ -163,7 +170,7 @@ async def _complete_text(
     except Exception as e:  # complete_once 不應拋出；摘要仍守住 fail-safe
         logger.warning("DialogueSummarizer 失敗，降級為純無損剪裁：%s", e)
         if on_failure is not None:
-            on_failure(_EXCEPTION)
+            on_failure(REASON_INTERNAL)
         return None
     if not result.ok:
         logger.warning("DialogueSummarizer 未成功（%s），降級為純無損剪裁", result.error.reason)
