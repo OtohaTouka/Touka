@@ -227,7 +227,7 @@ async def test_a_project_outside_the_workspace_is_refused(world, tmp_path):
     client = _client(_reply(READ_NOTE))
     await _run(client, "chat-out")
     results = _results(client)
-    assert "not found" in results
+    assert "Project root for 'proj-out' not found" in results
     assert TEXT_IN_A not in results
 
 
