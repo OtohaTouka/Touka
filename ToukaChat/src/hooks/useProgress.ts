@@ -19,6 +19,7 @@ export function reduceProgress(
   if (event.type !== 'touka_progress' || typeof event.kind !== 'string') return base;
   const rest: Record<string, unknown> = { ...event };
   delete rest.type; // 外層 type 不需存進進度節點，只保留 kind 與欄位
+  if (event.kind === GENERATION_FAILURE_KIND) delete rest.detail; // 廠商原文不進對話樹，見 failureDetailStore
   return { ...base, [event.kind]: rest as unknown as AgentProgress };
 }
 

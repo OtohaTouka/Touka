@@ -228,7 +228,7 @@ export const MessageItem = React.memo(({
                 </div>
               )}
               {msg.role === 'assistant' && msg.generationFailed && (
-                <GenerationFailedNotice failure={msg.progress?.[GENERATION_FAILURE_KIND]} />
+                <GenerationFailedNotice messageId={msg.id} failure={msg.progress?.[GENERATION_FAILURE_KIND]} />
               )}
               {msg.role === 'assistant' && msg.progress && (
                 <AgentActivityStrip progress={msg.progress} />

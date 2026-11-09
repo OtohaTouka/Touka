@@ -1154,6 +1154,7 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useOldHomeNotice.test.ts` ⭐ | ADR-0306：在舊家送出被擋（`SESSION_OLD_HOME_READ_ONLY`）時顯示「這是以前的家，要繼續請先設為家」的專屬提示並交回「已處理」，讓 `StreamRegistryProvider` 照 hook 擋下拿掉這一輪存回、放回文字；其他錯誤碼、沒有碼的錯誤都不顯示（`StreamRegistryProvider.hookBlocked.test.tsx` 有舊家擋下的案例：不跳連線錯誤） |
 | `src/components/chat/__tests__/OldHomeNotice.test.tsx` ⭐ | ADR-0306：舊家唯讀畫面的「設為家」要先確認；按先不要之後焦點回到按鈕。 |
 | `src/components/chat/__tests__/GenerationFailedNotice.test.tsx` ⭐ | 回覆失敗時講原因（路線圖第 8 項）：認得的代碼有翻譯，認不得或舊對話顯示原本那句；廠商原文當純文字。 |
+| `src/lib/__tests__/failureDetailStore.test.ts`、`src/lib/providers/__tests__/StreamRegistryProvider.failureDetail.test.tsx` | 廠商錯誤原文只放記憶體、留最近幾則，不進對話樹（路線圖第 8 項）。 |
 | `src/components/sidebar/monitoring/__tests__/FailedHandoversNotice.test.tsx` | ADR-0307：交接失敗三次的提示；沒有失敗就不顯示。 |
 | `src/hooks/__tests__/useSystemMonitoring.failedHandovers.test.tsx` | ADR-0307：`/v1/stats` 的 `failed_handovers` 帶到畫面。 |
 | `ToukaIDE/src/__tests__/proxyError.test.ts` | IDE 顯示後端給的錯誤說明，沒有說明才顯示狀態碼。 |

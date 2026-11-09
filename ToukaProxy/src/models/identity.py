@@ -82,6 +82,10 @@ class AgentIdentity(BaseModel):
         """人類 admin 權威（admin-only 閘）：human_role=="admin"（含 admin 代打）。"""
         return self.human_role == "admin"
 
+    def is_admin_human(self) -> bool:
+        """人類本人而且是 admin（admin 代打不算）。"""
+        return self.is_human and self.is_admin_authority()
+
     def is_privileged(self) -> bool:
         """三元組 {Owner, Debugger, admin}：人類 admin 或特權 agent（Owner/Debugger）。"""
         return self.is_admin_authority() or self.agent_role in ("Owner", "Debugger")

@@ -204,8 +204,7 @@ async def pump_send_round(
 def _failure_detail_for_viewer(context: dict[str, Any], error: RoundError) -> str | None:
     """廠商原文只給人類 admin 看；``identity`` 可能是換過的靈魂身分，要看發請求的人。"""
     requester = context.get("ui_requester")
-    if (isinstance(requester, AgentIdentity) and requester.is_human
-            and requester.is_admin_authority()):
+    if isinstance(requester, AgentIdentity) and requester.is_admin_human():
         return error.detail
     return None
 

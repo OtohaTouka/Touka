@@ -2,7 +2,6 @@ import type { SaveResult, Session, SessionSnapshot, BufferedStreamState, StreamS
 import { ERRORS } from './error_codes';
 import { migrateFlatToTree } from './tree_history';
 import { canonicalSoulId } from './session_tree';
-import { GENERATION_FAILURE_KIND } from '../hooks/useProgress';
 import type { components } from '../types/api';
 
 /** 僅前端生命週期；傳輸結果仍由 Pydantic 生成的 SaveResult 定義。 */
@@ -95,25 +94,8 @@ export function mergeSessionRefresh(local: Session[], remote: Session[], protect
 const writableFields = ['id', 'title', 'messages', 'updatedAt', 'agent_id',
   'project_id', 'auth_level', 'active_mcp_servers', 'active_skills', 'context_summary'] as const satisfies readonly (keyof Session)[];
 
-/** 廠商原文只給當下的管理員看：靈魂和擁有者讀得到存檔，存之前拿掉，分類留著。 */
-function withoutFailureDetail(messages: Session['messages']): Session['messages'] {
-  const nodes = messages?.messages;
-  if (!nodes || typeof nodes !== 'object' || Array.isArray(nodes)) return messages;
-  let changed: Record<string, unknown> | undefined;
-  for (const [id, node] of Object.entries<{ progress?: Record<string, Record<string, unknown>> }>(nodes)) {
-    const failure = node.progress?.[GENERATION_FAILURE_KIND];
-    if (!failure || !('detail' in failure)) continue;
-    const kept = { ...failure };
-    delete kept.detail;
-    const copy: Record<string, unknown> = (changed ??= { ...nodes });
-    copy[id] = { ...node, progress: { ...node.progress, [GENERATION_FAILURE_KIND]: kept } };
-  }
-  return changed ? { ...messages, messages: changed } : messages;
-}
-
 export function sessionWritePayload(session: Session): Record<string, unknown> {
-  return Object.fromEntries(writableFields.filter(key => session[key] !== undefined)
-    .map(key => [key, key === 'messages' ? withoutFailureDetail(session.messages) : session[key]]));
+  return Object.fromEntries(writableFields.filter(key => session[key] !== undefined).map(key => [key, session[key]]));
 }
 
 export function sessionContentKey(value: unknown): string {

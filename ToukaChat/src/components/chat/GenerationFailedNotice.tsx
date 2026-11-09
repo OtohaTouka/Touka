@@ -3,6 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import type { AgentProgress } from '@/lib/tree_history';
+import { useFailureDetails } from '@/lib/chat/failureDetailStore';
 
 /** 後端 retry.py 的失敗類型；其他代碼（含舊對話沒有原因）顯示原本那一句。 */
 const REASON_KEYS = new Map<unknown, string>([
@@ -16,13 +17,14 @@ const REASON_KEYS = new Map<unknown, string>([
 ]);
 
 interface GenerationFailedNoticeProps {
+  messageId: string;
   failure?: AgentProgress;
 }
 
 /** 回覆失敗的標示。廠商原文是外部內容，只當純文字顯示，不經 Markdown。 */
-export function GenerationFailedNotice({ failure }: GenerationFailedNoticeProps) {
+export function GenerationFailedNotice({ messageId, failure }: GenerationFailedNoticeProps) {
   const { t } = useTranslation();
-  const detail = failure?.detail;
+  const detail = useFailureDetails((state) => state.details[messageId]);
   return (
     <div role="alert" className="text-sm text-status-error">
       {t(REASON_KEYS.get(failure?.error_type) ?? 'chat.message_item.generation_failed')}

@@ -123,6 +123,11 @@ def test_the_detail_is_cleaned_when_the_error_is_built():
     assert "sk-abcdefghijklmnop123456" not in (error.detail or "")
 
 
+def test_the_detail_has_no_local_path():
+    error = RoundError("x", detail="cannot read /srv/someone/.config/provider/key.json today")
+    assert "/srv/someone/.config/provider/key.json" not in (error.detail or "")
+
+
 def test_the_detail_has_a_length_limit():
     assert len(RoundError("x", detail="字" * 5000).detail or "") <= DIAGNOSTIC_DISPLAY_CHARS
 
@@ -138,10 +143,13 @@ def test_the_detail_does_not_change_equality():
 # ── 四個非 200 的地方都取得到原文 ─────────────────────────────────
 
 
-async def test_openai_compatible_error_carries_the_vendor_message(monkeypatch, no_wait):
+@pytest.mark.parametrize("stream", [False, True])
+async def test_openai_compatible_error_carries_the_vendor_message(
+    monkeypatch, no_wait, stream
+):
     FakeUpstream([json_reply(_BODY, 404)]).install(monkeypatch)
     ctx = _loop_ctx(ui_authorized=True, ui_requester=_ADMIN)
-    events = _failure_events(await _ui_chunks(OpenAIAdapter(stream=False), "grok-4", ctx))
+    events = _failure_events(await _ui_chunks(OpenAIAdapter(stream=stream), "grok-4", ctx))
     assert events == [{"type": "touka_progress", "kind": GENERATION_FAILURE_KIND,
                        "error_type": "model_not_found", "detail": _VENDOR_TEXT}]
 
@@ -181,6 +189,11 @@ async def test_responses_error_carries_the_vendor_message(monkeypatch):
         await adapter.close(state)
     assert len(items) == 1 and isinstance(items[0], RoundError)
     assert (items[0].error_type, items[0].detail) == ("invalid_request", _VENDOR_TEXT)
+
+
+def test_a_200_with_only_an_error_carries_the_vendor_message():
+    result = retry.no_reply_error("OpenAI", json.loads(_BODY))
+    assert result.detail == _VENDOR_TEXT
 
 
 def test_an_error_inside_a_200_stream_carries_the_vendor_message():
