@@ -15,8 +15,10 @@ import {
 import { adminLogin, awakenSoulOf, savedMessages, sessionActivity, stopChat, waitForFinished } from "./lib/api";
 import {
   ASK_ANSWER,
+  ASK_NOT_ANSWERED_NOTICE,
   ASK_QUESTION,
   askRequest,
+  expiringAskRequest,
   FAKE_AFTER_TOOL_REPLY,
   FAKE_TEXT_REPLY,
   MCP_FORM_MESSAGE,
@@ -70,6 +72,25 @@ test("核准卡：不動的圖示、沒有動畫；批准或拒絕後消失", as
   await expect(waiting).toBeVisible();
   await page.getByRole("button", { name: "拒絕", exact: true }).click();
   await expect(waiting).toHaveCount(0);
+});
+
+test("問問題沒等到回答：這一輪停下，時間到之後回覆就接著做", async ({ page }, info) => {
+  const soul = "AttentionAskExpired";
+  const { email, token } = await newSoulAccount(adminToken, "expired", [soul]);
+  await seedChats(token, [{ id: "ask-expired", title: "提問逾時", agentId: soul, updatedAt: 1 }]);
+  await loginInBrowser(page, email, PASSWORD);
+  await clickChatInList(page, "提問逾時");
+
+  await sendMessage(page, expiringAskRequest());
+  await expect(page.getByText(ASK_NOT_ANSWERED_NOTICE).first()).toBeVisible();
+  await expect(submitAsk(page)).toHaveCount(0);
+  await expect(page.getByText(ASK_QUESTION).first()).toBeVisible();
+  // 模型沒有再被呼叫，所以不會有收到工具結果之後的回覆
+  await expect(page.getByText(FAKE_AFTER_TOOL_REPLY)).toHaveCount(0);
+  await shot(page, info, "ask-expired");
+
+  await sendMessage(page, "選繼續");
+  await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
 });
 
 test("提問與外掛工具要回應：亮等您處理，答完消失", async ({ page }, info) => {

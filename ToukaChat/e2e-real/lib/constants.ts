@@ -29,6 +29,7 @@ export const CANARY_HOOK_HEADER = "e2e-canary-hook-header";
 
 export const ASK_QUESTION = "實際驗證：要繼續嗎？";
 export const ASK_ANSWER = "繼續";
+export const ASK_NOT_ANSWERED_NOTICE = "這個問題沒有等到回答";
 // 和 tests/e2e/fake_mcp_server.py 同一句
 export const MCP_FORM_MESSAGE = "實際驗證：請填這個欄位";
 export const MCP_SERVER = "e2e";
@@ -46,6 +47,11 @@ const TOOL_REQUESTS: Record<string, { tool: string; args: (fileName: string) => 
   E2E_CALL_ASK: {
     tool: "ask_user",
     args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }] }),
+  },
+  // 等待時間縮短：沒回答時這一輪要停下
+  E2E_CALL_EXPIRINGASK: {
+    tool: "ask_user",
+    args: () => ({ questions: [{ question: ASK_QUESTION, options: [ASK_ANSWER, "停下"] }], _timeout: 1 }),
   },
   E2E_CALL_SUBAGENT: { tool: "dispatch_subagent", args: () => ({ goal: SUBAGENT_GOAL }) },
   E2E_CALL_MISSION: {
@@ -89,6 +95,10 @@ export function badWriteRequest(fileName: string): string {
 
 export function askRequest(): string {
   return "E2E_CALL_ASK:question 請問我問題";
+}
+
+export function expiringAskRequest(): string {
+  return "E2E_CALL_EXPIRINGASK:question 請問我問題";
 }
 
 export function subagentRequest(): string {
