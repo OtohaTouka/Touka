@@ -83,6 +83,8 @@ function sessionOptions(page: Page, title?: string): Locator {
 export async function confirmHomeChange(page: Page, action: "設為家" | "取消家"): Promise<void> {
   await page.getByRole("dialog").getByRole("button", { name: action, exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  // 選單和視窗同時卸載時 body 會卡在 pointer-events: none，整頁點不動
+  await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
 }
 
 /** 沒給標題時是開著的這段。 */

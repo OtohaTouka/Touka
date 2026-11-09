@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { SessionItem } from '@/components/sidebar/left/SessionItem';
 import type { Session } from '@/lib/types';
 
@@ -20,7 +20,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
     captured.onCloseAutoFocus = onCloseAutoFocus;
     return <div>{children}</div>;
   },
-  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => <div onClick={onClick}>{children}</div>,
   DropdownMenuSub: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuSubTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuSubContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -61,6 +61,34 @@ describe('SessionItem：選單關掉後的焦點', () => {
   beforeEach(() => {
     captured.onCloseAutoFocus = undefined;
     (document.activeElement as HTMLElement | null)?.blur();
+  });
+
+  // 選單和確認視窗同時卸載時，Radix 兩邊都以為別層還在，body 的 pointer-events 會停在 none，整頁點不動
+  it('設為家：等選單完全關掉才開確認視窗', () => {
+    const onSetHome = vi.fn();
+    render(<SessionItem {...props} canSetHome onSetHome={onSetHome} />);
+    fireEvent.click(screen.getByText('設為家對話'));
+    expect(onSetHome).not.toHaveBeenCalled();
+    closeMenu();
+    expect(onSetHome).toHaveBeenCalledWith('s1');
+  });
+
+  it('取消家也一樣', () => {
+    const onUnsetHome = vi.fn();
+    render(<SessionItem {...props} session={{ ...session, is_home: true }} onUnsetHome={onUnsetHome} />);
+    fireEvent.click(screen.getByText('取消家對話'));
+    expect(onUnsetHome).not.toHaveBeenCalled();
+    closeMenu();
+    expect(onUnsetHome).toHaveBeenCalledWith('s1');
+  });
+
+  it('確認視窗只開一次，下次關選單不會再開', () => {
+    const onSetHome = vi.fn();
+    render(<SessionItem {...props} canSetHome onSetHome={onSetHome} />);
+    fireEvent.click(screen.getByText('設為家對話'));
+    closeMenu();
+    closeMenu();
+    expect(onSetHome).toHaveBeenCalledTimes(1);
   });
 
   it('焦點沒有被移走：回到這一列', () => {

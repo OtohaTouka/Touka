@@ -135,6 +135,10 @@ export function SessionItem({
   // aria-label 蓋過列裡的文字，日期與則數另外給，報讀器才念得到
   const description = [formatToTaipeiDate(shownTime), roundCount].filter(Boolean).join(separator);
 
+  // 確認視窗要等選單完全關掉才開：兩層同時卸載時 Radix 兩邊都以為別層還在，
+  // body 的 pointer-events 會停在 none，整頁點不動
+  const afterMenuClosed = React.useRef<(() => void) | null>(null);
+
   return (
     // 整列是 treeitem、「⋯」在裡面但不在 Tab 順序（tabIndex=-1，Shift+F10 打開）。
     // treeitem 的子元素不會被當成展示用（不像 button），所以 axe 的 nested-interactive 不適用；
@@ -227,6 +231,9 @@ export function SessionItem({
             onCloseAutoFocus={(e) => {
               // Radix 預設會把焦點給列裡的「⋯」，但「⋯」不在 Tab 順序，一律擋下
               e.preventDefault();
+              const next = afterMenuClosed.current;
+              afterMenuClosed.current = null;
+              if (next) { next(); return; } // 接著開的確認視窗會接手焦點
               const element = rowRef.current;
               if (!element) return;
               // 選單淡出跑完才走到這裡；這段時間焦點已經被移到別處（例如輸入框）就不搶回來，
@@ -292,7 +299,7 @@ export function SessionItem({
 
             {canSetHome && !session.is_home && (
               <DropdownMenuItem
-                onClick={() => onSetHome(session.id)}
+                onClick={() => { afterMenuClosed.current = () => onSetHome(session.id); }}
                 className="flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg cursor-pointer hover:bg-accent transition-colors text-status-warning"
               >
                 <Home className="w-4 h-4" />
@@ -301,7 +308,7 @@ export function SessionItem({
             )}
             {session.is_home && (
               <DropdownMenuItem
-                onClick={() => onUnsetHome(session.id)}
+                onClick={() => { afterMenuClosed.current = () => onUnsetHome(session.id); }}
                 className="flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg cursor-pointer hover:bg-accent transition-colors text-muted-foreground"
               >
                 <Ban className="w-4 h-4" />
