@@ -433,14 +433,39 @@ class _UnreachableClient:
         raise RuntimeError(MARKER)
 
 
-def test_heartbeat_probe_does_not_return_the_exception_text(monkeypatch):
+def _stub_heartbeat_probe(monkeypatch) -> None:
     monkeypatch.setattr(heartbeat_router, "HEARTBEAT_EXTERNAL_URL", "http://heartbeat.invalid/x")
     monkeypatch.setattr(heartbeat_router, "HEARTBEAT_TOKEN", "pr2-token")
     monkeypatch.setattr(heartbeat_router.httpx, "AsyncClient", _UnreachableClient)
+
+
+def test_heartbeat_probe_does_not_return_the_exception_text(monkeypatch):
+    _stub_heartbeat_probe(monkeypatch)
+    monkeypatch.setitem(app.dependency_overrides, get_verified_identity, lambda: _ADMIN)
     r = TestClient(app, raise_server_exceptions=False).get("/v1/heartbeat/test")
     assert r.status_code == 200
     assert r.json()["status"] == "error"
     assert MARKER not in r.text
+
+
+@pytest.mark.parametrize("path", ["/heartbeat/test", "/v1/heartbeat/test"])
+@pytest.mark.parametrize(
+    "identity",
+    [
+        None,
+        AgentIdentity.for_role("pause-normal", "normal", is_human=True),
+        # 擁有靈魂的一般使用者切成靈魂後是 Owner：is_privileged 放行，這裡不能放行
+        AgentIdentity.for_role("pause-soul", "Owner", capabilities=[]),
+        AgentIdentity.for_role("pause-debug", "Debugger", capabilities=[]),
+    ],
+    ids=["anonymous", "normal-user", "soul-owner", "debugger"],
+)
+def test_heartbeat_probe_refuses_anyone_but_an_admin(monkeypatch, identity, path):
+    _stub_heartbeat_probe(monkeypatch)
+    monkeypatch.setitem(app.dependency_overrides, get_verified_identity, lambda: identity)
+    r = TestClient(app, raise_server_exceptions=False).get(path)
+    assert r.status_code in (401, 403)
+    assert "status" not in r.json()
 
 
 @pytest.mark.parametrize(

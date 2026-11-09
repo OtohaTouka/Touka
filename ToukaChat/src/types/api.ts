@@ -4688,7 +4688,7 @@ export interface paths {
         };
         /**
          * Test Heartbeat Connectivity
-         * @description 測試心跳端點的對外連通性。
+         * @description 測試心跳端點的對外連通性（只有管理員能呼叫）。
          */
         get: operations["test_heartbeat_connectivity_v1_heartbeat_test_get"];
         put?: never;
@@ -4801,7 +4801,7 @@ export interface paths {
         };
         /**
          * Test Heartbeat Connectivity
-         * @description 測試心跳端點的對外連通性。
+         * @description 測試心跳端點的對外連通性（只有管理員能呼叫）。
          */
         get: operations["test_heartbeat_connectivity_heartbeat_test_get"];
         put?: never;
