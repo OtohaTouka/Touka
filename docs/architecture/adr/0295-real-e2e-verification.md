@@ -4,7 +4,7 @@
 - 日期：2026-11-04
 - 決策者：維護者
 - 相關：ADR-0103（smoke 反死鎖）、ADR-0214（測試沙盒）、ADR-0243（臨時查驗限沙盒）、ADR-0292（Hook）。
-- 影響範圍：新增 `tests/e2e/serve_real_backend.py`、`ToukaChat/playwright.real.config.ts`、`ToukaChat/e2e-real/`、`.github/workflows/e2e-real.yml`、`tests/lint/test_e2e_real_contract.py`；修改 `ToukaChat/package.json`（`test:e2e:real`）、`ToukaChat/knip.config.ts`、`ToukaChat/tsconfig.build.json`、`ToukaChat/scripts/lib/orphaned_tests_logic.ts`（`e2e-real/` 不是 Vitest 測試）；丙-2 新增 `tests/e2e/fake_mcp_server.py`。環境本身沒有改產品程式。
+- 影響範圍：新增 `tests/e2e/serve_real_backend.py`、`ToukaChat/playwright.real.config.ts`、`ToukaChat/e2e-real/`、`.github/workflows/e2e-real.yml`、`tests/lint/test_e2e_real_contract.py`；修改 `ToukaChat/package.json`（`test:e2e:real`）、`ToukaChat/knip.config.ts`、`ToukaChat/tsconfig.build.json`、`ToukaChat/scripts/lib/orphaned_tests_logic.ts`（`e2e-real/` 不是 Vitest 測試）；丙-2 新增 `tests/e2e/fake_mcp_server.py`；2026-11-09 新增 `tests/e2e/proactor_close_fix.py`（決定 12）。環境本身沒有改產品程式。
 
 ## 背景
 
@@ -26,6 +26,9 @@
 9. **模型探索打開，和一般 smoke 沙盒不同**：沙盒預設關掉模型探索，但假模型要靠它才進得了模型選單，所以 `serve_real_backend.py` 打開 `ENABLE_DYNAMIC_MODELS`；連線設定只有本機的假模型，探索也只會連到它。代價是 ADR-0103 提過的關機風險：探索留下的背景工作可能讓 Windows 上的關機卡住。這裡有 60 秒的關機逾時，逾時就強制結束並判失敗，不會默默過去。
 10. **假 MCP 跑在後端的行程裡**：`tests/e2e/fake_mcp_server.py` 是真的 `MCPServer`，在 `serve_real_backend.py` 的另一個執行緒啟動，產品經真的 HTTP 連過去；一個工具用表單向人要資料，把答案回傳。測試結束時跟著行程結束。
 11. **心跳帶權杖打喚醒端點**：這裡沒有跑排程服務。`global-setup.ts` 每次產生一個權杖，以參數交給後端、以環境變數交給測試行程，teardown 確認它沒有落到 `backend.log`。測試用的靈魂有 `heartbeat_awakening`，擁有者是登入過的沙盒管理員。設定 hook 與看紀錄照樣走畫面。
+12. **Windows 上被對方重置的連線照樣收尾（2026-11-09）**：本機偶爾全部測試通過，後端卻停不下來，整次判失敗。Python 3.12 的 Windows 事件迴圈關連線時先呼叫 `sock.shutdown()`，對方已重置時它丟例外，排在後面的關 socket 與通知 `asyncio.Server` 都被跳過；`Server` 以為連線還在，uvicorn 關機時等 `wait_closed()` 又沒有上限，所以卡在應用程式的關閉流程之前，記錄檔最後一行是 `Shutting down`。Linux 的事件迴圈沒有這個 `shutdown`，CI 不會發生。`tests/e2e/proactor_close_fix.py` 只讓這一步的網路錯誤不再中斷收尾，其餘仍由標準函式庫做，只在這個後端行程生效；不用 uvicorn 的 `timeout_graceful_shutdown`，因為時間到會取消還在跑的請求再正常結束，真的卡住的請求會變成通過（違反決定 3）。決定 9 說的風險（ADR-0103，應用程式關閉之後的框架拆除）是另一回事，仍然存在。修正依賴標準函式庫的私有名稱，專案只釘到 3.12，小版本升級時由 `tests/unit/test_e2e_proactor_close_fix.py` 把關。
+    - 本機對照（Windows、Python 3.12.13，每次 85 條）：修之前 3 次有 1 次卡住；卡住那次唯一一筆收尾錯誤落在主服務接受的連線上，20 秒後 `connections=0 tasks=0`，伺服器的連線計數還是 1，主執行緒閒置。修之後 8 次收尾全部乾淨，其中 1 次實際修復了主服務的連線，照常結束。瀏覽器斷線後做了什麼讓這一步報錯，細節沒有查到；用 Python 客戶端重現不出來。
+    - 產品不受這個修正影響。正式部署只有 Linux（ADR-0116），`run_proxy.ps1` 用 `--reload`，uvicorn 這時選 Selector 迴圈，都不走這段；其他沒有 reload 的 Windows 啟動方式（`src/main.py` 直接跑、Heartbeat、Dispatch）仍可能遇到，連按兩次 Ctrl+C 也出不來，不在這次範圍。
 
 ## 碰不到的地方
 

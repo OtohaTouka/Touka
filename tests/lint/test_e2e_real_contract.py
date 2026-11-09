@@ -19,6 +19,8 @@ PINNED_ACTION = re.compile(r"[^@]+@[0-9a-f]{40}")
 CREDENTIAL_USE = re.compile(r"\bsecrets\b|github\.token|GITHUB_TOKEN")
 READ_ONLY = {"contents": "read"}
 PRODUCT_PACKAGES = {"src", "memory_server", "toukaheartbeat", "toukadispatch"}
+CLOSE_FIX_CALL = "proactor_close_fix.install"
+SERVE_CALL = "uvicorn_server.run"
 
 
 def _workflow() -> dict:
@@ -156,6 +158,45 @@ def test_sandbox_order_check_rejects(source: str) -> None:
 def test_sandbox_order_check_accepts_the_wrapped_call() -> None:
     source = "root = Path(enable_smoke_sandbox('x'))\nimport uvicorn\nfrom src.main import app\n"
     assert _sandbox_runs_before_product_imports(source)
+
+
+def _close_fix_installed_before_serving(source: str) -> bool:
+    """修正要在最上層、開始服務之前裝好；包在條件或函式裡不一定會執行."""
+    calls: dict[str, list[int]] = {CLOSE_FIX_CALL: [], SERVE_CALL: []}
+    for statement in ast.parse(source).body:
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+            callee = ast.unparse(statement.value.func)
+            if callee in calls:
+                calls[callee].append(statement.lineno)
+    fixes, serves = calls[CLOSE_FIX_CALL], calls[SERVE_CALL]
+    return len(fixes) == 1 and len(serves) == 1 and fixes[0] < serves[0]
+
+
+def test_backend_installs_the_windows_close_fix_before_serving() -> None:
+    assert _close_fix_installed_before_serving(BACKEND.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("uvicorn_server.run()\n", id="never-installed"),
+        pytest.param(
+            "uvicorn_server.run()\nproactor_close_fix.install()\n",
+            id="installed-after-serving",
+        ),
+        pytest.param(
+            "if False:\n    proactor_close_fix.install()\nuvicorn_server.run()\n",
+            id="under-a-condition",
+        ),
+        pytest.param(
+            "def setup():\n    proactor_close_fix.install()\nuvicorn_server.run()\n",
+            id="in-an-uncalled-function",
+        ),
+        pytest.param("proactor_close_fix.install()\n", id="never-serves"),
+    ],
+)
+def test_close_fix_order_check_rejects(source: str) -> None:
+    assert not _close_fix_installed_before_serving(source)
 
 
 def test_backend_keeps_the_network_guard_on() -> None:
