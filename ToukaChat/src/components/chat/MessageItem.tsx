@@ -157,7 +157,7 @@ export const MessageItem = React.memo(({
             </div>
           )}
           
-          {editingMessageId === msg.id ? (
+          {editingMessageId === msg.id && !readOnly ? (
             <div className="flex flex-col gap-3 w-full">
               <textarea 
                 value={editValue} 

@@ -252,7 +252,7 @@ export function ChatArea({
   // ADR-0249：生成中 Enter＝排隊、Ctrl+Enter＝優先、Esc＝停止；回合結束時未送達的自動送出。
   const composer = useInterjectionComposer({
     sessionId: activeSessionId, isSending, disabled: isModelOffline, inputValue, setInputValue,
-    send: handleSend, stop: handleStopGeneration,
+    send: handleSend, stop: handleStopGeneration, oldHome: !!currentSession?.is_old_home,
   });
 
   // HAX G14（H3）：切換模型即提示「回應風格可能改變」——讓行為變動對使用者透明（謹慎更新）。

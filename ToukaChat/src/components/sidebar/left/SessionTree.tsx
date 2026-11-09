@@ -303,7 +303,8 @@ function SessionTreeBody({ userId, activeMode, onSwitch }: SessionTreeProps & { 
           {otherNodes.map(renderNode)}
         </div>
       )}
-      <HomeConfirmDialog request={home.request} onCancel={home.cancel} onConfirm={home.confirm} />
+      <HomeConfirmDialog request={home.request} onCancel={home.cancel} onConfirm={home.confirm}
+        returnFocus={() => rootRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus()} />
     </div>
   );
 }

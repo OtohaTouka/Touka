@@ -394,6 +394,7 @@ describe('SessionTree — 設為家', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '先不要' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(state.handleSetHome).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('treeitem'));
   });
 
   it('確認之後才設家', async () => {

@@ -152,6 +152,14 @@ describe('ChatProvider 設家的結果', () => {
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
+  it('對話沒有靈魂：按了也要有提示', async () => {
+    sessions = [session('bare', undefined)];
+    const result = home();
+    await act(async () => { await result.current.handleSetHome('bare'); });
+    expect(fetchTouka).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
   it('不再提供「家」按鈕的舊入口', () => {
     expect(home().current).not.toHaveProperty('handleHomeSession');
   });

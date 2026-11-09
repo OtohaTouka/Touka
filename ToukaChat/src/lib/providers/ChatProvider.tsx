@@ -316,7 +316,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const saveHome = useCallback(async (id: string, isHome: boolean) => {
     const sess = sessions.find(s => s.id === id);
-    if (!sess?.agent_id) return;
+    if (!sess?.agent_id) {
+      toast.error(errorMsg("SESSION_SAVE_FAILED"));
+      return;
+    }
     // 後端只收正式靈魂 ID
     const agentId = canonicalSoulId(sess.agent_id);
     try {

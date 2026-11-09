@@ -173,6 +173,12 @@ describe('MessageItem 舊家唯讀（ADR-0306）', () => {
     expect(screen.queryByTitle('chat.message_item.next_branch')).toBeNull();
   });
 
+  it('編輯到一半變成舊家：編輯框收起來', () => {
+    render(<MessageItem {...defaultProps} editingMessageId="2" history={history as any} msg={msg} readOnly />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByText('hi')).toBeInTheDocument();
+  });
+
   it('一般對話照舊', () => {
     render(<MessageItem {...defaultProps} history={history as any} msg={msg} />);
     expect(screen.getByTitle('chat.message_item.regenerate')).toBeInTheDocument();

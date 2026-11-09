@@ -30,13 +30,15 @@ export interface BackgroundActivityItem {
 // session_id -> 背景活動（如心跳脈衝進度）。
 export type BackgroundActivityMap = Record<string, BackgroundActivityItem>;
 
-// P5c：上次未完成的背景任務（當機/被強制關閉時殘留的 in-flight 標記）。
+// 換家交接失敗三次的紀錄（ADR-0307）。
 export interface FailedHandover {
   agent?: string;
   old_session?: string;
   failures?: number;
+  updated_at?: number;
 }
 
+// P5c：上次未完成的背景任務（當機/被強制關閉時殘留的 in-flight 標記）。
 export interface InterruptedRun {
   session_id?: string;
   agent?: string;

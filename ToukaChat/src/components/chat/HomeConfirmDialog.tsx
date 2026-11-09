@@ -7,15 +7,18 @@ interface HomeConfirmDialogProps {
   request: HomeRequest | null;
   onCancel: () => void;
   onConfirm: () => void;
+  /** 這個視窗不是從 Trigger 打開的，關掉時由呼叫端把焦點放回去，不然會掉到頁面最前面。 */
+  returnFocus: () => void;
 }
 
-export function HomeConfirmDialog({ request, onCancel, onConfirm }: HomeConfirmDialogProps) {
+export function HomeConfirmDialog({ request, onCancel, onConfirm, returnFocus }: HomeConfirmDialogProps) {
   const { t } = useTranslation();
   const unsetting = request?.setting === false;
   return (
     <Dialog open={request !== null} onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent
         overlayClassName="bg-background/60 backdrop-blur-md"
+        onCloseAutoFocus={(e) => { e.preventDefault(); returnFocus(); }}
         className="bg-card border-border w-full max-w-md space-y-5 rounded-3xl border p-8 shadow-2xl"
       >
         <DialogTitle className="text-foreground text-lg font-black">

@@ -58,7 +58,8 @@ export function replaceSession(list: Session[], session: Session): Session[] {
 export function applySetHome(list: Session[], sessionId: string, agentId: string, isHome = true): Session[] {
   const owner = canonicalSoulId(agentId);
   return list.map(session => {
-    if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner };
+    if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner,
+      ...(session.is_old_home ? { is_old_home: false } : {}) }; // 設回家立刻不算舊家（ADR-0306）
     return session.home_for_agent && canonicalSoulId(session.home_for_agent) === owner
       ? { ...session, is_home: false, home_for_agent: null } : session;
   });

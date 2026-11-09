@@ -18,7 +18,7 @@ export function FailedHandoversNotice({ handovers }: { handovers: FailedHandover
       </div>
       <div className="space-y-1">
         {handovers.map((item) => (
-          <div key={`${item.agent ?? ""}:${item.old_session ?? ""}`} className="text-muted-foreground truncate pl-1 text-xs">
+          <div key={`${item.agent ?? ""}:${item.old_session ?? ""}:${item.updated_at ?? ""}`} className="text-muted-foreground truncate pl-1 text-xs">
             {item.agent || item.old_session || t("sidebar.failed_handovers_notice.unknown")}
           </div>
         ))}

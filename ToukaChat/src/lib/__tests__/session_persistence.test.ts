@@ -191,6 +191,10 @@ describe('舊家標記跟著清單走（ADR-0306）', () => {
     const local = session('a');
     expect(mergeSessionRefresh([local], [session('a')], new Set(['a']))[0]).toBe(local);
   });
+  it('設回家立刻不算舊家，不等清單讀回來', () => {
+    const [home] = applySetHome([{ ...session('a'), is_old_home: true }], 'a', 'Alice', true);
+    expect(home.is_old_home).toBe(false);
+  });
   it('存檔不帶舊家標記', () => {
     expect(sessionWritePayload({ ...session('a'), is_old_home: true })).not.toHaveProperty('is_old_home');
   });

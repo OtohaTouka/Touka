@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useHomeConfirm } from "@/hooks/useHomeConfirm";
@@ -7,6 +8,7 @@ import { HomeConfirmDialog } from "./HomeConfirmDialog";
 export function OldHomeNotice({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation();
   const home = useHomeConfirm();
+  const buttonRef = useRef<HTMLButtonElement>(null);
   return (
     <div
       role="status"
@@ -14,10 +16,11 @@ export function OldHomeNotice({ sessionId }: { sessionId: string }) {
       className="border-border bg-muted/50 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3"
     >
       <p className="text-muted-foreground min-w-0 text-sm">{t("chat.old_home.notice")}</p>
-      <Button size="sm" onClick={() => home.askSetHome(sessionId)} className="shrink-0 rounded-xl font-bold">
+      <Button ref={buttonRef} size="sm" onClick={() => home.askSetHome(sessionId)} className="shrink-0 rounded-xl font-bold">
         {t("chat.old_home.set_as_home")}
       </Button>
-      <HomeConfirmDialog request={home.request} onCancel={home.cancel} onConfirm={home.confirm} />
+      <HomeConfirmDialog request={home.request} onCancel={home.cancel} onConfirm={home.confirm}
+        returnFocus={() => buttonRef.current?.focus()} />
     </div>
   );
 }

@@ -127,7 +127,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     setSessions(applySetHome(previous, id, agentId, isHome).map((session, index) => {
       if (session === previous[index]) return session;
       const writer = getWriter(session);
-      writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent };
+      writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent,
+        is_old_home: session.is_old_home };
       return session;
     }));
   }, [getWriter, setSessions]);
@@ -428,7 +429,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         result = { status: 'saved', representation: 'full', revision: snapshot.revision };
         writer.unconfirmed = false;
         markSavedHere(writer);
-        writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision };
+        writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
         setSessions(previous => replaceSession(previous, writer.confirmed));
       } else {
         result = rejectedSave();
@@ -498,7 +499,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       setSessions(previous => [...previous]);
       return undefined;
     }
-    writer.confirmed = { ...current, ...snapshot.session, revision: snapshot.revision };
+    writer.confirmed = { ...current, ...snapshot.session, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
     setSessions(previous => replaceSession(previous, writer.confirmed));
     return writer.confirmed;
   }, [ensureScope, getSession, getWriter, readSnapshot, setSessions]);
