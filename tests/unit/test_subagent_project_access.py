@@ -24,9 +24,11 @@ from src.services.resource_manager import resource_manager
 from src.tools import subagent_tools
 from src.tools.builtin import tool_registry
 from src.utils import async_db
+from src.utils.touka_dirs import LINKED_ROOT, PROTECTED_LOCATION
 
 from tests.helpers.claude_stream import delegate_stream_to_create
-from tests.support.session_scope import A, scope_db, seed  # noqa: F401
+from tests.support.session_scope import A, seed
+from tests.support.session_scope import scope_db as scope_db
 
 MODEL = "claude-3-5-sonnet"
 TEXT_IN_A = "only-in-project-a"
@@ -138,7 +140,7 @@ async def _add_project(project_id: str, root: Path) -> None:
 
 
 @pytest.fixture
-def world(scope_db, tmp_path, monkeypatch):  # noqa: F811
+def world(scope_db, tmp_path, monkeypatch):
     """工作區在 app 資料根之外（裡面的位置 Touka 會保護），組裝走真的工具層。"""
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
@@ -180,7 +182,9 @@ async def test_without_a_bound_project_it_cannot_read_even_if_the_model_names_on
         _reply(("read", {"scope": "project", "path": "note.txt", "project_id": "proj-a"}))
     )
     await _run(client, "chat-free")
-    assert TEXT_IN_A not in _results(client)
+    results = _results(client)
+    assert "No project selected" in results
+    assert TEXT_IN_A not in results
 
 
 async def test_the_model_cannot_switch_to_another_project(world):
@@ -190,7 +194,9 @@ async def test_the_model_cannot_switch_to_another_project(world):
         _reply(("read", {"scope": "project", "path": "note.txt", "project_id": "proj-b"}))
     )
     await _run(client, session_id)
-    assert OTHER not in _results(client)
+    results = _results(client)
+    assert TEXT_IN_A in results
+    assert OTHER not in results
 
 
 async def test_rebinding_during_the_run_does_not_move_the_subagent(world):
@@ -220,7 +226,9 @@ async def test_a_project_outside_the_workspace_is_refused(world, tmp_path):
     await seed("chat-out", project_id="proj-out")
     client = _client(_reply(READ_NOTE))
     await _run(client, "chat-out")
-    assert TEXT_IN_A not in _results(client)
+    results = _results(client)
+    assert "not found" in results
+    assert TEXT_IN_A not in results
 
 
 async def test_a_project_inside_a_protected_location_is_refused(world, monkeypatch):
@@ -233,7 +241,9 @@ async def test_a_project_inside_a_protected_location_is_refused(world, monkeypat
     await seed("chat-p", project_id="proj-p")
     client = _client(_reply(READ_NOTE))
     await _run(client, "chat-p")
-    assert TEXT_IN_A not in _results(client)
+    results = _results(client)
+    assert PROTECTED_LOCATION in results
+    assert TEXT_IN_A not in results
 
 
 async def test_a_project_reached_through_a_link_is_refused(world):
@@ -249,7 +259,9 @@ async def test_a_project_reached_through_a_link_is_refused(world):
     await seed("chat-l", project_id="proj-l")
     client = _client(_reply(READ_NOTE))
     await _run(client, "chat-l")
-    assert TEXT_IN_A not in _results(client)
+    results = _results(client)
+    assert LINKED_ROOT in results
+    assert TEXT_IN_A not in results
 
 
 async def test_the_parent_context_is_left_alone(world):
@@ -317,18 +329,20 @@ async def test_a_read_only_subagent_cannot_change_files_in_any_mode(world, mode)
 
 
 @pytest.mark.parametrize("mode", ["Manual", "Auto", "YOLO"])
-async def test_a_read_only_subagent_can_still_look_at_the_project(world, mode):
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (READ_NOTE, TEXT_IN_A),
+        (("list", {"scope": "project"}), "note.txt"),
+        (("find", {"scope": "project", "pattern": "*.txt"}), "note.txt"),
+        (("grep", {"scope": "project", "query": "only-in"}), TEXT_IN_A),
+    ],
+)
+async def test_a_read_only_subagent_can_still_look_at_the_project(world, mode, call, expected):
     session_id, _ = await _bound(world)
-    client = _client(
-        _reply(READ_NOTE),
-        _reply(("list", {"scope": "project"})),
-        _reply(("find", {"scope": "project", "pattern": "*.txt"})),
-        _reply(("grep", {"scope": "project", "query": "only-in"})),
-    )
+    client = _client(_reply(call))
     await _run(client, session_id, mode, read_only=True)
-    results = _results(client)
-    assert TEXT_IN_A in results
-    assert "note.txt" in results
+    assert expected in _results(client)
 
 
 async def test_the_dispatch_tool_carries_the_limit_all_the_way(world):
@@ -359,37 +373,38 @@ async def test_the_limit_also_holds_when_a_listed_tool_is_called(world):
     assert not (root / "new.txt").exists()
 
 
-async def test_each_subagent_in_a_group_has_its_own_limit(world):
+@pytest.mark.parametrize("limited_first", [True, False])
+async def test_each_subagent_in_a_group_has_its_own_limit(world, limited_first):
     session_id, root = await _bound(world)
-    replies = [_reply(WRITE_NEW), _reply(text="一"), _reply(WRITE_NEW), _reply(text="二")]
-    tools_seen: list[set[str]] = []
+    limited = {"goal": "LIMITED-TASK", "read_only": True}
+    writable = {"goal": "WRITABLE-TASK"}
+    tools_seen: dict[str, set[str]] = {}
 
     async def create(**kwargs: Any) -> MagicMock:
-        tools_seen.append({tool["name"] for tool in kwargs.get("tools", [])})
-        return replies.pop(0)
+        # 同時跑，順序不固定：看任務內容決定回應，不靠呼叫順序
+        messages = kwargs["messages"]
+        first = messages[0]["content"]
+        prompt = first if isinstance(first, str) else "".join(b.get("text", "") for b in first)
+        name = "LIMITED-TASK" if "LIMITED-TASK" in prompt else "WRITABLE-TASK"
+        if len(messages) > 1:
+            return _reply(text="完成")
+        tools_seen[name] = {tool["name"] for tool in kwargs.get("tools", [])}
+        return _reply(("write", {"scope": "project", "path": f"{name}.txt", "content": "x"}))
 
     client = MagicMock()
     client.messages.create = AsyncMock(side_effect=create)
     results = await subagent_tools.run_subagent_group(
-        subtasks=[{"goal": "只看", "read_only": True}],
+        subtasks=[limited, writable] if limited_first else [writable, limited],
         parent_identity=A,
         parent_request_id="parent",
         base_ctx=_parent(client, session_id, "YOLO"),
         model=MODEL,
     )
-    assert results[0]["status"] == "DONE"
-    assert not (root / "new.txt").exists()
-    assert "write" not in tools_seen[0]
-
-    results = await subagent_tools.run_subagent_group(
-        subtasks=[{"goal": "可以寫"}],
-        parent_identity=A,
-        parent_request_id="parent",
-        base_ctx=_parent(client, session_id, "YOLO"),
-        model=MODEL,
-    )
-    assert results[0]["status"] == "DONE"
-    assert (root / "new.txt").exists()
+    assert [result["status"] for result in results] == ["DONE", "DONE"]
+    assert not (root / "LIMITED-TASK.txt").exists()
+    assert (root / "WRITABLE-TASK.txt").exists()
+    assert "write" not in tools_seen["LIMITED-TASK"]
+    assert "write" in tools_seen["WRITABLE-TASK"]
 
 
 def _decision(tool: str, mode: str, *, read_only: bool, action: str | None = None) -> str:

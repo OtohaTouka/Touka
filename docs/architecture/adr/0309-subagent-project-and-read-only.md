@@ -16,7 +16,7 @@
 2. **權限照對話的模式走**：子代理一律算無人在場。Manual 寫入被拒；Auto 可寫，刪除被拒（審查員不審無人在場的工具呼叫）；YOLO 可寫可刪。
 3. **工作區、受保護位置、連結的檢查都會跑**：子代理身分不算管理員或 Debugger，也沒有擁有者，所以比靈魂自己嚴。
 4. **只能看放在決策表**：`read_only_run` 進 `PolicyContext.environment`，廣告與執行兩個入口都帶。`_evaluate_rules` 在模式決策表之前，非 `read_only` 類一律 DENY，YOLO 放不寬，硬地板也不會把 DENY 放寬。只看 `tool_risk` 分類，不另列工具名單；沒分類的工具走 `default`（dangerous），等於預設拒絕。
-5. **`read_only` 由靈魂在派工時給**：`dispatch_subagent` 沒有輸入合約，只有沒給或明確的 `false` 算可寫，其他值一律當只能看。群組的每個子任務各算各的。
+5. **`read_only` 由靈魂在派工時給**：`dispatch_subagent` 沒有輸入合約，只有沒給、`null` 或明確的 `false` 算可寫，其他值一律當只能看。群組的每個子任務各算各的。
 6. **提示不放真實路徑**：不用 `request.project_id`（`get_project_context` 會寫真實路徑和「You have CRUD permissions」）。子代理的第一則訊息加固定句；路徑解析得到才說有專案（心跳建的家 `project_id` 是 `"default"`）。
 7. **給靈魂的說明放在工具描述**：`<harness_context>` 已到 800 token 上限，不加長。
 
@@ -33,7 +33,7 @@
 ## 驗證
 
 - `tests/unit/test_subagent_project_access.py`：資料庫裡真的有對話與專案，真的派子代理、組工具清單、跑工具與權限判定，只有模型回應是假的。涵蓋讀得到綁定的專案、沒綁或模型自己填都讀不到、跑到一半改綁、工作區外、受保護位置、連結、三種模式的寫入與刪除、只能看的工具清單與決策表、群組各算各的、提示句。
-- Docker 上的路徑翻譯，測試碰不到，要靠路線圖第 7 項驗收走到。
+- Docker 上的路徑翻譯，測試碰不到，實際部署到 Docker 時才走得到。
 - 前置檢查（2026-11-10，維護者的 Docker Desktop，用完即刪的容器，限制同執行器）：`uv` 裝 pytest 跑通約 2 秒，`npm` 裝 vitest 跑通約 33 秒，共佔 15 MB＋41 MB（下載快取另外約 145 MB）。
 
 ## 回復

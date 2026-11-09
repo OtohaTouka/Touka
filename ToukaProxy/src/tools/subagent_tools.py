@@ -103,7 +103,7 @@ _NO_SCOPE = SubagentScope()
 
 
 def _is_read_only(value: Any) -> bool:
-    """沒給或明確的 false 才算可寫；看不懂的值一律當只能看（往安全的方向錯）。"""
+    """沒給、null 或明確的 false 才算可寫；看不懂的值一律當只能看（往安全的方向錯）。"""
     return value is not None and value is not False
 
 
@@ -532,7 +532,7 @@ async def dispatch_subagent_group(
     的非阻塞語義時，改用 ``dispatch_subagent``（逐一 token）。
 
     Args:
-        subtasks: 子任務清單，每項 ``{goal, task_id?, sub_model?}``；goal 必須自包含。
+        subtasks: 子任務清單，每項 ``{goal, task_id?, sub_model?, read_only?}``；goal 必須自包含。
         identity: 主 agent 身分（executor 注入）。
         request_id: 父請求 ID（executor 注入）。
         model: 主 agent 目前模型（executor 注入）＝子任務未指定 sub_model 時的預設。
