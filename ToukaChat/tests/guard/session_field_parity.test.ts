@@ -20,7 +20,7 @@ const OPENAPI = path.resolve(__dirname, '../../../openapi.json');
 // 前端 Session 欄位分類台帳（新增欄位須落其一）
 const CORE = ['id', 'title', 'messages', 'updatedAt'];
 const PERSISTED = ['is_home', 'home_for_agent', 'agent_id', 'project_id', 'auth_level', 'active_skills', 'active_mcp_servers', 'context_summary'];
-const READ_ONLY = ['round_count'];
+const READ_ONLY = ['round_count', 'is_old_home'];
 // POST 前置版本，必須進 SessionModel；不是 DB 欄位或使用者資料。
 const TRANSPORT = ['revision'];
 const TRANSIENT = ['incognito', 'deepResearch', 'mcpDispatcher'];

@@ -26,6 +26,7 @@ import { SessionUpdatedNotice } from './SessionUpdatedNotice';
 import { QueuedMessageList } from "./QueuedMessageList";
 import { MessageNavigator } from "./MessageNavigator";
 import { useInterjectionComposer } from "@/hooks/useInterjectionComposer";
+import { OldHomeNotice } from "./OldHomeNotice";
 import { useFeedback } from "@/hooks/useFeedback";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMessageNavigation } from "@/hooks/useMessageNavigation";
@@ -251,7 +252,7 @@ export function ChatArea({
   // ADR-0249：生成中 Enter＝排隊、Ctrl+Enter＝優先、Esc＝停止；回合結束時未送達的自動送出。
   const composer = useInterjectionComposer({
     sessionId: activeSessionId, isSending, disabled: isModelOffline, inputValue, setInputValue,
-    send: handleSend, stop: handleStopGeneration,
+    send: handleSend, stop: handleStopGeneration, oldHome: !!currentSession?.is_old_home,
   });
 
   // HAX G14（H3）：切換模型即提示「回應風格可能改變」——讓行為變動對使用者透明（謹慎更新）。
@@ -372,6 +373,7 @@ export function ChatArea({
               feedback={feedbackState[msg.id]}
               onFeedback={submitFeedback}
               onRequestDislike={setDislikeMsgId}
+              readOnly={!!currentSession?.is_old_home}
             />
           </div>
         )}
@@ -411,6 +413,7 @@ export function ChatArea({
         <div className="flex justify-end mb-1 px-1">
           <ContextMeter messages={linearMessages} />
         </div>
+        {currentSession?.is_old_home && !isSending ? <OldHomeNotice sessionId={currentSession.id} /> : (
         <div className="relative group">
           <div className={cn(
              "absolute -inset-0.5 bg-gradient-to-r from-primary to-primary/80 rounded-2xl blur transition duration-500",
@@ -579,6 +582,7 @@ export function ChatArea({
             </div>
           </div>
         </div>
+        )}
         {/* HAX G2：常駐免責提示——讓使用者知道系統「做得多好」的邊界。 */}
         <p className="mt-2 text-center text-xs text-muted-foreground select-none">
           {t('chat.chat_area.ai_disclaimer')}

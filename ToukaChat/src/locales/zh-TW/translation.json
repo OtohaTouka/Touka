@@ -1349,6 +1349,7 @@
     "session_item": {
       "incognito_label": "無痕對話",
       "incognito_badge": "無痕",
+      "old_home_badge": "舊家",
       "round_count": "{{count}} 則對話",
       "session_options": "會話選項：{{title}}",
       "export_conversation": "匯出對話",
@@ -1373,6 +1374,11 @@
       "nav_settings": "設定",
       "logout_confirm": "確認登出？",
       "logout": "登出"
+    },
+    "failed_handovers_notice": {
+      "heading": "有 {{count}} 段舊家交接失敗",
+      "unknown": "未知",
+      "hint": "舊家的內容還在，系統之後會自動再試。"
     },
     "interrupted_runs_notice": {
       "retrigger_success": "已重新觸發 {{agent}} 的背景任務",
@@ -1430,6 +1436,19 @@
     }
   },
   "chat": {
+    "old_home": {
+      "notice": "這是以前的家，現在只能看。要繼續這段對話，先把它設為家。",
+      "set_as_home": "設為家"
+    },
+    "home_confirm": {
+      "set_title": "把這段對話設為家？",
+      "set_body": "靈魂之後從這裡繼續。原本的家會變成舊家，只能看、不能再聊；想回去時再把它設為家就好。",
+      "confirm_set": "設為家",
+      "unset_title": "取消這段對話的家？",
+      "unset_body": "取消後這段對話會變成舊家，只能看、不能再聊；還沒用過的家會直接回到一般對話。想回去時再把它設為家就好。",
+      "confirm_unset": "取消家",
+      "keep": "先不要"
+    },
     "message_item": {
       "copy_code": "複製代碼",
       "cancel": "取消",

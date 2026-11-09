@@ -151,3 +151,38 @@ describe('MessageItem', () => {
     expect(await screen.findByText('OK')).toBeInTheDocument();
   });
 });
+
+describe('MessageItem 舊家唯讀（ADR-0306）', () => {
+  const history = {
+    messages: {
+      '1': { id: '1', role: 'user', content: 'hello', childrenIds: ['2', '3'] },
+      '2': { id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [] },
+      '3': { id: '3', role: 'assistant', content: 'yo', parentId: '1', childrenIds: [] },
+    },
+    currentId: '2',
+  };
+  const msg = history.messages['2'] as any;
+  beforeEach(() => { translation.current = (key: string) => key; });
+
+  it('只留複製：不能編輯、重新生成、刪除、切分支', () => {
+    render(<MessageItem {...defaultProps} history={history as any} msg={msg} readOnly />);
+    expect(screen.getByTitle('chat.message_item.copy')).toBeInTheDocument();
+    expect(screen.queryByTitle(/chat\.message_item\.edit/)).toBeNull();
+    expect(screen.queryByTitle('chat.message_item.regenerate')).toBeNull();
+    expect(screen.queryByTitle(/chat\.message_item\.delete/)).toBeNull();
+    expect(screen.queryByTitle('chat.message_item.next_branch')).toBeNull();
+  });
+
+  it('編輯到一半變成舊家：編輯框收起來', () => {
+    render(<MessageItem {...defaultProps} editingMessageId="2" history={history as any} msg={msg} readOnly />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByText('hi')).toBeInTheDocument();
+    expect(screen.getByTitle('chat.message_item.copy')).toBeInTheDocument();
+  });
+
+  it('一般對話照舊', () => {
+    render(<MessageItem {...defaultProps} history={history as any} msg={msg} />);
+    expect(screen.getByTitle('chat.message_item.regenerate')).toBeInTheDocument();
+    expect(screen.getByTitle('chat.message_item.next_branch')).toBeInTheDocument();
+  });
+});

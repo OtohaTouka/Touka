@@ -72,6 +72,16 @@ describe('useInterjectionQueue', () => {
     expect(result.current.items).toEqual([]);
   });
 
+  it('舊家擋下插話（ADR-0306）：不留在佇列，免得回合結束後被自動送出又被擋', async () => {
+    mockFetch.mockResolvedValue(json({ detail: { code: 'SESSION_OLD_HOME_READ_ONLY', id: 1223 } }, 409));
+    const { result } = renderHook(() => useInterjectionQueue(target));
+    let item: unknown;
+    await act(async () => { item = await result.current.enqueue('還想說', false); });
+    expect(item).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(result.current.items).toEqual([]);
+  });
+
   it('收回走 DELETE 並帶 stream_id；前端暫存的直接移除', async () => {
     mockFetch.mockResolvedValueOnce(json(serverItem('i/1', 'x'), 201));
     const { result } = renderHook(() => useInterjectionQueue(target));
@@ -101,7 +111,7 @@ describe('useInterjectionQueue', () => {
 });
 
 describe('useInterjectionComposer', () => {
-  type Props = { sessionId: string; isSending: boolean; inputValue: string };
+  type Props = { sessionId: string; isSending: boolean; inputValue: string; oldHome?: boolean };
   const send = vi.fn(async () => {});
   const stop = vi.fn();
   const setInputValue = vi.fn();
@@ -147,6 +157,14 @@ describe('useInterjectionComposer', () => {
     hook.rerender({ sessionId: 's1', isSending: false, inputValue: '' });
     expect(send).toHaveBeenCalledWith('第一則\n\n第二則', 'assistant-1');
     expect(useInterjectionStore.getState().bySession.s1).toEqual([]);
+  });
+
+  it('回合結束時這段已經是舊家（ADR-0306）：不自動送出，文字留著', () => {
+    useInterjectionStore.getState().add('s1', { ...serverItem('a', '晚到的話'), status: 'undelivered' });
+    const hook = setup({ sessionId: 's1', isSending: true, inputValue: '', oldHome: true });
+    hook.rerender({ sessionId: 's1', isSending: false, inputValue: '', oldHome: true });
+    expect(send).not.toHaveBeenCalled();
+    expect(setInputValue).toHaveBeenCalledWith('晚到的話');
   });
 
   it('按停止後結束：不自動送出，放回輸入框（保留原本的草稿）', () => {

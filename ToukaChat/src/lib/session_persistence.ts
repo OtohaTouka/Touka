@@ -58,7 +58,8 @@ export function replaceSession(list: Session[], session: Session): Session[] {
 export function applySetHome(list: Session[], sessionId: string, agentId: string, isHome = true): Session[] {
   const owner = canonicalSoulId(agentId);
   return list.map(session => {
-    if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner };
+    if (isHome && session.id === sessionId) return { ...session, is_home: true, home_for_agent: owner,
+      ...(session.is_old_home ? { is_old_home: false } : {}) }; // 設回家立刻不算舊家（ADR-0306）
     return session.home_for_agent && canonicalSoulId(session.home_for_agent) === owner
       ? { ...session, is_home: false, home_for_agent: null } : session;
   });
@@ -75,7 +76,12 @@ export function savedPastTerminal(terminal: StreamTerminalEvent, session: Sessio
 }
 
 export function mergeSessionRefresh(local: Session[], remote: Session[], protectedIds: ReadonlySet<string>): Session[] {
-  const retained = local.filter(session => session.incognito || protectedIds.has(session.id));
+  const stored = new Map(remote.map(session => [session.id, session]));
+  // 舊家由後端的交接紀錄推導（ADR-0306）：內容留本機，這個標記要跟著清單
+  const retained = local.filter(session => session.incognito || protectedIds.has(session.id)).map(session => {
+    const latest = stored.get(session.id);
+    return latest && !!latest.is_old_home !== !!session.is_old_home ? { ...session, is_old_home: latest.is_old_home } : session;
+  });
   const retainedIds = new Set(retained.map(session => session.id));
   return [...retained, ...remote.filter(session => !retainedIds.has(session.id))]
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));

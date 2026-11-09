@@ -75,7 +75,8 @@ const scopeId = (scope: RequestScope | null) => JSON.stringify(scope);
 const markSavedHere = (writer: SessionWriter) => { writer.requireAbsence = false; writer.savedHere = true; };
 // 家欄位只由設家改、存檔不寫它（ADR-0301）：設家前送出的保存晚回來時，保留設家的結果，不蓋回送出時的值。
 const withSavedHome = (session: Session, writer: SessionWriter): Session =>
-  ({ ...session, is_home: writer.confirmed.is_home, home_for_agent: writer.confirmed.home_for_agent });
+  ({ ...session, is_home: writer.confirmed.is_home, home_for_agent: writer.confirmed.home_for_agent,
+    is_old_home: writer.confirmed.is_old_home });
 
 export function SessionListProvider({ children }: { children: React.ReactNode }) {
   const [sessions, renderSessions] = useState<Session[]>([]);
@@ -126,7 +127,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     setSessions(applySetHome(previous, id, agentId, isHome).map((session, index) => {
       if (session === previous[index]) return session;
       const writer = getWriter(session);
-      writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent };
+      writer.confirmed = { ...writer.confirmed, is_home: session.is_home, home_for_agent: session.home_for_agent,
+        is_old_home: session.is_old_home };
       return session;
     }));
   }, [getWriter, setSessions]);
@@ -380,10 +382,9 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         if (terminal.status === 'saved') intended.revision = terminal.revision;
         result = await save(intended, token.scope);
         [result, intended] = await saveOverTrim(result, writer.confirmed, intended, token.scope);
-        // 舊家交接開始後存不進去（ADR-0307）：這一輪後端本來就沒寫，存檔沒有東西要改，不算保存失敗
-        if (backendSkipped && isOldHomeRefused(result) && writer.confirmed.revision) {
-          result = { status: 'saved', representation: 'full', revision: writer.confirmed.revision };
-        }
+        // 舊家交接開始後存不進去（ADR-0307）：這一輪後端沒寫，或已經存了文字，都沒有東西能再改，不算保存失敗
+        const settled = terminal.status === 'saved' ? terminal.revision : backendSkipped ? writer.confirmed.revision : undefined;
+        if (isOldHomeRefused(result) && settled) result = { status: 'saved', representation: 'full', revision: settled };
       }
       if (writers.current.get(token.sessionId) !== writer || writer.producer !== producer) return result;
       intended = withSavedHome(intended, writer);
@@ -428,7 +429,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         result = { status: 'saved', representation: 'full', revision: snapshot.revision };
         writer.unconfirmed = false;
         markSavedHere(writer);
-        writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision };
+        writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
         setSessions(previous => replaceSession(previous, writer.confirmed));
       } else {
         result = rejectedSave();
@@ -498,7 +499,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       setSessions(previous => [...previous]);
       return undefined;
     }
-    writer.confirmed = { ...current, ...snapshot.session, revision: snapshot.revision };
+    writer.confirmed = { ...current, ...snapshot.session, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
     setSessions(previous => replaceSession(previous, writer.confirmed));
     return writer.confirmed;
   }, [ensureScope, getSession, getWriter, readSnapshot, setSessions]);
@@ -516,10 +517,9 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         writer.unconfirmed || writer.halted || writer.producer || writer.pending.length || writer.recoveryBusy).map(([id]) => id));
       const merged = mergeSessionRefresh(sessionsRef.current, parsed, protectedIds);
       for (const session of parsed as Session[]) {
-        if (!protectedIds.has(session.id)) {
-          const writer = writers.current.get(session.id);
-          if (writer) writer.confirmed = structuredClone(session);
-        }
+        const writer = writers.current.get(session.id);
+        if (writer) writer.confirmed = protectedIds.has(session.id)
+          ? { ...writer.confirmed, is_old_home: session.is_old_home } : structuredClone(session);
       }
       setSessions(merged);
       setLoadedScopeKey(scopeId(scope));
@@ -561,7 +561,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
           if (!isRequestScopeCurrent(scope) || controller.signal.aborted) return false;
           if (!body || typeof body !== 'object' ||
               !('status' in body) || body.status !== 'success' || !('session_id' in body) || body.session_id !== id) {
-            toast.error(errorMsg('DB_DELETE_FAILED'), { id: 'session-delete-failed' });
+            const code = res.status === 409 ? await getResponseErrorCode(res) : undefined;
+            toast.error(errorMsg(code === 'SESSION_OLD_HOME_NOT_DELETABLE' ? code : 'DB_DELETE_FAILED'), { id: 'session-delete-failed' });
             return false;
           }
         } catch {
