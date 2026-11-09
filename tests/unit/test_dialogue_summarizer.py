@@ -298,7 +298,8 @@ async def test_summarize_entries_merges_text_entries(monkeypatch):
     assert out == "合併後"
     system, user, max_tokens = rec.calls[0]
     assert "甲" in user and "乙" in user
-    assert max_tokens == 2_000
+    assert max_tokens == 2_500  # 比告訴模型的上限多留一點，寫超過一點不會整份作廢
+    assert "2000" in system
 
 
 @pytest.mark.parametrize("entries", [[], ["  "]])
@@ -361,6 +362,54 @@ async def test_previous_entry_is_capped(monkeypatch):
     assert estimate_tokens(user) <= ds.PREVIOUS_MAX_TOKENS + 200
 
 
+async def test_the_reason_of_a_failure_is_told_to_the_caller(monkeypatch):
+    async def refused(*_args, **_kwargs):
+        return CompletionResult(
+            text="", usage={}, cost_usd=0.0, stop_reason="refusal",
+            error=CompletionError("refusal", "refusal", "x"),
+        )
+
+    monkeypatch.setattr(_COMPLETE, refused)
+    seen: list[str] = []
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    assert seen == ["refusal"]
+
+
+async def test_each_part_tells_its_own_failure(monkeypatch):
+    reasons = iter(["over_budget", "upstream"])
+
+    async def failing(*_args, **_kwargs):
+        return CompletionResult(
+            text="", usage={}, cost_usd=0.0, stop_reason="error",
+            error=CompletionError("upstream_error", next(reasons, "upstream"), "x"),
+        )
+
+    monkeypatch.setattr(_COMPLETE, failing)
+    monkeypatch.setattr(ds, "CHUNK_TOKENS", 2_000)
+    monkeypatch.setattr(ds, "SUMMARY_REQUEST_TOKEN_CAP", 3_000)
+    seen: list[str] = []
+    out = await summarize_dialogue(
+        _OWNER, _long_dialogue(10, 400), 500, "m", on_failure=seen.append
+    )
+    assert out is None
+    assert {"over_budget", "upstream"} <= set(seen)
+
+
+async def test_an_empty_answer_and_an_exception_are_told_to_the_caller(monkeypatch):
+    async def empty(*_args, **_kwargs):
+        return _result("   ")
+
+    async def broken(*_args, **_kwargs):
+        raise OSError("disk")
+
+    seen: list[str] = []
+    monkeypatch.setattr(_COMPLETE, empty)
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    monkeypatch.setattr(_COMPLETE, broken)
+    assert await summarize_dialogue(_OWNER, _MSGS, 100, "m", on_failure=seen.append) is None
+    assert seen == ["empty", "internal"]
+
+
 async def test_prompts_state_the_output_length(monkeypatch):
     """指示寫明輸出長度，減少寫到一半被截斷（審查 F6、F7）."""
     rec = _Recorder()
@@ -368,8 +417,9 @@ async def test_prompts_state_the_output_length(monkeypatch):
     await summarize_dialogue(_OWNER, _MSGS, 300, "m")
     await summarize_entries(_OWNER, ["[A]\n甲", "[B]\n乙"], 700, "m")
     (dialogue_system, _u1, dialogue_max), (merge_system, _u2, merge_max) = rec.calls
-    assert str(dialogue_max) in dialogue_system
-    assert str(merge_max) in merge_system
+    assert "300" in dialogue_system
+    assert "700" in merge_system
+    assert (dialogue_max, merge_max) == (375, 875)  # 實際上限多留一點，寫超過一點不會整份作廢
 
 
 def test_a_single_huge_message_is_cut_to_the_chunk_limit():

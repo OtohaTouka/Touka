@@ -272,6 +272,19 @@ def _canonical_session_agent(value: str | None) -> str | None:
     return passport["agent_id"] if passport and passport["is_toukasoul"] else value
 
 
+async def _move_report_mark(
+    db: aiosqlite.Connection, session: dict[str, Any], node: str | None
+) -> None:
+    """對話換了靈魂：回報位置同一個交易移到 ``node``，換之前的內容不會報給新靈魂（ADR-0307）."""
+    await home_transitions.set_report_mark(
+        db,
+        session["id"],
+        _canonical_session_agent(session["agent_id"]),
+        node,
+        get_current_epoch_ms(),
+    )
+
+
 def canonical_agent_id(identity: AgentIdentity) -> str:
     """靈魂的正式 ID（別名換成註冊名）；和對話歸屬、家歸屬同一條規則."""
     return _canonical_session_agent(identity.agent_id) or identity.agent_id
@@ -280,6 +293,11 @@ def canonical_agent_id(identity: AgentIdentity) -> str:
 def _session_agent_candidates(identity: AgentIdentity) -> tuple[str, str]:
     target = _canonical_session_agent(identity.agent_id) or identity.agent_id
     return target, f"ToukaSoul{target}" if target != "DebugAgent" else target
+
+
+def soul_session_agents(identity: AgentIdentity) -> tuple[str, str]:
+    """對話列裡這個靈魂可能的兩種寫法（正式 ID、舊前綴 ID）."""
+    return _session_agent_candidates(identity)
 
 
 def _check_session_write(
@@ -565,6 +583,9 @@ class SessionService:
                 _check_session_write(row, updated, requester, ui=True)
                 if row["agent_id"] != updated["agent_id"]:
                     await _write_session_row(db, updated)
+                    # 位置放在這一輪使用者那則之前：對新靈魂說的第一句要算新內容
+                    turn = updated["messages"]["messages"][admission.user_parent_id]
+                    await _move_report_mark(db, updated, turn.get("parentId"))
                 else:
                     updated = row
                 result = SessionSnapshot(updated, _session_revision(session_id, updated, requester))
@@ -687,6 +708,9 @@ class SessionService:
                 if row is None and owner_user_id is not None:
                     updated["owner_user_id"] = owner_user_id
                 await _write_session_row(db, updated)
+                if row is not None and updated["agent_id"] != row["agent_id"]:
+                    # 同一個靈魂時字串不會變
+                    await _move_report_mark(db, updated, updated["messages"].get("currentId"))
                 if after_write is not None:
                     await after_write(db)
                 if row is None:
@@ -1264,6 +1288,15 @@ class SessionService:
                     await home_transitions.mark_started(db, session_id, get_current_epoch_ms())
                     await db.commit()
                 return old
+        except Exception:
+            raise SessionPersistenceError from None
+
+    @staticmethod
+    async def read_handover_source(session_id: str) -> dict[str, Any] | None:
+        """交接與回報讀對話（背景，沒有請求者）；不存在回 None，讀不到丟 SessionPersistenceError."""
+        try:
+            async with get_async_db() as db:
+                return await _strict_session_row(db, session_id)
         except Exception:
             raise SessionPersistenceError from None
 

@@ -618,3 +618,60 @@ async def test_unreadable_old_homes_fail_the_turn_except_heartbeat(monkeypatch, 
     else:
         await call
         assert "<soul_prelude>" in _system(request)
+
+
+# --- SNS（Owner 11/08；ADR-0307）：外人觸發的請求不帶子對話回報 ---
+
+
+async def _add_prelude(kind: str, content: str, *, source: str = "child", at: int = 2) -> None:
+    await db_mod.insert_segment(
+        PreludeSegment(
+            agent=A.agent_id,
+            kind=kind,
+            source_session=source,
+            dedupe_key=content,
+            content=content,
+            created_at=at,
+        )
+    )
+
+
+@pytest.mark.parametrize(("mode", "session_id"), [("chat", "home"), ("group", None)])
+async def test_sns_requests_leave_out_child_reports(mode, session_id):
+    await _add_prelude("child_report", "子對話回報的內容")
+    await _add_prelude(
+        "merged", "併過回報的內容", source=soul_prelude_service.MERGED_WITH_REPORTS, at=3
+    )
+    await _add_prelude("merged", "沒有回報的合併段", source="", at=4)
+    await _add_prelude("home_retired", "舊家的退任摘要", source="old", at=5)
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode=mode, session_id=session_id, sns=True)
+    system = _system(request)
+    assert "子對話回報的內容" not in system
+    assert "併過回報的內容" not in system
+    for kept in ("前情的一段", "沒有回報的合併段", "舊家的退任摘要"):  # 其他照舊
+        assert kept in system
+    assert any("家裡的問題" in text for text in _dialogue(request))
+
+
+async def test_other_requests_keep_child_reports():
+    await _add_prelude("child_report", "子對話回報的內容")
+    request = _request()
+    await mainline_service.inject_mainline(request, A, mode="chat", session_id="home")
+    assert "子對話回報的內容" in _system(request)
+
+
+@pytest.mark.parametrize("sns", [True, False])
+async def test_soul_layer_tells_the_mainline_about_sns(monkeypatch, sns):
+    seen: dict[str, object] = {}
+
+    async def fake_mainline(_request, _identity, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr(soul_layer, "inject_mainline", fake_mainline)
+    monkeypatch.setattr(soul_layer.soul_service, "get_soul_data", lambda _aid: ("SOUL", {}))
+    monkeypatch.setattr(soul_layer.soul_service, "apply_soul_to_request", lambda *_a: None)
+    monkeypatch.setattr(soul_layer, "get_active_brain", lambda _identity: "gemini-2.5-flash")
+    ctx = PipelineContext(is_toukasoul=True, agent_id=A.agent_id, sns_source=sns)
+    await soul_layer.SoulLayer().process(_request(), ctx)
+    assert seen["sns"] is sns

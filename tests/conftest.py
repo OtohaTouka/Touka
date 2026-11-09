@@ -128,7 +128,7 @@ from src import config as runtime_config  # noqa: E402
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.main import app, protocol_manager  # noqa: E402
 from src.models.identity import AgentIdentity  # noqa: E402
-from src.services import destructive_ops  # noqa: E402
+from src.services import destructive_ops, home_handover  # noqa: E402
 from src.services.audit_service import PolicyAuditService  # noqa: E402
 from src.services.autonomy import autonomy_service  # noqa: E402
 from src.services.identity_router import get_verified_identity  # noqa: E402
@@ -455,6 +455,20 @@ def _isolation_test_doubles(request):
             yield
     finally:
         isolation_support.reset_consent_ledger()
+
+
+@pytest.fixture
+def real_home_maintenance():
+    """要真的跑前情維護排程的測試請求這個 fixture（ADR-0307）。"""
+
+
+@pytest.fixture(autouse=True)
+def _no_background_home_maintenance(request):
+    """觸發點照跑、背景維護不開，免得它留到測試結束之後；要真跑的請求 real_home_maintenance。"""
+    with pytest.MonkeyPatch.context() as maintenance_patch:
+        if "real_home_maintenance" not in request.fixturenames:
+            maintenance_patch.setattr(home_handover, "schedule", lambda _identity: None)
+        yield
 
 
 @pytest.fixture(autouse=True)

@@ -157,6 +157,7 @@ async def dispatch_group_stream(
             current_request,
             target_identity,
             mode="incognito" if context.get("incognito") else "group",
+            sns=bool(context.get("sns_source")),
         )
 
         ide_ctx = getattr(request, "ide_context", None)

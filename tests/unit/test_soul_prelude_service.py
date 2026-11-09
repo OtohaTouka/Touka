@@ -12,13 +12,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.models.identity import AgentIdentity
 from src.models.sliding_window import SlidingWindowConfig
-from src.services import destructive_ops
+from src.services import destructive_ops, soul_locks
 from src.services import soul_prelude_merge as merge
 from src.services import soul_prelude_service as prelude
 from src.utils import soul_prelude_db as db_mod
@@ -228,9 +229,8 @@ async def test_merge_combines_oldest_when_over_cap_and_enabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_never_takes_retired_summaries() -> None:
+async def test_merge_takes_retired_summaries() -> None:
     await init_db_async()
-    # 比合併段舊的退任摘要會先被折掉，不佔合併的輸出額度（第 3 輪 H1）
     await _add("r", kind="home_retired", source="old", content="退任 " + "字" * 600, at=500)
     for i in range(4):
         await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
@@ -243,10 +243,9 @@ async def test_merge_never_takes_retired_summaries() -> None:
     cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
     with patch.object(merge, "summarize_entries", fake):
         await merge.merge_if_needed(SOUL, cfg)
-    assert seen
-    assert not any("退任" in entry for entry in seen)
+    assert any("退任" in entry for entry in seen)
     live = await db_mod.list_live_segments(SOUL.agent_id)
-    assert any(s.kind == "home_retired" for s in live)
+    assert not any(s.kind == "home_retired" for s in live)
 
 
 @pytest.mark.asyncio
@@ -641,3 +640,161 @@ async def test_merge_entries_are_one_line_each() -> None:
     with patch.object(merge, "summarize_entries", capture):
         assert await merge.merge_if_needed(SOUL, cfg) is True
     assert seen and all(chr(10) not in entry for entry in seen[0])
+
+
+# ── 3d PR 2b（ADR-0307）：退任摘要可以合併；合併段不會一寫進去就被折掉；SNS 排除回報 ──
+
+
+@pytest.mark.asyncio
+async def test_after_many_trims_the_retired_summary_is_still_there_or_merged() -> None:
+    """比合併段舊的退任摘要不能永遠看不到：每一輪都還在前情裡，或已併進合併段（PR 1 第 4 輪）."""
+    await init_db_async()
+    await _add("r", kind="home_retired", source="old", content="退任 " + "字" * 600, at=500)
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+
+    async def fake(_identity: AgentIdentity, entries: list[str], *_a: object) -> str:
+        head = "合併，含退任 " if any("退任" in entry for entry in entries) else "合併 "
+        return head + "字" * 1_000  # 填滿額度：比合併段舊的放不進前情
+
+    with patch.object(merge, "summarize_entries", fake):
+        for round_no in range(6):
+            for i in range(4):
+                await _add(
+                    f"t{round_no}-{i}",
+                    content=f"段落{i} " + "字" * 400,
+                    at=1_000 + round_no * 10 + i,
+                )
+            await merge.merge_if_needed(SOUL, cfg)
+            shown, _folded = await prelude.prelude_view(SOUL, home_id=None, config=cfg)
+            assert any("退任" in seg.content for seg in shown), round_no
+
+
+@pytest.mark.asyncio
+async def test_a_retired_note_is_still_left_for_folding() -> None:
+    """一行來源註記不值得花模型呼叫，退任的和剪裁的一樣."""
+    await init_db_async()
+    await _add("r", kind="home_retired", source="old", content=prelude.retired_note(), at=500)
+    for i in range(4):
+        await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
+    seen: list[str] = []
+
+    async def fake(_identity: AgentIdentity, entries: list[str], *_a: object) -> str:
+        seen.extend(entries)
+        return "合併"
+
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", fake):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    assert not any(prelude.retired_note() in entry for entry in seen)
+    live = await db_mod.list_live_segments(SOUL.agent_id)
+    assert any(s.kind == "home_retired" for s in live)
+
+
+@pytest.mark.asyncio
+async def test_older_version_of_a_merged_retired_summary_does_not_come_back() -> None:
+    await init_db_async()
+    await _add("a", kind="home_retired", source="old", content="STALE-A " + "字" * 300, at=1_000)
+    await _add("b", kind="home_retired", source="old", content="NEW-B " + "字" * 300, at=2_000)
+    for i in range(4):
+        await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=3_000 + i)
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", AsyncMock(return_value="合併後")):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    visible = prelude.visible_segments(await db_mod.list_live_segments(SOUL.agent_id), None)
+    assert all("STALE-A" not in s.content and "NEW-B" not in s.content for s in visible)
+
+
+@pytest.mark.asyncio
+async def test_the_retired_summary_of_the_current_home_is_not_merged() -> None:
+    """舊家回任時自己的退任摘要不顯示，也不該被合併（回任又離開時要能再顯示）."""
+    await init_db_async()
+    await _add("r", kind="home_retired", source="home-1", content="退任 " + "字" * 600, at=500)
+    for i in range(4):
+        await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
+    seen: list[str] = []
+
+    async def fake(_identity: AgentIdentity, entries: list[str], *_a: object) -> str:
+        seen.extend(entries)
+        return "合併"
+
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", fake):
+        await merge.merge_if_needed(SOUL, cfg, home_id="home-1")
+    assert seen
+    assert not any("退任" in entry for entry in seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("newer", "merges"),
+    [(prelude.PRELUDE_MAX_SEGMENTS - 2, True), (prelude.PRELUDE_MAX_SEGMENTS - 1, False)],
+    ids=["room-left", "would-be-folded"],
+)
+async def test_no_merge_when_the_merged_entry_would_be_folded_right_away(
+    newer: int, merges: bool
+) -> None:
+    await init_db_async()
+    for i in range(3):
+        await _add(f"old{i}", content=f"舊段落{i} " + "字" * 1_500, at=1_000 + i)
+    for i in range(newer):
+        await _add(f"new{i}", content=f"新{i}", at=5_000 + i)
+    summarize = AsyncMock(return_value="合併")
+    cfg = _cfg(prelude_max_tokens=3_000, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", summarize):
+        assert await merge.merge_if_needed(SOUL, cfg) is merges
+    assert summarize.await_count == (1 if merges else 0)
+
+
+@pytest.mark.asyncio
+async def test_a_merged_entry_remembers_it_took_in_child_reports() -> None:
+    """合併段吃進子對話回報時要記著：SNS 請求要連它一起排除，否則合併後就漏出去."""
+    await init_db_async()
+    await _add("c", kind="child_report", source="child-1", content="回報 " + "字" * 600, at=500)
+    for i in range(4):
+        await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", AsyncMock(return_value="第一次")):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    live = await db_mod.list_live_segments(SOUL.agent_id)
+    first = next(s for s in live if s.kind == "merged")
+    assert prelude.carries_child_reports(first)
+
+    for i in range(4):  # 再併一次：標記不能掉
+        await _add(f"u{i}", content=f"再來{i} " + "字" * 400, at=2_000 + i)
+    with patch.object(merge, "summarize_entries", AsyncMock(return_value="第二次")):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    live = await db_mod.list_live_segments(SOUL.agent_id)
+    second = next(s for s in live if s.kind == "merged" and s.content == "第二次")
+    assert prelude.carries_child_reports(second)
+
+
+@pytest.mark.asyncio
+async def test_a_merged_entry_without_child_reports_stays_unmarked() -> None:
+    await init_db_async()
+    for i in range(5):
+        await _add(f"t{i}", content=f"段落{i} " + "字" * 400, at=1_000 + i)
+    cfg = _cfg(prelude_max_tokens=1_200, prelude_summary_enabled=True)
+    with patch.object(merge, "summarize_entries", AsyncMock(return_value="合併")):
+        assert await merge.merge_if_needed(SOUL, cfg) is True
+    live = await db_mod.list_live_segments(SOUL.agent_id)
+    merged = next(s for s in live if s.kind == "merged")
+    assert not prelude.carries_child_reports(merged)
+
+
+@pytest.mark.asyncio
+async def test_merge_and_handover_share_one_lock_per_soul() -> None:
+    """合併和交接拿同一把靈魂鎖（一次只做一件）."""
+    await init_db_async()
+    held = soul_locks.soul_lock(merge.prelude_agent(SOUL))
+    cfg = _cfg(prelude_summary_enabled=True)
+    read = AsyncMock(return_value=[])
+    with patch.object(merge, "list_live_segments", read):
+        await held.acquire()
+        try:
+            task = asyncio.create_task(merge.merge_if_needed(SOUL, cfg))
+            await asyncio.sleep(0.02)
+            read.assert_not_awaited()  # 還在等鎖，連讀都沒讀
+        finally:
+            held.release()
+        assert await asyncio.wait_for(task, 5) is False
+    read.assert_awaited_once()

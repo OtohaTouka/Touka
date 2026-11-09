@@ -35,7 +35,7 @@ import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
 import { buildApiHistory } from "@/lib/chat/buildApiMessage";
-import { isSaved, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
+import { isSaved, isOldHomeRefused, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
 import { useTranslation } from 'react-i18next';
 
 /** 同時可背景生成的對話數上限（溫和上限，SSOT）。 */
@@ -334,6 +334,11 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
         buildUserTurnTree(migrateFlatToTree(current.messages), { userText, attachment, parentId, userMsgId, timestamp: sentAt }).tree, updatedAt }));
     } catch { return fail(unknownSave()); }
     if (!ownsStream()) return false;
+    if (isOldHomeRefused(saved)) { // 舊家（ADR-0307）：提示由保存那邊出，文字放回輸入框，這一輪不留下來
+      onHookBlocked?.();
+      commit(prev => { const next = { ...prev }; delete next[sessionId]; return next; });
+      return false;
+    }
     if (!isSaved(saved) || controller.signal.aborted || (!incognito && !isRequestScopeCurrent(requestScope))) {
       return fail(saved);
     }

@@ -10,7 +10,7 @@ import { ERRORS } from '../error_codes';
 import { countRounds } from '../context_usage';
 import { getLinearMessages, migrateFlatToTree } from '../tree_history';
 import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, parseSaveResult,
-  unknownSave, rejectedSave, isSaved, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
+  unknownSave, rejectedSave, isSaved, isOldHomeRefused, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
 import { graftOntoTrim } from '../trim_graft';
 
@@ -132,6 +132,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
   }, [getWriter, setSessions]);
 
   const report = useCallback((id: string, result: SaveResult) => {
+    if (isOldHomeRefused(result)) { toast.error(errorMsg('SESSION_OLD_HOME_READ_ONLY')); return; }
     if (!isSaved(result)) {
       logSSOTError(new Error('Session persistence was not confirmed'), `SessionListProvider:syncSession:${id}`);
       toast.error(errorMsg('SESSION_SAVE_FAILED'), { id: 'session-sync-failed' });
@@ -302,6 +303,15 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (!baseError) [result, intended] = await saveOverTrim(result, writer.confirmed, intended, scope);
       const grafted = intended !== sent;
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
+      if (isOldHomeRefused(result)) {
+        // 舊家唯讀（ADR-0307）：這個修改永遠存不進去，退回存檔的內容，不留等人核對的保存失敗
+        writer.pending = writer.pending.filter(item => item !== pending);
+        writer.result = writer.pending.length ? { status: 'pending' } : writer.confirmed.revision
+          ? { status: 'saved', representation: 'full', revision: writer.confirmed.revision } : undefined;
+        if (!writer.pending.length) setSessions(previous => replaceSession(previous, writer.confirmed));
+        report(id, result);
+        return result;
+      }
       intended = withSavedHome(intended, writer);
       if (isSaved(result)) {
         writer.unconfirmed = false;
@@ -370,6 +380,10 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         if (terminal.status === 'saved') intended.revision = terminal.revision;
         result = await save(intended, token.scope);
         [result, intended] = await saveOverTrim(result, writer.confirmed, intended, token.scope);
+        // 舊家交接開始後存不進去（ADR-0307）：這一輪後端本來就沒寫，存檔沒有東西要改，不算保存失敗
+        if (backendSkipped && isOldHomeRefused(result) && writer.confirmed.revision) {
+          result = { status: 'saved', representation: 'full', revision: writer.confirmed.revision };
+        }
       }
       if (writers.current.get(token.sessionId) !== writer || writer.producer !== producer) return result;
       intended = withSavedHome(intended, writer);

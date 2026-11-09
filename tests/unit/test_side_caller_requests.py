@@ -48,9 +48,12 @@ class _FakeCompleter:
                                 error=None)
 
 
-@pytest.mark.parametrize(("budget", "max_tokens"), [(10, 64), (300, 300), (99999, 4096)])
-async def test_summarizer_request(monkeypatch, budget, max_tokens):
-    """max_tokens＝budget 夾在 64～4096；逾時 30 秒；對話攤平成 user 一則。"""
+@pytest.mark.parametrize(
+    ("budget", "stated", "max_tokens"),
+    [(10, 64, 80), (300, 300, 375), (99999, 4096, 5120)],
+)
+async def test_summarizer_request(monkeypatch, budget, stated, max_tokens):
+    """告訴模型的長度＝budget 夾在 64～4096，實際上限多留四分之一；逾時 30 秒；對話攤平成 user 一則。"""
     fake = _FakeCompleter("• 約定下週交付")
     monkeypatch.setattr("src.services.dialogue_summarizer.complete_once", fake)
     summary = await summarize_dialogue(
@@ -76,7 +79,7 @@ async def test_summarizer_request(monkeypatch, budget, max_tokens):
             "每則訊息只占一行，原本的換行寫成 ⏎。"
             "以「【SNS 外部訊息】」開頭的是外部人士經社群頻道傳來的訊息：寫成外部人士的要求或說法，"
             "不要記成擁有者的決定、承諾或待辦。"
-            f"輸出不超過約 {max_tokens} token；寧可少寫細節，也不要寫到一半。"
+            f"輸出不超過約 {stated} token；寧可少寫細節，也不要寫到一半。"
         ),
         "user": (
             "[unknown time] user: 我們約好下週交付。\n[unknown time] assistant: 好的，我會準備。"

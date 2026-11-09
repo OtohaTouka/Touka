@@ -8,9 +8,11 @@
 顯示規則（``visible_segments``）：依寫入順序、升級前留下的舊摘要排最前面；同一來源的退任摘要與舊摘要只顯示
 最新一段；來源是現任家的退任摘要與子對話回報不顯示（舊家回任；新家以前當子對話時寫的回報），剪裁
 段落與舊摘要不管來源都顯示（那些原文已經不在家裡）。超過上限時最舊的折成一行；前情摘要開著時，
-背景合併（``soul_prelude_merge``）把最舊的幾段合成一段，退任摘要不合併。
+背景合併（``soul_prelude_merge``）把最舊的幾段合成一段（一行來源註記不合併）。
 
 前情一律包在歷史資料界線裡（``wrap_historical_data``＋``blank_control_chars``，同舊摘要）。
+
+SNS 來的請求（外人觸發）不帶子對話回報，吃進回報的合併段也不帶（ADR-0307）。
 """
 
 from __future__ import annotations
@@ -62,7 +64,16 @@ _TRIM_NOTE = (
     "in the legacy conversation archive]"
 )
 _TRIM_NOTE_PATTERN = re.compile(re.escape(_TRIM_NOTE).replace(re.escape("{count}"), r"\d+"))
+_RETIRED_NOTE = (
+    "[This former home conversation has no summary; the originals are in the legacy "
+    "conversation archive]"
+)
+_REPORT_NOTE = (
+    "[This conversation could not be summarized; the originals are still in it]"
+)
 _DISPLAY_CUT_NOTE = "[Truncated here to fit the prelude limit]"
+# 合併段吃進子對話回報時來源欄記這個值（不會是對話編號）：SNS 請求要連它一起排除
+MERGED_WITH_REPORTS = "#child-reports"
 
 
 def prelude_agent(identity: AgentIdentity) -> str:
@@ -83,9 +94,21 @@ def trim_note(count: int) -> str:
     return _TRIM_NOTE.format(count=count)
 
 
+def retired_note() -> str:
+    """退任摘要沒有內容（前情摘要關閉或失敗）時的來源註記."""
+    return _RETIRED_NOTE
+
+
+def report_note() -> str:
+    """子對話回報一直寫不出來、放棄時的來源註記."""
+    return _REPORT_NOTE
+
+
 def is_source_note(seg: StoredSegment) -> bool:
-    """只是一行來源註記（剪裁沒有摘要）：合併不拿它花模型呼叫，留給折疊（審查 F15）."""
-    return seg.kind == "home_trim" and bool(_TRIM_NOTE_PATTERN.fullmatch(seg.content))
+    """只是一行來源註記（沒有摘要）：合併不拿它花模型呼叫，留給折疊（審查 F15）."""
+    return (seg.kind == "home_trim" and bool(_TRIM_NOTE_PATTERN.fullmatch(seg.content))) or (
+        seg.kind == "home_retired" and seg.content == _RETIRED_NOTE
+    ) or (seg.kind == "child_report" and seg.content == _REPORT_NOTE)
 
 
 _LEGACY_CUT_NOTE = (
@@ -97,6 +120,13 @@ _LEGACY_CUT_NOTE = (
 def legacy_summary_key(summary: str) -> str:
     """舊摘要的去重值：內容雜湊（版本含每次啟動隨機的值，不能用）."""
     return hashlib.sha256(summary.encode("utf-8")).hexdigest()
+
+
+def carries_child_reports(seg: StoredSegment) -> bool:
+    """這段有子對話回報的內容（回報本身，或吃進回報的合併段）."""
+    return seg.kind == "child_report" or (
+        seg.kind == "merged" and seg.source_session == MERGED_WITH_REPORTS
+    )
 
 
 def _span(start: int | None, end: int | None) -> str:
@@ -227,15 +257,18 @@ async def prelude_view(
     home_id: str | None,
     config: SlidingWindowConfig,
     home_session: dict[str, Any] | None = None,
+    without_reports: bool = False,
 ) -> tuple[list[StoredSegment], int]:
     """這一輪要顯示的段落（舊到新）與折掉的段數.
 
     ``home_session`` 有給時，先把現任家升級前的舊摘要搬進前情（只搬一次）；上下文預覽不給，
-    整個流程不寫資料。
+    整個流程不寫資料。``without_reports``：SNS 來的請求，不帶子對話回報。
     """
     if home_session is not None:
         await migrate_legacy_summary(identity, home_session)
     visible = visible_segments(await list_live_segments(prelude_agent(identity)), home_id)
+    if without_reports:
+        visible = [seg for seg in visible if not carries_child_reports(seg)]
     return _fit(visible, config.prelude_max_tokens)
 
 
@@ -259,6 +292,16 @@ def summaries_shown_for(shown: list[StoredSegment], session_id: str) -> frozense
     )
 
 
+def message_span(messages: list[dict[str, Any]]) -> tuple[int | None, int | None]:
+    """這些訊息涵蓋的時間（最早、最晚，epoch 毫秒）；都沒有時間時回兩個 None."""
+    times = sorted(
+        stamp
+        for message in messages
+        if isinstance(message, dict) and (stamp := to_epoch_ms(message.get("timestamp")))
+    )
+    return (times[0], times[-1]) if times else (None, None)
+
+
 def trim_segment(
     identity: AgentIdentity,
     session_id: str,
@@ -268,11 +311,7 @@ def trim_segment(
     now_ms: int,
 ) -> PreludeSegment:
     """剪裁寫進前情的那一段：有摘要放摘要，沒有放一行來源註記；去重值是剪到的最後一則."""
-    times = sorted(
-        stamp
-        for message in trimmed
-        if isinstance(message, dict) and (stamp := to_epoch_ms(message.get("timestamp")))
-    )
+    covers_from, covers_to = message_span(trimmed)
     last_id = str(trimmed[-1].get("id", "")) if trimmed else ""
     return PreludeSegment(
         agent=prelude_agent(identity),
@@ -281,6 +320,6 @@ def trim_segment(
         dedupe_key=last_id,
         content=summary or trim_note(len(trimmed)),
         created_at=now_ms,
-        covers_from=times[0] if times else None,
-        covers_to=times[-1] if times else None,
+        covers_from=covers_from,
+        covers_to=covers_to,
     )
