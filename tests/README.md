@@ -910,6 +910,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_handler_integration.py` | Gemini/OpenAI handler 端到端：context mock、串流/非串流等價 |
 | `test_handlers_sovereignty.py` | Handler 身分主權：`AgentIdentity` 在 context 缺失時的 fallback 解析 |
 | `test_gemini_no_explicit_cache.py` | （ADR-0243）：一般、無痕、未帶旗標 × 初次、長迴圈、帶 `tool_config` 的輪次，payload 都不含 `cachedContent`、每輪都帶 `system_instruction`／`tools`，且沒有任何對 `cachedContents` 的連線 |
+| `test_generation_failure_reason.py` ⭐ | 回覆失敗時交給畫面的原因（路線圖第 8 項）：走進度事件、結束事件欄位不動；廠商原文只有人類 admin 的事件帶；四個非 200 的地方都取得到原文；消毒與限長；非 UI 路徑的文字不變。 |
 | `test_sovereign_identity_chain.py` | 身分提升與路徑隔離：低權限 Caller 呼叫 Actor（Owner）時工具環境自動提升至 Owner 路徑 |
 | `test_token_resilience.py` | Token 韌性：脈衝執行期間 Token 過期不影響任務完成（Lifecycle Atomicity）；過期卡再請求 → 401 不降級（ADR-0131 翻轉）|
 | `test_failure_visibility.py` ⭐ | ADR-0078 P5b 失效可見化：工具例外帶真錯誤、OpenAI 網路錯誤可見、Claude/OpenAI/Gemini 三家 degraded 注入 |
@@ -1152,6 +1153,7 @@ python scripts/guard_all.py
 | `src/hooks/__tests__/useHookBlockNotice.test.ts`、`src/lib/__tests__/stream_tree.hookBlocked.test.ts`、`src/lib/providers/__tests__/StreamRegistryProvider.hookBlocked.test.tsx` ⭐ | ADR-0292 被 UserPromptSubmit hook 擋下的訊息：`HOOK_PROMPT_BLOCKED` 以專屬通知顯示擋下與理由（理由最多 2,000 字），其他錯誤交回呼叫端；`dropBlockedTurn` 把這則訊息和它的空回覆從樹裡拿掉（同一則訊息底下的其他分支保留，形狀對不上時不動）；擋下時照「後端沒存文字」的完成流程存回，用被擋文字建的標題換回去，並通知把文字放回輸入框；別處停止（`PROMPT_STOPPED`）時訊息留著、當成中止；其他錯誤照舊 |
 | `src/hooks/__tests__/useOldHomeNotice.test.ts` ⭐ | ADR-0306：在舊家送出被擋（`SESSION_OLD_HOME_READ_ONLY`）時顯示「這是以前的家，要繼續請先設為家」的專屬提示並交回「已處理」，讓 `StreamRegistryProvider` 照 hook 擋下拿掉這一輪存回、放回文字；其他錯誤碼、沒有碼的錯誤都不顯示（`StreamRegistryProvider.hookBlocked.test.tsx` 有舊家擋下的案例：不跳連線錯誤） |
 | `src/components/chat/__tests__/OldHomeNotice.test.tsx` ⭐ | ADR-0306：舊家唯讀畫面的「設為家」要先確認；按先不要之後焦點回到按鈕。 |
+| `src/components/chat/__tests__/GenerationFailedNotice.test.tsx` ⭐ | 回覆失敗時講原因（路線圖第 8 項）：認得的代碼有翻譯，認不得或舊對話顯示原本那句；廠商原文當純文字。 |
 | `src/components/sidebar/monitoring/__tests__/FailedHandoversNotice.test.tsx` | ADR-0307：交接失敗三次的提示；沒有失敗就不顯示。 |
 | `src/hooks/__tests__/useSystemMonitoring.failedHandovers.test.tsx` | ADR-0307：`/v1/stats` 的 `failed_handovers` 帶到畫面。 |
 | `ToukaIDE/src/__tests__/proxyError.test.ts` | IDE 顯示後端給的錯誤說明，沒有說明才顯示狀態碼。 |

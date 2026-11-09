@@ -61,7 +61,7 @@ export interface ContextBreakdown {
 
 // 結構化進度（touka_progress）：Agent 複數行動的可觀察狀態，依 kind 收斂。
 export interface AgentProgress {
-  kind: string;            // react_slots | repair | group | creation_stage | tool_retry | token_usage
+  kind: string;            // react_slots | repair | group | creation_stage | tool_retry | token_usage | generation_failure
   current?: number;
   total?: number;
   attempt?: number;
@@ -75,6 +75,8 @@ export interface AgentProgress {
   cost?: number;
   usage_pct?: number;              // ADR-0092 Phase B：context window 占用百分比
   context_breakdown?: ContextBreakdown; // 分類別 token 分解（Claude 路徑提供）
+  error_type?: string;             // generation_failure：失敗類型
+  detail?: string;                 // generation_failure：廠商原文（只有管理員的事件有，不存檔）
 }
 
 // 以 kind 為鍵的進度表（每種機制只保留最新狀態）。

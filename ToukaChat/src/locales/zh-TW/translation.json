@@ -1454,6 +1454,16 @@
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
       "generation_failed": "這一輪回覆失敗，沒有完成。",
+      "generation_failed_vendor_said": "廠商回覆：",
+      "generation_failed_reason": {
+        "authentication_failed": "這一輪回覆失敗：金鑰或權限有問題。",
+        "rate_limit": "這一輪回覆失敗：請求太多或額度用完。",
+        "billing_error": "這一輪回覆失敗：帳務有問題。",
+        "overloaded": "這一輪回覆失敗：廠商目前很忙。",
+        "server_error": "這一輪回覆失敗：廠商那邊出錯了。",
+        "model_not_found": "這一輪回覆失敗：找不到這個模型，可能已下架或名稱不對。",
+        "invalid_request": "這一輪回覆失敗：廠商拒絕了這次請求。"
+      },
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",

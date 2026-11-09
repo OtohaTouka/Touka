@@ -115,6 +115,51 @@ describe('applySetHome follows the backend set_home rule', () => {
   });
 });
 
+describe('廠商原文不存檔，只留分類（路線圖第 8 項 PR 1）', () => {
+  const tree = (failure: Record<string, unknown>) => ({
+    currentId: 'r',
+    messages: {
+      u: { id: 'u', role: 'user', content: 'hi', parentId: null, childrenIds: ['r'] },
+      r: {
+        id: 'r', role: 'assistant', content: '', parentId: 'u', childrenIds: [], generationFailed: true,
+        progress: { generation_failure: failure, token_usage: { kind: 'token_usage', total: 3 } },
+      },
+    },
+  });
+  const withDetail = () => ({ kind: 'generation_failure', error_type: 'rate_limit', detail: 'org-123 quota' });
+  const failed = (failure: Record<string, unknown>) => ({ ...session(), messages: tree(failure) }) as unknown as Session;
+  const savedFailure = (payload: Record<string, unknown>) =>
+    (payload.messages as ReturnType<typeof tree>).messages.r.progress.generation_failure;
+
+  it('存檔內容拿掉原文，分類和其他進度留著', () => {
+    const payload = sessionWritePayload(failed(withDetail()));
+    expect(savedFailure(payload)).toEqual({ kind: 'generation_failure', error_type: 'rate_limit' });
+    expect((payload.messages as ReturnType<typeof tree>).messages.r.progress.token_usage).toEqual({ kind: 'token_usage', total: 3 });
+  });
+
+  it('不改傳進來的對話（畫面上當下還看得到原文）', () => {
+    const original = failed(withDetail());
+    const before = structuredClone(original);
+    sessionWritePayload(original);
+    expect(original).toEqual(before);
+  });
+
+  it('沒有原文時不複製對話', () => {
+    const original = failed({ kind: 'generation_failure', error_type: 'rate_limit' });
+    expect(sessionWritePayload(original).messages).toBe(original.messages);
+  });
+
+  it('和存回來的內容比對相同，不會一直判定沒存好', () => {
+    const local = failed(withDetail());
+    const stored = { ...local, messages: sessionWritePayload(local).messages } as Session;
+    expect(matchesSessionContent(local, stored)).toBe(true);
+  });
+
+  it('舊格式的陣列訊息照舊', () => {
+    expect(sessionWritePayload(session()).messages).toEqual([]);
+  });
+});
+
 describe('savedPastTerminal decides whether a finished turn may be replayed', () => {
   const R1 = 'r1';
   const NODE = 'assistant-node';

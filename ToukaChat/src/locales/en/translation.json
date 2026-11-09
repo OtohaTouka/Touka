@@ -1462,6 +1462,16 @@
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
       "generation_failed": "This reply failed and did not finish.",
+      "generation_failed_vendor_said": "The provider said: ",
+      "generation_failed_reason": {
+        "authentication_failed": "This reply failed: there is a problem with the key or its permissions.",
+        "rate_limit": "This reply failed: too many requests, or the quota is used up.",
+        "billing_error": "This reply failed: there is a billing problem.",
+        "overloaded": "This reply failed: the provider is busy right now.",
+        "server_error": "This reply failed: something went wrong at the provider.",
+        "model_not_found": "This reply failed: this model was not found. It may have been retired, or the name is wrong.",
+        "invalid_request": "This reply failed: the provider refused this request."
+      },
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",

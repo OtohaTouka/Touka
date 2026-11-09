@@ -91,6 +91,18 @@ describe('MessageItem', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('這一輪回覆失敗');
   });
 
+  it('回覆失敗時講得出原因，活動列不多一個膠囊', () => {
+    const msg = {
+      id: '2', role: 'assistant', content: '', parentId: '1', childrenIds: [], generationFailed: true,
+      progress: { generation_failure: { kind: 'generation_failure', error_type: 'model_not_found', detail: 'gone' } },
+    } as any;
+    render(<MessageItem {...defaultProps} msg={msg} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('可能已下架或名稱不對');
+    expect(alert).toHaveTextContent('gone');
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull();
+  });
+
   it('一般的回覆沒有失敗標示', () => {
     const msg = { id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [] } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);

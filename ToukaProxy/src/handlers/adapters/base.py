@@ -128,9 +128,12 @@ class RoundError:
     retry_note: str | None = field(default=None, compare=False)
     retry_after: float | None = field(default=None, compare=False)
     error_type: str = field(default="unknown", compare=False)
+    detail: str | None = field(default=None, compare=False)  # 廠商的錯誤原文（給畫面）
 
     def __post_init__(self) -> None:
         self.user_message = sanitize_error_text(self.user_message)
+        if self.detail is not None:
+            self.detail = sanitize_error_text(self.detail) or None
         if self.retry_note is not None:
             self.retry_note = sanitize_error_text(self.retry_note)
 

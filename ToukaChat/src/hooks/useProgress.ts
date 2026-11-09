@@ -2,6 +2,9 @@
 import type { TFunction } from 'i18next';
 import { AgentProgress, ProgressMap } from '@/lib/tree_history';
 
+/** 回覆失敗的原因（後端 progress_events.py 的同名常數）：顯示在失敗訊息，不是進度。 */
+export const GENERATION_FAILURE_KIND = 'generation_failure';
+
 /**
  * 將一筆 touka_progress SSE 事件併入「依 kind 收斂」的進度表。
  *
