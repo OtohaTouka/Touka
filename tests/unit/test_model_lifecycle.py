@@ -48,6 +48,7 @@ def service(monkeypatch: pytest.MonkeyPatch, clock: SimpleNamespace) -> ModelLif
     monkeypatch.setattr("src.config.MODEL_LIFECYCLE_CHECK_ENABLED", True, raising=False)
     monkeypatch.setattr("src.config.ANTHROPIC_API_KEY", "fake-anthropic", raising=False)
     monkeypatch.setattr("src.config.OPENAI_API_KEY", "fake-openai", raising=False)
+    monkeypatch.setattr("src.config.OPENAI_BASE_URL", "https://api.openai.com/v1", raising=False)
     return ModelLifecycleService()
 
 
@@ -567,6 +568,7 @@ async def test_trailing_slash_on_the_official_url_is_still_official(
     upstream = FakeUpstream([_ANTHROPIC_OK, _OPENAI_OK]).install(monkeypatch)
     await _check(service)
     assert len(upstream.requests) == 2
+    assert upstream.requests[1].url.path == "/v1/models"  # 尾斜線不能變成 //models
 
 
 async def test_checking_ends_when_the_task_is_cancelled(

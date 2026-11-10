@@ -126,7 +126,7 @@ describe('ModelLifecycleNotice', () => {
   });
 
   it('看不懂的那一筆略過，其他照顯示', async () => {
-    await mountWith({ alerts: [alert({ status: 'melting' }), alert({ model: 7 }), 'x', alert({ model: 'claude-ok' })] });
+    await mountWith({ alerts: [alert({ status: 'melting' }), alert({ model: 7 }), 'x', null, alert({ model: 'claude-ok' })] });
     expect(notice()?.querySelectorAll('p')).toHaveLength(1);
     expect(notice()).toHaveTextContent('claude-ok');
   });
@@ -166,6 +166,11 @@ describe('ModelLifecycleNotice', () => {
   it.each([
     ['連線失敗', () => { vi.mocked(fetchTouka).mockRejectedValue(new Error('down')); }],
     ['HTTP 500', () => { answer({}, false); }],
+    ['回應不是 JSON', () => {
+      vi.mocked(fetchTouka).mockResolvedValue({
+        ok: true, status: 200, json: () => Promise.reject(new SyntaxError('html')),
+      } as unknown as Response);
+    }],
   ])('重問時%s：保留上一次的提示，正確的提示不會消失一小時', async (_name, fail) => {
     await mountWith({ alerts: [alert()], checking: false });
     fail();
@@ -175,6 +180,7 @@ describe('ModelLifecycleNotice', () => {
   });
 
   it.each([
+    ['JSON null', null],
     ['不是物件', 'x'],
     ['alerts 不是陣列', { alerts: 'x' }],
   ])('重問拿到 200 但看不懂（%s）：當成沒有，舊的提示要清掉', async (_name, body) => {
