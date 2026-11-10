@@ -22,6 +22,7 @@ from src.services import telemetry
 from src.services.auth_service import AuthService
 from src.services.identity_router import get_verified_identity
 from src.services.models import lifecycle_alerts
+from src.services.models.manager import ModelManager
 from src.services.models.routes import CustomRouteDisposition, CustomRouteResolution
 from src.services.providers import pricing
 from src.services.resource_manager import resource_manager
@@ -187,9 +188,11 @@ def test_a_custom_connection_is_not_listed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(lifecycle_alerts, "list_active_brains", lambda: {"Alice": _CUSTOM_MODEL})
+    # 要換類別上的方法：換共用物件的話，還原時會在物件上留一份，後面的測試就換不到了
     monkeypatch.setattr(
-        lifecycle_alerts.model_manager, "resolve_custom_route",
-        lambda _model: CustomRouteResolution(disposition=CustomRouteDisposition.ACTIVE_CUSTOM),
+        ModelManager, "resolve_custom_route",
+        lambda _self, _model: CustomRouteResolution(
+            disposition=CustomRouteDisposition.ACTIVE_CUSTOM),
     )
     assert _stats(client, OWNER_AGENT)["pricing"]["estimated_models"] == []
 
