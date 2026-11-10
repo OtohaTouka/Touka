@@ -26,6 +26,7 @@ _SHAPES = {
 # 各謂詞的允許集合＝對應閘家族（與 test_role_plane_characterization.py 家族一致）。
 _EXPECTED = {
     "is_admin_authority": {"human_admin", "assumed_admin"},
+    "is_admin_human": {"human_admin"},
     "is_privileged": {"human_admin", "assumed_admin", "agent_owner", "agent_debugger"},
     "is_owner_or_admin": {"human_admin", "assumed_admin", "agent_owner"},
     "is_admin_or_debugger": {"human_admin", "assumed_admin", "agent_debugger"},

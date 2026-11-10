@@ -580,6 +580,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/models/lifecycle-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Lifecycle Alerts
+         * @description 呼叫者在用的模型裡，快下架或已標停用的（ADR-0310；必須放在 ``/{model_id}`` 之前）。
+         */
+        get: operations["get_model_lifecycle_alerts_v1_models_lifecycle_alerts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/models/{model_id}/health": {
         parameters: {
             query?: never;
@@ -697,6 +717,26 @@ export interface paths {
          * @description 從名冊中刪除特定的模型紀錄。
          */
         delete: operations["delete_model_models__model_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/lifecycle-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Lifecycle Alerts
+         * @description 呼叫者在用的模型裡，快下架或已標停用的（ADR-0310；必須放在 ``/{model_id}`` 之前）。
+         */
+        get: operations["get_model_lifecycle_alerts_models_lifecycle_alerts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4688,7 +4728,7 @@ export interface paths {
         };
         /**
          * Test Heartbeat Connectivity
-         * @description 測試心跳端點的對外連通性。
+         * @description 測試心跳端點的對外連通性（只有管理員能呼叫）。
          */
         get: operations["test_heartbeat_connectivity_v1_heartbeat_test_get"];
         put?: never;
@@ -4801,7 +4841,7 @@ export interface paths {
         };
         /**
          * Test Heartbeat Connectivity
-         * @description 測試心跳端點的對外連通性。
+         * @description 測試心跳端點的對外連通性（只有管理員能呼叫）。
          */
         get: operations["test_heartbeat_connectivity_heartbeat_test_get"];
         put?: never;
@@ -9574,6 +9614,55 @@ export interface components {
             temperature_max: number;
         };
         /**
+         * ModelLifecycleAlert
+         * @description 一個在用的模型要提醒的事。
+         */
+        ModelLifecycleAlert: {
+            /** Model */
+            model: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "retiring" | "overdue" | "date_unknown" | "retired" | "not_found";
+            /**
+             * Retires At
+             * @description 官方的下架時間（UNIX 秒）
+             */
+            retires_at?: number | null;
+            /**
+             * Souls
+             * @description 呼叫者看得到、用這個模型的靈魂
+             */
+            souls?: string[];
+            /**
+             * Reviewer
+             * @description Auto 審查員在用（只回給人類管理員）
+             * @default false
+             */
+            reviewer: boolean;
+            /**
+             * Summarizer
+             * @description 摘要員在用（只回給人類管理員）
+             * @default false
+             */
+            summarizer: boolean;
+        };
+        /**
+         * ModelLifecycleAlertsResponse
+         * @description GET /v1/models/lifecycle-alerts 的回應。
+         */
+        ModelLifecycleAlertsResponse: {
+            /** Alerts */
+            alerts: components["schemas"]["ModelLifecycleAlert"][];
+            /**
+             * Checking
+             * @description 背景正在查廠商清單，等一下再問會有新結果
+             * @default false
+             */
+            checking: boolean;
+        };
+        /**
          * ModelSettingsUpdate
          * @description 模型設定更新。
          */
@@ -12156,6 +12245,26 @@ export interface operations {
             };
         };
     };
+    get_model_lifecycle_alerts_v1_models_lifecycle_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLifecycleAlertsResponse"];
+                };
+            };
+        };
+    };
     check_model_health_v1_models__model_id__health_post: {
         parameters: {
             query?: never;
@@ -12343,6 +12452,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_lifecycle_alerts_models_lifecycle_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLifecycleAlertsResponse"];
                 };
             };
         };

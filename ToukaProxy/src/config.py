@@ -121,6 +121,8 @@ class Settings(BaseSettings):
 
     # Feature Flags
     ENABLE_DYNAMIC_MODELS: bool = False
+    # ADR-0310：查 Anthropic、OpenAI 的模型清單做下架提醒（一天最多一次；關掉就不對外查）
+    MODEL_LIFECYCLE_CHECK_ENABLED: bool = True
     # MCP P8-A interactive user OAuth remains opt-in until rollout verification completes.
     TOUKA_MCP_OAUTH_USER_ENABLED: bool = False
     # MCP P8-B direct workload and owner-delegation paths are separately opt-in.
@@ -449,6 +451,7 @@ def strip_anthropic_sdk_env_overrides(
 # Settings & Flags
 GEMINI_API_VERSION = settings.GEMINI_API_VERSION
 ENABLE_DYNAMIC_MODELS = settings.ENABLE_DYNAMIC_MODELS
+MODEL_LIFECYCLE_CHECK_ENABLED = settings.MODEL_LIFECYCLE_CHECK_ENABLED
 TOUKA_MCP_OAUTH_USER_ENABLED = settings.TOUKA_MCP_OAUTH_USER_ENABLED
 TOUKA_MCP_OAUTH_WORKLOAD_ENABLED = settings.TOUKA_MCP_OAUTH_WORKLOAD_ENABLED
 TOUKA_MCP_OAUTH_DELEGATION_ENABLED = settings.TOUKA_MCP_OAUTH_DELEGATION_ENABLED

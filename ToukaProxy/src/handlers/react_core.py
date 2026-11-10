@@ -45,10 +45,15 @@ from src.services.telemetry import (
     run_cost_usd,
 )
 from src.services.tool_executor import ToolExecutor
-from src.utils.progress_events import react_slots_event, token_usage_event
+from src.utils.ask_user_stop import ask_user_stop_text
+from src.utils.progress_events import (
+    generation_failure_event,
+    react_slots_event,
+    token_usage_event,
+)
 from src.utils.sse import sse_line
 from src.utils.time_utils import get_current_epoch
-from src.utils.tool_usage import ToolUsage
+from src.utils.tool_usage import ToolUsage, executed_tools
 
 from .adapters import retry
 from .adapters.base import ProviderAdapter, RoundError, StopReason, Turn  # noqa: TC001
@@ -194,6 +199,14 @@ async def pump_send_round(
             yield item
     finally:
         await round_gen.aclose()
+
+
+def _failure_detail_for_viewer(context: dict[str, Any], error: RoundError) -> str | None:
+    """廠商原文只給人類 admin 看；``identity`` 可能是換過的靈魂身分，要看發請求的人。"""
+    requester = context.get("ui_requester")
+    if isinstance(requester, AgentIdentity) and requester.is_admin_human():
+        return error.detail
+    return None
 
 
 async def run_react_loop(  # noqa: PLR0915
@@ -350,6 +363,8 @@ async def run_react_loop(  # noqa: PLR0915
         for _line in interjection_finish():
             yield _line
         if context.get("ui_authorized") is True:
+            yield sse_line(generation_failure_event(
+                error.error_type, _failure_detail_for_viewer(context, error)))
             raise UiGenerationStopped("error")
         yield yield_delta(SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message)
         yield "data: [DONE]\n\n"
@@ -553,6 +568,12 @@ async def run_react_loop(  # noqa: PLR0915
                 res_text = await task
                 results.append((call_id, target_name, res_text))
             await adapter.append_tool_results(state, results)
+            # 問使用者問題沒等到回答：這一輪到此為止，不再呼叫模型（沒回覆不算同意）
+            ask_stop = ask_user_stop_text(context, executed_tools(actually_used_tools))
+            if ask_stop is not None:
+                yield yield_delta(ask_stop)
+                final_raw = raw
+                break
             # 取出點（ADR-0249 裁定 4）：工具結果寫回之後、進下一輪之前；不在迴圈頂端、
             # 不在重試迴圈裡（重試會重複附加）
             tool_step += 1

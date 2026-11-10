@@ -597,6 +597,7 @@ class ToolExecutor:
                 "floor_action": floor_tool_action(name, args),  # F5 動詞，不看設定檔
                 "isolation": isolation.level,
                 "human_present": is_human_present(ctx),
+                "read_only_run": bool(ctx.get("subagent_read_only")),
             },
         )
 

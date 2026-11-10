@@ -64,9 +64,20 @@ def get_active_brain(identity: AgentIdentity) -> str | None:
         目前的大腦型號名稱，若未設定則回傳 None。
     """
     agent_id = _normalize_agent_id(identity.agent_id)
-    settings = _get_settings()
-    val = settings.get(agent_id)
+    return _active_brain_of(agent_id, _get_settings().get(agent_id))
 
+
+def list_active_brains() -> dict[str, str]:
+    """每個代理人目前的大腦型號（沒設的不列；規則和 ``get_active_brain`` 相同）。"""
+    return {
+        agent_id: brain
+        for agent_id, val in _get_settings().items()
+        if (brain := _active_brain_of(agent_id, val))
+    }
+
+
+def _active_brain_of(agent_id: str, val: Any) -> str | None:
+    """設定檔裡的一筆 → 大腦型號；沒設回 None。"""
     if not val:
         logger.warning("No brain setting found for Agent '%s'.", agent_id)
         return None

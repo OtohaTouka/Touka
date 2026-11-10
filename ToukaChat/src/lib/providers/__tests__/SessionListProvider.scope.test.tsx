@@ -23,6 +23,7 @@ import { SessionListProvider, useSessionList } from '../SessionListProvider';
 import { ChatProvider, useChat } from '../ChatProvider';
 import { useArtifacts } from '@/hooks/useArtifacts';
 import { useArtifactExtractor } from '@/hooks/useArtifactExtractor';
+import { useFailureDetails } from '@/lib/chat/failureDetailStore';
 
 const wrapper = ({ children }: { children: React.ReactNode }) => <SessionListProvider><ChatProvider>{children}</ChatProvider></SessionListProvider>;
 const session = (title: string) => ({ id: 'same-id', title, updatedAt: 1, agent_id: 'synthetic',
@@ -119,6 +120,26 @@ describe('credential scope invalidates actual Chat view owners', () => {
     });
     expect(useArtifacts.getState().artifacts).toEqual([]);
   });
+  it('credential change forgets the provider failure text A saw', async () => {
+    await mountA();
+    useFailureDetails.setState({ details: { a: 'private vendor text' } });
+    act(() => {
+      h.scope = { ...h.scope, authenticatedPrincipalId: 'access:B', authEpoch: 2 };
+      for (const listener of h.listeners) listener();
+    });
+    await act(async () => {});
+    expect(useFailureDetails.getState().details).toEqual({});
+  });
+
+  it('a signal without a real credential change keeps the failure text', async () => {
+    await mountA();
+    useFailureDetails.setState({ details: { a: 'still here' } });
+    act(() => { for (const listener of h.listeners) listener(); });
+    await act(async () => {});
+    expect(useFailureDetails.getState().details).toEqual({ a: 'still here' });
+    useFailureDetails.setState({ details: {} });
+  });
+
   it('an old extractor cannot repopulate global artifacts after its scope is retired', () => {
     const history = { messages: {}, currentId: null };
     const { result } = renderHook(() => useArtifactExtractor('a', true, history));

@@ -13,6 +13,7 @@ import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, 
   unknownSave, rejectedSave, isSaved, isOldHomeRefused, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
 import { graftOntoTrim } from '../trim_graft';
+import { clearFailureDetails } from '../chat/failureDetailStore';
 
 /**
  * 下載一段清單上沒有的對話的結果：
@@ -105,6 +106,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       writers.current.clear();
       operations.current = new WeakMap();
       scopeRef.current = current;
+      clearFailureDetails();
       setSessions([]);
       setScopeKey(scopeId(current));
     }

@@ -127,6 +127,8 @@
 | 送前最壞花費估算 | `services/cost_guard.py`（`estimate_input_tokens`、`worst_case_input_price`、`worst_case_usd`、`worst_case_call_usd`）；人工實測的 `tests/memory_eval/live_bounds.py` 是同一估法的測試側副本，parity 測試釘住 | `complete_once` |
 | 送前是否超過上限 | `services/autonomy.py` `AutonomyService.would_exceed`（與 `is_over_budget` 共用 `_cap_limit`） | `complete_once` |
 | 分檔計價（每請求依含快取讀寫的提示長度） | `services/providers/pricing.py` `Rate.long_prompt`、`for_prompt`、`cost_usd`、`flat_cost_usd`、`HAIKU_5_5_LONG_PROMPT_TOKENS` | `telemetry`、`cost_guard`、計分卡估算 |
+| 內建價目表、查證日期、家族估價、已公告的漲價（ADR-0311） | `services/providers/pricing.py` `_BUILTIN_PRICING`、`PRICING_VERIFIED_AT`、`_FAMILY_KEYS`、`_EXACT_ONLY_KEYS`、`_SCHEDULED_PRICING` | `telemetry`、`cost_guard`、`services/models/pricing_status.py` |
+| 每日用量與快取命中率（ADR-0311） | `services/telemetry.py` `DAILY_USAGE_RETENTION_DAYS`、`CACHE_HIT_WINDOW_DAYS`、`cache_hit_rates` | `routers/stats.py` |
 | 整次 run 金額（畫面 `token_usage` 與稽核 CSV 同一個值） | `services/telemetry.py` `run_cost_usd`、`is_long_prompt`；`handlers/react_core.py` `_RunUsage.long_totals` | `react_core`、`log_usage_audit(cost_usd=)` |
 | 審查員等待預設與上限 | `models/autonomy.py` `AutoReviewConfig.timeout_s`（60，`gt=0, le=120`）＋`config/autonomy.json.example`；前端 `useAutoReviewSettings` `REVIEWER_TIMEOUT_MAX_S`（對齊 `le=120`） | `auto_reviewer._config`；ToukaChat 審查員卡片 |
 | 人工實測的最壞估價取貴檔 | `tests/smoke/manual/memory_eval_probe.py` `_dearest_rate` | 記憶評估工具、`thinking_latency_probe.py` |

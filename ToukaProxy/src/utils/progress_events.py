@@ -14,6 +14,8 @@ from __future__ import annotations
 
 # SSE 事件外層 type（前端 connections.ts customEventTypes 需對應註冊）。
 PROGRESS_EVENT_TYPE = "touka_progress"
+# 回覆失敗的原因（前端 useProgress.ts 的同名常數要對應）。
+GENERATION_FAILURE_KIND = "generation_failure"
 
 
 def _progress(kind: str, **fields: object) -> dict[str, object]:
@@ -27,6 +29,22 @@ def _progress(kind: str, **fields: object) -> dict[str, object]:
         dict[str, object]: 結構化進度事件。
     """
     return {"type": PROGRESS_EVENT_TYPE, "kind": kind, **fields}
+
+
+def generation_failure_event(error_type: str, detail: str | None = None) -> dict[str, object]:
+    """這一輪回覆失敗的原因（只在 UI 路徑送）。
+
+    Args:
+        error_type (str): 失敗類型（retry.py）。
+        detail (str | None): 廠商原文；呼叫端判定看的人可以看才傳，沒有就不帶這個鍵。
+
+    Returns:
+        dict[str, object]: generation_failure 進度事件。
+    """
+    fields: dict[str, object] = {"error_type": error_type}
+    if detail:
+        fields["detail"] = detail
+    return _progress(GENERATION_FAILURE_KIND, **fields)
 
 
 def react_slots_event(current: int, total: int) -> dict[str, object]:

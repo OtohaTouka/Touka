@@ -12,6 +12,8 @@ import { formatBytes } from '@/lib/chat/uploadClassify';
 import { ToolStepTracker } from "./ToolStepTracker";
 import { InterjectionMarker } from "./InterjectionMarker";
 import { AgentActivityStrip } from "./AgentActivityStrip";
+import { GenerationFailedNotice } from "./GenerationFailedNotice";
+import { GENERATION_FAILURE_KIND } from '@/hooks/useProgress';
 import { ThinkingFold } from "./ThinkingFold";
 import { MessageNode, TreeHistory } from '@/lib/tree_history';
 import { useTheme } from "@/lib/ThemeContext";
@@ -226,7 +228,7 @@ export const MessageItem = React.memo(({
                 </div>
               )}
               {msg.role === 'assistant' && msg.generationFailed && (
-                <div role="alert" className="text-sm text-status-error">{t('chat.message_item.generation_failed')}</div>
+                <GenerationFailedNotice messageId={msg.id} failure={msg.progress?.[GENERATION_FAILURE_KIND]} />
               )}
               {msg.role === 'assistant' && msg.progress && (
                 <AgentActivityStrip progress={msg.progress} />

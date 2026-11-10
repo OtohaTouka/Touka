@@ -40,10 +40,6 @@ ALLOWLIST: list[dict[str, str]] = [
     {"method": "get", "path_prefix": "/models"},
     {"method": "get", "path_prefix": "/v1/models"},
 
-    # ── Heartbeat 連通性探針（無驗證設計）──────────────────────────────────
-    {"method": "get", "path_prefix": "/heartbeat/test"},
-    {"method": "get", "path_prefix": "/v1/heartbeat/test"},
-
     # ── 系統日誌別名（observability — 移至 allowlist）───────────────────────
     # GET /system_logs 是 /logs/recent 的別名，與其他 observability 端點一致。
     {"method": "get", "path_prefix": "/system_logs"},

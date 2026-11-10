@@ -2,12 +2,22 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 子代理的專案與只能看（2026-11-10，ADR-0309）
+
+- `dispatch_subagent`、`dispatch_subagent_group` 派出的子代理看得到對話綁定的專案（`scope=project`）；專案只來自綁定，派出時算一次。
+- 新參數 `read_only`（群組是每個子任務各一個）：true 時非 `read_only` 類的工具一律拒絕，三種模式都一樣。
+
+## 提問沒等到回答（2026-11-09，ADR-0308）
+
+- 工具 `ask_user` 逾時或全部空白時，這一輪結束、不再呼叫模型；串流裡多一段固定文字（問題、選項、已答內容、用過的工具），之後照一般回合收尾。
+
 ## 身分與防呆（2026-11-07，ADR-0304）
 
 - 首裝卡（LDH 在 `X-New-Auth-Token` 發的卡）帶記號 `src: "ldh"`。系統認領後（有任何完成真密碼設定的使用者），帶記號的卡一律 401 `AUTH_INVALID_TOKEN`；認領前，卡的身分和發卡時一樣（不帶類型旗標）。`X-Agent-ID` 是使用者 id 時 LDH 不發卡。
 - 使用者只收 `type: "access"` 的 token：中央 Bearer 閘（`verify_token`）與 `get_current_user`（`/auth/*` 等）對沒有 type、`sub` 是使用者的 token 回 401。
 - 檔案工具的 `project_id` 只來自 ctx 或 session 綁定的專案（`isolation/policy.session_project_id`），模型在參數裡填的值不採用；沒有綁定時工具拿到 None。
 - 還原進行中（`restore_in_progress()`）回 409 `SYSTEM_RESTORE_IN_PROGRESS`（1414）：`DELETE /v1/souls/{id}`（身分檢查之後、驗密碼之前）、`DELETE /v1/ui/custom_models/{id}`、`POST /v1/ui/custom_models/{id}/rename`，以及對自訂模型的 `DELETE /v1/models/{id}`。
+- `GET /v1/heartbeat/test` 要管理員（2026-11-09；沒登入回 401 或 403，非管理員回 403）。
 - `POST /v1/mcp/hub/sync` 失敗改回標準錯誤 500 `SYSTEM_ERROR`（原本是 `{"error": <例外原文>}`）；`GET /v1/heartbeat/test` 連不到時 `message` 是固定文字；`GET /` 的 `degraded_reason` 只剩類別（`Memory System module not found.`／`dependency error.`／`crash.`），細節在伺服器 log。
 
 ## Hook 設定與事件（2026-10-28，ADR-0292）
@@ -31,7 +41,7 @@
 - 代理人的檔案動詞（各 scope）不跟隨連結：路上有 symlink 或 junction 時讀寫刪回錯誤「the path goes through a symbolic link or junction; links are not followed.」；list 把連結列成「名稱 (link, not followed)」，find、grep 不進入也不列出連結。
 - 審批卡事件 `tool_approval_request` 多選填欄位 `hook_reason`：PreToolUse hook 要求確認時才有（沒有理由時是空字串）；這種卡不送審查員，無人在場直接拒絕。
 - 工具結果：PreToolUse hook 擋下時回 `permission_denied`（`reason: "hook_denied"`、`hook_reason`）；工具在等 PreToolUse hook 時這個對話被停止，hook 跑完後不執行，回 `permission_denied`（`reason: "stopped_by_user"`）；hook 的補充說明以 `hook_output` 鍵（JSON 結果，標 `trust: "untrusted"`）或 `<hook_output>` 區塊（文字結果）接在工具結果後面。
-- 模型失敗：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時，這一輪是一般的模型失敗（`RoundError`），UI 串流以 `generation: "error"` 結束。
+- 模型失敗：OpenAI 相容 API 回 200 但內容讀不懂或不是物件時，這一輪是一般的模型失敗（`RoundError`），UI 串流以 `generation: "error"` 結束。結束前多送一則 `touka_progress`（`kind: generation_failure`，帶 `error_type`；人類 admin 另帶消毒過的廠商原文 `detail`），串流結束事件的欄位不動。
 - 工具結果（續）：PermissionRequest hook 拒絕時回同樣的 `permission_denied`（`reason: "hook_denied"`、`hook_reason`），沒有 `tool_approval_request`；等這個 hook 時被停止回 `reason: "stopped_by_user"`。內建工具缺 schema 列的必要參數時回 `validation_error`（`param` 是第一個缺的），沒有 `tool_start`，和 hook 設定無關。
 - 事件內容（共同欄位 `session_id`、`agent_id`、`incognito`，有模式時多 `permission_mode`）：
   - PostToolUseFailure：`tool_name`、`tool_input`、`tool_use_id`、`error`（先遮憑證與路徑）；工具真的開始跑之後失敗才有（結構化錯誤、MCP 回錯誤、丟例外、終端結束碼不是 0、舊工具結果開頭是 `Error:`／`❌`；內容裡出現這些字不算，走 PostToolUse）。
@@ -817,6 +827,21 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **健康檢查與保護**: 
     - `check_models_health()` 自動驗證所有連線。
     - **靈魂硬保護 (Soul Guard)**: 物理靈魂目錄（L1）受豁免保護，清理機制（Pruning）嚴禁移除存在物理實體的靈魂代理人。
+
+### 1a. 模型下架提醒（ADR-0310）
+- **端點**: `GET /v1/models/lifecycle-alerts`（需要登入，非 admin 也是 200）
+- **輸出**: `alerts`（每筆 `model`、`status`、`retires_at`、`souls`、`reviewer`、`summarizer`）與 `checking`（背景正在查廠商清單，等一下再問會有新結果）。
+- **`status`**: `retiring`（30 天內，含第 30 天）、`overdue`（排定的日期已過）、`date_unknown`（已標停用、沒有日期）、`retired`（官方標示已下架）、`not_found`（`complete_once` 實際呼叫時廠商回找不到模型）。
+- **範圍**: 只算靈魂（`brain_settings` 裡的人類、自訂模型不算），比照 `/stats`（`can_access_session`）；`reviewer`、`summarizer` 只回給人類 admin，其他人連那幾筆都沒有。自訂連線的模型不提醒。
+- **觸發**: 呼叫這個端點會順便看要不要查 Anthropic、OpenAI 的清單（背景、不等結果；成功一天一次，失敗每家隔一小時；`OPENAI_BASE_URL` 被改過就不查 OpenAI）。`MODEL_LIFECYCLE_CHECK_ENABLED=false` 就不對外查。
+
+### 1b. 快取命中率與價目表（ADR-0311）
+- **`GET /v1/stats` 多兩欄**: `cache_hit_rates`（靈魂 → 用途 → 近 7 天的比例；這段時間沒有輸入是 `null`；範圍和 `token_usage` 相同）、`pricing`（`verified_at`、`has_override`、`estimated_models`；讀不到時整欄是 `null`，其他欄位照舊）。
+- **命中率**: 快取讀 ÷（未快取輸入＋快取讀＋快取寫）。`token_usage` 每個用途多一個 `daily`（UTC 日序號 → 四欄），保留 14 天。
+- **用途**: `token_usage.json` 的鍵，可能是廠商標籤、旁路用途或自訂連線名稱。
+- **`estimated_models`**: 在用但沒有具體價格的模型，範圍和模型下架提醒相同。
+- **價格來源**: `pricing.resolve` 回 `override`、`builtin`、`family`（用該家已知最高價）或 `fallback`；稽核 CSV 的 `rate_source` 同值。
+- **OpenAI 的快取寫入**: Responses 的 `input_tokens_details.cache_write_tokens`、Chat Completions 的 `prompt_tokens_details.cache_write_tokens` 算快取寫，從未快取輸入拆出來（GPT-5.6 起另有價錢）；沒帶就是 0。
 
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)

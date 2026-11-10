@@ -22,7 +22,7 @@ tool_result ephemeral 輪替）／上游串流（ADR-0248）／native thinking �
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from anthropic import APIConnectionError, APIStatusError
@@ -504,5 +504,6 @@ def _sdk_error(error: Exception, *, opened: bool = False, stream: bool = True) -
     if opened:  # 200 之後的 error 事件（SDK 包成狀態 200）：看本文的錯誤型別
         body = error.body.get("error", error.body) if isinstance(error.body, dict) else None
         return retry.on_error_body(result, body, "Claude")
+    result = replace(result, detail=retry.error_message(error.body))
     return retry.on_status(result, error.status_code, error.response.headers,
                            f"Claude busy ({error.status_code})")

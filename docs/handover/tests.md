@@ -44,6 +44,7 @@
 - Guard #22 的 pip-audit 空輸出：2026-10-21 起自動重跑一次，仍空就回報「掃描沒跑成」並判紅；【推測】是查詢服務暫時沒回應，根因沒抓到，下次遇到用 `guard_all.py --audit-evidence-root` 保留 stderr 看原因。
 - 【推測】禁令 22 的轉址守衛用檔案系統掃描，以後若有人在 ToukaHeartbeat 或 ToukaDispatch 底下建自己的 `.venv`，守衛會掃到第三方套件而變紅。
 - 強制結束（工作管理員、kill、當機）的 pytest 仍會在系統暫存留下 `touka_test_session_*`；「下次執行時清掉以前留下的」延後，再累積時做（ADR-0251）。
+- 實際驗證的 `sendMessage`（`ToukaChat/e2e-real/lib/ui.ts`）在 Windows 本機偶爾送不出去：2026-11-09 連跑 8 次有 2 次，都在 `hooks-baseline.spec.ts`，訊息留在輸入框、後端沒收到請求，等回覆逾時，整次 exit=1。填字後馬上按 Enter，離頁面載入約 250 毫秒，【推測】頁面還沒準備好。CI 上有沒有發生未知。
 - `tests/unit/test_soul_primary_model_choice.py` 在 Windows 本機時好時壞：建立靈魂時 `invalidate_agent_sessions` 偶爾回 `SESSION_SAVE_FAILED`（例外被吞掉，沒有記下原因）。10/25 在 dev `4e5c85c5` 的乾淨複本上單獨跑 4 次，3 次各有 1～4 個失敗；整套 pytest 時常常剛好過。還沒查原因，CI 上是否也會發生未知。
 - Guard #45 基準檔裡 `ToukaProxy/src/tools/mission_tools.py` 的 `mission_tools`（typed）讀取快照和程式不一致，是早期改動留下的、不在 ADR-0256 範圍；守衛不比對這部分所以不會變紅，但這份快照不能拿來當現況參考。
 - Guard #45 基準裡 5 條記憶相關的有型別快照（`MemoryManager.save_memory`／`query_memory`／`resolve_duplicate`、`diag.manage_duplicate_memories`、Proxy 閘道 `memory_tools`）比程式舊；守衛不比對這部分，不會變紅（ADR-0263）。

@@ -3,7 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { AgentProgress, ProgressMap } from '@/lib/tree_history';
-import { describeProgress } from '@/hooks/useProgress';
+import { describeProgress, GENERATION_FAILURE_KIND } from '@/hooks/useProgress';
 import {
   Activity,
   RefreshCw,
@@ -44,7 +44,9 @@ function kindIcon(kind: string) {
  */
 export function AgentActivityStrip({ progress }: AgentActivityStripProps) {
   const { t } = useTranslation();
-  const items: AgentProgress[] = progress ? Object.values(progress) : [];
+  const items: AgentProgress[] = progress
+    ? Object.values(progress).filter((p) => p.kind !== GENERATION_FAILURE_KIND)
+    : [];
   if (items.length === 0) return null;
 
   return (

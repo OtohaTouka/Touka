@@ -131,7 +131,7 @@ async def test_group_distinct_temp_identities(monkeypatch):
 
     real_run = st._run_subagent
 
-    async def _spy_assemble(*, goal, sub_identity, base_ctx, model):
+    async def _spy_assemble(*, goal, sub_identity, base_ctx, model, scope=None):
         seen_ids.append(sub_identity.agent_id)
 
         class _R:

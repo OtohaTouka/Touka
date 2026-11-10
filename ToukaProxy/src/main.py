@@ -119,6 +119,7 @@ from .services.identity_router import get_verified_identity
 from .services.identity_service import identity_service
 from .services.isolation.status import isolation_monitor
 from .services.model_manager import model_manager
+from .services.models.model_lifecycle import model_lifecycle_service
 from .services.permission_service import permission_service
 from .services.resource_manager import resource_manager
 from .services.skill_service import skill_service
@@ -568,6 +569,8 @@ async def _lifespan_runtime(
     # 由 config/backup_schedule.json 控制）。
     # 以 spawn_logged 啟動，cancel_all_background_tasks() 於關機時取消。
     spawn_logged(backup_scheduler.run_loop(), name="backup_scheduler")
+    # ADR-0310：啟動時看一次模型下架日；之後由有人開畫面觸發，Proxy 不自己排程。
+    model_lifecycle_service.trigger_check()
     yield
 
 

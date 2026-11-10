@@ -98,6 +98,7 @@ def _enforce_pytest_metered_features_off() -> None:
     """Keep every automated test boundary free of live provider credentials."""
     os.environ["TOUKA_EVAL_JUDGE_ENABLED"] = "false"
     os.environ["ENABLE_DYNAMIC_MODELS"] = "false"
+    os.environ["MODEL_LIFECYCLE_CHECK_ENABLED"] = "false"
     for _offline_flag in ("HF_HUB_OFFLINE", "HF_DATASETS_OFFLINE", "TRANSFORMERS_OFFLINE"):
         os.environ[_offline_flag] = "1"
     network_guard.clear_proxy_environment(os.environ)

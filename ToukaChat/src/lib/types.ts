@@ -10,6 +10,7 @@ export type UiPersistence = components['schemas']['UiPersistence'];
 export type SessionSnapshot = components['schemas']['PresentSessionSnapshot'] | components['schemas']['AbsentSessionSnapshot'];
 export type BufferedStreamState = components['schemas']['BufferedStreamState'];
 export type Interjection = components['schemas']['Interjection'];
+export type ModelLifecycleAlert = components['schemas']['ModelLifecycleAlert'];
 export type RestoreStatus = components['schemas']['RestoreStatus'];
 export type AgentResetRequest = components['schemas']['AgentResetRequest'];
 export type AgentResetResponse = components['schemas']['AgentResetResponse'];

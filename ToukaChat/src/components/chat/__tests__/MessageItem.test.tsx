@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageItem } from '../MessageItem';
+import { useFailureDetails } from '@/lib/chat/failureDetailStore';
 import React from 'react';
 
 const translation = vi.hoisted(() => ({ current: null as ((key: string) => string) | null }));
@@ -89,6 +90,20 @@ describe('MessageItem', () => {
     const msg = { id: '2', role: 'assistant', content: '', parentId: '1', childrenIds: [], generationFailed: true } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);
     expect(screen.getByRole('alert')).toHaveTextContent('這一輪回覆失敗');
+  });
+
+  it('回覆失敗時講得出原因，活動列不多一個膠囊', () => {
+    const msg = {
+      id: '2', role: 'assistant', content: '', parentId: '1', childrenIds: [], generationFailed: true,
+      progress: { generation_failure: { kind: 'generation_failure', error_type: 'model_not_found' } },
+    } as any;
+    useFailureDetails.setState({ details: { '2': 'gone' } });
+    render(<MessageItem {...defaultProps} msg={msg} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('可能已下架或名稱不對');
+    expect(alert).toHaveTextContent('gone');
+    useFailureDetails.setState({ details: {} });
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull();
   });
 
   it('一般的回覆沒有失敗標示', () => {

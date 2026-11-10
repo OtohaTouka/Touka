@@ -26,6 +26,7 @@ from src.handlers.interjections import InterjectionRound
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import UiGenerationStopped
 from src.services.interjection_queue import InMemoryInterjectionQueue
+from src.utils.ask_user_stop import mark_unanswered
 
 from tests.helpers.stream_transport import FakeUpstream, json_reply, status_reply, stream_reply
 
@@ -129,6 +130,30 @@ async def test_drained_at_step_n_and_delivered_after_the_next_round_is_sent(monk
     assert delivered < answer  # 下一輪送出成功之後、這一輪的文字之前
     assert [(i.status, i.step) for i in queue.list_items(_SID, _STREAM)] == [("delivered", 2)]
     assert _events(chunks, "interjection_undelivered") == []
+
+
+async def test_a_question_left_unanswered_hands_queued_text_back(monkeypatch):
+    """問題沒等到回答、這一輪停下：等待時排隊的文字沒有人讀到，要退回給前端（ADR-0308）。"""
+    async def asks(self, name, args, request_id, ctx, queue, call_id=None,
+                   actually_used_tools=None):
+        mark_unanswered(ctx, [{"question": "要繼續嗎？"}])
+        await queue.put(None)
+        return "沒等到回答"
+
+    monkeypatch.setattr(react_core.ToolExecutor, "execute_to_queue", asks)
+    queue = InMemoryInterjectionQueue()
+    ids, hook = _enqueue_at(queue, 1, "時間到才送出")
+    upstream = FakeUpstream([stream_reply(_TOOL, "one"), stream_reply(openai_text("猜"), "one")],
+                            on_request=hook)
+    upstream.install(monkeypatch)
+    chunks, stopped = await _run(queue, _ctx("r-ij-ask"))
+    assert (stopped, len(upstream.requests)) == (None, 1)
+    assert _events(chunks, "interjection_delivered") == []
+    assert _events(chunks, "interjection_undelivered") == [
+        {"type": "interjection_undelivered", "interjection_ids": ids}]
+    returned = next(i for i, c in enumerate(chunks) if "interjection_undelivered" in c)
+    assert returned < chunks.index("data: [DONE]\n\n")
+    assert [i.status for i in queue.list_items(_SID, _STREAM)] == ["undelivered"]
 
 
 async def test_next_round_failing_every_retry_turns_it_undelivered(monkeypatch):

@@ -30,6 +30,7 @@ import itertools
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.adapters.schemas import AnthropicRequest
@@ -40,7 +41,9 @@ from src.services import tool_errors
 from src.services.dispatch_callback_store import get_callback_store
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_start_hooks
+from src.services.isolation.policy import session_project_id
 from src.services.model_manager import model_manager
+from src.services.resource_manager import resource_manager
 from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_report
 from src.tools.contracts import MAX_SUBAGENT_GROUP, SUBAGENT_GROUP_CONCURRENCY
 from src.utils.auth_mode import enforce_incognito_manual
@@ -74,6 +77,10 @@ _SUBAGENT_STRIPPED_TOOLS = frozenset({"dispatch_subagent", "dispatch_subagent_gr
 _MAX_GROUP = MAX_SUBAGENT_GROUP
 _DEFAULT_GROUP_CONCURRENCY = SUBAGENT_GROUP_CONCURRENCY
 
+# 給子代理的固定提示（ADR-0309）：不放專案的真實路徑
+PROJECT_NOTE = '這個任務可以用對話綁定的專案：檔案工具帶 scope="project"，路徑相對於專案根目錄。'
+READ_ONLY_NOTE = "你只能查看，不能修改任何檔案；發現的問題請寫在回報裡。"
+
 # 背景任務強引用：僅存 Task 物件防 GC 中途取消（asyncio 官方建議模式）。
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 
@@ -83,6 +90,23 @@ _BACKGROUND_TASKS: set[asyncio.Task] = set()
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class SubagentScope:
+    """這個子代理碰得到什麼：派出時算一次，組裝與執行用同一份（ADR-0309）。"""
+
+    project_id: str | None = None
+    has_project: bool = False
+    read_only: bool = False
+
+
+_NO_SCOPE = SubagentScope()
+
+
+def _is_read_only(value: Any) -> bool:
+    """沒給、null 或明確的 false 才算可寫；看不懂的值一律當只能看（往安全的方向錯）。"""
+    return value is not None and value is not False
+
+
 class SubagentStoppedError(Exception):
     """等 SubagentStart hook 的期間使用者按了停止：不送模型（禁令 67 ⑦）。"""
 
@@ -90,12 +114,18 @@ class SubagentStoppedError(Exception):
         super().__init__("The user stopped this run before the subagent started.")
 
 
-def _subagent_user_prompt(goal: str) -> str:
+def _subagent_user_prompt(goal: str, scope: SubagentScope = _NO_SCOPE) -> str:
     """子代理的自包含任務指示（子代理看不到主對話上下文）。"""
+    notes = [
+        *([PROJECT_NOTE] if scope.has_project else []),
+        *([READ_ONLY_NOTE] if scope.read_only else []),
+    ]
+    limits = "".join(f"{note}\n" for note in notes)
     return (
         "你是 Touka 的 in-process 子代理，負責完成以下單一任務。\n"
         "完成後請直接輸出最終結果全文（會原樣回傳給主代理），"
-        "不要提問、不要等待後續指示。\n\n"
+        "不要提問、不要等待後續指示。\n"
+        f"{limits}\n"
         f"【任務】\n{goal.strip()}\n\n"
         f"{REPORT_INSTRUCTION}"
     )
@@ -108,7 +138,9 @@ def _derive_context(base_ctx: Any) -> PipelineContext:
     return PipelineContext(**dict(base_ctx or {}))
 
 
-def _mark_subagent_run(ctx: PipelineContext, base_ctx: Any, goal: str) -> None:
+def _mark_subagent_run(
+    ctx: PipelineContext, base_ctx: Any, goal: str, scope: SubagentScope
+) -> None:
     """子代理一律無人在場（U2c-2）。
 
     子 loop 只收文字、審批卡送不到人：要人核准的動作立刻拒絕或等人確認，不等 180 秒
@@ -119,6 +151,9 @@ def _mark_subagent_run(ctx: PipelineContext, base_ctx: Any, goal: str) -> None:
     ctx["dispatch_run"] = True
     ctx["subagent_goal"] = goal
     ctx["user_intent"] = subagent_intent(base_ctx.get("user_intent"))
+    # 專案只來自對話的綁定，不收模型填的值；工具清單（組裝）與權限判定（執行）都讀這裡
+    ctx["project_id"] = scope.project_id
+    ctx["subagent_read_only"] = scope.read_only
 
 
 async def _assemble_subagent_request(
@@ -127,6 +162,7 @@ async def _assemble_subagent_request(
     sub_identity: AgentIdentity,
     base_ctx: Any,
     model: str | None,
+    scope: SubagentScope = _NO_SCOPE,
 ) -> AnthropicRequest:
     """跑真實 ProxyPipeline 為子代理組裝請求（ADR-0133 模式），後剝除遞迴能力。
 
@@ -145,7 +181,7 @@ async def _assemble_subagent_request(
     # convert_to_openai 會轉送呼叫端明確給的值（O20，給 IDE 的 Anthropic 入口；ADR-0254）。
     request = AnthropicRequest(
         model=(model or "").strip() or sub_identity.agent_id,
-        messages=[{"role": "user", "content": _subagent_user_prompt(goal) + started.text}],
+        messages=[{"role": "user", "content": _subagent_user_prompt(goal, scope) + started.text}],
     )
 
     ctx = _derive_context(base_ctx)
@@ -161,7 +197,7 @@ async def _assemble_subagent_request(
     ctx.request_id = f"assemble:{sub_identity.agent_id}"
     ctx["is_toukasoul"] = False
     ctx["enable_autonomy"] = False
-    _mark_subagent_run(ctx, base_ctx, goal)
+    _mark_subagent_run(ctx, base_ctx, goal, scope)
 
     await pipeline.execute(request, ctx)
 
@@ -211,6 +247,7 @@ async def _run_subagent(
     parent_request_id: str,
     base_ctx: Any,
     model: str | None,
+    read_only: bool = False,
 ) -> str:
     """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出。"""
     seq = next(_SUB_SEQ)
@@ -233,10 +270,16 @@ async def _run_subagent(
 
     reply = ""
     try:
-        request = await _assemble_subagent_request(
-            goal=goal, sub_identity=sub_identity, base_ctx=base_ctx, model=model
+        project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
+        # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
+        has_project = bool(
+            project_id and await resource_manager.get_project_path(project_id, sub_identity)
         )
-        reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal)
+        scope = SubagentScope(project_id, has_project, read_only)
+        request = await _assemble_subagent_request(
+            goal=goal, sub_identity=sub_identity, base_ctx=base_ctx, model=model, scope=scope
+        )
+        reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal, scope)
     finally:
         notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
@@ -248,6 +291,7 @@ async def _run_assembled(
     sub_request_id: str,
     base_ctx: Any,
     goal: str,
+    scope: SubagentScope,
 ) -> str:
     """跑組裝好的子代理請求，回傳最終文字。"""
     ctx = _derive_context(base_ctx)
@@ -261,7 +305,7 @@ async def _run_assembled(
     # 子代理仍不扣每日配額（配額只在 heartbeat pulse 派發時計一次）。
     ctx["enable_autonomy"] = bool(base_ctx.get("enable_autonomy"))
     ctx["pulse_rounds"] = None
-    _mark_subagent_run(ctx, base_ctx, goal)
+    _mark_subagent_run(ctx, base_ctx, goal, scope)
     # 子代理只用自己組裝出的清單（已剝除派工工具），不沿用父代理的
     ctx.advertised_tools = AdvertisedTools.from_schemas(request.tools)
 
@@ -315,6 +359,7 @@ async def _run_and_deliver(
     base_ctx: Any,
     model: str | None,
     task_id: str | None,
+    read_only: bool = False,
 ) -> None:
     """背景執行子 loop，無論成敗一律 deliver（in-process 直呼，等待者絕不空等）。
 
@@ -329,6 +374,7 @@ async def _run_and_deliver(
             parent_request_id=parent_request_id,
             base_ctx=base_ctx,
             model=model,
+            read_only=read_only,
         )
         payload = _result_from_text(text, label)
     except Exception as exc:
@@ -384,6 +430,7 @@ async def run_subagent_group(
                     parent_request_id=f"{parent_request_id}:grp{index + 1}",
                     base_ctx=base_ctx,
                     model=(spec.get("sub_model") or "").strip() or model,
+                    read_only=_is_read_only(spec.get("read_only")),
                 )
                 return _result_from_text(text, label)
             except Exception as exc:  # noqa: BLE001 — 隔離：一子失敗不沉全組
@@ -406,6 +453,7 @@ async def dispatch_subagent(
     request_id: str = "",
     model: str | None = None,
     _ctx: Any = None,
+    read_only: Any = None,
     **_kwargs: Any,
 ) -> str:
     """派出一個 in-process 子代理非同步執行單一自包含任務.
@@ -421,6 +469,7 @@ async def dispatch_subagent(
         request_id: 父請求 ID（executor 注入）；子 loop 用衍生 ``{parent}:sub{n}``。
         model: 主 agent 目前模型（executor 注入）＝ ``sub_model`` 未指定時的預設。
         _ctx: 父 PipelineContext（executor 注入）；缺失即回結構化 internal_error。
+        read_only: （選）true＝子代理只能查看，不能修改任何檔案。
         **_kwargs: 其餘 executor 注入參數（不使用）。
     """
     if not str(goal or "").strip():
@@ -449,6 +498,7 @@ async def dispatch_subagent(
             base_ctx=_ctx,
             model=(sub_model or "").strip() or (model or "").strip() or None,
             task_id=task_id,
+            read_only=_is_read_only(read_only),
         ),
         name=f"subagent:{token[:8]}",
     )
@@ -482,7 +532,7 @@ async def dispatch_subagent_group(
     的非阻塞語義時，改用 ``dispatch_subagent``（逐一 token）。
 
     Args:
-        subtasks: 子任務清單，每項 ``{goal, task_id?, sub_model?}``；goal 必須自包含。
+        subtasks: 子任務清單，每項 ``{goal, task_id?, sub_model?, read_only?}``；goal 必須自包含。
         identity: 主 agent 身分（executor 注入）。
         request_id: 父請求 ID（executor 注入）。
         model: 主 agent 目前模型（executor 注入）＝子任務未指定 sub_model 時的預設。

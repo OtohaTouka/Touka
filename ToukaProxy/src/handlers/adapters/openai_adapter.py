@@ -253,7 +253,8 @@ class OpenAIAdapter:
                 f"Raw error:\n`{error_msg}`",
                 error_type=retry.AUTHENTICATION_FAILED,
             )
-        error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`")
+        error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`",
+                           detail=retry.error_message(error_msg))
         # 只有可重試的才讀 retry-after 標頭
         headers = response.headers if retry.retryable_status(status) else None
         return retry.on_status(error, status, headers, f"{state.provider} busy ({status})")
@@ -341,23 +342,26 @@ class OpenAIAdapter:
                                  lambda: self.set_tool_choice(state, mode))
 
     def extract_usage(self, _state: _State, raw: Any) -> tuple[dict, int, int]:
-        """Usage → 四欄正規化（prompt_tokens 含 cached_tokens，扣掉才是未快取輸入）。
+        """Usage → 四欄正規化（prompt_tokens 含快取讀與寫，都扣掉才是未快取輸入）。
 
         快取讀取 ``prompt_tokens_details.cached_tokens``，沒有才用 DeepSeek 頂層的
-        ``prompt_cache_hit_tokens``，兩者都在不相加（ADR-0250 A7）。
+        ``prompt_cache_hit_tokens``，兩者都在不相加（ADR-0250 A7）。快取寫取
+        ``prompt_tokens_details.cache_write_tokens``（GPT-5.6 起另有價錢，ADR-0311）。
         回傳新 dict、不改 raw（終端 chunk 原樣帶出 raw["usage"]）。
         """
         usage = raw.get("usage") or {}
         if not usage:
             return ({}, 0, 0)
-        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+        details = usage.get("prompt_tokens_details") or {}
+        cached = details.get("cached_tokens")
         if cached is None:
             cached = usage.get("prompt_cache_hit_tokens")
         uncached, cache_read = split_included_cache(usage.get("prompt_tokens"), cached)
+        uncached, cache_write = split_included_cache(uncached, details.get("cache_write_tokens"))
         return normalized_usage(
             uncached_input=uncached,
             cache_read=cache_read,
-            cache_write=0,
+            cache_write=cache_write,
             output=usage_count(usage.get("completion_tokens")),
         )
 
@@ -373,7 +377,8 @@ class OpenAIAdapter:
         return estimate_partial_usage(
             request=state.payload, output_text=_received_text(raw),
             reported_input=None if usage is None else (
-                usage["prompt_tokens"], usage["cache_read_input_tokens"], 0),
+                usage["prompt_tokens"], usage["cache_read_input_tokens"],
+                usage["cache_creation_input_tokens"]),
             reported_output=None if usage is None else usage["completion_tokens"],
         )
 

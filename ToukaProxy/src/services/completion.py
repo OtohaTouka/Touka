@@ -50,6 +50,7 @@ from src.services.dispatchers.route_family import (
 )
 from src.services.dispatchers.utils import get_provider_info
 from src.services.model_manager import model_manager
+from src.services.models.model_lifecycle import model_lifecycle_service
 from src.services.telemetry import accumulate_token_usage, estimate_cost_usd, log_usage_audit
 from src.services.tool_errors import (
     INTERNAL_ERROR,
@@ -348,7 +349,10 @@ async def complete_once(
             model,
             raw.user_message[:_LOG_DETAIL_LIMIT],
         )
+        if raw.error_type == "model_not_found":  # 審查員、摘要員沒有畫面講原因（ADR-0310）
+            model_lifecycle_service.record_not_found(model)
         return _failure(REASON_UPSTREAM)
+    model_lifecycle_service.clear_not_found(model)
     try:
         usage, _total_input, _output = adapter.extract_usage(state, raw)
     except Exception:

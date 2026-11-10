@@ -1987,6 +1987,14 @@
           ]
         ],
         "dynamic": []
+      },
+      "_wait_seconds": {
+        "parameters": [
+          "value"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
       }
     },
     "ToukaProxy/src/tools/builtin/memory.py": {
@@ -2988,7 +2996,8 @@
     "ToukaProxy/src/tools/subagent_tools.py": {
       "_subagent_user_prompt": {
         "parameters": [
-          "goal"
+          "goal",
+          "scope"
         ],
         "kwargs": null,
         "reads": [],
@@ -3008,7 +3017,8 @@
         "parameters": [
           "ctx",
           "base_ctx",
-          "goal"
+          "goal",
+          "scope"
         ],
         "kwargs": null,
         "reads": [
@@ -3024,7 +3034,8 @@
           "goal",
           "sub_identity",
           "base_ctx",
-          "model"
+          "model",
+          "scope"
         ],
         "kwargs": null,
         "reads": [
@@ -3070,10 +3081,16 @@
           "parent_identity",
           "parent_request_id",
           "base_ctx",
-          "model"
+          "model",
+          "read_only"
         ],
         "kwargs": null,
-        "reads": [],
+        "reads": [
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
         "dynamic": []
       },
       "_result_from_text": {
@@ -3102,7 +3119,8 @@
           "parent_request_id",
           "base_ctx",
           "model",
-          "task_id"
+          "task_id",
+          "read_only"
         ],
         "kwargs": null,
         "reads": [],
@@ -3135,6 +3153,10 @@
           ],
           [
             "spec",
+            "read_only"
+          ],
+          [
+            "spec",
             "sub_model"
           ],
           [
@@ -3152,7 +3174,8 @@
           "identity",
           "request_id",
           "model",
-          "_ctx"
+          "_ctx",
+          "read_only"
         ],
         "kwargs": "_kwargs",
         "reads": [],
@@ -3189,7 +3212,8 @@
           "sub_identity",
           "sub_request_id",
           "base_ctx",
-          "goal"
+          "goal",
+          "scope"
         ],
         "kwargs": null,
         "reads": [
@@ -3198,6 +3222,14 @@
             "enable_autonomy"
           ]
         ],
+        "dynamic": []
+      },
+      "_is_read_only": {
+        "parameters": [
+          "value"
+        ],
+        "kwargs": null,
+        "reads": [],
         "dynamic": []
       }
     },

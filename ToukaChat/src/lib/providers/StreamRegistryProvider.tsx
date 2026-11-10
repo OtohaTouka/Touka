@@ -22,6 +22,7 @@ import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
 import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, recordInterjection, stampNodeTime, dropBlockedTurn, hasPendingApproval } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
+import { rememberFailureDetail } from "../chat/failureDetailStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
 import { getLinearMessages, migrateFlatToTree, TreeHistory } from "../tree_history";
 import { getSystemEpoch } from "../time_utils";
@@ -226,6 +227,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
         useArtifacts.getState().setIsOpen(true);
         window.dispatchEvent(new CustomEvent("touka_mission_updated"));
       }
+      rememberFailureDetail(streamsRef.current[sessionId].assistantMsgId, event);
       commit(prev => {
         const s = prev[sessionId];
         if (!s || s.controller !== controller) return prev;

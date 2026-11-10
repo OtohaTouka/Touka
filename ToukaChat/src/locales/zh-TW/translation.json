@@ -1431,6 +1431,22 @@
       "tcp_missing": "隔離沒有擋住網路：主機的 Linux 核心不夠新（需要 6.7 以上），指令擋不住連往 Touka 內部服務與本機上游埠的連線。",
       "relock": "有代理人反覆鎖住自己的工作區權限，這一分鐘的自動修復額度用完了：指令可能間歇失敗，下一分鐘會自動恢復。"
     },
+    "cache_hit": {
+      "title": "快取命中率（近 7 天）",
+      "labels": {
+        "summarizer": "摘要員",
+        "critic": "互審",
+        "judge": "創建評分",
+        "auto_reviewer": "Auto 審查員",
+        "inline_completion": "行內補全"
+      }
+    },
+    "pricing_note": {
+      "verified_at": "費用依價目表估算，最後查證：{{date}}",
+      "override": "（不含你自己改過的價格）",
+      "estimated": "這些模型沒有具體價格，用該家已知最高價或保守預設估算：{{models}}",
+      "separator": "、"
+    },
     "system_monitoring_view": {
       "feedback_log_title": "回饋紀錄"
     }
@@ -1454,6 +1470,16 @@
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
       "generation_failed": "這一輪回覆失敗，沒有完成。",
+      "generation_failed_vendor_said": "廠商回覆：",
+      "generation_failed_reason": {
+        "authentication_failed": "這一輪回覆失敗：金鑰或權限有問題。",
+        "rate_limit": "這一輪回覆失敗：請求太多或額度用完。",
+        "billing_error": "這一輪回覆失敗：帳務有問題。",
+        "overloaded": "這一輪回覆失敗：廠商目前很忙。",
+        "server_error": "這一輪回覆失敗：廠商那邊出錯了。",
+        "model_not_found": "這一輪回覆失敗：找不到這個模型，可能已下架或名稱不對。",
+        "invalid_request": "這一輪回覆失敗：廠商拒絕了這次請求。"
+      },
       "save_edit": "儲存修改",
       "copy": "複製",
       "edit": "編輯",
@@ -1701,6 +1727,17 @@
       "failed": "對話尚未保存，或內容已發生衝突。草稿仍保留。",
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
+    },
+    "model_lifecycle": {
+      "retiring": "模型 {{model}} 預計在 {{date}} 下架。",
+      "overdue": "模型 {{model}} 已過官方排定的下架日（{{date}}），隨時可能無法使用。",
+      "date_unknown": "模型 {{model}} 已被官方標示停用，下架日期未定。",
+      "retired": "模型 {{model}} 已被官方標示下架。",
+      "not_found": "呼叫模型 {{model}} 時，廠商回覆找不到這個模型。",
+      "used_by": "使用中：{{users}}。Touka 不會自動換模型，要換請到設定。",
+      "reviewer": "Auto 審查員",
+      "summarizer": "摘要員",
+      "separator": "、"
     },
     "session_updated": {
       "message": "這段對話有新內容。",

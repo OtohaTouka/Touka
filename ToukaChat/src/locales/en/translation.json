@@ -1439,6 +1439,22 @@
       "tcp_missing": "Isolation isn't blocking the network: the host's Linux kernel isn't new enough (6.7 or newer is needed), so commands can reach Touka's internal services and local upstream ports.",
       "relock": "An agent keeps locking its own workspace permissions, and this minute's automatic repairs are used up: commands may fail now and then until the next minute, when it recovers on its own."
     },
+    "cache_hit": {
+      "title": "Cache hit rate (last 7 days)",
+      "labels": {
+        "summarizer": "Summarizer",
+        "critic": "Peer review",
+        "judge": "Creation scoring",
+        "auto_reviewer": "Auto reviewer",
+        "inline_completion": "Inline completion"
+      }
+    },
+    "pricing_note": {
+      "verified_at": "Costs are estimated from the price table, last verified {{date}}",
+      "override": " (your own price changes are not included)",
+      "estimated": "No exact price for these models, estimated at the provider's highest known price or a cautious default: {{models}}",
+      "separator": ", "
+    },
     "system_monitoring_view": {
       "feedback_log_title": "Feedback Log"
     }
@@ -1462,6 +1478,16 @@
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
       "generation_failed": "This reply failed and did not finish.",
+      "generation_failed_vendor_said": "The provider said: ",
+      "generation_failed_reason": {
+        "authentication_failed": "This reply failed: there is a problem with the key or its permissions.",
+        "rate_limit": "This reply failed: too many requests, or the quota is used up.",
+        "billing_error": "This reply failed: there is a billing problem.",
+        "overloaded": "This reply failed: the provider is busy right now.",
+        "server_error": "This reply failed: something went wrong at the provider.",
+        "model_not_found": "This reply failed: this model was not found. It may have been retired, or the name is wrong.",
+        "invalid_request": "This reply failed: the provider refused this request."
+      },
       "save_edit": "Save Edit",
       "copy": "Copy",
       "edit": "Edit",
@@ -1709,6 +1735,17 @@
       "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
       "recheck": "Check save status",
       "retry": "Retry save only"
+    },
+    "model_lifecycle": {
+      "retiring": "Model {{model}} is scheduled to retire on {{date}}.",
+      "overdue": "Model {{model}} has passed its scheduled retirement date ({{date}}) and may stop working at any time.",
+      "date_unknown": "Model {{model}} is marked deprecated. No retirement date has been set.",
+      "retired": "Model {{model}} is marked retired.",
+      "not_found": "The provider said it can't find model {{model}}.",
+      "used_by": "Used by: {{users}}. Touka won't switch models for you; change it in Settings.",
+      "reviewer": "Auto reviewer",
+      "summarizer": "Summarizer",
+      "separator": ", "
     },
     "session_updated": {
       "message": "This conversation has new content.",

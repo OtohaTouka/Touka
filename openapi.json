@@ -1333,6 +1333,33 @@
         }
       }
     },
+    "/v1/models/lifecycle-alerts": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Get Model Lifecycle Alerts",
+        "description": "呼叫者在用的模型裡，快下架或已標停用的（ADR-0310；必須放在 ``/{model_id}`` 之前）。",
+        "operationId": "get_model_lifecycle_alerts_v1_models_lifecycle_alerts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLifecycleAlertsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/models/{model_id}/health": {
       "post": {
         "tags": [
@@ -1621,6 +1648,33 @@
             }
           }
         }
+      }
+    },
+    "/models/lifecycle-alerts": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Get Model Lifecycle Alerts",
+        "description": "呼叫者在用的模型裡，快下架或已標停用的（ADR-0310；必須放在 ``/{model_id}`` 之前）。",
+        "operationId": "get_model_lifecycle_alerts_models_lifecycle_alerts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLifecycleAlertsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/models/{model_id}/health": {
@@ -11147,7 +11201,7 @@
           "heartbeat"
         ],
         "summary": "Test Heartbeat Connectivity",
-        "description": "測試心跳端點的對外連通性。",
+        "description": "測試心跳端點的對外連通性（只有管理員能呼叫）。",
         "operationId": "test_heartbeat_connectivity_v1_heartbeat_test_get",
         "responses": {
           "200": {
@@ -11162,7 +11216,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/v1/heartbeat/retrigger": {
@@ -11429,7 +11488,7 @@
           "heartbeat"
         ],
         "summary": "Test Heartbeat Connectivity",
-        "description": "測試心跳端點的對外連通性。",
+        "description": "測試心跳端點的對外連通性（只有管理員能呼叫）。",
         "operationId": "test_heartbeat_connectivity_heartbeat_test_get",
         "responses": {
           "200": {
@@ -11444,7 +11503,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/heartbeat/retrigger": {
@@ -22626,6 +22690,87 @@
         ],
         "title": "ModelInfo",
         "description": "模型資訊模型。"
+      },
+      "ModelLifecycleAlert": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "retiring",
+              "overdue",
+              "date_unknown",
+              "retired",
+              "not_found"
+            ],
+            "title": "Status"
+          },
+          "retires_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retires At",
+            "description": "官方的下架時間（UNIX 秒）"
+          },
+          "souls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Souls",
+            "description": "呼叫者看得到、用這個模型的靈魂"
+          },
+          "reviewer": {
+            "type": "boolean",
+            "title": "Reviewer",
+            "description": "Auto 審查員在用（只回給人類管理員）",
+            "default": false
+          },
+          "summarizer": {
+            "type": "boolean",
+            "title": "Summarizer",
+            "description": "摘要員在用（只回給人類管理員）",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "status"
+        ],
+        "title": "ModelLifecycleAlert",
+        "description": "一個在用的模型要提醒的事。"
+      },
+      "ModelLifecycleAlertsResponse": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/ModelLifecycleAlert"
+            },
+            "type": "array",
+            "title": "Alerts"
+          },
+          "checking": {
+            "type": "boolean",
+            "title": "Checking",
+            "description": "背景正在查廠商清單，等一下再問會有新結果",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "alerts"
+        ],
+        "title": "ModelLifecycleAlertsResponse",
+        "description": "GET /v1/models/lifecycle-alerts 的回應。"
       },
       "ModelSettingsUpdate": {
         "properties": {
