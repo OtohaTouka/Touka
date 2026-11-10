@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import stat
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -28,6 +30,7 @@ def book(fs, tmp_path: Path) -> GrantBook:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
+        python_dir="C:\\Python",
         touka_folder="D:\\Touka",
     )
     return GrantBook(tmp_path / "g.json", fs=fs, env=env, drive_type=lambda _a: "fixed")
@@ -1106,3 +1109,97 @@ def test_a_previous_copy_that_cannot_be_removed_is_not_a_failure(tmp_path, monke
     monkeypatch.setattr(fsops.Path, "unlink", refuse)
     durable_write_text(target, "new")
     assert read_durable_text(target) == "new"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["Open/.cursor", "Open/a\uff0fb", "Open/a\u3000b"],
+)
+def test_create_folder_refuses_dot_names_and_lookalikes(ops: Operations, path: str) -> None:
+    assert _code(ops.create_folder, {"path": path}) == "file_name"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["Open/.hidden.txt", "Open/.cursor/rules.md", "Open/a\u2215b.txt"],
+)
+def test_create_file_refuses_dot_names_and_lookalikes(fs, ops: Operations, path: str) -> None:
+    fs.add_dir("D:\\Open\\.cursor")
+    assert _code(ops.create_file, {"path": path, "content": "x"}) == "file_name"
+
+
+@pytest.mark.parametrize(
+    "to",
+    ["Open/.a.txt", "Open/.cursor/a.txt", "Open/x\uff3ca.txt", "Open/x\u00a0a.txt"],
+)
+def test_move_destination_refuses_dot_names_and_lookalikes(fs, ops: Operations, to: str) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    fs.add_dir("D:\\Open\\.cursor")
+    items = [{"op": "move", "path": "Open/a.txt", "to": to}]
+    assert _code(ops.plan, {"items": items, "reason": "r"}) == "file_name"
+
+
+def test_secret_files_are_marked_in_the_list(fs, ops: Operations) -> None:
+    fs.add_file("D:\\Open\\server.pem")
+    fs.add_file("D:\\Open\\box\\.env")
+    fs.add_file("D:\\Open\\plain.txt")
+    items = [
+        {"op": "delete", "path": f"Open/{name}"} for name in ("server.pem", "box", "plain.txt")
+    ]
+    plan = ops.plan({"items": items, "reason": "r"})
+    assert ["secret" in item.unusual for item in plan.items] == [True, True, False]
+
+
+@pytest.mark.parametrize("child", ["a\u202eb.txt", "a.{x}", "CON", "A~1.txt"])
+def test_odd_names_inside_a_folder_block_the_item(fs, ops: Operations, child: str) -> None:
+    fs.add_file(f"D:\\Open\\box\\{child}")
+    items = [{"op": "delete", "path": "Open/box"}]
+    assert _code(ops.plan, {"items": items, "reason": "r"}) == "bad_path"
+
+
+def test_path_limit_leaves_room_for_the_git_probe(ops: Operations) -> None:
+    assert _code(ops.read, {"path": "Open/" + "a" * 247}) == "bad_path"
+    assert _code(ops.read, {"path": "Open/" + "a" * 246}) == "not_found"
+
+
+def test_path_limit_counts_utf16_units(ops: Operations) -> None:
+    assert _code(ops.read, {"path": "Open/" + "😀" * 124}) == "bad_path"
+
+
+def test_write_that_fails_with_no_old_file_leaves_nothing_to_read(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "a.json"
+    real = fsops.Path.rename
+
+    def refuse(self: Path, destination: Path) -> Path:
+        if self.name.endswith(".new"):
+            raise PermissionError(13, "held")
+        return real(self, destination)
+
+    monkeypatch.setattr(fsops.Path, "rename", refuse)
+    with pytest.raises(PermissionError):
+        durable_write_text(target, "new")
+    monkeypatch.undo()
+    assert not fsops.temporary_path(target).exists()
+    with pytest.raises(FileNotFoundError):
+        read_durable_text(target)
+
+
+@pytest.mark.parametrize(
+    ("attributes", "placeholder"),
+    [
+        (0x400, True),  # 連結
+        (0x1000, True),  # 離線
+        (0x40000, True),  # 打開時才下載
+        (0x400000, True),  # 讀內容時才下載
+        (0x20, False),  # 一般檔案
+        (0x2, False),  # 隱藏，不是佔位檔
+    ],
+)
+def test_cloud_placeholders_count_as_links(monkeypatch, attributes: int, placeholder: bool) -> None:
+    result = SimpleNamespace(
+        st_mode=stat.S_IFREG, st_size=1, st_mtime_ns=1, st_file_attributes=attributes
+    )
+    monkeypatch.setattr(fsops.os, "lstat", lambda _path: result)
+    info = fsops.RealFs().lstat("x")
+    assert info is not None
+    assert info.is_reparse is placeholder

@@ -12,7 +12,7 @@ from touka_local.errors import Refused
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import Operations
 from touka_local.protocol import Job, PollResponse, ProtocolError
-from touka_local.service import MAX_JOB_THREADS, HelperService
+from touka_local.service import MAX_JOB_THREADS, REMEMBERED_CANCELS, HelperService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,6 +68,7 @@ def book(fs, tmp_path: Path) -> GrantBook:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
+        python_dir="C:\\Python",
         touka_folder="D:\\Touka",
     )
     fs.add_dir("D:\\Open")
@@ -418,9 +419,7 @@ def test_a_confirm_that_blows_up_touches_nothing(
     assert service.running is False
 
 
-def test_an_old_report_is_cleared_when_a_new_list_starts(
-    service, client, gate, fs, clock
-) -> None:
+def test_an_old_report_is_cleared_when_a_new_list_starts(service, client, gate, fs, clock) -> None:
     fs.add_file("D:\\Open\\a.txt")
     fs.add_file("D:\\Open\\b.txt")
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
@@ -611,12 +610,94 @@ def test_a_batch_that_cannot_start_does_not_jam_the_helper(
     assert service.running is False
 
 
-def test_cooldown_message_does_not_say_the_user_rejected(
-    service, client, gate, fs, clock
-) -> None:
+def test_cooldown_message_does_not_say_the_user_rejected(service, client, gate, fs, clock) -> None:
     fs.add_file("D:\\Open\\a.txt")
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}], "j1")
     _run(service, client, _response(cancelled=("j1",)))
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}], "j2")
     assert client.results[-1][1]["code"] == "approval_cooldown"
     assert "rejected" not in client.results[-1][1]["message"]
+
+
+EXPOSED_MOUNTS = ("C:\\Users\\Me",)
+
+
+def _propose_args() -> dict[str, Any]:
+    return {"items": [{"op": "delete", "path": "Open/a.txt"}], "reason": "r"}
+
+
+def test_a_job_cancelled_before_it_starts_never_reaches_the_person(
+    service: HelperService, client: _Client, fs, gate: ApprovalGate
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    client.responses = [_response(cancelled=("j1",)), _response(_job("propose", _propose_args()))]
+    service.poll_once()
+    service.poll_once()
+    assert gate.current is None
+
+
+def test_a_job_cancelled_while_it_is_prepared_never_reaches_the_person(
+    service: HelperService, client: _Client, fs, gate: ApprovalGate, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    operations = service._operations
+    real = operations.plan
+
+    def plan_then_cancel(args: dict[str, Any]) -> Any:
+        result = real(args)
+        service._cancel("j1")
+        return result
+
+    monkeypatch.setattr(operations, "plan", plan_then_cancel)
+    client.responses = [_response(_job("propose", _propose_args()))]
+    service.poll_once()
+    assert gate.current is None
+
+
+def test_only_recent_cancels_are_remembered(
+    service: HelperService, client: _Client, fs, gate: ApprovalGate
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    old = tuple(f"old{n}" for n in range(REMEMBERED_CANCELS))
+    client.responses = [
+        _response(cancelled=("j1", *old)),
+        _response(_job("propose", _propose_args())),
+    ]
+    service.poll_once()
+    service.poll_once()
+    assert gate.current is not None
+
+
+def test_helper_stops_serving_when_its_own_files_are_reachable(
+    service: HelperService, client: _Client, fs, gate: ApprovalGate
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    client.responses = [_response(_job("list", {"path": "Open"}), mounts=EXPOSED_MOUNTS)]
+    assert service.poll_once() is True
+    assert service.state == "exposed"
+    assert client.results[0][1]["status"] == "refused"
+    assert client.results[0][1]["code"] == "helper_exposed"
+
+
+def test_exposed_helper_drops_what_is_waiting(
+    service: HelperService, client: _Client, fs, gate: ApprovalGate
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    client.responses = [
+        _response(_job("propose", _propose_args())),
+        _response(mounts=EXPOSED_MOUNTS),
+    ]
+    service.poll_once()
+    assert gate.current is not None
+    service.poll_once()
+    assert gate.current is None
+
+
+def test_helper_serves_again_once_the_mount_is_gone(
+    service: HelperService, client: _Client
+) -> None:
+    client.responses = [_response(mounts=EXPOSED_MOUNTS), _response()]
+    service.poll_once()
+    assert service.state == "exposed"
+    service.poll_once()
+    assert service.state == "online"

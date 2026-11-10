@@ -27,12 +27,15 @@ HELPER_EXECUTION_LIMIT_SECONDS: Final = 300.0
 RETRY_SECONDS: Final = 3.0
 # 和 Touka 的佇列上限相同
 MAX_JOB_THREADS: Final = 8
+# 取消可能比工作先到；工作最多排 8 件，記 32 件夠了
+REMEMBERED_CANCELS: Final = 32
 
 STATE_STARTING: Final = "starting"
 STATE_ONLINE: Final = "online"
 STATE_OFFLINE: Final = "offline"
 STATE_UNPAIRED: Final = "unpaired"
 STATE_UPGRADE_NEEDED: Final = "upgrade_needed"
+STATE_EXPOSED: Final = "exposed"
 
 NOTICE_NOT_CONFIRMED: Final = "not_confirmed"
 NOTICE_NOT_DELIVERED: Final = "result_not_delivered"
@@ -72,6 +75,10 @@ _MODEL_MESSAGES: Final = {
     "approval_busy": "Another list is waiting for the user. Wait for that answer first.",
     "approval_cooldown": "A list was just closed. Do not send another one right away.",
     "helper_busy": "The local helper is handling too many requests.",
+    "helper_exposed": (
+        "The local helper stopped because its own files are inside a folder Touka can reach. "
+        "The user has to fix this on their computer."
+    ),
 }
 
 
@@ -136,6 +143,7 @@ class HelperService:
         self._lock = threading.Lock()
         self._job_slots = threading.BoundedSemaphore(MAX_JOB_THREADS)
         self._running: _Running | None = None
+        self._cancelled: list[str] = []
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
         self.notice = ""
         self.last_report: dict[str, Any] | None = None
@@ -183,11 +191,18 @@ class HelperService:
         return True
 
     def _handle(self, response: PollResponse) -> None:
-        self.state = STATE_ONLINE
         self._grants.set_mount_roots(response.host_mount_roots)
+        exposed = self._grants.helper_is_exposed()
+        self.state = STATE_EXPOSED if exposed else STATE_ONLINE
+        if exposed:
+            self._abandon_work()
         for job_id in response.cancelled:
             self._cancel(job_id)
-        if response.job is not None:
+        if response.job is None:
+            return
+        if exposed:
+            self._send(response.job.id, _refused_payload(Refused("helper_exposed")))
+        else:
             self._start_job(response.job)
 
     def _start_job(self, job: Job) -> None:
@@ -208,9 +223,10 @@ class HelperService:
         self.stop_running()
 
     def _cancel(self, job_id: str) -> None:
-        if self._gate.cancel(job_id):
-            return
         with self._lock:
+            self._cancelled = [*self._cancelled, job_id][-REMEMBERED_CANCELS:]
+            if self._gate.cancel(job_id):
+                return
             if self._running is not None and self._running.job_id == job_id:
                 self._running.stop.set()
 
@@ -241,9 +257,7 @@ class HelperService:
             logger.exception("file operation failed")
             self._send(
                 job.id,
-                result_payload(
-                    "error", code="io_error", message="The file could not be accessed."
-                ),
+                result_payload("error", code="io_error", message="The file could not be accessed."),
             )
         except Exception:
             logger.exception("unexpected failure")
@@ -256,7 +270,9 @@ class HelperService:
         if self.running:
             raise Refused("approval_busy")
         plan = self._operations.plan(job.args)
-        self._gate.offer(job.id, plan, job.decide_within, requester=job.requester)
+        with self._lock:
+            if job.id not in self._cancelled:
+                self._gate.offer(job.id, plan, job.decide_within, requester=job.requester)
 
     def _send(self, job_id: str, payload: dict[str, Any]) -> bool:
         client = self._client

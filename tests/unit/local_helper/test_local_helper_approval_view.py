@@ -15,6 +15,7 @@ from touka_local.errors import Refused
 from touka_local.view import (
     APPROVAL_COLUMNS,
     APPROVAL_WINDOW_WIDTH,
+    all_paths_text,
     approval_counts,
     approval_rows,
     approval_title,
@@ -216,7 +217,7 @@ def test_rows() -> None:
     rows = approval_rows(_view_plan())
     assert [r.action for r in rows] == ["搬移", "丟到回收桶", "丟到回收桶"]
     assert "‮" not in rows[0].source
-    assert rows[0].destination == "b.txt  ‹  Open"
+    assert rows[0].destination == "b.txt  |  Open"
     assert rows[1].destination == ""
     assert rows[0].detail == "2.0 KB"
     assert rows[2].detail == "資料夾，150 項，5 B"
@@ -295,7 +296,11 @@ def test_report_text() -> None:
         ("online", "已連線"),
         ("offline", "連不上 Touka"),
         ("unpaired", "尚未配對"),
-        ("upgrade_needed", "版本不符，請重新安裝小幫手"),
+        ("upgrade_needed", "版本不符，請到 GitHub 的 Touka 官方頁面取得對應版本，重新安裝小幫手"),
+        (
+            "exposed",
+            "小幫手的程式在 Touka 碰得到的資料夾裡，為了安全已停止服務，請重新安裝到別的位置",
+        ),
     ],
 )
 def test_connection_text(state: str, text: str) -> None:
@@ -354,3 +359,35 @@ def test_row_values_follow_the_columns() -> None:
         "source": row.source,
         "destination": row.destination,
     }
+
+
+@pytest.mark.parametrize("character", ["\uff0f", "\uff3c", "\u2215", "\uff5c", "\u00a0", "\u3000"])
+def test_lookalike_characters_are_shown_as_marks_in_paths(character: str) -> None:
+    shown = display_safe(f"a{character}b")
+    assert shown == "a⍰b"
+
+
+def test_a_reason_keeps_its_punctuation() -> None:
+    assert clean_reason("整理／封存") == "整理／封存"
+
+
+def test_a_name_cannot_fake_the_folder_part() -> None:
+    fake = "a  \uff5c  C:\uff3cWindows.txt"
+    row = approval_rows(_ViewPlan(items=(_Item("delete", f"Open/{fake}"),)))[0]
+    assert "\uff5c" not in row.source
+    assert "\uff3c" not in row.source
+
+
+def test_every_item_is_listed_with_its_full_path() -> None:
+    rows = approval_rows(_view_plan())
+    text = all_paths_text(rows)
+    for number, row in enumerate(rows, start=1):
+        assert f"{number}. {row.action}" in text
+        assert row.full_source in text
+    assert rows[0].full_destination in text
+    assert text.index("1. ") < text.index("2. ") < text.index("3. ")
+
+
+def test_secret_mark_has_words() -> None:
+    plan = _ViewPlan(items=(_Item("delete", "Open/a.pem", unusual=("secret",)),))
+    assert approval_rows(plan)[0].marks == "金鑰或密碼檔"

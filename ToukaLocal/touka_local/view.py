@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-from touka_local.paths import is_hidden_character
+from touka_local.paths import is_hidden_character, is_misleading_character
 
 _VISIBLE_MARK: Final = "⍰"
 _REASON_LIMIT: Final = 300
-_NAME_SEPARATOR: Final = "  ‹  "
+# 直線不能出現在 Windows 檔名裡，檔名假造不出這段分隔
+_NAME_SEPARATOR: Final = "  |  "
 _SIZE_UNITS: Final = ("KB", "MB", "GB", "TB")
 
 _ACTIONS: Final = {"move": "搬移", "delete": "丟到回收桶"}
@@ -17,6 +18,7 @@ _MARKS: Final = {
     "executable": "可執行檔",
     "hidden": "隱藏檔",
     "many_items": "項目很多",
+    "secret": "金鑰或密碼檔",
 }
 _REPORT_LABELS: Final = (
     ("done", "完成"),
@@ -30,7 +32,8 @@ _CONNECTION: Final = {
     "online": "已連線",
     "offline": "連不上 Touka",
     "unpaired": "尚未配對",
-    "upgrade_needed": "版本不符，請重新安裝小幫手",
+    "upgrade_needed": "版本不符，請到 GitHub 的 Touka 官方頁面取得對應版本，重新安裝小幫手",
+    "exposed": "小幫手的程式在 Touka 碰得到的資料夾裡，為了安全已停止服務，請重新安裝到別的位置",
 }
 _REFUSALS: Final = {
     "bad_path": "這個路徑的寫法不合規則",
@@ -90,14 +93,18 @@ class ApprovalCounts:
     unusual: int
 
 
-def display_safe(text: str) -> str:
-    """把看不見或會改變顯示方向的字元換成看得見的記號，字數不變。"""
+def _mark_hidden(text: str) -> str:
     return "".join(_VISIBLE_MARK if is_hidden_character(c) else c for c in text)
+
+
+def display_safe(text: str) -> str:
+    """路徑：看不見或會改變顯示方向的字元，以及形似分隔線或空白的字元，都換成記號，字數不變。"""
+    return "".join(_VISIBLE_MARK if is_misleading_character(c) else c for c in _mark_hidden(text))
 
 
 def clean_reason(text: str) -> str:
     """代理人寫的說明：併成一行，換掉看不見的字元，限制長度。"""
-    return display_safe(" ".join(text.split()))[:_REASON_LIMIT]
+    return _mark_hidden(" ".join(text.split()))[:_REASON_LIMIT]
 
 
 def human_size(size: int) -> str:
@@ -146,10 +153,18 @@ def row_values(row: ApprovalRow) -> tuple[str, ...]:
 
 
 def full_paths_text(row: ApprovalRow) -> str:
-    """選取一列時顯示的完整路徑。"""
+    """一項的完整路徑。"""
     if row.full_destination:
         return f"位置：{row.full_source}\n新位置：{row.full_destination}"
     return f"位置：{row.full_source}"
+
+
+def all_paths_text(rows: list[ApprovalRow]) -> str:
+    """每一項的完整路徑。表格放不下，核准前要能看到全部。"""
+    return "\n\n".join(
+        f"{number}. {row.action}\n{full_paths_text(row)}"
+        for number, row in enumerate(rows, start=1)
+    )
 
 
 def requester_text(requester: str) -> str:

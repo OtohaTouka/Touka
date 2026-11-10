@@ -12,6 +12,7 @@ if sys.platform == "win32":
 
 from typing import TYPE_CHECKING
 
+from touka_local import grants as grants_module
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
@@ -38,6 +39,7 @@ def _environment(tmp_path: Path) -> Environment:
         program_data="Z:\\NoProgramData",
         app_data="Z:\\NoAppData",
         local_app_data="Z:\\NoLocalAppData",
+        python_dir="Z:\\NoPython",
         helper_dir=str(tmp_path / "helper"),
         touka_folder="Z:\\NoTouka",
     )
@@ -53,7 +55,11 @@ class _KeepTrash:
 
 
 @pytest.fixture
-def real(tmp_path: Path) -> tuple[Operations, GrantBook, Path, _KeepTrash]:
+def real(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Operations, GrantBook, Path, _KeepTrash]:
+    # pytest 的暫存資料夾在 AppData 底下，這裡要測的是真的檔案系統，不是這條規則
+    monkeypatch.setattr(grants_module, "_SYSTEM_FOLDERS", frozenset())
     open_dir = tmp_path / "Open"
     open_dir.mkdir()
     book = GrantBook(

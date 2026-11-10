@@ -9,6 +9,7 @@ from pathlib import Path
 
 import install as installer
 import pytest
+from touka_local import settings as settings_module
 from touka_local.errors import Refused
 from touka_local.settings import Settings, load_environment, load_settings, save_settings
 from touka_local.winapi import (
@@ -51,7 +52,16 @@ def test_delete_flags() -> None:
     no_error_ui = 0x0400
     want_nuke_warning = 0x4000
     silent = 0x0004
-    assert allow_undo | no_confirmation | no_error_ui | want_nuke_warning | silent == DELETE_FLAGS
+    no_connected_elements = 0x2000  # 不然丟 a.html 會連 a_files 一起丟，清單上卻沒列
+    assert (
+        allow_undo
+        | no_confirmation
+        | no_error_ui
+        | want_nuke_warning
+        | silent
+        | no_connected_elements
+        == DELETE_FLAGS
+    )
     assert DELETE_FLAGS <= 0xFFFF
 
 
@@ -301,9 +311,7 @@ def test_touka_folder_must_exist(tmp_path: Path) -> None:
 
 def test_install_stops_when_the_touka_folder_does_not_exist(monkeypatch) -> None:
     monkeypatch.setattr(installer, "check_flags", lambda **_flags: None)
-    monkeypatch.setattr(
-        installer, "copy_allowed", lambda *_args: pytest.fail("不應該開始複製")
-    )
+    monkeypatch.setattr(installer, "copy_allowed", lambda *_args: pytest.fail("不應該開始複製"))
     environ = {"LOCALAPPDATA": "C:\\Users\\Me\\AppData\\Local"}
     with pytest.raises(installer.InstallRefused):
         installer._prepare("Z:\\NoSuchTouka", environ)
@@ -355,3 +363,16 @@ def test_helper_refuses_to_start_without_isolated_mode(monkeypatch) -> None:
     code, called = _run_entry(monkeypatch, isolated=0)
     assert isinstance(code, str)
     assert called == []
+
+
+def test_environment_knows_where_python_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings_module.sys, "executable", "E:\\Py\\pythonw.exe")
+    environ = {
+        "USERPROFILE": "C:\\Users\\Me",
+        "WINDIR": "C:\\Windows",
+        "ProgramFiles": "C:\\Program Files",
+        "ProgramData": "C:\\ProgramData",
+        "APPDATA": "C:\\A",
+        "LOCALAPPDATA": "C:\\L",
+    }
+    assert load_environment(environ, "D:\\Touka").python_dir == "E:\\Py"

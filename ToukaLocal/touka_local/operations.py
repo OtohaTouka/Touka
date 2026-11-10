@@ -22,9 +22,10 @@ from touka_local.fsops import (
     temporary_path,
 )
 from touka_local.paths import (
-    MAX_PATH_CHARS,
     anchor_of,
+    check_segment_syntax,
     folded_key,
+    is_too_long,
     join,
     same_path,
     split_request_path,
@@ -33,6 +34,7 @@ from touka_local.rules import (
     GIT_FOLDER,
     check_created_file_name,
     check_move_names,
+    check_new_segments,
     check_segment_allowed,
     is_protected_name,
     is_secret_name,
@@ -79,6 +81,7 @@ class _Tree:
     contained: int
     has_executable: bool
     has_hidden: bool
+    has_secret: bool
 
 
 @dataclass(frozen=True)
@@ -129,10 +132,7 @@ def _about(path: object) -> Iterator[None]:
 def _digest(items: tuple[PlanItem, ...], reason: str) -> str:
     payload = [
         reason,
-        [
-            [item.op, item.source_full, item.destination_full, item.snapshot]
-            for item in items
-        ],
+        [[item.op, item.source_full, item.destination_full, item.snapshot] for item in items],
     ]
     return hashlib.sha256(json.dumps(payload).encode("utf-8")).hexdigest()
 
@@ -185,7 +185,7 @@ class Operations:
         for part in parts:
             check_segment_allowed(part)
         full = join(grant.path, *parts)
-        if len(full) > MAX_PATH_CHARS:
+        if is_too_long(full):
             raise Refused("bad_path")
         return _Target(grant, parts, "/".join((grant.name, *parts)), full)
 
@@ -315,6 +315,7 @@ class Operations:
         path = args.get("path")
         with _about(path):
             target = self._locate_writable(path)
+            check_new_segments(target.parts)
             if self._walk(target, allow_missing=True) is not None:
                 raise Refused("exists")
             try:
@@ -334,6 +335,7 @@ class Operations:
                 raise Refused("too_large")
             target = self._locate_writable(path)
             check_created_file_name(target.parts[-1])
+            check_new_segments(target.parts)
             if self._walk(target, allow_missing=True) is not None:
                 raise Refused("exists")
             try:
@@ -388,6 +390,7 @@ class Operations:
 
     def _plan_destination(self, raw: dict[str, Any], source: _Target) -> _Target:
         destination = self._locate_writable(raw.get("to"))
+        check_new_segments(destination.parts)
         check_move_names(source.parts[-1], destination.parts[-1])
         if self._walk(destination, allow_missing=True) is not None:
             raise Refused("exists")
@@ -398,11 +401,12 @@ class Operations:
     def _read_tree(self, full: str, info: EntryInfo) -> _Tree:
         if not info.is_dir:
             entry = ("", False, info.size, info.mtime_ns)
-            return _Tree((entry,), info.size, 0, False, False)
+            return _Tree((entry,), info.size, 0, False, False, False)
         entries = [("", True, 0, info.mtime_ns)]
         size = 0
         has_executable = False
         has_hidden = False
+        has_secret = False
         stack = [(full, "")]
         while stack:
             folder, prefix = stack.pop()
@@ -420,11 +424,14 @@ class Operations:
                     raise Refused("too_many")
                 has_executable = has_executable or is_unusual_file(name)
                 has_hidden = has_hidden or child.is_hidden
+                has_secret = has_secret or is_secret_name(name)
                 if child.is_dir:
                     stack.append((path, relative))
                 else:
                     size += child.size
-        return _Tree(tuple(sorted(entries)), size, len(entries) - 1, has_executable, has_hidden)
+        return _Tree(
+            tuple(sorted(entries)), size, len(entries) - 1, has_executable, has_hidden, has_secret
+        )
 
     @staticmethod
     def _check_tree_name(name: str) -> None:
@@ -432,6 +439,7 @@ class Operations:
             raise Refused("git_project")
         if is_protected_name(name):
             raise Refused("protected")
+        check_segment_syntax(name)
 
     @staticmethod
     def _marks(name: str, info: EntryInfo, tree: _Tree) -> tuple[str, ...]:
@@ -440,6 +448,8 @@ class Operations:
             marks.append("executable")
         if info.is_hidden or tree.has_hidden:
             marks.append("hidden")
+        if is_secret_name(name) or tree.has_secret:
+            marks.append("secret")
         if info.is_dir and tree.contained > UNUSUAL_FOLDER_ENTRIES:
             marks.append("many_items")
         return tuple(marks)
@@ -476,10 +486,7 @@ class Operations:
         recorded = True
         for item, entry in zip(plan.items, journal["entries"], strict=True):
             stopped = (
-                stopped
-                or not recorded
-                or limits.should_stop()
-                or self._clock() >= limits.deadline
+                stopped or not recorded or limits.should_stop() or self._clock() >= limits.deadline
             )
             status = "not_done" if stopped else self._run_item(item)
             entry["status"] = status

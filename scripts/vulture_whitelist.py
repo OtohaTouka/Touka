@@ -12,7 +12,7 @@
 - __all__ 中聲明的公開 API
 
 用法：
-    vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch scripts/vulture_whitelist.py --min-confidence 80
+    vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch ToukaLocal scripts/vulture_whitelist.py --min-confidence 80
 """
 
 # ADR-0069 Phase B — Judge Protocol 介面參數（由 Phase D 的 ModelJudge 實作使用；

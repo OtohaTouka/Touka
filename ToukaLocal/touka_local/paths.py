@@ -16,6 +16,30 @@ MAX_SEGMENT_CHARS: Final = 255
 
 _FORBIDDEN_CHARS: Final = frozenset('<>:"|?*/\\')
 _HIDDEN_CATEGORIES: Final = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
+# Unicode 的 Default_Ignorable_Code_Point：字型通常什麼都不畫
+_DEFAULT_IGNORABLE: Final = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+# 長得像路徑分隔線的字元：全形斜線、數學符號、方框線
+_LOOKALIKE_SEPARATORS: Final = frozenset("／＼⁄∕⧸⧹∖﹨｜∣ǀ❘￨╱╲")
+# 逐層檢查時會在路徑後面接 \.git，要留位置
+_GIT_PROBE_CHARS: Final = len("\\.git")
 _NUMBERED_SUFFIXES: Final = "0123456789¹²³"
 _RESERVED_NAMES: Final = frozenset(
     {
@@ -30,12 +54,30 @@ _RESERVED_NAMES: Final = frozenset(
     }
 )
 _SHORT_NAME: Final = re.compile(r"~[0-9]+(\.[^.]*)?\Z")
+# 名稱結尾是 .{CLSID} 的資料夾，檔案總管會當成別的東西顯示
+_SHELL_FOLDER_SUFFIX: Final = re.compile(r"\.\{[^.]*\}\Z")
 _DRIVE: Final = re.compile(r"[A-Za-z]:")
 
 
 def is_hidden_character(character: str) -> bool:
     """控制字元、雙向文字控制、看不見的格式字元。"""
-    return unicodedata.category(character) in _HIDDEN_CATEGORIES
+    code = ord(character)
+    return unicodedata.category(character) in _HIDDEN_CATEGORIES or any(
+        low <= code <= high for low, high in _DEFAULT_IGNORABLE
+    )
+
+
+def is_misleading_character(character: str) -> bool:
+    """長得像路徑分隔線或一般空白，人看路徑時會看錯。"""
+    return character in _LOOKALIKE_SEPARATORS or (
+        character != " " and unicodedata.category(character) == "Zs"
+    )
+
+
+def is_too_long(path: str) -> bool:
+    """Windows 算的是 UTF-16 單位，emoji 佔 2。"""
+    units = len(path.encode("utf-16-le", "surrogatepass")) // 2
+    return units + _GIT_PROBE_CHARS > MAX_PATH_CHARS
 
 
 def check_segment_syntax(name: str) -> None:
@@ -48,6 +90,7 @@ def check_segment_syntax(name: str) -> None:
         or any(c in _FORBIDDEN_CHARS or is_hidden_character(c) for c in name)
         or name.split(".", 1)[0].rstrip(" ").casefold() in _RESERVED_NAMES
         or _SHORT_NAME.search(name) is not None
+        or _SHELL_FOLDER_SUFFIX.search(name) is not None
     ):
         raise Refused("bad_path")
 

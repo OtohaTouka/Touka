@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import ntpath
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -90,5 +92,6 @@ def load_environment(environ: Mapping[str, str], touka_folder: str | None) -> En
         app_data=values["APPDATA"],
         local_app_data=values["LOCALAPPDATA"],
         helper_dir=join(values["LOCALAPPDATA"], HELPER_FOLDER_NAME),
+        python_dir=ntpath.dirname(sys.executable),
         touka_folder=str(touka_folder),
     )

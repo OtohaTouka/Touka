@@ -20,6 +20,7 @@ from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
 from touka_local.operations import Operations
 from touka_local.service import (
+    CLOSE_BLOCKED,
     CLOSE_NOW,
     CLOSE_WAIT,
     NOTICE_APPLY_FAILED,
@@ -39,12 +40,12 @@ from touka_local.settings import (
 from touka_local.view import (
     APPROVAL_COLUMNS,
     APPROVAL_WINDOW_WIDTH,
+    all_paths_text,
     approval_counts,
     approval_rows,
     approval_title,
     clean_reason,
     connection_text,
-    full_paths_text,
     refusal_text,
     report_text,
     requester_text,
@@ -55,11 +56,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from touka_local.approval import PendingApproval
+    from touka_local.view import ApprovalRow
 
 logger = logging.getLogger(__name__)
 
 _REFRESH_MS: Final = 300
 _APPROVAL_WRAP: Final = APPROVAL_WINDOW_WIDTH - 40
+_PATHS_PANEL_LINES: Final = 6
 _BATCH_REFRESH_SECONDS: Final = 5.0
 _LOG_BYTES: Final = 256 * 1024
 _NOTICE_TEXT: Final = {
@@ -94,6 +97,7 @@ class ApprovalWindow:
         self._window.attributes("-topmost", True)
 
         counts = approval_counts(pending.plan)
+        rows = approval_rows(pending.plan)
         frame = ttk.Frame(self._window, padding=12)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text=approval_title(counts), font=("", 12, "bold")).pack(anchor="w")
@@ -116,9 +120,8 @@ class ApprovalWindow:
         buttons.pack(side="bottom", fill="x")
         self._countdown = ttk.Label(frame, text="")
         self._countdown.pack(side="bottom", anchor="w", pady=(8, 4))
-        self._full_paths = ttk.Label(frame, text="", wraplength=_APPROVAL_WRAP, justify="left")
-        self._full_paths.pack(side="bottom", anchor="w", pady=(8, 0))
-        self._add_table(frame, pending)
+        self._add_paths_panel(frame, rows)
+        self._add_table(frame, rows)
 
         reject = ttk.Button(buttons, text="拒絕", command=on_reject)
         reject.pack(side="right")
@@ -127,18 +130,29 @@ class ApprovalWindow:
         reject.focus_set()
         self._window.after(int(APPROVE_DELAY_SECONDS * 1000), self._enable_approve)
 
-    def _add_table(self, frame: ttk.Frame, pending: PendingApproval) -> None:
+    def _add_paths_panel(self, frame: ttk.Frame, rows: list[ApprovalRow]) -> None:
+        """每一項的完整路徑，可以捲動。文字由程式放進去，人和代理人都改不了。"""
+        holder = ttk.Frame(frame)
+        holder.pack(side="bottom", fill="x", pady=(8, 0))
+        scrollbar = ttk.Scrollbar(holder, orient="vertical")
+        self._paths = tk.Text(
+            holder, height=_PATHS_PANEL_LINES, wrap="char", yscrollcommand=scrollbar.set
+        )
+        scrollbar.configure(command=self._paths.yview)
+        self._paths.insert("1.0", all_paths_text(rows))
+        self._paths.configure(state="disabled")
+        scrollbar.pack(side="right", fill="y")
+        self._paths.pack(side="left", fill="x", expand=True)
+
+    def _add_table(self, frame: ttk.Frame, rows: list[ApprovalRow]) -> None:
         holder = ttk.Frame(frame)
         holder.pack(side="top", fill="both", expand=True)
         columns = tuple(key for key, _heading, _width in APPROVAL_COLUMNS)
-        table = ttk.Treeview(
-            holder, columns=columns, show="headings", height=12, selectmode="browse"
-        )
+        table = ttk.Treeview(holder, columns=columns, show="headings", height=12, selectmode="none")
         for column, heading, width in APPROVAL_COLUMNS:
             table.heading(column, text=heading)
-            # 欄寬固定；格子放不下的路徑，選取後在表格下面看完整的
+            # 欄寬固定；格子放不下的路徑，在表格下面看完整的
             table.column(column, width=width, minwidth=width, stretch=False)
-        rows = approval_rows(pending.plan)
         for index, row in enumerate(rows):
             table.insert("", "end", iid=str(index), values=row_values(row))
         vertical = ttk.Scrollbar(holder, orient="vertical", command=table.yview)
@@ -147,16 +161,6 @@ class ApprovalWindow:
         vertical.pack(side="right", fill="y")
         horizontal.pack(side="bottom", fill="x")
         table.pack(side="left", fill="both", expand=True)
-
-        def show_selected(_event: object) -> None:
-            selection = table.selection()
-            if selection:
-                self._full_paths.configure(text=full_paths_text(rows[int(selection[0])]))
-
-        table.bind("<<TreeviewSelect>>", show_selected)
-        if rows:
-            table.selection_set("0")
-            self._full_paths.configure(text=full_paths_text(rows[0]))
 
     def _enable_approve(self) -> None:
         self._approve.configure(state="normal")
@@ -406,9 +410,12 @@ class MainWindow:
         try:
             self._refresh()
         finally:
-            if self._closing and self._service.request_close() == CLOSE_NOW:
+            decision = self._service.request_close() if self._closing else None
+            if decision == CLOSE_NOW:
                 self._root.destroy()
             else:
+                # 等著關閉的時候又來了一份清單：人要先決定，決定完不該自己關掉
+                self._closing = self._closing and decision != CLOSE_BLOCKED
                 self._root.after(_REFRESH_MS, self._tick)
 
     def _refresh(self) -> None:

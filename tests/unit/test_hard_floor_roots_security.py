@@ -275,6 +275,11 @@ def test_windows_normalised_secret_names_are_f2(command: str):
     assert _floor(command) == "F2"
 
 
+def test_the_helper_source_is_protected_like_the_other_subprojects():
+    assert _floor("rm -rf ../ToukaLocal") == _floor("rm -rf ../ToukaHeartbeat")
+    assert _floor("rm -rf ../ToukaLocal") is not None
+
+
 @pytest.mark.parametrize(
     ("template", "category"),
     [

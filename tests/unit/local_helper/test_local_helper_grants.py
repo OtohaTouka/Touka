@@ -28,6 +28,7 @@ def env() -> Environment:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir=HELPER,
+        python_dir="E:\\Python",
         touka_folder=TOUKA,
     )
 
@@ -337,12 +338,36 @@ def test_list_is_found_after_a_crash_between_delete_and_rename(fs, env, book, tm
     assert again.grants() == [grant]
 
 
-@pytest.mark.parametrize(
-    "path", ["E:\\Profile\\Roaming", "E:\\Profile\\Local\\Sub", "E:\\Profile"]
-)
+@pytest.mark.parametrize("path", ["E:\\Profile\\Roaming", "E:\\Profile\\Local\\Sub", "E:\\Profile"])
 def test_redirected_app_data_cannot_be_opened(fs, env, tmp_path, path: str) -> None:
     moved = replace(env, app_data="E:\\Profile\\Roaming", local_app_data="E:\\Profile\\Local")
     book = GrantBook(tmp_path / "moved.json", fs=fs, env=moved, drive_type=lambda _anchor: "fixed")
     with pytest.raises(Refused) as caught:
         book.add(_dir(fs, path), writable=False)
     assert caught.value.code == "blocked"
+
+
+def test_a_folder_named_appdata_cannot_be_opened(fs, book: GrantBook) -> None:
+    fs.add_dir("D:\\Old\\AppData\\Roaming")
+    with pytest.raises(Refused) as caught:
+        book.add("D:\\Old\\AppData\\Roaming", writable=False)
+    assert caught.value.code == "system_folder"
+
+
+@pytest.mark.parametrize(
+    ("mounts", "exposed"),
+    [
+        ((), False),
+        (("D:\\Work",), False),
+        (("E:\\",), True),  # Python 在這顆磁碟
+        (("E:\\Python",), True),
+        (("e:\\python\\",), True),
+        (("E:\\Python\\Lib",), False),  # 掛進去的只是 Python 底下一個資料夾
+        (("C:\\Users\\Me\\AppData\\Local",), True),  # 小幫手在這底下
+        ((HELPER,), True),
+        (("D:\\Work", "C:\\Users\\Me"), True),
+    ],
+)
+def test_helper_is_exposed(book: GrantBook, mounts: tuple[str, ...], exposed: bool) -> None:
+    book.set_mount_roots(mounts)
+    assert book.helper_is_exposed() is exposed

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import PureWindowsPath
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from touka_local.errors import Refused
+from touka_local.paths import is_misleading_character
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 GIT_FOLDER: Final = ".git"
 
@@ -21,18 +24,32 @@ _PROTECTED_NAMES: Final = frozenset(
         ".claude",
         ".codex",
         ".agents",
+        ".kube",
+        ".docker",
     }
 )
 _CREATABLE_EXTENSIONS: Final = frozenset({".txt", ".md", ".log"})
 # AI 工具會自動讀的指示檔，不讓代理人寫進去
 _FORBIDDEN_FILE_NAMES: Final = frozenset(
-    {"claude.md", "claude.local.md", "agents.md", "gemini.md", "skill.md"}
+    {
+        "claude.md",
+        "claude.local.md",
+        "agents.md",
+        "agents.override.md",
+        "agent.md",
+        "gemini.md",
+        "skill.md",
+        "cmakelists.txt",  # 建置工具會當程式執行
+    }
 )
 # 只減少誤讀，不是邊界：邊界是使用者開放了哪些資料夾
 _SECRET_NAMES: Final = frozenset(
     {
         ".env",
+        ".envrc",
         ".netrc",
+        "_netrc",
+        ".htpasswd",
         ".npmrc",
         ".pypirc",
         ".pgpass",
@@ -50,7 +67,7 @@ _SECRET_NAMES: Final = frozenset(
     }
 )
 _SECRET_EXTENSIONS: Final = frozenset(
-    {".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".jks", ".keystore"}
+    {".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".jks", ".keystore", ".ovpn", ".env"}
 )
 _ENV_PREFIX: Final = ".env."
 _ENV_EXAMPLES: Final = frozenset({".env.example", ".env.sample", ".env.template"})
@@ -78,12 +95,28 @@ _UNUSUAL_EXTENSIONS: Final = frozenset(
         ".jar",
         ".reg",
         ".dll",
+        ".py",
+        ".pyw",
+        ".url",
+        ".html",
+        ".htm",
+        ".chm",
+        ".msc",
+        ".inf",
+        ".docm",
+        ".xlsm",
+        ".ocx",
+        ".sys",
+        ".appinstaller",
+        ".library-ms",
     }
 )
 
 
 def _extension(name: str) -> str:
-    return PureWindowsPath(name).suffix.casefold()
+    """比照 Windows：最後一個點起算，名稱開頭的點也算（``.exe`` 的副檔名就是 ``.exe``）。"""
+    _, dot, suffix = name.rpartition(".")
+    return f".{suffix}".casefold() if dot else ""
 
 
 def is_protected_name(name: str) -> bool:
@@ -95,6 +128,13 @@ def check_segment_allowed(name: str) -> None:
     """路徑裡的每一段都不能是受保護的名稱。"""
     if is_protected_name(name):
         raise Refused("protected")
+
+
+def check_new_segments(parts: Iterable[str]) -> None:
+    """新建或搬到的路徑：點開頭的常是工具自動讀的設定，形似分隔線的字元會讓人看錯路徑。"""
+    for name in parts:
+        if name.startswith(".") or any(is_misleading_character(c) for c in name):
+            raise Refused("file_name")
 
 
 def check_created_file_name(name: str) -> None:

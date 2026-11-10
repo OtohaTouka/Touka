@@ -14,6 +14,8 @@ Clock = Callable[[], float]
 
 TEMPORARY_SUFFIX: Final = ".new"
 _PREVIOUS_SUFFIX: Final = ".old"
+# 雲端佔位檔：內容不在這台電腦上，一碰就開始下載
+_PLACEHOLDER_ATTRIBUTES: Final = stat.FILE_ATTRIBUTE_OFFLINE | 0x40000 | 0x400000
 
 
 @dataclass(frozen=True)
@@ -70,11 +72,11 @@ class RealFs:
             is_dir=stat.S_ISDIR(result.st_mode),
             size=result.st_size,
             mtime_ns=result.st_mtime_ns,
-            is_reparse=bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+            is_reparse=bool(
+                attributes & (stat.FILE_ATTRIBUTE_REPARSE_POINT | _PLACEHOLDER_ATTRIBUTES)
+            )
             or stat.S_ISLNK(result.st_mode),
-            is_hidden=bool(
-                attributes & (stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM)
-            ),
+            is_hidden=bool(attributes & (stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM)),
         )
 
     def children(self, path: str) -> list[str]:
@@ -135,6 +137,10 @@ def durable_write_text(path: Path, text: str) -> None:
     except OSError:
         if had_previous:
             previous.rename(path)
+        else:
+            # 沒有正式檔時暫存檔會被當成已經寫好的內容
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
         raise
     # 新內容已經就位，舊檔刪不掉只是下次再清
     with contextlib.suppress(OSError):

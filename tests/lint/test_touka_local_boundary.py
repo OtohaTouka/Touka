@@ -196,7 +196,10 @@ def _is_overwriting_replace(node: ast.Call) -> bool:
     function = node.func
     if not isinstance(function, ast.Attribute) or function.attr != "replace":
         return False
-    on_path_class = isinstance(function.value, ast.Name) and function.value.id == "Path"
+    owner = function.value
+    on_path_class = (isinstance(owner, ast.Name) and owner.id == "Path") or (
+        isinstance(owner, ast.Attribute) and owner.attr == "Path"
+    )
     return on_path_class or len(node.args) + len(node.keywords) == 1
 
 
@@ -204,9 +207,12 @@ def _opens_for_writing(path: Path, node: ast.Call) -> bool:
     function = node.func
     if path.name in WRITE_FILES or not isinstance(function, ast.Attribute):
         return False
-    if function.attr != "open" or not node.args or not _is_text(node.args[0]):
+    if function.attr != "open":
         return False
-    return bool(WRITE_MODE_LETTERS & set(node.args[0].value))
+    mode = next((k.value for k in node.keywords if k.arg == "mode"), None)
+    if node.args:
+        mode = node.args[0]
+    return mode is not None and _is_text(mode) and bool(WRITE_MODE_LETTERS & set(mode.value))
 
 
 def _passes_tcl_script(node: ast.Call) -> bool:
@@ -216,7 +222,7 @@ def _passes_tcl_script(node: ast.Call) -> bool:
     return (
         isinstance(function, ast.Attribute)
         and function.attr in TK_CALLBACK_METHODS
-        and any(_is_text(argument) for argument in node.args[1:])
+        and any(_is_text(argument) for argument in node.args[1:2])
     )
 
 
@@ -319,6 +325,8 @@ def test_helper_does_not_import_touka_itself() -> None:
         "p.write_bytes(b'x')",
         "open('x', 'w')",
         "p.open('w')",
+        "p.open(mode='w')",
+        "import pathlib\npathlib.Path.replace(a, 'b')",
         "import os\nos.open('x', 1)",
         "from os import system",
         "from os import replace",
@@ -355,6 +363,8 @@ def test_guard_allows_ordinary_code(tmp_path: Path) -> None:
         "from dataclasses import replace\nx = replace(a, b=1)",
         "import urllib.request",
         "w.bind('<Map>', handler)",
+        "w.bind('<Map>', handler, '+')",
+        "p.open(mode='r')",
         "ttk.Button(command=handler)",
         "root.after(1, handler)",
         "p.open()",

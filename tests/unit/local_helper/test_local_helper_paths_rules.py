@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import pytest
 from touka_local.errors import Refused
-from touka_local.paths import split_request_path
+from touka_local.paths import (
+    is_hidden_character,
+    is_misleading_character,
+    is_too_long,
+    split_request_path,
+)
 from touka_local.rules import (
     check_created_file_name,
     check_move_names,
+    check_new_segments,
     check_segment_allowed,
     is_protected_name,
     is_secret_name,
@@ -275,3 +281,182 @@ def test_unusual_files(name: str) -> None:
 @pytest.mark.parametrize("name", ["a.txt", "a.pdf", "photo.jpg", "noext"])
 def test_ordinary_files(name: str) -> None:
     assert is_unusual_file(name) is False
+
+
+@pytest.mark.parametrize(
+    "code_point",
+    [
+        0x00AD,
+        0x034F,
+        0x061C,
+        0x115F,
+        0x1160,
+        0x17B4,
+        0x17B5,
+        0x180B,
+        0x180E,
+        0x180F,
+        0x200B,
+        0x200D,
+        0x202E,
+        0x2060,
+        0x2065,
+        0x206F,
+        0x3164,
+        0xFE00,
+        0xFE0F,
+        0xFEFF,
+        0xFFA0,
+        0xFFF0,
+        0xFFF8,
+        0x1BCA0,
+        0x1BCA3,
+        0x1D173,
+        0x1D17A,
+        0xE0000,
+        0xE0100,
+        0xE0FFF,
+    ],
+)
+def test_default_ignorable_characters_are_hidden(code_point: int) -> None:
+    assert is_hidden_character(chr(code_point)) is True
+    with pytest.raises(Refused) as caught:
+        split_request_path(f"Open/a{chr(code_point)}b.txt")
+    assert caught.value.code == "bad_path"
+
+
+@pytest.mark.parametrize(
+    "character", ["a", "字", "ア", "한", "-", "_", "(", "😀", "\u034e", "\ufe10"]
+)
+def test_ordinary_characters_are_not_hidden(character: str) -> None:
+    assert is_hidden_character(character) is False
+
+
+@pytest.mark.parametrize(
+    "character",
+    [
+        "\uff0f",
+        "\uff3c",
+        "\u2044",
+        "\u2215",
+        "\u29f8",
+        "\u29f9",
+        "\u2216",
+        "\ufe68",
+        "\uff5c",
+        "\u2223",
+        "\u01c0",
+        "\u2758",
+        "\uffe8",
+        "\u2571",
+        "\u2572",
+        "\u00a0",
+        "\u2003",
+        "\u3000",
+        "\u202f",
+    ],
+)
+def test_lookalike_characters_are_misleading(character: str) -> None:
+    assert is_misleading_character(character) is True
+
+
+@pytest.mark.parametrize("character", [" ", "a", "字", "-", "_", ".", "(", "、"])
+def test_ordinary_characters_are_not_misleading(character: str) -> None:
+    assert is_misleading_character(character) is False
+
+
+@pytest.mark.parametrize("name", ["a.{645FF040-5081-101B-9F08-00AA002F954E}", "a.{x}", "A.{}"])
+def test_shell_folder_suffix_is_refused(name: str) -> None:
+    with pytest.raises(Refused) as caught:
+        split_request_path(f"Open/{name}")
+    assert caught.value.code == "bad_path"
+
+
+@pytest.mark.parametrize("name", ["a{b}.txt", "{x}", "a.{b}.txt"])
+def test_braces_elsewhere_are_fine(name: str) -> None:
+    assert split_request_path(f"Open/{name}") == ("Open", (name,))
+
+
+@pytest.mark.parametrize(
+    ("text", "too_long"),
+    [
+        ("a" * 254, False),
+        ("a" * 255, True),
+        ("😀" * 127, False),
+        ("😀" * 128, True),
+    ],
+)
+def test_length_counts_utf16_units_and_leaves_room_for_the_git_probe(
+    text: str, too_long: bool
+) -> None:
+    assert is_too_long(text) is too_long
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        (".cursor",),
+        ("a", ".vscode", "b.txt"),
+        (".hidden.txt",),
+        ("a\uff0fb.txt",),
+        ("a\u3000b.txt",),
+        ("x", "y\u2215z"),
+    ],
+)
+def test_new_paths_refuse_dot_names_and_lookalikes(parts: tuple[str, ...]) -> None:
+    with pytest.raises(Refused) as caught:
+        check_new_segments(parts)
+    assert caught.value.code == "file_name"
+
+
+@pytest.mark.parametrize("parts", [("a",), ("a", "b.txt"), ("a.b", "c d.md"), ("報告", "一.txt")])
+def test_new_paths_allow_ordinary_names(parts: tuple[str, ...]) -> None:
+    check_new_segments(parts)
+
+
+@pytest.mark.parametrize("name", ["AGENTS.override.md", "agent.md", "CMakeLists.txt"])
+def test_more_files_tools_read_automatically_are_refused(name: str) -> None:
+    with pytest.raises(Refused) as caught:
+        check_created_file_name(name)
+    assert caught.value.code == "file_name"
+    with pytest.raises(Refused) as caught:
+        check_move_names(f"x{name}", name)
+    assert caught.value.code == "file_name"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["_netrc", ".envrc", ".htpasswd", "home.ovpn", "prod.env", ".ENV", "PROD.ENV", "a.Ovpn"],
+)
+def test_more_secret_names(name: str) -> None:
+    assert is_secret_name(name) is True
+
+
+@pytest.mark.parametrize("name", [".kube", ".docker", ".KUBE"])
+def test_more_protected_folders(name: str) -> None:
+    assert is_protected_name(name) is True
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "a.py",
+        "a.pyw",
+        "a.url",
+        "a.html",
+        "a.htm",
+        "a.chm",
+        "a.msc",
+        "a.inf",
+        "a.docm",
+        "a.xlsm",
+        "a.ocx",
+        "a.sys",
+        "a.appinstaller",
+        "a.library-ms",
+        ".exe",
+        ".BAT",
+    ],
+)
+def test_more_unusual_files(name: str) -> None:
+    assert is_unusual_file(name) is True
