@@ -38,7 +38,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `BCRYPT_IMPORT_SSOT` | 0 | 目前無豁免（auth_service.py 為白名單，不需 noqa） |
 | `SQLITE3_IMPORT_BAN` | 0 | 目前無豁免（原 container-security runtime smoke 已隨 ADR-0238 移除）。 |
 | `FILELOCK_ASYNC_SSOT` | 6 | 服務層必須使用 AsyncFileLock；mission_lock.py 為既有定義點（ADR-0049）；ADR-0206 keyring atomic writer 與 OAuth profile fence；ADR-0207 workload profile/delegation JSON generation CAS 各一個定義點 |
-| `PATH_LITERAL_SSOT` | 21 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑；+3 ADR-0303 `test_drive_bound.py` 的 Windows 路徑字串（純字串比對，不碰檔案系統）；+1 ADR-0303 `test_soul_name_path_security.py` 的 `HOST_WORKSPACE`（Docker 裡主機 Windows 路徑的樣本字串，只在 Linux 解析成相對路徑）；+9 ADR-0311 `test_local_bridge_service.py` 的掛載路徑樣本（純字串轉換，不碰檔案系統）。 |
+| `PATH_LITERAL_SSOT` | 21 | 硬編碼物理路徑合法豁免：`test_io_prison.py` 的惡意攻擊 payload 字面量（`C:\Windows\win.ini`／`Z:\` 跨磁碟逃逸樣本）——path-escape 安全測試本質需要真實注入路徑，非業務路徑；+3 ADR-0303 `test_drive_bound.py` 的 Windows 路徑字串（純字串比對，不碰檔案系統）；+1 ADR-0303 `test_soul_name_path_security.py` 的 `HOST_WORKSPACE`（Docker 裡主機 Windows 路徑的樣本字串，只在 Linux 解析成相對路徑）；+9 ADR-0312 `test_local_bridge_service.py` 的掛載路徑樣本（純字串轉換，不碰檔案系統）。 |
 | `CONSOLE_BAN` | 1 | 前端直接 console.log/warn/error 合法豁免：`error_handler.ts` L76 是 `logSSOTError()` 的 SSOT 封裝層 |
 | `ERROR_SSOT_VIOLATION` | 1 | 明示 UI admission 的固定 typed precommit 衝突結果須 HTTP 409；不反射原輸入。 |
 | `PAC_MANUAL_LEVEL_CHECK` | 5 | 安全測試合法豁免：`test_native_tool_payload_contracts.py`（1）、`test_session_persistence_ordering.py`（2）、`test_auth_mode_authority_security.py`（2）讀回被保護的 auth_level 驗證既有安全級或舊值對照，非生產中介層手刻策略判定（ADR-0246 U2c-4：E01 測試改用屬性斷言 -5，舊值讀取對照斷言 +2） |
@@ -172,7 +172,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 | `protocols/mcp/oauth/keyring.py` | L21 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | keyring atomic secret writer 的單一跨 coroutine／process 鎖定邊界；不得退回同步 `FileLock` 阻塞事件迴圈。 |
 | `protocols/mcp/oauth/profile.py` | L17 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | per-profile mutation／egress fence 的單一跨 coroutine／process 鎖定邊界，防止 profile 變更與 discovery/DCR/token request 競態。 |
 | `protocols/mcp/oauth/workload/models.py` | L1 | `TC002` | 🔴 不可修復 | `SecretStr` 與 `OAuthAuthorizationSlotKey` 參與 Pydantic 執行期 schema／nested validation，移入 TYPE_CHECKING 會留下未完成模型。 |
-| `services/local_bridge_pairing.py` | import 區 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | 小幫手配對檔換新與解除的 read-modify-write 要經檔案鎖（禁令 21、37，ADR-0311） |
+| `services/local_bridge_pairing.py` | import 區 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | 小幫手配對檔換新與解除的 read-modify-write 要經檔案鎖（禁令 21、37，ADR-0312） |
 | `protocols/mcp/oauth/workload/profile.py` | import 區 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | workload profile JSON generation CAS 的單一跨 coroutine/process mutation lock；同步 FileLock 會阻塞事件迴圈。 |
 | `protocols/mcp/oauth/workload/delegation.py` | import 區 | `FILELOCK_ASYNC_SSOT` | 🔴 不可修復 | owner delegation JSON generation CAS 的單一跨 coroutine/process mutation lock。 |
 | `routers/mcp_oauth_workload.py` | control endpoints（27） | `B008` | 🔴 不可修復 | ADR-0207：admin/owner identity、lifespan control、rotation services 使用 FastAPI `Depends()` 注入。 |
@@ -310,7 +310,7 @@ Q12（2026-09-09）新增 1 處 `PATH_LITERAL_SSOT`：本筆 aggregate 315→316
 | `e2e/serve_real_backend.py` | 模組頂層 `os.environ.update` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0295：測試用的後端入口要在沙盒建好之後、載入產品之前設定環境。`enable_smoke_sandbox` 會覆寫 `_SANDBOX_FLAGS`（這四個變數裡只有 `ENABLE_DYNAMIC_MODELS` 在內），所以這一個不能由上層帶進來；其他三個放在一起，讓這個環境的設定集中在一處。 |
 | `unit/test_smoke_sandbox_governance.py` | process environment mutation oracle | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0214 回歸鎖須對 sandbox helper 的 process environment mutation 做完整斷言，並在 `finally` 還原原始 mapping。 |
 | `unit/test_isolation_zone_shapes.py` | `test_whitelist_by_shape` 的 `st/proxy/home/x` | `PATH_LITERAL_SSOT` | 🔴 不可修復 | ADR-0293：相對於假 state 根的版面路徑，`home` 是 sandbox state 真實的資料夾名（`isolation/profiles.py`），不是實體路徑；換成別的名字就不是真實版面。 |
-| `unit/test_local_bridge_service.py` | `test_host_mount_roots` | `PATH_LITERAL_SSOT` | 🔴 不可修復 | ADR-0311：驗證 Windows 絕對路徑和各種 POSIX 寫法的 Windows 磁碟會被當成主機路徑送給小幫手，字面量就是測資 |
+| `unit/test_local_bridge_service.py` | `test_host_mount_roots` | `PATH_LITERAL_SSOT` | 🔴 不可修復 | ADR-0312：驗證 Windows 絕對路徑和各種 POSIX 寫法的 Windows 磁碟會被當成主機路徑送給小幫手，字面量就是測資 |
 | `unit/test_zone_tripwire.py` | `test_the_full_run_flag_is_not_inherited_by_child_runs` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0293 Z9：確認 conftest 已從行程環境移除全量檢查旗標（`TOUKA_Z9_FULL_RUN`），測試再開的 pytest 不會繼承。 |
 | `zone_mutations.py` | `_env` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | ADR-0293：改壞清單執行器只用標準函式庫，複製目前環境給子 pytest，去掉全量檢查旗標、補上複本的 `PYTHONPATH`。 |
 | `proxy/characterization/harness.py` | `_is_ci` | `ENV_SSOT_VIOLATION` | 🔴 不可修復 | model-p1a U4：讀 `CI`（GitHub Actions 預設 `CI=true`），CI 上缺 golden 改為失敗、本機維持錄製＋skip；測試基建門檻，非產品設定。 |

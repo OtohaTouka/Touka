@@ -154,7 +154,7 @@ def _require_isolation(context: PolicyContext, decision: PolicyDecision) -> Poli
 
 
 # 舊的設定檔沒有列到的工具仍是 dangerous（fail-safe）。這個工具自己的核准在使用者電腦上的
-# 小幫手視窗（ADR-0311），只有設定檔成功載入、又沒列到它時才併進去；讀不到設定檔不適用。
+# 小幫手視窗（ADR-0312），只有設定檔成功載入、又沒列到它時才併進去；讀不到設定檔不適用。
 BUILTIN_TOOL_RISK: dict[str, ToolRiskEntry] = {
     "local_files": ToolRiskEntry(
         action_param="action",

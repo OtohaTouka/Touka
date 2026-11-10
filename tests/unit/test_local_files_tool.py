@@ -1,4 +1,4 @@
-"""本機檔案工具 local_files（ADR-0311）：誰拿得到、結果怎麼交給模型、風險分類。"""
+"""本機檔案工具 local_files（ADR-0312）：誰拿得到、結果怎麼交給模型、風險分類。"""
 
 from __future__ import annotations
 

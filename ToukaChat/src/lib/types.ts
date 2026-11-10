@@ -18,7 +18,7 @@ export type LastResetStatus = components['schemas']['LastResetStatus'];
 export type MemoryScrubReport = components['schemas']['MemoryScrubReport'];
 export type ScrubItemResult = components['schemas']['ScrubItemResult'];
 
-// ADR-0311：本機小幫手設定頁
+// ADR-0312：本機小幫手設定頁
 export type LocalHelperStatus = components['schemas']['LocalHelperStatus'];
 export type LocalPairingCreated = components['schemas']['LocalPairingCreated'];
 

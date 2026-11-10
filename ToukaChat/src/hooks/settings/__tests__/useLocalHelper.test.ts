@@ -1,5 +1,5 @@
 /**
- * ADR-0311：本機小幫手設定頁的資料層——狀態、配對碼只在記憶體、解除配對。
+ * ADR-0312：本機小幫手設定頁的資料層——狀態、配對碼只在記憶體、解除配對。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
@@ -32,7 +32,7 @@ async function loaded() {
     return hook;
 }
 
-describe('useLocalHelper（ADR-0311）', () => {
+describe('useLocalHelper（ADR-0312）', () => {
     beforeEach(() => vi.clearAllMocks());
     afterEach(() => vi.useRealTimers());
 

@@ -2,7 +2,7 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
-## 本機小幫手設定頁（ADR-0311）
+## 本機小幫手設定頁（ADR-0312）
 
 - 分頁 `local_helper`，只有 admin 看得到。資料層是 `useLocalHelper`，每 10 秒更新狀態。
 - 配對碼只放在 hook 的記憶體，不寫瀏覽器儲存，離開頁面就沒了。換新和解除都要先確認。

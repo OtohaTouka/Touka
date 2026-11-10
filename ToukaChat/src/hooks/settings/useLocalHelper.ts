@@ -30,7 +30,7 @@ async function requestPairing(method: 'POST' | 'DELETE'): Promise<Response | nul
 }
 
 /**
- * 本機小幫手設定頁的資料層（ADR-0311）。配對碼只放在這個 hook 的記憶體，
+ * 本機小幫手設定頁的資料層（ADR-0312）。配對碼只放在這個 hook 的記憶體，
  * 不寫進瀏覽器儲存；只有人類管理員打得通，其他人當成讀取失敗。
  */
 export function useLocalHelper() {

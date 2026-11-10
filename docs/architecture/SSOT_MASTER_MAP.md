@@ -621,7 +621,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
 
-### 3-K. 資訊安全守衛層：本機小幫手（ADR-0311）
+### 3-K. 資訊安全守衛層：本機小幫手（ADR-0312）
 
 | 項目 | SSOT |
 |---|---|

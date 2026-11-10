@@ -19,7 +19,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { toast } from 'sonner';
 import { LocalHelperTab } from '../LocalHelperTab';
 
-describe('LocalHelperTab（ADR-0311）', () => {
+describe('LocalHelperTab（ADR-0312）', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         helper.status = { paired: false, online: false, helper_version: null };
