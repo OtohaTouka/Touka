@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
+from touka_local import grants as grants_module
 from touka_local.errors import Refused
 from touka_local.grants import Environment, Grant, GrantBook, resolve_mount_root
 
@@ -23,6 +25,8 @@ def env() -> Environment:
         windows_dir="C:\\Windows",
         program_files=("C:\\Program Files", "C:\\Program Files (x86)"),
         program_data="C:\\ProgramData",
+        app_data="C:\\Users\\Me\\AppData\\Roaming",
+        local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir=HELPER,
         touka_folder=TOUKA,
     )
@@ -305,3 +309,40 @@ def test_onedrive_hint(fs, book: GrantBook) -> None:
     assert book.needs_onedrive_hint(grant) is True
     _dir(fs, "D:\\Photos")
     assert book.needs_onedrive_hint(book.add("D:\\Photos", writable=False)) is False
+
+
+def test_a_failed_save_leaves_the_list_unchanged(fs, book, monkeypatch) -> None:
+    grant = book.add(_dir(fs, "D:\\Open"), writable=False)
+    before = book.grants()
+
+    def boom(_file: object, _text: str) -> None:
+        raise OSError(28, "disk full")
+
+    monkeypatch.setattr(grants_module, "durable_write_text", boom)
+    other = _dir(fs, "D:\\Other")
+    with pytest.raises(OSError, match="disk full"):
+        book.add(other, writable=True)
+    with pytest.raises(OSError, match="disk full"):
+        book.set_writable(grant.name, writable=True)
+    with pytest.raises(OSError, match="disk full"):
+        book.remove(grant.name)
+    assert book.grants() == before
+
+
+def test_list_is_found_after_a_crash_between_delete_and_rename(fs, env, book, tmp_path) -> None:
+    grant = book.add(_dir(fs, "D:\\Open"), writable=False)
+    file = tmp_path / "grants.json"
+    file.rename(tmp_path / "grants.json.new")
+    again = GrantBook(file, fs=fs, env=env, drive_type=lambda _anchor: "fixed")
+    assert again.grants() == [grant]
+
+
+@pytest.mark.parametrize(
+    "path", ["E:\\Profile\\Roaming", "E:\\Profile\\Local\\Sub", "E:\\Profile"]
+)
+def test_redirected_app_data_cannot_be_opened(fs, env, tmp_path, path: str) -> None:
+    moved = replace(env, app_data="E:\\Profile\\Roaming", local_app_data="E:\\Profile\\Local")
+    book = GrantBook(tmp_path / "moved.json", fs=fs, env=moved, drive_type=lambda _anchor: "fixed")
+    with pytest.raises(Refused) as caught:
+        book.add(_dir(fs, path), writable=False)
+    assert caught.value.code == "blocked"

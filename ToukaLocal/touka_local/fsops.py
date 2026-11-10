@@ -7,9 +7,11 @@ import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
 
 Clock = Callable[[], float]
+
+TEMPORARY_SUFFIX: Final = ".new"
 
 
 @dataclass(frozen=True)
@@ -96,11 +98,31 @@ class RealFs:
         Path(source).rename(destination)
 
 
-def atomic_write_text(path: Path, text: str) -> None:
-    """寫自己的設定與紀錄。中途當機時最多少一個檔，讀不到就當作什麼都沒開放。"""
+def temporary_path(path: Path) -> Path:
+    """寫到一半的暫存檔。"""
+    return path.with_name(f"{path.name}{TEMPORARY_SUFFIX}")
+
+
+def durable_write_text(path: Path, text: str) -> None:
+    """寫自己的設定與紀錄：暫存檔落盤、刪舊檔、改名。
+
+    能覆蓋的改名被能力邊界禁掉了，所以是三步。當機在中間時正式檔不在，
+    ``read_durable_text`` 會改讀已經落盤的暫存檔。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.new")
-    temporary.write_text(text, encoding="utf-8")
+    temporary = temporary_path(path)
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
     if path.exists():
         path.unlink()
     temporary.rename(path)
+
+
+def read_durable_text(path: Path) -> str:
+    """讀 ``durable_write_text`` 寫的檔；正式檔不在就讀暫存檔。"""
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return temporary_path(path).read_text(encoding="utf-8")

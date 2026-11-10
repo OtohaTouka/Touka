@@ -9,6 +9,7 @@ from typing import get_args
 from src.models.local_bridge import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_JOB_RESULT_BYTES,
+    MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
     LocalAction,
     LocalJob,
@@ -16,7 +17,11 @@ from src.models.local_bridge import (
     LocalPollRequest,
     LocalPollResponse,
 )
-from src.services.local_bridge import DECISION_WAIT_SECONDS, HELPER_DECISION_MARGIN_SECONDS
+from src.services.local_bridge import (
+    DECISION_WAIT_SECONDS,
+    HELPER_DECISION_MARGIN_SECONDS,
+    HELPER_EXECUTION_LIMIT_SECONDS,
+)
 
 HELPER = Path(__file__).resolve().parents[2] / "ToukaLocal" / "touka_local"
 
@@ -51,6 +56,7 @@ def test_version_and_limits_match() -> None:
     assert helper["PROTOCOL_VERSION"] == PROTOCOL_VERSION
     assert helper["MAX_JOB_RESULT_BYTES"] == MAX_JOB_RESULT_BYTES
     assert helper["MAX_ERROR_MESSAGE_CHARS"] == MAX_ERROR_MESSAGE_CHARS
+    assert helper["MAX_REQUESTER_CHARS"] == MAX_REQUESTER_CHARS
 
 
 def test_actions_match() -> None:
@@ -73,3 +79,8 @@ def test_result_statuses_match() -> None:
 def test_decision_limit_matches() -> None:
     helper = _constants("approval.py")
     assert helper["MAX_DECISION_SECONDS"] == DECISION_WAIT_SECONDS - HELPER_DECISION_MARGIN_SECONDS
+
+
+def test_execution_limit_matches() -> None:
+    helper = _constants("service.py")
+    assert helper["HELPER_EXECUTION_LIMIT_SECONDS"] == HELPER_EXECUTION_LIMIT_SECONDS

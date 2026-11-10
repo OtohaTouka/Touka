@@ -120,6 +120,19 @@ def launcher_bytes(plan: InstallPlan, encoding: str = "oem") -> bytes:
         raise InstallRefused(msg) from exc
 
 
+def check_touka_folder(folder: Path) -> None:
+    """打錯路徑的話，小幫手之後會擋錯地方。"""
+    if not folder.is_dir():
+        msg = "找不到這個 Touka 資料夾，請確認路徑"
+        raise InstallRefused(msg)
+
+
+def finish_message(launcher: str, *, on_desktop: bool) -> str:
+    """裝完要告訴人的話。"""
+    note = "" if on_desktop else "找不到桌面資料夾，桌面上沒有捷徑，請直接開啟上面的啟動檔。\n"
+    return f"已安裝。啟動檔：{launcher}\n{note}"
+
+
 def copy_allowed(source: Path, app: Path) -> None:
     """只複製允許的檔案，舊的先清掉。缺檔就什麼都不動。"""
     contents = {}
@@ -165,6 +178,7 @@ def _prepare(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
         python=str(Path(sys.executable).resolve()),
         touka_folder=touka_folder,
     )
+    check_touka_folder(Path(plan.touka_folder))
     if not Path(plan.pythonw).is_file():
         msg = "找不到 pythonw.exe"
         raise InstallRefused(msg)
@@ -191,9 +205,10 @@ def run(argv: list[str]) -> int:
     data = launcher_bytes(plan)
     Path(plan.launcher).write_bytes(data)
     desktop = Path(environ["USERPROFILE"]) / "Desktop"
-    if desktop.is_dir():
+    on_desktop = desktop.is_dir()
+    if on_desktop:
         (desktop / _LAUNCHER_NAME).write_bytes(data)
-    sys.stdout.write(f"已安裝。啟動檔：{plan.launcher}\n")
+    sys.stdout.write(finish_message(plan.launcher, on_desktop=on_desktop))
     return 0
 
 

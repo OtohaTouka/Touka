@@ -8,6 +8,7 @@
 
 - 第一版試行中，只有 Windows。協議改版時，小幫手要重新安裝（`ToukaLocal/README.md`）。
 - 真回收桶和連結只有在 Windows 上才測得到，CI 只有 Linux：改 `ToukaLocal/` 時要在本機跑 `tests/unit/local_helper/`。
+- 視窗還沒有人實際操作過：顯示邏輯和流程有測試，真的按核准、拒絕、關視窗要等第一次試行。
 
 ## 也和這裡有關
 

@@ -36,6 +36,8 @@ def _environment(tmp_path: Path) -> Environment:
         windows_dir="Z:\\NoWindows",
         program_files=("Z:\\NoProgramFiles",),
         program_data="Z:\\NoProgramData",
+        app_data="Z:\\NoAppData",
+        local_app_data="Z:\\NoLocalAppData",
         helper_dir=str(tmp_path / "helper"),
         touka_folder="Z:\\NoTouka",
     )
@@ -203,5 +205,6 @@ def test_new_file_deep_in_a_folder_is_seen_for_real(real) -> None:
     assert trash.sent == []
 
 
-def test_single_instance_handle_is_reported() -> None:
-    assert acquire_single_instance() in (True, False)
+def test_a_second_copy_is_refused() -> None:
+    acquire_single_instance()
+    assert acquire_single_instance() is False

@@ -9,6 +9,7 @@ from touka_local.paths import is_hidden_character
 
 _VISIBLE_MARK: Final = "⍰"
 _REASON_LIMIT: Final = 300
+_NAME_SEPARATOR: Final = "  ‹  "
 _SIZE_UNITS: Final = ("KB", "MB", "GB", "TB")
 
 _ACTIONS: Final = {"move": "搬移", "delete": "丟到回收桶"}
@@ -53,6 +54,7 @@ _REFUSALS: Final = {
     "busy": "正在執行另一批，請等它做完",
 }
 _REFUSAL_FALLBACK: Final = "這個動作沒有完成"
+_JOURNAL_WARNING: Final = "。這批的紀錄沒有寫完整，有些搬移可能無法復原"
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,8 @@ class ApprovalRow:
     destination: str
     detail: str
     marks: str
+    full_source: str
+    full_destination: str
 
 
 @dataclass(frozen=True)
@@ -103,18 +107,38 @@ def _detail(item: Any) -> str:
     return human_size(item.size)
 
 
+def _name_first(text: str) -> str:
+    """表格放不下長路徑，檔名放前面才一定看得到。"""
+    folder, _, name = text.rpartition("/")
+    return f"{name}{_NAME_SEPARATOR}{folder}" if folder else name
+
+
 def approval_rows(plan: Any) -> list[ApprovalRow]:
     """把清單變成表格的列。"""
     return [
         ApprovalRow(
             action=_ACTIONS.get(item.op, item.op),
-            source=display_safe(item.source_text),
-            destination=display_safe(item.destination_text or ""),
+            source=_name_first(display_safe(item.source_text)),
+            destination=_name_first(display_safe(item.destination_text or "")),
             detail=_detail(item),
             marks="、".join(_MARKS.get(mark, mark) for mark in item.unusual),
+            full_source=display_safe(item.source_full),
+            full_destination=display_safe(item.destination_full or ""),
         )
         for item in plan.items
     ]
+
+
+def full_paths_text(row: ApprovalRow) -> str:
+    """選取一列時顯示的完整路徑。"""
+    if row.full_destination:
+        return f"位置：{row.full_source}\n新位置：{row.full_destination}"
+    return f"位置：{row.full_source}"
+
+
+def requester_text(requester: str) -> str:
+    """提出者是 Touka 轉來的名字，不一定可信。"""
+    return f"提出者（可能不準）：{clean_reason(requester)}"
 
 
 def approval_counts(plan: Any) -> ApprovalCounts:
@@ -139,11 +163,12 @@ def approval_title(counts: ApprovalCounts) -> str:
 def report_text(report: dict[str, Any]) -> str:
     """執行結果的一句話。"""
     statuses = [item["status"] for item in report["items"]]
-    return "，".join(
+    text = "，".join(
         f"{label} {statuses.count(status)} 項"
         for status, label in _REPORT_LABELS
         if statuses.count(status)
     )
+    return f"{text}{_JOURNAL_WARNING}" if report.get("journal_incomplete") else text
 
 
 def connection_text(state: str) -> str:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final
 
 from touka_local.connection import check_port
 from touka_local.errors import Refused
-from touka_local.fsops import atomic_write_text
+from touka_local.fsops import durable_write_text, read_durable_text
 from touka_local.grants import Environment
 from touka_local.paths import is_plain_absolute, join
 
@@ -25,6 +25,7 @@ _REQUIRED_LOCATIONS: Final = (
     "ProgramFiles",
     "ProgramData",
     "LOCALAPPDATA",
+    "APPDATA",
 )
 _OPTIONAL_PROGRAM_FILES: Final = ("ProgramFiles(x86)", "ProgramW6432")
 
@@ -41,7 +42,7 @@ class Settings:
 def load_settings(file: Path) -> Settings:
     """讀設定，壞掉就用預設值（沒有配對、不知道 Touka 在哪）。"""
     try:
-        payload = json.loads(file.read_text(encoding="utf-8"))
+        payload = json.loads(read_durable_text(file))
     except (OSError, ValueError):
         return Settings()
     if not isinstance(payload, dict) or not set(payload) <= _FIELDS:
@@ -67,7 +68,7 @@ def save_settings(file: Path, settings: Settings) -> None:
         "token": settings.token,
         "touka_folder": settings.touka_folder,
     }
-    atomic_write_text(file, json.dumps(payload, ensure_ascii=False, indent=2))
+    durable_write_text(file, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def load_environment(environ: Mapping[str, str], touka_folder: str | None) -> Environment:
@@ -86,6 +87,8 @@ def load_environment(environ: Mapping[str, str], touka_folder: str | None) -> En
         windows_dir=values["WINDIR"],
         program_files=program_files,
         program_data=values["ProgramData"],
+        app_data=values["APPDATA"],
+        local_app_data=values["LOCALAPPDATA"],
         helper_dir=join(values["LOCALAPPDATA"], HELPER_FOLDER_NAME),
         touka_folder=str(touka_folder),
     )

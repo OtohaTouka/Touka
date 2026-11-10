@@ -23,6 +23,7 @@ from touka_local.errors import Refused
 from touka_local.protocol import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_JOB_RESULT_BYTES,
+    MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
     ProtocolError,
     parse_poll_response,
@@ -273,3 +274,16 @@ def test_opener_ignores_system_proxies_and_redirects(monkeypatch: pytest.MonkeyP
 def test_no_redirect_refuses_to_build_a_request() -> None:
     request = urllib.request.Request("http://127.0.0.1:8000/x")
     assert NoRedirect().redirect_request(request, None, 302, "x", {}, "http://evil/") is None  # type: ignore[arg-type]
+
+
+def test_absurdly_nested_json_is_a_protocol_error() -> None:
+    with pytest.raises(ProtocolError):
+        _client(_Opener(_Response(body=b"[" * 200_000))).poll()
+
+
+def test_long_requester_is_cut_to_the_protocol_limit() -> None:
+    parsed = parse_poll_response(
+        {"job": _job(requester="x" * 500), "cancelled": [], "host_mount_roots": []}
+    )
+    assert parsed.job is not None
+    assert len(parsed.job.requester) == MAX_REQUESTER_CHARS

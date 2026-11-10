@@ -13,7 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2] / "ToukaLocal"
 WINDOWS_ONLY_FILE = "winapi.py"
-WINDOWS_ONLY_MODULES = frozenset({"ctypes", "msvcrt"})
+WINDOWS_ONLY_MODULES = frozenset({"ctypes"})
 
 ALLOWED_MODULES = frozenset(
     {
@@ -28,7 +28,6 @@ ALLOWED_MODULES = frozenset(
         "json",
         "logging",
         "math",
-        "msvcrt",
         "ntpath",
         "os",
         "pathlib",
@@ -45,14 +44,27 @@ ALLOWED_MODULES = frozenset(
         "urllib",
     }
 )
-ALLOWED_DOTTED_PREFIXES = {
-    "http": frozenset({"http.client"}),
-    "urllib": frozenset({"urllib.error", "urllib.request"}),
-}
+ALLOWED_SUBMODULES = frozenset(
+    {
+        "collections.abc",
+        "ctypes.wintypes",
+        "http.client",
+        "logging.handlers",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
+        "tkinter.ttk",
+        "urllib.error",
+        "urllib.request",
+    }
+)
+PACKAGES_WITH_SUBMODULES = frozenset(name.split(".", 1)[0] for name in ALLOWED_SUBMODULES)
+OWN_PACKAGE = "touka_local"
+NO_ALIAS_MODULES = frozenset({"os", "ctypes"})
 BANNED_OS_ATTRIBUTES = frozenset({"system", "popen", "startfile", "replace"})
 BANNED_OS_PREFIXES = ("exec", "spawn")
 BANNED_NAMES = frozenset({"eval", "exec", "__import__", "importlib", "getattr"})
-BANNED_TK_ATTRIBUTES = frozenset({"eval", "call"})
+# 任何物件上都不行：tk 的這兩個方法能執行 Tcl，換個變數名就看不出來了
+BANNED_ATTRIBUTES = frozenset({"eval", "call"})
 
 
 def _sources() -> list[Path]:
@@ -63,49 +75,76 @@ def _is_banned_os_name(name: str) -> bool:
     return name in BANNED_OS_ATTRIBUTES or name.startswith(BANNED_OS_PREFIXES)
 
 
-def _import_violations(path: Path, node: ast.AST) -> list[str]:
-    names: list[str] = []
+def _imported_modules(node: ast.Import | ast.ImportFrom) -> list[str]:
+    """這個匯入實際載入的模組。``from 套件 import 子模組`` 算到子模組。"""
     if isinstance(node, ast.Import):
-        names = [alias.name for alias in node.names]
-    elif isinstance(node, ast.ImportFrom):
-        if node.level:
-            return [f"{path.name}:{node.lineno} 相對匯入"]
-        module = node.module or ""
-        names = [module]
-        if module in ALLOWED_DOTTED_PREFIXES:
-            names = [f"{module}.{alias.name}" for alias in node.names]
+        return [alias.name for alias in node.names]
+    module = node.module or ""
+    if module in PACKAGES_WITH_SUBMODULES:
+        return [f"{module}.{alias.name}" for alias in node.names]
+    return [module]
+
+
+def _check_module(path: Path, line: int, name: str) -> list[str]:
+    top = name.split(".", 1)[0]
+    where = f"{path.name}:{line}"
+    if top not in ALLOWED_MODULES:
+        return [f"{where} 不在允許清單：{name}"]
     problems: list[str] = []
-    for name in names:
-        top = name.split(".", 1)[0]
-        if top not in ALLOWED_MODULES:
-            problems.append(f"{path.name}:{node.lineno} 不在允許清單：{name}")
-        allowed = ALLOWED_DOTTED_PREFIXES.get(top)
-        if allowed is not None and name != top and name not in allowed:
-            problems.append(f"{path.name}:{node.lineno} 不在允許清單：{name}")
-        if top in WINDOWS_ONLY_MODULES and path.name != WINDOWS_ONLY_FILE:
-            problems.append(f"{path.name}:{node.lineno} {top} 只能在 {WINDOWS_ONLY_FILE}")
-    if isinstance(node, ast.ImportFrom) and node.module == "os":
-        problems += [
-            f"{path.name}:{node.lineno} 不能匯入 os.{alias.name}"
-            for alias in node.names
-            if _is_banned_os_name(alias.name)
-        ]
+    if name != top and top != OWN_PACKAGE and name not in ALLOWED_SUBMODULES:
+        problems.append(f"{where} 不在允許清單：{name}")
+    if top in WINDOWS_ONLY_MODULES and path.name != WINDOWS_ONLY_FILE:
+        problems.append(f"{where} {top} 只能在 {WINDOWS_ONLY_FILE}")
+    return problems
+
+
+def _alias_violations(path: Path, node: ast.Import | ast.ImportFrom) -> list[str]:
+    where = f"{path.name}:{node.lineno}"
+    problems: list[str] = []
+    for alias in node.names:
+        if alias.name == "*":
+            problems.append(f"{where} 不能用星號匯入")
+        if isinstance(node, ast.Import):
+            if alias.asname and alias.name.split(".", 1)[0] in NO_ALIAS_MODULES:
+                problems.append(f"{where} 不能幫 {alias.name} 取別名")
+            continue
+        module = node.module or ""
+        if module == "os" and _is_banned_os_name(alias.name):
+            problems.append(f"{where} 不能匯入 os.{alias.name}")
+        if module.split(".", 1)[0] == OWN_PACKAGE and alias.name in WINDOWS_ONLY_MODULES:
+            problems.append(f"{where} 不能經由小幫手的模組拿到 {alias.name}")
+    return problems
+
+
+def _import_violations(path: Path, node: ast.AST) -> list[str]:
+    if not isinstance(node, ast.Import | ast.ImportFrom):
+        return []
+    if isinstance(node, ast.ImportFrom) and node.level:
+        return [f"{path.name}:{node.lineno} 相對匯入"]
+    problems = _alias_violations(path, node)
+    for name in _imported_modules(node):
+        problems += _check_module(path, node.lineno, name)
     return problems
 
 
 def _call_violations(path: Path, node: ast.AST) -> list[str]:
+    where = f"{path.name}:{node.lineno}" if hasattr(node, "lineno") else path.name
     if isinstance(node, ast.Name) and node.id in BANNED_NAMES:
-        return [f"{path.name}:{node.lineno} 不能使用 {node.id}"]
+        return [f"{where} 不能使用 {node.id}"]
     if isinstance(node, ast.Attribute):
         owner = node.value
         if isinstance(owner, ast.Name) and owner.id == "os" and _is_banned_os_name(node.attr):
-            return [f"{path.name}:{node.lineno} 不能使用 os.{node.attr}"]
-        if (
-            isinstance(owner, ast.Attribute)
-            and owner.attr == "tk"
-            and node.attr in BANNED_TK_ATTRIBUTES
-        ):
-            return [f"{path.name}:{node.lineno} 不能使用 .tk.{node.attr}"]
+            return [f"{where} 不能使用 os.{node.attr}"]
+        if node.attr in BANNED_ATTRIBUTES:
+            return [f"{where} 不能使用 .{node.attr}"]
+    # Path.replace 只收一個引數，而且會覆蓋目的地；str.replace 至少兩個
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "replace"
+        and len(node.args) + len(node.keywords) == 1
+    ):
+        return [f"{where} 不能用會覆蓋目的地的 .replace()"]
     return []
 
 
@@ -157,6 +196,20 @@ def test_helper_does_not_import_touka_itself() -> None:
         "import os\nos.execv('x', [])",
         "import os\nos.spawnl(0, 'x')",
         "import os\nos.replace('a', 'b')",
+        "import logging.config",
+        "import tkinter.tix",
+        "import ctypes.util",
+        "from tkinter import Tcl",
+        "from logging import config",
+        "from os import *",
+        "from json import *",
+        "import os as o",
+        "import ctypes as c",
+        "foo.eval('x')",
+        "foo.bar.call('x')",
+        "from pathlib import Path\nPath('a').replace('b')",
+        "x.replace(target='b')",
+        "from touka_local.winapi import ctypes",
         "from os import system",
         "from os import replace",
         "from os import execv",
@@ -180,3 +233,22 @@ def test_guard_allows_ctypes_in_the_windows_file(tmp_path: Path) -> None:
 def test_guard_allows_ordinary_code(tmp_path: Path) -> None:
     source = "import os\nimport json\nx = os.environ\ny = 'a'.replace('a', 'b')\n"
     assert violations_in(tmp_path / "other.py", source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import tkinter as tk",
+        "from tkinter import filedialog, messagebox, ttk",
+        "import logging.handlers",
+        "from collections.abc import Callable",
+        "from dataclasses import replace\nx = replace(a, b=1)",
+        "import urllib.request",
+    ],
+)
+def test_guard_allows_what_the_helper_needs(source: str, tmp_path: Path) -> None:
+    assert violations_in(tmp_path / "other.py", source) == []
+
+
+def test_guard_allows_wintypes_in_the_windows_file(tmp_path: Path) -> None:
+    assert violations_in(tmp_path / WINDOWS_ONLY_FILE, "from ctypes import wintypes") == []

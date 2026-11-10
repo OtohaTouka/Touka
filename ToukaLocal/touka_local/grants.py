@@ -10,7 +10,7 @@ from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING, Final
 
 from touka_local.errors import Refused
-from touka_local.fsops import atomic_write_text
+from touka_local.fsops import durable_write_text, read_durable_text
 from touka_local.paths import (
     anchor_of,
     check_segment_syntax,
@@ -42,6 +42,8 @@ class Environment:
     windows_dir: str
     program_files: tuple[str, ...]
     program_data: str
+    app_data: str
+    local_app_data: str
     helper_dir: str
     touka_folder: str
 
@@ -68,7 +70,7 @@ def resolve_mount_root(value: str, touka_folder: str) -> str | None:
 
 def _load(file: Path) -> list[Grant]:
     try:
-        payload = json.loads(file.read_text(encoding="utf-8"))
+        payload = json.loads(read_durable_text(file))
     except (OSError, ValueError):
         return []
     if not isinstance(payload, dict) or not isinstance(payload.get("grants"), list):
@@ -146,26 +148,25 @@ class GrantBook:
                 path=normalized,
                 writable=writable,
             )
-            self._grants.append(grant)
-            self._save()
+            self._commit([*self._grants, grant])
             return grant
 
     def remove(self, name: str) -> None:
         """從名單拿掉。"""
         key = name.casefold()
         with self._lock:
-            self._grants = [g for g in self._grants if g.name.casefold() != key]
-            self._save()
+            self._commit([g for g in self._grants if g.name.casefold() != key])
 
     def set_writable(self, name: str, *, writable: bool) -> None:
         """切換唯讀或可以改。"""
         key = name.casefold()
         with self._lock:
-            self._grants = [
-                Grant(g.name, g.path, writable) if g.name.casefold() == key else g
-                for g in self._grants
-            ]
-            self._save()
+            self._commit(
+                [
+                    Grant(g.name, g.path, writable) if g.name.casefold() == key else g
+                    for g in self._grants
+                ]
+            )
 
     def set_mount_roots(self, values: Iterable[str]) -> None:
         """Touka 回報的掛載來源，只用來多擋，不會讓任何資料夾變得能開放。"""
@@ -177,9 +178,11 @@ class GrantBook:
         """OneDrive 接管的資料夾，裡面的雲端佔位檔都會被擋。"""
         return any(p.casefold().startswith(_ONEDRIVE_PREFIX) for p in parts_of(grant.path)[1:])
 
-    def _save(self) -> None:
-        payload = {"grants": [asdict(grant) for grant in self._grants]}
-        atomic_write_text(self._file, json.dumps(payload, ensure_ascii=False, indent=2))
+    def _commit(self, grants: list[Grant]) -> None:
+        """先存檔，存成功才算數；視窗上看到的永遠是檔案裡的內容。"""
+        payload = {"grants": [asdict(grant) for grant in grants]}
+        durable_write_text(self._file, json.dumps(payload, ensure_ascii=False, indent=2))
+        self._grants = grants
 
     def _unique_name(self, base: str) -> str:
         taken = {grant.name.casefold() for grant in self._grants}
@@ -210,6 +213,8 @@ class GrantBook:
             env.windows_dir,
             *env.program_files,
             env.program_data,
+            env.app_data,
+            env.local_app_data,
             join(env.user_profile, "AppData"),
             join(env.user_profile, ".ssh"),
             join(env.user_profile, ".aws"),

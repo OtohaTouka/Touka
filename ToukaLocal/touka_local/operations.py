@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -12,7 +13,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 from touka_local.errors import Refused
-from touka_local.fsops import atomic_write_text
+from touka_local.fsops import (
+    TEMPORARY_SUFFIX,
+    durable_write_text,
+    read_durable_text,
+    temporary_path,
+)
 from touka_local.paths import (
     MAX_PATH_CHARS,
     anchor_of,
@@ -48,7 +54,10 @@ MAX_TREE_ENTRIES: Final = 20_000
 UNUSUAL_FOLDER_ENTRIES: Final = 100
 MAX_JOURNALS: Final = 50
 
+logger = logging.getLogger(__name__)
+
 _BATCH_ID: Final = re.compile(r"[0-9a-f]{32}")
+_JOURNAL_SUFFIX: Final = ".json"
 _UTF16_MARKS: Final = (b"\xff\xfe", b"\xfe\xff")
 _TEXT_ENCODINGS: Final = ("utf-8-sig", "cp950")
 
@@ -446,7 +455,10 @@ class Operations:
     # --- 執行 ---
 
     def apply(self, plan: Plan, limits: ApplyLimits) -> dict[str, Any]:
-        """照核准的清單做，每項做之前重新確認；有變動的跳過。"""
+        """照核准的清單做，每項做之前重新確認；有變動的跳過。
+
+        紀錄寫不進去就不再往下做：沒有紀錄的搬移沒辦法復原。
+        """
         if _digest(plan.items, plan.reason) != plan.digest:
             raise Refused("changed")
         journal = self._new_journal(plan)
@@ -454,13 +466,30 @@ class Operations:
         self._prune_journals()
         results: list[dict[str, str]] = []
         stopped = False
+        recorded = True
         for item, entry in zip(plan.items, journal["entries"], strict=True):
-            stopped = stopped or limits.should_stop() or self._clock() >= limits.deadline
+            stopped = (
+                stopped
+                or not recorded
+                or limits.should_stop()
+                or self._clock() >= limits.deadline
+            )
             status = "not_done" if stopped else self._run_item(item)
             entry["status"] = status
-            self._write_journal(journal)
+            recorded = self._record(journal)
             results.append({"path": item.source_text, "status": status})
-        return {"batch": journal["batch"], "items": results}
+        report: dict[str, Any] = {"batch": journal["batch"], "items": results}
+        if not recorded:
+            report["journal_incomplete"] = True
+        return report
+
+    def _record(self, journal: dict[str, Any]) -> bool:
+        try:
+            self._write_journal(journal)
+        except OSError:
+            logger.exception("the batch record could not be saved")
+            return False
+        return True
 
     def _run_item(self, item: PlanItem) -> str:
         try:
@@ -469,13 +498,15 @@ class Operations:
             if item.op == "move" and item.destination_full is not None:
                 self._fs.rename(item.source_full, item.destination_full)
                 return "done"
-            return {"ok": "done", "aborted": "aborted"}.get(
-                self._trash.send(item.source_full), "failed"
-            )
+            if item.op == "delete":
+                return {"ok": "done", "aborted": "aborted"}.get(
+                    self._trash.send(item.source_full), "failed"
+                )
         except FileExistsError:
             return "changed"
         except OSError:
             return "failed"
+        return "failed"
 
     def _still_valid(self, item: PlanItem) -> bool:
         try:
@@ -520,19 +551,26 @@ class Operations:
         }
 
     def _journal_path(self, batch: str) -> Path:
-        return self._journal_dir / f"{batch}.json"
+        return self._journal_dir / f"{batch}{_JOURNAL_SUFFIX}"
 
     def _write_journal(self, journal: dict[str, Any]) -> None:
-        atomic_write_text(
-            self._journal_path(journal["batch"]), json.dumps(journal, ensure_ascii=False)
+        # 檔名可能有 UTF-8 寫不出來的字元，用跳脫的寫法才不會整批紀錄寫失敗
+        durable_write_text(
+            self._journal_path(journal["batch"]), json.dumps(journal, ensure_ascii=True)
         )
 
     def _all_journals(self) -> list[dict[str, Any]]:
         if not self._journal_dir.is_dir():
             return []
+        # 當機在刪舊檔和改名之間時，只剩暫存檔
+        batches = {
+            path.name.split(".", 1)[0]
+            for path in self._journal_dir.iterdir()
+            if path.name.endswith((_JOURNAL_SUFFIX, f"{_JOURNAL_SUFFIX}{TEMPORARY_SUFFIX}"))
+        }
         journals: list[dict[str, Any]] = []
-        for path in self._journal_dir.glob("*.json"):
-            journal = self._read_journal(path)
+        for batch in batches:
+            journal = self._read_journal(self._journal_path(batch))
             if journal is not None:
                 journals.append(journal)
         return sorted(journals, key=lambda journal: journal["sequence"], reverse=True)
@@ -540,12 +578,13 @@ class Operations:
     @staticmethod
     def _read_journal(path: Path) -> dict[str, Any] | None:
         try:
-            journal = json.loads(path.read_text(encoding="utf-8"))
+            journal = json.loads(read_durable_text(path))
         except (OSError, ValueError):
             return None
         if (
             not isinstance(journal, dict)
-            or not isinstance(journal.get("batch"), str)
+            or journal.get("batch") != path.name.removesuffix(_JOURNAL_SUFFIX)
+            or _BATCH_ID.fullmatch(journal["batch"]) is None
             or type(journal.get("sequence")) is not int
             or not isinstance(journal.get("entries"), list)
             or not all(isinstance(entry, dict) for entry in journal["entries"])
@@ -559,7 +598,12 @@ class Operations:
 
     def _prune_journals(self) -> None:
         for journal in self._all_journals()[MAX_JOURNALS:]:
-            self._journal_path(journal["batch"]).unlink(missing_ok=True)
+            path = self._journal_path(journal["batch"])
+            path.unlink(missing_ok=True)
+            temporary_path(path).unlink(missing_ok=True)
+        for leftover in self._journal_dir.glob(f"*{_JOURNAL_SUFFIX}{TEMPORARY_SUFFIX}"):
+            if leftover.with_name(leftover.name.removesuffix(TEMPORARY_SUFFIX)).exists():
+                leftover.unlink(missing_ok=True)
 
     def recent_batches(self) -> list[dict[str, Any]]:
         """最近的批次，新的在前。"""
@@ -597,7 +641,8 @@ class Operations:
                     counts["restored"] += 1
                 else:
                     counts["skipped"] += 1
-        self._write_journal(journal)
+        if not self._record(journal):
+            counts["journal_incomplete"] = 1
         return counts
 
     def _undo_move(self, entry: dict[str, Any]) -> bool:

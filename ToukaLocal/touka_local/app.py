@@ -10,7 +10,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from touka_local import __version__, winapi
 from touka_local.approval import APPROVE_DELAY_SECONDS, ApprovalGate
@@ -20,6 +20,9 @@ from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
 from touka_local.operations import Operations
 from touka_local.service import (
+    CLOSE_NOW,
+    CLOSE_WAIT,
+    NOTICE_APPLY_FAILED,
     NOTICE_FINISHED,
     NOTICE_NOT_CONFIRMED,
     NOTICE_NOT_DELIVERED,
@@ -38,15 +41,18 @@ from touka_local.view import (
     approval_title,
     clean_reason,
     connection_text,
-    display_safe,
+    full_paths_text,
     refusal_text,
     report_text,
+    requester_text,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from touka_local.approval import PendingApproval
+
+logger = logging.getLogger(__name__)
 
 _REFRESH_MS: Final = 300
 _BATCH_REFRESH_SECONDS: Final = 5.0
@@ -55,6 +61,7 @@ _NOTICE_TEXT: Final = {
     NOTICE_NOT_CONFIRMED: "Touka 那邊已經不等這份清單了，所以什麼都沒有動。",
     NOTICE_NOT_DELIVERED: "已經照清單做了，但結果沒有送回 Touka。請看下面的最近批次。",
     NOTICE_FINISHED: "清單做完了，結果在最近批次。",
+    NOTICE_APPLY_FAILED: "這份清單沒有做完，細節在紀錄檔。請看下面的最近批次，確認哪些已經動了。",
 }
 
 
@@ -85,7 +92,7 @@ class ApprovalWindow:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text=approval_title(counts), font=("", 12, "bold")).pack(anchor="w")
         if pending.requester:
-            ttk.Label(frame, text=f"提出者：{display_safe(pending.requester)}").pack(anchor="w")
+            ttk.Label(frame, text=requester_text(pending.requester)).pack(anchor="w")
         ttk.Label(
             frame,
             text=f"代理人的說明（可能不準）：{clean_reason(pending.plan.reason)}",
@@ -98,12 +105,15 @@ class ApprovalWindow:
                 foreground="#b00020",
             ).pack(anchor="w", pady=(0, 8))
 
-        self._add_table(frame, pending)
-        self._countdown = ttk.Label(frame, text="")
-        self._countdown.pack(anchor="w", pady=(8, 4))
-
+        # 下面的先排，視窗縮小時按鈕才不會被表格擠掉
         buttons = ttk.Frame(frame)
-        buttons.pack(fill="x")
+        buttons.pack(side="bottom", fill="x")
+        self._countdown = ttk.Label(frame, text="")
+        self._countdown.pack(side="bottom", anchor="w", pady=(8, 4))
+        self._full_paths = ttk.Label(frame, text="", wraplength=780, justify="left")
+        self._full_paths.pack(side="bottom", anchor="w", pady=(8, 0))
+        self._add_table(frame, pending)
+
         reject = ttk.Button(buttons, text="拒絕", command=on_reject)
         reject.pack(side="right")
         self._approve = ttk.Button(buttons, text="核准", command=on_approve, state="disabled")
@@ -111,25 +121,41 @@ class ApprovalWindow:
         reject.focus_set()
         self._window.after(int(APPROVE_DELAY_SECONDS * 1000), self._enable_approve)
 
-    @staticmethod
-    def _add_table(frame: ttk.Frame, pending: PendingApproval) -> None:
+    def _add_table(self, frame: ttk.Frame, pending: PendingApproval) -> None:
         holder = ttk.Frame(frame)
         holder.pack(side="top", fill="both", expand=True)
         columns = ("action", "source", "destination", "detail", "marks")
         table = ttk.Treeview(holder, columns=columns, show="headings", height=12)
         headings = ("動作", "位置", "新位置", "大小", "注意")
-        widths = (90, 260, 260, 120, 90)
+        widths = (90, 420, 420, 120, 90)
         for column, heading, width in zip(columns, headings, widths, strict=True):
             table.heading(column, text=heading)
-            table.column(column, width=width, stretch=column in ("source", "destination"))
-        for row in approval_rows(pending.plan):
+            # 欄寬固定，放不下時用橫向捲軸看
+            table.column(column, width=width, minwidth=width, stretch=False)
+        rows = approval_rows(pending.plan)
+        for index, row in enumerate(rows):
             table.insert(
-                "", "end", values=(row.action, row.source, row.destination, row.detail, row.marks)
+                "",
+                "end",
+                iid=str(index),
+                values=(row.action, row.source, row.destination, row.detail, row.marks),
             )
-        scroll = ttk.Scrollbar(holder, orient="vertical", command=table.yview)
-        table.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
+        vertical = ttk.Scrollbar(holder, orient="vertical", command=table.yview)
+        horizontal = ttk.Scrollbar(holder, orient="horizontal", command=table.xview)
+        table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        vertical.pack(side="right", fill="y")
+        horizontal.pack(side="bottom", fill="x")
         table.pack(side="left", fill="both", expand=True)
+
+        def show_selected(_event: object) -> None:
+            selection = table.selection()
+            if selection:
+                self._full_paths.configure(text=full_paths_text(rows[int(selection[0])]))
+
+        table.bind("<<TreeviewSelect>>", show_selected)
+        if rows:
+            table.selection_set("0")
+            self._full_paths.configure(text=full_paths_text(rows[0]))
 
     def _enable_approve(self) -> None:
         self._approve.configure(state="normal")
@@ -167,8 +193,10 @@ class MainWindow:
         self._settings_file = settings_file
         self._approval: ApprovalWindow | None = None
         self._last_batches = 0.0
+        self._closing = False
 
         root.title("Touka 本機小幫手")
+        root.protocol("WM_DELETE_WINDOW", self._close)
         root.geometry("780x620")
         frame = ttk.Frame(root, padding=12)
         frame.pack(fill="both", expand=True)
@@ -252,10 +280,13 @@ class MainWindow:
         except Refused as exc:
             self._say(refusal_text(exc.code))
             return
-        self._settings = Settings(
-            port=port, token=token, touka_folder=self._settings.touka_folder
-        )
-        save_settings(self._settings_file, self._settings)
+        settings = Settings(port=port, token=token, touka_folder=self._settings.touka_folder)
+        try:
+            save_settings(self._settings_file, settings)
+        except OSError:
+            self._say("設定存不進去，這次沒有變更。")
+            return
+        self._settings = settings
         self._service.replace_client(client)
         self._code.set("")
         self._say("已儲存。")
@@ -270,7 +301,7 @@ class MainWindow:
             self._say(refusal_text(exc.code))
             return
         except OSError:
-            self._say("這個資料夾讀不到。")
+            self._say("這個資料夾讀不到，或名單存不進去，沒有開放。")
             return
         self._refresh_grants()
         if self._grants.needs_onedrive_hint(grant):
@@ -288,14 +319,22 @@ class MainWindow:
             return
         grant = next((g for g in self._grants.grants() if g.name == name), None)
         if grant is not None:
-            self._grants.set_writable(name, writable=not grant.writable)
-            self._refresh_grants()
+            self._change_grants(
+                lambda: self._grants.set_writable(name, writable=not grant.writable)
+            )
 
     def _remove(self) -> None:
         name = self._selected(self._grant_table)
         if name is not None:
-            self._grants.remove(name)
-            self._refresh_grants()
+            self._change_grants(lambda: self._grants.remove(name))
+
+    def _change_grants(self, change: Callable[[], None]) -> None:
+        try:
+            change()
+        except OSError:
+            self._say("名單存不進去，這次沒有變更。")
+            return
+        self._refresh_grants()
 
     def _undo(self) -> None:
         batch = self._selected(self._batch_table)
@@ -306,9 +345,12 @@ class MainWindow:
         except Refused as exc:
             self._say(refusal_text(exc.code))
             return
+        warning = (
+            "這次的紀錄沒有存好，同一批請不要再按復原。" if result.get("journal_incomplete") else ""
+        )
         self._say(
-            f"復原了 {result['restored']} 項，跳過 {result['skipped']} 項（檔案變動過）。"
-            f"丟到回收桶的 {result['not_undoable']} 項請從回收桶還原。"
+            f"復原了 {result['restored']} 項，跳過 {result['skipped']} 項（沒有搬過或檔案變動過）。"
+            f"丟到回收桶的 {result['not_undoable']} 項請從回收桶還原。{warning}"
         )
         self._refresh_batches()
 
@@ -349,7 +391,26 @@ class MainWindow:
         if selected is not None and table.exists(selected):
             table.selection_set(selected)
 
+    def _close(self) -> None:
+        decision = self._service.request_close()
+        if decision == CLOSE_NOW:
+            self._root.destroy()
+        elif decision == CLOSE_WAIT:
+            self._closing = True
+            self._say("做完手上這項就會關閉。")
+        else:
+            self._say("有一份清單在等你決定，請先核准或拒絕。")
+
     def _tick(self) -> None:
+        try:
+            self._refresh()
+        finally:
+            if self._closing and not self._service.running:
+                self._root.destroy()
+            else:
+                self._root.after(_REFRESH_MS, self._tick)
+
+    def _refresh(self) -> None:
         self._service.tick()
         self._status.configure(text=f"Touka：{connection_text(self._service.state)}")
         self._stop.configure(state="normal" if self._service.running else "disabled")
@@ -365,7 +426,6 @@ class MainWindow:
             self._last_batches = now
             self._refresh_grants_status()
             self._refresh_batches()
-        self._root.after(_REFRESH_MS, self._tick)
 
     def _refresh_grants_status(self) -> None:
         selected = self._selected(self._grant_table)
@@ -407,6 +467,10 @@ def _setup_logging(helper_dir: Path) -> None:
     logger = logging.getLogger("touka_local")
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
+
+
+def _log_window_error(*details: Any) -> None:
+    logger.error("a window callback failed", exc_info=details)
 
 
 def _make_client(settings: Settings) -> ToukaClient | None:
@@ -456,6 +520,7 @@ def main() -> int:
     stop = threading.Event()
     threading.Thread(target=service.run, args=(stop,), daemon=True).start()
     root = tk.Tk()
+    root.report_callback_exception = _log_window_error
     MainWindow(
         root,
         service=service,

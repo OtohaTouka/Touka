@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
+from touka_local import fsops
 from touka_local.errors import Refused
+from touka_local.fsops import durable_write_text, read_durable_text
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import ApplyLimits, Operations
 
@@ -21,6 +24,8 @@ def book(fs, tmp_path: Path) -> GrantBook:
         windows_dir="C:\\Windows",
         program_files=("C:\\Program Files",),
         program_data="C:\\ProgramData",
+        app_data="C:\\Users\\Me\\AppData\\Roaming",
+        local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
         touka_folder="D:\\Touka",
     )
@@ -710,3 +715,255 @@ def test_journal_is_written_before_work_starts(fs, ops: Operations, trash, clock
     trash.send = send
     ops.apply(plan, _limits(clock))
     assert seen == [1]
+
+
+# --- 紀錄寫不進去 ---
+
+
+def _delete_all(ops: Operations, fs, names: str):
+    for name in names:
+        fs.add_file(f"D:\\Open\\{name}.txt")
+    return _plan(ops, [{"op": "delete", "path": f"Open/{n}.txt"} for n in names])
+
+
+def _failing_after(ops: Operations, monkeypatch, *, good: int, bad: int | None = None) -> None:
+    """前 ``good`` 次寫入成功，之後連續失敗 ``bad`` 次（None 是一直失敗）。"""
+    real = ops._write_journal
+    calls = {"count": 0}
+
+    def flaky(journal) -> None:
+        calls["count"] += 1
+        failing = calls["count"] > good and (bad is None or calls["count"] <= good + bad)
+        if failing:
+            raise OSError(28, "disk full")
+        real(journal)
+
+    monkeypatch.setattr(ops, "_write_journal", flaky)
+
+
+def test_journal_failure_mid_batch_stops_the_rest(fs, ops, trash, clock, monkeypatch) -> None:
+    plan = _delete_all(ops, fs, "abc")
+    _failing_after(ops, monkeypatch, good=1)
+    report = ops.apply(plan, _limits(clock))
+    assert _statuses(report) == [
+        ("Open/a.txt", "done"),
+        ("Open/b.txt", "not_done"),
+        ("Open/c.txt", "not_done"),
+    ]
+    assert report["journal_incomplete"] is True
+    assert trash.sent == ["D:\\Open\\a.txt"]
+
+
+def test_a_record_that_recovers_still_stops_the_batch(fs, ops, trash, clock, monkeypatch) -> None:
+    plan = _delete_all(ops, fs, "abc")
+    _failing_after(ops, monkeypatch, good=1, bad=1)
+    report = ops.apply(plan, _limits(clock))
+    assert [status for _path, status in _statuses(report)] == ["done", "not_done", "not_done"]
+    assert "journal_incomplete" not in report
+    assert trash.sent == ["D:\\Open\\a.txt"]
+
+
+def test_first_record_failure_touches_nothing(fs, ops, trash, clock, monkeypatch) -> None:
+    plan = _delete_all(ops, fs, "a")
+    _failing_after(ops, monkeypatch, good=0)
+    with pytest.raises(OSError, match="disk full"):
+        ops.apply(plan, _limits(clock))
+    assert trash.sent == []
+
+
+def test_undo_reports_a_record_that_could_not_be_saved(fs, ops, clock, monkeypatch) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = _plan(ops, [{"op": "move", "path": "Open/a.txt", "to": "Open/b.txt"}])
+    batch = ops.apply(plan, _limits(clock))["batch"]
+    _failing_after(ops, monkeypatch, good=0)
+    assert ops.undo(batch) == {
+        "restored": 1,
+        "skipped": 0,
+        "not_undoable": 0,
+        "journal_incomplete": 1,
+    }
+    assert fs.exists("D:\\Open\\a.txt")
+
+
+def _record_file(tmp_path: Path, batch: str) -> Path:
+    return tmp_path / "journal" / f"{batch}.json"
+
+
+def _temporary(file: Path) -> Path:
+    return file.with_name(f"{file.name}.new")
+
+
+def _moved_batch(fs, ops: Operations, clock) -> str:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = _plan(ops, [{"op": "move", "path": "Open/a.txt", "to": "Open/b.txt"}])
+    return ops.apply(plan, _limits(clock))["batch"]
+
+
+def test_record_left_as_a_temporary_file_is_still_found(fs, ops, clock, tmp_path) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    file = _record_file(tmp_path, batch)
+    file.rename(_temporary(file))
+    assert [item["batch"] for item in ops.recent_batches()] == [batch]
+    assert ops.undo(batch)["restored"] == 1
+
+
+def test_stale_temporary_record_loses_and_is_cleaned(fs, ops, clock, tmp_path) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    temporary = _temporary(_record_file(tmp_path, batch))
+    temporary.write_text("{}", encoding="utf-8")
+    assert [item["batch"] for item in ops.recent_batches()] == [batch]
+    plan = _delete_all(ops, fs, "c")
+    ops.apply(plan, _limits(clock))
+    assert not temporary.exists()
+
+
+def test_a_pruned_batch_takes_its_temporary_record_with_it(
+    fs, ops, clock, tmp_path, monkeypatch
+) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    temporary = _temporary(_record_file(tmp_path, batch))
+    temporary.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
+    plan = _delete_all(ops, fs, "c")
+    ops.apply(plan, _limits(clock))
+    assert not temporary.exists()
+    assert batch not in [item["batch"] for item in ops.recent_batches()]
+
+
+@pytest.mark.parametrize("recorded", ["b" * 32, "../../evil", "A" * 32])
+def test_a_record_whose_batch_does_not_match_its_file_is_ignored(
+    ops: Operations, tmp_path, recorded: str
+) -> None:
+    folder = tmp_path / "journal"
+    folder.mkdir()
+    (folder / f"{'a' * 32}.json").write_text(
+        json.dumps({"batch": recorded, "sequence": 1, "entries": []}), encoding="utf-8"
+    )
+    assert ops.recent_batches() == []
+
+
+def test_a_record_that_is_not_named_like_a_batch_is_ignored(ops: Operations, tmp_path) -> None:
+    folder = tmp_path / "journal"
+    folder.mkdir()
+    (folder / "notes.json").write_text(
+        json.dumps({"batch": "notes", "sequence": 1, "entries": []}), encoding="utf-8"
+    )
+    assert ops.recent_batches() == []
+
+
+def test_record_can_hold_text_utf8_cannot_write(fs, ops, clock) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = _plan(ops, [{"op": "delete", "path": "Open/a.txt"}], reason="壞\udc80字")
+    report = ops.apply(plan, _limits(clock))
+    assert _statuses(report) == [("Open/a.txt", "done")]
+    assert len(ops.recent_batches()) == 1
+
+
+# --- 同名換路徑 ---
+
+
+def _point_the_name_elsewhere(fs, book: GrantBook) -> None:
+    book.remove("Open")
+    fs.add_dir("D:\\Other\\Open")
+    book.add("D:\\Other\\Open", writable=True)
+
+
+def test_apply_refuses_a_name_that_now_points_elsewhere(fs, ops, book, trash, clock) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = _plan(ops, [{"op": "delete", "path": "Open/a.txt"}])
+    _point_the_name_elsewhere(fs, book)
+    fs.add_file("D:\\Other\\Open\\a.txt")
+    report = ops.apply(plan, _limits(clock))
+    assert _statuses(report) == [("Open/a.txt", "changed")]
+    assert trash.sent == []
+    assert fs.exists("D:\\Open\\a.txt") and fs.exists("D:\\Other\\Open\\a.txt")
+
+
+def test_undo_refuses_a_name_that_now_points_elsewhere(fs, ops, book, clock) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    _point_the_name_elsewhere(fs, book)
+    fs.add_file("D:\\Other\\Open\\b.txt")
+    assert ops.undo(batch) == {"restored": 0, "skipped": 1, "not_undoable": 0}
+    assert fs.exists("D:\\Open\\b.txt") and fs.exists("D:\\Other\\Open\\b.txt")
+
+
+# --- 當機在搬移和寫紀錄之間 ---
+
+
+def _mark_pending(tmp_path: Path, batch: str) -> None:
+    file = _record_file(tmp_path, batch)
+    journal = json.loads(file.read_text(encoding="utf-8"))
+    for entry in journal["entries"]:
+        entry["status"] = "pending"
+    file.write_text(json.dumps(journal), encoding="utf-8")
+
+
+def test_undo_restores_a_move_the_record_never_finished(fs, ops, clock, tmp_path) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    _mark_pending(tmp_path, batch)
+    assert ops.undo(batch)["restored"] == 1
+    assert fs.exists("D:\\Open\\a.txt")
+
+
+def test_undo_skips_a_pending_move_that_never_happened(fs, ops, clock, tmp_path) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    fs.rename("D:\\Open\\b.txt", "D:\\Open\\a.txt")
+    _mark_pending(tmp_path, batch)
+    assert ops.undo(batch) == {"restored": 0, "skipped": 1, "not_undoable": 0}
+    assert fs.exists("D:\\Open\\a.txt")
+
+
+# --- 看不懂的項目 ---
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"op": "rename"},
+        {"op": "move", "destination_text": None, "destination_full": None},
+    ],
+)
+def test_an_item_that_is_not_understood_fails(fs, ops, trash, change: dict) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = _plan(ops, [{"op": "delete", "path": "Open/a.txt"}])
+    assert ops._run_item(replace(plan.items[0], **change)) == "failed"
+    assert trash.sent == []
+    assert fs.exists("D:\\Open\\a.txt")
+
+
+# --- 自己的檔案怎麼寫 ---
+
+
+def test_durable_write_reaches_the_disk(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "a.json"
+    target.write_text("old", encoding="utf-8")
+    synced: list[int] = []
+    real = fsops.os.fsync
+
+    def spy(descriptor: int) -> None:
+        synced.append(descriptor)
+        real(descriptor)
+
+    monkeypatch.setattr(fsops.os, "fsync", spy)
+    durable_write_text(target, "new")
+    assert len(synced) == 1
+    assert read_durable_text(target) == "new"
+    assert not _temporary(target).exists()
+
+
+def test_read_falls_back_to_the_temporary_file(tmp_path) -> None:
+    target = tmp_path / "a.json"
+    _temporary(target).write_text("saved", encoding="utf-8")
+    assert read_durable_text(target) == "saved"
+
+
+def test_read_prefers_the_real_file(tmp_path) -> None:
+    target = tmp_path / "a.json"
+    target.write_text("real", encoding="utf-8")
+    _temporary(target).write_text("half", encoding="utf-8")
+    assert read_durable_text(target) == "real"
+
+
+def test_read_of_nothing_is_an_error(tmp_path) -> None:
+    with pytest.raises(OSError):  # noqa: PT011
+        read_durable_text(tmp_path / "a.json")

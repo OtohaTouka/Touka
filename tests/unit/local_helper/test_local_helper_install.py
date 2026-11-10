@@ -130,6 +130,7 @@ _ENV = {
     "ProgramFiles(x86)": "C:\\Program Files (x86)",
     "ProgramData": "C:\\ProgramData",
     "LOCALAPPDATA": "C:\\Users\\Me\\AppData\\Local",
+    "APPDATA": "C:\\Users\\Me\\AppData\\Roaming",
 }
 
 
@@ -139,12 +140,14 @@ def test_environment_from_system_values() -> None:
     assert env.windows_dir == "C:\\Windows"
     assert env.program_files == ("C:\\Program Files", "C:\\Program Files (x86)")
     assert env.program_data == "C:\\ProgramData"
+    assert env.app_data == "C:\\Users\\Me\\AppData\\Roaming"
+    assert env.local_app_data == "C:\\Users\\Me\\AppData\\Local"
     assert env.helper_dir == "C:\\Users\\Me\\AppData\\Local\\ToukaLocal"
     assert env.touka_folder == "D:\\Touka"
 
 
 @pytest.mark.parametrize(
-    "missing", ["USERPROFILE", "WINDIR", "ProgramFiles", "ProgramData", "LOCALAPPDATA"]
+    "missing", ["USERPROFILE", "WINDIR", "ProgramFiles", "ProgramData", "LOCALAPPDATA", "APPDATA"]
 )
 def test_environment_refuses_when_a_value_is_missing(missing: str) -> None:
     values = {k: v for k, v in _ENV.items() if k != missing}
@@ -286,3 +289,31 @@ def test_launcher_refuses_a_path_the_code_page_cannot_hold() -> None:
     )
     with pytest.raises(installer.InstallRefused):
         installer.launcher_bytes(plan, "ascii")
+
+
+def test_touka_folder_must_exist(tmp_path: Path) -> None:
+    with pytest.raises(installer.InstallRefused):
+        installer.check_touka_folder(tmp_path / "none")
+    installer.check_touka_folder(tmp_path)
+
+
+def test_install_stops_when_the_touka_folder_does_not_exist(monkeypatch) -> None:
+    monkeypatch.setattr(installer, "check_flags", lambda **_flags: None)
+    monkeypatch.setattr(
+        installer, "copy_allowed", lambda *_args: pytest.fail("不應該開始複製")
+    )
+    environ = {"LOCALAPPDATA": "C:\\Users\\Me\\AppData\\Local"}
+    with pytest.raises(installer.InstallRefused):
+        installer._prepare("Z:\\NoSuchTouka", environ)
+
+
+def test_finish_message_mentions_a_missing_desktop() -> None:
+    assert "桌面" not in installer.finish_message("L.cmd", on_desktop=True)
+    message = installer.finish_message("L.cmd", on_desktop=False)
+    assert "桌面" in message
+    assert "L.cmd" in message
+
+
+def test_helper_checks_isolation_before_loading_anything() -> None:
+    source = (Path(installer.__file__).parent / "__main__.py").read_text(encoding="utf-8")
+    assert source.index("sys.flags.isolated") < source.index("from touka_local")

@@ -92,11 +92,11 @@ class ApprovalGate:
             return pending
 
     def cancel(self, job_id: str) -> bool:
-        """Touka 那邊不等了，收掉視窗。"""
+        """Touka 那邊不等了，收掉視窗。也要冷卻，否則反覆提出又撤回就能一直跳視窗。"""
         with self._lock:
             if self._pending is None or self._pending.job_id != job_id:
                 return False
-            self._pending = None
+            self._close_rejected()
             return True
 
     def _close_rejected(self) -> None:

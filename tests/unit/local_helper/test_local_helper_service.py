@@ -12,7 +12,7 @@ from touka_local.errors import Refused
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import Operations
 from touka_local.protocol import Job, PollResponse, ProtocolError
-from touka_local.service import HelperService
+from touka_local.service import MAX_JOB_THREADS, HelperService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -65,6 +65,8 @@ def book(fs, tmp_path: Path) -> GrantBook:
         windows_dir="C:\\Windows",
         program_files=("C:\\Program Files",),
         program_data="C:\\ProgramData",
+        app_data="C:\\Users\\Me\\AppData\\Roaming",
+        local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
         touka_folder="D:\\Touka",
     )
@@ -360,3 +362,159 @@ def test_without_a_client_nothing_polls(service) -> None:
     service.replace_client(None)
     assert service.state == "unpaired"
     assert service.poll_once() is False
+
+
+# --- 出錯時要照實說 ---
+
+
+def test_a_list_that_failed_is_not_called_finished(
+    service, client, gate, fs, clock, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+
+    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+        raise OSError(28, "disk full")
+
+    monkeypatch.setattr(service._operations, "apply", boom)
+    _approve(service, gate, clock)
+    assert service.notice == "apply_failed"
+    assert service.last_report is None
+    assert client.results[0][1]["code"] == "io_error"
+    assert service.running is False
+
+
+def test_an_unexpected_failure_is_reported_and_clears_the_batch(
+    service, client, gate, fs, clock, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+
+    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+        raise KeyError("D:\\secret")
+
+    monkeypatch.setattr(service._operations, "apply", boom)
+    _approve(service, gate, clock)
+    payload = client.results[0][1]
+    assert (payload["status"], payload["code"]) == ("error", "internal")
+    assert "secret" not in payload["message"]
+    assert service.notice == "apply_failed"
+    assert service.running is False
+
+
+def test_a_confirm_that_blows_up_touches_nothing(
+    service, client, gate, fs, trash, clock, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+
+    def boom(_job_id: str) -> bool:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(client, "confirm", boom)
+    _approve(service, gate, clock)
+    assert trash.sent == []
+    assert service.notice == "apply_failed"
+    assert service.running is False
+
+
+def test_an_old_report_is_cleared_when_a_new_list_starts(
+    service, client, gate, fs, clock
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    fs.add_file("D:\\Open\\b.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    _approve(service, gate, clock)
+    assert service.last_report is not None
+    client.confirm_answer = False
+    _propose(service, client, [{"op": "delete", "path": "Open/b.txt"}], "j2")
+    _approve(service, gate, clock, "j2")
+    assert service.last_report is None
+
+
+def test_polling_survives_an_unexpected_error(service, client) -> None:
+    _run(service, client, RuntimeError("boom"))
+    assert service.state == "offline"
+    _run(service, client, _response())
+    assert service.state == "online"
+
+
+def test_losing_the_pairing_closes_the_window(service, client, gate, fs) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    _run(service, client, AuthLost())
+    assert gate.current is None
+    assert service.state == "unpaired"
+
+
+def test_losing_the_pairing_stops_a_running_batch(service, client, gate, fs, trash, clock) -> None:
+    for name in "ab":
+        fs.add_file(f"D:\\Open\\{name}.txt")
+    _propose(service, client, [{"op": "delete", "path": f"Open/{n}.txt"} for n in "ab"])
+    original_send = trash.send
+
+    def send(path: str) -> str:
+        outcome = original_send(path)
+        _run(service, client, AuthLost())
+        return outcome
+
+    trash.send = send
+    _approve(service, gate, clock)
+    assert [i["status"] for i in client.results[0][1]["data"]["items"]] == ["done", "not_done"]
+
+
+def test_job_threads_are_capped(client, fs, book, trash, clock, gate, tmp_path) -> None:
+    started: list[Any] = []
+    operations = Operations(
+        fs=fs, grants=book, trash=trash, clock=clock, journal_dir=tmp_path / "capped"
+    )
+    service = HelperService(
+        client=client,
+        operations=operations,
+        gate=gate,
+        grants=book,
+        clock=clock,
+        spawn=started.append,
+    )
+    for number in range(MAX_JOB_THREADS):
+        _run(service, client, _response(_job("list", {}, f"j{number}")))
+    assert len(started) == MAX_JOB_THREADS
+    _run(service, client, _response(_job("list", {}, "extra")))
+    assert len(started) == MAX_JOB_THREADS
+    assert client.results[-1][0] == "extra"
+    assert client.results[-1][1]["code"] == "helper_busy"
+    started.pop(0)()
+    _run(service, client, _response(_job("list", {}, "next")))
+    assert len(started) == MAX_JOB_THREADS
+
+
+# --- 關視窗 ---
+
+
+def test_closing_is_refused_while_a_list_is_waiting(service, client, gate, fs) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    assert service.request_close() == "blocked"
+    assert gate.current is not None
+
+
+def test_closing_during_a_batch_stops_it_first(service, client, gate, fs, trash, clock) -> None:
+    for name in "ab":
+        fs.add_file(f"D:\\Open\\{name}.txt")
+    _propose(service, client, [{"op": "delete", "path": f"Open/{n}.txt"} for n in "ab"])
+    original_send = trash.send
+    answers: list[str] = []
+
+    def send(path: str) -> str:
+        outcome = original_send(path)
+        answers.append(service.request_close())
+        return outcome
+
+    trash.send = send
+    _approve(service, gate, clock)
+    assert answers == ["wait"]
+    assert [i["status"] for i in client.results[0][1]["data"]["items"]] == ["done", "not_done"]
+
+
+def test_closing_when_idle_is_immediate(service) -> None:
+    assert service.request_close() == "now"

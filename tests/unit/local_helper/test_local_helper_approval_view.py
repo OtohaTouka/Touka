@@ -19,9 +19,11 @@ from touka_local.view import (
     clean_reason,
     connection_text,
     display_safe,
+    full_paths_text,
     human_size,
     refusal_text,
     report_text,
+    requester_text,
 )
 
 
@@ -130,10 +132,12 @@ def test_limit_is_540_seconds() -> None:
     assert MAX_DECISION_SECONDS == 540
 
 
-def test_cancel_closes_without_cooldown(gate: ApprovalGate) -> None:
+def test_cancel_also_starts_the_cooldown(gate: ApprovalGate, clock) -> None:
     gate.offer("j1", _Plan(), 540)
     assert gate.cancel("j1") is True
     assert gate.cancel("j1") is False
+    assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
+    clock.now += REJECT_COOLDOWN_SECONDS
     gate.offer("j2", _Plan(), 540)
 
 
@@ -171,6 +175,8 @@ class _Item:
     is_folder: bool = False
     contained: int = 0
     unusual: tuple[str, ...] = ()
+    source_full: str = "D:\\Open\\x"
+    destination_full: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,7 +188,14 @@ class _ViewPlan:
 def _view_plan() -> _ViewPlan:
     return _ViewPlan(
         items=(
-            _Item("move", "Open/a‮.txt", "Open/b.txt", size=2048),
+            _Item(
+                "move",
+                "Open/a‮.txt",
+                "Open/b.txt",
+                size=2048,
+                source_full="D:\\Open\\a‮.txt",
+                destination_full="D:\\Open\\b.txt",
+            ),
             _Item("delete", "Open/run.exe", size=1, unusual=("executable",)),
             _Item(
                 "delete",
@@ -200,7 +213,7 @@ def test_rows() -> None:
     rows = approval_rows(_view_plan())
     assert [r.action for r in rows] == ["搬移", "丟到回收桶", "丟到回收桶"]
     assert "‮" not in rows[0].source
-    assert rows[0].destination == "Open/b.txt"
+    assert rows[0].destination == "b.txt  ‹  Open"
     assert rows[1].destination == ""
     assert rows[0].detail == "2.0 KB"
     assert rows[2].detail == "資料夾，150 項，5 B"
@@ -284,3 +297,34 @@ def test_report_text() -> None:
 )
 def test_connection_text(state: str, text: str) -> None:
     assert connection_text(state) == text
+
+
+def test_file_name_comes_first_so_long_paths_cannot_hide_it() -> None:
+    folder = "/".join(["Open", *(["很長的資料夾名稱"] * 30)])
+    full = "D:\\" + folder.replace("/", "\\") + "\\重要.txt"
+    row = approval_rows(
+        _ViewPlan(items=(_Item("delete", f"{folder}/重要.txt", source_full=full),))
+    )[0]
+    assert row.source.startswith("重要.txt")
+    assert row.source.endswith(folder)
+    assert row.full_source == full
+
+
+def test_selected_row_shows_the_complete_paths() -> None:
+    rows = approval_rows(_view_plan())
+    assert full_paths_text(rows[0]) == "位置：D:\\Open\\a⍰.txt\n新位置：D:\\Open\\b.txt"
+    assert full_paths_text(rows[1]) == "位置：D:\\Open\\x"
+
+
+def test_requester_is_marked_as_unreliable() -> None:
+    text = requester_text("soul\n  a\u202eb")
+    assert text.startswith("提出者（可能不準）：soul a")
+    assert "\u202e" not in text
+    assert "\n" not in text
+
+
+def test_report_warns_when_the_record_is_incomplete() -> None:
+    report = {"items": [{"path": "a", "status": "done"}], "journal_incomplete": True}
+    text = report_text(report)
+    assert text.startswith("完成 1 項")
+    assert "紀錄沒有寫完整" in text

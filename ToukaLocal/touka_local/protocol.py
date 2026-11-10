@@ -16,6 +16,7 @@ PROTOCOL_VERSION: Final = 1
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_CODE_CHARS: Final = 64
+MAX_REQUESTER_CHARS: Final = 128
 
 ACTIONS: Final = ("list", "read", "create_folder", "create_file", "propose")
 RESULT_STATUSES: Final = ("ok", "refused", "error")
@@ -74,7 +75,7 @@ def _parse_job(value: object) -> Job:
         or decide_within <= 0
     ):
         raise ProtocolError
-    return Job(job_id, action, args, requester, float(decide_within))
+    return Job(job_id, action, args, requester[:MAX_REQUESTER_CHARS], float(decide_within))
 
 
 def parse_poll_response(payload: object) -> PollResponse:

@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 HELPER_EXECUTION_LIMIT_SECONDS: Final = 300.0
 RETRY_SECONDS: Final = 3.0
+# 和 Touka 的佇列上限相同
+MAX_JOB_THREADS: Final = 8
 
 STATE_STARTING: Final = "starting"
 STATE_ONLINE: Final = "online"
@@ -35,6 +37,11 @@ STATE_UPGRADE_NEEDED: Final = "upgrade_needed"
 NOTICE_NOT_CONFIRMED: Final = "not_confirmed"
 NOTICE_NOT_DELIVERED: Final = "result_not_delivered"
 NOTICE_FINISHED: Final = "finished"
+NOTICE_APPLY_FAILED: Final = "apply_failed"
+
+CLOSE_NOW: Final = "now"
+CLOSE_WAIT: Final = "wait"
+CLOSE_BLOCKED: Final = "blocked"
 
 _FALLBACK_MESSAGE: Final = "The local helper refused this request."
 _MODEL_MESSAGES: Final = {
@@ -63,6 +70,7 @@ _MODEL_MESSAGES: Final = {
     "user_rejected": "The user rejected this list. Nothing was changed.",
     "approval_busy": "Another list is waiting for the user. Wait for that answer first.",
     "approval_cooldown": "The user just rejected a list. Do not send another one right away.",
+    "helper_busy": "The local helper is handling too many requests.",
 }
 
 
@@ -112,6 +120,7 @@ class HelperService:
         self._clock = clock
         self._spawn = spawn
         self._lock = threading.Lock()
+        self._job_slots = threading.BoundedSemaphore(MAX_JOB_THREADS)
         self._running: _Running | None = None
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
         self.notice = ""
@@ -142,9 +151,10 @@ class HelperService:
         if client is None:
             return False
         try:
-            response = client.poll()
+            self._handle(client.poll())
         except AuthLost:
             self.state = STATE_UNPAIRED
+            self._abandon_work()
             return False
         except (ProtocolMismatch, ProtocolError):
             self.state = STATE_UPGRADE_NEEDED
@@ -152,14 +162,32 @@ class HelperService:
         except ConnectionLost:
             self.state = STATE_OFFLINE
             return False
+        except Exception:
+            logger.exception("polling failed")
+            self.state = STATE_OFFLINE
+            return False
+        return True
+
+    def _handle(self, response: PollResponse) -> None:
         self.state = STATE_ONLINE
         self._grants.set_mount_roots(response.host_mount_roots)
         for job_id in response.cancelled:
             self._cancel(job_id)
         if response.job is not None:
-            job = response.job
-            self._spawn(lambda: self._run_job(job))
-        return True
+            self._start_job(response.job)
+
+    def _start_job(self, job: Job) -> None:
+        if not self._job_slots.acquire(blocking=False):
+            self._send(job.id, _refused_payload(Refused("helper_busy")))
+            return
+        self._spawn(lambda: self._run_job(job))
+
+    def _abandon_work(self) -> None:
+        """配對失效了：等待中的視窗收掉，執行中的停下來。"""
+        pending = self._gate.current
+        if pending is not None:
+            self._gate.cancel(pending.job_id)
+        self.stop_running()
 
     def _cancel(self, job_id: str) -> None:
         if self._gate.cancel(job_id):
@@ -171,6 +199,12 @@ class HelperService:
     # --- 工作 ---
 
     def _run_job(self, job: Job) -> None:
+        try:
+            self._dispatch(job)
+        finally:
+            self._job_slots.release()
+
+    def _dispatch(self, job: Job) -> None:
         try:
             if job.action == "propose":
                 self._offer(job)
@@ -235,6 +269,15 @@ class HelperService:
             job_id = expired.job_id
             self._spawn(lambda: self._send(job_id, result_payload("refused", code="no_decision")))
 
+    def request_close(self) -> str:
+        """人要關視窗。等人決定的清單不能默默丟掉，執行中的要先停。"""
+        if self._gate.current is not None:
+            return CLOSE_BLOCKED
+        if self.running:
+            self.stop_running()
+            return CLOSE_WAIT
+        return CLOSE_NOW
+
     def stop_running(self) -> None:
         """人按了停止：做完手上這項就停。"""
         with self._lock:
@@ -248,6 +291,7 @@ class HelperService:
         return self._operations.undo(batch)
 
     def _execute(self, running: _Running, plan: Plan) -> None:
+        self.last_report = None
         try:
             client = self._client
             if client is None or not client.confirm(running.job_id):
@@ -256,7 +300,13 @@ class HelperService:
             payload = self._apply(running, plan)
             self.last_report = payload["data"]
             delivered = self._send(running.job_id, payload)
-            self.notice = NOTICE_FINISHED if delivered else NOTICE_NOT_DELIVERED
+            if payload["status"] != "ok":
+                self.notice = NOTICE_APPLY_FAILED
+            else:
+                self.notice = NOTICE_FINISHED if delivered else NOTICE_NOT_DELIVERED
+        except Exception:
+            logger.exception("the approved list did not finish")
+            self.notice = NOTICE_APPLY_FAILED
         finally:
             with self._lock:
                 self._running = None
@@ -275,3 +325,6 @@ class HelperService:
             return result_payload(
                 "error", code="io_error", message="The list could not be applied."
             )
+        except Exception:
+            logger.exception("the list could not be applied")
+            return result_payload("error", code="internal", message="The helper hit a problem.")

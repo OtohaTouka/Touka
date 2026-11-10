@@ -124,7 +124,7 @@ class ToukaClient:
             raise ProtocolError
         try:
             payload = json.loads(body)
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             raise ProtocolError from exc
         return parse_poll_response(payload)
 
