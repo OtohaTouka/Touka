@@ -168,11 +168,11 @@ def test_rate_keeps_four_decimals(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_window_is_today_and_the_six_days_before(monkeypatch: pytest.MonkeyPatch) -> None:
     usage = {"P": {"daily": {
         str(_TODAY): _bucket(read=1),
-        str(_TODAY - 6): _bucket(read=1),
+        str(_TODAY - 6): _bucket(prompt=1),  # 第 7 天要算進去，比例才會是一半
         str(_TODAY - 7): _bucket(prompt=1000),
         str(_TODAY + 1): _bucket(prompt=1000),
     }}}
-    assert _rates(monkeypatch, usage) == {"P": 1.0}
+    assert _rates(monkeypatch, usage) == {"P": 0.5}
 
 
 @pytest.mark.parametrize(
