@@ -15,6 +15,7 @@ from touka_local.paths import (
     anchor_of,
     check_segment_syntax,
     is_plain_absolute,
+    is_same_or_inside,
     join,
     normalize_folder,
     parts_of,
@@ -64,7 +65,7 @@ def resolve_mount_root(value: str, touka_folder: str, user_profile: str) -> str 
     if not text:
         return None
     if text == "~" or text.startswith(("~/", "~\\")):
-        return ntpath.normpath(ntpath.join(user_profile, text[2:]))
+        return ntpath.normpath(ntpath.join(user_profile, text[1:].lstrip("/\\")))
     pure = PureWindowsPath(text)
     if pure.anchor:
         return ntpath.normpath(text) if is_plain_absolute(text) else None
@@ -182,9 +183,12 @@ class GrantBook:
         """小幫手啟動時會載入的東西在容器碰得到的地方：代理人改得到，下次啟動就是在這台電腦上跑它的程式。"""
         env = self._env
         with self._lock:
-            reachable = (env.touka_folder, *self._mounts)
+            mounts = self._mounts
         own_code = (env.helper_dir, *env.code_paths)
-        return any(related(own, mount) for own in own_code for mount in reachable)
+        # 掛載來源是使用者設的，上下層都算；Touka 資料夾掛進去的只有它自己
+        return any(is_same_or_inside(own, env.touka_folder) for own in own_code) or any(
+            related(own, mount) for own in own_code for mount in mounts
+        )
 
     def needs_onedrive_hint(self, grant: Grant) -> bool:
         """OneDrive 接管的資料夾，裡面的雲端佔位檔都會被擋。"""

@@ -36,8 +36,8 @@ _DEFAULT_IGNORABLE: Final = (
     (0x1D173, 0x1D17A),
     (0xE0000, 0xE0FFF),
 )
-# 變體選擇符：Windows 表情面板打出的 emoji 常帶著，既有檔名要能用，新名稱不行
-_VARIATION_SELECTORS: Final = ((0xFE00, 0xFE0F), (0xE0100, 0xE01EF))
+# 變體選擇符和零寬連接字：Windows 表情面板打出的 emoji 常帶著，既有檔名要能用，新名稱不行
+_EMOJI_PARTS: Final = ((0xFE00, 0xFE0F), (0xE0100, 0xE01EF), (0x200D, 0x200D))
 # 長得像路徑分隔線的字元：全形斜線、數學符號、方框線
 _LOOKALIKE_SEPARATORS: Final = frozenset("／＼⁄∕⧸⧹∖﹨｜∣ǀ❘￨╱╲")
 # 逐層檢查時會在路徑後面接 \.git，要留位置
@@ -72,7 +72,7 @@ def is_hidden_character(character: str) -> bool:
 def _blocks_existing_name(character: str) -> bool:
     code = ord(character)
     return is_hidden_character(character) and not any(
-        low <= code <= high for low, high in _VARIATION_SELECTORS
+        low <= code <= high for low, high in _EMOJI_PARTS
     )
 
 

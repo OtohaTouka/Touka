@@ -385,7 +385,25 @@ def test_the_touka_folder_counts_as_reachable(env: Environment, fs, tmp_path: Pa
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("~", USER), ("~/work", f"{USER}\\work"), ("~\\work", f"{USER}\\work")],
+    [
+        ("~", USER),
+        ("~/work", f"{USER}\\work"),
+        ("~\\work", f"{USER}\\work"),
+        ("~//work", f"{USER}\\work"),
+    ],
 )
 def test_mount_root_under_the_home_folder(value: str, expected: str) -> None:
     assert resolve_mount_root(value, TOUKA, USER) == expected
+
+
+def test_python_above_the_touka_folder_is_not_exposed(env: Environment, fs, tmp_path: Path) -> None:
+    """Touka 資料夾掛進容器的只有它自己，它的上層容器碰不到。"""
+    above = replace(env, code_paths=("D:\\",), touka_folder="D:\\Dev\\Touka")
+    book = GrantBook(tmp_path / "g3.json", fs=fs, env=above, drive_type=lambda _a: "fixed")
+    assert book.helper_is_exposed() is False
+
+
+def test_a_mount_above_or_below_the_code_still_counts(env: Environment, fs, tmp_path: Path) -> None:
+    book = GrantBook(tmp_path / "g4.json", fs=fs, env=env, drive_type=lambda _a: "fixed")
+    book.set_mount_roots(["E:\\Python\\Lib\\x"])
+    assert book.helper_is_exposed() is True

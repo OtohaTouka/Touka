@@ -283,7 +283,7 @@ def test_ordinary_files(name: str) -> None:
     assert is_unusual_file(name) is False
 
 
-_VARIATION_SELECTORS = {0xFE00, 0xFE0F, 0xE0100}
+_EMOJI_PARTS = {0xFE00, 0xFE0F, 0xE0100, 0x200D}
 
 
 @pytest.mark.parametrize(
@@ -323,15 +323,15 @@ _VARIATION_SELECTORS = {0xFE00, 0xFE0F, 0xE0100}
 )
 def test_default_ignorable_characters_are_hidden(code_point: int) -> None:
     assert is_hidden_character(chr(code_point)) is True
-    if code_point in _VARIATION_SELECTORS:
+    if code_point in _EMOJI_PARTS:
         return  # 既有檔名要能用，見下一條
     with pytest.raises(Refused) as caught:
         split_request_path(f"Open/a{chr(code_point)}b.txt")
     assert caught.value.code == "bad_path"
 
 
-@pytest.mark.parametrize("code_point", sorted(_VARIATION_SELECTORS))
-def test_existing_names_can_carry_variation_selectors(code_point: int) -> None:
+@pytest.mark.parametrize("code_point", sorted(_EMOJI_PARTS))
+def test_existing_names_can_carry_emoji_parts(code_point: int) -> None:
     name = f"\u2764{chr(code_point)}.txt"
     assert split_request_path(f"Open/{name}") == ("Open", (name,))
 
@@ -414,6 +414,7 @@ def test_length_counts_utf16_units_and_leaves_room_for_the_git_probe(
         ("x", "y\u2215z"),
         ("\u2764\ufe0f.txt",),
         ("a\u200bb.txt",),
+        ("\U0001f469\u200d\U0001f4bb.txt",),
     ],
 )
 def test_new_paths_refuse_dot_names_and_lookalikes(parts: tuple[str, ...]) -> None:

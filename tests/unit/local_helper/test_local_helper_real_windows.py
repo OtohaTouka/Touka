@@ -9,11 +9,14 @@ import pytest
 
 if sys.platform == "win32":
     import _winapi
+    import tkinter
+
+    # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
+    from touka_local.app import ApprovalWindow
 
 from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
-from touka_local.app import ApprovalWindow
 from touka_local.approval import PendingApproval
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
@@ -220,8 +223,7 @@ def test_a_second_copy_is_refused() -> None:
 
 def test_approval_window_shows_every_full_path() -> None:
     """表格放不下長路徑，核准前要能在視窗上看到每一項的完整路徑。"""
-    tk = pytest.importorskip("tkinter")
-    root = tk.Tk()
+    root = tkinter.Tk()
     root.withdraw()
     try:
         items = tuple(
