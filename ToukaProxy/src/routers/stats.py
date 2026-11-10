@@ -10,7 +10,7 @@ import csv
 import io
 import logging
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, Request  # noqa: TC002
 from memory_server.utils.memory_worker import run_memory_job
@@ -22,11 +22,14 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
-from src.services.models.pricing_status import PricingStatus, pricing_status
+from src.services.models.pricing_status import pricing_status
 from src.services.resource_manager import resource_manager
 from src.services.telemetry import cache_hit_rates
 from src.utils.activity_visibility import agent_visibility, record_agent
 from src.utils.home_handover_db import list_failed_handovers
+
+if TYPE_CHECKING:
+    from src.services.models.pricing_status import PricingStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])

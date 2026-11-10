@@ -22,11 +22,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.utils import config_utils
 from src.utils.time_utils import get_current_epoch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -116,11 +119,13 @@ def _tiered(threshold: int, short: tuple, long_tier: tuple) -> Rate:
 # 內建硬編規格表（code SSOT，離線可用）。鍵為小寫子字串，最長匹配優先（具體勝過泛化）。
 # 費率為 USD / 1M tokens，2026-11-10 逐筆對官方價格頁（ADR-0311）：
 #   Anthropic platform.claude.com/docs/en/about-claude/pricing
-#   OpenAI developers.openai.com/api/docs/pricing（gpt-5.6-sol 是優惠價，到 11/30，官方沒寫之後多少）
+#   OpenAI developers.openai.com/api/docs/pricing
+#     （gpt-5.6-sol 是優惠價，到 11/30，官方沒寫之後多少）
 #   Google aistudio.google.com/docs/pricing
 #   xAI docs.x.ai/docs/models
 #   DeepSeek api-docs.deepseek.com/quick_start/pricing（尖峰價，寧高勿低）
-# 只建文字模型，圖片與語音型號沒有列。官方已不列的舊型號留著舊價。官方沒列快取價的留 None＝照 input 價計（保守；adapter 已把快取
+# 只建文字模型，圖片與語音型號沒有列。官方已不列的舊型號留著舊價。
+# 官方沒列快取價的留 None＝照 input 價計（保守；adapter 已把快取
 # 從 prompt 拆出，不會重複，ADR-0244）；浮動時由 config/model_pricing.json 覆蓋，免改碼。
 # 本地免費供應商（自架 ollama 等）模型名難以僅憑字串辨識，故不在此猜測——保守 fallback
 # （非 0）確保預算護欄不失效；使用者可於 model_pricing.json 將自架模型顯式標 0。

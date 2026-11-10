@@ -137,12 +137,16 @@ def _buckets_between(daily: object, first_day: int, last_day: int) -> dict[str, 
 
 
 def _add_today(stats: dict, counts: tuple[int, int, int, int]) -> None:
-    """把這次用量加進今天，太舊的修剪掉；``daily`` 壞掉只重建，不能擋住累計（預算上限靠累計）。"""
+    """把這次用量加進今天，太舊的修剪掉。
+
+    ``daily`` 壞掉只重建，不能擋住累計（預算上限靠累計）。
+    """
     today = _today()
     daily = _buckets_between(stats.get("daily"), today - DAILY_USAGE_RETENTION_DAYS + 1, today)
     bucket = daily.get(str(today), {})
     daily[str(today)] = {
-        key: _count(bucket.get(key)) + count for key, count in zip(_USAGE_KEYS, counts, strict=True)
+        key: _count(bucket.get(key)) + count
+        for key, count in zip(_USAGE_KEYS, counts, strict=True)
     }
     stats["daily"] = daily
 
@@ -286,7 +290,7 @@ def log_usage_audit(
         # 故簽章變更原子化——絕不會因 model 未定義而拋例外、靜默漏記稽核列。
         # cost_usd 含快取讀寫（ADR-0244 決定 A5、P20）。
         cost = usage_cost_usd(usage_dict, model=model) if cost_usd is None else cost_usd
-        # rate_source（security-3）：標記成本來源（override/builtin，或 family/fallback 粗估），
+        # rate_source（security-3）：成本來源（override、builtin，或粗估的 family、fallback），
         # 讓 append-only 稽核帳本事後可分辨哪些成本可信。
         rate_source = pricing.resolve(model)[1]
 

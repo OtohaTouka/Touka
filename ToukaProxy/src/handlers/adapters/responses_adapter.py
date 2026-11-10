@@ -10,7 +10,7 @@ Chat 形狀的請求轉成 ``instructions``＋input items、扁平工具、``max
   ``response.completed``／``response.incomplete`` 才算完整；沒收到就斷線、error 事件、
   ``response.failed`` 都轉 RoundError，不回半輪。completed 沒帶 output 時依 output_index 補回。
 - 兩段逾時沿用 ``stream_timeout``，閒置計時看 httpx2 層位元組（附註 27；ping 也算）。
-- 用量扣掉 ``cached_tokens``；沒完成或沒回報用量的一輪照 U1b 規則估算。
+- 用量扣掉 ``cached_tokens`` 與 ``cache_write_tokens``；沒完成或沒回報用量的一輪照 U1b 規則估算。
 
 - D4：SDK 一律顯式傳 ``api_key``、``base_url``、``http_client``（不跟隨轉址），值都來自路由
   context，缺一個就不建 client（不讓 SDK 改讀環境變數）；建構前清掉會改寫標頭／日誌的

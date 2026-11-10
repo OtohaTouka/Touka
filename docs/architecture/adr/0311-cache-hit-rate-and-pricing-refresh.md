@@ -4,7 +4,7 @@
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0244](0244-model-layer-stage-1b.md)（四欄用量）、[ADR-0271](0271-claude-5-5-thinking-by-purpose.md)（分檔計價）、[ADR-0310](0310-model-retirement-notice.md)（在用的模型）
-- 影響範圍：`ToukaProxy/src/services/telemetry.py`、`src/services/providers/pricing.py`、`src/services/models/pricing_status.py`、`src/services/models/lifecycle_alerts.py`、`src/routers/stats.py`、`src/handlers/adapters/responses_adapter.py`、`ToukaChat/src/hooks/useSystemMonitoring.ts`、`src/components/sidebar/monitoring/CacheHitRates.tsx`、`PricingNote.tsx`
+- 影響範圍：`ToukaProxy/src/services/telemetry.py`、`src/services/providers/pricing.py`、`src/services/models/pricing_status.py`、`src/services/models/lifecycle_alerts.py`、`src/routers/stats.py`、`src/handlers/adapters/responses_adapter.py`、`openai_adapter.py`、`ToukaChat/src/hooks/useSystemMonitoring.ts`、`src/components/sidebar/monitoring/CacheHitRates.tsx`、`PricingNote.tsx`
 
 ## 背景
 
@@ -21,7 +21,7 @@
 7. **`gpt-5` 只比完整名稱，表上拿掉 `grok-4`**：子字串比對會把 `gpt-5.7`、`grok-4.8` 這類沒列的型號算成舊的便宜價，而且標成有具體價格。使用者自己寫的覆蓋照舊最長子字串。
 8. **已公告的漲價到日子才換**（`_SCHEDULED_PRICING`）：`gemini-4-argon` 12/01、`gemini-3.8-flash` 與 `gemini-3.6-flash` 2027-01-01。官方沒寫時區，取 UTC 當天 0 點。
 9. **分檔照官方**：OpenAI 超過 27.2 萬、Google 超過 20 萬、xAI 達到 20 萬（差一個 token，門檻寫 199,999）。DeepSeek 有尖峰與離峰，一律用尖峰價。
-10. **OpenAI 的快取寫入照官方計**：GPT-5.6 起預設 30 分鐘的寫入是輸入價的 1.25 倍，表上有這一欄，送前最壞估算才會取較貴的價。Responses 的 `input_tokens` 含快取讀與寫，`cached_tokens` 不含寫，所以 `cache_write_tokens` 也要從未快取輸入拆出來；沒帶這個欄位就當 0，和以前一樣。
+10. **OpenAI 的快取寫入照官方計**：GPT-5.6 起預設 30 分鐘的寫入是輸入價的 1.25 倍，表上有這一欄，送前最壞估算才會取較貴的價。Responses 的 `input_tokens` 含快取讀與寫，`cached_tokens` 不含寫，所以 `input_tokens_details.cache_write_tokens` 也要從未快取輸入拆出來；Chat Completions 的 `prompt_tokens_details.cache_write_tokens` 同樣處理（這幾個型號大多走這條路）。沒帶這個欄位就當 0，和以前一樣；其他相容廠商不受影響。
 11. **Mythos Preview 不在價格頁**：價格取自 `anthropic.com/glasswing` 的 $25/$125，快取價官方沒寫，照一般的 0.1 倍、1.25 倍。`claude`、`claude-mythos` 家族價因此是這個價。
 
 ## 後果
@@ -31,9 +31,9 @@
 - `gpt-5.6-sol` 目前是優惠價，到 2026-11-30，官方沒寫之後多少，要靠巡查跟上。
 - `gemini-2.5-pro` 12/01 起官方會轉到 `gemini-3.8-flash` 並照它計價，表上留原價，這段會高估；`gemini-2.5-flash` 轉過去的價格相同。
 - 官方已不列的舊型號留著舊價，家族最高價把它們算在內。
-- `cache_write_tokens` 只有官方文件，沒有用真金鑰核對。官方沒寫 Chat Completions 有沒有這個欄位，走那條路的 GPT-5.6 以後型號，寫入照輸入價算，最多少算未快取輸入的 25%。
+- `cache_write_tokens` 只有官方文件，沒有用真金鑰核對。Chat Completions 的參考頁列了這個欄位、說明細是 prompt 的細分，但沒有直接寫 `prompt_tokens` 含寫入，這裡照 Responses 的定義拆，拆出來的量夾在總量內。
 - 只涵蓋文字模型。圖片、語音型號（例如 `gemini-3.1-flash-lite-image`）靠子字串落到文字價，可能偏低。
-- 名字含 `gpt` 但不是官方型號的，會落到 OpenAI 家族最高價並列出來；自架模型可以在 `model_pricing.json` 標價。
+- 名字含 `gpt`、`claude`、`gemini`、`grok`、`deepseek` 的非官方型號會落到家族最高價。走原廠路由的會列出來；自訂連線不列，畫面看不到原因，可以在 `model_pricing.json` 標價。
 - 人工探測工具（`memory_eval_probe.py`）對沒列的 `gpt-*` 以前會拒跑，現在算 `family_estimate` 照跑，最壞估價用家族貴檔，不會低估。ADR-0284「查不到就拒跑」的範圍因此窄了一點。
 - 沒有人開畫面時不看命中率，掉了也不會自動告警（一頁計畫的「不做」）。
 

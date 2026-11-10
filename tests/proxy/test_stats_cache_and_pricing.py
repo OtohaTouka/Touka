@@ -60,8 +60,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         is_toukasoul=lambda agent: agent in {"Alice", "Bob"}))
     monkeypatch.setattr(lifecycle_alerts, "list_active_brains",
                         lambda: {"Alice": _ALICE_MODEL, "Bob": _BOB_MODEL})
-    monkeypatch.setattr(lifecycle_alerts, "autonomy_service", SimpleNamespace(config=SimpleNamespace(
-        get=lambda key: {"model": _REVIEWER_MODEL} if key == "auto_review" else None)))
+    monkeypatch.setattr(lifecycle_alerts, "autonomy_service", SimpleNamespace(
+        config=SimpleNamespace(
+            get=lambda key: {"model": _REVIEWER_MODEL} if key == "auto_review" else None)))
     monkeypatch.setattr(lifecycle_alerts, "sliding_window_service", SimpleNamespace(
         load_config=lambda: SimpleNamespace(summary_model=_SUMMARY_MODEL)))
     with TestClient(app) as test_client:
@@ -132,7 +133,9 @@ def test_owner_agent_sees_only_its_own_rate(client: TestClient, usage_files: Non
     }
 
 
-@pytest.mark.parametrize("identity", [_human("user-a"), ADMIN_ASSUMING], ids=["user", "admin-assuming"])
+@pytest.mark.parametrize(
+    "identity", [_human("user-a"), ADMIN_ASSUMING], ids=["user", "admin-assuming"]
+)
 def test_rates_are_not_wider_than_token_usage(
     client: TestClient, usage_files: None, identity: AgentIdentity
 ) -> None:

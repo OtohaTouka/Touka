@@ -107,6 +107,44 @@ def test_openai_cached_never_exceeds_prompt():
     assert OpenAIAdapter().extract_usage(None, raw) == (_expected(0, 100, 0, 1), 100, 1)
 
 
+@pytest.mark.parametrize(
+    ("details", "expected"),
+    [
+        ({"cached_tokens": 4000, "cache_write_tokens": 7000}, (1000, 4000, 7000)),
+        ({"cached_tokens": 4000}, (8000, 4000, 0)),
+        ({"cached_tokens": 4000, "cache_write_tokens": 9000}, (0, 4000, 8000)),
+        ({"cache_write_tokens": 12_500}, (0, 0, 12_000)),
+        ({"cached_tokens": 4000, "cache_write_tokens": "x"}, (8000, 4000, 0)),
+    ],
+    ids=["read-and-write", "no-write-field", "write-clamped", "write-over-total", "bad-write"],
+)
+def test_openai_splits_cache_writes_out_of_prompt(details, expected):
+    """GPT-5.6 起快取寫入另有價錢；明細是 prompt 的細分，拆出來的量夾在總量內（ADR-0311）。"""
+    raw = {"usage": {
+        "prompt_tokens": 12_000, "completion_tokens": 5, "prompt_tokens_details": details,
+    }}
+    assert OpenAIAdapter().extract_usage(None, raw) == (_expected(*expected, 5), 12_000, 5)
+
+
+def test_deepseek_hit_tokens_still_have_no_writes():
+    raw = {"usage": {"prompt_tokens": 100, "completion_tokens": 1, "prompt_cache_hit_tokens": 40}}
+    assert OpenAIAdapter().extract_usage(None, raw) == (_expected(60, 40, 0, 1), 100, 1)
+
+
+def test_openai_unfinished_round_keeps_the_cache_writes():
+    """沒跑完的一輪也照廠商回報入帳：少了寫入量，總輸入就會變小。"""
+    usage = {"prompt_tokens": 1000, "completion_tokens": 3,
+             "prompt_tokens_details": {"cached_tokens": 200, "cache_write_tokens": 700}}
+    chunks = SimpleNamespace(result=lambda: {"usage": usage, "choices": []})
+    state = SimpleNamespace(
+        payload={"messages": []},
+        progress=SimpleNamespace(opened=True, complete=False, chunks=chunks),
+    )
+    partial = OpenAIAdapter().partial_usage(state)
+    assert partial.usage == _expected(100, 200, 700, 3)
+    assert partial.total_input == 1000
+
+
 def test_openai_leaves_raw_usage_untouched():
     """終端 chunk 原樣帶出 raw["usage"]（golden 把關）→ 正規化不得改寫 raw。"""
     raw = {"usage": {

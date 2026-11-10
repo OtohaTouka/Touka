@@ -1,7 +1,7 @@
 """每天的用量與近 7 天的快取命中率（ADR-0311）。
 
-``token_usage.json`` 每個用途底下多一個 ``daily``，鍵是 UTC 的日序號，保留 14 天。累計數字與成本照舊；
-``daily`` 壞掉也不能擋住累計，否則預算上限看不到花費。
+``token_usage.json`` 每個用途底下多一個 ``daily``，鍵是 UTC 的日序號，保留 14 天。累計數字與
+成本照舊；``daily`` 壞掉也不能擋住累計，否則預算上限看不到花費。
 """
 
 from __future__ import annotations
@@ -102,7 +102,9 @@ def test_buckets_older_than_14_days_are_dropped(ident: AgentIdentity) -> None:
         str(_TODAY - 14): _bucket(prompt=1), str(_TODAY - 13): _bucket(prompt=2),
     }))
     accumulate_token_usage(ident, "ProvX", dict(_USAGE), model="m")
-    assert _read(ident)["ProvX"]["daily"] == {str(_TODAY - 13): _bucket(prompt=2), str(_TODAY): _USAGE}
+    assert _read(ident)["ProvX"]["daily"] == {
+        str(_TODAY - 13): _bucket(prompt=2), str(_TODAY): _USAGE,
+    }
 
 
 def test_a_file_from_before_this_feature_keeps_its_totals(ident: AgentIdentity) -> None:
@@ -134,7 +136,9 @@ def test_a_broken_daily_never_blocks_the_cost_counter(ident: AgentIdentity, bad:
 
 
 @pytest.mark.parametrize("value", ["x", None, True, 1.5], ids=["text", "null", "bool", "float"])
-def test_a_broken_number_in_todays_bucket_counts_as_zero(ident: AgentIdentity, value: object) -> None:
+def test_a_broken_number_in_todays_bucket_counts_as_zero(
+    ident: AgentIdentity, value: object
+) -> None:
     _write(ident, _old_file({str(_TODAY): {**_bucket(read=4), "prompt_tokens": value}}))
     accumulate_token_usage(ident, "ProvX", dict(_USAGE), model="m")
     assert _read(ident)["ProvX"]["daily"][str(_TODAY)] == {**_USAGE, "cache_read_input_tokens": 34}
@@ -148,8 +152,11 @@ def _rates(monkeypatch: pytest.MonkeyPatch, usage: object) -> object:
     return cache_hit_rates(usage)
 
 
-def test_rate_is_cache_reads_over_all_input_and_ignores_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    usage = {"Anthropic": {"daily": {str(_TODAY): _bucket(prompt=10, read=30, write=10, completion=999)}}}
+def test_rate_is_cache_reads_over_all_input_and_ignores_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bucket = _bucket(prompt=10, read=30, write=10, completion=999)
+    usage = {"Anthropic": {"daily": {str(_TODAY): bucket}}}
     assert _rates(monkeypatch, usage) == {"Anthropic": 0.6}
 
 
@@ -177,12 +184,15 @@ def test_window_is_today_and_the_six_days_before(monkeypatch: pytest.MonkeyPatch
      {"daily": {str(_TODAY): "x"}}],
     ids=["no-daily", "empty", "not-a-dict", "output-only", "too-old", "bad-day", "bad-bucket"],
 )
-def test_no_input_in_the_window_is_none(monkeypatch: pytest.MonkeyPatch, stats: dict[str, Any]) -> None:
+def test_no_input_in_the_window_is_none(
+    monkeypatch: pytest.MonkeyPatch, stats: dict[str, Any]
+) -> None:
     assert _rates(monkeypatch, {"P": stats}) == {"P": None}
 
 
 def test_a_broken_number_counts_as_zero_in_the_rate(monkeypatch: pytest.MonkeyPatch) -> None:
-    usage = {"P": {"daily": {str(_TODAY): {**_bucket(read=3, prompt=1), "cache_creation_input_tokens": "x"}}}}
+    bucket = {**_bucket(read=3, prompt=1), "cache_creation_input_tokens": "x"}
+    usage = {"P": {"daily": {str(_TODAY): bucket}}}
     assert _rates(monkeypatch, usage) == {"P": 0.75}
 
 
@@ -191,5 +201,7 @@ def test_entries_that_are_not_usage_are_skipped(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.parametrize("usage", [None, "x", [1]], ids=["null", "text", "list"])
-def test_a_file_that_is_not_an_object_has_no_rates(monkeypatch: pytest.MonkeyPatch, usage: object) -> None:
+def test_a_file_that_is_not_an_object_has_no_rates(
+    monkeypatch: pytest.MonkeyPatch, usage: object
+) -> None:
     assert _rates(monkeypatch, usage) == {}

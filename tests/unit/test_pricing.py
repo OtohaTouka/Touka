@@ -244,7 +244,8 @@ def test_override_rate_is_a_single_tier(monkeypatch):
 
 
 # ---- ADR-0311：逐筆對官方價格頁（2026-11-10）----
-# Anthropic platform.claude.com/docs/en/about-claude/pricing；OpenAI developers.openai.com/api/docs/pricing；
+# Anthropic platform.claude.com/docs/en/about-claude/pricing；
+# OpenAI developers.openai.com/api/docs/pricing；
 # Google aistudio.google.com/docs/pricing；xAI docs.x.ai/docs/models；
 # DeepSeek api-docs.deepseek.com/quick_start/pricing（用尖峰價，寧高勿低）。
 _NOV_10 = datetime(2026, 11, 10, tzinfo=UTC).timestamp()

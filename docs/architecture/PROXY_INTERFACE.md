@@ -841,7 +841,7 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **用途**: `token_usage.json` 的鍵，可能是廠商標籤、旁路用途或自訂連線名稱。
 - **`estimated_models`**: 在用但沒有具體價格的模型，範圍和模型下架提醒相同。
 - **價格來源**: `pricing.resolve` 回 `override`、`builtin`、`family`（用該家已知最高價）或 `fallback`；稽核 CSV 的 `rate_source` 同值。
-- **OpenAI Responses 的快取寫入**: `input_tokens_details.cache_write_tokens` 算快取寫，從未快取輸入拆出來（GPT-5.6 起另有價錢）；沒帶就是 0。
+- **OpenAI 的快取寫入**: Responses 的 `input_tokens_details.cache_write_tokens`、Chat Completions 的 `prompt_tokens_details.cache_write_tokens` 算快取寫，從未快取輸入拆出來（GPT-5.6 起另有價錢）；沒帶就是 0。
 
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
