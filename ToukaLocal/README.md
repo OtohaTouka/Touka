@@ -1,6 +1,6 @@
 # Touka 本機小幫手
 
-讓靈魂在你開放的資料夾裡看檔案、新建文字檔，或提出搬移與刪除清單給你核准。設計與邊界見 [ADR-0311](../docs/architecture/adr/0311-local-helper-for-host-files.md)。
+讓靈魂在你開放的資料夾裡看檔案、新建文字檔，或提出搬移與刪除清單給你核准。設計與邊界見 [ADR-0312](../docs/architecture/adr/0312-local-helper-for-host-files.md)。
 
 目前只有 Windows，介面只有繁體中文，只用 Python 標準函式庫。
 

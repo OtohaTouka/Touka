@@ -216,7 +216,7 @@ async def test_complete_native_payload_excludes_legacy_memory_vault() -> None:
     permission.is_tool_allowed.side_effect = lambda name, grant: grant.allows(name)
     permission.is_mcp_server_allowed.return_value = True
     permission.evaluate_policy.return_value = MagicMock(effect="ALLOW", reason=None)
-    # local_files 只列給配對的人（ADR-0311）；這裡要檢查它送到各家供應商的格式，所以直接開啟。
+    # local_files 只列給配對的人（ADR-0312）；這裡要檢查它送到各家供應商的格式，所以直接開啟。
     with (
         patch("src.middleware.layers.tool.permission_service", permission),
         patch("src.middleware.layers.tool.local_files_availability", return_value="offered"),

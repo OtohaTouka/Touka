@@ -1,4 +1,4 @@
-"""Windows 呼叫的純函式、設定檔與安裝規則（ADR-0311）；真 Windows 的部分用 skipif。"""
+"""Windows 呼叫的純函式、設定檔與安裝規則（ADR-0312）；真 Windows 的部分用 skipif。"""
 
 from __future__ import annotations
 

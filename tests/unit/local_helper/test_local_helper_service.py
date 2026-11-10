@@ -1,4 +1,4 @@
-"""小幫手主流程（ADR-0311）：工作分派、按核准才 confirm、confirm 成功才動手、取消、逾時。"""
+"""小幫手主流程（ADR-0312）：工作分派、按核准才 confirm、confirm 成功才動手、取消、逾時。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""和 Touka 之間的資料格式（ADR-0311）。
+"""和 Touka 之間的資料格式（ADR-0312）。
 
 Touka 端的 ``ToukaProxy/src/models/local_bridge.py`` 是準；這裡另存一份是因為小幫手不能
 載入 Touka 的程式。``tests/unit/test_local_protocol_parity.py`` 核對兩邊相同。

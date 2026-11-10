@@ -517,7 +517,7 @@ export function SettingsView() {
                   />
                 </TabsContent>
 
-                {/* --- 本機小幫手（ADR-0311）--- */}
+                {/* --- 本機小幫手（ADR-0312）--- */}
                 <TabsContent value="local_helper" className="mt-0 outline-none">
                   <LocalHelperTab />
                 </TabsContent>

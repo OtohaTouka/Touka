@@ -27,7 +27,7 @@ BROKER = ROOT / "ToukaProxy" / "src" / "services" / "execution_broker.py"
 _ROUTER_HELPER_EXCEPTIONS: dict[str, frozenset[str]] = {
     # 依 MCP server 授權（grant）與是否存在判斷，不是角色檢查。
     "mcp.py": frozenset({"_require_mcp_data_access", "_require_known_mcp_server"}),
-    # 比對小幫手通道的權杖，不是角色檢查，也不轉成身分（ADR-0311）。
+    # 比對小幫手通道的權杖，不是角色檢查，也不轉成身分（ADR-0312）。
     "local_bridge.py": frozenset({"_require_local_helper_token"}),
 }
 

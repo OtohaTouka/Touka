@@ -1,4 +1,4 @@
-"""連回 Touka（ADR-0311）：只連本機，不走系統代理，不跟隨轉址。"""
+"""連回 Touka（ADR-0312）：只連本機，不走系統代理，不跟隨轉址。"""
 
 from __future__ import annotations
 

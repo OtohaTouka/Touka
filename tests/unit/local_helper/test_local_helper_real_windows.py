@@ -1,4 +1,4 @@
-"""真 Windows 的行為（ADR-0311）：CI 只有 Linux，這些在本機跑，結果附在審查資料裡。"""
+"""真 Windows 的行為（ADR-0312）：CI 只有 Linux，這些在本機跑，結果附在審查資料裡。"""
 
 from __future__ import annotations
 

@@ -858,7 +858,7 @@ class SSOTGuard(ast.NodeVisitor):
         "test_docker_compose_config.py",
         # ADR-0151：.env 錨定 /app/host_root＋幽靈檔守衛（PATH literal 即測試意圖）
         "test_env_persistence_anchor.py",
-        # ADR-0311：小幫手的規則都是 Windows 路徑，路徑字面即測試資料
+        # ADR-0312：小幫手的規則都是 Windows 路徑，路徑字面即測試資料
         "test_local_helper_paths_rules.py",
         "test_local_helper_approval_view.py",
         "test_local_helper_grants.py",

@@ -1,4 +1,4 @@
-"""小幫手和 Touka 的協議要相同（ADR-0311）：兩邊各存一份，小幫手不能載入 Touka 的程式。"""
+"""小幫手和 Touka 的協議要相同（ADR-0312）：兩邊各存一份，小幫手不能載入 Touka 的程式。"""
 
 from __future__ import annotations
 

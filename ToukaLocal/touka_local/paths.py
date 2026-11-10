@@ -1,4 +1,4 @@
-"""路徑判斷的純函式（ADR-0311）：一律照 Windows 的規則，任何系統上都測得到。"""
+"""路徑判斷的純函式（ADR-0312）：一律照 Windows 的規則，任何系統上都測得到。"""
 
 from __future__ import annotations
 

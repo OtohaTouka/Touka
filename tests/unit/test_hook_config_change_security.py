@@ -78,7 +78,7 @@ _NOT_SETTINGS: dict[str, set[str]] = {
         "setup.download_embedding_model",
     },
     "除錯工具": {"debug.debug_execute_tool", "debug.debug_reset", "debug.scorecard_run"},
-    "本機小幫手的配對與通道（配對是連線憑證，不是設定值，ADR-0311）": {
+    "本機小幫手的配對與通道（配對是連線憑證，不是設定值，ADR-0312）": {
         "local_bridge.create_pairing", "local_bridge.delete_pairing", "local_bridge.poll",
         "local_bridge.confirm_job", "local_bridge.submit_result",
     },

@@ -163,21 +163,21 @@ tests/
 | `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走，並在開始服務前裝好 Windows 連線收尾修正。 |
 | `unit/test_e2e_proactor_close_fix.py` | 實際驗證後端的 Windows 連線收尾修正（ADR-0295）：對方重置連線時伺服器等得完、socket 真的關了；正常關閉照舊、其他錯誤不吞、子行程管線不動、沒關的連線照舊要等。用真的 asyncio 類別模擬，Linux 也跑得到；未裝修正時的那條釘住缺陷還在，Python 修好時會變紅。 |
 | `unit/test_ask_user_stop.py` | ADR-0308：提問沒等到回答時這一輪結束、不再呼叫模型；空白送出算沒回答；固定文字的內容與容錯 |
-| `unit/local_helper/test_local_helper_paths_rules.py` | ADR-0311：小幫手的路徑與檔名規則，每條拒絕規則一個案例 |
-| `unit/local_helper/test_local_helper_grants.py` | ADR-0311：哪些資料夾能開放、重疊與掛載根、每次使用重新核對 |
-| `unit/local_helper/test_local_helper_operations.py` | ADR-0311：固定動作、核准清單與快照、執行前重驗、紀錄與復原 |
-| `unit/local_helper/test_local_helper_connection.py` | ADR-0311：協議未知欄位拒絕、只連本機、不跟隨轉址 |
-| `unit/local_helper/test_local_helper_approval_view.py` | ADR-0311：一次一個核准視窗、冷卻、自動拒絕、畫面文字消毒 |
-| `unit/local_helper/test_local_helper_service.py` | ADR-0311：工作分派、按核准才確認、確認成功才動手、取消 |
-| `unit/local_helper/test_local_helper_install.py` | ADR-0311：Windows 呼叫的純函式、設定檔、安裝規則 |
-| `unit/local_helper/test_local_helper_real_windows.py` | ADR-0311：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
-| `unit/test_local_protocol_parity.py` | ADR-0311：小幫手和 Touka 兩份協議相同 |
-| `lint/test_touka_local_boundary.py` | ADR-0311：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
-| `integration/test_local_bridge_router.py` | ADR-0311：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
-| `unit/test_local_files_tool.py` | ADR-0311：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |
-| `unit/test_local_files_turn_cancel.py` | ADR-0311：走真的工具迴圈，按停止時小幫手上的工作跟著取消，其他工具不受影響 |
-| `unit/test_local_bridge_pairing.py` | ADR-0311：配對只存雜湊、換新與解除、檔案壞掉算沒配對 |
-| `unit/test_local_bridge_service.py` | ADR-0311：小幫手的工作佇列：來回、上限、逾時、兩段確認、取消、換配對、輪詢取代 |
+| `unit/local_helper/test_local_helper_paths_rules.py` | ADR-0312：小幫手的路徑與檔名規則，每條拒絕規則一個案例 |
+| `unit/local_helper/test_local_helper_grants.py` | ADR-0312：哪些資料夾能開放、重疊與掛載根、每次使用重新核對 |
+| `unit/local_helper/test_local_helper_operations.py` | ADR-0312：固定動作、核准清單與快照、執行前重驗、紀錄與復原 |
+| `unit/local_helper/test_local_helper_connection.py` | ADR-0312：協議未知欄位拒絕、只連本機、不跟隨轉址 |
+| `unit/local_helper/test_local_helper_approval_view.py` | ADR-0312：一次一個核准視窗、冷卻、自動拒絕、畫面文字消毒 |
+| `unit/local_helper/test_local_helper_service.py` | ADR-0312：工作分派、按核准才確認、確認成功才動手、取消 |
+| `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則 |
+| `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
+| `unit/test_local_protocol_parity.py` | ADR-0312：小幫手和 Touka 兩份協議相同 |
+| `lint/test_touka_local_boundary.py` | ADR-0312：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
+| `integration/test_local_bridge_router.py` | ADR-0312：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
+| `unit/test_local_files_tool.py` | ADR-0312：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |
+| `unit/test_local_files_turn_cancel.py` | ADR-0312：走真的工具迴圈，按停止時小幫手上的工作跟著取消，其他工具不受影響 |
+| `unit/test_local_bridge_pairing.py` | ADR-0312：配對只存雜湊、換新與解除、檔案壞掉算沒配對 |
+| `unit/test_local_bridge_service.py` | ADR-0312：小幫手的工作佇列：來回、上限、逾時、兩段確認、取消、換配對、輪詢取代 |
 | `unit/test_subagent_project_access.py` | ADR-0309：子代理看得到對話綁定的專案、照模式寫入；只能看的子代理在任何模式都不能改檔案；真的走派工、工具清單與權限判定，只有模型是假的 |
 | `lint/test_patrol_notify_workflow.py` | 每月巡查的通知流程：只能手動觸發、參數是固定選項、只有開 issue 的權限、只從 main 跑；有事不重複開、沒事開完就關 |
 | `lint/test_dep_audit_workflow.py` | 每日依賴檢查的 workflow（ADR-0299）：掃描只能讀、只有回報能寫 issue 且只從 main 跑、action 釘 commit SHA、輸入不直接進 shell |
@@ -1212,7 +1212,7 @@ python scripts/guard_all.py
 | `src/lib/__tests__/session_tree.test.ts`、`src/hooks/__tests__/useSessionTreeState.test.ts`、`src/hooks/__tests__/useSessionTreeKeyboard.test.tsx`、`unit/SessionTree.test.tsx` | 對話清單：靈魂資料夾分組（不分大小寫、`toukasoul:`、舊前綴、別名、清單讀不到時只信前綴與家）、「設為家」規則與後端相同、先列 5 筆且開著的不收；收合狀態各帳號分開、只有無痕的資料夾不寫瀏覽器；鍵盤只算一個 Tab 站、方向鍵與左右收合、Shift+F10、輸入框與 portal 選單的按鍵不動清單、列消失時焦點交給同位置 |
 | `src/lib/providers/__tests__/ChatProvider.setHome.test.tsx` | 設家與取消家：後端只收正式靈魂 ID；舊家是前綴或正式 ID 都算同一個靈魂、別的靈魂的家不動；沒綁模型不送請求；後端拒絕時畫面不動 |
 | `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名、關掉「⋯」後馬上去輸入框焦點不被拉回 |
-| `e2e-real/local-helper.spec.ts` ⭐ | ADR-0311 實際驗證：設定頁產生配對碼只顯示一次、小幫手連上看得到、解除後舊碼失效 |
+| `e2e-real/local-helper.spec.ts` ⭐ | ADR-0312 實際驗證：設定頁產生配對碼只顯示一次、小幫手連上看得到、解除後舊碼失效 |
 | `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
 | `e2e-real/session-activity.spec.ts` ⭐ | ADR-0300 實際驗證：呼吸動畫與週期、心跳進度、新對話自動出現、查詢之間跑完、分頁藏起來、不重抓清單、下載失敗與晚到、舊查詢、換帳號、收起來也亮、查詢失敗與恢復、刪掉重建、列被搬動時的焦點與改名。 |
 | `e2e-real/session-attention.spec.ts` ⭐ | ADR-0300 實際驗證：核准與提問與外掛工具亮等您處理、同時提問排隊、重新整理、有新內容的小點、減少動態、無痕、可見範圍、手機、有新內容提示與存檔失敗。 |

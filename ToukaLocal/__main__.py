@@ -1,4 +1,4 @@
-"""小幫手的入口：``pythonw.exe -I -S <這個資料夾>``（ADR-0311）。"""
+"""小幫手的入口：``pythonw.exe -I -S <這個資料夾>``（ADR-0312）。"""
 
 import sys
 

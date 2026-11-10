@@ -200,7 +200,7 @@ class ToolLayer(ProxyLayer):
              # 無真人可問，注入會導致逾時掛住。resumable_stream 旗標僅 proxy.py 的 UI 端點設。
              if tool_name == "ask_user" and not is_human_present(ctx):
                  continue
-             # ADR-0311：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
+             # ADR-0312：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
              if tool_name == "local_files":
                  if incognito:
                      continue

@@ -8,7 +8,7 @@ import { logSSOTError } from "@/lib/error_handler";
 
 type PendingAction = "rotate" | "revoke" | null;
 
-/** 本機小幫手的配對（ADR-0311）。開放哪些資料夾、核准都在小幫手自己的視窗，這裡只管配對。 */
+/** 本機小幫手的配對（ADR-0312）。開放哪些資料夾、核准都在小幫手自己的視窗，這裡只管配對。 */
 export function LocalHelperTab() {
     const { t } = useTranslation();
     const { status, failed, code, busy, createPairing, revokePairing } = useLocalHelper();

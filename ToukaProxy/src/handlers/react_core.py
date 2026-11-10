@@ -72,7 +72,7 @@ _SAFETY_NOTICE = "\n\n⚠️ 回應被廠商的安全過濾擋下。"
 _REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
 # SNS 頻道裡是外人：不帶廠商名稱、狀態碼與原文，想知道原因看 hook 或本機紀錄
 SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
-# 人按停止時要一起收掉的工具（ADR-0311）：人放棄之後，使用者電腦上不能再動手。
+# 人按停止時要一起收掉的工具（ADR-0312）：人放棄之後，使用者電腦上不能再動手。
 # 其他工具維持原本的行為（背景跑完）。
 _TOOLS_TIED_TO_THE_TURN = frozenset({"local_files"})
 

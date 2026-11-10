@@ -1,4 +1,4 @@
-"""畫面上要顯示的文字（ADR-0311）。邏輯都在這裡，測試不需要載入 tkinter。"""
+"""畫面上要顯示的文字（ADR-0312）。邏輯都在這裡，測試不需要載入 tkinter。"""
 
 from __future__ import annotations
 

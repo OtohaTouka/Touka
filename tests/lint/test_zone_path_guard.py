@@ -3626,14 +3626,14 @@ LINT_SSOT = ROOT / "scripts/lint_ssot.py"
 # lint_ssot 以檔名（不含資料夾）放行 I/O 一類規則：新增一個同名檔就會被放行，所以整份釘住
 LINT_SSOT_WHITELIST = frozenset(
     {
-        "test_local_helper_paths_rules.py",  # ADR-0311
-        "test_local_helper_approval_view.py",  # ADR-0311
-        "test_local_helper_grants.py",  # ADR-0311
-        "test_local_helper_operations.py",  # ADR-0311
-        "test_local_helper_connection.py",  # ADR-0311
-        "test_local_helper_service.py",  # ADR-0311
-        "test_local_helper_install.py",  # ADR-0311
-        "test_local_helper_real_windows.py",  # ADR-0311
+        "test_local_helper_paths_rules.py",  # ADR-0312
+        "test_local_helper_approval_view.py",  # ADR-0312
+        "test_local_helper_grants.py",  # ADR-0312
+        "test_local_helper_operations.py",  # ADR-0312
+        "test_local_helper_connection.py",  # ADR-0312
+        "test_local_helper_service.py",  # ADR-0312
+        "test_local_helper_install.py",  # ADR-0312
+        "test_local_helper_real_windows.py",  # ADR-0312
         "config.py",
         "bootstrap.py",
         "time_utils.py",

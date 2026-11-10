@@ -1,4 +1,4 @@
-"""Windows 系統呼叫（ADR-0311）。整個小幫手只有這個檔案可以用 ctypes。"""
+"""Windows 系統呼叫（ADR-0312）。整個小幫手只有這個檔案可以用 ctypes。"""
 
 from __future__ import annotations
 
