@@ -249,8 +249,8 @@ async def test_openai_compatible_success(wire, budget, ledger):
 async def test_gemini_success(wire, budget, ledger):
     wire.http_script.append((200, _gemini_body("通過")))
     result = await _call(_GEMINI, purpose="judge")
-    # gemini-2.5-flash：input 0.30、output 2.50，快取照 input 價
-    assert result == CompletionResult(text="通過", usage=_USAGE4_INCLUDED, cost_usd=0.00215,
+    # gemini-2.5-flash：input 0.30、output 2.50、快取讀 0.03
+    assert result == CompletionResult(text="通過", usage=_USAGE4_INCLUDED, cost_usd=0.00161,
                                       stop_reason="end", error=None)
     ((call),) = wire.http_calls
     assert call["url"].endswith("/models/gemini-2.5-flash:generateContent")

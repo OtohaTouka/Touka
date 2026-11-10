@@ -29,6 +29,16 @@ _AUDIT_HEADERS = [
 _LEGACY_E_INDEX_COLUMN = "e_index"
 _HEADER_PROBE_BYTES = 4096
 
+_USAGE_KEYS = (
+    "prompt_tokens", "completion_tokens",
+    "cache_read_input_tokens", "cache_creation_input_tokens",
+)
+_SECONDS_PER_DAY = 86_400
+# token_usage.json 每個用途留幾天的每日用量；畫面看最近 CACHE_HIT_WINDOW_DAYS 天（ADR-0311）。
+DAILY_USAGE_RETENTION_DAYS = 14
+CACHE_HIT_WINDOW_DAYS = 7
+_CACHE_HIT_DECIMALS = 4
+
 
 def estimate_cost_usd(
     prompt_tokens: int,
@@ -97,6 +107,74 @@ def run_cost_usd(totals: dict, long_totals: dict, *, model: str | None = None) -
     return round(cost, 6)
 
 
+def _today() -> int:
+    """今天是 UTC 的第幾天。"""
+    return int(get_current_epoch() // _SECONDS_PER_DAY)
+
+
+def _count(value: object) -> int:
+    """檔案裡的一個用量數字；壞掉的當 0。"""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _day_number(key: str) -> int:
+    """每日用量的鍵轉成數字；壞掉的回 -1（落在任何區間外）。"""
+    try:
+        return int(key)
+    except ValueError:
+        return -1
+
+
+def _buckets_between(daily: object, first_day: int, last_day: int) -> dict[str, dict]:
+    """``daily`` 裡落在這段日子、形狀正確的每日用量；其餘略過。"""
+    if not isinstance(daily, dict):
+        return {}
+    return {
+        day: bucket
+        for day, bucket in daily.items()
+        if isinstance(bucket, dict) and first_day <= _day_number(day) <= last_day
+    }
+
+
+def _add_today(stats: dict, counts: tuple[int, int, int, int]) -> None:
+    """把這次用量加進今天，太舊的修剪掉。
+
+    ``daily`` 壞掉只重建，不能擋住累計（預算上限靠累計）。
+    """
+    today = _today()
+    daily = _buckets_between(stats.get("daily"), today - DAILY_USAGE_RETENTION_DAYS + 1, today)
+    bucket = daily.get(str(today), {})
+    daily[str(today)] = {
+        key: _count(bucket.get(key)) + count
+        for key, count in zip(_USAGE_KEYS, counts, strict=True)
+    }
+    stats["daily"] = daily
+
+
+def cache_hit_rates(usage: object) -> dict[str, float | None]:
+    """近幾天各用途的快取命中率：快取讀 ÷（未快取輸入＋快取讀＋快取寫）；沒有輸入回 None。
+
+    用途就是 ``token_usage.json`` 的鍵，可能是廠商、旁路用途或自訂連線（ADR-0311）。
+    """
+    if not isinstance(usage, dict):
+        return {}
+    today = _today()
+    rates: dict[str, float | None] = {}
+    for label, stats in usage.items():
+        if not isinstance(stats, dict):
+            continue
+        buckets = _buckets_between(
+            stats.get("daily"), today - CACHE_HIT_WINDOW_DAYS + 1, today
+        ).values()
+        prompt, read, write = (
+            sum(_count(bucket.get(key)) for bucket in buckets)
+            for key in ("prompt_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        )
+        total = prompt + read + write
+        rates[label] = round(read / total, _CACHE_HIT_DECIMALS) if total else None
+    return rates
+
+
 def accumulate_token_usage(
     identity: AgentIdentity | str,
     provider: str,
@@ -158,6 +236,7 @@ def accumulate_token_usage(
         p_stats["completion_tokens"] += this_ct
         p_stats["cache_read_input_tokens"] += this_cr
         p_stats["cache_creation_input_tokens"] += this_cw
+        _add_today(p_stats, (this_pt, this_ct, this_cr, this_cw))
 
         # 成本「逐回合增量累計」（ssot-1）：每回合以當回合 token × 該模型費率算出後累加，
         # 不再從累計桶用單一費率重算。如此（a）同供應商多模型不互相污染、
@@ -211,7 +290,7 @@ def log_usage_audit(
         # 故簽章變更原子化——絕不會因 model 未定義而拋例外、靜默漏記稽核列。
         # cost_usd 含快取讀寫（ADR-0244 決定 A5、P20）。
         cost = usage_cost_usd(usage_dict, model=model) if cost_usd is None else cost_usd
-        # rate_source（security-3）：標記成本來源（override/builtin 或 fallback 粗估），
+        # rate_source（security-3）：成本來源（override、builtin，或粗估的 family、fallback），
         # 讓 append-only 稽核帳本事後可分辨哪些成本可信。
         rate_source = pricing.resolve(model)[1]
 
