@@ -45,6 +45,7 @@ _ANTHROPIC_VERSION = "2023-06-01"
 LifecycleState = Literal["active", "deprecated", "retired"]
 _LIFECYCLE_STATES: tuple[str, ...] = get_args(LifecycleState)
 _GEMINI_STAGES: dict[str, LifecycleState] = {"LEGACY": "deprecated", "RETIRED": "retired"}
+_GEMINI_ACTIVE_STAGES = ("EXPERIMENTAL", "PREVIEW", "STABLE")
 _DATED_SUFFIX = re.compile(r"-\d{8}")  # Anthropic 舊型號：別名＋-YYYYMMDD
 
 
@@ -110,13 +111,21 @@ def parse_openai_models(body: object) -> list[ModelLifecycle]:
 
 
 def parse_gemini_status(model: str, raw: object) -> ModelLifecycle | None:
-    """Gemini 回覆的 ``modelStatus``；沒帶或不是 LEGACY／RETIRED 回 None。"""
+    """Gemini 回覆的 ``modelStatus``；沒帶或看不懂回 None。
+
+    官方的 ``retirementTime`` 是「模型將下架的時間」，沒有限定階段，所以任何階段帶了日期都算。
+    """
     status = raw.get("modelStatus") if isinstance(raw, dict) else None
-    stage = status.get("modelStage") if isinstance(status, dict) else None
-    state = _GEMINI_STAGES.get(stage) if isinstance(stage, str) else None
-    if state is None:
+    if not isinstance(status, dict):
         return None
-    return ModelLifecycle(model, state, _epoch(status.get("retirementTime")))
+    stage = status.get("modelStage")
+    retires_at = _epoch(status.get("retirementTime"))
+    state = _GEMINI_STAGES.get(stage) if isinstance(stage, str) else None
+    if state is not None:
+        return ModelLifecycle(model, state, retires_at)
+    if retires_at is not None:
+        return ModelLifecycle(model, "deprecated", retires_at)
+    return ModelLifecycle(model, "active") if stage in _GEMINI_ACTIVE_STAGES else None
 
 
 def _status_of(record: ModelLifecycle, now: float) -> ModelLifecycleStatus | None:
@@ -152,19 +161,32 @@ async def _list_anthropic(client: httpx.AsyncClient, key: str) -> list[ModelLife
 
 async def _list_openai(client: httpx.AsyncClient, key: str) -> list[ModelLifecycle]:
     response = await client.get(
-        f"{_config.OPENAI_BASE_URL.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"}
+        f"{_config.OPENAI_RESPONSES_BASE_URL}/models", headers={"Authorization": f"Bearer {key}"}
     )
     response.raise_for_status()
     return parse_openai_models(response.json())
+
+
+def _always() -> bool:
+    return True
+
+
+def _openai_is_official() -> bool:
+    """``OPENAI_BASE_URL`` 被改過時金鑰多半是中轉站的，不能送去官方；中轉站的回應也不是官方標示。"""
+    return _config.OPENAI_BASE_URL.rstrip("/") == _config.OPENAI_RESPONSES_BASE_URL
 
 
 @dataclass(frozen=True, slots=True)
 class _Source:
     provider_id: str  # Provider Registry 的 id
     fetch: Callable[[httpx.AsyncClient, str], Awaitable[list[ModelLifecycle]]]
+    usable: Callable[[], bool] = _always
 
 
-_SOURCES = (_Source("anthropic", _list_anthropic), _Source("openai", _list_openai))
+_SOURCES = (
+    _Source("anthropic", _list_anthropic),
+    _Source("openai", _list_openai, _openai_is_official),
+)
 
 
 class ModelLifecycleService:
@@ -188,7 +210,7 @@ class ModelLifecycleService:
             return
         now = get_current_epoch()
         due = [(source, key) for source in _SOURCES
-               if (key := registry.get_key_by_id(source.provider_id))
+               if source.usable() and (key := registry.get_key_by_id(source.provider_id))
                and self._is_due(source.provider_id, now)]
         if due:
             self._checking = True

@@ -126,7 +126,7 @@ describe('ModelLifecycleNotice', () => {
   });
 
   it('看不懂的那一筆略過，其他照顯示', async () => {
-    await mountWith({ alerts: [alert({ status: 'melting' }), { model: 7 }, 'x', alert({ model: 'claude-ok' })] });
+    await mountWith({ alerts: [alert({ status: 'melting' }), alert({ model: 7 }), 'x', alert({ model: 'claude-ok' })] });
     expect(notice()?.querySelectorAll('p')).toHaveLength(1);
     expect(notice()).toHaveTextContent('claude-ok');
   });
@@ -163,10 +163,25 @@ describe('ModelLifecycleNotice', () => {
     expect(notice()).toBeNull();
   });
 
-  it('重問失敗時不留舊的提示', async () => {
+  it.each([
+    ['連線失敗', () => { vi.mocked(fetchTouka).mockRejectedValue(new Error('down')); }],
+    ['HTTP 500', () => { answer({}, false); }],
+  ])('重問時%s：保留上一次的提示，正確的提示不會消失一小時', async (_name, fail) => {
     await mountWith({ alerts: [alert()], checking: false });
-    vi.mocked(fetchTouka).mockRejectedValue(new Error('down'));
+    fail();
     await act(async () => { await vi.advanceTimersByTimeAsync(MODEL_LIFECYCLE_POLL_MS); });
+    expect(fetchTouka).toHaveBeenCalledTimes(2);
+    expect(notice()).not.toBeNull();
+  });
+
+  it.each([
+    ['不是物件', 'x'],
+    ['alerts 不是陣列', { alerts: 'x' }],
+  ])('重問拿到 200 但看不懂（%s）：當成沒有，舊的提示要清掉', async (_name, body) => {
+    await mountWith({ alerts: [alert()], checking: false });
+    answer(body);
+    await act(async () => { await vi.advanceTimersByTimeAsync(MODEL_LIFECYCLE_POLL_MS); });
+    expect(fetchTouka).toHaveBeenCalledTimes(2);
     expect(notice()).toBeNull();
   });
 

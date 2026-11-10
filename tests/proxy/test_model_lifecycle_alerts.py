@@ -64,7 +64,10 @@ def configured(monkeypatch: pytest.MonkeyPatch, service: ModelLifecycleService) 
         brains={"Alice": _ALICE_MODEL, "Bob": _BOB_MODEL},
         review={"model": _REVIEWER_MODEL},
         summary=_SUMMARY_MODEL,
+        souls={"Alice", "Bob", "Zed"},
     )
+    monkeypatch.setattr(lifecycle_alerts, "soul_service", SimpleNamespace(
+        is_toukasoul=lambda agent: agent in settings.souls))
     monkeypatch.setattr(lifecycle_alerts, "list_active_brains", lambda: dict(settings.brains))
     monkeypatch.setattr(lifecycle_alerts, "autonomy_service",
                         SimpleNamespace(config=SimpleNamespace(
@@ -152,6 +155,14 @@ def test_souls_on_the_same_model_are_grouped_and_sorted(
 ) -> None:
     configured.brains = {"Zed": _ALICE_MODEL, "Alice": _ALICE_MODEL}
     assert _alerts(client, HUMAN_ADMIN)[_ALICE_MODEL]["souls"] == ["Alice", "Zed"]
+
+
+def test_people_and_custom_models_in_the_settings_file_are_not_souls(
+    client: TestClient, configured: SimpleNamespace
+) -> None:
+    """直聊成功也會寫進 brain_settings，那些在設定裡沒有地方可以換，提示會永遠消不掉。"""
+    configured.brains = {"Alice": _ALICE_MODEL, "some-human-uuid": _BOB_MODEL}
+    assert _BOB_MODEL not in _alerts(client, HUMAN_ADMIN)
 
 
 def test_status_and_date_reach_the_response(

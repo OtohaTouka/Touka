@@ -331,6 +331,7 @@ def test_pytest_automation_forces_metered_features_off_before_app_import() -> No
     assert source.index("for _credential_name in PROVIDER_CREDENTIAL_ENV_VARS") < app_import
     assert source.index('os.environ["TOUKA_EVAL_JUDGE_ENABLED"] = "false"') < app_import
     assert source.index('os.environ["ENABLE_DYNAMIC_MODELS"] = "false"') < app_import
+    assert source.index('os.environ["MODEL_LIFECYCLE_CHECK_ENABLED"] = "false"') < app_import
     assert source.index("network_guard.install()") < source.index("from src")
     assert importlib.import_module("tests.network_guard").is_installed()
     assert source.index("clear_proxy_environment(") < app_import
@@ -340,6 +341,7 @@ def test_pytest_automation_forces_metered_features_off_before_app_import() -> No
         assert _PROCESS_ENVIRONMENT[offline_flag] == "1"
     assert _PROCESS_ENVIRONMENT["TOUKA_EVAL_JUDGE_ENABLED"] == "false"
     assert _PROCESS_ENVIRONMENT["ENABLE_DYNAMIC_MODELS"] == "false"
+    assert _PROCESS_ENVIRONMENT["MODEL_LIFECYCLE_CHECK_ENABLED"] == "false"
 
     env_file = Path(_PROCESS_ENVIRONMENT["TOUKA_ENV_FILE"]).resolve()
     assert env_file.parent == Path(_PROCESS_ENVIRONMENT["MEMORY_APP_DATA_DIR"]).resolve()

@@ -53,13 +53,14 @@ export function useModelLifecycleAlerts(): ModelLifecycleAlert[] {
         const res = await fetchTouka(getActiveProxyUrl(), ALERTS_PATH, {
           cache: "no-store", signal: current.signal, nonStreaming: true, requestScope: scope,
         });
-        const body: unknown = res.ok ? await res.json() : null;
+        if (!res.ok) return; // 暫時失敗不清掉上一次的結果；換帳號、登出已經先清空
+        const body: unknown = await res.json();
         if (current.signal.aborted) return;
         const parsed = parseAlerts(body);
         setAlerts(parsed.alerts);
         if (parsed.checking) recheck = setTimeout(() => { void load(); }, MODEL_LIFECYCLE_RECHECK_MS);
       } catch {
-        if (!current.signal.aborted) setAlerts([]);
+        // 同上：連不上時保留上一次的結果
       }
     };
     const timer = setTimeout(() => { void load(); }, 0);

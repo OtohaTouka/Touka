@@ -122,6 +122,7 @@ def test_sandbox_helper_clears_metered_keys_and_anchors_all_state(
         assert _PROCESS_ENVIRONMENT["TOUKA_BOOTSTRAP_ENABLED"] == "false"
         assert _PROCESS_ENVIRONMENT["DISPATCH_AUTOSPAWN"] == "false"
         assert _PROCESS_ENVIRONMENT["ENABLE_DYNAMIC_MODELS"] == "false"
+        assert _PROCESS_ENVIRONMENT["MODEL_LIFECYCLE_CHECK_ENABLED"] == "false"
         assert _PROCESS_ENVIRONMENT["TOUKA_EVAL_JUDGE_ENABLED"] == "false"
         assert _PROCESS_ENVIRONMENT["HF_HUB_OFFLINE"] == "1"
         assert _PROCESS_ENVIRONMENT["TRANSFORMERS_OFFLINE"] == "1"

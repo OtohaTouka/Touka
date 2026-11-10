@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
+import anthropic
 import httpx
 import pytest
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
@@ -85,6 +87,18 @@ async def test_reply_without_status_records_nothing(
     monkeypatch: pytest.MonkeyPatch, notes: ModelLifecycleService
 ) -> None:
     FakeUpstream([json_reply(_body())]).install(monkeypatch)
+    await _round(GeminiAdapter())
+    assert notes.notice_for(_MODEL) is None
+
+
+async def test_going_back_to_stable_clears_the_warning(
+    monkeypatch: pytest.MonkeyPatch, notes: ModelLifecycleService
+) -> None:
+    FakeUpstream([
+        json_reply(_body(modelStatus=_LEGACY)),
+        json_reply(_body(modelStatus={"modelStage": "STABLE"})),
+    ]).install(monkeypatch)
+    await _round(GeminiAdapter())
     await _round(GeminiAdapter())
     assert notes.notice_for(_MODEL) is None
 
@@ -172,6 +186,36 @@ async def test_complete_once_openai_style_not_found(
     FakeUpstream([status_reply(404)]).install(monkeypatch)
     await _call("deepseek-chat")
     assert route.notice_for("deepseek-chat") == _NOT_FOUND
+
+
+class _MissingClaude:
+    """Anthropic SDK 回 404（摘要員的預設模型走這條）。"""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self._http_client = kwargs.get("http_client")
+        self.messages = SimpleNamespace(create=self._create)
+
+    async def _create(self, **_kwargs: Any) -> Any:
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        message = "model: claude-x"
+        raise anthropic.NotFoundError(
+            message, response=httpx.Response(404, request=request),
+            body={"error": {"type": "not_found_error", "message": message}},
+        )
+
+    async def close(self) -> None:
+        if self._http_client is not None:
+            await self._http_client.aclose()
+
+
+async def test_complete_once_claude_not_found(
+    monkeypatch: pytest.MonkeyPatch, route: ModelLifecycleService
+) -> None:
+    monkeypatch.setattr(completion, "AsyncAnthropic", _MissingClaude)
+    monkeypatch.setattr("src.config.ANTHROPIC_API_KEY", "fake-anthropic", raising=False)
+    result = await _call("claude-x")
+    assert result.error is not None
+    assert route.notice_for("claude-x") == _NOT_FOUND
 
 
 @pytest.mark.parametrize("status", [400, 401, 429, 500, 503])

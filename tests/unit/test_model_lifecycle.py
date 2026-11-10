@@ -156,8 +156,19 @@ def test_openai_parser_skips_what_it_cannot_read(item: Any) -> None:
         ({"modelStage": "RETIRED"}, ModelLifecycle("gemini-x", "retired", None)),
         ({"modelStage": "LEGACY", "retirementTime": "someday"},
          ModelLifecycle("gemini-x", "deprecated", None)),
-        ({"modelStage": "STABLE"}, None),
-        ({"modelStage": "PREVIEW", "retirementTime": "2026-11-30T17:00:00Z"}, None),
+        ({"modelStage": "STABLE"}, ModelLifecycle("gemini-x", "active", None)),
+        ({"modelStage": "PREVIEW"}, ModelLifecycle("gemini-x", "active", None)),
+        ({"modelStage": "EXPERIMENTAL"}, ModelLifecycle("gemini-x", "active", None)),
+        ({"modelStage": "STABLE", "retirementTime": "2026-11-30T17:00:00Z"},
+         ModelLifecycle("gemini-x", "deprecated", _SONNET_RETIRES)),
+        ({"modelStage": "PREVIEW", "retirementTime": "2026-11-30T17:00:00Z"},
+         ModelLifecycle("gemini-x", "deprecated", _SONNET_RETIRES)),
+        ({"retirementTime": "2026-11-30T17:00:00Z"},
+         ModelLifecycle("gemini-x", "deprecated", _SONNET_RETIRES)),
+        ({"modelStage": "STABLE", "retirementTime": "someday"},
+         ModelLifecycle("gemini-x", "active", None)),
+        ({"modelStage": "SOMETHING_NEW"}, None),
+        ({"modelStage": ["LEGACY"]}, None),
         ({}, None),
         ("LEGACY", None),
         (None, None),
@@ -304,13 +315,15 @@ async def test_check_asks_each_provider_once_with_its_own_key(
     await _check(service)
     anthropic, openai = upstream.requests
     assert anthropic.method == "GET"
+    assert anthropic.url.host == "api.anthropic.com"
     assert anthropic.url.path == "/v1/models"
     assert dict(anthropic.url.params) == {"limit": "1000"}  # 真金鑰驗過的就是這個形狀
     assert anthropic.headers["x-api-key"] == "fake-anthropic"
     assert anthropic.headers["anthropic-version"] == "2023-06-01"
     assert "authorization" not in anthropic.headers
     assert openai.method == "GET"
-    assert openai.url.path.endswith("/models")
+    assert openai.url.host == "api.openai.com"
+    assert openai.url.path == "/v1/models"
     assert openai.headers["authorization"] == "Bearer fake-openai"
     assert "x-api-key" not in openai.headers
 
@@ -535,6 +548,40 @@ async def test_no_keys_at_all_starts_nothing(
     service.trigger_check()
     assert service.checking is False
     assert upstream.requests == []
+
+
+async def test_openai_with_a_changed_base_url_is_skipped(
+    service: ModelLifecycleService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """金鑰多半是中轉站的，不能送去官方；中轉站的回應也不是官方標示。"""
+    monkeypatch.setattr("src.config.OPENAI_BASE_URL", "https://relay.test/v1", raising=False)
+    upstream = FakeUpstream([_ANTHROPIC_OK]).install(monkeypatch)
+    await _check(service)
+    assert [request.url.host for request in upstream.requests] == ["api.anthropic.com"]
+
+
+async def test_trailing_slash_on_the_official_url_is_still_official(
+    service: ModelLifecycleService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.OPENAI_BASE_URL", "https://api.openai.com/v1/", raising=False)
+    upstream = FakeUpstream([_ANTHROPIC_OK, _OPENAI_OK]).install(monkeypatch)
+    await _check(service)
+    assert len(upstream.requests) == 2
+
+
+async def test_checking_ends_when_the_task_is_cancelled(
+    service: ModelLifecycleService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = Reply(200, [asyncio.Event()], {"content-type": "application/json"})
+    upstream = FakeUpstream([held]).install(monkeypatch)
+    service.trigger_check()
+    async with asyncio.timeout(5):
+        while not upstream.requests:
+            await asyncio.sleep(0)
+    task = next(t for t in asyncio.all_tasks() if t.get_name() == "model_lifecycle_check")
+    task.cancel()
+    await asyncio.wait([task], timeout=5)
+    assert service.checking is False
 
 
 async def test_a_seen_date_survives_the_model_leaving_the_list(

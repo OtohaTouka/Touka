@@ -16,6 +16,7 @@ from src.services.models import model_manager
 from src.services.models.model_lifecycle import model_lifecycle_service, normalize_model_name
 from src.services.models.routes import CustomRouteDisposition
 from src.services.sliding_window_service import sliding_window_service
+from src.services.soul_service import soul_service
 from src.utils.brain_persistence import list_active_brains
 
 if TYPE_CHECKING:
@@ -46,7 +47,8 @@ def _usage_for(identity: AgentIdentity) -> dict[str, _Usage]:
     usage: dict[str, _Usage] = {}
     for agent_id, brain in list_active_brains().items():
         name = _native_name(brain)
-        if name and can_access_session(identity, agent_id):
+        # 直聊成功也會寫進 brain_settings（人類、自訂模型），那些在設定裡沒有地方可以換
+        if name and can_access_session(identity, agent_id) and soul_service.is_toukasoul(agent_id):
             usage.setdefault(name, _Usage()).souls.append(agent_id)
     if identity.is_admin_human():
         review = autonomy_service.config.get("auto_review")
