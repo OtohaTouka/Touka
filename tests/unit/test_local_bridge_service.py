@@ -491,7 +491,7 @@ def test_every_configurable_compose_mount_is_reported() -> None:
     sources: set[str] = set()
     for name in ("docker-compose.yml", "docker-compose.ghcr.yml"):
         text = (root / name).read_text(encoding="utf-8")
-        sources |= set(re.findall(r'^\s*-\s*"?\$\{([A-Z_]+)[:}]', text, re.MULTILINE))
+        sources |= set(re.findall(r'^\s*(?:-|source:)\s*"?\$\{([A-Z_]+)[:}]', text, re.MULTILINE))
     assert sources == {
         "WORKSPACE_ROOT",
         "SANCTUARY_DATA_PATH",
