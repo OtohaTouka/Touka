@@ -299,14 +299,16 @@ class ResponsesAdapter:
                                  lambda: self.set_tool_choice(state, mode))
 
     def extract_usage(self, _state: _State, raw: Any) -> tuple[dict, int, int]:
-        """用量四欄正規化（input_tokens 含 cached_tokens，扣掉才是未快取輸入）。"""
+        """用量四欄正規化（input_tokens 含快取讀與寫，兩個都扣掉才是未快取輸入）。"""
         usage = raw.get("usage") or {}
         if not usage:
             return ({}, 0, 0)
         details = usage.get("input_tokens_details") or {}
         uncached, cache_read = split_included_cache(usage.get("input_tokens"),
                                                     details.get("cached_tokens"))
-        return normalized_usage(uncached_input=uncached, cache_read=cache_read, cache_write=0,
+        uncached, cache_write = split_included_cache(uncached, details.get("cache_write_tokens"))
+        return normalized_usage(uncached_input=uncached, cache_read=cache_read,
+                                cache_write=cache_write,
                                 output=usage_count(usage.get("output_tokens")))
 
     def partial_usage(self, state: _State) -> PartialUsage | None:

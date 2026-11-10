@@ -1452,7 +1452,7 @@
     "pricing_note": {
       "verified_at": "Costs are estimated from the price table, last verified {{date}}",
       "override": " (your own price changes are not included)",
-      "estimated": "No exact price for these models, estimated at the provider's highest known price: {{models}}",
+      "estimated": "No exact price for these models, estimated at the provider's highest known price or a cautious default: {{models}}",
       "separator": ", "
     },
     "system_monitoring_view": {

@@ -1444,7 +1444,7 @@
     "pricing_note": {
       "verified_at": "費用依價目表估算，最後查證：{{date}}",
       "override": "（不含你自己改過的價格）",
-      "estimated": "這些模型沒有具體價格，用該家已知最高價估算：{{models}}",
+      "estimated": "這些模型沒有具體價格，用該家已知最高價或保守預設估算：{{models}}",
       "separator": "、"
     },
     "system_monitoring_view": {

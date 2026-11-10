@@ -12,6 +12,7 @@ import re
 from datetime import UTC, datetime
 
 import pytest
+from src.services.cost_guard import worst_case_input_price
 from src.services.providers import pricing
 from src.services.providers.pricing import Rate, get_pricing, resolve
 
@@ -259,8 +260,8 @@ def _at(monkeypatch, epoch: float) -> None:
 
 
 def _tiered(threshold: int, short: tuple, long_tier: tuple) -> Rate:
-    return Rate(short[0], short[1], cache_read=short[2],
-                long_prompt=(threshold, Rate(long_tier[0], long_tier[1], cache_read=long_tier[2])))
+    """兩邊都是（輸入, 輸出, 快取讀[, 快取寫]）。"""
+    return Rate(*short, long_prompt=(threshold, Rate(*long_tier)))
 
 
 _GPT_HIGHEST = _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None))
@@ -270,15 +271,16 @@ _GROK_BASE = _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40))
 
 @pytest.mark.parametrize(("model", "rate"), [
     # OpenAI
-    ("gpt-6-astra", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0), (20.0, 75.0, 2.0))),
-    ("gpt-6-astra-law", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0), (20.0, 75.0, 2.0))),
-    ("gpt-6.1-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.10), (4.0, 15.0, 0.20))),
-    ("gpt-6.1-terra", _tiered(_OPENAI_LONG, (1.0, 5.0, 0.05), (2.0, 7.50, 0.10))),
-    ("gpt-6-luna", _tiered(_OPENAI_LONG, (0.10, 0.50, 0.01), (0.20, 0.75, 0.02))),
-    ("gpt-6-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.20), (4.0, 15.0, 0.40))),
-    ("gpt-5.6-sol", _tiered(_OPENAI_LONG, (4.0, 20.0, 0.40), (8.0, 30.0, 0.80))),
-    ("gpt-5.6-terra", _tiered(_OPENAI_LONG, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40))),
-    ("gpt-5.6-luna", _tiered(_OPENAI_LONG, (0.20, 1.20, 0.02), (0.40, 1.80, 0.04))),
+    ("gpt-6-astra", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0, 12.50), (20.0, 75.0, 2.0, 25.0))),
+    ("gpt-6-astra-law", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0, 12.50), (20.0, 75.0, 2.0, 25.0))),
+    ("gpt-6.1-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.10, 2.50), (4.0, 15.0, 0.20, 5.0))),
+    ("gpt-6.1-terra", _tiered(_OPENAI_LONG, (1.0, 5.0, 0.05, 1.25), (2.0, 7.50, 0.10, 2.50))),
+    ("gpt-6-luna", _tiered(_OPENAI_LONG, (0.10, 0.50, 0.01, 0.125), (0.20, 0.75, 0.02, 0.25))),
+    ("gpt-6-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.20, 2.50), (4.0, 15.0, 0.40, 5.0))),
+    ("gpt-5.6-sol", _tiered(_OPENAI_LONG, (4.0, 20.0, 0.40, 5.0), (8.0, 30.0, 0.80, 10.0))),
+    ("gpt-5.6-terra", _tiered(_OPENAI_LONG, (2.0, 12.0, 0.20, 2.50), (4.0, 18.0, 0.40, 5.0))),
+    ("gpt-5.6-luna", _tiered(_OPENAI_LONG, (0.20, 1.20, 0.02, 0.25), (0.40, 1.80, 0.04, 0.50))),
+    ("gpt-5.5-cyber-preview", Rate(12.50, 75.0, cache_read=1.25)),
     ("gpt-5.5", _tiered(_OPENAI_LONG, (5.0, 30.0, 0.50), (10.0, 45.0, 1.0))),
     ("gpt-5.5-pro", _GPT_HIGHEST),
     ("gpt-5.4", _tiered(_OPENAI_LONG, (2.50, 15.0, 0.25), (5.0, 22.50, 0.50))),
@@ -300,6 +302,8 @@ _GROK_BASE = _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40))
     ("gpt-4o-mini", Rate(0.15, 0.60, cache_read=0.075)),
     ("o3", Rate(2.0, 8.0, cache_read=0.50)),
     ("o3-pro", Rate(20.0, 80.0)),
+    # Anthropic：Mythos Preview 不在價格頁，anthropic.com/glasswing 寫 $25/$125（快取照一般倍率）
+    ("claude-mythos-preview", Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25)),
     # Google
     ("gemini-4-argon", Rate(2.0, 10.0, cache_read=0.10)),
     ("gemini-3.8-flash", Rate(0.75, 3.75, cache_read=0.075)),
@@ -351,9 +355,9 @@ def test_xai_long_prompt_starts_at_200k(monkeypatch):
 
 
 @pytest.mark.parametrize(("model", "rate"), [
-    ("claude", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
-    ("claude-new-thing", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
-    ("claude-mythos-preview", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
+    ("claude", Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25)),
+    ("claude-new-thing", Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25)),
+    ("claude-mythos-9", Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25)),
     ("claude-fable-6", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
     ("deepseek-v9", Rate(1.32, 3.96)),
     ("grok-9", Rate(4.0, 15.0)),
@@ -363,6 +367,8 @@ def test_xai_long_prompt_starts_at_200k(monkeypatch):
     ("gpt-5.7-sol", _GPT_HIGHEST),  # 不能被當成便宜的 gpt-5
     ("gpt-5-2025-08-07", _GPT_HIGHEST),
     ("gpt-6-cyber", _GPT_HIGHEST),
+    # 開放權重模型沒有官方價，維持保守預設；一樣標成估的
+    ("gpt-oss-120b", Rate(3.0, 15.0)),
 ])
 def test_model_without_its_own_price_uses_the_family_highest(monkeypatch, model, rate):
     _patch_override(monkeypatch, None)
@@ -371,6 +377,13 @@ def test_model_without_its_own_price_uses_the_family_highest(monkeypatch, model,
 
 def _top_tier(rate: Rate) -> Rate:
     return rate.long_prompt[1] if rate.long_prompt is not None else rate
+
+
+def _cache_prices(rate: Rate) -> tuple[float, float]:
+    """實際的快取讀、寫價：沒列就是照 input 價。"""
+    read = rate.input if rate.cache_read is None else rate.cache_read
+    write = rate.input if rate.cache_write is None else rate.cache_write
+    return read, write
 
 
 @pytest.mark.parametrize("family", ["claude", "claude-fable", "claude-mythos", "deepseek", "gemini",
@@ -386,6 +399,17 @@ def test_family_price_is_never_below_a_known_model_of_that_family(monkeypatch, f
             rate = _top_tier(resolve(key)[0])
             assert top.input >= rate.input, key
             assert top.output >= rate.output, key
+            assert _cache_prices(top)[0] >= _cache_prices(rate)[0], key
+            assert _cache_prices(top)[1] >= _cache_prices(rate)[1], key
+
+
+def test_openai_cache_writes_cost_more_from_gpt_5_6(monkeypatch):
+    """官方：GPT-5.6 起快取寫入是輸入價的 1.25 倍；送前最壞估算要取較貴的那個。"""
+    _patch_override(monkeypatch, None)
+    assert get_pricing("gpt-6.1-sol").cost_usd(0, 0, cache_write_tokens=100_000) == 0.25
+    assert worst_case_input_price(get_pricing("gpt-6-astra")) == 12.50
+    assert worst_case_input_price(get_pricing("gpt-6-astra").for_prompt(272_001)) == 25.0
+    assert worst_case_input_price(get_pricing("gpt-5.5")) == 5.0  # 較早的型號沒有寫入加價
 
 
 def test_a_price_override_still_matches_by_substring(monkeypatch):

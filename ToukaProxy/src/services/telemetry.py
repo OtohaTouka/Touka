@@ -286,7 +286,7 @@ def log_usage_audit(
         # 故簽章變更原子化——絕不會因 model 未定義而拋例外、靜默漏記稽核列。
         # cost_usd 含快取讀寫（ADR-0244 決定 A5、P20）。
         cost = usage_cost_usd(usage_dict, model=model) if cost_usd is None else cost_usd
-        # rate_source（security-3）：標記成本來源（override/builtin 或 fallback 粗估），
+        # rate_source（security-3）：標記成本來源（override/builtin，或 family/fallback 粗估），
         # 讓 append-only 稽核帳本事後可分辨哪些成本可信。
         rate_source = pricing.resolve(model)[1]
 

@@ -98,26 +98,19 @@ PRICING_VERIFIED_AT = "2026-11-10"
 
 # Haiku 5.5 提示長度（含快取讀寫）超過這個數就整個請求改用長檔費率。
 HAIKU_5_5_LONG_PROMPT_TOKENS = 100_000
-_OPENAI_LONG_PROMPT_TOKENS = 272_000
-_GOOGLE_LONG_PROMPT_TOKENS = 200_000
+_OPENAI_LONG = 272_000
+_GOOGLE_LONG = 200_000
 # xAI 官方是「達到 20 萬」就整個請求用高價；for_prompt 比的是超過。
-_XAI_LONG_PROMPT_TOKENS = 199_999
+_XAI_LONG = 199_999
 
 # security-1：未知模型保守高估 fallback（不可為 0）。沿用重構前 Anthropic $3/$15；
 # 可由 model_pricing.json 的 _default 覆蓋。
 _DEFAULT = Rate(input=3.0, output=15.0)
 
 
-def _tiered(
-    threshold: int,
-    short: tuple[float, float, float | None],
-    long_tier: tuple[float, float, float | None],
-) -> Rate:
-    """官方按提示長度分兩檔的型號；兩邊都是（輸入, 輸出, 快取讀）。"""
-    return Rate(
-        short[0], short[1], cache_read=short[2],
-        long_prompt=(threshold, Rate(long_tier[0], long_tier[1], cache_read=long_tier[2])),
-    )
+def _tiered(threshold: int, short: tuple, long_tier: tuple) -> Rate:
+    """官方按提示長度分兩檔的型號；兩邊都是（輸入, 輸出, 快取讀[, 快取寫]）。"""
+    return Rate(*short, long_prompt=(threshold, Rate(*long_tier)))
 
 
 # 內建硬編規格表（code SSOT，離線可用）。鍵為小寫子字串，最長匹配優先（具體勝過泛化）。
@@ -127,7 +120,7 @@ def _tiered(
 #   Google aistudio.google.com/docs/pricing
 #   xAI docs.x.ai/docs/models
 #   DeepSeek api-docs.deepseek.com/quick_start/pricing（尖峰價，寧高勿低）
-# 官方已不列的舊型號留著舊價。官方沒列快取價的留 None＝照 input 價計（保守；adapter 已把快取
+# 只建文字模型，圖片與語音型號沒有列。官方已不列的舊型號留著舊價。官方沒列快取價的留 None＝照 input 價計（保守；adapter 已把快取
 # 從 prompt 拆出，不會重複，ADR-0244）；浮動時由 config/model_pricing.json 覆蓋，免改碼。
 # 本地免費供應商（自架 ollama 等）模型名難以僅憑字串辨識，故不在此猜測——保守 fallback
 # （非 0）確保預算護欄不失效；使用者可於 model_pricing.json 將自架模型顯式標 0。
@@ -155,14 +148,16 @@ _BUILTIN_PRICING: dict[str, Rate] = {
                      Rate(0.50, 2.50, cache_read=0.05, cache_write=0.625)),
     ),
     "claude-fable": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),  # 家族最高價
-    "claude-mythos": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),  # 家族最高價
+    "claude-mythos": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),  # 家族最高價
+    # 不在價格頁：anthropic.com/glasswing 寫 $25/$125，快取價官方沒寫，照一般的 0.1×、1.25×
+    "claude-mythos-preview": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),
     "claude-fable-5": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),
     "claude-mythos-5": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),
     "claude-fable-5-1": Rate(10.0, 50.0, cache_read=0.25, cache_write=12.50),
     "claude-mythos-5-1": Rate(10.0, 50.0, cache_read=0.25, cache_write=12.50),
     "claude-fable-5-2": Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0),
     "claude-mythos-5-2": Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0),
-    "claude": Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75),  # 家族最高價
+    "claude": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),  # 家族最高價
     # ── DeepSeek（deepseek-chat、reasoner 官方已不列）──
     "deepseek-flash": Rate(0.30, 1.20, cache_read=0.006),
     "deepseek-v4-flash": Rate(0.30, 1.20, cache_read=0.006),  # 舊名，官方照 Flash 計價
@@ -192,30 +187,33 @@ _BUILTIN_PRICING: dict[str, Rate] = {
     "gpt-5.2": Rate(1.75, 14.0, cache_read=0.175),
     "gpt-5.2-pro": Rate(21.0, 168.0),
     "gpt-5.3-codex": Rate(1.75, 14.0, cache_read=0.175),
-    "gpt-5.4": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (2.50, 15.0, 0.25), (5.0, 22.50, 0.50)),
+    "gpt-5.4": _tiered(_OPENAI_LONG, (2.50, 15.0, 0.25), (5.0, 22.50, 0.50)),
     "gpt-5.4-mini": Rate(0.75, 4.50, cache_read=0.075),
     "gpt-5.4-nano": Rate(0.20, 1.25, cache_read=0.02),
-    "gpt-5.4-pro": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (30.0, 180.0, None), (60.0, 270.0, None)),
-    "gpt-5.5": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (5.0, 30.0, 0.50), (10.0, 45.0, 1.0)),
-    "gpt-5.5-pro": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (30.0, 180.0, None), (60.0, 270.0, None)),
-    "gpt-5.6-sol": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (4.0, 20.0, 0.40), (8.0, 30.0, 0.80)),
-    "gpt-5.6-terra": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40)),
-    "gpt-5.6-luna": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (0.20, 1.20, 0.02), (0.40, 1.80, 0.04)),
-    "gpt-6-astra": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (10.0, 50.0, 1.0), (20.0, 75.0, 2.0)),
-    "gpt-6-sol": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (2.0, 10.0, 0.20), (4.0, 15.0, 0.40)),
-    "gpt-6-luna": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (0.10, 0.50, 0.01), (0.20, 0.75, 0.02)),
-    "gpt-6.1-sol": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (2.0, 10.0, 0.10), (4.0, 15.0, 0.20)),
-    "gpt-6.1-terra": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (1.0, 5.0, 0.05), (2.0, 7.50, 0.10)),
-    "gpt": _tiered(_OPENAI_LONG_PROMPT_TOKENS, (30.0, 180.0, None), (60.0, 270.0, None)),  # 家族最高價
+    "gpt-5.4-pro": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),
+    "gpt-5.5": _tiered(_OPENAI_LONG, (5.0, 30.0, 0.50), (10.0, 45.0, 1.0)),
+    "gpt-5.5-pro": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),
+    "gpt-5.5-cyber-preview": Rate(12.50, 75.0, cache_read=1.25),
+    # GPT-5.6 起快取寫入（預設 30 分鐘）是輸入價的 1.25 倍，官方列在「30m write」欄
+    "gpt-5.6-sol": _tiered(_OPENAI_LONG, (4.0, 20.0, 0.40, 5.0), (8.0, 30.0, 0.80, 10.0)),
+    "gpt-5.6-terra": _tiered(_OPENAI_LONG, (2.0, 12.0, 0.20, 2.50), (4.0, 18.0, 0.40, 5.0)),
+    "gpt-5.6-luna": _tiered(_OPENAI_LONG, (0.20, 1.20, 0.02, 0.25), (0.40, 1.80, 0.04, 0.50)),
+    "gpt-6-astra": _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0, 12.50), (20.0, 75.0, 2.0, 25.0)),
+    "gpt-6-sol": _tiered(_OPENAI_LONG, (2.0, 10.0, 0.20, 2.50), (4.0, 15.0, 0.40, 5.0)),
+    "gpt-6-luna": _tiered(_OPENAI_LONG, (0.10, 0.50, 0.01, 0.125), (0.20, 0.75, 0.02, 0.25)),
+    "gpt-6.1-sol": _tiered(_OPENAI_LONG, (2.0, 10.0, 0.10, 2.50), (4.0, 15.0, 0.20, 5.0)),
+    "gpt-6.1-terra": _tiered(_OPENAI_LONG, (1.0, 5.0, 0.05, 1.25), (2.0, 7.50, 0.10, 2.50)),
+    "gpt-oss": _DEFAULT,  # 開放權重模型：沒有官方價，看代管的地方，維持保守預設
+    "gpt": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),  # 家族最高價
     # ── xAI Grok ──
     "grok-2": Rate(2.0, 10.0),
     "grok-3": Rate(3.0, 15.0),
-    "grok-4.20": _tiered(_XAI_LONG_PROMPT_TOKENS, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
-    "grok-4.3": _tiered(_XAI_LONG_PROMPT_TOKENS, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
-    "grok-4.5": _tiered(_XAI_LONG_PROMPT_TOKENS, (2.0, 6.0, 0.30), (4.0, 12.0, 0.60)),
-    "grok-4.6": _tiered(_XAI_LONG_PROMPT_TOKENS, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
-    "grok-4.7": _tiered(_XAI_LONG_PROMPT_TOKENS, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
-    "grok-build-0.1": _tiered(_XAI_LONG_PROMPT_TOKENS, (1.0, 2.0, 0.20), (2.0, 4.0, 0.40)),
+    "grok-4.20": _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
+    "grok-4.3": _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
+    "grok-4.5": _tiered(_XAI_LONG, (2.0, 6.0, 0.30), (4.0, 12.0, 0.60)),
+    "grok-4.6": _tiered(_XAI_LONG, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
+    "grok-4.7": _tiered(_XAI_LONG, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
+    "grok-build-0.1": _tiered(_XAI_LONG, (1.0, 2.0, 0.20), (2.0, 4.0, 0.40)),
     "grok": Rate(4.0, 15.0),  # 家族最高價
     # ── Google Gemini ──
     "gemini-1.5-flash": Rate(0.075, 0.30),
@@ -223,10 +221,10 @@ _BUILTIN_PRICING: dict[str, Rate] = {
     "gemini-2.0-flash": Rate(0.10, 0.40),
     "gemini-2.5-flash": Rate(0.30, 2.50, cache_read=0.03),
     "gemini-2.5-flash-lite": Rate(0.10, 0.40, cache_read=0.01),
-    "gemini-2.5-pro": _tiered(_GOOGLE_LONG_PROMPT_TOKENS, (1.25, 10.0, 0.125), (2.50, 15.0, 0.25)),
+    "gemini-2.5-pro": _tiered(_GOOGLE_LONG, (1.25, 10.0, 0.125), (2.50, 15.0, 0.25)),
     "gemini-3-flash-preview": Rate(0.50, 3.0, cache_read=0.05),
     "gemini-3.1-flash-lite": Rate(0.25, 1.50, cache_read=0.025),
-    "gemini-3.1-pro-preview": _tiered(_GOOGLE_LONG_PROMPT_TOKENS, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40)),
+    "gemini-3.1-pro-preview": _tiered(_GOOGLE_LONG, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40)),
     "gemini-3.5-flash-lite": Rate(0.30, 2.50, cache_read=0.03),
     "gemini-3.6-flash": Rate(0.75, 3.75, cache_read=0.075),
     "gemini-3.8-flash": Rate(0.75, 3.75, cache_read=0.075),
@@ -234,9 +232,10 @@ _BUILTIN_PRICING: dict[str, Rate] = {
     "gemini": Rate(4.0, 20.0),  # 家族最高價
 }
 
-# 沒有具體價格時落到的家族鍵（該家已知最高價，寧高勿低）；resolve 標成 family，畫面會列出來。
+# 沒有具體價格時落到的家族鍵（該家已知最高價，寧高勿低；gpt-oss 是保守預設）；resolve 標成
+# family，畫面會列出來。
 _FAMILY_KEYS = frozenset(
-    {"claude", "claude-fable", "claude-mythos", "deepseek", "gemini", "gpt", "grok"}
+    {"claude", "claude-fable", "claude-mythos", "deepseek", "gemini", "gpt", "gpt-oss", "grok"}
 )
 # 只比完整名稱：用子字串比，gpt-5.7 這類沒列的型號會被算成 gpt-5 的便宜價。
 _EXACT_ONLY_KEYS = frozenset({"gpt-5"})

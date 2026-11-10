@@ -43,7 +43,12 @@ describe('CacheHitRates', () => {
     expect(screen.getByTestId('cache-hit-Alice-constructor')).toHaveTextContent('constructor');
   });
 
-  it.each([[{}], [{ Alice: {} }], [undefined as unknown as Record<string, Record<string, number>>]])(
+  it.each([
+    [{}],
+    [{ Alice: {} }],
+    [{ Alice: null } as unknown as Record<string, Record<string, number>>],
+    [undefined as unknown as Record<string, Record<string, number>>],
+  ])(
     '沒有資料就不佔位置',
     (rates) => {
       const { container } = render(<CacheHitRates rates={rates} />);
