@@ -10,7 +10,7 @@ Chat 形狀的請求轉成 ``instructions``＋input items、扁平工具、``max
   ``response.completed``／``response.incomplete`` 才算完整；沒收到就斷線、error 事件、
   ``response.failed`` 都轉 RoundError，不回半輪。completed 沒帶 output 時依 output_index 補回。
 - 兩段逾時沿用 ``stream_timeout``，閒置計時看 httpx2 層位元組（附註 27；ping 也算）。
-- 用量扣掉 ``cached_tokens``；沒完成或沒回報用量的一輪照 U1b 規則估算。
+- 用量扣掉 ``cached_tokens`` 與 ``cache_write_tokens``；沒完成或沒回報用量的一輪照 U1b 規則估算。
 
 - D4：SDK 一律顯式傳 ``api_key``、``base_url``、``http_client``（不跟隨轉址），值都來自路由
   context，缺一個就不建 client（不讓 SDK 改讀環境變數）；建構前清掉會改寫標頭／日誌的
@@ -299,14 +299,16 @@ class ResponsesAdapter:
                                  lambda: self.set_tool_choice(state, mode))
 
     def extract_usage(self, _state: _State, raw: Any) -> tuple[dict, int, int]:
-        """用量四欄正規化（input_tokens 含 cached_tokens，扣掉才是未快取輸入）。"""
+        """用量四欄正規化（input_tokens 含快取讀與寫，兩個都扣掉才是未快取輸入）。"""
         usage = raw.get("usage") or {}
         if not usage:
             return ({}, 0, 0)
         details = usage.get("input_tokens_details") or {}
         uncached, cache_read = split_included_cache(usage.get("input_tokens"),
                                                     details.get("cached_tokens"))
-        return normalized_usage(uncached_input=uncached, cache_read=cache_read, cache_write=0,
+        uncached, cache_write = split_included_cache(uncached, details.get("cache_write_tokens"))
+        return normalized_usage(uncached_input=uncached, cache_read=cache_read,
+                                cache_write=cache_write,
                                 output=usage_count(usage.get("output_tokens")))
 
     def partial_usage(self, state: _State) -> PartialUsage | None:

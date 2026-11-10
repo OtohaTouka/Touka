@@ -50,3 +50,15 @@ def test_audit_row_written_even_without_model_and_has_rate_source():
     assert "req-audit-1" in content          # 列有寫入
     assert "rate_source" in content          # 新欄存在
     assert "fallback" in content             # model=None → fallback 來源標記
+
+
+def test_audit_row_marks_a_family_estimate(monkeypatch):
+    """沒有具體價格、靠家族最高價估的，稽核帳本分得出來（ADR-0311）。"""
+    _force_flat_rate(monkeypatch)
+    ident = AgentIdentity.for_role(agent_id="AuditFamilyEstimate", role="Owner")
+    log_usage_audit(ident, "req-family", "ProvX", {"total_ms": 1},
+                    {"input_tokens": 10, "output_tokens": 5}, model="claude-new-thing")
+    csv_path = Path(resource_manager.get_stats_path(ident)) / "usage_audit.csv"
+    row = next(line for line in csv_path.read_text(encoding="utf-8-sig").splitlines()
+               if "req-family" in line)
+    assert row.endswith(",family")

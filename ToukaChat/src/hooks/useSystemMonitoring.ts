@@ -14,6 +14,15 @@ export interface ProviderTokenStats {
 // 後端 /stats 回傳形狀：agent_id -> provider -> 累計用量（SSOT）。
 export type TokenUsageMap = Record<string, Record<string, ProviderTokenStats>>;
 
+// agent_id -> 用途（token_usage.json 的鍵）-> 近 7 天的快取命中率；沒有輸入是 null（ADR-0311）。
+export type CacheHitRateMap = Record<string, Record<string, number | null>>;
+
+export interface PricingStatus {
+  verified_at?: string;
+  has_override?: boolean;
+  estimated_models?: string[];
+}
+
 export interface DailyQuotaStats {
   daily_count: number;
   daily_max: number;
@@ -53,6 +62,8 @@ export interface SystemStats {
   healthStats: { cpu_usage: number; memory_usage: number } | null;
   vaultHealth: Record<string, boolean> | null;
   tokenUsage: TokenUsageMap;
+  cacheHitRates: CacheHitRateMap;
+  pricing: PricingStatus | null;
   dailyQuota: DailyQuotaStats | null;
   backgroundActivity: BackgroundActivityMap;
   interruptedRuns: InterruptedRun[];
@@ -68,6 +79,8 @@ export function useSystemMonitoring(isActive: boolean) {
     healthStats: null,
     vaultHealth: null,
     tokenUsage: {},
+    cacheHitRates: {},
+    pricing: null,
     dailyQuota: null,
     backgroundActivity: {},
     interruptedRuns: [],
@@ -121,6 +134,8 @@ export function useSystemMonitoring(isActive: boolean) {
       if (results[4].status === "fulfilled" && results[4].value.ok) {
         const data = await results[4].value.json();
         newStats.tokenUsage = data.token_usage || {};
+        newStats.cacheHitRates = data.cache_hit_rates || {};
+        newStats.pricing = data.pricing || null;
         newStats.dailyQuota = data.daily_quota || null;
         newStats.backgroundActivity = data.background_activity || {};
         newStats.interruptedRuns = data.interrupted_runs || [];

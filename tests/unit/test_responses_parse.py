@@ -215,3 +215,25 @@ async def test_responses_rows_stream_by_default():
         req = OpenAIChatRequest(model=model, messages=[{"role": "user", "content": "hi"}])
         state = await ResponsesAdapter(stream=True).prepare_request(req, {})
         assert (rules_for(model).uses_responses_api, state.stream) == (True, True)
+
+
+@pytest.mark.parametrize(
+    ("details", "expected"),
+    [
+        ({"cached_tokens": 4000, "cache_write_tokens": 7000}, (1000, 4000, 7000)),
+        ({"cached_tokens": 4000}, (8000, 4000, 0)),
+        ({}, (12_000, 0, 0)),
+        ({"cached_tokens": 4000, "cache_write_tokens": 9000}, (0, 4000, 8000)),
+        ({"cache_write_tokens": 12_500}, (0, 0, 12_000)),
+        ({"cached_tokens": 4000, "cache_write_tokens": "x"}, (8000, 4000, 0)),
+    ],
+    ids=["read-and-write", "no-write-field", "no-details", "write-clamped", "write-over-total",
+         "bad-write"],
+)
+def test_usage_splits_cache_writes_out_of_input(details, expected):
+    """GPT-5.6 起快取寫入另有價錢；input_tokens 含讀與寫，cached_tokens 不含寫（ADR-0311）。"""
+    raw = {"usage": {"input_tokens": 12_000, "input_tokens_details": details, "output_tokens": 5}}
+    usage, total, output = ResponsesAdapter().extract_usage(None, raw)
+    assert usage == {"prompt_tokens": expected[0], "cache_read_input_tokens": expected[1],
+                     "cache_creation_input_tokens": expected[2], "completion_tokens": 5}
+    assert (total, output) == (12_000, 5)
