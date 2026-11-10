@@ -13,6 +13,8 @@ from touka_local.approval import (
 )
 from touka_local.errors import Refused
 from touka_local.view import (
+    APPROVAL_COLUMNS,
+    APPROVAL_WINDOW_WIDTH,
     approval_counts,
     approval_rows,
     approval_title,
@@ -24,6 +26,7 @@ from touka_local.view import (
     refusal_text,
     report_text,
     requester_text,
+    row_values,
 )
 
 
@@ -328,3 +331,26 @@ def test_report_warns_when_the_record_is_incomplete() -> None:
     text = report_text(report)
     assert text.startswith("完成 1 項")
     assert "紀錄沒有寫完整" in text
+
+
+def test_size_and_warnings_come_before_the_paths() -> None:
+    keys = [key for key, _heading, _width in APPROVAL_COLUMNS]
+    assert keys.index("marks") < keys.index("source")
+    assert keys.index("detail") < keys.index("source")
+
+
+def test_every_column_fits_in_the_window() -> None:
+    total = sum(width for _key, _heading, width in APPROVAL_COLUMNS)
+    assert total <= APPROVAL_WINDOW_WIDTH - 40
+
+
+def test_row_values_follow_the_columns() -> None:
+    row = approval_rows(_view_plan())[2]
+    keys = [key for key, _heading, _width in APPROVAL_COLUMNS]
+    assert dict(zip(keys, row_values(row), strict=True)) == {
+        "action": row.action,
+        "marks": row.marks,
+        "detail": row.detail,
+        "source": row.source,
+        "destination": row.destination,
+    }

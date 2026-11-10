@@ -3626,6 +3626,14 @@ LINT_SSOT = ROOT / "scripts/lint_ssot.py"
 # lint_ssot 以檔名（不含資料夾）放行 I/O 一類規則：新增一個同名檔就會被放行，所以整份釘住
 LINT_SSOT_WHITELIST = frozenset(
     {
+        "test_local_helper_paths_rules.py",  # ADR-0311
+        "test_local_helper_approval_view.py",  # ADR-0311
+        "test_local_helper_grants.py",  # ADR-0311
+        "test_local_helper_operations.py",  # ADR-0311
+        "test_local_helper_connection.py",  # ADR-0311
+        "test_local_helper_service.py",  # ADR-0311
+        "test_local_helper_install.py",  # ADR-0311
+        "test_local_helper_real_windows.py",  # ADR-0311
         "config.py",
         "bootstrap.py",
         "time_utils.py",
@@ -3704,7 +3712,13 @@ LINT_SSOT_MULTI_PATHS: dict[str, frozenset[str]] = {
             "ToukaProxy/src/protocols/mcp/oauth/workload/bootstrap.py",
         }
     ),
-    "conftest.py": frozenset({"tests/conftest.py", "tests/integration/conftest.py"}),
+    "conftest.py": frozenset(
+        {
+            "tests/conftest.py",
+            "tests/integration/conftest.py",
+            "tests/unit/local_helper/conftest.py",
+        }
+    ),
     "config_utils.py": frozenset(
         {"ToukaMemory/src/memory_server/config_utils.py", "ToukaProxy/src/utils/config_utils.py"}
     ),
@@ -3728,6 +3742,14 @@ LINT_SSOT_SAME_NAME_ONLY = frozenset(
 )
 LINT_SSOT_SINGLE_PATHS = frozenset(
     {
+        "tests/unit/local_helper/test_local_helper_paths_rules.py",
+        "tests/unit/local_helper/test_local_helper_approval_view.py",
+        "tests/unit/local_helper/test_local_helper_grants.py",
+        "tests/unit/local_helper/test_local_helper_operations.py",
+        "tests/unit/local_helper/test_local_helper_connection.py",
+        "tests/unit/local_helper/test_local_helper_service.py",
+        "tests/unit/local_helper/test_local_helper_install.py",
+        "tests/unit/local_helper/test_local_helper_real_windows.py",
         "ToukaProxy/src/utils/time_utils.py",
         "scripts/update_docs.py",
         "ToukaProxy/src/scripts/export_schema.py",

@@ -2,11 +2,15 @@
 
 小幫手跑在容器外、直接碰使用者的真實檔案，所以用允許清單限制它能用的模組：
 沒有列在這裡的一律不能匯入，也就沒有執行程式、開網路入口的管道。
+
+這是擋開發時不小心加進能力的檢查，不是沙箱；刻意繞過的寫法要靠審查擋。
 """
 
 from __future__ import annotations
 
 import ast
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -60,11 +64,23 @@ ALLOWED_SUBMODULES = frozenset(
 PACKAGES_WITH_SUBMODULES = frozenset(name.split(".", 1)[0] for name in ALLOWED_SUBMODULES)
 OWN_PACKAGE = "touka_local"
 NO_ALIAS_MODULES = frozenset({"os", "ctypes"})
-BANNED_OS_ATTRIBUTES = frozenset({"system", "popen", "startfile", "replace"})
+BANNED_OS_ATTRIBUTES = frozenset({"system", "popen", "startfile", "replace", "open"})
 BANNED_OS_PREFIXES = ("exec", "spawn")
-BANNED_NAMES = frozenset({"eval", "exec", "__import__", "importlib", "getattr"})
-# 任何物件上都不行：tk 的這兩個方法能執行 Tcl，換個變數名就看不出來了
-BANNED_ATTRIBUTES = frozenset({"eval", "call"})
+BANNED_NAMES = frozenset(
+    {"eval", "exec", "__import__", "importlib", "getattr", "vars", "globals", "locals", "compile"}
+)
+# 任何物件上都不行，換個變數名就看不出來了。.tk 能拿到 Tcl 直譯器
+BANNED_ATTRIBUTES = frozenset(
+    {"eval", "call", "tk", "system", "popen", "startfile", "os", "modules", "__dict__", "socket"}
+)
+# 啟動程式的那些函式（sys.executable 這種名字不算）
+PROCESS_STARTERS = re.compile(r"(exec|spawn)[lv]p?e?")
+# 只有這兩個檔案能寫檔
+WRITE_FILES = frozenset({"fsops.py", "install.py"})
+WRITE_ATTRIBUTES = frozenset({"write_text", "write_bytes"})
+WRITE_MODE_LETTERS = frozenset("wax+")
+# 這幾個方法的第二個引數傳字串時，tkinter 會把它當 Tcl 腳本
+TK_CALLBACK_METHODS = frozenset({"bind", "after", "protocol"})
 
 
 def _sources() -> list[Path]:
@@ -127,33 +143,107 @@ def _import_violations(path: Path, node: ast.AST) -> list[str]:
     return problems
 
 
-def _call_violations(path: Path, node: ast.AST) -> list[str]:
-    where = f"{path.name}:{node.lineno}" if hasattr(node, "lineno") else path.name
-    if isinstance(node, ast.Name) and node.id in BANNED_NAMES:
+@dataclass(frozen=True)
+class _Usage:
+    """哪些節點是被直接呼叫的、哪些是屬性的擁有者。"""
+
+    called: frozenset[int]
+    owners: frozenset[int]
+
+
+def _usage_of(tree: ast.AST) -> _Usage:
+    nodes = list(ast.walk(tree))
+    return _Usage(
+        called=frozenset(id(node.func) for node in nodes if isinstance(node, ast.Call)),
+        owners=frozenset(id(node.value) for node in nodes if isinstance(node, ast.Attribute)),
+    )
+
+
+def _is_text(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+
+def _name_violations(path: Path, node: ast.Name, usage: _Usage) -> list[str]:
+    where = f"{path.name}:{node.lineno}"
+    if node.id in BANNED_NAMES:
         return [f"{where} 不能使用 {node.id}"]
-    if isinstance(node, ast.Attribute):
-        owner = node.value
-        if isinstance(owner, ast.Name) and owner.id == "os" and _is_banned_os_name(node.attr):
-            return [f"{where} 不能使用 os.{node.attr}"]
-        if node.attr in BANNED_ATTRIBUTES:
-            return [f"{where} 不能使用 .{node.attr}"]
-    # Path.replace 只收一個引數，而且會覆蓋目的地；str.replace 至少兩個
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "replace"
-        and len(node.args) + len(node.keywords) == 1
-    ):
+    if node.id == "open" and path.name not in WRITE_FILES:
+        return [f"{where} 不能用 open 寫檔"]
+    if node.id in NO_ALIAS_MODULES and id(node) not in usage.owners:
+        return [f"{where} 不能把 {node.id} 模組傳來傳去"]
+    return []
+
+
+def _attribute_violations(path: Path, node: ast.Attribute, usage: _Usage) -> list[str]:
+    where = f"{path.name}:{node.lineno}"
+    attribute = node.attr
+    owner = node.value
+    if isinstance(owner, ast.Name) and owner.id == "os" and _is_banned_os_name(attribute):
+        return [f"{where} 不能使用 os.{attribute}"]
+    if attribute in BANNED_ATTRIBUTES or PROCESS_STARTERS.fullmatch(attribute):
+        return [f"{where} 不能使用 .{attribute}"]
+    if attribute == "ctypes" and path.name != WINDOWS_ONLY_FILE:
+        return [f"{where} ctypes 只能在 {WINDOWS_ONLY_FILE}"]
+    if attribute in WRITE_ATTRIBUTES and path.name not in WRITE_FILES:
+        return [f"{where} 只有 {sorted(WRITE_FILES)} 能寫檔"]
+    if attribute == "replace" and id(node) not in usage.called:
+        return [f"{where} 不能把 .replace 存起來用"]
+    return []
+
+
+def _is_overwriting_replace(node: ast.Call) -> bool:
+    """``Path.replace`` 會覆蓋目的地；``str.replace`` 至少要兩個引數，也不會掛在 Path 上。"""
+    function = node.func
+    if not isinstance(function, ast.Attribute) or function.attr != "replace":
+        return False
+    on_path_class = isinstance(function.value, ast.Name) and function.value.id == "Path"
+    return on_path_class or len(node.args) + len(node.keywords) == 1
+
+
+def _opens_for_writing(path: Path, node: ast.Call) -> bool:
+    function = node.func
+    if path.name in WRITE_FILES or not isinstance(function, ast.Attribute):
+        return False
+    if function.attr != "open" or not node.args or not _is_text(node.args[0]):
+        return False
+    return bool(WRITE_MODE_LETTERS & set(node.args[0].value))
+
+
+def _passes_tcl_script(node: ast.Call) -> bool:
+    if any(keyword.arg == "command" and _is_text(keyword.value) for keyword in node.keywords):
+        return True
+    function = node.func
+    return (
+        isinstance(function, ast.Attribute)
+        and function.attr in TK_CALLBACK_METHODS
+        and any(_is_text(argument) for argument in node.args[1:])
+    )
+
+
+def _call_violations(path: Path, node: ast.Call) -> list[str]:
+    where = f"{path.name}:{node.lineno}"
+    if _is_overwriting_replace(node):
         return [f"{where} 不能用會覆蓋目的地的 .replace()"]
+    if _opens_for_writing(path, node):
+        return [f"{where} 只有 {sorted(WRITE_FILES)} 能寫檔"]
+    if _passes_tcl_script(node):
+        return [f"{where} 不能把字串當 Tcl 腳本傳給 tkinter"]
     return []
 
 
 def violations_in(path: Path, source: str) -> list[str]:
     """掃一個檔案，回傳違規清單。"""
+    tree = ast.parse(source)
+    usage = _usage_of(tree)
     problems: list[str] = []
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         problems += _import_violations(path, node)
-        problems += _call_violations(path, node)
+        if isinstance(node, ast.Name):
+            problems += _name_violations(path, node, usage)
+        elif isinstance(node, ast.Attribute):
+            problems += _attribute_violations(path, node, usage)
+        elif isinstance(node, ast.Call):
+            problems += _call_violations(path, node)
     return problems
 
 
@@ -210,6 +300,26 @@ def test_helper_does_not_import_touka_itself() -> None:
         "from pathlib import Path\nPath('a').replace('b')",
         "x.replace(target='b')",
         "from touka_local.winapi import ctypes",
+        "from touka_local import winapi\nwinapi.ctypes.WinDLL('kernel32')",
+        "import os\no = os\no.system('x')",
+        "foo.execv('x', [])",
+        "foo.spawnl(0, 'x')",
+        "import pathlib\npathlib.os.system('x')",
+        "import sys\nsys.modules['os'].system('x')",
+        "import os\nvars(os)['system']('x')",
+        "x.__dict__",
+        "import logging.handlers\nlogging.handlers.socket.socket()",
+        "root.tk.evalfile('x')",
+        "w.bind('<Map>', 'exec x')",
+        "ttk.Button(command='exec x')",
+        "root.after(1, 'exec x')",
+        "from pathlib import Path\nPath.replace(a, 'b')",
+        "f = p.replace\nf('b')",
+        "p.write_text('x')",
+        "p.write_bytes(b'x')",
+        "open('x', 'w')",
+        "p.open('w')",
+        "import os\nos.open('x', 1)",
         "from os import system",
         "from os import replace",
         "from os import execv",
@@ -244,6 +354,13 @@ def test_guard_allows_ordinary_code(tmp_path: Path) -> None:
         "from collections.abc import Callable",
         "from dataclasses import replace\nx = replace(a, b=1)",
         "import urllib.request",
+        "w.bind('<Map>', handler)",
+        "ttk.Button(command=handler)",
+        "root.after(1, handler)",
+        "p.open()",
+        "p.open('rb')",
+        "opener.open(request, timeout=1)",
+        "import sys\nx = sys.executable",
     ],
 )
 def test_guard_allows_what_the_helper_needs(source: str, tmp_path: Path) -> None:
@@ -252,3 +369,18 @@ def test_guard_allows_what_the_helper_needs(source: str, tmp_path: Path) -> None
 
 def test_guard_allows_wintypes_in_the_windows_file(tmp_path: Path) -> None:
     assert violations_in(tmp_path / WINDOWS_ONLY_FILE, "from ctypes import wintypes") == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["p.write_text('x')", "p.write_bytes(b'x')", "open('x', 'w')", "p.open('xb')"],
+)
+@pytest.mark.parametrize("file_name", ["fsops.py", "install.py"])
+def test_guard_allows_writes_in_the_files_that_write(
+    source: str, file_name: str, tmp_path: Path
+) -> None:
+    assert violations_in(tmp_path / file_name, source) == []
+
+
+def test_guard_allows_ctypes_attribute_in_the_windows_file(tmp_path: Path) -> None:
+    assert violations_in(tmp_path / WINDOWS_ONLY_FILE, "import ctypes\nx = ctypes.WinDLL") == []

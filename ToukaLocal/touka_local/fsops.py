@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 from collections.abc import Callable
@@ -12,6 +13,7 @@ from typing import Final, Protocol
 Clock = Callable[[], float]
 
 TEMPORARY_SUFFIX: Final = ".new"
+_PREVIOUS_SUFFIX: Final = ".old"
 
 
 @dataclass(frozen=True)
@@ -103,21 +105,40 @@ def temporary_path(path: Path) -> Path:
     return path.with_name(f"{path.name}{TEMPORARY_SUFFIX}")
 
 
-def durable_write_text(path: Path, text: str) -> None:
-    """寫自己的設定與紀錄：暫存檔落盤、刪舊檔、改名。
+def previous_path(path: Path) -> Path:
+    """換檔時暫時留著的舊內容。"""
+    return path.with_name(f"{path.name}{_PREVIOUS_SUFFIX}")
 
-    能覆蓋的改名被能力邊界禁掉了，所以是三步。當機在中間時正式檔不在，
-    ``read_durable_text`` 會改讀已經落盤的暫存檔。
+
+def durable_write_text(path: Path, text: str) -> None:
+    """寫自己的設定與紀錄：暫存檔落盤，舊檔改名留著，新檔改名就位，再刪舊檔。
+
+    能覆蓋的改名被能力邊界禁掉了，所以要分這幾步。當機在中間時正式檔不在，
+    ``read_durable_text`` 會改讀已經落盤的暫存檔；改名失敗時把舊檔放回去，內容不變。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = temporary_path(path)
+    previous = previous_path(path)
+    # 上次當機留下的暫存檔是唯一的一份，先收回來才不會被這次截斷
+    if temporary.exists() and not path.exists():
+        temporary.rename(path)
     with temporary.open("w", encoding="utf-8") as handle:
         handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
-    if path.exists():
-        path.unlink()
-    temporary.rename(path)
+    previous.unlink(missing_ok=True)
+    had_previous = path.exists()
+    if had_previous:
+        path.rename(previous)
+    try:
+        temporary.rename(path)
+    except OSError:
+        if had_previous:
+            previous.rename(path)
+        raise
+    # 新內容已經就位，舊檔刪不掉只是下次再清
+    with contextlib.suppress(OSError):
+        previous.unlink(missing_ok=True)
 
 
 def read_durable_text(path: Path) -> str:

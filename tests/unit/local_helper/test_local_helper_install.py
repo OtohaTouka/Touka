@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import runpy
 import sys
+import types
 from pathlib import Path
 
 import install as installer
@@ -317,3 +319,39 @@ def test_finish_message_mentions_a_missing_desktop() -> None:
 def test_helper_checks_isolation_before_loading_anything() -> None:
     source = (Path(installer.__file__).parent / "__main__.py").read_text(encoding="utf-8")
     assert source.index("sys.flags.isolated") < source.index("from touka_local")
+
+
+def test_update_settings_keeps_pairing_left_in_a_temporary_file(tmp_path: Path) -> None:
+    file = tmp_path / "settings.json"
+    save_settings(file, Settings(port=8123, token="t" * 43, touka_folder="D:\\Old"))
+    file.rename(file.with_name("settings.json.new"))
+    installer.update_settings(file, "D:\\Touka")
+    assert load_settings(file) == Settings(port=8123, token="t" * 43, touka_folder="D:\\Touka")
+
+
+def _run_entry(monkeypatch, *, isolated: int) -> tuple[object, list[bool]]:
+    called: list[bool] = []
+    fake = types.ModuleType("touka_local.app")
+
+    def main() -> int:
+        called.append(True)
+        return 7
+
+    fake.main = main  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "touka_local.app", fake)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "flags", types.SimpleNamespace(isolated=isolated))
+    entry = Path(installer.__file__).parent / "__main__.py"
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_path(str(entry))
+    return caught.value.code, called
+
+
+def test_helper_starts_in_isolated_mode(monkeypatch) -> None:
+    assert _run_entry(monkeypatch, isolated=1) == (7, [True])
+
+
+def test_helper_refuses_to_start_without_isolated_mode(monkeypatch) -> None:
+    code, called = _run_entry(monkeypatch, isolated=0)
+    assert isinstance(code, str)
+    assert called == []

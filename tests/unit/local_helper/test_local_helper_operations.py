@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from touka_local import fsops
+from touka_local import operations as operations_module
 from touka_local.errors import Refused
 from touka_local.fsops import durable_write_text, read_durable_text
 from touka_local.grants import Environment, GrantBook
@@ -967,3 +968,141 @@ def test_read_prefers_the_real_file(tmp_path) -> None:
 def test_read_of_nothing_is_an_error(tmp_path) -> None:
     with pytest.raises(OSError):  # noqa: PT011
         read_durable_text(tmp_path / "a.json")
+
+
+# --- 讀寫紀錄要輪流（Windows 上別的執行緒開著檔案時刪不掉） ---
+
+
+def test_records_are_read_and_written_one_at_a_time(fs, ops, clock, monkeypatch) -> None:
+    held: list[bool] = []
+    real_write = operations_module.durable_write_text
+    real_read = operations_module.read_durable_text
+
+    def write(path: Path, text: str) -> None:
+        held.append(ops._journal_lock.locked())
+        real_write(path, text)
+
+    def read(path: Path) -> str:
+        held.append(ops._journal_lock.locked())
+        return real_read(path)
+
+    monkeypatch.setattr(operations_module, "durable_write_text", write)
+    monkeypatch.setattr(operations_module, "read_durable_text", read)
+    batch = _moved_batch(fs, ops, clock)
+    ops.recent_batches()
+    ops.undo(batch)
+    assert len(held) >= 4
+    assert all(held)
+
+
+def test_cleaning_up_old_records_cannot_stop_a_batch(fs, ops, trash, clock, monkeypatch) -> None:
+    plan = _delete_all(ops, fs, "a")
+
+    def boom() -> None:
+        raise PermissionError(13, "locked")
+
+    monkeypatch.setattr(ops, "_prune_journals", boom)
+    report = ops.apply(plan, _limits(clock))
+    assert _statuses(report) == [("Open/a.txt", "done")]
+    assert trash.sent == ["D:\\Open\\a.txt"]
+
+
+def test_a_half_written_temporary_record_is_cleaned(fs, ops, clock, tmp_path) -> None:
+    folder = tmp_path / "journal"
+    folder.mkdir()
+    orphan = folder / f"{'a' * 32}.json.new"
+    orphan.write_text('{"half', encoding="utf-8")
+    ops.apply(_delete_all(ops, fs, "c"), _limits(clock))
+    assert not orphan.exists()
+
+
+def test_a_complete_temporary_record_is_not_cleaned(fs, ops, clock, tmp_path) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    file = _record_file(tmp_path, batch)
+    file.rename(_temporary(file))
+    ops.apply(_delete_all(ops, fs, "c"), _limits(clock))
+    assert _temporary(file).exists()
+    assert batch in [item["batch"] for item in ops.recent_batches()]
+
+
+def test_a_pruned_batch_takes_its_previous_copy_with_it(
+    fs, ops, clock, tmp_path, monkeypatch
+) -> None:
+    batch = _moved_batch(fs, ops, clock)
+    file = _record_file(tmp_path, batch)
+    previous = file.with_name(f"{file.name}.old")
+    previous.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
+    ops.apply(_delete_all(ops, fs, "c"), _limits(clock))
+    assert not previous.exists()
+
+
+# --- 改名失敗、當機之後再寫 ---
+
+
+def _previous(file: Path) -> Path:
+    return file.with_name(f"{file.name}.old")
+
+
+def test_the_only_copy_is_taken_back_before_writing_again(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "a.json"
+    _temporary(target).write_text("saved", encoding="utf-8")
+
+    def no_space(_descriptor: int) -> None:
+        raise OSError(28, "no space")
+
+    monkeypatch.setattr(fsops.os, "fsync", no_space)
+    with pytest.raises(OSError, match="no space"):
+        durable_write_text(target, "new")
+    assert read_durable_text(target) == "saved"
+
+
+def test_a_failed_rename_keeps_the_old_content(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "a.json"
+    target.write_text("old", encoding="utf-8")
+    real = fsops.Path.rename
+
+    def refuse(self: Path, destination: Path) -> Path:
+        if self.name.endswith(".new"):
+            raise PermissionError(13, "held")
+        return real(self, destination)
+
+    monkeypatch.setattr(fsops.Path, "rename", refuse)
+    with pytest.raises(PermissionError):
+        durable_write_text(target, "new")
+    monkeypatch.undo()
+    assert target.read_text(encoding="utf-8") == "old"
+    assert not _previous(target).exists()
+
+
+def test_nothing_is_left_behind_after_a_normal_write(tmp_path) -> None:
+    target = tmp_path / "a.json"
+    durable_write_text(target, "one")
+    durable_write_text(target, "two")
+    assert read_durable_text(target) == "two"
+    assert not _temporary(target).exists()
+    assert not _previous(target).exists()
+
+
+def test_a_stale_previous_copy_does_not_block_the_next_write(tmp_path) -> None:
+    target = tmp_path / "a.json"
+    target.write_text("old", encoding="utf-8")
+    _previous(target).write_text("older", encoding="utf-8")
+    durable_write_text(target, "new")
+    assert read_durable_text(target) == "new"
+    assert not _previous(target).exists()
+
+
+def test_a_previous_copy_that_cannot_be_removed_is_not_a_failure(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "a.json"
+    target.write_text("old", encoding="utf-8")
+    real = fsops.Path.unlink
+
+    def refuse(self: Path, *args: object, **kwargs: object) -> None:
+        if self.name.endswith(".old") and self.exists():
+            raise PermissionError(13, "held")
+        real(self, *args, **kwargs)
+
+    monkeypatch.setattr(fsops.Path, "unlink", refuse)
+    durable_write_text(target, "new")
+    assert read_durable_text(target) == "new"

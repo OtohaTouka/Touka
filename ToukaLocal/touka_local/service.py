@@ -38,6 +38,7 @@ NOTICE_NOT_CONFIRMED: Final = "not_confirmed"
 NOTICE_NOT_DELIVERED: Final = "result_not_delivered"
 NOTICE_FINISHED: Final = "finished"
 NOTICE_APPLY_FAILED: Final = "apply_failed"
+NOTICE_PARTLY_DONE: Final = "partly_done"
 
 CLOSE_NOW: Final = "now"
 CLOSE_WAIT: Final = "wait"
@@ -69,7 +70,7 @@ _MODEL_MESSAGES: Final = {
     "changed": "The files changed while this was being prepared.",
     "user_rejected": "The user rejected this list. Nothing was changed.",
     "approval_busy": "Another list is waiting for the user. Wait for that answer first.",
-    "approval_cooldown": "The user just rejected a list. Do not send another one right away.",
+    "approval_cooldown": "A list was just closed. Do not send another one right away.",
     "helper_busy": "The local helper is handling too many requests.",
 }
 
@@ -98,6 +99,19 @@ def _refused_payload(exc: Refused) -> dict[str, Any]:
     if exc.detail:
         message = f"{message} ({exc.detail})"
     return result_payload("refused", code=exc.code, message=message)
+
+
+def _notice_after(payload: dict[str, Any], *, delivered: bool) -> str:
+    """做完之後要告訴人的話：只有每一項都做了才能說做完。"""
+    if payload["status"] != "ok":
+        return NOTICE_APPLY_FAILED
+    if not delivered:
+        return NOTICE_NOT_DELIVERED
+    report = payload["data"]
+    complete = all(item["status"] == "done" for item in report["items"])
+    if complete and not report.get("journal_incomplete"):
+        return NOTICE_FINISHED
+    return NOTICE_PARTLY_DONE
 
 
 class HelperService:
@@ -180,7 +194,11 @@ class HelperService:
         if not self._job_slots.acquire(blocking=False):
             self._send(job.id, _refused_payload(Refused("helper_busy")))
             return
-        self._spawn(lambda: self._run_job(job))
+        try:
+            self._spawn(lambda: self._run_job(job))
+        except RuntimeError:
+            self._job_slots.release()
+            raise
 
     def _abandon_work(self) -> None:
         """配對失效了：等待中的視窗收掉，執行中的停下來。"""
@@ -254,7 +272,12 @@ class HelperService:
                 raise Refused("busy")
             plan = self._gate.approve(job_id, digest)
             self._running = running
-        self._spawn(lambda: self._execute(running, plan))
+        try:
+            self._spawn(lambda: self._execute(running, plan))
+        except RuntimeError as exc:
+            with self._lock:
+                self._running = None
+            raise Refused("busy") from exc
 
     def reject(self, job_id: str) -> None:
         """人按了拒絕。"""
@@ -300,10 +323,7 @@ class HelperService:
             payload = self._apply(running, plan)
             self.last_report = payload["data"]
             delivered = self._send(running.job_id, payload)
-            if payload["status"] != "ok":
-                self.notice = NOTICE_APPLY_FAILED
-            else:
-                self.notice = NOTICE_FINISHED if delivered else NOTICE_NOT_DELIVERED
+            self.notice = _notice_after(payload, delivered=delivered)
         except Exception:
             logger.exception("the approved list did not finish")
             self.notice = NOTICE_APPLY_FAILED

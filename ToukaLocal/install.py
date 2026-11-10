@@ -152,12 +152,21 @@ def copy_allowed(source: Path, app: Path) -> None:
         target.write_bytes(data)
 
 
+def _read_settings(file: Path) -> object:
+    """小幫手當機在換檔中途時，設定只留在暫存檔。"""
+    for candidate in (file, file.with_name(f"{file.name}.new")):
+        try:
+            return json.loads(candidate.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
 def update_settings(file: Path, touka_folder: str) -> None:
     """記下 Touka 資料夾，保留已有的配對和連接埠。"""
-    try:
-        current = json.loads(file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        current = {}
+    current = _read_settings(file)
     if not isinstance(current, dict):
         current = {}
     payload = {

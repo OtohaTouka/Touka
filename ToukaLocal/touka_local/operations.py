@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import secrets
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from touka_local.errors import Refused
 from touka_local.fsops import (
     TEMPORARY_SUFFIX,
     durable_write_text,
+    previous_path,
     read_durable_text,
     temporary_path,
 )
@@ -170,6 +172,8 @@ class Operations:
         self._clock = clock
         self._journal_dir = journal_dir
         self._wall_clock = wall_clock
+        # Windows 上別的執行緒開著檔案時刪不掉，視窗在讀紀錄時批次不能換檔
+        self._journal_lock = threading.Lock()
 
     # --- 路徑 ---
 
@@ -463,7 +467,10 @@ class Operations:
             raise Refused("changed")
         journal = self._new_journal(plan)
         self._write_journal(journal)
-        self._prune_journals()
+        try:
+            self._prune_journals()
+        except OSError:
+            logger.exception("old batch records could not be removed")
         results: list[dict[str, str]] = []
         stopped = False
         recorded = True
@@ -555,9 +562,9 @@ class Operations:
 
     def _write_journal(self, journal: dict[str, Any]) -> None:
         # 檔名可能有 UTF-8 寫不出來的字元，用跳脫的寫法才不會整批紀錄寫失敗
-        durable_write_text(
-            self._journal_path(journal["batch"]), json.dumps(journal, ensure_ascii=True)
-        )
+        text = json.dumps(journal, ensure_ascii=True)
+        with self._journal_lock:
+            durable_write_text(self._journal_path(journal["batch"]), text)
 
     def _all_journals(self) -> list[dict[str, Any]]:
         if not self._journal_dir.is_dir():
@@ -575,10 +582,11 @@ class Operations:
                 journals.append(journal)
         return sorted(journals, key=lambda journal: journal["sequence"], reverse=True)
 
-    @staticmethod
-    def _read_journal(path: Path) -> dict[str, Any] | None:
+    def _read_journal(self, path: Path) -> dict[str, Any] | None:
         try:
-            journal = json.loads(read_durable_text(path))
+            with self._journal_lock:
+                text = read_durable_text(path)
+            journal = json.loads(text)
         except (OSError, ValueError):
             return None
         if (
@@ -599,11 +607,14 @@ class Operations:
     def _prune_journals(self) -> None:
         for journal in self._all_journals()[MAX_JOURNALS:]:
             path = self._journal_path(journal["batch"])
-            path.unlink(missing_ok=True)
-            temporary_path(path).unlink(missing_ok=True)
+            with self._journal_lock:
+                for file in (path, temporary_path(path), previous_path(path)):
+                    file.unlink(missing_ok=True)
         for leftover in self._journal_dir.glob(f"*{_JOURNAL_SUFFIX}{TEMPORARY_SUFFIX}"):
-            if leftover.with_name(leftover.name.removesuffix(TEMPORARY_SUFFIX)).exists():
-                leftover.unlink(missing_ok=True)
+            real = leftover.with_name(leftover.name.removesuffix(TEMPORARY_SUFFIX))
+            if real.exists() or self._read_journal(real) is None:
+                with self._journal_lock:
+                    leftover.unlink(missing_ok=True)
 
     def recent_batches(self) -> list[dict[str, Any]]:
         """最近的批次，新的在前。"""

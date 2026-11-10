@@ -518,3 +518,105 @@ def test_closing_during_a_batch_stops_it_first(service, client, gate, fs, trash,
 
 def test_closing_when_idle_is_immediate(service) -> None:
     assert service.request_close() == "now"
+
+
+# --- 沒有全部做完，不能說做完了 ---
+
+
+def test_a_fully_done_list_is_finished(service, client, gate, fs, clock) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    _approve(service, gate, clock)
+    assert service.notice == "finished"
+
+
+def test_a_stopped_list_is_not_called_finished(service, client, gate, fs, trash, clock) -> None:
+    for name in "ab":
+        fs.add_file(f"D:\\Open\\{name}.txt")
+    _propose(service, client, [{"op": "delete", "path": f"Open/{n}.txt"} for n in "ab"])
+    original_send = trash.send
+
+    def send(path: str) -> str:
+        outcome = original_send(path)
+        service.stop_running()
+        return outcome
+
+    trash.send = send
+    _approve(service, gate, clock)
+    assert service.notice == "partly_done"
+
+
+def test_a_list_with_an_incomplete_record_is_not_called_finished(
+    service, client, gate, fs, clock, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+
+    def incomplete(_plan: Any, _limits: Any) -> dict[str, Any]:
+        return {
+            "batch": "b",
+            "items": [{"path": "Open/a.txt", "status": "done"}],
+            "journal_incomplete": True,
+        }
+
+    monkeypatch.setattr(service._operations, "apply", incomplete)
+    _approve(service, gate, clock)
+    assert service.notice == "partly_done"
+
+
+# --- 開不了執行緒 ---
+
+
+def _service_with(spawn: Any, client, fs, book, trash, clock, gate, tmp_path) -> HelperService:
+    operations = Operations(
+        fs=fs, grants=book, trash=trash, clock=clock, journal_dir=tmp_path / "threads"
+    )
+    return HelperService(
+        client=client, operations=operations, gate=gate, grants=book, clock=clock, spawn=spawn
+    )
+
+
+def test_a_job_slot_comes_back_when_a_thread_cannot_start(
+    client, fs, book, trash, clock, gate, tmp_path
+) -> None:
+    def no_threads(_work: Any) -> None:
+        raise RuntimeError
+
+    service = _service_with(no_threads, client, fs, book, trash, clock, gate, tmp_path)
+    for number in range(MAX_JOB_THREADS + 1):
+        _run(service, client, _response(_job("list", {}, f"j{number}")))
+    assert client.results == []
+
+
+def test_a_batch_that_cannot_start_does_not_jam_the_helper(
+    client, fs, book, trash, clock, gate, tmp_path
+) -> None:
+    started: list[bool] = []
+
+    def spawn(work: Any) -> None:
+        if started:
+            raise RuntimeError
+        started.append(True)
+        work()
+
+    service = _service_with(spawn, client, fs, book, trash, clock, gate, tmp_path)
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    pending = gate.current
+    assert pending is not None
+    clock.now += APPROVE_DELAY_SECONDS
+    with pytest.raises(Refused) as caught:
+        service.approve("j1", pending.plan.digest)
+    assert caught.value.code == "busy"
+    assert service.running is False
+
+
+def test_cooldown_message_does_not_say_the_user_rejected(
+    service, client, gate, fs, clock
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}], "j1")
+    _run(service, client, _response(cancelled=("j1",)))
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}], "j2")
+    assert client.results[-1][1]["code"] == "approval_cooldown"
+    assert "rejected" not in client.results[-1][1]["message"]

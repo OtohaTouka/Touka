@@ -26,6 +26,7 @@ from touka_local.service import (
     NOTICE_FINISHED,
     NOTICE_NOT_CONFIRMED,
     NOTICE_NOT_DELIVERED,
+    NOTICE_PARTLY_DONE,
     HelperService,
 )
 from touka_local.settings import (
@@ -36,6 +37,8 @@ from touka_local.settings import (
     save_settings,
 )
 from touka_local.view import (
+    APPROVAL_COLUMNS,
+    APPROVAL_WINDOW_WIDTH,
     approval_counts,
     approval_rows,
     approval_title,
@@ -45,6 +48,7 @@ from touka_local.view import (
     refusal_text,
     report_text,
     requester_text,
+    row_values,
 )
 
 if TYPE_CHECKING:
@@ -55,11 +59,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _REFRESH_MS: Final = 300
+_APPROVAL_WRAP: Final = APPROVAL_WINDOW_WIDTH - 40
 _BATCH_REFRESH_SECONDS: Final = 5.0
 _LOG_BYTES: Final = 256 * 1024
 _NOTICE_TEXT: Final = {
     NOTICE_NOT_CONFIRMED: "Touka 那邊已經不等這份清單了，所以什麼都沒有動。",
-    NOTICE_NOT_DELIVERED: "已經照清單做了，但結果沒有送回 Touka。請看下面的最近批次。",
+    NOTICE_NOT_DELIVERED: "結果沒有送回 Touka。請看下面的最近批次，確認哪些已經動了。",
+    NOTICE_PARTLY_DONE: "清單只做了一部分，結果在最近批次。",
     NOTICE_FINISHED: "清單做完了，結果在最近批次。",
     NOTICE_APPLY_FAILED: "這份清單沒有做完，細節在紀錄檔。請看下面的最近批次，確認哪些已經動了。",
 }
@@ -83,7 +89,7 @@ class ApprovalWindow:
         self.job_id = pending.job_id
         self._window = tk.Toplevel(parent)
         self._window.title("Touka 想更動你的檔案")
-        self._window.geometry("820x460")
+        self._window.geometry(f"{APPROVAL_WINDOW_WIDTH}x520")
         self._window.protocol("WM_DELETE_WINDOW", on_reject)
         self._window.attributes("-topmost", True)
 
@@ -96,7 +102,7 @@ class ApprovalWindow:
         ttk.Label(
             frame,
             text=f"代理人的說明（可能不準）：{clean_reason(pending.plan.reason)}",
-            wraplength=780,
+            wraplength=_APPROVAL_WRAP,
         ).pack(anchor="w", pady=(4, 8))
         if counts.unusual:
             ttk.Label(
@@ -110,7 +116,7 @@ class ApprovalWindow:
         buttons.pack(side="bottom", fill="x")
         self._countdown = ttk.Label(frame, text="")
         self._countdown.pack(side="bottom", anchor="w", pady=(8, 4))
-        self._full_paths = ttk.Label(frame, text="", wraplength=780, justify="left")
+        self._full_paths = ttk.Label(frame, text="", wraplength=_APPROVAL_WRAP, justify="left")
         self._full_paths.pack(side="bottom", anchor="w", pady=(8, 0))
         self._add_table(frame, pending)
 
@@ -124,22 +130,17 @@ class ApprovalWindow:
     def _add_table(self, frame: ttk.Frame, pending: PendingApproval) -> None:
         holder = ttk.Frame(frame)
         holder.pack(side="top", fill="both", expand=True)
-        columns = ("action", "source", "destination", "detail", "marks")
-        table = ttk.Treeview(holder, columns=columns, show="headings", height=12)
-        headings = ("動作", "位置", "新位置", "大小", "注意")
-        widths = (90, 420, 420, 120, 90)
-        for column, heading, width in zip(columns, headings, widths, strict=True):
+        columns = tuple(key for key, _heading, _width in APPROVAL_COLUMNS)
+        table = ttk.Treeview(
+            holder, columns=columns, show="headings", height=12, selectmode="browse"
+        )
+        for column, heading, width in APPROVAL_COLUMNS:
             table.heading(column, text=heading)
-            # 欄寬固定，放不下時用橫向捲軸看
+            # 欄寬固定；格子放不下的路徑，選取後在表格下面看完整的
             table.column(column, width=width, minwidth=width, stretch=False)
         rows = approval_rows(pending.plan)
         for index, row in enumerate(rows):
-            table.insert(
-                "",
-                "end",
-                iid=str(index),
-                values=(row.action, row.source, row.destination, row.detail, row.marks),
-            )
+            table.insert("", "end", iid=str(index), values=row_values(row))
         vertical = ttk.Scrollbar(holder, orient="vertical", command=table.yview)
         horizontal = ttk.Scrollbar(holder, orient="horizontal", command=table.xview)
         table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
@@ -205,7 +206,7 @@ class MainWindow:
         self._build_batches(frame)
         self._refresh_grants()
         self._refresh_batches()
-        self._tick()
+        root.after(0, self._tick)
 
     # --- 版面 ---
 
@@ -405,7 +406,7 @@ class MainWindow:
         try:
             self._refresh()
         finally:
-            if self._closing and not self._service.running:
+            if self._closing and self._service.request_close() == CLOSE_NOW:
                 self._root.destroy()
             else:
                 self._root.after(_REFRESH_MS, self._tick)

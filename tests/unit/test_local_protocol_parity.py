@@ -21,6 +21,7 @@ from src.services.local_bridge import (
     DECISION_WAIT_SECONDS,
     HELPER_DECISION_MARGIN_SECONDS,
     HELPER_EXECUTION_LIMIT_SECONDS,
+    MAX_PENDING_JOBS,
 )
 
 HELPER = Path(__file__).resolve().parents[2] / "ToukaLocal" / "touka_local"
@@ -84,3 +85,7 @@ def test_decision_limit_matches() -> None:
 def test_execution_limit_matches() -> None:
     helper = _constants("service.py")
     assert helper["HELPER_EXECUTION_LIMIT_SECONDS"] == HELPER_EXECUTION_LIMIT_SECONDS
+
+
+def test_thread_cap_matches_the_queue_limit() -> None:
+    assert _constants("service.py")["MAX_JOB_THREADS"] == MAX_PENDING_JOBS

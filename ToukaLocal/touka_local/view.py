@@ -57,6 +57,17 @@ _REFUSAL_FALLBACK: Final = "這個動作沒有完成"
 _JOURNAL_WARNING: Final = "。這批的紀錄沒有寫完整，有些搬移可能無法復原"
 
 
+APPROVAL_WINDOW_WIDTH: Final = 1000
+# (欄位, 標題, 寬度)。注意和大小放前面：全部放得下，縮小視窗時也最後才被裁掉
+APPROVAL_COLUMNS: Final = (
+    ("action", "動作", 80),
+    ("marks", "注意", 100),
+    ("detail", "大小", 120),
+    ("source", "位置", 330),
+    ("destination", "新位置", 330),
+)
+
+
 @dataclass(frozen=True)
 class ApprovalRow:
     """核准清單的一列。"""
@@ -127,6 +138,11 @@ def approval_rows(plan: Any) -> list[ApprovalRow]:
         )
         for item in plan.items
     ]
+
+
+def row_values(row: ApprovalRow) -> tuple[str, ...]:
+    """表格一列的內容，順序和 ``APPROVAL_COLUMNS`` 相同。"""
+    return (row.action, row.marks, row.detail, row.source, row.destination)
 
 
 def full_paths_text(row: ApprovalRow) -> str:
