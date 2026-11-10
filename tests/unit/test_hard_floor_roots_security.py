@@ -275,6 +275,10 @@ def test_windows_normalised_secret_names_are_f2(command: str):
     assert _floor(command) == "F2"
 
 
+def test_the_helper_source_is_protected_like_the_other_subprojects():
+    assert _floor("find ToukaLocal -name *.py -delete") == "F4"
+
+
 @pytest.mark.parametrize(
     ("template", "category"),
     [

@@ -148,7 +148,15 @@ _SECRET_DIR_TAILS: Final = ((_HB,), (_HB, "config"))
 _CONFIG_DIRS: Final = (("app", "config"), ("toukaproxy", "config"))
 _SOURCE_DIRS: Final = (("toukaproxy", "src"),)
 _SOURCE_PARTS: Final = frozenset(
-    {"toukamemory", "toukadispatch", "toukaheartbeat", "toukachat", "toukaide", "host_root"}
+    {
+        "toukamemory",
+        "toukadispatch",
+        "toukaheartbeat",
+        "toukachat",
+        "toukaide",
+        "toukalocal",
+        "host_root",
+    }
 )
 _REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 _MOUNTINFO: Final = Path("/proc") / "self" / "mountinfo"  # Linux 核心介面，不是部署路徑

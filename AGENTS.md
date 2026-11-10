@@ -131,10 +131,10 @@ npm run package
 *   **禁令 5**〔模組：proxy、memory〕：工具執行器與工具都要傳 auth_level，不得忽略。全文：docs/rules/proxy.md
 *   **禁令 6**〔模組：memory〕：Memory 的 I/O 走 get_resource_proxy，不直接匯入。全文：docs/rules/memory.md
 *   **禁令 7**〔全系統〕：**嚴禁**在業務代碼中直接調用 `print()`，必須使用 `logger = logging.getLogger(__name__)`。腳本/CLI 工具（`scripts/` 目錄）除外；`ToukaProxy/plugin_manager.py` 是命令列工具，目前不掃。（PRINT_BAN 規則）
-*   **禁令 8**〔模組：proxy、memory、heartbeat、dispatch、deploy、tests、ide〕：basicConfig 限 logging_config（lint 會擋；noqa、白名單能躲過檢查，但仍算違規）。全文：docs/rules/proxy.md
+*   **禁令 8**〔模組：proxy、memory、heartbeat、dispatch、deploy、tests、ide、local〕：basicConfig 限 logging_config（lint 會擋；noqa、白名單能躲過檢查，但仍算違規）。全文：docs/rules/proxy.md
 *   **禁令 9**〔模組：chat〕：前端不直接碰 localStorage，用 useLocalStorage。全文：docs/rules/chat.md
 *   **禁令 10**〔全系統〕：**嚴禁**在業務代碼中用 `raise ValueError("字串")` / `raise RuntimeError("字串")` 帶硬編碼字串，必須改用 `raise ToukaException(ErrorCode.XXX)`。ToukaMemory 等跨服務邊界可加 `# noqa: RAISE_STRING_BAN`。
-*   **禁令 11**〔模組：proxy、memory、heartbeat、dispatch、deploy、tests、ide〕：bcrypt、sqlite3 只准授權檔匯入（lint 會擋；noqa、檔名能躲過檢查，但仍算違規）。全文：docs/rules/proxy.md
+*   **禁令 11**〔模組：proxy、memory、heartbeat、dispatch、deploy、tests、ide、local〕：bcrypt、sqlite3 只准授權檔匯入（lint 會擋；noqa、檔名能躲過檢查，但仍算違規）。全文：docs/rules/proxy.md
 *   **禁令 12**〔全系統〕：**嚴禁**在新增 `# noqa: RULE_ID` 後不同步更新 `NOQA_REGISTRY.md` 的統計表。`guard_noqa_registry.py`（Guard #19）會自動驗證，不一致時 CI 失敗。
 *   **禁令 13**〔模組：chat〕：前端生產程式不得直接 console，用 logSSOTError。全文：docs/rules/chat.md
 *   **禁令 14**〔模組：memory、deploy〕：ToukaMemory 不得匯入 ToukaProxy 內部，只走依賴反轉介面。全文：docs/rules/memory.md

@@ -14,7 +14,7 @@ pytest，只算總數；逐條驗 TID251 的仍是這道。）
 故此守衛是它們在真實源碼樹上的**唯一**機器執法。
 
 本守衛對真實 Python 源碼樹（ToukaProxy／ToukaMemory／ToukaHeartbeat／ToukaDispatch／
-scripts）跑 `ruff check --select TID251`，尊重 `ruff.toml` 的 per-file-ignores
+ToukaLocal／scripts）跑 `ruff check --select TID251`，尊重 `ruff.toml` 的 per-file-ignores
 （bootstrapper／基建合法豁免），任一違規即非零退出。
 
 ⚠️ 刻意不掃 repo 根的 `violations/`——那是 `tests/integration/test_static_analysis.py`
@@ -36,6 +36,7 @@ SCAN_DIRS = [
     "ToukaMemory",
     "ToukaHeartbeat",
     "ToukaDispatch",
+    "ToukaLocal",
     "scripts",
 ]
 

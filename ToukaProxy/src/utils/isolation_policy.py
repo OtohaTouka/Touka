@@ -76,7 +76,8 @@ _FEATURE_MIN_ABI: dict[str, int] = {
 # 所有點開頭的名稱另由規則涵蓋，不列在這裡。
 TOUKA_TOPLEVEL_PROTECTED: frozenset[str] = frozenset(
     {
-        "toukachat", "toukadispatch", "toukaheartbeat", "toukaide", "toukamemory", "toukaproxy",
+        "toukachat", "toukadispatch", "toukaheartbeat", "toukaide", "toukalocal", "toukamemory",
+        "toukaproxy",
         "docs", "nginx", "scripts", "searxng", "tests", "violations",
         "agents.md", "contributing.md", "handover.md", "license", "notice", "readme.md",
         "readme_quickstart.md", "security.md", "openapi.json", "mkdocs.yml",

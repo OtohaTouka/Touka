@@ -23,8 +23,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).absolute().parent.parent
-# 和 CI 的 `ruff check --select F` 步驟相同的四個產品資料夾。
-PRODUCT_SOURCE_ROOTS = ("ToukaProxy/src", "ToukaMemory/src", "ToukaHeartbeat", "ToukaDispatch")
+# 和 CI 的 `ruff check --select F` 步驟相同的五個產品資料夾。
+PRODUCT_SOURCE_ROOTS = (
+    "ToukaProxy/src",
+    "ToukaMemory/src",
+    "ToukaHeartbeat",
+    "ToukaDispatch",
+    "ToukaLocal",
+)
 RUFF_BASELINE = PROJECT_ROOT / "tests" / "lint" / "ruff_baseline.json"
 PYREFLY_BASELINE = PROJECT_ROOT / "tests" / "lint" / "pyrefly_baseline.json"
 VULTURE_BASELINE = PROJECT_ROOT / "tests" / "lint" / "vulture_baseline.json"

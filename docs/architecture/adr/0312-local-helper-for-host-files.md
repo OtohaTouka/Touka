@@ -4,7 +4,7 @@
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)（MCP 網址的安全閘）、[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（隔離環境與封鎖埠）、[ADR-0085](0085-ask-user-tool.md)（等人回答的做法）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（只用這一輪列出的工具）
-- 影響範圍：`ToukaProxy/src/models/local_bridge.py`、`src/services/local_bridge.py`、`src/services/local_bridge_pairing.py`、`src/routers/local_bridge.py`、`src/tools/builtin/local_helper.py`、`src/utils/local_bridge_gate.py`、`src/utils/local_bridge_token.py`、`src/models/safety.py`、`src/middleware/layers/tool.py`、`src/handlers/react_core.py`、`src/services/tool_executor.py`、`src/services/permission_service.py`、`src/services/authorization_gateway.py`、`src/tools/contracts.py`、`src/adapters/openai_to_gemini.py`、`src/config.py`、`ToukaChat` 設定頁、`ToukaLocal/`
+- 影響範圍：`ToukaProxy/src/models/local_bridge.py`、`src/services/local_bridge.py`、`src/services/local_bridge_pairing.py`、`src/routers/local_bridge.py`、`src/tools/builtin/local_helper.py`、`src/utils/local_bridge_gate.py`、`src/utils/local_bridge_token.py`、`src/models/safety.py`、`src/middleware/layers/tool.py`、`src/handlers/react_core.py`、`src/services/tool_executor.py`、`src/services/permission_service.py`、`src/services/authorization_gateway.py`、`src/tools/contracts.py`、`src/adapters/openai_to_gemini.py`、`src/config.py`、`src/utils/hard_floor.py`、`src/utils/isolation_policy.py`、`ToukaChat` 設定頁、`ToukaLocal/`
 
 ## 背景
 
@@ -35,7 +35,7 @@
    - 使用者在聊天按停止時，Touka 只把這個工具的背景工作一起收掉，等核准的清單會撤回、執行中的清單會叫小幫手停；其他工具維持原本的行為。
    - 失敗要照實說。可能已經動手的情況（清單已確認、新建檔案或資料夾已交給小幫手），逾時、小幫手離線或換配對都回「結果不明，不要重試」；讀取類逾時回「沒有回應，沒有改動」；清單等不到人回「沒有決定，沒有改動」。
    - 長輪詢最多 5 秒。Docker 預設 10 秒就強殺，還要留時間給關機清理。
-9. **主機掛載根只用來多擋**：Touka 把 `HOST_WORKSPACE_ROOT`、`SANCTUARY_DATA_PATH` 傳給小幫手，和它們重疊的資料夾不給開放，否則代理人可以不經小幫手直接動那些檔案。POSIX 絕對路徑是容器裡的預設值，當作取不到。Touka 給的值只會讓小幫手多擋。
+9. **主機掛載根只用來多擋**：Touka 把 `HOST_WORKSPACE_ROOT`、`SANCTUARY_DATA_PATH`、`MEMORY_SYSTEM_SRC_DIR`、`HEARTBEAT_CONFIG_DIR` 傳給小幫手，和它們重疊的資料夾不給開放，否則代理人可以不經小幫手直接動那些檔案。Windows 磁碟的 POSIX 寫法（`/d/x`、`/mnt/d/x`、Docker Desktop 的路徑）換成磁碟路徑；其他 POSIX 絕對路徑是容器裡的預設值，當作取不到。Touka 給的值只會讓小幫手多擋。小幫手自己、它用的 Python（含標準函式庫）或桌面啟動檔落在 Touka 資料夾裡，或和掛載範圍重疊時，停止服務並在視窗明講：代理人改得到的程式，下次啟動就在電腦上跑。
 10. **小幫手不從 Touka 資料夾安裝**：repo 和 `.venv` 都在容器寫得到的地方。安裝時從 GitHub 取審過的版本，放到使用者資料夾，用 repo 以外的 Python，以 `-I -S` 啟動。
 11. **`ToukaLocal/` 不走 Touka 的 SSOT**：程式在容器外跑，載入 `src` 會帶進依賴和初始化寫入（比照 `sandbox_kernel` 只用標準函式庫）。適用範圍逐條寫明：
     - 禁令 7：照樣用 `logging`，不用 `print`。
@@ -43,7 +43,14 @@
     - 禁令 41：路徑一律來自開放名單與使用者資料夾，不寫死。
     - 禁令 42：只讀 Windows 的使用者資料夾環境變數。
     - 禁令 43：拿不到 `time_utils`，時間集中在一個 `Clock`。
-12. **用 `SHFileOperationW` 進回收桶**：官方建議改用 `IFileOperation`，但那是 COM 介面，用標準函式庫呼叫太重。第一版用舊 API，每項一次呼叫。
+12. **用 `SHFileOperationW` 進回收桶**：官方建議改用 `IFileOperation`，但那是 COM 介面，用標準函式庫呼叫太重。第一版用舊 API，每項一次呼叫。帶 `FOF_NO_CONNECTED_ELEMENTS`，只丟清單列出的項目，不會連帶丟 `a_files` 這種沒列出來的資料夾。
+13. **人看到的要是真的**：
+    - 核准視窗在表格下面列出每一項的完整路徑，不只選取的那一列。
+    - 路徑裡看不見的字元、形似路徑分隔線或空白的字元，一律顯示成記號；檔名和資料夾之間用 Windows 檔名不能有的直線分開。
+    - 新建和搬到的路徑不能有點開頭的名稱，點開頭的常是工具自動讀的設定；AI 工具和建置工具會自動讀的檔名另外擋。
+    - 新取的名稱不能有看不見、形似分隔線或空白的字元。既有的上層資料夾和搬移時沿用的原檔名不算新名稱，中文檔名常有全形符號，顯示時已經換成記號。
+    - 既有檔名可以帶變體選擇符和零寬連接字（emoji 常見），其他看不見的字元仍然拒絕。資料夾裡有不能處理的名稱時，整個資料夾不能搬或刪，模型會收到專屬的原因。
+    - 雲端佔位檔比照連結拒絕：內容不在這台電腦上，一碰就開始下載。
 
 ## 後果
 
@@ -52,6 +59,15 @@
 - 核准要人坐在電腦前。
 - 只有 Windows。OneDrive 佔位檔是 reparse point，第一版拒絕。
 - 配對資料一次只有一組；Touka 假設單一行程，佇列只在記憶體。
+- 小幫手不驗證對方是不是真的 Touka。Touka 沒開時，電腦上別的程式佔住同一個埠就能拿到配對權杖，接著讀得到開放的資料夾；搬移和刪除仍要人核准。試行後決定要不要加亂數挑戰。
+- 檢查和動手之間有時間差。要利用它需要電腦上同帳號的程式，這種程式本來就碰得到這些檔案。
+- 硬連結分辨不出來，用 `subst` 建的磁碟別名看起來是另一顆磁碟。兩者都要使用者或電腦上的程式先設定好，代理人沒有這些動作。
+- 一個檔案被核准搬走之後，代理人可以在原位置新建同名文字檔，等於換掉內容，舊內容還在新位置。只影響 txt、md、log。
+- 新建有單檔上限，沒有總量上限，代理人可以塞滿開放的資料夾。
+- `ToukaLocal` 併進死碼掃描後，它和其他子專案同名的函式會互相算「有用到」，跨檔比對略變弱。
+- 小幫手自己的設定和紀錄不能用會覆蓋的改名（能力邊界禁掉了），所以是暫存檔落盤、舊檔改名留著、新檔改名就位、再刪舊檔；當機在中間時，讀的人改讀暫存檔；改名失敗時把舊檔放回去。
+- 紀錄寫不進去時，這批停在當前項，後面的回報沒做；沒有紀錄的搬移沒辦法復原。
+- 代理人可以一直提清單讓視窗反覆跳出：目前只靠一次一個視窗、拒絕或撤回後冷卻 5 秒來節流，沒有封鎖機制。
 
 ## 不在這次範圍
 

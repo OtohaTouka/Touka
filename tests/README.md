@@ -163,6 +163,16 @@ tests/
 | `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走，並在開始服務前裝好 Windows 連線收尾修正。 |
 | `unit/test_e2e_proactor_close_fix.py` | 實際驗證後端的 Windows 連線收尾修正（ADR-0295）：對方重置連線時伺服器等得完、socket 真的關了；正常關閉照舊、其他錯誤不吞、子行程管線不動、沒關的連線照舊要等。用真的 asyncio 類別模擬，Linux 也跑得到；未裝修正時的那條釘住缺陷還在，Python 修好時會變紅。 |
 | `unit/test_ask_user_stop.py` | ADR-0308：提問沒等到回答時這一輪結束、不再呼叫模型；空白送出算沒回答；固定文字的內容與容錯 |
+| `unit/local_helper/test_local_helper_paths_rules.py` | ADR-0312：小幫手的路徑與檔名規則，每條拒絕規則一個案例 |
+| `unit/local_helper/test_local_helper_grants.py` | ADR-0312：哪些資料夾能開放、重疊與掛載根、每次使用重新核對 |
+| `unit/local_helper/test_local_helper_operations.py` | ADR-0312：固定動作、核准清單與快照、執行前重驗、紀錄與復原 |
+| `unit/local_helper/test_local_helper_connection.py` | ADR-0312：協議未知欄位拒絕、只連本機、不跟隨轉址 |
+| `unit/local_helper/test_local_helper_approval_view.py` | ADR-0312：一次一個核准視窗、冷卻、自動拒絕、畫面文字消毒 |
+| `unit/local_helper/test_local_helper_service.py` | ADR-0312：工作分派、按核准才確認、確認成功才動手、取消 |
+| `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則 |
+| `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
+| `unit/test_local_protocol_parity.py` | ADR-0312：小幫手和 Touka 兩份協議相同 |
+| `lint/test_touka_local_boundary.py` | ADR-0312：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
 | `integration/test_local_bridge_router.py` | ADR-0312：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
 | `unit/test_local_files_tool.py` | ADR-0312：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |
 | `unit/test_local_files_turn_cancel.py` | ADR-0312：走真的工具迴圈，按停止時小幫手上的工作跟著取消，其他工具不受影響 |
@@ -960,10 +970,10 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_npm_docker_paths_guard.py` | Guard #26：npm scripts 的父目錄相對路徑必須在 `docker-compose.yml` 掛載為 volume |
 | `test_release_licensing.py` | 發布的映像與 VSIX 帶著授權聲明：三個映像的 `/app` 都有 LICENSE、NOTICE（chat 從具名 context `touka-root` 取得，它宣告成空的 scratch 階段，沒帶 context 時建置失敗、不會去 registry 拉同名映像；compose 與 GHCR 發布都要帶它）；chat 執行期安裝帶 `--omit=optional`（不帶進 sharp 的 LGPL libvips）；GHCR 發布只在 main 跑、每個 action 都釘 commit SHA；`ToukaIDE/THIRD_PARTY_NOTICES.txt` 列滿 lock 的執行期套件，版本都對得上 lock；映像裡有 node 就要有 Node 的 LICENSE，有 uv 就要有 `ToukaProxy/licenses/uv` 的兩份授權原文（雜湊對得上 uv 0.12.1，各 Dockerfile 的 uv 映像都是這個版本，不被 `.dockerignore` 排除），NOTICE 寫到每個落點；掃版控裡的每個 Dockerfile，逐 stage 追蹤 node、uv 與授權檔經 COPY／ADD（stage 名稱或編號、映像、ARG 預設值，單檔、整個資料夾、萬用字元）和 FROM 落在哪裡，映像是最後一個 stage；看不懂的寫法（heredoc、escape 指令、結尾續行）直接失敗；正反例都釘住 |
 | `test_chat_agent_rules_security.py` | `ToukaChat/next.config.ts` 頂層設 `agentRules: false`，`next dev` 偵測到 AI 代理時不寫出要代理人 commit 的 `AGENTS.md` |
-| `test_ci_pr_checks.py` | **ADR-0254 A4、ADR-0278**：四個產品子專案（`ToukaProxy/src`、`ToukaMemory/src`、`ToukaHeartbeat`、`ToukaDispatch`）`ruff --select F` 0 錯誤；CI `contracts` job 恰有一個鎖定版 ruff F 步驟涵蓋四個根目錄、沒有放寬旗標；`toukaide` job 在 devEngines 的 Node／npm 上依序跑 `install:controlled`、`test`、`typecheck`、`compile`，不能被 `if`／`continue-on-error` 跳過；`CONTRIBUTING.md`「PR 前必做」寫明 CI 綠燈就能開 PR、每項都標「CI 會跑」或「維護者合併前補跑」、完整 ruff、pyrefly、vulture 與 ESLint 棘輪標 CI、標示和 CI 實際跑的對得上；`frontend` job 在安裝依賴之後跑 Guard #35、不能被跳過，也不再有 braces 步驟（ADR-0282）；跑整套 pytest 的 job 恰有一個（ruff、pyrefly、vulture 棘輪靠它進 CI）。ruff 帶 `--no-cache`，不寫檔 |
+| `test_ci_pr_checks.py` | **ADR-0254 A4、ADR-0278**：五個產品子專案（`ToukaProxy/src`、`ToukaMemory/src`、`ToukaHeartbeat`、`ToukaDispatch`、`ToukaLocal`）`ruff --select F` 0 錯誤；CI `contracts` job 恰有一個鎖定版 ruff F 步驟涵蓋五個根目錄、沒有放寬旗標；`toukaide` job 在 devEngines 的 Node／npm 上依序跑 `install:controlled`、`test`、`typecheck`、`compile`，不能被 `if`／`continue-on-error` 跳過；`CONTRIBUTING.md`「PR 前必做」寫明 CI 綠燈就能開 PR、每項都標「CI 會跑」或「維護者合併前補跑」、完整 ruff、pyrefly、vulture 與 ESLint 棘輪標 CI、標示和 CI 實際跑的對得上；`frontend` job 在安裝依賴之後跑 Guard #35、不能被跳過，也不再有 braces 步驟（ADR-0282）；跑整套 pytest 的 job 恰有一個（ruff、pyrefly、vulture 棘輪靠它進 CI）。ruff 帶 `--no-cache`，不寫檔 |
 | `test_pyrefly_ratchet.py` | **ADR-0278 §7**：pyrefly 型別檢查（範圍在 `pyproject.toml` 的 `[tool.pyrefly]`，先從隔離與安全邊界開始），每種錯誤的數量和 `tests/lint/pyrefly_baseline.json` 完全相等；整份設定逐項釘住（範圍、search-path、平台 linux、版本對齊 `.python-version`、不讀 ignore 檔；不准多出排除、錯誤開關或直譯器路徑）；`project-includes` 每個樣式都還對得到檔案；範圍內不准 `# pyrefly: ignore-errors` 整檔壓制；收集指令的參數整組釘住（目前的直譯器、repo 設定、JSON 輸出）；結束碼異常、錯誤輸出有 INFO 以外的行（設定欄位打錯、search-path 不存在、日誌格式改變）、輸出不是完整 JSON 時收集失敗，不當成 0 個；用真的 pyrefly 檢查暫存資料夾的小專案，核對輸出格式與設定錯誤會失敗；`--update` 排序寫出、寫完即通過。收集與重拍共用 `scripts/lint_ratchet.py` |
-| `test_ruff_ratchet.py` | **ADR-0278**：四個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍從 CI workflow 讀出、和 F 步驟相同；比對函式的變多、變少、新規則三種情況；ruff 異常結束時收集失敗、不當成 0 個；`--update` 依規則代號排序寫出、寫完即通過、再多一個就失敗；打錯的工具名或參數回 2、不做檢查。收集與重拍共用 `scripts/lint_ratchet.py` |
-| `test_vulture_ratchet.py` | **ADR-0298**：四個產品資料夾未用的函式、方法、類別不得超過 `tests/lint/vulture_baseline.json`（單向，少了不紅）；參數釘住；工具異常結束、看不懂的輸出要失敗；用真的 vulture 跑小專案 |
+| `test_ruff_ratchet.py` | **ADR-0278**：五個產品資料夾的完整 ruff，每條規則的數量和 `tests/lint/ruff_baseline.json` 完全相等（變多要修、變少要重拍基準）；掃描範圍從 CI workflow 讀出、和 F 步驟相同；比對函式的變多、變少、新規則三種情況；ruff 異常結束時收集失敗、不當成 0 個；`--update` 依規則代號排序寫出、寫完即通過、再多一個就失敗；打錯的工具名或參數回 2、不做檢查。收集與重拍共用 `scripts/lint_ratchet.py` |
+| `test_vulture_ratchet.py` | **ADR-0298**：五個產品資料夾未用的函式、方法、類別不得超過 `tests/lint/vulture_baseline.json`（單向，少了不紅）；參數釘住；工具異常結束、看不懂的輸出要失敗；用真的 vulture 跑小專案 |
 | `test_tests_readme_listing.py` | **ADR-0278**：版控中的每個 `tests/**/test_*.py` 都要在本檔用反引號列出（有相對路徑比對相對路徑；只寫檔名時檔名必須唯一；沒加反引號的不算），還沒列的凍結在 `tests/lint/tests_readme_unlisted.json`、只准變短（已補列或已刪除還留在清單也算失敗）；反引號裡的測試檔名要對得到實際檔案（萬用字元除外）；本檔不寫「現在有幾個案例」（只擋固定格式：數字欄、粗體與標籤裡的數量、「N 個測試／TDD／案例」、合計句；某一批加了幾個、HTTP 狀態碼、年份、有日期的實跑結果、live 預算不擋，正反例都釘住）；反引號名稱檢查拒絕 `..` 與絕對路徑、有斜線的要等於版控路徑、同名檔另外說明（合成資料測試）；沒有 git 就失敗、不跳過 |
 | `test_connection_key_mask_security.py` | 瀏覽器存連線清單時用的金鑰遮罩（`ToukaChat/src/lib/secretMask.ts`）和後端 `utils/secrets.py` 的 `MASK` 逐字相同（不同的話，後端會把瀏覽器送回的遮罩當成新金鑰存下）；前端產品程式只有 `lib/connections.ts` 與 `hooks/useStoredConnections.ts` 的遮罩寫入點能寫這份清單，其他地方也不能直接拼出它的 key（逐行比對的絆線，不是解析器）。 |
 

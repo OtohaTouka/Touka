@@ -82,8 +82,8 @@ python -B -m pytest tests/
 - **「維護者合併前補跑」**：CI 不跑，因為要特定環境或比較久。維護者會在合併前補跑，你能跑的話歡迎先跑。
 
 ```bash
-# 1. 後端 pyflakes（CI 會跑）：四個產品子專案不能有未定義名稱、沒用到的匯入或變數，必須 0 錯誤
-ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch
+# 1. 後端 pyflakes（CI 會跑）：五個產品子專案不能有未定義名稱、沒用到的匯入或變數，必須 0 錯誤
+ruff check --select F ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch ToukaLocal
 
 # 2. 後端完整 ruff 與型別檢查只減不增（CI 會跑）：每條規則、每種型別錯誤的數量必須和
 #    tests/lint/ruff_baseline.json、tests/lint/pyrefly_baseline.json 完全相等。CI 在第 5 項的 pytest
