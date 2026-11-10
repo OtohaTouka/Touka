@@ -21,6 +21,7 @@ import { ContextMeter } from "./ContextMeter";
 import { ChatWelcome } from "./ChatWelcome";
 import { FeedbackReasonDialog } from "./FeedbackReasonDialog";
 import { IncognitoHookNotice } from './IncognitoHookNotice';
+import { ModelLifecycleNotice } from './ModelLifecycleNotice';
 import { SessionPersistenceNotice } from './SessionPersistenceNotice';
 import { SessionUpdatedNotice } from './SessionUpdatedNotice';
 import { QueuedMessageList } from "./QueuedMessageList";
@@ -289,6 +290,7 @@ export function ChatArea({
 
   return (
     <div className={cn("h-full flex flex-col mx-auto w-full relative", isIDE ? "max-w-none" : "max-w-[95%] 2xl:max-w-[85%]")}>
+      <ModelLifecycleNotice />
       <SessionPersistenceNotice key={activeSessionId} sessionId={activeSessionId} />
       <SessionUpdatedNotice key={`updated-${activeSessionId}`} sessionId={activeSessionId} />
       <IncognitoHookNotice key={activeSessionId} sessionId={activeSessionId} recheckKey={isSending} />

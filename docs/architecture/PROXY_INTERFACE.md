@@ -828,6 +828,13 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
     - `check_models_health()` 自動驗證所有連線。
     - **靈魂硬保護 (Soul Guard)**: 物理靈魂目錄（L1）受豁免保護，清理機制（Pruning）嚴禁移除存在物理實體的靈魂代理人。
 
+### 1a. 模型下架提醒（ADR-0310）
+- **端點**: `GET /v1/models/lifecycle-alerts`（需要登入，非 admin 也是 200）
+- **輸出**: `alerts`（每筆 `model`、`status`、`retires_at`、`souls`、`reviewer`、`summarizer`）與 `checking`（背景正在查廠商清單，等一下再問會有新結果）。
+- **`status`**: `retiring`（30 天內，含第 30 天）、`overdue`（排定的日期已過）、`date_unknown`（已標停用、沒有日期）、`retired`（官方標示已下架）、`not_found`（`complete_once` 實際呼叫時廠商回找不到模型）。
+- **範圍**: 只算靈魂（`brain_settings` 裡的人類、自訂模型不算），比照 `/stats`（`can_access_session`）；`reviewer`、`summarizer` 只回給人類 admin，其他人連那幾筆都沒有。自訂連線的模型不提醒。
+- **觸發**: 呼叫這個端點會順便看要不要查 Anthropic、OpenAI 的清單（背景、不等結果；成功一天一次，失敗每家隔一小時；`OPENAI_BASE_URL` 被改過就不查 OpenAI）。`MODEL_LIFECYCLE_CHECK_ENABLED=false` 就不對外查。
+
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
 - **身份識別**: 依據認證 Token 判定操作主權。路由層會自動將 URL 中的 `model_id` 字串轉化為經認證的 `AgentIdentity` 物件傳遞至 Service 層。
