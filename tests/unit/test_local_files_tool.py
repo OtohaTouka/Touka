@@ -201,6 +201,10 @@ async def test_handler_refuses_when_helper_is_off(wired: MagicMock) -> None:
             "timeout_exceeded",
         ),
         (
+            LocalJobResult(status="error", code=bridge_module.CODE_TIMED_OUT),
+            "timeout_exceeded",
+        ),
+        (
             LocalJobResult(status="error", code=bridge_module.CODE_RESULT_UNKNOWN),
             "timeout_exceeded",
         ),
