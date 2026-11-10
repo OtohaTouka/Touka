@@ -509,6 +509,21 @@ async def test_a_soul_with_its_own_tool_list_has_to_tick_it(
 
 @pytest.mark.asyncio
 @patch("src.middleware.layers.tool.permission_service")
+@pytest.mark.parametrize(
+    ("ticked", "told"), [([], True), (["read", "local_files"], True), (["read"], False)]
+)
+async def test_offline_note_only_when_the_tool_would_be_there(
+    perm: MagicMock, monkeypatch: pytest.MonkeyPatch, ticked: list[str], told: bool
+) -> None:
+    _allow(perm)
+    _state(monkeypatch, paired=True, online=False)
+    ctx = _layer_ctx(desired_tools=ticked)
+    await ToolLayer().process(_request(), ctx)
+    assert any(d["tool"] == "local_files" for d in ctx.get("denied_tools") or []) is told
+
+
+@pytest.mark.asyncio
+@patch("src.middleware.layers.tool.permission_service")
 async def test_not_listed_in_an_incognito_conversation(
     perm: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:

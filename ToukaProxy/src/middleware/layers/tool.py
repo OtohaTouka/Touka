@@ -211,7 +211,10 @@ class ToolLayer(ProxyLayer):
                      online=get_local_bridge().online,
                      has_other_owner=has_another_owner,
                  )
-                 if availability == AVAILABILITY_OFFLINE:
+                 # 沒勾的靈魂開了小幫手也用不到，不要叫人去開
+                 if availability == AVAILABILITY_OFFLINE and (
+                     not desired_tools or selection.selects(tool_name)
+                 ):
                      denied_tools.append(
                          {"tool": tool_name, "reason": "the local helper is not running"}
                      )

@@ -6,9 +6,9 @@
 
 - 人類管理員用（admin 代打不算）：`POST /v1/local-bridge/pairing` 產生或換新配對碼，明文只回一次；`DELETE /v1/local-bridge/pairing` 解除；`GET /v1/local-bridge/status` 看狀態。寫入另查 CSRF Origin。
 - 小幫手用（標頭 `X-Touka-Local-Token`，只代表這條通道，不轉成身分）：`POST /v1/local-bridge/poll` 最多等 5 秒，回下一件工作、已取消的編號、主機掛載根；`POST /v1/local-bridge/jobs/{id}/confirm` 人按核准後問 Touka 還要不要做，不是 200 就不動手；`POST /v1/local-bridge/jobs/{id}/result` 回報結果。
-- 工具 `local_files`：`action` 是 `list`、`read`、`create_folder`、`create_file`、`propose`。只列給配對本人和靈魂的前景對話；小幫手沒開時工具不列，經 `<tool_availability>` 告訴配對本人。
+- 工具 `local_files`：`action` 是 `list`、`read`、`create_folder`、`create_file`、`propose`。只列給配對本人和靈魂的前景對話；無痕對話、靈魂有別的擁有者時不提供，靈魂有自己的工具清單時要勾了才有。小幫手沒開時工具不列，經 `<tool_availability>` 告訴配對本人。
 - 錯誤碼：`LOCAL_HELPER_INVALID_TOKEN`（401）、`LOCAL_HELPER_PROTOCOL_MISMATCH`（409）、`LOCAL_HELPER_JOB_GONE`（410）、`LOCAL_HELPER_RESULT_TOO_LARGE`（413）。
-- `settings.SANCTUARY_DATA_PATH`：compose 的資料掛載來源，只用來告訴小幫手哪裡不能開放。
+- `settings.SANCTUARY_DATA_PATH`、`MEMORY_SYSTEM_SRC_DIR`、`HEARTBEAT_CONFIG_DIR`：compose 的掛載來源，只用來告訴小幫手哪裡不能開放。
 
 ## 子代理的專案與只能看（2026-11-10，ADR-0309）
 

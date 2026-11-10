@@ -1332,7 +1332,7 @@
     },
     "local_helper_tab": {
       "heading": "Local helper",
-      "intro": "The helper is a program on your computer. It lets souls view files, create files and folders, and tidy files in the folders you open to them. You choose the folders in the helper's window, and moves and deletes need your approval at the computer.",
+      "intro": "The helper is a program on your computer. It lets souls view files, create files and folders, and tidy files in the folders you open to them. You choose the folders in the helper's window, and moves and deletes need your approval at the computer. A soul with its own tool list needs this tool ticked, and incognito conversations can't use it.",
       "status_unpaired": "Not paired yet",
       "status_offline": "Paired, but the helper is not running",
       "status_online": "Connected (helper version {{version}})",

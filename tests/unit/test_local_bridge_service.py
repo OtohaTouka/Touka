@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from pathlib import Path
 
 import pytest
 from src.models.local_bridge import LocalJobResult
@@ -468,6 +470,10 @@ async def test_helper_lost_after_confirm_is_unknown(bridge: LocalBridge, clock: 
         ("/host_mnt/f/x", "", ["F:/x"]),  # noqa: PATH_LITERAL_SSOT
         ("/d", "", ["D:/"]),  # noqa: PATH_LITERAL_SSOT
         ("/app/d/x", "", []),  # noqa: PATH_LITERAL_SSOT
+        ("//d/x", "", ["D:/x"]),  # noqa: PATH_LITERAL_SSOT
+        ("/d:/x", "", ["D:/x"]),  # noqa: PATH_LITERAL_SSOT
+        ("/mnt/host/d/x", "", ["D:/x"]),  # noqa: PATH_LITERAL_SSOT
+        ("//server/share", "", []),
         ("  ", "  ", []),
     ],
 )
@@ -477,3 +483,18 @@ def test_host_mount_roots(workspace: str, data: str, expected: list[str]) -> Non
 
 def test_every_source_passed_in_is_checked() -> None:
     assert host_mount_roots("../work", "/srv/x", "./memory", "") == ["../work", "./memory"]
+
+
+def test_every_configurable_compose_mount_is_reported() -> None:
+    """新增可設定的掛載來源時，要一起回報給小幫手，否則那個資料夾擋不到。"""
+    root = Path(__file__).resolve().parents[2]
+    sources: set[str] = set()
+    for name in ("docker-compose.yml", "docker-compose.ghcr.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        sources |= set(re.findall(r'^\s*-\s*"?\$\{([A-Z_]+)[:}]', text, re.MULTILINE))
+    assert sources == {
+        "WORKSPACE_ROOT",
+        "SANCTUARY_DATA_PATH",
+        "MEMORY_SYSTEM_SRC_DIR",
+        "HEARTBEAT_CONFIG_DIR",
+    }

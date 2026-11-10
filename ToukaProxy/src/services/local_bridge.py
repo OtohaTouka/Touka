@@ -57,7 +57,9 @@ _MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file"})
 
 
 # Windows 磁碟在 Git Bash、WSL、Docker Desktop 裡的寫法
-_POSIX_DRIVE: Final = re.compile(r"/(?:mnt/|run/desktop/mnt/host/|host_mnt/)?([A-Za-z])(/.*)?")
+_POSIX_DRIVE: Final = re.compile(
+    r"//?(?:mnt/(?:host/)?|run/desktop/mnt/host/|host_mnt/)?([A-Za-z]):?(/.*)?"
+)
 
 
 def _as_host_path(value: str) -> str | None:
