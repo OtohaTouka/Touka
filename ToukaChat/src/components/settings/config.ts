@@ -1,6 +1,6 @@
-import { Settings2, Cable, Monitor, Wrench, Box, Zap, MessageSquare, Shield, Settings, LucideIcon, Users, Palette, History, KeyRound, Webhook } from "lucide-react";
+import { HardDrive, Settings2, Cable, Monitor, Wrench, Box, Zap, MessageSquare, Shield, Settings, LucideIcon, Users, Palette, History, KeyRound, Webhook } from "lucide-react";
 
-export type SettingsTabId = "general" | "theme" | "connections" | "models" | "tools" | "mcp" | "skills" | "vscode" | "security" | "sns_bots" | "env" | "group" | "users" | "sliding_window" | "provider_keys" | "hooks";
+export type SettingsTabId = "local_helper" | "general" | "theme" | "connections" | "models" | "tools" | "mcp" | "skills" | "vscode" | "security" | "sns_bots" | "env" | "group" | "users" | "sliding_window" | "provider_keys" | "hooks";
 
 /** 設定頁 IA 分組（側邊欄以此分類標題聚合分頁，減少 15 分頁平鋪蔓延）。 */
 export type SettingsGroupId = "personal" | "models" | "capabilities" | "conversation" | "system";
@@ -48,6 +48,7 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     { id: "connections", label: "settings.tabs.connections.label", title: "settings.tabs.connections.title", icon: Cable, group: "models", adminOnly: true },
     { id: "tools", label: "settings.tabs.tools.label", title: "settings.tabs.tools.title", icon: Wrench, group: "capabilities", adminOnly: true },
     { id: "mcp", label: "settings.tabs.mcp.label", title: "settings.tabs.mcp.title", icon: Box, group: "capabilities", adminOnly: true },
+    { id: "local_helper", label: "settings.tabs.local_helper.label", title: "settings.tabs.local_helper.title", icon: HardDrive, group: "capabilities", adminOnly: true },
     { id: "skills", label: "settings.tabs.skills.label", title: "settings.tabs.skills.title", icon: Zap, group: "capabilities", adminOnly: true },
     { id: "group", label: "settings.tabs.group.label", title: "settings.tabs.group.title", icon: MessageSquare, group: "conversation", adminOnly: true },
     { id: "sliding_window", label: "settings.tabs.sliding_window.label", title: "settings.tabs.sliding_window.title", icon: History, group: "conversation", adminOnly: true },

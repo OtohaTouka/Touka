@@ -13,7 +13,7 @@
 - ``require_admin_authority``：``is_admin_authority()`` → ``AUTH_ADMIN_REQUIRED``
 - ``require_authenticated``：任何已認證身分 → ``AUTH_PERMISSION_DENIED``
 - ``require_admin_human``：人類且 admin → ``AUTH_ADMIN_REQUIRED``（自 ``routers/mcp_oauth.py``
-  原樣搬移，保留既有「未檢查 None」的行為，不在本次純重構修正）
+  原樣搬移；沒有身分時同樣拒絕）
 
 在函式內直接呼叫（debug／observability）與掛在 ``Depends`` 的兩種用法各自保留：前者遇到
 格式錯誤的 body 回 422（body 先驗證），後者回 403（依賴先解）。
@@ -75,10 +75,10 @@ def require_authenticated(
 
 
 def require_admin_human(
-    identity: AgentIdentity = Depends(get_verified_identity),  # noqa: B008
+    identity: AgentIdentity | None = Depends(get_verified_identity),  # noqa: B008
 ) -> AgentIdentity:
-    """人類 admin 閘：須為人類且具 admin 權威（admin 代打不算）。"""
-    if not identity.is_admin_human():
+    """人類 admin 閘：須為人類且具 admin 權威（admin 代打不算）；沒有身分一律拒絕。"""
+    if not identity or not identity.is_admin_human():
         raise ToukaException(ErrorCode.AUTH_ADMIN_REQUIRED)
     return identity
 

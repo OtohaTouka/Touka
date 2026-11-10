@@ -153,6 +153,22 @@ def _require_isolation(context: PolicyContext, decision: PolicyDecision) -> Poli
     )
 
 
+# 舊的設定檔沒有列到的工具仍是 dangerous（fail-safe）。這個工具自己的核准在使用者電腦上的
+# 小幫手視窗（ADR-0311），只有設定檔成功載入、又沒列到它時才併進去；讀不到設定檔不適用。
+BUILTIN_TOOL_RISK: dict[str, ToolRiskEntry] = {
+    "local_files": ToolRiskEntry(
+        action_param="action",
+        actions={
+            "list": "read_only",
+            "read": "read_only",
+            "propose": "read_only",
+            "create_folder": "safe",
+            "create_file": "safe",
+        },
+    ),
+}
+
+
 class AuthPoliciesConfig(BasePolicyModel):
     """全系統安全策略配置 (SSOT)
 
@@ -277,3 +293,13 @@ class AuthPoliciesConfig(BasePolicyModel):
         return PolicyDecision(
             effect="CONFIRM", reason="Defaulting to confirmation for unknown level"
         )
+
+
+def with_builtin_tool_risk(config: AuthPoliciesConfig) -> AuthPoliciesConfig:
+    """把設定檔沒列到的內建分類補進去；設定檔有列時以設定檔為準。"""
+    tools = config.tool_risk.tools
+    missing = {name: entry for name, entry in BUILTIN_TOOL_RISK.items() if name not in tools}
+    if not missing:
+        return config
+    risk = config.tool_risk.model_copy(update={"tools": {**tools, **missing}})
+    return config.model_copy(update={"tool_risk": risk})

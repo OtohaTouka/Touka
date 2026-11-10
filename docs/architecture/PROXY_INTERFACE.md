@@ -2,6 +2,14 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 本機小幫手（2026-11-10，ADR-0311）
+
+- 人類管理員用（admin 代打不算）：`POST /v1/local-bridge/pairing` 產生或換新配對碼，明文只回一次；`DELETE /v1/local-bridge/pairing` 解除；`GET /v1/local-bridge/status` 看狀態。寫入另查 CSRF Origin。
+- 小幫手用（標頭 `X-Touka-Local-Token`，只代表這條通道，不轉成身分）：`POST /v1/local-bridge/poll` 最多等 8 秒，回下一件工作、已取消的編號、主機掛載根；`POST /v1/local-bridge/jobs/{id}/confirm` 人按核准後問 Touka 還要不要做，不是 200 就不動手；`POST /v1/local-bridge/jobs/{id}/result` 回報結果。
+- 工具 `local_files`：`action` 是 `list`、`read`、`create_folder`、`create_file`、`propose`。只列給配對本人和靈魂的前景對話；小幫手沒開時工具不列，經 `<tool_availability>` 告訴配對本人。
+- 錯誤碼：`LOCAL_HELPER_INVALID_TOKEN`（401）、`LOCAL_HELPER_PROTOCOL_MISMATCH`（409）、`LOCAL_HELPER_JOB_GONE`（410）、`LOCAL_HELPER_RESULT_TOO_LARGE`（413）。
+- `settings.SANCTUARY_DATA_PATH`：compose 的資料掛載來源，只用來告訴小幫手哪裡不能開放。
+
 ## 子代理的專案與只能看（2026-11-10，ADR-0309）
 
 - `dispatch_subagent`、`dispatch_subagent_group` 派出的子代理看得到對話綁定的專案（`scope=project`）；專案只來自綁定，派出時算一次。

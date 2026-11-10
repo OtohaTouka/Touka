@@ -81,6 +81,16 @@
           "delete": "dangerous"
         }
       },
+      "local_files": {
+        "action_param": "action",
+        "actions": {
+          "list": "read_only",
+          "read": "read_only",
+          "propose": "read_only",
+          "create_folder": "safe",
+          "create_file": "safe"
+        }
+      },
       "project_tools": {
         "action_param": "action",
         "actions": {

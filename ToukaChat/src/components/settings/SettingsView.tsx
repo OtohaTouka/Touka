@@ -38,6 +38,7 @@ import { useMcpSettings } from "@/hooks/settings/useMcpSettings";
 import { useUserSettings } from "@/hooks/settings/useUserSettings";
 import { SlidingWindowTab } from "@/components/settings/tabs/SlidingWindowTab";
 import { HooksTab } from "@/components/settings/tabs/HooksTab";
+import { LocalHelperTab } from "@/components/settings/tabs/LocalHelperTab";
 import { ProviderKeysTab } from "@/components/settings/tabs/ProviderKeysTab";
 import { SnsBotsTab } from "@/components/settings/tabs/SnsBotsTab";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -514,6 +515,11 @@ export function SettingsView() {
                     mcpServers={mcpServers}
                     skills={skills}
                   />
+                </TabsContent>
+
+                {/* --- 本機小幫手（ADR-0311）--- */}
+                <TabsContent value="local_helper" className="mt-0 outline-none">
+                  <LocalHelperTab />
                 </TabsContent>
 
                 {/* --- Hooks Tab（ADR-0292）--- */}

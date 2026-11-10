@@ -11,12 +11,18 @@ from memory_server.tools.contracts import (
     action_parameters,
     public_parameters,
 )
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from src.services.tool_errors import VALIDATION_ERROR, build_tool_error
 from src.tools.execution_context import EXECUTION_CONTEXT_KWARG_NAMES
 
 MAX_SUBAGENT_GROUP = 8
 SUBAGENT_GROUP_CONCURRENCY = 4
+
+MAX_LOCAL_PATH_CHARS = 1024
+MAX_LOCAL_FILE_CHARS = 256 * 1024
+MAX_LOCAL_PROPOSE_ITEMS = 200
+MAX_LOCAL_REASON_CHARS = 300
+MAX_LOCAL_LIST_DEPTH = 3
 
 
 class MissionTaskInput(PublicToolInput):
@@ -260,6 +266,91 @@ class SubagentGroupInput(PublicToolInput):
     )
 
 
+class LocalListInput(PublicToolInput):
+    """Public input model for LocalList."""
+
+    action: Literal["list"]
+    path: str = Field(
+        "", max_length=MAX_LOCAL_PATH_CHARS, description="開放名稱/相對路徑；省略時列出開放的資料夾"
+    )
+    depth: int = Field(1, ge=1, le=MAX_LOCAL_LIST_DEPTH, description="往下列幾層")
+
+
+class LocalReadInput(PublicToolInput):
+    """Public input model for LocalRead."""
+
+    action: Literal["read"]
+    path: str = Field(
+        min_length=1, max_length=MAX_LOCAL_PATH_CHARS, description="開放名稱/相對路徑"
+    )
+
+
+class LocalCreateFolderInput(PublicToolInput):
+    """Public input model for LocalCreateFolder."""
+
+    action: Literal["create_folder"]
+    path: str = Field(
+        min_length=1, max_length=MAX_LOCAL_PATH_CHARS, description="開放名稱/相對路徑"
+    )
+
+
+class LocalCreateFileInput(PublicToolInput):
+    """Public input model for LocalCreateFile."""
+
+    action: Literal["create_file"]
+    path: str = Field(
+        min_length=1,
+        max_length=MAX_LOCAL_PATH_CHARS,
+        description="開放名稱/相對路徑；只能是 txt、md、log",
+    )
+    content: str = Field(max_length=MAX_LOCAL_FILE_CHARS, description="檔案內容")
+
+
+class LocalProposeItem(PublicToolInput):
+    """Public input model for LocalProposeItem."""
+
+    op: Literal["move", "delete"] = Field(description="move 也用來改名")
+    path: str = Field(
+        min_length=1, max_length=MAX_LOCAL_PATH_CHARS, description="開放名稱/相對路徑"
+    )
+    to: str | None = Field(
+        None,
+        min_length=1,
+        max_length=MAX_LOCAL_PATH_CHARS,
+        description="move 的目的地（開放名稱/相對路徑）",
+    )
+
+    @model_validator(mode="after")
+    def _destination_matches_op(self) -> LocalProposeItem:
+        if (self.op == "move") != (self.to is not None):
+            msg = "move needs to; delete must not have it"
+            raise ValueError(msg)
+        return self
+
+
+class LocalProposeInput(PublicToolInput):
+    """Public input model for LocalPropose."""
+
+    action: Literal["propose"]
+    items: list[LocalProposeItem] = Field(
+        min_length=1,
+        max_length=MAX_LOCAL_PROPOSE_ITEMS,
+        description="完整的搬移、改名、刪除清單；使用者在電腦上看完按核准才會動",
+    )
+    reason: str = Field(
+        min_length=1, max_length=MAX_LOCAL_REASON_CHARS, description="一句話說明為什麼要這樣做"
+    )
+
+
+LOCAL_FILES_ACTION_CONTRACTS = {
+    "list": LocalListInput,
+    "read": LocalReadInput,
+    "create_folder": LocalCreateFolderInput,
+    "create_file": LocalCreateFileInput,
+    "propose": LocalProposeInput,
+}
+
+
 PUBLIC_TOOL_CONTRACTS = {
     "memory_tools": MEMORY_ACTION_CONTRACTS,
     "mission_tools": MISSION_ACTION_CONTRACTS,
@@ -268,6 +359,7 @@ PUBLIC_TOOL_CONTRACTS = {
     "ide_open_diff": IdeDiffInput,
     "edit_soul": SOUL_ACTION_CONTRACTS,
     "dispatch_subagent_group": SubagentGroupInput,
+    "local_files": LOCAL_FILES_ACTION_CONTRACTS,
 }
 
 

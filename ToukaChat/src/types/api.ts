@@ -6547,6 +6547,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-bridge/pairing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Pairing
+         * @description 產生配對碼；已經有配對時舊的立刻失效。
+         */
+        post: operations["create_pairing_v1_local_bridge_pairing_post"];
+        /**
+         * Delete Pairing
+         * @description 解除配對，小幫手馬上斷開。
+         */
+        delete: operations["delete_pairing_v1_local_bridge_pairing_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-bridge/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Helper Status
+         * @description 設定頁顯示的狀態。
+         */
+        get: operations["helper_status_v1_local_bridge_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-bridge/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll
+         * @description 小幫手來拿下一件工作。
+         */
+        post: operations["poll_v1_local_bridge_poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-bridge/jobs/{job_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Job
+         * @description 人按了核准，問 Touka 還要不要做。不是 200 小幫手就不動手。
+         */
+        post: operations["confirm_job_v1_local_bridge_jobs__job_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-bridge/jobs/{job_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Result
+         * @description 小幫手回報結果。
+         */
+        post: operations["submit_result_v1_local_bridge_jobs__job_id__result_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/pairing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Pairing
+         * @description 產生配對碼；已經有配對時舊的立刻失效。
+         */
+        post: operations["create_pairing_local_bridge_pairing_post"];
+        /**
+         * Delete Pairing
+         * @description 解除配對，小幫手馬上斷開。
+         */
+        delete: operations["delete_pairing_local_bridge_pairing_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Helper Status
+         * @description 設定頁顯示的狀態。
+         */
+        get: operations["helper_status_local_bridge_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll
+         * @description 小幫手來拿下一件工作。
+         */
+        post: operations["poll_local_bridge_poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/jobs/{job_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Job
+         * @description 人按了核准，問 Touka 還要不要做。不是 200 小幫手就不動手。
+         */
+        post: operations["confirm_job_local_bridge_jobs__job_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/jobs/{job_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Result
+         * @description 小幫手回報結果。
+         */
+        post: operations["submit_result_local_bridge_jobs__job_id__result_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tools/approve/{exec_id}": {
         parameters: {
             query?: never;
@@ -8544,6 +8752,98 @@ export interface components {
             json_content: {
                 [key: string]: unknown;
             }[];
+        };
+        /**
+         * LocalHelperStatus
+         * @description 設定頁顯示的狀態。
+         */
+        LocalHelperStatus: {
+            /** Paired */
+            paired: boolean;
+            /** Online */
+            online: boolean;
+            /** Helper Version */
+            helper_version?: string | null;
+        };
+        /**
+         * LocalJob
+         * @description 交給小幫手的一件工作。``decide_within`` 是小幫手自己要在幾秒內決定。
+         */
+        LocalJob: {
+            /** Id */
+            id: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "list" | "read" | "create_folder" | "create_file" | "propose";
+            /** Args */
+            args: {
+                [key: string]: unknown;
+            };
+            /** Requester */
+            requester: string;
+            /** Decide Within */
+            decide_within: number;
+        };
+        /**
+         * LocalJobAck
+         * @description 確認收到。
+         */
+        LocalJobAck: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+        };
+        /**
+         * LocalJobResult
+         * @description 小幫手回報的結果。``refused`` 是規則不讓做或人拒絕，``error`` 是做的時候出錯。
+         */
+        LocalJobResult: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "refused" | "error";
+            /** Code */
+            code?: string | null;
+            /** Message */
+            message?: string | null;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * LocalPairingCreated
+         * @description 配對碼，只回這一次，Touka 不留明文。
+         */
+        LocalPairingCreated: {
+            /** Code */
+            code: string;
+        };
+        /**
+         * LocalPollRequest
+         * @description 小幫手來要下一件工作時帶的資料。
+         */
+        LocalPollRequest: {
+            /** Protocol */
+            protocol: number;
+            /** Helper Version */
+            helper_version: string;
+        };
+        /**
+         * LocalPollResponse
+         * @description 下一件工作、已經不用做的工作編號、主機上已經掛進容器的路徑。
+         */
+        LocalPollResponse: {
+            job?: components["schemas"]["LocalJob"] | null;
+            /** Cancelled */
+            cancelled?: string[];
+            /** Host Mount Roots */
+            host_mount_roots?: string[];
         };
         /**
          * LoginRequest
@@ -22020,6 +22320,336 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AskUserAnswerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_pairing_v1_local_bridge_pairing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalPairingCreated"];
+                };
+            };
+        };
+    };
+    delete_pairing_v1_local_bridge_pairing_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
+                };
+            };
+        };
+    };
+    helper_status_v1_local_bridge_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalHelperStatus"];
+                };
+            };
+        };
+    };
+    poll_v1_local_bridge_poll_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalPollRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalPollResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_job_v1_local_bridge_jobs__job_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_result_v1_local_bridge_jobs__job_id__result_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalJobResult"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_pairing_local_bridge_pairing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalPairingCreated"];
+                };
+            };
+        };
+    };
+    delete_pairing_local_bridge_pairing_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
+                };
+            };
+        };
+    };
+    helper_status_local_bridge_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalHelperStatus"];
+                };
+            };
+        };
+    };
+    poll_local_bridge_poll_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalPollRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalPollResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_job_local_bridge_jobs__job_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_result_local_bridge_jobs__job_id__result_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-touka-local-token"?: string;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalJobResult"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalJobAck"];
                 };
             };
             /** @description Validation Error */

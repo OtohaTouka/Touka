@@ -85,6 +85,7 @@ from .routers.group_settings import router as group_settings_router
 from .routers.heartbeat import router as heartbeat_router
 from .routers.hooks import router as hooks_router
 from .routers.identity import router as identity_router
+from .routers.local_bridge import router as local_bridge_router
 from .routers.mcp import MCP_MANUAL_START_STARTER
 from .routers.mcp import router as mcp_router
 from .routers.mcp_oauth import router as mcp_oauth_router
@@ -748,6 +749,7 @@ CORE_ROUTERS = [
     setup_router,
     feedback_router,
     ask_user_router,
+    local_bridge_router,
     tools_approval_router,
 ]
 

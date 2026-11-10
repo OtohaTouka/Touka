@@ -706,5 +706,29 @@
     "status": 422,
     "msg": "Hook 的程式或腳本放在代理人寫得到的地方，或路徑不合規則",
     "i18n": "error.hooks.path_rejected"
+  },
+  "LOCAL_HELPER_INVALID_TOKEN": {
+    "id": 7001,
+    "status": 401,
+    "msg": "小幫手的配對已失效，請重新配對",
+    "i18n": "error.local_helper.invalid_token"
+  },
+  "LOCAL_HELPER_PROTOCOL_MISMATCH": {
+    "id": 7002,
+    "status": 409,
+    "msg": "小幫手的版本和 Touka 不相容，請重新安裝小幫手",
+    "i18n": "error.local_helper.protocol_mismatch"
+  },
+  "LOCAL_HELPER_JOB_GONE": {
+    "id": 7003,
+    "status": 410,
+    "msg": "這件工作已經不存在",
+    "i18n": "error.local_helper.job_gone"
+  },
+  "LOCAL_HELPER_RESULT_TOO_LARGE": {
+    "id": 7004,
+    "status": 413,
+    "msg": "小幫手回傳的結果太大",
+    "i18n": "error.local_helper.result_too_large"
   }
 }

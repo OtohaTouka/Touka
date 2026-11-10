@@ -45,6 +45,7 @@ from .evolution import (
     write_mcp_implementation as write_mcp_implementation,
 )
 from .interaction import ask_user as ask_user
+from .local_helper import local_files as local_files
 from .memory import memory_tools as memory_tools
 from .research import research as research
 from .schemas import (
@@ -100,6 +101,7 @@ tool_registry = {
     "agent_control": agent_control,
     "research": research,
     "ask_user": ask_user,
+    "local_files": local_files,
     "vault_tools": vault_tools,
     "project_tools": project_tools,
     "memory_tools": memory_tools,

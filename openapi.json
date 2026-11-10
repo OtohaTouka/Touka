@@ -15816,6 +15816,504 @@
         }
       }
     },
+    "/v1/local-bridge/pairing": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Create Pairing",
+        "description": "產生配對碼；已經有配對時舊的立刻失效。",
+        "operationId": "create_pairing_v1_local_bridge_pairing_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalPairingCreated"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Delete Pairing",
+        "description": "解除配對，小幫手馬上斷開。",
+        "operationId": "delete_pairing_v1_local_bridge_pairing_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/local-bridge/status": {
+      "get": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Helper Status",
+        "description": "設定頁顯示的狀態。",
+        "operationId": "helper_status_v1_local_bridge_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalHelperStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/local-bridge/poll": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Poll",
+        "description": "小幫手來拿下一件工作。",
+        "operationId": "poll_v1_local_bridge_poll_post",
+        "parameters": [
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalPollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/local-bridge/jobs/{job_id}/confirm": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Confirm Job",
+        "description": "人按了核准，問 Touka 還要不要做。不是 200 小幫手就不動手。",
+        "operationId": "confirm_job_v1_local_bridge_jobs__job_id__confirm_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/local-bridge/jobs/{job_id}/result": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Submit Result",
+        "description": "小幫手回報結果。",
+        "operationId": "submit_result_v1_local_bridge_jobs__job_id__result_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalJobResult"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-bridge/pairing": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Create Pairing",
+        "description": "產生配對碼；已經有配對時舊的立刻失效。",
+        "operationId": "create_pairing_local_bridge_pairing_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalPairingCreated"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Delete Pairing",
+        "description": "解除配對，小幫手馬上斷開。",
+        "operationId": "delete_pairing_local_bridge_pairing_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/local-bridge/status": {
+      "get": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Helper Status",
+        "description": "設定頁顯示的狀態。",
+        "operationId": "helper_status_local_bridge_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalHelperStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/local-bridge/poll": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Poll",
+        "description": "小幫手來拿下一件工作。",
+        "operationId": "poll_local_bridge_poll_post",
+        "parameters": [
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalPollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-bridge/jobs/{job_id}/confirm": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Confirm Job",
+        "description": "人按了核准，問 Touka 還要不要做。不是 200 小幫手就不動手。",
+        "operationId": "confirm_job_local_bridge_jobs__job_id__confirm_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-bridge/jobs/{job_id}/result": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Submit Result",
+        "description": "小幫手回報結果。",
+        "operationId": "submit_result_local_bridge_jobs__job_id__result_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "x-touka-local-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Touka-Local-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalJobResult"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalJobAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tools/approve/{exec_id}": {
       "post": {
         "tags": [
@@ -20174,6 +20672,219 @@
         ],
         "title": "LegacyExportRequest",
         "description": "舊式對話匯出請求模型。"
+      },
+      "LocalHelperStatus": {
+        "properties": {
+          "paired": {
+            "type": "boolean",
+            "title": "Paired"
+          },
+          "online": {
+            "type": "boolean",
+            "title": "Online"
+          },
+          "helper_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Helper Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "paired",
+          "online"
+        ],
+        "title": "LocalHelperStatus",
+        "description": "設定頁顯示的狀態。"
+      },
+      "LocalJob": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "read",
+              "create_folder",
+              "create_file",
+              "propose"
+            ],
+            "title": "Action"
+          },
+          "args": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Args"
+          },
+          "requester": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Requester"
+          },
+          "decide_within": {
+            "type": "number",
+            "title": "Decide Within"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "args",
+          "requester",
+          "decide_within"
+        ],
+        "title": "LocalJob",
+        "description": "交給小幫手的一件工作。``decide_within`` 是小幫手自己要在幾秒內決定。"
+      },
+      "LocalJobAck": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "LocalJobAck",
+        "description": "確認收到。"
+      },
+      "LocalJobResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "refused",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LocalJobResult",
+        "description": "小幫手回報的結果。``refused`` 是規則不讓做或人拒絕，``error`` 是做的時候出錯。"
+      },
+      "LocalPairingCreated": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "LocalPairingCreated",
+        "description": "配對碼，只回這一次，Touka 不留明文。"
+      },
+      "LocalPollRequest": {
+        "properties": {
+          "protocol": {
+            "type": "integer",
+            "title": "Protocol"
+          },
+          "helper_version": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Helper Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "protocol",
+          "helper_version"
+        ],
+        "title": "LocalPollRequest",
+        "description": "小幫手來要下一件工作時帶的資料。"
+      },
+      "LocalPollResponse": {
+        "properties": {
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancelled": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cancelled"
+          },
+          "host_mount_roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Host Mount Roots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "LocalPollResponse",
+        "description": "下一件工作、已經不用做的工作編號、主機上已經掛進容器的路徑。"
       },
       "LoginRequest": {
         "properties": {

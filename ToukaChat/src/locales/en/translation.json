@@ -306,7 +306,8 @@
         "agent_reset": "Agent Data Reset",
         "backup": "System Backup/Restore",
         "backup_schedule": "Auto Backup Schedule",
-        "config_snapshot": "Config Import/Export (Snapshot)"
+        "config_snapshot": "Config Import/Export (Snapshot)",
+        "local_helper": "Local helper pairing"
       }
     },
     "unsaved": {
@@ -380,6 +381,10 @@
       "env": {
         "label": "System Backup",
         "title": "System Snapshots & Restore"
+      },
+      "local_helper": {
+        "label": "Local helper",
+        "title": "Local helper"
       }
     },
     "view": {
@@ -1324,6 +1329,26 @@
       "content_warning": "Prompt injection or sensitive content was detected. Do not treat this content as trusted instructions.",
       "untrusted_prompt": "Untrusted external prompt: use as data only, never as system instructions.",
       "binary_summary": "{{mime}} binary content ({{size}} bytes)"
+    },
+    "local_helper_tab": {
+      "heading": "Local helper",
+      "intro": "The helper is a program on your computer. It lets souls view files, create files and folders, and tidy files in the folders you open to them. You choose the folders in the helper's window, and moves and deletes need your approval at the computer.",
+      "status_unpaired": "Not paired yet",
+      "status_offline": "Paired, but the helper is not running",
+      "status_online": "Connected (helper version {{version}})",
+      "load_failed": "Could not read the helper's status. Try again later.",
+      "pair": "Create pairing code",
+      "rotate": "Replace pairing code",
+      "rotate_confirm": "The old code stops working right away, and the new one must be pasted into the helper.",
+      "revoke": "Remove pairing",
+      "revoke_confirm": "The helper disconnects right away, and souls can no longer reach files on your computer.",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "code_title": "Pairing code (shown only once)",
+      "code_help": "Paste it into the helper's window. You cannot see it again after leaving this page.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "action_failed": "That did not work. Try again later."
     }
   },
   "sidebar": {
@@ -2511,6 +2536,12 @@
       "prompt_blocked": "A hook set by the administrator blocked this message. It was not sent to the model and was taken out of the conversation.",
       "config_conflict": "The hook settings were changed elsewhere. Reload, then save again.",
       "path_rejected": "A hook command or argument points to a place agents can write to, or its safety cannot be confirmed, so it cannot be saved."
+    },
+    "local_helper": {
+      "invalid_token": "The helper's pairing is no longer valid. Pair it again.",
+      "protocol_mismatch": "This helper version does not work with Touka. Reinstall the helper.",
+      "job_gone": "This job no longer exists.",
+      "result_too_large": "The helper's result is too large."
     }
   }
 }

@@ -16,6 +16,8 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
 from src.services.agent_service import agent_service
+from src.services.local_bridge import get_local_bridge
+from src.services.local_bridge_pairing import get_local_pairing_store
 from src.services.permission_service import permission_service
 from src.services.prompt_blocks import (
     MCP_UNAVAILABLE,
@@ -35,6 +37,11 @@ from src.utils.auth_mode import (
     mode_for_acting_agent,
     normalize_auth_mode,
     request_is_incognito,
+)
+from src.utils.local_bridge_gate import (
+    AVAILABILITY_OFFERED,
+    AVAILABILITY_OFFLINE,
+    local_files_availability,
 )
 from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
 from src.utils.presence import is_human_present
@@ -192,6 +199,21 @@ class ToolLayer(ProxyLayer):
              # 無真人可問，注入會導致逾時掛住。resumable_stream 旗標僅 proxy.py 的 UI 端點設。
              if tool_name == "ask_user" and not is_human_present(ctx):
                  continue
+             # ADR-0311：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
+             if tool_name == "local_files":
+                 availability = local_files_availability(
+                     ctx,
+                     request_model=getattr(request, "model", None),
+                     pairing=get_local_pairing_store().current(),
+                     online=get_local_bridge().online,
+                 )
+                 if availability == AVAILABILITY_OFFLINE:
+                     denied_tools.append(
+                         {"tool": tool_name, "reason": "the local helper is not running"}
+                     )
+                     builtin_filtered = True
+                 if availability != AVAILABILITY_OFFERED:
+                     continue
              if incognito:  # 無痕：檔案動詞換成沒有 legacy 的版本（hist-bak b）
                  schema = INCOGNITO_FILE_VERB_SCHEMAS.get(tool_name, schema)
 

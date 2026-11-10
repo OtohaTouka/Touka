@@ -19,7 +19,12 @@ from src.config import get_config_dir
 from src.models.identity import SYSTEM_AGENT_IDS, AgentIdentity, IdentityMapConfig
 from src.models.permissions import PermissionsConfig, RoleConfig
 from src.models.policy import PolicyContext
-from src.models.safety import AuthPoliciesConfig, SafetyRules, ToolRiskConfig
+from src.models.safety import (
+    AuthPoliciesConfig,
+    SafetyRules,
+    ToolRiskConfig,
+    with_builtin_tool_risk,
+)
 from src.services.audit_service import audit_service
 from src.services.isolation.status import isolation_monitor
 from src.services.resource_manager import resource_manager
@@ -352,7 +357,7 @@ class PermissionService:
                 return
 
             data = json.loads(raw_text)
-            self.policies = AuthPoliciesConfig.model_validate(data)
+            self.policies = with_builtin_tool_risk(AuthPoliciesConfig.model_validate(data))
         except Exception as exc:
             if self.policies is None and isinstance(exc, OSError):
                 # 檔案在卻讀不到、又沒有上一份可用的（啟動）：不知道檔案擋了什麼，不拿預設或
