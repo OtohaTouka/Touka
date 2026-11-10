@@ -6,6 +6,9 @@
 # Chat 有自己的映像與 build context，不進 Proxy 映像。
 ToukaChat/
 
+# 本機小幫手跑在使用者電腦上，不進映像（ADR-0311）。
+ToukaLocal/
+
 # --- VCS / IDE / 快取 ---
 .git
 .gitignore

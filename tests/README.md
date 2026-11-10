@@ -163,6 +163,16 @@ tests/
 | `lint/test_e2e_real_contract.py` | 實際驗證環境（ADR-0295）的不變條件：workflow 不用 secrets、權限唯讀、Action 釘 commit；`tests/e2e/serve_real_backend.py` 在匯入產品程式之前啟用沙盒、不關網路防護、不會被 pytest 或 smoke runner 撿走，並在開始服務前裝好 Windows 連線收尾修正。 |
 | `unit/test_e2e_proactor_close_fix.py` | 實際驗證後端的 Windows 連線收尾修正（ADR-0295）：對方重置連線時伺服器等得完、socket 真的關了；正常關閉照舊、其他錯誤不吞、子行程管線不動、沒關的連線照舊要等。用真的 asyncio 類別模擬，Linux 也跑得到；未裝修正時的那條釘住缺陷還在，Python 修好時會變紅。 |
 | `unit/test_ask_user_stop.py` | ADR-0308：提問沒等到回答時這一輪結束、不再呼叫模型；空白送出算沒回答；固定文字的內容與容錯 |
+| `unit/local_helper/test_local_helper_paths_rules.py` | ADR-0311：小幫手的路徑與檔名規則，每條拒絕規則一個案例 |
+| `unit/local_helper/test_local_helper_grants.py` | ADR-0311：哪些資料夾能開放、重疊與掛載根、每次使用重新核對 |
+| `unit/local_helper/test_local_helper_operations.py` | ADR-0311：固定動作、核准清單與快照、執行前重驗、紀錄與復原 |
+| `unit/local_helper/test_local_helper_connection.py` | ADR-0311：協議未知欄位拒絕、只連本機、不跟隨轉址 |
+| `unit/local_helper/test_local_helper_approval_view.py` | ADR-0311：一次一個核准視窗、冷卻、自動拒絕、畫面文字消毒 |
+| `unit/local_helper/test_local_helper_service.py` | ADR-0311：工作分派、按核准才確認、確認成功才動手、取消 |
+| `unit/local_helper/test_local_helper_install.py` | ADR-0311：Windows 呼叫的純函式、設定檔、安裝規則 |
+| `unit/local_helper/test_local_helper_real_windows.py` | ADR-0311：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
+| `unit/test_local_protocol_parity.py` | ADR-0311：小幫手和 Touka 兩份協議相同 |
+| `lint/test_touka_local_boundary.py` | ADR-0311：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
 | `integration/test_local_bridge_router.py` | ADR-0311：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
 | `unit/test_local_files_tool.py` | ADR-0311：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |
 | `unit/test_local_files_turn_cancel.py` | ADR-0311：走真的工具迴圈，按停止時小幫手上的工作跟著取消，其他工具不受影響 |

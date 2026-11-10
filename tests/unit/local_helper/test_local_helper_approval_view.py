@@ -1,0 +1,286 @@
+"""核准關卡與畫面文字（ADR-0311）：一次一個、冷卻、自動拒絕、核准鍵延遲、顯示消毒。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import pytest
+from touka_local.approval import (
+    APPROVE_DELAY_SECONDS,
+    MAX_DECISION_SECONDS,
+    REJECT_COOLDOWN_SECONDS,
+    ApprovalGate,
+)
+from touka_local.errors import Refused
+from touka_local.view import (
+    approval_counts,
+    approval_rows,
+    approval_title,
+    clean_reason,
+    connection_text,
+    display_safe,
+    human_size,
+    refusal_text,
+    report_text,
+)
+
+
+@dataclass(frozen=True)
+class _Plan:
+    digest: str = "d" * 64
+
+
+@pytest.fixture
+def gate(clock) -> ApprovalGate:
+    return ApprovalGate(clock=clock)
+
+
+def _code(callable_, *args, **kwargs) -> str:
+    with pytest.raises(Refused) as caught:
+        callable_(*args, **kwargs)
+    return caught.value.code
+
+
+def test_offer_then_approve(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540, requester="soul")
+    current = gate.current
+    assert current is not None
+    assert (current.job_id, current.plan, current.requester) == ("j1", plan, "soul")
+    clock.now += APPROVE_DELAY_SECONDS
+    assert gate.approve("j1", plan.digest) is plan
+    assert gate.current is None
+
+
+def test_second_window_is_refused(gate: ApprovalGate) -> None:
+    gate.offer("j1", _Plan(), 540)
+    assert _code(gate.offer, "j2", _Plan(), 540) == "approval_busy"
+    assert gate.current.job_id == "j1"  # type: ignore[union-attr]
+
+
+def test_approve_is_delayed(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    clock.now += APPROVE_DELAY_SECONDS - 0.01
+    assert _code(gate.approve, "j1", plan.digest) == "too_soon"
+    assert gate.current is not None
+
+
+def test_approve_binds_to_digest(gate: ApprovalGate, clock) -> None:
+    gate.offer("j1", _Plan(), 540)
+    clock.now += APPROVE_DELAY_SECONDS
+    assert _code(gate.approve, "j1", "e" * 64) == "changed"
+    assert gate.current is not None
+
+
+def test_approve_binds_to_job(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    clock.now += APPROVE_DELAY_SECONDS
+    assert _code(gate.approve, "j2", plan.digest) == "no_pending"
+
+
+def test_approve_twice(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    clock.now += APPROVE_DELAY_SECONDS
+    gate.approve("j1", plan.digest)
+    assert _code(gate.approve, "j1", plan.digest) == "no_pending"
+
+
+def test_cannot_approve_after_deadline_even_before_tick(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    clock.now += 540
+    assert _code(gate.approve, "j1", plan.digest) == "expired"
+
+
+def test_reject_starts_cooldown(gate: ApprovalGate, clock) -> None:
+    gate.offer("j1", _Plan(), 540)
+    assert gate.reject("j1") is True
+    assert gate.current is None
+    clock.now += REJECT_COOLDOWN_SECONDS - 0.01
+    assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
+    clock.now += 0.01
+    gate.offer("j2", _Plan(), 540)
+
+
+def test_reject_unknown_job(gate: ApprovalGate) -> None:
+    assert gate.reject("nope") is False
+
+
+def test_auto_reject_at_limit(gate: ApprovalGate, clock) -> None:
+    gate.offer("j1", _Plan(), 9999)
+    clock.now += MAX_DECISION_SECONDS - 0.01
+    assert gate.expire_due() is None
+    clock.now += 0.01
+    expired = gate.expire_due()
+    assert expired is not None and expired.job_id == "j1"
+    assert gate.current is None
+    assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
+
+
+def test_shorter_limit_from_touka_is_respected(gate: ApprovalGate, clock) -> None:
+    gate.offer("j1", _Plan(), 10)
+    clock.now += 10
+    assert gate.expire_due() is not None
+
+
+def test_limit_is_540_seconds() -> None:
+    assert MAX_DECISION_SECONDS == 540
+
+
+def test_cancel_closes_without_cooldown(gate: ApprovalGate) -> None:
+    gate.offer("j1", _Plan(), 540)
+    assert gate.cancel("j1") is True
+    assert gate.cancel("j1") is False
+    gate.offer("j2", _Plan(), 540)
+
+
+# --- 顯示 ---
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["a‮b", "a⁦b", "a‏b", "a\x01b", "a\nb", "a\tb", "a\x7fb", "a b", "a﻿b"],
+)
+def test_display_safe_makes_hidden_characters_visible(text: str) -> None:
+    shown = display_safe(text)
+    assert len(shown) == len(text)
+    assert shown[1] != text[1]
+    assert shown[0] == "a" and shown[2] == "b"
+
+
+def test_display_safe_keeps_ordinary_text() -> None:
+    assert display_safe("報告 (final)_v2.txt") == "報告 (final)_v2.txt"
+
+
+def test_clean_reason() -> None:
+    assert clean_reason("整理\n  下載\t資料夾") == "整理 下載 資料夾"
+    assert clean_reason("  ") == ""
+    assert len(clean_reason("字" * 400)) == 300
+    assert "‮" not in clean_reason("a‮b")
+
+
+@dataclass(frozen=True)
+class _Item:
+    op: str
+    source_text: str
+    destination_text: str | None = None
+    size: int = 0
+    is_folder: bool = False
+    contained: int = 0
+    unusual: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ViewPlan:
+    items: tuple[_Item, ...]
+    reason: str = ""
+
+
+def _view_plan() -> _ViewPlan:
+    return _ViewPlan(
+        items=(
+            _Item("move", "Open/a‮.txt", "Open/b.txt", size=2048),
+            _Item("delete", "Open/run.exe", size=1, unusual=("executable",)),
+            _Item(
+                "delete",
+                "Open/big",
+                size=5,
+                is_folder=True,
+                contained=150,
+                unusual=("many_items", "hidden"),
+            ),
+        )
+    )
+
+
+def test_rows() -> None:
+    rows = approval_rows(_view_plan())
+    assert [r.action for r in rows] == ["搬移", "丟到回收桶", "丟到回收桶"]
+    assert "‮" not in rows[0].source
+    assert rows[0].destination == "Open/b.txt"
+    assert rows[1].destination == ""
+    assert rows[0].detail == "2.0 KB"
+    assert rows[2].detail == "資料夾，150 項，5 B"
+    assert rows[0].marks == ""
+    assert rows[1].marks == "可執行檔"
+    assert rows[2].marks == "項目很多、隱藏檔"
+
+
+def test_counts_and_title() -> None:
+    counts = approval_counts(_view_plan())
+    assert (counts.moves, counts.deletes, counts.unusual) == (1, 2, 2)
+    assert approval_title(counts) == "搬移 1 項、丟到回收桶 2 項"
+
+
+@pytest.mark.parametrize(
+    ("size", "text"),
+    [
+        (0, "0 B"),
+        (1023, "1023 B"),
+        (1024, "1.0 KB"),
+        (1536 * 1024, "1.5 MB"),
+        (3 * 1024**3, "3.0 GB"),
+    ],
+)
+def test_human_size(size: int, text: str) -> None:
+    assert human_size(size) == text
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "bad_path",
+        "protected",
+        "link",
+        "git_project",
+        "drive_type",
+        "overlap",
+        "blocked",
+        "system_folder",
+        "not_found",
+        "not_a_folder",
+        "bad_port",
+        "bad_token",
+        "approval_busy",
+        "too_soon",
+        "expired",
+        "changed",
+        "no_pending",
+        "busy",
+    ],
+)
+def test_refusal_text_is_human(code: str) -> None:
+    assert refusal_text(code) != refusal_text("something_unknown")
+
+
+def test_report_text() -> None:
+    report = {
+        "items": [
+            {"path": "a", "status": "done"},
+            {"path": "b", "status": "done"},
+            {"path": "c", "status": "changed"},
+            {"path": "d", "status": "failed"},
+            {"path": "e", "status": "aborted"},
+            {"path": "f", "status": "not_done"},
+        ]
+    }
+    assert (
+        report_text(report) == "完成 2 項，檔案有變動跳過 1 項，失敗 1 項，被中止 1 項，沒做 1 項"
+    )
+    assert report_text({"items": [{"path": "a", "status": "done"}]}) == "完成 1 項"
+
+
+@pytest.mark.parametrize(
+    ("state", "text"),
+    [
+        ("online", "已連線"),
+        ("offline", "連不上 Touka"),
+        ("unpaired", "尚未配對"),
+        ("upgrade_needed", "版本不符，請重新安裝小幫手"),
+    ],
+)
+def test_connection_text(state: str, text: str) -> None:
+    assert connection_text(state) == text

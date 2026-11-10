@@ -188,5 +188,6 @@ C2-3 已把 MCP 伺服器與創建試跑接上隔離；決策見 ADR-0275。從�
 - [ToukaHeartbeat](ToukaHeartbeat/README.md)：排程服務。
 - [ToukaChat](ToukaChat/README.md)：Web UI。
 - [ToukaIDE](ToukaIDE/README.md)：VS Code 擴充，不是 runtime image。
+- [ToukaLocal](ToukaLocal/README.md)：裝在使用者電腦上的小幫手，讓靈魂經固定動作碰你開放的資料夾（只有 Windows）。Touka 升級時如果協議改版，小幫手要重新安裝。
 
 參考：[Compose up](https://docs.docker.com/reference/cli/docker/compose/up/)、[env_file 與版本前提](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)。

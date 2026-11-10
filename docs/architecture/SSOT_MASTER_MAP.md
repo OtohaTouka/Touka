@@ -623,6 +623,8 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 ### 3-K. 資訊安全守衛層：本機小幫手（ADR-0311）
 
+協議的準在 `ToukaProxy/src/models/local_bridge.py`；小幫手不能載入 Touka 的程式，所以 `ToukaLocal/touka_local/protocol.py` 另存一份，`tests/unit/test_local_protocol_parity.py` 核對兩邊相同。
+
 | 項目 | SSOT |
 |---|---|
 | 通道的資料合約 | `ToukaProxy/src/models/local_bridge.py` |

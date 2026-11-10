@@ -36,6 +36,7 @@ SCAN_DIRS = [
     "ToukaMemory",
     "ToukaHeartbeat",
     "ToukaDispatch",
+    "ToukaLocal",
     "scripts",
 ]
 

@@ -18,3 +18,6 @@
 # ADR-0069 Phase B — Judge Protocol 介面參數（由 Phase D 的 ModelJudge 實作使用；
 # 本階段僅 NoopJudge 哨兵，故 vulture 於介面宣告處誤判 artifact_md 未用）。
 artifact_md
+
+# ADR-0311：urllib 處理轉址時呼叫的覆寫方法，程式裡沒有人直接呼叫。
+redirect_request

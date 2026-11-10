@@ -1,7 +1,7 @@
 # ruff: noqa: T201, S603, S607
 """Dead Code Guard — 偵測 Python（vulture）與 TypeScript（knip）的未使用代碼。
 
-Python：python -m vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch scripts/vulture_whitelist.py --min-confidence 80
+Python：python -m vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch ToukaLocal scripts/vulture_whitelist.py --min-confidence 80
     （未用匯入、到不了的程式；未用函式的信心值只有 60，不會被這道報出來）
 Python：python scripts/lint_ratchet.py vulture（未用的函式、方法、類別不得增加，ADR-0298）
 TypeScript：npm run guard:prune（knip --reporter compact）
@@ -44,7 +44,7 @@ def main() -> None:
     print("=" * 60)
 
     vulture_cmd = (
-        "python -m vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch "
+        "python -m vulture ToukaProxy/src ToukaMemory/src ToukaHeartbeat ToukaDispatch ToukaLocal "
         "scripts/vulture_whitelist.py --min-confidence 80"
     )
     ratchet_cmd = "python scripts/lint_ratchet.py vulture"

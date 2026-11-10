@@ -25,6 +25,7 @@
 | [ide](docs/handover/ide.md) | `ToukaIDE/**`：VS Code 擴充 |
 | [heartbeat](docs/handover/heartbeat.md) | `ToukaHeartbeat/**`：排程與喚醒 |
 | [dispatch](docs/handover/dispatch.md) | `ToukaDispatch/**`：對外派工 |
+| [local](docs/handover/local.md) | `ToukaLocal/**`：使用者電腦上的小幫手 |
 | [isolation](docs/handover/isolation.md) | 隔離執行、MCP 來源、代理人資料夾不跟隨連結（ADR-0272、0275、0293） |
 | [deploy](docs/handover/deploy.md) | Dockerfile、compose、發行；更新或升級前要做的事 |
 | [tests](docs/handover/tests.md) | `tests/**`、`scripts/**`、評估工具與 CI |

@@ -30,6 +30,7 @@ PRODUCT_SOURCE_ROOTS = (
     "ToukaMemory/src",
     "ToukaHeartbeat",
     "ToukaDispatch",
+    "ToukaLocal",
 )
 IDE_CI_COMMANDS = (
     "npm run install:controlled",

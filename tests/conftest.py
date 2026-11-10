@@ -29,6 +29,7 @@ PROXY_DIR = PROJECT_ROOT / "ToukaProxy"
 MEMORY_SRC_DIR = PROJECT_ROOT / "ToukaMemory" / "src"
 HEARTBEAT_DIR = PROJECT_ROOT / "ToukaHeartbeat"
 DISPATCH_DIR = PROJECT_ROOT / "ToukaDispatch"
+LOCAL_HELPER_DIR = PROJECT_ROOT / "ToukaLocal"
 
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -41,6 +42,8 @@ if str(HEARTBEAT_DIR) not in sys.path:
 # ToukaDispatch appended (lower priority to avoid config.py naming collision with heartbeat)
 if str(DISPATCH_DIR) not in sys.path:
     sys.path.append(str(DISPATCH_DIR))
+if str(LOCAL_HELPER_DIR) not in sys.path:
+    sys.path.append(str(LOCAL_HELPER_DIR))
 
 # --- 2. 全域沙盒化保護 (SSOT: 資料主權隔離) ---
 # 必須先於任何 src import 建立；空白 sandbox env file 與後續 credential 清空會隔離
