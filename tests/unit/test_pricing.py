@@ -8,6 +8,9 @@ rate_source 來源標記、JSON _default 覆蓋。
 """
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
+
 import pytest
 from src.services.providers import pricing
 from src.services.providers.pricing import Rate, get_pricing, resolve
@@ -115,8 +118,8 @@ def test_builtin_specific_rates(monkeypatch):
 def test_builtin_deepseek_v4_names(monkeypatch):
     """DeepSeek 2026 新名 v4-flash/v4-pro 有對應費率（最長匹配勝過泛用 deepseek）。"""
     _patch_override(monkeypatch, None)
-    assert get_pricing("deepseek-v4-flash").input == 0.27
-    assert get_pricing("deepseek-v4-pro").input == 0.55
+    assert get_pricing("deepseek-v4-flash").input == 0.30
+    assert get_pricing("deepseek-v4-pro").input == 1.32
 
 
 def test_builtin_source_label(monkeypatch):
@@ -135,13 +138,13 @@ def test_anthropic_cache_charged_separately(monkeypatch):
     assert sonnet.cost_usd(1_000_000, 0, cache_read_tokens=1_000_000) == 3.30
 
 
-def test_gemini_cache_billed_at_input_rate(monkeypatch):
-    """Gemini 快取折扣未填（None）→ 快取讀照 input 價；prompt 已扣快取，不重複（ADR-0244）。"""
+def test_gemini_cache_read_has_its_own_price(monkeypatch):
+    """官方有列快取價就照列（ADR-0311）；prompt 已扣快取，不重複（ADR-0244）。"""
     _patch_override(monkeypatch, None)
     flash = get_pricing("gemini-2.5-flash")
-    assert flash.cache_read is None
-    # 0.5M 未快取 + 0.5M 快取讀，都照 input $0.30／1M → 0.15 + 0.15
-    assert flash.cost_usd(500_000, 0, cache_read_tokens=500_000) == 0.3
+    assert flash.cache_read == 0.03
+    # 0.5M 未快取 × $0.30 ＋ 0.5M 快取讀 × $0.03
+    assert flash.cost_usd(500_000, 0, cache_read_tokens=500_000) == 0.165
 
 
 def test_local_model_marked_free_via_override(monkeypatch):
@@ -177,11 +180,10 @@ _HAIKU_5_5 = Rate(0.10, 0.50, cache_read=0.01, cache_write=0.125,
     ("claude-mythos-5-1", Rate(10.0, 50.0, cache_read=0.25, cache_write=12.50)),
     ("claude-opus-4-6", Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25)),  # skill 主文表
     ("claude-opus-4-7", Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25)),
-    # 查不到價格的 Fable／Mythos：家族鍵，套同家族已知最高價（寧高勿低）
-    ("claude-mythos-preview", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
-    ("claude-fable-6", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
-    # Opus 4.5 查不到：照舊 claude-opus-4（偏高）；舊型號不受影響
-    ("claude-opus-4-5-20251101", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
+    # 2026-11-10 官方價格頁：Opus 4.5 列出來了；Fable／Mythos 5.2 是新價
+    ("claude-opus-4-5-20251101", Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25)),
+    ("claude-fable-5-2", Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0)),
+    ("claude-mythos-5-2", Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0)),
     ("claude-opus-4-1-20250805", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
     ("claude-sonnet-4-6", Rate(3.0, 15.0, cache_read=0.30, cache_write=3.75)),
     ("claude-haiku-4-5", Rate(1.0, 5.0, cache_read=0.10, cache_write=1.25)),
@@ -238,3 +240,209 @@ def test_override_rate_is_a_single_tier(monkeypatch):
     rate = get_pricing("claude-haiku-5-5")
     assert rate.long_prompt is None
     assert rate.cost_usd(200_000, 0) == 0.04
+
+
+# ---- ADR-0311：逐筆對官方價格頁（2026-11-10）----
+# Anthropic platform.claude.com/docs/en/about-claude/pricing；OpenAI developers.openai.com/api/docs/pricing；
+# Google aistudio.google.com/docs/pricing；xAI docs.x.ai/docs/models；
+# DeepSeek api-docs.deepseek.com/quick_start/pricing（用尖峰價，寧高勿低）。
+_NOV_10 = datetime(2026, 11, 10, tzinfo=UTC).timestamp()
+_DEC_1 = datetime(2026, 12, 1, tzinfo=UTC).timestamp()
+_JAN_1 = datetime(2027, 1, 1, tzinfo=UTC).timestamp()
+_OPENAI_LONG = 272_000  # 超過 272K
+_GOOGLE_LONG = 200_000  # 超過 200K
+_XAI_LONG = 199_999  # 官方是「達到 20 萬」；for_prompt 比的是超過
+
+
+def _at(monkeypatch, epoch: float) -> None:
+    monkeypatch.setattr(pricing, "get_current_epoch", lambda: epoch)
+
+
+def _tiered(threshold: int, short: tuple, long_tier: tuple) -> Rate:
+    return Rate(short[0], short[1], cache_read=short[2],
+                long_prompt=(threshold, Rate(long_tier[0], long_tier[1], cache_read=long_tier[2])))
+
+
+_GPT_HIGHEST = _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None))
+_GROK_MID = _tiered(_XAI_LONG, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0))
+_GROK_BASE = _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40))
+
+
+@pytest.mark.parametrize(("model", "rate"), [
+    # OpenAI
+    ("gpt-6-astra", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0), (20.0, 75.0, 2.0))),
+    ("gpt-6-astra-law", _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0), (20.0, 75.0, 2.0))),
+    ("gpt-6.1-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.10), (4.0, 15.0, 0.20))),
+    ("gpt-6.1-terra", _tiered(_OPENAI_LONG, (1.0, 5.0, 0.05), (2.0, 7.50, 0.10))),
+    ("gpt-6-luna", _tiered(_OPENAI_LONG, (0.10, 0.50, 0.01), (0.20, 0.75, 0.02))),
+    ("gpt-6-sol", _tiered(_OPENAI_LONG, (2.0, 10.0, 0.20), (4.0, 15.0, 0.40))),
+    ("gpt-5.6-sol", _tiered(_OPENAI_LONG, (4.0, 20.0, 0.40), (8.0, 30.0, 0.80))),
+    ("gpt-5.6-terra", _tiered(_OPENAI_LONG, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40))),
+    ("gpt-5.6-luna", _tiered(_OPENAI_LONG, (0.20, 1.20, 0.02), (0.40, 1.80, 0.04))),
+    ("gpt-5.5", _tiered(_OPENAI_LONG, (5.0, 30.0, 0.50), (10.0, 45.0, 1.0))),
+    ("gpt-5.5-pro", _GPT_HIGHEST),
+    ("gpt-5.4", _tiered(_OPENAI_LONG, (2.50, 15.0, 0.25), (5.0, 22.50, 0.50))),
+    ("gpt-5.4-pro", _GPT_HIGHEST),
+    ("gpt-5.4-mini", Rate(0.75, 4.50, cache_read=0.075)),
+    ("gpt-5.4-nano", Rate(0.20, 1.25, cache_read=0.02)),
+    ("gpt-5.3-codex", Rate(1.75, 14.0, cache_read=0.175)),
+    ("gpt-5.2", Rate(1.75, 14.0, cache_read=0.175)),
+    ("gpt-5.2-pro", Rate(21.0, 168.0)),
+    ("gpt-5.1", Rate(1.25, 10.0, cache_read=0.125)),
+    ("gpt-5", Rate(1.25, 10.0, cache_read=0.125)),
+    ("gpt-5-mini", Rate(0.25, 2.0, cache_read=0.025)),
+    ("gpt-5-nano", Rate(0.05, 0.40, cache_read=0.005)),
+    ("gpt-5-pro", Rate(15.0, 120.0)),
+    ("chat-latest", Rate(5.0, 30.0, cache_read=0.50)),
+    ("gpt-4.1", Rate(2.0, 8.0, cache_read=0.50)),
+    ("gpt-4.1-mini", Rate(0.40, 1.60, cache_read=0.10)),
+    ("gpt-4o", Rate(2.50, 10.0, cache_read=1.25)),
+    ("gpt-4o-mini", Rate(0.15, 0.60, cache_read=0.075)),
+    ("o3", Rate(2.0, 8.0, cache_read=0.50)),
+    ("o3-pro", Rate(20.0, 80.0)),
+    # Google
+    ("gemini-4-argon", Rate(2.0, 10.0, cache_read=0.10)),
+    ("gemini-3.8-flash", Rate(0.75, 3.75, cache_read=0.075)),
+    ("gemini-3.6-flash", Rate(0.75, 3.75, cache_read=0.075)),
+    ("gemini-3.5-flash-lite", Rate(0.30, 2.50, cache_read=0.03)),
+    ("gemini-3.1-flash-lite", Rate(0.25, 1.50, cache_read=0.025)),
+    ("gemini-3.1-pro-preview", _tiered(_GOOGLE_LONG, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40))),
+    ("gemini-3-flash-preview", Rate(0.50, 3.0, cache_read=0.05)),
+    ("gemini-2.5-pro", _tiered(_GOOGLE_LONG, (1.25, 10.0, 0.125), (2.50, 15.0, 0.25))),
+    ("gemini-2.5-flash", Rate(0.30, 2.50, cache_read=0.03)),
+    ("gemini-2.5-flash-lite", Rate(0.10, 0.40, cache_read=0.01)),
+    # xAI
+    ("grok-4.7", _GROK_MID),
+    ("grok-4.7-latest", _GROK_MID),
+    ("grok-4.6", _GROK_MID),
+    ("grok-4.5", _tiered(_XAI_LONG, (2.0, 6.0, 0.30), (4.0, 12.0, 0.60))),
+    ("grok-4.3", _GROK_BASE),
+    ("grok-4.20-0309-reasoning", _GROK_BASE),
+    ("grok-4.20-0309-non-reasoning", _GROK_BASE),
+    ("grok-4.20-multi-agent-0309", _GROK_BASE),
+    ("grok-build-0.1", _tiered(_XAI_LONG, (1.0, 2.0, 0.20), (2.0, 4.0, 0.40))),
+    # DeepSeek
+    ("deepseek-flash", Rate(0.30, 1.20, cache_read=0.006)),
+    ("deepseek-v4-flash", Rate(0.30, 1.20, cache_read=0.006)),
+    ("deepseek-v4-pro", Rate(1.32, 3.96, cache_read=0.044)),
+])
+def test_official_price_of_each_model(monkeypatch, model, rate):
+    _patch_override(monkeypatch, None)
+    _at(monkeypatch, _NOV_10)
+    assert resolve(model) == (rate, "builtin")
+
+
+@pytest.mark.parametrize(("model", "threshold"), [
+    ("gpt-6-astra", 272_000), ("gemini-3.1-pro-preview", 200_000),
+])
+def test_long_prompt_starts_above_the_threshold(monkeypatch, model, threshold):
+    _patch_override(monkeypatch, None)
+    rate = get_pricing(model)
+    assert rate.for_prompt(threshold) is rate
+    assert rate.for_prompt(threshold + 1) is rate.long_prompt[1]
+
+
+def test_xai_long_prompt_starts_at_200k(monkeypatch):
+    """xAI 官方是「達到 20 萬」就整個請求用高價，和其他家「超過」差一個 token。"""
+    _patch_override(monkeypatch, None)
+    rate = get_pricing("grok-4.7")
+    assert rate.for_prompt(199_999) is rate
+    assert rate.for_prompt(200_000) is rate.long_prompt[1]
+
+
+@pytest.mark.parametrize(("model", "rate"), [
+    ("claude", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
+    ("claude-new-thing", Rate(15.0, 75.0, cache_read=1.50, cache_write=18.75)),
+    ("claude-mythos-preview", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
+    ("claude-fable-6", Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50)),
+    ("deepseek-v9", Rate(1.32, 3.96)),
+    ("grok-9", Rate(4.0, 15.0)),
+    ("grok-4.8", Rate(4.0, 15.0)),  # 不能被當成舊的 grok-4
+    ("gemini-9-pro", Rate(4.0, 20.0)),
+    ("gpt-9", _GPT_HIGHEST),
+    ("gpt-5.7-sol", _GPT_HIGHEST),  # 不能被當成便宜的 gpt-5
+    ("gpt-5-2025-08-07", _GPT_HIGHEST),
+    ("gpt-6-cyber", _GPT_HIGHEST),
+])
+def test_model_without_its_own_price_uses_the_family_highest(monkeypatch, model, rate):
+    _patch_override(monkeypatch, None)
+    assert resolve(model) == (rate, "family")
+
+
+def _top_tier(rate: Rate) -> Rate:
+    return rate.long_prompt[1] if rate.long_prompt is not None else rate
+
+
+@pytest.mark.parametrize("family", ["claude", "claude-fable", "claude-mythos", "deepseek", "gemini",
+                                    "gpt", "grok"])
+@pytest.mark.parametrize("epoch", [_NOV_10, _JAN_1])
+def test_family_price_is_never_below_a_known_model_of_that_family(monkeypatch, family, epoch):
+    """家族價要寧高勿低：表上同一家任何型號（含長檔、已公告的漲價）都不能比它貴。"""
+    _patch_override(monkeypatch, None)
+    _at(monkeypatch, epoch)
+    top = _top_tier(resolve(family)[0])
+    for key in pricing._BUILTIN_PRICING:
+        if family in key:
+            rate = _top_tier(resolve(key)[0])
+            assert top.input >= rate.input, key
+            assert top.output >= rate.output, key
+
+
+def test_a_price_override_still_matches_by_substring(monkeypatch):
+    """gpt-5 只比完整名稱是內建表的事；自己寫的覆蓋照舊最長子字串。"""
+    _patch_override(monkeypatch, {"pricing": {"gpt-5": {"input": 9.0, "output": 9.0}}})
+    assert resolve("gpt-5.7-sol") == (Rate(9.0, 9.0), "override")
+
+
+@pytest.mark.parametrize(("model", "raises_at", "before", "after"), [
+    ("gemini-4-argon", _DEC_1, Rate(2.0, 10.0, cache_read=0.10), Rate(4.0, 20.0, cache_read=0.20)),
+    ("gemini-3.8-flash", _JAN_1, Rate(0.75, 3.75, cache_read=0.075),
+     Rate(1.50, 7.50, cache_read=0.15)),
+    ("gemini-3.6-flash", _JAN_1, Rate(0.75, 3.75, cache_read=0.075),
+     Rate(1.50, 7.50, cache_read=0.15)),
+])
+def test_announced_price_rise_applies_from_its_date(monkeypatch, model, raises_at, before, after):
+    _patch_override(monkeypatch, None)
+    _at(monkeypatch, raises_at - 1)
+    assert resolve(model) == (before, "builtin")
+    _at(monkeypatch, raises_at)
+    assert resolve(model) == (after, "builtin")
+    assert resolve(f"models/{model}-001") == (after, "builtin")  # 子字串比對到也一樣
+
+
+def test_a_price_override_beats_an_announced_rise(monkeypatch):
+    _patch_override(monkeypatch, {"pricing": {"gemini-4-argon": {"input": 1.0, "output": 2.0}}})
+    _at(monkeypatch, _JAN_1)
+    assert resolve("gemini-4-argon") == (Rate(1.0, 2.0), "override")
+
+
+def test_every_announced_rise_has_a_current_price():
+    assert set(pricing._SCHEDULED_PRICING) <= set(pricing._BUILTIN_PRICING)
+
+
+@pytest.mark.parametrize(("model", "estimated"), [
+    ("claude-opus-5-5", False), ("claude-fable-9", True), ("no-such-model", True), (None, True),
+])
+def test_is_estimated(monkeypatch, model, estimated):
+    _patch_override(monkeypatch, None)
+    assert pricing.is_estimated(model) is estimated
+
+
+def test_is_estimated_false_for_a_model_with_an_override(monkeypatch):
+    _patch_override(monkeypatch, {"pricing": {"no-such-model": {"input": 1.0, "output": 2.0}}})
+    assert pricing.is_estimated("no-such-model") is False
+
+
+@pytest.mark.parametrize(("config", "expected"), [
+    (None, False),
+    ({"pricing": {}}, False),
+    ({"pricing": {"bad": {"input": 1.0}}}, False),  # 壞項會被略過，不算有覆蓋
+    ({"pricing": {"x": {"input": 1.0, "output": 2.0}}}, True),
+])
+def test_has_overrides(monkeypatch, config, expected):
+    _patch_override(monkeypatch, config)
+    assert pricing.has_overrides() is expected
+
+
+def test_verified_date_is_a_plain_date():
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", pricing.PRICING_VERIFIED_AT)

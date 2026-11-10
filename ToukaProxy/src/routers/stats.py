@@ -22,7 +22,9 @@ from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_access_session
 from src.services.autonomy import autonomy_service
 from src.services.identity_router import get_verified_identity
+from src.services.models.pricing_status import PricingStatus, pricing_status
 from src.services.resource_manager import resource_manager
+from src.services.telemetry import cache_hit_rates
 from src.utils.activity_visibility import agent_visibility, record_agent
 from src.utils.home_handover_db import list_failed_handovers
 
@@ -37,6 +39,15 @@ async def _failed_handovers() -> list[dict[str, object]]:
     except Exception:
         logger.warning("Failed handovers unavailable", exc_info=True)
         return []
+
+
+async def _pricing_status(identity: AgentIdentity) -> PricingStatus | None:
+    """要讀幾個設定檔，放到執行緒；失敗回 None：統計頁其他欄位照舊."""
+    try:
+        return await asyncio.to_thread(pricing_status, identity)
+    except Exception:
+        logger.warning("Pricing status unavailable", exc_info=True)
+        return None
 
 
 @router.get("")
@@ -75,6 +86,7 @@ async def get_touka_stats(
 
     # 讀取各 Agent 的 Token 消耗 (動態掃描)；只讀看得到的靈魂（2026-10-29：Owner 代理只看自己）
     token_stats = {}
+    cache_hits = {}
     agent_stats_list = resource_manager.list_all_agent_stats(identity)
     for agent, stats_dir in agent_stats_list:
         if not _can_see(agent):
@@ -84,9 +96,12 @@ async def get_touka_stats(
             data = resource_manager.read_json(tpath)
             if data is not None:
                 token_stats[agent] = data
+                cache_hits[agent] = cache_hit_rates(data)
         except Exception:
             logger.debug("Failed to load token usage for %s", agent)
     stats_data["token_usage"] = token_stats
+    stats_data["cache_hit_rates"] = cache_hits  # 近 7 天，範圍和 token_usage 一樣（ADR-0311）
+    stats_data["pricing"] = await _pricing_status(identity)
 
     # P3：本人今日自主配額狀態（daily_count / daily_max / remaining）
     stats_data["daily_quota"] = autonomy_service.get_daily_quota(identity)

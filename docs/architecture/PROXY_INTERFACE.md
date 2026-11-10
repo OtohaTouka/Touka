@@ -835,6 +835,13 @@ edit_soul沿既有0-based/min50/protected delete；dispatch_subagent_group每批
 - **範圍**: 只算靈魂（`brain_settings` 裡的人類、自訂模型不算），比照 `/stats`（`can_access_session`）；`reviewer`、`summarizer` 只回給人類 admin，其他人連那幾筆都沒有。自訂連線的模型不提醒。
 - **觸發**: 呼叫這個端點會順便看要不要查 Anthropic、OpenAI 的清單（背景、不等結果；成功一天一次，失敗每家隔一小時；`OPENAI_BASE_URL` 被改過就不查 OpenAI）。`MODEL_LIFECYCLE_CHECK_ENABLED=false` 就不對外查。
 
+### 1b. 快取命中率與價目表（ADR-0311）
+- **`GET /v1/stats` 多兩欄**: `cache_hit_rates`（靈魂 → 用途 → 近 7 天的比例；這段時間沒有輸入是 `null`；範圍和 `token_usage` 相同）、`pricing`（`verified_at`、`has_override`、`estimated_models`；讀不到時整欄是 `null`，其他欄位照舊）。
+- **命中率**: 快取讀 ÷（未快取輸入＋快取讀＋快取寫）。`token_usage` 每個用途多一個 `daily`（UTC 日序號 → 四欄），保留 14 天。
+- **用途**: `token_usage.json` 的鍵，可能是廠商標籤、旁路用途或自訂連線名稱。
+- **`estimated_models`**: 在用但沒有具體價格的模型，範圍和模型下架提醒相同。
+- **價格來源**: `pricing.resolve` 回 `override`、`builtin`、`family`（用該家已知最高價）或 `fallback`；稽核 CSV 的 `rate_source` 同值。
+
 ### 2. 自定義模型 (Level 2) 管理
 - **建立/更新**: `POST /v1/custom_models/{model_id}` (必須使用 `/v1` 前綴)
 - **身份識別**: 依據認證 Token 判定操作主權。路由層會自動將 URL 中的 `model_id` 字串轉化為經認證的 `AgentIdentity` 物件傳遞至 Service 層。

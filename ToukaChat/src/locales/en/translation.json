@@ -1439,6 +1439,22 @@
       "tcp_missing": "Isolation isn't blocking the network: the host's Linux kernel isn't new enough (6.7 or newer is needed), so commands can reach Touka's internal services and local upstream ports.",
       "relock": "An agent keeps locking its own workspace permissions, and this minute's automatic repairs are used up: commands may fail now and then until the next minute, when it recovers on its own."
     },
+    "cache_hit": {
+      "title": "Cache hit rate (last 7 days)",
+      "labels": {
+        "summarizer": "Summarizer",
+        "critic": "Peer review",
+        "judge": "Creation scoring",
+        "auto_reviewer": "Auto reviewer",
+        "inline_completion": "Inline completion"
+      }
+    },
+    "pricing_note": {
+      "verified_at": "Costs are estimated from the price table, last verified {{date}}",
+      "override": " (your own price changes are not included)",
+      "estimated": "No exact price for these models, estimated at the provider's highest known price: {{models}}",
+      "separator": ", "
+    },
     "system_monitoring_view": {
       "feedback_log_title": "Feedback Log"
     }

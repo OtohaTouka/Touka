@@ -1431,6 +1431,22 @@
       "tcp_missing": "隔離沒有擋住網路：主機的 Linux 核心不夠新（需要 6.7 以上），指令擋不住連往 Touka 內部服務與本機上游埠的連線。",
       "relock": "有代理人反覆鎖住自己的工作區權限，這一分鐘的自動修復額度用完了：指令可能間歇失敗，下一分鐘會自動恢復。"
     },
+    "cache_hit": {
+      "title": "快取命中率（近 7 天）",
+      "labels": {
+        "summarizer": "摘要員",
+        "critic": "互審",
+        "judge": "創建評分",
+        "auto_reviewer": "Auto 審查員",
+        "inline_completion": "行內補全"
+      }
+    },
+    "pricing_note": {
+      "verified_at": "費用依價目表估算，最後查證：{{date}}",
+      "override": "（不含你自己改過的價格）",
+      "estimated": "這些模型沒有具體價格，用該家已知最高價估算：{{models}}",
+      "separator": "、"
+    },
     "system_monitoring_view": {
       "feedback_log_title": "回饋紀錄"
     }
