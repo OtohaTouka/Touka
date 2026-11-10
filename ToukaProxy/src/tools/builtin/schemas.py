@@ -447,6 +447,21 @@ SCAFFOLD_MCP_SCHEMA = {
     },
 }
 
+LOCAL_FILES_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "local_files",
+        "description": (
+            "在使用者電腦上、使用者自己開放的資料夾裡看檔案、新建文字檔或資料夾，"
+            "或提出搬移、改名、刪除清單。路徑一律寫成「開放名稱/相對路徑」；"
+            "list 不帶 path 會列出開放的資料夾。propose 要把完整清單一次提出，"
+            "使用者在電腦上看完按核准才會動，沒核准就什麼都沒變。"
+            "不能修改或覆蓋既有檔案，也不能執行程式。"
+        ),
+        "parameters": native_parameters("local_files"),
+    },
+}
+
 ASK_USER_SCHEMA = {
     "type": "function",
     "function": {
@@ -588,6 +603,7 @@ builtin_tools_schema = [
     EVOLUTION_IMPLEMENT_AND_VERIFY_SCHEMA,
     MISSION_TOOLS_SCHEMA,
     ASK_USER_SCHEMA,
+    LOCAL_FILES_SCHEMA,
     DISPATCH_SUBAGENT_SCHEMA,
     DISPATCH_SUBAGENT_GROUP_SCHEMA,
 ]

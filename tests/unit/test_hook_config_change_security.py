@@ -78,6 +78,10 @@ _NOT_SETTINGS: dict[str, set[str]] = {
         "setup.download_embedding_model",
     },
     "除錯工具": {"debug.debug_execute_tool", "debug.debug_reset", "debug.scorecard_run"},
+    "本機小幫手的配對與通道（配對是連線憑證，不是設定值，ADR-0312）": {
+        "local_bridge.create_pairing", "local_bridge.delete_pairing", "local_bridge.poll",
+        "local_bridge.confirm_job", "local_bridge.submit_result",
+    },
     "MCP OAuth 的連線與憑證（有自己的稽核紀錄，這批不接，ADR-0292 差別表）": {
         "mcp_oauth.start_mcp_oauth", "mcp_oauth.disconnect_mcp_oauth",
         "mcp_oauth.complete_mcp_oauth_form_post", "mcp_oauth.put_mcp_oauth_profile",

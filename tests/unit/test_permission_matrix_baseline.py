@@ -212,8 +212,8 @@ def test_mcp_matrix(service, case, server, tool):
 
 
 def test_registry_tool_count_is_frozen():
-    """40 個工具。新增工具會讓這條紅——那是提醒你覆核新工具該落在哪些角色，不是誤報。"""
-    assert len(ALL_TOOLS) == 40
+    """41 個工具。新增工具會讓這條紅——那是提醒你覆核新工具該落在哪些角色，不是誤報。"""
+    assert len(ALL_TOOLS) == 41
     assert SOUL_TOOLS <= ALL_TOOLS
     assert SUBAGENT_TOOLS <= ALL_TOOLS
 

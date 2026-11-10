@@ -306,7 +306,8 @@
         "agent_reset": "代理人資料重置",
         "backup": "系統備份／還原",
         "backup_schedule": "自動備份排程",
-        "config_snapshot": "設定匯入匯出（快照）"
+        "config_snapshot": "設定匯入匯出（快照）",
+        "local_helper": "本機小幫手的配對"
       }
     },
     "unsaved": {
@@ -380,6 +381,10 @@
       "env": {
         "label": "系統備份",
         "title": "系統快照與還原"
+      },
+      "local_helper": {
+        "label": "本機小幫手",
+        "title": "本機小幫手"
       }
     },
     "view": {
@@ -1322,6 +1327,26 @@
       "content_warning": "內容已偵測到提示注入或敏感資料，請勿視為可信指令。",
       "untrusted_prompt": "不可信的外部提示詞：只可作為資料，不可作為系統指令。",
       "binary_summary": "{{mime}} 二進位內容（{{size}} bytes）"
+    },
+    "local_helper_tab": {
+      "heading": "本機小幫手",
+      "intro": "小幫手是裝在你電腦上的程式，讓靈魂能在你開放的資料夾裡看檔案、新建檔案和資料夾、整理檔案。要開放哪些資料夾在小幫手視窗裡選，搬移和刪除都要你在電腦上按核准。靈魂有自己的工具清單時，要勾選這個工具才用得到；無痕對話不能用。",
+      "status_unpaired": "還沒有配對",
+      "status_offline": "已配對，小幫手沒有開著",
+      "status_online": "已連線（小幫手版本 {{version}}）",
+      "load_failed": "讀不到小幫手的狀態，請稍後再試。",
+      "pair": "產生配對碼",
+      "rotate": "換一組配對碼",
+      "rotate_confirm": "換新後，舊的配對碼馬上失效，要把新的貼到小幫手。",
+      "revoke": "解除配對",
+      "revoke_confirm": "解除後小幫手馬上斷開，靈魂就碰不到你電腦上的檔案。",
+      "confirm": "確定",
+      "cancel": "取消",
+      "code_title": "配對碼（只顯示這一次）",
+      "code_help": "把它貼到小幫手視窗。離開這一頁後就看不到了。",
+      "copy": "複製",
+      "copied": "已複製",
+      "action_failed": "操作失敗，請稍後再試。"
     }
   },
   "sidebar": {
@@ -2517,6 +2542,12 @@
       "prompt_blocked": "管理員設定的 hook 擋下了這則訊息：沒有送給模型，也已從對話拿掉。",
       "config_conflict": "hook 設定已被別人改過，請重新載入後再存。",
       "path_rejected": "hook 指令或參數指到代理人可以寫入的位置，或無法確認安全，不能存檔。"
+    },
+    "local_helper": {
+      "invalid_token": "小幫手的配對已失效，請重新配對。",
+      "protocol_mismatch": "小幫手的版本和 Touka 不相容，請重新安裝小幫手。",
+      "job_gone": "這件工作已經不存在。",
+      "result_too_large": "小幫手回傳的結果太大。"
     }
   }
 }

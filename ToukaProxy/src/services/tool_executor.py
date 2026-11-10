@@ -100,6 +100,7 @@ CRITICAL_TOOLS = frozenset(
         "delete",
         "edit_soul",
         "send_message",
+        "local_files",
         # 非同步指令執行（ADR-0119 遞延項）：皆有必填參數
         "bash",
         "execute_command",

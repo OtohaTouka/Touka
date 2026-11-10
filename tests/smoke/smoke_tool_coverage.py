@@ -60,6 +60,7 @@ SAFE_INVOKE: dict[str, dict] = {
 # 僅結構檢查、不實際執行（破壞性／外部／阻塞）
 WIRED_ONLY: dict[str, str] = {
     "ask_user": "阻塞等待人類回答",
+    "local_files": "需要已配對的小幫手，會碰使用者電腦",
     "sns_control": "外部發送（Discord/Telegram）",
     "send_message": "外部發送（Discord/Telegram；sns_control 正名）",
     "stop_command": "會終止真實指令執行狀態",

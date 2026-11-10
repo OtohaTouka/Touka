@@ -88,6 +88,11 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "put", "path": "/hooks"},
     {"method": "get", "path": "/hooks/runs"},
 
+    # ── 本機小幫手的配對與狀態（local_bridge.py，人類 admin，ADR-0312）
+    {"method": "post", "path": "/local-bridge/pairing"},
+    {"method": "delete", "path": "/local-bridge/pairing"},
+    {"method": "get", "path": "/local-bridge/status"},
+
     # ── 工作區設定（ui_sessions.py）─────────────────────────────────────────
     {"method": "post", "path": "/ui/settings/workspace"},
 ]

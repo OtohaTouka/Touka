@@ -2,6 +2,12 @@
 
 > **TL;DR** — 所有 HTTP 請求走 `fetchTouka()`（FETCH_SSOT）；`localStorage.*` 必須用 `useLocalStorage` hook（LOCALSTORAGE_SSOT）；`console.*` 禁止，`error_handler.ts` 靠行內 noqa（CONSOLE_BAN）；來回計算 SSOT：`countRounds()` in `export-utils.ts`；模型輸出的 Markdown 只經 `SafeMarkdown` 顯示（外部圖片不自動載入，ADR-0294）；ToukaChat 跑在 port 3001（`npm run dev` 只開網頁）。
 
+## 本機小幫手設定頁（ADR-0312）
+
+- 分頁 `local_helper`，只有 admin 看得到。資料層是 `useLocalHelper`，每 10 秒更新狀態。
+- 配對碼只放在 hook 的記憶體，不寫瀏覽器儲存，離開頁面就沒了。換新和解除都要先確認。
+- 讀不到狀態時照實顯示，不當成沒配對。開放哪些資料夾、核准都在小幫手自己的視窗，這一頁不管。
+
 ## 換後端網址與登入憑證（ADR-0297）
 
 - 憑證綁發它的後端：`fetchTouka`、`fetchChatStream` 對別的網址不帶卡、不先續期、401 也不續期重送。`setAccessToken(token, origin)` 不傳 origin 時綁目前網址；測試設卡後打另一個網址會收不到卡。

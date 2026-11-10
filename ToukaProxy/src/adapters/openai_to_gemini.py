@@ -205,7 +205,16 @@ def _convert_schema_to_gemini(schema: dict) -> None:
     # 移除 Gemini API 不支持的欄位。Tier 2 起 canonical schema 帶 oneOf 條件必填
     # （action 判別式）——Gemini OpenAPI 子集不支援 oneOf/anyOf/allOf/const，不剝除
     # 會整包 400；剝除＝優雅降級（條件必填說明仍在描述文字中）。
-    unsupported_fields = ["additionalProperties", "oneOf", "anyOf", "allOf", "const"]
+    # 字串長度上限由參數合約檢查，不靠模型遵守，這裡也不送
+    unsupported_fields = [
+        "additionalProperties",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "minLength",
+        "maxLength",
+    ]
     for field in unsupported_fields:
         schema.pop(field, None)
 

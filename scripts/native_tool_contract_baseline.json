@@ -24,6 +24,7 @@
         "agent_control": "Name(id='agent_control', ctx=Load())",
         "research": "Name(id='research', ctx=Load())",
         "ask_user": "Name(id='ask_user', ctx=Load())",
+        "local_files": "Name(id='local_files', ctx=Load())",
         "vault_tools": "Name(id='vault_tools', ctx=Load())",
         "project_tools": "Name(id='project_tools', ctx=Load())",
         "memory_tools": "Name(id='memory_tools', ctx=Load())",
@@ -67,6 +68,7 @@
         "ImportFrom(module='evolution', names=[alias(name='verify_mcp_locally', asname='verify_mcp_locally')], level=1)",
         "ImportFrom(module='evolution', names=[alias(name='write_mcp_implementation', asname='write_mcp_implementation')], level=1)",
         "ImportFrom(module='interaction', names=[alias(name='ask_user', asname='ask_user')], level=1)",
+        "ImportFrom(module='local_helper', names=[alias(name='local_files', asname='local_files')], level=1)",
         "ImportFrom(module='memory', names=[alias(name='memory_tools', asname='memory_tools')], level=1)",
         "ImportFrom(module='research', names=[alias(name='research', asname='research')], level=1)",
         "ImportFrom(module='schemas', names=[alias(name='UPDATE_MY_SOUL_SCHEMA', asname='UPDATE_MY_SOUL_SCHEMA')], level=1)",
@@ -125,6 +127,7 @@
     "ide_open_diff": "typed",
     "insert": "existing_public",
     "list": "existing_public",
+    "local_files": "typed",
     "memory_tools": "typed",
     "mission_tools": "typed",
     "project_tools": "legacy",
@@ -534,6 +537,28 @@
       "function": "search_conversations",
       "models": [
         "MemoryConversationsInput"
+      ],
+      "aliases": {},
+      "trusted": [
+        "self",
+        "identity",
+        "manager",
+        "resource_proxy"
+      ],
+      "receivers": [
+        "kwargs"
+      ],
+      "parameters": true
+    },
+    {
+      "source": "ToukaProxy/src/tools/builtin/local_helper.py",
+      "function": "local_files",
+      "models": [
+        "LocalListInput",
+        "LocalReadInput",
+        "LocalCreateFolderInput",
+        "LocalCreateFileInput",
+        "LocalProposeInput"
       ],
       "aliases": {},
       "trusted": [
@@ -1994,6 +2019,63 @@
         ],
         "kwargs": null,
         "reads": [],
+        "dynamic": []
+      }
+    },
+    "ToukaProxy/src/tools/builtin/local_helper.py": {
+      "_not_offered": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_failure_text": {
+        "parameters": [
+          "result"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "local_files": {
+        "parameters": [
+          "action"
+        ],
+        "kwargs": "kwargs",
+        "reads": [
+          [
+            "ctx",
+            "agent_id"
+          ],
+          [
+            "kwargs",
+            "_ctx"
+          ],
+          [
+            "kwargs",
+            "content"
+          ],
+          [
+            "kwargs",
+            "depth"
+          ],
+          [
+            "kwargs",
+            "items"
+          ],
+          [
+            "kwargs",
+            "model"
+          ],
+          [
+            "kwargs",
+            "path"
+          ],
+          [
+            "kwargs",
+            "reason"
+          ]
+        ],
         "dynamic": []
       }
     },

@@ -31,6 +31,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     // 代理人能力
     { id: "tools", tabId: "tools", label: "settings.search.entries.tools", keywords: "tool 工具 native capability 能力" },
     { id: "mcp", tabId: "mcp", label: "settings.search.entries.mcp", keywords: "mcp server hub install 安裝 伺服器 model context protocol" },
+    { id: "local_helper", tabId: "local_helper", label: "settings.search.entries.local_helper", keywords: "local helper files computer pairing 本機 小幫手 檔案 電腦 配對 資料夾" },
     { id: "skills", tabId: "skills", label: "settings.search.entries.skills", keywords: "skill 技能 catalog 目錄 persona 角色 prompt" },
     // 對話
     { id: "group_whitelist", tabId: "group", label: "settings.search.entries.group_whitelist", keywords: "group chat 群聊 whitelist 白名單 alias 別名 mention @ 多代理人" },
