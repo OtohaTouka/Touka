@@ -21,7 +21,7 @@
 7. **`gpt-5` 只比完整名稱，表上拿掉 `grok-4`**：子字串比對會把 `gpt-5.7`、`grok-4.8` 這類沒列的型號算成舊的便宜價，而且標成有具體價格。使用者自己寫的覆蓋照舊最長子字串。
 8. **已公告的漲價到日子才換**（`_SCHEDULED_PRICING`）：`gemini-4-argon` 12/01、`gemini-3.8-flash` 與 `gemini-3.6-flash` 2027-01-01。官方沒寫時區，取 UTC 當天 0 點。
 9. **分檔照官方**：OpenAI 超過 27.2 萬、Google 超過 20 萬、xAI 達到 20 萬（差一個 token，門檻寫 199,999）。DeepSeek 有尖峰與離峰，一律用尖峰價。
-10. **OpenAI 的快取寫入照官方計**：GPT-5.6 起預設 30 分鐘的寫入是輸入價的 1.25 倍，表上有這一欄，送前最壞估算才會取較貴的價。Responses 的 `input_tokens` 含快取讀與寫，`cached_tokens` 不含寫，所以 `input_tokens_details.cache_write_tokens` 也要從未快取輸入拆出來；Chat Completions 的 `prompt_tokens_details.cache_write_tokens` 同樣處理（這幾個型號大多走這條路）。沒帶這個欄位就當 0，和以前一樣；其他相容廠商不受影響。
+10. **OpenAI 的快取寫入照官方計**：GPT-5.6 起預設 30 分鐘的寫入是輸入價的 1.25 倍，表上有這一欄，送前最壞估算才會取較貴的價。Responses 的 `input_tokens` 含快取讀與寫，`cached_tokens` 不含寫，所以 `input_tokens_details.cache_write_tokens` 也要從未快取輸入拆出來；Chat Completions 的 `prompt_tokens_details.cache_write_tokens` 同樣處理（這幾個型號大多走這條路）。沒帶這個欄位就當 0，和以前一樣（DeepSeek、xAI）；有回報的相容服務（例如 OpenRouter）一樣拆出來。
 11. **Mythos Preview 不在價格頁**：價格取自 `anthropic.com/glasswing` 的 $25/$125，快取價官方沒寫，照一般的 0.1 倍、1.25 倍。`claude`、`claude-mythos` 家族價因此是這個價。
 
 ## 後果

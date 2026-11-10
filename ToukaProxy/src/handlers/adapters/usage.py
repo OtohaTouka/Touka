@@ -9,7 +9,8 @@
 - Anthropic：``input_tokens`` 本來就不含快取，快取讀、寫另列。
 - OpenAI（Chat Completions 與 Responses）：``prompt_tokens``／``input_tokens`` 含快取讀
   （``cached_tokens``）與快取寫（``cache_write_tokens``，GPT-5.6 起另有價錢），都要扣掉
-  （ADR-0311）。其他相容廠商沒有回報快取寫，就是 0。
+  （ADR-0311）。沒回報這個欄位的相容廠商（DeepSeek、xAI）就是 0；有回報的（例如 OpenRouter）
+  一樣拆出來。
 - Gemini：``promptTokenCount`` 含 ``cachedContentTokenCount``（Google 自動快取），要扣掉；
   Touka 不建顯式快取（ADR-0243），所以沒有快取寫。
 """
