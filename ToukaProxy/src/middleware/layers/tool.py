@@ -52,7 +52,13 @@ logger = logging.getLogger(__name__)
 # <mcp_unavailable> 只原樣列出這種名稱（ADR-0281 T1）
 _SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 # 有設工具清單時也保留的調度工具（自訂模型只保留它自己勾的）
-_ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market")
+# local_files 另有配對、前景對話和小幫手上線的條件，沒通過就不會在候選裡（ADR-0311）
+_ESSENTIAL_TOOLS = (
+    "connect_mcp_server",
+    "agent_control",
+    "search_skill_market",
+    "local_files",
+)
 # 工具清單裡有舊短名的靈魂（每個只記一次警告，ADR-0281 T2）
 _SHORT_NAME_WARNED: set[str] = set()
 

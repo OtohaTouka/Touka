@@ -30,6 +30,14 @@ describe('LocalHelperTab（ADR-0311）', () => {
         helper.revokePairing.mockResolvedValue(true);
     });
 
+    it('之前讀得到、這次讀不到：照實顯示，不留舊的已連線', () => {
+        helper.status = { paired: true, online: true, helper_version: '0.1.0' };
+        helper.failed = true;
+        render(<LocalHelperTab />);
+        expect(screen.getByText('讀不到小幫手的狀態，請稍後再試。')).toBeDefined();
+        expect(screen.queryByText(/已連線/)).toBeNull();
+    });
+
     it('沒配對：可以產生配對碼，沒有解除的按鈕', () => {
         render(<LocalHelperTab />);
         expect(screen.getByText('還沒有配對')).toBeDefined();

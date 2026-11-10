@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 PROTOCOL_VERSION: Final = 1
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
+MAX_REQUESTER_CHARS: Final = 128
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
@@ -36,7 +37,7 @@ class LocalJob(_Strict):
     id: str
     action: LocalAction
     args: dict[str, Any]
-    requester: str = Field(max_length=128)
+    requester: str = Field(max_length=MAX_REQUESTER_CHARS)
     decide_within: float
 
 

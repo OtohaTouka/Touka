@@ -11,14 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
-from src.models.local_bridge import LocalJob, LocalJobResult, LocalPollResponse
+from src.models.local_bridge import (
+    MAX_REQUESTER_CHARS,
+    LocalJob,
+    LocalJobResult,
+    LocalPollResponse,
+)
+from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,10 +46,13 @@ CHECK_INTERVAL_SECONDS: Final = 1.0
 CODE_OFFLINE: Final = "helper_offline"
 CODE_BUSY: Final = "helper_busy"
 CODE_NO_DECISION: Final = "no_decision"
+CODE_TIMED_OUT: Final = "timed_out"
 CODE_RESULT_UNKNOWN: Final = "result_unknown"
 CODE_PAIRING_CHANGED: Final = "pairing_changed"
 
 ACTION_NEEDING_CONFIRM: Final = "propose"
+# 不用人核准，交給小幫手之後就可能已經做了
+_MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file"})
 
 
 def host_mount_roots(workspace_root: str, data_path: str) -> list[str]:
@@ -57,6 +65,10 @@ def host_mount_roots(workspace_root: str, data_path: str) -> list[str]:
         for value in (workspace_root.strip(), data_path.strip())
         if value and not PurePosixPath(value).is_absolute()
     ]
+
+
+def _monotonic_seconds() -> float:
+    return get_monotonic_ms() / 1000
 
 
 def _failure(code: str) -> LocalJobResult:
@@ -74,6 +86,11 @@ class _Job:
     confirmed: bool = False
     result: LocalJobResult | None = field(default=None)
 
+    @property
+    def may_have_run(self) -> bool:
+        """小幫手可能已經動手了，失敗時不能說沒事。"""
+        return self.confirmed or (self.sent and self.action in _MUTATING_WITHOUT_CONFIRM)
+
 
 class LocalBridge:
     """一次只服務一個小幫手；後來的輪詢取代先前的。"""
@@ -81,7 +98,7 @@ class LocalBridge:
     def __init__(
         self,
         *,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = _monotonic_seconds,
         check_interval: float = CHECK_INTERVAL_SECONDS,
     ) -> None:
         self._clock = clock
@@ -123,12 +140,19 @@ class LocalBridge:
             self._waiters.discard(waiter)
 
     def invalidate(self, generation: int) -> None:
-        """換權杖或解除配對：掛著的輪詢作廢、工作全部失敗、上線狀態清掉。"""
+        """換權杖或解除配對：掛著的輪詢作廢、工作全部失敗、上線狀態清掉。
+
+        世代號只往前走，較舊的通知晚到時不能把已經作廢的權杖救回來。
+        """
+        if self._generation is not None and generation < self._generation:
+            return
         self._generation = generation
         self._last_poll = None
         self._helper_version = None
         for job in self._jobs.values():
-            job.result = _failure(CODE_PAIRING_CHANGED)
+            job.result = _failure(
+                CODE_RESULT_UNKNOWN if job.may_have_run else CODE_PAIRING_CHANGED
+            )
         self._jobs.clear()
         self._queue.clear()
         self._cancelled.clear()
@@ -172,7 +196,7 @@ class LocalBridge:
         mine = self._poll_seq
         self._notify()
         deadline = self._clock() + hold
-        started = time.monotonic()
+        started = _monotonic_seconds()
         while True:
             if generation != self._generation:
                 return None
@@ -187,7 +211,7 @@ class LocalBridge:
                     job=self._describe(job) if job is not None else None, cancelled=cancelled
                 )
             # 假時鐘不會自己走，實際經過時間也算，測試和實際都不會卡住
-            elapsed = time.monotonic() - started
+            elapsed = _monotonic_seconds() - started
             remaining = min(deadline - self._clock(), hold - elapsed)
             if remaining <= 0:
                 return LocalPollResponse()
@@ -204,7 +228,7 @@ class LocalBridge:
             id=secrets.token_urlsafe(16),
             action=action,
             args=args,
-            requester=requester,
+            requester=requester[:MAX_REQUESTER_CHARS],
             deadline=self._clock() + wait,
         )
         self._jobs[job.id] = job
@@ -223,9 +247,13 @@ class LocalBridge:
 
     def _stalled_outcome(self, job: _Job) -> LocalJobResult | None:
         if self._clock() >= job.deadline:
-            return _failure(CODE_RESULT_UNKNOWN if job.confirmed else CODE_NO_DECISION)
+            if job.may_have_run:
+                return _failure(CODE_RESULT_UNKNOWN)
+            return _failure(
+                CODE_NO_DECISION if job.action == ACTION_NEEDING_CONFIRM else CODE_TIMED_OUT
+            )
         if not self.online:
-            return _failure(CODE_RESULT_UNKNOWN if job.confirmed else CODE_OFFLINE)
+            return _failure(CODE_RESULT_UNKNOWN if job.may_have_run else CODE_OFFLINE)
         return None
 
     async def _await_outcome(self, job: _Job) -> LocalJobResult:

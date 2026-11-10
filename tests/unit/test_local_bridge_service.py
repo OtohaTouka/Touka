@@ -110,7 +110,45 @@ async def test_read_times_out(bridge: LocalBridge, clock: Clock) -> None:
     task = await _start(bridge)
     await _advance_online(bridge, clock, module.READ_WAIT_SECONDS + 1)
     result = await _finish(task)
-    assert (result.status, result.code) == ("error", module.CODE_NO_DECISION)
+    assert (result.status, result.code) == ("error", module.CODE_TIMED_OUT)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["create_file", "create_folder"])
+async def test_a_create_that_was_handed_over_is_unknown_on_timeout(
+    bridge: LocalBridge, clock: Clock, action: str
+) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, action)
+    await _poll(bridge)
+    await _advance_online(bridge, clock, module.READ_WAIT_SECONDS + 1)
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_RESULT_UNKNOWN)
+
+
+@pytest.mark.asyncio
+async def test_a_create_that_was_handed_over_is_unknown_when_the_helper_vanishes(
+    bridge: LocalBridge, clock: Clock
+) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "create_file")
+    await _poll(bridge)
+    clock.now += module.ONLINE_WINDOW_SECONDS + 1
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_RESULT_UNKNOWN)
+
+
+@pytest.mark.asyncio
+async def test_a_create_never_handed_over_times_out_plainly(
+    bridge: LocalBridge, clock: Clock
+) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "create_file")
+    await asyncio.sleep(0)
+    bridge._queue.clear()
+    await _advance_online(bridge, clock, module.READ_WAIT_SECONDS + 1)
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_TIMED_OUT)
 
 
 @pytest.mark.asyncio
@@ -272,6 +310,40 @@ async def test_new_generation_voids_waiting_poll_and_jobs(bridge: LocalBridge) -
 
 
 @pytest.mark.asyncio
+async def test_new_generation_during_a_confirmed_list_is_unknown(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "propose")
+    job = (await _poll(bridge)).job
+    assert bridge.confirm(job.id, GENERATION) is True
+
+    bridge.invalidate(GENERATION + 1)
+
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_RESULT_UNKNOWN)
+
+
+@pytest.mark.asyncio
+async def test_an_older_generation_cannot_be_written_back(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    bridge.invalidate(GENERATION + 2)
+    bridge.invalidate(GENERATION + 1)
+    assert await _poll(bridge, GENERATION + 2) is not None
+    assert await _poll(bridge, GENERATION + 1) is None
+
+
+@pytest.mark.asyncio
+async def test_a_very_long_requester_does_not_break_polling(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    task = asyncio.create_task(bridge.submit("read", {"path": "a"}, "x" * 500))
+    await asyncio.sleep(0)
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    assert len(response.job.requester) == module.MAX_REQUESTER_CHARS
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_new_generation_keeps_new_jobs_from_old_poll(bridge: LocalBridge) -> None:
     await _poll(bridge)
     waiting = asyncio.create_task(bridge.poll(GENERATION, "1.0", hold=5))
@@ -360,6 +432,8 @@ async def test_helper_lost_after_confirm_is_unknown(bridge: LocalBridge, clock: 
         ("", "./data", ["./data"]),
         ("../work", "../data", ["../work", "../data"]),
         ("/srv/workspace", "./data", ["./data"]),
+        ("D:/Work", "", ["D:/Work"]),  # noqa: PATH_LITERAL_SSOT
+        ("D:\\Work", "E:\\Data", ["D:\\Work", "E:\\Data"]),  # noqa: PATH_LITERAL_SSOT
         ("  ", "  ", []),
     ],
 )

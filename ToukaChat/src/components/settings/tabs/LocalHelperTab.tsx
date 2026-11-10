@@ -31,6 +31,7 @@ export function LocalHelperTab() {
     };
 
     const statusText = () => {
+        if (failed) return t("settings.local_helper_tab.load_failed");
         if (!status) return "";
         if (!status.paired) return t("settings.local_helper_tab.status_unpaired");
         if (!status.online) return t("settings.local_helper_tab.status_offline");

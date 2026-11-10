@@ -72,6 +72,15 @@ _SAFETY_NOTICE = "\n\n⚠️ 回應被廠商的安全過濾擋下。"
 _REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
 # SNS 頻道裡是外人：不帶廠商名稱、狀態碼與原文，想知道原因看 hook 或本機紀錄
 SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
+# 人按停止時要一起收掉的工具（ADR-0311）：人放棄之後，使用者電腦上不能再動手。
+# 其他工具維持原本的行為（背景跑完）。
+_TOOLS_TIED_TO_THE_TURN = frozenset({"local_files"})
+
+
+def _cancel_turn_bound_tools(tasks: list[tuple[str, str, asyncio.Task[Any]]]) -> None:
+    for _call_id, name, task in tasks:
+        if name in _TOOLS_TIED_TO_THE_TURN and not task.done():
+            task.cancel()
 
 
 def _read_stop_reason(adapter: ProviderAdapter, state: Any, raw: Any) -> StopReason:
@@ -550,23 +559,26 @@ async def run_react_loop(  # noqa: PLR0915
                 )
                 execution_tasks.append((tc.id, tc.name, task))
 
-            # 監聽事件佇列並轉發
-            completed_count = 0
-            while completed_count < len(turn.tool_calls):
-                event = await event_queue.get()
-                if event is None:
-                    completed_count += 1
-                    continue
-                if event["type"] == "log":
-                    yield yield_delta(event["content"])
-                else:
-                    yield sse_line(event)
+            try:
+                # 監聽事件佇列並轉發
+                completed_count = 0
+                while completed_count < len(turn.tool_calls):
+                    event = await event_queue.get()
+                    if event is None:
+                        completed_count += 1
+                        continue
+                    if event["type"] == "log":
+                        yield yield_delta(event["content"])
+                    else:
+                        yield sse_line(event)
 
-            # 收集結果並回報給模型
-            results = []
-            for call_id, target_name, task in execution_tasks:
-                res_text = await task
-                results.append((call_id, target_name, res_text))
+                # 收集結果並回報給模型
+                results = []
+                for call_id, target_name, task in execution_tasks:
+                    res_text = await task
+                    results.append((call_id, target_name, res_text))
+            finally:
+                _cancel_turn_bound_tools(execution_tasks)
             await adapter.append_tool_results(state, results)
             # 問使用者問題沒等到回答：這一輪到此為止，不再呼叫模型（沒回覆不算同意）
             ask_stop = ask_user_stop_text(context, executed_tools(actually_used_tools))

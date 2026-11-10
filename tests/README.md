@@ -165,6 +165,7 @@ tests/
 | `unit/test_ask_user_stop.py` | ADR-0308：提問沒等到回答時這一輪結束、不再呼叫模型；空白送出算沒回答；固定文字的內容與容錯 |
 | `integration/test_local_bridge_router.py` | ADR-0311：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
 | `unit/test_local_files_tool.py` | ADR-0311：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |
+| `unit/test_local_files_turn_cancel.py` | ADR-0311：走真的工具迴圈，按停止時小幫手上的工作跟著取消，其他工具不受影響 |
 | `unit/test_local_bridge_pairing.py` | ADR-0311：配對只存雜湊、換新與解除、檔案壞掉算沒配對 |
 | `unit/test_local_bridge_service.py` | ADR-0311：小幫手的工作佇列：來回、上限、逾時、兩段確認、取消、換配對、輪詢取代 |
 | `unit/test_subagent_project_access.py` | ADR-0309：子代理看得到對話綁定的專案、照模式寫入；只能看的子代理在任何模式都不能改檔案；真的走派工、工具清單與權限判定，只有模型是假的 |
