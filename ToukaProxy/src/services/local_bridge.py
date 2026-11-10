@@ -145,6 +145,7 @@ class LocalBridge:
         配對檔不見重建時世代號會變小，所以這裡不比大小；呼叫端要傳當下最新的世代號。
         """
         self._generation = generation
+        self._poll_seq += 1
         self._last_poll = None
         self._helper_version = None
         for job in self._jobs.values():
@@ -198,9 +199,9 @@ class LocalBridge:
         while True:
             if generation != self._generation:
                 return None
-            self._last_poll = self._clock()
             if mine != self._poll_seq:
                 return LocalPollResponse()
+            self._last_poll = self._clock()
             self._helper_version = helper_version
             job = self._next_job()
             cancelled = self._drain_cancelled()

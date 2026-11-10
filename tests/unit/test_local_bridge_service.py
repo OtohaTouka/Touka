@@ -335,6 +335,22 @@ async def test_new_generation_during_a_handed_over_create_is_unknown(bridge: Loc
 
 
 @pytest.mark.asyncio
+async def test_a_pairing_change_with_the_same_number_voids_a_waiting_poll(
+    bridge: LocalBridge,
+) -> None:
+    """配對檔不見重建時，世代號可能剛好和舊的一樣。"""
+    await _poll(bridge)
+    waiting = asyncio.create_task(bridge.poll(GENERATION, "1.0", hold=5))
+    await asyncio.sleep(0)
+
+    bridge.invalidate(GENERATION)
+
+    response = await asyncio.wait_for(waiting, 2)
+    assert response is not None and response.job is None
+    assert bridge.online is False
+
+
+@pytest.mark.asyncio
 async def test_a_generation_that_went_backwards_is_accepted(bridge: LocalBridge) -> None:
     """配對檔不見重建時世代號會歸零，新的配對要連得上。"""
     await _poll(bridge, GENERATION + 4)
