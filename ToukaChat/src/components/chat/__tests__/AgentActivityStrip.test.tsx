@@ -9,6 +9,21 @@ describe('AgentActivityStrip', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('回覆失敗的原因不當成進度顯示（否則會多一個一直轉的膠囊）', () => {
+    const only: ProgressMap = { generation_failure: { kind: 'generation_failure', error_type: 'rate_limit' } };
+    const { container } = render(<AgentActivityStrip progress={only} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('回覆失敗的原因旁邊的其他進度照常顯示', () => {
+    const mixed: ProgressMap = {
+      generation_failure: { kind: 'generation_failure', error_type: 'rate_limit' },
+      react_slots: { kind: 'react_slots', current: 2, total: 5 },
+    };
+    render(<AgentActivityStrip progress={mixed} />);
+    expect(screen.getByTestId('agent-activity-strip').children).toHaveLength(1);
+  });
+
   it('renders a chip per active progress kind', () => {
     const progress: ProgressMap = {
       react_slots: { kind: 'react_slots', current: 2, total: 5 },

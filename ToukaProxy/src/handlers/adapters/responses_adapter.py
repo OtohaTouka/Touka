@@ -184,7 +184,8 @@ class ResponsesAdapter:
             result = retry.on_timeout(_connection_error(state, clock.timeout_text), clock)
         except APIStatusError as e:  # 錯誤本文原樣附上（與相容 Chat 同格式；SDK 已讀完本文）
             result = retry.on_status(
-                RoundError(f"{state.label} API Error ({e.status_code})\n\n`{e.response.text}`"),
+                RoundError(f"{state.label} API Error ({e.status_code})\n\n`{e.response.text}`",
+                           detail=retry.error_message(e.response.text)),
                 e.status_code, e.response.headers, f"{state.label} busy ({e.status_code})")
         except APIConnectionError as e:  # 串流沒收到 200、非串流連不上才可重試（R-3b ② M1、N1）
             result = _connection_error(state, f"{type(e).__name__}: {str(e)[:200]}")

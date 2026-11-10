@@ -253,7 +253,8 @@ class OpenAIAdapter:
                 f"Raw error:\n`{error_msg}`",
                 error_type=retry.AUTHENTICATION_FAILED,
             )
-        error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`")
+        error = RoundError(f"{state.provider} API Error ({status})\n\n`{error_msg}`",
+                           detail=retry.error_message(error_msg))
         # 只有可重試的才讀 retry-after 標頭
         headers = response.headers if retry.retryable_status(status) else None
         return retry.on_status(error, status, headers, f"{state.provider} busy ({status})")

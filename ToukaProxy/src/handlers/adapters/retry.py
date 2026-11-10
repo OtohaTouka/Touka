@@ -122,6 +122,20 @@ def retry_info_s(body: Any) -> float | None:
     return None
 
 
+def error_message(body: Any) -> str | None:
+    """廠商錯誤本文裡的 ``error.message``；不是預期的形狀就 None（不帶外框或 HTML 錯誤頁）。"""
+    if isinstance(body, str | bytes):
+        try:
+            body = json.loads(body)
+        except (ValueError, RecursionError):
+            return None
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error", body)
+    message = error.get("message") if isinstance(error, dict) else error
+    return message if isinstance(message, str) and message else None
+
+
 def on_status(error: RoundError, status: int, headers: Any, note: str,
               body: Any = None) -> RoundError:
     """標上錯誤類型；可重試的狀態碼再標重試文字與等待秒數（標頭優先，再看 RetryInfo）。"""
@@ -211,6 +225,8 @@ def on_error_body(error: RoundError, body: Any, label: str) -> RoundError:
     """200 之後才收到的錯誤本文：標上錯誤類型；型別或代碼等同 429／5xx 就比照狀態碼可重試。"""
     if not isinstance(body, dict):
         return error
+    if error.detail is None:
+        error = replace(error, detail=error_message(body))
     code = body.get("code")
     number = _code_number(code)
     busy = (body.get("type") in _BUSY_ERROR_TYPES or body.get("status") in _BUSY_ERROR_CODES

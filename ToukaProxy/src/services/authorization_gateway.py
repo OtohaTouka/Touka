@@ -78,7 +78,7 @@ def require_admin_human(
     identity: AgentIdentity = Depends(get_verified_identity),  # noqa: B008
 ) -> AgentIdentity:
     """人類 admin 閘：須為人類且具 admin 權威（admin 代打不算）。"""
-    if not identity.is_human or not identity.is_admin_authority():
+    if not identity.is_admin_human():
         raise ToukaException(ErrorCode.AUTH_ADMIN_REQUIRED)
     return identity
 

@@ -200,7 +200,7 @@ class GeminiAdapter:
             )
             await asyncio.sleep(wait_time)
         code, text = last or ("Timeout", "No Response")
-        error = RoundError(f"API Error ({code})\n\n`{text}`")
+        error = RoundError(f"API Error ({code})\n\n`{text}`", detail=retry.error_message(text))
         if state.main_loop and isinstance(code, int):
             error = retry.on_status(error, code, state.error_headers, f"Gemini busy ({code})",
                                     body=text)

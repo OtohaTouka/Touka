@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { adminLogin, createSoul, disableHooks, latestSessionId, retitleChat, savedMessages, savedSnapshot, setChatHome } from "./lib/api";
-import { FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
+import { CANARY_API_KEY, FAKE_AFTER_TOOL_REPLY, FAKE_TEXT_REPLY, MODEL_400_REQUEST, MODEL_HOLD_REQUEST, SOUL_ID, writeRequest } from "./lib/constants";
 import { modelCalls, modelHolding, releaseModel, resetRecorders } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
 import {
@@ -454,15 +454,23 @@ test("原頁來不及存完整內容就關掉：重新整理時補回工具步�
 test("模型失敗之後重新整理：不用按恢復，失敗標示還在，下一則直接送出", async ({ page }, info) => {
   await sendMessage(page, MODEL_400_REQUEST);
   await expectLastReplyMarkedFailed(page);
+  const alert = page.locator("[data-index]").last().getByRole("alert");
+  await expect(alert).toContainText("廠商拒絕了這次請求");
+  await expect(alert).toContainText("bad request"); // 管理員當下看得到廠商原文
+  await expect(alert).not.toContainText(CANARY_API_KEY);
   await turnEnded(page);
   await expectNoSaveNotice(page);
   const id = await latestSessionId(adminToken);
   const before = await savedSnapshot(adminToken, id);
-  expect((await savedMessages(adminToken, id)).some((message) => message.generationFailed)).toBe(true);
+  const saved = await savedMessages(adminToken, id);
+  expect(saved.some((message) => message.generationFailed)).toBe(true);
+  expect(JSON.stringify(saved)).not.toContain("bad request"); // 廠商原文不存檔
 
   await reloadAndSettle(page);
 
   await expectLastReplyMarkedFailed(page);
+  await expect(alert).toContainText("廠商拒絕了這次請求");
+  await expect(alert).not.toContainText("bad request");
   await expectNoSaveNotice(page);
   expect((await savedSnapshot(adminToken, id)).revision).toBe(before.revision);
   await shot(page, info, "failed-reply-after-reload");
