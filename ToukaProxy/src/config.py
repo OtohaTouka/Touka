@@ -180,6 +180,8 @@ class Settings(BaseSettings):
     # Identity & Security
     HOST_WORKSPACE_ROOT: str = str(WORKSPACE_ROOT)
     SANCTUARY_DATA_PATH: str = ""  # compose 的資料掛載來源；小幫手用它避開重疊（ADR-0311）
+    MEMORY_SYSTEM_SRC_DIR: str = ""  # 同上：只有 .env 改到別處時才有值
+    HEARTBEAT_CONFIG_DIR: str = ""  # 同上
     TOUKA_AUTH_SECRET: str = ""  # Leave empty → AuthSecretManager auto-generates a random key
     # H1 fix: defaults True (production-safe); override to False for local HTTP dev
     SECURE_COOKIES: bool = True

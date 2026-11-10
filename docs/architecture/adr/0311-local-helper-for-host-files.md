@@ -4,7 +4,7 @@
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0194](0194-mcp-remote-shelf-and-manual-remote-entry.md)（MCP 網址的安全閘）、[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（隔離環境與封鎖埠）、[ADR-0085](0085-ask-user-tool.md)（等人回答的做法）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（只用這一輪列出的工具）
-- 影響範圍：`ToukaProxy/src/models/local_bridge.py`、`src/services/local_bridge.py`、`src/services/local_bridge_pairing.py`、`src/routers/local_bridge.py`、`src/tools/builtin/local_helper.py`、`src/utils/local_bridge_gate.py`、`src/utils/local_bridge_token.py`、`src/models/safety.py`、`src/middleware/layers/tool.py`、`ToukaChat` 設定頁、`ToukaLocal/`
+- 影響範圍：`ToukaProxy/src/models/local_bridge.py`、`src/services/local_bridge.py`、`src/services/local_bridge_pairing.py`、`src/routers/local_bridge.py`、`src/tools/builtin/local_helper.py`、`src/utils/local_bridge_gate.py`、`src/utils/local_bridge_token.py`、`src/models/safety.py`、`src/middleware/layers/tool.py`、`src/handlers/react_core.py`、`src/services/tool_executor.py`、`src/services/permission_service.py`、`src/services/authorization_gateway.py`、`src/tools/contracts.py`、`src/adapters/openai_to_gemini.py`、`src/config.py`、`ToukaChat` 設定頁、`ToukaLocal/`
 
 ## 背景
 
@@ -21,6 +21,9 @@
    - 搬移、改名、刪除：三種模式都要在小幫手視窗按核准。
    - 第一版不能修改或覆蓋既有檔案。
 5. **只給配對的人本人和靈魂的前景對話**：`utils/local_bridge_gate.py` 條件和使用者各自授權的 MCP 相同，但刻意另寫一份，MCP 放寬時這裡不跟著放寬。心跳、社群、派工、子代理、群聊全部拒絕，連讀取也是。`Subagent` 角色沒有這個工具。
+   - 靈魂有自己的工具清單時要勾了才有，不算必備工具。碰使用者電腦的能力不繞過這份清單。
+   - 無痕對話不提供：小幫手的紀錄會留下路徑和說明。
+   - 靈魂要沒有別的擁有者。別人擁有的靈魂看得到自己的對話和記憶，讀進來的檔案就等於給了那個人。
 6. **風險分類**：`list`、`read`、`propose` 是 `read_only`（比照 `ask_user`；`propose` 由人在小幫手核准，不再多一張 Touka 卡），`create_*` 是 `safe`。`BUILTIN_TOOL_RISK` 只在設定檔成功載入、又沒列到這個工具時併進去；設定檔讀不到時退回預設，仍是 `dangerous`。
 7. **權杖**：明文只回一次，Touka 只存 SHA-256 與配對的人。標頭 `X-Touka-Local-Token` 只代表這條通道，不轉成任何身分（禁令 16）。換新或解除時世代號加一，掛著的輪詢立刻作廢，待處理的工作全部失敗。
 8. **兩段確認與期限**：
@@ -31,7 +34,7 @@
    - 確認後使用者按停止：做完當前項就停，照紀錄回報。
    - 使用者在聊天按停止時，Touka 只把這個工具的背景工作一起收掉，等核准的清單會撤回、執行中的清單會叫小幫手停；其他工具維持原本的行為。
    - 失敗要照實說。可能已經動手的情況（清單已確認、新建檔案或資料夾已交給小幫手），逾時、小幫手離線或換配對都回「結果不明，不要重試」；讀取類逾時回「沒有回應，沒有改動」；清單等不到人回「沒有決定，沒有改動」。
-   - 長輪詢最多 8 秒，短於 Docker 預設的 10 秒停止時間。
+   - 長輪詢最多 5 秒。Docker 預設 10 秒就強殺，還要留時間給關機清理。
 9. **主機掛載根只用來多擋**：Touka 把 `HOST_WORKSPACE_ROOT`、`SANCTUARY_DATA_PATH` 傳給小幫手，和它們重疊的資料夾不給開放，否則代理人可以不經小幫手直接動那些檔案。POSIX 絕對路徑是容器裡的預設值，當作取不到。Touka 給的值只會讓小幫手多擋。
 10. **小幫手不從 Touka 資料夾安裝**：repo 和 `.venv` 都在容器寫得到的地方。安裝時從 GitHub 取審過的版本，放到使用者資料夾，用 repo 以外的 Python，以 `-I -S` 啟動。
 11. **`ToukaLocal/` 不走 Touka 的 SSOT**：程式在容器外跑，載入 `src` 會帶進依賴和初始化寫入（比照 `sandbox_kernel` 只用標準函式庫）。適用範圍逐條寫明：

@@ -98,7 +98,10 @@ async def poll(
     return response.model_copy(
         update={
             "host_mount_roots": host_mount_roots(
-                settings.HOST_WORKSPACE_ROOT, settings.SANCTUARY_DATA_PATH
+                settings.HOST_WORKSPACE_ROOT,
+                settings.SANCTUARY_DATA_PATH,
+                settings.MEMORY_SYSTEM_SRC_DIR,
+                settings.HEARTBEAT_CONFIG_DIR,
             )
         }
     )

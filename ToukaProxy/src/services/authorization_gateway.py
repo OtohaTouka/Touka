@@ -122,6 +122,14 @@ def only_admins_own(identity: AgentIdentity) -> bool:
     return bool(roles) and all(role == "admin" for role in roles)
 
 
+def has_another_owner(identity: AgentIdentity, human_id: str) -> bool:
+    """除了這個人以外，還有別的使用者擁有這個代理人（照 ``users.json`` 的 ``owned_agents``）。"""
+    return any(
+        identity.agent_id in user.owned_agents and user.id != human_id
+        for user in AuthService().get_all_users()
+    )
+
+
 def shares_human_owner(target: AgentIdentity, caller: AgentIdentity) -> bool:
     """有一位人類使用者同時擁有 ``target`` 與 ``caller``（``owned_agents`` 逐字比對）。
 

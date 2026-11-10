@@ -16,6 +16,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.policy import PolicyContext
 from src.services.agent_service import agent_service
+from src.services.authorization_gateway import has_another_owner
 from src.services.local_bridge import get_local_bridge
 from src.services.local_bridge_pairing import get_local_pairing_store
 from src.services.permission_service import permission_service
@@ -52,13 +53,7 @@ logger = logging.getLogger(__name__)
 # <mcp_unavailable> 只原樣列出這種名稱（ADR-0281 T1）
 _SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 # 有設工具清單時也保留的調度工具（自訂模型只保留它自己勾的）
-# local_files 另有配對、前景對話和小幫手上線的條件，沒通過就不會在候選裡（ADR-0311）
-_ESSENTIAL_TOOLS = (
-    "connect_mcp_server",
-    "agent_control",
-    "search_skill_market",
-    "local_files",
-)
+_ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market")
 # 工具清單裡有舊短名的靈魂（每個只記一次警告，ADR-0281 T2）
 _SHORT_NAME_WARNED: set[str] = set()
 
@@ -207,11 +202,14 @@ class ToolLayer(ProxyLayer):
                  continue
              # ADR-0311：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
              if tool_name == "local_files":
+                 if incognito:
+                     continue
                  availability = local_files_availability(
                      ctx,
                      request_model=getattr(request, "model", None),
                      pairing=get_local_pairing_store().current(),
                      online=get_local_bridge().online,
+                     has_other_owner=has_another_owner,
                  )
                  if availability == AVAILABILITY_OFFLINE:
                      denied_tools.append(

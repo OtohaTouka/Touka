@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import secrets
 from collections import deque
 from dataclasses import dataclass, field
@@ -38,8 +39,8 @@ HELPER_DECISION_MARGIN_SECONDS: Final = 60.0
 HELPER_EXECUTION_LIMIT_SECONDS: Final = 300.0
 # 比小幫手的執行上限寬，結果才送得回來
 EXECUTION_WAIT_SECONDS: Final = 330.0
-# 短於 Docker 預設的 10 秒停止時間，停容器時才不會被強殺
-POLL_HOLD_SECONDS: Final = 8.0
+# Docker 預設 10 秒就強殺，輪詢結束後還要留時間給關機清理
+POLL_HOLD_SECONDS: Final = 5.0
 ONLINE_WINDOW_SECONDS: Final = 20.0
 CHECK_INTERVAL_SECONDS: Final = 1.0
 
@@ -55,16 +56,24 @@ ACTION_NEEDING_CONFIRM: Final = "propose"
 _MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file"})
 
 
-def host_mount_roots(workspace_root: str, data_path: str) -> list[str]:
-    """主機上已經掛進容器的路徑。小幫手只拿來多擋，不會因此多開放。
+# Windows 磁碟在 Git Bash、WSL、Docker Desktop 裡的寫法
+_POSIX_DRIVE: Final = re.compile(r"/(?:mnt/|run/desktop/mnt/host/|host_mnt/)?([A-Za-z])(/.*)?")
 
-    POSIX 絕對路徑是容器裡的預設值（沒設定 ``WORKSPACE_ROOT``），不是主機路徑，當作取不到。
-    """
-    return [
-        value
-        for value in (workspace_root.strip(), data_path.strip())
-        if value and not PurePosixPath(value).is_absolute()
-    ]
+
+def _as_host_path(value: str) -> str | None:
+    """POSIX 寫法的 Windows 磁碟換成磁碟路徑；其他 POSIX 絕對路徑是容器裡的預設值，當作取不到。"""
+    if not PurePosixPath(value).is_absolute():
+        return value
+    drive = _POSIX_DRIVE.fullmatch(value)
+    if drive is None:
+        return None
+    return f"{drive.group(1).upper()}:{drive.group(2) or '/'}"
+
+
+def host_mount_roots(*sources: str) -> list[str]:
+    """主機上已經掛進容器的路徑。小幫手只拿來多擋，不會因此多開放。"""
+    converted = (_as_host_path(source.strip()) for source in sources if source.strip())
+    return [path for path in converted if path is not None]
 
 
 def _monotonic_seconds() -> float:
@@ -116,8 +125,7 @@ class LocalBridge:
     def online(self) -> bool:
         """最近有沒有來輪詢。"""
         return (
-            self._last_poll is not None
-            and self._clock() - self._last_poll <= ONLINE_WINDOW_SECONDS
+            self._last_poll is not None and self._clock() - self._last_poll <= ONLINE_WINDOW_SECONDS
         )
 
     @property
@@ -149,9 +157,7 @@ class LocalBridge:
         self._last_poll = None
         self._helper_version = None
         for job in self._jobs.values():
-            job.result = _failure(
-                CODE_RESULT_UNKNOWN if job.may_have_run else CODE_PAIRING_CHANGED
-            )
+            job.result = _failure(CODE_RESULT_UNKNOWN if job.may_have_run else CODE_PAIRING_CHANGED)
         self._jobs.clear()
         self._queue.clear()
         self._cancelled.clear()

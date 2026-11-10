@@ -77,9 +77,7 @@ def test_human_endpoints_are_for_human_admins_only(
 
 
 def test_pairing_refuses_untrusted_origin(client: TestClient) -> None:
-    response = client.post(
-        "/v1/local-bridge/pairing", headers={"Origin": "https://evil.example"}
-    )
+    response = client.post("/v1/local-bridge/pairing", headers={"Origin": "https://evil.example"})
     assert response.status_code == 403
 
 
@@ -172,9 +170,18 @@ def test_token_does_not_become_an_identity(wired: LocalBridge) -> None:
     assert response.status_code in (401, 403)
 
 
-def test_host_mount_roots_are_sent(
+def test_memory_and_heartbeat_mounts_are_sent_too(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(router_module.settings, "HOST_WORKSPACE_ROOT", "")
+    monkeypatch.setattr(router_module.settings, "SANCTUARY_DATA_PATH", "")
+    monkeypatch.setattr(router_module.settings, "MEMORY_SYSTEM_SRC_DIR", "../memory")
+    monkeypatch.setattr(router_module.settings, "HEARTBEAT_CONFIG_DIR", "../heartbeat")
+    token = _pair(client)
+    assert _poll(client, token).json()["host_mount_roots"] == ["../memory", "../heartbeat"]
+
+
+def test_host_mount_roots_are_sent(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(router_module.settings, "HOST_WORKSPACE_ROOT", "../work")
     monkeypatch.setattr(router_module.settings, "SANCTUARY_DATA_PATH", "./data")
     token = _pair(client)
@@ -214,7 +221,9 @@ def test_confirm_then_result(client: TestClient, wired: LocalBridge) -> None:
     _poll(client, token)
     job_id, future = _deliver_flow(client, wired, token, "propose")
     headers = {HEADER: token}
-    assert client.post(f"/v1/local-bridge/jobs/{job_id}/confirm", headers=headers).status_code == 200
+    assert (
+        client.post(f"/v1/local-bridge/jobs/{job_id}/confirm", headers=headers).status_code == 200
+    )
     second = client.post(f"/v1/local-bridge/jobs/{job_id}/confirm", headers=headers)
     assert second.status_code == 410
     done = client.post(

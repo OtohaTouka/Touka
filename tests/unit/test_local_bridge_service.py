@@ -427,7 +427,7 @@ async def test_online_window(bridge: LocalBridge, clock: Clock) -> None:
 
 @pytest.mark.asyncio
 async def test_poll_hold_is_shorter_than_docker_stop() -> None:
-    assert module.POLL_HOLD_SECONDS < 10
+    assert module.POLL_HOLD_SECONDS <= 5  # Docker 的 10 秒還要留給關機清理
     assert module.ONLINE_WINDOW_SECONDS > module.POLL_HOLD_SECONDS
 
 
@@ -462,8 +462,18 @@ async def test_helper_lost_after_confirm_is_unknown(bridge: LocalBridge, clock: 
         ("/srv/workspace", "./data", ["./data"]),
         ("D:/Work", "", ["D:/Work"]),  # noqa: PATH_LITERAL_SSOT
         ("D:\\Work", "E:\\Data", ["D:\\Work", "E:\\Data"]),  # noqa: PATH_LITERAL_SSOT
+        ("/c/Users/me/work", "", ["C:/Users/me/work"]),  # noqa: PATH_LITERAL_SSOT
+        ("/mnt/d/Projects", "", ["D:/Projects"]),  # noqa: PATH_LITERAL_SSOT
+        ("/run/desktop/mnt/host/e/x", "", ["E:/x"]),  # noqa: PATH_LITERAL_SSOT
+        ("/host_mnt/f/x", "", ["F:/x"]),  # noqa: PATH_LITERAL_SSOT
+        ("/d", "", ["D:/"]),  # noqa: PATH_LITERAL_SSOT
+        ("/app/d/x", "", []),  # noqa: PATH_LITERAL_SSOT
         ("  ", "  ", []),
     ],
 )
 def test_host_mount_roots(workspace: str, data: str, expected: list[str]) -> None:
     assert host_mount_roots(workspace, data) == expected
+
+
+def test_every_source_passed_in_is_checked() -> None:
+    assert host_mount_roots("../work", "/srv/x", "./memory", "") == ["../work", "./memory"]

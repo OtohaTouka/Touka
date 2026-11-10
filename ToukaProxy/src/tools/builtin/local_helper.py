@@ -11,6 +11,7 @@ from typing import Any, Final
 
 from src.models.local_bridge import LocalJobResult
 from src.services import tool_errors
+from src.services.authorization_gateway import has_another_owner
 from src.services.local_bridge import (
     CODE_BUSY,
     CODE_NO_DECISION,
@@ -119,6 +120,7 @@ async def local_files(action: str = "list", **kwargs: Any) -> str:
         request_model=kwargs.get("model"),
         pairing=get_local_pairing_store().current(),
         online=bridge.online,
+        has_other_owner=has_another_owner,
     )
     if availability != AVAILABILITY_OFFERED:
         if availability == AVAILABILITY_OFFLINE:
@@ -133,9 +135,7 @@ async def local_files(action: str = "list", **kwargs: Any) -> str:
         "reason": kwargs.get("reason"),
     }
     args = {
-        name: values[name]
-        for name in _ACTION_FIELDS.get(action, ())
-        if values[name] is not None
+        name: values[name] for name in _ACTION_FIELDS.get(action, ()) if values[name] is not None
     }
     result = await bridge.submit(action, args, str(ctx.get("agent_id") or ""))
     if result.status != "ok":
