@@ -348,7 +348,9 @@ def _run_entry(monkeypatch, *, isolated: int) -> tuple[object, list[bool]]:
     fake.main = main  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "touka_local.app", fake)
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(sys, "flags", types.SimpleNamespace(isolated=isolated))
+    # 只換 isolated：runpy 第一次 import 東西時還要讀其他旗標
+    flags = {name: getattr(sys.flags, name) for name in sys.flags.__match_args__}
+    monkeypatch.setattr(sys, "flags", types.SimpleNamespace(**{**flags, "isolated": isolated}))
     entry = Path(installer.__file__).parent / "__main__.py"
     with pytest.raises(SystemExit) as caught:
         runpy.run_path(str(entry))
