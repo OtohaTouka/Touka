@@ -377,4 +377,9 @@ def test_environment_knows_where_python_is(monkeypatch: pytest.MonkeyPatch) -> N
         "APPDATA": "C:\\A",
         "LOCALAPPDATA": "C:\\L",
     }
-    assert load_environment(environ, "D:\\Touka").python_dir == "E:\\Py"
+    monkeypatch.setattr(settings_module.sys, "base_prefix", "E:\\Base")
+    assert load_environment(environ, "D:\\Touka").code_paths == (
+        "E:\\Py",
+        "E:\\Base",
+        f"C:\\Users\\Me\\Desktop\\{installer._LAUNCHER_NAME}",
+    )

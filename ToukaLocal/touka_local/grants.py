@@ -15,7 +15,6 @@ from touka_local.paths import (
     anchor_of,
     check_segment_syntax,
     is_plain_absolute,
-    is_same_or_inside,
     join,
     normalize_folder,
     parts_of,
@@ -46,7 +45,7 @@ class Environment:
     app_data: str
     local_app_data: str
     helper_dir: str
-    python_dir: str
+    code_paths: tuple[str, ...]
     touka_folder: str
 
 
@@ -59,11 +58,13 @@ class Grant:
     writable: bool
 
 
-def resolve_mount_root(value: str, touka_folder: str) -> str | None:
-    """把 Touka 回報的掛載來源換成主機路徑；相對路徑以 Touka 資料夾為準。"""
+def resolve_mount_root(value: str, touka_folder: str, user_profile: str) -> str | None:
+    """把 Touka 回報的掛載來源換成主機路徑；相對路徑以 Touka 資料夾為準，``~`` 是使用者資料夾。"""
     text = value.strip()
     if not text:
         return None
+    if text == "~" or text.startswith(("~/", "~\\")):
+        return ntpath.normpath(ntpath.join(user_profile, text[2:]))
     pure = PureWindowsPath(text)
     if pure.anchor:
         return ntpath.normpath(text) if is_plain_absolute(text) else None
@@ -172,20 +173,18 @@ class GrantBook:
 
     def set_mount_roots(self, values: Iterable[str]) -> None:
         """Touka 回報的掛載來源，只用來多擋，不會讓任何資料夾變得能開放。"""
-        resolved = (resolve_mount_root(v, self._env.touka_folder) for v in values)
+        env = self._env
+        resolved = (resolve_mount_root(v, env.touka_folder, env.user_profile) for v in values)
         with self._lock:
             self._mounts = tuple(r for r in resolved if r is not None)
 
     def helper_is_exposed(self) -> bool:
-        """小幫手自己的程式在容器碰得到的地方：代理人改得到，下次啟動就是在這台電腦上跑它的程式。"""
+        """小幫手啟動時會載入的東西在容器碰得到的地方：代理人改得到，下次啟動就是在這台電腦上跑它的程式。"""
         env = self._env
         with self._lock:
-            mounts = self._mounts
-        return any(
-            is_same_or_inside(own, mount)
-            for own in (env.helper_dir, env.python_dir)
-            for mount in mounts
-        )
+            reachable = (env.touka_folder, *self._mounts)
+        own_code = (env.helper_dir, *env.code_paths)
+        return any(related(own, mount) for own in own_code for mount in reachable)
 
     def needs_onedrive_hint(self, grant: Grant) -> bool:
         """OneDrive 接管的資料夾，裡面的雲端佔位檔都會被擋。"""

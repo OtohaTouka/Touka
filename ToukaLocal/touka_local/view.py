@@ -33,7 +33,10 @@ _CONNECTION: Final = {
     "offline": "連不上 Touka",
     "unpaired": "尚未配對",
     "upgrade_needed": "版本不符，請到 GitHub 的 Touka 官方頁面取得對應版本，重新安裝小幫手",
-    "exposed": "小幫手的程式在 Touka 碰得到的資料夾裡，為了安全已停止服務，請重新安裝到別的位置",
+    "exposed": (
+        "小幫手或它用的 Python 在 Touka 碰得到的資料夾裡，為了安全已停止服務。"
+        "請把 .env 的掛載路徑改到不包含它們，或換一個 Python 重新安裝"
+    ),
 }
 _REFUSALS: Final = {
     "bad_path": "這個路徑的寫法不合規則",

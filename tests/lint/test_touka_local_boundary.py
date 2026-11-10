@@ -308,6 +308,7 @@ def test_helper_does_not_import_touka_itself() -> None:
         "from touka_local.winapi import ctypes",
         "from touka_local import winapi\nwinapi.ctypes.WinDLL('kernel32')",
         "import os\no = os\no.system('x')",
+        "import os\nhandler(os)",
         "foo.execv('x', [])",
         "foo.spawnl(0, 'x')",
         "import pathlib\npathlib.os.system('x')",

@@ -390,7 +390,7 @@ class Operations:
 
     def _plan_destination(self, raw: dict[str, Any], source: _Target) -> _Target:
         destination = self._locate_writable(raw.get("to"))
-        check_new_segments(destination.parts)
+        check_new_segments(destination.parts, kept_name=source.parts[-1])
         check_move_names(source.parts[-1], destination.parts[-1])
         if self._walk(destination, allow_missing=True) is not None:
             raise Refused("exists")
@@ -439,7 +439,10 @@ class Operations:
             raise Refused("git_project")
         if is_protected_name(name):
             raise Refused("protected")
-        check_segment_syntax(name)
+        try:
+            check_segment_syntax(name)
+        except Refused as exc:
+            raise Refused("odd_name_inside") from exc
 
     @staticmethod
     def _marks(name: str, info: EntryInfo, tree: _Tree) -> tuple[str, ...]:

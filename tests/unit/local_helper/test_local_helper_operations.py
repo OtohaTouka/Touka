@@ -30,7 +30,7 @@ def book(fs, tmp_path: Path) -> GrantBook:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
-        python_dir="C:\\Python",
+        code_paths=("C:\\Python",),
         touka_folder="D:\\Touka",
     )
     return GrantBook(tmp_path / "g.json", fs=fs, env=env, drive_type=lambda _a: "fixed")
@@ -825,8 +825,10 @@ def test_a_pruned_batch_takes_its_temporary_record_with_it(
     fs, ops, clock, tmp_path, monkeypatch
 ) -> None:
     batch = _moved_batch(fs, ops, clock)
-    temporary = _temporary(_record_file(tmp_path, batch))
-    temporary.write_text("{}", encoding="utf-8")
+    record = _record_file(tmp_path, batch)
+    temporary = _temporary(record)
+    # 內容完整才算數：半寫的暫存檔另外有一條規則會清
+    temporary.write_text(record.read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
     plan = _delete_all(ops, fs, "c")
     ops.apply(plan, _limits(clock))
@@ -1154,7 +1156,35 @@ def test_secret_files_are_marked_in_the_list(fs, ops: Operations) -> None:
 def test_odd_names_inside_a_folder_block_the_item(fs, ops: Operations, child: str) -> None:
     fs.add_file(f"D:\\Open\\box\\{child}")
     items = [{"op": "delete", "path": "Open/box"}]
-    assert _code(ops.plan, {"items": items, "reason": "r"}) == "bad_path"
+    assert _code(ops.plan, {"items": items, "reason": "r"}) == "odd_name_inside"
+
+
+def test_a_folder_holding_an_emoji_name_can_still_be_listed_for_approval(
+    fs, ops: Operations
+) -> None:
+    fs.add_file("D:\\Open\\box\\\u2764\ufe0f.txt")
+    plan = ops.plan({"items": [{"op": "delete", "path": "Open/box"}], "reason": "r"})
+    assert plan.items[0].contained == 1
+
+
+def test_a_file_can_move_keeping_a_full_width_name(fs, ops: Operations) -> None:
+    fs.add_file("D:\\Open\\影片\uff5c頻道.mp4")
+    fs.add_dir("D:\\Open\\影片")
+    items = [
+        {"op": "move", "path": "Open/影片\uff5c頻道.mp4", "to": "Open/影片/影片\uff5c頻道.mp4"}
+    ]
+    assert ops.plan({"items": items, "reason": "r"}).items[0].op == "move"
+
+
+def test_a_file_can_be_created_inside_an_existing_full_width_folder(fs, ops: Operations) -> None:
+    fs.add_dir("D:\\Open\\報告\u30002024")
+    assert ops.create_file({"path": "Open/報告\u30002024/x.txt", "content": "a"})
+
+
+def test_a_file_cannot_be_renamed_to_a_full_width_name(fs, ops: Operations) -> None:
+    fs.add_file("D:\\Open\\a.mp4")
+    items = [{"op": "move", "path": "Open/a.mp4", "to": "Open/a\uff5cb.mp4"}]
+    assert _code(ops.plan, {"items": items, "reason": "r"}) == "file_name"
 
 
 def test_path_limit_leaves_room_for_the_git_probe(ops: Operations) -> None:
@@ -1195,11 +1225,36 @@ def test_write_that_fails_with_no_old_file_leaves_nothing_to_read(tmp_path, monk
         (0x2, False),  # 隱藏，不是佔位檔
     ],
 )
-def test_cloud_placeholders_count_as_links(monkeypatch, attributes: int, placeholder: bool) -> None:
-    result = SimpleNamespace(
-        st_mode=stat.S_IFREG, st_size=1, st_mtime_ns=1, st_file_attributes=attributes
-    )
+@pytest.mark.parametrize("mode", [stat.S_IFREG, stat.S_IFDIR])
+def test_cloud_placeholders_count_as_links(
+    monkeypatch, attributes: int, placeholder: bool, mode: int
+) -> None:
+    result = SimpleNamespace(st_mode=mode, st_size=1, st_mtime_ns=1, st_file_attributes=attributes)
     monkeypatch.setattr(fsops.os, "lstat", lambda _path: result)
     info = fsops.RealFs().lstat("x")
     assert info is not None
     assert info.is_reparse is placeholder
+
+
+def test_undo_does_not_open_anything_for_a_bad_batch_name(ops: Operations, monkeypatch) -> None:
+    def boom(_path: Path) -> None:
+        raise AssertionError("不合規則的編號不該去讀檔")
+
+    monkeypatch.setattr(ops, "_read_journal", boom)
+    assert _code(ops.undo, "../outside") == "not_found"
+
+
+def test_undo_refuses_when_only_the_destination_name_points_elsewhere(
+    fs, ops: Operations, book: GrantBook, clock
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    fs.add_dir("D:\\Stash")
+    book.add("D:\\Stash", writable=True)
+    plan = _plan(ops, [{"op": "move", "path": "Open/a.txt", "to": "Stash/a.txt"}])
+    batch = ops.apply(plan, _limits(clock))["batch"]
+    book.remove("Stash")
+    fs.add_file("D:\\Other\\Stash\\a.txt")
+    book.add("D:\\Other\\Stash", writable=True)
+    assert ops.undo(batch) == {"restored": 0, "skipped": 1, "not_undoable": 0}
+    assert fs.exists("D:\\Other\\Stash\\a.txt")
+    assert not fs.exists("D:\\Open\\a.txt")

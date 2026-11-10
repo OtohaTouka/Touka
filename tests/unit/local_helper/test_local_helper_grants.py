@@ -28,7 +28,7 @@ def env() -> Environment:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir=HELPER,
-        python_dir="E:\\Python",
+        code_paths=("E:\\Python", "E:\\Base", "C:\\Users\\Me\\Desktop\\ToukaLocal.cmd"),
         touka_folder=TOUKA,
     )
 
@@ -266,12 +266,12 @@ def test_stored_grant_that_now_breaks_a_rule_is_not_usable(
     ],
 )
 def test_mount_root_resolution(value: str, expected: str) -> None:
-    assert resolve_mount_root(value, TOUKA) == expected
+    assert resolve_mount_root(value, TOUKA, USER) == expected
 
 
 @pytest.mark.parametrize("value", ["", "   ", "//server/share", "\\\\server\\share"])
 def test_mount_root_without_a_local_path(value: str) -> None:
-    assert resolve_mount_root(value, TOUKA) is None
+    assert resolve_mount_root(value, TOUKA, USER) is None
 
 
 @pytest.mark.parametrize(
@@ -362,7 +362,11 @@ def test_a_folder_named_appdata_cannot_be_opened(fs, book: GrantBook) -> None:
         (("E:\\",), True),  # Python 在這顆磁碟
         (("E:\\Python",), True),
         (("e:\\python\\",), True),
-        (("E:\\Python\\Lib",), False),  # 掛進去的只是 Python 底下一個資料夾
+        (("E:\\Python\\Lib",), True),  # 標準函式庫被改，下次啟動就中招
+        (("E:\\Base",), True),
+        ((f"{HELPER}\\app",), True),
+        (("C:\\Users\\Me\\Desktop",), True),  # 桌面上的啟動檔
+        (("C:\\Users\\Me\\Documents",), False),
         (("C:\\Users\\Me\\AppData\\Local",), True),  # 小幫手在這底下
         ((HELPER,), True),
         (("D:\\Work", "C:\\Users\\Me"), True),
@@ -371,3 +375,17 @@ def test_a_folder_named_appdata_cannot_be_opened(fs, book: GrantBook) -> None:
 def test_helper_is_exposed(book: GrantBook, mounts: tuple[str, ...], exposed: bool) -> None:
     book.set_mount_roots(mounts)
     assert book.helper_is_exposed() is exposed
+
+
+def test_the_touka_folder_counts_as_reachable(env: Environment, fs, tmp_path: Path) -> None:
+    exposed = replace(env, code_paths=(f"{TOUKA}\\python",))
+    book = GrantBook(tmp_path / "g2.json", fs=fs, env=exposed, drive_type=lambda _a: "fixed")
+    assert book.helper_is_exposed() is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("~", USER), ("~/work", f"{USER}\\work"), ("~\\work", f"{USER}\\work")],
+)
+def test_mount_root_under_the_home_folder(value: str, expected: str) -> None:
+    assert resolve_mount_root(value, TOUKA, USER) == expected

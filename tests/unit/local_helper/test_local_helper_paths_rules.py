@@ -283,6 +283,9 @@ def test_ordinary_files(name: str) -> None:
     assert is_unusual_file(name) is False
 
 
+_VARIATION_SELECTORS = {0xFE00, 0xFE0F, 0xE0100}
+
+
 @pytest.mark.parametrize(
     "code_point",
     [
@@ -320,9 +323,17 @@ def test_ordinary_files(name: str) -> None:
 )
 def test_default_ignorable_characters_are_hidden(code_point: int) -> None:
     assert is_hidden_character(chr(code_point)) is True
+    if code_point in _VARIATION_SELECTORS:
+        return  # 既有檔名要能用，見下一條
     with pytest.raises(Refused) as caught:
         split_request_path(f"Open/a{chr(code_point)}b.txt")
     assert caught.value.code == "bad_path"
+
+
+@pytest.mark.parametrize("code_point", sorted(_VARIATION_SELECTORS))
+def test_existing_names_can_carry_variation_selectors(code_point: int) -> None:
+    name = f"\u2764{chr(code_point)}.txt"
+    assert split_request_path(f"Open/{name}") == ("Open", (name,))
 
 
 @pytest.mark.parametrize(
@@ -401,6 +412,8 @@ def test_length_counts_utf16_units_and_leaves_room_for_the_git_probe(
         ("a\uff0fb.txt",),
         ("a\u3000b.txt",),
         ("x", "y\u2215z"),
+        ("\u2764\ufe0f.txt",),
+        ("a\u200bb.txt",),
     ],
 )
 def test_new_paths_refuse_dot_names_and_lookalikes(parts: tuple[str, ...]) -> None:
@@ -409,7 +422,17 @@ def test_new_paths_refuse_dot_names_and_lookalikes(parts: tuple[str, ...]) -> No
     assert caught.value.code == "file_name"
 
 
-@pytest.mark.parametrize("parts", [("a",), ("a", "b.txt"), ("a.b", "c d.md"), ("報告", "一.txt")])
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("a",),
+        ("a", "b.txt"),
+        ("a.b", "c d.md"),
+        ("報告", "一.txt"),
+        ("報告\u30002024", "x.txt"),
+        ("影片\uff5c頻道", "x.txt"),
+    ],
+)
 def test_new_paths_allow_ordinary_names(parts: tuple[str, ...]) -> None:
     check_new_segments(parts)
 
@@ -460,3 +483,15 @@ def test_more_protected_folders(name: str) -> None:
 )
 def test_more_unusual_files(name: str) -> None:
     assert is_unusual_file(name) is True
+
+
+@pytest.mark.parametrize("name", ["影片\uff5c頻道.mp4", "a\u3000b.txt", "\u2764\ufe0f.txt"])
+def test_a_name_that_is_kept_is_not_new(name: str) -> None:
+    check_new_segments(("box", name), kept_name=name)
+    with pytest.raises(Refused):
+        check_new_segments(("box", name), kept_name="other.txt")
+
+
+def test_a_kept_name_still_cannot_start_with_a_dot() -> None:
+    with pytest.raises(Refused):
+        check_new_segments((".a.txt",), kept_name=".a.txt")

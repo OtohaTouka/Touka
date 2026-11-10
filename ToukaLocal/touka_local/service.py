@@ -66,7 +66,15 @@ _MODEL_MESSAGES: Final = {
     "too_many": "That is too many items for one request.",
     "secret_name": "That file looks like a secret, so it is not read.",
     "file_type": "Only .txt, .md and .log files can be created.",
-    "file_name": "Files with that name cannot be created or moved into place.",
+    "file_name": (
+        "That name cannot be used for something new: it starts with a dot, contains a "
+        "character that looks like a path separator, a space or nothing at all, or is "
+        "a file other tools read automatically."
+    ),
+    "odd_name_inside": (
+        "Something inside that folder has a name this tool cannot handle safely, "
+        "so the folder cannot be moved or deleted as a whole."
+    ),
     "extension_changed": "A move cannot change the file extension.",
     "cross_drive": "Moves cannot cross drives.",
     "conflict": "Items in the list overlap each other.",

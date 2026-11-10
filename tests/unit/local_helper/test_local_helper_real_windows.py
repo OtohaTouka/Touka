@@ -13,10 +13,12 @@ if sys.platform == "win32":
 from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
+from touka_local.app import ApprovalWindow
+from touka_local.approval import PendingApproval
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
-from touka_local.operations import ApplyLimits, Operations
+from touka_local.operations import ApplyLimits, Operations, Plan, PlanItem
 from touka_local.winapi import acquire_single_instance, drive_type
 
 if TYPE_CHECKING:
@@ -39,7 +41,7 @@ def _environment(tmp_path: Path) -> Environment:
         program_data="Z:\\NoProgramData",
         app_data="Z:\\NoAppData",
         local_app_data="Z:\\NoLocalAppData",
-        python_dir="Z:\\NoPython",
+        code_paths=("Z:\\NoPython",),
         helper_dir=str(tmp_path / "helper"),
         touka_folder="Z:\\NoTouka",
     )
@@ -214,3 +216,41 @@ def test_new_file_deep_in_a_folder_is_seen_for_real(real) -> None:
 def test_a_second_copy_is_refused() -> None:
     acquire_single_instance()
     assert acquire_single_instance() is False
+
+
+def test_approval_window_shows_every_full_path() -> None:
+    """表格放不下長路徑，核准前要能在視窗上看到每一項的完整路徑。"""
+    tk = pytest.importorskip("tkinter")
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        items = tuple(
+            PlanItem(
+                op="delete",
+                source_text=f"Open/{name}",
+                destination_text=None,
+                source_full=f"D:\\Open\\{name}",
+                destination_full=None,
+                size=1,
+                is_folder=False,
+                contained=0,
+                unusual=(),
+                mtime_ns=1,
+                snapshot=(),
+            )
+            for name in ("first.txt", "second.txt")
+        )
+        pending = PendingApproval(
+            job_id="j",
+            plan=Plan(items=items, reason="r", digest="d" * 64),
+            requester="",
+            offered_at=0.0,
+            deadline=1.0,
+        )
+        window = ApprovalWindow(root, pending, on_approve=lambda: None, on_reject=lambda: None)
+        text = window._paths.get("1.0", "end")
+        assert "D:\\Open\\first.txt" in text
+        assert "D:\\Open\\second.txt" in text
+        assert window._paths.cget("state") == "disabled"
+    finally:
+        root.destroy()

@@ -68,7 +68,7 @@ def book(fs, tmp_path: Path) -> GrantBook:
         app_data="C:\\Users\\Me\\AppData\\Roaming",
         local_app_data="C:\\Users\\Me\\AppData\\Local",
         helper_dir="C:\\Users\\Me\\AppData\\Local\\ToukaLocal",
-        python_dir="C:\\Python",
+        code_paths=("C:\\Python",),
         touka_folder="D:\\Touka",
     )
     fs.add_dir("D:\\Open")
@@ -701,3 +701,18 @@ def test_helper_serves_again_once_the_mount_is_gone(
     assert service.state == "exposed"
     service.poll_once()
     assert service.state == "online"
+
+
+def test_a_failed_list_is_reported_as_failed_even_if_the_result_is_lost(
+    service, client, gate, fs, clock, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    client.deliver_answer = False
+
+    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+        raise OSError(28, "disk full")
+
+    monkeypatch.setattr(service._operations, "apply", boom)
+    _approve(service, gate, clock)
+    assert service.notice == "apply_failed"

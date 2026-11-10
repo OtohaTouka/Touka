@@ -36,6 +36,8 @@ _DEFAULT_IGNORABLE: Final = (
     (0x1D173, 0x1D17A),
     (0xE0000, 0xE0FFF),
 )
+# 變體選擇符：Windows 表情面板打出的 emoji 常帶著，既有檔名要能用，新名稱不行
+_VARIATION_SELECTORS: Final = ((0xFE00, 0xFE0F), (0xE0100, 0xE01EF))
 # 長得像路徑分隔線的字元：全形斜線、數學符號、方框線
 _LOOKALIKE_SEPARATORS: Final = frozenset("／＼⁄∕⧸⧹∖﹨｜∣ǀ❘￨╱╲")
 # 逐層檢查時會在路徑後面接 \.git，要留位置
@@ -67,6 +69,13 @@ def is_hidden_character(character: str) -> bool:
     )
 
 
+def _blocks_existing_name(character: str) -> bool:
+    code = ord(character)
+    return is_hidden_character(character) and not any(
+        low <= code <= high for low, high in _VARIATION_SELECTORS
+    )
+
+
 def is_misleading_character(character: str) -> bool:
     """長得像路徑分隔線或一般空白，人看路徑時會看錯。"""
     return character in _LOOKALIKE_SEPARATORS or (
@@ -87,7 +96,7 @@ def check_segment_syntax(name: str) -> None:
         or len(name) > MAX_SEGMENT_CHARS
         or name[0] == " "
         or name[-1] in " ."
-        or any(c in _FORBIDDEN_CHARS or is_hidden_character(c) for c in name)
+        or any(c in _FORBIDDEN_CHARS or _blocks_existing_name(c) for c in name)
         or name.split(".", 1)[0].rstrip(" ").casefold() in _RESERVED_NAMES
         or _SHORT_NAME.search(name) is not None
         or _SHELL_FOLDER_SUFFIX.search(name) is not None

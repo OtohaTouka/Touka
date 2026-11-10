@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 from touka_local.errors import Refused
-from touka_local.paths import is_misleading_character
+from touka_local.paths import is_hidden_character, is_misleading_character
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Sequence
 
 GIT_FOLDER: Final = ".git"
 
@@ -130,11 +130,19 @@ def check_segment_allowed(name: str) -> None:
         raise Refused("protected")
 
 
-def check_new_segments(parts: Iterable[str]) -> None:
-    """新建或搬到的路徑：點開頭的常是工具自動讀的設定，形似分隔線的字元會讓人看錯路徑。"""
-    for name in parts:
-        if name.startswith(".") or any(is_misleading_character(c) for c in name):
-            raise Refused("file_name")
+def check_new_segments(parts: Sequence[str], *, kept_name: str | None = None) -> None:
+    """新建或搬到的路徑。
+
+    點開頭的常是工具自動讀的設定，整條路徑都不行。形似分隔線、空白或看不見的字元會讓人看錯路徑，
+    只擋真的新取的名稱：上層資料夾早就存在，搬移時沿用原檔名也不算新名稱。
+    """
+    if any(name.startswith(".") for name in parts):
+        raise Refused("file_name")
+    last = parts[-1]
+    if last != kept_name and any(
+        is_misleading_character(c) or is_hidden_character(c) for c in last
+    ):
+        raise Refused("file_name")
 
 
 def check_created_file_name(name: str) -> None:
