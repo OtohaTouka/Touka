@@ -397,7 +397,7 @@ def test_mount_root_under_the_home_folder(value: str, expected: str) -> None:
 
 
 def test_python_above_the_touka_folder_is_not_exposed(env: Environment, fs, tmp_path: Path) -> None:
-    """Touka 資料夾掛進容器的只有它自己，它的上層容器碰不到。"""
+    """只看 Touka 資料夾本身：掛進容器的只有它自己。掛載來源是另一條判斷，上下層都算。"""
     above = replace(env, code_paths=("D:\\",), touka_folder="D:\\Dev\\Touka")
     book = GrantBook(tmp_path / "g3.json", fs=fs, env=above, drive_type=lambda _a: "fixed")
     assert book.helper_is_exposed() is False

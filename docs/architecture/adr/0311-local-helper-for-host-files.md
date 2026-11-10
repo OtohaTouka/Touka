@@ -35,7 +35,7 @@
    - 使用者在聊天按停止時，Touka 只把這個工具的背景工作一起收掉，等核准的清單會撤回、執行中的清單會叫小幫手停；其他工具維持原本的行為。
    - 失敗要照實說。可能已經動手的情況（清單已確認、新建檔案或資料夾已交給小幫手），逾時、小幫手離線或換配對都回「結果不明，不要重試」；讀取類逾時回「沒有回應，沒有改動」；清單等不到人回「沒有決定，沒有改動」。
    - 長輪詢最多 5 秒。Docker 預設 10 秒就強殺，還要留時間給關機清理。
-9. **主機掛載根只用來多擋**：Touka 把 `HOST_WORKSPACE_ROOT`、`SANCTUARY_DATA_PATH`、`MEMORY_SYSTEM_SRC_DIR`、`HEARTBEAT_CONFIG_DIR` 傳給小幫手，和它們重疊的資料夾不給開放，否則代理人可以不經小幫手直接動那些檔案。Windows 磁碟的 POSIX 寫法（`/d/x`、`/mnt/d/x`、Docker Desktop 的路徑）換成磁碟路徑；其他 POSIX 絕對路徑是容器裡的預設值，當作取不到。Touka 給的值只會讓小幫手多擋。小幫手自己、它用的 Python（含標準函式庫）或桌面啟動檔和掛載範圍或 Touka 資料夾重疊時，停止服務並在視窗明講：代理人改得到的程式，下次啟動就在電腦上跑。
+9. **主機掛載根只用來多擋**：Touka 把 `HOST_WORKSPACE_ROOT`、`SANCTUARY_DATA_PATH`、`MEMORY_SYSTEM_SRC_DIR`、`HEARTBEAT_CONFIG_DIR` 傳給小幫手，和它們重疊的資料夾不給開放，否則代理人可以不經小幫手直接動那些檔案。Windows 磁碟的 POSIX 寫法（`/d/x`、`/mnt/d/x`、Docker Desktop 的路徑）換成磁碟路徑；其他 POSIX 絕對路徑是容器裡的預設值，當作取不到。Touka 給的值只會讓小幫手多擋。小幫手自己、它用的 Python（含標準函式庫）或桌面啟動檔落在 Touka 資料夾裡，或和掛載範圍重疊時，停止服務並在視窗明講：代理人改得到的程式，下次啟動就在電腦上跑。
 10. **小幫手不從 Touka 資料夾安裝**：repo 和 `.venv` 都在容器寫得到的地方。安裝時從 GitHub 取審過的版本，放到使用者資料夾，用 repo 以外的 Python，以 `-I -S` 啟動。
 11. **`ToukaLocal/` 不走 Touka 的 SSOT**：程式在容器外跑，載入 `src` 會帶進依賴和初始化寫入（比照 `sandbox_kernel` 只用標準函式庫）。適用範圍逐條寫明：
     - 禁令 7：照樣用 `logging`，不用 `print`。
