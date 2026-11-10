@@ -226,6 +226,22 @@ async def test_unknown_result_says_not_to_retry(wired: MagicMock) -> None:
     assert "Do not retry" in result
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "phrase"),
+    [
+        (bridge_module.CODE_TIMED_OUT, "nothing was changed"),
+        (bridge_module.CODE_NO_DECISION, "nothing was changed"),
+        (bridge_module.CODE_RESULT_UNKNOWN, "may have been made"),
+    ],
+)
+async def test_failures_say_whether_anything_changed(
+    wired: MagicMock, code: str, phrase: str
+) -> None:
+    wired.submit.return_value = LocalJobResult(status="error", code=code)
+    assert phrase in await _call(path="a")
+
+
 # --- 公開參數合約 ---
 
 
@@ -567,3 +583,43 @@ async def test_who_has_to_agree(
         assert len(calls) == 1
         assert calls[0]["action"] == action
     approval_service.reset_for_test()
+
+
+@pytest.mark.asyncio
+async def test_the_executor_lets_a_stop_reach_the_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """按停止靠取消傳到工具；工具執行器若擋下取消，小幫手就收不到。"""
+    approval_service.reset_for_test()
+    started = asyncio.Event()
+    stopped: list[bool] = []
+
+    async def handler(**_kwargs: Any) -> str:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stopped.append(True)
+            raise
+        return "never"
+
+    executor = _executor(monkeypatch, handler)
+    ctx = {
+        "identity": SOUL,
+        "agent_id": "Soul",
+        "auth_level": "Auto",
+        "session_id": "sess-local",
+        "resumable_stream": True,
+    }
+    task = asyncio.create_task(
+        executor.execute_to_queue(
+            "local_files",
+            {"action": "read", "path": "a/b.txt"},
+            "req-local",
+            ctx,
+            asyncio.Queue(),
+        )
+    )
+    await asyncio.wait_for(started.wait(), 5)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert stopped == [True]
+    assert task.cancelled()

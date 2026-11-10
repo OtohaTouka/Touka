@@ -142,10 +142,8 @@ class LocalBridge:
     def invalidate(self, generation: int) -> None:
         """換權杖或解除配對：掛著的輪詢作廢、工作全部失敗、上線狀態清掉。
 
-        世代號只往前走，較舊的通知晚到時不能把已經作廢的權杖救回來。
+        配對檔不見重建時世代號會變小，所以這裡不比大小；呼叫端要傳當下最新的世代號。
         """
-        if self._generation is not None and generation < self._generation:
-            return
         self._generation = generation
         self._last_poll = None
         self._helper_version = None

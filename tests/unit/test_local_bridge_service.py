@@ -323,12 +323,24 @@ async def test_new_generation_during_a_confirmed_list_is_unknown(bridge: LocalBr
 
 
 @pytest.mark.asyncio
-async def test_an_older_generation_cannot_be_written_back(bridge: LocalBridge) -> None:
+async def test_new_generation_during_a_handed_over_create_is_unknown(bridge: LocalBridge) -> None:
     await _poll(bridge)
-    bridge.invalidate(GENERATION + 2)
+    task = await _start(bridge, "create_file")
+    await _poll(bridge)
+
     bridge.invalidate(GENERATION + 1)
-    assert await _poll(bridge, GENERATION + 2) is not None
-    assert await _poll(bridge, GENERATION + 1) is None
+
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_RESULT_UNKNOWN)
+
+
+@pytest.mark.asyncio
+async def test_a_generation_that_went_backwards_is_accepted(bridge: LocalBridge) -> None:
+    """配對檔不見重建時世代號會歸零，新的配對要連得上。"""
+    await _poll(bridge, GENERATION + 4)
+    bridge.invalidate(GENERATION)
+    assert await _poll(bridge, GENERATION) is not None
+    assert await _poll(bridge, GENERATION + 4) is None
 
 
 @pytest.mark.asyncio

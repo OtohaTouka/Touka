@@ -54,7 +54,8 @@ async def test_rotation_voids_the_old_token(tmp_path: Path) -> None:
 async def test_revoke_keeps_generation_moving(tmp_path: Path) -> None:
     store = _store(tmp_path)
     token = await store.create("Owner")
-    assert await store.revoke() == 2
+    await store.revoke()
+    assert store.generation() == 2
     assert store.current() is None
     assert store.authenticate(token) is None
     await store.create("Owner")
@@ -65,7 +66,8 @@ async def test_revoke_keeps_generation_moving(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_revoke_without_pairing(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    assert await store.revoke() == 1
+    await store.revoke()
+    assert store.generation() == 1
     assert store.current() is None
 
 

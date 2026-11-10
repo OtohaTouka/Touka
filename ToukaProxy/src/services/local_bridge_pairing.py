@@ -77,12 +77,14 @@ class LocalPairingStore:
             )
         return token
 
-    async def revoke(self) -> int:
-        """解除配對，回傳新的世代號。"""
+    async def revoke(self) -> None:
+        """解除配對。"""
         async with self._lock():
-            generation = self.generation() + 1
-            self._write(LocalPairingRecord(generation=generation, token_hash=None, human_id=None))
-        return generation
+            self._write(
+                LocalPairingRecord(
+                    generation=self.generation() + 1, token_hash=None, human_id=None
+                )
+            )
 
 
 @lru_cache(maxsize=1)

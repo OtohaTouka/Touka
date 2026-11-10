@@ -124,6 +124,32 @@ def test_revoked_token_is_refused_and_goes_offline(client: TestClient) -> None:
     assert client.get("/v1/local-bridge/status").json()["paired"] is False
 
 
+def test_pairing_again_after_the_file_was_lost_connects(client: TestClient) -> None:
+    _pair(client)
+    _pair(client)
+    router_module.get_local_pairing_store()._file().unlink()
+    token = _pair(client)
+    assert _poll(client, token).status_code == 200
+
+
+def test_unpairing_uses_the_newest_generation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """解除配對和重新配對交錯時，晚到的不能把世代倒回去，否則新的配對連不上。"""
+    _pair(client)
+    store = router_module.get_local_pairing_store()
+    real_revoke = store.revoke
+    newest: list[str] = []
+
+    async def revoke_then_someone_pairs() -> None:
+        await real_revoke()
+        newest.append(await store.create("someone"))
+
+    monkeypatch.setattr(store, "revoke", revoke_then_someone_pairs)
+    assert client.delete("/v1/local-bridge/pairing").status_code == 200
+    assert _poll(client, newest[0]).status_code == 200
+
+
 def test_protocol_mismatch(client: TestClient) -> None:
     token = _pair(client)
     response = _poll(client, token, {"protocol": PROTOCOL_VERSION + 1, "helper_version": "1"})

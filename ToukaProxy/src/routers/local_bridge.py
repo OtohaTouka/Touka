@@ -62,8 +62,10 @@ async def delete_pairing(
 ) -> LocalJobAck:
     """解除配對，小幫手馬上斷開。"""
     verify_origin(request)
-    generation = await get_local_pairing_store().revoke()
-    get_local_bridge().invalidate(generation)
+    store = get_local_pairing_store()
+    await store.revoke()
+    # 等鎖時可能有別的請求改過，這裡讀當下最新的世代號，兩步之間沒有 await
+    get_local_bridge().invalidate(store.generation())
     return LocalJobAck()
 
 
