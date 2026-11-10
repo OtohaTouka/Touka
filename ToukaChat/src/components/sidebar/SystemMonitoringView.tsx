@@ -7,6 +7,8 @@ import { ConnectionStatus } from "./monitoring/ConnectionStatus";
 import { ModelList } from "./monitoring/ModelList";
 import { MemoryStatus } from "./monitoring/MemoryStatus";
 import { TokenUsage } from "./monitoring/TokenUsage";
+import { CacheHitRates } from "./monitoring/CacheHitRates";
+import { PricingNote } from "./monitoring/PricingNote";
 import { DailyQuota } from "./monitoring/DailyQuota";
 import { BackgroundActivity } from "./monitoring/BackgroundActivity";
 import { InterruptedRunsNotice } from "./monitoring/InterruptedRunsNotice";
@@ -86,6 +88,8 @@ export function SystemMonitoringView({ isActive }: SystemMonitoringViewProps) {
         <div className="space-y-3">
           <DailyQuota quota={stats.dailyQuota} />
           <TokenUsage tokenUsage={stats.tokenUsage} />
+          <CacheHitRates rates={stats.cacheHitRates} />
+          <PricingNote pricing={stats.pricing} />
         </div>
       </SectionWrapper>
 

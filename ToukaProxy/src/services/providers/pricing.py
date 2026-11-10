@@ -9,7 +9,8 @@
   2. 內建硬編規格表 ``_BUILTIN_PRICING``（code SSOT，離線可用）。
   3. 保守 fallback（未知模型）。
 
-比對採「精確 → 最長子字串」兩層寬鬆匹配，容忍 provider 前綴與版本尾綴差異。
+比對採「精確 → 最長子字串」兩層寬鬆匹配，容忍 provider 前綴與版本尾綴差異。只比對到家族鍵
+（沒有具體價格）時用該家已知最高價，來源標 ``family``（ADR-0311）。
 讀檔失敗一律降級至內建表／預設，**永不拋例外**。本模組為**純字串→費率**函式，
 **不 import PROVIDER_SPECS**（避免 telemetry→providers→… 服務層耦合）。
 
@@ -22,8 +23,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.utils import config_utils
+from src.utils.time_utils import get_current_epoch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -90,22 +96,41 @@ class Rate:
         return round(cost, 6)
 
 
+# 內建表最後一次逐筆對官方價格頁的日期（畫面會顯示）；model_pricing.json 的覆蓋不算在內。
+PRICING_VERIFIED_AT = "2026-11-10"
+
 # Haiku 5.5 提示長度（含快取讀寫）超過這個數就整個請求改用長檔費率。
 HAIKU_5_5_LONG_PROMPT_TOKENS = 100_000
+_OPENAI_LONG = 272_000
+_GOOGLE_LONG = 200_000
+# xAI 官方是「達到 20 萬」就整個請求用高價；for_prompt 比的是超過。
+_XAI_LONG = 199_999
 
 # security-1：未知模型保守高估 fallback（不可為 0）。沿用重構前 Anthropic $3/$15；
 # 可由 model_pricing.json 的 _default 覆蓋。
 _DEFAULT = Rate(input=3.0, output=15.0)
 
+
+def _tiered(threshold: int, short: tuple, long_tier: tuple) -> Rate:
+    """官方按提示長度分兩檔的型號；兩邊都是（輸入, 輸出, 快取讀[, 快取寫]）。"""
+    return Rate(*short, long_prompt=(threshold, Rate(*long_tier)))
+
+
 # 內建硬編規格表（code SSOT，離線可用）。鍵為小寫子字串，最長匹配優先（具體勝過泛化）。
-# 費率為 USD / 1M tokens，依各供應商公告價填入（截至知識截止日的估算；浮動時由
-# config/model_pricing.json 覆蓋，免改碼）。Anthropic 的 cache 為獨立計費項（cache_read≈
-# 0.1×input、cache_write≈1.25×input）故顯式填入；Gemini/OpenAI 的快取折扣未填，留 None
-# ＝照 input 價計（保守；adapter 已把快取從 prompt 拆出，不會重複，ADR-0244）。
+# 費率為 USD / 1M tokens，2026-11-10 逐筆對官方價格頁（ADR-0311）：
+#   Anthropic platform.claude.com/docs/en/about-claude/pricing
+#   OpenAI developers.openai.com/api/docs/pricing
+#     （gpt-5.6-sol 是優惠價，到 11/30，官方沒寫之後多少）
+#   Google aistudio.google.com/docs/pricing
+#   xAI docs.x.ai/docs/models
+#   DeepSeek api-docs.deepseek.com/quick_start/pricing（尖峰價，寧高勿低）
+# 只建文字模型，圖片與語音型號沒有列。官方已不列的舊型號留著舊價。
+# 官方沒列快取價的留 None＝照 input 價計（保守；adapter 已把快取
+# 從 prompt 拆出，不會重複，ADR-0244）；浮動時由 config/model_pricing.json 覆蓋，免改碼。
 # 本地免費供應商（自架 ollama 等）模型名難以僅憑字串辨識，故不在此猜測——保守 fallback
 # （非 0）確保預算護欄不失效；使用者可於 model_pricing.json 將自架模型顯式標 0。
 _BUILTIN_PRICING: dict[str, Rate] = {
-    # ── Anthropic Claude（cache_read / cache_write 為獨立計費項）──
+    # ── Anthropic Claude（cache_read / cache_write 為獨立計費項；只建 5 分鐘快取寫入價）──
     "claude-3-haiku": Rate(0.25, 1.25, cache_read=0.03, cache_write=0.30),
     "claude-3-5-haiku": Rate(0.80, 4.0, cache_read=0.08, cache_write=1.0),
     "claude-haiku-4": Rate(1.0, 5.0, cache_read=0.10, cache_write=1.25),
@@ -114,17 +139,12 @@ _BUILTIN_PRICING: dict[str, Rate] = {
     "claude-3-5-sonnet": Rate(3.0, 15.0, cache_read=0.30, cache_write=3.75),
     "claude-3-7-sonnet": Rate(3.0, 15.0, cache_read=0.30, cache_write=3.75),
     "claude-sonnet-4": Rate(3.0, 15.0, cache_read=0.30, cache_write=3.75),
-    # 規則表新型號（ADR-0247 P24）：來源 claude-api skill 主文 Current Models 表、shared/models.md、
-    # model-migration.md（2026-10-06 快取）；快取讀寫廠商有寫照寫，否則讀 0.1×、寫 1.25× input。
-    # Opus 4.5 查不到，照舊落到 claude-opus-4（偏高）；查不到的 Fable／Mythos（如 Mythos Preview）
-    # 落到家族鍵，套同家族已知最高價（寧高勿低）。
+    "claude-opus-4-5": Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25),
     "claude-opus-4-6": Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25),
     "claude-opus-4-7": Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25),
     "claude-opus-4-8": Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25),
     "claude-opus-5": Rate(5.0, 25.0, cache_read=0.50, cache_write=6.25),
     "claude-opus-5-5": Rate(4.0, 20.0, cache_read=0.20, cache_write=5.0),
-    # r55：官方 https://platform.claude.com/docs/en/about-claude/pricing（2026-10-16）。Sonnet 5.5
-    # 快取命中 0.10（Sonnet 5 仍 0.20）；Haiku 5.5 依提示長度兩檔。只建 5 分鐘快取寫入價。
     "claude-sonnet-5": Rate(2.0, 10.0, cache_read=0.20, cache_write=2.50),
     "claude-sonnet-5-5": Rate(2.0, 10.0, cache_read=0.10, cache_write=2.50),
     "claude-haiku-5-5": Rate(
@@ -133,41 +153,105 @@ _BUILTIN_PRICING: dict[str, Rate] = {
                      Rate(0.50, 2.50, cache_read=0.05, cache_write=0.625)),
     ),
     "claude-fable": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),  # 家族最高價
-    "claude-mythos": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),  # 家族最高價
+    "claude-mythos": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),  # 家族最高價
+    # 不在價格頁：anthropic.com/glasswing 寫 $25/$125，快取價官方沒寫，照一般的 0.1×、1.25×
+    "claude-mythos-preview": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),
     "claude-fable-5": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),
     "claude-mythos-5": Rate(10.0, 50.0, cache_read=1.0, cache_write=12.50),
     "claude-fable-5-1": Rate(10.0, 50.0, cache_read=0.25, cache_write=12.50),
     "claude-mythos-5-1": Rate(10.0, 50.0, cache_read=0.25, cache_write=12.50),
-    "claude": Rate(3.0, 15.0, cache_read=0.30, cache_write=3.75),  # 泛用（sonnet 級）
-    # ── DeepSeek（2026 新名 v4-flash / v4-pro；舊名 2026-07-24 停用，暫留相容）──
-    "deepseek-v4-flash": Rate(0.27, 1.10),
-    "deepseek-v4-pro": Rate(0.55, 2.19),
+    "claude-fable-5-2": Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0),
+    "claude-mythos-5-2": Rate(8.0, 40.0, cache_read=0.20, cache_write=10.0),
+    "claude": Rate(25.0, 125.0, cache_read=2.50, cache_write=31.25),  # 家族最高價
+    # ── DeepSeek（deepseek-chat、reasoner 官方已不列）──
+    "deepseek-flash": Rate(0.30, 1.20, cache_read=0.006),
+    "deepseek-v4-flash": Rate(0.30, 1.20, cache_read=0.006),  # 舊名，官方照 Flash 計價
+    "deepseek-v4-pro": Rate(1.32, 3.96, cache_read=0.044),
     "deepseek-reasoner": Rate(0.55, 2.19),
     "deepseek-chat": Rate(0.27, 1.10),
-    "deepseek": Rate(0.27, 1.10),
+    "deepseek": Rate(1.32, 3.96),  # 家族最高價
     # ── OpenAI ──
     "gpt-3.5": Rate(0.50, 1.50),
-    "gpt-4o-mini": Rate(0.15, 0.60),
-    "gpt-4o": Rate(2.50, 10.0),
+    "gpt-4o-mini": Rate(0.15, 0.60, cache_read=0.075),
+    "gpt-4o": Rate(2.50, 10.0, cache_read=1.25),
     "gpt-4-turbo": Rate(10.0, 30.0),
-    "gpt-4.1": Rate(2.0, 8.0),
+    "gpt-4.1-mini": Rate(0.40, 1.60, cache_read=0.10),
+    "gpt-4.1": Rate(2.0, 8.0, cache_read=0.50),
     "gpt-4": Rate(30.0, 60.0),
     "o1-mini": Rate(1.10, 4.40),
     "o1": Rate(15.0, 60.0),
     "o3-mini": Rate(1.10, 4.40),
-    "o3": Rate(2.0, 8.0),
+    "o3-pro": Rate(20.0, 80.0),
+    "o3": Rate(2.0, 8.0, cache_read=0.50),
+    "chat-latest": Rate(5.0, 30.0, cache_read=0.50),
+    "gpt-5": Rate(1.25, 10.0, cache_read=0.125),  # 只比完整名稱，見 _EXACT_ONLY_KEYS
+    "gpt-5-mini": Rate(0.25, 2.0, cache_read=0.025),
+    "gpt-5-nano": Rate(0.05, 0.40, cache_read=0.005),
+    "gpt-5-pro": Rate(15.0, 120.0),
+    "gpt-5.1": Rate(1.25, 10.0, cache_read=0.125),
+    "gpt-5.2": Rate(1.75, 14.0, cache_read=0.175),
+    "gpt-5.2-pro": Rate(21.0, 168.0),
+    "gpt-5.3-codex": Rate(1.75, 14.0, cache_read=0.175),
+    "gpt-5.4": _tiered(_OPENAI_LONG, (2.50, 15.0, 0.25), (5.0, 22.50, 0.50)),
+    "gpt-5.4-mini": Rate(0.75, 4.50, cache_read=0.075),
+    "gpt-5.4-nano": Rate(0.20, 1.25, cache_read=0.02),
+    "gpt-5.4-pro": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),
+    "gpt-5.5": _tiered(_OPENAI_LONG, (5.0, 30.0, 0.50), (10.0, 45.0, 1.0)),
+    "gpt-5.5-pro": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),
+    "gpt-5.5-cyber-preview": Rate(12.50, 75.0, cache_read=1.25),
+    # GPT-5.6 起快取寫入（預設 30 分鐘）是輸入價的 1.25 倍，官方列在「30m write」欄
+    "gpt-5.6-sol": _tiered(_OPENAI_LONG, (4.0, 20.0, 0.40, 5.0), (8.0, 30.0, 0.80, 10.0)),
+    "gpt-5.6-terra": _tiered(_OPENAI_LONG, (2.0, 12.0, 0.20, 2.50), (4.0, 18.0, 0.40, 5.0)),
+    "gpt-5.6-luna": _tiered(_OPENAI_LONG, (0.20, 1.20, 0.02, 0.25), (0.40, 1.80, 0.04, 0.50)),
+    "gpt-6-astra": _tiered(_OPENAI_LONG, (10.0, 50.0, 1.0, 12.50), (20.0, 75.0, 2.0, 25.0)),
+    "gpt-6-sol": _tiered(_OPENAI_LONG, (2.0, 10.0, 0.20, 2.50), (4.0, 15.0, 0.40, 5.0)),
+    "gpt-6-luna": _tiered(_OPENAI_LONG, (0.10, 0.50, 0.01, 0.125), (0.20, 0.75, 0.02, 0.25)),
+    "gpt-6.1-sol": _tiered(_OPENAI_LONG, (2.0, 10.0, 0.10, 2.50), (4.0, 15.0, 0.20, 5.0)),
+    "gpt-6.1-terra": _tiered(_OPENAI_LONG, (1.0, 5.0, 0.05, 1.25), (2.0, 7.50, 0.10, 2.50)),
+    "gpt-oss": _DEFAULT,  # 開放權重模型：沒有官方價，看代管的地方，維持保守預設
+    "gpt": _tiered(_OPENAI_LONG, (30.0, 180.0, None), (60.0, 270.0, None)),  # 家族最高價
     # ── xAI Grok ──
     "grok-2": Rate(2.0, 10.0),
     "grok-3": Rate(3.0, 15.0),
-    "grok-4": Rate(3.0, 15.0),
-    "grok": Rate(2.0, 10.0),
-    # ── Google Gemini（快取折扣未填＝照 input 價）──
+    "grok-4.20": _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
+    "grok-4.3": _tiered(_XAI_LONG, (1.25, 2.50, 0.20), (2.50, 5.0, 0.40)),
+    "grok-4.5": _tiered(_XAI_LONG, (2.0, 6.0, 0.30), (4.0, 12.0, 0.60)),
+    "grok-4.6": _tiered(_XAI_LONG, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
+    "grok-4.7": _tiered(_XAI_LONG, (2.0, 6.0, 0.50), (4.0, 12.0, 1.0)),
+    "grok-build-0.1": _tiered(_XAI_LONG, (1.0, 2.0, 0.20), (2.0, 4.0, 0.40)),
+    "grok": Rate(4.0, 15.0),  # 家族最高價
+    # ── Google Gemini ──
     "gemini-1.5-flash": Rate(0.075, 0.30),
     "gemini-1.5-pro": Rate(1.25, 5.0),
     "gemini-2.0-flash": Rate(0.10, 0.40),
-    "gemini-2.5-flash": Rate(0.30, 2.50),
-    "gemini-2.5-pro": Rate(1.25, 10.0),
-    "gemini": Rate(1.25, 5.0),
+    "gemini-2.5-flash": Rate(0.30, 2.50, cache_read=0.03),
+    "gemini-2.5-flash-lite": Rate(0.10, 0.40, cache_read=0.01),
+    "gemini-2.5-pro": _tiered(_GOOGLE_LONG, (1.25, 10.0, 0.125), (2.50, 15.0, 0.25)),
+    "gemini-3-flash-preview": Rate(0.50, 3.0, cache_read=0.05),
+    "gemini-3.1-flash-lite": Rate(0.25, 1.50, cache_read=0.025),
+    "gemini-3.1-pro-preview": _tiered(_GOOGLE_LONG, (2.0, 12.0, 0.20), (4.0, 18.0, 0.40)),
+    "gemini-3.5-flash-lite": Rate(0.30, 2.50, cache_read=0.03),
+    "gemini-3.6-flash": Rate(0.75, 3.75, cache_read=0.075),
+    "gemini-3.8-flash": Rate(0.75, 3.75, cache_read=0.075),
+    "gemini-4-argon": Rate(2.0, 10.0, cache_read=0.10),
+    "gemini": Rate(4.0, 20.0),  # 家族最高價
+}
+
+# 沒有具體價格時落到的家族鍵（該家已知最高價，寧高勿低；gpt-oss 是保守預設）；resolve 標成
+# family，畫面會列出來。
+_FAMILY_KEYS = frozenset(
+    {"claude", "claude-fable", "claude-mythos", "deepseek", "gemini", "gpt", "gpt-oss", "grok"}
+)
+# 只比完整名稱：用子字串比，gpt-5.7 這類沒列的型號會被算成 gpt-5 的便宜價。
+_EXACT_ONLY_KEYS = frozenset({"gpt-5"})
+
+# 官方已公告的漲價，到日子才換（官方沒寫時區，取 UTC 當天 0 點）。
+_EPOCH_2026_12_01 = 1_796_083_200
+_EPOCH_2027_01_01 = 1_798_761_600
+_SCHEDULED_PRICING: dict[str, tuple[int, Rate]] = {
+    "gemini-4-argon": (_EPOCH_2026_12_01, Rate(4.0, 20.0, cache_read=0.20)),
+    "gemini-3.6-flash": (_EPOCH_2027_01_01, Rate(1.50, 7.50, cache_read=0.15)),
+    "gemini-3.8-flash": (_EPOCH_2027_01_01, Rate(1.50, 7.50, cache_read=0.15)),
 }
 
 # fallback 警告去重：每個未知 model id 只 WARN 一次，避免逐回合洗版。
@@ -214,17 +298,27 @@ def _load_config() -> tuple[dict[str, Rate], Rate]:
     return overrides, default
 
 
-def _longest_substring_match(mid: str, table: dict[str, Rate]) -> Rate | None:
-    """回傳 ``table`` 中作為 ``mid`` 子字串、且鍵最長者的值（無則 None）。"""
+def _longest_substring_key(mid: str, keys: Iterable[str]) -> str | None:
+    """回傳 ``keys`` 中作為 ``mid`` 子字串、且最長者（無則 None）。"""
     best_key: str | None = None
-    for key in table:
+    for key in keys:
         if key in mid and (best_key is None or len(key) > len(best_key)):
             best_key = key
-    return table[best_key] if best_key is not None else None
+    return best_key
+
+
+def _builtin(key: str) -> tuple[Rate, str]:
+    """內建表的一筆：已公告的漲價到日子就換，家族鍵標 family。"""
+    scheduled = _SCHEDULED_PRICING.get(key)
+    if scheduled is not None and get_current_epoch() >= scheduled[0]:
+        rate = scheduled[1]
+    else:
+        rate = _BUILTIN_PRICING[key]
+    return rate, "family" if key in _FAMILY_KEYS else "builtin"
 
 
 def resolve(model: str | None) -> tuple[Rate, str]:
-    """回傳 ``(Rate, source)``；``source`` ∈ {override, builtin, fallback}。永不拋例外。"""
+    """回傳 ``(Rate, source)``；``source`` ∈ {override, builtin, family, fallback}。永不拋例外。"""
     overrides, default = _load_config()
     if not isinstance(model, str) or not model.strip():
         return default, "fallback"
@@ -234,15 +328,15 @@ def resolve(model: str | None) -> tuple[Rate, str]:
     if mid in overrides:
         return overrides[mid], "override"
     if mid in _BUILTIN_PRICING:
-        return _BUILTIN_PRICING[mid], "builtin"
+        return _builtin(mid)
 
     # 2. 最長子字串匹配（override 先於 builtin；具體勝過泛化）。
-    match = _longest_substring_match(mid, overrides)
-    if match is not None:
-        return match, "override"
-    match = _longest_substring_match(mid, _BUILTIN_PRICING)
-    if match is not None:
-        return match, "builtin"
+    key = _longest_substring_key(mid, overrides)
+    if key is not None:
+        return overrides[key], "override"
+    key = _longest_substring_key(mid, _BUILTIN_PRICING.keys() - _EXACT_ONLY_KEYS)
+    if key is not None:
+        return _builtin(key)
 
     # 3. 未知 → 保守 fallback（記一次 WARN：成本為粗估、預算判定不精確）。
     if mid not in _warned_unknown:
@@ -260,3 +354,13 @@ def resolve(model: str | None) -> tuple[Rate, str]:
 def get_pricing(model: str | None) -> Rate:
     """回傳模型費率（USD / 1M tokens），未知回保守 fallback。永不拋例外。"""
     return resolve(model)[0]
+
+
+def is_estimated(model: str | None) -> bool:
+    """這個模型的價格是不是估的（沒有具體價格，用家族最高價或保守預設）。"""
+    return resolve(model)[1] in ("family", "fallback")
+
+
+def has_overrides() -> bool:
+    """model_pricing.json 有沒有有效的覆蓋（查證日期不含這些）。"""
+    return bool(_load_config()[0])

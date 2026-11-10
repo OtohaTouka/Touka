@@ -43,7 +43,8 @@ def _native_name(model: object) -> str | None:
     return normalize_model_name(model)
 
 
-def _usage_for(identity: AgentIdentity) -> dict[str, _Usage]:
+def models_in_use(identity: AgentIdentity) -> dict[str, _Usage]:
+    """呼叫者看得到的、正在用的原廠模型（模型名 → 誰在用）。"""
     usage: dict[str, _Usage] = {}
     for agent_id, brain in list_active_brains().items():
         name = _native_name(brain)
@@ -63,7 +64,7 @@ def current_alerts(identity: AgentIdentity) -> ModelLifecycleAlertsResponse:
     """有人開畫面時呼叫：順便看要不要查清單（在背景，不等結果）。"""
     model_lifecycle_service.trigger_check()
     alerts = []
-    for name, used in sorted(_usage_for(identity).items()):
+    for name, used in sorted(models_in_use(identity).items()):
         notice = model_lifecycle_service.notice_for(name)
         if notice is not None:
             alerts.append(
