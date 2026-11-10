@@ -5,7 +5,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,11 +14,13 @@ from pydantic import BaseModel, Field
 from src.config import ANTHROPIC_API_BASE_URL, get_config_dir, get_full_env, resolve_env_file_path
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
+from src.models.model_lifecycle import ModelLifecycleAlertsResponse
 from src.routers import custom_models
 from src.services.agent_service import agent_service
-from src.services.authorization_gateway import require_privileged
+from src.services.authorization_gateway import require_authenticated, require_privileged
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.models import model_manager as _model_manager
+from src.services.models.lifecycle_alerts import current_alerts
 from src.services.providers import registry
 from src.services.resource_manager import resource_manager
 from src.utils.time_utils import get_current_epoch
@@ -330,6 +332,14 @@ async def delete_model(
     else:
         notify_config_change("models")
         return {"status": "success"}
+
+
+@router.get("/lifecycle-alerts", response_model=ModelLifecycleAlertsResponse)
+async def get_model_lifecycle_alerts(
+    identity: Annotated[AgentIdentity, Depends(require_authenticated)],
+) -> ModelLifecycleAlertsResponse:
+    """呼叫者在用的模型裡，快下架或已標停用的（ADR-0310；必須放在 ``/{model_id}`` 之前）。"""
+    return current_alerts(identity)
 
 
 @router.get("/{model_id}", response_model=ModelInfo)

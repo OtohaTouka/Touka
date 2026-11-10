@@ -72,6 +72,9 @@ vi.mock('../ContextMeter', () => ({ ContextMeter: () => null }));
 vi.mock('../SessionPersistenceNotice', () => ({ SessionPersistenceNotice: () => null }));
 vi.mock('../SessionUpdatedNotice', () => ({ SessionUpdatedNotice: () => null }));
 vi.mock('../IncognitoHookNotice', () => ({ IncognitoHookNotice: () => null }));
+vi.mock('../ModelLifecycleNotice', () => ({
+  ModelLifecycleNotice: () => <div data-testid="model-lifecycle-slot" />,
+}));
 vi.mock('../MessageItem', () => ({ MessageItem: () => null }));
 vi.mock('../ChatWelcome', () => ({ ChatWelcome: () => null }));
 vi.mock('../FeedbackReasonDialog', () => ({ FeedbackReasonDialog: () => null }));
@@ -152,6 +155,11 @@ describe('ChatArea 輸入列六控制項（P4/ADR-0161）', () => {
     fireEvent.click(screen.getByTestId('model-select'));
     expect(toast.info).toHaveBeenLastCalledWith('after:chat.chat_area.model_switched_style_may_change');
     expect(setSelectedModel).toHaveBeenLastCalledWith('m1');
+  });
+
+  it('模型快下架的提示掛在聊天畫面（右側欄預設關閉，放那裡看不到）', () => {
+    renderChatArea();
+    expect(screen.getByTestId('model-lifecycle-slot')).toBeDefined();
   });
 
   it('六控制項皆渲染（上傳/截圖/HITL/技能/研究/MCP/模型）', () => {

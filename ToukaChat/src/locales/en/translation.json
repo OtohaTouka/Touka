@@ -1720,6 +1720,17 @@
       "recheck": "Check save status",
       "retry": "Retry save only"
     },
+    "model_lifecycle": {
+      "retiring": "Model {{model}} is scheduled to retire on {{date}}.",
+      "overdue": "Model {{model}} has passed its scheduled retirement date ({{date}}) and may stop working at any time.",
+      "date_unknown": "Model {{model}} is marked deprecated. No retirement date has been set.",
+      "retired": "Model {{model}} is marked retired.",
+      "not_found": "The provider said it can't find model {{model}}.",
+      "used_by": "Used by: {{users}}. Touka won't switch models for you; change it in Settings.",
+      "reviewer": "Auto reviewer",
+      "summarizer": "Summarizer",
+      "separator": ", "
+    },
     "session_updated": {
       "message": "This conversation has new content.",
       "refresh": "Update"

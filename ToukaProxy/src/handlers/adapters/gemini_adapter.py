@@ -20,7 +20,7 @@ import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -30,6 +30,7 @@ from src.adapters.openai_to_gemini import convert_openai_to_gemini
 from src.config import GEMINI_BASE_URL
 from src.core.exceptions import ErrorCode, ToukaException
 from src.services.guard_service import guard_service
+from src.services.models.model_lifecycle import model_lifecycle_service, parse_gemini_status
 from src.services.models.model_rules import rules_for
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.sse import sse_line
@@ -122,6 +123,13 @@ def _wire_model_id(req_model_raw: str) -> str:
     return model_id
 
 
+def _note_model_status(state: _State, raw: Any) -> None:
+    """回應帶了退役資訊就記下（Gemini 的模型清單沒有下架日期，ADR-0310）。"""
+    status = parse_gemini_status(state.resolved_model, raw)
+    if status is not None:
+        model_lifecycle_service.record(status)
+
+
 class GeminiAdapter:
     """Gemini wire adapter（契約：tests/unit/test_adapter_contract.py）。"""
 
@@ -208,6 +216,8 @@ class GeminiAdapter:
             error = retry.on_connect(error, opened, "Gemini connection error")
         elif state.main_loop and failure is not None:  # 非串流：只有連不上可重試（N1）
             error = retry.on_post_failure(error, failure, "Gemini connection error")
+        elif isinstance(code, int):  # complete_once：只標類型、不標重試（ADR-0310）
+            error = replace(error, error_type=retry.error_type_for_status(code))
         yield error
 
     async def _post_attempt(self, state: _State) -> tuple[int, Any]:
@@ -217,8 +227,11 @@ class GeminiAdapter:
             timeout=120.0,
         )
         state.error_headers = http_resp.headers
-        return http_resp.status_code, (
-            http_resp.json() if http_resp.status_code == 200 else http_resp.text)
+        if http_resp.status_code != 200:
+            return http_resp.status_code, http_resp.text
+        body = http_resp.json()
+        _note_model_status(state, body)
+        return 200, body
 
     async def _stream_attempt(self, state: _State) -> tuple[int, Any]:
         """串流單次嘗試；逾時、壞 JSON／形狀、半截都回 200＋RoundError（逾時另標可否重試）。"""
@@ -248,6 +261,7 @@ class GeminiAdapter:
                 if isinstance(chunk, dict) and "error" in chunk:  # 200 之後才出錯
                     return 200, retry.on_error_body(
                         RoundError(f"API Error (200)\n\n`{data}`"), chunk["error"], "Gemini")
+                _note_model_status(state, chunk)
                 progress.chunks.add(chunk)
         if not progress.chunks.complete:  # 沒有 finishReason／blockReason＝不回半輪
             return 200, RoundError("API Error (200)\n\n`上游串流沒送完就中斷（缺 finishReason）`")

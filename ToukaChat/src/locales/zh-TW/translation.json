@@ -1712,6 +1712,17 @@
       "recheck": "重新核對保存結果",
       "retry": "僅重試保存"
     },
+    "model_lifecycle": {
+      "retiring": "模型 {{model}} 預計在 {{date}} 下架。",
+      "overdue": "模型 {{model}} 已過官方排定的下架日（{{date}}），隨時可能無法使用。",
+      "date_unknown": "模型 {{model}} 已被官方標示停用，下架日期未定。",
+      "retired": "模型 {{model}} 已被官方標示下架。",
+      "not_found": "呼叫模型 {{model}} 時，廠商回覆找不到這個模型。",
+      "used_by": "使用中：{{users}}。Touka 不會自動換模型，要換請到設定。",
+      "reviewer": "Auto 審查員",
+      "summarizer": "摘要員",
+      "separator": "、"
+    },
     "session_updated": {
       "message": "這段對話有新內容。",
       "refresh": "點一下更新"
