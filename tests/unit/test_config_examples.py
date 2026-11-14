@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 
 import pytest
+from dotenv import dotenv_values
 from src.config import Settings
 from src.models.autonomy import AutonomyConfigModel
 from src.models.hooks import HooksConfig
@@ -230,7 +231,12 @@ _ENV_EXAMPLE_NON_SETTINGS = {
     "TEST_PROXY_LOG_PATH",  # 測試腳本路徑（os.environ）
     "TEST_DB_PATH_MEMORY",
     "TEST_DB_PATH_PROXY",
+    "EMBEDDING_MODEL",  # 嵌入模型；memory_server.config_utils 經 os.environ 讀取（ADR-0314）
 }
+
+# 新安裝的設定檔從範例複製：範例寫明中英都好的 e5；程式內建預設維持英文模型，
+# 設定檔裡沒寫模型的舊安裝升級後不會換模型（ADR-0314）。
+_NEW_INSTALL_EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
 
 
 def _parse_env_keys(text: str) -> set[str]:
@@ -257,3 +263,11 @@ def test_proxy_env_example_keys_in_settings():
         f"靜默忽略，疑過時/失效）：{sorted(stale)}。"
         f"若為刻意的非-Settings env，請加入 _ENV_EXAMPLE_NON_SETTINGS 白名單。"
     )
+
+
+@pytest.mark.parametrize(
+    "example", [_REPO_ROOT / ".env.example", _PROXY_ROOT / ".env.example"], ids=["root", "proxy"]
+)
+def test_env_example_sets_multilingual_embedding_model(example: Path):
+    """兩份範例設定都寫明 e5（完整名稱，少了 `intfloat/` 會載入失敗）。"""
+    assert dotenv_values(example).get("EMBEDDING_MODEL") == _NEW_INSTALL_EMBEDDING_MODEL

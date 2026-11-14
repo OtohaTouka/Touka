@@ -4,6 +4,8 @@
 **日期**：2026-05-28  
 **影響範圍**：ToukaProxy、ToukaMemory、ToukaChat
 
+> 🔧 **嵌入模型的預設與精靈第 1 步由 [ADR-0314](0314-new-installs-default-to-multilingual-embedding.md) 修訂（2026-11-15）**：新安裝的範例設定寫 `intfloat/multilingual-e5-base`，精靈選單加上它（標成中文推薦）；選的就是目前的模型時先確認已下載，下載失敗可以先略過。程式內建預設仍是 `all-MiniLM-L6-v2`。
+
 > 🔧 **臨時密碼揭露機制已被安全修復 DA21（2026-06-06，見 `SECURITY.md`／`CHANGELOG.md`）改寫**：原決策「以 `secrets.token_hex(16)` 產生 32 字元臨時密碼、`logger.warning` 印至 console」→現行以 `secrets.token_urlsafe(16)` 產生、**寫入一次性檔案** `get_initial_admin_password_file()`（`resource_manager.write_file_text`），`logger.warning` 只印**檔案路徑**——刻意避免輪替 log 永久保留有效 admin 憑證。設定精靈其餘決策（is_temp_password/SetupService/嵌入模型 SSOT/DISPATCH_TOKEN sentinel）仍有效。
 
 ---

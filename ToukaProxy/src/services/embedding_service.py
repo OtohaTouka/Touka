@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 import threading
 
 from dotenv import set_key
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _MEMORY_MANAGER_MODULE = "memory_server.services.manager"
+
+# 下載時不抓的格式（ADR-0314）：sentence-transformers 只用 PyTorch 權重，其他執行環境的格式用不到。
+UNUSED_FORMAT_FOLDERS: frozenset[str] = frozenset({"onnx", "openvino"})
+UNUSED_FORMAT_SUFFIXES: tuple[str, ...] = (".h5", ".ot", ".msgpack")
+# 最上層權重檔（含分片）；有 safetensors 時 transformers 優先載入它，.bin 就不用抓。
+_SAFETENSORS_WEIGHTS = re.compile(r"model(-\d+-of-\d+)?\.safetensors")
+_PYTORCH_WEIGHTS = re.compile(r"pytorch_model(-\d+-of-\d+)?\.bin(\.index\.json)?")
 
 # 下載狀態（per-model）：{model: {status, downloaded, total, pct, cached?, error?}}。
 _download_state: dict[str, dict] = {}
@@ -57,6 +65,27 @@ def list_model_files(repo_id: str) -> list[tuple[str, int]]:
     """回傳 repo 內各檔案 (檔名, 位元組)；用於逐檔累積下載進度。"""
     info = HfApi().model_info(repo_id, files_metadata=True)
     return [(s.rfilename, int(getattr(s, "size", 0) or 0)) for s in (info.siblings or [])]
+
+
+def select_download_files(files: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """只留 sentence-transformers 載入時用得到的檔（ADR-0314）。
+
+    排除其他執行環境的格式（ONNX、OpenVINO、TensorFlow、Rust、Flax）；最上層有 safetensors 權重時，
+    PyTorch 的 .bin 權重也用不到。斷詞檔（vocab.txt、sentencepiece、tokenizer.json）與模組資料夾
+    （如 2_Dense/）內的權重一律保留。e5 一庫約 5.3GB，排除後約 1.1GB。
+    """
+    names = [name for name, _ in files]
+    has_safetensors = any(_SAFETENSORS_WEIGHTS.fullmatch(name) for name in names)
+
+    def wanted(name: str) -> bool:
+        folder, slash, _rest = name.partition("/")
+        if slash and folder in UNUSED_FORMAT_FOLDERS:
+            return False
+        if name.endswith(UNUSED_FORMAT_SUFFIXES):
+            return False
+        return not (has_safetensors and _PYTORCH_WEIGHTS.fullmatch(name))
+
+    return [(name, size) for name, size in files if wanted(name)]
 
 
 def get_download_state(model_name: str) -> dict:
@@ -95,7 +124,7 @@ def perform_download(model_name: str) -> None:
     """
     repo_id = resolve_repo_id(model_name)
     try:
-        files = list_model_files(repo_id)
+        files = select_download_files(list_model_files(repo_id))
         total = sum(size for _, size in files) or 1
         _set_state(model_name, status="downloading", downloaded=0, total=total, pct=0)
         done = 0
