@@ -3,6 +3,7 @@
 - 狀態：✅ 已實作。一頁計畫由維護者核准，計畫經多輪審查。
 - 日期：2026-11-06
 - 決策者：維護者
+- 修訂：ADR-0313（2026-11-15）：存檔失敗的畫面在存檔有別人的內容時提供「改用存檔內容」，第 10 點的提示仍不顯示。
 - 相關：ADR-0078（失效可觀察）、ADR-0080（背景續跑）、ADR-0081（可恢復串流）、ADR-0086（無痕）、ADR-0231（對話保存可靠性）、ADR-0295（實際驗證）。
 - 影響範圍：`ToukaProxy/src/routers/ui_sessions.py`、`src/models/session_activity.py`（新）、`src/services/activity_registry.py`、`src/services/stream_buffer_service.py`、`src/utils/activity_visibility.py`（新）、`src/routers/heartbeat.py`、`src/routers/stats.py`、`ToukaChat/src/lib/providers/SessionActivityProvider.tsx`（新）、`SessionListProvider.tsx`、`src/lib/session_activity.ts`（新）、`src/hooks/useActivityPoll.ts`（新）、`useSessionDiscovery.ts`（新）、`useUnseenSessions.ts`（新）、`usePendingRequestQueue.ts`（新）、`useReducedMotionPreference.ts`（新）、`src/components/sidebar/left/SessionStatusMark.tsx`（新）、`SessionItem.tsx`、`SessionTree.tsx`、`src/components/chat/SessionUpdatedNotice.tsx`（新）、`src/app/globals.css`。
 
@@ -38,7 +39,7 @@
 7. 本分頁的串流以本地登記為準，結束時呼吸燈馬上停；本地已結束的編號，要結束之後才發出的查詢結果才採用，舊查詢不會讓它多亮一下或留假小點。
 8. 顯示優先序：等您處理（不動的圖示）＞ 工作中（呼吸）＞ 有新內容（小點）。小點只記「工作結束時您沒在看」，存瀏覽器、鍵名含使用者 ID、只存編號；無痕只放記憶體。
 9. `pendingAsk`、`pendingInstall` 改排隊：對外仍是目前那一筆，答完跳下一筆，串流結束的那筆移除。換帳號、登出、換後端時清空，靠的是 `AuthGuard` 卸載整個 Provider。彈窗用請求編號當 key，選項不帶上一筆的；關掉時也依編號（`dismiss(id)`），因為技能安裝在 await 之後才關，那時排第一的可能已經換成下一筆。`ask_user` 的答案憑證改成一律隨機：原本用工具呼叫編號，有些模型是流水號，兩段對話同時問會撞在一起。
-10. 開著的對話被別處寫入（心跳跑完、另一處串流結束），不再工作時在對話區顯示「有新內容，點一下更新」。存檔已失敗時不顯示，點了也不會更新，維持存檔失敗的畫面。
+10. 開著的對話被別處寫入（心跳跑完、另一處串流結束），不再工作時在對話區顯示「有新內容，點一下更新」。存檔已失敗時不顯示，點了也不會更新，維持存檔失敗的畫面；那裡在存檔有別人的內容時提供「改用存檔內容」（ADR-0313）。
 11. 動畫在 `globals.css` 定義 `touka-breathe`（只有明暗，2.4 秒一次，不快於 2 秒）。減少動態要同時看 App 設定與系統設定：App 設定優先，「跟隨系統」才看系統；停掉動畫時改用文字表示狀態。無障礙名稱一律帶狀態，不用每列 live region。
 12. 查詢失敗不轉換狀態；連續 3 次失敗清掉心跳活動、不留小點，記 `logSSOTError`，不跳錯誤視窗（後端降級已有 `DegradedBanner`）。本地串流不受影響。
 

@@ -55,6 +55,18 @@ describe('useSessionEvents 匯入確認', () => {
         expect(toast.success).toHaveBeenCalled();
     });
 
+    // 同意的覆蓋只限確認視窗算進去的編號（ADR-0313）
+    it('確認後只有畫面上已有的編號帶覆蓋同意，新的編號照舊要求存檔裡沒有', async () => {
+        const setSessions = vi.fn();
+        const syncSession = vi.fn().mockResolvedValue({ status: 'saved', representation: 'full', revision: 'r1' });
+        renderHook(() => useSessionEvents([mkSession('a', 'Alice')], setSessions, syncSession));
+        await act(async () => { dispatchImport([{ id: 'a', agent_id: 'Alice' }, { id: 'b', agent_id: 'Alice' }]); });
+        await act(async () => { captured!.onConfirm(); });
+        await waitFor(() => expect(syncSession).toHaveBeenCalledTimes(2));
+        const calls = Object.fromEntries(syncSession.mock.calls.map(([session, , options]) => [session.id, options]));
+        expect(calls).toEqual({ a: { overwrite: true }, b: { overwrite: false } });
+    });
+
     it('取消則不合併、不提示成功', async () => {
         const setSessions = vi.fn();
         renderHook(() => useSessionEvents([], setSessions, vi.fn()));

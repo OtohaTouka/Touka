@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySessionChange, applySetHome, matchesSessionContent, mergeSessionRefresh, parseSaveResult, isSaved, parseSessionSnapshot,
-  savedPastTerminal, sessionWritePayload } from '../session_persistence';
+  sameStoredBase, savedPastTerminal, sessionWritePayload } from '../session_persistence';
 import type { SaveResult, Session, StreamTerminalEvent } from '../types';
 import { ERRORS } from '../error_codes';
 
@@ -197,5 +197,23 @@ describe('舊家標記跟著清單走（ADR-0306）', () => {
   });
   it('存檔不帶舊家標記', () => {
     expect(sessionWritePayload({ ...session('a'), is_old_home: true })).not.toHaveProperty('is_old_home');
+  });
+});
+
+describe('sameStoredBase：重試前比對存檔和失敗那次存檔的底（ADR-0313）', () => {
+  const full = (over: Partial<Session> = {}): Session => ({ ...session('a'), agent_id: null, project_id: null,
+    auth_level: 'Manual', active_mcp_servers: [], active_skills: [], context_summary: null, ...over });
+  it('重試會碰到的欄位都一樣才算沒人寫過', () => {
+    expect(sameStoredBase(full(), full(), full({ title: 'draft' }))).toBe(true);
+  });
+  it('存檔多了別人寫的內容或改了設定：不算', () => {
+    expect(sameStoredBase(full(), full({ updatedAt: 2 }), full({ title: 'draft' }))).toBe(false);
+    expect(sameStoredBase(full(), full({ active_skills: ['web'] }), full())).toBe(false);
+  });
+  it('底缺了重試會碰到的欄位：判斷不了，不算', () => {
+    expect(sameStoredBase(session('a'), full(), full())).toBe(false);
+  });
+  it('家的欄位與舊家標記不算內容', () => {
+    expect(sameStoredBase(full(), { ...full(), is_home: true, home_for_agent: 'Alice', is_old_home: true }, full())).toBe(true);
   });
 });

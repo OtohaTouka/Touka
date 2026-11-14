@@ -75,7 +75,8 @@ describe('useSessionEvents', () => {
     // Valid data with agent_id doesn't need to await pending install modal
     await waitFor(() => {
       expect(mockSetSessions).toHaveBeenCalled();
-      expect(mockSyncSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'import-1', title: 'Imported', agent_id: 'gpt-4' }));
+      expect(mockSyncSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'import-1', title: 'Imported', agent_id: 'gpt-4' }),
+        undefined, { overwrite: false });
       expect(toast.success).toHaveBeenCalledTimes(1);
       expect(toast.warning).not.toHaveBeenCalled();
     });

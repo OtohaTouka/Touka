@@ -209,8 +209,9 @@ user full 成功才送模型。只有同 generation typed terminal 能證生成�
 一般聊天（persistent）送的是這個對話完整的線性路徑（`StreamRegistryProvider` 的 `buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput)`：去掉待填的 assistant，這一句用 resolvedInput），後端據此在家對話本身不再插家對話；
 改成只送最近幾輪之前要先改後端 SoulLayer，否則家對話會失去前文（2026-10-29）。
 full 補存未確認保留非 active registry 富樹。Notice 提供唯讀核對；同內容才 saved，不同保留 conflict。
-確認 failed 且取得新 revision 後可按「僅重試保存」單送一次 POST，不重送模型／工具。
+確認 failed 且取得新 revision、而且存檔和失敗那次存檔的底對得上（沒人寫過）時，才可按「僅重試保存」單送一次 POST，不重送模型／工具。底：一般保存與沒寫進後端的回覆比最後確認的內容；後端已存回覆文字版的比版本號；判斷不了一律不准（ADR-0313）。對不上時改給「改用存檔內容」：確認後重讀存檔換上，捨棄這一頁沒存進去的修改，再重新載入這段對話。
 保存因版本舊被擋時讀一次存檔：形狀是剪裁造成的（`trim_graft.ts` 的 `graftOntoTrim`），以剪過的存檔為底接上這一頁的改動、存一次，不跳提示；剪掉的前段與摘要以存檔為準，這一頁刪掉或切分掉的不寫回去。一般保存、回覆收尾、「僅重試保存」都這樣接；只接一次，接不上照舊提示（ADR-0302）。
+匯入時確認視窗算進「會覆蓋」的編號，使用者同意後那一次存檔讀存檔、帶它的版本送出（`syncSession` 的 `overwrite`，只對那一次有效；ADR-0313）。
 恢復成功後同 session 可開下一回合；無痕所有終態只留 memory，不要求持久核對或 retry。
 
 匯入部分失敗不報全部成功；split 匯出後縮減綁開始時的內容，等待期間 drift 拒絕覆蓋。
@@ -336,7 +337,7 @@ SNS 設定由單一 `useSnsBotSettings` 實例管理純記憶體表單。只有�
     *   減少動態看 `useReducedMotionPreference`：App 設定優先，「跟隨系統」才看系統；停掉動畫時顯示文字。
     *   提問與技能安裝改排隊（`usePendingRequestQueue`）：對外仍是目前那一筆，答完或關掉時依編號移除（`dismiss(id)`）、跳下一筆，串流結束的那筆移除。
     *   新對話下載：後端讀不出來（`SESSION_SAVE_FAILED`，可能只是資料庫暫時忙）滿 3 次才放棄（`MAX_UNREADABLE_ATTEMPTS`，中間讀到就不算）；403 與看不懂的回應直接放棄；重試的排到佇列最後。
-    *   開著的對話被別處寫入：`SessionUpdatedNotice` 顯示「有新內容，點一下更新」；存檔已失敗時不顯示。
+    *   開著的對話被別處寫入：`SessionUpdatedNotice` 顯示「有新內容，點一下更新」；存檔已失敗時不顯示，改由 `SessionPersistenceNotice` 在存檔有別人的內容時提供「改用存檔內容」（ADR-0313）。
 *   **對話清單（2026-11-05）**: 左側邊欄的清單是 `sidebar/left/SessionTree.tsx`，分組邏輯是純函式 `lib/session_tree.ts`。
     *   每個靈魂一個資料夾，只由對話產生（不列空資料夾），依底下最新的 `updatedAt` 排序；家對話就是資料夾那一列（名稱用靈魂名稱，對話標題放 `title`，「⋯」是家對話的選單），其他對話縮排在底下，先列 5 筆，其餘收在「還有 N 個」，開著的不收。手動收合照舊收合，開著的對話在裡面時資料夾那一列標 `aria-current`、名稱加「開著的對話在裡面」並亮起來，Tab 站也在那裡。只有家、底下沒有子對話的資料夾沒有箭頭。沒有靈魂的對話放「其他對話」並標模型。有靈魂的無痕放資料夾，不當家。專案畫面維持依專案分組（`useSessionGroups`）。
     *   分組比對從寬（比照 `agent_detector`：不分大小寫、`toukasoul:`、舊前綴）。靈魂清單的狀態在 `AgentProvider` 的 `agentsStatus`：載入中畫骨架，不畫樹；讀不到時只信前綴與家對話，其餘放其他對話。`touka_auth_changed`（登入狀態翻轉）先清空清單、回到載入中再重抓，還在路上的舊請求作廢。`touka_connections_updated`（存任何連線都會發）只重抓，不清清單，讀到過的不閃；重抓失敗留舊清單。登出或換網址時（`AuthContext` 清掉登入狀態）`AuthGuard` 會卸載整個 Provider，舊清單不會留下。

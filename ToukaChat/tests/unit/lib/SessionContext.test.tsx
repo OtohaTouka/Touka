@@ -13,7 +13,7 @@ import { migrateFlatToTree } from '@/lib/tree_history';
 import i18n from '@/lib/i18n';
 
 const connectionState = vi.hoisted(() => ({ saveOk: true, userSaved: false, failAssistantSave: false,
-  remote: new Map<string, Session>(), epoch: 1, listeners: new Set<() => void>() }));
+  remote: new Map<string, Session>(), textRevision: new Map<string, string>(), epoch: 1, listeners: new Set<() => void>() }));
 
 // Mock connections.ts functions
 vi.mock('@/lib/connections', () => ({
@@ -32,7 +32,8 @@ vi.mock('@/lib/connections', () => ({
     if (path.endsWith('?snapshot=true')) {
       const id = decodeURIComponent(path.split('/').at(-1)!.split('?')[0]);
       const session = connectionState.remote.get(id);
-      body = session ? { exists: true, revision: 'snapshot', session: {
+      // 後端先存了回覆文字版、之後沒人寫過時，存檔的版本就是文字版的版本（ADR-0313 比的是它）
+      body = session ? { exists: true, revision: connectionState.textRevision.get(id) ?? 'snapshot', session: {
         is_home: false, home_for_agent: null, agent_id: null, project_id: null, auth_level: 'Manual',
         active_mcp_servers: [], active_skills: [], context_summary: null, last_activity_at: 1, ...session,
       } } : { exists: false, revision: 'absent', session: null };
@@ -42,7 +43,7 @@ vi.mock('@/lib/connections', () => ({
       userSaved = Object.values(session.messages?.messages ?? {}).some(node => (node as { role: string }).role === 'user');
       const hasAssistant = Object.values(session.messages?.messages ?? {}).some(node => (node as { role: string }).role === 'assistant');
       const saved = connectionState.saveOk && !(connectionState.failAssistantSave && hasAssistant);
-      if (saved) connectionState.remote.set(session.id, session);
+      if (saved) { connectionState.remote.set(session.id, session); connectionState.textRevision.delete(session.id); }
       body = { status: 'success', session_id: decodeURIComponent(path.split('/').at(-1)!),
         persistence: saved ? { status: 'saved', representation: 'full', revision: 'synthetic-revision' } :
           { status: 'unknown', error_code: 1302 } };
@@ -61,6 +62,7 @@ vi.mock('@/lib/connections', () => ({
     onChunk(' World');
     onEvent({ type: 'tool_start', id: 'tool', tool: 'synthetic', args: {} });
     onEvent({ type: 'tool_result', id: 'tool', tool: 'synthetic', status: 'success', result: 'rich' });
+    connectionState.textRevision.set(config.session_id, 'text');
     await onDone({ type: 'touka_stream_terminal', ...coords, generation: 'completed',
       persistence: { status: 'saved', representation: 'text', revision: 'text' } });
   })
@@ -148,6 +150,7 @@ describe('SessionContext (Baseline)', () => {
     connectionState.userSaved = false;
     connectionState.failAssistantSave = false;
     connectionState.remote.clear();
+    connectionState.textRevision.clear();
     connectionState.epoch = 1;
     connectionState.listeners.clear();
     localStorageMock.clear();

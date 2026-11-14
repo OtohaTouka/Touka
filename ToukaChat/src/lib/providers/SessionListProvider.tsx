@@ -10,7 +10,8 @@ import { ERRORS } from '../error_codes';
 import { countRounds } from '../context_usage';
 import { getLinearMessages, migrateFlatToTree } from '../tree_history';
 import { applySessionChange, applySetHome, replaceSession, mergeSessionRefresh, parseSaveResult,
-  unknownSave, rejectedSave, isSaved, isOldHomeRefused, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot } from '../session_persistence';
+  unknownSave, rejectedSave, isSaved, isOldHomeRefused, sessionWritePayload, sessionContentKey, matchesSessionContent, parseSessionSnapshot,
+  sameStoredBase } from '../session_persistence';
 import type { PersistenceState, SessionChange } from '../session_persistence';
 import { graftOntoTrim } from '../trim_graft';
 import { clearFailureDetails } from '../chat/failureDetailStore';
@@ -30,6 +31,11 @@ export interface SessionProducer {
   readonly generation: number;
 }
 interface PendingChange { change: SessionChange; deferred?: boolean }
+/**
+ * 失敗那次存檔根據的底（ADR-0313）：重試前拿存檔和它比，對得上才代表這段時間沒人寫過。
+ * 後端先存了回覆文字版的那種，畫面拿不到文字版的內容，只能比版本號。沒有底就是判斷不了，不准重試。
+ */
+type FailedBase = { kind: 'content'; session: Session } | { kind: 'revision'; revision: string };
 interface SessionWriter {
   unconfirmed?: boolean;
   intent: number;
@@ -37,6 +43,7 @@ interface SessionWriter {
   requireAbsence?: boolean;
   savedHere?: boolean; // 這一頁存過；畫面更新會清掉 revision，不能用 revision 判斷
   recovery?: SessionSnapshot;
+  failedBase?: FailedBase;
   confirmed: Session;
   tail: Promise<unknown>;
   pending: PendingChange[];
@@ -57,12 +64,17 @@ interface SessionContextType {
   discoverSession: (id: string) => Promise<DiscoverResult>;
   updateSessionTitle: (id: string, title: string) => Promise<SaveResult>;
   deleteSession: (id: string) => Promise<boolean>;
-  syncSession: (session: Session, operation?: object) => Promise<SaveResult>;
+  /** `overwrite`：匯入時使用者在確認視窗同意覆蓋同編號的對話；只對這一次存檔有效（ADR-0313）。 */
+  syncSession: (session: Session, operation?: object, options?: { overwrite?: boolean }) => Promise<SaveResult>;
   updateSession: (id: string, change: SessionChange, operation?: object, expectedBase?: Session) => Promise<SaveResult>;
   getPersistence: (id: string) => PersistenceState | undefined;
   recheckSession: (id: string) => Promise<SaveResult>;
   retrySaveSession: (id: string) => Promise<SaveResult>;
+  /** 重新核對發現存檔不同，而且存檔沒有別人的新內容（ADR-0313）。 */
   canRetrySave: (id: string) => boolean;
+  /** 重新核對發現存檔不同：可以捨棄這一頁沒存進去的修改，換上伺服器的版本。 */
+  canAdoptStored: (id: string) => boolean;
+  adoptStoredSession: (id: string) => Promise<SaveResult>;
   prepareResume: (id: string) => Promise<Session | undefined>;
   beginProducer: (id: string) => SessionProducer | null;
   completeProducer: (token: SessionProducer, change: SessionChange, result: SaveResult,
@@ -78,6 +90,15 @@ const markSavedHere = (writer: SessionWriter) => { writer.requireAbsence = false
 const withSavedHome = (session: Session, writer: SessionWriter): Session =>
   ({ ...session, is_home: writer.confirmed.is_home, home_for_agent: writer.confirmed.home_for_agent,
     is_old_home: writer.confirmed.is_old_home });
+// 「僅重試保存」只在存檔沒有別人的新內容時可用（ADR-0313）：剪裁接得上（ADR-0302），或存檔還是失敗那次的底
+const retryAllowed = (writer: SessionWriter, draft: Session): boolean => {
+  const recovery = writer.recovery;
+  if (!recovery?.exists) return false;
+  if (graftOntoTrim(recovery.session, writer.confirmed, draft)) return true;
+  const base = writer.failedBase;
+  if (!base) return false;
+  return base.kind === 'revision' ? recovery.revision === base.revision : sameStoredBase(base.session, recovery.session, draft);
+};
 
 export function SessionListProvider({ children }: { children: React.ReactNode }) {
   const [sessions, renderSessions] = useState<Session[]>([]);
@@ -253,7 +274,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     return [await save(next, scope), next];
   }, [readSnapshot, save]);
 
-  const updateSession = useCallback((id: string, change: SessionChange, operation: object = {}, expectedBase?: Session): Promise<SaveResult> => {
+  const updateSession = useCallback((id: string, change: SessionChange, operation: object = {}, expectedBase?: Session,
+    overwrite = false): Promise<SaveResult> => {
     const scope = ensureScope();
     const current = getSession(id);
     if (!current) return Promise.resolve(rejectedSave());
@@ -286,7 +308,19 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         writer.pending = writer.pending.filter(item => item !== pending);
         return writer.result?.status === 'failed' || writer.result?.status === 'unknown' ? writer.result : unknownSave();
       }
-      const baseError = await bindBase(writer, scope);
+      let overwriteError: SaveResult | null = null;
+      if (overwrite && !current.incognito) {
+        // 匯入時同意覆蓋（ADR-0313）：以讀到的存檔為底送出；讀完到送出之間有人寫，後端照樣擋下
+        const stored = await readSnapshot(id, scope);
+        if (writers.current.get(id) !== writer || writer.generation !== generation || !isRequestScopeCurrent(scope)) return rejectedSave();
+        if (!stored) overwriteError = unknownSave();
+        else if (stored.exists) {
+          writer.confirmed = { ...writer.confirmed, ...stored.session, revision: stored.revision };
+          writer.requireAbsence = false;
+          writer.unconfirmed = false;
+        }
+      }
+      const baseError = overwriteError ?? await bindBase(writer, scope);
       if (writers.current.get(id) !== writer || writer.generation !== generation ||
           (!current.incognito && !isRequestScopeCurrent(scope))) return rejectedSave();
       if (capturedBase && (!matchesSessionContent(capturedBase, writer.confirmed) ||
@@ -300,6 +334,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         return rejectedSave();
       }
       let intended: Session;
+      const sentBase = writer.confirmed;
       try { intended = { ...applySessionChange(writer.confirmed, change), revision: writer.confirmed.revision }; }
       catch { return rejectChange(id, writer, pending); }
       let result = baseError ?? await save(intended, scope);
@@ -319,9 +354,14 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       intended = withSavedHome(intended, writer);
       if (isSaved(result)) {
         writer.unconfirmed = false;
+        writer.failedBase = undefined;
         markSavedHere(writer);
         writer.confirmed = { ...intended, ...(result.status === 'saved' ? { revision: result.revision } : {}) };
-      } else writer.halted = true;
+      } else {
+        writer.halted = true;
+        // 底沒對上（bindBase 擋下）或接過剪裁：判斷不了，不留底（ADR-0313）
+        writer.failedBase = baseError || grafted ? undefined : { kind: 'content', session: sentBase };
+      }
       writer.result = result;
       writer.pending = writer.pending.filter(item => item !== pending);
       if (isSaved(result)) {
@@ -339,15 +379,15 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     sessionOperations.set(operationScope, run);
     operations.current.set(operation, sessionOperations);
     return run;
-  }, [ensureScope, getSession, getWriter, setSessions, save, saveOverTrim, report, bindBase, rejectChange]);
+  }, [ensureScope, getSession, getWriter, setSessions, save, saveOverTrim, report, bindBase, rejectChange, readSnapshot]);
 
-  const syncSession = useCallback((session: Session, operation?: object) => {
+  const syncSession = useCallback((session: Session, operation?: object, options: { overwrite?: boolean } = {}) => {
     ensureScope();
     if (!getSession(session.id)) setSessions(previous => replaceSession(previous, session));
     const writer = getWriter(getSession(session.id)!);
     if (!writer.confirmed.revision && !writer.savedHere) writer.requireAbsence = true;
     // 只有建立／明確匯入使用 snapshot；既有 session 的操作改走 semantic change。
-    return updateSession(session.id, () => session, operation);
+    return updateSession(session.id, () => session, operation, undefined, options.overwrite === true);
   }, [ensureScope, getSession, getWriter, setSessions, updateSession]);
 
   const getPersistence = useCallback((id: string) => writers.current.get(id)?.result, []);
@@ -372,6 +412,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const producer = writer.producer;
     try {
       let intended: Session;
+      const sentBase = writer.confirmed;
+      let grafted = false;
       try { intended = applySessionChange(writer.confirmed, change); }
       catch { return rejectChange(token.sessionId, writer); }
       let result: SaveResult = writer.confirmed.incognito ? { status: 'skipped', reason: 'incognito' } :
@@ -383,7 +425,9 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if ((generation === 'completed' && terminal.status === 'saved') || backendSkipped) {
         if (terminal.status === 'saved') intended.revision = terminal.revision;
         result = await save(intended, token.scope);
+        const sent = intended;
         [result, intended] = await saveOverTrim(result, writer.confirmed, intended, token.scope);
+        grafted = intended !== sent;
         // 舊家交接開始後存不進去（ADR-0307）：這一輪後端沒寫，或已經存了文字，都沒有東西能再改，不算保存失敗
         const settled = terminal.status === 'saved' ? terminal.revision : backendSkipped ? writer.confirmed.revision : undefined;
         if (isOldHomeRefused(result) && settled) result = { status: 'saved', representation: 'full', revision: settled };
@@ -392,6 +436,10 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       intended = withSavedHome(intended, writer);
       writer.result = result;
       writer.halted = !isSaved(result);
+      // 後端已存回覆文字版：畫面拿不到文字版的內容，只能比版本號；其他情況根據的是最後確認的版本（ADR-0313）
+      writer.failedBase = !writer.halted || grafted ? undefined
+        : generation === 'completed' && terminal.status === 'saved' ? { kind: 'revision', revision: terminal.revision }
+          : { kind: 'content', session: sentBase };
       if (isSaved(result)) writer.confirmed = { ...intended,
         ...(result.status === 'saved' ? { revision: result.revision } : {}) };
       // 先合併真終態富樹，再重播尚未送出的純語意命令；不能覆蓋晚到的 UI 選擇。
@@ -430,6 +478,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       if (matchesSessionContent(draft, snapshot.session)) {
         result = { status: 'saved', representation: 'full', revision: snapshot.revision };
         writer.unconfirmed = false;
+        writer.failedBase = undefined;
         markSavedHere(writer);
         writer.confirmed = { ...draft, ...snapshot.session, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
         setSessions(previous => replaceSession(previous, writer.confirmed));
@@ -449,7 +498,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const writer = writers.current.get(id);
     const draft = getSession(id);
     if (!writer || !draft || writer.producer || writer.pending.length || writer.recoveryBusy || writer.result?.status !== 'failed' ||
-        !writer.recovery?.exists) return Promise.resolve(rejectedSave());
+        !writer.recovery?.exists || !retryAllowed(writer, draft)) return Promise.resolve(rejectedSave());
     const recovery = writer.recovery;
     writer.recovery = undefined; // 一次人工指令只送一次；雙按不加入第二個 POST。
     writer.recoveryBusy = true;
@@ -465,6 +514,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       writer.recoveryBusy = false;
       writer.result = result;
       writer.halted = !isSaved(result);
+      // 這次重試根據的是重新核對讀到的存檔；再失敗就拿它當下一次的底
+      writer.failedBase = writer.halted ? { kind: 'content', session: recovery.session } : undefined;
       if (result.status === 'saved' && result.representation === 'full') {
         writer.unconfirmed = false;
         markSavedHere(writer);
@@ -480,6 +531,43 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     writer.tail = run;
     return run;
   }, [ensureScope, getSession, setSessions, save, report, rejectChange]);
+
+  // 存檔有別人的新內容時，捨棄這一頁沒存進去的修改、換上伺服器的版本（ADR-0313）。重讀一次，不用核對時留下的舊快照。
+  const adoptStoredSession = useCallback(async (id: string): Promise<SaveResult> => {
+    const scope = ensureScope();
+    const writer = writers.current.get(id);
+    const draft = getSession(id);
+    if (!writer || !draft || writer.producer || writer.pending.length || writer.recoveryBusy || writer.result?.status !== 'failed' ||
+        !writer.recovery?.exists) return rejectedSave();
+    const generation = writer.generation;
+    const intent = writer.intent;
+    writer.recoveryBusy = true;
+    setSessions(previous => [...previous]);
+    const snapshot = await readSnapshot(id, scope);
+    writer.recoveryBusy = false;
+    if (writers.current.get(id) !== writer || writer.generation !== generation || !isRequestScopeCurrent(scope)) return unknownSave();
+    if (writer.intent !== intent || writer.pending.length || writer.producer || !snapshot) {
+      setSessions(previous => [...previous]);
+      return snapshot ? rejectedSave() : unknownSave();
+    }
+    if (!snapshot.exists) {
+      writer.recovery = undefined;
+      writer.result = { status: 'failed', error_code: ERRORS.SESSION_NOT_FOUND.id };
+      setSessions(previous => [...previous]);
+      return writer.result;
+    }
+    const round_count = countRounds(getLinearMessages(migrateFlatToTree(snapshot.session.messages)));
+    writer.confirmed = { ...draft, ...snapshot.session, round_count, revision: snapshot.revision, is_old_home: writer.confirmed.is_old_home };
+    const result: SaveResult = { status: 'saved', representation: 'full', revision: snapshot.revision };
+    writer.result = result;
+    writer.halted = false;
+    writer.unconfirmed = false;
+    writer.recovery = undefined;
+    writer.failedBase = undefined;
+    markSavedHere(writer);
+    setSessions(previous => replaceSession(previous, writer.confirmed));
+    return result;
+  }, [ensureScope, getSession, readSnapshot, setSessions]);
 
   const prepareResume = useCallback(async (id: string): Promise<Session | undefined> => {
     const scope = ensureScope();
@@ -647,19 +735,29 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       getPersistence: id => current() ? getPersistence(id) : undefined,
       recheckSession: id => current() ? recheckSession(id) : Promise.resolve(rejectedSave()),
       retrySaveSession: id => current() ? retrySaveSession(id) : Promise.resolve(rejectedSave()),
-      canRetrySave: id => current() && !writers.current.get(id)?.recoveryBusy && !!writers.current.get(id)?.recovery?.exists,
+      canRetrySave: id => {
+        const writer = writers.current.get(id);
+        const draft = getSession(id);
+        return current() && !!writer && !!draft && !writer.recoveryBusy && retryAllowed(writer, draft);
+      },
+      canAdoptStored: id => {
+        const writer = writers.current.get(id);
+        return current() && !!writer && !writer.recoveryBusy && !writer.producer && !writer.pending.length &&
+          writer.result?.status === 'failed' && !!writer.recovery?.exists;
+      },
+      adoptStoredSession: id => current() ? adoptStoredSession(id) : Promise.resolve(rejectedSave()),
       prepareResume: id => current() ? prepareResume(id) : Promise.resolve(undefined),
       refreshSessions: () => current() ? refreshSessions() : Promise.resolve([]),
       updateSessionTitle: (id, title) => current() ? updateSessionTitle(id, title) : Promise.resolve(rejectedSave()),
       deleteSession: id => current() ? deleteSession(id) : Promise.resolve(false),
-      syncSession: (session, operation) => current() ? syncSession(session, operation) : Promise.resolve(rejectedSave()),
+      syncSession: (session, operation, options) => current() ? syncSession(session, operation, options) : Promise.resolve(rejectedSave()),
       updateSession: (id, change, operation, expectedBase) => current() ? updateSession(id, change, operation, expectedBase) : Promise.resolve(rejectedSave()),
       beginProducer: id => current() ? beginProducer(id) : null,
       completeProducer: (token, change, result, generation) => current()
         ? completeProducer(token, change, result, generation) : Promise.resolve(rejectedSave()),
     };
   }, [sessions, scopeKey, loadedScopeKey, discoverSession, setSessions, applySavedHome, getSession, getWriter, getPersistence, refreshSessions, updateSessionTitle,
-    deleteSession, syncSession, updateSession, beginProducer, completeProducer, recheckSession, retrySaveSession, prepareResume]);
+    deleteSession, syncSession, updateSession, beginProducer, completeProducer, recheckSession, retrySaveSession, adoptStoredSession, prepareResume]);
 
   return (
     <SessionListContext.Provider value={value}>

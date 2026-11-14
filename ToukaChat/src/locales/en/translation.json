@@ -1759,7 +1759,9 @@
       "unknown": "The save could not be confirmed. Your draft is retained; check its status before retrying.",
       "failed": "The conversation was not saved or conflicts with another version. Your draft is retained.",
       "recheck": "Check save status",
-      "retry": "Retry save only"
+      "retry": "Retry save only",
+      "adopt": "Use the saved version",
+      "adopt_confirm": "The saved conversation differs from this page and may have content from elsewhere. Switch to the saved version? Changes on this page that were not saved will be discarded. Text in the message box stays."
     },
     "model_lifecycle": {
       "retiring": "Model {{model}} is scheduled to retire on {{date}}.",
