@@ -112,13 +112,13 @@ export function matchesSessionContent(intended: Session, actual: Session): boole
 }
 
 /**
- * 重試前比對（ADR-0313）：存檔和失敗那次存檔根據的底，在重試會碰到的每個欄位都一樣，才算這段時間沒人寫過。
- * 比的是內容不是版本號：後端重啟後版本號會變。底缺了要比的欄位就當判斷不了。
+ * 重試前比對（ADR-0313）：存檔和失敗那次存檔根據的底，在重試會送出的每個欄位都一樣，才算這段時間沒人寫過。
+ * 只比重試會送出的欄位：後端只改有送出的欄位，沒送的不會被蓋掉。比的是內容不是版本號：後端重啟後版本號會變。
+ * 底缺了要比的欄位就當判斷不了。
  */
 export function sameStoredBase(base: Session, stored: Session, draft: Session): boolean {
   const fields = sessionWritePayload(base);
-  const keys = new Set([...Object.keys(sessionWritePayload(draft)), ...Object.keys(sessionWritePayload(stored))]);
-  return [...keys].every(key => key in fields &&
+  return Object.keys(sessionWritePayload(draft)).every(key => key in fields &&
     sessionContentKey(fields[key]) === sessionContentKey(stored[key as keyof Session]));
 }
 

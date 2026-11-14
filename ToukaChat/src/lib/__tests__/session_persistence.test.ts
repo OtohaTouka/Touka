@@ -213,6 +213,9 @@ describe('sameStoredBase：重試前比對存檔和失敗那次存檔的底（AD
   it('底缺了重試會碰到的欄位：判斷不了，不算', () => {
     expect(sameStoredBase(session('a'), full(), full())).toBe(false);
   });
+  it('重試不送的欄位（這一頁新建的對話沒有）不比：後端只改有送出的欄位', () => {
+    expect(sameStoredBase(session('a'), full({ active_skills: ['web'] }), session('a'))).toBe(true);
+  });
   it('家的欄位與舊家標記不算內容', () => {
     expect(sameStoredBase(full(), { ...full(), is_home: true, home_for_agent: 'Alice', is_old_home: true }, full())).toBe(true);
   });

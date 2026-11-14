@@ -58,6 +58,15 @@ describe('persistence result and explicit recovery controls', () => {
     expect(h.clearStale).toHaveBeenCalled();
     expect(h.switchSession).toHaveBeenCalledWith('s');
   });
+  it('confirming after the notice is gone (another conversation opened) does nothing', async () => {
+    h.state = { status: 'failed', error_code: 1307 }; h.adoptable = true;
+    const { unmount } = render(<SessionPersistenceNotice sessionId="s" />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.persistence.adopt' }));
+    unmount();
+    await act(async () => { await h.confirm!(); });
+    expect(h.adopt).not.toHaveBeenCalled();
+    expect(h.switchSession).not.toHaveBeenCalled();
+  });
   it('a failed adoption keeps the page as it is', async () => {
     h.state = { status: 'failed', error_code: 1307 }; h.adoptable = true;
     h.adopt.mockResolvedValue({ status: 'unknown', error_code: 1302 });

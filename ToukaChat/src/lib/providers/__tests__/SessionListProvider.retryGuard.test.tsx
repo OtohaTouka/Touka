@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { SessionListProvider, useSessionList } from '../SessionListProvider';
 import { captureRequestScope, fetchTouka, isRequestScopeCurrent } from '@/lib/connections';
+import { toast } from 'sonner';
 import type { Session } from '@/lib/types';
 import type { TreeHistory } from '@/lib/tree_history';
 
@@ -132,6 +133,32 @@ describe('「僅重試保存」只在存檔沒有別人的新內容時可用（A
     expect(Object.keys(posts().at(-1).messages.messages).sort()).toEqual(['a1', 'u1', 'u2']);
   });
 
+  it('這一頁新建、欄位不齊的對話：回應遺失後存檔沒人動過，仍可重試', async () => {
+    serve(() => null, () => 'none');
+    const { result } = await render();
+    const fresh: Session = { id: 's1', title: 'new', messages: chain(...baseNodes), updatedAt: 1 };
+    serve(() => null, () => 'absent', () => saved('r1'));
+    await act(async () => { expect(await result.current.syncSession(fresh)).toMatchObject({ status: 'saved', revision: 'r1' }); });
+    const stored = () => ({ ...base(), title: 'new' });
+    serve(stored, () => 'r9');
+    await act(async () => { expect(await result.current.updateSession('s1', appendUser('u2'))).toMatchObject({ status: 'unknown' }); });
+    await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'failed' }); });
+    expect(result.current.canRetrySave('s1')).toBe(true);
+  });
+
+  it('存檔前讀存檔失敗（清單讀到的對話沒有版本號）：存檔沒人動過，仍可重試', async () => {
+    fetchToukaMock.mockImplementation(async (_proxy, path) => json(String(path).includes('snapshot=true') ? null : [base()]));
+    const { result } = await render();
+    await act(async () => { await result.current.refreshSessions(); });
+    fetchToukaMock.mockImplementation(async () => { throw new Error('offline'); });
+    await act(async () => { expect(await result.current.updateSession('s1', appendUser('u2'))).toMatchObject({ status: 'unknown' }); });
+    serve(base, () => 'r1', () => saved('r2'));
+    await act(async () => { expect(await result.current.recheckSession('s1')).toMatchObject({ status: 'failed' }); });
+    expect(result.current.canRetrySave('s1')).toBe(true);
+    await act(async () => { expect(await result.current.retrySaveSession('s1')).toMatchObject({ status: 'saved' }); });
+    expect(posts().at(-1)).toMatchObject({ revision: 'r1' });
+  });
+
   it('工具在存檔裡改了設定（啟用技能）：不能重試，不會默默撤銷', async () => {
     const { result } = await mount();
     serve(() => ({ ...base(), active_skills: ['web'] }), () => 'r2');
@@ -162,8 +189,10 @@ describe('「僅重試保存」只在存檔沒有別人的新內容時可用（A
     await act(async () => { await result.current.updateSession('s1', appendUser('u2')); });
     await act(async () => { await result.current.recheckSession('s1'); });
     stored = null;
+    vi.mocked(toast.error).mockClear();
     await act(async () => { expect(await result.current.adoptStoredSession('s1')).toMatchObject({ status: 'failed' }); });
     expect(result.current.getSession('s1')!.messages.messages.u2).toBeDefined();
+    expect(toast.error).toHaveBeenCalled();
   });
 
   describe('回覆收尾存檔失敗', () => {

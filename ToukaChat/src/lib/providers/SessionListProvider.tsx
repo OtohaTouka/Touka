@@ -44,6 +44,7 @@ interface SessionWriter {
   savedHere?: boolean; // 這一頁存過；畫面更新會清掉 revision，不能用 revision 判斷
   recovery?: SessionSnapshot;
   failedBase?: FailedBase;
+  retryable?: boolean; // 重新核對時算一次（ADR-0313）；草稿一變 recovery 就清掉，不會用到舊結果
   confirmed: Session;
   tail: Promise<unknown>;
   pending: PendingChange[];
@@ -359,8 +360,8 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
         writer.confirmed = { ...intended, ...(result.status === 'saved' ? { revision: result.revision } : {}) };
       } else {
         writer.halted = true;
-        // 底沒對上（bindBase 擋下）或接過剪裁：判斷不了，不留底（ADR-0313）
-        writer.failedBase = baseError || grafted ? undefined : { kind: 'content', session: sentBase };
+        // 底沒對上（bindBase 擋下）或接過剪裁：判斷不了，不留底。存檔前讀存檔失敗只是沒讀到，底照樣是最後確認的內容（ADR-0313）
+        writer.failedBase = grafted || (baseError && baseError.status !== 'unknown') ? undefined : { kind: 'content', session: sentBase };
       }
       writer.result = result;
       writer.pending = writer.pending.filter(item => item !== pending);
@@ -485,6 +486,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       } else {
         result = rejectedSave();
         writer.recovery = snapshot;
+        writer.retryable = retryAllowed(writer, draft);
       }
     } else if (snapshot?.exists === false) result = { status: 'failed', error_code: ERRORS.SESSION_NOT_FOUND.id };
     writer.result = result;
@@ -508,14 +510,15 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     const run = writer.tail.then(async () => {
       if (writers.current.get(id) !== writer || writer.generation !== generation || !isRequestScopeCurrent(scope)) return rejectedSave();
       // 存檔是剪裁造成的：接上去，不把剪掉的寫回去（ADR-0302）
-      const intended = { ...(graftOntoTrim(recovery.session, writer.confirmed, draft) ?? draft), revision: recovery.revision };
+      const grafted = graftOntoTrim(recovery.session, writer.confirmed, draft);
+      const intended = { ...(grafted ?? draft), revision: recovery.revision };
       const result = await save(intended, scope);
       if (writers.current.get(id) !== writer || writer.generation !== generation) return result;
       writer.recoveryBusy = false;
       writer.result = result;
       writer.halted = !isSaved(result);
-      // 這次重試根據的是重新核對讀到的存檔；再失敗就拿它當下一次的底
-      writer.failedBase = writer.halted ? { kind: 'content', session: recovery.session } : undefined;
+      // 這次重試根據的是重新核對讀到的存檔；再失敗就拿它當下一次的底。接過剪裁的不留底，免得之後整棵寫回、撤銷剪裁
+      writer.failedBase = writer.halted && !grafted ? { kind: 'content', session: recovery.session } : undefined;
       if (result.status === 'saved' && result.representation === 'full') {
         writer.unconfirmed = false;
         markSavedHere(writer);
@@ -547,13 +550,16 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     writer.recoveryBusy = false;
     if (writers.current.get(id) !== writer || writer.generation !== generation || !isRequestScopeCurrent(scope)) return unknownSave();
     if (writer.intent !== intent || writer.pending.length || writer.producer || !snapshot) {
+      const failed = snapshot ? rejectedSave() : unknownSave();
       setSessions(previous => [...previous]);
-      return snapshot ? rejectedSave() : unknownSave();
+      report(id, failed);
+      return failed;
     }
     if (!snapshot.exists) {
       writer.recovery = undefined;
       writer.result = { status: 'failed', error_code: ERRORS.SESSION_NOT_FOUND.id };
       setSessions(previous => [...previous]);
+      report(id, writer.result);
       return writer.result;
     }
     const round_count = countRounds(getLinearMessages(migrateFlatToTree(snapshot.session.messages)));
@@ -567,7 +573,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
     markSavedHere(writer);
     setSessions(previous => replaceSession(previous, writer.confirmed));
     return result;
-  }, [ensureScope, getSession, readSnapshot, setSessions]);
+  }, [ensureScope, getSession, readSnapshot, setSessions, report]);
 
   const prepareResume = useCallback(async (id: string): Promise<Session | undefined> => {
     const scope = ensureScope();
@@ -737,8 +743,7 @@ export function SessionListProvider({ children }: { children: React.ReactNode })
       retrySaveSession: id => current() ? retrySaveSession(id) : Promise.resolve(rejectedSave()),
       canRetrySave: id => {
         const writer = writers.current.get(id);
-        const draft = getSession(id);
-        return current() && !!writer && !!draft && !writer.recoveryBusy && retryAllowed(writer, draft);
+        return current() && !!writer && !writer.recoveryBusy && !!writer.recovery?.exists && writer.retryable === true;
       },
       canAdoptStored: id => {
         const writer = writers.current.get(id);

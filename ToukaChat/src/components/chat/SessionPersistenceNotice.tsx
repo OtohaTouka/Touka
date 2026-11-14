@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { useChat } from '@/lib/providers/ChatProvider';
@@ -20,6 +20,9 @@ export function SessionPersistenceNotice({ sessionId }: { sessionId: string }) {
   const { clearStale } = useSessionActivity();
   const { confirmToast } = useConfirmToast();
   const busyRef = useRef(false);
+  // 確認提示不會自己消失：換了對話（這個提示卸載）之後才按確認，不能換掉舊對話、再跳回去
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const [busy, setBusy] = useState(false);
   const state = getPersistence(sessionId);
   if (!state || getSession(sessionId)?.incognito || state.status === 'saved' || state.status === 'skipped') return null;
@@ -30,8 +33,8 @@ export function SessionPersistenceNotice({ sessionId }: { sessionId: string }) {
     try { await action(); }
     finally { busyRef.current = false; setBusy(false); }
   };
-  const adopt = () => confirmToast(t('chat.persistence.adopt_confirm'), () => run(async () => {
-    if (!isSaved(await adoptStoredSession(sessionId))) return;
+  const adopt = () => confirmToast(t('chat.persistence.adopt_confirm'), () => mountedRef.current && run(async () => {
+    if (!isSaved(await adoptStoredSession(sessionId)) || !mountedRef.current) return;
     clearStale();
     handleSwitchSession(sessionId);
   }), t('chat.persistence.adopt'));
