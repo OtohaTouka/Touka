@@ -7,6 +7,7 @@ import { useChat } from '@/lib/providers/ChatProvider';
 import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useConfirmToast } from '@/hooks/useConfirmToast';
 import { isSaved } from '@/lib/session_persistence';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -20,9 +21,13 @@ export function SessionPersistenceNotice({ sessionId }: { sessionId: string }) {
   const { clearStale } = useSessionActivity();
   const { confirmToast } = useConfirmToast();
   const busyRef = useRef(false);
-  // 確認提示不會自己消失：換了對話（這個提示卸載）之後才按確認，不能換掉舊對話、再跳回去
+  // 確認提示不會自己消失：換了對話（這個提示卸載）就關掉它；萬一還是按到，也不換掉舊對話、再跳回去
+  const confirmId = `session-adopt-${sessionId}`;
   const mountedRef = useRef(true);
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; toast.dismiss(confirmId); };
+  }, [confirmId]);
   const [busy, setBusy] = useState(false);
   const state = getPersistence(sessionId);
   if (!state || getSession(sessionId)?.incognito || state.status === 'saved' || state.status === 'skipped') return null;
@@ -37,7 +42,7 @@ export function SessionPersistenceNotice({ sessionId }: { sessionId: string }) {
     if (!isSaved(await adoptStoredSession(sessionId)) || !mountedRef.current) return;
     clearStale();
     handleSwitchSession(sessionId);
-  }), t('chat.persistence.adopt'));
+  }), t('chat.persistence.adopt'), undefined, confirmId);
   const retryable = state.status === 'failed' && canRetrySave(sessionId);
   return <div role="status" className="m-2 flex flex-wrap items-center gap-2 rounded border p-3 text-sm">
     <span>{t(`chat.persistence.${state.status}`)}</span>

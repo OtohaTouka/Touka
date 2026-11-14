@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersistenceState } from '@/lib/session_persistence';
 const h = vi.hoisted(() => ({ state: undefined as PersistenceState | undefined, retry: false, adoptable: false,
   recheck: vi.fn(), save: vi.fn(), adopt: vi.fn(), switchSession: vi.fn(), clearStale: vi.fn(),
-  confirm: null as null | (() => unknown), incognito: false }));
+  confirm: null as null | (() => unknown), confirmId: undefined as string | undefined, dismiss: vi.fn(), incognito: false }));
 vi.mock('@/lib/providers/SessionListProvider', () => ({ useSessionList: () => ({
   getPersistence: () => h.state, getSession: () => ({ incognito: h.incognito }),
   canRetrySave: () => h.retry, recheckSession: h.recheck, retrySaveSession: h.save,
@@ -13,9 +13,12 @@ vi.mock('@/lib/providers/SessionListProvider', () => ({ useSessionList: () => ({
 vi.mock('@/lib/providers/ChatProvider', () => ({ useChat: () => ({ handleSwitchSession: h.switchSession }) }));
 vi.mock('@/lib/providers/SessionActivityProvider', () => ({ useSessionActivity: () => ({ clearStale: h.clearStale }) }));
 vi.mock('@/hooks/useConfirmToast', () => ({ useConfirmToast: () => ({
-  confirmToast: (_message: string, onConfirm: () => unknown) => { h.confirm = onConfirm; },
+  confirmToast: (_message: string, onConfirm: () => unknown, _label?: string, _cancel?: unknown, id?: string) => {
+    h.confirm = onConfirm; h.confirmId = id;
+  },
 }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('sonner', () => ({ toast: { dismiss: h.dismiss } }));
 import { SessionPersistenceNotice } from '../SessionPersistenceNotice';
 
 describe('persistence result and explicit recovery controls', () => {
@@ -63,6 +66,8 @@ describe('persistence result and explicit recovery controls', () => {
     const { unmount } = render(<SessionPersistenceNotice sessionId="s" />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.persistence.adopt' }));
     unmount();
+    expect(h.confirmId).toBeTruthy();
+    expect(h.dismiss).toHaveBeenCalledWith(h.confirmId);
     await act(async () => { await h.confirm!(); });
     expect(h.adopt).not.toHaveBeenCalled();
     expect(h.switchSession).not.toHaveBeenCalled();
