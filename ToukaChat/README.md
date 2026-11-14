@@ -52,7 +52,7 @@ ToukaChat 具備強大的適配能力，可以連接多種後端服務：
 
 ToukaChat 遵循嚴格的 TDD 與 SOLID 原則。
 
-建置與驗證工具鏈固定為 **Node.js 24.22.1 LTS／npm 11.19.1**；版本由
+建置與驗證工具鏈固定為 **Node.js 24.22.3 LTS／npm 11.19.1**；版本由
 `package.json` 的 `engines`、`packageManager` 與 `devEngines` 共同執法。
 
 ### 執行測試
@@ -70,7 +70,7 @@ npm run guard:all
 docker compose build touka-chat
 ```
 
-> **注意**：`ToukaChat/Dockerfile` 與 `Dockerfile.prod` 都從 digest 釘版的官方 Node 24.22.1
+> **注意**：`ToukaChat/Dockerfile` 與 `Dockerfile.prod` 都從 digest 釘版的官方 Node 24.22.3
 > 映像取得 Node／npm，production 的 runner 直接以該映像為基底。開發 builder 保留
 > `python3 make g++`。全域 lifecycle 維持停用，只有還在依賴清單裡的 `node-pty`
 > 會以明示 `npm rebuild node-pty` 在 Linux 容器中編譯（開發終端伺服器已於 ADR-0294 移除，

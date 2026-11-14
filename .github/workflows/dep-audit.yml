@@ -56,7 +56,7 @@ jobs:
       - run: uv sync --locked --all-packages --python 3.12
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.22.1"
+          node-version: "24.22.3"
           package-manager-cache: false
       - run: npm install -g --ignore-scripts --no-audit --no-fund npm@11.19.1
       - name: Run the audits
