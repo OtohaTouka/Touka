@@ -22,7 +22,7 @@
 
 ### 2. 判定（`embedding_index.judge`）
 
-只看事實庫裡有記憶（含封存）的 agent 對應的 collection（`FactualStore.agent_ids_with_facts`），刪掉的靈魂留下的舊索引不算。對某個模型，每個 collection 判成：
+只看事實庫裡有記憶（含封存）的 agent 對應的 collection（`FactualStore.agent_ids_with_facts`），刪掉的靈魂留下的舊索引不算。事實庫只有 agent id 字串，換成 collection 名稱用 `collection_names.collection_name_for_agent_id`（和 `collection_name_for(identity)` 同一條規則；ToukaMemory 不能建 `AgentIdentity`，`IDENTITY_SSOT` 豁免登記在 NOQA_REGISTRY）。對某個模型，每個 collection 判成：
 
 - 有備註：名稱相同就相符，不同就不符（依據：名稱）。名稱正規化一個函式：去空白、沒有 `/` 補 `sentence-transformers/`、忽略大小寫（`same_model`；`resolve_repo_id` 也在這裡，Proxy 的下載沿用）。
 - 沒備註：模型在已知長度表（`KNOWN_EMBEDDING_DIMENSIONS`）、長度不同就不符（依據：長度）；長度相同且表裡只有它是這個長度才相符；其他判斷不了。
@@ -50,12 +50,12 @@
   | 其他（判斷不了、讀不到、`meta.json` 不存在、評估出錯） | 要確認，警告寫看不出 | 拒絕 |
 
 - 「改了設定檔裡的模型」：`POST /config/env` 把寫入前與寫入後的內容都用 dotenv 解析（鍵名忽略大小寫，涵蓋前後空白、`export`、值裡夾換行），沒有這行或值是空的都當內建預設；`POST /admin/setup/apply` 比請求的值和寫入前檔案的值。
-- 執行緒（ADR-0288）：有改到模型時路由先 `await run_memory_job(評估)`，再進 `ENV_FILE_LOCK` 寫檔；`/config/env` 持鎖時再算一次目標，不同就整個拒絕，持鎖時不 await。拒絕放在既有 `try/except → SYSTEM_ERROR` 外面，回 `EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION`（409），整個請求不寫任何鍵。
-- 精靈：`evaluate_switch` 多回 `index_model`、`index_dim`、`index_outcome`；前端已知名稱時警告寫索引的模型，判斷不了時用另一句。
+- 執行緒（ADR-0288）：有改到模型時路由先 `await run_memory_job(評估)`，再進 `ENV_FILE_LOCK` 寫檔，持鎖時不 await。持鎖時重讀設定檔再核對：`/config/env` 再算一次目標，不同就整個拒絕；`SetupService.apply` 預設不寫會換模型的值，路由評估過才帶 `embedding_switch_checked=True`，沒帶而鎖內讀到會換模型時整個拒絕（評估後檔案被別人改掉也擋得住）。拒絕放在既有 `try/except → SYSTEM_ERROR` 外面，回 `EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION`（409），整個請求不寫任何鍵。
+- 精靈：`evaluate_switch` 多回 `index_model`、`index_dim`、`index_outcome`；前端已知名稱時警告寫索引的模型，只知道長度不同時寫長度，其他（判斷不了、讀不到）說看不出來。
 
 ### 5. 重建工具
 
-`--model` 沒給時用設定裡的模型（`config_utils.get_embedding_model_and_source`，先 `bootstrap_env` 讀設定檔），開跑印出模型與來源；指定的和設定不同時印警告、照跑。重建完的 collection 有備註。
+`--model` 沒給時用設定裡的模型（`config_utils.get_embedding_model_and_source`；載入 `memory_server` 時 `bootstrap_env` 已讀設定檔），開跑印出模型與來源；指定的和設定不同時印警告、照跑。重建完的 collection 有備註。
 
 ## 後果
 

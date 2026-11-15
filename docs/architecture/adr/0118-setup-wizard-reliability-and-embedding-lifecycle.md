@@ -4,6 +4,8 @@
 
 ✅ **已接受（實作完成、全綠——guard_all 37/37、後端 pytest 2485 passed/3 skipped、前端 vitest 934 passed）**。本 ADR **延伸／修訂 ADR-0053（初次設定精靈）**，並擴充 ADR-0052（環境感知 .env 載入）、ADR-0099（Provider Registry SSOT）、ADR-0070（中文向量記憶）、ADR-0038（Init 容器 volume 權限）。
 
+> 🔧 **[ADR-0315](0315-embedding-model-mismatch-guards.md) 修訂（2026-11-15）**：SWITCH 的確認改成預設要確認、即時評估證明安全才不用，精靈警告寫記憶實際用的模型；設定介面的兩個寫設定端點用同一條規則；RE-EMBED 預設用設定的模型。
+
 > 🔧 **[ADR-0314](0314-new-installs-default-to-multilingual-embedding.md) 修訂（2026-11-15）**：DOWNLOAD 只抓 sentence-transformers 用得到的檔（排除 ONNX、OpenVINO、TensorFlow、Rust、Flax 格式；最上層有 safetensors 時不抓 `pytorch_model*.bin`，e5 從約 5.3GB 降到約 1.1GB）；精靈選的就是目前的模型時也先下載（已下載的不重抓），失敗可以先略過。
 
 > ⚠️ **部分被 [ADR-0151](0151-env-persistence-anchor-decouple.md) 取代（2026-07-12）**：本 ADR 的

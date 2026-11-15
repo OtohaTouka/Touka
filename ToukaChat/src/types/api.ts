@@ -4893,6 +4893,10 @@ export interface paths {
         /**
          * Update Env
          * @description 更新 .env 檔案內容。注意：這不會立即重啟服務。
+         *
+         *     寫入會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）：要確認
+         *     的整筆拒絕、什麼都不寫。評估在拿鎖之前（持鎖不能等，ADR-0288）；鎖內重讀，出現沒評估過的
+         *     換法也拒絕。沒改到模型的寫入（例如只存金鑰）不看記憶。
          */
         post: operations["update_env_v1_config_env_post"];
         delete?: never;
@@ -4917,6 +4921,10 @@ export interface paths {
         /**
          * Update Env
          * @description 更新 .env 檔案內容。注意：這不會立即重啟服務。
+         *
+         *     寫入會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）：要確認
+         *     的整筆拒絕、什麼都不寫。評估在拿鎖之前（持鎖不能等，ADR-0288）；鎖內重讀，出現沒評估過的
+         *     換法也拒絕。沒改到模型的寫入（例如只存金鑰）不看記憶。
          */
         post: operations["update_env_config_env_post"];
         delete?: never;
@@ -6215,6 +6223,9 @@ export interface paths {
         /**
          * Apply Setup
          * @description Write provided setup values to .env. Admin only.
+         *
+         *     會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）；要確認的
+         *     整筆拒絕、什麼都不寫。評估在拿設定檔鎖之前做；鎖內由 ``SetupService.apply`` 重讀再核對。
          */
         post: operations["apply_setup_v1_admin_setup_apply_post"];
         delete?: never;
@@ -6317,6 +6328,9 @@ export interface paths {
         /**
          * Apply Setup
          * @description Write provided setup values to .env. Admin only.
+         *
+         *     會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）；要確認的
+         *     整筆拒絕、什麼都不寫。評估在拿設定檔鎖之前做；鎖內由 ``SetupService.apply`` 重讀再核對。
          */
         post: operations["apply_setup_admin_setup_apply_post"];
         delete?: never;

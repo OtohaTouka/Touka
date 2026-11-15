@@ -32,9 +32,9 @@ ADR-0070 決定的是維護者自己的安裝改用 `intfloat/multilingual-e5-ba
 ## 後續（這次不做）
 
 - 已經有記憶的安裝改用 e5：要停機做離線重建，另外再談。
-- 重建工具改成預設讀設定檔裡的模型。
-- `POST /config/env` 寫 `EMBEDDING_MODEL` 時沒有「已有記憶要先確認」的防呆（精靈的切換端點有）。
-- 啟動時比對記憶用的模型，對不上就明講；也能擋住其他換錯模型的情況。
+- ~~重建工具改成預設讀設定檔裡的模型。~~ 由 [ADR-0315](0315-embedding-model-mismatch-guards.md) 完成（2026-11-15）。
+- ~~`POST /config/env` 寫 `EMBEDDING_MODEL` 時沒有「已有記憶要先確認」的防呆（精靈的切換端點有）。~~ 由 [ADR-0315](0315-embedding-model-mismatch-guards.md) 完成：`POST /config/env` 與 `POST /admin/setup/apply` 都和精靈用同一條確認規則。
+- ~~啟動時比對記憶用的模型，對不上就明講；也能擋住其他換錯模型的情況。~~ 由 [ADR-0315](0315-embedding-model-mismatch-guards.md) 完成：語意索引記下用的模型，啟動與側欄在對不上時明講。
 
 ## 撤回
 

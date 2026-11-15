@@ -7,7 +7,7 @@
 - 記憶的讀寫（事實庫、向量庫、嵌入模型、舊對話庫）排在整個行程一條單執行緒的工作者上（`memory_server/utils/memory_worker.py`，執行緒名稱 `touka-memory`），一次只跑一個；不在 Proxy 的事件迴圈上跑。例外：舊對話歸檔 `archive_payload`（滑動視窗與 UI 對話）仍用預設執行緒池；只讀事實庫、本來就用 `asyncio.to_thread` 的（`_scrub_dependencies`、`assert_id_free`）沒改。
 - 主迴圈用 `await run_memory_job(fn, ...)`；不在事件迴圈上的執行緒（記憶清除的工作執行緒）用 `run_memory_job_blocking(fn, ...)` 同步等；在工作者裡呼叫都直接執行。每個工作在呼叫端 contextvars 的複本裡跑（無痕不記事件照樣有效）。
 - 規矩：工作者裡的工作不得同步等主迴圈；主迴圈不得同步等工作者（`run_memory_job_blocking` 在事件迴圈上丟 `MemoryWorkerMisuseError`）；持有工作者裡的工作可能要的鎖（例如 `_UPGRADE_BACKUP_LOCK`）時不得同步等工作者。
-- 包進工作者的：存（查重到寫入一個工作）、查（來源行要 await，留在主迴圈）、forget、`manage_dups`、reindex、診斷、隨機回想、對話搜尋的舊對話庫、匯出；Proxy 的 `GET /v1/memory/list`、切換嵌入模型（偵測與套用是同一個工作 `embedding_service.switch_model`，中間不插進別的記憶操作；寫 `.env` 持 `config.ENV_FILE_LOCK`）、刪除靈魂前記憶檢查（`assert_memory_cleared` 是 async）、重置的清記憶與重算、舊對話統計與同步端點。診斷的資料夾大小、舊版 `facts.jsonl` 與搜尋紀錄用 `asyncio.to_thread`（不碰記憶庫，不佔工作者）。
+- 包進工作者的：存（查重到寫入一個工作）、查（來源行要 await，留在主迴圈）、forget、`manage_dups`、reindex、診斷、隨機回想、對話搜尋的舊對話庫、匯出；Proxy 的 `GET /v1/memory/list`、切換嵌入模型（偵測與套用是同一個工作 `embedding_service.switch_model`，中間不插進別的記憶操作；寫 `.env` 持 `config.ENV_FILE_LOCK`）、設定頁與首裝精靈寫設定時的換模型評估（`embedding_service.model_change_requires_confirmation`，在拿設定檔鎖之前）、`GET /v1/memory` 的語意索引重算（`embedding_index.refresh_index_status`，最多等 `INDEX_CHECK_WAIT_S` 約 2 秒，逾時用上一次的結果；ADR-0315）、刪除靈魂前記憶檢查（`assert_memory_cleared` 是 async）、重置的清記憶與重算、舊對話統計與同步端點。診斷的資料夾大小、舊版 `facts.jsonl` 與搜尋紀錄用 `asyncio.to_thread`（不碰記憶庫，不佔工作者）。
 - `MemoryManager` 碰儲存的方法（`save_memory`、`query_memory` 以外）仍是同步的；在主迴圈上要經 `run_memory_job` 呼叫，不能直接呼叫或 await。只建物件或正規化 ID 的（`get_legacy_sync_service`、`normalize_agent_id`）照舊直接呼叫。
 - 等待被取消時，還在排隊的工作不跑，已經開始的會跑完，之後才失敗的記到 log。持鎖做破壞性操作的（重置的清記憶）用 `run_memory_job_to_end`：已經開始的做完才把取消往外丟，鎖不會在做到一半時就放掉。
 
@@ -90,7 +90,7 @@ Mission初始化tasks[].review_required/review_risk/test_log/artifact_refs沿Tas
 - **語意結果一律回查事實庫**：`query` 與存記憶的語意查重經 `services/index_state.live_semantic_hits` 回查，`manage_dups` 的 scan 用掃描開頭那次 `query_facts` 拿到的未封存事實當回查集合；都只留這個身分、未封存、事實庫裡還在的事實，內容以事實庫為準。`forget` 與 `manage_dups` 的 resolve（同一條 `resolve_duplicate`）時向量庫失敗以事實庫的封存為準；向量沒封存到（取不到、丟錯或回 False）就把那筆標 `failed`，下一次 `reindex` 補上（ADR-0263）。
 - **手動補索引 `memory_tools(action="reindex")`**：沒有參數，只補呼叫者自己、未封存、`unverified` 或 `failed` 的事實，舊的先，一次最多 `MAX_REINDEX_FACTS` 筆。先問向量庫 point 在不在（`VectorStore.indexed_fact_ids`，不算向量），有的直接標 `ready`；沒有的才重算，沿用原本的 `created_at`；逐筆隔離錯誤，寫不進去的標 `failed`。回報各項筆數與剩下待補的筆數。另外處理呼叫者自己、已封存、狀態是 NULL／`unverified`／`failed` 的事實：向量庫沒有那筆就直接標 `ready`，有就把 payload 設成已封存，成功標 `ready`、失敗留 `failed`，回報多一句（ADR-0263）。要過寫入閘；不自動觸發。風險在 `auth_policies.json.example` 與被追蹤的 `ToukaProxy/config/auth_policies.json` 都是 `safe`；設定檔沒列時依「動詞未知一律 dangerous」（Manual 要人核准、Auto 交審查員），有測試釘住。
 - **診斷**：`diagnostics` 只列事實庫記的未封存事實各狀態筆數，不抽查向量庫；還停在 v0（升級失敗）時全部算 `unverified`。有待補時提示用 `reindex`。
-- **不做**：不加欄位或索引、不用 `embedding_model` 判斷待補、不標「換模型過期」。離線 `reembed_memory.py` 重建後不寫回 `embedding_state`，下一次 `reindex` 先問向量庫就會標回 `ready`。
+- **不做**：不加欄位或索引、不用 `embedding_model` 判斷待補、不標「換模型過期」。`embedding_model` 也不拿來判斷記憶用哪個模型（`reindex` 對向量已在的事實會記目前設定的模型）；那個判斷看語意索引的記號與向量長度（ADR-0315）。離線 `reembed_memory.py` 重建後不寫回 `embedding_state`，下一次 `reindex` 先問向量庫就會標回 `ready`。
 
 ## 記憶來源（記憶系統第一批段 4，ADR-0256）
 
@@ -332,10 +332,11 @@ index／cache／lock 都算**寫入**。
 首次啟動精靈（SETUP WIZARD）新增 embedding 模型管理，Memory 端須嚴格區分**三種動作**，彼此互不觸發（實作於 `ToukaProxy/src/services/embedding_service.py`）：
 
 1.  **下載 (DOWNLOAD)** — 僅將模型檔案抓入 HF 快取（背景任務 + 輪詢狀態；逐檔 `hf_hub_download` byte 進度；已有快取則 `snapshot_download(local_files_only=...)` 跳過）。只抓 sentence-transformers 用得到的檔（`select_download_files`，ADR-0314）：排除 `onnx/`、`openvino/` 與 `.h5`、`.ot`、`.msgpack`，最上層有 safetensors 時不抓 `pytorch_model*.bin`；斷詞檔與模組資料夾（如 `2_Dense/`）裡的權重保留。進度按位元組回報（e5 幾乎只剩一個 1.1GB 的檔）；上次下載失敗的，重試時不看快取。精靈選的就是目前的模型時也會先呼叫下載（已下載的直接回完成），失敗可以先略過，第一次用記憶時再下載。**加法式（additive）**：永不 `force_download`、永不刪除任何既有模型，**完全不動向量與事實**，是安全操作。
-2.  **切換 (SWITCH)** — 寫入 `EMBEDDING_MODEL` 並呼叫 **`MemoryManager.reset_singletons()`**，達成**免重啟**即時生效。`evaluate_switch` 以 `FactualStore.query_all_facts()` 偵測既有記憶；當**已有記憶且目標模型不同**時**要求使用者確認**（`force` 旗標）——避免新舊向量空間不一致而靜默降低檢索品質。
-3.  **重新嵌入 (RE-EMBED)** — 僅離線維運腳本 `reembed_memory.py`，**絕不自動觸發**。其只重建向量索引，**只讀事實、不升級記憶庫結構（版本落後就拒絕執行）**：事實（facts）是**無損 SSOT**，向量僅為**衍生索引（derived index）**，可隨時由事實重建。
+2.  **切換 (SWITCH)** — 寫入 `EMBEDDING_MODEL` 並呼叫 **`MemoryManager.reset_singletons()`**，達成**免重啟**即時生效。`evaluate_switch` **預設要使用者確認**（`force` 旗標）：只有目標就是目前生效的模型，或在記憶工作者上即時評估（`embedding_index.evaluate_target`）是「沒有記憶／有記憶但沒有語意索引／有記憶的索引全部相符」才不用；有不符、判斷不了、事實庫或 `meta.json` 讀不到（含不存在）都要確認（ADR-0315 判定表）。回傳多帶記憶實際用的模型 `index_model`、向量長度 `index_dim` 與判定 `index_outcome`，精靈警告用它們、不用目前設定。換成功後把側欄的比對結果標成過期。
+3.  **重新嵌入 (RE-EMBED)** — 僅離線維運腳本 `reembed_memory.py`，**絕不自動觸發**。沒給 `--model` 時用設定的模型（`config_utils.get_embedding_model_and_source`），開跑印出模型與來源，給了和設定不同的照跑並印警告（ADR-0315）。其只重建向量索引，**只讀事實、不升級記憶庫結構（版本落後就拒絕執行）**：事實（facts）是**無損 SSOT**，向量僅為**衍生索引（derived index）**，可隨時由事實重建。
 
 *   **新安裝的預設（ADR-0314）**：範例設定寫 `EMBEDDING_MODEL=intfloat/multilingual-e5-base`；程式內建預設仍是 `all-MiniLM-L6-v2`，設定檔還在的舊安裝不受影響。設定檔不見、照新範例重建時，原本用英文模型、已經有記憶的安裝要把這一行改回原本的模型。
+*   **記憶的語意索引用哪個模型（ADR-0315）**：新建（`VectorStore._ensure_collection`）與重建（`reembed_agent`）的 collection 在 Qdrant metadata 記 `touka_embedding_model`、`touka_embedding_dim`，既有的不補記。比對規則在 `memory_server/utils/embedding_index.py`：有記號比名稱；沒記號比長度（長度不同＝不符，相同且已知長度表只有一個模型是這個長度才算相符）；模型第一次載入後（只經 `MemoryManager.get_vector_store` 掛上）對還判斷不了的抽查最多 3 筆（`services/index_check.py`）。只看有記憶的靈魂，孤兒 collection 不算。`GET /v1/memory` 有不符時加警告級提示 `embedding_model_mismatch`（欄位 `count`、`basis`＝`name`／`length`／`sample`、`configured_model`、`index_model`、`index_dim`），啟動時也記一行 warning；兩者都不建構事實庫、讀不到保留上一次結果、失敗不擋啟動。`POST /v1/config/env` 與 `POST /v1/admin/setup/apply` 用和精靈同一條確認規則，只在這次寫入真的改了設定檔裡的模型時評估，要確認的整筆拒絕（`EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION`，409）、設定檔不變。
 *   **對應端點**（admin）：`POST /v1/admin/setup/embedding/download`、`GET /v1/admin/setup/embedding/download-status`、`POST /v1/admin/setup/embedding/switch {model, force}`。
 *   **HF 快取持久化**：`docker-compose.yml` 以具名 volume `hf-cache` 掛載於 touka-proxy 的 `/app/hf_cache`，並設 `HF_HOME=/app/hf_cache`（同一變數同時涵蓋**精靈下載**與 `vector.py` 執行期 `SentenceTransformer` 載入，兩者共用 HF hub 快取）。`touka-init` 掛載同 volume 並將 `/app/hf_cache` chown 至 `1001:1001`（新 volume 預設 root 擁有，appuser 需 chown 後才可寫，ADR-0038）。已下載模型可跨 `docker compose up --build` 保留；`docker compose down -v` 才會清除。
 

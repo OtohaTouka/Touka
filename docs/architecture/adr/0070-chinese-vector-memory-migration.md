@@ -4,6 +4,8 @@
 
 ✅ 已接受（**延伸：[ADR-0118](0118-setup-wizard-reliability-and-embedding-lifecycle.md)**——嵌入模型的即時下載（進度）與切換防呆：既有記憶時需確認、re-embed 仍限離線、事實 `core_memory.db` 永不被動）（依賴宣告載體修訂 by [ADR-0117](0117-uv-workspace-single-lock-migration.md)：qdrant-client 自 requirements.txt 遷 pyproject/單一 uv.lock；版本 pin 值不變）
 
+> 🔧 **重建工具的預設模型由 [ADR-0315](0315-embedding-model-mismatch-guards.md) 修訂（2026-11-15）**：`reembed_memory.py` 不再寫死 e5，沒給 `--model` 時用設定的模型並印出來源；重建的 collection 記下用的模型。
+
 > 🔧 **新安裝的預設由 [ADR-0314](0314-new-installs-default-to-multilingual-embedding.md) 補上（2026-11-15）**：本 ADR 只改了維護者自己的安裝；新安裝的範例設定現在也寫 e5，設定精靈的選單也有它。程式內建預設仍是英文模型，設定檔還在的舊安裝不受影響。
 
 ## 日期

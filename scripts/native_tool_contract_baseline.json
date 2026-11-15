@@ -662,6 +662,14 @@
         "reads": [],
         "dynamic": []
       },
+      "MemoryManager._check_index_after_load": {
+        "parameters": [
+          "vector_store"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "MemoryManager.purge_agent": {
         "parameters": [
           "self",

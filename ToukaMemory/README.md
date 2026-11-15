@@ -151,8 +151,8 @@ pytest tests/unit/memory/
 首次啟動精靈（Setup Wizard）新增嵌入模型管理，由 `ToukaProxy/src/services/embedding_service.py` 提供。**三個動作嚴格分離**（延伸 ADR-0070）：
 
 1. **下載 (DOWNLOAD)**：把模型檔抓進 HF 快取（背景任務＋輪詢狀態；`hf_hub_download` 逐檔位元組進度；已在快取者透過 `snapshot_download(local_files_only=...)` 跳過；ADR-0314 起只抓 sentence-transformers 用得到的檔，排除 ONNX、OpenVINO 等其他格式）。**純累加**——不 `force_download`、不刪除任何既有模型；**完全不動向量與事實**。
-2. **切換 (SWITCH)**：寫入 `EMBEDDING_MODEL` 並重置 `MemoryManager` 單例（**免重啟即時生效**）。`evaluate_switch` 會以 `FactualStore.query_all_facts` 偵測既有記憶，當**已有記憶且新模型不同**時，**要求使用者確認**（`force` 旗標）才放行。
-3. **重嵌 (RE-EMBED)**：僅限離線維運（`reembed_memory.py`），**絕不自動觸發**，且**絕不動到 `core_memory.db`**——事實是無損的單一事實來源（SSOT），向量只是可重建的衍生索引。
+2. **切換 (SWITCH)**：寫入 `EMBEDDING_MODEL` 並重置 `MemoryManager` 單例（**免重啟即時生效**）。`evaluate_switch` **預設要求使用者確認**（`force` 旗標），只有即時評估證明安全（沒有記憶、沒有語意索引、或記憶的索引全部是用新模型建的）才直接切換；設定頁與首裝精靈的寫設定介面用同一條規則（ADR-0315）。新建與重建的語意索引會記下用的模型，側欄在對不上時提示。
+3. **重嵌 (RE-EMBED)**：僅限離線維運（`reembed_memory.py`；沒給 `--model` 時用設定的模型並印出來源，給了不同的會警告；Docker 裡用 `docker compose exec` 跑讀的是容器建立時的環境，要用目前設定檔的值請用 `docker compose run --rm`；ADR-0315），**絕不自動觸發**，且**絕不動到 `core_memory.db`**——事實是無損的單一事實來源（SSOT），向量只是可重建的衍生索引。
 
 > **新安裝的預設（ADR-0314）**：範例設定寫 `EMBEDDING_MODEL=intfloat/multilingual-e5-base`（中英都好），設定精靈的選單也有它；程式內建預設仍是英文模型 `all-MiniLM-L6-v2`，設定檔還在的舊安裝升級不換模型。
 >
