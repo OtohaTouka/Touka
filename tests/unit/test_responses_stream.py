@@ -443,4 +443,4 @@ async def test_cancelled_stream_books_an_estimate(monkeypatch, booked):
         with pytest.raises(asyncio.CancelledError):
             await task
     assert not guard.expired()  # 同上：是取消結束的，不是守衛
-    assert booked ==[{"prompt_tokens": 55, **_ZERO, "completion_tokens": 2}]
+    assert booked == [{"prompt_tokens": 55, **_ZERO, "completion_tokens": 2}]
