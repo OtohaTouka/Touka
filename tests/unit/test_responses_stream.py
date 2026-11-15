@@ -51,6 +51,7 @@ _SSE = {"content-type": "text/event-stream"}
 _ZERO = {"cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
 _MODES = ("one", "semantic", "bytes")
 _PING = b": ping\n\n"
+_CLOSE_TURNS = 3
 
 
 
@@ -97,8 +98,9 @@ def _pieces(events: list[bytes], mode: str) -> list[bytes]:
 class _Upstream(httpx2.AsyncByteStream):
     """腳本化的上游位元組：bytes＝送出、float＝等幾秒、Event＝停住等它；跑完＝連線結束。"""
 
-    def __init__(self, script: list) -> None:
+    def __init__(self, script: list, waiting: asyncio.Event) -> None:
         self._script = script
+        self._waiting = waiting
         self.closed = asyncio.Event()
 
     async def __aiter__(self) -> Any:
@@ -106,11 +108,16 @@ class _Upstream(httpx2.AsyncByteStream):
             if isinstance(step, bytes):
                 yield step
             elif isinstance(step, asyncio.Event):
+                # SDK 一段讀完、處理完才要下一段（不預讀）：走到這裡＝前面的事件都已彙整
+                self._waiting.set()
                 await step.wait()
             else:
                 await asyncio.sleep(step)
 
     async def aclose(self) -> None:
+        # 真的連線關閉要等幾輪事件迴圈：取消時 pump 沒等這一輪收尾，取消就會比「已關」先傳回測試
+        for _ in range(_CLOSE_TURNS):
+            await asyncio.sleep(0)
         self.closed.set()
 
 
@@ -121,13 +128,14 @@ class _Wire:
         self.replies = list(replies)
         self.requests: list[httpx2.Request] = []
         self.upstreams: list[_Upstream] = []
+        self.waiting = asyncio.Event()  # 有上游停在 Event 上了
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         reply = self.replies.pop(0)
         if isinstance(reply, httpx2.Response):
             return reply
-        upstream = _Upstream(reply)
+        upstream = _Upstream(reply, self.waiting)
         self.upstreams.append(upstream)
         return httpx2.Response(200, headers=_SSE, stream=upstream, request=request)
 
@@ -321,7 +329,11 @@ async def test_no_first_byte_times_out(monkeypatch, short):
     assert raw == _timeout("等不到第一個回應")
 
 
-async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
+async def test_cancel_waits_until_upstream_is_closed(monkeypatch):
+    """上游停在半路時取消：取消傳回來時上游已關。
+
+    等上游停住才取消，不睡固定秒數；逾時用預設值（遠大於 ``_GUARD_S``），只有取消能結束這一輪。
+    """
     wire = _Wire([_text_events()[0], asyncio.Event()]).install(monkeypatch)
     adapter = ResponsesAdapter(stream=True)
     state = await adapter.prepare_request(_request(), dict(_CTX))
@@ -332,9 +344,7 @@ async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
 
     async with asyncio.timeout(_GUARD_S):
         task = asyncio.create_task(consume())
-        while not wire.upstreams:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await wire.waiting.wait()  # 第一個事件已讀完，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -415,14 +425,16 @@ async def test_stream_that_never_opened_books_nothing(monkeypatch, booked):
     assert (booked, events) == ([], [])
 
 
-async def test_cancelled_stream_books_an_estimate(monkeypatch, booked, short):
+async def test_cancelled_stream_books_an_estimate(monkeypatch, booked):
+    """收到「abcdefg」後被取消：照估算記一次。
+
+    等上游停住才取消、逾時用預設值，理由見 ``test_cancel_waits_until_upstream_is_closed``。
+    """
     wire = _Wire([_delta("abcdefg"), asyncio.Event()]).install(monkeypatch)
     loop = react_core.run_react_loop(ResponsesAdapter(stream=True), _request(), _loop_ctx("r-c"))
     async with asyncio.timeout(_GUARD_S):
         task = asyncio.create_task(anext(loop))
-        while not wire.upstreams:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await wire.waiting.wait()  # 「abcdefg」已彙整，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
