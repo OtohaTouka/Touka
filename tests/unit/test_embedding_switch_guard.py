@@ -222,6 +222,26 @@ def test_change_is_reported_only_when_the_model_differs() -> None:
     ) == (PARAPHRASE, E5)
 
 
+def test_swapping_the_values_of_two_spellings_is_a_change() -> None:
+    """設定檔原本就分歧時互換兩個寫法的值：模型組合一樣，實際載入的卻換了（DEV-B 複核）."""
+    before = f"EMBEDDING_MODEL={E5}\nembedding_model={PARAPHRASE}\n"
+    swapped = f"EMBEDDING_MODEL={PARAPHRASE}\nembedding_model={E5}\n"
+
+    assert es.env_model_change(before, swapped) == (PARAPHRASE, E5)
+
+
+def test_a_swap_in_an_already_split_file_is_refused(env_file: Path, effective, evaluated) -> None:
+    env_file.write_text(f"EMBEDDING_MODEL={E5}\nembedding_model={PARAPHRASE}\n", encoding="utf-8")
+    effective(E5)
+    evaluated["result"] = TargetEvaluation(TargetOutcome.NO_MEMORIES)
+    before = env_file.read_bytes()
+
+    with pytest.raises(ToukaException):
+        _save({"EMBEDDING_MODEL": PARAPHRASE, "embedding_model": E5})
+
+    assert env_file.read_bytes() == before
+
+
 def test_settings_file_uses_a_model_only_when_every_spelling_agrees(tmp_path: Path) -> None:
     agreeing, split = tmp_path / "agreeing.env", tmp_path / "split.env"
     agreeing.write_text(f"EMBEDDING_MODEL={E5}\nembedding_model={E5.upper()}\n", encoding="utf-8")

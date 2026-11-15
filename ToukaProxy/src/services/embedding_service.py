@@ -36,7 +36,7 @@ from memory_server.utils.embedding_index import (
 from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -287,21 +287,32 @@ def model_change_requires_confirmation(targets: tuple[str, ...]) -> bool:
     return bool(evaluate_switch(targets[0])["requires_confirmation"])
 
 
-def _models_in_env_values(values: Mapping[str, str | None]) -> tuple[str, ...]:
-    """從 dotenv 解析結果取出所有寫法的鍵各自的嵌入模型，同一個模型只留一個（依出現順序）.
+def _models_by_key(values: Mapping[str, str | None]) -> dict[str, str]:
+    """從 dotenv 解析結果取出每個鍵名寫法各自的嵌入模型（實際的鍵名 → 模型）.
 
     鍵名忽略大小寫：Linux 只認 ``EMBEDDING_MODEL``、Windows 認第一個寫法，所以每個寫法的值都要算
-    （DEV-B M1）。同一個鍵重複時以最後一行為準（和載入一樣）；值是空的當內建預設；沒有這行就是
-    內建預設。``export`` 與前後空白由 dotenv 處理。
+    （DEV-B M1）。同一個鍵重複時以最後一行為準（和載入一樣）；值是空的當內建預設；沒有這行就當
+    ``EMBEDDING_MODEL`` 是內建預設。``export`` 與前後空白由 dotenv 處理。
     """
-    models: list[str] = []
-    for key, value in values.items():
-        if key.strip().casefold() != _EMBEDDING_KEY.casefold():
-            continue
-        model = (value or "").strip() or DEFAULT_EMBEDDING_MODEL
-        if not any(same_model(model, seen) for seen in models):
-            models.append(model)
-    return tuple(models) or (DEFAULT_EMBEDDING_MODEL,)
+    models = {
+        key.strip(): (value or "").strip() or DEFAULT_EMBEDDING_MODEL
+        for key, value in values.items()
+        if key.strip().casefold() == _EMBEDDING_KEY.casefold()
+    }
+    return models or {_EMBEDDING_KEY: DEFAULT_EMBEDDING_MODEL}
+
+
+def _distinct(models: Iterable[str]) -> tuple[str, ...]:
+    """同一個模型的不同寫法只留一個，依出現順序。"""
+    kept: list[str] = []
+    for model in models:
+        if not any(same_model(model, seen) for seen in kept):
+            kept.append(model)
+    return tuple(kept)
+
+
+def _models_in_env_values(values: Mapping[str, str | None]) -> tuple[str, ...]:
+    return _distinct(_models_by_key(values).values())
 
 
 def embedding_models_in_env_text(text: str) -> tuple[str, ...]:
@@ -317,10 +328,17 @@ def same_models(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
 
 
 def env_model_change(before_text: str, after_text: str) -> tuple[str, ...] | None:
-    """寫入前後設定檔裡的模型不同時回寫入後的模型；任何一個寫法的值變了都算，沒變回 None。"""
-    before = embedding_models_in_env_text(before_text)
-    after = embedding_models_in_env_text(after_text)
-    return None if same_models(before, after) else after
+    """寫入前後設定檔裡的模型不同時回寫入後的模型；沒變回 None.
+
+    逐個鍵名寫法比：任何一個寫法的值變了、多了或少了都算（兩個寫法互換值也算，模型組合一樣、
+    實際載入的卻換了）。
+    """
+    before = _models_by_key(dotenv_values(stream=io.StringIO(before_text)))
+    after = _models_by_key(dotenv_values(stream=io.StringIO(after_text)))
+    unchanged = before.keys() == after.keys() and all(
+        same_model(model, after[key]) for key, model in before.items()
+    )
+    return None if unchanged else _distinct(after.values())
 
 
 def env_file_uses_model(path: Path, model: str) -> bool:
