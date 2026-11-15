@@ -113,7 +113,8 @@ class _Upstream(httpx2.AsyncByteStream):
     def __init__(self, script: list, waiting: asyncio.Event) -> None:
         self._script = script
         self._waiting = waiting
-        self._opened = asyncio.get_running_loop().time()  # 請求到上游的時間
+        loop = asyncio.get_running_loop()
+        self._opened = loop.time()  # 請求到上游的時間
         self.closed = asyncio.Event()
 
     async def __aiter__(self) -> Any:
