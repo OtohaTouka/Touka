@@ -337,7 +337,8 @@ async def test_pings_keep_a_slow_stream_alive(monkeypatch):
     可能是行程裡第一個處理它們的。
     """
     events = _text_events()
-    await _round(monkeypatch, events)
+    warm, _, _ = await _round(monkeypatch, events)
+    assert warm == _final(output=[_MSG], usage=_USAGE)
     _shorten(monkeypatch)
     raw, _, _ = await _round(monkeypatch,
                              [events[0], _PingsUntil(_FIRST + _IDLE / 2), *events[1:]])
