@@ -424,7 +424,7 @@
 | 型別檢查只減不增（ADR-0278 §7） | pyrefly，範圍與設定在 `pyproject.toml` 的 `[tool.pyrefly]`（平台固定 linux）；`scripts/lint_ratchet.py pyrefly` 收集與重拍；基準 `tests/lint/pyrefly_baseline.json`；`tests/lint/test_pyrefly_ratchet.py` 要求每種錯誤數量完全相等 | 在 `contracts` job 的 pytest 裡執行；改善或升級 pyrefly 後同一個 PR 重拍基準 |
 | 未用定義不得增加（ADR-0298） | vulture，參數在 `scripts/lint_ratchet.py`；基準 `tests/lint/vulture_baseline.json`；`tests/lint/test_vulture_ratchet.py` | 在 `contracts` job 的 pytest 裡執行；只有多出來才紅，少了不紅（和 ruff、pyrefly 的完全相等不同）；基準變長要在 PR 說明逐項列出 |
 | 合約同名手寫型別（ADR-0298） | `ToukaChat/scripts/guard_frontend.ts`（Guard #2）與 `ToukaChat/scripts/lib/contract_type_guard_logic.ts`；基準 `ToukaChat/scripts/contract_type_baseline.json` | 在 `frontend` job 的 `guard:api` 執行；要完全相等，重拍用 `npm run guard:api -- --update` |
-| ToukaIDE CI（ADR-0254） | 同一個 workflow 的 `toukaide` job（Node 24.22.1、npm 11.19.1）：`install:controlled`、`test`、`typecheck`、`compile` 依序 | 每次 PR／push；`package` 只在本機；`tests/lint/test_ci_pr_checks.py` 釘住 |
+| ToukaIDE CI（ADR-0254） | 同一個 workflow 的 `toukaide` job（Node 24.22.3、npm 11.19.1）：`install:controlled`、`test`、`typecheck`、`compile` 依序 | 每次 PR／push；`package` 只在本機；`tests/lint/test_ci_pr_checks.py` 釘住 |
 
 詳 [ADR-0230](adr/0230-heartbeat-transaction-and-credential-contracts.md)。
 

@@ -1,12 +1,12 @@
 # ADR-0082：單一映像＝ToukaProxy ＋ ToukaMemory ＋ ToukaDispatch。
 # build context＝repo 根（compose 設 context: . ＋ dockerfile: ToukaProxy/Dockerfile），
 # 黑名單見根 .dockerignore（禁令 47：COPY . . ＋黑名單——密鑰/活體 config/data 絕不入映像）。
-# Node／npm 直接取自官方 node 映像（v24.22.1，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
+# Node／npm 直接取自官方 node 映像（v24.22.3，digest 釘版）；Debian 套件以 apt-get upgrade 取官方安全更新。
 # uv 0.12.1（與 CI setup-uv 同版）linux/amd64 子 manifest digest；讀得懂 exclude-newer 期間與 uv.lock 的 exclude-newer-span。
 # 授權聲明：Node 的 LICENSE 從同一個 node 映像複製；官方 uv 映像不帶授權檔，原文放在
 # ToukaProxy/licenses/uv（取自 uv 0.12.1，升版時一併核對）。兩者都放進 /usr/local/share/doc，NOTICE 寫明位置
 #（tests/lint/test_release_licensing.py）。
-FROM node@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node-runtime
+FROM node@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node-runtime
 FROM ghcr.io/astral-sh/uv@sha256:f6edac8c6d516a01a5387a8655c97481e0db46dd0a62ab62f41e5b2294376f6e AS uv-runtime
 
 FROM python:3.12-slim-trixie@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
@@ -20,7 +20,7 @@ COPY --from=node-runtime /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
-    test "$(node --version)" = 'v24.22.1' && npm --version && uv --version
+    test "$(node --version)" = 'v24.22.3' && npm --version && uv --version
 
 RUN groupadd -g 1001 appuser && useradd -r -u 1001 -g 1001 -m appuser
 
