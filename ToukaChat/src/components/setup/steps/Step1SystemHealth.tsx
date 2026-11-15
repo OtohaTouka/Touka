@@ -34,8 +34,11 @@ export function Step1SystemHealth({ status, onNext }: Props) {
   const [skippable, setSkippable] = useState(false);
   const cancelledRef = useRef(false);
 
-  // 元件卸載後停止輪詢，避免對已卸載元件 setState。
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  // 元件卸載後停止輪詢，避免對已卸載元件 setState。掛上時重設：開發模式會掛上、卸下、再掛上一次。
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => { cancelledRef.current = true; };
+  }, []);
 
   const busy = phase === 'downloading' || phase === 'switching';
 

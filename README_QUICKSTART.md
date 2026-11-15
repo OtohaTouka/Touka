@@ -86,7 +86,7 @@ HEARTBEAT_CONFIG_DIR=./heartbeat-config
 TOUKA_MCP_OAUTH_WORKLOAD_FILESYSTEM_KIND=local
 ```
 
-範本寫的嵌入模型是中英都好的 `intfloat/multilingual-e5-base`（ADR-0314）：第一次打開設定精靈、在第 1 步按下一步時會先下載，約 1.1GB，存在 `hf-cache`；離線時可以先略過，第一次用記憶時再下載。主機記憶體只有 2GB 時，複製後把 `EMBEDDING_MODEL` 改成 `all-MiniLM-L6-v2`。升級時沿用原本的 `.env`，模型不會變；已經有記憶的安裝不要直接改這一行，換模型後舊記憶要離線重新嵌入才搜得到（見 `ToukaMemory/README.md`）。
+範本寫的嵌入模型是中英都好的 `intfloat/multilingual-e5-base`（ADR-0314）：第一次打開設定精靈、在第 1 步按下一步時會先下載，約 1.1GB，存在 `hf-cache`；離線時可以先略過，第一次用記憶時再下載。主機記憶體只有 2GB 時，複製後把 `EMBEDDING_MODEL` 改成 `all-MiniLM-L6-v2`。升級時沿用原本的 `.env`，模型不會變；已經有記憶的安裝不要直接改這一行，換模型後舊記憶要離線重新嵌入才搜得到（見 `ToukaMemory/README.md`）。不用本指南的 compose、自己 `docker run` 或寫部署檔時，要把 `.env` 存在容器外並設 `TOUKA_ENV_FILE`，或用環境變數明寫 `EMBEDDING_MODEL`：否則每次建新容器都會照範本重建設定，升級後模型會換掉。
 
 `WORKSPACE_ROOT` 未設定時使用 Compose 預設工作區。不要把 token 或 API key 貼在命令列、Issue 或終端輸出；範本的空 secret 留給產品 bootstrap 產生並持久化。
 

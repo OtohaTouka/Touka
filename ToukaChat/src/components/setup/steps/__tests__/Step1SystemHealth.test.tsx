@@ -3,6 +3,7 @@
  * 未變更＝目前模型還沒下載就先下載（失敗可先略過），不切換；變更＝下載（輪詢進度）→切換；
  * 既有記憶時需確認（confirmation_required）。新安裝預選 e5（ADR-0314）。
  */
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Step1SystemHealth } from '../Step1SystemHealth';
@@ -37,6 +38,12 @@ function calledPaths(): string[] {
   return (fetchTouka as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[1] as string);
 }
 
+function downloadBodies(): unknown[] {
+  return (fetchTouka as ReturnType<typeof vi.fn>).mock.calls
+    .filter((c) => c[1] === '/v1/admin/setup/embedding/download')
+    .map((c) => JSON.parse((c[2] as RequestInit).body as string));
+}
+
 /** MODEL_OPTIONS 順序：[0]=all-MiniLM、[1]=paraphrase-multilingual、[2]=e5（中文推薦）。 */
 function selectMultilingual() {
   fireEvent.click(document.querySelectorAll('input[type="radio"]')[1]);
@@ -55,7 +62,22 @@ describe('Step1SystemHealth 嵌入模型下載＋切換防呆', () => {
     render(<Step1SystemHealth status={status} onNext={onNext} />);
     fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
     await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    expect(downloadBodies()).toEqual([{ model: 'all-MiniLM-L6-v2' }]);
     expect(calledPaths().some((p) => p.includes('/embedding/switch'))).toBe(false);
+  });
+
+  it('開發模式掛上兩次（StrictMode）→ 仍會等下載完成再前進', async () => {
+    const states = [{ status: 'downloading', pct: 10 }, { status: 'done', pct: 100 }];
+    (fetchTouka as ReturnType<typeof vi.fn>).mockImplementation((_u: string, path: string) => {
+      if (path.includes('/embedding/download-status')) return jsonRes(states.shift() ?? { status: 'done', pct: 100 });
+      if (path.includes('/embedding/download')) return jsonRes({ status: 'downloading', pct: 0 });
+      return jsonRes({});
+    });
+    const onNext = vi.fn();
+    render(<StrictMode><Step1SystemHealth status={e5Status} onNext={onNext} /></StrictMode>);
+    fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce(), { timeout: 3000 });
+    expect(screen.queryByRole('button', { name: /先略過/ })).toBeNull();
   });
 
   it('目前的模型還沒下載 → 先下載並顯示進度，完成後前進、不切換', async () => {
@@ -115,6 +137,26 @@ describe('Step1SystemHealth 嵌入模型下載＋切換防呆', () => {
     fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
     fireEvent.click(await screen.findByRole('button', { name: /先略過/ }));
     expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it('下載失敗後改選別的模型 → 「先略過」消失', async () => {
+    (fetchTouka as ReturnType<typeof vi.fn>).mockImplementation(() => jsonRes({}, false));
+    render(<Step1SystemHealth status={e5Status} onNext={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+    await screen.findByRole('button', { name: /先略過/ });
+    selectMultilingual();
+    expect(screen.queryByRole('button', { name: /先略過/ })).toBeNull();
+  });
+
+  it('換模型時下載請求本身失敗 → 顯示錯誤、不給略過', async () => {
+    (fetchTouka as ReturnType<typeof vi.fn>).mockImplementation(() => jsonRes({}, false));
+    const onNext = vi.fn();
+    render(<Step1SystemHealth status={status} onNext={onNext} />);
+    selectMultilingual();
+    fireEvent.click(screen.getByRole('button'));
+    expect(await screen.findByText('嵌入模型儲存失敗')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /先略過/ })).toBeNull();
+    expect(onNext).not.toHaveBeenCalled();
   });
 
   it('沒讀到設定狀態 → 不知道目前的模型，不下載，直接 onNext', () => {
