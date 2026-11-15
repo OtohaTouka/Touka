@@ -40,7 +40,7 @@ ToukaChat 具備強大的適配能力，可以連接多種後端服務：
 - **首次設定精靈：失敗即現與雙目錄／嵌入模型管理 (Setup Wizard) — ADR-0118** ⭐（2026-07-02）：
   - **失敗即現 (Fail-loud)**：`SetupWizard.tsx` 不再吞掉錯誤；`Step1SystemHealth.tsx` 與 `Step3ApiKeys.tsx` 各自負責套用請求、檢查 `res.ok`、顯示錯誤，且**僅在成功時前進**（與 Step2／Step5 對齊）。注意 `fetchTouka` 對 4xx/5xx **不會拋出**，呼叫端必須自行檢查 `res.ok`（擴充 ADR-0053）。
   - **Step5 雙主機目錄配置**：同時設定 `SANCTUARY_DATA_PATH`（資料目錄 → 容器 `/app/data`）與 `WORKSPACE_ROOT`（工作區根目錄 → `/app/workspace`），兩者皆以**主機路徑**寫入 `.env` 供 docker-compose bind-mount；設定主機路徑後需 `docker compose up` 重新掛載方能生效（Docker 固有行為）。新增 `SetupStatus.workspace_root_is_default` 欄位。
-  - **Step1 嵌入模型下載與切換**：可下載嵌入模型至 HF 快取（背景任務＋輪詢狀態、逐檔位元組進度、快取命中略過；純累加、絕不刪除既有模型）；切換模型時若偵測到既有記憶且模型不同，會**要求使用者確認**（`force` 旗標）方可寫入 `EMBEDDING_MODEL`（免重啟即時生效，向量重嵌入為離線維護、不自動觸發）。
+  - **Step1 嵌入模型下載與切換**：可下載嵌入模型至 HF 快取（背景任務＋輪詢狀態、逐檔位元組進度、快取命中略過；純累加、絕不刪除既有模型）；切換模型時若偵測到既有記憶且模型不同，會**要求使用者確認**（`force` 旗標）方可寫入 `EMBEDDING_MODEL`（免重啟即時生效，向量重嵌入為離線維護、不自動觸發）。ADR-0314 起選單多了中文推薦的 `intfloat/multilingual-e5-base`（新安裝的範例設定寫它，所以預選它）；選的就是目前的模型時也先確認已下載，下載失敗可以按「先略過」。
 
 ---
 

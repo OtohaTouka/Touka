@@ -6,7 +6,9 @@ import { SetupWizard } from '../SetupWizard';
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: vi.fn(() => ({ user: { role: 'admin' } })) }));
 vi.mock('@/lib/connections', () => ({
   getActiveProxyUrl: vi.fn(() => 'http://localhost:8000'),
-  fetchTouka: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok' }) })),
+  // 第 1 步按下一步會先確認嵌入模型已下載（ADR-0314）：下載端點回已下載好，其他回 ok
+  fetchTouka: vi.fn((_url: string, path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(
+    path.includes('/embedding/download') ? { status: 'done', pct: 100, cached: true } : { status: 'ok' }) })),
 }));
 vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn() }));
 vi.mock('@/hooks/useSetupStatus', () => ({ useSetupStatus: vi.fn(() => ({ status: null, isLoading: false, refetch: vi.fn() })) }));
@@ -30,11 +32,11 @@ describe('SetupWizard', () => {
     expect(screen.getByText(/步驟 1/)).toBeInTheDocument();
   });
 
-  it('advances to next step when Next is clicked on step 1', () => {
+  it('advances to next step when Next is clicked on step 1', async () => {
     render(<SetupWizard status={mockStatus} onClose={vi.fn()} />);
     const nextBtn = screen.getByRole('button', { name: /下一步/ });
     fireEvent.click(nextBtn);
-    expect(screen.getByText(/步驟 2/)).toBeInTheDocument();
+    expect(await screen.findByText(/步驟 2/)).toBeInTheDocument();
   });
 
   it('calls onClose when × button is clicked', () => {
@@ -45,10 +47,10 @@ describe('SetupWizard', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('goes back to the previous step when Back is clicked', () => {
+  it('goes back to the previous step when Back is clicked', async () => {
     render(<SetupWizard status={mockStatus} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
-    expect(screen.getByText(/步驟 2/)).toBeInTheDocument();
+    expect(await screen.findByText(/步驟 2/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
     expect(screen.getByText(/步驟 1/)).toBeInTheDocument();
   });
@@ -79,11 +81,11 @@ describe('SetupWizard', () => {
     expect(onStatusRefresh).toHaveBeenCalledOnce();
   });
 
-  it('其他步驟之間前進不重讀設定狀態', () => {
+  it('其他步驟之間前進不重讀設定狀態', async () => {
     const onStatusRefresh = vi.fn();
     render(<SetupWizard status={mockStatus} onClose={vi.fn()} onStatusRefresh={onStatusRefresh} />);
     fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
-    expect(screen.getByText(/步驟 2/)).toBeInTheDocument();
+    expect(await screen.findByText(/步驟 2/)).toBeInTheDocument();
     expect(onStatusRefresh).not.toHaveBeenCalled();
   });
 

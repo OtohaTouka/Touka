@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-11-15 | **新安裝預設用中英都好的嵌入模型**：範例設定寫 `intfloat/multilingual-e5-base`，設定精靈的選單也有它（標成中文推薦），新安裝預選它；精靈第 1 步按下一步時先把目前的模型下載好（已下載的不重抓），離線或下載失敗可以先略過。下載只抓 sentence-transformers 用得到的檔，e5 從約 5.3GB 降到約 1.1GB。程式內建預設仍是英文模型 `all-MiniLM-L6-v2`，設定檔還在的舊安裝升級不換模型。**注意**：設定檔不見、照新範例重建時，原本用英文模型、已經有記憶的安裝要把 `EMBEDDING_MODEL` 改回原本的模型。 | [ADR-0314](architecture/adr/0314-new-installs-default-to-multilingual-embedding.md) |
 | 2026-11-15 | **Node.js 24.22.1 → 24.22.3 安全更新**：11/11 官方安全發布，high 7 筆，大多是 HTTP/2 與 TLS 伺服器端的問題。三個 Dockerfile 改釘官方 `node:24.22.3-trixie-slim` 的 digest，CI、`package.json` 與說明文件跟著改，npm 仍是 11.19.1。Node 與映像上架都滿 3 天，照一般冷卻期。重建映像後生效 | [SECURITY](../SECURITY.md) |
 | 2026-11-15 | **「僅重試保存」不再蓋掉心跳寫的內容**：存檔失敗後，存檔裡有別處（心跳、別的裝置、工具）寫進的新內容時，不再出現「僅重試保存」，改成「改用存檔內容」：確認後換上存檔的版本，送不出去的那則訊息還在輸入框，可以直接再送。存檔沒人動過（例如只是回應遺失）照舊可以重試。匯入時在確認視窗同意覆蓋，就直接覆蓋同編號的對話，不用再靠重試。只改聊天畫面 | [ADR-0313](architecture/adr/0313-retry-save-only-when-stored-unchanged.md) |
 | 2026-11-15 | **依賴弱點修補：dnspython 2.9.0 → 2.9.2、opentelemetry-api 1.45.1 → 1.45.2**：11/13 公告的兩筆（dnspython 讀 zone 檔時吃光記憶體，Touka 用不到；opentelemetry-api 解析特製的追蹤欄位很慢，只有 ToukaDispatch 會解析外部送來的，只連得到本機和 compose 內部網路）。修補版 dnspython 11/04、opentelemetry-api 10/30 上架（台北時間），照一般 3 天冷卻期。產品功能不變，使用者不用做什麼，下次發版帶上；Guard #22 轉綠 | [SECURITY](../SECURITY.md) |

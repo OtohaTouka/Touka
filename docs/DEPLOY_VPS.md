@@ -11,7 +11,7 @@
 | 項目 | 建議規格 |
 |------|---------|
 | VPS 系統 | Ubuntu 22.04 LTS（或同等）|
-| CPU / RAM | 2 核心 / 4GB（最低 1 核 / 2GB）|
+| CPU / RAM | 2 核心 / 4GB（最低 1 核 / 2GB；2GB 時把 `.env` 的 `EMBEDDING_MODEL` 改成 `all-MiniLM-L6-v2`，預設的 e5 約多用 1GB 記憶體，推測值，ADR-0314）|
 | 磁碟 | 20GB+ |
 | 對外埠 | 80 (HTTP)、443 (HTTPS) |
 | 已安裝 | Docker、Docker Compose v2、nginx、Certbot |

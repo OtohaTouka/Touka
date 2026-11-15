@@ -331,10 +331,11 @@ index／cache／lock 都算**寫入**。
 ### E. Embedding 模型生命週期（Memory 端契約）⭐（2026-07-02，ADR-0118，延伸 ADR-0070）
 首次啟動精靈（SETUP WIZARD）新增 embedding 模型管理，Memory 端須嚴格區分**三種動作**，彼此互不觸發（實作於 `ToukaProxy/src/services/embedding_service.py`）：
 
-1.  **下載 (DOWNLOAD)** — 僅將模型檔案抓入 HF 快取（背景任務 + 輪詢狀態；逐檔 `hf_hub_download` byte 進度；已有快取則 `snapshot_download(local_files_only=...)` 跳過）。**加法式（additive）**：永不 `force_download`、永不刪除任何既有模型，**完全不動向量與事實**，是安全操作。
+1.  **下載 (DOWNLOAD)** — 僅將模型檔案抓入 HF 快取（背景任務 + 輪詢狀態；逐檔 `hf_hub_download` byte 進度；已有快取則 `snapshot_download(local_files_only=...)` 跳過）。只抓 sentence-transformers 用得到的檔（`select_download_files`，ADR-0314）：排除 `onnx/`、`openvino/` 與 `.h5`、`.ot`、`.msgpack`，最上層有 safetensors 時不抓 `pytorch_model*.bin`；斷詞檔與模組資料夾（如 `2_Dense/`）裡的權重保留。進度按位元組回報（e5 幾乎只剩一個 1.1GB 的檔）；上次下載失敗的，重試時不看快取。精靈選的就是目前的模型時也會先呼叫下載（已下載的直接回完成），失敗可以先略過，第一次用記憶時再下載。**加法式（additive）**：永不 `force_download`、永不刪除任何既有模型，**完全不動向量與事實**，是安全操作。
 2.  **切換 (SWITCH)** — 寫入 `EMBEDDING_MODEL` 並呼叫 **`MemoryManager.reset_singletons()`**，達成**免重啟**即時生效。`evaluate_switch` 以 `FactualStore.query_all_facts()` 偵測既有記憶；當**已有記憶且目標模型不同**時**要求使用者確認**（`force` 旗標）——避免新舊向量空間不一致而靜默降低檢索品質。
 3.  **重新嵌入 (RE-EMBED)** — 僅離線維運腳本 `reembed_memory.py`，**絕不自動觸發**。其只重建向量索引，**只讀事實、不升級記憶庫結構（版本落後就拒絕執行）**：事實（facts）是**無損 SSOT**，向量僅為**衍生索引（derived index）**，可隨時由事實重建。
 
+*   **新安裝的預設（ADR-0314）**：範例設定寫 `EMBEDDING_MODEL=intfloat/multilingual-e5-base`；程式內建預設仍是 `all-MiniLM-L6-v2`，設定檔還在的舊安裝不受影響。設定檔不見、照新範例重建時，原本用英文模型、已經有記憶的安裝要把這一行改回原本的模型。
 *   **對應端點**（admin）：`POST /v1/admin/setup/embedding/download`、`GET /v1/admin/setup/embedding/download-status`、`POST /v1/admin/setup/embedding/switch {model, force}`。
 *   **HF 快取持久化**：`docker-compose.yml` 以具名 volume `hf-cache` 掛載於 touka-proxy 的 `/app/hf_cache`，並設 `HF_HOME=/app/hf_cache`（同一變數同時涵蓋**精靈下載**與 `vector.py` 執行期 `SentenceTransformer` 載入，兩者共用 HF hub 快取）。`touka-init` 掛載同 volume 並將 `/app/hf_cache` chown 至 `1001:1001`（新 volume 預設 root 擁有，appuser 需 chown 後才可寫，ADR-0038）。已下載模型可跨 `docker compose up --build` 保留；`docker compose down -v` 才會清除。
 

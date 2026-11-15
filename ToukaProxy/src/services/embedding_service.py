@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 import threading
 
 from dotenv import set_key
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _MEMORY_MANAGER_MODULE = "memory_server.services.manager"
+
+# 下載時不抓的格式（ADR-0314）：sentence-transformers 只用 PyTorch 權重，其他執行環境的格式用不到。
+UNUSED_FORMAT_FOLDERS: frozenset[str] = frozenset({"onnx", "openvino"})
+UNUSED_FORMAT_SUFFIXES: tuple[str, ...] = (".h5", ".ot", ".msgpack")
+# 最上層權重檔（含分片）；有 safetensors 時 transformers 優先載入它，.bin 就不用抓。
+_SAFETENSORS_WEIGHTS = re.compile(r"model(-\d+-of-\d+)?\.safetensors")
+_PYTORCH_WEIGHTS = re.compile(r"pytorch_model(-\d+-of-\d+)?\.bin(\.index\.json)?")
 
 # 下載狀態（per-model）：{model: {status, downloaded, total, pct, cached?, error?}}。
 _download_state: dict[str, dict] = {}
@@ -59,6 +67,27 @@ def list_model_files(repo_id: str) -> list[tuple[str, int]]:
     return [(s.rfilename, int(getattr(s, "size", 0) or 0)) for s in (info.siblings or [])]
 
 
+def select_download_files(files: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """只留 sentence-transformers 載入時用得到的檔（ADR-0314）。
+
+    排除其他執行環境的格式（ONNX、OpenVINO、TensorFlow、Rust、Flax）；最上層有 safetensors 權重時，
+    PyTorch 的 .bin 權重也用不到。斷詞檔（vocab.txt、sentencepiece、tokenizer.json）與模組資料夾
+    （如 2_Dense/）內的權重一律保留。e5 一庫約 5.3GB，排除後約 1.1GB。
+    """
+    names = [name for name, _ in files]
+    has_safetensors = any(_SAFETENSORS_WEIGHTS.fullmatch(name) for name in names)
+
+    def wanted(name: str) -> bool:
+        folder, slash, _rest = name.partition("/")
+        if slash and folder in UNUSED_FORMAT_FOLDERS:
+            return False
+        if name.endswith(UNUSED_FORMAT_SUFFIXES):
+            return False
+        return not (has_safetensors and _PYTORCH_WEIGHTS.fullmatch(name))
+
+    return [(name, size) for name, size in files if wanted(name)]
+
+
 def get_download_state(model_name: str) -> dict:
     """回傳某模型目前的下載狀態（未知則回 idle）。"""
     with _lock:
@@ -70,16 +99,80 @@ def _set_state(model_name: str, **fields: object) -> None:
         _download_state[model_name] = {**_download_state.get(model_name, {}), **fields}
 
 
+class _DownloadProgress:
+    """把下載進度按位元組寫進狀態（ADR-0314）。
+
+    排除用不到的格式後，e5 幾乎只剩一個約 1.1GB 的權重檔，只按檔數算會一直停在 0%。
+    實例直接當 `hf_hub_download` 的 `tqdm_class`：它只用到「呼叫建立、context manager、update」，
+    一般下載與 Xet 下載都一樣。同一次下載裡的重試沿用同一個物件；伺服器不接受續傳時 `update`
+    會收到負數扣回。Xet 的回呼由背景計時呼叫，可能在下載結束後才到，所以結束時先 `stop()`，
+    之後的回報不再寫狀態。
+    """
+
+    def __init__(self, model_name: str, total: int) -> None:
+        self._model = model_name
+        self._total = total
+        self._finished = 0  # 已完成檔案的位元組
+        self._file_size = 0
+        self._in_file = 0  # 目前這個檔這次已下載的位元組
+        self._stopped = False
+
+    def start_file(self, size: int) -> None:
+        self._file_size = size
+        self._in_file = 0
+
+    def finish_file(self) -> None:
+        self._finished += self._file_size
+        self._in_file = 0
+        self.publish(self._finished)
+
+    def publish(self, done: int) -> None:
+        done = max(0, done)
+        with _lock:  # 檢查與寫入同一把鎖：stop() 回傳之後不會再有人寫成下載中
+            if self._stopped:
+                return
+            _download_state[self._model] = {
+                **_download_state.get(self._model, {}), "status": "downloading", "downloaded": done,
+                "total": self._total, "pct": min(100, int(done / self._total * 100))}
+
+    def stop(self) -> None:
+        with _lock:
+            self._stopped = True
+
+    def __call__(self, *, initial: int = 0, **_kwargs: object) -> _DownloadProgress:
+        """每次開始傳一個檔時建立；initial 是已有的位元組（huggingface_hub 1.21 一律是 0）。"""
+        self._in_file = 0
+        if initial:
+            self.update(initial)
+        return self
+
+    def __enter__(self) -> _DownloadProgress:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def update(self, n: int = 1) -> None:
+        self._in_file += n
+        self.publish(self._finished + min(self._in_file, self._file_size))
+
+    def close(self) -> None:
+        return None
+
+
 def begin_download(model_name: str) -> tuple[dict, bool]:
     """啟動下載（冪等）。回 (狀態, 是否需背景執行)。
 
     防呆①：已在快取 → 直接標 done、不重下；已在下載/完成 → 不重複啟動。
+    上次失敗的不看快取：抓到一半時快取資料夾已經建立，`is_cached` 會當成已下載（ADR-0314）；
+    重新下載時已經抓完的檔不會重抓。
     """
     with _lock:
         st = _download_state.get(model_name)
         if st and st["status"] in ("downloading", "done"):
             return dict(st), False
-    if is_cached(model_name):
+        failed_before = bool(st) and st["status"] == "error"
+    if not failed_before and is_cached(model_name):
         state = {"status": "done", "downloaded": 0, "total": 0, "pct": 100, "cached": True}
         _set_state(model_name, **state)
         return state, False
@@ -94,20 +187,24 @@ def perform_download(model_name: str) -> None:
     防呆②：一律不 force_download → hf_hub_download 跳過既有檔、**絕不覆蓋既有模型**。
     """
     repo_id = resolve_repo_id(model_name)
+    progress: _DownloadProgress | None = None
     try:
-        files = list_model_files(repo_id)
+        files = select_download_files(list_model_files(repo_id))
         total = sum(size for _, size in files) or 1
-        _set_state(model_name, status="downloading", downloaded=0, total=total, pct=0)
-        done = 0
+        progress = _DownloadProgress(model_name, total)
+        progress.publish(0)
         for filename, size in files:
-            hf_hub_download(repo_id=repo_id, filename=filename)  # additive；未指定 force_download
-            done += size
-            _set_state(model_name, status="downloading", downloaded=done, total=total,
-                       pct=min(100, int(done / total * 100)))
+            progress.start_file(size)
+            # additive；未指定 force_download。檔內位元組經 tqdm_class 回報
+            hf_hub_download(repo_id=repo_id, filename=filename, tqdm_class=progress)
+            progress.finish_file()
+        progress.stop()
         _set_state(model_name, status="done", downloaded=total, total=total, pct=100)
         logger.info("[Embedding] Downloaded model %s (%d files)", model_name, len(files))
     except Exception as e:  # noqa: BLE001 — 背景任務：任何失敗都須落狀態供前端顯示，不得逸出
         logger.exception("[Embedding] Download failed for %s", model_name)
+        if progress is not None:
+            progress.stop()
         _set_state(model_name, status="error", error=str(e))
 
 

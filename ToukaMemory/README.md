@@ -150,10 +150,12 @@ pytest tests/unit/memory/
 
 首次啟動精靈（Setup Wizard）新增嵌入模型管理，由 `ToukaProxy/src/services/embedding_service.py` 提供。**三個動作嚴格分離**（延伸 ADR-0070）：
 
-1. **下載 (DOWNLOAD)**：把模型檔抓進 HF 快取（背景任務＋輪詢狀態；`hf_hub_download` 逐檔位元組進度；已在快取者透過 `snapshot_download(local_files_only=...)` 跳過）。**純累加**——不 `force_download`、不刪除任何既有模型；**完全不動向量與事實**。
+1. **下載 (DOWNLOAD)**：把模型檔抓進 HF 快取（背景任務＋輪詢狀態；`hf_hub_download` 逐檔位元組進度；已在快取者透過 `snapshot_download(local_files_only=...)` 跳過；ADR-0314 起只抓 sentence-transformers 用得到的檔，排除 ONNX、OpenVINO 等其他格式）。**純累加**——不 `force_download`、不刪除任何既有模型；**完全不動向量與事實**。
 2. **切換 (SWITCH)**：寫入 `EMBEDDING_MODEL` 並重置 `MemoryManager` 單例（**免重啟即時生效**）。`evaluate_switch` 會以 `FactualStore.query_all_facts` 偵測既有記憶，當**已有記憶且新模型不同**時，**要求使用者確認**（`force` 旗標）才放行。
 3. **重嵌 (RE-EMBED)**：僅限離線維運（`reembed_memory.py`），**絕不自動觸發**，且**絕不動到 `core_memory.db`**——事實是無損的單一事實來源（SSOT），向量只是可重建的衍生索引。
 
+> **新安裝的預設（ADR-0314）**：範例設定寫 `EMBEDDING_MODEL=intfloat/multilingual-e5-base`（中英都好），設定精靈的選單也有它；程式內建預設仍是英文模型 `all-MiniLM-L6-v2`，設定檔還在的舊安裝升級不換模型。
+>
 > **切換模型的提醒**：切到不同嵌入模型後，舊向量與新模型的維度／語意不相容，需離線重跑 `reembed_memory.py` 由 `core_memory.db` 的事實重建向量索引；**期間事實資料（`core_memory.db`）從頭到尾不被觸碰**，重嵌失敗也可安全重試。
 
 新增端點：`POST /v1/admin/setup/embedding/download`、`GET /v1/admin/setup/embedding/download-status`、`POST /v1/admin/setup/embedding/switch {model, force}`。

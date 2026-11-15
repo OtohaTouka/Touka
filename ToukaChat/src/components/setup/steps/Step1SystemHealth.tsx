@@ -9,13 +9,15 @@ import { logSSOTError } from '@/lib/error_handler';
 
 interface Props {
   status: SetupStatus | null;
-  /** 前進到下一步（僅在模型未變更、或下載完成且成功切換後呼叫）。 */
+  /** 前進到下一步（目前模型已下載好或使用者選擇先略過，或換的模型下載完成且成功切換後呼叫）。 */
   onNext: () => void;
 }
 
+// 新安裝的範例設定寫 e5，精靈打開就預選它（ADR-0314）；名稱要完整，少了 `intfloat/` 會載入失敗。
 const MODEL_OPTIONS = [
   { value: "all-MiniLM-L6-v2", i18nKey: "setup.step1.model_english" },
   { value: "paraphrase-multilingual-MiniLM-L12-v2", i18nKey: "setup.step1.model_multilingual" },
+  { value: "intfloat/multilingual-e5-base", i18nKey: "setup.step1.model_chinese_recommended" },
 ];
 
 type Phase = 'idle' | 'downloading' | 'switching' | 'confirm';
@@ -28,10 +30,15 @@ export function Step1SystemHealth({ status, onNext }: Props) {
   const [pct, setPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [confirmInfo, setConfirmInfo] = useState<{ current: string; target: string } | null>(null);
+  // 目前模型下載失敗（例如離線）時可以先略過，第一次用記憶時再下載；換模型失敗不能略過。
+  const [skippable, setSkippable] = useState(false);
   const cancelledRef = useRef(false);
 
-  // 元件卸載後停止輪詢，避免對已卸載元件 setState。
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  // 元件卸載後停止輪詢，避免對已卸載元件 setState。掛上時重設：開發模式會掛上、卸下、再掛上一次。
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => { cancelledRef.current = true; };
+  }, []);
 
   const busy = phase === 'downloading' || phase === 'switching';
 
@@ -53,7 +60,8 @@ export function Step1SystemHealth({ status, onNext }: Props) {
       const st = await res.json();
       if (typeof st.pct === "number") setPct(st.pct);
       if (st.status === "done") return true;
-      if (st.status === "error") { setError(st.error ?? t("setup.step1.errors.generic")); return false; }
+      // 除了下載中都算結束：後端重啟後狀態回 idle，不能一直等下去
+      if (st.status !== "downloading") { setError(st.error ?? t("setup.step1.errors.generic")); return false; }
       await new Promise((r) => setTimeout(r, 700));
     }
   }
@@ -81,31 +89,40 @@ export function Step1SystemHealth({ status, onNext }: Props) {
     onNext();
   }
 
-  // 未變更＝直接前進；變更＝先下載（進度）→ 再切換（可能需確認）。
+  // 下載並輪詢到結束，回傳是否成功；已下載好的後端直接回 done，不重抓。
+  async function downloadModel(model: string): Promise<boolean> {
+    setPhase('downloading');
+    setPct(0);
+    const dl = await fetchTouka(getActiveProxyUrl(), "/v1/admin/setup/embedding/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    if (!dl.ok) {
+      const d = await dl.json().catch(() => ({}));
+      setError(extractError(d, "setup.step1.errors.save_failed"));
+      return false;
+    }
+    return pollDownload(model);
+  }
+
+  // 未變更＝目前模型還沒下載就先下載（失敗可先略過）；變更＝先下載（進度）→ 再切換（可能需確認）。
   async function handleContinue() {
     setError(null);
-    if (selectedModel === currentModel) { onNext(); return; }
+    setSkippable(false);
+    const keep = selectedModel === currentModel;
+    // 沒讀到設定狀態就不知道目前用哪個模型，不去下載猜的那個，照舊直接前進
+    if (keep && !status?.embedding_model) { onNext(); return; }
     try {
-      setPhase('downloading');
-      setPct(0);
-      const dl = await fetchTouka(getActiveProxyUrl(), "/v1/admin/setup/embedding/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: selectedModel }),
-      });
-      if (!dl.ok) {
-        const d = await dl.json().catch(() => ({}));
-        setError(extractError(d, "setup.step1.errors.save_failed"));
-        setPhase('idle');
-        return;
-      }
-      const ok = await pollDownload(selectedModel);
-      if (!ok) { setPhase('idle'); return; }
+      const ok = await downloadModel(selectedModel);
+      if (!ok) { setPhase('idle'); setSkippable(keep); return; }
+      if (keep) { setPhase('idle'); onNext(); return; }
       await doSwitch(selectedModel, false);
     } catch (err) {
       logSSOTError(err, "Step1SystemHealth");
       setError(t("setup.step1.errors.generic"));
       setPhase('idle');
+      setSkippable(keep);
     }
   }
 
@@ -213,6 +230,15 @@ export function Step1SystemHealth({ status, onNext }: Props) {
           ) : phase === 'switching' ? (
             <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t('setup.common.saving')}</span>
           ) : selectedModel === currentModel ? t('setup.common.next') : t('setup.step1.download_continue')}
+        </button>
+      )}
+
+      {skippable && phase === 'idle' && selectedModel === currentModel && (
+        <button
+          onClick={onNext}
+          className="ml-3 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          {t('setup.step1.skip_download')}
         </button>
       )}
     </div>

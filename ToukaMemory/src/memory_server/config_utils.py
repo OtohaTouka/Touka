@@ -70,7 +70,9 @@ def get_embedding_model_name() -> str:
     """Return the SentenceTransformer model name to use for embeddings (SSOT).
 
     Reads EMBEDDING_MODEL env var; falls back to the English-optimised default.
-    Set EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 for CJK workloads.
+    New installs get EMBEDDING_MODEL=intfloat/multilingual-e5-base from .env.example
+    (ADR-0314); the built-in default stays English so installs without the key keep
+    their model across upgrades.
     """
     return os.environ.get("EMBEDDING_MODEL", "").strip() or "all-MiniLM-L6-v2"
 
