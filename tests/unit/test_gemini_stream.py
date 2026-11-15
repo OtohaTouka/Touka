@@ -35,6 +35,7 @@ from tests.helpers.stream_transport import FakeUpstream, Reply, sse, status_repl
 
 _GUARD_S = 5.0
 _FIRST, _IDLE, _ROUND = 0.6, 0.2, 1.2
+_CLOSE_TURNS = 3  # 取消測試：關閉回應要等幾輪事件迴圈
 _BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash"
 _ZERO = {"cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
 
@@ -245,9 +246,14 @@ async def test_bytes_keep_the_stream_alive(monkeypatch, short):
     assert result["candidates"][0]["content"]["parts"] == [{"text": "你好"}]
 
 
-async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
-    hold = asyncio.Event()
-    upstream = FakeUpstream([Reply(pieces=[sse(_TEXT[0], done=False), hold])]).install(monkeypatch)
+async def test_cancel_waits_until_upstream_is_closed(monkeypatch):
+    """上游停在半路時取消：取消傳回來時上游已關。
+
+    等上游停住才取消，不睡固定秒數；逾時用預設值（遠大於 ``_GUARD_S``），不會比取消先到。
+    取消被吞掉時只剩守衛能結束這一輪，所以守衛時間到算紅。
+    """
+    upstream = FakeUpstream([Reply(pieces=[sse(_TEXT[0], done=False), asyncio.Event()])],
+                            close_turns=_CLOSE_TURNS).install(monkeypatch)
     adapter = GeminiAdapter(stream=True)
     state = await adapter.prepare_request(_request(), dict(_CTX))
 
@@ -255,15 +261,15 @@ async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
         async for _ in react_core.pump_send_round(adapter.send_round(state)):
             pass
 
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(consume())
-        while not upstream.responses:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await upstream.waiting.wait()  # 第一個 chunk 已處理完，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        upstream.assert_all_closed()  # 取消傳回來時上游已關
+        upstream.assert_all_closed()  # 取消傳回來時上游已關（關閉也做完了）
+    # 守衛時間到也會從 await task 冒出 CancelledError；取消被吞掉、靠守衛才結束的要算紅
+    assert not guard.expired()
     await adapter.close(state)
 
 
@@ -314,18 +320,21 @@ async def test_round_usage_is_booked_once(monkeypatch, booked, chunks, usage, es
 
 
 async def test_cancelled_stream_books_an_estimate(monkeypatch, booked):
-    hold = asyncio.Event()
-    upstream = FakeUpstream([Reply(pieces=[sse(_chunk({"text": "abcdefg"}), done=False), hold])])
+    """收到「abcdefg」後被取消：照估算記一次。
+
+    等上游停住才取消、守衛時間到算紅，理由見 ``test_cancel_waits_until_upstream_is_closed``。
+    """
+    upstream = FakeUpstream([Reply(pieces=[sse(_chunk({"text": "abcdefg"}), done=False),
+                                           asyncio.Event()])])
     upstream.install(monkeypatch)
     loop = react_core.run_react_loop(GeminiAdapter(stream=True), _request(), _loop_ctx("req-g-c"))
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(anext(loop))
-        while not upstream.responses:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await upstream.waiting.wait()  # 「abcdefg」已彙整，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+    assert not guard.expired()  # 同上：是取消結束的，不是守衛
     assert booked == [{"prompt_tokens": 17, **_ZERO, "completion_tokens": 2}]
 
 
