@@ -69,7 +69,18 @@ async def apply_setup(
     _admin: AgentIdentity = Depends(require_admin),  # noqa: B008
     svc: SetupService = Depends(get_setup_service),  # noqa: B008
 ) -> dict[str, str]:
-    """Write provided setup values to .env. Admin only."""
+    """Write provided setup values to .env. Admin only.
+
+    會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）；要確認的
+    整筆拒絕、什麼都不寫。評估在拿設定檔鎖之前做；鎖內由 ``SetupService.apply`` 重讀再核對。
+    """
+    switch_checked = False
+    if body.embedding_model is not None and not svc.uses_embedding_model(body.embedding_model):
+        if await run_memory_job(
+            embedding_service.model_change_requires_confirmation, (body.embedding_model,)
+        ):
+            raise ToukaException(ErrorCode.EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION)
+        switch_checked = True
     try:
         svc.apply(
             dispatch_token=body.dispatch_token,
@@ -77,6 +88,7 @@ async def apply_setup(
             data_path=body.data_path,
             workspace_root=body.workspace_root,
             embedding_model=body.embedding_model,
+            embedding_switch_checked=switch_checked,
         )
     except ValueError as e:
         # 宿主目錄驗證失敗（原生模式路徑不存在等）→ 乾淨的在地化 422，避免未捕捉例外變 500。

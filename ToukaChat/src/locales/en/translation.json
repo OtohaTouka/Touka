@@ -99,6 +99,8 @@
       "skip_download": "Skip for now (download on first memory use)",
       "downloading": "Downloading model… {{pct}}%",
       "switch_warning": "Existing memories were detected (embedded with \"{{current}}\"). After switching to \"{{target}}\", they will be unsearchable until you re-embed them manually — your facts are not lost, and nothing is re-embedded automatically. Switch anyway?",
+      "switch_warning_length": "Existing memories were detected, and their index has vectors of length {{dim}}, which doesn't match \"{{target}}\". After switching, they will be unsearchable until you re-embed them manually — your facts are not lost, and nothing is re-embedded automatically. Switch anyway?",
+      "switch_warning_unknown": "Existing memories were detected, but Touka can't tell whether their index was built with \"{{target}}\". If it wasn't, they will be unsearchable after switching until you re-embed them manually — your facts are not lost, and nothing is re-embedded automatically. Switch anyway?",
       "confirm_switch": "Switch anyway",
       "cancel_switch": "Cancel (keep current model)",
       "errors": {
@@ -1442,6 +1444,9 @@
       "memory_store_unreadable": "The memory store cannot be read: memories can't be searched or saved right now. Contact the team first. If the team asks you to restore it yourself: press “Create Backup Now” to save the current state, then pick the latest snapshot from when things were working (conversations and settings also go back to that point).",
       "memory_upgrade_failed": "The memory store upgrade did not finish and is paused on the old version: memories can be searched but not added. Restarting Touka will try again; if it keeps failing, switch back to the previous Touka version and tell the team. The memory store was not changed; no restore is needed.",
       "memory_new_store_beside_backups": "The memory store is new, but there are upgrade backups next to it. If you just restored something or changed the data path, your memories may not be here; don't save new memories yet, and contact the team.",
+      "embedding_model_mismatch_name": "The memory index of {{count}} soul(s) was built with “{{index_model}}”, not the configured embedding model “{{configured_model}}”: semantic search can't find those memories for now (the memories themselves are not lost). To fix it, set the embedding model back to “{{index_model}}” and restart Touka (with Docker, recreate the container; if the model is set by an environment variable, change that variable), or stop Touka and rebuild the index with “{{configured_model}}” using the re-embed tool.",
+      "embedding_model_mismatch_length": "The memory index of {{count}} soul(s) has vectors of length {{index_dim}}, which doesn't match the configured embedding model “{{configured_model}}”, so it was built with another model: semantic search can't find those memories for now (the memories themselves are not lost). To fix it, set the embedding model back to the one the index was built with and restart Touka (with Docker, recreate the container; if the model is set by an environment variable, change that variable), or stop Touka and rebuild the index with “{{configured_model}}” using the re-embed tool.",
+      "embedding_model_mismatch_sample": "The memory index of {{count}} soul(s) doesn't match the configured embedding model “{{configured_model}}” (a spot check of a few memories gave different vectors), so it was most likely built with another model: semantic search can't find those memories for now (the memories themselves are not lost). To fix it, set the embedding model back to the one the index was built with and restart Touka (with Docker, recreate the container; if the model is set by an environment variable, change that variable), or stop Touka and rebuild the index with “{{configured_model}}” using the re-embed tool.",
       "warning_marker": "Memory system warning — details in the right sidebar"
     },
     "system_notice": {
@@ -2458,7 +2463,8 @@
     },
     "config": {
       "load_failed": "Failed to load configuration",
-      "save_failed": "Failed to save configuration"
+      "save_failed": "Failed to save configuration",
+      "embedding_switch_needs_confirmation": "This embedding model change would stop semantic search on existing memories, so nothing was saved. Use the setup wizard (it asks first), or edit the model in the settings file and restart (with Docker, recreate the container; if the model is set by an environment variable, change that instead)."
     },
     "resource": {
       "not_found": "The requested resource was not found"

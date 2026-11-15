@@ -44,7 +44,8 @@ def _secret_set(_env: Path) -> None:
 
 
 def _setup_wizard(env: Path) -> None:
-    SetupService(env_file_path=str(env)).apply(embedding_model=VALUE)
+    # 換模型的評估在路由做（ADR-0315）；這裡只測寫入等鎖
+    SetupService(env_file_path=str(env)).apply(embedding_model=VALUE, embedding_switch_checked=True)
 
 
 def _embedding_switch(_env: Path) -> None:

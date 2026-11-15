@@ -219,6 +219,52 @@ describe('Step1SystemHealth 嵌入模型下載＋切換防呆', () => {
     await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
   });
 
+  /** 換成多語模型時後端要確認，回這些欄位（ADR-0315：記憶實際用的模型，不是目前設定）。 */
+  async function confirmWarning(extra: Record<string, unknown>): Promise<string> {
+    (fetchTouka as ReturnType<typeof vi.fn>).mockImplementation((_u: string, path: string) => {
+      if (path.includes('/embedding/download-status')) return jsonRes({ status: 'done', pct: 100 });
+      if (path.includes('/embedding/download')) return jsonRes({ status: 'downloading', pct: 0 });
+      if (path.includes('/embedding/switch')) {
+        return jsonRes({
+          status: 'confirmation_required', current_model: E5,
+          target_model: 'paraphrase-multilingual-MiniLM-L12-v2', ...extra,
+        });
+      }
+      return jsonRes({});
+    });
+    render(<Step1SystemHealth status={e5Status} onNext={vi.fn()} />);
+    selectMultilingual();
+    fireEvent.click(screen.getByRole('button'));
+    await screen.findByRole('button', { name: /仍要切換/ });
+    return document.body.textContent ?? '';
+  }
+
+  it('警告寫記憶實際用的模型，不是目前設定的', async () => {
+    const text = await confirmWarning({ index_model: 'all-MiniLM-L6-v2', index_dim: 384, index_outcome: 'mismatch' });
+    expect(text).toContain('以「all-MiniLM-L6-v2」嵌入');
+    expect(text).not.toContain('以「' + E5 + '」嵌入');
+  });
+
+  it('只知道向量長度不同 → 警告寫長度', async () => {
+    const text = await confirmWarning({ index_model: null, index_dim: 768, index_outcome: 'mismatch' });
+    expect(text).toContain('768');
+    expect(text).not.toContain('看不出');
+  });
+
+  it('判斷不了時就算回了名稱也說看不出（不寫「以目標模型嵌入」這種矛盾的話）', async () => {
+    const text = await confirmWarning({
+      index_model: 'paraphrase-multilingual-MiniLM-L12-v2', index_dim: 384, index_outcome: 'unknown',
+    });
+    expect(text).toContain('看不出');
+    expect(text).not.toContain('以「paraphrase-multilingual-MiniLM-L12-v2」嵌入');
+  });
+
+  it('判斷不了 → 警告說看不出', async () => {
+    const text = await confirmWarning({ index_model: null, index_dim: 384, index_outcome: 'unknown' });
+    expect(text).toContain('看不出');
+    expect(text).toContain('paraphrase-multilingual-MiniLM-L12-v2');
+  });
+
   it('下載失敗（status error）→ 顯示錯誤、不前進', async () => {
     (fetchTouka as ReturnType<typeof vi.fn>).mockImplementation((_u: string, path: string) => {
       if (path.includes('/embedding/download-status')) return jsonRes({ status: 'error', error: '下載失敗了' });

@@ -2,30 +2,49 @@
 
 三個動作嚴格分離，杜絕誤觸資料：
   - **下載**：抓模型檔到 HF 快取（per-model 目錄、絕不刪既有、不 re-embed）→ 天生安全。
-  - **切換**：寫 EMBEDDING_MODEL；偵測到既有記憶且換不同模型時需使用者確認
-    （既有向量將失效至手動重新嵌入前；本模組**絕不自動 re-embed、不直接寫事實**；重置單例後
-    下一次取用事實庫時，若結構仍落後會由 FactualStore 自己再試一次升級（含備份））。
+  - **切換**：寫 EMBEDDING_MODEL；預設要使用者確認，只有當下即時讀到的證據證明安全才不用
+    （ADR-0315 判定表；既有向量將失效至手動重新嵌入前；本模組**絕不自動 re-embed、不直接寫
+    事實**；重置單例後下一次取用事實庫時，若結構仍落後會由 FactualStore 自己再試一次升級）。
+    設定頁與首裝精靈的寫設定介面用同一條規則（``model_change_requires_confirmation``）。
   - **重新嵌入**：獨立離線維護操作（`reembed_memory.py`），本模組永不觸發。
 
-下載採「背景執行 + 輪詢狀態」；進度以逐檔累積位元組回報。跨專案記憶系統以 importlib
-動態載入（整合模式；未載入時防禦式降級為「無記憶」）。
+下載採「背景執行 + 輪詢狀態」；進度以逐檔累積位元組回報。記憶管理器以 importlib 動態載入
+（整合模式；未載入時防禦式降級為「無記憶」）；比對語意索引的純函式在
+``memory_server.utils.embedding_index``。
 """
 from __future__ import annotations
 
 import importlib
+import io
 import logging
 import re
 import threading
+from typing import TYPE_CHECKING
 
-from dotenv import set_key
+from dotenv import dotenv_values, set_key
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
+from memory_server.config_utils import DEFAULT_EMBEDDING_MODEL
+from memory_server.utils import embedding_index
+from memory_server.utils.embedding_index import (
+    TargetEvaluation,
+    TargetOutcome,
+    evaluate_target,
+    mark_index_status_stale,
+    same_model,
+)
 
 from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+    from pathlib import Path
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _MEMORY_MANAGER_MODULE = "memory_server.services.manager"
+_EMBEDDING_KEY = "EMBEDDING_MODEL"
+# 只有這些即時評估結果證明換了也安全（ADR-0315）；其他一律要確認
+_SAFE_OUTCOMES = frozenset({TargetOutcome.NO_MEMORIES, TargetOutcome.NO_INDEX, TargetOutcome.MATCH})
 
 # 下載時不抓的格式（ADR-0314）：sentence-transformers 只用 PyTorch 權重，其他執行環境的格式用不到。
 UNUSED_FORMAT_FOLDERS: frozenset[str] = frozenset({"onnx", "openvino"})
@@ -46,9 +65,8 @@ def reset_download_state() -> None:
 
 
 def resolve_repo_id(model_name: str) -> str:
-    """SentenceTransformer 短名 → HF repo id（無 '/' 則補 sentence-transformers/ 前綴）。"""
-    name = (model_name or "").strip()
-    return name if "/" in name else f"sentence-transformers/{name}"
+    """SentenceTransformer 短名 → HF repo id（規則在 ``embedding_index.resolve_repo_id``）。"""
+    return embedding_index.resolve_repo_id(model_name)
 
 
 def is_cached(model_name: str) -> bool:
@@ -216,40 +234,111 @@ def get_current_embedding_model() -> str:
         cfg = importlib.import_module("memory_server.config_utils")
         return cfg.get_embedding_model_name()
     except Exception:  # noqa: BLE001 — 記憶系統未載入時回預設
-        return _DEFAULT_EMBEDDING_MODEL
+        return DEFAULT_EMBEDDING_MODEL
 
 
-def has_existing_memories() -> bool:
-    """是否已有任何 agent 的事實記憶（防呆③偵測）。
+def evaluate_index(target_model: str) -> TargetEvaluation:
+    """即時評估換成 ``target_model`` 時記憶的語意索引（在記憶工作者上呼叫，ADR-0288）。
 
-    以無損 FactualStore 存在性為準（limit=1 探測）；記憶系統未載入 → 回 False（視為全新安裝）。
-    記憶庫讀不到或查詢失敗 → 回 True：當作有記憶，換模型時一定要求確認。
+    記憶系統未載入 → 沒有記憶（全新安裝）；事實庫打不開 → 讀不到（要確認）。
     """
     try:
         manager_mod = importlib.import_module(_MEMORY_MANAGER_MODULE)
     except Exception:  # noqa: BLE001 — 記憶系統未載入時防禦式降級
         logger.debug("[Embedding] memory system unavailable; assuming no memories.", exc_info=True)
-        return False
+        return TargetEvaluation(TargetOutcome.NO_MEMORIES)
     try:
         factual = manager_mod.MemoryManager().get_factual_store()
-        rows = factual.query_all_facts(include_archived=True, limit=1)
-    except Exception:  # 讀不到不能當成沒有記憶
-        logger.warning("[Embedding] memory presence check failed; assuming memories exist.")
-        return True
-    return bool(rows)
+    except Exception:  # 打不開不能當成沒有記憶
+        logger.warning("[Embedding] memory store could not be opened; asking for confirmation.")
+        return TargetEvaluation(TargetOutcome.UNREADABLE)
+    return evaluate_target(target_model, factual)
 
 
 def evaluate_switch(target_model: str) -> dict:
-    """評估切換嵌入模型是否需要使用者確認（既有記憶 + 換不同模型 → 需確認）。"""
+    """評估切換嵌入模型要不要使用者確認（ADR-0315 判定表）。
+
+    預設要確認；只有目標就是目前生效的模型，或即時評估是「沒有記憶／沒有索引／全部相符」才不用。
+    回傳帶記憶實際用的模型（``index_model``／``index_dim``），精靈警告用它，不用目前設定。
+    """
     current = get_current_embedding_model()
     target = (target_model or "").strip()
-    has_mem = has_existing_memories()
+    evaluation = evaluate_index(target)
     return {
         "current_model": current,
         "target_model": target,
-        "has_memories": has_mem,
-        "requires_confirmation": (target != current) and has_mem,
+        "has_memories": evaluation.outcome is not TargetOutcome.NO_MEMORIES,
+        "requires_confirmation": (
+            not same_model(target, current) and evaluation.outcome not in _SAFE_OUTCOMES
+        ),
+        "index_model": evaluation.index_model,
+        "index_dim": evaluation.index_dim,
+        "index_outcome": evaluation.outcome.value,
     }
+
+
+def model_change_requires_confirmation(targets: tuple[str, ...]) -> bool:
+    """設定介面用：寫入後設定檔裡的模型是 ``targets`` 時要不要確認（在記憶工作者上呼叫）。
+
+    不只一個（不同寫法的鍵各寫各的模型）時，載入哪一個看平台，一律要確認；否則照精靈的規則。
+    """
+    if len(targets) != 1:
+        return True
+    return bool(evaluate_switch(targets[0])["requires_confirmation"])
+
+
+def _models_by_key(values: Mapping[str, str | None]) -> dict[str, str]:
+    """從 dotenv 解析結果取出每個鍵名寫法各自的嵌入模型（實際的鍵名 → 模型）.
+
+    鍵名忽略大小寫：Linux 只認 ``EMBEDDING_MODEL``、Windows 認第一個寫法，所以每個寫法的值都要算
+    （DEV-B M1）。同一個鍵重複時以最後一行為準（和載入一樣）；值是空的當內建預設；沒有這行就當
+    ``EMBEDDING_MODEL`` 是內建預設。``export`` 與前後空白由 dotenv 處理。
+    """
+    models = {
+        key.strip(): (value or "").strip() or DEFAULT_EMBEDDING_MODEL
+        for key, value in values.items()
+        if key.strip().casefold() == _EMBEDDING_KEY.casefold()
+    }
+    return models or {_EMBEDDING_KEY: DEFAULT_EMBEDDING_MODEL}
+
+
+def _distinct(models: Iterable[str]) -> tuple[str, ...]:
+    """同一個模型的不同寫法只留一個，依出現順序。"""
+    kept: list[str] = []
+    for model in models:
+        if not any(same_model(model, seen) for seen in kept):
+            kept.append(model)
+    return tuple(kept)
+
+
+def _models_in_env_values(values: Mapping[str, str | None]) -> tuple[str, ...]:
+    return _distinct(_models_by_key(values).values())
+
+
+def same_models(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
+    """兩組模型是不是同一組（不看順序；同一個模型的不同寫法算一樣）。"""
+    return all(any(same_model(a, b) for b in second) for a in first) and all(
+        any(same_model(b, a) for a in first) for b in second
+    )
+
+
+def env_model_change(before_text: str, after_text: str) -> tuple[str, ...] | None:
+    """寫入前後設定檔裡的模型不同時回寫入後的模型；沒變回 None.
+
+    逐個鍵名寫法比：任何一個寫法的值變了、多了或少了都算（兩個寫法互換值也算，模型組合一樣、
+    實際載入的卻換了）。
+    """
+    before = _models_by_key(dotenv_values(stream=io.StringIO(before_text)))
+    after = _models_by_key(dotenv_values(stream=io.StringIO(after_text)))
+    unchanged = before.keys() == after.keys() and all(
+        same_model(model, after[key]) for key, model in before.items()
+    )
+    return None if unchanged else _distinct(after.values())
+
+
+def env_file_uses_model(path: Path, model: str) -> bool:
+    """設定檔裡每個寫法的鍵都是 ``model``（寫入這個值不會換模型）；還沒有設定檔當內建預設。"""
+    return same_models(_models_in_env_values(dotenv_values(dotenv_path=path)), (model,))
 
 
 def _reset_memory_singletons() -> None:
@@ -287,4 +376,6 @@ def switch_model(target_model: str, *, force: bool) -> dict:
     if evaluation["requires_confirmation"] and not force:
         return {"status": "confirmation_required", **evaluation}
     apply_switch(target_model)
+    # 換模型會重置共用事實庫，這裡沒有實例可重算：讓側欄下一次來問時一定重算（ADR-0315）
+    mark_index_status_stale()
     return {"status": "ok", **evaluation}

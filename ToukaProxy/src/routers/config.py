@@ -1,14 +1,17 @@
 """系統設定路由器，提供對環境變數檔案的讀寫接口。"""
 
+import io
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
+from memory_server.utils.memory_worker import run_memory_job
 from pydantic import BaseModel
 
 from src.config import ENV_FILE_LOCK, apply_runtime_env, resolve_env_file_path
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
+from src.services import embedding_service
 from src.services.authorization_gateway import require_admin_authority
 from src.services.hooks.lifecycle import notify_config_change
 from src.services.model_manager import model_manager
@@ -76,51 +79,82 @@ async def get_env_settings(_identity: AgentIdentity = Depends(_require_config_ro
                 
     return {"definitions": definitions}
 
+def _read_env_text(path: Path) -> str:
+    """設定檔目前的內容；還沒有設定檔回空字串。"""
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _merge_env_text(text: str, settings: dict[str, str]) -> str:
+    """把 ``settings`` 寫進設定檔內容：已有的鍵就地改值，沒有的接在最後（遮罩值不落盤）。"""
+    new_lines = []
+    updated_keys = set()
+
+    for line in io.StringIO(text).readlines():
+        if "=" in line and not line.strip().startswith("#"):
+            key = line.split("=", 1)[0]
+            if key in settings:
+                # 縱深防禦：遮罩值（GET 回傳的佔位）被原樣送回時，保留既有真值不覆寫。
+                if settings[key] == _MASK:
+                    new_lines.append(line)
+                    updated_keys.add(key)
+                    continue
+                new_lines.append(f"{key}={settings[key]}\n")
+                updated_keys.add(key)
+                continue
+        new_lines.append(line)
+
+    # 最後一行沒有換行時先補上，新的鍵才不會黏在它後面（例如黏成模型名稱的一部分）
+    if new_lines and not new_lines[-1].endswith("\n"):
+        new_lines[-1] += "\n"
+    # 加入原本 .env 裡面沒有的 key（遮罩值不落盤）
+    for key, val in settings.items():
+        if key not in updated_keys and val != _MASK:
+            new_lines.append(f"{key}={val}\n")
+    return "".join(new_lines)
+
+
+def _unchecked_model_change(
+    text: str, settings: dict[str, str], checked: tuple[str, ...] | None
+) -> bool:
+    """照現在的設定檔寫入會換模型，卻不是先前評估過的那個換法。"""
+    change = embedding_service.env_model_change(text, _merge_env_text(text, settings))
+    if change is None:
+        return False
+    return checked is None or not embedding_service.same_models(change, checked)
+
+
 @router.post("/env")
 async def update_env(update: EnvUpdate, _identity: AgentIdentity = Depends(_require_config_role)):
-    """更新 .env 檔案內容。注意：這不會立即重啟服務。"""
+    """更新 .env 檔案內容。注意：這不會立即重啟服務。
+
+    寫入會換掉設定檔裡的嵌入模型時，先在記憶工作者上用和精靈一樣的規則評估（ADR-0315）：要確認
+    的整筆拒絕、什麼都不寫。評估在拿鎖之前（持鎖不能等，ADR-0288）；鎖內重讀，出現沒評估過的
+    換法也拒絕。沒改到模型的寫入（例如只存金鑰）不看記憶。
+    """
     env_path, _ = _env_file_paths()
+    before = _read_env_text(env_path)
+    checked = embedding_service.env_model_change(before, _merge_env_text(before, update.settings))
+    if checked is not None and await run_memory_job(
+        embedding_service.model_change_requires_confirmation, checked
+    ):
+        raise ToukaException(ErrorCode.EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION)
+    refused = False
     try:
         # 讀改寫整段持共用鎖：切換嵌入模型在記憶工作者上同時寫 .env（ADR-0288）
         with ENV_FILE_LOCK:
-            lines = []
-            if env_path.exists():
-                with env_path.open(encoding="utf-8") as f:
-                    lines = f.readlines()
-
-            new_lines = []
-            updated_keys = set()
-
-            for line in lines:
-                if "=" in line and not line.strip().startswith("#"):
-                    key = line.split("=", 1)[0]
-                    if key in update.settings:
-                        # 縱深防禦：遮罩值（GET 回傳的佔位）被原樣送回時，保留既有真值不覆寫。
-                        if update.settings[key] == _MASK:
-                            new_lines.append(line)
-                            updated_keys.add(key)
-                            continue
-                        new_lines.append(f"{key}={update.settings[key]}\n")
-                        updated_keys.add(key)
-                        continue
-                new_lines.append(line)
-
-            # 加入原本 .env 裡面沒有的 key（遮罩值不落盤）
-            for key, val in update.settings.items():
-                if key not in updated_keys and val != _MASK:
-                    new_lines.append(f"{key}={val}\n")
-
-            with env_path.open("w", encoding="utf-8") as f:
-                f.writelines(new_lines)
-
-        logger.info(
-            f"⚙️ .env file updated via UI ({env_path}). {len(update.settings)} keys modified."
-        )
+            current = _read_env_text(env_path)
+            refused = _unchecked_model_change(current, update.settings, checked)
+            if not refused:
+                with env_path.open("w", encoding="utf-8") as f:
+                    f.write(_merge_env_text(current, update.settings))
     except Exception as e:
         # E#21：原始例外（含檔案系統路徑等內部細節）只進 server log（exception 附完整 traceback），
         # 不回傳給呼叫端。
         logger.exception("Failed to update .env")
         raise ToukaException(ErrorCode.SYSTEM_ERROR) from e
+    if refused:
+        raise ToukaException(ErrorCode.EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION)
+    logger.info(f"⚙️ .env file updated via UI ({env_path}). {len(update.settings)} keys modified.")
 
     notify_config_change("env")
     # .env 寫入成功 → provider 金鑰即時生效＋探測（免重啟）；非 provider 設定仍需重啟。

@@ -66,6 +66,9 @@ def get_workspace_root() -> str:
     return str(Path(__file__).parents[3].resolve())
 
 
+DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # 沒設定（或值是空的）時用的內建英文模型
+
+
 def get_embedding_model_name() -> str:
     """Return the SentenceTransformer model name to use for embeddings (SSOT).
 
@@ -74,7 +77,16 @@ def get_embedding_model_name() -> str:
     (ADR-0314); the built-in default stays English so installs without the key keep
     their model across upgrades.
     """
-    return os.environ.get("EMBEDDING_MODEL", "").strip() or "all-MiniLM-L6-v2"
+    return get_embedding_model_and_source()[0]
+
+
+def get_embedding_model_and_source() -> tuple[str, str]:
+    """（模型名, 來源）；來源是 ``EMBEDDING_MODEL``（環境或已載入的設定檔）或 ``default``.
+
+    重建工具印「模型從哪來」用（ADR-0315）。
+    """
+    configured = os.environ.get("EMBEDDING_MODEL", "").strip()
+    return (configured, "EMBEDDING_MODEL") if configured else (DEFAULT_EMBEDDING_MODEL, "default")
 
 
 def get_current_epoch() -> float:

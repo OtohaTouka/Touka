@@ -24,6 +24,7 @@ from memory_server.utils.collection_names import (  # fact_point_id 原名照舊
     collection_name_for,
     fact_point_id,
 )
+from memory_server.utils.embedding_index import index_marker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -128,6 +129,7 @@ class VectorStore:
         self.model_name = model_name if model_name is not None else get_embedding_model_name()
         self._model: SentenceTransformer | None = None
         self._embedding_cache: dict[str, list[float]] = {}
+        self._on_model_loaded: Callable[[VectorStore], None] | None = None
 
         # SSOT：資料庫物理位址
         qdrant_path = self.base_dir / QDRANT_DIR_NAME
@@ -141,6 +143,10 @@ class VectorStore:
 
         self.client = VectorStore._client_cache[client_key]
 
+    def set_model_loaded_hook(self, hook: Callable[[VectorStore], None]) -> None:
+        """模型第一次載入完成後呼叫一次（MemoryManager 掛抽查用，ADR-0315）；直接建的不掛."""
+        self._on_model_loaded = hook
+
     @property
     @_locked
     def model(self) -> SentenceTransformer:
@@ -148,6 +154,13 @@ class VectorStore:
         if self._model is None:
             logger.info(f"📥 [Vector] Loading embedding model: {self.model_name}")
             self._model = SentenceTransformer(self.model_name, trust_remote_code=False)
+            hook, self._on_model_loaded = self._on_model_loaded, None  # 只跑一次，不會遞迴
+            if hook is not None:
+                try:
+                    hook(self)
+                except Exception:  # 抽查失敗只影響側欄提示，不影響記憶本身
+                    logger.warning("[Vector] embedding model check after loading failed",
+                                   exc_info=True)
         return self._model
 
     @_locked
@@ -183,6 +196,7 @@ class VectorStore:
             self.client.create_collection(
                 collection_name=name,
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+                metadata=index_marker(self.model_name, dim),  # 記下用哪個模型建的（ADR-0315）
             )
             logger.info(f"✨ [Vector] Created new collection for agent: {identity.agent_id}")
 

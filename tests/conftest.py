@@ -128,6 +128,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from memory_server.factual import FactualStore  # noqa: E402
 from memory_server.services.mission_lock import _reset_mission_lock_cache  # noqa: E402
 from memory_server.utils import memory_worker  # noqa: E402
+from memory_server.utils.embedding_index import reset_index_status  # noqa: E402
 from src import config as runtime_config  # noqa: E402
 from src.core.logging_config import close_sandbox_log_handlers  # noqa: E402
 from src.main import app, protocol_manager  # noqa: E402
@@ -635,6 +636,7 @@ def setup_test_environment(global_test_sandbox):
 
     # 4. 重置單例服務 (Singleton Resilience)
     _reset_mission_lock_cache()  # release FileLock handles between tests (ADR-0049)
+    reset_index_status()  # 側欄的嵌入模型比對結果是模組狀態（ADR-0315）
     permission_service.reset_for_test()
     resource_manager.reset_for_test()
     skill_service.reset_for_test()

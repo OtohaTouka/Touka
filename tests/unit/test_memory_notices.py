@@ -59,6 +59,8 @@ def test_memory_endpoint_exposes_notices_from_startup(monkeypatch: pytest.Monkey
         {"code": "unmigrated_legacy_facts", "level": "info", "count": 3}
     ]
     monkeypatch.setattr(main_module, "collect_memory_notices", lambda: notices)
+    # 嵌入模型比對讀的是 session 共用的沙盒，別的測試留下的索引不能影響這裡（ADR-0315）
+    monkeypatch.setattr(observability, "refresh_index_status", lambda _store: None)
     app.dependency_overrides[get_verified_identity] = lambda: AgentIdentity.for_role(
         agent_id="DebugAgent", role="Debugger"
     )

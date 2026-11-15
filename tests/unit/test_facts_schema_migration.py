@@ -30,6 +30,7 @@ from memory_server.config_utils import get_resource_proxy
 from memory_server.services import reembed as reembed_module
 from memory_server.services.manager import MemoryManager
 from memory_server.tools.recall import random_recall
+from memory_server.utils.embedding_index import TargetOutcome
 from memory_server.vector import VectorStore
 from src.models.identity import AgentIdentity
 from src.routers import observability
@@ -53,6 +54,7 @@ OLD_EPOCH = 1700000000
 THREAD_TIMEOUT_S = 15
 CHILD_TIMEOUT_S = 120
 GARBAGE = b"this is not a sqlite database " * 64
+SWITCH_TARGET = "intfloat/multilingual-e5-base"  # 換模型評估用的目標（T30）
 DISK_FULL = "database or disk is full"
 INJECTED_SQL_ERROR = "near SECRET_TOKEN: syntax error"
 V1_COLUMNS = (
@@ -1159,15 +1161,18 @@ def test_t30_unreadable_store_counts_as_having_memories(shared_vault: Path) -> N
     shared_vault.mkdir(parents=True)
     (shared_vault / "core_memory.db").write_bytes(GARBAGE)
 
-    assert embedding_service.has_existing_memories() is True
+    evaluation = embedding_service.evaluate_index(SWITCH_TARGET)
+
+    assert evaluation.outcome is TargetOutcome.UNREADABLE  # 讀不到 → 換模型要確認（ADR-0315）
 
 
 def test_t30b_memory_presence_follows_the_shared_store(shared_vault: Path) -> None:
-    assert embedding_service.has_existing_memories() is False
+    assert embedding_service.evaluate_index(SWITCH_TARGET).outcome is TargetOutcome.NO_MEMORIES
 
     fm.FactualStore.shared().save_fact(IDENTITY, "one fact")
 
-    assert embedding_service.has_existing_memories() is True
+    # 有記憶、還沒有向量索引清單（meta.json）→ 讀不到，換模型要確認
+    assert embedding_service.evaluate_index(SWITCH_TARGET).outcome is TargetOutcome.UNREADABLE
 
 
 # --- T31-T40: state classes, rechecks, rollback, temp files, reads while failed -----

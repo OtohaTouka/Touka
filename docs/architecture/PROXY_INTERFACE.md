@@ -972,6 +972,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **自癒能力**: 支援 `.env` 自動發現與缺失配置自動復原。
 - **環境感知互斥載入 (ADR-0052)** ⭐：系統支援整合與解耦分開運行。當以大一統整合模式執行時，系統強制載入並統一讀取根目錄 `.env`；當分開獨立運行某個子專案時，強制載入並讀取子專案目錄下的 `.env`，不得混載或相互覆蓋。
 - **`.env` 寫入路徑 SSOT 與 `TOUKA_ENV_FILE` 覆寫（2026-07-02，ADR-0118，延伸 ADR-0052／禁令 38）** ⭐：`routers/config.py` 的 `POST /v1/config/env` 讀寫 `.env` 一律經 `src.config.resolve_env_file_path()`（SSOT），移除裸相對 `".env"`。`resolve_env_file_path()` 新增最高優先權環境覆寫 `TOUKA_ENV_FILE`（高於整合／獨立模式自動偵測）；`docker-compose.yml` 設 `TOUKA_ENV_FILE=/app/host_root/.env`（**ADR-0151**：`./:/app/host_root` 恆掛 compose 目錄＝compose `env_file` 讀取的同一 .env，與 `WORKSPACE_ROOT` **解耦**；舊制 `/app/workspace/.env` 綁 `WORKSPACE_ROOT`，指向 repo 以外即寫幽靈 .env）→ 精靈與自動生成的金鑰**跨容器重建持久化**並於重啟重新注入。寫入後 `apply_runtime_env()` 同步 `os.environ` ＋ settings ＋ 模組層 `src.config` 常數（免重啟即時生效）。
+- **設定介面換嵌入模型要先過確認規則（2026-11-15，ADR-0315）**：`POST /v1/config/env` 與 `POST /v1/admin/setup/apply` 只在這次寫入真的改了設定檔裡的嵌入模型時（用 dotenv 解析寫入前後的內容：`export`、空白、值裡夾換行都算；鍵名寫法不同的每一行各算一個模型，任何一個變了都算改到，寫完後不同寫法各寫各的模型時一律拒絕；沒有這行或值是空的當內建預設），在記憶工作者上用和精靈同一條規則評估；要確認時回 **409 `EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION`（1311）**，整筆不寫、`.env` 完全不變，請改用精靈（會先問）或手動改設定檔後重新啟動。評估在拿 `ENV_FILE_LOCK` 之前做；鎖內重讀設定檔，出現沒評估過的換法也拒絕。只存金鑰等不動模型的寫入不看記憶、照舊寫入。
 - **寫 `.env` 共用一把鎖（2026-10-28，ADR-0288）**：`POST /v1/config/env`、首裝精靈、密鑰持久化與切換嵌入模型（在記憶工作者上）寫 `.env` 時，讀改寫整段持 `src.config.ENV_FILE_LOCK`，同時寫不會互相蓋掉；只管 Proxy 這個行程。回應不變。
 - **`POST /v1/config/env` 寫入失敗錯誤消毒（2026-07-02，E#21 security）** ⭐：`update_env` 的 500 回應不再夾帶原始例外字串（移除 `error_output=str(e)`）；統一回乾淨的 `SYSTEM_ERROR`，詳情僅寫入 `logger.exception`。雖為 admin-only 端點，仍避免洩漏檔案系統路徑。
 
@@ -1072,7 +1073,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **角色限制**: 僅限 `role="admin"` 的使用者存取。
 - **功能**:
     - `GET /status`: 回傳系統設定狀態摘要（`SetupStatus`）。欄位：`dispatch_token_is_default`、`auth_secret_persisted`、`api_keys_configured`、`is_admin_temp_password`、`data_path_is_default`、`workspace_root_is_default`（新增，見下 2026-07-02）、`embedding_model`。
-    - `POST /apply`: 將提供的設定值寫入 `.env`（使用 `python-dotenv set_key()`）。支援欄位：`dispatch_token`、`auth_secret`、`data_path`、`workspace_root`（新增，見下 2026-07-02）、`embedding_model`。`dispatch_token`／`auth_secret` 是歷來公開過的值時回 422、整份不寫（ADR-0254）。
+    - `POST /apply`: 將提供的設定值寫入 `.env`（使用 `python-dotenv set_key()`）。支援欄位：`dispatch_token`、`auth_secret`、`data_path`、`workspace_root`（新增，見下 2026-07-02）、`embedding_model`。`dispatch_token`／`auth_secret` 是歷來公開過的值時回 422、整份不寫（ADR-0254）。`embedding_model` 會換掉設定檔裡的模型而需要確認時回 409、整份不寫（ADR-0315）。
 - **實作**: `ToukaProxy/src/routers/setup.py` + `ToukaProxy/src/services/setup_service.py`。
 - **is_temp_password 欄位**: `UserRecord.is_temp_password`（`users.json` SSOT）首次啟動設為 `True`，`admin_update_user` 變更密碼後自動清除。
 
@@ -1085,7 +1086,7 @@ Touka 原生創建引擎將 **MCP 與 Skill 收斂為同一條創建流水線**�
 - **Embedding 模型三動作端點（bug①，延伸 ADR-0070）**：Embedding 生命週期由 `ToukaProxy/src/services/embedding_service.py` 統籌，DOWNLOAD／SWITCH／RE-EMBED 三動作嚴格分離。新增三個端點（皆 admin 限定）：
     - `POST /v1/admin/setup/embedding/download`：以背景任務下載模型檔至 HF cache（**加法式**、僅補檔、絕不 `force_download`、不刪除任何既有模型；命中快取即略過）。安全動作，不觸碰任何向量／事實。
     - `GET /v1/admin/setup/embedding/download-status`：輪詢下載進度（逐檔 byte 進度）。
-    - `POST /v1/admin/setup/embedding/switch`：請求體 `{model, force}`。寫入 `EMBEDDING_MODEL` 並重置 `MemoryManager` 單例（免重啟）。`evaluate_switch` 偵測既有記憶（`FactualStore.query_all_facts`）；當「已有記憶且模型不同」時 **要求使用者確認**（須帶 `force=true`），否則回可辨識的需確認狀態。RE-EMBED 屬離線維運（`reembed_memory.py`），永不自動觸發、絕不觸碰 `core_memory.db`（事實為無損 SSOT，向量為衍生索引）。
+    - `POST /v1/admin/setup/embedding/switch`：請求體 `{model, force}`。寫入 `EMBEDDING_MODEL` 並重置 `MemoryManager` 單例（免重啟）。`evaluate_switch` **預設要求使用者確認**（須帶 `force=true`，否則回可辨識的需確認狀態）；只有目標就是目前生效的模型，或在記憶工作者上即時評估是「沒有記憶／有記憶但沒有語意索引／有記憶的索引全部相符」才直接切換（ADR-0315）。需確認的回應多帶 `index_model`（知道才有）、`index_dim`、`index_outcome`（`no_memories`／`no_index`／`match`／`mismatch`／`unknown`／`unreadable`），精靈用來寫警告。RE-EMBED 屬離線維運（`reembed_memory.py`），永不自動觸發、絕不觸碰 `core_memory.db`（事實為無損 SSOT，向量為衍生索引）。
 - **精靈 fail-loud（C，延伸 ADR-0053）**：`Step1SystemHealth` / `Step3ApiKeys` 現自行發起 apply-fetch、檢查 `res.ok`、顯示錯誤並僅在成功時前進。注意 `fetchTouka` 對 4xx/5xx **不拋例外**，呼叫端必須自行檢查 `res.ok`。
 
 ### 4. 身分隔離與代理優化 (Identity Isolation & Assumption) ⭐

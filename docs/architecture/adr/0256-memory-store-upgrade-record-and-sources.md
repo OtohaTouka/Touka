@@ -62,12 +62,12 @@
   - 被鎖住等暫時性錯誤照丟，不改狀態、不出提示。
 - 單一列的 tags／emotions 不是合法 JSON、或不是字串清單時，只把那一列的欄位當空值（tags `[]`、emotions `None`），記一筆只帶 fact id 的警告，其他列照常回傳；只有資料庫層級的錯誤才讓整個查詢失敗。
 - `/v1/memory/list` 讀取失敗回 `SYSTEM_ERROR`（500），不回空清單；記憶系統沒載入時照舊回空。記憶寶庫頁收到非 2xx 時顯示錯誤（訊息經 `getErrorMessage`、外框文字經 i18n），記憶筆數顯示「—」；不是權限不足時同時叫側欄重抓 `/v1/memory`，文字請人照側欄提示做，沒有提示就重新整理，仍失敗找團隊；權限不足照錯誤原文顯示。
-- 換嵌入模型的記憶偵測 `has_existing_memories()`：記憶系統沒載入回 False；記憶庫讀不到或查詢失敗回 True（當作有記憶，一定要求確認）。
+- 換嵌入模型的記憶偵測 `has_existing_memories()`：記憶系統沒載入回 False；記憶庫讀不到或查詢失敗回 True（當作有記憶，一定要求確認）。（[ADR-0315](0315-embedding-model-mismatch-guards.md) 起改成 `evaluate_index`：預設要確認，即時評估證明安全才不用；`has_existing_memories` 已刪除。）
 
 #### 2-6. 安全判斷不能依賴降版行為
 
 - 換回舊版期間，舊程式新增的列一律拿到預設值（`sources` 是 NULL、`embedding_state` 是 `'unverified'`），舊程式也不做任何新驗證。
-- 凡是安全判斷都只能把 `sources` 是 NULL 當「來源未記錄」，不能當成可信。`embedding_model` 在換回舊版期間不會被更新，只當參考，不能用來判斷向量是否有效。
+- 凡是安全判斷都只能把 `sources` 是 NULL 當「來源未記錄」，不能當成可信。`embedding_model` 在換回舊版期間不會被更新，只當參考，不能用來判斷向量是否有效。（[ADR-0315](0315-embedding-model-mismatch-guards.md) 判斷記憶用哪個模型時也不用它，改看語意索引的記號與向量長度。）
 
 #### 2-7. 之後加欄位的硬約束
 

@@ -185,6 +185,12 @@
     "msg": "Failed to load configuration",
     "i18n": "error.config.load_failed"
   },
+  "EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION": {
+    "id": 1311,
+    "status": 409,
+    "msg": "This embedding model change would stop semantic search on existing memories; use the setup wizard (it asks first), or edit the settings file and restart",
+    "i18n": "error.config.embedding_switch_needs_confirmation"
+  },
   "RESOURCE_NOT_FOUND": {
     "id": 1201,
     "status": 404,

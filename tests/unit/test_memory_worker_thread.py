@@ -648,6 +648,7 @@ def _bare_vector_store(client: Any, model: Any = None) -> VectorStore:
     store.model_name = "fake-model"
     store._model = model
     store._embedding_cache = {}
+    store._on_model_loaded = None  # 不掛模型載入後的抽查（ADR-0315）
     store.client = client
     return store
 
@@ -717,6 +718,9 @@ def test_the_vector_store_is_built_once_when_two_threads_need_it(
         def __init__(self, model_name: str) -> None:
             meeting.meet()
             built.append(model_name)
+
+        def set_model_loaded_hook(self, _hook: Any) -> None:
+            pass  # 管理器會掛抽查（ADR-0315）；這裡只測建一次
 
     monkeypatch.setattr(manager_module, "VectorStore", _Store)
     monkeypatch.setattr(manager_module, "get_embedding_model_name", lambda: "fake-model")

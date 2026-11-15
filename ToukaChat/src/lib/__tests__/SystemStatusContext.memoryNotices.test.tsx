@@ -45,6 +45,24 @@ describe('memory notices', () => {
         await waitFor(() => expect(current().checkState).toBe('ready'));
         expect(current().memoryNotices).toEqual([{ code: 'future_code', level: 'info' }]);
     });
+    it('passes the embedding model fields through (ADR-0315)', async () => {
+        const notice = { code: 'embedding_model_mismatch', level: 'warning', count: 1, basis: 'name',
+            configured_model: 'intfloat/multilingual-e5-base', index_model: 'all-MiniLM-L6-v2', index_dim: 384 };
+        mountWith({ ...memory, memory_notices: [notice] });
+        await waitFor(() => expect(current().checkState).toBe('ready'));
+        expect(current().memoryNotices).toEqual([notice]);
+    });
+    it('drops embedding model fields of the wrong type and a missing model name', async () => {
+        mountWith({ ...memory, memory_notices: [{ code: 'embedding_model_mismatch', level: 'warning',
+            basis: 7, configured_model: { name: 'x' }, index_model: null, index_dim: 1.5 }] });
+        await waitFor(() => expect(current().checkState).toBe('ready'));
+        expect(current().memoryNotices).toEqual([{ code: 'embedding_model_mismatch', level: 'warning' }]);
+    });
+    it.each([0, -384, '384'])('drops an index length of %j', async indexDim => {
+        mountWith({ ...memory, memory_notices: [{ code: 'embedding_model_mismatch', level: 'warning', index_dim: indexDim }] });
+        await waitFor(() => expect(current().checkState).toBe('ready'));
+        expect(current().memoryNotices).toEqual([{ code: 'embedding_model_mismatch', level: 'warning' }]);
+    });
     it('keeps notices while the memory system is degraded', async () => {
         mountWith({ ...memory, system_degraded: true, memory_notices: [{ code: 'future_code', level: 'warning' }] });
         await waitFor(() => expect(current().checkState).toBe('degraded'));

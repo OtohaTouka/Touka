@@ -99,6 +99,8 @@
       "skip_download": "先略過（第一次用記憶時再下載）",
       "downloading": "下載模型中… {{pct}}%",
       "switch_warning": "偵測到既有記憶（以「{{current}}」嵌入）。切換到「{{target}}」後，既有記憶在你手動重新嵌入前將無法檢索——事實資料不會遺失、系統也不會自動重新嵌入。確定要切換嗎？",
+      "switch_warning_length": "偵測到既有記憶，索引的向量長度是 {{dim}}，和「{{target}}」不同。切換後，既有記憶在你手動重新嵌入前將無法檢索——事實資料不會遺失、系統也不會自動重新嵌入。確定要切換嗎？",
+      "switch_warning_unknown": "偵測到既有記憶，但看不出它們是不是用「{{target}}」建的索引。如果不是，切換後既有記憶在你手動重新嵌入前將無法檢索——事實資料不會遺失、系統也不會自動重新嵌入。確定要切換嗎？",
       "confirm_switch": "仍要切換",
       "cancel_switch": "取消（維持現用模型）",
       "errors": {
@@ -1434,6 +1436,9 @@
       "memory_store_unreadable": "讀不到記憶庫：暫時查不到、也存不了記憶。請先找團隊。若團隊請你自己還原：先按「立即建立備份」存下現在的狀態，再選最近一份正常時的快照（對話和設定也會一起回到那時）。",
       "memory_upgrade_failed": "記憶庫升級沒有完成，目前停在舊版：記憶可以查，暫時不能新增。重新啟動 Touka 會再試一次；一直失敗請換回上一版 Touka 並告訴團隊。記憶庫沒有被改動，不需要還原。",
       "memory_new_store_beside_backups": "記憶庫是新的，但旁邊有升級前的備份。如果你剛還原過或改過資料路徑，記憶可能不在這裡；請先不要存新記憶，找團隊。",
+      "embedding_model_mismatch_name": "有 {{count}} 個靈魂的記憶索引是用「{{index_model}}」建的，和現在設定的嵌入模型「{{configured_model}}」不同：這些記憶暫時用語意搜尋找不到（記憶本身沒有遺失）。要恢復：把嵌入模型設定改回「{{index_model}}」後重新啟動 Touka（Docker 要重建容器；模型是用環境變數設定的，要改環境變數）；或在 Touka 停止時用重新嵌入工具以「{{configured_model}}」重建。",
+      "embedding_model_mismatch_length": "有 {{count}} 個靈魂的記憶索引向量長度是 {{index_dim}}，和現在設定的嵌入模型「{{configured_model}}」不同，是用別的模型建的：這些記憶暫時用語意搜尋找不到（記憶本身沒有遺失）。要恢復：把嵌入模型設定改回當初建索引的模型後重新啟動 Touka（Docker 要重建容器；模型是用環境變數設定的，要改環境變數）；或在 Touka 停止時用重新嵌入工具以「{{configured_model}}」重建。",
+      "embedding_model_mismatch_sample": "有 {{count}} 個靈魂的記憶索引和現在設定的嵌入模型「{{configured_model}}」對不上（抽查幾筆，算出來的向量不同），應該是用別的模型建的：這些記憶暫時用語意搜尋找不到（記憶本身沒有遺失）。要恢復：把嵌入模型設定改回當初建索引的模型後重新啟動 Touka（Docker 要重建容器；模型是用環境變數設定的，要改環境變數）；或在 Touka 停止時用重新嵌入工具以「{{configured_model}}」重建。",
       "warning_marker": "記憶系統有警告，詳情在右側欄"
     },
     "system_notice": {
@@ -2448,7 +2453,8 @@
     },
     "config": {
       "load_failed": "載入設定失敗",
-      "save_failed": "儲存設定失敗"
+      "save_failed": "儲存設定失敗",
+      "embedding_switch_needs_confirmation": "這樣換嵌入模型會讓既有記憶的語意搜尋失效，沒有存檔。請用首次設定精靈換（會先問你），或改設定檔的模型後重新啟動（Docker 要重建容器；用環境變數設模型的改環境變數）。"
     },
     "resource": {
       "not_found": "找不到請求的資源"

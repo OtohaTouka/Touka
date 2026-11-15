@@ -7,7 +7,10 @@
 
     python ToukaMemory/scripts/reembed_memory.py "D:/ToukaSanctuary/data/vault"
 
-可加 ``--model`` / ``--agents`` 覆寫。
+沒給 ``--model`` 時用設定的嵌入模型（環境或設定檔的 ``EMBEDDING_MODEL``，都沒有用內建預設），
+開跑先印出用哪個、從哪來；給了和設定不同的照跑、印警告（ADR-0315）。``--agents`` 可指定 agent。
+Docker 裡用 ``docker compose exec`` 跑時讀的是容器建立時的環境；要用目前設定檔的值，請用
+``docker compose run --rm``。
 """
 import argparse
 import sys
@@ -18,21 +21,35 @@ for _p in (_ROOT / "ToukaProxy", _ROOT / "ToukaMemory" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from memory_server.config_utils import get_embedding_model_and_source
 from memory_server.factual import FactsSchemaNotReadyError, FactsSchemaStatus
 from memory_server.services.reembed import open_factual_store_for_reembed, reembed_agent
+from memory_server.utils.embedding_index import same_model
 from memory_server.vector import VectorStore
 from src.models.identity import AgentIdentity
+
+
+def choose_model(cli_model: str | None) -> tuple[str, str, str | None]:
+    """（要用的模型, 來源, 設定的模型——只有給了不同的 ``--model`` 時才有，用來印警告）."""
+    configured, source = get_embedding_model_and_source()
+    if not cli_model:
+        return configured, source, None
+    return cli_model, "--model", None if same_model(cli_model, configured) else configured
 
 
 def main() -> None:
     """解析參數並對指定 agent 逐一重建向量記憶（從無損 FactualStore 讀事實重算）。"""
     parser = argparse.ArgumentParser(description="Re-embed agent vector memory from FactualStore.")
     parser.add_argument("vault", help="Vault dir containing core_memory.db + _qdrant_db")
-    parser.add_argument("--model", default="intfloat/multilingual-e5-base")
+    parser.add_argument("--model", default=None, help="Default: the configured EMBEDDING_MODEL")
     parser.add_argument("--agents", nargs="+", default=None)
     args = parser.parse_args()
 
-    print(f"[*] model = {args.model}")
+    model, source, configured = choose_model(args.model)
+    print(f"[*] model = {model}  (from: {source})")
+    if configured is not None:
+        print(f"[WARN] --model 和設定的嵌入模型（{configured}）不同：重建後 Touka 會提示這些記憶")
+        print("       用的是別的模型、語意搜尋用不到，直到設定改成同一個模型。")
     print(f"[*] vault = {args.vault}")
     try:
         factual = open_factual_store_for_reembed(args.vault)
@@ -43,7 +60,7 @@ def main() -> None:
             print(f"[ERROR] 記憶庫目前無法使用（{exc.status.value}）：請看 Touka 日誌的")
             print("        [Factual] 那幾行。")
         sys.exit(2)
-    vector_store = VectorStore(base_dir=args.vault, model_name=args.model)
+    vector_store = VectorStore(base_dir=args.vault, model_name=model)
 
     agents = args.agents
     if agents is None:
