@@ -10,8 +10,10 @@ export function useConfirmToast() {
       onConfirm: () => unknown,
       confirmLabel = t('hooks.use_confirm_toast.confirm_label'),
       onCancel?: () => unknown,
+      id?: string, // 給了就能在呼叫端自己關掉這個提示（toast.dismiss）
     ) => {
       toast.warning(message, {
+        id,
         action: {
           label: confirmLabel,
           onClick: () => { void onConfirm(); },

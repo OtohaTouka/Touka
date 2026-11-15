@@ -29,7 +29,7 @@ import {
 } from "./lib/constants";
 import { holdModelCall, modelCalls, modelHolding, releaseModel } from "./lib/control";
 import { approveButton } from "./lib/hook_checks";
-import { clickChatInList, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot } from "./lib/ui";
+import { clickChatInList, composer, loginInBrowser, openSideMenu, selectSoul, sendMessage, shot } from "./lib/ui";
 
 let adminToken = "";
 
@@ -441,4 +441,43 @@ test("提示還在時就送一則：存檔失敗的畫面取代提示", async ({
   await expect(page.getByRole("button", { name: "重新核對保存結果" })).toBeVisible();
   await expect(refresh).toHaveCount(0);
   await shot(page, info, "save-failed");
+});
+
+// 存檔有心跳寫的內容時不准「僅重試保存」，改用存檔內容後心跳的內容還在（ADR-0313）
+test("存檔失敗後心跳內容不會被重試蓋掉：改用存檔內容，訊息留在輸入框，再送一次", async ({ page }, info) => {
+  const soul = "AttentionAdopt";
+  const { email, token } = await newSoulAccount(adminToken, "adopt-stored", [soul]);
+  await seedChats(token, [{ id: "adopt-a", title: "改用甲", agentId: soul, updatedAt: 1 }]);
+  await loginInBrowser(page, email, PASSWORD);
+  await clickChatInList(page, "改用甲");
+  await activityPolled(page);
+
+  await awakenSoulOf(soul, { sessionId: "adopt-a", initPrompt: "實際驗證：心跳寫入" });
+  await waitForFinished(token, "adopt-a");
+  const mine = "沒更新就送的這一則";
+  await sendMessage(page, mine);
+  await page.getByRole("button", { name: "重新核對保存結果" }).click();
+  const adopt = page.getByRole("status").getByRole("button", { name: "改用存檔內容" });
+  await expect(adopt).toBeVisible();
+  await expect(page.getByRole("button", { name: "僅重試保存" })).toHaveCount(0);
+  await expect(composer(page)).toHaveValue(mine);
+  await shot(page, info, "adopt-offered");
+
+  await adopt.click();
+  await page.locator("[data-sonner-toast]").getByRole("button", { name: "改用存檔內容" }).click();
+  await expect(page.getByText(FAKE_TEXT_REPLY).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新核對保存結果" })).toHaveCount(0);
+  await expect(composer(page)).toHaveValue(mine);
+  await shot(page, info, "adopted");
+
+  await composer(page).press("Enter");
+  await expect
+    .poll(async () => {
+      const saved = await savedMessages(token, "adopt-a");
+      // 心跳的回覆和這一則的回覆都在：心跳的內容沒有被蓋掉
+      return saved.some((message) => message.role === "user" && message.content === mine) &&
+        saved.filter((message) => message.role === "assistant" && message.content === FAKE_TEXT_REPLY).length >= 2;
+    })
+    .toBe(true);
+  await expect(savedHints(page)).toHaveCount(0);
 });

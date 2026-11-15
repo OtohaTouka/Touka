@@ -12,7 +12,7 @@ import { captureRequestScope, isRequestScopeCurrent } from '../lib/connections';
 export function useSessionEvents(
   sessions: Session[],
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>,
-  syncSession: (session: Session) => Promise<SaveResult>
+  syncSession: (session: Session, operation?: object, options?: { overwrite?: boolean }) => Promise<SaveResult>
 ) {
   const { t } = useTranslation();
   const { confirmToast } = useConfirmToast();
@@ -58,7 +58,9 @@ export function useSessionEvents(
       });
 
       // 匯入前確認 + 覆蓋警告：同 id 對話將被取代（不可復原），先讓使用者核對則數再決定。
-      const summary = summarizeImport(processed.map(s => s.id), sessions.map(s => s.id));
+      // 同意的覆蓋只限這裡算進去的編號：伺服器有、畫面還沒抓到的對話不蓋（ADR-0313）。
+      const localIds = new Set(sessions.map(s => s.id));
+      const summary = summarizeImport(processed.map(s => s.id), [...localIds]);
       if (summary.total === 0) return;
       const confirmed = await new Promise<boolean>(resolve => {
         const msg = summary.overwrite > 0
@@ -91,7 +93,7 @@ export function useSessionEvents(
         return next.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       });
       const results = await Promise.all(finalList.map(async session => {
-        try { return await syncSession(session); } catch { return unknownSave(); }
+        try { return await syncSession(session, undefined, { overwrite: localIds.has(session.id) }); } catch { return unknownSave(); }
       }));
       if (!isRequestScopeCurrent(scope)) return;
       const saved = results.filter(isSaved).length;

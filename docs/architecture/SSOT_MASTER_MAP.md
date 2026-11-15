@@ -399,7 +399,7 @@
 | 固定ID assistant保存 | Proxy `utils/history_manager.py` | 明示UI producer，非legacy保證 |
 | terminal／stream fence | Proxy `services/stream_buffer_service.py` | UI dispatcher、state／resume／stop |
 | UTF-8／終態解碼 | Chat `lib/connections.ts` | live與cursor resume共用 |
-| 同scope/session writer | Chat `SessionListProvider.tsx` | 純轉換、保留草稿、核對／僅重試保存 |
+| 同scope/session writer | Chat `SessionListProvider.tsx` | 純轉換、保留草稿、核對／僅重試保存（比失敗那次的底，ADR-0313）／改用存檔內容 |
 | 任務保存失敗 | Memory `mission_manager.py` | Proxy `mission_tools.py`安全錯誤映射 |
 
 原session owner授權來源不變；14欄DB revision readset不等於前端可寫欄位集合。

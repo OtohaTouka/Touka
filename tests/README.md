@@ -1223,6 +1223,7 @@ python scripts/guard_all.py
 | `e2e-real/session-activity.spec.ts` ⭐ | ADR-0300 實際驗證：呼吸動畫與週期、心跳進度、新對話自動出現、查詢之間跑完、分頁藏起來、不重抓清單、下載失敗與晚到、舊查詢、換帳號、收起來也亮、查詢失敗與恢復、刪掉重建、列被搬動時的焦點與改名。 |
 | `e2e-real/session-attention.spec.ts` ⭐ | ADR-0300 實際驗證：核准與提問與外掛工具亮等您處理、同時提問排隊、重新整理、有新內容的小點、減少動態、無痕、可見範圍、手機、有新內容提示與存檔失敗。 |
 | `src/lib/__tests__/trim_graft.test.ts`、`src/lib/providers/__tests__/SessionListProvider.trimGraft.test.tsx` ⭐ | ADR-0302：讀後端驗過的共用範例判斷「是不是剪裁造成的」（多寫一則、內容或標題改過、沒剪任何一則都不算）；接上去時被剪的節點、主幹外的分支與舊摘要不寫回，逾時那條換成本機富版，接在被剪範圍或丟掉的分支上、改過被剪的那則都照舊提示；Provider 的一般保存、回覆收尾、「僅重試保存」都接一次、不跳提示，不是剪裁照舊提示、只送一次 |
+| `src/lib/providers/__tests__/SessionListProvider.retryGuard.test.tsx` ⭐ | ADR-0313：「僅重試保存」只在存檔和失敗那次存檔的底對得上時可用（心跳寫過、工具改設定都不准，回應遺失加後端重啟仍可）；改用存檔內容會重讀並換上、下一則照存檔版本送出；回覆收尾比版本號；匯入只有同意覆蓋的那一次以讀到的存檔版本送出 |
 | `src/lib/providers/__tests__/SessionActivityProvider.test.tsx`、`SessionListProvider.discover.test.tsx`、`src/lib/__tests__/session_activity.test.ts`、`src/hooks/__tests__/usePendingRequestQueue.test.ts` ⭐ | ADR-0300 工作狀態：顯示優先序、舊查詢不蓋本地、連續失敗、換帳號、小點、單筆下載帶版本與各種失敗（後端讀不出來滿 3 次才放棄、重試的排到後面）、提問排隊與依編號關。 |
 | `src/hooks/__tests__/useUnseenSessions.test.ts`、`src/hooks/__tests__/useReducedMotionPreference.test.ts` | ADR-0300：小點清單在瀏覽器裡壞掉（不是陣列）時當成空的，記、清、只留用得到的都不出錯；減少動態以 App 設定優先，「跟隨系統」才看系統。 |
 | `src/components/chat/__tests__/ModelLifecycleNotice.test.tsx` | ADR-0310：模型快下架提示：各種狀態的說法、誰在用、看不懂的回應當成沒有、換帳號先清空再重問、舊請求晚到不覆蓋、後端還在查時再問一次 |
