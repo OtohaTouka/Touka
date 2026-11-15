@@ -9,6 +9,7 @@
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
 | 2026-11-15 | **Node.js 24.22.1 → 24.22.3 安全更新**：11/11 官方安全發布，high 7 筆，大多是 HTTP/2 與 TLS 伺服器端的問題。三個 Dockerfile 改釘官方 `node:24.22.3-trixie-slim` 的 digest，CI、`package.json` 與說明文件跟著改，npm 仍是 11.19.1。Node 與映像上架都滿 3 天，照一般冷卻期。重建映像後生效 | [SECURITY](../SECURITY.md) |
+| 2026-11-15 | **「僅重試保存」不再蓋掉心跳寫的內容**：存檔失敗後，存檔裡有別處（心跳、別的裝置、工具）寫進的新內容時，不再出現「僅重試保存」，改成「改用存檔內容」：確認後換上存檔的版本，送不出去的那則訊息還在輸入框，可以直接再送。存檔沒人動過（例如只是回應遺失）照舊可以重試。匯入時在確認視窗同意覆蓋，就直接覆蓋同編號的對話，不用再靠重試。只改聊天畫面 | [ADR-0313](architecture/adr/0313-retry-save-only-when-stored-unchanged.md) |
 | 2026-11-15 | **依賴弱點修補：dnspython 2.9.0 → 2.9.2、opentelemetry-api 1.45.1 → 1.45.2**：11/13 公告的兩筆（dnspython 讀 zone 檔時吃光記憶體，Touka 用不到；opentelemetry-api 解析特製的追蹤欄位很慢，只有 ToukaDispatch 會解析外部送來的，只連得到本機和 compose 內部網路）。修補版 dnspython 11/04、opentelemetry-api 10/30 上架（台北時間），照一般 3 天冷卻期。產品功能不變，使用者不用做什麼，下次發版帶上；Guard #22 轉綠 | [SECURITY](../SECURITY.md) |
 | 2026-11-10 | **快取命中率與價目表更新**：系統監控多一欄近 7 天的快取命中率，照靈魂與用途分列；價目表逐筆對過五家官方價格頁，畫面標查證日期。沒有具體價格的模型改用該家已知最高價（寧高勿低），在用的會列出來；稽核帳本 `rate_source` 多一個值 `family`。`token_usage.json` 每個用途多一個 `daily`，保留 14 天，累計數字不變；歷史成本不回溯重算。 | ADR-0311 |
 | 2026-11-10 | **模型快下架時事先提醒**：靈魂、Auto 審查員、摘要員用的模型 30 天內要下架，或已標停用但沒有日期時，聊天畫面上方會提示（審查員和摘要員只有管理員看得到）。Anthropic、OpenAI 看官方清單的下架日期，Gemini 看回覆裡的模型狀態；模型比對不到不提醒，也不會自動換模型。`MODEL_LIFECYCLE_CHECK_ENABLED=false` 可以關掉對外查詢。 | [ADR-0310](architecture/adr/0310-model-retirement-notice.md) |

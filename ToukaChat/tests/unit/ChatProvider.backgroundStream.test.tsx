@@ -104,6 +104,17 @@ describe('ChatProvider × StreamRegistry 背景續跑整合（ADR-0080）', () =
     ];
   });
 
+  // 改用存檔內容（ADR-0313）或別處改過模式：重抓到的對話模式和清單不同時，畫面模式跟著存檔
+  it('切換後重抓到的模式和清單不同：畫面模式跟著重抓的結果', async () => {
+    const { result } = renderHook(() => useChat(), { wrapper });
+    await act(async () => { await result.current.handleSwitchSession('sess-B'); });
+    expect(result.current.authLevel).toBe('Manual');
+    // 畫面還沒重畫、清單已換成存檔的版本：和「改用存檔內容」之後按重新載入同一個情況
+    sessionsArr = sessionsArr.map(session => session.id === 'sess-B' ? { ...session, auth_level: 'Auto' } : session);
+    await act(async () => { await result.current.handleSwitchSession('sess-B'); });
+    expect(result.current.authLevel).toBe('Auto');
+  });
+
   it('切走後背景續跑、切回看到累積、完成寫回', async () => {
     const { result } = renderHook(() => useChat(), { wrapper });
 
