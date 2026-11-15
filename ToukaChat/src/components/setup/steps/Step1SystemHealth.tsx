@@ -22,6 +22,22 @@ const MODEL_OPTIONS = [
 
 type Phase = 'idle' | 'downloading' | 'switching' | 'confirm';
 
+/** 要確認時後端回的：記憶實際用的模型（知道才有）、向量長度與判定（ADR-0315），不是目前設定。 */
+interface ConfirmInfo { target: string; indexModel: string | null; indexDim: number | null; outcome: string }
+
+/** 知道名稱用原本的句子；只知道長度不同說長度；其他（判斷不了、讀不到）說看不出來。 */
+function switchWarning(info: ConfirmInfo): { key: string; values: Record<string, string | number> } {
+  if (info.indexModel) return { key: 'setup.step1.switch_warning', values: { current: info.indexModel, target: info.target } };
+  if (info.outcome === 'mismatch' && info.indexDim) {
+    return { key: 'setup.step1.switch_warning_length', values: { dim: info.indexDim, target: info.target } };
+  }
+  return { key: 'setup.step1.switch_warning_unknown', values: { target: info.target } };
+}
+
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+const lengthOrNull = (value: unknown): number | null =>
+  (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null);
+
 export function Step1SystemHealth({ status, onNext }: Props) {
   const { t } = useTranslation();
   const currentModel = status?.embedding_model ?? "all-MiniLM-L6-v2";
@@ -29,7 +45,7 @@ export function Step1SystemHealth({ status, onNext }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [pct, setPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [confirmInfo, setConfirmInfo] = useState<{ current: string; target: string } | null>(null);
+  const [confirmInfo, setConfirmInfo] = useState<ConfirmInfo | null>(null);
   // 目前模型下載失敗（例如離線）時可以先略過，第一次用記憶時再下載；換模型失敗不能略過。
   const [skippable, setSkippable] = useState(false);
   const cancelledRef = useRef(false);
@@ -41,6 +57,7 @@ export function Step1SystemHealth({ status, onNext }: Props) {
   }, []);
 
   const busy = phase === 'downloading' || phase === 'switching';
+  const warning = confirmInfo ? switchWarning(confirmInfo) : null;
 
   // ToukaException 的 detail 為物件 {message,…}；FastAPI 預設為字串——兩者皆容忍。
   function extractError(d: unknown, fallbackKey: string): string {
@@ -82,7 +99,12 @@ export function Step1SystemHealth({ status, onNext }: Props) {
     }
     const body = await res.json();
     if (body.status === "confirmation_required") {
-      setConfirmInfo({ current: body.current_model, target: body.target_model });
+      setConfirmInfo({
+        target: String(body.target_model ?? model),
+        indexModel: textOrNull(body.index_model),
+        indexDim: lengthOrNull(body.index_dim),
+        outcome: String(body.index_outcome ?? ''),
+      });
       setPhase('confirm');
       return;
     }
@@ -194,11 +216,11 @@ export function Step1SystemHealth({ status, onNext }: Props) {
         </div>
       )}
 
-      {phase === 'confirm' && confirmInfo && (
+      {phase === 'confirm' && warning && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-3">
           <p className="text-sm flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
-            <span>{t('setup.step1.switch_warning', { current: confirmInfo.current, target: confirmInfo.target })}</span>
+            <span>{t(warning.key, warning.values)}</span>
           </p>
           <div className="flex gap-3">
             <button

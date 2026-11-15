@@ -11,9 +11,13 @@ import i18n from "./i18n";
 export type SystemCheckState = "checking" | "auth_required" | "forbidden" | "unavailable" | "degraded" | "ready";
 /** 記憶提示（/v1/memory 的 memory_notices）：只有代碼與等級，文字由前端翻譯；不影響狀態判斷。 */
 export type MemoryNoticeLevel = "info" | "warning";
-export interface MemoryNotice { code: string; level: MemoryNoticeLevel; count?: number; }
+/** 嵌入模型對不上（ADR-0315）帶的欄位：判斷依據、設定的模型、記憶用的模型（知道才有）、向量長度。 */
+interface EmbeddingNoticeFields {
+    basis?: string; configured_model?: string; index_model?: string; index_dim?: number;
+}
+export interface MemoryNotice extends EmbeddingNoticeFields { code: string; level: MemoryNoticeLevel; count?: number; }
 /** 系統提示（/v1/health 的 system_notices，例如設定讀不到而停掉的功能）：同樣只有代碼與等級。 */
-export type SystemNotice = Omit<MemoryNotice, "count">;
+export type SystemNotice = Omit<MemoryNotice, "count" | keyof EmbeddingNoticeFields>;
 interface SystemStatus {
     isConnected: boolean;
     isMemoryActive: boolean;
@@ -40,6 +44,13 @@ function parseNotices(value: unknown): MemoryNotice[] {
     return value.filter(record).filter(item => typeof item.code === "string" && item.code !== "").map(item => {
         const notice: MemoryNotice = { code: String(item.code), level: item.level === "warning" ? "warning" : "info" };
         if (typeof item.count === "number" && Number.isSafeInteger(item.count) && item.count >= 0) notice.count = item.count;
+        for (const field of ["basis", "configured_model", "index_model"] as const) {
+            const text = item[field];
+            if (typeof text === "string" && text !== "") notice[field] = text;
+        }
+        if (typeof item.index_dim === "number" && Number.isSafeInteger(item.index_dim) && item.index_dim > 0) {
+            notice.index_dim = item.index_dim;
+        }
         return notice;
     });
 }
