@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -51,6 +52,7 @@ _SSE = {"content-type": "text/event-stream"}
 _ZERO = {"cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
 _MODES = ("one", "semantic", "bytes")
 _PING = b": ping\n\n"
+_PING_GAP = 0.01  # Windows 計時器一格約 0.0156 秒，實際約睡這麼久，遠小於閒置的 0.2 秒
 _CLOSE_TURNS = 3
 
 
@@ -95,12 +97,23 @@ def _pieces(events: list[bytes], mode: str) -> list[bytes]:
     return {"one": [body], "semantic": list(events), "bytes": byte_cuts(body)}[mode]
 
 
+@dataclass(frozen=True)
+class _PingsUntil:
+    """腳本步驟：只送 ping，送到請求到上游後第 ``seconds`` 秒（看經過時間，不排固定次數）。"""
+
+    seconds: float
+
+
 class _Upstream(httpx2.AsyncByteStream):
-    """腳本化的上游位元組：bytes＝送出、float＝等幾秒、Event＝停住等它；跑完＝連線結束。"""
+    """腳本化的上游位元組；跑完＝連線結束。
+
+    bytes＝送出、float＝等幾秒、Event＝停住等它、``_PingsUntil``＝一直送 ping。
+    """
 
     def __init__(self, script: list, waiting: asyncio.Event) -> None:
         self._script = script
         self._waiting = waiting
+        self._opened = asyncio.get_running_loop().time()  # 請求到上游的時間
         self.closed = asyncio.Event()
 
     async def __aiter__(self) -> Any:
@@ -111,6 +124,11 @@ class _Upstream(httpx2.AsyncByteStream):
                 # SDK 一段讀完、處理完才要下一段（不預讀）：走到這裡＝前面的事件都已彙整
                 self._waiting.set()
                 await step.wait()
+            elif isinstance(step, _PingsUntil):
+                loop = asyncio.get_running_loop()
+                while loop.time() < self._opened + step.seconds:
+                    await asyncio.sleep(_PING_GAP)
+                    yield _PING
             else:
                 await asyncio.sleep(step)
 
@@ -291,23 +309,38 @@ async def test_streamed_request_matches_the_u4a_wire_fixture(monkeypatch):
 # ── 兩段逾時、整輪上限、取消（D3、附註 27） ──────────────────────────────────
 
 
-@pytest.fixture
-def short(monkeypatch):
+def _shorten(monkeypatch) -> None:
     monkeypatch.setattr(stream_timeout, "FIRST_EVENT_TIMEOUT_S", _FIRST)
     monkeypatch.setattr(stream_timeout, "IDLE_TIMEOUT_S", _IDLE)
     monkeypatch.setattr(stream_timeout, "ROUND_TIMEOUT_S", _ROUND)
+
+
+@pytest.fixture
+def short(monkeypatch):
+    _shorten(monkeypatch)
 
 
 def _timeout(phase: str) -> RoundError:
     return RoundError(f"❌ **OpenAI 連線錯誤**\n\n`上游串流逾時：{phase}`")
 
 
-async def test_pings_keep_a_slow_stream_alive(monkeypatch, short):
-    """只有 ping 的 0.8 秒（超過閒置也超過首事件，沒超過整輪上限）不逾時。"""
+async def test_pings_keep_a_slow_stream_alive(monkeypatch):
+    """只有 ping 的一段撐過首事件期限（也就超過閒置），沒超過整輪上限：不逾時。
+
+    ping 送到請求到上游後「首事件期限＋半個閒置期」；首事件期限從送出前算起，停的時候一定已經
+    過了它。看經過時間、不排固定次數：以前排 16 次 0.05 秒，Windows 計時器一次常睡 0.0625 秒，
+    0.8 秒拖成 1 秒，離 1.2 秒的整輪上限只剩一點。
+
+    先用預設逾時跑一輪暖機才縮短：同一個行程第一次處理這些事件（SDK 第一次處理 completed）在
+    Windows 本機要 0.2 秒以上，比縮短的閒置還久；測試順序是打亂的（pytest-randomly），這條隨時
+    可能是行程裡第一個處理它們的。
+    """
     events = _text_events()
-    alive = [step for _ in range(16) for step in (0.05, _PING)]
-    raw, _, _ = await _round(monkeypatch, [events[0], *alive, *events[1:]])
-    assert raw["output"] == [_MSG]
+    await _round(monkeypatch, events)
+    _shorten(monkeypatch)
+    raw, _, _ = await _round(monkeypatch,
+                             [events[0], _PingsUntil(_FIRST + _IDLE / 2), *events[1:]])
+    assert raw == _final(output=[_MSG], usage=_USAGE)
 
 
 async def test_pings_forever_hit_the_round_cap(monkeypatch, short):

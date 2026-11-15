@@ -4,7 +4,9 @@
   httpx 真的 ``Request``／``Response``，回應本體是非同步位元組串流。
 - 送出內容從 ``request.content`` 解析（``sent``），不看呼叫參數。
 - 記請求次數；每個請求呼叫一次 ``on_request(n)``（例如推進假時鐘）；``assert_all_closed()``
-  檢查每個回應都關了。
+  檢查每個回應都關了，而且關閉做完了。
+- 回應停在 Event 上時 set ``waiting``（取消測試等它才取消，不睡固定秒數）；``close_turns``＞0
+  時關閉回應要等幾輪事件迴圈，取消時沒等那一輪收尾就往外拋，``assert_all_closed()`` 會紅。
 - ``stream_reply(fixture, mode)`` 把非串流回應 dict 改成 SSE：``one``＝1 個 chunk；``semantic``＝
   文字、思考、工具參數拆段、用量放最後的 ``choices: []`` chunk；``bytes``＝把 semantic 的位元組
   用固定種子亂切（至少一刀切在 UTF-8 字元中間）。都以 ``[DONE]`` 結尾。
@@ -30,19 +32,30 @@ MODES = ("one", "semantic", "bytes")
 class _Pieces(httpx.AsyncByteStream):
     """腳本化的回應位元組：bytes＝送出、float＝等幾秒、Event＝停住等它、例外＝中途斷線。"""
 
-    def __init__(self, pieces: list) -> None:
+    def __init__(self, pieces: list, waiting: asyncio.Event, close_turns: int) -> None:
         self._pieces = pieces
+        self._waiting = waiting
+        self._close_turns = close_turns
+        self.closed = False  # aclose 做完了（不只是 httpx 標了 is_closed）
 
     async def __aiter__(self) -> Any:
         for piece in self._pieces:
             if isinstance(piece, bytes):
                 yield piece
             elif isinstance(piece, asyncio.Event):
+                # httpx 不預讀，讀的一方要下一段才走到這裡；自寫 SSE 處理完前一段的事件才要下一段
+                self._waiting.set()
                 await piece.wait()
             elif isinstance(piece, BaseException):
                 raise piece
             else:
                 await asyncio.sleep(piece)
+
+    async def aclose(self) -> None:
+        # httpx 先標 is_closed 才呼叫這裡；close_turns＞0 時像真的連線一樣要等幾輪事件迴圈
+        for _ in range(self._close_turns):
+            await asyncio.sleep(0)
+        self.closed = True
 
 
 @dataclass
@@ -58,11 +71,15 @@ class Reply:
 class FakeUpstream:
     """``httpx.AsyncClient.send`` 的替身（用 ``install(monkeypatch)`` 裝上）。"""
 
-    def __init__(self, replies: list[Reply], *, on_request: Any = None) -> None:
+    def __init__(self, replies: list[Reply], *, on_request: Any = None,
+                 close_turns: int = 0) -> None:
         self.replies = list(replies)
         self.requests: list[httpx.Request] = []
         self.responses: list[httpx.Response] = []
+        self._streams: list[_Pieces] = []
         self._on_request = on_request
+        self._close_turns = close_turns  # 關閉回應要等幾輪事件迴圈（取消測試用）
+        self.waiting = asyncio.Event()  # 有回應停在 Event 上了（前面送出的都已讀走）
 
     def send_fn(self) -> Any:
         """可直接放到 ``httpx.AsyncClient.send`` 的函式（smoke 用 ``patch.object``）。"""
@@ -86,8 +103,10 @@ class FakeUpstream:
         reply = self.replies.pop(0)
         if reply.error is not None:
             raise reply.error
-        response = httpx.Response(reply.status, headers=reply.headers,
-                                  stream=_Pieces(reply.pieces), request=request)
+        body = _Pieces(reply.pieces, self.waiting, self._close_turns)
+        response = httpx.Response(reply.status, headers=reply.headers, stream=body,
+                                  request=request)
+        self._streams.append(body)
         self.responses.append(response)
         if not stream:
             await response.aread()
@@ -99,8 +118,10 @@ class FakeUpstream:
         return [json.loads(request.content) for request in self.requests]
 
     def assert_all_closed(self) -> None:
-        """每個回應都已關閉（含錯誤回應）。"""
-        assert [r.is_closed for r in self.responses] == [True] * len(self.responses)
+        """每個回應都已關閉（含錯誤回應），而且關閉做完了。"""
+        closed = [r.is_closed and s.closed for r, s in zip(self.responses, self._streams,
+                                                            strict=True)]
+        assert closed == [True] * len(self.responses)
 
 
 def json_reply(body: Any, status: int = 200) -> Reply:
