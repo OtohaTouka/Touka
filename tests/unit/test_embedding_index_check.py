@@ -131,12 +131,11 @@ class _SyntheticCheckFailure(Exception):
     """A failure raised by the check double below."""
 
 
-def _load_through_manager(root: Path) -> VectorStore:
-    """The production path: MemoryManager builds the store and hangs the check on it."""
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(vector_module, "_get_app_data_dir", lambda: str(root))
-        patch.setattr(MemoryManager, "_vector_store_singleton", None)
-        return MemoryManager().get_vector_store()
+def _load_through_manager() -> VectorStore:
+    """The production path: MemoryManager builds the store (under ``zone_data_root``) and hangs
+    the check on it."""
+    MemoryManager._vector_store_singleton = None
+    return MemoryManager().get_vector_store()
 
 
 def _forget_manager_store(root: Path) -> None:
@@ -306,7 +305,7 @@ def test_no_status_means_no_check(vectors: VectorStore, store: fm.FactualStore,
 
 
 def test_manager_runs_the_check_once_when_the_model_loads(
-    tmp_path: Path, store: fm.FactualStore, encoder: type[_SandboxEncoder],
+    zone_data_root: Path, store: fm.FactualStore, encoder: type[_SandboxEncoder],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     seen: list[Any] = []
@@ -314,14 +313,14 @@ def test_manager_runs_the_check_once_when_the_model_loads(
         "memory_server.services.manager.check_after_model_load",
         lambda vs, factual: seen.append((vs, factual)),
     )
-    built = _load_through_manager(tmp_path)
+    built = _load_through_manager()
     try:
         assert seen == []
         _ = built.model
         _ = built.model
         assert seen == [(built, store)]
     finally:
-        _forget_manager_store(tmp_path)
+        _forget_manager_store(zone_data_root)
 
 
 def test_directly_built_store_does_not_check(
@@ -339,15 +338,15 @@ def test_directly_built_store_does_not_check(
 
 
 def test_a_failing_check_does_not_break_loading(
-    tmp_path: Path, store: fm.FactualStore, encoder: type[_SandboxEncoder],
+    zone_data_root: Path, store: fm.FactualStore, encoder: type[_SandboxEncoder],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def broken(*_args: object) -> None:
         raise _SyntheticCheckFailure
 
     monkeypatch.setattr("memory_server.services.manager.check_after_model_load", broken)
-    built = _load_through_manager(tmp_path)
+    built = _load_through_manager()
     try:
         assert built.model.get_sentence_embedding_dimension() == DIM
     finally:
-        _forget_manager_store(tmp_path)
+        _forget_manager_store(zone_data_root)

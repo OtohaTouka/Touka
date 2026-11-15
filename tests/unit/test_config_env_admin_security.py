@@ -170,10 +170,11 @@ def test_config_env_post_writes_to_resolved_env_path(
     env.write_text("", encoding="utf-8")  # 檔案存在但空
     monkeypatch.setenv("TOUKA_ENV_FILE", str(env))
 
-    # 用非 provider 設定鍵（避開即時套用/探測網路路徑，純驗寫入目標）。
+    # 用非 provider 設定鍵（避開即時套用/探測網路路徑，純驗寫入目標）。不用嵌入模型：
+    # 換模型要先過確認規則（ADR-0315，`test_embedding_switch_guard.py`），這裡只驗寫入目標。
     resp = admin_client.post(
         "/config/env",
-        json={"settings": {"EMBEDDING_MODEL": "multilingual-e5-base"}},
+        json={"settings": {"LOG_LEVEL": "DEBUG"}},
     )
     assert resp.status_code == 200
-    assert "EMBEDDING_MODEL=multilingual-e5-base" in env.read_text(encoding="utf-8")
+    assert "LOG_LEVEL=DEBUG" in env.read_text(encoding="utf-8")

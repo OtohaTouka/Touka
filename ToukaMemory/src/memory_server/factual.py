@@ -885,7 +885,12 @@ class FactualStore:
             return cursor.rowcount or 0
 
     def agent_ids_with_facts(self) -> set[str]:
-        """事實庫裡有記憶（含封存）的 agent id；比對語意索引用（ADR-0315）。讀不到照常丟例外."""
+        """事實庫裡有記憶（含封存）的 agent id；比對語意索引用（ADR-0315）。讀不到照常丟例外.
+
+        和其他讀取一樣先過查詢閘：檔頭讀不到時直接丟，不去讀而把庫標成「讀不到過」——
+        側欄與啟動檢查只是看狀態，不能讓庫修好之後還一直顯示讀不到。
+        """
+        self._require_schema(write=False)
         rows = self._fetch_rows(
             "SELECT DISTINCT agent_id FROM facts WHERE agent_id IS NOT NULL", []
         )

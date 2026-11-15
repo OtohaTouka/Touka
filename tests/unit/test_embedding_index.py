@@ -491,3 +491,19 @@ def test_agent_ids_with_facts_includes_archived(store: fm.FactualStore) -> None:
     store.archive_fact(bob, saved["id"])
 
     assert store.agent_ids_with_facts() == {"Alice", "Bob"}
+
+
+def test_listing_agents_of_an_unreadable_store_does_not_stick(vault: Path) -> None:
+    """側欄與啟動檢查碰到讀不到的庫：丟例外，但不把庫標成「讀不到過」（修好就恢復）."""
+    vault.mkdir(parents=True)
+    db = vault / "core_memory.db"
+    db.write_bytes(b"this is not a sqlite database " * 64)
+    broken = fm.FactualStore(base_dir=vault)
+
+    with pytest.raises(fm.FactsSchemaNotReadyError):
+        broken.agent_ids_with_facts()
+
+    db.unlink()
+    fm.FactualStore(base_dir=vault)  # 別的實例建好新庫
+
+    assert broken.current_schema_status() is fm.FactsSchemaStatus.CURRENT
