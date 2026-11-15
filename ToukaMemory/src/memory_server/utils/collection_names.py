@@ -28,8 +28,12 @@ def collection_name_for(identity: AgentIdentity) -> str:
     return collection_name_for_agent_id(identity.agent_id)
 
 
-def collection_name_for_agent_id(agent_id: str) -> str:
-    """同 ``collection_name_for``，給只有 agent id 的地方（事實庫列出有記憶的 agent）用."""
+def collection_name_for_agent_id(agent_id: str) -> str:  # noqa: IDENTITY_SSOT
+    """同 ``collection_name_for``，給只有 agent id 的地方（事實庫列出有記憶的 agent）用.
+
+    事實庫存的是 agent id 字串；ToukaMemory 不能建 Proxy 的 ``AgentIdentity``（禁令 14），
+    這裡只算名稱、不做授權（ADR-0315）。
+    """
     return COLLECTION_PREFIX + "".join(c if c.isalnum() else "_" for c in agent_id)
 
 

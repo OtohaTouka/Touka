@@ -8,10 +8,12 @@ import os
 from pathlib import Path
 
 from dotenv import set_key
+from memory_server.config_utils import DEFAULT_EMBEDDING_MODEL
 from pydantic import BaseModel
 
 from src.config import CONFIG_DIR, ENV_FILE_LOCK, is_public_secret, resolve_env_file_path
-from src.core.exceptions import ToukaException
+from src.core.exceptions import ErrorCode, ToukaException
+from src.services import embedding_service
 from src.services.auth_service import AuthService
 from src.services.providers import registry
 
@@ -130,7 +132,11 @@ class SetupService:
 
     def _get_embedding_model(self) -> str:
         raw = os.environ.get("EMBEDDING_MODEL", "").strip()  # noqa: ENV_SSOT_VIOLATION
-        return raw or "all-MiniLM-L6-v2"
+        return raw or DEFAULT_EMBEDDING_MODEL
+
+    def uses_embedding_model(self, model: str) -> bool:
+        """設定檔裡的嵌入模型是不是 ``model``（寫入這個值不會換模型）。"""
+        return embedding_service.env_file_uses_model(self._env_file_path, model)
 
     # ------------------------------------------------------------------
     # Apply
@@ -143,6 +149,8 @@ class SetupService:
         data_path: str | None = None,
         workspace_root: str | None = None,
         embedding_model: str | None = None,
+        *,
+        embedding_switch_checked: bool = False,
     ) -> None:
         """Write provided values to the .env file.
 
@@ -152,6 +160,10 @@ class SetupService:
         檢查（宿主路徑對容器不可見，由掛載時把關）。Raises ValueError for blank values, a
         publicly known DISPATCH_TOKEN／TOUKA_AUTH_SECRET value or, in native mode, a path
         that is not an existing directory.
+
+        換嵌入模型預設不寫（ADR-0315）：``embedding_model`` 會改掉設定檔裡的模型時，呼叫端要先
+        評估過、傳 ``embedding_switch_checked=True``；否則鎖內重讀設定檔，會換模型就整筆拒絕
+        （``EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION``），什麼都不寫。
         """
         writes: list[tuple[str, str]] = []
 
@@ -184,5 +196,11 @@ class SetupService:
             writes.append(("EMBEDDING_MODEL", embedding_model))
 
         with ENV_FILE_LOCK:  # 和其他寫 .env 的地方互斥（ADR-0288）
+            if (
+                embedding_model is not None
+                and not embedding_switch_checked
+                and not self.uses_embedding_model(embedding_model)
+            ):
+                raise ToukaException(ErrorCode.EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION)
             for env_var, value in writes:
                 set_key(str(self._env_file_path), env_var, value, quote_mode="never")

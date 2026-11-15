@@ -2448,7 +2448,8 @@
     },
     "config": {
       "load_failed": "載入設定失敗",
-      "save_failed": "儲存設定失敗"
+      "save_failed": "儲存設定失敗",
+      "embedding_switch_needs_confirmation": "這樣換嵌入模型會讓既有記憶的語意搜尋失效，沒有存檔。請用首次設定精靈換（會先問你），或改設定檔的模型後重新啟動（Docker 要重建容器；用環境變數設模型的改環境變數）。"
     },
     "resource": {
       "not_found": "找不到請求的資源"

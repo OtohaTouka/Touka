@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 from dotenv import get_key
+from memory_server.utils.embedding_index import TargetEvaluation, TargetOutcome
 from src.services import embedding_service as es
 
 _NET_ERR = RuntimeError("network down")  # 模組級：raise 變數避免 TRY003（字面訊息）
@@ -262,18 +263,22 @@ def test_perform_download_error_sets_error_state(monkeypatch):
     assert "network" in st.get("error", "")
 
 
-# --- 切換防呆③：既有記憶 + 換模型 → 需確認 ---
+# --- 切換防呆③：預設要確認，即時證據說安全才不用（ADR-0315；判定表全列在
+# test_embedding_switch_guard.py）---
+
+_MISMATCH = TargetEvaluation(TargetOutcome.MISMATCH, "all-MiniLM-L6-v2", 384)
+
 
 def test_evaluate_switch_same_model_no_confirmation(monkeypatch):
     monkeypatch.setattr(es, "get_current_embedding_model", lambda: "all-MiniLM-L6-v2")
-    monkeypatch.setattr(es, "has_existing_memories", lambda: True)
+    monkeypatch.setattr(es, "evaluate_index", lambda _target: _MISMATCH)
     ev = es.evaluate_switch("all-MiniLM-L6-v2")
     assert ev["requires_confirmation"] is False
 
 
 def test_evaluate_switch_diff_model_with_memories_requires_confirmation(monkeypatch):
     monkeypatch.setattr(es, "get_current_embedding_model", lambda: "all-MiniLM-L6-v2")
-    monkeypatch.setattr(es, "has_existing_memories", lambda: True)
+    monkeypatch.setattr(es, "evaluate_index", lambda _target: _MISMATCH)
     ev = es.evaluate_switch("paraphrase-multilingual-MiniLM-L12-v2")
     assert ev["requires_confirmation"] is True
     assert ev["has_memories"] is True
@@ -281,7 +286,9 @@ def test_evaluate_switch_diff_model_with_memories_requires_confirmation(monkeypa
 
 def test_evaluate_switch_diff_model_no_memories_ok(monkeypatch):
     monkeypatch.setattr(es, "get_current_embedding_model", lambda: "all-MiniLM-L6-v2")
-    monkeypatch.setattr(es, "has_existing_memories", lambda: False)
+    monkeypatch.setattr(
+        es, "evaluate_index", lambda _target: TargetEvaluation(TargetOutcome.NO_MEMORIES)
+    )
     ev = es.evaluate_switch("paraphrase-multilingual-MiniLM-L12-v2")
     assert ev["requires_confirmation"] is False
 

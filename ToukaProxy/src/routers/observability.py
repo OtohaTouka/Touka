@@ -11,6 +11,12 @@ from zoneinfo import ZoneInfo
 import psutil
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from memory_server.factual import FactsSchemaStatus, FactualStore, find_unmigrated_jsonl_agents
+from memory_server.utils.embedding_index import (
+    IndexStatus,
+    current_index_status,
+    fresh_index_status,
+    refresh_index_status,
+)
 from memory_server.utils.memory_worker import run_memory_job
 from memory_server.utils.zone_paths import Anchor
 
@@ -59,6 +65,12 @@ MEMORY_NOTICE_UPGRADE_LOCKED = "memory_upgrade_locked"
 MEMORY_NOTICE_STORE_UNREADABLE = "memory_store_unreadable"
 MEMORY_NOTICE_UPGRADE_FAILED = "memory_upgrade_failed"
 MEMORY_NOTICE_NEW_STORE_BESIDE_BACKUPS = "memory_new_store_beside_backups"
+# 有記憶的語意索引是用別的嵌入模型建的（ADR-0315；欄位見 IndexStatus.notice_fields）。
+MEMORY_NOTICE_EMBEDDING_MODEL_MISMATCH = "embedding_model_mismatch"
+# 側欄最多等記憶工作者重算這麼久；逾時或失敗用上一次的結果（工作者忙時不拖慢側欄）。
+INDEX_CHECK_WAIT_S = 2.0
+# 這段時間內算過、沒被標成過期就直接用，不再排工作者。
+INDEX_STATUS_MAX_AGE_S = 5.0
 _SCHEMA_STATUS_NOTICES = {
     FactsSchemaStatus.NO_SPACE: MEMORY_NOTICE_UPGRADE_NO_SPACE,
     FactsSchemaStatus.LOCKED: MEMORY_NOTICE_UPGRADE_LOCKED,
@@ -76,6 +88,54 @@ def memory_schema_notices(
         MEMORY_NOTICE_NEW_STORE_BESIDE_BACKUPS if beside_backups else None,
     ]
     return [{"code": code, "level": MEMORY_NOTICE_LEVEL_WARNING} for code in codes if code]
+
+
+def embedding_index_notices(status: IndexStatus | None) -> list[dict[str, Any]]:
+    """語意索引狀態 → 警告級提示（帶模型名稱與長度）；沒有不符就是空清單。"""
+    fields = status.notice_fields() if status else None
+    if not fields:
+        return []
+    return [
+        {
+            "code": MEMORY_NOTICE_EMBEDDING_MODEL_MISMATCH,
+            "level": MEMORY_NOTICE_LEVEL_WARNING,
+            **fields,
+        }
+    ]
+
+
+def check_embedding_index_at_startup(store: FactualStore | None) -> None:
+    """啟動時算一次語意索引狀態；不符記 warning。檢查失敗只記日誌，不擋啟動。"""
+    try:
+        status = refresh_index_status(store)
+    except Exception:
+        logger.exception("[Startup] embedding model check failed; startup continues")
+        return
+    fields = status.notice_fields() if status else None
+    if fields:
+        logger.warning(
+            "Memories in %s index(es) were indexed with a different embedding model than the "
+            "configured %s (memories use %s, vector length %s); semantic search on them is off "
+            "until they are re-embedded",
+            fields["count"],
+            fields["configured_model"],
+            fields["index_model"] or "an unknown model",
+            fields["index_dim"],
+        )
+
+
+async def _embedding_index_status(store: FactualStore | None) -> IndexStatus | None:
+    """側欄用：剛算過就直接用；否則排給記憶工作者重算，等不到或失敗就用上一次的結果。"""
+    fresh = fresh_index_status(INDEX_STATUS_MAX_AGE_S)
+    if fresh is not None:
+        return fresh
+    try:
+        return await asyncio.wait_for(
+            run_memory_job(refresh_index_status, store), INDEX_CHECK_WAIT_S
+        )
+    except Exception:  # 含逾時；重算本身的讀取失敗已在記憶端記過
+        logger.debug("[Memory] embedding model check not ready; using the last one", exc_info=True)
+        return current_index_status()
 
 
 def collect_memory_notices() -> list[dict[str, Any]]:
@@ -264,6 +324,7 @@ async def get_memory_stats(
         "memory_notices": [
             *ctx.get("memory_notices", []),
             *memory_schema_notices(schema_status, beside_backups=beside_backups),
+            *embedding_index_notices(await _embedding_index_status(store)),
         ],
     }
 

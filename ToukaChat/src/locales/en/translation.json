@@ -2458,7 +2458,8 @@
     },
     "config": {
       "load_failed": "Failed to load configuration",
-      "save_failed": "Failed to save configuration"
+      "save_failed": "Failed to save configuration",
+      "embedding_switch_needs_confirmation": "This embedding model change would stop semantic search on existing memories, so nothing was saved. Use the setup wizard (it asks first), or edit the model in the settings file and restart (with Docker, recreate the container; if the model is set by an environment variable, change that instead)."
     },
     "resource": {
       "not_found": "The requested resource was not found"

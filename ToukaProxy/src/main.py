@@ -91,7 +91,7 @@ from .routers.mcp import router as mcp_router
 from .routers.mcp_oauth import router as mcp_oauth_router
 from .routers.mcp_oauth_workload import router as mcp_oauth_workload_router
 from .routers.models import router as models_router
-from .routers.observability import collect_memory_notices
+from .routers.observability import check_embedding_index_at_startup, collect_memory_notices
 from .routers.observability import router as observability_router
 from .routers.permissions import router as permissions_router
 from .routers.proxy import router as proxy_router
@@ -317,6 +317,8 @@ def _prepare_memory_store(app: FastAPI) -> None:
     except Exception:
         logger.exception("[Startup] memory store could not be opened")
         app.state.context["memory_store_open_failed"] = True  # /memory 只在還沒建成時出提示
+    # 記憶的語意索引是不是用現在設定的嵌入模型建的（ADR-0315）；只讀，失敗不擋啟動
+    check_embedding_index_at_startup(app.state.context.get("memory_factual_store"))
 
 
 @dataclass
