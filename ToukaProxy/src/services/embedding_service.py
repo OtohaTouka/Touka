@@ -104,7 +104,9 @@ class _DownloadProgress:
 
     排除用不到的格式後，e5 幾乎只剩一個約 1.1GB 的權重檔，只按檔數算會一直停在 0%。
     實例直接當 `hf_hub_download` 的 `tqdm_class`：它只用到「呼叫建立、context manager、update」，
-    一般下載與 Xet 下載都一樣。
+    一般下載與 Xet 下載都一樣。同一次下載裡的重試沿用同一個物件；伺服器不接受續傳時 `update`
+    會收到負數扣回。Xet 的回呼由背景計時呼叫，可能在下載結束後才到，所以結束時先 `stop()`，
+    之後的回報不再寫狀態。
     """
 
     def __init__(self, model_name: str, total: int) -> None:
@@ -113,6 +115,7 @@ class _DownloadProgress:
         self._finished = 0  # 已完成檔案的位元組
         self._file_size = 0
         self._in_file = 0  # 目前這個檔這次已下載的位元組
+        self._stopped = False
 
     def start_file(self, size: int) -> None:
         self._file_size = size
@@ -124,11 +127,20 @@ class _DownloadProgress:
         self.publish(self._finished)
 
     def publish(self, done: int) -> None:
-        _set_state(self._model, status="downloading", downloaded=done, total=self._total,
-                   pct=min(100, int(done / self._total * 100)))
+        done = max(0, done)
+        with _lock:  # 檢查與寫入同一把鎖：stop() 回傳之後不會再有人寫成下載中
+            if self._stopped:
+                return
+            _download_state[self._model] = {
+                **_download_state.get(self._model, {}), "status": "downloading", "downloaded": done,
+                "total": self._total, "pct": min(100, int(done / self._total * 100))}
+
+    def stop(self) -> None:
+        with _lock:
+            self._stopped = True
 
     def __call__(self, *, initial: int = 0, **_kwargs: object) -> _DownloadProgress:
-        """每次開始傳一個檔時建立；續傳時 initial 是暫存檔裡已有的位元組。"""
+        """每次開始傳一個檔時建立；initial 是已有的位元組（huggingface_hub 1.21 一律是 0）。"""
         self._in_file = 0
         if initial:
             self.update(initial)
@@ -175,6 +187,7 @@ def perform_download(model_name: str) -> None:
     防呆②：一律不 force_download → hf_hub_download 跳過既有檔、**絕不覆蓋既有模型**。
     """
     repo_id = resolve_repo_id(model_name)
+    progress: _DownloadProgress | None = None
     try:
         files = select_download_files(list_model_files(repo_id))
         total = sum(size for _, size in files) or 1
@@ -185,10 +198,13 @@ def perform_download(model_name: str) -> None:
             # additive；未指定 force_download。檔內位元組經 tqdm_class 回報
             hf_hub_download(repo_id=repo_id, filename=filename, tqdm_class=progress)
             progress.finish_file()
+        progress.stop()
         _set_state(model_name, status="done", downloaded=total, total=total, pct=100)
         logger.info("[Embedding] Downloaded model %s (%d files)", model_name, len(files))
     except Exception as e:  # noqa: BLE001 — 背景任務：任何失敗都須落狀態供前端顯示，不得逸出
         logger.exception("[Embedding] Download failed for %s", model_name)
+        if progress is not None:
+            progress.stop()
         _set_state(model_name, status="error", error=str(e))
 
 

@@ -178,20 +178,62 @@ def test_perform_download_reports_bytes_inside_a_large_file(monkeypatch):
     assert st["downloaded"] == st["total"]
 
 
-def test_perform_download_counts_resumed_bytes(monkeypatch):
+def test_perform_download_counts_initial_bytes(monkeypatch):
+    # huggingface_hub 1.21 一律傳 initial=0；之後的版本若帶已有的位元組也照算
     monkeypatch.setattr(es, "list_model_files", lambda repo: [("model.safetensors", 100)])
     seen = {}
 
     def fake_dl(**kw):
         with kw["tqdm_class"](total=100, initial=60, desc=kw["filename"]) as bar:
-            seen["resumed"] = es.get_download_state("m")["downloaded"]
+            seen["initial"] = es.get_download_state("m")["downloaded"]
             bar.update(40)
         return "/cache/model.safetensors"
 
     monkeypatch.setattr(es, "hf_hub_download", fake_dl)
     es.perform_download("m")
-    assert seen["resumed"] == 60
+    assert seen["initial"] == 60
     assert es.get_download_state("m")["pct"] == 100
+
+
+def test_perform_download_handles_rejected_resume(monkeypatch):
+    # 伺服器不接受續傳時 http_get 會 update(負數) 扣回，再從頭傳
+    monkeypatch.setattr(es, "list_model_files", lambda repo: [("model.safetensors", 100)])
+    seen = {}
+
+    def fake_dl(**kw):
+        with kw["tqdm_class"](total=100, initial=0, desc=kw["filename"]) as bar:
+            bar.update(60)
+            bar.update(-60)
+            seen["after_reset"] = es.get_download_state("m")["downloaded"]
+            bar.update(100)
+        return "/cache/model.safetensors"
+
+    monkeypatch.setattr(es, "hf_hub_download", fake_dl)
+    es.perform_download("m")
+    assert seen["after_reset"] == 0
+    assert es.get_download_state("m")["downloaded"] == 100
+
+
+@pytest.mark.parametrize("fails", [False, True], ids=["done", "error"])
+def test_late_progress_after_finish_keeps_the_result(monkeypatch, fails):
+    # Xet 的進度回呼由背景計時呼叫，可能在下載結束後才到；不能把結果蓋回「下載中」
+    monkeypatch.setattr(es, "list_model_files",
+                        lambda repo: [("model.safetensors", 100), ("tokenizer.json", 10)])
+    bars = []
+
+    def fake_dl(**kw):
+        bar = kw["tqdm_class"](total=100, initial=0, desc=kw["filename"])
+        bars.append(bar)
+        if fails and kw["filename"] == "tokenizer.json":
+            raise _NET_ERR
+        with bar:
+            bar.update(1)
+        return "/cache/x"
+
+    monkeypatch.setattr(es, "hf_hub_download", fake_dl)
+    es.perform_download("m")
+    bars[0].update(5)  # 晚到的回呼
+    assert es.get_download_state("m")["status"] == ("error" if fails else "done")
 
 
 def test_begin_download_after_failure_ignores_partial_cache(monkeypatch):

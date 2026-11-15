@@ -17,7 +17,7 @@ ADR-0070 決定的是維護者自己的安裝改用 `intfloat/multilingual-e5-ba
 3. **精靈的選單加上 e5，標成「中文推薦」，放在最後。** 預選的是設定檔裡的模型，所以新安裝預選 e5，舊安裝預選自己原本的模型。
 4. **精靈先把目前的模型下載好。** 原本選的就是目前的模型時直接往下走；改成先呼叫下載端點並顯示進度，後端已下載好的直接回完成、不重抓，下載完不呼叫切換。下載失敗（例如離線）時顯示錯誤和「先略過」，按下才往下走，之後第一次用記憶時再下載（和原本一樣）。換成別的模型時下載失敗不給略過：略過等於沒套用使用者的選擇。輪詢下載狀態時，除了「下載中」都算結束：後端重啟後狀態回到 idle，不能一直等。開發模式會把元件掛上、卸下、再掛上一次，掛上時要把「已卸下」的旗標重設，否則輪詢一開始就停。
 5. **下載只抓 sentence-transformers 用得到的檔**（`select_download_files`）。排除 `onnx/`、`openvino/` 資料夾與 `.h5`、`.ot`、`.msgpack`；最上層有 safetensors 權重時，排除 `pytorch_model*.bin` 與它的索引檔。斷詞檔（`vocab.txt`、`sentencepiece.bpe.model`、`tokenizer.json`）與模組資料夾（如 `2_Dense/`）裡的權重一律保留。e5 一庫約 5.3GB，排除後約 1.1GB。第一次載入時 sentence-transformers 6.0 經 transformers 的 `from_pretrained` 逐檔取用，safetensors 優先，不會補抓被排除的檔（2026-11-15 讀 `sentence_transformers/base/modules/transformer.py` 與 `transformers/modeling_utils.py` 確認，沒有實際下載）。
-6. **進度按位元組回報。** 排除之後 e5 幾乎只剩一個約 1.1GB 的檔，原本只按檔數算，進度會一直停在 0%。下載時把 `_DownloadProgress` 當 `hf_hub_download` 的 `tqdm_class`，一般下載與 Xet 下載都會逐段回報；續傳時算進暫存檔裡已有的位元組。
+6. **進度按位元組回報。** 排除之後 e5 幾乎只剩一個約 1.1GB 的檔，原本只按檔數算，進度會一直停在 0%。下載時把 `_DownloadProgress` 當 `hf_hub_download` 的 `tqdm_class`，一般下載與 Xet 下載都會逐段回報。同一次下載裡的重試沿用同一個物件，伺服器不接受續傳時扣回；中斷的檔下次重試從頭抓。Xet 的進度回呼可能在下載結束後才到，結束時先停止回報，不讓它把「完成」或「失敗」蓋回「下載中」。
 7. **上次下載失敗的，重試時不看快取。** 抓到一半時快取資料夾已經建立，`is_cached`（`snapshot_download(local_files_only=True)`）會當成已下載；重試改成真的再下載，已經抓完的檔不會重抓。
 
 ## 後果
