@@ -332,7 +332,8 @@ async def test_no_first_byte_times_out(monkeypatch, short):
 async def test_cancel_waits_until_upstream_is_closed(monkeypatch):
     """上游停在半路時取消：取消傳回來時上游已關。
 
-    等上游停住才取消，不睡固定秒數；逾時用預設值（遠大於 ``_GUARD_S``），只有取消能結束這一輪。
+    等上游停住才取消，不睡固定秒數；逾時用預設值（遠大於 ``_GUARD_S``），不會比取消先到。
+    取消被吞掉時只剩守衛能結束這一輪，所以守衛時間到算紅。
     """
     wire = _Wire([_text_events()[0], asyncio.Event()]).install(monkeypatch)
     adapter = ResponsesAdapter(stream=True)
@@ -342,13 +343,15 @@ async def test_cancel_waits_until_upstream_is_closed(monkeypatch):
         async for _ in react_core.pump_send_round(adapter.send_round(state)):
             pass
 
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(consume())
         await wire.waiting.wait()  # 第一個事件已讀完，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
         assert wire.upstreams[0].closed.is_set()  # 取消傳回來時上游已關
+    # 守衛時間到也會從 await task 冒出 CancelledError；取消被吞掉、靠守衛才結束的要算紅
+    assert not guard.expired()
     await adapter.close(state)
 
 
@@ -428,14 +431,16 @@ async def test_stream_that_never_opened_books_nothing(monkeypatch, booked):
 async def test_cancelled_stream_books_an_estimate(monkeypatch, booked):
     """收到「abcdefg」後被取消：照估算記一次。
 
-    等上游停住才取消、逾時用預設值，理由見 ``test_cancel_waits_until_upstream_is_closed``。
+    等上游停住才取消、逾時用預設值、守衛時間到算紅，理由見
+    ``test_cancel_waits_until_upstream_is_closed``。
     """
     wire = _Wire([_delta("abcdefg"), asyncio.Event()]).install(monkeypatch)
     loop = react_core.run_react_loop(ResponsesAdapter(stream=True), _request(), _loop_ctx("r-c"))
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(anext(loop))
         await wire.waiting.wait()  # 「abcdefg」已彙整，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    assert booked == [{"prompt_tokens": 55, **_ZERO, "completion_tokens": 2}]
+    assert not guard.expired()  # 同上：是取消結束的，不是守衛
+    assert booked ==[{"prompt_tokens": 55, **_ZERO, "completion_tokens": 2}]
