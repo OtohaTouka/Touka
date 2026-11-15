@@ -884,6 +884,13 @@ class FactualStore:
             conn.commit()
             return cursor.rowcount or 0
 
+    def agent_ids_with_facts(self) -> set[str]:
+        """事實庫裡有記憶（含封存）的 agent id；比對語意索引用（ADR-0315）。讀不到照常丟例外."""
+        rows = self._fetch_rows(
+            "SELECT DISTINCT agent_id FROM facts WHERE agent_id IS NOT NULL", []
+        )
+        return {row["agent_id"] for row in rows}
+
     def count_agent_facts(self, identity: AgentIdentity) -> int:
         """某 agent 的事實記憶筆數（完整性自檢）。"""
         with self._connection(self.db_path) as conn:

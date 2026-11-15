@@ -21,6 +21,7 @@ from memory_server.config_utils import (
 from memory_server.factual import ArchiveResult, FactualStore
 from memory_server.models.source_ref import describe_sources
 from memory_server.services.event_recorder import record_memory_event
+from memory_server.services.index_check import check_after_model_load
 from memory_server.services.index_state import (
     archive_in_index,
     index_new_fact,
@@ -199,8 +200,16 @@ class MemoryManager:
         with _VECTOR_STORE_LOCK:
             if MemoryManager._vector_store_singleton is None:
                 model = get_embedding_model_name()
-                MemoryManager._vector_store_singleton = VectorStore(model_name=model)
+                store = VectorStore(model_name=model)
+                store.set_model_loaded_hook(self._check_index_after_load)
+                MemoryManager._vector_store_singleton = store
             return MemoryManager._vector_store_singleton
+
+    @staticmethod
+    def _check_index_after_load(vector_store: VectorStore) -> None:
+        """模型第一次載入後抽查舊索引（ADR-0315）；用已存在的事實庫，不建構."""
+        factual = MemoryManager._factual_store_singleton or FactualStore.existing_shared()
+        check_after_model_load(vector_store, factual)
 
     def purge_agent(self, identity: AgentIdentity) -> dict[str, int]:
         """破壞性清除某 agent 的全部記憶（事實＋向量）。回各 store 刪除數（Batch 6）。"""

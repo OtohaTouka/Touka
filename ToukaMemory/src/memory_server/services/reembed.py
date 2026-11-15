@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from memory_server.factual import FactsSchemaNotReadyError, FactualStore
+from memory_server.utils.embedding_index import index_marker
 from memory_server.vector import _format_for_embedding, fact_point_id
 
 if TYPE_CHECKING:
@@ -81,6 +82,7 @@ def reembed_agent(
     vector_store.client.create_collection(
         collection_name=name,
         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        metadata=index_marker(vector_store.model_name, dim),  # 之後就能比名稱（ADR-0315）
     )
     if points:
         vector_store.client.upsert(collection_name=name, points=points)

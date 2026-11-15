@@ -1,6 +1,7 @@
 """Qdrant 本機模式的 meta.json：從快照拿掉一個 collection 時同步改清單.
 
-meta.json 是 ``{"collections": {名稱: 設定}, "aliases": {別名: 名稱}}``。Pydantic 只用來驗證格式，
+meta.json 是 ``{"collections": {名稱: 設定}, "aliases": {別名: 名稱}}``；格式定義在
+``memory_server.utils.qdrant_meta``（和嵌入模型比對共用一份，ADR-0315）。Pydantic 只用來驗證格式，
 實際修改在原始 dict 上做（其他鍵值原樣保留）。Touka 不用 alias，
 有 alias 就交給人判斷（fail closed）。
 """
@@ -10,32 +11,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from memory_server.utils.qdrant_meta import QdrantLocalMeta
+from pydantic import ValidationError
 
 from src.services.memory_scrub.swap import ScrubItemFailure
-
-
-class EmptyCollectionNameError(ValueError):
-    """meta.json 裡有空的 collection 名稱（Pydantic 會轉成驗證錯誤）."""
-
-    def __init__(self) -> None:
-        super().__init__("collection name must not be empty")
-
-
-class QdrantLocalMeta(BaseModel):
-    """meta.json 的格式（多一個鍵都不接受）."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    collections: dict[str, dict[str, Any]]
-    aliases: dict[str, str]
-
-    @field_validator("collections")
-    @classmethod
-    def _names_not_empty(cls, value: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        if any(not name for name in value):
-            raise EmptyCollectionNameError
-        return value
 
 
 def _load(meta: bytes) -> dict[str, Any]:
