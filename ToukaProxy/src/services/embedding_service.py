@@ -315,11 +315,6 @@ def _models_in_env_values(values: Mapping[str, str | None]) -> tuple[str, ...]:
     return _distinct(_models_by_key(values).values())
 
 
-def embedding_models_in_env_text(text: str) -> tuple[str, ...]:
-    """設定檔內容裡的嵌入模型（和載入設定檔同一套 dotenv 解析）；寫法不同的鍵各算一個。"""
-    return _models_in_env_values(dotenv_values(stream=io.StringIO(text)))
-
-
 def same_models(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
     """兩組模型是不是同一組（不看順序；同一個模型的不同寫法算一樣）。"""
     return all(any(same_model(a, b) for b in second) for a in first) and all(

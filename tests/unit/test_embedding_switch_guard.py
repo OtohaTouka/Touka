@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 E5 = "intfloat/multilingual-e5-base"
 MINILM = "all-MiniLM-L6-v2"
 PARAPHRASE = "paraphrase-multilingual-MiniLM-L12-v2"
+ELSEWHERE = "example-org/some-other-model"  # 解析測試的寫入前模型，和上面都不同
 WIZARD_VALUE = "fresh-value-for-test"  # 精靈一起送的另一個欄位
 CALLER = AgentIdentity(agent_id="GuardAdmin")  # 角色由路由的 Depends 把關，這裡直接呼叫
 
@@ -203,14 +204,15 @@ def test_switch_marks_the_sidebar_check_stale_only_when_applied(
     ],
 )
 def test_model_in_settings_text(text: str, model: str) -> None:
-    assert es.embedding_models_in_env_text(text) == (model,)
+    # 從一個別的模型換過來，回的就是解析出的寫入後模型
+    assert es.env_model_change(f"EMBEDDING_MODEL={ELSEWHERE}\n", text) == (model,)
 
 
 def test_every_spelling_of_the_key_counts() -> None:
     """Linux 只認 `EMBEDDING_MODEL`、Windows 認第一個：不同寫法的值都要算進來."""
     text = f"EMBEDDING_MODEL={E5}\nembedding_model={MINILM}\nEmbedding_Model={E5.upper()}\n"
 
-    assert es.embedding_models_in_env_text(text) == (E5, MINILM)
+    assert es.env_model_change(f"EMBEDDING_MODEL={ELSEWHERE}\n", text) == (E5, MINILM)
 
 
 def test_change_is_reported_only_when_the_model_differs() -> None:
