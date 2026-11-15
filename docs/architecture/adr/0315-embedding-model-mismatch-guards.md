@@ -25,13 +25,13 @@
 只看事實庫裡有記憶（含封存）的 agent 對應的 collection（`FactualStore.agent_ids_with_facts`），刪掉的靈魂留下的舊索引不算。事實庫只有 agent id 字串，換成 collection 名稱用 `collection_names.collection_name_for_agent_id`（和 `collection_name_for(identity)` 同一條規則；ToukaMemory 不能建 `AgentIdentity`，`IDENTITY_SSOT` 豁免登記在 NOQA_REGISTRY）。對某個模型，每個 collection 判成：
 
 - 有備註：名稱相同就相符，不同就不符（依據：名稱）。名稱正規化一個函式：去空白、沒有 `/` 補 `sentence-transformers/`、忽略大小寫（`same_model`；`resolve_repo_id` 也在這裡，Proxy 的下載沿用）。
-- 沒備註：模型在已知長度表（`KNOWN_EMBEDDING_DIMENSIONS`）、長度不同就不符（依據：長度）；長度相同且表裡只有它是這個長度才相符；其他判斷不了。
+- 沒備註：模型在已知長度表（`KNOWN_EMBEDDING_DIMENSIONS`）、長度不同就不符（依據：長度）；長度相同且表裡只有它是這個長度才相符；其他判斷不了。只靠長度的相符只用在側欄（不出提示），**不算換模型的證據**：表外的同長度模型（例如其他 768 的模型）光看長度分不出來（成果審查 M2，`embedding_index.needs_sample`）。
 
 ### 3. 側欄提示
 
 - `refresh_index_status(factual)` 每次即時讀 `meta.json`（經資源代理的文字讀取）與有記憶的 agent，**不建構事實庫**：呼叫端傳已經存在的實例，沒有就保留上一次結果；讀不到也保留上一次結果，同一段失敗只記一次日誌。啟動時就讀不到＝沒有結果＝不提示。
 - 什麼時候算：啟動時在 `FactualStore.shared()` 之後同步算一次，不符時記 warning（模型名與筆數，不含路徑）；`GET /v1/memory` 在記憶工作者上重算（5 秒內算過就直接用，最多等約 2 秒，逾時或例外用上一次結果）；精靈換模型後把快取標成過期，由下一次 `/v1/memory` 重算（換模型會重置共用事實庫，當下沒有實例可用）。
-- 模型載入後的抽查（`services/index_check.py`）：`MemoryManager.get_vector_store` 掛上回呼，模型第一次載入後在同一條執行緒跑；直接建 `VectorStore`（例如離線重建工具）不跑，沒有啟動時算好的狀態也不跑。對「判斷不了」的舊 collection：實際長度不同判不符；長度相同就依 id 順序取最前面最多 3 筆有內容的點重算，和存的向量比 cosine，任一筆低於 0.8 判不符、全部達 0.99 判相符、其他判斷不了。結果只放記憶體。
+- 模型載入後的抽查（`services/index_check.py`）：`MemoryManager.get_vector_store` 掛上回呼，模型第一次載入後在同一條執行緒跑；直接建 `VectorStore`（例如離線重建工具）不跑，沒有啟動時算好的狀態也不跑。對「判斷不了」與「只靠長度判相符」的舊 collection：實際長度不同判不符；長度相同就依 id 順序取最前面最多 3 筆有內容的點重算，和存的向量比 cosine，任一筆低於 0.8 判不符、全部達 0.99 判相符、其他判斷不了。結果只放記憶體。
 - 提示代碼 `embedding_model_mismatch`（warning），欄位 `count`、`basis`（`name`／`length`／`sample`）、`configured_model`、`index_model`、`index_dim`；前端依 `basis` 三種句子，都寫具體修法。不含 agent id、路徑。
 
 ### 4. 換模型的確認（一條規則，三處共用）
@@ -45,11 +45,11 @@
   | 目標＝目前實際在用的模型 | 不是換模型 | 照收 |
   | 事實庫讀得到、沒有任何記憶 | 不用確認 | 照收 |
   | 事實庫與 `meta.json` 都讀得到、有記憶，但這些靈魂都沒有索引 | 不用確認（沒有向量會失效） | 照收 |
-  | 有記憶的靈魂索引至少一個、而且全部對目標相符 | 不用確認 | 照收 |
+  | 有記憶的靈魂索引至少一個、而且全部由名稱證明對目標相符（只靠長度的不算） | 不用確認 | 照收 |
   | 任一有記憶的靈魂索引對目標不符 | 要確認，警告寫記憶實際用的模型（或長度） | 拒絕 |
   | 其他（判斷不了、讀不到、`meta.json` 不存在、評估出錯） | 要確認，警告寫看不出 | 拒絕 |
 
-- 「改了設定檔裡的模型」：`POST /config/env` 把寫入前與寫入後的內容都用 dotenv 解析（鍵名忽略大小寫，涵蓋前後空白、`export`、值裡夾換行），沒有這行或值是空的都當內建預設；`POST /admin/setup/apply` 比請求的值和寫入前檔案的值。
+- 「改了設定檔裡的模型」：`POST /config/env` 把寫入前與寫入後的內容都用 dotenv 解析（涵蓋前後空白、`export`、值裡夾換行），沒有這行或值是空的都當內建預設；鍵名寫法不同（`EMBEDDING_MODEL`、`embedding_model`…）的每一行各算一個模型——Linux 只認 `EMBEDDING_MODEL`、Windows 認第一個寫法，所以任何一個寫法的值變了都算改到模型，寫完後不同寫法各寫各的模型時一律要確認（設定介面拒絕；成果審查 M1）。`POST /admin/setup/apply` 在設定檔每個寫法都已經是請求的值時才算沒改到。新加的鍵前面若最後一行沒換行會先補上，不會黏成模型名稱的一部分。
 - 執行緒（ADR-0288）：有改到模型時路由先 `await run_memory_job(評估)`，再進 `ENV_FILE_LOCK` 寫檔，持鎖時不 await。持鎖時重讀設定檔再核對：`/config/env` 再算一次目標，不同就整個拒絕；`SetupService.apply` 預設不寫會換模型的值，路由評估過才帶 `embedding_switch_checked=True`，沒帶而鎖內讀到會換模型時整個拒絕（評估後檔案被別人改掉也擋得住）。拒絕放在既有 `try/except → SYSTEM_ERROR` 外面，回 `EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION`（409），整個請求不寫任何鍵。
 - 精靈：`evaluate_switch` 多回 `index_model`、`index_dim`、`index_outcome`；前端已知名稱時警告寫索引的模型，只知道長度不同時寫長度，其他（判斷不了、讀不到）說看不出來。
 
@@ -70,6 +70,7 @@
 - e5 前綴靠名稱判斷：同一個 e5 用不含 `e5` 的本機路徑設定時，抽查可能落在判斷不了。
 - 還原舊快照後，條目沒變的舊 collection 會沿用過時的抽查結果，直到重啟；只影響側欄提示，不影響確認規則。
 - `/config/env` 持鎖時不重查生效值；同一瞬間精靈也在換模型時可能用到舊的生效值。
+- 「目標＝目前實際在用的模型」那列不看索引：已經換錯（生效中是 e5、索引是 MiniLM）、使用者把設定檔改回 MiniLM 但還沒重新啟動時，設定介面寫回 e5 會照收，把修正蓋掉；重新啟動後側欄照樣提示。
 - 事實庫或 `meta.json` 從啟動起就讀不到時不提示。
 
 ## 範圍外（這次不修）

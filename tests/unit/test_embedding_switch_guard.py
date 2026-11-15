@@ -203,13 +203,33 @@ def test_switch_marks_the_sidebar_check_stale_only_when_applied(
     ],
 )
 def test_model_in_settings_text(text: str, model: str) -> None:
-    assert es.embedding_model_in_env_text(text) == model
+    assert es.embedding_models_in_env_text(text) == (model,)
+
+
+def test_every_spelling_of_the_key_counts() -> None:
+    """Linux 只認 `EMBEDDING_MODEL`、Windows 認第一個：不同寫法的值都要算進來."""
+    text = f"EMBEDDING_MODEL={E5}\nembedding_model={MINILM}\nEmbedding_Model={E5.upper()}\n"
+
+    assert es.embedding_models_in_env_text(text) == (E5, MINILM)
 
 
 def test_change_is_reported_only_when_the_model_differs() -> None:
     assert es.env_model_change(f"EMBEDDING_MODEL={E5}\n", f"EMBEDDING_MODEL={E5.upper()}\n") is None
     assert es.env_model_change("KEPT=1\n", f"EMBEDDING_MODEL={MINILM}\n") is None
-    assert es.env_model_change(f"EMBEDDING_MODEL={E5}\n", "KEPT=1\n") == MINILM
+    assert es.env_model_change(f"EMBEDDING_MODEL={E5}\n", "KEPT=1\n") == (MINILM,)
+    assert es.env_model_change(
+        f"EMBEDDING_MODEL={E5}\n", f"EMBEDDING_MODEL={PARAPHRASE}\nembedding_model={E5}\n"
+    ) == (PARAPHRASE, E5)
+
+
+def test_settings_file_uses_a_model_only_when_every_spelling_agrees(tmp_path: Path) -> None:
+    agreeing, split = tmp_path / "agreeing.env", tmp_path / "split.env"
+    agreeing.write_text(f"EMBEDDING_MODEL={E5}\nembedding_model={E5.upper()}\n", encoding="utf-8")
+    split.write_text(f"EMBEDDING_MODEL={E5}\nembedding_model={PARAPHRASE}\n", encoding="utf-8")
+
+    assert es.env_file_uses_model(agreeing, E5) is True
+    assert es.env_file_uses_model(split, E5) is False
+    assert es.env_file_uses_model(tmp_path / "missing.env", MINILM) is True
 
 
 # --- POST /config/env ------------------------------------------------------------
@@ -276,6 +296,9 @@ def test_same_model_in_another_spelling_skips_the_check(
         {"export EMBEDDING_MODEL": PARAPHRASE},
         {"embedding_model": PARAPHRASE},
         {"SOME_SETTING": f"on\nEMBEDDING_MODEL={PARAPHRASE}"},
+        # 舊寫法的鍵留著原模型：解析看起來沒變，實際載入的卻是新模型（DEV-B M1）
+        {"EMBEDDING_MODEL": PARAPHRASE, "embedding_model": E5},
+        {"EMBEDDING_MODEL": PARAPHRASE, "SOME_SETTING": f"on\nembedding_model={E5}"},
     ],
 )
 def test_disguised_switches_are_caught(
@@ -288,6 +311,32 @@ def test_disguised_switches_are_caught(
         _save(settings)
 
     assert env_file.read_bytes() == before
+
+
+def test_lines_that_disagree_on_the_model_are_refused_even_without_memories(
+    env_file: Path, effective, evaluated
+) -> None:
+    """寫完會有兩個寫法、兩個模型：載入哪一個看平台，不能證明安全就要確認."""
+    effective(E5)
+    evaluated["result"] = TargetEvaluation(TargetOutcome.NO_MEMORIES)
+    before = env_file.read_bytes()
+
+    with pytest.raises(ToukaException):
+        _save({"EMBEDDING_MODEL": PARAPHRASE, "embedding_model": E5})
+
+    assert env_file.read_bytes() == before
+
+
+def test_a_new_key_never_sticks_to_a_last_line_without_newline(
+    env_file: Path, effective, evaluated
+) -> None:
+    env_file.write_text(f"KEPT=1\nEMBEDDING_MODEL={E5}", encoding="utf-8")  # 最後一行沒換行
+
+    _save({"SOME_SETTING": "on"})
+
+    values = dotenv_values(env_file)
+    assert (values["EMBEDDING_MODEL"], values["SOME_SETTING"]) == (E5, "on")
+    assert evaluated["calls"] == []
 
 
 def test_a_switch_appearing_while_waiting_is_refused(

@@ -433,11 +433,30 @@ def test_evaluate_all_match(vault: Path, store: fm.FactualStore) -> None:
         vault,
         {
             collection_name_for(alice): _collection(768, E5),
-            collection_name_for(bob): _collection(768),
+            collection_name_for(bob): _collection(768, E5.upper()),
         },
     )
 
     assert ei.evaluate_target(E5, store).outcome is ei.TargetOutcome.MATCH
+
+
+def test_evaluate_a_length_only_match_is_not_proof(vault: Path, store: fm.FactualStore) -> None:
+    """沒記號、長度和目標一樣不算證明：別的 768 模型也是這個長度，換模型要確認（DEV-B M2）."""
+    alice, bob = _identity("Alice"), _identity("Bob")
+    store.save_fact(alice, "hello")
+    store.save_fact(bob, "hi")
+    _write_meta(
+        vault,
+        {
+            collection_name_for(alice): _collection(768, E5),
+            collection_name_for(bob): _collection(768),
+        },
+    )
+
+    evaluation = ei.evaluate_target(E5, store)
+
+    assert evaluation.outcome is ei.TargetOutcome.UNKNOWN
+    assert evaluation.index_model is None  # 判斷不了時不報名稱（DEV-B L1）
 
 
 def test_evaluate_any_mismatch_names_the_index(vault: Path, store: fm.FactualStore) -> None:

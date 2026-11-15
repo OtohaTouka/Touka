@@ -251,6 +251,14 @@ describe('Step1SystemHealth 嵌入模型下載＋切換防呆', () => {
     expect(text).not.toContain('看不出');
   });
 
+  it('判斷不了時就算回了名稱也說看不出（不寫「以目標模型嵌入」這種矛盾的話）', async () => {
+    const text = await confirmWarning({
+      index_model: 'paraphrase-multilingual-MiniLM-L12-v2', index_dim: 384, index_outcome: 'unknown',
+    });
+    expect(text).toContain('看不出');
+    expect(text).not.toContain('以「paraphrase-multilingual-MiniLM-L12-v2」嵌入');
+  });
+
   it('判斷不了 → 警告說看不出', async () => {
     const text = await confirmWarning({ index_model: null, index_dim: 384, index_outcome: 'unknown' });
     expect(text).toContain('看不出');

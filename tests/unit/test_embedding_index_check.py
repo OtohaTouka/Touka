@@ -225,6 +225,20 @@ def test_other_model_vectors_mismatch(vectors: VectorStore, store: fm.FactualSto
     }
 
 
+def test_a_length_only_match_is_spot_checked(
+    vectors: VectorStore, store: fm.FactualStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """長度表說只有這個模型是這個長度，仍要抽查：表外的同長度模型會被抓到（DEV-B M2）."""
+    monkeypatch.setitem(ei._DIMENSIONS, ei.resolve_repo_id(ENCODER).casefold(), DIM)
+    monkeypatch.setitem(ei._MODELS_PER_DIMENSION, DIM, 1)
+    _prepare(vectors, store, [(text, _encode("other " + text)) for text in ("a", "b")])
+
+    fields = _run_check(vectors, store)
+
+    assert fields is not None
+    assert fields["basis"] == "sample"
+
+
 def test_mixed_index_with_one_old_vector_mismatches(
     vectors: VectorStore, store: fm.FactualStore
 ) -> None:

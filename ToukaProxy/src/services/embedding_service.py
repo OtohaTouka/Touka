@@ -277,39 +277,55 @@ def evaluate_switch(target_model: str) -> dict:
     }
 
 
-def model_change_requires_confirmation(target_model: str) -> bool:
-    """設定介面用：把設定檔的模型換成 ``target_model`` 要不要確認（在記憶工作者上呼叫）。"""
-    return bool(evaluate_switch(target_model)["requires_confirmation"])
+def model_change_requires_confirmation(targets: tuple[str, ...]) -> bool:
+    """設定介面用：寫入後設定檔裡的模型是 ``targets`` 時要不要確認（在記憶工作者上呼叫）。
 
-
-def _model_in_env_values(values: Mapping[str, str | None]) -> str:
-    """從 dotenv 解析結果取出嵌入模型；沒有這行或值是空的回內建預設。
-
-    鍵名忽略大小寫（Windows 的環境變數不分大小寫），同名的以最後一行為準；``export`` 與前後空白
-    由 dotenv 處理。
+    不只一個（不同寫法的鍵各寫各的模型）時，載入哪一個看平台，一律要確認；否則照精靈的規則。
     """
-    model = ""
+    if len(targets) != 1:
+        return True
+    return bool(evaluate_switch(targets[0])["requires_confirmation"])
+
+
+def _models_in_env_values(values: Mapping[str, str | None]) -> tuple[str, ...]:
+    """從 dotenv 解析結果取出所有寫法的鍵各自的嵌入模型，同一個模型只留一個（依出現順序）.
+
+    鍵名忽略大小寫：Linux 只認 ``EMBEDDING_MODEL``、Windows 認第一個寫法，所以每個寫法的值都要算
+    （DEV-B M1）。同一個鍵重複時以最後一行為準（和載入一樣）；值是空的當內建預設；沒有這行就是
+    內建預設。``export`` 與前後空白由 dotenv 處理。
+    """
+    models: list[str] = []
     for key, value in values.items():
-        if key.strip().casefold() == _EMBEDDING_KEY.casefold():
-            model = (value or "").strip()
-    return model or DEFAULT_EMBEDDING_MODEL
+        if key.strip().casefold() != _EMBEDDING_KEY.casefold():
+            continue
+        model = (value or "").strip() or DEFAULT_EMBEDDING_MODEL
+        if not any(same_model(model, seen) for seen in models):
+            models.append(model)
+    return tuple(models) or (DEFAULT_EMBEDDING_MODEL,)
 
 
-def embedding_model_in_env_text(text: str) -> str:
-    """設定檔內容裡的嵌入模型（和載入設定檔同一套 dotenv 解析）。"""
-    return _model_in_env_values(dotenv_values(stream=io.StringIO(text)))
+def embedding_models_in_env_text(text: str) -> tuple[str, ...]:
+    """設定檔內容裡的嵌入模型（和載入設定檔同一套 dotenv 解析）；寫法不同的鍵各算一個。"""
+    return _models_in_env_values(dotenv_values(stream=io.StringIO(text)))
 
 
-def env_model_change(before_text: str, after_text: str) -> str | None:
-    """寫入前後設定檔裡的模型不同時回新模型；同一個模型（含不同寫法）回 None。"""
-    before = embedding_model_in_env_text(before_text)
-    after = embedding_model_in_env_text(after_text)
-    return None if same_model(before, after) else after
+def same_models(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
+    """兩組模型是不是同一組（不看順序；同一個模型的不同寫法算一樣）。"""
+    return all(any(same_model(a, b) for b in second) for a in first) and all(
+        any(same_model(b, a) for a in first) for b in second
+    )
+
+
+def env_model_change(before_text: str, after_text: str) -> tuple[str, ...] | None:
+    """寫入前後設定檔裡的模型不同時回寫入後的模型；任何一個寫法的值變了都算，沒變回 None。"""
+    before = embedding_models_in_env_text(before_text)
+    after = embedding_models_in_env_text(after_text)
+    return None if same_models(before, after) else after
 
 
 def env_file_uses_model(path: Path, model: str) -> bool:
-    """設定檔裡的模型是不是 ``model``（寫入這個值不會換模型）；還沒有設定檔當內建預設。"""
-    return same_model(_model_in_env_values(dotenv_values(dotenv_path=path)), model)
+    """設定檔裡每個寫法的鍵都是 ``model``（寫入這個值不會換模型）；還沒有設定檔當內建預設。"""
+    return same_models(_models_in_env_values(dotenv_values(dotenv_path=path)), (model,))
 
 
 def _reset_memory_singletons() -> None:

@@ -103,6 +103,9 @@ def _merge_env_text(text: str, settings: dict[str, str]) -> str:
                 continue
         new_lines.append(line)
 
+    # 最後一行沒有換行時先補上，新的鍵才不會黏在它後面（例如黏成模型名稱的一部分）
+    if new_lines and not new_lines[-1].endswith("\n"):
+        new_lines[-1] += "\n"
     # 加入原本 .env 裡面沒有的 key（遮罩值不落盤）
     for key, val in settings.items():
         if key not in updated_keys and val != _MASK:
@@ -110,12 +113,14 @@ def _merge_env_text(text: str, settings: dict[str, str]) -> str:
     return "".join(new_lines)
 
 
-def _unchecked_model_change(text: str, settings: dict[str, str], checked: str | None) -> bool:
+def _unchecked_model_change(
+    text: str, settings: dict[str, str], checked: tuple[str, ...] | None
+) -> bool:
     """照現在的設定檔寫入會換模型，卻不是先前評估過的那個換法。"""
     change = embedding_service.env_model_change(text, _merge_env_text(text, settings))
     if change is None:
         return False
-    return checked is None or not embedding_service.same_model(change, checked)
+    return checked is None or not embedding_service.same_models(change, checked)
 
 
 @router.post("/env")

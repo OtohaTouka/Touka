@@ -24,6 +24,7 @@ from memory_server.utils.embedding_index import (
     Verdict,
     current_index_status,
     judge,
+    needs_sample,
     read_index_entries,
     record_sample_verdicts,
     refresh_index_status,
@@ -89,7 +90,7 @@ def check_after_model_load(vector_store: VectorStore, factual: FactualStore | No
     model_dim = vector_store.model.get_sentence_embedding_dimension()
     verdicts: dict[str, tuple[IndexEntry, Verdict, Basis]] = {}
     for entry in relevant_entries(entries, factual.agent_ids_with_facts()):
-        if judge(vector_store.model_name, entry)[0] is not Verdict.UNKNOWN:
+        if not needs_sample(*judge(vector_store.model_name, entry)):
             continue
         if entry.dim is not None and model_dim and entry.dim != model_dim:
             verdicts[entry.name] = (entry, Verdict.MISMATCH, Basis.LENGTH)

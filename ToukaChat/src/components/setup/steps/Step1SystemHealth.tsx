@@ -25,9 +25,11 @@ type Phase = 'idle' | 'downloading' | 'switching' | 'confirm';
 /** 要確認時後端回的：記憶實際用的模型（知道才有）、向量長度與判定（ADR-0315），不是目前設定。 */
 interface ConfirmInfo { target: string; indexModel: string | null; indexDim: number | null; outcome: string }
 
-/** 知道名稱用原本的句子；只知道長度不同說長度；其他（判斷不了、讀不到）說看不出來。 */
+/** 確定不符且知道名稱用原本的句子；只知道長度不同說長度；其他（判斷不了、讀不到）說看不出來。 */
 function switchWarning(info: ConfirmInfo): { key: string; values: Record<string, string | number> } {
-  if (info.indexModel) return { key: 'setup.step1.switch_warning', values: { current: info.indexModel, target: info.target } };
+  if (info.outcome === 'mismatch' && info.indexModel) {
+    return { key: 'setup.step1.switch_warning', values: { current: info.indexModel, target: info.target } };
+  }
   if (info.outcome === 'mismatch' && info.indexDim) {
     return { key: 'setup.step1.switch_warning_length', values: { dim: info.indexDim, target: info.target } };
   }

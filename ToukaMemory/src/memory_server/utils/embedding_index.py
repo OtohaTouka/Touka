@@ -163,6 +163,14 @@ def judge(model_name: str, entry: IndexEntry) -> tuple[Verdict, Basis | None]:
     return Verdict.UNKNOWN, None
 
 
+def needs_sample(verdict: Verdict, basis: Basis | None) -> bool:
+    """模型載入後要不要抽查：判斷不了的，以及只靠長度判相符的（DEV-B M2）.
+
+    長度表只列已知模型；表外的同長度模型（例如其他 768 的模型）光看長度分不出來。
+    """
+    return verdict is Verdict.UNKNOWN or (verdict is Verdict.MATCH and basis is Basis.LENGTH)
+
+
 def relevant_entries(
     entries: dict[str, IndexEntry], agent_ids: Iterable[str]
 ) -> list[IndexEntry]:
@@ -226,7 +234,7 @@ _samples: dict[str, _SampleVerdict] = {}
 
 def _result(model_name: str, entry: IndexEntry) -> CollectionResult:
     verdict, basis = judge(model_name, entry)
-    if verdict is Verdict.UNKNOWN:
+    if needs_sample(verdict, basis):
         with _state_lock:
             sample = _samples.get(entry.name)
         if sample and sample.model == _canonical(model_name) and sample.entry == entry:
@@ -347,14 +355,20 @@ def evaluate_target(model_name: str, factual: FactualStore) -> TargetEvaluation:
     relevant = relevant_entries(entries, agent_ids)
     if not relevant:
         return TargetEvaluation(TargetOutcome.NO_INDEX)
-    judged = [(entry, judge(model_name, entry)[0]) for entry in relevant]
+    judged = [(entry, _proven(*judge(model_name, entry))) for entry in relevant]
     mismatched = [entry for entry, verdict in judged if verdict is Verdict.MISMATCH]
-    labels = Counter((entry.model, entry.dim) for entry in mismatched or relevant)
-    index_model, index_dim = labels.most_common(1)[0][0]
+    unproven = [entry for entry, verdict in judged if verdict is Verdict.UNKNOWN]
     if mismatched:
-        outcome = TargetOutcome.MISMATCH
-    elif all(verdict is Verdict.MATCH for _entry, verdict in judged):
-        outcome = TargetOutcome.MATCH
+        outcome, labelled = TargetOutcome.MISMATCH, mismatched
+    elif unproven:  # 名稱只報判斷不了的那些（沒記號），不報相符的目標模型（DEV-B L1）
+        outcome, labelled = TargetOutcome.UNKNOWN, unproven
     else:
-        outcome = TargetOutcome.UNKNOWN
+        outcome, labelled = TargetOutcome.MATCH, relevant
+    labels = Counter((entry.model, entry.dim) for entry in labelled)
+    index_model, index_dim = labels.most_common(1)[0][0]
     return TargetEvaluation(outcome, index_model, index_dim)
+
+
+def _proven(verdict: Verdict, basis: Basis | None) -> Verdict:
+    """換模型的評估只認名稱證明的相符；只靠長度的相符當成判斷不了（要確認，DEV-B M2）."""
+    return Verdict.UNKNOWN if needs_sample(verdict, basis) else verdict

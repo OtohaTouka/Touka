@@ -77,7 +77,7 @@ async def apply_setup(
     switch_checked = False
     if body.embedding_model is not None and not svc.uses_embedding_model(body.embedding_model):
         if await run_memory_job(
-            embedding_service.model_change_requires_confirmation, body.embedding_model
+            embedding_service.model_change_requires_confirmation, (body.embedding_model,)
         ):
             raise ToukaException(ErrorCode.EMBEDDING_MODEL_SWITCH_NEEDS_CONFIRMATION)
         switch_checked = True
