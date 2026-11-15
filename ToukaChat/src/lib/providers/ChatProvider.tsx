@@ -309,6 +309,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (freshSess && JSON.stringify(freshSess.messages) !== JSON.stringify(targetSess?.messages)) {
         setHistory(migrateFlatToTree(freshSess.messages));
       }
+      // 別處改過模式，或剛改用存檔內容（ADR-0313）：畫面模式跟著重抓到的結果
+      if (freshSess && freshSess.auth_level !== targetSess?.auth_level) setAuthLevel(freshSess.auth_level || "Manual");
     } catch (e) {
       logSSOTError(e, "ChatProvider:refreshSession");
     }

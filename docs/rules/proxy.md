@@ -89,7 +89,7 @@
 *   **環境感知**：Agent 透過統一的 **Bridge 適配器** 與環境通訊（Web / IDE）。
 
 ### 11. 系統穩定性與韌性 (Resilience & Self-Healing) ⭐
-* **可靠性來源契約（ADR-0231）**：明示 UI 保存須 strict revision CAS；generation 與 persistence 終態分離，EOF／DONE不證成功。Chat 同 scope/session writer 保留未知富樹，唯讀核對後才可明示僅重試保存；無痕零持久化。任務寫入不明傳固定領域錯誤，原 review／身份／鎖不變。不可把本契約套成所有legacy writer均已改造。
+* **可靠性來源契約（ADR-0231）**：明示 UI 保存須 strict revision CAS；generation 與 persistence 終態分離，EOF／DONE不證成功。Chat 同 scope/session writer 保留未知富樹，唯讀核對後、存檔和失敗那次存檔的底對得上才可明示僅重試保存，對不上改給「改用存檔內容」（ADR-0313）；無痕零持久化。任務寫入不明傳固定領域錯誤，原 review／身份／鎖不變。不可把本契約套成所有legacy writer均已改造。
 *   **設定檔讀不到時不放寬（ADR-0272）**：`.example` 只補不存在的設定檔；存在卻讀不到時不覆寫，也不退回較寬的預設。
 *   **優雅降級意識**: 當記憶系統損壞或整合失敗時，Proxy 應能識別異常並降級至基礎模式，而非持續重試失敗的操作。
 
