@@ -5,7 +5,8 @@
 - D2：``stream``／``stream_options`` 只在送出當下合併，不寫進 payload。
 - D6：規則表 ``stream`` 關掉時主迴圈改走非串流 POST。
 - 兩段逾時（自寫 SSE 每收到位元組就 touch，``:`` 註解行與空行也算）、整輪上限、取消時等上游
-  關閉、逾時區塊不跨過 yield。三個逾時常數縮小，外層包 ``asyncio.timeout`` 防卡死。
+  關閉、逾時區塊不跨過 yield。逾時測試把三個逾時常數縮小（取消測試不縮），外層包
+  ``asyncio.timeout`` 防卡死。
 
 上游一律用 tests/helpers/stream_transport（httpx 真 Request／Response、送出內容從
 request.content 解析、回應都要關）。
@@ -33,6 +34,7 @@ from tests.helpers.stream_transport import FakeUpstream, Reply, json_reply, sse
 
 _GUARD_S = 5.0
 _FIRST, _IDLE, _ROUND = 0.6, 0.2, 1.2
+_CLOSE_TURNS = 3  # 取消測試：關閉回應要等幾輪事件迴圈
 _URL = "https://api.x.test/v1/chat/completions"
 
 
@@ -244,9 +246,14 @@ async def test_slow_consumer_after_the_round_is_not_cancelled(monkeypatch, short
     assert not isinstance(first, RoundError)
 
 
-async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
-    hold = asyncio.Event()
-    upstream = FakeUpstream([Reply(pieces=[sse(_TEXT[0], done=False), hold])]).install(monkeypatch)
+async def test_cancel_waits_until_upstream_is_closed(monkeypatch):
+    """上游停在半路時取消：取消傳回來時上游已關。
+
+    等上游停住才取消，不睡固定秒數；逾時用預設值（遠大於 ``_GUARD_S``），不會比取消先到。
+    取消被吞掉時只剩守衛能結束這一輪，所以守衛時間到算紅。
+    """
+    upstream = FakeUpstream([Reply(pieces=[sse(_TEXT[0], done=False), asyncio.Event()])],
+                            close_turns=_CLOSE_TURNS).install(monkeypatch)
     adapter = OpenAIAdapter(stream=True)
     state = await adapter.prepare_request(_request(), _ctx())
 
@@ -254,14 +261,14 @@ async def test_cancel_waits_until_upstream_is_closed(monkeypatch, short):
         async for _ in react_core.pump_send_round(adapter.send_round(state)):
             pass
 
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(consume())
-        while not upstream.responses:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await upstream.waiting.wait()  # 第一個 chunk 已處理完，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        upstream.assert_all_closed()  # 取消傳回來時上游已關
+        upstream.assert_all_closed()  # 取消傳回來時上游已關（關閉也做完了）
+    # 守衛時間到也會從 await task 冒出 CancelledError；取消被吞掉、靠守衛才結束的要算紅
+    assert not guard.expired()
     await adapter.close(state)
     assert json.loads(upstream.requests[0].content)["stream"] is True

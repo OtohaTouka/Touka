@@ -134,18 +134,22 @@ async def test_half_stream_books_an_estimate(monkeypatch, booked):
 
 
 async def test_cancelled_stream_books_an_estimate(monkeypatch, booked):
-    hold = asyncio.Event()
-    upstream = FakeUpstream([Reply(pieces=[sse(_c({"content": "abcdefg"}), done=False), hold])])
+    """收到「abcdefg」後被取消：照估算記一次。
+
+    等上游停住才取消，不睡固定秒數。取消被吞掉時只剩守衛能結束這一輪，守衛的取消會被
+    ``pytest.raises`` 接住，所以守衛時間到算紅。
+    """
+    upstream = FakeUpstream([Reply(pieces=[sse(_c({"content": "abcdefg"}), done=False),
+                                           asyncio.Event()])])
     upstream.install(monkeypatch)
     loop = react_core.run_react_loop(OpenAIAdapter(stream=True), _request(), _ctx("req-u-cancel"))
-    async with asyncio.timeout(_GUARD_S):
+    async with asyncio.timeout(_GUARD_S) as guard:
         task = asyncio.create_task(anext(loop))
-        while not upstream.responses:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        await upstream.waiting.wait()  # 「abcdefg」已彙整，上游停住
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+    assert not guard.expired()  # 是取消結束的，不是守衛
     assert booked == [{"prompt_tokens": 19, **_ZERO, "completion_tokens": 2}]
 
 
