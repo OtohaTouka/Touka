@@ -54,6 +54,6 @@
 - 還有幾條和 11/15 修好的 Responses ping 測試同一種寫法（排固定次數的等待，Windows 計時器會把每次等待拉長），整輪上限都是 1.2 秒，11/15 本機實測：
   - `test_openai_stream.py::test_comment_lines_keep_the_stream_alive`（16 次 0.05 秒）約 1.0 秒；`test_gemini_stream.py::test_bytes_keep_the_stream_alive`（9 次 0.1 秒）約 1.0 秒。
   - `test_claude_stream_timeouts.py` 的 `test_pings_alone_keep_the_stream_alive`、`test_slow_but_alive_stream_succeeds`（各 16 次 0.05 秒）各約 0.99 秒。
-  - `test_main_loop_retry.py::test_first_event_and_idle_timeouts_are_retried[idle-before-output]`（8 次 0.1 秒再停住等閒置逾時）第一輪約 1.07 秒，餘裕約 0.13 秒，最緊；超過時會報成「整輪超過上限」而變紅。
+  - `test_main_loop_retry.py::test_first_event_and_idle_timeouts_are_retried[idle-before-output]`（8 次 0.1 秒再停住等閒置逾時）連重試那輪共約 1.11 秒，【推測】第一輪約 1.07 秒、離上限只剩約 0.13 秒，最緊；超過時會報成「整輪超過上限」而變紅。
   - 11/15 跑時都沒失敗，還沒修。改法可照 `test_responses_stream.py::test_pings_keep_a_slow_stream_alive`：看經過時間送、不排固定次數。同一個行程第一次跑時會不會慢到撞上縮短的逾時沒量過（Responses 那條是 SDK 第一次處理 `response.completed` 要 0.2 秒以上，要先暖機一輪）。
 - `scripts/lint_ssot.py` 用「完整路徑含 `tools` 等子字串」判斷業務層，測試檔名含 `tools` 時會被當成業務層而誤判 I/O 違規（h2 改檔名避開，守衛未改；已列為候選）。
