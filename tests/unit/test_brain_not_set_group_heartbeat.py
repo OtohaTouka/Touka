@@ -11,10 +11,11 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
@@ -157,6 +158,50 @@ def test_awaken_without_brain_or_override_is_409(auth_client: TestClient, awaken
     resp = _awaken(auth_client)
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "AGENT_BRAIN_NOT_SET"
+    awaken.assert_not_called()
+
+
+def test_awaken_refusals_are_recorded(
+    auth_client: TestClient, awaken: AsyncMock, monkeypatch: pytest.MonkeyPatch
+):
+    """沒設大腦、擁有者登入過期：在入口被擋時記一筆，下一次心跳看得到（ADR-0318 PR 3）。"""
+    skipped = Mock()
+    monkeypatch.setattr(heartbeat, "record_heartbeat_skipped", skipped)
+    _awaken(auth_client)
+    (identity, reason), kwargs = skipped.call_args
+    assert (identity.agent_id, reason) == ("HbNoBrain", "no_brain")
+    assert kwargs["session_id"]
+    expired = User(id="o", email="o@test.com", hashed_password="...",
+                   owned_agents=["HbNoBrain"], refresh_token_exp=1)
+    monkeypatch.setattr(AuthService, "get_all_users", lambda _self: [expired])
+    skipped.reset_mock()
+    assert _awaken(auth_client, model_override="claude-x").status_code >= 400
+    (identity, reason), kwargs = skipped.call_args
+    assert (identity.agent_id, reason, kwargs["session_id"]) == (
+        "HbNoBrain", "owner_login_expired", None
+    )
+    awaken.assert_not_called()
+
+
+def test_awaken_refusals_during_a_reset_are_not_recorded(
+    auth_client: TestClient, awaken: AsyncMock, monkeypatch: pytest.MonkeyPatch
+):
+    """重置、清除或刪除中不記（ADR-0287）；查身分出錯時照樣回原本的錯誤。"""
+    skipped = Mock()
+    monkeypatch.setattr(heartbeat, "record_heartbeat_skipped", skipped)
+    # 沒設大腦：寫初始提示之前沒在重置，寫完之後開始了（之後每次都是重置中）
+    disturbed = Mock(side_effect=itertools.chain([False], itertools.repeat(True)))
+    monkeypatch.setattr(heartbeat.destructive_ops, "disturbed", disturbed)
+    assert _awaken(auth_client).status_code == 409
+    expired = User(id="o", email="o@test.com", hashed_password="...",
+                   owned_agents=["HbNoBrain"], refresh_token_exp=1)
+    monkeypatch.setattr(AuthService, "get_all_users", lambda _self: [expired])
+    monkeypatch.setattr(heartbeat.destructive_ops, "generation", lambda _identity: None)
+    refused = _awaken(auth_client).status_code
+    assert refused >= 400
+    monkeypatch.setattr(heartbeat.identity_service, "get_identity", Mock(side_effect=OSError))
+    assert _awaken(auth_client).status_code == refused
+    skipped.assert_not_called()
     awaken.assert_not_called()
 
 

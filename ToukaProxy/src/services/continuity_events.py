@@ -2,7 +2,8 @@
 
 只在領域自己確認事情真的做成之後呼叫：使用者這一輪已保存（SoulLayer）、心跳開始與結束、
 任務狀態已保存（mission_tools）、記憶已提交（Memory 經 ``event_recorder`` 呼叫同一個記錄器）。
-結果不明或失敗都不呼叫，也不另寫 failed。模型沒有任何寫入路徑。
+結果不明或失敗都不呼叫，也不另寫 failed；例外是心跳的 ``crashed``（重啟時確認上次沒跑完）與
+``heartbeat_skipped``（入口被擋），記的都是確定的事實（ADR-0318）。模型沒有任何寫入路徑。
 
 ``record()`` 同步、不阻塞、執行緒安全、絕不丟例外：
 - 在綁定的主事件迴圈裡 → ``spawn_logged`` 排背景寫入；
@@ -24,14 +25,15 @@ from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from memory_server.services.event_recorder import register_event_recorder
 
+from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.identity import AgentIdentity
 from src.services.soul_service import soul_service
-from src.utils.continuity_events_db import EventRow, insert_event
+from src.utils.continuity_events_db import EventRow, insert_event, read_records_start
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch_ms
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
     from memory_server.models.mission import MissionState, TaskStatus
 
@@ -41,6 +43,7 @@ EventKind = Literal[
     "user_turn",
     "heartbeat_started",
     "heartbeat_finished",
+    "heartbeat_skipped",
     "mission_started",
     "task_todo",
     "task_doing",
@@ -57,12 +60,22 @@ EVENT_KINDS: frozenset[str] = frozenset(get_args(EventKind))
 # 會重複發生的轉換（FAILED → 重置 → 再 FAILED、兩次 BLOCKED）：event_id 加當下毫秒。
 # 其餘是終端狀態，或主體天生唯一、不會再發生第二次的事件，用固定鍵。
 REPEATABLE_KINDS: frozenset[str] = frozenset(
-    {"task_todo", "task_doing", "task_blocked", "task_failed"}
+    {"task_todo", "task_doing", "task_blocked", "task_failed", "heartbeat_skipped"}
 )
-# 心跳結束原因（固定列舉）
+# 心跳結束原因（固定列舉）；crashed 是重啟時發現上次沒跑完（ADR-0318）
 HeartbeatEnd = Literal[
-    "completed", "interrupted", "quota", "budget", "no_model", "model_error", "error", "cancelled"
+    "completed",
+    "interrupted",
+    "quota",
+    "budget",
+    "no_model",
+    "model_error",
+    "error",
+    "cancelled",
+    "crashed",
 ]
+# 心跳在入口被擋的原因（固定列舉，ADR-0318）：沒設大腦、擁有者登入過期
+HeartbeatSkip = Literal["no_brain", "owner_login_expired"]
 # 無痕、子代理、派工：不記
 _SKIP_FLAGS = ("incognito", "subagent_run", "dispatch_run")
 # 模型寫的 id（任務 id）只保留這種短字串，其他換成雜湊
@@ -247,15 +260,66 @@ def record_heartbeat_finished(
     pulses_done: int,
     turns: int,
     end: HeartbeatEnd,
+    error: object = None,
 ) -> None:
-    """心跳迴圈結束（正常、提早停、出錯或被取消）."""
+    """心跳迴圈結束（正常、提早停、出錯或被取消）；模型失敗另記種類，表外的記 unknown."""
+    metadata: dict[str, str | int | bool] = {
+        "pulses_total": pulses_total,
+        "pulses_done": pulses_done,
+        "turns": turns,
+        "end": end,
+    }
+    if end == "model_error":
+        known = isinstance(error, str) and error in KNOWN_ERROR_TYPES
+        metadata["error"] = error if known else "unknown"
+    recorder.record(identity, "heartbeat_finished", run_key, metadata, session_id=session_id)
+
+
+def record_heartbeat_skipped(
+    identity: AgentIdentity, reason: HeartbeatSkip, *, session_id: str | None
+) -> None:
+    """心跳在入口被擋；同一原因連續被擋只記第一次（寫入時比對最新一筆心跳事件）."""
     recorder.record(
-        identity,
-        "heartbeat_finished",
-        run_key,
-        {"pulses_total": pulses_total, "pulses_done": pulses_done, "turns": turns, "end": end},
-        session_id=session_id,
+        identity, "heartbeat_skipped", reason, {"reason": reason}, session_id=session_id
     )
+
+
+def _number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+async def record_crashed_heartbeats(
+    runs: Iterable[Mapping[str, Any]], resolve: Callable[[str], AgentIdentity | None]
+) -> None:
+    """重啟時發現上次沒跑完的心跳（啟動掃描到的 in-flight 標記）：各記一筆 crashed 結束.
+
+    和正常結束用同一個鍵，已經記過結束的不會被改；那次開始得比這個靈魂的可信紀錄起點早
+    （例如之後重置過）就不記（ADR-0287）。逐筆處理，出錯只記 warning。
+    """
+    for run in runs:
+        try:
+            agent, session_id = run.get("agent"), run.get("session_id")
+            started, total = run.get("started_at"), run.get("total")
+            if not (isinstance(agent, str) and isinstance(session_id, str) and session_id):
+                continue
+            if not (_number(started) and _number(total) and isinstance(total, int)):
+                continue
+            identity = resolve(agent)
+            if not isinstance(identity, AgentIdentity):
+                continue
+            started_ms = int(float(started) * 1000)
+            records_start = await read_records_start(identity)
+            if records_start is not None and started_ms < records_start:
+                continue
+            recorder.record(
+                identity,
+                "heartbeat_finished",
+                heartbeat_run_key(session_id, float(started)),
+                {"pulses_total": total, "end": "crashed", "started_ms": started_ms},
+                session_id=session_id,
+            )
+        except Exception:
+            logger.warning("A crashed heartbeat run was not recorded.", exc_info=True)
 
 
 def _board_meta(identity: AgentIdentity, board_owner: str) -> dict[str, str]:

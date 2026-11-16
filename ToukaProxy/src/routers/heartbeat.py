@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from src.services.continuity_events import HeartbeatEnd
+    from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip
 
 import httpx
 import jwt
@@ -46,6 +46,7 @@ from src.services.autonomy import autonomy_service
 from src.services.continuity_events import (
     heartbeat_run_key,
     record_heartbeat_finished,
+    record_heartbeat_skipped,
     record_heartbeat_started,
 )
 from src.services.continuity_service import inject_continuity
@@ -497,6 +498,7 @@ async def _process_heartbeat_loop(
     run_key = heartbeat_run_key(final_session_id, t0)
     run_started = False
     end: HeartbeatEnd = "cancelled"
+    error_kind: object = None
     pulses_done = total_turns = 0
 
     # 丙-4（ADR-0287）：這個靈魂正在（或入口檢查之後曾經）刪除、重置、清除就不開跑、什麼都
@@ -595,8 +597,9 @@ async def _process_heartbeat_loop(
             )
             logger.info(f"🌈 [Heartbeat-BG] Executing Pulse {i + 1}/{pulse_count}...")
 
-            # 執行單次脈衝（ctx 由每個脈衝共用：先清掉上一次留下的模型失敗記號）
+            # 執行單次脈衝（ctx 由每個脈衝共用：先清掉上一次留下的模型失敗記號與種類）
             ctx["model_failed"] = False
+            ctx["model_error_type"] = None
             turns = await _execute_single_pulse(
                 final_session_id,
                 identity,
@@ -613,6 +616,7 @@ async def _process_heartbeat_loop(
             total_turns += turns
             if ctx.get("model_failed"):  # StopFailure 已發；剩下的不跑，免得重複寫錯誤、扣配額
                 end = "model_error"
+                error_kind = ctx.get("model_error_type")  # 記事件時對照白名單（ADR-0318）
                 break
 
             # 如果不是最後一個 Pulse，休息一下防止 DB 鎖定或 API 過熱
@@ -665,6 +669,7 @@ async def _process_heartbeat_loop(
                     pulses_done=pulses_done,
                     turns=total_turns,
                     end=end,
+                    error=error_kind,
                 )
             # P5c：背景迴圈結束（正常或例外），清除 in-flight 標記（不再算「未完成」）
             autonomy_service.clear_heartbeat_in_flight(identity)
@@ -691,6 +696,21 @@ async def _process_heartbeat_loop(
             # 只排背景工作、不 await（被取消時也安全）
             if pulses_done and not blocked and soul_service.is_toukasoul(identity):
                 home_handover.schedule(identity)
+
+
+def _record_refusal(requested: AgentIdentity, reason: HeartbeatSkip) -> None:
+    """心跳在入口被擋時記一筆（ADR-0318）；重置、清除或刪除中不記（ADR-0287）。
+
+    出錯只記 log，不改變原本要回的錯誤。
+    """
+    try:
+        identity = identity_service.get_identity(requested.agent_id)
+        if destructive_ops.generation(identity) is not None:
+            record_heartbeat_skipped(identity, reason, session_id=None)
+    except Exception:
+        logger.warning(
+            "Heartbeat refusal for %s was not recorded.", requested.agent_id, exc_info=True
+        )
 
 
 @router.post("/awaken", status_code=202)
@@ -731,6 +751,8 @@ async def awaken_agent(
             f"🚨 [Heartbeat] Owner {owner.email} refresh token expired. "
             f"Denying pulse for {agent_id}."
         )
+        # 常見的靜默停擺：記下來，下一次心跳看得到（ADR-0318）
+        _record_refusal(req.agent_id, "owner_login_expired")
         raise ToukaException(ErrorCode.HEARTBEAT_ORPHAN_AGENT)
 
     # 1.5 獲取身分並檢查權限 (Identity & Capability SSOT)
@@ -855,6 +877,8 @@ async def awaken_agent(
     # 7. 驗證大腦可用性 (Fail Fast)：排程沒指定模型、靈魂也沒有主要模型 → 409（ADR-0250 A3）
     if not req.model_override and get_active_brain(identity) is None:
         logger.warning("💓 [Heartbeat] %s has no primary model; not awakened.", agent_id)
+        if not destructive_ops.disturbed(identity, since):  # 寫初始提示期間開始的重置也不記
+            record_heartbeat_skipped(identity, "no_brain", session_id=final_session_id)
         raise ToukaException(ErrorCode.AGENT_BRAIN_NOT_SET)
 
     # 8. 啟動多脈衝背景任務

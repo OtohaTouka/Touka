@@ -1,6 +1,7 @@
 # ADR-0267：記憶系統第二批段 4：可信活動時間軸與時間感（continuity v1）
 
 - 狀態：✅ 已接受（維護者 2026-10-15 核准記憶系統第二批計畫，心跳也注入；本 ADR 是第 4 段的 PR，照一般驗收）〔ADR-0285 修訂已知限制最後一條：看板那一行的任務 id 也改用 `safe_ref`〕〔ADR-0286 修訂記憶事件的時機：封存只在 `archive_fact` 回 archived 或 detached 時記〕
+- 修訂：2026-11-17 心跳結束原因多 `crashed`（重啟時發現沒跑完）、新事件種類 `heartbeat_skipped`（入口被擋，原因只有固定列舉），是「只在做成之後記」的例外；模型錯誤另記種類（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 9）。
 - 日期：2026-10-15
 - 決策者：維護者
 - 影響範圍：ToukaProxy（`utils/async_db.py` 的 `init_db_async`、新 `utils/continuity_events_db.py`、新 `services/continuity_events.py`、`services/continuity_service.py`、`services/context_snapshot_service.py`、`middleware/layers/soul.py`、`routers/heartbeat.py`、`tools/mission_tools.py`、`tools/builtin/memory.py`、`main.py`、`services/agent_reset/primitives.py`、`services/agent_reset/delete_guard.py`、`routers/souls.py`、`services/gdpr_export_service.py`）；ToukaMemory（`protocols.py`、新 `services/event_recorder.py`、`services/manager.py`、`services/lifecycle.py`）

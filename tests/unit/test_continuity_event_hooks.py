@@ -35,9 +35,10 @@ from src.services.hooks import stopping
 from src.tools.builtin import memory as proxy_memory_gateway
 from src.tools.mission_tools import mission_tools
 from src.utils import task_utils
-from src.utils.async_db import init_db_async, session_service
-from src.utils.continuity_events_db import list_agent_events
+from src.utils.async_db import init_db_async, session_service, set_system_setting
+from src.utils.continuity_events_db import agent_epoch_key, list_agent_events
 from src.utils.history_manager import TreeMessageManager
+from src.utils.time_utils import get_current_epoch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -164,6 +165,7 @@ async def _run_loop(
     pulse_count: int = 1,
     interrupted: bool = False,
     stop_counts: list[int] | None = None,
+    t0: float = 1_760_000_000.5,
 ) -> str:
     sid = f"t23-hb-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(hb, "_execute_single_pulse", pulse)
@@ -184,7 +186,7 @@ async def _run_loop(
         ctx=PipelineContext(heartbeat_run=True, source_message_id="trigger-node"),
         pulse_count=pulse_count,
         pulse_slots=1,
-        t0=1_760_000_000.5,
+        t0=t0,
         init_prompt="",
         is_home_mode=False,
     )
@@ -255,7 +257,121 @@ async def test_heartbeat_run_records_start_and_end(
         "pulses_done": done,
         "turns": turns,
         "end": end,
+        # 模型失敗另記種類；替身沒給種類，記 unknown（ADR-0318 PR 3）
+        **({"error": "unknown"} if end == "model_error" else {}),
     }
+
+
+@pytest.mark.parametrize(
+    ("kind", "recorded"),
+    [("rate_limit", "rate_limit"), ("sk-leaked text", "unknown"), (None, "unknown")],
+)
+async def test_a_model_error_run_records_only_a_known_error_kind(
+    monkeypatch: pytest.MonkeyPatch, kind: str | None, recorded: str
+) -> None:
+    async def pulse(_sid: str, _identity: Any, _model: Any, ctx: Any, *_a: Any, **_k: Any) -> int:
+        ctx["model_failed"] = True
+        ctx["model_error_type"] = kind
+        return 1
+
+    soul = _soul()
+    await _run_loop(monkeypatch, soul, pulse)
+    (finished,) = [e for e in await _events(soul) if e["kind"] == "heartbeat_finished"]
+    assert (finished["metadata"]["end"], finished["metadata"]["error"]) == ("model_error", recorded)
+
+
+async def test_each_pulse_starts_without_the_previous_error_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """脈衝共用 ctx：上一個脈衝留下的錯誤種類不帶到下一個（ADR-0318 PR 3）。"""
+    seen: list[Any] = []
+
+    async def pulse(_sid: str, _identity: Any, _model: Any, ctx: Any, *_a: Any, **_k: Any) -> int:
+        seen.append(ctx.get("model_error_type"))
+        ctx["model_error_type"] = "rate_limit"  # 重試後成功：失敗記號沒設，只留下種類
+        return 1
+
+    await _run_loop(monkeypatch, _soul(), pulse, pulse_count=2)
+    assert seen == [None, None]
+
+
+def _crash(soul: AgentIdentity, started_at: float, **extra: Any) -> dict[str, Any]:
+    """當機留下的 in-flight 標記（autonomy 的啟動掃描回傳的一筆）。"""
+    return {
+        "session_id": "t23-crash", "agent": soul.agent_id, "total": 3,
+        "started_at": started_at, **extra,
+    }
+
+
+def _recent() -> float:
+    """沙盒資料庫建立時把可信紀錄起點設成當下：當機的那次要在那之後開始。"""
+    return round(get_current_epoch(), 3)
+
+
+async def test_a_crashed_run_is_recorded_once_at_restart() -> None:
+    soul, started = _soul(), _recent()
+    resolve = {soul.agent_id: soul}.get
+    runs = [  # 壞掉的標記用別的對話：真的寫了會多出一筆
+        _crash(soul, started),
+        {"raw": "broken", "agent": soul.agent_id},
+        _crash(soul, started, session_id="t23-bad-total", total="x"),
+        _crash(soul, started, session_id="t23-bool-total", total=True),
+    ]
+    await ce.record_crashed_heartbeats(runs, resolve)
+    await ce.record_crashed_heartbeats([_crash(soul, started)], resolve)  # 重複掃描不重複記
+    (event,) = await _events(soul)
+    started_ms = int(started * 1000)
+    assert (event["kind"], event["subject"], event["session_id"]) == (
+        "heartbeat_finished",
+        f"t23-crash:{started_ms}",
+        "t23-crash",
+    )
+    assert event["metadata"] == {"pulses_total": 3, "end": "crashed", "started_ms": started_ms}
+
+
+async def test_a_run_that_finished_is_not_turned_into_a_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """結束事件已經寫了、只是標記沒清掉：同一個鍵，保留原本的結束原因。"""
+    soul, started = _soul(), _recent()
+    sid = await _run_loop(monkeypatch, soul, _pulse_ok, t0=started)
+    await ce.record_crashed_heartbeats(
+        [_crash(soul, started, session_id=sid)], {soul.agent_id: soul}.get
+    )
+    ends = [e["metadata"]["end"] for e in await _events(soul) if e["kind"] == "heartbeat_finished"]
+    assert ends == ["completed"]
+
+
+async def test_a_crash_from_before_the_records_start_is_not_recorded() -> None:
+    """重置之後的可信紀錄起點以前開始的那次不寫（ADR-0287：不把清掉的建回來）。"""
+    soul, started = _soul(), _recent()
+    assert await set_system_setting(agent_epoch_key(soul), str(int(started * 1000) + 1000))
+    await ce.record_crashed_heartbeats([_crash(soul, started)], {soul.agent_id: soul}.get)
+    assert await _events(soul) == []
+
+
+async def test_refusals_at_the_door_are_recorded_once_per_streak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """心跳在入口被擋：同一原因連續被擋只記第一次；中間跑過一次（或換原因）就再記。"""
+    soul = _soul()
+    clock = iter(range(1_760_000_000_000, 1_760_000_100_000))
+    monkeypatch.setattr(ce, "get_current_epoch_ms", lambda: next(clock))
+    for step in ("no_brain", "no_brain", "owner_login_expired", "owner_login_expired", "run",
+                 "owner_login_expired"):
+        if step == "run":
+            ce.record_heartbeat_finished(
+                soul, "s1", "s1:1", pulses_total=1, pulses_done=1, turns=1, end="completed"
+            )
+        else:
+            ce.record_heartbeat_skipped(soul, step, session_id="s1")
+        await drain()
+    assert [(e["kind"], e["metadata"].get("reason")) for e in await _events(soul)] == [
+        ("heartbeat_skipped", "no_brain"),
+        ("heartbeat_skipped", "owner_login_expired"),
+        ("heartbeat_finished", None),
+        ("heartbeat_skipped", "owner_login_expired"),
+    ]
 
 
 async def test_a_stop_cleared_by_another_request_still_ends_the_heartbeat(

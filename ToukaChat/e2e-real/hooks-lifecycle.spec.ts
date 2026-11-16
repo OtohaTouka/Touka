@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { TURN_FAILED_NOTE } from "../src/lib/chat/turnNotes";
 import {
   adminLogin,
   awakenSoul,
@@ -211,11 +212,12 @@ test("一輪回覆因錯誤結束：收到錯誤類型與遮過的內容，Stop 
   // 模型回 200 但內容讀不懂：以前會變成 KeyError，現在是一般的模型失敗
   await sendMessage(page, MODEL_BAD_JSON_REQUEST);
   await expect.poll(async () => (await receivedFor("StopFailure")).length).toBe(2);
-  // 上一則失敗的空白回覆送出前拿掉了：兩則 user 併成一則送到模型
-  const merged = (await modelCalls()).at(-1)!;
-  expect(merged.lastRole).toBe("user");
-  expect(merged.lastText).toContain(MODEL_400_REQUEST);
-  expect(merged.lastText).toContain(MODEL_BAD_JSON_REQUEST);
+  // 上一則失敗的回覆帶「本回合出錯」記號保留下來，兩則 user 不再併成一則（ADR-0318）
+  const next = (await modelCalls()).at(-1)!;
+  expect(next.lastRole).toBe("user");
+  expect(next.lastText).toContain(MODEL_BAD_JSON_REQUEST);
+  expect(next.lastText).not.toContain(MODEL_400_REQUEST);
+  expect(next.allText).toContain(TURN_FAILED_NOTE);
   const unreadable = (await receivedFor("StopFailure"))[1];
   expectCleanPayload("StopFailure", unreadable);
   expect(unreadable.payload.error).toBe("unknown");

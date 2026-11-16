@@ -20,7 +20,7 @@ import type { RequestScope } from '../connections';
 import { useSessionList } from "./SessionListProvider";
 import type { SessionProducer } from './SessionListProvider';
 import { useDebug } from "./DebugProvider";
-import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, recordInterjection, stampNodeTime, dropBlockedTurn, hasPendingApproval } from "../stream_tree";
+import { buildUserTurnTree, appendAssistantNode, restoreAssistantNode, applyChunkToTree, applyThinkingToTree, applyEventToTree, markGenerationFailed, markGenerationStopped, recordInterjection, stampNodeTime, dropBlockedTurn, hasPendingApproval } from "../stream_tree";
 import { applyInterjectionEvent } from "../chat/interjectionStore";
 import { rememberFailureDetail } from "../chat/failureDetailStore";
 import { INTERJECTION_EVENT_TYPES } from "../chat/interjections";
@@ -241,9 +241,11 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       if (terminal && (!latest.started || terminal.stream_id !== latest.started.stream_id ||
           terminal.session_id !== sessionId || terminal.assistant_node_id !== latest.assistantMsgId ||
           terminal.user_parent_id !== latest.started.user_parent_id)) return;
-      // 後端說這一輪失敗（模型回錯、例外）：標在回覆上，保存狀態另外算（ADR-0231）
+      // 後端說這一輪失敗（模型回錯、例外）或被停止：標在回覆上，保存狀態另外算（ADR-0231、0318）
       const s = terminal?.generation === 'error'
-        ? { ...latest, tree: markGenerationFailed(latest.tree, latest.assistantMsgId) } : latest;
+        ? { ...latest, tree: markGenerationFailed(latest.tree, latest.assistantMsgId) }
+        : terminal?.generation === 'cancelled'
+          ? { ...latest, tree: markGenerationStopped(latest.tree, latest.assistantMsgId) } : latest;
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'saving' } }));
       // EOF／DONE 沒有保存證據；無痕只代表記憶體內容，不需要持久化核對。
       const result = await persistDone(s, terminal?.persistence ?? (s.incognito ?
@@ -271,7 +273,9 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
       const hookBlocked = !cancelled && !brainNotice && (notifyHookBlocked(err) || notifyOldHome(err));
       // hook 擋下的這一輪從樹裡拿掉再存回去：之後心跳、摘要等讀存檔的地方都看不到它（ADR-0292）
       const blockedText = hookBlocked ? current.tree.messages[current.tree.messages[current.assistantMsgId]?.parentId ?? '']?.content : undefined;
-      const s = hookBlocked ? { ...current, tree: dropBlockedTurn(current.tree, current.assistantMsgId) } : current;
+      // 被停止的標在回覆上（ADR-0318）；網路錯誤不標：不知道後端有沒有跑完
+      const s = hookBlocked ? { ...current, tree: dropBlockedTurn(current.tree, current.assistantMsgId) }
+        : cancelled ? { ...current, tree: markGenerationStopped(current.tree, current.assistantMsgId) } : current;
       if (hookBlocked) onHookBlocked?.();
       commit(prev => ({ ...prev, [sessionId]: { ...s, settling: true, status: 'error' } }));
       if (!cancelled) {

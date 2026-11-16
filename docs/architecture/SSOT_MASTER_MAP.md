@@ -7,6 +7,8 @@
 | 模型失敗的種類（固定名稱，表外的當 `unknown`） | `ToukaProxy/src/handlers/adapters/retry.py` `KNOWN_ERROR_TYPES`（由 `_STATUS_ERROR_TYPES`、`_BODY_ERROR_TYPES` 推導）；這一輪的種類寫在 `ctx.model_error_type`（`react_core.fail_round`） | `subagent_tools.SubagentModelError` |
 | 子代理結果的結局（完成、部分完成或未確認、失敗）與說法 | `tools/subagent_tools.py` `_OUTCOME_WORDS`、`_outcome` | `dispatch_subagent_group`、同步 `dispatch_subagent` |
 | 還在跑的子代理（標籤、派它的靈魂、對話、開始時間） | `ToukaProxy/src/services/subagent_registry.py` `subagent_registry` | `subagent_tools._run_subagent`（登記、移除）、`continuity_service.running_subagents_line` |
+| 上一輪沒做完的記號（雙端） | 後端 `utils/interjection_notes.py` `TURN_STOPPED_NOTE`、`TURN_FAILED_NOTE`＋前端 `lib/chat/turnNotes.ts` 同名常數，純文字比對測試 `test_previous_turn_marks.py` | `annotate_node`、前端 `buildApiHistory` |
+| 心跳在入口被擋的原因 | `services/continuity_events.py` `HeartbeatSkip` | `routers/heartbeat.py` 的 `/awaken`、`continuity_service._run_line` |
 | 子代理多久看一次停止 | `tools/subagent_tools.py` `STOP_CHECK_SECONDS` | `_cancel_when_parent_stops` |
 | 站內等結果憑證的壽命 | `services/dispatch_callback_store.py` `IN_PROCESS_TOKEN_GRACE_SECONDS`、`IN_PROCESS_TOKEN_LIFETIME_SECONDS` | `DispatchCallbackStore._drop_expired` |
 | 子代理結果的長度上限與省略標示（保留結尾） | `tools/subagent_tools.py` `_RESULT_SUMMARY_MAX`、`OMITTED_HEAD_NOTE`、`_keep_tail` | 子代理的成功、逾時、模型錯誤結果 |

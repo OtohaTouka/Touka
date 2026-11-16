@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildApiMessage } from "../buildApiMessage";
+import { buildApiHistory, buildApiMessage } from "../buildApiMessage";
+import { TURN_FAILED_NOTE, TURN_STOPPED_NOTE } from "../turnNotes";
 
 describe("buildApiMessage", () => {
   it("returns plain content when no attachment", () => {
@@ -47,5 +48,32 @@ describe("buildApiMessage", () => {
 
   it("preserves the role union type/value", () => {
     expect(buildApiMessage({ role: "assistant", content: "y" }).role).toBe("assistant");
+  });
+});
+
+// ADR-0318：被停止或出錯的那則回覆送給模型時前面加一行記號；只看助理、只認 true
+describe("buildApiHistory turn-end notes", () => {
+  const linear = [
+    { id: "u1", role: "user" as const, content: "q1", generationStopped: true },
+    { id: "a1", role: "assistant" as const, content: "half", generationStopped: true },
+    { id: "u2", role: "user" as const, content: "q2" },
+    { id: "a2", role: "assistant" as const, content: "", generationFailed: true },
+    { id: "u3", role: "user" as const, content: "draft" },
+  ];
+
+  it("marks stopped and failed replies and leaves the rest alone", () => {
+    expect(buildApiHistory(linear, "u3", "final").map(m => m.content)).toEqual([
+      "q1", `${TURN_STOPPED_NOTE}\n\nhalf`, "q2", TURN_FAILED_NOTE, "final",
+    ]);
+  });
+
+  it("puts the note before interjection notes and prefers stopped over failed", () => {
+    const reply = {
+      id: "a", role: "assistant" as const, content: "x", generationStopped: true, generationFailed: true,
+      interjections: [{ id: "i", text: "y", urgent: false, status: "delivered" as const, step: 1, created_at: 1 }],
+    };
+    expect(buildApiHistory([reply], "none", "")[0].content).toBe(
+      `${TURN_STOPPED_NOTE}\n\n〔本回合中使用者補充（第 1 步）：y〕\n\nx`,
+    );
   });
 });

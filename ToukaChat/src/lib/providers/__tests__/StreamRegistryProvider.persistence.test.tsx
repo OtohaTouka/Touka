@@ -34,7 +34,7 @@ vi.mock('../../connections', () => ({
   captureRequestScope: () => h.scope, isRequestScopeCurrent: (scope: unknown) => scope === h.scope,
 }));
 vi.mock('@/hooks/useArtifacts', () => ({ useArtifacts: { getState: () => ({}) } }));
-vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code }));
+vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn(), errorMsg: (code: string) => code, getErrorCode: () => undefined }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
 import { StreamRegistryProvider, useStreamRegistry } from '../StreamRegistryProvider';
@@ -209,6 +209,31 @@ describe('actual registry user-turn persistence barrier', () => {
     expect(change(h.sessions[0]).messages.messages[state.assistantMsgId]).toMatchObject({ content: 'part', generationFailed: true });
     expect(result.current.getStream('s1')).toBeUndefined();
     await act(async () => { expect(await result.current.startStream(params())).toBe(true); });
+  });
+  // ADR-0318：被停止的這一則標 generationStopped，下一輪送給模型時帶記號
+  it('a reply the backend reports as cancelled is handed over marked as stopped', async () => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    const started = { type: 'touka_stream_started', session_id: 's1', stream_id: 'stream',
+      user_parent_id: state.tree.messages[state.assistantMsgId].parentId, assistant_node_id: state.assistantMsgId };
+    await act(async () => {
+      h.wire.mock.calls[0][5](started);
+      h.wire.mock.calls[0][2]('part');
+      await h.wire.mock.calls[0][3]({ ...started, type: 'touka_stream_terminal', generation: 'cancelled',
+        persistence: { status: 'skipped', reason: 'no_text' } });
+    });
+    const change: SessionChange = h.complete.mock.calls[0][1];
+    expect(change(h.sessions[0]).messages.messages[state.assistantMsgId])
+      .toMatchObject({ content: 'part', generationStopped: true });
+  });
+  // 自己中止算停止；網路錯誤不標（不知道後端有沒有跑完）
+  it.each([['AbortError', true], ['TypeError', undefined]] as const)('onError %s marks stopped=%s', async (name, stopped) => {
+    const { result } = renderHook(() => useStreamRegistry(), { wrapper });
+    await act(async () => { await result.current.startStream(params()); });
+    const state = result.current.getStream('s1')!;
+    await act(async () => { await h.wire.mock.calls[0][4](Object.assign(new Error('x'), { name })); });
+    expect(result.current.getStream('s1')?.tree.messages[state.assistantMsgId].generationStopped).toBe(stopped);
   });
   it.each(['error', 'cancelled'] as const)('incognito %s has skipped persistence and can start another turn', async generation => {
     h.sessions[0].incognito = true;

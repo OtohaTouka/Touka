@@ -82,6 +82,7 @@ async def _events(identity: AgentIdentity = SOUL) -> list[dict[str, Any]]:
         ("user_turn", "msg1", "user_turn:S:msg1"),
         ("heartbeat_started", "s:1", "heartbeat_started:S:s:1"),
         ("heartbeat_finished", "s:1", "heartbeat_finished:S:s:1"),
+        ("heartbeat_skipped", "no_brain", "heartbeat_skipped:S:no_brain:777"),
         ("mission_started", "m1", "mission_started:S:m1"),
         ("task_todo", "m1/T1", "task_todo:S:m1/T1:777"),
         ("task_doing", "m1/T1", "task_doing:S:m1/T1:777"),
@@ -101,7 +102,7 @@ def test_event_id_table(kind: str, subject: str, expected: str) -> None:
 
 def test_every_kind_is_classified() -> None:
     assert ce.REPEATABLE_KINDS < ce.EVENT_KINDS
-    assert len(ce.EVENT_KINDS) == 14
+    assert len(ce.EVENT_KINDS) == 15
 
 
 @pytest.mark.parametrize(

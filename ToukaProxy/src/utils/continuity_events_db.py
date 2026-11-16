@@ -36,6 +36,15 @@ _INSERT_TASK = (
     "AND kind IN ('task_todo', 'task_doing', 'task_blocked', 'task_failed', 'task_done') "
     "ORDER BY occurred_at DESC, rowid DESC LIMIT 1), '') <> ?"
 )
+# 心跳在入口被擋：最新一筆心跳事件已經是同一個原因就不記（連續被擋只留第一次，ADR-0318）
+_INSERT_SKIP = (
+    "INSERT OR IGNORE INTO continuity_events "
+    "(event_id, agent_id, kind, occurred_at, session_id, subject, trust, metadata) "
+    "SELECT ?, ?, ?, ?, ?, ?, 'system', ? WHERE COALESCE(("
+    "SELECT kind || ':' || subject FROM continuity_events WHERE agent_id = ? "
+    "AND kind IN ('heartbeat_finished', 'heartbeat_skipped') "
+    "ORDER BY occurred_at DESC, rowid DESC LIMIT 1), '') <> ?"
+)
 _COUNT = "SELECT COUNT(*) FROM continuity_events WHERE agent_id = ?"
 _DELETE = "DELETE FROM continuity_events WHERE agent_id = ?"
 _SET_START = (
@@ -80,6 +89,9 @@ async def insert_event(row: EventRow) -> bool:
     async with get_async_db() as db:
         if row.kind in TASK_KINDS:
             cursor = await db.execute(_INSERT_TASK, (*params, row.agent, row.subject, row.kind))
+        elif row.kind == "heartbeat_skipped":
+            last = f"{row.kind}:{row.subject}"
+            cursor = await db.execute(_INSERT_SKIP, (*params, row.agent, last))
         else:
             cursor = await db.execute(_INSERT, params)
         await db.commit()
@@ -119,8 +131,9 @@ _LAST_HUMAN = (
     "WHERE agent_id = ? AND kind = 'user_turn' AND subject <> ?"
 )
 _LAST_RUN = (
-    "SELECT occurred_at, metadata FROM continuity_events "
-    "WHERE agent_id = ? AND kind = 'heartbeat_finished' ORDER BY occurred_at DESC LIMIT 1"
+    "SELECT kind, occurred_at, metadata FROM continuity_events "
+    "WHERE agent_id = ? AND kind IN ('heartbeat_finished', 'heartbeat_skipped') "
+    "ORDER BY occurred_at DESC, rowid DESC LIMIT 1"
 )
 _RECENT = (
     "SELECT kind, occurred_at, subject, metadata FROM continuity_events "
@@ -136,7 +149,7 @@ class TimelineSnapshot:
 
     last_turn_here_ms: int | None
     last_human_ms: int | None
-    last_run: tuple[int, dict[str, Any]] | None
+    last_run: tuple[str, int, dict[str, Any]] | None  # 種類（結束或入口被擋）、毫秒、metadata
     recent: tuple[tuple[str, int, str, dict[str, Any]], ...]
     records_start_ms: int | None
 
@@ -166,16 +179,27 @@ async def read_snapshot(
             run = await cursor.fetchone()
         async with db.execute(_RECENT, (agent, since_ms, limit)) as cursor:
             recent = await cursor.fetchall()
-        async with db.execute(
-            _STARTS, (TRUSTED_TIMELINE_EPOCH_KEY, agent_epoch_key(identity))
-        ) as cursor:
-            starts = [int(row[0]) for row in await cursor.fetchall() if str(row[0]).isdigit()]
+        records_start = await _records_start(db, identity)
     return TimelineSnapshot(
         last_turn_here_ms=here,
         last_human_ms=human,
-        last_run=(int(run[0]), json.loads(run[1] or "{}")) if run else None,
+        last_run=(run[0], int(run[1]), json.loads(run[2] or "{}")) if run else None,
         recent=tuple(
             (row[0], int(row[1]), row[2], json.loads(row[3] or "{}")) for row in recent
         ),
-        records_start_ms=max(starts) if starts else None,
+        records_start_ms=records_start,
     )
+
+
+async def _records_start(db: Any, identity: AgentIdentity) -> int | None:
+    async with db.execute(
+        _STARTS, (TRUSTED_TIMELINE_EPOCH_KEY, agent_epoch_key(identity))
+    ) as cursor:
+        starts = [int(row[0]) for row in await cursor.fetchall() if str(row[0]).isdigit()]
+    return max(starts) if starts else None
+
+
+async def read_records_start(identity: AgentIdentity) -> int | None:
+    """某靈魂的可信紀錄起點（全域與重置後兩個鍵取較晚的；毫秒）；讀不到丟例外."""
+    async with get_async_db() as db:
+        return await _records_start(db, identity)

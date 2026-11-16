@@ -1,6 +1,7 @@
 import type { ChatAttachment } from "./attachment";
 import type { Interjection } from "@/lib/types";
 import { withInterjectionNotes } from "./interjections";
+import { withTurnEndNote } from "./turnNotes";
 import { buildTextInlinePart, buildFileRefHint } from "./uploadClassify";
 
 /**
@@ -44,15 +45,21 @@ export function buildApiMessage<R extends string>(input: {
   return { role, content };
 }
 
-/** 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249）。 */
+/** 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249），
+ *  被停止或出錯的再加一行記號（ADR-0318）。 */
 export function buildApiHistory<R extends string>(
-  linear: { id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[] }[],
+  linear: {
+    id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[];
+    generationStopped?: boolean; generationFailed?: boolean;
+  }[],
   userMsgId: string,
   resolvedInput: string,
 ): { role: R; content: string }[] {
   return linear.map(m => buildApiMessage({
     role: m.role,
-    content: m.id === userMsgId ? resolvedInput : withInterjectionNotes(m.content, m.interjections),
+    content: m.id === userMsgId ? resolvedInput
+      : m.role === 'assistant' ? withTurnEndNote(withInterjectionNotes(m.content, m.interjections), m)
+        : withInterjectionNotes(m.content, m.interjections),
     attachment: m.attachment,
   }));
 }

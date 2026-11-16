@@ -1,11 +1,11 @@
 # ADR-0318：停止、逾時、失敗講清楚（可視性第二批）
 
-- 狀態：🚧 實作中（PR 1：子代理的結果，2026-11-16；PR 2：子代理跟著停止、等結果的憑證，2026-11-17）。一頁計畫由維護者核准（2026-11-16）。PR 2～4（子代理跟著停止與等結果的憑證、上一輪的標記、核准的說法）合併時補記在本檔。
+- 狀態：🚧 實作中（PR 1：子代理的結果，2026-11-16；PR 2：子代理跟著停止、等結果的憑證，2026-11-17；PR 3：上一輪的標記，2026-11-17）。一頁計畫由維護者核准（2026-11-16）。PR 2～4（子代理跟著停止與等結果的憑證、上一輪的標記、核准的說法）合併時補記在本檔。
 - 日期：2026-11-16
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（in-process 子代理）、[ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（回報塊）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（第一批：派工情境、同步派工）、[ADR-0248](0248-model-layer-stage-3b.md)（主迴圈的失敗與重試）
-- 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界①②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`）
-- 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`；PR 2：`services/subagent_registry.py`（新）、`tools/subagent_tools.py`、`handlers/react_core.py`、`services/dispatch_callback_store.py`、`routers/dispatch_callback.py`、`tools/mission_tools.py`、`services/continuity_service.py`
+- 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界①②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`；`generationFailed` 會送給模型）、[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（決定 6：空回覆加了記號不再合併）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（心跳的 `crashed`、`heartbeat_skipped`）
+- 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`；PR 2：`services/subagent_registry.py`（新）、`tools/subagent_tools.py`、`handlers/react_core.py`、`services/dispatch_callback_store.py`、`routers/dispatch_callback.py`、`tools/mission_tools.py`、`services/continuity_service.py`；PR 3：`utils/interjection_notes.py`、`services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`routers/heartbeat.py`、`main.py`，前端 `ToukaChat/src/lib/chat/turnNotes.ts`（新）、`chat/buildApiMessage.ts`、`stream_tree.ts`、`tree_history.ts`、`providers/StreamRegistryProvider.tsx`
 
 ## 背景
 
@@ -69,9 +69,25 @@
 - HTTP 回呼（`/v1/internal/dispatch/callback`）拒絕站內憑證，回應和沒登記的一樣：模型看得到這個憑證，不能拿來從外面送假結果。這是配合憑證活得更久的加固，不是修既有弱點（以前憑證只在等候期間有效，本機行程要先拿到它），所以不記進 `SECURITY.md`。
 - `await_dispatch_result` 的說法照新行為改寫（修訂 ADR-0316 PR 2 補記的等候訊息）：逾時寫「之後再等同一個憑證會接著等」；憑證不明寫「拿過結果、太久沒來拿被清掉或 Touka 重啟過，不會再有結果」。
 
+## 決定（PR 3）
+
+### 8. 上一輪沒做完，下一輪看得到
+
+- 網頁對話被使用者停止或出錯的那則 AI 回覆，送給模型時 content 最前面加一行固定記號：「〔本回合被使用者停止，沒有做完〕」或「〔本回合出錯，沒有完成〕」（兩個都有時寫停止）。記號在那則回覆裡、不另加訊息，角色仍是 assistant，回合數不變（禁令 27）。是給模型看的固定文字，不走 `t()`；畫面不變。
+- 前端：後端說這一輪 `cancelled`，或自己中止（含別處停止的 `PROMPT_STOPPED`）時，`stream_tree.markGenerationStopped` 在那則回覆記 `generationStopped: true`；網路錯誤不標（不知道後端有沒有跑完）。後端回 `cancelled` 也包括同一段對話在別處開了新的一輪（舊串流被取代）或 Touka 關機，一樣標「被使用者停止」；記號說的是「沒做完」，這樣標可以接受。`buildApiHistory` 只對助理節點、只認 `true` 加記號，在插話標註之前。
+- 後端：`interjection_notes.annotate_node` 讀同樣兩個欄位、加同樣的記號（心跳、家原文、摘要從存檔組歷史都經它）；`TURN_STOPPED_NOTE`、`TURN_FAILED_NOTE` 和前端 `turnNotes.ts` 同名常數以純文字比對測試鎖住。`generationFailed` 從此也送給模型（修訂 ADR-0292 的「只用來顯示、不送給模型」）。
+- 停止或出錯、一個字都沒回的那一輪，以前被 `drop_blank_assistant_turns` 拿掉、前後兩則 user 合成一則；加了記號就不是空白，保留下來（修訂 ADR-0231 決定 6）。
+
+### 9. 心跳當機、在入口被擋、模型錯誤的種類
+
+- 當機：Proxy 啟動時掃到的 in-flight 標記，各記一筆 `heartbeat_finished`，結束原因 `crashed`、帶那次的開始時間（`started_ms`）。和正常結束用同一個鍵（`heartbeat_run_key`），已經記過結束的不會被改，重複掃描也不重複；那次開始得比這個靈魂的可信紀錄起點早（例如之後重置過）就不記（ADR-0287）。寫入在 `main.py` 用掃描回傳的清單做，`autonomy.py` 不碰事件。
+- 入口被擋：新事件種類 `heartbeat_skipped`，原因只有固定列舉 `no_brain`（沒設大腦）、`owner_login_expired`（擁有者登入過期，常見的靜默停擺）；重置、清除或刪除中照 ADR-0287 不記（登入過期那條先看 `destructive_ops.generation`，沒設大腦那條在寫初始提示之後再看一次 `disturbed`；查身分出錯只記 log，回的錯誤不變）。同一原因連續被擋只記第一次（寫入時比對最新一筆心跳事件，單一 SQL 敘述）；中間跑過一次或換了原因就再記。這是「只在事情做成之後記」的例外：記的是「被擋」這個確定的事實（修訂 ADR-0267）。
+- 模型錯誤：結束原因 `model_error` 另記 `error`，只用 `retry.KNOWN_ERROR_TYPES`，表外的記 `unknown`。脈衝共用 ctx，每個脈衝前把 `model_error_type` 和 `model_failed` 一起清掉。
+- `<continuity>` 的自主執行那一行改看最新一筆（結束或被擋）：被擋寫「not started, refused since …; reason …」；當機寫開始與重啟時發現的時間；模型錯誤後面加種類。
+
 ## 不做
 
-- 上一輪的標記、核准的說法：PR 3、PR 4。
+- 核准的說法：PR 4。
 - 真模型評估（`tests/tool_eval/live_episode.py` 也用 `parse_subagent_report`）不動，禁令 61。
 
 ## 後果
@@ -81,6 +97,8 @@
 - 子代理的模型失敗不再串出廠商原文；網頁上的人類看得到的失敗說明不變（那是主代理那一輪的事）。
 
 ## 驗證
+
+PR 3：`tests/unit/test_previous_turn_marks.py`：記號和前端常數相同、停止與出錯都加、停止優先、只認 `true`、在插話標註之前、空回覆加了記號不再合併、回合數不變、家原文帶記號；`test_continuity_event_hooks.py`：模型錯誤只記白名單裡的種類、脈衝之間清掉種類、當機記一次且不改已記的結束、可信紀錄起點以前的不記、入口被擋連續同一原因只記一次；`test_continuity_block.py`：接續行寫出當機、被擋、模型錯誤的種類，原因只認列舉；`test_brain_not_set_group_heartbeat.py`：沒設大腦、擁有者登入過期都在入口記一筆；前端 `buildApiMessage.test.ts`、`stream_tree.generationFailed.test.ts`、`StreamRegistryProvider.persistence.test.tsx`：組歷史加記號、後端說取消與自己中止都標停止、網路錯誤不標。
 
 PR 2：`tests/unit/test_subagent_stop.py`：同步、背景、一次派多個的子代理都跟著停並交回「已取消」與已做到的部分；別段對話的停止、沒有對話的執行不受影響；較早派出的背景子代理也會被之後的停止停掉；主代理這一輪被收掉時取消照樣往外傳；這一輪被收掉時又按停止仍是取消；等 SubagentStart hook 時被停也是已取消；沒做完才收行程；子代理的迴圈收掉時工具全停；心跳主代理同步派工被停照常以「被中斷」收尾；還在跑的子代理列出與中和、沒有對話不列；站內憑證逾時不作廢、過期清掉、外部憑證照舊、HTTP 回呼拒絕站內憑證；等候說法。
 

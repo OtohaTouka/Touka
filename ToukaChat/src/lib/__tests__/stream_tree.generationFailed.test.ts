@@ -2,7 +2,7 @@
  * ADR-0292：串流以錯誤結束時，那則回覆記下回覆失敗，畫面才看得出是模型沒有回成功。
  */
 import { describe, expect, it } from 'vitest';
-import { markGenerationFailed } from '../stream_tree';
+import { markGenerationFailed, markGenerationStopped } from '../stream_tree';
 import type { TreeHistory } from '../tree_history';
 
 const tree: TreeHistory = {
@@ -28,5 +28,16 @@ describe('markGenerationFailed', () => {
 
   it('找不到節點時原樣回傳', () => {
     expect(markGenerationFailed(tree, 'missing')).toBe(tree);
+  });
+});
+
+// ADR-0318：使用者停止了這一輪，那則回覆記下；下一輪送給模型時帶記號
+describe('markGenerationStopped', () => {
+  it('只標那則回覆，不改傳進來的樹；找不到節點時原樣回傳', () => {
+    const marked = markGenerationStopped(tree, 'reply');
+    expect(marked.messages.reply).toEqual({ ...tree.messages.reply, generationStopped: true });
+    expect(marked.messages.user).toBe(tree.messages.user);
+    expect(tree.messages.reply.generationStopped).toBeUndefined();
+    expect(markGenerationStopped(tree, 'missing')).toBe(tree);
   });
 });
