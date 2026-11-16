@@ -2031,15 +2031,24 @@
       }
     },
     "ToukaProxy/src/tools/builtin/local_helper.py": {
+      "propose_result_note": {
+        "parameters": [
+          "decided_by"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "_not_offered": {
         "parameters": [],
         "kwargs": null,
         "reads": [],
         "dynamic": []
       },
-      "_failure_text": {
+      "decision_signer": {
         "parameters": [
-          "result"
+          "preview",
+          "key"
         ],
         "kwargs": null,
         "reads": [],
@@ -2049,7 +2058,8 @@
         "parameters": [
           "submission",
           "emit",
-          "call_id"
+          "call_id",
+          "hint"
         ],
         "kwargs": null,
         "reads": [],
@@ -2066,6 +2076,10 @@
             "agent_id"
           ],
           [
+            "data",
+            "decided_by"
+          ],
+          [
             "kwargs",
             "_call_id"
           ],
@@ -2076,6 +2090,10 @@
           [
             "kwargs",
             "_emit_event"
+          ],
+          [
+            "kwargs",
+            "_tool_preview"
           ],
           [
             "kwargs",
@@ -2640,7 +2658,8 @@
           "emit_event",
           "call_id",
           "context",
-          "approved_by"
+          "approved_by",
+          "tool_preview"
         ],
         "kwargs": null,
         "reads": [],

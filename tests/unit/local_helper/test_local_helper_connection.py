@@ -25,6 +25,7 @@ from touka_local.protocol import (
     MAX_JOB_RESULT_BYTES,
     MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
+    Decision,
     ProtocolError,
     parse_poll_response,
     poll_request,
@@ -41,9 +42,51 @@ def _job(**changes: Any) -> dict[str, Any]:
         "args": {"path": "Open/a.txt"},
         "requester": "soul",
         "decide_within": 30.0,
+        "decision": None,
     }
     job.update(changes)
     return job
+
+
+_DECISION = {
+    "nonce": "n" * 22,
+    "digest": "a" * 64,
+    "shown": "b" * 64,
+    "decided_by": "yolo",
+    "signature": "c" * 64,
+}
+
+
+def test_parse_a_decision() -> None:
+    parsed = parse_poll_response(
+        {"job": _job(action="propose", decision=_DECISION), "cancelled": [], "host_mount_roots": []}
+    )
+    assert parsed.job is not None
+    assert parsed.job.decision == Decision(**_DECISION)
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {**_DECISION, "extra": "x"},
+        {key: value for key, value in _DECISION.items() if key != "shown"},
+        {**_DECISION, "nonce": 1},
+        "yolo",
+        [],
+    ],
+)
+def test_a_malformed_decision_can_never_pass(decision: object) -> None:
+    """格式不對不丟整份回應（取消清單才不會一起不見），只是這個決定一定核對不過。"""
+    parsed = parse_poll_response(
+        {
+            "job": _job(action="propose", decision=decision),
+            "cancelled": ["x"],
+            "host_mount_roots": [],
+        }
+    )
+    assert parsed.cancelled == ("x",)
+    assert parsed.job is not None
+    assert parsed.job.decision == Decision("", "", "", "", "")
 
 
 def test_parse_empty_response() -> None:

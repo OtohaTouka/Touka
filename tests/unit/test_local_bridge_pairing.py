@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from src.services.local_bridge_pairing import LocalPairingStore
+from src.services.local_bridge_pairing import LocalPairingStore, NewPairing
 from src.services.resource_manager import resource_manager
+from src.utils.local_bridge_signing import pairing_code
 from src.utils.local_bridge_token import hash_token, new_token, token_matches
 
 
@@ -29,7 +30,7 @@ def test_token_helpers() -> None:
 @pytest.mark.asyncio
 async def test_create_stores_only_a_hash(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    token = await store.create("Owner")
+    token = (await store.create("Owner")).token
     text = (tmp_path / "local_bridge" / "pairing.json").read_text(encoding="utf-8")
     assert token not in text
     assert hash_token(token) in text
@@ -43,8 +44,8 @@ async def test_create_stores_only_a_hash(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_rotation_voids_the_old_token(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    old = await store.create("Owner")
-    new = await store.create("Owner")
+    old = (await store.create("Owner")).token
+    new = (await store.create("Owner")).token
     assert store.authenticate(old) is None
     current = store.authenticate(new)
     assert current is not None and current.generation == 2
@@ -53,7 +54,7 @@ async def test_rotation_voids_the_old_token(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_revoke_keeps_generation_moving(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    token = await store.create("Owner")
+    token = (await store.create("Owner")).token
     await store.revoke()
     assert store.generation() == 2
     assert store.current() is None
@@ -73,7 +74,7 @@ async def test_revoke_without_pairing(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_survives_restart(tmp_path: Path) -> None:
-    token = await _store(tmp_path).create("Owner")
+    token = (await _store(tmp_path).create("Owner")).token
     reopened = _store(tmp_path)
     current = reopened.authenticate(token)
     assert current is not None and current.human_id == "Owner"
@@ -110,7 +111,7 @@ async def test_write_failure_keeps_previous_pairing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = _store(tmp_path)
-    token = await store.create("Owner")
+    token = (await store.create("Owner")).token
 
     def boom(*_args: object, **_kwargs: object) -> None:
         raise OSError
@@ -119,3 +120,47 @@ async def test_write_failure_keeps_previous_pairing(
     with pytest.raises(OSError):  # noqa: PT011 - 這裡只確定寫入失敗往外丟
         await store.create("Owner")
     assert store.authenticate(token) is not None
+
+
+# --- 蓋章用的鑰匙（ADR-0317）---
+
+
+@pytest.mark.asyncio
+async def test_create_keeps_a_decision_key_for_the_helper(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    created = await store.create("Owner")
+    assert created.code == pairing_code(created.token, created.key)
+    current = store.current()
+    assert current is not None and current.decision_key == created.key.hex()
+    assert store.decision_key() == created.key
+    assert created.key != (await store.create("Owner")).key
+
+
+@pytest.mark.asyncio
+async def test_revoke_drops_the_key(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    await store.create("Owner")
+    await store.revoke()
+    assert store.decision_key() is None
+    text = (tmp_path / "local_bridge" / "pairing.json").read_text(encoding="utf-8")
+    assert '"decision_key": null' in text
+
+
+@pytest.mark.asyncio
+async def test_a_pairing_from_before_keys_still_works_without_one(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    token = new_token()
+    resource_manager.write_json(
+        tmp_path / "local_bridge" / "pairing.json",
+        {"generation": 4, "token_hash": hash_token(token), "human_id": "Owner"},
+    )
+    assert store.authenticate(token) is not None
+    assert store.decision_key() is None
+
+
+def test_a_new_pairing_does_not_print_its_secrets() -> None:
+    created = NewPairing(token="t" * 43, key=bytes(range(32)))
+    shown = repr(created)
+    assert "t" * 43 not in shown
+    assert bytes(range(32)).hex() not in shown
+    assert str(bytes(range(32))) not in shown

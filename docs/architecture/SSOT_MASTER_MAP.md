@@ -650,7 +650,7 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 
 `session_scope_version` 舊列預設 0、公開投影不回傳、UPDATE 不提升；聊天搜尋須同時驗精確靈魂歸屬，不能把 marker 當授權或逐則作者證明（ADR-0277）。所有 writer 一起升級；舊共享頻道不搬移、不續寫。
 
-### 3-K. 資訊安全守衛層：本機小幫手（ADR-0312）
+### 3-K. 資訊安全守衛層：本機小幫手（ADR-0312、ADR-0317）
 
 協議的準在 `ToukaProxy/src/models/local_bridge.py`；小幫手不能載入 Touka 的程式，所以 `ToukaLocal/touka_local/protocol.py` 另存一份，`tests/unit/test_local_protocol_parity.py` 核對兩邊相同。
 
@@ -661,6 +661,11 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 權杖比對 | `ToukaProxy/src/utils/local_bridge_token.py` |
 | 工作佇列與期限 | `ToukaProxy/src/services/local_bridge.py` |
 | 配對資料 | `ToukaProxy/src/services/local_bridge_pairing.py` |
+| 決定的章、誰決定的 | `ToukaProxy/src/utils/local_bridge_signing.py`；小幫手另存一份 `ToukaLocal/touka_local/signing.py`，兩邊用同一組固定測資 |
+| 核准前的預覽 | `ToukaProxy/src/services/tool_previews.py`（註冊表 `PREVIEWERS`） |
+| 小幫手沒做成時的說法 | `ToukaProxy/src/services/local_bridge_results.py` |
+| 風險下限 | `ToukaProxy/src/models/safety.py` 的 `MIN_TOOL_RISK` |
+| 小幫手的底線與總量 | `ToukaLocal/touka_local/floors.py`（數字只在這裡，協議改不到） |
 
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
 

@@ -23,11 +23,13 @@ ALLOWED_MODULES = frozenset(
     {
         "__future__",
         "argparse",
+        "base64",
         "collections",
         "contextlib",
         "ctypes",
         "dataclasses",
         "hashlib",
+        "hmac",
         "http",
         "json",
         "logging",
