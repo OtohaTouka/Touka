@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Any
+from typing import Any, Final
 
 from src.adapters import tool_schema
 from src.middleware.base import ProxyLayer
@@ -56,6 +56,17 @@ _SAFE_SERVER_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _ESSENTIAL_TOOLS = ("connect_mcp_server", "agent_control", "search_skill_market")
 # 工具清單裡有舊短名的靈魂（每個只記一次警告，ADR-0281 T2）
 _SHORT_NAME_WARNED: set[str] = set()
+
+# <tool_availability> 分兩種：政策擋下的，和這一輪暫時用不到的（例如小幫手沒開）。
+# 混在同一個「政策限制」標題下，模型會怪政策，不會提醒使用者去打開
+DENIAL_KIND_UNAVAILABLE: Final = "unavailable"
+POLICY_TOOLS_HEADING: Final = (
+    "以下工具存在但本會話不可用（政策限制）——請勿呼叫、也不要聲稱已執行："
+)
+UNAVAILABLE_TOOLS_HEADING: Final = (
+    "以下工具這一輪暫時用不到，不是權限問題——請勿呼叫、也不要聲稱已執行；需要時照原因提醒使用者："
+)
+LOCAL_HELPER_OFFLINE_REASON: Final = "使用者電腦上的本機小幫手沒開；需要時請使用者打開小幫手"
 
 
 def _schema_names(schemas: Any) -> frozenset[str]:
@@ -201,6 +212,7 @@ class ToolLayer(ProxyLayer):
              if tool_name == "ask_user" and not is_human_present(ctx):
                  continue
              # ADR-0312：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
+             helper_offline = False
              if tool_name == "local_files":
                  if incognito:
                      continue
@@ -212,14 +224,10 @@ class ToolLayer(ProxyLayer):
                      has_other_owner=has_another_owner,
                  )
                  # 沒勾的靈魂開了小幫手也用不到，不要叫人去開
-                 if availability == AVAILABILITY_OFFLINE and (
+                 helper_offline = availability == AVAILABILITY_OFFLINE and (
                      not desired_tools or selection.selects(tool_name)
-                 ):
-                     denied_tools.append(
-                         {"tool": tool_name, "reason": "the local helper is not running"}
-                     )
-                     builtin_filtered = True
-                 if availability != AVAILABILITY_OFFERED:
+                 )
+                 if availability != AVAILABILITY_OFFERED and not helper_offline:
                      continue
              if incognito:  # 無痕：檔案動詞換成沒有 legacy 的版本（hist-bak b）
                  schema = INCOGNITO_FILE_VERB_SCHEMAS.get(tool_name, schema)
@@ -243,10 +251,23 @@ class ToolLayer(ProxyLayer):
                  builtin_filtered = True
                  continue
 
-             if permission_service.is_tool_allowed(tool_name, allowed_tools):
-                 active_builtin_schemas.append(schema)
-             else:
+             if not permission_service.is_tool_allowed(tool_name, allowed_tools):
                  builtin_filtered = True
+                 continue
+
+             # 政策和角色都放行才說是暫時用不到：否則叫人打開小幫手也沒用
+             if helper_offline:
+                 denied_tools.append(
+                     {
+                         "tool": tool_name,
+                         "reason": LOCAL_HELPER_OFFLINE_REASON,
+                         "kind": DENIAL_KIND_UNAVAILABLE,
+                     }
+                 )
+                 builtin_filtered = True
+                 continue
+
+             active_builtin_schemas.append(schema)
         
         # 5. 注入調度工具 (MCP 掛載 + 技能啟用)
         if is_dispatcher_active:
@@ -471,9 +492,15 @@ class ToolLayer(ProxyLayer):
     def _inject_availability_note(self, request: Any, denied: list[dict[str, str]]) -> None:
         """把 Gate 1 過濾的可讀說明注入 system（防止模型幻覺被過濾的工具）。"""
         lines: list[str] = []
-        if denied:
-            lines.append("以下工具存在但本會話不可用（政策限制）——請勿呼叫、也不要聲稱已執行：")
-            lines.extend(f"- {d['tool']}（原因：{d['reason']}）" for d in denied)
+        unavailable = [d for d in denied if d.get("kind") == DENIAL_KIND_UNAVAILABLE]
+        by_policy = [d for d in denied if d.get("kind") != DENIAL_KIND_UNAVAILABLE]
+        for heading, group in (
+            (POLICY_TOOLS_HEADING, by_policy),
+            (UNAVAILABLE_TOOLS_HEADING, unavailable),
+        ):
+            if group:
+                lines.append(heading)
+                lines.extend(f"- {d['tool']}（原因：{d['reason']}）" for d in group)
         lines.append("提示：工具清單以實際提供者為準；請只使用清單內的工具。")
         note = "\n" + wrap_block(TOOL_AVAILABILITY, "\n".join(lines)) + "\n"
 

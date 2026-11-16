@@ -171,6 +171,7 @@ tests/
 | `unit/local_helper/test_local_helper_service.py` | ADR-0312：工作分派、按核准才確認、確認成功才動手、取消 |
 | `unit/local_helper/test_local_helper_install.py` | ADR-0312：Windows 呼叫的純函式、設定檔、安裝規則 |
 | `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
+| `unit/local_helper/test_local_helper_display.py` | ADR-0312：小幫手視窗跟著螢幕縮放的倍數、字型選擇、宣告縮放失敗不影響服務 |
 | `unit/test_local_protocol_parity.py` | ADR-0312：小幫手和 Touka 兩份協議相同 |
 | `lint/test_touka_local_boundary.py` | ADR-0312：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
 | `integration/test_local_bridge_router.py` | ADR-0312：配對只給人類管理員、權杖不等於身分、工作經端點來回 |

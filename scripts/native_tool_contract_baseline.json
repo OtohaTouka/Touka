@@ -2045,6 +2045,16 @@
         "reads": [],
         "dynamic": []
       },
+      "_await_with_waiting_hint": {
+        "parameters": [
+          "submission",
+          "emit",
+          "call_id"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
       "local_files": {
         "parameters": [
           "action"
@@ -2057,7 +2067,15 @@
           ],
           [
             "kwargs",
+            "_call_id"
+          ],
+          [
+            "kwargs",
             "_ctx"
+          ],
+          [
+            "kwargs",
+            "_emit_event"
           ],
           [
             "kwargs",

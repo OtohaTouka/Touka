@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import ctypes
 import re
+import sys
 from ctypes import wintypes
 from pathlib import PureWindowsPath
-from typing import Final
+from typing import Any, Final
 
 _DRIVE: Final = re.compile(r"[A-Za-z]:")
+
+# shellscalingapi.h：整個程式用系統縮放比例（Tk 8.6 不處理各螢幕不同的縮放）
+PROCESS_SYSTEM_DPI_AWARE: Final = 1
 
 FO_DELETE: Final = 3
 FOF_SILENT: Final = 0x0004
@@ -105,6 +109,44 @@ class RecycleBin:
         shell32.SHFileOperationW.restype = ctypes.c_int
         code = shell32.SHFileOperationW(ctypes.byref(operation))
         return interpret_delete(code, operation.fAnyOperationsAborted)
+
+
+def _load_dpi_libraries() -> tuple[Any | None, Any] | None:
+    """縮放用的兩個系統程式庫；不是 Windows 時回 None，舊版 Windows 沒有 shcore。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        user32 = ctypes.WinDLL("user32")
+    except OSError:
+        return None
+    try:
+        shcore = ctypes.WinDLL("shcore")
+    except OSError:
+        shcore = None
+    return shcore, user32
+
+
+def enable_dpi_awareness() -> bool:
+    """告訴 Windows 小幫手會自己處理縮放，字才不會被當成圖片放大而變糊。
+
+    要在建立任何視窗之前呼叫。做不到也只是字比較糊，不影響服務，所以不丟例外。
+    """
+    libraries = _load_dpi_libraries()
+    if libraries is None:
+        return False
+    shcore, user32 = libraries
+    if shcore is not None:
+        try:
+            shcore.SetProcessDpiAwareness(PROCESS_SYSTEM_DPI_AWARE)
+        except (OSError, AttributeError):
+            pass
+        else:
+            return True
+    try:
+        user32.SetProcessDPIAware()
+    except (OSError, AttributeError):
+        return False
+    return True
 
 
 def acquire_single_instance() -> bool:

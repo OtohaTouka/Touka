@@ -55,6 +55,8 @@ ALLOWED_SUBMODULES = frozenset(
         "http.client",
         "logging.handlers",
         "tkinter.filedialog",
+        # 只用來換字型與量字高（螢幕縮放），不會執行任何東西
+        "tkinter.font",
         "tkinter.messagebox",
         "tkinter.ttk",
         "urllib.error",
@@ -70,8 +72,22 @@ BANNED_NAMES = frozenset(
     {"eval", "exec", "__import__", "importlib", "getattr", "vars", "globals", "locals", "compile"}
 )
 # 任何物件上都不行，換個變數名就看不出來了。.tk 能拿到 Tcl 直譯器
+# tkinter.font.Font 把 Tcl 直譯器存成 _call、_tk，名字剛好避開 call、tk
 BANNED_ATTRIBUTES = frozenset(
-    {"eval", "call", "tk", "system", "popen", "startfile", "os", "modules", "__dict__", "socket"}
+    {
+        "eval",
+        "call",
+        "tk",
+        "_call",
+        "_tk",
+        "system",
+        "popen",
+        "startfile",
+        "os",
+        "modules",
+        "__dict__",
+        "socket",
+    }
 )
 # 啟動程式的那些函式（sys.executable 這種名字不算）
 PROCESS_STARTERS = re.compile(r"(exec|spawn)[lv]p?e?")

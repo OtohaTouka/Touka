@@ -335,7 +335,7 @@ class LocalProposeInput(PublicToolInput):
     items: list[LocalProposeItem] = Field(
         min_length=1,
         max_length=MAX_LOCAL_PROPOSE_ITEMS,
-        description="完整的搬移、改名、刪除清單；使用者在電腦上看完按核准才會動",
+        description="完整的搬移、改名、刪除清單；會等使用者在小幫手視窗按核准才會動",
     )
     reason: str = Field(
         min_length=1, max_length=MAX_LOCAL_REASON_CHARS, description="一句話說明為什麼要這樣做"

@@ -25,6 +25,7 @@ ALLOWED_FILES: Final = (
     "touka_local/app.py",
     "touka_local/approval.py",
     "touka_local/connection.py",
+    "touka_local/display.py",
     "touka_local/errors.py",
     "touka_local/fsops.py",
     "touka_local/grants.py",

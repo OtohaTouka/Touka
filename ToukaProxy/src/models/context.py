@@ -44,7 +44,8 @@ class PipelineContext(BaseModel):
 
     # Tier 1（可讀拒絕）：Gate 1 過濾的觀測資料
     denied_tools: list[dict[str, str]] | None = Field(
-        default=None, description="Gate 1 政策拒絕的工具（{tool, reason}）"
+        default=None,
+        description="Gate 1 政策拒絕或暫時用不到的工具（{tool, reason}；後者另帶 kind）",
     )
     tools_filtered: bool = Field(default=False, description="Gate 1 是否過濾了任何 builtin 工具")
 

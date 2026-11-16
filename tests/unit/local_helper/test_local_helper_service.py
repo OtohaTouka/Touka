@@ -519,6 +519,33 @@ def test_closing_when_idle_is_immediate(service) -> None:
     assert service.request_close() == "now"
 
 
+def test_close_blocked_only_while_a_list_is_waiting(service, client, gate, fs) -> None:
+    assert service.close_blocked() is False
+    fs.add_file("D:\\Open\\a.txt")
+    _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
+    assert service.close_blocked() is True
+
+
+def test_asking_whether_close_is_blocked_does_not_stop_a_batch(
+    service, client, gate, fs, trash, clock
+) -> None:
+    for name in "ab":
+        fs.add_file(f"D:\\Open\\{name}.txt")
+    _propose(service, client, [{"op": "delete", "path": f"Open/{n}.txt"} for n in "ab"])
+    original_send = trash.send
+    answers: list[bool] = []
+
+    def send(path: str) -> str:
+        outcome = original_send(path)
+        answers.append(service.close_blocked())
+        return outcome
+
+    trash.send = send
+    _approve(service, gate, clock)
+    assert answers == [False, False]
+    assert [i["status"] for i in client.results[0][1]["data"]["items"]] == ["done", "done"]
+
+
 # --- 沒有全部做完，不能說做完了 ---
 
 

@@ -170,8 +170,8 @@ def build_harness_context(
         "",
         "## Tools and approval",
         "- The tools attached to this request are the only tools that exist. If a "
-        "<tool_availability> block is present, it lists tools filtered out by "
-        "policy - never call those or claim to have used them.",
+        "<tool_availability> block is present, it lists withheld tools and why "
+        "- never call those or claim to have used them.",
         "- A tool result with error_class permission_denied means the action was "
         "declined by policy or by a human; adjust your approach instead of "
         "retrying the identical call.",

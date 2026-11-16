@@ -12,12 +12,13 @@ if sys.platform == "win32":
     import tkinter
 
     # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
-    from touka_local.app import ApprovalWindow
+    from touka_local.app import ApprovalWindow, _setup_display
 
 from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
 from touka_local.approval import PendingApproval
+from touka_local.display import DisplayScale
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
@@ -249,10 +250,34 @@ def test_approval_window_shows_every_full_path() -> None:
             offered_at=0.0,
             deadline=1.0,
         )
-        window = ApprovalWindow(root, pending, on_approve=lambda: None, on_reject=lambda: None)
+        window = ApprovalWindow(
+            root,
+            pending,
+            on_approve=lambda: None,
+            on_reject=lambda: None,
+            display=DisplayScale(factor=2.0),
+        )
         text = window._paths.get("1.0", "end")
         assert "D:\\Open\\first.txt" in text
         assert "D:\\Open\\second.txt" in text
         assert window._paths.cget("state") == "disabled"
     finally:
         root.destroy()
+
+
+def test_display_setup_runs_on_a_real_window() -> None:
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        assert _setup_display(root).factor >= 1.0
+    finally:
+        root.destroy()
+
+
+class _BrokenRoot:
+    def winfo_fpixels(self, _distance: str) -> float:
+        raise tkinter.TclError
+
+
+def test_display_setup_failure_keeps_the_default_sizes() -> None:
+    assert _setup_display(_BrokenRoot()) == DisplayScale()  # type: ignore[arg-type]
