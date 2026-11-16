@@ -73,6 +73,8 @@ tests/
 
 | 檔案 | 說明 |
 |---|---|
+| `unit/test_mission_board_status.py` | 看板五種狀態的圖示與字、看不懂的值不原樣寫出；卡住、失敗的原因先看 blocker_detail 再看 test_log、截斷與跳脫；get_board 分得出卡住與失敗、原因只印一次（PR 2） |
+| `unit/test_subagent_dispatch_visibility.py` | 子代理的派工情境（派遣者、時限、互動／心跳／其他三種說法、工具輪）；沒列 mission_tools 時同步帶回結果、失敗回 FAILED，有列或沒有清單照舊回憑證；外部派工說明與兩段等候訊息的停止條件（PR 2） |
 | `unit/test_soul_keeps_harness_blocks.py` | 套用靈魂設定時系統加的說明（專案等）留下：OpenAI／Anthropic 兩種形狀、list 形狀不出錯；偽造標籤與兩則用戶端 system 照舊判斷；對不上整則算用戶端並記 log；入口每次覆寫；專案名稱的標籤字元被跳脫。 |
 | `unit/test_approval_context.py` | `<approval_context>`：三種模式 × 有沒有人與看不懂的值，說法和實際判斷一致；只有唯讀工具也注入；區塊分類全覆蓋；Claude 重排不切開說明；四處被擋建議依子代理、心跳各自的說法。 |
 
