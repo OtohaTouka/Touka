@@ -12,7 +12,9 @@ from src.models.local_bridge import (
     MAX_JOB_RESULT_BYTES,
     MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
+    DecidedByMode,
     LocalAction,
+    LocalDecision,
     LocalJob,
     LocalJobResult,
     LocalPollRequest,
@@ -25,6 +27,7 @@ from src.services.local_bridge import (
     MAX_PENDING_JOBS,
 )
 from src.tools.builtin.local_helper import PROPOSE_RESULT_NOTE
+from src.utils.local_bridge_signing import DECIDED_BY_MODES
 
 HELPER = Path(__file__).resolve().parents[2] / "ToukaLocal" / "touka_local"
 
@@ -101,3 +104,10 @@ def test_every_item_status_is_explained_to_the_agent() -> None:
     for status, _label in labels:
         # 前面不能接著英文字母或底線，not_done＝ 才不會順便算成 done＝
         assert re.search(rf"(?<![a-z_]){status}＝", PROPOSE_RESULT_NOTE), status
+
+
+def test_decision_fields_and_modes_match() -> None:
+    helper = _constants("protocol.py")
+    assert helper["DECISION_FIELDS"] == frozenset(LocalDecision.model_fields)
+    assert helper["DECIDED_BY_MODES"] == get_args(DecidedByMode)
+    assert helper["DECIDED_BY_MODES"] == DECIDED_BY_MODES

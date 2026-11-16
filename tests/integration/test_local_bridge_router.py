@@ -39,10 +39,15 @@ def client(wired: LocalBridge) -> Iterator[TestClient]:
         yield test_client
 
 
-def _pair(client: TestClient) -> str:
+def _pair_code(client: TestClient) -> str:
     response = client.post("/v1/local-bridge/pairing")
     assert response.status_code == 200
     return response.json()["code"]
+
+
+def _pair(client: TestClient) -> str:
+    """配對碼是「權杖.鑰匙」；小幫手只拿權杖連線（ADR-0317）。"""
+    return _pair_code(client).split(".", 1)[0]
 
 
 def _poll(client: TestClient, token: str | None, body: dict[str, Any] | None = None) -> Any:
@@ -82,10 +87,22 @@ def test_pairing_refuses_untrusted_origin(client: TestClient) -> None:
 
 
 def test_pairing_code_is_shown_once(client: TestClient) -> None:
-    code = _pair(client)
+    code = _pair_code(client)
+    token, _, key_text = code.partition(".")
+    assert len(key_text) == 43
     status = client.get("/v1/local-bridge/status").json()
     assert status == {"paired": True, "online": False, "helper_version": None}
-    assert code not in str(status)
+    assert token not in str(status)
+    assert key_text not in str(status)
+
+
+def test_the_full_pairing_code_is_not_a_token(client: TestClient) -> None:
+    assert _poll(client, _pair_code(client)).status_code == 401
+
+
+def test_the_decision_key_never_appears_in_the_api_contract() -> None:
+    schema = str(app.openapi())
+    assert "decision_key" not in schema
 
 
 @pytest.mark.parametrize("token", [None, "", "wrong"])
@@ -141,7 +158,7 @@ def test_unpairing_uses_the_newest_generation(
 
     async def revoke_then_someone_pairs() -> None:
         await real_revoke()
-        newest.append(await store.create("someone"))
+        newest.append((await store.create("someone")).token)
 
     monkeypatch.setattr(store, "revoke", revoke_then_someone_pairs)
     assert client.delete("/v1/local-bridge/pairing").status_code == 200

@@ -50,9 +50,9 @@ async def create_pairing(
     """產生配對碼；已經有配對時舊的立刻失效。"""
     verify_origin(request)
     store = get_local_pairing_store()
-    code = await store.create(admin.agent_id)
+    created = await store.create(admin.agent_id)
     get_local_bridge().invalidate(store.generation())
-    return LocalPairingCreated(code=code)
+    return LocalPairingCreated(code=created.code)
 
 
 @router.delete("/pairing", response_model=LocalJobAck)
