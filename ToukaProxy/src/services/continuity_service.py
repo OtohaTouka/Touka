@@ -223,11 +223,14 @@ def _completed_item(now_s: float, kind: str, epoch_ms: int, subject: str, metada
     return f"{what} {_when(now_s, epoch_ms)}"
 
 
-def running_subagents_line(soul: AgentIdentity, session_id: str | None, now_s: float) -> str:
-    """還在跑的子代理（ADR-0318）：標籤是模型給的，經 ``safe_ref``；只看記憶體裡的登記表。"""
+def running_subagents_line(soul: AgentIdentity, session_id: str | None, now_s: float) -> str | None:
+    """還在跑的子代理（ADR-0318）；沒有就不加這一行（區塊和以前一樣）。
+
+    標籤是模型給的，經 ``safe_ref``；只看記憶體裡的登記表。
+    """
     running = subagent_registry.running_in(soul.agent_id, session_id)
     if not running:
-        return f"- {RUNNING_SUBAGENTS_LABEL}: {NONE_RECORDED} {SERVER_MEMORY}"
+        return None
     items = [
         f"{safe_ref(entry.label)} (started {_when(now_s, int(entry.started_at * _MS_PER_SECOND))})"
         for entry in running[:RUNNING_SUBAGENTS_SHOWN]
@@ -317,7 +320,9 @@ async def build_continuity_block(
         lines.append(_run_line(now_s, timeline, heartbeat=heartbeat))
         lines.append(_recent_line(now_s, timeline))
         lines.append(await _mission_line(identity, soul, now_s))
-        lines.append(running_subagents_line(soul, session_id, now_s))
+        running = running_subagents_line(soul, session_id, now_s)
+        if running is not None:
+            lines.append(running)
         start = _records_start_line(timeline)
         if start is not None:
             lines.append(start)

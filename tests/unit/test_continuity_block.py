@@ -137,6 +137,8 @@ async def test_running_subagents_are_in_the_block(
     monkeypatch.setattr(cs.subagent_registry, "running_in", lambda *_a: [entry])
     assert f"{cs.RUNNING_SUBAGENTS_LABEL}: look-1 (started " in await _block(sid)
     assert cs.RUNNING_SUBAGENTS_LABEL not in await _block(sid, incognito=True)
+    monkeypatch.setattr(cs.subagent_registry, "running_in", lambda *_a: [])
+    assert cs.RUNNING_SUBAGENTS_LABEL not in await _block(sid)  # 沒有在跑的就不加
 
 
 def test_elapsed_seconds_converts_milliseconds() -> None:

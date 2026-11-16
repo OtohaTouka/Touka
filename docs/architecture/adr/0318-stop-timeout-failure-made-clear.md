@@ -4,7 +4,7 @@
 - 日期：2026-11-16
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（in-process 子代理）、[ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（回報塊）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（第一批：派工情境、同步派工）、[ADR-0248](0248-model-layer-stage-3b.md)（主迴圈的失敗與重試）
-- 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`）
+- 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界①②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`）
 - 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`；PR 2：`services/subagent_registry.py`（新）、`tools/subagent_tools.py`、`handlers/react_core.py`、`services/dispatch_callback_store.py`、`routers/dispatch_callback.py`、`tools/mission_tools.py`、`services/continuity_service.py`
 
 ## 背景
@@ -52,7 +52,7 @@
 - 每個子代理在自己的 task 裡跑，旁邊有停止監看（`_unless_parent_stops`）：主代理那段對話被按停止（`stopped_since_start`，看停止次數有沒有比派出時多）就只取消子代理的 task，丟一般例外 `SubagentCancelledError`。主代理的工具 task 不被取消，照常收到結構化的「已取消」（`status="CANCELLED"`，附已做到的部分），心跳主代理照常以「被中斷」收尾。
 - 停止沒有事件可掛，只有累計次數，所以每 `STOP_CHECK_SECONDS`（0.5 秒）看一次；沒有對話的執行（IDE）不看。
 - 停止以整段對話計：之後在同一段對話按停止，或心跳在家對話跑的時候按停止，也會停掉同一段對話裡較早派出、還在背景跑的子代理（修訂 ADR-0134 後果邊界②「背景子 loop 不隨父請求中斷」）。
-- 子代理沒做完（被停、逾時、模型錯誤、主代理這一輪被收掉）時，在背景呼叫 `terminal.stop_agent_commands`（不卡事件迴圈）停掉它的背景與待審指令、收掉行程；它的迴圈被收掉時，還在跑的工具全部一起取消（`subagent_run` 時每個工具都綁在這一輪）。
+- 子代理沒做完（被停、逾時、模型錯誤、主代理這一輪被收掉）時，在背景呼叫 `terminal.stop_agent_commands`（不卡事件迴圈）停掉它的背景與待審指令、收掉行程（SubagentStop hook 先發，不保證指令已經停完）；它的迴圈被收掉時，還在跑的工具全部一起取消（`subagent_run` 時每個工具都綁在這一輪）。
 - `dispatch_subagent`、`dispatch_subagent_group` 加進綁在這一輪的工具（修訂 ADR-0312 的 `_TOOLS_TIED_TO_THE_TURN`）：主代理這一輪被收掉時，同步派的子代理跟著停。按停止時已派出的子代理不再多跑 10 分鐘（修訂 ADR-0309 的既有限制、ADR-0316 決定 8 的代價）。
 - 背景派工的 task 本身被取消（例如 Touka 關機）時也交回「已取消：Touka 停止或重啟」，等的一方不空等；這時拿不到已做到的部分。
 - 等 SubagentStart hook 時被停（`SubagentStoppedError`）也是「已取消」。停止監看出錯會留紀錄（`spawn_logged`）。
@@ -61,7 +61,7 @@
 ### 6. 下一輪看得到還在跑的子代理
 
 - `services/subagent_registry.py`：純資料登記表（標籤、派它的靈魂、對話、開始時間），子代理開始時登記、結束時移除；不放 task、不做取消，Touka 重啟就清空。
-- `<continuity>`（請求尾端，不影響快取、不新增系統區塊）多一行：這個靈魂在這段對話派出、還在跑的子代理與已跑多久，最多列 5 個。標籤是模型給的，比照 ADR-0267 經 `safe_ref`；無痕、沒有對話（IDE）不列。
+- `<continuity>`（請求尾端，不影響快取、不新增系統區塊）多一行：這個靈魂在這段對話派出、還在跑的子代理與已跑多久，最多列 5 個；沒有在跑的就不加這一行。標籤是模型給的，比照 ADR-0267 經 `safe_ref`；無痕、沒有對話（IDE）不列。
 
 ### 7. 等結果的憑證
 
@@ -82,6 +82,6 @@
 
 ## 驗證
 
-PR 2：`tests/unit/test_subagent_stop.py`：同步、背景、一次派多個的子代理都跟著停並交回「已取消」與已做到的部分；別段對話的停止、沒有對話的執行不受影響；較早派出的背景子代理也會被之後的停止停掉；主代理這一輪被收掉時取消照樣往外傳；沒做完才收行程；子代理的迴圈收掉時工具全停；心跳主代理同步派工被停照常以「被中斷」收尾；還在跑的子代理列出與中和；站內憑證逾時不作廢、過期清掉、外部憑證照舊、HTTP 回呼拒絕站內憑證；等候說法。
+PR 2：`tests/unit/test_subagent_stop.py`：同步、背景、一次派多個的子代理都跟著停並交回「已取消」與已做到的部分；別段對話的停止、沒有對話的執行不受影響；較早派出的背景子代理也會被之後的停止停掉；主代理這一輪被收掉時取消照樣往外傳；這一輪被收掉時又按停止仍是取消；等 SubagentStart hook 時被停也是已取消；沒做完才收行程；子代理的迴圈收掉時工具全停；心跳主代理同步派工被停照常以「被中斷」收尾；還在跑的子代理列出與中和、沒有對話不列；站內憑證逾時不作廢、過期清掉、外部憑證照舊、HTTP 回呼拒絕站內憑證；等候說法。
 
 PR 1：`tests/unit/test_subagent_outcomes.py`：三種主代理的模型錯誤都是 FAILED 加種類、不帶廠商原文；失敗前寫的文字交回；子代理不沿用父代理的旗標；逾時交回部分文字、時限包住組裝、別的逾時不算子代理逾時、外層取消不算逾時；逾時與模型失敗時 SubagentStop 拿到已做到的部分；長結果保留結尾；子代理的文字沒有工具日誌行；自評失敗不算成功；同步派工的說法。

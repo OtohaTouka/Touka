@@ -62,7 +62,7 @@ def fake_assemble(monkeypatch) -> None:
 
 
 @pytest.fixture
-def kill(monkeypatch) -> MagicMock:
+def kill(monkeypatch) -> AsyncMock:
     mock = AsyncMock(return_value=0)
     monkeypatch.setattr(st, "stop_agent_commands", mock)
     return mock
@@ -129,6 +129,9 @@ async def test_stopping_the_conversation_stops_a_sync_subagent(monkeypatch, fake
     assert "讀了 a.py" in payload["result"]["result_summary"]
     assert "子代理（t1）已結束：已取消。" in payload["message"]
     assert child.closed == 1
+    for _ in range(3):  # 停指令在背景排程：讓它真的跑到
+        await asyncio.sleep(0)
+    kill.assert_awaited_once()
     (identity,), _ = kill.call_args
     assert identity.agent_id.startswith("__subagent_")
 
@@ -461,13 +464,10 @@ def test_the_continuity_line_lists_running_subagents_by_safe_label(monkeypatch):
     assert "h:" in line
 
 
-def test_the_continuity_line_says_none_when_nothing_runs(monkeypatch):
+def test_no_line_when_nothing_runs(monkeypatch):
+    """沒有子代理在跑就不加這一行：區塊和以前一樣。"""
     monkeypatch.setattr(subagent_registry, "running_in", lambda *_a: [])
-    line = continuity_service.running_subagents_line(_SOUL, "s-c", 10_000.0)
-    assert line == (
-        f"- {continuity_service.RUNNING_SUBAGENTS_LABEL}: "
-        f"{continuity_service.NONE_RECORDED} {continuity_service.SERVER_MEMORY}"
-    )
+    assert continuity_service.running_subagents_line(_SOUL, "s-c", 10_000.0) is None
 
 
 def test_the_continuity_line_caps_how_many_it_lists(monkeypatch):
