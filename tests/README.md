@@ -186,11 +186,11 @@ tests/
 | `unit/local_helper/test_local_helper_real_windows.py` | ADR-0312：只在真 Windows 跑：不覆蓋、連結、隱藏屬性、完整搬移與復原 |
 | `unit/local_helper/test_local_helper_display.py` | ADR-0312：小幫手視窗跟著螢幕縮放的倍數、字型選擇、宣告縮放失敗不影響服務 |
 | `unit/test_local_protocol_parity.py` | ADR-0312：小幫手和 Touka 兩份協議相同 |
-| `unit/local_helper/test_local_helper_signing.py` | ADR-0317：小幫手驗章、配對碼拆出鑰匙，和 Touka 用同一組固定測資 |
+| `unit/local_helper/test_local_helper_signing.py` | ADR-0317：小幫手驗章、配對碼拆出鑰匙；配對碼的固定測資和 Touka 相同（章的測資 Touka 端在 PR 2b 加回） |
 | `unit/local_helper/test_local_helper_floors.py` | ADR-0317：小幫手的底線，每條一個剛好在線上、一個剛好超過；一小時總量與 7 天比對 |
 | `unit/local_helper/test_local_helper_mode_settings.py` | ADR-0317：鑰匙、開關、重新計算三個小檔，讀不懂與存不進去都往安全的那邊算 |
 | `unit/local_helper/test_local_helper_mode_decisions.py` | ADR-0317：章、號碼、指紋都對又在底線內才不跳視窗；冒充與重送改跳視窗，碰到底線人還按得了核准 |
-| `unit/test_local_bridge_signing.py` | ADR-0317：Touka 端的配對鑰匙與配對碼 |
+| `unit/test_local_bridge_signing.py` | ADR-0317：Touka 端的配對鑰匙與配對碼，配對碼的固定測資和小幫手相同 |
 | `lint/test_touka_local_boundary.py` | ADR-0312：小幫手能用的模組是允許清單，沒有執行程式與開網路入口的管道 |
 | `integration/test_local_bridge_router.py` | ADR-0312：配對只給人類管理員、權杖不等於身分、工作經端點來回 |
 | `unit/test_local_files_tool.py` | ADR-0312：誰拿得到本機檔案工具、結果怎麼交給模型、參數合約、內建風險分類只在設定檔成功載入時生效 |

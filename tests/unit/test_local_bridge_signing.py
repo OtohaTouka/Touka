@@ -28,6 +28,11 @@ def test_pairing_code_carries_the_key_after_a_dot() -> None:
     assert "=" not in key_text
 
 
+def test_pairing_code_matches_the_helper_vector() -> None:
+    # 小幫手的 test_a_new_pairing_code_carries_a_key 用同一個字串拆回 KEY
+    assert pairing_code("tok", KEY) == "tok.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
+
 @pytest.mark.parametrize("value", [None, "", "zz" * 32, "ab" * 31, "AB" * 32])
 def test_bad_stored_keys_are_not_used(value: str | None) -> None:
     assert decision_key_from_hex(value) is None
