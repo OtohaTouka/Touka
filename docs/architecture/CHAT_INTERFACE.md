@@ -7,6 +7,7 @@
 - 分頁 `local_helper`，只有 admin 看得到。資料層是 `useLocalHelper`，每 10 秒更新狀態。
 - 配對碼只放在 hook 的記憶體，不寫瀏覽器儲存，離開頁面就沒了。換新和解除都要先確認。
 - 讀不到狀態時照實顯示，不當成沒配對。開放哪些資料夾、核准都在小幫手自己的視窗，這一頁不管。
+- 審批卡的「小幫手掃描到的清單」（ADR-0317）：`HelperPreview` 元件，等寬字、可以捲動。解析在 `stream_tree`（`ToolStepPreview`，型別在 `tree_history.ts` 手寫，同 `review_reason`）；卡片完整顯示時核准請求帶 `payload.preview_ack`，卡片答完就把 ack 丟掉，不留在對話紀錄。
 
 ## 換後端網址與登入憑證（ADR-0297）
 
