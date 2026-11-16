@@ -8,6 +8,7 @@ from src.adapters.content_normalize import append_text_part
 from src.adapters.schemas import OpenAIMessage
 from src.middleware.base import ProxyLayer
 from src.models.context import PipelineContext
+from src.services.mission_status import task_reason, task_status_parts
 from src.services.prompt_blocks import (
     ALL_BLOCK_TAGS,
     IDE_CONTEXT,
@@ -77,11 +78,13 @@ def render_mission_block(mission: Any) -> str:
         "---",
     ]
     for t in mission.tasks:
-        icon = "✅" if t.status == "DONE" else "⏳" if t.status == "DOING" else "⬜"
+        icon, word = task_status_parts(t.status)
         deps = ", ".join(_board_text(d) for d in t.dependencies)
         dep = f" (依賴: {deps})" if t.dependencies else ""
         art = f" [產出: {_board_text(t.artifact_ref)}]" if t.artifact_ref else ""
-        line = f"{icon} {_board_text(t.id)}: {_board_text(t.description)}{dep}{art}"
+        reason = task_reason(t)
+        why = f"（原因：{_board_text(reason)}）" if reason else ""
+        line = f"{icon} {_board_text(t.id)} [{word}]: {_board_text(t.description)}{dep}{art}{why}"
         awareness_block.append(line)
     awareness_block.append(f"</{MISSION_AWARENESS}>\n")
     return "\n".join(awareness_block)

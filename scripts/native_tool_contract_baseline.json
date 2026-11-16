@@ -3105,7 +3105,8 @@
       "_subagent_user_prompt": {
         "parameters": [
           "goal",
-          "scope"
+          "scope",
+          "situation"
         ],
         "kwargs": null,
         "reads": [],
@@ -3143,7 +3144,8 @@
           "sub_identity",
           "base_ctx",
           "model",
-          "scope"
+          "scope",
+          "parent_label"
         ],
         "kwargs": null,
         "reads": [
@@ -3335,6 +3337,51 @@
       "_is_read_only": {
         "parameters": [
           "value"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_dispatch_situation": {
+        "parameters": [
+          "base_ctx",
+          "parent_label"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "enable_autonomy"
+          ],
+          [
+            "base_ctx",
+            "heartbeat_run"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_can_await_later": {
+        "parameters": [
+          "ctx"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "ctx",
+            "advertised_tools"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_dispatch_and_wait": {
+        "parameters": [
+          "goal",
+          "identity",
+          "request_id",
+          "base_ctx",
+          "model",
+          "task_id",
+          "read_only"
         ],
         "kwargs": null,
         "reads": [],

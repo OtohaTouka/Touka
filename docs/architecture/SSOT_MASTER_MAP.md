@@ -7,6 +7,8 @@
 | 用戶端原本送來的 system（入口記一次、每次覆寫）與「系統加的部分」的切分 | `ToukaProxy/src/services/client_system.py` `capture`、`split`、`CLIENT_SYSTEM_KEY`；寫入點 `middleware/pipeline.py` `ProxyPipeline.execute` | `SoulService.apply_soul_to_request`（靈魂層、群聊、心跳） |
 | 系統區塊的分類：不變、會變、接在訊息尾端（`ALL_BLOCK_TAGS` 每個剛好一組） | `services/prompt_blocks.py` `STABLE_SYSTEM_TAGS`、`VOLATILE_SYSTEM_TAGS`、`REQUEST_TAIL_TAGS` | Claude 快取重排、快照、測試 |
 | 模式、在場與核准的說法 | `prompt_blocks.build_approval_context`（區塊 `APPROVAL_CONTEXT`） | ToolLayer（有列工具就注入） |
+| 看板每格的圖示、狀態字與原因 | `ToukaProxy/src/services/mission_status.py` `TASK_ICONS`、`task_status_parts`、`task_reason` | `<mission_awareness>`（`middleware/layers/context.py`）、`mission_tools` 的 `get_board` |
+| 子代理的時限、外部派工沒接通的說法 | `tools/contracts.py` `SUBAGENT_TIMEOUT_SECONDS`、`EXTERNAL_DISPATCH_NOTE` | `subagent_tools`（執行與派工情境 `_dispatch_situation`）、`mission_tools`（等候訊息、initialize） |
 | 沒人在場時需要核准的動作交給誰、被擋後的建議 | `utils/presence.py` `no_human_followup`、`blocked_call_suggestion` | `<approval_context>`、`ToolExecutor`、`approval_flow`、`tools/terminal.py` |
 
 ## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）

@@ -1182,12 +1182,14 @@ _PROTECTED_STRINGS = _PRIVATE_NAMES | {
 _REPLACEABLE_METHODS = frozenset({"execute_to_queue", "__init__"})
 _LIVE_EPISODE = "tests/tool_eval/live_episode.py"
 _FIELD = "advertised_tools"
-_FIELD_RULES = {  # 白名單：每個檔恰好一處、而且是這一種用法
-    "ToukaProxy/src/models/context.py": "field",
-    "ToukaProxy/src/middleware/layers/tool.py": "subscript-store",
-    "ToukaProxy/src/tools/subagent_tools.py": "attribute-store",
-    _EXECUTOR_MODULE: "get-read",
-    _LIVE_EPISODE: "subscript-store",
+_FIELD_RULES: dict[str, tuple[str, ...]] = {  # 白名單：每個檔恰好這幾處、而且是這幾種用法
+    "ToukaProxy/src/models/context.py": ("field",),
+    "ToukaProxy/src/middleware/layers/tool.py": ("subscript-store",),
+    # 寫子代理自己的清單；讀一次只用來決定派工要不要等結果（沒列 mission_tools 時等做完才回，
+    # ADR-0316 PR 2 補記）。屬性讀取仍不准（下面的 subagent-reads）
+    "ToukaProxy/src/tools/subagent_tools.py": ("attribute-store", "get-read"),
+    _EXECUTOR_MODULE: ("get-read",),
+    _LIVE_EPISODE: ("subscript-store",),
 }
 
 
@@ -1873,8 +1875,8 @@ def _field_findings(sources: dict[str, str]) -> list[str]:
         allowed = _FIELD_RULES.get(rel)
         if allowed is None and uses:
             findings.append(f"{rel}: {uses}")
-        elif allowed is not None and uses != [allowed]:
-            findings.append(f"{rel}: {uses}（應恰好是 [{allowed}]）")
+        elif allowed is not None and sorted(uses) != sorted(allowed):
+            findings.append(f"{rel}: {uses}（應恰好是 {list(allowed)}）")
     return findings
 
 
@@ -1907,6 +1909,12 @@ _ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
             "ctx['advertised_tools'] = x\nctx['advertised_tools'] = y\n",
         ),
         ("ToukaProxy/src/tools/subagent_tools.py", "x = ctx.advertised_tools\n"),
+        (
+            "ToukaProxy/src/tools/subagent_tools.py",
+            "ctx.advertised_tools = a\n"
+            "x = ctx.get('advertised_tools')\n"
+            "y = ctx.get('advertised_tools')\n",
+        ),
     ],
     ids=[
         "subscript-write",
@@ -1921,6 +1929,7 @@ _ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
         "executor-writes",
         "layer-writes-twice",
         "subagent-reads",
+        "subagent-reads-twice",
     ],
 )
 def test_c3_scanner_catches_every_writer(rel, source):

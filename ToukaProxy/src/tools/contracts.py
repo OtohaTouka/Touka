@@ -17,6 +17,14 @@ from src.tools.execution_context import EXECUTION_CONTEXT_KWARG_NAMES
 
 MAX_SUBAGENT_GROUP = 8
 SUBAGENT_GROUP_CONCURRENCY = 4
+# 子代理跑多久就中止（subagent_tools 執行、mission_tools 的等候說明都讀這裡；放在合約檔，
+# 避免 mission_tools 匯入 subagent_tools 造成啟動時循環匯入）
+SUBAGENT_TIMEOUT_SECONDS = 600.0
+# 外部 AI 派工（DispatchAgent）目前沒有接通（ADR-0316 PR 2 補記）
+EXTERNAL_DISPATCH_NOTE = (
+    "外部 AI 派工（DispatchAgent）目前沒有接通，設了也不會有外部 AI 開工；"
+    "要委派請用 dispatch_subagent"
+)
 
 MAX_LOCAL_PATH_CHARS = 1024
 MAX_LOCAL_FILE_CHARS = 256 * 1024
@@ -53,7 +61,10 @@ class MissionTargetInput(PublicToolInput):
     """Public input model for MissionTarget."""
 
     target_agent_id: str | None = Field(
-        None, description="看板擁有者；跨身分操作仍需 Supervisor 權限"
+        None,
+        description=(
+            "看板擁有者；跨身分操作仍需 Supervisor 權限。DispatchAgent＝外部 AI 派工，目前沒有接通"
+        ),
     )
 
 
@@ -67,7 +78,7 @@ class MissionInitializeInput(MissionTargetInput):
         False,
         description=(
             "initialize 使用；只有 target_agent_id=DispatchAgent "
-            "才產生 task callback_token，其他目標不通知"
+            f"才產生 task callback_token，其他目標不通知。{EXTERNAL_DISPATCH_NOTE}"
         ),
     )
 
@@ -101,7 +112,7 @@ class MissionAwaitInput(PublicToolInput):
     """Public input model for MissionAwait."""
 
     action: Literal["await_dispatch_result"]
-    callback_token: str = Field(description="DispatchAgent initialize 回傳的 task 專屬回呼憑證")
+    callback_token: str = Field(description="dispatch_subagent 或 initialize 回傳的回呼憑證")
     timeout: float = Field(300.0, description="等待超時秒數")
 
 
