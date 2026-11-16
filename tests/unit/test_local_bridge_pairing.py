@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from src.services.local_bridge_pairing import LocalPairingStore
+from src.services.local_bridge_pairing import LocalPairingStore, NewPairing
 from src.services.resource_manager import resource_manager
 from src.utils.local_bridge_signing import pairing_code
 from src.utils.local_bridge_token import hash_token, new_token, token_matches
@@ -156,3 +156,11 @@ async def test_a_pairing_from_before_keys_still_works_without_one(tmp_path: Path
     )
     assert store.authenticate(token) is not None
     assert store.decision_key() is None
+
+
+def test_a_new_pairing_does_not_print_its_secrets() -> None:
+    created = NewPairing(token="t" * 43, key=bytes(range(32)))
+    shown = repr(created)
+    assert "t" * 43 not in shown
+    assert bytes(range(32)).hex() not in shown
+    assert str(bytes(range(32))) not in shown

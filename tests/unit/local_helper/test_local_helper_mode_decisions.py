@@ -294,6 +294,16 @@ def test_one_mode_decision_at_a_time(service, client, fs) -> None:
     assert payload["status"] == "refused" and payload["code"] == "approval_busy"
 
 
+def test_a_mode_decision_waits_for_an_open_window(service, client, fs, gate) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    preview = _preview(service, client)
+    _decide(service, client, None, job_id="w1")
+    assert gate.current is not None
+    payload = _decide(service, client, _signed(preview))
+    assert payload["status"] == "refused" and payload["code"] == "approval_busy"
+    assert gate.current.job_id == "w1"
+
+
 def test_a_failed_scan_releases_the_slot(service, client) -> None:
     payload = _decide(
         service,

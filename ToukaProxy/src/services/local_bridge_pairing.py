@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,8 +31,9 @@ _LOCK_TIMEOUT_SECONDS = 30
 class NewPairing:
     """剛產生的配對：權杖與鑰匙只在這裡出現一次，``code`` 給人貼到小幫手。"""
 
-    token: str
-    key: bytes
+    # repr 不印出來：例外訊息或 log 帶到這個物件時不能洩漏
+    token: str = field(repr=False)
+    key: bytes = field(repr=False)
 
     @property
     def code(self) -> str:
@@ -109,9 +110,7 @@ class LocalPairingStore:
         """解除配對。"""
         async with self._lock():
             self._write(
-                LocalPairingRecord(
-                    generation=self.generation() + 1, token_hash=None, human_id=None
-                )
+                LocalPairingRecord(generation=self.generation() + 1, token_hash=None, human_id=None)
             )
 
 

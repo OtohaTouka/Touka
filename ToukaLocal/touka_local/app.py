@@ -94,6 +94,8 @@ _KEY_NOT_SAVED: Final = (
     "配對碼存好了，但鑰匙存不進去：照 Touka 的模式核准先不生效，每份清單都在這裡按。"
 )
 _BATCH_REFRESH_SECONDS: Final = 5.0
+# 提示要解析全部紀錄（照模式的批留 30 天），不用像批次表那麼常更新
+_MODE_HINT_REFRESH_SECONDS: Final = 30.0
 _LOG_BYTES: Final = 256 * 1024
 _NOTICE_TEXT: Final = {
     NOTICE_NOT_CONFIRMED: "Touka 那邊已經不等這份清單了，所以什麼都沒有動。",
@@ -275,6 +277,7 @@ class MainWindow:
         self._switches = switches
         self._approval: ApprovalWindow | None = None
         self._last_batches = 0.0
+        self._last_hint = 0.0
         self._closing = False
 
         root.title("Touka 本機小幫手")
@@ -579,6 +582,8 @@ class MainWindow:
             self._last_batches = now
             self._refresh_grants_status()
             self._refresh_batches()
+        if now - self._last_hint >= _MODE_HINT_REFRESH_SECONDS:
+            self._last_hint = now
             self._refresh_mode_hint()
 
     def _refresh_mode_hint(self) -> None:
