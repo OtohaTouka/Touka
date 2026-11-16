@@ -20673,6 +20673,50 @@
         "title": "LegacyExportRequest",
         "description": "舊式對話匯出請求模型。"
       },
+      "LocalDecision": {
+        "properties": {
+          "nonce": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{22}$",
+            "title": "Nonce"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Digest"
+          },
+          "shown": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Shown"
+          },
+          "decided_by": {
+            "type": "string",
+            "enum": [
+              "user_card",
+              "auto_review",
+              "yolo"
+            ],
+            "title": "Decided By"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Signature"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "nonce",
+          "digest",
+          "shown",
+          "decided_by",
+          "signature"
+        ],
+        "title": "LocalDecision",
+        "description": "照模式做的決定和 Touka 蓋的章（ADR-0317）。由通道填，模型的參數碰不到。"
+      },
       "LocalHelperStatus": {
         "properties": {
           "paired": {
@@ -20717,7 +20761,9 @@
               "read",
               "create_folder",
               "create_file",
-              "propose"
+              "propose",
+              "preview",
+              "request_open"
             ],
             "title": "Action"
           },
@@ -20734,6 +20780,16 @@
           "decide_within": {
             "type": "number",
             "title": "Decide Within"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,

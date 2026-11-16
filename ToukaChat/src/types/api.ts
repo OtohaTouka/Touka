@@ -8768,6 +8768,25 @@ export interface components {
             }[];
         };
         /**
+         * LocalDecision
+         * @description 照模式做的決定和 Touka 蓋的章（ADR-0317）。由通道填，模型的參數碰不到。
+         */
+        LocalDecision: {
+            /** Nonce */
+            nonce: string;
+            /** Digest */
+            digest: string;
+            /** Shown */
+            shown: string;
+            /**
+             * Decided By
+             * @enum {string}
+             */
+            decided_by: "user_card" | "auto_review" | "yolo";
+            /** Signature */
+            signature: string;
+        };
+        /**
          * LocalHelperStatus
          * @description 設定頁顯示的狀態。
          */
@@ -8790,7 +8809,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "list" | "read" | "create_folder" | "create_file" | "propose";
+            action: "list" | "read" | "create_folder" | "create_file" | "propose" | "preview" | "request_open";
             /** Args */
             args: {
                 [key: string]: unknown;
@@ -8799,6 +8818,7 @@ export interface components {
             requester: string;
             /** Decide Within */
             decide_within: number;
+            decision?: components["schemas"]["LocalDecision"] | null;
         };
         /**
          * LocalJobAck
