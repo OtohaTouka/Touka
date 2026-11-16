@@ -69,6 +69,12 @@ tests/
 
 ## 一、單元測試 (`tests/unit/`)
 
+### 請求帶的專案要核對（ADR-0304 2026-11-16 補記）
+
+| 檔案 | 說明 |
+|---|---|
+| `unit/test_request_project_ownership_security.py` | 兩個聊天端點（含與不含 `/v1`）：別人的專案拿掉並記警告（不含名稱）、自己的／管理員／沒主人但有自己對話的舊專案保留並標記、不存在與孤兒專案拿掉、核對出錯拿掉並記 exception、`X-Agent-ID` 代打兩種、無痕與空字串；佔位編號 `default` 不帶、工具不用、不能建立或刪除；ContextLayer 只認標記。 |
+
 ### 聊天對話搜尋（ADR-0277）
 
 以下六個新測試檔使用 conftest 沙盒、真 SQLite／MemoryManager／SessionService 與合成身分，來源觀察器只委派、不替換搜尋。

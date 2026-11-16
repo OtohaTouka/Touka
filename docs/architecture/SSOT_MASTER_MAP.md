@@ -1,5 +1,12 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
+
+| 事實 | 唯一來源 | 使用者 |
+|---|---|---|
+| 心跳建家的佔位專案編號（不是專案） | `ToukaProxy/src/utils/async_db.py` `PLACEHOLDER_PROJECT_ID` | `routers/heartbeat.py`（寫入）、`routers/proxy.py`、`isolation/policy.session_project_id`、`routers/ui_sessions.py`（存、刪） |
+| 聊天請求帶的專案能不能用 | `routers/proxy._authorize_request_project`（規則沿用 `ui_sessions._can_access_project`），結果寫 `PipelineContext.project_authorized` | ContextLayer（只認這個標記注入 `<project_context>`） |
+
 ## 模型輸出的外部資源不自動載入、本機連線資訊只給自己（2026-10-30，ADR-0294）
 
 - Markdown 圖片載不載入：ToukaChat `src/lib/markdownImagePolicy.ts` 的 `decideMarkdownImage`（純函式，解析後比來源；後端來源由呼叫端傳 `getActiveProxyUrl()`）。

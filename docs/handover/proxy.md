@@ -168,7 +168,9 @@
 - 刪除、重置、記憶清除期間仍擋不住人自己的前景聊天、SNS、群聊對這個靈魂的寫入（舊審查報告第 3 題乙案，要改工具層）；刪除靠清完家目錄後的再查擋下。叫停要等正在跑的那一輪模型呼叫回來，重置不等它：重置自檢之前寫進來的會顯示「重置後又有新寫入」，之後才寫的不在任何報告裡（ADR-0287）。
 - 還原中不能刪靈魂、刪除或改名自訂模型（2026-11-07，ADR-0304）；用編輯建立或轉換靈魂（`update_soul` 走步升）、建立或更新自訂模型（`POST /v1/ui/custom_models/{id}`，失敗回滾也會刪資料夾）、刪除一般模型（`DELETE /v1/models/{id}` 改 models.json）時還沒有還原檢查，是候選。
 - 其他把例外原文放進錯誤回應的地方（`error_output=str(e)` 約 15 處，例如 `custom_models.py`、`souls.py`、`mcp.py`、`models.py`、`setup.py` 的 `detail_override`，都要登入），ADR-0304 只改了 CodeQL 標的三處，其餘是候選。
-- 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）還沒做擁有權檢查。無痕對話沒有 session 綁定，所以不能直接改成只認綁定；修法方向是在 ContextLayer 對人類請求者檢查存取權（候選，ADR-0304 審查時發現）。
+- （2026-11-16 已修，ADR-0304 補記）聊天請求帶的 `project_id` 在 router 核對擁有權；佔位編號 `default` 一律當沒有專案。
+- `_can_access_project` 在主人查詢失敗（回 None）時會改看對話歸屬，可能放行（原本就有，11/16 審查時發現）；它和 `_can_modify_project` 也可以比照 `can_access_session` 搬到 `authorization_gateway`，免得 router 匯入另一個 router 的私有函式（候選）。
+- 修補前就被搶建的 `default` 專案列：專案頁的清單、概覽、檔案端點仍照擁有權規則讀它；沒有主人的舊 `default` 列會因為「有自己的對話在裡面」讓所有有家對話的人看得到它的檔案清單（候選，11/16 審查時發現）。
 - `GET /heartbeat/test` 2026-11-09 起要管理員；成功時的回應內容要再收斂（候選）。
 - 子代理的 `session_id` 是 None，所以檔案工具拿不到專案（ADR-0304 之後；終端本來就拿不到）。要繼承父對話的專案，得一起看隔離層對專案的處理（候選）。
 - 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。

@@ -66,6 +66,10 @@ logger = logging.getLogger(__name__)
 # 可信活動紀錄的起點（system_settings 的鍵）：第一次建活動事件表時寫入，之後不改。
 TRUSTED_TIMELINE_EPOCH_KEY = "trusted_timeline_epoch"
 
+# 心跳建家時對話綁的佔位專案編號：沒有真的專案。聊天請求與檔案工具一律當成沒有專案，
+# 專案頁也不能建立或刪除它（搶建的列不會被使用；ADR-0304 2026-11-16 補記）。
+PLACEHOLDER_PROJECT_ID = "default"
+
 
 def get_db_dir() -> Path:
     """獲取資料庫目錄 (SSOT)。"""
@@ -939,10 +943,12 @@ class SessionService:
             ) as cursor:
                 pids = [row["id"] for row in await cursor.fetchall()]
             for pid in pids:
-                # 解除對話與此專案的關聯（保留對話本身）
-                await db.execute(
-                    "UPDATE user_sessions SET project_id = NULL WHERE project_id = ?", (pid,)
-                )
+                # 解除對話與此專案的關聯（保留對話本身）。佔位編號是所有人的家對話共用的，
+                # 只刪搶建的列、不動對話（ADR-0304 2026-11-16 補記）
+                if pid != PLACEHOLDER_PROJECT_ID:
+                    await db.execute(
+                        "UPDATE user_sessions SET project_id = NULL WHERE project_id = ?", (pid,)
+                    )
                 # 刪除專案設定列（不觸碰 root_path 實體資料夾）
                 await db.execute("DELETE FROM projects WHERE id = ?", (pid,))
             await db.commit()

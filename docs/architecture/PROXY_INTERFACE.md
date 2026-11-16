@@ -2,6 +2,12 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
+
+- `/messages`、`/chat/completions`（含 `/v1`）的 `project_id`：呼叫者看得到（專案主人、管理員或除錯身分；沒主人的舊專案看對話歸屬）才帶專案說明；看不到、不存在或核對出錯，這次不帶，對話照常、不回錯誤。`X-Agent-ID` 代打時照靈魂身分判斷（非管理員代打會拿掉自己的專案，管理員代打照舊）。
+- 佔位編號 `default`（心跳建家綁的）不是專案：聊天請求不帶、檔案工具不用；`POST /v1/ui/projects/save`、`DELETE /v1/ui/projects/default` 回 403（`AUTH_PERMISSION_DENIED`，含管理員）。
+- 回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+
 ## 本機小幫手（2026-11-10，ADR-0312）
 
 - 人類管理員用（admin 代打不算）：`POST /v1/local-bridge/pairing` 產生或換新配對碼，明文只回一次；`DELETE /v1/local-bridge/pairing` 解除；`GET /v1/local-bridge/status` 看狀態。寫入另查 CSRF Origin。

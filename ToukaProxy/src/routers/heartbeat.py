@@ -63,7 +63,12 @@ from src.services.rhythm_service import rhythm_service
 from src.services.sliding_window_service import sliding_window_service
 from src.services.soul_service import soul_service
 from src.utils import user_intent
-from src.utils.async_db import SessionPersistenceError, new_home_after_write, session_service
+from src.utils.async_db import (
+    PLACEHOLDER_PROJECT_ID,
+    SessionPersistenceError,
+    new_home_after_write,
+    session_service,
+)
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import TreeMessageManager
@@ -777,7 +782,10 @@ async def awaken_agent(
                 SessionChanges(
                     title=f"🏠 {agent_id} 的家",
                     messages=TreeMessageManager.create_empty_tree(),
-                    agent_id=identity, is_home=True, home_for_agent=identity, project_id="default",
+                    agent_id=identity,
+                    is_home=True,
+                    home_for_agent=identity,
+                    project_id=PLACEHOLDER_PROJECT_ID,
                 ),
                 identity,
                 # 建家和設家走同一套交接紀錄，同一個交易裡確認沒有別的家（ADR-0306）
@@ -806,7 +814,7 @@ async def awaken_agent(
                         title=f"Pulse: {agent_id}",
                         messages=TreeMessageManager.create_empty_tree(),
                         agent_id=identity,
-                        project_id="default",
+                        project_id=PLACEHOLDER_PROJECT_ID,
                     ),
                     identity,
                 )

@@ -63,6 +63,7 @@ from src.services.rhythm_service import rhythm_service
 from src.services.stream_buffer_service import stream_buffer_service
 from src.utils.activity_visibility import agent_visibility, record_agent
 from src.utils.async_db import (
+    PLACEHOLDER_PROJECT_ID,
     SessionPersistenceError,
     get_async_db,
     get_project_root_path,
@@ -850,7 +851,10 @@ async def save_project(
     identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
 ) -> dict[str, Any]:
     """儲存或更新專案。"""
-    if not await _can_modify_project(identity, project.id):
+    # 佔位編號不是專案：誰都不能建立（ADR-0304 2026-11-16 補記）
+    if project.id == PLACEHOLDER_PROJECT_ID or not await _can_modify_project(
+        identity, project.id
+    ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     # A-fix: 非 admin 不得把專案根目錄指向工作區 jail 之外 (path disclosure 防護)。
     await _check_project_root(identity, project.root_path)
@@ -894,7 +898,10 @@ async def delete_project(
     identity: AgentIdentity = Depends(_require_authenticated),  # noqa: B008
 ) -> dict[str, Any]:
     """刪除專案標記（不影響實體檔案）。"""
-    if not await _can_modify_project(identity, project_id):
+    # 佔位編號誰都不能刪：刪除會把所有人家對話的專案欄一起清掉（搶建的列反正不會被使用）
+    if project_id == PLACEHOLDER_PROJECT_ID or not await _can_modify_project(
+        identity, project_id
+    ):
         raise ToukaException(ErrorCode.AUTH_PERMISSION_DENIED)
     try:
         async with get_async_db() as db:
