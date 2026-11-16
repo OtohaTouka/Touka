@@ -19,6 +19,7 @@ import { errorMsg, getErrorMessage, logSSOTError } from "@/lib/error_handler";
 import type { ToolStep } from "@/lib/tree_history";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { HelperPreview } from "./HelperPreview";
 import { IsolationNotice } from "./IsolationNotice";
 
 const RISK_STYLES: Record<string, string> = {
@@ -26,6 +27,19 @@ const RISK_STYLES: Record<string, string> = {
   safe: "bg-status-warning/15 text-status-warning",
   dangerous: "bg-status-error/15 text-status-error",
 };
+
+/**
+ * 核准時送回卡片上顯示的東西，後端對得上才算數：
+ * iso-c2 的隔離去處（none 卡）；ADR-0317 的清單 ack（卡片完整顯示清單時才有）。
+ */
+function approvalPayload(step: ToolStep): Record<string, string> {
+  const payload: Record<string, string> = {};
+  const isolation = step.approval?.isolation;
+  if (isolation?.level === "none" && isolation.fallback) payload.isolation_ack = isolation.fallback;
+  const preview = step.approval?.preview;
+  if (preview?.complete && preview.ack) payload.preview_ack = preview.ack;
+  return payload;
+}
 
 export function ToolApprovalCard({ step }: { step: ToolStep }) {
   const { t } = useTranslation();
@@ -66,14 +80,12 @@ export function ToolApprovalCard({ step }: { step: ToolStep }) {
         action === "approve"
           ? `/v1/tools/approve/${execId}`
           : `/v1/tools/reject/${execId}`;
-      // iso-c2：核准 none 卡時送回卡片上顯示的去處，後端對得上才記同意
-      const isolation = step.approval?.isolation;
-      const ack = action === "approve" && isolation?.level === "none" ? isolation.fallback : null;
-      const init: RequestInit = ack
+      const payload = action === "approve" ? approvalPayload(step) : {};
+      const init: RequestInit = Object.keys(payload).length
         ? {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ payload: { isolation_ack: ack } }),
+            body: JSON.stringify({ payload }),
           }
         : { method: "POST" };
       const res = await fetchTouka(getActiveProxyUrl(), path, init);
@@ -149,6 +161,8 @@ export function ToolApprovalCard({ step }: { step: ToolStep }) {
             : t("chat.tool_approval_card.hook_ask")}
         </p>
       )}
+
+      {step.approval?.preview && <HelperPreview preview={step.approval.preview} />}
 
       {argsPreview && (
         <div className="rounded-lg bg-background/60 p-2 text-xs flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">

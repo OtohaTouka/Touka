@@ -7,7 +7,7 @@
  * SSOT：樹的變更邏輯集中於此，registry 只負責呼叫；progress 收斂沿用
  * 既有 SSOT `reduceProgress`（useProgress.ts），不另實作。
  */
-import { TreeHistory, MessageNode, ToolStep, ToolStepApproval, ToolStepIsolation } from './tree_history';
+import { TreeHistory, MessageNode, ToolStep, ToolStepApproval, ToolStepIsolation, ToolStepPreview } from './tree_history';
 import { reduceProgress } from '@/hooks/useProgress';
 import type { ChatAttachment } from '@/lib/chat/attachment';
 import type { Interjection } from '@/lib/types';
@@ -228,6 +228,28 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
+ * ADR-0317：審批事件的 `preview`（小幫手掃描到的清單）。形狀不對就當作沒有；
+ * 卡片沒完整顯示（complete 不是 true）時不收 ack，核准就送不出「看過了」。
+ */
+function parsePreview(raw: unknown): ToolStepPreview | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.text !== 'string' || typeof obj.complete !== 'boolean') return null;
+  const preview: ToolStepPreview = {
+    text: obj.text,
+    complete: obj.complete,
+    helperWindow: obj.helper_window === true,
+  };
+  if (obj.complete && typeof obj.ack === 'string' && obj.ack) preview.ack = obj.ack;
+  return preview;
+}
+
+function withoutAck(preview: ToolStepPreview): ToolStepPreview {
+  const { ack: _ack, ...rest } = preview;
+  return rest;
+}
+
+/**
  * iso-c2：審批事件的 `isolation`。沒帶（或 null）照舊；看不懂的層級當 none（同後端
  * normalize_isolation），none 卻沒有合法 fallback 時保留 null，卡片據此不讓核准。
  * features 收名稱清單或 `{name: true}`。
@@ -307,6 +329,7 @@ export function applyEventToTree(
     // H3：統一審批卡（hitl-unification H2 broker）——以 call_id 建 awaiting 步驟；
     // 事件 id＝exec_id（approve/reject 解算鍵）掛進 approval 附載。
     const isolation = parseIsolation(event.isolation);
+    const preview = parsePreview(event.preview);
     newSteps.push({
       id: (event.call_id as string) || '',
       tool: (event.tool as string) || '',
@@ -321,6 +344,7 @@ export function applyEventToTree(
         ...(typeof event.hook_reason === 'string' ? { hookReason: event.hook_reason } : {}),
         ...(event.human_only === true ? { humanOnly: true } : {}),
         ...(isolation ? { isolation } : {}),
+        ...(preview ? { preview } : {}),
       },
     });
   } else if (event.type === 'tool_approval_resolved') {
@@ -334,6 +358,8 @@ export function applyEventToTree(
               ...s.approval,
               execId: (event.id as string) || s.approval?.execId || '',
               decision: event.decision as ToolStepApproval['decision'],
+              // ack 只在這張卡等人按時有用，答完就不留
+              ...(s.approval?.preview ? { preview: withoutAck(s.approval.preview) } : {}),
             },
           }
         : s,

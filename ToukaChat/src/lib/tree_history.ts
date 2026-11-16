@@ -19,6 +19,14 @@ export interface ToolStepIsolation {
 }
 
 // hitl-unification H3：統一審批卡（tool_approval_request/resolved 事件）的步驟附載。
+// ADR-0317：小幫手核准前掃描到的清單。ack 只在卡片完整顯示時有，核准時送回；卡片答完就丟掉
+export interface ToolStepPreview {
+  text: string;
+  complete: boolean;                                // 卡片放得下整份清單
+  helperWindow: boolean;                            // 核准後小幫手還會在電腦上跳視窗
+  ack?: string;
+}
+
 export interface ToolStepApproval {
   execId: string;                                   // approve/reject 端點的解算鍵
   risk?: string;                                    // read_only | safe | dangerous
@@ -29,6 +37,7 @@ export interface ToolStepApproval {
   hookReason?: string;                              // 管理員設定的 hook 要人確認（可為空字串，ADR-0292）
   humanOnly?: boolean;                              // 只有人能核准（底線；審查員與 YOLO 不能放行）
   isolation?: ToolStepIsolation;                    // 事件沒帶就照舊顯示（iso-c2）
+  preview?: ToolStepPreview;                        // 小幫手掃描到的清單（ADR-0317）
 }
 
 export interface ToolStepInteraction {

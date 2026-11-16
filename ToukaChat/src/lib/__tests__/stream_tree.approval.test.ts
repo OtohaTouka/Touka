@@ -280,6 +280,31 @@ describe('hasPendingApproval（側欄的「等您處理」，ADR-0300）', () =>
     expect(hasPendingApproval(resolved, aid)).toBe(false);
   });
 
+  it('keeps the helper preview (ADR-0317) and drops its ack once the card is answered', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    const preview = { text: '丟到回收桶  a.txt', complete: true, helper_window: true, ack: 'ack-1' };
+    const waiting = applyEventToTree(tree, aid, { ...approvalEvent('ex9', 'c9'), preview });
+    expect(waiting.messages[aid].steps![0].approval!.preview).toEqual({
+      text: '丟到回收桶  a.txt', complete: true, helperWindow: true, ack: 'ack-1',
+    });
+    const resolved = applyEventToTree(waiting, aid, { type: 'tool_approval_resolved', id: 'ex9', call_id: 'c9', decision: 'approved' });
+    expect(resolved.messages[aid].steps![0].approval!.preview).toEqual({
+      text: '丟到回收桶  a.txt', complete: true, helperWindow: true,
+    });
+  });
+
+  it('an incomplete or malformed preview never carries an ack', () => {
+    const { tree, aid } = baseTreeWithAssistant();
+    const cut = applyEventToTree(tree, aid, {
+      ...approvalEvent('ex10', 'c10'), preview: { text: 'x', complete: false, helper_window: false, ack: 'ack-1' },
+    });
+    expect(cut.messages[aid].steps![0].approval!.preview).toEqual({ text: 'x', complete: false, helperWindow: false });
+    for (const bad of [{ text: 7, complete: true }, { text: 'x' }, 'x', null]) {
+      const next = applyEventToTree(tree, aid, { ...approvalEvent('ex11', 'c11'), preview: bad });
+      expect(next.messages[aid].steps![0].approval!.preview).toBeUndefined();
+    }
+  });
+
   it('兩筆並行：答完一筆還在等另一筆', () => {
     const { tree, aid } = baseTreeWithAssistant();
     let next = applyEventToTree(tree, aid, approvalEvent('ex1', 'c1'));
