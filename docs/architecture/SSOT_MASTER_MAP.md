@@ -6,6 +6,9 @@
 |---|---|---|
 | 模型失敗的種類（固定名稱，表外的當 `unknown`） | `ToukaProxy/src/handlers/adapters/retry.py` `KNOWN_ERROR_TYPES`（由 `_STATUS_ERROR_TYPES`、`_BODY_ERROR_TYPES` 推導）；這一輪的種類寫在 `ctx.model_error_type`（`react_core.fail_round`） | `subagent_tools.SubagentModelError` |
 | 子代理結果的結局（完成、部分完成或未確認、失敗）與說法 | `tools/subagent_tools.py` `_OUTCOME_WORDS`、`_outcome` | `dispatch_subagent_group`、同步 `dispatch_subagent` |
+| 還在跑的子代理（標籤、派它的靈魂、對話、開始時間） | `ToukaProxy/src/services/subagent_registry.py` `subagent_registry` | `subagent_tools._run_subagent`（登記、移除）、`continuity_service.running_subagents_line` |
+| 子代理多久看一次停止 | `tools/subagent_tools.py` `STOP_CHECK_SECONDS` | `_cancel_when_parent_stops` |
+| 站內等結果憑證的壽命 | `services/dispatch_callback_store.py` `IN_PROCESS_TOKEN_GRACE_SECONDS`、`IN_PROCESS_TOKEN_LIFETIME_SECONDS` | `DispatchCallbackStore._drop_expired` |
 | 子代理結果的長度上限與省略標示（保留結尾） | `tools/subagent_tools.py` `_RESULT_SUMMARY_MAX`、`OMITTED_HEAD_NOTE`、`_keep_tail` | 子代理的成功、逾時、模型錯誤結果 |
 
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）

@@ -185,6 +185,7 @@ async def stop_agent_commands(identity: AgentIdentity) -> int:
     結果存放區裡還沒結束的紀錄改成 ``stopped``；取消還沒結束的背景與待審批工作（含被擠出存放區
     的）並等它們收掉自己的行程；再殺掉其他登記的行程（前景指令、互審驗證指令）。之後到操作結束
     之間，新指令由 ``destructive_ops.is_held`` 擋下。回傳送出終止訊號的行程數。
+    子代理沒做完時也呼叫（ADR-0318）：那時沒有 hold，子代理身分之後也不再用。
     """
     key = identity.agent_id.casefold()
     for record in _ASYNC_RESULTS.values():

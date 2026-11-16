@@ -133,7 +133,7 @@ async def run_subagent_start_hooks(
 def notify_subagent_stop(
     ctx: Mapping[str, Any], sub_identity: AgentIdentity, last_message: str
 ) -> None:
-    """子代理結束；逾時或模型失敗時是已做到的部分，其他失敗是空字串（ADR-0318）。"""
+    """子代理結束；逾時、模型失敗或被停時是已做到的部分，其他失敗是空字串（ADR-0318）。"""
     _notify(
         SUBAGENT_STOP_EVENT,
         ctx,

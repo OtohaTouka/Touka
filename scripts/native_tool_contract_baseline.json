@@ -3212,7 +3212,8 @@
           "parent_request_id",
           "base_ctx",
           "model",
-          "read_only"
+          "read_only",
+          "label"
         ],
         "kwargs": null,
         "reads": [
@@ -3320,14 +3321,6 @@
           "_ctx"
         ],
         "kwargs": "_kwargs",
-        "reads": [],
-        "dynamic": []
-      },
-      "SubagentStoppedError.__init__": {
-        "parameters": [
-          "self"
-        ],
-        "kwargs": null,
         "reads": [],
         "dynamic": []
       },
@@ -3459,6 +3452,78 @@
             "status"
           ]
         ],
+        "dynamic": []
+      },
+      "SubagentCancelledError.__init__": {
+        "parameters": [
+          "self",
+          "partial"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_assemble_and_run": {
+        "parameters": [
+          "goal",
+          "sub_identity",
+          "sub_request_id",
+          "base_ctx",
+          "model",
+          "read_only",
+          "parent_label",
+          "parts"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_unless_parent_stops": {
+        "parameters": [
+          "work",
+          "base_ctx"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_cancel_when_parent_stops": {
+        "parameters": [
+          "base_ctx",
+          "task",
+          "stopped"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
+        "dynamic": []
+      },
+      "_log_failure": {
+        "parameters": [
+          "exc",
+          "what"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_deliver": {
+        "parameters": [
+          "token",
+          "parent_identity",
+          "payload"
+        ],
+        "kwargs": null,
+        "reads": [],
         "dynamic": []
       }
     },

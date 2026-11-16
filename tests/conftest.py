@@ -143,6 +143,7 @@ from src.services.permission_service import permission_service  # noqa: E402
 from src.services.resource_manager import resource_manager  # noqa: E402
 from src.services.rhythm_service import rhythm_service  # noqa: E402
 from src.services.skill_service import skill_service  # noqa: E402
+from src.services.subagent_registry import subagent_registry  # noqa: E402
 from src.utils.async_db import session_service  # noqa: E402
 
 # 隔離層替身（iso-c2）：模組會載入產品程式，必須等上面的沙盒環境就緒後才載入。
@@ -641,6 +642,7 @@ def setup_test_environment(global_test_sandbox):
     resource_manager.reset_for_test()
     skill_service.reset_for_test()
     model_manager.reset_for_test()
+    subagent_registry.reset_for_test()
     rhythm_service.reload_all()
     autonomy_service.reload_all()
     destructive_ops.reload_all()

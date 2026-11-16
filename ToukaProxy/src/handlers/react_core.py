@@ -73,13 +73,16 @@ _REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
 # SNS 頻道裡是外人：不帶廠商名稱、狀態碼與原文，想知道原因看 hook 或本機紀錄
 SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
 # 人按停止時要一起收掉的工具（ADR-0312）：人放棄之後，使用者電腦上不能再動手。
-# 其他工具維持原本的行為（背景跑完）。
-_TOOLS_TIED_TO_THE_TURN = frozenset({"local_files"})
+# 同步派的子代理也一樣（ADR-0318），不然它照樣跑完、花額度。其他工具維持原本的行為（背景跑完）。
+_TOOLS_TIED_TO_THE_TURN = frozenset({"local_files", "dispatch_subagent", "dispatch_subagent_group"})
 
 
-def _cancel_turn_bound_tools(tasks: list[tuple[str, str, asyncio.Task[Any]]]) -> None:
+def _cancel_turn_bound_tools(
+    tasks: list[tuple[str, str, asyncio.Task[Any]]], *, everything: bool = False
+) -> None:
+    """``everything``：子代理的迴圈被收掉時，它的工具全部一起停（沒人會收結果；ADR-0318）。"""
     for _call_id, name, task in tasks:
-        if name in _TOOLS_TIED_TO_THE_TURN and not task.done():
+        if (everything or name in _TOOLS_TIED_TO_THE_TURN) and not task.done():
             task.cancel()
 
 
@@ -585,7 +588,9 @@ async def run_react_loop(  # noqa: PLR0915
                     res_text = await task
                     results.append((call_id, target_name, res_text))
             finally:
-                _cancel_turn_bound_tools(execution_tasks)
+                _cancel_turn_bound_tools(
+                    execution_tasks, everything=bool(context.get("subagent_run"))
+                )
             await adapter.append_tool_results(state, results)
             # 問使用者問題沒等到回答：這一輪到此為止，不再呼叫模型（沒回覆不算同意）
             ask_stop = ask_user_stop_text(context, executed_tools(actually_used_tools))

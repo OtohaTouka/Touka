@@ -8,8 +8,11 @@
 - 逾時（整個子代理，含 SubagentStart hook 與組裝）是 FAILED，寫「逾時：…已中止」並附「已做到的部分」；模型錯誤之前寫下的文字也一樣附上。
 - `result_summary` 太長時保留結尾 4000 字、開頭標「…（前段過長已省略）」；子代理的文字不夾工具日誌行。
 - `dispatch_subagent_group`：`completed` 只算跑完且回報 done，新增 `partial`（回報 partial 或沒附回報塊），`failed` 含自己回報 failed；訊息寫三種數量。同步 `dispatch_subagent` 的訊息寫「已結束：完成／部分完成或未確認／失敗」。
-- SubagentStop hook 的 `last_assistant_message`：逾時或模型失敗時是已做到的部分，其他失敗仍是空字串。
+- SubagentStop hook 的 `last_assistant_message`：逾時、模型失敗或被停（PR 2）時是已做到的部分，其他失敗仍是空字串。
 - 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+- PR 2（2026-11-17）：主代理那段對話被按停止，子代理（同步、背景、一次派多個）跟著停，結果 `status="CANCELLED"`、附已做到的部分；group 回覆多 `cancelled`。停止以整段對話計（較早派出、還在背景跑的也會停）。
+- PR 2：`dispatch_subagent` 的憑證等候逾時不作廢，再等就接著等，拿到結果才移除，超過子代理時限加 30 分鐘才清掉；`POST /v1/internal/dispatch/callback` 拒絕這種站內憑證（401 `AUTH_INVALID_TOKEN`，和沒登記的一樣）。外部派工的憑證照舊。
+- PR 2：`<continuity>` 在有子代理還在跑時多一行「這段對話派出、還在跑的子代理」（標籤經 `safe_ref`，最多 5 個）；沒有就不加。
 
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
 
@@ -81,7 +84,7 @@
   - PermissionDenied：`tool_name`、`tool_input`、`tool_use_id`、`reason`（固定代碼）。
   - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。
   - StopFailure：`error`（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`、`unknown`）、`error_details`（先遮憑證與路徑）。子代理的回合不發，這一輪不跑 Stop。
-  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（逾時或模型失敗時是已做到的部分，其他失敗是空字串；ADR-0318）。
+  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（逾時、模型失敗或被停時是已做到的部分，其他失敗是空字串；ADR-0318）。
   - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者沒有 `permission_mode`。
   - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
   - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。

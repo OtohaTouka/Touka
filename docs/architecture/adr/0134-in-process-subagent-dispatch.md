@@ -4,7 +4,7 @@
 
 ## 狀態
 
-> **現況**：決策 4 的子 loop 硬上限 `asyncio.wait_for(600s)` 改成 `asyncio.timeout` 包住整個子代理（含 SubagentStart hook 與組裝），逾時交回已做到的部分（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 2，2026-11-16）。
+> **現況**：決策 4 的子 loop 硬上限 `asyncio.wait_for(600s)` 改成 `asyncio.timeout` 包住整個子代理（含 SubagentStart hook 與組裝），逾時交回已做到的部分（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 2，2026-11-16）。後果邊界②改了：背景子代理跟著那段對話的停止一起停；邊界①沒人來等的站內憑證超過時限加 30 分鐘會清掉（ADR-0318 決定 5、7，2026-11-17）。
 
 ✅ **已接受（實作與驗證 2026-07-07、全綠——guard_all 39/39、後端 pytest 2745 passed/4 skipped（+11）、前端 vitest 971）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) §9 **Phase 1 MVP**：主 agent 在 ReAct loop 內派「一個」in-process 子代理跑單一任務、拿回結果——補上全庫缺席的「agent-as-tool」原語，驗證「in-process 取代外派」的核心假設。
 
