@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 SIGNATURE_VERSION: Final = 2
 DECISION_KEY_BYTES: Final = 32
 ACT_PROPOSE: Final = "propose"
-ACT_REQUEST_OPEN: Final = "request_open"
 
 _NONCE: Final = re.compile(r"[A-Za-z0-9_-]{22}")
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")
@@ -57,20 +56,6 @@ def sign_decision(
             "job": job_id,
             "nonce": nonce,
             "shown": shown,
-        },
-    )
-
-
-def sign_open_request(key: bytes, *, job_id: str, folder: str, access: str, issued_at: int) -> str:
-    """開放資料夾的請求（PR 3 才用；格式先定在協議 v2）。"""
-    return _sign(
-        key,
-        {
-            "access": access,
-            "act": ACT_REQUEST_OPEN,
-            "folder": folder,
-            "iat": issued_at,
-            "job": job_id,
         },
     )
 

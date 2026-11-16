@@ -184,7 +184,7 @@ class ModeSwitches:
         self._following = load_mode_following(self._following_file)
         self._reset_at = load_mode_reset(self._reset_file)
 
-    def key(self) -> bytes | None:
+    def decision_key(self) -> bytes | None:
         """配對時拿到的鑰匙。"""
         return self._key
 

@@ -93,12 +93,16 @@ def test_switches_load_what_is_on_disk(tmp_path: Path) -> None:
     save_mode_following(tmp_path / MODE_FOLLOWING_FILE, enabled=True)
     save_mode_reset(tmp_path / MODE_RESET_FILE, 99.0)
     switches = ModeSwitches(tmp_path)
-    assert (switches.key(), switches.following(), switches.reset_at()) == (KEY, True, 99.0)
+    assert (switches.decision_key(), switches.following(), switches.reset_at()) == (KEY, True, 99.0)
 
 
 def test_switches_start_safe_with_nothing_on_disk(tmp_path: Path) -> None:
     switches = ModeSwitches(tmp_path)
-    assert (switches.key(), switches.following(), switches.reset_at()) == (None, False, None)
+    assert (switches.decision_key(), switches.following(), switches.reset_at()) == (
+        None,
+        False,
+        None,
+    )
 
 
 def test_switch_changes_are_written_straight_away(tmp_path: Path) -> None:
@@ -107,9 +111,9 @@ def test_switch_changes_are_written_straight_away(tmp_path: Path) -> None:
     switches.set_key(KEY)
     switches.reset_now(5.0)
     again = ModeSwitches(tmp_path)
-    assert (again.key(), again.following(), again.reset_at()) == (KEY, True, 5.0)
+    assert (again.decision_key(), again.following(), again.reset_at()) == (KEY, True, 5.0)
     switches.set_key(None)
-    assert switches.key() is None
+    assert switches.decision_key() is None
     assert load_decision_key(tmp_path / DECISION_KEY_FILE) is None
 
 
@@ -132,7 +136,7 @@ def test_a_key_that_cannot_be_saved_is_not_used(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(settings_module, "save_decision_key", _fail)
     with pytest.raises(OSError):
         switches.set_key(bytes(32))
-    assert switches.key() is None
+    assert switches.decision_key() is None
 
 
 def test_a_reset_that_cannot_be_saved_changes_nothing(tmp_path: Path, monkeypatch) -> None:

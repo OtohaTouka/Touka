@@ -7,14 +7,12 @@ from touka_local.protocol import Decision
 from touka_local.signing import (
     decision_signature_ok,
     sign_decision,
-    sign_open_request,
     split_pairing_code,
     text_fingerprint,
 )
 
 KEY = bytes(range(32))
 DECISION_SIGNATURE = "981856c8c8cc7cf5a9e1f9e8b2bb08e2bdc509345b564545be91801387a4ac9a"
-OPEN_SIGNATURE = "9569b051515726882f924cef1c80c0d72907041e28bf9c42df79cc19493f732a"
 
 
 def _decision(**overrides: str) -> Decision:
@@ -35,12 +33,6 @@ def test_signatures_match_the_shared_vectors() -> None:
             KEY, job_id="job-1", nonce="n" * 22, digest="a" * 64, shown="b" * 64, decided_by="yolo"
         )
         == DECISION_SIGNATURE
-    )
-    assert (
-        sign_open_request(
-            KEY, job_id="job-2", folder="D:/Docs", access="read", issued_at=1700000000
-        )
-        == OPEN_SIGNATURE
     )
     assert (
         text_fingerprint("清單\n")

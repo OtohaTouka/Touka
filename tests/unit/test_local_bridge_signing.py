@@ -11,13 +11,11 @@ from src.utils.local_bridge_signing import (
     new_decision_key,
     pairing_code,
     sign_decision,
-    sign_open_request,
     text_fingerprint,
 )
 
 KEY = bytes(range(32))
 DECISION_SIGNATURE = "981856c8c8cc7cf5a9e1f9e8b2bb08e2bdc509345b564545be91801387a4ac9a"
-OPEN_SIGNATURE = "9569b051515726882f924cef1c80c0d72907041e28bf9c42df79cc19493f732a"
 
 
 def test_decision_signature_matches_the_shared_vector() -> None:
@@ -51,13 +49,6 @@ def test_every_field_is_covered_by_the_signature(change: dict[str, str]) -> None
         "decided_by": "yolo",
     }
     assert sign_decision(KEY, **{**fields, **change}) != DECISION_SIGNATURE
-
-
-def test_open_request_signature_matches_the_shared_vector() -> None:
-    signature = sign_open_request(
-        KEY, job_id="job-2", folder="D:/Docs", access="read", issued_at=1700000000
-    )
-    assert signature == OPEN_SIGNATURE
 
 
 def test_text_fingerprint_is_sha256_of_utf8() -> None:

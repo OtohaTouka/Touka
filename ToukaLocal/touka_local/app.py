@@ -586,7 +586,7 @@ class MainWindow:
         hints = [
             mode_status_text(
                 paired=self._settings.token is not None,
-                has_key=self._switches.key() is not None,
+                has_key=self._switches.decision_key() is not None,
             )
         ]
         history = self._operations.history(self._operations.wall_time())
@@ -685,7 +685,7 @@ def main() -> int:
         grants=grants,
         clock=time.monotonic,
         spawn=_spawn,
-        decision_key=switches.key,
+        decision_key=switches.decision_key,
         following=switches.following,
         mode_reset=switches.reset_at,
     )

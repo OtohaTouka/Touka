@@ -340,7 +340,7 @@ def main_window(real, tmp_path: Path):
         grants=book,
         clock=lambda: 0.0,
         spawn=lambda work: work(),
-        decision_key=switches.key,
+        decision_key=switches.decision_key,
         following=switches.following,
         mode_reset=switches.reset_at,
     )
@@ -393,12 +393,12 @@ def test_a_new_pairing_code_stores_the_key_and_an_old_one_removes_it(main_window
     token = "t" * 43
     window._code.set(f"{token}.{base64.urlsafe_b64encode(key).decode().rstrip('=')}")
     window._save_pairing()
-    assert switches.key() == key
+    assert switches.decision_key() == key
     assert load_settings(helper / "settings.json").token == token
     assert "重新產生配對碼" not in window._notice.cget("text")
     window._code.set("u" * 43)
     window._save_pairing()
-    assert switches.key() is None
+    assert switches.decision_key() is None
     assert settings_module.load_decision_key(helper / settings_module.DECISION_KEY_FILE) is None
     assert "重新產生配對碼" in window._notice.cget("text")
     window._refresh_mode_hint()
@@ -412,7 +412,7 @@ def test_changing_only_the_port_keeps_the_key(main_window) -> None:
     window._save_pairing()
     window._port.set("8123")
     window._save_pairing()
-    assert switches.key() == key
+    assert switches.decision_key() == key
 
 
 def test_recalculating_needs_a_second_yes(main_window, monkeypatch) -> None:
