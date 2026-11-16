@@ -22,13 +22,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.tools.contracts import SUBAGENT_TIMEOUT_SECONDS
-from src.utils.time_utils import get_current_epoch
+from src.utils.time_utils import get_monotonic_ms
 
 logger = logging.getLogger(__name__)
 
 # 站內憑證活多久：子代理最長時限之後，再留一段時間給主代理回來等（ADR-0318）
 IN_PROCESS_TOKEN_GRACE_SECONDS = 1800.0
 IN_PROCESS_TOKEN_LIFETIME_SECONDS = SUBAGENT_TIMEOUT_SECONDS + IN_PROCESS_TOKEN_GRACE_SECONDS
+_MS_PER_SECOND = 1000
 
 
 @dataclass
@@ -38,7 +39,7 @@ class _PendingCallback:
     event: asyncio.Event = field(default_factory=asyncio.Event)
     result: dict[str, Any] = field(default_factory=dict)
     in_process: bool = False
-    created_at: float = 0.0
+    created_at_ms: float = 0.0  # 單調時鐘：系統時間跳動不影響壽命
 
 
 class DispatchCallbackStore:
@@ -61,7 +62,7 @@ class DispatchCallbackStore:
         """注冊 token，建立對應的 asyncio.Event 等待槽；``in_process`` 是站內子代理的憑證。"""
         self._drop_expired()
         self._pending[token] = _PendingCallback(
-            in_process=in_process, created_at=get_current_epoch()
+            in_process=in_process, created_at_ms=get_monotonic_ms()
         )
         logger.debug("Dispatch callback token registered: %s…", token[:8])
 
@@ -76,8 +77,10 @@ class DispatchCallbackStore:
 
     def _drop_expired(self) -> None:
         """清掉超過壽命的站內憑證；外部派工的照舊由等候結束時移除。"""
-        cutoff = get_current_epoch() - IN_PROCESS_TOKEN_LIFETIME_SECONDS
-        expired = [t for t, cb in self._pending.items() if cb.in_process and cb.created_at < cutoff]
+        cutoff = get_monotonic_ms() - IN_PROCESS_TOKEN_LIFETIME_SECONDS * _MS_PER_SECOND
+        expired = [
+            t for t, cb in self._pending.items() if cb.in_process and cb.created_at_ms < cutoff
+        ]
         for token in expired:
             del self._pending[token]
             logger.debug("Expired in-process callback token dropped: %s…", token[:8])

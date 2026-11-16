@@ -1,7 +1,7 @@
 """還在跑的子代理（ADR-0318 PR 2）：純資料登記表，給主代理下一輪的 ``<continuity>`` 看.
 
 只記標籤、派它的靈魂、對話與開始時間；不放 task、不做取消（取消由每個子代理自己的停止監看負責）。
-子代理開始時登記、結束時（不論成敗或取消）移除；記在記憶體，Touka 重啟就清空。
+子代理開始時登記、結束時（不論成敗或取消）`finish`；記在記憶體，Touka 重啟就清空。
 """
 
 from __future__ import annotations
@@ -33,12 +33,17 @@ class SubagentRegistry:
         self._running[key] = entry
         return key
 
-    def remove(self, key: int) -> None:
+    def finish(self, key: int) -> None:
         """結束時移除（重複移除不報錯）。"""
         self._running.pop(key, None)
 
     def running_in(self, parent_agent_id: str, session_id: str | None) -> list[RunningSubagent]:
-        """這個靈魂在這段對話派出、還在跑的子代理（早派的在前；ID 不分大小寫）。"""
+        """這個靈魂在這段對話派出、還在跑的子代理（早派的在前；ID 不分大小寫）。
+
+        沒有對話（IDE 等）時不列：分不出是哪個視窗派的。
+        """
+        if session_id is None:
+            return []
         parent = parent_agent_id.casefold()
         return sorted(
             (
@@ -48,6 +53,10 @@ class SubagentRegistry:
             ),
             key=lambda entry: entry.started_at,
         )
+
+    def reset_for_test(self) -> None:
+        """測試之間清空（conftest 呼叫）。"""
+        self._running.clear()
 
 
 subagent_registry = SubagentRegistry()

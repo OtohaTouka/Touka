@@ -3324,14 +3324,6 @@
         "reads": [],
         "dynamic": []
       },
-      "SubagentStoppedError.__init__": {
-        "parameters": [
-          "self"
-        ],
-        "kwargs": null,
-        "reads": [],
-        "dynamic": []
-      },
       "_run_assembled": {
         "parameters": [
           "request",

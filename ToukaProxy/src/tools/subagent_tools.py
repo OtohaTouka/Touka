@@ -48,7 +48,6 @@ from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_star
 from src.services.hooks.stopping import stopped_since_start
 from src.services.isolation.policy import session_project_id
 from src.services.model_manager import model_manager
-from src.services.process_registry import process_registry
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import HEADLESS_FALLBACK_ROUNDS
 from src.services.subagent_registry import RunningSubagent, subagent_registry
@@ -59,11 +58,13 @@ from src.tools.contracts import (
     SUBAGENT_TIMEOUT_SECONDS,
     limit_minutes,
 )
+from src.tools.terminal import stop_agent_commands
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
 from src.utils.model_text import single_line
 from src.utils.presence import is_human_present
 from src.utils.secret_text import sanitize_error_text
+from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
 from src.utils.user_intent import subagent_intent
 
@@ -92,6 +93,8 @@ _OUTCOME_WORDS = {
 }
 # 子代理多久看一次主代理那段對話有沒有被按停止（停止沒有事件可掛，只有累計次數；ADR-0318）
 STOP_CHECK_SECONDS = 0.5
+# 背景派工的 task 本身被取消（Touka 停止或重啟）時交回的說法；拿不到已做到的部分
+_SHUTDOWN_NOTE = "已取消：Touka 停止或重啟，子代理沒有做完。"
 # 父請求的目標標頭不屬於子代理：留著會讓 MonitorLayer 把父靈魂或父 session 認成目標
 # （ADR-0245 修補）
 _PARENT_TARGET_HEADERS = frozenset(
@@ -134,11 +137,20 @@ def _is_read_only(value: Any) -> bool:
     return value is not None and value is not False
 
 
-class SubagentStoppedError(Exception):
-    """等 SubagentStart hook 的期間使用者按了停止：不送模型（禁令 67 ⑦）。"""
+class SubagentCancelledError(Exception):
+    """主代理那段對話被按了停止，子代理跟著停下；``partial`` 是已經收到的文字（ADR-0318）。"""
 
-    def __init__(self) -> None:
-        super().__init__("The user stopped this run before the subagent started.")
+    _MESSAGE = "The subagent was stopped because its conversation was stopped."
+
+    def __init__(self, partial: str = "") -> None:
+        super().__init__(self._MESSAGE)
+        self.partial = partial
+
+
+class SubagentStoppedError(SubagentCancelledError):
+    """等 SubagentStart hook 的期間使用者按了停止：不送模型（禁令 67 ⑦）；結果也是已取消。"""
+
+    _MESSAGE = "The user stopped this run before the subagent started."
 
 
 class SubagentTimeoutError(TimeoutError):
@@ -157,14 +169,6 @@ class SubagentModelError(Exception):
         kind = error_type if known else "unknown"
         super().__init__(f"The subagent's model call failed ({kind}).")
         self.error_type = kind
-        self.partial = partial
-
-
-class SubagentCancelledError(Exception):
-    """主代理那段對話被按了停止，子代理跟著停下；``partial`` 是已經收到的文字（ADR-0318）。"""
-
-    def __init__(self, partial: str = "") -> None:
-        super().__init__("The subagent was stopped because its conversation was stopped.")
         self.partial = partial
 
 
@@ -400,15 +404,16 @@ async def _run_subagent(
         reply = "".join(parts).strip()
         raise SubagentTimeoutError(reply) from exc
     except SubagentCancelledError as exc:
-        reply = "".join(parts).strip()
-        raise SubagentCancelledError(reply) from exc
+        exc.partial = "".join(parts).strip()
+        reply = exc.partial
+        raise
     except SubagentModelError as exc:
         reply = exc.partial
         raise
     finally:
-        subagent_registry.remove(key)
-        if not finished:  # 逾時、被停、失敗或主代理這一輪被收掉：它開的指令行程一起收掉
-            process_registry.terminate_agent(sub_identity)
+        subagent_registry.finish(key)
+        if not finished:  # 逾時、被停、失敗或主代理這一輪被收掉：它的指令（含背景、待審）一起收掉
+            spawn_logged(stop_agent_commands(sub_identity), name="subagent-stop-commands")
         notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
 
@@ -451,7 +456,9 @@ async def _unless_parent_stops(work: Coroutine[Any, Any, str], base_ctx: Any) ->
     """
     task = asyncio.create_task(work)
     stopped = asyncio.Event()
-    watch = asyncio.create_task(_cancel_when_parent_stops(base_ctx, task, stopped))
+    watch = spawn_logged(
+        _cancel_when_parent_stops(base_ctx, task, stopped), name="subagent-stop-watch"
+    )
     try:
         return await task
     except asyncio.CancelledError:
@@ -608,7 +615,11 @@ async def _run_and_deliver(
         payload = _result_from_text(text, label)
     except asyncio.CancelledError:
         # 整個背景 task 被取消（例如 Touka 關機）：照樣交回「已取消」，等的一方不空等（ADR-0318）
-        _deliver(token, parent_identity, _result_from_error(SubagentCancelledError(), label))
+        _deliver(
+            token,
+            parent_identity,
+            {"task_id": label, "status": "CANCELLED", "result_summary": _SHUTDOWN_NOTE},
+        )
         raise
     except Exception as exc:
         _log_failure(exc, "in-process subagent (token=%s…)", token[:8])

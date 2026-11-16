@@ -63,8 +63,8 @@ def fake_assemble(monkeypatch) -> None:
 
 @pytest.fixture
 def kill(monkeypatch) -> MagicMock:
-    mock = MagicMock(return_value=0)
-    monkeypatch.setattr(st.process_registry, "terminate_agent", mock)
+    mock = AsyncMock(return_value=0)
+    monkeypatch.setattr(st, "stop_agent_commands", mock)
     return mock
 
 
@@ -75,7 +75,7 @@ def _text_chunk(text: str) -> str:
 class _Child:
     """假的子代理串流：吐一段文字後停住，``release`` 之後再吐結論。"""
 
-    def __init__(self, monkeypatch, first: str = "讀了 a.py") -> None:
+    def __init__(self, monkeypatch, first: str = "讀了 a.py", close_delay: float = 0.0) -> None:
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self.closed = 0
@@ -88,6 +88,8 @@ class _Child:
                     await self.release.wait()
                     yield _text_chunk("，結論：沒問題。")
                 finally:
+                    if close_delay:
+                        await asyncio.sleep(close_delay)  # 收尾慢一點，讓停止監看趕上
                     self.closed += 1
 
             return _gen()
@@ -221,6 +223,22 @@ async def test_when_the_turn_itself_is_torn_down_the_cancel_passes_through(
     assert kill.called
 
 
+async def test_a_stop_during_the_turns_own_teardown_is_still_a_cancel(
+    monkeypatch, fake_assemble, kill
+):
+    """主代理這一輪正在被收掉時又按了停止：仍照「這一輪被收掉」往外傳取消，不轉成已取消的結果。"""
+    child = _Child(monkeypatch, close_delay=0.5)
+    sid = "s-both"
+    tool = await _sync(_stop_ctx(sid))
+    async with asyncio.timeout(_GUARD_S):
+        await child.started.wait()
+        tool.cancel()
+        await asyncio.sleep(0)
+        rhythm_service.interrupt_session(sid)
+        with pytest.raises(asyncio.CancelledError):
+            await tool
+
+
 async def test_a_finished_subagent_leaves_its_processes_alone(monkeypatch, fake_assemble, kill):
     child = _Child(monkeypatch)
     child.release.set()
@@ -250,6 +268,18 @@ async def test_a_subagent_loop_takes_all_its_tools_down_with_it(subagent_run, ca
     await asyncio.sleep(0)
     assert task.cancelled() is cancelled
     task.cancel()
+
+
+async def test_a_stop_while_waiting_for_the_start_hook_is_cancelled(monkeypatch, kill):
+    """等 SubagentStart hook 時被停：結果和其他停止一樣是「已取消」。"""
+
+    async def _stopped(**_kw: Any):
+        raise st.SubagentStoppedError
+
+    monkeypatch.setattr(st, "_assemble_subagent_request", _stopped)
+    monkeypatch.setattr(st, "session_project_id", AsyncMock(return_value=None))
+    payload = json.loads(await (await _sync({})))
+    assert payload["result"]["status"] == "CANCELLED"
 
 
 @pytest.mark.parametrize(("subagent_run", "cancelled"), [(True, True), (False, False)])
@@ -325,6 +355,7 @@ async def test_a_cancelled_background_task_still_hands_back_a_result(
         task.cancel()
         result = await get_callback_store().wait_for_result(token, timeout=_GUARD_S)
     assert result["status"] == "CANCELLED"
+    assert "Touka 停止或重啟" in result["result_summary"]
 
 
 async def test_a_stopped_heartbeat_parent_still_ends_as_interrupted(
@@ -384,6 +415,7 @@ async def test_a_stopped_heartbeat_parent_still_ends_as_interrupted(
         rhythm_service.clear_session(sid)
         rhythm_service.clear_interrupt(sid)
     text = "".join(chunks)
+    assert "先派一個子代理。" in text  # 派工前寫的文字還在
     assert "已由使用者中斷" in text
     assert "不該走到這裡" not in text
     assert json.loads(seen[0])["result"]["status"] == "CANCELLED"
@@ -405,6 +437,15 @@ async def test_a_running_subagent_is_listed_until_it_ends(monkeypatch, fake_asse
         await tool
     assert [entry.label for entry in running] == ["look-1"]
     assert subagent_registry.running_in("Sumi", sid) == []
+
+
+def test_without_a_conversation_nothing_is_listed():
+    """沒有對話時不列：分不出是哪個視窗派的。"""
+    key = subagent_registry.add(RunningSubagent("ide-1", "Sumi", None, 1.0))
+    try:
+        assert subagent_registry.running_in("Sumi", None) == []
+    finally:
+        subagent_registry.finish(key)
 
 
 def test_the_continuity_line_lists_running_subagents_by_safe_label(monkeypatch):
@@ -465,11 +506,11 @@ async def test_an_external_token_still_ends_with_its_wait():
 
 def test_old_in_process_tokens_are_cleared_but_external_ones_are_not(monkeypatch):
     clock = {"now": 1_000.0}
-    monkeypatch.setattr(dcs, "get_current_epoch", lambda: clock["now"])
+    monkeypatch.setattr(dcs, "get_monotonic_ms", lambda: clock["now"])
     store = DispatchCallbackStore()
     store.register("old-inside", in_process=True)
     store.register("old-outside")
-    clock["now"] += dcs.IN_PROCESS_TOKEN_LIFETIME_SECONDS + 1
+    clock["now"] += (dcs.IN_PROCESS_TOKEN_LIFETIME_SECONDS + 1) * 1000
     store.register("new-inside", in_process=True)
     assert not store.is_registered("old-inside")
     assert store.is_registered("old-outside")
