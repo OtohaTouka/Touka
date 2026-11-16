@@ -40,8 +40,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
     from src.models.identity import AgentIdentity
+    from src.services.approval_service import ApprovalResolution
     from src.services.isolation.consent import ExecutionGrant, Fallback
     from src.services.isolation.status import IsolationSnapshot
+    from src.services.tool_previews import ToolPreview
     from src.utils.isolation_policy import IsolationLevel
 
     EventSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -129,7 +131,12 @@ async def card_isolation(key: ConsentKey, tool: str) -> CardIsolation | None:
     detail = snap.detail if snap.reason == record.reason else None
     direct = plan.kind == "direct"
     return CardIsolation(
-        "none", plan.kind, plan.features, record.reason, detail, snap.expected,
+        "none",
+        plan.kind,
+        plan.features,
+        record.reason,
+        detail,
+        snap.expected,
         net=_fallback_net(plan.kind, snap),
         block_ports_issue=None if direct else snap.block_ports_issue,
         local_issue=snap.local_issue if direct else None,
@@ -278,8 +285,7 @@ def auto_review_no_human_error(
     )
     return tool_errors.build_tool_error(
         tool_errors.PERMISSION_DENIED,
-        f"{reason} Tool '{name}' needs a human decision, and no human is present in this "
-        "session.",
+        f"{reason} Tool '{name}' needs a human decision, and no human is present in this session.",
         suggestion=suggestion,
         denied_tool=name,
         reason="auto_review_headless_terminal" if headless_terminal else "auto_review_escalated",
@@ -300,12 +306,15 @@ async def await_human_approval(
     hook_reason: str | None = None,
     human_only: bool = False,
     on_card_shown: Callable[[], None] | None = None,
+    tool_preview: ToolPreview | None = None,
+    on_resolved: Callable[[ApprovalResolution], None] | None = None,
 ) -> str:
     """回 "approved"|"rejected"|"timeout"|"queue_full"。
 
     先登記後推卡（避免極速 approve 撞 404）；解算事件一律回推（含逾時），卡片狀態可收斂。
     卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）；hook 要求人核准時
-    另帶 hook 的理由（可為空字串，ADR-0292）。
+    另帶 hook 的理由（可為空字串，ADR-0292）。有預覽時卡上帶小幫手掃描到的清單，解算結果交給
+    ``on_resolved``，由執行器判斷是不是配對的人看過整份清單才按的（ADR-0317）。
     """
     exec_id = f"appr_{uuid.uuid4().hex[:10]}"
     key = ConsentKey(agent_id, session_id or "", call_id)
@@ -338,6 +347,7 @@ async def await_human_approval(
             hook_reason=hook_reason,
             human_only=human_only,
             isolation=isolation.event_field() if isolation else None,
+            preview=tool_preview.card_field() if tool_preview is not None else None,
         )
     )
     if on_card_shown is not None:
@@ -345,6 +355,8 @@ async def await_human_approval(
     await emit({"type": "touka_status", "status": f"awaiting_approval: {name}"})
 
     resolution = await approval_service.wait_for_resolution(exec_id)
+    if on_resolved is not None:
+        on_resolved(resolution)
     verdict = APPROVAL_VERDICTS[resolution.decision]
     if verdict == "approved" and isolation is not None:
         verdict = _isolation_verdict(key, isolation, resolution.response_payload)
@@ -387,9 +399,7 @@ class CommandApprover:
         self._open: list[tuple[str, str]] = []  # 已核准、尚未收尾的（步驟 id, 指令）
         self._consent_keys: dict[str, ConsentKey] = {}  # 指令 → 它最近一張卡的帳本鍵
 
-    def _result(
-        self, call_id: str, cmd: str, error_class: str | None, text: str
-    ) -> dict[str, Any]:
+    def _result(self, call_id: str, cmd: str, error_class: str | None, text: str) -> dict[str, Any]:
         return ToolCallEvent(
             call_id=call_id,
             tool_name=self.tool_name,
@@ -412,7 +422,11 @@ class CommandApprover:
         if self._identity is not None:
             # 政策時：記下這條指令的層級與 subject（卡片據此標示隔離，核准時記同意）
             await policy_level(
-                self._identity, self._ctx, self._session_id, call_id, tool=VERIFY_ACTION,
+                self._identity,
+                self._ctx,
+                self._session_id,
+                call_id,
+                tool=VERIFY_ACTION,
                 args=args,
             )
             self._consent_keys[cmd] = ConsentKey.of(self._identity, self._session_id, call_id)

@@ -29,7 +29,7 @@ from src.protocols.mcp.interaction import (
     bind_mcp_interaction,
 )
 from src.protocols.mcp.mrtr import McpMrtrAuthorizationError
-from src.services import approval_flow, mcp_vault_jail, tool_errors
+from src.services import approval_flow, mcp_vault_jail, tool_errors, tool_previews
 from src.services.auto_reviewer import CODE_HEADLESS_TERMINAL, ReviewRequest, auto_reviewer
 from src.services.autonomy import autonomy_service
 from src.services.hooks.events import attach_to_tool_result, legacy_aliases
@@ -75,7 +75,9 @@ from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, re
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
 
+    from src.services.approval_service import ApprovalResolution
     from src.services.auto_reviewer import ReviewOutcome
+    from src.services.tool_previews import ToolPreview
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +331,8 @@ class ToolExecutor:
         hook_reason: str | None = None,
         human_only: bool = False,
         on_card_shown: Callable[[], None] | None = None,
+        tool_preview: ToolPreview | None = None,
+        on_resolved: Callable[[ApprovalResolution], None] | None = None,
     ) -> str:
         """統一審批 broker（H2）：委派 ``approval_flow.await_human_approval``。
 
@@ -349,6 +353,8 @@ class ToolExecutor:
             hook_reason=hook_reason,
             human_only=human_only,
             on_card_shown=on_card_shown,
+            tool_preview=tool_preview,
+            on_resolved=on_resolved,
         )
 
     async def execute(
@@ -583,7 +589,12 @@ class ToolExecutor:
             policy_action = None
         # 隔離層級只由身分、ctx／session 的專案與 monitor 決定（args 只用來算同意 subject）
         isolation = await policy_level(
-            identity, ctx, session_id, call_id, tool=name, args=args,
+            identity,
+            ctx,
+            session_id,
+            call_id,
+            tool=name,
+            args=args,
             builtin=handler_source == "builtin",
         )
         policy_context = PolicyContext(
@@ -609,7 +620,10 @@ class ToolExecutor:
         # 換成實際路徑，hook 只看模型送來的參數。舊工具名稱也比對它對應的新名稱（規則寫
         # execute_command，模型叫 bash 也要比得到）（ADR-0292）
         hook_call = ToolCall(
-            name=name, args=dict(args), call_id=call_id, mcp_server=mcp_server,
+            name=name,
+            args=dict(args),
+            call_id=call_id,
+            mcp_server=mcp_server,
             mcp_tool=mcp_tool_name,
             aliases=() if mcp_server else legacy_aliases(name, args, LEGACY_ADVERTISED_SUCCESSORS),
         )
@@ -668,6 +682,37 @@ class ToolExecutor:
             )
             await queue.put(None)
             return pre_hooks.denied_text
+
+        # ADR-0317：核准前先預覽（目前只有小幫手的搬移與刪除清單）。卡片給人看整份清單，
+        # 小幫手之後比對指紋。預覽失敗就不跳卡、不問審查員，直接回錯；這不是政策拒絕，
+        # 不觸發 PermissionDenied hook。
+        async def _announce_preview() -> None:
+            await queue.put({"type": "touka_status", "status": f"previewing: {name}"})
+
+        previewed = await tool_previews.tool_preview(
+            name,
+            args,
+            ctx,
+            request_model=model,
+            builtin=handler_source == "builtin",
+            announce=_announce_preview,
+        )
+        if isinstance(previewed, str):
+            logger.warning("🔎 Preview failed: %s -> %s", agent_id, name)
+            await queue.put(
+                ToolCallEvent(
+                    call_id=call_id,
+                    tool_name=name,
+                    arguments=args,
+                    status="error",
+                    error_class=tool_errors.extract_error_class(previewed),
+                    result_text=previewed,
+                ).to_result_sse()
+            )
+            await queue.put(None)
+            return previewed
+        preview: ToolPreview | None = previewed
+        resolutions: list[ApprovalResolution] = []
 
         # H2（hitl-unification）：CONFIRM 的統一 HITL 處置。
         # - 互動會話（resumable_stream＝UI 聊天）：審批卡走**當前聊天 SSE**（統一
@@ -736,6 +781,8 @@ class ToolExecutor:
                     hook_reason=(pre_hooks.ask_reason or "") if pre_hooks.ask else None,
                     human_only=human_only,
                     on_card_shown=lambda: notify_approval_card(ctx, name),
+                    tool_preview=preview,
+                    on_resolved=resolutions.append,
                 )
                 if verdict != "approved":
                     result_text = approval_flow.approval_denied_error(name, verdict)
@@ -816,6 +863,16 @@ class ToolExecutor:
             notify_permission_denied(ctx, hook_call, denied_reason)
             return denied_text
 
+        # ADR-0317：誰決定的只看這裡的可信值；回 None 的工具不送決定，小幫手改跳視窗
+        if preview is not None:
+            preview = tool_previews.decide(
+                preview,
+                hitl_preapproved=hitl_preapproved,
+                resolution=resolutions[-1] if resolutions else None,
+                approved_by=approved_by,
+                auth_level=ctx.get("auth_level", "Manual"),
+            )
+
         # Validate only selected native public calls after policy/approval, before
         # project fallback or trusted metadata injection can consume model values.
         # 其他內建工具只核對廣告 schema 列的必要參數（缺了會在工具裡變成 TypeError）。
@@ -889,6 +946,8 @@ class ToolExecutor:
                     hitl_preapproved=hitl_preapproved,
                     # U2c-3：Auto 審查員放行 REVIEW 的可信標記（模型自帶的同名參數會被覆寫）
                     approved_by=approved_by,
+                    # ADR-0317：核准前的預覽與誰決定的（同上，模型送不進來）
+                    tool_preview=preview,
                     # ADR-0148：本 run 是否為互動會話（有人在場可回答審批）——自帶審批
                     # 的工具（request_skill_install）據此決定 headless fail-closed。
                     interactive=is_human_present(ctx),
@@ -945,10 +1004,8 @@ class ToolExecutor:
                                         agent_id=agent_id,
                                         session_id=session_id,
                                         on_shown=lambda: notify_mcp_input(ctx, name),
-                                        before_shown=lambda message, schema: (
-                                            run_elicitation_hooks(
-                                                ctx, server_id, message, schema
-                                            )
+                                        before_shown=lambda message, schema: run_elicitation_hooks(
+                                            ctx, server_id, message, schema
                                         ),
                                     )
                                 )
@@ -1063,11 +1120,7 @@ class ToolExecutor:
             # --- [終端機自動修復邏輯] ---
             if name in TERMINAL_REPAIR_TOOLS:
                 exit_code_match = _TERMINAL_EXIT_CODE.search(result_text)
-                if (
-                    exit_code_match
-                    and session_id
-                    and _first_repair_report(session_id, name, args)
-                ):
+                if exit_code_match and session_id and _first_repair_report(session_id, name, args):
                     exit_code = int(exit_code_match.group(1))
                     if exit_code != 0 and session_id:
                         repair_instr = autonomy_service.get_repair_instruction(

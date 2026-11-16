@@ -70,6 +70,7 @@ def tool_approval_request_event(
     hook_reason: str | None = None,
     human_only: bool = False,
     isolation: dict[str, Any] | None = None,
+    preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """人面投影：審批請求（H2）。
 
@@ -77,7 +78,8 @@ def tool_approval_request_event(
     同一工具步驟；``args`` 為截斷後預覽（非全量）。有值才帶（ADR-0246）：
     ``review_reason``＝Auto 審查員轉人的理由；``hook_reason``＝管理員設定的 hook 要求人核准
     （hook 沒給理由時是空字串，ADR-0292）；``human_only``＝只有人能核准（硬地板）；
-    ``isolation``＝隔離標示 ``{level, fallback?, features, reason, reason_detail}``。
+    ``isolation``＝隔離標示 ``{level, fallback?, features, reason, reason_detail}``；
+    ``preview``＝小幫手掃描到的清單 ``{text, complete, helper_window, ack?}``（ADR-0317）。
     """
     event: dict[str, Any] = {
         "type": TOOL_APPROVAL_REQUEST,
@@ -97,6 +99,8 @@ def tool_approval_request_event(
         event["human_only"] = True
     if isolation is not None:
         event["isolation"] = isolation
+    if preview is not None:
+        event["preview"] = preview
     return event
 
 
@@ -164,13 +168,13 @@ class ToolCallEvent:
     確保兩個投影同源（single source of truth）。
     """
 
-    call_id: str                       # ← gen_ai.tool.call.id
-    tool_name: str                     # ← gen_ai.tool.name
-    arguments: dict[str, Any]          # ← gen_ai.tool.call.arguments
-    status: str                        # "ok" | "error"（span status）
-    error_class: str | None = None     # ← error.type（沿用 tool_errors 五類）
-    duration_ms: float | None = None   # ← span duration
-    result_text: str | None = None     # 模型面/人面共用結果文字
+    call_id: str  # ← gen_ai.tool.call.id
+    tool_name: str  # ← gen_ai.tool.name
+    arguments: dict[str, Any]  # ← gen_ai.tool.call.arguments
+    status: str  # "ok" | "error"（span status）
+    error_class: str | None = None  # ← error.type（沿用 tool_errors 五類）
+    duration_ms: float | None = None  # ← span duration
+    result_text: str | None = None  # 模型面/人面共用結果文字
     operation: str = OPERATION_EXECUTE_TOOL  # ← gen_ai.operation.name
 
     def status_wire(self) -> str:

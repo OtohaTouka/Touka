@@ -214,12 +214,18 @@ async def test_propose_forwards_the_list(wired: MagicMock) -> None:
     items = [{"op": "delete", "path": "a"}, {"op": "move", "path": "b", "to": "c"}]
     wired.submit.return_value = LocalJobResult(status="ok", data={"applied": 2})
     await _call("propose", items=items, reason="整理")
-    wired.submit.assert_awaited_once_with("propose", {"items": items, "reason": "整理"}, "Soul")
+    wired.submit.assert_awaited_once_with(
+        "propose", {"items": items, "reason": "整理"}, "Soul", signer=None
+    )
 
 
 @pytest.mark.asyncio
 async def test_propose_result_says_who_approved_and_what_statuses_mean(wired: MagicMock) -> None:
-    data = {"batch": "b1", "items": [{"path": "下載/a.txt", "status": "done"}]}
+    data = {
+        "batch": "b1",
+        "items": [{"path": "下載/a.txt", "status": "done"}],
+        "decided_by": "helper_window",
+    }
     wired.submit.return_value = LocalJobResult(status="ok", data=data)
     result = await _call("propose", items=[{"op": "delete", "path": "下載/a.txt"}], reason="清")
     payload, _, note = result.partition("\n\n")
