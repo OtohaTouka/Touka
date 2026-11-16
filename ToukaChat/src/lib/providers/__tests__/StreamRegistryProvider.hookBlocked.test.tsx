@@ -68,6 +68,10 @@ function userNode(tree: TreeHistory) {
   return Object.values(tree.messages).find(node => node.role === 'user');
 }
 
+function assistantNode(tree: TreeHistory) {
+  return Object.values(tree.messages).find(node => node.role === 'assistant');
+}
+
 describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -135,6 +139,7 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     const saved = await savedAfterError(new Error('stopped'));
     expect(userNode(saved.tree)?.content).toBe('secret');
     expect(saved.generation).toBe('cancelled');
+    expect(assistantNode(saved.tree)?.generationStopped).toBe(true); // 下一輪帶「被停止」記號（ADR-0318）
     expect(h.hookNotice).not.toHaveBeenCalled();
     expect(h.onHookBlocked).not.toHaveBeenCalled();
   });
@@ -143,6 +148,7 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     h.hookNotice.mockReturnValue(false);
     const saved = await savedAfterError(new Error('network'));
     expect(userNode(saved.tree)?.content).toBe('secret');
+    expect(assistantNode(saved.tree)?.generationStopped).toBeUndefined();
     expect(saved.generation).toBe('error');
     expect(h.onHookBlocked).not.toHaveBeenCalled();
   });

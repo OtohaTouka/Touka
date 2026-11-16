@@ -182,6 +182,27 @@ def test_awaken_refusals_are_recorded(
     awaken.assert_not_called()
 
 
+def test_awaken_refusals_during_a_reset_are_not_recorded(
+    auth_client: TestClient, awaken: AsyncMock, monkeypatch: pytest.MonkeyPatch
+):
+    """重置、清除或刪除中不記（ADR-0287）；查身分出錯時照樣回原本的錯誤。"""
+    skipped = Mock()
+    monkeypatch.setattr(heartbeat, "record_heartbeat_skipped", skipped)
+    # 沒設大腦：寫初始提示之前沒在重置，寫完之後開始了
+    monkeypatch.setattr(heartbeat.destructive_ops, "disturbed", Mock(side_effect=[False, True]))
+    assert _awaken(auth_client).status_code == 409
+    expired = User(id="o", email="o@test.com", hashed_password="...",
+                   owned_agents=["HbNoBrain"], refresh_token_exp=1)
+    monkeypatch.setattr(AuthService, "get_all_users", lambda _self: [expired])
+    monkeypatch.setattr(heartbeat.destructive_ops, "generation", lambda _identity: None)
+    refused = _awaken(auth_client).status_code
+    assert refused >= 400
+    monkeypatch.setattr(heartbeat.identity_service, "get_identity", Mock(side_effect=OSError))
+    assert _awaken(auth_client).status_code == refused
+    skipped.assert_not_called()
+    awaken.assert_not_called()
+
+
 def test_awaken_with_override_still_runs(auth_client: TestClient, awaken: AsyncMock):
     """釘住：排程有指定模型時不看主要模型。"""
     resp = _awaken(auth_client, model_override="claude-x")

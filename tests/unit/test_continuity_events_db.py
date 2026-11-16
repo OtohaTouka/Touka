@@ -189,7 +189,7 @@ async def test_snapshot_reads_only_this_soul_and_leaves_out_this_turn() -> None:
 
     assert snapshot.last_turn_here_ms == 10
     assert snapshot.last_human_ms == 20
-    assert snapshot.last_run == (35, {"end": "completed"})
+    assert snapshot.last_run == ("heartbeat_finished", 35, {"end": "completed"})
     assert [(kind, at) for kind, at, _subject, _meta in snapshot.recent] == [
         ("mission_completed", 70),
         ("task_done", 60),

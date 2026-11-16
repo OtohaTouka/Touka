@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from src.services.continuity_events import HeartbeatEnd
+    from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip
 
 import httpx
 import jwt
@@ -698,6 +698,19 @@ async def _process_heartbeat_loop(
                 home_handover.schedule(identity)
 
 
+def _record_refusal(agent_id: str, reason: HeartbeatSkip) -> None:
+    """心跳在入口被擋時記一筆（ADR-0318）；重置、清除或刪除中不記（ADR-0287）。
+
+    出錯只記 log，不改變原本要回的錯誤。
+    """
+    try:
+        identity = identity_service.get_identity(agent_id)
+        if destructive_ops.generation(identity) is not None:
+            record_heartbeat_skipped(identity, reason, session_id=None)
+    except Exception:
+        logger.warning("Heartbeat refusal for %s was not recorded.", agent_id, exc_info=True)
+
+
 @router.post("/awaken", status_code=202)
 async def awaken_agent(
     req: HeartbeatAwakenRequest,
@@ -737,9 +750,7 @@ async def awaken_agent(
             f"Denying pulse for {agent_id}."
         )
         # 常見的靜默停擺：記下來，下一次心跳看得到（ADR-0318）
-        record_heartbeat_skipped(
-            identity_service.get_identity(agent_id), "owner_login_expired", session_id=None
-        )
+        _record_refusal(agent_id, "owner_login_expired")
         raise ToukaException(ErrorCode.HEARTBEAT_ORPHAN_AGENT)
 
     # 1.5 獲取身分並檢查權限 (Identity & Capability SSOT)
@@ -864,7 +875,8 @@ async def awaken_agent(
     # 7. 驗證大腦可用性 (Fail Fast)：排程沒指定模型、靈魂也沒有主要模型 → 409（ADR-0250 A3）
     if not req.model_override and get_active_brain(identity) is None:
         logger.warning("💓 [Heartbeat] %s has no primary model; not awakened.", agent_id)
-        record_heartbeat_skipped(identity, "no_brain", session_id=final_session_id)
+        if not destructive_ops.disturbed(identity, since):  # 寫初始提示期間開始的重置也不記
+            record_heartbeat_skipped(identity, "no_brain", session_id=final_session_id)
         raise ToukaException(ErrorCode.AGENT_BRAIN_NOT_SET)
 
     # 8. 啟動多脈衝背景任務
