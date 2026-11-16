@@ -27,6 +27,7 @@ from src.middleware.layers.context import ContextLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.routers import proxy as proxy_router
+from src.services import authorization_gateway as gateway_module
 from src.services import handover_service as handover_module
 from src.services.authorization_gateway import require_authenticated
 from src.services.isolation import policy as isolation_policy
@@ -85,12 +86,14 @@ def seen(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         record["authorized"] = ctx.get("project_authorized")
         return {"ok": True}
 
-    owners = SimpleNamespace(
-        is_owner=lambda target, caller: (caller.agent_id, target.agent_id) in OWNED_AGENTS
+    # 只換 is_owner 這個方法（和其他測試一樣），不換整個 resource_manager（區路徑守衛 T3）
+    monkeypatch.setattr(
+        gateway_module.resource_manager,
+        "is_owner",
+        lambda target, caller: (caller.agent_id, target.agent_id) in OWNED_AGENTS,
     )
     monkeypatch.setattr("src.routers.ui_sessions.session_service.get_project_owner", _owner)
     monkeypatch.setattr("src.routers.ui_sessions.session_service.get_project_agent_ids", _agents)
-    monkeypatch.setattr("src.services.authorization_gateway.resource_manager", owners)
     monkeypatch.setattr(proxy_router, "process_proxy_request", _pipeline)
     return record
 
