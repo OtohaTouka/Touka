@@ -147,6 +147,20 @@ def test_moving_into_a_recently_vacated_place(destination: str) -> None:
     )
 
 
+@pytest.mark.parametrize("source", ["D:\\Open\\Proj", "D:\\open\\PROJ", "D:\\Open\\Proj\\notes.md"])
+def test_moving_a_folder_that_holds_a_vacated_place(source: str) -> None:
+    """刪了 Proj\\notes.md 再把 Proj 搬走或改名，7 天的空位不能跟著消失（對抗式複審 HIGH）。"""
+    history = History(vacated=(vacated_key("D:\\Open\\Proj\\notes.md"),))
+    plan = _plan(_item(source=source, destination="D:\\Open\\Archive\\Proj"))
+    assert _reason(plan, history) == floors.REASON_RECENTLY_VACATED
+
+
+def test_moving_a_sibling_of_a_vacated_place_goes_ahead() -> None:
+    history = History(vacated=(vacated_key("D:\\Open\\Proj\\notes.md"),))
+    plan = _plan(_item(source="D:\\Open\\Proj2", destination="D:\\Open\\Archive\\Proj2"))
+    assert _reason(plan, history) is None
+
+
 def test_a_sibling_with_a_longer_name_is_not_vacated() -> None:
     assert not is_vacated("D:\\Open\\Gone2", (vacated_key("D:\\Open\\Gone"),))
 

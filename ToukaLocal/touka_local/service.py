@@ -136,6 +136,8 @@ class _Preview:
     plan: Plan
     shown: str
     expires: float
+    # 預覽時就碰到的底線：卡片會說「小幫手還會跳視窗」，之後原因消失也照樣跳
+    reason: str | None = None
 
 
 def _refused_payload(exc: Refused) -> dict[str, Any]:
@@ -359,7 +361,10 @@ class HelperService:
             while len(self._previews) >= MAX_PREVIEWS:
                 del self._previews[next(iter(self._previews))]
             self._previews[nonce] = _Preview(
-                plan=plan, shown=text_fingerprint(text), expires=now + PREVIEW_LIFETIME_SECONDS
+                plan=plan,
+                shown=text_fingerprint(text),
+                expires=now + PREVIEW_LIFETIME_SECONDS,
+                reason=reason,
             )
         return {
             "nonce": nonce,
@@ -402,6 +407,8 @@ class HelperService:
             if decision_ok and preview is not None and plan.digest != preview.plan.digest:
                 raise Refused("changed")
             reason = self._window_reason(plan, decision_ok=decision_ok)
+            if reason is None and preview is not None:
+                reason = preview.reason
             if reason is not None:
                 with self._lock:
                     if job.id not in self._cancelled:

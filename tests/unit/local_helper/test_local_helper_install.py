@@ -388,25 +388,11 @@ def test_environment_knows_where_python_is(monkeypatch: pytest.MonkeyPatch) -> N
 # --- 照 Touka 的模式核准的三個小檔（ADR-0317） ---
 
 
-def test_install_names_the_switch_file_like_the_helper() -> None:
-    assert installer.MODE_FOLLOWING_NAME == settings_module.MODE_FOLLOWING_FILE
-
-
-def test_install_turns_the_switch_on_when_there_is_none(tmp_path: Path) -> None:
-    file = tmp_path / "helper" / settings_module.MODE_FOLLOWING_FILE
-    installer.ensure_mode_following(file)
-    assert settings_module.load_mode_following(file) is True
-
-
-@pytest.mark.parametrize("existing", ["switch", "temporary"])
-def test_reinstall_keeps_the_switch_as_the_person_left_it(tmp_path: Path, existing: str) -> None:
-    file = tmp_path / settings_module.MODE_FOLLOWING_FILE
-    settings_module.save_mode_following(file, enabled=False)
-    if existing == "temporary":
-        # 小幫手當機在換檔中途時，開關只留在暫存檔
-        file.rename(file.with_name(f"{file.name}.new"))
-    installer.ensure_mode_following(file)
-    assert settings_module.load_mode_following(file) is False
+def test_install_never_turns_the_switch_on() -> None:
+    """鑰匙放在 Touka 的資料夾，照模式核准要使用者在小幫手視窗自己打開（ADR-0317）。"""
+    source = Path(installer.__file__).read_text(encoding="utf-8")
+    assert settings_module.MODE_FOLLOWING_FILE not in source
+    assert not hasattr(installer, "ensure_mode_following")
 
 
 def test_reinstall_leaves_the_key_switch_and_reset_alone(tmp_path: Path) -> None:
@@ -424,6 +410,5 @@ def test_reinstall_leaves_the_key_switch_and_reset_alone(tmp_path: Path) -> None
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(f"# {relative}\n", encoding="utf-8")
     installer.copy_allowed(source, helper / "app")
-    installer.update_settings(helper / "settings.json", "D:\Touka")
-    installer.ensure_mode_following(switch_file)
+    installer.update_settings(helper / "settings.json", "D:\\Touka")
     assert {file: file.read_bytes() for file in before} == before

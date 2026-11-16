@@ -44,9 +44,6 @@ ALLOWED_FILES: Final = (
 _HELPER_FOLDER: Final = "ToukaLocal"
 _LAUNCHER_NAME: Final = "ToukaLocal.cmd"
 _SETTINGS_NAME: Final = "settings.json"
-# 和 touka_local.settings.MODE_FOLLOWING_FILE 同名；這支腳本不匯入 touka_local，測試核對
-MODE_FOLLOWING_NAME: Final = "mode_following.json"
-_TEMPORARY_SUFFIX: Final = ".new"
 _DRIVE: Final = re.compile(r"[A-Za-z]:")
 _UNQUOTABLE: Final = re.compile(r'["%&^!\r\n]')
 
@@ -184,17 +181,6 @@ def update_settings(file: Path, touka_folder: str) -> None:
     file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def ensure_mode_following(file: Path) -> None:
-    """第一次安裝時打開「照 Touka 的模式核准」；人關掉過的開關，重裝不改回來。
-
-    小幫手當機在換檔中途時，開關只留在暫存檔，也算已經有了。
-    """
-    if file.exists() or file.with_name(f"{file.name}{_TEMPORARY_SUFFIX}").exists():
-        return
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps({"enabled": True}), encoding="utf-8")
-
-
 def _prepare(touka_folder: str, environ: Mapping[str, str]) -> InstallPlan:
     check_flags(isolated=sys.flags.isolated, no_site=sys.flags.no_site)
     source = Path(__file__).resolve().parent
@@ -228,7 +214,6 @@ def run(argv: list[str]) -> int:
         sys.stderr.write(f"沒有安裝：{exc}\n")
         return 1
     update_settings(Path(plan.helper_dir) / _SETTINGS_NAME, plan.touka_folder)
-    ensure_mode_following(Path(plan.helper_dir) / MODE_FOLLOWING_NAME)
     data = launcher_bytes(plan)
     Path(plan.launcher).write_bytes(data)
     desktop = Path(environ["USERPROFILE"]) / "Desktop"

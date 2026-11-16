@@ -1336,6 +1336,8 @@ def test_vacated_places_cover_pending_failed_and_done(
     monkeypatch.setattr(timed_ops, "_run_item", run_item)
     timed_ops.apply(plan, _limits(clock))
     assert seen == [True]
+    # 永久刪除做到一半被取消，可能已經刪掉一部分：aborted 也算清空
+    assert "aborted" in operations_module._VACATING_STATUSES
     assert is_vacated("D:\\open\\A.TXT", timed_ops.history(wall.now).vacated)
     wall.now += 7 * 24 * 3600 + 1
     assert timed_ops.history(wall.now).vacated == ()

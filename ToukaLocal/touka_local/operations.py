@@ -70,7 +70,8 @@ MAX_JOURNALS: Final = 50
 # 照 Touka 的模式做掉的批留 30 天，不會因為數量被擠掉；所有批至少留 7 天（7 天檢查要用）
 JOURNAL_KEEP_SECONDS: Final = 30 * 24 * 3600.0
 # 7 天檢查要看的狀態：還沒做完、失敗（可能只刪了一部分）也算被清空
-_VACATING_STATUSES: Final = frozenset({"pending", "failed", "done"})
+# aborted：永久刪除做到一半被取消時，可能已經刪掉一部分
+_VACATING_STATUSES: Final = frozenset({"pending", "failed", "done", "aborted"})
 _VACATING_OPS: Final = frozenset({"move", "delete"})
 
 logger = logging.getLogger(__name__)

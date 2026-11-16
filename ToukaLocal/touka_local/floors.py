@@ -68,6 +68,12 @@ def is_vacated(path: str, vacated: tuple[tuple[str, ...], ...]) -> bool:
     return any(key[: len(gone)] == gone for gone in vacated)
 
 
+def holds_vacated(path: str, vacated: tuple[tuple[str, ...], ...]) -> bool:
+    """``path`` 本身或它底下有近 7 天被搬走、刪掉的位置（搬走資料夾時空位不能跟著消失）。"""
+    key = vacated_key(path)
+    return any(gone[: len(key)] == key for gone in vacated)
+
+
 def plan_entries(plan: Plan) -> int:
     """整份清單碰到的檔案加資料夾總數。"""
     return sum(1 + item.contained for item in plan.items)
@@ -109,6 +115,8 @@ def window_reason(
             continue
         if item.destination_root is None or not same_path(item.source_root, item.destination_root):
             return REASON_CROSS_FOLDER
-        if is_vacated(item.destination_full, history.vacated):
+        if is_vacated(item.destination_full, history.vacated) or holds_vacated(
+            item.source_full, history.vacated
+        ):
             return REASON_RECENTLY_VACATED
     return None

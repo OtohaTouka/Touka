@@ -272,6 +272,20 @@ def test_a_floor_opens_the_window_and_a_person_can_still_approve(
     assert client.results[-1][1]["data"]["decided_by"] == "helper_window"
 
 
+def test_a_window_promised_by_the_preview_still_opens(
+    service, client, fs, gate, trash, switches: _Switches
+) -> None:
+    """預覽時碰到底線，卡片就會說「小幫手還會跳視窗」；等卡片時原因消失了也要跳。"""
+    fs.add_file("D:\\Open\\a.txt")
+    switches.following = False
+    preview = _preview(service, client)
+    assert preview["window_reason"] == "not_following"
+    switches.following = True
+    _decide(service, client, _signed(preview))
+    assert gate.current is not None and gate.current.reason == "not_following"
+    assert trash.sent == []
+
+
 def test_one_mode_decision_at_a_time(service, client, fs) -> None:
     fs.add_file("D:\\Open\\a.txt")
     preview = _preview(service, client)
