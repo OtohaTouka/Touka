@@ -31,6 +31,7 @@ from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, safe_ref
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
+from src.services.subagent_registry import subagent_registry
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import read_snapshot
 from src.utils.history_manager import TreeMessageManager
@@ -74,6 +75,8 @@ RECENT_LABEL = (
 )
 RECORDS_START_LABEL = "Activity records start"
 MISSION_LABEL = "Mission board"
+RUNNING_SUBAGENTS_LABEL = "Sub-agents you dispatched in this conversation, still running"
+RUNNING_SUBAGENTS_SHOWN = 5  # 最多列幾個，其餘只寫數量（ADR-0318）
 NO_ACTIVE_MISSION = "no active mission"
 NONE_RECORDED = "none recorded"
 TIMELINE_UNAVAILABLE = "unavailable (the activity record could not be read)"
@@ -220,6 +223,21 @@ def _completed_item(now_s: float, kind: str, epoch_ms: int, subject: str, metada
     return f"{what} {_when(now_s, epoch_ms)}"
 
 
+def running_subagents_line(soul: AgentIdentity, session_id: str | None, now_s: float) -> str:
+    """還在跑的子代理（ADR-0318）：標籤是模型給的，經 ``safe_ref``；只看記憶體裡的登記表。"""
+    running = subagent_registry.running_in(soul.agent_id, session_id)
+    if not running:
+        return f"- {RUNNING_SUBAGENTS_LABEL}: {NONE_RECORDED} {SERVER_MEMORY}"
+    items = [
+        f"{safe_ref(entry.label)} (started {_when(now_s, int(entry.started_at * _MS_PER_SECOND))})"
+        for entry in running[:RUNNING_SUBAGENTS_SHOWN]
+    ]
+    extra = len(running) - RUNNING_SUBAGENTS_SHOWN
+    if extra > 0:
+        items.append(f"and {extra} more")
+    return f"- {RUNNING_SUBAGENTS_LABEL}: {'; '.join(items)} {SERVER_MEMORY}"
+
+
 def _recent_line(now_s: float, timeline: TimelineSnapshot | None) -> str:
     if timeline is None:
         return f"- {RECENT_LABEL}: {TIMELINE_UNAVAILABLE}"
@@ -299,6 +317,7 @@ async def build_continuity_block(
         lines.append(_run_line(now_s, timeline, heartbeat=heartbeat))
         lines.append(_recent_line(now_s, timeline))
         lines.append(await _mission_line(identity, soul, now_s))
+        lines.append(running_subagents_line(soul, session_id, now_s))
         start = _records_start_line(timeline)
         if start is not None:
             lines.append(start)

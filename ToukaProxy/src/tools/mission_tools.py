@@ -42,11 +42,7 @@ from src.tools.contracts import (
 logger = logging.getLogger(__name__)
 
 _SUBAGENT_MINUTES = limit_minutes(SUBAGENT_TIMEOUT_SECONDS)
-_AWAIT_STOP_HINT = (
-    "先做別的事或先回報，不要連續重複等；派出超過約 "
-    f"{_SUBAGENT_MINUTES} 分鐘仍是憑證不明，表示結果不會來了（例如 Touka 重啟過），"
-    "請重新派工或回報。"
-)
+_AWAIT_STOP_HINT = "先做別的事或先回報，不要連續重複等。"
 
 
 def _agent_artifact_root(identity: AgentIdentity) -> ZonePath | None:
@@ -172,19 +168,21 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
                     durable = read_result(identity, callback_token)
                     if durable is not None:
                         result = durable
-            # 逾時後憑證離開等候清單，之後再等會立刻回「憑證不明」，子代理做完寫入後才讀得到
-            # （ADR-0316 PR 2 補記）：寫明什麼時候該停，免得模型連續重複等
+            # 站內憑證逾時不作廢（ADR-0318）：再等就接著等；憑證不明表示結果不會來了。
+            # 寫明什麼時候該停，免得模型連續重複等
             if result.get("status") == "TIMEOUT":
                 return (
                     f"Error: 等了 {timeout:g} 秒還沒有結果。若這是 dispatch_subagent 的憑證，"
-                    f"子代理可能還在跑（最長約 {_SUBAGENT_MINUTES} 分鐘）；之後再等這個憑證會先回"
-                    f"「憑證不明」，做完後就拿得到。{_AWAIT_STOP_HINT}"
+                    f"子代理可能還在跑（最長約 {_SUBAGENT_MINUTES} 分鐘），"
+                    "之後再等同一個憑證會接著等。"
+                    f"{_AWAIT_STOP_HINT}"
                 )
             if result.get("status") == "UNKNOWN_TOKEN":
                 return (
-                    "Error: Unknown callback token（憑證不明）。若之前等這個憑證逾時過，"
-                    "子代理可能還沒做完，做完後再等一次"
-                    f"就拿得到。{_AWAIT_STOP_HINT}"
+                    "Error: Unknown callback token（憑證不明）："
+                    "可能已經拿過結果、太久沒來拿被清掉，"
+                    "或 Touka 重啟過；這個憑證不會再有結果，需要的話重新派工或回報。"
+                    f"{_AWAIT_STOP_HINT}"
                 )
             lines = [
                 "✅ Dispatch result received.",

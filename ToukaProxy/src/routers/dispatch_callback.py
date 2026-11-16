@@ -70,6 +70,16 @@ async def verify_dispatch_callback(
         )
         raise ToukaException(ErrorCode.AUTH_INVALID_TOKEN)
 
+    # 站內子代理的憑證只收 Touka 內部交回的結果（ADR-0318）：模型看得到它，不能拿來從外面送假結果。
+    # 回應和沒登記的一樣，不透露是哪一種。
+    if get_callback_store().is_in_process(x_callback_token):
+        logger.warning(
+            "Dispatch callback rejected: in-process token host=%s token=%s…",
+            client_host,
+            x_callback_token[:8],
+        )
+        raise ToukaException(ErrorCode.AUTH_INVALID_TOKEN)
+
     return x_callback_token
 
 

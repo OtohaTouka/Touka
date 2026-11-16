@@ -278,11 +278,12 @@ async def test_a_timed_out_wait_says_when_to_stop(zone_data_root: Any) -> None:
     assert "mission board" not in text
 
 
-async def test_an_unknown_token_says_the_child_may_still_be_running(zone_data_root: Any) -> None:
+async def test_an_unknown_token_says_no_result_will_come(zone_data_root: Any) -> None:
+    """站內憑證逾時不作廢（ADR-0318）：憑證不明就是結果不會來了。"""
     _reset()
     text = await _await("never-issued")
 
     assert "憑證不明" in text
-    assert "逾時" in text
+    assert "不會再有結果" in text
     assert "不要連續重複等" in text
     assert "notify_on_complete" not in text

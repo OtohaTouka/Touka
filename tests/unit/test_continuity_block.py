@@ -34,6 +34,7 @@ from src.models.interjection import Interjection
 from src.services import continuity_service as cs
 from src.services.interjection_queue import interjection_queue
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONTINUITY, VOLATILE_SYSTEM_TAGS
+from src.services.subagent_registry import RunningSubagent
 from src.utils.async_db import (
     TRUSTED_TIMELINE_EPOCH_KEY,
     init_db_async,
@@ -125,6 +126,17 @@ def _previous(text: str) -> str:
 # --------------------------------------------------------------------------- #
 # 純函式：秒與毫秒、經過時間的呈現
 # --------------------------------------------------------------------------- #
+
+
+async def test_running_subagents_are_in_the_block(
+    clock: dict[str, float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """還在跑的子代理寫進 <continuity>（ADR-0318 PR 2）；無痕不列。"""
+    sid = _sid()
+    entry = RunningSubagent("look-1", SOUL, sid, NOW - 120)
+    monkeypatch.setattr(cs.subagent_registry, "running_in", lambda *_a: [entry])
+    assert f"{cs.RUNNING_SUBAGENTS_LABEL}: look-1 (started " in await _block(sid)
+    assert cs.RUNNING_SUBAGENTS_LABEL not in await _block(sid, incognito=True)
 
 
 def test_elapsed_seconds_converts_milliseconds() -> None:

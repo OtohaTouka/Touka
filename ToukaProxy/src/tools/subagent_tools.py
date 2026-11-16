@@ -45,10 +45,13 @@ from src.services import tool_errors
 from src.services.dispatch_callback_store import get_callback_store
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_start_hooks
+from src.services.hooks.stopping import stopped_since_start
 from src.services.isolation.policy import session_project_id
 from src.services.model_manager import model_manager
+from src.services.process_registry import process_registry
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import HEADLESS_FALLBACK_ROUNDS
+from src.services.subagent_registry import RunningSubagent, subagent_registry
 from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_report
 from src.tools.contracts import (
     MAX_SUBAGENT_GROUP,
@@ -65,7 +68,7 @@ from src.utils.time_utils import get_current_epoch
 from src.utils.user_intent import subagent_intent
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Coroutine
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,14 @@ _RESULT_SUMMARY_MAX = 4000
 OMITTED_HEAD_NOTE = "…（前段過長已省略）\n"
 _PARTIAL_HEADER = "已做到的部分（沒做完，可能不完整）："
 # 結果的三種結局：傳輸失敗或自己回報失敗都算失敗；沒附回報與部分完成另計（ADR-0318）
-_OUTCOME_WORDS = {"done": "完成", "partial": "部分完成或未確認", "failed": "失敗"}
+_OUTCOME_WORDS = {
+    "done": "完成",
+    "partial": "部分完成或未確認",
+    "failed": "失敗",
+    "cancelled": "已取消",
+}
+# 子代理多久看一次主代理那段對話有沒有被按停止（停止沒有事件可掛，只有累計次數；ADR-0318）
+STOP_CHECK_SECONDS = 0.5
 # 父請求的目標標頭不屬於子代理：留著會讓 MonitorLayer 把父靈魂或父 session 認成目標
 # （ADR-0245 修補）
 _PARENT_TARGET_HEADERS = frozenset(
@@ -147,6 +157,14 @@ class SubagentModelError(Exception):
         kind = error_type if known else "unknown"
         super().__init__(f"The subagent's model call failed ({kind}).")
         self.error_type = kind
+        self.partial = partial
+
+
+class SubagentCancelledError(Exception):
+    """主代理那段對話被按了停止，子代理跟著停下；``partial`` 是已經收到的文字（ADR-0318）。"""
+
+    def __init__(self, partial: str = "") -> None:
+        super().__init__("The subagent was stopped because its conversation was stopped.")
         self.partial = partial
 
 
@@ -326,11 +344,14 @@ async def _run_subagent(
     base_ctx: Any,
     model: str | None,
     read_only: bool = False,
+    label: str = "subagent",
 ) -> str:
     """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出。
 
     時限包住整段（SubagentStart hook、組裝、模型）。超過時丟 ``SubagentTimeoutError``、模型失敗丟
-    ``SubagentModelError``，兩者都帶著已經收到的文字，SubagentStop hook 也拿到它（ADR-0318）。
+    ``SubagentModelError``、主代理那段對話被按停止丟 ``SubagentCancelledError``，都帶著已經收到的
+    文字，SubagentStop hook 也拿到它（ADR-0318）。跑的期間登記在 ``subagent_registry``；沒做完時
+    它開的指令行程一起收掉。
     """
     seq = next(_SUB_SEQ)
     sub_identity = AgentIdentity.for_role(
@@ -352,37 +373,108 @@ async def _run_subagent(
 
     parts: list[str] = []
     reply = ""
+    finished = False
     deadline = asyncio.timeout(_SUB_TIMEOUT_SECONDS)
+    key = subagent_registry.add(
+        RunningSubagent(label, parent_label, base_ctx.get("session_id"), get_current_epoch())
+    )
     try:
         async with deadline:
-            project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
-            # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
-            has_project = bool(
-                project_id and await resource_manager.get_project_path(project_id, sub_identity)
+            reply = await _unless_parent_stops(
+                _assemble_and_run(
+                    goal=goal,
+                    sub_identity=sub_identity,
+                    sub_request_id=sub_request_id,
+                    base_ctx=base_ctx,
+                    model=model,
+                    read_only=read_only,
+                    parent_label=parent_label,
+                    parts=parts,
+                ),
+                base_ctx,
             )
-            scope = SubagentScope(project_id, has_project, read_only)
-            request = await _assemble_subagent_request(
-                goal=goal,
-                sub_identity=sub_identity,
-                base_ctx=base_ctx,
-                model=model,
-                scope=scope,
-                parent_label=parent_label,
-            )
-            reply = await _run_assembled(
-                request, sub_identity, sub_request_id, base_ctx, goal, scope, parts
-            )
+        finished = True
     except TimeoutError as exc:
         if not deadline.expired():  # 子代理裡別的逾時照原樣往外
             raise
         reply = "".join(parts).strip()
         raise SubagentTimeoutError(reply) from exc
+    except SubagentCancelledError as exc:
+        reply = "".join(parts).strip()
+        raise SubagentCancelledError(reply) from exc
     except SubagentModelError as exc:
         reply = exc.partial
         raise
     finally:
+        subagent_registry.remove(key)
+        if not finished:  # 逾時、被停、失敗或主代理這一輪被收掉：它開的指令行程一起收掉
+            process_registry.terminate_agent(sub_identity)
         notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
+
+
+async def _assemble_and_run(
+    *,
+    goal: str,
+    sub_identity: AgentIdentity,
+    sub_request_id: str,
+    base_ctx: Any,
+    model: str | None,
+    read_only: bool,
+    parent_label: str,
+    parts: list[str],
+) -> str:
+    """看專案、組裝（含 SubagentStart hook）、執行；``parts`` 收已經收到的文字。"""
+    project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
+    # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
+    has_project = bool(
+        project_id and await resource_manager.get_project_path(project_id, sub_identity)
+    )
+    scope = SubagentScope(project_id, has_project, read_only)
+    request = await _assemble_subagent_request(
+        goal=goal,
+        sub_identity=sub_identity,
+        base_ctx=base_ctx,
+        model=model,
+        scope=scope,
+        parent_label=parent_label,
+    )
+    return await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal, scope, parts)
+
+
+async def _unless_parent_stops(work: Coroutine[Any, Any, str], base_ctx: Any) -> str:
+    """子代理在自己的 task 裡跑，旁邊有停止監看（ADR-0318）。
+
+    主代理那段對話被按停止（``stopped_since_start``）就只取消子代理的 task，丟一般例外
+    ``SubagentCancelledError``：主代理的工具 task 不被取消，照常收到「已取消」。主代理這一輪自己被
+    取消時，取消照樣往外傳（等待中的子代理 task 一起被取消）。
+    """
+    task = asyncio.create_task(work)
+    stopped = asyncio.Event()
+    watch = asyncio.create_task(_cancel_when_parent_stops(base_ctx, task, stopped))
+    try:
+        return await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if stopped.is_set() and (current is None or current.cancelling() == 0):
+            raise SubagentCancelledError from None
+        raise
+    finally:
+        watch.cancel()
+
+
+async def _cancel_when_parent_stops(
+    base_ctx: Any, task: asyncio.Task, stopped: asyncio.Event
+) -> None:
+    """停止只有累計次數、沒有事件，所以每 ``STOP_CHECK_SECONDS`` 看一次；沒有對話（IDE）就不看。"""
+    if not base_ctx.get("session_id"):
+        return
+    while not task.done():
+        if stopped_since_start(base_ctx):
+            stopped.set()
+            task.cancel()
+            return
+        await asyncio.sleep(STOP_CHECK_SECONDS)
 
 
 async def _run_assembled(
@@ -455,10 +547,14 @@ def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
 
     逾時與模型錯誤用固定說法，附上已做到的部分（ADR-0318）；其他例外攜遮罩後的例外摘要。
     """
+    status = "FAILED"
     if isinstance(exc, SubagentTimeoutError):
         reason = f"逾時：超過約 {_limit_minutes()} 分鐘沒做完，已中止。"
     elif isinstance(exc, SubagentModelError):
         reason = f"模型錯誤（{exc.error_type}）：子代理沒有做完。"
+    elif isinstance(exc, SubagentCancelledError):
+        status = "CANCELLED"
+        reason = "已取消：這段對話被按了停止，子代理跟著停下。"
     else:
         return {
             "task_id": label,
@@ -468,13 +564,15 @@ def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
     partial = _keep_tail(parse_subagent_report(exc.partial).summary)
     return {
         "task_id": label,
-        "status": "FAILED",
+        "status": status,
         "result_summary": f"{reason}\n{_PARTIAL_HEADER}\n{partial}" if partial else reason,
     }
 
 
 def _outcome(payload: dict[str, Any]) -> str:
-    """``_OUTCOME_WORDS`` 的鍵：沒跑完或自己回報失敗算 failed，回報 done 才算 done。"""
+    """``_OUTCOME_WORDS`` 的鍵：被停算 cancelled；沒跑完或自評失敗算 failed，回報 done 才 done。"""
+    if payload.get("status") == "CANCELLED":
+        return "cancelled"
     if payload.get("status") != "DONE" or payload.get("report_status") == "failed":
         return "failed"
     return "done" if payload.get("report_status") == "done" else "partial"
@@ -505,12 +603,28 @@ async def _run_and_deliver(
             base_ctx=base_ctx,
             model=model,
             read_only=read_only,
+            label=label,
         )
         payload = _result_from_text(text, label)
+    except asyncio.CancelledError:
+        # 整個背景 task 被取消（例如 Touka 關機）：照樣交回「已取消」，等的一方不空等（ADR-0318）
+        _deliver(token, parent_identity, _result_from_error(SubagentCancelledError(), label))
+        raise
     except Exception as exc:
-        logger.exception("in-process subagent failed (token=%s…)", token[:8])
+        _log_failure(exc, "in-process subagent (token=%s…)", token[:8])
         payload = _result_from_error(exc, label)
+    _deliver(token, parent_identity, payload)
 
+
+def _log_failure(exc: Exception, what: str, *args: Any) -> None:
+    """被停是使用者的決定，只記一行；其他失敗留完整追蹤。"""
+    if isinstance(exc, SubagentCancelledError):
+        logger.info(what + " stopped with its conversation", *args)
+    else:
+        logger.exception(what + " failed", *args)
+
+
+def _deliver(token: str, parent_identity: AgentIdentity | None, payload: dict[str, Any]) -> None:
     get_callback_store().deliver_result(token, payload)
     _persist_durable(parent_identity, token, payload)
 
@@ -561,10 +675,11 @@ async def run_subagent_group(
                     base_ctx=base_ctx,
                     model=(spec.get("sub_model") or "").strip() or model,
                     read_only=_is_read_only(spec.get("read_only")),
+                    label=label,
                 )
                 return _result_from_text(text, label)
             except Exception as exc:  # noqa: BLE001 — 隔離：一子失敗不沉全組
-                logger.exception("group subagent '%s' failed", label)
+                _log_failure(exc, "group subagent '%s'", label)
                 return _result_from_error(exc, label)
 
     return await asyncio.gather(*(_one(i, spec) for i, spec in enumerate(subtasks)))
@@ -601,11 +716,12 @@ async def _dispatch_and_wait(
             base_ctx=base_ctx,
             model=model,
             read_only=read_only,
+            label=label,
         )
         payload = _result_from_text(text, label)
     except Exception as exc:
         # 和非同步分支一樣，失敗也交回結構化結果（FAILED）
-        logger.exception("in-process subagent failed (sync dispatch)")
+        _log_failure(exc, "in-process subagent (sync dispatch)")
         payload = _result_from_error(exc, label)
     return tool_errors.build_tool_success(
         f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。因為這一輪沒有任務看板工具"
@@ -674,7 +790,8 @@ async def dispatch_subagent(
 
     store = get_callback_store()
     token = store.generate_token()
-    store.register(token)
+    # 站內憑證：只收 Touka 內部交回的結果，逾時不作廢（ADR-0318）
+    store.register(token, in_process=True)
 
     task = asyncio.create_task(
         _run_and_deliver(
@@ -761,5 +878,6 @@ async def dispatch_subagent_group(
         completed=counts["done"],
         partial=counts["partial"],
         failed=counts["failed"],
+        cancelled=counts["cancelled"],
         results=results,
     )

@@ -1,6 +1,7 @@
 # ADR-0309：子代理看得到對話綁定的專案，也可以限制成只能看
 
 - 狀態：✅ 已實作。一頁計畫由維護者核准，經兩輪審查。
+- 補註（2026-11-17）：按停止時已派出的子代理跟著停，「最長還會跑 10 分鐘」的既有限制解除（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 5）。
 - 日期：2026-11-10
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（子代理派發）、[ADR-0245](0245-model-layer-stage-2a.md)（Subagent 角色）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（只執行列出的工具）、[ADR-0304](0304-identity-safeguards.md)（專案編號不收模型填的值）
