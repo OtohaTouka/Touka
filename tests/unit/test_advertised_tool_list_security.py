@@ -1909,6 +1909,12 @@ _ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
             "ctx['advertised_tools'] = x\nctx['advertised_tools'] = y\n",
         ),
         ("ToukaProxy/src/tools/subagent_tools.py", "x = ctx.advertised_tools\n"),
+        (
+            "ToukaProxy/src/tools/subagent_tools.py",
+            "ctx.advertised_tools = a\n"
+            "x = ctx.get('advertised_tools')\n"
+            "y = ctx.get('advertised_tools')\n",
+        ),
     ],
     ids=[
         "subscript-write",
@@ -1923,6 +1929,7 @@ _ELSEWHERE = "ToukaProxy/src/services/elsewhere.py"
         "executor-writes",
         "layer-writes-twice",
         "subagent-reads",
+        "subagent-reads-twice",
     ],
 )
 def test_c3_scanner_catches_every_writer(rel, source):
