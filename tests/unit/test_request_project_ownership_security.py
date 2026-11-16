@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -29,7 +30,12 @@ from src.routers import proxy as proxy_router
 from src.services import handover_service as handover_module
 from src.services.authorization_gateway import require_authenticated
 from src.services.isolation import policy as isolation_policy
-from src.utils.async_db import PLACEHOLDER_PROJECT_ID, get_async_db, session_service
+from src.utils.async_db import (
+    PLACEHOLDER_PROJECT_ID,
+    get_async_db,
+    init_db_async,
+    session_service,
+)
 
 OWNER = AgentIdentity.for_role(agent_id="userA", role="Base", is_human=True, capabilities=[])
 OTHER = AgentIdentity.for_role(agent_id="userB", role="Base", is_human=True, capabilities=[])
@@ -286,7 +292,13 @@ async def test_handover_file_is_never_written_for_the_placeholder(
     assert opened == []
 
 
-async def test_clearing_my_data_keeps_everyones_home_sessions_bound() -> None:
+async def test_clearing_my_data_keeps_everyones_home_sessions_bound(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 用這條測試自己的資料庫，不在整場共用的沙盒資料庫留下列
+    db_path = tmp_path / "ownership.db"
+    monkeypatch.setattr("src.utils.async_db.get_db_path", lambda: db_path)
+    await init_db_async()
     # 搶建者清除自己的資料：只刪他的列，不解除所有人家對話的綁定（對話版本才不會變）
     async with get_async_db() as db:
         await db.execute(
