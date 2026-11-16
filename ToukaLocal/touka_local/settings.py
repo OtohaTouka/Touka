@@ -167,3 +167,48 @@ def load_mode_reset(file: Path) -> float | None:
 def save_mode_reset(file: Path, at: float) -> None:
     """記下重新計算的時間。"""
     durable_write_text(file, json.dumps({"reset_at": at}))
+
+
+class ModeSwitches:
+    """主視窗和服務共用的鑰匙、開關與重新計算時間。
+
+    啟動時讀一次，改的時候先往安全的那邊改、存好才換成新值：存不進去時鑰匙是沒有、
+    開關是關掉、重新計算維持原樣，存檔的錯誤照樣丟給主視窗顯示。
+    """
+
+    def __init__(self, folder: Path) -> None:
+        self._key_file = folder / DECISION_KEY_FILE
+        self._following_file = folder / MODE_FOLLOWING_FILE
+        self._reset_file = folder / MODE_RESET_FILE
+        self._key = load_decision_key(self._key_file)
+        self._following = load_mode_following(self._following_file)
+        self._reset_at = load_mode_reset(self._reset_file)
+
+    def key(self) -> bytes | None:
+        """配對時拿到的鑰匙。"""
+        return self._key
+
+    def following(self) -> bool:
+        """「照 Touka 的模式核准」有沒有打開。"""
+        return self._following
+
+    def reset_at(self) -> float | None:
+        """上次按「重新計算」的時間。"""
+        return self._reset_at
+
+    def set_key(self, key: bytes | None) -> None:
+        """換配對碼時呼叫；舊的配對碼沒有鑰匙，要把舊鑰匙刪掉。"""
+        self._key = None
+        save_decision_key(self._key_file, key)
+        self._key = key
+
+    def set_following(self, *, enabled: bool) -> None:
+        """主視窗的勾選框。"""
+        self._following = False
+        save_mode_following(self._following_file, enabled=enabled)
+        self._following = enabled
+
+    def reset_now(self, at: float) -> None:
+        """主視窗的「重新計算」：只影響最近一小時的總量。"""
+        save_mode_reset(self._reset_file, at)
+        self._reset_at = at

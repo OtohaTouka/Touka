@@ -45,12 +45,16 @@ class ModeBatch:
 
 @dataclass(frozen=True)
 class History:
-    """從紀錄整理出來的、底線要看的東西。``readable`` 是 False 時一律跳視窗。"""
+    """從紀錄整理出來的、底線要看的東西。``readable`` 是 False 時一律跳視窗。
+
+    ``unreadable`` 是讀不懂的紀錄檔，主視窗顯示給人看；整個紀錄資料夾讀不到時是空的。
+    """
 
     mode_batches: tuple[ModeBatch, ...] = ()
     vacated: tuple[tuple[str, ...], ...] = ()
     reset_at: float | None = None
     readable: bool = True
+    unreadable: tuple[str, ...] = ()
 
 
 def vacated_key(path: str) -> tuple[str, ...]:

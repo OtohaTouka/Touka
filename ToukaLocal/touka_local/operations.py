@@ -618,10 +618,10 @@ class Operations:
     def _all_journals(self) -> list[dict[str, Any]]:
         return self._scan_journals()[0]
 
-    def _scan_journals(self) -> tuple[list[dict[str, Any]], bool]:
-        """所有讀得懂的紀錄（新的在前），以及是不是每一份都讀得懂。"""
+    def _scan_journals(self) -> tuple[list[dict[str, Any]], list[str]]:
+        """所有讀得懂的紀錄（新的在前），以及讀不懂的紀錄檔。"""
         if not self._journal_dir.is_dir():
-            return [], True
+            return [], []
         # 當機在刪舊檔和改名之間時，只剩暫存檔
         batches = {
             path.name.split(".", 1)[0]
@@ -629,15 +629,16 @@ class Operations:
             if path.name.endswith((_JOURNAL_SUFFIX, f"{_JOURNAL_SUFFIX}{TEMPORARY_SUFFIX}"))
         }
         journals: list[dict[str, Any]] = []
-        readable = True
-        for batch in batches:
-            journal = self._read_journal(self._journal_path(batch))
+        unreadable: list[str] = []
+        for batch in sorted(batches):
+            path = self._journal_path(batch)
+            journal = self._read_journal(path)
             if journal is None:
-                readable = False
+                unreadable.append(str(path))
             else:
                 journals.append(journal)
         journals.sort(key=lambda journal: journal["sequence"], reverse=True)
-        return journals, readable
+        return journals, unreadable
 
     def history(self, now: float) -> History:
         """底線要看的紀錄：最近一小時照模式做掉的批、7 天內被清空的位置。
@@ -645,15 +646,16 @@ class Operations:
         時間在未來的紀錄也算（時鐘被往回調不能歸零）；讀不懂的紀錄讓底線一律跳視窗。
         """
         try:
-            journals, readable = self._scan_journals()
+            journals, unreadable = self._scan_journals()
         except OSError:
             return History(readable=False)
         batches: list[ModeBatch] = []
         vacated: list[tuple[str, ...]] = []
         for journal in journals:
             at = journal.get("created_at")
+            path = str(self._journal_path(journal["batch"]))
             if type(at) not in (int, float):
-                readable = False
+                unreadable.append(path)
                 continue
             entries = journal["entries"]
             if journal.get("by_mode") is True and at >= now - HOUR_SECONDS:
@@ -672,10 +674,15 @@ class Operations:
                     continue
                 source = entry.get("source")
                 if not isinstance(source, str):
-                    readable = False
+                    unreadable.append(path)
                 elif entry.get("status") in _VACATING_STATUSES:
                     vacated.append(vacated_key(source))
-        return History(mode_batches=tuple(batches), vacated=tuple(vacated), readable=readable)
+        return History(
+            mode_batches=tuple(batches),
+            vacated=tuple(vacated),
+            readable=not unreadable,
+            unreadable=tuple(dict.fromkeys(unreadable)),
+        )
 
     def _read_journal(self, path: Path) -> dict[str, Any] | None:
         try:

@@ -12,17 +12,21 @@ if sys.platform == "win32":
     import tkinter
 
     # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
-    from touka_local.app import ApprovalWindow, _setup_display
+    from touka_local.app import ApprovalWindow, MainWindow, _setup_display
 
+import base64
 from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
-from touka_local.approval import PendingApproval
+from touka_local import settings as settings_module
+from touka_local.approval import ApprovalGate, PendingApproval
 from touka_local.display import DisplayScale
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import ApplyLimits, Operations, Plan, PlanItem
+from touka_local.service import HelperService
+from touka_local.settings import ModeSwitches, Settings, load_settings
 from touka_local.winapi import acquire_single_instance, drive_type
 
 if TYPE_CHECKING:
@@ -281,3 +285,153 @@ class _BrokenRoot:
 
 def test_display_setup_failure_keeps_the_default_sizes() -> None:
     assert _setup_display(_BrokenRoot()) == DisplayScale()  # type: ignore[arg-type]
+
+
+def _pending(reason: str = "") -> PendingApproval:
+    item = PlanItem(
+        op="delete",
+        source_text="Open/a.txt",
+        destination_text=None,
+        source_full="D:\\Open\\a.txt",
+        destination_full=None,
+        size=1,
+        is_folder=False,
+        contained=0,
+        unusual=(),
+        mtime_ns=1,
+        snapshot=(),
+    )
+    return PendingApproval(
+        job_id="j",
+        plan=Plan(items=(item,), reason="r", digest="d" * 64),
+        requester="",
+        offered_at=0.0,
+        deadline=1.0,
+        reason=reason,
+    )
+
+
+@pytest.mark.parametrize(("reason", "shown"), [("marked", True), ("no_decision", False)])
+def test_approval_window_says_which_floor_opened_it(reason: str, *, shown: bool) -> None:
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        window = ApprovalWindow(
+            root,
+            _pending(reason),
+            on_approve=lambda: None,
+            on_reject=lambda: None,
+            display=DisplayScale(),
+        )
+        assert (window._floor is not None) is shown
+    finally:
+        root.destroy()
+
+
+@pytest.fixture
+def main_window(real, tmp_path: Path):
+    operations, book, _open_dir, _trash = real
+    switches = ModeSwitches(tmp_path / "helper")
+    gate = ApprovalGate(clock=lambda: 0.0)
+    service = HelperService(
+        client=None,
+        operations=operations,
+        gate=gate,
+        grants=book,
+        clock=lambda: 0.0,
+        spawn=lambda work: work(),
+        decision_key=switches.key,
+        following=switches.following,
+        mode_reset=switches.reset_at,
+    )
+    root = tkinter.Tk()
+    root.withdraw()
+    window = MainWindow(
+        root,
+        service=service,
+        gate=gate,
+        grants=book,
+        operations=operations,
+        settings=Settings(port=8000, token=None, touka_folder="Z:\\NoTouka"),
+        settings_file=tmp_path / "helper" / "settings.json",
+        display=DisplayScale(),
+        switches=switches,
+    )
+    try:
+        yield window, switches, tmp_path / "helper"
+    finally:
+        root.destroy()
+
+
+def test_the_switch_is_saved_when_ticked(main_window) -> None:
+    window, switches, helper = main_window
+    window._following.set(True)
+    window._toggle_following()
+    assert switches.following() is True
+    assert settings_module.load_mode_following(helper / settings_module.MODE_FOLLOWING_FILE)
+    window._following.set(False)
+    window._toggle_following()
+    assert switches.following() is False
+
+
+def test_a_switch_that_cannot_be_saved_shows_as_off(main_window, monkeypatch) -> None:
+    window, switches, _helper = main_window
+
+    def broken(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(settings_module, "save_mode_following", broken)
+    window._following.set(True)
+    window._toggle_following()
+    assert window._following.get() is False
+    assert switches.following() is False
+
+
+def test_a_new_pairing_code_stores_the_key_and_an_old_one_removes_it(main_window) -> None:
+    window, switches, helper = main_window
+    key = bytes(range(32))
+    token = "t" * 43
+    window._code.set(f"{token}.{base64.urlsafe_b64encode(key).decode().rstrip('=')}")
+    window._save_pairing()
+    assert switches.key() == key
+    assert load_settings(helper / "settings.json").token == token
+    assert "重新產生配對碼" not in window._notice.cget("text")
+    window._code.set("u" * 43)
+    window._save_pairing()
+    assert switches.key() is None
+    assert settings_module.load_decision_key(helper / settings_module.DECISION_KEY_FILE) is None
+    assert "重新產生配對碼" in window._notice.cget("text")
+    window._refresh_mode_hint()
+    assert "重新產生配對碼" in window._mode_hint.cget("text")
+
+
+def test_changing_only_the_port_keeps_the_key(main_window) -> None:
+    window, switches, _helper = main_window
+    key = bytes(range(32))
+    window._code.set(f"{'t' * 43}.{base64.urlsafe_b64encode(key).decode().rstrip('=')}")
+    window._save_pairing()
+    window._port.set("8123")
+    window._save_pairing()
+    assert switches.key() == key
+
+
+def test_recalculating_needs_a_second_yes(main_window, monkeypatch) -> None:
+    window, switches, _helper = main_window
+    answers = iter([False, True])
+    monkeypatch.setattr(
+        "touka_local.app.messagebox.askokcancel", lambda *_args, **_kwargs: next(answers)
+    )
+    window._reset_hourly()
+    assert switches.reset_at() is None
+    window._reset_hourly()
+    assert switches.reset_at() is not None
+
+
+def test_unreadable_records_are_named_in_the_main_window(main_window, tmp_path: Path) -> None:
+    window, _switches, _helper = main_window
+    folder = tmp_path / "journal"
+    folder.mkdir(exist_ok=True)
+    broken = folder / f"{'a' * 32}.json"
+    broken.write_text("{not json", encoding="utf-8")
+    window._refresh_mode_hint()
+    assert str(broken) in window._mode_hint.cget("text")

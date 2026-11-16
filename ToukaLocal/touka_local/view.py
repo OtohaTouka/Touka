@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
+from touka_local import floors
 from touka_local.paths import is_hidden_character, is_misleading_character
 
 _VISIBLE_MARK: Final = "⍰"
@@ -59,6 +60,11 @@ _REFUSALS: Final = {
     "changed": "檔案有變動，請重新提出",
     "no_pending": "這份清單已經不在等待中",
     "busy": "正在執行另一批，請等它做完",
+    "not_supported": "這個版本的小幫手還不會做這件事",
+    "recently_vacated": (
+        "這個位置 7 天內有東西被搬走或刪掉，為了避免悄悄換掉內容，請自己在電腦上建立，或換一個名稱"
+    ),
+    "journal_unreadable": "小幫手有紀錄檔讀不懂，請看主視窗的說明",
 }
 _REFUSAL_FALLBACK: Final = "這個動作沒有完成"
 _JOURNAL_WARNING: Final = "。這批的紀錄沒有寫完整，有些搬移可能無法復原"
@@ -226,3 +232,56 @@ def connection_text(state: str) -> str:
 def refusal_text(code: str) -> str:
     """把拒絕代碼換成給人看的話。"""
     return _REFUSALS.get(code, _REFUSAL_FALLBACK)
+
+
+# --- 照 Touka 的模式核准（ADR-0317） ---
+
+_VACATED_DAYS: Final = int(floors.VACATED_SECONDS // 86400)
+_WINDOW_REASONS: Final = {
+    floors.REASON_JOURNAL_UNREADABLE: "小幫手有紀錄檔讀不懂（主視窗有寫是哪個檔）",
+    floors.REASON_TOO_MANY_ITEMS: f"一次超過 {floors.MAX_MODE_ITEMS} 項",
+    floors.REASON_TOO_MANY_ENTRIES: f"碰到的檔案和資料夾超過 {floors.MAX_MODE_ENTRIES} 個",
+    floors.REASON_MARKED: "裡面有金鑰或密碼檔、可執行檔，或項目很多的資料夾",
+    floors.REASON_HOURLY_LIMIT: (
+        f"最近一小時照模式做的已經到上限（{floors.HOURLY_MODE_BATCHES} 份、"
+        f"{floors.HOURLY_MODE_ITEMS} 項或 {floors.HOURLY_MODE_ENTRIES} 個檔案和資料夾）；"
+        "如果那些都是你知道的，可以在主視窗按「重新計算」"
+    ),
+    floors.REASON_CROSS_FOLDER: "有搬移跨了兩個開放的資料夾",
+    floors.REASON_RECENTLY_VACATED: f"有搬移的目的地 {_VACATED_DAYS} 天內有東西被搬走或刪掉",
+}
+_ORDINARY_WINDOW: Final = frozenset({"", floors.REASON_NO_DECISION, floors.REASON_NOT_FOLLOWING})
+_WINDOW_REASON_FALLBACK: Final = "碰到小幫手的底線"
+_OLD_PAIRING: Final = (
+    "這是舊的配對碼，照 Touka 的模式核准不會生效，每份清單都要在這裡按。"
+    "要用的話，請在 Touka 的設定頁重新產生配對碼，貼到上面。"
+)
+_UNREADABLE_SHOWN: Final = 3
+_UNREADABLE_EFFECT: Final = "在那之前，每份清單都會跳視窗，也不能新建檔案或資料夾。"
+
+
+def window_reason_text(reason: str) -> str | None:
+    """本來照 Touka 的模式就好、卻碰到底線時，告訴人為什麼要在這裡按。"""
+    if reason in _ORDINARY_WINDOW:
+        return None
+    why = _WINDOW_REASONS.get(reason, _WINDOW_REASON_FALLBACK)
+    return f"這份清單本來會照 Touka 的模式處理，但{why}，所以要你在這裡決定。"
+
+
+def mode_status_text(*, paired: bool, has_key: bool) -> str | None:
+    """主視窗常駐的提示：配對碼是舊的時候才有。"""
+    return _OLD_PAIRING if paired and not has_key else None
+
+
+def pairing_saved_text(*, has_key: bool) -> str:
+    """存了新的配對碼之後。"""
+    return "已儲存。" if has_key else f"已儲存。{_OLD_PAIRING}"
+
+
+def unreadable_records_text(files: tuple[str, ...]) -> str:
+    """紀錄讀不懂時，告訴人是哪個檔、要怎麼處理；整個資料夾讀不到時 ``files`` 是空的。"""
+    if not files:
+        return f"小幫手的紀錄資料夾讀不到。{_UNREADABLE_EFFECT}"
+    shown = "、".join(display_safe(file) for file in files[:_UNREADABLE_SHOWN])
+    more = f" 等 {len(files)} 個檔" if len(files) > _UNREADABLE_SHOWN else ""
+    return f"小幫手有紀錄檔讀不懂：{shown}{more}。請把它移到別的資料夾；{_UNREADABLE_EFFECT}"

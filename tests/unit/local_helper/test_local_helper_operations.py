@@ -1363,7 +1363,10 @@ def test_an_unreadable_record_blocks_creating_and_mode_decisions(
     folder = tmp_path / "journal"
     folder.mkdir()
     (folder / f"{'a' * 32}.json").write_text("{not json", encoding="utf-8")
-    assert timed_ops.history(wall.now).readable is False
+    history = timed_ops.history(wall.now)
+    assert history.readable is False
+    # 主視窗要告訴人是哪個檔，讓人移到旁邊
+    assert history.unreadable == (str(folder / f"{'a' * 32}.json"),)
     assert _code(timed_ops.create_file, {"path": "Open/n.txt", "content": "x"}) == (
         "journal_unreadable"
     )
@@ -1381,7 +1384,21 @@ def test_a_move_whose_source_is_not_text_makes_the_records_unreadable(
         "entries": [{"op": "delete", "source": 7, "status": "done"}],
     }
     (folder / f"{'a' * 32}.json").write_text(json.dumps(record), encoding="utf-8")
-    assert timed_ops.history(wall.now).readable is False
+    history = timed_ops.history(wall.now)
+    assert history.readable is False
+    assert history.unreadable == (str(folder / f"{'a' * 32}.json"),)
+
+
+def test_a_record_folder_that_cannot_be_listed_is_unreadable(
+    timed_ops: Operations, wall: _Wall, monkeypatch
+) -> None:
+    def broken() -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(timed_ops, "_scan_journals", broken)
+    history = timed_ops.history(wall.now)
+    assert history.readable is False
+    assert history.unreadable == ()
 
 
 def test_future_records_still_count(fs, timed_ops: Operations, clock, wall: _Wall) -> None:
