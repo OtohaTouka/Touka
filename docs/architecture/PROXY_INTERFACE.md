@@ -9,6 +9,12 @@
 - 沒人在場被擋時（需要核准但沒有通道、只有人能核准、Auto 轉人、心跳危險指令沒有 ToukaUI），結構化錯誤的 `suggestion` 改成依情境：子代理寫進回報交給主代理，其他沒人在場寫進回覆或看板，有人在場（YOLO 串接指令）請使用者決定。`error_class`、`reason` 與拒絕本身不變。
 - 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
 
+## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
+
+- `/messages`、`/chat/completions`（含 `/v1`）的 `project_id`：呼叫者看得到（專案主人、管理員或除錯身分；沒主人的舊專案看對話歸屬）才帶專案說明；看不到、不存在或核對出錯，這次不帶，對話照常、不回錯誤。`X-Agent-ID` 代打時照靈魂身分判斷（非管理員代打會拿掉自己的專案，管理員代打照舊）。
+- 佔位編號 `default`（心跳建家綁的）不是專案：聊天請求不帶、檔案工具不用；`POST /v1/ui/projects/save`、`DELETE /v1/ui/projects/default` 回 403（`AUTH_PERMISSION_DENIED`，含管理員）。
+- 回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+
 ## 本機小幫手（2026-11-10，ADR-0312）
 
 - 人類管理員用（admin 代打不算）：`POST /v1/local-bridge/pairing` 產生或換新配對碼，明文只回一次；`DELETE /v1/local-bridge/pairing` 解除；`GET /v1/local-bridge/status` 看狀態。寫入另查 CSRF Origin。

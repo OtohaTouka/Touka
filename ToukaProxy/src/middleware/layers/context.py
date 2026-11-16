@@ -126,9 +126,9 @@ class ContextLayer(ProxyLayer):
                     self._append_context(msg, context_note)
                     break
 
-        # 3. 專案上下文注入
+        # 3. 專案上下文注入：只帶聊天端點核對過、請求的人看得到的專案（ADR-0304 2026-11-16 補記）
         project_id = getattr(request, "project_id", None)
-        if project_id:
+        if project_id and ctx.get("project_authorized"):
             project_ctx = await get_project_context(project_id)
             if project_ctx:
                 logger.info(f"🚀 Injecting project context for project_id={project_id}")

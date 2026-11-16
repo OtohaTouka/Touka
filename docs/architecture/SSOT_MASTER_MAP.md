@@ -9,6 +9,13 @@
 | 模式、在場與核准的說法 | `prompt_blocks.build_approval_context`（區塊 `APPROVAL_CONTEXT`） | ToolLayer（有列工具就注入） |
 | 沒人在場時需要核准的動作交給誰、被擋後的建議 | `utils/presence.py` `no_human_followup`、`blocked_call_suggestion` | `<approval_context>`、`ToolExecutor`、`approval_flow`、`tools/terminal.py` |
 
+## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
+
+| 事實 | 唯一來源 | 使用者 |
+|---|---|---|
+| 心跳建家的佔位專案編號（不是專案） | `ToukaProxy/src/utils/async_db.py` `PLACEHOLDER_PROJECT_ID` | `routers/heartbeat.py`（寫入）、`routers/proxy.py`、`isolation/policy.session_project_id`、`routers/ui_sessions.py`（存、刪） |
+| 聊天請求帶的專案能不能用 | `routers/proxy._authorize_request_project`（規則沿用 `ui_sessions._can_access_project`），結果寫 `PipelineContext.project_authorized` | ContextLayer（只認這個標記注入 `<project_context>`） |
+
 ## 模型輸出的外部資源不自動載入、本機連線資訊只給自己（2026-10-30，ADR-0294）
 
 - Markdown 圖片載不載入：ToukaChat `src/lib/markdownImagePolicy.ts` 的 `decideMarkdownImage`（純函式，解析後比來源；後端來源由呼叫端傳 `getActiveProxyUrl()`）。

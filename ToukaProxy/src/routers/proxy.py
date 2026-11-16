@@ -12,12 +12,12 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.models.session_persistence import FailedResult
 from src.routers.models import list_all_models
-from src.routers.ui_sessions import _can_access_session
+from src.routers.ui_sessions import _can_access_project, _can_access_session
 from src.services.authorization_gateway import require_authenticated
 from src.services.completion import PURPOSE_INLINE_COMPLETION, thinking_profile_for
 from src.services.model_manager import model_manager
 from src.services.proxy_service import process_proxy_request
-from src.utils.async_db import SessionPersistenceError, session_service
+from src.utils.async_db import PLACEHOLDER_PROJECT_ID, SessionPersistenceError, session_service
 from src.utils.auth_mode import request_is_incognito
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,36 @@ def _apply_chat_request_context(
     ctx["mcp_dispatcher"] = request.mcp_dispatcher
 
 
+async def _authorize_request_project(
+    request: OpenAIChatRequest | AnthropicRequest,
+    ctx: PipelineContext,
+    identity: AgentIdentity,
+) -> None:
+    """請求帶的專案要請求的人看得到才留下（ADR-0304 2026-11-16 補記）。
+
+    在流程換成靈魂身分之前判斷。看不到、專案不存在、核對出錯都只是這次不帶專案說明，
+    不回錯誤（網頁送的是對話綁定的專案，綁定時已檢查過）。佔位編號一律當沒有專案。
+    """
+    project_id = request.project_id
+    if not project_id:
+        return
+    if project_id == PLACEHOLDER_PROJECT_ID:
+        request.project_id = None
+        return
+    try:
+        readable = await _can_access_project(identity, project_id)
+    except Exception:
+        # 系統失效：留下紀錄，往安全的方向錯（這次不帶專案說明）
+        logger.exception("Request project check failed for %s; dropping it", identity.agent_id)
+        request.project_id = None
+        return
+    if readable:
+        ctx["project_authorized"] = True
+        return
+    logger.warning("Dropped a request project %s cannot read", identity.agent_id)
+    request.project_id = None
+
+
 async def _authorize_ui_persistence(
     request: OpenAIChatRequest | AnthropicRequest,
     ctx: PipelineContext,
@@ -130,6 +160,7 @@ async def proxy_anthropic_messages(
     ctx_dict = fast_request.app.state.context.copy()
     ctx = PipelineContext(**ctx_dict)
     _apply_chat_request_context(ctx, request, fast_request, identity)
+    await _authorize_request_project(request, ctx, identity)
 
     await _authorize_ui_persistence(request, ctx, identity)
     response = await process_proxy_request(request, ctx, is_anthropic=True)
@@ -154,6 +185,7 @@ async def proxy_chat_completions(
     ctx_dict = fast_request.app.state.context.copy()
     ctx = PipelineContext(**ctx_dict)
     _apply_chat_request_context(ctx, request, fast_request, identity)
+    await _authorize_request_project(request, ctx, identity)
     await _authorize_ui_persistence(request, ctx, identity)
     return await process_proxy_request(request, ctx, is_anthropic=False)
 

@@ -177,7 +177,8 @@ async def test_project_name_cannot_close_the_project_block(
     request = _openai()
     request.project_id = "p1"
 
-    await ContextLayer().process(request, PipelineContext())
+    # router 核對過請求的人看得到這個專案才會標記（ADR-0304 2026-11-16 補記）
+    await ContextLayer().process(request, PipelineContext(project_authorized=True))
 
     text = _openai_system(request)
     assert text.count(f"</{PROJECT_CONTEXT}>") == 1
