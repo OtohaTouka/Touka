@@ -92,7 +92,7 @@ BLOCK_META: dict[str, dict[str, str]] = {
         "layer": "ToolLayer",
         "source": "MissionManager.get_current_mission (DB)",
         "kind": "real",
-        "mock": "### 目前任務狀態 … ✅/⏳/⬜ 各任務",
+        "mock": "### 目前任務狀態 … ⬜/⏳/✅/⛔/❌ 各任務",
     },
     CAPABILITIES: {
         "name": "Technical Capabilities",

@@ -8,6 +8,7 @@
 - 新區塊 `<approval_context>`：這一輪有列工具就由 ToolLayer 注入，寫模式、有沒有人在場、需要核准的動作會怎樣（模式照 `normalize_auth_mode`；YOLO 另寫串接指令不會自動跑）。同一段對話裡不變，歸 `STABLE_SYSTEM_TAGS`（歸會變組會讓 Claude 多切一個快取斷點）。`<validation_protocol>` 不再寫模式，只留自我驗證的規矩；`<harness_context>` 的 "Tools and approval" 指向新區塊，`send_message` 寫成 Discord／Telegram 通知。
 - 沒人在場被擋時（需要核准但沒有通道、只有人能核准、Auto 轉人、心跳危險指令沒有 ToukaUI），結構化錯誤的 `suggestion` 改成依情境：子代理寫進回報交給主代理，其他沒人在場寫進回覆或看板，有人在場（YOLO 串接指令）請使用者決定。`error_class`、`reason` 與拒絕本身不變。
 - 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+- PR 2：`dispatch_subagent` 在這一輪沒列 `mission_tools` 時等子代理做完才回，回覆帶 `result`（和 group 的每項同形）與 `dispatch_mode="in-process-sync"`、沒有 `callback_token`；有列或沒有工具清單時照舊回憑證。`await_dispatch_result` 的逾時與憑證不明訊息改寫（寫明停止條件）；看板每格多 `[狀態]`，`<mission_awareness>` 卡住或失敗的附原因。
 
 ## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
 

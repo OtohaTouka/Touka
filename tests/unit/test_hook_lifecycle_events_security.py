@@ -663,8 +663,10 @@ async def test_subagent_start_context_only_reaches_the_first_prompt_as_data(monk
 
 async def test_no_subagent_start_hook_keeps_the_prompt_unchanged(monkeypatch, hooks):
     request, _pipeline = await _assemble(monkeypatch)
+    # 派工情境是系統寫的（ADR-0316 PR 2 補記），不是 hook 的補充說明
+    situation = subagent_tools._dispatch_situation(dict(_BASE_CTX), "unknown")
     assert request.messages[0].content == subagent_tools._subagent_user_prompt(
-        "secret goal text"
+        "secret goal text", situation=situation
     )
 
 
