@@ -20,6 +20,13 @@ SUBAGENT_GROUP_CONCURRENCY = 4
 # 子代理跑多久就中止（subagent_tools 執行、mission_tools 的等候說明都讀這裡；放在合約檔，
 # 避免 mission_tools 匯入 subagent_tools 造成啟動時循環匯入）
 SUBAGENT_TIMEOUT_SECONDS = 600.0
+
+
+def limit_minutes(seconds: float) -> int:
+    """時限換成說明文字用的整數分鐘（至少 1；ADR-0318）。"""
+    return max(1, int(seconds // 60))
+
+
 # 外部 AI 派工（DispatchAgent）目前沒有接通（ADR-0316 PR 2 補記）
 EXTERNAL_DISPATCH_NOTE = (
     "外部 AI 派工（DispatchAgent）目前沒有接通，設了也不會有外部 AI 開工；"

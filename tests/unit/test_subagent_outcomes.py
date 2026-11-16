@@ -40,6 +40,8 @@ from tests.proxy.characterization.harness import (
 
 _GUARD_S = 10.0  # 測試護欄：生產碼的時限都遠小於它
 _VENDOR_TEXT = "VENDOR-SAYS-QUOTA-GONE"
+# 要先收到第一段文字才逾時：時限也包住組裝，留點餘裕給慢的機器
+_PARTIAL_LIMIT_S = 0.5
 _SOUL = AgentIdentity.for_role("Sumi", "Owner", capabilities=["*"])
 # 網頁、心跳、IDE 三種主代理的 ctx 標記
 _PARENTS = {
@@ -171,10 +173,13 @@ async def test_a_subagent_model_error_keeps_what_it_wrote_before(monkeypatch, fa
         return _gen()
 
     monkeypatch.setattr(st, "get_stream_generator", _factory)
+    stop = MagicMock()
+    monkeypatch.setattr(st, "notify_subagent_stop", stop)
     result = await _one_result({})
     assert result["status"] == "FAILED"
     assert "模型錯誤（overloaded）" in result["result_summary"]
     assert "讀完 a.py 了。" in result["result_summary"]
+    assert stop.call_args.args[2] == "讀完 a.py 了。"  # SubagentStop 也拿到已做到的部分
 
 
 def test_the_subagent_does_not_inherit_the_parents_failure_or_ui_flags():
@@ -207,7 +212,7 @@ def _hanging_after_text(text: str):
 
 async def test_a_timeout_hands_back_the_partial_text(monkeypatch, fake_assemble):
     monkeypatch.setattr(st, "get_stream_generator", _hanging_after_text("已讀完 a.py，"))
-    monkeypatch.setattr(st, "_SUB_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(st, "_SUB_TIMEOUT_SECONDS", _PARTIAL_LIMIT_S)
     stop = MagicMock()
     monkeypatch.setattr(st, "notify_subagent_stop", stop)
 
@@ -225,11 +230,39 @@ async def test_a_timed_out_subagent_result_says_timeout_and_keeps_the_partial(
     monkeypatch, fake_assemble
 ):
     monkeypatch.setattr(st, "get_stream_generator", _hanging_after_text("已讀完 a.py，"))
-    monkeypatch.setattr(st, "_SUB_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(st, "_SUB_TIMEOUT_SECONDS", _PARTIAL_LIMIT_S)
     result = await _one_result({})
     assert result["status"] == "FAILED"
     assert "逾時" in result["result_summary"]
     assert "已讀完 a.py，" in result["result_summary"]
+
+
+async def test_stopping_from_outside_is_a_cancel_not_a_timeout(monkeypatch, fake_assemble):
+    """外層取消（使用者停止、父 task 被取消）照樣往外傳、不算逾時；SubagentStop 拿到空字串。"""
+    started = asyncio.Event()
+
+    async def _factory(*_a: Any, **_kw: Any):
+        async def _gen():
+            yield _text_chunk("寫了一半")
+            started.set()
+            await asyncio.sleep(3600)
+
+        return _gen()
+
+    monkeypatch.setattr(st, "get_stream_generator", _factory)
+    stop = MagicMock()
+    monkeypatch.setattr(st, "notify_subagent_stop", stop)
+    task = asyncio.create_task(
+        st._run_subagent(
+            goal="g", parent_identity=_SOUL, parent_request_id="r", base_ctx={}, model=None
+        )
+    )
+    async with asyncio.timeout(_GUARD_S):
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert stop.call_args.args[2] == ""
 
 
 async def test_the_time_limit_covers_the_start_hook_and_assembly(monkeypatch):

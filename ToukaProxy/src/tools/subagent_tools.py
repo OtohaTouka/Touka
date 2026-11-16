@@ -54,6 +54,7 @@ from src.tools.contracts import (
     MAX_SUBAGENT_GROUP,
     SUBAGENT_GROUP_CONCURRENCY,
     SUBAGENT_TIMEOUT_SECONDS,
+    limit_minutes,
 )
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
@@ -150,7 +151,7 @@ class SubagentModelError(Exception):
 
 
 def _limit_minutes() -> int:
-    return max(1, int(_SUB_TIMEOUT_SECONDS // 60))
+    return limit_minutes(_SUB_TIMEOUT_SECONDS)
 
 
 def _dispatch_situation(base_ctx: Any, parent_label: str) -> str:

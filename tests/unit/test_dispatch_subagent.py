@@ -473,9 +473,9 @@ async def test_executor_injects_ctx_into_call_kwargs():
 
 
 # --------------------------------------------------------------------------- #
-# 批⑤-D E74（ADR-0134）：子 loop 600s 硬上限——wait_for 真的包住 drain
-# 既有測試 fake stream 立即 [DONE]／monkeypatch _run_subagent＝逾時包裹從不真跑；
-# 唯一直呼 _drain_text 者繞過 wait_for。刪逾時＝背景 Task 洩漏至進程重啟。
+# 批⑤-D E74（ADR-0134）：子代理 600s 硬上限——ADR-0318 起 asyncio.timeout 包住整個
+# _run_subagent（hook、組裝、模型）。既有測試 fake stream 立即 [DONE]／monkeypatch
+# _run_subagent＝時限從不真跑；刪時限＝背景 Task 洩漏至進程重啟。
 # --------------------------------------------------------------------------- #
 
 
@@ -516,7 +516,7 @@ async def test_run_subagent_enforces_hard_timeout(monkeypatch):
     """永不完成的 stream＋極小 _SUB_TIMEOUT → _run_subagent 迅速拋 TimeoutError。
 
     外層 wait_for(3s) 是**測試護欄**（防變異後永掛），時長斷言負責判別：生產逾時
-    0.05s 內就炸；變異 :206 拆掉 asyncio.wait_for → 只剩護欄 3s 才炸 → 時長紅。
+    0.05s 內就炸；拆掉 _run_subagent 的 asyncio.timeout → 只剩護欄 3s 才炸 → 時長紅。
     """
     _patch_hanging_subagent(monkeypatch)
     t0 = get_current_epoch()

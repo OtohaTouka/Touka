@@ -4,7 +4,7 @@
 - 日期：2026-11-16
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（in-process 子代理）、[ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（回報塊）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（第一批：派工情境、同步派工）、[ADR-0248](0248-model-layer-stage-3b.md)（主迴圈的失敗與重試）
-- 修訂：[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`）
+- 修訂：[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`）
 - 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`
 
 ## 背景
@@ -27,10 +27,12 @@
 
 ### 2. 逾時交回已經做到的部分
 
-- 時限（`SUBAGENT_TIMEOUT_SECONDS`）包住整個子代理：SubagentStart hook、組裝、模型都算在內。
+- 時限（`SUBAGENT_TIMEOUT_SECONDS`）包住整個子代理：SubagentStart hook、組裝、模型都算在內（修訂 ADR-0134 決定 4 的「子 loop 硬上限 `asyncio.wait_for`」）。
 - 逾時時丟 `SubagentTimeoutError`（`TimeoutError` 的子類別），帶著已經收到的文字；結果是 FAILED，寫「逾時：超過約 N 分鐘沒做完，已中止」，接著「已做到的部分（沒做完，可能不完整）」。
 - 只有時限本身到了才算子代理逾時；子代理裡別的 `TimeoutError` 照原樣往外，不說成逾時。
 - 子代理的串流用 `contextlib.aclosing` 收掉。
+- 外層取消（使用者停止、父 task 被取消）照樣是取消，不算逾時；SubagentStop 拿到空字串。
+- 失敗的結果（逾時、模型錯誤）只有 `task_id`、`status`、`result_summary`：已做到的部分去掉回報塊後放進 summary，回報塊裡的 `claims`、`artifact_refs`、`report_status` 不帶（沒做完的自評不能當真）。
 - SubagentStop hook 的 `last_assistant_message`：逾時或模型失敗時是已做到的部分，其他失敗仍是空字串（修訂 ADR-0292 決定 17 的「失敗時是空字串」）。
 
 ### 3. 保留結論
@@ -45,6 +47,7 @@
 
 ## 不做
 
+- 逾時後子代理已經開出的工具（例如終端指令）照樣跑完，「已中止」只指子代理本身；PR 2 讓它們跟著停。
 - 停止、等結果的憑證、上一輪的標記、核准的說法：PR 2～4。
 - 真模型評估（`tests/tool_eval/live_episode.py` 也用 `parse_subagent_report`）不動，禁令 61。
 

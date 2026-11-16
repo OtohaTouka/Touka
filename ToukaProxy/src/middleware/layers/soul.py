@@ -96,8 +96,8 @@ class SoulLayer(ProxyLayer):
     def _sends_own_history(request: Any, ctx: PipelineContext) -> bool:
         """網頁版一般聊天：送的是這個對話自己的完整紀錄（前端存檔時持有整棵樹、revision 已核對）。
 
-        在家對話本身就不再插一份家對話。只看 ctx 旗標不夠：子代理會繼承父 ctx 的
-        ``ui_authorized``；SNS、IDE 只送最新一句，沒有存檔核准欄位。
+        在家對話本身就不再插一份家對話。只看 ctx 旗標不夠：子代理的 ctx 從父 ctx 複製來
+        （``ui_authorized`` 在派工時重設，ADR-0318）；SNS、IDE 只送最新一句，沒有存檔核准欄位。
         """
         admission = getattr(request, "ui_persistence", None)
         return (
