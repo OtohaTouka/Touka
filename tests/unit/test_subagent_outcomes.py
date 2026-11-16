@@ -238,7 +238,7 @@ async def test_a_timed_out_subagent_result_says_timeout_and_keeps_the_partial(
 
 
 async def test_stopping_from_outside_is_a_cancel_not_a_timeout(monkeypatch, fake_assemble):
-    """外層取消（使用者停止、父 task 被取消）照樣往外傳、不算逾時；SubagentStop 拿到空字串。"""
+    """外層取消（PR 2 的停止、行程關閉等）照樣往外傳、不算逾時；SubagentStop 拿到空字串。"""
     started = asyncio.Event()
 
     async def _factory(*_a: Any, **_kw: Any):
