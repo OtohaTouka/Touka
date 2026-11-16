@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
@@ -157,6 +157,28 @@ def test_awaken_without_brain_or_override_is_409(auth_client: TestClient, awaken
     resp = _awaken(auth_client)
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "AGENT_BRAIN_NOT_SET"
+    awaken.assert_not_called()
+
+
+def test_awaken_refusals_are_recorded(
+    auth_client: TestClient, awaken: AsyncMock, monkeypatch: pytest.MonkeyPatch
+):
+    """沒設大腦、擁有者登入過期：在入口被擋時記一筆，下一次心跳看得到（ADR-0318 PR 3）。"""
+    skipped = Mock()
+    monkeypatch.setattr(heartbeat, "record_heartbeat_skipped", skipped)
+    _awaken(auth_client)
+    (identity, reason), kwargs = skipped.call_args
+    assert (identity.agent_id, reason) == ("HbNoBrain", "no_brain")
+    assert kwargs["session_id"]
+    expired = User(id="o", email="o@test.com", hashed_password="...",
+                   owned_agents=["HbNoBrain"], refresh_token_exp=1)
+    monkeypatch.setattr(AuthService, "get_all_users", lambda _self: [expired])
+    skipped.reset_mock()
+    assert _awaken(auth_client, model_override="claude-x").status_code >= 400
+    (identity, reason), kwargs = skipped.call_args
+    assert (identity.agent_id, reason, kwargs["session_id"]) == (
+        "HbNoBrain", "owner_login_expired", None
+    )
     awaken.assert_not_called()
 
 

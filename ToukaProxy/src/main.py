@@ -111,7 +111,11 @@ from .services.autonomy import autonomy_service
 from .services.backup_scheduler_service import backup_scheduler
 from .services.bot_service import bot_service
 from .services.completion import complete_once
-from .services.continuity_events import start_recording, stop_recording
+from .services.continuity_events import (
+    record_crashed_heartbeats,
+    start_recording,
+    stop_recording,
+)
 from .services.creation.evaluation import eval_runner
 from .services.creation.model_judge import ModelJudge, resolve_judge_model
 from .services.dispatch_supervisor import DispatchSupervisor
@@ -550,9 +554,12 @@ async def _lifespan_runtime(
 
     # P5c：當機復原可見化 — 掃描上次未跑完的背景心跳迴圈（偵測＋清 stale），供 /stats 顯示
     try:
-        autonomy_service.scan_and_clear_interrupted()
+        interrupted = autonomy_service.scan_and_clear_interrupted()
     except Exception:
         logger.exception("[Startup] 未完成背景任務掃描失敗")
+        interrupted = []
+    # 掃到的各記一筆 crashed 結束，下一次心跳看得到（ADR-0318）；不會丟例外
+    await record_crashed_heartbeats(interrupted, identity_service.get_identity)
 
     # ADR-0082：dispatch 併入 proxy 容器——supervisor spawn/監督 localhost 子程序。
     # 預設關閉（settings.DISPATCH_AUTOSPAWN）；compose 於 proxy 服務顯式開啟。

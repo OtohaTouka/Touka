@@ -31,7 +31,7 @@
 
 ## 活動紀錄與時間感（記憶系統第二批段 4，ADR-0267）
 
-- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`）；只記靈魂，DebugAgent 的心跳不記。滑動視窗的 finally 觸發點與順序不變。
+- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`；`model_error` 另記 `error` 種類，只用 `retry.KNOWN_ERROR_TYPES`）；只記靈魂，DebugAgent 的心跳不記。Proxy 啟動時掃到的 in-flight 標記各記一筆結束原因 `crashed`（帶 `started_ms`，和正常結束同一個鍵、可信紀錄起點以前的不記）；`/awaken` 因沒設大腦或擁有者登入過期被擋時記 `heartbeat_skipped`（`reason` 只有 `no_brain`、`owner_login_expired`，同一原因連續被擋只記第一次）；`<continuity>` 的自主執行那一行看最新一筆（ADR-0318）。滑動視窗的 finally 觸發點與順序不變。
 - 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。在家時另帶還沒交接完的舊家原文（ADR-0306）。

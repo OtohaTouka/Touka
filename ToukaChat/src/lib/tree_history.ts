@@ -114,8 +114,10 @@ export interface MessageNode {
   interjections?: Interjection[];
   /** ADR-0249 第 4b 段：這一回合被 Ctrl+Enter 打斷的那幾輪（第 N 步）。 */
   interruptions?: RoundInterruption[];
-  /** ADR-0292：串流以錯誤結束；只用來顯示，組歷史時不送給模型（後端原樣收存）。 */
+  /** ADR-0292：串流以錯誤結束；畫面標「這一輪回覆失敗」，組歷史時加記號（ADR-0318；後端原樣收存）。 */
   generationFailed?: boolean;
+  /** ADR-0318：使用者停止了這一輪；畫面不變，組歷史時加記號（後端原樣收存）。 */
+  generationStopped?: boolean;
 }
 
 export interface TreeHistory {

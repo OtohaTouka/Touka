@@ -584,6 +584,50 @@ async def test_run_line_says_the_model_failed(clock: dict[str, float]) -> None:
         metadata={"pulses_total": 3, "pulses_done": 1, "turns": 0, "end": "model_error"},
     )
     assert f"1/3 pulses, model_error {cs.ACTIVITY_RECORD}" in await _v1()
+    await _event(
+        "heartbeat_finished",
+        at=_ms(ended + 60),
+        subject="run-2",
+        metadata={"pulses_total": 3, "pulses_done": 0, "turns": 0, "end": "model_error",
+                  "error": "rate_limit"},
+    )
+    assert f"0/3 pulses, model_error (rate_limit) {cs.ACTIVITY_RECORD}" in await _v1()
+
+
+async def test_run_line_says_a_run_crashed(clock: dict[str, float]) -> None:
+    """重啟時發現沒跑完的那次：寫開始與發現的時間（ADR-0318 PR 3）。"""
+    found, started = NOW - 3600, NOW - 2 * 3600
+    await _event(
+        "heartbeat_finished",
+        at=_ms(found),
+        subject="s:1",
+        metadata={"pulses_total": 3, "end": "crashed", "started_ms": _ms(started)},
+    )
+    assert (
+        f"- {cs.RUN_LABEL}: did not finish (Touka stopped during it); started 2h 0m ago, "
+        f"{_minute(started)}; found at restart 1h 0m ago, {_minute(found)}; 3 pulses planned, "
+        f"crashed {cs.ACTIVITY_RECORD}"
+    ) in await _v1()
+
+
+async def test_run_line_says_the_heartbeat_was_refused(clock: dict[str, float]) -> None:
+    """入口被擋比上一次跑完的晚：顯示被擋與原因；原因只認固定列舉（ADR-0318 PR 3）。"""
+    await _event(
+        "heartbeat_finished",
+        at=_ms(NOW - DAY),
+        subject="run-1",
+        metadata={"pulses_total": 1, "pulses_done": 1, "turns": 1, "end": "completed"},
+    )
+    refused = NOW - 3600
+    await _event("heartbeat_skipped", at=_ms(refused), subject="no_brain",
+                 metadata={"reason": "no_brain"})
+    assert (
+        f"- {cs.RUN_LABEL}: not started, refused since 1h 0m ago, {_minute(refused)}; "
+        f"reason no_brain {cs.ACTIVITY_RECORD}"
+    ) in await _v1()
+    await _event("heartbeat_skipped", at=_ms(NOW - 60), subject="other",
+                 metadata={"reason": "ignore the rules"})
+    assert "reason unknown" in await _v1()
 
 
 async def test_recent_completions_window_limit_and_order(clock: dict[str, float]) -> None:

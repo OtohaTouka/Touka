@@ -4,6 +4,9 @@
 照步數排、每則一行，與原文以空行分隔）；角色仍是 assistant，回合數不變。
 格式與前端 ``ToukaChat/src/lib/chat/interjections.ts`` 的 ``INTERJECTION_NOTE_TEMPLATE``
 完全相同（跨端一致性測試以純文字比對）。純函式、不改傳入的節點。
+
+被使用者停止（``generationStopped``）或出錯（``generationFailed``）的那一則，最前面再加一行
+固定記號（ADR-0318）；和前端 ``ToukaChat/src/lib/chat/turnNotes.ts`` 同名常數相同。
 """
 
 from __future__ import annotations
@@ -12,6 +15,9 @@ from typing import Any
 
 # 給模型看的固定格式（不是畫面文字）；改動時前端同名常數要一起改
 INTERJECTION_NOTE_TEMPLATE = "〔本回合中使用者補充（第 {step} 步）：{text}〕"
+# 這一輪沒做完（ADR-0318）；同樣是給模型看的固定文字，前端同名常數要一起改
+TURN_STOPPED_NOTE = "〔本回合被使用者停止，沒有做完〕"
+TURN_FAILED_NOTE = "〔本回合出錯，沒有完成〕"
 
 
 def format_interjection_note(step: int, text: str) -> str:
@@ -42,13 +48,24 @@ def with_interjection_notes(content: str, interjections: Any) -> str:
     return "\n".join(notes) + "\n\n" + content if notes else content
 
 
+def _turn_end_note(node: dict[str, Any]) -> str | None:
+    """被停止優先於出錯；只認 ``True``。"""
+    if node.get("generationStopped") is True:
+        return TURN_STOPPED_NOTE
+    return TURN_FAILED_NOTE if node.get("generationFailed") is True else None
+
+
 def annotate_node(node: dict[str, Any]) -> dict[str, Any]:
-    """助理節點帶插話且 content 是文字時，回傳加上標註的副本；其他節點原樣返回。"""
+    """助理節點帶插話或沒做完、且 content 是文字時，回傳加上標註的副本；其他節點原樣返回。"""
     content = node.get("content")
+    note = _turn_end_note(node)
     if (
         node.get("role") != "assistant"
-        or not _delivered(node.get("interjections"))
+        or (note is None and not _delivered(node.get("interjections")))
         or not (content is None or isinstance(content, str))
     ):
         return node
-    return {**node, "content": with_interjection_notes(content or "", node["interjections"])}
+    text = with_interjection_notes(content or "", node.get("interjections"))
+    if note is not None:
+        text = f"{note}\n\n{text}" if text else note
+    return {**node, "content": text}

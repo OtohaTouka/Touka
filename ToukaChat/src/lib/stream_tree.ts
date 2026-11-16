@@ -20,11 +20,20 @@ export function hasPendingApproval(tree: TreeHistory, assistantId: string): bool
     step.status === 'awaiting_approval' && !step.approval?.decision);
 }
 
-/** 串流以錯誤結束：在那則回覆記下，畫面才看得出是模型沒有回成功（ADR-0292）。 */
-export function markGenerationFailed(tree: TreeHistory, assistantId: string): TreeHistory {
+function flagNode(tree: TreeHistory, assistantId: string, flag: 'generationFailed' | 'generationStopped'): TreeHistory {
   const node = tree.messages[assistantId];
   if (!node) return tree;
-  return { ...tree, messages: { ...tree.messages, [assistantId]: { ...node, generationFailed: true } } };
+  return { ...tree, messages: { ...tree.messages, [assistantId]: { ...node, [flag]: true } } };
+}
+
+/** 串流以錯誤結束：在那則回覆記下，畫面才看得出是模型沒有回成功（ADR-0292）。 */
+export function markGenerationFailed(tree: TreeHistory, assistantId: string): TreeHistory {
+  return flagNode(tree, assistantId, 'generationFailed');
+}
+
+/** 使用者停止了這一輪：在那則回覆記下，下一輪送給模型時帶記號（ADR-0318）。 */
+export function markGenerationStopped(tree: TreeHistory, assistantId: string): TreeHistory {
+  return flagNode(tree, assistantId, 'generationStopped');
 }
 
 export interface BuildStreamNodesParams {

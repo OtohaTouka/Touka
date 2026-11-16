@@ -27,9 +27,10 @@ from memory_server.services.mission_manager import MissionManager
 from memory_server.utils.legacy_time import to_epoch_ms
 
 from src.adapters.content_normalize import append_to_last_user
+from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
-from src.services.continuity_events import HeartbeatEnd, safe_ref
+from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
 from src.services.subagent_registry import subagent_registry
 from src.utils.async_db import session_service
@@ -86,6 +87,7 @@ SERVER_MEMORY = "(server memory)"
 ACTIVITY_RECORD = "(activity record)"
 MISSION_BOARD = "(mission board)"
 _END_REASONS = frozenset(get_args(HeartbeatEnd))
+_SKIP_REASONS = frozenset(get_args(HeartbeatSkip))
 
 _last_request_at: OrderedDict[tuple[str, str], float] = OrderedDict()
 
@@ -204,13 +206,28 @@ def _run_line(now_s: float, timeline: TimelineSnapshot | None, *, heartbeat: boo
         return f"- {label}: {TIMELINE_UNAVAILABLE}"
     if timeline.last_run is None:
         return f"- {label}: {NONE_RECORDED} {ACTIVITY_RECORD}"
-    ended_ms, metadata = timeline.last_run
+    kind, at_ms, metadata = timeline.last_run
+    if kind == "heartbeat_skipped":  # 入口被擋（同一原因連續被擋只記第一次，ADR-0318）
+        reason = metadata.get("reason")
+        return (
+            f"- {label}: not started, refused since {_when(now_s, at_ms)}; "
+            f"reason {reason if reason in _SKIP_REASONS else 'unknown'} {ACTIVITY_RECORD}"
+        )
     end = metadata.get("end")
+    started = metadata.get("started_ms")
+    if end == "crashed" and isinstance(started, int) and not isinstance(started, bool):
+        return (
+            f"- {label}: did not finish (Touka stopped during it); started "
+            f"{_when(now_s, started)}; found at restart {_when(now_s, at_ms)}; "
+            f"{_count(metadata.get('pulses_total'))} pulses planned, crashed {ACTIVITY_RECORD}"
+        )
+    error = metadata.get("error")
+    kind_note = f" ({error})" if end == "model_error" and error in KNOWN_ERROR_TYPES else ""
     detail = (
         f"{_count(metadata.get('pulses_done'))}/{_count(metadata.get('pulses_total'))} pulses, "
-        f"{end if end in _END_REASONS else 'unknown'}"
+        f"{end if end in _END_REASONS else 'unknown'}{kind_note}"
     )
-    return f"- {label}: ended {_when(now_s, ended_ms)}, {detail} {ACTIVITY_RECORD}"
+    return f"- {label}: ended {_when(now_s, at_ms)}, {detail} {ACTIVITY_RECORD}"
 
 
 def _completed_item(now_s: float, kind: str, epoch_ms: int, subject: str, metadata: dict) -> str:
