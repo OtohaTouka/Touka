@@ -251,7 +251,11 @@ class ToolLayer(ProxyLayer):
                  builtin_filtered = True
                  continue
 
-             # 政策放行才說是暫時用不到：政策擋的話，叫人打開小幫手也沒用
+             if not permission_service.is_tool_allowed(tool_name, allowed_tools):
+                 builtin_filtered = True
+                 continue
+
+             # 政策和角色都放行才說是暫時用不到：否則叫人打開小幫手也沒用
              if helper_offline:
                  denied_tools.append(
                      {
@@ -263,10 +267,7 @@ class ToolLayer(ProxyLayer):
                  builtin_filtered = True
                  continue
 
-             if permission_service.is_tool_allowed(tool_name, allowed_tools):
-                 active_builtin_schemas.append(schema)
-             else:
-                 builtin_filtered = True
+             active_builtin_schemas.append(schema)
         
         # 5. 注入調度工具 (MCP 掛載 + 技能啟用)
         if is_dispatcher_active:

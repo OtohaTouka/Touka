@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import get_args
 
@@ -98,4 +99,5 @@ def test_every_item_status_is_explained_to_the_agent() -> None:
     assert isinstance(labels, tuple)
     assert labels
     for status, _label in labels:
-        assert f"{status}＝" in PROPOSE_RESULT_NOTE
+        # 前面不能接著英文字母或底線，not_done＝ 才不會順便算成 done＝
+        assert re.search(rf"(?<![a-z_]){status}＝", PROPOSE_RESULT_NOTE), status

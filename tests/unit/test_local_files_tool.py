@@ -24,6 +24,7 @@ from src.services.tool_errors import extract_error_class
 from src.services.tool_executor import ToolExecutor
 from src.tools.builtin import local_helper as tool_module
 from src.tools.builtin.local_helper import local_files
+from src.tools.builtin.schemas import LOCAL_FILES_SCHEMA
 from src.tools.contracts import validate_native_arguments
 from src.utils.local_bridge_gate import (
     AVAILABILITY_HIDDEN,
@@ -806,6 +807,22 @@ async def test_a_tool_policy_blocks_is_never_called_just_offline(
 
 @pytest.mark.asyncio
 @patch("src.middleware.layers.tool.permission_service")
+async def test_a_role_without_the_tool_is_not_told_to_start_the_helper(
+    perm: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """角色清單沒有這個工具時，打開小幫手也用不到，不要叫人去開。"""
+    _allow(perm)
+    perm.is_tool_allowed.side_effect = lambda name, _grant: name != "local_files"
+    _state(monkeypatch, paired=True, online=False)
+    request = _request()
+    ctx = _layer_ctx()
+    await ToolLayer().process(request, ctx)
+    assert not any(d["tool"] == "local_files" for d in ctx.get("denied_tools") or [])
+    assert tool_layer_module.LOCAL_HELPER_OFFLINE_REASON not in _system_text(request)
+
+
+@pytest.mark.asyncio
+@patch("src.middleware.layers.tool.permission_service")
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -962,3 +979,10 @@ def test_gemini_schema_has_no_string_length_limits() -> None:
     _convert_schema_to_gemini(schema)
     assert schema["properties"]["path"] == {"type": "STRING", "description": "x"}
     assert schema["properties"]["items"]["items"]["properties"]["to"] == {"type": "STRING"}
+
+
+def test_described_wait_matches_how_long_the_bridge_waits() -> None:
+    """改等待時間時，工具說明和等待提示的分鐘數要一起改。"""
+    minutes = f"約 {round(bridge_module.DECISION_WAIT_SECONDS / 60)} 分鐘"
+    assert minutes in LOCAL_FILES_SCHEMA["function"]["description"]
+    assert minutes in tool_module.WAITING_HINT
