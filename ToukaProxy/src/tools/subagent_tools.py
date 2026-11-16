@@ -44,10 +44,17 @@ from src.services.hooks.lifecycle import notify_subagent_stop, run_subagent_star
 from src.services.isolation.policy import session_project_id
 from src.services.model_manager import model_manager
 from src.services.resource_manager import resource_manager
+from src.services.rhythm_service import HEADLESS_FALLBACK_ROUNDS
 from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_report
-from src.tools.contracts import MAX_SUBAGENT_GROUP, SUBAGENT_GROUP_CONCURRENCY
+from src.tools.contracts import (
+    MAX_SUBAGENT_GROUP,
+    SUBAGENT_GROUP_CONCURRENCY,
+    SUBAGENT_TIMEOUT_SECONDS,
+)
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
+from src.utils.model_text import single_line
+from src.utils.presence import is_human_present
 from src.utils.secret_text import sanitize_error_text
 from src.utils.time_utils import get_current_epoch
 from src.utils.user_intent import subagent_intent
@@ -63,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 _SUB_PREFIX = "__subagent_"
 _SUB_SEQ = itertools.count(1)
-_SUB_TIMEOUT_SECONDS = 600.0
+_SUB_TIMEOUT_SECONDS = SUBAGENT_TIMEOUT_SECONDS
 _RESULT_SUMMARY_MAX = 4000
 # 父請求的目標標頭不屬於子代理：留著會讓 MonitorLayer 把父靈魂或父 session 認成目標
 # （ADR-0245 修補）
@@ -114,7 +121,34 @@ class SubagentStoppedError(Exception):
         super().__init__("The user stopped this run before the subagent started.")
 
 
-def _subagent_user_prompt(goal: str, scope: SubagentScope = _NO_SCOPE) -> str:
+def _dispatch_situation(base_ctx: Any, parent_label: str) -> str:
+    """派工情境（ADR-0316 PR 2 補記）：誰派的、主代理那邊的情境、時限與工具輪。
+
+    子代理自己一律沒人在場（``_mark_subagent_run``），說法和 ``<approval_context>`` 一致；
+    模式由那個區塊說，這裡不重複。只讀父 ctx 的情境標記與常數，不讀設定檔。
+    """
+    if base_ctx.get("heartbeat_run"):
+        parent_side = "主代理是心跳排程叫醒的，沒有人在場"
+    elif is_human_present(base_ctx):
+        parent_side = "主代理正在和人對話，但那個人看不到你"
+    else:
+        parent_side = "主代理這一輪沒有人在場"
+    if base_ctx.get("enable_autonomy"):  # 心跳派生：工具輪有限（ADR-0146）
+        rounds = f"有上限，沒另外設定時最多 {HEADLESS_FALLBACK_ROUNDS} 輪，用完要收尾"
+    else:
+        rounds = "照系統設定（預設不限）"
+    return (
+        "【派工情境】\n"
+        f"- 派你的是 {single_line(parent_label)}；{parent_side}。\n"
+        "- 你這裡沒有人能回答問題或核准；需要核准的動作寫進回報，交給派你的主代理。\n"
+        f"- 時限約 {int(_SUB_TIMEOUT_SECONDS // 60)} 分鐘，超過就中止。工具輪：{rounds}。\n"
+        "- 只回文字、不再呼叫工具，就算做完。\n"
+    )
+
+
+def _subagent_user_prompt(
+    goal: str, scope: SubagentScope = _NO_SCOPE, situation: str = ""
+) -> str:
     """子代理的自包含任務指示（子代理看不到主對話上下文）。"""
     notes = [
         *([PROJECT_NOTE] if scope.has_project else []),
@@ -126,6 +160,7 @@ def _subagent_user_prompt(goal: str, scope: SubagentScope = _NO_SCOPE) -> str:
         "完成後請直接輸出最終結果全文（會原樣回傳給主代理），"
         "不要提問、不要等待後續指示。\n"
         f"{limits}\n"
+        f"{situation}"
         f"【任務】\n{goal.strip()}\n\n"
         f"{REPORT_INSTRUCTION}"
     )
@@ -163,6 +198,7 @@ async def _assemble_subagent_request(
     base_ctx: Any,
     model: str | None,
     scope: SubagentScope = _NO_SCOPE,
+    parent_label: str = "unknown",
 ) -> AnthropicRequest:
     """跑真實 ProxyPipeline 為子代理組裝請求（ADR-0133 模式），後剝除遞迴能力。
 
@@ -179,9 +215,10 @@ async def _assemble_subagent_request(
 
     # 不寫 max_tokens：Claude 用 AnthropicRequest 的預設 8192，其他家不帶上限。
     # convert_to_openai 會轉送呼叫端明確給的值（O20，給 IDE 的 Anthropic 入口；ADR-0254）。
+    prompt = _subagent_user_prompt(goal, scope, _dispatch_situation(base_ctx, parent_label))
     request = AnthropicRequest(
         model=(model or "").strip() or sub_identity.agent_id,
-        messages=[{"role": "user", "content": _subagent_user_prompt(goal, scope) + started.text}],
+        messages=[{"role": "user", "content": prompt + started.text}],
     )
 
     ctx = _derive_context(base_ctx)
@@ -277,7 +314,12 @@ async def _run_subagent(
         )
         scope = SubagentScope(project_id, has_project, read_only)
         request = await _assemble_subagent_request(
-            goal=goal, sub_identity=sub_identity, base_ctx=base_ctx, model=model, scope=scope
+            goal=goal,
+            sub_identity=sub_identity,
+            base_ctx=base_ctx,
+            model=model,
+            scope=scope,
+            parent_label=parent_label,
         )
         reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal, scope)
     finally:
@@ -440,6 +482,51 @@ async def run_subagent_group(
     return await asyncio.gather(*(_one(i, spec) for i, spec in enumerate(subtasks)))
 
 
+def _can_await_later(ctx: Any) -> bool:
+    """這一輪列了 mission_tools 才收得到憑證；沒有工具清單（除錯執行器、舊測試）照舊回憑證。"""
+    advertised = ctx.get("advertised_tools")
+    if not isinstance(advertised, AdvertisedTools):
+        return True
+    return "mission_tools" in advertised.native
+
+
+async def _dispatch_and_wait(
+    *,
+    goal: str,
+    identity: AgentIdentity | None,
+    request_id: str,
+    base_ctx: Any,
+    model: str | None,
+    task_id: str | None,
+    read_only: bool,
+) -> str:
+    """沒有看板工具時：等子代理做完，直接把結果放進工具回覆（ADR-0316 PR 2 補記）。
+
+    和 ``run_subagent_group`` 同一條路（同一個 ``_run_subagent``）；不產生憑證、不寫耐久結果。
+    """
+    label = task_id or "subagent"
+    try:
+        text = await _run_subagent(
+            goal=goal,
+            parent_identity=identity,
+            parent_request_id=str(request_id or "req"),
+            base_ctx=base_ctx,
+            model=model,
+            read_only=read_only,
+        )
+        payload = _result_from_text(text, label)
+    except Exception as exc:
+        # 和非同步分支一樣，失敗也交回結構化結果（FAILED）
+        logger.exception("in-process subagent failed (sync dispatch)")
+        payload = _result_from_error(exc, label)
+    return tool_errors.build_tool_success(
+        f"子代理（{label}）已結束：{payload['status']}。因為這一輪沒有任務看板工具"
+        "（mission_tools），這次等子代理做完才回。",
+        result=payload,
+        dispatch_mode="in-process-sync",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 工具本體
 # --------------------------------------------------------------------------- #
@@ -483,6 +570,17 @@ async def dispatch_subagent(
             tool_errors.INTERNAL_ERROR,
             "dispatch_subagent did not receive the pipeline context (_ctx).",
             suggestion="回報使用者：tool executor 未注入 _ctx，無法開子代理。",
+        )
+
+    if not _can_await_later(_ctx):
+        return await _dispatch_and_wait(
+            goal=str(goal),
+            identity=identity,
+            request_id=request_id,
+            base_ctx=_ctx,
+            model=(sub_model or "").strip() or (model or "").strip() or None,
+            task_id=task_id,
+            read_only=_is_read_only(read_only),
         )
 
     store = get_callback_store()

@@ -86,6 +86,16 @@ def test_builder_delegation_claims_match_recursion_gate():
         model="m", role="Owner", advertised=frozenset({"dispatch_subagent"})
     )
     assert "cannot dispatch further sub-agents" in block
+    # 沒有任務看板工具時派子代理是等做完才回、沒有憑證可等（ADR-0316 PR 2 補記）
+    assert "restart" not in block
+
+
+def test_builder_durable_await_claim_needs_the_mission_board():
+    """耐久交付的承諾（Guard #40）：同時列出 mission_tools 才拿得到憑證、才寫這句。"""
+    block = build_harness_context(
+        model="m", role="Owner", advertised=frozenset({"dispatch_subagent", "mission_tools"})
+    )
+    assert "cannot dispatch further sub-agents" in block
     assert "restart" in block  # 耐久交付：跨重啟可續 await
 
 

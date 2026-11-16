@@ -260,9 +260,18 @@ def build_harness_context(
             "(dispatch_subagent; dispatch_subagent_group for parallel batches). "
             "Sub-agents run on a restricted Subagent tool set, cannot see your "
             "conversation, and cannot dispatch further sub-agents.",
-            "- Dispatch results are persisted durably: awaiting a dispatch token "
-            "still works after a harness restart.",
         ]
+        # 沒有 mission_tools 時 dispatch_subagent 等做完才回、沒有憑證可等（ADR-0316 PR 2 補記）
+        if "mission_tools" in advertised:
+            lines.append(
+                "- Dispatch results are persisted durably: awaiting a dispatch token "
+                "still works after a harness restart."
+            )
+        else:
+            lines.append(
+                "- Without mission_tools, dispatch_subagent waits for the sub-agent to "
+                "finish and returns its result directly."
+            )
     lines += [
         "",
         "## Autonomy",
