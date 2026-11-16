@@ -195,6 +195,10 @@ class Operations:
         # 沒變的紀錄檔不重讀：檔名 → (mtime_ns, 大小, 內容)
         self._journal_cache: dict[str, tuple[int, int, dict[str, Any]]] = {}
 
+    def wall_time(self) -> float:
+        """紀錄用的系統時間（底線比對紀錄時用同一個時鐘）。"""
+        return self._wall_clock()
+
     # --- 路徑 ---
 
     def _locate(self, raw: object) -> _Target:

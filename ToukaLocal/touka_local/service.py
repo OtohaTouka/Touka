@@ -1,16 +1,23 @@
-"""小幫手的主流程（ADR-0312）：拿工作、分派、等人核准、確認之後才動手、回報。"""
+"""小幫手的主流程（ADR-0312、ADR-0317）.
+
+拿工作、分派、等人核准（或核對 Touka 照模式的決定）、確認之後才動手、回報。
+"""
 
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from touka_local.connection import AuthLost, ConnectionLost, ProtocolMismatch
 from touka_local.errors import Refused
+from touka_local.floors import plan_entries, window_reason
 from touka_local.operations import ApplyLimits
-from touka_local.protocol import ProtocolError, result_payload
+from touka_local.protocol import DECIDED_BY_HELPER_WINDOW, ProtocolError, result_payload
+from touka_local.signing import decision_signature_ok, text_fingerprint
+from touka_local.view import preview_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -29,6 +36,9 @@ RETRY_SECONDS: Final = 3.0
 MAX_JOB_THREADS: Final = 8
 # 取消可能比工作先到；工作最多排 8 件，記 32 件夠了
 REMEMBERED_CANCELS: Final = 32
+# 預覽的一次性號碼只在記憶體、只用一次；比 Touka 等決定的時間短（ADR-0317）
+PREVIEW_LIFETIME_SECONDS: Final = 540.0
+MAX_PREVIEWS: Final = 8
 
 STATE_STARTING: Final = "starting"
 STATE_ONLINE: Final = "online"
@@ -83,6 +93,16 @@ _MODEL_MESSAGES: Final = {
     "approval_busy": "Another list is waiting for the user. Wait for that answer first.",
     "approval_cooldown": "A list was just closed. Do not send another one right away.",
     "helper_busy": "The local helper is handling too many requests.",
+    "not_supported": "This version of the local helper does not do that yet.",
+    "recently_vacated": (
+        "Something was moved away from or deleted at that place in the last 7 days. "
+        "To avoid quietly replacing it, ask the user to create it themselves or pick "
+        "another name."
+    ),
+    "journal_unreadable": (
+        "The local helper cannot read one of its batch records, so it will not create "
+        "anything. The user has to check the helper window."
+    ),
     "helper_exposed": (
         "The local helper stopped because its own files are inside a folder Touka can reach. "
         "The user has to fix this on their computer."
@@ -109,6 +129,15 @@ class _Running:
     stop: threading.Event
 
 
+@dataclass(frozen=True)
+class _Preview:
+    """一份預覽：一次性號碼對到的清單與顯示文字的指紋。"""
+
+    plan: Plan
+    shown: str
+    expires: float
+
+
 def _refused_payload(exc: Refused) -> dict[str, Any]:
     message = _MODEL_MESSAGES.get(exc.code, _FALLBACK_MESSAGE)
     if exc.detail:
@@ -129,6 +158,14 @@ def _notice_after(payload: dict[str, Any], *, delivered: bool) -> str:
     return NOTICE_PARTLY_DONE
 
 
+def _check_supported(job: Job) -> None:
+    """決定只能出現在搬移、刪除清單；開放資料夾的請求這一版還不做（只拒絕這一件）。"""
+    if job.decision is not None and job.action != "propose":
+        raise Refused("bad_request")
+    if job.action == "request_open":
+        raise Refused("not_supported")
+
+
 class HelperService:
     """把連線、動作和核准關卡接起來。"""
 
@@ -141,6 +178,9 @@ class HelperService:
         grants: GrantBook,
         clock: Clock,
         spawn: Callable[[Callable[[], None]], None],
+        decision_key: Callable[[], bytes | None] = lambda: None,
+        following: Callable[[], bool] = lambda: False,
+        mode_reset: Callable[[], float | None] = lambda: None,
     ) -> None:
         self._client = client
         self._operations = operations
@@ -148,6 +188,10 @@ class HelperService:
         self._grants = grants
         self._clock = clock
         self._spawn = spawn
+        self._decision_key = decision_key
+        self._following = following
+        self._mode_reset = mode_reset
+        self._previews: dict[str, _Preview] = {}
         self._lock = threading.Lock()
         self._job_slots = threading.BoundedSemaphore(MAX_JOB_THREADS)
         self._running: _Running | None = None
@@ -163,7 +207,9 @@ class HelperService:
             return self._running is not None
 
     def replace_client(self, client: Client | None) -> None:
-        """配對換了。"""
+        """配對換了。舊配對時發出的預覽號碼一起作廢。"""
+        with self._lock:
+            self._previews.clear()
         self._client = client
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
 
@@ -248,8 +294,15 @@ class HelperService:
 
     def _dispatch(self, job: Job) -> None:
         try:
+            _check_supported(job)
+            if job.action == "preview":
+                self._send(job.id, result_payload("ok", data=self._preview(job)))
+                return
             if job.action == "propose":
-                self._offer(job)
+                if job.decision is None:
+                    self._offer(job)
+                else:
+                    self._decide(job)
                 return
             operations = self._operations
             handlers = {
@@ -279,8 +332,94 @@ class HelperService:
             raise Refused("approval_busy")
         plan = self._operations.plan(job.args)
         with self._lock:
+            # 建清單時可能有照模式的批開始跑，跳視窗那一刻再看一次
+            if self._running is not None:
+                raise Refused("approval_busy")
             if job.id not in self._cancelled:
                 self._gate.offer(job.id, plan, job.decide_within, requester=job.requester)
+
+    def _window_reason(self, plan: Plan, *, decision_ok: bool) -> str | None:
+        now = self._operations.wall_time()
+        history = replace(self._operations.history(now), reset_at=self._mode_reset())
+        return window_reason(
+            plan, history, following=self._following(), decision_ok=decision_ok, now=now
+        )
+
+    def _preview(self, job: Job) -> dict[str, Any]:
+        """建清單、記一次性號碼，回給 Touka 顯示在卡片上（ADR-0317）。"""
+        plan = self._operations.plan(job.args)
+        text = preview_text(plan)
+        nonce = secrets.token_urlsafe(16)
+        reason = self._window_reason(plan, decision_ok=self._decision_key() is not None)
+        now = self._clock()
+        with self._lock:
+            self._previews = {
+                key: kept for key, kept in self._previews.items() if kept.expires > now
+            }
+            while len(self._previews) >= MAX_PREVIEWS:
+                del self._previews[next(iter(self._previews))]
+            self._previews[nonce] = _Preview(
+                plan=plan, shown=text_fingerprint(text), expires=now + PREVIEW_LIFETIME_SECONDS
+            )
+        return {
+            "nonce": nonce,
+            "digest": plan.digest,
+            "text": text,
+            "items": len(plan.items),
+            "entries": plan_entries(plan),
+            "marks": sorted({mark for item in plan.items for mark in item.unusual}),
+            "window_reason": reason,
+        }
+
+    def _decision_ok(self, job: Job, preview: _Preview | None) -> bool:
+        """章、號碼、清單指紋、顯示文字指紋都要對；任何一項不對就當作沒有決定。"""
+        decision = job.decision
+        return (
+            decision is not None
+            and preview is not None
+            and preview.expires > self._clock()
+            and decision.digest == preview.plan.digest
+            and decision.shown == preview.shown
+            and decision_signature_ok(self._decision_key(), job.id, decision)
+        )
+
+    def _decide(self, job: Job) -> None:
+        """Touka 照模式決定的清單：核對、重掃、看底線；碰到底線就改跳視窗。
+
+        一次只處理一份：在鎖裡先佔住執行的位置，同時送來的第二份回忙碌，總量與 7 天
+        檢查才不會兩份都看到「還沒有我」。跳視窗前在同一把鎖裡放掉位置，人才按得了。
+        """
+        running = _Running(job.id, threading.Event())
+        decision = job.decision
+        with self._lock:
+            if self._running is not None or self._gate.current is not None:
+                raise Refused("approval_busy")
+            self._running = running
+            preview = self._previews.pop(decision.nonce, None) if decision else None
+        try:
+            decision_ok = self._decision_ok(job, preview)
+            plan = self._operations.plan(job.args)
+            if decision_ok and preview is not None and plan.digest != preview.plan.digest:
+                raise Refused("changed")
+            reason = self._window_reason(plan, decision_ok=decision_ok)
+            if reason is not None:
+                with self._lock:
+                    if job.id not in self._cancelled:
+                        self._gate.offer(
+                            job.id,
+                            plan,
+                            job.decide_within,
+                            requester=job.requester,
+                            reason=reason,
+                        )
+                    self._running = None
+                return
+            assert decision is not None  # decision_ok 已確認
+            self._execute(running, plan, decided_by=decision.decided_by, by_mode=True)
+        finally:
+            with self._lock:
+                if self._running is running:
+                    self._running = None
 
     def _send(self, job_id: str, payload: dict[str, Any]) -> bool:
         client = self._client
@@ -341,14 +480,23 @@ class HelperService:
             raise Refused("busy")
         return self._operations.undo(batch)
 
-    def _execute(self, running: _Running, plan: Plan) -> None:
+    def _execute(
+        self,
+        running: _Running,
+        plan: Plan,
+        *,
+        decided_by: str = DECIDED_BY_HELPER_WINDOW,
+        by_mode: bool = False,
+    ) -> None:
         self.last_report = None
         try:
             client = self._client
             if client is None or not client.confirm(running.job_id):
                 self.notice = NOTICE_NOT_CONFIRMED
                 return
-            payload = self._apply(running, plan)
+            payload = self._apply(running, plan, by_mode=by_mode)
+            if payload["status"] == "ok":
+                payload["data"]["decided_by"] = decided_by
             self.last_report = payload["data"]
             delivered = self._send(running.job_id, payload)
             self.notice = _notice_after(payload, delivered=delivered)
@@ -359,13 +507,13 @@ class HelperService:
             with self._lock:
                 self._running = None
 
-    def _apply(self, running: _Running, plan: Plan) -> dict[str, Any]:
+    def _apply(self, running: _Running, plan: Plan, *, by_mode: bool) -> dict[str, Any]:
         limits = ApplyLimits(
             should_stop=running.stop.is_set,
             deadline=self._clock() + HELPER_EXECUTION_LIMIT_SECONDS,
         )
         try:
-            return result_payload("ok", data=self._operations.apply(plan, limits))
+            return result_payload("ok", data=self._operations.apply(plan, limits, by_mode=by_mode))
         except Refused as exc:
             return _refused_payload(exc)
         except OSError:

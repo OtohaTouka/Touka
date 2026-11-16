@@ -171,6 +171,18 @@ def all_paths_text(rows: list[ApprovalRow]) -> str:
     )
 
 
+def preview_text(plan: Any) -> str:
+    """聊天卡片上的清單：小幫手自己掃描到的內容，和核准視窗同一份（ADR-0317）。"""
+    rows = approval_rows(plan)
+    items = "\n\n".join(
+        f"{number}. {row.action}（{row.detail}{'；' + row.marks if row.marks else ''}）\n"
+        f"{full_paths_text(row)}"
+        for number, row in enumerate(rows, start=1)
+    )
+    title = approval_title(approval_counts(plan))
+    return f"{title}\n理由：{clean_reason(plan.reason)}\n\n{items}"
+
+
 def requester_text(requester: str) -> str:
     """提出者是 Touka 轉來的名字，不一定可信。"""
     return f"提出者（可能不準）：{clean_reason(requester)}"
