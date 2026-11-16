@@ -2,6 +2,15 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 子代理的結果講清楚（2026-11-16，ADR-0318 PR 1）
+
+- 子代理撞到模型錯誤一律 `status="FAILED"`，`result_summary` 寫「模型錯誤（種類）：子代理沒有做完」，種類是 `retry.KNOWN_ERROR_TYPES` 裡的固定名稱（表外的寫 `unknown`），不放廠商原文；網頁、心跳、IDE 派的都一樣（以前網頁派的寫 `UiGenerationStopped`，心跳與 IDE 派的算 DONE）。
+- 逾時（整個子代理，含 SubagentStart hook 與組裝）是 FAILED，寫「逾時：…已中止」並附「已做到的部分」；模型錯誤之前寫下的文字也一樣附上。
+- `result_summary` 太長時保留結尾 4000 字、開頭標「…（前段過長已省略）」；子代理的文字不夾工具日誌行。
+- `dispatch_subagent_group`：`completed` 只算跑完且回報 done，新增 `partial`（回報 partial 或沒附回報塊），`failed` 含自己回報 failed；訊息寫三種數量。同步 `dispatch_subagent` 的訊息寫「已結束：完成／部分完成或未確認／失敗」。
+- SubagentStop hook 的 `last_assistant_message`：逾時或模型失敗時是已做到的部分，其他失敗仍是空字串。
+- 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
 
 - 套用靈魂設定不再蓋掉系統自己加的說明：流程入口記下用戶端原本的每一則 system（`ctx["client_system"]`），`apply_soul_to_request(request, identity, client_system=...)` 只對用戶端原本的內容照舊依字母判斷，其餘原樣接在 `<persona>` 後面。靈魂層、群聊、心跳三個呼叫點都傳；沒傳時照舊。專案名稱與路徑進 `<project_context>` 前跳脫系統標籤字元。
@@ -72,7 +81,7 @@
   - PermissionDenied：`tool_name`、`tool_input`、`tool_use_id`、`reason`（固定代碼）。
   - Notification：`notification_type`（`permission_prompt`、`agent_needs_input`、`elicitation_dialog`、`isolation_level`）、`message`；`isolation_level` 的 `session_id` 是 null。
   - StopFailure：`error`（`rate_limit`、`overloaded`、`authentication_failed`、`billing_error`、`invalid_request`、`model_not_found`、`server_error`、`unknown`）、`error_details`（先遮憑證與路徑）。子代理的回合不發，這一輪不跑 Stop。
-  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（失敗時是空字串）。
+  - SubagentStart：`agent_type`（固定 `subagent`），`agent_id` 是子代理；回應的 `additionalContext` 接在子代理第一則訊息後面，不能擋。SubagentStop 多 `last_assistant_message`（逾時或模型失敗時是已做到的部分，其他失敗是空字串；ADR-0318）。
   - PreCompact、PostCompact：`trigger`（固定 `auto`）；PostCompact 只在存好時發，多 `compact_summary`（最多 10,000 字）。兩者沒有 `permission_mode`。
   - TaskCreated、TaskCompleted：`mission_id`、`task_id`、`task_subject`。
   - Elicitation：`mcp_server_name`、`message`、`mode`（固定 `form`）、`requested_schema`。只有拒絕有效（結束碼 2、`decision: block`、`continue: false`、`hookSpecificOutput.action: decline|cancel`）；`accept`、`content` 不採用，表單照樣跳。`timeout` 最多 30 秒（存檔時檢查）。

@@ -385,7 +385,9 @@ async def test_the_limit_also_holds_when_a_listed_tool_is_called(world):
         goal="照指示做", sub_identity=SUB, base_ctx=parent, model=MODEL, scope=writable
     )
     assert "write" in {tool["function"]["name"] for tool in request.tools}
-    await subagent_tools._run_assembled(request, SUB, "parent:sub", parent, "照指示做", limited)
+    await subagent_tools._run_assembled(
+        request, SUB, "parent:sub", parent, "照指示做", limited, []
+    )
     assert not (root / "new.txt").exists()
 
 

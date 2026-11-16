@@ -35,12 +35,13 @@ from src.services.tool_errors import (
 from src.tools.contracts import (
     EXTERNAL_DISPATCH_NOTE,
     SUBAGENT_TIMEOUT_SECONDS,
+    limit_minutes,
     native_parameters,
 )
 
 logger = logging.getLogger(__name__)
 
-_SUBAGENT_MINUTES = int(SUBAGENT_TIMEOUT_SECONDS // 60)
+_SUBAGENT_MINUTES = limit_minutes(SUBAGENT_TIMEOUT_SECONDS)
 _AWAIT_STOP_HINT = (
     "先做別的事或先回報，不要連續重複等；派出超過約 "
     f"{_SUBAGENT_MINUTES} 分鐘仍是憑證不明，表示結果不會來了（例如 Touka 重啟過），"

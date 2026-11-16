@@ -27,14 +27,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import json
 import logging
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.adapters.schemas import AnthropicRequest
+from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.advertised_tools import AdvertisedTools
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
@@ -51,6 +54,7 @@ from src.tools.contracts import (
     MAX_SUBAGENT_GROUP,
     SUBAGENT_GROUP_CONCURRENCY,
     SUBAGENT_TIMEOUT_SECONDS,
+    limit_minutes,
 )
 from src.utils.auth_mode import enforce_incognito_manual
 from src.utils.brain_persistence import get_active_brain
@@ -73,6 +77,11 @@ _SUB_PREFIX = "__subagent_"
 _SUB_SEQ = itertools.count(1)
 _SUB_TIMEOUT_SECONDS = SUBAGENT_TIMEOUT_SECONDS
 _RESULT_SUMMARY_MAX = 4000
+# 結果太長時保留結尾（子代理的結論寫在最後），開頭標明省略了（ADR-0318）
+OMITTED_HEAD_NOTE = "…（前段過長已省略）\n"
+_PARTIAL_HEADER = "已做到的部分（沒做完，可能不完整）："
+# 結果的三種結局：傳輸失敗或自己回報失敗都算失敗；沒附回報與部分完成另計（ADR-0318）
+_OUTCOME_WORDS = {"done": "完成", "partial": "部分完成或未確認", "failed": "失敗"}
 # 父請求的目標標頭不屬於子代理：留著會讓 MonitorLayer 把父靈魂或父 session 認成目標
 # （ADR-0245 修補）
 _PARENT_TARGET_HEADERS = frozenset(
@@ -122,6 +131,29 @@ class SubagentStoppedError(Exception):
         super().__init__("The user stopped this run before the subagent started.")
 
 
+class SubagentTimeoutError(TimeoutError):
+    """超過時限被中止；``partial`` 是已經收到的文字（ADR-0318）。"""
+
+    def __init__(self, partial: str = "") -> None:
+        super().__init__(f"The subagent was stopped after {_SUB_TIMEOUT_SECONDS:g} seconds.")
+        self.partial = partial
+
+
+class SubagentModelError(Exception):
+    """子代理的模型呼叫失敗：只帶固定的種類與失敗前寫下的文字，不帶廠商原文（ADR-0318）。"""
+
+    def __init__(self, error_type: Any, partial: str = "") -> None:
+        known = isinstance(error_type, str) and error_type in KNOWN_ERROR_TYPES
+        kind = error_type if known else "unknown"
+        super().__init__(f"The subagent's model call failed ({kind}).")
+        self.error_type = kind
+        self.partial = partial
+
+
+def _limit_minutes() -> int:
+    return limit_minutes(_SUB_TIMEOUT_SECONDS)
+
+
 def _dispatch_situation(base_ctx: Any, parent_label: str) -> str:
     """派工情境（ADR-0316 PR 2 補記）：誰派的、主代理那邊的情境、時限與工具輪。
 
@@ -142,7 +174,7 @@ def _dispatch_situation(base_ctx: Any, parent_label: str) -> str:
         "【派工情境】\n"
         f"- 派你的是 {single_line(parent_label)}；{parent_side}。\n"
         "- 你這裡沒有人能回答問題或核准；需要核准的動作寫進回報，交給派你的主代理。\n"
-        f"- 時限約 {int(_SUB_TIMEOUT_SECONDS // 60)} 分鐘，超過就中止。工具輪：{rounds}。\n"
+        f"- 時限約 {_limit_minutes()} 分鐘，超過就中止。工具輪：{rounds}。\n"
         "- 只回文字、不再呼叫工具，就算做完。\n"
     )
 
@@ -190,6 +222,10 @@ def _mark_subagent_run(
     # 專案只來自對話的綁定，不收模型填的值；工具清單（組裝）與權限判定（執行）都讀這裡
     ctx["project_id"] = scope.project_id
     ctx["subagent_read_only"] = scope.read_only
+    # 子代理不是網頁對話，失敗記號也從零開始：三種主代理派的子代理走同一條失敗路徑（ADR-0318）
+    ctx["ui_authorized"] = False
+    ctx["model_failed"] = False
+    ctx["model_error_type"] = None
 
 
 async def _assemble_subagent_request(
@@ -252,29 +288,33 @@ async def _assemble_subagent_request(
     return request
 
 
-async def _drain_text(stream: AsyncGenerator[str]) -> str:
-    """抽乾子 loop SSE 串流，累積文字 delta（OpenAI／Anthropic 雙形，仿 group.py）。"""
-    parts: list[str] = []
-    async for chunk in stream:
-        if not isinstance(chunk, str) or not chunk.startswith("data: "):
-            continue
-        data_str = chunk[6:].strip()
-        if not data_str or data_str == "[DONE]":
-            continue
-        try:
-            data = json.loads(data_str)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        text_delta = ""
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            text_delta = (choices[0].get("delta") or {}).get("content") or ""
-        elif data.get("type") == "content_block_delta":
-            text_delta = (data.get("delta") or {}).get("text") or ""
-        if text_delta:
-            parts.append(text_delta)
+async def _drain_text(stream: AsyncGenerator[str], parts: list[str] | None = None) -> str:
+    """抽乾子 loop SSE 串流，累積文字 delta（OpenAI／Anthropic 雙形，仿 group.py）。
+
+    呼叫端傳入 ``parts`` 時，逾時或失敗也拿得到已經收到的片段（ADR-0318）。
+    """
+    parts = [] if parts is None else parts
+    async with contextlib.aclosing(stream):
+        async for chunk in stream:
+            if not isinstance(chunk, str) or not chunk.startswith("data: "):
+                continue
+            data_str = chunk[6:].strip()
+            if not data_str or data_str == "[DONE]":
+                continue
+            try:
+                data = json.loads(data_str)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            text_delta = ""
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                text_delta = (choices[0].get("delta") or {}).get("content") or ""
+            elif data.get("type") == "content_block_delta":
+                text_delta = (data.get("delta") or {}).get("text") or ""
+            if text_delta:
+                parts.append(text_delta)
     return "".join(parts).strip()
 
 
@@ -287,7 +327,11 @@ async def _run_subagent(
     model: str | None,
     read_only: bool = False,
 ) -> str:
-    """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出。"""
+    """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出。
+
+    時限包住整段（SubagentStart hook、組裝、模型）。超過時丟 ``SubagentTimeoutError``、模型失敗丟
+    ``SubagentModelError``，兩者都帶著已經收到的文字，SubagentStop hook 也拿到它（ADR-0318）。
+    """
     seq = next(_SUB_SEQ)
     sub_identity = AgentIdentity.for_role(
         agent_id=f"{_SUB_PREFIX}{uuid.uuid4().hex[:8]}__", role="Subagent"
@@ -306,23 +350,36 @@ async def _run_subagent(
         sub_request_id,
     )
 
+    parts: list[str] = []
     reply = ""
+    deadline = asyncio.timeout(_SUB_TIMEOUT_SECONDS)
     try:
-        project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
-        # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
-        has_project = bool(
-            project_id and await resource_manager.get_project_path(project_id, sub_identity)
-        )
-        scope = SubagentScope(project_id, has_project, read_only)
-        request = await _assemble_subagent_request(
-            goal=goal,
-            sub_identity=sub_identity,
-            base_ctx=base_ctx,
-            model=model,
-            scope=scope,
-            parent_label=parent_label,
-        )
-        reply = await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal, scope)
+        async with deadline:
+            project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
+            # 對話的 project_id 可能只是佔位值（心跳建的家是 "default"）：解析得到路徑才算有專案
+            has_project = bool(
+                project_id and await resource_manager.get_project_path(project_id, sub_identity)
+            )
+            scope = SubagentScope(project_id, has_project, read_only)
+            request = await _assemble_subagent_request(
+                goal=goal,
+                sub_identity=sub_identity,
+                base_ctx=base_ctx,
+                model=model,
+                scope=scope,
+                parent_label=parent_label,
+            )
+            reply = await _run_assembled(
+                request, sub_identity, sub_request_id, base_ctx, goal, scope, parts
+            )
+    except TimeoutError as exc:
+        if not deadline.expired():  # 子代理裡別的逾時照原樣往外
+            raise
+        reply = "".join(parts).strip()
+        raise SubagentTimeoutError(reply) from exc
+    except SubagentModelError as exc:
+        reply = exc.partial
+        raise
     finally:
         notify_subagent_stop(base_ctx, sub_identity, reply)
     return reply
@@ -335,8 +392,9 @@ async def _run_assembled(
     base_ctx: Any,
     goal: str,
     scope: SubagentScope,
+    parts: list[str],
 ) -> str:
-    """跑組裝好的子代理請求，回傳最終文字。"""
+    """跑組裝好的子代理請求，回傳最終文字；模型失敗時丟 ``SubagentModelError``。"""
     ctx = _derive_context(base_ctx)
     ctx.session_id = None
     # 執行 ctx 不經 ToolLayer：父代理是無痕就一律 Manual（與組裝一致，ADR-0246）
@@ -360,7 +418,17 @@ async def _run_assembled(
         get_current_epoch(),
         ctx,
     )
-    return await asyncio.wait_for(_drain_text(stream), timeout=_SUB_TIMEOUT_SECONDS)
+    text = await _drain_text(stream, parts)
+    if ctx.get("model_failed"):
+        raise SubagentModelError(ctx.get("model_error_type"), text)
+    return text
+
+
+def _keep_tail(text: str) -> str:
+    """太長時保留結尾：子代理的結論寫在最後（ADR-0318）。"""
+    if len(text) <= _RESULT_SUMMARY_MAX:
+        return text
+    return OMITTED_HEAD_NOTE + text[-_RESULT_SUMMARY_MAX:].lstrip()
 
 
 def _result_from_text(text: str, label: str) -> dict[str, Any]:
@@ -369,9 +437,7 @@ def _result_from_text(text: str, label: str) -> dict[str, Any]:
     傳輸層 status（子 loop 是否跑完）與自我宣稱層 report_status 分開承載。
     """
     report = parse_subagent_report(text)
-    summary = report.summary[:_RESULT_SUMMARY_MAX]
-    if len(report.summary) > _RESULT_SUMMARY_MAX:
-        summary += "\n…（結果過長已截斷）"
+    summary = _keep_tail(report.summary)
     return {
         "task_id": label,
         "status": "DONE",
@@ -385,12 +451,33 @@ def _result_from_text(text: str, label: str) -> dict[str, Any]:
 
 
 def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
-    """子 loop 崩潰的結構化結果 payload（FAILED，攜例外摘要）。"""
+    """子代理沒做完的結構化結果（FAILED）。
+
+    逾時與模型錯誤用固定說法，附上已做到的部分（ADR-0318）；其他例外攜遮罩後的例外摘要。
+    """
+    if isinstance(exc, SubagentTimeoutError):
+        reason = f"逾時：超過約 {_limit_minutes()} 分鐘沒做完，已中止。"
+    elif isinstance(exc, SubagentModelError):
+        reason = f"模型錯誤（{exc.error_type}）：子代理沒有做完。"
+    else:
+        return {
+            "task_id": label,
+            "status": "FAILED",
+            "result_summary": sanitize_error_text(f"{type(exc).__name__}: {exc}"),
+        }
+    partial = _keep_tail(parse_subagent_report(exc.partial).summary)
     return {
         "task_id": label,
         "status": "FAILED",
-        "result_summary": sanitize_error_text(f"{type(exc).__name__}: {exc}"),
+        "result_summary": f"{reason}\n{_PARTIAL_HEADER}\n{partial}" if partial else reason,
     }
+
+
+def _outcome(payload: dict[str, Any]) -> str:
+    """``_OUTCOME_WORDS`` 的鍵：沒跑完或自己回報失敗算 failed，回報 done 才算 done。"""
+    if payload.get("status") != "DONE" or payload.get("report_status") == "failed":
+        return "failed"
+    return "done" if payload.get("report_status") == "done" else "partial"
 
 
 async def _run_and_deliver(
@@ -521,7 +608,7 @@ async def _dispatch_and_wait(
         logger.exception("in-process subagent failed (sync dispatch)")
         payload = _result_from_error(exc, label)
     return tool_errors.build_tool_success(
-        f"子代理（{label}）已結束：{payload['status']}。因為這一輪沒有任務看板工具"
+        f"子代理（{label}）已結束：{_OUTCOME_WORDS[_outcome(payload)]}。因為這一輪沒有任務看板工具"
         "（mission_tools），這次等子代理做完才回。",
         result=payload,
         dispatch_mode="in-process-sync",
@@ -667,11 +754,12 @@ async def dispatch_subagent_group(
         model=(model or "").strip() or None,
         concurrency=_DEFAULT_GROUP_CONCURRENCY,
     )
-    completed = sum(1 for r in results if r.get("status") == "DONE")
-    failed = len(results) - completed
+    counts = Counter(_outcome(r) for r in results)
+    tally = "／".join(f"{counts[key]} {word}" for key, word in _OUTCOME_WORDS.items())
     return tool_errors.build_tool_success(
-        f"並行子代理完成：{completed} 成功／{failed} 失敗（共 {len(results)}）。",
-        completed=completed,
-        failed=failed,
+        f"並行子代理結束：{tally}（共 {len(results)}）。",
+        completed=counts["done"],
+        partial=counts["partial"],
+        failed=counts["failed"],
         results=results,
     )

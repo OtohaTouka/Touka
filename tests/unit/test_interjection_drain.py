@@ -251,7 +251,7 @@ async def test_plain_interjection_leaves_tool_choice_alone(monkeypatch):
 @pytest.mark.parametrize("extra", [
     {"ui_authorized": None},  # 心跳、外部 API：不是 UI 對話
     {"enable_autonomy": True, "ui_authorized": None},
-    {"subagent_run": True, "session_id": None},  # 子代理：繼承 ui_authorized，但沒有 session
+    {"subagent_run": True, "session_id": None},  # 子代理：就算帶著 ui_authorized，也沒有 session
 ], ids=["not-ui", "heartbeat", "subagent"])
 async def test_runs_outside_ui_conversations_never_drain(monkeypatch, extra):
     queue = InMemoryInterjectionQueue()

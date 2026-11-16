@@ -3185,7 +3185,8 @@
       },
       "_drain_text": {
         "parameters": [
-          "stream"
+          "stream",
+          "parts"
         ],
         "kwargs": null,
         "reads": [
@@ -3319,12 +3320,7 @@
           "_ctx"
         ],
         "kwargs": "_kwargs",
-        "reads": [
-          [
-            "r",
-            "status"
-          ]
-        ],
+        "reads": [],
         "dynamic": []
       },
       "SubagentStoppedError.__init__": {
@@ -3342,13 +3338,22 @@
           "sub_request_id",
           "base_ctx",
           "goal",
-          "scope"
+          "scope",
+          "parts"
         ],
         "kwargs": null,
         "reads": [
           [
             "base_ctx",
             "enable_autonomy"
+          ],
+          [
+            "ctx",
+            "model_error_type"
+          ],
+          [
+            "ctx",
+            "model_failed"
           ]
         ],
         "dynamic": []
@@ -3404,6 +3409,56 @@
         ],
         "kwargs": null,
         "reads": [],
+        "dynamic": []
+      },
+      "SubagentTimeoutError.__init__": {
+        "parameters": [
+          "self",
+          "partial"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "SubagentModelError.__init__": {
+        "parameters": [
+          "self",
+          "error_type",
+          "partial"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_limit_minutes": {
+        "parameters": [],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_keep_tail": {
+        "parameters": [
+          "text"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
+      },
+      "_outcome": {
+        "parameters": [
+          "payload"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "payload",
+            "report_status"
+          ],
+          [
+            "payload",
+            "status"
+          ]
+        ],
         "dynamic": []
       }
     },

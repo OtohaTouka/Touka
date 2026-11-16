@@ -1,5 +1,13 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 子代理的結果講清楚（2026-11-16，ADR-0318）
+
+| 事實 | 唯一來源 | 使用者 |
+|---|---|---|
+| 模型失敗的種類（固定名稱，表外的當 `unknown`） | `ToukaProxy/src/handlers/adapters/retry.py` `KNOWN_ERROR_TYPES`（由 `_STATUS_ERROR_TYPES`、`_BODY_ERROR_TYPES` 推導）；這一輪的種類寫在 `ctx.model_error_type`（`react_core.fail_round`） | `subagent_tools.SubagentModelError` |
+| 子代理結果的結局（完成、部分完成或未確認、失敗）與說法 | `tools/subagent_tools.py` `_OUTCOME_WORDS`、`_outcome` | `dispatch_subagent_group`、同步 `dispatch_subagent` |
+| 子代理結果的長度上限與省略標示（保留結尾） | `tools/subagent_tools.py` `_RESULT_SUMMARY_MAX`、`OMITTED_HEAD_NOTE`、`_keep_tail` | 子代理的成功、逾時、模型錯誤結果 |
+
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
 
 | 事實 | 唯一來源 | 使用者 |
@@ -8,7 +16,7 @@
 | 系統區塊的分類：不變、會變、接在訊息尾端（`ALL_BLOCK_TAGS` 每個剛好一組） | `services/prompt_blocks.py` `STABLE_SYSTEM_TAGS`、`VOLATILE_SYSTEM_TAGS`、`REQUEST_TAIL_TAGS` | Claude 快取重排、快照、測試 |
 | 模式、在場與核准的說法 | `prompt_blocks.build_approval_context`（區塊 `APPROVAL_CONTEXT`） | ToolLayer（有列工具就注入） |
 | 看板每格的圖示、狀態字與原因 | `ToukaProxy/src/services/mission_status.py` `TASK_ICONS`、`task_status_parts`、`task_reason` | `<mission_awareness>`（`middleware/layers/context.py`）、`mission_tools` 的 `get_board` |
-| 子代理的時限、外部派工沒接通的說法 | `tools/contracts.py` `SUBAGENT_TIMEOUT_SECONDS`、`EXTERNAL_DISPATCH_NOTE` | `subagent_tools`（執行與派工情境 `_dispatch_situation`）、`mission_tools`（等候訊息、initialize） |
+| 子代理的時限、外部派工沒接通的說法 | `tools/contracts.py` `SUBAGENT_TIMEOUT_SECONDS`、`limit_minutes`（說明用的分鐘數）、`EXTERNAL_DISPATCH_NOTE` | `subagent_tools`（執行與派工情境 `_dispatch_situation`）、`mission_tools`（等候訊息、initialize） |
 | 沒人在場時需要核准的動作交給誰、被擋後的建議 | `utils/presence.py` `no_human_followup`、`blocked_call_suggestion` | `<approval_context>`、`ToolExecutor`、`approval_flow`、`tools/terminal.py` |
 
 ## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
