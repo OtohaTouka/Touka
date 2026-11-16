@@ -16,6 +16,7 @@ import pytest
 from src.models.identity import AgentIdentity
 from src.models.local_bridge import LocalJobResult
 from src.models.safety import AuthPoliciesConfig
+from src.services import approval_flow
 from src.services import tool_executor as executor_module
 from src.services import tool_previews as previews_module
 from src.services.approval_service import approval_service
@@ -171,7 +172,9 @@ def _decided(handler: _Recorder) -> str | None:
 @pytest.mark.asyncio
 async def test_manual_card_shows_the_list_and_counts_as_the_person(bridge: MagicMock) -> None:
     handler = _Recorder()
-    _result, events = await _run("Manual", handler=handler, approve=_ack)
+    result, events = await _run("Manual", handler=handler, approve=_ack)
+    # 小幫手的結果自己寫了誰核准，執行器不再附（ADR-0318）
+    assert approval_flow.APPROVED_BY_PERSON_NOTE not in result
     card = next(e for e in events if e.get("type") == "tool_approval_request")
     assert card["preview"]["text"] == PREVIEW_DATA["text"]
     assert card["preview"]["complete"] is True
@@ -204,7 +207,8 @@ async def test_auto_reviewer_sees_only_the_arguments(
     bridge: MagicMock, reviewed: list[Any]
 ) -> None:
     handler = _Recorder()
-    _result, events = await _run("Auto", handler=handler)
+    result, events = await _run("Auto", handler=handler)
+    assert approval_flow.APPROVED_BY_REVIEWER_NOTE not in result  # 不和小幫手的說明重複
     assert not any(e.get("type") == "tool_approval_request" for e in events)
     assert _decided(handler) == "auto_review"
     # 禁令 64 ③：審查員不看工具輸出，小幫手掃描到的清單不送進去

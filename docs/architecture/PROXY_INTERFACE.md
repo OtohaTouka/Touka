@@ -13,6 +13,7 @@
 - PR 2（2026-11-17）：主代理那段對話被按停止，子代理（同步、背景、一次派多個）跟著停，結果 `status="CANCELLED"`、附已做到的部分；group 回覆多 `cancelled`。停止以整段對話計（較早派出、還在背景跑的也會停）。
 - PR 2：`dispatch_subagent` 的憑證等候逾時不作廢，再等就接著等，拿到結果才移除，超過子代理時限加 30 分鐘才清掉；`POST /v1/internal/dispatch/callback` 拒絕這種站內憑證（401 `AUTH_INVALID_TOKEN`，和沒登記的一樣）。外部派工的憑證照舊。
 - PR 2：`<continuity>` 在有子代理還在跑時多一行「這段對話派出、還在跑的子代理」（標籤經 `safe_ref`，最多 5 個）；沒有就不加。
+- PR 4（2026-11-17）：經過核准才執行的工具，結果多一行「誰核准」（人在核准卡按的，或 Auto 審查員放行）；JSON 結果改加 `approval` 鍵。審查員轉人的理由（單行、中和、最多 300 字）也交給模型。核准被拒時多 `reason=approval_cancelled`（卡片被關或這一輪被停止）；找不到待審算取消、不算拒絕；這一輪被停止時待審的卡收成已取消，`tool_approval_resolved` 的 `decision` 是 `cancelled`。
 
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
 

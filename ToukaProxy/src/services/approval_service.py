@@ -162,8 +162,8 @@ class ApprovalService:
     ) -> ApprovalResolution:
         """等待結構化 interaction；逾時 fail-closed，取消會清除 pending。"""
         pending = self._pending.get(exec_id)
-        if pending is None:
-            return ApprovalResolution(decision="declined")
+        if pending is None:  # 已經收掉或從沒登記：不執行，但不是使用者拒絕（ADR-0318）
+            return ApprovalResolution(decision="cancelled")
         try:
             await asyncio.wait_for(
                 pending.event.wait(),

@@ -1638,6 +1638,7 @@
       "decision": {
         "approved": "Approved",
         "rejected": "Rejected",
+        "cancelled": "Cancelled before anyone decided",
         "timeout": "Timed out — auto-rejected",
         "isolation_unacknowledged": "Not approved: the approval didn't confirm the isolation shown on the card",
         "isolation_incomplete": "Can't be approved: it would run unisolated and the card can't show everything it would run"

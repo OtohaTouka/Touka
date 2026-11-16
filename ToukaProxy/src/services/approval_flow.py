@@ -12,9 +12,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from src.core.exceptions import ErrorCode
 from src.services import tool_errors
@@ -23,12 +25,14 @@ from src.services.approval_service import (
     DEFAULT_TIMEOUT_S,
     approval_service,
 )
+from src.services.hooks.events import neutralize_hook_text
 from src.services.hooks.notifications import notify_approval_card
 from src.services.isolation.consent import ConsentKey, consent_ledger, consent_subject
 from src.services.isolation.policy import policy_level
 from src.services.isolation.profiles import authorize_derived_path, current_layout
 from src.services.isolation.status import isolation_monitor
 from src.utils.isolation_policy import ISOLATION_UNWIRED_TOOLS, RUNNER_NOT_WIRED, VERIFY_ACTION
+from src.utils.model_text import single_line
 from src.utils.tool_events import (
     ToolCallEvent,
     tool_approval_request_event,
@@ -219,10 +223,63 @@ def approval_args_preview(args: dict[str, Any], *, unisolated: bool = False) -> 
     return preview
 
 
-def approval_denied_error(name: str, verdict: str) -> str:
-    """審批未通過的模型面結構化錯誤（verdict ∈ rejected/timeout/queue_full/isolation_*）。"""
+# 經過核准才執行的工具，結果後面附一行說是誰放行的（ADR-0318 決定 10）；給模型看的固定文字
+APPROVED_BY_PERSON_NOTE: Final = (
+    "[Approval: a person approved this call on the approval card in the chat.]"
+)
+APPROVED_BY_REVIEWER_NOTE: Final = (
+    "[Approval: the Auto reviewer approved this call; no person approved it.]"
+)
+# 審查員轉人時的理由是模型寫的：單行、中和、有上限才交給主代理。審查員解析時已截過一次
+# （``auto_reviewer.REASON_MAX_CHARS``），中和會讓字變多，這裡在中和之後再截一次
+MAX_REVIEW_REASON_CHARS: Final = 300
+# 這一輪被停止時，還在等人的卡多久看一次（ADR-0318 決定 11）
+APPROVAL_STOP_CHECK_SECONDS: Final = 0.5
+STOPPED_RESOLVER: Final = "touka:turn-stopped"
+
+
+def escalation_note(reason: str | None) -> str | None:
+    """審查員把這個動作轉給人的理由；沒有理由時是 None。"""
+    if not reason:
+        return None
+    text = single_line(neutralize_hook_text(reason))[:MAX_REVIEW_REASON_CHARS]
+    return f"[The Auto reviewer asked a person to decide because: {text}]"
+
+
+def approval_note(*, person: bool, reviewer: bool, review_reason: str | None) -> str:
+    """誰放行的；人按的優先，人看過時另附審查員轉人的理由。都沒有時是空字串。"""
+    if person:
+        escalation = escalation_note(review_reason)
+        return APPROVED_BY_PERSON_NOTE + (f"\n{escalation}" if escalation else "")
+    return APPROVED_BY_REVIEWER_NOTE if reviewer else ""
+
+
+def with_approval_note(result_text: str, note: str) -> str:
+    """接在工具結果後面；結構化 JSON 結果改加 ``approval`` 鍵（和 hook 輸出同樣做法）。"""
+    if not note:
+        return result_text
+    if tool_errors.is_structured_payload(result_text):
+        try:
+            data = json.loads(result_text)
+        except (ValueError, RecursionError):
+            data = None
+        if isinstance(data, dict) and "approval" not in data:  # 已經有這個鍵就不覆蓋
+            data["approval"] = note
+            return json.dumps(data, ensure_ascii=False)
+    return f"{result_text}\n\n{note}"
+
+
+def approval_denied_error(name: str, verdict: str, review_reason: str | None = None) -> str:
+    """審批未通過的模型面結構化錯誤（verdict ∈ rejected/cancelled/timeout/queue_full/isolation_*）。
+
+    審查員轉人時附上它的理由（ADR-0318）。
+    """
     detail = {
         "rejected": "The user rejected this tool call.",
+        "cancelled": (
+            "The approval was cancelled before anyone decided (the card was closed or the turn "
+            "was stopped)."
+        ),
         "timeout": "The approval request timed out with no human decision.",
         "queue_full": "The approval queue is full; the call was auto-rejected.",
         ISOLATION_UNACKNOWLEDGED: (
@@ -235,6 +292,9 @@ def approval_denied_error(name: str, verdict: str) -> str:
             "be approved."
         ),
     }.get(verdict, "Approval was not granted.")
+    escalation = escalation_note(review_reason)
+    if escalation:
+        detail = f"{detail} {escalation}"
     return tool_errors.build_tool_error(
         tool_errors.PERMISSION_DENIED,
         f"Tool '{name}' was not approved: {detail}",
@@ -308,13 +368,15 @@ async def await_human_approval(
     on_card_shown: Callable[[], None] | None = None,
     tool_preview: ToolPreview | None = None,
     on_resolved: Callable[[ApprovalResolution], None] | None = None,
+    stopped: Callable[[], bool] | None = None,
 ) -> str:
-    """回 "approved"|"rejected"|"timeout"|"queue_full"。
+    """回 "approved"|"rejected"|"cancelled"|"timeout"|"queue_full"。
 
     先登記後推卡（避免極速 approve 撞 404）；解算事件一律回推（含逾時），卡片狀態可收斂。
     卡上帶 Auto 審查員轉人的理由與「只有人能核准」標記（有值才帶，ADR-0246）；hook 要求人核准時
     另帶 hook 的理由（可為空字串，ADR-0292）。有預覽時卡上帶小幫手掃描到的清單，解算結果交給
-    ``on_resolved``，由執行器判斷是不是配對的人看過整份清單才按的（ADR-0317）。
+    ``on_resolved``，由執行器判斷是不是配對的人看過整份清單才按的（ADR-0317）。``stopped``
+    說這一輪被停止了時，還在等的卡收成「已取消」（ADR-0318）。
     """
     exec_id = f"appr_{uuid.uuid4().hex[:10]}"
     key = ConsentKey(agent_id, session_id or "", call_id)
@@ -354,7 +416,7 @@ async def await_human_approval(
         on_card_shown()
     await emit({"type": "touka_status", "status": f"awaiting_approval: {name}"})
 
-    resolution = await approval_service.wait_for_resolution(exec_id)
+    resolution = await _resolution_unless_stopped(exec_id, stopped)
     if on_resolved is not None:
         on_resolved(resolution)
     verdict = APPROVAL_VERDICTS[resolution.decision]
@@ -364,6 +426,26 @@ async def await_human_approval(
         tool_approval_resolved_event(exec_id=exec_id, call_id=call_id, tool=name, decision=verdict)
     )
     return verdict
+
+
+async def _resolution_unless_stopped(
+    exec_id: str, stopped: Callable[[], bool] | None
+) -> ApprovalResolution:
+    """等人決定；這一輪被停止時把卡收成「已取消」，不再空等到逾時。"""
+    if stopped is None:
+        return await approval_service.wait_for_resolution(exec_id)
+    waiter = asyncio.create_task(approval_service.wait_for_resolution(exec_id))
+    try:
+        while not waiter.done():
+            await asyncio.wait({waiter}, timeout=APPROVAL_STOP_CHECK_SECONDS)
+            if not waiter.done() and stopped():
+                await approval_service.resolve(
+                    exec_id, resolver=STOPPED_RESOLVER, decision="cancelled"
+                )
+        return waiter.result()
+    finally:
+        if not waiter.done():
+            waiter.cancel()
 
 
 class CommandApprover:

@@ -1,11 +1,11 @@
 # ADR-0318：停止、逾時、失敗講清楚（可視性第二批）
 
-- 狀態：🚧 實作中（PR 1：子代理的結果，2026-11-16；PR 2：子代理跟著停止、等結果的憑證，2026-11-17；PR 3：上一輪的標記，2026-11-17）。一頁計畫由維護者核准（2026-11-16）。PR 2～4（子代理跟著停止與等結果的憑證、上一輪的標記、核准的說法）合併時補記在本檔。
+- 狀態：✅ 已實作（PR 1：子代理的結果，2026-11-16；PR 2：子代理跟著停止、等結果的憑證，2026-11-17；PR 3：上一輪的標記，2026-11-17；PR 4：核准的說法，2026-11-17）。一頁計畫由維護者核准（2026-11-16）。
 - 日期：2026-11-16
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（in-process 子代理）、[ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（回報塊）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（第一批：派工情境、同步派工）、[ADR-0248](0248-model-layer-stage-3b.md)（主迴圈的失敗與重試）
 - 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界①②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`；`generationFailed` 會送給模型）、[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（決定 6：空回覆加了記號不再合併）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（心跳的 `crashed`、`heartbeat_skipped`）
-- 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`；PR 2：`services/subagent_registry.py`（新）、`tools/subagent_tools.py`、`handlers/react_core.py`、`services/dispatch_callback_store.py`、`routers/dispatch_callback.py`、`tools/mission_tools.py`、`services/continuity_service.py`；PR 3：`utils/interjection_notes.py`、`services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`routers/heartbeat.py`、`main.py`，前端 `ToukaChat/src/lib/chat/turnNotes.ts`（新）、`chat/buildApiMessage.ts`、`stream_tree.ts`、`tree_history.ts`、`providers/StreamRegistryProvider.tsx`
+- 影響範圍：PR 1：`ToukaProxy/src/tools/subagent_tools.py`、`handlers/react_core.py`、`handlers/adapters/retry.py`、`models/context.py`、`services/hooks/lifecycle.py`；PR 2：`services/subagent_registry.py`（新）、`tools/subagent_tools.py`、`handlers/react_core.py`、`services/dispatch_callback_store.py`、`routers/dispatch_callback.py`、`tools/mission_tools.py`、`services/continuity_service.py`；PR 3：`utils/interjection_notes.py`、`services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`routers/heartbeat.py`、`main.py`，前端 `ToukaChat/src/lib/chat/turnNotes.ts`（新）、`chat/buildApiMessage.ts`、`stream_tree.ts`、`tree_history.ts`、`providers/StreamRegistryProvider.tsx`；PR 4：`services/approval_flow.py`、`services/approval_service.py`、`services/tool_executor.py`
 
 ## 背景
 
@@ -85,9 +85,23 @@
 - 模型錯誤：結束原因 `model_error` 另記 `error`，只用 `retry.KNOWN_ERROR_TYPES`，表外的記 `unknown`。脈衝共用 ctx，每個脈衝前把 `model_error_type` 和 `model_failed` 一起清掉。
 - `<continuity>` 的自主執行那一行改看最新一筆（結束或被擋）：被擋寫「not started, refused since …; reason …」；當機寫開始與重啟時發現的時間；模型錯誤後面加種類。
 
+## 決定（PR 4）
+
+### 10. 結果寫明是誰核准的
+
+- 經過核准才執行的工具，結果加一行固定說明：人在聊天的核准卡按的（`APPROVED_BY_PERSON_NOTE`），或 Auto 審查員放行、沒有人核准（`APPROVED_BY_REVIEWER_NOTE`）。結構化 JSON 結果改加 `approval` 鍵，和 hook 輸出同樣做法，不破壞 JSON；其他接在最後一行。工具跑了卻失敗或丟例外時也附（核准照樣發生過）；核准後在參數驗證（`validate_native_arguments`、`missing_required_error`）就被擋下的不附；核准後才被其他檢查擋下（MCP 參數超過上限、MCP 清單不允許、找不到工具）的照樣附，人確實核准過。上游結果已經有 `approval` 鍵時不覆蓋，改接在最後一行。
+- 沒經過核准的不附：YOLO 或政策直接放行的不算核准路徑。解算的人是誰（`ApprovalResolution.resolver_id`）不寫進模型看到的文字。
+- 小幫手 `local_files` 的 propose 成功時結果自己寫了誰核准（`propose_result_note`，ADR-0317），執行器不再附誰核准，人核准時只補審查員轉人的理由；小幫手離線、逾時或出錯時結果沒有這段，照一般附。
+- 審查員把動作轉給人時，它的理由（模型寫的）經 `neutralize_hook_text`、單行、最多 300 字（`MAX_REVIEW_REASON_CHARS`）後也交給主代理：人核准時接在說明後面，被拒絕、取消或逾時時接在錯誤說明裡。以前理由只在卡片上。
+
+### 11. 取消、拒絕、逾時分開說
+
+- `approval_denied_error` 多「被取消」：卡片被關掉或這一輪被停止，沒有人決定（`reason=approval_cancelled`）；以前掉到「Approval was not granted.」。
+- `wait_for_resolution` 找不到待審時回 `cancelled`，不再當成使用者拒絕；照樣不執行。
+- 這一輪被停止時，還在等人的核准卡每 0.5 秒（`APPROVAL_STOP_CHECK_SECONDS`）看一次停止，被停就收成「已取消」（解算者記 `touka:turn-stopped`），解算事件照常送出、卡片收斂；以前卡片沒有結果，工具空等 180 秒逾時。畫面的核准卡顯示「已取消，沒有人決定」。按停止收掉的卡（看解算者是不是 `touka:turn-stopped`）不發 PermissionDenied hook（ADR-0292：使用者按停止不算被拒）；卡片被關（`/v1/tools/cancel`）照舊發 `approval_cancelled`。互審驗證指令（`CommandApprover`）不在這次範圍，照舊。
+
 ## 不做
 
-- 核准的說法：PR 4。
 - 真模型評估（`tests/tool_eval/live_episode.py` 也用 `parse_subagent_report`）不動，禁令 61。
 
 ## 後果
@@ -97,6 +111,8 @@
 - 子代理的模型失敗不再串出廠商原文；網頁上的人類看得到的失敗說明不變（那是主代理那一輪的事）。
 
 ## 驗證
+
+PR 4：`tests/unit/test_approval_wording.py`：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵、文字結果接最後一行；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消、工具不執行、不發 PermissionDenied，卡片被關照舊發；工具核准後丟例外照樣附；上游已有 `approval` 鍵不覆蓋；propose 成功只補審查員理由、失敗照一般附；YOLO 不附；工具呼叫被取消不留待審卡；`ToolApprovalCard.test.tsx`：卡片顯示已取消；`test_local_files_mode_approval.py`：propose 不重複寫誰核准；`test_hook_wiring_security.py` 跟著改成看 `approval` 鍵。
 
 PR 3：`tests/unit/test_previous_turn_marks.py`：記號和前端常數相同、停止與出錯都加、停止優先、只認 `true`、在插話標註之前、空回覆加了記號不再合併、回合數不變、家原文帶記號；`test_continuity_event_hooks.py`：模型錯誤只記白名單裡的種類、脈衝之間清掉種類、當機記一次且不改已記的結束、可信紀錄起點以前的不記、入口被擋連續同一原因只記一次；`test_continuity_block.py`：接續行寫出當機、被擋、模型錯誤的種類，原因只認列舉；`test_brain_not_set_group_heartbeat.py`：沒設大腦、擁有者登入過期都在入口記一筆；前端 `buildApiMessage.test.ts`、`stream_tree.generationFailed.test.ts`、`StreamRegistryProvider.persistence.test.tsx`：組歷史加記號、後端說取消與自己中止都標停止、網路錯誤不標。
 
