@@ -1,4 +1,4 @@
-"""小幫手的固定動作（ADR-0312）。這裡沒有執行程式的能力，動作只有這幾個。"""
+"""小幫手的固定動作（ADR-0312、ADR-0317）。這裡沒有執行程式的能力，動作只有這幾個。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 from touka_local.errors import Refused
+from touka_local.floors import (
+    HOUR_SECONDS,
+    VACATED_SECONDS,
+    History,
+    ModeBatch,
+    is_vacated,
+    plan_entries,
+    vacated_key,
+)
 from touka_local.fsops import (
     TEMPORARY_SUFFIX,
     durable_write_text,
@@ -56,7 +65,14 @@ MAX_PROPOSE_ITEMS: Final = 200
 MAX_REASON_CHARS: Final = 300
 MAX_TREE_ENTRIES: Final = 20_000
 UNUSUAL_FOLDER_ENTRIES: Final = 100
+# 在小幫手視窗核准的批，超過 7 天後只留最新這麼多批
 MAX_JOURNALS: Final = 50
+# 照 Touka 的模式做掉的批留 30 天，不會因為數量被擠掉；所有批至少留 7 天（7 天檢查要用）
+JOURNAL_KEEP_SECONDS: Final = 30 * 24 * 3600.0
+# 7 天檢查要看的狀態：還沒做完、失敗（可能只刪了一部分）也算被清空
+# aborted：永久刪除做到一半被取消時，可能已經刪掉一部分
+_VACATING_STATUSES: Final = frozenset({"pending", "failed", "done", "aborted"})
+_VACATING_OPS: Final = frozenset({"move", "delete"})
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +115,9 @@ class PlanItem:
     unusual: tuple[str, ...]
     mtime_ns: int
     snapshot: tuple[tuple[str, bool, int, int], ...]
+    # 所在的開放資料夾（完整路徑），跨資料夾搬移要人按（ADR-0317）
+    source_root: str = ""
+    destination_root: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,6 +193,12 @@ class Operations:
         self._wall_clock = wall_clock
         # Windows 上別的執行緒開著檔案時刪不掉，視窗在讀紀錄時批次不能換檔
         self._journal_lock = threading.Lock()
+        # 沒變的紀錄檔不重讀：檔名 → (mtime_ns, 大小, 內容)
+        self._journal_cache: dict[str, tuple[int, int, dict[str, Any]]] = {}
+
+    def wall_time(self) -> float:
+        """紀錄用的系統時間（底線比對紀錄時用同一個時鐘）。"""
+        return self._wall_clock()
 
     # --- 路徑 ---
 
@@ -316,6 +341,7 @@ class Operations:
         with _about(path):
             target = self._locate_writable(path)
             check_new_segments(target.parts)
+            self._check_not_vacated(target.full)
             if self._walk(target, allow_missing=True) is not None:
                 raise Refused("exists")
             try:
@@ -336,6 +362,7 @@ class Operations:
             target = self._locate_writable(path)
             check_created_file_name(target.parts[-1])
             check_new_segments(target.parts)
+            self._check_not_vacated(target.full)
             if self._walk(target, allow_missing=True) is not None:
                 raise Refused("exists")
             try:
@@ -347,6 +374,14 @@ class Operations:
             except FileExistsError as exc:
                 raise Refused("exists") from exc
             return {"created": target.text}
+
+    def _check_not_vacated(self, full: str) -> None:
+        """7 天內被搬走或刪掉的位置不能新建，避免悄悄換掉內容；紀錄讀不懂時也不建。"""
+        history = self.history(self._wall_clock())
+        if not history.readable:
+            raise Refused("journal_unreadable")
+        if is_vacated(full, history.vacated):
+            raise Refused("recently_vacated")
 
     # --- 清單 ---
 
@@ -386,6 +421,8 @@ class Operations:
             unusual=self._marks(source.parts[-1], info, tree),
             mtime_ns=info.mtime_ns,
             snapshot=tree.entries,
+            source_root=source.grant.path,
+            destination_root=destination.grant.path if destination else None,
         )
 
     def _plan_destination(self, raw: dict[str, Any], source: _Target) -> _Target:
@@ -471,14 +508,15 @@ class Operations:
 
     # --- 執行 ---
 
-    def apply(self, plan: Plan, limits: ApplyLimits) -> dict[str, Any]:
+    def apply(self, plan: Plan, limits: ApplyLimits, *, by_mode: bool = False) -> dict[str, Any]:
         """照核准的清單做，每項做之前重新確認；有變動的跳過。
 
-        紀錄寫不進去就不再往下做：沒有紀錄的搬移沒辦法復原。
+        紀錄寫不進去就不再往下做：沒有紀錄的搬移沒辦法復原。``by_mode`` 是小幫手自己
+        判斷的「照 Touka 的模式做、沒跳視窗」，一小時總量只看它。
         """
         if _digest(plan.items, plan.reason) != plan.digest:
             raise Refused("changed")
-        journal = self._new_journal(plan)
+        journal = self._new_journal(plan, by_mode=by_mode)
         self._write_journal(journal)
         try:
             self._prune_journals()
@@ -545,11 +583,13 @@ class Operations:
 
     # --- 紀錄與復原 ---
 
-    def _new_journal(self, plan: Plan) -> dict[str, Any]:
+    def _new_journal(self, plan: Plan, *, by_mode: bool) -> dict[str, Any]:
         return {
             "batch": secrets.token_hex(16),
             "sequence": self._next_sequence(),
             "created_at": self._wall_clock(),
+            "by_mode": by_mode,
+            "entry_total": plan_entries(plan),
             "reason": plan.reason,
             "entries": [
                 {
@@ -577,8 +617,12 @@ class Operations:
             durable_write_text(self._journal_path(journal["batch"]), text)
 
     def _all_journals(self) -> list[dict[str, Any]]:
+        return self._scan_journals()[0]
+
+    def _scan_journals(self) -> tuple[list[dict[str, Any]], list[str]]:
+        """所有讀得懂的紀錄（新的在前），以及讀不懂的紀錄檔。"""
         if not self._journal_dir.is_dir():
-            return []
+            return [], []
         # 當機在刪舊檔和改名之間時，只剩暫存檔
         batches = {
             path.name.split(".", 1)[0]
@@ -586,16 +630,84 @@ class Operations:
             if path.name.endswith((_JOURNAL_SUFFIX, f"{_JOURNAL_SUFFIX}{TEMPORARY_SUFFIX}"))
         }
         journals: list[dict[str, Any]] = []
-        for batch in batches:
-            journal = self._read_journal(self._journal_path(batch))
-            if journal is not None:
+        unreadable: list[str] = []
+        for batch in sorted(batches):
+            path = self._journal_path(batch)
+            journal = self._read_journal(path)
+            if journal is None:
+                unreadable.append(str(path))
+            else:
                 journals.append(journal)
-        return sorted(journals, key=lambda journal: journal["sequence"], reverse=True)
+        journals.sort(key=lambda journal: journal["sequence"], reverse=True)
+        return journals, unreadable
+
+    def history(self, now: float) -> History:
+        """底線要看的紀錄：最近一小時照模式做掉的批、7 天內被清空的位置。
+
+        時間在未來的紀錄也算（時鐘被往回調不能歸零）；讀不懂的紀錄讓底線一律跳視窗。
+        """
+        try:
+            journals, unreadable = self._scan_journals()
+        except OSError:
+            return History(readable=False)
+        batches: list[ModeBatch] = []
+        vacated: list[tuple[str, ...]] = []
+        for journal in journals:
+            at = journal.get("created_at")
+            path = str(self._journal_path(journal["batch"]))
+            if type(at) not in (int, float):
+                unreadable.append(path)
+                continue
+            entries = journal["entries"]
+            if journal.get("by_mode") is True and at >= now - HOUR_SECONDS:
+                total = journal.get("entry_total")
+                batches.append(
+                    ModeBatch(
+                        at=at,
+                        items=len(entries),
+                        entries=total if type(total) is int and total >= 0 else len(entries),
+                    )
+                )
+            if at < now - VACATED_SECONDS:
+                continue
+            for entry in entries:
+                if entry.get("op") not in _VACATING_OPS:
+                    continue
+                source = entry.get("source")
+                if not isinstance(source, str):
+                    unreadable.append(path)
+                elif entry.get("status") in _VACATING_STATUSES:
+                    vacated.append(vacated_key(source))
+        return History(
+            mode_batches=tuple(batches),
+            vacated=tuple(vacated),
+            readable=not unreadable,
+            unreadable=tuple(dict.fromkeys(unreadable)),
+        )
 
     def _read_journal(self, path: Path) -> dict[str, Any] | None:
         try:
-            with self._journal_lock:
-                text = read_durable_text(path)
+            stat = path.stat()
+        except OSError:
+            stat = None
+        # 只省下讀檔；每次都重新解析，呼叫端改了內容也不會汙染快取
+        cached = self._journal_cache.get(path.name)
+        try:
+            if (
+                stat is not None
+                and cached is not None
+                and cached[:2]
+                == (
+                    stat.st_mtime_ns,
+                    stat.st_size,
+                )
+            ):
+                text = cached[2]
+            else:
+                with self._journal_lock:
+                    text = read_durable_text(path)
+                if stat is not None:
+                    self._journal_cache[path.name] = (stat.st_mtime_ns, stat.st_size, text)
             journal = json.loads(text)
         except (OSError, ValueError):
             return None
@@ -614,9 +726,29 @@ class Operations:
         journals = self._all_journals()
         return journals[0]["sequence"] + 1 if journals else 1
 
+    def _keep_journal(self, journal: dict[str, Any], now: float, window_rank: int) -> bool:
+        """超過 30 天就刪；照模式的批留滿 30 天；視窗核准的批 7 天內都留，之後只留最新 50 批。"""
+        at = journal.get("created_at")
+        if type(at) not in (int, float):
+            return window_rank < MAX_JOURNALS
+        age = now - at
+        if age > JOURNAL_KEEP_SECONDS:
+            return False
+        if journal.get("by_mode") is True or age <= VACATED_SECONDS:
+            return True
+        return window_rank < MAX_JOURNALS
+
     def _prune_journals(self) -> None:
-        for journal in self._all_journals()[MAX_JOURNALS:]:
+        now = self._wall_clock()
+        window_rank = 0
+        for journal in self._all_journals():
+            keep = self._keep_journal(journal, now, window_rank)
+            if journal.get("by_mode") is not True:
+                window_rank += 1
+            if keep:
+                continue
             path = self._journal_path(journal["batch"])
+            self._journal_cache.pop(path.name, None)
             with self._journal_lock:
                 for file in (path, temporary_path(path), previous_path(path)):
                     file.unlink(missing_ok=True)

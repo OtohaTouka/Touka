@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 import pytest
-from src.models.local_bridge import LocalJobResult
+from src.models.local_bridge import LocalDecision, LocalJobResult
 from src.services import local_bridge as module
 from src.services.local_bridge import LocalBridge, host_mount_roots
 
@@ -498,3 +498,63 @@ def test_every_configurable_compose_mount_is_reported() -> None:
         "MEMORY_SYSTEM_SRC_DIR",
         "HEARTBEAT_CONFIG_DIR",
     }
+
+
+# --- 預覽與照模式的決定（ADR-0317）---
+
+
+def _decision_for(job_id: str) -> LocalDecision:
+    return LocalDecision(
+        nonce="n" * 22,
+        digest="a" * 64,
+        shown="b" * 64,
+        decided_by="yolo",
+        signature=(job_id.encode().hex() * 64)[:64],
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_decision_is_signed_for_the_job_that_carries_it(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    seen: list[str] = []
+
+    def signer(job_id: str) -> LocalDecision:
+        seen.append(job_id)
+        return _decision_for(job_id)
+
+    task = asyncio.create_task(bridge.submit("propose", {"items": []}, "Soul", signer=signer))
+    await asyncio.sleep(0)
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    assert seen == [response.job.id]
+    assert response.job.decision == _decision_for(response.job.id)
+    task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_jobs_without_a_signer_carry_no_decision(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "propose")
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    assert response.job.decision is None
+    task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_a_preview_gets_the_longer_scan_time(bridge: LocalBridge, clock: Clock) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "preview")
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    assert response.job.decide_within == module.PREVIEW_WAIT_SECONDS
+    await _advance_online(bridge, clock, module.READ_WAIT_SECONDS + 1)
+    assert not task.done()
+    await _advance_online(bridge, clock, module.PREVIEW_WAIT_SECONDS)
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_TIMED_OUT)
+
+
+def test_preview_fits_inside_the_one_time_number_lifetime() -> None:
+    # 預覽、卡片、審查員都要在小幫手記得那個號碼的時間內做完
+    assert module.PREVIEW_WAIT_SECONDS < 540

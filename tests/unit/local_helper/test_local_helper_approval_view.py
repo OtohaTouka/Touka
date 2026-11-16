@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from touka_local import floors
 from touka_local.approval import (
     APPROVE_DELAY_SECONDS,
     MAX_DECISION_SECONDS,
@@ -24,10 +25,14 @@ from touka_local.view import (
     display_safe,
     full_paths_text,
     human_size,
+    mode_status_text,
+    pairing_saved_text,
     refusal_text,
     report_text,
     requester_text,
     row_values,
+    unreadable_records_text,
+    window_reason_text,
 )
 
 
@@ -267,6 +272,9 @@ def test_human_size(size: int, text: str) -> None:
         "changed",
         "no_pending",
         "busy",
+        "not_supported",
+        "recently_vacated",
+        "journal_unreadable",
     ],
 )
 def test_refusal_text_is_human(code: str) -> None:
@@ -393,3 +401,57 @@ def test_every_item_is_listed_with_its_full_path() -> None:
 def test_secret_mark_has_words() -> None:
     plan = _ViewPlan(items=(_Item("delete", "Open/a.pem", unusual=("secret",)),))
     assert approval_rows(plan)[0].marks == "金鑰或密碼檔"
+
+
+# --- 照 Touka 的模式核准（ADR-0317） ---
+
+_FLOOR_REASONS = (
+    floors.REASON_JOURNAL_UNREADABLE,
+    floors.REASON_TOO_MANY_ITEMS,
+    floors.REASON_TOO_MANY_ENTRIES,
+    floors.REASON_MARKED,
+    floors.REASON_HOURLY_LIMIT,
+    floors.REASON_CROSS_FOLDER,
+    floors.REASON_RECENTLY_VACATED,
+)
+
+
+@pytest.mark.parametrize("reason", _FLOOR_REASONS)
+def test_each_floor_tells_the_person_why_the_window_opened(reason: str) -> None:
+    text = window_reason_text(reason)
+    assert text
+    assert text != window_reason_text("something_unknown")
+
+
+@pytest.mark.parametrize("reason", ["", floors.REASON_NO_DECISION, floors.REASON_NOT_FOLLOWING])
+def test_an_ordinary_window_says_nothing_extra(reason: str) -> None:
+    assert window_reason_text(reason) is None
+
+
+def test_the_floor_numbers_come_from_the_floors() -> None:
+    assert str(floors.MAX_MODE_ITEMS) in window_reason_text(floors.REASON_TOO_MANY_ITEMS)
+    assert str(floors.MAX_MODE_ENTRIES) in window_reason_text(floors.REASON_TOO_MANY_ENTRIES)
+    hourly = window_reason_text(floors.REASON_HOURLY_LIMIT)
+    for number in (
+        floors.HOURLY_MODE_BATCHES,
+        floors.HOURLY_MODE_ITEMS,
+        floors.HOURLY_MODE_ENTRIES,
+    ):
+        assert str(number) in hourly
+    assert "重新計算" in hourly
+
+
+def test_an_old_pairing_code_asks_for_a_new_one() -> None:
+    assert "重新產生配對碼" in mode_status_text(paired=True, has_key=False)
+    assert mode_status_text(paired=True, has_key=True) is None
+    assert mode_status_text(paired=False, has_key=False) is None
+    assert "重新產生配對碼" in pairing_saved_text(has_key=False)
+    assert "重新產生配對碼" not in pairing_saved_text(has_key=True)
+
+
+def test_unreadable_records_name_the_files() -> None:
+    first, second = "C:\\h\\journal\\a.json", "C:\\h\\journal\\b.json"
+    text = unreadable_records_text((first, second))
+    assert first in text and second in text
+    assert "移" in text
+    assert unreadable_records_text(())

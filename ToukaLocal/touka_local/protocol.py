@@ -12,17 +12,29 @@ import re
 from dataclasses import dataclass
 from typing import Any, Final
 
-PROTOCOL_VERSION: Final = 1
+PROTOCOL_VERSION: Final = 2
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_CODE_CHARS: Final = 64
 MAX_REQUESTER_CHARS: Final = 128
 
-ACTIONS: Final = ("list", "read", "create_folder", "create_file", "propose")
+ACTIONS: Final = (
+    "list",
+    "read",
+    "create_folder",
+    "create_file",
+    "propose",
+    "preview",
+    "request_open",
+)
 RESULT_STATUSES: Final = ("ok", "refused", "error")
 POLL_REQUEST_FIELDS: Final = frozenset({"protocol", "helper_version"})
 POLL_RESPONSE_FIELDS: Final = frozenset({"job", "cancelled", "host_mount_roots"})
-JOB_FIELDS: Final = frozenset({"id", "action", "args", "requester", "decide_within"})
+JOB_FIELDS: Final = frozenset({"id", "action", "args", "requester", "decide_within", "decision"})
+DECISION_FIELDS: Final = frozenset({"nonce", "digest", "shown", "decided_by", "signature"})
+# Touka 只能簽這三種；在小幫手視窗按的由小幫手自己記
+DECIDED_BY_MODES: Final = ("user_card", "auto_review", "yolo")
+DECIDED_BY_HELPER_WINDOW: Final = "helper_window"
 RESULT_FIELDS: Final = frozenset({"status", "code", "message", "data"})
 
 JOB_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -33,14 +45,29 @@ class ProtocolError(Exception):
 
 
 @dataclass(frozen=True)
+class Decision:
+    """Touka 照模式做的決定和它蓋的章。格式不對時各欄是空字串，核對一定不過。"""
+
+    nonce: str
+    digest: str
+    shown: str
+    decided_by: str
+    signature: str
+
+
+_UNUSABLE_DECISION: Final = Decision("", "", "", "", "")
+
+
+@dataclass(frozen=True)
 class Job:
-    """一件工作。"""
+    """一件工作。``decision`` 只有照模式決定的搬移、刪除清單才有。"""
 
     id: str
     action: str
     args: dict[str, Any]
     requester: str
     decide_within: float
+    decision: Decision | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +83,25 @@ def _text_list(value: object) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ProtocolError
     return tuple(value)
+
+
+def _parse_decision(value: object) -> Decision | None:
+    """沒有決定是 None；有但格式不對時當作蓋錯章，小幫手會改跳視窗。"""
+    if value is None:
+        return None
+    if (
+        not isinstance(value, dict)
+        or set(value) != DECISION_FIELDS
+        or not all(isinstance(item, str) for item in value.values())
+    ):
+        return _UNUSABLE_DECISION
+    return Decision(
+        nonce=value["nonce"],
+        digest=value["digest"],
+        shown=value["shown"],
+        decided_by=value["decided_by"],
+        signature=value["signature"],
+    )
 
 
 def _parse_job(value: object) -> Job:
@@ -75,7 +121,14 @@ def _parse_job(value: object) -> Job:
         or decide_within <= 0
     ):
         raise ProtocolError
-    return Job(job_id, action, args, requester[:MAX_REQUESTER_CHARS], float(decide_within))
+    return Job(
+        job_id,
+        action,
+        args,
+        requester[:MAX_REQUESTER_CHARS],
+        float(decide_within),
+        _parse_decision(value["decision"]),
+    )
 
 
 def parse_poll_response(payload: object) -> PollResponse:

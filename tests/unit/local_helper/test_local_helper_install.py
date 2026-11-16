@@ -383,3 +383,32 @@ def test_environment_knows_where_python_is(monkeypatch: pytest.MonkeyPatch) -> N
         "E:\\Base",
         f"C:\\Users\\Me\\Desktop\\{installer._LAUNCHER_NAME}",
     )
+
+
+# --- 照 Touka 的模式核准的三個小檔（ADR-0317） ---
+
+
+def test_install_never_turns_the_switch_on() -> None:
+    """鑰匙放在 Touka 的資料夾，照模式核准要使用者在小幫手視窗自己打開（ADR-0317）。"""
+    source = Path(installer.__file__).read_text(encoding="utf-8")
+    assert settings_module.MODE_FOLLOWING_FILE not in source
+    assert not hasattr(installer, "ensure_mode_following")
+
+
+def test_reinstall_leaves_the_key_switch_and_reset_alone(tmp_path: Path) -> None:
+    helper = tmp_path / "ToukaLocal"
+    key_file = helper / settings_module.DECISION_KEY_FILE
+    switch_file = helper / settings_module.MODE_FOLLOWING_FILE
+    reset_file = helper / settings_module.MODE_RESET_FILE
+    settings_module.save_decision_key(key_file, bytes(range(32)))
+    settings_module.save_mode_following(switch_file, enabled=False)
+    settings_module.save_mode_reset(reset_file, 1234.5)
+    before = {file: file.read_bytes() for file in (key_file, switch_file, reset_file)}
+    source = tmp_path / "src"
+    for relative in installer.ALLOWED_FILES:
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"# {relative}\n", encoding="utf-8")
+    installer.copy_allowed(source, helper / "app")
+    installer.update_settings(helper / "settings.json", "D:\\Touka")
+    assert {file: file.read_bytes() for file in before} == before

@@ -29,10 +29,14 @@ from src.utils.time_utils import get_monotonic_ms
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from src.models.local_bridge import LocalDecision
+
 MAX_PENDING_JOBS: Final = 8
 MAX_CANCELLED_IDS: Final = 32
 
 READ_WAIT_SECONDS: Final = 30.0
+# 預覽要掃整份清單，資料夾很大時比讀檔久；要在小幫手記得預覽號碼的 540 秒內（ADR-0317）
+PREVIEW_WAIT_SECONDS: Final = 120.0
 DECISION_WAIT_SECONDS: Final = 600.0
 # 小幫手比 Touka 早放棄，才不會 Touka 回「沒核准」之後小幫手還按得下去
 HELPER_DECISION_MARGIN_SECONDS: Final = 60.0
@@ -52,6 +56,7 @@ CODE_RESULT_UNKNOWN: Final = "result_unknown"
 CODE_PAIRING_CHANGED: Final = "pairing_changed"
 
 ACTION_NEEDING_CONFIRM: Final = "propose"
+ACTION_PREVIEW: Final = "preview"
 # 不用人核准，交給小幫手之後就可能已經做了
 _MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file"})
 
@@ -82,6 +87,20 @@ def _monotonic_seconds() -> float:
     return get_monotonic_ms() / 1000
 
 
+def _touka_wait(action: str) -> float:
+    """Touka 等這件工作多久。"""
+    if action == ACTION_NEEDING_CONFIRM:
+        return DECISION_WAIT_SECONDS
+    return PREVIEW_WAIT_SECONDS if action == ACTION_PREVIEW else READ_WAIT_SECONDS
+
+
+def _helper_wait(action: str) -> float:
+    """小幫手要在幾秒內決定；比 Touka 早放棄，才不會 Touka 不等了小幫手還在做。"""
+    if action == ACTION_NEEDING_CONFIRM:
+        return DECISION_WAIT_SECONDS - HELPER_DECISION_MARGIN_SECONDS
+    return PREVIEW_WAIT_SECONDS if action == ACTION_PREVIEW else READ_WAIT_SECONDS
+
+
 def _failure(code: str) -> LocalJobResult:
     return LocalJobResult(status="error", code=code)
 
@@ -93,6 +112,7 @@ class _Job:
     args: dict[str, Any]
     requester: str
     deadline: float
+    decision: LocalDecision | None = None
     sent: bool = False
     confirmed: bool = False
     result: LocalJobResult | None = field(default=None)
@@ -180,17 +200,13 @@ class LocalBridge:
 
     @staticmethod
     def _describe(job: _Job) -> LocalJob:
-        decide_within = (
-            DECISION_WAIT_SECONDS - HELPER_DECISION_MARGIN_SECONDS
-            if job.action == ACTION_NEEDING_CONFIRM
-            else READ_WAIT_SECONDS
-        )
         return LocalJob(
             id=job.id,
             action=job.action,
             args=job.args,
             requester=job.requester,
-            decide_within=decide_within,
+            decide_within=_helper_wait(job.action),
+            decision=job.decision,
         )
 
     async def poll(
@@ -224,19 +240,30 @@ class LocalBridge:
                 return LocalPollResponse()
             await self._wait(remaining)
 
-    async def submit(self, action: str, args: dict[str, Any], requester: str) -> LocalJobResult:
-        """交一件工作給小幫手，等結果。呼叫端被取消時，小幫手下次輪詢會知道。"""
+    async def submit(
+        self,
+        action: str,
+        args: dict[str, Any],
+        requester: str,
+        *,
+        signer: Callable[[str], LocalDecision] | None = None,
+    ) -> LocalJobResult:
+        """交一件工作給小幫手，等結果。呼叫端被取消時，小幫手下次輪詢會知道。
+
+        ``signer`` 拿到這件工作的編號後蓋章（ADR-0317）；鑰匙不進通道。
+        """
         if not self.online:
             return _failure(CODE_OFFLINE)
         if len(self._jobs) >= MAX_PENDING_JOBS:
             return _failure(CODE_BUSY)
-        wait = DECISION_WAIT_SECONDS if action == ACTION_NEEDING_CONFIRM else READ_WAIT_SECONDS
+        job_id = secrets.token_urlsafe(16)
         job = _Job(
-            id=secrets.token_urlsafe(16),
+            id=job_id,
             action=action,
             args=args,
             requester=requester[:MAX_REQUESTER_CHARS],
-            deadline=self._clock() + wait,
+            deadline=self._clock() + _touka_wait(action),
+            decision=signer(job_id) if signer is not None else None,
         )
         self._jobs[job.id] = job
         self._queue.append(job)

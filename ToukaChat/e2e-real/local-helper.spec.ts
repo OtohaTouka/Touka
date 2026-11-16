@@ -4,6 +4,8 @@ import { loginInBrowser, openSideMenu, shot } from "./lib/ui";
 
 const POLL_URL = `${API_ORIGIN}/v1/local-bridge/poll`;
 const WRONG_TOKEN = "e2e-not-the-real-pairing-code";
+// 協議第 2 版（ADR-0317）：配對碼是「權杖.鑰匙」，小幫手只拿權杖輪詢，鑰匙留著驗章
+const PROTOCOL = 2;
 
 async function openLocalHelperTab(page: Page): Promise<void> {
   await openSideMenu(page);
@@ -16,7 +18,7 @@ async function openLocalHelperTab(page: Page): Promise<void> {
 function pollAsHelper(request: APIRequestContext, token: string) {
   return request.post(POLL_URL, {
     headers: { "X-Touka-Local-Token": token },
-    data: { protocol: 1, helper_version: "e2e" },
+    data: { protocol: PROTOCOL, helper_version: "e2e" },
   });
 }
 
@@ -30,12 +32,15 @@ test("設定頁配對：碼只顯示一次、小幫手連上看得到、解除�
   const title = page.getByText("配對碼（只顯示這一次）");
   await expect(title).toBeVisible();
   const code = (await title.locator("..").locator("code").textContent()) ?? "";
-  expect(code.length).toBeGreaterThan(20);
+  const [token, key] = code.split(".");
+  expect(token.length).toBeGreaterThan(20);
+  expect(key).toHaveLength(43);
   await expect(page.getByText("已配對，小幫手沒有開著")).toBeVisible();
   await shot(page, info, "paired");
 
   expect((await pollAsHelper(request, WRONG_TOKEN)).status()).toBe(401);
-  expect((await pollAsHelper(request, code)).status()).toBe(200);
+  expect((await pollAsHelper(request, code)).status()).toBe(401);
+  expect((await pollAsHelper(request, token)).status()).toBe(200);
   await expect(page.getByText("已連線（小幫手版本 e2e）")).toBeVisible({ timeout: 15_000 });
   await shot(page, info, "online");
 
@@ -47,5 +52,5 @@ test("設定頁配對：碼只顯示一次、小幫手連上看得到、解除�
   await page.getByRole("button", { name: "解除配對" }).click();
   await page.getByRole("button", { name: "確定", exact: true }).click();
   await expect(page.getByText("還沒有配對")).toBeVisible();
-  expect((await pollAsHelper(request, code)).status()).toBe(401);
+  expect((await pollAsHelper(request, token)).status()).toBe(401);
 });

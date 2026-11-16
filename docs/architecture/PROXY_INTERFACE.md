@@ -23,6 +23,7 @@
 - 工具 `local_files`：`action` 是 `list`、`read`、`create_folder`、`create_file`、`propose`。只列給配對本人和靈魂的前景對話；無痕對話、靈魂有別的擁有者時不提供，靈魂有自己的工具清單時要勾了才有。小幫手沒開時工具不列，經 `<tool_availability>` 告訴配對本人。
 - 錯誤碼：`LOCAL_HELPER_INVALID_TOKEN`（401）、`LOCAL_HELPER_PROTOCOL_MISMATCH`（409）、`LOCAL_HELPER_JOB_GONE`（410）、`LOCAL_HELPER_RESULT_TOO_LARGE`（413）。
 - `settings.SANCTUARY_DATA_PATH`、`MEMORY_SYSTEM_SRC_DIR`、`HEARTBEAT_CONFIG_DIR`：compose 的掛載來源，只用來告訴小幫手哪裡不能開放。
+- 協議第 2 版（2026-11-16，ADR-0317）：配對碼是「權杖.鑰匙」，鑰匙只在產生配對時回一次，不出現在 `/status` 與任何回應。工作多兩種動作：`preview`（只掃不動手，回清單文字、指紋與一次性號碼，等 120 秒）、`request_open`（保留，小幫手回 `not_supported`）。`propose` 照 Touka 的模式核准過時帶 `decision`（號碼、指紋、顯示文字的指紋、誰決定的、章），由通道填，不在參數裡；Touka 填它（預覽、蓋章、審批卡）在 PR 2b，在那之前 `propose` 不帶 `decision`。
 
 ## 子代理的專案與只能看（2026-11-10，ADR-0309）
 

@@ -374,7 +374,7 @@ def test_a_list_that_failed_is_not_called_finished(
     fs.add_file("D:\\Open\\a.txt")
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
 
-    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+    def boom(_plan: Any, _limits: Any, **_kwargs: Any) -> dict[str, Any]:
         raise OSError(28, "disk full")
 
     monkeypatch.setattr(service._operations, "apply", boom)
@@ -391,7 +391,7 @@ def test_an_unexpected_failure_is_reported_and_clears_the_batch(
     fs.add_file("D:\\Open\\a.txt")
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
 
-    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+    def boom(_plan: Any, _limits: Any, **_kwargs: Any) -> dict[str, Any]:
         raise KeyError("D:\\secret")
 
     monkeypatch.setattr(service._operations, "apply", boom)
@@ -578,7 +578,7 @@ def test_a_list_with_an_incomplete_record_is_not_called_finished(
     fs.add_file("D:\\Open\\a.txt")
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
 
-    def incomplete(_plan: Any, _limits: Any) -> dict[str, Any]:
+    def incomplete(_plan: Any, _limits: Any, **_kwargs: Any) -> dict[str, Any]:
         return {
             "batch": "b",
             "items": [{"path": "Open/a.txt", "status": "done"}],
@@ -737,7 +737,7 @@ def test_a_failed_list_is_reported_as_failed_even_if_the_result_is_lost(
     _propose(service, client, [{"op": "delete", "path": "Open/a.txt"}])
     client.deliver_answer = False
 
-    def boom(_plan: Any, _limits: Any) -> dict[str, Any]:
+    def boom(_plan: Any, _limits: Any, **_kwargs: Any) -> dict[str, Any]:
         raise OSError(28, "disk full")
 
     monkeypatch.setattr(service._operations, "apply", boom)

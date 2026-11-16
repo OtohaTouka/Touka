@@ -3634,6 +3634,8 @@ LINT_SSOT_WHITELIST = frozenset(
         "test_local_helper_service.py",  # ADR-0312
         "test_local_helper_install.py",  # ADR-0312
         "test_local_helper_real_windows.py",  # ADR-0312
+        "test_local_helper_floors.py",  # ADR-0317
+        "test_local_helper_mode_decisions.py",  # ADR-0317
         "config.py",
         "bootstrap.py",
         "time_utils.py",
@@ -3750,6 +3752,8 @@ LINT_SSOT_SINGLE_PATHS = frozenset(
         "tests/unit/local_helper/test_local_helper_service.py",
         "tests/unit/local_helper/test_local_helper_install.py",
         "tests/unit/local_helper/test_local_helper_real_windows.py",
+        "tests/unit/local_helper/test_local_helper_floors.py",
+        "tests/unit/local_helper/test_local_helper_mode_decisions.py",
         "ToukaProxy/src/utils/time_utils.py",
         "scripts/update_docs.py",
         "ToukaProxy/src/scripts/export_schema.py",

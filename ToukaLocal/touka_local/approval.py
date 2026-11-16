@@ -25,6 +25,8 @@ class PendingApproval:
     requester: str
     offered_at: float
     deadline: float
+    # 照模式的清單碰到底線時，視窗上方說明為什麼要人按（ADR-0317）
+    reason: str = ""
 
 
 class ApprovalGate:
@@ -42,7 +44,14 @@ class ApprovalGate:
         with self._lock:
             return self._pending
 
-    def offer(self, job_id: str, plan: Any, decide_within: float, requester: str = "") -> None:
+    def offer(
+        self,
+        job_id: str,
+        plan: Any,
+        decide_within: float,
+        requester: str = "",
+        reason: str = "",
+    ) -> None:
         """打開核准視窗；已經有一個或還在冷卻就拒絕。"""
         with self._lock:
             now = self._clock()
@@ -56,6 +65,7 @@ class ApprovalGate:
                 requester=requester,
                 offered_at=now,
                 deadline=now + min(decide_within, MAX_DECISION_SECONDS),
+                reason=reason,
             )
 
     def approve(self, job_id: str, digest: str) -> Any:

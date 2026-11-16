@@ -39,11 +39,13 @@ from touka_local.service import (
 )
 from touka_local.settings import (
     HELPER_FOLDER_NAME,
+    ModeSwitches,
     Settings,
     load_environment,
     load_settings,
     save_settings,
 )
+from touka_local.signing import split_pairing_code
 from touka_local.view import (
     APPROVAL_COLUMNS,
     APPROVAL_WINDOW_WIDTH,
@@ -53,10 +55,14 @@ from touka_local.view import (
     approval_title,
     clean_reason,
     connection_text,
+    mode_status_text,
+    pairing_saved_text,
     refusal_text,
     report_text,
     requester_text,
     row_values,
+    unreadable_records_text,
+    window_reason_text,
 )
 
 if TYPE_CHECKING:
@@ -70,14 +76,26 @@ logger = logging.getLogger(__name__)
 _REFRESH_MS: Final = 300
 _APPROVAL_WRAP: Final = APPROVAL_WINDOW_WIDTH - 40
 _APPROVAL_WINDOW_HEIGHT: Final = 520
-_MAIN_WINDOW_SIZE: Final = (780, 620)
+_MAIN_WINDOW_SIZE: Final = (780, 680)
 _MAIN_WRAP: Final = 740
 _FRAME_PADDING: Final = 12
 _NAMED_FONTS: Final = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont")
 _CLOSE_CONFIRM_TITLE: Final = "結束小幫手"
 _CLOSE_CONFIRM_TEXT: Final = "結束之後，靈魂就不能用你電腦上的檔案。確定要結束嗎？"
 _PATHS_PANEL_LINES: Final = 6
+_WARNING_COLOR: Final = "#b00020"
+_FOLLOWING_LABEL: Final = "照 Touka 的模式核准（關掉就每份都在這裡按）"
+_RESET_TITLE: Final = "重新計算"
+_RESET_TEXT: Final = (
+    "最近一小時照 Touka 的模式做掉的清單，之後不再算進上限。"
+    "7 天內搬走、刪掉的位置照樣會擋。確定要重新計算嗎？"
+)
+_KEY_NOT_SAVED: Final = (
+    "配對碼存好了，但鑰匙存不進去：照 Touka 的模式核准先不生效，每份清單都在這裡按。"
+)
 _BATCH_REFRESH_SECONDS: Final = 5.0
+# 提示要解析全部紀錄（照模式的批留 30 天），不用像批次表那麼常更新
+_MODE_HINT_REFRESH_SECONDS: Final = 30.0
 _LOG_BYTES: Final = 256 * 1024
 _NOTICE_TEXT: Final = {
     NOTICE_NOT_CONFIRMED: "Touka 那邊已經不等這份清單了，所以什麼都沒有動。",
@@ -146,6 +164,19 @@ class ApprovalWindow:
         )
         if pending.requester:
             ttk.Label(frame, text=requester_text(pending.requester)).pack(anchor="w")
+        floor = window_reason_text(pending.reason)
+        self._floor = (
+            ttk.Label(
+                frame,
+                text=floor,
+                foreground=_WARNING_COLOR,
+                wraplength=display.px(_APPROVAL_WRAP),
+            )
+            if floor is not None
+            else None
+        )
+        if self._floor is not None:
+            self._floor.pack(anchor="w", pady=(4, 0))
         ttk.Label(
             frame,
             text=f"代理人的說明（可能不準）：{clean_reason(pending.plan.reason)}",
@@ -155,7 +186,7 @@ class ApprovalWindow:
             ttk.Label(
                 frame,
                 text=f"有 {counts.unusual} 項不尋常，請特別看「注意」欄。",
-                foreground="#b00020",
+                foreground=_WARNING_COLOR,
             ).pack(anchor="w", pady=(0, 8))
 
         # 下面的先排，視窗縮小時按鈕才不會被表格擠掉
@@ -233,6 +264,7 @@ class MainWindow:
         settings: Settings,
         settings_file: Path,
         display: DisplayScale,
+        switches: ModeSwitches,
     ) -> None:
         self._root = root
         self._display = display
@@ -242,8 +274,10 @@ class MainWindow:
         self._operations = operations
         self._settings = settings
         self._settings_file = settings_file
+        self._switches = switches
         self._approval: ApprovalWindow | None = None
         self._last_batches = 0.0
+        self._last_hint = 0.0
         self._closing = False
 
         root.title("Touka 本機小幫手")
@@ -253,10 +287,12 @@ class MainWindow:
         frame = ttk.Frame(root, padding=display.px(_FRAME_PADDING))
         frame.pack(fill="both", expand=True)
         self._build_status(frame)
+        self._build_mode(frame)
         self._build_grants(frame)
         self._build_batches(frame)
         self._refresh_grants()
         self._refresh_batches()
+        self._refresh_mode_hint()
         root.after(0, self._tick)
 
     # --- 版面 ---
@@ -277,6 +313,25 @@ class MainWindow:
             pairing, text="停止目前這批", command=self._service.stop_running, state="disabled"
         )
         self._stop.pack(side="right")
+
+    def _build_mode(self, frame: ttk.Frame) -> None:
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=(0, 6))
+        self._following = tk.BooleanVar(value=self._switches.following())
+        ttk.Checkbutton(
+            row,
+            text=_FOLLOWING_LABEL,
+            variable=self._following,
+            command=self._toggle_following,
+        ).pack(side="left")
+        ttk.Button(row, text=_RESET_TITLE, command=self._reset_hourly).pack(side="right")
+        self._mode_hint = ttk.Label(
+            frame,
+            text="",
+            foreground=_WARNING_COLOR,
+            wraplength=self._display.px(_MAIN_WRAP),
+        )
+        self._mode_hint.pack(anchor="w", pady=(0, 6))
 
     def _build_grants(self, frame: ttk.Frame) -> None:
         ttk.Label(frame, text="開放給 Touka 的資料夾").pack(anchor="w")
@@ -325,9 +380,11 @@ class MainWindow:
         self._notice.configure(text=text)
 
     def _save_pairing(self) -> None:
+        code = self._code.get().strip()
+        # 配對碼是「權杖.鑰匙」；只改連接埠時權杖和鑰匙都不動
+        token, key = split_pairing_code(code) if code else (self._settings.token, None)
         try:
             port = check_port(int(self._port.get()) if self._port.get().isdecimal() else 0)
-            token = self._code.get().strip() or self._settings.token
             client = (
                 ToukaClient(port=port, token=token, helper_version=__version__)
                 if token is not None
@@ -343,9 +400,43 @@ class MainWindow:
             self._say("設定存不進去，這次沒有變更。")
             return
         self._settings = settings
+        message = self._save_key(key) if code else "已儲存。"
         self._service.replace_client(client)
         self._code.set("")
-        self._say("已儲存。")
+        self._say(message)
+        self._refresh_mode_hint()
+
+    def _save_key(self, key: bytes | None) -> str:
+        """換了配對碼就換鑰匙；舊的配對碼沒有鑰匙，舊鑰匙要刪掉。"""
+        try:
+            self._switches.set_key(key)
+        except OSError:
+            return _KEY_NOT_SAVED
+        return pairing_saved_text(has_key=key is not None)
+
+    def _toggle_following(self) -> None:
+        enabled = self._following.get()
+        try:
+            self._switches.set_following(enabled=enabled)
+        except OSError:
+            self._following.set(False)
+            self._say("開關存不進去，先當作關掉：每份清單都在這裡按。")
+            return
+        self._say(
+            "已打開：Touka 核准過、又在底線以內的清單不用再按。"
+            if enabled
+            else "已關掉：每份清單都在這裡按。"
+        )
+
+    def _reset_hourly(self) -> None:
+        if not messagebox.askokcancel(_RESET_TITLE, _RESET_TEXT, parent=self._root):
+            return
+        try:
+            self._switches.reset_now(self._operations.wall_time())
+        except OSError:
+            self._say("重新計算沒有存進去，總量照舊。")
+            return
+        self._say("已重新計算，最近一小時的總量從現在算起。")
 
     def _add(self, *, writable: bool) -> None:
         chosen = filedialog.askdirectory(title="選要開放的資料夾")
@@ -491,6 +582,22 @@ class MainWindow:
             self._last_batches = now
             self._refresh_grants_status()
             self._refresh_batches()
+        if now - self._last_hint >= _MODE_HINT_REFRESH_SECONDS:
+            self._last_hint = now
+            self._refresh_mode_hint()
+
+    def _refresh_mode_hint(self) -> None:
+        """配對碼是舊的、或有紀錄檔讀不懂時，常駐在主視窗。"""
+        hints = [
+            mode_status_text(
+                paired=self._settings.token is not None,
+                has_key=self._switches.decision_key() is not None,
+            )
+        ]
+        history = self._operations.history(self._operations.wall_time())
+        if not history.readable:
+            hints.append(unreadable_records_text(history.unreadable))
+        self._mode_hint.configure(text="\n".join(hint for hint in hints if hint))
 
     def _refresh_grants_status(self) -> None:
         selected = self._selected(self._grant_table)
@@ -575,6 +682,7 @@ def main() -> int:
         journal_dir=helper_dir / "journal",
     )
     gate = ApprovalGate(clock=time.monotonic)
+    switches = ModeSwitches(helper_dir)
     service = HelperService(
         client=_make_client(settings),
         operations=operations,
@@ -582,6 +690,9 @@ def main() -> int:
         grants=grants,
         clock=time.monotonic,
         spawn=_spawn,
+        decision_key=switches.decision_key,
+        following=switches.following,
+        mode_reset=switches.reset_at,
     )
     stop = threading.Event()
     threading.Thread(target=service.run, args=(stop,), daemon=True).start()
@@ -598,6 +709,7 @@ def main() -> int:
         settings=settings,
         settings_file=settings_file,
         display=_setup_display(root),
+        switches=switches,
     )
     root.mainloop()
     stop.set()

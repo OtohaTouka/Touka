@@ -67,7 +67,23 @@ _SECRET_NAMES: Final = frozenset(
     }
 )
 _SECRET_EXTENSIONS: Final = frozenset(
-    {".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".jks", ".keystore", ".ovpn", ".env"}
+    {
+        ".pem",
+        ".key",
+        ".pfx",
+        ".p12",
+        ".p8",
+        ".kdbx",
+        ".kdb",
+        ".ppk",
+        ".jks",
+        ".keystore",
+        ".ovpn",
+        ".env",
+        ".gpg",
+        ".tfstate",
+        ".rdp",
+    }
 )
 _ENV_PREFIX: Final = ".env."
 _ENV_EXAMPLES: Final = frozenset({".env.example", ".env.sample", ".env.template"})
@@ -109,6 +125,26 @@ _UNUSUAL_EXTENSIONS: Final = frozenset(
         ".sys",
         ".appinstaller",
         ".library-ms",
+        # ADR-0317：這份清單現在決定要不要跳視窗，補上會被 Windows 或 Office 執行的類型
+        ".xll",
+        ".xlam",
+        ".pptm",
+        ".dotm",
+        ".sct",
+        ".wsc",
+        ".ps1xml",
+        ".application",
+        ".appref-ms",
+        ".scf",
+        ".settingcontent-ms",
+        ".iso",
+        ".img",
+        ".vhd",
+        ".vhdx",
+        ".msix",
+        ".msixbundle",
+        ".appx",
+        ".appxbundle",
     }
 )
 
