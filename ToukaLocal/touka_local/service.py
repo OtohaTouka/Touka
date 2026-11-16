@@ -316,6 +316,10 @@ class HelperService:
             job_id = expired.job_id
             self._spawn(lambda: self._send(job_id, result_payload("refused", code="no_decision")))
 
+    def close_blocked(self) -> bool:
+        """有清單在等人決定時不能關。只看不動，不會停掉執行中的批。"""
+        return self._gate.current is not None
+
     def request_close(self) -> str:
         """人要關視窗。等人決定的清單不能默默丟掉，執行中的要先停。"""
         if self._gate.current is not None:

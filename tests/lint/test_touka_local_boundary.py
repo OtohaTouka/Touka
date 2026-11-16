@@ -55,6 +55,8 @@ ALLOWED_SUBMODULES = frozenset(
         "http.client",
         "logging.handlers",
         "tkinter.filedialog",
+        # 只用來換字型與量字高（螢幕縮放），不會執行任何東西
+        "tkinter.font",
         "tkinter.messagebox",
         "tkinter.ttk",
         "urllib.error",

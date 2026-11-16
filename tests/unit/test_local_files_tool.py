@@ -215,6 +215,115 @@ async def test_propose_forwards_the_list(wired: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_propose_result_says_who_approved_and_what_statuses_mean(wired: MagicMock) -> None:
+    data = {"batch": "b1", "items": [{"path": "下載/a.txt", "status": "done"}]}
+    wired.submit.return_value = LocalJobResult(status="ok", data=data)
+    result = await _call("propose", items=[{"op": "delete", "path": "下載/a.txt"}], reason="清")
+    payload, _, note = result.partition("\n\n")
+    assert json.loads(payload) == data
+    assert note == tool_module.PROPOSE_RESULT_NOTE
+    assert "decided_by: helper_window" in note
+    assert "資源回收筒" in note
+    assert "最近批次" in note
+    for status in ("done", "not_done", "changed", "failed", "aborted", "journal_incomplete"):
+        assert status in note
+
+
+@pytest.mark.asyncio
+async def test_other_results_carry_no_approval_note(wired: MagicMock) -> None:
+    wired.submit.return_value = LocalJobResult(status="ok", data={"created": "下載/a.txt"})
+    result = await _call("create_file", path="下載/a.txt", content="x")
+    assert tool_module.PROPOSE_RESULT_NOTE not in result
+
+
+async def _slow_result(*_args: Any, **_kwargs: Any) -> LocalJobResult:
+    await asyncio.sleep(0.2)
+    return LocalJobResult(status="ok", data={"batch": "b", "items": []})
+
+
+@pytest.mark.asyncio
+async def test_waiting_hint_when_the_answer_takes_a_while(
+    wired: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_module, "WAITING_HINT_DELAY_SECONDS", 0.01)
+    wired.submit.side_effect = _slow_result
+    emit = AsyncMock()
+    await _call(
+        "propose",
+        items=[{"op": "delete", "path": "a"}],
+        reason="r",
+        _emit_event=emit,
+        _call_id="c1",
+    )
+    emit.assert_awaited_once_with(
+        {"type": "tool_stream", "id": "c1", "chunk": tool_module.WAITING_HINT}
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_waiting_hint_when_the_helper_answers_at_once(
+    wired: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_module, "WAITING_HINT_DELAY_SECONDS", 0.5)
+    wired.submit.return_value = LocalJobResult(status="refused", code="approval_busy", message="x")
+    emit = AsyncMock()
+    await _call(
+        "propose",
+        items=[{"op": "delete", "path": "a"}],
+        reason="r",
+        _emit_event=emit,
+        _call_id="c1",
+    )
+    emit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_no_waiting_hint_for_actions_without_a_window(
+    wired: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_module, "WAITING_HINT_DELAY_SECONDS", 0.01)
+    wired.submit.side_effect = _slow_result
+    emit = AsyncMock()
+    await _call("list", path="a", _emit_event=emit, _call_id="c1")
+    emit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stopping_while_waiting_cancels_the_request(
+    wired: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_module, "WAITING_HINT_DELAY_SECONDS", 0.01)
+    cancelled = asyncio.Event()
+    started = asyncio.Event()
+
+    async def _never(*_args: Any, **_kwargs: Any) -> LocalJobResult:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        raise AssertionError
+
+    wired.submit.side_effect = _never
+    task = asyncio.ensure_future(
+        _call(
+            "propose",
+            items=[{"op": "delete", "path": "a"}],
+            reason="r",
+            _emit_event=AsyncMock(),
+            _call_id="c1",
+        )
+    )
+    await started.wait()
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "ctx",
     [_ctx(resumable_stream=False), _ctx(human_principal_id="Someone"), _ctx(subagent_run=True)],
@@ -572,6 +681,48 @@ async def test_offline_tells_the_paired_person(
     await ToolLayer().process(request, ctx)
     assert "local_files" not in _names(request)
     assert any(d["tool"] == "local_files" for d in ctx["denied_tools"])
+
+
+def _system_text(request: Any) -> str:
+    return "\n".join(
+        str(m.get("content") if isinstance(m, dict) else getattr(m, "content", ""))
+        for m in request.messages
+        if (m.get("role") if isinstance(m, dict) else getattr(m, "role", "")) == "system"
+    )
+
+
+@pytest.mark.asyncio
+@patch("src.middleware.layers.tool.permission_service")
+async def test_offline_note_asks_to_start_the_helper_instead_of_blaming_policy(
+    perm: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _allow(perm)
+    _state(monkeypatch, paired=True, online=False)
+    request = _request()
+    await ToolLayer().process(request, _layer_ctx())
+    text = _system_text(request)
+    policy_heading = "（政策限制）"
+    local_line = next(line for line in text.splitlines() if "local_files" in line)
+    assert "小幫手" in local_line
+    before_local = text[: text.index(local_line)]
+    assert tool_layer_module.UNAVAILABLE_TOOLS_HEADING in before_local
+    assert policy_heading not in before_local.split(tool_layer_module.UNAVAILABLE_TOOLS_HEADING)[-1]
+
+
+@pytest.mark.asyncio
+@patch("src.middleware.layers.tool.permission_service")
+async def test_policy_denials_keep_the_policy_heading(
+    perm: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _allow(perm)
+    perm.evaluate_policy.return_value = MagicMock(effect="DENY", reason="denied for role")
+    _state(monkeypatch, paired=True, online=True)
+    request = _request()
+    ctx = _layer_ctx()
+    await ToolLayer().process(request, ctx)
+    text = _system_text(request)
+    assert "（政策限制）" in text
+    assert tool_layer_module.UNAVAILABLE_TOOLS_HEADING not in text
 
 
 @pytest.mark.asyncio

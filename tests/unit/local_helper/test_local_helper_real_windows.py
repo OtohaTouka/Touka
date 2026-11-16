@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
 from touka_local.approval import PendingApproval
+from touka_local.display import DisplayScale
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
@@ -249,7 +250,13 @@ def test_approval_window_shows_every_full_path() -> None:
             offered_at=0.0,
             deadline=1.0,
         )
-        window = ApprovalWindow(root, pending, on_approve=lambda: None, on_reject=lambda: None)
+        window = ApprovalWindow(
+            root,
+            pending,
+            on_approve=lambda: None,
+            on_reject=lambda: None,
+            display=DisplayScale(factor=2.0),
+        )
         text = window._paths.get("1.0", "end")
         assert "D:\\Open\\first.txt" in text
         assert "D:\\Open\\second.txt" in text

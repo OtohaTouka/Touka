@@ -10,11 +10,18 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 from typing import TYPE_CHECKING, Any, Final
 
 from touka_local import __version__, winapi
 from touka_local.approval import APPROVE_DELAY_SECONDS, ApprovalGate
 from touka_local.connection import ToukaClient, check_port
+from touka_local.display import (
+    TREE_ROW_PADDING,
+    DisplayScale,
+    pick_font_family,
+    scale_factor,
+)
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
@@ -62,6 +69,13 @@ logger = logging.getLogger(__name__)
 
 _REFRESH_MS: Final = 300
 _APPROVAL_WRAP: Final = APPROVAL_WINDOW_WIDTH - 40
+_APPROVAL_WINDOW_HEIGHT: Final = 520
+_MAIN_WINDOW_SIZE: Final = (780, 620)
+_MAIN_WRAP: Final = 740
+_FRAME_PADDING: Final = 12
+_NAMED_FONTS: Final = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont")
+_CLOSE_CONFIRM_TITLE: Final = "結束小幫手"
+_CLOSE_CONFIRM_TEXT: Final = "結束之後，靈魂就不能用你電腦上的檔案。確定要結束嗎？"
 _PATHS_PANEL_LINES: Final = 6
 _BATCH_REFRESH_SECONDS: Final = 5.0
 _LOG_BYTES: Final = 256 * 1024
@@ -78,6 +92,20 @@ def _spawn(work: Callable[[], None]) -> None:
     threading.Thread(target=work, daemon=True).start()
 
 
+def _setup_display(root: tk.Tk) -> DisplayScale:
+    """依螢幕縮放換字型、放大表格列高；Tk 8.6 不會自己放大用像素寫的大小。"""
+    display = DisplayScale(
+        factor=scale_factor(root.winfo_fpixels("1i")),
+        family=pick_font_family(tkfont.families(root)),
+    )
+    if display.family:
+        for name in _NAMED_FONTS:
+            tkfont.nametofont(name, root=root).configure(family=display.family)
+    linespace = tkfont.nametofont("TkDefaultFont", root=root).metrics("linespace")
+    ttk.Style(root).configure("Treeview", rowheight=linespace + display.px(TREE_ROW_PADDING))
+    return display
+
+
 class ApprovalWindow:
     """核准視窗：預設焦點在拒絕，核准鍵延遲才能按。"""
 
@@ -88,25 +116,31 @@ class ApprovalWindow:
         *,
         on_approve: Callable[[], None],
         on_reject: Callable[[], None],
+        display: DisplayScale,
     ) -> None:
         self.job_id = pending.job_id
+        self._display = display
         self._window = tk.Toplevel(parent)
         self._window.title("Touka 想更動你的檔案")
-        self._window.geometry(f"{APPROVAL_WINDOW_WIDTH}x520")
+        self._window.geometry(
+            f"{display.px(APPROVAL_WINDOW_WIDTH)}x{display.px(_APPROVAL_WINDOW_HEIGHT)}"
+        )
         self._window.protocol("WM_DELETE_WINDOW", on_reject)
         self._window.attributes("-topmost", True)
 
         counts = approval_counts(pending.plan)
         rows = approval_rows(pending.plan)
-        frame = ttk.Frame(self._window, padding=12)
+        frame = ttk.Frame(self._window, padding=display.px(_FRAME_PADDING))
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=approval_title(counts), font=("", 12, "bold")).pack(anchor="w")
+        ttk.Label(frame, text=approval_title(counts), font=display.font(12, "bold")).pack(
+            anchor="w"
+        )
         if pending.requester:
             ttk.Label(frame, text=requester_text(pending.requester)).pack(anchor="w")
         ttk.Label(
             frame,
             text=f"代理人的說明（可能不準）：{clean_reason(pending.plan.reason)}",
-            wraplength=_APPROVAL_WRAP,
+            wraplength=display.px(_APPROVAL_WRAP),
         ).pack(anchor="w", pady=(4, 8))
         if counts.unusual:
             ttk.Label(
@@ -152,7 +186,8 @@ class ApprovalWindow:
         for column, heading, width in APPROVAL_COLUMNS:
             table.heading(column, text=heading)
             # 欄寬固定；格子放不下的路徑，在表格下面看完整的
-            table.column(column, width=width, minwidth=width, stretch=False)
+            width_px = self._display.px(width)
+            table.column(column, width=width_px, minwidth=width_px, stretch=False)
         for index, row in enumerate(rows):
             table.insert("", "end", iid=str(index), values=row_values(row))
         vertical = ttk.Scrollbar(holder, orient="vertical", command=table.yview)
@@ -188,8 +223,10 @@ class MainWindow:
         operations: Operations,
         settings: Settings,
         settings_file: Path,
+        display: DisplayScale,
     ) -> None:
         self._root = root
+        self._display = display
         self._service = service
         self._gate = gate
         self._grants = grants
@@ -202,8 +239,9 @@ class MainWindow:
 
         root.title("Touka 本機小幫手")
         root.protocol("WM_DELETE_WINDOW", self._close)
-        root.geometry("780x620")
-        frame = ttk.Frame(root, padding=12)
+        width, height = _MAIN_WINDOW_SIZE
+        root.geometry(f"{display.px(width)}x{display.px(height)}")
+        frame = ttk.Frame(root, padding=display.px(_FRAME_PADDING))
         frame.pack(fill="both", expand=True)
         self._build_status(frame)
         self._build_grants(frame)
@@ -215,7 +253,7 @@ class MainWindow:
     # --- 版面 ---
 
     def _build_status(self, frame: ttk.Frame) -> None:
-        self._status = ttk.Label(frame, text="", font=("", 11, "bold"))
+        self._status = ttk.Label(frame, text="", font=self._display.font(11, "bold"))
         self._status.pack(anchor="w")
         pairing = ttk.Frame(frame)
         pairing.pack(fill="x", pady=(6, 10))
@@ -239,7 +277,9 @@ class MainWindow:
             columns, ("名稱", "位置", "權限", "狀態"), (130, 420, 90, 90), strict=True
         ):
             self._grant_table.heading(column, text=heading)
-            self._grant_table.column(column, width=width, stretch=column == "path")
+            self._grant_table.column(
+                column, width=self._display.px(width), stretch=column == "path"
+            )
         self._grant_table.pack(fill="both", expand=True)
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(4, 10))
@@ -260,12 +300,14 @@ class MainWindow:
             columns, ("說明", "完成", "可復原"), (520, 80, 80), strict=True
         ):
             self._batch_table.heading(column, text=heading)
-            self._batch_table.column(column, width=width, stretch=column == "reason")
+            self._batch_table.column(
+                column, width=self._display.px(width), stretch=column == "reason"
+            )
         self._batch_table.pack(fill="both", expand=True)
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(4, 4))
         ttk.Button(buttons, text="復原這批的搬移", command=self._undo).pack(side="left")
-        self._notice = ttk.Label(frame, text="", wraplength=740)
+        self._notice = ttk.Label(frame, text="", wraplength=self._display.px(_MAIN_WRAP))
         self._notice.pack(anchor="w")
 
     # --- 動作 ---
@@ -397,6 +439,12 @@ class MainWindow:
             table.selection_set(selected)
 
     def _close(self) -> None:
+        if self._service.close_blocked():
+            self._say("有一份清單在等你決定，請先核准或拒絕。")
+            return
+        # 先問再 request_close：它會順手停掉執行中的批，按取消就不該停
+        if not messagebox.askokcancel(_CLOSE_CONFIRM_TITLE, _CLOSE_CONFIRM_TEXT, parent=self._root):
+            return
         decision = self._service.request_close()
         if decision == CLOSE_NOW:
             self._root.destroy()
@@ -456,6 +504,7 @@ class MainWindow:
                 pending,
                 on_approve=lambda: self._approve(pending),
                 on_reject=lambda: self._service.reject(pending.job_id),
+                display=self._display,
             )
         self._approval.show_countdown(pending.deadline - time.monotonic())
 
@@ -527,6 +576,8 @@ def main() -> int:
     )
     stop = threading.Event()
     threading.Thread(target=service.run, args=(stop,), daemon=True).start()
+    # 要在建立任何視窗之前宣告，否則 Windows 會把整個視窗當圖片放大
+    winapi.enable_dpi_awareness()
     root = tk.Tk()
     root.report_callback_exception = _log_window_error
     MainWindow(
@@ -537,6 +588,7 @@ def main() -> int:
         operations=operations,
         settings=settings,
         settings_file=settings_file,
+        display=_setup_display(root),
     )
     root.mainloop()
     stop.set()
