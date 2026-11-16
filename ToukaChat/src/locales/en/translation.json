@@ -1629,7 +1629,7 @@
       "human_only_desc": "Neither the reviewer nor YOLO can approve this kind of action for you.",
       "preview_title": "List the local helper scanned",
       "preview_incomplete": "The list is too long to show here in full. After you approve, confirm it again in the local helper window.",
-      "preview_helper_window": "This list hits one of the local helper's limits. After you approve, the helper will ask you again on your computer.",
+      "preview_helper_window": "After you approve, the local helper will ask you again on your computer (its window says why).",
       "risk": {
         "read_only": "Read-only",
         "safe": "Low risk",

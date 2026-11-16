@@ -67,6 +67,8 @@ describe('HelperPreview on the approval card', () => {
   it('says when the helper will ask again on the computer', () => {
     render(<ToolApprovalCard step={step({ text: LIST, complete: true, helperWindow: true, ack: 'ack-1' })} />);
     expect(screen.getByText(/還會在電腦上跳視窗/)).toBeInTheDocument();
+    // 原因可能是底線、開關沒開或舊配對碼，文字不能只說底線
+    expect(zhTW.chat.tool_approval_card.preview_helper_window).not.toContain('底線');
   });
 
   it('rejecting never sends the ack', async () => {
@@ -94,6 +96,14 @@ describe('HelperPreview on the approval card', () => {
         body: JSON.stringify({ payload: { isolation_ack: 'landlock', preview_ack: 'ack-1' } }),
       });
     });
+  });
+
+  it('the scanned list comes after anything the agent wrote', () => {
+    render(<ToolApprovalCard step={step({ text: LIST, complete: true, helperWindow: false, ack: 'ack-1' })} />);
+    const block = screen.getByTestId('helper-preview');
+    const reason = screen.getByText('整理下載');
+    // 代理人寫的理由可能假造一份清單，真的清單放在最後、緊接著按鈕
+    expect(reason.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('a card without a preview has no list block', () => {

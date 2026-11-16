@@ -1621,7 +1621,7 @@
       "human_only_desc": "這類動作審查員和 YOLO 都不能代為放行。",
       "preview_title": "小幫手掃描到的清單",
       "preview_incomplete": "清單太長，卡片沒有全部顯示；核准後還要在小幫手視窗再確認一次。",
-      "preview_helper_window": "這份清單碰到小幫手的底線，核准後小幫手還會在電腦上跳視窗再問你一次。",
+      "preview_helper_window": "核准後小幫手還會在電腦上跳視窗再問你一次（原因會寫在那個視窗上）。",
       "risk": {
         "read_only": "唯讀",
         "safe": "低風險",

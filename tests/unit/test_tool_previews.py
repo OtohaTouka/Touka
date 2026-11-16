@@ -237,3 +237,16 @@ def test_who_decided(
         preview.digest,
         preview.text,
     )
+
+
+@pytest.mark.parametrize("ack", ["確認", 7, None, ["x"]])
+def test_a_strange_ack_is_just_wrong(ack: object) -> None:
+    """非 ASCII 或不是字串的 ack 不能讓工具呼叫中斷（禁令 59），只是對不上。"""
+    preview = _sample()
+    resolution = ApprovalResolution(
+        decision="accepted", response_payload={PREVIEW_ACK_FIELD: ack}, resolver_id="Owner"
+    )
+    decided = decide(
+        preview, hitl_preapproved=True, resolution=resolution, approved_by=None, auth_level="Manual"
+    )
+    assert decided.decided_by is None

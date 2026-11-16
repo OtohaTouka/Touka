@@ -162,13 +162,14 @@ export function ToolApprovalCard({ step }: { step: ToolStep }) {
         </p>
       )}
 
-      {step.approval?.preview && <HelperPreview preview={step.approval.preview} />}
-
       {argsPreview && (
         <div className="rounded-lg bg-background/60 p-2 text-xs flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">
           {argsPreview}
         </div>
       )}
+
+      {/* 代理人寫的參數可能假造一份清單：小幫手掃到的放在最後、緊接著按鈕 */}
+      {step.approval?.preview && <HelperPreview preview={step.approval.preview} />}
 
       <div className="flex items-center gap-2">
         <Button

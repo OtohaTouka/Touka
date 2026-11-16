@@ -185,7 +185,11 @@ def preview_acknowledged(preview: ToolPreview, resolution: ApprovalResolution | 
     if resolution is None or not preview.complete:
         return False
     payload = resolution.response_payload or {}
-    return secrets.compare_digest(str(payload.get(PREVIEW_ACK_FIELD, "")), preview.ack)
+    sent = payload.get(PREVIEW_ACK_FIELD)
+    # 非 ASCII 的字串 compare_digest 會丟例外；比位元組，怪的值只是對不上
+    return isinstance(sent, str) and secrets.compare_digest(
+        sent.encode("utf-8"), preview.ack.encode("utf-8")
+    )
 
 
 def decide(
