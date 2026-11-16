@@ -159,6 +159,9 @@ def test_yolo_without_isolation_makes_some_actions_human_only() -> None:
 
 
 def test_yolo_mentions_that_chained_commands_are_not_auto_run() -> None:
+    # 執行器的判斷放行、不跳核准卡；終端那層才升成要人核准（見下面實際跑終端的測試）
+    chained = "mkdir chain-a && mkdir chain-b"
+    assert _effect("YOLO", chained, present=True, action="terminal_execute") == "ALLOW"
     assert "chain or embed other commands" in _block("YOLO", True)
     assert "chain or embed other commands" in _block("YOLO", False)
     assert "chain or embed" not in _block("Auto", True)
@@ -381,4 +384,5 @@ async def test_yolo_chained_command_is_not_auto_run_even_with_someone_present() 
     )
     payload = json.loads(result)
     assert payload["error_class"] == "permission_denied"
+    assert payload["reason"] == "ui_unavailable"
     assert payload["suggestion"] == blocked_call_suggestion(_PRESENT)
