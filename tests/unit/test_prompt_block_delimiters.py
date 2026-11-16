@@ -141,9 +141,12 @@ async def test_ide_context_keeps_image_parts(as_object, content, expected_head):
 
 async def test_project_context_wrapped_in_xml_tag():
     req = _AnthropicReq(project_id="p1")
+    # 聊天端點核對過專案才會帶說明（ADR-0304 2026-11-16 補記）
+    ctx = _ctx()
+    ctx.get = lambda key, default=None: True if key == "project_authorized" else default
 
     with patch(_GET_PROJECT_CTX, new=AsyncMock(return_value="PROJDATA-XYZ")):
-        await ContextLayer().process(req, _ctx())
+        await ContextLayer().process(req, ctx)
 
     assert "<project_context>" in req.system
     assert "</project_context>" in req.system

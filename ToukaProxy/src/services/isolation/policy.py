@@ -20,7 +20,7 @@ from src.services.isolation.consent import (
 )
 from src.services.isolation.status import CHECK_FAILED, LevelDecision, isolation_monitor
 from src.services.resource_manager import resource_manager
-from src.utils.async_db import session_service
+from src.utils.async_db import PLACEHOLDER_PROJECT_ID, session_service
 from src.utils.isolation_policy import (
     ISOLATION_REQUIRED_TOOLS,
     ISOLATION_WIRED_ACTIONS,
@@ -47,13 +47,16 @@ async def session_project_id(
     """這次執行的專案：ctx 的專案優先，否則 session 綁定的專案；沒有就是 None。
 
     檔案工具、終端與驗證指令共用（ADR-0304）；不讀模型給的參數。session 綁定專案時
-    已檢查過擁有權（``ui_sessions.save_session``）。
+    已檢查過擁有權（``ui_sessions.save_session``）。心跳建家用的佔位編號不是專案，
+    回 None（就算有人搶建了同名的列也不用；ADR-0304 2026-11-16 補記）。
     """
     project_id = ctx.get("project_id")
     if not project_id and session_id:
         session = await session_service.get_session_by_id(session_id)
         project_id = session.get("project_id") if session else None
-    return str(project_id) if project_id else None
+    if not project_id or project_id == PLACEHOLDER_PROJECT_ID:
+        return None
+    return str(project_id)
 
 
 async def session_project_root(

@@ -52,6 +52,12 @@ class PipelineContext(BaseModel):
     # 無痕模式（HAX G17，ADR-0086）：零殘留對話旗標
     incognito: bool = Field(default=False, description="無痕模式：零殘留對話")
 
+    # 請求帶的專案已核對可以看（只有聊天端點的 router 能設；ContextLayer 只認它）。
+    # 子代理從父 ctx 複製會帶著，但子代理的請求不帶 project_id，不會注入。
+    project_authorized: bool = Field(
+        default=False, description="請求帶的專案已核對可以看（只有聊天端點的 router 設）"
+    )
+
     # SNS 閘道建 context 時標記；模型回合失敗時對外只留固定文字
     sns_source: bool = Field(default=False, description="這一輪來自 SNS 頻道（系統寫入）")
 

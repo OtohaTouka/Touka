@@ -66,6 +66,10 @@ logger = logging.getLogger(__name__)
 # 可信活動紀錄的起點（system_settings 的鍵）：第一次建活動事件表時寫入，之後不改。
 TRUSTED_TIMELINE_EPOCH_KEY = "trusted_timeline_epoch"
 
+# 心跳建家時對話綁的佔位專案編號：沒有真的專案。聊天請求與檔案工具一律當成沒有專案，
+# 專案頁也不能建立或刪除它（搶建的列不會被使用；ADR-0304 2026-11-16 補記）。
+PLACEHOLDER_PROJECT_ID = "default"
+
 
 def get_db_dir() -> Path:
     """獲取資料庫目錄 (SSOT)。"""

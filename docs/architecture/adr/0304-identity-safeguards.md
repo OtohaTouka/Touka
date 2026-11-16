@@ -46,9 +46,19 @@
 - 升級前發的首裝卡沒有記號。`sub` 是使用者的會因為決定 2-1 失效；`sub` 是代理人的（例如 DebugAgent）到期前（發卡後 7 天）仍能用，不論系統何時認領。會碰到的是升級前 7 天內認領的安裝，以及升級時還沒認領、之後才認領的安裝。
 - 子代理的 `session_id` 是 None，所以子代理的檔案工具拿不到專案（以前只有模型自己填編號時才拿得到；終端本來就拿不到）。
 - 沒有 type 的人類 token 不再有效（現行版本不發這種 token）。
-- 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）還沒檢查擁有權，記為候選（見 `docs/handover/proxy.md`）。
+- 聊天請求本身帶的 `project_id`（`middleware/layers/context.py`）還沒檢查擁有權，記為候選（見 `docs/handover/proxy.md`）。2026-11-16 已修，見下方補記。
 - 用編輯建立或轉換靈魂時沒有還原檢查，記為候選。
 
 ## 驗證
 
 - `tests/unit/test_identity_safeguards_security.py`：首裝卡帶記號、認領後失效、認領前照常可用、重送角色不變、使用者 id 的卡不是人類、讀不到使用者清單時拒絕；檔案工具只拿到 session 的專案；還原中刪靈魂、刪除與改名自訂模型（含經 `/v1/models` 刪除、改名途中才開始還原）；三個端點不回例外原文。
+
+## 2026-11-16 補記：請求帶的專案與佔位專案編號
+
+維護者 11/16 核准（總覽板第 71、72 項）。可視性第一批 PR 1 讓靈魂對話一律保留系統加的專案說明，審查時連帶發現兩個同類問題，先在這裡修，不另配 ADR 編號。
+
+- **請求帶的專案要核對**：`/messages`、`/chat/completions`（含 `/v1`）在流程換成靈魂身分之前，由 `routers/proxy._authorize_request_project` 用 `routers/ui_sessions._can_access_project` 檢查已驗證的呼叫者（主人、管理員或除錯身分；沒主人的舊專案看對話歸屬）。看不到、專案不存在、核對出錯都把 `request.project_id` 拿掉，對話照常、不回錯誤：網頁送的是對話綁定的專案，綁定時已檢查過；回錯誤會讓專案剛刪掉的人整段對話失敗，也讓外面能試探專案存不存在。看不到時記 warning（只記呼叫者），核對出錯記 exception。
+- **寫說明的那一層只認標記**：核對通過才設 `PipelineContext.project_authorized`，ContextLayer 只在它為 True 時注入 `<project_context>`；以後新加的入口忘了核對也帶不進去。子代理從父 ctx 複製會帶著標記，但子代理的請求不帶 `project_id`。
+- **佔位編號 `default`**：心跳建家時對話綁的 `utils/async_db.PLACEHOLDER_PROJECT_ID` 不是專案。聊天請求帶它時直接拿掉（不記警告，網頁對家對話本來就會送）；`isolation/policy.session_project_id` 對它回 None，工具不會把搶建的同名列當專案；`POST /ui/projects/save` 與 `DELETE /ui/projects/{id}` 對它一律 403（含管理員；刪除會把所有人家對話的專案欄一起清掉）。已經被建立的列不刪（不改使用者資料），系統不再使用。
+- `X-Agent-ID` 代打時，呼叫者是靈魂身分：非管理員代打自己的靈魂，自己的專案說明也不帶；管理員代打保留管理權，照舊可以看。網頁與 IDE 都不送這個標頭。
+- 驗證：`tests/unit/test_request_project_ownership_security.py`。
