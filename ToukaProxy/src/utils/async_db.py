@@ -943,10 +943,12 @@ class SessionService:
             ) as cursor:
                 pids = [row["id"] for row in await cursor.fetchall()]
             for pid in pids:
-                # 解除對話與此專案的關聯（保留對話本身）
-                await db.execute(
-                    "UPDATE user_sessions SET project_id = NULL WHERE project_id = ?", (pid,)
-                )
+                # 解除對話與此專案的關聯（保留對話本身）。佔位編號是所有人的家對話共用的，
+                # 只刪搶建的列、不動對話（ADR-0304 2026-11-16 補記）
+                if pid != PLACEHOLDER_PROJECT_ID:
+                    await db.execute(
+                        "UPDATE user_sessions SET project_id = NULL WHERE project_id = ?", (pid,)
+                    )
                 # 刪除專案設定列（不觸碰 root_path 實體資料夾）
                 await db.execute("DELETE FROM projects WHERE id = ?", (pid,))
             await db.commit()

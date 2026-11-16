@@ -26,9 +26,10 @@ from src.middleware.layers.context import ContextLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.routers import proxy as proxy_router
+from src.services import handover_service as handover_module
 from src.services.authorization_gateway import require_authenticated
 from src.services.isolation import policy as isolation_policy
-from src.utils.async_db import PLACEHOLDER_PROJECT_ID
+from src.utils.async_db import PLACEHOLDER_PROJECT_ID, get_async_db, session_service
 
 OWNER = AgentIdentity.for_role(agent_id="userA", role="Base", is_human=True, capabilities=[])
 OTHER = AgentIdentity.for_role(agent_id="userB", role="Base", is_human=True, capabilities=[])
@@ -118,6 +119,7 @@ def test_someone_elses_project_is_dropped(
     assert not seen["authorized"]
     logged = " ".join(r.getMessage() for r in _warnings(caplog))
     assert "userB" in logged
+    assert "p_a" not in logged  # 只記呼叫者，不記別人的專案
     assert HIDDEN_NAME not in logged
 
 
@@ -263,3 +265,59 @@ async def test_context_layer_injects_only_authorized_projects(
         for m in request.messages
     )
     assert (HIDDEN_NAME in text) is authorized
+
+
+
+async def test_handover_file_is_never_written_for_the_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 存對話換靈魂時會寫交接檔：佔位編號就算有人搶建了，也不讀它的列、不寫進它的資料夾
+    # （函式本身會吞掉例外，所以記錄有沒有被呼叫，而不是靠丟錯）
+    opened: list[bool] = []
+
+    def _must_not_open() -> None:
+        opened.append(True)
+        raise AssertionError("the placeholder project must not be looked up")
+
+    monkeypatch.setattr(handover_module, "get_async_db", _must_not_open)
+    await handover_module.handover_service.generate_handover_file(
+        project_id=PLACEHOLDER_PROJECT_ID, new_agent_id="soulB", old_agent_id="soulA"
+    )
+    assert opened == []
+
+
+async def test_clearing_my_data_keeps_everyones_home_sessions_bound() -> None:
+    # 搶建者清除自己的資料：只刪他的列，不解除所有人家對話的綁定（對話版本才不會變）
+    async with get_async_db() as db:
+        await db.execute(
+            "INSERT INTO projects (id, name, root_path, owner_user_id, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (PLACEHOLDER_PROJECT_ID, "squat", "squat-root", "userB", 1),
+        )
+        await db.execute(
+            "INSERT INTO projects (id, name, root_path, owner_user_id, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("p_mine", "mine", "mine-root", "userB", 1),
+        )
+        await db.execute(
+            "INSERT INTO user_sessions (id, title, messages, agent_id, project_id, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("home-a", "home", "[]", "soulA", PLACEHOLDER_PROJECT_ID, 1),
+        )
+        await db.execute(
+            "INSERT INTO user_sessions (id, title, messages, agent_id, project_id, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("work-b", "work", "[]", "soulB", "p_mine", 1),
+        )
+        await db.commit()
+
+    assert await session_service.clear_projects_owned_by("userB") == 2
+
+    async with get_async_db() as db:
+        async with db.execute("SELECT id, project_id FROM user_sessions") as cursor:
+            bound = {row["id"]: row["project_id"] for row in await cursor.fetchall()}
+        async with db.execute("SELECT id FROM projects") as cursor:
+            remaining = {row["id"] for row in await cursor.fetchall()}
+    assert bound["home-a"] == PLACEHOLDER_PROJECT_ID
+    assert bound["work-b"] is None
+    assert PLACEHOLDER_PROJECT_ID not in remaining

@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 
 from src.services.resource_manager import resource_manager
+from src.utils.async_db import PLACEHOLDER_PROJECT_ID, get_async_db
 
-from ..utils.async_db import get_async_db
 from ..utils.brain_persistence import _get_settings_path
 from ..utils.time_utils import format_epoch_to_taipei, get_current_epoch
 
@@ -19,7 +19,8 @@ class HandoverService:
     """
     async def generate_handover_file(self, project_id: str, new_agent_id: str, old_agent_id: str | None = None):
         """生成接班 Markdown 檔案到專案根目錄"""
-        if not project_id:
+        # 佔位編號不是專案：就算有人搶建了同名的列，也不寫進它指定的資料夾（ADR-0304 補記）
+        if not project_id or project_id == PLACEHOLDER_PROJECT_ID:
             return
 
         try:

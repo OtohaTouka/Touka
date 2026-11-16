@@ -59,6 +59,6 @@
 
 - **請求帶的專案要核對**：`/messages`、`/chat/completions`（含 `/v1`）在流程換成靈魂身分之前，由 `routers/proxy._authorize_request_project` 用 `routers/ui_sessions._can_access_project` 檢查已驗證的呼叫者（主人、管理員或除錯身分；沒主人的舊專案看對話歸屬）。看不到、專案不存在、核對出錯都把 `request.project_id` 拿掉，對話照常、不回錯誤：網頁送的是對話綁定的專案，綁定時已檢查過；回錯誤會讓專案剛刪掉的人整段對話失敗，也讓外面能試探專案存不存在。看不到時記 warning（只記呼叫者），核對出錯記 exception。
 - **寫說明的那一層只認標記**：核對通過才設 `PipelineContext.project_authorized`，ContextLayer 只在它為 True 時注入 `<project_context>`；以後新加的入口忘了核對也帶不進去。子代理從父 ctx 複製會帶著標記，但子代理的請求不帶 `project_id`。
-- **佔位編號 `default`**：心跳建家時對話綁的 `utils/async_db.PLACEHOLDER_PROJECT_ID` 不是專案。聊天請求帶它時直接拿掉（不記警告，網頁對家對話本來就會送）；`isolation/policy.session_project_id` 對它回 None，工具不會把搶建的同名列當專案；`POST /ui/projects/save` 與 `DELETE /ui/projects/{id}` 對它一律 403（含管理員；刪除會把所有人家對話的專案欄一起清掉）。已經被建立的列不刪（不改使用者資料），系統不再使用。
+- **佔位編號 `default`**：心跳建家時對話綁的 `utils/async_db.PLACEHOLDER_PROJECT_ID` 不是專案。聊天請求帶它時直接拿掉（不記警告，網頁對家對話本來就會送）；`isolation/policy.session_project_id` 對它回 None，工具不會把搶建的同名列當專案；`POST /ui/projects/save` 與 `DELETE /ui/projects/{id}` 對它一律 403（含管理員；刪除會把所有人家對話的專案欄一起清掉）。已經被建立的列不刪（不改使用者資料），系統不再使用：存對話換靈魂時的交接檔（`handover_service`）不寫進它的資料夾；搶建者清除自己的資料時只刪那一列，不解除所有人家對話的綁定。專案頁的清單、概覽與檔案端點仍會照擁有權規則讀到它（候選，見 proxy 交班檔）。
 - `X-Agent-ID` 代打時，呼叫者是靈魂身分：非管理員代打自己的靈魂，自己的專案說明也不帶；管理員代打保留管理權，照舊可以看。網頁與 IDE 都不送這個標頭。
 - 驗證：`tests/unit/test_request_project_ownership_security.py`。

@@ -170,6 +170,7 @@
 - 其他把例外原文放進錯誤回應的地方（`error_output=str(e)` 約 15 處，例如 `custom_models.py`、`souls.py`、`mcp.py`、`models.py`、`setup.py` 的 `detail_override`，都要登入），ADR-0304 只改了 CodeQL 標的三處，其餘是候選。
 - （2026-11-16 已修，ADR-0304 補記）聊天請求帶的 `project_id` 在 router 核對擁有權；佔位編號 `default` 一律當沒有專案。
 - `_can_access_project` 在主人查詢失敗（回 None）時會改看對話歸屬，可能放行（原本就有，11/16 審查時發現）；它和 `_can_modify_project` 也可以比照 `can_access_session` 搬到 `authorization_gateway`，免得 router 匯入另一個 router 的私有函式（候選）。
+- 修補前就被搶建的 `default` 專案列：專案頁的清單、概覽、檔案端點仍照擁有權規則讀它；沒有主人的舊 `default` 列會因為「有自己的對話在裡面」讓所有有家對話的人看得到它的檔案清單（候選，11/16 審查時發現）。
 - `GET /heartbeat/test` 2026-11-09 起要管理員；成功時的回應內容要再收斂（候選）。
 - 子代理的 `session_id` 是 None，所以檔案工具拿不到專案（ADR-0304 之後；終端本來就拿不到）。要繼承父對話的專案，得一起看隔離層對專案的處理（候選）。
 - 【推測】刪除靈魂的「不可刪」名單（`routers/souls.py` 的 `_UNDELETABLE_SOULS`）比對分大小寫；在不分大小寫的檔案系統（Windows 本機整合模式）上，`DELETE /v1/souls/debugagent` 可能刪到 DebugAgent 的資料夾（要 admin 密碼；原本就有，ADR-0287 審查時發現、範圍外）。
