@@ -93,7 +93,16 @@ def _spawn(work: Callable[[], None]) -> None:
 
 
 def _setup_display(root: tk.Tk) -> DisplayScale:
-    """依螢幕縮放換字型、放大表格列高；Tk 8.6 不會自己放大用像素寫的大小。"""
+    """依螢幕縮放換字型、放大表格列高；設定失敗時用原本的大小，小幫手照常啟動。"""
+    try:
+        return _apply_display(root)
+    except tk.TclError:
+        logger.warning("display scaling could not be applied; using the default sizes")
+        return DisplayScale()
+
+
+def _apply_display(root: tk.Tk) -> DisplayScale:
+    """Tk 8.6 不會自己放大用像素寫的大小，這裡換字型並放大表格列高。"""
     display = DisplayScale(
         factor=scale_factor(root.winfo_fpixels("1i")),
         family=pick_font_family(tkfont.families(root)),

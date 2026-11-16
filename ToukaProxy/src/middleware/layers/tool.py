@@ -212,6 +212,7 @@ class ToolLayer(ProxyLayer):
              if tool_name == "ask_user" and not is_human_present(ctx):
                  continue
              # ADR-0312：只列給配對本人和靈魂的前景對話；小幫手沒開時告訴本人原因
+             helper_offline = False
              if tool_name == "local_files":
                  if incognito:
                      continue
@@ -223,18 +224,10 @@ class ToolLayer(ProxyLayer):
                      has_other_owner=has_another_owner,
                  )
                  # 沒勾的靈魂開了小幫手也用不到，不要叫人去開
-                 if availability == AVAILABILITY_OFFLINE and (
+                 helper_offline = availability == AVAILABILITY_OFFLINE and (
                      not desired_tools or selection.selects(tool_name)
-                 ):
-                     denied_tools.append(
-                         {
-                             "tool": tool_name,
-                             "reason": LOCAL_HELPER_OFFLINE_REASON,
-                             "kind": DENIAL_KIND_UNAVAILABLE,
-                         }
-                     )
-                     builtin_filtered = True
-                 if availability != AVAILABILITY_OFFERED:
+                 )
+                 if availability != AVAILABILITY_OFFERED and not helper_offline:
                      continue
              if incognito:  # 無痕：檔案動詞換成沒有 legacy 的版本（hist-bak b）
                  schema = INCOGNITO_FILE_VERB_SCHEMAS.get(tool_name, schema)
@@ -254,6 +247,18 @@ class ToolLayer(ProxyLayer):
              if decision.effect == "DENY":
                  denied_tools.append(
                      {"tool": tool_name, "reason": decision.reason or "policy"}
+                 )
+                 builtin_filtered = True
+                 continue
+
+             # 政策放行才說是暫時用不到：政策擋的話，叫人打開小幫手也沒用
+             if helper_offline:
+                 denied_tools.append(
+                     {
+                         "tool": tool_name,
+                         "reason": LOCAL_HELPER_OFFLINE_REASON,
+                         "kind": DENIAL_KIND_UNAVAILABLE,
+                     }
                  )
                  builtin_filtered = True
                  continue

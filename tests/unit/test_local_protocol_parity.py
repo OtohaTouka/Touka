@@ -23,6 +23,7 @@ from src.services.local_bridge import (
     HELPER_EXECUTION_LIMIT_SECONDS,
     MAX_PENDING_JOBS,
 )
+from src.tools.builtin.local_helper import PROPOSE_RESULT_NOTE
 
 HELPER = Path(__file__).resolve().parents[2] / "ToukaLocal" / "touka_local"
 
@@ -89,3 +90,12 @@ def test_execution_limit_matches() -> None:
 
 def test_thread_cap_matches_the_queue_limit() -> None:
     assert _constants("service.py")["MAX_JOB_THREADS"] == MAX_PENDING_JOBS
+
+
+def test_every_item_status_is_explained_to_the_agent() -> None:
+    """小幫手多一種項目狀態時，給模型的結果說明也要跟著寫，模型才不會亂猜。"""
+    labels = _constants("view.py")["_REPORT_LABELS"]
+    assert isinstance(labels, tuple)
+    assert labels
+    for status, _label in labels:
+        assert f"{status}＝" in PROPOSE_RESULT_NOTE

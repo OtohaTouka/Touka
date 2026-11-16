@@ -12,7 +12,7 @@ if sys.platform == "win32":
     import tkinter
 
     # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
-    from touka_local.app import ApprovalWindow
+    from touka_local.app import ApprovalWindow, _setup_display
 
 from typing import TYPE_CHECKING
 
@@ -263,3 +263,21 @@ def test_approval_window_shows_every_full_path() -> None:
         assert window._paths.cget("state") == "disabled"
     finally:
         root.destroy()
+
+
+def test_display_setup_runs_on_a_real_window() -> None:
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        assert _setup_display(root).factor >= 1.0
+    finally:
+        root.destroy()
+
+
+class _BrokenRoot:
+    def winfo_fpixels(self, _distance: str) -> float:
+        raise tkinter.TclError
+
+
+def test_display_setup_failure_keeps_the_default_sizes() -> None:
+    assert _setup_display(_BrokenRoot()) == DisplayScale()  # type: ignore[arg-type]

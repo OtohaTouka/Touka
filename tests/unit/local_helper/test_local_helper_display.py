@@ -82,7 +82,8 @@ def test_dpi_awareness_uses_system_aware_mode(monkeypatch: pytest.MonkeyPatch) -
     user32 = SimpleNamespace(SetProcessDPIAware=_Recorder())
     monkeypatch.setattr(winapi, "_load_dpi_libraries", lambda: (shcore, user32))
     assert winapi.enable_dpi_awareness() is True
-    assert shcore.SetProcessDpiAwareness.calls == [(winapi.PROCESS_SYSTEM_DPI_AWARE,)]
+    # 1＝整個程式一個縮放；Tk 8.6 不支援每個螢幕各自縮放（2）
+    assert shcore.SetProcessDpiAwareness.calls == [(1,)]
     assert user32.SetProcessDPIAware.calls == []
 
 
@@ -104,3 +105,8 @@ def test_dpi_awareness_never_stops_the_helper(monkeypatch: pytest.MonkeyPatch) -
 def test_dpi_awareness_is_a_no_op_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(winapi, "_load_dpi_libraries", lambda: None)
     assert winapi.enable_dpi_awareness() is False
+
+
+def test_dpi_libraries_are_not_loaded_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(winapi.sys, "platform", "linux")
+    assert winapi._load_dpi_libraries() is None

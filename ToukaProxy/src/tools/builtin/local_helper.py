@@ -15,12 +15,14 @@ from src.models.local_bridge import LocalJobResult
 from src.services import tool_errors
 from src.services.authorization_gateway import has_another_owner
 from src.services.local_bridge import (
+    ACTION_NEEDING_CONFIRM,
     CODE_BUSY,
     CODE_NO_DECISION,
     CODE_OFFLINE,
     CODE_PAIRING_CHANGED,
     CODE_RESULT_UNKNOWN,
     CODE_TIMED_OUT,
+    DECISION_WAIT_SECONDS,
     get_local_bridge,
 )
 from src.services.local_bridge_pairing import get_local_pairing_store
@@ -40,12 +42,16 @@ LOCAL_DATA_NOTICE: Final = (
 
 # 小幫手忙或冷卻中會立刻拒絕；等這麼久還沒回來，才是在等人按，提示才不會閃一下
 WAITING_HINT_DELAY_SECONDS: Final = 1.5
-WAITING_HINT: Final = "⏳ 已送到小幫手，等使用者在小幫手視窗核准或拒絕（最多約 10 分鐘）…\n"
+WAITING_HINT: Final = (
+    "⏳ 已送到小幫手，等使用者在小幫手視窗核准或拒絕"
+    f"（最多約 {round(DECISION_WAIT_SECONDS / 60)} 分鐘）…\n"
+)
 
 # 這一版每份清單都由人在小幫手視窗核准（ADR-0312 決定 4）；模型分不出 done 的意思時會亂猜
 PROPOSE_RESULT_NOTE: Final = (
     "說明（decided_by: helper_window）：使用者在電腦上的小幫手視窗看過這份清單並按了核准。"
-    "各項 status：done＝做完了（刪除是移到資源回收筒，搬移和改名可以在小幫手的「最近批次」復原）；"
+    "各項 status：done＝做完了（刪除是移到資源回收筒，除非 Windows 問要不要永久刪除時使用者按了是；"
+    "搬移和改名可以在小幫手的「最近批次」復原）；"
     "not_done＝沒做（使用者按了停止、時間到，或紀錄寫不進去）；"
     "changed＝核准之後檔案變了，為了安全沒做；failed＝做的時候失敗；"
     "aborted＝要丟進資源回收筒時被取消（例如 Windows 問要不要永久刪除時按了取消），沒做。"
@@ -55,7 +61,6 @@ PROPOSE_RESULT_NOTE: Final = (
 
 # 檔名和內容都是別人可能寫進去的東西
 _ACTIONS_RETURNING_FILE_DATA: Final = frozenset({"list", "read"})
-ACTION_PROPOSE: Final = "propose"
 
 _ACTION_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "list": ("path", "depth"),
@@ -180,7 +185,7 @@ async def local_files(action: str = "list", **kwargs: Any) -> str:
     agent_id = str(ctx.get("agent_id") or "")
     emit = kwargs.get("_emit_event")
     call_id = kwargs.get("_call_id")
-    if action == ACTION_PROPOSE and emit is not None and call_id:
+    if action == ACTION_NEEDING_CONFIRM and emit is not None and call_id:
         result = await _await_with_waiting_hint(
             bridge.submit(action, args, agent_id), emit, str(call_id)
         )
@@ -191,6 +196,6 @@ async def local_files(action: str = "list", **kwargs: Any) -> str:
     text = json.dumps(result.data or {}, ensure_ascii=False)
     if action in _ACTIONS_RETURNING_FILE_DATA:
         return f"{LOCAL_DATA_NOTICE}{text}"
-    if action == ACTION_PROPOSE:
+    if action == ACTION_NEEDING_CONFIRM:
         return f"{text}\n\n{PROPOSE_RESULT_NOTE}"
     return text
