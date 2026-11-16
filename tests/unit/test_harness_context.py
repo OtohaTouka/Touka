@@ -88,6 +88,7 @@ def test_builder_delegation_claims_match_recursion_gate():
     assert "cannot dispatch further sub-agents" in block
     # 沒有任務看板工具時派子代理是等做完才回、沒有憑證可等（ADR-0316 PR 2 補記）
     assert "restart" not in block
+    assert "returns its result directly" in block
 
 
 def test_builder_durable_await_claim_needs_the_mission_board():
