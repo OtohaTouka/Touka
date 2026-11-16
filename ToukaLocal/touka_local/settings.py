@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+import math
 import ntpath
+import re
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from touka_local.connection import check_port
 from touka_local.errors import Refused
-from touka_local.fsops import durable_write_text, read_durable_text
+from touka_local.fsops import (
+    durable_write_text,
+    previous_path,
+    read_durable_text,
+    temporary_path,
+)
 from touka_local.grants import Environment
 from touka_local.paths import is_plain_absolute, join
 
@@ -101,3 +108,62 @@ def load_environment(environ: Mapping[str, str], touka_folder: str | None) -> En
         ),
         touka_folder=str(touka_folder),
     )
+
+
+# --- 照 Touka 的模式核准（ADR-0317）：讀不懂一律往安全的那邊算 ---
+
+DECISION_KEY_FILE: Final = "decision_key"
+MODE_FOLLOWING_FILE: Final = "mode_following.json"
+MODE_RESET_FILE: Final = "mode_reset.json"
+_KEY_HEX: Final = re.compile(r"[0-9a-f]{64}")
+
+
+def load_decision_key(file: Path) -> bytes | None:
+    """配對時拿到的鑰匙；沒有或格式不對就沒有，這時每份清單都跳視窗。"""
+    try:
+        text = read_durable_text(file).strip()
+    except (OSError, ValueError):
+        return None
+    return bytes.fromhex(text) if _KEY_HEX.fullmatch(text) else None
+
+
+def save_decision_key(file: Path, key: bytes | None) -> None:
+    """存鑰匙；None 是刪掉（換成沒有鑰匙的舊配對碼時）。"""
+    if key is not None:
+        durable_write_text(file, key.hex())
+        return
+    for path in (file, temporary_path(file), previous_path(file)):
+        path.unlink(missing_ok=True)
+
+
+def load_mode_following(file: Path) -> bool:
+    """「照 Touka 的模式核准」有沒有打開。讀不到、壞掉、看不懂都當作關掉。"""
+    try:
+        payload = json.loads(read_durable_text(file))
+    except (OSError, ValueError):
+        return False
+    return isinstance(payload, dict) and set(payload) == {"enabled"} and payload["enabled"] is True
+
+
+def save_mode_following(file: Path, *, enabled: bool) -> None:
+    """寫開關。"""
+    durable_write_text(file, json.dumps({"enabled": enabled}))
+
+
+def load_mode_reset(file: Path) -> float | None:
+    """人在主視窗按「重新計算」的時間；讀不到就當作沒有重設。"""
+    try:
+        payload = json.loads(read_durable_text(file))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {"reset_at"}:
+        return None
+    value = payload["reset_at"]
+    if type(value) not in (int, float) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def save_mode_reset(file: Path, at: float) -> None:
+    """記下重新計算的時間。"""
+    durable_write_text(file, json.dumps({"reset_at": at}))
