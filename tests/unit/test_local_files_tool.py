@@ -15,10 +15,12 @@ from src.middleware.layers.tool import ToolLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.local_bridge import LocalJobResult
-from src.models.safety import BUILTIN_TOOL_RISK, AuthPoliciesConfig
+from src.models.safety import BUILTIN_TOOL_RISK, MIN_TOOL_RISK, AuthPoliciesConfig
 from src.services import authorization_gateway as gateway_module
 from src.services import local_bridge as bridge_module
+from src.services import tool_executor as executor_module
 from src.services.approval_service import approval_service
+from src.services.auto_reviewer import ReviewOutcome
 from src.services.permission_service import PermissionService, permission_service
 from src.services.tool_errors import extract_error_class
 from src.services.tool_executor import ToolExecutor
@@ -522,7 +524,8 @@ NO_ENTRY = (
 EXPECTED_RISK = {
     "list": "read_only",
     "read": "read_only",
-    "propose": "read_only",
+    # 小幫手照 Touka 的模式核准（ADR-0317）：Manual 跳卡、Auto 給審查員、YOLO 直接做
+    "propose": "dangerous",
     "create_folder": "safe",
     "create_file": "safe",
 }
@@ -567,6 +570,38 @@ def test_the_file_wins_over_the_builtin(tmp_path: Path) -> None:
     )
     service = _service(tmp_path, content)
     assert service.policies.tool_risk.class_for("local_files", "list") == "dangerous"
+
+
+def _file_with(entry: object) -> str:
+    return json.dumps(
+        {
+            "policies": {"critical_blacklist": []},
+            "tool_risk": {"default": "read_only", "tools": {"local_files": entry}},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"action_param": "action", "actions": {"propose": "read_only"}},
+        {"action_param": "other", "actions": {"propose": "safe", "list": "read_only"}},
+        "read_only",
+        "safe",
+    ],
+)
+def test_a_loose_file_cannot_lower_the_floor(tmp_path: Path, entry: object) -> None:
+    """舊設定檔把 propose 寫成 read_only，或整個工具一個字串，都不能讓清單免審。"""
+    risk = _service(tmp_path, _file_with(entry)).policies.tool_risk
+    assert risk.action_param_for("local_files") == "action"
+    assert risk.class_for("local_files", "propose") == "dangerous"
+
+
+def test_the_floor_only_raises_and_does_not_hide_the_tool(tmp_path: Path) -> None:
+    risk = _service(tmp_path, _file_with("read_only")).policies.tool_risk
+    assert risk.class_for("local_files", "list") == "read_only"
+    assert risk.class_for("local_files", "propose", advertisement=True) == "read_only"
+    assert MIN_TOOL_RISK == {("local_files", "propose"): "dangerous"}
 
 
 @pytest.mark.parametrize("content", [None, "", "{}", "not json"])
@@ -859,7 +894,9 @@ ACTION_ARGS = {
     "create_file": {"path": "a/new.txt", "content": "x"},
     "propose": {"items": [{"op": "delete", "path": "a/b.txt"}], "reason": "r"},
 }
-NEEDS_TOUKA_CARD_IN_MANUAL = {"create_folder", "create_file"}
+# propose 照 Touka 的模式核准（ADR-0317）：Manual 跳卡、Auto 給審查員、YOLO 直接做
+NEEDS_TOUKA_CARD_IN_MANUAL = {"create_folder", "create_file", "propose"}
+REVIEWED_IN_AUTO = {"propose"}
 
 
 def _executor(monkeypatch: pytest.MonkeyPatch, handler: Any) -> ToolExecutor:
@@ -887,6 +924,13 @@ async def test_who_has_to_agree(monkeypatch: pytest.MonkeyPatch, mode: str, acti
         calls.append(kwargs)
         return "done"
 
+    reviewed: list[str] = []
+
+    async def review(_identity: Any, request: Any) -> ReviewOutcome:
+        reviewed.append(request.tool_name)
+        return ReviewOutcome("allow", "fixture reason", "fixture")
+
+    monkeypatch.setattr(executor_module.auto_reviewer, "review", review)
     executor = _executor(monkeypatch, handler)
     ctx = {
         "identity": SOUL,
@@ -918,6 +962,7 @@ async def test_who_has_to_agree(monkeypatch: pytest.MonkeyPatch, mode: str, acti
         assert not approval_service._pending
         assert len(calls) == 1
         assert calls[0]["action"] == action
+    assert reviewed == (["local_files"] if mode == "Auto" and action in REVIEWED_IN_AUTO else [])
     approval_service.reset_for_test()
 
 
