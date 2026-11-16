@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from memory_server.models.mission import Task, TaskStatus
 from memory_server.services import mission_manager as mission_manager_module
 from src.middleware.layers.context import render_mission_block
 from src.models.identity import AgentIdentity
@@ -47,6 +48,13 @@ def _line(block: str, task_id: str) -> str:
 def test_each_status_has_its_own_icon_and_word(status: str, icon: str) -> None:
     assert task_status_parts(status) == (icon, status)
     assert TASK_ICONS[status] == icon
+
+
+def test_a_real_task_shows_its_status_word() -> None:
+    # 看板存的是 TaskStatus 列舉（不是字串）：狀態字與原因照樣讀得出來
+    task = Task(id="t1", description="d", status=TaskStatus.BLOCKED, blocker_detail="needs a key")
+    assert task_status_parts(task.status) == ("⛔", "BLOCKED")
+    assert task_reason(task) == "needs a key"
 
 
 def test_an_unknown_status_is_not_echoed() -> None:

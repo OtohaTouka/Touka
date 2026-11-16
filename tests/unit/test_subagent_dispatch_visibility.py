@@ -161,6 +161,35 @@ async def test_without_the_board_tool_the_result_comes_back_directly(
     assert get_callback_store()._pending == {}  # 沒有登記任何憑證
 
 
+async def test_the_sync_branch_passes_everything_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 只能看是安全界線：同步分支也要把它、父 ctx、身分與模型原樣交給子代理
+    seen: dict[str, Any] = {}
+
+    async def _fake_run(**kwargs: Any) -> str:
+        seen.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(subagent_tools, "_run_subagent", _fake_run)
+    ctx = _ctx("dispatch_subagent")
+    parent = _parent()
+    await subagent_tools.dispatch_subagent(
+        goal="看看就好",
+        identity=parent,
+        request_id="req-7",
+        model="parent-model",
+        sub_model="child-model",
+        _ctx=ctx,
+        read_only=True,
+    )
+
+    assert seen["read_only"] is True
+    assert seen["base_ctx"] is ctx
+    assert seen["parent_identity"] is parent
+    assert seen["model"] == "child-model"  # sub_model 優先於主代理的模型
+    assert seen["parent_request_id"] == "req-7"
+    assert seen["goal"] == "看看就好"
+
+
 async def test_a_plain_dict_context_is_read_the_same_way(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = {"advertised_tools": AdvertisedTools(native=frozenset({"dispatch_subagent"}))}
     payload = await _dispatch(monkeypatch, ctx, "ok")

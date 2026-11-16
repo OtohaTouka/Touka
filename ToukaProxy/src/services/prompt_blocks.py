@@ -269,8 +269,8 @@ def build_harness_context(
             )
         else:
             lines.append(
-                "- Without mission_tools, dispatch_subagent waits for the sub-agent to "
-                "finish and returns its result directly."
+                "- In this turn dispatch_subagent waits for the sub-agent to finish and "
+                "returns its result directly."
             )
     lines += [
         "",

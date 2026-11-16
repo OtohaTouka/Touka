@@ -7,7 +7,8 @@
 - **非同步 token 形**：立即回結構化成功（含 ``callback_token``），背景 asyncio task
   開子 loop；完成（或失敗）後 ``DispatchCallbackStore.deliver_result`` **in-process
   直呼**（繞過 HTTP 回呼路由），喚醒既有 ``mission_tools(action="await_dispatch_result")``
-  ——等待工具零改動重用（ADR-0051 語義不變）。
+  ——等待工具零改動重用（ADR-0051 語義不變）。這一輪沒列 ``mission_tools`` 時沒有工具
+  能收憑證，改成等子代理做完、直接帶回結果（ADR-0316 PR 2 補記）。
 - **臨時身分不落盤**：``__subagent_{hex}__`` ＋ Subagent 角色（ADR-0245，工具照抄原
   Guest）；全路徑不呼 ``record_working_brain``／soul 寫入（提案 §7.2-3 污染風險）。
   Subagent 權限面天然不含 ``dispatch_subagent``（Gate 1 不廣告＋Gate 2 拒絕）＝遞迴
@@ -547,6 +548,7 @@ async def dispatch_subagent(
 
     立即回傳 ``callback_token``；主 agent 之後以
     ``mission_tools(action="await_dispatch_result", callback_token=...)`` 等待結果。
+    這一輪沒列 ``mission_tools`` 時改成等子代理做完、直接帶回結果（``_dispatch_and_wait``）。
 
     Args:
         goal: 子任務目標與完整指示（子代理只看得到這段，必須自包含）。

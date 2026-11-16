@@ -16,6 +16,7 @@ from src.config import get_app_data_dir
 from src.middleware.layers.context import ContextLayer
 from src.middleware.layers.tool import ToolLayer
 from src.middleware.pipeline import ProxyPipeline
+from src.models.advertised_tools import AdvertisedTools
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.safety import PolicyContext
@@ -354,6 +355,21 @@ async def test_the_dispatch_tool_carries_the_limit_all_the_way(world):
     )
     assert "callback_token" in result
     await _settle()
+    assert "write" not in _advertised(client)
+    assert not (root / "new.txt").exists()
+
+
+async def test_the_limit_also_holds_when_dispatch_waits_for_the_result(world):
+    """沒列 mission_tools 時派子代理改成等做完才回（ADR-0316 PR 2 補記）：只能看照樣一路帶到底。"""
+    session_id, root = await _bound(world)
+    client = _client(_reply(WRITE_NEW))
+    parent = _parent(client, session_id, "YOLO")
+    parent.advertised_tools = AdvertisedTools(native=frozenset({"dispatch_subagent"}))
+    result = await subagent_tools.dispatch_subagent(
+        goal="只看", identity=A, request_id="parent", model=MODEL, _ctx=parent, read_only=True
+    )
+    assert "in-process-sync" in result
+    assert "callback_token" not in result
     assert "write" not in _advertised(client)
     assert not (root / "new.txt").exists()
 

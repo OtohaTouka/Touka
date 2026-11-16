@@ -20,9 +20,14 @@ _REASON_STATUSES = frozenset({"BLOCKED", "FAILED"})
 REASON_LIMIT = 120
 
 
+def _status_word(status: Any) -> str:
+    """TaskStatus 列舉取它的值，字串照用（不依賴列舉的 str() 寫法）。"""
+    return str(getattr(status, "value", status))
+
+
 def task_status_parts(status: Any) -> tuple[str, str]:
     """（圖示, 狀態字）。看不懂的值不原樣寫出（這段會進 system）。"""
-    word = str(status)
+    word = _status_word(status)
     if word not in TASK_ICONS:
         return TASK_ICONS["TODO"], "?"
     return TASK_ICONS[word], word
@@ -30,7 +35,7 @@ def task_status_parts(status: Any) -> tuple[str, str]:
 
 def task_reason(task: Any, limit: int = REASON_LIMIT) -> str | None:
     """卡住或失敗的原因：先看 blocker_detail，沒有再看 test_log；壓成一行，超過截斷。"""
-    if str(getattr(task, "status", "")) not in _REASON_STATUSES:
+    if _status_word(getattr(task, "status", "")) not in _REASON_STATUSES:
         return None
     raw = getattr(task, "blocker_detail", None) or getattr(task, "test_log", None)
     if not raw:
