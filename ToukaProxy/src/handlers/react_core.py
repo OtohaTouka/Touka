@@ -363,6 +363,7 @@ async def run_react_loop(  # noqa: PLR0915
         """
         notify_stop_failure(context, error.error_type, error.user_message)
         context["model_failed"] = True
+        context["model_error_type"] = error.error_type
         partial = None if booked else record_partial_usage()
         if (partial is not None or (booked and run_usage.totals)
                 ) and adapter.emits_usage_event(state):
@@ -375,7 +376,11 @@ async def run_react_loop(  # noqa: PLR0915
             yield sse_line(generation_failure_event(
                 error.error_type, _failure_detail_for_viewer(context, error)))
             raise UiGenerationStopped("error")
-        yield yield_delta(SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message)
+        # 子代理的失敗由派工端用固定說法交回，廠商原文不進主代理看得到的結果（ADR-0318）
+        if not context.get("subagent_run"):
+            yield yield_delta(
+                SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message
+            )
         yield "data: [DONE]\n\n"
 
     try:
@@ -568,7 +573,9 @@ async def run_react_loop(  # noqa: PLR0915
                         completed_count += 1
                         continue
                     if event["type"] == "log":
-                        yield yield_delta(event["content"])
+                        # 子代理沒人看畫面，日誌行只會擠掉它的結論（ADR-0318）
+                        if not context.get("subagent_run"):
+                            yield yield_delta(event["content"])
                     else:
                         yield sse_line(event)
 

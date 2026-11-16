@@ -547,4 +547,4 @@ async def test_subagent_timeout_delivers_failed_via_dispatch(monkeypatch):
     token = json.loads(res)["callback_token"]
     result = await get_callback_store().wait_for_result(token, timeout=5)
     assert result.get("status") == "FAILED"
-    assert "TimeoutError" in str(result.get("result_summary", ""))
+    assert "逾時" in str(result.get("result_summary", ""))  # 固定說法（ADR-0318）

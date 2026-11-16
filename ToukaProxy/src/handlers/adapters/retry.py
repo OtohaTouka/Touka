@@ -74,6 +74,10 @@ _BODY_ERROR_TYPES = {
     "not_found_error": "model_not_found",
     "billing_error": "billing_error",
 }
+# 失敗種類只會是這些；交給模型或寫進紀錄前對照它，表外的一律當 unknown（ADR-0318）
+KNOWN_ERROR_TYPES = frozenset(
+    {*_STATUS_ERROR_TYPES.values(), *_BODY_ERROR_TYPES.values(), "server_error", "unknown"}
+)
 
 
 def retryable_status(status: int) -> bool:

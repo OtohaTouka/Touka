@@ -157,7 +157,7 @@ async def test_without_the_board_tool_the_result_comes_back_directly(
     assert payload["result"]["status"] == "DONE"
     assert "摘要完成" in payload["result"]["result_summary"]
     assert "mission_tools" in payload["message"]  # 說明為什麼這次等做完才回
-    assert "DONE" in payload["message"]
+    assert "已結束：部分完成或未確認" in payload["message"]  # 沒附回報塊（ADR-0318）
     assert get_callback_store()._pending == {}  # 沒有登記任何憑證
 
 
@@ -200,7 +200,7 @@ async def test_a_failed_child_is_reported_as_failed(monkeypatch: pytest.MonkeyPa
     payload = await _dispatch(monkeypatch, _ctx("dispatch_subagent"), RuntimeError("boom"))
 
     assert payload["result"]["status"] == "FAILED"
-    assert "FAILED" in payload["message"]
+    assert "已結束：失敗" in payload["message"]
 
 
 async def test_with_the_board_tool_a_token_is_returned_as_before(
