@@ -66,6 +66,8 @@ class ApprovalResolution:
 
     decision: ApprovalDecision | Literal["timeout"]
     response_payload: dict[str, Any] | None = None
+    # 解算端點驗證過的人（``identity.agent_id``）；逾時與找不到時是 None
+    resolver_id: str | None = None
 
 
 class ApprovalService:
@@ -92,7 +94,10 @@ class ApprovalService:
             if len(self._pending) >= MAX_PENDING:
                 logger.warning(
                     "🚫 [Approval] Queue full (%d/%d); rejecting %s (%s).",
-                    len(self._pending), MAX_PENDING, exec_id, tool_name,
+                    len(self._pending),
+                    MAX_PENDING,
+                    exec_id,
+                    tool_name,
                 )
                 return False
             if exec_id in self._pending:
@@ -129,11 +134,7 @@ class ApprovalService:
     ) -> bool:
         """人類解算（單發）：未知／已解算回 False。AUDIT 落 log。"""
         resolved_decision = (
-            decision
-            if decision is not None
-            else "accepted"
-            if approved
-            else "declined"
+            decision if decision is not None else "accepted" if approved else "declined"
         )
         async with self._lock:
             pending = self._pending.get(exec_id)
@@ -145,8 +146,12 @@ class ApprovalService:
             pending.event.set()
         logger.info(
             "🔏 AUDIT [Approval] %s %s by %s (tool=%s, agent=%s, session=%s)",
-            exec_id, pending.decision, resolver,
-            pending.tool_name, pending.agent_id, pending.session_id,
+            exec_id,
+            pending.decision,
+            resolver,
+            pending.tool_name,
+            pending.agent_id,
+            pending.session_id,
         )
         return True
 
@@ -175,6 +180,7 @@ class ApprovalService:
             return ApprovalResolution(
                 decision=pending.decision or "declined",
                 response_payload=pending.response_payload,
+                resolver_id=pending.resolver_id,
             )
         finally:
             async with self._lock:

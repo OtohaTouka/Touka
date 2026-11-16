@@ -86,7 +86,7 @@
         "actions": {
           "list": "read_only",
           "read": "read_only",
-          "propose": "read_only",
+          "propose": "dangerous",
           "create_folder": "safe",
           "create_file": "safe"
         }

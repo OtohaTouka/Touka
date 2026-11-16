@@ -49,9 +49,15 @@ RiskClass = Literal["read_only", "safe", "dangerous"]
 _RISK_ORDER: tuple[str, ...] = ("read_only", "safe", "dangerous")
 # 沒有隔離環境時改成只有人能核准的模式（程式常數，設定檔改不鬆）
 _UNISOLATED_HUMAN_ONLY_MODES: frozenset[str] = frozenset({"Auto", "YOLO"})
+# 執行時的風險至少是這一級，設定檔寫得再鬆也一樣（ADR-0317）：小幫手照 Touka 的模式核准，
+# 清單在 Manual 要跳卡、在 Auto 要給審查員。廣告不套，list、read 照樣看得到
+MIN_TOOL_RISK: dict[tuple[str, str], RiskClass] = {("local_files", "propose"): "dangerous"}
+_raised_once: set[tuple[str, str]] = set()
+
 
 class SafetyRules(BaseModel):
     """正則表達式基礎的安全規則集（舊檔的 safe_whitelist 鍵讀到會被忽略）"""
+
     critical_blacklist: list[str] = Field(
         default_factory=list, description="強制攔截的危險指令 Regex 清單"
     )
@@ -76,12 +82,8 @@ class ToolRiskEntry(BaseModel):
     執行取實際動詞的類；動詞缺失／未知＝dangerous（fail-safe，不信任條目自報）。
     """
 
-    action_param: str = Field(
-        "action", description="動詞所在的參數名（如 memory_tools 的 action）"
-    )
-    actions: dict[str, RiskClass] = Field(
-        default_factory=dict, description="動詞 → 風險類"
-    )
+    action_param: str = Field("action", description="動詞所在的參數名（如 memory_tools 的 action）")
+    actions: dict[str, RiskClass] = Field(default_factory=dict, description="動詞 → 風險類")
 
 
 class ToolRiskConfig(BaseModel):
@@ -104,7 +106,13 @@ class ToolRiskConfig(BaseModel):
         *,
         advertisement: bool = False,
     ) -> RiskClass:
-        """求某次調用（或廣告）的風險類。"""
+        """求某次調用（或廣告）的風險類；執行時套 ``MIN_TOOL_RISK`` 的下限。"""
+        risk = self._listed_class(tool_name, action, advertisement=advertisement)
+        return risk if advertisement else _at_least_floor(tool_name, action, risk)
+
+    def _listed_class(
+        self, tool_name: str, action: str | None, *, advertisement: bool
+    ) -> RiskClass:
         entry = self.tools.get(tool_name)
         if entry is None:
             return self.default
@@ -121,11 +129,34 @@ class ToolRiskConfig(BaseModel):
         return "dangerous"
 
     def action_param_for(self, tool_name: str) -> str | None:
-        """聚合工具的動詞參數名；非聚合／未列名 → None（執行層據此抽動詞進審計）。"""
+        """聚合工具的動詞參數名；非聚合／未列名 → None（執行層據此抽動詞進審計）。
+
+        內建分類的工具一律用內建的參數名：設定檔寫成一個字串或換了參數名，下限照樣抽得到動詞。
+        """
+        builtin = BUILTIN_TOOL_RISK.get(tool_name)
+        if builtin is not None:
+            return builtin.action_param
         entry = self.tools.get(tool_name)
         if isinstance(entry, ToolRiskEntry):
             return entry.action_param
         return None
+
+
+def _at_least_floor(tool_name: str, action: str | None, risk: RiskClass) -> RiskClass:
+    """比下限鬆就改成下限；同一個工具與動作只記一次 warning。"""
+    floor = MIN_TOOL_RISK.get((tool_name, action)) if action is not None else None
+    if floor is None or _RISK_ORDER.index(risk) >= _RISK_ORDER.index(floor):
+        return risk
+    if (tool_name, action) not in _raised_once:
+        _raised_once.add((tool_name, action))
+        logger.warning(
+            "Risk for %s %s raised from %s to the built-in floor %s",
+            tool_name,
+            action,
+            risk,
+            floor,
+        )
+    return floor
 
 
 def _require_isolation(context: PolicyContext, decision: PolicyDecision) -> PolicyDecision:
@@ -161,7 +192,7 @@ BUILTIN_TOOL_RISK: dict[str, ToolRiskEntry] = {
         actions={
             "list": "read_only",
             "read": "read_only",
-            "propose": "read_only",
+            "propose": "dangerous",
             "create_folder": "safe",
             "create_file": "safe",
         },
@@ -174,6 +205,7 @@ class AuthPoliciesConfig(BasePolicyModel):
 
     對應 auth_policies.json
     """
+
     policies: SafetyRules = Field(..., description="具體的黑白名單規則")
     tool_risk: ToolRiskConfig = Field(
         default_factory=ToolRiskConfig,
@@ -285,9 +317,7 @@ class AuthPoliciesConfig(BasePolicyModel):
                     reason="Dangerous MCP tool in YOLO mode with no human present: only a "
                     "human can approve",
                 )
-            return PolicyDecision(
-                effect="ALLOW", reason="YOLO mode permits non-blacklist actions"
-            )
+            return PolicyDecision(effect="ALLOW", reason="YOLO mode permits non-blacklist actions")
 
         # 預設保險（含已退役的舊名稱）
         return PolicyDecision(

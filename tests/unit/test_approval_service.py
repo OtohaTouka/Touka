@@ -144,6 +144,8 @@ async def test_structured_interaction_carries_schema_payload_and_resolution(serv
     resolution = await waiter
     assert resolution.decision == "accepted"
     assert resolution.response_payload == {"answer": "yes"}
+    # 誰按的（ADR-0317：只有配對的人在卡片上按的核准，小幫手才不再跳視窗）
+    assert resolution.resolver_id == "human-1"
 
 
 @pytest.mark.asyncio
@@ -162,9 +164,7 @@ async def test_structured_interaction_supports_explicit_cancel(service):
 @pytest.mark.asyncio
 async def test_cancelled_waiter_cleans_ephemeral_interaction(service):
     await _register(service, "mcp-disconnect")
-    waiter = asyncio.create_task(
-        service.wait_for_resolution("mcp-disconnect", timeout_s=30)
-    )
+    waiter = asyncio.create_task(service.wait_for_resolution("mcp-disconnect", timeout_s=30))
     await asyncio.sleep(0)
 
     waiter.cancel()

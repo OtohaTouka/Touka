@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from src.models.identity import AgentIdentity
+if TYPE_CHECKING:
+    from src.models.identity import AgentIdentity
+    from src.services.tool_previews import ToolPreview
 
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -26,6 +28,8 @@ class ToolExecutionContextKwargs(TypedDict):
     auth_level: str
     _hitl_preapproved: bool
     _approved_by: str | None
+    # 核准前的預覽與誰決定的（ADR-0317）；沒有預覽時是 None
+    _tool_preview: ToolPreview | None
     _interactive: bool
     _emit_event: EventEmitter
     _call_id: str
@@ -50,6 +54,7 @@ def build_execution_context_kwargs(
     call_id: str,
     context: dict[str, Any],
     approved_by: str | None = None,
+    tool_preview: ToolPreview | None = None,
 ) -> ToolExecutionContextKwargs:
     """建立 ToolExecutor 注入的完整中繼 kwargs。"""
     return {
@@ -62,6 +67,7 @@ def build_execution_context_kwargs(
         "auth_level": auth_level,
         "_hitl_preapproved": hitl_preapproved,
         "_approved_by": approved_by,
+        "_tool_preview": tool_preview,
         "_interactive": interactive,
         "_emit_event": emit_event,
         "_call_id": call_id,

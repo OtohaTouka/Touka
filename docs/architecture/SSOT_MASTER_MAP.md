@@ -653,7 +653,10 @@ Guard45＋sandbox runtime/provider/backend測試分工及metadata更新界線見
 | 權杖比對 | `ToukaProxy/src/utils/local_bridge_token.py` |
 | 工作佇列與期限 | `ToukaProxy/src/services/local_bridge.py` |
 | 配對資料 | `ToukaProxy/src/services/local_bridge_pairing.py` |
-| 決定的鑰匙與章 | 鑰匙與配對碼在 `ToukaProxy/src/utils/local_bridge_signing.py`；驗章在小幫手 `ToukaLocal/touka_local/signing.py`（Touka 端蓋章在 PR 2b） |
+| 決定的章、誰決定的 | `ToukaProxy/src/utils/local_bridge_signing.py`；小幫手另存一份 `ToukaLocal/touka_local/signing.py`，兩邊用同一組固定測資 |
+| 核准前的預覽 | `ToukaProxy/src/services/tool_previews.py`（註冊表 `PREVIEWERS`） |
+| 小幫手沒做成時的說法 | `ToukaProxy/src/services/local_bridge_results.py` |
+| 風險下限 | `ToukaProxy/src/models/safety.py` 的 `MIN_TOOL_RISK` |
 | 小幫手的底線與總量 | `ToukaLocal/touka_local/floors.py`（數字只在這裡，協議改不到） |
 
 ### 3-K. 資訊安全守衛層：登入憑證綁後端（ADR-0297）
