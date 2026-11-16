@@ -148,6 +148,7 @@ describe('hook 擋下的這一輪從存檔拿掉（ADR-0292）', () => {
     h.hookNotice.mockReturnValue(false);
     const saved = await savedAfterError(new Error('network'));
     expect(userNode(saved.tree)?.content).toBe('secret');
+    expect(assistantNode(saved.tree)).toBeDefined();
     expect(assistantNode(saved.tree)?.generationStopped).toBeUndefined();
     expect(saved.generation).toBe('error');
     expect(h.onHookBlocked).not.toHaveBeenCalled();

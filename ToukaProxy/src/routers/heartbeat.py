@@ -698,17 +698,19 @@ async def _process_heartbeat_loop(
                 home_handover.schedule(identity)
 
 
-def _record_refusal(agent_id: str, reason: HeartbeatSkip) -> None:
+def _record_refusal(requested: AgentIdentity, reason: HeartbeatSkip) -> None:
     """心跳在入口被擋時記一筆（ADR-0318）；重置、清除或刪除中不記（ADR-0287）。
 
     出錯只記 log，不改變原本要回的錯誤。
     """
     try:
-        identity = identity_service.get_identity(agent_id)
+        identity = identity_service.get_identity(requested.agent_id)
         if destructive_ops.generation(identity) is not None:
             record_heartbeat_skipped(identity, reason, session_id=None)
     except Exception:
-        logger.warning("Heartbeat refusal for %s was not recorded.", agent_id, exc_info=True)
+        logger.warning(
+            "Heartbeat refusal for %s was not recorded.", requested.agent_id, exc_info=True
+        )
 
 
 @router.post("/awaken", status_code=202)
@@ -750,7 +752,7 @@ async def awaken_agent(
             f"Denying pulse for {agent_id}."
         )
         # 常見的靜默停擺：記下來，下一次心跳看得到（ADR-0318）
-        _record_refusal(agent_id, "owner_login_expired")
+        _record_refusal(req.agent_id, "owner_login_expired")
         raise ToukaException(ErrorCode.HEARTBEAT_ORPHAN_AGENT)
 
     # 1.5 獲取身分並檢查權限 (Identity & Capability SSOT)
