@@ -30,5 +30,13 @@ def no_human_followup(ctx: Any) -> str:
 
 
 def blocked_call_suggestion(ctx: Any) -> str:
-    """沒人在場、動作被擋時的建議（只換 ``suggestion``，拒絕與 ``reason`` 不變）。"""
+    """動作被擋、而且沒有核准通道時的建議（只換 ``suggestion``，拒絕與 ``reason`` 不變）。
+
+    執行器的三處只在沒人在場時走到；終端在 YOLO 串接指令時有人在場也會走到，這時說中性的話。
+    """
+    if is_human_present(ctx):
+        return (
+            "Do not retry or work around this call; tell the user what it would do so "
+            "they can decide or run it themselves."
+        )
     return f"Do not retry or work around this call; {no_human_followup(ctx)}."

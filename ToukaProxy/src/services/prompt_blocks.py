@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from src.utils.auth_mode import normalize_auth_mode
+
 # Context 區塊 tag 名稱（小寫 snake_case，與 breakdown parser 對齊）。
 PERSONA = "persona"
 PROJECT_CONTEXT = "project_context"
@@ -49,7 +51,6 @@ VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (
     MISSION_AWARENESS,
     CONVERSATION_SUMMARY,
     MCP_UNAVAILABLE,
-    APPROVAL_CONTEXT,
 )
 
 # 只在這一次請求附在最後一則 user 訊息尾端（"\n\n<tag>…</tag>"）、不進下一輪歷史的區塊：
@@ -66,6 +67,9 @@ STABLE_SYSTEM_TAGS: tuple[str, ...] = (
     TOOL_AVAILABILITY,
     VALIDATION_PROTOCOL,
     HARNESS_CONTEXT,
+    # 同一段對話裡不變；歸「會變」組會讓 Claude 的 system 一定多切一個快取斷點，
+    # 原生用戶端自己帶斷點時可能超過 4 個（ADR-0316）
+    APPROVAL_CONTEXT,
 )
 
 
@@ -109,9 +113,10 @@ def build_approval_context(auth_level: str, *, human_present: bool, followup: st
     """建構 <approval_context> 區塊：這一輪的模式、有沒有人在場、需要核准的會怎樣（ADR-0316）。
 
     說法對齊實際判斷（``models/safety.py`` 三模式決策表、``auto_reviewer`` 無人時轉人、
-    YOLO 無人時危險 MCP 工具與沒有隔離時只有人能核准）。Auto 沒人時不讀設定檔，用保守
-    說法。看不懂的模式值照 Manual 寫。內容在同一段對話裡不變（不放時間、輪數），登記在
-    ``VOLATILE_SYSTEM_TAGS``：模式與在場可能隔輪改變，Claude 路徑排在不變的說明後面。
+    YOLO 無人時危險 MCP 工具與沒有隔離時只有人能核准、終端把 YOLO 的串接指令升成要人
+    核准）。Auto 沒人時不讀設定檔，用保守說法。模式照 ``normalize_auth_mode``（看不懂的
+    值寫成 Manual）。內容在同一段對話裡不變（不放時間、輪數），歸「不變」組
+    （``STABLE_SYSTEM_TAGS``）；SNS 這類有人在聊但沒人能核准的情況，也照實寫成沒人能核准。
 
     Args:
         auth_level: 這一輪的模式（``"Manual"``／``"Auto"``／``"YOLO"``）。
@@ -121,12 +126,15 @@ def build_approval_context(auth_level: str, *, human_present: bool, followup: st
     Returns:
         以 <approval_context> 包覆、前後各帶換行的區塊文字。
     """
-    mode = auth_level if auth_level in ("Auto", "YOLO") else "Manual"
+    mode = normalize_auth_mode(auth_level)
     lines = [f"Approval mode for this turn: {mode}."]
     if human_present:
-        lines.append("A human is present in this conversation and can answer approval cards.")
+        lines.append("Someone in this conversation can answer approval cards.")
     else:
-        lines.append("No human is present in this turn, so nobody can approve anything here.")
+        lines.append(
+            "Nobody can answer approval requests in this turn, so actions that need "
+            "approval cannot run here."
+        )
     if mode == "Manual" and human_present:
         lines.append(
             "State-changing tool calls pause for human approval: an approval card appears "
@@ -156,6 +164,12 @@ def build_approval_context(auth_level: str, *, human_present: bool, followup: st
             "Tool calls run without per-step approval, except actions only a human may "
             "approve (hard limits, dangerous MCP tools, and some actions when no isolated "
             "environment is available); with no human here those are denied."
+        )
+    if mode == "YOLO":
+        lines.append(
+            "Shell commands that chain or embed other commands (;, |, &&, ||, backticks, "
+            "$(...), line breaks) are not run automatically; split them into single "
+            "commands where you can."
         )
     if not human_present:
         lines.append(f"If a call is denied, do not retry it; {followup}.")

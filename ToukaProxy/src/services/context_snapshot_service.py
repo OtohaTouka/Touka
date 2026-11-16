@@ -118,7 +118,7 @@ BLOCK_META: dict[str, dict[str, str]] = {
     VALIDATION_PROTOCOL: {
         "name": "Validation Protocol",
         "layer": "ToolLayer",
-        "source": "build_validation_protocol(auth_level)（改動類開發工具在場才注入）",
+        "source": "build_validation_protocol()（改動類開發工具在場才注入）",
         "kind": "real",
         "mock": "After you change files … VALIDATE the outcome before reporting success.",
     },

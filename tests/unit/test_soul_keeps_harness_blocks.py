@@ -90,6 +90,31 @@ def test_project_context_survives_on_anthropic() -> None:
     assert "Working Directory: notes" in text
 
 
+def test_anthropic_string_client_text_is_still_judged_as_client() -> None:
+    # 用戶端用字串 system 送來的內容不能被當成系統加的
+    request = _anthropic("外面送的說明")
+    original = client_system.capture(request)
+    inject_anthropic_system(request, PROJECT)
+
+    soul_service.apply_soul_to_request(request, "Alice", client_system=original)
+
+    text = _anthropic_system(request)
+    assert "Working Directory: notes" in text
+    assert "外面送的說明" not in text
+
+
+def test_project_context_appears_once_even_with_a_keyword_name() -> None:
+    # 專案名含 capital（裡面有 api）：舊做法會留下，現在也只出現一次，不會重複
+    request = _openai()
+    original = client_system.capture(request)
+    named = "[Project Context: 📁 capital]\nWorking Directory: notes"
+    inject_openai_system(request.messages, "\n" + wrap_block(PROJECT_CONTEXT, named))
+
+    soul_service.apply_soul_to_request(request, "Alice", client_system=original)
+
+    assert _openai_system(request).count("Working Directory: notes") == 1
+
+
 def test_list_system_does_not_crash_and_keeps_added_blocks() -> None:
     request = _anthropic([{"type": "text", "text": "外面送的說明"}])
     original = client_system.capture(request)

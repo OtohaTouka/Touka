@@ -14,7 +14,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.adapters.tool_schema import reorder_system_stable_first
+from src.adapters.tool_schema import reorder_system_stable_first, to_cached_system
 from src.middleware.layers.tool import ToolLayer
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
@@ -42,6 +42,7 @@ from src.utils.presence import blocked_call_suggestion, no_human_followup
 _ACTOR = AgentIdentity.for_role(agent_id="ModeProbe", role="Owner", is_human=False)
 _SUBAGENT = {"subagent_run": True}
 _HEARTBEAT = {"heartbeat_run": True}
+_PRESENT = {"resumable_stream": True}
 _OLD_ADVICE = ("Auto or YOLO", "open ToukaUI", "interactive chat")
 
 
@@ -82,9 +83,11 @@ def _effect(
 # ── 區塊登記與分類 ─────────────────────────────────────────────────────
 
 
-def test_tag_is_registered_as_a_volatile_system_block() -> None:
+def test_tag_is_registered_as_a_stable_system_block() -> None:
+    # 同一段對話裡不變：歸「會變」組會讓 Claude 多切一個快取斷點
     assert APPROVAL_CONTEXT in ALL_BLOCK_TAGS
-    assert APPROVAL_CONTEXT in VOLATILE_SYSTEM_TAGS
+    assert APPROVAL_CONTEXT in STABLE_SYSTEM_TAGS
+    assert APPROVAL_CONTEXT not in VOLATILE_SYSTEM_TAGS
     assert APPROVAL_CONTEXT in BLOCK_META
 
 
@@ -103,7 +106,7 @@ def test_manual_with_a_human_pauses_for_approval() -> None:
     assert _effect("Manual", "write", present=True) == "CONFIRM"
     text = _block("Manual", True)
     assert "pause for human approval" in text
-    assert "A human is present" in text
+    assert "can answer approval cards" in text
 
 
 def test_manual_without_a_human_denies_state_changes() -> None:
@@ -112,7 +115,7 @@ def test_manual_without_a_human_denies_state_changes() -> None:
     text = _block("Manual", False)
     assert "denied" in text
     assert "only read-only tools run" in text
-    assert "No human is present" in text
+    assert "Nobody can answer approval requests" in text
 
 
 def test_auto_with_a_human_runs_low_risk_and_routes_the_rest() -> None:
@@ -155,6 +158,12 @@ def test_yolo_without_isolation_makes_some_actions_human_only() -> None:
     assert "no isolated environment" in _block("YOLO", True)
 
 
+def test_yolo_mentions_that_chained_commands_are_not_auto_run() -> None:
+    assert "chain or embed other commands" in _block("YOLO", True)
+    assert "chain or embed other commands" in _block("YOLO", False)
+    assert "chain or embed" not in _block("Auto", True)
+
+
 def test_unknown_mode_is_described_as_manual() -> None:
     assert _effect("SafeAuto", "write", present=True) == "CONFIRM"
     assert _block("SafeAuto", True) == _block("Manual", True)
@@ -193,18 +202,19 @@ def test_harness_points_to_the_approval_block() -> None:
     assert APPROVAL_CONTEXT not in empty
 
 
-def test_claude_reorder_keeps_the_harness_block_whole() -> None:
-    # 會變的區塊搬到尾端時，不變的說明要整段留在前面（說明裡不能出現會變區塊的標籤字樣）
+def test_claude_system_keeps_one_cache_breakpoint_without_volatile_blocks() -> None:
+    # 只有不變的說明時，system 只佔一個快取斷點（原生用戶端自己帶的斷點才不會超過 4 個）；
+    # 說明裡也不能出現會變區塊的標籤字樣，否則重排會切開
     harness = build_harness_context(
         model="m", role="Owner", advertised=frozenset({"execute_command"})
     )
-    approval = _block("Auto", True)
-    system = "<persona>\nx\n</persona>" + approval + harness
+    system = "<persona>\nx\n</persona>" + harness + _block("Auto", True)
 
     reordered = reorder_system_stable_first(system, volatile_tags=VOLATILE_SYSTEM_TAGS)
+    cached = to_cached_system(reordered, volatile_tags=VOLATILE_SYSTEM_TAGS)
 
-    assert harness.strip() in reordered
-    assert reordered.rstrip().endswith(approval.strip())
+    assert reordered == system
+    assert len(cached) == 1
 
 
 # ── ToolLayer：有列工具的每一輪都帶到 ─────────────────────────────────
@@ -247,14 +257,19 @@ async def test_read_only_tools_still_get_the_block() -> None:
     text = await _layer_system(["research"], _layer_ctx(resumable_stream=True))
     assert f"<{APPROVAL_CONTEXT}>" in text
     assert "Manual" in text
-    assert "A human is present" in text
+    assert "can answer approval cards" in text
+
+
+async def test_no_listed_tools_means_no_block() -> None:
+    text = await _layer_system([], _layer_ctx(resumable_stream=True))
+    assert f"<{APPROVAL_CONTEXT}>" not in text
 
 
 async def test_subagent_turn_says_nobody_can_approve() -> None:
     text = await _layer_system(
         ["research"], _layer_ctx(resumable_stream=True, subagent_run=True, auth_level="Auto")
     )
-    assert "No human is present" in text
+    assert "Nobody can answer approval requests" in text
     assert "report to the agent that dispatched you" in text
 
 
@@ -264,8 +279,15 @@ async def test_subagent_turn_says_nobody_can_approve() -> None:
 def test_shared_suggestion_by_situation() -> None:
     assert "report to the agent that dispatched you" in blocked_call_suggestion(_SUBAGENT)
     assert "mission board" in blocked_call_suggestion(_HEARTBEAT)
-    for ctx in (_SUBAGENT, _HEARTBEAT, {}):
+    for ctx in (_SUBAGENT, _HEARTBEAT, {}, _PRESENT):
         assert not any(old in blocked_call_suggestion(ctx) for old in _OLD_ADVICE)
+
+
+def test_suggestion_with_someone_present_does_not_say_wait_for_a_human() -> None:
+    # 終端在 YOLO 串接指令時，有人在場也會走到被擋的路
+    text = blocked_call_suggestion(_PRESENT)
+    assert "when they return" not in text
+    assert "tell the user" in text
 
 
 @pytest.mark.parametrize("ctx", [_SUBAGENT, _HEARTBEAT], ids=["subagent", "heartbeat"])
@@ -336,7 +358,9 @@ async def test_executor_denials_carry_the_situation_suggestion(
     assert payload["suggestion"] == blocked_call_suggestion(flags)
 
 
-@pytest.mark.parametrize("flags", [_SUBAGENT, _HEARTBEAT, None], ids=["sub", "hb", "none"])
+@pytest.mark.parametrize(
+    "flags", [_SUBAGENT, _HEARTBEAT, None, _PRESENT], ids=["sub", "hb", "none", "present"]
+)
 async def test_headless_dangerous_command_suggestion(flags: dict[str, Any] | None) -> None:
     result = await terminal_tool.execute_command(
         command="mkdir dangerous-thing", identity=_ACTOR, auth_level="Manual", _ctx=flags
@@ -344,3 +368,17 @@ async def test_headless_dangerous_command_suggestion(flags: dict[str, Any] | Non
     payload = json.loads(result)
     assert payload["reason"] == "ui_unavailable"
     assert payload["suggestion"] == blocked_call_suggestion(flags or {})
+
+
+
+async def test_yolo_chained_command_is_not_auto_run_even_with_someone_present() -> None:
+    # 說法的根據：終端把 YOLO 的串接指令升成要人核准，網頁聊天沒有那個通道，所以被擋
+    result = await terminal_tool.execute_command(
+        command="mkdir chain-a && mkdir chain-b",
+        identity=_ACTOR,
+        auth_level="YOLO",
+        _ctx=_PRESENT,
+    )
+    payload = json.loads(result)
+    assert payload["error_class"] == "permission_denied"
+    assert payload["suggestion"] == blocked_call_suggestion(_PRESENT)
