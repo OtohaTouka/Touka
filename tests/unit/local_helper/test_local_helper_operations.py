@@ -12,6 +12,7 @@ import pytest
 from touka_local import fsops
 from touka_local import operations as operations_module
 from touka_local.errors import Refused
+from touka_local.floors import is_vacated
 from touka_local.fsops import durable_write_text, read_durable_text
 from touka_local.grants import Environment, GrantBook
 from touka_local.operations import ApplyLimits, Operations
@@ -830,6 +831,8 @@ def test_a_pruned_batch_takes_its_temporary_record_with_it(
     # 內容完整才算數：半寫的暫存檔另外有一條規則會清
     temporary.write_text(record.read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
+    # 7 天內的批一律留著（7 天檢查要用），這裡把 7 天縮成「已經過了」
+    monkeypatch.setattr("touka_local.operations.VACATED_SECONDS", -1.0)
     plan = _delete_all(ops, fs, "c")
     ops.apply(plan, _limits(clock))
     assert not temporary.exists()
@@ -1038,6 +1041,8 @@ def test_a_pruned_batch_takes_its_previous_copy_with_it(
     previous = file.with_name(f"{file.name}.old")
     previous.write_text("{}", encoding="utf-8")
     monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
+    # 7 天內的批一律留著（7 天檢查要用），這裡把 7 天縮成「已經過了」
+    monkeypatch.setattr("touka_local.operations.VACATED_SECONDS", -1.0)
     ops.apply(_delete_all(ops, fs, "c"), _limits(clock))
     assert not previous.exists()
 
@@ -1258,3 +1263,152 @@ def test_undo_refuses_when_only_the_destination_name_points_elsewhere(
     assert ops.undo(batch) == {"restored": 0, "skipped": 1, "not_undoable": 0}
     assert fs.exists("D:\\Other\\Stash\\a.txt")
     assert not fs.exists("D:\\Open\\a.txt")
+
+
+# --- 照模式核准要看的紀錄（ADR-0317）---
+
+
+class _Wall:
+    def __init__(self) -> None:
+        self.now = 1_000_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def wall() -> _Wall:
+    return _Wall()
+
+
+@pytest.fixture
+def timed_ops(fs, book: GrantBook, trash, clock, tmp_path: Path, wall: _Wall) -> Operations:
+    fs.add_dir("D:\\Open")
+    fs.add_dir("D:\\Other")
+    book.add("D:\\Open", writable=True)
+    book.add("D:\\Other", writable=True)
+    return Operations(
+        fs=fs,
+        grants=book,
+        trash=trash,
+        clock=clock,
+        journal_dir=tmp_path / "journal",
+        wall_clock=wall,
+    )
+
+
+def test_a_plan_knows_which_open_folder_each_side_is_in(fs, timed_ops: Operations) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = timed_ops.plan(
+        {"items": [{"op": "move", "path": "Open/a.txt", "to": "Other/a.txt"}], "reason": "r"}
+    )
+    assert plan.items[0].source_root == "D:\\Open"
+    assert plan.items[0].destination_root == "D:\\Other"
+
+
+def test_only_batches_done_by_mode_count_towards_the_hour(
+    fs, timed_ops: Operations, clock, wall: _Wall
+) -> None:
+    for name, by_mode in (("a", True), ("b", False)):
+        fs.add_file(f"D:\\Open\\{name}.txt")
+        plan = timed_ops.plan(
+            {"items": [{"op": "delete", "path": f"Open/{name}.txt"}], "reason": "r"}
+        )
+        timed_ops.apply(plan, _limits(clock), by_mode=by_mode)
+    history = timed_ops.history(wall.now)
+    assert [(b.items, b.entries) for b in history.mode_batches] == [(1, 1)]
+    wall.now += 3601
+    assert timed_ops.history(wall.now).mode_batches == ()
+
+
+def test_vacated_places_cover_pending_failed_and_done(
+    fs, timed_ops: Operations, clock, wall: _Wall, monkeypatch
+) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = timed_ops.plan({"items": [{"op": "delete", "path": "Open/a.txt"}], "reason": "r"})
+    seen: list[bool] = []
+
+    def run_item(item):
+        # 「丟到回收桶」和「寫下 done」之間：紀錄已經是 pending
+        seen.append(is_vacated(item.source_full, timed_ops.history(wall.now).vacated))
+        return "failed"
+
+    monkeypatch.setattr(timed_ops, "_run_item", run_item)
+    timed_ops.apply(plan, _limits(clock))
+    assert seen == [True]
+    assert is_vacated("D:\\open\\A.TXT", timed_ops.history(wall.now).vacated)
+    wall.now += 7 * 24 * 3600 + 1
+    assert timed_ops.history(wall.now).vacated == ()
+
+
+def test_creating_in_a_recently_vacated_place_is_refused(
+    fs, timed_ops: Operations, clock, wall: _Wall
+) -> None:
+    fs.add_file("D:\\Open\\notes.txt")
+    plan = timed_ops.plan({"items": [{"op": "delete", "path": "Open/notes.txt"}], "reason": "r"})
+    timed_ops.apply(plan, _limits(clock))
+    assert _code(timed_ops.create_file, {"path": "Open/notes.txt", "content": "x"}) == (
+        "recently_vacated"
+    )
+    assert _code(timed_ops.create_folder, {"path": "Open/NOTES.txt"}) == "recently_vacated"
+    wall.now += 7 * 24 * 3600 + 1
+    assert timed_ops.create_file({"path": "Open/notes.txt", "content": "x"}) == {
+        "created": "Open/notes.txt"
+    }
+
+
+def test_an_unreadable_record_blocks_creating_and_mode_decisions(
+    timed_ops: Operations, tmp_path: Path, wall: _Wall
+) -> None:
+    folder = tmp_path / "journal"
+    folder.mkdir()
+    (folder / f"{'a' * 32}.json").write_text("{not json", encoding="utf-8")
+    assert timed_ops.history(wall.now).readable is False
+    assert _code(timed_ops.create_file, {"path": "Open/n.txt", "content": "x"}) == (
+        "journal_unreadable"
+    )
+
+
+def test_a_move_whose_source_is_not_text_makes_the_records_unreadable(
+    timed_ops: Operations, tmp_path: Path, wall: _Wall
+) -> None:
+    folder = tmp_path / "journal"
+    folder.mkdir()
+    record = {
+        "batch": "a" * 32,
+        "sequence": 1,
+        "created_at": wall.now,
+        "entries": [{"op": "delete", "source": 7, "status": "done"}],
+    }
+    (folder / f"{'a' * 32}.json").write_text(json.dumps(record), encoding="utf-8")
+    assert timed_ops.history(wall.now).readable is False
+
+
+def test_future_records_still_count(fs, timed_ops: Operations, clock, wall: _Wall) -> None:
+    fs.add_file("D:\\Open\\a.txt")
+    plan = timed_ops.plan({"items": [{"op": "delete", "path": "Open/a.txt"}], "reason": "r"})
+    timed_ops.apply(plan, _limits(clock), by_mode=True)
+    wall.now -= 86400  # 時鐘被往回調
+    assert len(timed_ops.history(wall.now).mode_batches) == 1
+
+
+def test_batches_done_by_mode_are_kept_30_days_whatever_their_number(
+    fs, timed_ops: Operations, clock, wall: _Wall, monkeypatch
+) -> None:
+    monkeypatch.setattr("touka_local.operations.MAX_JOURNALS", 1)
+    batches = []
+    for name in "abc":
+        fs.add_file(f"D:\\Open\\{name}.txt")
+        plan = timed_ops.plan(
+            {"items": [{"op": "delete", "path": f"Open/{name}.txt"}], "reason": "r"}
+        )
+        batches.append(timed_ops.apply(plan, _limits(clock), by_mode=True)["batch"])
+        wall.now += 8 * 24 * 3600
+    kept = {item["batch"] for item in timed_ops.recent_batches()}
+    assert set(batches) <= kept
+    wall.now += 30 * 24 * 3600
+    fs.add_file("D:\\Open\\z.txt")
+    plan = timed_ops.plan({"items": [{"op": "delete", "path": "Open/z.txt"}], "reason": "r"})
+    timed_ops.apply(plan, _limits(clock), by_mode=True)
+    kept = {item["batch"] for item in timed_ops.recent_batches()}
+    assert not set(batches) & kept
