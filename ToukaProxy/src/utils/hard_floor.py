@@ -143,8 +143,14 @@ _SECRET_FILES: Final = frozenset({"users.json", "connections.json", "hooks.json"
 # 心跳存 heartbeat_token 的 config.json：awaken._resolve_config_file 的預設位置
 # ToukaHeartbeat/config.json，與 compose 掛進心跳容器的 ToukaHeartbeat/config/
 _HB: Final = "toukaheartbeat"
-_SECRET_TAILS: Final = ((_HB, "config.json"), (_HB, "config", "config.json"))
-_SECRET_DIR_TAILS: Final = ((_HB,), (_HB, "config"))
+# 小幫手的配對檔存著蓋章用的鑰匙（ADR-0317）：local_bridge_pairing 的位置
+_PAIRING: Final = "local_bridge"
+_SECRET_TAILS: Final = (
+    (_HB, "config.json"),
+    (_HB, "config", "config.json"),
+    (_PAIRING, "pairing.json"),
+)
+_SECRET_DIR_TAILS: Final = ((_HB,), (_HB, "config"), (_PAIRING,))
 _CONFIG_DIRS: Final = (("app", "config"), ("toukaproxy", "config"))
 _SOURCE_DIRS: Final = (("toukaproxy", "src"),)
 _SOURCE_PARTS: Final = frozenset(

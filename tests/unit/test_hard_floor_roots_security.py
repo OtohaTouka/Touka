@@ -269,6 +269,9 @@ def test_powershell_with_file_script_is_not_expanded():
         "Get-Content ToukaProxy\\config\\connections.json. ",
         "cat ../../../ToukaHeartbeat/config.json",
         "type D:\\Touka\\ToukaHeartbeat\\config\\config.json",
+        # ADR-0317：配對檔存著蓋章用的鑰匙
+        "cat local_bridge/pairing.json",
+        "type ..\\local_bridge\\pairing.json",
     ],
 )
 def test_windows_normalised_secret_names_are_f2(command: str):
@@ -286,6 +289,7 @@ def test_the_helper_source_is_protected_like_the_other_subprojects():
         ("grep -r KEY {host}::$DATA", "F2"),
         ("grep -r KEY {app}. ", "F2"),
         ("grep -r token {app}/ToukaHeartbeat", "F2"),
+        ("grep -r key local_bridge", "F2"),
         ("Remove-Item -Recurse \\\\?\\{app}\\ToukaProxy", "F4"),
     ],
 )
@@ -295,7 +299,12 @@ def test_windows_normalised_roots(layout, template, category):
 
 @pytest.mark.parametrize(
     "command",
-    ["cat config.json", "cat ToukaHeartbeat/config.json.example", "type .env.example."],
+    [
+        "cat config.json",
+        "cat ToukaHeartbeat/config.json.example",
+        "type .env.example.",
+        "cat notes/pairing.json",
+    ],
 )
 def test_lookalike_names_are_not_secret(command: str):
     assert _floor(command) is None
