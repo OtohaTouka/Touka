@@ -233,10 +233,19 @@ def _mcp_error_result(
 
 
 def _approval_note(
-    name: str, args: Mapping[str, Any], *, person: bool, reviewer: bool, review_reason: str | None
+    name: str,
+    args: Mapping[str, Any],
+    *,
+    failed: bool,
+    person: bool,
+    reviewer: bool,
+    review_reason: str | None,
 ) -> str:
-    """誰放行的（ADR-0318）；小幫手的 propose 自己寫了誰核准，只補審查員轉人的理由。"""
-    if name == "local_files" and args.get("action") == ACTION_NEEDING_CONFIRM:
+    """誰放行的（ADR-0318）。
+
+    小幫手的 propose 成功時自己寫了誰核准，只補審查員轉人的理由；失敗時沒有，照一般附。
+    """
+    if not failed and name == "local_files" and args.get("action") == ACTION_NEEDING_CONFIRM:
         return (approval_flow.escalation_note(review_reason) or "") if person else ""
     return approval_flow.approval_note(
         person=person, reviewer=reviewer, review_reason=review_reason
@@ -820,9 +829,12 @@ class ToolExecutor:
                         ).to_result_sse()
                     )
                     await queue.put(None)
-                    # 使用者按停止不算被拒（ADR-0292）：停止收掉的卡不發 PermissionDenied
+                    # 使用者按停止不算被拒（ADR-0292）：停止收掉的卡不發 PermissionDenied；
+                    # 看解算者，卡片被關（/v1/tools/cancel）照舊發
                     denied_reason = tool_errors.extract_field(result_text, "reason")
-                    if verdict == "cancelled" and request_stopped(ctx):
+                    if resolutions and (
+                        resolutions[-1].resolver_id == approval_flow.STOPPED_RESOLVER
+                    ):
                         denied_reason = STOPPED_REASON
                     notify_permission_denied(ctx, hook_call, denied_reason)
                     return result_text
@@ -1175,6 +1187,7 @@ class ToolExecutor:
                 _approval_note(
                     name,
                     args,
+                    failed=tool_errors.is_tool_error(result_text),
                     person=hitl_preapproved,
                     reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
                     review_reason=escalated_reason,
@@ -1220,6 +1233,7 @@ class ToolExecutor:
                 _approval_note(
                     name,
                     args,
+                    failed=True,
                     person=hitl_preapproved,
                     reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
                     review_reason=escalated_reason,

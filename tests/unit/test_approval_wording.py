@@ -1,8 +1,8 @@
 """核准的說法（ADR-0318 PR 4）。
 
 - 經過核准才執行的工具，結果後面附一行說是誰放行的：人在聊天的核准卡按的、或 Auto 審查員放行
-  （沒有人看過）。沒經過核准的不附；小幫手 ``local_files`` 的 propose 自己寫了誰核准，不重複
-  （在 ``test_local_files_mode_approval.py`` 驗）。
+  （沒有人核准）。沒經過核准的不附；小幫手 ``local_files`` 的 propose 成功時自己寫了誰核准，
+  不重複（在 ``test_local_files_mode_approval.py`` 驗），失敗時照一般附。
   解算的人是誰只用來判斷，不出現在模型看到的文字。
 - 審查員把動作轉給人時，它的理由（單行、有上限、中和過）也交給模型，核准或拒絕都一樣。
 - 「被取消」「被拒絕」「等太久沒人回」分開說；找不到待審算取消、不算使用者拒絕（仍然不執行）。
@@ -83,19 +83,33 @@ async def test_a_tool_that_raises_after_approval_still_says_who_approved(
     assert json.loads(result)["approval"] == approval_flow.APPROVED_BY_REVIEWER_NOTE
 
 
-def test_local_files_propose_gets_only_the_reviewers_reason() -> None:
-    """小幫手的 propose 自己寫了誰核准；人核准時只補審查員轉人的理由（ADR-0318）。"""
-    propose = {"action": "propose"}
-    note = executor_module._approval_note(
-        "local_files", propose, person=True, reviewer=False, review_reason="needs a look"
+def _propose_note(*, failed: bool, person: bool, reviewer: bool, reason: str | None) -> str:
+    return executor_module._approval_note(
+        "local_files",
+        {"action": "propose"},
+        failed=failed,
+        person=person,
+        reviewer=reviewer,
+        review_reason=reason,
     )
+
+
+def test_local_files_propose_gets_only_the_reviewers_reason() -> None:
+    """小幫手的 propose 成功時自己寫了誰核准；人核准時只補審查員轉人的理由（ADR-0318）。"""
+    note = _propose_note(failed=False, person=True, reviewer=False, reason="needs a look")
     assert note == approval_flow.escalation_note("needs a look")
-    assert executor_module._approval_note(
-        "local_files", propose, person=True, reviewer=False, review_reason=None
-    ) == ""
-    assert executor_module._approval_note(
-        "local_files", propose, person=False, reviewer=True, review_reason=None
-    ) == ""
+    assert _propose_note(failed=False, person=True, reviewer=False, reason=None) == ""
+    assert _propose_note(failed=False, person=False, reviewer=True, reason=None) == ""
+    assert _propose_note(failed=False, person=False, reviewer=False, reason="x") == ""
+
+
+def test_a_failed_local_files_propose_still_says_who_approved() -> None:
+    """小幫手離線、逾時或出錯時，propose 的結果沒有自己的說明，照一般附（ADR-0318）。"""
+    note = _propose_note(failed=True, person=True, reviewer=False, reason="needs a look")
+    assert note == approval_flow.approval_note(
+        person=True, reviewer=False, review_reason="needs a look"
+    )
+    assert approval_flow.APPROVED_BY_PERSON_NOTE in note
 
 
 def test_an_existing_approval_key_is_not_overwritten() -> None:
@@ -170,6 +184,29 @@ async def test_stopping_the_turn_cancels_the_pending_card(monkeypatch: pytest.Mo
     assert [e.get("decision") for e in resolved] == ["cancelled"]
     assert approval_service._pending == {}
     assert denied == [STOPPED_REASON]  # 按停止不算被拒（ADR-0292），PermissionDenied 不發
+
+
+async def test_a_closed_card_still_counts_as_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """卡片被關（沒有按停止）照舊發 PermissionDenied（ADR-0318 決定 11）。"""
+    denied: list[str | None] = []
+    monkeypatch.setattr(executor_module, "request_stopped", lambda _ctx: False)
+    monkeypatch.setattr(
+        executor_module,
+        "notify_permission_denied",
+        lambda _ctx, _call, reason: denied.append(reason),
+    )
+    recorder = Recorder()
+    executor = executor_with(monkeypatch, {"write": recorder})
+    task = asyncio.create_task(run_tool(executor, "write", dict(_WRITE), mode="Manual"))
+    async with asyncio.timeout(5):
+        while not approval_service._pending:
+            await asyncio.sleep(0.005)
+        exec_id = next(iter(approval_service._pending))
+        await approval_service.resolve(exec_id, resolver="Touka", decision="cancelled")
+        result, _events = await task
+    assert tool_errors.extract_field(result, "reason") == "approval_cancelled"
+    assert recorder.calls == []
+    assert denied == ["approval_cancelled"]
 
 
 async def test_a_cancelled_tool_call_leaves_no_pending_card(

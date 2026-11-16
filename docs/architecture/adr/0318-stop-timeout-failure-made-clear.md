@@ -89,16 +89,16 @@
 
 ### 10. 結果寫明是誰核准的
 
-- 經過核准才執行的工具，結果加一行固定說明：人在聊天的核准卡按的（`APPROVED_BY_PERSON_NOTE`），或 Auto 審查員放行、沒有人看過（`APPROVED_BY_REVIEWER_NOTE`）。結構化 JSON 結果改加 `approval` 鍵，和 hook 輸出同樣做法，不破壞 JSON；其他接在最後一行。工具跑了卻失敗或丟例外時也附（核准照樣發生過）；核准後在參數檢查就被擋下、沒有跑的不附。上游結果已經有 `approval` 鍵時不覆蓋，改接在最後一行。
+- 經過核准才執行的工具，結果加一行固定說明：人在聊天的核准卡按的（`APPROVED_BY_PERSON_NOTE`），或 Auto 審查員放行、沒有人核准（`APPROVED_BY_REVIEWER_NOTE`）。結構化 JSON 結果改加 `approval` 鍵，和 hook 輸出同樣做法，不破壞 JSON；其他接在最後一行。工具跑了卻失敗或丟例外時也附（核准照樣發生過）；核准後在參數驗證（`validate_native_arguments`、`missing_required_error`）就被擋下的不附；核准後才被其他檢查擋下（MCP 參數超過上限、MCP 清單不允許、找不到工具）的照樣附，人確實核准過。上游結果已經有 `approval` 鍵時不覆蓋，改接在最後一行。
 - 沒經過核准的不附：YOLO 或政策直接放行的不算核准路徑。解算的人是誰（`ApprovalResolution.resolver_id`）不寫進模型看到的文字。
-- 小幫手 `local_files` 的 propose 結果自己寫了誰核准（`propose_result_note`，ADR-0317），執行器不再附誰核准，人核准時只補審查員轉人的理由。
+- 小幫手 `local_files` 的 propose 成功時結果自己寫了誰核准（`propose_result_note`，ADR-0317），執行器不再附誰核准，人核准時只補審查員轉人的理由；小幫手離線、逾時或出錯時結果沒有這段，照一般附。
 - 審查員把動作轉給人時，它的理由（模型寫的）經 `neutralize_hook_text`、單行、最多 300 字（`MAX_REVIEW_REASON_CHARS`）後也交給主代理：人核准時接在說明後面，被拒絕、取消或逾時時接在錯誤說明裡。以前理由只在卡片上。
 
 ### 11. 取消、拒絕、逾時分開說
 
 - `approval_denied_error` 多「被取消」：卡片被關掉或這一輪被停止，沒有人決定（`reason=approval_cancelled`）；以前掉到「Approval was not granted.」。
 - `wait_for_resolution` 找不到待審時回 `cancelled`，不再當成使用者拒絕；照樣不執行。
-- 這一輪被停止時，還在等人的核准卡每 0.5 秒（`APPROVAL_STOP_CHECK_SECONDS`）看一次停止，被停就收成「已取消」（解算者記 `touka:turn-stopped`），解算事件照常送出、卡片收斂；以前卡片沒有結果，工具空等 180 秒逾時。畫面的核准卡顯示「已取消，沒有人決定」。按停止收掉的卡不發 PermissionDenied hook（ADR-0292：使用者按停止不算被拒）；卡片被關（`/v1/tools/cancel`）照舊發 `approval_cancelled`。互審驗證指令（`CommandApprover`）不在這次範圍，照舊。
+- 這一輪被停止時，還在等人的核准卡每 0.5 秒（`APPROVAL_STOP_CHECK_SECONDS`）看一次停止，被停就收成「已取消」（解算者記 `touka:turn-stopped`），解算事件照常送出、卡片收斂；以前卡片沒有結果，工具空等 180 秒逾時。畫面的核准卡顯示「已取消，沒有人決定」。按停止收掉的卡（看解算者是不是 `touka:turn-stopped`）不發 PermissionDenied hook（ADR-0292：使用者按停止不算被拒）；卡片被關（`/v1/tools/cancel`）照舊發 `approval_cancelled`。互審驗證指令（`CommandApprover`）不在這次範圍，照舊。
 
 ## 不做
 
@@ -112,7 +112,7 @@
 
 ## 驗證
 
-PR 4：`tests/unit/test_approval_wording.py`：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵、文字結果接最後一行；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消、工具不執行；`test_local_files_mode_approval.py`：propose 不重複寫誰核准；`test_hook_wiring_security.py` 跟著改成看 `approval` 鍵。
+PR 4：`tests/unit/test_approval_wording.py`：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵、文字結果接最後一行；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消、工具不執行、不發 PermissionDenied，卡片被關照舊發；工具核准後丟例外照樣附；上游已有 `approval` 鍵不覆蓋；propose 成功只補審查員理由、失敗照一般附；YOLO 不附；工具呼叫被取消不留待審卡；`ToolApprovalCard.test.tsx`：卡片顯示已取消；`test_local_files_mode_approval.py`：propose 不重複寫誰核准；`test_hook_wiring_security.py` 跟著改成看 `approval` 鍵。
 
 PR 3：`tests/unit/test_previous_turn_marks.py`：記號和前端常數相同、停止與出錯都加、停止優先、只認 `true`、在插話標註之前、空回覆加了記號不再合併、回合數不變、家原文帶記號；`test_continuity_event_hooks.py`：模型錯誤只記白名單裡的種類、脈衝之間清掉種類、當機記一次且不改已記的結束、可信紀錄起點以前的不記、入口被擋連續同一原因只記一次；`test_continuity_block.py`：接續行寫出當機、被擋、模型錯誤的種類，原因只認列舉；`test_brain_not_set_group_heartbeat.py`：沒設大腦、擁有者登入過期都在入口記一筆；前端 `buildApiMessage.test.ts`、`stream_tree.generationFailed.test.ts`、`StreamRegistryProvider.persistence.test.tsx`：組歷史加記號、後端說取消與自己中止都標停止、網路錯誤不標。
 
