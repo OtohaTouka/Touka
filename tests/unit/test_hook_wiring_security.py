@@ -37,7 +37,7 @@ from src.models.policy import PolicyDecision
 from src.protocols.mcp.canonical import McpCompleteOutcome
 from src.protocols.mcp.sdk_adapter import UNKNOWN_PROTOCOL_VERSION
 from src.routers import debug as debug_router
-from src.services import context_snapshot_service, proxy_service, tool_errors
+from src.services import approval_flow, context_snapshot_service, proxy_service, tool_errors
 from src.services.approval_service import approval_service
 from src.services.hooks import stop_hooks, stopping
 from src.services.hooks.events import HOOK_DATA_NOTE, attach_to_tool_result, legacy_aliases
@@ -632,6 +632,13 @@ async def test_post_tool_feedback_on_a_text_result_is_a_data_block(monkeypatch, 
     assert "output looks wrong" in result
 
 
+def _reviewed(result: str) -> str:
+    """Auto 審查員放行的結果多一個 ``approval`` 鍵（ADR-0318）；拿掉後再比對。"""
+    data = json.loads(result)
+    assert data.pop("approval") == approval_flow.APPROVED_BY_REVIEWER_NOTE
+    return json.dumps(data, ensure_ascii=False)
+
+
 async def test_post_tool_hooks_skip_failed_tools(monkeypatch, hooks):
     hooks.configure({"PostToolUse": [_group()]})
     hooks.http.bodies["PostToolUse"] = "ignored"
@@ -640,7 +647,7 @@ async def test_post_tool_hooks_skip_failed_tools(monkeypatch, hooks):
     executor = _executor(monkeypatch, {"execute_command": _Recorder(failure)})
     result, _events = await _run(executor, "execute_command", dict(_COMMAND))
     assert hooks.http.calls == []
-    assert result == failure
+    assert _reviewed(result) == failure
 
 
 def test_hook_output_on_a_json_result_too_deep_to_load_is_a_data_block():
@@ -752,7 +759,7 @@ async def test_tool_hook_service_errors_do_not_hang_or_fail_the_tool(monkeypatch
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"execute_command": recorder})
     result, events = await _run(executor, "execute_command", dict(_COMMAND))
-    assert result == recorder.result
+    assert _reviewed(result) == recorder.result
     assert len(recorder.calls) == 1
     (done,) = [e for e in events if e.get("type") == "tool_result"]
     assert done["status"] == "success"
@@ -763,7 +770,7 @@ async def test_without_hooks_nothing_runs_and_results_are_unchanged(monkeypatch,
     recorder = _Recorder()
     executor = _executor(monkeypatch, {"execute_command": recorder})
     result, events = await _run(executor, "execute_command", dict(_COMMAND))
-    assert result == recorder.result
+    assert _reviewed(result) == recorder.result
     assert hooks.http.calls == []
     assert all("hook_reason" not in card for card in _cards(events))
 

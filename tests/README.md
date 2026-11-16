@@ -291,6 +291,7 @@ tests/
 | `test_interjection_drain.py` ⭐ | **ADR-0249 第 4a 段・取出點與送達**：第 N 個工具步驟取出、下一輪送出成功後才 delivered；下一輪重試全部失敗 → undelivered；純文字結束、預算閘、收尾輪時沒取出的回成 undelivered；取出後按停止 → undelivered；urgent 讓下一輪 `tool_choice=none`、送出後還原，一般插話不動 tool_choice；非 UI、心跳、子代理不取出；佇列空時不送任何事件；只有 active 串流才開佇列 |
 | `test_interjection_adapters.py` ⭐ | **ADR-0249 第 4a／4b 段・四家插話格式**：Claude 規則表 `mid_conversation_system=True` 加 system 訊息、其他三種型號在最後一個 tool_result 後加 text block；OpenAI 相容在 tool 訊息後加 user 訊息；Gemini 在 functionResponse 同一個 content 加 text part；Responses 在 function_call_output 後加 user input item；`hold_tool_choice` 設成 none 並還原原值；打斷後接在原本提問之後，四家各自的形狀（4b） |
 | `test_interjection_persistence.py` ⭐ | **ADR-0249 第 4a 段・插話存檔**：這個串流 delivered 的插話以 API `Interjection` 形狀存進助理節點 `interjections[]`（queued／pending／undelivered／收回的與別的串流不存）；沒有已送達的插話時節點欄位不變；pump 在串流結束清空佇列之前存檔；停止、錯誤不存；無痕不碰 DB |
+| `test_approval_wording.py` ⭐ | **ADR-0318 PR 4・核准的說法**：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消 |
 | `test_previous_turn_marks.py` ⭐ | **ADR-0318 PR 3・上一輪沒做完的記號**：和前端 `turnNotes.ts` 純文字比對相同；停止與出錯都加、停止優先、只認 `true`；在插話標註之前；空回覆加了記號不再被合併；回合數不變；家原文帶記號 |
 | `test_interjection_notes.py` ⭐ | **ADR-0249 第 4a 段・伺服器端重組標註**：範本與前端 `INTERJECTION_NOTE_TEMPLATE` 純文字比對相同；照步數排、只取已送達有文字的；只改助理節點、不改原節點；回合數不變；心跳脈衝訊息、主線帶的家原文（`home_messages_of`）、摘要輸入都帶標註 |
 | `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不含指令的任何片段，禁令 23 同類）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |

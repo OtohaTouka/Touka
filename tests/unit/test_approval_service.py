@@ -76,7 +76,7 @@ async def test_resolve_is_single_shot(service):
 async def test_unknown_exec_id(service):
     assert not await service.resolve("ghost", approved=True, resolver="x")
     assert service.get("ghost") is None
-    assert await service.wait("ghost", timeout_s=0.05) == "rejected"
+    assert await service.wait("ghost", timeout_s=0.05) == "cancelled"  # 不是使用者拒絕（ADR-0318）
 
 
 @pytest.mark.asyncio

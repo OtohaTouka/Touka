@@ -35,6 +35,7 @@ from src.services.autonomy import autonomy_service
 from src.services.hooks.events import attach_to_tool_result, legacy_aliases
 from src.services.hooks.lifecycle import run_elicitation_hooks
 from src.services.hooks.notifications import notify_approval_card, notify_mcp_input
+from src.services.hooks.stopping import request_stopped
 from src.services.hooks.tool_hooks import (
     HOOK_DENIED_REASON,
     ToolCall,
@@ -46,6 +47,7 @@ from src.services.hooks.tool_hooks import (
     run_pre_tool_hooks,
 )
 from src.services.isolation.policy import policy_level, reviewer_level, session_project_id
+from src.services.local_bridge import ACTION_NEEDING_CONFIRM
 from src.services.permission_service import permission_service
 from src.services.soul_service import soul_service
 from src.tools.builtin import BUILTIN_EXECUTION_BINDINGS, LEGACY_ADVERTISED_SUCCESSORS
@@ -333,10 +335,12 @@ class ToolExecutor:
         on_card_shown: Callable[[], None] | None = None,
         tool_preview: ToolPreview | None = None,
         on_resolved: Callable[[ApprovalResolution], None] | None = None,
+        stopped: Callable[[], bool] | None = None,
     ) -> str:
         """統一審批 broker（H2）：委派 ``approval_flow.await_human_approval``。
 
-        回 "approved"|"rejected"|"timeout"|"queue_full"。風險章在此依本模組的政策 SSOT 求出。
+        回 "approved"|"rejected"|"cancelled"|"timeout"|"queue_full"。風險章在此依本模組的政策 SSOT
+        求出。
         """
         risk = "dangerous"
         if permission_service.policies:
@@ -355,6 +359,7 @@ class ToolExecutor:
             on_card_shown=on_card_shown,
             tool_preview=tool_preview,
             on_resolved=on_resolved,
+            stopped=stopped,
         )
 
     async def execute(
@@ -741,6 +746,7 @@ class ToolExecutor:
         )
         interactive = is_human_present(ctx)
         review: ReviewOutcome | None = None
+        escalated_reason: str | None = None  # 審查員轉人時的理由（ADR-0318）
         denied_text: str | None = None
         if decision.effect == "REVIEW" and not pre_hooks.ask:
             review = await auto_reviewer.review(
@@ -764,6 +770,7 @@ class ToolExecutor:
                 denied_text = approval_flow.auto_review_denied_error(name, review.reason)
             else:
                 needs_human = True
+                escalated_reason = review.reason
         # ADR-0292：PermissionRequest hook——要跳卡之前（無人在場沒有卡，也不問 hook）。只能拒絕。
         if needs_human and interactive and denied_text is None:
             denied_text = await run_permission_request_hooks(ctx, hook_call)
@@ -783,9 +790,12 @@ class ToolExecutor:
                     on_card_shown=lambda: notify_approval_card(ctx, name),
                     tool_preview=preview,
                     on_resolved=resolutions.append,
+                    stopped=lambda: request_stopped(ctx),
                 )
                 if verdict != "approved":
-                    result_text = approval_flow.approval_denied_error(name, verdict)
+                    result_text = approval_flow.approval_denied_error(
+                        name, verdict, review_reason=escalated_reason
+                    )
                     logger.warning("🖐️ HITL %s: %s -> %s", verdict, agent_id, name)
                     await queue.put(
                         ToolCallEvent(
@@ -1146,6 +1156,14 @@ class ToolExecutor:
             elif is_success or (ran_tool and not tool_errors.is_tool_error(result_text)):
                 hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
             post_hooks_ran = True
+            # 誰放行的（ADR-0318）；小幫手的 propose 自己寫了，不重複
+            if not (name == "local_files" and args.get("action") == ACTION_NEEDING_CONFIRM):
+                note = approval_flow.approval_note(
+                    person=hitl_preapproved,
+                    reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
+                    review_reason=escalated_reason,
+                )
+                result_text = approval_flow.with_approval_note(result_text, note)
             result_text = attach_to_tool_result(result_text, hook_outputs)
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive

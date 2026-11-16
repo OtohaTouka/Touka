@@ -9,6 +9,7 @@
 | 還在跑的子代理（標籤、派它的靈魂、對話、開始時間） | `ToukaProxy/src/services/subagent_registry.py` `subagent_registry` | `subagent_tools._run_subagent`（登記、移除）、`continuity_service.running_subagents_line` |
 | 上一輪沒做完的記號（雙端） | 後端 `utils/interjection_notes.py` `TURN_STOPPED_NOTE`、`TURN_FAILED_NOTE`＋前端 `lib/chat/turnNotes.ts` 同名常數，純文字比對測試 `test_previous_turn_marks.py` | `annotate_node`、前端 `buildApiHistory` |
 | 心跳在入口被擋的原因 | `services/continuity_events.py` `HeartbeatSkip` | `routers/heartbeat.py` 的 `/awaken`、`continuity_service._run_line` |
+| 誰核准的說明、審查員理由的上限、停止時多久看一次待審的卡 | `services/approval_flow.py` `APPROVED_BY_PERSON_NOTE`、`APPROVED_BY_REVIEWER_NOTE`、`MAX_REVIEW_REASON_CHARS`、`APPROVAL_STOP_CHECK_SECONDS` | `tool_executor` 的核准路徑、`approval_denied_error` |
 | 子代理多久看一次停止 | `tools/subagent_tools.py` `STOP_CHECK_SECONDS` | `_cancel_when_parent_stops` |
 | 站內等結果憑證的壽命 | `services/dispatch_callback_store.py` `IN_PROCESS_TOKEN_GRACE_SECONDS`、`IN_PROCESS_TOKEN_LIFETIME_SECONDS` | `DispatchCallbackStore._drop_expired` |
 | 子代理結果的長度上限與省略標示（保留結尾） | `tools/subagent_tools.py` `_RESULT_SUMMARY_MAX`、`OMITTED_HEAD_NOTE`、`_keep_tail` | 子代理的成功、逾時、模型錯誤結果 |
