@@ -89,16 +89,16 @@
 
 ### 10. 結果寫明是誰核准的
 
-- 經過核准才執行的工具，結果加一行固定說明：人在聊天的核准卡按的（`APPROVED_BY_PERSON_NOTE`），或 Auto 審查員放行、沒有人看過（`APPROVED_BY_REVIEWER_NOTE`）。結構化 JSON 結果改加 `approval` 鍵，和 hook 輸出同樣做法，不破壞 JSON；其他接在最後一行。工具失敗時也附（核准照樣發生過）。
+- 經過核准才執行的工具，結果加一行固定說明：人在聊天的核准卡按的（`APPROVED_BY_PERSON_NOTE`），或 Auto 審查員放行、沒有人看過（`APPROVED_BY_REVIEWER_NOTE`）。結構化 JSON 結果改加 `approval` 鍵，和 hook 輸出同樣做法，不破壞 JSON；其他接在最後一行。工具跑了卻失敗或丟例外時也附（核准照樣發生過）；核准後在參數檢查就被擋下、沒有跑的不附。上游結果已經有 `approval` 鍵時不覆蓋，改接在最後一行。
 - 沒經過核准的不附：YOLO 或政策直接放行的不算核准路徑。解算的人是誰（`ApprovalResolution.resolver_id`）不寫進模型看到的文字。
-- 小幫手 `local_files` 的 propose 結果自己寫了誰核准（`propose_result_note`，ADR-0317），執行器不再附。
+- 小幫手 `local_files` 的 propose 結果自己寫了誰核准（`propose_result_note`，ADR-0317），執行器不再附誰核准，人核准時只補審查員轉人的理由。
 - 審查員把動作轉給人時，它的理由（模型寫的）經 `neutralize_hook_text`、單行、最多 300 字（`MAX_REVIEW_REASON_CHARS`）後也交給主代理：人核准時接在說明後面，被拒絕、取消或逾時時接在錯誤說明裡。以前理由只在卡片上。
 
 ### 11. 取消、拒絕、逾時分開說
 
 - `approval_denied_error` 多「被取消」：卡片被關掉或這一輪被停止，沒有人決定（`reason=approval_cancelled`）；以前掉到「Approval was not granted.」。
 - `wait_for_resolution` 找不到待審時回 `cancelled`，不再當成使用者拒絕；照樣不執行。
-- 這一輪被停止時，還在等人的核准卡每 0.5 秒（`APPROVAL_STOP_CHECK_SECONDS`）看一次停止，被停就收成「已取消」（解算者記 `touka:turn-stopped`），解算事件照常送出、卡片收斂；以前卡片沒有結果，工具空等 180 秒逾時。互審驗證指令（`CommandApprover`）不在這次範圍，照舊。
+- 這一輪被停止時，還在等人的核准卡每 0.5 秒（`APPROVAL_STOP_CHECK_SECONDS`）看一次停止，被停就收成「已取消」（解算者記 `touka:turn-stopped`），解算事件照常送出、卡片收斂；以前卡片沒有結果，工具空等 180 秒逾時。畫面的核准卡顯示「已取消，沒有人決定」。按停止收掉的卡不發 PermissionDenied hook（ADR-0292：使用者按停止不算被拒）；卡片被關（`/v1/tools/cancel`）照舊發 `approval_cancelled`。互審驗證指令（`CommandApprover`）不在這次範圍，照舊。
 
 ## 不做
 

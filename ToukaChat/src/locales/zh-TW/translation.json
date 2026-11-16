@@ -1630,6 +1630,7 @@
       "decision": {
         "approved": "已批准",
         "rejected": "已拒絕",
+        "cancelled": "已取消，沒有人決定",
         "timeout": "逾時，已自動拒絕",
         "isolation_unacknowledged": "沒有核准：核准時沒有確認卡上的隔離標示",
         "isolation_incomplete": "不能核准：會未隔離執行，而卡上看不到完整的執行內容"

@@ -103,6 +103,7 @@ describe('ToolApprovalCard (H3)', () => {
 
   // 隔離審批的兩種未核准結果（approval_flow 的 verdict）：從別處核准、卡片已解算時不能顯示 key 原文。
   it.each([
+    ['cancelled', /已取消，沒有人決定/, /Cancelled before anyone decided/],  // 這一輪被停止或卡片被關（ADR-0318）
     ['isolation_unacknowledged', /沒有確認卡上的隔離標示/, /didn't confirm the isolation shown on the card/],
     ['isolation_incomplete', /卡上看不到完整的執行內容/, /card can't show everything it would run/],
   ] as const)('resolved %s shows its translated badge in both languages', (decision, zhText, enText) => {

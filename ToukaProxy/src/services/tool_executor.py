@@ -38,6 +38,7 @@ from src.services.hooks.notifications import notify_approval_card, notify_mcp_in
 from src.services.hooks.stopping import request_stopped
 from src.services.hooks.tool_hooks import (
     HOOK_DENIED_REASON,
+    STOPPED_REASON,
     ToolCall,
     hook_ask_unavailable_error,
     notify_permission_denied,
@@ -75,7 +76,7 @@ from src.utils.tool_events import (
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Callable, Mapping
 
     from src.services.approval_service import ApprovalResolution
     from src.services.auto_reviewer import ReviewOutcome
@@ -228,6 +229,17 @@ def _mcp_error_result(
         ),
         touka_error_code=mapped.touka_error_code,
         mcp_error_kind=mapped.kind.value,
+    )
+
+
+def _approval_note(
+    name: str, args: Mapping[str, Any], *, person: bool, reviewer: bool, review_reason: str | None
+) -> str:
+    """誰放行的（ADR-0318）；小幫手的 propose 自己寫了誰核准，只補審查員轉人的理由。"""
+    if name == "local_files" and args.get("action") == ACTION_NEEDING_CONFIRM:
+        return (approval_flow.escalation_note(review_reason) or "") if person else ""
+    return approval_flow.approval_note(
+        person=person, reviewer=reviewer, review_reason=review_reason
     )
 
 
@@ -808,9 +820,11 @@ class ToolExecutor:
                         ).to_result_sse()
                     )
                     await queue.put(None)
-                    notify_permission_denied(
-                        ctx, hook_call, tool_errors.extract_field(result_text, "reason")
-                    )
+                    # 使用者按停止不算被拒（ADR-0292）：停止收掉的卡不發 PermissionDenied
+                    denied_reason = tool_errors.extract_field(result_text, "reason")
+                    if verdict == "cancelled" and request_stopped(ctx):
+                        denied_reason = STOPPED_REASON
+                    notify_permission_denied(ctx, hook_call, denied_reason)
                     return result_text
                 hitl_preapproved = True
                 card_complete = not approval_flow.approval_preview_truncated(args)
@@ -1156,14 +1170,16 @@ class ToolExecutor:
             elif is_success or (ran_tool and not tool_errors.is_tool_error(result_text)):
                 hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
             post_hooks_ran = True
-            # 誰放行的（ADR-0318）；小幫手的 propose 自己寫了，不重複
-            if not (name == "local_files" and args.get("action") == ACTION_NEEDING_CONFIRM):
-                note = approval_flow.approval_note(
+            result_text = approval_flow.with_approval_note(
+                result_text,
+                _approval_note(
+                    name,
+                    args,
                     person=hitl_preapproved,
                     reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
                     review_reason=escalated_reason,
-                )
-                result_text = approval_flow.with_approval_note(result_text, note)
+                ),
+            )
             result_text = attach_to_tool_result(result_text, hook_outputs)
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
@@ -1199,7 +1215,16 @@ class ToolExecutor:
             await queue.put(
                 {"type": "log", "content": f"❌ 執行發生例外：{detail}\n", "result_text": "Error"}
             )
-            result_text = tool_errors.from_exception(e, detail)
+            result_text = approval_flow.with_approval_note(
+                tool_errors.from_exception(e, detail),
+                _approval_note(
+                    name,
+                    args,
+                    person=hitl_preapproved,
+                    reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
+                    review_reason=escalated_reason,
+                ),
+            )
             hook_outputs = list(pre_hooks.outputs)
             if (
                 ran_tool

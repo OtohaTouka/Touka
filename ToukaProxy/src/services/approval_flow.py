@@ -228,9 +228,10 @@ APPROVED_BY_PERSON_NOTE: Final = (
     "[Approval: a person approved this call on the approval card in the chat.]"
 )
 APPROVED_BY_REVIEWER_NOTE: Final = (
-    "[Approval: the Auto reviewer approved this call; no person saw it.]"
+    "[Approval: the Auto reviewer approved this call; no person approved it.]"
 )
-# 審查員轉人時的理由是模型寫的：單行、中和、有上限才交給主代理
+# 審查員轉人時的理由是模型寫的：單行、中和、有上限才交給主代理。審查員解析時已截過一次
+# （``auto_reviewer.REASON_MAX_CHARS``），中和會讓字變多，這裡在中和之後再截一次
 MAX_REVIEW_REASON_CHARS: Final = 300
 # 這一輪被停止時，還在等人的卡多久看一次（ADR-0318 決定 11）
 APPROVAL_STOP_CHECK_SECONDS: Final = 0.5
@@ -262,7 +263,7 @@ def with_approval_note(result_text: str, note: str) -> str:
             data = json.loads(result_text)
         except (ValueError, RecursionError):
             data = None
-        if isinstance(data, dict):
+        if isinstance(data, dict) and "approval" not in data:  # 已經有這個鍵就不覆蓋
             data["approval"] = note
             return json.dumps(data, ensure_ascii=False)
     return f"{result_text}\n\n{note}"
@@ -433,7 +434,7 @@ async def _resolution_unless_stopped(
     """等人決定；這一輪被停止時把卡收成「已取消」，不再空等到逾時。"""
     if stopped is None:
         return await approval_service.wait_for_resolution(exec_id)
-    waiter = asyncio.ensure_future(approval_service.wait_for_resolution(exec_id))
+    waiter = asyncio.create_task(approval_service.wait_for_resolution(exec_id))
     try:
         while not waiter.done():
             await asyncio.wait({waiter}, timeout=APPROVAL_STOP_CHECK_SECONDS)

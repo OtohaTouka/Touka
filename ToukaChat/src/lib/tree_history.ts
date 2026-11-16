@@ -32,7 +32,7 @@ export interface ToolStepApproval {
   risk?: string;                                    // read_only | safe | dangerous
   timeout?: number;                                 // 逾時秒數（倒數顯示用）
   // 解算結果（含逾時自動拒；isolation_* 是核准沒算數的兩種隔離結果，approval_flow 的 verdict）
-  decision?: 'approved' | 'rejected' | 'timeout' | 'isolation_unacknowledged' | 'isolation_incomplete';
+  decision?: 'approved' | 'rejected' | 'cancelled' | 'timeout' | 'isolation_unacknowledged' | 'isolation_incomplete';
   reviewReason?: string;                            // Auto 審查員轉人的理由（ADR-0246）
   hookReason?: string;                              // 管理員設定的 hook 要人確認（可為空字串，ADR-0292）
   humanOnly?: boolean;                              // 只有人能核准（底線；審查員與 YOLO 不能放行）

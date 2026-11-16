@@ -19,6 +19,7 @@ import pytest
 from src.services import approval_flow, tool_errors
 from src.services import tool_executor as executor_module
 from src.services.approval_service import ApprovalService, approval_service
+from src.services.hooks.tool_hooks import STOPPED_REASON
 
 from tests.support.hook_wiring import (
     Recorder,
@@ -52,11 +53,55 @@ async def test_the_reviewer_approving_is_named(monkeypatch: pytest.MonkeyPatch) 
     assert json.loads(result)["approval"] == approval_flow.APPROVED_BY_REVIEWER_NOTE
 
 
-async def test_calls_that_needed_no_approval_get_no_note(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("tool", "args", "mode"),
+    [("read", _READ, "Manual"), ("write", _WRITE, "YOLO")],  # 政策直接放行、YOLO 直接執行
+)
+async def test_calls_that_needed_no_approval_get_no_note(
+    monkeypatch: pytest.MonkeyPatch, tool: str, args: dict[str, Any], mode: str
+) -> None:
     recorder = Recorder()
-    executor = executor_with(monkeypatch, {"read": recorder})
-    result, _ = await run_tool(executor, "read", dict(_READ), mode="Manual")
+    executor = executor_with(monkeypatch, {tool: recorder})
+    result, events = await run_tool(executor, tool, dict(args), mode=mode)
+    assert len(recorder.calls) == 1
+    assert not [e for e in events if e.get("type") == "tool_approval_request"]
     assert result == recorder.result
+
+
+async def test_a_tool_that_raises_after_approval_still_says_who_approved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ToolBrokeError(RuntimeError):
+        """A tool failure raised by the double below."""
+
+    async def boom(**_kwargs: Any) -> str:
+        raise _ToolBrokeError
+
+    use_reviewer(monkeypatch)
+    executor = executor_with(monkeypatch, {"execute_command": boom})
+    result, _ = await run_tool(executor, "execute_command", {"command": "pytest -q"})
+    assert json.loads(result)["approval"] == approval_flow.APPROVED_BY_REVIEWER_NOTE
+
+
+def test_local_files_propose_gets_only_the_reviewers_reason() -> None:
+    """小幫手的 propose 自己寫了誰核准；人核准時只補審查員轉人的理由（ADR-0318）。"""
+    propose = {"action": "propose"}
+    note = executor_module._approval_note(
+        "local_files", propose, person=True, reviewer=False, review_reason="needs a look"
+    )
+    assert note == approval_flow.escalation_note("needs a look")
+    assert executor_module._approval_note(
+        "local_files", propose, person=True, reviewer=False, review_reason=None
+    ) == ""
+    assert executor_module._approval_note(
+        "local_files", propose, person=False, reviewer=True, review_reason=None
+    ) == ""
+
+
+def test_an_existing_approval_key_is_not_overwritten() -> None:
+    note = approval_flow.APPROVED_BY_PERSON_NOTE
+    upstream = '{"ok": true, "approval": "from upstream"}'
+    assert approval_flow.with_approval_note(upstream, note) == f"{upstream}\n\n{note}"
 
 
 async def test_the_reviewers_reason_reaches_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +148,13 @@ async def test_a_missing_approval_is_cancelled_not_rejected() -> None:
 
 async def test_stopping_the_turn_cancels_the_pending_card(monkeypatch: pytest.MonkeyPatch) -> None:
     stop = {"now": False}
+    denied: list[str | None] = []
     monkeypatch.setattr(executor_module, "request_stopped", lambda _ctx: stop["now"])
+    monkeypatch.setattr(
+        executor_module,
+        "notify_permission_denied",
+        lambda _ctx, _call, reason: denied.append(reason),
+    )
     monkeypatch.setattr(approval_flow, "APPROVAL_STOP_CHECK_SECONDS", 0.01)
     recorder = Recorder()
     executor = executor_with(monkeypatch, {"write": recorder})
@@ -118,3 +169,20 @@ async def test_stopping_the_turn_cancels_the_pending_card(monkeypatch: pytest.Mo
     resolved = [e for e in events if e.get("type") == "tool_approval_resolved"]
     assert [e.get("decision") for e in resolved] == ["cancelled"]
     assert approval_service._pending == {}
+    assert denied == [STOPPED_REASON]  # 按停止不算被拒（ADR-0292），PermissionDenied 不發
+
+
+async def test_a_cancelled_tool_call_leaves_no_pending_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(executor_module, "request_stopped", lambda _ctx: False)
+    executor = executor_with(monkeypatch, {"write": Recorder()})
+    task = asyncio.create_task(run_tool(executor, "write", dict(_WRITE), mode="Manual"))
+    async with asyncio.timeout(5):
+        while not approval_service._pending:
+            await asyncio.sleep(0.005)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        while approval_service._pending:
+            await asyncio.sleep(0.005)
