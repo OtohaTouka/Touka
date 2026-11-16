@@ -56,7 +56,7 @@
 | (c) 預設開 | 同 (b)（補 `False` 或補清單） | 執行期就是開的＋仍要 C2 |
 
 - **結構測試 C2**（範圍見下方「掃描範圍」，只讀原始碼、不匯入）：所有建立點收成（檔案, 外層函式, 字面值）的清單，**不去重**，排序後必須**整個等於** `[(debug.py, debug_execute_tool, False), (react_core.py, run_react_loop, True)]`；新增、移除、改值、沒帶參數（`MISSING`）、傳變數（`NON_LITERAL`），或同一個允許點重複建立（字面值相同也算），都轉紅，失敗訊息印出每個建立點。識別字 `ToolExecutor` 只能出現在三個檔；改名 import、`partial`、子類別、當參數傳遞、整串等於 `"ToolExecutor"`／`"src.services.tool_executor"` 的字串都轉紅；tool_executor.py 以外對開關的任何寫入、出現 `_enforce_advertised`、整串等於開關名的字串也轉紅。**匯入棘輪**：`tool_executor` 模組只有 react_core.py、debug.py 能匯入，而且各只能是那一行 `from src.services.tool_executor import ToolExecutor`；其他正式檔用絕對、相對、`import … as`、`from … import` 任何名稱，或 `importlib.import_module`／`__import__` 加字面字串匯入這個模組，都轉紅；tool_executor.py 以外出現屬性 `.tool_executor` 或整串字串 `"tool_executor"`（經上層套件取得模組）也轉紅。附掃描器自我測試（每種繞法一個合成片段要轉紅，docstring、路徑字串、名為 `tool_executor` 的區域變數這些反例要保持綠）。
-- **結構測試 C3**：識別字或整串字串 `advertised_tools` 只能出現在 5 個白名單檔，各自恰好一處指定用法（context.py 欄位宣告、tool.py 寫入、subagent_tools.py 寫入、tool_executor.py 讀取、live_episode.py 寫入）。
+- **結構測試 C3**：識別字或整串字串 `advertised_tools` 只能出現在 5 個白名單檔，各自恰好一處指定用法（context.py 欄位宣告、tool.py 寫入、subagent_tools.py 寫入、tool_executor.py 讀取、live_episode.py 寫入）。〔2026-11-16 ADR-0316 PR 2 補記：subagent_tools.py 另准一處 `.get` 讀取，只用來決定 `dispatch_subagent` 要不要等結果；屬性讀取與其他檔仍照舊擋。〕
 - **執行期檢查**：`run_react_loop` 建好執行器、送出上游之前，`if not tool_executor.enforce_advertised:` 就記 `logger.error` 並 `raise ToukaException(ErrorCode.SYSTEM_ERROR)`（不用 `assert`，不帶字串，禁令 10）。用真假值判斷、不寫 `is not True`：16 個既有測試檔把執行器換成 MagicMock，屬性是真值，要照常跑。
 - **為什麼不選 (c) 預設開**：要改 31 個測試檔共 64 處建構（h2 基準的 29 檔 60 處，加上 iso-c2 的 2 檔 4 處），會和 iso-c2 及其他同時進行的改動的測試衝突；正式程式的行為沒有任何差別。
 - **為什麼不選 (b) 必須傳參數**：同樣要改 64 處；忘了傳參數會在建立時直接 TypeError 當掉，不是安全地擋下；而且仍然要 C2 才能確認 react_core 傳的是字面 `True`。

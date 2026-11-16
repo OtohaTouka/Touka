@@ -181,7 +181,8 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
                 )
             if result.get("status") == "UNKNOWN_TOKEN":
                 return (
-                    "Error: 憑證不明。若之前等這個憑證逾時過，子代理可能還沒做完，做完後再等一次"
+                    "Error: Unknown callback token（憑證不明）。若之前等這個憑證逾時過，"
+                    "子代理可能還沒做完，做完後再等一次"
                     f"就拿得到。{_AWAIT_STOP_HINT}"
                 )
             lines = [
