@@ -56,7 +56,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """OWN_SOUL／VICTIM 被認成靈魂；記錄人設、家對話與上游呼叫。"""
     seen: dict[str, Any] = {"persona": [], "home": [], "dispatch": AsyncMock(return_value={})}
 
-    def _apply_persona(_request: Any, agent_id: Any) -> None:
+    def _apply_persona(_request: Any, agent_id: Any, **_kwargs: Any) -> None:
         seen["persona"].append(agent_id)
 
     async def _inject_home(_request: Any, agent_id: Any, **_kwargs: Any) -> None:

@@ -1,5 +1,14 @@
 # Touka 系統全球單一事實來源 (SSOT Master Map)
 
+## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
+
+| 事實 | 唯一來源 | 使用者 |
+|---|---|---|
+| 用戶端原本送來的 system（入口記一次、每次覆寫）與「系統加的部分」的切分 | `ToukaProxy/src/services/client_system.py` `capture`、`split`、`CLIENT_SYSTEM_KEY`；寫入點 `middleware/pipeline.py` `ProxyPipeline.execute` | `SoulService.apply_soul_to_request`（靈魂層、群聊、心跳） |
+| 系統區塊的分類：不變、會變、接在訊息尾端（`ALL_BLOCK_TAGS` 每個剛好一組） | `services/prompt_blocks.py` `STABLE_SYSTEM_TAGS`、`VOLATILE_SYSTEM_TAGS`、`REQUEST_TAIL_TAGS` | Claude 快取重排、快照、測試 |
+| 模式、在場與核准的說法 | `prompt_blocks.build_approval_context`（區塊 `APPROVAL_CONTEXT`） | ToolLayer（有列工具就注入） |
+| 沒人在場時需要核准的動作交給誰、被擋後的建議 | `utils/presence.py` `no_human_followup`、`blocked_call_suggestion` | `<approval_context>`、`ToolExecutor`、`approval_flow`、`tools/terminal.py` |
+
 ## 請求帶的專案要核對（2026-11-16，ADR-0304 補記）
 
 | 事實 | 唯一來源 | 使用者 |

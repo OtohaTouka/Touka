@@ -12,6 +12,7 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.models.context import PipelineContext  # noqa: TC001
 from src.models.identity import AgentIdentity
 from src.services.authorization_gateway import can_drive_soul
+from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.dispatchers.utils import strip_redundant_labels
 from src.services.group_router import parse_group_roster
@@ -153,7 +154,9 @@ async def dispatch_group_stream(
         target_identity = AgentIdentity(agent_id=target_agent)
         brain_model = brains[target_agent]
         current_request.model = brain_model
-        soul_service.apply_soul_to_request(current_request, target_identity)
+        soul_service.apply_soul_to_request(
+            current_request, target_identity, client_system=context.get(CLIENT_SYSTEM_KEY)
+        )
         await inject_mainline(  # 前情＋家原文（ADR-0305）；無痕都不帶
             current_request,
             target_identity,

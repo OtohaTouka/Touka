@@ -1,7 +1,8 @@
 """P2a-1：驗證慣例 prompt block（提案 P2a；Codex「Validating your work」）——TDD.
 
 「正確」不是工具層能判定的——一次無錯誤的工具調用仍可能語意錯誤。故把「改動後
-自我驗證」定為**慣例**（prompt）。積極度依審批模式（Manual＝提醒、自動＝強制）。
+自我驗證」定為**慣例**（prompt），各模式都一樣；模式、在場與核准的說法在
+<approval_context>（ADR-0316，見 test_approval_context）。
 ToolLayer 僅在廣告工具含 mutating dev verb（開發流程）時注入，不擾一般 persona 對話。
 """
 
@@ -33,7 +34,7 @@ def test_validation_protocol_tag_registered():
 
 
 def test_build_validation_protocol_wraps_and_has_core_message():
-    block = build_validation_protocol("Manual")
+    block = build_validation_protocol()
     assert f"<{VALIDATION_PROTOCOL}>" in block
     assert f"</{VALIDATION_PROTOCOL}>" in block
     # 核心：無錯誤 ≠ 正確、要驗證
@@ -41,30 +42,11 @@ def test_build_validation_protocol_wraps_and_has_core_message():
     assert "correct" in block.lower()
 
 
-def test_build_validation_protocol_mode_variants_differ():
-    manual = build_validation_protocol("Manual")
-    auto = build_validation_protocol("Auto")
-    yolo = build_validation_protocol("YOLO")
-    assert "Manual mode" in manual
-    assert "Auto mode" in auto
-    assert "YOLO mode" in yolo
-    assert len({manual, auto, yolo}) == 3
-    # 看不懂的值（含退役舊名稱）照 Manual 寫，不宣稱自動執行
-    assert build_validation_protocol("SafeAuto") == manual
-
-
-def test_manual_variant_reflects_approval_channel_reality():
-    """H4：Manual 句與真實行為對齊——互動＝審批卡暫停（H2/H3 broker）、
-    headless＝fail-closed 拒絕；不再是 fail-open 年代的
-    「each tool call is human-approved」謊言。"""
-    interactive = build_validation_protocol("Manual", interactive=True)
-    assert "pauses for a human approval" in interactive
-    assert "human-approved" not in interactive
-
-    headless = build_validation_protocol("Manual", interactive=False)
-    assert "denied fail-closed" in headless
-    assert "Manual mode" in headless
-    assert interactive != headless
+def test_self_validation_is_mandatory_in_every_mode():
+    # 模式句搬走後，自我驗證對每種模式都是強制的；不再宣稱「每一步都有人核准」
+    block = build_validation_protocol()
+    assert "mandatory in every approval mode" in block
+    assert "human-approved" not in block
 
 
 # --------------------------------------------------------------------------- #
@@ -120,7 +102,7 @@ async def test_injected_when_mutating_verb_advertised_manual():
         await ToolLayer().process(request, _make_ctx())
     sys = _system_text(request)
     assert f"<{VALIDATION_PROTOCOL}>" in sys
-    assert "Manual mode" in sys
+    assert "Approval mode for this turn: Manual." in sys
 
 
 @pytest.mark.asyncio
@@ -146,7 +128,7 @@ async def test_autonomous_variant_when_auth_level_not_manual():
         await ToolLayer().process(request, ctx)
     sys = _system_text(request)
     assert f"<{VALIDATION_PROTOCOL}>" in sys
-    assert "YOLO mode" in sys
+    assert "Approval mode for this turn: YOLO." in sys
 
 
 @pytest.mark.asyncio

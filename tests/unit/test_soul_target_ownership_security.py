@@ -60,7 +60,7 @@ def soul_probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """讓 PROBE_SOUL／OTHER_SOUL 被認成靈魂，記錄人設、家對話與上游呼叫是否被觸及。"""
     seen: dict[str, Any] = {"persona": [], "home": [], "dispatch": AsyncMock(return_value={})}
 
-    def _apply_persona(_request: Any, agent_id: Any) -> None:
+    def _apply_persona(_request: Any, agent_id: Any, **_kwargs: Any) -> None:
         seen["persona"].append(agent_id)
 
     async def _inject_home(_request: Any, agent_id: Any, **_kwargs: Any) -> None:

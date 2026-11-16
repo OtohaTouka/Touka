@@ -9,6 +9,7 @@ from src.models.identity import AgentIdentity
 from src.services.agent_detector import detect_target_agent
 from src.services.agent_service import agent_service
 from src.services.authorization_gateway import can_drive_soul, require_soul_access
+from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.continuity_events import record_user_turn
 from src.services.continuity_service import inject_continuity
 from src.services.mainline_service import inject_mainline
@@ -62,7 +63,9 @@ class SoulLayer(ProxyLayer):
                 ctx["desired_tools"] = config["enabled_tools"]
                 logger.info(f"  -> Agent (Soul) desired tools: {ctx['desired_tools']}")
 
-            soul_service.apply_soul_to_request(request, agent_id)
+            soul_service.apply_soul_to_request(
+                request, agent_id, client_system=ctx.get(CLIENT_SYSTEM_KEY)
+            )
             ctx["session_bound"] = await self._session_bound(
                 ctx, AgentIdentity(agent_id=agent_id)
             )

@@ -94,7 +94,7 @@ async def _events(identity: AgentIdentity) -> list[dict[str, Any]]:
 
 def _stub_soul_layer(monkeypatch: pytest.MonkeyPatch, soul: AgentIdentity) -> None:
     monkeypatch.setattr(soul_mod.soul_service, "get_soul_data", lambda _a: ("SOUL", {}))
-    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda *_a: None)
+    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda *_a, **_k: None)
     monkeypatch.setattr(soul_mod.soul_service, "inject_home_messages", AsyncMock())
     monkeypatch.setattr(soul_mod.soul_service, "inject_context_summary", AsyncMock())
     monkeypatch.setattr(soul_mod, "get_active_brain", lambda _identity: "claude-sonnet-4-5")

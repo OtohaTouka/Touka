@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from src.utils.auth_mode import normalize_auth_mode
+
 # Context 區塊 tag 名稱（小寫 snake_case，與 breakdown parser 對齊）。
 PERSONA = "persona"
 PROJECT_CONTEXT = "project_context"
@@ -22,6 +24,7 @@ HARNESS_CONTEXT = "harness_context"  # ADR-0139：OS 環境事實宣告（穩定
 CONTINUITY = "continuity"  # 現在時間／距上一輪多久／任務看板時間（附在最後一則 user 訊息尾端）
 MCP_UNAVAILABLE = "mcp_unavailable"  # ADR-0281 T1：設定好但現在沒連上的共用 MCP（每輪會變）
 HOOK_OUTPUT = "hook_output"  # ADR-0292：管理員設定的 hook 給模型的補充說明（資料，不是指令）
+APPROVAL_CONTEXT = "approval_context"  # ADR-0316：這一輪的模式、在場與核准（有列工具就有）
 
 # 全部已知的 system-prompt 區塊 tag（供 Phase B breakdown parser 列舉）。
 ALL_BLOCK_TAGS: tuple[str, ...] = (
@@ -38,16 +41,36 @@ ALL_BLOCK_TAGS: tuple[str, ...] = (
     CONTINUITY,
     MCP_UNAVAILABLE,
     HOOK_OUTPUT,
+    APPROVAL_CONTEXT,
 )
 
 # 每回合會變動的區塊（P4c 穩定前綴細分用）：只有排在「最早一個波動區塊」**之前**的
 # 內容（persona 等）才可跨回合快取。mission 進度與被剪對話摘要每回合都可能變。
 # CONTINUITY 每次請求都變，但不在 system（附在最後一則 user 訊息尾端），故不列入。
-VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (MISSION_AWARENESS, CONVERSATION_SUMMARY, MCP_UNAVAILABLE)
+VOLATILE_SYSTEM_TAGS: tuple[str, ...] = (
+    MISSION_AWARENESS,
+    CONVERSATION_SUMMARY,
+    MCP_UNAVAILABLE,
+)
 
 # 只在這一次請求附在最後一則 user 訊息尾端（"\n\n<tag>…</tag>"）、不進下一輪歷史的區塊：
 # Claude 的對話歷史快取斷點要打在它們之前，下一輪的前綴才對得上。
 REQUEST_TAIL_TAGS: tuple[str, ...] = (IDE_CONTEXT, CONTINUITY, HOOK_OUTPUT)
+
+# 不隨回合變動、可跨回合快取的 system 區塊。ALL_BLOCK_TAGS 每個標籤都要剛好歸進
+# 這組、VOLATILE_SYSTEM_TAGS 或 REQUEST_TAIL_TAGS 其中一組（ADR-0316，測試把關）。
+STABLE_SYSTEM_TAGS: tuple[str, ...] = (
+    PERSONA,
+    PROJECT_CONTEXT,
+    CAPABILITIES,
+    SOUL_PRELUDE,
+    TOOL_AVAILABILITY,
+    VALIDATION_PROTOCOL,
+    HARNESS_CONTEXT,
+    # 同一段對話裡不變；歸「會變」組會讓 Claude 的 system 一定多切一個快取斷點，
+    # 原生用戶端自己帶斷點時可能超過 4 個（ADR-0316）
+    APPROVAL_CONTEXT,
+)
 
 
 def wrap_block(tag: str, content: str) -> str:
@@ -55,23 +78,14 @@ def wrap_block(tag: str, content: str) -> str:
     return f"<{tag}>\n{content}\n</{tag}>"
 
 
-def build_validation_protocol(auth_level: str, *, interactive: bool = True) -> str:
+def build_validation_protocol() -> str:
     """建構 <validation_protocol> 區塊（模型面英文；提案 P2a「驗證慣例」）。
 
     「正確」不是工具層能判定的——一次無錯誤的工具調用仍可能語意錯誤（寫錯內容、
     改錯地方）。故把「改動後自我驗證」定為慣例（學 Codex「Validating your work」／
-    Claude Code「完成後跑 lint」），而非假裝自動判斷「正確」。積極度依審批模式：
-    Manual（逐步人審）為提醒、Auto／YOLO（部分或全部免逐步人審）為強制。內文英文，
-    與模型面結構化錯誤一致。看不懂的模式值照 Manual 寫（ADR-0246）。
-
-    hitl-unification H4：Manual 句依審批通道分寫——互動會話（resumable_stream）
-    的 state-changing 調用會暫停等聊天內審批卡（H2/H3 broker）；headless 無人可問
-    ＝fail-closed 拒絕。提示與真實行為對齊（舊句「each tool call is human-approved」
-    在 fail-open 年代是謊言）。
-
-    Args:
-        auth_level: 會話模式（``"Manual"``／``"Auto"``／``"YOLO"``）。
-        interactive: 是否為互動會話（有聊天內審批通道）。
+    Claude Code「完成後跑 lint」），而非假裝自動判斷「正確」。內文英文，與模型面
+    結構化錯誤一致。模式、在場與核准的說法搬到 <approval_context>（ADR-0316），
+    這裡只留自我驗證的規矩，各模式都一樣。
 
     Returns:
         以 <validation_protocol> 包覆、前後各帶換行的區塊文字。
@@ -89,33 +103,77 @@ def build_validation_protocol(auth_level: str, *, interactive: bool = True) -> s
         "- Confirm the change satisfies the request and check obvious invariants; "
         "re-read the relevant part only if the tool's result was insufficient to confirm.",
         "- If validation reveals a problem, fix it and validate again before concluding.",
+        "Self-validation is mandatory in every approval mode, including after a human "
+        "approved the call - never declare success on an unverified change.",
     ]
-    if auth_level == "YOLO":
+    return "\n" + wrap_block(VALIDATION_PROTOCOL, "\n".join(lines)) + "\n"
+
+
+def build_approval_context(auth_level: str, *, human_present: bool, followup: str) -> str:
+    """建構 <approval_context> 區塊：這一輪的模式、有沒有人在場、需要核准的會怎樣（ADR-0316）。
+
+    說法對齊實際判斷（``models/safety.py`` 三模式決策表、``auto_reviewer`` 無人時轉人、
+    YOLO 無人時危險 MCP 工具與沒有隔離時只有人能核准、終端把 YOLO 的串接指令升成要人
+    核准）。Auto 沒人時不讀設定檔，用保守說法。模式照 ``normalize_auth_mode``（看不懂的
+    值寫成 Manual）。內容在同一段對話裡不變（不放時間、輪數），歸「不變」組
+    （``STABLE_SYSTEM_TAGS``）；SNS 這類有人在聊但沒人能核准的情況，也照實寫成沒人能核准。
+
+    Args:
+        auth_level: 這一輪的模式（``"Manual"``／``"Auto"``／``"YOLO"``）。
+        human_present: 這一輪有沒有人能回答核准卡（``utils.presence.is_human_present``）。
+        followup: 沒人在場時，需要核准的動作該交給誰（``utils.presence.no_human_followup``）。
+
+    Returns:
+        以 <approval_context> 包覆、前後各帶換行的區塊文字。
+    """
+    mode = normalize_auth_mode(auth_level)
+    lines = [f"Approval mode for this turn: {mode}."]
+    if human_present:
+        lines.append("Someone in this conversation can answer approval cards.")
+    else:
         lines.append(
-            "(YOLO mode: tool calls execute without per-step human approval, except the "
-            "few actions only a human may approve, so self-validation is mandatory — "
-            "never declare success on an unverified change.)"
+            "Nobody can answer approval requests in this turn, so actions that need "
+            "approval cannot run here."
         )
-    elif auth_level == "Auto":
+    if mode == "Manual" and human_present:
         lines.append(
-            "(Auto mode: read-only and low-risk workspace changes run directly; commands "
-            "and higher-risk actions need approval first, and some only a human can "
-            "approve. Self-validation is mandatory — never declare success on an "
-            "unverified change.)"
+            "State-changing tool calls pause for human approval: an approval card appears "
+            "in the chat and the call runs only if approved. Read-only tools run directly."
         )
-    elif interactive:
+    elif mode == "Manual":
+        lines.append("State-changing tool calls are denied here; only read-only tools run.")
+    elif mode == "Auto" and human_present:
         lines.append(
-            "(Manual mode: each state-changing tool call pauses for a human approval "
-            "card in the chat before it runs; read-only tools run directly. Validating "
-            "the outcome after approval is still your responsibility.)"
+            "Read-only and low-risk actions run directly. Commands and higher-risk actions "
+            "go to the Auto reviewer or to an approval card, and a few only a human can "
+            "approve."
+        )
+    elif mode == "Auto":
+        lines.append(
+            "Read-only and low-risk actions run directly. Other actions may be judged by "
+            "the Auto reviewer, or may need a human and be denied."
+        )
+    elif human_present:
+        lines.append(
+            "Tool calls run without per-step approval, except actions only a human may "
+            "approve (hard limits, and some actions when no isolated environment is "
+            "available); those show an approval card."
         )
     else:
         lines.append(
-            "(Manual mode without an approval channel: state-changing tool calls are "
-            "denied fail-closed here — only read-only tools run. Do not retry denied "
-            "calls; adjust your plan or report the restriction.)"
+            "Tool calls run without per-step approval, except actions only a human may "
+            "approve (hard limits, dangerous MCP tools, and some actions when no isolated "
+            "environment is available); with no human here those are denied."
         )
-    return "\n" + wrap_block(VALIDATION_PROTOCOL, "\n".join(lines)) + "\n"
+    if mode == "YOLO":
+        lines.append(
+            "Shell commands that chain or embed other commands (;, |, &&, ||, backticks, "
+            "$(...), line breaks) are not run automatically; split them into single "
+            "commands where you can."
+        )
+    if not human_present:
+        lines.append(f"If a call is denied, do not retry it; {followup}.")
+    return "\n" + wrap_block(APPROVAL_CONTEXT, "\n".join(lines)) + "\n"
 
 
 # 膨脹紀律：<harness_context> 完整工具面渲染後的 token 上限（測試 import 同一常數，
@@ -176,13 +234,16 @@ def build_harness_context(
         "declined by policy or by a human; adjust your approach instead of "
         "retrying the identical call.",
     ]
+    if any(advertised):
+        # 不寫成帶角括號的標籤：它是會變的區塊，Claude 路徑重排時會把字樣當成區塊開頭
+        lines.append(
+            "- The approval_context block states this turn's approval mode, whether "
+            "a human is present, and what happens to calls that need approval."
+        )
     if "execute_command" in advertised:
         lines.append(
-            "- Depending on the session's approval level, state-changing tool calls "
-            "(including dangerous commands) may pause for human approval before they "
-            "run; a declined approval comes back as permission_denied. Long commands "
-            "can run with background=true and their outcome fetched later with "
-            "get_command_result."
+            "- Long commands can run with background=true and their outcome fetched "
+            "later with get_command_result."
         )
     if "mission_tools" in advertised:
         lines += [
@@ -219,7 +280,10 @@ def build_harness_context(
         "souls, drives and memories.",
     ]
     if "send_message" in advertised:
-        lines.append("- You can reach other agents with send_message.")
+        lines.append(
+            "- send_message posts a notification to a Discord or Telegram channel; it "
+            "does not deliver anything to other agents."
+        )
     lines.append(
         "- Your files live in your own drive (personal vault); project scopes are "
         "shared spaces. Data in other agents' drives is not yours to touch."

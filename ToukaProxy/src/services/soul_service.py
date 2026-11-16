@@ -24,6 +24,7 @@ from memory_server.utils.zone_paths import is_zone_segment
 from src.adapters.content_normalize import normalize_message_content
 from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
+from src.services.client_system import split as split_client_system
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
 from src.utils.model_text import blank_control_chars
 from src.utils.time_utils import get_monotonic_ms
@@ -399,12 +400,19 @@ class SoulService:
         except Exception:
             return False
 
-    def apply_soul_to_request(self, request: Any, identity: str | AgentIdentity) -> None:
+    def apply_soul_to_request(
+        self,
+        request: Any,
+        identity: str | AgentIdentity,
+        client_system: tuple[str, ...] | None = None,
+    ) -> None:
         """將靈魂與設定強制覆蓋至請求中，並保留技術性指令 (Identity SSOT).
         
         Args:
             request (Any): 模型請求對象 (支援 Anthropic/OpenAI 結構).
             identity (str | AgentIdentity): 經驗證的身分對象或原始 ID.
+            client_system (tuple[str, ...] | None): 流程入口記下的用戶端原 system；
+                去掉這段後多出來的是系統自己加的說明，原樣保留。None＝全部照舊判斷。
         """
         agent_id = identity if isinstance(identity, str) else identity.agent_id
         soul_text, config = self.get_soul_data(identity)
@@ -413,22 +421,12 @@ class SoulService:
 
         # 1. 處理 System Prompt 覆蓋與技術指令保留
         if soul_text and hasattr(request, "messages"):
-            # 提取現有的 system 訊息中的技術內容
+            # 用戶端原本的 system 照舊依字母判斷；系統自己加的說明（入口記下原字串後多出來的）
+            # 一律保留，接在 <persona> 後面（ADR-0316）
+            client_parts, added_parts = split_client_system(request, client_system)
             technical_parts = []
             new_messages = []
-
-            # 從獨立的 system 欄位 (Anthropic) 或 messages 中提取
-            raw_system_content = getattr(request, "system", "")
-            if not raw_system_content:
-                for msg in request.messages:
-                    is_dict = isinstance(msg, dict)
-                    role = msg.get("role") if is_dict else getattr(msg, "role", "")
-                    if role == "system":
-                        content = (
-                            msg.get("content") if is_dict else getattr(msg, "content", "")
-                        )
-                        if content:
-                            raw_system_content += "\n" + content
+            raw_system_content = "\n".join(part for part in client_parts if part)
 
             # 啟發式過濾：尋找工具定義、環境說明等技術關鍵字
             technical_keywords = [
@@ -462,8 +460,8 @@ class SoulService:
 
             # Phase B0（ADR-0092）：外層包 <persona> delimiter，內文逐字不變，
             # 供 context breakdown 以一致 XML 邊界切段。soul 受 AGENT_SOUL_PROTECTION
-            # 僅擁有者可改，內容可信，無需轉義。
-            final_soul = wrap_block(PERSONA, final_soul)
+            # 僅擁有者可改，內容可信，無需轉義。系統自己加的說明接在後面，原樣保留。
+            final_soul = wrap_block(PERSONA, final_soul) + "".join(added_parts)
 
             # 注入回請求
             if hasattr(request, "system"):

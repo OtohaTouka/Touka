@@ -240,16 +240,16 @@ def approval_denied_error(name: str, verdict: str) -> str:
     )
 
 
-def human_only_unavailable_error(name: str, reason: str | None) -> str:
-    """HUMAN_ONLY（硬地板，ADR-0246）無人在場的模型面錯誤：不能靠切模式或審查員放行。"""
+def human_only_unavailable_error(name: str, reason: str | None, *, suggestion: str) -> str:
+    """HUMAN_ONLY（硬地板，ADR-0246）無人在場的模型面錯誤：不能靠切模式或審查員放行。
+
+    ``suggestion`` 依情境由執行器給（子代理交回主代理、其他寫進回覆或看板，ADR-0316）。
+    """
     return tool_errors.build_tool_error(
         tool_errors.PERMISSION_DENIED,
         f"{reason or 'Hard floor'}. Tool '{name}' cannot run without a human, and no human "
         "is present in this session.",
-        suggestion=(
-            "Do not retry or work around this call; ask the user to do it themselves "
-            "or to approve it in an interactive chat."
-        ),
+        suggestion=suggestion,
         denied_tool=name,
         reason="human_only",
     )
@@ -267,8 +267,10 @@ def auto_review_denied_error(name: str, reason: str) -> str:
     )
 
 
-def auto_review_no_human_error(name: str, reason: str, *, headless_terminal: bool) -> str:
-    """要審的動作沒被審查員放行（轉人），但這次沒有人在場：拒絕。"""
+def auto_review_no_human_error(
+    name: str, reason: str, *, headless_terminal: bool, suggestion: str
+) -> str:
+    """要審的動作沒被審查員放行（轉人），但這次沒有人在場：拒絕（建議由執行器依情境給）。"""
     code = (
         ErrorCode.AUTO_REVIEW_HEADLESS_TERMINAL
         if headless_terminal
@@ -278,10 +280,7 @@ def auto_review_no_human_error(name: str, reason: str, *, headless_terminal: boo
         tool_errors.PERMISSION_DENIED,
         f"{reason} Tool '{name}' needs a human decision, and no human is present in this "
         "session.",
-        suggestion=(
-            "Do not retry or work around this call; ask the user to run it themselves "
-            "or to approve it in an interactive chat."
-        ),
+        suggestion=suggestion,
         denied_tool=name,
         reason="auto_review_headless_terminal" if headless_terminal else "auto_review_escalated",
         touka_error_code=code.value,

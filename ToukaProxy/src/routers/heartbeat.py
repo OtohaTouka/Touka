@@ -349,7 +349,8 @@ async def _execute_single_pulse(
     # 0.5 決定大腦（model_name 已在開頭經 _pulse_model_name 決定）
     agent_id = identity.agent_id
     chat_req = OpenAIChatRequest(model=f"toukasoul-{agent_id}", messages=messages, stream=True)
-    soul_service.apply_soul_to_request(chat_req, identity)
+    # 心跳的請求由伺服器自己組，沒有用戶端送來的 system（ADR-0316）
+    soul_service.apply_soul_to_request(chat_req, identity, client_system=())
     if soul_service.is_toukasoul(identity):  # 主線的前情（ADR-0305）；心跳不帶家原文
         await inject_mainline(chat_req, identity, mode="heartbeat", session_id=final_session_id)
     chat_req.model = model_name

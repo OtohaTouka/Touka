@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 from src.middleware.layers import soul as soul_mod
 from src.models.context import PipelineContext
+from src.services.client_system import CLIENT_SYSTEM_KEY
 
 
 def _patch_soul(monkeypatch) -> AsyncMock:
@@ -24,7 +25,7 @@ def _patch_soul(monkeypatch) -> AsyncMock:
     monkeypatch.setattr(soul_mod.soul_service, "inject_context_summary", inject_summary)
     monkeypatch.setattr(soul_mod.soul_service, "inject_home_messages", AsyncMock())
     monkeypatch.setattr(soul_mod.soul_service, "get_soul_data", lambda aid: ("SOUL", {}))
-    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda req, aid: None)
+    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda req, aid, **_k: None)
     monkeypatch.setattr(soul_mod, "get_active_brain", lambda identity: "gemini-2.5-flash")
     # ADR-0245 修補：前情摘要只給綁在這個靈魂的 session；這裡讓 sess-1 綁在 Sumi，
     # 兩個測試才只差在無痕閘（無痕那例因此不會因 session 沒綁而空過）
@@ -80,3 +81,19 @@ async def test_non_incognito_injects_context_summary(monkeypatch):
     inject_summary.assert_awaited_once()
     # 第三個參數是這一輪前情已顯示的同一段原文（ADR-0305），這裡前情是空的
     assert inject_summary.await_args.args[:2] == (req, "sess-1")
+
+
+@pytest.mark.asyncio
+async def test_soul_layer_passes_the_recorded_client_system(monkeypatch):
+    """流程入口記下的用戶端原 system 要交給靈魂設定（ADR-0316）。"""
+    _patch_soul(monkeypatch)
+    seen: list[dict] = []
+    monkeypatch.setattr(
+        soul_mod.soul_service,
+        "apply_soul_to_request",
+        lambda _req, _aid, **kwargs: seen.append(kwargs),
+    )
+    ctx = PipelineContext(is_toukasoul=True, agent_id="Sumi", incognito=False)
+    ctx[CLIENT_SYSTEM_KEY] = ("外面送的說明",)
+    await soul_mod.SoulLayer().process(_req(), ctx)
+    assert seen == [{"client_system": ("外面送的說明",)}]
