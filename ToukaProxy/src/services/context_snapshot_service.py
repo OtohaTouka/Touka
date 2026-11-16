@@ -24,6 +24,7 @@ from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.models.context_window_registry import get_context_window
 from src.services.prompt_blocks import (
     ALL_BLOCK_TAGS,
+    APPROVAL_CONTEXT,
     CAPABILITIES,
     CONTINUITY,
     CONVERSATION_SUMMARY,
@@ -127,6 +128,13 @@ BLOCK_META: dict[str, dict[str, str]] = {
         "source": "build_harness_context(model, role, advertised)（toukasoul 面；ADR-0139）",
         "kind": "real",
         "mock": "Touka OS runtime facts: harness / model / role / mechanics（英文、零風格）",
+    },
+    APPROVAL_CONTEXT: {
+        "name": "Approval Context",
+        "layer": "ToolLayer",
+        "source": "build_approval_context(auth_level, ...)（有列工具就注入；ADR-0316）",
+        "kind": "real",
+        "mock": "Approval mode / human present or not / what happens to calls needing approval",
     },
     CONTINUITY: {
         "name": "Continuity",

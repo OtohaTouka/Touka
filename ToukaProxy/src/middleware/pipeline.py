@@ -3,6 +3,9 @@
 import logging
 from typing import Any
 
+from src.services.client_system import CLIENT_SYSTEM_KEY
+from src.services.client_system import capture as capture_client_system
+
 from ..models.context import PipelineContext
 from .base import ProxyLayer
 
@@ -17,7 +20,11 @@ class ProxyPipeline:
 
     async def execute(self, request: Any, ctx: PipelineContext) -> None:
         """依序執行所有的中介軟體層。
+
+        開始前記下用戶端原本的 system（每次都覆寫，子代理的 ctx 從父 ctx 複製來也不沿用），
+        套用靈魂設定時用它分辨哪些是系統自己加的說明（ADR-0316）。
         """
+        ctx[CLIENT_SYSTEM_KEY] = capture_client_system(request)
         for layer in self.layers:
             layer_name = layer.__class__.__name__
             try:

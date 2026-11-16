@@ -274,7 +274,7 @@ async def test_memory_store_is_bounded_and_keyed_by_agent_and_session(
 def _stub_soul_layer(monkeypatch: pytest.MonkeyPatch) -> None:
     """SoulLayer 走到注入點所需的相依：人格與家對話不讀磁碟、主要模型固定。"""
     monkeypatch.setattr(soul_mod.soul_service, "get_soul_data", lambda _a: ("SOUL", {}))
-    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda *_a: None)
+    monkeypatch.setattr(soul_mod.soul_service, "apply_soul_to_request", lambda *_a, **_k: None)
     monkeypatch.setattr(soul_mod.soul_service, "inject_home_messages", AsyncMock())
     monkeypatch.setattr(soul_mod.soul_service, "inject_context_summary", AsyncMock())
     monkeypatch.setattr(soul_mod, "get_active_brain", lambda _identity: "claude-sonnet-4-5")

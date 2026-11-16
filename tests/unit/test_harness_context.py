@@ -89,6 +89,15 @@ def test_builder_delegation_claims_match_recursion_gate():
     assert "restart" in block  # 耐久交付：跨重啟可續 await
 
 
+def test_send_message_is_described_as_a_channel_notification():
+    """提示-1（ADR-0316）：send_message 是發 Discord／Telegram 通知，聯絡不到其他靈魂。"""
+    block = build_harness_context(
+        model="m", role="Owner", advertised=frozenset({"send_message"})
+    )
+    assert "Discord or Telegram" in block
+    assert "reach other agents" not in block
+
+
 def test_builder_english_only():
     """拍板：英文內文（語言一致性可被 eval 對照；guard 亦釘）。"""
     block = build_harness_context(

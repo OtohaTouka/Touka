@@ -57,7 +57,7 @@ from src.utils.command_safety import effective_shell
 from src.utils.hard_floor import floor_tool_action
 from src.utils.mcp_request_identity import mcp_request_context as build_mcp_request_context
 from src.utils.mcp_request_identity import user_scoped_mcp_allowed
-from src.utils.presence import is_human_present
+from src.utils.presence import blocked_call_suggestion, is_human_present
 from src.utils.progress_events import repair_event
 from src.utils.time_utils import (
     get_current_epoch,
@@ -759,13 +759,18 @@ class ToolExecutor:
                 card_complete = not approval_flow.approval_preview_truncated(args)
             elif human_only:
                 # H1 錨（headless fail-closed）：HUMAN_ONLY 連終端也直接拒絕
-                denied_text = approval_flow.human_only_unavailable_error(name, decision.reason)
+                denied_text = approval_flow.human_only_unavailable_error(
+                    name, decision.reason, suggestion=blocked_call_suggestion(ctx)
+                )
             elif pre_hooks.ask:
                 # hook 要求人核准：無人在場一律拒絕，終端也不落到遺留通道（ADR-0292）
                 denied_text = hook_ask_unavailable_error(name, pre_hooks.ask_reason)
             elif review is not None:
                 denied_text = approval_flow.auto_review_no_human_error(
-                    name, review.reason, headless_terminal=review.code == CODE_HEADLESS_TERMINAL
+                    name,
+                    review.reason,
+                    headless_terminal=review.code == CODE_HEADLESS_TERMINAL,
+                    suggestion=blocked_call_suggestion(ctx),
                 )
             elif not is_terminal:
                 # 非終端工具無審批通道＝零執行（終端維持 terminal.py 遺留通道）
@@ -774,11 +779,7 @@ class ToolExecutor:
                     f"Tool '{name}' requires human approval under auth level "
                     f"'{ctx.get('auth_level', 'Manual')}', and no approval channel is "
                     "available in this session.",
-                    suggestion=(
-                        "Do not retry this tool call; tell the user it needs approval — "
-                        "they can switch the session to Auto or YOLO mode to auto-allow "
-                        "more actions, or approve it in an interactive chat session."
-                    ),
+                    suggestion=blocked_call_suggestion(ctx),
                     denied_tool=name,
                     reason="approval_required",
                 )

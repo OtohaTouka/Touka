@@ -2,6 +2,13 @@
 
 > **TL;DR** — JWT 雙軌 Token（Access 1h + Refresh 30d；`auth_service.py` `now_sec + 3600` 為 SSOT）；所有端點需 `Depends(get_verified_identity)` 或在 `endpoint_auth_allowlist.py`；三種模式 Manual/Auto/YOLO＋程式常數底線＋Auto 審查員（ADR-0246）；`/heartbeat/awaken` token 驗證唯一入口 `verify_heartbeat_token()` Depends；MCP workload OAuth（ADR-0207）只開 HEARTBEAT、要求單一 Proxy process＋local filesystem lock，enterprise 維持 fail-closed；MCP client／server 為 modern-only `2026-07-28`（ADR-0221），discovery 錯誤 fail-loud 不重連 legacy；`/v1/creation/*` 創建端點限 Owner/admin。
 
+## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
+
+- 套用靈魂設定不再蓋掉系統自己加的說明：流程入口記下用戶端原本的每一則 system（`ctx["client_system"]`），`apply_soul_to_request(request, identity, client_system=...)` 只對用戶端原本的內容照舊依字母判斷，其餘原樣接在 `<persona>` 後面。靈魂層、群聊、心跳三個呼叫點都傳；沒傳時照舊。專案名稱與路徑進 `<project_context>` 前跳脫系統標籤字元。
+- 新區塊 `<approval_context>`：這一輪有列工具就由 ToolLayer 注入，寫模式、有沒有人在場、需要核准的動作會怎樣（看不懂的模式照 Manual）。登記在 `VOLATILE_SYSTEM_TAGS`，Claude 路徑排在不變的說明後面。`<validation_protocol>` 不再寫模式，只留自我驗證的規矩；`<harness_context>` 的 "Tools and approval" 指向新區塊，`send_message` 寫成 Discord／Telegram 通知。
+- 沒人在場被擋時（需要核准但沒有通道、只有人能核准、Auto 轉人、心跳危險指令沒有 ToukaUI），結構化錯誤的 `suggestion` 改成依情境：子代理寫進回報交給主代理，其他寫進回覆或看板。`error_class`、`reason` 與拒絕本身不變。
+- 端點、請求／回應 schema 與 OpenAPI 不變；沒有新錯誤碼。
+
 ## 本機小幫手（2026-11-10，ADR-0312）
 
 - 人類管理員用（admin 代打不算）：`POST /v1/local-bridge/pairing` 產生或換新配對碼，明文只回一次；`DELETE /v1/local-bridge/pairing` 解除；`GET /v1/local-bridge/status` 看狀態。寫入另查 CSRF Origin。

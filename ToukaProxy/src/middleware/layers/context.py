@@ -132,7 +132,9 @@ class ContextLayer(ProxyLayer):
             project_ctx = await get_project_context(project_id)
             if project_ctx:
                 logger.info(f"🚀 Injecting project context for project_id={project_id}")
-                wrapped_ctx = "\n" + wrap_block(PROJECT_CONTEXT, project_ctx)
+                # 專案名稱與路徑來自使用者設定，先跳脫系統標籤字元（ADR-0316）
+                safe_ctx = neutralize_tags(project_ctx, ALL_BLOCK_TAGS)
+                wrapped_ctx = "\n" + wrap_block(PROJECT_CONTEXT, safe_ctx)
                 if is_anthropic:
                     self._inject_anthropic_system(request, wrapped_ctx)
                 else:

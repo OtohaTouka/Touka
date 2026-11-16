@@ -15,6 +15,8 @@
    - 「refuses to end the conversation」    ⇄ mission_stop_gate ＋ claude_handler 接線
    - 「after a harness restart」            ⇄ subagent_results.persist_result 耐久層
    - 「<soul_prelude>」                     ⇄ 剪裁寫前情（同一交易）＋SoulLayer 注入主線（ADR-0305）
+   - 「pause for human approval」           ⇄ tool_executor 的人類審批卡；這句在
+     build_approval_context（模式與核准的說法搬到 <approval_context>，ADR-0316）
 3. builder 字串常數不得含 CJK（拍板：英文內文）。
 """
 from __future__ import annotations
@@ -30,7 +32,12 @@ _PROMPT_BLOCKS = _SRC / "services" / "prompt_blocks.py"
 
 _CJK_RE = re.compile(r"[一-鿿]")
 
-# claim（builder 字串常數內必須出現的承諾句）⇄ code marker（目標檔內必須出現的行為錨）
+_HARNESS_BUILDER = "build_harness_context"
+_APPROVAL_BUILDER = "build_approval_context"  # ADR-0316：模式與核准的說法
+_BUILDERS = (_HARNESS_BUILDER, _APPROVAL_BUILDER)
+
+# claim（builder 字串常數內必須出現的承諾句）⇄ code marker（目標檔內必須出現的行為錨）。
+# 沒寫在 _CLAIM_BUILDER 的承諾句都在 build_harness_context。
 _CLAIM_PAIRS: tuple[tuple[str, Path, str], ...] = (
     (
         "cannot dispatch further sub-agents",
@@ -69,6 +76,7 @@ _CLAIM_PAIRS: tuple[tuple[str, Path, str], ...] = (
         "await inject_mainline(",
     ),
 )
+_CLAIM_BUILDER = {"pause for human approval": _APPROVAL_BUILDER}
 
 
 def _module_names_in_tuple(tree: ast.Module, var_name: str) -> set[str]:
@@ -91,13 +99,13 @@ def _module_names_in_tuple(tree: ast.Module, var_name: str) -> set[str]:
     return set()
 
 
-def _builder_string_text(tree: ast.Module) -> str:
-    """``build_harness_context`` 函式內全部字串常數串接（承諾句／CJK 檢查對象）。
+def _builder_string_text(tree: ast.Module, name: str) -> str:
+    """``name`` 這個產生函式內全部字串常數串接（承諾句／CJK 檢查對象）。
 
     排除 docstring（repo 慣例中文）——只有實際進 prompt 的內文字串受英文約束。
     """
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "build_harness_context":
+        if isinstance(node, ast.FunctionDef) and node.name == name:
             body = node.body
             if (
                 body
@@ -133,13 +141,15 @@ def main() -> int:
         )
 
     # 2. 承諾句對釘（雙向）
-    claims_text = _builder_string_text(tree)
-    if not claims_text:
-        errors.append("cannot locate build_harness_context() in prompt_blocks.py")
+    texts = {name: _builder_string_text(tree, name) for name in _BUILDERS}
+    for name, text in texts.items():
+        if not text:
+            errors.append(f"cannot locate {name}() in prompt_blocks.py")
     for claim, code_path, marker in _CLAIM_PAIRS:
-        if claims_text and claim not in claims_text:
+        builder = _CLAIM_BUILDER.get(claim, _HARNESS_BUILDER)
+        if texts[builder] and claim not in texts[builder]:
             errors.append(
-                f'claim "{claim}" missing from build_harness_context - '
+                f'claim "{claim}" missing from {builder} - '
                 "guide text drifted from the pinned behavior promises"
             )
         code_text = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
@@ -151,11 +161,12 @@ def main() -> int:
             )
 
     # 3. 英文內文（builder 字串常數不得含 CJK）
-    if claims_text and _CJK_RE.search(claims_text):
-        errors.append(
-            "build_harness_context contains CJK characters - "
-            "harness_context body must be English (owner decision, ADR-0139)"
-        )
+    for name, text in texts.items():
+        if _CJK_RE.search(text):
+            errors.append(
+                f"{name} contains CJK characters - "
+                "the block body must be English (owner decision, ADR-0139)"
+            )
 
     if errors:
         print("[Guard #40] FAIL: Harness Context drift:")

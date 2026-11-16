@@ -22,6 +22,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.sns import SNSIncomingEvent
 from src.routers.group_settings import GroupWhitelist, get_whitelist
+from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.dispatchers.group import dispatch_group_stream
 from src.services.group_router import parse_group_roster
 from src.services.hooks.events import wrap_hook_output
@@ -218,6 +219,19 @@ async def test_group_dispatch_soul_member_uses_soul_identity(cfg, streams):
         {"model": "brain-x", "identity": AgentIdentity(agent_id="Alice"), "is_toukasoul": True}
     ]
     assert soul.apply_soul_to_request.call_args[0][1] == AgentIdentity(agent_id="Alice")
+
+
+async def test_group_dispatch_passes_the_recorded_client_system(cfg, streams):
+    # 流程入口記下的用戶端原 system 要交給靈魂設定，才分得出系統自己加的說明（ADR-0316）
+    _, soul = streams
+    request = OpenAIChatRequest(
+        model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@小愛 哈囉")]
+    )
+    ctx = PipelineContext()
+    ctx[CLIENT_SYSTEM_KEY] = ("外面送的說明",)
+    async for _chunk in dispatch_group_stream(request, "req-g", 0.0, ctx):
+        pass
+    assert soul.apply_soul_to_request.call_args.kwargs["client_system"] == ("外面送的說明",)
 
 
 async def test_every_member_speaks_when_no_question_is_left_unanswered(cfg, streams):

@@ -25,7 +25,6 @@ from typing import Any
 
 from memory_server.utils.no_follow import LINK_REFUSED_MESSAGE, LinkRefusedError
 from memory_server.utils.zone_paths import HandoffKind, ZonePath, ZoneSegmentError
-from src.config import UI_DEFAULT_URL
 from src.models.identity import AgentIdentity  # noqa: TC001, TC002
 from src.services import destructive_ops, tool_errors
 from src.services.evolution_security import EvolutionPathGuard
@@ -57,6 +56,7 @@ from src.utils.command_safety import (
     has_chaining_metacharacters,
 )
 from src.utils.isolation_policy import IsolationLevel
+from src.utils.presence import blocked_call_suggestion
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_events import tool_stream_event
 
@@ -684,10 +684,7 @@ async def execute_command(
                 tool_errors.PERMISSION_DENIED,
                 f"Dangerous command requires human approval, but no ToukaUI is "
                 f"connected to approve it: {command}",
-                suggestion=(
-                    f"Ask the user to run it manually in a terminal, or open "
-                    f"ToukaUI ({UI_DEFAULT_URL}) to enable the approval flow."
-                ),
+                suggestion=blocked_call_suggestion(kwargs.get("_ctx") or {}),
                 reason="ui_unavailable",
             )
 

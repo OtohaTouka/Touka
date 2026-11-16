@@ -331,7 +331,7 @@ async def test_soul_layer_passes_the_preview_flag(monkeypatch):
 
     monkeypatch.setattr(soul_layer, "inject_mainline", fake_mainline)
     monkeypatch.setattr(soul_layer.soul_service, "get_soul_data", lambda _aid: ("SOUL", {}))
-    monkeypatch.setattr(soul_layer.soul_service, "apply_soul_to_request", lambda *_a: None)
+    monkeypatch.setattr(soul_layer.soul_service, "apply_soul_to_request", lambda *_a, **_k: None)
     monkeypatch.setattr(soul_layer, "get_active_brain", lambda _identity: "gemini-2.5-flash")
     request = _request()
     ctx = PipelineContext(is_toukasoul=True, agent_id=A.agent_id, preview=True)
@@ -670,7 +670,7 @@ async def test_soul_layer_tells_the_mainline_about_sns(monkeypatch, sns):
 
     monkeypatch.setattr(soul_layer, "inject_mainline", fake_mainline)
     monkeypatch.setattr(soul_layer.soul_service, "get_soul_data", lambda _aid: ("SOUL", {}))
-    monkeypatch.setattr(soul_layer.soul_service, "apply_soul_to_request", lambda *_a: None)
+    monkeypatch.setattr(soul_layer.soul_service, "apply_soul_to_request", lambda *_a, **_k: None)
     monkeypatch.setattr(soul_layer, "get_active_brain", lambda _identity: "gemini-2.5-flash")
     ctx = PipelineContext(is_toukasoul=True, agent_id=A.agent_id, sns_source=sns)
     await soul_layer.SoulLayer().process(_request(), ctx)

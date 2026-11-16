@@ -23,6 +23,7 @@ from src.services.permission_service import permission_service
 from src.services.prompt_blocks import (
     MCP_UNAVAILABLE,
     TOOL_AVAILABILITY,
+    build_approval_context,
     build_harness_context,
     build_validation_protocol,
     wrap_block,
@@ -45,7 +46,7 @@ from src.utils.local_bridge_gate import (
     local_files_availability,
 )
 from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
-from src.utils.presence import is_human_present
+from src.utils.presence import is_human_present, no_human_followup
 from src.utils.soul_tool_selection import ToolSelection, companions_of
 
 logger = logging.getLogger(__name__)
@@ -448,17 +449,26 @@ class ToolLayer(ProxyLayer):
             if isinstance(t, dict)
         }
         if advertised & _MUTATING_DEV_TOOLS:
-            # H4：Manual 句依「有無審批通道」分寫——互動會話（resumable_stream）走
-            # 審批卡（H2/H3 broker），headless 則 fail-closed 拒絕；提示與行為對齊。
-            self._inject_validation_protocol(
-                request, auth_level, interactive=is_human_present(ctx)
-            )
+            # 模式與核准的說法在 <approval_context>（ADR-0316），這裡只放自我驗證的規矩
+            self._inject_validation_protocol(request)
 
         # 11d. OS 環境事實（ADR-0139）：toukasoul 面注入 <harness_context>——soul 管
         # 「我是誰」、本塊管「我在哪」（模型／角色／機制），內容按實際廣告面條件化；
         # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入。
         if ctx.get("is_toukasoul"):
             self._inject_harness_context(request, ctx, advertised)
+
+        # 11e. 模式、在場與核准（ADR-0316）：這一輪有列工具就說（靈魂、子代理、心跳、
+        # IDE、自訂模型、群聊都會走到），說法和實際判斷對齊；被擋建議與這裡共用同一句。
+        if any(advertised):
+            self._inject_system_block(
+                request,
+                build_approval_context(
+                    auth_level,
+                    human_present=is_human_present(ctx),
+                    followup=no_human_followup(ctx),
+                ),
+            )
 
         # 12. --- 任務感知注入 (Mission Awareness) ---
         # pipeline 中 ContextLayer 早於本層執行，無法讀取本層此刻才備妥的 mission
@@ -531,11 +541,12 @@ class ToolLayer(ProxyLayer):
         if messages is not None:
             inject_openai_system(messages, note)
 
-    def _inject_validation_protocol(
-        self, request: Any, auth_level: str, *, interactive: bool = True
-    ) -> None:
-        """把 <validation_protocol> 慣例段注入 system（P2a；積極度依審批模式）。"""
-        block = build_validation_protocol(auth_level, interactive=interactive)
+    def _inject_validation_protocol(self, request: Any) -> None:
+        """把 <validation_protocol> 慣例段注入 system（P2a）。"""
+        self._inject_system_block(request, build_validation_protocol())
+
+    def _inject_system_block(self, request: Any, block: str) -> None:
+        """把一段已包好標籤的說明接進 system（Anthropic 用 system 屬性、其他用 system 訊息）。"""
         if "anthropic" in str(type(request)).lower():
             inject_anthropic_system(request, block)
             return

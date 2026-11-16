@@ -12,3 +12,23 @@ def is_human_present(ctx: Any) -> bool:
     if not ctx.get("resumable_stream"):
         return False
     return not any(ctx.get(flag) for flag in HEADLESS_RUN_FLAGS)
+
+
+# 沒人在場時，需要核准的動作交給誰（<approval_context> 與被擋建議共用，ADR-0316）
+_SUBAGENT_FOLLOWUP = (
+    "put the action in your report to the agent that dispatched you, so it can get approval"
+)
+_NO_HUMAN_FOLLOWUP = (
+    "note the action in your reply or on your mission board, so a human can handle it "
+    "when they return"
+)
+
+
+def no_human_followup(ctx: Any) -> str:
+    """子代理交回派它的主代理；其他沒人在場的（心跳、派工）寫進回覆或看板。"""
+    return _SUBAGENT_FOLLOWUP if ctx.get("subagent_run") else _NO_HUMAN_FOLLOWUP
+
+
+def blocked_call_suggestion(ctx: Any) -> str:
+    """沒人在場、動作被擋時的建議（只換 ``suggestion``，拒絕與 ``reason`` 不變）。"""
+    return f"Do not retry or work around this call; {no_human_followup(ctx)}."

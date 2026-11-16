@@ -69,6 +69,13 @@ tests/
 
 ## 一、單元測試 (`tests/unit/`)
 
+### 系統說明保留、模式與核准說明（ADR-0316）
+
+| 檔案 | 說明 |
+|---|---|
+| `unit/test_soul_keeps_harness_blocks.py` | 套用靈魂設定時系統加的說明（專案等）留下：OpenAI／Anthropic 兩種形狀、list 形狀不出錯；偽造標籤與兩則用戶端 system 照舊判斷；對不上整則算用戶端並記 log；入口每次覆寫；專案名稱的標籤字元被跳脫。 |
+| `unit/test_approval_context.py` | `<approval_context>`：三種模式 × 有沒有人與看不懂的值，說法和實際判斷一致；只有唯讀工具也注入；區塊分類全覆蓋；Claude 重排不切開說明；四處被擋建議依子代理、心跳各自的說法。 |
+
 ### 聊天對話搜尋（ADR-0277）
 
 以下六個新測試檔使用 conftest 沙盒、真 SQLite／MemoryManager／SessionService 與合成身分，來源觀察器只委派、不替換搜尋。

@@ -82,7 +82,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         soul_service, "is_toukasoul", lambda who: getattr(who, "agent_id", who) == SOUL
     )
     monkeypatch.setattr(soul_service, "get_soul_data", lambda _agent_id: ("PERSONA", {}))
-    monkeypatch.setattr(soul_service, "apply_soul_to_request", lambda *_args: None)
+    monkeypatch.setattr(soul_service, "apply_soul_to_request", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(soul_service, "inject_home_messages", _no_home)
     monkeypatch.setattr(soul_layer, "inject_mainline", _record_mainline)
     monkeypatch.setattr(
