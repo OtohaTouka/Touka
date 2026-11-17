@@ -34,7 +34,11 @@ from src.services.completion import (
 from src.utils.model_text import LINE_BREAK_MARK, single_line
 from src.utils.time_utils import CONVERSATION_RECORD_TIME_NOTE, get_current_epoch
 from src.utils.token_estimator import estimate_tokens, truncate_to_tokens
-from src.utils.tool_record_marks import TOOL_RECORD_BRIEF_CLOSE, TOOL_RECORD_BRIEF_OPEN
+from src.utils.tool_record_marks import (
+    TOOL_RECORD_BRIEF_CLOSE,
+    TOOL_RECORD_BRIEF_OPEN,
+    neutralize_record_markers,
+)
 from src.utils.tool_records import RECORD_BRIEF, annotate_history
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
@@ -181,7 +185,8 @@ async def _complete_text(
         if on_failure is not None:
             on_failure(result.error.reason)
         return None
-    text = result.text.strip()
+    # 摘要存進前情（system），不經過工具紀錄的防偽：照抄的紀錄標記先換掉（ADR-0319）
+    text = neutralize_record_markers(result.text.strip())
     if not text and on_failure is not None:
         on_failure(_EMPTY_ANSWER)
     return text or None

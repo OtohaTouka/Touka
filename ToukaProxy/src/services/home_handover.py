@@ -13,7 +13,8 @@
   退任摘要失敗不算交接失敗，放回佇列隔一段時間再試，試到第三次才寫來源註記。
 - 子對話回報：交接時寫前幾段；另外隔一段時間檢查 6 小時沒動、有新內容的。一次維護總共最多幾段。
   SNS 頻道、群聊、舊家、無痕不寫。心跳的獨立頻道也寫：心跳在那裡跑完就排，同一頻道上次回報不到
-  一小時就等閒置規則補寫（ADR-0319）。前情摘要關閉時，每段的每個最後節點只寫一行註記。同一段送出去卻一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
+  6 小時就等閒置規則補寫，一次只送最近 24 小時（ADR-0319）。前情摘要關閉時，每段的每個最後節點
+  只寫一行註記（頻道交給閒置規則）。同一段送出去卻一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
   請求根本沒送出（原生路線沒金鑰、超預算、模型不可用）不算這一段的失敗，這個靈魂冷卻一段時間再試。
 - 模型呼叫都在交易外；每個寫入都查重置或刪除（``destructive_ops``）。
 """
@@ -97,8 +98,11 @@ RETIRED_RETRY_AFTER_MS = 60 * 60 * 1000
 RETIRED_MAX_TRIES = 3
 # 失敗的紀錄多久再試一次；重啟後第一次觸發也試
 FAILED_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
-# 心跳在獨立頻道跑完就替那個頻道寫回報；上次回報（位置移動）不到這麼久就不寫，之後由閒置規則補寫
-CHANNEL_REPORT_EVERY_MS = 60 * 60 * 1000
+# 心跳在獨立頻道跑完就替那個頻道寫回報；上次回報（位置移動）不到這麼久就不寫，之後由閒置規則補寫。
+# 每多一段回報前情就變一次，這個靈魂所有對話的提示快取都要重寫，所以和子對話閒置一樣用 6 小時
+CHANNEL_REPORT_EVERY_MS = 6 * 60 * 60 * 1000
+# 心跳頻道不剪、可能累積很久：一次回報只送這麼近的內容（心跳寫的是伺服器時間），更早的不補寫
+CHANNEL_REPORT_WINDOW_MS = 24 * 60 * 60 * 1000
 # 「還沒回報的其他對話」那一行：每個靈魂的結果記多久（候選要解析每段子對話的內容）
 UNREPORTED_CACHE_MS = 5 * 60 * 1000
 
@@ -202,6 +206,7 @@ async def maintain(identity: AgentIdentity) -> None:
         await _write_deferred_retired(run)
         await _report_due_channels(run)
         await _report_idle_children(run)
+    _unreported_cache.pop(agent, None)  # 可能寫了回報或移了位置：下一輪重算「還沒回報」
     if run.wrote:  # 鎖外做：合併自己會拿靈魂鎖
         await soul_prelude_merge.merge_if_needed(
             identity, run.config, home_id=await session_service.get_home_session_id(identity)
@@ -511,9 +516,12 @@ async def _write_reports(run: _Pass) -> None:
 
 
 async def _report_due_channels(run: _Pass) -> None:
-    """心跳剛跑完的獨立頻道寫回報（ADR-0319）；這次沒寫的，之後由閒置規則補寫."""
+    """心跳剛跑完的獨立頻道寫回報（ADR-0319）；這次沒寫的，之後由閒置規則補寫.
+
+    前情摘要關閉時不走這條：註記沒有內容，每次都多一行一樣的只會擠掉前情裡別的段落。
+    """
     due = _due_channels.pop(run.agent, None)
-    if due:
+    if due and run.config.prelude_summary_enabled:
         await _report_children(run, idle_only=False, only=due)
 
 
@@ -557,7 +565,7 @@ async def unreported_children(identity: AgentIdentity) -> Unreported:
 async def _report_children(run: _Pass, *, idle_only: bool, only: set[str] | None = None) -> None:
     """替有新內容的子對話寫回報，一次維護總共最多幾段；冷卻中不寫.
 
-    ``only``：只看這幾段（心跳剛跑完的獨立頻道），上次回報不到一小時的不寫。
+    ``only``：只看這幾段（心跳剛跑完的獨立頻道），上次回報不到 6 小時的不寫。
     """
     now = get_current_epoch_ms()
     room = REPORTS_PER_PASS - run.reports
@@ -566,9 +574,10 @@ async def _report_children(run: _Pass, *, idle_only: bool, only: set[str] | None
     chosen: list[Child] = []
     for child in await child_candidates(run.agents):
         if only is not None and (
-            child.id not in only or now - (child.mark_at or 0) < CHANNEL_REPORT_EVERY_MS
+            child.id not in only
+            or (child.mark_at is not None and now - child.mark_at < CHANNEL_REPORT_EVERY_MS)
         ):
-            continue
+            continue  # 不是剛跑完的頻道，或上次回報還不到 6 小時（沒回報過的不限）
         if child.mark_scope == 0:  # 失效（同名重建、還原）
             continue
         if child.mark_agent is not None and child.mark_agent != run.agent:
@@ -643,14 +652,18 @@ async def _write_report(run: _Pass, child: Child, gate: asyncio.Semaphore) -> bo
     linear = TreeMessageManager.get_linear_path(source["messages"])
     if not linear:
         return True
-    fresh = _new_messages(source["messages"], linear, child)
-    node = str(linear[-1].get("id"))
     now = get_current_epoch_ms()
+    fresh = _new_messages(source["messages"], linear, child)
+    if is_heartbeat_channel(child.id):  # 只報最近 24 小時（ADR-0319）
+        since = now - CHANNEL_REPORT_WINDOW_MS
+        fresh = [m for m in fresh if (to_epoch_ms(m.get("timestamp")) or 0) >= since]
+    node = str(linear[-1].get("id"))
     if not has_dialogue(fresh) or await report_exists(run.agent, child.id, node):
         await move_mark(child.id, run.agents, run.agent, node, now, skip_if=run.disturbed)
         return True
     if not run.config.prelude_summary_enabled:
         # 前情摘要關閉：這個最後節點只寫一行註記，家不再沒消沒息（ADR-0319）
+        _report_failures.pop((run.agent, child.id), None)
         segment = _report_segment(run, child.id, node, report_note(), fresh)
         if await write_report(segment, run.agents, node, now, skip_if=run.disturbed):
             run.wrote = True

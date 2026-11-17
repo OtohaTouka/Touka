@@ -837,7 +837,6 @@ async def test_an_archived_message_with_other_content_is_kept_as_a_version(real_
     assert versions == ["content_0"]
 
 
-
 def test_split_by_tokens_costs_what_is_sent(monkeypatch):
     """token 照送出時的樣子估（含工具紀錄，ADR-0319），切的仍是存檔那串."""
     monkeypatch.setattr(

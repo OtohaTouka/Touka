@@ -3,7 +3,7 @@
 - 狀態：✅ 已實作（路線圖 3d PR 2b；畫面在 PR 3，見 ADR-0306）。一頁計畫由維護者核准（2026-11-07）。
 - 日期：2026-11-08
 - 決策者：維護者
-- 修訂：2026-11-17 ADR-0319 PR 3：心跳獨立頻道（`touka.hb.v1.*`）也寫回報：心跳在那裡跑完就排，同一頻道上次回報不到一小時就等閒置規則補寫；前情摘要關閉時不再完全不寫，每個最後節點寫一行來源註記（[ADR-0319](0319-tool-records-carried-into-next-turn.md) 第 10、11 點）。
+- 修訂：2026-11-17 ADR-0319 PR 3：心跳獨立頻道（`touka.hb.v1.*`）也寫回報：心跳在那裡跑完就排，同一頻道上次回報不到 6 小時就等閒置規則補寫，一次只送最近 24 小時；前情摘要關閉時不再完全不寫，每個最後節點寫一行來源註記（[ADR-0319](0319-tool-records-carried-into-next-turn.md) 第 10、11 點）。
 - 相關：ADR-0305（靈魂前情與主線；本 ADR 修訂「退任摘要不合併」）、ADR-0306（換家的狀態與舊家唯讀；本 ADR 做它留下的交接工作）、ADR-0092（滑動視窗剪裁）、ADR-0264（剪下的對話歸檔）、ADR-0078（失效可觀察）、ADR-0302（收尾保存）
 - 影響範圍：`ToukaProxy/src/services/home_handover.py`・`src/services/soul_locks.py`・`src/utils/home_handover_db.py`・`src/services/dispatcher.py`・`src/routers/heartbeat.py`・`src/routers/stats.py`・`src/services/soul_prelude_merge.py`・`src/services/soul_prelude_service.py`・`src/services/mainline_service.py`・`src/services/reply_in_flight.py`・`src/services/sns_gateway.py`・`src/services/chat_trim_wait.py`・`src/services/dialogue_summarizer.py`・`src/services/sliding_window_service.py`・`src/utils/home_transitions.py`・`src/utils/async_db.py`・`ToukaChat/src/lib/session_persistence.ts`・`ToukaChat/src/lib/providers/SessionListProvider.tsx`・`ToukaChat/src/lib/providers/StreamRegistryProvider.tsx`
 
