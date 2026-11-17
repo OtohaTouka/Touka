@@ -16,6 +16,7 @@ from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.services.reply_in_flight import replying
 from src.utils.async_db import session_service
+from src.utils.tool_step_collector import ToolStepCollector
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
 if TYPE_CHECKING:
@@ -90,12 +91,14 @@ class SNSGatewayService:
             raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
 
     @staticmethod
-    async def _collect_reply(response: Any) -> str:
-        """把串流回應的 SSE 片段接成完整文字."""
+    async def _collect_reply(response: Any, tool_steps: ToolStepCollector | None = None) -> str:
+        """把串流回應的 SSE 片段接成完整文字；有給收集器就一併收工具步驟（ADR-0319 PR 2）."""
         full_text = ""
         async for chunk in response.body_iterator:
             if isinstance(chunk, bytes):
                 chunk = chunk.decode("utf-8")
+            if tool_steps is not None:
+                tool_steps.feed_sse(chunk)
 
             lines = chunk.split("\n\n")
             for line in lines:
@@ -259,9 +262,11 @@ class SNSGatewayService:
         # 5. 聚合回應內容 (Aggregator)、紀錄 Assistant 回覆：存好之前這段對話算有回覆在跑，
         #    換家交接要等（ADR-0307；外人訊息剛存好，中間沒有 await）
         with replying(session_id):
-            full_text = await self._collect_reply(response)
+            tool_steps = ToolStepCollector()
+            full_text = await self._collect_reply(response, tool_steps)
+            # 只用了工具、沒有文字的也存（步驟留給下一輪的工具紀錄），但不往外送
             if (
-                full_text
+                (full_text or tool_steps.steps)
                 and session_id
                 and not await session_service.append_message_to_session(
                     session_id,
@@ -269,6 +274,7 @@ class SNSGatewayService:
                     full_text,
                     name=target_agent_id,
                     identity=identity,
+                    extra_fields=tool_steps.node_fields(),
                 )
             ):
                 raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)

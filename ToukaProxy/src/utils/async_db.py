@@ -666,6 +666,7 @@ class SessionService:
         representation: str = "full",
         ui: bool = False,
         message: tuple[str, str, str | None] | None = None,
+        message_fields: dict[str, Any] | None = None,
         owner_user_id: str | None = None,
         channel_id: str | None = None,
         require_home: bool = False,
@@ -708,6 +709,9 @@ class SessionService:
                     updated["messages"] = TreeMessageManager.append_node(
                         updated["messages"], role, content, name=name
                     )
+                    if message_fields:  # 例如後端收集的工具步驟（ADR-0319 PR 2）
+                        tree = updated["messages"]
+                        tree["messages"][tree["currentId"]].update(message_fields)
                     updated["updatedAt"] = int(get_current_epoch() * 1000)
                 if row is None and owner_user_id is not None:
                     updated["owner_user_id"] = owner_user_id
@@ -1087,10 +1091,15 @@ class SessionService:
         content: str,
         name: str | None = None,
         identity: AgentIdentity | None = None,
+        extra_fields: dict[str, Any] | None = None,
     ) -> bool:
-        """向現有對話追加訊息 (Identity SSOT)。"""
+        """向現有對話追加訊息 (Identity SSOT)；``extra_fields`` 一併存進新節點（如工具步驟）。"""
         result = await SessionService._save_session(
-            session_id, SessionChanges(), identity, message=(role, content, name)
+            session_id,
+            SessionChanges(),
+            identity,
+            message=(role, content, name),
+            message_fields=extra_fields,
         )
         return result.status == "saved"
 
