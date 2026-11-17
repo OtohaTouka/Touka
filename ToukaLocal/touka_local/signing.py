@@ -14,7 +14,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Final
 
-from touka_local.protocol import DECIDED_BY_MODES
+from touka_local.protocol import DECIDED_BY_MODES, DECIDED_BY_OPEN_REQUEST
 
 if TYPE_CHECKING:
     from touka_local.protocol import Decision
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 SIGNATURE_VERSION: Final = 2
 DECISION_KEY_BYTES: Final = 32
 ACT_PROPOSE: Final = "propose"
+ACT_REQUEST_OPEN: Final = "request_open"
 
 _NONCE: Final = re.compile(r"[A-Za-z0-9_-]{22}")
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")
@@ -60,18 +61,38 @@ def sign_decision(
     )
 
 
+def sign_open_request(key: bytes, *, job_id: str, nonce: str, path: str) -> str:
+    """開放請求的章（ADR-0320），和 Touka 相同的算法。``act`` 不同，和清單的章不能互用。"""
+    fingerprint = text_fingerprint(path)
+    return _sign(
+        key,
+        {
+            "act": ACT_REQUEST_OPEN,
+            "by": DECIDED_BY_OPEN_REQUEST,
+            "digest": fingerprint,
+            "job": job_id,
+            "nonce": nonce,
+            "shown": fingerprint,
+        },
+    )
+
+
+def _well_formed(key: bytes | None, decision: Decision) -> bool:
+    return (
+        key is not None
+        and len(key) == DECISION_KEY_BYTES
+        and _NONCE.fullmatch(decision.nonce) is not None
+        and _HEX64.fullmatch(decision.digest) is not None
+        and _HEX64.fullmatch(decision.shown) is not None
+        and _HEX64.fullmatch(decision.signature) is not None
+    )
+
+
 def decision_signature_ok(key: bytes | None, job_id: str, decision: Decision) -> bool:
     """章是不是 Touka 用配對的鑰匙蓋在這件工作上的。格式不對也算不對。"""
-    if (
-        key is None
-        or len(key) != DECISION_KEY_BYTES
-        or decision.decided_by not in DECIDED_BY_MODES
-        or _NONCE.fullmatch(decision.nonce) is None
-        or _HEX64.fullmatch(decision.digest) is None
-        or _HEX64.fullmatch(decision.shown) is None
-        or _HEX64.fullmatch(decision.signature) is None
-    ):
+    if not _well_formed(key, decision) or decision.decided_by not in DECIDED_BY_MODES:
         return False
+    assert key is not None  # _well_formed 已確認
     expected = sign_decision(
         key,
         job_id=job_id,
@@ -80,6 +101,23 @@ def decision_signature_ok(key: bytes | None, job_id: str, decision: Decision) ->
         shown=decision.shown,
         decided_by=decision.decided_by,
     )
+    return hmac.compare_digest(expected, decision.signature)
+
+
+def open_request_signature_ok(
+    key: bytes | None, job_id: str, path: str, decision: Decision
+) -> bool:
+    """開放請求的章：鑰匙、格式、兩個指紋都是這個路徑的、章是蓋在這件工作上的。"""
+    fingerprint = text_fingerprint(path)
+    if (
+        not _well_formed(key, decision)
+        or decision.decided_by != DECIDED_BY_OPEN_REQUEST
+        or decision.digest != fingerprint
+        or decision.shown != fingerprint
+    ):
+        return False
+    assert key is not None  # _well_formed 已確認
+    expected = sign_open_request(key, job_id=job_id, nonce=decision.nonce, path=path)
     return hmac.compare_digest(expected, decision.signature)
 
 

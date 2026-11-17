@@ -18,7 +18,7 @@
 
 - 新動作 `preview`：參數和 `propose` 一樣，小幫手只建清單、不動手，回清單文字、指紋（`digest`）、一次性號碼（`nonce`，540 秒內有效，最多記 8 筆）與預先判斷的底線原因。文字用核准視窗的同一套格式，卡片和小幫手視窗看到的是同一份。
 - `propose` 可以帶 `decision`：`{nonce, digest, shown, decided_by, signature}`。這個欄位由通道填，不在參數裡，模型碰不到。
-- `request_open` 先保留動作名稱，格式與章留給下一個 PR；這一版小幫手一律回 `not_supported`，工具合約不開放。
+- `request_open` 先保留動作名稱，格式與章留給下一個 PR；這一版小幫手一律回 `not_supported`，工具合約不開放。（已由 [ADR-0320](0320-ask-the-local-helper-to-open-a-folder.md) 實作：帶 `owner_request` 的章、一定跳視窗。）
 - 決定出現在 `propose` 以外的工作：只拒絕這一件（`bad_request`）。
 
 ### 2. 配對碼帶一把鑰匙，決定都蓋章
@@ -85,4 +85,4 @@
 
 ## 不在這次範圍
 
-從 Touka 請小幫手開放資料夾（`request_open`，下一個 PR）、一行指令安裝、修改既有檔案。
+從 Touka 請小幫手開放資料夾（`request_open`，已由 [ADR-0320](0320-ask-the-local-helper-to-open-a-folder.md) 實作）、一行指令安裝、修改既有檔案。

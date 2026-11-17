@@ -111,4 +111,13 @@ describe('LocalHelperTab（ADR-0312）', () => {
         render(<LocalHelperTab />);
         expect(screen.getByRole('button', { name: '產生配對碼' }).hasAttribute('disabled')).toBe(true);
     });
+
+    it('小幫手開著時才有開放資料夾的區塊（ADR-0320），狀態由這一頁傳下去', () => {
+        helper.status = { paired: true, online: false, helper_version: null };
+        const { rerender } = render(<LocalHelperTab />);
+        expect(screen.queryByText('請小幫手開放資料夾')).toBeNull();
+        helper.status = { paired: true, online: true, helper_version: '0.2.0' };
+        rerender(<LocalHelperTab />);
+        expect(screen.getByText('請小幫手開放資料夾')).toBeDefined();
+    });
 });
