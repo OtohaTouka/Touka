@@ -9,7 +9,7 @@ import { getSystemEpoch, toEpochMs } from './time_utils';
  * - 跳過 system/nudge 等非對話角色
  * - 末尾無 assistant 配對的 user 不計入
  */
-function countRounds(messages: MessageNode[]): number {
+export function countRounds(messages: readonly { role: string }[]): number {
     let rounds = 0;
     let i = 0;
     while (i < messages.length) {

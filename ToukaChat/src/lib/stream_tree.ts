@@ -407,11 +407,13 @@ export function applyEventToTree(
         : s,
     );
   } else if (event.type === 'tool_result') {
-    newSteps = newSteps.map(s =>
-      s.id === event.id
-        ? { ...s, status: event.status === 'error' ? 'error' : 'success', result: event.result }
-        : s,
-    );
+    newSteps = newSteps.map(s => {
+      if (s.id !== event.id) return s;
+      // ADR-0319：工具紀錄寫「失敗（種類）」用；跟著這次的結果，事件沒帶就不留舊的
+      const { errorClass: _previous, ...step } = s;
+      return { ...step, status: event.status === 'error' ? 'error' : 'success', result: event.result,
+        ...(typeof event.error_class === 'string' ? { errorClass: event.error_class } : {}) };
+    });
   } else if (event.type === 'tool_stream') {
     newSteps = newSteps.map(s =>
       s.id === event.id

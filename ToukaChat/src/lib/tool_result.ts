@@ -29,7 +29,7 @@ function toText(result: unknown): string {
  * 解析開頭的第一個 JSON 物件（容忍尾端附註，如後端的時間 footer）。
  * 後端結構化 payload 保證 JSON 開頭；先試完整 parse，失敗再抓第一個平衡物件。
  */
-function firstJsonObject(text: string): Record<string, unknown> | null {
+export function firstJsonObject(text: string): Record<string, unknown> | null {
   const s = text.trimStart();
   if (!s.startsWith('{')) return null;
   try {

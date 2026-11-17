@@ -56,6 +56,8 @@ export interface ToolStep {
   // awaiting_approval：H3 審批卡狀態——人類批准後由 tool_start 就地升級為 running
   status: 'awaiting_approval' | 'running' | 'success' | 'error';
   result?: unknown;
+  /** tool_result 事件的 error_class（ADR-0319：組下一輪的工具紀錄用；舊資料沒有）。 */
+  errorClass?: string;
   approval?: ToolStepApproval;
   interaction?: ToolStepInteraction;
 }

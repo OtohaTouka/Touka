@@ -15,6 +15,7 @@ import { useSessionActivity } from '@/lib/providers/SessionActivityProvider';
 import { useSessionList } from '@/lib/providers/SessionListProvider';
 import { isBusyStatus, mostUrgentStatus, type SessionWorkStatus } from '@/lib/session_activity';
 import { buildSessionTree, canSetHome, previewChildren, sessionSortTime } from '@/lib/session_tree';
+import { GROUP_CHAT_ID } from '@/lib/chat/messageNavigation';
 import { useHomeConfirm } from '@/hooks/useHomeConfirm';
 import { HomeConfirmDialog } from '@/components/chat/HomeConfirmDialog';
 import type { Session } from '@/lib/types';
@@ -23,7 +24,6 @@ import { SessionItem, type SessionTreeRowProps } from './SessionItem';
 import { SessionStatusLead, SessionStatusTail, useBreathingClass, useStatusLabel } from './SessionStatusMark';
 
 const SKELETON_ROWS = [0, 1, 2];
-const GROUP_CHAT_ID = 'ToukaGroup';
 
 interface FolderNode {
   kind: 'folder';

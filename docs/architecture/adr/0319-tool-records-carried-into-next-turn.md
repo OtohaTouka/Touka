@@ -1,11 +1,11 @@
 # ADR-0319：做過的事帶進下一輪（可視性第三批）
 
-- 狀態：🚧 實作中（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測；PR 1b 網頁對話的前端寫法）
+- 狀態：✅ 已實作（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測，2026-11-17；PR 1b 網頁對話的前端寫法，2026-11-17）
 - 日期：2026-11-17
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 80 項回「全部照建議」：每一輪帶工具名、參數開頭、成敗、結果開頭 80 字；PR 1 合併前小量試真模型）
 - 相關：[ADR-0249](0249-model-layer-stage-4a-4b.md)（插話標註放回那一則回覆）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0036](0036-unified-round-count-ssot.md)（輪數）
 - 修訂：[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（第 6 點：只用了工具的回覆不再是空白）
-- 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`
+- 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`、`lib/chat/messageNavigation.ts`（匯出 `GROUP_CHAT_ID`）、`lib/export-utils.ts`、`lib/tool_result.ts`、`components/sidebar/left/SessionTree.tsx`，後端測試 `tests/unit/test_tool_records.py`
 
 ## 背景
 
@@ -43,8 +43,12 @@
 - 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
 - 壓成一行後先截到 `MAX_SCAN_CHARS`（8192 個 code point）再遮蔽，擋住超長結果讓正規式變慢；截斷點落在金鑰中間時那一段可能遮不到，但只有出現在最前面 80 字的才會被送出。前端照 code point 計數（`Array.from`），不用 UTF-16 的 `slice`，否則 emoji 多時兩邊的截斷點會不同。
 - 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
-- 已知差異：Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為，不在這批改）。
-- 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。要不要補進 `secrets.py` 在 PR 1b 前評估（會一起影響其他用到遮蔽的地方）。
+- 已知差異（黃金案例放不進，這批不改）：
+  - Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為）。
+  - 大小寫不分的比對（鍵名），Python 在 Unicode 下把 `ſ`、`K`（U+212A）這類字也當英文字母，`ſecret` 後端會遮、前端不遮。`secrets.py` 加 `re.ASCII` 能一起消掉這兩項（後端只會遮得更多），但會影響其他用到遮蔽的地方，要另外評估。
+  - 不是字串的參數與結果寫成 JSON 時，數字與鍵的順序兩邊寫法不同（`30.0`、`1e16`、超過 2^53 的整數、整數樣式的鍵；Python 另外接受 `NaN`）。網頁存下的步驟已經被 JS 解析過，所以現在兩邊一致；PR 2 起後端自己存的步驟才會遇到，到時決定是否統一寫法。
+- 前端不用「…[字元集]*…」的正規式比對假標記與時間尾註，改成逐字掃描：V8 在幾百萬個空白或很長的一行時會爆堆疊（RangeError），送出就會卡在等待中。判斷結構化錯誤時，前面的空白照 Python `str.lstrip()` 認（和 `trimStart` 不同）。
+- 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。PR 1b 前評估過，這批不補：參數是模型自己寫的，結果開頭在那一輪已經完整給模型看過，紀錄只是把其中最多 80 字再帶一次；新的暴露只在中途換了別家廠商（或心跳用別家模型）時。補進 `secrets.py` 會一起改變 MCP 轉接、系統備份、稽核紀錄、評分卡、演化工具這些也用它遮蔽的地方，要另外評估。
 
 ### 5. 防偽與偵測
 
@@ -58,7 +62,7 @@
 
 - 後端 `utils/tool_records.py`（寫法、視窗、組歷史）與 `utils/tool_record_marks.py`（標記、防偽、字元集；不依賴其他專案模組，`history_manager` 與 `guard_service` 都能引用）；前端 `lib/chat/toolRecords.ts`（PR 1b）。
 - 黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`（步驟→兩種寫法、整段歷史、視窗 N＝9、10、19、20、69、70、假標記；看不見的字元寫成跳脫序列）。PR 1a 起 pytest 讀；PR 1b 起 vitest 也讀，兩邊輸出一字不差。
-- 群聊對話自己的歷史不加紀錄（前端看 `GROUP_CHAT_ID`），假標記照換；無痕對話照加（前端組）（PR 1b）。
+- 群聊對話自己的歷史不加紀錄（前端看 `GROUP_CHAT_ID`，和後端 `utils/mcp_request_identity.py` 的 `GROUP_MODEL` 同值，比對和後端分派一樣不分大小寫），假標記照換；無痕對話照加（前端組）（PR 1b）。
 
 ### 7. 心跳
 
@@ -82,4 +86,4 @@
 ## 驗證（PR 1）
 
 - PR 1a `tests/unit/test_tool_records.py`：黃金案例、固定值的來源（錯誤種類、時間尾註、核准結果）、超長結果仍然很快（清理先截到 `MAX_SCAN_CHARS`，時間尾註的比對不會照長度平方變慢）、超長歷史的總量上限、`annotate_node` 的順序、心跳送出的歷史帶紀錄、`sanitize_history` 不吃紀錄、照抄的偵測與警告（經 claude 特徵化測試的主迴圈）。
-- PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、群聊不加、附件的假標記、`errorClass` 存進步驟；`test_tool_records.py` 加前後端常數、字元集與金鑰樣式核對。
+- PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、超長結果仍然很快、群聊不加、附件的假標記、`errorClass` 存進步驟（之後的結果沒帶就不留舊的）、九百萬個空白夾在假標記中間、九百萬字的時間尾註那一行（兩邊同一組輸入）；`StreamRegistryProvider.toolRecords.test.tsx`：送出的訊息一般對話與無痕帶紀錄、群聊（不分大小寫）不帶；`test_tool_records.py` 加前後端常數、字元集、金鑰樣式（含 `g` 旗標）與 `GROUP_CHAT_ID` 核對。PR 1a 合併前的小量真模型實測，結果在跑完後補記。
