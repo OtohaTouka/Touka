@@ -870,6 +870,7 @@ class SSOTGuard(ast.NodeVisitor):
         # ADR-0317：小幫手的底線與照模式決定，同樣以 Windows 路徑為測試資料
         "test_local_helper_floors.py",
         "test_local_helper_mode_decisions.py",
+        "test_local_helper_open_request.py",
     }
 
     def __init__(self, filename: str, ignored_lines: dict[int, set[str]] = None) -> None:
