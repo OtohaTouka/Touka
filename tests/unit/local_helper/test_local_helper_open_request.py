@@ -636,7 +636,7 @@ def test_approving_when_no_thread_can_start_is_refused_and_counts(
         _poll(service, client, _open_job(job_id=f"t{number}"))
         with pytest.raises(Refused) as caught:
             _approve(service, gate, clock, writable=False)
-        assert caught.value.code == "busy"
+        assert caught.value.code == "open_failed"
         assert gate.current is None
     assert book.find("Photos") is None
     assert client.results == []

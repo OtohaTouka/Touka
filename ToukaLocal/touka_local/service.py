@@ -406,6 +406,7 @@ class HelperService:
             self._spawn(lambda: self._fill_open(job.id, path))
         except RuntimeError:
             # 開不了新執行緒：當成不能開放，視窗照樣等人按，Touka 看到的和其他情況一樣
+            logger.exception("could not start the folder check")
             failed = replace(checking(path), state=STATE_NOT_OPENABLE, reason=REASON_INTERNAL)
             self._gate.fill(job.id, _is_open_request, failed)
 
@@ -554,8 +555,9 @@ class HelperService:
             self._spawn(lambda: self._add_folder(job_id, request, writable=writable))
         except RuntimeError as exc:
             # 視窗已經收了、名單沒動；Touka 等到逾時，設定頁會請人到小幫手看名單
+            logger.exception("could not start adding the folder")
             self._count_open_miss()
-            raise Refused("busy") from exc
+            raise Refused("open_failed") from exc
 
     def _add_folder(self, job_id: str, request: OpenRequest, *, writable: bool) -> None:
         try:

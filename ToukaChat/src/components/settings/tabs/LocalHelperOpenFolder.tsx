@@ -95,7 +95,7 @@ export function LocalHelperOpenFolder({ status }: LocalHelperOpenFolderProps) {
                     placeholder={t("settings.local_helper_tab.open_placeholder")}
                     onChange={(event) => setPath(event.target.value)}
                 />
-                <Button size="sm" disabled={pending || !path.trim()} onClick={() => void requestOpen(path)}>
+                <Button size="sm" disabled={pending || !status.online || !path.trim()} onClick={() => void requestOpen(path)}>
                     {t("settings.local_helper_tab.open_submit")}
                 </Button>
             </div>

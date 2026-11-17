@@ -71,6 +71,7 @@ _REFUSALS: Final = {
     "unreadable": "讀不到這個位置（可能沒有權限）",
     "internal": "檢查這個位置時出了問題，細節在紀錄檔",
     "io_error": "開放名單存不進去，沒有開放",
+    "open_failed": "小幫手現在開不了新的工作，沒有開放，細節在紀錄檔",
 }
 _REFUSAL_FALLBACK: Final = "這個動作沒有完成"
 

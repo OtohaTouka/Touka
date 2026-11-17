@@ -50,6 +50,8 @@ describe('LocalHelperOpenFolder（ADR-0320）', () => {
         request.outcome = refused('no_decision');
         render(<LocalHelperOpenFolder status={offline} />);
         expect(screen.getByText('2 分鐘內沒有在小幫手的視窗決定，沒有開放。')).toBeDefined();
+        fireEvent.change(screen.getByLabelText('資料夾路徑'), { target: { value: 'D:\\相片' } });
+        expect((screen.getByRole('button', { name: '請小幫手開放' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('貼上路徑送出', () => {
