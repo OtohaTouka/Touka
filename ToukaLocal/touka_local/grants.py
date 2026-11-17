@@ -141,12 +141,22 @@ class GrantBook:
                 return grant if self._is_usable(grant) else None
         return None
 
+    def check_can_add(self, path: str) -> str:
+        """能不能開放：和 ``add`` 同一套規則，只是不存檔。回傳正規化後的路徑。
+
+        讀磁碟的檢查不拿名單的鎖：磁碟慢時輪詢與主視窗不會被卡住，
+        Touka 也就量不到檢查花多久（ADR-0320）。
+        """
+        normalized = normalize_folder(path)
+        self._check_folder(normalized)
+        with self._lock:
+            self._check_overlap(normalized, self._grants)
+        return normalized
+
     def add(self, path: str, *, writable: bool) -> Grant:
         """開放一個資料夾。"""
-        normalized = normalize_folder(path)
         with self._lock:
-            self._check_folder(normalized)
-            self._check_overlap(normalized, self._grants)
+            normalized = self.check_can_add(path)
             grant = Grant(
                 name=self._unique_name(PureWindowsPath(normalized).name),
                 path=normalized,

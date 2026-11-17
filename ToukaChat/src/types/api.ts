@@ -6605,6 +6605,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-bridge/open-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Open
+         * @description 配對的人本人請小幫手開放資料夾（ADR-0320）。小幫手一律跳視窗，人決定或時間到才有結果。
+         */
+        post: operations["request_open_v1_local_bridge_open_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-bridge/poll": {
         parameters: {
             query?: never;
@@ -6703,6 +6723,26 @@ export interface paths {
         get: operations["helper_status_local_bridge_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/local-bridge/open-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Open
+         * @description 配對的人本人請小幫手開放資料夾（ADR-0320）。小幫手一律跳視窗，人決定或時間到才有結果。
+         */
+        post: operations["request_open_local_bridge_open_requests_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8769,7 +8809,9 @@ export interface components {
         };
         /**
          * LocalDecision
-         * @description 照模式做的決定和 Touka 蓋的章（ADR-0317）。由通道填，模型的參數碰不到。
+         * @description 照模式做的決定和 Touka 蓋的章（ADR-0317），或開放請求的章（ADR-0320）。
+         *
+         *     由通道填，模型的參數碰不到。
          */
         LocalDecision: {
             /** Nonce */
@@ -8778,11 +8820,8 @@ export interface components {
             digest: string;
             /** Shown */
             shown: string;
-            /**
-             * Decided By
-             * @enum {string}
-             */
-            decided_by: "user_card" | "auto_review" | "yolo";
+            /** Decided By */
+            decided_by: ("user_card" | "auto_review" | "yolo") | "owner_request";
             /** Signature */
             signature: string;
         };
@@ -8849,6 +8888,31 @@ export interface components {
             data?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * LocalOpenRequest
+         * @description 設定頁請小幫手開放的資料夾路徑（ADR-0320）。路徑規則都由小幫手判斷，這裡只擋控制字元與長度。
+         */
+        LocalOpenRequest: {
+            /** Path */
+            path: string;
+        };
+        /**
+         * LocalOpenResult
+         * @description 開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。
+         */
+        LocalOpenResult: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "opened" | "refused" | "error";
+            /** Code */
+            code?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Writable */
+            writable?: boolean | null;
         };
         /**
          * LocalPairingCreated
@@ -22427,6 +22491,39 @@ export interface operations {
             };
         };
     };
+    request_open_v1_local_bridge_open_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalOpenResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     poll_v1_local_bridge_poll_post: {
         parameters: {
             query?: never;
@@ -22588,6 +22685,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalHelperStatus"];
+                };
+            };
+        };
+    };
+    request_open_local_bridge_open_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalOpenResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

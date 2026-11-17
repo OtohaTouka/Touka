@@ -5,10 +5,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLocalHelper } from "@/hooks/settings/useLocalHelper";
 import { logSSOTError } from "@/lib/error_handler";
+import { LocalHelperOpenFolder } from "./LocalHelperOpenFolder";
 
 type PendingAction = "rotate" | "revoke" | null;
 
-/** 本機小幫手的配對（ADR-0312）。開放哪些資料夾、核准都在小幫手自己的視窗，這裡只管配對。 */
+/**
+ * 本機小幫手的配對（ADR-0312），以及請小幫手開放資料夾（ADR-0320，由 LocalHelperOpenFolder 負責）。
+ * 核准都在小幫手自己的視窗。
+ */
 export function LocalHelperTab() {
     const { t } = useTranslation();
     const { status, failed, code, busy, createPairing, revokePairing } = useLocalHelper();
@@ -99,6 +103,8 @@ export function LocalHelperTab() {
                                 )}
                             </div>
                         )}
+
+                        <LocalHelperOpenFolder status={status} />
                     </div>
                 )
             )}

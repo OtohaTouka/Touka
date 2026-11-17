@@ -32,9 +32,11 @@ POLL_REQUEST_FIELDS: Final = frozenset({"protocol", "helper_version"})
 POLL_RESPONSE_FIELDS: Final = frozenset({"job", "cancelled", "host_mount_roots"})
 JOB_FIELDS: Final = frozenset({"id", "action", "args", "requester", "decide_within", "decision"})
 DECISION_FIELDS: Final = frozenset({"nonce", "digest", "shown", "decided_by", "signature"})
-# Touka 只能簽這三種；在小幫手視窗按的由小幫手自己記
+# 照模式的決定只有這三種；在小幫手視窗按的由小幫手自己記
 DECIDED_BY_MODES: Final = ("user_card", "auto_review", "yolo")
 DECIDED_BY_HELPER_WINDOW: Final = "helper_window"
+# 開放請求的章（ADR-0320）：只證明是 Touka 送的，一定跳視窗，不算照模式的決定
+DECIDED_BY_OPEN_REQUEST: Final = "owner_request"
 RESULT_FIELDS: Final = frozenset({"status", "code", "message", "data"})
 
 JOB_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")

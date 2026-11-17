@@ -31,6 +31,7 @@ ALLOWED_FILES: Final = (
     "touka_local/errors.py",
     "touka_local/fsops.py",
     "touka_local/grants.py",
+    "touka_local/open_request.py",
     "touka_local/operations.py",
     "touka_local/paths.py",
     "touka_local/protocol.py",
