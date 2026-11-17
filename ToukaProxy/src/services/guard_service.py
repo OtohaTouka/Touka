@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any
 
+from src.utils.tool_record_marks import contains_record_marker
 from src.utils.tool_usage import executed_tools, succeeded_tools
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,13 @@ class GuardService:
                     hallucination_warnings.append(tool_name)
         return hallucination_warnings
 
+    def detect_record_imitation(self, response_text: str) -> bool:
+        """這一輪的回覆寫出了工具紀錄的標記（ADR-0319）：那是系統依存檔附加的，模型寫出來就是照抄.
+
+        只比對固定的開頭標記，不比對工具名：模型引用上一輪紀錄裡的工具名不算.
+        """
+        return contains_record_marker(response_text)
+
     def check_memory_hallucination(
         self, response_text: str, actually_used_tools: set[str]
     ) -> bool:
@@ -146,6 +154,13 @@ class GuardService:
         if not tool_names:
             return ""
         return f"\n\n⚠️ **[工具幻覺警告]** 您模擬了工具 `{', '.join(tool_names)}` 但未正式呼叫。"
+
+    def get_record_imitation_warning_message(self) -> str:
+        """照抄工具紀錄的警告；和工具幻覺警告同一個標籤與格式，歷史裡也和它一樣處理."""
+        return (
+            "\n\n⚠️ **[工具幻覺警告]** 您寫出了系統附加的工具紀錄格式；"
+            "那是系統依存檔整理的，不是您這一輪用過的工具。"
+        )
 
     def get_memory_warning_message(self) -> str:
         """格式化記憶幻覺警告訊息（C2：文案改引實存工具，勿教已退役名）。

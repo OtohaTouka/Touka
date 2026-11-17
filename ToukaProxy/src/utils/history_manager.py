@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from .time_utils import get_current_epoch
+from .tool_record_marks import split_record_segments
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +115,18 @@ class TreeMessageManager:
         return tree_history
 
 
+def _scrub(text: str, regex: re.Pattern[str]) -> str:
+    while True:
+        text, count = regex.subn("\n", text)
+        if count == 0:
+            return text
+
+
 def sanitize_history(messages: list[dict | Any]) -> None:
-    """清理歷史訊息中的工具執行記錄與幻覺警告。"""
+    """清理歷史訊息中的工具執行記錄與幻覺警告。
+
+    系統組的工具紀錄段（ADR-0319）不清：裡面的結果開頭可能有日期，日期規則會吃掉。
+    """
     patterns = [
         r"\n?(?:> 正在執行工具：|\(開始調用工具\)).*?(?:✅|❌|✓|✕)[^\n]*",
         r"\n?(?:時間記錄：|Time:)\s*?\d{4}-\d{2}-\d{2}[^\n]*",
@@ -133,14 +144,10 @@ def sanitize_history(messages: list[dict | Any]) -> None:
             content = getattr(msg, "content", "")
 
         if role == "assistant" and isinstance(content, str):
-            new_content = content
-            while True:
-                temp_content, count = regex.subn("\n", new_content)
-                if count == 0:
-                    break
-                new_content = temp_content
-
-            new_content = new_content.strip()
+            new_content = "".join(
+                part if is_record else _scrub(part, regex)
+                for is_record, part in split_record_segments(content)
+            ).strip()
             if new_content != content:
                 logger.info("🛡️ Sanitized persistent hallucination from history.")
                 if isinstance(msg, dict):

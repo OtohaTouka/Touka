@@ -55,17 +55,24 @@ def _turn_end_note(node: dict[str, Any]) -> str | None:
     return TURN_FAILED_NOTE if node.get("generationFailed") is True else None
 
 
-def annotate_node(node: dict[str, Any]) -> dict[str, Any]:
-    """助理節點帶插話或沒做完、且 content 是文字時，回傳加上標註的副本；其他節點原樣返回。"""
+def annotate_node(node: dict[str, Any], *, tool_record: str = "") -> dict[str, Any]:
+    """助理節點帶插話、沒做完或有工具紀錄、且 content 是文字時，回傳加上標註的副本。
+
+    其他節點原樣返回。順序：停止／出錯記號、插話標註、工具紀錄（``tool_record``，ADR-0319，
+    由 ``utils/tool_records.py`` 組好傳進來；預設不加）、原本的文字。
+    """
     content = node.get("content")
     note = _turn_end_note(node)
     if (
         node.get("role") != "assistant"
-        or (note is None and not _delivered(node.get("interjections")))
+        or (note is None and not tool_record and not _delivered(node.get("interjections")))
         or not (content is None or isinstance(content, str))
     ):
         return node
-    text = with_interjection_notes(content or "", node.get("interjections"))
+    body = content or ""
+    if tool_record:
+        body = f"{tool_record}\n\n{body}" if body else tool_record
+    text = with_interjection_notes(body, node.get("interjections"))
     if note is not None:
         text = f"{note}\n\n{text}" if text else note
     return {**node, "content": text}

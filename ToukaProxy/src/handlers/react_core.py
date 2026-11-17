@@ -633,6 +633,8 @@ async def run_react_loop(  # noqa: PLR0915
             yield yield_delta(
                 guard_service.get_hallucination_warning_message(hallucination_warnings)
             )
+        if guard_service.detect_record_imitation(response_text):  # ADR-0319：照抄工具紀錄
+            yield yield_delta(guard_service.get_record_imitation_warning_message())
         if guard_service.check_memory_hallucination(response_text, actually_used_tools):
             yield yield_delta(guard_service.get_memory_warning_message())
 
