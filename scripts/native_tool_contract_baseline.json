@@ -3257,6 +3257,10 @@
         "reads": [
           [
             "base_ctx",
+            "incognito"
+          ],
+          [
+            "base_ctx",
             "session_id"
           ]
         ],

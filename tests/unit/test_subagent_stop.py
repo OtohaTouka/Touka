@@ -519,6 +519,25 @@ async def test_a_finished_background_subagent_is_listed_until_its_result_is_read
     assert "Dispatch result received" in text
     (entry,) = subagent_registry.finished_in("Sumi", sid, get_current_epoch())
     assert entry.read
+    again = await mission_tools(  # 讀過還能重讀（結果檔還在），所以讀過的也附憑證
+        action="await_dispatch_result", identity=_SOUL, callback_token=token, timeout=_GUARD_S
+    )
+    assert "Dispatch result received" in again
+
+
+async def test_an_incognito_background_subagent_is_not_listed(
+    monkeypatch, fake_assemble, kill, zone_data_root
+):
+    child = _Child(monkeypatch)
+    child.release.set()
+    sid = "s-incognito"
+    res = await st.dispatch_subagent(
+        goal="g", identity=_SOUL, request_id="r", _ctx=_stop_ctx(sid, incognito=True),
+        task_id="look-1",
+    )  # fmt: skip
+    token = json.loads(res)["callback_token"]
+    assert (await get_callback_store().wait_for_result(token, timeout=_GUARD_S))["status"]
+    assert subagent_registry.finished_in("Sumi", sid, get_current_epoch()) == []
 
 
 async def test_a_wait_that_gets_no_result_does_not_count_as_read(zone_data_root):
@@ -571,7 +590,7 @@ def test_finished_subagents_are_dropped_after_the_keep_time():
     assert [e.label for e in subagent_registry.finished_in("Sumi", "s-f", later)] == ["new"]
 
 
-def test_the_finished_line_says_how_to_read_an_unread_result(monkeypatch):
+def test_the_finished_line_says_how_to_read_each_result(monkeypatch):
     now = 10_000.0
     entries = [
         FinishedSubagent("look-2", "Sumi", "s-c", now - 60, "failed", "TOK-unread"),
@@ -580,9 +599,11 @@ def test_the_finished_line_says_how_to_read_an_unread_result(monkeypatch):
     monkeypatch.setattr(subagent_registry, "finished_in", lambda *_a: entries)
     line = continuity_service.finished_subagents_line(_SOUL, "s-c", now)
     assert line.startswith(f"- {continuity_service.FINISHED_SUBAGENTS_LABEL}: look-2 failed, ")
-    assert 'callback_token="TOK-unread"' in line
-    assert "TOK-x" not in line  # 讀過的不再給憑證
-    assert continuity_service.RESULT_READ in line
+    unread, read = line.split(" | ")
+    assert f"{continuity_service.RESULT_UNREAD}, " in unread
+    assert 'callback_token="TOK-unread"' in unread
+    assert f"{continuity_service.RESULT_READ}, " in read
+    assert 'callback_token="TOK-x"' in read  # 讀過的也能重讀
     assert "<ignore" not in line
     assert "h:" in line
 

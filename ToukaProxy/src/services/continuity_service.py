@@ -88,9 +88,10 @@ FINISHED_SUBAGENTS_LABEL = (
     f"{FINISHED_KEEP_SECONDS // _HOUR} hours (newest first)"
 )
 RESULT_READ = "result already read"
-RESULT_UNREAD = (
-    'result not read yet; read it with mission_tools(action="await_dispatch_result", '
-    'callback_token="{token}")'
+RESULT_UNREAD = "result not read yet"
+# 讀過的也附：結果檔還在、可以重讀，之後的回合才拿得到全文（審查 LOW-2）
+READ_RESULT_WITH = (
+    'read it with mission_tools(action="await_dispatch_result", callback_token="{token}")'
 )
 UNREPORTED_LABEL = "Other conversations with new activity not yet reported to this home"
 NO_ACTIVE_MISSION = "no active mission"
@@ -279,7 +280,8 @@ def finished_subagents_line(
 ) -> str | None:
     """背景派出、最近結束的子代理（ADR-0319 PR 4）；沒有就不加這一行.
 
-    標籤經 ``safe_ref``、結果只用固定值；還沒讀的附上讀結果的憑證（系統產生的），讀過的不再給。
+    標籤經 ``safe_ref``、結果只用固定值；附上讀結果的憑證（系統產生的）。讀過的也附：結果檔還在，
+    之後的回合要全文時可以重讀。
     """
     finished = subagent_registry.finished_in(soul.agent_id, session_id, now_s)
     if not finished:
@@ -288,7 +290,8 @@ def finished_subagents_line(
         f"{safe_ref(entry.label)} "
         f"{entry.outcome if entry.outcome in _SUBAGENT_OUTCOMES else 'unknown'}, finished "
         f"{_when(now_s, int(entry.finished_at * _MS_PER_SECOND))}; "
-        f"{RESULT_READ if entry.read else RESULT_UNREAD.format(token=entry.token)}"
+        f"{RESULT_READ if entry.read else RESULT_UNREAD}, "
+        f"{READ_RESULT_WITH.format(token=entry.token)}"
         for entry in finished
     ]
     return f"- {FINISHED_SUBAGENTS_LABEL}: {' | '.join(items)} {SERVER_MEMORY}"

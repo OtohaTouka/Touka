@@ -627,7 +627,8 @@ async def _run_and_deliver(
         _log_failure(exc, "in-process subagent (token=%s…)", token[:8])
         payload = _result_from_error(exc, label)
     session_id = base_ctx.get("session_id")
-    if session_id:  # 下一輪列「最近結束」；沒有對話（IDE）分不出是哪個視窗，同「還在跑」不列
+    # 下一輪列「最近結束」；沒有對話（IDE）分不出是哪個視窗，同「還在跑」不列；無痕不留痕
+    if session_id and not base_ctx.get("incognito"):
         parent = parent_identity.agent_id if parent_identity else "unknown"
         finished_at = get_current_epoch()
         subagent_registry.record_finished(
