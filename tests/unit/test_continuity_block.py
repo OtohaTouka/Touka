@@ -32,6 +32,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.interjection import Interjection
 from src.services import continuity_service as cs
+from src.services.home_handover import Unreported
 from src.services.interjection_queue import interjection_queue
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONTINUITY, VOLATILE_SYSTEM_TAGS
 from src.services.subagent_registry import RunningSubagent
@@ -741,3 +742,54 @@ async def test_model_written_task_ids_are_only_shown_hashed(clock: dict[str, flo
     block = await _v1()
     assert raw not in block
     assert "task h:" in block
+
+
+# --------------------------------------------------------------------------- #
+# 家裡看得到其他對話還沒回報（ADR-0319 家-2）
+# --------------------------------------------------------------------------- #
+
+
+async def test_the_home_hears_about_conversations_not_reported_yet(
+    clock: dict[str, float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """在家才加；只放段數與最後活動時間（對話紀錄的時間）；SNS、別的對話、沒有時不加。"""
+    home, child = _sid(), _sid()
+    monkeypatch.setattr(cs.session_service, "home_session_ids", AsyncMock(return_value=[home]))
+    counted = AsyncMock(return_value=Unreported(2, _ms(NOW - 600)))
+    monkeypatch.setattr(cs, "unreported_children", counted)
+    line = (
+        f"- {cs.UNREPORTED_LABEL}: 2; latest activity 10m ago, "
+        f"{format_epoch_to_taipei(NOW - 600)[0][:16]} {CONVERSATION_RECORD_TIME_NOTE}"
+    )
+    assert line in await _block(home)
+    assert cs.UNREPORTED_LABEL not in await _block(child)
+    assert cs.UNREPORTED_LABEL not in await _block(home, incognito=True)
+    sns = await cs.build_continuity_block(
+        soul=_soul(), session_id=home, identity=_soul(), incognito=False, sns=True
+    )
+    assert cs.UNREPORTED_LABEL not in sns
+    request = OpenAIChatRequest(model=SOUL, messages=[OpenAIMessage(role="user", content="hi")])
+    await cs.inject_continuity(request, PipelineContext(session_id=home, sns_source=True), _soul())
+    assert cs.UNREPORTED_LABEL not in request.messages[-1].content
+    counted.return_value = Unreported(0, None)
+    assert cs.UNREPORTED_LABEL not in await _block(home)
+    counted.return_value = Unreported(1, None)
+    assert f"- {cs.UNREPORTED_LABEL}: 1\n" in await _block(home) + "\n"
+
+
+async def test_two_homes_or_a_failed_read_do_not_break_the_block(
+    clock: dict[str, float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _sid()
+    monkeypatch.setattr(cs, "unreported_children", AsyncMock(return_value=Unreported(2, None)))
+    monkeypatch.setattr(
+        cs.session_service, "home_session_ids", AsyncMock(return_value=[home, _sid()])
+    )
+    assert cs.UNREPORTED_LABEL not in await _block(home)  # 兩個家：當作沒有家
+    monkeypatch.setattr(
+        cs.session_service, "home_session_ids", AsyncMock(side_effect=OSError("db"))
+    )
+    assert cs.UNREPORTED_LABEL not in await _block(home)
+    monkeypatch.setattr(cs.session_service, "home_session_ids", AsyncMock(return_value=[home]))
+    monkeypatch.setattr(cs, "unreported_children", AsyncMock(side_effect=OSError("db")))
+    assert f"- {cs.UNREPORTED_LABEL}: unknown (read failed)" in await _block(home)

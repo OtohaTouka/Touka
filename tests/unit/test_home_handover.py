@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 
 import pytest
 from memory_server.tools import get_manager
@@ -24,6 +25,7 @@ from src.services.soul_prelude_service import (
 )
 from src.services.stream_buffer_service import stream_buffer_service
 from src.utils import async_db, home_handover_db
+from src.utils.session_scope import can_be_reported, channel_session_id, is_heartbeat_channel
 from src.utils.soul_prelude_db import PreludeSegment, list_live_segments
 
 from tests.support.session_scope import HUMAN, A, B, seed
@@ -108,6 +110,8 @@ def fakes(monkeypatch, config):
     monkeypatch.setattr(home_handover, "_idle_checked", {})
     monkeypatch.setattr(home_handover, "_report_failures", {})
     monkeypatch.setattr(home_handover, "_retired_failures", {})
+    monkeypatch.setattr(home_handover, "_due_channels", {})
+    monkeypatch.setattr(home_handover, "_unreported_cache", {})
     return summaries, archive
 
 
@@ -598,7 +602,7 @@ async def test_a_child_with_no_dialogue_only_moves_the_mark(summaries):
 
 
 @pytest.mark.usefixtures("unset_home")
-@pytest.mark.parametrize("excluded", ["touka.sns.v1.x", "touka.hb.v1.x", "sns_old"])
+@pytest.mark.parametrize("excluded", ["touka.sns.v1.x", "sns_old", "pulse_channel_default"])
 async def test_channels_are_not_reported(summaries, excluded):
     await seed("kid", tree=BRANCHED)
     async with async_db.get_async_db() as db:
@@ -655,14 +659,6 @@ async def test_a_handover_reports_at_most_five_at_three_at_a_time(summaries, mon
     reports = [k for k in await segments() if k[0] == "child_report"]
     assert len(reports) == home_handover.REPORTS_PER_PASS
     assert peak[0] <= home_handover.REPORTS_IN_PARALLEL
-
-
-@pytest.mark.usefixtures("unset_home", "child")
-async def test_with_summaries_off_there_are_no_reports(summaries, config):
-    config.prelude_summary_enabled = False
-    await home_handover.maintain(A)
-    assert not [k for k in await segments() if k[0] == "child_report"]
-    assert await mark_of("kid") is None
 
 
 @pytest.mark.usefixtures("child")
@@ -1780,3 +1776,267 @@ async def test_deleting_a_child_leaves_other_kinds_from_it_alone(summaries):
     )
     assert await child_reports() == []
     assert ("handover", "kid", "kept") in await segments()
+
+
+# --- 心跳獨立頻道的回報、摘要關閉的註記、還沒回報的計數（ADR-0319 PR 3）---
+
+HB = channel_session_id("heartbeat", A.agent_id)
+
+
+async def seed_as(sid, tree=BRANCHED, updated_at=1000, scope=1):
+    """種一段 A 的對話，編號可以是頻道（頻道編號不能直接經保存建，先建再改編號）."""
+    await seed("seed-tmp", tree=tree)
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET id = ?, session_scope_version = ?, updatedAt = ? "
+            "WHERE id = 'seed-tmp'",
+            (sid, scope, updated_at),
+        )
+        await db.commit()
+
+
+async def grow(sid, updated_at=None):
+    """這段對話在最後一則之後多一則使用者訊息（節點 c）；可以順便改最後活動時間."""
+    tree = copy.deepcopy(BRANCHED)
+    tree["messages"]["a"]["childrenIds"] = ["c"]
+    tree["messages"]["c"] = {"id": "c", "role": "user", "content": "more", "parentId": "a"}
+    tree["currentId"] = "c"
+    async with async_db.get_async_db() as db:
+        await db.execute(
+            "UPDATE user_sessions SET messages = ?, updatedAt = COALESCE(?, updatedAt) "
+            "WHERE id = ?",
+            (json.dumps(tree), updated_at, sid),
+        )
+        await db.commit()
+
+
+def schedule_only(monkeypatch, channel):
+    """排維護但不開背景工作：只留下這次心跳跑完的對話，測試自己跑一次維護."""
+    monkeypatch.setattr(home_handover, "_active", set())
+    monkeypatch.setattr(home_handover, "_again", set())
+    monkeypatch.setattr(home_handover, "spawn_logged", lambda coro, **_kwargs: coro.close())
+    home_handover.schedule(A, channel=channel)
+
+
+async def test_only_heartbeat_channels_join_the_conversations_that_report():
+    assert is_heartbeat_channel(HB)
+    assert can_be_reported(HB)
+    assert can_be_reported("kid")
+    for sid in (channel_session_id("sns", A.agent_id, "x"), "sns_old", "pulse_channel_default"):
+        assert not is_heartbeat_channel(sid)
+        assert not can_be_reported(sid)
+
+
+async def test_a_heartbeat_channel_is_reported_once_idle(summaries, clock):
+    await seed_as(HB)
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS
+    await home_handover.maintain(A)
+    assert await child_reports() == [("child_report", HB, "摘要內容")]
+    assert await mark_of(HB) == (A.agent_id, 1, "a")
+
+
+async def test_a_heartbeat_that_ran_in_its_channel_reports_it_right_away(
+    summaries, clock, monkeypatch
+):
+    await seed_as(HB)
+    await seed_as("kid", updated_at=1000 + 2 * HOUR_MS)  # 也有新內容、還沒閒置：只寫剛跑完的頻道
+    clock["ms"] = 1000 + HOUR_MS  # 剛跑完，還沒閒置
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert await child_reports() == [("child_report", HB, "摘要內容")]
+    clock["ms"] += home_handover.CHANNEL_REPORT_EVERY_MS  # 上次回報也夠久了
+    await grow(HB, updated_at=clock["ms"])  # 又有新內容、沒閒置，但之後沒有心跳再跑：這次不寫
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["u", "a"]]
+
+
+async def test_a_channel_reported_within_the_interval_is_left_to_the_idle_rule(
+    summaries, clock, monkeypatch
+):
+    await seed_as(HB)
+    await set_mark(HB, A.agent_id, "u", at=2 * HOUR_MS)
+    clock["ms"] = 3 * HOUR_MS - 1
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == []
+    assert await mark_of(HB) == (A.agent_id, 1, "u")
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS  # 6 小時沒動：閒置規則補寫
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["a"]]
+
+
+async def test_after_the_interval_the_channel_is_reported_again(
+    summaries, clock, monkeypatch
+):
+    await seed_as(HB, updated_at=3 * HOUR_MS)  # 一直有活動、沒閒置：只有「跑完就寫」會寫
+    await set_mark(HB, A.agent_id, "u", at=2 * HOUR_MS)
+    clock["ms"] = 2 * HOUR_MS + home_handover.CHANNEL_REPORT_EVERY_MS
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["a"]]
+
+
+@pytest.mark.usefixtures("child")
+async def test_a_heartbeat_in_an_ordinary_conversation_waits_for_the_idle_rule(
+    summaries, clock, monkeypatch
+):
+    clock["ms"] = 1000 + HOUR_MS
+    schedule_only(monkeypatch, "kid")
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == []
+
+
+@pytest.mark.usefixtures("unset_home", "child")
+async def test_with_summaries_off_each_new_ending_gets_one_note(summaries, config, clock):
+    config.prelude_summary_enabled = False
+    failures = home_handover._report_failures
+    failures[(home_handover.prelude_agent(A), "kid")] = (2, 0)  # 之前失敗過兩次
+    await home_handover.maintain(A)
+    assert await child_reports() == [("child_report", "kid", report_note())]
+    assert failures == {}  # 寫了註記就不再算失敗
+    assert report_calls(summaries) == []  # 不叫模型
+    assert await mark_of("kid") == (A.agent_id, 1, "a")
+    await set_mark("kid", A.agent_id, "u")  # 同一個最後節點已經寫過：不再寫第二行
+    clock["ms"] += home_handover.IDLE_CHECK_EVERY_MS + 1
+    await home_handover.maintain(A)
+    assert await child_reports() == [("child_report", "kid", report_note())]
+
+
+async def test_unreported_conversations_are_counted_with_their_latest_activity(clock):
+    await seed_as("kid", updated_at=4000)  # 沒有位置、有新內容
+    await seed_as(HB, updated_at=5000)  # 心跳頻道也會回報
+    await seed_as("done", updated_at=9000)
+    await set_mark("done", A.agent_id, "a")  # 已經回報到最後
+    await seed_as("stale", updated_at=9000)
+    await set_mark("stale", A.agent_id, "u", scope=0)  # 位置失效
+    await seed_as(channel_session_id("sns", A.agent_id, "x"), updated_at=9000)
+    await seed_as("sns_old", updated_at=9000)
+    await seed_as("legacy", updated_at=9000, scope=0)  # 升級前的舊資料、沒有位置
+    await seed_as("moved", updated_at=9000)
+    await set_mark("moved", B.agent_id, "u")  # 升級前換過靈魂
+    await seed("other", identity=B, tree=BRANCHED)  # 別的靈魂
+    assert await home_handover.unreported_children(A) == home_handover.Unreported(2, 5000)
+
+    await seed_as("late", updated_at=6000)
+    clock["ms"] += home_handover.UNREPORTED_CACHE_MS - 1  # 記 5 分鐘
+    assert await home_handover.unreported_children(A) == home_handover.Unreported(2, 5000)
+    clock["ms"] += 1
+    assert await home_handover.unreported_children(A) == home_handover.Unreported(3, 6000)
+
+
+async def test_home_session_ids_lists_the_homes_by_id():
+    await seed("A", tree=BRANCHED)
+    await seed("B", tree=BRANCHED)
+    assert await service.home_session_ids(A) == []
+    assert await service.set_home("B", A, True)
+    assert await service.home_session_ids(A) == ["B"]
+
+
+# --- 第 1 輪審查（ADR-0319 PR 3）：頻道只報最近一天、摘要關閉交給閒置規則、計數重算 ---
+
+
+REAL_MS = 1_760_000_000_000  # 接近真實的毫秒時間：太小的數字會被當成秒
+
+
+def channel_tree(*stamps):
+    """一條線的頻道對話：每則（編號、角色、時間）."""
+    messages, parent = {}, None
+    for node_id, role, stamp in stamps:
+        messages[node_id] = {
+            "id": node_id, "role": role, "content": node_id, "parentId": parent, "timestamp": stamp,
+        }
+        parent = node_id
+    return {"messages": messages, "currentId": parent}
+
+
+async def test_a_heartbeat_channel_reports_only_its_last_day(summaries, clock, monkeypatch):
+    day = home_handover.CHANNEL_REPORT_WINDOW_MS
+    clock["ms"] = REAL_MS + 3 * day
+    await seed_as(HB, tree=channel_tree(
+        ("old-u", "user", REAL_MS + day), ("old-a", "assistant", REAL_MS + day + 1),
+        ("new-u", "user", REAL_MS + 2 * day), ("new-a", "assistant", REAL_MS + 3 * day - 1),
+    ))
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == [["new-u", "new-a"]]
+
+
+async def test_a_heartbeat_channel_with_only_old_content_just_moves_its_mark(
+    summaries, clock, monkeypatch
+):
+    day = home_handover.CHANNEL_REPORT_WINDOW_MS
+    clock["ms"] = REAL_MS + 3 * day
+    await seed_as(HB, tree=channel_tree(
+        ("old-u", "user", REAL_MS + day), ("old-a", "assistant", REAL_MS + day + 1)
+    ))
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert report_calls(summaries) == []
+    assert await mark_of(HB) == (A.agent_id, 1, "old-a")
+
+
+async def test_with_summaries_off_a_channel_waits_for_the_idle_rule(
+    summaries, config, clock, monkeypatch
+):
+    config.prelude_summary_enabled = False
+    await seed_as(HB)
+    clock["ms"] = 1000 + HOUR_MS
+    schedule_only(monkeypatch, HB)
+    await home_handover.maintain(A)
+    assert await child_reports() == []
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS
+    await home_handover.maintain(A)
+    assert await child_reports() == [("child_report", HB, report_note())]
+
+
+async def test_the_unreported_count_is_recounted_after_a_maintenance(summaries, clock):
+    await seed_as("kid")
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS
+    assert (await home_handover.unreported_children(A)).count == 1
+    await home_handover.maintain(A)  # 閒置規則寫了回報
+    assert (await home_handover.unreported_children(A)).count == 0
+
+
+async def test_an_ordinary_child_still_reports_content_older_than_a_day(summaries, clock):
+    day = home_handover.CHANNEL_REPORT_WINDOW_MS
+    clock["ms"] = REAL_MS + 3 * day
+    await seed_as("kid", tree=channel_tree(
+        ("old-u", "user", REAL_MS + day), ("old-a", "assistant", REAL_MS + day + 1)
+    ))
+    await home_handover.maintain(A)  # 6 小時沒動：閒置規則照報，不受頻道的一天限制
+    assert report_calls(summaries) == [["old-u", "old-a"]]
+
+
+async def test_a_maintenance_that_touched_no_child_keeps_the_count(summaries, clock):
+    """每一輪回合存好都會排維護：沒挑到任何子對話時不清快取，家裡連續聊天不必每輪重新解析."""
+    await seed_as("kid", updated_at=clock["ms"])  # 有新內容、還沒閒置
+    assert (await home_handover.unreported_children(A)).count == 1
+    await set_mark("kid", A.agent_id, "a")  # 別處移了位置；這次維護沒有子對話要處理
+    await home_handover.maintain(A)
+    assert (await home_handover.unreported_children(A)).count == 1  # 仍是快取
+    clock["ms"] += home_handover.UNREPORTED_CACHE_MS
+    assert (await home_handover.unreported_children(A)).count == 0
+
+
+async def test_a_maintenance_that_only_moved_a_mark_recounts(summaries, clock):
+    system_only = {"id": "s", "role": "system", "content": "x", "parentId": None}
+    no_dialogue = {"messages": {"s": system_only}, "currentId": "s"}
+    await seed_as("kid", tree=no_dialogue)
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS
+    assert (await home_handover.unreported_children(A)).count == 1
+    await home_handover.maintain(A)  # 沒有對話內容：只移位置、不寫回報
+    assert report_calls(summaries) == []
+    assert (await home_handover.unreported_children(A)).count == 0
+
+
+async def test_a_home_change_recounts(summaries, archive, scope_db):
+    await seed("A", tree=BRANCHED)
+    await seed("B", tree=BRANCHED)
+    await set_scope_one("B")
+    await legacy_home("A")
+    assert (await home_handover.unreported_children(A)).count == 1  # B 還是一般對話
+    assert await service.set_home("B", A, True)
+    await start("B")
+    await home_handover.maintain(A)  # 只有交接，沒有子對話要回報
+    assert report_calls(summaries) == []
+    assert (await home_handover.unreported_children(A)).count == 0  # B 成了家，不算自己

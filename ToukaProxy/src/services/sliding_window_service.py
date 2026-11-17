@@ -41,6 +41,7 @@ from src.utils.soul_prelude_db import insert_segment_tx, list_live_segments
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
 from src.utils.token_estimator import estimate_messages_tokens
+from src.utils.tool_records import annotate_history
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -176,18 +177,21 @@ class SlidingWindowService:
         window: int,
         config: SlidingWindowConfig,
         current_total: int | None = None,
+        sent: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """剪到 token 地板：保留最新對話直到 context 占用 ≤ target_floor_pct。
 
         回傳 (legacy_messages, kept_messages)。保證完整 pair 邊界、保底
         min_keep_pairs、kept[0] 重定錨。對話太小或無需剪 → legacy 回空。
+        ``sent``：同一串照送出時的樣子（含工具紀錄，ADR-0319），token 照它估；切的是 ``messages``。
         """
+        costed = messages if sent is None else sent
         pairs = self._pair_indices(messages)
         if len(pairs) <= config.min_keep_pairs:
             return ([], list(messages))
 
         # 對話可保留的 token 預算 = 地板 token − overhead（不可剪的 system/記憶/工具）。
-        dialogue_total = estimate_messages_tokens(messages, model)
+        dialogue_total = estimate_messages_tokens(costed, model)
         overhead = max(0, int(current_total or 0) - dialogue_total)
         target_tokens = window * config.target_floor_pct / 100.0
         budget = target_tokens - overhead
@@ -196,7 +200,7 @@ class SlidingWindowService:
         suffix_at: list[int] = [0] * (len(messages) + 1)
         running = 0
         for idx in range(len(messages) - 1, -1, -1):
-            running += estimate_messages_tokens([messages[idx]], model)
+            running += estimate_messages_tokens([costed[idx]], model)
             suffix_at[idx] = running
 
         # 從「保留最多」往下找第一個保留 token ≤ budget 者；全超出（overhead 太大）
@@ -422,7 +426,9 @@ class SlidingWindowService:
             )
             return False
 
-        current_total = self._current_total_tokens(linear, model)
+        # 本地估算照送出時的樣子（含工具紀錄，用現在的輪數組；ADR-0319）；有權威用量時照舊以它為準
+        sent = annotate_history(linear)
+        current_total = self._current_total_tokens(sent, model)
         usage_pct = min(100.0, current_total / window * 100) if window > 0 else 0.0
         if not self.should_trim(usage_pct, config):
             logger.debug(
@@ -444,7 +450,7 @@ class SlidingWindowService:
 
         # ── 3. 計算分割點（剪到 token 地板）────────────────────────────────
         legacy_msgs, kept_msgs = self.compute_split_by_tokens(
-            linear, model, window, config, current_total
+            linear, model, window, config, current_total, sent
         )
         if not legacy_msgs:
             return False

@@ -100,7 +100,7 @@ def retired_note() -> str:
 
 
 def report_note() -> str:
-    """子對話回報一直寫不出來、放棄時的來源註記."""
+    """子對話回報沒有摘要時的來源註記：一直寫不出來而放棄，或前情摘要關閉（ADR-0319）."""
     return _REPORT_NOTE
 
 

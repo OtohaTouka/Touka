@@ -3,6 +3,7 @@
 - 狀態：✅ 已接受（記憶系統第二批 h1，安全修補；維護者 2026-10-15 核准第二批計畫，同日決定外送識別資料屬安全修補、單獨小 PR 先修）
 - 日期：2026-10-15
 - 決策者：維護者
+- 修訂：2026-11-17 ADR-0319 PR 3：家原文的助理那則可以帶簡短工具紀錄（工具名與固定的成敗值），仍不帶參數、結果與自由文字；外送照舊只送角色與內容（[ADR-0319](0319-tool-records-carried-into-next-turn.md) 第 9 點）。
 - 影響範圍：ToukaProxy（`services/soul_service.py`、`handlers/adapters/base.py`、`handlers/adapters/openai_adapter.py`、`handlers/adapters/claude_adapter.py`）；SECURITY.md 一列
 - 相關：ADR-0242（KF-8 原始紀錄）、ADR-0248（KF-8 修正）、ADR-0257（歷史資料界線）、ADR-0249（插話標註）、ADR-0152（思考分頻）。這些 ADR 的決策都不變。
 

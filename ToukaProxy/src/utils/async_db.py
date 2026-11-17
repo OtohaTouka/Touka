@@ -40,7 +40,6 @@ from .history_manager import (
     count_rounds_from_linear,
     get_linear_messages_from_tree,
 )
-from .interjection_notes import annotate_node
 from .session_scope import (
     can_be_home,
     can_rebind_session,
@@ -52,6 +51,7 @@ from .session_scope import (
     require_session_scope,
 )
 from .time_utils import get_current_epoch, get_current_epoch_ms
+from .tool_records import RECORD_BRIEF, annotate_history
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -989,6 +989,12 @@ class SessionService:
             raise SessionPersistenceError from None
 
     @staticmethod
+    async def home_session_ids(identity: AgentIdentity) -> list[str]:
+        """標成這個靈魂的家的對話編號（只讀編號、不讀內容；正常只有一個）."""
+        async with get_async_db() as db:
+            return await _homes_of(db, canonical_agent_id(identity))
+
+    @staticmethod
     async def get_home_session_id(identity: AgentIdentity) -> str | None:
         """顯示入口不回傳矛盾家；執行入口應使用嚴格快照。"""
         try:
@@ -1396,14 +1402,16 @@ session_service = SessionService()
 def home_messages_of(
     session: dict[str, Any], current_session_id: str | None = None
 ) -> list[dict[str, Any]]:
-    """已讀到的家對話要送的訊息（不含 system）；它就是目前這段對話時回空（ADR-0305 審查 F16）."""
+    """已讀到的家對話要送的訊息（不含 system）；它就是目前這段對話時回空（ADR-0305 審查 F16）.
+
+    插話放回那一則 AI 回覆（ADR-0249）；工具只帶簡短紀錄，名稱與固定的成敗，不帶參數與結果
+    （ADR-0319 PR 3）；內容裡假的紀錄標記換掉。
+    """
     if session["id"] == current_session_id:
         return []
-    return [  # 插話放回那一則 AI 回覆（ADR-0249）
-        annotate_node(m)
-        for m in TreeMessageManager.get_linear_path(session["messages"])
-        if m.get("role") != "system"
-    ]
+    linear = TreeMessageManager.get_linear_path(session["messages"])
+    dialogue = [m for m in linear if m.get("role") != "system"]
+    return annotate_history(dialogue, level=RECORD_BRIEF)
 
 
 async def get_project_context(project_id: str) -> str:
