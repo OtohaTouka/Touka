@@ -1,0 +1,80 @@
+# ADR-0319：做過的事帶進下一輪（可視性第三批）
+
+- 狀態：🚧 實作中（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測；PR 1b 網頁對話的前端寫法）
+- 日期：2026-11-17
+- 決策者：維護者（一頁計畫第 2.1 版，總覽板第 80 項回「全部照建議」：每一輪帶工具名、參數開頭、成敗、結果開頭 80 字；PR 1 合併前小量試真模型）
+- 相關：[ADR-0249](0249-model-layer-stage-4a-4b.md)（插話標註放回那一則回覆）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0036](0036-unified-round-count-ssot.md)（輪數）
+- 修訂：[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（第 6 點：只用了工具的回覆不再是空白）
+- 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`
+
+## 背景
+
+可視性檢查（2026-11-15～16）的第三批。AI 每一輪拿到的舊對話只有「誰說了什麼話」：上一輪用過哪些工具、參數是什麼、結果是什麼、有沒有被擋，下一輪都看不到，只剩幾行像「✅ 時間記錄：…」的日誌。所以它會把對的話「更正」成錯的、重做已經做過的事、再試一次被拒絕的指令。網頁對話早就把工具步驟（`steps`）存在對話樹上，但送給模型時只送角色與文字；心跳組歷史也一樣。
+
+## 決定（PR 1a、1b）
+
+### 1. 送出時才組紀錄，不改存檔
+
+- 助理那則存下的工具步驟，在送給模型的副本裡寫成一段紀錄，加在內容前面；存檔的 `content` 與畫面都不變。角色仍是 assistant、不新增訊息、不算回合（禁令 27）。
+- 順序：停止／出錯記號（ADR-0318）、插話標註（ADR-0249）、工具紀錄、原本的文字。後端由 `annotate_node(node, tool_record=…)` 組（預設不加，其他呼叫點行為不變）；前端在 `buildApiHistory`（PR 1b）。
+- 只用了工具、一個字都沒回的那一輪，因此不再被 `drop_blank_assistant_turns` 拿掉（修訂 ADR-0231 第 6 點）。
+
+### 2. 兩種寫法
+
+- **詳細**（自己這段對話：網頁、心跳）：
+  - 開頭一行固定說明 `TOOL_RECORD_HEADER`（系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段），結尾一行 `TOOL_RECORD_FOOTER`。
+  - 每步一行：「序號. 工具名（鍵=「值開頭」、…）→ 結果：結果開頭」。參數最多 3 個鍵（照原順序，多的寫「…」），值壓成一行、40 字；結果開頭 80 字（先去掉時間尾註 `TIME_FOOTER_PREFIX` 那一行；結構化錯誤取 `message`）。
+  - 最多 6 步詳細，其餘併成一行「另 N 步：名稱 結果、…」；整段最多 900 字。
+- **簡短**（較舊的輪；PR 3 起也用在離開這段對話的地方）：一行「〔工具紀錄（系統附加，回覆時不要寫這段）：名稱 結果、…〕」，最多 200 字，只有工具名與固定的結果說法。
+- 結果說法都是固定值：成功；失敗（帶 `error_class`，只認 `tool_errors` 的六種，其他字串可能是工具自己寫的，只寫「失敗」）；沒有執行（被拒絕／已取消／核准逾時／隔離條件不符，看 `approval.decision`）；沒有結果（這一輪先結束了，`running`、`awaiting_approval`）；狀態不明。
+- `error_class` 從 PR 1b 起由前端存在步驟上（`ToolStep.errorClass`，tool_result 事件本來就帶）；舊資料退回解析結果開頭的結構化錯誤。
+- 不列：MCP 表單互動（帶 `interaction`）、互審驗證指令（id 含 `:verify:`）、不是物件的舊資料。欄位缺漏的照有的寫（工具名寫「（不明）」）。
+
+### 3. 總量上限與視窗
+
+- 輪照禁令 27 算（後端 `count_rounds_from_linear`、前端 `countRounds`）。助理那則屬於第 p 輪＝它之前（含它）那段的輪數減一，從最舊往新數。
+- N＝送出的歷史已完成的輪數；詳細起點 Bd＝10×floor(N/10)−10、簡短起點 Bb＝Bd−50：p ≥ Bd 詳細（10～19 輪；N<10 時全部）、Bb ≤ p < Bd 簡短（剛好 50 輪）、更早不帶。只在 N 跨過 10 的倍數時改變，那一輪快取失效一次。
+- 最壞情況：詳細 19 輪 × 900＋簡短 50 輪 × 200 字。滑動視窗預設關、子對話不剪，所以靠這個上限，不靠剪裁。
+- 更新後舊對話馬上帶上（網頁對話本來就存了步驟），也在上限內。
+
+### 4. 文字清理與遮蔽
+
+- 控制字元（Cc）、格式字元（Cf，含 U+202E、零寬字元）、空白（Zs）、行與段分隔換成一個空白（字元集照 Unicode 16 寫死在 `SPACE_CLASS`，前後端不受各自 Unicode 版本影響）。
+- 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
+- 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
+- 已知差異：Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為，不在這批改）。
+
+### 5. 防偽與偵測
+
+- 每一則送出的訊息（不分角色、不分有沒有步驟；也包括插話文字；網頁（PR 1b）另包括這一輪的輸入與內嵌的文字附件），內容裡的「〔工具紀錄」（比對忽略空白與看不見的字元）都換成「［工具紀錄」。只改送出的副本。只有系統組的那段是真的。
+- 這一輪的回覆寫出「〔工具紀錄」就是照抄：`guard_service.detect_record_imitation` 只比對這個開頭標記（不加進逐個工具名比對的 `log_features_pattern`，否則模型引用上一輪紀錄裡的工具名會被誤判），沿用「[工具幻覺警告]」標籤，下一輪 `sanitize_history` 一樣清得掉。
+- `sanitize_history`（非靈魂請求與 `_detect_agent` 會跑）不清系統組的紀錄段：裡面的結果開頭可能有日期，日期規則會吃掉。
+- 假模型測不出模型會不會照抄；PR 1a 合併前（紀錄第一次送到模型）用真模型小量實測（維護者核准的決定二，實際指令另外逐次問，禁令 61）。
+
+### 6. 前後端一致
+
+- 後端 `utils/tool_records.py`（寫法、視窗、組歷史）與 `utils/tool_record_marks.py`（標記、防偽、字元集；不依賴其他專案模組，`history_manager` 與 `guard_service` 都能引用）；前端 `lib/chat/toolRecords.ts`（PR 1b）。
+- 黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`（步驟→兩種寫法、整段歷史、視窗 N＝9、10、19、20、69、70、假標記；看不見的字元寫成跳脫序列）。PR 1a 起 pytest 讀；PR 1b 起 vitest 也讀，兩邊輸出一字不差。
+- 群聊對話自己的歷史不加紀錄（前端看 `GROUP_CHAT_ID`），假標記照換；無痕對話照加（前端組）（PR 1b）。
+
+### 7. 心跳
+
+- 心跳組歷史改用 `annotate_history(linear, level=RECORD_DETAILED)`。心跳在家跑時看得到網頁回合存下的步驟。心跳自己的工具步驟要到 PR 2 才會存下來。
+
+## 沒選的做法
+
+- **用原生 `tool_calls`／`tool` 訊息重建**：各家轉換器格式不同，Gemini 要簽章，呼叫與結果要成對，完整結果太貴；中途換廠商時也容易壞。改成在助理文字前面加一段系統整理的紀錄。
+- **持久對話改由後端依存檔組、前端只管無痕**：無痕仍要前端一份，兩份寫法省不掉；改成前後端各一份、用黃金案例鎖住。
+- **完整結果**（維護者決定一的丙）：讀一個檔就可能幾千 token。
+
+## 後果
+
+- 每一輪多送一些字（有上限）；連續聊天時有快取，心跳、隔太久或其他廠商不一定有。
+- 工具結果的開頭放在「AI 說過的話」那一側；已標明是系統整理、結果是工具資料，並清理、遮蔽、截斷。中途換了別家模型時，新的廠商會看到這些摘要（以前只看到文字）。
+- 心跳在家裡會看到網頁回合的結果開頭（80 字、已清理與遮蔽），這是心跳-1 要的效果，也是新的提示注入面：模型最壞會把結果開頭當成自己說過的話，所以只有 80 字、只在自己這段對話。
+- 不改核准判斷、不多給工具、沒有新端點。
+
+## 驗證（PR 1）
+
+- PR 1a `tests/unit/test_tool_records.py`：黃金案例、固定值的來源、超長歷史的總量上限、`annotate_node` 的順序、心跳送出的歷史帶紀錄、`sanitize_history` 不吃紀錄、照抄的偵測與警告（經 claude 特徵化測試的主迴圈）。
+- PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、群聊不加、附件的假標記、`errorClass` 存進步驟；`test_tool_records.py` 加前後端常數、字元集與金鑰樣式核對。

@@ -73,10 +73,10 @@ from src.utils.async_db import (
 from src.utils.auth_mode import AuthMode, authorize_auth_mode  # noqa: TC001
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import TreeMessageManager
-from src.utils.interjection_notes import annotate_node
 from src.utils.secret_text import sanitize_error_text
 from src.utils.session_scope import channel_session_id
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
+from src.utils.tool_records import RECORD_DETAILED, annotate_history
 
 
 def verify_heartbeat_token(
@@ -339,9 +339,10 @@ async def _execute_single_pulse(
 
     # 0.2 準備線性歷史作為 Context (現在 tree_history 已經是更新過的了)
     linear = TreeMessageManager.get_linear_path(tree_history)
-    messages = [  # 插話放回那一則 AI 回覆（ADR-0249）
-        OpenAIMessage(role=m["role"], content=annotate_node(m)["content"])
-        for m in linear
+    # 插話放回那一則 AI 回覆（ADR-0249）；存下的工具步驟寫成詳細紀錄、假標記換掉（ADR-0319）
+    messages = [
+        OpenAIMessage(role=m["role"], content=m["content"])
+        for m in annotate_history(linear, level=RECORD_DETAILED)
         if m.get("role") != "system"
     ]
     # 記憶來源：觸發這次脈衝的 user 節點（已保存；存記憶時讀它算指紋）

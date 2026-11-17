@@ -16,6 +16,8 @@ from zoneinfo import ZoneInfo
 CONVERSATION_RECORD_TIME_NOTE = (
     "(time from the conversation record; may come from the user's device clock)"
 )
+# 工具結果尾端的時間註記開頭；工具紀錄（utils/tool_records.py）組結果開頭前會去掉整行
+TIME_FOOTER_PREFIX = "[系統自動附加] 執行完畢之台北時間："
 
 
 def get_current_epoch() -> float:
@@ -86,7 +88,7 @@ def inject_time_to_result(result: Any, tool_name: str) -> Any:
     epoch_now = get_current_epoch()
     time_str, weekday = format_epoch_to_taipei(epoch_now)
 
-    time_suffix = f"\n\n[系統自動附加] 執行完畢之台北時間：{time_str} ({weekday})"
+    time_suffix = f"\n\n{TIME_FOOTER_PREFIX}{time_str} ({weekday})"
 
     if isinstance(result, str):
         return result + time_suffix
