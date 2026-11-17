@@ -291,7 +291,7 @@ tests/
 | `test_interjection_drain.py` ⭐ | **ADR-0249 第 4a 段・取出點與送達**：第 N 個工具步驟取出、下一輪送出成功後才 delivered；下一輪重試全部失敗 → undelivered；純文字結束、預算閘、收尾輪時沒取出的回成 undelivered；取出後按停止 → undelivered；urgent 讓下一輪 `tool_choice=none`、送出後還原，一般插話不動 tool_choice；非 UI、心跳、子代理不取出；佇列空時不送任何事件；只有 active 串流才開佇列 |
 | `test_interjection_adapters.py` ⭐ | **ADR-0249 第 4a／4b 段・四家插話格式**：Claude 規則表 `mid_conversation_system=True` 加 system 訊息、其他三種型號在最後一個 tool_result 後加 text block；OpenAI 相容在 tool 訊息後加 user 訊息；Gemini 在 functionResponse 同一個 content 加 text part；Responses 在 function_call_output 後加 user input item；`hold_tool_choice` 設成 none 並還原原值；打斷後接在原本提問之後，四家各自的形狀（4b） |
 | `test_interjection_persistence.py` ⭐ | **ADR-0249 第 4a 段・插話存檔**：這個串流 delivered 的插話以 API `Interjection` 形狀存進助理節點 `interjections[]`（queued／pending／undelivered／收回的與別的串流不存）；沒有已送達的插話時節點欄位不變；pump 在串流結束清空佇列之前存檔；停止、錯誤不存；無痕不碰 DB |
-| `test_tool_records.py` ⭐ | **ADR-0319 PR 1・工具紀錄**：和前端讀同一份黃金案例檔（兩種寫法、整段歷史、視窗、假標記），前端常數、字元集、`utils/secrets.py` 樣式與錯誤種類核對相同；時間尾註開頭與核准結果來自各自的出處；超長結果仍然很快，先截到 `MAX_SCAN_CHARS` 再遮蔽（前端測同一組輸入）；超長歷史有總量上限；紀錄在插話標註之後、文字之前；心跳送出的歷史帶網頁回合的紀錄、不改存檔；`sanitize_history` 不吃紀錄；照抄紀錄的回覆收到工具幻覺警告 |
+| `test_tool_records.py` ⭐ | **ADR-0319 PR 1・工具紀錄**：和前端讀同一份黃金案例檔（兩種寫法、整段歷史、視窗、假標記），前端常數、字元集、`utils/secrets.py` 樣式（含 `g` 旗標）、錯誤種類與 `GROUP_CHAT_ID` 核對相同；時間尾註開頭與核准結果來自各自的出處；超長結果仍然很快，先截到 `MAX_SCAN_CHARS` 再遮蔽、九百萬個空白的假標記與九百萬字的時間尾註照常處理（前端測同一組輸入）；超長歷史有總量上限；紀錄在插話標註之後、文字之前；心跳送出的歷史帶網頁回合的紀錄、不改存檔；`sanitize_history` 不吃紀錄；照抄紀錄的回覆收到工具幻覺警告 |
 | `test_approval_wording.py` ⭐ | **ADR-0318 PR 4・核准的說法**：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消 |
 | `test_previous_turn_marks.py` ⭐ | **ADR-0318 PR 3・上一輪沒做完的記號**：和前端 `turnNotes.ts` 純文字比對相同；停止與出錯都加、停止優先、只認 `true`；在插話標註之前；空回覆加了記號不再被合併；回合數不變；家原文帶記號 |
 | `test_interjection_notes.py` ⭐ | **ADR-0249 第 4a 段・伺服器端重組標註**：範本與前端 `INTERJECTION_NOTE_TEMPLATE` 純文字比對相同；照步數排、只取已送達有文字的；只改助理節點、不改原節點；回合數不變；心跳脈衝訊息、主線帶的家原文（`home_messages_of`）、摘要輸入都帶標註 |
@@ -1171,8 +1171,8 @@ python scripts/guard_all.py
 | `unit/connections.resume.test.ts` | ADR-0081 `resumeChatStream`：starting_after URL、chunk/event/done 分發（與 fetchChatStream 共用 dispatchSseLine）、非 2xx onError、跨 chunk 斷行重組 |
 | `unit/StreamRegistry.resume.test.tsx` | ADR-0081 重整接回：startStream 先 syncSession user 回合（順序斷言）、resumeActiveStreams 依 active 清單重建 entry＋重播重建樹＋onDone 持久化、已有 entry 不重複接回 |
 | `unit/StreamRegistry.test.tsx` | ADR-0080 進行中串流 SSOT：startStream 建 entry、onChunk per-session 隔離不污染他 session、並發上限 5、stopStream abort+清除、onDone 寫回 session、onError toast（非 AbortError）/不 toast（AbortError） |
-| `src/lib/chat/__tests__/toolRecords.test.ts` | ADR-0319 工具紀錄：讀和後端同一份黃金案例檔 `toolRecords.golden.json`（兩種寫法、視窗、整段歷史、假標記）；超長結果仍然很快、和後端截在同一點再遮蔽（和後端同一組輸入）；群聊不加紀錄但照換假標記；內嵌文字附件的假標記也換；tool_result 的 `error_class` 存成 `ToolStep.errorClass` |
-| `src/lib/providers/__tests__/StreamRegistryProvider.toolRecords.test.tsx` | ADR-0319：送出時一般對話把上一則回覆的工具紀錄放在它前面，群聊（`GROUP_CHAT_ID`）照原文送 |
+| `src/lib/chat/__tests__/toolRecords.test.ts` | ADR-0319 工具紀錄：讀和後端同一份黃金案例檔 `toolRecords.golden.json`（兩種寫法、視窗、整段歷史、假標記）；超長結果仍然很快、和後端截在同一點再遮蔽、九百萬個空白夾在假標記中間或九百萬字的時間尾註也不會爆堆疊（和後端同一組輸入）；群聊不加紀錄但照換假標記；內嵌文字附件的假標記也換；tool_result 的 `error_class` 存成 `ToolStep.errorClass` |
+| `src/lib/providers/__tests__/StreamRegistryProvider.toolRecords.test.tsx` | ADR-0319：送出時一般對話與無痕對話把上一則回覆的工具紀錄放在它前面，群聊（`GROUP_CHAT_ID`，不分大小寫）照原文送 |
 | `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯；訊息導覽列至少兩條才顯示、IDE 與手機版不顯示但照樣交出捲動範圍、點擊以 `align: 'start'` 捲到那則、捲動範圍決定目前那條、依訊息捲動區的高度決定線數。 |
 | `src/components/chat/__tests__/MessageItem.test.tsx` | MessageItem：既有訊息渲染回歸＋P11切換語言後Markdown程式碼複製按鈕使用新翻譯。 |
 | `src/lib/chat/__tests__/messageNavigation.test.ts` | 訊息導覽列純函式：只收 user 訊息、排除 `SYSTEM_SPEAKER` 的「請繼續」（開場提示、SNS 與其他名字照收）；預覽去頭尾空白與截斷；圖片／檔案附件；超過上限時分段（含不整除）；依導覽區高度算線數上限（沒量到用 120、每 8px 一條、最少 2 條）；目前那則取範圍內第一則、否則取範圍前最近一則；分段時段內任一則都算目前。 |

@@ -27,6 +27,7 @@ from src.utils import secrets, time_utils, tool_records
 from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import count_rounds_from_linear, sanitize_history
 from src.utils.interjection_notes import annotate_node
+from src.utils.mcp_request_identity import GROUP_MODEL
 from src.utils.tool_record_marks import (
     SPACE_CLASS,
     TOOL_RECORD_FOOTER,
@@ -109,6 +110,8 @@ def _py_flags(pattern: re.Pattern[str]) -> tuple[str, str]:
         flags.add("i")
     if pattern.flags & re.DOTALL:
         flags.add("s")
+    # 前端只複製得了這兩種；後端加了別的旗標（如 MULTILINE、ASCII）要一起改前端
+    assert pattern.flags & ~(re.IGNORECASE | re.DOTALL | re.UNICODE) == 0, pattern.pattern
     return body, "".join(sorted(flags))
 
 
@@ -118,6 +121,8 @@ def test_frontend_secret_patterns_are_the_backend_ones():
     for line in _ts_array("CONTENT_SECRET_PATTERNS").strip().splitlines():
         match = re.fullmatch(r"\s*/(.+)/([a-z]*),", line)
         assert match is not None, line
+        # 少了 g，同一欄位的第二個金鑰就不會被遮
+        assert "g" in match.group(2), line
         body, flags = match.group(1), set(match.group(2)) - {"g"}
         if "[\\s\\S]" in body:  # 前端編譯目標沒有 s 旗標：[\s\S] 等於後端 DOTALL 的「.」
             body, flags = body.replace("[\\s\\S]", "."), flags | {"s"}
@@ -163,6 +168,12 @@ def test_frontend_fixed_values_are_the_backend_ones():
         r"\\u\{([0-9A-Fa-f]+)\}", lambda m: f"\\U{int(m.group(1), 16):08x}", space.group(1)
     )
     assert as_python.lower() == SPACE_CLASS.lower()
+    group = re.search(
+        r"export const GROUP_CHAT_ID = '([^']*)';",
+        (_CHAT_LIB / "messageNavigation.ts").read_text(encoding="utf-8"),
+    )
+    assert group is not None
+    assert group.group(1) == GROUP_MODEL
 
 
 def test_fixed_values_come_from_their_owners():
@@ -204,6 +215,16 @@ def test_fields_are_cut_before_redaction_on_both_sides():
               "result": "ghp_" + "a" * (tool_records.MAX_SCAN_CHARS + 800) + "_tail"}]
     lines = render_tool_record(steps, RECORD_DETAILED).splitlines()
     assert lines[1] == "1. read → 成功：＜redacted＞"
+
+
+def test_millions_of_blank_characters_in_markers_and_footer_lines():
+    """假標記中間夾九百萬個空白、時間尾註那一行九百萬字：照常處理（前端測同一組輸入，那邊的正規式曾爆堆疊）."""
+    gap = " " * 9_000_000
+    assert neutralize_record_markers(f"a〔{gap}工具紀錄b") == "a［工具紀錄b"
+    footer = time_utils.TIME_FOOTER_PREFIX + "x" * 9_000_000
+    steps = [{"id": "c1", "tool": "read", "args": None, "status": "success",
+              "result": f"ok {footer}"}]
+    assert render_tool_record(steps, RECORD_DETAILED).splitlines()[1] == "1. read → 成功：ok"
 
 
 def _full_step(i: int) -> dict[str, Any]:

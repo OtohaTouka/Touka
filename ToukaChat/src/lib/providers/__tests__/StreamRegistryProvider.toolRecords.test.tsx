@@ -49,12 +49,12 @@ const baseTree: StartStreamParams['baseTree'] = {
 };
 const wrapper = ({ children }: { children: React.ReactNode }) => <StreamRegistryProvider>{children}</StreamRegistryProvider>;
 
-async function sentMessages(model: string): Promise<ChatMessage[]> {
+async function sentMessages(model: string, extra: Partial<StartStreamParams> = {}): Promise<ChatMessage[]> {
   const { result } = renderHook(() => useStreamRegistry(), { wrapper });
   await act(async () => {
     await result.current.startStream({
       sessionId: 's1', baseTree, userText: 'next', resolvedInput: 'next', attachment: null, parentId: 'a1',
-      model, protocol: 'openai', proxyUrl: 'http://x', authLevel: 'Manual', activeSkills: [],
+      model, protocol: 'openai', proxyUrl: 'http://x', authLevel: 'Manual', activeSkills: [], ...extra,
     });
   });
   return h.wire.mock.calls[0][0] as ChatMessage[];
@@ -78,5 +78,15 @@ describe('StreamRegistryProvider sends tool records (ADR-0319)', () => {
   it('sends the earlier reply unchanged in group chat', async () => {
     const sent = await sentMessages(GROUP_CHAT_ID);
     expect(sent.map(m => m.content)).toEqual(['save it', 'done', 'next']);
+  });
+
+  it('treats the group chat id case-insensitively, like the backend dispatcher', async () => {
+    const sent = await sentMessages(GROUP_CHAT_ID.toLowerCase());
+    expect(sent.map(m => m.content)).toEqual(['save it', 'done', 'next']);
+  });
+
+  it('adds records in incognito chats too', async () => {
+    const sent = await sentMessages('synthetic', { incognito: true });
+    expect(sent[1].content).toMatch(/^〔工具紀錄/);
   });
 });

@@ -57,6 +57,18 @@ describe('toolRecords stays fast on huge results (same input as the backend test
     expect(record).toContain('1. read（text=「x」）→ 成功：tail');
   });
 
+  it('handles millions of blank characters inside a fake marker or a time footer line', () => {
+    // V8 的「…[字元集]*…」正規式在九百萬字時會爆堆疊；後端測同一組輸入
+    const gap = ' '.repeat(9_000_000);
+    // 失敗時先比長度：直接比內容的話，vitest 會試著列出兩段九百萬字的差異而跑不完
+    const neutral = neutralizeRecordMarkers(`a〔${gap}工具紀錄b`);
+    expect(neutral.length).toBe('a［工具紀錄b'.length);
+    expect(neutral).toBe('a［工具紀錄b');
+    const footer = `[系統自動附加] 執行完畢之台北時間：${'x'.repeat(9_000_000)}`;
+    const steps = [{ id: 'c1', tool: 'read', args: null, status: 'success', result: `ok ${footer}` }];
+    expect(renderToolRecord(steps, 'detailed').split('\n')[1]).toBe('1. read → 成功：ok');
+  });
+
   it('cuts before redaction at the same place as the backend', () => {
     // 8192＝MAX_SCAN_CHARS（pytest 核對兩邊相同）：結尾在截斷點之後才不像金鑰的 token，截斷後一樣遮
     const steps = [{ id: 'c1', tool: 'read', args: null, status: 'success', result: `ghp_${'a'.repeat(8192 + 800)}_tail` }];
@@ -104,6 +116,15 @@ describe('stream_tree stores error_class on the step (ADR-0319)', () => {
       type: 'tool_result', id: 'c1', status: 'error', result: '{"error_class": "resource_not_found"}', error_class: 'resource_not_found',
     });
     expect(next.messages[aid].steps?.[0]).toMatchObject({ status: 'error', errorClass: 'resource_not_found' });
+  });
+
+  it('drops an earlier error_class when a later result for the same step has none', () => {
+    const { tree, aid } = treeWithStep();
+    const failed = applyEventToTree(tree, aid, {
+      type: 'tool_result', id: 'c1', status: 'error', result: 'x', error_class: 'timeout_exceeded',
+    });
+    const next = applyEventToTree(failed, aid, { type: 'tool_result', id: 'c1', status: 'error', result: 'y' });
+    expect(next.messages[aid].steps?.[0]).not.toHaveProperty('errorClass');
   });
 
   it('adds nothing when the event has no error_class', () => {

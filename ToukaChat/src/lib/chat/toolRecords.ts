@@ -27,11 +27,10 @@ const TIME_FOOTER_PREFIX = '[系統自動附加] 執行完畢之台北時間：'
 // 換成空白的字元：控制（Cc）、格式（Cf）、空白（Zs）、行與段分隔；照 Unicode 16 寫死
 const SPACE_CLASS = String.raw`\x00-\x20\x7f-\xa0\xad\u0600-\u0605\u061c\u06dd\u070f\u0890-\u0891\u08e2\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u2064\u2066-\u206f\u3000\ufeff\ufff9-\ufffb\u{110bd}\u{110cd}\u{13430}-\u{1343f}\u{1bca0}-\u{1bca3}\u{1d173}-\u{1d17a}\u{e0001}\u{e0020}-\u{e007f}`;
 const SPACE_RUN_RE = new RegExp(`[${SPACE_CLASS}]+`, 'gu');
-const GAP = `[${SPACE_CLASS}]*`;
-const MARKER_RE = new RegExp('〔' + GAP + Array.from('工具紀錄').join(GAP), 'gu');
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-// 只比對尾註本身（前面的空白之後會被壓掉）：開頭若帶空白字元集，長空白會讓比對照長度平方變慢
-const FOOTER_RE = new RegExp(`${escapeRegExp(TIME_FOOTER_PREFIX)}[^\\n]*`, 'gu');
+const SPACE_CHAR_RE = new RegExp(`^[${SPACE_CLASS}]$`, 'u');
+// 假標記與時間尾註用逐字掃描，不用「…[字元集]*…」的正規式：V8 遇到幾百萬字的空白或長行會爆堆疊（RangeError）
+const MARK_OPEN = '〔';
+const MARK_WORD = Array.from('工具紀錄');
 const FULLWIDTH: Record<string, string> = { '<': '＜', '>': '＞', '〔': '［', '〕': '］' };
 
 // 後端 utils/secrets.py 的同一組樣式（pytest 核對樣式本體與旗標；編譯目標不支援 s 旗標，
@@ -85,9 +84,68 @@ type Obj = Record<string, unknown>;
 const isObj = (value: unknown): value is Obj => typeof value === 'object' && value !== null && !Array.isArray(value);
 const cpLength = (text: string) => Array.from(text).length;
 
-/** 把看起來像紀錄開頭的標記換成相近字；只用在送出的副本。 */
+/** from 起（〔 之後）是不是「工具紀錄」四個字，中間只夾空白類字元；是就回結尾位置，不是回 -1。 */
+function markerEnd(text: string, from: number): number {
+  let i = from;
+  let matched = 0;
+  while (i < text.length) {
+    const ch = String.fromCodePoint(text.codePointAt(i) as number);
+    if (ch === MARK_WORD[matched]) {
+      matched += 1;
+      i += ch.length;
+      if (matched === MARK_WORD.length) return i;
+    } else if (SPACE_CHAR_RE.test(ch)) {
+      i += ch.length;
+    } else {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+/** 把看起來像紀錄開頭的標記（〔、中間夾空白或看不見的字元也算）換成相近字；只用在送出的副本。 */
 export function neutralizeRecordMarkers(text: string): string {
-  return text.replace(MARKER_RE, NEUTRAL_MARK);
+  let open = text.indexOf(MARK_OPEN);
+  if (open < 0) return text;
+  let out = '';
+  let copied = 0;
+  while (open >= 0) {
+    const end = markerEnd(text, open + MARK_OPEN.length);
+    if (end < 0) {
+      open = text.indexOf(MARK_OPEN, open + MARK_OPEN.length);
+    } else {
+      out += text.slice(copied, open) + NEUTRAL_MARK;
+      copied = end;
+      open = text.indexOf(MARK_OPEN, end);
+    }
+  }
+  return out + text.slice(copied);
+}
+
+/** 去掉時間尾註：從開頭字串到那一行結束（後端 _FOOTER_RE 的「開頭＋[^\n]*」）。 */
+function withoutTimeFooters(text: string): string {
+  let at = text.indexOf(TIME_FOOTER_PREFIX);
+  if (at < 0) return text;
+  let out = '';
+  let copied = 0;
+  while (at >= 0) {
+    const lineEnd = text.indexOf('\n', at + TIME_FOOTER_PREFIX.length);
+    out += text.slice(copied, at);
+    copied = lineEnd < 0 ? text.length : lineEnd;
+    at = lineEnd < 0 ? -1 : text.indexOf(TIME_FOOTER_PREFIX, lineEnd);
+  }
+  return out + text.slice(copied);
+}
+
+// Python str.lstrip() 去掉的空白（判斷是不是結構化錯誤時要和後端 tool_errors 一樣；和 trimStart 不同）
+const isPythonSpace = (code: number) => (code >= 0x09 && code <= 0x0d) || (code >= 0x1c && code <= 0x20)
+  || code === 0x85 || code === 0xa0 || code === 0x1680 || (code >= 0x2000 && code <= 0x200a)
+  || code === 0x2028 || code === 0x2029 || code === 0x202f || code === 0x205f || code === 0x3000;
+
+function pythonLstrip(text: string): string {
+  let i = 0;
+  while (i < text.length && isPythonSpace(text.charCodeAt(i))) i += 1;
+  return text.slice(i);
 }
 
 function truncate(text: string, limit: number): string {
@@ -142,8 +200,9 @@ function argsPart(args: unknown): string {
 
 /** 後端 tool_errors.extract_field：開頭是 {"error_class" 的結構化錯誤才讀。 */
 function structuredErrorField(text: string, key: string): string | undefined {
-  if (!text.trimStart().startsWith('{"error_class"')) return undefined;
-  const value = firstJsonObject(text)?.[key];
+  const stripped = pythonLstrip(text);
+  if (!stripped.startsWith('{"error_class"')) return undefined;
+  const value = firstJsonObject(stripped)?.[key];
   return typeof value === 'string' ? value : undefined;
 }
 
@@ -171,7 +230,7 @@ function head(step: Obj, failed: boolean): string {
   if (result === null || result === undefined) return '';
   if (typeof result !== 'string') return field(asText(result), MAX_RESULT_CHARS);
   const message = failed ? structuredErrorField(result, 'message') : undefined;
-  return field(message !== undefined ? message : result.replace(FOOTER_RE, ''), MAX_RESULT_CHARS);
+  return field(message !== undefined ? message : withoutTimeFooters(result), MAX_RESULT_CHARS);
 }
 
 function detailedLine(step: Obj): string {
@@ -185,7 +244,7 @@ const briefItem = (step: Obj) => `${toolName(step)} ${outcome(step)[0]}`;
 
 /** MCP 表單互動不是工具呼叫；互審驗證指令不是自己跑的；不是物件的舊資料略過。 */
 function listable(step: unknown): step is Obj {
-  if (!isObj(step) || (typeof step.interaction === 'object' && step.interaction !== null)) return false;
+  if (!isObj(step) || isObj(step.interaction)) return false;
   return !(typeof step.id === 'string' && step.id.includes(VERIFY_ID));
 }
 

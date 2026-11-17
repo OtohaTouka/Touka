@@ -360,7 +360,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     // 組 API 訊息序列（線性路徑去掉待填的 assistant；user 節點以 resolvedInput 送出）。
     // 訊息組裝、插話標註（ADR-0249）與工具紀錄（ADR-0319，群聊不加）集中於 buildApiHistory（SSOT、純函式）。
     const messagesForStream: ChatMessage[] = buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput,
-      { toolRecords: model !== GROUP_CHAT_ID });
+      { toolRecords: model.toLowerCase() !== GROUP_CHAT_ID.toLowerCase() });
 
     const { onChunk, onThinking, onEvent, onDone, onError } = createStreamCallbacks(sessionId, controller, onSkillInstallRequest, onAskUser,
       onHookBlocked);

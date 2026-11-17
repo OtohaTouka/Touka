@@ -9,7 +9,7 @@ import type { MessageNode } from '@/lib/tree_history';
 
 /** 雙端常數：後端 ToukaProxy/src/utils/user_intent.py 的 SYSTEM_SPEAKER（tests/unit/test_system_speaker_contract.py 核對）。 */
 export const SYSTEM_SPEAKER = "System";
-/** 群聊的 agent id（後端 middleware/layers/soul.py 同一個值）。 */
+/** 群聊的 agent id：後端 ToukaProxy/src/utils/mcp_request_identity.py 的 GROUP_MODEL（tests/unit/test_tool_records.py 核對）；後端分派比對不分大小寫。 */
 export const GROUP_CHAT_ID = 'ToukaGroup';
 
 /** 至少幾條線才顯示導覽列（比的是線數，不是對話回合數）。 */
