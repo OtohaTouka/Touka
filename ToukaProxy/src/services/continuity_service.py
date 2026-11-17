@@ -31,6 +31,7 @@ from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
+from src.services.home_handover import unreported_children
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
 from src.services.subagent_registry import subagent_registry
 from src.utils.async_db import session_service
@@ -78,6 +79,7 @@ RECORDS_START_LABEL = "Activity records start"
 MISSION_LABEL = "Mission board"
 RUNNING_SUBAGENTS_LABEL = "Sub-agents you dispatched in this conversation, still running"
 RUNNING_SUBAGENTS_SHOWN = 5  # 最多列幾個，其餘只寫數量（ADR-0318）
+UNREPORTED_LABEL = "Other conversations with new activity not yet reported to this home"
 NO_ACTIVE_MISSION = "no active mission"
 NONE_RECORDED = "none recorded"
 TIMELINE_UNAVAILABLE = "unavailable (the activity record could not be read)"
@@ -258,6 +260,38 @@ def running_subagents_line(soul: AgentIdentity, session_id: str | None, now_s: f
     return f"- {RUNNING_SUBAGENTS_LABEL}: {'; '.join(items)} {SERVER_MEMORY}"
 
 
+async def _unreported_line(
+    soul: AgentIdentity, session_id: str | None, now_s: float
+) -> str | None:
+    """在家裡才加：其他對話有新活動、還沒回報（ADR-0319）；沒有就不加這一行.
+
+    只放段數與最後活動時間，不放對話編號或內容；時間是對話紀錄的，可能來自使用者裝置。
+    """
+    if not session_id:
+        return None
+    try:
+        at_home = await session_service.home_session_ids(soul) == [session_id]
+    except Exception:
+        logger.exception("continuity: reading the home failed")
+        return None
+    if not at_home:
+        return None
+    try:
+        unreported = await unreported_children(soul)
+    except Exception:
+        logger.exception("continuity: reading unreported conversations failed")
+        return f"- {UNREPORTED_LABEL}: unknown (read failed)"
+    if not unreported.count:
+        return None
+    when = (
+        ""
+        if unreported.latest_ms is None
+        else f"; latest activity {_when(now_s, unreported.latest_ms)} "
+        f"{CONVERSATION_RECORD_TIME_NOTE}"
+    )
+    return f"- {UNREPORTED_LABEL}: {unreported.count}{when}"
+
+
 def _recent_line(now_s: float, timeline: TimelineSnapshot | None) -> str:
     if timeline is None:
         return f"- {RECENT_LABEL}: {TIMELINE_UNAVAILABLE}"
@@ -316,6 +350,7 @@ async def build_continuity_block(
     identity: Any,
     incognito: bool,
     heartbeat: bool = False,
+    sns: bool = False,
     current_message_id: Any = None,
     now_s: float | None = None,
 ) -> str:
@@ -323,6 +358,7 @@ async def build_continuity_block(
 
     無痕只放現在時間，不讀事件、不讀任務、不留紀錄。心跳不放「這段對話上一輪」、不更新記憶體
     紀錄（家對話和人類共用 session id）。``now_s`` 由呼叫端傳入時用同一個時間（心跳的時間前綴）。
+    SNS 觸發的請求（外人）不加其他對話的動態（ADR-0319）。
     """
     now_s = get_current_epoch() if now_s is None else now_s
     time_str, weekday = format_epoch_to_taipei(now_s)
@@ -340,6 +376,9 @@ async def build_continuity_block(
         running = running_subagents_line(soul, session_id, now_s)
         if running is not None:
             lines.append(running)
+        unreported = None if sns else await _unreported_line(soul, session_id, now_s)
+        if unreported is not None:
+            lines.append(unreported)
         start = _records_start_line(timeline)
         if start is not None:
             lines.append(start)
@@ -356,6 +395,7 @@ async def inject_continuity(
         identity=ctx.get("identity"),
         incognito=bool(ctx.get("incognito")),
         heartbeat=bool(ctx.get("heartbeat_run")),
+        sns=bool(ctx.get("sns_source")),
         current_message_id=ctx.get("source_message_id"),
         now_s=now_s,
     )

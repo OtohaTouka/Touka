@@ -706,9 +706,9 @@ async def _process_heartbeat_loop(
             if run_started:
                 activity_registry.record_finished(final_session_id, "heartbeat", agent_id)
             # 前情維護（交接、子對話回報，ADR-0307）：靈魂至少完成一個脈衝才排；這時登記已拿掉，
-            # 只排背景工作、不 await（被取消時也安全）
+            # 只排背景工作、不 await（被取消時也安全）。跑在獨立頻道時順便替它寫回報（ADR-0319）
             if pulses_done and not blocked and soul_service.is_toukasoul(identity):
-                home_handover.schedule(identity)
+                home_handover.schedule(identity, channel=final_session_id)
 
 
 def _record_refusal(requested: AgentIdentity, reason: HeartbeatSkip) -> None:

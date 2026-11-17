@@ -12,7 +12,8 @@
 - 累計失敗三次標成失敗、寫一行註記、繼續做後面的；失敗的每次啟動後第一次觸發、或滿 24 小時再試。
   退任摘要失敗不算交接失敗，放回佇列隔一段時間再試，試到第三次才寫來源註記。
 - 子對話回報：交接時寫前幾段；另外隔一段時間檢查 6 小時沒動、有新內容的。一次維護總共最多幾段。
-  SNS 頻道、群聊、舊家、無痕不寫。同一段送出去卻一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
+  SNS 頻道、群聊、舊家、無痕不寫。心跳的獨立頻道也寫：心跳在那裡跑完就排，同一頻道上次回報不到
+  一小時就等閒置規則補寫（ADR-0319）。前情摘要關閉時，每段的每個最後節點只寫一行註記。同一段送出去卻一直寫不出摘要時，試幾次就寫一行註記、位置移到當下；
   請求根本沒送出（原生路線沒金鑰、超預算、模型不可用）不算這一段的失敗，這個靈魂冷卻一段時間再試。
 - 模型呼叫都在交易外；每個寫入都查重置或刪除（``destructive_ops``）。
 """
@@ -65,7 +66,7 @@ from src.utils.home_handover_db import (
 )
 from src.utils.home_transitions import FAILED, RUNNING
 from src.utils.interjection_notes import annotate_node
-from src.utils.session_scope import can_be_home
+from src.utils.session_scope import can_be_reported, is_heartbeat_channel
 from src.utils.soul_prelude_db import PreludeSegment
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch, get_current_epoch_ms
@@ -96,6 +97,10 @@ RETIRED_RETRY_AFTER_MS = 60 * 60 * 1000
 RETIRED_MAX_TRIES = 3
 # 失敗的紀錄多久再試一次；重啟後第一次觸發也試
 FAILED_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+# 心跳在獨立頻道跑完就替那個頻道寫回報；上次回報（位置移動）不到這麼久就不寫，之後由閒置規則補寫
+CHANNEL_REPORT_EVERY_MS = 60 * 60 * 1000
+# 「還沒回報的其他對話」那一行：每個靈魂的結果記多久（候選要解析每段子對話的內容）
+UNREPORTED_CACHE_MS = 5 * 60 * 1000
 
 _REPORT_RETRY_AFTER: dict[str, int] = {}
 # （靈魂、子對話）→（失敗次數、這個時間之前不再試）
@@ -104,6 +109,10 @@ _report_failures: dict[tuple[str, str], tuple[int, int]] = {}
 _retired_failures: dict[int, tuple[int, int]] = {}
 _retried_failed: set[int] = set()
 _idle_checked: dict[str, int] = {}
+# 靈魂 → 心跳剛跑完、等這次維護寫回報的獨立頻道
+_due_channels: dict[str, set[str]] = {}
+# 靈魂 →（算的時間、結果）
+_unreported_cache: dict[str, tuple[int, Unreported]] = {}
 _active: set[str] = set()
 _again: set[str] = set()
 
@@ -136,9 +145,22 @@ class _Pass:
         return destructive_ops.disturbed(self.identity, self.since)
 
 
-def schedule(identity: AgentIdentity) -> None:
-    """排一次前情維護（禁令 28 的兩處呼叫）；已經有一個在跑就留記號，不會同時跑兩個."""
+@dataclass(frozen=True)
+class Unreported:
+    """有新活動、還沒回報給家的其他對話：幾段、最後活動時間（對話紀錄的，可能來自使用者裝置）."""
+
+    count: int
+    latest_ms: int | None
+
+
+def schedule(identity: AgentIdentity, *, channel: str | None = None) -> None:
+    """排一次前情維護（禁令 28 的兩處呼叫）；已經有一個在跑就留記號，不會同時跑兩個.
+
+    ``channel``：心跳剛在這段對話跑完；是獨立頻道時，這次維護替它寫回報（ADR-0319）。
+    """
     agent = prelude_agent(identity)
+    if channel is not None and is_heartbeat_channel(channel):
+        _due_channels.setdefault(agent, set()).add(channel)
     if agent in _active:
         _again.add(agent)
         return
@@ -178,6 +200,7 @@ async def maintain(identity: AgentIdentity) -> None:
         )
         await _process_queue(run)
         await _write_deferred_retired(run)
+        await _report_due_channels(run)
         await _report_idle_children(run)
     if run.wrote:  # 鎖外做：合併自己會拿靈魂鎖
         await soul_prelude_merge.merge_if_needed(
@@ -487,33 +510,69 @@ async def _write_reports(run: _Pass) -> None:
     await _report_children(run, idle_only=False)
 
 
-def _needs_report(run: _Pass, child: Child, now: int, *, idle_only: bool) -> bool:
-    if not can_be_home(child.id) or child.node is None or child.node == child.mark_node:
+async def _report_due_channels(run: _Pass) -> None:
+    """心跳剛跑完的獨立頻道寫回報（ADR-0319）；這次沒寫的，之後由閒置規則補寫."""
+    due = _due_channels.pop(run.agent, None)
+    if due:
+        await _report_children(run, idle_only=False, only=due)
+
+
+def _has_unreported(child: Child, agent: str) -> bool:
+    """有新內容、還沒回報（寫回報與「還沒回報」那一行共用；忙不忙、閒置多久另外看）."""
+    if child.mark_scope == 0 or child.mark_agent not in (None, agent):
+        return False  # 位置失效（同名重建、還原），或升級前換過靈魂的舊資料
+    if not can_be_reported(child.id) or child.node is None or child.node == child.mark_node:
         return False
-    if child.mark_agent is None and child.scope_version != 1:
-        return False  # 沒有位置的舊資料：升級時既有子對話都建了位置，這種不是新內容
-    if _busy(run, child.id):
+    # 沒有位置的舊資料：升級時既有子對話都建了位置，這種不是新內容
+    return child.mark_agent is not None or child.scope_version == 1
+
+
+def _needs_report(run: _Pass, child: Child, now: int, *, idle_only: bool) -> bool:
+    if not _has_unreported(child, run.agent) or _busy(run, child.id):
         return False
     return not idle_only or (child.updated_at or 0) <= now - CHILD_IDLE_MS
 
 
-async def _report_children(run: _Pass, *, idle_only: bool) -> None:
-    """替有新內容的子對話寫回報，一次維護總共最多幾段；前情摘要關閉或冷卻中不寫."""
+async def unreported_children(identity: AgentIdentity) -> Unreported:
+    """有新活動、還沒回報給家的其他對話（家裡的 ``<continuity>`` 用，ADR-0319）.
+
+    和寫回報同一個判斷，忙不忙、閒置多久不看；候選要解析每段子對話的內容，每個靈魂的結果記 5 分鐘。
+    """
+    agent = prelude_agent(identity)
+    now = get_current_epoch_ms()
+    cached = _unreported_cache.get(agent)
+    if cached is not None and now - cached[0] < UNREPORTED_CACHE_MS:
+        return cached[1]
+    children = [
+        child
+        for child in await child_candidates(soul_session_agents(identity))
+        if _has_unreported(child, agent)
+    ]
+    stamps = [child.updated_at for child in children if child.updated_at]
+    result = Unreported(len(children), max(stamps) if stamps else None)
+    _unreported_cache[agent] = (now, result)
+    return result
+
+
+async def _report_children(run: _Pass, *, idle_only: bool, only: set[str] | None = None) -> None:
+    """替有新內容的子對話寫回報，一次維護總共最多幾段；冷卻中不寫.
+
+    ``only``：只看這幾段（心跳剛跑完的獨立頻道），上次回報不到一小時的不寫。
+    """
     now = get_current_epoch_ms()
     room = REPORTS_PER_PASS - run.reports
-    if (
-        room <= 0
-        or run.disturbed()
-        or not run.config.prelude_summary_enabled
-        or _REPORT_RETRY_AFTER.get(run.agent, 0) > now
-    ):
+    if room <= 0 or run.disturbed() or _REPORT_RETRY_AFTER.get(run.agent, 0) > now:
         return
     chosen: list[Child] = []
     for child in await child_candidates(run.agents):
+        if only is not None and (
+            child.id not in only or now - (child.mark_at or 0) < CHANNEL_REPORT_EVERY_MS
+        ):
+            continue
         if child.mark_scope == 0:  # 失效（同名重建、還原）
             continue
         if child.mark_agent is not None and child.mark_agent != run.agent:
-            if can_be_home(child.id):  # 升級前換過靈魂的舊資料：不補寫換之前的內容
+            if can_be_reported(child.id):  # 升級前換過靈魂的舊資料：不補寫換之前的內容
                 await move_mark(
                     child.id, run.agents, run.agent, child.node, now, skip_if=run.disturbed
                 )
@@ -589,6 +648,12 @@ async def _write_report(run: _Pass, child: Child, gate: asyncio.Semaphore) -> bo
     now = get_current_epoch_ms()
     if not has_dialogue(fresh) or await report_exists(run.agent, child.id, node):
         await move_mark(child.id, run.agents, run.agent, node, now, skip_if=run.disturbed)
+        return True
+    if not run.config.prelude_summary_enabled:
+        # 前情摘要關閉：這個最後節點只寫一行註記，家不再沒消沒息（ADR-0319）
+        segment = _report_segment(run, child.id, node, report_note(), fresh)
+        if await write_report(segment, run.agents, node, now, skip_if=run.disturbed):
+            run.wrote = True
         return True
     reasons: set[str] = set()
     async with gate:

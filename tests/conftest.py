@@ -473,7 +473,9 @@ def _no_background_home_maintenance(request):
     """觸發點照跑、背景維護不開，免得它留到測試結束之後；要真跑的請求 real_home_maintenance。"""
     with pytest.MonkeyPatch.context() as maintenance_patch:
         if "real_home_maintenance" not in request.fixturenames:
-            maintenance_patch.setattr(home_handover, "schedule", lambda _identity: None)
+            maintenance_patch.setattr(
+                home_handover, "schedule", lambda _identity, **_kwargs: None
+            )
         yield
 
 

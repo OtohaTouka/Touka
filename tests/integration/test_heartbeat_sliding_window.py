@@ -270,7 +270,7 @@ async def test_a_heartbeat_of_a_non_soul_schedules_nothing(
 async def test_a_finished_pulse_schedules_maintenance(is_home: bool):
     with _patch_pulse(), _patch_health(), _patch_trim(), patch(_SCHEDULE) as schedule:
         await _run_loop(is_home=is_home)
-    schedule.assert_called_once_with(DEBUG_IDENTITY)
+    schedule.assert_called_once_with(DEBUG_IDENTITY, channel=_SESSION_ID)  # 頻道就順便回報
 
 
 @pytest.mark.asyncio
@@ -278,7 +278,7 @@ async def test_maintenance_is_scheduled_once_the_heartbeat_has_ended():
     """排的時候這次心跳已經拿掉登記：維護才不會以為舊家還在跑。"""
     seen: list[bool] = []
 
-    def _record(identity: AgentIdentity) -> None:
+    def _record(identity: AgentIdentity, **_kwargs: object) -> None:
         seen.append(_SESSION_ID in destructive_ops.running_heartbeats(identity))
 
     with _patch_pulse(), _patch_health(), _patch_trim(), patch(_SCHEDULE, side_effect=_record):
@@ -310,7 +310,7 @@ async def test_a_failure_after_a_finished_pulse_still_schedules():
         patch(_SCHEDULE) as schedule,
     ):
         await _run_loop(pulse_count=2)
-    schedule.assert_called_once_with(DEBUG_IDENTITY)
+    schedule.assert_called_once_with(DEBUG_IDENTITY, channel=_SESSION_ID)
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ from src.services import soul_prelude_service
 from src.services.sliding_window_service import SlidingWindowService
 from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import TreeMessageManager
+from src.utils.tool_record_marks import TOOL_RECORD_HEADER
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -834,3 +835,61 @@ async def test_an_archived_message_with_other_content_is_kept_as_a_version(real_
     assert ("m0", "earlier text") in [(msg_id, content) for msg_id, content, _ in rows]
     versions = [content for _, content, meta in rows if meta.get("version_of") == "m0"]
     assert versions == ["content_0"]
+
+
+
+def test_split_by_tokens_costs_what_is_sent(monkeypatch):
+    """token 照送出時的樣子估（含工具紀錄，ADR-0319），切的仍是存檔那串."""
+    monkeypatch.setattr(
+        "src.services.sliding_window_service.estimate_messages_tokens",
+        lambda msgs, model: sum(20 if m.get("sent") else 10 for m in msgs),
+    )
+    svc = SlidingWindowService()
+    msgs = _msgs(*(["user", "assistant"] * 6))
+    sent = [{**m, "sent": True} for m in msgs]
+    cfg = _cfg_pct(target_floor_pct=30, min_keep_pairs=1)
+    _, kept = svc.compute_split_by_tokens(msgs, "", window=200, config=cfg)
+    _, kept_sent = svc.compute_split_by_tokens(msgs, "", window=200, config=cfg, sent=sent)
+    assert svc.count_rounds(kept) == 3
+    assert svc.count_rounds(kept_sent) == 1  # 每對 40：預算 60 只放得下一對
+    assert not any("sent" in m for m in kept_sent)
+
+
+def _linear_with_steps() -> list[dict]:
+    linear = _msgs("user", "assistant", "user", "assistant")
+    linear[1]["steps"] = [{"id": "s", "tool": "search", "status": "success", "result": "found"}]
+    return linear
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("total", [0, 10**9], ids=["below", "above"])
+async def test_the_local_estimate_counts_the_tool_records(monkeypatch, total):
+    """沒有權威用量時，估算與切點都看含工具紀錄的那份（ADR-0319）；存檔那串不變."""
+    svc = SlidingWindowService()
+    seen: dict = {}
+
+    def current_total(linear, model):
+        seen["total"] = linear
+        return total
+
+    def split(messages, model, window, config, current_total=None, sent=None):
+        seen["split"] = (messages, sent)
+        return ([], list(messages))
+
+    monkeypatch.setattr(svc, "_current_total_tokens", current_total)
+    monkeypatch.setattr(svc, "compute_split_by_tokens", split)
+    monkeypatch.setattr(sliding, "get_context_window", lambda _m: 1000)
+    linear = _linear_with_steps()
+    with (
+        patch.object(svc, "load_config", return_value=SlidingWindowConfig(enabled=True)),
+        patch("src.services.sliding_window_service.session_service") as mock_ss,
+    ):
+        mock_ss.read_persistence_snapshot = AsyncMock(
+            return_value=SessionSnapshot(_make_session(linear), "before")
+        )
+        assert await svc.check_and_trim(DEBUG_IDENTITY, "sess-records") is False
+    assert seen["total"][1]["content"].startswith(TOOL_RECORD_HEADER)
+    if total:
+        messages, sent = seen["split"]
+        assert [m["content"] for m in messages] == [m["content"] for m in linear]
+        assert sent[1]["content"].startswith(TOOL_RECORD_HEADER)

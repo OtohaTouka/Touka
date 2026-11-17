@@ -9,6 +9,9 @@ from memory_server.models.conversation_search import ConversationSearchError
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 
+HEARTBEAT_CHANNEL_PREFIX = "touka.hb.v1."
+_SNS_CHANNEL_PREFIX = "touka.sns.v1."
+
 
 def require_conversation_actor(identity: AgentIdentity, passport: dict[str, Any] | None) -> None:
     """新搜尋只接受靈魂與精確 DebugAgent；角色不擴張可見範圍。"""
@@ -37,11 +40,21 @@ def can_be_home(session_id: str) -> bool:
     return not is_retired_session(session_id) and not session_id.startswith("touka.")
 
 
+def is_heartbeat_channel(session_id: str) -> bool:
+    """心跳的獨立頻道（``channel_session_id("heartbeat", ...)``）."""
+    return session_id.startswith(HEARTBEAT_CHANNEL_PREFIX)
+
+
+def can_be_reported(session_id: str) -> bool:
+    """子對話回報的對象：能當家的對話，加上心跳的獨立頻道（ADR-0319 PR 3）；SNS 與舊共享頻道不寫."""
+    return can_be_home(session_id) or is_heartbeat_channel(session_id)
+
+
 def channel_session_id(kind: str, soul_id: str, *coordinates: str) -> str:
     """完整雜湊避免不同靈魂或含分隔符的外部頻道互相碰撞。"""
     payload = json.dumps([kind, soul_id, *coordinates], ensure_ascii=False, separators=(",", ":"))
-    prefix = "hb" if kind == "heartbeat" else "sns"
-    return f"touka.{prefix}.v1.{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+    prefix = HEARTBEAT_CHANNEL_PREFIX if kind == "heartbeat" else _SNS_CHANNEL_PREFIX
+    return prefix + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def require_session_scope(
