@@ -1171,7 +1171,6 @@ python scripts/guard_all.py
 | `unit/connections.resume.test.ts` | ADR-0081 `resumeChatStream`：starting_after URL、chunk/event/done 分發（與 fetchChatStream 共用 dispatchSseLine）、非 2xx onError、跨 chunk 斷行重組 |
 | `unit/StreamRegistry.resume.test.tsx` | ADR-0081 重整接回：startStream 先 syncSession user 回合（順序斷言）、resumeActiveStreams 依 active 清單重建 entry＋重播重建樹＋onDone 持久化、已有 entry 不重複接回 |
 | `unit/StreamRegistry.test.tsx` | ADR-0080 進行中串流 SSOT：startStream 建 entry、onChunk per-session 隔離不污染他 session、並發上限 5、stopStream abort+清除、onDone 寫回 session、onError toast（非 AbortError）/不 toast（AbortError） |
-| `src/lib/chat/__tests__/toolRecords.test.ts` | ADR-0319 工具紀錄：讀和後端同一份黃金案例檔 `toolRecords.golden.json`（兩種寫法、視窗、整段歷史、假標記）；群聊不加紀錄但照換假標記；內嵌文字附件的假標記也換；tool_result 的 `error_class` 存成 `ToolStep.errorClass` |
 | `src/components/chat/__tests__/ChatArea.test.tsx` | ChatArea：既有互動回歸＋P11模型切換回呼隨翻譯函式更新，不改聊天或權限邏輯；訊息導覽列至少兩條才顯示、IDE 與手機版不顯示但照樣交出捲動範圍、點擊以 `align: 'start'` 捲到那則、捲動範圍決定目前那條、依訊息捲動區的高度決定線數。 |
 | `src/components/chat/__tests__/MessageItem.test.tsx` | MessageItem：既有訊息渲染回歸＋P11切換語言後Markdown程式碼複製按鈕使用新翻譯。 |
 | `src/lib/chat/__tests__/messageNavigation.test.ts` | 訊息導覽列純函式：只收 user 訊息、排除 `SYSTEM_SPEAKER` 的「請繼續」（開場提示、SNS 與其他名字照收）；預覽去頭尾空白與截斷；圖片／檔案附件；超過上限時分段（含不整除）；依導覽區高度算線數上限（沒量到用 120、每 8px 一條、最少 2 條）；目前那則取範圍內第一則、否則取範圍前最近一則；分段時段內任一則都算目前。 |
