@@ -450,7 +450,7 @@ class SlidingWindowService:
 
         # ── 3. 計算分割點（剪到 token 地板）────────────────────────────────
         legacy_msgs, kept_msgs = self.compute_split_by_tokens(
-            linear, model, window, config, current_total, sent=sent
+            linear, model, window, config, current_total, sent
         )
         if not legacy_msgs:
             return False
