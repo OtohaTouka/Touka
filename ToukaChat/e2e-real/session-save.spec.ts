@@ -425,8 +425,8 @@ test("有工具步驟的回覆，重新整理之後內容仍然完整", async ({
   await shot(page, info, "tool-steps-after-reload");
 });
 
-test("原頁來不及存完整內容就關掉：重新整理時補回工具步驟", async ({ page }) => {
-  // 收尾的完整保存送不出去，存檔只有後端存的文字版
+test("原頁來不及存完整內容就關掉：後端存的那份已有工具步驟，重新整理後還在", async ({ page }) => {
+  // 收尾的完整保存送不出去，存檔只有後端存的那份；後端連工具步驟一起存（ADR-0319 第 8 點）
   await page.route("**/v1/ui/sessions/*", async (route) => {
     const body = route.request().postData() ?? "";
     if (route.request().method() === "POST" && body.includes(FAKE_AFTER_TOOL_REPLY)) await route.abort();
@@ -437,16 +437,15 @@ test("原頁來不及存完整內容就關掉：重新整理時補回工具步�
   await approveButton(page).click();
   await expect(page.getByRole("button", { name: "重新核對保存結果" })).toBeVisible();
   const id = await latestSessionId(adminToken);
-  const textOnly = await savedSnapshot(adminToken, id);
   const stored = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
-  expect(stored.at(-1)?.steps ?? []).toHaveLength(0);
+  expect(stored.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
   await page.unroute("**/v1/ui/sessions/*");
 
   await reloadAndSettle(page);
 
   await turnEnded(page);
   await expectNoSaveNotice(page);
-  await expect.poll(async () => (await savedSnapshot(adminToken, id)).revision).not.toBe(textOnly.revision);
+  await expect(page.locator("[data-index]").last().getByText("write").first()).toBeVisible();
   const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
   expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
 });
