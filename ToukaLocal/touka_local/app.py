@@ -369,11 +369,6 @@ class OpenRequestWindow:
         """人選的權限。"""
         return bool(self._writable.get())
 
-    @property
-    def approve_enabled(self) -> bool:
-        """核准鍵現在能不能按。"""
-        return self._approve is not None and str(self._approve.cget("state")) == "normal"
-
     def _enable_approve(self) -> None:
         if self._approve is not None:
             self._approve.configure(state="normal")

@@ -296,12 +296,13 @@ def test_open_window_defaults_to_reject_and_read_only() -> None:
         )
         root.update()
         assert window.default_button.cget("text") == "拒絕"
-        assert window.approve_enabled is False
+        assert window._approve is not None
+        assert str(window._approve.cget("state")) == "disabled"
         assert window.writable is False
         assert "D:\\Photos\\家 2026" in window.path_box.get("1.0", "end")
         assert window.path_box.cget("state") == "disabled"
         window._enable_approve()
-        assert window.approve_enabled is True
+        assert str(window._approve.cget("state")) == "normal"
     finally:
         root.destroy()
 
@@ -320,7 +321,7 @@ def test_a_place_that_cannot_be_opened_only_offers_acknowledge() -> None:
         )
         root.update()
         assert window.default_button.cget("text") == "知道了"
-        assert window.approve_enabled is False
+        assert window._approve is None
         assert "D:\\Missing" in window.path_box.get("1.0", "end")
     finally:
         root.destroy()
