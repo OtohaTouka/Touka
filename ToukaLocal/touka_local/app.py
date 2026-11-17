@@ -25,7 +25,6 @@ from touka_local.display import (
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
-from touka_local.open_request import STATE_CHECKING, OpenRequest
 from touka_local.operations import Operations
 from touka_local.service import (
     CLOSE_BLOCKED,
@@ -60,10 +59,12 @@ from touka_local.view import (
     OPEN_TITLE,
     OPEN_WRITABLE,
     OPEN_WRITABLE_WARNING,
+    WINDOW_OPEN,
     all_paths_text,
     approval_counts,
     approval_rows,
     approval_title,
+    approval_window_kind,
     clean_reason,
     connection_text,
     display_safe,
@@ -84,6 +85,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from touka_local.approval import PendingApproval
+    from touka_local.open_request import OpenRequest
     from touka_local.view import ApprovalRow
 
 logger = logging.getLogger(__name__)
@@ -783,11 +785,11 @@ class MainWindow:
             self._approval = None
         if pending is None:
             return
-        request = pending.plan if isinstance(pending.plan, OpenRequest) else None
-        if request is not None and request.state == STATE_CHECKING:
-            return  # 還在檢查路徑，檢查完才畫（核准要等的 1.5 秒從那時算）
+        kind = approval_window_kind(pending.plan)
+        if kind is None:
+            return
         if self._approval is None:
-            if request is not None:
+            if kind == WINDOW_OPEN:
                 self._approval = OpenRequestWindow(
                     self._root,
                     pending,

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocalOpenRequest, type OpenOutcome } from "@/hooks/settings/useLocalOpenRequest";
+import type { ErrorCode } from "@/lib/error_codes";
 import type { LocalHelperStatus } from "@/lib/types";
 
 const RESULT_PREFIX = "settings.local_helper_tab.open_result.";
@@ -31,7 +32,7 @@ const CODE_MESSAGES: Record<string, string> = {
     io_error: "io_error",
 };
 
-const DENIED_MESSAGES: Record<string, string> = {
+const DENIED_MESSAGES: Partial<Record<ErrorCode, string>> = {
     LOCAL_HELPER_NOT_PAIRED_HUMAN: "not_paired_human",
     LOCAL_HELPER_NOT_PAIRED: "not_paired",
 };
@@ -69,13 +70,16 @@ interface LocalHelperOpenFolderProps {
     status: LocalHelperStatus;
 }
 
-/** 從設定頁請小幫手開放資料夾（ADR-0320）。只有配對而且小幫手開著時顯示。 */
+/**
+ * 從設定頁請小幫手開放資料夾（ADR-0320）。配對了、小幫手開著時顯示；
+ * 等待中或已有結果時，小幫手斷線也繼續顯示，結果才看得到。
+ */
 export function LocalHelperOpenFolder({ status }: LocalHelperOpenFolderProps) {
     const { t } = useTranslation();
     const { pending, outcome, requestOpen } = useLocalOpenRequest();
     const [path, setPath] = useState("");
 
-    if (!status.paired || !status.online) return null;
+    if (!status.paired || (!status.online && !pending && outcome === null)) return null;
 
     const message = outcome ? outcomeMessage(outcome) : null;
 

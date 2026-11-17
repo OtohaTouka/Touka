@@ -82,7 +82,7 @@ class LocalJobResult(_Strict):
     """小幫手回報的結果。``refused`` 是規則不讓做或人拒絕，``error`` 是做的時候出錯。"""
 
     status: Literal["ok", "refused", "error"]
-    code: str | None = Field(default=None, max_length=64)
+    code: str | None = Field(default=None, max_length=MAX_RESULT_CODE_CHARS)
     message: str | None = Field(default=None, max_length=MAX_ERROR_MESSAGE_CHARS)
     data: dict[str, Any] | None = None
 

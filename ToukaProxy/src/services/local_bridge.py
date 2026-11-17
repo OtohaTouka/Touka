@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Final
 from src.models.local_bridge import (
     MAX_OPEN_NAME_CHARS,
     MAX_REQUESTER_CHARS,
+    MAX_RESULT_CODE_CHARS,
     LocalDecision,
     LocalJob,
     LocalJobResult,
@@ -75,6 +76,9 @@ CODE_NEEDS_NEW_PAIRING: Final = "needs_new_pairing"
 CODE_BAD_RESULT: Final = "bad_result"
 CODE_UNKNOWN: Final = "unknown"
 _OPENED_FIELDS: Final = frozenset({"name", "writable"})
+# 小幫手回的代碼與名稱會顯示在設定頁：代碼只收小寫英數與底線，名稱不收控制字元與改變顯示方向的字元
+_RESULT_CODE: Final = re.compile(rf"[a-z0-9_]{{1,{MAX_RESULT_CODE_CHARS}}}")
+_UNSAFE_NAME_CHAR: Final = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 # Windows 磁碟在 Git Bash、WSL、Docker Desktop 裡的寫法
@@ -371,15 +375,19 @@ def open_request_signer(key: bytes, path: str) -> Callable[[str], LocalDecision]
 
 
 def open_result_from(result: LocalJobResult) -> LocalOpenResult:
-    """小幫手的回報換成設定頁看的結果。格式不對的「成功」當成錯誤，不回給模型看的英文說明。"""
+    """小幫手的回報換成設定頁看的結果。格式不對的當成錯誤，不回給模型看的英文說明。"""
     if result.status != "ok":
-        return LocalOpenResult(status=result.status, code=result.code or CODE_UNKNOWN)
+        code = result.code or CODE_UNKNOWN
+        if _RESULT_CODE.fullmatch(code) is None:
+            return LocalOpenResult(status="error", code=CODE_BAD_RESULT)
+        return LocalOpenResult(status=result.status, code=code)
     data = result.data
     if (
         isinstance(data, dict)
         and set(data) == _OPENED_FIELDS
         and isinstance(data["name"], str)
         and 1 <= len(data["name"]) <= MAX_OPEN_NAME_CHARS
+        and _UNSAFE_NAME_CHAR.search(data["name"]) is None
         and isinstance(data["writable"], bool)
     ):
         return LocalOpenResult(status="opened", name=data["name"], writable=data["writable"])

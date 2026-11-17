@@ -5,7 +5,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 
 vi.mock('@/lib/connections', () => ({ fetchTouka: vi.fn(), getActiveProxyUrl: () => 'http://x' }));
-vi.mock('@/lib/error_handler', () => ({ logSSOTError: vi.fn() }));
+vi.mock('@/lib/error_handler', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/error_handler')>()),
+    logSSOTError: vi.fn(),
+}));
 
 import { fetchTouka } from '@/lib/connections';
 import { logSSOTError } from '@/lib/error_handler';
@@ -15,7 +18,8 @@ const mockFetch = fetchTouka as ReturnType<typeof vi.fn>;
 const OPENED = { status: 'opened', code: null, name: '相片', writable: false };
 
 function reply(body: unknown, status = 200) {
-    return Promise.resolve({ ok: status >= 200 && status < 300, status, json: async () => body });
+    const response = { ok: status >= 200 && status < 300, status, json: async () => body, clone: () => response };
+    return Promise.resolve(response);
 }
 
 describe('cleanFolderPath（ADR-0320）', () => {
@@ -48,6 +52,9 @@ describe('useLocalOpenRequest（ADR-0320）', () => {
         expect(JSON.parse(init.body)).toEqual({ path: 'D:\\相片' });
         expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
         expect(init.signal).toBeInstanceOf(AbortSignal);
+        // 帶了這兩個會被套上連線逾時，等人決定時就被中止
+        expect(init).not.toHaveProperty('nonStreaming');
+        expect(init).not.toHaveProperty('requestScope');
         expect(result.current.outcome).toEqual({ kind: 'result', result: OPENED });
         expect(result.current.pending).toBe(false);
     });
@@ -82,6 +89,7 @@ describe('useLocalOpenRequest（ADR-0320）', () => {
         [403, { detail: { code: 'AUTH_PERMISSION_DENIED' } }, { kind: 'denied', code: 'AUTH_PERMISSION_DENIED' }],
         [409, { detail: { code: 'LOCAL_HELPER_NOT_PAIRED' } }, { kind: 'denied', code: 'LOCAL_HELPER_NOT_PAIRED' }],
         [403, {}, { kind: 'denied', code: null }],
+        [403, { detail: { code: 'NOT_A_REAL_CODE' } }, { kind: 'denied', code: null }],
         [422, { detail: [{ loc: ['body', 'path'] }] }, { kind: 'invalid' }],
         [401, { detail: { code: 'AUTH_INVALID_TOKEN' } }, { kind: 'failed' }],
         [500, { detail: { code: 'SYSTEM_ERROR' } }, { kind: 'failed' }],

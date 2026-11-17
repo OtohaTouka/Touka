@@ -59,6 +59,9 @@ def verify_open_request(job: Job, key: bytes | None) -> str:
     path = args.get("path") if set(args) == {"path"} else None
     if not isinstance(path, str) or not 1 <= len(path) <= MAX_REQUEST_PATH_CHARS:
         raise Refused("bad_signature")
+    if any(0xD800 <= ord(c) <= 0xDFFF for c in path):
+        # 單獨的代理字元算不出指紋；這種路徑 Touka 蓋不出對的章
+        raise Refused("bad_signature")
     if key is None:
         raise Refused("needs_new_pairing")
     if job.decision is None or not open_request_signature_ok(key, job.id, path, job.decision):

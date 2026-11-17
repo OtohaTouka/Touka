@@ -1383,7 +1383,7 @@
         "not_paired": "Not paired yet.",
         "denied": "You are not allowed to send this.",
         "invalid_path": "The path has characters that cannot be used, or is too long.",
-        "failed": "It was not sent. Try again."
+        "failed": "No result came back. If the helper showed a window, decide there; otherwise try again."
       }
     }
   },

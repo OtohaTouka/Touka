@@ -401,10 +401,17 @@ class HelperService:
             if job.decision.nonce in self._open_nonces:
                 raise Refused("bad_signature")
             self._open_nonces = [*self._open_nonces, job.decision.nonce][-REMEMBERED_NONCES:]
-            self._gate.offer(
-                job.id, checking(path), OPEN_DECISION_SECONDS, requester=job.requester
-            )
-        self._gate.fill(job.id, _is_open_request, self._checked(path))
+            self._gate.offer(job.id, checking(path), OPEN_DECISION_SECONDS, requester=job.requester)
+        try:
+            self._spawn(lambda: self._fill_open(job.id, path))
+        except RuntimeError:
+            # 開不了新執行緒：當成不能開放，視窗照樣等人按，Touka 看到的和其他情況一樣
+            failed = replace(checking(path), state=STATE_NOT_OPENABLE, reason=REASON_INTERNAL)
+            self._gate.fill(job.id, _is_open_request, failed)
+
+    def _fill_open(self, job_id: str, path: str) -> None:
+        """路徑檢查在自己的執行緒做：工作名額馬上放掉，Touka 量不出檢查花多久（ADR-0320）。"""
+        self._gate.fill(job_id, _is_open_request, self._checked(path))
 
     def _checked(self, path: str) -> OpenRequest:
         """路徑檢查。任何失敗都變成「不能開放」的視窗，原因只顯示在小幫手這邊。"""
@@ -543,7 +550,12 @@ class HelperService:
     def approve_open(self, job_id: str, digest: str, *, writable: bool) -> None:
         """人在開放視窗按了核准：加進名單、回報 Touka。人看著完整路徑決定的，不經 Touka 確認。"""
         request: OpenRequest = self._gate.approve(job_id, digest, _is_openable)
-        self._spawn(lambda: self._add_folder(job_id, request, writable=writable))
+        try:
+            self._spawn(lambda: self._add_folder(job_id, request, writable=writable))
+        except RuntimeError as exc:
+            # 視窗已經收了、名單沒動；Touka 等到逾時，設定頁會請人到小幫手看名單
+            self._count_open_miss()
+            raise Refused("busy") from exc
 
     def _add_folder(self, job_id: str, request: OpenRequest, *, writable: bool) -> None:
         try:

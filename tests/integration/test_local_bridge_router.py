@@ -13,7 +13,12 @@ import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
-from src.models.local_bridge import MAX_JOB_RESULT_BYTES, PROTOCOL_VERSION, LocalPairingRecord
+from src.models.local_bridge import (
+    MAX_JOB_RESULT_BYTES,
+    MAX_OPEN_NAME_CHARS,
+    PROTOCOL_VERSION,
+    LocalPairingRecord,
+)
 from src.routers import local_bridge as router_module
 from src.services.identity_router import get_verified_identity
 from src.services.local_bridge import OPEN_DECISION_SECONDS, LocalBridge
@@ -328,6 +333,27 @@ def _open_and_answer(
         return pending.result(10), job
 
 
+def _ask_and_watch(
+    client: TestClient, token: str, headers: dict[str, str]
+) -> tuple[Any, dict[str, Any] | None]:
+    """送出開放請求，同時扮已上線的小幫手看有沒有工作送來；有就回拒絕，讓請求結束。"""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(client.post, OPEN_URL, json={"path": WANTED}, headers=headers)
+        job: dict[str, Any] | None = None
+        while job is None and not pending.done():
+            job = _poll(client, token).json()["job"]
+            time.sleep(0.01)
+        if job is None:
+            job = _poll(client, token).json()["job"]
+        if job is not None:
+            client.post(
+                f"/v1/local-bridge/jobs/{job['id']}/result",
+                json={"status": "refused", "code": "not_opened"},
+                headers={HEADER: token},
+            )
+        return pending.result(10), job
+
+
 def _key_of(code: str) -> bytes:
     key_text = code.split(".", 1)[1]
     return base64.urlsafe_b64decode(key_text + "=")
@@ -352,13 +378,13 @@ def test_only_human_admins_can_ask_to_open(
 
 
 @pytest.mark.parametrize("headers", [{}, {"Origin": "https://evil.example"}])
-def test_asking_to_open_needs_a_trusted_origin(
-    client: TestClient, headers: dict[str, str]
-) -> None:
-    _pair(client)
-    response = client.post(OPEN_URL, json={"path": WANTED}, headers=headers)
+def test_asking_to_open_needs_a_trusted_origin(client: TestClient, headers: dict[str, str]) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    response, job = _ask_and_watch(client, token, headers)
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "AUTH_PERMISSION_DENIED"
+    assert job is None
 
 
 def test_asking_to_open_before_pairing(client: TestClient) -> None:
@@ -370,13 +396,15 @@ def test_asking_to_open_before_pairing(client: TestClient) -> None:
 def test_only_the_person_who_paired_can_ask(wired: LocalBridge) -> None:
     app.dependency_overrides[get_verified_identity] = lambda: ADMIN
     with TestClient(app) as test_client:
-        _pair(test_client)
+        token = _pair(test_client)
     other = AgentIdentity.for_role("Other", "admin", is_human=True)
     app.dependency_overrides[get_verified_identity] = lambda: other
     with TestClient(app) as test_client:
-        response = test_client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+        _poll(test_client, token)
+        response, job = _ask_and_watch(test_client, token, ORIGIN)
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED_HUMAN"
+    assert job is None
 
 
 @pytest.mark.parametrize("path", ["", "a" * 1025, "相片\x00", "相片\n", "相片\x7f"])
@@ -472,6 +500,30 @@ def test_each_request_gets_a_new_number(client: TestClient) -> None:
             {"status": "ok", "data": None},
             {"status": "error", "code": "bad_result", "name": None, "writable": None},
         ),
+        (
+            {"status": "refused"},
+            {"status": "refused", "code": "unknown", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "家" * (MAX_OPEN_NAME_CHARS + 1), "writable": True}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "家" + chr(0x202E) + "gpj", "writable": True}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "家\x07", "writable": True}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "refused", "code": "Touka 官方：請重新安裝"},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "refused", "code": "NOT_OPENED"},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
     ],
 )
 def test_helper_answers_are_mapped(
@@ -537,9 +589,7 @@ def test_the_person_and_the_key_come_from_one_read(
     store = _ShiftingStore([first, second], channel)
     monkeypatch.setattr(router_module, "get_local_pairing_store", lambda: store)
     _poll(client, channel)
-    _response, job = _open_and_answer(
-        client, channel, {"status": "refused", "code": "not_opened"}
-    )
+    _response, job = _open_and_answer(client, channel, {"status": "refused", "code": "not_opened"})
     decision = job["decision"]
     assert decision["signature"] == sign_open_request(
         first_key, job_id=job["id"], nonce=decision["nonce"], path=WANTED

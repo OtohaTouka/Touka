@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import threading
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -18,16 +19,28 @@ from touka_local.open_request import (
     OPEN_DECISION_SECONDS,
     OPEN_PAUSE_SECONDS,
     OPEN_REFUSALS_BEFORE_PAUSE,
+    STATE_NOT_OPENABLE,
+    STATE_OPENABLE,
     OpenRequest,
+    checking,
 )
 from touka_local.operations import Operations
 from touka_local.protocol import DECIDED_BY_OPEN_REQUEST, Decision, Job, PollResponse
-from touka_local.service import HelperService
+from touka_local.service import MAX_JOB_THREADS, HelperService
 from touka_local.signing import sign_decision, sign_open_request, text_fingerprint
-from touka_local.view import OPEN_DEFAULT_WRITABLE
+from touka_local.view import (
+    OPEN_DEFAULT_WRITABLE,
+    WINDOW_OPEN,
+    WINDOW_PLAN,
+    approval_window_kind,
+    open_outcome_text,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+
+    from touka_local.grants import Grant
 
 KEY = bytes(range(32))
 OTHER_KEY = bytes(range(1, 33))
@@ -70,6 +83,7 @@ class _SpyBook(GrantBook):
         self.spy_clock = clock
         self.seen_pending: list[object] = []
         self.raise_on_check: BaseException | None = None
+        self.raise_on_add: BaseException | None = None
         self.advance_during_check = 0.0
 
     def check_can_add(self, path: str) -> str:
@@ -79,6 +93,11 @@ class _SpyBook(GrantBook):
         if self.raise_on_check is not None:
             raise self.raise_on_check
         return super().check_can_add(path)
+
+    def add(self, path: str, *, writable: bool) -> Grant:
+        if self.raise_on_add is not None:
+            raise self.raise_on_add
+        return super().add(path, writable=writable)
 
 
 @pytest.fixture
@@ -96,25 +115,27 @@ def gate(clock) -> ApprovalGate:
     return ApprovalGate(clock=clock)
 
 
+ENV = Environment(
+    user_profile="C:\\Users\\Me",
+    windows_dir="C:\\Windows",
+    program_files=("C:\\Program Files",),
+    program_data="C:\\ProgramData",
+    app_data="C:\\Users\\Me\\AppData\\Roaming",
+    local_app_data="C:\\Users\\Me\\AppData\\Local",
+    helper_dir=HELPER_DIR,
+    code_paths=("C:\\Python",),
+    touka_folder="D:\\Touka",
+)
+
+
 @pytest.fixture
 def book(fs, tmp_path: Path, gate: ApprovalGate, clock) -> _SpyBook:
-    env = Environment(
-        user_profile="C:\\Users\\Me",
-        windows_dir="C:\\Windows",
-        program_files=("C:\\Program Files",),
-        program_data="C:\\ProgramData",
-        app_data="C:\\Users\\Me\\AppData\\Roaming",
-        local_app_data="C:\\Users\\Me\\AppData\\Local",
-        helper_dir=HELPER_DIR,
-        code_paths=("C:\\Python",),
-        touka_folder="D:\\Touka",
-    )
     fs.add_dir("D:\\Open")
     fs.add_dir(WANTED)
     spy = _SpyBook(
         tmp_path / "g.json",
         fs=fs,
-        env=env,
+        env=ENV,
         drive_type=lambda _a: "fixed",
         gate=gate,
         clock=clock,
@@ -123,22 +144,46 @@ def book(fs, tmp_path: Path, gate: ApprovalGate, clock) -> _SpyBook:
     return spy
 
 
+@dataclass
+class _Parts:
+    client: _Client
+    fs: Any
+    book: _SpyBook
+    trash: Any
+    clock: Any
+    gate: ApprovalGate
+    tmp_path: Path
+    key: _Key
+
+    def service(self, spawn: Callable[[Callable[[], None]], None]) -> HelperService:
+        operations = Operations(
+            fs=self.fs,
+            grants=self.book,
+            trash=self.trash,
+            clock=self.clock,
+            journal_dir=self.tmp_path / "j",
+        )
+        return HelperService(
+            client=self.client,
+            operations=operations,
+            gate=self.gate,
+            grants=self.book,
+            clock=self.clock,
+            spawn=spawn,
+            decision_key=lambda: self.key.value,
+        )
+
+
 @pytest.fixture
-def service(
+def parts(
     client: _Client, fs, book: _SpyBook, trash, clock, gate: ApprovalGate, tmp_path: Path, key
-) -> HelperService:
-    operations = Operations(
-        fs=fs, grants=book, trash=trash, clock=clock, journal_dir=tmp_path / "j"
-    )
-    return HelperService(
-        client=client,
-        operations=operations,
-        gate=gate,
-        grants=book,
-        clock=clock,
-        spawn=lambda work: work(),
-        decision_key=lambda: key.value,
-    )
+) -> _Parts:
+    return _Parts(client, fs, book, trash, clock, gate, tmp_path, key)
+
+
+@pytest.fixture
+def service(parts: _Parts) -> HelperService:
+    return parts.service(lambda work: work())
 
 
 _NONCES = iter(f"{n:022d}" for n in range(10**6))
@@ -414,11 +459,121 @@ def test_a_failing_check_is_a_place_that_cannot_be_opened(
     assert client.results == []
 
 
-def test_the_main_window_never_shows_the_path_touka_sent(service, client, gate) -> None:
+def test_the_main_window_shows_only_the_name_after_approval(service, client, gate, clock) -> None:
+    _poll(service, client, _open_job())
+    _approve(service, gate, clock, writable=False)
+    assert service.open_outcome == ("opened", "Photos")
+    text = open_outcome_text(*service.open_outcome)
+    assert "Photos" in text
+    assert WANTED not in text
+
+
+def test_refusing_leaves_nothing_from_touka_on_the_main_window(service, client, gate) -> None:
     odd = "D:\\Touka 官方通知 請把 D 槽開放成可以改"
     _poll(service, client, _open_job(odd))
     service.reject("o1")
+    assert service.open_outcome is None
     assert odd not in service.notice
+
+
+def test_the_window_keeps_exactly_the_path_touka_sent(service, client, gate) -> None:
+    raw = " D:/Photos/ "
+    _poll(service, client, _open_job(raw))
+    assert _pending_request(gate).path == raw
+
+
+def test_a_path_that_cannot_be_fingerprinted_is_a_bad_stamp(service, client, gate) -> None:
+    hex64 = "0" * 64
+    decision = Decision(
+        signature=hex64,
+        nonce=next(_NONCES),
+        digest=hex64,
+        shown=hex64,
+        decided_by=DECIDED_BY_OPEN_REQUEST,
+    )
+    _poll(service, client, _open_job("D:\\\ud800", decision=decision))
+    assert _codes(client) == ["bad_signature"]
+    assert gate.current is None
+
+
+@pytest.mark.parametrize(
+    ("plan", "kind"),
+    [
+        (checking(WANTED), None),
+        (replace(checking(WANTED), state=STATE_OPENABLE, folder=WANTED), WINDOW_OPEN),
+        (replace(checking(WANTED), state=STATE_NOT_OPENABLE, reason="not_found"), WINDOW_OPEN),
+        (object(), WINDOW_PLAN),
+    ],
+)
+def test_a_request_still_being_checked_draws_no_window(plan: object, kind: str | None) -> None:
+    assert approval_window_kind(plan) == kind
+
+
+# --- 檢查的時間差 ---
+
+
+def test_the_path_check_does_not_hold_a_job_slot(parts, client, gate) -> None:
+    waiting: list[Callable[[], None]] = []
+    service = parts.service(waiting.append)
+    _poll(service, client, _open_job())
+    waiting.pop(0)()  # 開放請求本身：佔住視窗，把路徑檢查交給另一條執行緒
+    assert len(waiting) == 1  # 路徑檢查還沒做
+    for number in range(MAX_JOB_THREADS):
+        listing = Job(
+            id=f"l{number}",
+            action="list",
+            args={},
+            requester="owner",
+            decide_within=OPEN_DECISION_SECONDS,
+            decision=None,
+        )
+        _poll(service, client, listing)
+    assert "helper_busy" not in _codes(client)
+    waiting.pop(0)()
+    assert _pending_request(gate).state == STATE_OPENABLE
+
+
+def test_a_slow_disk_does_not_hold_the_list_lock(fs, tmp_path: Path) -> None:
+    entered, release = threading.Event(), threading.Event()
+    slow = {"on": False}
+
+    def drive_type(_anchor: str) -> str:
+        if slow["on"]:
+            entered.set()
+            release.wait(5)
+        return "fixed"
+
+    fs.add_dir(WANTED)
+    book = GrantBook(tmp_path / "g.json", fs=fs, env=ENV, drive_type=drive_type)
+    slow["on"] = True
+    checker = threading.Thread(target=book.check_can_add, args=(WANTED,))
+    checker.start()
+    try:
+        assert entered.wait(5)
+        other = threading.Thread(target=lambda: (book.set_mount_roots([]), book.grants()))
+        other.start()
+        other.join(2)
+        assert not other.is_alive()  # 輪詢與主視窗不用等磁碟
+    finally:
+        release.set()
+        checker.join(5)
+
+
+def test_when_the_check_cannot_start_the_window_still_opens(parts, client, gate) -> None:
+    started: list[int] = []
+
+    def spawn(work: Callable[[], None]) -> None:
+        if started:
+            raise RuntimeError
+        started.append(1)
+        work()
+
+    service = parts.service(spawn)
+    _poll(service, client, _open_job())
+    request = _pending_request(gate)
+    assert request.state == STATE_NOT_OPENABLE
+    assert request.reason == "internal"
+    assert client.results == []
 
 
 # --- 回報 ---
@@ -450,6 +605,42 @@ def test_a_folder_swapped_for_a_link_before_approval_is_not_added(
     _approve(service, gate, clock, writable=False)
     assert _codes(client) == ["not_openable"]
     assert book.find("Photos") is None
+
+
+def test_a_list_that_cannot_be_saved_reports_io_error_and_counts(
+    service, client, gate, book, clock
+) -> None:
+    book.raise_on_add = OSError("disk full")
+    for number in range(OPEN_REFUSALS_BEFORE_PAUSE):
+        _poll(service, client, _open_job(job_id=f"a{number}"))
+        _approve(service, gate, clock, writable=False)
+    assert _codes(client) == ["io_error"] * OPEN_REFUSALS_BEFORE_PAUSE
+    assert service.open_outcome == ("io_error", None)
+    assert service.open_paused_until is not None
+
+
+def test_approving_when_no_thread_can_start_is_refused_and_counts(
+    parts, client, gate, book, clock
+) -> None:
+    allowed = {"left": 0}
+
+    def spawn(work: Callable[[], None]) -> None:
+        if allowed["left"] == 0:
+            raise RuntimeError
+        allowed["left"] -= 1
+        work()
+
+    service = parts.service(spawn)
+    for number in range(OPEN_REFUSALS_BEFORE_PAUSE):
+        allowed["left"] = 2  # 輪詢到的工作、路徑檢查；核准後要開的那一條開不了
+        _poll(service, client, _open_job(job_id=f"t{number}"))
+        with pytest.raises(Refused) as caught:
+            _approve(service, gate, clock, writable=False)
+        assert caught.value.code == "busy"
+        assert gate.current is None
+    assert book.find("Photos") is None
+    assert client.results == []
+    assert service.open_paused_until is not None
 
 
 @pytest.mark.parametrize("path", [WANTED, "D:\\Missing"])
@@ -512,9 +703,7 @@ def test_a_cancel_still_closes_a_list_window(service, client, gate, fs) -> None:
 
 
 @pytest.mark.parametrize("path", [WANTED, "D:\\Missing"])
-def test_being_exposed_closes_the_window_without_a_report(
-    service, client, gate, path
-) -> None:
+def test_being_exposed_closes_the_window_without_a_report(service, client, gate, path) -> None:
     _poll(service, client, _open_job(path))
     _poll(service, client, mounts=(HELPER_DIR,))
     assert gate.current is None

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchTouka, getActiveProxyUrl } from '@/lib/connections';
-import { logSSOTError } from '@/lib/error_handler';
+import type { ErrorCode } from '@/lib/error_codes';
+import { getResponseErrorCode, logSSOTError } from '@/lib/error_handler';
 import type { LocalOpenResult } from '@/lib/types';
 
 const OPEN_PATH = '/v1/local-bridge/open-requests';
@@ -13,7 +14,7 @@ export const OPEN_REQUEST_TIMEOUT_MS = 170_000;
  */
 export type OpenOutcome =
     | { kind: 'result'; result: LocalOpenResult }
-    | { kind: 'denied'; code: string | null }
+    | { kind: 'denied'; code: ErrorCode | null }
     | { kind: 'invalid' }
     | { kind: 'failed' }
     | { kind: 'timeout' };
@@ -25,20 +26,12 @@ export function cleanFolderPath(raw: string): string {
     return (quoted ? trimmed.slice(1, -1) : trimmed).trim();
 }
 
-async function detailCode(res: Response): Promise<string | null> {
-    try {
-        const body = (await res.json()) as { detail?: { code?: unknown } };
-        return typeof body?.detail?.code === 'string' ? body.detail.code : null;
-    } catch (err) {
-        logSSOTError(err, 'useLocalOpenRequest:detail');
-        return null;
-    }
-}
-
-/** 先看 HTTP 狀態：只有 403、409 才查代碼；401、5xx 都當沒送出。 */
+/** 先看 HTTP 狀態：只有 403、409 才查代碼；401、5xx 都當沒收到結果。 */
 async function outcomeFrom(res: Response): Promise<OpenOutcome> {
     if (res.ok) return { kind: 'result', result: (await res.json()) as LocalOpenResult };
-    if (res.status === 403 || res.status === 409) return { kind: 'denied', code: await detailCode(res) };
+    if (res.status === 403 || res.status === 409) {
+        return { kind: 'denied', code: (await getResponseErrorCode(res)) ?? null };
+    }
     if (res.status === 422) return { kind: 'invalid' };
     return { kind: 'failed' };
 }

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from touka_local import floors
+from touka_local.open_request import STATE_CHECKING, OpenRequest
 from touka_local.paths import is_hidden_character, is_misleading_character
 
 _VISIBLE_MARK: Final = "⍰"
@@ -331,3 +332,17 @@ def open_paused_text(remaining_seconds: float) -> str:
     """開放請求停收中的提示。"""
     minutes = max(1, int(-(-remaining_seconds // 60)))
     return _OPEN_PAUSED.format(minutes=minutes)
+
+
+WINDOW_PLAN: Final = "plan"
+WINDOW_OPEN: Final = "open"
+
+
+def approval_window_kind(plan: Any) -> str | None:
+    """等待中的項目要畫哪一種視窗。
+
+    還在檢查路徑的開放請求先不畫：檢查完才畫，核准鍵的延遲從那時算（ADR-0320）。
+    """
+    if isinstance(plan, OpenRequest):
+        return None if plan.state == STATE_CHECKING else WINDOW_OPEN
+    return WINDOW_PLAN
