@@ -1,6 +1,7 @@
-"""小幫手的主流程（ADR-0312、ADR-0317）.
+"""小幫手的主流程（ADR-0312、ADR-0317、ADR-0320）.
 
 拿工作、分派、等人核准（或核對 Touka 照模式的決定）、確認之後才動手、回報。
+開放請求一律跳視窗，人按核准就加進名單，不經 Touka 確認。
 """
 
 from __future__ import annotations
@@ -8,13 +9,26 @@ from __future__ import annotations
 import logging
 import secrets
 import threading
+from collections import deque
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from touka_local.connection import AuthLost, ConnectionLost, ProtocolMismatch
 from touka_local.errors import Refused
 from touka_local.floors import plan_entries, window_reason
-from touka_local.operations import ApplyLimits
+from touka_local.open_request import (
+    OPEN_DECISION_SECONDS,
+    REASON_INTERNAL,
+    REASON_UNREADABLE,
+    REMEMBERED_NONCES,
+    STATE_NOT_OPENABLE,
+    STATE_OPENABLE,
+    OpenPause,
+    OpenRequest,
+    checking,
+    verify_open_request,
+)
+from touka_local.operations import ApplyLimits, Plan
 from touka_local.protocol import DECIDED_BY_HELPER_WINDOW, ProtocolError, result_payload
 from touka_local.signing import decision_signature_ok, text_fingerprint
 from touka_local.view import preview_text
@@ -25,7 +39,7 @@ if TYPE_CHECKING:
     from touka_local.approval import ApprovalGate, PendingApproval
     from touka_local.fsops import Clock
     from touka_local.grants import GrantBook
-    from touka_local.operations import Operations, Plan
+    from touka_local.operations import Operations
     from touka_local.protocol import Job, PollResponse
 
 logger = logging.getLogger(__name__)
@@ -56,6 +70,8 @@ NOTICE_PARTLY_DONE: Final = "partly_done"
 CLOSE_NOW: Final = "now"
 CLOSE_WAIT: Final = "wait"
 CLOSE_BLOCKED: Final = "blocked"
+
+_ACTIONS_WITH_DECISION: Final = frozenset({"propose", "request_open"})
 
 _FALLBACK_MESSAGE: Final = "The local helper refused this request."
 _MODEL_MESSAGES: Final = {
@@ -94,6 +110,11 @@ _MODEL_MESSAGES: Final = {
     "approval_cooldown": "A list was just closed. Do not send another one right away.",
     "helper_busy": "The local helper is handling too many requests.",
     "not_supported": "This version of the local helper does not do that yet.",
+    "bad_signature": "The local helper could not verify that this request came from Touka.",
+    "needs_new_pairing": "The local helper has no key for this pairing. Pair again.",
+    "open_paused": "The local helper is not taking folder requests for a while.",
+    "not_opened": "The user did not open that folder.",
+    "not_openable": "That place cannot be opened. The reason is shown in the helper window.",
     "recently_vacated": (
         "Something was moved away from or deleted at that place in the last 7 days. "
         "To avoid quietly replacing it, ask the user to create it themselves or pick "
@@ -161,11 +182,21 @@ def _notice_after(payload: dict[str, Any], *, delivered: bool) -> str:
 
 
 def _check_supported(job: Job) -> None:
-    """決定只能出現在搬移、刪除清單；開放資料夾的請求這一版還不做（只拒絕這一件）。"""
-    if job.decision is not None and job.action != "propose":
+    """決定只能出現在搬移、刪除清單，以及開放請求的章（ADR-0320）。"""
+    if job.decision is not None and job.action not in _ACTIONS_WITH_DECISION:
         raise Refused("bad_request")
-    if job.action == "request_open":
-        raise Refused("not_supported")
+
+
+def _is_plan(plan: object) -> bool:
+    return isinstance(plan, Plan)
+
+
+def _is_open_request(plan: object) -> bool:
+    return isinstance(plan, OpenRequest)
+
+
+def _is_openable(plan: object) -> bool:
+    return isinstance(plan, OpenRequest) and plan.openable
 
 
 class HelperService:
@@ -198,9 +229,30 @@ class HelperService:
         self._job_slots = threading.BoundedSemaphore(MAX_JOB_THREADS)
         self._running: _Running | None = None
         self._cancelled: list[str] = []
+        # 開放請求（ADR-0320）：用過的一次性號碼與停收規則，都只在 self._lock 裡讀寫
+        self._open_nonces: deque[str] = deque(maxlen=REMEMBERED_NONCES)
+        self._open_pause = OpenPause()
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
         self.notice = ""
         self.last_report: dict[str, Any] | None = None
+        # 最近一次開放請求核准後的結果：(代碼, 名稱)，主視窗顯示用；不含 Touka 送來的路徑
+        self.open_outcome: tuple[str, str | None] | None = None
+
+    @property
+    def open_paused_until(self) -> float | None:
+        """開放請求停收到什麼時候（小幫手時鐘）；沒有停收回 None。"""
+        with self._lock:
+            return self._open_pause.paused_until(self._clock())
+
+    def resume_open_requests(self) -> None:
+        """人在主視窗按「現在恢復」。"""
+        with self._lock:
+            self._open_pause.resume()
+
+    def _count_open_miss(self) -> None:
+        """開放請求沒核准一次。呼叫時不能持有 gate 的鎖或自己的鎖。"""
+        with self._lock:
+            self._open_pause.missed(self._clock())
 
     @property
     def running(self) -> bool:
@@ -272,16 +324,20 @@ class HelperService:
             raise
 
     def _abandon_work(self) -> None:
-        """配對失效了：等待中的視窗收掉，執行中的停下來。"""
-        pending = self._gate.current
-        if pending is not None:
-            self._gate.cancel(pending.job_id)
+        """配對失效或小幫手被看見：等待中的視窗收掉、不回報，執行中的停下來。
+
+        收掉的是開放請求就算一次沒核准，Touka 才不能反覆讓視窗一閃就收（ADR-0320）。
+        """
+        closed = self._gate.abandon()
+        if closed is not None and _is_open_request(closed.plan):
+            self._count_open_miss()
         self.stop_running()
 
     def _cancel(self, job_id: str) -> None:
+        """Touka 撤回。開放請求不理會撤回，視窗留到人決定或時間到（ADR-0320）。"""
         with self._lock:
             self._cancelled = [*self._cancelled, job_id][-REMEMBERED_CANCELS:]
-            if self._gate.cancel(job_id):
+            if self._gate.cancel(job_id, _is_plan) is not None:
                 return
             if self._running is not None and self._running.job_id == job_id:
                 self._running.stop.set()
@@ -306,6 +362,9 @@ class HelperService:
                 else:
                     self._decide(job)
                 return
+            if job.action == "request_open":
+                self._request_open(job)
+                return
             operations = self._operations
             handlers = {
                 "list": operations.list,
@@ -328,6 +387,39 @@ class HelperService:
                 job.id,
                 result_payload("error", code="internal", message="The helper hit a problem."),
             )
+
+    def _request_open(self, job: Job) -> None:
+        """開放請求（ADR-0320）：先佔住視窗、再檢查路徑；能不能開放都跳視窗，人決定前不回報。
+
+        撤回不理會，視窗時間用小幫手自己的 120 秒，不用 Touka 給的。
+        """
+        with self._lock:
+            if self._open_pause.paused_until(self._clock()) is not None:
+                raise Refused("open_paused")
+        path = verify_open_request(job, self._decision_key())
+        assert job.decision is not None  # verify_open_request 已確認
+        with self._lock:
+            if job.decision.nonce in self._open_nonces:
+                raise Refused("bad_signature")
+            self._open_nonces.append(job.decision.nonce)
+            self._gate.offer(
+                job.id, checking(path), OPEN_DECISION_SECONDS, requester=job.requester
+            )
+        self._gate.fill(job.id, _is_open_request, self._checked(path))
+
+    def _checked(self, path: str) -> OpenRequest:
+        """路徑檢查。任何失敗都變成「不能開放」的視窗，原因只顯示在小幫手這邊。"""
+        base = checking(path)
+        try:
+            folder = self._grants.check_can_add(path)
+        except Refused as exc:
+            return replace(base, state=STATE_NOT_OPENABLE, reason=exc.code)
+        except OSError:
+            return replace(base, state=STATE_NOT_OPENABLE, reason=REASON_UNREADABLE)
+        except Exception:
+            logger.exception("checking a folder request failed")
+            return replace(base, state=STATE_NOT_OPENABLE, reason=REASON_INTERNAL)
+        return replace(base, state=STATE_OPENABLE, folder=folder)
 
     def _offer(self, job: Job) -> None:
         if self.running:
@@ -440,7 +532,7 @@ class HelperService:
         with self._lock:
             if self._running is not None:
                 raise Refused("busy")
-            plan = self._gate.approve(job_id, digest)
+            plan = self._gate.approve(job_id, digest, _is_plan)
             self._running = running
         try:
             self._spawn(lambda: self._execute(running, plan))
@@ -449,16 +541,56 @@ class HelperService:
                 self._running = None
             raise Refused("busy") from exc
 
+    def approve_open(self, job_id: str, digest: str, *, writable: bool) -> None:
+        """人在開放視窗按了核准：加進名單、回報 Touka。人看著完整路徑決定的，不經 Touka 確認。"""
+        request: OpenRequest = self._gate.approve(job_id, digest, _is_openable)
+        self._spawn(lambda: self._add_folder(job_id, request, writable=writable))
+
+    def _add_folder(self, job_id: str, request: OpenRequest, *, writable: bool) -> None:
+        try:
+            grant = self._grants.add(request.folder or request.path, writable=writable)
+        except Refused as exc:
+            # 核准前資料夾被換掉之類：原因只留在小幫手這邊，Touka 只知道沒開成
+            self.open_outcome = (exc.code, None)
+            self._count_open_miss()
+            self._send(job_id, _refused_payload(Refused("not_openable")))
+            return
+        except OSError:
+            logger.exception("the open folders list could not be saved")
+            self.open_outcome = ("io_error", None)
+            self._count_open_miss()
+            self._send(
+                job_id,
+                result_payload(
+                    "error", code="io_error", message="The open folders list could not be saved."
+                ),
+            )
+            return
+        with self._lock:
+            self._open_pause.resume()
+        self.open_outcome = ("opened", grant.name)
+        self._send(
+            job_id, result_payload("ok", data={"name": grant.name, "writable": grant.writable})
+        )
+
     def reject(self, job_id: str) -> None:
-        """人按了拒絕。"""
-        if self._gate.reject(job_id):
+        """人按了拒絕；開放請求的「知道了」也是這個，兩種開放視窗回同一個代碼。"""
+        closed = self._gate.reject(job_id)
+        if closed is None:
+            return
+        if _is_open_request(closed.plan):
+            self._count_open_miss()
+            payload = _refused_payload(Refused("not_opened"))
+        else:
             payload = _refused_payload(Refused("user_rejected"))
-            self._spawn(lambda: self._send(job_id, payload))
+        self._spawn(lambda: self._send(job_id, payload))
 
     def tick(self) -> None:
         """時間到了自動拒絕。"""
         expired: PendingApproval | None = self._gate.expire_due()
         if expired is not None:
+            if _is_open_request(expired.plan):
+                self._count_open_miss()
             job_id = expired.job_id
             self._spawn(lambda: self._send(job_id, result_payload("refused", code="no_decision")))
 

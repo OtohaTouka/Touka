@@ -46,6 +46,18 @@ def gate(clock) -> ApprovalGate:
     return ApprovalGate(clock=clock)
 
 
+def _any(_plan: object) -> bool:
+    return True
+
+
+def _none(_plan: object) -> bool:
+    return False
+
+
+_ANY = _any
+_NONE = _none
+
+
 def _code(callable_, *args, **kwargs) -> str:
     with pytest.raises(Refused) as caught:
         callable_(*args, **kwargs)
@@ -59,7 +71,7 @@ def test_offer_then_approve(gate: ApprovalGate, clock) -> None:
     assert current is not None
     assert (current.job_id, current.plan, current.requester) == ("j1", plan, "soul")
     clock.now += APPROVE_DELAY_SECONDS
-    assert gate.approve("j1", plan.digest) is plan
+    assert gate.approve("j1", plan.digest, _ANY) is plan
     assert gate.current is None
 
 
@@ -73,14 +85,14 @@ def test_approve_is_delayed(gate: ApprovalGate, clock) -> None:
     plan = _Plan()
     gate.offer("j1", plan, 540)
     clock.now += APPROVE_DELAY_SECONDS - 0.01
-    assert _code(gate.approve, "j1", plan.digest) == "too_soon"
+    assert _code(gate.approve, "j1", plan.digest, _ANY) == "too_soon"
     assert gate.current is not None
 
 
 def test_approve_binds_to_digest(gate: ApprovalGate, clock) -> None:
     gate.offer("j1", _Plan(), 540)
     clock.now += APPROVE_DELAY_SECONDS
-    assert _code(gate.approve, "j1", "e" * 64) == "changed"
+    assert _code(gate.approve, "j1", "e" * 64, _ANY) == "changed"
     assert gate.current is not None
 
 
@@ -88,27 +100,27 @@ def test_approve_binds_to_job(gate: ApprovalGate, clock) -> None:
     plan = _Plan()
     gate.offer("j1", plan, 540)
     clock.now += APPROVE_DELAY_SECONDS
-    assert _code(gate.approve, "j2", plan.digest) == "no_pending"
+    assert _code(gate.approve, "j2", plan.digest, _ANY) == "no_pending"
 
 
 def test_approve_twice(gate: ApprovalGate, clock) -> None:
     plan = _Plan()
     gate.offer("j1", plan, 540)
     clock.now += APPROVE_DELAY_SECONDS
-    gate.approve("j1", plan.digest)
-    assert _code(gate.approve, "j1", plan.digest) == "no_pending"
+    gate.approve("j1", plan.digest, _ANY)
+    assert _code(gate.approve, "j1", plan.digest, _ANY) == "no_pending"
 
 
 def test_cannot_approve_after_deadline_even_before_tick(gate: ApprovalGate, clock) -> None:
     plan = _Plan()
     gate.offer("j1", plan, 540)
     clock.now += 540
-    assert _code(gate.approve, "j1", plan.digest) == "expired"
+    assert _code(gate.approve, "j1", plan.digest, _ANY) == "expired"
 
 
 def test_reject_starts_cooldown(gate: ApprovalGate, clock) -> None:
     gate.offer("j1", _Plan(), 540)
-    assert gate.reject("j1") is True
+    assert gate.reject("j1") is not None
     assert gate.current is None
     clock.now += REJECT_COOLDOWN_SECONDS - 0.01
     assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
@@ -117,7 +129,7 @@ def test_reject_starts_cooldown(gate: ApprovalGate, clock) -> None:
 
 
 def test_reject_unknown_job(gate: ApprovalGate) -> None:
-    assert gate.reject("nope") is False
+    assert gate.reject("nope") is None
 
 
 def test_auto_reject_at_limit(gate: ApprovalGate, clock) -> None:
@@ -143,11 +155,60 @@ def test_limit_is_540_seconds() -> None:
 
 def test_cancel_also_starts_the_cooldown(gate: ApprovalGate, clock) -> None:
     gate.offer("j1", _Plan(), 540)
-    assert gate.cancel("j1") is True
-    assert gate.cancel("j1") is False
+    assert gate.cancel("j1", _ANY) is not None
+    assert gate.cancel("j1", _ANY) is None
     assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
     clock.now += REJECT_COOLDOWN_SECONDS
     gate.offer("j2", _Plan(), 540)
+
+
+# --- 依種類核准、撤回（ADR-0320） ---
+
+
+def test_the_wrong_kind_is_refused_before_anything_is_removed(gate: ApprovalGate, clock) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    clock.now += APPROVE_DELAY_SECONDS
+    assert _code(gate.approve, "j1", plan.digest, _NONE) == "wrong_window"
+    assert gate.current is not None and gate.current.plan is plan
+
+
+def test_a_cancel_of_the_wrong_kind_keeps_the_window(gate: ApprovalGate) -> None:
+    gate.offer("j1", _Plan(), 540)
+    assert gate.cancel("j1", _NONE) is None
+    assert gate.current is not None
+
+
+def test_abandon_closes_any_kind_and_cools_down(gate: ApprovalGate) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 540)
+    closed = gate.abandon()
+    assert closed is not None and closed.plan is plan
+    assert gate.current is None
+    assert gate.abandon() is None
+    assert _code(gate.offer, "j2", _Plan(), 540) == "approval_cooldown"
+
+
+def test_fill_replaces_the_content_and_restarts_the_delay(gate: ApprovalGate, clock) -> None:
+    gate.offer("j1", _Plan(digest="a" * 64), 120)
+    deadline = gate.current.deadline  # type: ignore[union-attr]
+    clock.now += 5
+    filled = _Plan(digest="b" * 64)
+    assert gate.fill("j1", _ANY, filled) is True
+    current = gate.current
+    assert current is not None
+    assert current.plan is filled
+    assert current.offered_at == clock.now
+    assert current.deadline == deadline
+    assert _code(gate.approve, "j1", filled.digest, _ANY) == "too_soon"
+
+
+@pytest.mark.parametrize(("job_id", "accepts"), [("j2", _ANY), ("j1", _NONE)])
+def test_fill_only_touches_the_matching_window(gate: ApprovalGate, job_id, accepts) -> None:
+    plan = _Plan()
+    gate.offer("j1", plan, 120)
+    assert gate.fill(job_id, accepts, _Plan(digest="b" * 64)) is False
+    assert gate.current is not None and gate.current.plan is plan
 
 
 # --- 顯示 ---

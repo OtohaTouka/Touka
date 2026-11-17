@@ -65,8 +65,33 @@ _REFUSALS: Final = {
         "這個位置 7 天內有東西被搬走或刪掉，為了避免悄悄換掉內容，請自己在電腦上建立，或換一個名稱"
     ),
     "journal_unreadable": "小幫手有紀錄檔讀不懂，請看主視窗的說明",
+    # 開放請求（ADR-0320）
+    "wrong_window": "視窗和等待中的請求對不上，請關掉重開小幫手的視窗",
+    "unreadable": "讀不到這個位置（可能沒有權限）",
+    "internal": "檢查這個位置時出了問題，細節在紀錄檔",
+    "io_error": "開放名單存不進去，沒有開放",
 }
 _REFUSAL_FALLBACK: Final = "這個動作沒有完成"
+
+# 開放請求的視窗（ADR-0320）。權限預設只能看；這個值也是視窗選項的預設
+OPEN_DEFAULT_WRITABLE: Final = False
+OPEN_TITLE: Final = "Touka 想請你開放一個資料夾"
+OPEN_NOT_OPENABLE_TITLE: Final = "Touka 請你開放的位置不能開放"
+OPEN_INTRO: Final = "只有你在 Touka 設定頁送出的請求才會出現在這裡。如果你沒有送，請按拒絕。"
+OPEN_PATH_LABEL: Final = "要開放的資料夾："
+OPEN_SENT_PATH_LABEL: Final = "Touka 送來的路徑（可能不準）："
+OPEN_READ_ONLY: Final = "只能看"
+OPEN_WRITABLE: Final = "可以改"
+OPEN_WRITABLE_WARNING: Final = (
+    "可以改：代理人可以在這個資料夾裡新建檔案和資料夾、搬移、丟到回收桶。"
+)
+OPEN_ACKNOWLEDGE: Final = "知道了"
+_OPENED: Final = "已開放「{name}」。"
+_OPEN_FAILED: Final = "核准了，但沒有開放：{reason}"
+_OPEN_PAUSED: Final = (
+    "從 Touka 送來的開放請求連續 3 次沒有核准，暫停接收，約 {minutes} 分鐘後恢復。"
+    "可以按「現在恢復」，或重開小幫手。"
+)
 _JOURNAL_WARNING: Final = "。這批的紀錄沒有寫完整，有些搬移可能無法復原"
 
 
@@ -285,3 +310,24 @@ def unreadable_records_text(files: tuple[str, ...]) -> str:
     shown = "、".join(display_safe(file) for file in files[:_UNREADABLE_SHOWN])
     more = f" 等 {len(files)} 個檔" if len(files) > _UNREADABLE_SHOWN else ""
     return f"小幫手有紀錄檔讀不懂：{shown}{more}。請把它移到別的資料夾；{_UNREADABLE_EFFECT}"
+
+
+# --- 從 Touka 請小幫手開放資料夾（ADR-0320） ---
+
+
+def open_reason_text(reason: str | None) -> str:
+    """不能開放的原因，只顯示在小幫手的視窗。"""
+    return refusal_text(reason or "")
+
+
+def open_outcome_text(code: str, name: str | None) -> str:
+    """核准之後的結果，顯示在主視窗；不含 Touka 送來的路徑。"""
+    if code == "opened":
+        return _OPENED.format(name=display_safe(name or ""))
+    return _OPEN_FAILED.format(reason=refusal_text(code))
+
+
+def open_paused_text(remaining_seconds: float) -> str:
+    """開放請求停收中的提示。"""
+    minutes = max(1, int(-(-remaining_seconds // 60)))
+    return _OPEN_PAUSED.format(minutes=minutes)

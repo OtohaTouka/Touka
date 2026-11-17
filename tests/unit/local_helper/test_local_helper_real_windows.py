@@ -12,9 +12,10 @@ if sys.platform == "win32":
     import tkinter
 
     # 視窗程式會載入 tkinter，CI 的 Linux 上不一定有，不能在收集測試時就載入
-    from touka_local.app import ApprovalWindow, MainWindow, _setup_display
+    from touka_local.app import ApprovalWindow, MainWindow, OpenRequestWindow, _setup_display
 
 import base64
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from touka_local import grants as grants_module
@@ -24,6 +25,7 @@ from touka_local.display import DisplayScale
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import Environment, GrantBook
+from touka_local.open_request import STATE_NOT_OPENABLE, STATE_OPENABLE, checking
 from touka_local.operations import ApplyLimits, Operations, Plan, PlanItem
 from touka_local.service import HelperService
 from touka_local.settings import ModeSwitches, Settings, load_settings
@@ -31,6 +33,8 @@ from touka_local.winapi import acquire_single_instance, drive_type
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from touka_local.open_request import OpenRequest
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="只測真 Windows")
 
@@ -265,6 +269,59 @@ def test_approval_window_shows_every_full_path() -> None:
         assert "D:\\Open\\first.txt" in text
         assert "D:\\Open\\second.txt" in text
         assert window._paths.cget("state") == "disabled"
+    finally:
+        root.destroy()
+
+
+def _open_pending(request: OpenRequest) -> PendingApproval:
+    return PendingApproval(
+        job_id="o", plan=request, requester="owner", offered_at=0.0, deadline=120.0
+    )
+
+
+def test_open_window_defaults_to_reject_and_read_only() -> None:
+    """開放請求（ADR-0320）：預設焦點在拒絕、核准鍵先停用、權限預設只能看、完整路徑看得到。"""
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        request = replace(
+            checking("D:\\Photos"), state=STATE_OPENABLE, folder="D:\\Photos\\家 2026"
+        )
+        window = OpenRequestWindow(
+            root,
+            _open_pending(request),
+            on_approve=lambda: None,
+            on_reject=lambda: None,
+            display=DisplayScale(factor=1.0),
+        )
+        root.update()
+        assert window.default_button.cget("text") == "拒絕"
+        assert window.approve_enabled is False
+        assert window.writable is False
+        assert "D:\\Photos\\家 2026" in window.path_box.get("1.0", "end")
+        assert window.path_box.cget("state") == "disabled"
+        window._enable_approve()
+        assert window.approve_enabled is True
+    finally:
+        root.destroy()
+
+
+def test_a_place_that_cannot_be_opened_only_offers_acknowledge() -> None:
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        request = replace(checking("D:\\Missing"), state=STATE_NOT_OPENABLE, reason="not_found")
+        window = OpenRequestWindow(
+            root,
+            _open_pending(request),
+            on_approve=lambda: None,
+            on_reject=lambda: None,
+            display=DisplayScale(factor=1.0),
+        )
+        root.update()
+        assert window.default_button.cget("text") == "知道了"
+        assert window.approve_enabled is False
+        assert "D:\\Missing" in window.path_box.get("1.0", "end")
     finally:
         root.destroy()
 

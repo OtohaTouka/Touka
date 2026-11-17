@@ -25,6 +25,7 @@ from touka_local.display import (
 from touka_local.errors import Refused
 from touka_local.fsops import RealFs
 from touka_local.grants import GrantBook
+from touka_local.open_request import STATE_CHECKING, OpenRequest
 from touka_local.operations import Operations
 from touka_local.service import (
     CLOSE_BLOCKED,
@@ -49,13 +50,27 @@ from touka_local.signing import split_pairing_code
 from touka_local.view import (
     APPROVAL_COLUMNS,
     APPROVAL_WINDOW_WIDTH,
+    OPEN_ACKNOWLEDGE,
+    OPEN_DEFAULT_WRITABLE,
+    OPEN_INTRO,
+    OPEN_NOT_OPENABLE_TITLE,
+    OPEN_PATH_LABEL,
+    OPEN_READ_ONLY,
+    OPEN_SENT_PATH_LABEL,
+    OPEN_TITLE,
+    OPEN_WRITABLE,
+    OPEN_WRITABLE_WARNING,
     all_paths_text,
     approval_counts,
     approval_rows,
     approval_title,
     clean_reason,
     connection_text,
+    display_safe,
     mode_status_text,
+    open_outcome_text,
+    open_paused_text,
+    open_reason_text,
     pairing_saved_text,
     refusal_text,
     report_text,
@@ -83,6 +98,10 @@ _NAMED_FONTS: Final = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFo
 _CLOSE_CONFIRM_TITLE: Final = "結束小幫手"
 _CLOSE_CONFIRM_TEXT: Final = "結束之後，靈魂就不能用你電腦上的檔案。確定要結束嗎？"
 _PATHS_PANEL_LINES: Final = 6
+_OPEN_WINDOW_SIZE: Final = (640, 380)
+_OPEN_WRAP: Final = 600
+_OPEN_PATH_LINES: Final = 3
+_RESUME_OPEN: Final = "現在恢復"
 _WARNING_COLOR: Final = "#b00020"
 _FOLLOWING_LABEL: Final = "照 Touka 的模式核准（關掉就每份都在這裡按）"
 _RESET_TITLE: Final = "重新計算"
@@ -250,6 +269,125 @@ class ApprovalWindow:
         self._window.destroy()
 
 
+class OpenRequestWindow:
+    """開放請求的視窗（ADR-0320）。能開放的讓人選權限、按核准；不能開放的只寫原因和「知道了」。
+
+    兩種都等人按或時間到，Touka 才收得到回報。預設焦點在拒絕（或知道了），核准鍵延遲才能按。
+    """
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        pending: PendingApproval,
+        *,
+        on_approve: Callable[[], None],
+        on_reject: Callable[[], None],
+        display: DisplayScale,
+    ) -> None:
+        request: OpenRequest = pending.plan
+        self.job_id = pending.job_id
+        self._writable = tk.BooleanVar(value=OPEN_DEFAULT_WRITABLE)
+        self._window = tk.Toplevel(parent)
+        title = OPEN_TITLE if request.openable else OPEN_NOT_OPENABLE_TITLE
+        self._window.title(title)
+        width, height = _OPEN_WINDOW_SIZE
+        self._window.geometry(f"{display.px(width)}x{display.px(height)}")
+        self._window.protocol("WM_DELETE_WINDOW", on_reject)
+        self._window.attributes("-topmost", True)
+        wrap = display.px(_OPEN_WRAP)
+
+        frame = ttk.Frame(self._window, padding=display.px(_FRAME_PADDING))
+        frame.pack(fill="both", expand=True)
+        # 下面的先排，視窗縮小時按鈕才不會被擠掉
+        buttons = ttk.Frame(frame)
+        buttons.pack(side="bottom", fill="x")
+        self._countdown = ttk.Label(frame, text="")
+        self._countdown.pack(side="bottom", anchor="w", pady=(8, 4))
+        self._approve: ttk.Button | None = None
+        if request.openable:
+            self._add_permission(frame, wrap)
+            reject = ttk.Button(buttons, text="拒絕", command=on_reject)
+            reject.pack(side="right")
+            self._approve = ttk.Button(buttons, text="核准", command=on_approve, state="disabled")
+            self._approve.pack(side="right", padx=(0, 8))
+            self.default_button = reject
+            self._window.after(int(APPROVE_DELAY_SECONDS * 1000), self._enable_approve)
+        else:
+            acknowledge = ttk.Button(buttons, text=OPEN_ACKNOWLEDGE, command=on_reject)
+            acknowledge.pack(side="right")
+            self.default_button = acknowledge
+
+        ttk.Label(frame, text=title, font=display.font(12, "bold")).pack(anchor="w")
+        if pending.requester:
+            ttk.Label(frame, text=requester_text(pending.requester)).pack(anchor="w")
+        if request.openable:
+            ttk.Label(frame, text=OPEN_INTRO, wraplength=wrap).pack(anchor="w", pady=(4, 8))
+            ttk.Label(frame, text=OPEN_PATH_LABEL).pack(anchor="w")
+            shown = request.folder or request.path
+        else:
+            ttk.Label(
+                frame,
+                text=open_reason_text(request.reason),
+                foreground=_WARNING_COLOR,
+                wraplength=wrap,
+            ).pack(anchor="w", pady=(4, 8))
+            ttk.Label(frame, text=OPEN_SENT_PATH_LABEL).pack(anchor="w")
+            shown = request.path
+        self._add_path(frame, display_safe(shown))
+        self.default_button.focus_set()
+
+    def _add_path(self, frame: ttk.Frame, text: str) -> None:
+        """完整路徑，可以捲動。文字由程式放進去，改不了。"""
+        holder = ttk.Frame(frame)
+        holder.pack(side="top", fill="x", pady=(4, 0))
+        scrollbar = ttk.Scrollbar(holder, orient="vertical")
+        self.path_box = tk.Text(
+            holder, height=_OPEN_PATH_LINES, wrap="char", yscrollcommand=scrollbar.set
+        )
+        scrollbar.configure(command=self.path_box.yview)
+        self.path_box.insert("1.0", text)
+        self.path_box.configure(state="disabled")
+        scrollbar.pack(side="right", fill="y")
+        self.path_box.pack(side="left", fill="x", expand=True)
+
+    def _add_permission(self, frame: ttk.Frame, wrap: int) -> None:
+        self._warning = ttk.Label(frame, text="", foreground=_WARNING_COLOR, wraplength=wrap)
+        self._warning.pack(side="bottom", anchor="w")
+        row = ttk.Frame(frame)
+        row.pack(side="bottom", fill="x", pady=(8, 0))
+        ttk.Label(row, text="權限：").pack(side="left")
+        for text, value in ((OPEN_READ_ONLY, False), (OPEN_WRITABLE, True)):
+            ttk.Radiobutton(
+                row, text=text, variable=self._writable, value=value, command=self._show_warning
+            ).pack(side="left", padx=(0, 8))
+
+    def _show_warning(self) -> None:
+        self._warning.configure(text=OPEN_WRITABLE_WARNING if self.writable else "")
+
+    @property
+    def writable(self) -> bool:
+        """人選的權限。"""
+        return bool(self._writable.get())
+
+    @property
+    def approve_enabled(self) -> bool:
+        """核准鍵現在能不能按。"""
+        return self._approve is not None and str(self._approve.cget("state")) == "normal"
+
+    def _enable_approve(self) -> None:
+        if self._approve is not None:
+            self._approve.configure(state="normal")
+
+    def show_countdown(self, remaining: float) -> None:
+        """更新剩餘時間。"""
+        seconds = max(0, int(remaining))
+        self._countdown.configure(text=f"{seconds // 60}:{seconds % 60:02d} 後自動拒絕")
+
+    def close(self) -> None:
+        """關掉視窗。"""
+        self._window.destroy()
+
+
 class MainWindow:
     """資料夾名單、狀態、最近批次。"""
 
@@ -275,7 +413,8 @@ class MainWindow:
         self._settings = settings
         self._settings_file = settings_file
         self._switches = switches
-        self._approval: ApprovalWindow | None = None
+        self._approval: ApprovalWindow | OpenRequestWindow | None = None
+        self._pause_shown = False
         self._last_batches = 0.0
         self._last_hint = 0.0
         self._closing = False
@@ -332,6 +471,17 @@ class MainWindow:
             wraplength=self._display.px(_MAIN_WRAP),
         )
         self._mode_hint.pack(anchor="w", pady=(0, 6))
+        # 開放請求停收時才出現（ADR-0320）；「現在恢復」只有人在這台電腦上按得到
+        self._pause_row = ttk.Frame(frame)
+        self._pause_row.pack(fill="x", pady=(0, 6))
+        self._pause_label = ttk.Label(
+            self._pause_row,
+            text="",
+            foreground=_WARNING_COLOR,
+            wraplength=self._display.px(_MAIN_WRAP - 120),
+        )
+        self._pause_label.pack(side="left")
+        self._resume = ttk.Button(self._pause_row, text=_RESUME_OPEN, command=self._resume_open)
 
     def _build_grants(self, frame: ttk.Frame) -> None:
         ttk.Label(frame, text="開放給 Touka 的資料夾").pack(anchor="w")
@@ -571,6 +721,7 @@ class MainWindow:
         self._status.configure(text=f"Touka：{connection_text(self._service.state)}")
         self._stop.configure(state="normal" if self._service.running else "disabled")
         self._sync_approval()
+        self._refresh_open_requests()
         notice = _NOTICE_TEXT.get(self._service.notice)
         if notice is not None:
             report = self._service.last_report
@@ -605,6 +756,29 @@ class MainWindow:
         if selected is not None and self._grant_table.exists(selected):
             self._grant_table.selection_set(selected)
 
+    def _refresh_open_requests(self) -> None:
+        """開放請求核准後的結果與停收提示（ADR-0320）。不顯示 Touka 送來的路徑。"""
+        outcome = self._service.open_outcome
+        if outcome is not None:
+            self._service.open_outcome = None
+            self._say(open_outcome_text(*outcome))
+            self._refresh_grants_status()
+        until = self._service.open_paused_until
+        paused = until is not None
+        if paused:
+            self._pause_label.configure(text=open_paused_text(until - time.monotonic()))
+        if paused != self._pause_shown:
+            self._pause_shown = paused
+            if paused:
+                self._resume.pack(side="right")
+            else:
+                self._pause_label.configure(text="")
+                self._resume.pack_forget()
+
+    def _resume_open(self) -> None:
+        self._service.resume_open_requests()
+        self._refresh_open_requests()
+
     def _sync_approval(self) -> None:
         pending = self._gate.current
         if self._approval is not None and (
@@ -614,19 +788,42 @@ class MainWindow:
             self._approval = None
         if pending is None:
             return
+        request = pending.plan if isinstance(pending.plan, OpenRequest) else None
+        if request is not None and request.state == STATE_CHECKING:
+            return  # 還在檢查路徑，檢查完才畫（核准要等的 1.5 秒從那時算）
         if self._approval is None:
-            self._approval = ApprovalWindow(
-                self._root,
-                pending,
-                on_approve=lambda: self._approve(pending),
-                on_reject=lambda: self._service.reject(pending.job_id),
-                display=self._display,
-            )
+            if request is not None:
+                self._approval = OpenRequestWindow(
+                    self._root,
+                    pending,
+                    on_approve=lambda: self._approve_open(pending),
+                    on_reject=lambda: self._service.reject(pending.job_id),
+                    display=self._display,
+                )
+            else:
+                self._approval = ApprovalWindow(
+                    self._root,
+                    pending,
+                    on_approve=lambda: self._approve(pending),
+                    on_reject=lambda: self._service.reject(pending.job_id),
+                    display=self._display,
+                )
         self._approval.show_countdown(pending.deadline - time.monotonic())
 
     def _approve(self, pending: PendingApproval) -> None:
         try:
             self._service.approve(pending.job_id, pending.plan.digest)
+        except Refused as exc:
+            self._say(refusal_text(exc.code))
+
+    def _approve_open(self, pending: PendingApproval) -> None:
+        window = self._approval
+        if not isinstance(window, OpenRequestWindow):
+            return
+        try:
+            self._service.approve_open(
+                pending.job_id, pending.plan.digest, writable=window.writable
+            )
         except Refused as exc:
             self._say(refusal_text(exc.code))
 
