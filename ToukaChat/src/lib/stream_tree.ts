@@ -409,7 +409,9 @@ export function applyEventToTree(
   } else if (event.type === 'tool_result') {
     newSteps = newSteps.map(s =>
       s.id === event.id
-        ? { ...s, status: event.status === 'error' ? 'error' : 'success', result: event.result }
+        ? { ...s, status: event.status === 'error' ? 'error' : 'success', result: event.result,
+            // ADR-0319：工具紀錄寫「失敗（種類）」用；事件有帶才存
+            ...(typeof event.error_class === 'string' ? { errorClass: event.error_class } : {}) }
         : s,
     );
   } else if (event.type === 'tool_stream') {

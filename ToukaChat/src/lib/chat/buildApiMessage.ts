@@ -2,6 +2,7 @@ import type { ChatAttachment } from "./attachment";
 import type { Interjection } from "@/lib/types";
 import { withInterjectionNotes } from "./interjections";
 import { withTurnEndNote } from "./turnNotes";
+import { neutralizeRecordMarkers, recordLevels, renderToolRecord, withToolRecord } from "./toolRecords";
 import { buildTextInlinePart, buildFileRefHint } from "./uploadClassify";
 
 /**
@@ -45,21 +46,44 @@ export function buildApiMessage<R extends string>(input: {
   return { role, content };
 }
 
+function neutralizedAttachment(attachment?: ChatAttachment): ChatAttachment | undefined {
+  if (!attachment) return attachment;
+  return {
+    ...attachment,
+    ...(attachment.name ? { name: neutralizeRecordMarkers(attachment.name) } : {}),
+    ...(attachment.text ? { text: neutralizeRecordMarkers(attachment.text) } : {}),
+  };
+}
+
+const neutralizedInterjections = (items?: Interjection[]) => (Array.isArray(items)
+  ? items.map(i => (typeof i?.text === 'string' ? { ...i, text: neutralizeRecordMarkers(i.text) } : i))
+  : items);
+
 /** 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249），
- *  被停止或出錯的再加一行記號（ADR-0318）。 */
+ *  被停止或出錯的再加一行記號（ADR-0318）。toolRecords 開著時，助理節點存下的工具步驟依視窗寫成紀錄
+ *  放在原本文字前面（ADR-0319；群聊不開）；每一則的假紀錄標記都換掉，只有系統組的那段是真的。 */
 export function buildApiHistory<R extends string>(
   linear: {
     id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[];
-    generationStopped?: boolean; generationFailed?: boolean;
+    generationStopped?: boolean; generationFailed?: boolean; steps?: unknown;
   }[],
   userMsgId: string,
   resolvedInput: string,
+  options: { toolRecords?: boolean } = {},
 ): { role: R; content: string }[] {
-  return linear.map(m => buildApiMessage({
-    role: m.role,
-    content: m.id === userMsgId ? resolvedInput
-      : m.role === 'assistant' ? withTurnEndNote(withInterjectionNotes(m.content, m.interjections), m)
-        : withInterjectionNotes(m.content, m.interjections),
-    attachment: m.attachment,
-  }));
+  const levels = options.toolRecords ? recordLevels(linear) : linear.map(() => null);
+  return linear.map((m, i) => {
+    const content = neutralizeRecordMarkers(m.id === userMsgId ? resolvedInput : (m.content ?? ''));
+    const interjections = neutralizedInterjections(m.interjections);
+    const level = levels[i];
+    const record = level ? renderToolRecord(m.steps, level) : '';
+    return buildApiMessage({
+      role: m.role,
+      content: m.id === userMsgId ? content
+        : m.role === 'assistant'
+          ? withTurnEndNote(withInterjectionNotes(withToolRecord(content, record), interjections), m)
+          : withInterjectionNotes(content, interjections),
+      attachment: neutralizedAttachment(m.attachment),
+    });
+  });
 }

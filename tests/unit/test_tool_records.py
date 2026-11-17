@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -22,11 +23,12 @@ from src.services import approval_flow, tool_errors
 from src.services.guard_service import guard_service
 from src.services.prompt_blocks import CONTINUITY
 from src.services.soul_service import SoulService
-from src.utils import time_utils, tool_records
+from src.utils import secrets, time_utils, tool_records
 from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import count_rounds_from_linear, sanitize_history
 from src.utils.interjection_notes import annotate_node
 from src.utils.tool_record_marks import (
+    SPACE_CLASS,
     TOOL_RECORD_FOOTER,
     TOOL_RECORD_HEADER,
     contains_record_marker,
@@ -47,6 +49,7 @@ from tests.proxy.characterization.test_golden_claude import _drive, _text_resp
 
 _CHAT_LIB = Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "lib" / "chat"
 _GOLDEN_PATH = _CHAT_LIB / "__tests__" / "toolRecords.golden.json"
+_FRONTEND_PATH = _CHAT_LIB / "toolRecords.ts"
 _GOLDEN = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
 _ROLES = {"u": "user", "a": "assistant", "s": "system"}
 _LEVELS = {"-": None, "b": RECORD_BRIEF, "d": RECORD_DETAILED}
@@ -81,6 +84,87 @@ def test_fake_markers_are_neutralized(case: dict[str, str]):
     assert neutralize_record_markers(case["input"]) == case["output"]
 
 
+def _frontend() -> str:
+    return _FRONTEND_PATH.read_text(encoding="utf-8")
+
+
+def _ts_array(name: str) -> str:
+    match = re.search(rf"const {name}[^=]*= \[(.*?)\n\]", _frontend(), re.DOTALL)
+    assert match is not None, name
+    return match.group(1)
+
+
+def _ts_const(name: str) -> str:
+    match = re.search(rf"const {name} = '([^']*)';", _frontend())
+    assert match is not None, name
+    return match.group(1)
+
+
+def _py_flags(pattern: re.Pattern[str]) -> tuple[str, str]:
+    body, flags = pattern.pattern, set()
+    if body.startswith("(?i)"):
+        body = body[4:]
+        flags.add("i")
+    if pattern.flags & re.IGNORECASE:
+        flags.add("i")
+    if pattern.flags & re.DOTALL:
+        flags.add("s")
+    return body, "".join(sorted(flags))
+
+
+def test_frontend_secret_patterns_are_the_backend_ones():
+    """前端複製後端 utils/secrets.py 的樣式：比樣式本體與旗標（Python 與 JS 的旗標寫法不同）."""
+    front = []
+    for line in _ts_array("CONTENT_SECRET_PATTERNS").strip().splitlines():
+        match = re.fullmatch(r"\s*/(.+)/([a-z]*),", line)
+        assert match is not None, line
+        body, flags = match.group(1), set(match.group(2)) - {"g"}
+        if "[\\s\\S]" in body:  # 前端編譯目標沒有 s 旗標：[\s\S] 等於後端 DOTALL 的「.」
+            body, flags = body.replace("[\\s\\S]", "."), flags | {"s"}
+        front.append((body, "".join(sorted(flags))))
+    assert front == [_py_flags(p) for p in secrets._CONTENT_SECRET_PATTERNS]
+
+    key = re.search(r"const SECRET_KEY_RE = /(.+)/([a-z]*);", _frontend())
+    assert key is not None
+    assert (key.group(1), key.group(2)) == _py_flags(secrets._SECRET_KEY_RE)
+    assert _ts_const("SECRET_MASK") == secrets.MASK
+
+
+def test_frontend_limits_and_wording_are_the_backend_ones():
+    """上限、視窗與「沒有執行」的說法：黃金案例不一定碰得到（例如 8192 字的截斷），逐項對照."""
+    numbers = dict(re.findall(r"^const ([A-Z_]+) = (\d+);", _frontend(), re.MULTILINE))
+    expected = {
+        name: getattr(tool_records, name)
+        for name in (
+            "MAX_ARG_KEYS", "MAX_ARG_CHARS", "MAX_NAME_CHARS", "MAX_RESULT_CHARS",
+            "MAX_DETAILED_STEPS", "MAX_DETAILED_CHARS", "MAX_BRIEF_CHARS", "MAX_SCAN_CHARS",
+            "WINDOW_ROUNDS", "BRIEF_ROUNDS",
+        )
+    }
+    expected["LINE_BREAKS"] = tool_records._LINE_BREAKS
+    assert {name: int(numbers[name]) for name in expected} == expected
+    entries = re.search(
+        r"const NOT_RUN = new Map<string, string>\(\[(.*?)\n\]\);", _frontend(), re.DOTALL
+    )
+    assert entries is not None
+    not_run = dict(re.findall(r"\['([a-z_]+)', '([^']*)'\]", entries.group(1)))
+    assert not_run == tool_records._NOT_RUN
+
+
+def test_frontend_fixed_values_are_the_backend_ones():
+    classes = re.findall(r"'([a-z_]+)'", _ts_array("KNOWN_ERROR_CLASSES"))
+    assert sorted(classes) == sorted(KNOWN_ERROR_CLASSES)
+    assert _ts_const("TIME_FOOTER_PREFIX") == time_utils.TIME_FOOTER_PREFIX
+    assert _ts_const("TOOL_RECORD_HEADER") == TOOL_RECORD_HEADER
+    assert _ts_const("TOOL_RECORD_FOOTER") == TOOL_RECORD_FOOTER
+    space = re.search(r"const SPACE_CLASS = String\.raw`([^`]*)`;", _frontend())
+    assert space is not None
+    as_python = re.sub(
+        r"\\u\{([0-9A-Fa-f]+)\}", lambda m: f"\\U{int(m.group(1), 16):08x}", space.group(1)
+    )
+    assert as_python.lower() == SPACE_CLASS.lower()
+
+
 def test_fixed_values_come_from_their_owners():
     """錯誤種類只認 tool_errors 的六種；時間尾註的開頭和 inject_time_to_result 寫的是同一個."""
     expected = {
@@ -109,6 +193,17 @@ def test_huge_results_stay_fast():
     record = render_tool_record(steps, RECORD_DETAILED)
     assert time_utils.get_monotonic_ms() - started < 1000
     assert "1. read（text=「x」）→ 成功：tail" in record
+
+
+def test_fields_are_cut_before_redaction_on_both_sides():
+    """先截到 MAX_SCAN_CHARS 再遮蔽.
+
+    結尾在截斷點之後才變得不像金鑰的 token，截斷後一樣遮；前端測同一組輸入.
+    """
+    steps = [{"id": "c1", "tool": "read", "args": None, "status": "success",
+              "result": "ghp_" + "a" * (tool_records.MAX_SCAN_CHARS + 800) + "_tail"}]
+    lines = render_tool_record(steps, RECORD_DETAILED).splitlines()
+    assert lines[1] == "1. read → 成功：＜redacted＞"
 
 
 def _full_step(i: int) -> dict[str, Any]:

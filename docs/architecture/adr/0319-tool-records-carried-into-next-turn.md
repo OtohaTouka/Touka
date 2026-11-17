@@ -1,6 +1,6 @@
 # ADR-0319：做過的事帶進下一輪（可視性第三批）
 
-- 狀態：🚧 實作中（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測；PR 1b 網頁對話的前端寫法）
+- 狀態：✅ 已實作（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測，2026-11-17；PR 1b 網頁對話的前端寫法，2026-11-17）
 - 日期：2026-11-17
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 80 項回「全部照建議」：每一輪帶工具名、參數開頭、成敗、結果開頭 80 字；PR 1 合併前小量試真模型）
 - 相關：[ADR-0249](0249-model-layer-stage-4a-4b.md)（插話標註放回那一則回覆）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0036](0036-unified-round-count-ssot.md)（輪數）
@@ -44,7 +44,7 @@
 - 壓成一行後先截到 `MAX_SCAN_CHARS`（8192 個 code point）再遮蔽，擋住超長結果讓正規式變慢；截斷點落在金鑰中間時那一段可能遮不到，但只有出現在最前面 80 字的才會被送出。前端照 code point 計數（`Array.from`），不用 UTF-16 的 `slice`，否則 emoji 多時兩邊的截斷點會不同。
 - 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
 - 已知差異：Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為，不在這批改）。
-- 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。要不要補進 `secrets.py` 在 PR 1b 前評估（會一起影響其他用到遮蔽的地方）。
+- 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。PR 1b 前評估過，這批不補：參數是模型自己寫的，結果開頭在那一輪已經完整給模型看過，紀錄只是把其中最多 80 字再帶一次；新的暴露只在中途換了別家廠商（或心跳用別家模型）時。補進 `secrets.py` 會一起改變 MCP 轉接、系統備份、稽核紀錄、評分卡、演化工具這些也用它遮蔽的地方，要另外評估。
 
 ### 5. 防偽與偵測
 
@@ -81,4 +81,4 @@
 ## 驗證（PR 1）
 
 - PR 1a `tests/unit/test_tool_records.py`：黃金案例、固定值的來源（錯誤種類、時間尾註、核准結果）、超長結果仍然很快（清理先截到 `MAX_SCAN_CHARS`，時間尾註的比對不會照長度平方變慢）、超長歷史的總量上限、`annotate_node` 的順序、心跳送出的歷史帶紀錄、`sanitize_history` 不吃紀錄、照抄的偵測與警告（經 claude 特徵化測試的主迴圈）。
-- PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、群聊不加、附件的假標記、`errorClass` 存進步驟；`test_tool_records.py` 加前後端常數、字元集與金鑰樣式核對。
+- PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、超長結果仍然很快、群聊不加、附件的假標記、`errorClass` 存進步驟；`StreamRegistryProvider.toolRecords.test.tsx`：送出的訊息一般對話帶紀錄、群聊不帶；`test_tool_records.py` 加前後端常數、字元集與金鑰樣式核對。

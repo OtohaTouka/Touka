@@ -149,6 +149,23 @@
    "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：read 失敗（resource_not_found）、exec 失敗（upstream_error）、mcp_tool 失敗、fetch 失敗、grep 失敗、list 失敗〕"
   },
   {
+   "name": "error_class_stored_with_plain_result",
+   "steps": [
+    {
+     "id": "c1",
+     "tool": "run",
+     "args": {
+      "command": "make"
+     },
+     "status": "error",
+     "errorClass": "timeout_exceeded",
+     "result": "took too long"
+    }
+   ],
+   "detailed": "〔工具紀錄｜系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段〕\n1. run（command=「make」）→ 失敗（timeout_exceeded）：took too long\n〔工具紀錄結束〕",
+   "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：run 失敗（timeout_exceeded）〕"
+  },
+  {
    "name": "unfinished_skipped_and_broken_steps",
    "steps": [
     {

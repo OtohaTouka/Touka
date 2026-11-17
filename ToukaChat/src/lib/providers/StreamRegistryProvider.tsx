@@ -36,6 +36,7 @@ import { logSSOTError, errorMsg } from "@/lib/error_handler";
 import { toast } from "sonner";
 import type { ChatAttachment } from "@/lib/chat/attachment";
 import { buildApiHistory } from "@/lib/chat/buildApiMessage";
+import { GROUP_CHAT_ID } from "@/lib/chat/messageNavigation";
 import { isSaved, isOldHomeRefused, unknownSave, parseBufferedStreamState, savedPastTerminal } from '../session_persistence';
 import { useTranslation } from 'react-i18next';
 
@@ -357,8 +358,9 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     commit(prev => ({ ...prev, [sessionId]: { ...prev[sessionId], status: 'waiting', producer, tree } }));
 
     // 組 API 訊息序列（線性路徑去掉待填的 assistant；user 節點以 resolvedInput 送出）。
-    // 訊息組裝與插話標註（ADR-0249）集中於 buildApiHistory（SSOT、純函式）。
-    const messagesForStream: ChatMessage[] = buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput);
+    // 訊息組裝、插話標註（ADR-0249）與工具紀錄（ADR-0319，群聊不加）集中於 buildApiHistory（SSOT、純函式）。
+    const messagesForStream: ChatMessage[] = buildApiHistory(getLinearMessages(tree).slice(0, -1), userMsgId, resolvedInput,
+      { toolRecords: model !== GROUP_CHAT_ID });
 
     const { onChunk, onThinking, onEvent, onDone, onError } = createStreamCallbacks(sessionId, controller, onSkillInstallRequest, onAskUser,
       onHookBlocked);
