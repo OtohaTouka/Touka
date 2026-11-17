@@ -1,11 +1,11 @@
 # ADR-0319：做過的事帶進下一輪（可視性第三批）
 
-- 狀態：✅ 已實作（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測，2026-11-17；PR 1b 網頁對話的前端寫法，2026-11-17；PR 2 後端記下工具步驟，2026-11-17；PR 3 家與子對話，2026-11-17）
+- 狀態：✅ 已實作（PR 1 超過約 650 行，照計畫拆兩個：PR 1a 後端寫法、心跳歷史、照抄偵測，2026-11-17；PR 1b 網頁對話的前端寫法，2026-11-17；PR 2 後端記下工具步驟，2026-11-17；PR 3 家與子對話，2026-11-17；PR 4 子代理與 SNS 頻道，2026-11-18）
 - 日期：2026-11-17
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 80 項回「全部照建議」：每一輪帶工具名、參數開頭、成敗、結果開頭 80 字；PR 1 合併前小量試真模型）
 - 相關：[ADR-0249](0249-model-layer-stage-4a-4b.md)（插話標註放回那一則回覆）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0036](0036-unified-round-count-ssot.md)（輪數）
-- 修訂：[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（第 6 點：只用了工具的回覆不再是空白）、[ADR-0081](0081-resumable-stream-cursor-buffer.md)、[ADR-0302](0302-chat-trim-waits-for-closing-save.md)（PR 2：後端文字版存檔帶工具步驟）、[ADR-0260](0260-home-message-outbound-whitelist.md)、[ADR-0305](0305-soul-prelude-mainline.md)（PR 3：家原文帶簡短紀錄）、[ADR-0307](0307-home-handover-work.md)（PR 3：頻道心跳回報、摘要關閉的註記）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（PR 3：還沒回報那一行）
-- 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`、`lib/chat/messageNavigation.ts`（匯出 `GROUP_CHAT_ID`）、`lib/export-utils.ts`、`lib/tool_result.ts`、`components/sidebar/left/SessionTree.tsx`，後端測試 `tests/unit/test_tool_records.py`；PR 2：`ToukaProxy/src/utils/tool_step_collector.py`（新）、`routers/heartbeat.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`utils/async_db.py`（`append_message_to_session` 的 `extra_fields`）；PR 3：`utils/session_scope.py`、`utils/async_db.py`（`home_messages_of`、`home_session_ids`）、`services/home_handover.py`、`services/continuity_service.py`、`services/dialogue_summarizer.py`、`services/sliding_window_service.py`、`routers/heartbeat.py`
+- 修訂：[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（第 6 點：只用了工具的回覆不再是空白）、[ADR-0081](0081-resumable-stream-cursor-buffer.md)、[ADR-0302](0302-chat-trim-waits-for-closing-save.md)（PR 2：後端文字版存檔帶工具步驟）、[ADR-0260](0260-home-message-outbound-whitelist.md)、[ADR-0305](0305-soul-prelude-mainline.md)（PR 3：家原文帶簡短紀錄）、[ADR-0307](0307-home-handover-work.md)（PR 3：頻道心跳回報、摘要關閉的註記）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（PR 3：還沒回報那一行；PR 4：最近結束的子代理那一行）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（PR 4：決定 6 多列最近結束的子代理）；PR 4 的 SNS 頻道歷史也修訂 ADR-0307 決定 8
+- 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`、`lib/chat/messageNavigation.ts`（匯出 `GROUP_CHAT_ID`）、`lib/export-utils.ts`、`lib/tool_result.ts`、`components/sidebar/left/SessionTree.tsx`，後端測試 `tests/unit/test_tool_records.py`；PR 2：`ToukaProxy/src/utils/tool_step_collector.py`（新）、`routers/heartbeat.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`utils/async_db.py`（`append_message_to_session` 的 `extra_fields`）；PR 3：`utils/session_scope.py`、`utils/async_db.py`（`home_messages_of`、`home_session_ids`）、`services/home_handover.py`、`services/continuity_service.py`、`services/dialogue_summarizer.py`、`services/sliding_window_service.py`、`routers/heartbeat.py`；PR 4：`services/subagent_registry.py`、`tools/subagent_tools.py`、`tools/mission_tools.py`、`services/continuity_service.py`、`services/sns_channel_history.py`（新）、`services/mainline_service.py`、`services/soul_service.py`（`mark_history`、`stamp_message_times` 改成公開）、`utils/session_scope.py`、`scripts/native_tool_contract_baseline.json`
 
 ## 背景
 
@@ -106,6 +106,25 @@
 - 回報的對象改成 `session_scope.can_be_reported`（能當家的對話，加上心跳獨立頻道），閒置規則也接受心跳頻道，所以被間隔規則跳過的那段之後由閒置規則補寫，不會永遠回不了家。SNS 頻道與舊共享頻道照舊不寫（修訂 ADR-0307）。
 - 已知限制：頻道心跳之後常在前情看到自己上一份回報，還認不出是自己的（家-5，第五批）。排程頻繁跑頻道時，一個頻道一天最多多 4 次摘要（便宜的摘要模型，輸出最多 800 token）。「等著寫回報的頻道」只記在記憶體，重啟就清掉，之後由閒置規則補寫。
 
+## 決定（PR 4）
+
+### 12. 下一輪看得到最近結束的子代理
+
+- 背景派出（`dispatch_subagent` 回憑證的那種）的子代理結束時，`subagent_registry` 記一筆「最近結束」：標籤、派它的靈魂與對話、結束時間、結果種類（固定值 done／partial／failed／cancelled，和工具回覆的說法同一組）、讀結果的憑證、讀過沒有。`mission_tools(action="await_dispatch_result")` 拿到結果時標成讀過；等不到結果（逾時、憑證不明）不算。
+- 每段對話只留最新 5 筆，2 小時後清掉；只在記憶體，Touka 重啟就沒有這一行（耐久的結果檔還在，用原本的憑證仍讀得到）。
+- 同步派工與一次派多個：結果本來就在那次工具回覆裡（PR 1 起也進工具紀錄），不列。
+- `<continuity>` 在「還在跑」那行旁邊加一行：標籤（`safe_ref`）、結果種類、多久前結束；還沒讀的附上讀結果的指令與憑證，讀過的只寫已讀。憑證是系統產生的英數字串，派工當下就在工具回覆裡；工具紀錄會把 `callback_token` 當成金鑰遮掉，所以下一輪要靠這一行才知道怎麼讀。
+- 無痕、沒有對話（IDE）照「還在跑」的規則不列；SNS 觸發的請求不列，外人不該看到（修訂 ADR-0318 決定 6、ADR-0267）。心跳在同一段對話（家或頻道）派的也列。
+
+### 13. SNS 頻道記得自己剛說過什麼
+
+- SNS 用獨立頻道（`touka.sns.v1.*`，`session_scope.is_sns_channel`）時，主線在這一輪（最後一則）前面帶這個頻道最近的對話（`services/sns_channel_history.py`）：24 小時內、最多 10 則、估算最多 4,000 token，從新往舊收。節點時間是 SNS 存檔時伺服器寫的；沒有時間的節點不帶。
+- 整段是舊紀錄：每則標台北時間，包進 `source="sns_channel"` 的歷史資料界線，用和家原文同一套中和（`soul_service.mark_history`，原本的 `_mark_home_history` 改成公開共用；`stamp_message_times` 同）。助理那則只帶簡短紀錄（第 9 點），每則的假紀錄標記都換掉；只送角色與內容。
+- 角色順序：第一則從外人那則開始；歷史裡相鄰兩則外人訊息（回覆失敗時只存了外人那則）合成一則；最後一則是外人訊息時，在界線裡註明「這一則沒有回覆」，不和這一輪的新訊息合併，相鄰的 user 交給轉接器處理。
+- 在主線（SoulLayer）才加：使用者原意（MonitorLayer，給 Auto 審查員）與 UserPromptSubmit hook 都在它之前，只看得到這一輪。在 `sns_gateway` 組請求時就加的話，界線開頭會蓋在外人訊息的固定開頭前面，舊的外人訊息會被當成人類原話。
+- 家模式已帶家原文（含 SNS 那幾則），不重複；SNS 群聊沒有對話編號，照舊；不是 SNS 觸發的請求（例如擁有者在網頁看頻道）不加。這樣 `<continuity>` 的「上一輪幾分鐘前」和看得到的內容對得上（修訂 ADR-0307 決定 8）。
+- 安全：共用頻道裡的一則提示注入，以前只影響當下那一輪，帶歷史後會影響之後 24 小時內同一頻道的回覆；靠界線、中和、時間窗、則數與 token 上限壓低，助理那則不帶工具參數與結果。
+
 ## 沒選的做法
 
 - **用原生 `tool_calls`／`tool` 訊息重建**：各家轉換器格式不同，Gemini 要簽章，呼叫與結果要成對，完整結果太貴；中途換廠商時也容易壞。改成在助理文字前面加一段系統整理的紀錄。
@@ -121,6 +140,7 @@
 - PR 3 起，工具名與成敗跟著家原文離開這段對話（子對話、IDE、SNS 家模式、群聊成員），中途換廠商時新的廠商也看得到；只有固定值，沒有參數與結果。摘要員也看得到；只用了工具的子對話與頻道心跳也會寫回報，摘要呼叫比以前多（同一頻道每 6 小時最多一次）。
 - PR 3 起，綁靈魂的請求（非無痕、非 SNS，任何對話）與每個心跳脈衝都多讀一次家的編號（只讀編號）；還沒回報的段數每個靈魂最多 5 分鐘算一次。
 - 前情每多一段（回報、註記、剪裁摘要），這個靈魂所有對話的提示快取都要整段重寫一次（約 1.25 倍全額，不是讀快取的約 0.1 倍）；頻道回報因此每頻道 6 小時最多一次。
+- PR 4 起，背景子代理還沒讀的結果會在下一輪提醒，並附上讀結果的憑證（只給同一個靈魂在同一段對話，SNS 不給）。SNS 獨立頻道每一輪多送最多約 4,000 token 的頻道歷史，頻道裡別人的舊訊息會影響之後的回覆（第 13 點）。
 - 不改核准判斷、不多給工具、沒有新端點。
 
 ## 驗證（PR 1）
@@ -141,3 +161,10 @@
 - `tests/unit/test_dialogue_summarizer.py`：摘要員只看到簡短紀錄、假標記換掉、只用工具也算有內容、指示有說明、輸出照抄的標記換掉；`test_side_caller_requests.py` 逐字核對摘要員指示。
 - `tests/unit/test_sliding_window_service.py`：切點照送出時的 token 算，本地估算與切點拿到含紀錄的那份。
 - `tests/integration/test_heartbeat_sliding_window.py`：心跳結束排維護時帶上這段對話。
+
+## 驗證（PR 4）
+
+- `tests/unit/test_subagent_stop.py`：背景子代理結束後列進「最近結束」，拿到結果才算讀過，等不到結果不算；同步與一次派多個不列；每段對話最多 5 筆、2 小時後清掉、沒有對話不列；這一行的標籤經 `safe_ref`，沒讀的附憑證、讀過的不給；被停的記成 cancelled。
+- `tests/unit/test_continuity_block.py`：最近結束那一行無痕與 SNS 不列。
+- `tests/unit/test_sns_channel_history.py`（新）：時間窗與則數、token 上限留最新的、沒有時間與 system 的節點不帶、從外人那則開始、相鄰外人訊息合併、沒回覆的註明在界線裡、只帶簡短紀錄、界線與中和、每則標時間；主線只在 SNS 獨立頻道加、放在這一輪前面、家模式不重複。
+- `scripts/native_tool_contract_baseline.json`：`_run_and_deliver` 多讀 `base_ctx.session_id`（`test_guard_native_tool_contracts.py`）。

@@ -14,6 +14,7 @@
 | 無痕 | 不帶 | 不帶 |
 
 SNS 來的請求（獨立頻道、家模式、群聊；外人觸發）前情不帶子對話回報，其他照舊（ADR-0307）。
+SNS 獨立頻道另外在這一輪前面帶這個頻道最近的對話（``sns_channel_history``，ADR-0319 PR 4）。
 
 換家後、交接完成前（3d PR 2a，ADR-0306）：還沒交接完的舊家原文依紀錄順序排在家原文前面，
 各自標成「交接中的舊家」、每則標時間；上表帶家原文的都帶，網頁版家本身與心跳在家時也帶
@@ -38,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from src.core.exceptions import ToukaException
 from src.models.identity import AgentIdentity  # noqa: TC001
 from src.services.sliding_window_config import load_sliding_window_config
+from src.services.sns_channel_history import inject_channel_history
 from src.services.soul_prelude_service import prelude_view, render_prelude, summaries_shown_for
 from src.services.soul_service import append_system_block, soul_service
 from src.utils.async_db import SessionPersistenceError, home_messages_of, session_service
@@ -159,6 +161,8 @@ async def inject_mainline(
         stamp_times=mode == "chat" and session_id is not None and session_id != home_id,
         old_homes=[home_messages_of(old) for old in old_homes],
     )
+    if sns and session_id:  # SNS 獨立頻道帶自己最近的對話；頻道不能當家（ADR-0319）
+        await inject_channel_history(request, session_id)
     if heartbeat:
         return
     if own_summary and session_id:

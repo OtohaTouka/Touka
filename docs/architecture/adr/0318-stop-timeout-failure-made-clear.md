@@ -2,6 +2,7 @@
 
 - 狀態：✅ 已實作（PR 1：子代理的結果，2026-11-16；PR 2：子代理跟著停止、等結果的憑證，2026-11-17；PR 3：上一輪的標記，2026-11-17；PR 4：核准的說法，2026-11-17）。一頁計畫由維護者核准（2026-11-16）。
 - 日期：2026-11-16
+- 被修訂：2026-11-18 決定 6 多列背景派出、最近結束的子代理（by [ADR-0319](0319-tool-records-carried-into-next-turn.md) 第 12 點）
 - 決策者：維護者
 - 相關：[ADR-0134](0134-in-process-subagent-dispatch.md)（in-process 子代理）、[ADR-0135](0135-structured-report-finalize-and-board-bound-stop.md)（回報塊）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（第一批：派工情境、同步派工）、[ADR-0248](0248-model-layer-stage-3b.md)（主迴圈的失敗與重試）
 - 修訂：[ADR-0051](0051-dispatch-callback-channel.md)（站內憑證逾時不作廢）、[ADR-0134](0134-in-process-subagent-dispatch.md)（決定 4 的子代理時限、後果邊界①②）、[ADR-0309](0309-subagent-project-and-read-only.md)（停止後子代理還會跑）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 8 的同步派工與等候說法）、[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（多個子代理的成功數）、[ADR-0292](0292-hooks.md)（SubagentStop 的 `last_assistant_message`；`generationFailed` 會送給模型）、[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（決定 6：空回覆加了記號不再合併）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（心跳的 `crashed`、`heartbeat_skipped`）
@@ -62,6 +63,7 @@
 
 - `services/subagent_registry.py`：純資料登記表（標籤、派它的靈魂、對話、開始時間），子代理開始時登記、結束時移除；不放 task、不做取消，Touka 重啟就清空。
 - `<continuity>`（請求尾端，不影響快取、不新增系統區塊）多一行：這個靈魂在這段對話派出、還在跑的子代理與已跑多久，最多列 5 個；沒有在跑的就不加這一行。標籤是模型給的，比照 ADR-0267 經 `safe_ref`；無痕、沒有對話（IDE）不列。
+- 2026-11-18 修訂（[ADR-0319](0319-tool-records-carried-into-next-turn.md) 第 12 點）：背景派出的子代理結束後不再什麼都沒有，旁邊多一行「最近結束」：結果種類、讀過沒有，沒讀的附上讀結果的憑證；每段對話最多 5 筆、2 小時後清掉；SNS 觸發的請求不列。
 
 ### 7. 等結果的憑證
 

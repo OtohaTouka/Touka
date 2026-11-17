@@ -26,6 +26,7 @@ from src.services.hooks.lifecycle import notify_task_completed, notify_tasks_cre
 from src.services.isolation.policy import session_project_root
 from src.services.mission_status import task_status_parts
 from src.services.resource_manager import resource_manager
+from src.services.subagent_registry import subagent_registry
 from src.services.tool_errors import (
     INTERNAL_ERROR,
     PERMISSION_DENIED,
@@ -184,6 +185,7 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
                     "或 Touka 重啟過；這個憑證不會再有結果，需要的話重新派工或回報。"
                     f"{_AWAIT_STOP_HINT}"
                 )
+            subagent_registry.mark_read(callback_token)  # 下一輪「最近結束」標成讀過（ADR-0319）
             lines = [
                 "✅ Dispatch result received.",
                 f"Task: {result.get('task_id', 'unknown')}",

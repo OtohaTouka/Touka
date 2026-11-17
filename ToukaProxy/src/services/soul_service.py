@@ -112,7 +112,7 @@ def _neutralize_history(text: str) -> str:
     return neutralize_tags(neutralize_historical_tags(blank_control_chars(text)), ALL_BLOCK_TAGS)
 
 
-def _stamp_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def stamp_message_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """每則內容前標台北時間（寫在內容裡，ADR-0260/0305）；先複製，不動到讀出來的樹."""
     return [
         {
@@ -153,12 +153,12 @@ def _old_home_block(
     msgs: list[dict[str, Any]], omitted: int, skipped_note: str | None = None
 ) -> list[dict[str, Any]]:
     """舊家尾端：每則標時間，第一則前面寫說明（另有幾段沒帶、這段前面還有幾則），再包歷史資料界線."""
-    stamped = _stamp_times(msgs)
+    stamped = stamp_message_times(msgs)
     omitted_note = OLD_HOME_OMITTED_NOTE.format(count=omitted) if omitted else None
     note = "".join(text for text in (skipped_note, omitted_note) if text)
     if note:
         stamped[0] = {**stamped[0], "content": _add_text(stamped[0]["content"], note, before=True)}
-    return _mark_home_history(stamped, source=OLD_HOME_HISTORY_SOURCE)
+    return mark_history(stamped, source=OLD_HOME_HISTORY_SOURCE)
 
 
 def _old_home_blocks(old_homes: Sequence[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
@@ -177,17 +177,18 @@ def _old_home_blocks(old_homes: Sequence[list[dict[str, Any]]]) -> list[list[dic
             blocks.append(_old_home_block(msgs, omitted, None if blocks else note))
     if note and not blocks:
         blocks.append(
-            _mark_home_history([{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE)
+            mark_history([{"role": "user", "content": note}], source=OLD_HOME_HISTORY_SOURCE)
         )
     return blocks
 
 
-def _mark_home_history(
+def mark_history(
     home_msgs: list[dict[str, Any]], *, source: str = HOME_HISTORY_SOURCE
 ) -> list[dict[str, Any]]:
-    """家對話第一則前加歷史資料界線開頭、最後一則後加結尾：只加文字，角色與則數不變。
+    """舊訊息第一則前加歷史資料界線開頭、最後一則後加結尾：只加文字，角色與則數不變。
 
-    先複製再改，不動到讀出來的 session 樹；每則文字裡的區塊 tag 先中和。
+    家原文、舊家、SNS 頻道歷史共用（ADR-0319 PR 4）。先複製再改，不動到讀出來的 session 樹；
+    每則文字裡的區塊 tag 先中和。
     """
     marked = [
         {**m, "content": _map_text(m.get("content"), _neutralize_history)}
@@ -517,7 +518,7 @@ class SoulService:
         blocks = _old_home_blocks(old_homes)
         if home_messages:  # 先標時間再包界線：時間在界線裡面
             blocks.append(
-                _mark_home_history(_stamp_times(home_messages) if stamp_times else home_messages)
+                mark_history(stamp_message_times(home_messages) if stamp_times else home_messages)
             )
         home_msgs = [m for block in blocks for m in block]  # 歷史資料界線，不是指令
         if not home_msgs:
