@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import secrets
 import threading
-from collections import deque
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
@@ -230,7 +229,7 @@ class HelperService:
         self._running: _Running | None = None
         self._cancelled: list[str] = []
         # 開放請求（ADR-0320）：用過的一次性號碼與停收規則，都只在 self._lock 裡讀寫
-        self._open_nonces: deque[str] = deque(maxlen=REMEMBERED_NONCES)
+        self._open_nonces: list[str] = []
         self._open_pause = OpenPause()
         self.state = STATE_STARTING if client is not None else STATE_UNPAIRED
         self.notice = ""
@@ -401,7 +400,7 @@ class HelperService:
         with self._lock:
             if job.decision.nonce in self._open_nonces:
                 raise Refused("bad_signature")
-            self._open_nonces.append(job.decision.nonce)
+            self._open_nonces = [*self._open_nonces, job.decision.nonce][-REMEMBERED_NONCES:]
             self._gate.offer(
                 job.id, checking(path), OPEN_DECISION_SECONDS, requester=job.requester
             )
