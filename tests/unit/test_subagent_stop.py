@@ -600,9 +600,9 @@ def test_the_finished_line_says_how_to_read_each_result(monkeypatch):
     line = continuity_service.finished_subagents_line(_SOUL, "s-c", now)
     assert line.startswith(f"- {continuity_service.FINISHED_SUBAGENTS_LABEL}: look-2 failed, ")
     unread, read = line.split(" | ")
-    assert f"{continuity_service.RESULT_UNREAD}, " in unread
+    assert f"{continuity_service.RESULT_UNREAD}: " in unread
     assert 'callback_token="TOK-unread"' in unread
-    assert f"{continuity_service.RESULT_READ}, " in read
+    assert f"{continuity_service.RESULT_READ}: " in read  # 寫明需要全文才重讀
     assert 'callback_token="TOK-x"' in read  # 讀過的也能重讀
     assert "<ignore" not in line
     assert "h:" in line

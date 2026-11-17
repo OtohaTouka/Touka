@@ -87,12 +87,10 @@ FINISHED_SUBAGENTS_LABEL = (
     "Background sub-agents you dispatched in this conversation that finished in the last "
     f"{FINISHED_KEEP_SECONDS // _HOUR} hours (newest first)"
 )
-RESULT_READ = "result already read"
-RESULT_UNREAD = "result not read yet"
-# 讀過的也附：結果檔還在、可以重讀，之後的回合才拿得到全文（審查 LOW-2）
-READ_RESULT_WITH = (
-    'read it with mission_tools(action="await_dispatch_result", callback_token="{token}")'
-)
+RESULT_READ = "result already read; re-read only if you need the full result"
+RESULT_UNREAD = "result not read yet; read it"
+# 讀過的也附：結果檔還在、可以重讀，之後的回合才拿得到全文（審查 LOW-2）；寫明需要才讀，免得白讀
+READ_RESULT_CALL = 'mission_tools(action="await_dispatch_result", callback_token="{token}")'
 UNREPORTED_LABEL = "Other conversations with new activity not yet reported to this home"
 NO_ACTIVE_MISSION = "no active mission"
 NONE_RECORDED = "none recorded"
@@ -290,8 +288,8 @@ def finished_subagents_line(
         f"{safe_ref(entry.label)} "
         f"{entry.outcome if entry.outcome in _SUBAGENT_OUTCOMES else 'unknown'}, finished "
         f"{_when(now_s, int(entry.finished_at * _MS_PER_SECOND))}; "
-        f"{RESULT_READ if entry.read else RESULT_UNREAD}, "
-        f"{READ_RESULT_WITH.format(token=entry.token)}"
+        f"{RESULT_READ if entry.read else RESULT_UNREAD}: "
+        f"{READ_RESULT_CALL.format(token=entry.token)}"
         for entry in finished
     ]
     return f"- {FINISHED_SUBAGENTS_LABEL}: {' | '.join(items)} {SERVER_MEMORY}"
