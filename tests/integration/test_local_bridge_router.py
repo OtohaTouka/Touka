@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from src.models.identity import AgentIdentity
-from src.models.local_bridge import MAX_JOB_RESULT_BYTES, PROTOCOL_VERSION
+from src.models.local_bridge import MAX_JOB_RESULT_BYTES, PROTOCOL_VERSION, LocalPairingRecord
 from src.routers import local_bridge as router_module
 from src.services.identity_router import get_verified_identity
-from src.services.local_bridge import LocalBridge
+from src.services.local_bridge import OPEN_DECISION_SECONDS, LocalBridge
 from src.services.local_bridge_pairing import LocalPairingStore
+from src.utils.local_bridge_signing import sign_open_request, text_fingerprint
 
 ADMIN = AgentIdentity.for_role("Owner", "admin", is_human=True)
 POLL = {"protocol": PROTOCOL_VERSION, "helper_version": "1.0"}
@@ -292,3 +296,258 @@ def test_result_body_is_strict(client: TestClient) -> None:
         headers={HEADER: token},
     )
     assert response.status_code == 422
+
+
+# --- 從 Touka 請小幫手開放資料夾（ADR-0320） ---
+
+ORIGIN = {"Origin": "http://localhost:3000"}
+OPEN_URL = "/v1/local-bridge/open-requests"
+# 路徑不以磁碟代號開頭：Touka 不判斷路徑，規則都在小幫手（PATH_LITERAL_SSOT）
+WANTED = "相片/家 2026"
+
+
+def _open_and_answer(
+    client: TestClient, token: str, answer: dict[str, Any] | None, path: str = WANTED
+) -> tuple[Any, dict[str, Any]]:
+    """設定頁送出開放請求，測試扮小幫手拿到工作、回報 ``answer``。回傳（回應, 工作）。"""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(client.post, OPEN_URL, json={"path": path}, headers=ORIGIN)
+        job: dict[str, Any] | None = None
+        for _ in range(200):
+            body = _poll(client, token).json()
+            if body["job"] is not None:
+                job = body["job"]
+                break
+            time.sleep(0.01)
+        assert job is not None
+        if answer is not None:
+            delivered = client.post(
+                f"/v1/local-bridge/jobs/{job['id']}/result", json=answer, headers={HEADER: token}
+            )
+            assert delivered.status_code == 200
+        return pending.result(10), job
+
+
+def _key_of(code: str) -> bytes:
+    key_text = code.split(".", 1)[1]
+    return base64.urlsafe_b64decode(key_text + "=")
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        None,
+        AgentIdentity.for_role("Soul", "Owner"),
+        AgentIdentity.for_role("User", "normal", is_human=True),
+        AgentIdentity.for_role("Owner", "admin", is_human=False),
+    ],
+)
+def test_only_human_admins_can_ask_to_open(
+    wired: LocalBridge, identity: AgentIdentity | None
+) -> None:
+    app.dependency_overrides[get_verified_identity] = lambda: identity
+    with TestClient(app) as test_client:
+        response = test_client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.parametrize("headers", [{}, {"Origin": "https://evil.example"}])
+def test_asking_to_open_needs_a_trusted_origin(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    _pair(client)
+    response = client.post(OPEN_URL, json={"path": WANTED}, headers=headers)
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "AUTH_PERMISSION_DENIED"
+
+
+def test_asking_to_open_before_pairing(client: TestClient) -> None:
+    response = client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED"
+
+
+def test_only_the_person_who_paired_can_ask(wired: LocalBridge) -> None:
+    app.dependency_overrides[get_verified_identity] = lambda: ADMIN
+    with TestClient(app) as test_client:
+        _pair(test_client)
+    other = AgentIdentity.for_role("Other", "admin", is_human=True)
+    app.dependency_overrides[get_verified_identity] = lambda: other
+    with TestClient(app) as test_client:
+        response = test_client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "LOCAL_HELPER_NOT_PAIRED_HUMAN"
+
+
+@pytest.mark.parametrize("path", ["", "a" * 1025, "相片\x00", "相片\n", "相片\x7f"])
+def test_bad_paths_are_refused_before_anything_is_sent(
+    client: TestClient, wired: LocalBridge, path: str
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    response = client.post(OPEN_URL, json={"path": path}, headers=ORIGIN)
+    assert response.status_code == 422
+    assert _poll(client, token).json()["job"] is None
+
+
+def test_an_old_pairing_without_a_key_sends_nothing(
+    client: TestClient, wired: LocalBridge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    store = router_module.get_local_pairing_store()
+    record = store.current()
+    assert record is not None
+    old = record.model_copy(update={"decision_key": None})
+    monkeypatch.setattr(store, "current", lambda: old)
+    response = client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "refused",
+        "code": "needs_new_pairing",
+        "name": None,
+        "writable": None,
+    }
+    assert _poll(client, token).json()["job"] is None
+
+
+def test_an_open_request_is_stamped_with_the_pairing_key(client: TestClient) -> None:
+    code = _pair_code(client)
+    token = code.split(".", 1)[0]
+    _poll(client, token)
+    response, job = _open_and_answer(
+        client, token, {"status": "ok", "data": {"name": "家 2026", "writable": False}}
+    )
+    assert job["action"] == "request_open"
+    assert job["args"] == {"path": WANTED}
+    assert job["decide_within"] == OPEN_DECISION_SECONDS
+    decision = job["decision"]
+    assert decision["decided_by"] == "owner_request"
+    assert decision["digest"] == decision["shown"] == text_fingerprint(WANTED)
+    expected = sign_open_request(
+        _key_of(code), job_id=job["id"], nonce=decision["nonce"], path=WANTED
+    )
+    assert decision["signature"] == expected
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "opened",
+        "code": None,
+        "name": "家 2026",
+        "writable": False,
+    }
+
+
+def test_each_request_gets_a_new_number(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    _first, one = _open_and_answer(client, token, {"status": "refused", "code": "not_opened"})
+    _second, two = _open_and_answer(client, token, {"status": "refused", "code": "not_opened"})
+    assert one["decision"]["nonce"] != two["decision"]["nonce"]
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (
+            {"status": "refused", "code": "not_opened", "message": "The user did not open it."},
+            {"status": "refused", "code": "not_opened", "name": None, "writable": None},
+        ),
+        (
+            {"status": "error", "code": None},
+            {"status": "error", "code": "unknown", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "家", "writable": True, "path": "x"}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "家", "writable": "yes"}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": {"name": "", "writable": True}},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+        (
+            {"status": "ok", "data": None},
+            {"status": "error", "code": "bad_result", "name": None, "writable": None},
+        ),
+    ],
+)
+def test_helper_answers_are_mapped(
+    client: TestClient, answer: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    response, _job = _open_and_answer(client, token, answer)
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
+def test_a_long_folder_name_still_counts_as_opened(client: TestClient) -> None:
+    token = _pair(client)
+    _poll(client, token)
+    name = "a" * 255 + " 2"
+    response, _job = _open_and_answer(
+        client, token, {"status": "ok", "data": {"name": name, "writable": False}}
+    )
+    assert response.json()["status"] == "opened"
+    assert response.json()["name"] == name
+
+
+def test_without_a_helper_online_nothing_waits(client: TestClient) -> None:
+    _pair(client)
+    response = client.post(OPEN_URL, json={"path": WANTED}, headers=ORIGIN)
+    assert response.status_code == 200
+    assert response.json()["code"] == "helper_offline"
+
+
+class _ShiftingStore:
+    """每讀一次 ``current()`` 換一份紀錄：抓「人和鑰匙分兩次讀」。"""
+
+    def __init__(self, records: list[LocalPairingRecord], channel: str) -> None:
+        self._records = records
+        self._channel = channel
+        self.reads = 0
+
+    def current(self) -> LocalPairingRecord:
+        record = self._records[min(self.reads, len(self._records) - 1)]
+        self.reads += 1
+        return record
+
+    def decision_key(self) -> bytes:
+        return bytes(range(1, 33))
+
+    def authenticate(self, token: str) -> LocalPairingRecord | None:
+        return self._records[0] if token == self._channel else None
+
+    def generation(self) -> int:
+        return 1
+
+
+def test_the_person_and_the_key_come_from_one_read(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_key = bytes(range(32))
+    first = LocalPairingRecord(
+        generation=1, token_hash="0" * 64, human_id=ADMIN.agent_id, decision_key=first_key.hex()
+    )
+    second = first.model_copy(update={"decision_key": bytes(range(1, 33)).hex()})
+    channel = "shifting-store-channel"
+    store = _ShiftingStore([first, second], channel)
+    monkeypatch.setattr(router_module, "get_local_pairing_store", lambda: store)
+    _poll(client, channel)
+    _response, job = _open_and_answer(
+        client, channel, {"status": "refused", "code": "not_opened"}
+    )
+    decision = job["decision"]
+    assert decision["signature"] == sign_open_request(
+        first_key, job_id=job["id"], nonce=decision["nonce"], path=WANTED
+    )
+    assert store.reads == 1
+
+
+def test_open_requests_are_in_the_api_contract() -> None:
+    paths = app.openapi()["paths"]
+    assert "/v1/local-bridge/open-requests" in paths
+    assert "/local-bridge/open-requests" in paths

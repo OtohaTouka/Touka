@@ -19,17 +19,23 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
 from src.models.local_bridge import (
+    MAX_OPEN_NAME_CHARS,
     MAX_REQUESTER_CHARS,
+    LocalDecision,
     LocalJob,
     LocalJobResult,
+    LocalOpenResult,
     LocalPollResponse,
+)
+from src.utils.local_bridge_signing import (
+    DECIDED_BY_OPEN_REQUEST,
+    sign_open_request,
+    text_fingerprint,
 )
 from src.utils.time_utils import get_monotonic_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from src.models.local_bridge import LocalDecision
 
 MAX_PENDING_JOBS: Final = 8
 MAX_CANCELLED_IDS: Final = 32
@@ -57,8 +63,18 @@ CODE_PAIRING_CHANGED: Final = "pairing_changed"
 
 ACTION_NEEDING_CONFIRM: Final = "propose"
 ACTION_PREVIEW: Final = "preview"
-# 不用人核准，交給小幫手之後就可能已經做了
-_MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file"})
+ACTION_REQUEST_OPEN: Final = "request_open"
+# 交給小幫手之後就可能已經做了（開放請求是人在小幫手視窗按的，不經 confirm，ADR-0320）
+_MUTATING_WITHOUT_CONFIRM: Final = frozenset({"create_folder", "create_file", ACTION_REQUEST_OPEN})
+
+# 開放請求（ADR-0320）：小幫手視窗開這麼久（小幫手自己也定同一個值，parity 測試核對），
+# Touka 多等 30 秒給加名單與回報
+OPEN_DECISION_SECONDS: Final = 120.0
+OPEN_WAIT_SECONDS: Final = 150.0
+CODE_NEEDS_NEW_PAIRING: Final = "needs_new_pairing"
+CODE_BAD_RESULT: Final = "bad_result"
+CODE_UNKNOWN: Final = "unknown"
+_OPENED_FIELDS: Final = frozenset({"name", "writable"})
 
 
 # Windows 磁碟在 Git Bash、WSL、Docker Desktop 裡的寫法
@@ -87,18 +103,26 @@ def _monotonic_seconds() -> float:
     return get_monotonic_ms() / 1000
 
 
+_TOUKA_WAITS: Final = {
+    ACTION_NEEDING_CONFIRM: DECISION_WAIT_SECONDS,
+    ACTION_PREVIEW: PREVIEW_WAIT_SECONDS,
+    ACTION_REQUEST_OPEN: OPEN_WAIT_SECONDS,
+}
+_HELPER_WAITS: Final = {
+    ACTION_NEEDING_CONFIRM: DECISION_WAIT_SECONDS - HELPER_DECISION_MARGIN_SECONDS,
+    ACTION_PREVIEW: PREVIEW_WAIT_SECONDS,
+    ACTION_REQUEST_OPEN: OPEN_DECISION_SECONDS,
+}
+
+
 def _touka_wait(action: str) -> float:
     """Touka 等這件工作多久。"""
-    if action == ACTION_NEEDING_CONFIRM:
-        return DECISION_WAIT_SECONDS
-    return PREVIEW_WAIT_SECONDS if action == ACTION_PREVIEW else READ_WAIT_SECONDS
+    return _TOUKA_WAITS.get(action, READ_WAIT_SECONDS)
 
 
 def _helper_wait(action: str) -> float:
     """小幫手要在幾秒內決定；比 Touka 早放棄，才不會 Touka 不等了小幫手還在做。"""
-    if action == ACTION_NEEDING_CONFIRM:
-        return DECISION_WAIT_SECONDS - HELPER_DECISION_MARGIN_SECONDS
-    return PREVIEW_WAIT_SECONDS if action == ACTION_PREVIEW else READ_WAIT_SECONDS
+    return _HELPER_WAITS.get(action, READ_WAIT_SECONDS)
 
 
 def _failure(code: str) -> LocalJobResult:
@@ -327,6 +351,39 @@ class LocalBridge:
         del self._jobs[job_id]
         self._notify()
         return True
+
+
+def open_request_signer(key: bytes, path: str) -> Callable[[str], LocalDecision]:
+    """開放請求的章（ADR-0320）：拿到工作編號後才蓋，每次一個新的一次性號碼。鑰匙不進通道。"""
+    fingerprint = text_fingerprint(path)
+
+    def sign(job_id: str) -> LocalDecision:
+        nonce = secrets.token_urlsafe(16)
+        return LocalDecision(
+            nonce=nonce,
+            digest=fingerprint,
+            shown=fingerprint,
+            decided_by=DECIDED_BY_OPEN_REQUEST,
+            signature=sign_open_request(key, job_id=job_id, nonce=nonce, path=path),
+        )
+
+    return sign
+
+
+def open_result_from(result: LocalJobResult) -> LocalOpenResult:
+    """小幫手的回報換成設定頁看的結果。格式不對的「成功」當成錯誤，不回給模型看的英文說明。"""
+    if result.status != "ok":
+        return LocalOpenResult(status=result.status, code=result.code or CODE_UNKNOWN)
+    data = result.data
+    if (
+        isinstance(data, dict)
+        and set(data) == _OPENED_FIELDS
+        and isinstance(data["name"], str)
+        and 1 <= len(data["name"]) <= MAX_OPEN_NAME_CHARS
+        and isinstance(data["writable"], bool)
+    ):
+        return LocalOpenResult(status="opened", name=data["name"], writable=data["writable"])
+    return LocalOpenResult(status="error", code=CODE_BAD_RESULT)
 
 
 @lru_cache(maxsize=1)

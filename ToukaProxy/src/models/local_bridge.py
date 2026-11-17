@@ -14,17 +14,25 @@ PROTOCOL_VERSION: Final = 2
 MAX_JOB_RESULT_BYTES: Final = 1024 * 1024
 MAX_ERROR_MESSAGE_CHARS: Final = 2000
 MAX_REQUESTER_CHARS: Final = 128
+# 開放請求（ADR-0320）：路徑長度和小幫手的請求上限相同（parity 測試核對）
+MAX_OPEN_PATH_CHARS: Final = 1024
+# 資料夾名稱最多 255 字，重名時小幫手會在後面加「 2」之類
+MAX_OPEN_NAME_CHARS: Final = 300
+MAX_RESULT_CODE_CHARS: Final = 64
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _HEX64_PATTERN: Final = r"^[0-9a-f]{64}$"
 _NONCE_PATTERN: Final = r"^[A-Za-z0-9_-]{22}$"
+_NO_CONTROL_CHARS: Final = r"^[^\x00-\x1f\x7f]+$"
 
-# request_open 給下一版「從 Touka 請小幫手開放資料夾」用，模型的工具合約沒有這個動作
+# request_open 只從設定頁送（ADR-0320），模型的工具合約沒有這個動作
 LocalAction = Literal[
     "list", "read", "create_folder", "create_file", "propose", "preview", "request_open"
 ]
-# Touka 只能簽這三種；在小幫手視窗按的由小幫手自己記（ADR-0317）
+# 照模式的決定只有這三種；在小幫手視窗按的由小幫手自己記（ADR-0317）
 DecidedByMode = Literal["user_card", "auto_review", "yolo"]
+# 開放請求的章（ADR-0320）：只證明是 Touka 送的，小幫手一定跳視窗
+DecidedByOpenRequest = Literal["owner_request"]
 
 
 class _Strict(BaseModel):
@@ -39,12 +47,15 @@ class LocalPollRequest(_Strict):
 
 
 class LocalDecision(_Strict):
-    """照模式做的決定和 Touka 蓋的章（ADR-0317）。由通道填，模型的參數碰不到。"""
+    """照模式做的決定和 Touka 蓋的章（ADR-0317），或開放請求的章（ADR-0320）。
+
+    由通道填，模型的參數碰不到。
+    """
 
     nonce: str = Field(pattern=_NONCE_PATTERN)
     digest: str = Field(pattern=_HEX64_PATTERN)
     shown: str = Field(pattern=_HEX64_PATTERN)
-    decided_by: DecidedByMode
+    decided_by: DecidedByMode | DecidedByOpenRequest
     signature: str = Field(pattern=_HEX64_PATTERN)
 
 
@@ -94,6 +105,21 @@ class LocalHelperStatus(_Strict):
     paired: bool
     online: bool
     helper_version: str | None = None
+
+
+class LocalOpenRequest(_Strict):
+    """設定頁請小幫手開放的資料夾路徑（ADR-0320）。路徑規則都由小幫手判斷，這裡只擋控制字元與長度。"""
+
+    path: str = Field(min_length=1, max_length=MAX_OPEN_PATH_CHARS, pattern=_NO_CONTROL_CHARS)
+
+
+class LocalOpenResult(_Strict):
+    """開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。"""
+
+    status: Literal["opened", "refused", "error"]
+    code: str | None = Field(default=None, max_length=MAX_RESULT_CODE_CHARS)
+    name: str | None = Field(default=None, max_length=MAX_OPEN_NAME_CHARS)
+    writable: bool | None = None
 
 
 class LocalPairingRecord(_Strict):

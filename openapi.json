@@ -15895,6 +15895,53 @@
         ]
       }
     },
+    "/v1/local-bridge/open-requests": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Request Open",
+        "description": "配對的人本人請小幫手開放資料夾（ADR-0320）。小幫手一律跳視窗，人決定或時間到才有結果。",
+        "operationId": "request_open_v1_local_bridge_open_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalOpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalOpenResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/local-bridge/poll": {
       "post": {
         "tags": [
@@ -16132,6 +16179,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LocalHelperStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/local-bridge/open-requests": {
+      "post": {
+        "tags": [
+          "local-bridge"
+        ],
+        "summary": "Request Open",
+        "description": "配對的人本人請小幫手開放資料夾（ADR-0320）。小幫手一律跳視窗，人決定或時間到才有結果。",
+        "operationId": "request_open_local_bridge_open_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalOpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalOpenResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -20691,11 +20785,19 @@
             "title": "Shown"
           },
           "decided_by": {
-            "type": "string",
-            "enum": [
-              "user_card",
-              "auto_review",
-              "yolo"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user_card",
+                  "auto_review",
+                  "yolo"
+                ]
+              },
+              {
+                "type": "string",
+                "const": "owner_request"
+              }
             ],
             "title": "Decided By"
           },
@@ -20715,7 +20817,7 @@
           "signature"
         ],
         "title": "LocalDecision",
-        "description": "照模式做的決定和 Touka 蓋的章（ADR-0317）。由通道填，模型的參數碰不到。"
+        "description": "照模式做的決定和 Touka 蓋的章（ADR-0317），或開放請求的章（ADR-0320）。\n\n由通道填，模型的參數碰不到。"
       },
       "LocalHelperStatus": {
         "properties": {
@@ -20872,6 +20974,79 @@
         ],
         "title": "LocalJobResult",
         "description": "小幫手回報的結果。``refused`` 是規則不讓做或人拒絕，``error`` 是做的時候出錯。"
+      },
+      "LocalOpenRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+            "title": "Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "LocalOpenRequest",
+        "description": "設定頁請小幫手開放的資料夾路徑（ADR-0320）。路徑規則都由小幫手判斷，這裡只擋控制字元與長度。"
+      },
+      "LocalOpenResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "opened",
+              "refused",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "writable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Writable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LocalOpenResult",
+        "description": "開放請求的結果。``opened`` 才有名稱與權限；其他只有代碼，前端照代碼顯示。"
       },
       "LocalPairingCreated": {
         "properties": {
