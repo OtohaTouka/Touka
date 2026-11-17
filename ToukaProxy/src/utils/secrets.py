@@ -10,6 +10,7 @@ config 路由（.env）與 connections 路由（connections.json）共用此模�
 from __future__ import annotations
 
 import re
+from typing import Any
 
 # 遮罩標記：GET 回傳 secret 類值時以此取代真值（非空＝已設定，但不洩漏內容）。
 MASK = "••••••••"
@@ -33,6 +34,15 @@ _CONTENT_SECRET_PATTERNS = (
 def is_secret_key(key: str) -> bool:
     """鍵名是否命中 secret 特徵（API_KEY/SECRET/TOKEN/PASSWORD）。"""
     return bool(_SECRET_KEY_RE.search(key))
+
+
+def mask_secret_keys(value: Any) -> Any:
+    """遞迴把秘密鍵名（``is_secret_key``）的值換成 ``MASK``；dict 與 list 都走進去，其他值原樣."""
+    if isinstance(value, dict):
+        return {k: MASK if is_secret_key(str(k)) else mask_secret_keys(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [mask_secret_keys(v) for v in value]
+    return value
 
 
 def mask_value(key: str, value: str) -> str:

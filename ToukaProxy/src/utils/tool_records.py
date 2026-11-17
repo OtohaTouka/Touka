@@ -34,7 +34,7 @@ from src.services.tool_errors import (
 
 from .history_manager import count_rounds_from_linear
 from .interjection_notes import annotate_node
-from .secrets import MASK, is_secret_key, redact_secrets_from_content
+from .secrets import MASK, is_secret_key, mask_secret_keys, redact_secrets_from_content
 from .time_utils import TIME_FOOTER_PREFIX
 from .tool_record_marks import (
     SPACE_RUN_RE,
@@ -103,18 +103,12 @@ def _field(text: str, limit: int) -> str:
     return _truncate(redacted.translate(_FULLWIDTH), limit)
 
 
-def _masked(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: MASK if is_secret_key(str(k)) else _masked(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_masked(v) for v in value]
-    return value
-
-
 def _as_text(value: Any) -> str:
     if isinstance(value, str):
         return value
-    return json.dumps(_masked(value), ensure_ascii=False, separators=(",", ":"), default=str)
+    return json.dumps(
+        mask_secret_keys(value), ensure_ascii=False, separators=(",", ":"), default=str
+    )
 
 
 def _name(step: dict[str, Any]) -> str:

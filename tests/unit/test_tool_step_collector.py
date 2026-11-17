@@ -28,6 +28,7 @@ from src.services.soul_service import SoulService
 from src.services.stream_buffer_service import StreamBufferService
 from src.utils.async_db import SessionSnapshot, init_db_async, session_service
 from src.utils.history_manager import TreeMessageManager
+from src.utils.secrets import MASK, mask_secret_keys
 from src.utils.tool_events import (
     ToolCallEvent,
     mcp_interaction_request_event,
@@ -208,6 +209,29 @@ def test_names_keys_and_whole_args_are_capped_too():
     assert first["args"] == {"鍵" * MAX_STORED_NAME_CHARS + TRUNCATED_NOTE: 1}
     whole = json.dumps(many, ensure_ascii=False)
     assert second["args"] == whole[:MAX_STORED_ARGS_CHARS] + TRUNCATED_NOTE
+
+
+def test_args_cut_to_a_json_string_still_hide_secret_keys():
+    """截成字串後紀錄讀不回鍵名，所以收集器先遮：和前端存的（仍是 dict、照鍵名遮）一樣不外露."""
+    config = {"password": "hunter2", "host": "h" * (MAX_STORED_ARG_CHARS + 100)}
+    whole = {"api_token": "abc123", **{f"k{i}": "v" * 100 for i in range(60)}}
+    collector = _collect(
+        tool_start_event(call_id="c1", tool="t", args={"config": config}),
+        tool_start_event(call_id="c2", tool="t", args=whole),
+    )
+    first, second = collector.steps
+    assert "hunter2" not in first["args"]["config"]
+    assert f'"password": "{MASK}"' in first["args"]["config"]
+    assert isinstance(second["args"], str)
+    assert "abc123" not in second["args"]
+    assert f'"api_token": "{MASK}"' in second["args"]
+
+
+def test_mask_secret_keys_walks_dicts_and_lists():
+    value = {"items": [{"token": "t1"}, {"name": "n"}], "nested": {"api_key": "k"}, "plain": "p"}
+    assert mask_secret_keys(value) == {
+        "items": [{"token": MASK}, {"name": "n"}], "nested": {"api_key": MASK}, "plain": "p",
+    }
 
 
 def test_storage_caps():
