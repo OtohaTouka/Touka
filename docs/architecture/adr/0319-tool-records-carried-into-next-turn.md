@@ -41,6 +41,7 @@
 
 - 控制字元（Cc）、格式字元（Cf，含 U+202E、零寬字元）、空白（Zs）、行與段分隔換成一個空白（字元集照 Unicode 16 寫死在 `SPACE_CLASS`，前後端不受各自 Unicode 版本影響）。
 - 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
+- 壓成一行後先截到 `MAX_SCAN_CHARS`（8192 個 code point）再遮蔽，擋住超長結果讓正規式變慢；截斷點落在金鑰中間時那一段可能遮不到，但只有出現在最前面 80 字的才會被送出。前端照 code point 計數（`Array.from`），不用 UTF-16 的 `slice`，否則 emoji 多時兩邊的截斷點會不同。
 - 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
 - 已知差異：Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為，不在這批改）。
 - 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。要不要補進 `secrets.py` 在 PR 1b 前評估（會一起影響其他用到遮蔽的地方）。
@@ -62,7 +63,7 @@
 
 - 心跳組歷史改用 `annotate_history(linear, level=RECORD_DETAILED)`。心跳在家跑時看得到網頁回合存下的步驟。心跳自己的工具步驟要到 PR 2 才會存下來。
 - PR 1a 只處理心跳自己這段對話的歷史：換家時帶進來的舊家對話文字與摘要器還沒換假標記，PR 3（離開這段對話的地方）一起處理；SNS 在 PR 4。
-- 後端只換字串內容；內容是多段（list）的訊息不換，列為已知限制。
+- 後端只換字串內容：內容是多段（list）的訊息不換；前端把多模態訊息存成 JSON 字串時，假標記中間夾的換行、tab 這類字元會被跳脫成兩個字元，也比對不到。列為已知限制。
 
 ## 沒選的做法
 
