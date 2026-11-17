@@ -206,7 +206,8 @@ async def maintain(identity: AgentIdentity) -> None:
         await _write_deferred_retired(run)
         await _report_due_channels(run)
         await _report_idle_children(run)
-    _unreported_cache.pop(agent, None)  # 可能寫了回報或移了位置：下一輪重算「還沒回報」
+    if run.reports or run.wrote:  # 處理過子對話或寫了段落：下一輪重算「還沒回報」
+        _unreported_cache.pop(agent, None)
     if run.wrote:  # 鎖外做：合併自己會拿靈魂鎖
         await soul_prelude_merge.merge_if_needed(
             identity, run.config, home_id=await session_service.get_home_session_id(identity)

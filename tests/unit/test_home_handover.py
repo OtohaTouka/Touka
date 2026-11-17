@@ -2005,3 +2005,38 @@ async def test_an_ordinary_child_still_reports_content_older_than_a_day(summarie
     ))
     await home_handover.maintain(A)  # 6 小時沒動：閒置規則照報，不受頻道的一天限制
     assert report_calls(summaries) == [["old-u", "old-a"]]
+
+
+async def test_a_maintenance_that_touched_no_child_keeps_the_count(summaries, clock):
+    """每一輪回合存好都會排維護：沒挑到任何子對話時不清快取，家裡連續聊天不必每輪重新解析."""
+    await seed_as("kid", updated_at=clock["ms"])  # 有新內容、還沒閒置
+    assert (await home_handover.unreported_children(A)).count == 1
+    await set_mark("kid", A.agent_id, "a")  # 別處移了位置；這次維護沒有子對話要處理
+    await home_handover.maintain(A)
+    assert (await home_handover.unreported_children(A)).count == 1  # 仍是快取
+    clock["ms"] += home_handover.UNREPORTED_CACHE_MS
+    assert (await home_handover.unreported_children(A)).count == 0
+
+
+async def test_a_maintenance_that_only_moved_a_mark_recounts(summaries, clock):
+    system_only = {"id": "s", "role": "system", "content": "x", "parentId": None}
+    no_dialogue = {"messages": {"s": system_only}, "currentId": "s"}
+    await seed_as("kid", tree=no_dialogue)
+    clock["ms"] = 1000 + home_handover.CHILD_IDLE_MS
+    assert (await home_handover.unreported_children(A)).count == 1
+    await home_handover.maintain(A)  # 沒有對話內容：只移位置、不寫回報
+    assert report_calls(summaries) == []
+    assert (await home_handover.unreported_children(A)).count == 0
+
+
+async def test_a_home_change_recounts(summaries, archive, scope_db):
+    await seed("A", tree=BRANCHED)
+    await seed("B", tree=BRANCHED)
+    await set_scope_one("B")
+    await legacy_home("A")
+    assert (await home_handover.unreported_children(A)).count == 1  # B 還是一般對話
+    assert await service.set_home("B", A, True)
+    await start("B")
+    await home_handover.maintain(A)  # 只有交接，沒有子對話要回報
+    assert report_calls(summaries) == []
+    assert (await home_handover.unreported_children(A)).count == 0  # B 成了家，不算自己
