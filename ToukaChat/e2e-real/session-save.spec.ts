@@ -437,6 +437,7 @@ test("原頁來不及存完整內容就關掉：後端存的那份已有工具�
   await approveButton(page).click();
   await expect(page.getByRole("button", { name: "重新核對保存結果" })).toBeVisible();
   const id = await latestSessionId(adminToken);
+  const serverCopy = await savedSnapshot(adminToken, id);
   const stored = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
   expect(stored.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
   await page.unroute("**/v1/ui/sessions/*");
@@ -446,6 +447,8 @@ test("原頁來不及存完整內容就關掉：後端存的那份已有工具�
   await turnEnded(page);
   await expectNoSaveNotice(page);
   await expect(page.locator("[data-index]").last().getByText("write").first()).toBeVisible();
+  // 重新整理時從緩衝區重播這一輪，把完整內容（核准卡等）存回去：版本一定會變
+  await expect.poll(async () => (await savedSnapshot(adminToken, id)).revision).not.toBe(serverCopy.revision);
   const replies = (await savedMessages(adminToken, id)).filter((message) => message.role === "assistant");
   expect(replies.at(-1)?.steps?.length ?? 0).toBeGreaterThan(0);
 });
