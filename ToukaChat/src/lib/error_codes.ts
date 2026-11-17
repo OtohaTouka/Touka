@@ -740,6 +740,18 @@ export const ERRORS = {
     msg: "小幫手回傳的結果太大",
     i18n: "error.local_helper.result_too_large"
   },
+  LOCAL_HELPER_NOT_PAIRED: {
+    id: 7005,
+    status: 409,
+    msg: "還沒有配對小幫手",
+    i18n: "error.local_helper.not_paired"
+  },
+  LOCAL_HELPER_NOT_PAIRED_HUMAN: {
+    id: 7006,
+    status: 403,
+    msg: "只有產生配對碼的人可以請小幫手開放資料夾",
+    i18n: "error.local_helper.not_paired_human"
+  },
 } as const;
 
 export type ErrorCode = keyof typeof ERRORS;

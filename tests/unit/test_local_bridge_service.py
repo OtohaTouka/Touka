@@ -558,3 +558,57 @@ async def test_a_preview_gets_the_longer_scan_time(bridge: LocalBridge, clock: C
 def test_preview_fits_inside_the_one_time_number_lifetime() -> None:
     # 預覽、卡片、審查員都要在小幫手記得那個號碼的時間內做完
     assert module.PREVIEW_WAIT_SECONDS < 540
+
+
+# --- 開放請求（ADR-0320） ---
+
+
+@pytest.mark.asyncio
+async def test_an_open_request_gives_the_helper_its_window_time(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "request_open")
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    assert response.job.decide_within == module.OPEN_DECISION_SECONDS
+    assert module.OPEN_DECISION_SECONDS < module.OPEN_WAIT_SECONDS
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_an_open_request_handed_over_is_unknown_on_timeout(
+    bridge: LocalBridge, clock: Clock
+) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "request_open")
+    await _poll(bridge)
+    await _advance_online(bridge, clock, module.OPEN_DECISION_SECONDS + 1)
+    assert not task.done()
+    await _advance_online(bridge, clock, module.OPEN_WAIT_SECONDS - module.OPEN_DECISION_SECONDS)
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_RESULT_UNKNOWN)
+
+
+@pytest.mark.asyncio
+async def test_an_open_request_never_handed_over_times_out_plainly(
+    bridge: LocalBridge, clock: Clock
+) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "request_open")
+    await asyncio.sleep(0)
+    bridge._queue.clear()
+    await _advance_online(bridge, clock, module.OPEN_WAIT_SECONDS + 1)
+    result = await _finish(task)
+    assert (result.status, result.code) == ("error", module.CODE_TIMED_OUT)
+
+
+@pytest.mark.asyncio
+async def test_an_open_request_needs_no_confirm(bridge: LocalBridge) -> None:
+    await _poll(bridge)
+    task = await _start(bridge, "request_open")
+    response = await _poll(bridge)
+    assert response is not None and response.job is not None
+    job_id = response.job.id
+    assert not bridge.confirm(job_id, GENERATION)
+    assert bridge.deliver(job_id, GENERATION, OK)
+    assert (await _finish(task)).data == {"done": True}

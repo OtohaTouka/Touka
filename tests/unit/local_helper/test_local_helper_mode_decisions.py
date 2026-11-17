@@ -331,13 +331,15 @@ def test_a_decision_on_another_kind_of_job_is_refused(service, client, fs) -> No
     assert payload["code"] == "bad_request"
 
 
-def test_open_requests_are_not_supported_yet(service, client) -> None:
+def test_an_open_request_without_a_stamp_is_refused(service, client, gate) -> None:
+    # 開放請求另外在 test_local_helper_open_request.py 測（ADR-0320）；沒有章就不跳視窗
     payload = _run(
         service,
         client,
         Job(id="o1", action="request_open", args={}, requester="s", decide_within=30.0),
     )
-    assert payload["code"] == "not_supported"
+    assert payload["code"] == "bad_signature"
+    assert gate.current is None
 
 
 def test_a_new_pairing_forgets_old_previews(service, client, fs, gate) -> None:

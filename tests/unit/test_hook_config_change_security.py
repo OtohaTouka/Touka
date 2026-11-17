@@ -82,6 +82,9 @@ _NOT_SETTINGS: dict[str, set[str]] = {
         "local_bridge.create_pairing", "local_bridge.delete_pairing", "local_bridge.poll",
         "local_bridge.confirm_job", "local_bridge.submit_result",
     },
+    "請小幫手開放資料夾（人在小幫手視窗核准，改的是小幫手的名單，不是 Touka 設定，ADR-0320）": {
+        "local_bridge.request_open",
+    },
     "MCP OAuth 的連線與憑證（有自己的稽核紀錄，這批不接，ADR-0292 差別表）": {
         "mcp_oauth.start_mcp_oauth", "mcp_oauth.disconnect_mcp_oauth",
         "mcp_oauth.complete_mcp_oauth_form_post", "mcp_oauth.put_mcp_oauth_profile",

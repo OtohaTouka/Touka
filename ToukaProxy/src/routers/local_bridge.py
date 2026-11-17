@@ -1,6 +1,7 @@
-"""本機小幫手的端點（ADR-0312）.
+"""本機小幫手的端點（ADR-0312、ADR-0320）.
 
 - 配對、解除、狀態：只給人類管理員（admin 代打不算）。
+- 請小幫手開放資料夾：只給配對的人本人，一定要帶信任的 Origin（ADR-0320）。
 - 輪詢、確認、回報結果：只給帶權杖的小幫手。權杖只代表這條通道，不會變成任何身分（禁令 16）。
 """
 
@@ -17,15 +18,26 @@ from src.models.local_bridge import (
     LocalHelperStatus,
     LocalJobAck,
     LocalJobResult,
+    LocalOpenRequest,
+    LocalOpenResult,
     LocalPairingCreated,
     LocalPairingRecord,
     LocalPollRequest,
     LocalPollResponse,
 )
 from src.services.authorization_gateway import require_admin_human
-from src.services.local_bridge import POLL_HOLD_SECONDS, get_local_bridge, host_mount_roots
+from src.services.local_bridge import (
+    ACTION_REQUEST_OPEN,
+    CODE_NEEDS_NEW_PAIRING,
+    POLL_HOLD_SECONDS,
+    get_local_bridge,
+    host_mount_roots,
+    open_request_signer,
+    open_result_from,
+)
 from src.services.local_bridge_pairing import get_local_pairing_store
-from src.utils.csrf_guard import verify_origin
+from src.utils.csrf_guard import require_trusted_origin, verify_origin
+from src.utils.local_bridge_signing import decision_key_from_hex
 
 router = APIRouter(prefix="/local-bridge", tags=["local-bridge"])
 
@@ -80,6 +92,32 @@ async def helper_status(
         online=bridge.online,
         helper_version=bridge.helper_version,
     )
+
+
+@router.post("/open-requests", response_model=LocalOpenResult)
+async def request_open(
+    body: LocalOpenRequest,
+    request: Request,
+    admin: Annotated[AgentIdentity, Depends(_require_admin_human)],
+) -> LocalOpenResult:
+    """配對的人本人請小幫手開放資料夾（ADR-0320）。小幫手一律跳視窗，人決定或時間到才有結果。"""
+    require_trusted_origin(request)
+    # 人和鑰匙只讀這一次，不會一個來自舊配對、一個來自新配對
+    record = get_local_pairing_store().current()
+    if record is None:
+        raise ToukaException(ErrorCode.LOCAL_HELPER_NOT_PAIRED)
+    if record.human_id != admin.agent_id:
+        raise ToukaException(ErrorCode.LOCAL_HELPER_NOT_PAIRED_HUMAN)
+    key = decision_key_from_hex(record.decision_key)
+    if key is None:
+        return LocalOpenResult(status="refused", code=CODE_NEEDS_NEW_PAIRING)
+    result = await get_local_bridge().submit(
+        ACTION_REQUEST_OPEN,
+        {"path": body.path},
+        admin.agent_id,
+        signer=open_request_signer(key, body.path),
+    )
+    return open_result_from(result)
 
 
 @router.post("/poll", response_model=LocalPollResponse)

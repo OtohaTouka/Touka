@@ -10,6 +10,7 @@ from typing import get_args
 from src.models.local_bridge import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_JOB_RESULT_BYTES,
+    MAX_OPEN_PATH_CHARS,
     MAX_REQUESTER_CHARS,
     PROTOCOL_VERSION,
     DecidedByMode,
@@ -25,9 +26,15 @@ from src.services.local_bridge import (
     HELPER_DECISION_MARGIN_SECONDS,
     HELPER_EXECUTION_LIMIT_SECONDS,
     MAX_PENDING_JOBS,
+    OPEN_DECISION_SECONDS,
+    OPEN_WAIT_SECONDS,
 )
 from src.tools.builtin.local_helper import PROPOSE_STATUS_NOTE
-from src.utils.local_bridge_signing import DECIDED_BY_MODES
+from src.utils.local_bridge_signing import (
+    ACT_REQUEST_OPEN,
+    DECIDED_BY_MODES,
+    DECIDED_BY_OPEN_REQUEST,
+)
 
 HELPER = Path(__file__).resolve().parents[2] / "ToukaLocal" / "touka_local"
 
@@ -111,3 +118,13 @@ def test_decision_fields_and_modes_match() -> None:
     assert helper["DECISION_FIELDS"] == frozenset(LocalDecision.model_fields)
     assert helper["DECIDED_BY_MODES"] == get_args(DecidedByMode)
     assert helper["DECIDED_BY_MODES"] == DECIDED_BY_MODES
+
+
+def test_open_request_constants_match() -> None:
+    """開放請求（ADR-0320）：視窗時間兩邊相同、Touka 等得比較久；章的寫法相同。"""
+    helper = _constants("open_request.py")
+    assert helper["OPEN_DECISION_SECONDS"] == OPEN_DECISION_SECONDS
+    assert OPEN_WAIT_SECONDS > OPEN_DECISION_SECONDS
+    assert _constants("protocol.py")["DECIDED_BY_OPEN_REQUEST"] == DECIDED_BY_OPEN_REQUEST
+    assert _constants("signing.py")["ACT_REQUEST_OPEN"] == ACT_REQUEST_OPEN
+    assert _constants("paths.py")["MAX_REQUEST_PATH_CHARS"] == MAX_OPEN_PATH_CHARS
