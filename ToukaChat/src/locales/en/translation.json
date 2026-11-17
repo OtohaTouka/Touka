@@ -1336,7 +1336,7 @@
     },
     "local_helper_tab": {
       "heading": "Local helper",
-      "intro": "The helper is a program on your computer. It lets souls view files, create files and folders, and tidy files in the folders you open to them. You choose the folders in the helper's window, and moves and deletes need your approval at the computer. A soul with its own tool list needs this tool ticked, and incognito conversations can't use it.",
+      "intro": "The helper is a program on your computer. It lets souls view files, create files and folders, and tidy files in the folders you open to them. You can ask the helper to open a folder below or add one in the helper's window; either way you approve it at the computer. A soul with its own tool list needs this tool ticked, and incognito conversations can't use it.",
       "status_unpaired": "Not paired yet",
       "status_offline": "Paired, but the helper is not running",
       "status_online": "Connected (helper version {{version}})",
@@ -1352,7 +1352,39 @@
       "code_help": "Paste it into the helper's window. You cannot see it again after leaving this page.",
       "copy": "Copy",
       "copied": "Copied",
-      "action_failed": "That did not work. Try again later."
+      "action_failed": "That did not work. Try again later.",
+      "open_heading": "Ask the helper to open a folder",
+      "open_help": "Copy the folder path from the File Explorer address bar and paste it here. The helper then shows a window where you choose the permission and approve.",
+      "open_label": "Folder path",
+      "open_placeholder": "For example D:\\Photos",
+      "open_submit": "Ask the helper",
+      "open_waiting": "Check the helper's window and decide there (within 2 minutes).",
+      "open_result": {
+        "opened_read_only": "Opened \"{{name}}\" (view only).",
+        "opened_writable": "Opened \"{{name}}\" (can change).",
+        "not_opened": "The helper did not open this folder. The reason is in the helper's window.",
+        "no_decision": "Nothing was decided in the helper's window within 2 minutes, so nothing was opened.",
+        "not_openable": "It was approved but still could not be opened. The reason is in the helper's window.",
+        "open_paused": "The helper has paused folder requests. Try again in about 10 minutes, or press \"Resume now\" in the helper's main window.",
+        "bad_signature": "The helper could not verify Touka's stamp. Create a new pairing code.",
+        "needs_new_pairing": "This pairing has no key. Create a new pairing code.",
+        "too_old": "The helper is too old. Update the helper.",
+        "maybe_opened": "It may have been opened. Check the list in the helper's window.",
+        "approval_busy": "The helper is waiting for you on another window. Deal with that one first.",
+        "approval_cooldown": "A window was just closed. Wait a few seconds and send again.",
+        "helper_offline": "The helper is not running.",
+        "helper_busy": "The helper is handling too much right now. Try again later.",
+        "helper_exposed": "The helper stopped for safety. Check the helper's window.",
+        "pairing_changed": "The pairing changed. Send it again.",
+        "timed_out": "The helper did not receive the request. Make sure it is running and send again.",
+        "io_error": "The helper could not save its folder list, so nothing was opened.",
+        "unknown_code": "The helper did not open it ({{code}}).",
+        "not_paired_human": "Only the person who created the pairing code can send this.",
+        "not_paired": "Not paired yet.",
+        "denied": "You are not allowed to send this.",
+        "invalid_path": "The path has characters that cannot be used, or is too long.",
+        "failed": "It was not sent. Try again."
+      }
     }
   },
   "sidebar": {
@@ -2571,7 +2603,9 @@
       "invalid_token": "The helper's pairing is no longer valid. Pair it again.",
       "protocol_mismatch": "This helper version does not work with Touka. Reinstall the helper.",
       "job_gone": "This job no longer exists.",
-      "result_too_large": "The helper's result is too large."
+      "result_too_large": "The helper's result is too large.",
+      "not_paired": "The helper is not paired yet.",
+      "not_paired_human": "Only the person who created the pairing code can ask the helper to open a folder."
     }
   }
 }
