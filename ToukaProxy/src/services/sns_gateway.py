@@ -91,14 +91,13 @@ class SNSGatewayService:
             raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
 
     @staticmethod
-    async def _collect_reply(response: Any, tool_steps: ToolStepCollector | None = None) -> str:
-        """把串流回應的 SSE 片段接成完整文字；有給收集器就一併收工具步驟（ADR-0319 PR 2）."""
+    async def _collect_reply(response: Any, tool_steps: ToolStepCollector) -> str:
+        """把串流回應的 SSE 片段接成完整文字，工具步驟一併交給收集器（ADR-0319 PR 2）."""
         full_text = ""
         async for chunk in response.body_iterator:
             if isinstance(chunk, bytes):
                 chunk = chunk.decode("utf-8")
-            if tool_steps is not None:
-                tool_steps.feed_sse(chunk)
+            tool_steps.feed_sse(chunk)
 
             lines = chunk.split("\n\n")
             for line in lines:

@@ -41,6 +41,8 @@ from src.utils.tool_events import (
 from src.utils.tool_records import RECORD_DETAILED, render_tool_record
 from src.utils.tool_step_collector import (
     MAX_STORED_ARG_CHARS,
+    MAX_STORED_ARGS_CHARS,
+    MAX_STORED_NAME_CHARS,
     MAX_STORED_RESULT_CHARS,
     MAX_STORED_STEPS,
     STEPS_DROPPED_FIELD,
@@ -87,6 +89,9 @@ READ_STEPS = (
 )
 READ_STEP = {"id": "c1", "tool": "read", "args": {"path": "a.md"}, "status": "success",
              "result": "內容"}
+# 模型寫出 NaN／Infinity 的參數：SSE 照 json.dumps 預設寫成 NaN、Infinity，存檔卻不接受
+NAN_START = _sse(tool_start_event(call_id="c9", tool="calc",
+                                  args={"x": float("nan"), "y": float("inf")}))
 
 
 # --- 收集器 -------------------------------------------------------------------------------
@@ -172,6 +177,37 @@ def test_reads_sse_chunks_the_way_the_writers_get_them():
     collector.feed_sse(_sse(READ_STEPS[1]) + _text("文字"))
     assert collector.steps == [READ_STEP]
     assert ToolStepCollector().node_fields() == {}
+
+
+def test_events_with_nan_are_skipped_like_a_failed_json_parse_in_the_browser():
+    collector = ToolStepCollector()
+    collector.feed_sse(NAN_START + _sse(*READ_STEPS))
+    collector.feed_sse(_sse(_result("c9", "ok", "3")))
+    assert collector.steps == [READ_STEP]
+
+
+def test_an_approval_request_for_an_existing_step_reuses_it():
+    collector = _collect(
+        tool_start_event(call_id="c1", tool="exec", args={"a": 1}),
+        _approval("c1", "exec", {"a": 1}),
+    )
+    assert collector.steps == [
+        {"id": "c1", "tool": "exec", "args": {"a": 1}, "status": "awaiting_approval"}
+    ]
+
+
+def test_names_keys_and_whole_args_are_capped_too():
+    many = {f"k{i}": "v" * 100 for i in range(60)}
+    collector = _collect(
+        tool_start_event(call_id="c1", tool="t" * (MAX_STORED_NAME_CHARS + 5),
+                         args={"鍵" * (MAX_STORED_NAME_CHARS + 1): 1}),
+        tool_start_event(call_id="c2", tool="t", args=many),
+    )
+    first, second = collector.steps
+    assert first["tool"] == "t" * MAX_STORED_NAME_CHARS + TRUNCATED_NOTE
+    assert first["args"] == {"鍵" * MAX_STORED_NAME_CHARS + TRUNCATED_NOTE: 1}
+    whole = json.dumps(many, ensure_ascii=False)
+    assert second["args"] == whole[:MAX_STORED_ARGS_CHARS] + TRUNCATED_NOTE
 
 
 def test_storage_caps():
@@ -267,6 +303,12 @@ async def test_a_tools_only_pulse_still_writes_a_reply(monkeypatch):
     assert [(n["content"], n["steps"]) for n in assistants] == [("", [READ_STEP])]
 
 
+async def test_a_pulse_with_nan_arguments_still_saves(monkeypatch):
+    turns, assistants = await _pulse(monkeypatch, NAN_START + _sse(*READ_STEPS), _text("完成"))
+    assert turns == 1
+    assert [(n["content"], n["steps"]) for n in assistants] == [("完成", [READ_STEP])]
+
+
 async def test_a_pulse_without_tools_adds_no_steps(monkeypatch):
     _turns, assistants = await _pulse(monkeypatch, _text("只有文字"))
     assert "steps" not in assistants[0]
@@ -325,6 +367,12 @@ async def test_a_tools_only_turn_is_saved_instead_of_skipped(ui):
     persistence, node = await _pump(ui, _sse(*READ_STEPS))
     assert persistence.status == "saved"
     assert (node["content"], node["steps"]) == ("", [READ_STEP])
+
+
+async def test_a_turn_with_nan_arguments_is_still_saved(ui):
+    persistence, node = await _pump(ui, NAN_START, _sse(*READ_STEPS), _text("回答"))
+    assert persistence.status == "saved"
+    assert node["steps"] == [READ_STEP]
 
 
 async def test_a_turn_without_text_or_tools_is_still_skipped(ui):
@@ -398,13 +446,13 @@ async def test_append_message_stores_the_extra_fields(tmp_path, monkeypatch):
     )
     assert await session_service.append_message_to_session(
         "s1", "assistant", "回覆", name="Alice", identity=UI_OWNER,
-        extra_fields={"steps": [READ_STEP]},
+        extra_fields={"steps": [READ_STEP], "content": "偷改", "parentId": None},
     )
     assert await session_service.append_message_to_session(
         "s1", "user", "再一則", identity=UI_OWNER
     )
     snapshot = await session_service.read_persistence_snapshot("s1", UI_OWNER)
     linear = TreeMessageManager.get_linear_path(snapshot.session["messages"])
-    assert [(n["role"], n.get("steps")) for n in linear] == [
-        ("user", None), ("assistant", [READ_STEP]), ("user", None),
-    ]
+    assert [(n["role"], n["content"], n.get("steps")) for n in linear] == [
+        ("user", "hi", None), ("assistant", "回覆", [READ_STEP]), ("user", "再一則", None),
+    ]  # 額外欄位只能加新的，不能蓋掉節點本身的欄位

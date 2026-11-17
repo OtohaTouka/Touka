@@ -711,7 +711,9 @@ class SessionService:
                     )
                     if message_fields:  # 例如後端收集的工具步驟（ADR-0319 PR 2）
                         tree = updated["messages"]
-                        tree["messages"][tree["currentId"]].update(message_fields)
+                        TreeMessageManager.add_new_fields(
+                            tree, tree["currentId"], message_fields
+                        )
                     updated["updatedAt"] = int(get_current_epoch() * 1000)
                 if row is None and owner_user_id is not None:
                     updated["owner_user_id"] = owner_user_id

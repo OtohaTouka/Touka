@@ -122,7 +122,7 @@ async def _persist_ui_assistant_turn(
         tree["messages"][admission.assistant_node_id]["interjections"] = delivered
     # ADR-0319 PR 2：這一輪的工具步驟（分頁關掉時也留得下來）；之後的富版存檔照舊整個覆蓋
     if node_fields:
-        tree["messages"][admission.assistant_node_id].update(node_fields)
+        TreeMessageManager.add_new_fields(tree, admission.assistant_node_id, node_fields)
     changes = SessionChanges(messages=tree, updatedAt=int(get_current_epoch() * 1000))
     if execution:
         session_service.require_scope(snapshot.session, execution)

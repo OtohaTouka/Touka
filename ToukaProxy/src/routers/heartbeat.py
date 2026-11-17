@@ -478,7 +478,7 @@ async def _execute_single_pulse(
         )
         last_reply_id = tree_history["currentId"]
     if reply_fields and last_reply_id is not None:
-        tree_history["messages"][last_reply_id].update(reply_fields)
+        TreeMessageManager.add_new_fields(tree_history, last_reply_id, reply_fields)
     if current_turn_text.strip() or reply_fields:
         await save_pulse()
 

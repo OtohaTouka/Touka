@@ -8,7 +8,7 @@
 >
 > ADR-0318 修訂（2026-11-17）：被停止或出錯的那則回覆送給模型時前面加一行記號，一個字都沒回的也不再是空白，不再被拿掉、前後兩則 user 不再合併。改第 6 點。
 >
-> ADR-0319 修訂（2026-11-17）：存了工具步驟的那則回覆送給模型時前面加工具紀錄（在視窗內時），只用了工具、一個字都沒回的也不再是空白，不再被拿掉、前後兩則 user 不再合併。改第 6 點。
+> ADR-0319 修訂（2026-11-17）：存了工具步驟的那則回覆送給模型時前面加工具紀錄（在視窗內時），只用了工具、一個字都沒回的也不再是空白，不再被拿掉、前後兩則 user 不再合併。改第 6 點。 PR 2 起後端文字版存檔也存工具步驟，只用了工具的一輪後端照存、不再回 `no_text`，畫面照樣補存富版。
 
 > 路線圖 3c PR 2 修訂（2026-11-06）：模型失敗時後端回「生成失敗、沒寫」（`SkippedResult` 的 `generation_failed`），畫面用 user 保存的版本把失敗那則存一次，不再跳保存提示；送給模型前拿掉空白的助理訊息。改第 2、6 點。
 
@@ -33,7 +33,7 @@ React updater 的 HTTP 副作用可在重播時重送，刪除與匯入也可能
 2. 純 `src/models/session_persistence.py` 定義 SaveResult、snapshot、started／terminal；沿共同
    OpenAPI merge → api.ts → types.ts alias。saved 必須含 revision／representation；failed、unknown
    不附舊 token／原輸入。snapshot 的 exists 是必要 boolean，present／absent 內容互斥。
-   skipped 的原因有三種：無痕（incognito）、沒有文字（no_text）、生成失敗（generation_failed）。
+   skipped 的原因有三種：無痕（incognito）、沒有文字（no_text；ADR-0319 PR 2 起是沒有文字也沒有工具步驟，只用了工具的一輪後端照存 text）、生成失敗（generation_failed）。
    generation_failed 只用在基底與 scope 都驗過、開始生成之後的失敗：後端沒寫這一輪的回覆（2026-11-06）。生成中工具改過這段對話（例如啟用技能）時版本已不同，畫面那次保存會被擋下並照舊提示；不能據此放寬版本比對。
    讀基底失敗、scope 不對、按停止照舊回 unknown。
 3. `async_db.py` 對選定 session 路徑 strict 讀取原 row，將 14 欄原始 readset（家的兩欄除外，ADR-0301）、presence、owner、

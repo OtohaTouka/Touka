@@ -114,6 +114,15 @@ class TreeMessageManager:
 
         return tree_history
 
+    @staticmethod
+    def add_new_fields(
+        tree_history: dict[str, Any], node_id: str, fields: dict[str, Any]
+    ) -> None:
+        """把節點還沒有的欄位加上去（例如工具步驟）；已有的欄位（id、角色、內容、父節點…）不蓋掉."""
+        node = tree_history["messages"][node_id]
+        for key, value in fields.items():
+            node.setdefault(key, value)
+
 
 def _scrub(text: str, regex: re.Pattern[str]) -> str:
     while True:

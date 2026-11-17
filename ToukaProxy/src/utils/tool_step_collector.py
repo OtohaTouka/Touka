@@ -7,7 +7,9 @@
 
 - 核准只存結果（``approval.decision``）：存下來的是事後紀錄，沒有可以再按的核准資料。
 - MCP 表單互動不是工具呼叫，不存。
-- 有存檔上限（結果、每個參數值、每則步驟數），超過的註明截斷；丟掉的步驟數記在節點上。
+- 有存檔上限（結果、工具名與參數鍵名、每個參數值、整組參數、每則步驟數），超過的註明截斷；
+  丟掉的步驟數記在節點上（只供診斷，紀錄與畫面不讀）。
+- 帶 NaN／Infinity 的事件整個略過（存檔不接受這種值；前端 ``JSON.parse`` 失敗也是整個略過）。
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ from src.utils.tool_events import (
 # 存檔上限（code point）：紀錄只讀結果開頭 80 字與參數開頭 40 字，這裡留給畫面看
 MAX_STORED_RESULT_CHARS = 2000
 MAX_STORED_ARG_CHARS = 500
+MAX_STORED_ARGS_CHARS = 4000  # 整組參數序列化後的上限，超過就改存截斷的 JSON 字串
+MAX_STORED_NAME_CHARS = 200  # 工具名與參數鍵名
 MAX_STORED_STEPS = 30
 TRUNCATED_NOTE = "…（存檔時截斷）"
 # 超過 MAX_STORED_STEPS 而沒存的步驟數，記在助理節點上（和 steps 並列）
@@ -55,9 +59,18 @@ def _capped_value(value: Any, limit: int) -> Any:
 
 
 def _capped_args(args: Any) -> Any:
-    if isinstance(args, dict):
-        return {str(key): _capped_value(value, MAX_STORED_ARG_CHARS) for key, value in args.items()}
-    return None if args is None else _capped_value(args, MAX_STORED_ARG_CHARS)
+    if not isinstance(args, dict):
+        return None if args is None else _capped_value(args, MAX_STORED_ARG_CHARS)
+    capped = {
+        _cap(str(key), MAX_STORED_NAME_CHARS): _capped_value(value, MAX_STORED_ARG_CHARS)
+        for key, value in args.items()
+    }
+    return _capped_value(capped, MAX_STORED_ARGS_CHARS)
+
+
+def _reject_constant(name: str) -> Any:
+    """``json.loads`` 遇到 NaN、Infinity 時呼叫：讓這個事件解析失敗、整個略過."""
+    raise ValueError(name)
 
 
 class ToolStepCollector:
@@ -75,7 +88,7 @@ class ToolStepCollector:
             if not line.startswith(_SSE_DATA):
                 continue
             try:
-                event = json.loads(line[len(_SSE_DATA):])
+                event = json.loads(line[len(_SSE_DATA):], parse_constant=_reject_constant)
             except ValueError:
                 continue
             if isinstance(event, dict):
@@ -132,7 +145,7 @@ class ToolStepCollector:
         if step is None:
             self._add({
                 "id": call_id,
-                "tool": str(event.get("tool") or ""),
+                "tool": _cap(str(event.get("tool") or ""), MAX_STORED_NAME_CHARS),
                 "args": _capped_args(event.get("args")),
                 "status": _STATUS_RUNNING,
             })
@@ -145,12 +158,12 @@ class ToolStepCollector:
     def _awaiting(self, event: dict[str, Any]) -> None:
         call_id = str(event.get("call_id") or "")
         step = self._by_call_id.get(call_id)
-        if step is not None:
+        if step is not None:  # 前端會另外新增一步；同一個 id 只留一步（現在的事件順序不會發生）
             step["status"] = _STATUS_AWAITING
             return
         self._add({
             "id": call_id,
-            "tool": str(event.get("tool") or ""),
+            "tool": _cap(str(event.get("tool") or ""), MAX_STORED_NAME_CHARS),
             "args": _capped_args(event.get("args")),
             "status": _STATUS_AWAITING,
         })
