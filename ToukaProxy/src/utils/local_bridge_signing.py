@@ -19,12 +19,15 @@ SIGNATURE_VERSION: Final = 2
 PAIRING_CODE_SEPARATOR: Final = "."
 
 ACT_PROPOSE: Final = "propose"
+ACT_REQUEST_OPEN: Final = "request_open"
 
 DECIDED_BY_CARD: Final = "user_card"
 DECIDED_BY_REVIEWER: Final = "auto_review"
 DECIDED_BY_YOLO: Final = "yolo"
-# 只有這三種會簽給小幫手；在小幫手視窗按的由小幫手自己記
+# 照模式的決定只有這三種；在小幫手視窗按的由小幫手自己記
 DECIDED_BY_MODES: Final = (DECIDED_BY_CARD, DECIDED_BY_REVIEWER, DECIDED_BY_YOLO)
+# 開放請求的章（ADR-0320）：只證明是 Touka 送的，小幫手一定跳視窗
+DECIDED_BY_OPEN_REQUEST: Final = "owner_request"
 
 # 和 tools/execution_context.APPROVED_BY_AUTO_REVIEWER 相同（utils 不往上匯入服務層，測試釘住）
 _APPROVED_BY_AUTO_REVIEWER: Final = "auto_reviewer"
@@ -79,6 +82,22 @@ def sign_decision(
             "job": job_id,
             "nonce": nonce,
             "shown": shown,
+        },
+    )
+
+
+def sign_open_request(key: bytes, *, job_id: str, nonce: str, path: str) -> str:
+    """開放請求的章（ADR-0320）。``act`` 不同，和清單的章不能互用；兩個指紋都是路徑的。"""
+    fingerprint = text_fingerprint(path)
+    return _sign(
+        key,
+        {
+            "act": ACT_REQUEST_OPEN,
+            "by": DECIDED_BY_OPEN_REQUEST,
+            "digest": fingerprint,
+            "job": job_id,
+            "nonce": nonce,
+            "shown": fingerprint,
         },
     )
 

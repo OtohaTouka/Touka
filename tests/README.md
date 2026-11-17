@@ -199,6 +199,7 @@ tests/
 | `unit/local_helper/test_local_helper_floors.py` | ADR-0317：小幫手的底線，每條一個剛好在線上、一個剛好超過；一小時總量與 7 天比對 |
 | `unit/local_helper/test_local_helper_mode_settings.py` | ADR-0317：鑰匙、開關、重新計算三個小檔，讀不懂與存不進去都往安全的那邊算 |
 | `unit/local_helper/test_local_helper_mode_decisions.py` | ADR-0317：章、號碼、指紋都對又在底線內才不跳視窗；冒充與重送改跳視窗，碰到底線人還按得了核准 |
+| `unit/local_helper/test_local_helper_open_request.py` | ADR-0320：開放請求驗章、能不能開放都跳視窗、人決定前不回報、不理會撤回與 Touka 給的時間、停收與現在恢復 |
 | `unit/test_local_bridge_signing.py` | ADR-0317：Touka 蓋章、配對碼、誰決定的判斷，固定測資和小幫手相同 |
 | `unit/test_tool_previews.py` | ADR-0317：核准前的預覽：誰會被預覽、預覽失敗不跳卡、卡片放得下才有確認值、核准之後誰算決定的人 |
 | `unit/test_local_files_mode_approval.py` | ADR-0317：走真的工具執行器：卡片帶清單、三種模式各是誰決定、預覽失敗擋在卡片前、模型寫不進誰決定的、章驗得過 |
@@ -1255,7 +1256,7 @@ python scripts/guard_all.py
 | `src/lib/__tests__/session_tree.test.ts`、`src/hooks/__tests__/useSessionTreeState.test.ts`、`src/hooks/__tests__/useSessionTreeKeyboard.test.tsx`、`unit/SessionTree.test.tsx` | 對話清單：靈魂資料夾分組（不分大小寫、`toukasoul:`、舊前綴、別名、清單讀不到時只信前綴與家）、「設為家」規則與後端相同、先列 5 筆且開著的不收；收合狀態各帳號分開、只有無痕的資料夾不寫瀏覽器；鍵盤只算一個 Tab 站、方向鍵與左右收合、Shift+F10、輸入框與 portal 選單的按鍵不動清單、列消失時焦點交給同位置 |
 | `src/lib/providers/__tests__/ChatProvider.setHome.test.tsx` | 設家與取消家：後端只收正式靈魂 ID；舊家是前綴或正式 ID 都算同一個靈魂、別的靈魂的家不動；沒綁模型不送請求；後端拒絕時畫面不動 |
 | `e2e-real/session-tree.spec.ts` ⭐ | ADR-0295 實際驗證：資料夾與家對話、「還有 N 個」、點名字與箭頭、收合重新整理還在且換帳號不殘留、其他對話標模型、冒號格式、只有無痕的資料夾不寫瀏覽器、設為家只給靈魂且舊家回子對話、專案畫面、排序、只用鍵盤與從選單改名、關掉「⋯」後馬上去輸入框焦點不被拉回 |
-| `e2e-real/local-helper.spec.ts` ⭐ | ADR-0312 實際驗證：設定頁產生配對碼只顯示一次、小幫手連上看得到、解除後舊碼失效 |
+| `e2e-real/local-helper.spec.ts` ⭐ | ADR-0312 實際驗證：設定頁產生配對碼只顯示一次、小幫手連上看得到、解除後舊碼失效；ADR-0320：設定頁請小幫手開放資料夾，用配對鑰匙驗章，開放與沒開放都照實顯示 |
 | `e2e-real/sidebar-menu.spec.ts` ⭐ | ADR-0295 實際驗證：底部選單列出全部項目、鍵盤開關、每個項目到得了（看畫面標題）並標出目前畫面、點對話或新對話回聊天、回聊天後內容還在且再送一則存得進去、登出第一下不關選單；手機頂列沒有設定鈕，選單選了之後抽屜關掉、畫面還點得動，選單開著按 Esc 只關選單，新對話回聊天時抽屜關掉 |
 | `e2e-real/session-activity.spec.ts` ⭐ | ADR-0300 實際驗證：呼吸動畫與週期、心跳進度、新對話自動出現、查詢之間跑完、分頁藏起來、不重抓清單、下載失敗與晚到、舊查詢、換帳號、收起來也亮、查詢失敗與恢復、刪掉重建、列被搬動時的焦點與改名。 |
 | `e2e-real/session-attention.spec.ts` ⭐ | ADR-0300 實際驗證：核准與提問與外掛工具亮等您處理、同時提問排隊、重新整理、有新內容的小點、減少動態、無痕、可見範圍、手機、有新內容提示與存檔失敗。 |

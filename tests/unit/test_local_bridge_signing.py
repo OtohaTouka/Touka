@@ -5,12 +5,14 @@ from __future__ import annotations
 import pytest
 from src.tools.execution_context import APPROVED_BY_AUTO_REVIEWER
 from src.utils.local_bridge_signing import (
+    DECIDED_BY_OPEN_REQUEST,
     DECISION_KEY_BYTES,
     decision_key_from_hex,
     derive_decided_by,
     new_decision_key,
     pairing_code,
     sign_decision,
+    sign_open_request,
     text_fingerprint,
 )
 
@@ -147,3 +149,39 @@ def test_anything_else_leaves_the_decision_to_the_helper_window(
     overrides: dict[str, object],
 ) -> None:
     assert _decide(**overrides) is None
+
+
+# --- 開放請求的章（ADR-0320）：固定測資和小幫手那份相同 ---
+
+OPEN_PATH = "相片/家 2026"
+OPEN_NONCE = "A" * 22
+OPEN_SIGNATURE = "7873824c0b7a87298dfa71848a8895bceca3d793394974aebf8e6e0b38bffb9f"
+
+
+def test_open_signature_matches_the_helper_vector() -> None:
+    assert (
+        sign_open_request(KEY, job_id="job-1", nonce=OPEN_NONCE, path=OPEN_PATH)
+        == OPEN_SIGNATURE
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"job_id": "job-2"}, {"nonce": "B" * 22}, {"path": "相片/家 2027"}],
+)
+def test_every_open_field_is_covered(change: dict[str, str]) -> None:
+    fields = {"job_id": "job-1", "nonce": OPEN_NONCE, "path": OPEN_PATH, **change}
+    assert sign_open_request(KEY, **fields) != OPEN_SIGNATURE
+
+
+def test_an_open_stamp_is_not_a_list_stamp() -> None:
+    fingerprint = text_fingerprint(OPEN_PATH)
+    as_list = sign_decision(
+        KEY,
+        job_id="job-1",
+        nonce=OPEN_NONCE,
+        digest=fingerprint,
+        shown=fingerprint,
+        decided_by=DECIDED_BY_OPEN_REQUEST,
+    )
+    assert as_list != OPEN_SIGNATURE

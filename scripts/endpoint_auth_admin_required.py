@@ -92,6 +92,8 @@ ADMIN_REQUIRED: list[dict[str, str]] = [
     {"method": "post", "path": "/local-bridge/pairing"},
     {"method": "delete", "path": "/local-bridge/pairing"},
     {"method": "get", "path": "/local-bridge/status"},
+    # 從設定頁請小幫手開放資料夾（ADR-0320）
+    {"method": "post", "path": "/local-bridge/open-requests"},
 
     # ── 工作區設定（ui_sessions.py）─────────────────────────────────────────
     {"method": "post", "path": "/ui/settings/workspace"},

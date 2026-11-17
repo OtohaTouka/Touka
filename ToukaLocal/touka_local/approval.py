@@ -1,14 +1,20 @@
-"""核准關卡（ADR-0312）：一次一個視窗，時間到自動拒絕，拒絕後冷卻。"""
+"""核准關卡（ADR-0312）：一次一個視窗，時間到自動拒絕，拒絕後冷卻。
+
+等待中的可能是搬移、刪除清單，也可能是開放請求（ADR-0320）。這裡不認得具體型別：
+核准、撤回時由呼叫端傳判斷，在鎖裡、拿掉等待項目之前先比對。
+"""
 
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 
 from touka_local.errors import Refused
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from touka_local.fsops import Clock
 
 MAX_DECISION_SECONDS: Final = 540.0
@@ -18,7 +24,7 @@ REJECT_COOLDOWN_SECONDS: Final = 5.0
 
 @dataclass(frozen=True)
 class PendingApproval:
-    """正在等人決定的一份清單。"""
+    """正在等人決定的一份清單或一個開放請求。"""
 
     job_id: str
     plan: Any
@@ -68,13 +74,27 @@ class ApprovalGate:
                 reason=reason,
             )
 
-    def approve(self, job_id: str, digest: str) -> Any:
-        """人按了核准。回傳清單；只有編號和內容都對得上才算。"""
+    def fill(self, job_id: str, accepts: Callable[[Any], bool], plan: Any) -> bool:
+        """先佔住視窗、之後才知道內容的（開放請求）：把內容放進去。
+
+        核准要等的 1.5 秒從現在算（視窗這時才畫出來）；期限不變，總時間才不會變長。
+        """
+        with self._lock:
+            pending = self._pending
+            if pending is None or pending.job_id != job_id or not accepts(pending.plan):
+                return False
+            self._pending = replace(pending, plan=plan, offered_at=self._clock())
+            return True
+
+    def approve(self, job_id: str, digest: str, accepts: Callable[[Any], bool]) -> Any:
+        """人按了核准。回傳內容；編號、種類、內容都對得上才算，種類不對時等待項目留著。"""
         with self._lock:
             pending = self._pending
             now = self._clock()
             if pending is None or pending.job_id != job_id:
                 raise Refused("no_pending")
+            if not accepts(pending.plan):
+                raise Refused("wrong_window")
             if now >= pending.deadline:
                 raise Refused("expired")
             if now < pending.offered_at + APPROVE_DELAY_SECONDS:
@@ -84,13 +104,14 @@ class ApprovalGate:
             self._pending = None
             return pending.plan
 
-    def reject(self, job_id: str) -> bool:
-        """人按了拒絕。"""
+    def reject(self, job_id: str) -> PendingApproval | None:
+        """人按了拒絕。回傳被關掉的那一筆。"""
         with self._lock:
-            if self._pending is None or self._pending.job_id != job_id:
-                return False
+            pending = self._pending
+            if pending is None or pending.job_id != job_id:
+                return None
             self._close_rejected()
-            return True
+            return pending
 
     def expire_due(self) -> PendingApproval | None:
         """時間到就自動拒絕，回傳被拒絕的那份。"""
@@ -101,13 +122,26 @@ class ApprovalGate:
             self._close_rejected()
             return pending
 
-    def cancel(self, job_id: str) -> bool:
-        """Touka 那邊不等了，收掉視窗。也要冷卻，否則反覆提出又撤回就能一直跳視窗。"""
+    def cancel(self, job_id: str, accepts: Callable[[Any], bool]) -> PendingApproval | None:
+        """Touka 那邊不等了，收掉視窗。也要冷卻，否則反覆提出又撤回就能一直跳視窗。
+
+        ``accepts`` 不接受的不收（開放請求不理會 Touka 撤回，ADR-0320）。
+        """
         with self._lock:
-            if self._pending is None or self._pending.job_id != job_id:
-                return False
+            pending = self._pending
+            if pending is None or pending.job_id != job_id or not accepts(pending.plan):
+                return None
             self._close_rejected()
-            return True
+            return pending
+
+    def abandon(self) -> PendingApproval | None:
+        """配對失效或小幫手被看見：不論哪一種都收掉，回傳被收掉的那一筆。"""
+        with self._lock:
+            pending = self._pending
+            if pending is None:
+                return None
+            self._close_rejected()
+            return pending
 
     def _close_rejected(self) -> None:
         self._pending = None

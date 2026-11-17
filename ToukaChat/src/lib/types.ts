@@ -21,6 +21,8 @@ export type ScrubItemResult = components['schemas']['ScrubItemResult'];
 // ADR-0312：本機小幫手設定頁
 export type LocalHelperStatus = components['schemas']['LocalHelperStatus'];
 export type LocalPairingCreated = components['schemas']['LocalPairingCreated'];
+export type LocalOpenRequest = components['schemas']['LocalOpenRequest'];
+export type LocalOpenResult = components['schemas']['LocalOpenResult'];
 
 // ADR-0292：Hook 設定頁
 export type HooksConfig = components['schemas']['HooksConfig-Input'];
