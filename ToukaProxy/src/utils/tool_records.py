@@ -37,7 +37,6 @@ from .interjection_notes import annotate_node
 from .secrets import MASK, is_secret_key, redact_secrets_from_content
 from .time_utils import TIME_FOOTER_PREFIX
 from .tool_record_marks import (
-    SPACE_CLASS,
     SPACE_RUN_RE,
     TOOL_RECORD_BRIEF_CLOSE,
     TOOL_RECORD_BRIEF_OPEN,
@@ -59,6 +58,10 @@ MAX_DETAILED_CHARS = 900
 MAX_BRIEF_CHARS = 200
 WINDOW_ROUNDS = 10
 BRIEF_ROUNDS = 50
+# 每個欄位只看壓成一行後的前面這些字：要遮的樣式（私鑰 PEM 最長幾千字）在這長度內都完整，
+# 超大或很多重複的結果也不會讓每一輪的整理變慢；輸出最多 80 字，切掉的部分本來就不會出現
+MAX_SCAN_CHARS = 8192
+_LINE_BREAKS = 2  # 詳細紀錄的開頭行與結束行各接一個換行
 
 # 只認這些錯誤種類（tool_errors 的固定值）；其他字串可能是工具自己寫的，一律只寫「失敗」
 KNOWN_ERROR_CLASSES = frozenset({
@@ -84,7 +87,8 @@ _ELLIPSIS = "…"
 _REST_PREFIX = "另 {count} 步："
 _VERIFY_ID = ":verify:"  # 互審驗證指令（<父>:verify:<n>）不是自己跑的
 
-_FOOTER_RE = re.compile(f"[{SPACE_CLASS}]*" + re.escape(TIME_FOOTER_PREFIX) + "[^\n]*")
+# 只比對尾註本身（前面的空白之後會被壓掉）：開頭若帶空白字元集，長空白會讓比對照長度平方變慢
+_FOOTER_RE = re.compile(re.escape(TIME_FOOTER_PREFIX) + "[^\n]*")
 _FULLWIDTH = str.maketrans({"<": "＜", ">": "＞", "〔": "［", "〕": "］"})
 
 
@@ -93,8 +97,8 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _field(text: str, limit: int) -> str:
-    """壓成一行、遮金鑰、角括號與〔〕換全形，再截斷."""
-    flat = SPACE_RUN_RE.sub(" ", text).strip(" ")
+    """壓成一行、只留前 MAX_SCAN_CHARS 字、遮金鑰、角括號與〔〕換全形，再截斷."""
+    flat = SPACE_RUN_RE.sub(" ", text).strip(" ")[:MAX_SCAN_CHARS]
     redacted, _ = redact_secrets_from_content(flat)
     return _truncate(redacted.translate(_FULLWIDTH), limit)
 
@@ -209,7 +213,7 @@ def render_tool_record(steps: Any, level: RecordLevel) -> str:
     rest = listed[MAX_DETAILED_STEPS:]
     if rest:
         lines.append(_REST_PREFIX.format(count=len(rest)) + "、".join(_brief_item(s) for s in rest))
-    budget = MAX_DETAILED_CHARS - len(TOOL_RECORD_HEADER) - len(TOOL_RECORD_FOOTER) - 2
+    budget = MAX_DETAILED_CHARS - len(TOOL_RECORD_HEADER) - len(TOOL_RECORD_FOOTER) - _LINE_BREAKS
     return "\n".join((TOOL_RECORD_HEADER, _truncate("\n".join(lines), budget), TOOL_RECORD_FOOTER))
 
 

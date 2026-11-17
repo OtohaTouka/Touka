@@ -156,7 +156,7 @@ class GuardService:
         return f"\n\n⚠️ **[工具幻覺警告]** 您模擬了工具 `{', '.join(tool_names)}` 但未正式呼叫。"
 
     def get_record_imitation_warning_message(self) -> str:
-        """照抄工具紀錄的警告；和工具幻覺同一個標籤，下一輪 ``sanitize_history`` 一樣清得掉."""
+        """照抄工具紀錄的警告；和工具幻覺警告同一個標籤與格式，歷史裡也和它一樣處理."""
         return (
             "\n\n⚠️ **[工具幻覺警告]** 您寫出了系統附加的工具紀錄格式；"
             "那是系統依存檔整理的，不是您這一輪用過的工具。"

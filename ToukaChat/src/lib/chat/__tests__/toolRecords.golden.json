@@ -348,6 +348,28 @@
    "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：edit 成功〕"
   },
   {
+   "name": "non_string_result_and_long_tool_name",
+   "steps": [
+    {
+     "id": "c1",
+     "tool": "ttttttttttttttttttttttttttttttttttttttttttttt",
+     "args": {
+      "q": "x"
+     },
+     "status": "success",
+     "result": {
+      "token": "abc",
+      "rows": [
+       1,
+       2
+      ]
+     }
+    }
+   ],
+   "detailed": "〔工具紀錄｜系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段〕\n1. ttttttttttttttttttttttttttttttttttttttt…（q=「x」）→ 成功：{\"token\":\"••••••••\",\"rows\":[1,2]}\n〔工具紀錄結束〕",
+   "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：ttttttttttttttttttttttttttttttttttttttt… 成功〕"
+  },
+  {
    "name": "more_than_six_steps",
    "steps": [
     {

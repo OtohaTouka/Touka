@@ -43,11 +43,12 @@
 - 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
 - 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
 - 已知差異：Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為，不在這批改）。
+- 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。要不要補進 `secrets.py` 在 PR 1b 前評估（會一起影響其他用到遮蔽的地方）。
 
 ### 5. 防偽與偵測
 
 - 每一則送出的訊息（不分角色、不分有沒有步驟；也包括插話文字；網頁（PR 1b）另包括這一輪的輸入與內嵌的文字附件），內容裡的「〔工具紀錄」（比對忽略空白與看不見的字元）都換成「［工具紀錄」。只改送出的副本。只有系統組的那段是真的。
-- 這一輪的回覆寫出「〔工具紀錄」就是照抄：`guard_service.detect_record_imitation` 只比對這個開頭標記（不加進逐個工具名比對的 `log_features_pattern`，否則模型引用上一輪紀錄裡的工具名會被誤判），沿用「[工具幻覺警告]」標籤，下一輪 `sanitize_history` 一樣清得掉。
+- 這一輪的回覆寫出「〔工具紀錄」就是照抄：`guard_service.detect_record_imitation` 只比對這個開頭標記（不加進逐個工具名比對的 `log_features_pattern`，否則模型引用上一輪紀錄裡的工具名會被誤判），沿用「[工具幻覺警告]」標籤與格式，歷史裡和原本的工具幻覺警告一樣處理（`sanitize_history` 的日誌規則因為標籤前後有 `**`，兩種都不會清掉）。
 - `sanitize_history`（非靈魂請求與 `_detect_agent` 會跑）不清系統組的紀錄段：裡面的結果開頭可能有日期，日期規則會吃掉。
 - 假模型測不出模型會不會照抄；PR 1a 合併前（紀錄第一次送到模型）用真模型小量實測（維護者核准的決定二，實際指令另外逐次問，禁令 61）。
 
@@ -60,6 +61,8 @@
 ### 7. 心跳
 
 - 心跳組歷史改用 `annotate_history(linear, level=RECORD_DETAILED)`。心跳在家跑時看得到網頁回合存下的步驟。心跳自己的工具步驟要到 PR 2 才會存下來。
+- PR 1a 只處理心跳自己這段對話的歷史：換家時帶進來的舊家對話文字與摘要器還沒換假標記，PR 3（離開這段對話的地方）一起處理；SNS 在 PR 4。
+- 後端只換字串內容；內容是多段（list）的訊息不換，列為已知限制。
 
 ## 沒選的做法
 
@@ -76,5 +79,5 @@
 
 ## 驗證（PR 1）
 
-- PR 1a `tests/unit/test_tool_records.py`：黃金案例、固定值的來源、超長歷史的總量上限、`annotate_node` 的順序、心跳送出的歷史帶紀錄、`sanitize_history` 不吃紀錄、照抄的偵測與警告（經 claude 特徵化測試的主迴圈）。
+- PR 1a `tests/unit/test_tool_records.py`：黃金案例、固定值的來源（錯誤種類、時間尾註、核准結果）、超長結果仍然很快（清理先截到 `MAX_SCAN_CHARS`，時間尾註的比對不會照長度平方變慢）、超長歷史的總量上限、`annotate_node` 的順序、心跳送出的歷史帶紀錄、`sanitize_history` 不吃紀錄、照抄的偵測與警告（經 claude 特徵化測試的主迴圈）。
 - PR 1b `ToukaChat/src/lib/chat/__tests__/toolRecords.test.ts`：黃金案例、群聊不加、附件的假標記、`errorClass` 存進步驟；`test_tool_records.py` 加前後端常數、字元集與金鑰樣式核對。

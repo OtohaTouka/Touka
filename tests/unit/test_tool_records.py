@@ -18,11 +18,11 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.souls import SoulConfig
 from src.routers import heartbeat
-from src.services import tool_errors
+from src.services import approval_flow, tool_errors
 from src.services.guard_service import guard_service
 from src.services.prompt_blocks import CONTINUITY
 from src.services.soul_service import SoulService
-from src.utils import time_utils
+from src.utils import time_utils, tool_records
 from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import count_rounds_from_linear, sanitize_history
 from src.utils.interjection_notes import annotate_node
@@ -90,6 +90,25 @@ def test_fixed_values_come_from_their_owners():
     assert frozenset(expected) == KNOWN_ERROR_CLASSES
     prefix = time_utils.TIME_FOOTER_PREFIX
     assert time_utils.inject_time_to_result("x", "t").startswith(f"x\n\n{prefix}")
+    # 「沒有執行」的核准結果：人拒絕、取消、逾時，和核准流程兩種隔離沒算數的結果
+    assert set(tool_records._NOT_RUN) == {
+        "rejected", "cancelled", "timeout",
+        approval_flow.ISOLATION_UNACKNOWLEDGED, approval_flow.ISOLATION_INCOMPLETE,
+    }
+
+
+def test_huge_results_stay_fast():
+    """很長的空白或 NUL、很多沒有結尾的私鑰開頭，整理仍然很快（不會照長度平方變慢）."""
+    steps = [
+        {"id": "c1", "tool": "read", "args": {"text": " " * 200_000 + "x"}, "status": "success",
+         "result": "\x00" * 200_000 + "tail"},
+        {"id": "c2", "tool": "read", "args": None, "status": "error",
+         "result": "-----BEGIN RSA PRIVATE KEY----- x " * 20_000},
+    ]
+    started = time_utils.get_monotonic_ms()
+    record = render_tool_record(steps, RECORD_DETAILED)
+    assert time_utils.get_monotonic_ms() - started < 1000
+    assert "1. read（text=「x」）→ 成功：tail" in record
 
 
 def _full_step(i: int) -> dict[str, Any]:
@@ -158,7 +177,7 @@ async def test_heartbeat_pulse_sends_the_web_turn_record(monkeypatch):
             "childrenIds": [],
         },
     ]
-    tree ={"messages": {n["id"]: n for n in nodes}, "currentId": "u2"}
+    tree = {"messages": {n["id"]: n for n in nodes}, "currentId": "u2"}
     session = {"id": "s", "title": "t", "messages": tree}
     soul = object.__new__(SoulService)
     soul.get_soul_data = lambda _identity: ("靈魂", SoulConfig().model_dump())
