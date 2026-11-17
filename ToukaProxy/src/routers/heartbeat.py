@@ -77,6 +77,7 @@ from src.utils.secret_text import sanitize_error_text
 from src.utils.session_scope import channel_session_id
 from src.utils.time_utils import format_epoch_to_taipei, get_current_epoch
 from src.utils.tool_records import RECORD_DETAILED, annotate_history
+from src.utils.tool_step_collector import ToolStepCollector
 
 
 def verify_heartbeat_token(
@@ -407,12 +408,16 @@ async def _execute_single_pulse(
     # 3. 解析串流並分段持久化 (原子化樹更新)
     current_turn_text = ""
     turn_count = 0
+    # ADR-0319 PR 2：這個脈衝的工具步驟，存在這個脈衝最後寫入的助理節點
+    tool_steps = ToolStepCollector()
+    last_reply_id: str | None = None
 
     TURN_SPLIT_PATTERN = re.compile(r"--- [^\n]*? 自主(?:行動|回合)")
 
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
             chunk = chunk.decode("utf-8")
+        tool_steps.feed_sse(chunk)
 
         lines = chunk.split("\n\n")
         for line in lines:
@@ -448,6 +453,7 @@ async def _execute_single_pulse(
                             tree_history = TreeMessageManager.append_node(
                                 tree_history, "assistant", turn_content, name=agent_id
                             )
+                            last_reply_id = tree_history["currentId"]
                             # 為了滿足 Claude API 嚴格的 User-Assistant 交替規則
                             # 在同一次 API 串流的分段持久化之間，插入一條系統過渡訊息
                             tree_history = TreeMessageManager.append_node(
@@ -463,11 +469,17 @@ async def _execute_single_pulse(
             except Exception:  # noqa: S112
                 continue
 
-    if current_turn_text.strip():
+    reply_fields = tool_steps.node_fields()
+    if current_turn_text.strip() or (reply_fields and last_reply_id is None):
+        # 只用了工具、一個字都沒寫的脈衝也寫一則，步驟才留得下來
         turn_count += 1
         tree_history = TreeMessageManager.append_node(
             tree_history, "assistant", current_turn_text.strip(), name=agent_id
         )
+        last_reply_id = tree_history["currentId"]
+    if reply_fields and last_reply_id is not None:
+        TreeMessageManager.add_new_fields(tree_history, last_reply_id, reply_fields)
+    if current_turn_text.strip() or reply_fields:
         await save_pulse()
 
     return turn_count

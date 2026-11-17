@@ -32,6 +32,26 @@ describe('ToolStepTracker — P2b live output', () => {
   });
 });
 
+describe('ToolStepTracker — steps the backend saved (ADR-0319 PR 2)', () => {
+  // 心跳、SNS、分頁關掉時由後端存的步驟：核准只存結果，沒有 execId 等可按的欄位
+  it('shows a decided approval as a badge without buttons', () => {
+    const steps: ToolStep[] = [{
+      id: 'b1', tool: 'execute_command', args: { command: 'rm' }, status: 'error', result: '拒絕',
+      errorClass: 'permission_denied', approval: { decision: 'rejected' },
+    }];
+    render(<ToolStepTracker steps={steps} />);
+    expect(screen.getByText(/已拒絕/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /批准/ })).not.toBeInTheDocument();
+  });
+
+  it('shows a step left waiting for approval without an approval card', () => {
+    const steps: ToolStep[] = [{ id: 'b2', tool: 'write', args: { path: 'x' }, status: 'awaiting_approval' }];
+    render(<ToolStepTracker steps={steps} />);
+    expect(screen.getByText(/write/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /批准/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('ToolStepTracker — P3 structured card', () => {
   it('shows permission_denied as warning (拒絕黃) + human message, not raw JSON', () => {
     const steps: ToolStep[] = [

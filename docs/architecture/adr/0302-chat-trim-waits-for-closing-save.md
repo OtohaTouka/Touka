@@ -3,7 +3,7 @@
 - 狀態：✅ 已實作。一頁計畫由維護者核准（路線圖 3c，2026-11-06），計畫經兩輪審查。
 - 日期：2026-11-06
 - 決策者：維護者
-- 修訂：ADR-0313（2026-11-15）：接不上剪裁、存檔又有別人的內容時，「僅重試保存」不再整棵寫回，改給「改用存檔內容」。
+- 修訂：ADR-0319（2026-11-17，PR 2）：後端文字版存檔帶工具步驟，沒有文字但有步驟的一輪也存（原本略過、回 `no_text`），畫面的收尾保存照舊整個覆蓋。ADR-0313（2026-11-15）：接不上剪裁、存檔又有別人的內容時，「僅重試保存」不再整棵寫回，改給「改用存檔內容」。
 - 相關：ADR-0231（對話保存的版本與恢復，本 ADR 修訂它的第 6、8、10 點）、ADR-0092（滑動視窗剪裁）、ADR-0301（家標記不算進版本）、ADR-0276（換綁靈魂）、ADR-0295（實際驗證）。
 - 影響範圍：`ToukaProxy/src/services/chat_trim_wait.py`・`src/services/dispatcher.py`・`src/services/sliding_window_service.py`・`src/services/stream_buffer_service.py`・`src/routers/ui_sessions.py`＋`ToukaChat/src/lib/trim_graft.ts`・`src/lib/providers/SessionListProvider.tsx`＋`tests/fixtures/sliding_window_trim.json`。
 

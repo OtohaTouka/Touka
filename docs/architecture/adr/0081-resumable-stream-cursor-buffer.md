@@ -5,6 +5,8 @@
 **影響範圍**: ToukaProxy（dispatcher/串流緩衝/UI 端點）＋ ToukaChat（resume 接回）
 **關鍵字**: StreamBufferService, resumable stream, 游標續傳, starting_after, producer 解耦, 重整恢復
 
+> ADR-0319 修訂（2026-11-17，PR 2）：網頁畫面保存契約的後端文字版存檔，也存這一輪的工具步驟（`steps`），只用了工具、沒有文字的一輪也存；畫面之後的富版存檔照舊整個覆蓋。
+
 ---
 
 ## 背景與問題

@@ -46,6 +46,7 @@ from src.utils.history_manager import TreeMessageManager
 from src.utils.session_scope import is_ui_turn_base
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
+from src.utils.tool_step_collector import ToolStepCollector
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ async def _persist_ui_assistant_turn(
     stream_id: str,
     interjections: InterjectionQueue,
     execution: AgentIdentity | None = None,
+    node_fields: dict[str, Any] | None = None,
 ) -> SaveResult:
     tree = TreeMessageManager.append_node(
         copy.deepcopy(snapshot.session["messages"]),
@@ -118,6 +120,9 @@ async def _persist_ui_assistant_turn(
     ]
     if delivered:
         tree["messages"][admission.assistant_node_id]["interjections"] = delivered
+    # ADR-0319 PR 2：這一輪的工具步驟（分頁關掉時也留得下來）；之後的富版存檔照舊整個覆蓋
+    if node_fields:
+        TreeMessageManager.add_new_fields(tree, admission.assistant_node_id, node_fields)
     changes = SessionChanges(messages=tree, updatedAt=int(get_current_epoch() * 1000))
     if execution:
         session_service.require_scope(snapshot.session, execution)
@@ -150,6 +155,7 @@ async def _pump_ui_stream(
     result: SaveResult = _unknown_ui_save()
     snapshot: SessionSnapshot | None = None
     full_content = ""
+    tool_steps = ToolStepCollector()
     # 基底與 scope 都驗過才開始生成；之後的失敗後端確定什麼都沒寫，之前的照舊回不確定
     generating = False
     try:
@@ -167,6 +173,7 @@ async def _pump_ui_stream(
             if not await stream_buffer_service.append(session_id, chunk, stream_id=stream_id):
                 return
             full_content += _extract_delta_text(chunk)
+            tool_steps.feed_sse(chunk)
     except asyncio.CancelledError:
         await stream_buffer_service.finish(session_id, "cancelled", stream_id=stream_id)
         raise
@@ -191,7 +198,7 @@ async def _pump_ui_stream(
     else:
         if admission.mode == "incognito":
             result = SkippedResult(status="skipped", reason="incognito")
-        elif not full_content.strip():
+        elif not full_content.strip() and not tool_steps.steps:  # 只用了工具也存（ADR-0319）
             result = SkippedResult(status="skipped", reason="no_text")
         else:
             try:
@@ -205,6 +212,7 @@ async def _pump_ui_stream(
                     stream_id=stream_id,
                     interjections=interjection_queue,
                     execution=execution,
+                    node_fields=tool_steps.node_fields(),
                 )
             except asyncio.CancelledError:
                 await stream_buffer_service.finish(session_id, "cancelled", stream_id=stream_id)

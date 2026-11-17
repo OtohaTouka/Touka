@@ -28,7 +28,7 @@ export interface ToolStepPreview {
 }
 
 export interface ToolStepApproval {
-  execId: string;                                   // approve/reject 端點的解算鍵
+  execId?: string;                                  // approve/reject 端點的解算鍵；後端存的步驟（心跳、SNS、ADR-0319）沒有
   risk?: string;                                    // read_only | safe | dangerous
   timeout?: number;                                 // 逾時秒數（倒數顯示用）
   // 解算結果（含逾時自動拒；isolation_* 是核准沒算數的兩種隔離結果，approval_flow 的 verdict）
