@@ -165,6 +165,14 @@ Windows 的 JailedWriter 只提供可繞過的寫入配額，不是檔案讀取�
 
 映像內 Debian 套件改由建置時 `apt-get upgrade` 取得官方安全更新（ADR-0238）；先前對 liblzma5 `5.8.1-1+deb13u1`（TEMP-1147318-639065／GHSA-5qpq-xqfv-j9pg）的 `RISK_ACCEPTED_DEFERRED` 追蹤隨該管線退役而結束，之後以一般 Debian 更新重新確認。
 
+### Guard #23 的公告例外（ADR-0321）
+
+沒有修補版、只出現在開發與測試工具裡的 high／critical 公告，經維護者核准可以暫時放行：每筆只寫一則 GHSA 與核准時的嚴重度、只在核准到到期之間生效（最多 14 天）、只在 full 範圍生效，runtime 範圍從不套用；套件的 high／critical 原因全都在例外內、而且不比核准時嚴重才放行，到期就照常擋。清單在 `scripts/guard_node_cve.py` 的 `ADVISORY_EXCEPTIONS`。
+
+| 公告 | 範圍 | 核准 | 到期 | 理由 |
+| --- | --- | --- | --- | --- |
+| GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，正規式讓程式卡住，high） | Chat、IDE 的 full 範圍（vite、vitest、knip、fast-glob、vsce 等開發工具；runtime 範圍 0 筆） | 2026-11-18 維護者 | 2026-11-25 結束 | 2026-11-18 沒有修補版；要利用得能提供比對規則，這些工具的規則都來自 Touka 自己的設定檔 |
+
 ### Node 依賴的 moderate advisory
 
 Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容修正版、滿冷卻期後更新。2026-10-25 這批（hono、ip-address、vitest、smol-toml、IDE 的 MCP client）見依賴表；fast-uri 在 2026-10-27 那批升到 3.1.9、@hono/node-server 在 2026-11-06 那批更新（都見依賴表）；還剩四項（2026-11-06 查）：
@@ -644,7 +652,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | **Docker non-root** | 三個服務容器（Proxy / Heartbeat / Chat）均加入 `USER appuser`，符合 CIS Docker 基準 |
 | **jti Replay Detection** | Refresh token 輪換加入 jti 機制，重用舊 token 立即撤銷全部 session |
 | **Guard #22** (pip-audit) | 從 frozen 單一 lock 建立 repo 外 runtime＋build/test 兩 scope；invalid evidence、tool error 與無權威 severity fail-closed，缺 tool 不自動安裝；合法 skip row 保留名稱／原因並以 INCOMPLETE 停止，不放行未查核依賴（ADR-0222） |
-| **Guard #23** (npm audit) | ToukaChat／ToukaIDE 各掃 runtime＋full graph；直接 Node＋npm-cli argv、public-registry lock（official registry＋SHA-512）與無憑證 child env，掃描途中 npm 來源被改即中止；invalid evidence／high／critical 阻斷，失敗時列出阻擋套件與 GHSA（ADR-0222、ADR-0282） |
+| **Guard #23** (npm audit) | ToukaChat／ToukaIDE 各掃 runtime＋full graph；直接 Node＋npm-cli argv、public-registry lock（official registry＋SHA-512）與無憑證 child env，掃描途中 npm 來源被改即中止；invalid evidence／high／critical 阻斷，失敗時列出阻擋套件與 GHSA（ADR-0222、ADR-0282）；維護者核准、單一公告、最多 14 天、只限 full 範圍的例外另列 `excused`（ADR-0321） |
 | **Guard #24** (Endpoint Auth Dependency Guard) | AST 掃描所有 FastAPI router 端點，強制每個非豁免端點必須帶有至少一個認證 Depends；grandfather 清單（52 個歷史技術債端點）全部補修完畢（ADR-0034） |
 | **SOLID-SRP Heartbeat Token** | `/heartbeat/awaken` 的所有 JWT 驗證邏輯移入獨立的 `verify_heartbeat_token()` Depends 函式；`awaken_agent` body 不再包含任何 token 驗證邏輯 |
 | **Guard #25 Native NPM Build Environment** | `scripts/guard_native_npm.py` 靜態掃描前端 `dependencies` 中的 native module（`KNOWN_NATIVE_MODULES` SSOT），驗證 Dockerfile 備妥 `python3 make g++` |
