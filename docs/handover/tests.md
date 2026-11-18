@@ -6,6 +6,7 @@
 
 ## 現況
 
+- **Guard #23 的 picomatch 例外 2026-11-26 00:00（台北）到期（2026-11-18，ADR-0321）**：GHSA-fc5q-39xc-vjpf 沒有修補版，維護者核准在 full 範圍暫時放行。到期前查 picomatch 有沒有修補版：有就照緊急通道升級並刪掉 `scripts/guard_node_cve.py` 裡這筆例外；沒有的話到期後守衛會變紅，續期要維護者另外核准（每筆最多 14 天）。
 - **兩份凍結清單（2026-11-05，ADR-0298）**：`tests/lint/vulture_baseline.json`（後端未用的函式、方法、類別 108 筆）和 `ToukaChat/scripts/contract_type_baseline.json`（和後端合約同名的手寫型別 10 個）都沒有清掉，也沒有期限，清理在候選裡。
   - 死碼清單只有多出來才紅。只有測試在用的新函式、先加函式下個 PR 才接上、搬動或拿掉檔案（可能一次多好幾筆）都會紅：接上，或 `python scripts/lint_ratchet.py vulture --update` 並在 PR 說明逐項列出。`--update` 也會收下新增項目，`# noqa` 和白名單也能藏項目，靠審查看。
   - 合約清單要完全相等，後端改 schema 名時常常要一起重拍（`npm run guard:api -- --update`）。

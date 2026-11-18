@@ -65,6 +65,7 @@ TRACKED_SOURCES: tuple[str, ...] = (
 )
 BLOCKING_SEVERITIES = frozenset({"high", "critical"})
 _ADVISORY_ID = re.compile(r"GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}")
+_ADVISORY_URL = re.compile(rf"https://github\.com/advisories/({_ADVISORY_ID.pattern})")
 _PACKAGE_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
 _TAIPEI = timezone(timedelta(hours=8))
 
@@ -73,21 +74,25 @@ class AdvisoryException(NamedTuple):
     """One maintainer-approved, expiring exception for a single advisory (ADR-0321)."""
 
     advisory: str
+    severity: str  # the severity it was approved at; a higher one still blocks
     approved_at: datetime
-    expires_at: datetime  # applies while now < expires_at
+    expires_at: datetime  # applies while approved_at <= now < expires_at
     approval: str
 
 
 # Only the full scope (build/test/dev tooling) may use an exception; the runtime
 # scope never does. A package is excused only when every high/critical reason
-# behind it is an active exception; anything unreadable still blocks.
+# behind it is an active exception at or below its approved severity; anything
+# unreadable still blocks.
 EXCEPTION_SCOPE = "full"
 MAX_EXCEPTION_DAYS = 14
+SEVERITY_RANK: dict[str, int] = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
 ADVISORY_EXCEPTIONS: tuple[AdvisoryException, ...] = (
     # picomatch <= 4.0.7 ReDoS; no fixed release on 2026-11-18; reached only through
     # dev tooling (vite, vitest, knip, fast-glob, vsce). Ends after 2026-11-25 Taipei.
     AdvisoryException(
         advisory="GHSA-fc5q-39xc-vjpf",
+        severity="high",
         approved_at=datetime(2026, 11, 18, tzinfo=_TAIPEI),
         expires_at=datetime(2026, 11, 26, tzinfo=_TAIPEI),
         approval="maintainer, 2026-11-18",
@@ -278,32 +283,40 @@ def _current_time() -> datetime:
 
 
 def _is_well_formed(exception: AdvisoryException) -> bool:
-    """An exception names one advisory, has time zones, a short window and an approval."""
+    """One advisory at a blocking severity, time zones, a short window and an approval."""
     if exception.approved_at.tzinfo is None or exception.expires_at.tzinfo is None:
         return False
     window = exception.expires_at - exception.approved_at
     return (
         _ADVISORY_ID.fullmatch(exception.advisory) is not None
+        and exception.severity in BLOCKING_SEVERITIES
         and timedelta(0) < window <= timedelta(days=MAX_EXCEPTION_DAYS)
         and bool(exception.approval.strip())
     )
 
 
-def active_exceptions(now: datetime) -> frozenset[str]:
-    """Advisory ids excused right now; malformed or expired entries never count."""
-    return frozenset(
-        exception.advisory
-        for exception in ADVISORY_EXCEPTIONS
-        if _is_well_formed(exception) and now < exception.expires_at
-    )
+def active_exceptions(now: datetime) -> dict[str, int]:
+    """Advisory ids excused right now, with the rank of their approved severity.
 
-
-def _blocking_reasons(vulnerabilities: dict[object, object], package: str) -> frozenset[str] | None:
-    """High/critical advisory ids reachable from a package through its ``via`` chain.
-
-    ``None`` when any reachable entry cannot be read, so that package is never excused.
+    Malformed entries, entries not yet approved and expired entries never count, so a
+    mistyped future date blocks instead of widening the window.
     """
-    reasons: set[str] = set()
+    active: dict[str, int] = {}
+    for exception in ADVISORY_EXCEPTIONS:
+        if _is_well_formed(exception) and exception.approved_at <= now < exception.expires_at:
+            rank = SEVERITY_RANK[exception.severity]
+            active[exception.advisory] = min(rank, active.get(exception.advisory, rank))
+    return active
+
+
+def _blocking_reasons(vulnerabilities: dict[object, object], package: str) -> dict[str, int] | None:
+    """High/critical advisory ids reachable through the ``via`` chain, with their highest rank.
+
+    ``None`` when any reachable entry cannot be read (including an unknown severity or
+    an advisory URL that is not exactly a GitHub advisory page), so that package is
+    never excused.
+    """
+    reasons: dict[str, int] = {}
     pending = [package]
     seen: set[str] = set()
     while pending:
@@ -320,16 +333,19 @@ def _blocking_reasons(vulnerabilities: dict[object, object], package: str) -> fr
                 pending.append(item)
                 continue
             severity = item.get("severity") if isinstance(item, dict) else None
-            if not isinstance(severity, str):
+            rank = (
+                SEVERITY_RANK.get(severity.strip().lower()) if isinstance(severity, str) else None
+            )
+            if rank is None:
                 return None
-            if severity.strip().lower() not in BLOCKING_SEVERITIES:
+            if rank < SEVERITY_RANK["high"]:
                 continue
             url = item.get("url")
-            found = _ADVISORY_ID.findall(url) if isinstance(url, str) else []
-            if len(found) != 1:
+            match = _ADVISORY_URL.fullmatch(url) if isinstance(url, str) else None
+            if match is None:
                 return None
-            reasons.update(found)
-    return frozenset(reasons)
+            reasons[match[1]] = max(rank, reasons.get(match[1], rank))
+    return reasons
 
 
 def excused_findings(
@@ -337,9 +353,11 @@ def excused_findings(
 ) -> dict[str, tuple[str, frozenset[str]]]:
     """High/critical packages whose every reason is an active exception (full scope only).
 
-    Maps each excused package to its severity and advisory ids.
+    Each reason must be an active exception at or below its approved severity, and the
+    package itself must not be more severe than its reasons. Maps each excused package
+    to its severity and advisory ids.
     """
-    active = active_exceptions(now) if scope_name == EXCEPTION_SCOPE else frozenset()
+    active = active_exceptions(now) if scope_name == EXCEPTION_SCOPE else {}
     if not active:
         return {}
     vulnerabilities = _vulnerabilities(stdout)
@@ -348,11 +366,16 @@ def excused_findings(
         severity = finding.get("severity") if isinstance(finding, dict) else None
         if not isinstance(package, str) or not isinstance(severity, str):
             continue
-        if severity.strip().lower() not in BLOCKING_SEVERITIES:
+        level = severity.strip().lower()
+        if level not in BLOCKING_SEVERITIES:
             continue
         reasons = _blocking_reasons(vulnerabilities, package)
-        if reasons and reasons <= active:
-            excused[package] = (severity.strip().lower(), reasons)
+        if (
+            reasons
+            and all(rank <= active.get(advisory, -1) for advisory, rank in reasons.items())
+            and SEVERITY_RANK[level] <= max(reasons.values())
+        ):
+            excused[package] = (level, frozenset(reasons))
     return excused
 
 
@@ -590,13 +613,19 @@ def scan_project(
 
 
 def _print_exceptions(now: datetime) -> None:
-    """Say which exceptions apply this run and which have ended (ADR-0321)."""
+    """Say which exceptions apply this run, which are not approved yet and which ended."""
     for exception in ADVISORY_EXCEPTIONS:
         if not _is_well_formed(exception):
             print("[WARN] ignoring a malformed advisory exception")
+        elif now < exception.approved_at:
+            print(
+                f"[WARN] {exception.advisory} exception starts "
+                f"{exception.approved_at.isoformat()}; its findings still block"
+            )
         elif now < exception.expires_at:
             print(
-                f"[EXCEPTION] {exception.advisory} is excused in the {EXCEPTION_SCOPE} scope "
+                f"[EXCEPTION] {exception.advisory} is excused up to {exception.severity} "
+                f"in the {EXCEPTION_SCOPE} scope "
                 f"until {exception.expires_at.isoformat()} ({exception.approval})"
             )
         else:

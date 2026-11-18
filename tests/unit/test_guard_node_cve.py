@@ -986,6 +986,7 @@ def test_isolated_environment_bootstraps_windows_native_runtime(
 
 EXCUSED = "GHSA-fc5q-39xc-vjpf"
 OTHER = "GHSA-27r3-jxmh-p828"
+LATER = "GHSA-2222-3333-4444"
 APPROVED_AT = datetime(2026, 11, 18, tzinfo=UTC)
 BEFORE_EXPIRY = APPROVED_AT + timedelta(days=2)
 
@@ -1012,10 +1013,13 @@ def _with_exception(
     *,
     now: datetime = BEFORE_EXPIRY,
     advisory: str = EXCUSED,
+    severity: str = "high",
     approved_at: datetime = APPROVED_AT,
     expires_at: datetime = APPROVED_AT + timedelta(days=7),
 ) -> None:
-    exception = guard.AdvisoryException(advisory, approved_at, expires_at, "maintainer test")
+    exception = guard.AdvisoryException(
+        advisory, severity, approved_at, expires_at, "maintainer test"
+    )
     monkeypatch.setattr(guard, "ADVISORY_EXCEPTIONS", (exception,))
     monkeypatch.setattr(guard, "_current_time", lambda: now)
 
@@ -1118,6 +1122,12 @@ def test_an_expired_exception_blocks_again(
         {"severity": "high", "via": ["picomatch", "not-in-the-report"]},
         {"severity": "high", "via": [{"severity": "high"}]},
         {"severity": "high", "via": [{"severity": "high", "url": f"{EXCUSED} {EXCUSED}"}]},
+        {
+            "severity": "high",
+            "via": [{"severity": "high", "url": f"https://example.com/{EXCUSED}"}],
+        },
+        {"severity": "high", "via": ["picomatch", {**_advisory(OTHER), "severity": "unknown"}]},
+        {"severity": "high", "via": [_advisory(OTHER, "moderate")]},
         {"severity": "high", "via": ["picomatch", 5]},
         {"severity": "high", "via": []},
         {"severity": "high"},
@@ -1130,6 +1140,50 @@ def test_reasons_that_cannot_be_read_are_never_excused(
     _with_exception(guard, monkeypatch)
 
     assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain(odd=finding)) == (1, 0)
+
+
+def test_an_exception_approved_later_is_not_active_yet(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """年份打錯成未來：不是延長，而是不生效、照擋。"""
+    guard = _load_guard()
+    later = BEFORE_EXPIRY + timedelta(days=365)
+    _with_exception(guard, monkeypatch, approved_at=later, expires_at=later + timedelta(days=7))
+
+    assert guard.active_exceptions(BEFORE_EXPIRY) == {}
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (3, 0)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"odd": {"severity": "critical", "via": [_advisory(EXCUSED, "critical")]}},
+        {"odd": {"severity": "critical", "via": ["picomatch"]}},
+    ],
+    ids=["advisory-raised-to-critical", "package-more-severe-than-its-reasons"],
+)
+def test_anything_more_severe_than_approved_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: dict[str, dict[str, object]]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain(**extra)) == (1, 0)
+
+
+def test_a_repeated_advisory_keeps_the_stricter_severity(monkeypatch: pytest.MonkeyPatch) -> None:
+    guard = _load_guard()
+    window = (APPROVED_AT, APPROVED_AT + timedelta(days=7), "test")
+    monkeypatch.setattr(
+        guard,
+        "ADVISORY_EXCEPTIONS",
+        (
+            guard.AdvisoryException(EXCUSED, "critical", *window),
+            guard.AdvisoryException(EXCUSED, "high", *window),
+        ),
+    )
+
+    assert guard.active_exceptions(BEFORE_EXPIRY) == {EXCUSED: guard.SEVERITY_RANK["high"]}
 
 
 def test_a_via_cycle_is_followed_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1148,8 +1202,10 @@ def test_a_via_cycle_is_followed_once(monkeypatch: pytest.MonkeyPatch, tmp_path:
     [
         {"advisory": "GHSA-fc5q-39xc-vjp"},
         {"advisory": "picomatch"},
-        {"approved_at": datetime(2026, 11, 18)},  # noqa: DTZ001 -- 沒有時區就不算數
-        {"expires_at": datetime(2026, 11, 25)},  # noqa: DTZ001
+        {"severity": "moderate"},
+        {"severity": "High"},
+        {"approved_at": datetime(2026, 11, 18)},  # 沒有時區就不算數
+        {"expires_at": datetime(2026, 11, 25)},
         {"expires_at": APPROVED_AT + timedelta(days=15)},
         {"expires_at": APPROVED_AT},
     ],
@@ -1158,10 +1214,11 @@ def test_a_malformed_exception_is_never_applied(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, change: dict[str, Any]
 ) -> None:
     guard = _load_guard()
-    now = APPROVED_AT - timedelta(days=1)
+    now = APPROVED_AT + timedelta(days=1)  # 格式對的話這時應該有效
     _with_exception(guard, monkeypatch, now=now, **change)
 
-    assert guard.active_exceptions(now) == frozenset()
+    assert not guard._is_well_formed(guard.ADVISORY_EXCEPTIONS[0])
+    assert guard.active_exceptions(now) == {}
     assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (3, 0)
 
 
@@ -1181,12 +1238,15 @@ def test_main_says_which_exceptions_are_active_or_expired(
 ) -> None:
     guard = _load_guard()
     expired = guard.AdvisoryException(
-        OTHER, APPROVED_AT - timedelta(days=9), APPROVED_AT - timedelta(days=1), "maintainer test"
+        OTHER, "high", APPROVED_AT - timedelta(days=9), APPROVED_AT - timedelta(days=1), "test"
     )
     active = guard.AdvisoryException(
-        EXCUSED, APPROVED_AT, APPROVED_AT + timedelta(days=7), "maintainer test"
+        EXCUSED, "high", APPROVED_AT, APPROVED_AT + timedelta(days=7), "maintainer test"
     )
-    monkeypatch.setattr(guard, "ADVISORY_EXCEPTIONS", (active, expired))
+    later = guard.AdvisoryException(
+        LATER, "high", BEFORE_EXPIRY + timedelta(days=1), BEFORE_EXPIRY + timedelta(days=8), "test"
+    )
+    monkeypatch.setattr(guard, "ADVISORY_EXCEPTIONS", (active, expired, later))
     monkeypatch.setattr(guard, "_current_time", lambda: BEFORE_EXPIRY)
 
     assert _run_main_with_fake_scan(guard, monkeypatch, tmp_path, _fake_repo(tmp_path)) == 0
@@ -1194,6 +1254,7 @@ def test_main_says_which_exceptions_are_active_or_expired(
     assert f"[EXCEPTION] {EXCUSED} " in output
     assert "2026-11-25" in output
     assert f"[EXPIRED] {OTHER} " in output
+    assert f"[WARN] {LATER} exception starts " in output
     assert "outside the exceptions above" in output  # 有例外時不說「完全沒有」
 
 
