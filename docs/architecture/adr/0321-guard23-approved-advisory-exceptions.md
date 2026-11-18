@@ -4,7 +4,7 @@
 - 日期：2026-11-18
 - 決策者：維護者
 - 相關：[ADR-0222](0222-dependency-audit-gate-hardening.md)（依賴稽核閘；本 ADR 修訂 Guard #23 的判定）、[ADR-0299](0299-dependency-cooldown-and-emergency-patches.md)（冷卻期與緊急修補、每日檢查）
-- 影響範圍：`scripts/guard_node_cve.py`、`tests/unit/test_guard_node_cve.py`、`SECURITY.md`、`docs/architecture/NOQA_REGISTRY.md`
+- 影響範圍：`scripts/guard_node_cve.py`、`tests/unit/test_guard_node_cve.py`、`SECURITY.md`、`docs/architecture/NOQA_REGISTRY.md`、`docs/handover/tests.md`
 
 ## 背景
 
@@ -38,7 +38,7 @@
 
 - 例外期間，開發與測試工具裡的 picomatch 仍有這個弱點。要利用它，攻擊者得能提供比對規則（glob），而這些工具用的規則都來自 Touka 自己的設定檔，所以風險低。runtime 範圍若出現同一則公告，守衛照樣擋。
 - 守衛全部通過時，`guard_all.py` 只顯示通過，不顯示例外那幾行；要看例外得看 Guard #23 自己的輸出或這份清單。到期後守衛變紅，每日檢查會開 issue。
-- 「runtime 範圍 0 筆」不等於跑起來的 Touka 完全沒有 picomatch：Next 在 `next/dist/compiled/picomatch` 內嵌了一份，npm audit 看不到；它用在圖片網址比對，規則來自設定，而 Chat 設了 `images.unoptimized: true`、正式映像是靜態匯出，實際沒有影響。另外，「runtime 範圍＝會出貨的程式」是前提：打包工具會打包任何被匯入的套件，不分 dev 或 prod；目前只有測試與守衛匯入 dev 套件（2026-11-18 審查查證）。
+- 「runtime 範圍 0 筆」不等於跑起來的 Touka 完全沒有 picomatch：Next 在 `next/dist/compiled/picomatch` 內嵌了一份，npm audit 看不到；它用在圖片網址比對，規則來自設定，而 Chat 設了 `images.unoptimized: true`、正式映像是靜態匯出，實際沒有影響。另外，「runtime 範圍＝會出貨的程式」是前提：打包工具會打包任何被匯入的套件，不分 dev 或 prod；picomatch 和帶它進來的套件（fast-glob、micromatch、tinyglobby 等）目前只被測試與守衛匯入；Chat 的 `globals.css` 會把 dev 套件 tailwindcss、tw-animate-css 編進出貨的 CSS，那裡沒有 picomatch（2026-11-18 審查查證）。
 - 已知限制：保留的證據（`--evidence-dir`）沒有記下當時的時間、有效例外與放行的套件，事後只看 npm 原始輸出會看到「有 high 卻通過」；被放行的套件身上若還有 moderate 公告，期間內不算進 lower-severity 計數。
 - 例外只在合併了本 ADR 的分支生效：`main` 在維護者把 dev 合進去之前，每日檢查仍會因這則公告開 issue。
 - 修補版出來後照緊急通道升級，並刪掉這筆例外。
@@ -48,7 +48,7 @@
 - `tests/unit/test_guard_node_cve.py`：
   - 有效例外在 full 範圍放行整條依賴鏈、runtime 範圍不放行；
   - 有別的 high 原因照擋、moderate 原因不影響；
-  - 到期（剛好到期、已過期）照擋；核准時間在未來時不生效；比核准時嚴重（公告改成 critical、套件比原因嚴重）照擋；同一則公告重複登記取較嚴的；讀不懂的原因（報告裡沒有的套件、沒有網址、網址不是 GitHub 公告頁、兩個編號、不認得的嚴重度、怪形狀、空 `via`、沒有 `via`）與只有 moderate 原因的 high 套件照擋；`via` 有循環時只追一次；
+  - 到期（剛好到期、已過期）照擋；核准當下就生效、核准時間在未來時不生效；比核准時嚴重（公告改成 critical、套件比原因嚴重）照擋；同一則公告重複登記取較嚴的；讀不懂的原因（報告裡沒有的套件、沒有網址、網址不是 GitHub 公告頁、兩個編號、不認得的嚴重度、怪形狀、空 `via`、沒有 `via`）與只有 moderate 原因的 high 套件照擋；`via` 有循環時只追一次；
   - 格式不對的例外不生效（在有效期間內檢查，含嚴重度）；
   - 實際清單的格式（不看日期）；開頭列出有效與到期的例外、通過那一行的說法；
   - 每日檢查解析時只數擋下的、筆數完整；

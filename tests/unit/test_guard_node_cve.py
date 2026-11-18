@@ -1142,6 +1142,15 @@ def test_reasons_that_cannot_be_read_are_never_excused(
     assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain(odd=finding)) == (1, 0)
 
 
+def test_an_exception_applies_from_its_approval_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch, now=APPROVED_AT)
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (0, 0)
+
+
 def test_an_exception_approved_later_is_not_active_yet(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

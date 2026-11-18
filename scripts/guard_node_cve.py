@@ -333,12 +333,11 @@ def _blocking_reasons(vulnerabilities: dict[object, object], package: str) -> di
                 pending.append(item)
                 continue
             severity = item.get("severity") if isinstance(item, dict) else None
-            rank = (
-                SEVERITY_RANK.get(severity.strip().lower()) if isinstance(severity, str) else None
-            )
+            level = severity.strip().lower() if isinstance(severity, str) else None
+            rank = SEVERITY_RANK.get(level) if level is not None else None
             if rank is None:
                 return None
-            if rank < SEVERITY_RANK["high"]:
+            if level not in BLOCKING_SEVERITIES:
                 continue
             url = item.get("url")
             match = _ADVISORY_URL.fullmatch(url) if isinstance(url, str) else None
