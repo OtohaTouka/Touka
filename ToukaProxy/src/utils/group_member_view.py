@@ -122,14 +122,20 @@ def split_group_turn(content: str) -> tuple[str, list[tuple[str, str]]] | None:
 
 
 def _neutralized_block(block: Any) -> Any:
-    """一個內容區塊：文字換掉；工具結果等區塊裡面的內容也換掉。"""
+    """一個內容區塊：文字換掉；工具結果等區塊裡面的內容也換掉。
+
+    區塊裡的字串原樣中和，不再當成訊息內容正規化（長得像區塊陣列的工具結果仍是字串）。
+    """
     if not isinstance(block, dict):
         return block
     out = dict(block)
     if isinstance(out.get("text"), str):
         out["text"] = neutralize_peer_markers(out["text"])
-    if isinstance(out.get("content"), (str, list)):
-        out["content"] = _neutralized_content(out["content"])
+    inner = out.get("content")
+    if isinstance(inner, str):
+        out["content"] = neutralize_peer_markers(inner)
+    elif isinstance(inner, list):
+        out["content"] = [_neutralized_block(item) for item in inner]
     return out
 
 

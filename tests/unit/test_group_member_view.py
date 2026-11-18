@@ -337,6 +337,27 @@ def test_fake_markers_inside_tool_results_are_neutralized() -> None:
     assert "［群聊成員發言" in dumped
 
 
+def test_a_tool_result_string_that_looks_like_blocks_stays_a_string() -> None:
+    """工具結果的文字剛好長得像區塊陣列時不還原成清單（Anthropic 的工具結果不收圖片區塊）."""
+    looks_like_blocks = json.dumps(
+        [{"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]
+    )
+    message = AnthropicMessage(
+        role="user",
+        content=[{"type": "tool_result", "tool_use_id": "t1", "content": looks_like_blocks}],
+    )
+    [built] = member_messages(
+        [message],
+        self_id="Bob",
+        self_alias="B",
+        resolve=_resolve,
+        spoken=[],
+        make=lambda role, content: AnthropicMessage(role=role, content=content),
+    )
+    [block] = built.model_dump()["content"]
+    assert block["content"] == looks_like_blocks
+
+
 def test_the_marker_index_is_the_first_marker() -> None:
     assert peer_marker_index("前面 " + FAKE) == 3
     assert peer_marker_index("沒有標記") is None
