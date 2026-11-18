@@ -1,5 +1,7 @@
 # ADR-0222：依賴弱點稽核閘 fail-closed 強化
 
+> **2026-11-18 由 [ADR-0321](0321-guard23-approved-advisory-exceptions.md) 修訂**：Guard #23 可以有維護者核准的公告例外：每筆只寫一則 GHSA、最多 14 天、只在 full 範圍生效，套件的 high／critical 原因全都在例外內才放行；runtime 範圍從不套用，讀不懂或到期照擋。
+
 > **2026-10-24 由 [ADR-0282](0282-braces-backport-retirement.md) 修訂**：Guard #23 的 lock 檢查在 URL 檢查之後再驗每個套件的 `sha512-` integrity；掃描途中 `.npmrc`、`package.json` 或 lock 被改就以證據無效中止；braces 證據 profile（`--profile`）退役，失敗時另外列出阻擋套件的名稱與 GHSA。其餘照舊。
 
 > **2026-10-21 空輸出重跑一次**：Guard #22 的 pip-audit 若 stdout 只有空白（不看 exit code），同一指令重跑一次，第二次的證據放在 `audit-<scope>-query-retry`，第一次的保留。兩次都空、或啟動失敗、逾時（這兩種不重跑）都是 `AuditNotRunError`：印「掃描沒跑成」，仍非零、不轉 clean，和有漏洞、證據無效分開。有內容的輸出不重跑。所以每個 Python scope 最多兩個 audit 程序；Guard #23 仍不重跑。下面「原六scope/no-install/零retry」與 Network gate 段「零retry、最多六個top-level audit processes」裡的零 retry 不再描述現行 Guard #22（後者是當時那次核准的範圍）；其餘照舊。
