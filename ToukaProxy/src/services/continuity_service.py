@@ -30,6 +30,7 @@ from memory_server.utils.legacy_time import to_epoch_ms
 
 from src.adapters.content_normalize import append_to_last_user
 from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
+from src.models.heartbeat_schedule import HeartbeatSchedule
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
@@ -89,7 +90,7 @@ KIND_SNS = (
 KIND_HOME = "your home conversation with your owner"
 KIND_HEARTBEAT_HOME = f"{KIND_HOME}, but no human is present in this run"
 KIND_HEARTBEAT_CHANNEL = (
-    "a heartbeat channel; after the run a report goes to your home (at most once every "
+    "a heartbeat channel; its key points are reported to your home (at most once every "
     f"{CHANNEL_REPORT_EVERY_MS // _MS_PER_HOUR} hours per channel)"
 )
 KIND_CHILD = (
@@ -98,10 +99,10 @@ KIND_CHILD = (
 )
 KIND_NOT_REPORTED = "not your home, and nothing here is reported to your home"
 KIND_INCOGNITO = "incognito; nothing here is saved or reported to your home"
-KIND_UNKNOWN = "unknown (the home could not be read)"
+KIND_UNKNOWN = "unknown (your home could not be determined)"
 # 心跳第幾個脈衝、被誰叫醒（ADR-0322 PR 3 心跳-2、心跳-3）；觸發種類只認這幾個值
 HEARTBEAT_TRIGGERS = ("schedule", "manual")
-SCHEDULE_MODES = ("interval", "daily", "once")
+SCHEDULE_MODES = get_args(HeartbeatSchedule.model_fields["mode"].annotation)  # 投影是 SSOT
 RETRIGGER = "retrigger"  # 內部值：只有 /v1/heartbeat/retrigger 會設，/awaken 收不到
 PULSE_LINE = "- Pulse {pulse} of {total}: replying with text ends this pulse only; {after}"
 PULSE_MORE = "{left} more pulse(s) will wake you again."
@@ -401,9 +402,10 @@ def _wake_lines(wake: HeartbeatWake, now_s: float) -> list[str]:
 
 
 async def _at_home(soul: AgentIdentity, session_id: str) -> bool | None:
-    """這段對話是不是這個靈魂唯一的家；讀不到回 None（兩個家當作沒有家）."""
+    """這段對話是不是這個靈魂唯一的家；讀不到或有兩個家（資料矛盾）回 None."""
     try:
-        return await session_service.home_session_ids(soul) == [session_id]
+        homes = await session_service.home_session_ids(soul)
+        return None if len(homes) > 1 else homes == [session_id]
     except Exception:
         logger.exception("continuity: reading the home failed")
         return None

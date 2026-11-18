@@ -27,6 +27,8 @@ ATTACHMENTS_TEMPLATE = "附件 {count} 個（讀不到內容）"
 # 名稱裡偽造得出開頭、記號、分隔或點名的字：拿掉或換掉
 _NAME_MAP = str.maketrans({"@": "＠", **dict.fromkeys("〔〕【】<>＜＞｜")})
 _MISSING_SENDER_IDS = ("", "unknown")  # Telegram 沒有使用者時填 "unknown"
+# 內文裡的【】換成相近字：外人假造不出另一組「固定開頭＋發言者行」冒充別人（審查 LOW-1）
+_CONTENT_MAP = str.maketrans({"【": "〖", "】": "〗"})
 
 
 def _clean_name(name: str | None) -> str:
@@ -58,7 +60,8 @@ def sns_sender_line(event: SNSIncomingEvent) -> str:
 
 def sns_message_content(event: SNSIncomingEvent) -> str:
     """存檔與送出一致：固定開頭（審查員靠它排除外人訊息）、發言者行、內容."""
-    return f"{SNS_MESSAGE_PREFIX}\n{sns_sender_line(event)}\n{event.content}"
+    content = event.content.translate(_CONTENT_MAP)
+    return f"{SNS_MESSAGE_PREFIX}\n{sns_sender_line(event)}\n{content}"
 
 
 def discord_sender_fields(author: Any, *, is_dm: bool) -> dict[str, Any]:

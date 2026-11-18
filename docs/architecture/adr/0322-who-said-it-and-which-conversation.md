@@ -4,8 +4,8 @@
 - 日期：2026-11-18
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 87 項回「全部照建議」：SNS 頻道與群聊照舊帶家對話原文並加說明；群聊 PR 合併前小量試真模型）
 - 相關：[ADR-0245](0245-model-layer-stage-2a.md)（群聊成員只限靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組、保留系統加的說明）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（工具紀錄的防偽做法）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（審查員只看人類原話）
-- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a；不經網頁的停止也記 `generationStopped`、子代理不再特別略過日誌行，PR 2b）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（照抄紀錄與工具幻覺的警告改成小提示，PR 2b）；[ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 那段說明照舊留在回覆文字裡（PR 2b 確認不改）
-- 影響範圍：PR 2b：`ToukaProxy/src/utils/turn_notices.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`handlers/adapters/`（`MidLoopAction`）、`utils/tool_step_collector.py`、`utils/interjection_notes.py`、`utils/history_manager.py`、`routers/heartbeat.py`、`services/sns_gateway.py`、`services/dispatcher.py`、前端 `lib/chat/turnNotices.ts`（新）、`components/chat/TurnNoticeList.tsx`（新）、`stream_tree.ts`、`connections.ts`、`buildApiMessage.ts`、翻譯檔、`ToukaIDE/src/providers/ChatViewProvider.ts`、`ToukaIDE/src/webview/main.js`。PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
+- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a；不經網頁的停止也記 `generationStopped`、子代理不再特別略過日誌行，PR 2b）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（照抄紀錄與工具幻覺的警告改成小提示，PR 2b）；[ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 那段說明照舊留在回覆文字裡（PR 2b 確認不改）、[ADR-0146](0146-tool-round-budget.md)（心跳寫第幾個脈衝，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>` 多對話種類與心跳叫醒，PR 3）
+- 影響範圍：PR 3：`ToukaProxy/src/services/continuity_service.py`、`utils/sns_sender.py`（新）、`models/sns.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`services/sns_gateway.py`、`services/prompt_blocks.py`、`services/dialogue_summarizer.py`、`routers/heartbeat.py`、`ToukaHeartbeat/schedule_service.py`、`proxy_client.py`、`awaken.py`、`openapi.json`、`ToukaChat/src/types/api.ts`。PR 2b：`ToukaProxy/src/utils/turn_notices.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`handlers/adapters/`（`MidLoopAction`）、`utils/tool_step_collector.py`、`utils/interjection_notes.py`、`utils/history_manager.py`、`routers/heartbeat.py`、`services/sns_gateway.py`、`services/dispatcher.py`、前端 `lib/chat/turnNotices.ts`（新）、`components/chat/TurnNoticeList.tsx`（新）、`stream_tree.ts`、`connections.ts`、`buildApiMessage.ts`、翻譯檔、`ToukaIDE/src/providers/ChatViewProvider.ts`、`ToukaIDE/src/webview/main.js`。PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
 
 ## 背景
 
@@ -118,12 +118,12 @@
 
 ### 12. 心跳寫第幾個脈衝、被誰叫醒
 - `<continuity>` 寫第 i／n 個脈衝、回文字只結束這一個、後面還有幾個（最後一個寫明），以及被誰叫醒：排程（每隔一段時間／每天／一次）、手動、重跑中斷的任務、沒有說明。補充句在固定開頭（審查員靠它排除）之後寫「（第 i／n 個脈衝）」。
-- `/awaken` 多兩個選填欄位 `trigger`（`schedule`／`manual`）、`schedule_mode`（`interval`／`daily`／`once`），最長 32 字；沒帶或看不懂都當沒有說明，只記一條不含原值的 warning、不回 422（兩邊版本不一致時排程不失敗）。內部的 `retrigger` 從這裡進不來。ToukaHeartbeat 排程帶 `schedule` 與種類，手動觸發帶 `manual`。
+- `/awaken` 多兩個選填欄位 `trigger`（`schedule`／`manual`）、`schedule_mode`（`interval`／`daily`／`once`），最長 32 字；沒帶或看不懂的字串都當沒有說明，只記一條不含原值的 warning、不回 422（兩邊版本不一致時排程不失敗）；超過 32 字或不是字串照樣回 422。排程種類取自 Proxy 的排程投影。內部的 `retrigger` 從這裡進不來。ToukaHeartbeat 排程帶 `schedule` 與種類，手動觸發帶 `manual`。
 - 重跑的說明只在 `<continuity>`、不寫進對話：第一個脈衝寫上一次沒做完（開始時間）、先確認做過什麼，之後寫重跑的第幾個。開始時間在派發前從「上次未完成」讀出（派發後就清掉），中間沒有 await；不再傳沒用到的初始提示。
 
 ### 13. SNS 訊息寫出誰從哪裡傳來
 - 固定開頭之後多一行（`utils/sns_sender.py`）：`平台：Discord｜私訊｜發言者：名稱（代號 6 碼）｜沒有附件`，有附件寫「附件 N 個（讀不到內容）」，沒有的欄位寫不明。存檔與送出一致，頻道歷史看得到每則是誰說的；舊訊息不變；摘要員的說明一起改。
-- 名稱壓成一行、拿掉控制字元與〔〕【】<>｜、`@` 換成全形（群聊點名只認半形）、最多 40 字；代號是平台加帳號編號的 SHA-256 前 6 碼，不存帳號編號。
+- 名稱壓成一行、拿掉控制字元與〔〕【】<>｜、`@` 換成全形（群聊點名只認半形）、最多 40 字；代號是平台加帳號編號的 SHA-256 前 6 碼，不存帳號編號。內文的【】換成〖〗，外人假造不出另一組開頭與發言者行。
 
 ## 取捨與影響
 
@@ -149,7 +149,7 @@
 - PR 2b：SNS 遇到拒答或安全過濾、模型又沒寫字時，外部平台收不到回覆（以前收到那句警告）；對話裡存有小提示。
 - PR 2b：舊日誌行只比對同一行。攔截、hook 拒絕、待審批這三種從冒號後面拿到換行為止：模型在同一行照抄這個標籤時，後面自己寫的字也會被拿掉。例外原文有好幾行時只拿掉第一行，超過 300 字的整行不拿。
 - PR 2b：非串流請求在模型送出任何片段前就被停，回的是空物件 `{}`。
-- PR 3：群聊成員沒有 `<continuity>`，拿不到對話種類那一行（角色寫在群聊說明裡，群聊-3 留待之後）。名稱裡可以寫出像「（代號 …）」的字，真正的代號在它後面。Telegram 只收文字訊息，附件一律寫沒有附件。
+- PR 3：群聊成員沒有 `<continuity>`，拿不到對話種類那一行（角色寫在群聊說明裡，群聊-3 留待之後）。名稱裡可以寫出像「（代號 …）」的字，真正的代號在它後面。Telegram 只收文字訊息，附件一律寫沒有附件。代號沒加鹽：知道帳號編號的人算得出來，用途是分辨同一個人，不是保密。直接呼叫 `/retrigger` 重跑不在「上次未完成」清單裡的對話，也會寫上一次沒做完（開始時間不明）。
 
 ## 驗證（PR 1）
 
