@@ -24,7 +24,7 @@ from src.models.sns import SNSIncomingEvent
 from src.routers.group_settings import GroupWhitelist, get_whitelist
 from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.dispatchers.group import dispatch_group_stream
-from src.services.group_router import parse_group_roster
+from src.services.group_router import make_alias_resolver, parse_group_roster
 from src.services.hooks.events import wrap_hook_output
 from src.services.sns_gateway import SNSGatewayService
 from src.utils.ask_user_stop import mark_unanswered
@@ -168,6 +168,30 @@ def test_latest_message_is_still_validated_strictly(cfg):
     assert parse_group_roster(_history("@小愛 你好", "@測試員 你好"), REGISTRY) == {
         "error": "『@測試員』指向的『Tester』不是靈魂，群聊成員只限靈魂。"
     }
+
+
+def test_a_carried_roster_answers_once_per_soul_and_says_it_is_carried(cfg):
+    """這一句沒點名時沿用之前的點名：同一位只回答一次，照第一次出現的順序（ADR-0322）."""
+    history = _history("@阿鮑 @小愛 你好", "@小愛 在嗎", "@Alice @小愛 再一次", "大家早")
+    assert parse_group_roster(history, REGISTRY) == [
+        {"name": "阿鮑", "id": "Bob", "carried": True},
+        {"name": "小愛", "id": "Alice", "carried": True},
+    ]
+
+
+def test_mentioning_someone_twice_in_the_latest_message_still_means_twice(cfg):
+    assert _roster("@小愛 @小愛 說兩次") == [
+        {"name": "小愛", "id": "Alice"},
+        {"name": "小愛", "id": "Alice"},
+    ]
+
+
+def test_old_labels_resolve_through_the_whitelist(cfg):
+    resolve = make_alias_resolver(REGISTRY)
+    assert resolve("小愛") == "Alice"
+    assert resolve("阿鮑") == "Bob"
+    assert resolve("壞") is None  # 指向原始模型
+    assert resolve("沒有這個人") is None
 
 
 def test_regex_value_is_not_expanded(cfg):

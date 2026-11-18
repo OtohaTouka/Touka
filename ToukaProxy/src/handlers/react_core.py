@@ -379,11 +379,13 @@ async def run_react_loop(  # noqa: PLR0915
             yield sse_line(generation_failure_event(
                 error.error_type, _failure_detail_for_viewer(context, error)))
             raise UiGenerationStopped("error")
-        # 子代理的失敗由派工端用固定說法交回，廠商原文不進主代理看得到的結果（ADR-0318）
-        if not context.get("subagent_run"):
-            yield yield_delta(
-                SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message
-            )
+        failure_text = SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message
+        # 子代理的失敗由派工端用固定說法交回，廠商原文不進主代理看得到的結果（ADR-0318）；
+        # 呼叫端要自己送時只記下來，不混進回覆文字（ADR-0322）
+        if context.get("caller_sends_failure_text"):
+            context["model_failure_text"] = failure_text
+        elif not context.get("subagent_run"):
+            yield yield_delta(failure_text)
         yield "data: [DONE]\n\n"
 
     try:

@@ -4,6 +4,8 @@
 
 ✅ **已接受（實作與驗證 2026-07-07）**。
 
+> 🔧 **後續修訂（2026-11-18，[ADR-0322](0322-who-said-it-and-which-conversation.md) 決定 6）**：群聊回合（`model == ToukaGroup`）不注入本區塊。SNS 群聊的外層 ctx 帶著 bot 的靈魂，外層組的這份寫的模型是 ToukaGroup，又會被複製給每位成員；群聊成員的情況改寫在群聊說明裡。
+
 > 🔧 **後續修訂（Guard #40 承諾句對已改釘）**：（1）[ADR-0146](0146-tool-round-budget.md)（2026-07-12）移除 `mission_stop_gate` / `board_allows_stop` 後，原「看板未清不可停 ⇄ board_allows_stop」承諾句對已改釘「回合結束、無自動續跑 ⇄ `rhythm_service.consume_round`」；harness_context 的 Autonomy 段亦隨之改寫。（2）[ADR-0143](0143-hitl-unification.md)（2026-07-11）把 Tools-and-approval 段的「`execute_command` 非同步審批」改為同步阻塞審批（新增 Guard #40 釘「pause for human approval ⇄ `_await_human_approval`」）。**`<harness_context>` 塊本體、英文零風格、穩定層快取與 Guard #40 反漂移機制本身不變。**
 
 ## 日期

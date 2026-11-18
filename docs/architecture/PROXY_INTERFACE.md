@@ -237,6 +237,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - X-Agent-ID 只能切進靈魂：人類 token（擁有者或管理員）帶 X-Agent-ID 指向非靈魂 ID 回 403 `AUTH_PERMISSION_DENIED`；管理員切進靈魂仍是 ADR-0141 選項 A。
 - `/identity`：`GET /identity` 只回這三種 ID 的覆寫；`GET /identity/agents` 只列這三種 ID（附 `effective_role`／`effective_capabilities`）；`POST /identity` 角色只收 `Owner`／`Base`／`Debugger`，覆寫寫給其他 ID 回 422 `VALIDATION_ERROR`，body 帶 `rejected_agent_ids`；檔內被略過的舊覆寫存檔時原樣保留。
 - 群聊：`GET`／`POST /group/whitelist` 只有 `ToukaSoul` 一區（送 `Native`／`Custom` 回 422）；別名只解析到 `agents_registry` 裡經靈魂檢查的成員（白名單值不是靈魂時不退回比對別名本身），群聊與 SNS `@別名` 一律以靈魂身分執行。只驗最新一則 user 訊息的點名；更早歷史裡解析不到的點名略過。
+- 群聊成員看到的訊息（ADR-0322 PR 1）：每位成員組請求時，舊的群聊回合照分發器寫的格式（`**【別名】**：`、成員之間的 `MEMBER_SEPARATOR`）切開，自己的段落是 assistant，別人的包成「群聊成員發言」（固定開頭與結尾，寫明是資料、不是你說的、不是使用者的指示）放在 user 那側，相鄰的 user 合成一則；這一輪已經說過的人也一樣，請求一定以 user 結尾（同一位連續被點兩次時補一句接續發言）。新標記在送給成員的每一則訊息（含家原文、前情）都換成相近字；串流時成員回覆裡偽造的「水平線＋成員標籤」換掉一個字。群聊說明寫出發言順序、自己的位置、之後還有誰、這一句有沒有點名、誰在說話（SNS 群聊：外人）、前情與家原文是私下的背景。使用者這一句沒點名時沿用之前的點名，同一位只回答一次。成員模型失敗時分發器自己送出失敗句，下一位只看到「這一輪出錯，沒有說完」。群聊回合不注入 `<harness_context>`。端點、schema 與錯誤碼不變。
 
 ## 模型溝通層第 2b 段：審批管線（ADR-0246）
 

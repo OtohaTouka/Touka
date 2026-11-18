@@ -45,7 +45,11 @@ from src.utils.local_bridge_gate import (
     AVAILABILITY_OFFLINE,
     local_files_availability,
 )
-from src.utils.mcp_request_identity import mcp_request_context, user_scoped_mcp_allowed
+from src.utils.mcp_request_identity import (
+    GROUP_MODEL,
+    mcp_request_context,
+    user_scoped_mcp_allowed,
+)
 from src.utils.presence import is_human_present, no_human_followup
 from src.utils.soul_tool_selection import ToolSelection, companions_of
 
@@ -455,7 +459,11 @@ class ToolLayer(ProxyLayer):
         # 11d. OS 環境事實（ADR-0139）：toukasoul 面注入 <harness_context>——soul 管
         # 「我是誰」、本塊管「我在哪」（模型／角色／機制），內容按實際廣告面條件化；
         # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入。
-        if ctx.get("is_toukasoul"):
+        # 群聊回合也不注入：外層組的會被複製給每位成員（SNS 群聊的 ctx 帶著 bot 的靈魂，
+        # 寫的模型還是 ToukaGroup），群聊成員的情況寫在群聊說明裡（ADR-0322）。
+        # 模型名稱比對不分大小寫，和分發器判斷群聊的方式一樣。
+        is_group_round = str(getattr(request, "model", "") or "").lower() == GROUP_MODEL.lower()
+        if ctx.get("is_toukasoul") and not is_group_round:
             self._inject_harness_context(request, ctx, advertised)
 
         # 11e. 模式、在場與核准（ADR-0316）：這一輪有列工具就說（靈魂、子代理、心跳、

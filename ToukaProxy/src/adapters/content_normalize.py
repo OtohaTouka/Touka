@@ -127,6 +127,23 @@ def _with_content(message: Any, content: Any) -> Any:
     return message.model_copy(update={"content": content})
 
 
+def merge_adjacent_users(messages: list[Any]) -> list[Any]:
+    """相鄰的 user 接成一則（純文字用空行接，有區塊就接成區塊陣列）；認不得的形狀不合併。
+
+    群聊成員看到的訊息用（ADR-0322；SNS 頻道歷史目前還用它自己的合併）。
+    回傳新串列，不改動傳入的訊息。
+    """
+    result: list[Any] = []
+    for message in messages:
+        if result and _field(result[-1], "role") == _field(message, "role") == "user":
+            merged = _merged_user_content(_field(result[-1], "content"), _field(message, "content"))
+            if merged is not None:
+                result[-1] = _with_content(result[-1], merged)
+                continue
+        result.append(message)
+    return result
+
+
 def drop_blank_assistant_turns(messages: list[Any]) -> list[Any]:
     """拿掉空白的助理訊息；因此接在一起的前後兩則 user 合併成一則（ADR-0231 決定 6）。
 

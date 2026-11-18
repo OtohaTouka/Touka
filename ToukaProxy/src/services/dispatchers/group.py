@@ -1,11 +1,14 @@
 import copy
+import functools
 import json
 import logging
 import re
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
+from src.adapters.content_normalize import append_to_last_user
 from src.adapters.schemas import AnthropicMessage, OpenAIChatRequest, OpenAIMessage
 from src.config import get_config_dir
 from src.core.exceptions import ErrorCode, ToukaException
@@ -15,7 +18,7 @@ from src.services.authorization_gateway import can_drive_soul
 from src.services.client_system import CLIENT_SYSTEM_KEY
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.dispatchers.utils import strip_redundant_labels
-from src.services.group_router import parse_group_roster
+from src.services.group_router import make_alias_resolver, parse_group_roster
 from src.services.mainline_service import inject_mainline
 from src.services.model_manager import model_manager
 from src.services.prompt_blocks import IDE_CONTEXT, wrap_block
@@ -23,11 +26,23 @@ from src.services.resource_manager import resource_manager
 from src.services.soul_service import soul_service
 from src.utils.ask_user_stop import UNANSWERED_KEY
 from src.utils.brain_persistence import get_active_brain, record_working_brain
+from src.utils.group_member_view import (
+    MEMBER_SEPARATOR,
+    LabelGuard,
+    SpokenTurn,
+    awareness_note,
+    member_label,
+    member_messages,
+    neutralize_system_markers,
+)
 from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG
 from src.utils.progress_events import group_event
 from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
+
+# 成員回覆開頭先留這麼多字（或到第一個換行）找它自己加的標籤
+OWN_LABEL_SCAN_CHARS = 50
 
 
 def _member_brains(roster: list[dict[str, str]]) -> tuple[dict[str, str], str | None]:
@@ -130,8 +145,15 @@ async def dispatch_group_stream(
             yield f"data: {json.dumps(payload)}\n\n"
         return
 
-    cumulative_request = copy.deepcopy(request)
     is_openai_req = isinstance(request, OpenAIChatRequest)
+    msg_cls = OpenAIMessage if is_openai_req else AnthropicMessage
+    # 標籤與分隔照舊依 is_native；成員文字照收到的片段格式重組（還沒收到片段時依請求種類）
+    label_native = bool(context.get("is_native", False)) and not is_openai_req
+    text_native = not is_openai_req
+    resolve_alias = _alias_resolver(roster, registry)
+    aliases = [entry["name"] for entry in roster]
+    carried = any(entry.get("carried") for entry in roster)
+    spoken: list[SpokenTurn] = []
 
     for idx, entry in enumerate(roster):
         alias_name = entry["name"]
@@ -142,13 +164,17 @@ async def dispatch_group_stream(
             f"data: {json.dumps(group_event(index=idx + 1, total=len(roster), agent=alias_name))}\n\n"
         )
 
-        # Ensure API role alternation
-        if cumulative_request.messages and cumulative_request.messages[-1].role == "assistant":
-            dummy_content = f"（系統：請 @{alias_name} 接續發言）"
-            msg_cls = OpenAIMessage if is_openai_req else AnthropicMessage
-            cumulative_request.messages.append(msg_cls(role="user", content=dummy_content))
-
-        current_request = copy.deepcopy(cumulative_request)
+        # 這位成員看到的訊息：自己說的算 assistant，別人說的包成群聊成員發言放在 user 那側；
+        # 只對請求原本的訊息與這一輪已說過的人做，在套靈魂與主線之前（ADR-0322）
+        current_request = copy.deepcopy(request)
+        current_request.messages = member_messages(
+            current_request.messages,
+            self_id=target_agent,
+            self_alias=alias_name,
+            resolve=resolve_alias,
+            spoken=spoken,
+            make=functools.partial(_message, msg_cls),
+        )
 
         # 成員一律是靈魂：parse_group_roster 只回 agents_registry 的鍵（ADR-0245）
         target_identity = AgentIdentity(agent_id=target_agent)
@@ -163,6 +189,7 @@ async def dispatch_group_stream(
             mode="incognito" if context.get("incognito") else "group",
             sns=bool(context.get("sns_source")),
         )
+        neutralize_system_markers(current_request)  # 前情裡也假造不了群聊成員發言
 
         ide_ctx = getattr(request, "ide_context", None)
         ide_note = ""
@@ -171,48 +198,30 @@ async def dispatch_group_stream(
             ln = ide_ctx.get("line", "?")
             ide_note = "\n" + wrap_block(IDE_CONTEXT, f"📄 {fn} | 📍 Line {ln}")
 
-        awareness_note = (
-            f"\n\n(你目前使用的底層模型為 '{brain_model}'。使用者稱呼你為 '@{alias_name}'。"
-            f"\n你正在一個群聊系統中。{ide_note}"
-            "\n請「直接」開始你的回答內容。"
-            "\n**嚴禁**在開頭加上任何標章或前綴。不要加上自己的名稱或 @提及。"
-            "\n**嚴禁**模仿或重複前一位發言者的標籤（例如 **【...】**）。"
-            "\n請以此身份直接從對話內容開始回覆即可。)"
+        append_to_last_user(
+            current_request,
+            awareness_note(
+                brain=brain_model,
+                aliases=aliases,
+                index=idx,
+                carried=carried,
+                sns=bool(context.get("sns_source")),
+                ide_note=ide_note,
+            ),
         )
-
-        if current_request.messages:
-            last_msg = current_request.messages[-1]
-            if hasattr(last_msg, "content") and isinstance(last_msg.content, str):
-                last_msg.content += awareness_note
-            elif isinstance(last_msg, dict) and "content" in last_msg:
-                last_msg["content"] += awareness_note
 
         # UI Label Prefix
-        agent_prefix = f"**【{alias_name}】**：\n\n"
-        if context.get("is_native", False) and not is_openai_req:
-            payload = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": agent_prefix},
-            }
-            yield f"data: {json.dumps(payload)}\n\n"
-        else:
-            payload = {"choices": [{"delta": {"content": agent_prefix}, "index": 0}]}
-            yield f"data: {json.dumps(payload)}\n\n"
+        yield _text_chunk(member_label(alias_name), native=label_native)
 
-        agent_full_response = ""
-        alias_pattern = (
-            rf"^\s*(\*\*|__)?\s*[【\[\(]?\s*{re.escape(alias_name)}"
-            rf"\s*[】\]\)]?\s*(\*\*|__)?\s*[:：\s-]*\n*"
-        )
-        buffer = ""
-        stripped_first_label = False
+        member = _MemberText(alias_name, native=text_native)
 
         # Nested context for individual agent call
         nested_ctx = context.model_copy()
         nested_ctx["is_toukasoul"] = True
         # 成員的 ctx 看起來和直接跟靈魂聊天一樣：標成群聊，執行器才不讓它用使用者各自授權的 MCP
         nested_ctx[GROUP_MEMBER_FLAG] = True
+        # 失敗句不混進成員的話：由這裡補給外面，下一位只看到「這一輪出錯」（ADR-0322）
+        nested_ctx["caller_sends_failure_text"] = True
 
         stream_gen = await get_stream_generator(
             brain_model,
@@ -225,117 +234,47 @@ async def dispatch_group_stream(
 
         async for chunk in stream_gen:
             if chunk.strip() == "data: [DONE]":
-                if not stripped_first_label and buffer:
-                    cleaned_buffer = re.sub(alias_pattern, "", buffer, count=1, flags=re.IGNORECASE)
-                    if is_openai_req:
-                        payload = {"choices": [{"delta": {"content": cleaned_buffer}, "index": 0}]}
-                        yield f"data: {json.dumps(payload)}\n\n"
-                    else:
-                        payload = {
-                            "type": "content_block_delta",
-                            "index": 0,
-                            "delta": {"type": "text_delta", "text": cleaned_buffer},
-                        }
-                        yield f"data: {json.dumps(payload)}\n\n"
-                    stripped_first_label = True
+                tail = member.finish(_failure_text(nested_ctx))
+                if tail:
+                    yield _text_chunk(tail, native=member.native)
                 yield chunk
                 continue
 
             if chunk.startswith("data: "):
                 try:
                     data = json.loads(chunk[6:])
-                    text_delta = ""
-                    is_tool_call = False
-
-                    if "choices" in data and len(data["choices"]) > 0:
-                        delta = data["choices"][0].get("delta", {})
-                        text_delta = delta.get("content", "")
-                        if delta.get("tool_calls"):
-                            is_tool_call = True
-                    elif data.get("type") == "content_block_delta":
-                        text_delta = data["delta"].get("text", "")
-                    elif data.get("type") in ["content_block_start", "message_start"]:
-                        if data.get("content_block", {}).get("type") != "text":
-                            is_tool_call = True
+                    text_delta, is_tool_call = _delta_of(data)
 
                     if not text_delta and not is_tool_call:
                         yield chunk
                         continue
 
-                    if is_tool_call and not stripped_first_label:
-                        if buffer:
-                            cleaned_buffer = re.sub(
-                                alias_pattern, "", buffer, count=1, flags=re.IGNORECASE
-                            )
-                            if is_openai_req:
-                                payload = {
-                                    "choices": [
-                                        {"delta": {"content": cleaned_buffer}, "index": 0}
-                                    ]
-                                }
-                                yield f"data: {json.dumps(payload)}\n\n"
-                            else:
-                                payload = {
-                                    "type": "content_block_delta",
-                                    "index": 0,
-                                    "delta": {
-                                        "type": "text_delta",
-                                        "text": cleaned_buffer,
-                                    },
-                                }
-                                yield f"data: {json.dumps(payload)}\n\n"
-                        stripped_first_label = True
+                    member.native = "choices" not in data
+                    if is_tool_call:
+                        released = member.before_tool_call()
+                        if released:
+                            yield _text_chunk(released, native=member.native)
+                        member.full += text_delta
                         yield chunk
                         continue
 
-                    agent_full_response += text_delta
-
-                    if not stripped_first_label:
-                        buffer += text_delta
-                        if len(buffer) > 50 or "\n" in buffer:
-                            cleaned_buffer = re.sub(
-                                alias_pattern, "", buffer, count=1, flags=re.IGNORECASE
-                            )
-                            if is_openai_req:
-                                payload = {
-                                    "choices": [
-                                        {"delta": {"content": cleaned_buffer}, "index": 0}
-                                    ]
-                                }
-                                yield f"data: {json.dumps(payload)}\n\n"
-                            else:
-                                payload = {
-                                    "type": "content_block_delta",
-                                    "index": 0,
-                                    "delta": {
-                                        "type": "text_delta",
-                                        "text": cleaned_buffer,
-                                    },
-                                }
-                                yield f"data: {json.dumps(payload)}\n\n"
-                            stripped_first_label = True
-                        continue
+                    released = member.text(text_delta)
+                    if released == text_delta:
+                        yield chunk  # 沒有留字也沒有改字：原樣轉送（保留片段的其他欄位）
+                    elif released:
+                        yield _text_chunk(released, native=member.native)
+                    continue
                 except Exception:
-                    if stripped_first_label:
+                    if member.started:
                         yield chunk
                     continue
 
-            if stripped_first_label or not chunk.startswith("data: "):
+            if member.started or not chunk.startswith("data: "):
                 yield chunk
 
-        if not stripped_first_label and buffer:
-            cleaned_buffer = re.sub(alias_pattern, "", buffer, count=1, flags=re.IGNORECASE)
-            if is_openai_req:
-                payload = {"choices": [{"delta": {"content": cleaned_buffer}, "index": 0}]}
-                yield f"data: {json.dumps(payload)}\n\n"
-            else:
-                payload = {
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "text_delta", "text": cleaned_buffer},
-                }
-                yield f"data: {json.dumps(payload)}\n\n"
-            stripped_first_label = True
+        tail = member.finish(_failure_text(nested_ctx))
+        if tail:
+            yield _text_chunk(tail, native=member.native)
 
         # 這位成員問的問題沒等到回答：整輪停下，下一位成員不再呼叫模型（ADR-0308）
         if nested_ctx.get(UNANSWERED_KEY):
@@ -343,19 +282,112 @@ async def dispatch_group_stream(
             break
 
         if idx < len(roster) - 1:
-            sep = "\n\n&nbsp;\n\n---\n\n&nbsp;\n\n"
-            if context.get("is_native", False) and not is_openai_req:
-                payload = {
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "text_delta", "text": sep},
-                }
-                yield f"data: {json.dumps(payload)}\n\n"
-            else:
-                payload = {"choices": [{"delta": {"content": sep}, "index": 0}]}
-                yield f"data: {json.dumps(payload)}\n\n"
+            yield _text_chunk(MEMBER_SEPARATOR, native=label_native)
 
-        final_content = strip_redundant_labels(agent_full_response, alias_name)
-        msg_cls = OpenAIMessage if is_openai_req else AnthropicMessage
-        cumulative_request.messages.append(msg_cls(role="assistant", content=final_content))
+        spoken.append(
+            SpokenTurn(
+                alias=alias_name,
+                soul_id=target_agent,
+                text=strip_redundant_labels(member.full, alias_name),
+                failed=bool(nested_ctx.get("model_failed")),
+            )
+        )
         record_working_brain(target_identity, brain_model)
+
+
+@dataclass
+class _MemberText:
+    """一位成員串流出來的文字：先拿掉開頭自己加的標籤，再經守門換掉偽造的成員標籤。"""
+
+    alias: str
+    native: bool = False  # 重組片段用的格式：照最近收到的片段（Anthropic 原生或 OpenAI）
+    guard: LabelGuard = field(default_factory=LabelGuard)
+    buffer: str = ""
+    full: str = ""
+    started: bool = False
+    finished: bool = False
+
+    def _strip_own_label(self, text: str) -> str:
+        pattern = (
+            rf"^\s*(\*\*|__)?\s*[【\[\(]?\s*{re.escape(self.alias)}"
+            rf"\s*[】\]\)]?\s*(\*\*|__)?\s*[:：\s-]*\n*"
+        )
+        return re.sub(pattern, "", text, count=1, flags=re.IGNORECASE)
+
+    def text(self, delta: str) -> str:
+        """收一段文字，回傳現在可以送出的部分（開頭幾十字內或第一個換行前先留著找標籤）。"""
+        self.full += delta
+        if self.started:
+            return self.guard.feed(delta)
+        self.buffer += delta
+        if len(self.buffer) > OWN_LABEL_SCAN_CHARS or "\n" in self.buffer:
+            self.started = True
+            return self.guard.feed(self._strip_own_label(self.buffer))
+        return ""
+
+    def before_tool_call(self) -> str:
+        """工具呼叫前：開頭還留著的文字先處理掉。"""
+        if self.started:
+            return ""
+        self.started = True
+        return self.guard.feed(self._strip_own_label(self.buffer)) if self.buffer else ""
+
+    def finish(self, failure: str | None) -> str:
+        """收尾（只做一次）：開頭還留著的、守門留著的尾巴，失敗時再接失敗句。"""
+        if self.finished:
+            return ""
+        self.finished = True
+        out = self.before_tool_call() + self.guard.flush()
+        if failure:
+            out += ("\n\n" if self.full.strip() else "") + failure
+        return out
+
+
+def _delta_of(data: dict[str, Any]) -> tuple[str, bool]:
+    """一個串流片段裡的文字，以及它是不是工具呼叫（OpenAI 與 Anthropic 兩種格式）。"""
+    if "choices" in data and len(data["choices"]) > 0:
+        delta = data["choices"][0].get("delta", {})
+        return delta.get("content", "") or "", bool(delta.get("tool_calls"))
+    if data.get("type") == "content_block_delta":
+        return data["delta"].get("text", "") or "", False
+    if data.get("type") in ["content_block_start", "message_start"]:
+        return "", data.get("content_block", {}).get("type") != "text"
+    return "", False
+
+
+def _failure_text(nested_ctx: PipelineContext) -> str | None:
+    """成員模型失敗時，``react_core`` 記下的失敗句（已遮罩；SNS 是固定文字）。"""
+    return nested_ctx.get("model_failure_text") if nested_ctx.get("model_failed") else None
+
+
+def _message(msg_cls: type[Any], role: str, content: Any) -> Any:
+    return msg_cls(role=role, content=content)
+
+
+def _text_chunk(text: str, *, native: bool) -> str:
+    """一段文字的串流片段（Anthropic 原生或 OpenAI 格式）。"""
+    if native:
+        payload: dict[str, Any] = {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        }
+    else:
+        payload = {"choices": [{"delta": {"content": text}, "index": 0}]}
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _alias_resolver(roster: list[dict[str, Any]], registry: dict) -> Callable[[str], str | None]:
+    """舊回合標籤的別名 → 靈魂 ID：先看這一輪的名單，再看白名單（用到才讀，ADR-0322）。"""
+    this_round = {entry["name"].lower(): entry["id"] for entry in roster}
+    whitelist: list[Callable[[str], str | None]] = []
+
+    def resolve(alias: str) -> str | None:
+        found = this_round.get(alias.lower())
+        if found is not None:
+            return found
+        if not whitelist:
+            whitelist.append(make_alias_resolver(registry))
+        return whitelist[0](alias)
+
+    return resolve

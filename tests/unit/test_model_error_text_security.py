@@ -404,10 +404,14 @@ def _install_group(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return second_member_messages
 
 
+FAILED_MEMBER_NOTE = "（@Alice 這一輪出錯，沒有說完）"
+
+
 @pytest.mark.asyncio
-async def test_sns_group_keeps_the_fixed_text_for_the_channel_and_the_next_member(
+async def test_sns_group_sends_the_fixed_text_out_and_only_a_mark_to_the_next_member(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """外面照樣收到固定失敗文字；下一位只看到「這一輪出錯」，失敗句不算成員的話（ADR-0322）."""
     gateway = SNSGatewayService()
     adapter = MockAdapter(agent_id="Alice")
     identity_service, sessions = _make_mocks()
@@ -425,14 +429,18 @@ async def test_sns_group_keeps_the_fixed_text_for_the_channel_and_the_next_membe
 
     assert [message.text for _channel, message in adapter.sent_messages] == [returned]
     assert SNS_FAILURE_NOTICE in returned
+    assert returned.count(SNS_FAILURE_NOTICE) == 1  # 分發器只補一次
     assert "API Error" not in returned
     seen_by_next = "\n".join(next_member)
-    assert SNS_FAILURE_NOTICE in seen_by_next
+    assert FAILED_MEMBER_NOTE in seen_by_next
+    assert SNS_FAILURE_NOTICE not in seen_by_next
     assert "API Error" not in seen_by_next
 
 
 @pytest.mark.asyncio
-async def test_plain_group_next_member_gets_masked_text(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_plain_group_sends_the_masked_text_out_but_not_to_the_next_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     next_member = _install_group(monkeypatch)
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@Alice @Bob 哈囉")]
@@ -444,7 +452,12 @@ async def test_plain_group_next_member_gets_masked_text(monkeypatch: pytest.Monk
             chunks.append(chunk)
     text = delta_text(chunks)
     assert "API Error (400)" in text
+    assert text.count("API Error (400)") == 1  # 分發器只補一次
     assert SNS_FAILURE_NOTICE not in text
-    replies = [message for message in next_member if "API Error (400)" in message]
-    assert len(replies) == 1
-    assert_clean(replies[0])
+    failure = text[text.index("API Error (400)") :].split("\n\n&nbsp;")[0]
+    assert_clean(failure)
+    seen_by_next = "\n".join(next_member)
+    assert FAILED_MEMBER_NOTE in seen_by_next
+    assert "API Error" not in seen_by_next
+    for secret in (API_KEY, BEARER_VALUE, FIELD_VALUE, URL_VALUE, LOCAL_PATH, FILLER):
+        assert secret not in seen_by_next
