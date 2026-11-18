@@ -18,9 +18,11 @@ type TurnFlags = {
   deliveryPlatform?: string;
 };
 
-/** 認得的平台回固定名稱，其他回 undefined（畫面另外用 i18n 寫「外部平台」）。 */
+/** 認得的平台回固定名稱，其他回 undefined（畫面另外用 i18n 寫「外部平台」）；constructor 這類物件內建名字不算。 */
 export function knownPlatformName(platform: unknown): string | undefined {
-  return typeof platform === 'string' ? DELIVERY_PLATFORM_NAMES[platform.toLowerCase()] : undefined;
+  if (typeof platform !== 'string') return undefined;
+  const key = platform.toLowerCase();
+  return Object.hasOwn(DELIVERY_PLATFORM_NAMES, key) ? DELIVERY_PLATFORM_NAMES[key] : undefined;
 }
 
 /** 給模型看的平台名稱：看不懂的寫外部平台。 */

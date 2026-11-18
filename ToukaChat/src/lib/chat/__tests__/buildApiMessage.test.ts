@@ -92,4 +92,14 @@ describe("buildApiHistory turn-end notes", () => {
     const other = { id: "b", role: "assistant" as const, content: "", deliveryFailed: true, deliveryPlatform: "line" };
     expect(buildApiHistory([other], "none", "")[0].content).toBe(undelivered(OTHER_PLATFORM_NAME));
   });
+
+  it.each(["constructor", "__proto__", "toString"])(
+    "treats the object built-in name %s as an unknown platform, like the backend",
+    (platform) => {
+      const reply = { id: "c", role: "assistant" as const, content: "", deliveryFailed: true, deliveryPlatform: platform };
+      expect(buildApiHistory([reply], "none", "")[0].content).toBe(
+        TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", OTHER_PLATFORM_NAME),
+      );
+    },
+  );
 });

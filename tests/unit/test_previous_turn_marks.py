@@ -76,6 +76,9 @@ def test_platform_names_are_identical_to_the_frontend() -> None:
         ("Telegram", "Telegram"),
         ("line", OTHER_PLATFORM_NAME),
         (None, OTHER_PLATFORM_NAME),
+        # 物件內建的名字不是平台（前端查表要用 Object.hasOwn）
+        ("constructor", OTHER_PLATFORM_NAME),
+        ("__proto__", OTHER_PLATFORM_NAME),
     ],
 )
 def test_an_undelivered_reply_names_the_platform(platform: str | None, name: str) -> None:

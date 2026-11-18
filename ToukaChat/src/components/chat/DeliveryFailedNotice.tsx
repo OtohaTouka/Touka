@@ -13,7 +13,7 @@ export function DeliveryFailedNotice({ platform }: DeliveryFailedNoticeProps) {
   const { t } = useTranslation();
   const name = knownPlatformName(platform);
   return (
-    <p data-testid="delivery-failed-notice" className="text-sm text-status-warning">
+    <p role="status" data-testid="delivery-failed-notice" className="text-sm text-status-warning">
       {name
         ? t('chat.message_item.delivery_failed', { platform: name })
         : t('chat.message_item.delivery_failed_other')}

@@ -112,10 +112,15 @@ describe('MessageItem', () => {
       deliveryFailed: true, deliveryPlatform: 'discord',
     } as any;
     const { unmount } = render(<MessageItem {...defaultProps} msg={msg} />);
-    expect(screen.getByTestId('delivery-failed-notice')).toHaveTextContent('這則回覆沒有送到 Discord');
+    expect(screen.getByRole('status')).toHaveTextContent('這則回覆沒有送到 Discord');
     unmount();
-    render(<MessageItem {...defaultProps} msg={{ ...msg, deliveryPlatform: 'line' }} />);
-    expect(screen.getByTestId('delivery-failed-notice')).toHaveTextContent('這則回覆沒有送到外部平台');
+    for (const platform of ['line', 'constructor']) {
+      const { unmount: unmountOther } = render(
+        <MessageItem {...defaultProps} msg={{ ...msg, deliveryPlatform: platform }} />,
+      );
+      expect(screen.getByTestId('delivery-failed-notice')).toHaveTextContent('這則回覆沒有送到外部平台');
+      unmountOther();
+    }
   });
 
   it('一般的回覆沒有失敗標示', () => {

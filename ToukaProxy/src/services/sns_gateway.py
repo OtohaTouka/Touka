@@ -272,10 +272,16 @@ class SNSGatewayService:
             if failed:
                 outgoing = "\n\n".join(part for part in (full_text, SNS_FAILURE_NOTICE) if part)
             if session_id:
-                # 送出前先確認這段對話還歸這個靈魂（串流期間可能被改掉）；不對就照舊拒絕、不送
-                await session_service.read_execution_snapshot(session_id, identity)
+                # 送出前先確認這段對話還在、還歸這個靈魂（串流期間可能被刪掉或改掉）；
+                # 不對就照舊拒絕、不送。外人訊息剛存好，對話不在只可能是被刪掉了
+                snapshot = await session_service.read_execution_snapshot(session_id, identity)
+                if snapshot.session is None:
+                    raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+            # 只有空白的回覆平台會拒收，不送也不算沒送到
             delivered = (
-                await self._deliver(adapter, event.channel_id, outgoing) if outgoing else True
+                await self._deliver(adapter, event.channel_id, outgoing)
+                if outgoing.strip()
+                else True
             )
             # 只用了工具、沒有文字的也存（步驟留給下一輪的工具紀錄），但不往外送
             if session_id and (full_text or tool_steps.steps or failed):

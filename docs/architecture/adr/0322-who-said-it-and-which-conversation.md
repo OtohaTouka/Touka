@@ -83,7 +83,7 @@
 ### 8. SNS 先送再存，送不出去留記號
 
 - 收完回覆後先送、再存，兩件事都在 `replying(session_id)` 裡（ADR-0307）。外送的是模型寫的文字；模型失敗時再接固定失敗文字「⚠️ 這一輪回覆失敗，請稍後再試。」；存下的只有模型寫的文字。
-- 送出前先用 `read_execution_snapshot` 確認這段對話還歸這個靈魂：串流期間被改歸別的靈魂時照舊拒絕、不送（`test_sns_assistant_write_rechecks_scope_before_sending` 鎖住；計畫寫「先送再存」時沒想到這點，實作時補上）。
+- 送出前先用 `read_execution_snapshot` 確認這段對話還在、還歸這個靈魂：串流期間被改歸別的靈魂時照舊拒絕（`SESSION_SCOPE_MISMATCH`），被刪掉時也拒絕（`SESSION_SAVE_FAILED`，外人訊息剛存好，對話不在只可能是被刪了），都不送（`test_sns_assistant_write_rechecks_scope_before_sending`、`test_sns_reply_is_not_sent_when_the_conversation_was_deleted_while_streaming` 鎖住；計畫寫「先送再存」時沒想到這點，實作時補上，刪掉的情況是審查補的）。只有空白的回覆平台本來就會拒收，不送、也不記成沒送到。
 - adapter 回 `False` 或丟例外算沒送到：節點加 `deliveryFailed: true` 與 `deliveryPlatform`（平台代號）。
 - 送出之後存檔失敗（回 `False`、歸屬改變、資料庫錯誤）只記 log，不往 adapter 丟：外人已經收到回覆，平台不會再回一句「內部錯誤」。以前反過來：存了沒送。
 - 新記號「〔這則回覆沒有送到 {平台}〕」：前後端同名常數（`interjection_notes.py`／`turnNotes.ts`），平台只用固定名稱（Discord、Telegram，其他寫「外部平台」）。和停止／出錯同時成立時，停止／出錯在前、沒有送到在後，一行一個。
@@ -122,4 +122,5 @@
 - `tests/unit/test_model_error_text_security.py`：真的模型回合失敗時，心跳與 SNS 存下的都只有旗標，失敗句與錯誤原文不進對話；整個心跳出例外只存空的出錯節點。
 - `tests/unit/test_previous_turn_marks.py`：「沒有送到」記號與前端常數、平台名稱一字不差；排在出錯記號之後；只認 `True`。
 - `tests/unit/test_sns_channel_history.py`：頻道歷史帶出錯與沒有送到兩種記號。
-- 前端：`buildApiMessage.test.ts`（組歷史加記號）、`MessageItem.test.tsx`（畫面顯示「沒有送到」，認不得的平台寫外部平台）。
+- `tests/unit/test_sns_session_scope_security.py`：串流期間對話被刪掉，送出前就拒絕、不重建。
+- 前端：`buildApiMessage.test.ts`（組歷史加記號；`constructor` 這類物件內建名字當成認不得的平台，和後端一樣）、`MessageItem.test.tsx`（畫面顯示「沒有送到」，認不得的平台寫外部平台）。

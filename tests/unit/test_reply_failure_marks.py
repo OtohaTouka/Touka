@@ -232,6 +232,16 @@ async def test_an_empty_round_sends_and_saves_nothing() -> None:
     assert stored == []
 
 
+@pytest.mark.asyncio
+async def test_a_blank_reply_is_not_sent_and_not_marked_undelivered() -> None:
+    """只有空白的回覆平台本來就會拒收：不送，也不記成沒送到."""
+    adapter = _RefusingAdapter(agent_id="Alice")
+    _returned, stored = await _sns(adapter, ["  \n "])
+    assert adapter.sent_messages == []
+    [call] = stored
+    assert "deliveryFailed" not in call.kwargs["extra_fields"]
+
+
 # ── 心跳 ────────────────────────────────────────────────────────────
 
 
@@ -308,6 +318,16 @@ async def test_a_failure_after_a_split_marks_the_last_node_of_the_pulse() -> Non
     [reply] = _assistants(tree)
     assert reply["content"].startswith("第一步做完")
     assert reply["generationFailed"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_failure_after_a_split_and_more_text_marks_only_the_newest_node() -> None:
+    tree, _ctx = await _pulse(["第一步做完 --- 第 1 次 自主行動", "第二步做到一半"], failed=True)
+    first, second = _assistants(tree)
+    assert first["content"].startswith("第一步做完")
+    assert "generationFailed" not in first
+    assert second["content"] == "第二步做到一半"
+    assert second["generationFailed"] is True
 
 
 @pytest.mark.asyncio

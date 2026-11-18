@@ -224,7 +224,7 @@ tests/
 | `unit/test_session_scope_storage_security.py` | append/upsert/CAS 交易內歸屬閘、匿名／外靈魂拒寫、UI 兩側授權與空草稿／非空換綁、家欄忽略、set_home 原子性、壞家／多家／退休家不定位或注入、保留 ID、競爭建立與損壞樹。 |
 | `unit/test_session_scope_provenance_security.py` | 受管 INSERT=1、舊 schema migration=0 且冪等、換綁降級與不提升、偽造 marker／未來時間無效、公開投影隱藏及 revision、同靈魂／set_home 保留。 |
 | `unit/test_heartbeat_session_scope_security.py` | 喚醒與排程執行的歸屬、independent 欄位 presence、每靈魂預設、保留 ID／家 ID 碰撞、retrigger、HTTP 403 固定碼、模型前與中間／最後保存重驗、背景失敗不追加或剪裁。 |
-| `unit/test_sns_session_scope_security.py` | 每靈魂頻道與座標編碼、同擁有者 retarget／跨擁有者拒絕、群聊不存單靈魂、壞家不 fallback、assistant 保存重驗後才外送、真 Monitor 下目標靈魂與 session 固定、pipeline 不帶身分。 |
+| `unit/test_sns_session_scope_security.py` | 每靈魂頻道與座標編碼、同擁有者 retarget／跨擁有者拒絕、群聊不存單靈魂、壞家不 fallback、送出前重驗歸屬（改歸別的靈魂或串流期間被刪掉都不送、不重建，ADR-0322 PR 2a）、真 Monitor 下目標靈魂與 session 固定、pipeline 不帶身分。 |
 | `unit/test_session_scope_dispatch_security.py` | 人類串流准入與 marker、非人類／execution mismatch／無新靈魂權／舊 revision 拒絕、生成失敗／no_text／再換靈魂不恢復標記、舊 dispatcher、兩種工具競態與刪除不重建、剪裁前閘。 |
 | `support/session_scope.py` | 沙盒 DB、合成靈魂與人類擁有關係、原列比對；不替換儲存實作、不含獨立測試。 |
 
@@ -763,7 +763,7 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_sns_gateway.py` | `SNSGatewayService`：預設 Agent 路由、`@alias` 覆蓋、Session ID 隔離、SSE chunk 聚合；R-2c：home／independent 兩種模式存檔與送出的外人訊息都帶 `【SNS 外部訊息】` 開頭、不算人類原意 |
 | `test_model_error_text_security.py` | 模型回合失敗的文字：`RoundError` 建立時遮罩與限長、遮兩次不變；四家廠商走真回合比對送出的字串；SNS 單人外送固定文字、對話裡只存出錯旗標；群聊成員失敗時外送一次（SNS 固定文字、一般群聊已遮罩），下一位只看到出錯標記；心跳脈衝失敗與整個心跳出例外都只存出錯旗標，失敗句與錯誤原文不進對話（ADR-0322）；子代理都遮過 |
 | `test_group_soul_only.py` ⭐ | **ADR-0245**：群聊只限靈魂——白名單只認 ToukaSoul 區、別名解析到 agents_registry 的靈魂；指向原始模型或 regex 的別名被拒；registry 裡不是靈魂的成員不能被點名、白名單值不是靈魂時不退回比對別名本身；舊歷史裡解析不到的點名略過、最新一則仍嚴格驗證（R-2a）；舊 Native／Custom 項目略過並記警告、檔案不動（tmp 合成設定）；設定 API 只回、只收靈魂區；群聊派發與 SNS `@別名` 只到靈魂；hook 補充說明（`<hook_output>` 區塊）裡的 `@別名` 不算點名（ADR-0292）；這一句沒點名時沿用之前的點名，同一位只回答一次並標明沿用、舊標籤的別名經白名單解析（ADR-0322） |
-| `test_reply_failure_marks.py` | **ADR-0322 PR 2a**：心跳與 SNS 的失敗、送不出去——SNS 先送再存、送出前檢查歸屬、失敗時外送文字＋固定失敗文字而只存文字、零文字失敗也留節點、送不出去記 `deliveryFailed`、送出後存檔失敗只記 log；心跳脈衝失敗保留已寫的文字並在最後一段加旗標 |
+| `test_reply_failure_marks.py` | **ADR-0322 PR 2a**：心跳與 SNS 的失敗、送不出去——SNS 先送再存、送出前檢查歸屬、失敗時外送文字＋固定失敗文字而只存文字、零文字失敗也留節點、只有空白的回覆不送也不算沒送到、送不出去記 `deliveryFailed`、送出後存檔失敗只記 log；心跳脈衝失敗保留已寫的文字並在最後一段加旗標（分段後又寫了字只標最新一段） |
 | `test_group_member_view.py` | **ADR-0322**：群聊每位成員看到的訊息——照分發器格式切段、自己的算 assistant、別人的包成群聊成員發言放到 user 那側、相鄰 user 合併（含圖片區塊）、這一輪說過的人、同一位連續被點兩次補接續發言、成員出錯的標記、多行插話與開頭像標籤的一般回覆、各處的假標記換掉（含工具結果區塊）、串流守門換掉偽造的成員標籤（跨片段、回覆開頭、名字夾看不見的字元、最長寫法） |
 | `test_group_round_awareness.py` | **ADR-0322**：群聊說明（發言順序、位置、之後還有誰、點名或沿用、網頁與 SNS 群聊誰在說話、家原文私下）；分發器組給成員的請求、上一輪的回合靠名單或白名單認出自己、說明接在圖片區塊後面、偽造標籤送出前換掉、重組片段的格式、工具呼叫與留著的字的先後、IDE 檔名與 system、家原文的假標記、審查員原意從成員發言處截斷 |
 | `test_context_snapshot_service.py` | `get_context_snapshot()`/`render_snapshot_markdown()`：無 I/O 純邏輯驗證 |
