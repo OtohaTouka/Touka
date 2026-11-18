@@ -13,6 +13,7 @@ import { ToolStepTracker } from "./ToolStepTracker";
 import { InterjectionMarker } from "./InterjectionMarker";
 import { AgentActivityStrip } from "./AgentActivityStrip";
 import { GenerationFailedNotice } from "./GenerationFailedNotice";
+import { DeliveryFailedNotice } from "./DeliveryFailedNotice";
 import { GENERATION_FAILURE_KIND } from '@/hooks/useProgress';
 import { ThinkingFold } from "./ThinkingFold";
 import { MessageNode, TreeHistory } from '@/lib/tree_history';
@@ -229,6 +230,9 @@ export const MessageItem = React.memo(({
               )}
               {msg.role === 'assistant' && msg.generationFailed && (
                 <GenerationFailedNotice messageId={msg.id} failure={msg.progress?.[GENERATION_FAILURE_KIND]} />
+              )}
+              {msg.role === 'assistant' && msg.deliveryFailed === true && (
+                <DeliveryFailedNotice platform={msg.deliveryPlatform} />
               )}
               {msg.role === 'assistant' && msg.progress && (
                 <AgentActivityStrip progress={msg.progress} />

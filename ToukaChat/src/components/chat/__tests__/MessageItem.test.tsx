@@ -106,10 +106,28 @@ describe('MessageItem', () => {
     expect(screen.queryByTestId('agent-activity-strip')).toBeNull();
   });
 
+  it('ADR-0322 SNS 送不出去的回覆標示沒有送到', () => {
+    const msg = {
+      id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [],
+      deliveryFailed: true, deliveryPlatform: 'discord',
+    } as any;
+    const { unmount } = render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(screen.getByRole('status')).toHaveTextContent('這則回覆沒有送到 Discord');
+    unmount();
+    for (const platform of ['line', 'constructor']) {
+      const { unmount: unmountOther } = render(
+        <MessageItem {...defaultProps} msg={{ ...msg, deliveryPlatform: platform }} />,
+      );
+      expect(screen.getByTestId('delivery-failed-notice')).toHaveTextContent('這則回覆沒有送到外部平台');
+      unmountOther();
+    }
+  });
+
   it('一般的回覆沒有失敗標示', () => {
     const msg = { id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [] } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);
     expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('delivery-failed-notice')).toBeNull();
   });
 
   it('renders specialized ToukaGroup multi-model content', () => {

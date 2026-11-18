@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildApiHistory, buildApiMessage } from "../buildApiMessage";
-import { TURN_FAILED_NOTE, TURN_STOPPED_NOTE } from "../turnNotes";
+import {
+  DELIVERY_PLATFORM_NAMES, OTHER_PLATFORM_NAME, TURN_FAILED_NOTE, TURN_STOPPED_NOTE,
+  TURN_UNDELIVERED_NOTE_TEMPLATE,
+} from "../turnNotes";
 
 describe("buildApiMessage", () => {
   it("returns plain content when no attachment", () => {
@@ -76,4 +79,27 @@ describe("buildApiHistory turn-end notes", () => {
       `${TURN_STOPPED_NOTE}\n\n〔本回合中使用者補充（第 1 步）：y〕\n\nx`,
     );
   });
+
+  it("marks an SNS reply that was not delivered, after the failed note (ADR-0322 PR 2)", () => {
+    const undelivered = (name: string) => TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", name);
+    const reply = {
+      id: "a", role: "assistant" as const, content: "x",
+      generationFailed: true, deliveryFailed: true, deliveryPlatform: "discord",
+    };
+    expect(buildApiHistory([reply], "none", "")[0].content).toBe(
+      `${TURN_FAILED_NOTE}\n${undelivered(DELIVERY_PLATFORM_NAMES.discord)}\n\nx`,
+    );
+    const other = { id: "b", role: "assistant" as const, content: "", deliveryFailed: true, deliveryPlatform: "line" };
+    expect(buildApiHistory([other], "none", "")[0].content).toBe(undelivered(OTHER_PLATFORM_NAME));
+  });
+
+  it.each(["constructor", "__proto__", "toString"])(
+    "treats the object built-in name %s as an unknown platform, like the backend",
+    (platform) => {
+      const reply = { id: "c", role: "assistant" as const, content: "", deliveryFailed: true, deliveryPlatform: platform };
+      expect(buildApiHistory([reply], "none", "")[0].content).toBe(
+        TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", OTHER_PLATFORM_NAME),
+      );
+    },
+  );
 });

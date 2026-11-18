@@ -1542,6 +1542,8 @@
       "cancel": "Cancel",
       "save_and_resend": "Save & Resend",
       "generation_failed": "This reply failed and did not finish.",
+      "delivery_failed": "This reply was not delivered to {{platform}}.",
+      "delivery_failed_other": "This reply was not delivered to the external platform.",
       "generation_failed_vendor_said": "The provider said: ",
       "generation_failed_reason": {
         "authentication_failed": "This reply failed: there is a problem with the key or its permissions.",

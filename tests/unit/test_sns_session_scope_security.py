@@ -149,6 +149,26 @@ async def test_sns_assistant_write_rechecks_scope_before_sending(monkeypatch, pi
     assert_scope_denied(result)
 
 
+async def test_sns_reply_is_not_sent_when_the_conversation_was_deleted_while_streaming(pipeline):
+    """先送再存（ADR-0322 PR 2a）：串流期間對話被刪掉，送出前就拒絕，也不重建這段對話."""
+    gateway = sns.SNSGatewayService()
+    outgoing = adapter(A)
+
+    async def body():
+        async with async_db.get_async_db() as db:
+            await db.execute("DELETE FROM user_sessions WHERE id = ?", (gateway.last_session_id,))
+            await db.commit()
+        async for chunk in response_body():
+            yield chunk
+
+    pipeline.side_effect = lambda *_a, **_k: StreamingResponse(body())
+    result = await attempt(gateway.on_event(outgoing, event()))
+    outgoing.send_message.assert_not_awaited()
+    assert await raw_row(gateway.last_session_id) is None
+    assert isinstance(result, sns.ToukaException)
+    assert result.code.name == "SESSION_SAVE_FAILED"
+
+
 async def test_sns_monitor_keeps_target_soul_and_session_without_identity(monkeypatch):
     monkeypatch.setattr(sns, "detect_target_agent", lambda *_: B.agent_id)
     monkeypatch.setattr(

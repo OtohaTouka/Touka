@@ -111,6 +111,10 @@ def _make_mocks(
         )
     )
     mock_session_svc.append_message_to_session = AsyncMock(return_value=True)
+    # 送出前先確認對話的歸屬（ADR-0322 PR 2）
+    mock_session_svc.read_execution_snapshot = AsyncMock(
+        return_value=SessionSnapshot({"id": home_session_id}, "revision")
+    )
 
     return mock_identity_svc, mock_session_svc
 

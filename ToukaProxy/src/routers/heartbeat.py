@@ -388,6 +388,8 @@ async def _execute_single_pulse(
             "heartbeat_run": True,
             "is_toukasoul": soul_service.is_toukasoul(identity),
             "source_message_id": trigger.get("id"),
+            # 失敗句不當成這個靈魂的回覆存：節點只加出錯旗標（ADR-0322 PR 2）
+            "caller_sends_failure_text": True,
         }
     )
     # KF-4（ADR-0246 心跳）：dispatch 前組裝工具；仍受地板、HUMAN_ONLY 與無人在場規則約束
@@ -470,6 +472,10 @@ async def _execute_single_pulse(
                 continue
 
     reply_fields = tool_steps.node_fields()
+    if ctx.get("model_failed"):
+        # 模型失敗：已經寫出的文字照存，這個脈衝最後一個節點加旗標，記號由組歷史時加
+        # （ADR-0318）；一個字都沒寫也留一個節點（ADR-0322 PR 2）
+        reply_fields["generationFailed"] = True
     if current_turn_text.strip() or (reply_fields and last_reply_id is None):
         # 只用了工具、一個字都沒寫的脈衝也寫一則，步驟才留得下來
         turn_count += 1
@@ -652,10 +658,16 @@ async def _process_heartbeat_loop(
         error_msg = sanitize_error_text(f"❌ [Heartbeat-BG] 多脈衝任務執行失敗: {e}")
         logger.exception(error_msg)
         try:
-            # 丙-4：重置或刪除中不寫進對話（可能把清掉的對話重新建出來）
+            # 丙-4：重置或刪除中不寫進對話（可能把清掉的對話重新建出來）。
+            # 對話裡只留一則空的出錯節點，錯誤原文只進 log（ADR-0322 PR 2）
             quiet = destructive_ops.disturbed(identity, started_at)
             if not quiet and not await session_service.append_message_to_session(
-                final_session_id, "assistant", error_msg, name="System", identity=identity
+                final_session_id,
+                "assistant",
+                "",
+                name="System",
+                identity=identity,
+                extra_fields={"generationFailed": True},
             ):
                 logger.warning("SESSION_SAVE_FAILED")
         except ToukaException as exc:

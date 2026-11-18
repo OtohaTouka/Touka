@@ -6,7 +6,8 @@
 完全相同（跨端一致性測試以純文字比對）。純函式、不改傳入的節點。
 
 被使用者停止（``generationStopped``）或出錯（``generationFailed``）的那一則，最前面再加一行
-固定記號（ADR-0318）；和前端 ``ToukaChat/src/lib/chat/turnNotes.ts`` 同名常數相同。
+固定記號（ADR-0318）；SNS 送不出去（``deliveryFailed``，ADR-0322）的再加一行「沒有送到」。
+和前端 ``ToukaChat/src/lib/chat/turnNotes.ts`` 同名常數相同。
 """
 
 from __future__ import annotations
@@ -18,6 +19,10 @@ INTERJECTION_NOTE_TEMPLATE = "〔本回合中使用者補充（第 {step} 步）
 # 這一輪沒做完（ADR-0318）；同樣是給模型看的固定文字，前端同名常數要一起改
 TURN_STOPPED_NOTE = "〔本回合被使用者停止，沒有做完〕"
 TURN_FAILED_NOTE = "〔本回合出錯，沒有完成〕"
+# SNS 回覆送不出去（ADR-0322 PR 2）：平台只用固定名稱；前端同名常數要一起改
+TURN_UNDELIVERED_NOTE_TEMPLATE = "〔這則回覆沒有送到 {platform}〕"
+DELIVERY_PLATFORM_NAMES = {"discord": "Discord", "telegram": "Telegram"}
+OTHER_PLATFORM_NAME = "外部平台"
 
 
 def format_interjection_note(step: int, text: str) -> str:
@@ -55,14 +60,29 @@ def _turn_end_note(node: dict[str, Any]) -> str | None:
     return TURN_FAILED_NOTE if node.get("generationFailed") is True else None
 
 
-def annotate_node(node: dict[str, Any], *, tool_record: str = "") -> dict[str, Any]:
-    """助理節點帶插話、沒做完或有工具紀錄、且 content 是文字時，回傳加上標註的副本。
+def undelivered_note(node: dict[str, Any]) -> str | None:
+    """SNS 回覆送不出去（``deliveryFailed`` 只認 ``True``）的記號；平台名稱只用固定值。"""
+    if node.get("deliveryFailed") is not True:
+        return None
+    platform = node.get("deliveryPlatform")
+    name = DELIVERY_PLATFORM_NAMES.get(platform.lower()) if isinstance(platform, str) else None
+    return TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", name or OTHER_PLATFORM_NAME)
 
-    其他節點原樣返回。順序：停止／出錯記號、插話標註、工具紀錄（``tool_record``，ADR-0319，
-    由 ``utils/tool_records.py`` 組好傳進來；預設不加）、原本的文字。
+
+def _turn_notes(node: dict[str, Any]) -> str | None:
+    """停止／出錯在前、沒有送到在後，一行一個。"""
+    notes = [note for note in (_turn_end_note(node), undelivered_note(node)) if note]
+    return "\n".join(notes) if notes else None
+
+
+def annotate_node(node: dict[str, Any], *, tool_record: str = "") -> dict[str, Any]:
+    """助理節點帶插話、沒做完、沒送到或有工具紀錄、且 content 是文字時，回傳加上標註的副本。
+
+    其他節點原樣返回。順序：停止／出錯記號、沒有送到的記號、插話標註、工具紀錄
+    （``tool_record``，ADR-0319，由 ``utils/tool_records.py`` 組好傳進來；預設不加）、原本的文字。
     """
     content = node.get("content")
-    note = _turn_end_note(node)
+    note = _turn_notes(node)
     if (
         node.get("role") != "assistant"
         or (note is None and not tool_record and not _delivered(node.get("interjections")))

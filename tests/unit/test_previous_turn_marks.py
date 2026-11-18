@@ -16,12 +16,28 @@ import pytest
 from src.adapters.content_normalize import drop_blank_assistant_turns
 from src.utils import async_db
 from src.utils.history_manager import count_rounds_from_linear
-from src.utils.interjection_notes import TURN_FAILED_NOTE, TURN_STOPPED_NOTE, annotate_node
+from src.utils.interjection_notes import (
+    DELIVERY_PLATFORM_NAMES,
+    OTHER_PLATFORM_NAME,
+    TURN_FAILED_NOTE,
+    TURN_STOPPED_NOTE,
+    TURN_UNDELIVERED_NOTE_TEMPLATE,
+    annotate_node,
+)
 
 _FRONTEND = (
     Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "lib" / "chat" / "turnNotes.ts"
 )
-_NOTES = {"TURN_STOPPED_NOTE": TURN_STOPPED_NOTE, "TURN_FAILED_NOTE": TURN_FAILED_NOTE}
+_NOTES = {
+    "TURN_STOPPED_NOTE": TURN_STOPPED_NOTE,
+    "TURN_FAILED_NOTE": TURN_FAILED_NOTE,
+    "TURN_UNDELIVERED_NOTE_TEMPLATE": TURN_UNDELIVERED_NOTE_TEMPLATE,
+    "OTHER_PLATFORM_NAME": OTHER_PLATFORM_NAME,
+}
+
+
+def _undelivered(platform: str) -> str:
+    return TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", platform)
 
 
 def _assistant(content: Any, **flags: Any) -> dict[str, Any]:
@@ -44,6 +60,48 @@ def test_notes_are_identical_to_the_frontend_constants(name: str) -> None:
     match = re.search(rf"export const {name} = '([^']*)';", source)
     assert match is not None
     assert match.group(1) == _NOTES[name]
+
+
+def test_platform_names_are_identical_to_the_frontend() -> None:
+    source = _FRONTEND.read_text(encoding="utf-8")
+    block = re.search(r"export const DELIVERY_PLATFORM_NAMES[^=]*= \{([^}]*)\};", source)
+    assert block is not None
+    assert dict(re.findall(r"(\w+): '([^']*)'", block.group(1))) == DELIVERY_PLATFORM_NAMES
+
+
+@pytest.mark.parametrize(
+    ("platform", "name"),
+    [
+        ("discord", "Discord"),
+        ("Telegram", "Telegram"),
+        ("line", OTHER_PLATFORM_NAME),
+        (None, OTHER_PLATFORM_NAME),
+        # 物件內建的名字不是平台（前端查表要用 Object.hasOwn）
+        ("constructor", OTHER_PLATFORM_NAME),
+        ("__proto__", OTHER_PLATFORM_NAME),
+    ],
+)
+def test_an_undelivered_reply_names_the_platform(platform: str | None, name: str) -> None:
+    """SNS 送不出去的那則（ADR-0322 PR 2）：平台只用固定名稱，其他一律寫外部平台."""
+    node = _assistant("回覆", deliveryFailed=True, deliveryPlatform=platform)
+    assert annotate_node(node)["content"] == f"{_undelivered(name)}\n\n回覆"
+
+
+def test_the_undelivered_note_comes_after_the_failed_note() -> None:
+    node = _assistant(
+        "寫到一半", generationFailed=True, deliveryFailed=True, deliveryPlatform="discord"
+    )
+    assert annotate_node(node)["content"] == (
+        f"{TURN_FAILED_NOTE}\n{_undelivered('Discord')}\n\n寫到一半"
+    )
+    assert annotate_node(_assistant("", deliveryFailed=True))["content"] == _undelivered(
+        OTHER_PLATFORM_NAME
+    )
+
+
+def test_only_a_true_delivery_flag_counts() -> None:
+    node = _assistant("x", deliveryFailed="yes", deliveryPlatform="discord")
+    assert annotate_node(node) is node
 
 
 def test_stopped_and_failed_turns_carry_the_note() -> None:
