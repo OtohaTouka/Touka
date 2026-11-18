@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
+from src.utils.group_member_view import peer_marker_index
+
 INTENT_MAX_MESSAGES = 3
 INTENT_MAX_CHARS = 1000
 INTENT_TRUNCATION_MARK = "…[truncated]"
@@ -65,7 +67,11 @@ def _text(content: Any) -> str:
 
 
 def _without_attachments(text: str) -> str:
+    """附件與群聊成員發言（ADR-0322）都不是人類原話：從第一個標記起整段排除。"""
     cut = min((i for m in ATTACHMENT_MARKERS if (i := text.find(m)) >= 0), default=len(text))
+    peer = peer_marker_index(text)
+    if peer is not None:
+        cut = min(cut, peer)
     return text[:cut].strip()
 
 

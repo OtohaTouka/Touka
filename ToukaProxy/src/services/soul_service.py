@@ -26,6 +26,7 @@ from src.adapters.schemas import OpenAIMessage
 from src.models.identity import AgentIdentity
 from src.services.client_system import split as split_client_system
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONVERSATION_SUMMARY, PERSONA, wrap_block
+from src.utils.group_member_view import neutralize_peer_markers
 from src.utils.model_text import blank_control_chars
 from src.utils.time_utils import get_monotonic_ms
 from src.utils.token_estimator import estimate_messages_tokens
@@ -108,8 +109,12 @@ def _add_text(content: Any, text: str, *, before: bool) -> Any:
 
 
 def _neutralize_history(text: str) -> str:
-    """舊紀錄先把控制字元換成空白，再中和界線 tag 與其他 prompt 區塊 tag（ADR-0285）。"""
-    return neutralize_tags(neutralize_historical_tags(blank_control_chars(text)), ALL_BLOCK_TAGS)
+    """舊紀錄先把控制字元換成空白，再中和界線 tag 與其他 prompt 區塊 tag（ADR-0285）。
+
+    群聊成員發言的標記也換掉（ADR-0322）：家原文、舊家與 SNS 頻道歷史都假造不了別人的發言。
+    """
+    text = neutralize_tags(neutralize_historical_tags(blank_control_chars(text)), ALL_BLOCK_TAGS)
+    return neutralize_peer_markers(text)
 
 
 def stamp_message_times(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:

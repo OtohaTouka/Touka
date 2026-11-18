@@ -6,7 +6,10 @@ ToukaSoul 區映射至 agents_registry 裡的靈魂。群聊成員只限靈魂�
 
 import logging
 import re
+from collections.abc import Callable
 from typing import Any
+
+from src.utils.group_member_view import ALIAS_CHAR_CLASS
 
 from ..config import get_config_dir
 from .prompt_blocks import HOOK_OUTPUT
@@ -59,7 +62,7 @@ def parse_group_roster(messages: list[Any], registry: dict) -> Any:
     whitelist_map = {str(k).lower(): str(v) for k, v in load_whitelist().items()}
 
     # 修改正則：移除回溯，直接捕捉 @ 或 -@ 開頭的點名
-    mention_pattern = re.compile(r"(-?@)([a-zA-Z0-9_\-\u4e00-\u9fa5]+)", re.IGNORECASE)
+    mention_pattern = re.compile(rf"(-?@)({ALIAS_CHAR_CLASS}+)", re.IGNORECASE)
 
     latest_turn_mentions = []
     roles = [m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "") for m in messages]
@@ -129,4 +132,20 @@ def parse_group_roster(messages: list[Any], registry: dict) -> Any:
     if not roster:
         return {"error": "群組對話中未指定任何代理人，請使用 @名稱 標記要對話的對象。"}
 
-    return roster
+    # 沿用之前的點名：同一位只回答一次（照第一次出現的順序），並標明是沿用的（ADR-0322）
+    carried: list[dict[str, Any]] = []
+    for entry in roster:
+        if all(kept["id"] != entry["id"] for kept in carried):
+            carried.append({**entry, "carried": True})
+    return carried
+
+
+def make_alias_resolver(registry: dict) -> Callable[[str], str | None]:
+    """群聊舊回合標籤裡的別名 → 靈魂 ID（白名單只讀一次）；解析不到回 None（ADR-0322）."""
+    whitelist_map = {str(k).lower(): str(v) for k, v in load_whitelist().items()}
+
+    def resolve(alias: str) -> str | None:
+        target = whitelist_map.get(alias.lower())
+        return resolve_soul(target, registry) if target is not None else None
+
+    return resolve
