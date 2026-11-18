@@ -7,6 +7,7 @@ import inspect
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,18 @@ def _load_guard() -> ModuleType:
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_report() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "dep_audit_report_under_test", ROOT / "scripts" / "dep_audit_report.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclass 要從 sys.modules 找到模組
     spec.loader.exec_module(module)
     return module
 
@@ -548,6 +561,7 @@ def test_main_runs_four_project_scope_pairs_outside_repository(
 ) -> None:
     guard = _load_guard()
     calls: list[tuple[str, str, bool, Path]] = []
+    times: set[datetime] = set()
 
     monkeypatch.setattr(guard, "PROJECT_ROOT", _fake_repo(tmp_path))
     monkeypatch.setattr(guard, "_load_tracked_npm_policy", lambda: {})
@@ -566,9 +580,11 @@ def test_main_runs_four_project_scope_pairs_outside_repository(
         node_executable: Path,
         npm_cli: Path,
         audit_root: Path,
+        now: datetime,
     ) -> tuple[int, int]:
         del node_executable, npm_cli
         calls.append((project.name, scope_name, omit_dev, audit_root))
+        times.add(now)
         return 0, 0
 
     monkeypatch.setattr(guard, "scan_project", fake_scan)
@@ -586,6 +602,7 @@ def test_main_runs_four_project_scope_pairs_outside_repository(
         ("ToukaIDE", "full", False),
     ]
     assert all(not root.is_relative_to(guard.PROJECT_ROOT) for *_, root in calls)
+    assert len(times) == 1  # 一次執行只取一次時間，四個範圍看到的例外一致
 
 
 class _TemporaryDirectory:
@@ -751,7 +768,10 @@ def test_scan_prints_blocking_package_names_and_advisory_ids(
             "left-pad": {
                 "severity": "moderate",
                 "via": [
-                    {"severity": "moderate", "url": "https://github.com/advisories/GHSA-2222-3333-4444"}
+                    {
+                        "severity": "moderate",
+                        "url": "https://github.com/advisories/GHSA-2222-3333-4444",
+                    }
                 ],
             },
         }
@@ -958,3 +978,249 @@ def test_isolated_environment_bootstraps_windows_native_runtime(
     assert result.returncode == 0, result.stderr
     assert "SystemRoot" in environment
     assert all(key not in environment for key in ("WINDIR", "PATH", "AUDIT_TEST_CREDENTIAL"))
+
+
+# --------------------------------------------------------------------------- #
+# 維護者核准、會到期的公告例外（ADR-0321）
+# --------------------------------------------------------------------------- #
+
+EXCUSED = "GHSA-fc5q-39xc-vjpf"
+OTHER = "GHSA-27r3-jxmh-p828"
+APPROVED_AT = datetime(2026, 11, 18, tzinfo=UTC)
+BEFORE_EXPIRY = APPROVED_AT + timedelta(days=2)
+
+
+def _advisory(advisory: str, severity: str = "high") -> dict[str, str]:
+    return {"severity": severity, "url": f"https://github.com/advisories/{advisory}"}
+
+
+def _chain(**extra: dict[str, object]) -> str:
+    """picomatch 本身有公告，micromatch、fast-glob 經它變成 high（和真的 npm audit 一樣）。"""
+    return _audit_payload_with(
+        {
+            "picomatch": {"severity": "high", "via": [_advisory(EXCUSED)]},
+            "micromatch": {"severity": "high", "via": ["picomatch"]},
+            "fast-glob": {"severity": "high", "via": ["micromatch"]},
+            **extra,
+        }
+    )
+
+
+def _with_exception(
+    guard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    now: datetime = BEFORE_EXPIRY,
+    advisory: str = EXCUSED,
+    approved_at: datetime = APPROVED_AT,
+    expires_at: datetime = APPROVED_AT + timedelta(days=7),
+) -> None:
+    exception = guard.AdvisoryException(advisory, approved_at, expires_at, "maintainer test")
+    monkeypatch.setattr(guard, "ADVISORY_EXCEPTIONS", (exception,))
+    monkeypatch.setattr(guard, "_current_time", lambda: now)
+
+
+def _scan_scope(
+    guard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stdout: str,
+    scope_name: str,
+) -> tuple[int, int]:
+    project = tmp_path / "ToukaChat"
+    project.mkdir()
+    (project / "package.json").write_text("{}\n", encoding="utf-8")
+    (project / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        guard.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=stdout.encode(), stderr=b""),
+    )
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    return guard.scan_project(
+        project,
+        scope_name=scope_name,
+        omit_dev=scope_name == "runtime",
+        node_executable=node_executable,
+        npm_cli=npm_cli,
+        audit_root=tmp_path / "outside-audit",
+    )
+
+
+def test_an_approved_exception_excuses_its_advisory_in_the_full_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (0, 0)
+    output = capsys.readouterr().out
+    assert f"  excused high picomatch {EXCUSED}" in output
+    assert f"  excused high fast-glob {EXCUSED}" in output
+    assert "  high " not in output  # 每日檢查數的是這種開頭；放行的不算進去
+
+
+def test_the_runtime_scope_never_uses_exceptions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+
+    assert _scan_scope(guard, monkeypatch, tmp_path, _chain(), "runtime") == (3, 0)
+    assert "excused" not in capsys.readouterr().out
+
+
+def test_a_package_with_another_high_reason_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+    payload = _chain(
+        vite={"severity": "high", "via": ["fast-glob", _advisory(OTHER)]},
+        vitest={"severity": "high", "via": ["vite"]},
+    )
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, payload) == (2, 0)
+    output = capsys.readouterr().out
+    assert f"  high vite {OTHER} via fast-glob" in output
+    assert "  high vitest via vite" in output
+    assert f"  excused high micromatch {EXCUSED}" in output
+
+
+def test_a_lower_severity_advisory_on_the_way_does_not_stop_the_exception(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+    payload = _chain(knip={"severity": "high", "via": ["fast-glob", _advisory(OTHER, "moderate")]})
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, payload) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "expires_at",
+    [BEFORE_EXPIRY, BEFORE_EXPIRY - timedelta(seconds=1)],
+    ids=["expires-now", "already-expired"],
+)
+def test_an_expired_exception_blocks_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, expires_at: datetime
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch, expires_at=expires_at)
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (3, 0)
+
+
+@pytest.mark.parametrize(
+    "finding",
+    [
+        {"severity": "high", "via": ["not-in-the-report"]},
+        {"severity": "high", "via": ["picomatch", "not-in-the-report"]},
+        {"severity": "high", "via": [{"severity": "high"}]},
+        {"severity": "high", "via": [{"severity": "high", "url": f"{EXCUSED} {EXCUSED}"}]},
+        {"severity": "high", "via": ["picomatch", 5]},
+        {"severity": "high", "via": []},
+        {"severity": "high"},
+    ],
+)
+def test_reasons_that_cannot_be_read_are_never_excused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, finding: dict[str, object]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain(odd=finding)) == (1, 0)
+
+
+def test_a_via_cycle_is_followed_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+    payload = _chain(
+        a={"severity": "high", "via": ["b", "picomatch"]},
+        b={"severity": "high", "via": ["a"]},
+    )
+
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, payload) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"advisory": "GHSA-fc5q-39xc-vjp"},
+        {"advisory": "picomatch"},
+        {"approved_at": datetime(2026, 11, 18)},  # noqa: DTZ001 -- 沒有時區就不算數
+        {"expires_at": datetime(2026, 11, 25)},  # noqa: DTZ001
+        {"expires_at": APPROVED_AT + timedelta(days=15)},
+        {"expires_at": APPROVED_AT},
+    ],
+)
+def test_a_malformed_exception_is_never_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, change: dict[str, Any]
+) -> None:
+    guard = _load_guard()
+    now = APPROVED_AT - timedelta(days=1)
+    _with_exception(guard, monkeypatch, now=now, **change)
+
+    assert guard.active_exceptions(now) == frozenset()
+    assert _scan_with_stdout(guard, monkeypatch, tmp_path, _chain()) == (3, 0)
+
+
+def test_the_approved_exceptions_are_well_formed() -> None:
+    """不看今天的日期：到期後由守衛變紅提醒，測試不跟著日期變紅（同 ADR-0299）。"""
+    guard = _load_guard()
+    advisories = [exception.advisory for exception in guard.ADVISORY_EXCEPTIONS]
+    assert len(advisories) == len(set(advisories))
+    for exception in guard.ADVISORY_EXCEPTIONS:
+        assert guard._is_well_formed(exception), exception.advisory
+    assert guard.MAX_EXCEPTION_DAYS == 14
+    assert guard.EXCEPTION_SCOPE == "full"
+
+
+def test_main_says_which_exceptions_are_active_or_expired(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    expired = guard.AdvisoryException(
+        OTHER, APPROVED_AT - timedelta(days=9), APPROVED_AT - timedelta(days=1), "maintainer test"
+    )
+    active = guard.AdvisoryException(
+        EXCUSED, APPROVED_AT, APPROVED_AT + timedelta(days=7), "maintainer test"
+    )
+    monkeypatch.setattr(guard, "ADVISORY_EXCEPTIONS", (active, expired))
+    monkeypatch.setattr(guard, "_current_time", lambda: BEFORE_EXPIRY)
+
+    assert _run_main_with_fake_scan(guard, monkeypatch, tmp_path, _fake_repo(tmp_path)) == 0
+    output = capsys.readouterr().out
+    assert f"[EXCEPTION] {EXCUSED} " in output
+    assert "2026-11-25" in output
+    assert f"[EXPIRED] {OTHER} " in output
+    assert "outside the exceptions above" in output  # 有例外時不說「完全沒有」
+
+
+def test_the_daily_report_counts_only_the_findings_that_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guard = _load_guard()
+    _with_exception(guard, monkeypatch)
+    node_executable, npm_cli = _runtime_paths(tmp_path)
+    monkeypatch.setattr(guard, "_resolve_npm", lambda: (node_executable, npm_cli))
+    full = _chain(vite={"severity": "high", "via": ["fast-glob", _advisory(OTHER)]})
+
+    def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        if "--omit=dev" in command:
+            return SimpleNamespace(returncode=0, stdout=_audit_payload().encode(), stderr=b"")
+        return SimpleNamespace(returncode=1, stdout=full.encode(), stderr=b"")
+
+    monkeypatch.setattr(guard.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        guard.tempfile,
+        "TemporaryDirectory",
+        lambda **_kwargs: _TemporaryDirectory(tmp_path / "os-temp"),
+    )
+
+    assert guard.main() == 1
+    output = capsys.readouterr().out
+    assert "[FAIL] 2 HIGH/CRITICAL finding(s) across audited scopes." in output
+    findings, complete = _load_report()._parse_node(output)
+    assert complete
+    assert {finding.package for finding in findings} == {"vite"}

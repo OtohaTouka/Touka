@@ -20,7 +20,7 @@ ADR-0293 移除個人空間的備援 I/O：`MemoryManager.get_personal_drive_dir
 
 | 規則 ID | 數量 | 說明 |
 |---------|------|------|
-| `TIME_SSOT_VIOLATION` | 0 | 目前無豁免（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除）。 |
+| `TIME_SSOT_VIOLATION` | 1 | ADR-0321：`scripts/guard_node_cve.py` 的 `_current_time` 用 `datetime.now(UTC)` 判斷公告例外是否到期；獨立守衛不載入專案程式、拿不到 time_utils，測試以 monkeypatch 換掉。（原有的本機發版工具的 epoch／clock-port 呼叫已隨 ADR-0238 移除。） |
 | `B008` | 230 | FastAPI 依賴注入 (Depends) 在參數預設值中的調用（+1 2026-11-09 `routers/heartbeat.py` `test_heartbeat_connectivity` 改要管理員；+1 ADR-0300 `routers/ui_sessions.py` `get_session_activity`；-5 刪掉沒掛載、走不到的排程 CRUD `routers/scheduler.py`；+4 ADR-0249 U4a-1 插話三端點與 `require_human_requester`；+1 ADR-0246 U2c-6 `routers/autonomy.py` `list_reviewer_models`；+1 ADR-0195 `routers/mcp.py` `list_server_tools`；+11 ADR-0203 P5 resources/prompts；+3 ADR-0205 HITL；+21 ADR-0206 P8-A OAuth；query callback runtime 改 route 內解析；+31 ADR-0207 P8-B workload admin/owner control plane；-1 移除 `POST /mcp/scan`）|
 | `LOCAL_IMPORT_BAN` | 24 | 循環匯入與初始化時序的合法延遲匯入；SNS gateway 已改由啟動注入 context，不再列入（ADR-0276）；終端工具改用頂層匯入的區內方法，不再列入（ADR-0293）；+1 ADR-0303 `ResourceManager._is_known_agent` 延遲載入 `agent_service`；−1 ADR-0306 家訊息注入不再自己讀家（拿掉 `get_home_messages` 的延遲匯入）。其餘位置見下方明細。 |
 | `S603` | 31 | （+1 2026-11-09 `tests/lint/test_patrol_notify_workflow.py` 跑假的 gh）子進程調用安全性：固定 argv、`shell=False` 的受控子進程咽喉（測試 harness、CVE audit 守衛、ToukaIDE Marketplace 候選建置、offline npm gate 等；+1 ADR-0251 測試沙盒收尾的子程序 pytest；+1 ADR-0256 記憶庫升級測試寫一半就當掉的子程序；+1 ADR-0278 ruff 棘輪收集；+1 ADR-0278 tests/README 列表核對的 git ls-files；+1 映像授權檢查列出版控中的 Dockerfile 的 git ls-files）。 |

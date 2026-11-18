@@ -4,6 +4,10 @@
 Audit both runtime and complete dependency graphs for ToukaChat and ToukaIDE.
 The command is an argv array, uses repository lockfiles, writes cache/config
 state below an OS-temporary directory, and never invokes npm fix or install.
+
+``ADVISORY_EXCEPTIONS`` holds maintainer-approved exceptions for single advisories
+that have no fixed release yet (ADR-0321): full scope only, at most
+``MAX_EXCEPTION_DAYS`` long, and they stop applying when they expire.
 """
 
 from __future__ import annotations
@@ -18,8 +22,9 @@ import subprocess
 import sys
 import tempfile
 from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
 from dependency_audit_evidence import (
     ProcessEvidence,
@@ -36,6 +41,7 @@ from hermetic_gate.npm_offline_gate import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
     from pathlib import PurePath
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -60,6 +66,33 @@ TRACKED_SOURCES: tuple[str, ...] = (
 BLOCKING_SEVERITIES = frozenset({"high", "critical"})
 _ADVISORY_ID = re.compile(r"GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}")
 _PACKAGE_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
+_TAIPEI = timezone(timedelta(hours=8))
+
+
+class AdvisoryException(NamedTuple):
+    """One maintainer-approved, expiring exception for a single advisory (ADR-0321)."""
+
+    advisory: str
+    approved_at: datetime
+    expires_at: datetime  # applies while now < expires_at
+    approval: str
+
+
+# Only the full scope (build/test/dev tooling) may use an exception; the runtime
+# scope never does. A package is excused only when every high/critical reason
+# behind it is an active exception; anything unreadable still blocks.
+EXCEPTION_SCOPE = "full"
+MAX_EXCEPTION_DAYS = 14
+ADVISORY_EXCEPTIONS: tuple[AdvisoryException, ...] = (
+    # picomatch <= 4.0.7 ReDoS; no fixed release on 2026-11-18; reached only through
+    # dev tooling (vite, vitest, knip, fast-glob, vsce). Ends after 2026-11-25 Taipei.
+    AdvisoryException(
+        advisory="GHSA-fc5q-39xc-vjpf",
+        approved_at=datetime(2026, 11, 18, tzinfo=_TAIPEI),
+        expires_at=datetime(2026, 11, 26, tzinfo=_TAIPEI),
+        approval="maintainer, 2026-11-18",
+    ),
+)
 
 
 class AuditExecutionError(RuntimeError):
@@ -228,23 +261,112 @@ def _printable_package(name: object) -> str:
     return "<unprintable>"
 
 
-def describe_blocking_findings(stdout: bytes | str) -> list[str]:
-    """List high/critical packages and their advisory ids for the operator.
-
-    Output only: it never changes the verdict, skips malformed entries, and
-    never echoes free text such as advisory titles or URLs.
-    """
+def _vulnerabilities(stdout: bytes | str) -> dict[object, object]:
+    """The report's vulnerabilities object, or an empty one when it cannot be read."""
     try:
         output = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
         data = json.loads(output)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return []
+        return {}
     vulnerabilities = data.get("vulnerabilities") if isinstance(data, dict) else None
-    if not isinstance(vulnerabilities, dict):
-        return []
+    return vulnerabilities if isinstance(vulnerabilities, dict) else {}
+
+
+def _current_time() -> datetime:
+    # 獨立守衛不載入專案程式、拿不到 time_utils；只用來判斷例外是否到期（ADR-0321）
+    return datetime.now(UTC)  # noqa: TIME_SSOT_VIOLATION
+
+
+def _is_well_formed(exception: AdvisoryException) -> bool:
+    """An exception names one advisory, has time zones, a short window and an approval."""
+    if exception.approved_at.tzinfo is None or exception.expires_at.tzinfo is None:
+        return False
+    window = exception.expires_at - exception.approved_at
+    return (
+        _ADVISORY_ID.fullmatch(exception.advisory) is not None
+        and timedelta(0) < window <= timedelta(days=MAX_EXCEPTION_DAYS)
+        and bool(exception.approval.strip())
+    )
+
+
+def active_exceptions(now: datetime) -> frozenset[str]:
+    """Advisory ids excused right now; malformed or expired entries never count."""
+    return frozenset(
+        exception.advisory
+        for exception in ADVISORY_EXCEPTIONS
+        if _is_well_formed(exception) and now < exception.expires_at
+    )
+
+
+def _blocking_reasons(vulnerabilities: dict[object, object], package: str) -> frozenset[str] | None:
+    """High/critical advisory ids reachable from a package through its ``via`` chain.
+
+    ``None`` when any reachable entry cannot be read, so that package is never excused.
+    """
+    reasons: set[str] = set()
+    pending = [package]
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        finding = vulnerabilities.get(name)
+        via = finding.get("via") if isinstance(finding, dict) else None
+        if not isinstance(via, list) or not via:
+            return None
+        for item in via:
+            if isinstance(item, str):
+                pending.append(item)
+                continue
+            severity = item.get("severity") if isinstance(item, dict) else None
+            if not isinstance(severity, str):
+                return None
+            if severity.strip().lower() not in BLOCKING_SEVERITIES:
+                continue
+            url = item.get("url")
+            found = _ADVISORY_ID.findall(url) if isinstance(url, str) else []
+            if len(found) != 1:
+                return None
+            reasons.update(found)
+    return frozenset(reasons)
+
+
+def excused_findings(
+    stdout: bytes | str, *, scope_name: str, now: datetime
+) -> dict[str, tuple[str, frozenset[str]]]:
+    """High/critical packages whose every reason is an active exception (full scope only).
+
+    Maps each excused package to its severity and advisory ids.
+    """
+    active = active_exceptions(now) if scope_name == EXCEPTION_SCOPE else frozenset()
+    if not active:
+        return {}
+    vulnerabilities = _vulnerabilities(stdout)
+    excused: dict[str, tuple[str, frozenset[str]]] = {}
+    for package, finding in vulnerabilities.items():
+        severity = finding.get("severity") if isinstance(finding, dict) else None
+        if not isinstance(package, str) or not isinstance(severity, str):
+            continue
+        if severity.strip().lower() not in BLOCKING_SEVERITIES:
+            continue
+        reasons = _blocking_reasons(vulnerabilities, package)
+        if reasons and reasons <= active:
+            excused[package] = (severity.strip().lower(), reasons)
+    return excused
+
+
+def describe_blocking_findings(stdout: bytes | str, *, excused: Collection[str] = ()) -> list[str]:
+    """List high/critical packages and their advisory ids for the operator.
+
+    Output only: it never changes the verdict, skips malformed entries, and
+    never echoes free text such as advisory titles or URLs. Excused packages
+    are listed separately by the caller.
+    """
+    vulnerabilities = _vulnerabilities(stdout)
     lines: list[str] = []
     for package, finding in sorted(vulnerabilities.items(), key=lambda item: str(item[0])):
-        if not isinstance(finding, dict):
+        if not isinstance(finding, dict) or package in excused:
             continue
         severity = finding.get("severity")
         if not isinstance(severity, str) or severity.strip().lower() not in BLOCKING_SEVERITIES:
@@ -394,8 +516,13 @@ def scan_project(
     node_executable: Path,
     npm_cli: Path,
     audit_root: Path,
+    now: datetime | None = None,
 ) -> tuple[int, int]:
-    """Audit one exact project/scope pair and return blocking/warning totals."""
+    """Audit one exact project/scope pair and return blocking/warning totals.
+
+    Packages excused by an active exception (full scope only) are listed with an
+    ``excused`` prefix and left out of the blocking total (ADR-0321).
+    """
     expected_scopes = dict(AUDIT_SCOPES)
     if expected_scopes.get(scope_name) is not omit_dev:
         _abort("unknown or inconsistent npm audit scope")
@@ -450,10 +577,33 @@ def scan_project(
         _abort("npm audit could not complete", cause=exc)
     evidence.finish(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
     blocking, warnings = consume_npm_audit_result(result.stdout, exit_code=result.returncode)
-    if blocking:
-        for line in describe_blocking_findings(result.stdout):
-            print(f"  {line}")
-    return blocking, warnings
+    if not blocking:
+        return blocking, warnings
+    excused = excused_findings(
+        result.stdout, scope_name=scope_name, now=now if now is not None else _current_time()
+    )
+    for line in describe_blocking_findings(result.stdout, excused=excused):
+        print(f"  {line}")
+    for package, (severity, advisories) in sorted(excused.items()):
+        print(f"  excused {severity} {_printable_package(package)} {' '.join(sorted(advisories))}")
+    return blocking - len(excused), warnings
+
+
+def _print_exceptions(now: datetime) -> None:
+    """Say which exceptions apply this run and which have ended (ADR-0321)."""
+    for exception in ADVISORY_EXCEPTIONS:
+        if not _is_well_formed(exception):
+            print("[WARN] ignoring a malformed advisory exception")
+        elif now < exception.expires_at:
+            print(
+                f"[EXCEPTION] {exception.advisory} is excused in the {EXCEPTION_SCOPE} scope "
+                f"until {exception.expires_at.isoformat()} ({exception.approval})"
+            )
+        else:
+            print(
+                f"[EXPIRED] {exception.advisory} exception ended "
+                f"{exception.expires_at.isoformat()}; its findings block again"
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -467,6 +617,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-dir", type=Path)
     arguments = parser.parse_args(argv or [])
+    now = _current_time()
+    _print_exceptions(now)
     retained_root: Path | None = None
     try:
         if arguments.evidence_dir is not None:
@@ -502,6 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                         node_executable=node_executable,
                         npm_cli=npm_cli,
                         audit_root=audit_root,
+                        now=now,
                     )
                     blocking_total += blocking
                     warning_total += warnings
@@ -524,7 +677,10 @@ def main(argv: list[str] | None = None) -> int:
     if blocking_total:
         print(f"[FAIL] {blocking_total} HIGH/CRITICAL finding(s) across audited scopes.")
         return 1
-    print("[OK] No HIGH/CRITICAL Node dependency vulnerabilities found.")
+    if active_exceptions(now):
+        print("[OK] No HIGH/CRITICAL Node dependency vulnerabilities outside the exceptions above.")
+    else:
+        print("[OK] No HIGH/CRITICAL Node dependency vulnerabilities found.")
     return 0
 
 
