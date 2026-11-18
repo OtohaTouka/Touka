@@ -50,7 +50,7 @@ from src.services.isolation.policy import session_project_id
 from src.services.model_manager import model_manager
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import HEADLESS_FALLBACK_ROUNDS
-from src.services.subagent_registry import RunningSubagent, subagent_registry
+from src.services.subagent_registry import FinishedSubagent, RunningSubagent, subagent_registry
 from src.services.subagent_report import REPORT_INSTRUCTION, parse_subagent_report
 from src.tools.contracts import (
     MAX_SUBAGENT_GROUP,
@@ -71,6 +71,8 @@ from src.utils.user_intent import subagent_intent
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Coroutine
 
+    from src.services.subagent_registry import SubagentOutcome
+
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
@@ -85,7 +87,7 @@ _RESULT_SUMMARY_MAX = 4000
 OMITTED_HEAD_NOTE = "…（前段過長已省略）\n"
 _PARTIAL_HEADER = "已做到的部分（沒做完，可能不完整）："
 # 結果的三種結局：傳輸失敗或自己回報失敗都算失敗；沒附回報與部分完成另計（ADR-0318）
-_OUTCOME_WORDS = {
+_OUTCOME_WORDS: dict[SubagentOutcome, str] = {
     "done": "完成",
     "partial": "部分完成或未確認",
     "failed": "失敗",
@@ -576,7 +578,7 @@ def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
     }
 
 
-def _outcome(payload: dict[str, Any]) -> str:
+def _outcome(payload: dict[str, Any]) -> SubagentOutcome:
     """``_OUTCOME_WORDS`` 的鍵：被停算 cancelled；沒跑完或自評失敗算 failed，回報 done 才 done。"""
     if payload.get("status") == "CANCELLED":
         return "cancelled"
@@ -624,6 +626,14 @@ async def _run_and_deliver(
     except Exception as exc:
         _log_failure(exc, "in-process subagent (token=%s…)", token[:8])
         payload = _result_from_error(exc, label)
+    session_id = base_ctx.get("session_id")
+    # 下一輪列「最近結束」；沒有對話（IDE）分不出是哪個視窗，同「還在跑」不列；無痕不留痕
+    if session_id and not base_ctx.get("incognito"):
+        parent = parent_identity.agent_id if parent_identity else "unknown"
+        finished_at = get_current_epoch()
+        subagent_registry.record_finished(
+            FinishedSubagent(label, parent, session_id, finished_at, _outcome(payload), token)
+        )
     _deliver(token, parent_identity, payload)
 
 

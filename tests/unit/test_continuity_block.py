@@ -35,7 +35,7 @@ from src.services import continuity_service as cs
 from src.services.home_handover import Unreported
 from src.services.interjection_queue import interjection_queue
 from src.services.prompt_blocks import ALL_BLOCK_TAGS, CONTINUITY, VOLATILE_SYSTEM_TAGS
-from src.services.subagent_registry import RunningSubagent
+from src.services.subagent_registry import FinishedSubagent, RunningSubagent
 from src.utils.async_db import (
     TRUSTED_TIMELINE_EPOCH_KEY,
     init_db_async,
@@ -140,6 +140,22 @@ async def test_running_subagents_are_in_the_block(
     assert cs.RUNNING_SUBAGENTS_LABEL not in await _block(sid, incognito=True)
     monkeypatch.setattr(cs.subagent_registry, "running_in", lambda *_a: [])
     assert cs.RUNNING_SUBAGENTS_LABEL not in await _block(sid)  # 沒有在跑的就不加
+
+
+async def test_finished_subagents_are_in_the_block_except_for_sns(
+    clock: dict[str, float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """最近結束的子代理（ADR-0319 PR 4）；無痕與 SNS 觸發的請求（外人）不列。"""
+    sid = _sid()
+    entry = FinishedSubagent("look-1", SOUL, sid, NOW - 120, "done", "TOK")
+    monkeypatch.setattr(cs.subagent_registry, "finished_in", lambda *_a: [entry])
+    assert f"{cs.FINISHED_SUBAGENTS_LABEL}: look-1 done, finished " in await _block(sid)
+    assert cs.FINISHED_SUBAGENTS_LABEL not in await _block(sid, incognito=True)
+    sns = await cs.build_continuity_block(
+        soul=_soul(), session_id=sid, identity=_soul(), incognito=False, sns=True
+    )
+    assert cs.FINISHED_SUBAGENTS_LABEL not in sns
+    assert "TOK" not in sns
 
 
 def test_elapsed_seconds_converts_milliseconds() -> None:

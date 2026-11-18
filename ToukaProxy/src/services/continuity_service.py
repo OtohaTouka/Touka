@@ -33,7 +33,11 @@ from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
 from src.services.home_handover import unreported_children
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
-from src.services.subagent_registry import subagent_registry
+from src.services.subagent_registry import (
+    FINISHED_KEEP_SECONDS,
+    SubagentOutcome,
+    subagent_registry,
+)
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import read_snapshot
 from src.utils.history_manager import TreeMessageManager
@@ -79,6 +83,14 @@ RECORDS_START_LABEL = "Activity records start"
 MISSION_LABEL = "Mission board"
 RUNNING_SUBAGENTS_LABEL = "Sub-agents you dispatched in this conversation, still running"
 RUNNING_SUBAGENTS_SHOWN = 5  # 最多列幾個，其餘只寫數量（ADR-0318）
+FINISHED_SUBAGENTS_LABEL = (
+    "Background sub-agents you dispatched in this conversation that finished in the last "
+    f"{FINISHED_KEEP_SECONDS // _HOUR} hours (newest first)"
+)
+RESULT_READ = "result already read; re-read only if you need the full result"
+RESULT_UNREAD = "result not read yet; read it"
+# 讀過的也附：結果檔還在、可以重讀，之後的回合才拿得到全文（審查 LOW-2）；寫明需要才讀，免得白讀
+READ_RESULT_CALL = 'mission_tools(action="await_dispatch_result", callback_token="{token}")'
 UNREPORTED_LABEL = "Other conversations with new activity not yet reported to this home"
 NO_ACTIVE_MISSION = "no active mission"
 NONE_RECORDED = "none recorded"
@@ -90,6 +102,7 @@ ACTIVITY_RECORD = "(activity record)"
 MISSION_BOARD = "(mission board)"
 _END_REASONS = frozenset(get_args(HeartbeatEnd))
 _SKIP_REASONS = frozenset(get_args(HeartbeatSkip))
+_SUBAGENT_OUTCOMES = frozenset(get_args(SubagentOutcome))
 
 _last_request_at: OrderedDict[tuple[str, str], float] = OrderedDict()
 
@@ -260,6 +273,28 @@ def running_subagents_line(soul: AgentIdentity, session_id: str | None, now_s: f
     return f"- {RUNNING_SUBAGENTS_LABEL}: {'; '.join(items)} {SERVER_MEMORY}"
 
 
+def finished_subagents_line(
+    soul: AgentIdentity, session_id: str | None, now_s: float
+) -> str | None:
+    """背景派出、最近結束的子代理（ADR-0319 PR 4）；沒有就不加這一行.
+
+    標籤經 ``safe_ref``、結果只用固定值；附上讀結果的憑證（系統產生的）。讀過的也附：結果檔還在，
+    之後的回合要全文時可以重讀。
+    """
+    finished = subagent_registry.finished_in(soul.agent_id, session_id, now_s)
+    if not finished:
+        return None
+    items = [
+        f"{safe_ref(entry.label)} "
+        f"{entry.outcome if entry.outcome in _SUBAGENT_OUTCOMES else 'unknown'}, finished "
+        f"{_when(now_s, int(entry.finished_at * _MS_PER_SECOND))}; "
+        f"{RESULT_READ if entry.read else RESULT_UNREAD}: "
+        f"{READ_RESULT_CALL.format(token=entry.token)}"
+        for entry in finished
+    ]
+    return f"- {FINISHED_SUBAGENTS_LABEL}: {' | '.join(items)} {SERVER_MEMORY}"
+
+
 async def _unreported_line(
     soul: AgentIdentity, session_id: str | None, now_s: float
 ) -> str | None:
@@ -358,7 +393,7 @@ async def build_continuity_block(
 
     無痕只放現在時間，不讀事件、不讀任務、不留紀錄。心跳不放「這段對話上一輪」、不更新記憶體
     紀錄（家對話和人類共用 session id）。``now_s`` 由呼叫端傳入時用同一個時間（心跳的時間前綴）。
-    SNS 觸發的請求（外人）不加其他對話的動態（ADR-0319）。
+    SNS 觸發的請求（外人）不加其他對話的動態與最近結束的子代理（ADR-0319）。
     """
     now_s = get_current_epoch() if now_s is None else now_s
     time_str, weekday = format_epoch_to_taipei(now_s)
@@ -376,6 +411,9 @@ async def build_continuity_block(
         running = running_subagents_line(soul, session_id, now_s)
         if running is not None:
             lines.append(running)
+        finished = None if sns else finished_subagents_line(soul, session_id, now_s)
+        if finished is not None:
+            lines.append(finished)
         unreported = None if sns else await _unreported_line(soul, session_id, now_s)
         if unreported is not None:
             lines.append(unreported)

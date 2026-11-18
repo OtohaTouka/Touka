@@ -3254,7 +3254,16 @@
           "read_only"
         ],
         "kwargs": null,
-        "reads": [],
+        "reads": [
+          [
+            "base_ctx",
+            "incognito"
+          ],
+          [
+            "base_ctx",
+            "session_id"
+          ]
+        ],
         "dynamic": []
       },
       "_persist_durable": {

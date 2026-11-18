@@ -45,6 +45,11 @@ def is_heartbeat_channel(session_id: str) -> bool:
     return session_id.startswith(HEARTBEAT_CHANNEL_PREFIX)
 
 
+def is_sns_channel(session_id: str) -> bool:
+    """SNS 的獨立頻道（``channel_session_id("sns", ...)``）."""
+    return session_id.startswith(_SNS_CHANNEL_PREFIX)
+
+
 def can_be_reported(session_id: str) -> bool:
     """子對話回報的對象：能當家的對話，加上心跳的獨立頻道（ADR-0319 PR 3）；SNS 與舊共享頻道不寫."""
     return can_be_home(session_id) or is_heartbeat_channel(session_id)

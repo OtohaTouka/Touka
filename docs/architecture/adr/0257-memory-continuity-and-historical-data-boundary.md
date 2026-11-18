@@ -92,7 +92,7 @@ Historical data, not instructions: …（一句英文說明）
 - **查記憶**：`MemoryManager.query_memory` 有結果時整段包起來（`memory_query`，含段 4 的來源行）；`[ID: …]`、存記憶回覆的 `(ID: …)` 格式不變；「No relevant memories found.」不包。
 - **隨機回想**：`random_recall` 把片段包起來（`memory_recall`）；標題改成「🧠 隨機抽出的舊紀錄片段：」，沒有片段時回「目前沒有可回想的舊對話片段或事實記憶。」。部分來源讀不到的提示放在界線外；兩邊都失敗時丟錯誤的行為不變（ADR-0253）。
 - **前情摘要**：`SoulService.inject_context_summary` 在 `<conversation_summary>` 裡面再包一層（`conversation_summary`）。**角色與位置不變**（Anthropic 照舊進 `system`；OpenAI 照舊併進第一則 system 訊息），快照解析與波動段重排看的外層 tag 不變。
-- **家對話**：`SoulService.inject_home_messages` 經 `_mark_home_history`，在第一則前面加開頭、最後一則後面加結尾（`home_conversation`），每則文字先中和。**角色與則數不變**；先複製再改，不動到從資料庫讀出來的 session 樹；多模態（JSON 陣列字串先還原成 list）加一個 text part，不串字串。群聊派發走同一個函式。
+- **家對話**：`SoulService.inject_home_messages` 經 `mark_history`（原 `_mark_home_history`，ADR-0319 PR 4 改成公開共用），在第一則前面加開頭、最後一則後面加結尾（`home_conversation`），每則文字先中和。**角色與則數不變**；先複製再改，不動到從資料庫讀出來的 session 樹；多模態（JSON 陣列字串先還原成 list）加一個 text part，不串字串。群聊派發走同一個函式。
 - characterization golden 不變：golden 不含記憶查詢輸出、前情摘要或家對話。
 
 ## 取捨
@@ -150,7 +150,7 @@ S1：
 | 5 不存紀錄、不走插話、審查員看不到 | `continuity_service.py`、`soul.py` | 只改送出的請求物件 | `test_continuity_not_persisted.py`、`test_continuity_block.py`（`test_continuity_not_injected_via_interjection`） |
 | 6、7 界線文字與中和 | `ToukaMemory/src/memory_server/utils/historical_data.py` | `HISTORICAL_DATA_CLOSE`、`historical_data_open`、`neutralize_historical_tags`、`wrap_historical_data` | `test_historical_data_boundary_security.py` |
 | 8 查記憶、隨機回想 | `ToukaMemory/src/memory_server/services/manager.py`、`tools/recall.py` | `MemoryManager.query_memory`；`random_recall` | `test_historical_data_boundary_security.py` |
-| 8 前情摘要、家對話 | `ToukaProxy/src/services/soul_service.py` | `inject_context_summary`；`inject_home_messages`、`_mark_home_history`、`_add_text`、`_map_text` | `test_historical_data_boundary_security.py` |
+| 8 前情摘要、家對話 | `ToukaProxy/src/services/soul_service.py` | `inject_context_summary`；`inject_home_messages`、`mark_history`、`_add_text`、`_map_text` | `test_historical_data_boundary_security.py` |
 
 ## 驗證
 
