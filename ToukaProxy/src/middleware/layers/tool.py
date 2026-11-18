@@ -461,7 +461,9 @@ class ToolLayer(ProxyLayer):
         # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入。
         # 群聊回合也不注入：外層組的會被複製給每位成員（SNS 群聊的 ctx 帶著 bot 的靈魂，
         # 寫的模型還是 ToukaGroup），群聊成員的情況寫在群聊說明裡（ADR-0322）。
-        if ctx.get("is_toukasoul") and getattr(request, "model", None) != GROUP_MODEL:
+        # 模型名稱比對不分大小寫，和分發器判斷群聊的方式一樣。
+        is_group_round = str(getattr(request, "model", "") or "").lower() == GROUP_MODEL.lower()
+        if ctx.get("is_toukasoul") and not is_group_round:
             self._inject_harness_context(request, ctx, advertised)
 
         # 11e. 模式、在場與核准（ADR-0316）：這一輪有列工具就說（靈魂、子代理、心跳、

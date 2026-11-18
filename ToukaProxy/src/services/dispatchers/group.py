@@ -41,6 +41,9 @@ from src.utils.time_utils import get_current_epoch
 
 logger = logging.getLogger(__name__)
 
+# 成員回覆開頭先留這麼多字（或到第一個換行）找它自己加的標籤
+OWN_LABEL_SCAN_CHARS = 50
+
 
 def _member_brains(roster: list[dict[str, str]]) -> tuple[dict[str, str], str | None]:
     """每位成員送出用的模型名（ADR-0250 A3／A5）；有一位沒設或名字模糊就回點名的錯誤訊息。"""
@@ -144,7 +147,7 @@ async def dispatch_group_stream(
 
     is_openai_req = isinstance(request, OpenAIChatRequest)
     msg_cls = OpenAIMessage if is_openai_req else AnthropicMessage
-    # 標籤與分隔照舊依 is_native；成員文字照上游的格式（OpenAI 請求就是 OpenAI 片段）
+    # 標籤與分隔照舊依 is_native；成員文字照收到的片段格式重組（還沒收到片段時依請求種類）
     label_native = bool(context.get("is_native", False)) and not is_openai_req
     text_native = not is_openai_req
     resolve_alias = _alias_resolver(roster, registry)
@@ -210,7 +213,7 @@ async def dispatch_group_stream(
         # UI Label Prefix
         yield _text_chunk(member_label(alias_name), native=label_native)
 
-        member = _MemberText(alias_name)
+        member = _MemberText(alias_name, native=text_native)
 
         # Nested context for individual agent call
         nested_ctx = context.model_copy()
@@ -233,22 +236,24 @@ async def dispatch_group_stream(
             if chunk.strip() == "data: [DONE]":
                 tail = member.finish(_failure_text(nested_ctx))
                 if tail:
-                    yield _text_chunk(tail, native=text_native)
+                    yield _text_chunk(tail, native=member.native)
                 yield chunk
                 continue
 
             if chunk.startswith("data: "):
                 try:
-                    text_delta, is_tool_call = _delta_of(json.loads(chunk[6:]))
+                    data = json.loads(chunk[6:])
+                    text_delta, is_tool_call = _delta_of(data)
 
                     if not text_delta and not is_tool_call:
                         yield chunk
                         continue
 
+                    member.native = "choices" not in data
                     if is_tool_call:
                         released = member.before_tool_call()
                         if released:
-                            yield _text_chunk(released, native=text_native)
+                            yield _text_chunk(released, native=member.native)
                         member.full += text_delta
                         yield chunk
                         continue
@@ -257,7 +262,7 @@ async def dispatch_group_stream(
                     if released == text_delta:
                         yield chunk  # 沒有留字也沒有改字：原樣轉送（保留片段的其他欄位）
                     elif released:
-                        yield _text_chunk(released, native=text_native)
+                        yield _text_chunk(released, native=member.native)
                     continue
                 except Exception:
                     if member.started:
@@ -269,7 +274,7 @@ async def dispatch_group_stream(
 
         tail = member.finish(_failure_text(nested_ctx))
         if tail:
-            yield _text_chunk(tail, native=text_native)
+            yield _text_chunk(tail, native=member.native)
 
         # 這位成員問的問題沒等到回答：整輪停下，下一位成員不再呼叫模型（ADR-0308）
         if nested_ctx.get(UNANSWERED_KEY):
@@ -295,6 +300,7 @@ class _MemberText:
     """一位成員串流出來的文字：先拿掉開頭自己加的標籤，再經守門換掉偽造的成員標籤。"""
 
     alias: str
+    native: bool = False  # 重組片段用的格式：照最近收到的片段（Anthropic 原生或 OpenAI）
     guard: LabelGuard = field(default_factory=LabelGuard)
     buffer: str = ""
     full: str = ""
@@ -309,12 +315,12 @@ class _MemberText:
         return re.sub(pattern, "", text, count=1, flags=re.IGNORECASE)
 
     def text(self, delta: str) -> str:
-        """收一段文字，回傳現在可以送出的部分（開頭 50 字內或第一個換行前先留著找標籤）。"""
+        """收一段文字，回傳現在可以送出的部分（開頭幾十字內或第一個換行前先留著找標籤）。"""
         self.full += delta
         if self.started:
             return self.guard.feed(delta)
         self.buffer += delta
-        if len(self.buffer) > 50 or "\n" in self.buffer:
+        if len(self.buffer) > OWN_LABEL_SCAN_CHARS or "\n" in self.buffer:
             self.started = True
             return self.guard.feed(self._strip_own_label(self.buffer))
         return ""

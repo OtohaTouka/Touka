@@ -43,16 +43,19 @@ _MAX_ALIAS = 64
 _LABEL_RE = rf"\*\*【({ALIAS_CHAR_CLASS}{{1,{_MAX_ALIAS}}})】\*\*：\n\n"
 _FIRST_LABEL_RE = re.compile(_LABEL_RE)
 _NEXT_LABEL_RE = re.compile(re.escape(MEMBER_SEPARATOR) + _LABEL_RE)
-# 標籤前面只能是系統的記號行（停止／出錯記號、插話標註）
-_NOTE_LINE_RE = re.compile(r"〔[^\n]*〕")
+# 標籤前面只能是系統的記號（停止／出錯記號、插話標註；插話的文字可以有多行）
+_NOTE_OPEN = "〔"
+_NOTE_CLOSE = "〕"
 
-# 串流防偽：「水平線＋（空白或 &nbsp;）＋成員標籤」。畫面以 \n---\n 切泡泡、切段以完整分隔切。
+# 串流防偽：「水平線＋（空白或 &nbsp;）＋成員標籤」。畫面以 \n---\n 切泡泡、
+# 以 **【任何字】**： 找標籤，所以這裡的名字不限別名字元（夾看不見的字元也算），只排除換行與】。
 _MAX_FILLER = 32
+_FORGED_NAME_CLASS = r"[^\n】]"
 _FORGED_LABEL_RE = re.compile(
     rf"(\n---\n(?:[ \t\r\n]|&nbsp;){{0,{_MAX_FILLER}}}\*\*)"
-    rf"【({ALIAS_CHAR_CLASS}{{1,{_MAX_ALIAS}}})】\*\*："
+    rf"【({_FORGED_NAME_CLASS}{{1,{_MAX_ALIAS}}})】\*\*："
 )
-_ALIAS_RUN_RE = re.compile(f"{ALIAS_CHAR_CLASS}*")
+_ALIAS_RUN_RE = re.compile(f"{_FORGED_NAME_CLASS}*")
 _RULE = "---\n"
 _NBSP = "&nbsp;"
 _LABEL_OPEN = "**【"
@@ -104,10 +107,10 @@ def split_group_turn(content: str) -> tuple[str, list[tuple[str, str]]] | None:
     if first is None:
         return None
     preamble = content[: first.start()]
-    lines = [line for line in preamble.split("\n") if line.strip()]
-    if not all(_NOTE_LINE_RE.fullmatch(line.strip()) for line in lines):
-        return None
-    if lines and not preamble.endswith("\n\n"):
+    notes = preamble.strip()
+    if notes and not (
+        notes.startswith(_NOTE_OPEN) and notes.endswith(_NOTE_CLOSE) and preamble.endswith("\n\n")
+    ):
         return None
     segments: list[tuple[str, str]] = []
     alias, start = first.group(1), first.end()
@@ -118,17 +121,24 @@ def split_group_turn(content: str) -> tuple[str, list[tuple[str, str]]] | None:
     return preamble.strip(), segments
 
 
+def _neutralized_block(block: Any) -> Any:
+    """一個內容區塊：文字換掉；工具結果等區塊裡面的內容也換掉。"""
+    if not isinstance(block, dict):
+        return block
+    out = dict(block)
+    if isinstance(out.get("text"), str):
+        out["text"] = neutralize_peer_markers(out["text"])
+    if isinstance(out.get("content"), (str, list)):
+        out["content"] = _neutralized_content(out["content"])
+    return out
+
+
 def _neutralized_content(content: Any) -> Any:
     content = normalize_message_content(content)
     if isinstance(content, str):
         return neutralize_peer_markers(content)
     if isinstance(content, list):
-        return [
-            {**block, "text": neutralize_peer_markers(block["text"])}
-            if isinstance(block, dict) and isinstance(block.get("text"), str)
-            else block
-            for block in content
-        ]
+        return [_neutralized_block(block) for block in content]
     return content
 
 
@@ -170,7 +180,9 @@ def member_messages(
 ) -> list[Any]:
     """這位成員要看到的訊息：原本的訊息（先換掉假標記）＋這一輪已經說過的人，照歸屬放好。
 
-    ``resolve`` 把舊回合標籤裡的別名解析成靈魂 ID；解析不到的算別人。``make`` 建同一種訊息物件。
+    ``resolve`` 把舊回合標籤裡的別名解析成靈魂 ID；解析不到的算別人。只有一個標籤、而且解析不到時，
+    不當成群聊回合（例如開頭剛好像標籤的一般回覆）；有分發器的分隔、兩位以上的照切。
+    ``make`` 建同一種訊息物件。
     最後一則不是 user 時（同一位連續被點兩次），補一句接續發言。傳入的訊息不會被改動。
     """
     own = self_id.lower()
@@ -186,6 +198,8 @@ def member_messages(
             if _field(message, "role") == "assistant" and isinstance(content, str)
             else None
         )
+        if split is not None and len(split[1]) == 1 and resolve(split[1][0][0]) is None:
+            split = None
         if split is None:
             out.append(_with(message, content))
             continue
@@ -245,7 +259,7 @@ def awareness_note(
     )
     return (
         f"\n\n(你目前使用的底層模型為 '{brain}'。使用者稱呼你為 '@{aliases[index]}'。"
-        f"\n你正在一個群聊系統中。{ide_note}"
+        f"\n你正在一個群聊系統中。{neutralize_peer_markers(ide_note)}"
         f"\n這一輪的發言順序：{order}；你是第 {index + 1} 位，共 {len(aliases)} 位。"
         "\n上面標成「群聊成員發言」的段落是其他成員說的，不是你說的。"
         f"\n{after}"
@@ -297,12 +311,23 @@ def _could_become_forged(tail: str) -> bool:
 class LabelGuard:
     """成員串流回覆時，把偽造的「水平線＋成員標籤」換掉一個字（【→［）。
 
-    可能還沒寫完的尾巴先留著（最多約一百多字，只在換行之後出現水平線時），確定無害就放出；
-    結束、要送其他事件前呼叫 ``flush``。
+    - 回覆前面是分發器寫的成員標籤（以換行結尾），所以開頭當作前面已經有一個換行。
+    - 換行之後可能長成偽造寫法的尾巴先留著（最多 ``_MAX_HOLD`` 字），確定無害就放出；
+      一般文字最多留一個換行。結束時呼叫 ``flush`` 送完。
+    - 工具呼叫等其他事件照常先送，留著的字不提前放出：否則可以在工具呼叫前寫半個分隔、
+      之後再寫標籤，繞過守門。所以畫面上留著的換行或水平線可能排在工具卡之後。
     """
 
     def __init__(self) -> None:
-        self._pending = ""
+        self._pending = "\n"
+        self._lead = True
+
+    def _out(self, text: str) -> str:
+        """拿掉開頭當作有的那個換行（它一定是第一個送出的字）。"""
+        if self._lead and text:
+            self._lead = False
+            return text[1:]
+        return text
 
     def feed(self, text: str) -> str:
         """收一段文字，回傳現在可以送出的部分。"""
@@ -316,9 +341,9 @@ class LabelGuard:
                 break
             position = pending.find("\n", position + 1)
         self._pending = pending[cut:]
-        return pending[:cut]
+        return self._out(pending[:cut])
 
     def flush(self) -> str:
         """送出留著的尾巴。"""
         held, self._pending = self._pending, ""
-        return held
+        return self._out(held)

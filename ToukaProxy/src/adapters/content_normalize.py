@@ -130,7 +130,8 @@ def _with_content(message: Any, content: Any) -> Any:
 def merge_adjacent_users(messages: list[Any]) -> list[Any]:
     """相鄰的 user 接成一則（純文字用空行接，有區塊就接成區塊陣列）；認不得的形狀不合併。
 
-    群聊成員看到的訊息（ADR-0322）與 SNS 頻道歷史（ADR-0319）共用；回傳新串列，不改動傳入的訊息。
+    群聊成員看到的訊息用（ADR-0322；SNS 頻道歷史目前還用它自己的合併）。
+    回傳新串列，不改動傳入的訊息。
     """
     result: list[Any] = []
     for message in messages:

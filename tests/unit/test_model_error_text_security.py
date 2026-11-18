@@ -429,6 +429,7 @@ async def test_sns_group_sends_the_fixed_text_out_and_only_a_mark_to_the_next_me
 
     assert [message.text for _channel, message in adapter.sent_messages] == [returned]
     assert SNS_FAILURE_NOTICE in returned
+    assert returned.count(SNS_FAILURE_NOTICE) == 1  # 分發器只補一次
     assert "API Error" not in returned
     seen_by_next = "\n".join(next_member)
     assert FAILED_MEMBER_NOTE in seen_by_next
@@ -451,6 +452,7 @@ async def test_plain_group_sends_the_masked_text_out_but_not_to_the_next_member(
             chunks.append(chunk)
     text = delta_text(chunks)
     assert "API Error (400)" in text
+    assert text.count("API Error (400)") == 1  # 分發器只補一次
     assert SNS_FAILURE_NOTICE not in text
     failure = text[text.index("API Error (400)") :].split("\n\n&nbsp;")[0]
     assert_clean(failure)

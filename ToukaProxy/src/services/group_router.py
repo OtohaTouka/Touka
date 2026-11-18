@@ -57,6 +57,8 @@ def parse_group_roster(messages: list[Any], registry: dict) -> Any:
     """解析對話歷史，動態決定本次發言的靈魂名單 (Roster)。
 
     回傳格式：List[dict] -> [{"name": str, "id": str}, ...]，id 一律是 agents_registry 的鍵。
+    使用者這一句沒點名、沿用之前的點名時，同一位只留第一次出現的，每一項多一個
+    ``"carried": True``（ADR-0322）。
     """
     roster = []
     whitelist_map = {str(k).lower(): str(v) for k, v in load_whitelist().items()}
