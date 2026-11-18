@@ -421,6 +421,7 @@ async def _sns(*chunks: str) -> tuple[str, MagicMock, MagicMock]:
     session = MagicMock(
         open_channel_session=AsyncMock(return_value="sns-1"),
         append_message_to_session=AsyncMock(return_value=True),
+        read_execution_snapshot=AsyncMock(),  # 送出前的歸屬檢查（ADR-0322 PR 2）
     )
     with (
         patch(

@@ -66,6 +66,7 @@ export function buildApiHistory<R extends string>(
   linear: {
     id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[];
     generationStopped?: boolean; generationFailed?: boolean; steps?: unknown;
+    deliveryFailed?: boolean; deliveryPlatform?: string;
   }[],
   userMsgId: string,
   resolvedInput: string,

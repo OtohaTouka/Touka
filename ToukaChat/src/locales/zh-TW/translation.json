@@ -1534,6 +1534,8 @@
       "cancel": "取消",
       "save_and_resend": "儲存並重送",
       "generation_failed": "這一輪回覆失敗，沒有完成。",
+      "delivery_failed": "這則回覆沒有送到 {{platform}}。",
+      "delivery_failed_other": "這則回覆沒有送到外部平台。",
       "generation_failed_vendor_said": "廠商回覆：",
       "generation_failed_reason": {
         "authentication_failed": "這一輪回覆失敗：金鑰或權限有問題。",

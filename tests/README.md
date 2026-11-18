@@ -239,7 +239,7 @@ tests/
 | `unit/test_session_binding_security.py` | 退休 SNS 列只由沙盒 SQL 模擬舊資料；正常 SNS 改用受管每靈魂頻道並驗保存回覆。 |
 | `unit/test_session_owner_attribution.py` | 既有代理對話 seed／update 明帶相同 agent identity，驗 owner 不被後寫者改動，不再藉匿名寫入建立測試前提。 |
 | `unit/test_session_persistence_ordering.py` | 家對話經 set_home 建立，剪裁用綁定靈魂，保留 stale revision、公開 null 與 rich-save 競態斷言。 |
-| `unit/test_sns_channel_history.py` | **ADR-0319 PR 4・SNS 頻道歷史**：最近 24 小時、最多 10 則、token 上限留最新的；沒有時間與 system 的節點不帶；從外人那則開始、相鄰外人訊息合併、沒回覆的註明在界線裡；助理只帶簡短工具紀錄；界線、中和與每則標時間；主線只在 SNS 獨立頻道加、放在這一輪前面、家模式不重複 |
+| `unit/test_sns_channel_history.py` | **ADR-0319 PR 4・SNS 頻道歷史**：最近 24 小時、最多 10 則、token 上限留最新的；沒有時間與 system 的節點不帶；從外人那則開始、相鄰外人訊息合併、沒回覆的註明在界線裡；助理只帶簡短工具紀錄；出錯與沒有送到的記號（ADR-0322）；界線、中和與每則標時間；主線只在 SNS 獨立頻道加、放在這一輪前面、家模式不重複 |
 | `unit/test_sns_gateway.py` | 替身提供正式靈魂與同擁有者關係、嚴格家快照及成功 append，頻道 ID 期望改為每靈魂完整座標雜湊；被 UserPromptSubmit hook 擋下的外人訊息不寫進對話、不回覆也不往外丟錯（家對話與獨立對話）、其他錯誤照舊寫、外人訊息寫好才讀回覆（寫不進去就不讀）、家對話模式在 pipeline 之後才寫（家對話不重複）（ADR-0292）。 |
 
 其餘受快照／條件提交影響的回歸檔，測試數量不變，逐檔分類如下：
@@ -296,7 +296,7 @@ tests/
 | `test_tool_records.py` ⭐ | **ADR-0319 PR 1・工具紀錄**：和前端讀同一份黃金案例檔（兩種寫法、整段歷史、視窗、假標記），前端常數、字元集、`utils/secrets.py` 樣式（含 `g` 旗標）、錯誤種類與 `GROUP_CHAT_ID` 核對相同；時間尾註開頭與核准結果來自各自的出處；超長結果仍然很快，先截到 `MAX_SCAN_CHARS` 再遮蔽、九百萬個空白的假標記與九百萬字的時間尾註照常處理（前端測同一組輸入）；超長歷史有總量上限；紀錄在插話標註之後、文字之前；心跳送出的歷史帶網頁回合的紀錄、不改存檔；`sanitize_history` 不吃紀錄；照抄紀錄的回覆收到工具幻覺警告 |
 | `test_tool_step_collector.py` | **ADR-0319 PR 2・後端記下工具步驟**：收集器照前端規則配對（核准只存結果、等核准沒有核准資料、既有步驟的核准請求、串流與例外、MCP 表單不存、帶 NaN 的事件略過、存檔上限含名稱與整組參數、截成字串的參數先照鍵名遮蔽（共用 `secrets.mask_secret_keys`）、丟掉的步驟數）；心跳脈衝的步驟掛在最後一則回覆、只用工具也寫一則、參數帶 NaN 照存；網頁文字版存檔存步驟、只用工具也存、參數帶 NaN 照存；SNS 存步驟、只用工具不往外送；`append_message_to_session` 存額外欄位、不蓋掉節點本身的欄位 |
 | `test_approval_wording.py` ⭐ | **ADR-0318 PR 4・核准的說法**：人按的、審查員放行的各寫一行，沒經過核准的不寫，解算的人不寫出來；JSON 結果加 `approval` 鍵；審查員轉人的理由核准與拒絕都交給模型、單行、中和、有上限；取消、拒絕、逾時說法不同；找不到待審算取消；這一輪被停止時待審的卡收成已取消 |
-| `test_previous_turn_marks.py` ⭐ | **ADR-0318 PR 3・上一輪沒做完的記號**：和前端 `turnNotes.ts` 純文字比對相同；停止與出錯都加、停止優先、只認 `true`；在插話標註之前；空回覆加了記號不再被合併；回合數不變；家原文帶記號 |
+| `test_previous_turn_marks.py` ⭐ | **ADR-0318 PR 3・上一輪沒做完的記號**：和前端 `turnNotes.ts` 純文字比對相同；停止與出錯都加、停止優先、只認 `true`；在插話標註之前；空回覆加了記號不再被合併；回合數不變；家原文帶記號；SNS「沒有送到」記號與平台名稱和前端一致、排在出錯之後（ADR-0322） |
 | `test_interjection_notes.py` ⭐ | **ADR-0249 第 4a 段・伺服器端重組標註**：範本與前端 `INTERJECTION_NOTE_TEMPLATE` 純文字比對相同；照步數排、只取已送達有文字的；只改助理節點、不改原節點；回合數不變；心跳脈衝訊息、主線帶的家原文（`home_messages_of`）、摘要輸入都帶標註 |
 | `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不含指令的任何片段，禁令 23 同類）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
@@ -761,8 +761,9 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_native_tool_parameter_flow.py` | （ADR-0228；ADR-0256 加 1 個；ADR-0274 加 1 個：`conversations` 帶齊 7 個欄位；ADR-0263 加 1 個：manage_dups 那一例改成 supersede 帶齊 6 個欄位，resolve 另寫一個只比觀察值的測試，`query` 例加 `include_history`）：每個公開欄位的非預設值都一路傳到真的原生 adapter 與後端接點；ADR-0256 起 `query` 帶 `include_sources`，並在 `CASES` 最後加 `memory_tools(action="reindex")`（加在最後，既有 case 編號不變） |
 | `test_memory_tool_contracts.py` | （ADR-0228；ADR-0263 加 2 個：公開欄位 `include_history`、`content`，`operation` 列出 supersede、`content` 的描述分 save 與 manage_dups）：記憶工具公開 schema 的欄位與描述、`query` 回事實庫的正式 ID、`manage_dups` resolve 的公開 operation、`query` 的非預設篩選傳到兩個庫；ADR-0256 起語意結果要回查事實庫，替身補 `get_active_facts`，個數不變 |
 | `test_sns_gateway.py` | `SNSGatewayService`：預設 Agent 路由、`@alias` 覆蓋、Session ID 隔離、SSE chunk 聚合；R-2c：home／independent 兩種模式存檔與送出的外人訊息都帶 `【SNS 外部訊息】` 開頭、不算人類原意 |
-| `test_model_error_text_security.py` | 模型回合失敗的文字：`RoundError` 建立時遮罩與限長、遮兩次不變；四家廠商走真回合比對送出的字串；SNS 單人只留固定文字；群聊成員失敗時外送一次（SNS 固定文字、一般群聊已遮罩），下一位只看到出錯標記（ADR-0322）；心跳存檔與例外、子代理都遮過 |
+| `test_model_error_text_security.py` | 模型回合失敗的文字：`RoundError` 建立時遮罩與限長、遮兩次不變；四家廠商走真回合比對送出的字串；SNS 單人外送固定文字、對話裡只存出錯旗標；群聊成員失敗時外送一次（SNS 固定文字、一般群聊已遮罩），下一位只看到出錯標記；心跳脈衝失敗與整個心跳出例外都只存出錯旗標，失敗句與錯誤原文不進對話（ADR-0322）；子代理都遮過 |
 | `test_group_soul_only.py` ⭐ | **ADR-0245**：群聊只限靈魂——白名單只認 ToukaSoul 區、別名解析到 agents_registry 的靈魂；指向原始模型或 regex 的別名被拒；registry 裡不是靈魂的成員不能被點名、白名單值不是靈魂時不退回比對別名本身；舊歷史裡解析不到的點名略過、最新一則仍嚴格驗證（R-2a）；舊 Native／Custom 項目略過並記警告、檔案不動（tmp 合成設定）；設定 API 只回、只收靈魂區；群聊派發與 SNS `@別名` 只到靈魂；hook 補充說明（`<hook_output>` 區塊）裡的 `@別名` 不算點名（ADR-0292）；這一句沒點名時沿用之前的點名，同一位只回答一次並標明沿用、舊標籤的別名經白名單解析（ADR-0322） |
+| `test_reply_failure_marks.py` | **ADR-0322 PR 2a**：心跳與 SNS 的失敗、送不出去——SNS 先送再存、送出前檢查歸屬、失敗時外送文字＋固定失敗文字而只存文字、零文字失敗也留節點、送不出去記 `deliveryFailed`、送出後存檔失敗只記 log；心跳脈衝失敗保留已寫的文字並在最後一段加旗標 |
 | `test_group_member_view.py` | **ADR-0322**：群聊每位成員看到的訊息——照分發器格式切段、自己的算 assistant、別人的包成群聊成員發言放到 user 那側、相鄰 user 合併（含圖片區塊）、這一輪說過的人、同一位連續被點兩次補接續發言、成員出錯的標記、多行插話與開頭像標籤的一般回覆、各處的假標記換掉（含工具結果區塊）、串流守門換掉偽造的成員標籤（跨片段、回覆開頭、名字夾看不見的字元、最長寫法） |
 | `test_group_round_awareness.py` | **ADR-0322**：群聊說明（發言順序、位置、之後還有誰、點名或沿用、網頁與 SNS 群聊誰在說話、家原文私下）；分發器組給成員的請求、上一輪的回合靠名單或白名單認出自己、說明接在圖片區塊後面、偽造標籤送出前換掉、重組片段的格式、工具呼叫與留著的字的先後、IDE 檔名與 system、家原文的假標記、審查員原意從成員發言處截斷 |
 | `test_context_snapshot_service.py` | `get_context_snapshot()`/`render_snapshot_markdown()`：無 I/O 純邏輯驗證 |

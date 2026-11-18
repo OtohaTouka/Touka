@@ -21,6 +21,7 @@ from src.models.sliding_window import SlidingWindowConfig
 from src.services import mainline_service
 from src.services import sns_channel_history as sch
 from src.utils import async_db
+from src.utils.interjection_notes import TURN_FAILED_NOTE, TURN_UNDELIVERED_NOTE_TEMPLATE
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_record_marks import TOOL_RECORD_BRIEF_OPEN
 
@@ -183,6 +184,26 @@ def test_replies_carry_only_the_brief_tool_record():
     assert "web_fetch 成功" in reply
     assert ARG_CANARY not in reply
     assert RESULT_CANARY not in reply
+
+
+def test_failed_and_undelivered_replies_carry_their_marks():
+    """先送再存之後（ADR-0322 PR 2）：出錯與沒有送到都是節點旗標，頻道歷史看得到記號."""
+    history = _history(
+        ("user", "在嗎", NOW_MS - 2 * MINUTE),
+        {
+            "role": "assistant",
+            "content": "查到一半",
+            "timestamp": NOW_MS - MINUTE,
+            "generationFailed": True,
+            "deliveryFailed": True,
+            "deliveryPlatform": "discord",
+        },
+    )
+    reply = history[1]["content"]
+    assert TURN_FAILED_NOTE in reply
+    assert TURN_UNDELIVERED_NOTE_TEMPLATE.replace("{platform}", "Discord") in reply
+    assert reply.index(TURN_FAILED_NOTE) < reply.index("〔這則回覆沒有送到")
+    assert "查到一半" in reply
 
 
 def test_the_history_is_wrapped_and_neutralized():

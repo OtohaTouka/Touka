@@ -1,11 +1,11 @@
 # ADR-0322：誰說的話、在哪種對話（可視性第四批）
 
-- 狀態：🚧 實作中（PR 1 群聊，2026-11-18；PR 2 執行記錄與失敗、PR 3 對話種類與心跳叫醒待做）
+- 狀態：🚧 實作中（PR 1 群聊 2026-11-18 合併；PR 2a 失敗與送不出去 2026-11-18；PR 2b 執行記錄、PR 3 對話種類與心跳叫醒待做）
 - 日期：2026-11-18
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 87 項回「全部照建議」：SNS 頻道與群聊照舊帶家對話原文並加說明；群聊 PR 合併前小量試真模型）
 - 相關：[ADR-0245](0245-model-layer-stage-2a.md)（群聊成員只限靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組、保留系統加的說明）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（工具紀錄的防偽做法）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（審查員只看人類原話）
-- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）
-- 影響範圍：PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
+- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a）
+- 影響範圍：PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
 
 ## 背景
 
@@ -14,7 +14,7 @@
 - **別人或系統的話被當成 AI 自己說的**：群聊裡前一位成員的回覆以 assistant 接給下一位，下一位以為是自己剛說的（群聊-1，這批唯一的高）；工具日誌行、失敗句存成 AI 的回覆（前景-2、心跳-4、SNS-3）。
 - **不知道自己在哪種對話、被誰叫醒**：子對話、心跳、群聊、SNS 都缺這一行（家-1、心跳-2、心跳-3、群聊-2、群聊-4、SNS-1）。
 
-分三個 PR：PR 1 群聊、PR 2 執行記錄與失敗、PR 3 對話種類與心跳叫醒。
+分三個 PR：PR 1 群聊、PR 2 執行記錄與失敗、PR 3 對話種類與心跳叫醒。PR 2 超過計畫的拆分門檻，依主題拆成 2a（失敗與送不出去：心跳-4、SNS-3）與 2b（執行記錄只給畫面看：前景-2），每個都含前後端，合進 dev 的每一步都是一致的狀態。
 
 ## 決定（PR 1：群聊）
 
@@ -71,6 +71,25 @@
 - 計畫要求實作時確認：SNS 群聊的外層 ctx 帶著 bot 的靈魂（MonitorLayer 以已驗證身分退路判成靈魂），ToolLayer 就替它組一份 `<harness_context>`，寫的模型是 ToukaGroup；ADR-0316 保留系統加的說明，所以這份會被複製給每位成員。確認屬實。
 - 改成群聊回合（模型名稱是 `GROUP_MODEL`，和分發器一樣不分大小寫）不注入，和網頁群聊一致（網頁群聊的外層本來就不是靈魂）。群聊成員的情況寫在群聊說明裡；群聊成員各自的時間與工具留給第五批（群聊-3）。
 
+## 決定（PR 2a：失敗與送不出去）
+
+### 7. 失敗句不存進對話，節點只帶旗標
+
+- 心跳脈衝與 SNS 都設 `caller_sends_failure_text`（決定 5），`react_core` 不把失敗句當成回覆文字送出。
+- 心跳脈衝的模型失敗：已經寫出的文字與工具步驟照存，這個脈衝最後寫入的節點加 `generationFailed: true`。一個字都沒寫也留一個空節點，被 `TURN_SPLIT_PATTERN` 分段存過的加在最後一段。
+- 整個心跳出例外：寫一則空的 `System` 節點加 `generationFailed: true`；錯誤原文只進 log（照舊消毒），不再寫「多脈衝任務執行失敗」那句。
+- 組歷史時由 `annotate_node` 加「〔本回合出錯，沒有完成〕」（ADR-0318），網頁照舊顯示「這一輪回覆失敗」。只有記號的節點不會被 `drop_blank_assistant_turns` 拿掉（記號在那之前加）。
+
+### 8. SNS 先送再存，送不出去留記號
+
+- 收完回覆後先送、再存，兩件事都在 `replying(session_id)` 裡（ADR-0307）。外送的是模型寫的文字；模型失敗時再接固定失敗文字「⚠️ 這一輪回覆失敗，請稍後再試。」；存下的只有模型寫的文字。
+- 送出前先用 `read_execution_snapshot` 確認這段對話還歸這個靈魂：串流期間被改歸別的靈魂時照舊拒絕、不送（`test_sns_assistant_write_rechecks_scope_before_sending` 鎖住；計畫寫「先送再存」時沒想到這點，實作時補上）。
+- adapter 回 `False` 或丟例外算沒送到：節點加 `deliveryFailed: true` 與 `deliveryPlatform`（平台代號）。
+- 送出之後存檔失敗（回 `False`、歸屬改變、資料庫錯誤）只記 log，不往 adapter 丟：外人已經收到回覆，平台不會再回一句「內部錯誤」。以前反過來：存了沒送。
+- 新記號「〔這則回覆沒有送到 {平台}〕」：前後端同名常數（`interjection_notes.py`／`turnNotes.ts`），平台只用固定名稱（Discord、Telegram，其他寫「外部平台」）。和停止／出錯同時成立時，停止／出錯在前、沒有送到在後，一行一個。
+- 網頁看這段頻道對話時顯示一行「這則回覆沒有送到 Discord。」（i18n；認不得的平台寫「外部平台」）。SNS 頻道歷史（`sns_channel_history`）經 `annotate_node`，兩種記號都看得到。
+- SNS 群聊不存對話，只照舊外送（成員失敗的外送文字由分發器補，決定 5）。
+
 ## 取捨與影響
 
 - 群聊成員的請求裡，別人的話從 assistant 搬到 user 那側。對模型來說 user 那側比較像指令，所以寫明是資料、不是使用者的指示；Auto 模式時審查員仍是最後一道關（只看人類原話，成員發言進不去），YOLO 沒有審查員。合併前做小量真模型實測（維護者決定二甲），包含別的成員在發言裡要它做事的案例。
@@ -85,7 +104,7 @@
 - 舊的群聊回合只有一位成員、而且那位已經退出（別名解析不到）時，不切，照舊算成自己說的：和開頭剛好像標籤的一般回覆分不開。
 - 同一位被點兩次（@A @A）而第一次出錯時，第二次只看到自己說了一半的 assistant，沒有出錯的標記。
 - SNS 獨立頻道的單人回合（`sns_channel_history`）看得到同一頻道之前的 SNS 群聊回合，仍以 assistant 送出：別人的話又變成「自己說的」。留給 PR 3 或之後。
-- IDE、API 與 SNS 群聊的成員失敗時，失敗句送出後會被存進那位成員的段落，下一輪切段時就成了那位成員的話：PR 2 改成不存失敗句。
+- 網頁、IDE、API 群聊的成員失敗時，分發器送出的失敗句會跟著存進那位成員的段落（網頁由前端存、IDE 與 API 存在用戶端），下一輪切段時就成了那位成員的話；網頁的那一則另有出錯記號。SNS 群聊不存對話，沒有這個問題（PR 1 時寫成「PR 2 改成不存失敗句」，PR 2a 核對後更正：PR 2a 只處理心跳與 SNS 單人回合，群聊這條留給第五批或之後）。
 
 ## 驗證（PR 1）
 
@@ -95,3 +114,12 @@
 - `tests/unit/test_model_error_text_security.py`：兩種群聊的成員失敗（外送文字只送一次、下一位看到的內容、不洩漏錯誤原文）。
 - `tests/unit/test_harness_context.py`：群聊回合不注入（名稱不分大小寫）。
 - `tests/smoke/smoke_agent_interaction.py`：假模型記下每位成員收到的請求，第二位收到的第一位的話是群聊成員發言、在 user 那側、不補接續發言（舊程式上會失敗：收到 assistant＋接續發言）。這支與 `smoke_group_dispatcher.py` 原本在讀家對話時就出錯（dev 上也一樣，CI 不跑冒煙測試），改成把 `inject_mainline` 換成假的。
+- 合併前小量真模型實測（維護者 11/18 同意）：Haiku 5.5、Sonnet 5.5 各 10 個虛構群聊案例，20 則都分得清誰說的、不照別的成員發言裡的要求做事、SNS 不透露私事；US$0.034。
+
+## 驗證（PR 2a）
+
+- `tests/unit/test_reply_failure_marks.py`（新）：SNS 先送再存、送出前檢查歸屬、模型失敗外送文字＋固定失敗文字而只存文字、零文字失敗也留節點、送不出去（回 `False`、丟例外）記 `deliveryFailed`、送出後存檔失敗只記 log；心跳脈衝失敗保留已寫的文字、零文字失敗留節點、分段後失敗標在最後一段、兩邊都設 `caller_sends_failure_text`。
+- `tests/unit/test_model_error_text_security.py`：真的模型回合失敗時，心跳與 SNS 存下的都只有旗標，失敗句與錯誤原文不進對話；整個心跳出例外只存空的出錯節點。
+- `tests/unit/test_previous_turn_marks.py`：「沒有送到」記號與前端常數、平台名稱一字不差；排在出錯記號之後；只認 `True`。
+- `tests/unit/test_sns_channel_history.py`：頻道歷史帶出錯與沒有送到兩種記號。
+- 前端：`buildApiMessage.test.ts`（組歷史加記號）、`MessageItem.test.tsx`（畫面顯示「沒有送到」，認不得的平台寫外部平台）。

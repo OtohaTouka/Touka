@@ -120,6 +120,10 @@ export interface MessageNode {
   generationFailed?: boolean;
   /** ADR-0318：使用者停止了這一輪；畫面不變，組歷史時加記號（後端原樣收存）。 */
   generationStopped?: boolean;
+  /** ADR-0322：SNS 回覆送不出去（後端寫入）；畫面標「沒有送到」，組歷史時加記號。 */
+  deliveryFailed?: boolean;
+  /** ADR-0322：送不出去的平台代號（discord、telegram…）；只用來對到固定名稱。 */
+  deliveryPlatform?: string;
 }
 
 export interface TreeHistory {

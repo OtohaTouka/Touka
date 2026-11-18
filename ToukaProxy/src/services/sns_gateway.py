@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.core.exceptions import ErrorCode, ToukaException
+from src.handlers.react_core import SNS_FAILURE_NOTICE
 from src.models.context import PipelineContext
 from src.models.sns import SNSIncomingEvent, SNSOutgoingMessage  # noqa: TC001
 from src.protocols.sns_base import BaseSNSAdapter  # noqa: TC001
@@ -15,7 +16,7 @@ from src.services.auth_service import AuthService
 from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.services.reply_in_flight import replying
-from src.utils.async_db import session_service
+from src.utils.async_db import SessionPersistenceError, session_service
 from src.utils.tool_step_collector import ToolStepCollector
 from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
@@ -209,6 +210,8 @@ class SNSGatewayService:
             "session_id": session_id,
             "agent_id": identity.agent_id,
             "sns_source": True,
+            # 失敗句由這裡接在外送文字後面，不當成回覆文字存進對話（ADR-0322 PR 2）
+            "caller_sends_failure_text": True,
         })
 
         # 4a. 決定模型：@alias → ToukaGroup 群聊分發器，否則單 Agent
@@ -258,32 +261,67 @@ class SNSGatewayService:
             raise
         await self._save_user_message(session_id, content, identity)
 
-        # 5. 聚合回應內容 (Aggregator)、紀錄 Assistant 回覆：存好之前這段對話算有回覆在跑，
-        #    換家交接要等（ADR-0307；外人訊息剛存好，中間沒有 await）
+        # 5. 聚合回應、先送再存（ADR-0322 PR 2）：存好之前這段對話算有回覆在跑，換家交接要等
+        #    （ADR-0307；外人訊息剛存好，中間沒有 await）。外送的是模型寫的文字，模型失敗時再接
+        #    固定失敗文字；存下的只有模型寫的文字，節點標出錯或沒送到。
         with replying(session_id):
             tool_steps = ToolStepCollector()
             full_text = await self._collect_reply(response, tool_steps)
+            failed = bool(ctx.get("model_failed"))
+            outgoing = full_text
+            if failed:
+                outgoing = "\n\n".join(part for part in (full_text, SNS_FAILURE_NOTICE) if part)
+            if session_id:
+                # 送出前先確認這段對話還歸這個靈魂（串流期間可能被改掉）；不對就照舊拒絕、不送
+                await session_service.read_execution_snapshot(session_id, identity)
+            delivered = (
+                await self._deliver(adapter, event.channel_id, outgoing) if outgoing else True
+            )
             # 只用了工具、沒有文字的也存（步驟留給下一輪的工具紀錄），但不往外送
-            if (
-                (full_text or tool_steps.steps)
-                and session_id
-                and not await session_service.append_message_to_session(
-                    session_id,
-                    "assistant",
-                    full_text,
-                    name=target_agent_id,
-                    identity=identity,
-                    extra_fields=tool_steps.node_fields(),
-                )
-            ):
-                raise ToukaException(ErrorCode.SESSION_SAVE_FAILED)
+            if session_id and (full_text or tool_steps.steps or failed):
+                fields = tool_steps.node_fields()
+                if failed:
+                    fields["generationFailed"] = True
+                if not delivered:
+                    fields.update(deliveryFailed=True, deliveryPlatform=event.platform)
+                await self._save_reply(session_id, full_text, identity, fields)
 
-        # 6. 發送
-        if full_text:
-            outgoing = SNSOutgoingMessage(text=full_text)
-            await adapter.send_message(event.channel_id, outgoing)
+        return outgoing
 
-        return full_text
+    @staticmethod
+    async def _save_reply(
+        session_id: str,
+        text: str,
+        identity: "AgentIdentity",
+        fields: dict[str, Any],
+    ) -> None:
+        """外人已經收到回覆之後才存.
+
+        存不進去只記 log，不往 adapter 丟：平台才不會再回外人一句內部錯誤。
+        """
+        try:
+            saved = await session_service.append_message_to_session(
+                session_id, "assistant", text, name=identity.agent_id, identity=identity,
+                extra_fields=fields,
+            )
+        except ToukaException as exc:
+            logger.warning("%s", exc.code.name)
+            return
+        except SessionPersistenceError:
+            logger.warning("%s", ErrorCode.SESSION_SAVE_FAILED.name)
+            return
+        if not saved:
+            logger.warning("%s", ErrorCode.SESSION_SAVE_FAILED.name)
+
+    @staticmethod
+    async def _deliver(adapter: BaseSNSAdapter, channel_id: str, text: str) -> bool:
+        """送出一則回覆；adapter 回 ``False`` 或丟例外都算沒送到（只記 log）."""
+        try:
+            sent = await adapter.send_message(channel_id, SNSOutgoingMessage(text=text))
+        except Exception:
+            logger.exception("SNS reply could not be delivered")
+            return False
+        return sent is not False
 
 
 # Singleton 實例

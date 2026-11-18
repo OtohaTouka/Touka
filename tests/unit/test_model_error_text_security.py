@@ -68,10 +68,14 @@ def soul_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def assert_clean(text: str) -> None:
+def assert_no_secrets(text: str) -> None:
     for secret in (API_KEY, BEARER_VALUE, FIELD_VALUE, URL_VALUE, LOCAL_PATH):
         assert secret not in text
     assert FILLER not in text
+
+
+def assert_clean(text: str) -> None:
+    assert_no_secrets(text)
     assert len(text) <= MAX_TEXT
 
 
@@ -230,7 +234,8 @@ def test_subagent_crash_summary_is_masked() -> None:
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_crash_text_saved_in_the_conversation_is_masked() -> None:
+async def test_heartbeat_crash_saves_only_a_failed_mark_in_the_conversation() -> None:
+    """整個心跳出例外：寫一則空的 System 節點加出錯旗標，錯誤原文只進 log（ADR-0322 PR 2）."""
     sessions = MagicMock(append_message_to_session=AsyncMock(return_value=True))
     with (
         patch("src.routers.heartbeat._execute_single_pulse",
@@ -249,16 +254,20 @@ async def test_heartbeat_crash_text_saved_in_the_conversation_is_masked() -> Non
             init_prompt="test",
             is_home_mode=False,
         )
-    saved = [call.args[2] for call in sessions.append_message_to_session.await_args_list]
-    assert len(saved) == 1
-    assert_clean(saved[0])
-    assert "多脈衝任務執行失敗" in saved[0]
+    [call] = sessions.append_message_to_session.await_args_list
+    assert call.args[1:3] == ("assistant", "")
+    assert call.kwargs["name"] == "System"
+    assert call.kwargs["extra_fields"] == {"generationFailed": True}
+    stored = json.dumps([call.args, call.kwargs], ensure_ascii=False, default=str)
+    assert "多脈衝任務執行失敗" not in stored
+    assert_no_secrets(stored)
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_round_text_saved_in_the_conversation_is_masked(
+async def test_heartbeat_round_failure_saves_the_mark_not_the_failure_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """真的模型回合失敗：失敗句與錯誤原文都不進對話，節點只帶出錯旗標（ADR-0322 PR 2）."""
     sid = "sess-mask-pulse"
     tree = TreeMessageManager.append_node(TreeMessageManager.create_empty_tree(), "user", "hello")
 
@@ -293,11 +302,12 @@ async def test_heartbeat_round_text_saved_in_the_conversation_is_masked(
             init_prompt="test",
         )
     saved_tree = save.await_args_list[-1].args[2].messages
-    replies = [node["content"] for node in saved_tree["messages"].values()
-               if node["role"] == "assistant"]
-    assert len(replies) == 1
-    assert "API Error (400)" in replies[0]
-    assert_clean(replies[0])
+    [reply] = [node for node in saved_tree["messages"].values() if node["role"] == "assistant"]
+    assert reply["content"] == ""
+    assert reply["generationFailed"] is True
+    stored = json.dumps(saved_tree, ensure_ascii=False)
+    assert "API Error" not in stored
+    assert_no_secrets(stored)
 
 
 # ── SNS：頻道裡是外人，只留固定文字 ──────────────────────────────────
@@ -331,9 +341,10 @@ def _pipeline_fills_the_context(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sns_failure_sends_and_stores_only_the_fixed_text(
+async def test_sns_failure_sends_the_fixed_text_and_stores_only_a_mark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """外人只收到固定文字；對話裡存空回覆加出錯旗標，失敗句與錯誤原文都不存（ADR-0322 PR 2）."""
     gateway = SNSGatewayService()
     adapter = MockAdapter(agent_id="Alice")
     identity_service, sessions = _make_mocks()
@@ -350,9 +361,13 @@ async def test_sns_failure_sends_and_stores_only_the_fixed_text(
 
     assert returned == SNS_FAILURE_NOTICE
     assert [message.text for _channel, message in adapter.sent_messages] == [SNS_FAILURE_NOTICE]
-    stored = [call.args[2] for call in sessions.append_message_to_session.await_args_list
-              if call.args[1] == "assistant"]
-    assert stored == [SNS_FAILURE_NOTICE]
+    [stored] = [call for call in sessions.append_message_to_session.await_args_list
+                if call.args[1] == "assistant"]
+    assert stored.args[2] == ""
+    assert stored.kwargs["extra_fields"]["generationFailed"] is True
+    saved_text = json.dumps([stored.args, stored.kwargs], ensure_ascii=False, default=str)
+    assert SNS_FAILURE_NOTICE not in saved_text
+    assert "API Error" not in saved_text
     # 心跳共用這份設定：SNS 的標記不能留在上面
     assert not gateway.context.get("sns_source")
 
