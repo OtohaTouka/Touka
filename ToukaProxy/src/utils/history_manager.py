@@ -10,6 +10,7 @@ from typing import Any
 
 from .time_utils import get_current_epoch
 from .tool_record_marks import split_record_segments
+from .turn_notices import strip_legacy_log_lines
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,8 @@ def sanitize_history(messages: list[dict | Any]) -> None:
     """清理歷史訊息中的工具執行記錄與幻覺警告。
 
     系統組的工具紀錄段（ADR-0319）不清：裡面的結果開頭可能有日期，日期規則會吃掉。
+    先用和組歷史同一份清單拿掉舊日誌行（ADR-0322 PR 2b；含時間記錄的開頭與粗體警告），
+    再套下面這些更舊的格式。
     """
     patterns = [
         r"\n?(?:> 正在執行工具：|\(開始調用工具\)).*?(?:✅|❌|✓|✕)[^\n]*",
@@ -154,7 +157,7 @@ def sanitize_history(messages: list[dict | Any]) -> None:
 
         if role == "assistant" and isinstance(content, str):
             new_content = "".join(
-                part if is_record else _scrub(part, regex)
+                part if is_record else _scrub(strip_legacy_log_lines(part), regex)
                 for is_record, part in split_record_segments(content)
             ).strip()
             if new_content != content:

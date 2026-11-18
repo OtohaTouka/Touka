@@ -40,6 +40,7 @@ from src.services.models.model_rules import (
 )
 from src.services.prompt_blocks import VOLATILE_SYSTEM_TAGS
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
 from .base import (
@@ -417,7 +418,9 @@ class ClaudeAdapter:
         if allows_forced_tool_choice(state.kwargs["model"], "thinking" in state.kwargs):
             state.kwargs["tool_choice"] = {"type": "any"}
             state.honesty_forced = True
-        return MidLoopAction(deltas=[guard_service.get_honesty_warning_message()])
+        return MidLoopAction(
+            notices=[turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
+        )
 
     def extract_usage(self, _state: _State, raw: Any) -> tuple[dict, int, int]:
         """SDK usage → 四欄正規化（input_tokens 本來就不含快取；SDK 的 None 一律 0）。

@@ -26,6 +26,7 @@ from src.handlers.adapters.base import ProviderAdapter, RoundError, ToolCall, Tu
 from src.handlers.adapters.responses_adapter import ResponsesAdapter
 from src.services.guard_service import guard_service
 from src.services.models.model_rules import rules_for
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 CTX = {"provider": "OpenAI", "base_url": "https://api.openai.test/v1", "api_key": "fake-key"}
 USAGE = {"input_tokens": 1200, "input_tokens_details": {"cached_tokens": 1024},
@@ -163,7 +164,8 @@ async def test_honesty_guard_forces_then_releases_tool_choice():
     turn = Turn(visible_text=claim["content"][0]["text"], raw_assistant=[claim])
     action = adapter.mid_loop_hook(state, turn, set(), True)
     assert action is not None
-    assert action.deltas == [guard_service.get_honesty_warning_message()]
+    assert action.notices == [  # 警告是小提示，不進回覆文字（ADR-0322 PR 2b）
+        turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
     assert state.kwargs["input"][1:] == [
         claim, {"role": "user", "content": guard_service.get_honesty_correction_prompt()}]
     assert state.kwargs["tool_choice"] == "required"

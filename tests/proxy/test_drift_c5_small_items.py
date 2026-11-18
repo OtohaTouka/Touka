@@ -19,6 +19,7 @@ import pytest
 from src.handlers import react_core
 from src.handlers.gemini_handler import handle_gemini_request
 from src.models.identity import AgentIdentity
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED, turn_notice_event
 
 from tests.helpers.stream_transport import FakeUpstream, gemini_stream_reply
 
@@ -43,7 +44,7 @@ async def test_gemini_tool_calls_get_synthesized_call_ids():
                              for r in (tool_resp, text_resp, text_resp)])
 
     async def mock_execute(name, args, req_id, c, queue, **kwargs):
-        await queue.put({"type": "log", "content": f"[{name} done]"})
+        await queue.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await queue.put(None)
         return "OK"
 

@@ -198,7 +198,8 @@ async def _pump_ui_stream(
     else:
         if admission.mode == "incognito":
             result = SkippedResult(status="skipped", reason="incognito")
-        elif not full_content.strip() and not tool_steps.steps:  # 只用了工具也存（ADR-0319）
+        elif not full_content.strip() and not tool_steps.node_fields():
+            # 沒文字、也沒有工具步驟（ADR-0319）或小提示（ADR-0322 PR 2b）才不存
             result = SkippedResult(status="skipped", reason="no_text")
         else:
             try:

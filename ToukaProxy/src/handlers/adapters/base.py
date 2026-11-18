@@ -107,9 +107,12 @@ class Turn:
 
 @dataclass
 class MidLoopAction:
-    """mid_loop_hook 的指示：先 yield deltas、再重入迴圈（不 break）。"""
+    """mid_loop_hook 的指示：先送出小提示事件、再重入迴圈（不 break）。
 
-    deltas: list[str] = field(default_factory=list)
+    警告是畫面上的小提示，不混進回覆文字（ADR-0322 PR 2b）。
+    """
+
+    notices: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

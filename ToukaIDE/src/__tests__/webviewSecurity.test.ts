@@ -285,6 +285,22 @@ describe('ToukaIDE Webview plain-text security boundary', () => {
         expect(harness.document.innerHtmlWrites).toEqual([]);
     });
 
+    it('shows a turn notice as literal text between the reply parts it splits', () => {
+        const harness = createHarness();
+
+        harness.window.dispatchMessage({ type: 'stream', content: '先查' });
+        harness.window.dispatchMessage({ type: 'turn_notice', kind: 'tool_finished', text: HOSTILE_TEXT });
+        harness.window.dispatchMessage({ type: 'stream', content: '好了' });
+
+        const chat = harness.document.getElementById('chat-container');
+        expect(chat.children.map((child) => [child.className, child.textContent])).toEqual([
+            ['message assistant', '先查'],
+            ['system-notice', HOSTILE_TEXT],
+            ['message assistant', '好了'],
+        ]);
+        expect(harness.document.innerHtmlWrites).toEqual([]);
+    });
+
     it('renders hostile plan titles and steps as literal text', () => {
         const harness = createHarness();
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.utils.turn_notices import strip_legacy_log_lines
+
 # 給模型看的固定格式（不是畫面文字）；改動時前端同名常數要一起改
 INTERJECTION_NOTE_TEMPLATE = "〔本回合中使用者補充（第 {step} 步）：{text}〕"
 # 這一輪沒做完（ADR-0318）；同樣是給模型看的固定文字，前端同名常數要一起改
@@ -78,18 +80,17 @@ def _turn_notes(node: dict[str, Any]) -> str | None:
 def annotate_node(node: dict[str, Any], *, tool_record: str = "") -> dict[str, Any]:
     """助理節點帶插話、沒做完、沒送到或有工具紀錄、且 content 是文字時，回傳加上標註的副本。
 
+    舊回覆裡混進來的日誌行先拿掉（ADR-0322 PR 2b）；小提示（``notices``）不送給模型。
     其他節點原樣返回。順序：停止／出錯記號、沒有送到的記號、插話標註、工具紀錄
     （``tool_record``，ADR-0319，由 ``utils/tool_records.py`` 組好傳進來；預設不加）、原本的文字。
     """
     content = node.get("content")
-    note = _turn_notes(node)
-    if (
-        node.get("role") != "assistant"
-        or (note is None and not tool_record and not _delivered(node.get("interjections")))
-        or not (content is None or isinstance(content, str))
-    ):
+    if node.get("role") != "assistant" or not (content is None or isinstance(content, str)):
         return node
-    body = content or ""
+    body = strip_legacy_log_lines(content or "")
+    note = _turn_notes(node)
+    if note is None and not tool_record and not _delivered(node.get("interjections")):
+        return node if body == (content or "") else {**node, "content": body}
     if tool_record:
         body = f"{tool_record}\n\n{body}" if body else tool_record
     text = with_interjection_notes(body, node.get("interjections"))

@@ -21,6 +21,7 @@ from src.handlers.adapters.openai_adapter import OpenAIAdapter
 from src.handlers.adapters.sampling import SAMPLING_PARAM_NAMES
 from src.services.guard_service import guard_service
 from src.services.rhythm_service import WRAP_UP_NOTE
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 
 def _request(messages: list[dict], **extra) -> MagicMock:
@@ -432,7 +433,8 @@ async def test_openai_honesty_hook_injects_corrects_and_latches(adapter):
     )
     action = adapter.mid_loop_hook(state, turn, set(), True)
     assert action is not None
-    assert action.deltas == [guard_service.get_honesty_warning_message()]
+    assert action.notices == [  # 警告是小提示，不進回覆文字（ADR-0322 PR 2b）
+        turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
     msgs = state.payload["messages"]
     assert msgs[-2] is turn.raw_assistant  # assistant 原形透傳
     assert msgs[-1]["role"] == "user"

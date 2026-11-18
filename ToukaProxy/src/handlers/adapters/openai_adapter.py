@@ -21,6 +21,7 @@ from src.services.guard_service import guard_service
 from src.services.models.model_rules import COMPAT_STREAM_PROVIDERS, rules_for
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.reasoning import split_reasoning
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
 from .base import (
@@ -448,7 +449,9 @@ class OpenAIAdapter:
         if state.forced_tool_choice:  # 規則表不允許強制就只靠矯正提示
             state.payload["tool_choice"] = "required"
             state.honesty_forced = True
-        return MidLoopAction(deltas=[guard_service.get_honesty_warning_message()])
+        return MidLoopAction(
+            notices=[turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
+        )
 
     def telemetry_model(self, _state: _State, request: Any) -> str:
         """遙測/計費用模型名（openai＝request.model，凍結舊制）。"""

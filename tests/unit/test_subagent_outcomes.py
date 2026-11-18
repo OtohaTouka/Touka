@@ -27,6 +27,7 @@ from src.models.identity import AgentIdentity
 from src.services import tool_errors
 from src.services.rhythm_service import rhythm_service
 from src.tools import subagent_tools as st
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED
 
 from tests.helpers.stream_transport import FakeUpstream, json_reply, stream_reply
 from tests.proxy.characterization.harness import (
@@ -37,6 +38,7 @@ from tests.proxy.characterization.harness import (
     make_mock_executor,
     msg,
 )
+from tests.support.notices import notice_kinds
 
 _GUARD_S = 10.0  # 測試護欄：生產碼的時限都遠小於它
 _VENDOR_TEXT = "VENDOR-SAYS-QUOTA-GONE"
@@ -320,9 +322,12 @@ def test_a_short_result_is_left_alone():
     assert result["result_summary"] == "結論：沒問題。"
 
 
-@pytest.mark.parametrize(("subagent_run", "has_log"), [(True, False), (False, True)])
-async def test_the_subagent_text_has_no_tool_log_lines(monkeypatch, subagent_run, has_log):
-    """子代理沒人看畫面：工具日誌行不串進它的文字（模型照樣收到工具結果）。主代理照舊。"""
+@pytest.mark.parametrize("subagent_run", [True, False])
+async def test_the_subagent_text_has_no_tool_log_lines(monkeypatch, subagent_run):
+    """工具日誌行不串進回覆文字（模型照樣收到工具結果）.
+
+    子代理和主代理一樣，日誌行只是小提示事件（ADR-0322 PR 2b）。
+    """
     clock = make_clock()
     install_clock(monkeypatch, "src.handlers.react_core", clock)
     sid, rid = "sess-sub-log", "req-sub-log"
@@ -360,9 +365,13 @@ async def test_the_subagent_text_has_no_tool_log_lines(monkeypatch, subagent_run
             chunks = await drain(handle_openai_request(request, ctx))
     finally:
         rhythm_service.clear_session(sid)
-    text = "".join(chunks)
+    text = "".join(
+        (json.loads(c[6:]).get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+        for c in chunks if c.startswith("data: {")
+    )
     assert "結論：清單如上。" in text
-    assert ("[vault_tools done]" in text) is has_log
+    assert "[vault_tools done]" not in text
+    assert notice_kinds(chunks) == [NOTICE_TOOL_FINISHED]
 
 
 # --------------------------------------------------------------------------- #

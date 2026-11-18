@@ -27,6 +27,7 @@ from src.services.providers import pricing
 from src.services.resource_manager import resource_manager
 from src.services.telemetry import accumulate_token_usage
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED, turn_notice_event
 
 from tests.helpers.stream_transport import FakeUpstream, Reply, sse
 
@@ -151,7 +152,7 @@ async def _run_gemini(agent_id: str, thoughts: int) -> list[str]:
         record_tool_usage(used, name, args)
         record_tool_executed(used, name, args)
         record_tool_succeeded(used, name, args)
-        await queue.put({"type": "log", "content": f"[{name} done]"})
+        await queue.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await queue.put(None)
         return "ok"
 

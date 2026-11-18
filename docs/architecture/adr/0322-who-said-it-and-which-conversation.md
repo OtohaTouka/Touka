@@ -1,11 +1,11 @@
 # ADR-0322：誰說的話、在哪種對話（可視性第四批）
 
-- 狀態：🚧 實作中（PR 1 群聊 2026-11-18 合併；PR 2a 失敗與送不出去 2026-11-18；PR 2b 執行記錄、PR 3 對話種類與心跳叫醒待做）
+- 狀態：🚧 實作中（PR 1 群聊 2026-11-18 合併；PR 2a 失敗與送不出去 2026-11-18；PR 2b 執行記錄只給畫面看 2026-11-18；PR 3 對話種類與心跳叫醒待做）
 - 日期：2026-11-18
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 87 項回「全部照建議」：SNS 頻道與群聊照舊帶家對話原文並加說明；群聊 PR 合併前小量試真模型）
 - 相關：[ADR-0245](0245-model-layer-stage-2a.md)（群聊成員只限靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組、保留系統加的說明）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（工具紀錄的防偽做法）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（審查員只看人類原話）
-- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a）
-- 影響範圍：PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
+- 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a；不經網頁的停止也記 `generationStopped`、子代理不再特別略過日誌行，PR 2b）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（照抄紀錄與工具幻覺的警告改成小提示，PR 2b）；[ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 那段說明照舊留在回覆文字裡（PR 2b 確認不改）
+- 影響範圍：PR 2b：`ToukaProxy/src/utils/turn_notices.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`handlers/adapters/`（`MidLoopAction`）、`utils/tool_step_collector.py`、`utils/interjection_notes.py`、`utils/history_manager.py`、`routers/heartbeat.py`、`services/sns_gateway.py`、`services/dispatcher.py`、前端 `lib/chat/turnNotices.ts`（新）、`components/chat/TurnNoticeList.tsx`（新）、`stream_tree.ts`、`connections.ts`、`buildApiMessage.ts`、翻譯檔、`ToukaIDE/src/providers/ChatViewProvider.ts`、`ToukaIDE/src/webview/main.js`。PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
 
 ## 背景
 
@@ -90,12 +90,35 @@
 - 網頁看這段頻道對話時顯示一行「這則回覆沒有送到 Discord。」（i18n；認不得的平台寫「外部平台」）。SNS 頻道歷史（`sns_channel_history`）經 `annotate_node`，兩種記號都看得到。
 - SNS 群聊不存對話，只照舊外送（成員失敗的外送文字由分發器補，決定 5）。
 
+## 決定（PR 2b：執行記錄只給畫面看）
+
+### 9. 系統說明改成畫面上的小提示
+
+- 工具計時、工具失敗、工具例外、政策攔截、hook 拒絕、要人核准但沒人在場（`tool_executor`），以及工具輪額度與成本上限、不經網頁時的中斷、拒答、廠商安全過濾、工具幻覺、照抄工具紀錄、記憶幻覺、誠實度警報（`react_core` 與四家 adapter 的 `MidLoopAction`），都改送 `turn_notice` 事件，不再接進回覆文字。種類是固定列舉（`utils/turn_notices.py` `NOTICE_KINDS`，前端同名常數），參數只收字串與整數、各截到 300 字。
+- 網頁照種類用 i18n 顯示在回覆下方（灰字、可收合；全是工具計時時預設收合），存在助理節點的 `notices`（每則只存種類與參數，每個節點最多 50 則）。後端的三種存檔（網頁文字版、心跳、SNS）由 `ToolStepCollector` 存同一個欄位；只有小提示、沒有文字的回覆也存。
+- VS Code 擴充轉送這個事件，在聊天畫面另起一行小字，顯示事件帶的 `text`（後端組好、已截短），擴充裡不再寫第三份種類對照；後面的回覆文字接在它下面。
+- 工具例外的原文先經 `sanitize_error_text` 才放進小提示（會被存下、畫面看得到）。
+- 不經網頁的路徑（心跳、SNS）按停止時 `react_core` 不丟例外：收集器看到中斷的小提示就在節點標 `generationStopped`，下一輪由 ADR-0318 的記號告訴模型。計畫寫的是另外讀停止狀態，改成看串流裡的中斷小提示，判斷只在一個地方。
+- 小提示不送給模型：組歷史時不讀 `notices`。SNS 只送模型寫的文字，工具名稱、執行時間與工具例外原文不再送到外部平台（SECURITY.md 記一筆）。
+- 不改的：AI 問使用者問題沒等到回答時的那段說明（`utils/ask_user_stop.py`，ADR-0308）照舊留在回覆文字裡：問題與選項不會帶到下一輪，還有「回答前不得代為決定」這條限制。
+- 子代理只收文字片段，事件不會擠掉它的結論，所以不再特別略過（ADR-0318 原本略過的是日誌文字）。
+
+### 10. 舊對話裡的日誌行，送給模型時拿掉
+
+- `LEGACY_LOG_LINES`：每種舊日誌行記開頭與它產生時自帶的結尾，從開頭比對到結尾為止，不要求在行首（模型先寫字再呼叫工具時，日誌行直接黏在後面）；中間不能換行、不能有結尾的第一個字、不能超過 300 字，模型在同一行引用時後面自己寫的字才不會被吃掉。記的是舊對話裡實際有的格式，不跟著目前的提示文字改。前後端同名常數一字不差，黃金案例前後端共用（`ToukaChat/src/lib/chat/__tests__/legacyLogLines.golden.json`）。
+- 套在前端 `buildApiHistory`，以及後端 `annotate_node`（心跳歷史、家原文、摘要員、SNS 頻道歷史、滑動視窗都經這一層）。`sanitize_history` 先用同一份清單，再套原本更舊的格式（原本的規則留下「✅ `」殘渣、對不到粗體警告）。
+- 有拿掉才去掉前後多出來的換行，沒有就原樣返回；使用者的訊息不動。
+
 ## 取捨與影響
 
 - 群聊成員的請求裡，別人的話從 assistant 搬到 user 那側。對模型來說 user 那側比較像指令，所以寫明是資料、不是使用者的指示；Auto 模式時審查員仍是最後一道關（只看人類原話，成員發言進不去），YOLO 沒有審查員。合併前做小量真模型實測（維護者決定二甲），包含別的成員在發言裡要它做事的案例。
 - 舊的群聊回合裡被偽造的標籤（這版之前存下的）最壞情況是一段話算到錯的成員，不會比以前（全部算成自己的）更糟。
 - 標記行與說明多一些字；都在請求尾端或舊訊息裡，不影響快取的分組。
 - 文字片段原樣轉送，只有守門留過字或換過字時才重組片段（只帶文字，照最近收到的片段格式；`react_core` 的文字片段是 OpenAI 格式）。
+
+- PR 2b：只給畫面的說明不再進對話，下一輪 AI 看不到「上一輪用了哪些工具、花多久」這類日誌；工具紀錄（ADR-0319）已經帶同樣的資訊。拒答的原因（模型自己寫的）也只在小提示裡；舊對話裡的拒答原因拿掉標籤後照舊算模型的話。
+- PR 2b：IDE、API 這類用戶端自己存歷史，不會有 `notices`；IDE 按停止後，下一輪 AI 看不到「上一輪被中斷」（以前靠混在回覆裡的那一行）。SNS 按停止時外人不會再收到「已由使用者中斷」。
+- PR 2b：三家模型的串流黃金檔重錄 26 個，逐一核對過：只有日誌文字片段變成小提示事件，其他片段不變。
 
 ### 已知限制
 
@@ -115,6 +138,15 @@
 - `tests/unit/test_harness_context.py`：群聊回合不注入（名稱不分大小寫）。
 - `tests/smoke/smoke_agent_interaction.py`：假模型記下每位成員收到的請求，第二位收到的第一位的話是群聊成員發言、在 user 那側、不補接續發言（舊程式上會失敗：收到 assistant＋接續發言）。這支與 `smoke_group_dispatcher.py` 原本在讀家對話時就出錯（dev 上也一樣，CI 不跑冒煙測試），改成把 `inject_mainline` 換成假的。
 - 合併前小量真模型實測（維護者 11/18 同意）：Haiku 5.5、Sonnet 5.5 各 10 個虛構群聊案例，20 則都分得清誰說的、不照別的成員發言裡的要求做事、SNS 不透露私事；US$0.034。
+
+## 驗證（PR 2b）
+
+- `tests/unit/test_turn_notices.py`（新）：事件格式與上限、例外原文消毒、事件名稱與種類、上限、舊日誌行樣式和前端一字不差、黃金案例（含黏在文字後面、行中引用、太長、多行例外只拿掉第一行）、組歷史拿掉舊日誌行而不碰使用者的話、`sanitize_history` 不留殘渣；工具執行器的完成、失敗、例外、政策攔截、hook 拒絕、沒人在場都送小提示、不送 `log`；每種都有兩種語言的畫面文字。
+- `tests/unit/test_tool_step_collector.py`：小提示照順序存、有上限、壞的略過；中斷標 `generationStopped`；心跳脈衝的文字不含小提示與舊 `log` 事件、被停的脈衝有旗標；網頁文字版存檔存小提示、只有小提示也存；SNS 被停時存旗標、不外送中斷那行。
+- `tests/unit/test_sns_notice_leak_security.py`（新）：真的 `react_core` 迴圈接真的 SNS，工具出例外時外送的只有模型的文字，存下的小提示已消毒（舊程式會把例外原文送出去）。
+- `tests/proxy/characterization/test_golden_notices.py`（新）：所有黃金檔的文字裡沒有舊日誌行、沒有 `log` 事件，各情境有對應的小提示。
+- 鎖住舊行為的測試改看小提示：中斷、記憶幻覺、照抄紀錄、拒答、成本上限、hook 拒絕、工具例外；假工具執行器改送小提示；`MidLoopAction` 改帶 `notices`。
+- 前端：`turnNotices.test.ts`（黃金案例、事件解析、套進節點有上限、事件白名單）、`TurnNoticeList.test.tsx`、`MessageItem.test.tsx`、`buildApiMessage.test.ts`；擴充：`webviewSecurity.test.ts`（小提示是純文字、把前後的回覆分開）。
 
 ## 驗證（PR 2a）
 

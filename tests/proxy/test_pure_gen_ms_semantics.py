@@ -23,6 +23,7 @@ from src.handlers.claude_handler import handle_claude_request
 from src.handlers.gemini_handler import handle_gemini_request
 from src.handlers.openai_handler import handle_openai_request
 from src.models.identity import AgentIdentity
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED, turn_notice_event
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 from tests.helpers.stream_transport import FakeUpstream, gemini_stream_reply, stream_reply
@@ -76,7 +77,7 @@ def _extract_pure_gen_ms(chunks: list[str]) -> int:
 def _mock_execute_factory(clock: dict):
     async def mock_execute(name, args, req_id, ctx, queue, **kwargs):
         clock["now"] += _TOOL_S  # 工具執行耗時（不得計入 pure_gen）
-        await queue.put({"type": "log", "content": f"[{name} done]"})
+        await queue.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await queue.put(None)
         return "Tool Success"
 

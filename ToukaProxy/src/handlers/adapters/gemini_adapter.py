@@ -34,6 +34,7 @@ from src.services.models.model_lifecycle import model_lifecycle_service, parse_g
 from src.services.models.model_rules import rules_for
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.sse import sse_line
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
 from .base import MidLoopAction, RoundError, ToolCall, Turn, hold_tool_setting, interjection_text
@@ -382,7 +383,9 @@ class GeminiAdapter:
         })
         # 強制切換為 ANY 模式以利修正
         state.payload["tool_config"] = {"function_calling_config": {"mode": "ANY"}}
-        return MidLoopAction(deltas=[guard_service.get_honesty_warning_message()])
+        return MidLoopAction(
+            notices=[turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
+        )
 
     def extract_usage(self, _state: _State, raw: Any) -> tuple[dict, int, int]:
         """UsageMetadata → 四欄正規化（promptTokenCount 含 Google 自動快取，扣掉才是未快取）。

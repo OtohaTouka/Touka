@@ -4,7 +4,7 @@ ToukaIDE 是為 VS Code 量身打造的 AI 原生開發插件。它不僅提供�
 
 ## 🚀 核心功能
 
-- **內嵌式聊天視圖**：直接與 Touka 進行對話，支援代碼解釋、重構與計畫追蹤。0.3.0延續安全純文字模式：保留換行，但不解析Markdown或HTML；Webview不載入外部CDN JavaScript（ADR-0219）。
+- **內嵌式聊天視圖**：直接與 Touka 進行對話，支援代碼解釋、重構與計畫追蹤。0.3.0延續安全純文字模式：保留換行，但不解析Markdown或HTML；Webview不載入外部CDN JavaScript（ADR-0219）。工具計時、攔截、中斷、警告這類系統說明不在回覆文字裡，另起一行小字顯示（後端送的 `turn_notice` 事件，ADR-0322）；IDE 的對話紀錄存在 VS Code 這邊，按停止之後下一輪 AI 看不到「上一輪被中斷」。
 - **提及系統 (@Mentions)**：
     - `@problems`: 獲取目前的診斷資訊 (Diagnostics)。
     - `@terminal`: 獲取終端機最後的輸出內容。

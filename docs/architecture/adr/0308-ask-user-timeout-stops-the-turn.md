@@ -4,6 +4,7 @@
 - 日期：2026-11-09
 - 決策者：維護者
 - 相關：取代 [ADR-0085](0085-ask-user-tool.md)「逾時 AI 續跑」；[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（工具步驟不送給模型）
+- 被修訂：2026-11-18 其他系統說明改成畫面上的小提示時，這段照舊留在回覆文字裡、不拿掉（by [ADR-0322](0322-who-said-it-and-which-conversation.md) 決定 9）
 - 影響範圍：`ToukaProxy/src/tools/builtin/interaction.py`、`src/utils/ask_user_stop.py`、`src/handlers/react_core.py`、`src/services/dispatchers/group.py`
 
 ## 背景

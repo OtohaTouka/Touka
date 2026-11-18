@@ -25,8 +25,10 @@ from src.models.identity import AgentIdentity
 from src.services.autonomy import autonomy_service
 from src.services.rhythm_service import rhythm_service
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
+from src.utils.turn_notices import NOTICE_INTERRUPTED, NOTICE_MEMORY_HALLUCINATION
 
 from tests.helpers.claude_stream import delegate_stream_to_create
+from tests.support.notices import notice_kinds
 
 
 def _block(btype: str, *, text=None, cid=None, name=None, inp=None):
@@ -183,7 +185,7 @@ async def test_save_in_earlier_round_no_false_memory_warning(monkeypatch, isolat
 
     texts = _decode_texts(chunks)
     assert "已經存檔" in texts  # 確認最終回覆確實宣稱了存檔（觸發偵測前提）
-    assert "記憶幻覺警告" not in texts, (
+    assert NOTICE_MEMORY_HALLUCINATION not in notice_kinds(chunks), (
         "save 發生在較早回合，最終卻誤發記憶幻覺警告（跨輪偵測遺漏）"
     )
 
@@ -220,7 +222,7 @@ async def test_blocked_save_still_warns(monkeypatch, isolate_rhythm):
 
     texts = _decode_texts(chunks)
     assert "已經存檔" in texts
-    assert "記憶幻覺警告" in texts, "存記憶被擋下卻說已存檔，沒有提醒"
+    assert NOTICE_MEMORY_HALLUCINATION in notice_kinds(chunks), "存記憶被擋下卻說已存檔，沒有提醒"
 
 
 @pytest.mark.asyncio
@@ -279,7 +281,7 @@ async def test_interrupt_after_save_preserves_detection(monkeypatch, isolate_rhy
         rhythm_service.clear_interrupt(sid)
 
     texts = _decode_texts(chunks)
-    assert "已由使用者中斷" in texts  # 確認確實走到中斷 break 路徑
-    assert "記憶幻覺警告" not in texts, (
+    assert NOTICE_INTERRUPTED in notice_kinds(chunks)  # 確認確實走到中斷 break 路徑
+    assert NOTICE_MEMORY_HALLUCINATION not in notice_kinds(chunks), (
         "save 發生在中斷前較早回合，中斷後卻誤發記憶幻覺警告（殘留 tool_use_blocks 誤判）"
     )

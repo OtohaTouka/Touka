@@ -54,6 +54,17 @@ from src.utils.progress_events import (
 from src.utils.sse import sse_line
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_usage import ToolUsage, executed_tools
+from src.utils.turn_notices import (
+    NOTICE_COST_EXHAUSTED,
+    NOTICE_INTERRUPTED,
+    NOTICE_MEMORY_HALLUCINATION,
+    NOTICE_RECORD_IMITATION,
+    NOTICE_REFUSAL,
+    NOTICE_ROUNDS_EXHAUSTED,
+    NOTICE_SAFETY,
+    NOTICE_TOOL_HALLUCINATION,
+    turn_notice_event,
+)
 
 from .adapters import retry
 from .adapters.base import ProviderAdapter, RoundError, StopReason, Turn  # noqa: TC001
@@ -68,8 +79,10 @@ MAX_SEND_ATTEMPTS = 3
 RETRY_BACKOFF_S = 2.0  # 第 n 次重試前等 n×2 秒（沿用 Gemini 舊階梯）；廠商給 retry-after 就照它
 # 下游終端 chunk 的 finish_reason（停止原因 error＝缺欄或未知值，維持 stop）。
 _FINISH_REASONS = {"max_tokens": "length", "safety": "content_filter", "refusal": "content_filter"}
-_SAFETY_NOTICE = "\n\n⚠️ 回應被廠商的安全過濾擋下。"
-_REFUSAL_NOTICE = "\n\n⚠️ 模型拒絕回答。"
+# 系統說明都是畫面上的小提示，不混進回覆文字（ADR-0322 PR 2b）；文字只給 VS Code 擴充顯示
+_SAFETY_NOTICE = "⚠️ 回應被廠商的安全過濾擋下。"
+_REFUSAL_NOTICE = "⚠️ 模型拒絕回答。"
+_INTERRUPTED_NOTICE = "⏹️ 已由使用者中斷。"
 # SNS 頻道裡是外人：不帶廠商名稱、狀態碼與原文，想知道原因看 hook 或本機紀錄
 SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
 # 人按停止時要一起收掉的工具（ADR-0312）：人放棄之後，使用者電腦上不能再動手。
@@ -396,7 +409,7 @@ async def run_react_loop(  # noqa: PLR0915
                     yield _line
                 if context.get("ui_authorized") is True:
                     raise UiGenerationStopped("cancelled")
-                yield yield_delta("\n\n⏹️ 已由使用者中斷。")
+                yield sse_line(turn_notice_event(NOTICE_INTERRUPTED, _INTERRUPTED_NOTICE))
                 yield "data: [DONE]\n\n"
                 return
 
@@ -503,7 +516,7 @@ async def run_react_loop(  # noqa: PLR0915
                     yield _line
                 if context.get("ui_authorized") is True:
                     raise UiGenerationStopped("cancelled")
-                yield yield_delta("\n\n⏹️ 已由使用者中斷。")
+                yield sse_line(turn_notice_event(NOTICE_INTERRUPTED, _INTERRUPTED_NOTICE))
                 final_raw = raw
                 break
 
@@ -512,8 +525,8 @@ async def run_react_loop(  # noqa: PLR0915
                 # 回 MidLoopAction＝yield 警告後重入迴圈（注入矯正輪）。
                 hook = adapter.mid_loop_hook(state, turn, actually_used_tools, allow_react)
                 if hook is not None:
-                    for _d in hook.deltas:
-                        yield yield_delta(_d)
+                    for _notice in hook.notices:
+                        yield sse_line(_notice)
                     continue
                 # ADR-0146：純文字＝回合結束（nudge 自主續圈已移除——與主流
                 # harness 一致；心跳的多回合由 pulse_count 與模型自覺承擔）。
@@ -535,7 +548,15 @@ async def run_react_loop(  # noqa: PLR0915
                     if over_budget
                     else f"工具輪額度已盡（{rhythm_service.get_total_rounds(request_id)} 輪）"
                 )
-                yield yield_delta(f"\n\n⚠️ {reason}，進行最後總結。\n")
+                yield sse_line(
+                    turn_notice_event(NOTICE_COST_EXHAUSTED, f"⚠️ {reason}，進行最後總結。")
+                    if over_budget
+                    else turn_notice_event(
+                        NOTICE_ROUNDS_EXHAUSTED,
+                        f"⚠️ {reason}，進行最後總結。",
+                        rounds=rhythm_service.get_total_rounds(request_id),
+                    )
+                )
                 adapter.build_denied_turn(state, turn, reason)
                 adapter.set_tool_choice(state, "none")
                 wrapping_up = True
@@ -577,12 +598,9 @@ async def run_react_loop(  # noqa: PLR0915
                     if event is None:
                         completed_count += 1
                         continue
-                    if event["type"] == "log":
-                        # 子代理沒人看畫面，日誌行只會擠掉它的結論（ADR-0318）
-                        if not context.get("subagent_run"):
-                            yield yield_delta(event["content"])
-                    else:
-                        yield sse_line(event)
+                    # 工具的小提示也只是事件，不接進回覆文字（ADR-0322 PR 2b）；子代理只收文字，
+                    # 事件不會擠掉它的結論
+                    yield sse_line(event)
 
                 # 收集結果並回報給模型
                 results = []
@@ -616,9 +634,13 @@ async def run_react_loop(  # noqa: PLR0915
     stop = _read_stop_reason(adapter, state, final_raw)
     if stop == "refusal":
         detail = turn.refusal_text.strip()
-        yield yield_delta(f"{_REFUSAL_NOTICE[:-1]}：{detail}" if detail else _REFUSAL_NOTICE)
+        yield sse_line(turn_notice_event(
+            NOTICE_REFUSAL,
+            f"{_REFUSAL_NOTICE[:-1]}：{detail}" if detail else _REFUSAL_NOTICE,
+            detail=detail,
+        ))
     elif stop == "safety":
-        yield yield_delta(_SAFETY_NOTICE)
+        yield sse_line(turn_notice_event(NOTICE_SAFETY, _SAFETY_NOTICE))
 
     # === [防幻覺打臉機制 (Guard Service)] ===
     if allow_react:
@@ -632,13 +654,19 @@ async def run_react_loop(  # noqa: PLR0915
             response_text, actually_used_tools, all_known_tools
         )
         if hallucination_warnings:
-            yield yield_delta(
-                guard_service.get_hallucination_warning_message(hallucination_warnings)
-            )
+            yield sse_line(turn_notice_event(
+                NOTICE_TOOL_HALLUCINATION,
+                guard_service.get_hallucination_warning_message(hallucination_warnings),
+                tools=", ".join(hallucination_warnings),
+            ))
         if guard_service.detect_record_imitation(response_text):  # ADR-0319：照抄工具紀錄
-            yield yield_delta(guard_service.get_record_imitation_warning_message())
+            yield sse_line(turn_notice_event(
+                NOTICE_RECORD_IMITATION, guard_service.get_record_imitation_warning_message()
+            ))
         if guard_service.check_memory_hallucination(response_text, actually_used_tools):
-            yield yield_delta(guard_service.get_memory_warning_message())
+            yield sse_line(turn_notice_event(
+                NOTICE_MEMORY_HALLUCINATION, guard_service.get_memory_warning_message()
+            ))
 
     # ADR-0292：Stop hook 在背景執行，回覆不等它
     schedule_stop_hooks(context, lambda: adapter.extract_final_text(state, final_raw))

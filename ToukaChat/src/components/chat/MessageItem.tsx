@@ -14,6 +14,7 @@ import { InterjectionMarker } from "./InterjectionMarker";
 import { AgentActivityStrip } from "./AgentActivityStrip";
 import { GenerationFailedNotice } from "./GenerationFailedNotice";
 import { DeliveryFailedNotice } from "./DeliveryFailedNotice";
+import { TurnNoticeList } from "./TurnNoticeList";
 import { GENERATION_FAILURE_KIND } from '@/hooks/useProgress';
 import { ThinkingFold } from "./ThinkingFold";
 import { MessageNode, TreeHistory } from '@/lib/tree_history';
@@ -239,6 +240,9 @@ export const MessageItem = React.memo(({
               )}
               {msg.role === 'assistant' && msg.steps && msg.steps.length > 0 && (
                 <ToolStepTracker steps={msg.steps} />
+              )}
+              {msg.role === 'assistant' && msg.notices && msg.notices.length > 0 && (
+                <TurnNoticeList notices={msg.notices} />
               )}
               {msg.role === 'assistant' && (msg.interjections?.length || msg.interruptions?.length) ? (
                 <InterjectionMarker interjections={msg.interjections ?? []} interruptions={msg.interruptions} />

@@ -12,6 +12,7 @@ import { reduceProgress } from '@/hooks/useProgress';
 import type { ChatAttachment } from '@/lib/chat/attachment';
 import type { Interjection } from '@/lib/types';
 import { ROUND_INTERRUPTED_EVENT, parseRoundInterruptedEvent } from '@/lib/chat/interjections';
+import { MAX_NOTICES_PER_NODE, TURN_NOTICE_EVENT, parseTurnNoticeEvent } from '@/lib/chat/turnNotices';
 import { getSystemEpoch } from './time_utils';
 
 /** 這一輪有核准卡或外掛工具的表單還在等人回應；決定送出後要等工具開始跑才換狀態，所以看 decision。 */
@@ -306,6 +307,14 @@ export function applyEventToTree(
       ...tree,
       messages: { ...tree.messages, [assistantMsgId]: { ...node, progress: newProgress } },
     };
+  }
+
+  // ADR-0322 PR 2b：小提示存在節點上（有上限），不進回覆文字
+  if (event.type === TURN_NOTICE_EVENT) {
+    const notice = parseTurnNoticeEvent(event);
+    const current = node.notices ?? [];
+    if (!notice || current.length >= MAX_NOTICES_PER_NODE) return tree;
+    return { ...tree, messages: { ...tree.messages, [assistantMsgId]: { ...node, notices: [...current, notice] } } };
   }
 
   if (event.type === ROUND_INTERRUPTED_EVENT) {

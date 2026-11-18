@@ -5,6 +5,8 @@
 - 心跳：一個脈衝的步驟掛在那個脈衝最後寫入的助理節點；只用了工具也寫一則（內容空白）。
 - 網頁文字版存檔（分頁關掉時）：存步驟；沒文字但有步驟也存。
 - SNS：回覆連同步驟存進對話；沒文字不往外送。
+- 小提示（ADR-0322 PR 2b）：不進回覆文字，存在節點的 ``notices``（有上限）；看到中斷的小提示就標
+  ``generationStopped``。
 """
 
 from __future__ import annotations
@@ -49,6 +51,14 @@ from src.utils.tool_step_collector import (
     STEPS_DROPPED_FIELD,
     TRUNCATED_NOTE,
     ToolStepCollector,
+)
+from src.utils.turn_notices import (
+    MAX_NOTICES_PER_NODE,
+    NOTICE_INTERRUPTED,
+    NOTICE_TOOL_FINISHED,
+    NOTICES_FIELD,
+    TURN_NOTICE_EVENT,
+    turn_notice_event,
 )
 
 
@@ -481,3 +491,66 @@ async def test_append_message_stores_the_extra_fields(tmp_path, monkeypatch):
     assert [(n["role"], n["content"], n.get("steps")) for n in linear] == [
         ("user", "hi", None), ("assistant", "回覆", [READ_STEP]), ("user", "再一則", None),
     ]  # 額外欄位只能加新的，不能蓋掉節點本身的欄位
+
+
+# --- 小提示（ADR-0322 PR 2b）：不進回覆文字，存在節點的 notices --------------------------------
+
+FINISHED = turn_notice_event(NOTICE_TOOL_FINISHED, "✅ 時間記錄：10:00", tool="read", time="10:00")
+STORED_FINISHED = {"kind": NOTICE_TOOL_FINISHED, "params": {"tool": "read", "time": "10:00"}}
+STOPPED = turn_notice_event(NOTICE_INTERRUPTED, "⏹️ 已由使用者中斷。")
+
+
+def test_notices_are_kept_in_order_with_a_cap_and_bad_ones_are_skipped():
+    collector = _collect(
+        {"type": TURN_NOTICE_EVENT, "kind": "made_up", "params": {}},
+        {"type": TURN_NOTICE_EVENT, "kind": NOTICE_TOOL_FINISHED, "params": "x"},
+        *[FINISHED] * (MAX_NOTICES_PER_NODE + 1),
+    )
+    fields = collector.node_fields()
+    assert fields[NOTICES_FIELD] == [STORED_FINISHED] * MAX_NOTICES_PER_NODE
+    assert "generationStopped" not in fields
+
+
+def test_an_interrupted_notice_marks_the_reply_as_stopped():
+    fields = _collect(STOPPED).node_fields()
+    assert fields["generationStopped"] is True
+    assert [n["kind"] for n in fields[NOTICES_FIELD]] == [NOTICE_INTERRUPTED]
+
+
+async def test_a_pulse_keeps_notices_and_old_log_events_out_of_the_reply_text(monkeypatch):
+    old_log = _sse({"type": "log", "content": "✅ `時間記錄：舊格式`\n"})
+    _turns, assistants = await _pulse(
+        monkeypatch, _text("查一下"), _sse(FINISHED), old_log, _text("好了")
+    )
+    assert [(n["content"], n[NOTICES_FIELD]) for n in assistants] == [
+        ("查一下好了", [STORED_FINISHED])]
+
+
+async def test_a_stopped_pulse_is_marked_stopped(monkeypatch):
+    _turns, assistants = await _pulse(monkeypatch, _text("寫到一半"), _sse(STOPPED))
+    assert [(n["content"], n.get("generationStopped")) for n in assistants] == [
+        ("寫到一半", True)]
+
+
+async def test_the_text_save_keeps_notices_and_saves_a_notices_only_turn(ui):
+    persistence, node = await _pump(ui, _sse(FINISHED))
+    assert persistence.status == "saved"
+    assert (node["content"], node[NOTICES_FIELD]) == ("", [STORED_FINISHED])
+
+
+async def test_sns_saves_a_stopped_turn_without_sending_the_stop_line():
+    text, append, send = await _sns(_text("寫到"), _sse(STOPPED))
+    assert text == "寫到"
+    fields = _assistant_call(append).kwargs["extra_fields"]
+    assert fields["generationStopped"] is True
+    assert [n["kind"] for n in fields[NOTICES_FIELD]] == [NOTICE_INTERRUPTED]
+    assert "中斷" not in send.await_args.args[1].text
+
+
+async def test_sns_saves_a_turn_stopped_before_any_text():
+    text, append, send = await _sns(_sse(STOPPED))
+    assert text == ""
+    call = _assistant_call(append)
+    assert call.args[2] == ""
+    assert call.kwargs["extra_fields"]["generationStopped"] is True
+    send.assert_not_awaited()

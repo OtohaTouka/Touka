@@ -1,0 +1,82 @@
+[
+  {
+    "name": "glued_after_text",
+    "input": "我來查一下✅ `時間記錄：2026-11-18 10:00:00 (週三)`\n查到了。",
+    "expected": "我來查一下查到了。"
+  },
+  {
+    "name": "inline_quote_is_kept",
+    "input": "那行寫著 ✅ `時間記錄：2026-11-18` 和 `b`\n下一行是我的話。",
+    "expected": "那行寫著 ✅ `時間記錄：2026-11-18` 和 `b`\n下一行是我的話。"
+  },
+  {
+    "name": "tool_lines_between_text",
+    "input": "先查\n✅ `時間記錄：2026-11-18 10:00:00 (週三)`\n❌ `工具執行失敗`\n🚫 攔截未授權調用: write\n🚫 hook 拒絕: read\n🖐️ 待審批攔截（fail-closed）: terminal\n❌ 執行發生例外：ValueError: boom\n結果如下",
+    "expected": "先查\n結果如下"
+  },
+  {
+    "name": "interrupt_at_the_end",
+    "input": "寫到一半\n\n⏹️ 已由使用者中斷。",
+    "expected": "寫到一半"
+  },
+  {
+    "name": "rounds_used_up_then_summary",
+    "input": "前面的話\n\n⚠️ 工具輪額度已盡（12 輪），進行最後總結。\n總結在這",
+    "expected": "前面的話\n\n總結在這"
+  },
+  {
+    "name": "cost_used_up_then_summary",
+    "input": "前面\n\n⚠️ 已達總量上限（累計成本），進行最後總結。\n總結",
+    "expected": "前面\n\n總結"
+  },
+  {
+    "name": "warnings_at_the_end",
+    "input": "答案\n\n⚠️ **[工具幻覺警告]** 您模擬了工具 `read, grep` 但未正式呼叫。\n\n⚠️ **[記憶幻覺警告]** 您承諾記錄，但這一輪沒有成功用 `memory_tools` 存下記憶。",
+    "expected": "答案"
+  },
+  {
+    "name": "record_imitation_warning",
+    "input": "答案\n\n⚠️ **[工具幻覺警告]** 您寫出了系統附加的工具紀錄格式；那是系統依存檔整理的，不是您這一輪用過的工具。",
+    "expected": "答案"
+  },
+  {
+    "name": "honesty_warning_between_rounds",
+    "input": "我記得\n\n⚠️ **[誠實度警報]** 妳提到了過去或檔案內容，但並未實際查閱工具。請先以 `memory_tools`（action=query）查記憶、或以 `read`/`grep` 等檔案工具核對檔案後再正式回答，不要憑空編造。我查一下",
+    "expected": "我記得\n\n我查一下"
+  },
+  {
+    "name": "refusal_reason_is_kept_as_the_model_words",
+    "input": "\n\n⚠️ 模型拒絕回答：這個我不能幫忙",
+    "expected": "這個我不能幫忙"
+  },
+  {
+    "name": "plain_refusal",
+    "input": "\n\n⚠️ 模型拒絕回答。",
+    "expected": ""
+  },
+  {
+    "name": "safety_filter",
+    "input": "部分\n\n⚠️ 回應被廠商的安全過濾擋下。",
+    "expected": "部分"
+  },
+  {
+    "name": "nothing_to_strip_is_untouched",
+    "input": "\n  正常回覆，前後空白保留  \n",
+    "expected": "\n  正常回覆，前後空白保留  \n"
+  },
+  {
+    "name": "too_long_to_be_a_log_line",
+    "input": "✅ `時間記錄：xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`\n",
+    "expected": "✅ `時間記錄：xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`\n"
+  },
+  {
+    "name": "warning_label_then_a_new_line_is_kept",
+    "input": "⚠️ **[記憶幻覺警告]** 是我自己寫的標題\n下一行才是我的話。",
+    "expected": "⚠️ **[記憶幻覺警告]** 是我自己寫的標題\n下一行才是我的話。"
+  },
+  {
+    "name": "only_the_first_line_of_a_multiline_exception",
+    "input": "❌ 執行發生例外：RuntimeError: line1\nline2\n後面",
+    "expected": "line2\n後面"
+  }
+]

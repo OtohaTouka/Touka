@@ -302,7 +302,8 @@ export class ToukaChatViewProvider implements vscode.WebviewViewProvider {
                         if (line.startsWith('data: ') && !line.includes('[DONE]')) {
                             try {
                                 const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
-                                if (data.type && ['tool_start', 'tool_result', 'error', 'touka_status', 'loop_status'].includes(data.type as string)) {
+                                // turn_notice：系統的小提示（ADR-0322 PR 2b），不在回覆文字裡
+                                if (data.type && ['tool_start', 'tool_result', 'error', 'touka_status', 'loop_status', 'turn_notice'].includes(data.type as string)) {
                                     webview.postMessage(data);
                                     continue;
                                 }
