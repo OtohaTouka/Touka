@@ -27,6 +27,9 @@ class SNSIncomingEvent(BaseModel):
     # Platform adapters must set is_verified=True only after successful signature
     # validation (e.g., Discord Ed25519, Telegram HMAC, Line HMAC-SHA256).
     is_verified: bool = False
+    # 發言者說明（ADR-0322 PR 3）：私訊或公開、平台上的顯示名稱；沒有就是不明
+    is_direct: bool | None = None
+    sender_name: str | None = None
 
 
 class SNSOutgoingMessage(BaseModel):

@@ -173,6 +173,9 @@ class ScheduleService:
             "security_level": schedule.security_level,
             "session_mode": schedule.session_mode,
             "session_id": schedule.session_id,
+            # 被誰叫醒（ADR-0322 PR 3）：Proxy 寫進心跳的 <continuity>
+            "trigger": "schedule",
+            "schedule_mode": schedule.mode,
         }
         if schedule.mode == "interval":
             trigger = IntervalTrigger(minutes=schedule.interval_minutes, timezone=self.timezone)

@@ -4,6 +4,9 @@
 
 ✅ 已接受（07-11 認證事故餘波清單 #4-Q1；維護者逐點決定）（實作位置修訂 by [ADR-0156](0156-react-core-extraction.md)：§4 保險絲/優雅著陸原「三 handler 同構」三份實作收斂為單一 react_core；行為決策不變、僅實作拓撲）
 
+> **2026-11-19 修訂（[ADR-0322](0322-who-said-it-and-which-conversation.md) PR 3）**：心跳的
+> `<continuity>` 寫第幾個脈衝、回文字只結束這一個、後面還有幾個；「回文字＝結束」不變。
+
 > **2026-08-14 修訂（[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)）**：
 > tool coverage 將舊 `status` 呼叫改為正式 `get_status`，並釘住剩餘工具輪只能由
 > `rhythm_service.get_total_rounds()`／`get_used_rounds()` 計算；不改變本 ADR 的工具輪語意。

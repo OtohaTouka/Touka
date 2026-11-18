@@ -19271,6 +19271,30 @@
               }
             ],
             "title": "Model Override"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "schedule_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Mode"
           }
         },
         "type": "object",

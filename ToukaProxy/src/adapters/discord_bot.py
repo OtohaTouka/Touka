@@ -9,6 +9,7 @@ import discord
 from src.models.sns import SNSAttachment, SNSIncomingEvent
 from src.protocols.sns_base import BaseSNSAdapter
 from src.services.sns_gateway import sns_gateway
+from src.utils.sns_sender import discord_sender_fields
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class DiscordAdapter(BaseSNSAdapter):
                         content=content,
                         attachments=attachments,
                         raw_event=message,
+                        **discord_sender_fields(message.author, is_dm=is_dm),
                     )
 
                     # 2. 交給 Gateway 處理 (SRP)

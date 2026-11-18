@@ -21,6 +21,7 @@ from src.models.user import User
 from src.routers.heartbeat import _resolve_auth_level, identity_service, permission_service
 from src.services import destructive_ops
 from src.services.auth_service import AuthService
+from src.services.continuity_service import HeartbeatWake
 
 _HEARTBEAT_SERVICE_VALUE = "test_heartbeat_token_for_ci"
 
@@ -270,3 +271,28 @@ def test_awaken_hands_the_entry_generation_to_the_loop(auth_client, mock_identit
     since = loop.await_args.kwargs["not_disturbed_since"]
     assert since is not None
     assert since == destructive_ops.generation(_who("DebugAgent"))
+    assert loop.await_args.args[3].get("heartbeat_wake") == HeartbeatWake()  # 舊版心跳沒帶
+
+
+def test_awaken_hands_who_woke_it_to_the_loop(auth_client, mock_identity, monkeypatch):
+    """心跳-3（ADR-0322 PR 3）：排程與手動的種類經 ctx 帶進每個脈衝。"""
+    _setup_awaken_gates(monkeypatch, mock_identity)
+    loop = AsyncMock(return_value=None)
+    monkeypatch.setattr("src.routers.heartbeat._process_heartbeat_loop", loop)
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.append_message_to_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "src.routers.heartbeat.session_service.open_channel_session",
+        AsyncMock(return_value="sess-x"),
+    )
+    resp = auth_client.post(
+        "/v1/heartbeat/awaken",
+        json={"token": _HEARTBEAT_SERVICE_VALUE, "agent_id": "DebugAgent",
+              "trigger": "schedule", "schedule_mode": "once"},
+    )
+    assert resp.status_code == 202, resp.text
+    assert loop.await_args.args[3].get("heartbeat_wake") == HeartbeatWake(
+        trigger="schedule", schedule_mode="once"
+    )

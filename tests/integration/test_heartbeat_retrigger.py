@@ -13,6 +13,7 @@ from src.models.identity import AgentIdentity
 from src.routers import heartbeat as hb
 from src.services import destructive_ops
 from src.services.autonomy import autonomy_service
+from src.services.continuity_service import HeartbeatWake
 from src.services.identity_router import get_verified_identity
 from src.utils.async_db import SessionService, SessionSnapshot
 
@@ -112,6 +113,8 @@ def test_retrigger_forces_safeauto_on_dispatched_ctx(auth_client, monkeypatch, m
     dispatched = loop_spy.await_args.args
     ctx = dispatched[3]  # (session_id, identity, model_override, ctx, pulse_count, ...)
     assert ctx.auth_level == "Auto"  # 載重斷言：強制安全、永不升級
+    assert ctx.get("heartbeat_wake") == HeartbeatWake(trigger="retrigger")  # 沒有中斷紀錄
+    assert dispatched[7] == ""  # 不再帶沒用到的初始提示
     assert dispatched[1] is target  # 背景迴圈以 target 身分執行
     assert ctx.agent_id == "DebugAgent"
 
@@ -267,6 +270,27 @@ def test_retrigger_checks_after_reading_the_session(auth_client, monkeypatch, mo
     assert resp.status_code == 409, resp.text
     loop_spy.assert_not_awaited()
     assert [r["session_id"] for r in autonomy_service.get_interrupted_runs()] == ["sess-x"]
+    autonomy_service._interrupted_runs = []
+
+
+def test_retrigger_tells_the_loop_when_the_interrupted_run_started(
+    auth_client, monkeypatch, mock_identity
+):
+    """心跳-3（ADR-0322 PR 3）：派發後馬上清掉中斷紀錄，所以開始時間在派發前讀出、經 ctx 帶進去。"""
+    loop_spy = _arm(monkeypatch, mock_identity, dict(OWN_SESSION))
+    _as(HUMAN_OWNER)
+    autonomy_service._interrupted_runs = [
+        {"session_id": "other", "agent": "DebugAgent", "started_at": 5.0},
+        {"session_id": "sess-x", "agent": "DebugAgent", "total": 3, "started_at": 1_760_000_000.5},
+    ]
+    resp = auth_client.post(
+        "/v1/heartbeat/retrigger", json={"agent_id": "DebugAgent", "session_id": "sess-x"}
+    )
+    assert resp.status_code == 202, resp.text
+    ctx = loop_spy.await_args.args[3]
+    assert ctx.get("heartbeat_wake") == HeartbeatWake(
+        trigger="retrigger", rerun_started_at=1_760_000_000.5
+    )
     autonomy_service._interrupted_runs = []
 
 

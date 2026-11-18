@@ -17,8 +17,8 @@ from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.services.reply_in_flight import replying
 from src.utils.async_db import SessionPersistenceError, session_service
+from src.utils.sns_sender import sns_message_content
 from src.utils.tool_step_collector import ToolStepCollector
-from src.utils.user_intent import SNS_MESSAGE_PREFIX
 
 if TYPE_CHECKING:
     from src.models.identity import AgentIdentity
@@ -199,8 +199,8 @@ class SNSGatewayService:
         self.last_session_id = session_id
 
         # 3. 外人訊息加固定開頭（存檔與送出一致），Auto 審查員的使用者原意不會把它當成人類原話
-        #    （R-2c ① #3）
-        content = f"{SNS_MESSAGE_PREFIX}\n{event.content}"
+        #    （R-2c ① #3）；下一行寫平台與發言者（ADR-0322 PR 3）
+        content = sns_message_content(event)
 
         # 4. 呼叫 Proxy 執行層
         # 外人訊息不帶靈魂身分進 pipeline：技能與特權維持零，只固定目標靈魂與對話。

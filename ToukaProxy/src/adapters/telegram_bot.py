@@ -15,6 +15,7 @@ from telegram.ext import (
 from src.models.sns import SNSIncomingEvent
 from src.protocols.sns_base import BaseSNSAdapter
 from src.services.sns_gateway import sns_gateway
+from src.utils.sns_sender import telegram_sender_fields
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class TelegramAdapter(BaseSNSAdapter):
                     channel_id=channel_id,
                     content=content,
                     raw_event=update,
+                    **telegram_sender_fields(update),
                 )
 
                 # 2. 處理 Agent Override

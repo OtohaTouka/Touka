@@ -12,6 +12,8 @@
 | 畫面上的小提示（雙端，ADR-0322 PR 2b） | 後端 `utils/turn_notices.py` `TURN_NOTICE_EVENT`、`NOTICE_KINDS`、`MAX_NOTICES_PER_NODE`、`MAX_NOTICE_CHARS`、舊日誌行樣式 `LEGACY_LOG_LINES`／`LEGACY_LOG_MAX_MIDDLE` 與 `strip_legacy_log_lines()`＋前端 `lib/chat/turnNotices.ts` 同名常數，比對測試 `test_turn_notices.py`；黃金案例 `lib/chat/__tests__/legacyLogLines.golden.json` 前後端共用 |
 | 上一輪沒做完的記號（雙端） | 後端 `utils/interjection_notes.py` `TURN_STOPPED_NOTE`、`TURN_FAILED_NOTE`，SNS 沒有送到的 `TURN_UNDELIVERED_NOTE_TEMPLATE`、`DELIVERY_PLATFORM_NAMES`、`OTHER_PLATFORM_NAME`（ADR-0322）＋前端 `lib/chat/turnNotes.ts` 同名常數，純文字比對測試 `test_previous_turn_marks.py`（含 `test_platform_names_are_identical_to_the_frontend`） | `annotate_node`、前端 `buildApiHistory` |
 | 心跳在入口被擋的原因 | `services/continuity_events.py` `HeartbeatSkip` | `routers/heartbeat.py` 的 `/awaken`、`continuity_service._run_line` |
+| 對話種類、心跳第幾個脈衝與被誰叫醒（觸發與排程種類只認固定值，ADR-0322 PR 3） | `services/continuity_service.py` `KIND_*`、`HeartbeatWake`、`HEARTBEAT_TRIGGERS`、`SCHEDULE_MODES`、`RETRIGGER` | `routers/heartbeat.py` 的 `/awaken`、`/retrigger`、背景迴圈與補充句 |
+| SNS 訊息開頭的發言者行（名稱中和、代號、附件數） | `utils/sns_sender.py` `sns_message_content`、`SENDER_NAME_MAX` | `services/sns_gateway.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py` |
 | 誰核准的說明、審查員理由的上限、停止時多久看一次待審的卡 | `services/approval_flow.py` `APPROVED_BY_PERSON_NOTE`、`APPROVED_BY_REVIEWER_NOTE`、`MAX_REVIEW_REASON_CHARS`、`APPROVAL_STOP_CHECK_SECONDS` | `tool_executor` 的核准路徑、`approval_denied_error` |
 | 子代理多久看一次停止 | `tools/subagent_tools.py` `STOP_CHECK_SECONDS` | `_cancel_when_parent_stops` |
 | 站內等結果憑證的壽命 | `services/dispatch_callback_store.py` `IN_PROCESS_TOKEN_GRACE_SECONDS`、`IN_PROCESS_TOKEN_LIFETIME_SECONDS` | `DispatchCallbackStore._drop_expired` |

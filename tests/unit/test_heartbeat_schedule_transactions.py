@@ -156,6 +156,21 @@ def test_precommit_save_failure_has_structured_failure_and_no_engine_changes(
     assert engine.get_jobs() == jobs
 
 
+@pytest.mark.parametrize(
+    ("fields", "mode"),
+    [
+        ({"interval_minutes": 10}, "interval"),
+        ({"mode": "daily", "daily_times": ["08:30"]}, "daily"),
+    ],
+)
+def test_scheduled_jobs_say_they_come_from_a_schedule(transaction_app, fields, mode) -> None:
+    """心跳-3（ADR-0322 PR 3）：排程叫醒時帶 trigger 與排程種類，Proxy 才寫得出被誰叫醒。"""
+    client, _storage, engine, _outbound = transaction_app
+    create(client, **fields)
+    kwargs = engine.get_jobs()[0].kwargs
+    assert (kwargs["trigger"], kwargs["schedule_mode"]) == ("schedule", mode)
+
+
 def test_similar_schedule_ids_never_remove_each_others_jobs(transaction_app) -> None:
     client, _storage, engine, _outbound = transaction_app
     create(client, "foo")

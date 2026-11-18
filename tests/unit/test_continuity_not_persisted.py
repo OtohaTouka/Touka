@@ -304,6 +304,34 @@ async def test_heartbeat_nudge_and_continuity_share_one_time(
     assert f"- Current time (Asia/Taipei): {time_str} ({weekday})" in sent
 
 
+async def test_heartbeat_nudge_says_which_pulse_after_the_fixed_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """心跳-2（ADR-0322 PR 3）：補充句在固定開頭之後寫第幾個脈衝；<continuity> 寫還有幾個。"""
+    tree = TreeMessageManager.append_node(TreeMessageManager.create_empty_tree(), "user", "hi")
+    tree = TreeMessageManager.append_node(tree, "assistant", "done", name=SOUL)
+    captured, service = _pulse_doubles(monkeypatch, tree)
+    monkeypatch.setattr(heartbeat, "get_current_epoch", lambda: float(NUDGE_EPOCH))
+    monkeypatch.setattr(continuity_service, "get_current_epoch", lambda: float(NUDGE_EPOCH))
+    ctx = PipelineContext()
+    ctx["heartbeat_wake"] = continuity_service.HeartbeatWake(pulse=2, total=3, trigger="manual")
+
+    await _pulse(ctx)
+
+    time_str, _ = format_epoch_to_taipei(NUDGE_EPOCH)
+    saved_tree = service.conditional_save_session.await_args.args[2].messages
+    nudge = TreeMessageManager.get_linear_path(saved_tree)[-1]
+    assert nudge["content"] == (
+        f"{user_intent.PULSE_NUDGE_PREFIX}{time_str}】（第 2／3 個脈衝）"
+        "\n\n請繼續執行您的任務或檢查進度。"
+    )
+    assert nudge["content"].startswith(user_intent.PULSE_NUDGE_PREFIX)  # 審查員靠它排除
+    sent = captured["request"].messages[-1].content
+    assert "- Pulse 2 of 3: replying with text ends this pulse only; 1 more" in sent
+    assert f"- {continuity_service.WOKEN_LABEL}: a manual trigger" in sent
+    assert "Pulse 2 of 3" not in json.dumps(saved_tree, ensure_ascii=False)
+
+
 async def test_non_soul_heartbeat_gets_no_continuity(monkeypatch: pytest.MonkeyPatch) -> None:
     captured, _service = _pulse_doubles(
         monkeypatch, [{"role": "user", "content": "hi"}], is_soul=False
