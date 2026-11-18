@@ -74,6 +74,15 @@ from src.utils.tool_events import (
     tool_start_event,
 )
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
+from src.utils.turn_notices import (
+    NOTICE_APPROVAL_BLOCKED,
+    NOTICE_HOOK_DENIED,
+    NOTICE_TOOL_BLOCKED,
+    NOTICE_TOOL_FAILED,
+    NOTICE_TOOL_FINISHED,
+    tool_exception_notice,
+    turn_notice_event,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Mapping
@@ -678,11 +687,7 @@ class ToolExecutor:
                 ).to_result_sse()
             )
             await queue.put(
-                {
-                    "type": "log",
-                    "content": f"🚫 攔截未授權調用: {name}\n",
-                    "result_text": result_text,
-                }
+                turn_notice_event(NOTICE_TOOL_BLOCKED, f"🚫 攔截未授權調用: {name}", tool=name)
             )
             await queue.put(None)
             # 政策的原因可能是規則文字，hook 只收固定的代碼
@@ -885,15 +890,11 @@ class ToolExecutor:
             )
             denied_reason = tool_errors.extract_field(denied_text, "reason")
             await queue.put(
-                {
-                    "type": "log",
-                    "content": (
-                        f"🚫 hook 拒絕: {name}\n"
-                        if denied_reason == HOOK_DENIED_REASON
-                        else f"🖐️ 待審批攔截（fail-closed）: {name}\n"
-                    ),
-                    "result_text": denied_text,
-                }
+                turn_notice_event(NOTICE_HOOK_DENIED, f"🚫 hook 拒絕: {name}", tool=name)
+                if denied_reason == HOOK_DENIED_REASON
+                else turn_notice_event(
+                    NOTICE_APPROVAL_BLOCKED, f"🖐️ 待審批攔截（fail-closed）: {name}", tool=name
+                )
             )
             await queue.put(None)
             notify_permission_denied(ctx, hook_call, denied_reason)
@@ -1213,21 +1214,23 @@ class ToolExecutor:
                 ).to_result_sse()
             )
 
-            # 3. 發送 Log 用的文字
+            # 3. 畫面上的小提示（ADR-0322 PR 2b：不再混進回覆文字）
             time_str, weekday = get_taipei_time_info()
-            finish_log = (
-                f"✅ `時間記錄：{time_str} ({weekday})`\n" if is_success else "❌ `工具執行失敗`\n"
+            finished_at = f"{time_str} ({weekday})"
+            await queue.put(
+                turn_notice_event(
+                    NOTICE_TOOL_FINISHED, f"✅ 時間記錄：{finished_at}", tool=name, time=finished_at
+                )
+                if is_success
+                else turn_notice_event(NOTICE_TOOL_FAILED, "❌ 工具執行失敗", tool=name)
             )
-            await queue.put({"type": "log", "content": finish_log, "result_text": result_text})
 
         except Exception as e:
             logger.exception("Error executing tool %s", name)
             # P5b：把真正的錯誤類別＋訊息（截斷）帶到前端，取代籠統 "Execution failed"
             detail = f"{type(e).__name__}: {str(e)[:200]}"
             await queue.put(tool_error_event(call_id=call_id, message=f"工具執行失敗：{detail}"))
-            await queue.put(
-                {"type": "log", "content": f"❌ 執行發生例外：{detail}\n", "result_text": "Error"}
-            )
+            await queue.put(tool_exception_notice(name, detail))
             result_text = approval_flow.with_approval_note(
                 tool_errors.from_exception(e, detail),
                 _approval_note(

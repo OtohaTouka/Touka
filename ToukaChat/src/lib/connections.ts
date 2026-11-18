@@ -15,6 +15,7 @@ import { PROVIDER_CATALOG, buildChatEndpoint } from './providerCatalog';
 import { getSystemEpoch } from './time_utils';
 import { parseSaveResult } from './session_persistence';
 import { INTERJECTION_EVENT_TYPES, ROUND_INTERRUPTED_EVENT } from './chat/interjections';
+import { TURN_NOTICE_EVENT } from './chat/turnNotices';
 import { validHealth } from './healthResponse';
 
 // BackendProvider 由供應商目錄 SSOT 衍生（providerCatalog.ts），不再各自維護一份清單。
@@ -768,7 +769,7 @@ function dispatchSseLine(
         // skill_creation_approval_request（ADR-0149）：演化部署自帶審批卡（帶
         // source_code）。過去不在白名單 → 前端丟棄 → 後端空等 180s 逾時＝互動部署靜默
         // 失敗。與 skill_install_approval_request 同走 onSkillInstallRequest → EvolutionModal。
-        const customEventTypes = ["touka_status", "tool_start", "tool_result", "error", "loop_status", "skill_install_approval_request", "skill_creation_approval_request", "ask_user_request", "touka_progress", "tool_stream", "tool_approval_request", "tool_approval_resolved", "mcp_interaction_request", "mcp_interaction_resolved", ...INTERJECTION_EVENT_TYPES, ROUND_INTERRUPTED_EVENT];
+        const customEventTypes = ["touka_status", "tool_start", "tool_result", "error", "loop_status", "skill_install_approval_request", "skill_creation_approval_request", "ask_user_request", "touka_progress", "tool_stream", "tool_approval_request", "tool_approval_resolved", "mcp_interaction_request", "mcp_interaction_resolved", ...INTERJECTION_EVENT_TYPES, ROUND_INTERRUPTED_EVENT, TURN_NOTICE_EVENT];
 
         if (json.type && customEventTypes.includes(json.type) && onEvent) {
             onEvent(json);

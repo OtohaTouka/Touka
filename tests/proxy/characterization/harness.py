@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.models.identity import AgentIdentity
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED, turn_notice_event
 
 _GOLDEN_DIR = Path(__file__).parent / "goldens"
 _CI_TRUE_VALUES = frozenset({"1", "true", "yes"})
@@ -83,7 +84,7 @@ def msg(role: str, content: str) -> SimpleNamespace:
 
 
 def make_mock_executor(clock: dict):
-    """生產同構的假執行器：推進工具時鐘、發 log 事件、真的記錄函式（執行成功）。"""
+    """生產同構的假執行器：推進工具時鐘、發小提示事件、真的記錄函式（執行成功）。"""
 
     async def mock_execute(name, args, req_id, ctx, queue, **kwargs):
         clock["now"] += TOOL_S
@@ -91,7 +92,7 @@ def make_mock_executor(clock: dict):
         record_tool_usage(used, name, args)
         record_tool_executed(used, name, args)
         record_tool_succeeded(used, name, args)
-        await queue.put({"type": "log", "content": f"[{name} done]"})
+        await queue.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await queue.put(None)
         return "Tool Success"
 

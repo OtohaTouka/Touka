@@ -10,6 +10,10 @@
 - 有存檔上限（結果、工具名與參數鍵名、每個參數值、整組參數、每則步驟數），超過的註明截斷；
   丟掉的步驟數記在節點上（只供診斷，紀錄與畫面不讀）。
 - 帶 NaN／Infinity 的事件整個略過（存檔不接受這種值；前端 ``JSON.parse`` 失敗也是整個略過）。
+
+畫面上的小提示（``turn_notice``，ADR-0322 PR 2b）也在這裡收：存在同一個節點的 ``notices``
+（種類與參數，每則有上限）；看到中斷的小提示就標 ``generationStopped``（心跳、SNS 這類
+不經網頁的路徑，停止時不會丟例外，下一輪靠這個旗標知道上一輪被停了）。
 """
 
 from __future__ import annotations
@@ -25,6 +29,13 @@ from src.utils.tool_events import (
     TOOL_RESULT,
     TOOL_START,
     TOOL_STREAM,
+)
+from src.utils.turn_notices import (
+    MAX_NOTICES_PER_NODE,
+    NOTICE_INTERRUPTED,
+    NOTICES_FIELD,
+    TURN_NOTICE_EVENT,
+    stored_notice,
 )
 
 # 存檔上限（code point）：紀錄只讀結果開頭 80 字與參數開頭 40 字，這裡留給畫面看
@@ -86,6 +97,8 @@ class ToolStepCollector:
         self._steps: list[dict[str, Any]] = []
         self._by_call_id: dict[str, dict[str, Any]] = {}
         self._dropped: set[str] = set()
+        self._notices: list[dict[str, Any]] = []
+        self._stopped = False
 
     def feed_sse(self, chunk: str) -> None:
         """讀一段 SSE 文字（可含多個事件）；不是 JSON 物件的資料行略過."""
@@ -115,6 +128,8 @@ class ToolStepCollector:
             self._result(event)
         elif kind == TOOL_STREAM:
             self._stream(event)
+        elif kind == TURN_NOTICE_EVENT:
+            self._notice(event)
         elif kind == TOOL_ERROR:
             step = self._by_call_id.get(str(event.get("id") or ""))
             if step is not None:
@@ -135,7 +150,20 @@ class ToolStepCollector:
             fields["steps"] = self.steps
         if self._dropped:
             fields[STEPS_DROPPED_FIELD] = len(self._dropped)
+        if self._notices:
+            fields[NOTICES_FIELD] = [dict(notice) for notice in self._notices]
+        if self._stopped:
+            fields["generationStopped"] = True
         return fields
+
+    def _notice(self, event: dict[str, Any]) -> None:
+        notice = stored_notice(event)
+        if notice is None:
+            return
+        if notice["kind"] == NOTICE_INTERRUPTED:
+            self._stopped = True
+        if len(self._notices) < MAX_NOTICES_PER_NODE:
+            self._notices.append(notice)
 
     def _add(self, step: dict[str, Any]) -> dict[str, Any] | None:
         if len(self._steps) >= MAX_STORED_STEPS:

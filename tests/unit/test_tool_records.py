@@ -45,8 +45,10 @@ from src.utils.tool_records import (
     record_levels,
     render_tool_record,
 )
+from src.utils.turn_notices import NOTICE_RECORD_IMITATION
 
 from tests.proxy.characterization.test_golden_claude import _drive, _text_resp
+from tests.support.notices import notice_kinds
 
 _CHAT_LIB = Path(__file__).resolve().parents[2] / "ToukaChat" / "src" / "lib" / "chat"
 _GOLDEN_PATH = _CHAT_LIB / "__tests__" / "toolRecords.golden.json"
@@ -353,8 +355,7 @@ async def test_a_reply_that_copies_the_record_gets_the_hallucination_warning(mon
         monkeypatch, "record_imitation",
         [_text_resp(f"好了。\n{TOOL_RECORD_HEADER}\n1. exec → 成功\n{TOOL_RECORD_FOOTER}")],
     )
-    warning = guard_service.get_record_imitation_warning_message()
-    assert sum(json.dumps(warning, ensure_ascii=False)[1:-1] in c for c in chunks) == 1
+    assert notice_kinds(chunks).count(NOTICE_RECORD_IMITATION) == 1  # 小提示（ADR-0322 PR 2b）
 
     plain = await _drive(monkeypatch, "record_imitation_plain", [_text_resp("好了。")])
-    assert not any("工具幻覺警告" in c for c in plain)
+    assert NOTICE_RECORD_IMITATION not in notice_kinds(plain)

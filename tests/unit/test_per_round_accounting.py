@@ -27,9 +27,15 @@ from src.services.providers import pricing
 from src.services.resource_manager import resource_manager
 from src.services.rhythm_service import rhythm_service
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
+from src.utils.turn_notices import (
+    NOTICE_COST_EXHAUSTED,
+    NOTICE_TOOL_FINISHED,
+    turn_notice_event,
+)
 
 from tests.helpers.claude_stream import delegate_stream_to_create
 from tests.helpers.stream_transport import FakeUpstream, stream_reply
+from tests.support.notices import notice_kinds
 
 # 費率（USD／1M tokens）：輸入 1、輸出 2、快取讀 0.5、快取寫 4。OpenAI 模型不設快取價＝照輸入價。
 _PRICING = {
@@ -95,13 +101,6 @@ def _usage_events(chunks: list[str]) -> list[dict]:
     return [o for o in _sse_objects(chunks) if o.get("kind") == "token_usage"]
 
 
-def _text(chunks: list[str]) -> str:
-    return "".join(
-        (o.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
-        for o in _sse_objects(chunks)
-    )
-
-
 def _ctx(agent_id: str, **extra) -> dict:
     ctx = {
         "api_key": "fake-key", "url": "http://fake-api.test", "provider": "OpenAI",
@@ -123,7 +122,7 @@ def _executor(executed: list[str]):
         record_tool_usage(used, name, args)
         record_tool_executed(used, name, args)
         record_tool_succeeded(used, name, args)
-        await queue.put({"type": "log", "content": f"[{name} done]"})
+        await queue.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await queue.put(None)
         return "ok"
 
@@ -220,7 +219,7 @@ async def test_cost_cap_sees_spend_of_the_current_run(monkeypatch):
     ])
     assert run.executed == ["vault_tools"]  # 只有第 1 輪的工具有執行
     assert len(run.seen_at_send) == 3  # 第 3 次＝無工具收尾
-    assert "已達總量上限" in _text(run.chunks)
+    assert NOTICE_COST_EXHAUSTED in notice_kinds(run.chunks)  # 小提示（ADR-0322 PR 2b）
 
 
 @pytest.mark.asyncio

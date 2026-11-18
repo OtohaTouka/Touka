@@ -12,8 +12,10 @@ from src.services.autonomy import autonomy_service
 from src.services.providers import pricing
 from src.services.rhythm_service import rhythm_service
 from src.services.telemetry import accumulate_token_usage
+from src.utils.turn_notices import NOTICE_COST_EXHAUSTED
 
 from tests.helpers.claude_stream import delegate_stream_to_create
+from tests.support.notices import notice_kinds
 
 
 def test_autonomy_model_carries_quota_and_cap_roundtrip():
@@ -216,5 +218,7 @@ async def test_claude_handler_stops_autonomous_loop_when_over_budget():
         delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content", "")
         if delta:
             texts.append(delta)
-    assert "已達總量上限" in "".join(texts)
+    # 上限警告是畫面上的小提示，不在回覆文字裡（ADR-0322 PR 2b）
+    assert "已達總量上限" not in "".join(texts)
+    assert NOTICE_COST_EXHAUSTED in notice_kinds(chunks)
     rhythm_service.clear_session(request_id)

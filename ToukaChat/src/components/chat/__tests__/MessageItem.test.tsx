@@ -123,6 +123,16 @@ describe('MessageItem', () => {
     }
   });
 
+  it('ADR-0322 PR 2b 回覆下方顯示小提示，不混進回覆文字', () => {
+    const msg = {
+      id: '2', role: 'assistant', content: '寫到一半', parentId: '1', childrenIds: [],
+      notices: [{ kind: 'interrupted', params: {} }],
+    } as any;
+    render(<MessageItem {...defaultProps} msg={msg} />);
+    expect(screen.getByTestId('turn-notice-list')).toHaveTextContent('已由使用者中斷。');
+    expect(screen.getByText('寫到一半')).toBeInTheDocument();
+  });
+
   it('一般的回覆沒有失敗標示', () => {
     const msg = { id: '2', role: 'assistant', content: 'hi', parentId: '1', childrenIds: [] } as any;
     render(<MessageItem {...defaultProps} msg={msg} />);

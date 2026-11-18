@@ -401,7 +401,7 @@ export function StreamRegistryProvider({ children }: { children: React.ReactNode
     catch { return; }
     // 從頭重播只重建本回合的串流欄位；保留既有節點其餘擴充、附件及其他分支。
     tree = { ...tree, messages: { ...tree.messages, [assistantMsgId]: {
-      ...tree.messages[assistantMsgId], content: '', thinking: '', steps: [], progress: {}, interjections: [], interruptions: [],
+      ...tree.messages[assistantMsgId], content: '', thinking: '', steps: [], progress: {}, interjections: [], interruptions: [], notices: [],
     } } };
     const producer = beginProducer(sessionId);
     if (!producer) return;

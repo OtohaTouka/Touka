@@ -44,6 +44,7 @@ from src.config import strip_openai_sdk_env_overrides
 from src.services.guard_service import guard_service
 from src.services.models.model_rules import rules_for
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
+from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
 from .base import MidLoopAction, RoundError, ToolCall, Turn, hold_tool_setting, interjection_text
@@ -374,7 +375,9 @@ class ResponsesAdapter:
         if state.forced_tool_choice:
             state.kwargs["tool_choice"] = "required"
             state.honesty_forced = True
-        return MidLoopAction(deltas=[guard_service.get_honesty_warning_message()])
+        return MidLoopAction(
+            notices=[turn_notice_event(NOTICE_HONESTY, guard_service.get_honesty_warning_message())]
+        )
 
     def telemetry_model(self, _state: _State, request: Any) -> str:
         """遙測／計費用模型名（request.model）。"""

@@ -398,6 +398,13 @@ window.addEventListener('message', event => {
             scrollToBottom();
             break;
 
+        case 'turn_notice':
+            // ADR-0322 PR 2b：系統的小提示另起一行小字；後面的回覆文字接在它下面
+            addSystemNotice(message.text);
+            currentAssistantMessageDiv = null;
+            currentAssistantMessageContent = '';
+            break;
+
         case 'stream_done':
             currentAssistantMessageDiv = null;
             currentAssistantMessageContent = '';

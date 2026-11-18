@@ -434,9 +434,8 @@ async def _execute_single_pulse(
                 data = json.loads(data_str)
                 delta_content = ""
 
-                if data.get("type") == "log":
-                    delta_content = data.get("content", "")
-                elif "choices" in data and len(data["choices"]) > 0:
+                # 小提示（ADR-0322 PR 2b）由收集器存進節點，不接進回覆文字
+                if "choices" in data and len(data["choices"]) > 0:
                     choice = data["choices"][0]
                     delta = choice.get("delta", {})
                     if "content" in delta:

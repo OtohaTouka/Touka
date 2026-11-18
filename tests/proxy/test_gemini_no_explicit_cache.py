@@ -13,6 +13,7 @@ import pytest
 from src.handlers.adapters.gemini_adapter import GeminiAdapter
 from src.handlers.gemini_handler import handle_gemini_request
 from src.models.identity import AgentIdentity
+from src.utils.turn_notices import NOTICE_TOOL_FINISHED, turn_notice_event
 
 from tests.helpers.stream_transport import FakeUpstream, gemini_stream_reply
 
@@ -87,7 +88,7 @@ async def _run(responses: list[dict], ctx: dict) -> tuple[list[dict], str]:
     upstream = FakeUpstream(replies)
 
     async def fake_execute(name, args, req_id, c, q, **kwargs):
-        await q.put({"type": "log", "content": f"[{name} done]"})
+        await q.put(turn_notice_event(NOTICE_TOOL_FINISHED, f"[{name} done]", tool=name))
         await q.put(None)
         return "Tool Success"
 

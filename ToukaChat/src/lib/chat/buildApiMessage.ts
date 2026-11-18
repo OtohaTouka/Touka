@@ -2,6 +2,7 @@ import type { ChatAttachment } from "./attachment";
 import type { Interjection } from "@/lib/types";
 import { withInterjectionNotes } from "./interjections";
 import { withTurnEndNote } from "./turnNotes";
+import { stripLegacyLogLines } from "./turnNotices";
 import { neutralizeRecordMarkers, recordLevels, renderToolRecord, withToolRecord } from "./toolRecords";
 import { buildTextInlinePart, buildFileRefHint } from "./uploadClassify";
 
@@ -61,7 +62,8 @@ const neutralizedInterjections = (items?: Interjection[]) => (Array.isArray(item
 
 /** 組下一輪的 API 訊息：本輪 user 用 resolvedInput；助理節點加插話標註（ADR-0249），
  *  被停止或出錯的再加一行記號（ADR-0318）。toolRecords 開著時，助理節點存下的工具步驟依視窗寫成紀錄
- *  放在原本文字前面（ADR-0319；群聊不開）；每一則的假紀錄標記都換掉，只有系統組的那段是真的。 */
+ *  放在原本文字前面（ADR-0319；群聊不開）；每一則的假紀錄標記都換掉，只有系統組的那段是真的。
+ *  舊回覆裡混進來的日誌行先拿掉，小提示（notices）不送（ADR-0322 PR 2b）。 */
 export function buildApiHistory<R extends string>(
   linear: {
     id: string; role: R; content: string; attachment?: ChatAttachment; interjections?: Interjection[];
@@ -82,7 +84,8 @@ export function buildApiHistory<R extends string>(
       role: m.role,
       content: m.id === userMsgId ? content
         : m.role === 'assistant'
-          ? withTurnEndNote(withInterjectionNotes(withToolRecord(content, record), interjections), m)
+          ? withTurnEndNote(withInterjectionNotes(
+            withToolRecord(stripLegacyLogLines(content), record), interjections), m)
           : withInterjectionNotes(content, interjections),
       attachment: neutralizedAttachment(m.attachment),
     });

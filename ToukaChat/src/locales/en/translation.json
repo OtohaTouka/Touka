@@ -1537,6 +1537,24 @@
       "confirm_unset": "Unset home",
       "keep": "Not now"
     },
+    "turn_notice": {
+      "summary": "System notes ({{count}})",
+      "tool_finished": "{{tool}} finished: {{time}}",
+      "tool_failed": "{{tool}} failed",
+      "tool_exception": "{{tool}} raised an error: {{detail}}",
+      "tool_blocked": "Blocked an unauthorized call: {{tool}}",
+      "hook_denied": "A hook refused: {{tool}}",
+      "approval_blocked": "Needed a person's approval but nobody was there, so it did not run: {{tool}}",
+      "rounds_exhausted": "Tool rounds used up ({{rounds}} rounds); wrapping up.",
+      "cost_exhausted": "Total cost limit reached; wrapping up.",
+      "interrupted": "Stopped by the user.",
+      "refusal": "The model declined to answer. {{detail}}",
+      "safety_filtered": "The provider's safety filter blocked the response.",
+      "tool_hallucination": "Tool hallucination warning: wrote out the tool {{tools}} without calling it.",
+      "record_imitation": "Tool hallucination warning: wrote the system's tool record format; those are not tools used this turn.",
+      "memory_hallucination": "Memory hallucination warning: promised to remember, but no memory was saved this turn.",
+      "honesty_warning": "Honesty alert: mentioned past or file content without actually checking."
+    },
     "message_item": {
       "copy_code": "Copy Code",
       "cancel": "Cancel",

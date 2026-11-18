@@ -45,6 +45,11 @@ from src.tools.builtin.interaction import ask_user
 from src.tools.builtin.schemas import missing_required_error
 from src.tools.execution_context import EXECUTION_CONTEXT_KWARG_NAMES
 from src.tools.file_verbs import FILE_VERB_SCHEMAS, INCOGNITO_FILE_VERB_SCHEMAS
+from src.utils.turn_notices import (
+    NOTICE_HOOK_DENIED,
+    NOTICE_TOOL_EXCEPTION,
+    TURN_NOTICE_EVENT,
+)
 
 from tests.support.hook_wiring import (
     REVIEW_DENY,
@@ -213,7 +218,8 @@ async def test_a_tool_that_raises_fires_the_failure_hook_and_keeps_the_error_sha
     call = hooks.http.calls_for("PostToolUseFailure")[0]
     assert "exploded" in call["error"]
     assert "abc123" not in call["error"]
-    assert any(e.get("type") == "log" for e in events)
+    assert [e["kind"] for e in events if e.get("type") == TURN_NOTICE_EVENT] == [
+        NOTICE_TOOL_EXCEPTION]
 
 
 async def test_failure_hook_error_hides_json_and_url_credentials(monkeypatch, hooks):
@@ -483,7 +489,7 @@ async def test_a_permission_request_deny_skips_the_card_and_the_tool(monkeypatch
     payload = json.loads(result)
     assert payload["error_class"] == tool_errors.PERMISSION_DENIED
     assert payload["reason"] == "hook_denied"
-    assert any("hook 拒絕" in str(event.get("content")) for event in events)
+    assert NOTICE_HOOK_DENIED in [event.get("kind") for event in events]
     assert "not today" in payload["hook_reason"]
     assert "<persona>" not in payload["hook_reason"]
     assert cards(events) == []

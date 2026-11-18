@@ -16,8 +16,10 @@ from src.services.process_registry import process_registry
 from src.services.rhythm_service import rhythm_service
 from src.tools import terminal
 from src.tools.terminal import bash
+from src.utils.turn_notices import NOTICE_INTERRUPTED
 
 from tests.helpers.claude_stream import delegate_stream_to_create
+from tests.support.notices import notice_kinds
 
 
 @pytest.mark.asyncio
@@ -123,7 +125,9 @@ async def test_claude_handler_stops_before_llm_when_interrupted():
             delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content", "")
             if delta:
                 texts.append(delta)
-        assert "已由使用者中斷" in "".join(texts)
+        # 中斷是畫面上的小提示，不在回覆文字裡（ADR-0322 PR 2b）
+        assert "已由使用者中斷" not in "".join(texts)
+        assert notice_kinds(chunks) == [NOTICE_INTERRUPTED]
     finally:
         rhythm_service.clear_interrupt(sid)
 

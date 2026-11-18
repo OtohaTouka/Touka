@@ -283,11 +283,11 @@ class SNSGatewayService:
                 if outgoing.strip()
                 else True
             )
-            # 只用了工具、沒有文字的也存（步驟留給下一輪的工具紀錄），但不往外送
-            if session_id and (full_text or tool_steps.steps or failed):
-                fields = tool_steps.node_fields()
-                if failed:
-                    fields["generationFailed"] = True
+            # 只用了工具或只有小提示、沒有文字的也存（留給下一輪的工具紀錄與網頁），但不往外送
+            fields = tool_steps.node_fields()
+            if failed:
+                fields["generationFailed"] = True
+            if session_id and (full_text or fields):
                 if not delivered:
                     fields.update(deliveryFailed=True, deliveryPlatform=event.platform)
                 await self._save_reply(session_id, full_text, identity, fields)

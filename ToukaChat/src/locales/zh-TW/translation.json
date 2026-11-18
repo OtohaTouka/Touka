@@ -1529,6 +1529,24 @@
       "confirm_unset": "取消家",
       "keep": "先不要"
     },
+    "turn_notice": {
+      "summary": "系統提示（{{count}}）",
+      "tool_finished": "{{tool}} 完成：{{time}}",
+      "tool_failed": "{{tool}} 執行失敗",
+      "tool_exception": "{{tool}} 執行發生例外：{{detail}}",
+      "tool_blocked": "攔截未授權調用：{{tool}}",
+      "hook_denied": "hook 拒絕：{{tool}}",
+      "approval_blocked": "需要人核准但沒人在場，沒有執行：{{tool}}",
+      "rounds_exhausted": "工具輪額度已盡（{{rounds}} 輪），進行最後總結。",
+      "cost_exhausted": "已達總量上限（累計成本），進行最後總結。",
+      "interrupted": "已由使用者中斷。",
+      "refusal": "模型拒絕回答。{{detail}}",
+      "safety_filtered": "回應被廠商的安全過濾擋下。",
+      "tool_hallucination": "工具幻覺警告：寫出了工具 {{tools}} 卻沒有正式呼叫。",
+      "record_imitation": "工具幻覺警告：寫出了系統附加的工具紀錄格式，那不是這一輪用過的工具。",
+      "memory_hallucination": "記憶幻覺警告：說要記下來，但這一輪沒有成功存下記憶。",
+      "honesty_warning": "誠實度警報：提到了過去或檔案內容，卻沒有實際查閱。"
+    },
     "message_item": {
       "copy_code": "複製代碼",
       "cancel": "取消",

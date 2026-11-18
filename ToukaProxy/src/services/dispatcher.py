@@ -47,6 +47,7 @@ from src.utils.session_scope import is_ui_turn_base
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
 from src.utils.tool_step_collector import ToolStepCollector
+from src.utils.turn_notices import TURN_NOTICE_EVENT
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,8 @@ async def _pump_ui_stream(
     else:
         if admission.mode == "incognito":
             result = SkippedResult(status="skipped", reason="incognito")
-        elif not full_content.strip() and not tool_steps.steps:  # 只用了工具也存（ADR-0319）
+        elif not full_content.strip() and not tool_steps.node_fields():
+            # 沒文字、也沒有工具步驟（ADR-0319）或小提示（ADR-0322 PR 2b）才不存
             result = SkippedResult(status="skipped", reason="no_text")
         else:
             try:
@@ -263,7 +265,7 @@ def _extract_delta_text(line: str) -> str:
 
 async def _persist_assistant_turn(
     session_id: str, content: str, model_name: str, identity: AgentIdentity,
-    *, check_access: bool = True,
+    *, check_access: bool = True, node_fields: dict[str, Any] | None = None,
 ) -> bool:
     """伺服器端把完成的 assistant 回覆接進 session 樹（照 heartbeat 既有範式）。
 
@@ -285,6 +287,8 @@ async def _persist_assistant_turn(
     tree = TreeMessageManager.append_node(
         session["messages"], "assistant", content, name=model_name
     )
+    if node_fields:  # 工具步驟、小提示、停止旗標（ADR-0322 PR 2b）
+        TreeMessageManager.add_new_fields(tree, tree["currentId"], node_fields)
     result = await session_service.conditional_save_session(
         session_id, snapshot.revision, SessionChanges(messages=tree), identity,
     )
@@ -421,9 +425,11 @@ async def _pump_stream_to_buffer(
     與 HTTP 連線完全解耦——client 斷線只取消訂閱者，本協程續跑（ADR-0081）。
     """
     full_content = ""
+    tool_steps = ToolStepCollector()
     try:
         async for chunk in gen:
             full_content += _extract_delta_text(chunk)
+            tool_steps.feed_sse(chunk)
             await stream_buffer_service.append(session_id, chunk)
     except asyncio.CancelledError:
         # stop 路徑：stream_buffer_service.cancel 已標記終態並喚醒訂閱者
@@ -433,11 +439,14 @@ async def _pump_stream_to_buffer(
         await stream_buffer_service.finish(session_id, "error")
         return
 
-    if identity and full_content.strip() and not incognito and persist:
+    node_fields = tool_steps.node_fields()
+    # 沒寫字就被停、只用了工具的回覆也存（ADR-0322 PR 2b）
+    if identity and (full_content.strip() or node_fields) and not incognito and persist:
         persisted = False
         try:
             persisted = await _persist_assistant_turn(
-                session_id, full_content, model_name, identity, check_access=check_access
+                session_id, full_content, model_name, identity, check_access=check_access,
+                node_fields=node_fields,
             )
         except Exception:
             logger.exception("🔥 [Resumable] Persistence failed for %s", session_id)
@@ -548,7 +557,8 @@ async def dispatch_request(
                     continue
                 try:
                     data = json.loads(data_str)
-                    last_json = data
+                    if data.get("type") != TURN_NOTICE_EVENT:  # 小提示不是回覆的外殼
+                        last_json = data
                     # 嘗試提取 content (相容 OpenAI/Anthropic 轉譯格式)
                     if "choices" in data:
                         delta = data["choices"][0].get("delta", {})

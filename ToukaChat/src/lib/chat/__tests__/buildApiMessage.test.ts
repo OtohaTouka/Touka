@@ -103,3 +103,19 @@ describe("buildApiHistory turn-end notes", () => {
     },
   );
 });
+
+describe("buildApiHistory old log lines (ADR-0322 PR 2b)", () => {
+  it("drops old log lines from replies, keeps the user's own words, and adds notes after", () => {
+    const linear = [
+      { id: "u1", role: "user" as const, content: "✅ `時間記錄：我自己打的`\n" },
+      {
+        id: "a1", role: "assistant" as const, generationStopped: true,
+        content: "先查\n✅ `時間記錄：2026-11-18 10:00:00 (週三)`\n好了\n\n⏹️ 已由使用者中斷。",
+      },
+    ];
+    expect(buildApiHistory(linear, "none", "").map(m => m.content)).toEqual([
+      "✅ `時間記錄：我自己打的`\n",
+      `${TURN_STOPPED_NOTE}\n\n先查\n好了`,
+    ]);
+  });
+});

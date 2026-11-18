@@ -1,6 +1,7 @@
 import type { ChatAttachment } from '@/lib/chat/attachment';
 import type { Interjection } from '@/lib/types';
 import type { RoundInterruption } from '@/lib/chat/interjections';
+import type { TurnNotice } from '@/lib/chat/turnNotices';
 
 // iso-c2：審批卡上的隔離狀態。level 為 none 時 fallback 是人核准後的執行方式；
 // 事件看不懂時一律成 level none、fallback null，卡片據此不讓核准（fail-closed）。
@@ -124,6 +125,8 @@ export interface MessageNode {
   deliveryFailed?: boolean;
   /** ADR-0322：送不出去的平台代號（discord、telegram…）；只用來對到固定名稱。 */
   deliveryPlatform?: string;
+  /** ADR-0322 PR 2b：這一輪的小提示（工具計時、攔截、中斷、警告）；只給畫面看，不送給模型。 */
+  notices?: TurnNotice[];
 }
 
 export interface TreeHistory {

@@ -45,6 +45,7 @@ from src.handlers.adapters.openai_adapter import OpenAIAdapter
 from src.handlers.adapters.responses_adapter import ResponsesAdapter
 from src.handlers.adapters.stream_timeout import RoundClock, liveness_event_hooks
 from src.models.identity import AgentIdentity
+from src.utils.turn_notices import NOTICE_REFUSAL
 
 from tests.helpers.stream_transport import (
     FakeUpstream,
@@ -55,6 +56,7 @@ from tests.helpers.stream_transport import (
     status_reply,
     stream_reply,
 )
+from tests.support.notices import notice_events
 
 _GUARD_S = 5.0
 _IDENTITY = AgentIdentity.for_role("Sumi", "Owner")
@@ -584,7 +586,8 @@ async def test_responses_refusal_text_is_shown(monkeypatch, booked):
     _install_responses(monkeypatch, [[_responses_events(
         ("response.completed", {"sequence_number": 0, "response": response}))]], seen)
     chunks = await _run(ResponsesAdapter(stream=True), "gpt-6-astra", _responses_ctx("r-ref"))
-    assert "\\n\\n⚠️ 模型拒絕回答：不行" in "".join(chunks)
+    assert [(e["kind"], e["params"]["detail"]) for e in notice_events(chunks)] == [
+        (NOTICE_REFUSAL, "不行")]  # 拒答是畫面上的小提示（ADR-0322 PR 2b）
     assert _terminal(chunks)["choices"][0]["finish_reason"] == "content_filter"
 
 
@@ -594,7 +597,8 @@ async def test_compat_refusal_text_and_missing_finish_reason(monkeypatch, booked
     plain = {"choices": [{"message": {"content": "好"}}], "usage": {"prompt_tokens": 3}}
     FakeUpstream([stream_reply(refused, "one"), stream_reply(plain, "one")]).install(monkeypatch)
     chunks = await _run(OpenAIAdapter(stream=True), "grok-4", _compat_ctx("r-c-ref"))
-    assert "\\n\\n⚠️ 模型拒絕回答：我不能幫忙" in "".join(chunks)
+    assert [(e["kind"], e["params"]["detail"]) for e in notice_events(chunks)] == [
+        (NOTICE_REFUSAL, "我不能幫忙")]
     assert _terminal(chunks)["choices"][0]["finish_reason"] == "content_filter"
     chunks = await _run(OpenAIAdapter(stream=True), "grok-4", _compat_ctx("r-c-plain"))
     assert _terminal(chunks)["choices"][0]["finish_reason"] == "stop"  # 缺欄位維持 stop
