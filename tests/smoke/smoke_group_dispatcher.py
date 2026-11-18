@@ -93,6 +93,7 @@ async def run_group_dispatcher_smoke_test():
     with patch("src.services.dispatchers.group.get_stream_generator", side_effect=mock_gen), \
          patch("src.services.dispatchers.group.get_active_brain", return_value="claude-3-haiku"), \
          patch("src.services.dispatchers.group.record_working_brain"), \
+         patch("src.services.dispatchers.group.inject_mainline", new_callable=AsyncMock), \
          patch("src.services.dispatchers.group.soul_service") as mock_soul, \
          patch("src.services.group_router.soul_service") as mock_souls, \
          patch.object(resource_manager, "read_json") as mock_read:

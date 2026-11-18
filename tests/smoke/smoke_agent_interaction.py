@@ -30,6 +30,7 @@ if str(MEMORY_SRC_DIR) not in sys.path:
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.models.context import PipelineContext
 from src.services.dispatchers.group import dispatch_group_stream  # noqa: E402
+from src.utils.group_member_view import PEER_HEADER_TEMPLATE
 
 
 async def mock_stream_gen(text):
@@ -86,6 +87,7 @@ async def run_agent_interaction_smoke_test():
          patch("src.services.dispatchers.group.soul_service") as mock_soul, \
          patch("src.services.dispatchers.group.get_active_brain", return_value="test-model"), \
          patch("src.services.dispatchers.group.record_working_brain"), \
+         patch("src.services.dispatchers.group.inject_mainline", new_callable=AsyncMock), \
          patch("src.services.group_router.load_whitelist", return_value=mock_whitelist), \
          patch("src.services.group_router.soul_service") as mock_souls:
         mock_souls.is_toukasoul.return_value = True  # AgentAlpha／AgentBeta are mock souls
@@ -119,24 +121,27 @@ async def run_agent_interaction_smoke_test():
         # 驗證 AgentBeta 的請求 (第二位 - 核心測試點)
         beta_req = captured_requests[1]
         
-        # 應包含：User -> Alpha(Assistant) -> Nudge(User)
-        # 注意：awareness_note 會被加在最後一則訊息
-        if len(beta_req.messages) != 3:
+        # ADR-0322：Alpha 的話是別人說的，包成群聊成員發言放在 user 那側，和使用者那句
+        # 合成一則（awareness_note 接在後面）；請求以 user 結尾，不用補接續發言。
+        if len(beta_req.messages) != 1:
             msg_count = len(beta_req.messages)
-            print(f"[FAIL] AgentBeta expected 3 messages, got {msg_count}")
+            print(f"[FAIL] AgentBeta expected 1 message, got {msg_count}")
             for m in beta_req.messages:
                 print(f"  - {m.role}: {m.content[:50]}...")
             sys.exit(1)
-            
-        if beta_req.messages[1].role != "assistant" or "Alpha" not in beta_req.messages[1].content:
-            print("[FAIL] AgentBeta did not receive AgentAlpha's response in history.")
+
+        beta_msg = beta_req.messages[0]
+        peer_header = PEER_HEADER_TEMPLATE.format(alias="AgentAlpha")
+        if beta_msg.role != "user" or peer_header not in beta_msg.content \
+                or "我是 Alpha" not in beta_msg.content:
+            print("[FAIL] AgentBeta did not receive AgentAlpha's words as a peer block.")
             sys.exit(1)
-            
-        if beta_req.messages[2].role != "user" or "接續發言" not in beta_req.messages[2].content:
-            print("[FAIL] Nudge prompt missing in AgentBeta's context.")
+
+        if "接續發言" in beta_msg.content:
+            print("[FAIL] AgentBeta got a nudge although its request already ends with user.")
             sys.exit(1)
-            
-        print("[OK] AgentBeta received accumulated context and Nudge correctly.")
+
+        print("[OK] AgentBeta received AgentAlpha's words as someone else's.")
 
         # 驗證標籤注入 (UX Sovereignty)
         full_output = "".join(responses)

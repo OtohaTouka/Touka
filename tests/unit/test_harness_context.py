@@ -176,6 +176,19 @@ async def test_injected_for_toukasoul_with_resolved_model():
 
 
 @pytest.mark.asyncio
+async def test_not_injected_for_a_group_round_even_when_the_caller_is_a_soul():
+    """SNS 群聊的外層 ctx 帶著 bot 的靈魂：外層組的說明會被複製給每位成員，寫的模型還是
+    ToukaGroup。群聊成員和網頁群聊一樣不帶這個區塊（ADR-0322）。"""
+    request = _AnthropicStubRequest(
+        tools=None, project_id=None, ide_context=None, system=None,
+        messages=[], model="ToukaGroup",
+    )
+    with patch("src.middleware.layers.tool.permission_service", _perm_mock()):
+        await ToolLayer().process(request, _make_ctx(is_toukasoul=True))
+    assert f"<{HARNESS_CONTEXT}>" not in str(request.system or "")
+
+
+@pytest.mark.asyncio
 async def test_not_injected_for_non_toukasoul():
     """非 toukasoul（子代理組裝、直通模型）→ 不注入（子代理精簡版屬日後範圍）。"""
     request = _AnthropicStubRequest(

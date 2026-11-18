@@ -172,6 +172,39 @@ async def test_the_second_member_sees_the_first_members_words_as_someone_elses(
 
 
 @pytest.mark.asyncio
+async def test_history_from_an_earlier_round_keeps_my_own_words_mine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """上一輪的群聊回合靠這一輪的名單認出自己（這裡白名單是空的）：自己的段落留在
+    assistant，別人的段落包成群聊成員發言放到 user 那側。"""
+    seen = _install(monkeypatch, {"Alice": ["好"], "Bob": ["嗯"]}, ROSTER)
+    old_turn = (
+        member_label("A") + "上次我說要休息" + MEMBER_SEPARATOR + member_label("B") + "我說繼續"
+    )
+    request = OpenAIChatRequest(
+        model="ToukaGroup",
+        messages=[
+            OpenAIMessage(role="user", content="@A @B 上次的事"),
+            OpenAIMessage(role="assistant", content=old_turn),
+            OpenAIMessage(role="user", content="@A @B 那今天呢"),
+        ],
+    )
+    _ = [chunk async for chunk in group.dispatch_group_stream(request, "r", 0.0, PipelineContext())]
+
+    alice, bob = seen[0].messages, seen[1].messages
+    assert [m.role for m in alice] == ["user", "assistant", "user"]
+    assert "上次我說要休息" in alice[1].content
+    assert peer_marker_index(alice[1].content) is None
+    assert peer_block("B", "我說繼續") in alice[2].content
+
+    assert [m.role for m in bob] == ["user", "assistant", "user"]
+    assert peer_block("A", "上次我說要休息") in bob[0].content
+    assert "我說繼續" in bob[1].content
+    assert peer_marker_index(bob[1].content) is None
+    assert peer_block("A", "好") in bob[2].content
+
+
+@pytest.mark.asyncio
 async def test_the_first_member_gets_the_note_on_the_users_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -762,7 +762,9 @@ Linux 真核心案例都在既有整合模組，Windows 仍是整個模組跳過
 | `test_memory_tool_contracts.py` | （ADR-0228；ADR-0263 加 2 個：公開欄位 `include_history`、`content`，`operation` 列出 supersede、`content` 的描述分 save 與 manage_dups）：記憶工具公開 schema 的欄位與描述、`query` 回事實庫的正式 ID、`manage_dups` resolve 的公開 operation、`query` 的非預設篩選傳到兩個庫；ADR-0256 起語意結果要回查事實庫，替身補 `get_active_facts`，個數不變 |
 | `test_sns_gateway.py` | `SNSGatewayService`：預設 Agent 路由、`@alias` 覆蓋、Session ID 隔離、SSE chunk 聚合；R-2c：home／independent 兩種模式存檔與送出的外人訊息都帶 `【SNS 外部訊息】` 開頭、不算人類原意 |
 | `test_model_error_text_security.py` | 模型回合失敗的文字：`RoundError` 建立時遮罩與限長、遮兩次不變；四家廠商走真回合比對送出的字串；SNS 單人與群聊只留固定文字；一般群聊下一位成員、心跳存檔與例外、子代理都遮過 |
-| `test_group_soul_only.py` ⭐ | **ADR-0245**：群聊只限靈魂——白名單只認 ToukaSoul 區、別名解析到 agents_registry 的靈魂；指向原始模型或 regex 的別名被拒；registry 裡不是靈魂的成員不能被點名、白名單值不是靈魂時不退回比對別名本身；舊歷史裡解析不到的點名略過、最新一則仍嚴格驗證（R-2a）；舊 Native／Custom 項目略過並記警告、檔案不動（tmp 合成設定）；設定 API 只回、只收靈魂區；群聊派發與 SNS `@別名` 只到靈魂；hook 補充說明（`<hook_output>` 區塊）裡的 `@別名` 不算點名（ADR-0292） |
+| `test_group_soul_only.py` ⭐ | **ADR-0245**：群聊只限靈魂——白名單只認 ToukaSoul 區、別名解析到 agents_registry 的靈魂；指向原始模型或 regex 的別名被拒；registry 裡不是靈魂的成員不能被點名、白名單值不是靈魂時不退回比對別名本身；舊歷史裡解析不到的點名略過、最新一則仍嚴格驗證（R-2a）；舊 Native／Custom 項目略過並記警告、檔案不動（tmp 合成設定）；設定 API 只回、只收靈魂區；群聊派發與 SNS `@別名` 只到靈魂；hook 補充說明（`<hook_output>` 區塊）裡的 `@別名` 不算點名（ADR-0292）；這一句沒點名時沿用之前的點名，同一位只回答一次並標明沿用、舊標籤的別名經白名單解析（ADR-0322） |
+| `test_group_member_view.py` | **ADR-0322**：群聊每位成員看到的訊息——照分發器格式切段、自己的算 assistant、別人的包成群聊成員發言放到 user 那側、相鄰 user 合併（含圖片區塊）、這一輪說過的人、同一位連續被點兩次補接續發言、成員出錯的標記、各處的假標記換掉、串流守門換掉偽造的成員標籤（跨片段） |
+| `test_group_round_awareness.py` | **ADR-0322**：群聊說明（發言順序、位置、之後還有誰、點名或沿用、網頁與 SNS 群聊誰在說話、家原文私下）；分發器組給成員的請求、偽造標籤送出前換掉、system 與家原文的假標記、審查員原意從成員發言處截斷 |
 | `test_context_snapshot_service.py` | `get_context_snapshot()`/`render_snapshot_markdown()`：無 I/O 純邏輯驗證 |
 | `test_skill_service.py` | `SkillService`：技能清單載入、RBAC 過濾、執行委派 |
 | `test_mcp_cleanup.py` | MCP 會話清理：斷線後工具卸載、孤兒任務處理 |
