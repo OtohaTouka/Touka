@@ -16,13 +16,15 @@ interface TurnNoticeListProps {
  */
 export function TurnNoticeList({ notices }: TurnNoticeListProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(() => notices.some(n => n.kind !== 'tool_finished'));
+  // 串流中清單會變長：沒按過就照目前內容決定，有警告或中斷就打開；按過就照使用者的
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? notices.some(n => n.kind !== 'tool_finished');
   if (notices.length === 0) return null;
   return (
     <div data-testid="turn-notice-list" className="my-2 text-xs text-muted-foreground">
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setChosen(!open)}
         aria-expanded={open}
         className="flex items-center gap-1 font-bold hover:text-foreground transition-colors"
       >

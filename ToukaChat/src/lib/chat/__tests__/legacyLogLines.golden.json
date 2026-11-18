@@ -75,6 +75,36 @@
     "expected": "⚠️ **[記憶幻覺警告]** 是我自己寫的標題\n下一行才是我的話。"
   },
   {
+    "name": "tool_line_at_the_very_end",
+    "input": "查詢中\n✅ `時間記錄：2026-11-18 10:00:00 (週三)`",
+    "expected": "查詢中"
+  },
+  {
+    "name": "blocked_line_at_the_very_end",
+    "input": "要寫檔\n🚫 攔截未授權調用: write",
+    "expected": "要寫檔"
+  },
+  {
+    "name": "failed_line_at_the_very_end",
+    "input": "前面\n❌ `工具執行失敗`",
+    "expected": "前面"
+  },
+  {
+    "name": "rounds_line_at_the_very_end",
+    "input": "前面\n\n⚠️ 工具輪額度已盡（12 輪），進行最後總結。",
+    "expected": "前面"
+  },
+  {
+    "name": "cost_line_at_the_very_end",
+    "input": "前面\n\n⚠️ 已達總量上限（累計成本），進行最後總結。",
+    "expected": "前面"
+  },
+  {
+    "name": "fixed_label_keeps_the_model_words_after_it",
+    "input": "❌ `工具執行失敗` 這是我自己補充的說明\n下一行",
+    "expected": " 這是我自己補充的說明\n下一行"
+  },
+  {
     "name": "only_the_first_line_of_a_multiline_exception",
     "input": "❌ 執行發生例外：RuntimeError: line1\nline2\n後面",
     "expected": "line2\n後面"

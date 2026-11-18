@@ -60,15 +60,19 @@ NOTICE_KINDS = (
 # 舊對話裡的日誌行：(開頭, 結尾)。從開頭比對到它產生時自帶的結尾為止（不比到行尾，模型在同一行
 # 引用時後面自己寫的字才不會被吃掉），不要求在行首（模型先寫字再呼叫工具時，日誌行直接黏在後面）。
 # 中間不能換行、不能有結尾的第一個字、不能超過 LEGACY_LOG_MAX_MIDDLE；結尾空字串表示開頭就是整段。
+# 結尾是換行的，在全文最後少了那個換行也算（心跳寫回前會去掉前後空白）。固定的整行寫兩筆：
+# 帶換行的與不帶換行的，同一行後面模型自己寫的字不會被吃掉。
 LEGACY_LOG_LINES: tuple[tuple[str, str], ...] = (
     ("🚫 攔截未授權調用: ", "\n"),
     ("🚫 hook 拒絕: ", "\n"),
     ("🖐️ 待審批攔截（fail-closed）: ", "\n"),
     ("✅ `時間記錄：", "`\n"),
-    ("❌ `工具執行失敗`", "\n"),
+    ("❌ `工具執行失敗`\n", ""),
+    ("❌ `工具執行失敗`", ""),
     ("❌ 執行發生例外：", "\n"),
     ("⏹️ 已由使用者中斷。", ""),
-    ("⚠️ 已達總量上限（累計成本），進行最後總結。", "\n"),
+    ("⚠️ 已達總量上限（累計成本），進行最後總結。\n", ""),
+    ("⚠️ 已達總量上限（累計成本），進行最後總結。", ""),
     ("⚠️ 工具輪額度已盡（", "），進行最後總結。\n"),
     ("⚠️ 模型拒絕回答。", ""),
     ("⚠️ 模型拒絕回答：", ""),
@@ -131,7 +135,11 @@ def _strip_one(text: str, start: str, end: str) -> str:
         after = found + len(start)
         stop = after
         if end:
-            closing = text.find(end, after)
+            closing, length = text.find(end, after), len(end)
+            bare = end.rstrip("\n")
+            at_end = len(text) - len(bare)
+            if closing < 0 and bare != end and text.endswith(bare) and at_end >= after:
+                closing, length = at_end, len(bare)
             middle = text[after:closing] if closing >= 0 else ""
             if (
                 closing < 0
@@ -142,7 +150,7 @@ def _strip_one(text: str, start: str, end: str) -> str:
                 out.append(text[pos:after])
                 pos = after
                 continue
-            stop = closing + len(end)
+            stop = closing + length
         out.append(text[pos:found])
         pos = stop
 

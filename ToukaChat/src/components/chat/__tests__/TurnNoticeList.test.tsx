@@ -29,6 +29,18 @@ describe('TurnNoticeList (ADR-0322 PR 2b)', () => {
     expect(screen.getByText('read 完成：10:00')).toBeInTheDocument();
   });
 
+  it('opens when a warning arrives later in a live reply, unless the user chose', () => {
+    const timing = { kind: 'tool_finished' as const, params: { tool: 'read', time: '10:00' } };
+    const warning = { kind: 'memory_hallucination' as const, params: {} };
+    const { rerender } = render(<TurnNoticeList notices={[timing]} />);
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+    rerender(<TurnNoticeList notices={[timing, warning]} />);
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('button'));
+    rerender(<TurnNoticeList notices={[timing, warning, warning]} />);
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('renders params as literal text', () => {
     const hostile = '<img src=x onerror=alert(1)>';
     const { container } = render(<TurnNoticeList notices={[{ kind: 'tool_blocked', params: { tool: hostile } }]} />);

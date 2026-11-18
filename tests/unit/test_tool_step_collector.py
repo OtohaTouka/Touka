@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from src.adapters.schemas import OpenAIChatRequest
 from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import PersistedStreamAdmission, SavedResult
@@ -545,6 +546,56 @@ async def test_sns_saves_a_stopped_turn_without_sending_the_stop_line():
     assert fields["generationStopped"] is True
     assert [n["kind"] for n in fields[NOTICES_FIELD]] == [NOTICE_INTERRUPTED]
     assert "中斷" not in send.await_args.args[1].text
+
+
+async def _legacy(*chunks: str) -> dict[str, Any] | None:
+    """帶 session_id、沒有 ui_persistence 的串流（VS Code 擴充、API）由後端存回覆."""
+    assert await session_service.upsert_session(
+        "s1", "UI", copy.deepcopy(UI_TREE), owner_user_id=UI_OWNER.agent_id
+    )
+
+    async def generation():
+        for chunk in chunks:
+            yield chunk
+
+    await dispatcher_mod._pump_stream_to_buffer(generation(), "s1", "m", UI_OWNER)
+    snapshot = await session_service.read_persistence_snapshot("s1", UI_OWNER)
+    linear = TreeMessageManager.get_linear_path(snapshot.session["messages"])
+    return linear[-1] if linear[-1]["role"] == "assistant" else None
+
+
+async def test_the_legacy_stream_save_keeps_notices_and_the_stop_flag(ui, monkeypatch):
+    monkeypatch.setattr(dispatcher_mod, "stream_buffer_service",
+                        MagicMock(append=AsyncMock(return_value=True), finish=AsyncMock()))
+    node = await _legacy(_text("寫到"), _sse(FINISHED), _sse(STOPPED))
+    assert node["content"] == "寫到"
+    assert node["generationStopped"] is True
+    assert [n["kind"] for n in node[NOTICES_FIELD]] == [NOTICE_TOOL_FINISHED, NOTICE_INTERRUPTED]
+
+
+async def test_the_legacy_stream_save_keeps_a_turn_stopped_before_any_text(ui, monkeypatch):
+    monkeypatch.setattr(dispatcher_mod, "stream_buffer_service",
+                        MagicMock(append=AsyncMock(return_value=True), finish=AsyncMock()))
+    node = await _legacy(_sse(STOPPED))
+    assert node is not None and node["content"] == ""
+    assert node["generationStopped"] is True
+
+
+async def test_a_non_streaming_request_never_answers_with_a_notice(monkeypatch):
+    async def stream(*_args: Any, **_kwargs: Any) -> Any:
+        async def generation():
+            yield _sse(STOPPED)
+            yield "data: [DONE]\n\n"
+
+        return generation()
+
+    monkeypatch.setattr(dispatcher_mod, "get_stream_generator", stream)
+    monkeypatch.setattr(dispatcher_mod, "record_working_brain", MagicMock())
+    request = OpenAIChatRequest(model="m", messages=[{"role": "user", "content": "hi"}],
+                                stream=False)
+    ctx = PipelineContext(identity=UI_OWNER, request_id="r", t0=0.0)
+    response = await dispatcher_mod.dispatch_request("m", request, UI_OWNER, "r", 0.0, ctx)
+    assert json.loads(response.body).get("type") != TURN_NOTICE_EVENT
 
 
 async def test_sns_saves_a_turn_stopped_before_any_text():

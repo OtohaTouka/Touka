@@ -280,7 +280,6 @@ async def test_interrupt_after_save_preserves_detection(monkeypatch, isolate_rhy
         rhythm_service.clear_session(sid)
         rhythm_service.clear_interrupt(sid)
 
-    texts = _decode_texts(chunks)
     assert NOTICE_INTERRUPTED in notice_kinds(chunks)  # 確認確實走到中斷 break 路徑
     assert NOTICE_MEMORY_HALLUCINATION not in notice_kinds(chunks), (
         "save 發生在中斷前較早回合，中斷後卻誤發記憶幻覺警告（殘留 tool_use_blocks 誤判）"
