@@ -8178,6 +8178,10 @@ export interface components {
             init_prompt: string;
             /** Model Override */
             model_override?: string | null;
+            /** Trigger */
+            trigger?: string | null;
+            /** Schedule Mode */
+            schedule_mode?: string | null;
         };
         /**
          * HeartbeatRetriggerRequest

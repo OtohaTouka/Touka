@@ -11,10 +11,13 @@ import logging
 import re
 import secrets
 import uuid
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from pydantic import ValidationInfo
 
     from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip
 
@@ -24,7 +27,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, Respon
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from memory_server.utils.content_guard import sanitize_memory_content
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.adapters.schemas import OpenAIChatRequest, OpenAIMessage
 from src.config import HEARTBEAT_EXTERNAL_URL, HEARTBEAT_TOKEN
@@ -49,7 +52,13 @@ from src.services.continuity_events import (
     record_heartbeat_skipped,
     record_heartbeat_started,
 )
-from src.services.continuity_service import inject_continuity
+from src.services.continuity_service import (
+    HEARTBEAT_TRIGGERS,
+    RETRIGGER,
+    SCHEDULE_MODES,
+    HeartbeatWake,
+    inject_continuity,
+)
 from src.services.dispatcher import dispatch_request
 from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
 from src.services.hooks.lifecycle import notify_heartbeat_start, notify_heartbeat_stop
@@ -225,6 +234,11 @@ def _resolve_request_auth_level(req: HeartbeatAwakenRequest) -> str:
     return resolved
 
 
+WAKE_FIELD_MAX = 32  # /awaken 的 trigger、schedule_mode 最長幾個字（ADR-0322 PR 3）
+# 補充句在固定開頭之後寫第幾個脈衝（ADR-0322 PR 3 心跳-2）
+PULSE_NUDGE_COUNT = "（第 {pulse}／{total} 個脈衝）"
+
+
 class HeartbeatAwakenRequest(BaseModel):
     """心跳喚醒請求模型。"""
 
@@ -248,6 +262,19 @@ class HeartbeatAwakenRequest(BaseModel):
         "妳剛從沉睡中醒來。這是妳的「自主心跳時間」，請檢查記憶與檔案，看看是否有需要整理的事項或新的發現？"
     )
     model_override: str | None = None
+    # 被誰叫醒（ADR-0322 PR 3）：ToukaHeartbeat 帶；舊版不帶、看不懂的值都當「沒有說明」，
+    # 不回 422（兩邊版本不一致時排程不會失敗）。內部的重跑值從這裡進不來。
+    trigger: str | None = Field(default=None, max_length=WAKE_FIELD_MAX)
+    schedule_mode: str | None = Field(default=None, max_length=WAKE_FIELD_MAX)
+
+    @field_validator("trigger", "schedule_mode")
+    @classmethod
+    def _known_or_unstated(cls, value: str | None, info: ValidationInfo) -> str | None:
+        known = HEARTBEAT_TRIGGERS if info.field_name == "trigger" else SCHEDULE_MODES
+        if value is None or value in known:
+            return value
+        logger.warning("💓 [Awaken] Unrecognized %s; treated as not stated.", info.field_name)
+        return None
 
 
 class HeartbeatRetriggerRequest(BaseModel):
@@ -324,8 +351,13 @@ async def _execute_single_pulse(
         if last_msg["role"] == "assistant":
             # 自動補上一條微小的脈衝觸發訊息，維持 User-Assistant 交替
             t_now, _ = format_epoch_to_taipei(now_s)
+            wake = ctx.get("heartbeat_wake")
+            count = (
+                PULSE_NUDGE_COUNT.format(pulse=wake.pulse, total=wake.total)
+                if isinstance(wake, HeartbeatWake) and wake.pulse > 0 else ""
+            )
             nudge_content = (
-                f"{user_intent.PULSE_NUDGE_PREFIX}{t_now}】\n\n請繼續執行您的任務或檢查進度。"
+                f"{user_intent.PULSE_NUDGE_PREFIX}{t_now}】{count}\n\n請繼續執行您的任務或檢查進度。"
             )
 
             # 重要：更新 tree_history 物件本身
@@ -565,6 +597,8 @@ async def _process_heartbeat_loop(
         except Exception as e:
             logger.warning(f"⚠️ [Heartbeat-BG] Health check failed: {e}")
 
+        wake = ctx.get("heartbeat_wake")  # 入口給的被誰叫醒；沒給就是沒有說明
+        wake = wake if isinstance(wake, HeartbeatWake) else HeartbeatWake()
         for i in range(pulse_count):
             if destructive_ops.disturbed(identity, started_at):
                 logger.info(
@@ -616,6 +650,7 @@ async def _process_heartbeat_loop(
             logger.info(f"🌈 [Heartbeat-BG] Executing Pulse {i + 1}/{pulse_count}...")
 
             # 執行單次脈衝（ctx 由每個脈衝共用：先清掉上一次留下的模型失敗記號與種類）
+            ctx["heartbeat_wake"] = replace(wake, pulse=i + 1, total=pulse_count)
             ctx["model_failed"] = False
             ctx["model_error_type"] = None
             turns = await _execute_single_pulse(
@@ -881,6 +916,7 @@ async def awaken_agent(
         logger.warning("⚠️ [Heartbeat] init_prompt sanitized by ContentGuard for %s.", agent_id)
     # 無人在場的排程 run（U2c-2）：原意＝消毒後的 init_prompt（給審查員的資料）
     ctx["heartbeat_run"] = True
+    ctx["heartbeat_wake"] = HeartbeatWake(trigger=req.trigger, schedule_mode=req.schedule_mode)
     ctx["user_intent"] = user_intent.heartbeat_intent(safe_init_prompt)
     epoch_now = get_current_epoch()
     time_str, weekday = format_epoch_to_taipei(epoch_now)
@@ -1037,6 +1073,14 @@ async def retrigger_heartbeat(
     ctx["heartbeat_run"] = True  # 背景脈衝無人在場；原意＝最後一則人類節點（U2c-2）
     linear = TreeMessageManager.get_linear_path(session_data.get("messages") or {})
     ctx["user_intent"] = user_intent.retrigger_intent(linear)
+    started = [
+        run.get("started_at") for run in autonomy_service.get_interrupted_runs()
+        if run.get("session_id") == req.session_id
+    ]
+    ctx["heartbeat_wake"] = HeartbeatWake(
+        trigger=RETRIGGER,
+        rerun_started_at=started[0] if started and isinstance(started[0], int | float) else None,
+    )
     ctx.t0 = t0
     ctx.agent_id = agent_id
 
@@ -1059,7 +1103,7 @@ async def retrigger_heartbeat(
         pulse_count,
         None,  # pulse_slots：使用全域預算
         t0,
-        "繼續上次未完成的背景任務。",  # init_prompt（_execute_single_pulse 忽略，留作語意）
+        "",  # init_prompt：重跑不寫新的提示，說明在每個脈衝的 <continuity>（ADR-0322 PR 3）
         is_home_mode,
         not_disturbed_since=since,
     )

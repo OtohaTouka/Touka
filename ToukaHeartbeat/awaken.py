@@ -246,6 +246,7 @@ async def handle_manual_trigger(payload: TriggerPayload) -> dict[str, str]:
             security_level=payload.security_level,
             session_mode=payload.session_mode,
             session_id=payload.session_id,
+            trigger="manual",
         )
     )
     return {"status": "dispatched", "agent_id": payload.agent_id}

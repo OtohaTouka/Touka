@@ -278,6 +278,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 工具錯誤：無人在場遇到 `HUMAN_ONLY` 回 `permission_denied`（`reason=human_only`）；審查員拒絕、無人在場不跑終端、需要人但沒人在場分別帶 `touka_error_code` 1118 `AUTO_REVIEW_DENIED`、1119 `AUTO_REVIEW_HEADLESS_TERMINAL`、1120 `AUTO_REVIEW_UNAVAILABLE`。
 - 審批事件：`tool_approval_request` 多兩個選用欄位，`review_reason`（審查員轉人的理由，截到 300 字）與 `human_only: true`（只有人能核准）；沒有新事件種類，核准仍走 `/v1/tools/approve/{exec_id}`，只有人類核准能滿足 `HUMAN_ONLY`。
 - 審查員設定：`GET`／`POST /v1/autonomy` 多 `auto_review` 區塊（`model`、`max_tokens`、`timeout_s`、`headless_terminal`；`model` 預設空白＝每次轉人或拒絕）。`auto_review` 有變更時只有人類 admin 能改（其他回 403 `AUTH_ADMIN_REQUIRED`，其他欄位照舊 Owner／Debugger／admin）；新設定的 `model` 必須空白或在 reviewer-models 清單內，否則 422 `VALIDATION_ERROR`（R-2c）。新端點 `GET /v1/autonomy/reviewer-models`（Owner／Debugger／admin）回 `{"models":[{"id","name","provider"}]}`，只列供應商金鑰已設定、啟用中的一般模型。費用經 `complete_once` 記在被審的靈魂、provider 標籤 `auto_reviewer`。
+- `<continuity>` 多「這段對話是什麼」（SNS 一律外人、家、心跳在家或頻道、子對話、內部頻道、無痕）；SNS 訊息在固定開頭之後多一行平台、私訊或公開、發言者名稱（中和過）與代號、附件數（ADR-0322 PR 3）。
 - 心跳：`security_level` 的 `safe`→Auto、`full`→YOLO、其他→Manual；`/retrigger` 固定 Auto。脈衝在 `dispatch_request` 前跑 ToolLayer，請求第一次帶工具（KF-4）。
 - `/debug/execute`：YOLO 下遇到底線 F1–F4、F7 指令也拒絕（`reason=human_only`）。
 - IDE：只有人類在 Touka 卡片核准時，`call_ide_tool` 才在 tools/call 的 `_meta` 放 `"touka.dev/human-approval"`（HMAC 標記，見 IDE_INTERFACE）。

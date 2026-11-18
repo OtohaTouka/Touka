@@ -22,6 +22,7 @@
 - KF-4：脈衝在 `dispatch_request` 前跑 ToolLayer，請求第一次帶工具；靈魂 `config.json` 的 `enabled_tools` 照樣收斂。ToolLayer 採排程設定時決定的模式，不採家對話 session row 上人類選的模式；脈衝不跑 MonitorLayer。
 - 心跳看得到 MCP 工具：YOLO 下會在無人在場時執行（MCP 工具不經底線分類），Auto 下未列名 MCP 屬 dangerous、直接拒絕；workload OAuth 仍維持關閉。
 - 原意（審查員的資料）：`/awaken` 用消毒後的 `init_prompt`，`/retrigger` 用 session 樹最後一則人類節點。
+- 被誰叫醒（ADR-0322 PR 3）：`/awaken` 選填 `trigger`（`schedule`／`manual`）與 `schedule_mode`（`interval`／`daily`／`once`），最長 32 字；沒帶或看不懂當沒有說明、記 warning（不含原值）、不回 422，`retrigger` 從這裡進不來。ToukaHeartbeat 排程帶 `schedule` 與種類、手動 `/trigger` 帶 `manual`。每個脈衝的 `<continuity>` 寫第幾個、還有幾個、被誰叫醒；`/retrigger` 另寫重跑說明（開始時間在派發前讀出），不寫進對話、不傳初始提示。補充句寫「（第 i／n 個脈衝）」。
 
 ## 沒設主要模型（ADR-0250）
 

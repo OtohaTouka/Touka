@@ -216,8 +216,9 @@ def build_harness_context(
         "drive stay the same across switches.",
         "",
         "## Memory and context",
-        "- When a conversation grows long, older turns are trimmed into the "
-        "<soul_prelude> block - earlier context is condensed there, not lost.",
+        "- When your home conversation grows long, older turns are trimmed into the "
+        "<soul_prelude> block, and reports from your other conversations go there too - "
+        "earlier context is condensed there, not lost.",
     ]
     if "memory_tools" in advertised:
         lines.append(

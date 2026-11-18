@@ -31,6 +31,7 @@ from src.models.context import PipelineContext
 from src.models.identity import AgentIdentity
 from src.routers import heartbeat as hb
 from src.services import continuity_events as ce
+from src.services.continuity_service import HeartbeatWake
 from src.services.hooks import stopping
 from src.tools.builtin import memory as proxy_memory_gateway
 from src.tools.mission_tools import mission_tools
@@ -166,6 +167,7 @@ async def _run_loop(
     interrupted: bool = False,
     stop_counts: list[int] | None = None,
     t0: float = 1_760_000_000.5,
+    ctx: PipelineContext | None = None,
 ) -> str:
     sid = f"t23-hb-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(hb, "_execute_single_pulse", pulse)
@@ -183,7 +185,7 @@ async def _run_loop(
         final_session_id=sid,
         identity=soul,
         model_override=None,
-        ctx=PipelineContext(heartbeat_run=True, source_message_id="trigger-node"),
+        ctx=ctx or PipelineContext(heartbeat_run=True, source_message_id="trigger-node"),
         pulse_count=pulse_count,
         pulse_slots=1,
         t0=t0,
@@ -293,6 +295,28 @@ async def test_each_pulse_starts_without_the_previous_error_kind(
 
     await _run_loop(monkeypatch, _soul(), pulse, pulse_count=2)
     assert seen == [None, None]
+
+
+async def test_each_pulse_knows_its_number_and_who_woke_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """心跳-2、心跳-3（ADR-0322 PR 3）：每個脈衝換上自己的編號，被誰叫醒照入口給的。"""
+    seen: list[Any] = []
+
+    async def pulse(_sid: str, _identity: Any, _model: Any, ctx: Any, *_a: Any, **_k: Any) -> int:
+        seen.append(ctx.get("heartbeat_wake"))
+        return 1
+
+    ctx = PipelineContext(heartbeat_run=True)
+    ctx["heartbeat_wake"] = HeartbeatWake(trigger="schedule", schedule_mode="daily")
+    await _run_loop(monkeypatch, _soul(), pulse, pulse_count=3, ctx=ctx)
+    assert seen == [
+        HeartbeatWake(pulse=i, total=3, trigger="schedule", schedule_mode="daily")
+        for i in (1, 2, 3)
+    ]
+    seen.clear()
+    await _run_loop(monkeypatch, _soul(), pulse, pulse_count=1)  # 入口沒給：沒有說明
+    assert seen == [HeartbeatWake(pulse=1, total=1)]
 
 
 def _crash(soul: AgentIdentity, started_at: float, **extra: Any) -> dict[str, Any]:

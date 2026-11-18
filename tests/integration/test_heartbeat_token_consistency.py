@@ -152,7 +152,8 @@ async def test_env_token_wins_for_management_trigger_and_real_outbound(tmp_path,
         await asyncio.wait_for(completed.wait(), timeout=0.2)
     assert good.status_code == result.status_code == 200
     assert bad.status_code == 401
-    assert requests == [payload]
+    # 手動觸發多帶被誰叫醒（ADR-0322 PR 3）；Proxy 的 /awaken 認得這兩個欄位
+    assert requests == [{**payload, "trigger": "manual", "schedule_mode": None}]
     assert storage.config_file.read_bytes() == before
     with pytest.raises(ToukaException):
         _verify_at_proxy("synthetic-local-A")

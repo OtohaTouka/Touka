@@ -14,6 +14,7 @@
 - 上次有人類訊息、上次自主執行、最近完成：可信活動事件（``utils/continuity_events_db``）。
 - 任務看板：MissionManager 唯讀（SSOT），只補 ``<mission_awareness>`` 沒有的時間。
 - 可信紀錄起點：只在有「沒有紀錄」時出現。
+- 這段對話是什麼、心跳第幾個脈衝與被誰叫醒（ADR-0322 PR 3）：先看觸發來源，再看是不是家。
 事件表讀不到時照實寫讀不到，區塊照樣送出（不丟例外）。
 """
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from memory_server.services.mission_manager import MissionManager
@@ -31,7 +33,11 @@ from src.handlers.adapters.retry import KNOWN_ERROR_TYPES
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
-from src.services.home_handover import unreported_children
+from src.services.home_handover import (
+    CHANNEL_REPORT_EVERY_MS,
+    CHILD_IDLE_MS,
+    unreported_children,
+)
 from src.services.prompt_blocks import CONTINUITY, MISSION_AWARENESS, wrap_block
 from src.services.subagent_registry import (
     FINISHED_KEEP_SECONDS,
@@ -41,6 +47,7 @@ from src.services.subagent_registry import (
 from src.utils.async_db import session_service
 from src.utils.continuity_events_db import read_snapshot
 from src.utils.history_manager import TreeMessageManager
+from src.utils.session_scope import can_be_reported, is_heartbeat_channel
 from src.utils.time_utils import (
     CONVERSATION_RECORD_TIME_NOTE,
     format_epoch_to_taipei,
@@ -55,6 +62,7 @@ logger = logging.getLogger(__name__)
 # 記憶體最多記幾個 (agent, session) 的上一次前景請求時間；超過丟最舊的。
 MAX_TRACKED_SESSIONS = 1024
 _MS_PER_SECOND = 1000
+_MS_PER_HOUR = 3_600_000
 _MINUTE = 60
 _HOUR = 3600
 _DAY = 86400
@@ -71,6 +79,48 @@ HEADER = (
     'absolute dates (for example 2026-10-15), not relative times such as "3 hours ago".'
 )
 HEARTBEAT_LINE = "- Run type: autonomous heartbeat; no human is present in this run."
+# 這段對話是什麼（ADR-0322 PR 3 家-1）：先看觸發來源（SNS 一律外人），再看是不是家
+CONVERSATION_LABEL = "This conversation"
+KIND_SNS = (
+    "messages come from outsiders through an SNS platform, not from your owner - even when "
+    "this is your home conversation; your home conversation and <soul_prelude> are private "
+    "background, do not pass them on"
+)
+KIND_HOME = "your home conversation with your owner"
+KIND_HEARTBEAT_HOME = f"{KIND_HOME}, but no human is present in this run"
+KIND_HEARTBEAT_CHANNEL = (
+    "a heartbeat channel; after the run a report goes to your home (at most once every "
+    f"{CHANNEL_REPORT_EVERY_MS // _MS_PER_HOUR} hours per channel)"
+)
+KIND_CHILD = (
+    f"not your home; after {CHILD_IDLE_MS // _MS_PER_HOUR} hours idle, or when the home changes, "
+    "its key points are reported into your home's <soul_prelude>"
+)
+KIND_NOT_REPORTED = "not your home, and nothing here is reported to your home"
+KIND_INCOGNITO = "incognito; nothing here is saved or reported to your home"
+KIND_UNKNOWN = "unknown (the home could not be read)"
+# 心跳第幾個脈衝、被誰叫醒（ADR-0322 PR 3 心跳-2、心跳-3）；觸發種類只認這幾個值
+HEARTBEAT_TRIGGERS = ("schedule", "manual")
+SCHEDULE_MODES = ("interval", "daily", "once")
+RETRIGGER = "retrigger"  # 內部值：只有 /v1/heartbeat/retrigger 會設，/awaken 收不到
+PULSE_LINE = "- Pulse {pulse} of {total}: replying with text ends this pulse only; {after}"
+PULSE_MORE = "{left} more pulse(s) will wake you again."
+PULSE_LAST = "this is the last pulse of this run."
+WOKEN_LABEL = "Woken by"
+WAKE_TEXTS = {
+    "schedule": "a schedule",
+    "manual": "a manual trigger",
+    RETRIGGER: "a re-run of an interrupted background run",
+}
+SCHEDULE_MODE_TEXTS = {"interval": "repeating interval", "daily": "daily time", "once": "one-time"}
+WAKE_UNSTATED = "not stated"
+RERUN_FIRST = (
+    "- Re-run: the previous background run did not finish ({when}). "
+    "First check what was already done, then continue."
+)
+RERUN_LATER = "- Re-run: this is pulse {pulse} of the re-run."
+RERUN_STARTED = "it started {ago}"
+RERUN_START_UNKNOWN = "start time unknown"
 PREVIOUS_TURN_LABEL = "Since your previous turn in this conversation"
 UNKNOWN_PREVIOUS = "unknown (no record of when the previous turn happened)"
 HUMAN_LABEL = "Last message from a human (any conversation)"
@@ -295,22 +345,11 @@ def finished_subagents_line(
     return f"- {FINISHED_SUBAGENTS_LABEL}: {' | '.join(items)} {SERVER_MEMORY}"
 
 
-async def _unreported_line(
-    soul: AgentIdentity, session_id: str | None, now_s: float
-) -> str | None:
+async def _unreported_line(soul: AgentIdentity, now_s: float) -> str | None:
     """在家裡才加：其他對話有新活動、還沒回報（ADR-0319）；沒有就不加這一行.
 
     只放段數與最後活動時間，不放對話編號或內容；時間是對話紀錄的，可能來自使用者裝置。
     """
-    if not session_id:
-        return None
-    try:
-        at_home = await session_service.home_session_ids(soul) == [session_id]
-    except Exception:
-        logger.exception("continuity: reading the home failed")
-        return None
-    if not at_home:
-        return None
     try:
         unreported = await unreported_children(soul)
     except Exception:
@@ -325,6 +364,65 @@ async def _unreported_line(
         f"{CONVERSATION_RECORD_TIME_NOTE}"
     )
     return f"- {UNREPORTED_LABEL}: {unreported.count}{when}"
+
+
+@dataclass(frozen=True)
+class HeartbeatWake:
+    """心跳這一輪是第幾個脈衝、被誰叫醒；入口放進 ctx，背景迴圈每個脈衝換上編號."""
+
+    pulse: int = 0
+    total: int = 0
+    trigger: str | None = None
+    schedule_mode: str | None = None
+    rerun_started_at: float | None = None  # 被重跑的那次開始時間（秒，伺服器時鐘）
+
+
+def _wake_lines(wake: HeartbeatWake, now_s: float) -> list[str]:
+    if wake.pulse < 1:
+        return []
+    left = wake.total - wake.pulse
+    woken = WAKE_TEXTS.get(wake.trigger or "", WAKE_UNSTATED)
+    if wake.trigger == "schedule" and wake.schedule_mode in SCHEDULE_MODE_TEXTS:
+        woken = f"{woken} ({SCHEDULE_MODE_TEXTS[wake.schedule_mode]})"
+    after = PULSE_MORE.format(left=left) if left > 0 else PULSE_LAST
+    lines = [
+        PULSE_LINE.format(pulse=wake.pulse, total=wake.total, after=after),
+        f"- {WOKEN_LABEL}: {woken}",
+    ]
+    if wake.trigger == RETRIGGER:
+        started = wake.rerun_started_at
+        when = (
+            RERUN_STARTED.format(ago=_when(now_s, int(started * _MS_PER_SECOND)))
+            if started else RERUN_START_UNKNOWN
+        )
+        first = RERUN_FIRST.format(when=when)
+        lines.append(first if wake.pulse == 1 else RERUN_LATER.format(pulse=wake.pulse))
+    return lines
+
+
+async def _at_home(soul: AgentIdentity, session_id: str) -> bool | None:
+    """這段對話是不是這個靈魂唯一的家；讀不到回 None（兩個家當作沒有家）."""
+    try:
+        return await session_service.home_session_ids(soul) == [session_id]
+    except Exception:
+        logger.exception("continuity: reading the home failed")
+        return None
+
+
+def _conversation_line(
+    session_id: str, at_home: bool | None, *, heartbeat: bool, sns: bool
+) -> str:
+    if sns:
+        kind = KIND_SNS
+    elif is_heartbeat_channel(session_id):
+        kind = KIND_HEARTBEAT_CHANNEL
+    elif at_home is None:
+        kind = KIND_UNKNOWN
+    elif at_home:
+        kind = KIND_HEARTBEAT_HOME if heartbeat else KIND_HOME
+    else:
+        kind = KIND_CHILD if can_be_reported(session_id) else KIND_NOT_REPORTED
+    return f"- {CONVERSATION_LABEL}: {kind}"
 
 
 def _recent_line(now_s: float, timeline: TimelineSnapshot | None) -> str:
@@ -386,6 +484,7 @@ async def build_continuity_block(
     incognito: bool,
     heartbeat: bool = False,
     sns: bool = False,
+    wake: HeartbeatWake | None = None,
     current_message_id: Any = None,
     now_s: float | None = None,
 ) -> str:
@@ -398,10 +497,16 @@ async def build_continuity_block(
     now_s = get_current_epoch() if now_s is None else now_s
     time_str, weekday = format_epoch_to_taipei(now_s)
     lines = [HEADER, f"- Current time (Asia/Taipei): {time_str} ({weekday}) {SERVER_CLOCK}"]
-    if not incognito:
+    if incognito:
+        lines.append(f"- {CONVERSATION_LABEL}: {KIND_INCOGNITO}")
+    else:
+        at_home = await _at_home(soul, session_id) if session_id and not sns else False
+        if session_id:
+            lines.append(_conversation_line(session_id, at_home, heartbeat=heartbeat, sns=sns))
         timeline = await _read_timeline(soul, session_id, current_message_id, now_s)
         if heartbeat:
             lines.append(HEARTBEAT_LINE)
+            lines.extend(_wake_lines(wake or HeartbeatWake(), now_s))
         else:
             lines.append(await _previous_turn_line(soul, session_id, now_s, timeline))
         lines.append(_human_line(now_s, timeline))
@@ -414,7 +519,7 @@ async def build_continuity_block(
         finished = None if sns else finished_subagents_line(soul, session_id, now_s)
         if finished is not None:
             lines.append(finished)
-        unreported = None if sns else await _unreported_line(soul, session_id, now_s)
+        unreported = await _unreported_line(soul, now_s) if at_home else None
         if unreported is not None:
             lines.append(unreported)
         start = _records_start_line(timeline)
@@ -427,6 +532,7 @@ async def inject_continuity(
     request: Any, ctx: Any, soul: AgentIdentity, *, now_s: float | None = None
 ) -> None:
     """把 ``<continuity>`` 附在這次請求最後一則 user 訊息尾端（呼叫端負責靈魂路閘門）。"""
+    wake = ctx.get("heartbeat_wake")
     block = await build_continuity_block(
         soul=soul,
         session_id=ctx.get("session_id"),
@@ -434,6 +540,7 @@ async def inject_continuity(
         incognito=bool(ctx.get("incognito")),
         heartbeat=bool(ctx.get("heartbeat_run")),
         sns=bool(ctx.get("sns_source")),
+        wake=wake if isinstance(wake, HeartbeatWake) else None,
         current_message_id=ctx.get("source_message_id"),
         now_s=now_s,
     )

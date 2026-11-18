@@ -40,6 +40,8 @@ class ProxyClient:
         security_level: str = "safe",
         session_mode: str = "home",
         session_id: str = "home",
+        trigger: str | None = None,
+        schedule_mode: str | None = None,
     ) -> int:
         """發送喚醒指令至 Proxy。"""
         try:
@@ -59,6 +61,8 @@ class ProxyClient:
             "security_level": security_level,
             "session_mode": session_mode,
             "session_id": session_id,
+            "trigger": trigger,
+            "schedule_mode": schedule_mode,
         }
 
         try:
