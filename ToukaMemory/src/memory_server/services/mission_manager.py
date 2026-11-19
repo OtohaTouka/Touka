@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 個人空間根目錄裡放看板的資料夾；檔案動詞不能寫（personal_catalog.SYSTEM_ROOT_DIRS，ADR-0324）
+MISSIONS_DIR_NAME = "missions"
+
 
 class MissionPersistenceError(RuntimeError):
     """保存提交無法確認；安全訊息不包含受管 I/O 的原始內容或路徑。"""
@@ -97,7 +100,7 @@ class MissionManager:
             drive = proxy.agent_drive(identity)
         if drive is None:  # agent_id 不能當成資料夾名稱
             raise ZoneSegmentError
-        return drive.child("missions", "current_mission.json")
+        return drive.child(MISSIONS_DIR_NAME, "current_mission.json")
 
     async def _get_current_mission_unlocked(
         self, identity: AgentIdentity, target_agent_id: str | None = None

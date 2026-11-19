@@ -8,6 +8,7 @@ C7 — Webhook verification: SNSIncomingEvent must have is_verified field.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from contextlib import AsyncExitStack
@@ -309,6 +310,60 @@ def test_sns_gateway_warn_if_unverified_silent_for_verified_event(caplog):
     assert not any("unverified" in record.message.lower() for record in caplog.records), (
         "Should not log warning for verified events"
     )
+
+
+# ADR-0324：建事件的地方一定要明寫有沒有驗證（展開的 **fields 不算），不准用 model_validate／
+# model_construct 繞過。Discord（gateway）與 Telegram（long polling）是用 bot token 建立、平台驗證過
+# 的連線，寫 True；之後的 webhook 型 adapter 驗過簽才可寫 True。
+_PROXY_SRC = Path(__file__).resolve().parents[2] / "ToukaProxy" / "src"
+_PLATFORM_VERIFIED_ADAPTERS = frozenset({"adapters/discord_bot.py", "adapters/telegram_bot.py"})
+_BYPASS_CONSTRUCTORS = frozenset({"model_validate", "model_validate_json", "model_construct"})
+
+
+def _names_sns_event(node: ast.expr) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "SNSIncomingEvent"
+    return isinstance(node, ast.Attribute) and node.attr == "SNSIncomingEvent"
+
+
+def _sns_event_sites() -> tuple[dict[str, list[ast.Call]], list[str]]:
+    """產品程式裡建 ``SNSIncomingEvent`` 的呼叫（依檔案），以及繞過建構子的地方."""
+    calls: dict[str, list[ast.Call]] = {}
+    bypasses: list[str] = []
+    for path in sorted(_PROXY_SRC.rglob("*.py")):
+        rel = path.relative_to(_PROXY_SRC).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if _names_sns_event(func):
+                calls.setdefault(rel, []).append(node)
+            elif (
+                isinstance(func, ast.Attribute)
+                and func.attr in _BYPASS_CONSTRUCTORS
+                and _names_sns_event(func.value)
+            ):
+                bypasses.append(f"{rel}:{node.lineno}")
+    return calls, bypasses
+
+
+def test_every_sns_event_states_whether_it_is_verified():
+    calls, bypasses = _sns_event_sites()
+    assert set(calls) >= _PLATFORM_VERIFIED_ADAPTERS
+    for rel, nodes in calls.items():
+        for call in nodes:
+            keywords = [kw.arg for kw in call.keywords]
+            assert "is_verified" in keywords, f"{rel}:{call.lineno} must pass is_verified="
+    assert bypasses == []
+
+
+def test_platform_connections_mark_events_verified():
+    calls, _ = _sns_event_sites()
+    for rel in sorted(_PLATFORM_VERIFIED_ADAPTERS):
+        for call in calls[rel]:
+            value = next(kw.value for kw in call.keywords if kw.arg == "is_verified")
+            assert isinstance(value, ast.Constant), f"{rel}:{call.lineno}"
+            assert value.value is True, f"{rel}:{call.lineno}"
 
 
 # ---------------------------------------------------------------------------

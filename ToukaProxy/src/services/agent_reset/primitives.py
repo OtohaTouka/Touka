@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from memory_server.factual import FACTS_BACKUP_DIR_NAME
+from memory_server.services.mission_manager import MISSIONS_DIR_NAME
 from memory_server.services.personal_catalog import CATALOG_DIR_NAME, CATALOG_FILE_NAME
 from memory_server.utils.collection_names import fact_point_id
 from memory_server.utils.memory_worker import (
@@ -131,7 +132,6 @@ async def remaining_stats(candidate: str, guard: GuardFn = assert_resettable) ->
 # ADR-0293：個人空間裡的東西都不跟隨連結。outputs／missions 本身是連結只刪連結；裡面的連結也只刪
 # 本身、不進入。
 _PRESERVED_OUTPUT_DIRS = ("uploads",)
-_MISSIONS_DIR = "missions"
 
 
 @dataclass
@@ -269,7 +269,7 @@ async def remaining_memory(candidate: str, guard: GuardFn = assert_resettable) -
 # ── mission（personal vault /missions/current_mission.json）──────────
 def _mission_dir(identity: AgentIdentity) -> ZonePath | None:
     drive = resource_manager.agent_drive(identity)
-    return None if drive is None else drive.child(_MISSIONS_DIR)
+    return None if drive is None else drive.child(MISSIONS_DIR_NAME)
 
 
 async def purge_mission(candidate: str, guard: GuardFn = assert_resettable) -> int:
@@ -383,4 +383,9 @@ RETAINED_STORES: tuple[tuple[str, str], ...] = (
     ("outputs/uploads", "聊天上傳檔（使用者資產、非 agent 產出）；reset 保留（ADR-0175）"),
     (FACTS_BACKUP_DIR_NAME, "記憶庫升級備份（所有靈魂共用一個檔）；重置不清除"),
     ("sandbox_home", "隔離環境裡的家目錄與暫存（終端指令的 ~）；刪除靈魂時才清"),
+    (
+        "dispatch_results",
+        "子代理結果暫存（data/temp，ADR-0324）；最多 7 天自動清；"
+        "舊對話庫若還留著憑證，期間內仍讀得到",
+    ),
 )

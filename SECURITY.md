@@ -187,6 +187,13 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 主代理可以偽造子代理結果、用檔案工具改任務看板（2026-11-19，ADR-0324 PR 1）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| 背景子代理的耐久結果放在主代理自己的個人空間 `dispatch_results/<憑證>.json`，`await_dispatch_result` 先讀這份檔就當成子代理交回的結果。憑證本來就交給主代理、檔名就是憑證，檔案動詞的 `personal` 範圍（範例權限 `safe`，一般模式不用核准）就能先寫一份假結果，還能帶 `system_notes` 顯示成「System note」；被工具結果裡的注入誘導時，主代理會把假內容當成子代理查證過的結論回報，真結果沒人讀 | 改存 data 底下的系統暫存 `temp/dispatch_results`（不在任何代理人資料夾，終端沙盒與一般身分的檔案動詞都碰不到），檔名是「代理人編號（casefold）＋憑證」的 SHA-256，舊位置不再讀；保留 7 天，啟動、存、讀時清。`tests/unit/test_subagent_result_forgery_security.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP 仍寫得到；不受專案限制的身分把專案登記在涵蓋 data 的位置時，專案範圍的檔案動詞也寫得到（ADR-0292 決定 12 的界線，ADR-0324 已知限制） |
+| 任務看板 `missions/current_mission.json` 也在個人空間，檔案動詞直接改它就能繞過看板規則（禁令 30、31）、把 `review_status` 寫成 APPROVED 跳過互審 | 檔案動詞的寫入類動作碰根目錄的 `missions/` 一律拒絕（`SystemFolderDeniedError`，回 `permission_denied` 並建議 mission_tools）。`tests/unit/test_mission_board_write_deny_security.py`。只擋個人空間範圍的檔案工具：終端、能寫個人空間的 MCP 伺服器，以及不受專案限制的身分把專案登記在涵蓋個人空間的位置時，要等看板搬到系統資料夾（另一個任務） |
+
 ### SNS 回覆帶出工具名稱、執行時間與工具例外原文（2026-11-18，ADR-0322 PR 2b）
 
 | 弱點 | 修正與驗證 |
@@ -567,7 +574,7 @@ dep1 順帶修好一個既有錯誤：被隔離的 MCP 工具（標頭政策）�
 | **C4** | `ToukaProxy/src/routers/editor.py` | 路徑穿越（Path Traversal） | 🔴 Critical | 將 `startswith()` 字串比對改為 `Path.is_relative_to()` 正確邊界檢查 |
 | **C5** | `ToukaProxy/src/tools/terminal.py` | Shell 指令注入 | 🔴 Critical | 偵測鏈式 metachar（`; \| && $(...)`）；SafeAuto 下自動升級為 CONFIRM |
 | **C6** | `ToukaProxy/src/tools/builtin/evolution.py` | 演化沙箱程式碼注入 | 🔴 Critical | 提取 `_build_jail_code()`；`tool_name` 改用 `json.dumps()` 轉義 |
-| **C7** | `ToukaProxy/src/services/sns_gateway.py` | Webhook 無驗簽框架 | 🔴 Critical | 新增 `SNSIncomingEvent.is_verified` 欄位與 `_warn_if_unverified()` 警告 |
+| **C7** | `ToukaProxy/src/services/sns_gateway.py` | Webhook 無驗簽框架 | 🔴 Critical | 新增 `SNSIncomingEvent.is_verified` 欄位與 `_warn_if_unverified()` 警告。2026-11-19（ADR-0324）：Discord（gateway）與 Telegram（long polling）是用 bot token 建立、平台驗證過的連線，建事件時標 `is_verified=True`；測試要求每個 `SNSIncomingEvent(...)` 字面寫出 `is_verified=`。之後加 webhook 型 adapter 必須驗簽才可設 True |
 | **C8** | `ToukaProxy/src/routers/terminal.py` | 終端機審核端點無驗證 | 🔴 Critical | `approve` / `reject` 端點加入 `Depends(get_verified_identity)` 與角色檢查 |
 | **C9** | `ToukaHeartbeat/awaken.py` | 排程端點無驗證 | 🔴 Critical | `GET/POST/DELETE /v1/schedules` 加入 `verify_schedule_token()` Bearer Token 驗證 |
 | **H1** | `ToukaProxy/src/routers/auth.py` | Cookie 缺 Secure 旗標 | 🟠 High | 新增 `SECURE_COOKIES` 設定；生產環境啟用 HttpOnly + Secure；抽出 `_set_refresh_cookie()` SSOT helper |

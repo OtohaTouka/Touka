@@ -85,6 +85,8 @@ class TelegramAdapter(BaseSNSAdapter):
                     channel_id=channel_id,
                     content=content,
                     raw_event=update,
+                    # 經平台驗證的 bot 連線收到（long polling），不是 webhook（ADR-0324）
+                    is_verified=True,
                     **telegram_sender_fields(update),
                 )
 

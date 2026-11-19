@@ -9,7 +9,8 @@
 - 信任時，大小與修改時間都對得上的項目才沿用 hash 與標題，其餘重算；實際不存在的
   項目丟掉；不認得的欄位忽略。
 
-檔案動詞的寫入類動作不能碰 `.touka/`；list／find／grep 看不到它。所有 I/O 經 resource proxy
+檔案動詞的寫入類動作不能碰 `.touka/`；list／find／grep 看不到它。根目錄的 `missions/`（任務看板）
+也不能用檔案動詞寫，要經 mission_tools（ADR-0324）。所有 I/O 經 resource proxy
 的區內方法（個人空間的根是 ``ZonePath``，不跟隨連結；ADR-0293）。
 """
 
@@ -27,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from memory_server.config_utils import get_resource_proxy
+from memory_server.services.mission_manager import MISSIONS_DIR_NAME
 from memory_server.utils.no_follow import LinkRefusedError
 
 if TYPE_CHECKING:
@@ -49,7 +51,12 @@ CATALOG_HINT = "目錄可用：{count} 個檔，read .touka/catalog.json"
 CATALOG_HIDDEN_NAMES = frozenset({CATALOG_DIR_NAME})
 # 目錄掃描略過：任何深度的系統與雜訊目錄、根目錄的任務板與派工結果、寫檔暫存與鎖檔。
 CATALOG_SKIP_DIR_NAMES = frozenset({CATALOG_DIR_NAME, ".git", "node_modules", "__pycache__"})
-CATALOG_SKIP_ROOT_DIRS = frozenset({"missions", "dispatch_results"})
+# dispatch_results 只剩舊檔：子代理結果已改存系統暫存（ADR-0324），舊資料夾照舊略過
+CATALOG_SKIP_ROOT_DIRS = frozenset({MISSIONS_DIR_NAME, "dispatch_results"})
+# 根目錄裡由系統維護、檔案動詞不能寫的資料夾，以及該改用的工具（ADR-0324）。終端與能寫個人空間的
+# MCP 伺服器擋不到，要等看板搬到系統資料夾。
+_SYSTEM_ROOT_DIR_TOOLS = {MISSIONS_DIR_NAME: "mission_tools"}
+SYSTEM_ROOT_DIRS = frozenset(_SYSTEM_ROOT_DIR_TOOLS)
 CATALOG_SKIP_FILE_GLOBS = (".*.tmp", "*.lock")
 
 _CATALOG_NOTE = "System-maintained cache, rebuilt from the actual files on every read."
@@ -83,6 +90,17 @@ class CatalogPathDeniedError(PermissionError):
 
     def __init__(self) -> None:
         super().__init__("'.touka/' is maintained by the system; file verbs cannot change it.")
+
+
+class SystemFolderDeniedError(PermissionError):
+    """檔案動詞的寫入類動作碰到根目錄由系統維護的資料夾（看板）；訊息固定、不含實體路徑。"""
+
+    def __init__(self, folder: str) -> None:
+        self.folder = folder
+        super().__init__(
+            f"'{folder}/' is maintained by the system; file verbs cannot change it. "
+            f"Use {_SYSTEM_ROOT_DIR_TOOLS[folder]} instead."
+        )
 
 
 class CatalogEntry(BaseModel):
@@ -248,15 +266,16 @@ async def run_vault_action(
 
     Raises:
         CatalogPathDeniedError: 寫入類動作的目標落在 `.touka/` 底下（不分大小寫）。
+        SystemFolderDeniedError: 寫入類動作的目標在根目錄的 `missions/` 底下（不分大小寫）。
     """
     proxy = kwargs.get("resource_proxy") or get_resource_proxy()
     kwargs["resource_proxy"] = proxy
-    if (
-        action in _WRITE_ACTIONS
-        and target is not None
-        and any(part.casefold() == CATALOG_DIR_NAME for part in target.relative_parts(root))
-    ):
-        raise CatalogPathDeniedError
+    if action in _WRITE_ACTIONS and target is not None:
+        parts = target.relative_parts(root)
+        if any(part.casefold() == CATALOG_DIR_NAME for part in parts):
+            raise CatalogPathDeniedError
+        if parts and parts[0].casefold() in SYSTEM_ROOT_DIRS:
+            raise SystemFolderDeniedError(parts[0].casefold())
     if action in _SEARCH_ACTIONS:
         kwargs["exclude"] = CATALOG_HIDDEN_NAMES
     if action == "read" and target == root.child(CATALOG_DIR_NAME, CATALOG_FILE_NAME):

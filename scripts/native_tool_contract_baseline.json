@@ -1117,6 +1117,15 @@
         "dynamic": [
           "Name(id='kwargs', ctx=Load())"
         ]
+      },
+      "SystemFolderDeniedError.__init__": {
+        "parameters": [
+          "self",
+          "folder"
+        ],
+        "kwargs": null,
+        "reads": [],
+        "dynamic": []
       }
     },
     "ToukaMemory/src/memory_server/tools/__init__.py": {

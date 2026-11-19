@@ -4,7 +4,7 @@
 **日期**：2026-05-27  
 **影響範圍**：ToukaDispatch、ToukaProxy
 
-> 🔧 **取捨表「server 重啟 → pending token 失效」已被 [ADR-0138](0138-parallel-fanout-and-resumable-delivery.md) 補耐久層緩解**：`mission_tools.py` 的 `await_dispatch_result` 現先讀耐久 JSON（`read_result`，wait 前）、TIMEOUT/UNKNOWN 後再讀一次——已算完的結果可跨 proxy 重啟存活。in-memory `asyncio.Event` 核心回呼機制（`DispatchCallbackStore`）本身仍有效。
+> 🔧 **取捨表「server 重啟 → pending token 失效」已被 [ADR-0138](0138-parallel-fanout-and-resumable-delivery.md) 補耐久層緩解**：`mission_tools.py` 的 `await_dispatch_result` 現先讀耐久 JSON（`read_result`，wait 前；ADR-0324 起存在 data 底下的系統暫存 `temp/dispatch_results`，代理人寫不到）、TIMEOUT/UNKNOWN 後再讀一次——已算完的結果可跨 proxy 重啟存活。in-memory `asyncio.Event` 核心回呼機制（`DispatchCallbackStore`）本身仍有效。
 
 > 🔧 **站內子代理的憑證（[ADR-0318](0318-stop-timeout-failure-made-clear.md)，2026-11-17）**：`dispatch_subagent` 的憑證等候逾時不作廢、拿到結果才移除，超過子代理時限加 30 分鐘才清掉；HTTP 回呼拒絕站內憑證。外部派工的憑證照舊。
 
