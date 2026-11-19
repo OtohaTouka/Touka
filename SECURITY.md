@@ -198,8 +198,8 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 | 弱點 | 修正與驗證 |
 |---|---|
-| 背景子代理的耐久結果放在主代理自己的個人空間 `dispatch_results/<憑證>.json`，`await_dispatch_result` 先讀這份檔就當成子代理交回的結果。憑證本來就交給主代理、檔名就是憑證，檔案動詞的 `personal` 範圍（範例權限 `safe`，一般模式不用核准）就能先寫一份假結果，還能帶 `system_notes` 顯示成「System note」；被工具結果裡的注入誘導時，主代理會把假內容當成子代理查證過的結論回報，真結果沒人讀 | 改存 data 底下的系統暫存 `temp/dispatch_results`（不在任何代理人資料夾，終端沙盒與檔案動詞都碰不到），檔名是「代理人編號（casefold）＋憑證」的 SHA-256，舊位置不再讀；保留 7 天，啟動、存、讀時清。`tests/unit/test_subagent_result_forgery_security.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP 仍寫得到（ADR-0324 已知限制） |
-| 任務看板 `missions/current_mission.json` 也在個人空間，檔案動詞直接改它就能繞過看板規則（禁令 30、31）、把 `review_status` 寫成 APPROVED 跳過互審 | 檔案動詞的寫入類動作碰根目錄的 `missions/` 一律拒絕（`SystemFolderDeniedError`，回 `permission_denied` 並建議 mission_tools）。`tests/unit/test_mission_board_write_deny_security.py`。只擋檔案工具：終端與能寫個人空間的 MCP 伺服器要等看板搬到系統資料夾（另一個任務） |
+| 背景子代理的耐久結果放在主代理自己的個人空間 `dispatch_results/<憑證>.json`，`await_dispatch_result` 先讀這份檔就當成子代理交回的結果。憑證本來就交給主代理、檔名就是憑證，檔案動詞的 `personal` 範圍（範例權限 `safe`，一般模式不用核准）就能先寫一份假結果，還能帶 `system_notes` 顯示成「System note」；被工具結果裡的注入誘導時，主代理會把假內容當成子代理查證過的結論回報，真結果沒人讀 | 改存 data 底下的系統暫存 `temp/dispatch_results`（不在任何代理人資料夾，終端沙盒與一般身分的檔案動詞都碰不到），檔名是「代理人編號（casefold）＋憑證」的 SHA-256，舊位置不再讀；保留 7 天，啟動、存、讀時清。`tests/unit/test_subagent_result_forgery_security.py`。隔離層級 none 時經人核准的未隔離指令、未隔離啟動的第三方 MCP 仍寫得到；不受專案限制的身分把專案登記在涵蓋 data 的位置時，專案範圍的檔案動詞也寫得到（ADR-0292 決定 12 的界線，ADR-0324 已知限制） |
+| 任務看板 `missions/current_mission.json` 也在個人空間，檔案動詞直接改它就能繞過看板規則（禁令 30、31）、把 `review_status` 寫成 APPROVED 跳過互審 | 檔案動詞的寫入類動作碰根目錄的 `missions/` 一律拒絕（`SystemFolderDeniedError`，回 `permission_denied` 並建議 mission_tools）。`tests/unit/test_mission_board_write_deny_security.py`。只擋個人空間範圍的檔案工具：終端、能寫個人空間的 MCP 伺服器，以及不受專案限制的身分把專案登記在涵蓋個人空間的位置時，要等看板搬到系統資料夾（另一個任務） |
 
 ### SNS 回覆帶出工具名稱、執行時間與工具例外原文（2026-11-18，ADR-0322 PR 2b）
 

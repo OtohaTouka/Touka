@@ -46,7 +46,9 @@ def _result_path(identity: AgentIdentity, token: str) -> Path:
 
 
 def prune_expired_results() -> int:
-    """刪掉超過保留期限的結果檔，回刪掉幾個；資料夾不存在時什麼都不做（不建）。
+    """刪掉資料夾頂層超過保留期限的檔，回刪掉幾個；資料夾不存在時什麼都不做（不建）。
+
+    頂層的檔都算（包含原子寫入中斷留下的暫存檔）；子資料夾裡的不動。
 
     單一檔刪不掉只記警告、繼續下一個；列不出資料夾時往外丟，由呼叫端決定（啟動時只記 log）。
     """
@@ -66,7 +68,7 @@ def prune_expired_results() -> int:
 
 
 def _prune_logged() -> None:
-    """存、讀時順手清；清不了只記警告，不影響這次的存與讀。"""
+    """存、讀時順手清；檔案層級的錯誤（OSError）只記警告，不影響這次的存與讀。"""
     try:
         prune_expired_results()
     except OSError:

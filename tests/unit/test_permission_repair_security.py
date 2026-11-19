@@ -788,8 +788,8 @@ def test_write_json_is_repaired_only_by_the_inner_write(tmp_path, monkeypatch, o
     """``write_json`` 是 delegates 豁免：內層 ``write_file_text`` 是最外層，修一次、不重試。"""
     denied: list[object] = []
 
-    def deny(*args: object, **_kwargs: object) -> None:
-        denied.append(_kwargs.get("dir"))
+    def deny(*args: object, **kwargs: object) -> None:
+        denied.append(kwargs.get("dir"))
         raise _eacces()
 
     monkeypatch.setattr(rm_module.tempfile, "mkstemp", deny)

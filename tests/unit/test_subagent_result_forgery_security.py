@@ -176,6 +176,17 @@ def test_prune_removes_expired_results_and_keeps_fresh_ones(monkeypatch):
     assert _result_files() == []
 
 
+def test_prune_leaves_subfolders_alone(monkeypatch):
+    """只清頂層：子資料夾裡的檔再舊也不動（清理範圍不會悄悄擴大）."""
+    nested = sr._results_dir() / "keep" / "nested.json"
+    resource_manager.write_json(nested, {"status": "DONE"})
+    _days_later(monkeypatch, 8)
+
+    assert prune_expired_results() == 0
+    assert _result_files() == ["keep/nested.json"]
+    resource_manager.remove_dir(sr._results_dir(), missing_ok=True)
+
+
 def test_reading_alone_prunes_expired_results(monkeypatch):
     identity = _identity()
     persist_result(identity, "stale-token", {"status": "DONE"})

@@ -20,7 +20,7 @@
 ### 1. 子代理結果存到系統暫存
 
 - 位置：`resource_manager.get_temp_path("dispatch_results")`，也就是 data 底下的 `temp/dispatch_results`，不在任何代理人資料夾裡。前例是看板的鎖檔 `temp/locks/missions`。
-- 碰不到的理由：data 根整個是受保護路徑；代理人的終端只拿到自己的個人空間、sandbox state 裡自己的 home 與 tmp、技能資料夾與公開設定檔；執行器容器只掛 `personal_drive` 與 `managed`；檔案動詞只認幾個範圍。`data/temp` 沒有人在清，備份也不收。
+- 碰不到的理由：data 根整個是受保護路徑；代理人的終端只拿到自己的個人空間、sandbox state 裡自己的 home 與 tmp、技能資料夾與公開設定檔；執行器容器只掛 `personal_drive` 與 `managed`；一般身分的檔案動詞只認幾個範圍（例外見已知限制）。`data/temp` 沒有人在清，備份也不收。
 - 檔名：`sha256(代理人編號.casefold() + "\0" + 憑證)` 的十六進位。磁碟上看不到憑證；別的代理人拿同一個憑證讀不到；編號先 casefold，Windows 上不分大小寫的舊寫法照樣找得到。路徑穿越在構造上不可能。
 - 寫入照舊原子寫入（`write_json` → `write_file_text`），失敗只記 log、不中斷交付。
 - `ResourceManager.zone_read_json`／`zone_write_json`（與 `IResourceProxy` 的同名方法）只有這裡在用，搬走後沒有呼叫端，照禁令 46 刪掉；它們的測試一起拿掉，權限自癒「交給內層」的測試改用 `write_json` → `write_file_text`。
@@ -29,7 +29,7 @@
 ### 2. 保留 7 天
 
 - `RESULT_RETENTION_SECONDS` 是 7 天：站內憑證在記憶體最多約 40 分鐘（子代理 10 分鐘加 30 分鐘寬限），耐久檔只為重啟後拿回結果，7 天涵蓋隔夜與週末。
-- `prune_expired_results()` 刪掉修改時間超過期限的檔；資料夾不存在時什麼都不做，不建。觸發點：Touka 啟動時（lifespan 只跑一次，不做成定時迴圈；整段接住例外、失敗只記 log）、每次存、每次讀。
+- `prune_expired_results()` 刪掉資料夾頂層修改時間超過期限的檔（包含原子寫入中斷留下的暫存檔；子資料夾不動）；資料夾不存在時什麼都不做，不建。觸發點：Touka 啟動時（lifespan 只跑一次，不做成定時迴圈；整段接住例外、失敗只記 log）、每次存、每次讀。
 - 生命週期不另外掛：
   - 刪除靈魂、刪除或改名自訂模型時不清：要知道憑證才算得出檔名，最多 7 天後清掉。順帶解決 ADR-0287 的已知限制（刪除之後子代理才交結果，以前會把個人空間資料夾重新建出來）。
   - 重置時不清，列進 `RETAINED_STORES`：重置刻意保留舊對話庫，裡面若還留著憑證，7 天內代理人仍讀得回自己舊的子代理結果。
@@ -92,13 +92,14 @@
 - 被注入的子代理仍能在自己的摘要裡寫一行「System note:」，顯示在 `Result:` 那段裡。
 - 外部派工的憑證會出現在 initialize 的回覆裡，可以用本機回呼送結果；隔離的終端封鎖 Touka 自己的埠擋得住，未隔離的 MCP 擋不住。外部派工目前凍結。
 - 看板仍能經終端與能寫個人空間的 MCP 伺服器直接改（見決定 3）。
+- 不受專案限制的身分（管理員、Debugger、只有管理員擁有的靈魂）若把專案登記在涵蓋 data 或個人空間的位置，能用專案範圍的檔案動詞寫結果資料夾與看板（檔名用的編號與憑證它都知道）；和 ADR-0292 決定 12 的界線相同，由管理員自己負責不這樣登記。
 - 沒有 `Authorization:` 標頭的短 Bearer（少於 12 字）不遮：「Bearer short」這種一般英文分不出來。
 - 鍵名夾看不見的字（`API` 加零寬字元加 `_KEY`）兩邊都不遮：鍵名判斷在換掉看不見的字之前；鍵名是模型自己寫的，值在那一輪已經完整給它看過。
 - 不是字串的參數寫成 JSON 時數字寫法前後端不同（`30.0` 對 `30`、整數樣式鍵的順序），只差紀錄文字；遮罩在序列化之前依鍵名做，兩邊遮的結果相同（黃金案例鎖住）。
 
 ## 驗證（PR 1）
 
-- 新測試：`tests/unit/test_subagent_result_forgery_security.py`（舊位置的假檔不被採用、憑證沒發過回憑證不明、真結果照樣拿到、新位置不在代理人資料夾、檔名不含憑證、別的代理人讀不到、編號大小寫、7 天清理的三個觸發點與不建資料夾、啟動時清一次且失敗不影響啟動、重置與匯出清單）、`tests/unit/test_mission_board_write_deny_security.py`（四種寫入動作與四個檔案動詞、絕對路徑、相似名稱照常可寫、讀照常、系統照常存看板）、`test_c4_c5_c6_c7_security.py` C7 段的靜態測試。
+- 新測試：`tests/unit/test_subagent_result_forgery_security.py`（舊位置的假檔不被採用、憑證沒發過回憑證不明、真結果照樣拿到、新位置不在代理人資料夾、檔名不含憑證、別的代理人讀不到、編號大小寫、7 天清理的三個觸發點、只清頂層與不建資料夾、啟動時清一次且失敗不影響啟動、重置與匯出清單）、`tests/unit/test_mission_board_write_deny_security.py`（四種寫入動作與四個檔案動詞、絕對路徑、相似名稱照常可寫、讀照常、系統照常存看板）、`test_c4_c5_c6_c7_security.py` C7 段的靜態測試。
 - `tests/zone_mutations.json`：`r14_g2` 照舊（`_SUBDIR` 那行保留）；`r14_t2` 改靶到重置的 `_mission_dir`；`z6_dispatch_results_read_follows` 拿掉（看板那條 Z6 還在）。兩條手動跑改壞執行器都會紅。
 - `scripts/native_tool_contract_baseline.json` 記下 `SystemFolderDeniedError.__init__`（Guard #45）。
 
