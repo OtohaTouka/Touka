@@ -320,7 +320,7 @@ def _refuse_unrunnable(
 ) -> None:
     """跑不了就不寫初始提示（ADR-0323）：模型、每日配額、花費上限先看。
 
-    擋下時記一筆略過原因（寫入期間開始重置、清除或刪除的不記，ADR-0287），回真正的錯誤碼；
+    擋下時記一筆略過原因（找或建對話期間開始重置、清除或刪除的不記，ADR-0287），回真正的錯誤碼；
     配額與花費共用 ``AUTONOMY_LIMIT_REACHED``，原因只寫在略過事件裡。
     """
     reason: HeartbeatSkip | None = None
@@ -529,7 +529,7 @@ async def _execute_single_pulse(
 
     reply_fields = tool_steps.node_fields()
     if ctx.get("model_failed"):
-        # 模型失敗：已經寫出的文字照存，這個脈衝最後一個節點加旗標，記號由組歷史時加
+        # 模型失敗：已經寫出的文字照存，這個脈衝的節點加旗標，記號由組歷史時加
         # （ADR-0318）；一個字都沒寫也留一個節點（ADR-0322 PR 2）
         reply_fields["generationFailed"] = True
     if current_turn_text.strip() or reply_fields:

@@ -4,7 +4,7 @@
 - 日期：2026-11-19
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 90 項回「甲：照第 2.1 版做」；工具結果上限 4 萬字、子代理結果檔可偽造移出這批，是計畫裡寫明的「我自己定的兩件」）
 - 相關：[ADR-0322](0322-who-said-it-and-which-conversation.md)（第四批：群聊成員發言、對話種類）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（這一輪的工具清單）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人不能驅動有工具的靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>`）
-- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2）
+- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（決定 8 心跳不再切段，PR 2）
 - 影響範圍：PR 2：`ToukaProxy/src/routers/heartbeat.py`、`services/continuity_service.py`、`services/continuity_events.py`（`HeartbeatSkip`）、`services/dispatchers/factory.py`、`utils/user_intent.py`、`config/errors.json.example`、`ToukaChat/src/lib/error_codes.ts`、翻譯檔。PR 1：`ToukaProxy/src/utils/mcp_request_identity.py`（`is_group_model`）、`utils/local_bridge_gate.py`、`middleware/layers/soul.py`、`middleware/layers/tool.py`、`middleware/layers/skill.py`、`services/dispatcher.py`、`services/dispatchers/group.py`、`utils/group_member_view.py`、`services/continuity_lines.py`（新）、`services/continuity_service.py`
 
 ## 背景
@@ -87,6 +87,8 @@
 - PR 1：成員在自己段落最後寫出跟真記號一模一樣的文字（守門換掉一個字以前就已經存在用戶端的舊對話）時，下一輪會把自己那段標成出錯；碰不到別人。
 - PR 1：舊對話裡這版之前的失敗句（沒有記號）照舊算成那位成員的話。
 - PR 1 審查發現的既有問題，排進 PR 4：誠實度檢查（成員沒查資料就講記憶裡的事時插一輪矯正）不看這一輪有沒有工具，矯正輪會強制要求用工具（`tool_choice`），沒有工具時廠商回 400，那位成員這一輪失敗。網頁群聊以前就是零工具；這個 PR 之後 SNS 與代理身分開的 API 群聊也一律零工具，範圍跟著變大。觸發詞很窄，發生機率低。
+- PR 2：跑不了的心跳仍會先找或建對話：家模式下靈魂還沒有家又沒設大腦時，會先建一個空的家再回 409；剛設好還沒用的新家會被記成開始用。這是舊行為（以前還會多寫一則提示），這版照計畫只把檢查放在寫提示之前。要再往前挪，舊家加上沒設大腦時回的碼會變，留待之後。
+- PR 2：擁有者按「重新觸發」時，審查員看到的原意只取心跳初始提示的本文（時間行與「系統送出」那行拿掉），和一般心跳一樣；以前會連時間行一起給。
 
 ## 驗證（PR 2）
 
