@@ -32,6 +32,7 @@ from src.handlers.adapters.responses_adapter import ResponsesAdapter
 from src.handlers.openai_handler import handle_openai_request
 from src.models.identity import AgentIdentity
 from src.services import approval_flow, dispatcher
+from src.services import tool_executor as tool_executor_module
 from src.services.dispatchers.utils import convert_to_openai
 from src.services.prompt_blocks import build_degraded_note
 from src.services.rhythm_service import rhythm_service
@@ -73,6 +74,14 @@ def test_the_anthropic_entry_conversion_does_not_add_a_second_warning() -> None:
 def test_a_short_result_is_left_alone() -> None:
     text = "x" * MAX_TOOL_RESULT_CHARS
     assert cap_tool_result(text) == text
+
+
+def test_one_char_over_the_limit_is_capped_without_breaking_characters() -> None:
+    text = "字" * (MAX_TOOL_RESULT_CHARS + 1)
+    capped = cap_tool_result(text)
+    assert f"原本 {len(text)} 字，略去中間 1 字" in capped
+    assert capped.startswith("字" * 100) and capped.endswith("字" * 100)
+    capped.encode("utf-8")  # 以字元切，不會切出半個字
 
 
 def test_a_long_result_keeps_its_head_and_tail() -> None:
@@ -119,10 +128,38 @@ async def test_only_the_model_copy_of_a_long_result_is_capped(
     assert "系統截斷" in for_model
     assert approval_flow.APPROVED_BY_PERSON_NOTE in for_model  # 核准說明照樣接在後面
     assert "<hook_output>" in for_model and "from post" in for_model
+    # 先截工具輸出、再接說明：說明不會被截進中間，截斷說明的字數是工具輸出本身的
+    tool_output = card["result"].split("\n\n" + approval_flow.APPROVED_BY_PERSON_NOTE)[0]
+    assert for_model.startswith(
+        cap_tool_result(tool_output) + "\n\n" + approval_flow.APPROVED_BY_PERSON_NOTE
+    )
     full, _events = await run_tool(
         executor, "execute_command", {"command": "ls"}, mode="Manual", approve=True
     )
     assert "MIDDLE" in full  # 沒指定給模型（例如 /debug/execute）拿完整版
+
+
+async def test_an_exception_after_the_model_copy_returns_the_error(
+    monkeypatch: pytest.MonkeyPatch, hooks: Any
+) -> None:
+    """給模型的那份算好之後才出例外：回傳的是錯誤，不是先前算好的成功版本."""
+    hooks.configure({})
+    output = "A" * 30_000 + "MIDDLE" + "Z" * 30_000
+    result = terminal._wrap_output("ls", f"[EXIT_CODE: 0]\n{output}", exit_code=0)
+
+    async def handler(**_kwargs: Any) -> str:
+        return result
+
+    executor = executor_with(monkeypatch, {"execute_command": handler})
+    monkeypatch.setattr(
+        tool_executor_module, "get_taipei_time_info", MagicMock(side_effect=RuntimeError("clock"))
+    )
+    for_model, events = await run_tool(
+        executor, "execute_command", {"command": "ls"}, mode="Manual", approve=True,
+        for_model=True,
+    )
+    assert "系統截斷" not in for_model
+    assert "RuntimeError" in for_model
 
 
 def _loop_request() -> MagicMock:
@@ -237,6 +274,21 @@ async def test_a_usage_only_last_chunk_keeps_its_usage(monkeypatch: pytest.Monke
     assert body["choices"][0]["message"] == {"role": "assistant", "content": "好"}
     assert body["usage"] == usage
     assert body["id"] == "c1"
+
+
+async def test_a_tool_event_last_chunk_does_not_lend_its_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """工具跑的時候被停：最後一包是工具事件，回覆的 id 不能是工具呼叫的編號."""
+    _install_stream(
+        monkeypatch,
+        _data({"type": "tool_result", "id": "call_1", "status": "success", "result": "x"}),
+        _STOPPED,
+    )
+    request = OpenAIChatRequest(model="m-1", messages=[OpenAIMessage(role="user", content="hi")])
+    body = await _non_stream(request)
+    assert body["object"] == "chat.completion"
+    assert body["id"] == "chatcmpl-req-ns"
 
 
 async def test_an_error_last_chunk_is_returned_as_is(monkeypatch: pytest.MonkeyPatch) -> None:

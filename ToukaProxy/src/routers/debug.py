@@ -90,7 +90,10 @@ async def get_debug_tools(
             if system_degraded:
                 desc = tool.get("function", {}).get("description", "")
                 if "[⚠️ DEGRADED MODE]" not in desc:
-                    tool["function"]["description"] = desc + " [⚠️ DEGRADED MODE]"
+                    # 複製後再加：共用的定義也是送給模型的那份（ADR-0323）
+                    tool = {**tool, "function": {
+                        **tool["function"], "description": desc + " [⚠️ DEGRADED MODE]"
+                    }}
             unique_tools.append(tool)
             seen.add(name)
 

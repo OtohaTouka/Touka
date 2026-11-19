@@ -25,6 +25,10 @@ def test_tool_list_degraded_status(auth_client):
     assert resp_degraded.status_code == 200
     # 只要內容包含 DEGRADED 關鍵字即可
     assert "DEGRADED" in resp_degraded.text.upper()
+    # 共用的工具定義也是送給模型的那份，不能被這個端點改掉（ADR-0323）
+    shared = auth_client.app.state.context.get("builtin_tools_schema") or []
+    assert shared
+    assert all("DEGRADED" not in t["function"].get("description", "") for t in shared)
 
 def test_degraded_prompt_injection(auth_client, mock_anthropic, mock_text_response):
     """驗證系統降級時，提示詞中會被自動注入生存警告。"""

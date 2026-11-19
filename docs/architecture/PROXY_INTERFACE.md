@@ -271,7 +271,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - Claude 的非串流上限（21,333，Opus 4／4.1 為 8,192）只在主迴圈不串流送出時套用；串流與 `complete_once` 照請求值。
 - 非串流被停（ADR-0323 PR 4）：OpenAI 形狀的非串流請求（`/chat/completions`）在最後一包沒有 `choices` 時（例如模型送出內容前就被停），回最小的標準 `chat.completion`：`id`、`object`、`created`、`model`、`choices[0].message`（已收到的文字，可能是空的）、`finish_reason: "stop"`；最後一包帶 `usage` 時保留。以前回 `{}`。最後一包帶 `error` 時照舊；Anthropic 原生 `/v1/messages` 的非串流形狀不變。
 - 帶 `session_id` 的舊串流存檔（VS Code 擴充與 API）：模型失敗時節點標 `generationFailed: true`，結尾那句失敗說明照樣送給用戶端、但不存進文字（ADR-0323 PR 4）；群聊回合不標。
-- 給模型的工具結果（ADR-0323 PR 4）：單一結果超過 `MAX_TOOL_RESULT_CHARS`（4 萬字）時留頭尾、中間換一行說明；工具卡事件、存檔、hook 與 `/debug/execute` 拿完整版。記憶工具沒載入時，系統說明寫「Memory tools are unavailable this turn (原因)…」，只說記憶工具。誠實度檢查在這一輪沒有工具時不插矯正輪。
+- 給模型的工具結果（ADR-0323 PR 4）：單一結果超過 `MAX_TOOL_RESULT_CHARS`（4 萬字）時留頭尾、中間換一行說明；工具卡事件、hook 與 `/debug/execute` 拿完整版，存檔照舊（只存前 2,000 字）。記憶工具沒載入時，系統說明寫「Memory tools are unavailable this turn (原因)…」，只說記憶工具。誠實度檢查在這一輪沒有工具時不插矯正輪。
 - 公開 endpoint／schema 沒有改變，不重新生成 OpenAPI。
 
 ## 模型溝通層第 2c 段：三種模式、底線與審查員（ADR-0246）

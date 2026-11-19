@@ -9,7 +9,7 @@ import contextlib
 import copy
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -421,7 +421,7 @@ async def _pump_stream_to_buffer(
     incognito: bool = False,
     persist: bool = True,
     check_access: bool = False,
-    context: Any = None,
+    context: Mapping[str, Any] | None = None,
 ) -> None:
     """producer：抽乾 handler 串流寫入緩衝；正常完成則先持久化再標記終態。
 
@@ -499,10 +499,12 @@ def _reassemble_final_json(
         return last_json
     if not openai_shape or "error" in last_json:
         return last_json
+    # 最後一包可能是工具事件（帶工具呼叫的編號）：只有聊天片段才沿用它的 id 與時間
+    chunk = last_json if "choices" in last_json else {}
     reply: dict[str, Any] = {
-        "id": last_json.get("id") or f"chatcmpl-{request_id}",
+        "id": chunk.get("id") or f"chatcmpl-{request_id}",
         "object": "chat.completion",
-        "created": last_json.get("created") or int(get_current_epoch()),
+        "created": chunk.get("created") or int(get_current_epoch()),
         "model": model,
         "choices": [{
             "index": 0,
