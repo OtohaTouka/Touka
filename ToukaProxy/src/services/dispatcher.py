@@ -43,6 +43,7 @@ from src.services.stream_buffer_service import StreamOwnershipError, stream_buff
 from src.utils.async_db import SessionPersistenceError, SessionSnapshot, session_service
 from src.utils.brain_persistence import record_working_brain
 from src.utils.history_manager import TreeMessageManager
+from src.utils.mcp_request_identity import is_group_model
 from src.utils.session_scope import is_ui_turn_base
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
@@ -512,7 +513,7 @@ async def dispatch_request(
         nonlocal model_name
         try:
             # 1. 群聊路由 (Group Routing)
-            if model_name.lower() == "toukagroup":
+            if is_group_model(model_name):
                 async for chunk in dispatch_group_stream(request, request_id, start_time, context):
                     yield chunk
                 return

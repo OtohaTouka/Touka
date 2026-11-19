@@ -5,6 +5,7 @@
 - 決策者：維護者
 - 影響範圍：ToukaProxy（新 `models/advertised_tools.py`；`models/context.py`、`middleware/layers/tool.py`、`services/tool_executor.py`、`handlers/react_core.py`、`routers/debug.py`、`tools/builtin/__init__.py`、`tools/subagent_tools.py`）；tests（新 `tests/unit/test_advertised_tool_list_security.py`；`tests/integration/test_tool_loop_budget.py` 2 個測試的授權設定；`tests/tool_eval/live_episode.py` +2 行）；SECURITY.md 一列
 - 相關：本 ADR 修訂 ADR-0119 Tier 3 第 6 點「雙軌遷移」與「後果」的「舊名呼叫經 shim 完全相容」（改為有條件相容，見決策 5）；補註 ADR-0195（軸 B 不變，這一輪的清單另外也是執行條件）。ADR-0228（原生角色權限）、ADR-0229（批准分類順序）、ADR-0246（三種模式、底線、審查員）、ADR-0206（使用者各自授權的 MCP）、禁令 59（結構化工具錯誤），決策都不變
+- 2026-11-19 補記決定 7：群聊回合外層不組伺服器端工具，成員沿用的清單是空的（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 1）
 - 2026-10-24 由 [ADR-0281](0281-tool-list-follow-ups.md) 修訂（T1、T2）：行為改變第 4 點的 (a) 改成人在場、和靈魂的前景對話時可以用使用者各自授權的 MCP；(b) 還沒連上的共用 MCP 改成在說明區塊列出名字（仍不列成工具）；(c) 由 T2 修訂：靈魂工具清單存的 `伺服器/工具` 與舊長名都會列出，舊短名與外掛照舊不列
 
 ## 背景
@@ -40,7 +41,7 @@
    三種都不呼叫審查員、不跳審批卡、不執行；串流送一則 `tool_result`（`status` 為錯誤、帶 `error_class`；工具事件不帶模型給的參數）並結束這次呼叫。`record_tool_usage` 留在最前面，被擋的呼叫仍算「試過」，不會被當成幻覺（禁令 59(c)）。誤判只會落在錯誤類別，不會放行沒列出的工具。
 5. **舊名工具**：`tools/builtin/__init__.py` 的 `LEGACY_ADVERTISED_SUCCESSORS`（`MappingProxyType`）：`bash`→`execute_command`；`vault_tools`、`project_tools`→ 7 個檔案動詞（read、list、find、grep、write、edit、delete）；`update_my_soul`→`edit_soul`、`read`、`list`；`sns_control`→`send_message`；`propose_new_capability`→`evolution_define`；`write_mcp_implementation`、`verify_mcp_locally`、`request_mcp_creation`→`evolution_implement_and_verify`。後繼工具**全部**列出才放行，不看模型給的 action。鍵必須等於 Guard #45 基準（`scripts/native_tool_contract_baseline.json`）的 `legacy_tools`，測試釘住。舊名各自的角色權限照舊。
 6. **MCP**：核對（伺服器, 裸工具名）這一對。廣告名是 `server__tool`、執行時從第一個 `__` 切開，伺服器名含 `__` 時兩對會撞名；清單從去重後的注入結果算，只放行模型實際看到的那一對。
-7. **各入口**：四個 handler、前景 UI／IDE、SNS、群聊（`model_copy` 沿用清單）、心跳 awaken／retrigger、子代理與子代理群組、計分卡都經 `run_react_loop`，自動涵蓋；換備援模型共用同一個 ctx，清單保留。`tests/tool_eval/live_episode.py`（人工 live 工具評估）自己組 ctx 再呼叫 `run_react_loop`，不寫清單就會全部回 `advertised_tools_unavailable`，所以加 2 行寫入；它是結構測試 C3 白名單裡唯一的測試檔，其餘 `tests/` 不在掃描範圍。
+7. **各入口**〔2026-11-19 [ADR-0323](0323-group-heartbeat-home-tool-results.md) 補記：群聊回合外層不組伺服器端工具，清單寫成空的，成員沿用的就是空清單；成員身分本來就沒有權限角色〕：四個 handler、前景 UI／IDE、SNS、群聊（`model_copy` 沿用清單）、心跳 awaken／retrigger、子代理與子代理群組、計分卡都經 `run_react_loop`，自動涵蓋；換備援模型共用同一個 ctx，清單保留。`tests/tool_eval/live_episode.py`（人工 live 工具評估）自己組 ctx 再呼叫 `run_react_loop`，不寫清單就會全部回 `advertised_tools_unavailable`，所以加 2 行寫入；它是結構測試 C3 白名單裡唯一的測試檔，其餘 `tests/` 不在掃描範圍。
 8. **子代理**：常數 `_SUBAGENT_STRIPPED_TOOLS = {dispatch_subagent, dispatch_subagent_group}`，請求與清單同步拿掉；就算角色權限允許，子代理也不能再派子代理或子代理群組。
 
 ## 執行器開關預設關，靠結構測試＋執行期檢查守住

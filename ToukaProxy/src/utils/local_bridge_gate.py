@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Final
 
 from src.models.identity import AgentIdentity
-from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG, GROUP_MODEL
+from src.utils.mcp_request_identity import GROUP_MEMBER_FLAG, is_group_model
 from src.utils.presence import is_human_present
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ def local_files_allowed(ctx: Any, *, request_model: str | None = None) -> bool:
         and identity.agent_id == ctx.get("agent_id")
         and bool(ctx.get("is_toukasoul"))
         and is_human_present(ctx)
-        and request_model != GROUP_MODEL
+        and not is_group_model(request_model)
         and not ctx.get(GROUP_MEMBER_FLAG)
         and bool(ctx.get("human_principal_id"))
         and not ctx.get("incognito")

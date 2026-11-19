@@ -34,6 +34,12 @@ from src.models.heartbeat_schedule import HeartbeatSchedule
 from src.models.identity import AgentIdentity
 from src.services.agent_service import agent_service
 from src.services.continuity_events import HeartbeatEnd, HeartbeatSkip, safe_ref
+from src.services.continuity_lines import (
+    CONVERSATION_LABEL,
+    HEADER,
+    KIND_INCOGNITO,
+    current_time_line,
+)
 from src.services.home_handover import (
     CHANNEL_REPORT_EVERY_MS,
     CHILD_IDLE_MS,
@@ -74,14 +80,8 @@ RECENT_LIMIT = 3
 _MINUTE_PRECISION = 16
 _MISSION_REF_CHARS = 8
 
-HEADER = (
-    "Added by the Touka OS harness to this turn, not written by the user. Facts only; "
-    "refreshed on every request and never saved. When you save any of this to memory, write "
-    'absolute dates (for example 2026-10-15), not relative times such as "3 hours ago".'
-)
 HEARTBEAT_LINE = "- Run type: autonomous heartbeat; no human is present in this run."
 # 這段對話是什麼（ADR-0322 PR 3 家-1）：先看觸發來源（SNS 一律外人），再看是不是家
-CONVERSATION_LABEL = "This conversation"
 KIND_SNS = (
     "messages come from outsiders through an SNS platform, not from your owner - even when "
     "this is your home conversation; your home conversation and <soul_prelude> are private "
@@ -98,7 +98,6 @@ KIND_CHILD = (
     "its key points are reported into your home's <soul_prelude>"
 )
 KIND_NOT_REPORTED = "not your home, and nothing here is reported to your home"
-KIND_INCOGNITO = "incognito; nothing here is saved or reported to your home"
 KIND_UNKNOWN = "unknown (your home could not be determined)"
 # 心跳第幾個脈衝、被誰叫醒（ADR-0322 PR 3 心跳-2、心跳-3）；觸發種類只認這幾個值
 HEARTBEAT_TRIGGERS = ("schedule", "manual")
@@ -146,8 +145,7 @@ UNREPORTED_LABEL = "Other conversations with new activity not yet reported to th
 NO_ACTIVE_MISSION = "no active mission"
 NONE_RECORDED = "none recorded"
 TIMELINE_UNAVAILABLE = "unavailable (the activity record could not be read)"
-# 來源標示
-SERVER_CLOCK = "(server clock)"
+# 來源標示（伺服器時鐘那個在 continuity_lines）
 SERVER_MEMORY = "(server memory)"
 ACTIVITY_RECORD = "(activity record)"
 MISSION_BOARD = "(mission board)"
@@ -497,8 +495,7 @@ async def build_continuity_block(
     SNS 觸發的請求（外人）不加其他對話的動態與最近結束的子代理（ADR-0319）。
     """
     now_s = get_current_epoch() if now_s is None else now_s
-    time_str, weekday = format_epoch_to_taipei(now_s)
-    lines = [HEADER, f"- Current time (Asia/Taipei): {time_str} ({weekday}) {SERVER_CLOCK}"]
+    lines = [HEADER, current_time_line(now_s)]
     if incognito:
         lines.append(f"- {CONVERSATION_LABEL}: {KIND_INCOGNITO}")
     else:

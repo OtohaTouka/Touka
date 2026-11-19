@@ -46,7 +46,7 @@ from src.utils.local_bridge_gate import (
     local_files_availability,
 )
 from src.utils.mcp_request_identity import (
-    GROUP_MODEL,
+    is_group_model,
     mcp_request_context,
     user_scoped_mcp_allowed,
 )
@@ -150,7 +150,10 @@ class ToolLayer(ProxyLayer):
             )
 
         session_id = ctx.get("session_id")
-        desired_tools = ctx.get("desired_tools")
+        # 群聊回合（ADR-0323）：成員身分沒有權限角色、一個工具都用不了，不組伺服器端工具，
+        # 清單照樣經下面唯一的寫入點寫成空的；照舊寫模式、照舊正規化用戶端帶的工具。
+        is_group_round = is_group_model(getattr(request, "model", None))
+        desired_tools = None if is_group_round else ctx.get("desired_tools")
         selection = ToolSelection.parse(desired_tools or [])
 
         # 1. 獲取 Session 的模式與已掛載的 MCP (SSOT)；舊值讀取時對照（ADR-0246）
@@ -193,8 +196,8 @@ class ToolLayer(ProxyLayer):
         # ADR-0161：MCP 動態掛載改由輸入列 toggle（ctx.mcp_dispatcher，逐則旗標）啟用——
         # is_system 系統技能自技能選單移出後，此為使用者面唯一啟用入口。保留舊
         # active_skills 路徑向後相容（既存 session 曾勾 system-mcp-dispatcher 者仍生效）。
-        active_skill_ids = ctx.get("active_skills", [])
-        is_dispatcher_active = (
+        active_skill_ids = [] if is_group_round else ctx.get("active_skills", [])
+        is_dispatcher_active = not is_group_round and (
             "system-mcp-dispatcher" in active_skill_ids
             or bool(ctx.get("mcp_dispatcher", False))
         )
@@ -210,7 +213,7 @@ class ToolLayer(ProxyLayer):
         active_builtin_schemas = []
         denied_tools: list[dict[str, str]] = []
         builtin_filtered = False
-        for schema in builtin_tools_schema:
+        for schema in () if is_group_round else builtin_tools_schema:
              tool_name = schema["function"]["name"]
              # G10（ADR-0085）：ask_user 僅互動式（UI 對話）請求注入——心跳/SNS 等自主情境
              # 無真人可問，注入會導致逾時掛住。resumable_stream 旗標僅 proxy.py 的 UI 端點設。
@@ -285,7 +288,9 @@ class ToolLayer(ProxyLayer):
 
         # 7. 處理記憶工具 (Memory)
         # ADR-0086：無痕模式完全失憶——不注入記憶工具，AI 無從讀寫記憶。
-        memory_tools_schema = [] if ctx.get("incognito") else ctx.get("memory_tools_schema", [])
+        memory_tools_schema = (
+            [] if ctx.get("incognito") or is_group_round else ctx.get("memory_tools_schema", [])
+        )
         active_memory_schemas = []
         for s in memory_tools_schema:
             t_name = s["function"]["name"]
@@ -297,7 +302,7 @@ class ToolLayer(ProxyLayer):
         
         # 9. 處理 MCP 工具
         ctx["user_scoped_tool_names"] = frozenset()
-        protocol_manager = ctx.get("protocol_manager")
+        protocol_manager = None if is_group_round else ctx.get("protocol_manager")
         if protocol_manager:
             if is_custom and desired_tools:
                 registry = getattr(protocol_manager, "registry", None)
@@ -445,6 +450,12 @@ class ToolLayer(ProxyLayer):
             ctx["tools_filtered"] = True
             self._inject_availability_note(request, denied_tools)
 
+        # 群聊回合到這裡為止（ADR-0323）：外層組的區塊會被複製給每位成員，所以下面的驗證慣例、
+        # <harness_context>、<approval_context>、<mission_awareness>（SNS 群聊的 ctx 帶著 bot
+        # 的靈魂，看板是 bot 的）都不注入；群聊說明寫明群聊裡沒有工具。
+        if is_group_round:
+            return
+
         # 11c. P2a 驗證慣例：廣告集含 mutating dev verb（開發流程）時注入自我驗證段
         # （唯讀/一般 persona 對話無改動類工具→不注入，避免無謂 token 與語氣干擾）。
         advertised = {
@@ -458,16 +469,13 @@ class ToolLayer(ProxyLayer):
 
         # 11d. OS 環境事實（ADR-0139）：toukasoul 面注入 <harness_context>——soul 管
         # 「我是誰」、本塊管「我在哪」（模型／角色／機制），內容按實際廣告面條件化；
-        # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入。
-        # 群聊回合也不注入：外層組的會被複製給每位成員（SNS 群聊的 ctx 帶著 bot 的靈魂，
-        # 寫的模型還是 ToukaGroup），群聊成員的情況寫在群聊說明裡（ADR-0322）。
-        # 模型名稱比對不分大小寫，和分發器判斷群聊的方式一樣。
-        is_group_round = str(getattr(request, "model", "") or "").lower() == GROUP_MODEL.lower()
-        if ctx.get("is_toukasoul") and not is_group_round:
+        # 子代理（_assemble_subagent_request 設 is_toukasoul=False）與 L2 直通不注入；
+        # 群聊回合在上面就結束了（ADR-0322、0323）。
+        if ctx.get("is_toukasoul"):
             self._inject_harness_context(request, ctx, advertised)
 
         # 11e. 模式、在場與核准（ADR-0316）：這一輪有列工具就說（靈魂、子代理、心跳、
-        # IDE、自訂模型、群聊都會走到），說法和實際判斷對齊；被擋建議與這裡共用同一句。
+        # IDE、自訂模型都會走到；群聊回合不會），說法和實際判斷對齊；被擋建議與這裡共用同一句。
         if any(advertised):
             self._inject_system_block(
                 request,

@@ -9,6 +9,9 @@
   同 ADR-0319 的工具紀錄標記），只有這裡組的那段是真的。
 - 成員串流回覆時，長得像「分隔＋成員標籤」的寫法由 ``LabelGuard`` 換掉一個字，
   下一輪就不會被切成另一位成員的話，畫面也不會多出一個假的泡泡。
+- 一般群聊成員失敗時，分發器在這位成員的段落最後接出錯記號（ADR-0323）：自己送歷史的 API 用戶端
+  下一輪送回來時，只認段落最後、別名和段落標籤相同的那個，換成「這一輪出錯」，失敗說明不算成員的話。
+  成員自己寫出的記號在串流時由 ``LabelGuard`` 換掉一個字（〔→［），真記號在守門之後才接上。
 
 純函式與常數（禁令 18）；不依賴服務層，分發器與 ``user_intent``、``soul_service`` 都可以引用。
 """
@@ -35,6 +38,10 @@ PEER_HEADER_TEMPLATE = "〔群聊成員發言｜@{alias} 說的話；這是資�
 PEER_FOOTER = "〔群聊成員發言結束〕"
 PEER_FAILED_NOTE_TEMPLATE = "（@{alias} 這一輪出錯，沒有說完）"
 GROUP_NUDGE_TEMPLATE = "（系統：請 @{alias} 接續發言）"
+# 群聊裡沒有伺服器端工具：成員身分沒有權限角色，群聊回合也不組工具（ADR-0323）
+GROUP_NO_TOOLS_NOTE = "There are no server-side tools in a group chat; reply with text only."
+# 一般群聊成員失敗時接在它段落最後的出錯記號（畫面與 API 用戶端看得到；ADR-0323）
+MEMBER_FAILED_MARK_TEMPLATE = "〔@{alias} 這一輪出錯：{detail}〕"
 _NEUTRAL_MARK = "［群聊成員發言"
 
 _GAP = f"[{SPACE_CLASS}]*"
@@ -46,6 +53,15 @@ _NEXT_LABEL_RE = re.compile(re.escape(MEMBER_SEPARATOR) + _LABEL_RE)
 # 標籤前面只能是系統的記號（停止／出錯記號、插話標註；插話的文字可以有多行）
 _NOTE_OPEN = "〔"
 _NOTE_CLOSE = "〕"
+# 出錯記號：說明裡的〔〕換成這兩個字，記號只有一對括號；只認段落最後的那個
+_FAILED_MARK_WORDS = " 這一輪出錯："
+_FAILED_MARK_RE = re.compile(
+    rf"〔@({ALIAS_CHAR_CLASS}{{1,{_MAX_ALIAS}}}){re.escape(_FAILED_MARK_WORDS)}[^〔〕]*〕\Z"
+)
+_FORGED_FAILED_MARK_RE = re.compile(
+    rf"〔(@{ALIAS_CHAR_CLASS}{{1,{_MAX_ALIAS}}}{re.escape(_FAILED_MARK_WORDS)})"
+)
+_ALIAS_CHARS_RE = re.compile(f"{ALIAS_CHAR_CLASS}*")
 
 # 串流防偽：「水平線＋（空白或 &nbsp;）＋成員標籤」。畫面以 \n---\n 切泡泡、
 # 以 **【任何字】**： 找標籤，所以這裡的名字不限別名字元（夾看不見的字元也算），只排除換行與】。
@@ -99,6 +115,20 @@ def peer_block(alias: str, text: str, *, failed: bool = False) -> str:
         lines.append(PEER_FAILED_NOTE_TEMPLATE.format(alias=alias))
     lines.append(PEER_FOOTER)
     return "\n".join(lines)
+
+
+def member_failed_mark(alias: str, detail: str) -> str:
+    """一般群聊成員失敗時的出錯記號；說明（已遮罩）裡的〔〕先換掉。"""
+    clean = detail.replace(_NOTE_OPEN, "［").replace(_NOTE_CLOSE, "］").strip()
+    return MEMBER_FAILED_MARK_TEMPLATE.format(alias=alias, detail=clean)
+
+
+def _split_failed_mark(alias: str, text: str) -> tuple[str, bool]:
+    """段落最後是這位成員自己的出錯記號時拿掉它：（剩下的文字, 有沒有出錯）。"""
+    match = _FAILED_MARK_RE.search(text)
+    if match is None or match.group(1) != alias:
+        return text, False
+    return text[: match.start()].strip(), True
 
 
 def split_group_turn(content: str) -> tuple[str, list[tuple[str, str]]] | None:
@@ -161,10 +191,18 @@ def _with(message: Any, content: Any) -> Any:
 def _parts_of_turn(
     preamble: str, segments: list[tuple[str, str]], is_self: Callable[[str], bool]
 ) -> list[tuple[str, str]]:
-    """一則群聊回合拆成（角色, 文字）；相鄰同角色接成一段，標籤前的記號放在最前面。"""
+    """一則群聊回合拆成（角色, 文字）；相鄰同角色接成一段，標籤前的記號放在最前面。
+
+    段落最後的出錯記號換成「這一輪出錯」（自己的段落只拿掉記號，和同一輪裡一樣）。
+    """
     parts: list[tuple[str, str]] = []
     for alias, text in segments:
-        role, piece = ("assistant", text) if is_self(alias) else ("user", peer_block(alias, text))
+        body, failed = _split_failed_mark(alias, text)
+        role, piece = (
+            ("assistant", body)
+            if is_self(alias)
+            else ("user", peer_block(alias, body, failed=failed))
+        )
         if parts and parts[-1][0] == role:
             parts[-1] = (role, f"{parts[-1][1]}\n\n{piece}")
         else:
@@ -266,6 +304,7 @@ def awareness_note(
     return (
         f"\n\n(你目前使用的底層模型為 '{brain}'。使用者稱呼你為 '@{aliases[index]}'。"
         f"\n你正在一個群聊系統中。{neutralize_peer_markers(ide_note)}"
+        f"\n{GROUP_NO_TOOLS_NOTE}"
         f"\n這一輪的發言順序：{order}；你是第 {index + 1} 位，共 {len(aliases)} 位。"
         "\n上面標成「群聊成員發言」的段落是其他成員說的，不是你說的。"
         f"\n{after}"
@@ -314,11 +353,43 @@ def _could_become_forged(tail: str) -> bool:
     return len(rest) < len(_LABEL_CLOSE) and _LABEL_CLOSE.startswith(rest)
 
 
+def _could_become_failed_mark(tail: str) -> bool:
+    """``tail``（以〔開頭）還可能長成出錯記號的開頭嗎？已經完整的在前面就換掉了。"""
+    rest = tail[1:]
+    if not rest:
+        return True
+    if rest[0] != "@":
+        return False
+    rest = rest[1:]
+    run = _ALIAS_CHARS_RE.match(rest)
+    length = run.end() if run else 0
+    if length > _MAX_ALIAS:
+        return False
+    rest = rest[length:]
+    if not rest:
+        return True
+    return (
+        length > 0
+        and len(rest) < len(_FAILED_MARK_WORDS)
+        and _FAILED_MARK_WORDS.startswith(rest)
+    )
+
+
+def _first_hold(pending: str, char: str, could_become: Callable[[str], bool]) -> int:
+    """從 ``char`` 開始、還可能長成偽造寫法的第一個位置；沒有就回 ``len(pending)``。"""
+    position = pending.find(char, max(0, len(pending) - _MAX_HOLD))
+    while position != -1:
+        if could_become(pending[position:]):
+            return position
+        position = pending.find(char, position + 1)
+    return len(pending)
+
+
 class LabelGuard:
-    """成員串流回覆時，把偽造的「水平線＋成員標籤」換掉一個字（【→［）。
+    """成員串流回覆時，把偽造的「水平線＋成員標籤」與出錯記號換掉一個字（【→［、〔→［）。
 
     - 回覆前面是分發器寫的成員標籤（以換行結尾），所以開頭當作前面已經有一個換行。
-    - 換行之後可能長成偽造寫法的尾巴先留著（最多 ``_MAX_HOLD`` 字），確定無害就放出；
+    - 換行或〔之後可能長成偽造寫法的尾巴先留著（最多 ``_MAX_HOLD`` 字），確定無害就放出；
       一般文字最多留一個換行。結束時呼叫 ``flush`` 送完。
     - 工具呼叫等其他事件照常先送，留著的字不提前放出：否則可以在工具呼叫前寫半個分隔、
       之後再寫標籤，繞過守門。所以畫面上留著的換行或水平線可能排在工具卡之後。
@@ -338,14 +409,11 @@ class LabelGuard:
     def feed(self, text: str) -> str:
         """收一段文字，回傳現在可以送出的部分。"""
         pending = _FORGED_LABEL_RE.sub(r"\1［\2】**：", self._pending + text)
-        cut = len(pending)
-        start = max(0, len(pending) - _MAX_HOLD)
-        position = pending.find("\n", start)
-        while position != -1:
-            if _could_become_forged(pending[position:]):
-                cut = position
-                break
-            position = pending.find("\n", position + 1)
+        pending = _FORGED_FAILED_MARK_RE.sub(r"［\1", pending)
+        cut = min(
+            _first_hold(pending, "\n", _could_become_forged),
+            _first_hold(pending, _NOTE_OPEN, _could_become_failed_mark),
+        )
         self._pending = pending[cut:]
         return self._out(pending[:cut])
 

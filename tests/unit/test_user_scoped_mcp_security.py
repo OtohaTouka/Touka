@@ -395,7 +395,6 @@ async def test_tool_layer_passes_the_identity_for_a_foreground_soul():
         ({"dispatch_run": True}, "ScopeSoul"),
         ({"resumable_stream": False}, "ScopeSoul"),
         ({"is_toukasoul": False}, "gpt-x"),
-        ({}, GROUP_MODEL),
         ({"human_principal_id": None}, "ScopeSoul"),
     ],
 )
@@ -404,6 +403,17 @@ async def test_tool_layer_passes_no_identity_elsewhere(change, model):
     await ToolLayer().process(_request(model), _foreground(protocol_manager=protocols, **change))
 
     assert protocols.contexts == [None]
+
+
+@pytest.mark.parametrize("model", [GROUP_MODEL, GROUP_MODEL.lower()])
+async def test_tool_layer_does_not_list_mcp_for_a_group_round(model):
+    """群聊回合不組工具，連 MCP 清單都不拿（ADR-0323）。"""
+    protocols = _Protocols()
+    ctx = _foreground(protocol_manager=protocols)
+    await ToolLayer().process(_request(model), ctx)
+
+    assert protocols.contexts == []
+    assert ctx["advertised_tools"].mcp == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -585,7 +595,7 @@ def test_react_core_adds_only_server_listed_user_scoped_tools():
 async def test_group_members_are_marked_so_the_executor_refuses_user_scoped_mcp(monkeypatch):
     seen: list[Any] = []
 
-    async def _fake_stream(_model, _request, _identity, _request_id, _start, ctx):
+    async def _fake_stream(_model, _request, _identity, _request_id, _start, ctx, **_kwargs):
         seen.append(ctx)
 
         async def _gen():

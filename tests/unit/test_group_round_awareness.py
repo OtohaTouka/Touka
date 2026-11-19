@@ -133,7 +133,9 @@ def _install(
         AsyncMock(return_value=[]),
     )
 
-    async def member_round(_m: str, request: Any, identity: Any, *_rest: Any) -> Any:
+    async def member_round(
+        _m: str, request: Any, identity: Any, *_rest: Any, **_kwargs: Any
+    ) -> Any:
         seen.append(request)
         pieces = replies[identity.agent_id]
 
@@ -262,8 +264,10 @@ async def test_the_note_follows_image_blocks_in_the_last_user_message(
     assert isinstance(content, list)
     assert image in content
     texts = [block["text"] for block in content if block.get("type") == "text"]
-    assert peer_block("A", "看到了") in texts[-2] + texts[-1]
-    assert "這一輪的發言順序：@A、@B（你）；你是第 2 位，共 2 位。" in texts[-1]
+    # 最後一段是成員的 <continuity>（ADR-0323），群聊說明在它前面
+    assert peer_block("A", "看到了") in texts[-3] + texts[-2]
+    assert "這一輪的發言順序：@A、@B（你）；你是第 2 位，共 2 位。" in texts[-2]
+    assert texts[-1].strip().startswith("<continuity>")
 
 
 @pytest.mark.asyncio

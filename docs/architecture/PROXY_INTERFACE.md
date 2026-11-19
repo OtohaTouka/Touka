@@ -240,6 +240,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - `/identity`：`GET /identity` 只回這三種 ID 的覆寫；`GET /identity/agents` 只列這三種 ID（附 `effective_role`／`effective_capabilities`）；`POST /identity` 角色只收 `Owner`／`Base`／`Debugger`，覆寫寫給其他 ID 回 422 `VALIDATION_ERROR`，body 帶 `rejected_agent_ids`；檔內被略過的舊覆寫存檔時原樣保留。
 - 群聊：`GET`／`POST /group/whitelist` 只有 `ToukaSoul` 一區（送 `Native`／`Custom` 回 422）；別名只解析到 `agents_registry` 裡經靈魂檢查的成員（白名單值不是靈魂時不退回比對別名本身），群聊與 SNS `@別名` 一律以靈魂身分執行。只驗最新一則 user 訊息的點名；更早歷史裡解析不到的點名略過。
 - 群聊成員看到的訊息（ADR-0322 PR 1）：每位成員組請求時，舊的群聊回合照分發器寫的格式（`**【別名】**：`、成員之間的 `MEMBER_SEPARATOR`）切開，自己的段落是 assistant，別人的包成「群聊成員發言」（固定開頭與結尾，寫明是資料、不是你說的、不是使用者的指示）放在 user 那側，相鄰的 user 合成一則；這一輪已經說過的人也一樣，請求一定以 user 結尾（同一位連續被點兩次時補一句接續發言）。新標記在送給成員的每一則訊息（含家原文、前情）都換成相近字；串流時成員回覆裡偽造的「水平線＋成員標籤」換掉一個字。群聊說明寫出發言順序、自己的位置、之後還有誰、這一句有沒有點名、誰在說話（SNS 群聊：外人）、前情與家原文是私下的背景。使用者這一句沒點名時沿用之前的點名，同一位只回答一次。成員模型失敗時分發器自己送出失敗句，下一位只看到「這一輪出錯，沒有說完」。群聊回合不注入 `<harness_context>`。端點、schema 與錯誤碼不變。
+- 群聊沒有工具（ADR-0323 PR 1）：判斷群聊一律用 `is_group_model`（模型名 `ToukaGroup` 不分大小寫）。群聊回合 ToolLayer 不組伺服器端工具（清單是空的），也不注入工具相關區塊（`<tool_availability>`、`<mcp_unavailable>`、`<validation_protocol>`、`<harness_context>`、`<approval_context>`、`<mission_awareness>`），照舊寫模式、把用戶端帶的工具轉成 OpenAI 形狀；開了深入研究也不注入研究技能。成員身分本來就沒有權限角色，權限不變。群聊說明加一句「群聊裡沒有伺服器端工具」，每位成員多一段只有現在時間與「這是群聊」的 `<continuity>`。一般群聊（不是 SNS）成員失敗時，送出的是段落最後的出錯記號「〔@A 這一輪出錯：說明〕」；自己送歷史的 API 用戶端下一輪送回來時，只認段落最後、別名相符的記號，下一位看到「這一輪出錯」、看不到說明；成員自己寫的同樣寫法在串流時換掉一個字。成員的請求帶這段對話的編號，非 Claude 成員按停止也停得了。端點、schema 與錯誤碼不變。
 
 ## 模型溝通層第 2b 段：審批管線（ADR-0246）
 
