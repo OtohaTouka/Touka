@@ -9,11 +9,12 @@ import contextlib
 import copy
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from src.adapters.schemas import OpenAIChatRequest
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import AgentIdentity
 from src.models.session_persistence import (
@@ -420,6 +421,7 @@ async def _pump_stream_to_buffer(
     incognito: bool = False,
     persist: bool = True,
     check_access: bool = False,
+    context: Mapping[str, Any] | None = None,
 ) -> None:
     """producer：抽乾 handler 串流寫入緩衝；正常完成則先持久化再標記終態。
 
@@ -441,6 +443,13 @@ async def _pump_stream_to_buffer(
         return
 
     node_fields = tool_steps.node_fields()
+    # 模型失敗：節點標出錯、結尾的失敗句不存進文字（ADR-0323）；群聊靠成員的出錯記號，不標整輪
+    if context is not None and context.get("model_failed") and not is_group_model(model_name):
+        failure = context.get("model_failure_text")
+        kept = full_content.rstrip()
+        if isinstance(failure, str) and failure and kept.endswith(failure):
+            full_content = kept[: -len(failure)].rstrip()
+        node_fields["generationFailed"] = True
     # 沒寫字就被停、只用了工具的回覆也存（ADR-0322 PR 2b）
     if identity and (full_content.strip() or node_fields) and not incognito and persist:
         persisted = False
@@ -468,17 +477,44 @@ async def _pump_stream_to_buffer(
     await stream_buffer_service.finish(session_id, "done")
 
 
-def _reassemble_final_json(last_json: dict[str, Any], full_content: str) -> dict[str, Any]:
+def _reassemble_final_json(
+    last_json: dict[str, Any],
+    full_content: str,
+    *,
+    openai_shape: bool = False,
+    model: str = "",
+    request_id: str = "",
+) -> dict[str, Any]:
     """將串流 Delta 重組為標準 OpenAI 最終響應格式。
 
     部分供應商的終端 chunk 可能是 ``"choices": []``（如用量統計 chunk），
     直接索引 [0] 會 IndexError —— 以 truthy 檢查同時涵蓋缺鍵與空陣列。
+    OpenAI 形狀的請求最後一包沒有 ``choices``（被停、只有用量）時自己組最小的
+    ``chat.completion``，保留用量（ADR-0323）；其他形狀與錯誤原樣回。
     """
     if last_json.get("choices"):
         last_json["choices"][0]["message"] = {"role": "assistant", "content": full_content}
         if "delta" in last_json["choices"][0]:
             del last_json["choices"][0]["delta"]
-    return last_json
+        return last_json
+    if not openai_shape or "error" in last_json:
+        return last_json
+    # 最後一包可能是工具事件（帶工具呼叫的編號）：只有聊天片段才沿用它的 id 與時間
+    chunk = last_json if "choices" in last_json else {}
+    reply: dict[str, Any] = {
+        "id": chunk.get("id") or f"chatcmpl-{request_id}",
+        "object": "chat.completion",
+        "created": chunk.get("created") or int(get_current_epoch()),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": full_content},
+            "finish_reason": "stop",
+        }],
+    }
+    if "usage" in last_json:
+        reply["usage"] = last_json["usage"]
+    return reply
 
 
 async def dispatch_request(
@@ -570,7 +606,10 @@ async def dispatch_request(
                     continue
 
         # 如果有完整內容，將其由 Delta 格式重組成標準 OpenAI 最終響應格式
-        return JSONResponse(content=_reassemble_final_json(last_json, full_content))
+        return JSONResponse(content=_reassemble_final_json(
+            last_json, full_content, openai_shape=isinstance(request, OpenAIChatRequest),
+            model=model_name, request_id=request_id,
+        ))
 
     # --- [ADR-0081 可恢復串流：生成與連線解耦] ---
     # 僅 UI 對話端點（proxy.py 設 resumable_stream 旗標）且有 session_id 才走緩衝路徑；
@@ -655,6 +694,7 @@ async def dispatch_request(
                 # 靈魂對話只寫回綁在這個靈魂的 session（SoulLayer 判定，ADR-0245 修補）
                 persist=not context.get("is_toukasoul") or context.get("session_bound") is True,
                 check_access=not context.get("is_toukasoul"),  # 靈魂對話已由綁定涵蓋
+                context=context,
             ),
             name=f"stream-pump:{session_id}",
         )

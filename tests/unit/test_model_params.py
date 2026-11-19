@@ -151,7 +151,7 @@ def test_convert_to_openai_forwards_top_p_k():
         model="gemini-2.5-flash", max_tokens=100,
         messages=[{"role": "user", "content": "hi"}], top_p=0.5, top_k=20,
     )
-    out = convert_to_openai(req, False, "")
+    out = convert_to_openai(req)
     assert out.top_p == 0.5
     assert out.top_k == 20
 

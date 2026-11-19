@@ -275,7 +275,7 @@ def test_convert_to_openai_includes_tools():
         messages=[{"role": "user", "content": "hi"}],
         tools=[_ANTHROPIC_TOOL],
     )
-    converted = convert_to_openai(req, degraded=False, reason="")
+    converted = convert_to_openai(req)
     assert converted.tools == [_OPENAI_TOOL]
 
 
@@ -285,7 +285,7 @@ def test_convert_to_openai_no_tools_stays_none():
         max_tokens=512,
         messages=[{"role": "user", "content": "hi"}],
     )
-    converted = convert_to_openai(req, degraded=False, reason="")
+    converted = convert_to_openai(req)
     assert converted.tools is None
 
 

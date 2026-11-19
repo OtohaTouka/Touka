@@ -48,6 +48,14 @@ def _request(model: str = "grok-4", **extra: Any) -> OpenAIChatRequest:
                              **extra)
 
 
+# 誠實度檢查只在這一輪有工具時才跑（ADR-0323）
+_HONESTY_TOOL = {
+    "type": "function",
+    "function": {"name": "memory_tools", "description": "d",
+                 "parameters": {"type": "object", "properties": {}}},
+}
+
+
 def _ctx(rid: str, **extra: Any) -> dict:
     return {"provider": "Grok", "url": "https://api.x.test/v1/chat/completions",
             "custom_connection": False,  # 直接呼叫 handler：明寫不是自訂連線（R-3b ① L4）
@@ -191,7 +199,7 @@ async def test_honesty_guard_honours_forced_tool_choice(monkeypatch, forced, too
     rules = ModelRules(forced_tool_choice=forced, stream=True)
     monkeypatch.setattr(openai_adapter, "rules_for", lambda _m: rules)
     adapter = OpenAIAdapter()
-    state = await adapter.prepare_request(_request(), _ctx("r"))
+    state = await adapter.prepare_request(_request(tools=[_HONESTY_TOOL]), _ctx("r"))
     turn = adapter.parse_round(state, {"choices": [{"message": {
         "role": "assistant", "content": "根據過去的記憶系統內容，你上次說喜歡紅茶。"}}]})
     assert adapter.mid_loop_hook(state, turn, set(), True) is not None  # 仍注入矯正提示

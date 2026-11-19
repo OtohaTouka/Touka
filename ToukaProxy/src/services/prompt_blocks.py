@@ -10,6 +10,18 @@ from __future__ import annotations
 
 from src.utils.auth_mode import normalize_auth_mode
 
+# 降級（記憶模組沒載入）時給模型的一句（ADR-0323 前景-9）；四家轉接器共用
+DEGRADED_NOTE_TEMPLATE = (
+    "Memory tools are unavailable this turn{reason}. This does not affect the other tools "
+    "in your list; if one fails, its result says so."
+)
+
+
+def build_degraded_note(reason: str) -> str:
+    """降級說明：只有記憶工具用不了；原因寫在括號裡，沒有就不寫。"""
+    reason = reason.strip().rstrip(".").strip()
+    return DEGRADED_NOTE_TEMPLATE.format(reason=f" ({reason})" if reason else "")
+
 # Context 區塊 tag 名稱（小寫 snake_case，與 breakdown parser 對齊）。
 PERSONA = "persona"
 PROJECT_CONTEXT = "project_context"

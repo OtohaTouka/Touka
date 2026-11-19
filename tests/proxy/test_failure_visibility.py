@@ -124,7 +124,7 @@ async def test_openai_handler_injects_degraded_warning(monkeypatch):
     msgs = upstream.sent[0]["messages"]
     upstream.assert_all_closed()
     sys_texts = [m.get("content", "") for m in msgs if m.get("role") == "system"]
-    assert any("DEGRADED MODE" in t for t in sys_texts)
+    assert any("Memory tools are unavailable this turn" in t for t in sys_texts)
 
 
 @pytest.mark.asyncio
@@ -154,4 +154,4 @@ async def test_gemini_handler_injects_degraded_warning(monkeypatch):
             break
     si_text = json.dumps(upstream.sent[0].get("system_instruction"), ensure_ascii=False)
     upstream.assert_all_closed()
-    assert "DEGRADED MODE" in si_text
+    assert "Memory tools are unavailable this turn" in si_text

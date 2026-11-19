@@ -59,7 +59,7 @@ async def _openai_wire(req: AnthropicRequest) -> dict:
     with pytest.MonkeyPatch.context() as monkeypatch:
         upstream.install(monkeypatch)
         adapter = OpenAIAdapter(stream=True)
-        state = await adapter.prepare_request(convert_to_openai(req, False, ""), ctx)
+        state = await adapter.prepare_request(convert_to_openai(req), ctx)
         async for _ in adapter.send_round(state):
             pass
         await adapter.close(state)
@@ -74,7 +74,7 @@ async def _gemini_wire(req: AnthropicRequest) -> dict:
         upstream.install(monkeypatch)
         adapter = GeminiAdapter(stream=True)
         state = await adapter.prepare_request(
-            convert_to_openai(req, False, ""), {"gemini_api_key": "k", "agent_id": "Alice"}
+            convert_to_openai(req), {"gemini_api_key": "k", "agent_id": "Alice"}
         )
         async for _ in adapter.send_round(state):
             pass

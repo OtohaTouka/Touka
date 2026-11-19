@@ -1,11 +1,11 @@
 # ADR-0323：群聊沒有工具、心跳先檢查再寫、家知道去過哪、工具結果有上限（可視性第五批）
 
-- 狀態：🚧 實作中（PR 1 群聊，2026-11-19；PR 2 心跳，2026-11-19；PR 3 家與子代理，2026-11-19；PR 4 工具資訊與網頁以外的路待做）
+- 狀態：✅ 已實作（PR 1 群聊、PR 2 心跳、PR 3 家與子代理、PR 4 工具資訊與網頁以外的路，2026-11-19）
 - 日期：2026-11-19
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 90 項回「甲：照第 2.1 版做」；工具結果上限 4 萬字、子代理結果檔可偽造移出這批，是計畫裡寫明的「我自己定的兩件」）
 - 相關：[ADR-0322](0322-who-said-it-and-which-conversation.md)（第四批：群聊成員發言、對話種類）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（這一輪的工具清單）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人不能驅動有工具的靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>`）
-- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2；決定 5、7 等結果綁在這一輪、關機時背景子代理交回已取消，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2；新事件 `group_turn`、`sns_turn`，家裡與子對話各多一行，PR 3）、[ADR-0307](0307-home-handover-work.md)（家裡多一行在群聊與 SNS 說過幾次，內容照舊不回報，PR 3）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（決定 8 心跳不再切段，PR 2；決定 11：頻道與子對話知道自己的編號，PR 3）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 7：子代理不帶主代理的看板，PR 3）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具多了等結果，PR 3）
-- 影響範圍：PR 3：`ToukaProxy/src/services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`services/dispatchers/group.py`、`services/sns_gateway.py`、`tools/subagent_tools.py`、`tools/mission_tools.py`、`handlers/react_core.py`、`services/prompt_blocks.py`。PR 2：`ToukaProxy/src/routers/heartbeat.py`、`services/continuity_service.py`、`services/continuity_events.py`（`HeartbeatSkip`）、`services/dispatchers/factory.py`、`utils/user_intent.py`、`config/errors.json.example`、`ToukaChat/src/lib/error_codes.ts`、翻譯檔。PR 1：`ToukaProxy/src/utils/mcp_request_identity.py`（`is_group_model`）、`utils/local_bridge_gate.py`、`middleware/layers/soul.py`、`middleware/layers/tool.py`、`middleware/layers/skill.py`、`services/dispatcher.py`、`services/dispatchers/group.py`、`utils/group_member_view.py`、`services/continuity_lines.py`（新）、`services/continuity_service.py`
+- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2；決定 5、7 等結果綁在這一輪、關機時背景子代理交回已取消，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2；新事件 `group_turn`、`sns_turn`，家裡與子對話各多一行，PR 3）、[ADR-0307](0307-home-handover-work.md)（家裡多一行在群聊與 SNS 說過幾次，內容照舊不回報，PR 3）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（決定 8 心跳不再切段，PR 2；決定 11：頻道與子對話知道自己的編號，PR 3）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 7：子代理不帶主代理的看板，PR 3）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具多了等結果，PR 3）；ADR-0322 另於 PR 4 更正 IDE 歷史的說法、補記非串流與子代理拒答已處理
+- 影響範圍：PR 4：`ToukaProxy/src/utils/tool_result_cap.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`services/prompt_blocks.py`、`handlers/adapters/base.py`、`claude_adapter.py`、`openai_adapter.py`、`gemini_adapter.py`、`responses_adapter.py`、`services/dispatchers/utils.py`、`services/dispatchers/factory.py`、`services/dispatcher.py`、`routers/debug.py`；文件 `docs/rules/proxy.md` §13、`AGENTS.md` §13、`IDE_INTERFACE.md`。PR 3：`ToukaProxy/src/services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`services/dispatchers/group.py`、`services/sns_gateway.py`、`tools/subagent_tools.py`、`tools/mission_tools.py`、`handlers/react_core.py`、`services/prompt_blocks.py`。PR 2：`ToukaProxy/src/routers/heartbeat.py`、`services/continuity_service.py`、`services/continuity_events.py`（`HeartbeatSkip`）、`services/dispatchers/factory.py`、`utils/user_intent.py`、`config/errors.json.example`、`ToukaChat/src/lib/error_codes.ts`、翻譯檔。PR 1：`ToukaProxy/src/utils/mcp_request_identity.py`（`is_group_model`）、`utils/local_bridge_gate.py`、`middleware/layers/soul.py`、`middleware/layers/tool.py`、`middleware/layers/skill.py`、`services/dispatcher.py`、`services/dispatchers/group.py`、`utils/group_member_view.py`、`services/continuity_lines.py`（新）、`services/continuity_service.py`
 
 ## 背景
 
@@ -103,6 +103,33 @@
 
 - `mission_tools` 的 `await_dispatch_result` 和 `local_files`、同步派的子代理一樣，人按停止時一起收掉（以前只看工具名，現在 `mission_tools` 另看動作）；看板的其他動作不綁。被取消的等候不標讀過，下一輪「最近結束」仍是沒讀，結果之後照樣拿得到。
 
+## 決定（PR 4：工具資訊與網頁以外的路）
+
+### 16. 記憶工具不能用時，寫明只影響記憶工具
+
+- 四家轉接器的降級說明改用 `prompt_blocks.build_degraded_note(reason)` 的同一句英文：「Memory tools are unavailable this turn (原因). This does not affect the other tools in your list; if one fails, its result says so.」以前寫「SYSTEM WARNING… DEGRADED MODE… Some tools may be offline」，模型不知道是哪些工具，可能整輪不敢用。原因結尾的句點拿掉、沒有原因時不加括號。
+- `convert_to_openai`（Claude 格式入口轉 OpenAI 形狀）不再自己加一句，同一輪不會說兩次。
+- 除錯面板的 `/debug/tools` 在降級時先複製工具定義再加 `[⚠️ DEGRADED MODE]`：以前直接改共用的那份，而那份也是送給模型的，降級中只要有人打開除錯面板，到重啟為止每一輪的內建工具說明都多這串字（PR 4 審查發現）。
+
+### 17. 單一工具結果超過 4 萬字時，給模型的那份截中間
+
+- 新增 `utils/tool_result_cap.py`：`MAX_TOOL_RESULT_CHARS = 40_000`；超過時留開頭與結尾各 2 萬字，中間換成一行固定說明（原本幾字、略去幾字、需要時用 view_range、背景執行或縮小範圍再查）。
+- 只截給模型的那份：`execute_to_queue(..., for_model=True)` 只有 ReAct 迴圈傳。成功判定、hook、畫面的工具卡（`tool_result` 事件）與 `/debug/execute` 都拿完整版，存檔照舊（本來就只存每個結果的前 2,000 字，`MAX_STORED_RESULT_CHARS`）；核准說明與 `<hook_output>` 接在截過的輸出後面，不會被截掉。內建、記憶、外掛、MCP 工具都經過這一點。只處理文字。
+
+### 18. 非串流 API 被停時照標準格式回
+
+- OpenAI 形狀的非串流請求，最後一包沒有 `choices` 時，`_reassemble_final_json` 自己組最小的 `chat.completion`：`id`、`object`、`created`、`model`、`choices[0].message`（已收到的文字）、`finish_reason="stop"`；最後一包帶 `usage` 時保留。以前回 `{}`。最後一包帶 `error` 時照舊。Anthropic 原生 `/v1/messages` 的非串流形狀不變。
+
+### 19. 舊串流存檔記得出錯
+
+- `react_core.fail_round` 一律把失敗句記在 `context["model_failure_text"]`（照舊送給用戶端）。VS Code 擴充與 API 帶對話編號時走的舊串流存檔，模型失敗時節點標 `generationFailed: True`，結尾那句失敗說明不存進文字，沒寫字也存空節點。群聊回合不標外層旗標，只靠 PR 1 的成員出錯記號。
+
+### 20. 誠實度檢查只在這一輪有工具時跑
+
+- 四家的誠實度檢查（模型宣稱查過記憶卻沒查時插一輪矯正、強制用工具）在這一輪實際送出的請求沒有工具時不介入：沒有工具還強制用工具，廠商會回 400。有沒有工具看實際送出的請求（`adapters/base.round_has_tools`；OpenAI 看拿掉空 `tools` 之後的 payload）。
+- 沒有工具時整個不介入，畫面上的「誠實度警報」小提示也不會出現（以前不強制用工具的模型，沒有工具時仍會插一句矯正並顯示警報）。
+- 連帶修好沒設工具的一般靈魂（以前也會被強制而出錯）。PR 1 審查（LOW-3）提出，維護者核准的範圍之外的小修，継初判斷。
+
 ## 取捨與影響
 
 - PR 1：成員的請求少掉幾段工具說明、多一句群聊說明與一段 `<continuity>`（都在請求尾端）；上線後每位成員第一輪的提示快取重寫一次。權限不變。
@@ -110,17 +137,25 @@
 - PR 2：心跳跑不了時不再把提示寫進家對話，排程那端收到 409 或 429，只記 log、不重試。多一個錯誤碼：網頁畫面沒改，只多兩句翻譯。靈魂的心跳每個脈衝多一行說明；不是靈魂的多一段精簡 `<continuity>`。
 
 - PR 3：家裡、子對話與心跳頻道的 `<continuity>` 可能各多一行；每次在群聊與 SNS 說話多寫一筆事件（只有 id 與時間），GDPR 匯出跟著多兩種。背景子代理在 Touka 正常關機時一定交回「已取消」。
+- PR 4：超過 4 萬字的工具結果，模型只看到頭尾，中間要再查；畫面與 hook 拿完整版，存檔照舊（只存前 2,000 字）。上限是継初定的（計畫寫明），之後要調整改常數。降級說明改一句英文，更新後降級中的對話第一輪快取重寫一次。非串流被停時用戶端拿到標準格式；舊串流存檔的失敗回合不再把失敗句存成回覆。
+- PR 4 文件：規則文件與 `AGENTS.md` §13 改成程式實際的規則（心跳排程指定＞全域 `react_loop.max_tool_rounds`＞沒人在場時保底 50；舊寫保底 5）；`IDE_INTERFACE.md` 加 VS Code 擴充和網頁的差異表。
 
 ### 已知限制
 
 - PR 1：成員在自己段落最後寫出跟真記號一模一樣的文字（守門換掉一個字以前就已經存在用戶端的舊對話）時，下一輪會把自己那段標成出錯；碰不到別人。
 - PR 1：舊對話裡這版之前的失敗句（沒有記號）照舊算成那位成員的話。
-- PR 1 審查發現的既有問題，排進 PR 4：誠實度檢查（成員沒查資料就講記憶裡的事時插一輪矯正）不看這一輪有沒有工具，矯正輪會強制要求用工具（`tool_choice`），沒有工具時廠商回 400，那位成員這一輪失敗。網頁群聊以前就是零工具；這個 PR 之後 SNS 與代理身分開的 API 群聊也一律零工具，範圍跟著變大。觸發詞很窄，發生機率低。
+- PR 1 審查發現的既有問題，排進 PR 4：誠實度檢查（成員沒查資料就講記憶裡的事時插一輪矯正）不看這一輪有沒有工具，矯正輪會強制要求用工具（`tool_choice`），沒有工具時廠商回 400，那位成員這一輪失敗。網頁群聊以前就是零工具；這個 PR 之後 SNS 與代理身分開的 API 群聊也一律零工具，範圍跟著變大。觸發詞很窄，發生機率低。〔PR 4 已處理（決定 20）：這一輪實際送出的請求沒有工具時，誠實度檢查不介入。〕
 - PR 2：跑不了的心跳仍會先找或建對話：家模式下靈魂還沒有家又沒設大腦時，會先建一個空的家再回 409；剛設好還沒用的新家會被記成開始用。這是舊行為（以前還會多寫一則提示），這版照計畫只把檢查放在寫提示之前。要再往前挪，舊家加上沒設大腦時回的碼會變，留待之後。
 - PR 2：擁有者按「重新觸發」時，審查員看到的原意只取心跳初始提示的本文（時間行與「系統送出」那行拿掉），和一般心跳一樣；以前會連時間行一起給。
 - PR 3：前情裡合併段（`#child-reports`）的回報看不出來自哪段對話，認不出是不是自己寫的。
 - PR 3：被拒答或被擋、沒有文字的子代理，結果種類照舊算成部分完成（`unverified`），「最近結束」那一行寫部分完成、結果內文寫被拒答（原本空文字時就是這樣，之後再考慮算成失敗）。
 - PR 3：群聊與 SNS 只記說過幾次，不記說了什麼（內容照舊不回家，ADR-0307）。當機或強制結束時，背景子代理沒有交回結果（只有正常關機會）。
+- PR 4：記憶庫開啟失敗（`memory_store_open_failed`）不走降級旗標，記憶工具照樣列出，叫了才失敗。截斷以字元計、只處理文字，圖片等多模態內容不動。VS Code 擴充那條路的差異（不送歷史、沒有核准卡等）只寫進文件，另開 IDE 任務。
+
+## 驗證（PR 4）
+
+- `tests/unit/test_tool_info_and_other_paths.py`（新）：降級說明的句子（原因的句點、沒有原因）；轉換不再加說明；截斷純函式（剛好上限不截、超過留頭尾與說明）；執行器給模型的那份有截斷說明、核准說明與 `<hook_output>` 都在，工具卡事件與預設回傳是完整版，成功判定不變；非串流 OpenAI 形狀組出最小回覆、保留 `usage`，Anthropic 照舊；舊串流存檔失敗時標旗標、失敗句不存、沒字存空節點、群聊不標、成功照舊；四家誠實度檢查沒有工具時不介入。審查後補：截斷在接核准說明與 hook 輸出之前；給模型的那份算好後才出例外時回傳錯誤；全中文上限加一；最後一包是工具事件時回覆編號不借用工具呼叫的編號；`test_degraded_features.py` 斷言除錯端點不改共用的工具定義。
+- 改了舊測試：降級說明的斷言（`test_adapter_contract.py`、`test_degraded_features.py`、`test_failure_visibility.py`、`test_responses_request.py`）；`convert_to_openai` 不再收降級參數（`test_kf9_anthropic_entry.py`、`test_upstream_openai.py`、`test_upstream_gemini.py` 等六個）；誠實度測試改成帶工具（`test_adapter_contract.py`、`test_model_rules.py`、`test_responses_parse.py`、`test_compat_stream_usage.py`、`test_golden_gemini.py`，黃金檔不變）；`tests/support/hook_wiring.py` 可傳 `for_model`。
 
 ## 驗證（PR 3）
 

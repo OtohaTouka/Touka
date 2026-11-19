@@ -98,7 +98,7 @@
 *   **SSOT 糾偏**：群聊成員 ID 必須是靈魂 ID（與 `agents_registry` 強一致），系統在儲存時自動修正舊格式 ID（如 `ToukaSoulAlice` → `Alice`）。
 
 ### 13. 自主預算大一統與優先級 (Unified Autonomy Budget) ⭐
-*   **預算決策鏈 (Decision Chain)**：系統在執行 ReAct 循環時，其 Slot 輪數必須經由 `AutonomyService` 判定，遵循：**請求指定 (Explicit) > 全域配置 (autonomy.json) > 系統保底 (Default: 5)**。**實施 `smoke_autonomy_enforcement.py` 驗證預算耗盡時的強制攔截與 Nudge 注入。**
+*   **預算決策鏈 (Decision Chain)**：系統在執行 ReAct 循環時，工具輪上限由 `RhythmService.get_effective_rounds()` 判定（全域設定由 `AutonomyService` 讀 `autonomy.json`），遵循：**心跳排程指定的輪數（正整數）> 全域 `react_loop.max_tool_rounds`（0＝不限）> 沒人在場的執行（心跳及其鏈路）保底 `HEADLESS_FALLBACK_ROUNDS`（50）**；互動預設不限。**實施 `smoke_autonomy_enforcement.py` 驗證預算耗盡時的強制攔截。**（2026-11-19 ADR-0323 更正：舊寫「請求指定＞全域＞保底 5」，與程式不符；nudge 已在 ADR-0146 移除。）
 *   **跨場景一致性**：標準對話與主動心跳喚醒共享同一套判定邏輯，確保代理人的行為預期在各類觸發方式下完全一致。
 *   **SSOT 降級 (Fallback)**：心跳排程若未指定輪數，必須自動「優雅降級」吸納使用者在安全設定中定義的全域預算。
 

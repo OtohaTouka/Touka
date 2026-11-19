@@ -63,7 +63,7 @@ async def _soul_applied(family: str, _mp: pytest.MonkeyPatch) -> Any:
 async def _native_anthropic(family: str, _mp: pytest.MonkeyPatch) -> Any:
     req = AnthropicRequest(model=_MODELS[family], max_tokens=100, messages=_MSGS, **_SAMPLING)
     # factory 同款：Claude 原生直通，其他家經 convert_to_openai
-    return req if family == "claude" else convert_to_openai(req, False, "")
+    return req if family == "claude" else convert_to_openai(req)
 
 
 async def _heartbeat(family: str, mp: pytest.MonkeyPatch) -> Any:

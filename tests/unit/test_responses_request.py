@@ -30,6 +30,7 @@ from src.handlers.adapters import responses_adapter
 from src.handlers.adapters.base import ToolCall, Turn
 from src.handlers.adapters.responses_adapter import ResponsesAdapter
 from src.handlers.adapters.stream_timeout import liveness_event_hooks
+from src.services.prompt_blocks import build_degraded_note
 
 ROOT = Path(__file__).resolve().parents[2]
 WIRE = json.loads((ROOT / "tests/fixtures/responses_u4a_wire.json").read_text(encoding="utf-8"))
@@ -214,8 +215,7 @@ async def test_degraded_warning_goes_into_instructions():
     with_system = await ResponsesAdapter().prepare_request(_request(), dict(ctx))
     without = await ResponsesAdapter().prepare_request(
         _request([{"role": "user", "content": "hi"}]), dict(ctx))
-    warning = ("⚠️ SYSTEM WARNING: The proxy is running in DEGRADED MODE. Memory offline. "
-               "Some tools may be offline. Please inform the user.")
+    warning = build_degraded_note("Memory offline.")  # 四家同一句（ADR-0323）
     assert with_system.kwargs["instructions"] == f"妳是助理。\n用繁體中文。\n\n{warning}"
     assert without.kwargs["instructions"] == warning
 

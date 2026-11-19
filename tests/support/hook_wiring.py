@@ -162,7 +162,7 @@ def executor_with(monkeypatch: pytest.MonkeyPatch, registry: dict[str, Any]) -> 
 async def run_tool(
     executor: ToolExecutor, name: str, args: dict[str, Any], *,
     present: bool = True, mode: str = "Auto", approve: bool | None = None,
-    extra: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None, for_model: bool = False,
 ) -> tuple[str, list[dict[str, Any]]]:
     """跑一次；``approve`` 不是 None 時必須跳卡並以該決定解算。"""
     ctx: dict[str, Any] = {
@@ -174,7 +174,9 @@ async def run_tool(
         ctx["resumable_stream"] = True
     queue: asyncio.Queue = asyncio.Queue()
     async with asyncio.timeout(WAIT_S):
-        task = asyncio.create_task(executor.execute_to_queue(name, args, "req-hook", ctx, queue))
+        task = asyncio.create_task(
+            executor.execute_to_queue(name, args, "req-hook", ctx, queue, for_model=for_model)
+        )
         if approve is not None:
             while not approval_service._pending:
                 assert not task.done(), "應該跳出審批卡"

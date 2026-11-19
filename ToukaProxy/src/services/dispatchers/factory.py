@@ -39,9 +39,6 @@ async def get_stream_generator(
 ) -> AsyncGenerator[str]:
     """Factory to select the appropriate stream handler based on the model name."""
     context["identity"] = identity
-    # 抓取 Context 資訊
-    system_degraded = context.get("system_degraded", False)
-    degraded_reason = context.get("degraded_reason", "")
 
     # 路由（Human → 有效自訂連線 → claude／gemini → registry）與 complete_once 共用；
     # 傳本模組的 model_manager／get_provider_info（既有 patch 點不變）。
@@ -77,7 +74,7 @@ async def get_stream_generator(
 
     active_req = request
     if hasattr(request, "messages") and not isinstance(request, OpenAIChatRequest):
-        active_req = convert_to_openai(request, system_degraded, degraded_reason)
+        active_req = convert_to_openai(request)
     run_info = {"request_id": request_id, "t0": start_time, "session_id": session_id}
 
     if route.kind == GEMINI_FAMILY:

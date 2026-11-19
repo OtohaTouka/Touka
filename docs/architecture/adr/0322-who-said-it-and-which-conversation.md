@@ -5,7 +5,7 @@
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 87 項回「全部照建議」：SNS 頻道與群聊照舊帶家對話原文並加說明；群聊 PR 合併前小量試真模型）
 - 相關：[ADR-0245](0245-model-layer-stage-2a.md)（群聊成員只限靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組、保留系統加的說明）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（工具紀錄的防偽做法）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（審查員只看人類原話）
 - 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a；不經網頁的停止也記 `generationStopped`、子代理不再特別略過日誌行，PR 2b）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（照抄紀錄與工具幻覺的警告改成小提示，PR 2b）；[ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 那段說明照舊留在回覆文字裡（PR 2b 確認不改）、[ADR-0146](0146-tool-round-budget.md)（心跳寫第幾個脈衝，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>` 多對話種類與心跳叫醒，PR 3）
-- 被修訂：2026-11-19 已知限制更正：群聊成員不再收到工具清單與工具相關區塊、多一段精簡 `<continuity>`；API 群聊成員失敗改送出錯記號，網頁本來就不會（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 1）；2026-11-19 決定 7 心跳不再切段，整個脈衝存一則（by ADR-0323 PR 2）
+- 被修訂：2026-11-19 已知限制更正：群聊成員不再收到工具清單與工具相關區塊、多一段精簡 `<continuity>`；API 群聊成員失敗改送出錯記號，網頁本來就不會（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 1）；2026-11-19 決定 7 心跳不再切段，整個脈衝存一則（by ADR-0323 PR 2）；2026-11-19 更正 IDE 歷史的說法，補記非串流與子代理拒答已處理（by ADR-0323 PR 4）
 - 影響範圍：PR 3：`ToukaProxy/src/services/continuity_service.py`、`utils/sns_sender.py`（新）、`models/sns.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`services/sns_gateway.py`、`services/prompt_blocks.py`、`services/dialogue_summarizer.py`、`routers/heartbeat.py`、`ToukaHeartbeat/schedule_service.py`、`proxy_client.py`、`awaken.py`、`openapi.json`、`ToukaChat/src/types/api.ts`。PR 2b：`ToukaProxy/src/utils/turn_notices.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`handlers/adapters/`（`MidLoopAction`）、`utils/tool_step_collector.py`、`utils/interjection_notes.py`、`utils/history_manager.py`、`routers/heartbeat.py`、`services/sns_gateway.py`、`services/dispatcher.py`、前端 `lib/chat/turnNotices.ts`（新）、`components/chat/TurnNoticeList.tsx`（新）、`stream_tree.ts`、`connections.ts`、`buildApiMessage.ts`、翻譯檔、`ToukaIDE/src/providers/ChatViewProvider.ts`、`ToukaIDE/src/webview/main.js`。PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
 
 ## 背景
@@ -134,7 +134,7 @@
 - 文字片段原樣轉送，只有守門留過字或換過字時才重組片段（只帶文字，照最近收到的片段格式；`react_core` 的文字片段是 OpenAI 格式）。
 
 - PR 2b：只給畫面的說明不再進對話，下一輪 AI 看不到「上一輪用了哪些工具、花多久」這類日誌；工具紀錄（ADR-0319）已經帶同樣的資訊。拒答的原因（模型自己寫的）也只在小提示裡；舊對話裡的拒答原因拿掉標籤後照舊算模型的話。
-- PR 2b：VS Code 擴充與 API 的下一輪歷史由用戶端自己送，不會帶 `notices` 與停止記號；IDE 按停止後，下一輪 AI 看不到「上一輪被中斷」（以前靠混在回覆裡的那一行）。帶 `session_id` 時後端另存的那份有小提示與停止旗標，家原文、心跳、換家與滑動視窗讀的是那份。SNS 按停止時外人不會再收到「已由使用者中斷」。
+- PR 2b：VS Code 擴充與 API 的下一輪歷史由用戶端自己送，不會帶 `notices` 與停止記號〔2026-11-19 ADR-0323 PR 4 更正：VS Code 擴充每一輪只送最新一句、不送歷史，見 `IDE_INTERFACE.md`〕；IDE 按停止後，下一輪 AI 看不到「上一輪被中斷」（以前靠混在回覆裡的那一行）。帶 `session_id` 時後端另存的那份有小提示與停止旗標，家原文、心跳、換家與滑動視窗讀的是那份。SNS 按停止時外人不會再收到「已由使用者中斷」。
 - PR 3：每一輪多 2～4 行，都在請求尾端；系統說明改了一句，更新後每段對話第一輪的快取重寫一次。SNS 發言者名稱會送給模型廠商、存進頻道對話。心跳要連 ToukaHeartbeat 一起更新才寫得出被誰叫醒，只更新一邊時寫沒有說明。
 - PR 2b：三家模型的串流黃金檔重錄 26 個，逐一核對過：只有日誌文字片段變成小提示事件，其他片段不變。
 
@@ -145,11 +145,11 @@
 - 舊的群聊回合只有一位成員、而且那位已經退出（別名解析不到）時，不切，照舊算成自己說的：和開頭剛好像標籤的一般回覆分不開。
 - 同一位被點兩次（@A @A）而第一次出錯時，第二次只看到自己說了一半的 assistant，沒有出錯的標記。
 - SNS 獨立頻道的單人回合（`sns_channel_history`）看得到同一頻道之前的 SNS 群聊回合，仍以 assistant 送出：別人的話又變成「自己說的」。留待之後（PR 3 沒做）。
-- 網頁、IDE、API 群聊的成員失敗時，分發器送出的失敗句會跟著存進那位成員的段落（網頁由前端存、IDE 與 API 存在用戶端），下一輪切段時就成了那位成員的話；網頁的那一則另有出錯記號。SNS 群聊不存對話，沒有這個問題（PR 1 時寫成「PR 2 改成不存失敗句」，PR 2a 核對後更正：PR 2a 只處理心跳與 SNS 單人回合，群聊這條留給第五批或之後）。〔2026-11-19 ADR-0323 PR 1 更正與處理：網頁不會（成員失敗時 `ui_authorized` 的路先停下，失敗句不送出）。自己送歷史的 API 用戶端改成在段落最後收到出錯記號，下一輪送回來時認得出是出錯；記號文字照樣留在用戶端與後端另存的那份裡。〕
-- PR 2b：子代理只收文字。子代理被拒答或被安全過濾時，主代理收到的結果是 `(子代理無文字產出)`；子代理假裝呼叫工具時，結果裡沒有工具幻覺的警告。
+- 網頁、IDE、API 群聊的成員失敗時，分發器送出的失敗句會跟著存進那位成員的段落（網頁由前端存、IDE 與 API 存在用戶端），下一輪切段時就成了那位成員的話；網頁的那一則另有出錯記號。SNS 群聊不存對話，沒有這個問題（PR 1 時寫成「PR 2 改成不存失敗句」，PR 2a 核對後更正：PR 2a 只處理心跳與 SNS 單人回合，群聊這條留給第五批或之後）。〔2026-11-19 ADR-0323 PR 1 更正與處理：網頁不會（成員失敗時 `ui_authorized` 的路先停下，失敗句不送出）。自己送歷史的 API 用戶端改成在段落最後收到出錯記號，下一輪送回來時認得出是出錯；記號文字照樣留在用戶端與後端另存的那份裡。〕〔2026-11-19 ADR-0323 PR 4 更正：IDE 那份存在擴充畫面，擴充每一輪只送最新一句，不會送回模型（差異見 `IDE_INTERFACE.md`）；擴充或 API 帶對話編號時，舊串流存檔改標 `generationFailed`，失敗句不存進文字。〕
+- PR 2b：子代理只收文字。子代理被拒答或被安全過濾時，主代理收到的結果是 `(子代理無文字產出)`；子代理假裝呼叫工具時，結果裡沒有工具幻覺的警告。〔2026-11-19 ADR-0323 PR 3：這三種小提示會收下；沒有文字時結果寫明被拒答或被擋，有文字時放 `system_notes`。〕
 - PR 2b：SNS 遇到拒答或安全過濾、模型又沒寫字時，外部平台收不到回覆（以前收到那句警告）；對話裡存有小提示。
 - PR 2b：舊日誌行只比對同一行。攔截、hook 拒絕、待審批這三種從冒號後面拿到換行為止：模型在同一行照抄這個標籤時，後面自己寫的字也會被拿掉。例外原文有好幾行時只拿掉第一行，超過 300 字的整行不拿。
-- PR 2b：非串流請求在模型送出任何片段前就被停，回的是空物件 `{}`。
+- PR 2b：非串流請求在模型送出任何片段前就被停，回的是空物件 `{}`。〔2026-11-19 ADR-0323 PR 4：OpenAI 形狀的請求改回最小的標準 `chat.completion`；Anthropic 原生 `/v1/messages` 照舊。〕
 - PR 3：群聊成員沒有 `<continuity>`，拿不到對話種類那一行（角色寫在群聊說明裡，群聊-3 留待之後；2026-11-19 ADR-0323 PR 1 補上精簡版）。名稱裡可以寫出像「（代號 …）」的字，真正的代號在它後面。Telegram 只收文字訊息，附件一律寫沒有附件。代號沒加鹽：知道帳號編號的人算得出來，用途是分辨同一個人，不是保密。直接呼叫 `/retrigger` 重跑不在「上次未完成」清單裡的對話，也會寫上一次沒做完（開始時間不明）。
 
 ## 驗證（PR 1）

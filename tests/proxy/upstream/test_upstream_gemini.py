@@ -181,7 +181,7 @@ async def test_kf9_anthropic_entry_keeps_tool_blocks_on_gemini(monkeypatch):
                 {"type": "tool_result", "tool_use_id": "toolu_1", "content": "a.txt"},
             ]},
         ])
-    run = await _run(monkeypatch, convert_to_openai(native, False, ""), [gemini_text("好")], "kf9")
+    run = await _run(monkeypatch, convert_to_openai(native), [gemini_text("好")], "kf9")
     payload = run.snapshots[0]["payload"]
     assert sorted(payload) == ["contents", "system_instruction", "tools"]
     assert payload["system_instruction"] == {"parts": [{"text": "妳是 Sumi。"}]}

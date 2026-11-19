@@ -261,6 +261,12 @@ async def test_honesty_warning_mid_loop(monkeypatch, mode):
             _text_resp("根據過去的記憶系統內容，你上次說喜歡紅茶。"),
             _text_resp("我查證後再回答：您喜歡紅茶。"),
         ],
+        # 誠實度檢查只在這一輪有工具時才跑（ADR-0323）
+        request=_request(tools=[{
+            "type": "function",
+            "function": {"name": "memory_tools", "description": "memory",
+                         "parameters": {"type": "object", "properties": {}}},
+        }]),
     )
     assert_golden("gemini", "honesty_warning", chunks)
 

@@ -60,8 +60,8 @@ def _call(call_id: str, name: str, arguments: str) -> dict:
 _LIST, _READ, _SEARCH = '{"action": "list"}', '{"action": "read", "path": "a.txt"}', '{"q": "天氣"}'
 
 
-def _messages(degraded: bool = False) -> list[dict]:
-    request = convert_to_openai(_conversation(), degraded, "記憶離線")
+def _messages() -> list[dict]:
+    request = convert_to_openai(_conversation())
     return [message.model_dump(exclude_none=True) for message in request.messages]
 
 
@@ -82,13 +82,13 @@ def test_tool_blocks_become_tool_calls_and_tool_messages(caplog):
     assert "tool_result 裡不支援的區塊已略過：image" in caplog.text  # 不靜默丟棄
 
 
-def test_degraded_warning_follows_the_system_text():
-    assert _messages(degraded=True)[0] == {
-        "role": "system", "content": f"{_SYSTEM_TEXT}\n\n⚠️ SYSTEM WARNING: 記憶離線"}
+def test_the_conversion_adds_no_degraded_warning():
+    # 降級說明改由轉接器加一次（ADR-0323），轉換本身不再加
+    assert _messages()[0] == {"role": "system", "content": _SYSTEM_TEXT}
 
 
 def test_gemini_pairs_function_calls_with_their_responses():
-    payload = convert_openai_to_gemini(convert_to_openai(_conversation(), False, ""))
+    payload = convert_openai_to_gemini(convert_to_openai(_conversation()))
     assert payload["system_instruction"] == {"parts": [{"text": _SYSTEM_TEXT}]}
 
     def response(name: str, result: str) -> dict:
@@ -135,7 +135,7 @@ def test_given_max_tokens_is_carried_over():
     """O20：呼叫端給的 max_tokens 跟著轉過去（IDE／Chat 的 Claude 格式都帶 4096）。"""
     body = {"model": "gemini-2.5-flash", "max_tokens": 4096, "messages": [
         {"role": "user", "content": "hi"}]}
-    request = convert_to_openai(AnthropicRequest.model_validate(body), False, "")
+    request = convert_to_openai(AnthropicRequest.model_validate(body))
     assert request.max_tokens == 4096
     assert convert_openai_to_gemini(request)["generationConfig"] == {"maxOutputTokens": 4096}
 
@@ -143,7 +143,7 @@ def test_given_max_tokens_is_carried_over():
 def test_missing_max_tokens_stays_unset():
     """沒給 max_tokens 時照舊不帶（不把 AnthropicRequest 的預設 8192 當成呼叫端的值）。"""
     body = {"model": "grok-4", "messages": [{"role": "user", "content": "hi"}]}
-    request = convert_to_openai(AnthropicRequest.model_validate(body), False, "")
+    request = convert_to_openai(AnthropicRequest.model_validate(body))
     assert request.max_tokens is None
     assert "generationConfig" not in convert_openai_to_gemini(request)
 
@@ -153,7 +153,7 @@ def test_messages_without_tool_blocks_are_unchanged():
         {"role": "user", "content": [{"type": "text", "text": "看圖"}, _IMAGE]},
         {"role": "assistant", "content": [{"type": "text", "text": "好"}]},
         {"role": "user", "content": "謝謝"},
-    ]), False, "")
+    ]))
     assert [message.model_dump(exclude_none=True) for message in request.messages] == [
         {"role": "system", "content": "妳是 Sumi。"},
         {"role": "user", "content": [{"type": "text", "text": "看圖"}, _IMAGE]},

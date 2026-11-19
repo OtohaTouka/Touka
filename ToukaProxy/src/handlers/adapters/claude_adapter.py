@@ -38,7 +38,7 @@ from src.services.models.model_rules import (
     claude_send_max_tokens,
     claude_thinking_plan,
 )
-from src.services.prompt_blocks import VOLATILE_SYSTEM_TAGS
+from src.services.prompt_blocks import VOLATILE_SYSTEM_TAGS, build_degraded_note
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
@@ -52,6 +52,7 @@ from .base import (
     hold_tool_setting,
     interjection_text,
     only_keys,
+    round_has_tools,
 )
 from .stream_timeout import RoundClock
 from .usage import estimate_partial_usage, normalized_usage, usage_count
@@ -197,11 +198,7 @@ class ClaudeAdapter:
 
         # 注入生存級警告至 System Prompt
         if context.get("system_degraded", False):
-            warning = (
-                f"\n\n⚠️ SYSTEM WARNING: The proxy is running in DEGRADED MODE. "
-                f"{context.get('degraded_reason', '')} Some tools may be offline. "
-                f"Please inform the user."
-            )
+            warning = "\n\n" + build_degraded_note(context.get("degraded_reason", ""))
             if "system" in kwargs:
                 if isinstance(kwargs["system"], list):
                     kwargs["system"].append({"type": "text", "text": warning})
@@ -406,6 +403,7 @@ class ClaudeAdapter:
         """
         if state.honesty_corrected or not (
             allow_react
+            and round_has_tools(state.kwargs)  # 沒有工具時矯正輪會被廠商拒絕（ADR-0323）
             and guard_service.check_fact_without_tools(turn.visible_text, actually_used_tools)
         ):
             return None
