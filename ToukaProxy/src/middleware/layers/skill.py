@@ -29,6 +29,11 @@ class SkillLayer(ProxyLayer):
 
     async def process(self, request: Any, ctx: PipelineContext) -> None:
         """合併技能來源、RBAC 過濾、常駐注入調度員，並收集所需工具與 MCP。"""
+        # 群聊回合不注入任何技能：成員沒有伺服器端工具（連 activate_skill 都沒有），
+        # 技能說明會叫它用用不到的工具；外層 system 會複製給每位成員（ADR-0323）
+        if is_group_model(getattr(request, "model", None)):
+            return
+
         identity = ctx.get("identity")
         if not isinstance(identity, AgentIdentity):
             # 內部無身分路徑（如 SNS）：不捏造身分名稱；無 agent_role ＝ 零技能授權。
@@ -68,12 +73,7 @@ class SkillLayer(ProxyLayer):
         # 2.5 Deep Research（ADR-0087）：旗標啟用時強制注入研究協調 Skill（提示詞層）。
         #     實際 research 工具仍受 get_allowed_tools(identity) RBAC 把關，無越權
         #     （skill_required_tools 從不授予工具，僅供 SkillLayer 收集所需 MCP）。
-        #     群聊回合不注入：成員沒有研究工具（群聊回合不組工具，ADR-0323）。
-        if (
-            ctx.get("deep_research")
-            and not is_group_model(getattr(request, "model", None))
-            and DEEP_RESEARCH_SKILL_ID not in authorized_skill_ids
-        ):
+        if ctx.get("deep_research") and DEEP_RESEARCH_SKILL_ID not in authorized_skill_ids:
             authorized_skill_ids.append(DEEP_RESEARCH_SKILL_ID)
 
         # 3. 技能調度員（廣告面）——ADR-0148：依 can_use_skill 過濾，廣告面＝授權面。
