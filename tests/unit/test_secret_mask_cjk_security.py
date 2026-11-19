@@ -1,6 +1,7 @@
 """金鑰遮蔽的缺口（ADR-0324 PR 2；ADR-0319 決定 4 記下的已知限制）.
 
-``redact_secrets_from_content`` 除了紀錄，也用在 MCP 資源與提示送給 AI 前的遮蔽、備份錯誤輸出與稽核。
+``redact_secrets_from_content`` 除了紀錄，也用在 MCP 資源與提示送給 AI 前的遮蔽、
+備份錯誤輸出與稽核。
 以前後端的 ``\\b`` 把中文當字母，金鑰前後直接接中文時遮不到；改成 re.ASCII 後空白寫成明確字元集，
 全形與不換行空白後面的 Bearer 權杖照樣遮。另外補上幾種常見金鑰與標頭；`Authorization` 鍵名與字串裡
 ``"鍵名": "值"`` 的值只在紀錄裡另外遮，設定頁不受影響。
@@ -20,7 +21,10 @@ from src.utils.secrets import (
 from src.utils.tool_records import RECORD_DETAILED, render_tool_record
 
 _SK = "sk-abcdefghijklmnop1234"
-_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+_JWT = (
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+    "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+)
 _AIZA = "AIza" + "B" * 34 + "-"
 
 
@@ -55,7 +59,9 @@ def test_secrets_glued_to_chinese_text_are_redacted(text: str):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("space", [" ", "\t", "\xa0", "\u3000", "\u2003", "\u202f", "\ufeff", "\x85"])
+@pytest.mark.parametrize(
+    "space", [" ", "\t", "\xa0", "\u3000", "\u2003", "\u202f", "\ufeff", "\x85"]
+)
 def test_bearer_after_any_space_is_still_redacted(space: str):
     assert _redacted(f"Bearer{space}abcdefghijklmnop") == "<redacted>"
 

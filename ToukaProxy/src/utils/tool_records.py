@@ -104,7 +104,10 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _field(text: str, limit: int) -> str:
-    """壓成一行、只留前 MAX_SCAN_CHARS 字、遮金鑰（含紀錄專用的寫法）、角括號與〔〕換全形，再截斷."""
+    """壓成一行、只留前 MAX_SCAN_CHARS 字、遮金鑰、角括號與〔〕換全形，再截斷.
+
+    遮金鑰包括紀錄專用的寫法（ADR-0324）。
+    """
     flat = SPACE_RUN_RE.sub(" ", text).strip(" ")[:MAX_SCAN_CHARS]
     redacted = mask_record_key_values(redact_secrets_from_content(flat)[0])
     return _truncate(redacted.translate(_FULLWIDTH), limit)

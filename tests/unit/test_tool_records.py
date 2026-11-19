@@ -20,8 +20,8 @@ from src.models.identity import AgentIdentity
 from src.models.souls import SoulConfig
 from src.routers import heartbeat
 from src.services import approval_flow, tool_errors
-from src.services.guard_service import guard_service
 from src.services.dialogue_summarizer import _dialogue_lines
+from src.services.guard_service import guard_service
 from src.services.prompt_blocks import CONTINUITY
 from src.services.soul_service import SoulService
 from src.utils import secrets, time_utils, tool_records
