@@ -48,7 +48,13 @@ from src.utils.async_db import SessionSnapshot
 from src.utils.history_manager import TreeMessageManager
 from src.utils.permission_grants import NameGrant
 from src.utils.presence import is_human_present
-from src.utils.user_intent import UserIntent, chat_intent, retrigger_intent
+from src.utils.user_intent import (
+    HEARTBEAT_INIT_NOTE,
+    HEARTBEAT_INIT_PREFIX,
+    UserIntent,
+    chat_intent,
+    retrigger_intent,
+)
 
 _OWNER = AgentIdentity.for_role(agent_id="IntentProbe", role="Owner", is_human=False)
 _SUB = AgentIdentity.for_role(agent_id="__subagent_probe__", role="Subagent", is_human=False)
@@ -117,6 +123,23 @@ def test_sns_messages_are_not_human_intent():
     assert chat_intent(messages).messages == ("幫我整理今天的筆記",)
     assert retrigger_intent(messages).messages == ("幫我整理今天的筆記",)
     assert chat_intent([{"role": "user", "content": _SNS_HOSTILE}]).messages == ()
+
+
+def test_retrigger_intent_keeps_only_the_scheduled_prompt_body():
+    """重跑心跳時，原意只留排程擁有者寫的提示；時間行與「系統送出」那行不給審查員（ADR-0323）。"""
+    head = f"{HEARTBEAT_INIT_PREFIX}2026-11-19 09:00 (週四)】"
+    new = _NL.join([head, HEARTBEAT_INIT_NOTE, "", "整理今天的筆記"])
+    old = _NL.join([head, "", "整理今天的筆記"])  # 這版之前寫的提示
+    for init in (new, old):
+        assert retrigger_intent([{"role": "user", "content": init}]).messages == (
+            "整理今天的筆記",
+        )
+    only_head = _NL.join([head, HEARTBEAT_INIT_NOTE])
+    assert retrigger_intent([{"role": "user", "content": only_head}]).messages == ()
+    # 一般的人類訊息照舊整則
+    assert retrigger_intent([{"role": "user", "content": "請把報告整理好"}]).messages == (
+        "請把報告整理好",
+    )
 
 
 def _lines(*parts: str) -> str:

@@ -134,8 +134,9 @@ async def test_entry_claude_swaps_in_live_key(chosen):
     ctx: dict = {"anthropic_client": boot}
     assert await _dispatch("claude-sonnet-4-5", ctx) == "stream-claude"
     assert calls == [{"api_key": "fake-anthropic"}]
+    # 工具輪計數照請求編號分開，Claude 也帶 request_id（ADR-0323）
     assert ctx == {"identity": _IDENTITY, "anthropic_client": swapped,
-                   "model": "claude-sonnet-4-5"}  # 附註 35
+                   "model": "claude-sonnet-4-5", "request_id": "rid"}  # 附註 35
 
 
 async def test_entry_gemini_gets_live_key(chosen):

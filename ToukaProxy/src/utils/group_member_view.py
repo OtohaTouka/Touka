@@ -118,8 +118,11 @@ def peer_block(alias: str, text: str, *, failed: bool = False) -> str:
 
 
 def member_failed_mark(alias: str, detail: str) -> str:
-    """一般群聊成員失敗時的出錯記號；說明（已遮罩）裡的〔〕先換掉。"""
-    clean = detail.replace(_NOTE_OPEN, "［").replace(_NOTE_CLOSE, "］").strip()
+    """一般群聊成員失敗時的出錯記號；說明（已遮罩）裡的〔〕先換掉，換行與空白收成一個空格。
+
+    收成一行：說明是廠商的錯誤原文，裡面若有分隔線加成員標籤，切段時會被當成另一位成員。
+    """
+    clean = " ".join(detail.replace(_NOTE_OPEN, "［").replace(_NOTE_CLOSE, "］").split())
     return MEMBER_FAILED_MARK_TEMPLATE.format(alias=alias, detail=clean)
 
 
