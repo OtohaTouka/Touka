@@ -385,6 +385,7 @@ RETAINED_STORES: tuple[tuple[str, str], ...] = (
     ("sandbox_home", "隔離環境裡的家目錄與暫存（終端指令的 ~）；刪除靈魂時才清"),
     (
         "dispatch_results",
-        "子代理結果暫存（data/temp，ADR-0324）；最多 7 天自動清；舊對話庫若還留著憑證，期間內仍讀得到",
+        "子代理結果暫存（data/temp，ADR-0324）；最多 7 天自動清；"
+        "舊對話庫若還留著憑證，期間內仍讀得到",
     ),
 )

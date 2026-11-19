@@ -122,7 +122,10 @@ async def test_the_real_result_still_arrives_after_a_forged_file():
 
 
 def test_results_live_outside_every_agent_folder():
-    """結果資料夾不在任何代理人資料夾裡（終端沙盒只給代理人資料夾，見 test_isolation_writable_roots）."""
+    """結果資料夾不在任何代理人資料夾裡.
+
+    終端沙盒只給代理人資料夾，見 test_isolation_writable_roots。
+    """
     directory = sr._results_dir()
     assert zone_of(directory, current_roots(), anchors=ALL_ANCHORS) is None
     assert directory == sr._results_dir()  # 每次都是同一個位置
@@ -209,7 +212,7 @@ def test_startup_prunes_once(monkeypatch):
 
 def test_startup_survives_a_failing_prune(monkeypatch):
     def _boom() -> int:
-        raise OSError("disk went away")
+        raise OSError
 
     monkeypatch.setattr(main_module, "prune_expired_results", _boom)
     with TestClient(main_module.app) as client:
