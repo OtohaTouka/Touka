@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from typing import Any, NoReturn
 
-from src.utils.secrets import mask_secret_keys
+from src.utils.secrets import mask_record_secret_keys
 from src.utils.tool_events import (
     TOOL_APPROVAL_REQUEST,
     TOOL_APPROVAL_RESOLVED,
@@ -62,17 +62,18 @@ def _cap(text: str, limit: int) -> str:
 def _capped_value(value: Any, limit: int) -> Any:
     """字串照字數截；其他值序列化後超過上限就改存截斷的 JSON 字串.
 
-    變成字串後，下一輪的紀錄就不能再照鍵名遮蔽（``password`` 這類鍵），所以先把秘密鍵的值換掉。
+    變成字串後，下一輪的紀錄就不能再照鍵名遮蔽（``password`` 這類鍵），所以先把秘密鍵的值換掉；
+    用紀錄專用的鍵名（含 ``Authorization``，ADR-0324）。
     """
     if isinstance(value, str):
         return _cap(value, limit)
     try:
         dumped = json.dumps(value, ensure_ascii=False)
     except (TypeError, ValueError):
-        return _cap(str(mask_secret_keys(value)), limit)
+        return _cap(str(mask_record_secret_keys(value)), limit)
     if len(dumped) <= limit:
         return value
-    return _cap(json.dumps(mask_secret_keys(value), ensure_ascii=False), limit)
+    return _cap(json.dumps(mask_record_secret_keys(value), ensure_ascii=False), limit)
 
 
 def _capped_args(args: Any) -> Any:

@@ -253,6 +253,11 @@ def record_levels(messages: list[dict[str, Any]]) -> list[RecordLevel | None]:
     return levels
 
 
+# 假標記的開頭字與它在 JSON（ensure_ascii）裡的跳脫寫法
+_MARKER_OPEN = "\u3014"
+_MARKER_OPEN_ESCAPED = "\\u3014"
+
+
 def _neutralized_parts(parts: list[Any]) -> list[Any]:
     """多段內容的每個文字段換掉假標記（其他段原樣）."""
     return [
@@ -273,6 +278,8 @@ def _neutralized_content(content: Any) -> Any:
         return _neutralized_parts(content)
     if not isinstance(content, str):
         return content
+    if _MARKER_OPEN not in content and _MARKER_OPEN_ESCAPED not in content:
+        return content  # 沒有標記開頭就不解析（多模態 JSON 裡的 base64 圖片很大）
     parts = normalize_message_content(content)
     if not isinstance(parts, list):
         return neutralize_record_markers(content)

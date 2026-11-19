@@ -41,12 +41,12 @@
 ### 4. 文字清理與遮蔽
 
 - 控制字元（Cc）、格式字元（Cf，含 U+202E、零寬字元）、空白（Zs）、行與段分隔換成一個空白（字元集照 Unicode 16 寫死在 `SPACE_CLASS`，前後端不受各自 Unicode 版本影響）。
-- 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
+- 遮蔽沿用 `utils/secrets.py`：鍵名用 `is_secret_key`（2026-11-20 起紀錄改用 `is_record_secret_key`，多認 `Authorization`，ADR-0324；參數遞迴套用，巢狀也遮；`max_tokens`、`callback_token` 這類名字會一起被遮，接受）；值與結果開頭用公開的 `redact_secrets_from_content`。前端複製同一組樣式，pytest 讀前端檔核對樣式本體與旗標（前端編譯目標沒有 `s` 旗標，後端 DOTALL 的「.」寫成 `[\s\S]`）。
 - 壓成一行後先截到 `MAX_SCAN_CHARS`（8192 個 code point）再遮蔽，擋住超長結果讓正規式變慢；截斷點落在金鑰中間時那一段可能遮不到，但只有出現在最前面 80 字的才會被送出。前端照 code point 計數（`Array.from`），不用 UTF-16 的 `slice`，否則 emoji 多時兩邊的截斷點會不同。
 - 角括號與〔〕換成全形（＜＞［］），最後照 code point 截斷（emoji 不會被切壞）。
 - 已知差異（黃金案例放不進，這批不改）：
   - Python 的 `\b` 認中文是字，`金鑰sk-…` 這種前面直接接中文的金鑰後端不遮、前端會遮（`utils/secrets.py` 原有行為）。已處理：樣式加 `re.ASCII`（ADR-0324 PR 2）。
-  - 大小寫不分的比對（鍵名），Python 在 Unicode 下把 `ſ`、`K`（U+212A）這類字也當英文字母，`ſecret` 後端會遮、前端不遮。`secrets.py` 加 `re.ASCII` 能一起消掉這兩項（後端只會遮得更多），但會影響其他用到遮蔽的地方，要另外評估。已處理：同一個 `re.ASCII`，空白另寫成明確字元集，兩邊都不遮這幾種怪字母（ADR-0324 PR 2）。
+  - 大小寫不分的比對（鍵名），Python 在 Unicode 下把 `ſ`、`K`（U+212A）這類字也當英文字母，`ſecret` 後端會遮、前端不遮。`secrets.py` 加 `re.ASCII` 能一起消掉這兩項（後端只會遮得更多），但會影響其他用到遮蔽的地方，要另外評估。已處理：同一個 `re.ASCII`，空白另寫成明確字元集，兩邊都不遮這幾種怪字母（ADR-0324 PR 2）。「後端只會遮得更多」不完全對：權杖裡含這幾種怪字母等極端寫法改成不遮，見 ADR-0324 決定 5。
   - 不是字串的參數與結果寫成 JSON 時，數字與鍵的順序兩邊寫法不同（`30.0`、`1e16`、超過 2^53 的整數、整數樣式的鍵；Python 另外接受 `NaN`）。網頁存下的步驟已經被 JS 解析過，所以現在兩邊一致；PR 2 起後端自己存的步驟才會遇到，到時決定是否統一寫法。
 - 前端不用「…[字元集]*…」的正規式比對假標記與時間尾註，改成逐字掃描：V8 在幾百萬個空白或很長的一行時會爆堆疊（RangeError），送出就會卡在等待中。判斷結構化錯誤時，前面的空白照 Python `str.lstrip()` 認（和 `trimStart` 不同）。
 - 已知限制（沿用 `utils/secrets.py` 原有的名單，這批不改）：鍵名 `Authorization`、`apiKey`、`x-api-key` 不在 `is_secret_key` 的名單；`Basic` 認證、少於 12 字的 Bearer、字串結果裡的 `"password":`、Google `AIza…` 金鑰都不遮。PR 1b 前評估過，這批不補：參數是模型自己寫的，結果開頭在那一輪已經完整給模型看過，紀錄只是把其中最多 80 字再帶一次；新的暴露只在中途換了別家廠商（或心跳用別家模型）時。補進 `secrets.py` 會一起改變 MCP 轉接、系統備份、稽核紀錄、評分卡、演化工具這些也用它遮蔽的地方，要另外評估。已處理（ADR-0324 PR 2）：`apiKey`、`x-api-key` 進共用鍵名，`Authorization` 鍵名與字串裡的 `"password":` 這類只在紀錄裡遮，`Authorization: Basic`／短 Bearer 標頭、`AIza…` 進共用樣式；仍在的是沒有標頭的短 Bearer、鍵名夾看不見的字（見 ADR-0324 已知限制）。

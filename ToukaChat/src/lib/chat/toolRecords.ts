@@ -40,7 +40,7 @@ const SECRET_MASK = '••••••••';
 const SECRET_KEY_RE = /(API[-_]?KEY|_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|BEARER)/i;
 const CONTENT_SECRET_PATTERNS: readonly RegExp[] = [
   /\bBearer[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{12,}/gi,
-  /\bAuthorization[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:Basic|Bearer)[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[^\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff\"']+/gi,
+  /Authorization[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:Basic|Bearer)[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/-]+=*/gi,
   /\bsk-[A-Za-z0-9_-]{12,}\b/g,
   /\b[rs]k_live_[A-Za-z0-9]{16,}\b/g,
   /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g,
@@ -53,7 +53,7 @@ const CONTENT_SECRET_PATTERNS: readonly RegExp[] = [
 ];
 // 只在紀錄裡另外遮的鍵名與字串裡的「"鍵名": "值"」（後端 _RECORD_EXTRA_KEY_RE、_RECORD_KEY_VALUE_RE）
 const RECORD_EXTRA_KEY_RE = /AUTHORIZATION/i;
-const RECORD_KEY_VALUE_RE = /("([A-Za-z0-9_.-]{1,64})" *: *)"(?:[^"\\]|\\.)*"/g;
+const RECORD_KEY_VALUE_RE = /("([A-Za-z0-9_.-]{1,64})" *: *)"(?:[^"\\]|\\[^\n])*"/g;
 
 // 只認後端 tool_errors 的固定錯誤種類；其他字串可能是工具自己寫的
 const KNOWN_ERROR_CLASSES: readonly string[] = [

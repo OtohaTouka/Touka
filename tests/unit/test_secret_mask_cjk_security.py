@@ -9,7 +9,12 @@
 
 from __future__ import annotations
 
+import re
+import sys
+import unicodedata
+
 import pytest
+from src.utils import secrets
 from src.utils.secrets import (
     MASK,
     is_record_secret_key,
@@ -120,7 +125,7 @@ def test_authorization_is_masked_only_in_records():
     assert mask_value("OPENAI_APIKEY", "real") == MASK
 
 
-@pytest.mark.parametrize("key", ["ſecret", "toKen", "apiıkey"])
+@pytest.mark.parametrize("key", ["ſecret", "toKen", "apıkey"])
 def test_odd_case_folding_letters_are_not_keys(key: str):
     """ſ、K（克耳文）、ı 不當英文字母（和前端不帶 u 旗標的 /i 一致）."""
     assert not is_secret_key(key)
@@ -157,3 +162,36 @@ def test_records_mask_authorization_keys_at_any_depth():
     assert "objsecret1" not in out
     assert "hunter2" not in out
     assert MASK in out
+
+
+# --------------------------------------------------------------------------- #
+# 5. Authorization 標頭：值只認規格裡的權杖字元，不吃後面的文字；前面接底線也算
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Authorization: Bearer abc，請再試一次。下一句", "<redacted>，請再試一次。下一句"),
+        ("{Authorization: Bearer abc}, next: 1", "{<redacted>}, next: 1"),
+        ('{\\"h\\": \\"Authorization: Basic dXNlcjpwYXNz\\"}', '{\\"h\\": \\"<redacted>\\"}'),
+        ("HTTP_AUTHORIZATION: Basic dXNlcjpwYXNzd29yZA==", "HTTP_<redacted>"),
+    ],
+)
+def test_authorization_header_value_stops_at_the_token(text: str, expected: str):
+    assert _redacted(text) == expected
+
+
+# --------------------------------------------------------------------------- #
+# 6. 空白字元集正好是 Python 與 JS 兩種 \s 的聯集（JS 的 \s 照 ECMAScript 規格：Zs 加這幾個）
+# --------------------------------------------------------------------------- #
+
+_JS_WHITESPACE_EXTRA = "\t\n\v\f\r\ufeff\u2028\u2029"
+
+
+def test_whitespace_class_is_the_union_of_both_whitespace_sets():
+    ws = re.compile(secrets._WS)
+    chars = [chr(c) for c in range(sys.maxunicode + 1)]
+    python_ws = {c for c in chars if re.fullmatch(r"\s", c)}
+    js_ws = {c for c in chars if unicodedata.category(c) == "Zs"} | set(_JS_WHITESPACE_EXTRA)
+    assert {c for c in chars if ws.fullmatch(c)} == python_ws | js_ws

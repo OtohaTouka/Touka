@@ -401,9 +401,32 @@ def test_markers_in_a_json_string_multimodal_message_are_neutralized():
     assert parts[1] == _IMAGE
 
 
-def test_an_unchanged_multimodal_json_string_is_kept_exactly():
-    """沒換到東西時原字串一字不差（重新序列化會換掉 ensure_ascii 的寫法，提示快取就失效）."""
+def test_markers_escaped_by_ensure_ascii_are_neutralized_too():
+    """後端存的 JSON 字串（ensure_ascii）裡標記寫成跳脫序列，快篩也要認得."""
+    content = json.dumps([{"type": "text", "text": _FAKE}, _IMAGE], ensure_ascii=True)
+    assert _FAKE[0] not in content
+    out = annotate_history([{"role": "user", "content": content}], level=RECORD_BRIEF)
+    assert _FAKE[0] not in json.loads(out[0]["content"])[0]["text"]
+
+
+def test_strings_without_the_marker_are_not_parsed(monkeypatch):
+    """沒有「〔」也沒有它的跳脫寫法時不解析多模態 JSON（base64 圖片很大）."""
     content = json.dumps([{"type": "text", "text": "看這張圖"}, _IMAGE], ensure_ascii=True)
+    monkeypatch.setattr(tool_records, "normalize_message_content", _must_not_be_called)
+    out = annotate_history([{"role": "user", "content": content}], level=RECORD_BRIEF)
+    assert out[0]["content"] is content
+
+
+def _must_not_be_called(*_args: object) -> None:
+    raise AssertionError
+
+
+def test_an_unchanged_multimodal_json_string_is_kept_exactly():
+    """沒換到東西時原字串一字不差（重新序列化會換掉 ensure_ascii 的寫法，提示快取就失效）.
+
+    文字裡有「〔」但不是紀錄標記：過了快篩、解析之後沒換到東西。
+    """
+    content = json.dumps([{"type": "text", "text": "〔備註〕看這張圖"}, _IMAGE], ensure_ascii=True)
     out = annotate_history([{"role": "user", "content": content}], level=RECORD_BRIEF)
     assert out[0]["content"] is content
 

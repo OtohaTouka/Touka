@@ -20,9 +20,6 @@ MASK = "••••••••"
 # 寫成兩邊一字不差的字元集（兩種 `\s` 的聯集）。前端 `lib/chat/toolRecords.ts` 複製同一組文字，
 # pytest 逐字核對。
 _WS = r"[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
-_NOT_WS_OR_QUOTE = (
-    r"[^\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff\"']"
-)
 _IGNORE_CASE = re.IGNORECASE | re.ASCII
 
 # secret 類鍵名特徵（不分大小寫）：金鑰/密鑰/權杖/密碼/憑證。涵蓋 `*_KEY`（如 ANTHROPIC_KEY、
@@ -33,10 +30,11 @@ _SECRET_KEY_RE = re.compile(
 )
 _CONTENT_SECRET_PATTERNS = (
     re.compile(r"\bBearer" + _WS + r"+[A-Za-z0-9._~+/=-]{12,}", _IGNORE_CASE),
-    # 上一條沒遮到的 Basic 與短的 Bearer（整段標頭換掉）
+    # 上一條沒遮到的 Basic 與短的 Bearer（整段標頭換掉）。值照 RFC 7235 的 token68 字元集，
+    # 遇到別的字就停，不吃後面的中文與 JSON 結構；前面不要 `\b`，`HTTP_AUTHORIZATION:` 也算
     re.compile(
-        r"\bAuthorization" + _WS + r"*:" + _WS + r"*(?:Basic|Bearer)" + _WS + r"+"
-        + _NOT_WS_OR_QUOTE + r"+",
+        r"Authorization" + _WS + r"*:" + _WS + r"*(?:Basic|Bearer)" + _WS + r"+"
+        + r"[A-Za-z0-9._~+/-]+=*",
         _IGNORE_CASE,
     ),
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b", re.ASCII),
@@ -55,7 +53,8 @@ _CONTENT_SECRET_PATTERNS = (
 # 只在「做過的事」紀錄裡另外遮的（ADR-0324）：不放進上面共用的鍵名，設定頁會把
 # `OAUTH_AUTHORIZATION_URL` 這類不是金鑰的設定也遮掉。字串裡 `"鍵名": "值"` 的值也遮。
 _RECORD_EXTRA_KEY_RE = re.compile(r"AUTHORIZATION", _IGNORE_CASE)
-_RECORD_KEY_VALUE_RE = re.compile(r'("([A-Za-z0-9_.-]{1,64})" *: *)"(?:[^"\\]|\\.)*"', re.ASCII)
+# 跳脫後面接的字寫成 [^\n]，不用「.」：JS 的「.」另外不認 \r、U+2028、U+2029，兩邊意思會不同
+_RECORD_KEY_VALUE_RE = re.compile(r'("([A-Za-z0-9_.-]{1,64})" *: *)"(?:[^"\\]|\\[^\n])*"', re.ASCII)
 
 
 def is_secret_key(key: str) -> bool:

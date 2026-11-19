@@ -238,6 +238,15 @@ def test_args_cut_to_a_json_string_still_hide_secret_keys():
     assert f'"api_token": "{MASK}"' in second["args"]
 
 
+def test_args_cut_to_a_json_string_hide_record_only_keys():
+    """截成字串前用紀錄專用的鍵名遮（ADR-0324）：物件值的 Authorization，紀錄的字串遮罩接不到."""
+    headers = {"Authorization": {"v": "objsecret1"}, "pad": "x" * (MAX_STORED_ARG_CHARS + 10)}
+    collector = _collect(tool_start_event(call_id="c1", tool="t", args={"headers": headers}))
+    (step,) = collector.steps
+    assert "objsecret1" not in step["args"]["headers"]
+    assert f'"Authorization": "{MASK}"' in step["args"]["headers"]
+
+
 def test_mask_secret_keys_walks_dicts_and_lists():
     value = {"items": [{"token": "t1"}, {"name": "n"}], "nested": {"api_key": "k"}, "plain": "p"}
     assert mask_secret_keys(value) == {
