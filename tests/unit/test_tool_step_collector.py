@@ -31,7 +31,7 @@ from src.services.soul_service import SoulService
 from src.services.stream_buffer_service import StreamBufferService
 from src.utils.async_db import SessionSnapshot, init_db_async, session_service
 from src.utils.history_manager import TreeMessageManager
-from src.utils.secrets import MASK, mask_secret_keys
+from src.utils.secrets import MASK, mask_record_secret_keys
 from src.utils.tool_events import (
     ToolCallEvent,
     mcp_interaction_request_event,
@@ -247,10 +247,16 @@ def test_args_cut_to_a_json_string_hide_record_only_keys():
     assert f'"Authorization": "{MASK}"' in step["args"]["headers"]
 
 
-def test_mask_secret_keys_walks_dicts_and_lists():
-    value = {"items": [{"token": "t1"}, {"name": "n"}], "nested": {"api_key": "k"}, "plain": "p"}
-    assert mask_secret_keys(value) == {
-        "items": [{"token": MASK}, {"name": "n"}], "nested": {"api_key": MASK}, "plain": "p",
+def test_mask_record_secret_keys_walks_dicts_and_lists():
+    value = {
+        "items": [{"token": "t1"}, {"name": "n"}],
+        "nested": {"api_key": "k", "Authorization": {"v": "x"}},
+        "plain": "p",
+    }
+    assert mask_record_secret_keys(value) == {
+        "items": [{"token": MASK}, {"name": "n"}],
+        "nested": {"api_key": MASK, "Authorization": MASK},
+        "plain": "p",
     }
 
 

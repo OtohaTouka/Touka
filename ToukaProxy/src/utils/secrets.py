@@ -62,22 +62,18 @@ def is_secret_key(key: str) -> bool:
     return bool(_SECRET_KEY_RE.search(key))
 
 
-def mask_secret_keys(value: Any) -> Any:
-    """遞迴把秘密鍵名（``is_secret_key``）的值換成 ``MASK``；dict 與 list 都走進去，其他值原樣."""
-    if isinstance(value, dict):
-        return {k: MASK if is_secret_key(str(k)) else mask_secret_keys(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [mask_secret_keys(v) for v in value]
-    return value
-
-
 def is_record_secret_key(key: str) -> bool:
     """紀錄裡要遮的鍵名：共用的那些，再加 `Authorization`（ADR-0324）。"""
     return is_secret_key(key) or bool(_RECORD_EXTRA_KEY_RE.search(key))
 
 
 def mask_record_secret_keys(value: Any) -> Any:
-    """``mask_secret_keys`` 的紀錄版：巢狀物件裡 ``is_record_secret_key`` 的值換成 ``MASK``."""
+    """遞迴把紀錄要遮的鍵名（``is_record_secret_key``）的值換成 ``MASK``.
+
+    dict 與 list 都走進去，其他值原樣。
+
+    紀錄與後端存的工具步驟用（ADR-0324）；設定頁等其他地方照舊用 ``mask_value``／``is_secret_key``。
+    """
     if isinstance(value, dict):
         return {
             k: MASK if is_record_secret_key(str(k)) else mask_record_secret_keys(v)
