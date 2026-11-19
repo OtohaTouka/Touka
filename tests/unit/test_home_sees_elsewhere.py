@@ -25,6 +25,7 @@ from src.models.identity import AgentIdentity
 from src.models.sns import SNSIncomingEvent
 from src.services import continuity_events as ce
 from src.services import continuity_service as cs
+from src.services import dispatcher, proxy_service
 from src.services.dispatchers import group
 from src.services.home_handover import Unreported
 from src.services.sns_gateway import SNSGatewayService
@@ -163,7 +164,8 @@ async def test_a_plain_group_records_each_member_who_spoke(
     _install(monkeypatch, fail={"Bob"})
     await _run_group(PipelineContext(session_id="sess-g"))
     await _run_group(PipelineContext(session_id="sess-g"))
-    assert recorded == [("Alice", "group_turn", ce.safe_ref("sess-g"), "sess-g")] * 2
+    # 對話編號是用戶端送的：只存雜湊，不存原字串（審查 L2）
+    assert recorded == [("Alice", "group_turn", ce.hashed_ref("sess-g"), None)] * 2
 
 
 async def test_an_api_group_without_a_conversation_uses_a_fixed_subject(
@@ -228,6 +230,7 @@ async def _sns(
     adapter: _Adapter | None = None,
     spoken: list[str] | None = None,
     failed: bool = False,
+    real_entry: bool = False,
 ) -> None:
     monkeypatch.setattr(
         "src.services.sns_gateway.agent_service.identify_agent",
@@ -263,12 +266,50 @@ async def _sns(
         patch("src.services.sns_gateway.detect_target_agent", return_value=None),
         patch("src.services.sns_gateway.identity_service", identities),
         patch("src.services.sns_gateway.session_service", sessions),
-        patch("src.services.sns_gateway.process_proxy_request", new=proxy),
+        patch("src.services.sns_gateway.process_proxy_request",
+              new=proxy_service.process_proxy_request if real_entry else proxy),
     ):
         await SNSGatewayService().on_event(adapter or _Adapter(), event, session_mode=mode)
 
 
 SNS_SUBJECT = ce.hashed_ref("telegram:ch1")
+
+
+async def test_an_sns_group_member_called_twice_is_recorded_once(
+    monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
+) -> None:
+    await _sns(monkeypatch, content="@Alice @Alice @Bob 早", spoken=["Alice", "Alice", "Bob"])
+    assert recorded == [
+        ("Alice", "sns_turn", SNS_SUBJECT, None),
+        ("Bob", "sns_turn", SNS_SUBJECT, None),
+    ]
+
+
+async def test_the_sns_group_list_travels_through_the_real_entry(
+    monkeypatch: pytest.MonkeyPatch, recorded: list[Any]
+) -> None:
+    """接線：SNS 入口建的 ctx 經真的 ``process_proxy_request``、``dispatch_request`` 到群聊分發器.
+
+    分發器記下的名單要回到同一個 ctx；中間哪一層改成傳副本，SNS 群聊就一筆都不記，這裡會紅。
+    """
+
+    async def group_stream(_request: Any, _rid: str, _t0: float, context: Any) -> Any:
+        for name in ("Alice", "Bob"):
+            ce.note_group_member_spoke(context, AgentIdentity.for_role(name, "Owner"))
+        yield f"data: {json.dumps({'choices': [{'delta': {'content': '好'}}]})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(proxy_service, "_refuse_old_home", AsyncMock())
+    monkeypatch.setattr(proxy_service, "pipeline", MagicMock(execute=AsyncMock()))
+    monkeypatch.setattr(proxy_service, "log_payload", MagicMock())
+    monkeypatch.setattr(proxy_service, "record_working_brain", MagicMock())
+    monkeypatch.setattr(dispatcher, "dispatch_group_stream", group_stream)
+    monkeypatch.setattr(dispatcher, "record_working_brain", MagicMock())
+    await _sns(monkeypatch, content="@Alice @Bob 早", real_entry=True)
+    assert recorded == [
+        ("Alice", "sns_turn", SNS_SUBJECT, None),
+        ("Bob", "sns_turn", SNS_SUBJECT, None),
+    ]
 
 
 async def test_an_sns_turn_is_recorded_after_the_reply_is_sent(

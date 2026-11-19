@@ -146,7 +146,7 @@ async def test_draining_keeps_refusal_safety_and_hallucination_notices() -> None
     [
         (
             [_notice(NOTICE_REFUSAL, detail="不行\n就是不行")],
-            f"{st.SUBAGENT_REFUSED}：不行⏎就是不行",
+            f"{st.SUBAGENT_REFUSED}：「不行⏎就是不行」",  # 模型原文放在引號裡
         ),
         ([_notice(NOTICE_REFUSAL)], st.SUBAGENT_REFUSED),
         ([_notice(NOTICE_SAFETY)], st.SUBAGENT_SAFETY_BLOCKED),
@@ -190,11 +190,11 @@ async def test_a_refused_background_subagent_hands_back_the_refusal(
     token = json.loads(res)["callback_token"]
     async with asyncio.timeout(_GUARD_S):
         result = await get_callback_store().wait_for_result(token, timeout=_GUARD_S)
-    assert result["result_summary"] == f"{st.SUBAGENT_REFUSED}：不行"
+    assert result["result_summary"] == f"{st.SUBAGENT_REFUSED}：「不行」"
     text = await mission_tools(
         action="await_dispatch_result", identity=_SOUL, callback_token=token, timeout=_GUARD_S
     )
-    assert f"Result: {st.SUBAGENT_REFUSED}：不行" in text
+    assert f"Result: {st.SUBAGENT_REFUSED}：「不行」" in text
 
 
 async def test_await_lists_the_system_notes(zone_data_root: Any) -> None:

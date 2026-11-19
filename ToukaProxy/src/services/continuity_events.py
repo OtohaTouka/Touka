@@ -254,13 +254,16 @@ def record_user_turn(ctx: Any, soul: AgentIdentity) -> None:
 
 
 def record_group_turn(ctx: Any, soul: AgentIdentity) -> None:
-    """一般群聊裡這位成員說完了（失敗不算）；主題是對話編號的雜湊，沒有對話編號用固定字."""
+    """一般群聊裡這位成員說完了（失敗不算）；主題是對話編號的雜湊，沒有對話編號用固定字.
+
+    API 群聊的對話編號是用戶端送的、沒有核對：只存雜湊，不存原字串（``session_id`` 欄位留空）。
+    """
     try:
         if _skipped(ctx):
             return
         session_id = _session(ctx)
-        subject = safe_ref(session_id) if session_id else GROUP_NO_SESSION_SUBJECT
-        recorder.record(soul, "group_turn", subject, session_id=session_id)
+        subject = hashed_ref(session_id) if session_id else GROUP_NO_SESSION_SUBJECT
+        recorder.record(soul, "group_turn", subject, session_id=None)
     except Exception:
         logger.warning("Activity event group_turn was not recorded.", exc_info=True)
 
@@ -278,11 +281,12 @@ def note_group_member_spoke(ctx: Any, soul: AgentIdentity) -> None:
 
 
 def group_spoken_souls(ctx: Any) -> list[AgentIdentity]:
-    """SNS 群聊這一輪說完的成員（分發器記下的名單）."""
+    """SNS 群聊這一輪說完的成員（分發器記下的名單）；同一位被點兩次也只算一次."""
     spoken = ctx.get(GROUP_SPOKEN_SOULS)
     if not isinstance(spoken, list):
         return []
-    return [AgentIdentity(agent_id=agent) for agent in spoken if isinstance(agent, str)]
+    unique = dict.fromkeys(agent for agent in spoken if isinstance(agent, str))
+    return [AgentIdentity(agent_id=agent) for agent in unique]
 
 
 def record_sns_turn(

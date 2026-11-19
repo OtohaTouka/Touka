@@ -101,10 +101,21 @@ def heartbeat_intent(safe_init_prompt: str) -> UserIntent:
     return UserIntent(IntentSource.HEARTBEAT, (text,) if text else ())
 
 
+def _heartbeat_prompt_body(text: str) -> str:
+    """心跳初始提示只留排程擁有者寫的那段：開頭的時間行與系統說明行不是指示（ADR-0323）。"""
+    if not text.startswith(HEARTBEAT_INIT_PREFIX):
+        return text
+    lines = text.split("\n")[1:]
+    if lines and lines[0].strip() == HEARTBEAT_INIT_NOTE:
+        lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
 def retrigger_intent(linear_messages: Any) -> UserIntent:
-    """UI 重跑：最後一則人類節點（那次背景任務寫進去的 init_prompt 也算）。"""
+    """UI 重跑：最後一則人類節點（那次背景任務寫進去的 init_prompt 也算，只取提示本文）。"""
     texts = _human_texts(linear_messages, (PULSE_NUDGE_PREFIX, SYSTEM_NUDGE_PREFIX))
-    return UserIntent(IntentSource.RETRIGGER, tuple(texts[-1:]))
+    last = [body for body in (_heartbeat_prompt_body(t) for t in texts[-1:]) if body]
+    return UserIntent(IntentSource.RETRIGGER, tuple(last))
 
 
 def subagent_intent(parent: Any) -> UserIntent:
