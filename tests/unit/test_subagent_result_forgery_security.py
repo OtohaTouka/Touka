@@ -29,8 +29,11 @@ _DAY = 24 * 3600
 
 @pytest.fixture(autouse=True)
 def _fresh_store():
+    """測試沙盒整個 session 共用：每個測試前後都清空結果資料夾，不受別的測試留下的檔影響."""
     _reset_callback_store()
+    resource_manager.remove_dir(sr._results_dir(), missing_ok=True)
     yield
+    resource_manager.remove_dir(sr._results_dir(), missing_ok=True)
     _reset_callback_store()
 
 
@@ -177,14 +180,14 @@ def test_prune_removes_expired_results_and_keeps_fresh_ones(monkeypatch):
 
 
 def test_prune_leaves_subfolders_alone(monkeypatch):
-    """只清頂層：子資料夾裡的檔再舊也不動（清理範圍不會悄悄擴大）."""
-    nested = sr._results_dir() / "keep" / "nested.json"
-    resource_manager.write_json(nested, {"status": "DONE"})
+    """只清頂層：頂層過期的刪掉，子資料夾裡的檔再舊也不動（清理範圍不會悄悄擴大）."""
+    identity = _identity()
+    persist_result(identity, "top-token", {"status": "DONE"})
+    resource_manager.write_json(sr._results_dir() / "keep" / "nested.json", {"status": "DONE"})
     _days_later(monkeypatch, 8)
 
-    assert prune_expired_results() == 0
+    assert prune_expired_results() == 1
     assert _result_files() == ["keep/nested.json"]
-    resource_manager.remove_dir(sr._results_dir(), missing_ok=True)
 
 
 def test_reading_alone_prunes_expired_results(monkeypatch):
