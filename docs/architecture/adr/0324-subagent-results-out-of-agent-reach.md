@@ -5,7 +5,7 @@
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 92 項回「甲：照 2.1 版做」；保留 7 天、不掛刪除與改名、看板只先擋檔案工具、SNS 不改成拒收，是計畫裡寫明的「我自己定的」）
 - 相關：[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（耐久結果）、[ADR-0051](0051-dispatch-callback-channel.md)（等結果的憑證）、[ADR-0293](0293-agent-folders-no-follow.md)（代理人資料夾）、[ADR-0255](0255-personal-drive-catalog.md)（個人空間目錄與 `.touka/` 拒寫）、[ADR-0137](0137-adversarial-review-subsystem.md)（互審關卡）、[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md)（刪除時的子代理）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（遮罩缺口）
 - 修訂：ADR-0138（耐久結果的位置）、ADR-0051（耐久讀取的位置）、ADR-0287（已知限制：刪除後子代理才交結果會重建個人空間資料夾，已解決）、ADR-0255（`missions/` 也拒寫）
-- 影響範圍：PR 1：`ToukaProxy/src/services/subagent_results.py`、`main.py`（啟動時清一次）、`services/agent_reset/primitives.py`（保留清單）、`services/gdpr_export_service.py`（`EXPORT_EXCLUDED`）、`tools/vault_tools.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`models/sns.py`、`ToukaMemory/src/memory_server/services/personal_catalog.py`、`services/mission_manager.py`（`MISSIONS_DIR_NAME`）
+- 影響範圍：PR 1：`ToukaProxy/src/services/subagent_results.py`、`main.py`（啟動時清一次）、`services/agent_reset/primitives.py`（保留清單）、`services/gdpr_export_service.py`（`EXPORT_EXCLUDED`）、`tools/vault_tools.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`models/sns.py`、`services/resource_manager.py`、`ToukaMemory/src/memory_server/services/personal_catalog.py`、`services/mission_manager.py`（`MISSIONS_DIR_NAME`）、`protocols.py`
 
 ## 背景
 
@@ -23,6 +23,7 @@
 - 碰不到的理由：data 根整個是受保護路徑；代理人的終端只拿到自己的個人空間、sandbox state 裡自己的 home 與 tmp、技能資料夾與公開設定檔；執行器容器只掛 `personal_drive` 與 `managed`；檔案動詞只認幾個範圍。`data/temp` 沒有人在清，備份也不收。
 - 檔名：`sha256(代理人編號.casefold() + "\0" + 憑證)` 的十六進位。磁碟上看不到憑證；別的代理人拿同一個憑證讀不到；編號先 casefold，Windows 上不分大小寫的舊寫法照樣找得到。路徑穿越在構造上不可能。
 - 寫入照舊原子寫入（`write_json` → `write_file_text`），失敗只記 log、不中斷交付。
+- `ResourceManager.zone_read_json`／`zone_write_json`（與 `IResourceProxy` 的同名方法）只有這裡在用，搬走後沒有呼叫端，照禁令 46 刪掉；它們的測試一起拿掉，權限自癒「交給內層」的測試改用 `write_json` → `write_file_text`。
 - 舊位置不再讀也不再寫，不搬（舊檔在代理人寫得到的地方，搬過來等於重新信任）。升級那次重啟前交出、還沒被讀的結果拿不到，之後等候回「憑證不明」。個人空間裡舊的 `dispatch_results/` 留著不刪，目錄快取照舊略過。
 
 ### 2. 保留 7 天
@@ -64,4 +65,5 @@
 ## 驗證（PR 1）
 
 - 新測試：`tests/unit/test_subagent_result_forgery_security.py`（舊位置的假檔不被採用、憑證沒發過回憑證不明、真結果照樣拿到、新位置不在代理人資料夾、檔名不含憑證、別的代理人讀不到、編號大小寫、7 天清理的三個觸發點與不建資料夾、啟動時清一次且失敗不影響啟動、重置與匯出清單）、`tests/unit/test_mission_board_write_deny_security.py`（四種寫入動作與四個檔案動詞、絕對路徑、相似名稱照常可寫、讀照常、系統照常存看板）、`test_c4_c5_c6_c7_security.py` C7 段的靜態測試。
-- `tests/zone_mutations.json`：`r14_g2` 照舊（`_SUBDIR` 那行保留）；`r14_t2` 改靶到重置的 `_mission_dir`；`z6_dispatch_results_read_follows` 拿掉（看板那條 Z6 還在）。
+- `tests/zone_mutations.json`：`r14_g2` 照舊（`_SUBDIR` 那行保留）；`r14_t2` 改靶到重置的 `_mission_dir`；`z6_dispatch_results_read_follows` 拿掉（看板那條 Z6 還在）。兩條手動跑改壞執行器都會紅。
+- `scripts/native_tool_contract_baseline.json` 記下 `SystemFolderDeniedError.__init__`（Guard #45）。

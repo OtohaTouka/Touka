@@ -92,8 +92,6 @@ EXPECTED_EXEMPT = {
     "read_json": ("delegates", "read_file_text"),
     "write_json": ("delegates", "write_file_text"),
     "query_ui_conversations": ("delegates", "query_ui_conversations"),
-    "zone_read_json": ("delegates", "zone_read_text"),
-    "zone_write_json": ("delegates", "zone_write_text"),
     "zone_walk": ("generator", "走訪"),
     "zone_walk_open": ("generator", "開檔"),
     "zone_handoff": ("generator", "交出"),

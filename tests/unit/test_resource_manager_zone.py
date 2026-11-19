@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import errno
-import logging
 import shutil
 import sys
 import types
@@ -85,9 +84,7 @@ STRING_CALLS = {
     "zone_read_text": lambda p: rm.zone_read_text(p),
     "zone_read_binary": lambda p: rm.zone_read_binary(p),
     "zone_open_read": lambda p: rm.zone_open_read(p),
-    "zone_read_json": lambda p: rm.zone_read_json(p),
     "zone_write_text": lambda p: rm.zone_write_text(p, "x"),
-    "zone_write_json": lambda p: rm.zone_write_json(p, {}),
     "zone_write_binary": lambda p: rm.zone_write_binary(p, b"x"),
     "zone_append_text": lambda p: rm.zone_append_text(p, "x"),
     "zone_make_dir": lambda p: rm.zone_make_dir(p),
@@ -137,27 +134,11 @@ def test_reads_and_writes_inside_a_zone(data):
     assert (_drive(data) / "deep" / "er").is_dir()
     rm.zone_make_dir(alice("deep", "er"))  # 已存在沒關係
 
-    rm.zone_write_json(alice("c.json"), {"k": "值"})
-    assert rm.zone_read_json(alice("c.json")) == {"k": "值"}
-    assert (_drive(data) / "c.json").read_text("utf-8").startswith("{\n    ")
-
 
 def test_custom_model_drive_works_the_same(data):
     target = ZonePath(CD, ("M1", "drive", "x.txt"))
     rm.zone_write_text(target, "m1")
     assert (data / "custom" / "M1" / "drive" / "x.txt").read_text("utf-8") == "m1"
-
-
-def test_read_json_gives_none_only_for_missing_or_corrupt(data, outside, caplog):
-    assert rm.zone_read_json(alice("none.json")) is None
-    (_drive(data) / "bad.json").write_text("{not json", encoding="utf-8")
-    with caplog.at_level(logging.WARNING):
-        assert rm.zone_read_json(alice("bad.json")) is None
-    assert "zone://personal_drive/Alice/bad.json" in caplog.text
-    assert str(data) not in caplog.text
-    make_dir_link(_drive(data) / "peek", outside)
-    with raises_zone(ZoneLinkRefusedError):  # 連結不塌縮成 None
-        rm.zone_read_json(alice("peek", "secret.txt"))
 
 
 def test_writes_create_a_missing_anchor(data):

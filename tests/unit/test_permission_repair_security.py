@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 from memory_server.services.personal_catalog import CatalogPathDeniedError
-from memory_server.utils.zone_paths import Anchor, agent_root
 from src.sandbox_kernel import owner_repair
 from src.sandbox_kernel.owner_repair import RepairOutcome
 from src.sandbox_kernel.spec import SelfTestResult
@@ -782,23 +781,23 @@ def test_the_real_soul_protection_refusal_never_reaches_the_hook(on_linux):
     assert hook.calls == [] and not soul_file.exists()
 
 
-# --- 6：真的巢狀（zone_write_json 交給 zone_write_text，ADR-0293）---
+# --- 6：真的巢狀（write_json 交給 write_file_text；ADR-0324 前是 zone_write_json）---
 
 
-def test_zone_write_json_is_repaired_only_by_the_inner_write(zone_data_root, monkeypatch, on_linux):
-    """``zone_write_json`` 是 delegates 豁免：內層 ``zone_write_text`` 是最外層，修一次、不重試。"""
+def test_write_json_is_repaired_only_by_the_inner_write(tmp_path, monkeypatch, on_linux):
+    """``write_json`` 是 delegates 豁免：內層 ``write_file_text`` 是最外層，修一次、不重試。"""
     denied: list[object] = []
 
     def deny(*args: object, **_kwargs: object) -> None:
-        denied.append(args[0])
+        denied.append(_kwargs.get("dir"))
         raise _eacces()
 
-    monkeypatch.setattr(rm_module, "replace_text_no_follow", deny)
+    monkeypatch.setattr(rm_module.tempfile, "mkstemp", deny)
     hook = FakeHook()
     set_permission_repair(hook)
     with pytest.raises(PermissionError):
-        resource_manager.zone_write_json(agent_root(Anchor.PERSONAL_DRIVE, "A").child("x.json"), {})
-    assert [method for method, _ in hook.calls] == ["zone_write_text"]
+        resource_manager.write_json(tmp_path / "x.json", {})
+    assert [method for method, _ in hook.calls] == ["write_file_text"]
     assert len(denied) == 1 and hook.retry_flags == [False] and hook.retries == []
 
 

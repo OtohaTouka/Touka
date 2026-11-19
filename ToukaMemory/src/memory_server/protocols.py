@@ -196,16 +196,8 @@ class IResourceProxy(IConversationReader, Protocol):
         """讀二進位檔（``size`` 給了只讀開頭）."""
         ...
 
-    def zone_read_json(self, zp: ZonePath, encoding: str = "utf-8") -> Any | None:
-        """讀 JSON；不存在或壞檔回 None."""
-        ...
-
     def zone_write_text(self, zp: ZonePath, content: str, encoding: str = "utf-8") -> None:
         """原子寫入文字檔."""
-        ...
-
-    def zone_write_json(self, zp: ZonePath, data: Any, indent: int = 4) -> None:
-        """寫成 JSON."""
         ...
 
     def zone_write_binary(self, zp: ZonePath, content: bytes) -> None:

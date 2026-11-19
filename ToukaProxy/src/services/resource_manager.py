@@ -875,19 +875,6 @@ class ResourceManager:
         with zone_errors(zp.display()):
             return open_read_no_follow(target)
 
-    @permission_repair_exempt(category="delegates", reason="交給 zone_read_text")
-    def zone_read_json(self, zp: ZonePath, encoding: str = "utf-8") -> Any | None:
-        """讀 JSON：不存在或解析失敗回 None（壞檔記警告）；連結照樣拒絕、不塌縮成 None."""
-        try:
-            content = self.zone_read_text(zp, encoding=encoding)
-        except FileNotFoundError:
-            return None
-        try:
-            return json.loads(content)
-        except ValueError:
-            logger.warning("⚠️ Corrupt JSON detected at %s; treating as empty.", zp.display())
-            return None
-
     @permission_repair(retry=False)
     def zone_write_text(self, zp: ZonePath, content: str, encoding: str = "utf-8") -> None:
         """原子寫入（同資料夾暫存檔、fsync 後改名，0600），需要時建上層資料夾；連結就拒絕."""
@@ -896,11 +883,6 @@ class ResourceManager:
             if kind_no_follow(target) == "link":  # 改名會蓋掉連結本身；照表拒絕
                 raise ZoneLinkRefusedError(zp.display(), str(target))
             replace_text_no_follow(target, content, encoding=encoding)
-
-    @permission_repair_exempt(category="delegates", reason="交給 zone_write_text（不重試）")
-    def zone_write_json(self, zp: ZonePath, data: Any, indent: int = 4) -> None:
-        """把資料寫成 JSON（同 ``write_json``）."""
-        self.zone_write_text(zp, json.dumps(data, indent=indent, ensure_ascii=False))
 
     # retry=True 的前提同 write_file_binary：權限錯誤只在建資料夾或開檔時、截斷之前
     @permission_repair(retry=True)
