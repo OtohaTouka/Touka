@@ -16,6 +16,7 @@ from src.models.context import PipelineContext  # noqa: TC001
 from src.models.identity import AgentIdentity
 from src.services.authorization_gateway import can_drive_soul
 from src.services.client_system import CLIENT_SYSTEM_KEY
+from src.services.continuity_lines import build_group_member_continuity
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.dispatchers.utils import strip_redundant_labels
 from src.services.group_router import make_alias_resolver, parse_group_roster
@@ -31,6 +32,7 @@ from src.utils.group_member_view import (
     LabelGuard,
     SpokenTurn,
     awareness_note,
+    member_failed_mark,
     member_label,
     member_messages,
     neutralize_system_markers,
@@ -209,6 +211,11 @@ async def dispatch_group_stream(
                 ide_note=ide_note,
             ),
         )
+        # 成員也知道現在幾點、這是群聊（精簡版，不讀家也不寫事件；ADR-0323）
+        append_to_last_user(
+            current_request,
+            "\n\n" + build_group_member_continuity(incognito=bool(context.get("incognito"))),
+        )
 
         # UI Label Prefix
         yield _text_chunk(member_label(alias_name), native=label_native)
@@ -230,11 +237,14 @@ async def dispatch_group_stream(
             request_id,
             start_time,
             nested_ctx,
+            # 不傳的話非 Claude 成員的 ctx 對話編號會被設成 None，按停止停不了它（ADR-0323）
+            session_id=context.get("session_id"),
         )
+        sns = bool(context.get("sns_source"))
 
         async for chunk in stream_gen:
             if chunk.strip() == "data: [DONE]":
-                tail = member.finish(_failure_text(nested_ctx))
+                tail = member.finish(_failure_text(nested_ctx, alias_name, sns=sns))
                 if tail:
                     yield _text_chunk(tail, native=member.native)
                 yield chunk
@@ -272,7 +282,7 @@ async def dispatch_group_stream(
             if member.started or not chunk.startswith("data: "):
                 yield chunk
 
-        tail = member.finish(_failure_text(nested_ctx))
+        tail = member.finish(_failure_text(nested_ctx, alias_name, sns=sns))
         if tail:
             yield _text_chunk(tail, native=member.native)
 
@@ -355,9 +365,18 @@ def _delta_of(data: dict[str, Any]) -> tuple[str, bool]:
     return "", False
 
 
-def _failure_text(nested_ctx: PipelineContext) -> str | None:
-    """成員模型失敗時，``react_core`` 記下的失敗句（已遮罩；SNS 是固定文字）。"""
-    return nested_ctx.get("model_failure_text") if nested_ctx.get("model_failed") else None
+def _failure_text(nested_ctx: PipelineContext, alias: str, *, sns: bool) -> str | None:
+    """成員模型失敗時接在它段落最後的文字。
+
+    ``react_core`` 記下的失敗句已遮罩；SNS 是給外人的固定文字、照原樣送。一般群聊包成出錯記號，
+    自己送歷史的 API 用戶端下一輪送回來時認得出是出錯、不是這位成員說的話（ADR-0323）。
+    """
+    if not nested_ctx.get("model_failed"):
+        return None
+    text = nested_ctx.get("model_failure_text")
+    if not text or sns:
+        return text
+    return member_failed_mark(alias, text)
 
 
 def _message(msg_cls: type[Any], role: str, content: Any) -> Any:

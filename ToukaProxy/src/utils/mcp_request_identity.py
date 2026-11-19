@@ -21,6 +21,11 @@ GROUP_MODEL = "ToukaGroup"
 GROUP_MEMBER_FLAG = "group_member_run"
 
 
+def is_group_model(name: str | None) -> bool:
+    """這次請求是不是群聊：模型名是 ToukaGroup，不分大小寫；None 不是（ADR-0323）。"""
+    return isinstance(name, str) and name.lower() == GROUP_MODEL.lower()
+
+
 def user_scoped_mcp_allowed(ctx: Any, *, request_model: str | None = None) -> bool:
     """這次執行能不能用使用者各自授權的 MCP：已驗證的靈魂身分、人在場、不是群聊、有原始人類。
 
@@ -33,7 +38,7 @@ def user_scoped_mcp_allowed(ctx: Any, *, request_model: str | None = None) -> bo
         and identity.agent_id == ctx.get("agent_id")
         and bool(ctx.get("is_toukasoul"))
         and is_human_present(ctx)
-        and request_model != GROUP_MODEL
+        and not is_group_model(request_model)
         and not ctx.get(GROUP_MEMBER_FLAG)
         and bool(ctx.get("human_principal_id"))
     )

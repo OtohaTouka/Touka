@@ -266,7 +266,7 @@ async def test_group_member_uses_the_connection_original_name(
     _use_snapshot(monkeypatch, (QWEN,))
     models: list[str] = []
 
-    async def _fake_stream(model: str, *_args: Any) -> Any:
+    async def _fake_stream(model: str, *_args: Any, **_kwargs: Any) -> Any:
         models.append(model)
 
         async def _gen() -> Any:
@@ -279,6 +279,8 @@ async def test_group_member_uses_the_connection_original_name(
     monkeypatch.setattr(group, "get_stream_generator", _fake_stream)
     monkeypatch.setattr(group, "record_working_brain", lambda *_a: None)
     monkeypatch.setattr(group, "soul_service", MagicMock(inject_home_messages=AsyncMock()))
+    # 讀家換成替身：不靠別的測試先建好資料庫（只在亂數順序下才會出錯）
+    monkeypatch.setattr(group, "inject_mainline", AsyncMock())
     request = OpenAIChatRequest(
         model="ToukaGroup", messages=[OpenAIMessage(role="user", content="@A hi")]
     )

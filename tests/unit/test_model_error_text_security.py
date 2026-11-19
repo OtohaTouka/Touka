@@ -398,7 +398,7 @@ def _install_group(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls = {"count": 0}
 
     async def member_round(_model: str, request: Any, _identity: Any, _rid: str, _t0: float,
-                           nested: Any) -> Any:
+                           nested: Any, **_kwargs: Any) -> Any:
         calls["count"] += 1
         if calls["count"] == 2:
             second_member_messages.extend(str(message.content) for message in request.messages)

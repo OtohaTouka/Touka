@@ -294,7 +294,7 @@ def group_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr("src.services.group_router.soul_service", souls)
     dispatched: list[str] = []
 
-    async def _fake_gsg(_model, _req, identity, _request_id, _start_time, _ctx):
+    async def _fake_gsg(_model, _req, identity, _request_id, _start_time, _ctx, **_kwargs):
         dispatched.append(identity.agent_id)
 
         async def _gen():

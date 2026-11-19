@@ -72,7 +72,7 @@ def streams(monkeypatch):
     """攔截每位成員的派發；靈魂注入與 brain 讀寫改成假的."""
     calls: list[dict[str, Any]] = []
 
-    async def _fake_gsg(model, req, identity, request_id, start_time, ctx):
+    async def _fake_gsg(model, req, identity, request_id, start_time, ctx, **_kwargs):
         calls.append({"model": model, "identity": identity, "is_toukasoul": ctx["is_toukasoul"]})
 
         async def _gen():
@@ -270,7 +270,7 @@ async def test_a_question_left_unanswered_stops_the_next_member(cfg, streams, mo
     target = "src.services.dispatchers.group.get_stream_generator"
     fake = pkgutil.resolve_name(target)
 
-    async def asks(model, req, identity, request_id, start_time, ctx):
+    async def asks(model, req, identity, request_id, start_time, ctx, **_kwargs):
         mark_unanswered(ctx, [{"question": "要繼續嗎？"}])
         return await fake(model, req, identity, request_id, start_time, ctx)
 

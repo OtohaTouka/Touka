@@ -118,7 +118,7 @@ async def test_group_hands_the_right_mode_to_the_mainline(monkeypatch, incognito
         modes.append(mode)
         told_sns.append(sns)
 
-    async def _fake_stream(*_args: Any) -> Any:
+    async def _fake_stream(*_args: Any, **_kwargs: Any) -> Any:
         async def _gen() -> Any:
             yield 'data: {"choices": [{"delta": {"content": "嗨"}, "index": 0}]}\n\n'
             yield "data: [DONE]\n\n"

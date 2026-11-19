@@ -9,6 +9,7 @@ from src.models.identity import AgentIdentity
 from src.services.permission_service import permission_service
 from src.services.skill_service import DEEP_RESEARCH_SKILL_ID, SKILL_DISPATCHER_ID, skill_service
 from src.utils.async_db import session_service
+from src.utils.mcp_request_identity import is_group_model
 
 if TYPE_CHECKING:
     from src.models.context import PipelineContext
@@ -28,6 +29,11 @@ class SkillLayer(ProxyLayer):
 
     async def process(self, request: Any, ctx: PipelineContext) -> None:
         """合併技能來源、RBAC 過濾、常駐注入調度員，並收集所需工具與 MCP。"""
+        # 群聊回合不注入任何技能：成員沒有伺服器端工具（連 activate_skill 都沒有），
+        # 技能說明會叫它用用不到的工具；外層 system 會複製給每位成員（ADR-0323）
+        if is_group_model(getattr(request, "model", None)):
+            return
+
         identity = ctx.get("identity")
         if not isinstance(identity, AgentIdentity):
             # 內部無身分路徑（如 SNS）：不捏造身分名稱；無 agent_role ＝ 零技能授權。

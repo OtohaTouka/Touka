@@ -18,6 +18,7 @@ from src.services.soul_service import soul_service
 from src.utils.async_db import session_service
 from src.utils.brain_persistence import get_active_brain
 from src.utils.history_manager import sanitize_history
+from src.utils.mcp_request_identity import is_group_model
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,8 @@ class SoulLayer(ProxyLayer):
     async def process(self, request: Any, ctx: PipelineContext) -> None:
         """執行靈魂注入流程。"""
         model_name = getattr(request, "model", "")
-        # ToukaGroup 擁有獨立的調度與靈魂注入邏輯，中介層應跳過以避免衝突
-        if model_name == "ToukaGroup":
+        # ToukaGroup 擁有獨立的調度與靈魂注入邏輯，中介層應跳過以避免衝突（不分大小寫，ADR-0323）
+        if is_group_model(model_name):
             return
 
         is_anthropic = "anthropic" in str(type(request)).lower()

@@ -56,7 +56,7 @@ def _ambiguous_routes(monkeypatch: pytest.MonkeyPatch) -> None:
 def group_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    async def _fake_stream(model: str, *_args: Any) -> Any:
+    async def _fake_stream(model: str, *_args: Any, **_kwargs: Any) -> Any:
         calls.append(model)
 
         async def _gen() -> Any:
