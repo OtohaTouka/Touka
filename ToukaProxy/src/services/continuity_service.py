@@ -104,6 +104,11 @@ KIND_CHILD = (
     "its key points are reported into your home's <soul_prelude>"
 )
 KIND_NOT_REPORTED = "not your home, and nothing here is reported to your home"
+# 子對話與心跳頻道：對得上前情裡回報的標頭（soul_prelude_service 的 child_report；ADR-0323 家-5）
+CONVERSATION_ID_TEMPLATE = (
+    "This conversation's id: {id}; reports in <soul_prelude> marked "
+    '"Report from conversation {id}" were written earlier by this conversation.'
+)
 KIND_UNKNOWN = "unknown (your home could not be determined)"
 # 心跳第幾個脈衝、被誰叫醒（ADR-0322 PR 3 心跳-2、心跳-3）；觸發種類只認這幾個值
 HEARTBEAT_TRIGGERS = ("schedule", "manual")
@@ -136,6 +141,11 @@ RECENT_LABEL = (
     f"Recently completed (last {RECENT_WINDOW_DAYS} days, newest first, max {RECENT_LIMIT})"
 )
 RECORDS_START_LABEL = "Activity records start"
+# 家裡：最近在群聊與 SNS 說過話（ADR-0323 家-4）；內容不在這段對話
+ELSEWHERE_WINDOW_HOURS = 24
+ELSEWHERE_LABEL = f"In the last {ELSEWHERE_WINDOW_HOURS} hours you also spoke in"
+ELSEWHERE_PLACES = {"group_turn": "group chats", "sns_turn": "SNS channels"}
+ELSEWHERE_NOT_HERE = "their content is not in this conversation"
 MISSION_LABEL = "Mission board"
 RUNNING_SUBAGENTS_LABEL = "Sub-agents you dispatched in this conversation, still running"
 RUNNING_SUBAGENTS_SHOWN = 5  # 最多列幾個，其餘只寫數量（ADR-0318）
@@ -225,6 +235,7 @@ async def _read_timeline(
             exclude_message_id=current_message_id if isinstance(current_message_id, str) else None,
             since_ms=int((now_s - RECENT_WINDOW_DAYS * _DAY) * _MS_PER_SECOND),
             limit=RECENT_LIMIT,
+            elsewhere_since_ms=int((now_s - ELSEWHERE_WINDOW_HOURS * _HOUR) * _MS_PER_SECOND),
         )
     except Exception:
         logger.exception("continuity: reading the activity record failed")
@@ -431,6 +442,28 @@ def _conversation_line(
     return f"- {CONVERSATION_LABEL}: {kind}"
 
 
+def _conversation_id_line(session_id: str, at_home: bool | None) -> str | None:
+    """子對話與心跳頻道（會回報給家、而且不是家）寫出自己的編號；家、讀不到家、不回報的不寫."""
+    if at_home is not False or not can_be_reported(session_id):
+        return None
+    return f"- {CONVERSATION_ID_TEMPLATE.format(id=session_id)}"
+
+
+def _elsewhere_line(now_s: float, timeline: TimelineSnapshot | None) -> str | None:
+    """家裡：最近在哪些群聊、SNS 說過話（次數與最後一次）；都沒有或讀不到就不加."""
+    if timeline is None:
+        return None
+    parts = [
+        f"{ELSEWHERE_PLACES[kind]} ({count} turn{'' if count == 1 else 's'}, "
+        f"last {_when(now_s, last_ms)})"
+        for kind, count, last_ms in timeline.elsewhere
+        if kind in ELSEWHERE_PLACES and count > 0
+    ]
+    if not parts:
+        return None
+    return f"- {ELSEWHERE_LABEL} {' and '.join(parts)}; {ELSEWHERE_NOT_HERE} {ACTIVITY_RECORD}"
+
+
 def _recent_line(now_s: float, timeline: TimelineSnapshot | None) -> str:
     if timeline is None:
         return f"- {RECENT_LABEL}: {TIMELINE_UNAVAILABLE}"
@@ -508,6 +541,9 @@ async def build_continuity_block(
         at_home = await _at_home(soul, session_id) if session_id and not sns else False
         if session_id:
             lines.append(_conversation_line(session_id, at_home, heartbeat=heartbeat, sns=sns))
+            own_id = None if sns else _conversation_id_line(session_id, at_home)
+            if own_id is not None:
+                lines.append(own_id)
         timeline = await _read_timeline(soul, session_id, current_message_id, now_s)
         if heartbeat:
             lines.append(HEARTBEAT_LINE)
@@ -528,6 +564,9 @@ async def build_continuity_block(
         unreported = await _unreported_line(soul, now_s) if at_home else None
         if unreported is not None:
             lines.append(unreported)
+        elsewhere = _elsewhere_line(now_s, timeline) if at_home else None
+        if elsewhere is not None:
+            lines.append(elsewhere)
         start = _records_start_line(timeline)
         if start is not None:
             lines.append(start)

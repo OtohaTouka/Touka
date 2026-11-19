@@ -88,14 +88,24 @@ SNS_FAILURE_NOTICE = "⚠️ 這一輪回覆失敗，請稍後再試。"
 # 人按停止時要一起收掉的工具（ADR-0312）：人放棄之後，使用者電腦上不能再動手。
 # 同步派的子代理也一樣（ADR-0318），不然它照樣跑完、花額度。其他工具維持原本的行為（背景跑完）。
 _TOOLS_TIED_TO_THE_TURN = frozenset({"local_files", "dispatch_subagent", "dispatch_subagent_group"})
+# 等子代理結果也綁在這一輪（ADR-0323）：沒人收的等候不再空等，被取消時不標讀過；看板其他動作不綁
+_AWAIT_TIED = ("mission_tools", "await_dispatch_result")
+
+
+def _tied_to_the_turn(name: str, args: Any) -> bool:
+    """這個呼叫要不要在人按停止時一起收掉：看工具名，``mission_tools`` 另看動作。"""
+    if name in _TOOLS_TIED_TO_THE_TURN:
+        return True
+    tool, action = _AWAIT_TIED
+    return name == tool and isinstance(args, dict) and args.get("action") == action
 
 
 def _cancel_turn_bound_tools(
-    tasks: list[tuple[str, str, asyncio.Task[Any]]], *, everything: bool = False
+    tasks: list[tuple[str, str, asyncio.Task[Any], bool]], *, everything: bool = False
 ) -> None:
-    """``everything``：子代理的迴圈被收掉時，它的工具全部一起停（沒人會收結果；ADR-0318）。"""
-    for _call_id, name, task in tasks:
-        if (everything or name in _TOOLS_TIED_TO_THE_TURN) and not task.done():
+    """收掉綁在這一輪的呼叫；``everything``：子代理的迴圈被收掉時，它的工具全部一起停（ADR-0318）。"""
+    for _call_id, _name, task, tied in tasks:
+        if (everything or tied) and not task.done():
             task.cancel()
 
 
@@ -588,7 +598,7 @@ async def run_react_loop(  # noqa: PLR0915
                         actually_used_tools=actually_used_tools,
                     )
                 )
-                execution_tasks.append((tc.id, tc.name, task))
+                execution_tasks.append((tc.id, tc.name, task, _tied_to_the_turn(tc.name, tc.args)))
 
             try:
                 # 監聽事件佇列並轉發
@@ -604,7 +614,7 @@ async def run_react_loop(  # noqa: PLR0915
 
                 # 收集結果並回報給模型
                 results = []
-                for call_id, target_name, task in execution_tasks:
+                for call_id, target_name, task, _tied in execution_tasks:
                     res_text = await task
                     results.append((call_id, target_name, res_text))
             finally:

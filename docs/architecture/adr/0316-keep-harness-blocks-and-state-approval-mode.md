@@ -2,6 +2,7 @@
 
 - 狀態：✅ 已實作（PR 1：第 1～5 點；PR 2：第 6～9 點，2026-11-16 補記）。一頁計畫由維護者核准（2026-11-16）。
 - 補註（2026-11-17）：決定 8 的同步派工按停止會跟著停；`await_dispatch_result` 逾時後再等會接著等（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 5、7）。
+- 補註（2026-11-19）：決定 7 子代理不再帶主代理的看板（`mission_awareness`）（[ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 3）。
 - 日期：2026-11-16
 - 決策者：維護者
 - 相關：[ADR-0092](0092-context-window-token-sliding-window.md)（區塊標籤）、[ADR-0139](0139-harness-context-block.md)（`<harness_context>` 與 Guard #40）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（三種模式、在場判斷）、[ADR-0272](0272-iso-c2-agent-command-isolation-and-executor.md)（決定 4：YOLO 沒人時的危險 MCP 工具）、[ADR-0133](0133-context-snapshot-real-assembly-rewrite.md)（快照與 Guard #39）

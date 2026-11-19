@@ -264,8 +264,8 @@ def build_harness_context(
         # 沒有 mission_tools 時 dispatch_subagent 等做完才回、沒有憑證可等（ADR-0316 PR 2 補記）
         if "mission_tools" in advertised:
             lines.append(
-                "- Dispatch results are persisted durably: awaiting a dispatch token "
-                "still works after a harness restart."
+                "- Dispatch results are durable: awaiting a token works after a harness "
+                "restart, but sub-agents still running then are cancelled (lost on a crash)."
             )
         else:
             lines.append(

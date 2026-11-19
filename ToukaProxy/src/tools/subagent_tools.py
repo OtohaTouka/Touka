@@ -66,10 +66,16 @@ from src.utils.presence import is_human_present
 from src.utils.secret_text import sanitize_error_text
 from src.utils.task_utils import spawn_logged
 from src.utils.time_utils import get_current_epoch
+from src.utils.turn_notices import (
+    NOTICE_REFUSAL,
+    NOTICE_SAFETY,
+    NOTICE_TOOL_HALLUCINATION,
+    TURN_NOTICE_EVENT,
+)
 from src.utils.user_intent import subagent_intent
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Coroutine
+    from collections.abc import AsyncGenerator, Coroutine, Sequence
 
     from src.services.subagent_registry import SubagentOutcome
 
@@ -97,6 +103,13 @@ _OUTCOME_WORDS: dict[SubagentOutcome, str] = {
 STOP_CHECK_SECONDS = 0.5
 # 背景派工的 task 本身被取消（Touka 停止或重啟）時交回的說法；拿不到已做到的部分
 _SHUTDOWN_NOTE = "已取消：Touka 停止或重啟，子代理沒有做完。"
+# 子代理這一輪被拒答、被安全過濾擋下、提到沒呼叫的工具：交回的結果寫明（ADR-0323）。
+# 沒有文字時當成結果，有文字時另列系統附註；拒答原文沿用小提示的截短，再收成一行
+SUBAGENT_REFUSED = "子代理被模型拒答"
+SUBAGENT_SAFETY_BLOCKED = "子代理的回覆被廠商的安全過濾擋下"
+SUBAGENT_TOOL_HALLUCINATION = "子代理的回覆提到它沒有呼叫的工具（{tools}），那部分不一定真的做過"
+_SUBAGENT_NOTICE_KINDS = frozenset({NOTICE_REFUSAL, NOTICE_SAFETY, NOTICE_TOOL_HALLUCINATION})
+_NO_TEXT = "(子代理無文字產出)"
 # 父請求的目標標頭不屬於子代理：留著會讓 MonitorLayer 把父靈魂或父 session 認成目標
 # （ADR-0245 修補）
 _PARENT_TARGET_HEADERS = frozenset(
@@ -112,10 +125,6 @@ _DEFAULT_GROUP_CONCURRENCY = SUBAGENT_GROUP_CONCURRENCY
 # 給子代理的固定提示（ADR-0309）：不放專案的真實路徑
 PROJECT_NOTE = '這個任務可以用對話綁定的專案：檔案工具帶 scope="project"，路徑相對於專案根目錄。'
 READ_ONLY_NOTE = "你只能查看，不能修改任何檔案；發現的問題請寫在回報裡。"
-
-# 背景任務強引用：僅存 Task 物件防 GC 中途取消（asyncio 官方建議模式）。
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
-
 
 # --------------------------------------------------------------------------- #
 # 內部：子代理請求組裝與子 loop 執行
@@ -250,6 +259,8 @@ def _mark_subagent_run(
     ctx["ui_authorized"] = False
     ctx["model_failed"] = False
     ctx["model_error_type"] = None
+    # 主代理的看板不給子代理：組裝時 ContextLayer 會把這個欄位注入（子代理的任務已寫在派工情境裡）
+    ctx["mission_awareness"] = None
 
 
 async def _assemble_subagent_request(
@@ -312,10 +323,15 @@ async def _assemble_subagent_request(
     return request
 
 
-async def _drain_text(stream: AsyncGenerator[str], parts: list[str] | None = None) -> str:
+async def _drain_text(
+    stream: AsyncGenerator[str],
+    parts: list[str] | None = None,
+    notices: list[dict[str, Any]] | None = None,
+) -> str:
     """抽乾子 loop SSE 串流，累積文字 delta（OpenAI／Anthropic 雙形，仿 group.py）。
 
-    呼叫端傳入 ``parts`` 時，逾時或失敗也拿得到已經收到的片段（ADR-0318）。
+    呼叫端傳入 ``parts`` 時，逾時或失敗也拿得到已經收到的片段（ADR-0318）；傳入 ``notices`` 時
+    收下拒答、安全過濾、工具幻覺這三種小提示（ADR-0323）。
     """
     parts = [] if parts is None else parts
     async with contextlib.aclosing(stream):
@@ -330,6 +346,10 @@ async def _drain_text(stream: AsyncGenerator[str], parts: list[str] | None = Non
             except (json.JSONDecodeError, ValueError):
                 continue
             if not isinstance(data, dict):
+                continue
+            if data.get("type") == TURN_NOTICE_EVENT:
+                if notices is not None and data.get("kind") in _SUBAGENT_NOTICE_KINDS:
+                    notices.append(data)
                 continue
             text_delta = ""
             choices = data.get("choices")
@@ -351,8 +371,9 @@ async def _run_subagent(
     model: str | None,
     read_only: bool = False,
     label: str = "subagent",
+    notices: list[dict[str, Any]] | None = None,
 ) -> str:
-    """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出。
+    """開一個 in-process 子 ReAct loop 跑到完成，回傳最終文字產出（``notices`` 收拒答等小提示）。
 
     時限包住整段（SubagentStart hook、組裝、模型）。超過時丟 ``SubagentTimeoutError``、模型失敗丟
     ``SubagentModelError``、主代理那段對話被按停止丟 ``SubagentCancelledError``，都帶著已經收到的
@@ -396,6 +417,7 @@ async def _run_subagent(
                     read_only=read_only,
                     parent_label=parent_label,
                     parts=parts,
+                    notices=notices,
                 ),
                 base_ctx,
             )
@@ -430,6 +452,7 @@ async def _assemble_and_run(
     read_only: bool,
     parent_label: str,
     parts: list[str],
+    notices: list[dict[str, Any]] | None = None,
 ) -> str:
     """看專案、組裝（含 SubagentStart hook）、執行；``parts`` 收已經收到的文字。"""
     project_id = await session_project_id(base_ctx, base_ctx.get("session_id"))
@@ -446,7 +469,9 @@ async def _assemble_and_run(
         scope=scope,
         parent_label=parent_label,
     )
-    return await _run_assembled(request, sub_identity, sub_request_id, base_ctx, goal, scope, parts)
+    return await _run_assembled(
+        request, sub_identity, sub_request_id, base_ctx, goal, scope, parts, notices
+    )
 
 
 async def _unless_parent_stops(work: Coroutine[Any, Any, str], base_ctx: Any) -> str:
@@ -494,6 +519,7 @@ async def _run_assembled(
     goal: str,
     scope: SubagentScope,
     parts: list[str],
+    notices: list[dict[str, Any]] | None = None,
 ) -> str:
     """跑組裝好的子代理請求，回傳最終文字；模型失敗時丟 ``SubagentModelError``。"""
     ctx = _derive_context(base_ctx)
@@ -519,7 +545,7 @@ async def _run_assembled(
         get_current_epoch(),
         ctx,
     )
-    text = await _drain_text(stream, parts)
+    text = await _drain_text(stream, parts, notices)
     if ctx.get("model_failed"):
         raise SubagentModelError(ctx.get("model_error_type"), text)
     return text
@@ -532,23 +558,47 @@ def _keep_tail(text: str) -> str:
     return OMITTED_HEAD_NOTE + text[-_RESULT_SUMMARY_MAX:].lstrip()
 
 
-def _result_from_text(text: str, label: str) -> dict[str, Any]:
+def _notice_notes(notices: Sequence[dict[str, Any]]) -> list[str]:
+    """拒答、安全過濾、工具幻覺小提示換成固定說法（參數在小提示裡已截短）；重複的只留一句。"""
+    notes: list[str] = []
+    for notice in notices:
+        kind, params = notice.get("kind"), notice.get("params")
+        params = params if isinstance(params, dict) else {}
+        if kind == NOTICE_REFUSAL:
+            detail = single_line(str(params.get("detail") or "")).strip()
+            notes.append(f"{SUBAGENT_REFUSED}：{detail}" if detail else SUBAGENT_REFUSED)
+        elif kind == NOTICE_SAFETY:
+            notes.append(SUBAGENT_SAFETY_BLOCKED)
+        elif kind == NOTICE_TOOL_HALLUCINATION:
+            tools = single_line(str(params.get("tools") or "?"))
+            notes.append(SUBAGENT_TOOL_HALLUCINATION.format(tools=tools))
+    return list(dict.fromkeys(notes))
+
+
+def _result_from_text(
+    text: str, label: str, notices: Sequence[dict[str, Any]] = ()
+) -> dict[str, Any]:
     """把子代理最終文字（含 Phase 2 回報塊）收斂成結構化結果 payload（DONE）。
 
-    傳輸層 status（子 loop 是否跑完）與自我宣稱層 report_status 分開承載。
+    傳輸層 status（子 loop 是否跑完）與自我宣稱層 report_status 分開承載。拒答等小提示：沒有文字時
+    寫成結果，有文字時放 ``system_notes``（不混進子代理自己的話；ADR-0323）。
     """
     report = parse_subagent_report(text)
     summary = _keep_tail(report.summary)
-    return {
+    notes = _notice_notes(notices)
+    payload: dict[str, Any] = {
         "task_id": label,
         "status": "DONE",
-        "result_summary": summary or "(子代理無文字產出)",
+        "result_summary": summary or "；".join(notes) or _NO_TEXT,
         "report_status": report.status,
         "claims": report.claims,
         "artifact_refs": report.artifact_refs,
         "confidence": report.confidence,
         "structured": report.structured,
     }
+    if summary and notes:
+        payload["system_notes"] = notes
+    return payload
 
 
 def _result_from_error(exc: BaseException, label: str) -> dict[str, Any]:
@@ -604,6 +654,7 @@ async def _run_and_deliver(
     仍可重讀——記憶體 Event 重啟即失、但結果不失（``await_dispatch_result`` 耐久優先）。
     """
     label = task_id or "subagent"
+    notices: list[dict[str, Any]] = []
     try:
         text = await _run_subagent(
             goal=goal,
@@ -613,8 +664,9 @@ async def _run_and_deliver(
             model=model,
             read_only=read_only,
             label=label,
+            notices=notices,
         )
-        payload = _result_from_text(text, label)
+        payload = _result_from_text(text, label, notices)
     except asyncio.CancelledError:
         # 整個背景 task 被取消（例如 Touka 關機）：照樣交回「已取消」，等的一方不空等（ADR-0318）
         _deliver(
@@ -687,6 +739,7 @@ async def run_subagent_group(
 
     async def _one(index: int, spec: dict[str, Any]) -> dict[str, Any]:
         label = str(spec.get("task_id") or f"sub{index + 1}")
+        notices: list[dict[str, Any]] = []
         async with sem:
             try:
                 text = await _run_subagent(
@@ -697,8 +750,9 @@ async def run_subagent_group(
                     model=(spec.get("sub_model") or "").strip() or model,
                     read_only=_is_read_only(spec.get("read_only")),
                     label=label,
+                    notices=notices,
                 )
-                return _result_from_text(text, label)
+                return _result_from_text(text, label, notices)
             except Exception as exc:  # noqa: BLE001 — 隔離：一子失敗不沉全組
                 _log_failure(exc, "group subagent '%s'", label)
                 return _result_from_error(exc, label)
@@ -729,6 +783,7 @@ async def _dispatch_and_wait(
     和 ``run_subagent_group`` 同一條路（同一個 ``_run_subagent``）；不產生憑證、不寫耐久結果。
     """
     label = task_id or "subagent"
+    notices: list[dict[str, Any]] = []
     try:
         text = await _run_subagent(
             goal=goal,
@@ -738,8 +793,9 @@ async def _dispatch_and_wait(
             model=model,
             read_only=read_only,
             label=label,
+            notices=notices,
         )
-        payload = _result_from_text(text, label)
+        payload = _result_from_text(text, label, notices)
     except Exception as exc:
         # 和非同步分支一樣，失敗也交回結構化結果（FAILED）
         _log_failure(exc, "in-process subagent (sync dispatch)")
@@ -814,7 +870,8 @@ async def dispatch_subagent(
     # 站內憑證：只收 Touka 內部交回的結果，逾時不作廢（ADR-0318）
     store.register(token, in_process=True)
 
-    task = asyncio.create_task(
+    # 經 spawn_logged：正常關機時 cancel_all_background_tasks 會取消它，交回「已取消」（ADR-0323）
+    spawn_logged(
         _run_and_deliver(
             token=token,
             goal=str(goal),
@@ -827,8 +884,6 @@ async def dispatch_subagent(
         ),
         name=f"subagent:{token[:8]}",
     )
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
     label = task_id or "subagent"
     return tool_errors.build_tool_success(

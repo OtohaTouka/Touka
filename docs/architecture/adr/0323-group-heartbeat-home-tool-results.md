@@ -1,11 +1,11 @@
 # ADR-0323：群聊沒有工具、心跳先檢查再寫、家知道去過哪、工具結果有上限（可視性第五批）
 
-- 狀態：🚧 實作中（PR 1 群聊，2026-11-19；PR 2 心跳，2026-11-19；PR 3 家與子代理、PR 4 工具資訊與網頁以外的路待做）
+- 狀態：🚧 實作中（PR 1 群聊，2026-11-19；PR 2 心跳，2026-11-19；PR 3 家與子代理，2026-11-19；PR 4 工具資訊與網頁以外的路待做）
 - 日期：2026-11-19
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 90 項回「甲：照第 2.1 版做」；工具結果上限 4 萬字、子代理結果檔可偽造移出這批，是計畫裡寫明的「我自己定的兩件」）
 - 相關：[ADR-0322](0322-who-said-it-and-which-conversation.md)（第四批：群聊成員發言、對話種類）、[ADR-0269](0269-advertised-tool-list-enforcement.md)（這一輪的工具清單）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人不能驅動有工具的靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>`）
-- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2）
-- 影響範圍：PR 2：`ToukaProxy/src/routers/heartbeat.py`、`services/continuity_service.py`、`services/continuity_events.py`（`HeartbeatSkip`）、`services/dispatchers/factory.py`、`utils/user_intent.py`、`config/errors.json.example`、`ToukaChat/src/lib/error_codes.ts`、翻譯檔。PR 1：`ToukaProxy/src/utils/mcp_request_identity.py`（`is_group_model`）、`utils/local_bridge_gate.py`、`middleware/layers/soul.py`、`middleware/layers/tool.py`、`middleware/layers/skill.py`、`services/dispatcher.py`、`services/dispatchers/group.py`、`utils/group_member_view.py`、`services/continuity_lines.py`（新）、`services/continuity_service.py`
+- 修訂：[ADR-0269](0269-advertised-tool-list-enforcement.md)（決定 7 群聊沿用的清單是空的，PR 1）、[ADR-0322](0322-who-said-it-and-which-conversation.md)（已知限制：群聊成員的區塊與 `<continuity>`、API 群聊成員失敗句，PR 1；決定 7 心跳不再切段，PR 2）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（決定 9 入口被擋的原因與檢查時機，PR 2；決定 5、7 等結果綁在這一輪、關機時背景子代理交回已取消，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（不是靈魂的心跳也有精簡 `<continuity>`，PR 2；新事件 `group_turn`、`sns_turn`，家裡與子對話各多一行，PR 3）、[ADR-0307](0307-home-handover-work.md)（家裡多一行在群聊與 SNS 說過幾次，內容照舊不回報，PR 3）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（決定 11：頻道與子對話知道自己的編號，PR 3）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（決定 7：子代理不帶主代理的看板，PR 3）、[ADR-0312](0312-local-helper-for-host-files.md)（綁在這一輪的工具多了等結果，PR 3）
+- 影響範圍：PR 3：`ToukaProxy/src/services/continuity_events.py`、`utils/continuity_events_db.py`、`services/continuity_service.py`、`services/dispatchers/group.py`、`services/sns_gateway.py`、`tools/subagent_tools.py`、`tools/mission_tools.py`、`handlers/react_core.py`、`services/prompt_blocks.py`。PR 2：`ToukaProxy/src/routers/heartbeat.py`、`services/continuity_service.py`、`services/continuity_events.py`（`HeartbeatSkip`）、`services/dispatchers/factory.py`、`utils/user_intent.py`、`config/errors.json.example`、`ToukaChat/src/lib/error_codes.ts`、翻譯檔。PR 1：`ToukaProxy/src/utils/mcp_request_identity.py`（`is_group_model`）、`utils/local_bridge_gate.py`、`middleware/layers/soul.py`、`middleware/layers/tool.py`、`middleware/layers/skill.py`、`services/dispatcher.py`、`services/dispatchers/group.py`、`utils/group_member_view.py`、`services/continuity_lines.py`（新）、`services/continuity_service.py`
 
 ## 背景
 
@@ -75,16 +75,53 @@
 
 - 模型寫出「--- … 自主行動」時，心跳會切成兩則、中間插一句「【系統】自主行動階段完成，請繼續。」（舊程式留下的）。拿掉，整個脈衝存一則；工具步驟與出錯旗標都在那一則上。舊對話裡已經存下的照舊（帶 `SYSTEM_SPEAKER`）。
 
+## 決定（PR 3：家與子代理）
+
+### 11. 家知道你在群聊與 SNS 說過話
+
+- 以前群聊與 SNS 的對話不回家，家裡的靈魂不知道自己去過那些地方（家-4）。
+- 新增兩種活動事件 `group_turn`、`sns_turn`：只記在哪說過（主題是雜湊），不記內容；同一段對話每說一次記一筆（加進會重複發生的種類，鍵帶毫秒）。
+  - 一般群聊（網頁、IDE、API）：每位成員說完記一筆，失敗不算；主題是對話編號的 `safe_ref`，沒有對話編號的 API 群聊用固定字 `api-group`；無痕不記。
+  - SNS：回覆送到之後才記，主題是平台加頻道編號的雜湊。單人在家模式不記（那一輪本來就在家裡）。SNS 群聊由分發器在外層 ctx 記下這一輪說完的成員，SNS 入口照名單一人一筆，在家模式照記；經 SNS 的群聊不另記 `group_turn`。模型失敗或沒送到的不記。
+- 家裡（不是 SNS 觸發）的 `<continuity>` 多一行：最近 24 小時在群聊、SNS 各說過幾次、最後一次什麼時候，並寫明內容不在這段對話；都沒有就不加。
+
+### 12. 子對話知道自己的編號
+
+- 子對話與心跳頻道（會回報給家、而且不是家）的 `<continuity>` 在對話種類那行之後寫出這段對話的編號，和前情裡「Report from conversation …」的標頭對得上，模型認得出哪些回報是這段對話自己寫的（家-5）。家、SNS、無痕、不回報的內部頻道不寫；前情內容不動。
+
+### 13. 子代理不帶主代理的看板；關機時背景子代理交回已取消
+
+- 子代理的 ctx 拿掉主代理的 `mission_awareness`：以前組裝子代理請求時，ContextLayer 會把主代理的看板注入給子代理。子代理自己的任務已寫在派工情境裡（ADR-0316 決定 7）。
+- 背景子代理改用 `spawn_logged` 開：正常關機（`cancel_all_background_tasks`）時被取消，照樣交回「已取消」；當機或強制結束時不會。`<harness_context>` 那句補上「重啟時還在跑的子代理會被取消（當機就沒了）」，仍在 800 token 上限內、Guard #40 釘的字不變。
+
+### 14. 子代理被拒答時，結果寫明
+
+- 子代理收文字時也收下拒答、安全過濾、工具幻覺這三種小提示。沒有文字時，結果寫「子代理被模型拒答：…」或「子代理的回覆被廠商的安全過濾擋下」，不再只寫「子代理無文字產出」；有文字時另放 `system_notes`（`await_dispatch_result` 列成 `System note:`），不混進子代理自己的話。拒答原文沿用小提示的截短，再收成一行。
+
+### 15. 等子代理結果綁在這一輪
+
+- `mission_tools` 的 `await_dispatch_result` 和 `local_files`、同步派的子代理一樣，人按停止時一起收掉（以前只看工具名，現在 `mission_tools` 另看動作）；看板的其他動作不綁。被取消的等候不標讀過，下一輪「最近結束」仍是沒讀，結果之後照樣拿得到。
+
 ## 取捨與影響
 
 - PR 1：成員的請求少掉幾段工具說明、多一句群聊說明與一段 `<continuity>`（都在請求尾端）；上線後每位成員第一輪的提示快取重寫一次。權限不變。
 - PR 1：記號文字照樣存在 API 用戶端與後端另存的那份裡；讀那份的其他地方（例如摘要）看到的是寫明出錯的記號。
 - PR 2：心跳跑不了時不再把提示寫進家對話，排程那端收到 409 或 429，只記 log、不重試。多一個錯誤碼：網頁畫面沒改，只多兩句翻譯。靈魂的心跳每個脈衝多一行說明；不是靈魂的多一段精簡 `<continuity>`。
 
+- PR 3：家裡、子對話與心跳頻道的 `<continuity>` 可能各多一行；每次在群聊與 SNS 說話多寫一筆事件（只有 id 與時間），GDPR 匯出跟著多兩種。背景子代理在 Touka 正常關機時一定交回「已取消」。
+
 ### 已知限制
 
 - PR 1：成員在自己段落最後寫出跟真記號一模一樣的文字（守門換掉一個字以前就已經存在用戶端的舊對話）時，下一輪會把自己那段標成出錯；碰不到別人。
 - PR 1：舊對話裡這版之前的失敗句（沒有記號）照舊算成那位成員的話。
+- PR 3：前情裡合併段（`#child-reports`）的回報看不出來自哪段對話，認不出是不是自己寫的。
+- PR 3：群聊與 SNS 只記說過幾次，不記說了什麼（內容照舊不回家，ADR-0307）。當機或強制結束時，背景子代理沒有交回結果（只有正常關機會）。
+
+## 驗證（PR 3）
+
+- `tests/unit/test_home_sees_elsewhere.py`（新）：新事件種類會重複、SNS 主題一律雜湊；事件表讀回 24 小時內的次數與最後時間、不混進其他行；一般群聊每位說完的成員記一筆（失敗不算、說兩次兩筆）、沒有對話編號用固定字、無痕不記；SNS 群聊不記 `group_turn`、名單留給 SNS 入口；SNS 送到才記、單人在家模式不記、群聊在家模式照名單記，失敗、沒送到、沒人說話都不記；家裡那一行的格式、只列說過的地方，子對話、SNS 觸發、無痕沒有；子對話與心跳頻道寫出自己的編號，家、SNS、無痕、內部頻道沒有。
+- `tests/unit/test_subagent_turn_cleanup.py`（新）：子代理不帶主代理的看板（主代理對照組看得到）；背景子代理經 `spawn_logged`，關機取消後交回已取消；收下三種小提示、別種不收；沒有文字時寫明被拒答或被擋，有文字時附系統附註；背景子代理被拒答時結果與 `await_dispatch_result` 都寫明；`await_dispatch_result` 列出系統附註；只有 await 動作綁在這一輪；綁住的被收掉、沒綁的不動；被取消的等候不標讀過，結果之後照樣拿得到。
+- 改了舊測試：`test_continuity_event_recorder.py`（事件種類 17 種）、`test_subagent_stop.py`、`test_subagent_project_access.py`（背景子代理改從 `spawn_logged` 找；綁在這一輪的工作組多一欄）。
 
 ## 驗證（PR 2）
 

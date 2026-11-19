@@ -24,7 +24,7 @@ from src.services.permission_service import permission_service
 from src.services.resource_manager import resource_manager
 from src.tools import subagent_tools
 from src.tools.builtin import tool_registry
-from src.utils import async_db
+from src.utils import async_db, task_utils
 from src.utils.touka_dirs import LINKED_ROOT, PROTECTED_LOCATION
 
 from tests.helpers.claude_stream import delegate_stream_to_create
@@ -495,8 +495,13 @@ async def test_only_a_plain_false_or_nothing_means_writable(monkeypatch, given, 
 
 
 async def _settle() -> None:
-    while subagent_tools._BACKGROUND_TASKS:
-        await next(iter(subagent_tools._BACKGROUND_TASKS))
+    while tasks := _subagent_tasks():
+        await next(iter(tasks))
+
+
+def _subagent_tasks() -> set[Any]:
+    """背景子代理經 spawn_logged 開（ADR-0323）。"""
+    return {t for t in task_utils._background_tasks if t.get_name().startswith("subagent:")}
 
 
 # ── 給子代理的提示 ───────────────────────────────────────────────
