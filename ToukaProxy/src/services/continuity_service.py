@@ -225,7 +225,12 @@ def _when(now_s: float, epoch_ms: int) -> str:
 
 
 async def _read_timeline(
-    soul: AgentIdentity, session_id: str | None, current_message_id: Any, now_s: float
+    soul: AgentIdentity,
+    session_id: str | None,
+    current_message_id: Any,
+    now_s: float,
+    *,
+    elsewhere: bool = False,
 ) -> TimelineSnapshot | None:
     """一次讀完這個靈魂的活動事件；讀不到回 None（照實寫讀不到，不丟例外）。"""
     try:
@@ -235,7 +240,12 @@ async def _read_timeline(
             exclude_message_id=current_message_id if isinstance(current_message_id, str) else None,
             since_ms=int((now_s - RECENT_WINDOW_DAYS * _DAY) * _MS_PER_SECOND),
             limit=RECENT_LIMIT,
-            elsewhere_since_ms=int((now_s - ELSEWHERE_WINDOW_HOURS * _HOUR) * _MS_PER_SECOND),
+            # 群聊與 SNS 的次數只有家用得到
+            elsewhere_since_ms=(
+                int((now_s - ELSEWHERE_WINDOW_HOURS * _HOUR) * _MS_PER_SECOND)
+                if elsewhere
+                else None
+            ),
         )
     except Exception:
         logger.exception("continuity: reading the activity record failed")
@@ -544,7 +554,9 @@ async def build_continuity_block(
             own_id = None if sns else _conversation_id_line(session_id, at_home)
             if own_id is not None:
                 lines.append(own_id)
-        timeline = await _read_timeline(soul, session_id, current_message_id, now_s)
+        timeline = await _read_timeline(
+            soul, session_id, current_message_id, now_s, elsewhere=at_home is True
+        )
         if heartbeat:
             lines.append(HEARTBEAT_LINE)
             lines.extend(_wake_lines(wake or HeartbeatWake(), now_s))

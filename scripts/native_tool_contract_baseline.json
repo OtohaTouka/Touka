@@ -3186,7 +3186,8 @@
       "_drain_text": {
         "parameters": [
           "stream",
-          "parts"
+          "parts",
+          "notices"
         ],
         "kwargs": null,
         "reads": [
@@ -3197,6 +3198,10 @@
           [
             "data",
             "delta"
+          ],
+          [
+            "data",
+            "kind"
           ],
           [
             "data",
@@ -3213,7 +3218,8 @@
           "base_ctx",
           "model",
           "read_only",
-          "label"
+          "label",
+          "notices"
         ],
         "kwargs": null,
         "reads": [
@@ -3227,7 +3233,8 @@
       "_result_from_text": {
         "parameters": [
           "text",
-          "label"
+          "label",
+          "notices"
         ],
         "kwargs": null,
         "reads": [],
@@ -3341,7 +3348,8 @@
           "base_ctx",
           "goal",
           "scope",
-          "parts"
+          "parts",
+          "notices"
         ],
         "kwargs": null,
         "reads": [
@@ -3481,7 +3489,8 @@
           "model",
           "read_only",
           "parent_label",
-          "parts"
+          "parts",
+          "notices"
         ],
         "kwargs": null,
         "reads": [
@@ -3533,6 +3542,31 @@
         ],
         "kwargs": null,
         "reads": [],
+        "dynamic": []
+      },
+      "_notice_notes": {
+        "parameters": [
+          "notices"
+        ],
+        "kwargs": null,
+        "reads": [
+          [
+            "notice",
+            "kind"
+          ],
+          [
+            "notice",
+            "params"
+          ],
+          [
+            "params",
+            "detail"
+          ],
+          [
+            "params",
+            "tools"
+          ]
+        ],
         "dynamic": []
       }
     },

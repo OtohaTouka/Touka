@@ -566,7 +566,7 @@ def _notice_notes(notices: Sequence[dict[str, Any]]) -> list[str]:
         params = params if isinstance(params, dict) else {}
         if kind == NOTICE_REFUSAL:
             detail = single_line(str(params.get("detail") or "")).strip()
-            notes.append(f"{SUBAGENT_REFUSED}：{detail}" if detail else SUBAGENT_REFUSED)
+            notes.append(f"{SUBAGENT_REFUSED}：「{detail}」" if detail else SUBAGENT_REFUSED)
         elif kind == NOTICE_SAFETY:
             notes.append(SUBAGENT_SAFETY_BLOCKED)
         elif kind == NOTICE_TOOL_HALLUCINATION:
