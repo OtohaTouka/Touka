@@ -73,7 +73,7 @@ def _board(drive: Path) -> str:
 def test_the_folder_name_is_shared_with_the_board():
     """拒寫的名稱和看板實際所在的資料夾是同一個常數."""
     assert MISSIONS_DIR_NAME == "missions"
-    assert pc.SYSTEM_ROOT_DIRS == frozenset({MISSIONS_DIR_NAME})
+    assert frozenset({MISSIONS_DIR_NAME}) == pc.SYSTEM_ROOT_DIRS
 
 
 @pytest.mark.parametrize(
@@ -135,7 +135,10 @@ async def test_the_board_can_still_be_read(drive: Path) -> None:
 async def test_file_verbs_get_a_structured_permission_error(
     drive: Path, verb: str, extra: dict[str, Any], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """經檔案動詞與 Proxy vault 橋接層：結構化 permission_denied，訊息與建議講看板，不講 `.touka`."""
+    """經檔案動詞與 Proxy vault 橋接層：結構化 permission_denied.
+
+    訊息與建議講看板，不講 `.touka`。
+    """
     handler = getattr(file_verbs, f"verb_{verb}")
     caplog.set_level(logging.WARNING, logger=vault_bridge.__name__)
 

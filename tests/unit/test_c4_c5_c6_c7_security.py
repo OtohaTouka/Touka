@@ -349,7 +349,7 @@ def _sns_event_sites() -> tuple[dict[str, list[ast.Call]], list[str]]:
 
 def test_every_sns_event_states_whether_it_is_verified():
     calls, bypasses = _sns_event_sites()
-    assert _PLATFORM_VERIFIED_ADAPTERS <= set(calls)
+    assert set(calls) >= _PLATFORM_VERIFIED_ADAPTERS
     for rel, nodes in calls.items():
         for call in nodes:
             keywords = [kw.arg for kw in call.keywords]
