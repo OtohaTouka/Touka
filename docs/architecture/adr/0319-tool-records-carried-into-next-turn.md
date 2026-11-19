@@ -5,7 +5,7 @@
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 80 項回「全部照建議」：每一輪帶工具名、參數開頭、成敗、結果開頭 80 字；PR 1 合併前小量試真模型）
 - 相關：[ADR-0249](0249-model-layer-stage-4a-4b.md)（插話標註放回那一則回覆）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0036](0036-unified-round-count-ssot.md)（輪數）
 - 修訂：[ADR-0231](0231-session-persistence-outcomes-and-revisions.md)（第 6 點：只用了工具的回覆不再是空白）、[ADR-0081](0081-resumable-stream-cursor-buffer.md)、[ADR-0302](0302-chat-trim-waits-for-closing-save.md)（PR 2：後端文字版存檔帶工具步驟）、[ADR-0260](0260-home-message-outbound-whitelist.md)、[ADR-0305](0305-soul-prelude-mainline.md)（PR 3：家原文帶簡短紀錄）、[ADR-0307](0307-home-handover-work.md)（PR 3：頻道心跳回報、摘要關閉的註記）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（PR 3：還沒回報那一行；PR 4：最近結束的子代理那一行）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（PR 4：決定 6 多列最近結束的子代理）；PR 4 的 SNS 頻道歷史也修訂 ADR-0307 決定 8
-- 被修訂：2026-11-18 工具幻覺與照抄紀錄的警告改成畫面上的小提示，不再寫在回覆文字裡（by [ADR-0322](0322-who-said-it-and-which-conversation.md) 決定 9）
+- 被修訂：2026-11-18 工具幻覺與照抄紀錄的警告改成畫面上的小提示，不再寫在回覆文字裡（by [ADR-0322](0322-who-said-it-and-which-conversation.md) 決定 9）；2026-11-19 決定 8 心跳不再切段，一個脈衝存一則（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 2）
 - 影響範圍：PR 1a：`ToukaProxy/src/utils/tool_records.py`（新）、`utils/tool_record_marks.py`（新）、`utils/interjection_notes.py`、`utils/history_manager.py`、`utils/time_utils.py`、`services/guard_service.py`、`handlers/react_core.py`、`routers/heartbeat.py`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`；PR 1b：前端 `lib/chat/toolRecords.ts`（新）、`lib/chat/buildApiMessage.ts`、`lib/stream_tree.ts`、`lib/tree_history.ts`、`lib/providers/StreamRegistryProvider.tsx`、`lib/chat/messageNavigation.ts`（匯出 `GROUP_CHAT_ID`）、`lib/export-utils.ts`、`lib/tool_result.ts`、`components/sidebar/left/SessionTree.tsx`，後端測試 `tests/unit/test_tool_records.py`；PR 2：`ToukaProxy/src/utils/tool_step_collector.py`（新）、`routers/heartbeat.py`、`services/dispatcher.py`、`services/sns_gateway.py`、`utils/async_db.py`（`append_message_to_session` 的 `extra_fields`）；PR 3：`utils/session_scope.py`、`utils/async_db.py`（`home_messages_of`、`home_session_ids`）、`services/home_handover.py`、`services/continuity_service.py`、`services/dialogue_summarizer.py`、`services/sliding_window_service.py`、`routers/heartbeat.py`；PR 4：`services/subagent_registry.py`、`tools/subagent_tools.py`、`tools/mission_tools.py`、`services/continuity_service.py`、`services/sns_channel_history.py`（新）、`services/mainline_service.py`、`services/soul_service.py`（`mark_history`、`stamp_message_times` 改成公開）、`utils/session_scope.py`、`scripts/native_tool_contract_baseline.json`
 
 ## 背景
@@ -80,7 +80,7 @@
 - 存檔上限：結果 2,000 字、工具名與參數鍵名 200 字、每個參數值 500 字、整組參數 4,000 字（不是字串的值或整組參數序列化後超過就改存截斷的 JSON 字串；截成字串前先把秘密鍵名的值遮掉，因為之後的紀錄讀不回鍵名）、每則 30 步；截斷的結尾加「…（存檔時截斷）」。沒存的步驟數記在節點的 `stepsDropped`，只供診斷（紀錄與畫面都不讀）。工具串流的輸出每接一段都截回上限。
 - 帶 NaN、Infinity 的事件整個略過：模型的參數可能被 Python 解析成這種值、照樣送進串流，但存檔不接受，存了會讓整則回覆存不進去（心跳整次中止、網頁停在保存不確定、SNS 不回覆）；前端 `JSON.parse` 失敗時也是整個略過。孤立的代理字元（lone surrogate）和文字本身一樣會讓存檔失敗，是原有的限制，這批不處理。
 - 同一個 call_id 已經有步驟時又收到核准請求：前端另外新增一步，後端沿用原步驟、改回等核准（現在的事件順序不會發生）。
-- 心跳：一個脈衝的步驟掛在那個脈衝最後寫入的助理節點（`TURN_SPLIT_PATTERN` 切段時也一樣）；只用了工具、一個字都沒寫的脈衝也寫一則內容空白的回覆，步驟才留得下來（段數照算）。心跳的對話在畫面上因此看得到工具卡。
+- 心跳：一個脈衝的步驟掛在那個脈衝最後寫入的助理節點（`TURN_SPLIT_PATTERN` 切段時也一樣〔2026-11-19 ADR-0323 PR 2：拿掉切段，一個脈衝只有一則〕）；只用了工具、一個字都沒寫的脈衝也寫一則內容空白的回覆，步驟才留得下來（段數照算）。心跳的對話在畫面上因此看得到工具卡。
 - 網頁文字版存檔：存步驟；「沒有文字」改成「沒有文字也沒有步驟」才略過（`no_text`）。畫面收到終態後的富版存檔照舊整個覆蓋，所以這份只在分頁關掉、畫面沒存到時留下來（修訂 ADR-0081、ADR-0302）。
 - SNS：回覆連同步驟存進對話（`append_message_to_session` 的 `extra_fields`）；只用了工具、沒有文字的也存，但不往外送。
 - 不在範圍：沒有畫面保存契約的舊可續傳串流（`_pump_stream_to_buffer`）照舊只存文字。

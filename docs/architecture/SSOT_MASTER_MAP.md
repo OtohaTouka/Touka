@@ -428,6 +428,7 @@
 | 備份鎖持有到備份結束 | `system_backup.run_backup_job` | 手動、匯入前、重置前、排程備份 |
 | 取消時殺行程樹並有界回收 | `process_registry.reap_cancelled_process` | terminal、互審蒐證 |
 | 沒設主要模型 | `errors.json.example` `AGENT_BRAIN_NOT_SET`（1215／409）→ `sync_errors.py` | `SoulLayer`、ToukaChat `useAgentBrainNotice` |
+| 心跳因每日配額或花費上限沒跑（ADR-0323） | `errors.json.example` `AUTONOMY_LIMIT_REACHED`（1121／429）→ `sync_errors.py`；檢查 `routers/heartbeat._autonomy_limit`（入口與每個脈衝前共用） | `/awaken`、背景迴圈 |
 
 ## 任務／對話保存結果（可靠性 R2，2026-09-21）
 

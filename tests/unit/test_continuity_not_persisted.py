@@ -332,9 +332,17 @@ async def test_heartbeat_nudge_says_which_pulse_after_the_fixed_prefix(
     assert "Pulse 2 of 3" not in json.dumps(saved_tree, ensure_ascii=False)
 
 
-async def test_non_soul_heartbeat_gets_no_continuity(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured, _service = _pulse_doubles(
+async def test_non_soul_heartbeat_gets_only_the_minimal_continuity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """不是靈魂的心跳（例如 DebugAgent）拿精簡版：沒有看板與活動紀錄，也不存進對話（ADR-0323）。"""
+    captured, service = _pulse_doubles(
         monkeypatch, [{"role": "user", "content": "hi"}], is_soul=False
     )
     await _pulse()
-    assert OPEN not in captured["request"].model_dump_json()
+    sent = captured["request"].messages[-1].content
+    assert OPEN in sent
+    assert continuity_service.HEARTBEAT_SCOPE_OTHER in sent
+    assert "Mission board" not in sent
+    for call in service.conditional_save_session.await_args_list:
+        assert OPEN not in json.dumps(call.args[2].messages, ensure_ascii=False)

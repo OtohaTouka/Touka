@@ -383,6 +383,12 @@
     "msg": "代理人未獲得心跳喚醒授權",
     "i18n": "error.heartbeat.unauthorized_agent"
   },
+  "AUTONOMY_LIMIT_REACHED": {
+    "id": 1121,
+    "status": 429,
+    "msg": "This agent has used up today's autonomy quota or reached its cost cap; the heartbeat did not run",
+    "i18n": "error.heartbeat.autonomy_limit_reached"
+  },
   "IDENTITY_NOT_FOUND": {
     "id": 1203,
     "status": 404,

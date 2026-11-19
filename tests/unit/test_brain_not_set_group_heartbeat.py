@@ -189,7 +189,7 @@ def test_awaken_refusals_during_a_reset_are_not_recorded(
     """重置、清除或刪除中不記（ADR-0287）；查身分出錯時照樣回原本的錯誤。"""
     skipped = Mock()
     monkeypatch.setattr(heartbeat, "record_heartbeat_skipped", skipped)
-    # 沒設大腦：寫初始提示之前沒在重置，寫完之後開始了（之後每次都是重置中）
+    # 沒設大腦：入口第一次看沒在重置，檢查模型時開始了（之後每次都是重置中；ADR-0323 起先檢查再寫）
     disturbed = Mock(side_effect=itertools.chain([False], itertools.repeat(True)))
     monkeypatch.setattr(heartbeat.destructive_ops, "disturbed", disturbed)
     assert _awaken(auth_client).status_code == 409

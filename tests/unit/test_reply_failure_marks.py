@@ -313,21 +313,12 @@ async def test_a_pulse_that_failed_before_any_text_still_leaves_a_marked_node() 
 
 
 @pytest.mark.asyncio
-async def test_a_failure_after_a_split_marks_the_last_node_of_the_pulse() -> None:
-    tree, _ctx = await _pulse(["第一步做完 --- 第 1 次 自主行動"], failed=True)
-    [reply] = _assistants(tree)
-    assert reply["content"].startswith("第一步做完")
-    assert reply["generationFailed"] is True
-
-
-@pytest.mark.asyncio
-async def test_a_failure_after_a_split_and_more_text_marks_only_the_newest_node() -> None:
+async def test_a_failure_after_a_divider_marks_the_single_node_of_the_pulse() -> None:
+    """整個脈衝存一則（ADR-0323 拿掉切段）：分隔線之後失敗，標在那一則上。"""
     tree, _ctx = await _pulse(["第一步做完 --- 第 1 次 自主行動", "第二步做到一半"], failed=True)
-    first, second = _assistants(tree)
-    assert first["content"].startswith("第一步做完")
-    assert "generationFailed" not in first
-    assert second["content"] == "第二步做到一半"
-    assert second["generationFailed"] is True
+    [reply] = _assistants(tree)
+    assert reply["content"] == "第一步做完 --- 第 1 次 自主行動第二步做到一半"
+    assert reply["generationFailed"] is True
 
 
 @pytest.mark.asyncio

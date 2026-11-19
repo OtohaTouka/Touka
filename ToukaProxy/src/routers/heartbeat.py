@@ -8,11 +8,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import secrets
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -58,6 +57,7 @@ from src.services.continuity_service import (
     SCHEDULE_MODES,
     HeartbeatWake,
     inject_continuity,
+    inject_heartbeat_minimal_continuity,
 )
 from src.services.dispatcher import dispatch_request
 from src.services.heartbeat_schedule_bridge import HeartbeatScheduleBridge
@@ -285,18 +285,61 @@ class HeartbeatRetriggerRequest(BaseModel):
     pulse_count: int = 1
 
 
-def _pulse_model_name(identity: AgentIdentity, model_override: str | None) -> str | None:
-    """脈衝送出用的模型名，和聊天同一個入口（ADR-0250 A5）；沒設或名字模糊記 log 回 None（A3）。"""
+def _resolve_pulse_model(identity: AgentIdentity, model_override: str | None) -> str:
+    """脈衝送出用的模型名，和聊天同一個入口（ADR-0250 A5）；沒設或名字模糊丟出真正的碼（A3）。"""
     brain = model_override or get_active_brain(identity)
-    code = ErrorCode.AGENT_BRAIN_NOT_SET
-    if brain:
-        try:
-            return model_manager.request_model_name(brain)
-        except ToukaException as exc:
-            code = exc.code
-    logger.warning("💓 [Pulse] %s has no usable model (%s); run ended.", identity.agent_id,
-                   code.name)
+    if not brain:
+        raise ToukaException(ErrorCode.AGENT_BRAIN_NOT_SET)
+    return model_manager.request_model_name(brain)
+
+
+def _pulse_model_name(identity: AgentIdentity, model_override: str | None) -> str | None:
+    """背景迴圈每個脈衝用：解析不出來記 log 回 None，由迴圈結束這次 run。"""
+    try:
+        return _resolve_pulse_model(identity, model_override)
+    except ToukaException as exc:
+        logger.warning("💓 [Pulse] %s has no usable model (%s); run ended.", identity.agent_id,
+                       exc.code.name)
+        return None
+
+
+_LIMIT_LOG = {"quota": "Daily autonomy quota exhausted", "budget": "Cost cap reached"}
+
+
+def _autonomy_limit(identity: AgentIdentity) -> Literal["quota", "budget"] | None:
+    """每日自主配額用完回 quota、到花費上限回 budget（ADR-0146）；入口與每個脈衝前共用。"""
+    if not autonomy_service.check_quota(identity):
+        return "quota"
+    if autonomy_service.is_over_budget(identity):
+        return "budget"
     return None
+
+
+def _refuse_unrunnable(
+    identity: AgentIdentity, model_override: str | None, since: int, session_id: str
+) -> None:
+    """跑不了就不寫初始提示（ADR-0323）：模型、每日配額、花費上限先看。
+
+    擋下時記一筆略過原因（找或建對話期間開始重置、清除或刪除的不記，ADR-0287），回真正的錯誤碼；
+    配額與花費共用 ``AUTONOMY_LIMIT_REACHED``，原因只寫在略過事件裡。
+    """
+    reason: HeartbeatSkip | None = None
+    error: ToukaException | None = None
+    try:
+        _resolve_pulse_model(identity, model_override)
+    except ToukaException as exc:
+        error = exc
+        reason = "no_brain" if exc.code is ErrorCode.AGENT_BRAIN_NOT_SET else "no_model"
+    if error is None:
+        reason = _autonomy_limit(identity)
+        if reason is not None:
+            error = ToukaException(ErrorCode.AUTONOMY_LIMIT_REACHED)
+    if error is None or reason is None:
+        return
+    logger.warning("💓 [Heartbeat] %s cannot run (%s); not awakened.", identity.agent_id, reason)
+    if not destructive_ops.disturbed(identity, since):
+        record_heartbeat_skipped(identity, reason, session_id=session_id)
+    raise error
 
 
 async def _execute_single_pulse(
@@ -420,15 +463,20 @@ async def _execute_single_pulse(
             "heartbeat_run": True,
             "is_toukasoul": soul_service.is_toukasoul(identity),
             "source_message_id": trigger.get("id"),
+            # 每個脈衝自己的編號：工具輪計數照它分開，兩個心跳同時跑不再共用（ADR-0323）
+            "request_id": request_id,
             # 失敗句不當成這個靈魂的回覆存：節點只加出錯旗標（ADR-0322 PR 2）
             "caller_sends_failure_text": True,
         }
     )
     # KF-4（ADR-0246 心跳）：dispatch 前組裝工具；仍受地板、HUMAN_ONLY 與無人在場規則約束
     await _HEARTBEAT_TOOL_LAYER.process(chat_req, ctx)
-    # continuity v1（心跳模式）：只附在這次送出的請求，不寫回對話樹；只給靈魂
+    # continuity v1（心跳模式）：只附在這次送出的請求，不寫回對話樹。不是靈魂的代理人
+    # （例如 DebugAgent）拿精簡版：時間、沒人在場、第幾個脈衝與被誰叫醒（ADR-0323）
     if ctx.get("is_toukasoul"):
         await inject_continuity(chat_req, ctx, identity, now_s=now_s)
+    else:
+        inject_heartbeat_minimal_continuity(chat_req, ctx, now_s=now_s)
 
     response = await dispatch_request(
         model_name=model_name,
@@ -439,14 +487,11 @@ async def _execute_single_pulse(
         context=ctx,  # PipelineContext 支援 dict-like 存取
     )
 
-    # 3. 解析串流並分段持久化 (原子化樹更新)
+    # 3. 解析串流，整個脈衝存一則（ADR-0323：拿掉舊的「--- … 自主行動」切段與「請繼續」）
     current_turn_text = ""
     turn_count = 0
-    # ADR-0319 PR 2：這個脈衝的工具步驟，存在這個脈衝最後寫入的助理節點
+    # ADR-0319 PR 2：這個脈衝的工具步驟，存在這個脈衝寫入的助理節點
     tool_steps = ToolStepCollector()
-    last_reply_id: str | None = None
-
-    TURN_SPLIT_PATTERN = re.compile(r"--- [^\n]*? 自主(?:行動|回合)")
 
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
@@ -477,26 +522,6 @@ async def _execute_single_pulse(
 
                 if delta_content:
                     current_turn_text += delta_content
-                    match = TURN_SPLIT_PATTERN.search(current_turn_text)
-                    if match:
-                        end_idx = match.end()
-                        turn_content = current_turn_text[:end_idx].strip()
-                        if turn_content:
-                            turn_count += 1
-                            tree_history = TreeMessageManager.append_node(
-                                tree_history, "assistant", turn_content, name=agent_id
-                            )
-                            last_reply_id = tree_history["currentId"]
-                            # 為了滿足 Claude API 嚴格的 User-Assistant 交替規則
-                            # 在同一次 API 串流的分段持久化之間，插入一條系統過渡訊息
-                            tree_history = TreeMessageManager.append_node(
-                                tree_history,
-                                "user",
-                                f"{user_intent.SYSTEM_NUDGE_PREFIX}自主行動階段完成，請繼續。",
-                                name=user_intent.SYSTEM_SPEAKER,
-                            )
-                            await save_pulse()
-                            current_turn_text = current_turn_text[end_idx:].strip()
             except (ToukaException, SessionPersistenceError):
                 raise
             except Exception:  # noqa: S112
@@ -504,19 +529,19 @@ async def _execute_single_pulse(
 
     reply_fields = tool_steps.node_fields()
     if ctx.get("model_failed"):
-        # 模型失敗：已經寫出的文字照存，這個脈衝最後一個節點加旗標，記號由組歷史時加
+        # 模型失敗：已經寫出的文字照存，這個脈衝的節點加旗標，記號由組歷史時加
         # （ADR-0318）；一個字都沒寫也留一個節點（ADR-0322 PR 2）
         reply_fields["generationFailed"] = True
-    if current_turn_text.strip() or (reply_fields and last_reply_id is None):
+    if current_turn_text.strip() or reply_fields:
         # 只用了工具、一個字都沒寫的脈衝也寫一則，步驟才留得下來
         turn_count += 1
         tree_history = TreeMessageManager.append_node(
             tree_history, "assistant", current_turn_text.strip(), name=agent_id
         )
-        last_reply_id = tree_history["currentId"]
-    if reply_fields and last_reply_id is not None:
-        TreeMessageManager.add_new_fields(tree_history, last_reply_id, reply_fields)
-    if current_turn_text.strip() or reply_fields:
+        if reply_fields:
+            TreeMessageManager.add_new_fields(
+                tree_history, tree_history["currentId"], reply_fields
+            )
         await save_pulse()
 
     return turn_count
@@ -616,26 +641,17 @@ async def _process_heartbeat_loop(
                 end = "interrupted"
                 break
             # ADR-0146：每日自主配額（決策 2：只計無人 pulse）與成本上限閘的
-            # 前置執法點——耗盡即停剩餘 pulses（check_quota 舊制從無任何執法點）。
-            if not autonomy_service.check_quota(identity):
+            # 前置執法點——耗盡即停剩餘 pulses；和入口共用同一組檢查（ADR-0323）。
+            limit = _autonomy_limit(identity)
+            if limit is not None:
                 logger.warning(
-                    "⛔ [Heartbeat-BG] Daily autonomy quota exhausted for %s; "
-                    "skipping remaining pulses (%d/%d done).",
+                    "⛔ [Heartbeat-BG] %s for %s; skipping remaining pulses (%d/%d done).",
+                    _LIMIT_LOG[limit],
                     agent_id,
                     i,
                     pulse_count,
                 )
-                end = "quota"
-                break
-            if autonomy_service.is_over_budget(identity):
-                logger.warning(
-                    "⛔ [Heartbeat-BG] Cost cap reached for %s; "
-                    "skipping remaining pulses (%d/%d done).",
-                    agent_id,
-                    i,
-                    pulse_count,
-                )
-                end = "budget"
+                end = limit
                 break
             # P4：背景活動登記（→ /stats background_activity → UI「背景跑中」脈衝 i/N）
             activity_registry.set_activity(
@@ -921,10 +937,15 @@ async def awaken_agent(
     epoch_now = get_current_epoch()
     time_str, weekday = format_epoch_to_taipei(epoch_now)
     init_head = f"{user_intent.HEARTBEAT_INIT_PREFIX}{time_str} ({weekday})】"
-    init_content = f"{init_head}\n\n{safe_init_prompt}"
+    # 開頭那行之後寫明這是排程送出的預設提示（ADR-0323）；開頭那行不變（審查員、前端靠它）
+    init_content = f"{init_head}\n{user_intent.HEARTBEAT_INIT_NOTE}\n\n{safe_init_prompt}"
     # 丙-4：上面找或建對話時有 await，這段期間開始的重置或刪除也擋（寫初始提示之前再看一次）
     if destructive_ops.disturbed(identity, since):
         raise ToukaException(ErrorCode.AGENT_RESET_IN_PROGRESS)
+    # 跑得了才寫提示（ADR-0323）：模型、配額、花費先看，跑不了家裡不會疊出沒人回的提示。
+    # 探針照舊先寫再回、不檢查（ADR-0250 A3 的大腦檢查原本也排在探針之後）。
+    if not is_probe:
+        _refuse_unrunnable(identity, req.model_override, since, final_session_id)
     if not await session_service.append_message_to_session(
         final_session_id, "user", init_content, identity=identity
     ):
@@ -934,14 +955,7 @@ async def awaken_agent(
     if is_probe:
         return {"status": "accepted", "message": "Probe persisted.", "session_id": final_session_id}
 
-    # 7. 驗證大腦可用性 (Fail Fast)：排程沒指定模型、靈魂也沒有主要模型 → 409（ADR-0250 A3）
-    if not req.model_override and get_active_brain(identity) is None:
-        logger.warning("💓 [Heartbeat] %s has no primary model; not awakened.", agent_id)
-        if not destructive_ops.disturbed(identity, since):  # 寫初始提示期間開始的重置也不記
-            record_heartbeat_skipped(identity, "no_brain", session_id=final_session_id)
-        raise ToukaException(ErrorCode.AGENT_BRAIN_NOT_SET)
-
-    # 8. 啟動多脈衝背景任務
+    # 7. 啟動多脈衝背景任務（模型、配額、花費已在寫提示之前檢查過，ADR-0323）
     logger.info(
         f"💓 [Heartbeat] Dispatching background loop for {agent_id} "
         f"(Identity Type: {type(identity)})"

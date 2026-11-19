@@ -2567,6 +2567,7 @@
       "load_failed": "Failed to load schedules"
     },
     "heartbeat": {
+      "autonomy_limit_reached": "This agent has used up today's autonomy quota or reached its cost cap, so the heartbeat did not run.",
       "invalid_token": "Invalid Heartbeat service key",
       "orphan_agent": "The agent is orphaned, or the owner's Refresh Token has expired",
       "unauthorized_agent": "The agent is not authorized for Heartbeat wake-up"

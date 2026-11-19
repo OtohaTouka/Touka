@@ -81,6 +81,12 @@ _MINUTE_PRECISION = 16
 _MISSION_REF_CHARS = 8
 
 HEARTBEAT_LINE = "- Run type: autonomous heartbeat; no human is present in this run."
+# 心跳不帶聊天的技能與專案說明（ADR-0323）：靈魂另有人格與前情，不是靈魂的只有列出的工具
+_HEARTBEAT_SCOPE = (
+    "Heartbeat runs do not load chat skills or the conversation's project context; only "
+)
+HEARTBEAT_SCOPE_SOUL = f"{_HEARTBEAT_SCOPE}your persona, prelude and the listed tools."
+HEARTBEAT_SCOPE_OTHER = f"{_HEARTBEAT_SCOPE}the listed tools."
 # 這段對話是什麼（ADR-0322 PR 3 家-1）：先看觸發來源（SNS 一律外人），再看是不是家
 KIND_SNS = (
     "messages come from outsiders through an SNS platform, not from your owner - even when "
@@ -506,6 +512,7 @@ async def build_continuity_block(
         if heartbeat:
             lines.append(HEARTBEAT_LINE)
             lines.extend(_wake_lines(wake or HeartbeatWake(), now_s))
+            lines.append(f"- {HEARTBEAT_SCOPE_SOUL}")
         else:
             lines.append(await _previous_turn_line(soul, session_id, now_s, timeline))
         lines.append(_human_line(now_s, timeline))
@@ -525,6 +532,35 @@ async def build_continuity_block(
         if start is not None:
             lines.append(start)
     return wrap_block(CONTINUITY, "\n".join(lines))
+
+
+def build_heartbeat_minimal_continuity(
+    wake: HeartbeatWake | None, *, now_s: float | None = None
+) -> str:
+    """不是靈魂的代理人跑心跳（例如 DebugAgent）：時間、沒人在場、第幾個脈衝與被誰叫醒。
+
+    不讀活動紀錄、看板與家：那些是靈魂的（ADR-0323；ADR-0267 原本只給靈魂）。
+    """
+    now_s = get_current_epoch() if now_s is None else now_s
+    lines = [
+        HEADER,
+        current_time_line(now_s),
+        HEARTBEAT_LINE,
+        *_wake_lines(wake or HeartbeatWake(), now_s),
+        f"- {HEARTBEAT_SCOPE_OTHER}",
+    ]
+    return wrap_block(CONTINUITY, "\n".join(lines))
+
+
+def inject_heartbeat_minimal_continuity(
+    request: Any, ctx: Any, *, now_s: float | None = None
+) -> None:
+    """把精簡版附在這次請求最後一則 user 訊息尾端（不寫回對話樹）。"""
+    wake = ctx.get("heartbeat_wake")
+    block = build_heartbeat_minimal_continuity(
+        wake if isinstance(wake, HeartbeatWake) else None, now_s=now_s
+    )
+    append_to_last_user(request, "\n\n" + block)
 
 
 async def inject_continuity(

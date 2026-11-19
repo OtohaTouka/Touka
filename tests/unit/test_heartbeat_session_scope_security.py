@@ -200,8 +200,8 @@ async def test_pulse_checks_scope_before_history_reaches_model(monkeypatch):
     assert await raw_row() == before
 
 
-@pytest.mark.parametrize("split", [False, True], ids=["final", "intermediate"])
-async def test_pulse_revalidates_at_each_stream_write(monkeypatch, split):
+async def test_pulse_revalidates_at_its_stream_write(monkeypatch):
+    """整個脈衝存一則（ADR-0323 拿掉切段）：唯一一次寫入照樣重驗歸屬。"""
     await seed()
     replaced = {}
 
@@ -210,7 +210,7 @@ async def test_pulse_revalidates_at_each_stream_write(monkeypatch, split):
             await db.execute("UPDATE user_sessions SET agent_id = ?", (B.agent_id,))
             await db.commit()
         replaced.update(await raw_row())
-        text = "foreign output --- stage 自主行動" if split else "foreign output"
+        text = "foreign output"
         yield f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
 
     pulse_dependencies(monkeypatch, body)

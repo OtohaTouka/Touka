@@ -321,15 +321,16 @@ async def test_a_pulse_saves_its_tool_steps_on_its_reply(monkeypatch):
     assert [(n["content"], n["steps"]) for n in assistants] == [("完成", [READ_STEP])]
 
 
-async def test_split_turns_put_the_steps_on_the_last_reply_of_the_pulse(monkeypatch):
-    split = "做事\n--- 第 1 輪 自主行動"
-    turns, assistants = await _pulse(monkeypatch, _text(split), _sse(*READ_STEPS), _text("收尾"))
-    assert turns == 2
-    assert [n.get("steps") for n in assistants] == [None, [READ_STEP]]
-
-    turns, assistants = await _pulse(monkeypatch, _sse(*READ_STEPS), _text(split))
+async def test_a_divider_no_longer_splits_the_pulse_or_its_steps(monkeypatch):
+    """整個脈衝存一則（ADR-0323 拿掉切段），步驟都在那一則上。"""
+    divider = "做事\n--- 第 1 輪 自主行動"
+    turns, assistants = await _pulse(
+        monkeypatch, _text(divider), _sse(*READ_STEPS), _text("收尾")
+    )
     assert turns == 1
-    assert [(n["content"], n.get("steps")) for n in assistants] == [(split, [READ_STEP])]
+    assert [(n["content"], n.get("steps")) for n in assistants] == [
+        (divider + "收尾", [READ_STEP])
+    ]
 
 
 async def test_a_tools_only_pulse_still_writes_a_reply(monkeypatch):

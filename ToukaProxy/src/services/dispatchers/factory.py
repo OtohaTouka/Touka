@@ -70,6 +70,9 @@ async def get_stream_generator(
             strip_anthropic_sdk_env_overrides()  # 副本建構時 SDK 會重讀環境（ADR-0247）
             context["anthropic_client"] = anthropic_client.with_options(api_key=live_key)
         context["model"] = model_name  # 與另外兩家一致：子代理可沿用這一輪實際的模型（附註 35）
+        # 工具輪計數照請求編號分開（另外兩家由 run_info 帶）；只帶這一個鍵，沒傳 session_id 的
+        # 呼叫端不會被設成 None（ADR-0323）
+        context["request_id"] = request_id
         return handle_claude_request(request, context)
 
     active_req = request
