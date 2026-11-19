@@ -1,7 +1,8 @@
 """可信活動事件的記錄器與各掛點用的小函式.
 
 只在領域自己確認事情真的做成之後呼叫：使用者這一輪已保存（SoulLayer）、心跳開始與結束、
-任務狀態已保存（mission_tools）、記憶已提交（Memory 經 ``event_recorder`` 呼叫同一個記錄器）。
+任務狀態已保存（mission_tools）、記憶已提交（Memory 經 ``event_recorder`` 呼叫同一個記錄器）、
+群聊成員說完、SNS 回覆送出（ADR-0323；只記在哪、不記內容）。
 結果不明或失敗都不呼叫，也不另寫 failed；例外是心跳的 ``crashed``（重啟時確認上次沒跑完）與
 ``heartbeat_skipped``（入口被擋），記的都是確定的事實（ADR-0318）。模型沒有任何寫入路徑。
 
@@ -55,13 +56,28 @@ EventKind = Literal[
     "memory_saved",
     "memory_archived",
     "memory_superseded",
+    "group_turn",
+    "sns_turn",
 ]
 EVENT_KINDS: frozenset[str] = frozenset(get_args(EventKind))
-# 會重複發生的轉換（FAILED → 重置 → 再 FAILED、兩次 BLOCKED）：event_id 加當下毫秒。
-# 其餘是終端狀態，或主體天生唯一、不會再發生第二次的事件，用固定鍵。
+# 會重複發生的轉換（FAILED → 重置 → 再 FAILED、兩次 BLOCKED）與同一段群聊或 SNS 頻道裡
+# 每一次說話：event_id 加當下毫秒。其餘是終端狀態，或主體天生唯一、不會再發生第二次的事件，
+# 用固定鍵。
 REPEATABLE_KINDS: frozenset[str] = frozenset(
-    {"task_todo", "task_doing", "task_blocked", "task_failed", "heartbeat_skipped"}
+    {
+        "task_todo",
+        "task_doing",
+        "task_blocked",
+        "task_failed",
+        "heartbeat_skipped",
+        "group_turn",
+        "sns_turn",
+    }
 )
+# 沒有對話編號的 API 群聊（用戶端自己送歷史）：主題用固定字
+GROUP_NO_SESSION_SUBJECT = "api-group"
+# SNS 群聊這一輪說完的成員：分發器記在外層 ctx，SNS 入口送出後照名單記（ADR-0323）
+GROUP_SPOKEN_SOULS = "group_spoken_souls"
 # 心跳結束原因（固定列舉）；crashed 是重啟時發現上次沒跑完（ADR-0318）
 HeartbeatEnd = Literal[
     "completed",
@@ -92,13 +108,16 @@ def event_id(kind: str, agent: str, subject: str, occurred_ms: int) -> str:
     return f"{base}:{occurred_ms}" if kind in REPEATABLE_KINDS else base
 
 
+def hashed_ref(value: object) -> str:
+    """一律換成 ``h:`` 加雜湊（例如 SNS 的平台加頻道編號，原文不進表）."""
+    digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:_SAFE_REF_HASH_CHARS]
+    return f"h:{digest}"
+
+
 def safe_ref(value: object) -> str:
     """模型寫的 id 只保留短的英數 id；其他換成 ``h:`` 加雜湊（原文不進表）."""
     text = str(value)
-    if _SAFE_REF.fullmatch(text):
-        return text
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:_SAFE_REF_HASH_CHARS]
-    return f"h:{digest}"
+    return text if _SAFE_REF.fullmatch(text) else hashed_ref(text)
 
 
 def _skipped(ctx: Any) -> bool:
@@ -232,6 +251,54 @@ def record_user_turn(ctx: Any, soul: AgentIdentity) -> None:
         recorder.record(soul, "user_turn", message_id, session_id=_session(ctx))
     except Exception:
         logger.warning("Activity event user_turn was not recorded.", exc_info=True)
+
+
+def record_group_turn(ctx: Any, soul: AgentIdentity) -> None:
+    """一般群聊裡這位成員說完了（失敗不算）；主題是對話編號的雜湊，沒有對話編號用固定字.
+
+    API 群聊的對話編號是用戶端送的、沒有核對：只存雜湊，不存原字串（``session_id`` 欄位留空）。
+    """
+    try:
+        if _skipped(ctx):
+            return
+        session_id = _session(ctx)
+        subject = hashed_ref(session_id) if session_id else GROUP_NO_SESSION_SUBJECT
+        recorder.record(soul, "group_turn", subject, session_id=None)
+    except Exception:
+        logger.warning("Activity event group_turn was not recorded.", exc_info=True)
+
+
+def note_group_member_spoke(ctx: Any, soul: AgentIdentity) -> None:
+    """群聊成員說完了：SNS 群聊記進名單（回覆送出後才記 ``sns_turn``），其他記 ``group_turn``."""
+    if ctx.get("sns_source"):
+        spoken = ctx.get(GROUP_SPOKEN_SOULS)
+        if not isinstance(spoken, list):
+            spoken = []
+            ctx[GROUP_SPOKEN_SOULS] = spoken
+        spoken.append(soul.agent_id)
+        return
+    record_group_turn(ctx, soul)
+
+
+def group_spoken_souls(ctx: Any) -> list[AgentIdentity]:
+    """SNS 群聊這一輪說完的成員（分發器記下的名單）；同一位被點兩次也只算一次."""
+    spoken = ctx.get(GROUP_SPOKEN_SOULS)
+    if not isinstance(spoken, list):
+        return []
+    unique = dict.fromkeys(agent for agent in spoken if isinstance(agent, str))
+    return [AgentIdentity(agent_id=agent) for agent in unique]
+
+
+def record_sns_turn(
+    soul: AgentIdentity, platform: str, channel_id: str, *, session_id: str | None
+) -> None:
+    """SNS 回覆送出去了：主題是平台加頻道編號的雜湊."""
+    try:
+        recorder.record(
+            soul, "sns_turn", hashed_ref(f"{platform}:{channel_id}"), session_id=session_id
+        )
+    except Exception:
+        logger.warning("Activity event sns_turn was not recorded.", exc_info=True)
 
 
 def heartbeat_run_key(session_id: str, t0: float) -> str:

@@ -205,6 +205,8 @@ async def mission_tools(action: str, **kwargs: Any) -> Any:
             artifact_refs = result.get("artifact_refs") or []
             if artifact_refs:
                 lines.append(f"Artifacts: {', '.join(artifact_refs[:10])}")
+            # 子代理被拒答、被擋或提到沒呼叫的工具（系統寫的，不是子代理說的；ADR-0323）
+            lines.extend(f"System note: {note}" for note in result.get("system_notes") or [])
             lines.append(f"Result: {result.get('result_summary', '')}")
             return "\n".join(lines)
 

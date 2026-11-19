@@ -40,12 +40,19 @@ from src.services.subagent_registry import (
 )
 from src.tools import subagent_tools as st
 from src.tools.mission_tools import mission_tools
+from src.utils import task_utils
 from src.utils.time_utils import get_current_epoch
 
 from tests.helpers.stream_transport import FakeUpstream, stream_reply
 from tests.proxy.characterization.harness import drain, install_clock, make_clock, make_ctx, msg
 
 _GUARD_S = 10.0
+
+
+def _subagent_tasks() -> set[asyncio.Task[Any]]:
+    """背景子代理經 spawn_logged 開（ADR-0323）。"""
+    return {t for t in task_utils._background_tasks if t.get_name().startswith("subagent:")}
+
 _SOUL = AgentIdentity.for_role("Sumi", "Owner", capabilities=["*"])
 
 
@@ -278,7 +285,7 @@ def test_dispatch_tools_are_tied_to_the_turn():
 async def test_a_subagent_loop_takes_all_its_tools_down_with_it(subagent_run, cancelled):
     """子代理的迴圈被收掉時，它還在跑的工具一起取消；主代理只收綁在這一輪的工具。"""
     task = asyncio.create_task(asyncio.sleep(3600))
-    react_core._cancel_turn_bound_tools([("c1", "research", task)], everything=subagent_run)
+    react_core._cancel_turn_bound_tools([("c1", "research", task, False)], everything=subagent_run)
     await asyncio.sleep(0)
     assert task.cancelled() is cancelled
     task.cancel()
@@ -360,10 +367,10 @@ async def test_a_cancelled_background_task_still_hands_back_a_result(
 ):
     """背景派工的 task 本身被取消（例如 Touka 關機）：照樣交回「已取消」，等的一方不空等。"""
     child = _Child(monkeypatch)
-    before = set(st._BACKGROUND_TASKS)
+    before = _subagent_tasks()
     res = await st.dispatch_subagent(goal="g", identity=None, request_id="r", _ctx={})
     token = json.loads(res)["callback_token"]
-    (task,) = set(st._BACKGROUND_TASKS) - before
+    (task,) = _subagent_tasks() - before
     async with asyncio.timeout(_GUARD_S):
         await child.started.wait()
         task.cancel()

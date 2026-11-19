@@ -13,6 +13,7 @@ from src.protocols.sns_base import BaseSNSAdapter  # noqa: TC001
 from src.services.agent_detector import detect_target_agent
 from src.services.agent_service import agent_service
 from src.services.auth_service import AuthService
+from src.services.continuity_events import group_spoken_souls, record_sns_turn
 from src.services.identity_service import identity_service
 from src.services.proxy_service import process_proxy_request
 from src.services.reply_in_flight import replying
@@ -187,11 +188,13 @@ class SNSGatewayService:
         identity = identity_service.get_identity(target_agent_id)
         self.last_target_agent = "ToukaGroup" if is_group else target_agent_id
         session_id = None
+        at_home = False
         if not is_group:
             home = (
                 await session_service.read_home_snapshot(identity)
                 if session_mode == "home" else None
             )
+            at_home = home is not None
             session_id = home.session["id"] if home else await session_service.open_channel_session(
                 "sns", identity, event.platform, event.channel_id,
                 title=f"{event.platform.capitalize()}: {event.channel_id}",
@@ -283,6 +286,13 @@ class SNSGatewayService:
                 if outgoing.strip()
                 else True
             )
+            # 送到了才記在哪裡說過（ADR-0323）：群聊照分發器記下的名單；
+            # 單人在家模式不記（回合在家裡）
+            if delivered and is_group:
+                for member in group_spoken_souls(ctx):
+                    record_sns_turn(member, event.platform, event.channel_id, session_id=None)
+            elif delivered and not failed and full_text.strip() and not at_home:
+                record_sns_turn(identity, event.platform, event.channel_id, session_id=session_id)
             # 只用了工具或只有小提示、沒有文字的也存（留給下一輪的工具紀錄與網頁），但不往外送
             fields = tool_steps.node_fields()
             if failed:

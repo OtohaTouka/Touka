@@ -102,7 +102,7 @@ def test_event_id_table(kind: str, subject: str, expected: str) -> None:
 
 def test_every_kind_is_classified() -> None:
     assert ce.REPEATABLE_KINDS < ce.EVENT_KINDS
-    assert len(ce.EVENT_KINDS) == 15
+    assert len(ce.EVENT_KINDS) == 17  # ADR-0323 加 group_turn、sns_turn
 
 
 @pytest.mark.parametrize(

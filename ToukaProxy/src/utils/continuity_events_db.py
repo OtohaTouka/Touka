@@ -140,6 +140,12 @@ _RECENT = (
     "WHERE agent_id = ? AND kind IN ('task_done', 'mission_completed', 'mission_finalized') "
     "AND occurred_at >= ? ORDER BY occurred_at DESC, rowid DESC LIMIT ?"
 )
+# 最近在群聊與 SNS 說過幾次、最後一次（家裡那一行，ADR-0323）
+_ELSEWHERE = (
+    "SELECT kind, COUNT(*), MAX(occurred_at) FROM continuity_events "
+    "WHERE agent_id = ? AND kind IN ('group_turn', 'sns_turn') AND occurred_at >= ? "
+    "GROUP BY kind ORDER BY kind"
+)
 _STARTS = "SELECT value FROM system_settings WHERE key IN (?, ?)"
 
 
@@ -152,6 +158,7 @@ class TimelineSnapshot:
     last_run: tuple[str, int, dict[str, Any]] | None  # 種類（結束或入口被擋）、毫秒、metadata
     recent: tuple[tuple[str, int, str, dict[str, Any]], ...]
     records_start_ms: int | None
+    elsewhere: tuple[tuple[str, int, int], ...] = ()  # 種類、次數、最後一次的毫秒
 
 
 async def _scalar(db: Any, sql: str, params: tuple[Any, ...]) -> int | None:
@@ -167,6 +174,7 @@ async def read_snapshot(
     exclude_message_id: str | None,
     since_ms: int,
     limit: int,
+    elsewhere_since_ms: int | None = None,
 ) -> TimelineSnapshot:
     """一條連線讀完 continuity 要的事件（不含這一輪的訊息）；讀不到丟例外."""
     agent, skip = identity.agent_id, exclude_message_id or ""
@@ -180,6 +188,10 @@ async def read_snapshot(
         async with db.execute(_RECENT, (agent, since_ms, limit)) as cursor:
             recent = await cursor.fetchall()
         records_start = await _records_start(db, identity)
+        elsewhere: list[Any] = []
+        if elsewhere_since_ms is not None:
+            async with db.execute(_ELSEWHERE, (agent, elsewhere_since_ms)) as cursor:
+                elsewhere = list(await cursor.fetchall())
     return TimelineSnapshot(
         last_turn_here_ms=here,
         last_human_ms=human,
@@ -188,6 +200,7 @@ async def read_snapshot(
             (row[0], int(row[1]), row[2], json.loads(row[3] or "{}")) for row in recent
         ),
         records_start_ms=records_start,
+        elsewhere=tuple((row[0], int(row[1]), int(row[2])) for row in elsewhere),
     )
 
 

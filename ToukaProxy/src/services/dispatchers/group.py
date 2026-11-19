@@ -16,6 +16,7 @@ from src.models.context import PipelineContext  # noqa: TC001
 from src.models.identity import AgentIdentity
 from src.services.authorization_gateway import can_drive_soul
 from src.services.client_system import CLIENT_SYSTEM_KEY
+from src.services.continuity_events import note_group_member_spoke
 from src.services.continuity_lines import build_group_member_continuity
 from src.services.dispatchers.factory import get_stream_generator
 from src.services.dispatchers.utils import strip_redundant_labels
@@ -285,6 +286,10 @@ async def dispatch_group_stream(
         tail = member.finish(_failure_text(nested_ctx, alias_name, sns=sns))
         if tail:
             yield _text_chunk(tail, native=member.native)
+
+        # 說完了就記在哪裡說過（失敗不算；只記在哪、不記內容，ADR-0323）
+        if not nested_ctx.get("model_failed"):
+            note_group_member_spoke(context, target_identity)
 
         # 這位成員問的問題沒等到回答：整輪停下，下一位成員不再呼叫模型（ADR-0308）
         if nested_ctx.get(UNANSWERED_KEY):

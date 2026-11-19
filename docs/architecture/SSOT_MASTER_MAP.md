@@ -223,7 +223,7 @@
 |---|---|---|
 | 可信活動事件表（只有中繼資料、trust 寫死 `'system'`、epoch 毫秒）的結構與讀寫 | 建表 `ToukaProxy/src/utils/async_db.py` `init_db_async`；讀寫 `ToukaProxy/src/utils/continuity_events_db.py`（`EventRow`、`insert_event`、`read_snapshot`、`count_agent_events`、`purge_agent_events`、`list_agent_events`） | 記錄器、continuity、重置、刪除前檢查、GDPR 匯出 |
 | 可信紀錄起點 | `system_settings` 的 `trusted_timeline_epoch`（`async_db.TRUSTED_TIMELINE_EPOCH_KEY`，第一次建表時寫）與 `trusted_timeline_epoch:<靈魂>`（`continuity_events_db.agent_epoch_key`，重置時寫） | continuity 的起點行 |
-| 事件種類、event_id 規則、模型寫的 id 怎麼顯示、誰的事件不記 | `ToukaProxy/src/services/continuity_events.py`（`EVENT_KINDS`、`REPEATABLE_KINDS`、`event_id`、`safe_ref`、`events_scope`、`record_user_turn`、`record_*`） | SoulLayer、心跳迴圈、`mission_tools`、記憶閘道、continuity |
+| 事件種類、event_id 規則、模型寫的 id 怎麼顯示、誰的事件不記 | `ToukaProxy/src/services/continuity_events.py`（`EVENT_KINDS`、`REPEATABLE_KINDS`、`event_id`、`safe_ref`、`hashed_ref`、`events_scope`、`record_user_turn`、`record_*`；群聊與 SNS 說過話 `note_group_member_spoke`、`GROUP_SPOKEN_SOULS`、`GROUP_NO_SESSION_SUBJECT`，ADR-0323） | SoulLayer、心跳迴圈、`mission_tools`、記憶閘道、群聊分發器、SNS 入口、continuity |
 | 唯一的寫入入口（同步、不阻塞、照呼叫順序逐筆寫） | `continuity_events.ContinuityEventRecorder`（`main.py` 啟動時 `start_recording`、關機時 `stop_recording`）；Memory 端只認 `memory_server.protocols.IContinuityEventRecorder`，經 `memory_server/services/event_recorder.py` 登記 | 上面所有掛點；`MemoryManager.save_memory`／`resolve_duplicate`、`lifecycle.supersede_memory` |
 
 ## 記憶系統第二批：段 T4 對話時間戳、摘要時間範圍、舊對話直接歸檔（2026-10-15，ADR-0264）
