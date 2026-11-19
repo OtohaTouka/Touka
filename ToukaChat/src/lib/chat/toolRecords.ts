@@ -36,15 +36,24 @@ const FULLWIDTH: Record<string, string> = { '<': '＜', '>': '＞', '〔': '［'
 // 後端 utils/secrets.py 的同一組樣式（pytest 核對樣式本體與旗標；編譯目標不支援 s 旗標，
 // 後端 DOTALL 的「.」這裡寫成 [\s\S]）
 const SECRET_MASK = '••••••••';
-const SECRET_KEY_RE = /(API_KEY|_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|BEARER)/i;
+// 不帶 u 旗標：`\b` 與大小寫只認英數，後端用 re.ASCII 對齊；空白寫成和後端一字不差的字元集（ADR-0324）
+const SECRET_KEY_RE = /(API[-_]?KEY|_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|BEARER)/i;
 const CONTENT_SECRET_PATTERNS: readonly RegExp[] = [
-  /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
+  /\bBearer[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{12,}/gi,
+  /\bAuthorization[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:Basic|Bearer)[\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[^\t\n\v\f\r \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff\"']+/gi,
   /\bsk-[A-Za-z0-9_-]{12,}\b/g,
+  /\b[rs]k_live_[A-Za-z0-9]{16,}\b/g,
   /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g,
+  /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
 ];
+// 只在紀錄裡另外遮的鍵名與字串裡的「"鍵名": "值"」（後端 _RECORD_EXTRA_KEY_RE、_RECORD_KEY_VALUE_RE）
+const RECORD_EXTRA_KEY_RE = /AUTHORIZATION/i;
+const RECORD_KEY_VALUE_RE = /("([A-Za-z0-9_.-]{1,64})" *: *)"(?:[^"\\]|\\.)*"/g;
 
 // 只認後端 tool_errors 的固定錯誤種類；其他字串可能是工具自己寫的
 const KNOWN_ERROR_CLASSES: readonly string[] = [
@@ -168,15 +177,18 @@ function cpPrefix(text: string, n: number): string {
 function field(text: string, limit: number): string {
   let out = cpPrefix(text.replace(SPACE_RUN_RE, ' ').replace(/^ +| +$/g, ''), MAX_SCAN_CHARS);
   for (const pattern of CONTENT_SECRET_PATTERNS) out = out.replace(pattern, '<redacted>');
+  out = out.replace(RECORD_KEY_VALUE_RE, (whole: string, prefix: string, key: string) =>
+    (isRecordSecretKey(key) ? `${prefix}"${SECRET_MASK}"` : whole));
   return truncate(out.replace(/[<>〔〕]/g, ch => FULLWIDTH[ch]), limit);
 }
 
 const isSecretKey = (key: string) => SECRET_KEY_RE.test(key);
+const isRecordSecretKey = (key: string) => isSecretKey(key) || RECORD_EXTRA_KEY_RE.test(key);
 
 function masked(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(masked);
   if (isObj(value)) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, isSecretKey(k) ? SECRET_MASK : masked(v)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, isRecordSecretKey(k) ? SECRET_MASK : masked(v)]));
   }
   return value;
 }
@@ -193,7 +205,7 @@ function argsPart(args: unknown): string {
   const items = Object.entries(args);
   if (!items.length) return '';
   const shown = items.slice(0, MAX_ARG_KEYS).map(([key, value]) =>
-    `${field(key, MAX_ARG_CHARS)}=「${isSecretKey(key) ? SECRET_MASK : field(asText(value), MAX_ARG_CHARS)}」`);
+    `${field(key, MAX_ARG_CHARS)}=「${isRecordSecretKey(key) ? SECRET_MASK : field(asText(value), MAX_ARG_CHARS)}」`);
   if (items.length > MAX_ARG_KEYS) shown.push(ELLIPSIS);
   return `（${shown.join('、')}）`;
 }

@@ -21,6 +21,7 @@ import json
 import re
 from typing import Any, Literal
 
+from src.adapters.content_normalize import normalize_message_content
 from src.services.tool_errors import (
     INTERNAL_ERROR,
     PERMISSION_DENIED,
@@ -34,7 +35,13 @@ from src.services.tool_errors import (
 
 from .history_manager import count_rounds_from_linear
 from .interjection_notes import annotate_node
-from .secrets import MASK, is_secret_key, mask_secret_keys, redact_secrets_from_content
+from .secrets import (
+    MASK,
+    is_record_secret_key,
+    mask_record_key_values,
+    mask_record_secret_keys,
+    redact_secrets_from_content,
+)
 from .time_utils import TIME_FOOTER_PREFIX
 from .tool_record_marks import (
     SPACE_RUN_RE,
@@ -97,9 +104,9 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _field(text: str, limit: int) -> str:
-    """壓成一行、只留前 MAX_SCAN_CHARS 字、遮金鑰、角括號與〔〕換全形，再截斷."""
+    """壓成一行、只留前 MAX_SCAN_CHARS 字、遮金鑰（含紀錄專用的寫法）、角括號與〔〕換全形，再截斷."""
     flat = SPACE_RUN_RE.sub(" ", text).strip(" ")[:MAX_SCAN_CHARS]
-    redacted, _ = redact_secrets_from_content(flat)
+    redacted = mask_record_key_values(redact_secrets_from_content(flat)[0])
     return _truncate(redacted.translate(_FULLWIDTH), limit)
 
 
@@ -107,7 +114,7 @@ def _as_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(
-        mask_secret_keys(value), ensure_ascii=False, separators=(",", ":"), default=str
+        mask_record_secret_keys(value), ensure_ascii=False, separators=(",", ":"), default=str
     )
 
 
@@ -127,7 +134,7 @@ def _args_part(args: Any) -> str:
         return ""
     shown = [
         f"{_field(str(key), MAX_ARG_CHARS)}=「"
-        f"{MASK if is_secret_key(str(key)) else _field(_as_text(value), MAX_ARG_CHARS)}」"
+        f"{MASK if is_record_secret_key(str(key)) else _field(_as_text(value), MAX_ARG_CHARS)}」"
         for key, value in items[:MAX_ARG_KEYS]
     ]
     if len(items) > MAX_ARG_KEYS:
@@ -243,11 +250,40 @@ def record_levels(messages: list[dict[str, Any]]) -> list[RecordLevel | None]:
     return levels
 
 
+def _neutralized_parts(parts: list[Any]) -> list[Any]:
+    """多段內容的每個文字段換掉假標記（其他段原樣）."""
+    return [
+        {**part, "text": neutralize_record_markers(part["text"])}
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+        else part
+        for part in parts
+    ]
+
+
+def _neutralized_content(content: Any) -> Any:
+    """字串、多段、前端存成 JSON 字串的多段內容都換掉假標記（ADR-0324）.
+
+    JSON 字串先還原成多段再換（跳脫過的換行、tab 在原字串裡比對不到）；沒換到東西時原字串
+    一字不差地回傳，免得提示快取失效。
+    """
+    if isinstance(content, list):
+        return _neutralized_parts(content)
+    if not isinstance(content, str):
+        return content
+    parts = normalize_message_content(content)
+    if not isinstance(parts, list):
+        return neutralize_record_markers(content)
+    fixed = _neutralized_parts(parts)
+    if fixed == parts:
+        return content
+    return json.dumps(fixed, ensure_ascii=False, separators=(",", ":"))
+
+
 def _neutralized(node: dict[str, Any]) -> dict[str, Any]:
     """內容與插話文字裡的假紀錄標記換掉（送出的副本）."""
     copy = dict(node)
-    if isinstance(node.get("content"), str):
-        copy["content"] = neutralize_record_markers(node["content"])
+    if isinstance(node.get("content"), (str, list)):
+        copy["content"] = _neutralized_content(node["content"])
     interjections = node.get("interjections")
     if isinstance(interjections, list):
         copy["interjections"] = [

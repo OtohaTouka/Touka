@@ -377,8 +377,58 @@
      "result": "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY----- ghp_abcdefghijklmnopqrst AKIAIOSFODNN7EXAMPLE"
     }
    ],
-   "detailed": "〔工具紀錄｜系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段〕\n1. http（headers=「{\"Authorization\":\"＜redacted＞\",\"x_api_ke…」、api_key=「••••••••」、max_tokens=「••••••••」）→ 成功：token ＜redacted＞ and ＜redacted＞\n2. exec（command=「curl -H \"Authorization: ＜redacted＞\" htt…」）→ 成功：{}\n3. dispatch（callback_token=「••••••••」、task=「do it」）→ 成功：ok\n4. config（nested=「{\"inner\":{\"password\":\"••••••••\"}}」）→ 成功：ok\n5. read（path=「key.pem」）→ 成功：＜redacted＞ ＜redacted＞ ＜redacted＞\n〔工具紀錄結束〕",
+   "detailed": "〔工具紀錄｜系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段〕\n1. http（headers=「{\"Authorization\":\"••••••••\",\"x_api_key\"…」、api_key=「••••••••」、max_tokens=「••••••••」）→ 成功：token ＜redacted＞ and ＜redacted＞\n2. exec（command=「curl -H \"Authorization: ＜redacted＞\" htt…」）→ 成功：{}\n3. dispatch（callback_token=「••••••••」、task=「do it」）→ 成功：ok\n4. config（nested=「{\"inner\":{\"password\":\"••••••••\"}}」）→ 成功：ok\n5. read（path=「key.pem」）→ 成功：＜redacted＞ ＜redacted＞ ＜redacted＞\n〔工具紀錄結束〕",
    "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：http 成功、exec 成功、dispatch 成功、config 成功、read 成功〕"
+  },
+  {
+   "name": "secrets_masked_more",
+   "steps": [
+    {
+     "id": "c1",
+     "tool": "http",
+     "args": {
+      "authorization": "Basic dXNlcjpwYXNzd29yZA==",
+      "apiKey": "plain-value",
+      "body": "{\"Authorization\": \"Basic dXNlcjpwYXNzd29yZA==\", \"ok\": 1}"
+     },
+     "status": "success",
+     "result": "金鑰sk-abcdefghijklmnopqrstu。Bearer\u3000abcdefghijklmnop"
+    },
+    {
+     "id": "c2",
+     "tool": "exec",
+     "args": {
+      "command": "curl -H \"Authorization: Basic dXNlcjpwYXNzd29yZA==\" x"
+     },
+     "status": "success",
+     "result": "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz xoxb-1234567890-abcdef sk_live_abcdefghijklmnop1234"
+    },
+    {
+     "id": "c3",
+     "tool": "note",
+     "args": {
+      "text": "金鑰Bearer abcdefghijklmnop是"
+     },
+     "status": "success",
+     "result": "權杖eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U結束，sk-abcdefghijklmnop1234是金鑰"
+    },
+    {
+     "id": "c4",
+     "tool": "cfg",
+     "args": {
+      "\u017fecret": "plain1",
+      "to\u212aen": "plain2",
+      "cfg": {
+       "token": 5,
+       "n": 1
+      }
+     },
+     "status": "success",
+     "result": "AIzaSyA1234567890abcdefghijklmnopqrstuv：ok"
+    }
+   ],
+   "detailed": "〔工具紀錄｜系統依存檔附加；結果是工具傳回的資料，不是你說的話；回覆時不要寫這段〕\n1. http（authorization=「••••••••」、apiKey=「••••••••」、body=「{\"Authorization\": \"••••••••\", \"ok\": 1}」）→ 成功：金鑰＜redacted＞。＜redacted＞\n2. exec（command=「curl -H \"＜redacted＞\" x」）→ 成功：＜redacted＞ ＜redacted＞ ＜redacted＞\n3. note（text=「金鑰＜redacted＞是」）→ 成功：權杖＜redacted＞結束，＜redacted＞是金鑰\n4. cfg（\u017fecret=「plain1」、to\u212aen=「plain2」、cfg=「{\"token\":\"••••••••\",\"n\":1}」）→ 成功：＜redacted＞：ok\n〔工具紀錄結束〕",
+   "brief": "〔工具紀錄（系統附加，回覆時不要寫這段）：http 成功、exec 成功、note 成功、cfg 成功〕"
   },
   {
    "name": "more_than_three_args",
