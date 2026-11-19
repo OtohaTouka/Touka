@@ -301,6 +301,8 @@ tests/
 | `test_previous_turn_marks.py` ⭐ | **ADR-0318 PR 3・上一輪沒做完的記號**：和前端 `turnNotes.ts` 純文字比對相同；停止與出錯都加、停止優先、只認 `true`；在插話標註之前；空回覆加了記號不再被合併；回合數不變；家原文帶記號；SNS「沒有送到」記號與平台名稱和前端一致、排在出錯之後（ADR-0322） |
 | `test_interjection_notes.py` ⭐ | **ADR-0249 第 4a 段・伺服器端重組標註**：範本與前端 `INTERJECTION_NOTE_TEMPLATE` 純文字比對相同；照步數排、只取已送達有文字的；只改助理節點、不改原節點；回合數不變；心跳脈衝訊息、主線帶的家原文（`home_messages_of`）、摘要輸入都帶標註 |
 | `test_c4_c5_c6_c7_security.py` | C4/C5/C6/C7：路徑穿越、Shell metachar 注入（升級成 CONFIRM 的日誌不含指令的任何片段，禁令 23 同類）、演化工具名稱只經 MCP 協定傳遞、不進程式碼或 argv、Webhook 驗簽框架 |
+| `test_subagent_result_forgery_security.py` ⭐ | （ADR-0324）子代理結果不能被主代理偽造：個人空間舊位置的假結果不被採用（憑證發過照舊等真結果、沒發過回憑證不明、真結果照樣拿到）；結果存在不屬於任何代理人資料夾的系統暫存、檔名不含憑證、別的代理人讀不到、編號大小寫不影響；7 天清理在存、讀與啟動時跑，資料夾不存在時不建，啟動時清理失敗不影響啟動；重置保留清單與匯出的不含清單都列出它 |
+| `test_mission_board_write_deny_security.py` ⭐ | （ADR-0324）AI 的檔案工具不能改任務看板：寫入類動作與 write／edit／insert／delete 碰根目錄的 `missions/`（大小寫、子資料夾、`..`、絕對路徑）都被拒、檔不變、回結構化 permission_denied 並建議 mission_tools；相似名稱照常可寫、讀照常、系統經 MissionManager 照常存看板 |
 | `test_terminal_auth.py` | C8：終端機 `approve`/`reject` 端點 JWT + 角色驗證 |
 | `test_heartbeat_schedules_auth.py` | C9：Heartbeat `/v1/schedules` Bearer Token 驗證 |
 | `test_h1_h2_h6_security.py` | H1/H2/H6：Secure Cookie、IP 速率限制、Refresh Token 輪換 |

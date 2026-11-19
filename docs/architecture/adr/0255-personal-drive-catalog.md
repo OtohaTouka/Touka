@@ -51,7 +51,7 @@
   - `CATALOG_READ_MAX_BYTES`：hash 與標題只讀這個大小以內的檔，超過的 `sha256`、`title` 是 `null`。
   - `CATALOG_TITLE_MAX_CHARS`：標題字數上限。
   - `CATALOG_SKIP_DIR_NAMES`：任何深度都略過的目錄名（`.touka`、`.git` 等）。
-  - `CATALOG_SKIP_ROOT_DIRS`：只在根目錄略過的目錄（任務板 `missions`、派工結果 `dispatch_results`）。
+  - `CATALOG_SKIP_ROOT_DIRS`：只在根目錄略過的目錄（任務板 `missions`、派工結果 `dispatch_results`）。〔ADR-0324：`dispatch_results` 只剩舊檔，新的結果存系統暫存；根目錄的 `missions/` 也拒寫（`SYSTEM_ROOT_DIRS`，`SystemFolderDeniedError`），要經 mission_tools。〕
   - `CATALOG_SKIP_FILE_GLOBS`：略過的檔名樣式（寫檔暫存、鎖檔）。
 - 不跟隨 symlink 與 junction：只收 `lstat` 是一般檔案的項目。
 - 聊天上傳（`outputs/uploads/`）照列，類型依副檔名。

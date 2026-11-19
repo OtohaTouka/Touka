@@ -745,9 +745,9 @@
     "rule": [
       "R14"
     ],
-    "file": "ToukaProxy/src/services/subagent_results.py",
-    "old": "def _results_dir(identity: AgentIdentity) -> ZonePath | None:",
-    "new": "def _results_dir(identity: AgentIdentity) -> object:",
+    "file": "ToukaProxy/src/services/agent_reset/primitives.py",
+    "old": "def _mission_dir(identity: AgentIdentity) -> ZonePath | None:",
+    "new": "def _mission_dir(identity: AgentIdentity) -> object:",
     "tests": [
       "tests/lint/test_zone_path_guard.py::test_functions_returning_a_zone_path_say_so"
     ],
@@ -840,22 +840,6 @@
     ],
     "posix_only": false,
     "note": "Z6 任務看板；先紅在 expect_zone_refusal（got 0）"
-  },
-  {
-    "id": "z6_dispatch_results_read_follows",
-    "rule": [
-      "R2",
-      "Z6"
-    ],
-    "file": "ToukaProxy/src/services/subagent_results.py",
-    "old": "        data = None if path is None else resource_manager.zone_read_json(path)",
-    "new": "        data = None if path is None else __import__(\"json\").loads(resource_manager._zone_target(path, \"zone_read_json\").read_text(\"utf-8\"))",
-    "tests": [
-      "tests/unit/test_subagent_results.py::test_a_linked_results_folder_is_not_followed"
-    ],
-    "marker": "LINK_FOLLOWED",
-    "posix_only": false,
-    "note": "Z6 派工結果；斷言在 expect_zone_refusal 裡面，先丟出帶 LINK_FOLLOWED 的 AssertionError"
   },
   {
     "id": "z6_review_evidence_follows",

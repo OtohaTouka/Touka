@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 # --- [依賴管理：SSOT Import] ---
 try:
-    from memory_server.services.personal_catalog import CatalogPathDeniedError
+    from memory_server.services.personal_catalog import (
+        CatalogPathDeniedError,
+        SystemFolderDeniedError,
+    )
     from memory_server.tools import vault_tools as memory_vault_impl
 except ImportError:
     # 這裡允許延遲錯誤，以便在沒有安裝 ToukaMemory 的環境下仍能啟動 Proxy 進行基本測試
@@ -89,6 +92,16 @@ async def vault_tools(vault: str, action: str, **kwargs: Any) -> Any:
             suggestion=(
                 "Read .touka/catalog.json to view it; the system rebuilds it from your files."
             ),
+        )
+    except SystemFolderDeniedError as e:
+        # 看板由系統維護（ADR-0324）：預期中的拒絕，只記一行 warning、不記 stack trace
+        logger.warning(
+            "Agent '%s' tried to change '%s/' via %s; refused.", agent_id, e.folder, action
+        )
+        return build_tool_error(
+            PERMISSION_DENIED,
+            str(e),
+            suggestion="Use mission_tools to view or change the task board.",
         )
     except Exception as e:
         logger.exception("🔥 Error in vault_tools bridge for agent %s", agent_id)

@@ -18,6 +18,7 @@
 | 誰核准的說明、審查員理由的上限、停止時多久看一次待審的卡 | `services/approval_flow.py` `APPROVED_BY_PERSON_NOTE`、`APPROVED_BY_REVIEWER_NOTE`、`MAX_REVIEW_REASON_CHARS`、`APPROVAL_STOP_CHECK_SECONDS` | `tool_executor` 的核准路徑、`approval_denied_error` |
 | 子代理多久看一次停止 | `tools/subagent_tools.py` `STOP_CHECK_SECONDS` | `_cancel_when_parent_stops` |
 | 站內等結果憑證的壽命 | `services/dispatch_callback_store.py` `IN_PROCESS_TOKEN_GRACE_SECONDS`、`IN_PROCESS_TOKEN_LIFETIME_SECONDS` | `DispatchCallbackStore._drop_expired` |
+| 子代理耐久結果的位置、檔名與保留期限（data 底下的系統暫存，代理人寫不到；ADR-0324） | `services/subagent_results.py`（`_SUBDIR`、`RESULT_RETENTION_SECONDS`、`prune_expired_results`；位置經 `resource_manager.get_temp_path`） | `subagent_tools._persist_durable`、`mission_tools`（`await_dispatch_result`）、`main.py` 啟動時清一次；重置的 `RETAINED_STORES`、GDPR 匯出的 `EXPORT_EXCLUDED` 列出它 |
 | 子代理結果的長度上限與省略標示（保留結尾） | `tools/subagent_tools.py` `_RESULT_SUMMARY_MAX`、`OMITTED_HEAD_NOTE`、`_keep_tail` | 子代理的成功、逾時、模型錯誤結果 |
 
 ## 系統說明保留、模式與核准說明（2026-11-16，ADR-0316）
@@ -312,7 +313,7 @@
 
 | 責任 | 唯一來源 | 使用者 |
 |---|---|---|
-| 個人空間目錄（`personal_catalog`，`.touka/catalog.json`）＝衍生快取，正本是檔案系統：記哪些 metadata、只信任自己寫出的內容、隱藏與拒寫的名稱、略過的目錄與檔名、筆數與讀取上限、根目錄 `list` 的提示行 | `ToukaMemory/src/memory_server/services/personal_catalog.py`（常數 `CATALOG_DIR_NAME`、`CATALOG_FILE_NAME`、`CATALOG_HIDDEN_NAMES`、`CATALOG_SKIP_DIR_NAMES`、`CATALOG_SKIP_ROOT_DIRS`、`CATALOG_SKIP_FILE_GLOBS`、`CATALOG_MAX_ENTRIES`、`CATALOG_READ_MAX_BYTES`、`CATALOG_TITLE_MAX_CHARS`、`CATALOG_HINT`；模型 `PersonalCatalog`、`CatalogEntry`；例外 `CatalogPathDeniedError`）；掃描經資源代理 `IResourceProxy.stat_files`、`read_file_binary` | Memory `vault_tools` 的 personal 分支 → `run_vault_action`；Proxy vault 橋接層（`tools/vault_tools.py`，`CatalogPathDeniedError` → `permission_denied`） |
+| 個人空間目錄（`personal_catalog`，`.touka/catalog.json`）＝衍生快取，正本是檔案系統：記哪些 metadata、只信任自己寫出的內容、隱藏與拒寫的名稱、略過的目錄與檔名、筆數與讀取上限、根目錄 `list` 的提示行 | `ToukaMemory/src/memory_server/services/personal_catalog.py`（常數 `CATALOG_DIR_NAME`、`CATALOG_FILE_NAME`、`CATALOG_HIDDEN_NAMES`、`CATALOG_SKIP_DIR_NAMES`、`CATALOG_SKIP_ROOT_DIRS`、`CATALOG_SKIP_FILE_GLOBS`、`CATALOG_MAX_ENTRIES`、`CATALOG_READ_MAX_BYTES`、`CATALOG_TITLE_MAX_CHARS`、`CATALOG_HINT`、`SYSTEM_ROOT_DIRS`；模型 `PersonalCatalog`、`CatalogEntry`；例外 `CatalogPathDeniedError`、`SystemFolderDeniedError`；看板資料夾名稱 `mission_manager.MISSIONS_DIR_NAME`）；掃描經資源代理 `IResourceProxy.stat_files`、`read_file_binary` | Memory `vault_tools` 的 personal 分支 → `run_vault_action`；Proxy vault 橋接層（`tools/vault_tools.py`，`CatalogPathDeniedError`、`SystemFolderDeniedError` → `permission_denied`） |
 
 ## 隔離第一批（iso-c1）：小件修補與執行路徑缺口（2026-10-15，ADR-0254）
 

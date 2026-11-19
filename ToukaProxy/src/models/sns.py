@@ -23,9 +23,11 @@ class SNSIncomingEvent(BaseModel):
     content: str
     attachments: list[SNSAttachment] = []
     raw_event: Any | None = None  # 保留原始事件以供特殊處理
-    # C7 fix: flag whether the platform SDK verified this event's authenticity.
-    # Platform adapters must set is_verified=True only after successful signature
-    # validation (e.g., Discord Ed25519, Telegram HMAC, Line HMAC-SHA256).
+    # C7 fix: the platform verified where this event came from — a webhook whose signature
+    # was checked (e.g., Discord Ed25519, Telegram secret token, Line HMAC-SHA256), or a
+    # connection opened with the bot token (gateway / long polling). It does not mean the
+    # sender is trusted (ADR-0276 still decides what outsiders can do). Every adapter must
+    # pass is_verified explicitly (ADR-0324).
     is_verified: bool = False
     # 發言者說明（ADR-0322 PR 3）：私訊或公開、平台上的顯示名稱；沒有就是不明
     is_direct: bool | None = None

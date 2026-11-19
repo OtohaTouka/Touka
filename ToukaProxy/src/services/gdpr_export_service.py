@@ -54,6 +54,15 @@ EXPORT_ENCRYPT_SEMAPHORE = asyncio.Semaphore(2)
 
 SCHEMA_VERSION = 1
 
+# manifest 的「不含」清單：明確揭露，不只寫在 ADR
+EXPORT_EXCLUDED: tuple[str, ...] = (
+    "password_hash_and_tokens (security)",
+    "vector_embeddings (derived, non-portable)",
+    "agent_persona_soul_config (system configuration)",
+    "global_system_settings (not personal data)",
+    "dispatch_results (sub-agent result cache in system temp, kept up to 7 days; ADR-0324)",
+)
+
 # 個人硬碟檔案大小上限（複審：加密時逐條目讀入記憶體 → 上限 bound 峰值，防 OOM DoS）。
 # 寬鬆預設，避免截斷正常匯出；超限者略過並列入 manifest（不靜默丟棄）。
 _MAX_FILE_BYTES = 100 * 1024 * 1024  # 單檔 100 MiB
@@ -354,12 +363,7 @@ async def _collect(
             "agent_home_handover",
             "agent_personal_drive",
         ],
-        "excluded": [
-            "password_hash_and_tokens (security)",
-            "vector_embeddings (derived, non-portable)",
-            "agent_persona_soul_config (system configuration)",
-            "global_system_settings (not personal data)",
-        ],
+        "excluded": list(EXPORT_EXCLUDED),
         # 略過的個人硬碟檔案（連結／過大／超總量）——明確揭露，不靜默丟棄；寫 zip 時才補齊。
         "skipped": state["skipped"],
     }

@@ -85,6 +85,8 @@ class DiscordAdapter(BaseSNSAdapter):
                         content=content,
                         attachments=attachments,
                         raw_event=message,
+                        # 經平台驗證的 bot 連線收到（gateway），不是 webhook（ADR-0324）
+                        is_verified=True,
                         **discord_sender_fields(message.author, is_dm=is_dm),
                     )
 

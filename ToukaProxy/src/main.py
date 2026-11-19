@@ -129,6 +129,7 @@ from .services.permission_service import permission_service
 from .services.resource_manager import resource_manager
 from .services.skill_service import skill_service
 from .services.sns_gateway import sns_gateway
+from .services.subagent_results import prune_expired_results
 from .services.zone_file_response import zone_file_response
 from .tools.builtin import builtin_tools_schema, tool_registry
 from .tools.plugin_loader import load_plugins
@@ -560,6 +561,11 @@ async def _lifespan_runtime(
         interrupted = []
     # 掃到的各記一筆 crashed 結束，下一次心跳看得到（ADR-0318）；不會丟例外
     await record_crashed_heartbeats(interrupted, identity_service.get_identity)
+    # ADR-0324：子代理結果暫存超過保留期限的清掉；只在啟動時跑一次（不排程），失敗只記 log
+    try:
+        prune_expired_results()
+    except Exception:
+        logger.exception("[Startup] 子代理結果暫存清理失敗")
 
     # ADR-0082：dispatch 併入 proxy 容器——supervisor spawn/監督 localhost 子程序。
     # 預設關閉（settings.DISPATCH_AUTOSPAWN）；compose 於 proxy 服務顯式開啟。
