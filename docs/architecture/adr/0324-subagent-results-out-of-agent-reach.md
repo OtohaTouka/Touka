@@ -1,11 +1,11 @@
 # ADR-0324：子代理結果移出代理人寫得到的地方、看板擋檔案工具、SNS 驗證標記、遮罩缺口
 
-- 狀態：🚧 進行中（PR 1：子代理結果、看板擋檔案工具、SNS 驗證標記；PR 2：遮罩缺口）
+- 狀態：✅ 已實作（PR 1：子代理結果、看板擋檔案工具、SNS 驗證標記，2026-11-20；PR 2：遮罩缺口與多段內容的假標記，2026-11-20）
 - 日期：2026-11-19
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 92 項回「甲：照 2.1 版做」；保留 7 天、不掛刪除與改名、看板只先擋檔案工具、SNS 不改成拒收，是計畫裡寫明的「我自己定的」）
 - 相關：[ADR-0138](0138-parallel-fanout-and-resumable-delivery.md)（耐久結果）、[ADR-0051](0051-dispatch-callback-channel.md)（等結果的憑證）、[ADR-0293](0293-agent-folders-no-follow.md)（代理人資料夾）、[ADR-0255](0255-personal-drive-catalog.md)（個人空間目錄與 `.touka/` 拒寫）、[ADR-0137](0137-adversarial-review-subsystem.md)（互審關卡）、[ADR-0287](0287-hold-heartbeats-during-destructive-ops.md)（刪除時的子代理）、[ADR-0276](0276-heartbeat-session-scope.md)（SNS 外人）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（遮罩缺口）
-- 修訂：ADR-0138（耐久結果的位置）、ADR-0051（耐久讀取的位置）、ADR-0287（已知限制：刪除後子代理才交結果會重建個人空間資料夾，已解決）、ADR-0255（`missions/` 也拒寫）
-- 影響範圍：PR 1：`ToukaProxy/src/services/subagent_results.py`、`main.py`（啟動時清一次）、`services/agent_reset/primitives.py`（保留清單）、`services/gdpr_export_service.py`（`EXPORT_EXCLUDED`）、`tools/vault_tools.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`models/sns.py`、`services/resource_manager.py`、`ToukaMemory/src/memory_server/services/personal_catalog.py`、`services/mission_manager.py`（`MISSIONS_DIR_NAME`）、`protocols.py`
+- 修訂：ADR-0319（PR 2：決定 4 的遮蔽差異與已知限制、決定 7 的多段內容）、ADR-0138（耐久結果的位置）、ADR-0051（耐久讀取的位置）、ADR-0287（已知限制：刪除後子代理才交結果會重建個人空間資料夾，已解決）、ADR-0255（`missions/` 也拒寫）
+- 影響範圍：PR 1：`ToukaProxy/src/services/subagent_results.py`、`main.py`（啟動時清一次）、`services/agent_reset/primitives.py`（保留清單）、`services/gdpr_export_service.py`（`EXPORT_EXCLUDED`）、`tools/vault_tools.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`models/sns.py`、`services/resource_manager.py`、`ToukaMemory/src/memory_server/services/personal_catalog.py`、`services/mission_manager.py`（`MISSIONS_DIR_NAME`）、`protocols.py`；PR 2：`ToukaProxy/src/utils/secrets.py`、`utils/tool_records.py`、前端 `ToukaChat/src/lib/chat/toolRecords.ts`、黃金案例檔 `ToukaChat/src/lib/chat/__tests__/toolRecords.golden.json`
 
 ## 背景
 
@@ -48,10 +48,41 @@
 - 測試要求產品程式裡每個 `SNSIncomingEvent(...)` 字面寫出 `is_verified=`（展開的參數不算），不准用 `model_validate`／`model_construct` 繞過。之後加 webhook 型 adapter 時驗過簽才可寫 True。
 - 不改成「沒驗證就拒收」：現在沒有 webhook 型 adapter，改了擋不到東西。
 
+## 決定（PR 2）
+
+`utils/secrets.py` 的樣式有兩種用途：組「做過的事」紀錄時遮參數與結果開頭（後端給心跳，前端 `lib/chat/toolRecords.ts` 複製一份給網頁），以及 `redact_secrets_from_content` 給 MCP 資源與提示送給 AI 前的遮蔽、備份錯誤輸出、稽核。鍵名那組另外給設定頁、MCP 環境變數與設定快照。
+
+### 5. 樣式只認英數，空白寫成明確字元集
+
+- 鍵名與內容樣式一律加 `re.ASCII`：`\b` 與不分大小寫只認英數，和前端（JS 不帶 `u` 旗標）一致。以前 Python 把中文當字母，`金鑰sk-…`、`權杖eyJ…結束` 這種前後直接接中文的金鑰後端不遮，MCP 遮蔽也漏。
+- 副作用：`ſecret`、`toKen`（克耳文符號）這類鍵名後端不再當成金鑰，和前端一致；環境變數名不會用這種字。`désk-…` 這種罕見寫法會被遮，接受。
+- 空白不用 `\s`／`\S`：Python 加 `re.ASCII` 後 `\s` 只認英文空白，JS 的 `\s` 認全形與不換行空白；MCP 那條路拿的是原文，`Bearer` 後接全形空白的權杖會漏。兩邊寫成同一個字元集 `_WS`（兩種 `\s` 的聯集）。
+- pytest 核對前端樣式時要求後端帶 `re.ASCII`、樣式本體不准出現 `\s`、`\S`。前端不用 lookbehind（編譯目標 ES2017）。
+
+### 6. 共用的樣式與鍵名多認幾種
+
+- 內容樣式加：`Authorization:` 後接 `Basic` 或 `Bearer` 的整段標頭（任何長度）、Stripe `sk_live_`／`rk_live_`、GitHub `github_pat_`、Slack `xox[abposr]-`、Google `AIza` 後接 35 字。都是很特定的開頭；MCP 文件裡的「Authorization: Bearer <token>」範例也會被遮，接受。
+- 鍵名加 `API[-_]?KEY`（`apiKey`、`api-key`、`x-api-key`），設定頁裡這類名字本來就是金鑰。
+- 紀錄、MCP 遮蔽、備份、稽核、設定頁一起多遮。
+
+### 7. 只在紀錄裡另外遮的
+
+- 鍵名 `Authorization`（`_RECORD_EXTRA_KEY_RE`）：不放進共用名單，否則設定頁會把 `OAUTH_AUTHORIZATION_URL` 這類不是金鑰的設定也遮掉。參數鍵名與巢狀物件的鍵名都套用（`is_record_secret_key`、`mask_record_secret_keys`）。
+- 字串裡 `"鍵名": "值"` 的寫法，鍵名要遮時值換成遮罩（`mask_record_key_values`）：序列化後鍵與值中間夾引號，內容樣式比對不到。結果開頭的 `"password": "…"` 也遮。
+- 前端複製同樣兩條樣式，pytest 逐字核對。黃金案例檔多一組 `secrets_masked_more`（緊貼中文、全形空白、新樣式、怪字母鍵名、數字值的巢狀金鑰）；原本 `secrets_masked` 裡巢狀 `Authorization` 的值改成遮罩。
+
+### 8. 多段內容裡的假標記也換
+
+- 後端換假「〔工具紀錄」時，內容是多段（list）的逐段換文字部分；前端存成 JSON 字串的多模態內容先還原成多段再換（跳脫過的換行、tab 在原字串裡比對不到），換完照原形式放回（緊湊分隔、`ensure_ascii=False`，和前端 `JSON.stringify` 一致）。前端自己送出的本來就先換再序列化。
+- 沒換到東西時原字串一字不差地回傳，提示快取不失效。只改送出的副本。
+- 摘要器在換完標記之後才攤平內容，list 裡的假標記也不再進摘要器的提示。
+
 ## 沒選的做法
 
 - 結果檔加簽章、留在個人空間：要一把跨重啟的金鑰（拿登入金鑰另作他用，或多一個要持久化的密鑰），之後看板要用同一做法時 ToukaDispatch 也得拿到金鑰；搬位置比較單純。
 - 刪除與改名時清結果資料夾：要改三條流程；檔名要憑證才算得出來，最多 7 天就清掉，代價小。
+- 單獨的 `Basic …` 樣式：「Basic configuration」這種一般英文會被遮。
+- `Authorization` 放進共用鍵名：設定頁會遮掉不是金鑰的設定。
 - 這次就把看板搬家：牽動 Proxy、Memory、ToukaDispatch 三個服務、督導跨身分讀、重置、刪除、改名，以及現有看板只搬一次，另開任務。
 
 ## 已知限制
@@ -61,9 +92,18 @@
 - 被注入的子代理仍能在自己的摘要裡寫一行「System note:」，顯示在 `Result:` 那段裡。
 - 外部派工的憑證會出現在 initialize 的回覆裡，可以用本機回呼送結果；隔離的終端封鎖 Touka 自己的埠擋得住，未隔離的 MCP 擋不住。外部派工目前凍結。
 - 看板仍能經終端與能寫個人空間的 MCP 伺服器直接改（見決定 3）。
+- 沒有 `Authorization:` 標頭的短 Bearer（少於 12 字）不遮：「Bearer short」這種一般英文分不出來。
+- 鍵名夾看不見的字（`API` 加零寬字元加 `_KEY`）兩邊都不遮：鍵名判斷在換掉看不見的字之前；鍵名是模型自己寫的，值在那一輪已經完整給它看過。
+- 不是字串的參數寫成 JSON 時數字寫法前後端不同（`30.0` 對 `30`、整數樣式鍵的順序），只差紀錄文字；遮罩在序列化之前依鍵名做，兩邊遮的結果相同（黃金案例鎖住）。
 
 ## 驗證（PR 1）
 
 - 新測試：`tests/unit/test_subagent_result_forgery_security.py`（舊位置的假檔不被採用、憑證沒發過回憑證不明、真結果照樣拿到、新位置不在代理人資料夾、檔名不含憑證、別的代理人讀不到、編號大小寫、7 天清理的三個觸發點與不建資料夾、啟動時清一次且失敗不影響啟動、重置與匯出清單）、`tests/unit/test_mission_board_write_deny_security.py`（四種寫入動作與四個檔案動詞、絕對路徑、相似名稱照常可寫、讀照常、系統照常存看板）、`test_c4_c5_c6_c7_security.py` C7 段的靜態測試。
 - `tests/zone_mutations.json`：`r14_g2` 照舊（`_SUBDIR` 那行保留）；`r14_t2` 改靶到重置的 `_mission_dir`；`z6_dispatch_results_read_follows` 拿掉（看板那條 Z6 還在）。兩條手動跑改壞執行器都會紅。
 - `scripts/native_tool_contract_baseline.json` 記下 `SystemFolderDeniedError.__init__`（Guard #45）。
+
+## 驗證（PR 2）
+
+- 新測試：`tests/unit/test_secret_mask_cjk_security.py`（緊貼中文的金鑰、各種空白後的 Bearer、新樣式各一個會遮、一般文字不遮、共用鍵名、`Authorization` 只在紀錄、怪字母鍵名兩邊都不遮、字串裡的鍵值、各層的 `Authorization`）。
+- `tests/unit/test_tool_records.py`：旗標核對改成要求 `re.ASCII`、禁 `\s`；紀錄專用兩條樣式的前後端核對；多段內容、JSON 字串、沒換時一字不差、摘要器四個案例。黃金案例檔 pytest 與 vitest 都讀，兩邊一字不差。
+- 改壞驗證（先跑沒改壞的基準）：21 處各改壞一次，對應的測試都會紅（前端的改法另跑 vitest）。

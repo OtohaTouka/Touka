@@ -187,6 +187,13 @@ Guard #23 以 HIGH／CRITICAL 為阻擋門檻；moderate／low 隨上游相容�
 
 以下是歷次內部審計與修補的紀錄。C1–N12、P1–P34、DA1–DA28、SP1–SP8 這類編號是當時審計批次裡的項目代號；設計與取捨寫在各項附的 ADR。開源之前的修補發生在私人 repo，文中的 PR 編號與 commit 在這個 repo 找不到。
 
+### 金鑰緊貼中文時遮蔽漏掉、多段內容裡的假工具紀錄沒被換掉（2026-11-20，ADR-0324 PR 2）
+
+| 弱點 | 修正與驗證 |
+|---|---|
+| `utils/secrets.py` 的內容樣式用 `\b`，Python 把中文當字母，`金鑰sk-…`、`權杖eyJ…結束` 這種前後直接接中文的金鑰後端不遮；這組樣式也用在 MCP 資源與提示送給 AI 前的遮蔽、備份錯誤輸出與稽核。`Authorization: Basic`、Google `AIza…`、GitHub `github_pat_`、Slack、Stripe 的金鑰與 `apiKey`／`x-api-key` 鍵名也沒涵蓋 | 樣式加 `re.ASCII`（和前端一致），空白寫成兩邊一字不差的字元集，全形與不換行空白後的 Bearer 照遮；補上上述樣式與鍵名，`Authorization` 鍵名與字串裡 `"鍵名": "值"` 只在紀錄裡另外遮。`tests/unit/test_secret_mask_cjk_security.py`、`test_tool_records.py`（前後端樣式與黃金案例） |
+| 後端換假「〔工具紀錄」標記時只處理字串內容：帶圖片的多段訊息、前端存成 JSON 字串的多模態訊息裡的假紀錄，心跳與摘要器送出時沒被換掉，模型可能當成系統組的紀錄 | 多段內容逐段換文字；JSON 字串先還原再換、換完照原形式放回，沒換到時原字串不變。`test_tool_records.py` 的多段內容、JSON 字串、摘要器案例 |
+
 ### 主代理可以偽造子代理結果、用檔案工具改任務看板（2026-11-19，ADR-0324 PR 1）
 
 | 弱點 | 修正與驗證 |
