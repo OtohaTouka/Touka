@@ -3,6 +3,8 @@
 ## 狀態
 
 > **現況**：多個子代理的回覆分成完成、部分完成或未確認、失敗三種，自己回報失敗的不算成功；`completed` 只算真的做完（[ADR-0318](0318-stop-timeout-failure-made-clear.md) 決定 4，2026-11-16）。
+>
+> 耐久結果改存系統暫存 `data/temp/dispatch_results`，不在任何代理人資料夾、檔名是雜湊，保留 7 天（by [ADR-0324](0324-subagent-results-out-of-agent-reach.md)，2026-11-20）。
 
 ✅ **已接受（實作與驗證 2026-07-07）**。[in-process 多代理協調提案](../proposals/in-process-subagent-orchestration.md) **Phase 4**（規模化與可靠性收尾）——需求 1 完整 fan-out ＋ 需求 3 斷線續接韌性。**本 ADR 落地即完成整份提案的四階段增量。**
 
