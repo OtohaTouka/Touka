@@ -327,7 +327,7 @@ command、所有參數及 path-like env 值均解析路徑，不依啟動器名�
 - 模型名查表：靈魂的主要模型名一律經 `ModelManager.request_model_name` 轉成請求用的名字（靈魂聊天、群聊、子代理、心跳脈衝都一樣）。自訂連線（啟用或已知）先找寫法完全相同的，沒有才不分大小寫找，只有一個符合就送原名；兩個以上回 409 `MODEL_NAME_AMBIGUOUS`，聊天在串流開始前回，不派發。不是自訂連線的名字照舊轉小寫。
 - 自訂模型（L2）`POST /ui/custom_models/{id}` 建立新模型與 `POST /ui/custom_models/{id}/rename` 的新 ID：和靈魂 ID 不分大小寫相同（`@名稱`、`toukasoul` 前綴的寫法也算），或和其他自訂模型只差大小寫，回 409 `MODEL_ALREADY_EXISTS`（Windows 與 Linux 結果相同）；改名時排除被改名的自己（只改大小寫的自我改名不擋）；已經存在的資料不動。
 - 群聊：每位成員都有權之後，再檢查每位成員的主要模型；有一位沒設或名字模糊，整輪不派發，回串流內錯誤訊息（HTTP 200，和其他群聊錯誤相同）並點名該成員，伺服器記 warning（錯誤碼名稱與成員 ID）。
-- 心跳 `POST /v1/heartbeat/awaken`：沒有 `model_override` 而且靈魂沒有主要模型時回 409 `AGENT_BRAIN_NOT_SET`（1215），不啟動背景迴圈；探針請求照舊在這之前就回。背景迴圈每次脈衝前解析模型，拿不到（喚醒後主要模型被清掉、經 `/retrigger` 進來或名字模糊）就記 log、結束這次 run，不丟例外、不寫進對話。
+- 心跳 `POST /v1/heartbeat/awaken`：沒有 `model_override` 而且靈魂沒有主要模型時回 409 `AGENT_BRAIN_NOT_SET`（1215），不啟動背景迴圈；探針請求照舊在這之前就回。ADR-0323 起這些檢查（加上模型名稱解析、每日配額 429 `AUTONOMY_LIMIT_REACHED`）在寫初始提示之前，跑不了就不寫，見 HEARTBEAT_INTERFACE。背景迴圈每次脈衝前解析模型，拿不到（喚醒後主要模型被清掉、經 `/retrigger` 進來或名字模糊）就記 log、結束這次 run，不丟例外、不寫進對話。
 - 用量：Gemini 的輸出 token＝`candidatesTokenCount`＋`thoughtsTokenCount`，OpenAI 形狀回應的 `completion_tokens` 也是；OpenAI 相容的快取讀先取 `prompt_tokens_details.cached_tokens`，沒有才用 DeepSeek 頂層的 `prompt_cache_hit_tokens`，兩者不相加。成本上限照這個數字判斷。
 - 研究工具：`source="google"` 沒有模型時回結構化 `validation_error`（`param=model`，禁令 59），工具 schema 與 handler 簽章不變。
 - OpenAPI：只有 `AnthropicThinking` 的兩個元件（`src__adapters__schemas__AnthropicThinking__1`／`__2`）合成一個 `AnthropicThinking`，`$ref` 跟著改；端點不變。重生腳本 `scripts/update_openapi.py` 先開沙盒再載入產品程式，合併函式在 `scripts/openapi_merge.py`。

@@ -2557,6 +2557,7 @@
       "load_failed": "載入排程失敗"
     },
     "heartbeat": {
+      "autonomy_limit_reached": "這個代理人今天的自主配額用完了，或已經到花費上限，這次心跳沒有跑。",
       "invalid_token": "無效的心跳服務金鑰",
       "orphan_agent": "代理人處於孤兒狀態或擁有者的 Refresh Token 已過期",
       "unauthorized_agent": "代理人未獲得心跳喚醒授權"

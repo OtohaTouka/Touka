@@ -41,7 +41,7 @@ def _user_append_calls(tree: ast.AST) -> list[ast.Call]:
 
 def test_heartbeat_writes_nudges_with_the_shared_name() -> None:
     calls = _user_append_calls(ast.parse(_HEARTBEAT.read_text(encoding="utf-8")))
-    assert len(calls) == 2  # 脈衝補給與自主行動階段完成兩種 nudge
+    assert len(calls) == 1  # 脈衝補給；自主行動階段完成那種已拿掉（ADR-0323）
     for call in calls:
         names = [kw.value for kw in call.keywords if kw.arg == "name"]
         assert len(names) == 1

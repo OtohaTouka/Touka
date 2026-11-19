@@ -27,13 +27,14 @@
 ## 沒設主要模型（ADR-0250）
 
 - Proxy `POST /v1/heartbeat/awaken`：排程沒帶 `model_override`、靈魂也沒有主要模型時回 409 `AGENT_BRAIN_NOT_SET`（1215），不啟動背景迴圈。以前這一步的檢查不會擋，背景迴圈到送出時才失敗。探針請求照舊在這之前就回；認證、能力與擁有者效期檢查不變。
+- 先檢查再寫（ADR-0323 PR 2）：`/awaken` 在寫初始提示**之前**檢查模型（和脈衝同一套解析，`model_override` 優先）、每日自主配額與花費上限；跑不了就不寫提示、不啟動背景迴圈，記一筆 `heartbeat_skipped`，回真正的錯誤碼：沒設主要模型 409 `AGENT_BRAIN_NOT_SET`（原因 `no_brain`），名字只差大小寫等解析不出來時回 `request_model_name` 丟出的碼（例如 409 `MODEL_NAME_AMBIGUOUS`，原因 `no_model`），配額用完或到花費上限 429 `AUTONOMY_LIMIT_REACHED`（1121，原因 `quota` 或 `budget`，兩種共用一個碼）。探針照舊先寫再回、不檢查。背景迴圈每個脈衝前照舊再檢查一次（同一組檢查，多脈衝之間仍可能用完）。心跳端收到錯誤只記 log、不重試，下一次排程照常。
 - 背景迴圈每次脈衝前解析模型（和聊天同一個入口 `request_model_name`：自訂連線送原名、其他轉小寫）；拿不到可用的模型（喚醒後主要模型被清掉、經 `/retrigger` 進來、或名字只差大小寫無法判斷）就記 log、結束這次 run，不丟例外、不寫進對話、不送請求。
 - 心跳端只要把 409 當成這次喚醒沒做；靈魂設好主要模型後下一次排程照常。
 
 ## 活動紀錄與時間感（記憶系統第二批段 4，ADR-0267）
 
-- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`；`model_error` 另記 `error` 種類，只用 `retry.KNOWN_ERROR_TYPES`）；只記靈魂，DebugAgent 的心跳不記。Proxy 啟動時掃到的 in-flight 標記各記一筆結束原因 `crashed`（帶 `started_ms`，和正常結束同一個鍵、可信紀錄起點以前的不記）；`/awaken` 因沒設大腦或擁有者登入過期被擋時記 `heartbeat_skipped`（`reason` 只有 `no_brain`、`owner_login_expired`，同一原因連續被擋只記第一次）；`<continuity>` 的自主執行那一行看最新一筆（ADR-0318）。滑動視窗的 finally 觸發點與順序不變。
-- 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。
+- Proxy 的背景迴圈（`/awaken` 與 `/retrigger` 共用）在 in-flight 標記寫入後記一筆 `heartbeat_started`，在 `finally` 記 `heartbeat_finished`（`pulses_total`、`pulses_done`、`turns`，結束原因 `completed`／`interrupted`／`quota`／`budget`／`no_model`／`model_error`／`error`／`cancelled`；`model_error` 另記 `error` 種類，只用 `retry.KNOWN_ERROR_TYPES`）；只記靈魂，DebugAgent 的心跳不記。Proxy 啟動時掃到的 in-flight 標記各記一筆結束原因 `crashed`（帶 `started_ms`，和正常結束同一個鍵、可信紀錄起點以前的不記）；`/awaken` 被擋時記 `heartbeat_skipped`（`reason` 只有 `no_brain`、`no_model`、`quota`、`budget`、`owner_login_expired`，同一原因連續被擋只記第一次；前四種 ADR-0323 起在寫初始提示之前檢查）；`<continuity>` 的自主執行那一行看最新一筆（ADR-0318）。滑動視窗的 finally 觸發點與順序不變。
+- 每個脈衝送出前，靈魂的請求最後一則 user 尾端附 `<continuity>`（心跳模式：人類多久沒來、上一次自主執行、最近完成、任務看板），只在送出的請求、不寫回對話樹；審查員的原意不含它。心跳另寫一行「沒帶聊天的技能與這段對話的專案說明」（ADR-0323）。不是靈魂的代理人（例如 DebugAgent）拿精簡版：現在時間、沒人在場、第幾個脈衝與被誰叫醒、同一句沒帶技能與專案（只有列出的工具），不讀活動紀錄、看板與家。
 - 原本的時間前綴保留：nudge 前綴格式逐字不變，時間和區塊的 Current time 是同一個值；第一個脈衝的初始提示前綴是 `/awaken` 寫入當下。
 - 靈魂的心跳請求帶主線的前情（`<soul_prelude>`，在家或子對話都帶），不帶家原文（`inject_mainline(mode="heartbeat")`，ADR-0305）。在家時另帶還沒交接完的舊家原文（ADR-0306）。
 - 心跳組這段對話自己的歷史時，助理那則存下的工具步驟寫成工具紀錄（`utils/tool_records.annotate_history`，詳細；最近 10～19 輪詳細、再往前 50 輪簡短），所以在家跑時看得到網頁回合用過的工具與結果開頭；假的紀錄標記換掉（ADR-0319）。
@@ -275,12 +276,12 @@ Heartbeat 呼叫時會根據請求參數與角色定義決定整次 run 的模�
 ## 📡 脈衝通訊協議 (Proxy Awakening)
 
 當排程觸發時，Heartbeat 會向 `ToukaProxy` 發送 `POST /v1/heartbeat/awaken` 請求。Payload 包含：
-- **`init_prompt`**: 自動注入當前時間標記（如 `【目前系統時間：2026-04-01 22:40:00 (週三)】`）。**DA24 加固**：呼叫端可控的 `init_prompt` 在注入 agent 特權 LLM 脈絡前，先經 H3 `sanitize_memory_content`（8000 字截斷＋注入偵測）消毒；傳給背景脈衝 loop 的也是消毒版。
+- **`init_prompt`**: 自動注入當前時間標記（如 `【目前系統時間：2026-04-01 22:40:00 (週三)】`），下一行寫「〔這是排程心跳的預設提示，由系統送出，不是人當下說的話〕」（ADR-0323；開頭那行不變，舊提示不回頭改）。**DA24 加固**：呼叫端可控的 `init_prompt` 在注入 agent 特權 LLM 脈絡前，先經 H3 `sanitize_memory_content`（8000 字截斷＋注入偵測）消毒；傳給背景脈衝 loop 的也是消毒版。
 - **`agent_id`**: 指定要喚醒的代理人。
 - **`pulse_count`**: 該次喚醒允許執行的最大連鎖反應次數。
 - **`session_id`**: 指定對話發生的頻道（通常為 `home`）。
 
-**多脈衝之間的 nudge**：兩種 nudge（脈衝補給、自主行動階段完成）以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
+**多脈衝之間的 nudge**：脈衝補給以 user 角色、`name=user_intent.SYSTEM_SPEAKER` 寫進對話樹（另一種「自主行動階段完成」是模型寫出「--- … 自主行動」時切段插的，ADR-0323 拿掉切段後不再產生，舊對話裡的照舊帶這個 name；每個脈衝整段存成一則）；審查員據此判斷不是人話，前端的訊息導覽列據此不畫線（雙端常數，`test_system_speaker_contract.py` 核對）。初始提示不帶這個 name。
 
 ## 📦 部署與執行規範 (Deployment) ⭐
 為了確保容器環境的穩定性，ToukaHeartbeat 遵循以下規則：

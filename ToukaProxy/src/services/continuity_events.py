@@ -75,7 +75,8 @@ HeartbeatEnd = Literal[
     "crashed",
 ]
 # 心跳在入口被擋的原因（固定列舉，ADR-0318）：沒設大腦、擁有者登入過期
-HeartbeatSkip = Literal["no_brain", "owner_login_expired"]
+# no_model、quota、budget：寫初始提示之前先檢查（ADR-0323）
+HeartbeatSkip = Literal["no_brain", "no_model", "quota", "budget", "owner_login_expired"]
 # 無痕、子代理、派工：不記
 _SKIP_FLAGS = ("incognito", "subagent_run", "dispatch_run")
 # 模型寫的 id（任務 id）只保留這種短字串，其他換成雜湊

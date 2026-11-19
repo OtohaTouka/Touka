@@ -5,7 +5,7 @@
 - 決策者：維護者（一頁計畫第 2.1 版，總覽板第 87 項回「全部照建議」：SNS 頻道與群聊照舊帶家對話原文並加說明；群聊 PR 合併前小量試真模型）
 - 相關：[ADR-0245](0245-model-layer-stage-2a.md)（群聊成員只限靈魂）、[ADR-0316](0316-keep-harness-blocks-and-state-approval-mode.md)（區塊分組、保留系統加的說明）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（停止、出錯的記號）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（工具紀錄的防偽做法）、[ADR-0246](0246-model-layer-stage-2b-2c.md)（審查員只看人類原話）
 - 修訂：[ADR-0305](0305-soul-prelude-mainline.md)（決定 6 的「群聊｜帶｜照舊帶」：照舊帶，另加說明，PR 1）、[ADR-0139](0139-harness-context-block.md)（群聊回合不注入 `<harness_context>`，PR 1）、[ADR-0318](0318-stop-timeout-failure-made-clear.md)（出錯記號用到心跳與 SNS，新增「沒有送到」記號，PR 2a；不經網頁的停止也記 `generationStopped`、子代理不再特別略過日誌行，PR 2b）、[ADR-0319](0319-tool-records-carried-into-next-turn.md)（照抄紀錄與工具幻覺的警告改成小提示，PR 2b）；[ADR-0308](0308-ask-user-timeout-stops-the-turn.md) 那段說明照舊留在回覆文字裡（PR 2b 確認不改）、[ADR-0146](0146-tool-round-budget.md)（心跳寫第幾個脈衝，PR 3）、[ADR-0267](0267-trusted-activity-timeline-and-continuity-v1.md)（`<continuity>` 多對話種類與心跳叫醒，PR 3）
-- 被修訂：2026-11-19 已知限制更正：群聊成員不再收到工具清單與工具相關區塊、多一段精簡 `<continuity>`；API 群聊成員失敗改送出錯記號，網頁本來就不會（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 1）
+- 被修訂：2026-11-19 已知限制更正：群聊成員不再收到工具清單與工具相關區塊、多一段精簡 `<continuity>`；API 群聊成員失敗改送出錯記號，網頁本來就不會（by [ADR-0323](0323-group-heartbeat-home-tool-results.md) PR 1）；2026-11-19 決定 7 心跳不再切段，整個脈衝存一則（by ADR-0323 PR 2）
 - 影響範圍：PR 3：`ToukaProxy/src/services/continuity_service.py`、`utils/sns_sender.py`（新）、`models/sns.py`、`adapters/discord_bot.py`、`adapters/telegram_bot.py`、`services/sns_gateway.py`、`services/prompt_blocks.py`、`services/dialogue_summarizer.py`、`routers/heartbeat.py`、`ToukaHeartbeat/schedule_service.py`、`proxy_client.py`、`awaken.py`、`openapi.json`、`ToukaChat/src/types/api.ts`。PR 2b：`ToukaProxy/src/utils/turn_notices.py`（新）、`services/tool_executor.py`、`handlers/react_core.py`、`handlers/adapters/`（`MidLoopAction`）、`utils/tool_step_collector.py`、`utils/interjection_notes.py`、`utils/history_manager.py`、`routers/heartbeat.py`、`services/sns_gateway.py`、`services/dispatcher.py`、前端 `lib/chat/turnNotices.ts`（新）、`components/chat/TurnNoticeList.tsx`（新）、`stream_tree.ts`、`connections.ts`、`buildApiMessage.ts`、翻譯檔、`ToukaIDE/src/providers/ChatViewProvider.ts`、`ToukaIDE/src/webview/main.js`。PR 2a：`routers/heartbeat.py`、`services/sns_gateway.py`、`utils/interjection_notes.py`、前端 `lib/chat/turnNotes.ts`、`lib/chat/buildApiMessage.ts`、`lib/tree_history.ts`、`components/chat/DeliveryFailedNotice.tsx`（新）、`MessageItem.tsx`、翻譯檔。PR 1：`ToukaProxy/src/utils/group_member_view.py`（新）、`services/dispatchers/group.py`、`services/group_router.py`、`utils/user_intent.py`、`services/soul_service.py`（`_neutralize_history`）、`adapters/content_normalize.py`（`merge_adjacent_users`）、`handlers/react_core.py`、`models/context.py`、`middleware/layers/tool.py`
 
 ## 背景
@@ -77,7 +77,7 @@
 ### 7. 失敗句不存進對話，節點只帶旗標
 
 - 心跳脈衝與 SNS 都設 `caller_sends_failure_text`（決定 5），`react_core` 不把失敗句當成回覆文字送出。
-- 心跳脈衝的模型失敗：已經寫出的文字與工具步驟照存，這個脈衝最後寫入的節點加 `generationFailed: true`。一個字都沒寫也留一個空節點，被 `TURN_SPLIT_PATTERN` 分段存過的加在最後一段。
+- 心跳脈衝的模型失敗：已經寫出的文字與工具步驟照存，這個脈衝最後寫入的節點加 `generationFailed: true`。一個字都沒寫也留一個空節點，被 `TURN_SPLIT_PATTERN` 分段存過的加在最後一段〔2026-11-19 ADR-0323 PR 2：拿掉切段，整個脈衝存一則〕。
 - 整個心跳出例外：寫一則空的 `System` 節點加 `generationFailed: true`；錯誤原文只進 log（照舊消毒），不再寫「多脈衝任務執行失敗」那句。
 - 組歷史時由 `annotate_node` 加「〔本回合出錯，沒有完成〕」（ADR-0318），網頁照舊顯示「這一輪回覆失敗」。只有記號的節點不會被 `drop_blank_assistant_turns` 拿掉（記號在那之前加）。
 

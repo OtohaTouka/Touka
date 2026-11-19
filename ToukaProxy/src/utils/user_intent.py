@@ -20,6 +20,8 @@ SYSTEM_SPEAKER = "System"
 PULSE_NUDGE_PREFIX = "【脈衝能量補給："
 SYSTEM_NUDGE_PREFIX = "【系統】"
 HEARTBEAT_INIT_PREFIX = "【目前系統時間："
+# 初始提示開頭那行之後的說明（ADR-0323）：在家對話裡看起來不像人當下親口說的
+HEARTBEAT_INIT_NOTE = "〔這是排程心跳的預設提示，由系統送出，不是人當下說的話〕"
 # SNS 外人訊息（sns_gateway 存檔與送出時加的開頭）：外人不是這個靈魂的人類，不能替代理人授權
 SNS_MESSAGE_PREFIX = "【SNS 外部訊息】"
 # 前端內嵌的附件（buildTextInlinePart／buildFileRefHint 接在人類文字後面）：從第一個標記起都
