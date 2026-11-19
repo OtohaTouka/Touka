@@ -43,11 +43,20 @@ from src.adapters.content_normalize import normalize_message_content
 from src.config import strip_openai_sdk_env_overrides
 from src.services.guard_service import guard_service
 from src.services.models.model_rules import rules_for
+from src.services.prompt_blocks import build_degraded_note
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
-from .base import MidLoopAction, RoundError, ToolCall, Turn, hold_tool_setting, interjection_text
+from .base import (
+    MidLoopAction,
+    RoundError,
+    ToolCall,
+    Turn,
+    hold_tool_setting,
+    interjection_text,
+    round_has_tools,
+)
 from .stream_timeout import RoundClock, liveness_event_hooks
 from .usage import estimate_partial_usage, normalized_usage, split_included_cache, usage_count
 
@@ -131,11 +140,7 @@ class ResponsesAdapter:
         body = request.model_dump(exclude_none=True)
         instructions, items = _input_items(body.get("messages", []))
         if context.get("system_degraded", False):  # P5b：與其他三家同一段警告
-            warning = (
-                f"\n\n⚠️ SYSTEM WARNING: The proxy is running in DEGRADED MODE. "
-                f"{context.get('degraded_reason', '')} Some tools may be offline. "
-                f"Please inform the user."
-            )
+            warning = "\n\n" + build_degraded_note(context.get("degraded_reason", ""))
             instructions = instructions + warning if instructions else warning.strip()
         kwargs: dict[str, Any] = {"model": body.get("model", ""), "input": items, "store": False,
                                   "include": list(_INCLUDE),
@@ -363,6 +368,7 @@ class ResponsesAdapter:
         """Honesty Guard（ADR-0157 K2）：沒查資料就瞎掰 → output items＋矯正提示寫回。"""
         if state.honesty_corrected or not (
             allow_react
+            and round_has_tools(state.kwargs)  # 沒有工具時矯正輪會被廠商拒絕（ADR-0323）
             and guard_service.check_fact_without_tools(turn.visible_text, actually_used_tools)
         ):
             return None

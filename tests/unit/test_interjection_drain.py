@@ -58,7 +58,7 @@ _TOOL = openai_tools("vault_tools", {"action": "list"})
 def quiet(monkeypatch):
     """工具執行換成假的、不入帳、退避不真睡。"""
     async def run(self, name, args, request_id, ctx, queue, call_id=None,
-                  actually_used_tools=None):
+                  actually_used_tools=None, *, for_model=False):
         await queue.put(None)
         return f"{name} ok"
 
@@ -135,7 +135,7 @@ async def test_drained_at_step_n_and_delivered_after_the_next_round_is_sent(monk
 async def test_a_question_left_unanswered_hands_queued_text_back(monkeypatch):
     """問題沒等到回答、這一輪停下：等待時排隊的文字沒有人讀到，要退回給前端（ADR-0308）。"""
     async def asks(self, name, args, request_id, ctx, queue, call_id=None,
-                   actually_used_tools=None):
+                   actually_used_tools=None, *, for_model=False):
         mark_unanswered(ctx, [{"question": "要繼續嗎？"}])
         await queue.put(None)
         return "沒等到回答"

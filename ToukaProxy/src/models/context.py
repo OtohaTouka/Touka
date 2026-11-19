@@ -73,8 +73,9 @@ class PipelineContext(BaseModel):
     model_error_type: str | None = Field(
         default=None, description="這一輪模型失敗的種類（系統寫入）"
     )
-    # 模型失敗時不把失敗句當成回覆文字送出，改記在 model_failure_text，由呼叫端決定怎麼送、
-    # 怎麼存（ADR-0322：群聊分發器替每位成員設；心跳與 SNS 之後也用）
+    # caller_sends_failure_text：模型失敗時不把失敗句當成回覆文字送出，由呼叫端決定怎麼送、
+    # 怎麼存（ADR-0322：群聊分發器替每位成員設）。model_failure_text 一律記下，舊串流存檔靠它
+    # 把失敗句從存下的文字拿掉（ADR-0323）
     caller_sends_failure_text: bool = Field(
         default=False, description="失敗句交給呼叫端送出（系統寫入）"
     )

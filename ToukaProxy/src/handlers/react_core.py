@@ -403,11 +403,10 @@ async def run_react_loop(  # noqa: PLR0915
                 error.error_type, _failure_detail_for_viewer(context, error)))
             raise UiGenerationStopped("error")
         failure_text = SNS_FAILURE_NOTICE if context.get("sns_source") else error.user_message
-        # 子代理的失敗由派工端用固定說法交回，廠商原文不進主代理看得到的結果（ADR-0318）；
-        # 呼叫端要自己送時只記下來，不混進回覆文字（ADR-0322）
-        if context.get("caller_sends_failure_text"):
-            context["model_failure_text"] = failure_text
-        elif not context.get("subagent_run"):
+        # 一律記下（舊串流存檔靠它把失敗句從存下的文字拿掉，ADR-0323）。子代理的失敗由派工端用
+        # 固定說法交回（ADR-0318）；呼叫端要自己送時不混進回覆文字（ADR-0322）
+        context["model_failure_text"] = failure_text
+        if not context.get("caller_sends_failure_text") and not context.get("subagent_run"):
             yield yield_delta(failure_text)
         yield "data: [DONE]\n\n"
 
@@ -596,6 +595,7 @@ async def run_react_loop(  # noqa: PLR0915
                         event_queue,
                         call_id=tc.id,
                         actually_used_tools=actually_used_tools,
+                        for_model=True,  # 太長的結果只截給模型的這份（ADR-0323）
                     )
                 )
                 execution_tasks.append((tc.id, tc.name, task, _tied_to_the_turn(tc.name, tc.args)))

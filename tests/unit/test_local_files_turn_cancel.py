@@ -67,6 +67,8 @@ def _start_turn(
         queue: Any,
         call_id: str | None = None,
         actually_used_tools: Any = None,
+        *,
+        for_model: bool = False,
     ) -> str:
         result = await tool()
         await queue.put(None)

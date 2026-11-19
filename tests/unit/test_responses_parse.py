@@ -49,6 +49,14 @@ def final(status: str = "completed", **extra: Any) -> dict:
     return {**BASE, "status": status, **extra}
 
 
+# 誠實度檢查只在這一輪有工具時才跑（ADR-0323）
+_HONESTY_TOOL = {
+    "type": "function",
+    "function": {"name": "memory_tools", "description": "d",
+                 "parameters": {"type": "object", "properties": {}}},
+}
+
+
 def request(text: str = "hi", **extra: Any) -> OpenAIChatRequest:
     return OpenAIChatRequest(model="gpt-6-astra", messages=[{"role": "user", "content": text}],
                              **extra)
@@ -158,7 +166,7 @@ async def test_setup_error_texts_are_pinned(monkeypatch, missing, text):
 
 async def test_honesty_guard_forces_then_releases_tool_choice():
     adapter = ResponsesAdapter()
-    state = await adapter.prepare_request(request(), {})
+    state = await adapter.prepare_request(request(tools=[_HONESTY_TOOL]), {})
     claim = {**MSG, "content": [{"type": "output_text", "annotations": [],
                                  "text": "根據過去的記憶系統內容，你上次說喜歡紅茶。"}]}
     turn = Turn(visible_text=claim["content"][0]["text"], raw_assistant=[claim])
@@ -203,7 +211,7 @@ async def test_rules_table_stream_switch_and_forced_tool_choice(monkeypatch):
     monkeypatch.setattr(responses_adapter, "rules_for",
                         lambda m: replace(real(m), stream=False, forced_tool_choice=False))
     adapter = ResponsesAdapter(stream=True)
-    state = await adapter.prepare_request(request(), {})
+    state = await adapter.prepare_request(request(tools=[_HONESTY_TOOL]), {})
     assert (state.stream, state.forced_tool_choice) == (False, False)
     claim = {**MSG, "content": [{"type": "output_text", "annotations": [],
                                  "text": "根據過去的記憶系統內容，你上次說喜歡紅茶。"}]}

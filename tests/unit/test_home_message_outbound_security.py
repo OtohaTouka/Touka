@@ -150,7 +150,7 @@ async def _claude(request: Any) -> tuple[Any, list[dict]]:
 
 
 async def _anthropic_entry_to_openai_chat(request: Any) -> tuple[Any, list[dict]]:
-    return await _openai_chat(convert_to_openai(request, False, ""))
+    return await _openai_chat(convert_to_openai(request))
 
 
 CASES = [

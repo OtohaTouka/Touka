@@ -73,6 +73,7 @@ from src.utils.tool_events import (
     tool_error_event,
     tool_start_event,
 )
+from src.utils.tool_result_cap import cap_tool_result
 from src.utils.tool_usage import record_tool_executed, record_tool_succeeded, record_tool_usage
 from src.utils.turn_notices import (
     NOTICE_APPROVAL_BLOCKED,
@@ -437,8 +438,13 @@ class ToolExecutor:
         queue: asyncio.Queue[dict[str, Any] | None],
         call_id: str | None = None,
         actually_used_tools: set[str] | None = None,
+        *,
+        for_model: bool = False,
     ) -> str:
         """執行工具並推送到隊列.
+
+        ``for_model``：回傳值給模型迴圈時，太長的工具輸出只截這一份（核准說明與 hook 輸出照接），
+        畫面事件與成功判定拿完整版（ADR-0323）；``/debug/execute`` 不指定、拿完整版。
 
         Args:
             name: 工具名稱.
@@ -448,11 +454,13 @@ class ToolExecutor:
             queue: 隊列.
             call_id: 調用 ID.
             actually_used_tools: 工具追蹤.
+            for_model: 回傳給模型迴圈時為 True（太長的輸出只截這一份）.
 
         Returns:
             str: 最終回傳文字.
         """
         record_tool_usage(actually_used_tools, name, args)
+        model_text: str | None = None  # for_model 時給模型的那一份
 
         call_id = call_id or f"call_{int(get_current_epoch() * 1000)}"
 
@@ -1183,18 +1191,22 @@ class ToolExecutor:
             elif is_success or (ran_tool and not tool_errors.is_tool_error(result_text)):
                 hook_outputs += await run_post_tool_hooks(ctx, hook_call, result_text)
             post_hooks_ran = True
-            result_text = approval_flow.with_approval_note(
-                result_text,
-                _approval_note(
-                    name,
-                    args,
-                    failed=tool_errors.is_tool_error(result_text),
-                    person=hitl_preapproved,
-                    reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
-                    review_reason=escalated_reason,
-                ),
+            note = _approval_note(
+                name,
+                args,
+                failed=tool_errors.is_tool_error(result_text),
+                person=hitl_preapproved,
+                reviewer=approved_by == APPROVED_BY_AUTO_REVIEWER,
+                review_reason=escalated_reason,
             )
-            result_text = attach_to_tool_result(result_text, hook_outputs)
+            if for_model:
+                model_text = attach_to_tool_result(
+                    approval_flow.with_approval_note(cap_tool_result(result_text), note),
+                    hook_outputs,
+                )
+            result_text = attach_to_tool_result(
+                approval_flow.with_approval_note(result_text, note), hook_outputs
+            )
 
             # 2. 發送 tool_result 事件（封套 SSOT：success/error 投影 ＋ additive
             #    duration_ms／error_class；失敗才抬 error_class、成功不帶）
@@ -1227,6 +1239,7 @@ class ToolExecutor:
 
         except Exception as e:
             logger.exception("Error executing tool %s", name)
+            model_text = None  # 例外時回傳的是錯誤，不是先前算好的那份
             # P5b：把真正的錯誤類別＋訊息（截斷）帶到前端，取代籠統 "Execution failed"
             detail = f"{type(e).__name__}: {str(e)[:200]}"
             await queue.put(tool_error_event(call_id=call_id, message=f"工具執行失敗：{detail}"))
@@ -1254,4 +1267,4 @@ class ToolExecutor:
         finally:
             await queue.put(None)
 
-        return result_text
+        return result_text if model_text is None else model_text

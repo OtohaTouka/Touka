@@ -19,6 +19,7 @@ import httpx
 from src.adapters.content_normalize import normalize_message_content
 from src.services.guard_service import guard_service
 from src.services.models.model_rules import COMPAT_STREAM_PROVIDERS, rules_for
+from src.services.prompt_blocks import build_degraded_note
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.reasoning import split_reasoning
 from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
@@ -32,6 +33,7 @@ from .base import (
     hold_tool_setting,
     interjection_text,
     only_keys,
+    round_has_tools,
 )
 from .sampling import SAMPLING_PARAM_NAMES
 from .sse_stream import ChatStreamAggregator, StreamShapeError, sse_data
@@ -147,11 +149,7 @@ class OpenAIAdapter:
 
         # P5b：DEGRADED 警告注入 system message（與 claude 一致）
         if context.get("system_degraded", False):
-            warning = (
-                f"\n\n⚠️ SYSTEM WARNING: The proxy is running in DEGRADED MODE. "
-                f"{context.get('degraded_reason', '')} Some tools may be offline. "
-                f"Please inform the user."
-            )
+            warning = "\n\n" + build_degraded_note(context.get("degraded_reason", ""))
             msgs = payload.get("messages", [])
             sys_msg = next((m for m in msgs if m.get("role") == "system"), None)
             if sys_msg is not None and isinstance(sys_msg.get("content"), str):
@@ -434,6 +432,7 @@ class OpenAIAdapter:
         """
         if state.honesty_corrected or not (
             allow_react
+            and round_has_tools(state.payload)  # 沒有工具時矯正輪會被廠商拒絕（ADR-0323）
             and guard_service.check_fact_without_tools(turn.visible_text, actually_used_tools)
         ):
             return None

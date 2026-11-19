@@ -239,6 +239,8 @@ async def _run(
         queue: Any,
         call_id: str | None = None,
         actually_used_tools: Any = None,
+        *,
+        for_model: bool = False,
     ) -> str:
         record_tool_executed(actually_used_tools, name, args)
         result = await tools[name](**args, _emit_event=_emit, _ctx=ctx)

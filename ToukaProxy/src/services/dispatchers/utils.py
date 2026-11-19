@@ -86,18 +86,14 @@ def _convert_message(role: str, content: Any) -> list[OpenAIMessage]:
     return messages
 
 
-def convert_to_openai(request: Any, degraded: bool, reason: str) -> OpenAIChatRequest:
-    """將 Anthropic 形狀請求轉成內部 OpenAI 相容請求（工具紀錄與 list system 見 KF-9）。"""
+def convert_to_openai(request: Any) -> OpenAIChatRequest:
+    """將 Anthropic 形狀請求轉成內部 OpenAI 相容請求（工具紀錄與 list system 見 KF-9）。
+
+    降級說明由轉接器加（ADR-0323），這裡不再加第二次。
+    """
     openai_messages = []
     if hasattr(request, "system") and request.system:
         openai_messages.append(OpenAIMessage(role="system", content=_system_text(request.system)))
-
-    if degraded:
-        warning = f"\n\n⚠️ SYSTEM WARNING: {reason}"
-        if openai_messages:
-            openai_messages[0].content += warning
-        else:
-            openai_messages.append(OpenAIMessage(role="system", content=warning))
 
     for m in request.messages:
         openai_messages.extend(_convert_message(_field(m, "role"), _field(m, "content")))

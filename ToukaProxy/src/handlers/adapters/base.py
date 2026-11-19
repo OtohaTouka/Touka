@@ -58,6 +58,11 @@ def hold_key(holder: dict[str, Any], key: str) -> Callable[[], None]:
     return restore
 
 
+def round_has_tools(holder: dict[str, Any]) -> bool:
+    """這一輪實際送出的請求有沒有工具（四家的 tools 都在同一個 dict；空的不送）."""
+    return bool(holder.get("tools"))
+
+
 def hold_tool_setting(
     holder: dict[str, Any], key: str, apply: Callable[[], None]
 ) -> Callable[[], None]:
@@ -65,7 +70,7 @@ def hold_tool_setting(
 
     沒有 tools 卻送 tool_choice 會被廠商拒絕（M9-R1a）；四家的 tools 和 tool_choice 在同一個 dict。
     """
-    if not holder.get("tools"):
+    if not round_has_tools(holder):
         return lambda: None
     restore = hold_key(holder, key)
     apply()

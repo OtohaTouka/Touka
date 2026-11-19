@@ -32,12 +32,21 @@ from src.core.exceptions import ErrorCode, ToukaException
 from src.services.guard_service import guard_service
 from src.services.models.model_lifecycle import model_lifecycle_service, parse_gemini_status
 from src.services.models.model_rules import rules_for
+from src.services.prompt_blocks import build_degraded_note
 from src.services.rhythm_service import WRAP_UP_NOTE, build_denied_tool_result
 from src.utils.sse import sse_line
 from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
 from . import retry
-from .base import MidLoopAction, RoundError, ToolCall, Turn, hold_tool_setting, interjection_text
+from .base import (
+    MidLoopAction,
+    RoundError,
+    ToolCall,
+    Turn,
+    hold_tool_setting,
+    interjection_text,
+    round_has_tools,
+)
 from .sse_stream import GeminiStreamAggregator, StreamShapeError, sse_data
 from .stream_timeout import FIRST_EVENT_TIMEOUT_S, RoundClock
 from .usage import estimate_partial_usage, normalized_usage, split_included_cache, usage_count
@@ -145,11 +154,7 @@ class GeminiAdapter:
 
         # P5b：DEGRADED 警告注入 system_instruction
         if context.get("system_degraded", False):
-            warning = (
-                f"\n\n⚠️ SYSTEM WARNING: The proxy is running in DEGRADED MODE. "
-                f"{context.get('degraded_reason', '')} Some tools may be offline. "
-                f"Please inform the user."
-            )
+            warning = "\n\n" + build_degraded_note(context.get("degraded_reason", ""))
             si = gemini_req.get("system_instruction")
             if isinstance(si, dict) and isinstance(si.get("parts"), list) and si["parts"]:
                 first = si["parts"][0]
@@ -368,6 +373,7 @@ class GeminiAdapter:
         """
         if state.honesty_corrected or not (
             allow_react
+            and round_has_tools(state.payload)  # 沒有工具時矯正輪會被廠商拒絕（ADR-0323）
             and guard_service.check_fact_without_tools(turn.visible_text, actually_used_tools)
         ):
             return None

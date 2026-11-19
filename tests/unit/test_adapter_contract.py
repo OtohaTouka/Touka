@@ -20,6 +20,7 @@ from src.handlers.adapters.gemini_adapter import GeminiAdapter
 from src.handlers.adapters.openai_adapter import OpenAIAdapter
 from src.handlers.adapters.sampling import SAMPLING_PARAM_NAMES
 from src.services.guard_service import guard_service
+from src.services.prompt_blocks import build_degraded_note
 from src.services.rhythm_service import WRAP_UP_NOTE
 from src.utils.turn_notices import NOTICE_HONESTY, turn_notice_event
 
@@ -93,7 +94,8 @@ async def test_prepare_splices_degraded_warning_into_system(adapter):
         request, _ctx(system_degraded=True, degraded_reason="memory down.")
     )
     sys_msg = next(m for m in state.payload["messages"] if m["role"] == "system")
-    assert "DEGRADED MODE" in sys_msg["content"] and "You are Sumi." in sys_msg["content"]
+    assert build_degraded_note("memory down.") in sys_msg["content"]
+    assert "You are Sumi." in sys_msg["content"]
     await adapter.close(state)
 
 
@@ -399,18 +401,33 @@ async def test_claude_tool_result_cache_breakpoint_rotates():
 
 
 _BRAG = "根據過去的記憶系統內容，你上次說喜歡紅茶。"
+# 誠實度檢查只在這一輪有工具時才跑（ADR-0323）
+_HONESTY_TOOL = {
+    "type": "function",
+    "function": {"name": "memory_tools", "description": "d",
+                 "parameters": {"type": "object", "properties": {}}},
+}
 
 
-async def _gemini_state(adapter: GeminiAdapter):
+async def _gemini_state(adapter: GeminiAdapter, *, tools: bool = False):
     request = MagicMock()
     request.model = "gemini-2.5-flash"
+    converted: dict = {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]}
+    if tools:
+        converted["tools"] = [{"functionDeclarations": [{"name": "memory_tools"}]}]
     with patch(
         "src.handlers.adapters.gemini_adapter.convert_openai_to_gemini",
-        return_value={"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+        return_value=converted,
     ):
         return await adapter.prepare_request(
             request, {"gemini_api_key": "k", "agent_id": "Sumi"}
         )
+
+
+def _claude_request_with_tools() -> MagicMock:
+    request = _claude_request()
+    request.tools = [_HONESTY_TOOL]
+    return request
 
 
 def _claude_brag_raw() -> MagicMock:
@@ -426,7 +443,8 @@ def _claude_brag_raw() -> MagicMock:
 async def test_openai_honesty_hook_injects_corrects_and_latches(adapter):
     """openai 方言：矯正輪注入＋`required` 強制＋一次性閂鎖＋工具輪後解除。"""
     state = await adapter.prepare_request(
-        _request([{"role": "user", "content": "hi"}]), _ctx()
+        _request([{"role": "user", "content": "hi"}], dump_extra={"tools": [_HONESTY_TOOL]}),
+        _ctx(),
     )
     turn = adapter.parse_round(
         None, {"choices": [{"message": {"role": "assistant", "content": _BRAG}}]}
@@ -458,7 +476,8 @@ async def test_openai_honesty_hook_injects_corrects_and_latches(adapter):
 async def test_openai_honesty_hook_respects_verification_and_allow_react(adapter):
     """已查證或非 ReAct run 一律不介入（與 gemini 原語意一致）。"""
     state = await adapter.prepare_request(
-        _request([{"role": "user", "content": "hi"}]), _ctx()
+        _request([{"role": "user", "content": "hi"}], dump_extra={"tools": [_HONESTY_TOOL]}),
+        _ctx(),
     )
     turn = adapter.parse_round(
         None, {"choices": [{"message": {"role": "assistant", "content": _BRAG}}]}
@@ -473,7 +492,7 @@ async def test_openai_honesty_hook_respects_verification_and_allow_react(adapter
 async def test_claude_honesty_hook_forces_any_and_resets():
     """claude 方言：矯正輪注入＋`{"type":"any"}` 強制＋閂鎖＋工具輪後解除。"""
     adapter = ClaudeAdapter()
-    state = await adapter.prepare_request(_claude_request(), _claude_ctx())
+    state = await adapter.prepare_request(_claude_request_with_tools(), _claude_ctx())
     raw = _claude_brag_raw()
     turn = adapter.parse_round(state, raw)
     action = adapter.mid_loop_hook(state, turn, set(), True)
@@ -492,7 +511,7 @@ async def test_claude_honesty_hook_no_forcing_when_thinking_enabled():
     """Anthropic 規格：extended thinking 僅容 tool_choice auto/none——強制即 400，
     故 thinking 啟用時只注入矯正提示、不強制。"""
     adapter = ClaudeAdapter()
-    state = await adapter.prepare_request(_claude_request(), _claude_ctx())
+    state = await adapter.prepare_request(_claude_request_with_tools(), _claude_ctx())
     state.kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}
     action = adapter.mid_loop_hook(
         state, adapter.parse_round(state, _claude_brag_raw()), set(), True
@@ -505,7 +524,7 @@ async def test_claude_honesty_hook_no_forcing_when_thinking_enabled():
 async def test_gemini_honesty_hook_uses_ssot_prompt_and_latches():
     """gemini：矯正文案改讀 guard_service SSOT（不再教已退役工具名）＋閂鎖。"""
     adapter = GeminiAdapter()
-    state = await _gemini_state(adapter)
+    state = await _gemini_state(adapter, tools=True)
     raw = {"candidates": [{"content": {"parts": [{"text": _BRAG}]}}]}
     turn = adapter.parse_round(state, raw)
     action = adapter.mid_loop_hook(state, turn, set(), True)

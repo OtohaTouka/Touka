@@ -264,7 +264,7 @@ npm run package
 〔模組：proxy、chat〕其餘子項（群聊別名、ID 糾偏）。全文：docs/rules/proxy.md
 
 ### 13. 自主預算大一統與優先級 (Unified Autonomy Budget) ⭐
-〔模組：proxy、heartbeat、tests〕輪數由 AutonomyService 判定：請求指定＞全域設定＞保底 5。全文：docs/rules/proxy.md
+〔模組：proxy、heartbeat、tests〕工具輪上限：心跳排程指定＞全域 `react_loop.max_tool_rounds`（0＝不限）＞沒人在場的執行保底 50；互動預設不限。全文：docs/rules/proxy.md
 
 ### 13.5 工作分派中介身分與安全邊界 (AI Agent Dispatch & Safety Boundaries) ⭐
 〔模組：dispatch、memory、proxy〕DispatchAgent、任務 FSM、token 委派、Skill 標準。全文：docs/rules/dispatch.md

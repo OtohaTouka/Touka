@@ -41,6 +41,12 @@ from src.services.models.model_rules import (
 from tests.helpers.claude_stream import delegate_stream_to_create
 
 _MSGS = [{"role": "user", "content": "hi"}]
+# 誠實度檢查只在這一輪有工具時才跑（ADR-0323）
+_HONESTY_TOOL = {
+    "type": "function",
+    "function": {"name": "memory_tools", "description": "d",
+                 "parameters": {"type": "object", "properties": {}}},
+}
 _BRAG = "根據過去的記憶系統內容，你上次說喜歡紅茶。"
 _SRC = Path(__file__).resolve().parents[2] / "ToukaProxy" / "src"
 
@@ -624,7 +630,8 @@ def _brag_raw() -> MagicMock:
 async def _honesty(model: str):
     adapter = ClaudeAdapter()
     state = await adapter.prepare_request(
-        OpenAIChatRequest(model=model, messages=_MSGS), {"anthropic_client": MagicMock()}
+        OpenAIChatRequest(model=model, messages=_MSGS, tools=[_HONESTY_TOOL]),
+        {"anthropic_client": MagicMock()},
     )
     action = adapter.mid_loop_hook(state, adapter.parse_round(state, _brag_raw()), set(), True)
     return state, action

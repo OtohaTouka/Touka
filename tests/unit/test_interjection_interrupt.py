@@ -96,7 +96,7 @@ def tools(monkeypatch) -> dict[str, Any]:
     fake: dict[str, Any] = {"calls": [], "on_run": None, "usage": [], "audit": []}
 
     async def run(_self, name, args, request_id, ctx, queue, call_id=None,
-                  actually_used_tools=None):
+                  actually_used_tools=None, *, for_model=False):
         fake["calls"].append(name)
         if fake["on_run"] is not None:
             fake["on_run"]()

@@ -254,21 +254,17 @@ _KF9_MESSAGES = [
 ]
 
 
-@pytest.mark.parametrize(("degraded", "system"), [
-    pytest.param(False, "妳是 Sumi。", id="list-system-as-text"),
-    pytest.param(True, "妳是 Sumi。\n\n⚠️ SYSTEM WARNING: 記憶離線", id="degraded-warning-appended"),
-])
 @pytest.mark.asyncio
-async def test_kf9_anthropic_entry_sends_tool_calls_to_openai_compatible_vendor(monkeypatch,
-                                                                               degraded, system):
+async def test_kf9_anthropic_entry_sends_tool_calls_to_openai_compatible_vendor(monkeypatch):
     """KF-9 已修正（ADR-0248，3b-U5b）。
 
     原 ``test_kf9_anthropic_entry_blocks_reach_openai_compatible_vendor``。
     Anthropic 形狀入口接 OpenAI 相容模型：tool_use／tool_result 轉成 tool_calls 與 role=tool 訊息
-    （call id＝tool_use id）。list system 合成字串、cache_control 不外送；降級警告接在字串後面，
-    中文不再被跳脫。
+    （call id＝tool_use id）。list system 合成字串、cache_control 不外送；中文不再被跳脫。
+    降級說明改由轉接器加（ADR-0323），轉換本身不加。
     """
-    request = convert_to_openai(_anthropic_entry(), degraded, "記憶離線")
+    request = convert_to_openai(_anthropic_entry())
+    system = "妳是 Sumi。"
     run = await _run(monkeypatch, request, [openai_text("好")], "kf9", provider="Grok")
     assert run.snapshots[0]["payload"]["messages"] == [
         {"role": "system", "content": system}, *_KF9_MESSAGES]

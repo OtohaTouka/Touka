@@ -49,6 +49,5 @@ def test_degraded_prompt_injection(auth_client, mock_anthropic, mock_text_respon
     call_args = mock_anthropic.messages.create.call_args
     system_param = call_args.kwargs.get("system", "")
     
-    assert "SYSTEM WARNING" in str(system_param)
-    assert "DEGRADED MODE" in str(system_param)
+    assert "Memory tools are unavailable this turn" in str(system_param)  # ADR-0323
     assert "Database Offline" in str(system_param)
