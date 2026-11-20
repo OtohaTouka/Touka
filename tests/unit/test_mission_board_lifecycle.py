@@ -40,10 +40,10 @@ from src.services.custom_model_service import custom_model_service
 from src.services.identity_router import get_verified_identity
 from src.services.models import model_manager
 from src.services.resource_manager import resource_manager
-from src.services.user_service import UserService
+from src.utils import async_db
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Iterator
 
 ADMIN = AgentIdentity.for_role("board-life-admin", "admin", is_human=True)
 MODEL_BODY = {"name": "x", "description": "", "systemPrompt": "PROMPT", "config": {}}
@@ -57,17 +57,19 @@ _SCRIPT = Path(__file__).resolve().parents[2] / "ToukaProxy" / "scripts" / "mana
 
 SANDBOX_SOULS = (
     "LifeSoul", "KeptSoul", "FreshSoul", "ExistingSoul", "EditSoul", "EditBad", "ConvSoul",
-    "UnsureSoul",
+    "UnsureSoul", "RefusedSoul",
 )
 
 
 @pytest.fixture
-def sandbox() -> Iterator[Path]:
+async def sandbox() -> AsyncIterator[Path]:
     """靈魂路由要 conftest 測試沙盒的對話資料庫（``zone_data_root`` 沒有），data 根用沙盒.
 
-    沙盒每個測試清 ``soul/``；這裡另外清本檔靈魂的看板、個人空間與 legacy。
+    對話資料庫的表在這裡建（已有就不動），不靠先跑的測試建好。沙盒每個測試清 ``soul/``；
+    這裡另外清本檔靈魂的看板、個人空間與 legacy。
     """
     data = Path(resource_manager.get_base_path())
+    await async_db.init_db_async()
     yield data
     for agent_id in SANDBOX_SOULS:
         mission_board_path(agent_id).unlink(missing_ok=True)
@@ -112,12 +114,20 @@ def owners(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 @pytest.fixture
 def admin() -> Iterator[tuple[AgentIdentity, str]]:
-    """真的 admin 帳號（刪除與用編輯建立靈魂要重新輸入密碼）."""
+    """真的 admin 帳號（刪除與用編輯建立靈魂要重新輸入密碼）.
+
+    結束時把沙盒的 users.json 還原成建帳號之前的內容：它可能是唯一的管理員，刪不掉。
+    """
     pw = "BoardLifePass123!"
     auth = AuthService()
+    users = auth.users_file_path
+    before = users.read_bytes() if users.exists() else None
     user = auth.create_user("board-life-admin@test.com", pw, role="admin")
     yield AgentIdentity.for_role(user.id, "admin", is_human=True), pw
-    UserService(auth).delete_user(user.id)
+    if before is None:
+        users.unlink(missing_ok=True)
+    else:
+        users.write_bytes(before)
 
 
 def _send(method: str, url: str, body: dict[str, Any] | None, who: AgentIdentity = ADMIN) -> Any:
@@ -364,6 +374,16 @@ async def test_creating_a_soul_clears_a_leftover_board(sandbox: Path) -> None:
     await _put_board("FreshSoul", "leftover")
     assert _create_soul("FreshSoul").status_code == 200
     assert _goal("FreshSoul") is None
+
+
+async def test_a_refused_soul_creation_keeps_a_leftover_board(sandbox: Path) -> None:
+    """建立被拒（模型不能用）：清殘留在所有拒絕檢查之後，看板還在."""
+    _ = sandbox
+    await _put_board("RefusedSoul", "leftover")
+    body = {"agent_id": "RefusedSoul", "config": {"base_model": "no-such-model"}}
+    response = _send("POST", "/v1/souls", body)
+    assert response.status_code == 404, response.text
+    assert _goal("RefusedSoul") == "leftover"
 
 
 async def test_creating_a_soul_with_an_existing_souls_id_keeps_its_board(

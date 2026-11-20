@@ -5,7 +5,7 @@
 - 決策者：維護者（一頁計畫第 3.1 版，總覽板第 94 項回「甲：照 3.1 版做」；舊看板要搬、搬完刪舊檔、搬不了不再試、一個 PR，是計畫裡寫明的「我自己定的」）
 - 相關：[ADR-0324](0324-subagent-results-out-of-agent-reach.md)（看板先擋檔案工具）、[ADR-0293](0293-agent-folders-no-follow.md)（代理人資料夾不跟隨連結）、[ADR-0137](0137-adversarial-review-subsystem.md)（互審的落盤不變式）、[ADR-0044](0044-agent-dispatch-system.md)（督導跨身分讀 DispatchAgent 看板）、[ADR-0049](0049-cross-platform-mission-filelock.md)（看板的鎖）、[ADR-0113](0113-per-agent-data-reset.md)（重置）、[ADR-0245](0245-model-layer-stage-2a.md)（和靈魂同名的舊自訂模型）、[ADR-0250](0250-touka-leftovers.md)（只差大小寫的編號）、[ADR-0214](0214-standalone-smoke-data-and-metered-api-boundaries.md)（DebugAgent 範圍）
 - 修訂 ADR-0324（決定 3 的已知限制「終端還改得到看板」已解決）、修訂 ADR-0255（`missions/` 只剩升級前的舊資料夾）、修訂 ADR-0293（決定 8 的任務板不再用區內方法、鎖檔改名）、修訂 ADR-0049（看板與鎖檔的位置）、修訂 ADR-0113（重置涵蓋的看板位置）、修訂 ADR-0044（DispatchAgent 看板的位置）、修訂 ADR-0257（取路徑不再建 `missions/`）
-- 影響範圍：ToukaMemory `services/mission_manager.py`（看板位置、鎖檔名、`delete_board`／`has_board`／`move_board`／`import_legacy_board`、搬過了的記號）、`protocols.py`（刪 `agent_drive_for`）；ToukaProxy 新 `services/mission_boards.py`（搬舊看板、「不屬於任何代理人」的判斷）、`main.py`（啟動時搬一次）、`routers/souls.py`、`routers/custom_models.py`、`services/agent_reset/primitives.py`、`services/gdpr_export_service.py`、`services/resource_manager.py`（刪 `agent_drive_for`）、`utils/soul_io.py`（`personal_drive_names` 改公開）、`scripts/manage_backup.py`
+- 影響範圍：ToukaMemory `services/mission_manager.py`（看板位置、鎖檔名、`delete_board`／`has_board`／`move_board`／`import_legacy_board`、搬過了的記號）、`protocols.py`（刪 `agent_drive_for`）；ToukaProxy 新 `services/mission_boards.py`（搬舊看板、「不屬於任何代理人」的判斷）、`main.py`（啟動時搬一次）、`routers/souls.py`、`routers/custom_models.py`、`services/agent_reset/primitives.py`、`services/gdpr_export_service.py`、`services/review/evidence.py`（跑驗證指令前先建個人空間）、`services/resource_manager.py`（刪 `agent_drive_for`）、`utils/soul_io.py`（`personal_drive_names` 改公開）、`scripts/manage_backup.py`
 
 ## 背景
 
@@ -55,6 +55,7 @@
 - **備份與還原**：`SANCTUARY_FOLDERS` 加 `missions`（還原清單跟著它）。App 內還原跑完腳本後重啟，下次啟動才看記號。
 - **個人資料匯出**：每個自有代理人經 `MissionManager.get_current_mission`（有鎖、有驗證）讀，有看板就加 `agents/<編號>/mission_board.json`；manifest 的 `included` 加 `agent_mission_board`，匯出 README 的內容清單加一行。
 - **DebugAgent**：看板 `data/missions/<DebugAgent 的雜湊>.json` 屬於 ADR-0214 的 DebugAgent 範圍（不在它的個人空間裡了）。
+- **互審的驗證指令**：以前建看板會順便建出個人空間，現在不會；互審跑驗證指令前先建個人空間（和終端一樣用 `zone_make_dir`，路上有連結照樣拒絕、轉人），不然還沒有其他檔案的代理人會因為工作資料夾不存在而跑不了指令。
 
 ## 沒選的做法
 
