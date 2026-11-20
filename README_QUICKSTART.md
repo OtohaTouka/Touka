@@ -104,6 +104,8 @@ docker run --rm -v touka_touka-sandbox-state:/s alpine:3.20 sh -c 'rm -rf /s/*/*
 
 刪除靈魂時 Touka 會自動清掉它在 `touka-executor-state` 與 `touka-sandbox-state` 裡的家目錄；執行器沒在服務時刪不了靈魂，等它恢復再刪。這個功能之前就刪掉的靈魂，先確認沒有現存的靈魂或自訂模型用同一個 ID，再整個刪掉 `/s/agents/<id>`（`touka-executor-state`）與 `/s/proxy/agents/<id>`（`touka-sandbox-state`），例如 `docker run --rm -v touka_touka-executor-state:/s alpine:3.20 rm -rf /s/agents/<id>`。
 
+刪除靈魂也會刪掉它的心跳排程、統計和身分對照裡的設定，同名的新靈魂不會接手舊的。所以建立靈魂時，心跳位址設定了卻連不上（`touka-heartbeat` 沒在服務），就建不起來，等它恢復再建。
+
 ## 3. 分階段啟動
 
 核心有 MPTCP、建了第 1 節的覆寫檔時，本節**每一行**指令都要在 `-f docker-compose.ghcr.yml` 後面再加 `-f touka-mptcp.override.yml`。

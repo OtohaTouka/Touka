@@ -143,14 +143,14 @@ def test_create_soul_does_not_write_identity_map_override(admin_client):
     r = admin_client.post("/v1/souls", json=_create_payload("G18NoOverride"))
     assert r.status_code == 200, r.text
 
-    # 磁碟面：create 若寫 override（經 update_identity 或直寫）identity_map.json 會出現該條目
+    # 磁碟面：create 若寫 override（經 edit_identity_map 或直寫）identity_map.json 會出現該條目
     idmap = _config_dir() / "identity_map.json"
     if idmap.exists():
         overrides = json.loads(idmap.read_text(encoding="utf-8")).get("agent_overrides", {})
         assert "G18NoOverride" not in overrides, (
             "create_soul 在磁碟 identity_map 寫了 override（Sumi footgun 回歸；ADR-0158/G18）"
         )
-    # 記憶體單例：update_identity 寫入會 reload 快取，故經該通道的寫入亦會反映於此
+    # 記憶體單例：edit_identity_map 寫入會 reload 快取，故經該通道的寫入亦會反映於此
     assert "G18NoOverride" not in permission_service.identity_map.agent_overrides, (
         "create_soul 寫了 identity_map override＝角色降級風險（應由 tag_rules 涵蓋，ADR-0158/G18）"
     )

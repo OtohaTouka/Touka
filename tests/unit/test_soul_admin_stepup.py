@@ -140,7 +140,7 @@ def test_delete_purges_owned_agents_and_identity_override(stepup):
     )
     current = permission_service.identity_map.model_dump()
     current.setdefault("agent_overrides", {})["DelSoulB"] = {"role": "Owner", "capabilities": []}
-    permission_service.update_identity(current)
+    assert permission_service.edit_identity_map(lambda _raw: current)
 
     r = client.request("DELETE", "/v1/souls/DelSoulB", json={"admin_password": ADMIN_PW})
     assert r.status_code == 200, r.text

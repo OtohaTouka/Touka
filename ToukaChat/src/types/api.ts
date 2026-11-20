@@ -3266,6 +3266,7 @@ export interface paths {
          *
          *     ADR-0245：覆寫只能寫給靈魂、DebugAgent、DispatchAgent，其他 ID 一律 422。檔內原有、
          *     讀取時被略過的舊覆寫不在畫面上，存檔時原樣保留（不替 Owner 改設定檔）。
+         *     ADR-0326：保留的舊覆寫在寫入鎖內從磁碟讀，不讀記憶體快取，剛被刪除靈魂清掉的不會寫回。
          */
         post: operations["update_identity_map_v1_identity_post"];
         delete?: never;
@@ -3313,6 +3314,7 @@ export interface paths {
          *
          *     ADR-0245：覆寫只能寫給靈魂、DebugAgent、DispatchAgent，其他 ID 一律 422。檔內原有、
          *     讀取時被略過的舊覆寫不在畫面上，存檔時原樣保留（不替 Owner 改設定檔）。
+         *     ADR-0326：保留的舊覆寫在寫入鎖內從磁碟讀，不讀記憶體快取，剛被刪除靈魂清掉的不會寫回。
          */
         post: operations["update_identity_map_identity_post"];
         delete?: never;

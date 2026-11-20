@@ -6,6 +6,8 @@
 - 前置：[ADR-0229](0229-trusted-tool-execution-classification.md)；[Heartbeat 介面](../HEARTBEAT_INTERFACE.md)。
 
 > 🔧 **2026-11-20 補充（同名接手計畫 PR 0，見 [CHANGELOG](../../CHANGELOG.md)）**：固定 origin 可以寫成心跳服務的 `/trigger` 位址（compose 與 `.env.example` 出貨的寫法 `http://touka-heartbeat:8082/trigger`），bridge 取它的主機與埠。路徑只收空的、`/`、`/trigger`，其他照舊拒絕，免得服務金鑰送到同一台主機上別的路徑。在這之前，Docker 預設設定下 bridge 一建立就拒絕，排程頁一直回 502。
+>
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-20）**：bridge 多了系統清理用途 `delete_for_agent`：刪除、建立靈魂時刪某個名字的全部排程（讀、帶版本號刪一筆、再讀；衝突與找不到就重讀，次數有上限，用完回結果未知）。系統用的 bridge 只給 `agent_leftovers` 建，不經人類擁有權；人類的端點不變。
 
 ## 問題
 

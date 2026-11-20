@@ -161,13 +161,18 @@ async def new_board_unclaimed(identity: AgentIdentity, *, refuse_claimed: bool) 
     return False
 
 
-async def prepare_new_board(identity: AgentIdentity, *, refuse_claimed: bool) -> None:
+async def prepare_new_board(
+    identity: AgentIdentity, *, refuse_claimed: bool, unclaimed: bool | None = None
+) -> None:
     """建立新代理人：所有會拒絕的檢查都通過之後、第一個寫入之前呼叫.
 
     編號不屬於任何代理人 → 清掉殘留看板（例如刪除那一刻還在跑的對話之後才寫進來的）；屬於某個
-    身分 → 不清（那是它的看板）。清不掉就回錯誤、不建立。
+    身分 → 不清（那是它的看板）。清不掉就回錯誤、不建立。``unclaimed``：呼叫端已經判斷過
+    （靈魂建立時和其他舊資料一起判斷一次，ADR-0326）就照它，不再自己判斷。
     """
-    if not await new_board_unclaimed(identity, refuse_claimed=refuse_claimed):
+    if unclaimed is None:
+        unclaimed = await new_board_unclaimed(identity, refuse_claimed=refuse_claimed)
+    if not unclaimed:
         return
     if not await remove_board(identity):
         raise ToukaException(ErrorCode.SYSTEM_ERROR)

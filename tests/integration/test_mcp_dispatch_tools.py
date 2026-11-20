@@ -38,7 +38,7 @@ def setup_identity_map():
         },
         "default_role": "Base"
     }
-    permission_service.update_identity(map_data)
+    assert permission_service.edit_identity_map(lambda _raw: map_data)
     yield
 
 @pytest.fixture

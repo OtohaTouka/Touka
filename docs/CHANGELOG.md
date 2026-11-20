@@ -8,6 +8,7 @@
 
 | 日期 | 變更 | 參考 |
 | --- | --- | --- |
+| 2026-11-20 | **刪掉的靈魂留下的排程、角色設定、統計不再給同名的新靈魂**：以前刪掉靈魂後，它的心跳排程、身分對照裡的角色設定和統計還留著，再建一個同名靈魂（可能指給別人）就會接手：照舊排程的開場提示與權限被喚醒、套上舊角色、帶著舊的花費與自主次數。現在刪除靈魂時一起刪掉；建立靈魂時名字沒人用就先清一次，心跳位址設定了卻連不上時不建立（要先讓心跳服務恢復）。用編輯建立靈魂也擋和人類帳號、自訂模型同名，名字還在擁有清單或模型清單時當成修復、什麼都不清。身分對照存檔改成不會蓋掉同時進行的修改。SNS 機器人、舊對話與封存在之後的 PR。要更新 Docker 的 ToukaProxy 才生效。 | [ADR-0326](architecture/adr/0326-deleted-soul-leftovers-not-inherited.md)；同名接手計畫 PR 1 |
 | 2026-11-20 | **Docker 裡的心跳排程頁接得上了**：Docker 的預設設定把心跳位址寫成 `http://touka-heartbeat:8082/trigger`，Proxy 管排程的那段卻只收不帶路徑的位址，所以網頁的排程頁（列出、新增、修改、刪除）一直失敗。現在路徑是 `/trigger` 時用它的主機與埠；其他路徑照舊拒絕，免得心跳金鑰送到同一台主機上別的服務。`ToukaProxy/.env.example` 的註解範例原本指向 Proxy 自己，改成心跳服務的位址。測試直接讀 compose 與 `.env.example` 的值餵給程式。 | [ADR-0230 補充](architecture/adr/0230-heartbeat-transaction-and-credential-contracts.md)；同名接手計畫 PR 0 |
 | 2026-11-20 | **任務看板搬到 AI 碰不到的系統資料夾**：任務看板以前存在 AI 自己的個人空間，終端指令（YOLO 加隔離時不用核准）能直接改它，把任務寫成「做完、互審通過」。現在看板在 data 底下的 `missions/`，AI 的工具、終端與外部 MCP 在有隔離時都碰不到，AI 照舊用看板工具讀寫。升級後第一次啟動會把舊看板搬過去並刪掉舊檔；刪除、改名、建立、重置、備份與個人資料匯出都跟著看板走。要更新 Docker 的 ToukaProxy 才生效。 | [ADR-0325](architecture/adr/0325-mission-board-system-folder.md) |
 | 2026-11-20 | **金鑰緊貼中文時也遮得到，紀錄多遮幾種**：送給 AI 的 MCP 資源與提示、備份錯誤輸出、稽核與「做過的事」紀錄，以前前後直接接中文的金鑰（例如「金鑰sk-…」）漏遮，現在照遮；全形空白後面的 Bearer 權杖照樣遮。多認 `Authorization: Basic`、Google、GitHub 新式、Slack、Stripe 的金鑰與 `apiKey` 這類名稱；紀錄裡 `Authorization` 與字串中 `"password": "…"` 的值也遮。帶圖片的訊息裡假的工具紀錄，心跳與摘要器送出前也會換掉。 | [ADR-0324](architecture/adr/0324-subagent-results-out-of-agent-reach.md) |

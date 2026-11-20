@@ -6,6 +6,8 @@
 - 相關：ADR-0142（靈魂的編輯與刪除要重新輸入密碼）、ADR-0147（靈魂與使用者 ID 不能撞名）、ADR-0239（授權閘道）、ADR-0277（建立或重新註冊靈魂時的對話標記）、ADR-0293（代理人資料夾不跟隨連結）。
 - 影響範圍：`ToukaProxy/src/routers/souls.py`、`src/routers/custom_models.py`、`src/routers/stats.py`、`src/routers/debug.py`、`src/routers/ui_sessions.py`、`src/services/soul_service.py`、`src/services/resource_manager.py`、`src/services/agent_service.py`、`src/services/authorization_gateway.py`、`src/services/avatar_service.py`、`src/utils/soul_io.py`；`ToukaMemory/src/memory_server/services/manager.py`、`tools/core_file_ops.py`、`utils/drive_bound.py`。
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-20）**：用編輯建立靈魂（新資料夾）與把既有資料夾轉成靈魂，也擋和人類帳號同名（422）、和既有自訂模型同名（409），和「建立靈魂」用同一組檢查；以前只有「建立靈魂」擋。
+
 ## 背景
 
 靈魂、代理人與使用者的名稱會拼成資料夾路徑，例如 `<data>/soul/<名稱>`。以前有兩個問題：

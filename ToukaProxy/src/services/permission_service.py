@@ -37,6 +37,8 @@ from src.utils.permission_grants import McpGrant, NameGrant, RoleGrants
 from src.utils.time_utils import get_current_epoch
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from src.models.identity import AgentOverride, IdentityRule
     from src.models.policy import PolicyDecision
     from src.utils.isolation_policy import IsolationLevel
@@ -45,6 +47,9 @@ logger = logging.getLogger(__name__)
 
 # P21 fix: lock to prevent concurrent config reload race conditions
 _config_reload_lock = threading.Lock()
+# identity_map.json read-modify-write（禁令 21；ADR-0326）：和 users.json 的 _users_file_lock
+# 同一種程序內鎖。Proxy 只跑單一程序（compose 不給 --workers），所以不用鎖檔。
+_identity_map_write_lock = threading.Lock()
 
 # --- [SSOT 預設配置常量 (Fallback Constants)] ---
 
@@ -789,25 +794,59 @@ class PermissionService:
             logger.info("✅ Permissions updated in %s", self.config_path)
             return True
 
-    def update_identity(self, new_map: dict[str, Any]) -> bool:
-        """更新並持久化身分映射至 identity_map.json (SSOT).
-
-        Args:
-            new_map: 原始映射字典.
-
-        Returns:
-            bool: 寫入與快取重載是否成功.
-        """
+    def _read_identity_map_file(self) -> dict[str, Any] | None:
+        """磁碟上 identity_map.json 的原始 JSON；沒有檔回空的，讀不出來或不是物件回 None."""
+        if not self.identity_path.exists():
+            return {}
         try:
-            content = json.dumps(new_map, indent=4, ensure_ascii=False)
-            resource_manager.write_file_text(self.identity_path, content)
-        except Exception:
-            logger.exception("Failed to update identity map")
-            return False
-        else:
+            raw_text = resource_manager.read_file_text(self.identity_path).strip()
+            data = json.loads(raw_text) if raw_text else {}
+        except (OSError, ValueError):
+            logger.exception("Identity map %s could not be read", self.identity_path)
+            return None
+        return data if isinstance(data, dict) else None
+
+    def edit_identity_map(
+        self, mutate: Callable[[dict[str, Any] | None], dict[str, Any] | None]
+    ) -> bool:
+        """在鎖內從磁碟重讀 identity_map.json、改寫、原子寫回並立刻重載（ADR-0326）.
+
+        ``mutate`` 拿到磁碟上的原始 JSON（讀不出來是 None），回新的內容；回 None 是拒絕
+        （不寫、回 False），回拿到的同一個物件是沒有改動（不寫、回 True）。不經記憶體快取，
+        所以別人剛寫進磁碟的改動不會被蓋掉。寫不進去回 False。
+        """
+        with _identity_map_write_lock:
+            raw = self._read_identity_map_file()
+            new_map = mutate(raw)
+            if new_map is None:
+                return False
+            if new_map is raw:
+                return True
+            try:
+                content = json.dumps(new_map, indent=4, ensure_ascii=False)
+                resource_manager.write_file_text(self.identity_path, content)
+            except Exception:
+                logger.exception("Failed to update identity map")
+                return False
             self._load_identity_map()
-            logger.info("✅ Identity map updated in %s", self.identity_path)
-            return True
+        logger.info("✅ Identity map updated in %s", self.identity_path)
+        return True
+
+    def remove_agent_overrides(self, agent_ids: tuple[str, ...]) -> bool:
+        """刪掉這些編號的 ``agent_overrides``，其他欄位原樣保留；讀不出來或寫不進去回 False."""
+
+        def _drop(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+            if raw is None:
+                return None
+            overrides = raw.get("agent_overrides")
+            if not isinstance(overrides, dict) or not any(a in overrides for a in agent_ids):
+                return raw  # 沒有要刪的：不寫
+            return {
+                **raw,
+                "agent_overrides": {k: v for k, v in overrides.items() if k not in agent_ids},
+            }
+
+        return self.edit_identity_map(_drop)
 
 
 # 全系統授權單例 (The Singleton Gate)

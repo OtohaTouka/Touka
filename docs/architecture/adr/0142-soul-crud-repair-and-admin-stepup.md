@@ -1,5 +1,7 @@
 # ADR-0142: 靈魂 CRUD 修復（soul_io 受認可通道）＋admin 步升驗證的靈魂資料管理
 
+> 🔧 **[ADR-0326](0326-deleted-soul-leftovers-not-inherited.md) 修訂（2026-11-20）**：刪除範圍多了心跳排程與統計；identity_map override 改成兩種寫法（編號、`ToukaSoul`+編號）一起刪，鎖內從磁碟重讀、寫不進去照實回報 `identity_override` 失敗。建立靈魂時，名字不屬於任何代理人就先清這三樣的殘留；用編輯建立也擋和人類帳號、自訂模型同名。
+
 ## 狀態
 
 ✅ **已接受並實作完成（決策 2026-07-10；C1–C5 全數落地同日收官）**。

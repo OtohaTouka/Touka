@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import ValidationError
 
 from src.core.exceptions import ErrorCode, ToukaException
 from src.models.identity import (
     AgentIdentity,  # noqa: TC001
-    AgentOverride,  # noqa: TC001
+    AgentOverride,
     IdentityMapConfig,  # noqa: TC001
     IdentityMapUpdateRequest,  # noqa: TC001
 )
@@ -43,6 +45,19 @@ def _split_overrides(
     return held, ignored
 
 
+def _hidden_overrides(on_disk: dict[str, Any]) -> dict[str, Any]:
+    """檔內不能有代理角色的 ID 的覆寫（畫面上看不到）；格式不對的略過並記警告."""
+    hidden: dict[str, Any] = {}
+    for agent_id, rule in on_disk.items():
+        if agent_service.holds_agent_role(agent_id):
+            continue
+        try:
+            hidden[agent_id] = AgentOverride.model_validate(rule).model_dump()
+        except ValidationError:
+            logger.warning("Dropped an unreadable hidden identity override for %r", agent_id)
+    return hidden
+
+
 @router.get("")
 async def get_identity_map(
     _identity: AgentIdentity = Depends(_require_identity_role),  # noqa: B008
@@ -62,6 +77,7 @@ async def update_identity_map(
 
     ADR-0245：覆寫只能寫給靈魂、DebugAgent、DispatchAgent，其他 ID 一律 422。檔內原有、
     讀取時被略過的舊覆寫不在畫面上，存檔時原樣保留（不替 Owner 改設定檔）。
+    ADR-0326：保留的舊覆寫在寫入鎖內從磁碟讀，不讀記憶體快取，剛被刪除靈魂清掉的不會寫回。
     """
     _, rejected = _split_overrides(new_map.agent_overrides)
     if rejected:
@@ -70,14 +86,14 @@ async def update_identity_map(
             detail_override="Only souls, DebugAgent and DispatchAgent can have identity overrides.",
             rejected_agent_ids=sorted(rejected),
         )
-    _, kept_legacy = _split_overrides(permission_service.identity_map.agent_overrides)
     payload = new_map.model_dump()
-    payload["agent_overrides"] = {
-        **{agent_id: rule.model_dump() for agent_id, rule in kept_legacy.items()},
-        **payload["agent_overrides"],
-    }
-    success = permission_service.update_identity(payload)
-    if success:
+
+    def _keep_hidden(raw: dict[str, Any] | None) -> dict[str, Any]:
+        on_disk = raw.get("agent_overrides") if raw is not None else None
+        hidden = _hidden_overrides(on_disk if isinstance(on_disk, dict) else {})
+        return {**payload, "agent_overrides": {**hidden, **payload["agent_overrides"]}}
+
+    if permission_service.edit_identity_map(_keep_hidden):
         notify_config_change("identity")
         return {"status": "success", "message": "Identity map updated successfully."}
     raise ToukaException(ErrorCode.CONFIG_SAVE_FAILED)
